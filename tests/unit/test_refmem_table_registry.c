@@ -3,6 +3,7 @@
 #include "refmem_realtime_contract.h"
 
 #include <stdbool.h>
+#include <assert.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -1289,7 +1290,174 @@ static int test_origin_trial_model_projection(void)
     return failed;
 }
 
-int main(void)
+static uint32_t read_u32_le(const uint8_t *data)
+{
+    return data[0] | ((uint32_t)data[1] << 8u) |
+           ((uint32_t)data[2] << 16u) | ((uint32_t)data[3] << 24u);
+}
+
+/* Change a serialized ApplicationMap field and repair every affected CRC.
+ * Rejection must reach the owner validator, not stop at a damaged envelope. */
+static void edit_application_field(uint8_t *package, size_t size,
+                                   uint32_t field_offset, uint32_t value)
+{
+    const uint32_t app_offset = read_u32_le(package + REFMEM_TABLE_PACKAGE_HEADER_SIZE + 4u);
+    assert(read_u32_le(package + REFMEM_TABLE_PACKAGE_HEADER_SIZE) == REFMEM_APP_TABLE_APPLICATION_MAP);
+    assert(app_offset + field_offset + 4u <= size);
+    write_u32_le(package + app_offset + field_offset, value);
+    for (uint32_t id = 0u; id < REFMEM_TABLE_REGISTRY_COUNT; ++id) {
+        uint8_t *entry = package + REFMEM_TABLE_PACKAGE_HEADER_SIZE + id * REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE;
+        const uint32_t offset = read_u32_le(entry + 4u), bytes = read_u32_le(entry + 8u);
+        assert(offset <= size && bytes <= size - offset);
+        write_u32_le(entry + 12u, test_crc32(package + offset, bytes));
+    }
+    const uint32_t payload_offset = REFMEM_TABLE_PACKAGE_HEADER_SIZE +
+        REFMEM_TABLE_REGISTRY_COUNT * REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE;
+    write_u32_le(package + 24u, test_crc32(package + payload_offset, size - payload_offset));
+    write_u32_le(package + 28u, 0u);
+    write_u32_le(package + 28u, test_crc32(package, size));
+}
+
+static void assert_image_tables(refmem_table_image_role_t role, const uint8_t *expected)
+{
+    for (uint32_t id = 0u; id < REFMEM_TABLE_REGISTRY_COUNT; ++id) {
+        const uint8_t *entry = expected + REFMEM_TABLE_PACKAGE_HEADER_SIZE + id * REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE;
+        const uint32_t offset = read_u32_le(entry + 4u), size = read_u32_le(entry + 8u);
+        refmem_table_view_t view;
+        assert(refmem_table_registry_access_table(role, id, &view));
+        assert(view.table_id == id && view.size == size && view.image_offset == offset);
+        assert(view.package_crc32 == read_u32_le(expected + 28u));
+        assert(view.table_crc32 == read_u32_le(entry + 12u));
+        assert(memcmp(view.data, expected + offset, size) == 0);
+        assert(refmem_table_registry_release_table(&view));
+    }
+}
+
+static void assert_descriptor_unchanged(refmem_table_image_role_t role,
+                                        const refmem_table_image_descriptor_t *before)
+{
+    refmem_table_image_descriptor_t after;
+    assert(refmem_table_registry_get_image_descriptor(role, &after));
+    assert(memcmp(&after, before, sizeof(after)) == 0);
+}
+
+static void stage_valid_serialized_image(const uint8_t *package, size_t size)
+{
+    refmem_table_package_validation_t validation;
+    const bool valid = refmem_table_registry_validate_package(package, size, &validation);
+    if (!valid) {
+        fprintf(stderr, "serialized owner validation failed: error=%u table=%u mask=%08lx crc=%08lx bytes=%zu\n",
+                (unsigned)validation.error, (unsigned)validation.first_bad_table,
+                (unsigned long)validation.owner_validated_table_mask,
+                (unsigned long)validation.package_crc32, size);
+        if (validation.first_bad_table == REFMEM_APP_TABLE_TDMA_FOUNDATION_PROFILE) {
+            const uint8_t *entry = package + REFMEM_TABLE_PACKAGE_HEADER_SIZE +
+                REFMEM_APP_TABLE_TDMA_FOUNDATION_PROFILE * REFMEM_TABLE_PACKAGE_DIR_ENTRY_SIZE;
+            tdma_foundation_profile_t profile;
+            tdma_profile_result_t result;
+            const bool decoded = tdma_foundation_profile_decode_table(
+                package + read_u32_le(entry + 4u), read_u32_le(entry + 8u), &profile, &result);
+            fprintf(stderr, "TDMA decode: valid=%u result=%u nodes=%lu capacity=%u\n",
+                    (unsigned)decoded, (unsigned)result,
+                    (unsigned long)profile.ring.node_count, (unsigned)TDMA_RING_NODE_MAX);
+        }
+    }
+    assert(valid);
+    assert(validation.owner_validated_table_mask == REFMEM_APP_TABLE_MASK_ALL);
+    refmem_application_model_load_snapshot_t load = make_valid_load();
+    load.staging_package_crc32 = validation.package_crc32;
+    assert(refmem_table_registry_stage_package_image(&load, package, size, &validation));
+    assert(refmem_application_model_prepare_staging_table_views());
+}
+
+static void activate_prepared_image(void)
+{
+    const refmem_table_activation_gate_t gate = make_pass_gate();
+    assert(refmem_table_registry_activate_staging(&gate));
+    assert(refmem_application_model_commit_prepared_table_views());
+    assert(refmem_application_model_get_application_map()->layout_version == 2u);
+}
+
+static void test_serialized_layout_version_lifecycle(const uint8_t *serialized, size_t serialized_size)
+{
+    uint8_t a[TEST_REFMEM_TABLE_PACKAGE_CAPACITY], b[sizeof(a)], c[sizeof(a)], legacy[sizeof(a)];
+    size_t size;
+    assert(DISTRIBUTED_REFMEM_LAYOUT_VERSION == 2u);
+    if (serialized) {
+        assert(serialized_size <= sizeof(a));
+        memcpy(a, serialized, serialized_size);
+        size = serialized_size;
+    } else size = build_test_package(a, sizeof(a), true);
+    assert(size > 0u);
+    memcpy(b, a, size); edit_application_field(b, size, 8u, 9u);
+    memcpy(c, a, size); edit_application_field(c, size, 8u, 10u);
+    memcpy(legacy, a, size); edit_application_field(legacy, size, 16u, 1u);
+
+    assert(refmem_application_model_init());
+    stage_valid_serialized_image(a, size); activate_prepared_image();
+    stage_valid_serialized_image(b, size); activate_prepared_image();
+    stage_valid_serialized_image(c, size);
+    assert_image_tables(REFMEM_TABLE_IMAGE_ACTIVE, b);
+    assert_image_tables(REFMEM_TABLE_IMAGE_ROLLBACKABLE, a);
+    assert_image_tables(REFMEM_TABLE_IMAGE_STAGING, c);
+    refmem_table_image_descriptor_t before[3];
+    for (uint32_t role = 0u; role < 3u; ++role)
+        assert(refmem_table_registry_get_image_descriptor((refmem_table_image_role_t)role, &before[role]));
+    const refmem_application_model_snapshot_t active_model = *refmem_application_model_get_snapshot();
+    const refmem_application_map_t active_map = *refmem_application_model_get_application_map();
+
+    refmem_table_package_validation_t rejected;
+    assert(!refmem_table_registry_validate_package(legacy, size, &rejected));
+    assert(rejected.error == REFMEM_TABLE_PACKAGE_ERR_OWNER_VALIDATION);
+    assert(rejected.first_bad_table == REFMEM_APP_TABLE_APPLICATION_MAP);
+    assert(!rejected.valid && !rejected.owner_validated_table_mask);
+    for (uint32_t role = 0u; role < 3u; ++role)
+        assert_descriptor_unchanged((refmem_table_image_role_t)role, &before[role]);
+    assert_image_tables(REFMEM_TABLE_IMAGE_ACTIVE, b);
+    assert_image_tables(REFMEM_TABLE_IMAGE_ROLLBACKABLE, a);
+    assert_image_tables(REFMEM_TABLE_IMAGE_STAGING, c);
+
+    /* Actual loader staging revalidates when passed NULL validation. Failed
+     * replacement may retire staging; it must preserve active and rollback. */
+    refmem_application_model_load_snapshot_t load = make_valid_load();
+    load.staging_package_crc32 = read_u32_le(legacy + 28u);
+    assert(!refmem_table_registry_stage_package_image(&load, legacy, size, NULL));
+    assert(!refmem_application_model_prepare_staging_table_views());
+    assert(!refmem_application_model_commit_prepared_table_views());
+    refmem_table_view_t view;
+    assert(!refmem_table_registry_access_table(REFMEM_TABLE_IMAGE_STAGING, 0u, &view));
+    assert_descriptor_unchanged(REFMEM_TABLE_IMAGE_ACTIVE, &before[REFMEM_TABLE_IMAGE_ACTIVE]);
+    assert_descriptor_unchanged(REFMEM_TABLE_IMAGE_ROLLBACKABLE, &before[REFMEM_TABLE_IMAGE_ROLLBACKABLE]);
+    assert_image_tables(REFMEM_TABLE_IMAGE_ACTIVE, b);
+    assert_image_tables(REFMEM_TABLE_IMAGE_ROLLBACKABLE, a);
+    assert(memcmp(&active_model, refmem_application_model_get_snapshot(), sizeof(active_model)) == 0);
+    assert(memcmp(&active_map, refmem_application_model_get_application_map(), sizeof(active_map)) == 0);
+
+    uint8_t *leased; size_t capacity;
+    assert(refmem_table_registry_begin_staging_write(REFMEM_TABLE_OWNER_REFMEM_AO, &leased, &capacity));
+    assert(size <= capacity); memcpy(leased, legacy, size);
+    assert(!refmem_table_registry_validate_package(leased, size, &rejected));
+    assert(rejected.error == REFMEM_TABLE_PACKAGE_ERR_OWNER_VALIDATION);
+    assert(refmem_table_registry_end_staging_write(REFMEM_TABLE_OWNER_REFMEM_AO, false));
+    assert_image_tables(REFMEM_TABLE_IMAGE_ACTIVE, b);
+    assert_image_tables(REFMEM_TABLE_IMAGE_ROLLBACKABLE, a);
+    assert_descriptor_unchanged(REFMEM_TABLE_IMAGE_ACTIVE, &before[REFMEM_TABLE_IMAGE_ACTIVE]);
+    assert_descriptor_unchanged(REFMEM_TABLE_IMAGE_ROLLBACKABLE, &before[REFMEM_TABLE_IMAGE_ROLLBACKABLE]);
+
+    stage_valid_serialized_image(c, size); activate_prepared_image();
+    assert_image_tables(REFMEM_TABLE_IMAGE_ACTIVE, c);
+    assert_image_tables(REFMEM_TABLE_IMAGE_ROLLBACKABLE, b);
+    assert(refmem_application_model_get_application_map()->application_version == 10u);
+    /* Reinstall the retained previous valid package through the existing
+     * owner path. The registry has no separate automatic rollback API. */
+    stage_valid_serialized_image(b, size); activate_prepared_image();
+    assert_image_tables(REFMEM_TABLE_IMAGE_ACTIVE, b);
+    assert_image_tables(REFMEM_TABLE_IMAGE_ROLLBACKABLE, c);
+    assert(refmem_application_model_get_application_map()->application_version == 9u);
+    printf("serialized layout lifecycle passed: layout=2 legacy_owner_rejected=1 roles_preserved=3 bytes=%zu\n", size);
+}
+
+int main(int argc, char **argv)
 {
     int failed = 0;
 
@@ -1309,6 +1477,16 @@ int main(void)
     failed += test_scpi_board_load_stages_board_table_crc();
     failed += test_scpi_node_load_stages_activation_ready_package();
     failed += test_origin_trial_model_projection();
+    test_serialized_layout_version_lifecycle(NULL, 0u);
+    if (argc == 2) {
+        uint8_t serialized[TEST_REFMEM_TABLE_PACKAGE_CAPACITY];
+        FILE *input = fopen(argv[1], "rb");
+        assert(input != NULL);
+        const size_t size = fread(serialized, 1u, sizeof(serialized), input);
+        assert(!ferror(input) && fgetc(input) == EOF);
+        assert(fclose(input) == 0);
+        test_serialized_layout_version_lifecycle(serialized, size);
+    } else assert(argc == 1);
 
     if (failed != 0) {
         (void)printf("refmem_table_registry tests failed: %d\n", failed);

@@ -1147,7 +1147,7 @@ void tdma_service_abort(tdma_service_service_t *service)
     tdma_service_end_intent_write(service);
 }
 
-static bool tdma_service_dispatch_next_scheduled(
+static __attribute__((noinline)) bool tdma_service_dispatch_next_scheduled(
     tdma_service_service_t *service)
 {
     if (service == NULL || service->traffic_scheduler == NULL ||
@@ -1289,53 +1289,15 @@ static void tdma_service_stage_active_recovery(
         service->active_scheduler_sequence);
 }
 
-void tdma_service_core1_service(tdma_service_service_t *service)
+/* Keep the generic intent's frame buffer out of the resident ring call chain.
+ * This call boundary must survive optimization: ring processing can itself
+ * use large temporary frames before the generic intent is serviced. */
+static __attribute__((noinline)) void tdma_service_generic_core1_service(
+    tdma_service_service_t *service,
+    uint32_t seq_begin,
+    uint32_t intent_seq,
+    uint32_t abort_seq)
 {
-    if (service == NULL || service->state == tdma_service_STATE_UNINIT) {
-        return;
-    }
-
-    const uint64_t runtime_start = tdma_service_timing_now();
-    const bool generic_quiescent = service->traffic_scheduler == NULL ||
-        ((tdma_service_load(&service->intent_guard) & 1u) == 0u &&
-         tdma_service_load(&service->intent_seq) == service->completed_seq);
-    tdma_ring_runtime_service_with_stop_gate(&service->ring_runtime,
-                                            generic_quiescent);
-    tdma_service_timing_record(TDMA_TIMING_RING_RUNTIME, runtime_start);
-
-    tdma_service_begin_result_write(service);
-    service->service_count++;
-    tdma_service_end_result_write(service);
-
-    /* A preempted producer must not hold the realtime phase in a spin loop
-     * or let dispatch nest another intent writer inside its publication.
-     * The resident ring has already received this phase's service. */
-    if ((tdma_service_load(&service->intent_guard) & 1u) != 0u) {
-        return;
-    }
-    const uint64_t dispatch_start = tdma_service_timing_now();
-    (void)tdma_service_dispatch_next_scheduled(service);
-    tdma_service_timing_record(TDMA_TIMING_INTENT_DISPATCH, dispatch_start);
-
-    const uint32_t seq_begin = tdma_service_load(&service->intent_guard);
-    if ((seq_begin & 1u) != 0u) {
-        return;
-    }
-    const uint32_t intent_seq = tdma_service_load(&service->intent_seq);
-    const uint32_t abort_seq = tdma_service_load(&service->abort_seq);
-    if (intent_seq <= service->completed_seq) {
-        if (seq_begin != tdma_service_load(&service->intent_guard)) {
-            return;
-        }
-        tdma_service_begin_result_write(service);
-        service->armed = 0u;
-        if (service->state == tdma_service_STATE_UNINIT) {
-            service->state = tdma_service_STATE_IDLE;
-        }
-        tdma_service_end_result_write(service);
-        return;
-    }
-
     uint8_t frame[tdma_service_FRAME_MAX];
     uint32_t intent_type;
     tdma_service_role_t role;
@@ -1529,6 +1491,56 @@ void tdma_service_core1_service(tdma_service_service_t *service)
             service, TDMA_TRAFFIC_COMPLETION_ADAPTER_ERROR);
     }
     tdma_service_end_result_write(service);
+}
+
+void tdma_service_core1_service(tdma_service_service_t *service)
+{
+    if (service == NULL || service->state == tdma_service_STATE_UNINIT) {
+        return;
+    }
+
+    const uint64_t runtime_start = tdma_service_timing_now();
+    const bool generic_quiescent = service->traffic_scheduler == NULL ||
+        ((tdma_service_load(&service->intent_guard) & 1u) == 0u &&
+         tdma_service_load(&service->intent_seq) == service->completed_seq);
+    tdma_ring_runtime_service_with_stop_gate(&service->ring_runtime,
+                                            generic_quiescent);
+    tdma_service_timing_record(TDMA_TIMING_RING_RUNTIME, runtime_start);
+
+    tdma_service_begin_result_write(service);
+    service->service_count++;
+    tdma_service_end_result_write(service);
+
+    /* A preempted producer must not hold the realtime phase in a spin loop
+     * or let dispatch nest another intent writer inside its publication.
+     * The resident ring has already received this phase's service. */
+    if ((tdma_service_load(&service->intent_guard) & 1u) != 0u) {
+        return;
+    }
+    const uint64_t dispatch_start = tdma_service_timing_now();
+    (void)tdma_service_dispatch_next_scheduled(service);
+    tdma_service_timing_record(TDMA_TIMING_INTENT_DISPATCH, dispatch_start);
+
+    const uint32_t seq_begin = tdma_service_load(&service->intent_guard);
+    if ((seq_begin & 1u) != 0u) {
+        return;
+    }
+    const uint32_t intent_seq = tdma_service_load(&service->intent_seq);
+    const uint32_t abort_seq = tdma_service_load(&service->abort_seq);
+    if (intent_seq <= service->completed_seq) {
+        if (seq_begin != tdma_service_load(&service->intent_guard)) {
+            return;
+        }
+        tdma_service_begin_result_write(service);
+        service->armed = 0u;
+        if (service->state == tdma_service_STATE_UNINIT) {
+            service->state = tdma_service_STATE_IDLE;
+        }
+        tdma_service_end_result_write(service);
+        return;
+    }
+
+    tdma_service_generic_core1_service(service, seq_begin, intent_seq, abort_seq);
 }
 
 bool tdma_service_get_foundation_crc32(const tdma_service_service_t *service,

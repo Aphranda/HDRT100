@@ -10,15 +10,21 @@
 #endif
 
 _Static_assert(sizeof(refmem_vector_header_region_t) == DISTRIBUTED_REFMEM_HEADER_SIZE,
-               "refmem header region must be 1 KB");
+               "refmem header region must match its configured size");
 _Static_assert(sizeof(refmem_vector_node_region_t) == DISTRIBUTED_REFMEM_NODE_SLOT_SIZE,
-               "refmem node region must be 512 bytes");
+               "refmem node region must match its configured slot size");
 _Static_assert(sizeof(refmem_vdc_vector_region_t) == DISTRIBUTED_REFMEM_VDC_SIZE,
-               "refmem VDC region must be 2 KB");
+               "refmem VDC region must match its configured size");
 _Static_assert(sizeof(refmem_dpll_vector_region_t) == DISTRIBUTED_REFMEM_DPLL_SIZE,
-               "refmem DPLL region must be 2 KB");
+               "refmem DPLL region must match its configured size");
+_Static_assert(offsetof(refmem_vdc_vector_region_t, payload) %
+                   _Alignof(refmem_vdc_vector_payload_t) == 0u,
+               "refmem VDC payload must remain naturally aligned");
+_Static_assert(offsetof(refmem_dpll_vector_region_t, payload) %
+                   _Alignof(refmem_dpll_vector_payload_t) == 0u,
+               "refmem DPLL payload must remain naturally aligned");
 _Static_assert(sizeof(refmem_vector_table_t) == DISTRIBUTED_REFMEM_TABLE_SIZE,
-               "DistributedVectorTable must be exactly 64 KB");
+               "DistributedVectorTable must match its configured size");
 
 uint32_t REFMEM_VECTOR_TIME_CRITICAL(refmem_vdc_vector_payload_crc)(
     const refmem_vdc_vector_payload_t *payload)

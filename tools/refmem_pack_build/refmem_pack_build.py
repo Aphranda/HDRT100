@@ -38,17 +38,19 @@ crc32 = refmem_table_image.crc32
 build_package = refmem_table_image.build_package
 
 
-def write_outputs(output_dir: Path) -> None:
+def write_outputs(output_dir: Path, *, tdma_node_count: int = NODE_COUNT) -> None:
     refmem_dir = output_dir / "refmem"
     refmem_dir.mkdir(parents=True, exist_ok=True)
 
-    package, entries = build_package()
+    package, entries = build_package(tdma_node_count=tdma_node_count)
     package_path = refmem_dir / "app_model.rmtp"
     package_path.write_bytes(package)
 
     manifest = {
         "magic": MAGIC.decode("ascii"),
         "format_version": FORMAT_VERSION,
+        "layout_version": refmem_table_image.LAYOUT_VERSION,
+        "tdma_node_count": tdma_node_count,
         "product_id": PRODUCT_ID,
         "hardware_id": HARDWARE_ID,
         "table_count": TABLE_COUNT,
@@ -87,12 +89,16 @@ def write_outputs(output_dir: Path) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, default=Path("build/refmem_pack"))
+    parser.add_argument("--tdma-node-count", type=int, choices=range(2, NODE_COUNT + 1),
+                        default=NODE_COUNT,
+                        help="active TDMA ring nodes (default: 8); must not exceed "
+                             "target firmware PROJECT_NODE_CAPACITY; use 6 for a 6-node build")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    write_outputs(args.output_dir)
+    write_outputs(args.output_dir, tdma_node_count=args.tdma_node_count)
     print(f"refmem_pack={args.output_dir / 'refmem' / 'app_model.rmtp'}")
     print(f"refmem_idx={args.output_dir / 'refmem' / 'app_model.idx'}")
     return 0

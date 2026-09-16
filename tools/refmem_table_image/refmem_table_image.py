@@ -35,7 +35,8 @@ QUALITY_COUNT = 8
 APPLICATION_ID = 1
 APPLICATION_VERSION = 1
 PROFILE_ID = 1
-LAYOUT_VERSION = 1
+# DistributedVectorTable ABI; independent of the RMTP envelope format.
+LAYOUT_VERSION = 2
 TARGET_NODE_MASK = 0xFF
 
 CAP_BOARD = 0x00000001
@@ -512,20 +513,24 @@ def build_connection_quality_payload() -> bytes:
     return bytes(payload)
 
 
-def build_tdma_foundation_profile_payload() -> bytes:
+def build_tdma_foundation_profile_payload(*, tdma_node_count: int = NODE_COUNT) -> bytes:
+    if not 2 <= tdma_node_count <= NODE_COUNT:
+        raise ValueError("TDMA node count must be between 2 and 8")
     ring = [
         1,
         TDMA_RING_FLAG_SIMULTANEOUS_UP_DOWN,
-        NODE_COUNT,
+        tdma_node_count,
         0,
         0,
         1,
         2,
-        NODE_COUNT - 1,
+        tdma_node_count - 1,
         1,
         0,
     ]
-    ring_crc = _fnv1a_u32(ring)
+    # tdma_ring_profile_crc32 identifies common ring topology; local index
+    # and local upstream/downstream perspective are excluded by the owner.
+    ring_crc = _fnv1a_u32([ring[index] for index in (0, 1, 2, 4, 5, 6, 9)])
     resource = [
         TDMA_ADAPTER_PIO_SPI,
         0,
@@ -563,7 +568,7 @@ def build_tdma_foundation_profile_payload() -> bytes:
     )
 
 
-def build_table_payload(table_id: int, name: str) -> bytes:
+def build_table_payload(table_id: int, name: str, *, tdma_node_count: int = NODE_COUNT) -> bytes:
     if table_id == 0:
         return build_application_map_payload()
     if table_id == 1:
@@ -583,18 +588,18 @@ def build_table_payload(table_id: int, name: str) -> bytes:
     if table_id == 8:
         return build_connection_quality_payload()
     if table_id == 9:
-        return build_tdma_foundation_profile_payload()
+        return build_tdma_foundation_profile_payload(tdma_node_count=tdma_node_count)
     raise ValueError(f"unknown RefMem table {table_id}: {name}")
 
 
-def build_package() -> tuple[bytes, list[TableEntry]]:
+def build_package(*, tdma_node_count: int = NODE_COUNT) -> tuple[bytes, list[TableEntry]]:
     payload = bytearray()
     entries: list[TableEntry] = []
     table_dir_size = TABLE_COUNT * 16
     cursor = HEADER_SIZE + table_dir_size
 
     for table_id, name in enumerate(TABLE_NAMES):
-        data = build_table_payload(table_id, name)
+        data = build_table_payload(table_id, name, tdma_node_count=tdma_node_count)
         entries.append(TableEntry(table_id=table_id,
                                   offset=cursor,
                                   size=len(data),

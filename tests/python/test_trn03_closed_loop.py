@@ -171,7 +171,7 @@ def test_dpll_phase_never_quarantines_a_tdma_node() -> None:
     bounded = source.split("static bool app_realtime_run_phase", 1)[1]
     bounded = bounded.split("static void app_realtime_tdma_phase", 1)[0]
     assert "dpll_feedback_load" in bounded
-    assert "!dpll_feedback_load" in bounded
+    assert "!work->dpll_feedback_load" in bounded
 
 
 def test_dpll_schedule_gate_rejects_vdc_evidence_producer_failure() -> None:
@@ -657,12 +657,21 @@ def test_process_follower_boundary_only_harvests_evidence() -> None:
     service = phys.split(
         "bool tdma_pio_spi_phys_service_process_overlay_boundary", 1
     )[1].split("bool tdma_pio_spi_phys_set_process_image_mode", 1)[0]
-    assert "pio_interrupt_get(data_pio, 3u)" in service
-    assert "pio_interrupt_clear(data_pio, 3u)" in service
+    assert "tdma_priority_boundary_service(phys)" in service
+    assert "pio_interrupt_clear" not in service
     assert "tdma_pio_spi_phys_service_overlay_pending(phys)" in service
     assert "tdma_pio_spi_phys_prepare_pass_overlay" not in service
     assert "tdma_pio_spi_phys_start_overlay_script" not in service
     assert "dma_channel_configure" not in service
+
+    priority = (ROOT / "components/tdma/src/tdma_pio_spi_phys_priority.inc").read_text(encoding="utf-8")
+    boundary = priority.split("static void tdma_priority_boundary_service", 1)[1].split(
+        "bool tdma_pio_spi_phys_get_priority_rx_snapshot", 1)[0]
+    ordinary, live = boundary.split("if (s_tdma_priority_phys != phys)", 1)
+    assert "if (!s_tdma_priority_installed)" in ordinary
+    assert "pio_interrupt_clear(BOARD_TDMA_RX_PIO, 3u)" in ordinary
+    assert "pio_interrupt_clear" not in live
+    assert "snapshot.irq_count - s_tdma_priority_boundaries_seen" in live
 
     adapter = (ROOT / "components" / "tdma" / "src" /
                "tdma_pio_spi_ring_adapter.c").read_text(encoding="utf-8")
@@ -716,7 +725,7 @@ def test_core1_overrun_quarantines_only_the_faulting_load() -> None:
     assert "optional_load" in bounded
     assert "APP_REALTIME_LOAD_ALL_MASK" not in bounded
     assert "PROJECT_CORE1_SCHEDULE_WARMUP_CYCLES" in bounded
-    assert "optional_load && !warmup_cycle" in bounded
+    assert "work->optional_load && !work->warmup_cycle" in bounded
     assert "inherited_lateness" in bounded
     assert "own_deadline_missed" in bounded
     before_service = bounded.split(

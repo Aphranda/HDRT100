@@ -431,6 +431,33 @@ bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot
     return tdma_pio_spi_phys_get_snapshot(&s_tdma_pio_spi_phys, snapshot);
 }
 
+bool tdma_runtime_owner_get_priority_rx_snapshot(tdma_priority_rx_snapshot_t *out)
+{
+    return s_tdma_runtime_owner_initialized && tdma_pio_spi_phys_get_priority_rx_snapshot(out);
+}
+
+bool tdma_runtime_owner_priority_rx_counters_core1(tdma_priority_rx_counters_t *out)
+{
+    return s_tdma_runtime_owner_initialized && tdma_pio_spi_phys_priority_rx_counters_core1(out);
+}
+
+bool tdma_runtime_owner_get_priority_rx_timing(tdma_priority_rx_timing_t *out)
+{
+    return s_tdma_runtime_owner_initialized && tdma_pio_spi_phys_get_priority_rx_timing(out);
+}
+
+bool tdma_runtime_owner_copy_priority_rx(uint32_t epoch, uint32_t sequence,
+    tdma_priority_rx_record_t *out)
+{
+    return s_tdma_runtime_owner_initialized && tdma_pio_spi_phys_copy_priority_rx(epoch, sequence, out);
+}
+
+void tdma_runtime_owner_priority_rx_window_core1(bool enable, uint32_t remaining_entries,
+    uint32_t window_deadline_tick_low)
+{
+    tdma_pio_spi_phys_priority_rx_window_core1(enable, remaining_entries, window_deadline_tick_low);
+}
+
 bool tdma_runtime_owner_get_origin_frozen_record(uint32_t age,
     tdma_origin_record_frozen_t *snapshot)
 {

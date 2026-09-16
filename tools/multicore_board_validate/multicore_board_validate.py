@@ -34,6 +34,11 @@ except ImportError as exc:
 
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.refmem_table_image.refmem_table_image import LAYOUT_VERSION as REFMEM_LAYOUT_VERSION
+
 TASK_RULES = """需要烧录固件前必须提前告知用户烧录对象、原因和预期影响；
 若需要用户按 BOOTSEL、断电或复位，必须停下来等待用户操作。"""
 
@@ -486,7 +491,7 @@ def test_runtime_protection_tables(ser: serial.Serial, timeout: float) -> tuple[
     core_vector = _parse_ints(_query(ser, "SYST:CORE:VECTor?", timeout))
     if len(core_vector) < 13:
         return False, f"SYST:CORE:VECTor? unparseable: {core_vector}"
-    if core_vector[0] != 1 or core_vector[2] != 2:
+    if core_vector[0] != REFMEM_LAYOUT_VERSION or core_vector[2] != 2:
         return False, f"SYST:CORE:VECTor? unexpected version/core_count: {core_vector}"
     if core_vector[3] != 0 or core_vector[4] != 1 or core_vector[7] != 2:
         return False, f"SYST:CORE:VECTor? owner map unexpected: {core_vector}"
@@ -496,7 +501,7 @@ def test_runtime_protection_tables(ser: serial.Serial, timeout: float) -> tuple[
     protection = _parse_ints(_query(ser, "SYST:PROTection:STATus?", timeout))
     if len(protection) < 14:
         return False, f"SYST:PROTection:STATus? unparseable: {protection}"
-    if protection[0] != 1 or protection[2] != 1 or protection[3] != 1:
+    if protection[0] != REFMEM_LAYOUT_VERSION or protection[2] != 1 or protection[3] != 1:
         return False, f"SYST:PROTection:STATus? protection flags unexpected: {protection}"
 
     if len(protection) >= 21:

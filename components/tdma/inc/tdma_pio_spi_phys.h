@@ -17,6 +17,25 @@
 #include "tdma_rx_first_window.h"
 #include "tdma_event_observer.h"
 #include "tdma_event_history.h"
+#include "tdma_priority_rx.h"
+
+/* Retained raw priority mailbox transport facts; no timestamp/DPLL grant.
+ * One bounded atomic copy. STOP retains records while revoking active. */
+bool tdma_pio_spi_phys_get_priority_rx_snapshot(tdma_priority_rx_snapshot_t *out);
+bool tdma_pio_spi_phys_copy_priority_rx(uint32_t epoch, uint32_t sequence,
+    tdma_priority_rx_record_t *out);
+/* Core1-only direct accounting read. The caller must already have disabled
+ * this CPU IRQ; an enabled IRQ or wrong core is rejected without changing out.
+ * Reads the serialized producer status without publishing or consuming data. */
+bool tdma_pio_spi_phys_priority_rx_counters_core1(tdma_priority_rx_counters_t *out);
+/* One bounded atomic snapshot for STOP-time diagnostics. New ARM clears the
+ * samples; STOP retains them. Includes three additional timer-read probes. */
+bool tdma_pio_spi_phys_get_priority_rx_timing(tdma_priority_rx_timing_t *out);
+/* Core1 static scheduler reservation. Deadline is TIMER1 raw clk_sys low32,
+ * already advanced by the complete entry/body/exit WCET allowance. Closing
+ * a window masks only this CPU IRQ, retaining the PIO source pending. */
+void tdma_pio_spi_phys_priority_rx_window_core1(bool enable, uint32_t remaining_entries,
+    uint32_t window_deadline_tick_low);
 
 /* TDMA PIO SPI resident physical layer.
  *

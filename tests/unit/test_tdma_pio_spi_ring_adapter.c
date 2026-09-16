@@ -771,7 +771,7 @@ static int test_diagnostic_burst(void)
 int main(void)
 {
     int failed = test_origin_adapter() + test_overlay_prepare_cases() +
-        test_rx_prepare_cases() + test_rx_prepare_origin() + test_diagnostic_burst();
+        test_rx_prepare_cases() + test_rx_prepare_origin() + test_rx_queue_storage_lifetime() + test_diagnostic_burst();
 
     /* Direct adapter callers must obey the same capacity gate as the owner. */
     {

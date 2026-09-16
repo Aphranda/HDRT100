@@ -226,7 +226,8 @@ static int test_origin_prepare_worker(void)
     int failed = 0;
     const uint8_t classes[] = {TDMA_PROCESS_IMAGE_MESSAGE_CLASS,
         TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS,
-        TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS, 0x13u};
+        TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS, 0x7fu,
+        TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS};
     for (uint32_t nodes = 4u; nodes <= 6u; ++nodes) {
         for (uint32_t kind = 0u; kind < sizeof(classes); ++kind) {
         for (uint32_t fault = 0u; fault <= 8u; ++fault) {
@@ -243,7 +244,7 @@ static int test_origin_prepare_worker(void)
             const uint16_t class_crc = tdma_process_image_crc16_ccitt(job.tx_data, TDMA_PROCESS_IMAGE_CRC_OFFSET);
             job.tx_data[TDMA_PROCESS_IMAGE_CRC_OFFSET] = (uint8_t)class_crc;
             job.tx_data[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] = (uint8_t)(class_crc >> 8u);
-            const bool accepted = fault == 0u && kind < 2u;
+            const bool accepted = fault == 0u && (kind < 2u || kind == 4u);
             if (fault == 1u) job.tx_data[20] ^= 1u;
             if (fault == 2u || fault == 3u) {
                 job.tx_data[fault == 2u ? TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET : TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] =

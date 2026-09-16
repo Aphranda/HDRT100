@@ -24,6 +24,14 @@ bool tdma_runtime_owner_get_origin_handoff(tdma_origin_handoff_snapshot_t *out);
 bool tdma_runtime_owner_request_origin_release(uint32_t trial_epoch, uint32_t config_seq,
     uint32_t *request_seq);
 bool tdma_runtime_owner_get_origin_release(tdma_origin_release_snapshot_t *out);
+bool tdma_runtime_owner_get_priority_rx_snapshot(tdma_priority_rx_snapshot_t *out);
+/* Core1 only, with the priority IRQ window closed; bounded owner counters. */
+bool tdma_runtime_owner_priority_rx_counters_core1(tdma_priority_rx_counters_t *out);
+bool tdma_runtime_owner_get_priority_rx_timing(tdma_priority_rx_timing_t *out);
+bool tdma_runtime_owner_copy_priority_rx(uint32_t epoch, uint32_t sequence,
+    tdma_priority_rx_record_t *out);
+void tdma_runtime_owner_priority_rx_window_core1(bool enable, uint32_t remaining_entries,
+    uint32_t window_deadline_tick_low);
 
 /* Core1-only direct owner facts for phase attribution; no hardware access. */
 tdma_service_timing_context_t tdma_runtime_owner_timing_context(void);

@@ -129,6 +129,9 @@ int main(void) {
 
 
 SEAMS = r'''
+static bool tdma_priority_start(tdma_pio_spi_phys_t *p,
+    const tdma_ring_runtime_config_t *c) { (void)p; (void)c; return true; }
+#define TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT 6u
 static bool tdma_geometry_observer_select(const tdma_pio_spi_phys_t *p,
     tdma_frozen_geometry_snapshot_t *out) {
     *out = geometry_fixture;

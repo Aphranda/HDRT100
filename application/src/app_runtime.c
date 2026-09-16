@@ -117,20 +117,20 @@ _Static_assert(APP_REFMEM_VECTOR_MIRROR_ESTIMATED_CYCLES <=
                    PROJECT_CORE1_REFMEM_VECTOR_MIRROR_WCET_CYCLES,
                "VDC/DPLL vector mirror estimate exceeds configured WCET");
 _Static_assert(PROJECT_CORE1_REFMEM_VECTOR_MIRROR_WCET_CYCLES <=
-                   PROJECT_CORE1_PHASE_REFMEM_WCET_CYCLES,
+                   PROJECT_CORE1_PHASE_REFMEM_WCET_CYCLES - PROJECT_CORE1_PRIORITY_RX_PHASE_CYCLES,
                "VDC/DPLL vector mirror does not fit the RefMem phase");
 _Static_assert(PROJECT_CORE1_REFMEM_VECTOR_MIRROR_REQUIRED_CYCLES <=
-                   PROJECT_CORE1_PHASE_REFMEM_WCET_CYCLES,
+                   PROJECT_CORE1_PHASE_REFMEM_WCET_CYCLES - PROJECT_CORE1_PRIORITY_RX_PHASE_CYCLES,
                "measured RefMem vector mirror plus margin exceeds phase WCET");
 #undef APP_REFMEM_VECTOR_MIRROR_ESTIMATED_CYCLES
 #undef APP_REFMEM_VECTOR_PAYLOAD_BYTES
 
 _Static_assert(APP_REALTIME_WIRE_MAX_CYCLES <=
-                   PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES,
+                   PROJECT_CORE1_TDMA_BACKGROUND_WCET_CYCLES,
                "maximum flight wire time must fit the TDMA phase WCET");
 _Static_assert(APP_REALTIME_WIRE_MAX_CYCLES +
                        PROJECT_CORE1_TDMA_SOFTWARE_MARGIN_CYCLES <=
-                   PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES,
+                   PROJECT_CORE1_TDMA_BACKGROUND_WCET_CYCLES,
                "TDMA wire time and software margin must fit its WCET");
 _Static_assert(TDMA_FLIGHT_SHORT_PAYLOAD_SIZE <=
                    TDMA_TRANSPORT_SHORT_PAYLOAD_MAX,

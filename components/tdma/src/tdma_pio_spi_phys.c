@@ -7,11 +7,16 @@
 #include <string.h>
 
 #include "board_config.h"
+#include "project_config.h"
 #include "hardware/dma.h"
 #include "hardware/sync.h"
 #include "hardware/gpio.h"
 #include "hardware/clocks.h"
 #include "hardware/pio.h"
+#include "hardware/irq.h"
+#include "hardware/timer.h"
+#include "hardware/watchdog.h"
+#include "drv_watchdog.h"
 #include "pico/bit_ops.h"
 #include "pico/time.h"
 #include "tdma_flight_overlay.h"
@@ -361,6 +366,8 @@ static void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys,
 }
 
 static void tdma_geometry_arm_failed(void);
+static void tdma_priority_stop(void);
+static void tdma_priority_boundary_service(tdma_pio_spi_phys_t *phys);
 static bool tdma_pio_spi_phys_arm_reject(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_phys_error_t error)
@@ -417,6 +424,7 @@ bool tdma_pio_spi_phys_select_program_persona(
 {
     tdma_geometry_persona(persona);
     if (persona != s_tdma_pio_spi_program_persona) {
+        tdma_priority_stop();
         tdma_pio_spi_phys_event_stop(phys);
     }
     tdma_pio_spi_phys_origin_record_invalidate(phys);
@@ -671,6 +679,7 @@ static bool tdma_pio_spi_phys_stop_dma_chain(uint32_t loader_mask,
 static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL) return false;
+    tdma_priority_stop();
     /* Cancel the live sample even if a later hardware STOP fails. Historical
      * evidence stays readable; no copied record grants a running lease. */
     if (phys->flight_origin_live.active != 0u) {
@@ -1634,16 +1643,7 @@ bool tdma_pio_spi_phys_service_process_overlay_boundary(void *context)
         return false;
     }
     tdma_pio_spi_phys_service_overlay_pending(phys);
-    const PIO data_pio = tdma_pio_spi_phys_data_pio(phys);
-    const bool boundary_observed = pio_interrupt_get(data_pio, 3u);
-    if (boundary_observed) {
-        /* IRQ3 is sticky: these are observed boundaries, not an exact count
-         * of physical cycles while Core1 was absent. No refill follows. */
-        pio_interrupt_clear(data_pio, 3u);
-        phys->snapshot.overlay_frame_boundary_count++;
-        if (!phys->flight_overlay_pending && phys->flight_overlay_alignment_locked)
-            phys->snapshot.overlay_reuse_observation_count++;
-    }
+    tdma_priority_boundary_service(phys);
     return true;
 }
 
@@ -1993,6 +1993,8 @@ static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination,
         previous = next;
     }
 }
+
+#include "tdma_pio_spi_phys_priority.inc"
 
 static bool tdma_pio_spi_phys_transport_header_matches(
     uint64_t packet_start,
@@ -2530,6 +2532,10 @@ bool tdma_pio_spi_phys_arm(void *context,
         (void)tdma_pio_spi_phys_disarm(phys);
         return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
     }
+    if (process_follower && !tdma_priority_start(phys, config)) {
+        (void)tdma_pio_spi_phys_disarm(phys);
+        return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT);
+    }
     tdma_pio_spi_phys_fill_static_snapshot(phys);
     return true;
 }
@@ -2540,6 +2546,7 @@ bool tdma_pio_spi_phys_disarm(void *context)
     if (phys == NULL) {
         return false;
     }
+    tdma_priority_stop();
     /* Record the observer's normal STOP while its selected binding is still
      * current. Geometry capture below does not need the observer SMs alive. */
     tdma_pio_spi_phys_event_stop(phys);

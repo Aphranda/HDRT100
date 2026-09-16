@@ -94,13 +94,13 @@ typedef struct {
 
 /* The payloads are written by core1 and read by core0/diagnostic clients.
  * Keep the seqlock outside the CRC-covered payload so an in-progress write is
- * unambiguously rejected by readers.  The reserved tail keeps the fixed
- * DistributedVectorTable directory ABI unchanged. */
+ * unambiguously rejected by readers.  The reserved tail fills each region
+ * to its configured size in the DistributedVectorTable layout. */
 typedef struct {
     volatile uint32_t seqlock;
-    /* Keep the payload naturally aligned without changing the fixed 2 KiB
-     * region ABI.  Both payloads contain uint64_t fields and therefore need
-     * an explicit four-byte pad after the seqlock word on RP2350. */
+    /* Keep the payload naturally aligned within the configured region.
+     * Both payloads contain uint64_t fields and therefore need an explicit
+     * four-byte pad after the seqlock word on RP2350. */
     uint8_t payload_alignment_pad[
         _Alignof(refmem_vdc_vector_payload_t) > sizeof(uint32_t)
             ? _Alignof(refmem_vdc_vector_payload_t) - sizeof(uint32_t)

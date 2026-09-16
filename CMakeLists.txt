@@ -560,6 +560,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_pio_spi_ring_adapter.c
         components/tdma/src/tdma_process_image_map.c
         components/tdma/src/tdma_rx_sequence.c
+        components/tdma/src/tdma_priority_rx.c
         components/tdma/src/tdma_ring_runtime.c
         components/tdma/src/tdma_traffic_scheduler.c
         components/tdma/src/tdma_runtime_owner.c
@@ -756,6 +757,9 @@ function(project_configure_app_target target_name app_name linker_script)
     )
 
     target_compile_definitions(${target_name} PRIVATE
+        # Core1 shares SCRATCH_X with bounded realtime records. App linkers
+        # reject overlap; this uses existing bank space, not the main heap.
+        PICO_CORE1_STACK_SIZE=3072
         PROJECT_ENABLE_USB_STDIO=$<BOOL:${PROJECT_EFFECTIVE_USB_STDIO}>
         PROJECT_ENABLE_USBTMC=$<BOOL:${PROJECT_ENABLE_USBTMC}>
         PROJECT_ENABLE_USB_RUNTIME_SWITCH=$<BOOL:${PROJECT_ENABLE_USB_RUNTIME_SWITCH}>

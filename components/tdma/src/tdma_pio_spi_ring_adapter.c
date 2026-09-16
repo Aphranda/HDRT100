@@ -2341,25 +2341,19 @@ _Static_assert(TDMA_RX_PREPARE_IDLE == 0u && TDMA_RX_PREPARE_REQUESTED == 1u &&
     TDMA_RX_PREPARE_CANCELLED + 1u == TDMA_RX_TIMING_STATION_STATES,
     "RX profile state indices must match station ownership states");
 
-static bool tdma_pio_spi_ring_adapter_rx_once_impl(
-    tdma_pio_spi_ring_adapter_t *adapter)
+/* Keep capture/request state separate from accepting an already prepared RX.
+ * These locals must not remain live across the process-image inspection. */
+static __attribute__((noinline)) bool tdma_pio_spi_ring_adapter_rx_capture(
+    tdma_pio_spi_ring_adapter_t *adapter, uint8_t *packet, size_t packet_capacity)
 {
-    uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     size_t packet_size = 0u;
     uint64_t rx_timestamp_ns = 0ull;
-
     tdma_rx_prepare_t *job = adapter->rx_preparation;
-    if (job != NULL) {
-        const uint32_t state = tdma_rx_prepare_state(job);
-        tdma_service_timing_rx_station(state, adapter->last_service_ns, job->capture_service_ns);
-        if (state != TDMA_RX_PREPARE_IDLE)
-            return tdma_pio_spi_ring_rx_accept(adapter, job);
-    }
 
     if (adapter->rx_queue_count != 0u) {
         if (!tdma_pio_spi_ring_adapter_queue_pop(adapter,
                                                  packet,
-                                                 sizeof(packet),
+                                                 packet_capacity,
                                                  &packet_size,
                                                  &rx_timestamp_ns)) {
             return false;
@@ -2380,12 +2374,12 @@ static bool tdma_pio_spi_ring_adapter_rx_once_impl(
     const uint64_t capture_start = tdma_service_timing_now();
     const bool captured = adapter->phys_rx_ex != NULL
         ? adapter->phys_rx_ex(adapter->phys_context,
-                             job != NULL ? job->packet : packet, sizeof(packet),
+                             packet, packet_capacity,
                              &packet_size, &rx_timestamp_ns,
                              job != NULL ? &job->capture : NULL)
         : adapter->phys_rx(adapter->phys_context,
-                                           job != NULL ? job->packet : packet,
-                                           sizeof(packet),
+                                           packet,
+                                           packet_capacity,
                                            &packet_size,
                                            &rx_timestamp_ns);
     tdma_service_timing_record(TDMA_TIMING_RX_CAPTURE, capture_start);
@@ -2415,6 +2409,29 @@ static bool tdma_pio_spi_ring_adapter_rx_once_impl(
                                                 packet_size,
                                                 adapter->origin.active != 0u ? 0ull : rx_timestamp_ns,
                                                 paired ? &observation : NULL);
+}
+
+/* Legacy injected/synchronous RX owns the full packet only while needed.
+ * Inlining this branch would charge its array to every async acceptance. */
+static __attribute__((noinline)) bool tdma_pio_spi_ring_adapter_rx_legacy(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+    return tdma_pio_spi_ring_adapter_rx_capture(adapter, packet, sizeof(packet));
+}
+
+static bool tdma_pio_spi_ring_adapter_rx_once_impl(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    tdma_rx_prepare_t *job = adapter->rx_preparation;
+    if (job != NULL) {
+        const uint32_t state = tdma_rx_prepare_state(job);
+        tdma_service_timing_rx_station(state, adapter->last_service_ns, job->capture_service_ns);
+        if (state != TDMA_RX_PREPARE_IDLE)
+            return tdma_pio_spi_ring_rx_accept(adapter, job);
+        return tdma_pio_spi_ring_adapter_rx_capture(adapter, job->packet, sizeof(job->packet));
+    }
+    return tdma_pio_spi_ring_adapter_rx_legacy(adapter);
 }
 
 static bool tdma_pio_spi_ring_adapter_rx_once(
@@ -2598,12 +2615,11 @@ static bool tdma_pio_spi_ring_adapter_prepare_overlay_async(
     return tdma_overlay_prepare_request(job);
 }
 
-static bool tdma_pio_spi_ring_adapter_prepare_process_overlay_impl(
+/* The compatibility path owns two full packet models. Keep it out of the
+ * async dispatch frame even when the compiler optimizes the hot branch. */
+static __attribute__((noinline)) bool tdma_pio_spi_ring_adapter_prepare_overlay_legacy(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
-    if (adapter != NULL && adapter->overlay_preparation != NULL &&
-        adapter->phys_grant_overlay != NULL && adapter->phys_commit_overlay != NULL)
-        return tdma_pio_spi_ring_adapter_prepare_overlay_async(adapter);
     if (adapter == NULL || adapter->last_rx_packet_size == 0u ||
         adapter->phys_prepare_overlay == NULL) {
         return false;
@@ -2707,6 +2723,15 @@ static bool tdma_pio_spi_ring_adapter_prepare_process_overlay_impl(
         adapter->resident_overlay_tx_sequence = has_tx ? tx_view.sequence : 0u;
     }
     return prepared && applied_ok;
+}
+
+static bool tdma_pio_spi_ring_adapter_prepare_process_overlay_impl(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    if (adapter != NULL && adapter->overlay_preparation != NULL &&
+        adapter->phys_grant_overlay != NULL && adapter->phys_commit_overlay != NULL)
+        return tdma_pio_spi_ring_adapter_prepare_overlay_async(adapter);
+    return tdma_pio_spi_ring_adapter_prepare_overlay_legacy(adapter);
 }
 
 static bool tdma_pio_spi_ring_adapter_prepare_process_overlay(

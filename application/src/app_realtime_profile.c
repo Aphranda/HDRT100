@@ -1,6 +1,15 @@
 #include "app_realtime_profile.h"
 #include <stddef.h>
 
+_Static_assert(PROJECT_CORE1_PRIORITY_RX_IRQ_CYCLES > PROJECT_CORE1_PRIORITY_RX_TAIL_CYCLES,
+    "candidate complete ISR must include its tail");
+_Static_assert(PROJECT_CORE1_PRIORITY_RX_CLOSE_CYCLES >=
+    PROJECT_CORE1_PRIORITY_RX_IRQ_CYCLES + PROJECT_CORE1_PRIORITY_RX_CLOSE_MARGIN_CYCLES,
+    "window close must reserve a whole ISR and bounded close control");
+_Static_assert(PROJECT_CORE1_PHASE_GUARD_END_CYCLE -
+    PROJECT_CORE1_PHASE_GUARD_START_CYCLE == 7500u,
+    "priority ingress cannot spend the existing GUARD reservation");
+
 #define PROFILE_PHASE(name, start, end, wcet) \
     [APP_REALTIME_PHASE_##name] = {start, end, wcet},
 static const app_realtime_phase_contract_t base[APP_REALTIME_PHASE_COUNT] = {
@@ -29,6 +38,18 @@ bool app_realtime_profile_phase(uint32_t cycle_cycles,
         phase->start_cycle += extra;
     }
     phase->end_cycle += extra;
+    return true;
+}
+
+bool app_realtime_profile_priority(uint32_t cycle_cycles,
+    app_realtime_phase_id_t phase_id, app_realtime_priority_contract_t *priority)
+{
+    app_realtime_phase_contract_t phase;
+    if (priority == NULL || !app_realtime_profile_phase(cycle_cycles, phase_id, &phase))
+        return false;
+    const app_realtime_priority_contract_t reservation = app_realtime_phase_priority(phase_id, &phase);
+    if (reservation.irq_cycles > phase.wcet_cycles) return false;
+    *priority = reservation;
     return true;
 }
 

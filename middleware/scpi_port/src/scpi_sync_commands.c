@@ -1,5 +1,6 @@
 #include "scpi_sync_commands.h"
 
+#include "app.h"
 #include "project_config.h"
 #include "tdma_runtime_owner.h"
 #include "vdc_dpll_manager.h"
@@ -751,6 +752,117 @@ scpi_result_t scpi_cmd_sync_vdc_tdma_phys_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.rx_scan_yield_count);
     SCPI_ResultUInt32(context, snapshot.rx_dma_transfer_count);
     SCPI_ResultUInt32(context, snapshot.flight_origin_capture_phase_delay_cycles);
+    return SCPI_RES_OK;
+}
+
+/* Maintenance readback only. These commands never harvest hardware, advance
+ * a queue tail or create a realtime sample through SCPI. Status also exposes
+ * a lane left active after the transport STOP; records still require inactive. */
+scpi_result_t scpi_cmd_system_tdma_priority_rx_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    tdma_priority_rx_snapshot_t s;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !tdma_runtime_owner_get_priority_rx_snapshot(&s)) {
+        scpi_port_push_exec_error(context, "TDMA_PRIORITY_READ_REQUIRES_STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.active);
+    SCPI_ResultUInt32(context, s.epoch);
+    SCPI_ResultUInt32(context, s.irq_count);
+    SCPI_ResultUInt32(context, s.publish_count);
+    SCPI_ResultUInt32(context, s.overwrite_count);
+    SCPI_ResultUInt32(context, s.duplicate_count);
+    SCPI_ResultUInt32(context, s.sequence_gap_count);
+    SCPI_ResultUInt32(context, s.reject_count);
+    SCPI_ResultUInt32(context, s.last_reject);
+    SCPI_ResultUInt32(context, s.latest_sequence);
+    SCPI_ResultUInt32(context, s.latest_mailbox_seq16);
+    SCPI_ResultUInt32(context, s.irq_last_cycles);
+    SCPI_ResultUInt32(context, s.irq_max_cycles);
+    scpi_sync_result_u64_parts(context, s.irq_total_cycles);
+    scpi_sync_result_u64_parts(context, s.last_entry_ticks);
+    SCPI_ResultUInt32(context, s.retained_mask);
+    for (uint32_t i = 0u; i < TDMA_PRIORITY_RX_CAPACITY; ++i)
+        SCPI_ResultUInt32(context, s.sequence[i]);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_priority_rx_budget_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    tdma_priority_rx_snapshot_t lane;
+    app_realtime_priority_snapshot_t budget;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !tdma_runtime_owner_get_priority_rx_snapshot(&lane) ||
+        lane.active || !app_realtime_get_priority_snapshot(&budget)) {
+        scpi_port_push_exec_error(context, "TDMA_PRIORITY_BUDGET_REQUIRES_STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, budget.schema);
+    SCPI_ResultUInt32(context, budget.candidate_irq_cycles);
+    SCPI_ResultUInt32(context, budget.close_lead_cycles);
+    SCPI_ResultUInt32(context, budget.physical_min_cycles);
+    SCPI_ResultUInt32(context, budget.sample_failures);
+    SCPI_ResultUInt32(context, budget.close_misses);
+    for (uint32_t i = 0u; i < APP_REALTIME_PHASE_COUNT; ++i) {
+        SCPI_ResultUInt32(context, budget.irq_max_cycles[i]);
+        SCPI_ResultUInt32(context, budget.background_max_cycles[i]);
+        SCPI_ResultUInt32(context, budget.budget_misses[i]);
+    }
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_priority_rx_timing_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    tdma_priority_rx_snapshot_t lane;
+    tdma_priority_rx_timing_t timing;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !tdma_runtime_owner_get_priority_rx_snapshot(&lane) ||
+        lane.active || !tdma_runtime_owner_get_priority_rx_timing(&timing)) {
+        scpi_port_push_exec_error(context, "TDMA_PRIORITY_TIMING_REQUIRES_STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, timing.samples);
+    for (uint32_t i = 0u; i < 4u; ++i)
+        SCPI_ResultUInt32(context, timing.max_cycles[i]);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_priority_rx_record_q(scpi_t *context)
+{
+    uint32_t epoch, sequence;
+    if (!SCPI_ParamUInt32(context, &epoch, TRUE) ||
+        !SCPI_ParamUInt32(context, &sequence, TRUE)) return SCPI_RES_ERR;
+    tdma_ring_clock_snapshot_t ring;
+    tdma_priority_rx_snapshot_t s;
+    tdma_priority_rx_record_t r;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !tdma_runtime_owner_get_priority_rx_snapshot(&s) || s.active ||
+        !tdma_runtime_owner_copy_priority_rx(epoch, sequence, &r)) {
+        scpi_port_push_exec_error(context, "TDMA_PRIORITY_RECORD_STOP_OR_IDENTITY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, r.epoch);
+    SCPI_ResultUInt32(context, r.sequence);
+    scpi_sync_result_u64_parts(context, r.irq_entry_ticks);
+    scpi_sync_result_u64_parts(context, r.candidate_word);
+    static const char digits[] = "0123456789abcdef";
+    char hex[TDMA_PRIORITY_RX_MAILBOX_BYTES * 2u + 1u];
+    _Static_assert(TDMA_PRIORITY_RX_HEADER_BYTES == TDMA_PRIORITY_RX_MAILBOX_BYTES,
+        "fixed record fields share the readback scratch buffer");
+    for (uint32_t field = 0u; field < 2u; ++field) {
+        const uint8_t *bytes = field ? r.mailbox : r.header;
+        for (uint32_t i = 0u; i < TDMA_PRIORITY_RX_MAILBOX_BYTES; ++i) {
+            hex[2u * i] = digits[bytes[i] >> 4u];
+            hex[2u * i + 1u] = digits[bytes[i] & 15u];
+        }
+        hex[sizeof(hex) - 1u] = '\0';
+        SCPI_ResultText(context, hex);
+    }
     return SCPI_RES_OK;
 }
 

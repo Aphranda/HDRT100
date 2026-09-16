@@ -10,6 +10,8 @@ typedef struct {
     uint64_t queried_age_ns;
     size_t queried_size;
     tdma_rx_capture_t queried_capture;
+    uint8_t *last_packet;
+    size_t last_capacity;
 } rx_station_phys_t;
 
 static uint32_t rx_station_event_pin(void *context, const tdma_rx_capture_t *capture)
@@ -36,6 +38,8 @@ static bool rx_station_capture(void *context, uint8_t *packet, size_t capacity,
     size_t *size, uint64_t *timestamp, tdma_rx_capture_t *capture)
 {
     rx_station_phys_t *phys = context;
+    phys->last_packet = packet;
+    phys->last_capacity = capacity;
     const bool received = loopback_rx(context, packet, capacity, size, timestamp);
     if (capture != NULL) *capture = (tdma_rx_capture_t){
         .arm_epoch = 17u, .capture_id = ++phys->next_capture,
@@ -73,6 +77,85 @@ static bool rx_station_stop(void *context)
 {
     ((rx_station_phys_t *)context)->stops++;
     return true;
+}
+
+static int test_rx_queue_storage_lifetime(void)
+{
+    int failed = 0;
+    const tdma_ring_adapter_ops_t *ops = tdma_pio_spi_ring_adapter_ops();
+    for (uint32_t mode = 0u; mode < 3u; mode++) {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_rx_prepare_t external = {0};
+        rx_station_phys_t phys = {.wire = {.rx_timestamp_ns = 123u, .suppress_echo = true}};
+        tdma_ring_adapter_status_t status;
+        tdma_ring_runtime_config_t config = make_valid_config();
+        config.node_count = 4u; config.local_slot_id = 1u; config.feedback_timeout_ns = 4000u;
+        tdma_pio_spi_ring_adapter_init(&adapter);
+        if (mode == 1u) adapter.rx_preparation = &external;
+        if (mode == 2u) assert(tdma_pio_spi_ring_adapter_enable_async_rx(&adapter));
+        tdma_rx_prepare_t *job = adapter.rx_preparation;
+        set_test_sequential_topology(&adapter, 4u);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter, loopback_tx, loopback_rx, &phys);
+        tdma_pio_spi_ring_adapter_set_phys_rx_ex(&adapter, rx_station_capture);
+        tdma_pio_spi_ring_adapter_set_forwarding_mode(&adapter, TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT);
+        assert(ops->start(&adapter, &config));
+        uint8_t payload[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE] = {0};
+        for (uint32_t slot = 0u; slot < 4u; slot++)
+            fill_test_process_mailbox(payload + slot * TDMA_FLIGHT_SHORT_SLOT_SIZE, slot, 7u, (uint8_t)slot);
+        tdma_transport_frame_build_t build = {.frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
+            .origin_slot_id = 0u, .transport_sequence = 81u,
+            .payload_class = TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE,
+            .schedule_crc32 = config.schedule_crc32, .ring_profile_crc32 = config.ring_profile_crc32,
+            .hop_limit = 3u, .payload = payload, .payload_size = sizeof(payload)};
+        uint8_t queued[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        size_t queued_size;
+        tdma_transport_result_t result;
+        assert(tdma_transport_frame_encode(&build, phys.wire.echo_packet,
+            sizeof(phys.wire.echo_packet), &phys.wire.echo_packet_size, &result));
+        if (job != NULL) {
+            phys.wire.rx_pending = true;
+            ops->service(&adapter, 100u, &status);
+            assert(tdma_rx_prepare_state(job) == TDMA_RX_PREPARE_REQUESTED);
+            assert(phys.last_packet == job->packet && phys.last_capacity == sizeof(job->packet));
+            assert(adapter.rx_count == 0u);
+        }
+        build.transport_sequence = 82u;
+        assert(tdma_transport_frame_encode(&build, queued, sizeof(queued), &queued_size, &result));
+        failed += expect_bool("RX storage injected queue eligibility",
+            tdma_pio_spi_ring_adapter_inject_rx(&adapter, queued, queued_size, 124u), mode != 2u);
+        const uint32_t calls = phys.wire.rx_calls;
+        if (job != NULL) {
+            ops->service(&adapter, 101u, &status);
+            assert(phys.wire.rx_calls == calls && adapter.rx_count == 0u);
+            assert(adapter.rx_queue_count == (mode == 1u ? 1u : 0u));
+            tdma_rx_prepare_core0_service(job);
+            ops->service(&adapter, 102u, &status);
+            assert(adapter.rx_count == 1u && adapter.down_rx_sequence == 81u);
+            assert(tdma_rx_prepare_state(job) == TDMA_RX_PREPARE_IDLE);
+            assert(adapter.rx_queue_count == (mode == 1u ? 1u : 0u));
+        }
+        build.transport_sequence = 83u;
+        assert(tdma_transport_frame_encode(&build, phys.wire.echo_packet,
+            sizeof(phys.wire.echo_packet), &phys.wire.echo_packet_size, &result));
+        phys.wire.rx_pending = true;
+        if (mode != 2u) {
+            ops->service(&adapter, 103u, &status);
+            assert(adapter.down_rx_sequence == 82u && adapter.rx_queue_count == 0u);
+            assert(phys.wire.rx_calls == calls); /* Queue precedes another DMA capture. */
+            if (job != NULL) assert(tdma_rx_prepare_state(job) == TDMA_RX_PREPARE_IDLE);
+        }
+        ops->service(&adapter, 104u, &status);
+        assert(phys.wire.rx_calls == calls + 1u);
+        if (job != NULL) {
+            assert(phys.last_packet == job->packet && tdma_rx_prepare_state(job) == TDMA_RX_PREPARE_REQUESTED);
+            tdma_rx_prepare_core0_service(job);
+            ops->service(&adapter, 105u, &status);
+        }
+        assert(adapter.down_rx_sequence == 83u);
+        assert(adapter.rx_count == (mode == 1u ? 3u : 2u));
+        assert(ops->stop(&adapter));
+    }
+    return failed;
 }
 
 static int test_rx_prepare_cases(void)
@@ -441,7 +524,7 @@ static int test_rx_prepare_origin(void)
     /* Execute the real worker on ordinary and mixed raw-feedback frames.
      * Transport permits mutable remote bodies; each mailbox remains checked
      * for class, ownership, runtime target range and its independent CRC. */
-    for (uint32_t kind = 0u; kind < 5u; ++kind) {
+    for (uint32_t kind = 0u; kind < 6u; ++kind) {
         for (uint32_t fault = 0u; fault < 4u; ++fault) {
             tdma_rx_prepare_t candidate = {0};
             memcpy(candidate.packet, p.seed, sizeof(p.seed));
@@ -452,7 +535,8 @@ static int test_rx_prepare_origin(void)
                 uint8_t *remote = candidate.packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE + slot * TDMA_FLIGHT_SHORT_SLOT_SIZE;
                 if (kind == 2u || (slot == 1u && kind == 1u)) remote[3] = TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS;
                 if (slot == 1u && kind == 3u) remote[3] = TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS;
-                if (slot == 1u && kind == 4u) remote[3] = 0x13u;
+                if (slot == 1u && kind == 4u) remote[3] = 0x7fu;
+                if (kind == 5u) remote[3] = TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS;
                 if (slot == 1u && fault == 2u) remote[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] = 2u;
                 if (slot == 1u && fault == 3u) remote[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] = (uint8_t)(1u << config.node_count);
                 const uint16_t crc = tdma_process_image_crc16_ccitt(remote, TDMA_PROCESS_IMAGE_CRC_OFFSET);
@@ -463,7 +547,8 @@ static int test_rx_prepare_origin(void)
             failed += expect_bool("raw feedback RX worker request", tdma_rx_prepare_request(&candidate), true);
             tdma_rx_prepare_core0_service(&candidate);
             failed += expect_bool("raw feedback mutation retains transport validity", candidate.decoded, true);
-            failed += expect_bool("raw feedback RX per-mailbox admission", candidate.origin_mailboxes_valid, kind < 3u && fault == 0u);
+            failed += expect_bool("raw feedback RX per-mailbox admission", candidate.origin_mailboxes_valid,
+                (kind < 3u || kind == 5u) && fault == 0u);
             failed += expect_u32("raw feedback RX worker bounded completion", tdma_rx_prepare_state(&candidate), TDMA_RX_PREPARE_READY);
             tdma_rx_prepare_release(&candidate);
         }

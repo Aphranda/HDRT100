@@ -546,7 +546,7 @@ static int test_origin_adapter(void)
                 if (bad == 7u) fill_test_process_mailbox(p.packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE, 0u, 4u, 0x33u);
                 if (bad >= 8u) {
                     uint8_t *remote = p.packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE + TDMA_FLIGHT_SHORT_SLOT_SIZE;
-                    remote[3] = bad == 8u ? TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS : 0x13u;
+                    remote[3] = bad == 8u ? TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS : 0x7fu;
                     const uint16_t crc = tdma_process_image_crc16_ccitt(remote, TDMA_PROCESS_IMAGE_CRC_OFFSET);
                     remote[TDMA_PROCESS_IMAGE_CRC_OFFSET] = (uint8_t)crc;
                     remote[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] = (uint8_t)(crc >> 8u);

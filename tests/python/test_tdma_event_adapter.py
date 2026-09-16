@@ -148,6 +148,9 @@ typedef struct {
 } tdma_pio_spi_phys_t;
 typedef unsigned tdma_pio_spi_program_persona_t;
 typedef struct { uint32_t cycle_period_ns, geometry_generation, owner_config_seq; } tdma_ring_runtime_config_t;
+/* Priority IRQ ingress is covered by test_tdma_priority_rx. This fixture
+ * exercises the separate event observer/persona lifecycle only. */
+static void tdma_priority_stop(void) { }
 enum { TDMA_PIO_SPI_ROLE_MASTER = 0u, TDMA_PIO_SPI_ROLE_SLAVE = 1u,
        TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL = 1u,
        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN = 11u,

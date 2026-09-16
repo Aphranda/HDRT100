@@ -66,7 +66,7 @@ def test_refmem_package_table_entries_match_payloads() -> None:
                 1,
                 1,
                 1,
-                1,
+                2,
                 0xFF,
             )
         else:

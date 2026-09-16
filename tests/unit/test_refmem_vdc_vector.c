@@ -50,10 +50,10 @@ static void make_dpll_payload(refmem_dpll_vector_payload_t *payload)
 static int test_layout_sizes(void)
 {
     int failed = 0;
-    failed += expect_true("VDC region is fixed 2 KiB",
+    failed += expect_true("VDC region matches configured size",
                           sizeof(refmem_vdc_vector_region_t) ==
                               DISTRIBUTED_REFMEM_VDC_SIZE);
-    failed += expect_true("DPLL region is fixed 2 KiB",
+    failed += expect_true("DPLL region matches configured size",
                           sizeof(refmem_dpll_vector_region_t) ==
                               DISTRIBUTED_REFMEM_DPLL_SIZE);
     failed += expect_true("VDC payload is naturally aligned",
@@ -64,7 +64,7 @@ static int test_layout_sizes(void)
                           offsetof(refmem_dpll_vector_region_t, payload) %
                                   _Alignof(refmem_dpll_vector_payload_t) ==
                               0u);
-    failed += expect_true("table is fixed 64 KiB",
+    failed += expect_true("table matches configured size",
                           sizeof(refmem_vector_table_t) ==
                               DISTRIBUTED_REFMEM_TABLE_SIZE);
     return failed;

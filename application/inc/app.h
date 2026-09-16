@@ -6,7 +6,7 @@
 
 #include "app_realtime_schedule.h"
 
-#define APP_REALTIME_SCHEDULE_VERSION 2u
+#define APP_REALTIME_SCHEDULE_VERSION 3u
 #define APP_REALTIME_LOAD_COUNT 8u
 
 typedef enum {
@@ -64,6 +64,20 @@ typedef struct {
     uint32_t requested_generation;
     bool applying;
 } app_realtime_period_snapshot_t;
+
+/* Retained ARM-lifetime attribution: stopped service cannot update it, and
+ * the next observed inactive -> ARM transition resets it on Core1. Normal
+ * schedule wall-time gates remain authoritative. IRQ maxima are conservative
+ * run maxima at each phase with an event, not isolated per-IRQ measurements.
+ * IRQ allowance is a candidate until the complete ISR is hardware verified. */
+typedef struct {
+    uint32_t schema, candidate_irq_cycles, close_lead_cycles, physical_min_cycles;
+    uint32_t sample_failures, close_misses;
+    uint32_t irq_max_cycles[APP_REALTIME_PHASE_COUNT];
+    uint32_t background_max_cycles[APP_REALTIME_PHASE_COUNT];
+    uint32_t budget_misses[APP_REALTIME_PHASE_COUNT];
+} app_realtime_priority_snapshot_t;
+bool app_realtime_get_priority_snapshot(app_realtime_priority_snapshot_t *snapshot);
 
 bool app_init(void);
 bool app_is_ready(void);

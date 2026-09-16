@@ -35,6 +35,7 @@
 #include "trigger_measure.h"
 #include "ui_manager.h"
 #include "vdc_dpll_manager.h"
+#include "vdc_timestamp_clock.h"
 #include "hardware/regs/m33.h"
 #include "hardware/structs/systick.h"
 #include "pico/stdlib.h"
@@ -536,6 +537,15 @@ static app_realtime_schedule_snapshot_t s_realtime_schedule = {
         APP_REALTIME_PHASE_TABLE(APP_REALTIME_PHASE_WCET_INIT)
     },
 };
+/* Lower SCRATCH_X holds realtime state below the reserved Core1 stack. The link map
+ * must account for this snapshot together with the fixed ingress records. */
+static app_realtime_priority_snapshot_t __scratch_x("app_priority_snapshot") s_realtime_priority = {
+    .schema = 1u,
+    .candidate_irq_cycles = PROJECT_CORE1_PRIORITY_RX_IRQ_CYCLES,
+    .close_lead_cycles = PROJECT_CORE1_PRIORITY_RX_CLOSE_CYCLES,
+    .physical_min_cycles = PROJECT_CORE1_PRIORITY_RX_MIN_PHYSICAL_CYCLES,
+};
+static bool __scratch_x("app_priority_active") s_realtime_priority_active;
 #undef APP_REALTIME_PHASE_VALUE_INIT
 #undef APP_REALTIME_PHASE_END_INIT
 #undef APP_REALTIME_PHASE_WCET_INIT
@@ -621,6 +631,132 @@ bool app_realtime_get_schedule_snapshot(
     return false;
 }
 
+bool app_realtime_get_priority_snapshot(app_realtime_priority_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 3u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(&s_realtime_schedule_guard, __ATOMIC_ACQUIRE);
+        if (begin & 1u) continue;
+        const app_realtime_priority_snapshot_t value = s_realtime_priority;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (begin == __atomic_load_n(&s_realtime_schedule_guard, __ATOMIC_ACQUIRE)) {
+            *snapshot = value;
+            return true;
+        }
+    }
+    return false;
+}
+
+typedef tdma_priority_rx_counters_t app_priority_counts_t;
+
+/* A closed IRQ cannot change these producer counts between phase services.
+ * Reuse the last closed-window sample as the next baseline instead of
+ * copying the whole published record twice at every phase release. Offline
+ * personas explicitly invalidate it before touching the physical owner. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+static app_priority_counts_t __scratch_x("app_priority_baseline") s_realtime_priority_baseline;
+static bool __scratch_x("app_priority_baseline_valid") s_realtime_priority_baseline_valid;
+#else
+static app_priority_counts_t s_realtime_priority_baseline;
+static bool s_realtime_priority_baseline_valid;
+#endif
+
+typedef struct {
+    uint32_t cycle_epoch, timer_at_epoch;
+    bool valid;
+} app_priority_clock_map_t;
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+static app_priority_clock_map_t __scratch_x("app_priority_clock") s_realtime_priority_clock;
+#else
+static app_priority_clock_map_t s_realtime_priority_clock;
+#endif
+
+/* Core1 reads its serialized producer directly while the source is closed;
+ * cross-core diagnostic snapshots are not part of phase accounting. */
+static __attribute__((noinline)) bool app_priority_counts(app_priority_counts_t *out)
+{
+    return tdma_runtime_owner_priority_rx_counters_core1(out);
+}
+
+static bool app_priority_delta(const app_priority_counts_t *before,
+    const app_priority_counts_t *after, uint64_t *cycles, uint32_t *count,
+    uint32_t *maximum)
+{
+    if (before->count == UINT32_MAX || after->count == UINT32_MAX ||
+        before->cycles == UINT64_MAX || after->cycles == UINT64_MAX) return false;
+    /* A single inactive -> ARM transition resets counters. Rebase while
+     * active retains them, and multiple owner transitions are ambiguous;
+     * fail attribution closed rather than reset the IRQ quota optimistically. */
+    if (before->epoch != after->epoch &&
+        (before->active || before->epoch == UINT32_MAX ||
+         after->epoch != before->epoch + 1u)) return false;
+    const uint64_t base_cycles = before->epoch == after->epoch ? before->cycles : 0u;
+    const uint32_t base_count = before->epoch == after->epoch ? before->count : 0u;
+    if (after->cycles < base_cycles || after->count < base_count) return false;
+    *cycles = after->cycles - base_cycles;
+    *count = after->count - base_count;
+    if (maximum != NULL) *maximum = after->maximum;
+    return true;
+}
+
+static void app_priority_record_phase(app_realtime_phase_id_t phase_id,
+    uint32_t background_cycles, uint32_t irq_max_cycles, bool budget_miss,
+    bool sample_failed, bool close_missed, bool new_run)
+{
+    app_realtime_schedule_write_begin();
+    if (new_run) {
+        s_realtime_priority.sample_failures = 0u;
+        s_realtime_priority.close_misses = 0u;
+        memset(s_realtime_priority.irq_max_cycles, 0, sizeof(s_realtime_priority.irq_max_cycles));
+        memset(s_realtime_priority.background_max_cycles, 0,
+            sizeof(s_realtime_priority.background_max_cycles));
+        memset(s_realtime_priority.budget_misses, 0, sizeof(s_realtime_priority.budget_misses));
+    }
+    if (sample_failed) s_realtime_priority.sample_failures++;
+    if (close_missed) s_realtime_priority.close_misses++;
+    if (irq_max_cycles > s_realtime_priority.irq_max_cycles[phase_id])
+        s_realtime_priority.irq_max_cycles[phase_id] = irq_max_cycles;
+    if (background_cycles > s_realtime_priority.background_max_cycles[phase_id])
+        s_realtime_priority.background_max_cycles[phase_id] = background_cycles;
+    if (budget_miss) s_realtime_priority.budget_misses[phase_id]++;
+    app_realtime_schedule_write_end();
+}
+
+static __attribute__((noinline)) bool app_priority_deadline(uint32_t cycle_epoch,
+    const app_realtime_priority_contract_t *priority, uint32_t *deadline_low)
+{
+    if (priority == NULL || deadline_low == NULL || priority->irq_quota == 0u)
+        return false;
+    uint32_t elapsed;
+    if (!s_realtime_priority_clock.valid ||
+            s_realtime_priority_clock.cycle_epoch != cycle_epoch) {
+        s_realtime_priority_clock.valid = false;
+        uint64_t timer_ticks;
+        if (!vdc_timestamp_clock_try_read_ticks64(BOARD_SYS_CLOCK_HZ, &timer_ticks))
+            return false;
+        /* SysTick is read AFTER TIMER1, so the translated deadline is early
+         * by the bounded read interval, never late. Both use immutable
+         * clk_sys during this one table; repeat the binding next cycle. */
+        elapsed = app_realtime_elapsed_cycles(cycle_epoch, app_realtime_cycle_now());
+        s_realtime_priority_clock.timer_at_epoch = (uint32_t)timer_ticks - elapsed;
+        s_realtime_priority_clock.cycle_epoch = cycle_epoch;
+        s_realtime_priority_clock.valid = true;
+    } else {
+        elapsed = app_realtime_elapsed_cycles(cycle_epoch, app_realtime_cycle_now());
+    }
+    if (elapsed >= priority->close_cycle) return false;
+    *deadline_low = s_realtime_priority_clock.timer_at_epoch + priority->close_cycle;
+    return true;
+}
+
+static void app_realtime_wait_until(uint32_t cycle_epoch, uint32_t target_cycle)
+{
+    while (app_realtime_elapsed_cycles(cycle_epoch, app_realtime_cycle_now()) <
+           target_cycle) {
+        tight_loop_contents();
+    }
+}
+
 bool app_realtime_request_period_us(uint32_t period_us, uint32_t *generation)
 {
     const uint64_t cycles = (uint64_t)period_us * (BOARD_SYS_CLOCK_HZ / 1000000u);
@@ -666,6 +802,8 @@ bool app_realtime_apply_pending_profile_core1(void)
     if (!tdma_service_claim_stopped_update_core1(owner, &cycles, &generation)) return false;
     app_realtime_schedule_write_begin();
     const bool installed = app_realtime_profile_install(&s_realtime_schedule, cycles, generation);
+    s_realtime_priority_baseline_valid = false;
+    s_realtime_priority_clock.valid = false;
     app_realtime_schedule_write_end();
     /* Publication completes before releasing the service ARM exclusion. A
      * rejected token leaves both the table and its applied generation intact. */
@@ -685,89 +823,210 @@ static void app_realtime_record_skip(app_realtime_phase_id_t phase_id,
     app_realtime_schedule_write_end();
 }
 
+/* Core1 has one nonrecursive dispatcher. Keep its cross-service live state
+ * below the fixed Core1 stack, rather than stacking it beneath VDC's deep
+ * foreground path plus an interrupt. No ISR or Core0 accesses this workspace. */
+typedef struct {
+    app_realtime_phase_contract_t contract;
+    app_realtime_priority_contract_t priority;
+    app_priority_counts_t before, after_service, after_wait;
+    uint64_t service_irq_cycles, wait_irq_cycles;
+    uint32_t deadline_low, phase_start, runtime_cycles, load_bit;
+    uint32_t service_irq_count, wait_irq_count, irq_max;
+    bool eligible, sampled, clock_ok, sample_failed, previously_active;
+    bool optional_load, warmup_cycle, dpll_feedback_load, disabled, start_missed;
+    bool run_service, overrun, deadline_missed, own_deadline_missed;
+    bool close_missed, new_run;
+} app_realtime_phase_work_t;
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+static app_realtime_phase_work_t __scratch_x("app_priority_phase") s_realtime_phase_work;
+#else
+static app_realtime_phase_work_t s_realtime_phase_work;
+#endif
+
 static bool app_realtime_run_phase(
     uint32_t cycle_epoch,
     app_realtime_phase_id_t phase_id,
     int32_t load_id,
     app_realtime_load_service_fn service)
 {
-    if (phase_id >= APP_REALTIME_PHASE_COUNT || service == NULL) {
+    if (phase_id >= APP_REALTIME_PHASE_COUNT) {
         return false;
     }
-    const app_realtime_phase_contract_t active_contract = {
+    /* A previous phase's lease never carries across its static boundary.
+     * Only this IRQ is masked; the transport's sticky source is retained. */
+    if (phase_id == APP_REALTIME_PHASE_TDMA ||
+        !s_realtime_priority_baseline_valid || s_realtime_priority_baseline.active) {
+        tdma_runtime_owner_priority_rx_window_core1(false, 0u, 0u);
+    }
+    app_realtime_phase_work_t *const work = &s_realtime_phase_work;
+    memset(work, 0, sizeof(*work));
+    work->contract = (app_realtime_phase_contract_t){
         s_realtime_schedule.phase_start_cycle[phase_id],
         s_realtime_schedule.phase_end_cycle[phase_id],
         s_realtime_schedule.phase_wcet_cycles[phase_id]};
-    const app_realtime_phase_contract_t *contract = &active_contract;
-    uint32_t phase_start = app_realtime_elapsed_cycles(
-        cycle_epoch, app_realtime_cycle_now());
-    while (phase_start < contract->start_cycle) {
-        tight_loop_contents();
-        phase_start = app_realtime_elapsed_cycles(
-            cycle_epoch, app_realtime_cycle_now());
+    const app_realtime_phase_contract_t *contract = &work->contract;
+    work->priority = app_realtime_phase_priority(phase_id, contract);
+    if (work->priority.irq_cycles > contract->wcet_cycles) return false;
+    work->eligible = work->priority.irq_quota != 0u;
+    /* Prepare in the previous close lead where available, before the phase
+     * release. This includes disabled optional phases: only their foreground
+     * service is optional, never the separately budgeted ingress window. */
+    if (work->eligible && phase_id != APP_REALTIME_PHASE_TDMA &&
+        s_realtime_priority_baseline_valid) {
+        work->before = s_realtime_priority_baseline;
+        work->sampled = true;
+    } else {
+        work->sampled = !work->eligible || app_priority_counts(&work->before);
     }
-
-    const bool optional_load = load_id >= 0;
-    const bool warmup_cycle =
+    work->previously_active = s_realtime_priority_active;
+    if (work->eligible && work->sampled) s_realtime_priority_active = work->before.active != 0u;
+    /* Only the TDMA service can ARM/STOP the source in this online table.
+     * An inactive source has no per-phase IRQ accounting or closing wait;
+     * keep the TDMA before/after observation to detect a new ARM below. */
+    if (work->eligible && phase_id != APP_REALTIME_PHASE_TDMA &&
+        work->sampled && !work->before.active) work->eligible = false;
+    work->clock_ok = !work->eligible || !work->before.active ||
+        app_priority_deadline(cycle_epoch, &work->priority, &work->deadline_low);
+    work->sample_failed = work->eligible && (!work->sampled || !work->clock_ok);
+    work->optional_load = load_id >= 0;
+    work->warmup_cycle =
         s_realtime_schedule.cycle_count <=
         PROJECT_CORE1_SCHEDULE_WARMUP_CYCLES;
-    const uint32_t load_bit = optional_load
+    work->load_bit = work->optional_load
         ? 1u << (uint32_t)load_id : 0u;
     const uint32_t enabled_mask = __atomic_load_n(
         &s_realtime_load_enabled_mask, __ATOMIC_ACQUIRE);
     const uint32_t quarantined_mask = __atomic_load_n(
         &s_realtime_load_quarantined_mask, __ATOMIC_ACQUIRE);
-    const bool dpll_feedback_load =
-        optional_load && load_id == (int32_t)APP_REALTIME_LOAD_DPLL;
-    if (optional_load && ((enabled_mask & load_bit) == 0u ||
-                          (!dpll_feedback_load &&
-                           (quarantined_mask & load_bit) != 0u))) {
-        app_realtime_record_skip(phase_id, false);
-        return true;
-    }
+    work->dpll_feedback_load =
+        work->optional_load && load_id == (int32_t)APP_REALTIME_LOAD_DPLL;
+    work->disabled = service == NULL ||
+        (work->optional_load && ((enabled_mask & work->load_bit) == 0u ||
+            (!work->dpll_feedback_load && (quarantined_mask & work->load_bit) != 0u)));
+    app_realtime_wait_until(cycle_epoch, contract->start_cycle);
+    work->phase_start = app_realtime_elapsed_cycles(
+        cycle_epoch, app_realtime_cycle_now());
 
     /* A phase may consume only its own [start,end) interval. If its declared
      * WCET no longer fits, it is skipped instead of borrowing a later phase. */
-    if (phase_start >= contract->end_cycle ||
-        contract->wcet_cycles > contract->end_cycle - phase_start) {
-        app_realtime_record_skip(phase_id, true);
-        /* A phase-start miss is inherited lateness, not proof that this
-         * load exceeded its own WCET.  Skip it without borrowing time from
-         * the next phase; quarantine only after this load actually runs and
-         * overruns its own contract below. */
-        return false;
-    }
-
+    work->start_missed = work->phase_start >= work->priority.close_cycle ||
+        contract->wcet_cycles > work->priority.close_cycle - work->phase_start;
+    work->run_service = !work->disabled && !work->start_missed;
+    if (!work->run_service) app_realtime_record_skip(phase_id, !work->disabled && work->start_missed);
     const uint32_t start_counter = app_realtime_cycle_now();
-    service();
+    if (work->run_service) {
+        if (work->eligible && work->before.active && work->sampled && work->clock_ok)
+            tdma_runtime_owner_priority_rx_window_core1(true, work->priority.irq_quota, work->deadline_low);
+        service();
+        /* Closing before the end clock prevents a later wait IRQ from being
+         * subtracted from a service interval that did not contain it. The
+         * complete gate/ISR wall cost stays in the original runtime gate. */
+        if (work->eligible) tdma_runtime_owner_priority_rx_window_core1(false, 0u, 0u);
+    }
     const uint32_t end_counter = app_realtime_cycle_now();
-    const uint32_t runtime_cycles = app_realtime_elapsed_cycles(
-        start_counter, end_counter);
+    work->runtime_cycles = work->run_service ?
+        app_realtime_elapsed_cycles(start_counter, end_counter) : 0u;
     const uint32_t phase_end = app_realtime_elapsed_cycles(
         cycle_epoch, end_counter);
-    if (phase_id == APP_REALTIME_PHASE_TDMA)
-        tdma_service_timing_scheduler_end(runtime_cycles);
-    const bool overrun = runtime_cycles > contract->wcet_cycles;
-    const bool deadline_missed = phase_end > contract->end_cycle;
-    const bool inherited_lateness = phase_start > contract->start_cycle;
-    const bool own_deadline_missed = deadline_missed && !inherited_lateness;
+    if (work->run_service && phase_id == APP_REALTIME_PHASE_TDMA)
+        tdma_service_timing_scheduler_end(work->runtime_cycles);
+    work->overrun = work->runtime_cycles > contract->wcet_cycles;
+    work->deadline_missed = work->run_service && phase_end > contract->end_cycle;
+    const bool inherited_lateness = work->phase_start > contract->start_cycle;
+    work->own_deadline_missed = work->deadline_missed && !inherited_lateness;
+
+    work->close_missed = false;
+    work->new_run = false;
+    if (work->eligible) {
+        const bool after_service_valid = app_priority_counts(&work->after_service);
+        if (after_service_valid) s_realtime_priority_active = work->after_service.active != 0u;
+        work->new_run = work->sampled && after_service_valid && !work->before.active && work->after_service.active &&
+            work->before.epoch != UINT32_MAX && work->after_service.epoch == work->before.epoch + 1u;
+        work->sampled = work->sampled && after_service_valid &&
+            app_priority_delta(&work->before, &work->after_service,
+                &work->service_irq_cycles, &work->service_irq_count, &work->irq_max);
+        if (!work->sampled || work->service_irq_cycles > work->runtime_cycles) {
+            work->sample_failed = true;
+            work->sampled = false;
+        }
+        if (work->sampled && !work->before.active && !work->after_service.active &&
+            work->service_irq_count == 0u) {
+            /* A stopped/origin TDMA beat only needs its two small owner
+             * reads. Do not spend the phase tail preparing an absent ISR. */
+            work->eligible = false;
+            s_realtime_priority_baseline = work->after_service;
+            s_realtime_priority_baseline_valid = true;
+        } else if (work->sampled && !work->before.active && work->after_service.active) {
+            /* ARM happened with the source closed inside this TDMA service.
+             * Admit only this phase's remaining window using a fresh clock. */
+            work->clock_ok = app_priority_deadline(cycle_epoch, &work->priority, &work->deadline_low);
+            if (!work->clock_ok) work->sample_failed = true;
+        }
+    }
+    if (work->eligible) {
+        const uint32_t remaining = work->sampled && work->service_irq_count < work->priority.irq_quota ?
+            work->priority.irq_quota - work->service_irq_count : 0u;
+        const uint32_t now = app_realtime_elapsed_cycles(cycle_epoch, app_realtime_cycle_now());
+        if (work->clock_ok && remaining != 0u && now < work->priority.close_cycle)
+            tdma_runtime_owner_priority_rx_window_core1(true, remaining, work->deadline_low);
+        app_realtime_wait_until(cycle_epoch, work->priority.close_cycle);
+        tdma_runtime_owner_priority_rx_window_core1(false, 0u, 0u);
+        const uint32_t closed = app_realtime_elapsed_cycles(cycle_epoch, app_realtime_cycle_now());
+        /* Entry may begin just before cutoff and consume its complete C.
+         * The explicit control margin then remains before the phase end. */
+        work->close_missed = closed >
+            contract->end_cycle - PROJECT_CORE1_PRIORITY_RX_CLOSE_MARGIN_CYCLES;
+        work->deadline_missed = work->deadline_missed || closed > contract->end_cycle;
+        const bool after_wait_valid = app_priority_counts(&work->after_wait);
+        s_realtime_priority_baseline_valid = after_wait_valid;
+        if (after_wait_valid) s_realtime_priority_baseline = work->after_wait;
+        if (after_wait_valid) s_realtime_priority_active = work->after_wait.active != 0u;
+        work->sampled = work->sampled && after_wait_valid &&
+            app_priority_delta(&work->after_service, &work->after_wait,
+                &work->wait_irq_cycles, &work->wait_irq_count, &work->irq_max);
+        if (!work->sampled) work->sample_failed = true;
+    }
+    /* Body-only IRQ measurements are attribution, not permission to weaken
+     * the wall gate. Unmeasured entry/finish/return remain charged to the
+     * foreground; a separate candidate tail is also reserved for wait IRQs. */
+    bool priority_miss = false;
+    if (work->eligible) {
+        const uint32_t background_cycles = work->sampled ?
+            work->runtime_cycles - (uint32_t)work->service_irq_cycles : work->runtime_cycles;
+        const uint64_t irq_count = (uint64_t)work->service_irq_count + work->wait_irq_count;
+        const uint64_t irq_charge = work->service_irq_cycles + work->wait_irq_cycles +
+            irq_count * PROJECT_CORE1_PRIORITY_RX_TAIL_CYCLES;
+        const uint64_t total_charge = work->runtime_cycles + work->wait_irq_cycles +
+            (uint64_t)work->wait_irq_count * PROJECT_CORE1_PRIORITY_RX_TAIL_CYCLES;
+        priority_miss = !work->sampled || !work->clock_ok || work->close_missed ||
+            background_cycles > work->priority.background_cycles || irq_count > work->priority.irq_quota ||
+            irq_charge > work->priority.irq_cycles || total_charge > contract->wcet_cycles ||
+            (irq_count != 0u && (uint64_t)work->irq_max + PROJECT_CORE1_PRIORITY_RX_TAIL_CYCLES >
+                PROJECT_CORE1_PRIORITY_RX_IRQ_CYCLES);
+        /* Retain the last ARM lifetime through STOP; only a new observed
+         * ARM resets it. No inactive maintenance phase publishes budgets. */
+        const bool observed_run = work->previously_active || work->before.active || work->after_service.active ||
+            work->after_wait.active || irq_count;
+        if (observed_run) app_priority_record_phase(phase_id, background_cycles,
+            irq_count != 0u ? work->irq_max : 0u, priority_miss, work->sample_failed, work->close_missed, work->new_run);
+    }
 
     app_realtime_schedule_write_begin();
-    s_realtime_schedule.phase_last_start_cycle[phase_id] = phase_start;
-    s_realtime_schedule.phase_last_runtime_cycles[phase_id] = runtime_cycles;
-    s_realtime_schedule.phase_run_count[phase_id]++;
-    if (runtime_cycles >
-        s_realtime_schedule.phase_max_runtime_cycles[phase_id]) {
-        s_realtime_schedule.phase_max_runtime_cycles[phase_id] =
-            runtime_cycles;
+    if (work->run_service) {
+        s_realtime_schedule.phase_last_start_cycle[phase_id] = work->phase_start;
+        s_realtime_schedule.phase_last_runtime_cycles[phase_id] = work->runtime_cycles;
+        s_realtime_schedule.phase_run_count[phase_id]++;
+        if (work->runtime_cycles > s_realtime_schedule.phase_max_runtime_cycles[phase_id])
+            s_realtime_schedule.phase_max_runtime_cycles[phase_id] = work->runtime_cycles;
     }
-    if (overrun) {
+    if (work->overrun) {
         s_realtime_schedule.phase_overrun_count[phase_id]++;
     }
-    if (deadline_missed) {
+    if (work->deadline_missed) {
         s_realtime_schedule.phase_deadline_miss_count[phase_id]++;
     }
-    if (overrun || deadline_missed) {
+    if (work->overrun || work->deadline_missed || priority_miss) {
         s_realtime_schedule.schedule_miss_count++;
     }
     app_realtime_schedule_write_end();
@@ -775,13 +1034,24 @@ static bool app_realtime_run_phase(
     /* DPLL is a diagnostic/control load carried by a healthy TDMA node.  Its
      * loss of lock or local timing overrun must remain visible as feedback,
      * but must never quarantine the node's TDMA service. */
-    if ((overrun || own_deadline_missed) && optional_load && !warmup_cycle &&
-        !dpll_feedback_load) {
+    if ((work->overrun || work->own_deadline_missed) && work->optional_load && !work->warmup_cycle &&
+        !work->dpll_feedback_load) {
         (void)__atomic_fetch_or(&s_realtime_load_quarantined_mask,
-                                load_bit,
+                                work->load_bit,
                                 __ATOMIC_ACQ_REL);
     }
-    if (overrun || deadline_missed) {
+    /* Count the bounded dispatcher tail as part of this phase's elapsed
+     * interval too. A slow snapshot/accounting path cannot be hidden merely
+     * because the foreground and IRQ both returned before the deadline. */
+    if (app_realtime_elapsed_cycles(cycle_epoch, app_realtime_cycle_now()) >
+            contract->end_cycle && !work->deadline_missed) {
+        work->deadline_missed = true;
+        app_realtime_schedule_write_begin();
+        s_realtime_schedule.phase_deadline_miss_count[phase_id]++;
+        s_realtime_schedule.schedule_miss_count++;
+        app_realtime_schedule_write_end();
+    }
+    if (work->overrun || work->deadline_missed || priority_miss || (!work->disabled && work->start_missed)) {
         return false;
     }
     return true;
@@ -866,11 +1136,17 @@ static void app_realtime_trigger_measure_phase(void)
 
 void app_realtime_run_once(void)
 {
+    /* Offline personas, cycle sleep and GUARD have no ingress reservation. */
+    tdma_runtime_owner_priority_rx_window_core1(false, 0u, 0u);
+    /* A stopped maintenance persona may have touched the timer. No clock
+     * mapping survives a table boundary, even if SysTick's low24 repeats. */
+    s_realtime_priority_clock.valid = false;
     /* P3 is an offline physical-calibration session: TDMA is stopped and the
      * calibration owner temporarily owns the shared PIO/DMA persona.  Keep
      * it outside the TDMA realtime phase/load-mask contract and advance one
      * bounded transition per core1 cycle. */
     if (calibration_manager_p3_offline_active_core1()) {
+        s_realtime_priority_baseline_valid = false;
         calibration_manager_p3_service_core1();
         drv_watchdog_mark_progress(1u, 0x0104u);
         diagnostics_record_core1_loop();
@@ -886,6 +1162,7 @@ void app_realtime_run_once(void)
     const bool ring_capture_maintenance =
         calibration_manager_ring_capture_offline_active_core1();
     if (ring_capture_maintenance) {
+        s_realtime_priority_baseline_valid = false;
         calibration_manager_service_core1();
         drv_watchdog_mark_progress(1u, 0x0104u);
     }
@@ -894,6 +1171,7 @@ void app_realtime_run_once(void)
      * than the optional online snapshot phase, but they cannot perturb a
      * running short-frame cycle or be hidden by its quarantine mechanism. */
     if (calibration_manager_training_offline_active_core1()) {
+        s_realtime_priority_baseline_valid = false;
         calibration_manager_service_core1();
         drv_watchdog_mark_progress(1u, 0x0104u);
         diagnostics_record_core1_loop();
@@ -928,6 +1206,13 @@ void app_realtime_run_once(void)
                                      APP_REALTIME_PHASE_CALIBRATION,
                                      APP_REALTIME_LOAD_CALIBRATION,
                                      app_realtime_calibration_phase);
+    } else {
+        /* Maintenance already serviced the foreground owner. Its static
+         * online interval still admits the independent priority ingress. */
+        (void)app_realtime_run_phase(cycle_epoch,
+                                     APP_REALTIME_PHASE_CALIBRATION,
+                                     APP_REALTIME_LOAD_CALIBRATION,
+                                     NULL);
     }
     (void)app_realtime_run_phase(cycle_epoch,
                                  APP_REALTIME_PHASE_SYNC_CAPTURE,

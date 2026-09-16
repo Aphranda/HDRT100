@@ -27,6 +27,11 @@ from itertools import product
 from pathlib import Path
 from typing import Any, Iterable
 
+if __package__:
+    from .p3_alarm_policy import build_acceptance_report
+else:
+    from p3_alarm_policy import build_acceptance_report
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = Path("config/hardware_acceptance/p3_bench_quick.json")
@@ -37,6 +42,8 @@ TDMA_DIAGNOSTIC_RECEIPT_SCHEMA = (
     "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_DIAGNOSTIC_V1")
 QUICK_DIAGNOSTIC_RECEIPT_SCHEMA = (
     "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_QUICK_DIAGNOSTIC_V1")
+QUICK_GRADED_RECEIPT_SCHEMA = (
+    "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_QUICK_GRADED_V1")
 LIMITED_RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_10MHZ_LIMITED_V1"
 REQUIRED_OTA_BLOCK_SIZE = 4096
 SOURCE_ROOTS = {
@@ -67,6 +74,153 @@ DEFAULT_ACCEPTANCE_TIMING = {
 
 class AcceptanceError(RuntimeError):
     """A mandatory acceptance condition was not met."""
+
+
+ALARM_STAGES = ("P0", "P1", "P2", "P3", "T0", "T1", "T2", "T3", "TDMA", "DPLL")
+
+
+def acceptance_scope(profile: str, tdma_only: bool,
+                     strict_stages: Iterable[str] = ()) -> dict[str, Any]:
+    """Freeze objectives before probing; extra observations never add gates."""
+    strict = list(dict.fromkeys(strict_stages))
+    if any(stage not in ALARM_STAGES for stage in strict):
+        raise AcceptanceError("unknown strict acceptance stage")
+    if tdma_only and "DPLL" in strict:
+        raise AcceptanceError("DPLL cannot be required with --tdma-only")
+    required = ["P0", "P3", "T3", "TDMA"]
+    if profile != "QUICK_DIAGNOSTIC":
+        required = [stage for stage in ALARM_STAGES if stage != "DPLL" or not tdma_only]
+        strict = list(dict.fromkeys(required + strict))
+    required = list(dict.fromkeys(required + strict))
+    return {"schema": "HAOFV_P3_FIXED_SCOPE_V1", "profile": profile,
+            "required_stages": required, "strict_required_stages": strict,
+            "tdma_only": tdma_only}
+
+
+def normalize_alarm_failures(raw_failures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Bind producer phase names to stages; never guess severity from error text."""
+    failures = deepcopy(raw_failures)
+    stage_prefixes = (("coarse CLK", "P1"), ("coded marker", "P2"),
+                      ("TRN-00", "T0"), ("TRN-01", "T1"), ("TRN-02", "T2"),
+                      ("TRN-03", "T3"), ("four-Node TDMA", "TDMA"),
+                      ("TDMA", "TDMA"), ("final TDMA", "TDMA"),
+                      ("internal DPLL", "DPLL"), ("DPLL", "DPLL"))
+    for failure in failures:
+        for prefix, stage in stage_prefixes:
+            if failure.get("phase", "").startswith(prefix):
+                failure["stage"] = stage
+                break
+    return failures
+
+
+def write_alarm_report(context: dict[str, Any], *, error: str | None = None) -> dict[str, Any]:
+    """Persist both classifications and their exact inputs, including aborts."""
+    inputs = dict(profile=context["scope"]["profile"], stages=context["stages"],
+                  required_stages=context["scope"]["required_stages"],
+                  strict_required_stages=context["scope"]["strict_required_stages"],
+                  failures=normalize_alarm_failures(context["failures"]), fatal_error=error)
+    report = build_acceptance_report(**inputs)
+    for name, value in (("alarm-inputs.json", inputs), ("alarms.json", report)):
+        (context["out_dir"] / name).write_text(
+            json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def validate_alarm_report(root: Path, record: dict[str, Any]) -> None:
+    """New receipts must reproduce their grading; old receipts stay readable."""
+    fields = ("alarm_report", "alarm_inputs", "fixed_scope")
+    if not any(field in record for field in fields) and record.get("schema") != QUICK_GRADED_RECEIPT_SCHEMA:
+        return
+    if not all(field in record for field in fields):
+        raise AcceptanceError("incomplete graded acceptance evidence")
+    values = {}
+    for field in fields:
+        path = _validate_evidence_file(root, record[field], field)
+        values[field] = json.loads(path.read_text(encoding="utf-8"))
+    inputs, report, scope = (values[field] for field in ("alarm_inputs", "alarm_report", "fixed_scope"))
+    expected_scope = acceptance_scope(
+        record["acceptance_profile"], record.get("dpll_observation") == "SKIPPED_TDMA_ONLY",
+        scope.get("strict_required_stages", []))
+    if scope != expected_scope or any(inputs.get(key) != scope[key] for key in (
+            "profile", "required_stages", "strict_required_stages")):
+        raise AcceptanceError("graded acceptance scope differs from frozen objectives")
+    if report != build_acceptance_report(**inputs):
+        raise AcceptanceError("alarm grading differs from recorded evidence")
+    if "alarm_stage_sources" in record:
+        field_map = dict(P0="topology_summary", P1="coarse_calibration_summary",
+                         P2="coded_calibration_summary", P3="p3_summary", T0="trn00_summary",
+                         T1="trn01_summary", T2="trn02_summary", T3="trn03_matrix", TDMA="tdma_summary")
+        if record.get("dpll_observation") != "SKIPPED_TDMA_ONLY":
+            field_map["DPLL"] = "dpll_summary"
+        if record["alarm_stage_sources"] != {stage: record.get(field) for stage, field in field_map.items()}:
+            raise AcceptanceError("alarm stage sources differ from receipt evidence")
+        measured = load_alarm_stages(root, record["alarm_stage_sources"], record["tdma_board_ids"])
+        if inputs["stages"] != measured:
+            raise AcceptanceError("alarm stage inputs differ from measured summaries")
+    elif record.get("schema") == QUICK_GRADED_RECEIPT_SCHEMA:
+        raise AcceptanceError("graded receipt is missing measured stage sources")
+    if "diagnostic_failures" in record:
+        if inputs["failures"] != normalize_alarm_failures(record["diagnostic_failures"]):
+            raise AcceptanceError("alarm failures differ from receipt diagnostics")
+    if record.get("schema") == QUICK_GRADED_RECEIPT_SCHEMA and scope["tdma_only"]:
+        path = _validate_evidence_file(root, record.get("tdma_stopped_handoff"), "tdma_stopped_handoff")
+        handoff = json.loads(path.read_text(encoding="utf-8"))
+        tdma_path = _validate_evidence_file(root, record.get("tdma_summary"), "tdma_summary")
+        tdma = json.loads(tdma_path.read_text(encoding="utf-8"))
+        if handoff != validate_tdma_stopped_handoff(root, tdma, record["tdma_board_ids"], record["build_id"]):
+            raise AcceptanceError("graded stopped handoff differs from raw records")
+    if report["outcome"] == "BLOCKED":
+        raise AcceptanceError("graded acceptance contains blocking findings")
+    if record.get("acceptance_outcome") != report["outcome"]:
+        raise AcceptanceError("receipt outcome differs from alarm report")
+
+
+def training_inputs_read_back(matrix: dict[str, Any], tdma: dict[str, Any],
+                             board_ids: list[str]) -> bool:
+    """Accept selected training inputs only after every board validates them."""
+    rows = tdma.get("stage_results", [])
+    if (not isinstance(rows, list) or len(rows) != len(board_ids) or
+            [row.get("board_id") for row in rows] != board_ids or
+            matrix.get("node_ids_in_loop_order") != board_ids):
+        return False
+    identity = ("calibration_generation", "topology_generation", "topology_crc32",
+                "profile_crc32", "schedule_crc32")
+    for row in rows:
+        stage = row.get("stage", {})
+        links = row.get("links", [])
+        if (row.get("passed") is not True or stage.get("complete") != 1 or
+                stage.get("node_count") != len(board_ids) or
+                stage.get("valid_link_bitmap") != (1 << len(board_ids)) - 1 or
+                any(stage.get(key) != matrix.get(key) or key not in matrix for key in identity) or
+                len(links) != len(board_ids) or
+                [link.get("link_index") for link in links] != list(range(len(board_ids))) or
+                any(link.get("valid") != 1 or any(link.get(key) != matrix[key] for key in identity)
+                    for link in links)):
+            return False
+    return bool(board_ids)
+
+
+def load_alarm_stages(root: Path, sources: dict[str, Any], board_ids: list[str]) -> dict[str, dict]:
+    """Reconstruct classifications from hash-bound raw artifacts, not copied verdicts."""
+    stages = {}
+    for stage, entry in sources.items():
+        path = _validate_evidence_file(root, entry, f"alarm stage {stage}")
+        summary = json.loads(path.read_text(encoding="utf-8"))
+        if summary.get("schema") == "HAOFV_HARDWARE_ACCEPTANCE_PHASE_SUMMARY_V1":
+            children = []
+            for child in summary.get("evidence", []):
+                child_path = _validate_evidence_file(root, child, f"alarm stage {stage} child")
+                children.append(json.loads(child_path.read_text(encoding="utf-8")))
+            summary = {**summary, "summaries": children}
+        stages[stage] = summary
+    matrix, tdma = stages.get("T3", {}), stages.get("TDMA", {})
+    usable = training_inputs_read_back(matrix, tdma, board_ids)
+    for stage in ("P1", "P2", "T0", "T1", "T2", "T3"):
+        if stage in stages:
+            stages[stage] = {**stages[stage], "_input_validated": usable,
+                             "_input_validation": {"source": "TDMA stage_results", "board_ids": board_ids,
+                                                   "calibration_generation": matrix.get("calibration_generation")}}
+    return stages
 
 
 def resolve_path_delay_baseline_divisor(config: dict[str, Any]) -> int:
@@ -1311,6 +1465,7 @@ def _validate_quick_diagnostic_receipt(
             diagnostic.get("flow_completed") is not True or
             diagnostic.get("acceptance_profile") != "QUICK_DIAGNOSTIC"):
         raise AcceptanceError("quick diagnostic summary is not flow-complete")
+    validate_alarm_report(root, record)
 
 
 def _validate_limited_10mhz_evidence(root: Path,
@@ -1360,6 +1515,7 @@ def check_staged(root: Path, receipt_path: Path) -> None:
     if schema not in (RECEIPT_SCHEMA, TDMA_RECEIPT_SCHEMA,
                       TDMA_DIAGNOSTIC_RECEIPT_SCHEMA,
                       QUICK_DIAGNOSTIC_RECEIPT_SCHEMA,
+                      QUICK_GRADED_RECEIPT_SCHEMA,
                       LIMITED_RECEIPT_SCHEMA) or \
             receipt.get("passed") is not True:
         raise AcceptanceError("staged hardware acceptance receipt is not PASS")
@@ -1387,13 +1543,14 @@ def check_staged(root: Path, receipt_path: Path) -> None:
             _validate_tdma_diagnostic_receipt(root, receipt)
         else:
             _validate_evidence(root, receipt, include_dpll=False)
-    elif schema == QUICK_DIAGNOSTIC_RECEIPT_SCHEMA:
+    elif schema in (QUICK_DIAGNOSTIC_RECEIPT_SCHEMA, QUICK_GRADED_RECEIPT_SCHEMA):
         # Quick runs OTA all five boards so NO5 can remain the external
         # observer, while TDMA still intentionally covers NO1..NO4 only.
         # It is therefore not a TDMA-only receipt and its board sets differ.
         _validate_quick_diagnostic_receipt(root, receipt)
     else:
         _validate_evidence(root, receipt)
+    validate_alarm_report(root, receipt)
     print(
         f"OK   hardware acceptance: sources={file_count} "
         f"build={receipt.get('build_id')} trials={receipt.get('trial_count')} "
@@ -1667,20 +1824,35 @@ def validate_p3(summary: dict[str, Any], config: dict[str, Any]) -> dict[str, An
         len(config["p3_board_ids_in_physical_order"]) *
         len(config["frequency_ladder_mhz"]) * 2 * int(config["repeats"]))
     policy = summary.get("frequency_policy", {})
-    delays = [float(trial["delay_estimate_ns"]) for trial in trials
+    if any("frequency_hz" in trial for trial in trials):
+        per_frequency = len(config["p3_board_ids_in_physical_order"]) * 2 * int(config["repeats"])
+        expected_frequencies = {int(value) * 1000000 for value in config["frequency_ladder_mhz"]}
+        if (any(trial.get("frequency_hz") not in expected_frequencies for trial in trials) or
+                any(sum(trial.get("frequency_hz") == frequency for trial in trials) != per_frequency
+                    for frequency in expected_frequencies)):
+            raise AcceptanceError("P3 matrix does not cover every configured frequency")
+    # LIMITED_RX exploration is not a required stable operating point. Keep
+    # every trial as evidence, but validate timing only for selected stable rows.
+    diagnostic_hz = {int(row["frequency_mhz"]) * 1000000
+                     for row in summary.get("ladder", [])
+                     if row.get("required_for_stable") is False and
+                     int(row["frequency_mhz"]) > int(config["stable_frequency_mhz"]) and
+                     row.get("operational_class") == "LIMITED_RX"}
+    selected = [trial for trial in trials if trial.get("frequency_hz") not in diagnostic_hz]
+    delays = [float(trial["delay_estimate_ns"]) for trial in selected
               if "delay_estimate_ns" in trial]
     if (summary.get("passed") is not True or len(trials) != expected_trials or
-            any(trial.get("passed") is not True for trial in trials) or
+            not selected or any(trial.get("passed") is not True for trial in selected) or
             policy.get("stable_profiles_passed") is not True or
             policy.get("highest_stable_frequency_mhz") !=
-            config["stable_frequency_mhz"] or len(delays) != expected_trials):
+            config["stable_frequency_mhz"] or len(delays) != len(selected)):
         raise AcceptanceError("four-board P3 matrix did not meet acceptance")
     minimum = float(config["minimum_link_delay_ns"])
     maximum = float(config["maximum_link_delay_ns"])
     if min(delays) < minimum or max(delays) > maximum:
         raise AcceptanceError(
             f"P3 delay outside configured bench range: {min(delays)}..{max(delays)}")
-    for trial in trials:
+    for trial in selected:
         for endpoint in ("initiator", "responder"):
             snapshot = trial.get(endpoint, {})
             if snapshot.get("dma_overrun_count") != 0 or snapshot.get("pio_stall_count") != 0:
@@ -2123,6 +2295,17 @@ def validate_topology_reuse_evidence(root: Path, record: dict[str, Any]) -> None
 
 
 def run_acceptance(args: argparse.Namespace) -> None:
+    """Keep failure classifications even when a prerequisite aborts the run."""
+    try:
+        _run_acceptance_impl(args)
+    except (AcceptanceError, OSError, KeyError, TypeError, ValueError) as exc:
+        context = getattr(args, "_alarm_context", None)
+        if context is not None:
+            write_alarm_report(context, error=str(exc))
+        raise
+
+
+def _run_acceptance_impl(args: argparse.Namespace) -> None:
     acceptance_started = time.perf_counter()
     root = args.root.resolve()
     config_path = acceptance_config_path(args, root)
@@ -2203,6 +2386,12 @@ def run_acceptance(args: argparse.Namespace) -> None:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = acceptance_output_path(root, args.out_dir, stamp)
     out_dir.mkdir(parents=True, exist_ok=True)
+    scope = acceptance_scope(acceptance_profile, tdma_only,
+                             getattr(args, "strict_stage", []) or [])
+    scope_path = out_dir / "fixed-scope.json"
+    scope_path.write_text(json.dumps(scope, indent=2) + "\n", encoding="utf-8")
+    alarm_context = dict(scope=scope, stages={}, failures=diagnostic_failures, out_dir=out_dir)
+    args._alarm_context = alarm_context
     topology_reuse_source = None
     if getattr(args, "reuse_topology", None) is not None:
         if not (tdma_only and quick_diagnostic):
@@ -2333,6 +2522,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
             json.dumps(topology_summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     topology_summary = json.loads(
         topology_summary_path.read_text(encoding="utf-8"))
+    alarm_context["stages"]["P0"] = topology_summary
     validate_pass_summary(topology_summary, "P0T topology")
     if topology_summary.get("ring_order") != board_ids:
         raise AcceptanceError(
@@ -2397,6 +2587,11 @@ def run_acceptance(args: argparse.Namespace) -> None:
     write_phase_summary(
         coded_summary_path, "CODED_MARKER", coded_paths,
         diagnostic_continue=diagnostic_continue)
+    for stage, paths in (("P1", coarse_paths), ("P2", coded_paths)):
+        summaries = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+        alarm_context["stages"][stage] = {
+            "passed": all(row.get("passed") is True for row in summaries),
+            "summaries": summaries}
 
     schedule_before = read_schedules(board_ids, timing)
     p3_dir = out_dir / "p3-four-board"
@@ -2427,6 +2622,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
     _run_step(p3_command, root, out_dir / "p3.log")
     p3_summary_path = p3_dir / "summary.json"
     p3_summary = json.loads(p3_summary_path.read_text(encoding="utf-8"))
+    alarm_context["stages"]["P3"] = p3_summary
     p3_metrics = validate_p3(p3_summary, config)
     link_delays = p3_link_delays(p3_summary, config)
     link_base_delays = [
@@ -2558,6 +2754,9 @@ def run_acceptance(args: argparse.Namespace) -> None:
         trn00_summary_path, "TRN-00_MARK_AND_RESIDENCE",
         [marker_summary_path, residence_summary_path],
         diagnostic_continue=diagnostic_continue)
+    alarm_context["stages"]["T0"] = {
+        "passed": marker_summary.get("passed") is True and residence_summary.get("passed") is True,
+        "summaries": [marker_summary, residence_summary]}
 
     sck_dir = out_dir / "trn01-sck"
     sck_command = [
@@ -2589,6 +2788,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
     sck_summary = run_diagnostic_gate(
         sck_command, out_dir / "trn01-sck.log", sck_summary_path,
         "TRN-01 SCK training")
+    alarm_context["stages"]["T1"] = sck_summary
     sck_offsets_by_node = selected_sck_offsets(
         sck_summary, len(board_ids),
         diagnostic_fallback=(
@@ -2651,6 +2851,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
     data_summary = run_diagnostic_gate(
         data_command, out_dir / "trn02-data.log", data_summary_path,
         "TRN-02 DATA training")
+    alarm_context["stages"]["T2"] = data_summary
     record_parameter_handoff(
         "TRN-02 DATA", data_summary_path, data_summary,
         loaded_from="TRN-00 MARK + previous DATA calibration", selected={
@@ -2740,6 +2941,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
         })
         matrix_fallback_used = True
     trn03_matrix = json.loads(trn03_matrix_path.read_text(encoding="utf-8"))
+    alarm_context["stages"]["T3"] = trn03_matrix
     if matrix_fallback_used:
         assert fallback_manifest_path is not None
         trn03_matrix.setdefault("derivation", {})[
@@ -2838,6 +3040,15 @@ def run_acceptance(args: argparse.Namespace) -> None:
         allow_failure=diagnostic_continue)
     tdma_summary_path = tdma_dir / "summary.json"
     tdma_summary = json.loads(tdma_summary_path.read_text(encoding="utf-8"))
+    alarm_context["stages"]["TDMA"] = tdma_summary
+    inputs_validated = training_inputs_read_back(trn03_matrix, tdma_summary, board_ids)
+    for stage in ("P1", "P2", "T0", "T1", "T2", "T3"):
+        # This is selected-input usability, never a new successful measurement.
+        alarm_context["stages"][stage] = {
+            **alarm_context["stages"][stage], "_input_validated": inputs_validated,
+            "_input_validation": {"source": "TDMA stage_results", "board_ids": board_ids,
+                                  "calibration_generation": training_generation}}
+    alarm_context["stages"]["T3"]["_stage_readback"] = tdma_summary.get("stage_results", [])
     if diagnostic_continue and tdma_returncode != 0:
         diagnostic_failures.append({
             "phase": "four-Node TDMA closed loop",
@@ -2857,6 +3068,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
             stopped_handoff = dict(mode="STOPPED_RECORDS", passed=False, error=str(exc))
             diagnostic_failures.append({
                 "phase": "TDMA stopped-record handoff", "returncode": 1,
+                "blocking": True,
                 "error": str(exc), "summary": tdma_summary_path.resolve().relative_to(root).as_posix(),
             })
         stopped_handoff_path = out_dir / "tdma-stopped-handoff.json"
@@ -3007,6 +3219,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
         else:
             validate_pass_summary(dpll_summary, "DPLL/VDC NO5 observation")
 
+    if dpll_summary_path is not None:
+        alarm_context["stages"]["DPLL"] = dpll_summary
     final_schedules = read_schedules(board_ids, timing)
     try:
         validate_runtime_schedules(
@@ -3072,6 +3286,11 @@ def run_acceptance(args: argparse.Namespace) -> None:
             "calibration_quarantined": False,
             "hardware_acceptance_timing": timing,
             "timing_probe": evidence_entry(root, timing_probe_path),
+            "fixed_scope": evidence_entry(root, scope_path),
+            "alarm_inputs": evidence_entry(root, out_dir / "alarm-inputs.json"),
+            "alarm_report": evidence_entry(root, out_dir / "alarms.json"),
+            "alarm_stage_sources": alarm_sources,
+            "acceptance_outcome": alarm_report["outcome"],
         }
         if dpll_summary_path is not None:
             value["dpll_summary"] = evidence_entry(root, dpll_summary_path)
@@ -3088,6 +3307,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
         return value
 
     def persist_receipt(value: dict[str, Any]) -> None:
+        validate_alarm_report(root, value)
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
         receipt_path.write_text(payload, encoding="utf-8")
@@ -3118,6 +3338,19 @@ def run_acceptance(args: argparse.Namespace) -> None:
                 f"error budget {budget['error_s']:.3f}s"),
             "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
         })
+    alarm_paths = dict(P0=topology_summary_path, P1=coarse_summary_path,
+                       P2=coded_summary_path, P3=p3_summary_path, T0=trn00_summary_path,
+                       T1=trn01_summary_path, T2=data_summary_path, T3=trn03_matrix_path,
+                       TDMA=tdma_summary_path)
+    if dpll_summary_path is not None:
+        alarm_paths["DPLL"] = dpll_summary_path
+    alarm_sources = {stage: evidence_entry(root, path) for stage, path in alarm_paths.items()}
+    alarm_context["stages"] = load_alarm_stages(root, alarm_sources, board_ids)
+    alarm_report = write_alarm_report(alarm_context)
+    print(f"P3 graded outcome: {alarm_report['outcome']}; "
+          f"counts={alarm_report['counts']}; report={out_dir / 'alarms.json'}", flush=True)
+    if alarm_report["outcome"] == "BLOCKED":
+        raise AcceptanceError("required acceptance objectives failed; see alarms.json")
     if diagnostic_failures or quick_diagnostic:
         diagnostic_result = {
             "schema": "HAOFV_HARDWARE_ACCEPTANCE_DIAGNOSTIC_V1",
@@ -3126,6 +3359,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
             "strict_gates_passed": not diagnostic_failures,
             "diagnostic_continue": True,
             "acceptance_profile": acceptance_profile,
+            "acceptance_outcome": alarm_report["outcome"],
+            "alarm_counts": alarm_report["counts"],
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "build_id": build_id,
             "failures": diagnostic_failures,
@@ -3156,7 +3391,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
         diagnostic_receipt_written = False
         if quick_diagnostic:
             receipt = make_receipt(
-                QUICK_DIAGNOSTIC_RECEIPT_SCHEMA,
+                QUICK_GRADED_RECEIPT_SCHEMA,
                 "FOUR_NODE_TDMA_QUICK_DIAGNOSTIC")
             receipt.update({
                 "flow_completed": True,
@@ -3202,7 +3437,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
             "quick diagnostic profile" if quick_diagnostic else
             "diagnostic gates")
         print(
-            f"PASS hardware regression flow completed with {result_label}; "
+            f"{alarm_report['outcome']} hardware regression flow completed with {result_label}; "
             f"evidence={diagnostic_path}"
             f" receipt={receipt_path if diagnostic_receipt_written else 'none'}")
         return
@@ -3241,11 +3476,13 @@ def parse_args() -> argparse.Namespace:
         help="run calibration and four-node TDMA acceptance without NO5/DPLL")
     run.add_argument(
         "--diagnostic-continue", action="store_true",
-        help=("continue through TDMA/DPLL runtime gate failures, retain all "
-              "evidence, and finish with a non-passing diagnostic result"))
+        help=("retain quality failures and continue bounded diagnostics; "
+              "required objectives and evidence integrity still gate acceptance"))
     run.add_argument(
         "--full", action="store_true",
         help="use the full bench config instead of the quick default")
+    run.add_argument("--strict-stage", action="append", choices=ALARM_STAGES, default=[],
+                     help="require this stage's strict quality in this run; repeatable")
     resume = subparsers.add_parser(
         "resume",
         help="reuse an existing package/OTA record; never build or OTA")
@@ -3259,13 +3496,15 @@ def parse_args() -> argparse.Namespace:
     resume.add_argument("--out-dir", type=Path)
     resume.add_argument("--reuse-topology", type=Path,
                         help="reuse an original passing P0T summary; quick four-board mode only")
+    resume.add_argument("--strict-stage", action="append", choices=ALARM_STAGES, default=[],
+                        help="require this stage's strict quality in this run; repeatable")
     resume.add_argument(
         "--tdma-only", action="store_true",
         help="resume four-node TDMA acceptance without NO5/DPLL")
     resume.add_argument(
         "--diagnostic-continue", action="store_true",
-        help=("continue through TDMA/DPLL runtime gate failures, retain all "
-              "evidence, and finish with a non-passing diagnostic result"))
+        help=("retain quality failures and continue bounded diagnostics; "
+              "required objectives and evidence integrity still gate acceptance"))
     check = subparsers.add_parser(
         "check-staged", help="gate staged code against the indexed receipt")
     check.add_argument("--root", type=Path, default=ROOT)
