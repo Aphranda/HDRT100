@@ -476,10 +476,10 @@ class SequenceUi(tk.Tk):
             self.log(f"独立 SP8T 只能在序列未运行且资源空闲时切换（当前状态：{self.sequence_state.get()}）。", "WARN")
             return
         value = self.independent_switch.get()
-        self.enqueue_commands([f"CONF:SWITCH1 {value}", "READ:SWITCH1?"])
+        self.enqueue_commands([f"CONF:SWITCH1 {value}", "READ:SWITCH1?", "READ:IO:STAT?"])
 
     def read_independent_switch(self) -> None:
-        self.enqueue_commands(["READ:SWITCH1?"])
+        self.enqueue_commands(["READ:SWITCH1?", "READ:IO:STAT?"])
 
     def refresh_ports(self, log_result: bool = True) -> None:
         backend = self.backend.get()
