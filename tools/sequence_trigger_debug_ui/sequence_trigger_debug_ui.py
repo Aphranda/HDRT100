@@ -163,6 +163,7 @@ class SequenceUi(tk.Tk):
         self.plan = tk.StringVar(value="SP8T")
         self.codes = tk.StringVar(value="0,1,2,3,4,5,6,7")
         self.status = tk.StringVar(value="未连接")
+        self.sequence_state = tk.StringVar(value="UNKNOWN")
         self.mode_hint = tk.StringVar(value="外部脉冲模式：启动后等待输入脉冲")
         self.io_inputs = tk.StringVar(value="输入：—")
         self.io_outputs = tk.StringVar(value="输出：—")
@@ -471,8 +472,8 @@ class SequenceUi(tk.Tk):
             side="right")
 
     def set_independent_switch(self) -> None:
-        if self.source.get() != "BUS" or self.status.get() not in {"未连接", "IDLE"}:
-            self.log("独立 SP8T 只能在序列未运行且资源空闲时切换。", "WARN")
+        if self.sequence_state.get() not in {"UNKNOWN", "IDLE"}:
+            self.log(f"独立 SP8T 只能在序列未运行且资源空闲时切换（当前状态：{self.sequence_state.get()}）。", "WARN")
             return
         value = self.independent_switch.get()
         self.enqueue_commands([f"CONF:SWITCH1 {value}", "READ:SWITCH1?"])
@@ -831,6 +832,7 @@ class SequenceUi(tk.Tk):
             return
         if command.upper().startswith("READ:SEQ:NEXT?"):
             try:
+                self.sequence_state.set(next(csv.reader([response]))[0].strip('"'))
                 self.switch_position.set(format_switch_position(response))
             except (ValueError, csv.Error):
                 self.switch_position.set("当前开关：状态解析失败")
