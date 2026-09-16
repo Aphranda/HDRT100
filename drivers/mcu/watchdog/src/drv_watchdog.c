@@ -63,7 +63,8 @@ void drv_watchdog_write_evidence(uint32_t magic,
                               ((core1_loop_count & 0xFFFFu) << 16u);
 }
 
-void drv_watchdog_mark_progress(uint32_t core_index, uint32_t marker)
+void __attribute__((section(".time_critical.drv_watchdog_mark_progress")))
+drv_watchdog_mark_progress(uint32_t core_index, uint32_t marker)
 {
     if (core_index < 2u) {
         watchdog_hw->scratch[5u + core_index] = marker;

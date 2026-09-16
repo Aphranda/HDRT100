@@ -5,6 +5,13 @@
 #include <stddef.h>
 #include <string.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
+#define TDMA_PRIORITY_HOT __not_in_flash("tdma_priority_rx")
+#else
+#define TDMA_PRIORITY_HOT
+#endif
+
 _Static_assert((TDMA_PRIORITY_RX_CAPACITY & (TDMA_PRIORITY_RX_CAPACITY - 1u)) == 0u,
     "priority records use direct power-of-two sequence indexing");
 _Static_assert(sizeof(tdma_priority_rx_record_t) % 4u == 0u &&
@@ -52,7 +59,7 @@ static bool begin(tdma_priority_rx_t *lane)
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     return true;
 }
-static void end(tdma_priority_rx_t *lane)
+static TDMA_PRIORITY_HOT void end(tdma_priority_rx_t *lane)
 {
     store_words(lane->published, &lane->status, sizeof(lane->status));
     /* The IRQ/disabled-source owner is the only serialized writer. An RMW
@@ -88,12 +95,12 @@ void tdma_priority_rx_stop(tdma_priority_rx_t *lane)
     lane->status.active = 0u;
     end(lane);
 }
-void tdma_priority_rx_reject(tdma_priority_rx_t *lane, uint32_t reason)
+TDMA_PRIORITY_HOT void tdma_priority_rx_reject(tdma_priority_rx_t *lane, uint32_t reason)
 {
     increment(&lane->status.reject_count);
     lane->status.last_reject = reason;
 }
-void tdma_priority_rx_finish_irq(tdma_priority_rx_t *lane, uint64_t ticks, uint32_t cycles)
+TDMA_PRIORITY_HOT void tdma_priority_rx_finish_irq(tdma_priority_rx_t *lane, uint64_t ticks, uint32_t cycles)
 {
     if (!lane || !begin(lane)) return;
     increment(&lane->status.irq_count);
@@ -106,7 +113,7 @@ void tdma_priority_rx_finish_irq(tdma_priority_rx_t *lane, uint64_t ticks, uint3
     end(lane);
 }
 
-bool tdma_priority_rx_candidate(uint64_t produced, uint32_t stride, uint32_t frame_words,
+TDMA_PRIORITY_HOT bool tdma_priority_rx_candidate(uint64_t produced, uint32_t stride, uint32_t frame_words,
     uint32_t byte_shift, uint32_t bit_shift, uint32_t ring_words, uint64_t *candidate)
 {
     if (!candidate || !stride || byte_shift >= stride || bit_shift > 7u ||
@@ -120,7 +127,7 @@ bool tdma_priority_rx_candidate(uint64_t produced, uint32_t stride, uint32_t fra
     return true;
 }
 
-uint32_t tdma_priority_rx_validate(const tdma_priority_rx_binding_t *b,
+TDMA_PRIORITY_HOT uint32_t tdma_priority_rx_validate(const tdma_priority_rx_binding_t *b,
     const tdma_priority_rx_record_t *r)
 {
     if (!b || !r || b->node_count < 2u || b->node_count > TDMA_FLIGHT_SHORT_SLOT_COUNT ||
@@ -156,7 +163,7 @@ uint32_t tdma_priority_rx_validate(const tdma_priority_rx_binding_t *b,
     return TDMA_PRIORITY_RX_OK;
 }
 
-bool tdma_priority_rx_publish(tdma_priority_rx_t *lane, const tdma_priority_rx_record_t *r)
+TDMA_PRIORITY_HOT bool tdma_priority_rx_publish(tdma_priority_rx_t *lane, const tdma_priority_rx_record_t *r)
 {
     if (!lane || !r || !lane->status.active || r->epoch != lane->status.epoch) return false;
     const uint32_t index = r->sequence & (TDMA_PRIORITY_RX_CAPACITY - 1u);

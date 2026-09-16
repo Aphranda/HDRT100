@@ -25,6 +25,7 @@ bool tdma_runtime_owner_request_origin_release(uint32_t trial_epoch, uint32_t co
     uint32_t *request_seq);
 bool tdma_runtime_owner_get_origin_release(tdma_origin_release_snapshot_t *out);
 bool tdma_runtime_owner_get_priority_rx_snapshot(tdma_priority_rx_snapshot_t *out);
+bool tdma_runtime_owner_set_priority_rx_sink(tdma_priority_rx_sink_t sink);
 /* Core1 only, with the priority IRQ window closed; bounded owner counters. */
 bool tdma_runtime_owner_priority_rx_counters_core1(tdma_priority_rx_counters_t *out);
 bool tdma_runtime_owner_get_priority_rx_timing(tdma_priority_rx_timing_t *out);

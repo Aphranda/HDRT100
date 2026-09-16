@@ -177,6 +177,41 @@ static void trace_check(const uint32_t *expected, uint32_t count) {
     assert(watchdog_hw->scratch[6]==expected[count-1u]);
 }
 
+static unsigned sink_calls, sink_stops;
+static tdma_priority_rx_record_t sink_record;
+static void test_sink(const tdma_priority_rx_record_t *record) {
+    assert(core == 1u);
+    if (!record) { ++sink_stops; return; }
+    ++sink_calls;
+    sink_record = *record;
+    tdma_priority_rx_record_t retained;
+    assert(tdma_pio_spi_phys_copy_priority_rx_live(record->epoch,record->sequence,&retained));
+    assert(!memcmp(record,&retained,sizeof(retained)));
+    timer1_hw->timerawl += 100u; /* Must remain charged to the IRQ body. */
+}
+
+static void direct_sink_tests(void) {
+    tdma_pio_spi_phys_t phys={.armed=true,.flight_payload_size=132u,
+        .flight_physical_byte_count=176u,.flight_overlay_alignment_locked=true,
+        .flight_alignment_byte_shift=3u,.rx_csn_pin=27u};
+    tdma_ring_runtime_config_t config={.reference_slot_id=0u,.local_slot_id=1u,.node_count=4u,
+        .schedule_crc32=0x1234u,.ring_profile_crc32=0x5678u,.cycle_period_ns=1000000u};
+    assert(tdma_pio_spi_phys_set_priority_rx_sink(test_sink));
+    assert(tdma_rx_dma_counter_reset(&s_tdma_pio_spi_rx_sequence,176u,timer1_hw->timerawl));
+    produced(0u); assert(tdma_priority_start(&phys,&config)); open_irq(); tdma_priority_boundary_service(&phys);
+    assert(!tdma_pio_spi_phys_set_priority_rx_sink(NULL));
+    const uint32_t epoch=s_tdma_priority_rx.status.epoch;
+    write_wire(3u,UINT32_MAX,0u); produced(176u); invoke();
+    assert(sink_calls==1u && sink_record.epoch==epoch && sink_record.sequence==UINT32_MAX);
+    assert(s_tdma_priority_rx.status.irq_last_cycles>=100u);
+    invoke(); assert(sink_calls==1u); /* Replayed carrier is not delivered twice. */
+    write_wire(179u,0u,0u); produced(352u); invoke();
+    assert(sink_calls==2u && sink_record.sequence==0u && sink_record.epoch==epoch+1u);
+    gpio_high=false; invoke(); gpio_high=true; assert(sink_calls==2u);
+    tdma_priority_stop(); assert(sink_stops==1u);
+    assert(tdma_pio_spi_phys_set_priority_rx_sink(NULL));
+}
+
 static void breadcrumb_tests(void) {
     tdma_pio_spi_phys_t phys={.armed=true,.flight_payload_size=132u,
         .flight_physical_byte_count=176u,.flight_overlay_alignment_locked=true,
@@ -630,6 +665,7 @@ int main(void) {
     breadcrumb_tests();
     counters_tests();
     timing_tests();
+    direct_sink_tests();
     printf("priority ingress: 24 case groups passed; lane=%zu record=%zu snapshot=%zu\n",sizeof(pure),sizeof(record),sizeof(snap));
     return 0;
 }

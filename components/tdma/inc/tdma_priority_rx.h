@@ -18,6 +18,14 @@ typedef struct {
     uint8_t mailbox[TDMA_PRIORITY_RX_MAILBOX_BYTES];
 } tdma_priority_rx_record_t;
 
+/* STOP-registered Core1 entry for an accepted transport record. Called in the
+ * capture IRQ after validation/publication, before its timed body ends. The
+ * pointer is borrowed only for this call. No blocking, hardware ownership,
+ * general parsing or controller service is allowed here. NULL retires the
+ * entry at a Core1 owner boundary with the capture source disabled/serialized.
+ * Delivery authorizes neither event matching nor DCO control. */
+typedef void (*tdma_priority_rx_sink_t)(const tdma_priority_rx_record_t *record);
+
 typedef struct {
     uint32_t schema, active, epoch, irq_count, publish_count;
     uint32_t overwrite_count, duplicate_count, sequence_gap_count;

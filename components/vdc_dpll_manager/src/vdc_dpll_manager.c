@@ -2,6 +2,7 @@
 #include "vdc_time_mapping.h"
 #include "vdc_model_projection.h"
 #include "vdc_priority_tx.h"
+#include "vdc_priority_rx.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -1795,7 +1796,8 @@ bool vdc_dpll_manager_init(void)
     s_vdc_tdma_service = tdma_runtime_owner_get();
     if (s_vdc_tdma_service == NULL ||
         !vdc_tdma_payload_register(s_vdc_tdma_service) ||
-        !tdma_runtime_owner_set_priority_tx_provider(vdc_priority_tx_core1)) {
+        !tdma_runtime_owner_set_priority_tx_provider(vdc_priority_tx_core1) ||
+        !tdma_runtime_owner_set_priority_rx_sink(vdc_priority_rx_core1)) {
         return false;
     }
     s_vdc_tdma_registered = true;
@@ -2993,6 +2995,7 @@ static void vdc_dpll_manager_waveform_capture_service(void)
 #include "vdc_boundary_capture.inc"
 #include "vdc_boundary_control.inc"
 #include "vdc_priority_ingress.inc"
+#include "vdc_priority_rx.inc"
 
 /* Section placement alone does not prevent GCC from moving this whole RAM
  * step into the XIP service wrapper when that wrapper gains another call. */

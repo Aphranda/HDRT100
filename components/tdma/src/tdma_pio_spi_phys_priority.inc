@@ -1,6 +1,11 @@
 /* Core1-only IRQ3 capture. DMA remains the sole DATA FIFO reader. Geometry
  * is frozen from the existing successful overlay training, not rediscovered
  * in an ISR. No ordinary scanner, FIFO tail, timing accumulator or PI call. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#define TDMA_PRIORITY_IRQ_HOT __not_in_flash("tdma_priority_irq")
+#else
+#define TDMA_PRIORITY_IRQ_HOT
+#endif
 /* Keep the fixed record table below Core1's reserved SCRATCH_X stack.
  * Both app linkers reject data/stack overlap. Startup initializes this
  * section through the SDK's existing scratch copy table. */
@@ -19,8 +24,23 @@ static tdma_pio_spi_phys_t *s_tdma_priority_phys;
 static uint32_t s_tdma_priority_stride, s_tdma_priority_byte_shift, s_tdma_priority_bit_shift;
 static uint32_t s_tdma_priority_boundaries_seen;
 static bool s_tdma_priority_geometry, s_tdma_priority_installed;
+static tdma_priority_rx_sink_t s_tdma_priority_sink;
 static bool s_tdma_priority_window;
 static uint32_t s_tdma_priority_quota, s_tdma_priority_deadline;
+
+bool tdma_pio_spi_phys_set_priority_rx_sink(tdma_priority_rx_sink_t sink)
+{
+    if (s_tdma_priority_installed || s_tdma_priority_rx.status.active) return false;
+    __atomic_store_n(&s_tdma_priority_sink, sink, __ATOMIC_RELEASE);
+    return true;
+}
+
+static TDMA_PRIORITY_IRQ_HOT void tdma_priority_deliver(const tdma_priority_rx_record_t *record)
+{
+    const tdma_priority_rx_sink_t sink =
+        __atomic_load_n(&s_tdma_priority_sink, __ATOMIC_ACQUIRE);
+    if (sink) sink(record);
+}
 /* Bounded STOP-time diagnostics in main RAM, not the IRQ working/stack bank.
  * Core1 owns every write. Atomic words plus one guard avoid a second copy. */
 static struct {
@@ -40,7 +60,7 @@ static void tdma_priority_timing_reset(void)
     __atomic_store_n(&s_tdma_priority_timing.guard, guard + 2u, __ATOMIC_RELEASE);
 }
 
-static void tdma_priority_timing_account(uint32_t entry, uint32_t end,
+static TDMA_PRIORITY_IRQ_HOT void tdma_priority_timing_account(uint32_t entry, uint32_t end,
     const uint32_t cuts[3])
 {
     const uint32_t spans[4] = {cuts[0] - entry, cuts[1] - cuts[0],
@@ -88,7 +108,7 @@ static bool tdma_priority_ticks(uint64_t *ticks)
     return true;
 }
 
-static bool tdma_priority_produced(uint64_t *produced)
+static TDMA_PRIORITY_IRQ_HOT bool tdma_priority_produced(uint64_t *produced)
 {
     uint64_t before, after;
     if (!tdma_priority_ticks(&before)) return false;
@@ -107,12 +127,13 @@ static bool tdma_priority_produced(uint64_t *produced)
          * Reject this copy and use a fresh explicit namespace next entry. */
         if (!tdma_priority_rx_rebase(&s_tdma_priority_rx))
             tdma_priority_rx_stop(&s_tdma_priority_rx);
+        tdma_priority_deliver(NULL);
         return false;
     }
     return true;
 }
 
-static uint32_t tdma_priority_capture(uint64_t entry, uint32_t cuts[3], bool *accepted)
+static TDMA_PRIORITY_IRQ_HOT uint32_t tdma_priority_capture(uint64_t entry, uint32_t cuts[3], bool *accepted)
 {
     const tdma_pio_spi_phys_t *phys = s_tdma_priority_phys;
     if (!phys || !s_tdma_priority_rx.status.active) return TDMA_PRIORITY_RX_INACTIVE;
@@ -133,8 +154,11 @@ static uint32_t tdma_priority_capture(uint64_t entry, uint32_t cuts[3], bool *ac
     /* Only this non-reentrant Core1 IRQ writes the working record. ARM/STOP
      * disable its source and never touch this buffer; readers only see slots. */
     tdma_priority_rx_record_t *const record = &s_tdma_priority_work;
-    *record = (tdma_priority_rx_record_t){.irq_entry_ticks = entry, .candidate_word = candidate,
-        .epoch = s_tdma_priority_rx.status.epoch};
+    /* The fixed copies below overwrite header/mailbox and sequence is read
+     * only after that copy. Avoid clearing those same bytes first. */
+    record->irq_entry_ticks = entry;
+    record->candidate_word = candidate;
+    record->epoch = s_tdma_priority_rx.status.epoch;
     uint8_t outer[TDMA_PIO_SPI_PACKET_HEADER_SIZE];
     tdma_pio_spi_phys_rx_ring_copy(outer, candidate, sizeof(outer), s_tdma_priority_bit_shift);
     tdma_pio_spi_phys_rx_ring_copy(record->header, candidate + sizeof(outer),
@@ -162,11 +186,19 @@ static uint32_t tdma_priority_capture(uint64_t entry, uint32_t cuts[3], bool *ac
     cuts[2] = timer1_hw->timerawl;
     drv_watchdog_mark_progress(1u, TDMA_PRIORITY_PROGRESS_PUBLISH);
     *accepted = tdma_priority_rx_publish(&s_tdma_priority_rx, record);
+    if (*accepted) {
+        /* Publication may advance the namespace on carrier wrap. Deliver
+         * exactly the published identity, never the pre-wrap working epoch. */
+        record->epoch = s_tdma_priority_rx.status.epoch;
+        tdma_priority_deliver(record);
+    } else if (!s_tdma_priority_rx.status.active) {
+        tdma_priority_deliver(NULL);
+    }
     drv_watchdog_mark_progress(1u, TDMA_PRIORITY_PROGRESS_PUBLISHED);
     return TDMA_PRIORITY_RX_OK;
 }
 
-static void tdma_priority_irq(void)
+static TDMA_PRIORITY_IRQ_HOT void tdma_priority_irq(void)
 {
     const uint32_t foreground_progress = watchdog_hw->scratch[6];
     drv_watchdog_mark_progress(1u, TDMA_PRIORITY_PROGRESS_ENTRY);
@@ -230,6 +262,7 @@ static void tdma_priority_stop(void)
     irq_clear(irq);
     pio_interrupt_clear(BOARD_TDMA_RX_PIO, 3u);
     tdma_priority_rx_stop(&s_tdma_priority_rx);
+    tdma_priority_deliver(NULL);
     s_tdma_priority_geometry = false;
     s_tdma_priority_phys = NULL;
     irq_remove_handler(irq, tdma_priority_irq);

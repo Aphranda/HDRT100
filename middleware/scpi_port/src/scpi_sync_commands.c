@@ -834,6 +834,31 @@ scpi_result_t scpi_cmd_system_tdma_priority_rx_timing_q(scpi_t *context)
 }
 
 #include "vdc_priority_tx.h"
+#include "vdc_priority_rx.h"
+
+scpi_result_t scpi_cmd_vdc_priority_rx_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    vdc_priority_rx_snapshot_t s;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !vdc_dpll_manager_get_priority_rx(&s) || s.active) {
+        scpi_port_push_exec_error(context, "VDC_PRIORITY_RX_REQUIRES_STOP");
+        return SCPI_RES_ERR;
+    }
+    const uint32_t fields[] = {s.schema, s.active, s.epoch, s.have_record,
+        s.carrier_count, s.typed_accept_count, s.typed_reject_count,
+        s.duplicate_count, s.unique_count, s.conflict_count, s.last_status,
+        s.source_slot, s.target_mask, s.carrier_sequence};
+    for (size_t i = 0u; i < sizeof(fields) / sizeof(fields[0]); ++i)
+        SCPI_ResultUInt32(context, fields[i]);
+    scpi_sync_result_u64_parts(context, s.irq_entry_ticks);
+    SCPI_ResultUInt32(context, s.typed_record.binding_generation);
+    SCPI_ResultUInt32(context, s.typed_record.event_sequence);
+    scpi_sync_result_u64_parts(context, s.typed_record.event_time_lower);
+    SCPI_ResultUInt32(context, s.typed_record.uncertainty_width);
+    SCPI_ResultUInt32(context, s.typed_record.flags);
+    return SCPI_RES_OK;
+}
 
 scpi_result_t scpi_cmd_vdc_priority_sync(scpi_t *context)
 {

@@ -68,6 +68,7 @@ scpi_result_t scpi_cmd_system_tdma_flight_fifo_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_priority_rx_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_priority_rx_budget_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_priority_rx_timing_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_rx_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_priority_rx_record_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_priority_rx_consumer_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_fifo_reset(scpi_t *context);
@@ -195,6 +196,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:PRIORity:SYNC", .callback = scpi_cmd_vdc_priority_sync}, \
     {.pattern = "SYSTem:VDC:PRIORity:SYNC?", .callback = scpi_cmd_vdc_priority_sync_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:TX?", .callback = scpi_cmd_vdc_priority_tx_q}, \
+    {.pattern = "SYSTem:VDC:PRIORity:RX?", .callback = scpi_cmd_vdc_priority_rx_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:PROBe", .callback = scpi_cmd_vdc_feedback_probe}, \
     {.pattern = "SYSTem:VDC:FEEDback:AUTO", .callback = scpi_cmd_vdc_feedback_auto}, \
     {.pattern = "SYSTem:VDC:FEEDback:AUTO?", .callback = scpi_cmd_vdc_feedback_auto_q}, \

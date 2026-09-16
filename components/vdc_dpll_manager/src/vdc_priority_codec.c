@@ -2,6 +2,13 @@
 
 #include <string.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico.h"
+#define VDC_PRIORITY_CODEC_HOT __not_in_flash("vdc_priority_codec")
+#else
+#define VDC_PRIORITY_CODEC_HOT
+#endif
+
 _Static_assert(VDC_PRIORITY_CODEC_BODY_SIZE == 22u,
     "typed synchronization body size is part of the wire contract");
 
@@ -73,7 +80,7 @@ bool vdc_priority_codec_encode(const vdc_priority_codec_record_t *record,
     return true;
 }
 
-bool vdc_priority_codec_decode(const uint8_t body[VDC_PRIORITY_CODEC_BODY_SIZE],
+VDC_PRIORITY_CODEC_HOT bool vdc_priority_codec_decode(const uint8_t body[VDC_PRIORITY_CODEC_BODY_SIZE],
     vdc_priority_codec_record_t *record)
 {
     if (body == NULL || record == NULL) return false;

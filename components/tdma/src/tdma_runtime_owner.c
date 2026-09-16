@@ -436,6 +436,19 @@ bool tdma_runtime_owner_get_priority_rx_snapshot(tdma_priority_rx_snapshot_t *ou
     return s_tdma_runtime_owner_initialized && tdma_pio_spi_phys_get_priority_rx_snapshot(out);
 }
 
+static bool tdma_runtime_owner_priority_sink_stopped(void *context)
+{
+    if (s_tdma_pio_spi_ring_adapter.started || s_tdma_pio_spi_phys.armed ||
+        s_tdma_pio_spi_ring_adapter.origin.active) return false;
+    return tdma_pio_spi_phys_set_priority_rx_sink(*(tdma_priority_rx_sink_t *)context);
+}
+
+bool tdma_runtime_owner_set_priority_rx_sink(tdma_priority_rx_sink_t sink)
+{
+    return s_tdma_runtime_owner_initialized && tdma_service_update_stopped_metadata(
+        &s_tdma_runtime_owner, tdma_runtime_owner_priority_sink_stopped, &sink);
+}
+
 bool tdma_runtime_owner_priority_rx_counters_core1(tdma_priority_rx_counters_t *out)
 {
     return s_tdma_runtime_owner_initialized && tdma_pio_spi_phys_priority_rx_counters_core1(out);

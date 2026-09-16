@@ -110,7 +110,7 @@ static uint32_t TDMA_TRANSPORT_CRC_RAM tdma_transport_crc32_update(uint32_t crc,
     return crc;
 }
 
-uint32_t tdma_transport_crc32_compute(const uint8_t *data, size_t size)
+TDMA_TRANSPORT_CRC_RAM uint32_t tdma_transport_crc32_compute(const uint8_t *data, size_t size)
 {
     if (data == NULL && size != 0u) {
         return 0u;
@@ -178,7 +178,7 @@ static uint32_t tdma_transport_identity_crc32(
     return ~crc;
 }
 
-static uint32_t tdma_transport_packet_crc32(const uint8_t *packet,
+static TDMA_TRANSPORT_CRC_RAM uint32_t tdma_transport_packet_crc32(const uint8_t *packet,
                                              size_t packet_size)
 {
     static const uint8_t zero_crc[4] = {0u, 0u, 0u, 0u};
@@ -203,7 +203,7 @@ static uint32_t tdma_transport_packet_crc32(const uint8_t *packet,
     return ~crc;
 }
 
-bool tdma_transport_frame_calculate_transport_crc32(const uint8_t *packet,
+TDMA_TRANSPORT_CRC_RAM bool tdma_transport_frame_calculate_transport_crc32(const uint8_t *packet,
                                                      size_t packet_size,
                                                      uint32_t *crc32)
 {
