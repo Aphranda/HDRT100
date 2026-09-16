@@ -4,9 +4,26 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-17
+Last updated: 2026-09-17
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
+
+### REFMEM-TASK-20260916-001 — 静态向量缩容与布局版本迁移
+
+- 对应 `REFMEM-RAM-001/002/003/004`。范围为静态预留缩容、布局版本迁移和必要的 host 工具联动；保留区域 ID/顺序、owner、整表 clear、VDC/DPLL payload 及 seqlock、node 现有临界区。不改 OTA、PIO/DMA、TDMA 实时服务或 MPU，不引入 lease/TLV 解析前置。
+- 实现快照，非容量契约：表从 65536 B 缩至 18432 B，布局版本升级为 2；node 固定 8 个逻辑槽，每槽 128 B。ARM 有效占用为 HEADER 264 B、NODE 每槽 36 B、VDC 含同步前缀 232 B、DPLL 224 B，均适配新分配。其余普通数组未发现实际 backing 字节写者，应用模型中的区域引用保留；不将这次缩容解释为对应业务摘要已实现。
+- 生产验证：节点容量 2 至 8 配置及兼容反例共 17 项通过，既有 VDC vector suite 在 6/8 节点通过，vector table 的 ARM 6/8 编译通过。`production-delivery.json`、`capacity-probe.json` 和 `node-capacity.xml` 绑定修改及取证。
+- A/B Release 与 Flash 链接检查通过，build `20260916151903`。相对冻结的 VDC r5，两槽实际静态 RAM 均净释放 47104 B；保留原 2 KiB heap 后余量从 28 B 增至 47132 B，SCRATCH_X 间隙仍为 24 B。新二进制独审重新计算栈，保持原限定四板 persona 的最深余量；不代表所有可选负载安全或原运输/调度失败已修复。见 `measured-build/`、`ram-comparison.json`、`independent-review/linked-shrink-review.json`。
+- 布局 ABI 同时影响 Python 产包器和 CORE:VECTOR/PROT:STATUS 读回版本判定；RMTP 格式、VDC/DPLL payload 及 TDMA wire 的独立版本保持。实际 Python 包进入生产 owner 链时发现既有 TDMA ring CRC 算法漂移，原失败保存在 `host-layout-r1.xml`、`host-diagnose-r1/`；同步算法后继续验证旧布局正确 CRC 包拒绝及 active/rollback 内容保持，不以坏 CRC 反例冒充布局验证。
+- 工具/兼容矩阵最终 25/25 通过，独立复跑相关测试 22/22 通过，源码指纹一致。真实 CLI 包在 6/8 节点及普通/short-enums 编译条件下进入生产 owner、stage、prepare、activate、commit；正确 CRC 的旧布局包由 ApplicationMap owner 拒绝。纯 validation 保留三角色，失败 stage 可按原语义清 staging，但 active/rollbackable 内容及 descriptor 不变。见 `tool-test-delivery.json`、`host-layout-r2.xml`、`independent-review/joint-delivery-review.json`。
+- 当前六节点固件产包须显式使用 `refmem_pack_build --tdma-node-count 6`；RefMem 仍保留八个逻辑槽。`sd_fs_build` 仍使用默认八节点产包，本轮不扩展其部署能力；后续需要六节点 SD 整包时另做工具切片。
+- `REFMEM-LAYOUT-01` 已在域 canonical 定义并登记 pending，顶层同日可见；独立 C11 接受该规范/登记，不代表全部硬件门禁通过。
+- 四板 OTA 更新成功，板端 UID/build 均与目标匹配；全部 STOP 后 RefMem 专项通过：容量 18432 B、布局 2、八逻辑槽、初始化 READY/error=0、目录有效/CRC 标志、CORE:VECTOR/PROT:STATUS 版本和八槽逐项查询均正常，错误队列为空。原件为 `baseline-refmem.json`、`refmem-readback.json`、`stopped-diagnostics.json`；完整目录字节未通过硬件接口导出，目录 offset/size 由 host 与 ARM 结构检查证明。
+- 当前源码 quick P3 已实际执行，`flow_completed=true`，但 `strict_gates_passed=false`，`closed_loop_passed=false`、`realtime_gate_passed=false`。仍报 `explicit startup barrier timed out`；启动观测曾出现一次健康样本，随后再次失效，未满足稳定窗口；持续运输和 VDC/RefMem 调度门禁也未通过。该结果与缩容前 r5 同属运输/调度未闭合，不能推断 RAM 改动已修复或导致全部时序问题。见 `p3-r1/acceptance.json`、`p3-r1/tdma-process-image/summary.json`。
+- 本轮 P3 绑定源码 `0593b3ace86d5895184b1cf98ff7aeba5d3cc6bd829efc90df0550ea16db818c`、build `20260916151903`，包 SHA-256 为 `3be05d080112b40cd33549322af3408549bdecd48f57b385efe99480c21d9222`，与部署前 manifest 一致。随后验收分级工具完成并重新通过匹配源码四板 quick P3，代码已于 2026-09-17 提交为 `e6ff06a`，提交指纹及证据见 `VDC-PROGRESS-20260917-001`；诊断凭证不提升为严格通过。按下述验收范围澄清，`REFMEM-RAM-001/002/003/004` 均已完成本轮调试切片验收；下一步回到 `VDC-FAST-002` 处理运输/调度。
+- 独立硬件复核通过指纹、全部 receipt 引用哈希、冻结产物及四份 native 记录重解一致性。观测窗口快照，非性能保证：NO1–NO4 的 missing 增量相对 r5 从 `3/2/4/3` 变为 `0/1/0/1`，NO3 node/soak 门禁通过；NO1 反馈 gap 仍为 3，NO2/NO4 仍有缺收。稳态 soak 未见 DOWN，但启动 sample 3 有 NO4 DOWN/invalid/failure，sample 5 短暂健康后 sample 6 再失败，最终 2.006283 s 超时。四板 VDC deadline 仍增长，部分从板 RefMem deadline 仍增长，不能将单次变化归因为缩容的确定性性能收益。见 `independent-review/hardware-shrink-review.json`。
+- 本轮证据目录：`out/HardwareAcceptance/20260916/refmem-static-shrink-r1/`。缩容前运输与调度失败基线见 `VDC-PROGRESS-20260916-042`，后续结果须保留差分。RAM 切片验收后返回 `VDC-FAST-002`，不以释放 RAM 代替 DPLL 闭环。
+- 验收范围澄清：用户指出范围不得随调试无限扩大。主控复核 r5 与本轮的配置 SHA-256 均为 `c032843ba0eab2e87bb3399920c0fe54f79cf1eddbb4404a7ed1d85b1ea34fc2`，均为 `QUICK_DIAGNOSTIC`，启动及窗口条件相同；本轮没有扩大 P3 脚本范围。`p3_hardware_acceptance.py::_validate_quick_diagnostic_receipt` 明确允许流程完成且保留 phase quality 失败，`check_staged` 支持该凭证类型。先前将 `strict_gates_passed=false` 解释为 RAM004 不能结项，是主控扩大退出条件，现已纠正；原始失败、凭证和源码不改。提交时仍须核验真实 staged 指纹，本条不代替提交门禁。
 
 ### REFMEM-TASK-20260817-052 - RefMem 初始化阶段码固化
 

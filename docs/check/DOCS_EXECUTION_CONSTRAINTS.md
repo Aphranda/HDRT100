@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
 Related: `AGENTS.md`, `README.md`, `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-07
+Last updated: 2026-09-17
 
 > 本文是跨 worker/agent 的长期执行流程入口。它描述如何工作、如何留证和何时停止；不替代产品架构、域内运行时契约或单次验收报告。
 
@@ -63,6 +63,40 @@ Last updated: 2026-09-07
 - OTA 工具改动必须先有 host/仿真回归，再进行新固件硬件验收；硬件仍运行旧 build 时，不得用旧证据替代新 build 验收。
 
 ## 4. Debug 安全门禁
+
+### EXE-ACCEPT-01：固定验收范围与阶段信息分级
+
+验收开始前固定 profile、必验阶段和严格质量目标，写入 `fixed-scope.json`。
+调试中新增观测不自动成为当前切片门禁。规则实现以
+`tools/hardware_acceptance/p3_alarm_policy.py` 和主脚本 `acceptance_scope()` 为准；
+以下为执行规则，不新增固件或跨域产品契约。
+
+| 级别 | 判定与处理 |
+|---|---|
+| INFO | 正常信息、未选候选、预期拒绝、可选项目跳过；保留记录，不阻断。 |
+| WARN | 已有可用参数或基本运输，但存在重复性、连续性、调度或锁相质量问题；允许完成快速验收。 |
+| ERROR | 本轮必验目标、必要身份/配置/有效运输或证据完整性未满足；不能签发本轮通过凭证。普通执行异常归此类，不能仅凭错误文字推定不可恢复风险。 |
+| FATAL | 有明确结构化证据的不可恢复风险；按 EXE-SAFE-02 停止相关运行。普通 PIO stall 或相关候选失败不自动归此类。 |
+
+| 阶段 | 基础目标 | 候选与质量信息 |
+|---|---|---|
+| P0/P0T | 完整所需环序、身份与编号对应正确，清理完成；兼容的已确认线序可复用。 | 其他候选链路不通为 INFO，不要求全连接。 |
+| P1 | 后继可用的 CLK 粗捕获输入。 | 搜索窗口外拒绝为 INFO；粗测质量不足但后继已验证所选输入可用为 WARN。 |
+| P2 | 后继可用的编码 marker 时间基线。 | 未选相关候选失败为 INFO；已选输入可用但重复质量不足为 WARN。 |
+| P3 | 指定稳定工作档位、链路和信号组的有效延迟基线。 | 明确标为非必验 LIMITED_RX 且高于目标稳定频率的探测试验失败为 INFO；目标档位失败仍阻断。 |
+| T0/TRN-00 | MARK 与驻留时间输入可用。 | 未选 offset 失败为 INFO；选中参数已装载验证但测量质量不足为 WARN。 |
+| T1/TRN-01 | SCK offset 输入可用。 | 未选候选失败为 INFO；窗口裕量/重复性不足独立告警。 |
+| T2/TRN-02 | DATA 窗口输入可用。 | 窗口外候选拒绝为 INFO；已选窗口质量不足独立告警。 |
+| T3/TRN-03 | 所需板卡实际完成选中矩阵装载、identity/各 link 读回；不以矩阵文件 passed 替代硬件装载。 | 新训练未通过但已选兼容参数实际装载可用为 WARN，不能宣称重新测量通过。 |
+| TDMA | 所需节点实际收到有效新数据，TX/RX 序号推进，有限采集的 STOP 与原生记录交接有效。 | 偶发缺帧、启动稳定窗口失败、反馈超窗和相位迟到为 WARN；持续无有效输入、缺节点、STOP/证据无效为 ERROR。 |
+| DPLL | 按本轮选定目标验证参考/控制/锁相；未执行为 SKIPPED。 | DCO 零调整不等于故障；未锁与精度不足在普通调试中告警，显式锁相专项才阻断。 |
+
+阶段 PASS、PASS_WITH_WARNINGS、FAIL、SKIPPED 与总体验收结果分别输出。
+快速模式沿用固定基础范围；`--strict-stage` 显式将指定阶段质量列入本轮必验，
+不能运行后自动增加。严格模式沿用完整质量要求。
+原始 `passed`、`strict_gates_passed` 和失败记录保留，分级报告不改写旧失败。
+新凭证绑定 `alarms.json`、判定输入、固定范围与原始阶段文件，并复算分级；
+数据缺失、混用旧原件或仅修改告警标签不能放行。
 
 ### EXE-SAFE-01：可恢复拒绝的记录与有界继续
 

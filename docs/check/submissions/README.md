@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/submissions/README.md`
 Related: `docs/check/DOCS_REGISTRY.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
 > 用途：层间逐级核验（域 → 父层）的提交单归档目录。每份提交单一个文件：
 > `docs/check/submissions/<DOMAIN>_CROSS_REVIEW_<NN>.md`
@@ -70,3 +70,4 @@ Last updated: <YYYY-MM-DD>
 | `TDMA_CROSS_REVIEW_06.md` | TDMA 对 DPLL 的支撑能力：判定 `PARTIAL_SUPPORT`（latch/分辨率/flags/链路已成立，同圈关联与准入未闭合），给出 P1–P5 优先任务；C11 待独立复核 | `ACCEPT_WITH_DEVIATION` |
 | `ARCH_FLASH_CROSS_REVIEW_01.md` | Flash v2 与 hardware/build/Boot/OTA/TDMA/RefMem/VDC | `ACCEPT_WITH_DEVIATION` |
 | `ARCH_FLASH_CROSS_REVIEW_02.md` | Flash canonical 重构与 M0-M6 工作板 | `ACCEPT_WITH_DEVIATION` |
+| `REFMEM_CROSS_REVIEW_01.md` | RefMem 静态缩容评审结论与 TODO 移交，并更正 MPU 与刷新预算依据；实施与验收由 RefMem Task Progress 承接 | `ACCEPTED_FOR_TODO`；独立方案复核及 `REFMEM-LAYOUT-01` pending 登记审核完成 |

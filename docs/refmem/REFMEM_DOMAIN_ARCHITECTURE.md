@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-08-21
+Last updated: 2026-09-16
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面。
 
@@ -975,7 +975,34 @@ SCPI 只能通过 `SYSTem:REFMEM:QUALity? [index]` 读取该派生视图，不�
 
 ## 核心数据面
 
-首版 64 KB 表保持 RTOS 架构中的完整布局：
+### REFMEM-LAYOUT-01：静态向量布局与部署版本匹配
+
+当前容量和版本由 `distributed_refmem.h` 的 `DISTRIBUTED_REFMEM_TABLE_SIZE`、
+`DISTRIBUTED_REFMEM_LAYOUT_VERSION` 定义；当前 offset 与成员尺寸由
+`refmem_vector_table_t` 定义，目录使用真实 `offsetof`/`sizeof` 生成。
+本契约登记为 pending，实现和硬件证据由 `REFMEM-RAM-001` 至 `REFMEM-RAM-004` 承接。
+
+- 保留 `refmem_vector_region_id_t` 的 ID 和顺序、现有字段语义及唯一 writer；
+  仅调整静态预留容量，不改变有效字段语义。整个表仍静态常驻、整表清零，VDC/DPLL 的 payload、
+  对齐和 seqlock 不变，不引入 lease、动态分配、MPU 或 RefMem 分片前置。
+- 总尺寸必须等于 `DISTRIBUTED_REFMEM_TABLE_SIZE`，目录连续覆盖全表；各区尺寸
+  使用对应 `DISTRIBUTED_REFMEM_*_SIZE`。节点区为
+  `DISTRIBUTED_REFMEM_NODE_COUNT * DISTRIBUTED_REFMEM_NODE_SLOT_SIZE`；逻辑槽数
+  与步长分别受控，不随 TDMA 物理节点配置隐式改变。
+- 任一 region offset、size、顺序或 node stride 改变均须提升布局版本；静态部署包
+  ApplicationMap 必须匹配当前布局，由 `refmem_application_contract_validate_application_map()`
+  在 owner validation 拒绝旧版本。CRC 正确不能绕过版本核验，host 产包器同步版本。
+- 旧包拒绝不能覆盖 active 或 rollback image；staging 保持既有失败/清理语义，
+  不承诺保留失败候选。本轮不提供自动旧包转换，也不把本地包门禁外推为已证明
+  混合旧固件节点的全网准入。RMTP 格式、VDC/DPLL payload 和 TDMA wire 独立版本不随之改变。
+- 普通字节数组的分配不等于对应业务事实已实现；新增字段必须核对实际区域边界。
+  TLV 的预留不新增 writer、写权限或协商机制。SCPI 状态字段顺序保持，布局与容量
+  字段报告当前符号值，host 验收不得继续假定历史版本。
+
+### 历史首版布局快照（非当前事实源）
+
+以下保留首版布局用于旧镜像识别，不用于当前代码寻址或 RAM 核算；当前值以上述
+类型、符号和实际链接 map 为准：
 
 Vector directory 的 16 项是固定内存定义区（region），不是 A0-A7 可实例化节点槽位，也不是 SlotClaim 的候选槽。节点实例化只能通过 A0-A7 逻辑 slot / NodeLoad / SlotClaimMap 进入系统；Vector region 只提供事实存放位置、owner 边界和 CRC/seq/stale 保护。
 
@@ -998,7 +1025,8 @@ Vector directory 的 16 项是固定内存定义区（region），不是 A0-A7 �
 | OtaStorageUiRegion | `0xF000` | 2 KB | OTA、Storage、UI 摘要 | 对应 task owner |
 | TlvExtension | `0xF800` | 2 KB | versioned TLV、未来扩展 | owner by type |
 
-表尾固定为 `0x10000`，总大小固定 64 KB。任何 region offset、region size 或 region 顺序变化，都必须提升 `layout_version`，并导致旧 System Pack / 旧节点镜像进入 `INVALID` 或兼容转换路径。
+历史快照的表尾为 `0x10000`、总大小为 64 KB；新旧布局不得按相同偏移解释。
+当前版本拒绝及兼容边界以 `REFMEM-LAYOUT-01` 为准。
 
 ### Header 与 Directory 契约
 
@@ -1007,13 +1035,13 @@ Header/Directory 是 RefMem 的自描述入口。它必须至少提供：
 | 字段 | 作用 | 规则 |
 |---|---|---|
 | `magic/end_magic` | 表识别和越界破坏检测。 | 初始化和 snapshot 时都必须校验。 |
-| `layout_version` | 64 KB 表布局版本。 | 首版冻结为 v1；布局变化必须递增。 |
-| `table_size` | 总表大小。 | 固定 65536。 |
+| `layout_version` | 静态表布局版本。 | 匹配 `DISTRIBUTED_REFMEM_LAYOUT_VERSION`；布局变化必须递增。 |
+| `table_size` | 总表大小。 | 匹配 `DISTRIBUTED_REFMEM_TABLE_SIZE`。 |
 | `table_seq` | 全表事实序号。 | 任意 region active fact 更新后递增。 |
 | `epoch_id` | 系统事实纪元。 | 复位、System Pack 切换、RUN 批次切换或重大恢复后递增。 |
 | `run_id` | 当前运行批次。 | 把配置、同步、T2、故障和报告绑定到同一批次。 |
-| `region_count` | directory 项数量。 | 首版为 16。 |
-| `region_directory[]` | region id、offset、size、owner、flags、crc。 | RUN 前必须校验 offset/size 不重叠且覆盖 64 KB。 |
+| `region_count` | directory 项数量。 | 匹配 `REFMEM_VECTOR_REGION_COUNT`。 |
+| `region_directory[]` | region id、offset、size、owner、flags、crc。 | RUN 前必须校验 offset/size 不重叠且覆盖当前表；扩展字段属于下述产品化建议。 |
 | `directory_crc32` | directory 自身 CRC。 | 防止 region map 半更新。 |
 | `header_crc32` | header CRC。 | 不包含 `header_crc32` 字段自身。 |
 | `compat_min_version` | 最低兼容 layout。 | 节点低于该版本时拒绝加入 RUN。 |
@@ -1423,8 +1451,8 @@ table directory 每项 16 字节：
 
 当前代码中 `components/distributed_refmem/` 已经从单文件表骨架推进到首版 RefMem Domain 组件：
 
-- `distributed_refmem.h/.c`：仍是当前对外兼容入口，维护本地 64 KB `DistributedVectorTable`、header、node slot、core vector、runtime protection snapshot 和 status flags。
-- `refmem_vector_table.h/.c`：封装 64 KB table layout、slot directory、header CRC 和 directory 校验。
+- `distributed_refmem.h/.c`：当前对外兼容入口，按 `DISTRIBUTED_REFMEM_TABLE_SIZE` 维护本地 `DistributedVectorTable`、header、node slot、core vector、runtime protection snapshot 和 status flags。
+- `refmem_vector_table.h/.c`：封装当前静态 table layout、slot directory、header CRC 和 directory 校验。
 - `refmem_application_model.h/.c`：落地 ApplicationMap、BoardCapability、GenericNode、NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality、静态 linter、package CRC 和 load staging snapshot。
 - `refmem_slot_claim.h/.c`：首版派生 `SlotClaimMap`，从 GenericNode、BoardCapability、NodeLoad 和 FB instance 生成 A0-A7 resolved assignment、candidate/assigned/conflict/overflow 计数、loaded instance mask 和 CRC。
 - `refmem_realtime_contract.h/.c`：首版派生 `RealtimeCapabilityContract`，从 NodeLoad、FB instance、GenericNode 和 SlotClaimMap resolved assignment 生成实例级资源/IO/类 IP 核能力契约；保留 default-slot fallback 仅用于过渡。

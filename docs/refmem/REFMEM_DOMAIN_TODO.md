@@ -4,9 +4,54 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_TODO.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Last updated: 2026-08-16
+Last updated: 2026-09-16
 
 本文档维护 Distributed Vector Blackboard / RefMem Sync Domain 的当前可执行待办。这里不记录普通开发流水账，只记录会影响分布式共同事实、RefMemAO、A0-A7 通用逻辑插槽、节点装载、SlotClaim 协调、表镜像、slot owner、命令 ACK/NACK、部署门禁、连接质量和 RefMem Sync 的架构与实现事项。
+
+## 当前优先插入任务：REFMEM 静态缩容
+
+用户已授权将 [静态缩容评审](../check/submissions/REFMEM_CROSS_REVIEW_01.md) 转为执行待办，
+目的是释放 TDMA/DPLL/VDC 调试所需 RAM；完成后返回
+[VDC 接续入口](../vdc/VDC_DOMAIN_TODO.md#下次接续入口先释放-ram再返回特等席闭环)。
+本节覆盖下述历史主线的本轮优先顺序，但不删除未完成的历史任务。
+
+**当前状态：本轮 RAM 切片完成，四板快速 P3 调试流程及 RefMem 专项验证完成；运输与调度的严格质量失败保留到 VDC 主线。**
+实际结果见 `REFMEM-TASK-20260916-001`，不能沿用最初交接时“尚未修改”的状态。当前代码事实源为
+`distributed_refmem.h` 的容量/布局符号和 `refmem_vector_table.h` 的结构；评审目标
+为保留所有区域 ID、owner、常驻 VDC/DPLL、现有 seqlock 与 node 临界区，缩减静态预留。
+实测快照，非事实源：表由 64 KiB 缩至 18 KiB，A/B 链接均净释放 46 KiB；node 保持 8 个
+逻辑槽、步长由 512 B 改为 128 B，布局版本由 1 升为 2。最终以真实链接 map 为准。
+逻辑槽数本轮不跟随 TDMA 物理编译节点数变更。
+
+| ID | 状态 | 执行项与完成判据 |
+|---|---|---|
+| `REFMEM-RAM-001` | DONE | 实际表引用、DataLink 区域引用、trigger/io 字节访问及 ARM sizeof 已审查；现有字段满足目标容量，区域 ID 和顺序保持。证据见 `REFMEM-TASK-20260916-001`，不把未来尚未实现的摘要当作本轮字段。 |
+| `REFMEM-RAM-002` | DONE | 最小静态缩容及 ABI 断言已实现，目录继续使用真实 offsetof/sizeof；host/ARM/A/B Release、实际 RAM 收益与四板布局/初始化读回通过。保留整表 clear、常驻和已有同步机制；规范 `REFMEM-LAYOUT-01` 保持 pending，不将专项通过等同于全系统集成通过。 |
+| `REFMEM-RAM-003` | DONE | host 布局版本、读回版本门禁及 TDMA ring CRC 已同步；真实 CLI→owner 生命周期测试证明旧布局正确 CRC 包拒绝、新包装载及 active/rollbackable 保持，四板版本与逻辑槽访问通过。六节点 CLI 须显式指定 `--tdma-node-count 6`；SD 整包工具仍默认八节点，另列后续能力，不宣称自动 rollback 或混合版本全网准入已通过。 |
+| `REFMEM-RAM-004` | DONE | 固定范围内的当前源码 host、A/B Release/map、四板 QUICK_DIAGNOSTIC P3、指纹绑定及 STOP 后 RefMem 专项均完成。该模式允许保留质量失败后完成调试验收，不能额外要求 strict 全绿才关闭 RAM 切片。TDMA 启动超时、运输缺口及调度迟到继续由 `VDC-FAST-002` 承接，不宣称产品严格通过。目录几何由 host 验证，硬件仅读回目录有效/CRC 状态，未导出完整目录字节。 |
+
+本轮验收范围按开始时的快速 P3 配置及 RefMem 缩容专项收敛；新增诊断发现不能自动成为
+本轮退出条件。属于本次改动的兼容、容量、初始化或其他直接回归仍须处理；已知运输与
+调度质量问题保留原件并进入对应主线任务。不得将“调试切片完成”和“产品严格验收通过”混用。
+
+已定位的实现与验证入口：
+
+- 生产：`components/distributed_refmem/inc/distributed_refmem.h`、`inc/refmem_vector_table.h`、
+  `src/refmem_vector_table.c`、`src/refmem_application_model.c`、表 registry 的 owner 验证。
+- 必须同步审查 `tools/refmem_table_image/refmem_table_image.py` 的 `LAYOUT_VERSION`
+  和 `tests/python/test_refmem_pack_build.py`；仅改固件会使原工具生成的包与新固件不匹配。
+- 现有测试：`tests/unit/test_node_capacity.c`、`tests/unit/test_refmem_table_registry.c`
+  的产包/stage/activate/rollback 用例、`tests/python/test_refmem_vector_projection.py`
+  和 `test_refmem_pack_build.py`；C registry 运行入口为
+  `tools/tests/run_refmem_table_registry_tests.ps1`。本轮新增
+  `tests/unit/test_refmem_vector_table.c` 与 `tests/python/test_refmem_layout.py`，
+  覆盖真实几何及 CLI 产包到 owner 生命周期，不再沿用实施前“测试文件不存在”的判断。
+- 缩容前基线及失败原件见 `VDC-PROGRESS-20260916-042`；新增缩容证据写入
+  `out/HardwareAcceptance/20260916/refmem-static-shrink-r1/`，不能覆盖该基线。
+
+布局规范由域 Architecture 的 `REFMEM-LAYOUT-01` 承接；RAM 实测及验收以 Task Progress 为准。
+MPU、区域重分类和租约另列后续工作。
+缩容不改变 DPLL/VDC 特等席的确定性运输路线，普通 RefMem 仍为后续负载。
 
 ## 当前架构基线
 

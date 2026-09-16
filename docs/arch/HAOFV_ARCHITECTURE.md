@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 Version: 5
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -37,7 +37,7 @@ HAOFV Architecture
 - `IEC 61499-inspired Function Block Layer`：采用固定功能块、静态事件连接、数据输入输出和 ECC 状态机。
 - `System Vector Blackboard`：系统总表，保存全局状态摘要、资源占用、错误摘要。
 - `Domain Vector Tables`：各功能域独立向量表，例如 OTA、Trigger、Storage、UI。
-- `Distributed Vector Blackboard / RefMem Sync Domain`：分布式系统共同事实内部主域，维护 64 KB 反射内存向量表、静态分布式应用模型、slot owner、命令槽、ACK/NACK、stale、CRC 和 sequence。
+- `Distributed Vector Blackboard / RefMem Sync Domain`：分布式系统共同事实内部主域，按 `DISTRIBUTED_REFMEM_TABLE_SIZE` 和对应布局版本维护静态反射内存向量表、分布式应用模型、slot owner、命令槽、ACK/NACK、stale、CRC 和 sequence；具体布局由 RefMem 域管理。
 - `Virtual Distributed Clock / VDC Domain`：分布式系统共同时间内部主域，维护 `local_tick -> vdc_time` 映射、SYNC DPLL、HOLDOVER/RELOCK、timestamp dictionary、时间质量和预测分发时间基准。
 - `Calibration Domain`：分布式链路测量和校准事实内部主域，维护有向线序/邻接矩阵、环路顺序、logical slot map、CLK/DATA/SYNC 原始 edge evidence、双向时间传递、residence、endpoint bias、path-delay、active/staging generation 和接受门禁。
 - `TDMA Foundation Domain`：分布式系统确定性通讯骨架内部主域，维护上行/下行 TDMA、window、guard、payload registry、adapter、ring runtime、completion evidence 和质量摘要。
@@ -173,6 +173,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 
 | contract_id | 契约 | 域文档位置 | 状态 |
 |---|---|---|---|
+| `REFMEM-LAYOUT-01` | 静态容量/节点步长与布局版本一致发布，保留区域 ID 和 owner；部署包旧布局拒绝，host 产包与读回同步 | `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md:REFMEM-LAYOUT-01` | pending |
 | `TDMA-FLIGHTBITMAP-01` | 编译容量限定静态资源，STOP 后按已准入拓扑选择 SHORT 邮箱数量，ARM 冻结布局与 DMA 长度，RUN 固定 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“固定 Node image、DPLL trailer 与 RX 位图快路径”章节 | pending |
 | `TDMA-PROCESSIMAGE-01` | 固定 SHORT process image 静态装配 Node mailbox 与 DPLL observation trailer，DPLL 不得替换 wire frame | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | pending |
 | `TDMA-RESIDENT-01` | process image 启动时一次注入并持续循环；单轮多 Node 局部 UNLOAD/LOAD，无更新透传，frame completion 不终止 resident loop | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:TDMA-RESIDENT-01` | pending |
