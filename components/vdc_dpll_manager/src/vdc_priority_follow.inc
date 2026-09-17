@@ -120,8 +120,11 @@ static int32_t priority_follow_delta(int64_t lo, int64_t hi,
     int32_t current_ppb, uint32_t limit_ppb)
 {
     if (lo > hi) return 0;
-    int64_t step = lo > VDC_BOUNDARY_AUTO_DEADBAND_PPB ? -(lo / 4) :
-        hi < -VDC_BOUNDARY_AUTO_DEADBAND_PPB ? -(hi / 4) : 0;
+    /* Use half the nearest-to-zero proved error boundary. This increases
+     * response while retaining interval uncertainty, deadband and both
+     * existing step/total clamps; it is not an interval-midpoint estimate. */
+    int64_t step = lo > VDC_BOUNDARY_AUTO_DEADBAND_PPB ? -(lo / 2) :
+        hi < -VDC_BOUNDARY_AUTO_DEADBAND_PPB ? -(hi / 2) : 0;
     if (step > VDC_BOUNDARY_AUTO_MAX_DELTA_PPB) step = VDC_BOUNDARY_AUTO_MAX_DELTA_PPB;
     if (step < -VDC_BOUNDARY_AUTO_MAX_DELTA_PPB) step = -VDC_BOUNDARY_AUTO_MAX_DELTA_PPB;
     const int64_t upper = limit_ppb > INT32_MAX ? INT32_MAX : (int64_t)limit_ppb;

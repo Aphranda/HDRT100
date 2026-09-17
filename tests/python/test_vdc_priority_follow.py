@@ -145,18 +145,140 @@ def test_negative_feedback_bounded_delta(follow_executable):
     # Explicit policy examples plus extreme intervals. This checks observable
     # sign, deadband, per-step clamp and total-limit behavior independently.
     cases = [
-        (800, 1200, 0, 10_000, -200), (-1200, -800, 0, 10_000, 200),
+        (800, 1200, 0, 10_000, -400), (-1200, -800, 0, 10_000, 400),
         (0, 2000, 0, 10_000, 0), (-2000, 0, 0, 10_000, 0),
         (-2000, 2000, 0, 10_000, 0), (10, 20, 0, 10_000, 0),
-        (-20, -10, 0, 10_000, 0), (11, 100, 0, 10_000, -2),
-        (-100, -11, 0, 10_000, 2), (I64_MAX, I64_MAX, 0, 10_000, -1000),
+        (-20, -10, 0, 10_000, 0), (11, 100, 0, 10_000, -5),
+        (-100, -11, 0, 10_000, 5), (I64_MAX, I64_MAX, 0, 10_000, -1000),
         (I64_MIN, I64_MIN, 0, 10_000, 1000),
         (800, 1200, -9950, 10_000, -50), (-1200, -800, 9950, 10_000, 50),
         (800, 1200, -10_000, 10_000, 0), (-1200, -800, 10_000, 10_000, 0),
         (800, 1200, 0, 0, 0), (800, 1200, 0, 100, -100),
+        (1999, 1999, 0, 10_000, -999), (-1999, -1999, 0, 10_000, 999),
+        (2000, 2000, 0, 10_000, -1000), (-2000, -2000, 0, 10_000, 1000),
     ]
     output = run_case(follow_executable, "delta", "\n".join(" ".join(map(str, row[:4])) for row in cases) + "\n")
     assert [int(row) for row in output.splitlines()] == [row[-1] for row in cases]
+
+
+def delta_rows(executable, cases):
+    output = run_case(executable, "delta", "\n".join(" ".join(map(str, row)) for row in cases) + "\n")
+    values = [int(row) for row in output.splitlines()]
+    assert len(values) == len(cases)
+    return values
+
+
+def bounded_fraction_policy(lo, hi, current, limit, fraction=Fraction(1, 2)):
+    """Project a rational correction into the admitted gain/step interval."""
+    ceiling = min(limit, (1 << 31) - 1)
+    floor = max(-ceiling, -999_999_999)
+    if lo > hi or not floor <= current <= ceiling:
+        return 0
+    # Zero or the deadband intersects the error interval: no proved direction.
+    if lo <= 10 and hi >= -10:
+        return 0
+    nearest = min((lo, hi), key=abs)
+    target = current + math.trunc(-nearest * fraction)
+    admissible_lo = max(floor, current - 1000)
+    admissible_hi = min(ceiling, current + 1000)
+    return min(max(target, admissible_lo), admissible_hi) - current
+
+
+def test_measured_nearest_boundary_steps(follow_executable):
+    # These are measured nearest-zero boundaries, not interval midpoints.
+    cases = [(-1000, -131, 1134, 10_000), (-1000, -185, 1281, 10_000),
+             (-1000, -147, 3422, 10_000)]
+    assert delta_rows(follow_executable, cases) == [65, 92, 73]
+    reflected = [(-hi, -lo, -current, limit) for lo, hi, current, limit in cases]
+    assert delta_rows(follow_executable, reflected) == [-65, -92, -73]
+
+
+def test_fraction_policy_integer_extremes_and_clamps(follow_executable):
+    cases = []
+    intervals = [(I64_MIN, I64_MIN), (I64_MIN, -11), (-11, -11), (-10, -10),
+                 (-1000, 1000), (10, 10), (11, 11), (11, I64_MAX), (I64_MAX, I64_MAX), (2, 1)]
+    for lo, hi in intervals:
+        for current in [-(1 << 31), -1_000_000_000, -999_999_999, -10_000, -1, 0, 1, 10_000, (1 << 31)-1]:
+            for limit in [0, 1, 10_000, 999_999_999, 1_000_000_000, (1 << 31)-1, (1 << 32)-1]:
+                cases.append((lo, hi, current, limit))
+    rng = random.Random(0xF01102)
+    for _ in range(500):
+        lo, hi = sorted((rng.randrange(I64_MIN, I64_MAX+1), rng.randrange(I64_MIN, I64_MAX+1)))
+        cases.append((lo, hi, rng.randrange(-(1 << 31), 1 << 31), rng.randrange(1 << 32)))
+    for case, actual in zip(cases, delta_rows(follow_executable, cases), strict=True):
+        assert actual == bounded_fraction_policy(*case), case
+        lo, hi, current, limit = case
+        lower, upper = max(-limit, -999_999_999), min(limit, (1 << 31)-1)
+        assert -1000 <= actual <= 1000
+        if lower <= current <= upper:
+            assert lower <= current + actual <= upper
+        else:
+            assert actual == 0
+
+
+def test_exact_gain_direction_without_crossing_zero_in_servo_range(follow_executable):
+    """Physical gain arithmetic only; this does not simulate transport or lock."""
+    cases = []
+    for current in [-10_000, -9999, -5000, 0, 5000, 9999, 10_000]:
+        for nearest in [11, 31, 131, 185, 147, 800, 1999, 2000, 6000, 10_000]:
+            for sign in [-1, 1]:
+                bounds = sorted((sign * nearest, sign * (nearest + 200)))
+                cases.append((*bounds, current, 10_000))
+    for (lo, hi, current, limit), delta in zip(cases, delta_rows(follow_executable, cases), strict=True):
+        for error in [Fraction(lo), Fraction(hi), Fraction(lo+hi, 2)]:
+            ratio = 1 + error / 10**9
+            updated = ratio * Fraction(10**9 + current + delta, 10**9 + current)
+            after = (updated - 1) * 10**9
+            if error > 0:
+                assert 0 <= after <= error
+            else:
+                assert error <= after <= 0
+            if delta:
+                assert abs(after) < abs(error)
+        assert -limit <= current + delta <= limit
+
+
+def test_stationary_gain_response_with_interval_uncertainty(follow_executable):
+    """Exact stationary arithmetic comparison; never evidence of physical lock."""
+    states = []
+    for error in [-6000, -800, -185, 131, 800, 6000]:
+        for initial in [-1000, 0, 1000]:
+            states.append({"initial_error_ppb": error, "initial_rate_ppb": initial,
+                           "base_ratio": Fraction(10**9 + error, 10**9 + initial),
+                           "half_rate": initial, "quarter_rate": initial,
+                           "half_steps": 0, "quarter_steps": 0, "history": []})
+    for iteration in range(40):
+        cases = []
+        for state in states:
+            error = (state["base_ratio"] * Fraction(10**9 + state["half_rate"], 10**9) - 1) * 10**9
+            # The independent measurement oracle encloses the exact rate
+            # with outward integer rounding and an explicit uncertainty.
+            cases.append((math.floor(error - 20), math.ceil(error + 20), state["half_rate"], 10_000))
+        deltas = delta_rows(follow_executable, cases)
+        for state, case, delta in zip(states, cases, deltas, strict=True):
+            before = (state["base_ratio"] * Fraction(10**9 + state["half_rate"], 10**9) - 1) * 10**9
+            quarter_error = (state["base_ratio"] * Fraction(10**9 + state["quarter_rate"], 10**9) - 1) * 10**9
+            quarter_delta = bounded_fraction_policy(math.floor(quarter_error - 20), math.ceil(quarter_error + 20),
+                                                      state["quarter_rate"], 10_000, Fraction(1, 4))
+            state["half_rate"] += delta
+            state["quarter_rate"] += quarter_delta
+            state["half_steps"] += bool(delta)
+            state["quarter_steps"] += bool(quarter_delta)
+            after = (state["base_ratio"] * Fraction(10**9 + state["half_rate"], 10**9) - 1) * 10**9
+            assert abs(after) <= abs(before)
+            assert before * after >= 0
+            assert -10_000 <= state["half_rate"] <= 10_000
+            state["history"].append({"iteration": iteration, "interval": list(case[:2]), "delta": delta,
+                                     "error_before": str(before), "error_after": str(after),
+                                     "quarter_delta": quarter_delta})
+    for state in states:
+        assert state["half_steps"] < state["quarter_steps"]
+        assert all(row["delta"] == row["quarter_delta"] == 0 for row in state["history"][-5:])
+        assert abs(Fraction(state["history"][-1]["error_after"])) <= 31
+        state["base_ratio"] = str(state["base_ratio"])
+    (follow_executable.parent / "stationary-response.json").write_text(
+        json.dumps({"qualification": "Stationary rational arithmetic, not physical or real-time lock evidence",
+                    "states": states}, indent=2), encoding="utf-8")
 
 
 @pytest.mark.parametrize("case", ["pending_busy_retry", "stop_rx_busy", "age_rx_busy", "observer_rx_busy",
