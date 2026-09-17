@@ -22,6 +22,26 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-011：四板运行态与外部示波器复核
+
+- TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。四板 P3 收尾后，使用
+  `tools/scope_dpll_capture/scope_dpll_capture.py` 对
+  `USB0::0x1AB1::0x0610::HDO4A244301137::INSTR` 做只读单次采样，CH1--CH4 对应
+  NO1--NO4、CH1 为触发通道。证据根为
+  `out/HardwareAcceptance/20260918/scope-dpll-validity-fix/`；仪器识别成功，但触发
+  状态为 `WAIT`，四路均无上升沿且幅度接近零。采样发生在板端 STOP 后，不能用于
+  DPLL 精度或锁相判定。
+- 为获取运行态波形，按四板物理顺序调用
+  `tools/tdma_ring_monitor/tdma_start_ring.py`（当前 Release build，短训练窗口）。
+  NO2（`FB276192BEF9CCE1`）在 ARM 状态查询阶段超时；随后只读状态显示各板序列计数
+  有变化，但 UP/DOWN 运行标志未同时成立。四板已发送显式 `SYSTem:TDMA:RING:STOP`，
+  未写入 Flash。该失败与 `out/HardwareAcceptance/20260918/p3-055020/` 中 TDMA
+  运行质量告警同向，当前优先级回到 TDMA 启动和持续运行闭环。
+- 下一 gate：先在四板相同源码上闭合 ARM/START、UP/DOWN、FIFO 退休和稳定序列，形成
+  可持续运行窗口后再重复外部触发采样；只有 NO1--NO4 同序边沿和内部接收/采用事件
+  同时存在，才进入 DPLL 相位/频率锁定判定。本条不改变 `valid_from_raw` 修复或任何
+  DPLL 门限。
+
 ### VDC-PROGRESS-20260918-010：同模型有效起点变化的基线失效修复
 
 - TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。修复
