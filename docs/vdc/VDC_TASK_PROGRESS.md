@@ -32,6 +32,79 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-018：有界长窗口产生真实后档 DCO 调整
+
+- TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。证据根为
+  `out/HardwareAcceptance/20260917/dpll-longwindow-adoption-r1/`；以下实测数字
+  为本次快照，非产品事实源。此前隔离的长窗口候选现已导入当前主线并验证，
+  不再把它列为未部署候选。
+- 代码已提交 `0e7cede`（`feat(vdc): extend bounded follower frequency observation windows`），
+  staged 源码指纹与四板凭证由真实 pre-commit 核验通过；文档分离提交。
+- `VDC_PRIORITY_FOLLOW_*_INTERVAL_NS` 在原有早期机会后增加有界后档；
+  `VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS` 限定每个基线的计算次数。
+  只在误差区间仍无法支持调整时保留同一本地模型基线；最新票据年龄、完整事件
+  与会话/模型/观察器锚点检查不变，STOP、换模型、过期、错误次序和无效区间
+  仍取消或重建。远端只提供两个已准入端点，不声称得到 NO1 瞬时频率。
+- `vdc_model_scale_elapsed_ns()` 用商余拆乘和外向取整避免较长间隔乘法溢出；
+  `priority_follow_rate_interval()` 在无符号域扣除偏置后才转换，保留完整量化界
+  与已准入绝对端点差的求交。没有放宽单事件绝对投影年龄，也未修改增益或死区。
+  五档跳过不补算、BUSY/票据替换不退还机会。数学/生命周期独审见
+  `design-code-review.json`，425 项 host 通过。
+- Release 两槽独立资源复核通过：无新增静态主 RAM，余量仍为 33040 B；
+  当前 persona 的 Core1 深链重新分析为 2872/3072 B。新阈值表位于 Flash，
+  工作区与诊断对象未扩容。此为链接资源证明，不是 WCET 或全负载证明。
+- 同源码四板 quick P3 为 `PASS_WITH_WARNINGS`，25 INFO、16 WARN、零 ERROR/FATAL，
+  严格实时质量仍未通过。源码指纹
+  `4a749af74b7aa84fb0238ea437703a3ca4d1a2f06c93a2c7df05231c4a6f3e5e`，
+  build `20260917054056`；包、两槽 ELF、四板 OTA、原生短帧与分级凭证独立一致，
+  见 `p3-review.json`。已测线序和 TAP 复用，未改 OTA、未操作 NO5。
+- `sustained-r1` 保留 FAIL：三从 observer 无故障且末段匹配有效，但 NO2/NO3
+  STOP 后模型读取超时，不能用后继数据补填。该轮 NO4 末决定在约 4 s 窗口
+  得到 [−1315,−550] ppb，实际调整 +137 ppb，DCO 序号与真实模型一致。
+  同参数 `sustained-r2` 完整通过，三从均无 observer 故障、末态模型一致；
+  长档等待期间允许最后决定早于最后接收，不能将其误判为断流。
+  VDC quarantine 仍存在，不声称完整 VDC 调度恢复，见 `sustained-review.json`。
+- 补充 `sustained-r3` 保留 FAIL：NO4、NO3 START 成功后，NO2 START 仅返回
+  超时占位 ACK，NO1 尚未 START；没有真实状态读回或有效持续窗口，随后四板
+  STOP。`sustained-r4` 完整通过，约 40.297 s 内三从末段匹配、模型一致且
+  observer 无故障；NO4 在 8.000475282 s 得到 [−566,−122] ppb，实际 +30 ppb，
+  DCO 序号 43→44。NO2/NO3 末次仍为 4 s 未决区间，不冒称最终后档失败。
+  见 `sustained-followup-review.json`。
+- `native-r1` 的静默原生专项通过：三从各 63 条记录，其中 55 MATCH、8 DECISION，
+  跨度约 10.94 s，无 dropped/observer 故障；全部 24 条决定的分数运算、实际
+  DCO 序号、残差、生命周期及末态模型经独立原件 CRC/分页重组复核。
+  NO3 同一 baseline 65 实际经过 1/1.5/1.8/4/8 s 五档；最后一档约 8.002 s，
+  区间 [−813,−213] ppb 支持真实 +53 ppb 调整。NO2/NO4 在约 4 s 分别调整
+  +3/+10 ppb。此处证明原来未决的观察可经后档产生真实调整，不宣称锁相。
+- `capture_longwindow.py` 复用既有 STOP、CRC、会话及有效记录判据，保留有限
+  临时许可，运行期间不查询；4/8 s 档是否自然出现只作事实记录。容量规划是
+  典型估算，不是最坏上界，满容量与丢记录仍失败。原生决定未携带每条 raw
+  端点，因此全部记录复算区间/量化宽度，只有末条利用 STOP 快照完整复算
+  raw 差分投影；不虚构缺失历史。见 `capture-review.json`、`native-review.json`。
+- 第一组 `scope-raw/scope-fixed` 成功，采用模型 NO1/NO2/NO3/NO4 为
+  +1676/+1416/+1864/+4016 ppb；固定输出相对 NO1 的频差拟合约
+  −456/−324/−536 ppb，与采用修正的预测相容。相较进度 017 的拟合幅度下降，
+  但 NO1 模型、温度和观测时刻不同，不作为单变量因果或连续收敛证明。
+  固定模型输出仍不能证明实时换模型、绝对相位或 100 ns 同步。
+- 补充物理采集未完成：`scope-raw-r2` 成功，`scope-fixed-r2` 因 NO4
+  `model_unchanged=2` 失败，该值表示模型快照读取争用，不是已证模型改变；
+  `scope-fixed-r3` 在 NO2 固定输出请求超时后失败。两次失败及清理原件保留，
+  不用相邻模型字段相等追认采集，不宣称追加运行后的物理漂移继续下降。
+  最新 `final-board-scope-state-r2.json` 确认四板 RING、PIO/DMA、PWM 和会话
+  均停止，示波器 STOP/EXT/NORM、错误队列为空。
+- `next-step-review.json` 复核保守步幅为靠零端点的四分之一，实际采用后重建
+  基线。NO1 在原生与后继持续观测包围窗内分别由 1641→1676、1676→1829 ppb，
+  但缺少具体配对窗口内的参考轨迹。不能把剩余频差仅归因于增益或量化。
+- 下一 gate：继续 `VDC-FAST-003`，对照后档未决区间、NO1 参考变化及外部剩余
+  漂移，确认后续频率收敛；随后补齐接收/采用 ACK、相位精度和一致发布。
+  示波器外部反馈用于核验实际输出误差符号、调节方向和响应；同一模型/事件
+  窗口绑定内部区间与物理相位斜率后，先区分最终档仍跨死区的分辨率问题、
+  稳定参考下连续同号小步的响应问题以及参考变化，再选择单一纠偏切片。
+  采样配置与 STOP 后导出留在调试侧，Core1 保持确定性处理；有限固定输出
+  波形只支持执行效果核验，不能替代运行中闭环轨迹或绝对相位验收。
+  不移除量化界或以区间中点伪造确定性。VDC 隔离和 observer 服务预算独立
+  跟踪，不将当前通过扩大为全负载运行。
+
 ### VDC-PROGRESS-20260917-017：调度入口迁入 SRAM 与外部剩余漂移复测
 
 - TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。证据根为
