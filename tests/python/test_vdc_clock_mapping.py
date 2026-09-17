@@ -20,6 +20,8 @@ from test_vdc_priority_follow import domain_sources
 M = 10**9
 U64 = (1 << 64) - 1
 LO_SENTINEL, HI_SENTINEL = U64 - 1234, U64 - 5678
+# Independent acceptance expectation; never derive this from the C macro.
+EXPECTED_RETAINED_CONSTRAINTS = 64
 
 
 @dataclass(frozen=True)
@@ -73,7 +75,8 @@ def exact_intersection(bridges):
 
 def mapping_oracle(case):
     """No copy of production scaled-integer arithmetic: all bounds are Fraction."""
-    used = case.bridges[:8] + case.bridges[-1:] if len(case.bridges) > 8 else case.bridges
+    cap = EXPECTED_RETAINED_CONSTRAINTS
+    used = case.bridges[:cap] + case.bridges[-1:] if len(case.bridges) > cap else case.bridges
     low, high = exact_intersection(used)
     if low >= high or case.flags or case.rate <= -M or case.event_lo > case.event_hi:
         return None
@@ -118,14 +121,17 @@ def check(executable, name, cases, containment=False, single=False):
     rows = [tuple(map(int, line.split())) for line in result.stdout.splitlines()]
     assert len(rows) == len(cases)
     for case, row in zip(cases, rows, strict=True):
-        status, lo, hi, original_lo, original_hi, valid, actual, count, epoch = row
+        status, lo, hi, original_lo, original_hi, valid, actual, count, epoch, count_before, retained, reset = row
         expected = mapping_oracle(case)
         if expected is None:
             assert status and (lo, hi) == (LO_SENTINEL, HI_SENTINEL), (case, row)
         else:
             assert (status, lo, hi) == (0, *expected), (case, row, expected)
             assert original_lo <= lo <= hi <= original_hi
-            assert count == min(len(case.bridges), 8) and epoch == 1
+            assert count == min(len(case.bridges), EXPECTED_RETAINED_CONSTRAINTS) and epoch == 1
+            assert count_before == min(len(case.bridges)-1, EXPECTED_RETAINED_CONSTRAINTS)
+            assert retained == int(len(case.bridges) <= EXPECTED_RETAINED_CONSTRAINTS)
+            assert reset == int(len(case.bridges) == 1)
             if single:
                 assert (lo, hi) == (original_lo, original_hi)
         point = domain_oracle(case, case.latent_local)
@@ -154,11 +160,11 @@ def test_phase_diversity_and_all_timer0_bins_preserve_real_event(mapping_executa
 
 def test_repeated_same_phase_does_not_manufacture_resolution(mapping_executable):
     cases = [from_latent(250_000_000, 10**10, 5*M+333, offsets, [(1, 2)]*len(offsets))
-             for offsets in ([10], [10, 260, 510, 760, 1010, 1260, 1510, 1760])]
+             for offsets in ([10], [10+250*i for i in range(64)], [10+250*i for i in range(96)])]
     rows = check(mapping_executable, "same_phase", cases, containment=True)
     assert len({(row[1], row[2]) for row in rows}) == 1
     assert rows[0][2] - rows[0][1] > 999
-    repeated = from_latent(250_000_000, 10**10, 5*M+333, [10]*8)
+    repeated = from_latent(250_000_000, 10**10, 5*M+333, [10]*96)
     repeated_row = check(mapping_executable, "same_instant", [repeated], containment=True)[0]
     assert repeated_row[2] - repeated_row[1] == 999
 
@@ -177,7 +183,8 @@ def test_fractional_frequency_negative_offsets_and_large_raw_origin(mapping_exec
     cases = []
     for _ in range(2000):
         hz = rng.choice([1, 3, 7, 125_000_000, 250_000_000, 333_333_333, 499_999_999, 500_000_000])
-        offsets = sorted(rng.randrange(0, min(2*hz, 10000)) for _ in range(rng.randrange(1, 9)))
+        count = rng.choice([1, 8, 9, 63, 64, 65, 66, 96])
+        offsets = sorted(rng.randrange(0, min(2*hz, 10000)) for _ in range(count))
         raw_anchor = rng.choice([10**10, U64 - 1000000])
         local_anchor = Fraction(rng.choice([5*M, 10**15])) + Fraction(rng.randrange(1000), 1000)
         case = from_latent(hz, raw_anchor, local_anchor, offsets,
@@ -217,19 +224,32 @@ def test_real_mapper_failures_preserve_output(mapping_executable):
     check(mapping_executable, "mapper_rejections", cases)
 
 
-def test_cap_uses_current_ninth_constraint_without_retaining_it(mapping_executable):
-    first = [10, 260, 510, 760, 1010, 1260, 1510, 1760]
+def test_ninth_through_sixty_fourth_constraints_keep_narrowing(mapping_executable):
+    cases = [from_latent(250_000_000, 10**10, 5*M+333, list(range(10, 10+count)))
+             for count in range(1, 65)]
+    rows = check(mapping_executable, "all_retained_prefixes", cases, containment=True)
+    widths = [row[2]-row[1] for row in rows]
+    assert widths == [999-4*i for i in range(64)]
+    assert rows[7][7] == 8 and rows[8][7] == 9 and rows[63][7] == 64
+
+
+def test_cap_uses_current_sixty_fifth_constraint_without_retaining_it(mapping_executable):
+    first = list(range(10, 74))
     cases = [from_latent(250_000_000, 10**10, 5*M+333, offsets)
-             for offsets in [first, first+[1885], first+[1885, 2010]]]
+             for offsets in [first, first+[135], first+[135, 260]]]
     rows = check(mapping_executable, "cap", cases, containment=True)
     assert rows[1][2] - rows[1][1] < rows[0][2] - rows[0][1]
     assert rows[2][1:3] == rows[0][1:3]
+    assert [row[7] for row in rows] == [64, 64, 64]
+    assert [row[10] for row in rows] == [1, 0, 0]
 
 
 @pytest.mark.parametrize("case", ["horizon", "model", "exhausted", "empty", "raw_rollback",
     "local_rollback", "clock_change", "invalid_cache", "invalid_bin", "overflow_local",
     "invalid_bridge", "event_future", "source_age", "offset_min", "offset_max",
-    "invalid_epoch", "invalid_model", "corrupt_anchor"])
+    "invalid_epoch", "invalid_model", "corrupt_anchor", "full_horizon", "full_model",
+    "full_exhausted", "full_empty", "full_raw_rollback", "full_local_rollback",
+    "full_clock_change", "full_invalid_cache", "full_corrupt_anchor"])
 def test_cache_lifetime_and_empty_results_are_transactional(mapping_executable, case):
     command = [str(mapping_executable), case]
     result = subprocess.run(command, capture_output=True, text=True, timeout=30)
@@ -245,6 +265,7 @@ HARNESS = r'''
 #include <stdlib.h>
 #include <string.h>
 #include "vdc_clock_mapping.h"
+_Static_assert(sizeof(vdc_clock_mapping_cache_t)==64u,"Mapping cache stays one fixed-size intersection");
 #undef assert
 #define assert(condition) do { if(!(condition)) { \
     fprintf(stderr,"assertion failed at %s:%d: %s\n",__FILE__,__LINE__,#condition);exit(1); \
@@ -279,9 +300,9 @@ static void numeric(void)
         }
         uint64_t actual=UINT64_MAX-1234;
         const bool valid=vdc_domain_dco_local_to_output_ns(&dco,latent,&actual);
-        printf("%u %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %u %"PRIu64" %u %u\n",
+        printf("%u %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %u %"PRIu64" %u %u %u %u %u\n",
             status,result.output_lo,result.output_hi,result.original_output_lo,result.original_output_hi,
-            (unsigned)valid,actual,cache.count,cache.epoch);
+            (unsigned)valid,actual,cache.count,cache.epoch,result.count_before,result.retained,result.reset_reason);
     }
 }
 static void lifecycle(const char *name)
@@ -293,27 +314,43 @@ static void lifecycle(const char *name)
     assert(vdc_clock_mapping_project(&cache,&dco,&b,19u,1000u,1000u,&out)==VDC_CLOCK_MAPPING_OK);
     assert(out.reset_reason==VDC_CLOCK_MAPPING_RESET_START && out.next.epoch==1u && out.next.count==1u);
     cache=out.next;
+    const bool full=!strncmp(name,"full_",5u);
+    if(full) {
+        name+=5;
+        for(uint32_t i=1u;i<64u;++i) {
+            const vdc_clock_mapping_cache_t before=cache;
+            assert(vdc_clock_mapping_project(&cache,&dco,&b,19u,1000u,1000u,&out)==VDC_CLOCK_MAPPING_OK);
+            assert(!memcmp(&cache,&before,sizeof(cache)));
+            assert(out.count_before==i && out.retained==1u && out.next.count==i+1u &&
+                out.reset_reason==VDC_CLOCK_MAPPING_RESET_NONE && out.next.epoch==1u);
+            cache=out.next;
+        }
+        assert(cache.count==64u);
+    }
     uint32_t token=19u;uint64_t event=1000u;
     vdc_clock_mapping_status_t expected=VDC_CLOCK_MAPPING_INVALID;
     if(!strcmp(name,"horizon")) {
         b.raw_before=b.raw_after=500001000u;b.local_ns=2010000000u;event=b.raw_before-1u;
         assert(vdc_clock_mapping_project(&cache,&dco,&b,token,event,event,&out)==VDC_CLOCK_MAPPING_OK);
-        assert(out.reset_reason==VDC_CLOCK_MAPPING_RESET_NONE && out.next.epoch==1u && out.next.count==2u);
+        assert(out.reset_reason==VDC_CLOCK_MAPPING_RESET_NONE && out.next.epoch==1u &&
+            out.next.count==(full?64u:2u) && out.count_before==(full?64u:1u) && out.retained==(full?0u:1u));
         cache=out.next;++b.raw_before;++b.raw_after;++event;
         assert(vdc_clock_mapping_project(&cache,&dco,&b,token,event,event,&out)==VDC_CLOCK_MAPPING_OK);
-        assert(out.reset_reason==VDC_CLOCK_MAPPING_RESET_HORIZON && out.next.epoch==2u && out.next.count==1u);
+        assert(out.reset_reason==VDC_CLOCK_MAPPING_RESET_HORIZON && out.next.epoch==2u && out.next.count==1u &&
+            out.count_before==(full?64u:2u) && out.retained==1u);
         return;
     }
     if(!strcmp(name,"model")) {
         assert(vdc_clock_mapping_project(&cache,&dco,&b,20u,event,event,&out)==VDC_CLOCK_MAPPING_OK);
-        assert(out.reset_reason==VDC_CLOCK_MAPPING_RESET_MODEL && out.next.epoch==2u && out.next.count==1u);return;
+        assert(out.reset_reason==VDC_CLOCK_MAPPING_RESET_MODEL && out.next.epoch==2u && out.next.count==1u &&
+            out.count_before==(full?64u:1u) && out.retained==1u);return;
     }
     if(!strcmp(name,"exhausted")){cache.epoch=UINT32_MAX;token=20u;expected=VDC_CLOCK_MAPPING_EXHAUSTED;}
     else if(!strcmp(name,"empty")){b.raw_before=b.raw_after=1250u;b.local_ns+=2000u;expected=VDC_CLOCK_MAPPING_CONTRADICTION;}
     else if(!strcmp(name,"raw_rollback")){b.raw_before=b.raw_after=999u;event=999u;token=20u;}
     else if(!strcmp(name,"local_rollback")){b.local_ns-=1000u;token=20u;}
     else if(!strcmp(name,"clock_change"))b.tick_hz=125000000u;
-    else if(!strcmp(name,"invalid_cache"))cache.count=9u;
+    else if(!strcmp(name,"invalid_cache"))cache.count=65u;
     else if(!strcmp(name,"offset_min"))cache.offset_lo=INT64_MIN;
     else if(!strcmp(name,"offset_max"))cache.offset_hi_open=INT64_MAX;
     else if(!strcmp(name,"invalid_epoch"))cache.epoch=0u;

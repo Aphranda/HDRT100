@@ -1,4 +1,4 @@
-"""Native schema 2 from the real TX/mapping/Domain/shared SRAM recorder.
+"""Native schema 3 from the real TX/mapping/Domain/shared SRAM recorder.
 
 The Python checker reads public bytes independently and computes rational
 constraint intersections. Product decoder replay and corrupted evidence are
@@ -27,7 +27,7 @@ def origin_executable(trace_executable, tmp_path_factory):
         "bool tdma_runtime_owner_get_origin_reference_epoch(uint32_t *out);", 1)
     source = source.replace("int main(int argc,char **argv)", "int previous_trace_main(int argc,char **argv)", 1)
     source = source.replace("const uint32_t expected=168u+s.record_count*100u;",
-        "const uint32_t expected=(s.schema==2u?264u:168u)+s.record_count*100u;")
+        "const uint32_t expected=(s.schema==3u?264u:168u)+s.record_count*100u;")
     source += INPUTS + (ROOT / "components/vdc_dpll_manager/src/vdc_priority_tx.inc").read_text(encoding="utf-8")
     source += CASES
     return compile_executable(tmp_path_factory.mktemp("origin-trace"), "origin_trace", source,
@@ -38,9 +38,9 @@ def origin_executable(trace_executable, tmp_path_factory):
 
 def native_origin(raw):
     magic, schema, header_size, record_size, crc = struct.unpack_from("<5I", raw)
-    assert (magic, schema, header_size, record_size) == (0x52545056, 2, 264, 100)
+    assert (magic, schema, header_size, record_size) == (0x52545056, 3, 264, 100)
     status = dict(zip(STATUS_FIELDS, struct.unpack_from("<37I", raw, 20), strict=True))
-    assert status["schema"] == 2 and status["request_seq"] == status["ack_seq"]
+    assert status["schema"] == 3 and status["request_seq"] == status["ack_seq"]
     assert status["state"] == 3 and status["sample_interval_ms"] == 0
     assert status["match_count"] == status["decision_count"] == 0
     assert len(raw) == 264 + status["record_count"] * 100 and zlib.crc32(raw[264:]) == crc
@@ -66,7 +66,7 @@ def native_origin(raw):
             assert elapsed>=0
             return row["output"]+elapsed+int(Fraction(elapsed*row["rate"], 10**9))+row["phase"]
         assert (row["lower"], row["lower"]+row["width"]) == (real_domain(local_low),real_domain(local_high))
-        if len(retained)<8:
+        if len(retained)<64:
             retained.append(constraint)
         old=row
     if records:
@@ -92,7 +92,7 @@ def test_native_origin_and_independent_half_open_replay(origin_executable, case,
     assert len(product["records"])==count
     if case=="flow":
         assert records[1]["width"]<records[0]["width"]
-        assert ext[8]==8 and ext[9]==1
+        assert ext[8]==12 and ext[9]==1
     if case in ("model","horizon"):
         assert ext[9]==2
     if case=="capacity":
@@ -109,6 +109,15 @@ def test_origin_storage_lifecycle_requires_complete_start(origin_executable, cas
 @pytest.fixture(scope="module")
 def origin_bytes(origin_executable):
     return execute(origin_executable,"flow")
+
+
+def test_real_schema3_capture_cannot_be_relabelled_as_schema2(origin_bytes):
+    raw = bytearray(origin_bytes)
+    struct.pack_into('<I', raw, 4, 2)
+    struct.pack_into('<I', raw, 20, 2)
+    struct.pack_into('<I', raw, 16, zlib.crc32(raw[264:]))
+    with pytest.raises(ValueError, match='differs from replay'):
+        decoder.decode(bytes(raw), 1)
 
 
 @pytest.mark.parametrize("offset,value,size", [
@@ -188,7 +197,7 @@ static void origin_setup(void)
 static void origin_arm(void)
 {
     stopped_ring();assert(vdc_dpll_manager_priority_trace_origin_arm(1u));trace_service();
-    assert(trace_status().state==VDC_PRIORITY_TRACE_ARMED && trace_status().schema==2u);
+    assert(trace_status().state==VDC_PRIORITY_TRACE_ARMED && trace_status().schema==3u);
     running_ring();trace_service();
 }
 static void origin_offer(void)

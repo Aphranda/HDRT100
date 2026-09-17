@@ -99,7 +99,7 @@ static void priority_trace_decision_core1(const vdc_priority_follow_snapshot_t *
     harness += production("components/vdc_dpll_manager/src/vdc_priority_follow.inc")
     harness += "\n#undef VDC_PRIORITY_TRACE_DECISION_HOOK\n"
     harness += r'''
-/* Schema 1 fixture has no origin TX producer; schema 2 is exercised with
+/* Schema 1 fixture has no origin TX producer; origin schema is exercised with
  * the real provider in test_vdc_priority_origin_trace. */
 uint32_t vdc_dpll_manager_priority_sync_generation(void) { return 0u; }
 bool vdc_priority_tx_origin_trace_eligible_core1(uint32_t generation,uint32_t session)

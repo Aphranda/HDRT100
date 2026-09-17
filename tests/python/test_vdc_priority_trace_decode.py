@@ -111,3 +111,104 @@ def test_bad_request_does_not_query():
     for capture_id, size in [(0, 128), (2**32, 128), (123, 0), (123, 129)]:
         with pytest.raises(ValueError):
             trace.download_capture(lambda q: pytest.fail('invalid request sent'), capture_id, size)
+
+
+def origin_native(schema, count):
+    """Independent integer-clock oracle; public bytes, no decoder field maps.
+
+    The ninth and 64th bridges tighten the retained interval. Bridge 65
+    tightens just its own event after the schema 3 pool is full; event 66
+    proves that this additional constraint was not retained.
+    """
+    capacity = {2: 8, 3: 64}[schema]
+    hz = 250_000_000
+    retained, records = [], []
+    first_local = 10_000_000_000
+    anchor_raw = first_local // 4
+    for index in range(count):
+        local = first_local + index * 1_000_000
+        raw = local // 4
+        offset = {8: 150, 63: 175, 64: 200}.get(index, 100)
+        before, after = raw + offset, raw + offset + 1
+        constraint = (local - 4 * after, local + 1000 - 4 * before)
+        low = max(pair[0] for pair in retained + [constraint])
+        high = min(pair[1] for pair in retained + [constraint])
+        encoded = 4 * raw + low
+        width = 4 * (raw + 1) + high - 1 - encoded
+        records.append(struct.pack('<5I7QiiIQI', index, 3, index + 1, 7, hz,
+            raw, raw + 1, before, after, local, 0, 0, 0, 0, 5, encoded, width))
+        if len(retained) < capacity:
+            retained.append(constraint)
+    words = [schema, 2, 2, 2, 3, 4 if count == 76 else 1, 123, 42, 42, 0,
+             76, count, 0, 0, 0, 0, 1000, 1100, 1110, 9, 9, 0, 0, 4,
+             11, 12, 13, 14, 0, 1, 1, 8, 0, 3, 4, hz, 4]
+    extension = bytes(96)
+    if count:
+        last_offset = {8: 150, 63: 175, 64: 200}.get(count - 1, 100)
+        last_local = first_local + (count - 1) * 1_000_000
+        extension = struct.pack('<12I4Q2q', 1, 1, 1, count, 2, 2 * count,
+            count, 1 if count == 1 else 0, len(retained), 1, hz, 7,
+            anchor_raw, first_local, last_local // 4 + last_offset + 1, last_local,
+            max(pair[0] for pair in retained) * hz,
+            min(pair[1] for pair in retained) * hz)
+    payload = b''.join(records)
+    return struct.pack('<42I', 0x52545056, schema, 264, 100,
+                       zlib.crc32(payload), *words) + extension + payload
+
+
+@pytest.mark.parametrize('schema,capacity', [(2, 8), (3, 64)])
+@pytest.mark.parametrize('count', [0, 1, 7, 8, 9, 10, 63, 64, 65, 66, 76])
+def test_origin_versioned_retention_boundaries_and_frozen_full(schema, capacity, count):
+    raw = origin_native(schema, count)
+    result = trace.decode(raw, 123)
+    assert result['schema'] == f'VDC_ORIGIN_TRACE_DECODE_V{schema}'
+    assert result['mapping_retention_capacity'] == capacity
+    assert result['origin']['cache_count'] == min(count, capacity)
+    assert len(result['records']) == count and result['replay_matches_encoded']
+    assert not result['physical_lock_qualified']
+    if count == 76:
+        assert result['status']['reason'] == 4
+    if count >= 10:
+        # Only schema 3 remembers the ninth constraint for the tenth event.
+        tenth = result['records'][9]
+        assert tenth['encoded_lo'] + tenth['encoded_width'] == (
+            tenth['raw_hi'] * 4 + (400 if schema == 3 else 600) - 1)
+    if count >= 66:
+        row = result['records'][65]
+        assert row['encoded_lo'] + row['encoded_width'] == (
+            row['raw_hi'] * 4 + (300 if schema == 3 else 600) - 1)
+
+
+@pytest.mark.parametrize('source,target', [(2, 3), (3, 2)])
+@pytest.mark.parametrize('count', [10, 65, 76])
+def test_origin_mislabelled_retention_rejected_with_valid_payload_crc(source, target, count):
+    raw = bytearray(origin_native(source, count))
+    struct.pack_into('<I', raw, 4, target)
+    struct.pack_into('<I', raw, 20, target)
+    struct.pack_into('<I', raw, 16, zlib.crc32(raw[264:]))
+    with pytest.raises(ValueError, match='differs from replay'):
+        trace.decode(bytes(raw), 123)
+
+
+@pytest.mark.parametrize('schema', [0, 4, 99, 0xffffffff])
+def test_origin_unknown_versions_rejected_even_when_empty(schema):
+    raw = bytearray(origin_native(3, 0))
+    struct.pack_into('<I', raw, 4, schema)
+    struct.pack_into('<I', raw, 20, schema)
+    with pytest.raises(ValueError, match='format'):
+        trace.decode(bytes(raw), 123)
+
+
+@pytest.mark.parametrize('schema', [2, 3])
+def test_origin_prefix_status_version_mismatch(schema):
+    raw = bytearray(origin_native(schema, 1))
+    struct.pack_into('<I', raw, 20, 5 - schema)
+    with pytest.raises(ValueError, match='identity'):
+        trace.decode(bytes(raw), 123)
+
+
+@pytest.mark.parametrize('schema', [2, 3])
+def test_origin_versioned_stop_download(schema):
+    raw = origin_native(schema, 76)
+    actual, pages = trace.download_capture(query_for(raw), 123, 128)
+    assert actual == raw and len(pages) > 1

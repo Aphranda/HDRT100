@@ -17,7 +17,9 @@ import zlib
 
 MAGIC = 0x52545056
 SCHEMA = 1
-ORIGIN_SCHEMA = 2
+ORIGIN_SCHEMA = 3
+# Immutable wire semantics: historical captures must not inherit today's cap.
+ORIGIN_SCHEMA_CAPACITIES = {2: 8, 3: 64}
 RECORD_BYTES = 100
 MAX_RECORDS = 76
 READ_MAX_BYTES = 128
@@ -64,7 +66,7 @@ def parse_status(response: str) -> dict[str, int]:
 def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     require(len(data) >= HEADER_BYTES, 'Truncated native header')
     magic, schema, header_bytes, record_bytes, payload_crc = PREFIX.unpack_from(data)
-    expected_header = {SCHEMA: HEADER_BYTES, ORIGIN_SCHEMA: ORIGIN_HEADER_BYTES}.get(schema)
+    expected_header = {SCHEMA: HEADER_BYTES, **dict.fromkeys(ORIGIN_SCHEMA_CAPACITIES, ORIGIN_HEADER_BYTES)}.get(schema)
     require((magic, header_bytes, record_bytes) ==
             (MAGIC, expected_header, RECORD_BYTES), 'Unknown native trace format')
     require(len(data) >= header_bytes, 'Truncated native header')
@@ -82,7 +84,7 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
         require(status['match_count'] == status['decision_count'] == status['sample_interval_ms'] == 0, 'Origin counters mislabelled')
     require(len(data) == header_bytes + count * RECORD_BYTES, 'Truncated or trailing native payload')
     require(zlib.crc32(data[header_bytes:]) == payload_crc, 'Payload CRC mismatch')
-    if schema == ORIGIN_SCHEMA:
+    if schema in ORIGIN_SCHEMA_CAPACITIES:
         return decode_origin(data, status, header_bytes)
     records = []
     counts = {1: 0, 2: 0}
@@ -132,6 +134,8 @@ def decode_origin(data: bytes, status: dict, header_bytes: int) -> dict:
     the clock lifetime assumptions or physical output-edge precision.
     """
     from fractions import Fraction
+    capacity = ORIGIN_SCHEMA_CAPACITIES.get(status['schema'])
+    require(capacity is not None, 'Unknown origin trace schema')
     ext = dict(zip(ORIGIN_EXTENSION_FIELDS, ORIGIN_EXTENSION.unpack_from(data, HEADER_BYTES)))
     records, cache, epoch, prior = [], None, 0, None
     def floor(value):
@@ -177,7 +181,7 @@ def decode_origin(data: bytes, status: dict, header_bytes: int) -> dict:
         mapped = tuple(map(output, refined))
         actual = (max(original[0], mapped[0]), min(original[1], mapped[1]))
         require(actual == (r['encoded_lo'], r['encoded_lo']+r['encoded_width']), 'Origin encoded interval differs from replay')
-        if cache['count'] < 8:
+        if cache['count'] < capacity:
             cache.update(low=low, high=high, count=cache['count']+1)
         r.update(original_lo=original[0], original_hi=original[1], original_width=original[1]-original[0],
                  saved_width=original[1]-original[0]-r['encoded_width'], replay_epoch=epoch, reset_reason=reason)
@@ -197,7 +201,8 @@ def decode_origin(data: bytes, status: dict, header_bytes: int) -> dict:
         require(all(ext[k] == v for k, v in expected.items()), 'Origin final cache differs from replay')
     else:
         require(not any(ext.values()), 'Empty origin capture contains cache')
-    return dict(schema='VDC_ORIGIN_TRACE_DECODE_V2', status=status, origin=ext, records=records,
+    return dict(schema=f"VDC_ORIGIN_TRACE_DECODE_V{status['schema']}", status=status, origin=ext, records=records,
+                mapping_retention_capacity=capacity,
                 bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), file_crc32=zlib.crc32(data),
                 replay_matches_encoded=True, complete_window_proven=False, physical_lock_qualified=False)
 

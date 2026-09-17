@@ -6,7 +6,7 @@
 
 #define VDC_PRIORITY_TRACE_MAGIC UINT32_C(0x52545056) /* VPTR, little endian */
 #define VDC_PRIORITY_TRACE_SCHEMA 1u
-#define VDC_PRIORITY_TRACE_ORIGIN_SCHEMA 2u
+#define VDC_PRIORITY_TRACE_ORIGIN_SCHEMA 3u
 #define VDC_PRIORITY_TRACE_ORIGIN_EXTENSION_BYTES 96u
 #define VDC_PRIORITY_TRACE_RECORD_BYTES 100u
 #define VDC_PRIORITY_TRACE_MATCH_INTERVAL_MS 200u
@@ -52,7 +52,10 @@ typedef struct {
     vdc_priority_trace_status_t status;
 } vdc_priority_trace_header_t;
 
-/* Schema 2 appends 96 bytes to the schema 1 header layout (264 total).
+/* Origin schemas 2 and 3 append 96 bytes to schema 1 (264 total).
+ * Schema 2 retains at most 8 clock constraints; schema 3 retains at most 64.
+ * Layout and record size are identical. Replay must use the file schema's
+ * retention limit, never the decoder's current firmware configuration.
  * u32: role_generation, source_epoch, first/last_source_identity,
  * first/last_published_version, last_event_sequence, last_reset_reason,
  * cache_count, cache_epoch, cache_tick_hz, cache_model_token.
@@ -60,7 +63,7 @@ typedef struct {
  * i64: offset_lo, offset_hi_open. This is the cache at the last recorded
  * successful commit, immutable after FULL/STOP. MATCH/DECISION counts and
  * sample_interval_ms are zero. Unused follower binding fields remain zero.
- * Schema 2 ORIGIN record: u32 index/kind/event_sequence/model_token/tick_hz;
+ * Schema 2/3 ORIGIN record: u32 index/kind/event_sequence/model_token/tick_hz;
  * u64 raw_lo/raw_hi/bridge_before/bridge_after/bridge_local_ns/base_local_ns/
  * base_output_ns; i32 rate_ppb/phase_ns; u32 dco_seq; u64 encoded_lo;
  * u32 encoded_width. All 100 bytes describe one successful projection. */

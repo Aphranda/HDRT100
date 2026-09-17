@@ -21,6 +21,8 @@ typedef struct {
 static vdc_priority_trace_work_t s_priority_trace_work;
 _Static_assert(sizeof(vdc_priority_trace_status_t) == 148u, "typed trace status ABI");
 _Static_assert(sizeof(vdc_priority_trace_header_t) == 168u, "typed trace header ABI");
+_Static_assert(VDC_PRIORITY_TRACE_ORIGIN_SCHEMA == 3u &&
+    VDC_CLOCK_MAPPING_MAX_CONSTRAINTS == 64u, "origin schema 3 retains 64 constraints");
 _Static_assert(sizeof(vdc_priority_trace_record_t) == sizeof(s_dpll_capture_records[0]),
     "typed trace reuses each complete legacy slot");
 

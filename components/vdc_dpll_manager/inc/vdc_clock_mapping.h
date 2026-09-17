@@ -3,7 +3,7 @@
 
 #include "vdc_model_projection.h"
 
-#define VDC_CLOCK_MAPPING_MAX_CONSTRAINTS 8u
+#define VDC_CLOCK_MAPPING_MAX_CONSTRAINTS 64u
 #define VDC_CLOCK_MAPPING_MAX_SECONDS 2u
 
 typedef enum {
