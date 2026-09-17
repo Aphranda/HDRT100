@@ -22,6 +22,28 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-010：同模型有效起点变化的基线失效修复
+
+- TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。修复
+  `components/vdc_dpll_manager/src/vdc_priority_follow.inc`：当已保留基线的模型
+  身份未改变、但发布的 `valid_from_raw` 被改写时，Core1 现在先废弃旧基线并等待
+  新基线；已确认的 phase successor 仍按独立 `rate_epoch` 路径保留，不受该检查误伤。
+  这样可避免同一模型 token 下把有效期前后的两个事件拼成一次频率差分。
+- 主机验证：`test_vdc_priority_delta.py`、`test_vdc_priority_phase.py`、
+  `test_vdc_priority_follow.py`、`test_vdc_priority_follow_config.py` 共 175 项通过；
+  私有工作区大小与公共快照 ABI 保持不变。测试仅证明边界和所有权语义，不证明板端
+  连续输出或物理锁相。
+- Release 资源验证：构建目录
+  `out/build/dpll-validity-fix/` 完成 `pico2-release` 编译、双应用镜像和链接检查。
+  当前源码四板 quick P3 使用 `--tdma-only` 完成，证据根为
+  `out/HardwareAcceptance/20260918/p3-055020/`，结果为
+  `PASS_WITH_WARNINGS`（30 INFO、24 WARN、无 ERROR/FATAL）；默认五板配置因 NO5
+  未连接而停止，四板范围已显式固定，DPLL 外部观测未纳入本轮判定。
+- 提交：`80435e65 fix(vdc): retire baseline on same-model validity change`，P3 凭证
+  已绑定提交源码指纹。下一 gate 仍是 `VDC-FAST-003`：在不改变特等席运输边界的前提
+  下，复采 NO1--NO4 的实际接收/采用事件，再统一到同一时间轴核对补给连续性、DCO
+  生效和 internal 残差；不能用本次模型边界修复替代连续输出或 100 ns 锁相证据。
+
 ### VDC-PROGRESS-20260918-009：长时间轴补给窗口 A/B 复采
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003` IN PROGRESS。以下均为四板有限
