@@ -56,6 +56,11 @@ scpi_result_t scpi_cmd_vdc_priority_match_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_follow_baseline(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_follow_baseline_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_follow_baseline_default(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_follow_baseline_recall(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_follow_baseline_store(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_trace_arm(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_trace_origin_arm(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_trace_stop(scpi_t *context);
@@ -216,6 +221,11 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow", .callback = scpi_cmd_vdc_priority_follow}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow?", .callback = scpi_cmd_vdc_priority_follow_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow:STATus?", .callback = scpi_cmd_vdc_priority_follow_status_q}, \
+    {.pattern = "SYSTem:VDC:PRIORity:FOLLow:BASEline", .callback = scpi_cmd_vdc_priority_follow_baseline}, \
+    {.pattern = "SYSTem:VDC:PRIORity:FOLLow:BASEline?", .callback = scpi_cmd_vdc_priority_follow_baseline_q}, \
+    {.pattern = "SYSTem:VDC:PRIORity:FOLLow:BASEline:DEFAult", .callback = scpi_cmd_vdc_priority_follow_baseline_default}, \
+    {.pattern = "SYSTem:VDC:PRIORity:FOLLow:BASEline:RECall", .callback = scpi_cmd_vdc_priority_follow_baseline_recall}, \
+    {.pattern = "SYSTem:VDC:PRIORity:FOLLow:BASEline:STORe", .callback = scpi_cmd_vdc_priority_follow_baseline_store}, \
     {.pattern = "SYSTem:VDC:PRIORity:TRACe:ARM", .callback = scpi_cmd_vdc_priority_trace_arm}, \
     {.pattern = "SYSTem:VDC:PRIORity:TRACe:ORIGin", .callback = scpi_cmd_vdc_priority_trace_origin_arm}, \
     {.pattern = "SYSTem:VDC:PRIORity:TRACe:STOP", .callback = scpi_cmd_vdc_priority_trace_stop}, \

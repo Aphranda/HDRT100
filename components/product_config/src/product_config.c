@@ -1,6 +1,7 @@
 #include "product_config.h"
 
 #include <ctype.h>
+#include <stddef.h>
 #include <string.h>
 
 #include "drv_flash.h"
@@ -10,7 +11,8 @@
 #include "project_config.h"
 
 #define PRODUCT_CONFIG_MAGIC   0x47544346u
-#define PRODUCT_CONFIG_VERSION 2u
+#define PRODUCT_CONFIG_VERSION 3u
+#define PRODUCT_CONFIG_VERSION_SERVO 2u
 #define PRODUCT_CONFIG_VERSION_LEGACY 1u
 #define PRODUCT_CONFIG_MAX_BOARD_NO 8u
 #define PRODUCT_CONFIG_SLOT_SIZE DRV_FLASH_PAGE_SIZE
@@ -36,7 +38,16 @@ typedef struct {
     uint32_t board_no;
     uint32_t reserved[10];
     uint32_t crc32;
+    uint32_t baseline_max_replacements;
+    uint32_t baseline_window_ns;
 } product_config_record_t;
+
+/* Versions 1/2 end at the existing CRC word; retain their byte-exact CRC
+ * domain. Version 3 covers the appended tuning fields with the same CRC. */
+#define PRODUCT_CONFIG_LEGACY_BYTES offsetof(product_config_record_t, baseline_max_replacements)
+_Static_assert(PRODUCT_CONFIG_LEGACY_BYTES == 64u, "v1/v2 CRC domain remains 64 bytes");
+_Static_assert(sizeof(product_config_record_t) <= PRODUCT_CONFIG_SLOT_SIZE,
+               "Product Config record must fit one journal page");
 
 #define PRODUCT_CONFIG_DPLL_PROFILE_VALID 0x44504C4Cu /* DPLL */
 #define PRODUCT_CONFIG_DPLL_CONTROL_PROFILE_VALID 0x44524F4Cu /* DROL */
@@ -134,7 +145,9 @@ static uint32_t product_config_crc32(const product_config_record_t *record)
 {
     product_config_record_t copy = *record;
     copy.crc32 = 0u;
-    return ota_crc32_compute((const uint8_t *)&copy, sizeof(copy));
+    const size_t length = copy.version == PRODUCT_CONFIG_VERSION
+        ? sizeof(copy) : PRODUCT_CONFIG_LEGACY_BYTES;
+    return ota_crc32_compute((const uint8_t *)&copy, length);
 }
 
 static bool product_config_record_is_valid(const product_config_record_t *record)
@@ -142,6 +155,7 @@ static bool product_config_record_is_valid(const product_config_record_t *record
     if (record == NULL ||
         record->magic != PRODUCT_CONFIG_MAGIC ||
         (record->version != PRODUCT_CONFIG_VERSION &&
+         record->version != PRODUCT_CONFIG_VERSION_SERVO &&
          record->version != PRODUCT_CONFIG_VERSION_LEGACY) ||
         !product_config_usb_mode_is_valid(record->usb_mode) ||
         !product_config_board_no_is_valid(record->board_no)) {
@@ -177,7 +191,8 @@ product_config_default_dpll_control_profile(void)
 static bool product_config_dpll_profile_is_valid(
     const product_config_record_t *record)
 {
-    return record != NULL && record->version == PRODUCT_CONFIG_VERSION &&
+    return record != NULL && record->version >= PRODUCT_CONFIG_VERSION_SERVO &&
+           record->version <= PRODUCT_CONFIG_VERSION &&
            record->reserved[0] == PRODUCT_CONFIG_DPLL_PROFILE_VALID;
 }
 
@@ -197,7 +212,8 @@ static void product_config_record_set_dpll_profile(
 static bool product_config_dpll_control_profile_is_valid(
     const product_config_record_t *record)
 {
-    return record != NULL && record->version == PRODUCT_CONFIG_VERSION &&
+    return record != NULL && record->version >= PRODUCT_CONFIG_VERSION_SERVO &&
+           record->version <= PRODUCT_CONFIG_VERSION &&
            record->reserved[6] == PRODUCT_CONFIG_DPLL_CONTROL_PROFILE_VALID &&
            record->reserved[7] <= 1u &&
            record->reserved[8] <= PRODUCT_CONFIG_DPLL_MAX_SOURCE_SLOT &&
@@ -239,6 +255,8 @@ static void product_config_set_default(product_config_record_t *record)
     record->sequence = 0u;
     record->usb_mode = (uint32_t)product_config_default_usb_mode();
     record->board_no = 0u;
+    record->baseline_max_replacements = PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_REPLACEMENTS;
+    record->baseline_window_ns = PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_WINDOW_NS;
     product_config_record_set_dpll_profile(record, &default_profile);
     product_config_record_set_dpll_control_profile(record, &default_control);
     record->crc32 = product_config_crc32(record);
@@ -367,11 +385,6 @@ bool product_config_init(void)
         product_config_set_default(&s_product_config);
     }
 
-    if (found_latest &&
-        product_config_dpll_profile_is_valid(&s_product_config)) {
-        return true;
-    }
-
     /* Startup must remain read-only. FlashTransaction parks core1 before any
      * erase/program operation, but product_config_init() runs before the
      * realtime core is launched. Persisting a v1-to-v2/default migration here
@@ -382,10 +395,22 @@ bool product_config_init(void)
         product_config_default_dpll_servo_profile();
     const product_config_dpll_control_profile_t default_control =
         product_config_default_dpll_control_profile();
-    product_config_record_set_dpll_profile(&s_product_config,
-                                           &default_profile);
-    product_config_record_set_dpll_control_profile(&s_product_config,
-                                                   &default_control);
+    /* Determine both legacy flags before promoting version: v1 reserved
+     * bytes must never become a valid v2 profile merely through migration. */
+    const bool have_servo = product_config_dpll_profile_is_valid(&s_product_config);
+    const bool have_control = product_config_dpll_control_profile_is_valid(&s_product_config);
+    if (s_product_config.version != PRODUCT_CONFIG_VERSION ||
+        s_product_config.baseline_max_replacements > PRODUCT_CONFIG_DPLL_BASELINE_MAX_REPLACEMENTS ||
+        s_product_config.baseline_window_ns == 0u ||
+        s_product_config.baseline_window_ns > PRODUCT_CONFIG_DPLL_BASELINE_MAX_WINDOW_NS) {
+        s_product_config.baseline_max_replacements = PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_REPLACEMENTS;
+        s_product_config.baseline_window_ns = PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_WINDOW_NS;
+    }
+    if (!have_servo)
+        product_config_record_set_dpll_profile(&s_product_config, &default_profile);
+    if (!have_control)
+        product_config_record_set_dpll_control_profile(&s_product_config, &default_control);
+    s_product_config.version = PRODUCT_CONFIG_VERSION;
     s_product_config.crc32 = product_config_crc32(&s_product_config);
     return true;
 }
@@ -529,6 +554,36 @@ bool product_config_set_dpll_control_profile(
            product_config_get_dpll_control_profile(&readback) &&
            readback.mode == profile->mode &&
            readback.follow_master_slot_id == profile->follow_master_slot_id;
+}
+
+bool product_config_get_dpll_baseline_profile(product_config_dpll_baseline_profile_t *profile)
+{
+    if (profile == NULL || !product_config_record_is_valid(&s_product_config) ||
+        s_product_config.version != PRODUCT_CONFIG_VERSION ||
+        s_product_config.baseline_max_replacements > PRODUCT_CONFIG_DPLL_BASELINE_MAX_REPLACEMENTS ||
+        s_product_config.baseline_window_ns == 0u ||
+        s_product_config.baseline_window_ns > PRODUCT_CONFIG_DPLL_BASELINE_MAX_WINDOW_NS) return false;
+    *profile = (product_config_dpll_baseline_profile_t){
+        .max_replacements = s_product_config.baseline_max_replacements,
+        .window_ns = s_product_config.baseline_window_ns};
+    return true;
+}
+
+bool product_config_set_dpll_baseline_profile(const product_config_dpll_baseline_profile_t *profile)
+{
+    if (profile == NULL || profile->max_replacements > PRODUCT_CONFIG_DPLL_BASELINE_MAX_REPLACEMENTS ||
+        profile->window_ns == 0u || profile->window_ns > PRODUCT_CONFIG_DPLL_BASELINE_MAX_WINDOW_NS)
+        return false;
+    product_config_record_t record = s_product_config;
+    if (!product_config_record_is_valid(&record)) product_config_set_default(&record);
+    record.version = PRODUCT_CONFIG_VERSION;
+    record.baseline_max_replacements = profile->max_replacements;
+    record.baseline_window_ns = profile->window_ns;
+    record.sequence++;
+    record.crc32 = product_config_crc32(&record);
+    product_config_dpll_baseline_profile_t readback;
+    return product_config_store(&record) && product_config_get_dpll_baseline_profile(&readback) &&
+        readback.max_replacements == profile->max_replacements && readback.window_ns == profile->window_ns;
 }
 
 const char *product_config_usb_mode_to_string(product_config_usb_mode_t mode)

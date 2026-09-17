@@ -1007,6 +1007,28 @@ bool tdma_service_update_stopped_metadata(tdma_service_service_t *service,
     return tdma_service_update_event_tap(service, publish, context);
 }
 
+bool tdma_service_run_stopped_maintenance(tdma_service_service_t *service,
+    bool (*maintain)(void *context), void *context)
+{
+    if (service == NULL || maintain == NULL ||
+        !tdma_service_ring_control_lock(service)) return false;
+    tdma_ring_runtime_snapshot_t snapshot;
+    const bool stopped =
+        __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) == 0u &&
+        tdma_service_ring_retire_stopped(service) &&
+        service->ring_control_pending == TDMA_RING_CONTROL_NONE &&
+        tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) &&
+        snapshot.enabled == 0u && snapshot.adapter_started == 0u &&
+        snapshot.config_seq == snapshot.applied_config_seq &&
+        service->ring_staged_config.geometry_generation == 0u;
+    /* Separate from SRAM-only metadata publication: this non-realtime
+     * Core0 operation can block on its existing FlashTransaction owner.
+     * Core1's flash park acknowledgement never takes ring_control_guard. */
+    const bool ok = stopped && maintain(context);
+    tdma_service_ring_control_unlock(service);
+    return ok;
+}
+
 bool tdma_service_get_stopped_update(tdma_service_service_t *service,
     uint32_t *token, uint32_t *generation, bool *applying)
 {

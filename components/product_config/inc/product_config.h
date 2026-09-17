@@ -18,8 +18,18 @@ typedef struct {
     uint32_t generation;
 } product_config_dpll_control_profile_t;
 
-/* Conservative startup values.  product_config_init() seeds these into the
- * Flash journal when no valid persisted DPLL profile exists. */
+typedef struct {
+    uint32_t max_replacements;
+    uint32_t window_ns;
+} product_config_dpll_baseline_profile_t;
+
+#define PRODUCT_CONFIG_DPLL_BASELINE_MAX_REPLACEMENTS 2u
+#define PRODUCT_CONFIG_DPLL_BASELINE_MAX_WINDOW_NS 250000000u
+#define PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_REPLACEMENTS 2u
+#define PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_WINDOW_NS 250000000u
+
+/* Conservative startup values. product_config_init() seeds missing profiles
+ * in RAM only; an explicit store writes the Flash journal after bring-up. */
 #define PRODUCT_CONFIG_DPLL_DEFAULT_KP_Q16              16384
 #define PRODUCT_CONFIG_DPLL_DEFAULT_KI_Q16                256
 #define PRODUCT_CONFIG_DPLL_DEFAULT_UPDATE_PERIOD_US    1000u
@@ -40,6 +50,8 @@ bool product_config_get_dpll_servo_profile(product_config_dpll_servo_profile_t *
 bool product_config_set_dpll_servo_profile(const product_config_dpll_servo_profile_t *profile);
 bool product_config_get_dpll_control_profile(product_config_dpll_control_profile_t *profile);
 bool product_config_set_dpll_control_profile(const product_config_dpll_control_profile_t *profile);
+bool product_config_get_dpll_baseline_profile(product_config_dpll_baseline_profile_t *profile);
+bool product_config_set_dpll_baseline_profile(const product_config_dpll_baseline_profile_t *profile);
 const char *product_config_usb_mode_to_string(product_config_usb_mode_t mode);
 bool product_config_usb_mode_from_text(const char *text, uint32_t length, product_config_usb_mode_t *mode);
 

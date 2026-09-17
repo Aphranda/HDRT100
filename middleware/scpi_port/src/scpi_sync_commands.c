@@ -951,6 +951,62 @@ scpi_result_t scpi_cmd_vdc_priority_follow_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_vdc_priority_follow_baseline(scpi_t *context)
+{
+    vdc_priority_follow_baseline_config_t config;
+    if (!scpi_port_read_u32(context, &config.max_replacements) ||
+        !scpi_port_read_u32(context, &config.window_ns) ||
+        !vdc_dpll_manager_set_priority_follow_baseline(&config)) {
+        scpi_port_push_exec_error(context, "Priority baseline requires valid parameters and STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, config.max_replacements);
+    SCPI_ResultUInt32(context, config.window_ns);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_follow_baseline_q(scpi_t *context)
+{
+    vdc_priority_follow_baseline_config_t config;
+    if (!vdc_dpll_manager_get_priority_follow_baseline(&config)) {
+        scpi_port_push_exec_error(context, "Priority baseline unavailable");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, config.max_replacements);
+    SCPI_ResultUInt32(context, config.window_ns);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_follow_baseline_default(scpi_t *context)
+{
+    if (!vdc_dpll_manager_default_priority_follow_baseline()) {
+        scpi_port_push_exec_error(context, "Priority baseline default requires STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_follow_baseline_recall(scpi_t *context)
+{
+    if (!vdc_dpll_manager_recall_priority_follow_baseline()) {
+        scpi_port_push_exec_error(context, "Priority baseline recall requires valid saved profile and STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_follow_baseline_store(scpi_t *context)
+{
+    if (!vdc_dpll_manager_store_priority_follow_baseline()) {
+        scpi_port_push_exec_error(context, "Priority baseline store rejected or failed");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_vdc_priority_follow_status_q(scpi_t *context)
 {
     tdma_ring_clock_snapshot_t ring;

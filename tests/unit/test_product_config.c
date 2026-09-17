@@ -305,6 +305,104 @@ static void test_dpll_role_profile_defaults_and_survives_restart(void)
     assert(role.follow_master_slot_id == saved.follow_master_slot_id);
 }
 
+static void test_v2_preserves_existing_profiles_and_defaults_baseline(void)
+{
+    test_reset_flash();
+    test_product_config_record_t old = { .magic = TEST_PRODUCT_CONFIG_MAGIC,
+        .version = 2u, .sequence = 61u, .usb_mode = PRODUCT_CONFIG_USB_MODE_USBTMC,
+        .board_no = 4u, .reserved = {0x44504C4Cu, 123u, 456u, 789u, 4321u, 9876u,
+                                   0x44524F4Cu, 1u, 2u, 19u}};
+    old.crc32 = test_record_crc(&old);
+    memcpy(s_flash, &old, sizeof(old));
+    assert(product_config_init());
+    product_config_dpll_servo_profile_t servo;
+    product_config_dpll_control_profile_t role;
+    product_config_dpll_baseline_profile_t baseline;
+    product_config_usb_mode_t usb;
+    assert(product_config_get_dpll_servo_profile(&servo));
+    test_profile_equals(&servo, 123, 456, 789, 4321, 9876);
+    assert(product_config_get_dpll_control_profile(&role));
+    assert(role.mode == 1u && role.follow_master_slot_id == 2u && role.generation == 19u);
+    assert(product_config_get_usb_mode(&usb) && usb == PRODUCT_CONFIG_USB_MODE_USBTMC);
+    assert(product_config_get_board_no() == 4u);
+    assert(product_config_get_dpll_baseline_profile(&baseline));
+    assert(baseline.max_replacements == 2u && baseline.window_ns == 250000000u);
+    assert(s_program_count == 0u && s_erase_count == 0u);
+    const product_config_dpll_baseline_profile_t saved = {1u, 100000000u};
+    assert(product_config_set_dpll_baseline_profile(&saved));
+    assert(product_config_init());
+    assert(product_config_get_dpll_servo_profile(&servo));
+    test_profile_equals(&servo, 123, 456, 789, 4321, 9876);
+    assert(product_config_get_dpll_control_profile(&role));
+    assert(role.mode == 1u && role.follow_master_slot_id == 2u && role.generation == 19u);
+    assert(product_config_get_dpll_baseline_profile(&baseline));
+    assert(baseline.max_replacements == 1u && baseline.window_ns == 100000000u);
+    assert(product_config_get_board_no() == 4u);
+}
+
+static void test_baseline_validation_failure_and_cross_profile_stores(void)
+{
+    test_reset_flash();
+    assert(product_config_init());
+    assert(!product_config_get_dpll_baseline_profile(NULL));
+    assert(!product_config_set_dpll_baseline_profile(NULL));
+    const product_config_dpll_baseline_profile_t invalid[] = {
+        {3u, 1u}, {UINT32_MAX, 250000000u}, {1u, 0u}, {1u, 250000001u}, {0u, UINT32_MAX}};
+    for (unsigned i = 0; i < sizeof(invalid)/sizeof(invalid[0]); ++i)
+        assert(!product_config_set_dpll_baseline_profile(&invalid[i]));
+    assert(s_program_count == 0u && s_erase_count == 0u);
+    const product_config_dpll_baseline_profile_t saved = {0u, 1u};
+    assert(product_config_set_dpll_baseline_profile(&saved));
+    const product_config_dpll_servo_profile_t servo = {123, 456, 789u, 987u, 10000u};
+    const product_config_dpll_control_profile_t role = {1u, 2u, 3u};
+    assert(product_config_set_dpll_servo_profile(&servo));
+    assert(product_config_set_dpll_control_profile(&role));
+    assert(product_config_set_board_no(4u));
+    assert(product_config_set_usb_mode(PRODUCT_CONFIG_USB_MODE_USBTMC));
+    assert(product_config_init());
+    product_config_dpll_baseline_profile_t got;
+    assert(product_config_get_dpll_baseline_profile(&got));
+    assert(got.max_replacements == 0u && got.window_ns == 1u);
+    const product_config_dpll_baseline_profile_t changed = {2u, 250000000u};
+    s_fail_program = true;
+    assert(!product_config_set_dpll_baseline_profile(&changed));
+    assert(product_config_get_dpll_baseline_profile(&got));
+    assert(got.max_replacements == 0u && got.window_ns == 1u);
+    s_fail_program = false;
+    s_corrupt_program = true;
+    assert(!product_config_set_dpll_baseline_profile(&changed));
+    assert(product_config_init());
+    assert(product_config_get_dpll_baseline_profile(&got));
+    assert(got.max_replacements == 0u && got.window_ns == 1u);
+}
+
+static void test_baseline_crc_covers_extension_and_journal_rotation(void)
+{
+    test_reset_flash();
+    assert(product_config_init());
+    product_config_dpll_baseline_profile_t profile = {1u, 100u}, got;
+    assert(product_config_set_dpll_baseline_profile(&profile));
+    profile.window_ns = 200u;
+    assert(product_config_set_dpll_baseline_profile(&profile));
+    /* Damage only an appended field, leaving the old 64-byte domain intact. */
+    s_flash[DRV_FLASH_PAGE_SIZE + 68u] ^= 1u;
+    assert(product_config_init());
+    assert(product_config_get_dpll_baseline_profile(&got));
+    assert(got.max_replacements == 1u && got.window_ns == 100u);
+    const unsigned slots = FLASH_DEPLOYMENT_MAP_PRODUCT_CONFIG_STORE_SIZE / DRV_FLASH_PAGE_SIZE;
+    for (unsigned n = 0; n < slots + 3u; ++n) {
+        profile.max_replacements = n % 3u;
+        profile.window_ns = 1000u + n;
+        assert(product_config_set_dpll_baseline_profile(&profile));
+    }
+    assert(s_erase_count > 0u);
+    assert(product_config_init());
+    assert(product_config_get_dpll_baseline_profile(&got));
+    assert(got.max_replacements == profile.max_replacements && got.window_ns == profile.window_ns);
+    for (unsigned n = FLASH_DEPLOYMENT_MAP_PRODUCT_CONFIG_STORE_SIZE; n < OTA_PRODUCT_CONFIG_SIZE; ++n)
+        assert(s_flash[n] == 0xA5u);
+}
+
 int main(void)
 {
     test_blank_flash_seeds_conservative_profile_without_write();
@@ -313,6 +411,9 @@ int main(void)
     test_flash_write_fault_does_not_block_read_only_initialization();
     test_explicit_profile_survives_other_product_updates();
     test_dpll_role_profile_defaults_and_survives_restart();
+    test_v2_preserves_existing_profiles_and_defaults_baseline();
+    test_baseline_validation_failure_and_cross_profile_stores();
+    test_baseline_crc_covers_extension_and_journal_rotation();
     puts("product config host unit tests passed");
     return 0;
 }

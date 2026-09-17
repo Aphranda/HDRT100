@@ -486,6 +486,14 @@ bool tdma_service_update_event_tap(tdma_service_service_t *service,
 /* Same STOP/control-guard proof for bounded Core0 software metadata. */
 bool tdma_service_update_stopped_metadata(tdma_service_service_t *service,
     bool (*publish)(void *context), void *context);
+/* Core0 synchronous maintenance only, never a realtime/FB action. Holds the
+ * control guard across the callback so ARM/configuration cannot race a
+ * STOP-only Flash operation. The callback may use FlashTransaction (which
+ * parks Core1) but must not reenter service control or wait for Core1 to take
+ * this guard. No IRQ/scheduler masking; false on contention or incomplete
+ * STOP, with no callback. Every acquired guard is released before return. */
+bool tdma_service_run_stopped_maintenance(tdma_service_service_t *service,
+    bool (*maintain)(void *context), void *context);
 bool tdma_service_get_stopped_update(tdma_service_service_t *service,
     uint32_t *token, uint32_t *generation, bool *applying);
 /* Core1: one CAS attempt, no control lock, callback, clock read or hardware. */

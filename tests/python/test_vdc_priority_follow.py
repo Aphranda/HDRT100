@@ -303,10 +303,21 @@ def test_quality_baseline_does_not_survive_owner_change(follow_executable, chang
 
 def test_quality_private_storage_and_public_abi(follow_executable):
     sizes = tuple(map(int, run_case(follow_executable, "sizes").split()))
-    assert sizes == (736, 216, 392)
+    assert sizes == (744, 216, 392)
 
 
 EXTERNAL_INPUTS = r'''
+/* Isolated controller/recorder tests use factory requested configuration.
+ * The dedicated configuration suite links the actual config owner instead. */
+#ifndef VDC_PRIORITY_CONFIG_REAL
+bool vdc_dpll_manager_get_priority_follow_baseline(vdc_priority_follow_baseline_config_t *out)
+{
+    if(!out)return false;
+    *out=(vdc_priority_follow_baseline_config_t){VDC_PRIORITY_FOLLOW_BASELINE_REPLACEMENTS,
+        (uint32_t)VDC_PRIORITY_FOLLOW_BASELINE_WINDOW_NS};
+    return true;
+}
+#endif
 /* Avoid Windows crash reporting dialogs for a failed host expectation. */
 #undef assert
 #define assert(condition) do { if(!(condition)) { \

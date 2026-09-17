@@ -23,6 +23,25 @@
 #define VDC_PRIORITY_FOLLOW_BASELINE_REPLACEMENTS 2u
 #define VDC_PRIORITY_FOLLOW_BASELINE_WINDOW_NS (VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS / 4u)
 
+typedef struct {
+    uint32_t max_replacements;
+    uint32_t window_ns;
+} vdc_priority_follow_baseline_config_t;
+
+/* Requested configuration for the next admitted binding. Core1 latches it
+ * once at that binding's first valid fresh event; it never changes an active
+ * binding or pending decision. Count 0 disables early replacement. */
+bool vdc_dpll_manager_set_priority_follow_baseline(
+    const vdc_priority_follow_baseline_config_t *config);
+/* One atomic load, callable on either core; false preserves *config. */
+bool vdc_dpll_manager_get_priority_follow_baseline(
+    vdc_priority_follow_baseline_config_t *config);
+/* Core0 STOP-only SRAM changes: factory defaults versus persisted profile. */
+bool vdc_dpll_manager_default_priority_follow_baseline(void);
+bool vdc_dpll_manager_recall_priority_follow_baseline(void);
+/* Core0 stopped-maintenance Flash store; never implicit in set/default. */
+bool vdc_dpll_manager_store_priority_follow_baseline(void);
+
 enum {
     VDC_PRIORITY_FOLLOW_DISABLED = 0u, VDC_PRIORITY_FOLLOW_AWAITING = 1u,
     VDC_PRIORITY_FOLLOW_BASELINE = 2u, VDC_PRIORITY_FOLLOW_WAITING = 3u,

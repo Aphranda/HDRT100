@@ -23,6 +23,7 @@ typedef struct {
     uint32_t have_baseline, pending, bound, have_consumed, consumed_sequence;
     uint32_t next_evaluation; /* Private next threshold index; never refunded. */
     uint32_t baseline_replacements; /* Bounded early refinement; Core1 only. */
+    vdc_priority_follow_baseline_config_t baseline_config; /* Latched once per binding. */
 } vdc_priority_follow_work_t;
 static vdc_priority_follow_work_t s_priority_follow_work;
 static uint32_t s_priority_follow_guard;
@@ -233,6 +234,10 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
         s->last_reason = VDC_PRIORITY_FOLLOW_DUPLICATE;
         priority_follow_publish(); return;
     }
+    if (!w->bound && !vdc_dpll_manager_get_priority_follow_baseline(&w->baseline_config)) {
+        priority_follow_cancel(VDC_PRIORITY_FOLLOW_BINDING, true);
+        priority_follow_publish(); return;
+    }
     if (w->pending) s->cancelled = priority_match_inc(s->cancelled);
     w->pending = 0u;
     w->ticket.match = *m;
@@ -275,8 +280,8 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
      * not its midpoint; two quarter-window replacements add at most half the
      * first interval in reference coordinates, not wall time when input is
      * missing. Keep each event's own endpoints. */
-    if (!w->next_evaluation && w->baseline_replacements < VDC_PRIORITY_FOLLOW_BASELINE_REPLACEMENTS &&
-        w->expected_delta_hi <= VDC_PRIORITY_FOLLOW_BASELINE_WINDOW_NS &&
+    if (!w->next_evaluation && w->baseline_replacements < w->baseline_config.max_replacements &&
+        w->expected_delta_hi <= w->baseline_config.window_ns &&
         p->expected_hi > p->expected_lo) {
         const uint64_t old_width = p->expected_hi - p->expected_lo;
         const uint64_t new_width = m->expected_hi - m->expected_lo;
