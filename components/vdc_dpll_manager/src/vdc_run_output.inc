@@ -65,7 +65,12 @@ static bool run_output_prepare_stopped(void *context)
         (uint64_t)timing.refill_low_us*1000u<2u*cycle_ns+handoff_ns+
             (uint64_t)SYNC_IO_RUN_OUTPUT_MIN_GUARD_US*1000u) return false;
     uint32_t generation;
-    if (!sync_io_run_output_prepare(BOARD_SYS_CLOCK_HZ,args[2],&generation)) return false;
+    /* RUN fixes its pulse width at PREPARE. Keep that width in the PIO ISR
+     * so each immutable edge consumes only one FIFO word. Match the planner's
+     * ceiling conversion exactly; ordinary variable-width clients stay paired. */
+    const uint64_t high_ticks=((uint64_t)args[1]*BOARD_SYS_CLOCK_HZ+999999999u)/1000000000u;
+    if (high_ticks>UINT32_MAX || !sync_io_run_output_prepare_uniform(
+            BOARD_SYS_CLOCK_HZ,args[2],(uint32_t)high_ticks,&generation)) return false;
     memset(&s_run_output,0,sizeof(s_run_output));
     memset(&s_run_output_pending,0,sizeof(s_run_output_pending));
     memset(&s_run_output_timeline,0,sizeof(s_run_output_timeline));

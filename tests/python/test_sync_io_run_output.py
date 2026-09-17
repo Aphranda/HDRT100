@@ -30,10 +30,11 @@ def executable(tmp_path_factory):
     cc=os.environ.get('HOST_CC') or shutil.which('gcc') or 'D:/Microsoft/mingw64/bin/gcc.exe'
     asm=os.environ.get('PIOASM') or shutil.which('pioasm') or str(
         Path.home()/'.pico-sdk/tools/2.2.0/pioasm/pioasm.exe')
-    assembled=d/'sync_pulse_stream_out1.pio.h'
-    built=subprocess.run([asm,'-o','c-sdk',str(ROOT/'components/sync_io/src/sync_pulse_stream_out1.pio'),
-                          str(assembled)],capture_output=True,text=True,timeout=30)
-    assert built.returncode==0,built.stderr
+    for program in ('sync_pulse_stream_out1','sync_pulse_uniform_out1'):
+        assembled=d/(program+'.pio.h')
+        built=subprocess.run([asm,'-o','c-sdk',str(ROOT/'components/sync_io/src'/(program+'.pio')),
+                              str(assembled)],capture_output=True,text=True,timeout=30)
+        assert built.returncode==0,built.stderr
     exe=d/('backend.exe' if os.name=='nt' else 'backend')
     before=hashlib.sha256(SOURCE.read_bytes()).hexdigest()
     cmd=[cc,'-std=c11','-O2','-Wall','-Wextra','-Werror','-I'+str(d),
@@ -141,8 +142,9 @@ def test_first_low_reencode_uses_the_shared_pio_cycle_constant():
                               'sync_io_run_output_submit_count_core1').split())
     # Cover both range admission and final FIFO word. A repeated literal
     # silently drifts if PIO timing is revised while the encoder is updated.
-    assert 'edges[0].rising_tick-before-SYNC_PULSE_STREAM_FIRST_LOW_OVERHEAD>UINT32_MAX' in body
-    assert 'pio_sm_put(RUN_PIO,RUN_SM,(uint32_t)(edges[0].rising_tick-before-SYNC_PULSE_STREAM_FIRST_LOW_OVERHEAD))' in body
+    assert 'first_low_overhead=uniform?SYNC_PULSE_UNIFORM_FIRST_LOW_OVERHEAD:SYNC_PULSE_STREAM_FIRST_LOW_OVERHEAD' in body
+    assert 'edges[0].rising_tick-before-first_low_overhead>UINT32_MAX' in body
+    assert 'pio_sm_put(RUN_PIO,RUN_SM,(uint32_t)(edges[0].rising_tick-before-first_low_overhead))' in body
 
 
 MOCKS_H = r'''
@@ -190,7 +192,7 @@ static mock_dma_t hw_dma;
 #define dma_hw (&hw_dma)
 static uint mock_core, mock_hz=BOARD_SYS_CLOCK_HZ;
 static bool mock_sm_claim, mock_dma_claim, mock_loaded, mock_busy;
-static bool deny_reserve, deny_workspace, deny_claim, deny_load, deny_arm, deny_add;
+static bool deny_reserve, deny_workspace, deny_claim, deny_load, deny_arm, deny_add, deny_init;
 static const void *core_token, *workspace_token;
 static unsigned core_releases,workspace_releases,clears,unclaims,starts;
 static uint32_t fifo[32];
@@ -212,6 +214,9 @@ static unsigned held_queries;
 static sync_io_persona_manager_hooks_t saved_hooks;
 static void *saved_context;
 static bool manager_valid;
+static bool use_uniform;
+static uint32_t mock_isr, mock_osr;
+static uint loaded_length;
 static const sync_io_persona_descriptor_t descriptor={.id=SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER};
 void sync_io_run_output_cancel(void);
 
@@ -243,7 +248,11 @@ static inline void pio_sm_set_enabled(PIO p,uint sm,bool e) {
         hw_timer.pause=pause_observed;
     }else p->ctrl&=~(1u<<sm);
 }
-static inline int pio_sm_init(PIO p,uint sm,uint pc,const pio_sm_config *c) {(void)pc;++io_calls;p->sm[sm].clkdiv=c->div<<16|c->frac;return 0;}
+static inline int pio_sm_init(PIO p,uint sm,uint pc,const pio_sm_config *c) {
+    assert(!(p->ctrl&(1u<<sm))&&pc==c->lo&&c->hi==pc+loaded_length-1u);
+    assert(c->join==PIO_FIFO_JOIN_TX&&!c->autopull&&c->threshold==32u&&c->shift);
+    assert(c->div==1u&&!c->frac);++io_calls;p->sm[sm].clkdiv=c->div<<16|c->frac;return deny_init?-1:0;
+}
 static inline void pio_sm_clear_fifos(PIO p,uint sm) {(void)p;(void)sm;fifo_count=0;++clears;++io_calls;}
 static inline void pio_sm_restart(PIO p,uint sm) {(void)p;(void)sm;++io_calls;}
 static inline void pio_sm_clkdiv_restart(PIO p,uint sm) {(void)p;(void)sm;++io_calls;}
@@ -253,15 +262,24 @@ static inline void pio_gpio_init(PIO p,uint pin) {(void)p;(void)pin;++io_calls;}
 static inline bool pio_sm_is_claimed(PIO p,uint sm) {(void)p;(void)sm;return mock_sm_claim;}
 static inline void pio_sm_claim(PIO p,uint sm) {(void)p;(void)sm;assert(!mock_sm_claim);mock_sm_claim=true;++io_calls;}
 static inline void pio_sm_unclaim(PIO p,uint sm) {(void)p;(void)sm;assert(mock_sm_claim);mock_sm_claim=false;++unclaims;++io_calls;}
-static inline bool pio_can_add_program(PIO p,const struct pio_program *program) {(void)p;assert(program->length==8);return !deny_add;}
-static inline uint pio_add_program(PIO p,const struct pio_program *program) {(void)p;(void)program;mock_loaded=true;++io_calls;return 12;}
-static inline void pio_remove_program(PIO p,const struct pio_program *program,uint offset) {(void)p;(void)program;assert(offset==12);mock_loaded=false;++io_calls;}
+static inline bool pio_can_add_program(PIO p,const struct pio_program *program) {(void)p;assert(program->length==7||program->length==8);return !deny_add;}
+static inline uint pio_add_program(PIO p,const struct pio_program *program) {(void)p;loaded_length=program->length;mock_loaded=true;++io_calls;return 12;}
+static inline void pio_remove_program(PIO p,const struct pio_program *program,uint offset) {(void)p;assert(offset==12&&program->length==loaded_length);mock_loaded=false;++io_calls;}
 static inline uint pio_get_dreq(PIO p,uint sm,bool tx) {(void)p;assert(sm==1&&tx);return 9;}
 static inline void pio_sm_put(PIO p,uint sm,uint32_t value) {
     assert(sm==1&&fifo_count<8);fifo[fifo_count++]=value;++io_calls;
     /* CPU wrote FDEBUG W1C immediately before first preload. Complete that
      * register effect at the next hardware call; a plain C field is not W1C. */
     p->fdebug=0;
+}
+enum { pio_isr=6u, pio_osr=7u };
+static inline uint pio_encode_pull(bool ifempty,bool block) {assert(!ifempty&&block);return 0x80a0u;}
+static inline uint pio_encode_mov(uint dest,uint src) {assert(dest==pio_isr&&src==pio_osr);return 0xa0c7u;}
+static inline void pio_sm_exec(PIO p,uint sm,uint instruction) {
+    assert(sm==1u&&!(p->ctrl&(1u<<sm))&&loaded_length==7u);++io_calls;
+    if(instruction==0x80a0u) {
+        assert(fifo_count==1u);mock_osr=fifo[0];fifo_count=0;
+    } else {assert(instruction==0xa0c7u&&!fifo_count);mock_isr=mock_osr;}
 }
 static inline uint pio_sm_get_pc(PIO p,uint sm) {
     (void)p;assert(sm==1);
@@ -340,11 +358,15 @@ static uint32_t prepare(void)
     mock_core=0;hw_timer.source=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS;raw(1000000);
     unsigned enables_before=enable_calls;
     uint32_t g=0;
-    assert(sync_io_run_output_prepare(BOARD_SYS_CLOCK_HZ,1000,&g));
+    assert(use_uniform ? sync_io_run_output_prepare_uniform(BOARD_SYS_CLOCK_HZ,1000,1000,&g) :
+                         sync_io_run_output_prepare(BOARD_SYS_CLOCK_HZ,1000,&g));
     assert(g&&snap().state==SYNC_IO_RUN_OUTPUT_PREPARED);
     assert(core_token&&workspace_token&&mock_loaded&&mock_sm_claim&&mock_dma_claim);
     assert(!hw_pio.ctrl&&!(pin_latch&(1u<<16)));
     assert(!fifo_count&&!mock_busy&&enable_calls==enables_before);
+    assert(snap().fifo_words_per_edge==(use_uniform?1u:2u));
+    assert(snap().fixed_high_ticks==(use_uniform?1000u:0u));
+    if(use_uniform)assert(mock_isr==998u&&loaded_length==7u);
     return g;
 }
 static void make_edges(sync_io_run_output_edge_t e[4],uint64_t first,uint64_t ordinal,uint32_t token)
@@ -366,8 +388,8 @@ static uint32_t start(sync_io_run_output_edge_t edges[4])
     assert(snap().start_pc==13u&&snap().program_offset==12u&&snap().start_raw_flags==3u);
     assert(snap().start_raw_observed==1000000u&&snap().start_raw_after==1000000u);
     assert(observed_accesses==5u&&after_accesses==5u&&pc_reads==1u);probe_active=false;
-    assert(snap().last_falling_tick==1851000&&mock_busy&&fifo_count==2);
-    assert(hw_dma.ch[2].transfer_count==6&&last_source==sync_io_shared_workspace+2);
+    assert(snap().last_falling_tick==1851000&&mock_busy&&fifo_count==(use_uniform?1u:2u));
+    assert(hw_dma.ch[2].transfer_count==(use_uniform?3u:6u)&&last_source==sync_io_shared_workspace+(use_uniform?1u:2u));
     return g;
 }
 static void complete_stop(uint32_t g)
@@ -405,10 +427,17 @@ static void prepare_failure(const char *what)
     if(!strcmp(what,"load"))deny_load=true;
     if(!strcmp(what,"arm"))deny_arm=true;
     if(!strcmp(what,"pio"))deny_add=true;
+    if(!strcmp(what,"pio_init"))deny_init=true;
     uint32_t g=0x4567;
-    assert(!sync_io_run_output_prepare(BOARD_SYS_CLOCK_HZ,1000,&g));
+    assert(!(use_uniform ? sync_io_run_output_prepare_uniform(BOARD_SYS_CLOCK_HZ,1000,1000u,&g) :
+                          sync_io_run_output_prepare(BOARD_SYS_CLOCK_HZ,1000,&g)));
     assert(g==0x4567&&!core_token&&!workspace_token&&!mock_sm_claim&&!mock_dma_claim&&!mock_loaded);
     assert(snap().state==SYNC_IO_RUN_OUTPUT_IDLE&&!enable_calls);
+    if(use_uniform) {
+        assert(!fifo_count&&mock_isr==0u);
+        deny_reserve=deny_workspace=deny_claim=deny_load=deny_arm=deny_add=deny_init=false;
+        use_uniform=false;g=prepare();assert(loaded_length==8u);complete_stop(g);
+    }
 }
 static void retirement(void)
 {
@@ -462,7 +491,7 @@ static void async_stop(void)
     assert(snap().state==SYNC_IO_RUN_OUTPUT_RETIRING&&snap().reason==SYNC_IO_RUN_OUTPUT_CANCELLED);
     assert(!hw_pio.ctrl&&!(pin_latch&(1u<<16))&&hw_dma.abort==(1u<<2));
     assert(core_token&&workspace_token&&!core_releases&&!workspace_releases&&!unclaims);
-    assert(clears==clear_before&&fifo_count==2);
+    assert(clears==clear_before&&fifo_count==(use_uniform?1u:2u));
     mock_core=0;assert(!sync_io_run_output_release(g));
     mock_core=1;mock_busy=false;sync_io_run_output_service_core1();
     assert(snap().state==SYNC_IO_RUN_OUTPUT_RETIRING&&clears==clear_before);
@@ -476,7 +505,7 @@ static void async_stop(void)
 static void fault(const char *name)
 {
     sync_io_run_output_edge_t edges[4];uint32_t g=start(edges);
-    dma_drain_to_fifo();fifo_consume(8);
+    dma_drain_to_fifo();fifo_consume(use_uniform?4u:8u);
     unsigned expect=SYNC_IO_RUN_OUTPUT_CLOCK;
     if(!strcmp(name,"starved")){hw_pio.fdebug=1u<<(24+1);expect=SYNC_IO_RUN_OUTPUT_STARVED;}
     else if(!strcmp(name,"pause"))hw_timer.pause=1;
@@ -519,7 +548,8 @@ static void enable_boundary(const char *name)
     else if(!strcmp(name,"after_wrap"))wrap_after=true;
     else if(!strcmp(name,"observed_backwards_then_forward")){raw_after_enable=999999;raw_at_pc=1000008;}
     else if(!strcmp(name,"after_backwards")){raw_after_enable=1000008;raw_at_pc=1000007;}
-    else if(!strcmp(name,"pc_upper_valid")){mock_pc=16;retiring=false;}
+    else if(!strcmp(name,"pc_upper_valid")){mock_pc=use_uniform?15u:16u;retiring=false;}
+    else if(!strcmp(name,"pc_first_high")){assert(use_uniform);mock_pc=16u;}
     else if(!strcmp(name,"pc_below_program"))mock_pc=11;
     else if(!strcmp(name,"cancel_at_pc")){cancel_at_pc=true;retiring=false;}
     else assert(false);
@@ -772,9 +802,91 @@ static void counted_async_stop(void)
     mock_core=0;assert(sync_io_run_output_release(g));
     assert(!workspace_token&&!core_token&&!mock_dma_claim&&!mock_sm_claim);
 }
+static void uniform_stream(unsigned count)
+{
+    const unsigned other=17u-count;
+    use_uniform=true;uint32_t g=prepare();mock_core=1;
+    sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_MAX_EDGES];
+    make_counted_edges(edges,count,1100000u,0u,7u);
+    for(unsigned i=0;i<SYNC_IO_RUN_OUTPUT_MAX_WORDS+1u;++i)sync_io_shared_workspace[i]=0xa5a5a5a5u;
+    assert(sync_io_run_output_submit_count_core1(g,edges,count));probe_active=false;
+    assert(fifo_count==1u&&hw_dma.ch[2].transfer_count==count-1u&&mock_busy==(count>1u));
+    assert(snap().schema==6u&&snap().fifo_words_per_edge==1u&&snap().fixed_high_ticks==1000u);
+    assert(snap().blocks==1u&&snap().edges==count&&snap().last_ordinal==count-1u);
+    assert(sync_io_shared_workspace[count]==0xa5a5a5a5u);
+    if(count==1u)assert(last_source==NULL);
+    else assert(last_source==sync_io_shared_workspace+1u);
+    uint32_t frozen[SYNC_IO_RUN_OUTPUT_MAX_WORDS+1u];memcpy(frozen,sync_io_shared_workspace,sizeof(frozen));
+    if(mock_busy) {
+        const unsigned before=io_calls;
+        assert(!sync_io_run_output_submit_count_core1(g,edges,count));
+        assert(!memcmp(frozen,sync_io_shared_workspace,sizeof(frozen))&&io_calls==before);
+    }
+    drain_counted_words(count);
+    make_counted_edges(edges,other,1100000u+count*250000u,count,9u);
+    unsigned before=io_calls;
+    mock_busy=true;assert(!sync_io_run_output_submit_count_core1(g,edges,other));
+    mock_busy=false;hw_dma.ch[2].transfer_count=1u;
+    assert(!sync_io_run_output_submit_count_core1(g,edges,other));
+    assert(io_calls==before&&!memcmp(frozen,sync_io_shared_workspace,sizeof(frozen)));
+    hw_dma.ch[2].transfer_count=0u;
+    assert(sync_io_run_output_submit_count_core1(g,edges,other));
+    assert(snap().source_retirements==1u&&snap().blocks==2u&&snap().edges==17u);
+    assert(snap().last_ordinal==16u&&snap().model_changes==1u);
+    assert(hw_dma.ch[2].transfer_count==other&&last_source==sync_io_shared_workspace);
+    assert(sync_io_shared_workspace[other]==frozen[other]&&mock_isr==998u);
+    drain_counted_words(other);printf("\n");
+    complete_stop(g);
+    /* A later legacy prepare must reset the mode instead of reusing ISR mode. */
+    use_uniform=false;g=prepare();assert(loaded_length==8u);complete_stop(g);
+}
+static void uniform_invalid(const char *name)
+{
+    use_uniform=true;
+    const bool running=!strcmp(name,"width_running");
+    uint32_t g;
+    if(running){sync_io_run_output_edge_t initial[4];g=start(initial);dma_drain_to_fifo();}
+    else {g=prepare();mock_core=1;}
+    sync_io_run_output_edge_t e[16];make_counted_edges(e,16u,running?2100000u:1100000u,running?4u:0u,9u);
+    unsigned count=16u;
+    if(!strcmp(name,"zero"))count=0;
+    if(!strcmp(name,"over_max"))count=17u;
+    if(!strncmp(name,"width",5))e[15].falling_tick++;
+    if(!strcmp(name,"wrap"))e[15].falling_tick=0u;
+    if(!strcmp(name,"ordinal"))e[15].ordinal=e[14].ordinal;
+    if(!strcmp(name,"model"))e[15].model_token=0;
+    if(!strcmp(name,"too_far")){e[15].rising_tick=UINT64_MAX-1000u;e[15].falling_tick=UINT64_MAX;}
+    uint32_t frozen[32],queued[8];memcpy(frozen,sync_io_shared_workspace,sizeof(frozen));
+    memcpy(queued,fifo,sizeof(queued));const unsigned queued_count=fifo_count,before=io_calls;
+    const sync_io_run_output_snapshot_t previous=snap();
+    assert(!sync_io_run_output_submit_count_core1(g,!strcmp(name,"null")?NULL:e,count));
+    const sync_io_run_output_snapshot_t after=snap();
+    assert(!memcmp(&previous,&after,sizeof(after))&&!memcmp(frozen,sync_io_shared_workspace,sizeof(frozen)));
+    assert(!memcmp(queued,fifo,sizeof(queued))&&queued_count==fifo_count&&io_calls==before);
+    complete_stop(g);
+}
+static void uniform_prepare_gates(void)
+{
+    uint32_t g=0x12345678u;mock_core=0;
+    assert(!sync_io_run_output_prepare_uniform(BOARD_SYS_CLOCK_HZ,1000,0u,&g));
+    assert(!sync_io_run_output_prepare_uniform(BOARD_SYS_CLOCK_HZ,1000,1u,&g));
+    assert(!sync_io_run_output_prepare_uniform(BOARD_SYS_CLOCK_HZ,1000,1000u,NULL));
+    mock_core=1;assert(!sync_io_run_output_prepare_uniform(BOARD_SYS_CLOCK_HZ,1000,1000u,&g));
+    assert(!io_calls&&!core_token&&!workspace_token&&g==0x12345678u);
+    mock_core=0;hw_timer.source=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS;
+    assert(sync_io_run_output_prepare_uniform(BOARD_SYS_CLOCK_HZ,1000,UINT32_MAX,&g));
+    assert(mock_isr==UINT32_MAX-2u&&snap().fixed_high_ticks==UINT32_MAX);complete_stop(g);
+}
 int main(int argc,char **argv)
 {
     assert(argc==2);
+    if(!strncmp(argv[1],"uniform_base:",13)){use_uniform=true;argv[1]+=13;}
+    if(!strcmp(argv[1],"uniform_stream_one")){uniform_stream(1u);return 0;}
+    if(!strcmp(argv[1],"uniform_stream_four")){uniform_stream(4u);return 0;}
+    if(!strcmp(argv[1],"uniform_stream_ten")){uniform_stream(10u);return 0;}
+    if(!strcmp(argv[1],"uniform_stream_max")){uniform_stream(16u);return 0;}
+    if(!strcmp(argv[1],"uniform_prepare_gates")){uniform_prepare_gates();return 0;}
+    if(!strncmp(argv[1],"uniform_invalid:",16)){uniform_invalid(argv[1]+16);return 0;}
     if(!strcmp(argv[1],"gates"))gates();
     else if(!strncmp(argv[1],"prepare_",8))prepare_failure(argv[1]+8);
     else if(!strcmp(argv[1],"retirement"))retirement();

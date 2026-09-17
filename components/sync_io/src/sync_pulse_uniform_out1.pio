@@ -1,0 +1,42 @@
+; Fixed-width SYNC_IO OUT1 stream. ISR holds high_count for the entire run.
+; Exactly one low_count FIFO word per pulse, pulled only while output is low.
+.program sync_pulse_uniform_out1
+.wrap_target
+    pull block
+    mov y, isr
+    out x, 32
+low_delay:
+    jmp x-- low_delay
+    set pins, 1
+high_delay:
+    jmp y-- high_delay
+    set pins, 0
+.wrap
+
+% c-sdk {
+/* STOP-only owner initialization. No DMA writer is live and the SM is disabled.
+ * The CPU seeds ISR through a known nonempty FIFO before any pulse is admitted.
+ * Subsequent runtime FIFO traffic consists solely of finite low-count words. */
+static inline bool sync_pulse_uniform_out1_program_init(PIO pio, uint sm,
+        uint offset, uint pin, uint32_t high_ticks)
+{
+    if (sm >= 4u || offset > 25u || pin >= 32u || high_ticks < 2u) return false;
+    pio_sm_set_enabled(pio, sm, false);
+    pio_sm_config c = sync_pulse_uniform_out1_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, pin, 1u);
+    sm_config_set_out_shift(&c, true, false, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv_int_frac(&c, 1u, 0u);
+    if (pio_sm_init(pio, sm, offset, &c) != 0) return false;
+    pio_sm_clear_fifos(pio, sm);
+    pio_sm_restart(pio, sm);
+    pio_sm_clkdiv_restart(pio, sm);
+    pio_sm_set_pins_with_mask(pio, sm, 0u, UINT32_C(1) << pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1u, true);
+    pio_gpio_init(pio, pin);
+    pio_sm_put(pio, sm, high_ticks - 2u);
+    pio_sm_exec(pio, sm, pio_encode_pull(false, true));
+    pio_sm_exec(pio, sm, pio_encode_mov(pio_isr, pio_osr));
+    return true;
+}
+%}

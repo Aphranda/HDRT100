@@ -9,7 +9,7 @@
 #define SYNC_IO_RUN_OUTPUT_MAX_EDGES 16u
 #define SYNC_IO_RUN_OUTPUT_MAX_WORDS (2u * SYNC_IO_RUN_OUTPUT_MAX_EDGES)
 #define SYNC_IO_RUN_OUTPUT_MIN_GUARD_US 100u
-#define SYNC_IO_RUN_OUTPUT_SCHEMA 5u
+#define SYNC_IO_RUN_OUTPUT_SCHEMA 6u
 
 enum {
     SYNC_IO_RUN_OUTPUT_IDLE, SYNC_IO_RUN_OUTPUT_PREPARED,
@@ -49,6 +49,9 @@ typedef struct {
     uint32_t service_observations, submit_service_observation;
     uint32_t retire_raw_valid, retire_pc, retire_fstat, retire_fdebug;
     uint32_t retire_dma_ctrl, retire_dma_remaining, retire_pio_ctrl;
+    /* Immutable encoding selected at STOP preparation: paired=2/0;
+     * uniform=1/fixed high width. DMA word counts are not physical edges. */
+    uint32_t fifo_words_per_edge, fixed_high_ticks;
 } sync_io_run_output_snapshot_t;
 
 /* Core0 STOP preparation only. Reserves the existing SYNC_IO scheduler,
@@ -57,6 +60,11 @@ typedef struct {
  * to the capability caller. Duration is a finite debug lease in raw ticks. */
 bool sync_io_run_output_prepare(uint32_t expected_hz, uint32_t duration_ms,
                                 uint32_t *generation);
+/* Fixed-width variant: one FIFO low-count word per pulse, high countdown
+ * preloaded into the SM's ISR at STOP. high_ticks >= 2; every submitted edge
+ * must have exactly this width. The paired prepare entry remains unchanged. */
+bool sync_io_run_output_prepare_uniform(uint32_t expected_hz, uint32_t duration_ms,
+                                      uint32_t high_ticks, uint32_t *generation);
 /* Atomic cancellation intent; no hardware access. */
 void sync_io_run_output_cancel(void);
 /* Core1 mandatory service: bounded cancellation/fault/expiry and DMA abort

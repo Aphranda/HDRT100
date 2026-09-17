@@ -170,9 +170,10 @@ bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz,uint64_t *out)
 }
 bool vdc_dpll_manager_get_committed_model(vdc_dpll_manager_committed_model_t *out)
 { if(!model_available)return false; *out=model; return true; }
-bool sync_io_run_output_prepare(uint32_t hz,uint32_t duration,uint32_t *request)
+bool sync_io_run_output_prepare_uniform(uint32_t hz,uint32_t duration,uint32_t high_ticks,uint32_t *request)
 {
     assert(hz==BOARD_SYS_CLOCK_HZ && duration==1000u); ++prepare_calls;
+    assert(high_ticks==250u);
     if(hook==2u)interleave();
     memset(&hardware,0,sizeof(hardware)); hardware.state=SYNC_IO_RUN_OUTPUT_PREPARED;
     hardware.generation=++generation; *request=generation; cancelled=false; return true;
@@ -696,15 +697,16 @@ def test_real_parser_exports_start_observation_receipt(parser_host):
     result = subprocess.run([str(parser_host), 'RUN?', 'query'], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stdout + result.stderr
     fields = [int(value) for value in result.stdout.strip().split(',')]
-    assert len(fields) == 105
+    assert len(fields) == 107
     # Preserve every old position: 26 small fields, ten uint64, two config.
-    assert fields[:36] == [5] + [0] * 35
+    assert fields[:36] == [6] + [0] * 35
     assert fields[36:43] == [20, 21, 13, 12, 3, 4294967303, 4294967311]
     assert fields[43:50] == list(range(4294967400, 4294967407))
     assert fields[50:59] == list(range(101, 110))
     assert fields[59:61] == [1, 5]
     assert fields[61:85] == list(range(200, 212)) + list(range(300, 312))
-    assert fields[85:] == list(range(401, 421))
+    assert fields[85:105] == list(range(401, 421))
+    assert fields[105:] == [1, 500]
 
 
 PARSER_PREFIX = r'''
@@ -766,6 +768,7 @@ bool vdc_run_output_status(vdc_run_output_status_t *out)
     out->timeline_bridge_samples=414u;out->partial_plan_steps=415u;
     out->plan_waits=416u;out->refill_waits=417u;out->commit_waits=418u;
     out->block_edges=419u;out->schedule_cycles=420u;
+    out->hardware.fifo_words_per_edge=1u;out->hardware.fixed_high_ticks=500u;
     for(unsigned p=0;p<VDC_RUN_OUTPUT_PHASE_COUNT;++p)
         for(unsigned o=0;o<VDC_RUN_OUTPUT_OUTCOME_COUNT;++o)out->outcomes[p][o]=200u+p*100u+o;
     return true;
