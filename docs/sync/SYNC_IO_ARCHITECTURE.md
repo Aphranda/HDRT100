@@ -71,7 +71,7 @@ workspace、persona 和实际 PIO/DMA；与 legacy capture、频率输出、输�
 legacy 请求覆盖引脚；先前已被维护操作置高的引脚可能因此出现安全下降沿。
 
 Core1 执行 PREPARED → RUNNING → RETIRING → RETIRED；取消只发布意图，
-实时服务不等待 Core0。有限编码块由 DMA 送入 PIO；高、低持续时间都在低态预取，
+实时服务不等待 Core0。有限编码块由 DMA 送入 PIO；高、低持续时间均在上升沿前确定，
 升沿后不再依赖 FIFO 补给才能下降。只有 DMA 已不忙、计数清零且无错误，才能
 复用该源缓冲；FIFO、OSR 与执行中计数器仍属于不可改写的已提交前缀。DMA 完成
 不证明物理边沿已完成，提交成功也不抹去随后的硬件故障。
@@ -87,6 +87,17 @@ Core1 执行 PREPARED → RUNNING → RETIRING → RETIRED；取消只发布意�
 零长度 DMA；续块按实际编码数提交。扩大软件块不扩大 DMA 退休后的 FIFO
 执行余量，也不授予跨服务空窗的连续性。上层窗口与分批规划见
 `VDC-PRIORITY-01`，SYNC_IO 仍独占硬件提交及退休。
+
+固定脉宽请求可显式使用 `sync_io_run_output_prepare_uniform`：STOP 预留时将
+高段计数预装入 ISR，运行每脉冲只消费一个低段计数字；默认 prepare 仍选择原
+高/低双字程序。两模式互斥占用同一 persona/SM/DMA，不同时装入，不循环重放
+旧缓冲。模式只有取得空闲 owner/workspace 后才改变；失败按实际已装程序清理。
+uniform 全段宽度须与锁存值一致，含末项在内完整验证后才能改源缓冲/元数据。
+首次最小块预装单字且不触发 DMA，其余提交长度与源退休按实际模式计算。
+低/高段开销分别以 `sync_pulse_uniform_encode.h` 及真实汇编为准，启动 PC 验证
+采用所选程序的低段范围。ISR 只在 STOP 初始化，运行补给不改已提交前缀；断流
+仍退休，不能靠恢复 FIFO 继续旧时间轴。单字模式增加硬件库存密度，但不单独
+证明服务期限、连续性或同步精度。
 
 ### 类型区分
 

@@ -6,6 +6,20 @@ Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/storage/LOG_SYSTEM_TODO.md`
 Last updated: 2026-09-18
 
+### SYNC-PROGRESS-20260918-005 — 固定脉宽单字 FIFO（待四板专项）
+
+- TODO task ID：`SYNC-OUT-002` IN PROGRESS。实现快照及原始证据位于
+  `out/HardwareAcceptance/20260918/dpll-run-uniform-r1/`。
+- 新增 uniform PIO 程序：STOP 时将固定高段计数装入 ISR，运行中每个脉冲仅提交
+  一个低段 FIFO 字；paired 双字接口继续作为兼容路径。首字 CPU 预装、DMA 按剩余
+  实际字数启动，完整宽度和失败清理均在 owner 边界内完成。
+- 主联合回归 748 项及另行时间轴 22 项通过，包含真实汇编/编码/backend/FIFO 模型；四个 SDK
+  XIP 叶子、RAM/栈与双槽包已完成独立资源审计。模型库存余量增加不等于目标板
+  连续性、WCET 或跨板精度，需新源码四板 P3 和 scope 专项确认。
+- 当前同源四板 quick P3 PASS_WITH_WARNINGS，181.917 秒，25 INFO/18 WARN，
+  0 ERROR/FATAL；严格质量失败保留。实际输出专项待完成，保持
+  `SYNC-OUT-002` IN PROGRESS。
+
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
 

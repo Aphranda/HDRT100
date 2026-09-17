@@ -22,6 +22,28 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-005：固定脉宽单字 FIFO 后端（待四板专项）
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003` IN PROGRESS。以下为实现与离线
+  验证快照，非产品事实源；新证据根为
+  `out/HardwareAcceptance/20260918/dpll-run-uniform-r1/`。
+- RUN 在 STOP/PREPARE 计算固定高段 tick，并调用
+  `sync_io_run_output_prepare_uniform`。PIO 状态机初始化时把高段计数置入 ISR，
+  每个脉冲只从 TX FIFO 取低段计数；原双字可变脉宽 API 保留。首块仍由 CPU 预装
+  一个字，其余 DMA 按实际字数提交；模式切换、末项宽度、STOP/失败清理由统一
+  owner 处理，已提交前缀不可改写。
+- 主联合回归 748 项及另行时间轴回归 22 项通过；联合覆盖真实 pioasm、编码边界、
+  backend 故障注入和有限 FIFO 模型。理想模型的 DMA 退休后库存快照
+  由双字约 5 ms 增至单字约 9 ms；该数字是模型快照，非目标板 WCET 或连续性证明。
+- 新 Release build `20260917190453` 双槽链接通过；资源审计显示主 RAM 扣 heap
+  后约 22348 B、scratch 约 24 B、uniform 增量约 32 B，完整 RUN 新栈上界约
+  1536 B，仍有四个 SDK XIP 叶子。上述均为本构建快照，事实以链接和审计原件为准。
+- 文档契约 `VDC-PRIORITY-01` 更新至 v15，仍 pending；独立 C11 结论为
+  `ACCEPT_V15_PENDING_SEMANTICS_NO_HIL_OR_PRODUCT_RELEASE_CLAIM`，原件在
+  `design-review/c11-v15-semantic-independent-r1.json`。同源码四板 quick P3
+  PASS_WITH_WARNINGS，181.917 秒，25 INFO/18 WARN/0 ERROR/FATAL；严格质量
+  失败保留。实际 scope 复采尚未完成，不能据 host/P3 通过宣称连续或 DPLL 锁相。
+
 当前执行方向由用户进一步明确为预编码最小时间戳、确定性特等席运输和 Core1
 直接匹配，见 `VDC-PROGRESS-20260916-038/039/040/041/042/043` 与 `VDC-FAST-001/002/003`。
 此前“先核对或替换 OSAL 发布时基”的下一步由该方向覆盖；已通过的分片运输和
