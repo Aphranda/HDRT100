@@ -22,6 +22,21 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-012：ARM 等待策略复核仍未启动 adapter
+
+- TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。针对 011 中的 ARM
+  超时，第二轮使用持久串口会话、较长超时和分段训练重试四板启动；本次 NO4 在
+  `ARM` 状态等待阶段超时，前一轮为 NO2，故障节点随轮次变化。两轮最后状态都显示
+  `ring_enabled=1`、配置/调度身份已写入，但 `ring_adapter_started=0`、UP/DOWN
+  未运行；随后四板均显式 STOP。该结果排除了单纯短会话和等待时长不足，当前阻塞
+  聚焦 TDMA adapter 启动前置条件或配置应用路径。
+- 本轮没有继续修改固件，也没有改变 DPLL/VDC 门限；示波器仍保持 STOP 后的低电平
+  证据。只有 adapter 在四板同时进入运行态并形成稳定序列，才有必要重复外部触发
+  和 NO1--NO4 internal 采样。
+- 下一 gate：对比 P3 通过轮与手工 `tdma_start_ring.py` 的 topology、OPMode、
+  calibration generation、schedule CRC 和 adapter error 字段，找出启动前置差异；
+  修复后必须重新执行当前源码四板 quick P3，再恢复 DPLL 运输/相位验证。
+
 ### VDC-PROGRESS-20260918-011：四板运行态与外部示波器复核
 
 - TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。四板 P3 收尾后，使用
