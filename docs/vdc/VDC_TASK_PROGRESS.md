@@ -32,6 +32,54 @@ Last updated: 2026-09-18
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260918-002：Core1 自主周期释放与断流复核
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003`、`SYNC-OUT-002` IN PROGRESS。
+  证据根 `out/HardwareAcceptance/20260918/dpll-run-release-r1/`；以下数字为本轮
+  证据快照，非产品事实源。保留用户指出的 NO1 旧内部 PI 小残差基线，不改 PI。
+- 仅将 `core1_realtime_entry()` 的周期等待由 SDK `sleep_until()` 改为
+  `busy_wait_until()`。旧 Core1 路径是共享 alarm pool 的非 RTOS WFE 分支，
+  不是 Core1 上的 RTOS 任务调度；新最终链接函数直接读取硬件 TIMER0，
+  没有共享锁、alarm 或跨核唤醒依赖。绝对周期、迟到追赶、STOP 周期重基和
+  Flash lockout poll 保留，不增加 GUARD 工作或修改静态相位预算。
+  空闲期主动轮询增加；该结构修正不等于实测周期抖动或输出连续性已达标。
+- 实际入口 host 覆盖绝对释放、迟到、Flash poll 顺序、四档周期重基及回绕，
+  联合 14 项通过。Release build `20260917162329` 双槽 ELF/BIN/包绑定通过；
+  静态 RAM 增量零，RUN 栈 1684/3072 B，继承最大 2872 B，扣 heap 后 RAM
+  31088 B。源码指纹 `d2681712175cd88e90a8db29511609001ffeaa52df42ef1125f39d9e15955dcf`，
+  包 SHA `731af8c3320c3cfb453086a3d9b80dc76e9b2aca8a8887f58c31df8a51713b71`。
+  独立实现、最终链接与资源审计见 `runtime-review/`。
+- `p3-r1` 首次失败保留：NO3 START 返回旧 helper 的超时替代文案，并非真实
+  ACK 或已完成读回；其原生记录有 ARM 基线、未触发且零采样，另外三板各有
+  完整记录，但不能据此证明四板有效数据闭环。四板 STOP41 已应用。
+  未改源码和门槛的一次有界 `p3-r2` 复测为 PASS_WITH_WARNINGS，195.125 秒，
+  24 INFO/21 WARN/0 ERROR/FATAL；四板 START 精确 OK、各有 14 条记录及有效
+  process-image 推进，凭证匹配当前源码。严格/closed-loop/realtime 仍 false；
+  首次 START 未成功的具体原因未证明，不称已修复启动偶发问题。
+  代码、入口测试及匹配凭证已提交 `48ac0c6`，真实 pre-commit 源码指纹门禁通过；
+  另一工作流的 TDMA 文件修改未暂存或提交。
+- `capture-r1` 同源码有限静默专项仍 FAIL：四板 START 精确 OK，静默 11.016 秒、
+  RUN 查询为零；分别准入 44/106/133/558 块，缓存命中 32/89/116/463 次，全部
+  STARVED。末次服务间隔为 7.763620/1.301848/3.488548/7.188696 ms；NO2/NO3
+  各有一次补给拒绝。退休观察均为 FIFO 空、TXSTALL、DMA idle/remaining zero。
+  去掉共享唤醒依赖未消除长服务空窗，不以跨初态计数比较推定改动改善或恶化。
+  本轮未出现前轮的 FOLLOW 末态原因断言失败，不追改前轮结果。
+  四板 STOP44/43/44/44 已应用，输出 PIO/DMA 关闭；示波器完成冻结采集，
+  波形及退休分析在 `capture-r1/`，独立 NO1 分块复核在 `no1-review/`。
+- NO1 新波形有 176 个完整脉冲，对应全部 44 块，末脉冲后窗口内保持低态。
+  132 个块内周期误差约 −0.443 至 +19.361 ns；43 个块界误差约 −122860.057
+  至 +5580 ns。40 个超过百纳秒的偏差全部在块界，至少 27 个不能各自归因于
+  一次模型切换；聚合计数不能标定具体异常对应的更新事件。
+  其中单次大负跳变比前轮大，但非受控 A/B，不能直接归因本轮 release 修改。
+  原生前缀仍晚于波形及输出耗尽，不能逐块归因 PI、bridge 或模型变化。
+  采样间隔二十纳秒且使用插值，不能当作独立纳秒精度；内部 PI 小残差基线保持。
+- 下一 gate：核对 `app_realtime_run_phase()` 整相位迟到跳过与 TDMA 尾部输出
+  服务的依赖，在既有静态预算内保证必要快速交接并定位不可分割服务空窗；
+  不能只扩大 DMA 块或将可取消软件缓存当作硬件库存。后继只读候选与指令模型
+  见 `out/HardwareAcceptance/20260918/dpll-run-handoff-r1/design-review/`，尚未实现。
+  再独立隔离块间 bridge 重投影和模型连续性；不重复 P0、不改 OTA、不调 NO1 PI，
+  不宣称连续输出、锁相或 VDC 发布完成。
+
 ### VDC-PROGRESS-20260918-001：有限后缀预规划与 NO1 块边界定位
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003`、`SYNC-OUT-002` IN PROGRESS。

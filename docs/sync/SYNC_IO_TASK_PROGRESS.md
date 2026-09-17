@@ -9,6 +9,18 @@ Last updated: 2026-09-18
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
 
+### SYNC-PROGRESS-20260918-002 — Core1 自主释放仍未消除输出断流
+
+- TODO task ID：`SYNC-OUT-002` IN PROGRESS；完整证据见
+  `VDC-PROGRESS-20260918-002`、`out/HardwareAcceptance/20260918/dpll-run-release-r1/`。
+- 应用入口改为直接硬件计时等待，保持绝对周期、静态预算和 Flash lockout poll；
+  未改变 SYNC_IO owner、PIO、DMA、后缀准入或 NO1 PI。软件与 Release/资源通过。
+  首次四板 P3 的 NO3 START 超时失败保留，同源码一次有界复测 quick P3 通过。
+- 同源输出专项仍四板 STARVED；共享唤醒依赖已移除，长服务空窗及补给拒绝仍存在。
+  STOP、PIO/DMA 关闭和冻结示波器原件已留证；不将结构改动或 P3 基础通过视为
+  连续输出恢复。下一 gate 是原静态预算内必要交接、整相位跳过及 FIFO 补给余量，
+  后继再隔离 bridge/模型连续性，保留内部 PI 与外部输出观测的区别。
+
 ### SYNC-PROGRESS-20260918-001 — 私有后缀预规划与服务空窗复核
 
 - TODO task ID：`SYNC-OUT-002` IN PROGRESS；联动 `VDC-OUTPUT-001`。
