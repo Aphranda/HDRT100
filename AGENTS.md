@@ -19,6 +19,8 @@
 ```
 环1 新鲜度: 顶层文档(HAOFV_ARCHITECTURE.md) 7 天内必须反映域文档新冻结的契约，否则检查器 FAIL
 环2 登记:   域文档冻结跨域契约 → 必须在 DOCS_REGISTRY.md 登记（contract_id 唯一，锚点真实）
+环5 轮转:   进展日志(*_TASK_PROGRESS.md) ≤200KB，最旧优先归档，归档索引闭包（C14）
+            条目按新鲜度倒排——最新鲜的在最上面（C15）
 门禁:       git pre-commit 自动跑两个检查器，任一 FAIL 阻断提交
 交叉审核:   登记表状态变更禁止自审自批（C11）
 ```
@@ -37,6 +39,11 @@
 7. 修改任何固件、PIO、构建、工具、测试或 hook 实现后，提交前必须执行
    `python tools/hardware_acceptance/p3_hardware_acceptance.py run`；pre-commit 按 staged
    源码指纹核验 P3 硬件验收凭证，旧凭证、手工报告和 replay 不能放行
+8. `*_TASK_PROGRESS.md` 单文件 ≤200KB（C14）；超标必须把**最旧**条目连续归档到
+   `docs/legacy/<domain>/LEGACY_<DOMAIN>_TASK_PROGRESS_<NN>.md`，并在规范文件维护
+   `## 归档索引`（ID 闭包、条目数相符）；归档只搬旧证据，禁止丢证据
+9. `*_TASK_PROGRESS.md` 条目按新鲜度**倒排**——**最新鲜的在最上面**（C15）：日期序列必须
+   非递增（同日内部顺序不限），新条目写在 `## 当前 checkpoint` 之后，归档文件同样倒排
 
 ## 3. 修改文档的标准流程
 
@@ -68,10 +75,10 @@ python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged
 
 ## 6. 当前状态与进行中任务
 
-- 已登记契约：16 行（5 active + 10 pending + 1 superseded，见 `docs/check/DOCS_REGISTRY.md`）
-- 条款落点：10 条顶层硬约束全覆盖（1 条 VIOLATED：HAOFV-879 seqlock）
-- **已完成**：顶层 `docs/arch/HAOFV_ARCHITECTURE.md` 刷新（v3，2026-08-21）；2026-08-24 审查修复（门禁接线 / 路径修正 / T18 闭环 / 顶层补 DOCS-FLASH-01）
-- 下一期：verify-doc-crosscheck 自动化强化（见 TODO）
+- 已登记契约：**条数不在此手写**（硬约束 2），以 `docs/check/DOCS_REGISTRY.md` 为准；检查器每次门禁校验 id 唯一与锚点真实
+- 条款落点：顶层硬约束全覆盖，逐条状态（OK/PARTIAL/VIOLATED/PENDING）见登记表「条款落点表」
+- **已完成**：顶层 `docs/arch/HAOFV_ARCHITECTURE.md` 刷新（v3，2026-08-21）；2026-08-24 审查修复（门禁接线 / 路径修正 / T18 闭环 / 顶层补 DOCS-FLASH-01）；2026-09-17 新增环5（C14 轮转 + C15 倒排）并轮转 VDC 进展日志
+- 下一期：verify-doc-crosscheck 自动化强化；TDMA/RefMem/HAOFV_FLASH 进展日志轮转（见 TODO 与 C14 债务基线）
 
 ## 7. 提交约定
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGRESSION_PLAN.md`
 Related: `docs/check/DOCS_REGISTRY.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-08-27
+Last updated: 2026-09-17
 
 > 本文件由工作区 `doc-skill/方案_文档自回归体系.md` 归档而来；执行状态与最终调整见 `docs/check/DOCS_REGRESSION_TODO.md`。
 > 设计依据一句话：需求追溯矩阵思想（契约登记）+ docs-as-code 门禁（commit 拦截）。
@@ -53,6 +53,8 @@ Last updated: 2026-08-27
 | C11 | 状态变更需交叉审核 | 登记表 status 变更（新契约登记、VIOLATED→OK）必须由**独立于作者的审核方**确认（agent 交叉 / 文档交叉 / 层间交叉），提交单记录审核方+方式+结论；禁止自审自批 | 提交单字段必填 |
 | C12 | 域文档标准三件套 | 具有架构、实施清单和实施证据的域必须分别维护 Architecture、TODO、Task Progress；语义、状态、证据不得跨文件复制充当事实源 | 文档审查 + DOCS-FLASH-01 |
 | C13 | 三件套最小格式 | Architecture、TODO、Task Progress 必须使用本节定义的最小结构、稳定 ID 和文件接口；新增文件立即执行，既有文件在实质修改时迁移，禁止继续扩散无 ID 清单和混合状态格式 | 文档审查 + DOCS-TRIPLETFORMAT-01 |
+| C14 | 进展日志轮转 | Task Progress 单文件 ≤200KB；超出部分**最旧优先连续截断**归档到 `docs/legacy/<domain>/LEGACY_<DOMAIN>_TASK_PROGRESS_<NN>.md`；规范文件保留 `## 当前 checkpoint` 与 `## 归档索引`（文件\|ID 区间\|条目数\|归档日期）；归档与规范文件 ID 不得重复、不得有未挂账条目；`Last updated` 不得早于最新条目日期 | 环5 |
+| C15 | 进展日志倒排 | Task Progress 条目按新鲜度**倒排**：**最新鲜的在最上面**，日期序列必须非递增（同日内部顺序不限）；归档文件与 `## 归档索引` 区间同向倒排 | 环5 |
 
 约束传递方向（单向收敛）：
 
@@ -83,6 +85,73 @@ Last updated: 2026-08-27
 单次 build/HIL 数值，`TASK_PROGRESS` 中不得自行宣布契约生效，`ARCHITECTURE` 中不得使用
 执行清单替代稳定语义。旧文档在未实质修改前允许保持原格式，但一旦重排状态或新增里程碑，
 必须在同一文档变更中迁移到本表格式。
+
+### 进展日志轮转（C14 / 环5）
+
+`*_TASK_PROGRESS.md` 是只追加的证据日志，必须可读且有界；轮转只搬移**旧**证据，禁止丢失证据。
+
+**排序约定（倒排）**：条目按新鲜度**倒排**——**最新鲜的在最上面**。新条目追加在文件顶部
+（`## 当前 checkpoint` 之后），因此轮转一律从**尾部**连续截取最旧的一段；规范文件、归档文件与
+`## 归档索引` 的 ID 区间都按倒排书写（`<最新 ID>..<最旧 ID>`），检查器对区间方向双向容忍。
+
+R2 以**日期**为边界判定：归档条目最大日期 ≤ 规范文件保留条目最小日期。**不强制日内顺序**——
+实测 14 份规范日志中 12 份在同一天内用升序块（如 `FLASH-20260823-077 → -078`），只有 VDC 为
+严格倒排；按序列单调判定会误伤存量文档。轮转时必须保留每份日志自身的既有风格。
+
+条目 ID 语法：`^#{2,3}\s+<PREFIX>-YYYYMMDD-NNN`，`YYYYMMDD` 必须是合法日历日期；
+`YYYYMMDD-NNN` 字面模板（未填充的模板文件）不计入条目。
+
+| # | 规则 | 判定 |
+|---|---|---|
+| R1 | 规范进展日志单文件 ≤ 200KB（204800 字节） | 超限 FAIL（在登记债务内者 WARN 至截止日） |
+| R2 | 归档必须**最旧优先连续截断**：归档条目的最大日期 ≤ 规范文件保留条目的最小日期 | 违反 FAIL |
+| R3 | 归档路径 `docs/legacy/<domain>/LEGACY_<DOMAIN>_TASK_PROGRESS_<NN>.md` | 位置/命名不符 FAIL |
+| R4 | `## 归档索引` 闭包：列出的文件存在；声明条目数 == 实际条目数；规范 ∪ 归档 ID 无重复；归档中每个 ID 都落在某条索引行的 ID 区间内 | 违反 FAIL |
+| R5 | 新鲜度：规范文件保留 `## 当前 checkpoint`；`Last updated` 不得早于最新条目日期 | 违反 FAIL |
+
+保留窗口 90 天为**指导值**（R1 允许时尽量保留），R1 的字节上限优先。实测依据：`VDC_TASK_PROGRESS.md`
+176 条全部落在 12 天内已达 668KB，`HAOFV_FLASH_TASK_PROGRESS.md` 4 天即 209KB——**时间窗口不构成
+约束，字节上限才是**，故 R2 用"最旧优先连续"而非"按时间裁剪"。
+
+轮转与环1 的关系：`legacy/` 已在 `FRESHNESS_EXCLUDE_DIRS` 内，归档不改变顶层 7 天刷新判定。
+
+轮转债务基线（R1 豁免，带截止日；**只可删除条目，不可新增**，由检查器常量
+`PROGRESS_ROTATION_DEBT` 持有，C5 三同步）：
+
+| 文件 | 登记时体量 | 截止日 |
+|---|---|---|
+| `docs/vdc/VDC_TASK_PROGRESS.md` | 668KB / 176 条 | 本轮完成 |
+| `docs/tdma/TDMA_TASK_PROGRESS.md` | 570KB / 132 条 | 2026-10-17 |
+| `docs/refmem/REFMEM_TASK_PROGRESS.md` | 297KB / 108 条 | 2026-10-17 |
+| `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md` | 209KB / 123 条 | 2026-10-17 |
+
+### 进展日志倒排（C15 / 环5）
+
+条目按新鲜度**倒排**：**最新鲜的在最上面**。新条目写入文件顶部（`## 当前 checkpoint` 之后），
+因此轮转一律从尾部截取最旧的一段；归档文件与 `## 归档索引` 区间同样倒排
+（`<最新 ID>..<最旧 ID>`）。
+
+判定按**日期**非递增，**同日内部顺序不限**：实测 14 份规范日志中 12 份在同一天内使用升序块
+（如 `FLASH-TASK-20260823-077 → -078`），只有 VDC 为严格倒排；若按序列单调判定会误伤存量文档。
+轮转时必须保留每份日志自身的既有日内风格。
+
+日期级倒序基线（带截止日；**只可删除条目，不可新增**，由检查器常量 `PROGRESS_ORDER_DEBT`
+持有，C5 三同步）。存量偏离均为尾部补记或顶部回填造成的单点倒置：
+
+| 文件 | 日期级倒置处数 | 截止日 |
+|---|---|---|
+| `docs/sync/SYNC_IO_TASK_PROGRESS.md` | 2 | 2026-10-17 |
+| `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md` | 1 | 2026-10-17 |
+| `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md` | 1 | 2026-10-17 |
+| `docs/communication/COMMUNICATION_RS485_TASK_PROGRESS.md` | 1 | 2026-10-17 |
+| `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md` | 1 | 2026-10-17 |
+| `docs/tdma/TDMA_TASK_PROGRESS.md` | 1 | 2026-10-17 |
+
+**验收路径**：C14/C15 的机检随**文档门禁**运行，验收定义见
+`docs/check/DOCS_EXECUTION_CONSTRAINTS.md` §6（`docs_check --strict-names` +
+`doc_regression_check.py` + 对应 pytest + pre-commit，留证 `out/doc-audit/<run-id>/`），
+**不走** EXE-CHANGE-01 第 4 步的四板 P3 路径——后者适用对象是固件/PIO/构建/工具/测试的
+**功能实现**改动，而文档门禁工具由 §6 单独定义。
 
 ## §1 docs/check/DOCS_REGISTRY.md（完整内容）
 

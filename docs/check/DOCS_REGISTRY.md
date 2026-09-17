@@ -51,6 +51,8 @@ Last updated: 2026-09-17
 | TDMA-FLIGHTCLAIM-01 | tdma | 飞行声明分级：byte-level 与 cycle-level 分开记录，cycle-level 必须绑定 RX/TX 重叠与固定 pipeline delay 实测证据 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_pio_spi_phys.h | B0 前置门禁证据审查 | 2026-09-11 | pending |
 
 | TDMA-CAPTURE-01 | tdma | DPLL residual 只经固定 SRAM capture，停止后由 Core0/StorageAO 写 SD 并离线解码；不得进入 TDMA realtime path | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | vdc_dpll_manager.h | C build、CRC decoder、SD/OTA/HIL | 2026-08-29 | pending |
+| DOCS-PROGRESSROTATE-01 | docs | 进展日志单文件 ≤200KB、最旧优先连续截断归档到 `docs/legacy/<domain>/`、`## 归档索引` ID 闭包与 `Last updated` 新鲜度 | 1 | docs/check/DOCS_REGRESSION_PLAN.md | doc_regression_check.py | 环5 阈值/截断单调性/索引闭包/新鲜度正反用例 | 2026-09-17 | pending |
+| DOCS-PROGRESSORDER-01 | docs | 进展日志条目按新鲜度倒排——最新鲜的在最上面，日期序列非递增（同日不限），归档文件与索引区间同向 | 1 | docs/check/DOCS_REGRESSION_PLAN.md | doc_regression_check.py | 环5 日期级倒序判定、归档顺序与区间方向双向容忍正反用例 | 2026-09-17 | pending |
 
 ## 条款落点表
 
