@@ -14,11 +14,15 @@ def capture_exe(tmp_path_factory):
     source = (ROOT / "components/vdc_dpll_manager/src/vdc_boundary_capture.inc").read_text(encoding="utf-8")
     manager = (ROOT / "components/vdc_dpll_manager/src/vdc_dpll_manager.c").read_text(encoding="utf-8")
     functions = '\n'.join(signature + '{' + function_body(manager, name) + '}' for name, signature in (
+        ('dpll_capture_legacy_begin', 'static bool dpll_capture_legacy_begin(void)'),
+        ('dpll_capture_legacy_end', 'static void dpll_capture_legacy_end(void)'),
+        ('dpll_capture_arm_legacy', 'static bool dpll_capture_arm_legacy(void)'),
+        ('dpll_capture_stop_legacy', 'static bool dpll_capture_stop_legacy(void)'),
         ('vdc_dpll_manager_dpll_capture_arm', 'bool vdc_dpll_manager_dpll_capture_arm(void)'),
         ('vdc_dpll_manager_dpll_capture_stop', 'bool vdc_dpll_manager_dpll_capture_stop(void)'),
         ('vdc_dpll_manager_publish_runtime_snapshot_locked', 'static void vdc_dpll_manager_publish_runtime_snapshot_locked(void)')))
     return compile_executable(tmp_path_factory.mktemp("auto-capture"), "capture",
-                              PREAMBLE + source + functions + CASES,
+                              PREAMBLE + POOL_PREAMBLE + source + functions + CASES,
                               [ROOT / "components/distributed_refmem/src/refmem_sync_vdc_feedback.c"])
 
 
@@ -118,6 +122,12 @@ static uint32_t s_dpll_capture_count, s_dpll_capture_dropped;
 static uint32_t s_dpll_capture_start_ms, s_dpll_capture_end_ms;
 static uint32_t s_dpll_capture_last_update_seq=17;
 static uint32_t board_uptime_ms(void) { return 100u; }
+'''
+
+POOL_PREAMBLE = r'''
+enum { DPLL_CAPTURE_POOL_LEGACY=0, DPLL_CAPTURE_POOL_LEGACY_ACCESS=2 };
+static uint32_t s_dpll_capture_pool_owner;
+static unsigned get_core_num(void) { return 0; }
 '''
 
 CASES = r'''

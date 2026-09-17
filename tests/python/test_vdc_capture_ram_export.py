@@ -17,10 +17,14 @@ def ram_reader(tmp_path_factory):
     manager = (ROOT/'components/vdc_dpll_manager/src/vdc_dpll_manager.c').read_text(encoding='utf-8')
     scpi = (ROOT/'middleware/scpi_port/src/scpi_sync_commands.c').read_text(encoding='utf-8')
     header = re.search(r'typedef struct __attribute__\(\(packed\)\) \{[^}]+\} vdc_dpll_manager_dpll_capture_header_t;', manager).group()
-    body = function_body(manager, 'vdc_dpll_manager_dpll_capture_read')
+    functions = '\n'.join(signature+'{'+function_body(manager,name)+'}' for name,signature in (
+        ('dpll_capture_legacy_begin', 'static bool dpll_capture_legacy_begin(void)'),
+        ('dpll_capture_legacy_end', 'static void dpll_capture_legacy_end(void)'),
+        ('dpll_capture_read_legacy', 'static bool dpll_capture_read_legacy(uint32_t offset,uint8_t *data,uint32_t size,uint32_t *total_bytes,uint32_t *file_crc32)'),
+        ('vdc_dpll_manager_dpll_capture_read', 'bool vdc_dpll_manager_dpll_capture_read(uint32_t offset,uint8_t *data,uint32_t size,uint32_t *total_bytes,uint32_t *file_crc32)')))
     callback = function_body(scpi.replace('scpi_result_t', 'bool'), 'scpi_cmd_sync_vdc_dpll_trace_read_q')
     return compile_executable(tmp_path_factory.mktemp('capture-ram'), 'read', PREAMBLE+header+
-        '\nbool vdc_dpll_manager_dpll_capture_read(uint32_t offset,uint8_t *data,uint32_t size,uint32_t *total_bytes,uint32_t *file_crc32){'+body+'}\n'+
+        '\n'+functions+'\n'+
         'static int scpi_cmd_sync_vdc_dpll_trace_read_q(scpi_t *context){'+callback+'}\n'+CASES)
 
 
@@ -73,6 +77,9 @@ static bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *s
     *s=snapshot;if(reads==change_read)++s->config_seq;return true;
 }
 static bool s_dpll_capture_armed,s_dpll_capture_complete=true;
+enum { DPLL_CAPTURE_POOL_LEGACY=0, DPLL_CAPTURE_POOL_LEGACY_ACCESS=2 };
+static uint32_t s_dpll_capture_pool_owner;
+static unsigned get_core_num(void) { return 0; }
 static uint32_t s_dpll_capture_count=2,s_dpll_capture_dropped;
 static uint32_t s_dpll_capture_start_ms=100,s_dpll_capture_end_ms=1100;
 static vdc_dpll_manager_dpll_capture_record_t s_dpll_capture_records[VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES];

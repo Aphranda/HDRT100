@@ -1,6 +1,9 @@
 /* Sole Core1 owner. Preparation uses one fresh private matcher ticket before
  * the model writer guard; application revalidates actual owner state inside
  * that guard. Atomic-word publication is STOP diagnostics, never authority. */
+#ifndef VDC_PRIORITY_TRACE_DECISION_HOOK
+#define VDC_PRIORITY_TRACE_DECISION_HOOK(snapshot) ((void)(snapshot))
+#endif
 typedef struct {
     uint64_t local_lo, local_hi, expected_lo, expected_hi, raw_lo;
     uint32_t sequence, model_token;
@@ -401,5 +404,6 @@ static __attribute__((noinline)) void priority_follow_apply_core1(void)
                 VDC_PRIORITY_FOLLOW_DEADBAND : VDC_PRIORITY_FOLLOW_DOMAIN;
         }
     }
+    VDC_PRIORITY_TRACE_DECISION_HOOK(s);
     priority_follow_publish();
 }

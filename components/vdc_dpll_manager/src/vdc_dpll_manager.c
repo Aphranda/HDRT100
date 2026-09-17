@@ -173,6 +173,20 @@ static volatile uint32_t s_dpll_role_requested_generation;
 static volatile uint32_t s_dpll_role_applied_generation;
 static vdc_dpll_manager_dpll_capture_record_t
     s_dpll_capture_records[VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES];
+enum { DPLL_CAPTURE_POOL_LEGACY = 0u, DPLL_CAPTURE_POOL_TYPED = 1u,
+       DPLL_CAPTURE_POOL_LEGACY_ACCESS = 2u, DPLL_CAPTURE_POOL_TYPED_READ = 3u,
+       DPLL_CAPTURE_POOL_RELEASING = 4u };
+/* CAS reservations serialize Core0 entry points. A typed reservation is not
+ * an ARM ACK: only the Core1 command boundary can assume producer ownership. */
+static uint32_t s_dpll_capture_pool_owner;
+static bool dpll_capture_legacy_begin(void)
+{
+    uint32_t expected = DPLL_CAPTURE_POOL_LEGACY;
+    return get_core_num() == 0u && __atomic_compare_exchange_n(&s_dpll_capture_pool_owner,
+        &expected, DPLL_CAPTURE_POOL_LEGACY_ACCESS, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+}
+static void dpll_capture_legacy_end(void)
+{ __atomic_store_n(&s_dpll_capture_pool_owner, DPLL_CAPTURE_POOL_LEGACY, __ATOMIC_RELEASE); }
 static bool s_dpll_capture_armed;
 static bool s_dpll_capture_complete;
 /* Selected once at ARM. An AUTO trace must not be filled by legacy PI events. */
@@ -2999,7 +3013,11 @@ static void vdc_dpll_manager_waveform_capture_service(void)
 #include "vdc_priority_ingress.inc"
 #include "vdc_priority_rx.inc"
 #include "vdc_priority_match.inc"
+static void priority_trace_decision_core1(const vdc_priority_follow_snapshot_t *decision);
+#define VDC_PRIORITY_TRACE_DECISION_HOOK(snapshot) priority_trace_decision_core1(snapshot)
 #include "vdc_priority_follow.inc"
+#undef VDC_PRIORITY_TRACE_DECISION_HOOK
+#include "vdc_priority_trace.inc"
 
 /* Section placement alone does not prevent GCC from moving this whole RAM
  * step into the XIP service wrapper when that wrapper gains another call. */
@@ -3065,7 +3083,9 @@ static __attribute__((noinline)) void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_f
  * in RAM; duplicating its entry wrapper there crosses a 4 KiB BSS alignment. */
 void __attribute__((noinline)) sync_dpll_fb_service(void)
 {
+    priority_trace_service_core1();
     vdc_priority_match_core1();
+    priority_trace_match_core1();
     priority_follow_prepare_core1();
     vdc_priority_ingress_core1();
     const uint32_t session = vdc_dpll_manager_feedback_session();
@@ -3472,7 +3492,7 @@ void vdc_dpll_manager_get_ring_observer_status(
     memset(status, 0, sizeof(*status));
 }
 
-bool vdc_dpll_manager_dpll_capture_arm(void)
+static bool dpll_capture_arm_legacy(void)
 {
     bool accepted = false;
     osal_critical_enter();
@@ -3497,7 +3517,7 @@ bool vdc_dpll_manager_dpll_capture_arm(void)
     return accepted;
 }
 
-bool vdc_dpll_manager_dpll_capture_stop(void)
+static bool dpll_capture_stop_legacy(void)
 {
     osal_critical_enter();
     s_dpll_capture_armed = false;
@@ -3512,6 +3532,10 @@ void vdc_dpll_manager_get_dpll_capture_status(
     if (status == NULL) {
         return;
     }
+    const uint32_t owner = __atomic_load_n(&s_dpll_capture_pool_owner, __ATOMIC_ACQUIRE);
+    if (owner != DPLL_CAPTURE_POOL_LEGACY && owner != DPLL_CAPTURE_POOL_LEGACY_ACCESS) {
+        memset(status, 0, sizeof(*status)); return;
+    }
     osal_critical_enter();
     status->armed = s_dpll_capture_armed;
     status->complete = s_dpll_capture_complete;
@@ -3524,7 +3548,7 @@ void vdc_dpll_manager_get_dpll_capture_status(
     osal_critical_exit();
 }
 
-bool vdc_dpll_manager_dpll_capture_read(uint32_t offset, uint8_t *data,
+static bool dpll_capture_read_legacy(uint32_t offset, uint8_t *data,
     uint32_t size, uint32_t *total_bytes, uint32_t *file_crc32)
 {
     tdma_ring_runtime_snapshot_t ring;
@@ -3576,7 +3600,7 @@ bool vdc_dpll_manager_dpll_capture_read(uint32_t offset, uint8_t *data,
     return true;
 }
 
-bool vdc_dpll_manager_dpll_capture_save(uint32_t *job_id,
+static bool dpll_capture_save_legacy(uint32_t *job_id,
                                         char *path,
                                         size_t path_size)
 {
@@ -3652,6 +3676,37 @@ bool vdc_dpll_manager_dpll_capture_save(uint32_t *job_id,
     }
     *job_id = file_job_id;
     return true;
+}
+
+bool vdc_dpll_manager_dpll_capture_arm(void)
+{
+    if (!dpll_capture_legacy_begin()) return false;
+    const bool result = dpll_capture_arm_legacy();
+    dpll_capture_legacy_end(); return result;
+}
+
+bool vdc_dpll_manager_dpll_capture_stop(void)
+{
+    if (!dpll_capture_legacy_begin()) return false;
+    const bool result = dpll_capture_stop_legacy();
+    dpll_capture_legacy_end(); return result;
+}
+
+bool vdc_dpll_manager_dpll_capture_read(uint32_t offset, uint8_t *data,
+    uint32_t size, uint32_t *total_bytes, uint32_t *file_crc32)
+{
+    if (!dpll_capture_legacy_begin()) return false;
+    const bool result = dpll_capture_read_legacy(offset, data, size, total_bytes, file_crc32);
+    dpll_capture_legacy_end(); return result;
+}
+
+bool vdc_dpll_manager_dpll_capture_save(uint32_t *job_id, char *path, size_t path_size)
+{
+    if (!dpll_capture_legacy_begin()) return false;
+    /* write_file_chunk copies the source into StorageAO's own transaction
+     * buffer before returning. No asynchronous source pointer remains. */
+    const bool result = dpll_capture_save_legacy(job_id, path, path_size);
+    dpll_capture_legacy_end(); return result;
 }
 
 bool vdc_dpll_manager_waveform_capture_arm(void)

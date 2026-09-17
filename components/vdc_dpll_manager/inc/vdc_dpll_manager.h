@@ -11,6 +11,7 @@
 #include "vdc_feedback_match.h"
 #include "vdc_local_follow.h"
 #include "vdc_priority_follow.h"
+#include "vdc_priority_trace.h"
 #include "refmem_sync_vdc_feedback.h"
 
 /* Explicit STOP-authorized one-shot bring-up; not an automatic servo. */

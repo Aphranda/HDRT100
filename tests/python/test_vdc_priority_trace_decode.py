@@ -1,0 +1,113 @@
+"""Independent native byte fixtures and corrupted/stale STOP-read transfers."""
+import struct
+import zlib
+
+import pytest
+
+from tools.vdc_priority_trace import vdc_priority_trace as trace
+
+
+def native():
+    words = [1, 2, 2, 2, 3, 1, 123, 42, 42, 200, 76, 3, 1, 2, 5, 0,
+             1000, 1500, 1510, 9, 9, 1, 0, 4, 11, 12, 13, 14, 80, 1, 1, 8, 0, 3, 4, 250000000, 4]
+    # Common record fields and bodies are built without decoder field mappings.
+    match = struct.pack('<5IQQqqQQQQIIiI', 0, 1, 1000, 10, 11,
+                        100, 102, 17, 30, 2000, 2010, 1900, 1903, 2, 4, 500, 0)
+    applied = struct.pack('<5I4I3iI2q4Q', 1, 2, 1400, 20, 21,
+                          10, 2, 4, 5, 500, 250, -250, 0, 1000, 1000,
+                          1000000000, 1000000000, 1000001000, 1000001000)
+    held = struct.pack('<5I4I3iI2q4Q', 2, 2, 1500, 30, 31,
+                       20, 3, 5, 5, 250, 250, 0, 11, -100, 100,
+                       1000000000, 1000000000, 999999900, 1000000100)
+    payload = match + applied + held
+    return struct.pack('<42I', 0x52545056, 1, 168, 100, zlib.crc32(payload), *words) + payload
+
+
+def fix_crc(data):
+    data = bytearray(data)
+    struct.pack_into('<I', data, 16, zlib.crc32(data[168:]))
+    return bytes(data)
+
+
+def test_native_intervals_actual_apply_and_hold():
+    result = trace.decode(native(), 123)
+    assert result['status']['sample_interval_ms'] == 200
+    assert result['records'][0]['residual_lo'] == 17
+    assert result['records'][0]['residual_hi'] == 30
+    assert result['records'][1]['outcome'] == 'applied'
+    assert result['records'][1]['after_ppb'] == 250
+    assert result['records'][2]['outcome'] == 'no_adjust'
+    assert not result['physical_lock_qualified'] and not result['complete_window_proven']
+
+
+@pytest.mark.parametrize('offset,value,reason', [
+    (0, 0, 'format'), (4, 99, 'format'), (8, 164, 'format'), (12, 96, 'format'),
+    (20 + 2*4, 4, 'acknowledged'), (20 + 4*4, 2, 'acknowledged'),
+    (20 + 6*4, 124, 'ID'), (20 + 10*4, 77, 'capacity'),
+    (20 + 12*4, 2, 'counts'), (168, 1, 'index'), (172, 9, 'kind'),
+    (168 + 36, 18, 'Residual'), (268 + 32, 6, 'DCO'),
+    (268 + 40, 249, 'DCO'), (268 + 52, 999, 'arithmetic'),
+])
+def test_reject_incoherent_even_with_valid_payload_crc(offset, value, reason):
+    data = bytearray(native())
+    struct.pack_into('<I', data, offset, value)
+    with pytest.raises(ValueError, match=reason):
+        trace.decode(fix_crc(data), 123)
+
+
+@pytest.mark.parametrize('data', [b'', native()[:167], native()[:-1], native()+b'\0', native()[:-1]+b'\xff'])
+def test_reject_truncation_trailing_bytes_and_payload_crc(data):
+    with pytest.raises(ValueError):
+        trace.decode(data, 123)
+
+
+def query_for(data, transform=lambda raw, offset: raw):
+    def query(command):
+        header, args = command.split(' ', 1)
+        assert header == 'SYSTem:VDC:PRIORity:TRACe:READ?'
+        capture_id, offset, size = map(int, args.split(','))
+        assert capture_id == 123 and 0 < size <= 128
+        raw = f'{offset},{size},{len(data)},{zlib.crc32(data)},"{data[offset:offset+size].hex()}"'
+        return transform(raw, offset)
+    return query
+
+
+@pytest.mark.parametrize('page_size', [1, 7, 64, 128])
+def test_cross_header_record_boundaries_and_full_file_crc(page_size):
+    data, pages = trace.download_capture(query_for(native()), 123, page_size)
+    assert data == native() and pages[0]['command'].endswith('123,0,4')
+    assert len(pages) > 1
+
+
+def test_reject_stale_page_and_mid_download_metadata_change():
+    stale = lambda raw, offset: '0,' + raw.split(',', 1)[1] if offset else raw
+    def changed(raw, offset):
+        fields = raw.split(',')
+        if offset:
+            fields[3] = str(int(fields[3]) ^ 1)
+        return ','.join(fields)
+    for transform in (stale, changed):
+        with pytest.raises(ValueError):
+            trace.download_capture(query_for(native(), transform), 123)
+
+
+def test_reject_corrupted_page_with_stable_advertised_crc():
+    def corrupt(raw, offset):
+        if offset == 4:
+            raw = raw[:-3] + ('ff' if raw[-3:-1] != 'ff' else '00') + '"'
+        return raw
+    with pytest.raises(ValueError, match='Whole-file'):
+        trace.download_capture(query_for(native(), corrupt), 123)
+
+
+@pytest.mark.parametrize('raw', ['<timeout>', '0,1,168,1,"zz"', '1,4,168,1,"00000000"',
+                                '0,4,168,-1,"00000000"', '0,4,168,1,"00"'])
+def test_bad_page_responses(raw):
+    with pytest.raises(ValueError):
+        trace.parse_page(raw, 0, 4)
+
+
+def test_bad_request_does_not_query():
+    for capture_id, size in [(0, 128), (2**32, 128), (123, 0), (123, 129)]:
+        with pytest.raises(ValueError):
+            trace.download_capture(lambda q: pytest.fail('invalid request sent'), capture_id, size)

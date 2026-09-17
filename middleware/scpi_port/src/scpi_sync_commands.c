@@ -837,6 +837,83 @@ scpi_result_t scpi_cmd_system_tdma_priority_rx_timing_q(scpi_t *context)
 #include "vdc_priority_rx.h"
 #include "vdc_priority_match.h"
 #include "vdc_priority_follow.h"
+#include "vdc_priority_trace.h"
+
+scpi_result_t scpi_cmd_vdc_priority_trace_arm(scpi_t *context)
+{
+    uint32_t capture_id;
+    if (!SCPI_ParamUInt32(context, &capture_id, TRUE) || capture_id == 0u ||
+        !vdc_dpll_manager_priority_trace_arm(capture_id)) {
+        scpi_port_push_exec_error(context, "Priority trace ARM rejected");
+        return SCPI_RES_ERR;
+    }
+    /* Admission only. STOP-only STATUS must acknowledge this request before ARM. */
+    SCPI_ResultUInt32(context, capture_id);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_trace_stop(scpi_t *context)
+{
+    if (!vdc_dpll_manager_priority_trace_stop()) {
+        scpi_port_push_exec_error(context, "Priority trace STOP rejected");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, 1u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_trace_release(scpi_t *context)
+{
+    if (!vdc_dpll_manager_priority_trace_release()) {
+        scpi_port_push_exec_error(context, "Priority trace RELEASE rejected");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, 1u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_trace_status_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    vdc_priority_trace_status_t status;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !vdc_dpll_manager_get_priority_trace(&status)) {
+        scpi_port_push_exec_error(context, "Priority trace status requires STOP");
+        return SCPI_RES_ERR;
+    }
+    _Static_assert(sizeof(status) == 37u * sizeof(uint32_t), "Trace status word schema");
+    for (uint32_t i = 0u; i < sizeof(status) / sizeof(uint32_t); ++i) {
+        uint32_t word;
+        memcpy(&word, (const uint8_t *)&status + i * sizeof(word), sizeof(word));
+        SCPI_ResultUInt32(context, word);
+    }
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_trace_read_q(scpi_t *context)
+{
+    uint32_t capture_id, offset, size, total_bytes, crc32;
+    uint8_t data[VDC_PRIORITY_TRACE_READ_MAX_BYTES];
+    char hex[sizeof(data) * 2u + 1u];
+    static const char digits[] = "0123456789abcdef";
+    if (!scpi_port_read_u32(context, &capture_id) || !scpi_port_read_u32(context, &offset) ||
+        !scpi_port_read_u32(context, &size) || capture_id == 0u || size == 0u || size > sizeof(data) ||
+        !vdc_dpll_manager_priority_trace_read(capture_id, offset, data, size, &total_bytes, &crc32)) {
+        scpi_port_push_exec_error(context, "Priority trace READ requires matching frozen capture and range");
+        return SCPI_RES_ERR;
+    }
+    for (uint32_t i = 0u; i < size; ++i) {
+        hex[i * 2u] = digits[data[i] >> 4u];
+        hex[i * 2u + 1u] = digits[data[i] & 15u];
+    }
+    hex[size * 2u] = '\0';
+    SCPI_ResultUInt32(context, offset);
+    SCPI_ResultUInt32(context, size);
+    SCPI_ResultUInt32(context, total_bytes);
+    SCPI_ResultUInt32(context, crc32);
+    SCPI_ResultText(context, hex);
+    return SCPI_RES_OK;
+}
 
 scpi_result_t scpi_cmd_vdc_priority_follow(scpi_t *context)
 {
