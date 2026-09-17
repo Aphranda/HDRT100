@@ -212,7 +212,7 @@ DMA 退休期限的关联，不重复实现参数接口，也不以放宽连续�
 | 执行顺序 | 任务/状态 | 完成判据与下一动作 |
 |---|---|---|
 | 已完成切片 | `REFMEM-RAM-001/002/003/004`，DONE | 缩容、兼容工具、四板布局专项及固定范围快速 P3 调试验收完成；严格质量失败保留至下项，不继续扩大 RAM 完成条件。见 RefMem TODO 与 `REFMEM-TASK-20260916-001`。 |
-| 当前下一步 | 推进 `VDC-FAST-003` / `VDC-OUTPUT-001`，IN PROGRESS | `VDC-PROGRESS-20260918-007` 已完成 schema8 提交拒绝分类和 host 重试边界：只有 `NOT_READY` 保留未提交后缀并等待下一次完整准入复验，`GUARD` 及取消、代际/时钟、编码、deadline、DMA、启动和参数失败清除后缀。四板既有 `TXSTALL + FIFO empty + DMA remaining=0` 与 STARVED 事实保持不变；下一步必须以同源码 Release/四板 quick P3 复验，确认实板是否仍在末沿后服务，不放宽连续性判据。 |
+| 当前下一步 | 推进 `VDC-FAST-003` / `VDC-OUTPUT-001`，IN PROGRESS | `VDC-PROGRESS-20260918-008` 的 schema8 四板 RUN 采样确认 NO2–NO4 仍因服务空窗在末端 `STARVED`，本轮 `last_submit_failure` 均为 NONE，未触发可重试拒绝；停止态分析仍见负 runway。保持 `NOT_READY` 后缀有界复用和 `GUARD` 清除，下一步用受控 A/B 优化 Core1 服务调度/提交提前量，再做同源码采样；不放宽连续性判据。 |
 | 随后 | 完成 `VDC-FAST-001/002` | 补齐同圈保全/消费与资源预算实测，继续区分 offer、DMA selection、线上记录与 Core1 消费；不能用 IRQ-entry→read 代替物理边沿测量。配置、delay 和上下文提前安装，无普通解析、RefMem 分片或 RTOS 前置。 |
 | 随后 | `VDC-FAST-003` | 事件序号直接索引，复验完整序号/代际，计算时间差和本地 delay，实际应用 DCO；NO1 本地 PI 并发布参考，三从本地跟踪，ACK 关联收到/采用事件。 |
 | 最后 | 精度、恢复与 VDC 发布 | internal 关联参考事件、相位/速率命令及实际采用，以四路实际波形验证公共时基与用户精度目标；计入有效校正间隔、时间戳/链路 delay/输出量化误差。验证坏帧跳过、失联/恢复，以及 VDC 时间、质量、有效性和代际的一致发布。 |

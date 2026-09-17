@@ -22,6 +22,28 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-008：schema8 RUN 输出采样与断流因果复核
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003` IN PROGRESS。schema8 适配的 RUN
+  输出工具只写入 `out/`，未进入产品源码；本条数据和数值均为一次调试快照，非
+  WCET、连续性或精度契约。
+- 新 build `20260917204319` 的四板有限 RUN 采样已完成，证据根为
+  `out/HardwareAcceptance/20260918/dpll-run-retry-r1/capture-r1/`，采集期间查询数
+  为零，STOP 后统一导出 native 与示波器数据。四板 RUN schema 均为 8；NO1 提交
+  1140 个块后由采集清理得到 `CANCELLED`，NO2/NO3/NO4 分别提交 92/57/107 个块，
+  最终均为 `STARVED`。四板 `last_submit_failure` 均为 `NONE`，本轮没有观察到新的
+  guard 或 NOT_READY 提交拒绝，因此不能宣称后缀重试已经在实板上被触发。
+- STOP 原生差分分析位于
+  `out/HardwareAcceptance/20260918/dpll-run-retry-r1/refill-retirement-analysis.json`。
+  NO2–NO4 仍同时出现 TX FIFO 空、PIO stall、DMA 剩余为零；最后服务到末沿界的
+  负 runway 约为 0.23/0.83/1.28 ms，服务最大间隔约为 3.59/4.74/3.15 ms（快照）。
+  这继续指向 Core1 服务空窗导致的末端耗尽；没有证据表明 `NOT_READY` 缓存保留能
+  消除该问题。NO1 的末段由显式 STOP 取消，不能与从板 STARVED 混为一谈。
+- scope 采样成功导出，当前专项只确认数据留存和退休寄存器因果；没有进行四路同序
+  100 ns 判定，也没有运行 DPLL 锁相专项。下一 gate 是在保留 `GUARD` 清除、
+  `NOT_READY` 有界复用的规则下，继续优化 Core1 服务调度/提交提前量并进行受控
+  A/B；不得以 `PASS_WITH_WARNINGS` 或后缀缓存命中数替代连续输出证据。
+
 ### VDC-PROGRESS-20260918-007：提交拒绝分类与私有后缀重试边界
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003` IN PROGRESS。本条记录当前源码
