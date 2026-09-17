@@ -3,13 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from tools.doc_regression_check import (
+    PROGRESS_MAX_BYTES,
     Result,
     check_constants,
     check_freshness,
     check_orphan_clauses,
+    check_progress_rotation,
     check_registry,
     check_skill_sync,
 )
+import tools.doc_regression_check as regress
 
 VALID_ROW = (
     "| contract_id | domain | contract | ver | clause_loc | code_anchor | check | registered | status |\n"
@@ -192,3 +195,240 @@ def test_constants_skips_snapshot_marked(tmp_path: Path) -> None:
     result = Result(failures=[], warnings=[])
     check_constants(tmp_path, result, ["docs"])
     assert result.failures == []
+
+
+# ---- loop 5: progress-log rotation (C14) --------------------------------
+
+LOG_REL = "docs/sync/SYNC_IO_TASK_PROGRESS.md"
+
+
+def _log(entries: list[str], last_updated: str = "2026-09-17",
+         tail: str = "") -> str:
+    body = "".join(f"### {e} - title\n\n- body\n\n" for e in entries)
+    return (
+        "# Sync task progress\n\n"
+        "Status: Active\nDomain: sync_io\n"
+        f"Canonical: `{LOG_REL}`\nRelated: `docs/sync/X.md`\n"
+        f"Last updated: {last_updated}\n\n"
+        "## 当前 checkpoint\n\n" + body + tail
+    )
+
+
+def _put(tmp_path: Path, rel: str, text: str) -> None:
+    path = tmp_path / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _index_row(archive: str, first: str, last: str, count: int) -> str:
+    return (
+        "\n## 归档索引\n\n| 文件 | ID 区间 | 条目数 | 归档日期 |\n|---|---|---|---|\n"
+        f"| `{archive}` | {first}..{last} | {count} | 2026-09-17 |\n"
+    )
+
+
+def _run_progress(tmp_path: Path) -> Result:
+    result = Result(failures=[], warnings=[])
+    check_progress_rotation(tmp_path, result)
+    return result
+
+
+def test_progress_accepts_bounded_log(tmp_path: Path) -> None:
+    _put(tmp_path, LOG_REL, _log(["SYNC-PROGRESS-20260917-001",
+                                  "SYNC-PROGRESS-20260916-002"]))
+    assert _run_progress(tmp_path).failures == []
+
+
+def test_progress_accepts_rotated_log_with_closed_index(tmp_path: Path) -> None:
+    archive = "docs/legacy/sync/LEGACY_SYNC_IO_TASK_PROGRESS_01.md"
+    _put(tmp_path, archive, "# Archive\n\nStatus: Frozen\nLast updated: 2026-09-17\n\n"
+                            "### SYNC-PROGRESS-20260916-002 - old\n\n- body\n")
+    _put(tmp_path, LOG_REL, _log(
+        ["SYNC-PROGRESS-20260917-001"],
+        tail=_index_row(archive, "SYNC-PROGRESS-20260916-002",
+                        "SYNC-PROGRESS-20260916-002", 1)))
+    assert _run_progress(tmp_path).failures == []
+
+
+def test_progress_rejects_oversize_log(tmp_path: Path) -> None:
+    _put(tmp_path, LOG_REL, _log(
+        ["SYNC-PROGRESS-20260917-001"],
+        tail="### SYNC-PROGRESS-20260917-002 - big\n\n"
+             + ("x" * (PROGRESS_MAX_BYTES + 16)) + "\n"))
+    assert any("C14 R1" in f for f in _run_progress(tmp_path).failures)
+
+
+def test_progress_warns_for_registered_debt(tmp_path: Path) -> None:
+    _put(tmp_path, "docs/tdma/TDMA_TASK_PROGRESS.md", _log(
+        ["TDMA-PROGRESS-20260917-001"],
+        tail="### TDMA-PROGRESS-20260917-002 - big\n\n"
+             + ("x" * (PROGRESS_MAX_BYTES + 16)) + "\n"))
+    result = _run_progress(tmp_path)
+    assert result.failures == []
+    assert any("rotation debt" in w for w in result.warnings)
+
+
+def test_progress_rejects_expired_rotation_debt(tmp_path: Path,
+                                                monkeypatch) -> None:
+    monkeypatch.setitem(regress.PROGRESS_ROTATION_DEBT,
+                        "docs/tdma/TDMA_TASK_PROGRESS.md", "2020-01-01")
+    _put(tmp_path, "docs/tdma/TDMA_TASK_PROGRESS.md", _log(
+        ["TDMA-PROGRESS-20260917-001"],
+        tail="### TDMA-PROGRESS-20260917-002 - big\n\n"
+             + ("x" * (PROGRESS_MAX_BYTES + 16)) + "\n"))
+    assert any("past its registered rotation deadline" in f
+               for f in _run_progress(tmp_path).failures)
+
+
+def test_progress_rejects_stale_last_updated(tmp_path: Path) -> None:
+    _put(tmp_path, LOG_REL, _log(["SYNC-PROGRESS-20260917-001"],
+                                 last_updated="2026-09-01"))
+    assert any("C14 R5" in f for f in _run_progress(tmp_path).failures)
+
+
+def test_progress_rejects_archived_entry_outside_indexed_range(
+        tmp_path: Path) -> None:
+    archive = "docs/legacy/sync/LEGACY_SYNC_IO_TASK_PROGRESS_01.md"
+    _put(tmp_path, archive, "# Archive\n\nStatus: Frozen\nLast updated: 2026-09-17\n\n"
+                            "### SYNC-PROGRESS-20260915-009 - old\n\n- body\n")
+    _put(tmp_path, LOG_REL, _log(
+        ["SYNC-PROGRESS-20260917-001"],
+        tail=_index_row(archive, "SYNC-PROGRESS-20260916-001",
+                        "SYNC-PROGRESS-20260916-002", 1)))
+    assert any("outside the indexed range" in f
+               for f in _run_progress(tmp_path).failures)
+
+
+def test_progress_rejects_declared_count_mismatch(tmp_path: Path) -> None:
+    archive = "docs/legacy/sync/LEGACY_SYNC_IO_TASK_PROGRESS_01.md"
+    _put(tmp_path, archive, "# Archive\n\nStatus: Frozen\nLast updated: 2026-09-17\n\n"
+                            "### SYNC-PROGRESS-20260916-002 - old\n\n- body\n")
+    _put(tmp_path, LOG_REL, _log(
+        ["SYNC-PROGRESS-20260917-001"],
+        tail=_index_row(archive, "SYNC-PROGRESS-20260916-002",
+                        "SYNC-PROGRESS-20260916-002", 7)))
+    assert any("declares 7 entries" in f
+               for f in _run_progress(tmp_path).failures)
+
+
+def test_progress_rejects_id_in_both_log_and_archive(tmp_path: Path) -> None:
+    archive = "docs/legacy/sync/LEGACY_SYNC_IO_TASK_PROGRESS_01.md"
+    _put(tmp_path, archive, "# Archive\n\nStatus: Frozen\nLast updated: 2026-09-17\n\n"
+                            "### SYNC-PROGRESS-20260917-001 - dup\n\n- body\n")
+    _put(tmp_path, LOG_REL, _log(
+        ["SYNC-PROGRESS-20260917-001"],
+        tail=_index_row(archive, "SYNC-PROGRESS-20260916-001",
+                        "SYNC-PROGRESS-20260917-001", 1)))
+    assert any("lives in both" in f for f in _run_progress(tmp_path).failures)
+
+
+def test_progress_rejects_archive_newer_than_retained(tmp_path: Path) -> None:
+    archive = "docs/legacy/sync/LEGACY_SYNC_IO_TASK_PROGRESS_01.md"
+    _put(tmp_path, archive, "# Archive\n\nStatus: Frozen\nLast updated: 2026-09-17\n\n"
+                            "### SYNC-PROGRESS-20260918-001 - newer\n\n- body\n")
+    _put(tmp_path, LOG_REL, _log(
+        ["SYNC-PROGRESS-20260917-001"],
+        tail=_index_row(archive, "SYNC-PROGRESS-20260917-001",
+                        "SYNC-PROGRESS-20260918-001", 1)))
+    assert any("must hold the oldest entries" in f
+               for f in _run_progress(tmp_path).failures)
+
+
+def test_progress_rejects_archive_outside_legacy_dir(tmp_path: Path) -> None:
+    archive = "docs/sync/LEGACY_SYNC_IO_TASK_PROGRESS_01.md"
+    _put(tmp_path, archive, "# Archive\n\nStatus: Frozen\nLast updated: 2026-09-17\n\n"
+                            "### SYNC-PROGRESS-20260916-002 - old\n\n- body\n")
+    _put(tmp_path, LOG_REL, _log(
+        ["SYNC-PROGRESS-20260917-001"],
+        tail=_index_row(archive, "SYNC-PROGRESS-20260916-002",
+                        "SYNC-PROGRESS-20260916-002", 1)))
+    assert any("C14 R3" in f for f in _run_progress(tmp_path).failures)
+
+
+def test_progress_rejects_rotated_log_without_checkpoint(tmp_path: Path) -> None:
+    archive = "docs/legacy/sync/LEGACY_SYNC_IO_TASK_PROGRESS_01.md"
+    _put(tmp_path, archive, "# Archive\n\nStatus: Frozen\nLast updated: 2026-09-17\n\n"
+                            "### SYNC-PROGRESS-20260916-002 - old\n\n- body\n")
+    text = _log(["SYNC-PROGRESS-20260917-001"],
+                tail=_index_row(archive, "SYNC-PROGRESS-20260916-002",
+                                "SYNC-PROGRESS-20260916-002", 1))
+    _put(tmp_path, LOG_REL, text.replace("## 当前 checkpoint", "## 说明"))
+    assert any("no '## 当前 checkpoint'" in f
+               for f in _run_progress(tmp_path).failures)
+
+
+def test_progress_ignores_archive_trees(tmp_path: Path) -> None:
+    # A canonical-shaped name under legacy/ must stay out of the rotation gate.
+    _put(tmp_path, "docs/legacy/sync/SYNC_IO_TASK_PROGRESS.md",
+         _log(["SYNC-PROGRESS-20260917-001"],
+              tail="### SYNC-PROGRESS-20260917-002 - big\n\n"
+                   + ("x" * (PROGRESS_MAX_BYTES + 16)) + "\n"))
+    assert _run_progress(tmp_path).failures == []
+
+
+# ---- C15: newest first (freshness descending) ---------------------------
+
+ORDER_REL = "docs/ota/OTA_TASK_PROGRESS.md"
+
+
+def test_progress_accepts_newest_first_log(tmp_path: Path) -> None:
+    _put(tmp_path, ORDER_REL, _log(["OTA-PROGRESS-20260917-001",
+                                    "OTA-PROGRESS-20260916-002",
+                                    "OTA-PROGRESS-20260910-003"]))
+    assert _run_progress(tmp_path).failures == []
+
+
+def test_progress_rejects_ascending_log(tmp_path: Path) -> None:
+    _put(tmp_path, ORDER_REL, _log(["OTA-PROGRESS-20260910-001",
+                                    "OTA-PROGRESS-20260917-002"]))
+    assert any("C15" in f for f in _run_progress(tmp_path).failures)
+
+
+def test_progress_allows_any_same_day_order(tmp_path: Path) -> None:
+    # 12 of 14 existing logs use ascending same-day blocks; C15 is date-level only.
+    _put(tmp_path, ORDER_REL, _log(["OTA-PROGRESS-20260917-001",
+                                    "OTA-PROGRESS-20260917-002",
+                                    "OTA-PROGRESS-20260917-003"]))
+    assert _run_progress(tmp_path).failures == []
+
+
+def test_progress_warns_for_registered_order_debt(tmp_path: Path) -> None:
+    _put(tmp_path, "docs/sync/SYNC_IO_TASK_PROGRESS.md",
+         _log(["SYNC-PROGRESS-20260910-001", "SYNC-PROGRESS-20260917-002"]))
+    result = _run_progress(tmp_path)
+    assert result.failures == []
+    assert any("order inversion" in w for w in result.warnings)
+
+
+def test_progress_rejects_expired_order_debt(tmp_path: Path,
+                                             monkeypatch) -> None:
+    monkeypatch.setitem(regress.PROGRESS_ORDER_DEBT, ORDER_REL, "2020-01-01")
+    _put(tmp_path, ORDER_REL, _log(["OTA-PROGRESS-20260910-001",
+                                    "OTA-PROGRESS-20260917-002"]))
+    assert any("past its registered deadline" in f
+               for f in _run_progress(tmp_path).failures)
+
+
+def test_progress_rejects_archive_not_newest_first(tmp_path: Path) -> None:
+    archive = "docs/legacy/ota/LEGACY_OTA_TASK_PROGRESS_01.md"
+    _put(tmp_path, archive, "# Archive\n\nStatus: Frozen\nLast updated: 2026-09-17\n\n"
+                            "### OTA-PROGRESS-20260910-001 - old\n\n- body\n\n"
+                            "### OTA-PROGRESS-20260916-002 - new\n\n- body\n")
+    _put(tmp_path, ORDER_REL, _log(
+        ["OTA-PROGRESS-20260917-001"],
+        tail=_index_row(archive, "OTA-PROGRESS-20260916-002",
+                        "OTA-PROGRESS-20260910-001", 2)))
+    assert any("newest-first" in f for f in _run_progress(tmp_path).failures)
+
+
+def test_progress_accepts_descending_index_range(tmp_path: Path) -> None:
+    # The range is written newest..oldest, so the checker must accept it.
+    archive = "docs/legacy/ota/LEGACY_OTA_TASK_PROGRESS_01.md"
+    _put(tmp_path, archive, "# Archive\n\nStatus: Frozen\nLast updated: 2026-09-17\n\n"
+                            "### OTA-PROGRESS-20260916-002 - new\n\n- body\n\n"
+                            "### OTA-PROGRESS-20260910-001 - old\n\n- body\n")
+    _put(tmp_path, ORDER_REL, _log(
+        ["OTA-PROGRESS-20260917-001"],
+        tail=_index_row(archive, "OTA-PROGRESS-20260916-002",
+                        "OTA-PROGRESS-20260910-001", 2)))
+    assert _run_progress(tmp_path).failures == []

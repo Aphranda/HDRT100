@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGISTRY.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-09-13
+Last updated: 2026-09-17
 
 > 注：本文件必须满足 `tools/docs_check/docs_check.py` 的元数据要求（5 字段齐全），否则自回归门禁自相矛盾。
 
@@ -19,7 +19,11 @@ Last updated: 2026-09-13
 | TDMA-SEQLOCK-01 | tdma | runtime snapshot 必须 seqlock | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_service.c | 代码审查 | 2026-08-19 | active |
 | TDMA-HOP-01 | tdma | hop_limit 归属 ring profile | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_profile.h | 符号存在性 | 2026-08-19 | active |
 | REFMEM-260B-01 | refmem | critical delta ≤260B | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | refmem_sync.h | 常量比对 | 2026-08-19 | active |
+| REFMEM-LAYOUT-01 | refmem | 静态表容量及节点步长随布局版本发布，保留区域 ID/owner；部署包匹配当前布局，旧包拒绝不覆盖 active/rollback；host 产包与状态验收同步版本 | 1 | docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md:REFMEM-LAYOUT-01 | refmem_vector_table.h | ABI/目录/节点边界、有效 CRC 旧包 owner 拒绝、角色镜像保持、Release map 与四板 P3 | 2026-09-16 | pending |
 | VDC-DPLL-01 | vdc | DPLL 准入 resolution≤100ns | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_timestamp_clock.h | 符号存在性 | 2026-08-19 | active |
+| VDC-PRIORITY-01 | vdc | 固定 typed 同步邮箱与运行代际；Core1 编码/直接匹配、TDMA 双缓冲及 RX IRQ 交接；NO1 有限共钟半开求交、编码后提交与原生重放；typed 共钟差分与旧阶梯界分离，有界窄基线与档位复评；STOP 配置、绑定锁存及显式 Flash 保存；可选本地相位精确平移，以完整发布回执授权同 rate epoch 的累计平移归一化，频率更新/未知模型/STOP 取消；独立输出 delay 与整数反解/共同网格；SYNC_IO 有限持续 PIO 输出、STOP 资源预留、完整客户端交接、START/模型身份准入、不可改写前缀、保守 raw/enable 锚与异步退休；不授予产品 RUN 或锁相 | 13 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-PRIORITY-01 | vdc_priority_match.inc | codec/绑定/STOP/直接入口/历史/共钟及 Domain oracle、频率/相位共存、输出生命周期/实际 PIO 编码/故障注入、原生配置/Flash 恢复、目标资源、同源码四板 P3 与专项 | 2026-09-17 | pending |
+| VDC-REFERENCE-01 | vdc | STOP 后显式参考运输及独立接收 ACK；固定配额逐目标发送、完整发布证明与逐字节确认、暂忙保留及会话取消；不授予 DCO 应用或锁相 | 2 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-REFERENCE-01 | distributed_refmem_vdc_feedback.inc | 投影/轮询/模式互斥/typed ACK/发布证明/取消 host、资源、四板 P3 和接收确认专项 | 2026-09-16 | pending |
+| VDC-BOUNDARY-01 | vdc | 本地服务边界频率命令；固定配额与有界重复、精确 ACK/连续重基；独立 RATE 域和显式 AUTO，逐从同模型窗口负反馈及未决保持 | 3 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-BOUNDARY-01 | refmem_sync_vdc_feedback.h | typed codec/同域年龄/争用暂停/新模型窗口/至多一次/多轮 host、资源与四板 P3、实际 apply/ACK 与频偏专项 | 2026-09-16 | pending |
 | VDC-PATHMATRIX-01 | vdc | calibration load 生成完整 observation path matrix，运行态禁止 ring path inference | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_domain.h | C/host matrix completeness and lookup tests | 2026-08-28 | pending |
 | VDC-OBSALIGN-01 | vdc | 跨板 observation 必须声明 local phase 与共同 TDMA 时间的同钟或映射关系；raw local phase 不得进入 MASTER PI 或可信 jitter | 1 | docs/vdc/VDC_DOMAIN_ARCHITECTURE.md | vdc_domain.c | VDC phase-domain gate、TDMA adapter flag 与 host/P3 replay | 2026-09-10 | pending |
 | TDMA-FLIGHT-BITMAP-01 | tdma | SHORT process image 固定 8×32B，slot 前 8B 由 core1 生成 RX 位图（旧 ID 不符合检查器单段主题格式，由 TDMA-FLIGHTBITMAP-01 接替） | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_flight_engine.h | 常量与单测比对 | 2026-08-20 | superseded |
@@ -47,6 +51,8 @@ Last updated: 2026-09-13
 | TDMA-FLIGHTCLAIM-01 | tdma | 飞行声明分级：byte-level 与 cycle-level 分开记录，cycle-level 必须绑定 RX/TX 重叠与固定 pipeline delay 实测证据 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_pio_spi_phys.h | B0 前置门禁证据审查 | 2026-09-11 | pending |
 
 | TDMA-CAPTURE-01 | tdma | DPLL residual 只经固定 SRAM capture，停止后由 Core0/StorageAO 写 SD 并离线解码；不得进入 TDMA realtime path | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | vdc_dpll_manager.h | C build、CRC decoder、SD/OTA/HIL | 2026-08-29 | pending |
+| DOCS-PROGRESSROTATE-01 | docs | 进展日志单文件 ≤200KB、最旧优先连续截断归档到 `docs/legacy/<domain>/`、`## 归档索引` ID 闭包与 `Last updated` 新鲜度 | 1 | docs/check/DOCS_REGRESSION_PLAN.md | doc_regression_check.py | 环5 阈值/截断单调性/索引闭包/新鲜度正反用例 | 2026-09-17 | pending |
+| DOCS-PROGRESSORDER-01 | docs | 进展日志条目按新鲜度倒排——最新鲜的在最上面，日期序列非递增（同日不限），归档文件与索引区间同向 | 1 | docs/check/DOCS_REGRESSION_PLAN.md | doc_regression_check.py | 环5 日期级倒序判定、归档顺序与区间方向双向容忍正反用例 | 2026-09-17 | pending |
 
 ## 条款落点表
 

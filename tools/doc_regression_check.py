@@ -8,6 +8,13 @@ Loops:
                        of the newest dated domain doc.
   loop 2 (registry):  contract registry rows must have unique ids, existing
                        clause_loc files and existing code_anchor files.
+  loop 3 (constants): doc `#define` numbers must match code (opt-in --constants).
+  loop 4 (crosscheck): contract keywords must appear in their code_anchor
+                       (opt-in --crosscheck).
+  loop 5 (progress):  progress logs stay under PROGRESS_MAX_BYTES, archives hold
+                       a contiguous oldest-first prefix with a closed `## 归档索引`
+                       and `Last updated` never trails the newest entry (C14);
+                       entries stay newest-first at date level (C15).
 
 Exit code 1 on any FAIL (used by pre-commit and pytest).
 """
@@ -47,6 +54,36 @@ PLUGIN_FILES = (
 FRESHNESS_EXCLUDE_DIRS = {"archive", "legacy", "check", "temp"}
 # Never scan these trees for anchors.
 SCAN_EXCLUDE_DIRS = {"build", ".git", "node_modules", "third_party", "out"}
+
+# ---- loop 5: progress-log rotation (C14 / DOCS-PROGRESSROTATE-01) ----
+PROGRESS_SUFFIX = "_TASK_PROGRESS.md"
+PROGRESS_MAX_BYTES = 200 * 1024
+PROGRESS_INDEX_HEADING = "## 归档索引"
+PROGRESS_ARCHIVE_DIR = "docs/legacy/"
+# Delete-only baseline: remove an entry when that rotation is actually done.
+# Never add one (a new exemption needs cross-review per C11).
+PROGRESS_ROTATION_DEBT = {
+    "docs/tdma/TDMA_TASK_PROGRESS.md": "2026-10-17",
+    "docs/refmem/REFMEM_TASK_PROGRESS.md": "2026-10-17",
+    "docs/arch/HAOFV_FLASH_TASK_PROGRESS.md": "2026-10-17",
+}
+# C15 delete-only baseline: date-level order inversions already in the corpus
+# (single backfilled or appended entries). Remove an entry once it is fixed.
+PROGRESS_ORDER_DEBT = {
+    "docs/sync/SYNC_IO_TASK_PROGRESS.md": "2026-10-17",
+    "docs/arch/HAOFV_FLASH_TASK_PROGRESS.md": "2026-10-17",
+    "docs/arch/RTOS_HAOFV_TASK_PROGRESS.md": "2026-10-17",
+    "docs/communication/COMMUNICATION_RS485_TASK_PROGRESS.md": "2026-10-17",
+    "docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md": "2026-10-17",
+    "docs/tdma/TDMA_TASK_PROGRESS.md": "2026-10-17",
+}
+# Entry headings only: "<PREFIX>-YYYYMMDD-NNN" at ## or ### level. A literal
+# "YYYYMMDD-NNN" template does not match, and invalid calendar dates are dropped.
+PROGRESS_ENTRY_RE = re.compile(
+    r"^#{2,3}\s+([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*)-(\d{8})-(\d+)(?=\s|[-–—:：]|$)"
+)
+PROGRESS_CHECKPOINT_RE = re.compile(r"^#{2,3}.*checkpoint", re.IGNORECASE | re.MULTILINE)
+PROGRESS_ARCHIVE_NAME_RE = re.compile(r"^LEGACY_[A-Z0-9_]+_TASK_PROGRESS_\d+\.md$")
 
 DATE_RE = re.compile(r"Last updated:\s*(\d{4})-(\d{2})-(\d{2})")
 ROW_RE = re.compile(
@@ -356,6 +393,217 @@ def check_constants(root: Path, result: Result, doc_dirs: list[str]) -> None:
         result.ok(f"constants: checked {checked} #define literals")
 
 
+def progress_entry_ids(text: str) -> list[tuple[str, int, str]]:
+    """Entry ids of a progress log as (YYYYMMDD, seq, raw_id), in file order."""
+    out: list[tuple[str, int, str]] = []
+    for ln in text.splitlines():
+        m = PROGRESS_ENTRY_RE.match(ln)
+        if not m:
+            continue
+        day = m.group(2)
+        try:
+            datetime.date(int(day[:4]), int(day[4:6]), int(day[6:]))
+        except ValueError:
+            continue  # not a calendar date: not an entry
+        out.append((day, int(m.group(3)), f"{m.group(1)}-{day}-{m.group(3)}"))
+    return out
+
+
+def progress_id_key(raw: str) -> tuple[str, int]:
+    m = re.search(r"-(\d{8})-(\d+)$", raw.strip())
+    return (m.group(1), int(m.group(2))) if m else ("", 0)
+
+
+def progress_index_rows(text: str) -> list[list[str]]:
+    """Rows of the `## 归档索引` table as [file, id_range, count, archived_on]."""
+    rows: list[list[str]] = []
+    inside = False
+    for ln in text.splitlines():
+        if ln.strip().startswith(PROGRESS_INDEX_HEADING):
+            inside = True
+            continue
+        if not inside:
+            continue
+        if ln.startswith("## "):
+            break
+        if not ln.startswith("|"):
+            continue
+        cells = [c.strip().strip("`") for c in ln.split("|")]
+        if len(cells) < 6:
+            continue
+        first = cells[1]
+        if not first or first == "文件" or set(first) <= set("-: "):
+            continue  # header or separator row
+        rows.append(cells[1:5])
+    return rows
+
+
+def check_progress_rotation(root: Path, result: Result) -> None:
+    """Loop 5 (C14): progress logs stay bounded, fresh and loss-free."""
+    docs = root / "docs"
+    if not docs.exists():
+        return
+    canon = [
+        p
+        for p in sorted(docs.rglob("*" + PROGRESS_SUFFIX))
+        if not (set(p.relative_to(root).parts) & FRESHNESS_EXCLUDE_DIRS)
+    ]
+    if not canon:
+        result.ok("progress: no canonical progress logs")
+        return
+
+    today = datetime.date.today()
+    for path in canon:
+        rel = path.relative_to(root).as_posix()
+        text = read_text(path)
+        size = path.stat().st_size
+        entries = progress_entry_ids(text)
+        newest = max((e[0] for e in entries), default=None)
+        oldest = min((e[0] for e in entries), default=None)
+
+        # R1: size cap, softened only by the registered (delete-only) debt list.
+        if size > PROGRESS_MAX_BYTES:
+            kb = size // 1024
+            cap = PROGRESS_MAX_BYTES // 1024
+            debt = PROGRESS_ROTATION_DEBT.get(rel)
+            if debt is None:
+                result.fail(
+                    f"progress: {rel} is {kb}KB > {cap}KB (C14 R1); rotate its oldest "
+                    f"entries into {PROGRESS_ARCHIVE_DIR}<domain>/"
+                )
+            elif today > datetime.date.fromisoformat(debt):
+                result.fail(
+                    f"progress: {rel} is still {kb}KB past its registered rotation "
+                    f"deadline {debt} (C14 R1)"
+                )
+            else:
+                result.warn(
+                    f"progress: {rel} is {kb}KB > {cap}KB "
+                    f"(registered rotation debt, deadline {debt})"
+                )
+
+        # C15: newest first. Judged at date level only; the same-day order is
+        # each log's own style (12 of 14 existing logs use ascending day blocks).
+        inversions = sum(1 for a, b in zip(entries, entries[1:]) if a[0] < b[0])
+        if inversions:
+            order_debt = PROGRESS_ORDER_DEBT.get(rel)
+            if order_debt is None:
+                result.fail(
+                    f"progress: {rel} has {inversions} date-level order inversion(s); "
+                    f"the newest entry must come first (C15)"
+                )
+            elif today > datetime.date.fromisoformat(order_debt):
+                result.fail(
+                    f"progress: {rel} still has {inversions} date-level order "
+                    f"inversion(s) past its registered deadline {order_debt} (C15)"
+                )
+            else:
+                result.warn(
+                    f"progress: {rel} has {inversions} date-level order inversion(s) "
+                    f"(registered order debt, deadline {order_debt})"
+                )
+
+        # R5: freshness, and the checkpoint that rotation must never move away.
+        if entries:
+            parsed = parse_date(text)
+            if parsed is None:
+                result.fail(f"progress: {rel} missing 'Last updated: YYYY-MM-DD'")
+            else:
+                stamp = f"{parsed[0]:04d}{parsed[1]:02d}{parsed[2]:02d}"
+                if stamp < newest:
+                    result.fail(
+                        f"progress: {rel} 'Last updated' "
+                        f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:]} is older than its newest "
+                        f"entry {newest[:4]}-{newest[4:6]}-{newest[6:]} (C14 R5)"
+                    )
+
+        if PROGRESS_INDEX_HEADING not in text:
+            continue  # not rotated yet
+
+        if not PROGRESS_CHECKPOINT_RE.search(text):
+            result.fail(
+                f"progress: {rel} is rotated but has no '## 当前 checkpoint' (C14 R5)"
+            )
+        rows = progress_index_rows(text)
+        if not rows:
+            result.fail(f"progress: {rel} has '{PROGRESS_INDEX_HEADING}' but no rows")
+            continue
+
+        archived: list[tuple[str, int, str]] = []
+        for afile, id_range, count, _archived_on in rows:
+            if not afile.startswith(PROGRESS_ARCHIVE_DIR) or not (
+                PROGRESS_ARCHIVE_NAME_RE.match(afile.rsplit("/", 1)[-1])
+            ):
+                result.fail(
+                    f"progress: {rel} archive row '{afile}' must be "
+                    f"{PROGRESS_ARCHIVE_DIR}<domain>/LEGACY_<DOMAIN>_TASK_PROGRESS_<NN>.md "
+                    f"(C14 R3)"
+                )
+                continue
+            archive_path = root / afile
+            if not archive_path.exists():
+                result.fail(f"progress: {rel} archive index lists a missing file {afile}")
+                continue
+            archived_ids = progress_entry_ids(read_text(archive_path))
+            if any(a[0] < b[0] for a, b in zip(archived_ids, archived_ids[1:])):
+                result.fail(
+                    f"progress: {rel} archive {afile} is not newest-first; an archived "
+                    f"log must keep the same descending order (C15)"
+                )
+            try:
+                declared = int(count)
+            except ValueError:
+                declared = -1
+            if declared != len(archived_ids):
+                result.fail(
+                    f"progress: {rel} archive row {afile} declares {count} entries but "
+                    f"the file holds {len(archived_ids)} (C14 R4)"
+                )
+            if ".." not in id_range:
+                result.fail(
+                    f"progress: {rel} archive row {afile} range '{id_range}' must be "
+                    f"'<first_id>..<last_id>' (C14 R4)"
+                )
+            else:
+                # Entries are kept newest-first everywhere, so the indexed range
+                # is written newest..oldest; accept either direction.
+                a_id, _, b_id = id_range.partition("..")
+                key_a, key_b = progress_id_key(a_id), progress_id_key(b_id)
+                low, high = min(key_a, key_b), max(key_a, key_b)
+                for day, seq, raw in archived_ids:
+                    if not low <= (day, seq) <= high:
+                        result.fail(
+                            f"progress: {rel} archive {afile} entry {raw} is outside the "
+                            f"indexed range '{id_range}' (C14 R4)"
+                        )
+                        break
+            archived.extend(archived_ids)
+
+        canon_ids = {raw for _d, _s, raw in entries}
+        for _day, _seq, raw in archived:
+            if raw in canon_ids:
+                result.fail(
+                    f"progress: {rel} id {raw} lives in both the canonical log and an "
+                    f"archive (C14 R4)"
+                )
+                break
+
+        # R2: archives hold a contiguous oldest-first prefix.
+        if archived and not entries:
+            result.fail(f"progress: {rel} has archives but no retained entries (C14 R2)")
+        elif archived and oldest is not None:
+            arch_newest = max(a[0] for a in archived)
+            if arch_newest > oldest:
+                result.fail(
+                    f"progress: {rel} archives reach "
+                    f"{arch_newest[:4]}-{arch_newest[4:6]}-{arch_newest[6:]} while retained "
+                    f"entries start at {oldest[:4]}-{oldest[4:6]}-{oldest[6:]}; archives must "
+                    f"hold the oldest entries (C14 R2)"
+                )
+
+    result.ok(f"progress: {len(canon)} progress logs checked")
+
+
 def check_crosscheck(root: Path, result: Result) -> None:
     """Loop 4 (verify-doc-crosscheck): a contract's key term should appear in
     its code_anchor file. Heuristic, so misses are WARN not FAIL."""
@@ -473,6 +721,11 @@ def main() -> int:
         help="loop 4: contract keyword must appear in code_anchor file (WARN)",
     )
     parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="loop 5: progress-log rotation caps, archive closure and freshness",
+    )
+    parser.add_argument(
         "--scope",
         type=str,
         default="",
@@ -512,15 +765,18 @@ def main() -> int:
         result.ok("doc_regression passed")
         return 0
 
-    run_all = not (args.freshness or args.registry or args.log_check)
+    run_all = not (args.freshness or args.registry or args.log_check or args.progress)
     run_freshness = args.freshness or run_all
     run_registry = args.registry or run_all
+    run_progress = args.progress or run_all
     run_log = args.log_check
     if run_freshness:
         check_freshness(root, result, scope)
     if run_registry:
         check_registry(root, result)
         check_orphan_clauses(root, result)
+    if run_progress:
+        check_progress_rotation(root, result)
     if run_log:
         check_escape_hatch(root, result)
     if run_all:
