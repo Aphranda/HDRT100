@@ -44,5 +44,13 @@ else
 fi
 
 doc_verify_last="$(git rev-parse --git-path doc-verify-last)"
-echo "$(date +%s)" > "$doc_verify_last"
+# P3: never clobber the escape-hatch marker with an empty value. Hooks are also
+# invoked with a minimal PATH (IDE/GUI clients, sandboxes) where coreutils `date`
+# is missing; an empty marker makes `--log-check` report "cannot read marker" and
+# silently destroys the C3 bypass trail. Fall back to the python already required
+# by this hook, and keep the previous marker if no clock is available at all.
+stamp="$(date +%s 2>/dev/null || python -c 'import time; print(int(time.time()))' 2>/dev/null || true)"
+if [ -n "$stamp" ]; then
+    echo "$stamp" > "$doc_verify_last"
+fi
 exit 0
