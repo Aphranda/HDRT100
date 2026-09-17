@@ -22,6 +22,87 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-014：修复标量假超时，外部波形确认三从相位靠近
+
+- TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。以下数字为调试
+  快照，非产品事实源。证据根为 `out/HardwareAcceptance/20260918/`；未修改固件、
+  PIO 或 OTA 实现，保留其他设备的 `tdma_flight_engine.c` 工作区改动。
+- 工具切片（提交 `9864fa5e`）：`SESSion?=1` 被共用串口读取器当作 ACK 丢弃，导致配置前假超时。
+  `scpi_serial.py` 登记全长/全短 SESSION 标量头，并使已知 U32 查询保留合法 `1`；
+  普通非标量查询仍过滤 ACK。相关 pytest 85 项通过，独立只读复核无阻断发现；
+  Release 链接检查通过，`p3-scpi-one-r1/` 当前源码四板 quick P3 为
+  PASS_WITH_WARNINGS（ERROR/FATAL 均零），复用已测线序，DPLL 不计入本次 P3。
+  固件 build 保持 `20260917215027`。`scalar-one-hil-r4.json` 在 STOP 下实测
+  LOAD:MASK 的同一 U32 读取分支返回 `1` 并恢复原值；SESSION=1 的直接重设负例
+  保留于 `session-one-hil-r1.json` 至 `session-one-hil-r3.json`，旧 session 受
+  `vdc_model_feedback.inc` 单调水位约束拒绝，不冒充 SESSION=1 实板通过。
+- 采样工具负例：`dpll-resume-scope-r1/r2/` 分别保留原错误队列和标量假超时；
+  r3/r4 停在示波器偏移读回不符，尚未 START。后续仅操作示波器验证设置，
+  使用正常 NO1 上升沿触发、20 ms/div 和延后中心；不再用被冻结波形上的偏移
+  编辑推定下一次设置成功。RAW 导出须先统一各通道传输范围，再读取 PRE；
+  PRE 的点数随分段变化，不是通道采样时间轴变化。
+- `dpll-resume-scope-r5/`：静默运行后，三从原生记录及末态模型通过原有限专项；
+  实际频率更新均 10 次，相位更新 41/35/46 次。规划/提交/低水位参数为
+  24000/32000/16000 us，NO1 输出 6 块后 STARVED，三从持续至主动取消。
+  原生退休复算确认 NO1 输入耗尽，其 service 最大间隔约 2.425 ms，不能仅归咎
+  一次超长调度停顿。首次波形导出因 PRE 点数误判中止；`capture/scope-recovered/`
+  在未重触发条件下补齐四通道，CH1 哈希与首次导出完全一致。实际 300–500 ms
+  窗口内 NO1 无边沿、三从各 201 个，不能据此计算相对 NO1 的锁相。
+- `dpll-resume-scope-r6/`：临时参数 40000/48000/32000 us、每块仍 16 边沿，
+  四通道 RAW 完整导出，采样网格 20 ns。300–500 ms 窗口每通道均 200 个上升沿；
+  NO1 相邻周期相对标称的误差为约 -17.35～+19.60 ns。三从相对最近 NO1 边沿的
+  偏差由约 +59.40/+73.30/+64.12 us 降至 +4.00/+6.66/+5.40 us，存在真实物理
+  相位步阶，不能再把三从视作仅收到数据但输出完全未动。最近边沿配对按周期取模，
+  不等同共同 ordinal 证明；含步阶的整体拟合不当作频差，也不宣布粗锁定或 100 ns。
+  图与复算为 `capture/scope-analysis/relative-edges.svg`、`review.json`。
+  独立复核为 `dpll-resume-scope-r6/independent-review/review.json`：四十个 RAW 块
+  校验及物理步阶复算一致；原生首次相位修正幅度与物理步阶相符，但尚无严格的
+  trigger/raw 时间桥接，不能逐事件宣称因果已闭合。
+- 连续性仍未通过：r6 NO1/NO2 主动取消，NO3/NO4 分别提交 261/518 块后 STARVED；
+  旧采集器的 `passed=true` 只覆盖有限原生/输出专项，不能提升为全程连续。
+  两轮初始 DCO 状态不同，不能当严格单因素 A/B。均已四板 STOP、撤销 origin
+  许可，RAM 时间参数恢复原值；未将候选写入 Flash。
+  最终核验见 `dpll-resume-final-state.json`，示波器恢复 STOP/EXT/NORM。
+- 下一 gate：从已确认的物理相位动作继续，分解预规划失效、DMA 提交窗口与不可改写
+  前缀之间的补给缺口，修复后走独立切片 P3。延续原生 phase/model 与输出事件对照，
+  先保证四路持续，再收敛剩余微秒级边沿差；不重做已确认线序或首帧校准。
+
+### VDC-PROGRESS-20260918-013：恢复自主 origin 与新代 FOLLOW 绑定，三从实际 DCO 更新
+
+- TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。以下为有限调试
+  快照，非产品事实源。原始证据为
+  `out/HardwareAcceptance/20260918/priority-resume-r1/raw.json` 与
+  `priority-resume-r2/raw.json`、`models.json`、`review.json`；后者目录与前者同级。
+  四板读回 build 均为 `20260917215027`。本轮没有修改或刷写产品固件；保留工作区
+  `tdma_flight_engine.c` 改动，专项不替代当前源码 P3 凭证。
+- 复核纠正：普通 ARM/START 不自动获得自主 origin 许可，当前代码已有显式
+  `CALibration:ORIGin:TRIAL` 的 owner 交接调用，不能引用历史“无调用者”记录认定
+  当前实现缺失。早期短许可证到期后的 STOP 也不能解释为物理释放失败；原始
+  HANDOFF 为 DONE、RELEASE 为 RELEASED，未报告物理拒绝。
+- 配置生命周期：STOP 后先核对 config/applied ACK，已有 feedback session 保持；
+  NO1 SYNC 与三从 MATCH 使用新的共同 generation，然后重新提交三从 FOLLOW 1，
+  使本地控制请求锁存本轮 MATCH generation。全部 ARM 后从尾板到主板 START，
+  再申请有限 origin 许可。运行期间不查询，有限窗口结束后四板 STOP、撤销许可，
+  只在 STOP 后读取诊断。运行时读取 STOP-only 查询导致的“操作不可用”不作为
+  硬件失联证据。
+- r1 使用 generation 2，NO1 编码 7,326 次，三从各 typed accept 12,345 次，
+  匹配分别 3,259/3,143/2,993 次；FOLLOW 仍锁存 generation 1，状态为 BINDING
+  退休，未采用新代数据。该负例说明 `FOLLow?=1` 只表示请求模式，不能证明
+  当前 generation 的控制有效。
+- r2 使用 generation 3 并重新提交 FOLLOW，静默窗口 12 秒。NO1 编码 7,349 次；
+  NO2/NO3/NO4 typed accept 为 12,290/12,273/12,295，typed reject 均为零，
+  成功匹配为 2,851/2,872/2,659，实际 DCO 更新为 11/11/12 次。末态
+  DCO sequence 为 12/12/13，频率为 +6,803/+7,300/+9,182 ppb，均与独立
+  `FEEDback:MODel?` 读回一致。物理接收缺口计数仍非零，不宣称逐圈必达。
+- `review.json` 从原始整数复算末次频差区间：NO2 为 [-1083,33] ppb，NO3 为
+  [-1101,13] ppb，两者跨零而保持；NO4 为 [-1199,-81] ppb，最后实际增加
+  +40 ppb。模型一致与区间计算已核对，但这些是末态诊断，不能替代逐次原生
+  时间序列、相位收敛或示波器证据。最终四板 STOP/config ACK，许可证显式撤销。
+- 下一 gate：沿已恢复的启动顺序，复用 typed 原生记录与 schema8 RUN 输出工具，
+  绑定同次事件/模型和四通道波形，继续验证长时间轴补给、相位修正及相对 NO1
+  的边沿差。无需重做已测线序或修改 origin 启动固件；100 ns、ACK 全链和
+  完整实时预算仍开放。
+
 ### VDC-PROGRESS-20260918-012：ARM 等待策略复核仍未启动 adapter
 
 - TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。针对 011 中的 ARM
