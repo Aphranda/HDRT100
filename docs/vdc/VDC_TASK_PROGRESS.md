@@ -32,6 +32,62 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-010：typed 原生记录与三从真实 DCO 更新
+
+- TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。以下数字为本轮证据快照，非容量、
+  时序或精度契约。新增诊断记录与读回，不改变既有本地控制算法，不授予锁相或正式 VDC 发布。
+- 代码与匹配凭证已提交为 `8d69d05`，真实 commit hook 核验当前 staged 源码通过。
+- `vdc_priority_trace.h/.inc` 复用既有采集池，记录实际 MATCH 区间、源事件、运行代际和
+  DECISION 的真实 DCO 前后状态；MATCH 按 raw 事件时间有界降采样。Core0 仅提交停止态
+  请求，Core1 处理 ARM/STOP/RELEASE 并确认；冻结记录由读取 lease 保护，全部 STOP 后
+  分页核对 payload/file CRC。新旧采集互斥，未完成读回不自动释放原件。
+- 独审发现并修复两处交接风险：RELEASE 的 published ACK 先于实际归还可能造成后继
+  命令无人消费；typed 覆写后未退休旧 completed 元数据可能被旧 READ/SAVE 错标为旧格式。
+  真实原子写入交错、旧函数失败/修复后通过及跨格式负例均保留。相关回归 523 项、新记录器
+  24 项通过；不是用 mock ACK 或独立测试数组替代真实 owner/共享存储。
+- Release App A/B/Boot、Flash link 与独立 linked 资源审核通过：净增静态 RAM 388 B，
+  主 RAM 余 38020 B，仍只有原 7600 B 采集池；新增完整 trace service/match 路径含 IRQ
+  和异常帧为 584/576 B，既有最大启用路径仍为 2872/3072 B。可选 TRIGGER_MEASURE/MODEL
+  保持关闭，不据静态栈结果宣称 WCET 或运行水位通过。首轮 PowerShell 日志重定向返回值
+  与已完成构建不一致，原日志保留；结构化 subprocess 复核 returncode=0。
+- 同源码四板 quick P3：`PASS_WITH_WARNINGS`，INFO/WARN/ERROR/FATAL=25/14/0/0，
+  build_id=`20260917004302`，源码指纹
+  `d468840dbf3f823d5cd619ca0664d94b3835011d05170c1ff287832cb4caeefe`；包 SHA256
+  `0a0668a2244bfe0f25eb59c86c0cbaaef5f6d17a927ea13716d23d2a4ef6492a`。
+  保持固定范围、复用已测线序，严格质量告警单独保留。
+- `trace-short-r1/` 八秒静默专项通过，运行零查询、无诊断输出。NO2/NO3/NO4 分别保存
+  35/36/35 条 MATCH 和各 7 条 DECISION，覆盖 7.664/7.750/7.570 秒；记录无丢弃，
+  三从的 ARM/STOP/RELEASE 均获 Core1 ACK，原件分页和整文件 CRC 通过。
+
+| 板卡 | 真实采用次数 | 零调整次数 | DCO 序号 | 实际频率修正 |
+|---|---|---|---|---|
+| NO2 | 6 | 1 | 1→7 | 0→+1257 ppb |
+| NO3 | 3 | 4 | 1→4 | 0→+157 ppb |
+| NO4 | 6 | 1 | 1→7 | 0→+3025 ppb |
+
+- 上表为该轮快照；末次原生决定、FOLLOW 保留快照及真实 Domain 模型逐字段一致。NO2/NO3
+  现在已有真实更新证据，不能继续把此前零调整解释为未接入，也不能将本次更新次数归因于
+  控制算法修复：本切片没有改变控制律，重新部署/启动与输入条件均与上轮不同。
+- 区间分析显示模型残差仍持续下降，未收敛。单点 residual 全宽为本地投影宽与远端宽之和：
+  NO2/NO3/NO4 分别约 4.102–6.930 / 5.594–8.634 / 4.282–7.710 µs。NO3 的本地 raw
+  起点窗口为 707 tick，另两从为 334 tick；后续投影还引入 bridge 和量化不确定性。
+  当前约一秒估计采用两个端点的独立上下界，no_adjust 也更新基线，不会积累更长窗口来缩界。
+  同本地模型段端点分析仍能识别负漂移，见 `analysis/analysis.json` 和
+  `analysis/typed_residual_dco.svg`；图保留上下界，不用中点拟合代替物理频差或锁相证据。
+- 同 epoch 本地起点虽可作为公共潜变量，当前接口未表达相关性；每次 bridge、NO1 逐帧
+  latch 重装与远端模型变化不能直接抵消。原生记录未含完整 bridge 三元组或远端分解，
+  不能从总宽反推出唯一原因。下一 gate：继续 `VDC-FAST-003`，先证明时间输入/投影缩界的
+  数学与身份条件，选择最小切片并重复 host→Release→四板 P3→原生专项，比较频差区间和
+  漂移；不能削掉上下界或强迫非零修正。物理输出模型采用、相位/100 ns、ACK、单圈期限及
+  VDC 正式发布仍未验收。
+- 原件根目录：`out/HardwareAcceptance/20260917/dpll-priority-trace-r1/`，包含固定验收计划、
+  `code-review.json`、`resource-review.json`、`resource-independent-review.json`、`p3/`、
+  `trace-short-r1/` 与全部命令日志。新测试及旧真实函数反例在同日 `typed-trace-host-r1/`。
+  独立 `hardware-review.json` 完成原生字节、分页 CRC、区间算术、真实 DCO、身份、
+  零 RUN 查询和 STOP/恢复核验，结论 `PASS_SCOPED_TYPED_NATIVE_TRACE_SLICE`。
+  四板最终 STOP，临时 FOLLOW/SYNC/MATCH 与 TAP/会话/负载配置恢复；不操作 NO5，未修改 OTA。
+  保留原有 `tdma_flight_engine.c` 工作区改动，代码与文档分离提交。
+
 ### VDC-PROGRESS-20260917-009：诊断输出扰动、示波器窗口失败与静默恢复
 
 - TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。固件维持 `6261640`，无新增生产代码，
