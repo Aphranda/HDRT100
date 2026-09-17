@@ -32,6 +32,64 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-014：计数回绕伪歧义修复与持续跟踪
+
+- TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。本切片修复实际中断 DPLL 输入的
+  TDMA observer 缺陷，未调整 FOLLOW 增益、估计档位或真实量化界。以下数字均为本轮
+  证据快照，非容量、时序或精度事实源；证据根为
+  `out/HardwareAcceptance/20260917/dpll-observer-lift-r1/`。
+- 代码、测试与匹配 P3 凭证已提交为 `061ddc5`；真实 pre-commit 已核验暂存源码。
+- 修复前同固件 `dpll-priority-longwindow-r1/sustained-r3/` 运行期间零查询；
+  NO2–NO4 原始 recovery 均记录 `TDMA_EVENT_LIFT_AMBIGUOUS`、fault bits 为零，
+  有效事件在约 34.36 秒停止。该时刻对应 PIO 计数周期；临时许可和 observer
+  有限期限尚未到期。原运行 FAIL 保留，不归因为 RJ45 接触或码元错误。
+- 连续 DMA 不一定提供 FIFO-empty 见证，前事件 age 下界可长期停留于起点；旧算法
+  随总运行时长扩大相邻事件候选范围，误纳入多一整圈的候选。`lift_sample()` 仅对
+  非首事件使用历史 `anchor_bounds + elapsed` 与原 age 求交，保留加法溢出、空交、
+  首事件及真正长间隔多候选拒绝。公共 lift、PIO、DMA、状态结构与有效期限不变，
+  不伪造 empty 见证、不清故障、不新增持久 RAM 或重试。
+- 独立真实 feed 原版在 ordinal 22908 的事件复现 reason 11；同输入修复后通过 60000 个
+  事件、跨两次回绕。最终独立 36 项、累计 676009 个 feed 事件通过，含真实长 gap、
+  首事件、近 uint64 边界、STOP/restart、fault、部分批次及随机 PIO 指令计数。
+  host 的两圈模拟不扩大生产有限运行许可。
+- 联合 host 初轮为 1041 通过、一个失败和 24 个编译错误；原因是两份旧 fixture
+  未跟进实际 RX/observer 拆分及公开时钟声明。补真实调用链、核黑窗仅 observer
+  服务并保持 OTA 全部排除，修正 stub linkage 后原 25 项定向通过。原失败保留，
+  合并覆盖 1066 项，不表述为一次全绿运行。
+- App A/B/Boot Release 与 Flash 检查通过；独立 linked 审计静态 RAM 增量为零，
+  预留堆后主 RAM 余 37480 B、scratch gap 24 B。observer 深链含 IRQ/异常为
+  1000 B，event service 其他较深路径为 1240 B；既有总体已审最大仍为
+  2872/3072 B。此为局部资源检查，不代替 WCET 或全部运行水位。
+- 首轮四板 quick P3 为 `PASS_WITH_WARNINGS`，无 ERROR/FATAL；其后 `sustained-r4`
+  三从 observer 到约 40.38 秒、MATCH 到 event 40088，FOLLOW 均为预期 STOP 12，
+  不再因回绕 binding 退休。NO3 STOP 后 model getter 超时，整体专项仍为 FAIL；
+  NO2/NO4 模型核对成功不能替代缺失的 NO3 原件。四板 STOP 和配置恢复完成。
+- 最终测试指纹 `p3-final` 为 `PASS_WITH_WARNINGS`，202.078 秒，25 INFO、14 WARN，
+  无 ERROR/FATAL。原严格结果为 false；保留启动 barrier 超时、NO1 反馈超窗、
+  NO1/NO2/NO4 receive_missing 及 VDC/RefMem deadline 增长。本轮 T1/T3 无告警，
+  不以分级通过声明严格运输或调度通过。
+- 最终 `sustained-r5` 专项通过，40 秒静默、完整流程 52.187 秒，运行期间零查询。
+  三从 observer 到约 40.39 秒、MATCH 均到 event 40088，FOLLOW 为正常 STOP 12；
+  末次决定与真实 Domain 模型全部一致。NO2/NO3/NO4 实际更新为 0/0/23 次，
+  零调整为 64/65/29 次、拒绝为零，末频率为 0/0/+1552 ppb。前两板宽区间跨零
+  不能解释为已同步；四板 STOP 和配置恢复完成。r4 的失败不被本轮通过覆盖。
+- 本轮 build `20260917030314`，最终源码指纹
+  `53edd7d19c68785746b99d5ba767b1a9c6ae1b493f4992c17efcc90614009eac`，1231 文件；
+  包 SHA256 `891a1d3ca3ceea1d8e76c0fc8dcaa82902afa817a5693020f35da2cfbc910b8e`。
+  首轮 P3 的测试源码指纹另保留于 `receipt-r1.json`，不代替最终凭证。
+- 随后同固件 `native-r1` 已继续主线观测：三从原生记录均完整读回、CRC 有效，
+  末次原生决定与 FOLLOW 快照一致；NO1 origin 记录完整重放。NO2 STOP 后模型查询
+  超时，整体专项仍 FAIL，不以原生记录替代缺失末态。原生分析可独立使用：NO2/NO3
+  各 12 次零调整、四组基线的最终档位仍跨零；NO4 在不变本地模型的约 5.04 秒片段
+  中，模型残差端点斜率界为 `[-1802,-315] ns/s`，随后仅调整 +11 ppb。
+  这是同模型残差证据，包含远端模型变化，不能直接认作物理振荡器频偏。
+  图与逐段区间见 `native-r1/analysis/typed_residual_dco.svg` 及 `analysis.json`。
+- 此输入连续性切片已获得跨回绕实板证据；下一最小候选为在真实误差界与增益不变下
+  延长未决基线，并先解决长间隔投影乘法和比值的溢出边界，再经独立回归与四板 P3。
+  具体计划见 `next-step-analysis-r2.json`；候选尚未实现，不扩大 trace 池或静默丢决定。
+  保留真实量化界评估频差分辨率和持续漂移。末态记录不能证明全窗斜率、逐圈必达、
+  物理输出锁相或 100 ns 精度；不重复 P0T，不将启动首帧优化重新作为 DPLL 前置。
+
 ### VDC-PROGRESS-20260917-013：NO1 共钟区间收窄与原生同事件验收
 
 本轮完成 NO1 typed 新事件的有限共钟桥接求交；不是锁相完成。以下数字为本轮

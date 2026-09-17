@@ -4,9 +4,18 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-09-14
+Last updated: 2026-09-17
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
+
+### TDMA-PROGRESS-20260917-001：observer 历史锚点参与回绕重建
+
+DPLL 持续跟踪暴露连续 DMA 无 empty 见证时的真实 observer 缺陷；已在
+`tdma_event_observer.c` 的非首事件 lift 中使用历史公共锚点收紧前事件时间界，
+不改 PIO、DMA、公共 lift、共享状态或运行期限。真实长 gap 多候选仍拒绝。
+独立完整 feed 红绿、资源、同源码四板 P3 与跨回绕运行证据统一记录在
+[VDC 进度 014](../vdc/VDC_TASK_PROGRESS.md#vdc-progress-20260917-014计数回绕伪歧义修复与持续跟踪)，
+父任务 `VDC-FAST-003` 仍进行中。此项修复输入连续性，不宣称 TDMA 全部时序或 DPLL 锁相通过。
 
 当前已实现可配置 Core1 整表周期，见 `TDMA-PROGRESS-20260914-013`，证据根为
 `out/HardwareAcceptance/20260914/tdma-flight-configurable-period/`。STOP/config ACK 后
