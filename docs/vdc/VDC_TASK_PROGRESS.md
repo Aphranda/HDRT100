@@ -22,6 +22,27 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-009：长时间轴补给窗口 A/B 复采
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003` IN PROGRESS。以下均为四板有限
+  20 秒调试快照，数字不是 WCET 或产品契约；证据根为
+  `out/HardwareAcceptance/20260918/dpll-run-timeline-r1/timing-longaxis-r7/`。
+- 修正采集器后，候选 `OUTPut:TIMing=(24000,32000,16000)` 在四板 STOP 状态下
+  锁存成功，1 ms 输出对应 16 边沿块；schema8 RUN/native 采集通过，采集期间查询
+  为零，最终四板均由显式 STOP 以 `CANCELLED` 收尾。配置试验未写入 Flash，外层
+  harness 已将四板 RAM 值恢复为原请求。
+- 与同固件的默认 `(12000,16000,6000)` 复采对照，NO1–NO4 的有限运行由全部
+  `STARVED` 变为全部 `CANCELLED`。末次服务对应的条件 runway 由约
+  `-0.47/-0.81/-1.32/-2.13 ms` 变为 `+23.59/+20.35/+20.11/+18.96 ms`；
+  服务最大间隔仍约 `3.90/4.70/4.88/4.25 ms`。这说明扩大规划/承诺时间轴和
+  16 边沿块在本轮显著提高了补给余量，不能外推为长期连续性或锁相完成。
+- NO4 曾出现一次 `dma_not_ready`，但最终缓存计划仍完成提交；该字段和聚合计数
+  没有逐次时间戳，仍需后续相关 trace 才能区分 DMA 退休、模型失效和服务调度的
+  因果关系。示波器未用于本轮精度判定，DPLL/100 ns 结论保持未宣称。
+- 下一 gate：在保持候选窗口可配置、STOP/代际取消和前缀不可改写的前提下，重复
+  长时间轴 A/B，并将服务间隔、提交间隔、FIFO 退休和物理边沿统一到同一时间轴；
+  只有连续输出证据闭合后，才进入 DPLL 锁相及 VDC 发布判定。
+
 ### VDC-PROGRESS-20260918-008：schema8 RUN 输出采样与断流因果复核
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003` IN PROGRESS。schema8 适配的 RUN
