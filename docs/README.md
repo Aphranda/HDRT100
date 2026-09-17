@@ -134,6 +134,7 @@ docs/
 | `docs/check/DOCS_REGRESSION_REVIEW.md` | 文档自回归体系实施经验总结（问题清单 + 解法 + 维护建议）。 |
 | `docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md` | 2026-08-24 项目状态审查快照：域进度、关键闭环、治理门禁和在制改动边界；不作为冻结契约或代码事实源。 |
 | `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` | 跨 worker/agent 的长期执行约束、证据闭环、Debug 门禁和主控复核规则（首版 Draft）。 |
+| `docs/check/DOCS_PROGRESS_ROTATION_PLAN.md` | 进展日志轮转（C14/C15 环5）操作规程与债务基线唯一落点：规则 R1-R6、倒排约定、轮转步骤与归档命名。 |
 | `docs/check/submissions/README.md` | 核验提交单归档目录说明 + 模板（层间逐级核验，C11 交叉审核）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_01.md` | 首份核验提交单：HAOFV-879 seqlock 偏差（ACCEPT_WITH_DEVIATION，2026-08-19）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_02.md` | TDMA mandatory-first process image 的 HAOFV/VDC/RefMem 层间核验（pending，2026-08-28）。 |

@@ -115,15 +115,9 @@ R2 以**日期**为边界判定：归档条目最大日期 ≤ 规范文件保�
 
 轮转与环1 的关系：`legacy/` 已在 `FRESHNESS_EXCLUDE_DIRS` 内，归档不改变顶层 7 天刷新判定。
 
-轮转债务基线（R1 豁免，带截止日；**只可删除条目，不可新增**，由检查器常量
-`PROGRESS_ROTATION_DEBT` 持有，C5 三同步）：
-
-| 文件 | 登记时体量 | 截止日 |
-|---|---|---|
-| `docs/vdc/VDC_TASK_PROGRESS.md` | 668KB / 176 条 | 本轮完成 |
-| `docs/tdma/TDMA_TASK_PROGRESS.md` | 570KB / 132 条 | 2026-10-17 |
-| `docs/refmem/REFMEM_TASK_PROGRESS.md` | 297KB / 108 条 | 2026-10-17 |
-| `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md` | 209KB / 123 条 | 2026-10-17 |
+轮转债务基线（R1 豁免，带截止日；**只可删除条目，不可新增**）与完整操作规程见
+`docs/check/DOCS_PROGRESS_ROTATION_PLAN.md`——该文件是债务基线的**唯一落点**，本文件不复制
+条目明细（避免双源漂移）。
 
 ### 进展日志倒排（C15 / 环5）
 
@@ -135,17 +129,8 @@ R2 以**日期**为边界判定：归档条目最大日期 ≤ 规范文件保�
 （如 `FLASH-TASK-20260823-077 → -078`），只有 VDC 为严格倒排；若按序列单调判定会误伤存量文档。
 轮转时必须保留每份日志自身的既有日内风格。
 
-日期级倒序基线（带截止日；**只可删除条目，不可新增**，由检查器常量 `PROGRESS_ORDER_DEBT`
-持有，C5 三同步）。存量偏离均为尾部补记或顶部回填造成的单点倒置：
-
-| 文件 | 日期级倒置处数 | 截止日 |
-|---|---|---|
-| `docs/sync/SYNC_IO_TASK_PROGRESS.md` | 2 | 2026-10-17 |
-| `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md` | 1 | 2026-10-17 |
-| `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md` | 1 | 2026-10-17 |
-| `docs/communication/COMMUNICATION_RS485_TASK_PROGRESS.md` | 1 | 2026-10-17 |
-| `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md` | 1 | 2026-10-17 |
-| `docs/tdma/TDMA_TASK_PROGRESS.md` | 1 | 2026-10-17 |
+日期级倒序基线（带截止日；**只可删除条目，不可新增**）见
+`docs/check/DOCS_PROGRESS_ROTATION_PLAN.md` §5.2；存量偏离均为尾部补记或顶部回填造成的单点倒置。
 
 **验收路径**：C14/C15 的机检随**文档门禁**运行，验收定义见
 `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` §6（`docs_check --strict-names` +
