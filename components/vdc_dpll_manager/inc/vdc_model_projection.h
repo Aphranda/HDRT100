@@ -81,6 +81,50 @@ static inline bool vdc_model_scale_elapsed_ns(int32_t rate_ppb,
     return true;
 }
 
+/* Difference of CONTINUOUS EVENT projections F(floor(X(event))), where the
+ * caller establishes one common X(r) = C + r*1e9/tick_hz for both events.
+ * This is NOT F(1000*floor(X/1000)), the integer-us TIMER0 service coordinate.
+ * Keep vdc_model_project_correlated_delta below for that broader scope.
+ *
+ * With one unchanged observer enable anchor, delta_ticks is the exact raw
+ * event displacement under the caller's clock model; unknown C/enable phase
+ * cancels. floor(X1)-floor(X0) is floor(D) or ceil(D), D=delta_ticks*1e9/hz.
+ * For integer d and one Domain model, its signed-truncated rate correction
+ * gives floor(d*q/1e9) <= F(n+d)-F(n) <= ceil(d*q/1e9), q=1e9+rate>0.
+ * Preserve BOTH rounding layers: scaling rational D directly can underbound
+ * fractional-ns clocks after the inner floor error is amplified by q.
+ *
+ * This pure helper proves no lifecycle/admission fact. The caller must admit
+ * both absolute event projections, retain the same committed model at/after
+ * its valid_from/base, same observer anchor and supported clock lifetime,
+ * then intersect this result with the original absolute output difference.
+ * Empty intersection rejects; neither estimate is an authoritative fallback.
+ * Configuration snapshots do not detect hidden clock changes, timer writes
+ * or debug stops. No physical edge accuracy, model adoption or lock is proved.
+ * A zero lower bound is arithmetic, not controller permission. Failure leaves
+ * both output words unchanged; no state, hardware access or allocation. */
+static inline bool vdc_model_project_event_delta(const vdc_dco_control_t *dco,
+    uint32_t tick_hz, uint64_t delta_ticks, uint64_t *output_lo, uint64_t *output_hi)
+{
+    if (!dco || !output_lo || !output_hi || output_lo == output_hi ||
+        !dco->valid || !dco->nominal_period_ns || dco->lock_state > VDC_DOMAIN_LOCK_FAULT ||
+        dco->period_adjust_ppb <= -1000000000 || !tick_hz || tick_hz > 500000000u ||
+        !delta_ticks || delta_ticks > (uint64_t)tick_hz *
+            VDC_MODEL_CORRELATED_DELTA_MAX_SECONDS) return false;
+    /* At the admitted horizon elapsed_num <= 5e18. Scale integer endpoint
+     * bounds separately to avoid overflow and preserve signed-rate rounding. */
+    const uint64_t elapsed_num = delta_ticks * UINT64_C(1000000000);
+    const uint64_t local_lo = elapsed_num / tick_hz;
+    const uint64_t local_hi = local_lo + (elapsed_num % tick_hz != 0u);
+    uint64_t lo, hi;
+    if (!vdc_model_scale_elapsed_ns(dco->period_adjust_ppb, local_lo, false, &lo) ||
+        !vdc_model_scale_elapsed_ns(dco->period_adjust_ppb, local_hi, true, &hi))
+        return false;
+    *output_lo = lo;
+    *output_hi = hi;
+    return true;
+}
+
 /* Actual-output difference, conditional on two already admitted absolute
  * projections under this SAME committed model and a common observer anchor.
  * The owner must preserve the bridge's clock lifetime assumptions throughout

@@ -208,12 +208,12 @@ def test_real_pipeline_native_values(trace_executable, case, rate):
     first, last = matches[0], matches[-1]
     # The decision interval intersects the two absolute endpoint brackets
     # with a correlated raw difference under this same local DCO/anchor.
-    # Keep the conservative whole-microsecond quantization allowance before
-    # scaling by the actual DCO factor, including negative-rate rounding.
+    # Both typed endpoints refer to floor(X(event)) on one clock trajectory.
+    # Preserve its integer-ns rounding before DCO scaling, for either rate sign.
     raw_interval = Fraction((last["raw_lo"] - first["raw_lo"]) * 10**9, status["tick_hz"])
     factor = Fraction(10**9 + rate, 10**9)
-    correlated_lo = math.floor(max(0, math.floor(raw_interval) - 1000) * factor)
-    correlated_hi = math.ceil((math.ceil(raw_interval) + 1000) * factor)
+    correlated_lo = math.floor(math.floor(raw_interval) * factor)
+    correlated_hi = math.ceil(math.ceil(raw_interval) * factor)
     assert (decision["local_lo"], decision["local_hi"]) == (
         max(last["local_lo"] - first["local_hi"], correlated_lo),
         min(last["local_hi"] - first["local_lo"], correlated_hi))

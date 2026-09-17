@@ -282,11 +282,15 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
     /* Only a complete observation window pays for the scaled divisions.
      * The binding/anchor checks above hold transitively from the baseline.
      * Both MATCH endpoints retain their admitted absolute output intervals;
-     * raw_lo subtraction cancels only their shared observer enable anchor.
-     * Intersect the two bounds on the SAME actual local output difference.
+     * These typed events target F(floor(X(event))), as does the reference
+     * encoder, not a hypothetical microsecond TIMER0 read at the event.
+     * raw_lo subtraction cancels their shared observer enable anchor and
+     * clock offset under the admitted unchanged clock lifetime. Preserve
+     * integer-ns rounding before DCO scaling; the legacy staircase helper
+     * remains separate. Intersect bounds on the SAME event output difference.
      * An inconsistency rejects the pair; neither estimate is a fallback. */
     uint64_t correlated_lo, correlated_hi;
-    if (!vdc_model_project_correlated_delta(&w->ticket.model.dco, m->tick_hz,
+    if (!vdc_model_project_event_delta(&w->ticket.model.dco, m->tick_hz,
             m->raw_lo - p->raw_lo, &correlated_lo, &correlated_hi) || !correlated_lo ||
         correlated_lo > w->local_delta_hi || correlated_hi < w->local_delta_lo) {
         priority_follow_baseline(); s->last_reason = VDC_PRIORITY_FOLLOW_INTERVAL;

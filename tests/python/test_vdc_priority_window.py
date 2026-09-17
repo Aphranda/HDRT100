@@ -21,8 +21,8 @@ def instrument(source):
     position = source.index(signature)
     source = source[:position] + (
         "static unsigned window_ratio_calls,window_projection_calls;\n"
-        "#define vdc_model_project_correlated_delta(...) "
-        "(window_projection_calls++,vdc_model_project_correlated_delta(__VA_ARGS__))\n"
+        "#define vdc_model_project_event_delta(...) "
+        "(window_projection_calls++,vdc_model_project_event_delta(__VA_ARGS__))\n"
     ) + source[position:]
     function = ingress_definition(source, "priority_follow_rate_interval")
     source = source.replace(function, function.replace("{", "{\n++window_ratio_calls;", 1), 1)
@@ -80,7 +80,11 @@ def test_window_lifetime_and_computation_budget(window_executable, case):
 HARNESS = r'''
 static void window_setup(int32_t rate)
 {
-    setup(rate);armed_trace(1);running_ring();event(100,0);tick();
+    setup(rate);
+    /* Real remote uncertainty retains unresolved windows after removing the
+     * local staircase envelope; do not inject a fake local error margin. */
+    priority_rx.typed_record.uncertainty_width=1007u;
+    armed_trace(1);running_ring();event(100,0);tick();
     assert(status().baselines==1u && !status().prepared && !window_ratio_calls && !window_projection_calls);
 }
 static void window_event(uint32_t sequence,uint64_t elapsed)
@@ -129,7 +133,7 @@ static void window_cases(const char *name)
             UINT64_C(3999999999),UINT64_C(4000000000),UINT64_C(7999999999),UINT64_C(8000000000)};
         for(unsigned i=0;i<10u;++i) {
             event(101+i,((targets[i]+11u)/4u)*4u);
-            priority_rx.typed_record.event_time_lower=UINT64_C(12000000000)+targets[i]+7u;
+            priority_rx.typed_record.event_time_lower=UINT64_C(12000000000)+targets[i]+1007u;
             tick();window_cost((i+1u)/2u);
         }
         assert(status().no_adjust==5u && !status().applied);
@@ -137,7 +141,7 @@ static void window_cases(const char *name)
     }
     if(!strcmp(name,"max_upper") || !strcmp(name,"max_upper_exceeded")) {
         event(201,UINT64_C(9999998000));
-        priority_rx.typed_record.event_time_lower=UINT64_C(12000000000)+UINT64_C(10000000000)-7u+
+        priority_rx.typed_record.event_time_lower=UINT64_C(12000000000)+UINT64_C(10000000000)-1007u+
             (!strcmp(name,"max_upper_exceeded")?1u:0u);
         prepare();window_cost(!strcmp(name,"max_upper")?1u:0u);
         if(!strcmp(name,"max_upper"))assert(s_priority_follow_work.expected_delta_hi==UINT64_C(10000000000));
@@ -170,8 +174,8 @@ static void window_cases(const char *name)
     event(101,1010000000u);prepare();window_cost(1);
     if(!strcmp(name,"inside_deadband_reset")) {
         /* Isolate final decision policy using a valid real owner ticket.
-         * This narrow admitted interval cannot arise from the conservative
-         * current bridge, so it is an explicit fault-injection policy test. */
+         * Override this fixture's deliberately wide remote uncertainty
+         * only here: an explicit final-policy fault-injection test. */
         s_priority_follow_work.error_lo=-10;s_priority_follow_work.error_hi=10;
         apply();assert(status().no_adjust==1u && status().last_reason==VDC_PRIORITY_FOLLOW_DEADBAND);
         assert(s_priority_follow_work.previous.sequence!=100u || !s_priority_follow_work.have_baseline);return;
