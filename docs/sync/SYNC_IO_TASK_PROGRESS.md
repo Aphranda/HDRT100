@@ -9,6 +9,45 @@ Last updated: 2026-09-18
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
 
+### SYNC-PROGRESS-20260918-003 — 缓存交接预算实测与 SRAM 放置复核
+
+- TODO task ID：`SYNC-OUT-002` IN PROGRESS；联动 `VDC-OUTPUT-001`。
+  以下数字为本轮证据快照，非产品事实源；前置失败证据在
+  `out/HardwareAcceptance/20260918/dpll-run-fallback-r1/`，原件及独审见其中的
+  `runtime-review/capture-independent-r1.json`；SRAM 切片证据在
+  `out/HardwareAcceptance/20260918/dpll-run-sram-r1/`。
+- 完整 TDMA 服务因迟到跳过时，dispatcher 在原相位关闭点前重新读取本地时钟，
+  按 `PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES` 准入一次缓存交接；期间
+  priority IRQ 保持关闭，后续等待仍只用原 quota。完整服务的 skip/start-miss 与
+  失败返回保留，缓存交接不增加完整服务 run_count，实际 wall/overrun 仍记原相位。
+  调用后报告按 request 复验身份，报告自身成本由相位尾部期限覆盖。
+- VDC 缓存入口继续由原 owner 串行化，先处理取消/退休并复验会话、模型、时钟、
+  配置代际及已准入尾部；缺缓存时返回，不做新 bridge/模型逆变换或首块启动。
+  SYNC_IO 仍独占 PIO/DMA/GPIO；不改 live DMA 源、不可改写前缀、低态 pull 或 STOP。
+- 该轮四板均有真实缓存提交，分别 44/70/15/40 次，但专项仍全部 STARVED；
+  caller wall 最大值分别 327.152/345.884/342.832/376.292 µs，均超过上述候选
+  预算对应的 80 µs。计数包含空缓存及终止服务，最大值未关联单次结果，不能解释为
+  成功提交耗时，也不能将全部超时归因于 XIP。末次服务间隔跨过各板已准入尾部
+  时间界，具体调度跳过、拒绝或耗时来源尚未闭合。四板 STOP 与硬件关闭留证。
+- 后继仅将缓存路径实际调用的后端 service/can-submit/submit/snapshot、发布、
+  退休、取消、租约观察及 raw 读取边界放入主 SRAM，并禁止被内联回 XIP；
+  保留算法、所有权、PIO/DMA、保护门限及预算。客户端与 ring/model/clock 放置
+  由同一切片协同处理。最终链接确认所选函数放置，仍有 SDK XIP 叶函数，见新根的
+  `runtime-review/actual-placement-independent-r1.json`；不声称全调用链都在 SRAM。
+- 新 SRAM 源码联合 host 504 项、双槽 Release 与独立资源复核通过；同源码四板
+  quick P3 为 PASS_WITH_WARNINGS，189.390 秒，25 INFO/18 WARN/0 ERROR/FATAL。
+  严格质量门禁仍保留，详见 `runtime-review/p3-independent-r1.json`；基础通过
+  不代表动态输出专项通过，也不追改前置失败。
+- 新 `capture-r1` 静默窗口内四板缓存提交为 108/18/33/53 次；caller wall 最大值
+  为 46.480/42.944/38.576/42.644 µs，均未超过上述候选预算，超预算计数全零；
+  调用/报告样本分别为 535/109/157/213，逐板相等。这是有限窗口实测，未证明 WCET。
+  四板分别准入 2474/384/582/725 块，补给拒绝全零，却仍全部 STARVED，专项仍 FAIL。
+  原始记录、首次退休分析在新根 `capture-r1/`；四板 STOP44 已应用，输出 PIO/DMA 关闭。
+- 两轮失败及各自 NO1 波形原件独立保留；内部 PI、物理周期误差和板间同序边沿
+  相位仍分开判断。下一 gate 是连续硬件时间轴、提前准备后缀与服务可用性的核验，
+  继续在静态预算内解决持续补给，再独立处理块间 bridge/模型连续性；保留 NO1 PI，
+  不宣称连续输出、物理锁相或 VDC 发布完成。
+
 ### SYNC-PROGRESS-20260918-002 — Core1 自主释放仍未消除输出断流
 
 - TODO task ID：`SYNC-OUT-002` IN PROGRESS；完整证据见

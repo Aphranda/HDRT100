@@ -794,7 +794,7 @@ PIO 指令量化由 board clock/divider 决定，不等同于物理同步精度�
 有限调试输出通过 `vdc_run_output_prepare` 在 Core0 的 TDMA STOP 排他边界锁存
 独立 delay、会话和周期，并请求 SYNC_IO 预留 scheduled capability；准备阶段将
 输出置于安全低态，不启动计划脉冲。
-Core1 固定服务入口在 TDMA owner 之后运行，只有 `data_enabled` 表示 START、
+Core1 完整服务入口在 TDMA owner 之后运行，只有 `data_enabled` 表示 START、
 环路配置已应用且当前 committed DCO 的 slot/schedule、session、role 与 clock
 身份一致时，才规划未来边沿。已运行请求每次服务都检查生命周期，即使 DMA 忙；
 正常模型 token 更新只作用于未提交后缀，真实身份变化取消该请求。ARM 后 STOP
@@ -806,6 +806,21 @@ Core1 固定服务入口在 TDMA owner 之后运行，只有 `data_enabled` 表�
 取消、终态和新准备清理缓存。每次调用最多规划一个块、准入一个块，保持现有
 TDMA 内服务入口，不引入等待或额外调度预算。缓存命中只省去重复桥接采样与反解，
 不缩小原桥接不确定性，也不保证服务空窗期间继续补给。
+
+当整段 TDMA 服务因剩余相位时间不足而跳过时，dispatcher 可在同一 TDMA
+相位内按 `PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES` 独立准入
+`vdc_run_output_service_cached_core1()`。准入前重新读取相位时钟，短服务期间
+priority RX IRQ 保持关闭；随后仍按原配额开放剩余 ingress 窗口，不借后续相位
+或 GUARD。该入口先处理后端退休和完整生命周期检查，只提交仍有效的已有后缀，
+不生成首块、不采 bridge、不反解或规划；缓存失效/缺失即返回完整服务后续处理。
+短预算为须经目标板验证的候选，不等于已证明 WCET。完整 TDMA 的 skip/start-miss
+与失败结果保留，`phase_run_count` 仅计完整服务；phase last/max runtime 包含
+实际执行的短服务，短服务按自身预算检查 overrun，并进入原相位 IRQ/背景和期限账。
+客户端短入口及共享服务体、committed model 与 ring clock 读取、时钟配置校验和
+SYNC_IO 补给主体显式放置于主 SRAM，并阻止编译器将边界重新内联到 XIP caller。
+仅函数 section 标注不能证明整个调用链脱离 Flash；共享 SDK 叶函数、最终链接
+地址、主 RAM/栈余量和目标板耗时必须另行审计。该放置不改变 PI、编码、生命周期
+或候选预算，也不能代替连续输出实测。
 
 `vdc_timestamp_bridge_local_to_raw` 为未来本地 ns 给出保守原始 tick 区间，保留
 TIMER0 量化、bridge 观察跨度和原始计数器分数拍；上界用于不提前的计划坐标。
@@ -825,6 +840,14 @@ SYNC_IO 另外记录首次 PIO enable 的时间锚区间，实际边沿仍带有
 `prefetched_blocks`、`cache_hits`、`cache_invalidations` 分别饱和记录 DMA 忙时
 完成的私有规划、使用既有缓存的成功准入和模型/已准入尾部导致的缓存失效；
 取消/终态清理不混入模型失效计数，预规划次数不等同实际输出块数。
+短服务追加 `fast_calls`、`fast_submissions`、`fast_empty` 与
+`fast_body_max_us`，分别表示持有客户端所有权且有请求的调用、成功准入、有效
+缓存缺失及函数体微秒量化上界；CAS 拒绝不计入调用数。caller 测量的完整函数
+墙钟由 `fast_wall_samples`、`fast_wall_max_cycles`、`fast_budget_overruns`
+记录，覆盖所有权入口/退出，但不含随后报告自身的 dispatcher 记账开销；
+报告开销仍受原相位尾部期限检查。报告复验 request 防止污染新请求；同一保留
+请求中的调用/样本差可揭示部分丢样，释放后重新准备会清旧统计，不能外推旧请求
+已完整采样。计数、时间区间与真实连续边沿分别验收。
 
 物理输出验收按用户阶段目标区分粗锁定、精锁定和完全锁定，具体目标与推进状态
 见 `VDC_DOMAIN_TODO.md`。分级以声明窗口中各从板相对 NO1 的同序输出边沿
