@@ -633,11 +633,24 @@ MATCH 请求。Core1 在 committed-model 写 guard 外取得本拍成功匹配�
 
 本地控制器保留同一运行生命周期、同一本地 committed 模型下的两个有效源事件，
 间隔窗口与年龄界以 `vdc_priority_follow.h` 的 `VDC_PRIORITY_FOLLOW_*` 符号为准。
-记本地 output-ns 区间为 L，远端区间加定向 delay 后为 E，则
-`dL=[L1.lo-L0.hi,L1.hi-L0.lo]`，`dE=[E1.lo-E0.hi,E1.hi-E0.lo]`；
-两者下界须为正，频差区间为
+记本地 output-ns 区间为 L，远端区间加定向 delay 后为 E，先取得独立端点差分
+`dL_abs=[L1.lo-L0.hi,L1.hi-L0.lo]`，`dE=[E1.lo-E0.hi,E1.hi-E0.lo]`。
+本地另使用 `vdc_model_project_correlated_delta`：只有两个已成功绝对投影的事件处于
+相同 committed 模型、相同 observer enable anchor 和完整运行绑定，且均位于该模型
+`valid_from_raw` 之后，才可将 `raw1.lo-raw0.lo` 解释为消除了公共启动偏移的本地间隔。
+原 bridge 所限定的 TIMER0/TIMER1 共钟及生命周期内无改钟、复位、暂停前提继续有效。
+
+先将 raw 间隔按实际 `tick_hz` 向外取整为本地 ns，再在 DCO 缩放之前保留
+`VDC_MODEL_CORRELATED_DELTA_QUANTIZATION_NS` 两侧余量，得到 N；余量覆盖微秒计时量化
+及坐标整数边界，不删除它来获得更窄数字。令 `q=10^9+period_adjust_ppb>0`，得到
+`dL_corr=[floor(N.lo*q/10^9),ceil(N.hi*q/10^9)]`。同一本地 Domain 映射的正负频率
+截零误差由该向外取整包住，base/phase 常量在差分中抵消；helper 不替代两端绝对
+投影的有效性检查，也不将 RATE 坐标冒充绝对时间戳。
+
+实际采用 `dL=dL_abs∩dL_corr`，空交集或非正下界拒绝本次估计，不选择一边或伪造样本。
+远端 NO1 的每帧 latch/bridge 区间不按公共偏移抵消，`dE` 保留原式。频差区间为
 `[floor(dL.lo*10^9/dE.hi)-10^9,ceil(dL.hi*10^9/dE.lo)-10^9] ppb`。
-整数算术向外取整并检查溢出。常量启动偏移和固定 delay 在差分中抵消；ns residual
+整数算术向外取整并检查溢出。共同本地启动偏移和固定 delay 在差分中抵消；ns residual
 不直接作为 ppb。NO1 正常模型修订仍在原 wire generation 下，其跨事件区间只表示
 实际输出的平均跟踪误差，不构造不存在的远端 model token 或假定远端模型不变。
 
