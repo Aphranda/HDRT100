@@ -17,7 +17,11 @@
 #define RUN_SM BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM
 #define RUN_DMA SYNC_IO_MODEL_PULSE_DMA_CH
 #define RUN_PIN BOARD_SYNC_OUTPUT_BASE_PIN
-#define RUN_MIN_GUARD_US 100u
+
+_Static_assert(SYNC_IO_RUN_OUTPUT_MAX_WORDS <= SYNC_IO_SHARED_WORKSPACE_WORDS,
+               "finite output block must fit the leased DMA workspace");
+_Static_assert(SYNC_IO_RUN_OUTPUT_BLOCK_EDGES <= SYNC_IO_RUN_OUTPUT_MAX_EDGES,
+               "compatibility output block must fit the counted entry");
 
 static sync_io_persona_manager_t s_manager;
 static sync_io_persona_manager_handle_t s_handle;
@@ -36,6 +40,8 @@ static __attribute__((noinline)) void __not_in_flash_func(retire)(uint32_t reaso
 __attribute__((noinline)) void __not_in_flash_func(sync_io_run_output_cancel)(void);
 __attribute__((noinline)) void __not_in_flash_func(sync_io_run_output_service_core1)(void);
 __attribute__((noinline)) bool __not_in_flash_func(sync_io_run_output_can_submit_core1)(uint32_t generation);
+__attribute__((noinline)) bool __not_in_flash_func(sync_io_run_output_submit_count_core1)(uint32_t generation,
+    const sync_io_run_output_edge_t *edges, uint32_t count);
 __attribute__((noinline)) bool __not_in_flash_func(sync_io_run_output_submit_core1)(uint32_t generation,
     const sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES]);
 __attribute__((noinline)) bool __not_in_flash_func(sync_io_run_output_snapshot)(sync_io_run_output_snapshot_t *out);
@@ -239,16 +245,24 @@ bool sync_io_run_output_can_submit_core1(uint32_t generation)
 bool sync_io_run_output_submit_core1(uint32_t generation,
     const sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES])
 {
-    if (!edges || !sync_io_run_output_can_submit_core1(generation)) return false;
+    return sync_io_run_output_submit_count_core1(generation,edges,SYNC_IO_RUN_OUTPUT_BLOCK_EDGES);
+}
+
+bool sync_io_run_output_submit_count_core1(uint32_t generation,
+    const sync_io_run_output_edge_t *edges,uint32_t count)
+{
+    if (!edges || !count || count>SYNC_IO_RUN_OUTPUT_MAX_EDGES ||
+        !sync_io_run_output_can_submit_core1(generation)) return false;
+    const uint32_t word_count=2u*count;
     const bool first=s_run.state==SYNC_IO_RUN_OUTPUT_PREPARED;
     uint64_t submitted_at=0u;
     uint64_t now;
     if (!read_raw(&now)) return false;
-    const uint64_t guard=s_run.tick_hz/1000000u*RUN_MIN_GUARD_US;
+    const uint64_t guard=s_run.tick_hz/1000000u*SYNC_IO_RUN_OUTPUT_MIN_GUARD_US;
     if (now>UINT64_MAX-guard || (!first && s_run.last_falling_tick<=now+guard)) return false;
-    uint32_t words[SYNC_IO_RUN_OUTPUT_BLOCK_WORDS];
+    uint32_t words[SYNC_IO_RUN_OUTPUT_MAX_WORDS];
     uint64_t previous=first ? now : s_run.last_falling_tick;
-    for (uint32_t i=0;i<SYNC_IO_RUN_OUTPUT_BLOCK_EDGES;++i) {
+    for (uint32_t i=0;i<count;++i) {
         if (!edges[i].model_token || edges[i].falling_tick<=edges[i].rising_tick ||
             (i && edges[i].ordinal<=edges[i-1u].ordinal) ||
             (!i && !first && edges[i].ordinal<=s_run.last_ordinal)) return false;
@@ -265,7 +279,7 @@ bool sync_io_run_output_submit_core1(uint32_t generation,
         __atomic_load_n(&s_cancel,__ATOMIC_ACQUIRE) || dma_failed()) return false;
     begin_write();
     if (s_source_pending) { ++s_run.source_retirements; s_source_pending=false; }
-    memcpy(sync_io_shared_workspace,words,sizeof(words));
+    memcpy(sync_io_shared_workspace,words,word_count*sizeof(words[0]));
     __atomic_thread_fence(__ATOMIC_RELEASE);
     if (first) {
         if (!sync_io_persona_manager_start(&s_manager,&s_handle)) {
@@ -285,8 +299,12 @@ bool sync_io_run_output_submit_core1(uint32_t generation,
         RUN_PIO->fdebug=1u<<(PIO_FDEBUG_TXSTALL_LSB+RUN_SM);
         pio_sm_put(RUN_PIO,RUN_SM,words[0]);
         pio_sm_put(RUN_PIO,RUN_SM,(uint32_t)(edges[0].rising_tick-before-SYNC_PULSE_STREAM_FIRST_LOW_OVERHEAD));
-        dma_channel_set_read_addr(RUN_DMA,sync_io_shared_workspace+2u,false);
-        dma_channel_set_trans_count(RUN_DMA,SYNC_IO_RUN_OUTPUT_BLOCK_WORDS-2u,true);
+        /* A one-pulse first block is entirely in the CPU-preloaded FIFO.
+         * Do not trigger a zero-length DMA transfer. */
+        if (word_count>2u) {
+            dma_channel_set_read_addr(RUN_DMA,sync_io_shared_workspace+2u,false);
+            dma_channel_set_trans_count(RUN_DMA,word_count-2u,true);
+        }
         pio_sm_set_enabled(RUN_PIO,RUN_SM,true);
         /* The enable write and an immediate PC read need not observe the
          * same SM cycle. Take one raw observation before sampling PC, then
@@ -319,7 +337,7 @@ bool sync_io_run_output_submit_core1(uint32_t generation,
             retire(SYNC_IO_RUN_OUTPUT_DEADLINE); end_write(); return false;
         }
         dma_channel_set_read_addr(RUN_DMA,sync_io_shared_workspace,false);
-        dma_channel_set_trans_count(RUN_DMA,SYNC_IO_RUN_OUTPUT_BLOCK_WORDS,true);
+        dma_channel_set_trans_count(RUN_DMA,word_count,true);
         submitted_at=ready;
         const uint64_t margin=s_run.last_falling_tick-ready;
         if (!s_run.refill_min_margin_ticks || margin<s_run.refill_min_margin_ticks)
@@ -331,14 +349,14 @@ bool sync_io_run_output_submit_core1(uint32_t generation,
     s_run.submit_last_tick=submitted_at;
     s_run.submit_service_observation=s_run.service_observations;
     s_source_pending=true;
-    for (uint32_t i=0;i<SYNC_IO_RUN_OUTPUT_BLOCK_EDGES;++i) {
+    for (uint32_t i=0;i<count;++i) {
         if (s_run.last_model && s_run.last_model!=edges[i].model_token) ++s_run.model_changes;
         s_run.last_model=edges[i].model_token;
     }
-    ++s_run.blocks; s_run.edges+=SYNC_IO_RUN_OUTPUT_BLOCK_EDGES;
-    s_run.last_rising_tick=edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES-1u].rising_tick;
-    s_run.last_falling_tick=edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES-1u].falling_tick;
-    s_run.last_ordinal=edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES-1u].ordinal;
+    ++s_run.blocks; s_run.edges+=count;
+    s_run.last_rising_tick=edges[count-1u].rising_tick;
+    s_run.last_falling_tick=edges[count-1u].falling_tick;
+    s_run.last_ordinal=edges[count-1u].ordinal;
     end_write();
     return true;
 }

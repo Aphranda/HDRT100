@@ -11,7 +11,8 @@
 #include "project_config.h"
 
 #define PRODUCT_CONFIG_MAGIC   0x47544346u
-#define PRODUCT_CONFIG_VERSION 4u
+#define PRODUCT_CONFIG_VERSION 5u
+#define PRODUCT_CONFIG_VERSION_OUTPUT_DELAY 4u
 #define PRODUCT_CONFIG_VERSION_BASELINE 3u
 #define PRODUCT_CONFIG_VERSION_SERVO 2u
 #define PRODUCT_CONFIG_VERSION_LEGACY 1u
@@ -42,15 +43,21 @@ typedef struct {
     uint32_t baseline_max_replacements;
     uint32_t baseline_window_ns;
     int32_t output_compensation_ns;
+    uint32_t output_plan_ahead_us;
+    uint32_t output_commit_ahead_us;
+    uint32_t output_refill_low_us;
 } product_config_record_t;
 
 /* Versions 1/2 end at the existing CRC word; retain their byte-exact CRC
- * domain. Version 3 covers baseline fields; version 4 also covers output delay. */
+ * domain. Version 3 covers baseline fields, version 4 output delay, and
+ * version 5 adds the complete output timing profile. */
 #define PRODUCT_CONFIG_LEGACY_BYTES offsetof(product_config_record_t, baseline_max_replacements)
 _Static_assert(PRODUCT_CONFIG_LEGACY_BYTES == 64u, "v1/v2 CRC domain remains 64 bytes");
 #define PRODUCT_CONFIG_BASELINE_BYTES offsetof(product_config_record_t, output_compensation_ns)
 _Static_assert(PRODUCT_CONFIG_BASELINE_BYTES == 72u, "v3 CRC domain remains 72 bytes");
-_Static_assert(sizeof(product_config_record_t) == 76u, "v4 record is 76 bytes");
+#define PRODUCT_CONFIG_OUTPUT_DELAY_BYTES offsetof(product_config_record_t, output_plan_ahead_us)
+_Static_assert(PRODUCT_CONFIG_OUTPUT_DELAY_BYTES == 76u, "v4 CRC domain remains 76 bytes");
+_Static_assert(sizeof(product_config_record_t) == 88u, "v5 record is 88 bytes");
 _Static_assert(sizeof(product_config_record_t) <= PRODUCT_CONFIG_SLOT_SIZE,
                "Product Config record must fit one journal page");
 
@@ -151,7 +158,8 @@ static uint32_t product_config_crc32(const product_config_record_t *record)
     product_config_record_t copy = *record;
     copy.crc32 = 0u;
     const size_t length = copy.version == PRODUCT_CONFIG_VERSION
-        ? sizeof(copy) : copy.version == PRODUCT_CONFIG_VERSION_BASELINE
+        ? sizeof(copy) : copy.version == PRODUCT_CONFIG_VERSION_OUTPUT_DELAY
+            ? PRODUCT_CONFIG_OUTPUT_DELAY_BYTES : copy.version == PRODUCT_CONFIG_VERSION_BASELINE
             ? PRODUCT_CONFIG_BASELINE_BYTES : PRODUCT_CONFIG_LEGACY_BYTES;
     return ota_crc32_compute((const uint8_t *)&copy, length);
 }
@@ -161,6 +169,7 @@ static bool product_config_record_is_valid(const product_config_record_t *record
     if (record == NULL ||
         record->magic != PRODUCT_CONFIG_MAGIC ||
         (record->version != PRODUCT_CONFIG_VERSION &&
+         record->version != PRODUCT_CONFIG_VERSION_OUTPUT_DELAY &&
          record->version != PRODUCT_CONFIG_VERSION_BASELINE &&
          record->version != PRODUCT_CONFIG_VERSION_SERVO &&
          record->version != PRODUCT_CONFIG_VERSION_LEGACY) ||
@@ -250,6 +259,21 @@ static bool product_config_dpll_profiles_equal(
            left->sanity_freq_limit_ppb == right->sanity_freq_limit_ppb;
 }
 
+static bool product_config_output_timing_valid(const product_config_vdc_output_timing_profile_t *profile)
+{
+    return profile && profile->refill_low_us >= PRODUCT_CONFIG_VDC_OUTPUT_TIMING_MIN_US &&
+        profile->refill_low_us < profile->plan_ahead_us &&
+        profile->plan_ahead_us <= profile->commit_ahead_us &&
+        profile->commit_ahead_us <= PRODUCT_CONFIG_VDC_OUTPUT_TIMING_MAX_US;
+}
+
+static void product_config_default_output_timing(product_config_record_t *record)
+{
+    record->output_plan_ahead_us = PRODUCT_CONFIG_VDC_OUTPUT_PLAN_DEFAULT_US;
+    record->output_commit_ahead_us = PRODUCT_CONFIG_VDC_OUTPUT_COMMIT_DEFAULT_US;
+    record->output_refill_low_us = PRODUCT_CONFIG_VDC_OUTPUT_REFILL_DEFAULT_US;
+}
+
 static void product_config_set_default(product_config_record_t *record)
 {
     const product_config_dpll_servo_profile_t default_profile =
@@ -264,6 +288,7 @@ static void product_config_set_default(product_config_record_t *record)
     record->board_no = 0u;
     record->baseline_max_replacements = PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_REPLACEMENTS;
     record->baseline_window_ns = PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_WINDOW_NS;
+    product_config_default_output_timing(record);
     product_config_record_set_dpll_profile(record, &default_profile);
     product_config_record_set_dpll_control_profile(record, &default_control);
     record->crc32 = product_config_crc32(record);
@@ -413,8 +438,14 @@ bool product_config_init(void)
         s_product_config.baseline_max_replacements = PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_REPLACEMENTS;
         s_product_config.baseline_window_ns = PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_WINDOW_NS;
     }
-    if (s_product_config.version < PRODUCT_CONFIG_VERSION)
+    if (s_product_config.version < PRODUCT_CONFIG_VERSION_OUTPUT_DELAY)
         s_product_config.output_compensation_ns = PRODUCT_CONFIG_DPLL_OUTPUT_COMPENSATION_DEFAULT_NS;
+    const product_config_vdc_output_timing_profile_t timing = {
+        s_product_config.output_plan_ahead_us,
+        s_product_config.output_commit_ahead_us,
+        s_product_config.output_refill_low_us};
+    if (s_product_config.version < PRODUCT_CONFIG_VERSION || !product_config_output_timing_valid(&timing))
+        product_config_default_output_timing(&s_product_config);
     if (!have_servo)
         product_config_record_set_dpll_profile(&s_product_config, &default_profile);
     if (!have_control)
@@ -601,6 +632,37 @@ bool product_config_get_dpll_output_compensation_ns(int32_t *value)
         s_product_config.version != PRODUCT_CONFIG_VERSION) return false;
     *value = s_product_config.output_compensation_ns;
     return true;
+}
+
+bool product_config_get_vdc_output_timing_profile(product_config_vdc_output_timing_profile_t *profile)
+{
+    if (!profile || !product_config_record_is_valid(&s_product_config) ||
+        s_product_config.version != PRODUCT_CONFIG_VERSION) return false;
+    const product_config_vdc_output_timing_profile_t value = {
+        s_product_config.output_plan_ahead_us,
+        s_product_config.output_commit_ahead_us,
+        s_product_config.output_refill_low_us};
+    if (!product_config_output_timing_valid(&value)) return false;
+    *profile = value;
+    return true;
+}
+
+bool product_config_set_vdc_output_timing_profile(const product_config_vdc_output_timing_profile_t *profile)
+{
+    if (!product_config_output_timing_valid(profile)) return false;
+    product_config_record_t record = s_product_config;
+    if (!product_config_record_is_valid(&record)) product_config_set_default(&record);
+    record.version = PRODUCT_CONFIG_VERSION;
+    record.output_plan_ahead_us = profile->plan_ahead_us;
+    record.output_commit_ahead_us = profile->commit_ahead_us;
+    record.output_refill_low_us = profile->refill_low_us;
+    record.sequence++;
+    record.crc32 = product_config_crc32(&record);
+    product_config_vdc_output_timing_profile_t readback;
+    return product_config_store(&record) && product_config_get_vdc_output_timing_profile(&readback) &&
+        readback.plan_ahead_us == profile->plan_ahead_us &&
+        readback.commit_ahead_us == profile->commit_ahead_us &&
+        readback.refill_low_us == profile->refill_low_us;
 }
 
 bool product_config_set_dpll_output_compensation_ns(int32_t value)

@@ -23,6 +23,20 @@ typedef struct {
     uint32_t window_ns;
 } product_config_dpll_baseline_profile_t;
 
+typedef struct {
+    uint32_t plan_ahead_us;
+    uint32_t commit_ahead_us;
+    uint32_t refill_low_us;
+} product_config_vdc_output_timing_profile_t;
+
+#define PRODUCT_CONFIG_VDC_OUTPUT_TIMING_MIN_US 1000u
+#define PRODUCT_CONFIG_VDC_OUTPUT_TIMING_MAX_US 1000000u
+#define PRODUCT_CONFIG_VDC_OUTPUT_PLAN_DEFAULT_US 12000u
+#define PRODUCT_CONFIG_VDC_OUTPUT_COMMIT_DEFAULT_US 16000u
+#define PRODUCT_CONFIG_VDC_OUTPUT_REFILL_DEFAULT_US 6000u
+bool product_config_get_vdc_output_timing_profile(product_config_vdc_output_timing_profile_t *profile);
+bool product_config_set_vdc_output_timing_profile(const product_config_vdc_output_timing_profile_t *profile);
+
 /* Output-only compensation, independent of MATCH transport delay. Positive
  * delays the physical edge; boot migration defaults to zero in RAM only. */
 #define PRODUCT_CONFIG_DPLL_OUTPUT_COMPENSATION_DEFAULT_NS INT32_C(0)

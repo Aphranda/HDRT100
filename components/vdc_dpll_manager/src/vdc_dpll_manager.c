@@ -12,6 +12,7 @@
 #include "board.h"
 #include "board_config.h"
 #include "board_identity.h"
+#include "app.h"
 #include "distributed_refmem.h"
 #include "ota_crc32.h"
 #include "osal.h"
@@ -1673,6 +1674,7 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
 
 static bool priority_follow_baseline_init_from_product_config(void);
 static bool output_delay_init_from_product_config(void);
+static bool output_timing_init_from_product_config(void);
 
 bool vdc_dpll_manager_init(void)
 {
@@ -1804,6 +1806,9 @@ bool vdc_dpll_manager_init(void)
         return false;
     }
     if (!output_delay_init_from_product_config()) {
+        return false;
+    }
+    if (!output_timing_init_from_product_config()) {
         return false;
     }
     if (!priority_follow_baseline_init_from_product_config()) {
@@ -3036,6 +3041,8 @@ static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phas
 #define VDC_PRIORITY_TRACE_DECISION_HOOK(snapshot) priority_trace_decision_core1(snapshot)
 #include "vdc_priority_follow_config.inc"
 #include "vdc_output_delay_config.inc"
+#include "vdc_run_output.h"
+#include "vdc_output_timing_config.inc"
 #include "vdc_priority_follow.inc"
 #undef VDC_PRIORITY_TRACE_DECISION_HOOK
 #undef VDC_PRIORITY_TRACE_PHASE_HOOK

@@ -108,6 +108,17 @@ CLIENT_PREFIX = r'''
 #include "vdc_output_edge_plan.h"
 #include "vdc_future_raw.h"
 #define BOARD_SYS_CLOCK_HZ 250000000u
+#define PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES 20000u
+typedef struct { uint32_t cycle_cycles; } app_realtime_schedule_snapshot_t;
+static uint32_t table_cycles=375000u;
+static bool schedule_ok=true, raw_ok=true;
+static uint64_t raw_override;
+static vdc_output_timing_profile_t timing={11000u,12000u,8000u};
+bool app_realtime_get_schedule_snapshot(app_realtime_schedule_snapshot_t *out)
+{ out->cycle_cycles=table_cycles; return schedule_ok; }
+uint32_t app_realtime_cycle_cycles_core1(void) { return table_cycles; }
+bool vdc_dpll_manager_get_output_timing_profile(vdc_output_timing_profile_t *out)
+{ *out=timing;return true; }
 static vdc_domain_context_t s_vdc_domain;
 static tdma_service_service_t *s_vdc_tdma_service;
 static unsigned core, prepare_calls, release_calls, service_calls, submit_calls, cancels;
@@ -121,7 +132,8 @@ static uint32_t session=8u;
 static tdma_ring_clock_snapshot_t ring;
 static vdc_dpll_manager_committed_model_t model;
 static sync_io_run_output_snapshot_t hardware;
-static sync_io_run_output_edge_t admitted[4][SYNC_IO_RUN_OUTPUT_BLOCK_EDGES];
+static sync_io_run_output_edge_t admitted[4][SYNC_IO_RUN_OUTPUT_MAX_EDGES];
+static uint32_t admitted_count[4];
 static vdc_timestamp_clock_bridge_t bridge={.raw_before=1000000u,.raw_after=1000002u,
     .local_ns=4000000u,.tick_hz=BOARD_SYS_CLOCK_HZ};
 static void interleave(void);
@@ -143,6 +155,15 @@ bool vdc_timestamp_clock_try_read_bridge(uint32_t hz,vdc_timestamp_clock_bridge_
 {
     assert(hz==BOARD_SYS_CLOCK_HZ); ++bridge_calls; *out=bridge;
     if(!bridge_available)return false;
+    if(hook==4u) { ring.enabled=0u; ring.data_enabled=0u; ++ring.config_seq; }
+    if(hook==5u) ++session;
+    return true;
+}
+bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz,uint64_t *out)
+{
+    assert(hz==BOARD_SYS_CLOCK_HZ); if(!raw_ok)return false;
+    *out=raw_override ? raw_override : hardware.state==SYNC_IO_RUN_OUTPUT_RUNNING ?
+        hardware.last_falling_tick-500000u : bridge.raw_after;
     if(hook==4u) { ring.enabled=0u; ring.data_enabled=0u; ++ring.config_seq; }
     if(hook==5u) ++session;
     return true;
@@ -176,15 +197,17 @@ bool sync_io_run_output_release(uint32_t request)
 }
 bool sync_io_run_output_can_submit_core1(uint32_t request)
 { return request==hardware.generation && ready && !cancelled; }
-bool sync_io_run_output_submit_core1(uint32_t request,
-    const sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES])
+bool sync_io_run_output_submit_count_core1(uint32_t request,
+    const sync_io_run_output_edge_t *edges,uint32_t count)
 {
     assert(request==hardware.generation && ready && !cancelled && submit_calls<4u);
     ++submit_attempts;
     if(!submit_allowed)return false;
-    memcpy(admitted[submit_calls++],edges,sizeof(admitted[0]));
-    hardware.last_ordinal=edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES-1u].ordinal;
-    hardware.last_falling_tick=edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES-1u].falling_tick;
+    assert(count && count<=SYNC_IO_RUN_OUTPUT_MAX_EDGES);
+    memcpy(admitted[submit_calls],edges,count*sizeof(edges[0]));
+    admitted_count[submit_calls++]=count;
+    hardware.last_ordinal=edges[count-1u].ordinal;
+    hardware.last_falling_tick=edges[count-1u].falling_tick;
     hardware.state=SYNC_IO_RUN_OUTPUT_RUNNING; return true;
 }
 '''
@@ -255,7 +278,10 @@ static void diagnostic(const char *name)
         ++model.local_slot;expected=running?VDC_RUN_OUTPUT_BINDING_CANCELLED:VDC_RUN_OUTPUT_IDENTITY_WAIT;
         should_cancel=running;
     } else if(!strcmp(kind,"dma")) { ready=false;expected=VDC_RUN_OUTPUT_DMA_NOT_READY; }
-    else if(!strcmp(kind,"bridge")) { bridge_available=false;expected=VDC_RUN_OUTPUT_BRIDGE_UNAVAILABLE; }
+    else if(!strcmp(kind,"bridge")) {
+        if(running)raw_ok=false;else bridge_available=false;
+        expected=VDC_RUN_OUTPUT_BRIDGE_UNAVAILABLE;
+    }
     else if(!strcmp(kind,"snapshot") || !strcmp(kind,"second_snapshot")) {
         fail_snapshot_call=!strcmp(kind,"snapshot")?1u:2u;expected=VDC_RUN_OUTPUT_BACKEND_SNAPSHOT_UNAVAILABLE;
     } else if(!strcmp(kind,"postplan")) { fail_ring_call=2u;expected=VDC_RUN_OUTPUT_POSTPLAN_RING_UNAVAILABLE; }
@@ -301,9 +327,9 @@ static void diagnostic(const char *name)
 }
 static void prefetch_step(unsigned plans,unsigned submissions)
 {
-    unsigned b=bridge_calls,s=submit_attempts;
+    unsigned b=bridge_calls,s=submit_attempts,p=s_run_output.partial_plan_steps;
     vdc_run_output_service_core1();
-    assert(bridge_calls-b==plans && submit_attempts-s==submissions);
+    assert(s_run_output.partial_plan_steps-p==plans && submit_attempts-s==submissions);
     assert(bridge_calls-b<=1u && submit_attempts-s<=1u);
 }
 static void assert_tail_unchanged(const vdc_run_output_status_t *before,
@@ -371,13 +397,13 @@ static void prefetch_case(const char *kind)
         const bool token=!strncmp(kind,"token_",6u);
         const bool tail=!strncmp(kind,"tail_",5u);
         if(token) { ++model.token;model.dco.phase_offset_ns=2000; }
-        else if(tail)hardware.last_ordinal+=100u;
+        else if(tail) { hardware.last_ordinal+=100u;hardware.last_falling_tick+=25000000u; }
         else hardware.last_falling_tick+=4u;
         const bool busy=strstr(kind,"busy")!=NULL;
-        ready=!busy;prefetch_step(1u,0u);
+        ready=!busy;raw_ok=false;prefetch_step(0u,0u);
         assert(!s_run_output_pending.valid && s_run_output.cache_invalidations==1u);
         assert(submit_calls==1u);
-        bridge_available=true;prefetch_step(1u,busy?0u:1u);
+        raw_ok=true;bridge_available=true;prefetch_step(1u,busy?0u:1u);
         if(busy) { assert(s_run_output_pending.valid);ready=true;bridge_available=false;prefetch_step(0u,1u); }
         assert(submit_calls==2u && !s_run_output_pending.valid);
         for(unsigned i=0;i<SYNC_IO_RUN_OUTPUT_BLOCK_EDGES;++i) {
@@ -456,12 +482,12 @@ static void fast_case(const char *kind)
         return;
     }
     ready=false;prefetch_step(1u,0u);ready=true;
-    const unsigned bridges=bridge_calls, attempts=submit_attempts;
+    const unsigned bridges=bridge_calls, attempts=submit_attempts, plans=s_run_output.partial_plan_steps;
     const vdc_run_output_status_t before=s_run_output;
     const sync_io_run_output_snapshot_t old_hw=hardware;
     sync_io_run_output_edge_t cached[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES];
     memcpy(cached,s_run_output_pending.edges,sizeof(cached));
-    bridge_available=false; /* Reaching planner is always a test failure. */
+    bridge_available=false; /* The retained mapping never needs re-sampling. */
     bool hit=false;
     if(!strcmp(kind,"hit") || !strcmp(kind,"wall") ||
        !strcmp(kind,"wall_stale") || !strcmp(kind,"wall_busy") || !strcmp(kind,"saturate")) hit=true;
@@ -492,6 +518,7 @@ static void fast_case(const char *kind)
     }
     const uint32_t request=vdc_run_output_service_cached_core1();
     assert(bridge_calls==bridges);
+    assert(s_run_output.partial_plan_steps==plans);
     if(hit) {
         assert(request==generation && submit_calls==2u && submit_attempts==attempts+1u);
         assert(!memcmp(cached,admitted[1],sizeof(cached)) && !s_run_output_pending.valid);
@@ -669,15 +696,15 @@ def test_real_parser_exports_start_observation_receipt(parser_host):
     result = subprocess.run([str(parser_host), 'RUN?', 'query'], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stdout + result.stderr
     fields = [int(value) for value in result.stdout.strip().split(',')]
-    assert len(fields) == 95
+    assert len(fields) == 105
     # Preserve every old position: 26 small fields, ten uint64, two config.
-    assert fields[:36] == [4] + [0] * 35
+    assert fields[:36] == [5] + [0] * 35
     assert fields[36:43] == [20, 21, 13, 12, 3, 4294967303, 4294967311]
     assert fields[43:50] == list(range(4294967400, 4294967407))
     assert fields[50:59] == list(range(101, 110))
     assert fields[59:61] == [1, 5]
     assert fields[61:85] == list(range(200, 212)) + list(range(300, 312))
-    assert fields[85:] == list(range(401, 411))
+    assert fields[85:] == list(range(401, 421))
 
 
 PARSER_PREFIX = r'''
@@ -735,6 +762,10 @@ bool vdc_run_output_status(vdc_run_output_status_t *out)
     out->fast_calls=404u;out->fast_submissions=405u;out->fast_empty=406u;
     out->fast_body_max_us=407u;out->fast_wall_samples=408u;
     out->fast_wall_max_cycles=409u;out->fast_budget_overruns=410u;
+    out->plan_ahead_us=411u;out->commit_ahead_us=412u;out->refill_low_us=413u;
+    out->timeline_bridge_samples=414u;out->partial_plan_steps=415u;
+    out->plan_waits=416u;out->refill_waits=417u;out->commit_waits=418u;
+    out->block_edges=419u;out->schedule_cycles=420u;
     for(unsigned p=0;p<VDC_RUN_OUTPUT_PHASE_COUNT;++p)
         for(unsigned o=0;o<VDC_RUN_OUTPUT_OUTCOME_COUNT;++o)out->outcomes[p][o]=200u+p*100u+o;
     return true;

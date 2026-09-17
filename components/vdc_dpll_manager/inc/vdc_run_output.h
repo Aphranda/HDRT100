@@ -1,6 +1,7 @@
 #ifndef VDC_RUN_OUTPUT_H
 #define VDC_RUN_OUTPUT_H
 #include "sync_io_run_output.h"
+#include "vdc_output_timing.h"
 
 enum { VDC_RUN_OUTPUT_PREPARED_PHASE, VDC_RUN_OUTPUT_RUNNING_PHASE,
        VDC_RUN_OUTPUT_PHASE_COUNT };
@@ -47,12 +48,20 @@ typedef struct {
      * fast_calls (which excludes CAS refusal); release/reprepare resets the
      * old statistics. Reporting itself is dispatcher bookkeeping. */
     uint32_t fast_wall_samples, fast_wall_max_cycles, fast_budget_overruns;
+    /* Latched STOP configuration and finite timeline observations. Counts
+     * are diagnostic, not hardware inventory or precision qualifications. */
+    uint32_t plan_ahead_us, commit_ahead_us, refill_low_us;
+    uint32_t timeline_bridge_samples, partial_plan_steps;
+    uint32_t plan_waits, refill_waits, commit_waits;
+    uint32_t block_edges, schedule_cycles;
 } vdc_run_output_status_t;
 
 bool vdc_run_output_prepare(uint32_t period_ns,uint32_t high_ns,
                             uint32_t duration_ms,uint32_t *request);
 void vdc_run_output_cancel(void);
 bool vdc_run_output_status(vdc_run_output_status_t *out);
+/* Core0 configuration callback, inside the STOP metadata owner gate. */
+bool vdc_run_output_configuration_idle(void);
 void vdc_run_output_service_core1(void);
 /* No first block, bridge acquisition or model inverse. Only existing private
  * suffixes may be admitted, with the same lifetime and clock validation. */

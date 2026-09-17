@@ -59,7 +59,9 @@ CASES=['gates','prepare_reserve','prepare_workspace','prepare_claim','prepare_lo
        'enable_both_failure','enable_observed_wrap','enable_after_wrap',
        'enable_observed_backwards_then_forward','enable_after_backwards',
        'enable_pc_upper_valid','enable_pc_below_program','enable_cancel_at_pc',
-       'diagnostics','diagnostics_invalid_raw','diagnostics_saturation']
+       'diagnostics','diagnostics_invalid_raw','diagnostics_saturation',
+       'count_one','count_max','count_zero','count_over_max','count_null',
+       'count_invalid_last_prepared','count_invalid_last_running','count_async_stop']
 
 
 @pytest.mark.parametrize('name',CASES)
@@ -88,6 +90,30 @@ def test_real_backend_dma_fifo_words_execute_on_assembled_program(executable):
     assert len(m.edges)==16 and m.pin==0 and not m.pending_dma
 
 
+@pytest.mark.parametrize('name',['count_one','count_max'])
+def test_counted_blocks_execute_contiguous_edges_on_real_pio(executable,name):
+    # Real backend output is one pulse then sixteen, or sixteen then one.
+    # This covers the CPU-only first pair, both DMA counts, and the boundary
+    # between independently submitted finite sources on one raw tick axis.
+    result=subprocess.run([str(executable),name],capture_output=True,text=True,timeout=15)
+    assert result.returncode==0,result.stdout+result.stderr
+    words=list(map(int,result.stdout.split()))
+    assert len(words)==34
+    import re
+    text=(executable.parent/'sync_pulse_stream_out1.pio.h').read_text(encoding='utf-8')
+    body=text.split('sync_pulse_stream_out1_program_instructions[] = {')[1].split('};')[0]
+    code=[int(x,16) for x in re.findall(r'0x([0-9a-fA-F]{4}),',body)]
+    machine=Machine((None,code,0,7),origin=1000000,offset=12)
+    machine.submit_finite(words);machine.run_edges(34,fast=True)
+    expected=[]
+    for i in range(17):
+        rise=1100000+i*250000
+        expected.extend([(rise,1),(rise+1000,0)])
+    assert machine.edges==expected
+    for _ in range(50):machine.step()
+    assert machine.pin==0 and len(machine.edges)==34 and not machine.pending_dma
+
+
 def test_acquire_and_state_rejection_precede_runtime_generation_access():
     # Ordinary scalar reads are invisible to peripheral mocks. Retain this
     # structural dominance check alongside the compiled forbidden-call cases:
@@ -112,7 +138,7 @@ def test_acquire_and_state_rejection_precede_runtime_generation_access():
 def test_first_low_reencode_uses_the_shared_pio_cycle_constant():
     from test_vdc_command_owner import function_body
     body=''.join(function_body(SOURCE.read_text(encoding='utf-8'),
-                              'sync_io_run_output_submit_core1').split())
+                              'sync_io_run_output_submit_count_core1').split())
     # Cover both range admission and final FIFO word. A repeated literal
     # silently drifts if PIO timing is revised while the encoder is updated.
     assert 'edges[0].rising_tick-before-SYNC_PULSE_STREAM_FIRST_LOW_OVERHEAD>UINT32_MAX' in body
@@ -324,6 +350,12 @@ static uint32_t prepare(void)
 static void make_edges(sync_io_run_output_edge_t e[4],uint64_t first,uint64_t ordinal,uint32_t token)
 {
     for(unsigned i=0;i<4;++i)e[i]=(sync_io_run_output_edge_t){first+i*250000u,first+i*250000u+1000u,ordinal+i,token};
+}
+static void make_counted_edges(sync_io_run_output_edge_t *edges,unsigned count,
+        uint64_t first,uint64_t ordinal,uint32_t token)
+{
+    for(unsigned i=0;i<count;++i)
+        edges[i]=(sync_io_run_output_edge_t){first+i*250000u,first+i*250000u+1000u,ordinal+i,token};
 }
 static uint32_t start(sync_io_run_output_edge_t edges[4])
 {
@@ -630,6 +662,116 @@ static void invalid_edges(const char *name)
     assert(snap().blocks==0&&snap().state==SYNC_IO_RUN_OUTPUT_PREPARED);
     complete_stop(g);
 }
+static void drain_counted_words(unsigned expected)
+{
+    unsigned emitted=0;
+    do {
+        dma_drain_to_fifo();
+        for(unsigned i=0;i<fifo_count;++i)printf("%u ",fifo[i]);
+        emitted+=fifo_count;
+        fifo_consume(fifo_count);
+    } while(mock_busy);
+    assert(emitted==expected&&!hw_dma.ch[2].transfer_count);
+}
+static void counted_stream(unsigned count)
+{
+    const unsigned other=count==1u?SYNC_IO_RUN_OUTPUT_MAX_EDGES:1u;
+    assert(SYNC_IO_RUN_OUTPUT_MAX_EDGES==16u);
+    uint32_t g=prepare();mock_core=1;
+    sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_MAX_EDGES];
+    make_counted_edges(edges,count,1100000,0,7);
+    for(unsigned i=0;i<SYNC_IO_RUN_OUTPUT_MAX_WORDS+1u;++i)sync_io_shared_workspace[i]=0xa5a5a5a5u;
+    assert(sync_io_run_output_submit_count_core1(g,edges,count));
+    probe_active=false;
+    assert(snap().schema==SYNC_IO_RUN_OUTPUT_SCHEMA&&snap().state==SYNC_IO_RUN_OUTPUT_RUNNING);
+    assert(snap().blocks==1u&&snap().edges==count&&snap().last_ordinal==count-1u);
+    assert(snap().last_falling_tick==1101000u+(count-1u)*250000u);
+    assert(snap().anchor_before==1000000u&&snap().anchor_after==1000001u);
+    assert(fifo_count==2u&&hw_dma.ch[2].transfer_count==2u*count-2u);
+    assert(mock_busy==(count>1u));
+    if(count==1u)assert(last_source==NULL);
+    else assert(last_source==sync_io_shared_workspace+2u);
+    assert(sync_io_shared_workspace[2u*count]==0xa5a5a5a5u);
+    uint32_t frozen[SYNC_IO_RUN_OUTPUT_MAX_WORDS+1u];
+    memcpy(frozen,sync_io_shared_workspace,sizeof(frozen));
+    if(mock_busy) {
+        unsigned before=io_calls;
+        assert(!sync_io_run_output_submit_count_core1(g,edges,count));
+        assert(!memcmp(frozen,sync_io_shared_workspace,sizeof(frozen))&&io_calls==before);
+    }
+    drain_counted_words(2u*count);
+    make_counted_edges(edges,other,1100000u+count*250000u,count,9);
+    unsigned before=io_calls;
+    mock_busy=true;
+    assert(!sync_io_run_output_submit_count_core1(g,edges,other));
+    mock_busy=false;hw_dma.ch[2].transfer_count=1u;
+    assert(!sync_io_run_output_submit_count_core1(g,edges,other));
+    assert(!memcmp(frozen,sync_io_shared_workspace,sizeof(frozen))&&io_calls==before);
+    hw_dma.ch[2].transfer_count=0u;
+    assert(sync_io_run_output_submit_count_core1(g,edges,other));
+    assert(snap().source_retirements==1u&&snap().blocks==2u&&snap().edges==count+other);
+    assert(snap().first_ordinal==0u&&snap().last_ordinal==count+other-1u);
+    assert(snap().first_model==7u&&snap().last_model==9u&&snap().model_changes==1u);
+    assert(hw_dma.ch[2].transfer_count==2u*other&&last_source==sync_io_shared_workspace);
+    assert(sync_io_shared_workspace[2u*other]==frozen[2u*other]);
+    drain_counted_words(2u*other);printf("\n");
+    before=io_calls;
+    assert(!sync_io_run_output_submit_count_core1(g,edges,other));
+    assert(io_calls==before); /* duplicate ordinals never reach hardware */
+    complete_stop(g);
+}
+static void counted_invalid(const char *name)
+{
+    const bool running=!strcmp(name,"invalid_last_running");
+    uint32_t g;
+    if(running) {
+        sync_io_run_output_edge_t first[4];g=start(first);dma_drain_to_fifo();
+    } else {g=prepare();mock_core=1;}
+    sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_MAX_EDGES];
+    make_counted_edges(edges,SYNC_IO_RUN_OUTPUT_MAX_EDGES,running?2100000u:1100000u,running?4u:0u,9);
+    uint32_t count=SYNC_IO_RUN_OUTPUT_MAX_EDGES;
+    if(!strcmp(name,"zero"))count=0;
+    if(!strcmp(name,"over_max"))count=SYNC_IO_RUN_OUTPUT_MAX_EDGES+1u;
+    if(!strncmp(name,"invalid_last_",13))edges[count-1u].falling_tick=edges[count-1u].rising_tick+1u;
+    uint32_t frozen[SYNC_IO_RUN_OUTPUT_MAX_WORDS+1u],queued[8];
+    memcpy(frozen,sync_io_shared_workspace,sizeof(frozen));memcpy(queued,fifo,sizeof(queued));
+    const unsigned before=io_calls,queued_count=fifo_count;
+    const sync_io_run_output_snapshot_t old=snap();
+    assert(!sync_io_run_output_submit_count_core1(g,!strcmp(name,"null")?NULL:edges,count));
+    const sync_io_run_output_snapshot_t after=snap();
+    assert(!memcmp(frozen,sync_io_shared_workspace,sizeof(frozen)));
+    assert(!memcmp(queued,fifo,sizeof(queued))&&fifo_count==queued_count);
+    assert(!memcmp(&old,&after,sizeof(old))&&io_calls==before);
+    assert(!mock_busy&&!hw_dma.ch[2].transfer_count);
+    complete_stop(g);
+}
+static void counted_async_stop(void)
+{
+    uint32_t g=prepare();mock_core=1;
+    sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_MAX_EDGES];
+    make_counted_edges(edges,SYNC_IO_RUN_OUTPUT_MAX_EDGES,1100000u,0,7);
+    assert(sync_io_run_output_submit_count_core1(g,edges,SYNC_IO_RUN_OUTPUT_MAX_EDGES));
+    probe_active=false;
+    uint32_t frozen[SYNC_IO_RUN_OUTPUT_MAX_WORDS];
+    memcpy(frozen,sync_io_shared_workspace,sizeof(frozen));
+    const unsigned before=io_calls,clear_before=clears;
+    mock_core=0;sync_io_run_output_cancel();assert(io_calls==before);
+    assert(!sync_io_run_output_release(g));
+    mock_core=1;sync_io_run_output_service_core1();
+    assert(snap().state==SYNC_IO_RUN_OUTPUT_RETIRING&&snap().reason==SYNC_IO_RUN_OUTPUT_CANCELLED);
+    assert(snap().retire_dma_remaining==2u*SYNC_IO_RUN_OUTPUT_MAX_EDGES-2u);
+    assert(!hw_pio.ctrl&&!(pin_latch&(1u<<16))&&hw_dma.abort==(1u<<2));
+    assert(!sync_io_run_output_submit_count_core1(g,edges,SYNC_IO_RUN_OUTPUT_MAX_EDGES));
+    assert(!memcmp(frozen,sync_io_shared_workspace,sizeof(frozen))&&clears==clear_before);
+    mock_busy=false;sync_io_run_output_service_core1();
+    assert(snap().state==SYNC_IO_RUN_OUTPUT_RETIRING&&workspace_token);
+    hw_dma.abort=0u;mock_busy=true;sync_io_run_output_service_core1();
+    assert(snap().state==SYNC_IO_RUN_OUTPUT_RETIRING&&workspace_token);
+    mock_busy=false;sync_io_run_output_service_core1();
+    assert(snap().state==SYNC_IO_RUN_OUTPUT_RETIRED&&!fifo_count&&workspace_token);
+    mock_core=0;assert(sync_io_run_output_release(g));
+    assert(!workspace_token&&!core_token&&!mock_dma_claim&&!mock_sm_claim);
+}
 int main(int argc,char **argv)
 {
     assert(argc==2);
@@ -646,6 +788,10 @@ int main(int argc,char **argv)
     else if(!strcmp(argv[1],"inactive_submit"))inactive_submit();
     else if(!strcmp(argv[1],"inactive_release"))inactive_release();
     else if(!strncmp(argv[1],"invalid_",8))invalid_edges(argv[1]+8);
+    else if(!strcmp(argv[1],"count_one"))counted_stream(1u);
+    else if(!strcmp(argv[1],"count_max"))counted_stream(SYNC_IO_RUN_OUTPUT_MAX_EDGES);
+    else if(!strcmp(argv[1],"count_async_stop"))counted_async_stop();
+    else if(!strncmp(argv[1],"count_",6))counted_invalid(argv[1]+6);
     else assert(false);
     return 0;
 }

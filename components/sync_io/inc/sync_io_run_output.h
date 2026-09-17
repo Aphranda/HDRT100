@@ -6,7 +6,10 @@
 
 #define SYNC_IO_RUN_OUTPUT_BLOCK_EDGES 4u
 #define SYNC_IO_RUN_OUTPUT_BLOCK_WORDS (2u * SYNC_IO_RUN_OUTPUT_BLOCK_EDGES)
-#define SYNC_IO_RUN_OUTPUT_SCHEMA 4u
+#define SYNC_IO_RUN_OUTPUT_MAX_EDGES 16u
+#define SYNC_IO_RUN_OUTPUT_MAX_WORDS (2u * SYNC_IO_RUN_OUTPUT_MAX_EDGES)
+#define SYNC_IO_RUN_OUTPUT_MIN_GUARD_US 100u
+#define SYNC_IO_RUN_OUTPUT_SCHEMA 5u
 
 enum {
     SYNC_IO_RUN_OUTPUT_IDLE, SYNC_IO_RUN_OUTPUT_PREPARED,
@@ -63,7 +66,12 @@ void sync_io_run_output_service_core1(void);
  * storage. DMA completion is not physical edge completion. */
 bool sync_io_run_output_can_submit_core1(uint32_t generation);
 /* True means the block was irrevocably admitted; subsequent hardware fault
- * remains visible in state/reason. False means this block was not admitted. */
+ * remains visible in state/reason. False means this block was not admitted.
+ * Count is 1..MAX_EDGES. Validate the whole finite block before writing the
+ * retired DMA source; unused workspace words are never submitted. */
+bool sync_io_run_output_submit_count_core1(uint32_t generation,
+    const sync_io_run_output_edge_t *edges, uint32_t count);
+/* Compatibility entry: exactly BLOCK_EDGES pulses. */
 bool sync_io_run_output_submit_core1(uint32_t generation,
     const sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES]);
 /* Core0 only, after Core1 RETIRED acknowledgement. Does not cancel live DMA. */

@@ -2730,6 +2730,16 @@ scpi_result_t scpi_cmd_vdc_run_output_q(scpi_t *context)
     SCPI_ResultUInt32(context,s.fast_wall_samples);
     SCPI_ResultUInt32(context,s.fast_wall_max_cycles);
     SCPI_ResultUInt32(context,s.fast_budget_overruns);
+    SCPI_ResultUInt32(context,s.plan_ahead_us);
+    SCPI_ResultUInt32(context,s.commit_ahead_us);
+    SCPI_ResultUInt32(context,s.refill_low_us);
+    SCPI_ResultUInt32(context,s.timeline_bridge_samples);
+    SCPI_ResultUInt32(context,s.partial_plan_steps);
+    SCPI_ResultUInt32(context,s.plan_waits);
+    SCPI_ResultUInt32(context,s.refill_waits);
+    SCPI_ResultUInt32(context,s.commit_waits);
+    SCPI_ResultUInt32(context,s.block_edges);
+    SCPI_ResultUInt32(context,s.schedule_cycles);
     return SCPI_RES_OK;
 }
 

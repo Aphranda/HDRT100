@@ -61,6 +61,11 @@ scpi_result_t scpi_cmd_vdc_output_delay_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_output_delay_default(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_output_delay_recall(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_output_delay_store(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_output_timing(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_output_timing_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_output_timing_default(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_output_timing_recall(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_output_timing_store(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_baseline(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_baseline_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_baseline_default(scpi_t *context);
@@ -238,6 +243,11 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:OUTPut:DELay:DEFAult", .callback = scpi_cmd_vdc_output_delay_default}, \
     {.pattern = "SYSTem:VDC:OUTPut:DELay:RECall", .callback = scpi_cmd_vdc_output_delay_recall}, \
     {.pattern = "SYSTem:VDC:OUTPut:DELay:STORe", .callback = scpi_cmd_vdc_output_delay_store}, \
+    {.pattern = "SYSTem:VDC:OUTPut:TIMing", .callback = scpi_cmd_vdc_output_timing}, \
+    {.pattern = "SYSTem:VDC:OUTPut:TIMing?", .callback = scpi_cmd_vdc_output_timing_q}, \
+    {.pattern = "SYSTem:VDC:OUTPut:TIMing:DEFAult", .callback = scpi_cmd_vdc_output_timing_default}, \
+    {.pattern = "SYSTem:VDC:OUTPut:TIMing:RECall", .callback = scpi_cmd_vdc_output_timing_recall}, \
+    {.pattern = "SYSTem:VDC:OUTPut:TIMing:STORe", .callback = scpi_cmd_vdc_output_timing_store}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow:BASEline", .callback = scpi_cmd_vdc_priority_follow_baseline}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow:BASEline?", .callback = scpi_cmd_vdc_priority_follow_baseline_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow:BASEline:DEFAult", .callback = scpi_cmd_vdc_priority_follow_baseline_default}, \

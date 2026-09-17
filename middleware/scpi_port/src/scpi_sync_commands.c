@@ -5,6 +5,7 @@
 #include "tdma_runtime_owner.h"
 #include "vdc_dpll_manager.h"
 #include "vdc_output_delay.h"
+#include "vdc_output_timing.h"
 #include "vdc_priority_ingress.h"
 
 scpi_result_t scpi_sync_state_q(scpi_t *context)
@@ -1077,6 +1078,95 @@ scpi_result_t scpi_cmd_vdc_output_delay_store(scpi_t *context)
 {
     if (!vdc_dpll_manager_store_output_delay()) {
         scpi_port_push_exec_error(context, "Output delay store rejected or failed");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
+/* Output timing uses exact decimal us tokens and a complete tuple. Generic
+ * integer conversion may accept prefixes or saturate before range checks. */
+static bool scpi_output_timing_read_us(scpi_t *context, uint32_t *value)
+{
+    scpi_parameter_t param;
+    if (!SCPI_Parameter(context, &param, TRUE) ||
+        param.type != SCPI_TOKEN_DECIMAL_NUMERIC_PROGRAM_DATA || param.len <= 0) return false;
+    /* Match RUN's strict boundary: this lexer can shorten aggregate length
+     * after numeric trailing whitespace and truncate a later parameter. */
+    if (context->param_list.lex_state.pos != param.ptr + param.len) return false;
+    const size_t length = (size_t)param.len;
+    size_t pos = param.ptr[0] == '+' ? 1u : 0u;
+    if (pos == length) return false;
+    uint32_t parsed = 0u;
+    for (; pos < length; ++pos) {
+        const unsigned char digit = (unsigned char)param.ptr[pos];
+        if (digit < '0' || digit > '9' || parsed > (UINT32_MAX - (digit - '0')) / 10u) return false;
+        parsed = parsed * 10u + (digit - '0');
+    }
+    *value = parsed;
+    return true;
+}
+
+static bool scpi_output_timing_no_extra(scpi_t *context)
+{
+    scpi_parameter_t extra;
+    return !SCPI_Parameter(context, &extra, FALSE) && !SCPI_ParamErrorOccurred(context);
+}
+
+scpi_result_t scpi_cmd_vdc_output_timing(scpi_t *context)
+{
+    vdc_output_timing_profile_t profile;
+    if (!scpi_output_timing_read_us(context, &profile.plan_ahead_us) ||
+        !scpi_output_timing_read_us(context, &profile.commit_ahead_us) ||
+        !scpi_output_timing_read_us(context, &profile.refill_low_us) ||
+        !scpi_output_timing_no_extra(context) || !vdc_output_timing_profile_valid(&profile) ||
+        !vdc_dpll_manager_set_output_timing_profile(&profile)) {
+        scpi_port_push_exec_error(context, "Output timing requires plan,commit,low decimal us, STOP and idle output");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, profile.plan_ahead_us);
+    SCPI_ResultUInt32(context, profile.commit_ahead_us);
+    SCPI_ResultUInt32(context, profile.refill_low_us);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_output_timing_q(scpi_t *context)
+{
+    vdc_output_timing_profile_t profile;
+    if (!scpi_output_timing_no_extra(context) || !vdc_dpll_manager_get_output_timing_profile(&profile)) {
+        scpi_port_push_exec_error(context, "Output timing unavailable");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, profile.plan_ahead_us);
+    SCPI_ResultUInt32(context, profile.commit_ahead_us);
+    SCPI_ResultUInt32(context, profile.refill_low_us);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_output_timing_default(scpi_t *context)
+{
+    if (!scpi_output_timing_no_extra(context) || !vdc_dpll_manager_default_output_timing()) {
+        scpi_port_push_exec_error(context, "Output timing default requires STOP and idle output");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_output_timing_recall(scpi_t *context)
+{
+    if (!scpi_output_timing_no_extra(context) || !vdc_dpll_manager_recall_output_timing()) {
+        scpi_port_push_exec_error(context, "Output timing recall requires valid saved profile, STOP and idle output");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_output_timing_store(scpi_t *context)
+{
+    if (!scpi_output_timing_no_extra(context) || !vdc_dpll_manager_store_output_timing()) {
+        scpi_port_push_exec_error(context, "Output timing store rejected or failed");
         return SCPI_RES_ERR;
     }
     SCPI_ResultText(context, "OK");

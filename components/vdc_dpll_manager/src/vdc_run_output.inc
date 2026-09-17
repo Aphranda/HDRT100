@@ -9,15 +9,26 @@ static vdc_run_output_status_t s_run_output;
  * invocation, including backend retirement. Backend RETIRED alone cannot
  * authorize overwriting client metadata while its wrapper still executes. */
 static uint32_t s_run_output_request, s_run_output_busy;
+#define VDC_RUN_OUTPUT_PLAN_STEP_EDGES 4u
+static vdc_timestamp_clock_bridge_t s_run_output_timeline;
+static bool s_run_output_timeline_valid;
 /* A private uncommitted suffix, never a DMA source. The whole-client gate
  * covers this cache as well as the public metadata. Preparing it does not
  * consume ordinals; a changed model invalidates it before admission. */
 static struct {
-    sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES];
+    sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_MAX_EDGES];
     uint64_t predecessor_ordinal, predecessor_fall, last_local_ns, target_vdc_ns, maximum_width;
-    uint32_t model_token;
-    bool valid;
+    uint64_t next_ordinal;
+    uint32_t model_token, planned;
+    bool valid, first;
 } s_run_output_pending;
+
+bool vdc_run_output_configuration_idle(void)
+{
+    return get_core_num()==0u &&
+        !__atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE) &&
+        !__atomic_load_n(&s_run_output_busy,__ATOMIC_ACQUIRE);
+}
 
 static void run_output_note(uint32_t phase,vdc_run_output_outcome_t outcome)
 {
@@ -32,18 +43,42 @@ static bool run_output_prepare_stopped(void *context)
     const uint32_t *args=context;
     const uint32_t session=vdc_dpll_manager_feedback_session();
     tdma_ring_clock_snapshot_t ring;
+    vdc_output_timing_profile_t timing;
+    app_realtime_schedule_snapshot_t schedule;
     if (!session || __atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE) ||
         !tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
         ring.adapter_started || ring.config_seq!=ring.applied_config_seq ||
+        !vdc_dpll_manager_get_output_timing_profile(&timing) ||
+        !app_realtime_get_schedule_snapshot(&schedule) || !schedule.cycle_cycles ||
         !vdc_timestamp_clock_configuration_supported(BOARD_SYS_CLOCK_HZ)) return false;
+    /* These capacity checks are not a proof that the full planner actually
+     * runs every table period. Runtime misses and hardware runway stay visible. */
+    if (!vdc_output_timing_profile_valid(&timing)) return false;
+    const uint64_t count=(uint64_t)(timing.commit_ahead_us-timing.refill_low_us)*1000u/args[0];
+    if (!count || count>SYNC_IO_RUN_OUTPUT_MAX_EDGES) return false;
+    const uint64_t cycle_ns=((uint64_t)schedule.cycle_cycles*1000000000u+
+        BOARD_SYS_CLOCK_HZ-1u)/BOARD_SYS_CLOCK_HZ;
+    const uint64_t steps=(count+VDC_RUN_OUTPUT_PLAN_STEP_EDGES-1u)/VDC_RUN_OUTPUT_PLAN_STEP_EDGES;
+    const uint64_t handoff_ns=((uint64_t)PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES*
+        1000000000u+BOARD_SYS_CLOCK_HZ-1u)/BOARD_SYS_CLOCK_HZ;
+    if ((uint64_t)(timing.plan_ahead_us-timing.refill_low_us)*1000u<(steps+1u)*cycle_ns ||
+        (uint64_t)timing.refill_low_us*1000u<2u*cycle_ns+handoff_ns+
+            (uint64_t)SYNC_IO_RUN_OUTPUT_MIN_GUARD_US*1000u) return false;
     uint32_t generation;
     if (!sync_io_run_output_prepare(BOARD_SYS_CLOCK_HZ,args[2],&generation)) return false;
     memset(&s_run_output,0,sizeof(s_run_output));
     memset(&s_run_output_pending,0,sizeof(s_run_output_pending));
+    memset(&s_run_output_timeline,0,sizeof(s_run_output_timeline));
+    s_run_output_timeline_valid=false;
     s_run_output.last_outcome=VDC_RUN_OUTPUT_OUTCOME_NONE;
     s_run_output.request=generation; s_run_output.session=session;
     s_run_output.prepared_config=ring.config_seq;
     s_run_output.period_ns=args[0]; s_run_output.high_ns=args[1]; s_run_output.duration_ms=args[2];
+    s_run_output.plan_ahead_us=timing.plan_ahead_us;
+    s_run_output.commit_ahead_us=timing.commit_ahead_us;
+    s_run_output.refill_low_us=timing.refill_low_us;
+    s_run_output.block_edges=(uint32_t)count;
+    s_run_output.schedule_cycles=schedule.cycle_cycles;
     (void)vdc_dpll_manager_get_output_delay_ns(&s_run_output.delay_ns);
     __atomic_store_n(&s_run_output_request,generation,__ATOMIC_RELEASE);
     return true;
@@ -72,6 +107,8 @@ void vdc_run_output_cancel(void) { sync_io_run_output_cancel(); }
 static void run_output_cancel_owned(void)
 {
     s_run_output_pending.valid=false;
+    s_run_output_pending.planned=0u;
+    s_run_output_timeline_valid=false;
     sync_io_run_output_cancel();
 }
 
@@ -122,10 +159,12 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
         run_output_note(phase,VDC_RUN_OUTPUT_BACKEND_SNAPSHOT_UNAVAILABLE); return;
     }
     if (hw.state!=SYNC_IO_RUN_OUTPUT_PREPARED && hw.state!=SYNC_IO_RUN_OUTPUT_RUNNING) {
-        s_run_output_pending.valid=false; return;
+        s_run_output_pending.valid=false; s_run_output_pending.planned=0u;
+        s_run_output_timeline_valid=false; return;
     }
     phase=hw.state==SYNC_IO_RUN_OUTPUT_RUNNING ? VDC_RUN_OUTPUT_RUNNING_PHASE : VDC_RUN_OUTPUT_PREPARED_PHASE;
-    if (vdc_dpll_manager_feedback_session()!=s_run_output.session) {
+    if (vdc_dpll_manager_feedback_session()!=s_run_output.session ||
+        app_realtime_cycle_cycles_core1()!=s_run_output.schedule_cycles) {
         run_output_note(phase,VDC_RUN_OUTPUT_BINDING_CANCELLED);
         ++s_run_output.binding_rejects; run_output_cancel_owned(); return;
     }
@@ -185,15 +224,17 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
         return;
     }
     const bool first=hw.state==SYNC_IO_RUN_OUTPUT_PREPARED;
-    if (s_run_output_pending.valid && (first ||
+    if ((s_run_output_pending.valid || s_run_output_pending.planned) &&
+        (s_run_output_pending.first!=first ||
         s_run_output_pending.model_token!=model.token ||
         s_run_output_pending.predecessor_ordinal!=hw.last_ordinal ||
         s_run_output_pending.predecessor_fall!=hw.last_falling_tick)) {
         s_run_output_pending.valid=false;
+        s_run_output_pending.planned=0u;
         if (s_run_output.cache_invalidations!=UINT32_MAX) ++s_run_output.cache_invalidations;
     }
     const bool cached=s_run_output_pending.valid;
-    if (cached_only && !cached) {
+    if (cached_only && (first || !cached)) {
         if (s_run_output.fast_empty!=UINT32_MAX) ++s_run_output.fast_empty;
         return;
     }
@@ -201,57 +242,98 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
     if (!can_submit && (first || s_run_output_pending.valid)) {
         run_output_note(phase,VDC_RUN_OUTPUT_DMA_NOT_READY); return;
     }
-    /* Plan while the old DMA source is still live. A later ready service
-     * uses the cached edges without another bridge read or model inverse.
-     * At most one block is planned and one admitted per service invocation. */
-    if (!s_run_output_pending.valid) {
-        vdc_timestamp_clock_bridge_t bridge;
-        if (!vdc_timestamp_clock_try_read_bridge(BOARD_SYS_CLOCK_HZ,&bridge)) {
+    /* Keep one raw/local mapping for this finite request. Only the ordinary
+     * planner acquires the first bridge; the short route never starts a block.
+     * Fresh raw time remains mandatory for planning and hardware admission. */
+    if (!vdc_timestamp_clock_configuration_supported(BOARD_SYS_CLOCK_HZ)) {
+        run_output_note(phase,VDC_RUN_OUTPUT_BINDING_CANCELLED);
+        ++s_run_output.binding_rejects; run_output_cancel_owned(); return;
+    }
+    if (!s_run_output_timeline_valid) {
+        if (!vdc_timestamp_clock_try_read_bridge(BOARD_SYS_CLOCK_HZ,&s_run_output_timeline)) {
             run_output_note(phase,VDC_RUN_OUTPUT_BRIDGE_UNAVAILABLE); return;
         }
-        if (!sync_io_run_output_snapshot(&hw) || hw.generation!=request) {
-            run_output_note(phase,VDC_RUN_OUTPUT_BACKEND_SNAPSHOT_UNAVAILABLE); return;
+        s_run_output_timeline_valid=true;
+        if (s_run_output.timeline_bridge_samples!=UINT32_MAX) ++s_run_output.timeline_bridge_samples;
+    }
+    uint64_t now;
+    if (!vdc_timestamp_clock_try_read_ticks64(BOARD_SYS_CLOCK_HZ,&now)) {
+        run_output_note(phase,VDC_RUN_OUTPUT_BRIDGE_UNAVAILABLE); return;
+    }
+    if (now<model.valid_from_raw) {
+        run_output_note(phase,VDC_RUN_OUTPUT_MODEL_UNAVAILABLE); return;
+    }
+    const uint64_t ticks_per_us=BOARD_SYS_CLOCK_HZ/1000000u;
+    const uint64_t plan_ticks=(uint64_t)s_run_output.plan_ahead_us*ticks_per_us;
+    const uint64_t low_ticks=(uint64_t)s_run_output.refill_low_us*ticks_per_us;
+    const uint64_t commit_ticks=(uint64_t)s_run_output.commit_ahead_us*ticks_per_us;
+    const uint64_t offset=hw.anchor_after>=hw.anchor_before ?
+        hw.anchor_after-hw.anchor_before : UINT64_MAX;
+    if (!first && (offset==UINT64_MAX || hw.last_falling_tick>UINT64_MAX-offset)) {
+        run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); run_output_cancel_owned(); return;
+    }
+    /* Earliest possible tail drives refill urgency; the upper enable bound
+     * is used separately to enforce the maximum new hardware commitment. */
+    const uint64_t tail=first ? 0u : hw.last_falling_tick;
+    /* This watermark describes the latest irrevocably submitted tail, not
+     * the software cache or DMA remaining count. Source retirement remains
+     * a separate necessary condition for actually refilling the FIFO. */
+    if (!s_run_output_pending.valid) {
+        if (!first && tail>now && tail-now>plan_ticks) {
+            if (s_run_output.plan_waits!=UINT32_MAX) ++s_run_output.plan_waits;
+            return;
         }
-        if ((hw.state==SYNC_IO_RUN_OUTPUT_PREPARED)!=first ||
-            (hw.state!=SYNC_IO_RUN_OUTPUT_PREPARED && hw.state!=SYNC_IO_RUN_OUTPUT_RUNNING)) {
-            run_output_note(phase,VDC_RUN_OUTPUT_BACKEND_SNAPSHOT_UNAVAILABLE); return;
+        if (!s_run_output_pending.planned) {
+            if (!sync_io_run_output_snapshot(&hw) || hw.generation!=request ||
+                (hw.state!=SYNC_IO_RUN_OUTPUT_PREPARED && hw.state!=SYNC_IO_RUN_OUTPUT_RUNNING) ||
+                (hw.state==SYNC_IO_RUN_OUTPUT_PREPARED)!=first) {
+                run_output_note(phase,VDC_RUN_OUTPUT_BACKEND_SNAPSHOT_UNAVAILABLE); return;
+            }
+            uint64_t local_now;
+            if (!vdc_timestamp_timeline_local_now_upper(&s_run_output_timeline,now,&local_now)) {
+                run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); run_output_cancel_owned(); return;
+            }
+            /* PRESTART's existing lead is separate from the RUN inventory
+             * cap: no stream has started yet. It is not renewed at block boundaries. */
+            const uint64_t lead=first ? UINT64_C(20000000) : UINT64_C(200000);
+            if (local_now>UINT64_MAX-lead || (!first && hw.last_ordinal==UINT64_MAX)) {
+                run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); run_output_cancel_owned(); return;
+            }
+            s_run_output_pending.last_local_ns=local_now+lead;
+            if (!first && s_run_output.last_local_ns>s_run_output_pending.last_local_ns)
+                s_run_output_pending.last_local_ns=s_run_output.last_local_ns;
+            s_run_output_pending.next_ordinal=first ? 0u : hw.last_ordinal+1u;
+            s_run_output_pending.predecessor_ordinal=hw.last_ordinal;
+            s_run_output_pending.predecessor_fall=hw.last_falling_tick;
+            s_run_output_pending.maximum_width=s_run_output.maximum_bridge_width_ticks;
+            s_run_output_pending.model_token=model.token;
+            s_run_output_pending.first=first;
         }
-        const uint64_t lead=first ? UINT64_C(20000000) : UINT64_C(200000);
-        if (bridge.local_ns>UINT64_MAX-lead) {
-            run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); run_output_cancel_owned(); return;
-        }
-        uint64_t minimum=bridge.local_ns+lead;
-        if (!first && s_run_output.last_local_ns>minimum) minimum=s_run_output.last_local_ns;
-        uint64_t ordinal=first ? 0u : hw.last_ordinal+1u;
-        if (!first && hw.last_ordinal==UINT64_MAX) {
-            run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); run_output_cancel_owned(); return;
-        }
-        sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES];
-        vdc_output_edge_plan_t plan;
-        uint64_t maximum_width=s_run_output.maximum_bridge_width_ticks;
         const uint64_t high_ticks=((uint64_t)s_run_output.high_ns*BOARD_SYS_CLOCK_HZ+999999999u)/1000000000u;
-        for (uint32_t i=0;i<SYNC_IO_RUN_OUTPUT_BLOCK_EDGES;++i) {
+        const uint32_t end=s_run_output.block_edges-s_run_output_pending.planned>VDC_RUN_OUTPUT_PLAN_STEP_EDGES ?
+            s_run_output_pending.planned+VDC_RUN_OUTPUT_PLAN_STEP_EDGES : s_run_output.block_edges;
+        for (uint32_t i=s_run_output_pending.planned;i<end;++i) {
+            vdc_output_edge_plan_t plan;
             vdc_local_raw_bracket_t raw;
-            if (!vdc_output_edge_plan(&model.dco,0u,s_run_output.period_ns,ordinal,
-                    minimum,s_run_output.delay_ns,&plan) ||
-                !vdc_timestamp_bridge_local_to_raw(&bridge,plan.physical_local_ns,&raw) ||
+            if (!vdc_output_edge_plan(&model.dco,0u,s_run_output.period_ns,s_run_output_pending.next_ordinal,
+                    s_run_output_pending.last_local_ns,s_run_output.delay_ns,&plan) ||
+                !vdc_timestamp_timeline_local_to_raw(&s_run_output_timeline,plan.physical_local_ns,&raw) ||
                 raw.hi>UINT64_MAX-high_ticks || plan.physical_local_ns>UINT64_MAX-s_run_output.high_ns ||
                 plan.ordinal==UINT64_MAX) {
+                s_run_output_pending.planned=0u;
                 run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); ++s_run_output.plan_rejects; return;
             }
-            edges[i]=(sync_io_run_output_edge_t){.rising_tick=raw.hi,
+            s_run_output_pending.edges[i]=(sync_io_run_output_edge_t){.rising_tick=raw.hi,
                 .falling_tick=raw.hi+high_ticks,.ordinal=plan.ordinal,.model_token=model.token};
-            if (raw.hi-raw.lo>maximum_width) maximum_width=raw.hi-raw.lo;
-            minimum=plan.physical_local_ns+s_run_output.high_ns;
-            ordinal=plan.ordinal+1u;
+            if (raw.hi-raw.lo>s_run_output_pending.maximum_width)
+                s_run_output_pending.maximum_width=raw.hi-raw.lo;
+            s_run_output_pending.last_local_ns=plan.physical_local_ns+s_run_output.high_ns;
+            s_run_output_pending.next_ordinal=plan.ordinal+1u;
+            s_run_output_pending.target_vdc_ns=plan.target_vdc_ns;
+            s_run_output_pending.planned=i+1u;
         }
-        memcpy(s_run_output_pending.edges,edges,sizeof(edges));
-        s_run_output_pending.predecessor_ordinal=hw.last_ordinal;
-        s_run_output_pending.predecessor_fall=hw.last_falling_tick;
-        s_run_output_pending.last_local_ns=minimum;
-        s_run_output_pending.target_vdc_ns=plan.target_vdc_ns;
-        s_run_output_pending.maximum_width=maximum_width;
-        s_run_output_pending.model_token=model.token;
+        if (s_run_output.partial_plan_steps!=UINT32_MAX) ++s_run_output.partial_plan_steps;
+        if (s_run_output_pending.planned!=s_run_output.block_edges) return;
         s_run_output_pending.valid=true;
         if (!can_submit && s_run_output.prefetched_blocks!=UINT32_MAX) ++s_run_output.prefetched_blocks;
     }
@@ -271,14 +353,37 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
     if (!can_submit) {
         run_output_note(phase,VDC_RUN_OUTPUT_DMA_NOT_READY); return;
     }
+    /* Reobserve time after the bounded planning step. Never grant a new
+     * hardware horizon using the older planning-time observation. */
+    if (!vdc_timestamp_clock_try_read_ticks64(BOARD_SYS_CLOCK_HZ,&now)) {
+        run_output_note(phase,VDC_RUN_OUTPUT_BRIDGE_UNAVAILABLE); return;
+    }
+    if (!first && tail>now && tail-now>low_ticks) {
+        if (s_run_output.refill_waits!=UINT32_MAX) ++s_run_output.refill_waits;
+        return;
+    }
+    const uint64_t next_tail=s_run_output_pending.edges[s_run_output.block_edges-1u].falling_tick;
+    if (first && (next_tail<s_run_output_pending.edges[0].rising_tick ||
+        next_tail-s_run_output_pending.edges[0].rising_tick>commit_ticks)) {
+        s_run_output_pending.valid=false; s_run_output_pending.planned=0u;
+        run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); ++s_run_output.plan_rejects; return;
+    }
+    if (!first && (next_tail>UINT64_MAX-offset || now>UINT64_MAX-commit_ticks)) {
+        run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); run_output_cancel_owned(); return;
+    }
+    if (!first && next_tail+offset>now+commit_ticks) {
+        if (s_run_output.commit_waits!=UINT32_MAX) ++s_run_output.commit_waits;
+        return;
+    }
     /* A cache hit skips bridge acquisition, not the clock lifetime check.
      * This also covers TIMER0/ref/PLL configuration beyond backend checks. */
     if (cached && !vdc_timestamp_clock_configuration_supported(BOARD_SYS_CLOCK_HZ)) {
         run_output_note(phase,VDC_RUN_OUTPUT_BINDING_CANCELLED);
         ++s_run_output.binding_rejects; run_output_cancel_owned(); return;
     }
-    if (!sync_io_run_output_submit_core1(request,s_run_output_pending.edges)) {
+    if (!sync_io_run_output_submit_count_core1(request,s_run_output_pending.edges,s_run_output.block_edges)) {
         s_run_output_pending.valid=false;
+        s_run_output_pending.planned=0u;
         run_output_note(phase,VDC_RUN_OUTPUT_SUBMIT_REJECTED); ++s_run_output.plan_rejects; return;
     }
     s_run_output.ring_config=ring.config_seq; s_run_output.role_generation=model.role_generation;
@@ -288,6 +393,7 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
     s_run_output.maximum_bridge_width_ticks=s_run_output_pending.maximum_width;
     if (cached && s_run_output.cache_hits!=UINT32_MAX) ++s_run_output.cache_hits;
     s_run_output_pending.valid=false;
+    s_run_output_pending.planned=0u;
     ++s_run_output.blocks_planned;
     run_output_note(phase,VDC_RUN_OUTPUT_SUBMITTED);
 }
