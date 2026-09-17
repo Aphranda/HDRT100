@@ -41,15 +41,17 @@ def executable(tmp_path_factory):
     prelude = prelude.replace('{ assert(p==&owner);return stopped && publish(ctx); }',
         '{ assert(p==&owner);++metadata_calls;if(!stopped||metadata_busy)return false;'
         'assert(!metadata_locked&&!maintenance_locked);metadata_locked=true;bool ok=publish(ctx);metadata_locked=false;return ok; }')
-    harness = '#include "vdc_priority_follow.h"\n'
+    harness = '#include "vdc_priority_follow.h"\n#include "vdc_priority_phase.h"\n'
     harness += '#include "'+str(ROOT/"components/product_config/inc/product_config.h").replace('\\','/')+'"\n'
     harness += '#define VDC_PRIORITY_CONFIG_REAL 1\n'
     harness += '#define tdma_service_run_stopped_maintenance baseline_test_stopped_maintenance\n'
     harness += prelude + existing.EXTERNAL_INPUTS + source_type.group(0) + existing.MATCH_STORAGE + helpers + STUBS
+    harness += '\nstatic void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t *model);\n#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)\n'
     for name in ("vdc_model_feedback.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc"):
         harness += "\n"+(manager/name).read_text(encoding="utf-8")
     harness += "\n"+(manager/"vdc_priority_follow_config.inc").read_text(encoding="utf-8")
-    harness += "\n"+(manager/"vdc_priority_follow.inc").read_text(encoding="utf-8")
+    harness += "\n"+(manager/"vdc_priority_follow.inc").read_text(encoding="utf-8").replace(
+        '#include "vdc_priority_phase.inc"', (manager/"vdc_priority_phase.inc").read_text(encoding="utf-8"))
     scenarios = existing.SCENARIOS.replace("OWNER_REMOTE_INPUT",
         existing.ingress_definition(existing.OWNER_TESTS, "follower_input"))
     scenarios = scenarios.replace('int main(int argc,char **argv)', CONTROL_CASES+'\nint main(int argc,char **argv)')
@@ -91,7 +93,7 @@ def test_unchanged_default_control_lifecycle(executable, case):
 
 def test_public_ABI_and_private_sizes(executable):
     sizes = tuple(map(int,existing.run_case(executable,"sizes").split()))
-    assert sizes == (744,216,392)
+    assert sizes == (784,216,408)
 
 
 STUBS = r'''

@@ -67,7 +67,7 @@ def follow_executable(tmp_path_factory):
     assert source_type
     helpers = matcher[matcher.index("static uint32_t match_inc"):matcher.index("/* Keep authorization")]
     prelude = OWNER_PRELUDE.replace("EVENT_TYPES", event_types).replace(
-        '#include <assert.h>', '#include <assert.h>\n#include <inttypes.h>\n#include "vdc_priority_follow.h"\n'
+        '#include <assert.h>', '#include <assert.h>\n#include <inttypes.h>\n#include "vdc_priority_follow.h"\n#include "vdc_priority_phase.h"\n'
         '#include "vdc_priority_rx.h"\n#include "vdc_priority_match.h"\n'
         'static unsigned core;\nstatic unsigned get_core_num(void) { return core; }')
     old_bridge = "{ (void)hz;(void)out;return false; }"
@@ -76,8 +76,13 @@ def follow_executable(tmp_path_factory):
         '{ assert(hz==BOARD_SYS_CLOCK_HZ);*out=(vdc_timestamp_clock_bridge_t){'
         '.tick_hz=hz,.raw_before=raw_now,.raw_after=raw_now+1,.local_ns=now_ns};return true; }')
     harness = prelude + EXTERNAL_INPUTS + source_type.group(0) + MATCH_STORAGE + helpers
+    harness += '\nstatic void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t *model);\n#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)\n'
     for name in ("vdc_model_feedback.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc", "vdc_priority_follow.inc"):
-        harness += "\n" + (manager / name).read_text(encoding="utf-8")
+        included = (manager / name).read_text(encoding="utf-8")
+        if name == "vdc_priority_follow.inc":
+            included = included.replace('#include "vdc_priority_phase.inc"',
+                (manager / "vdc_priority_phase.inc").read_text(encoding="utf-8"))
+        harness += "\n" + included
     harness += "\n" + ingress_definition(DOMAIN_HARNESS, "fixture") + SCENARIOS.replace(
         "OWNER_REMOTE_INPUT", ingress_definition(OWNER_TESTS, "follower_input"))
     sources = domain_sources() + [
@@ -303,7 +308,7 @@ def test_quality_baseline_does_not_survive_owner_change(follow_executable, chang
 
 def test_quality_private_storage_and_public_abi(follow_executable):
     sizes = tuple(map(int, run_case(follow_executable, "sizes").split()))
-    assert sizes == (744, 216, 392)
+    assert sizes == (784, 216, 408)
 
 
 EXTERNAL_INPUTS = r'''

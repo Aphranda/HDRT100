@@ -2095,8 +2095,8 @@ bool vdc_domain_apply_follower_command(
 
 /* Keep this bounded, infrequent control operation in XIP, including when its
  * caller lives in RAM. The Core1 outer owner guard covers the final commit. */
-static bool __attribute__((noinline)) vdc_domain_commit_rate_delta(
-    vdc_domain_context_t *context,
+static bool vdc_domain_local_follow_delta_identity_valid(
+    const vdc_domain_context_t *context,
     const vdc_dpll_local_rate_delta_t *command,
     uint64_t local_now_ns)
 {
@@ -2129,6 +2129,17 @@ static bool __attribute__((noinline)) vdc_domain_commit_rate_delta(
         context->dco.period_adjust_ppb <= -1000000000) {
         return false;
     }
+
+    return true;
+}
+
+static bool __attribute__((noinline)) vdc_domain_commit_rate_delta(
+    vdc_domain_context_t *context,
+    const vdc_dpll_local_rate_delta_t *command,
+    uint64_t local_now_ns)
+{
+    if (!vdc_domain_local_follow_delta_identity_valid(
+            context, command, local_now_ns)) return false;
 
     const int64_t next_rate = (int64_t)context->dco.period_adjust_ppb +
                               (int64_t)command->delta_rate_ppb;
@@ -2163,6 +2174,63 @@ static bool __attribute__((noinline)) vdc_domain_commit_rate_delta(
     context->dco = candidate;
     return true;
 }
+
+/* Checked unsigned coordinate translation accepts INT64_MIN without ever
+ * negating it in signed arithmetic. The caller owns the destination. */
+static bool vdc_domain_translate_u64(uint64_t value, int64_t delta,
+                                     uint64_t *translated)
+{
+    if (delta < 0) {
+        const uint64_t magnitude = (uint64_t)(-(delta + 1)) + 1u;
+        if (value < magnitude) return false;
+        *translated = value - magnitude;
+    } else {
+        const uint64_t magnitude = (uint64_t)delta;
+        if (UINT64_MAX - value < magnitude) return false;
+        *translated = value + magnitude;
+    }
+    return true;
+}
+
+bool __attribute__((noinline)) vdc_domain_apply_local_follow_phase_delta(
+    vdc_domain_context_t *context,
+    const vdc_dpll_local_phase_delta_t *command,
+    uint64_t local_now_ns)
+{
+    if (command == NULL || command->delta_phase_ns == 0) return false;
+    const vdc_dpll_local_rate_delta_t identity = {
+        .source_slot_id = command->source_slot_id,
+        .target_slot_id = command->target_slot_id,
+        .expected_control_generation = command->expected_control_generation,
+        .schedule_crc32 = command->schedule_crc32,
+        .servo_profile_crc32 = command->servo_profile_crc32,
+        .clock_epoch_id = command->clock_epoch_id,
+        .clock_run_id = command->clock_run_id,
+        .expected_dco_update_seq = command->expected_dco_update_seq,
+        .delta_rate_ppb = 0,
+    };
+    if (!vdc_domain_local_follow_delta_identity_valid(context, &identity, local_now_ns) ||
+        vdc_domain_abs_i32(context->dco.period_adjust_ppb) >
+            context->servo.sanity_freq_limit_ppb ||
+        !vdc_domain_dco_control_validate(&context->schedule, &context->servo,
+                                          &context->dco)) return false;
+
+    uint64_t old_output_ns, expected_output_ns, new_output_ns;
+    vdc_dco_control_t candidate = context->dco;
+    if (!vdc_domain_translate_u64(candidate.base_vdc_time64_ns,
+                                  command->delta_phase_ns,
+                                  &candidate.base_vdc_time64_ns) ||
+        !vdc_domain_dco_local_to_output_ns(&context->dco, local_now_ns, &old_output_ns) ||
+        !vdc_domain_translate_u64(old_output_ns, command->delta_phase_ns,
+                                  &expected_output_ns) ||
+        !vdc_domain_dco_local_to_output_ns(&candidate, local_now_ns, &new_output_ns) ||
+        new_output_ns != expected_output_ns) return false;
+
+    candidate.dco_update_seq++;
+    context->dco = candidate;
+    return true;
+}
+
 
 bool __attribute__((noinline)) vdc_domain_apply_local_follow_rate_delta(
     vdc_domain_context_t *context,

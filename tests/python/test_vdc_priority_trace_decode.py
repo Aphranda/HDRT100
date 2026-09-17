@@ -40,6 +40,62 @@ def test_native_intervals_actual_apply_and_hold():
     assert not result['physical_lock_qualified'] and not result['complete_window_proven']
 
 
+def phase_native():
+    """Two actual opposite phase steps; bytes independent of decoder names."""
+    words = list(struct.unpack_from('<37I', native(), 20))
+    words[0] = 4
+    words[11:14] = [2, 0, 2]
+    first = struct.pack('<5I6I4q3Q', 0, 4, 1000, 10, 11,
+                        2, 3, 4, 5, 1, 0, 80, 80, -100, -80, 1000, 1080, 100)
+    second = struct.pack('<5I6I4q3Q', 1, 4, 1200, 20, 21,
+                         3, 4, 5, 6, 1, 0, -20, 60, 20, 40, 1080, 1060, 200)
+    payload = first + second
+    return struct.pack('<42I', 0x52545056, 4, 168, 100, zlib.crc32(payload), *words) + payload
+
+
+def test_phase_records_preserve_actual_translation_and_ledger():
+    result = trace.decode(phase_native(), 123)
+    assert result['schema'] == 'VDC_TYPED_TRACE_DECODE_V4'
+    assert [r['delta_ns'] for r in result['records']] == [80, -20]
+    assert [r['outcome'] for r in result['records']] == ['phase_applied'] * 2
+    assert result['records'][-1]['cumulative_ns'] == 60
+    assert not result['complete_window_proven'] and not result['physical_lock_qualified']
+    data, _ = trace.download_capture(query_for(phase_native()), 123)
+    assert data == phase_native()
+
+
+@pytest.mark.parametrize('offset,fmt,value,reason', [
+    (168+24, 'I', 2, 'identity'), (168+32, 'I', 4, 'identity'),
+    (168+36, 'I', 0, 'identity'), (168+40, 'I', 1, 'identity'),
+    (168+44, 'q', 79, 'translation'), (168+84, 'Q', 1081, 'translation'),
+    (168+60, 'q', -50, 'Reversed'), (168+68, 'q', 0, 'direction'),
+    (168+68, 'q', -79, 'overshoots'), (268+52, 'q', 61, 'ledger'),
+])
+def test_phase_rejects_crc_valid_false_model_or_control_evidence(offset, fmt, value, reason):
+    data = bytearray(phase_native())
+    struct.pack_into('<' + fmt, data, offset, value)
+    with pytest.raises(ValueError, match=reason):
+        trace.decode(fix_crc(data), 123)
+
+
+def test_phase_kind_cannot_silently_enter_legacy_follower_schema():
+    data = bytearray(phase_native())
+    struct.pack_into('<I', data, 4, 1)
+    struct.pack_into('<I', data, 20, 1)
+    with pytest.raises(ValueError, match='kind'):
+        trace.decode(data, 123)
+
+
+@pytest.mark.parametrize('before,after,fmt', [(20,24,'I'), (28,32,'I'), (76,84,'Q')])
+def test_phase_same_epoch_rejects_locally_valid_but_unexplained_model_jump(before, after, fmt):
+    data = bytearray(phase_native())
+    for offset in (before, after):
+        value = struct.unpack_from('<'+fmt, data, 268+offset)[0]
+        struct.pack_into('<'+fmt, data, 268+offset, value+10)
+    with pytest.raises(ValueError, match='Unexplained model'):
+        trace.decode(fix_crc(data), 123)
+
+
 @pytest.mark.parametrize('offset,value,reason', [
     (0, 0, 'format'), (4, 99, 'format'), (8, 164, 'format'), (12, 96, 'format'),
     (20 + 2*4, 4, 'acknowledged'), (20 + 4*4, 2, 'acknowledged'),

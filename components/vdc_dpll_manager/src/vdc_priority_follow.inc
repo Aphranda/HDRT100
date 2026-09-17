@@ -6,13 +6,15 @@
 #endif
 typedef struct {
     uint64_t local_lo, local_hi, expected_lo, expected_hi, raw_lo;
-    uint32_t sequence, model_token;
+    uint64_t normalized_lo, normalized_hi;
+    uint32_t sequence, model_token, rate_epoch, reserved;
 } vdc_priority_follow_sample_t;
 typedef struct {
     vdc_priority_match_snapshot_t match;
     vdc_dpll_manager_committed_model_t model;
     uint64_t anchor_before, anchor_after;
-    uint32_t path_table_crc, servo_crc, prepared_ms;
+    uint64_t normalized_lo, normalized_hi;
+    uint32_t path_table_crc, servo_crc, prepared_ms, rate_epoch;
 } vdc_priority_follow_ticket_t;
 typedef struct {
     vdc_priority_follow_snapshot_t status;
@@ -26,6 +28,14 @@ typedef struct {
     vdc_priority_follow_baseline_config_t baseline_config; /* Latched once per binding. */
 } vdc_priority_follow_work_t;
 static vdc_priority_follow_work_t s_priority_follow_work;
+static void priority_phase_reset_request(void);
+static void priority_phase_cancel(uint32_t reason, bool retire);
+static bool priority_phase_prepare_ticket(bool new_binding);
+static void priority_phase_rate_priority(void);
+static void priority_phase_apply_core1(void);
+static bool priority_phase_known_successor(
+    const vdc_dpll_manager_committed_model_t *before,
+    const vdc_dpll_manager_committed_model_t *current);
 static uint32_t s_priority_follow_guard;
 static uint32_t s_priority_follow_words[sizeof(vdc_priority_follow_snapshot_t) / 4u];
 _Static_assert(sizeof(vdc_priority_follow_snapshot_t) == 216u,
@@ -139,6 +149,7 @@ static int32_t priority_follow_delta(int64_t lo, int64_t hi,
 
 static void priority_follow_cancel(uint32_t reason, bool retire)
 {
+    priority_phase_cancel(reason, retire);
     vdc_priority_follow_work_t *w = &s_priority_follow_work;
     if (w->pending || w->have_baseline) w->status.cancelled = priority_match_inc(w->status.cancelled);
     w->pending = w->have_baseline = w->next_evaluation = w->baseline_replacements = 0u;
@@ -168,6 +179,8 @@ static void priority_follow_baseline(void)
     const vdc_priority_match_snapshot_t *m = &w->ticket.match;
     w->previous = (vdc_priority_follow_sample_t){
         .local_lo = m->local_lo, .local_hi = m->local_hi,
+        .normalized_lo = w->ticket.normalized_lo, .normalized_hi = w->ticket.normalized_hi,
+        .rate_epoch = w->ticket.rate_epoch,
         .expected_lo = m->expected_lo, .expected_hi = m->expected_hi,
         .raw_lo = m->raw_lo, .sequence = m->event_sequence, .model_token = m->model_token};
     w->have_baseline = 1u;
@@ -200,6 +213,7 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
     }
     if (request != s->request) {
         memset(w, 0, sizeof(*w));
+        priority_phase_reset_request();
         s->schema = 1u; s->request = request; s->session = session;
         s->generation = match_generation;
         s->mode = mode; s->active = 1u; s->state = VDC_PRIORITY_FOLLOW_AWAITING;
@@ -247,23 +261,29 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
     w->ticket.path_table_crc = s_vdc_domain.path_delay.table_crc32;
     w->ticket.servo_crc = s_vdc_domain.servo.servo_profile_crc32;
     w->ticket.prepared_ms = board_uptime_ms();
+    if (!priority_phase_prepare_ticket(!w->bound)) {
+        priority_follow_cancel(VDC_PRIORITY_FOLLOW_OVERFLOW, true);
+        priority_follow_publish(); return;
+    }
     w->bound = 1u;
     s->tickets = priority_match_inc(s->tickets);
-    if (!w->have_baseline || w->previous.model_token != m->model_token ||
-        w->previous.raw_lo < w->ticket.model.valid_from_raw ||
+    /* Each endpoint keeps its own admission/model identity. A known
+     * successful phase publication can span a frequency baseline;
+     * never impose the NEW valid_from on the OLD admitted event. */
+    if (!w->have_baseline || w->previous.rate_epoch != w->ticket.rate_epoch ||
         m->raw_lo < w->ticket.model.valid_from_raw) {
         priority_follow_baseline(); s->last_reason = VDC_PRIORITY_FOLLOW_MODEL;
         priority_follow_publish(); return;
     }
     const vdc_priority_follow_sample_t *p = &w->previous;
-    if (m->local_lo <= p->local_hi || m->expected_lo <= p->expected_hi ||
+    if (w->ticket.normalized_lo <= p->normalized_hi || m->expected_lo <= p->expected_hi ||
         m->local_hi < m->local_lo || m->expected_hi < m->expected_lo ||
         m->raw_lo <= p->raw_lo) {
         priority_follow_baseline(); s->last_reason = VDC_PRIORITY_FOLLOW_INTERVAL;
         priority_follow_publish(); return;
     }
-    w->local_delta_lo = m->local_lo - p->local_hi;
-    w->local_delta_hi = m->local_hi - p->local_lo;
+    w->local_delta_lo = w->ticket.normalized_lo - p->normalized_hi;
+    w->local_delta_hi = w->ticket.normalized_hi - p->normalized_lo;
     w->expected_delta_lo = m->expected_lo - p->expected_hi;
     w->expected_delta_hi = m->expected_hi - p->expected_lo;
     if (w->local_delta_hi > VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS ||
@@ -315,7 +335,10 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
      * raw_lo subtraction cancels their shared observer enable anchor and
      * clock offset under the admitted unchanged clock lifetime. Preserve
      * integer-ns rounding before DCO scaling; the legacy staircase helper
-     * remains separate. Intersect bounds on the SAME event output difference.
+     * remains separate. After phase steps, subtract only the confirmed own
+     * cumulative translations: both intervals then describe the SAME event
+     * difference in one rate-epoch geometry. Original MATCH endpoints stay
+     * intact; an unknown model transition never inherits this authorization.
      * An inconsistency rejects the pair; neither estimate is a fallback. */
     uint64_t correlated_lo, correlated_hi;
     if (!vdc_model_project_event_delta(&w->ticket.model.dco, m->tick_hz,
@@ -394,11 +417,16 @@ static uint32_t priority_follow_current(void)
         s_vdc_domain.clock.epoch_id != m->clock_epoch || s_vdc_domain.clock.run_id != m->clock_run)
         return VDC_PRIORITY_FOLLOW_BINDING;
     model_feedback_load(&scratch->model_after);
+    const bool exact_model =
+        memcmp(&t->model, &scratch->model_after, sizeof(t->model)) == 0 &&
+        memcmp(&t->model.dco, &s_vdc_domain.dco, sizeof(t->model.dco)) == 0;
+    const bool confirmed_successor =
+        priority_phase_known_successor(&t->model, &scratch->model_after) &&
+        memcmp(&scratch->model_after.dco, &s_vdc_domain.dco, sizeof(t->model.dco)) == 0;
     if (!s_vdc_domain.ready || !s_vdc_domain.clock.valid || !s_vdc_domain.servo.enabled ||
         t->servo_crc != s_vdc_domain.servo.servo_profile_crc32 ||
         !t->model.token || t->model.token == UINT32_MAX || m->raw_lo < t->model.valid_from_raw ||
-        memcmp(&t->model, &scratch->model_after, sizeof(t->model)) != 0 ||
-        memcmp(&t->model.dco, &s_vdc_domain.dco, sizeof(t->model.dco)) != 0 ||
+        (!exact_model && !confirmed_successor) ||
         t->model.applied_command_seq != s_vdc_domain.control.last_follower_command_seq)
         return VDC_PRIORITY_FOLLOW_MODEL;
     uint64_t raw_now;
@@ -409,6 +437,8 @@ static uint32_t priority_follow_current(void)
         return VDC_PRIORITY_FOLLOW_AGE;
     return VDC_PRIORITY_FOLLOW_OK;
 }
+
+#include "vdc_priority_phase.inc"
 
 static void priority_follow_record_decision(int32_t step)
 {
@@ -452,7 +482,7 @@ static __attribute__((noinline)) void priority_follow_apply_core1(void)
         else s->last_reason = current;
         priority_follow_publish(); return;
     }
-    if (!w->pending) return;
+    if (!w->pending) { priority_phase_apply_core1(); return; }
     const vdc_priority_match_snapshot_t *m = &w->ticket.match;
     if (w->have_consumed && m->event_sequence <= w->consumed_sequence) {
         w->pending = 0u; s->repeated = priority_match_inc(s->repeated);
@@ -463,6 +493,7 @@ static __attribute__((noinline)) void priority_follow_apply_core1(void)
         s_vdc_domain.dco.period_adjust_ppb, s_vdc_domain.servo.sanity_freq_limit_ppb);
     bool applied = false;
     if (step) {
+        priority_phase_rate_priority();
         const vdc_dpll_local_rate_delta_t command = {
             .source_slot_id = m->reference_slot, .target_slot_id = m->local_slot,
             .expected_control_generation = m->role_generation, .schedule_crc32 = m->schedule_crc32,
@@ -503,4 +534,5 @@ static __attribute__((noinline)) void priority_follow_apply_core1(void)
     }
     VDC_PRIORITY_TRACE_DECISION_HOOK(s);
     priority_follow_publish();
+    if (!step) priority_phase_apply_core1();
 }

@@ -1672,6 +1672,7 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
 }
 
 static bool priority_follow_baseline_init_from_product_config(void);
+static bool output_delay_init_from_product_config(void);
 
 bool vdc_dpll_manager_init(void)
 {
@@ -1800,6 +1801,9 @@ bool vdc_dpll_manager_init(void)
     s_debug_servo_tune_profile = s_vdc_domain.servo;
     product_config_dpll_control_profile_t persisted_role;
     if (!product_config_get_dpll_control_profile(&persisted_role)) {
+        return false;
+    }
+    if (!output_delay_init_from_product_config()) {
         return false;
     }
     if (!priority_follow_baseline_init_from_product_config()) {
@@ -3011,7 +3015,11 @@ static void vdc_dpll_manager_waveform_capture_service(void)
 }
 
 #include "vdc_dpll_feedback_match.inc"
+#include "vdc_priority_phase.h"
+static void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t *model);
+#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)
 #include "vdc_model_feedback.inc"
+#undef VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK
 #include "vdc_priority_tx.h"
 static void priority_trace_origin_core1(const vdc_priority_tx_origin_evidence_t *evidence);
 #define VDC_PRIORITY_TRACE_ORIGIN_HOOK(evidence) priority_trace_origin_core1(evidence)
@@ -3023,10 +3031,14 @@ static void priority_trace_origin_core1(const vdc_priority_tx_origin_evidence_t 
 #include "vdc_priority_rx.inc"
 #include "vdc_priority_match.inc"
 static void priority_trace_decision_core1(const vdc_priority_follow_snapshot_t *decision);
+static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phase);
+#define VDC_PRIORITY_TRACE_PHASE_HOOK(snapshot) priority_trace_phase_core1(snapshot)
 #define VDC_PRIORITY_TRACE_DECISION_HOOK(snapshot) priority_trace_decision_core1(snapshot)
 #include "vdc_priority_follow_config.inc"
+#include "vdc_output_delay_config.inc"
 #include "vdc_priority_follow.inc"
 #undef VDC_PRIORITY_TRACE_DECISION_HOOK
+#undef VDC_PRIORITY_TRACE_PHASE_HOOK
 #include "vdc_priority_trace.inc"
 #include "vdc_fixed_output.inc"
 

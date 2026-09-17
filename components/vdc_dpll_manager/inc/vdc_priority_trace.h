@@ -6,6 +6,7 @@
 
 #define VDC_PRIORITY_TRACE_MAGIC UINT32_C(0x52545056) /* VPTR, little endian */
 #define VDC_PRIORITY_TRACE_SCHEMA 1u
+#define VDC_PRIORITY_TRACE_PHASE_SCHEMA 4u
 #define VDC_PRIORITY_TRACE_ORIGIN_SCHEMA 3u
 #define VDC_PRIORITY_TRACE_ORIGIN_EXTENSION_BYTES 96u
 #define VDC_PRIORITY_TRACE_RECORD_BYTES 100u
@@ -28,7 +29,7 @@ enum {
     VDC_PRIORITY_TRACE_RELEASED = 6u, VDC_PRIORITY_TRACE_MODE = 7u
 };
 enum { VDC_PRIORITY_TRACE_MATCH = 1u, VDC_PRIORITY_TRACE_DECISION = 2u,
-    VDC_PRIORITY_TRACE_ORIGIN = 3u };
+    VDC_PRIORITY_TRACE_ORIGIN = 3u, VDC_PRIORITY_TRACE_PHASE = 4u };
 
 /* Atomic-word diagnostic status. request_seq != ack_seq means a command is
  * pending: neither ARM ownership nor STOP readback is acknowledged yet.
@@ -80,12 +81,24 @@ typedef struct {
  * Decision outcomes are actual facts: after_seq==before_seq is not an apply.
  * MATCH decimation uses actual raw event time; DECISION records are additional.
  * No record or getter authorizes control, phase lock or a precision claim. */
+/* Follower schema 4 retains the schema 1 header/record sizes. decision_count
+ * includes both frequency DECISION and successful PHASE records. Frequency
+ * local_delta is normalized by the known local phase ledger, not a changed
+ * historical absolute event. MATCH always retains the actual event interval.
+ * PHASE common prefix is unchanged, then:
+ *   u32 before_model_token@20/after_model_token@24/before_dco_seq@28/after_dco_seq@32;
+ *   u32 rate_epoch@36/reason@40;
+ *   i64 delta_ns@44/cumulative_ns@52/residual_lo@60/residual_hi@68;
+ *   u64 before_base_vdc_ns@76/after_base_vdc_ns@84/raw_lo@92.
+ * A PHASE record is emitted only after the final model publication confirms
+ * the full actual post-DCO identity. Phase steps are not GPIO edge evidence. */
 typedef struct { uint8_t bytes[VDC_PRIORITY_TRACE_RECORD_BYTES]; } vdc_priority_trace_record_t;
 
 /* Core0, stopped metadata gate. Nonzero capture_id must increase within boot.
  * True only acknowledges request admission; poll status ACK while STOPPED
  * before ring ARM/read/reuse. RELEASE ACK relinquishes the shared legacy pool. */
 bool vdc_dpll_manager_priority_trace_arm(uint32_t capture_id);
+bool vdc_dpll_manager_priority_trace_phase_arm(uint32_t capture_id);
 bool vdc_dpll_manager_priority_trace_origin_arm(uint32_t capture_id);
 bool vdc_dpll_manager_priority_trace_stop(void);
 bool vdc_dpll_manager_priority_trace_release(void);

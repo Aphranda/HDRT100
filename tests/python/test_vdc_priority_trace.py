@@ -52,6 +52,7 @@ def recorder_base():
         '#include <assert.h>', '#include <assert.h>\n#include <stddef.h>\n#include <inttypes.h>\n'
         '#include "vdc_priority_follow.h"\n#include "vdc_priority_rx.h"\n'
         '#include "vdc_priority_match.h"\n#include "vdc_priority_trace.h"\n#include "vdc_priority_tx.h"\n'
+        '#include "vdc_priority_phase.h"\n'
         'static unsigned core;\nstatic unsigned get_core_num(void) { return core; }')
     for name in ("vdc_dpll_manager_publish_runtime_snapshot_locked", "vdc_boundary_capture_offer_core1",
                  "vdc_boundary_capture_apply_core1", "vdc_boundary_capture_ack_core1",
@@ -90,13 +91,20 @@ def recorder_base():
 def trace_executable(tmp_path_factory):
     prefix, legacy = recorder_base()
     harness = prefix + "\n" + legacy
+    harness += r'''
+static void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t *model);
+#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)
+'''
     for name in ("vdc_model_feedback.inc", "vdc_boundary_capture.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc"):
         harness += "\n" + production(f"components/vdc_dpll_manager/src/{name}")
     harness += r'''
 static void priority_trace_decision_core1(const vdc_priority_follow_snapshot_t *decision);
+static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phase);
 #define VDC_PRIORITY_TRACE_DECISION_HOOK(snapshot) priority_trace_decision_core1(snapshot)
+#define VDC_PRIORITY_TRACE_PHASE_HOOK(snapshot) priority_trace_phase_core1(snapshot)
 '''
-    harness += production("components/vdc_dpll_manager/src/vdc_priority_follow.inc")
+    harness += production("components/vdc_dpll_manager/src/vdc_priority_follow.inc").replace(
+        '#include "vdc_priority_phase.inc"', production("components/vdc_dpll_manager/src/vdc_priority_phase.inc"))
     harness += "\n#undef VDC_PRIORITY_TRACE_DECISION_HOOK\n"
     harness += r'''
 /* Schema 1 fixture has no origin TX producer; origin schema is exercised with
@@ -130,6 +138,23 @@ def execute(executable, case):
         stdout_bytes=len(result.stdout)), indent=2), encoding="utf-8")
     assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
     return result.stdout
+
+
+def test_actual_phase_producer_and_frequency_records(trace_executable):
+    from tools.vdc_priority_trace import vdc_priority_trace as decoder
+    result = decoder.decode(execute(trace_executable, 'phase_flow'), 2)
+    phases = [r for r in result['records'] if r['kind'] == 4]
+    decisions = [r for r in result['records'] if r['kind'] == 2]
+    assert len(phases) > 1 and decisions
+    assert all(p['outcome'] == 'phase_applied' for p in phases)
+    assert not result['physical_lock_qualified']
+
+
+def test_legacy_trace_freezes_on_real_phase_after_stopped_reconfiguration(trace_executable):
+    from tools.vdc_priority_trace import vdc_priority_trace as decoder
+    result = decoder.decode(execute(trace_executable, 'phase_legacy_reconfigure'), 1)
+    assert result['status']['reason'] == 7  # Public MODE reason.
+    assert all(r['kind'] != 4 for r in result['records'])
 
 
 STATUS_FIELDS = (
@@ -383,6 +408,29 @@ static void capacity_trace(void)
     assert(!memcmp(saved,s_dpll_capture_records,sizeof(saved)));
     frozen_trace();export_trace();
 }
+static void phase_trace(const char *name)
+{
+    setup(6000);stopped_ring();
+    if (!strcmp(name,"phase_legacy_reconfigure")) armed_trace(1);
+    assert(!vdc_dpll_manager_priority_trace_phase_arm(2)); /* Default off. */
+    assert(vdc_dpll_manager_set_priority_follow_phase(true));
+    assert(!vdc_dpll_manager_priority_trace_arm(2)); /* Never mislabel phase. */
+    if (strcmp(name,"phase_legacy_reconfigure")) {
+        assert(vdc_dpll_manager_priority_trace_phase_arm(2));trace_service();
+        assert(trace_status().schema==4 && trace_status().state==VDC_PRIORITY_TRACE_ARMED);
+    }
+    running_ring();
+    for (unsigned i=0;i<32 && trace_status().state!=VDC_PRIORITY_TRACE_FROZEN;++i) {
+        event(100+i,(uint64_t)i*100000000u);tick();
+    }
+    if (!strcmp(name,"phase_legacy_reconfigure")) {
+        assert(trace_status().state==VDC_PRIORITY_TRACE_FROZEN && trace_status().reason==VDC_PRIORITY_TRACE_MODE);
+    } else {
+        assert(s_priority_phase_work.status.applied>1u);
+        assert(trace_status().decision_count>1u);
+    }
+    frozen_trace();export_trace();
+}
 static void old_capture_inert(void)
 {
     uint8_t saved[sizeof(s_dpll_capture_records)];memcpy(saved,s_dpll_capture_records,sizeof(saved));
@@ -596,6 +644,7 @@ int main(int argc,char **argv)
     }
     else if(!strcmp(argv[1],"empty")){setup(6000);armed_trace(1);frozen_trace();export_trace();}
     else if(!strcmp(argv[1],"capacity"))capacity_trace();
+    else if(!strncmp(argv[1],"phase_",6))phase_trace(argv[1]);
     else if(!strcmp(argv[1],"ack_publication"))ack_publication_trace();
     else if(!strncmp(argv[1],"read_",5) && strcmp(argv[1],"read_pending"))reader_trace(argv[1]);
     else lifecycle_trace(argv[1]);

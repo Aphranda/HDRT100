@@ -8,7 +8,7 @@ from test_vdc_command_owner import compile_executable
 def test_real_priority_trace_callbacks(tmp_path):
     source = (ROOT / 'middleware/scpi_port/src/scpi_sync_commands.c').read_text(encoding='utf-8')
     table = (ROOT / 'middleware/scpi_port/inc/scpi_system_snapshot_commands.h').read_text(encoding='utf-8')
-    pairs = [('ARM', 'arm'), ('ORIGin', 'origin_arm'), ('STOP', 'stop'), ('RELease', 'release'), ('STATus?', 'status_q'), ('READ?', 'read_q')]
+    pairs = [('ARM', 'arm'), ('PHASe', 'phase_arm'), ('ORIGin', 'origin_arm'), ('STOP', 'stop'), ('RELease', 'release'), ('STATus?', 'status_q'), ('READ?', 'read_q')]
     names = ['scpi_cmd_vdc_priority_trace_' + suffix for _, suffix in pairs]
     for (pattern, _), name in zip(pairs, names):
         assert table.count(f'.pattern = "SYSTem:VDC:PRIORity:TRACe:{pattern}", .callback = {name}') == 1
@@ -39,6 +39,7 @@ static void SCPI_ResultUInt32(scpi_t *c,uint32_t v){(void)c;assert(count<64);fie
 static void SCPI_ResultText(scpi_t *c,const char *s){(void)c;assert(strlen(s)<sizeof(text));strcpy(text,s);}
 static void scpi_port_push_exec_error(scpi_t *c,const char *s){(void)c;(void)s;++errors;}
 bool vdc_dpll_manager_priority_trace_arm(uint32_t id){assert(id==123);++calls;return accepted;}
+bool vdc_dpll_manager_priority_trace_phase_arm(uint32_t id){assert(id==123);++calls;return accepted;}
 bool vdc_dpll_manager_priority_trace_origin_arm(uint32_t id){assert(id==123);++calls;return accepted;}
 bool vdc_dpll_manager_priority_trace_stop(void){++calls;return accepted;}
 bool vdc_dpll_manager_priority_trace_release(void){++calls;return accepted;}
@@ -65,12 +66,18 @@ int main(void)
  assert(scpi_cmd_vdc_priority_trace_arm(&c)==SCPI_RES_OK && count==1 && fields[0]==123);
  reset();argc=0;
  assert(scpi_cmd_vdc_priority_trace_origin_arm(&c)==SCPI_RES_ERR && calls==0 && count==0);
+ assert(scpi_cmd_vdc_priority_trace_phase_arm(&c)==SCPI_RES_ERR && calls==0 && count==0);
  reset();argc=1;args[0]=0;
  assert(scpi_cmd_vdc_priority_trace_origin_arm(&c)==SCPI_RES_ERR && calls==0);
+ assert(scpi_cmd_vdc_priority_trace_phase_arm(&c)==SCPI_RES_ERR && calls==0);
  reset();args[0]=123;accepted=false;
  assert(scpi_cmd_vdc_priority_trace_origin_arm(&c)==SCPI_RES_ERR && calls==1 && count==0);
  reset();accepted=true;
  assert(scpi_cmd_vdc_priority_trace_origin_arm(&c)==SCPI_RES_OK && count==1 && fields[0]==123);
+ reset();accepted=false;
+ assert(scpi_cmd_vdc_priority_trace_phase_arm(&c)==SCPI_RES_ERR && calls==1 && count==0);
+ reset();accepted=true;
+ assert(scpi_cmd_vdc_priority_trace_phase_arm(&c)==SCPI_RES_OK && calls==1 && count==1 && fields[0]==123);
  reset();accepted=false;
  assert(scpi_cmd_vdc_priority_trace_stop(&c)==SCPI_RES_ERR && count==0);
  assert(scpi_cmd_vdc_priority_trace_release(&c)==SCPI_RES_ERR && count==0);

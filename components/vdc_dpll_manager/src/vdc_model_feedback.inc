@@ -47,6 +47,10 @@ static __attribute__((noinline)) void model_feedback_end_core1(uint32_t session)
         memcpy(&word, (const uint8_t *)&model + i * 4u, 4u);
         __atomic_store_n(s_committed_model_words + i, word, __ATOMIC_RELAXED);
     }
+    /* The owner receipt sees the complete model while readers are excluded. */
+#ifdef VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK
+    VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(&model);
+#endif
     (void)__atomic_add_fetch(&s_committed_model_guard, 1u, __ATOMIC_RELEASE);
 }
 

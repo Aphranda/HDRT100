@@ -4,6 +4,7 @@
 #include "project_config.h"
 #include "tdma_runtime_owner.h"
 #include "vdc_dpll_manager.h"
+#include "vdc_output_delay.h"
 #include "vdc_priority_ingress.h"
 
 scpi_result_t scpi_sync_state_q(scpi_t *context)
@@ -838,6 +839,60 @@ scpi_result_t scpi_cmd_system_tdma_priority_rx_timing_q(scpi_t *context)
 #include "vdc_priority_match.h"
 #include "vdc_priority_follow.h"
 #include "vdc_priority_trace.h"
+#include "vdc_priority_phase.h"
+
+scpi_result_t scpi_cmd_vdc_priority_follow_phase(scpi_t *context)
+{
+    uint32_t enabled;
+    if (!SCPI_ParamUInt32(context, &enabled, TRUE) || enabled > 1u ||
+        !vdc_dpll_manager_set_priority_follow_phase(enabled != 0u)) {
+        scpi_port_push_exec_error(context, "Priority phase configuration rejected");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, enabled);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_follow_phase_q(scpi_t *context)
+{
+    bool enabled;
+    if (!vdc_dpll_manager_try_priority_follow_phase_enabled(&enabled)) {
+        scpi_port_push_exec_error(context, "Priority phase configuration unavailable");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, enabled ? 1u : 0u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_follow_phase_status_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    vdc_priority_phase_snapshot_t snapshot;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !vdc_dpll_manager_get_priority_follow_phase(&snapshot)) {
+        scpi_port_push_exec_error(context, "Priority phase status requires STOP");
+        return SCPI_RES_ERR;
+    }
+    /* Word ABI: signed 64-bit values use little-endian two's-complement parts. */
+    for (size_t i = 0u; i < sizeof(snapshot) / sizeof(uint32_t); ++i) {
+        uint32_t word;
+        memcpy(&word, (const uint8_t *)&snapshot + i * sizeof(word), sizeof(word));
+        SCPI_ResultUInt32(context, word);
+    }
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_trace_phase_arm(scpi_t *context)
+{
+    uint32_t capture_id;
+    if (!SCPI_ParamUInt32(context, &capture_id, TRUE) || capture_id == 0u ||
+        !vdc_dpll_manager_priority_trace_phase_arm(capture_id)) {
+        scpi_port_push_exec_error(context, "Priority phase trace ARM rejected");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, capture_id);
+    return SCPI_RES_OK;
+}
 
 scpi_result_t scpi_cmd_vdc_priority_trace_arm(scpi_t *context)
 {
@@ -948,6 +1003,83 @@ scpi_result_t scpi_cmd_vdc_priority_follow_q(scpi_t *context)
         return SCPI_RES_ERR;
     }
     SCPI_ResultUInt32(context, enabled ? 1u : 0u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_output_delay(scpi_t *context)
+{
+    /* Generic integer conversion saturates and accepts numeric prefixes.
+     * Consume the whole decimal ns token, with checked magnitude arithmetic. */
+    scpi_parameter_t param;
+    if (!SCPI_Parameter(context, &param, TRUE) ||
+        param.type != SCPI_TOKEN_DECIMAL_NUMERIC_PROGRAM_DATA || !param.len) {
+        scpi_port_push_exec_error(context, "Output delay requires signed decimal ns");
+        return SCPI_RES_ERR;
+    }
+    const char *text = param.ptr;
+    const size_t length = param.len;
+    const bool negative = text[0] == '-';
+    size_t pos = (negative || text[0] == '+') ? 1u : 0u;
+    const uint32_t limit = negative ? UINT32_C(2147483648) : INT32_MAX;
+    uint32_t magnitude = 0u;
+    bool valid = pos < length;
+    for (; valid && pos < length; ++pos) {
+        const unsigned char c = (unsigned char)text[pos];
+        if (c < '0' || c > '9' || magnitude > (limit - (c - '0')) / 10u) {
+            valid = false;
+        } else magnitude = magnitude * 10u + (c - '0');
+    }
+    const int32_t requested = negative ? (int32_t)(-(int64_t)magnitude) : (int32_t)magnitude;
+    if (valid) {
+        scpi_parameter_t extra;
+        valid = !SCPI_Parameter(context, &extra, FALSE) && !SCPI_ParamErrorOccurred(context);
+    }
+    if (!valid || !vdc_dpll_manager_set_output_delay_ns(requested)) {
+        scpi_port_push_exec_error(context, "Output delay requires signed ns and STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultInt32(context, requested);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_output_delay_q(scpi_t *context)
+{
+    int32_t value;
+    if (!vdc_dpll_manager_get_output_delay_ns(&value)) {
+        scpi_port_push_exec_error(context, "Output delay unavailable");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultInt32(context, value);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_output_delay_default(scpi_t *context)
+{
+    if (!vdc_dpll_manager_default_output_delay()) {
+        scpi_port_push_exec_error(context, "Output delay default requires STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_output_delay_recall(scpi_t *context)
+{
+    if (!vdc_dpll_manager_recall_output_delay()) {
+        scpi_port_push_exec_error(context, "Output delay recall requires saved value and STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_output_delay_store(scpi_t *context)
+{
+    if (!vdc_dpll_manager_store_output_delay()) {
+        scpi_port_push_exec_error(context, "Output delay store rejected or failed");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
     return SCPI_RES_OK;
 }
 

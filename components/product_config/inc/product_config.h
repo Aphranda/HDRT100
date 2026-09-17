@@ -23,6 +23,12 @@ typedef struct {
     uint32_t window_ns;
 } product_config_dpll_baseline_profile_t;
 
+/* Output-only compensation, independent of MATCH transport delay. Positive
+ * delays the physical edge; boot migration defaults to zero in RAM only. */
+#define PRODUCT_CONFIG_DPLL_OUTPUT_COMPENSATION_DEFAULT_NS INT32_C(0)
+bool product_config_get_dpll_output_compensation_ns(int32_t *value);
+bool product_config_set_dpll_output_compensation_ns(int32_t value);
+
 #define PRODUCT_CONFIG_DPLL_BASELINE_MAX_REPLACEMENTS 2u
 #define PRODUCT_CONFIG_DPLL_BASELINE_MAX_WINDOW_NS 250000000u
 #define PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_REPLACEMENTS 2u

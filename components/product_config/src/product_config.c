@@ -11,7 +11,8 @@
 #include "project_config.h"
 
 #define PRODUCT_CONFIG_MAGIC   0x47544346u
-#define PRODUCT_CONFIG_VERSION 3u
+#define PRODUCT_CONFIG_VERSION 4u
+#define PRODUCT_CONFIG_VERSION_BASELINE 3u
 #define PRODUCT_CONFIG_VERSION_SERVO 2u
 #define PRODUCT_CONFIG_VERSION_LEGACY 1u
 #define PRODUCT_CONFIG_MAX_BOARD_NO 8u
@@ -40,12 +41,16 @@ typedef struct {
     uint32_t crc32;
     uint32_t baseline_max_replacements;
     uint32_t baseline_window_ns;
+    int32_t output_compensation_ns;
 } product_config_record_t;
 
 /* Versions 1/2 end at the existing CRC word; retain their byte-exact CRC
- * domain. Version 3 covers the appended tuning fields with the same CRC. */
+ * domain. Version 3 covers baseline fields; version 4 also covers output delay. */
 #define PRODUCT_CONFIG_LEGACY_BYTES offsetof(product_config_record_t, baseline_max_replacements)
 _Static_assert(PRODUCT_CONFIG_LEGACY_BYTES == 64u, "v1/v2 CRC domain remains 64 bytes");
+#define PRODUCT_CONFIG_BASELINE_BYTES offsetof(product_config_record_t, output_compensation_ns)
+_Static_assert(PRODUCT_CONFIG_BASELINE_BYTES == 72u, "v3 CRC domain remains 72 bytes");
+_Static_assert(sizeof(product_config_record_t) == 76u, "v4 record is 76 bytes");
 _Static_assert(sizeof(product_config_record_t) <= PRODUCT_CONFIG_SLOT_SIZE,
                "Product Config record must fit one journal page");
 
@@ -146,7 +151,8 @@ static uint32_t product_config_crc32(const product_config_record_t *record)
     product_config_record_t copy = *record;
     copy.crc32 = 0u;
     const size_t length = copy.version == PRODUCT_CONFIG_VERSION
-        ? sizeof(copy) : PRODUCT_CONFIG_LEGACY_BYTES;
+        ? sizeof(copy) : copy.version == PRODUCT_CONFIG_VERSION_BASELINE
+            ? PRODUCT_CONFIG_BASELINE_BYTES : PRODUCT_CONFIG_LEGACY_BYTES;
     return ota_crc32_compute((const uint8_t *)&copy, length);
 }
 
@@ -155,6 +161,7 @@ static bool product_config_record_is_valid(const product_config_record_t *record
     if (record == NULL ||
         record->magic != PRODUCT_CONFIG_MAGIC ||
         (record->version != PRODUCT_CONFIG_VERSION &&
+         record->version != PRODUCT_CONFIG_VERSION_BASELINE &&
          record->version != PRODUCT_CONFIG_VERSION_SERVO &&
          record->version != PRODUCT_CONFIG_VERSION_LEGACY) ||
         !product_config_usb_mode_is_valid(record->usb_mode) ||
@@ -399,13 +406,15 @@ bool product_config_init(void)
      * bytes must never become a valid v2 profile merely through migration. */
     const bool have_servo = product_config_dpll_profile_is_valid(&s_product_config);
     const bool have_control = product_config_dpll_control_profile_is_valid(&s_product_config);
-    if (s_product_config.version != PRODUCT_CONFIG_VERSION ||
+    if (s_product_config.version < PRODUCT_CONFIG_VERSION_BASELINE ||
         s_product_config.baseline_max_replacements > PRODUCT_CONFIG_DPLL_BASELINE_MAX_REPLACEMENTS ||
         s_product_config.baseline_window_ns == 0u ||
         s_product_config.baseline_window_ns > PRODUCT_CONFIG_DPLL_BASELINE_MAX_WINDOW_NS) {
         s_product_config.baseline_max_replacements = PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_REPLACEMENTS;
         s_product_config.baseline_window_ns = PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_WINDOW_NS;
     }
+    if (s_product_config.version < PRODUCT_CONFIG_VERSION)
+        s_product_config.output_compensation_ns = PRODUCT_CONFIG_DPLL_OUTPUT_COMPENSATION_DEFAULT_NS;
     if (!have_servo)
         product_config_record_set_dpll_profile(&s_product_config, &default_profile);
     if (!have_control)
@@ -584,6 +593,27 @@ bool product_config_set_dpll_baseline_profile(const product_config_dpll_baseline
     product_config_dpll_baseline_profile_t readback;
     return product_config_store(&record) && product_config_get_dpll_baseline_profile(&readback) &&
         readback.max_replacements == profile->max_replacements && readback.window_ns == profile->window_ns;
+}
+
+bool product_config_get_dpll_output_compensation_ns(int32_t *value)
+{
+    if (value == NULL || !product_config_record_is_valid(&s_product_config) ||
+        s_product_config.version != PRODUCT_CONFIG_VERSION) return false;
+    *value = s_product_config.output_compensation_ns;
+    return true;
+}
+
+bool product_config_set_dpll_output_compensation_ns(int32_t value)
+{
+    product_config_record_t record = s_product_config;
+    if (!product_config_record_is_valid(&record)) product_config_set_default(&record);
+    record.version = PRODUCT_CONFIG_VERSION;
+    record.output_compensation_ns = value;
+    record.sequence++;
+    record.crc32 = product_config_crc32(&record);
+    int32_t readback;
+    return product_config_store(&record) &&
+        product_config_get_dpll_output_compensation_ns(&readback) && readback == value;
 }
 
 const char *product_config_usb_mode_to_string(product_config_usb_mode_t mode)

@@ -269,6 +269,21 @@ typedef struct {
     int32_t delta_rate_ppb;
 } vdc_dpll_local_rate_delta_t;
 
+/* Local same-event phase correction. Ephemeral Core1 input, not a wire
+ * record, remote command, saved profile or public snapshot. */
+typedef struct {
+    uint32_t source_slot_id;
+    uint32_t target_slot_id;
+    uint32_t expected_control_generation;
+    uint32_t schedule_crc32;
+    uint32_t servo_profile_crc32;
+    uint32_t clock_epoch_id;
+    uint32_t clock_run_id;
+    uint32_t expected_dco_update_seq;
+    int64_t delta_phase_ns;
+} vdc_dpll_local_phase_delta_t;
+
+
 typedef struct {
     vdc_dpll_control_profile_t profile;
     uint32_t follower_apply_count;
@@ -755,6 +770,28 @@ bool vdc_domain_apply_local_follow_rate_delta(
     vdc_domain_context_t *context,
     const vdc_dpll_local_rate_delta_t *candidate,
     uint64_t local_now_ns);
+/* Explicit signal-coordinate translation under the Core1 publication guard.
+ * The caller admits one same-event reference/local observation and owns
+ * session/ARM/model-token/freshness, cancellation and at-most-once checks.
+ * local_now_ns is the service-boundary application time, not an event time.
+ * It validates both maps at that boundary; the geometric base_local_tick64
+ * remains unchanged. Success changes only base_vdc_time64_ns by the exact
+ * signed delta and advances dco_update_seq. Rate, phase_offset, raw clock,
+ * lock/quality, remote-command metadata and oscillator state stay unchanged.
+ * Thus F_new(t) = F_old(t) + delta wherever both projections are valid.
+ * A zero delta is a rejected no-op, with no new model/update identity.
+ * False leaves every context byte unchanged, including on int64/uint64 edge
+ * cases and exhausted identities. Caller publishes the actual valid_from
+ * boundary; consumers must not apply the new model retroactively to events.
+ * This permits explicit acquisition coordinate alignment. A negative step
+ * does NOT preserve cross-update monotonic output, and this API does not
+ * authorize a phase step in product RUN, safe GPIO edges or any lock claim.
+ * Tracking/output-edge policy is a separate owner responsibility. */
+bool vdc_domain_apply_local_follow_phase_delta(
+    vdc_domain_context_t *context,
+    const vdc_dpll_local_phase_delta_t *command,
+    uint64_t local_now_ns);
+
 void vdc_domain_note_follower_command_missing(vdc_domain_context_t *context);
 void vdc_domain_note_follower_command_late(vdc_domain_context_t *context);
 void vdc_domain_default_oscillator_discipline_profile(

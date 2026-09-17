@@ -17,6 +17,7 @@ import zlib
 
 MAGIC = 0x52545056
 SCHEMA = 1
+PHASE_SCHEMA = 4
 ORIGIN_SCHEMA = 3
 # Immutable wire semantics: historical captures must not inherit today's cap.
 ORIGIN_SCHEMA_CAPACITIES = {2: 8, 3: 64}
@@ -45,8 +46,11 @@ ORIGIN_FIELDS = ('index kind event_sequence model_token tick_hz raw_lo raw_hi br
 COMMON = struct.Struct('<5I')
 MATCH = struct.Struct('<QQqqQQQQIIiI')
 DECISION = struct.Struct('<IIIIiiiIqqQQQQ')
+PHASE = struct.Struct('<6I4q3Q')
 MATCH_FIELDS = 'raw_lo raw_hi residual_lo residual_hi local_lo local_hi remote_lo remote_hi model_token dco_seq actual_ppb match_reason'.split()
 DECISION_FIELDS = 'baseline_sequence model_token before_seq after_seq before_ppb after_ppb delta_ppb follow_reason error_lo_ppb error_hi_ppb expected_delta_lo expected_delta_hi local_delta_lo local_delta_hi'.split()
+PHASE_FIELDS = ('before_model_token after_model_token before_dco_seq after_dco_seq rate_epoch reason '
+                'delta_ns cumulative_ns residual_lo residual_hi before_base_vdc_ns after_base_vdc_ns raw_lo').split()
 READ = 'SYSTem:VDC:PRIORity:TRACe:READ?'
 
 
@@ -66,7 +70,8 @@ def parse_status(response: str) -> dict[str, int]:
 def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     require(len(data) >= HEADER_BYTES, 'Truncated native header')
     magic, schema, header_bytes, record_bytes, payload_crc = PREFIX.unpack_from(data)
-    expected_header = {SCHEMA: HEADER_BYTES, **dict.fromkeys(ORIGIN_SCHEMA_CAPACITIES, ORIGIN_HEADER_BYTES)}.get(schema)
+    expected_header = {SCHEMA: HEADER_BYTES, PHASE_SCHEMA: HEADER_BYTES,
+                       **dict.fromkeys(ORIGIN_SCHEMA_CAPACITIES, ORIGIN_HEADER_BYTES)}.get(schema)
     require((magic, header_bytes, record_bytes) ==
             (MAGIC, expected_header, RECORD_BYTES), 'Unknown native trace format')
     require(len(data) >= header_bytes, 'Truncated native header')
@@ -78,7 +83,7 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     require(status['command'] in (1, 2), 'Frozen capture has unexpected command')
     count = status['record_count']
     require(status['capacity'] == MAX_RECORDS and count <= status['capacity'], 'Invalid record capacity')
-    if schema == SCHEMA:
+    if schema in (SCHEMA, PHASE_SCHEMA):
         require(count == status['match_count'] + status['decision_count'], 'Record counts disagree')
     else:
         require(status['match_count'] == status['decision_count'] == status['sample_interval_ms'] == 0, 'Origin counters mislabelled')
@@ -87,7 +92,8 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     if schema in ORIGIN_SCHEMA_CAPACITIES:
         return decode_origin(data, status, header_bytes)
     records = []
-    counts = {1: 0, 2: 0}
+    counts = {1: 0, 2: 0, **({4: 0} if schema == PHASE_SCHEMA else {})}
+    prior_phase = None
     for index in range(count):
         offset = HEADER_BYTES + index * RECORD_BYTES
         row = dict(zip('index kind uptime_ms event_sequence carrier_sequence'.split(), COMMON.unpack_from(data, offset)))
@@ -103,7 +109,7 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
                     row['residual_hi'] == row['local_hi'] - row['remote_lo'] - delay,
                     'Residual does not match local/remote intervals and installed delay')
             require(row['model_token'] != 0 and row['dco_seq'] != 0, 'Missing match model identity')
-        else:
+        elif row['kind'] == 2:
             row.update(zip(DECISION_FIELDS, DECISION.unpack_from(data, offset + COMMON.size)))
             e0, e1 = row['expected_delta_lo'], row['expected_delta_hi']
             l0, l1 = row['local_delta_lo'], row['local_delta_hi']
@@ -119,9 +125,34 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
             else:
                 require(after == before and row['after_ppb'] == row['before_ppb'], 'Unexplained DCO change')
                 row['outcome'] = 'no_adjust' if delta == 0 else 'rejected'
+        else:
+            row.update(zip(PHASE_FIELDS, PHASE.unpack_from(data, offset + COMMON.size)))
+            require(row['before_model_token'] > 0 and
+                    row['after_model_token'] > row['before_model_token'] and
+                    row['before_dco_seq'] > 0 and row['after_dco_seq'] == row['before_dco_seq'] + 1 and
+                    row['rate_epoch'] > 0 and row['reason'] == 0, 'Missing confirmed phase identity')
+            require(row['residual_lo'] <= row['residual_hi'], 'Reversed phase residual')
+            require(row['delta_ns'] != 0 and
+                    row['after_base_vdc_ns'] - row['before_base_vdc_ns'] == row['delta_ns'],
+                    'Phase translation differs from actual model')
+            delta = row['delta_ns']
+            require((row['residual_lo'] > 0 and -row['residual_lo'] <= delta < 0) or
+                    (row['residual_hi'] < 0 and 0 < delta <= -row['residual_hi']),
+                    'Phase correction has unproved direction or overshoots nearest bound')
+            if prior_phase is not None and row['rate_epoch'] == prior_phase['rate_epoch']:
+                require(all(row[before] == prior_phase[after] for before, after in (
+                    ('before_model_token', 'after_model_token'),
+                    ('before_dco_seq', 'after_dco_seq'),
+                    ('before_base_vdc_ns', 'after_base_vdc_ns'))),
+                    'Unexplained model change within phase rate epoch')
+                require(row['cumulative_ns'] == prior_phase['cumulative_ns'] + delta,
+                        'Phase cumulative ledger disagrees within rate epoch')
+            prior_phase = row
+            row['outcome'] = 'phase_applied'
         records.append(row)
-    require((counts[1], counts[2]) == (status['match_count'], status['decision_count']), 'Record kinds disagree with header')
-    return dict(schema='VDC_TYPED_TRACE_DECODE_V1', status=status, records=records,
+    require((counts[1], counts[2] + counts.get(4, 0)) ==
+            (status['match_count'], status['decision_count']), 'Record kinds disagree with header')
+    return dict(schema=f'VDC_TYPED_TRACE_DECODE_V{schema}', status=status, records=records,
                 bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), file_crc32=zlib.crc32(data),
                 complete_window_proven=False, physical_lock_qualified=False)
 
