@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGRESSION_REVIEW.md`
 Related: `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-09-14
+Last updated: 2026-09-17
 
 > 本文件总结 2026-08-19 实施 T1-T13 过程中发现的全部问题与解法，供后续维护和 skill 复用。
 
@@ -58,6 +58,8 @@ Last updated: 2026-09-14
 | pre-commit 钩子 Windows 执行 | `#!bin/sh` + 无 BOM + LF 行尾；`git config core.hooksPath .githooks` |
 | **迁移/clone 后门禁静默失效** | hooksPath 是**本地配置**（`git config core.hooksPath .githooks`），随仓库迁移/clone 丢失；迁移后必须重配。曾发生：HDRT100 仓库门禁未接线，`--log-check` 报 OK 是假象（marker 由手动 `sh .githooks/pre-commit` 写入、比最后 commit 新）——配置完用 `git config core.hooksPath` 核对，必要时手动跑一次钩子刷新 marker |
 | `--constants` 对 legacy 文档报 WARN（unverifiable） | 属预期：legacy 文档引用已不存在的代码符号，无法验证；WARN 不阻断，仅提示 |
+| 钩子以**最小 PATH** 被调用（IDE/GUI 客户端、沙箱、CI）时 coreutils `date` 不存在 → 原实现 `echo "$(date +%s)"` 把 marker 写成**空值**，`--log-check` 退化为 `cannot read marker`，C3 绕过留痕**静默失效** | 已在 `.githooks/pre-commit` 加固（2026-09-17）：`date` 失败回退到钩子本就依赖的 `python`，且取不到时钟时**保留旧 marker**，绝不写空值 |
+| 沙箱内 msys `sh` 崩溃（`CreateFileMapping … Win32 error 5`）→ 钩子整体无法执行，commit 在**未经门禁**的情况下成功，`--log-check` 只能事后发现 | 沙箱/受限环境提交时必须**手动执行两个检查器**（`docs_check --strict-names` + `doc_regression_check.py`）并在放开权限的 shell 复跑一次钩子；不要只看 commit 成功就认为门禁已过 |
 
 ## 6. 流程经验（对方案的反哺）
 
