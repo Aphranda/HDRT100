@@ -22,6 +22,34 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-007：提交拒绝分类与私有后缀重试边界
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003` IN PROGRESS。本条记录当前源码
+  的 host 验证；尚未形成新的板端或 Release 证据，数字均为快照，非产品契约。
+- `SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_*` 将后端提交拒绝拆为参数、原始时钟读取、
+  guard、编码、时钟、启动、deadline 和 DMA 等分支；`VDC_RUN_OUTPUT_SCHEMA` 更新
+  后，STOP-only `RUN?` 额外导出 `last_submit_failure`。该字段只说明最近一次拒绝
+  分支，不能把一次拒绝改写成连续输出或锁相通过。
+- 私有未提交后缀的处理边界已固定：只有 `NOT_READY` 保留完整后缀，下一次 Core1
+  服务必须重新通过 generation、代际、前驱尾点、时钟和 DMA 准入后才能重试；已提交
+  前缀不重写。`GUARD` 表示硬件剩余运行道已进入最小保护窗口，和 RAW、CLOCK、
+  ENCODING、START、DEADLINE、DMA、ARGUMENT 一样清除后缀，不能用重试掩盖断流。
+- `tests/python/test_vdc_run_output.py` 的生产客户端与 parser 回归共 149 项通过；
+  覆盖 guard 拒绝后清除、NOT_READY 拒绝后复用同一缓存、模型/前驱变化失效及取消
+  生命周期。该 host 结果不证明板端重试安全，也不放宽 `STARVED` 判据。
+- Release build `20260917204319` 的 A/B/Boot 双槽链接检查通过；同源码四板
+  `--tdma-only --diagnostic-continue` quick P3 已完成，证据根为
+  `out/HardwareAcceptance/20260918/dpll-run-retry-r1/p3/`，结果为
+  `PASS_WITH_WARNINGS`（23 INFO、22 WARN、0 ERROR/FATAL）。P0 复用拓扑的身份和
+  build 读回通过；T1/T3 训练质量与 TDMA 严格闭环失败原件保留，不能视为连续输出
+  或锁相通过。该 P3 切片没有执行 RUN 输出专项，因此不把它解释为 schema8 实板重试
+  已验证。
+- 工作区仍保留另一设备对 `components/tdma/src/tdma_flight_engine.c` 的外部修改，
+  未修改、未暂存。当前 schema8 代码、测试和新 receipt 尚未提交；下一 gate 是用同
+  源码进行 schema8 RUN 输出采样，重点核对 `last_submit_failure`、后缀复用/清除与
+  FIFO 退休时序。若实板仍在末沿后才服务，继续调整调度/准入时序，不能仅依赖缓存
+  保留结案。
+
 ### VDC-PROGRESS-20260918-006：服务序号与退休点相关采样
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003` IN PROGRESS。本条仅记录本轮
