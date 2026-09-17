@@ -161,6 +161,15 @@ static void retire(uint32_t reason)
 {
     if (s_run.state==SYNC_IO_RUN_OUTPUT_RETIRING || s_run.state==SYNC_IO_RUN_OUTPUT_RETIRED) return;
     s_run.reason=reason;
+    uint64_t observed;
+    s_run.retire_raw_valid=read_raw(&observed) ? 1u : 0u;
+    s_run.retire_raw_tick=s_run.retire_raw_valid ? observed : 0u;
+    s_run.retire_pc=RUN_PIO->sm[RUN_SM].addr;
+    s_run.retire_fstat=RUN_PIO->fstat;
+    s_run.retire_fdebug=RUN_PIO->fdebug;
+    s_run.retire_dma_ctrl=dma_hw->ch[RUN_DMA].ctrl_trig;
+    s_run.retire_dma_remaining=dma_hw->ch[RUN_DMA].transfer_count;
+    s_run.retire_pio_ctrl=RUN_PIO->ctrl;
     pio_sm_set_enabled(RUN_PIO,RUN_SM,false);
     pio_sm_set_pins_with_mask(RUN_PIO,RUN_SM,0u,1u<<RUN_PIN);
     hw_clear_bits(&dma_hw->ch[RUN_DMA].al1_ctrl,DMA_CH0_CTRL_TRIG_EN_BITS);
@@ -178,9 +187,17 @@ void sync_io_run_output_service_core1(void)
         uint64_t now;
         if (clock_get_hz(clk_sys)!=s_run.tick_hz || !read_raw(&now) ||
             RUN_PIO->sm[RUN_SM].clkdiv!=(1u<<16u)) retire(SYNC_IO_RUN_OUTPUT_CLOCK);
-        else if (dma_failed()) retire(SYNC_IO_RUN_OUTPUT_DMA);
-        else if (now>=s_run.expires_tick) retire(SYNC_IO_RUN_OUTPUT_EXPIRED);
-        else if (RUN_PIO->fdebug&(1u<<(PIO_FDEBUG_TXSTALL_LSB+RUN_SM))) retire(SYNC_IO_RUN_OUTPUT_STARVED);
+        else {
+            s_run.service_last_gap_ticks=s_run.service_observations && now>=s_run.service_last_tick ?
+                now-s_run.service_last_tick : 0u;
+            if (s_run.service_last_gap_ticks>s_run.service_max_gap_ticks)
+                s_run.service_max_gap_ticks=s_run.service_last_gap_ticks;
+            s_run.service_last_tick=now;
+            if (s_run.service_observations!=UINT32_MAX) ++s_run.service_observations;
+            if (dma_failed()) retire(SYNC_IO_RUN_OUTPUT_DMA);
+            else if (now>=s_run.expires_tick) retire(SYNC_IO_RUN_OUTPUT_EXPIRED);
+            else if (RUN_PIO->fdebug&(1u<<(PIO_FDEBUG_TXSTALL_LSB+RUN_SM))) retire(SYNC_IO_RUN_OUTPUT_STARVED);
+        }
     }
     if (s_run.state==SYNC_IO_RUN_OUTPUT_RETIRING &&
         !(dma_hw->abort&(1u<<RUN_DMA)) && !dma_channel_is_busy(RUN_DMA)) {
@@ -212,6 +229,7 @@ bool sync_io_run_output_submit_core1(uint32_t generation,
 {
     if (!edges || !sync_io_run_output_can_submit_core1(generation)) return false;
     const bool first=s_run.state==SYNC_IO_RUN_OUTPUT_PREPARED;
+    uint64_t submitted_at=0u;
     uint64_t now;
     if (!read_raw(&now)) return false;
     const uint64_t guard=s_run.tick_hz/1000000u*RUN_MIN_GUARD_US;
@@ -272,6 +290,7 @@ bool sync_io_run_output_submit_core1(uint32_t generation,
             observed>=before && after>=observed;
         const bool valid=raw_valid && pc>s_offset && pc<=s_offset+4u;
         s_run.anchor_before=before;
+        submitted_at=before;
         s_run.anchor_after=raw_valid ? after+1u : UINT64_MAX;
         s_run.expires_tick=before+(uint64_t)s_duration_ms*s_run.tick_hz/1000u;
         s_run.first_ordinal=edges[0].ordinal; s_run.first_model=edges[0].model_token;
@@ -289,7 +308,16 @@ bool sync_io_run_output_submit_core1(uint32_t generation,
         }
         dma_channel_set_read_addr(RUN_DMA,sync_io_shared_workspace,false);
         dma_channel_set_trans_count(RUN_DMA,SYNC_IO_RUN_OUTPUT_BLOCK_WORDS,true);
+        submitted_at=ready;
+        const uint64_t margin=s_run.last_falling_tick-ready;
+        if (!s_run.refill_min_margin_ticks || margin<s_run.refill_min_margin_ticks)
+            s_run.refill_min_margin_ticks=margin;
     }
+    if (!first && submitted_at>=s_run.submit_last_tick &&
+        submitted_at-s_run.submit_last_tick>s_run.submit_max_gap_ticks)
+        s_run.submit_max_gap_ticks=submitted_at-s_run.submit_last_tick;
+    s_run.submit_last_tick=submitted_at;
+    s_run.submit_service_observation=s_run.service_observations;
     s_source_pending=true;
     for (uint32_t i=0;i<SYNC_IO_RUN_OUTPUT_BLOCK_EDGES;++i) {
         if (s_run.last_model && s_run.last_model!=edges[i].model_token) ++s_run.model_changes;

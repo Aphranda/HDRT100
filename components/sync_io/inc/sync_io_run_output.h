@@ -6,7 +6,7 @@
 
 #define SYNC_IO_RUN_OUTPUT_BLOCK_EDGES 4u
 #define SYNC_IO_RUN_OUTPUT_BLOCK_WORDS (2u * SYNC_IO_RUN_OUTPUT_BLOCK_EDGES)
-#define SYNC_IO_RUN_OUTPUT_SCHEMA 1u
+#define SYNC_IO_RUN_OUTPUT_SCHEMA 3u
 
 enum {
     SYNC_IO_RUN_OUTPUT_IDLE, SYNC_IO_RUN_OUTPUT_PREPARED,
@@ -37,6 +37,15 @@ typedef struct {
     uint32_t tick_hz, transfer_count, pio_enabled, dma_busy;
     uint32_t start_pc, program_offset, start_raw_flags;
     uint64_t start_raw_observed, start_raw_after;
+    /* Diagnostic raw observations, not physical edge timestamps. First
+     * retirement freezes registers before disable/abort (including CANCEL).
+     * A zero valid flag makes retire_raw_tick unavailable, not time zero. */
+    uint64_t service_last_tick, service_last_gap_ticks, service_max_gap_ticks;
+    uint64_t submit_last_tick, submit_max_gap_ticks, refill_min_margin_ticks;
+    uint64_t retire_raw_tick;
+    uint32_t service_observations, submit_service_observation;
+    uint32_t retire_raw_valid, retire_pc, retire_fstat, retire_fdebug;
+    uint32_t retire_dma_ctrl, retire_dma_remaining, retire_pio_ctrl;
 } sync_io_run_output_snapshot_t;
 
 /* Core0 STOP preparation only. Reserves the existing SYNC_IO scheduler,

@@ -60,6 +60,32 @@ def test_production_client(client, scenario):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.parametrize('phase', ['prepared', 'running'])
+@pytest.mark.parametrize('outcome', [
+    'ring', 'wait', 'model', 'identity', 'dma', 'bridge', 'snapshot',
+    'second_snapshot', 'postplan', 'plan', 'submit', 'submitted', 'cancel',
+    'saturate', 'terminal', 'busy', 'reset',
+])
+def test_diagnostic_outcomes(client, phase, outcome):
+    result = subprocess.run([str(client), f'diag_{phase}_{outcome}'],
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize('scenario', [
+    'busy_private', 'bridge_free_hit', 'token_ready', 'token_busy',
+    'tail_ready', 'tail_busy', 'falling_ready', 'falling_busy', 'clock_changed',
+    'stop', 'session', 'role', 'epoch', 'slot',
+    'cancel', 'prepare_reset', 'terminal', 'reject_retry', 'postplan_stop',
+    'postplan_unavailable', 'missing_model', 'saturate_prefetched',
+    'saturate_hits', 'saturate_invalidations',
+])
+def test_prefetch_lifecycle(client, scenario):
+    result = subprocess.run([str(client), 'prefetch_' + scenario],
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 CLIENT_PREFIX = r'''
 #include <assert.h>
 #include <stdio.h>
@@ -74,6 +100,9 @@ static vdc_domain_context_t s_vdc_domain;
 static tdma_service_service_t *s_vdc_tdma_service;
 static unsigned core, prepare_calls, release_calls, service_calls, submit_calls, cancels;
 static unsigned hook, hook_seen, generation, snapshot_calls;
+static unsigned ring_calls, fail_ring_call, fail_snapshot_call;
+static unsigned bridge_calls, submit_attempts, stop_ring_call;
+static bool bridge_available=true, submit_allowed=true, clock_supported=true;
 static bool ready=true, model_available=true, cancelled;
 static int32_t delay=100;
 static uint32_t session=8u;
@@ -88,15 +117,20 @@ static unsigned get_core_num(void) { return core; }
 uint32_t vdc_dpll_manager_feedback_session(void) { return session; }
 bool vdc_dpll_manager_get_output_delay_ns(int32_t *out) { *out=delay; return true; }
 bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out)
-{ *out=ring; return true; }
+{
+    ++ring_calls; if(ring_calls==fail_ring_call)return false;
+    if(ring_calls==stop_ring_call) { ring.enabled=0u; ++ring.config_seq; }
+    *out=ring; return true;
+}
 bool tdma_service_run_stopped_maintenance(tdma_service_service_t *service,
     bool(*callback)(void*),void *context)
 { (void)service; return !ring.enabled && !ring.adapter_started && callback(context); }
 bool vdc_timestamp_clock_configuration_supported(uint32_t hz)
-{ assert(hz==BOARD_SYS_CLOCK_HZ); return true; }
+{ assert(hz==BOARD_SYS_CLOCK_HZ); return clock_supported; }
 bool vdc_timestamp_clock_try_read_bridge(uint32_t hz,vdc_timestamp_clock_bridge_t *out)
 {
-    assert(hz==BOARD_SYS_CLOCK_HZ); *out=bridge;
+    assert(hz==BOARD_SYS_CLOCK_HZ); ++bridge_calls; *out=bridge;
+    if(!bridge_available)return false;
     if(hook==4u) { ring.enabled=0u; ring.data_enabled=0u; ++ring.config_seq; }
     if(hook==5u) ++session;
     return true;
@@ -118,7 +152,11 @@ void sync_io_run_output_service_core1(void)
     if(hook==1u) { hardware.state=SYNC_IO_RUN_OUTPUT_RETIRED; interleave(); }
 }
 bool sync_io_run_output_snapshot(sync_io_run_output_snapshot_t *out)
-{ ++snapshot_calls; if(hook==3u && snapshot_calls==2u)interleave(); *out=hardware; return true; }
+{
+    ++snapshot_calls; if(snapshot_calls==fail_snapshot_call)return false;
+    if(hook==3u && snapshot_calls==2u)interleave();
+    *out=hardware; return true;
+}
 bool sync_io_run_output_release(uint32_t request)
 {
     assert(request==hardware.generation && hardware.state==SYNC_IO_RUN_OUTPUT_RETIRED);
@@ -130,8 +168,11 @@ bool sync_io_run_output_submit_core1(uint32_t request,
     const sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES])
 {
     assert(request==hardware.generation && ready && !cancelled && submit_calls<4u);
+    ++submit_attempts;
+    if(!submit_allowed)return false;
     memcpy(admitted[submit_calls++],edges,sizeof(admitted[0]));
     hardware.last_ordinal=edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES-1u].ordinal;
+    hardware.last_falling_tick=edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES-1u].falling_tick;
     hardware.state=SYNC_IO_RUN_OUTPUT_RUNNING; return true;
 }
 '''
@@ -182,9 +223,216 @@ static void finish_cancel(void)
     assert(cancels); core=1u; vdc_run_output_service_core1(); core=0u;
     run_output_release_core0(); assert(release_calls==1u && !s_run_output_request);
 }
+static void diagnostic(const char *name)
+{
+    const bool running=!strncmp(name,"running_",8u);
+    const char *kind=name+(running?8u:9u);
+    const uint32_t phase=running?VDC_RUN_OUTPUT_RUNNING_PHASE:VDC_RUN_OUTPUT_PREPARED_PHASE;
+    prepare();arm(true);
+    assert(s_run_output.last_outcome==VDC_RUN_OUTPUT_OUTCOME_NONE);
+    if(running)vdc_run_output_service_core1();
+    ring_calls=snapshot_calls=0u;
+    uint32_t expected=VDC_RUN_OUTPUT_RING_UNAVAILABLE;
+    bool should_cancel=false,should_submit=false;
+    if(!strcmp(kind,"ring"))fail_ring_call=1u;
+    else if(!strcmp(kind,"wait")) {
+        ring.data_enabled=0u;expected=running?VDC_RUN_OUTPUT_BINDING_CANCELLED:VDC_RUN_OUTPUT_RING_WAIT;
+        should_cancel=running;
+    } else if(!strcmp(kind,"model")) { model_available=false;expected=VDC_RUN_OUTPUT_MODEL_UNAVAILABLE; }
+    else if(!strcmp(kind,"identity")) {
+        ++model.local_slot;expected=running?VDC_RUN_OUTPUT_BINDING_CANCELLED:VDC_RUN_OUTPUT_IDENTITY_WAIT;
+        should_cancel=running;
+    } else if(!strcmp(kind,"dma")) { ready=false;expected=VDC_RUN_OUTPUT_DMA_NOT_READY; }
+    else if(!strcmp(kind,"bridge")) { bridge_available=false;expected=VDC_RUN_OUTPUT_BRIDGE_UNAVAILABLE; }
+    else if(!strcmp(kind,"snapshot") || !strcmp(kind,"second_snapshot")) {
+        fail_snapshot_call=!strcmp(kind,"snapshot")?1u:2u;expected=VDC_RUN_OUTPUT_BACKEND_SNAPSHOT_UNAVAILABLE;
+    } else if(!strcmp(kind,"postplan")) { fail_ring_call=2u;expected=VDC_RUN_OUTPUT_POSTPLAN_RING_UNAVAILABLE; }
+    else if(!strcmp(kind,"plan")) { model.dco.nominal_period_ns=0u;expected=VDC_RUN_OUTPUT_PLAN_REJECTED; }
+    else if(!strcmp(kind,"submit")) { submit_allowed=false;expected=VDC_RUN_OUTPUT_SUBMIT_REJECTED; }
+    else if(!strcmp(kind,"submitted")) { expected=VDC_RUN_OUTPUT_SUBMITTED;should_submit=true; }
+    else if(!strcmp(kind,"cancel")) { ++session;expected=VDC_RUN_OUTPUT_BINDING_CANCELLED;should_cancel=true; }
+    else if(!strcmp(kind,"saturate")) {
+        ready=false;expected=VDC_RUN_OUTPUT_DMA_NOT_READY;
+        s_run_output.outcomes[phase][expected]=UINT32_MAX;
+    } else if(!strcmp(kind,"terminal") || !strcmp(kind,"busy")) {
+        vdc_run_output_status_t before=s_run_output;
+        if(!strcmp(kind,"terminal"))hardware.state=SYNC_IO_RUN_OUTPUT_RETIRED;
+        else s_run_output_busy=1u;
+        vdc_run_output_service_core1();assert(!memcmp(&before,&s_run_output,sizeof(before)));return;
+    } else if(!strcmp(kind,"reset")) {
+        ready=false;vdc_run_output_service_core1();assert(s_run_output.last_outcome==VDC_RUN_OUTPUT_DMA_NOT_READY);
+        vdc_run_output_cancel();finish_cancel();
+        ring.enabled=ring.adapter_started=ring.data_enabled=0u;
+        prepare();
+        assert(s_run_output.last_outcome==VDC_RUN_OUTPUT_OUTCOME_NONE && !s_run_output.last_phase);
+        for(unsigned p=0;p<VDC_RUN_OUTPUT_PHASE_COUNT;++p)
+            for(unsigned o=0;o<VDC_RUN_OUTPUT_OUTCOME_COUNT;++o)assert(!s_run_output.outcomes[p][o]);
+        return;
+    } else assert(false);
+    vdc_run_output_status_t before=s_run_output;
+    const unsigned submits=submit_calls,cancels_before=cancels;
+    vdc_run_output_service_core1();
+    assert(s_run_output.last_phase==phase && s_run_output.last_outcome==expected);
+    for(unsigned p=0;p<VDC_RUN_OUTPUT_PHASE_COUNT;++p) {
+        for(unsigned o=0;o<VDC_RUN_OUTPUT_OUTCOME_COUNT;++o) {
+            uint32_t count=before.outcomes[p][o];
+            if(p==phase && o==expected && count!=UINT32_MAX)++count;
+            assert(s_run_output.outcomes[p][o]==count);
+        }
+    }
+    assert(submit_calls==submits+(should_submit?1u:0u));
+    assert(cancels==cancels_before+(should_cancel?1u:0u));
+    if(should_cancel) {
+        vdc_run_output_service_core1();
+        assert(s_run_output.last_phase==phase && s_run_output.last_outcome==expected);
+    }
+}
+static void prefetch_step(unsigned plans,unsigned submissions)
+{
+    unsigned b=bridge_calls,s=submit_attempts;
+    vdc_run_output_service_core1();
+    assert(bridge_calls-b==plans && submit_attempts-s==submissions);
+    assert(bridge_calls-b<=1u && submit_attempts-s<=1u);
+}
+static void assert_tail_unchanged(const vdc_run_output_status_t *before,
+                                const sync_io_run_output_snapshot_t *old_hw)
+{
+    assert(s_run_output.last_local_ns==before->last_local_ns);
+    assert(s_run_output.last_target_vdc_ns==before->last_target_vdc_ns);
+    assert(s_run_output.maximum_bridge_width_ticks==before->maximum_bridge_width_ticks);
+    assert(s_run_output.blocks_planned==before->blocks_planned);
+    assert(hardware.last_ordinal==old_hw->last_ordinal);
+    assert(hardware.last_falling_tick==old_hw->last_falling_tick);
+    assert(s_run_output.ring_config==before->ring_config);
+    assert(s_run_output.role_generation==before->role_generation);
+    assert(s_run_output.clock_epoch==before->clock_epoch && s_run_output.clock_run==before->clock_run);
+}
+static void prefetch_case(const char *kind)
+{
+    prepare();arm(true);prefetch_step(1u,1u);
+    assert(submit_calls==1u && !s_run_output_pending.valid);
+    const vdc_run_output_status_t initial=s_run_output;
+    const sync_io_run_output_snapshot_t old_hw=hardware;
+    sync_io_run_output_edge_t prefix[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES];
+    memcpy(prefix,admitted[0],sizeof(prefix));
+    ready=false;prefetch_step(1u,0u);
+    assert(s_run_output_pending.valid && s_run_output.prefetched_blocks==1u);
+    assert(submit_calls==1u && !s_run_output.cache_hits);
+    assert_tail_unchanged(&initial,&old_hw);
+    assert(!memcmp(prefix,admitted[0],sizeof(prefix)));
+    sync_io_run_output_edge_t cached[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES];
+    memcpy(cached,s_run_output_pending.edges,sizeof(cached));
+    assert(cached[0].ordinal>old_hw.last_ordinal);
+    /* Repeated busy service must neither rewrite the private suffix nor
+     * perform another inverse/bridge, even when bridge is now unavailable. */
+    bridge_available=false;prefetch_step(0u,0u);
+    assert_tail_unchanged(&initial,&old_hw);
+    assert(!memcmp(cached,s_run_output_pending.edges,sizeof(cached)));
+    if(!strcmp(kind,"busy_private"))return;
+    if(!strcmp(kind,"saturate_hits")) {
+        s_run_output.cache_hits=UINT32_MAX;ready=true;prefetch_step(0u,1u);
+        assert(s_run_output.cache_hits==UINT32_MAX && submit_calls==2u);return;
+    }
+    if(!strcmp(kind,"saturate_prefetched") || !strcmp(kind,"saturate_invalidations")) {
+        const bool invalidations=!strcmp(kind,"saturate_invalidations");
+        if(invalidations)s_run_output.cache_invalidations=UINT32_MAX;
+        else s_run_output.prefetched_blocks=UINT32_MAX;
+        ++model.token;bridge_available=true;prefetch_step(1u,0u);
+        assert(s_run_output_pending.valid && s_run_output_pending.model_token==model.token);
+        assert(submit_calls==1u);
+        assert((invalidations?s_run_output.cache_invalidations:s_run_output.prefetched_blocks)==UINT32_MAX);
+        assert_tail_unchanged(&initial,&old_hw);return;
+    }
+    if(!strcmp(kind,"bridge_free_hit")) {
+        ready=true;prefetch_step(0u,1u);
+        assert(submit_calls==2u && s_run_output.cache_hits==1u && !s_run_output_pending.valid);
+        assert(!memcmp(cached,admitted[1],sizeof(cached)));
+        assert(!memcmp(prefix,admitted[0],sizeof(prefix)));return;
+    }
+    if(!strcmp(kind,"clock_changed")) {
+        ready=true;clock_supported=false;prefetch_step(0u,0u);
+        assert(!s_run_output_pending.valid && submit_calls==1u);
+        assert(cancelled && s_run_output.last_outcome==VDC_RUN_OUTPUT_BINDING_CANCELLED);
+        assert_tail_unchanged(&initial,&old_hw);return;
+    }
+    if(!strncmp(kind,"token_",6u) || !strncmp(kind,"tail_",5u) || !strncmp(kind,"falling_",8u)) {
+        const bool token=!strncmp(kind,"token_",6u);
+        const bool tail=!strncmp(kind,"tail_",5u);
+        if(token) { ++model.token;model.dco.phase_offset_ns=2000; }
+        else if(tail)hardware.last_ordinal+=100u;
+        else hardware.last_falling_tick+=4u;
+        const bool busy=strstr(kind,"busy")!=NULL;
+        ready=!busy;prefetch_step(1u,0u);
+        assert(!s_run_output_pending.valid && s_run_output.cache_invalidations==1u);
+        assert(submit_calls==1u);
+        bridge_available=true;prefetch_step(1u,busy?0u:1u);
+        if(busy) { assert(s_run_output_pending.valid);ready=true;bridge_available=false;prefetch_step(0u,1u); }
+        assert(submit_calls==2u && !s_run_output_pending.valid);
+        for(unsigned i=0;i<SYNC_IO_RUN_OUTPUT_BLOCK_EDGES;++i) {
+            assert(admitted[1][i].model_token==model.token);
+            if(tail)assert(admitted[1][i].ordinal>old_hw.last_ordinal+100u);
+        }
+        if(token || tail)assert(memcmp(cached,admitted[1],sizeof(cached))!=0);
+        assert(!memcmp(prefix,admitted[0],sizeof(prefix)));return;
+    }
+    if(!strcmp(kind,"reject_retry")) {
+        ready=true;submit_allowed=false;prefetch_step(0u,1u);
+        assert(!s_run_output_pending.valid && submit_calls==1u);
+        assert(!s_run_output.cache_hits);
+        assert_tail_unchanged(&initial,&old_hw);
+        assert(s_run_output.last_outcome==VDC_RUN_OUTPUT_SUBMIT_REJECTED);
+        submit_allowed=true;bridge_available=true;prefetch_step(1u,1u);
+        assert(submit_calls==2u && !memcmp(cached,admitted[1],sizeof(cached)));
+        return;
+    }
+    if(!strcmp(kind,"postplan_unavailable")) {
+        ready=true;fail_ring_call=ring_calls+2u;prefetch_step(0u,0u);
+        assert_tail_unchanged(&initial,&old_hw);assert(s_run_output_pending.valid);
+        assert(s_run_output.last_outcome==VDC_RUN_OUTPUT_POSTPLAN_RING_UNAVAILABLE);
+        fail_ring_call=0u;prefetch_step(0u,1u);
+        assert(submit_calls==2u && !memcmp(cached,admitted[1],sizeof(cached)));return;
+    }
+    if(!strcmp(kind,"missing_model")) {
+        ready=true;model_available=false;prefetch_step(0u,0u);
+        assert_tail_unchanged(&initial,&old_hw);
+        assert(s_run_output.last_outcome==VDC_RUN_OUTPUT_MODEL_UNAVAILABLE);
+        model_available=true;prefetch_step(0u,1u);assert(submit_calls==2u);return;
+    }
+    ready=true;
+    if(!strcmp(kind,"terminal"))hardware.state=SYNC_IO_RUN_OUTPUT_RETIRED;
+    else if(!strcmp(kind,"stop")) { ring.enabled=0u; ++ring.config_seq; }
+    else if(!strcmp(kind,"session"))++session;
+    else if(!strcmp(kind,"role"))++s_vdc_domain.control.profile.generation;
+    else if(!strcmp(kind,"epoch"))++s_vdc_domain.clock.epoch_id;
+    else if(!strcmp(kind,"slot"))++model.local_slot;
+    else if(!strcmp(kind,"postplan_stop"))stop_ring_call=ring_calls+2u;
+    else {
+        assert(!strcmp(kind,"cancel") || !strcmp(kind,"prepare_reset"));
+        const unsigned before_services=service_calls;
+        const sync_io_run_output_snapshot_t before_hw=hardware;
+        vdc_run_output_cancel();
+        assert(s_run_output_pending.valid && service_calls==before_services);
+        assert(!memcmp(&before_hw,&hardware,sizeof(hardware)));
+    }
+    prefetch_step(0u,0u);assert_tail_unchanged(&initial,&old_hw);
+    assert(!s_run_output_pending.valid); /* Owner cancel/terminal clears immediately. */
+    if(strcmp(kind,"terminal")) { assert(cancelled);prefetch_step(0u,0u); }
+    assert(!s_run_output_pending.valid && submit_calls==1u);
+    if(!strcmp(kind,"prepare_reset")) {
+        core=0u;run_output_release_core0();assert(!s_run_output_request);
+        ring.enabled=ring.adapter_started=ring.data_enabled=0u;
+        /* Poison a retired private buffer: prepare itself must reset it. */
+        memset(&s_run_output_pending,0xa5,sizeof(s_run_output_pending));
+        prepare();assert(!s_run_output_pending.valid && !s_run_output_pending.model_token);
+        assert(!s_run_output.prefetched_blocks && !s_run_output.cache_hits && !s_run_output.cache_invalidations);
+        arm(true);bridge_available=true;prefetch_step(1u,1u);assert(submit_calls==2u);
+    }
+}
 int main(int argc,char **argv)
 {
     assert(argc==2); const char *test=argv[1]; initialize();
+    if(!strncmp(test,"diag_",5u)) { diagnostic(test+5u);return 0; }
+    if(!strncmp(test,"prefetch_",9u)) { prefetch_case(test+9u);return 0; }
     if(!strcmp(test,"no_request")) {
         core=1u; vdc_run_output_service_core1();
         assert(service_calls==1u && !s_run_output_request && !s_run_output_busy);
@@ -327,10 +575,15 @@ def test_real_parser_exports_start_observation_receipt(parser_host):
     result = subprocess.run([str(parser_host), 'RUN?', 'query'], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stdout + result.stderr
     fields = [int(value) for value in result.stdout.strip().split(',')]
-    assert len(fields) == 43
+    assert len(fields) == 88
     # Preserve every old position: 26 small fields, ten uint64, two config.
-    assert fields[:36] == [0] * 36
-    assert fields[36:] == [20, 21, 13, 12, 3, 4294967303, 4294967311]
+    assert fields[:36] == [3] + [0] * 35
+    assert fields[36:43] == [20, 21, 13, 12, 3, 4294967303, 4294967311]
+    assert fields[43:50] == list(range(4294967400, 4294967407))
+    assert fields[50:59] == list(range(101, 110))
+    assert fields[59:61] == [1, 5]
+    assert fields[61:85] == list(range(200, 212)) + list(range(300, 312))
+    assert fields[85:] == [401, 402, 403]
 
 
 PARSER_PREFIX = r'''
@@ -367,9 +620,27 @@ void vdc_run_output_cancel(void) { ++cancels; }
 bool vdc_run_output_status(vdc_run_output_status_t *out)
 {
     memset(out,0,sizeof(*out));out->prepared_config=20u;out->arm_config=21u;
+    out->hardware.schema=SYNC_IO_RUN_OUTPUT_SCHEMA;
     out->hardware.start_pc=13u;out->hardware.program_offset=12u;out->hardware.start_raw_flags=3u;
     out->hardware.start_raw_observed=UINT64_C(4294967303);
-    out->hardware.start_raw_after=UINT64_C(4294967311);return true;
+    out->hardware.start_raw_after=UINT64_C(4294967311);
+    out->hardware.service_last_tick=UINT64_C(4294967400);
+    out->hardware.service_last_gap_ticks=UINT64_C(4294967401);
+    out->hardware.service_max_gap_ticks=UINT64_C(4294967402);
+    out->hardware.submit_last_tick=UINT64_C(4294967403);
+    out->hardware.submit_max_gap_ticks=UINT64_C(4294967404);
+    out->hardware.refill_min_margin_ticks=UINT64_C(4294967405);
+    out->hardware.retire_raw_tick=UINT64_C(4294967406);
+    out->hardware.service_observations=101u;out->hardware.submit_service_observation=102u;
+    out->hardware.retire_raw_valid=103u;out->hardware.retire_pc=104u;
+    out->hardware.retire_fstat=105u;out->hardware.retire_fdebug=106u;
+    out->hardware.retire_dma_ctrl=107u;out->hardware.retire_dma_remaining=108u;
+    out->hardware.retire_pio_ctrl=109u;
+    out->last_phase=VDC_RUN_OUTPUT_RUNNING_PHASE;out->last_outcome=VDC_RUN_OUTPUT_BRIDGE_UNAVAILABLE;
+    out->prefetched_blocks=401u;out->cache_hits=402u;out->cache_invalidations=403u;
+    for(unsigned p=0;p<VDC_RUN_OUTPUT_PHASE_COUNT;++p)
+        for(unsigned o=0;o<VDC_RUN_OUTPUT_OUTCOME_COUNT;++o)out->outcomes[p][o]=200u+p*100u+o;
+    return true;
 }
 '''
 

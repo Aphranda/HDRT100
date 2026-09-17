@@ -58,7 +58,8 @@ CASES=['gates','prepare_reserve','prepare_workspace','prepare_claim','prepare_lo
        'enable_observation_order','enable_observed_failure','enable_after_failure',
        'enable_both_failure','enable_observed_wrap','enable_after_wrap',
        'enable_observed_backwards_then_forward','enable_after_backwards',
-       'enable_pc_upper_valid','enable_pc_below_program','enable_cancel_at_pc']
+       'enable_pc_upper_valid','enable_pc_below_program','enable_cancel_at_pc',
+       'diagnostics','diagnostics_invalid_raw','diagnostics_saturation']
 
 
 @pytest.mark.parametrize('name',CASES)
@@ -146,8 +147,8 @@ typedef unsigned uint;
 #define BOARD_SYS_CLOCK_HZ 250000000u
 #define BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM 1u
 #define BOARD_SYNC_OUTPUT_BASE_PIN 16u
-typedef struct {uint32_t clkdiv;} mock_sm_t;
-typedef struct {uint32_t ctrl,fdebug,txf[4];mock_sm_t sm[4];} mock_pio_t;
+typedef struct {uint32_t clkdiv,addr;} mock_sm_t;
+typedef struct {uint32_t ctrl,fdebug,fstat,txf[4];mock_sm_t sm[4];} mock_pio_t;
 typedef mock_pio_t *PIO;
 typedef struct {uint32_t pause,source,timerawh,timerawl;} mock_timer_t;
 typedef struct {uint32_t transfer_count,al1_ctrl,ctrl_trig;} mock_dma_ch_t;
@@ -497,7 +498,7 @@ static void enable_boundary(const char *name)
     assert(workspace_token&&core_token);
     if(admitted) {
         assert(observed_accesses==(pause_observed?1u:5u));
-        assert(after_accesses==(pause_after?1u:5u)&&pc_reads==1u);
+        assert(after_accesses==(pause_after?1u:5u)*(retiring?2u:1u)&&pc_reads==1u);
         assert(snap().start_pc==mock_pc&&snap().program_offset==12u);
         const unsigned flags=(!pause_observed&&!wrap_observed?1u:0u)|
                              (!pause_after&&!wrap_after?2u:0u);
@@ -533,6 +534,55 @@ static void enable_boundary(const char *name)
     hw_dma.abort=0;mock_busy=false;sync_io_run_output_service_core1();
     assert(snap().state==SYNC_IO_RUN_OUTPUT_RETIRED);
     mock_core=0;assert(sync_io_run_output_release(g));
+}
+static void diagnostics(void)
+{
+    sync_io_run_output_edge_t edges[4],next[4];uint32_t g=start(edges);
+    assert(snap().submit_last_tick==1000000u&&!snap().service_observations);
+    raw(1010000);sync_io_run_output_service_core1();
+    raw(1060000);sync_io_run_output_service_core1();
+    raw(1070000);sync_io_run_output_service_core1();
+    assert(snap().service_observations==3u&&snap().service_last_gap_ticks==10000u);
+    assert(snap().service_max_gap_ticks==50000u);
+    dma_drain_to_fifo();make_edges(next,2100000,4,9);
+    assert(sync_io_run_output_submit_core1(g,next));
+    assert(snap().submit_last_tick==1070000u&&snap().submit_max_gap_ticks==70000u);
+    assert(snap().submit_service_observation==3u&&snap().refill_min_margin_ticks==781000u);
+    const uint64_t last=snap().last_falling_tick;
+    hw_pio.sm[1].addr=12u;hw_pio.fstat=0x1234u;hw_pio.fdebug=1u<<25;
+    hw_dma.ch[2].ctrl_trig=0x2345u;raw(3000000);
+    sync_io_run_output_service_core1();
+    sync_io_run_output_snapshot_t fault=snap();
+    assert(fault.reason==SYNC_IO_RUN_OUTPUT_STARVED&&fault.retire_raw_valid);
+    assert(fault.retire_raw_tick==3000000u&&fault.retire_pc==12u&&fault.retire_fstat==0x1234u);
+    assert(fault.retire_fdebug==(1u<<25)&&fault.retire_pio_ctrl==(1u<<1));
+    assert(fault.retire_dma_ctrl==0x2345u&&fault.retire_dma_remaining==8u);
+    assert(fault.last_falling_tick==last&&fault.service_last_gap_ticks==1930000u);
+    assert(fault.service_observations-fault.submit_service_observation==1u);
+    hw_pio.fdebug=0;hw_pio.fstat=0;raw(4000000);complete_stop(g);
+    assert(snap().retire_raw_tick==fault.retire_raw_tick&&snap().retire_fstat==fault.retire_fstat);
+    assert(snap().reason==SYNC_IO_RUN_OUTPUT_STARVED);
+    uint32_t next_generation=prepare();
+    assert(!snap().retire_raw_valid&&!snap().retire_raw_tick&&!snap().service_observations);
+    assert(!snap().service_max_gap_ticks&&!snap().submit_last_tick&&!snap().refill_min_margin_ticks);
+    complete_stop(next_generation);
+}
+static void diagnostics_invalid_raw(void)
+{
+    sync_io_run_output_edge_t e[4];uint32_t g=start(e);
+    hw_timer.pause=1u;sync_io_run_output_service_core1();
+    assert(snap().reason==SYNC_IO_RUN_OUTPUT_CLOCK);
+    assert(!snap().retire_raw_valid&&!snap().retire_raw_tick&&!snap().service_observations);
+    hw_timer.pause=0u;complete_stop(g);
+    assert(!snap().retire_raw_valid&&!snap().retire_raw_tick);
+}
+static void diagnostics_saturation(void)
+{
+    sync_io_run_output_edge_t e[4];uint32_t g=start(e);
+    s_run.service_observations=UINT32_MAX;s_run.service_last_tick=1000000u;
+    raw(1000007u);sync_io_run_output_service_core1();
+    assert(snap().service_observations==UINT32_MAX&&snap().service_last_gap_ticks==7u);
+    complete_stop(g);
 }
 static void inactive_submit(void)
 {
@@ -588,6 +638,9 @@ int main(int argc,char **argv)
     else if(!strcmp(argv[1],"retirement"))retirement();
     else if(!strcmp(argv[1],"generation"))stale_generation();
     else if(!strcmp(argv[1],"async_stop"))async_stop();
+    else if(!strcmp(argv[1],"diagnostics"))diagnostics();
+    else if(!strcmp(argv[1],"diagnostics_invalid_raw"))diagnostics_invalid_raw();
+    else if(!strcmp(argv[1],"diagnostics_saturation"))diagnostics_saturation();
     else if(!strncmp(argv[1],"fault_",6))fault(argv[1]+6);
     else if(!strncmp(argv[1],"enable_",7))enable_boundary(argv[1]+7);
     else if(!strcmp(argv[1],"inactive_submit"))inactive_submit();

@@ -2707,6 +2707,22 @@ scpi_result_t scpi_cmd_vdc_run_output_q(scpi_t *context)
     SCPI_ResultUInt32(context,h->start_pc); SCPI_ResultUInt32(context,h->program_offset);
     SCPI_ResultUInt32(context,h->start_raw_flags);
     SCPI_ResultUInt64(context,h->start_raw_observed); SCPI_ResultUInt64(context,h->start_raw_after);
+    SCPI_ResultUInt64(context,h->service_last_tick); SCPI_ResultUInt64(context,h->service_last_gap_ticks);
+    SCPI_ResultUInt64(context,h->service_max_gap_ticks); SCPI_ResultUInt64(context,h->submit_last_tick);
+    SCPI_ResultUInt64(context,h->submit_max_gap_ticks); SCPI_ResultUInt64(context,h->refill_min_margin_ticks);
+    SCPI_ResultUInt64(context,h->retire_raw_tick);
+    SCPI_ResultUInt32(context,h->service_observations); SCPI_ResultUInt32(context,h->submit_service_observation);
+    SCPI_ResultUInt32(context,h->retire_raw_valid); SCPI_ResultUInt32(context,h->retire_pc);
+    SCPI_ResultUInt32(context,h->retire_fstat); SCPI_ResultUInt32(context,h->retire_fdebug);
+    SCPI_ResultUInt32(context,h->retire_dma_ctrl); SCPI_ResultUInt32(context,h->retire_dma_remaining);
+    SCPI_ResultUInt32(context,h->retire_pio_ctrl);
+    SCPI_ResultUInt32(context,s.last_phase); SCPI_ResultUInt32(context,s.last_outcome);
+    for (uint32_t phase=0u;phase<VDC_RUN_OUTPUT_PHASE_COUNT;++phase)
+        for (uint32_t outcome=0u;outcome<VDC_RUN_OUTPUT_OUTCOME_COUNT;++outcome)
+            SCPI_ResultUInt32(context,s.outcomes[phase][outcome]);
+    SCPI_ResultUInt32(context,s.prefetched_blocks);
+    SCPI_ResultUInt32(context,s.cache_hits);
+    SCPI_ResultUInt32(context,s.cache_invalidations);
     return SCPI_RES_OK;
 }
 
