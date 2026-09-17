@@ -329,7 +329,11 @@ static void diagnostic(const char *name)
 static void prefetch_step(unsigned plans,unsigned submissions)
 {
     unsigned b=bridge_calls,s=submit_attempts,p=s_run_output.partial_plan_steps;
+    const uint32_t sequence=s_run_output.service_sequence;
     vdc_run_output_service_core1();
+    /* A backend that retired during the entry call must leave the client
+     * metadata untouched; otherwise an active service advances exactly once. */
+    assert(s_run_output.service_sequence==sequence || s_run_output.service_sequence==sequence+1u);
     assert(s_run_output.partial_plan_steps-p==plans && submit_attempts-s==submissions);
     assert(bridge_calls-b<=1u && submit_attempts-s<=1u);
 }
@@ -349,6 +353,7 @@ static void assert_tail_unchanged(const vdc_run_output_status_t *before,
 static void prefetch_case(const char *kind)
 {
     prepare();arm(true);prefetch_step(1u,1u);
+    assert(s_run_output.service_sequence==1u);
     assert(submit_calls==1u && !s_run_output_pending.valid);
     const vdc_run_output_status_t initial=s_run_output;
     const sync_io_run_output_snapshot_t old_hw=hardware;
@@ -697,16 +702,18 @@ def test_real_parser_exports_start_observation_receipt(parser_host):
     result = subprocess.run([str(parser_host), 'RUN?', 'query'], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stdout + result.stderr
     fields = [int(value) for value in result.stdout.strip().split(',')]
-    assert len(fields) == 107
+    assert len(fields) == 112
     # Preserve every old position: 26 small fields, ten uint64, two config.
-    assert fields[:36] == [6] + [0] * 35
+    assert fields[:36] == [7] + [0] * 35
     assert fields[36:43] == [20, 21, 13, 12, 3, 4294967303, 4294967311]
     assert fields[43:50] == list(range(4294967400, 4294967407))
     assert fields[50:59] == list(range(101, 110))
     assert fields[59:61] == [1, 5]
     assert fields[61:85] == list(range(200, 212)) + list(range(300, 312))
     assert fields[85:105] == list(range(401, 421))
-    assert fields[105:] == [1, 500]
+    assert fields[105:107] == [1, 500]
+    assert fields[107:110] == [0, 0, 0]
+    assert fields[110:] == [0, 0]
 
 
 PARSER_PREFIX = r'''

@@ -3,6 +3,8 @@
 #include "sync_io_run_output.h"
 #include "vdc_output_timing.h"
 
+#define VDC_RUN_OUTPUT_SCHEMA 7u
+
 enum { VDC_RUN_OUTPUT_PREPARED_PHASE, VDC_RUN_OUTPUT_RUNNING_PHASE,
        VDC_RUN_OUTPUT_PHASE_COUNT };
 typedef enum {
@@ -54,6 +56,12 @@ typedef struct {
     uint32_t timeline_bridge_samples, partial_plan_steps;
     uint32_t plan_waits, refill_waits, commit_waits;
     uint32_t block_edges, schedule_cycles;
+    /* STOP-only correlation for the retained outcome and cache invalidation.
+     * The service sequence is local to this request; tick is the backend's
+     * last valid service observation, not a physical edge timestamp. */
+    uint32_t service_sequence, last_outcome_service_sequence;
+    uint32_t last_invalidation_service_sequence;
+    uint64_t last_outcome_tick, last_invalidation_tick;
 } vdc_run_output_status_t;
 
 bool vdc_run_output_prepare(uint32_t period_ns,uint32_t high_ns,

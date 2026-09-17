@@ -9,6 +9,8 @@ static vdc_run_output_status_t s_run_output;
  * invocation, including backend retirement. Backend RETIRED alone cannot
  * authorize overwriting client metadata while its wrapper still executes. */
 static uint32_t s_run_output_request, s_run_output_busy;
+static uint32_t s_run_output_service_sequence, s_run_output_current_service_sequence;
+static uint64_t s_run_output_current_service_tick;
 #define VDC_RUN_OUTPUT_PLAN_STEP_EDGES 4u
 static vdc_timestamp_clock_bridge_t s_run_output_timeline;
 static bool s_run_output_timeline_valid;
@@ -36,6 +38,8 @@ static void run_output_note(uint32_t phase,vdc_run_output_outcome_t outcome)
     if (*count!=UINT32_MAX) ++*count;
     s_run_output.last_phase=phase;
     s_run_output.last_outcome=(uint32_t)outcome;
+    s_run_output.last_outcome_service_sequence=s_run_output_current_service_sequence;
+    s_run_output.last_outcome_tick=s_run_output_current_service_tick;
 }
 
 static bool run_output_prepare_stopped(void *context)
@@ -76,6 +80,9 @@ static bool run_output_prepare_stopped(void *context)
     memset(&s_run_output_timeline,0,sizeof(s_run_output_timeline));
     s_run_output_timeline_valid=false;
     s_run_output.last_outcome=VDC_RUN_OUTPUT_OUTCOME_NONE;
+    s_run_output_service_sequence=0u;
+    s_run_output_current_service_sequence=0u;
+    s_run_output_current_service_tick=0u;
     s_run_output.request=generation; s_run_output.session=session;
     s_run_output.prepared_config=ring.config_seq;
     s_run_output.period_ns=args[0]; s_run_output.high_ns=args[1]; s_run_output.duration_ms=args[2];
@@ -167,6 +174,10 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
         s_run_output_pending.valid=false; s_run_output_pending.planned=0u;
         s_run_output_timeline_valid=false; return;
     }
+    s_run_output_current_service_sequence=s_run_output_service_sequence!=UINT32_MAX ?
+        ++s_run_output_service_sequence : UINT32_MAX;
+    s_run_output.service_sequence=s_run_output_current_service_sequence;
+    s_run_output_current_service_tick=hw.service_observations ? hw.service_last_tick : 0u;
     phase=hw.state==SYNC_IO_RUN_OUTPUT_RUNNING ? VDC_RUN_OUTPUT_RUNNING_PHASE : VDC_RUN_OUTPUT_PREPARED_PHASE;
     if (vdc_dpll_manager_feedback_session()!=s_run_output.session ||
         app_realtime_cycle_cycles_core1()!=s_run_output.schedule_cycles) {
@@ -237,6 +248,8 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
         s_run_output_pending.valid=false;
         s_run_output_pending.planned=0u;
         if (s_run_output.cache_invalidations!=UINT32_MAX) ++s_run_output.cache_invalidations;
+        s_run_output.last_invalidation_service_sequence=s_run_output_current_service_sequence;
+        s_run_output.last_invalidation_tick=s_run_output_current_service_tick;
     }
     const bool cached=s_run_output_pending.valid;
     if (cached_only && (first || !cached)) {

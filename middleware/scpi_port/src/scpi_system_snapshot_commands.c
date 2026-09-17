@@ -2684,7 +2684,7 @@ scpi_result_t scpi_cmd_vdc_run_output_q(scpi_t *context)
         scpi_port_push_exec_error(context,"VDC_RUN_OUTPUT_NOT_RETIRED"); return SCPI_RES_ERR;
     }
     const sync_io_run_output_snapshot_t *h=&s.hardware;
-    SCPI_ResultUInt32(context,h->schema); SCPI_ResultUInt32(context,h->generation);
+    SCPI_ResultUInt32(context,VDC_RUN_OUTPUT_SCHEMA); SCPI_ResultUInt32(context,h->generation);
     SCPI_ResultUInt32(context,h->state); SCPI_ResultUInt32(context,h->reason);
     SCPI_ResultUInt32(context,h->blocks); SCPI_ResultUInt32(context,h->edges);
     SCPI_ResultUInt32(context,h->source_retirements);
@@ -2742,6 +2742,11 @@ scpi_result_t scpi_cmd_vdc_run_output_q(scpi_t *context)
     SCPI_ResultUInt32(context,s.schedule_cycles);
     SCPI_ResultUInt32(context,h->fifo_words_per_edge);
     SCPI_ResultUInt32(context,h->fixed_high_ticks);
+    SCPI_ResultUInt32(context,s.service_sequence);
+    SCPI_ResultUInt32(context,s.last_outcome_service_sequence);
+    SCPI_ResultUInt32(context,s.last_invalidation_service_sequence);
+    SCPI_ResultUInt64(context,s.last_outcome_tick);
+    SCPI_ResultUInt64(context,s.last_invalidation_tick);
     return SCPI_RES_OK;
 }
 
