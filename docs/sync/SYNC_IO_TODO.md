@@ -88,7 +88,7 @@ Last updated: 2026-09-18
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
 | SYNC-OUT-001 | 完善预约输出 runtime 和复位路径 | PENDING | late/drop/overflow、RESET release、host 计划测试和真实边沿 HIL 完整。 |
-| SYNC-OUT-002 | 为 DPLL/VDC 提供统一 owner 的有限持续 PIO 输出 | IN PROGRESS | STOP 预留、完整客户端交接、START 准入、源缓冲退休与不可改写前缀及有界退休已实现；进度 `SYNC-PROGRESS-20260918-004` 长时间轴、分批后缀与 SCPI/Flash 配置已有同源码 quick P3、保存恢复及四板十边沿块实际采用验证，caller wall 未超候选预算，但仍四板 STARVED。下一步核对模型更新后的后缀重建与 DMA 退休后的真实补给期限；联动 `VDC-OUTPUT-001`，有限实测不代替 WCET 或物理精度。 |
+| SYNC-OUT-002 | 为 DPLL/VDC 提供统一 owner 的有限持续 PIO 输出 | IN PROGRESS | STOP 预留、完整客户端交接、START 准入、源缓冲退休与不可改写前缀及有界退休已实现；uniform 固定高宽单字 FIFO 已通过 host、资源和同源码 quick P3，实际有限 RUN 仍四板 STARVED。下一步核对模型后缀重建、dispatcher 服务间隔与 DMA 退休期限的关联；联动 `VDC-OUTPUT-001`，有限实测不代替 WCET 或物理精度。 |
 | SYNC-MODE-001 | 完成 SEQ_STEP/ENC_COUNT/BISS_TAP 板端 self-test | PENDING | 每个 active profile mode 有独立 loopback/回放、资源冲突和安全释放证据。 |
 | SYNC-PROFILE-001 | 清理失效 AUX/RJ45/BiSS 运行描述与能力暴露 | PENDING | `BOARD_SYNC_AUX_ENABLED` 等 profile 开关贯穿 validate、查询和文档；禁用能力不可 ARM。 |
 | SYNC-COMP-001 | 拆分 `sync_io.c` core、capture、output、analyzer 和 AUX compatibility | PENDING | 每个模块只有一个 owner 边界；公共 header 不再混合产品 mode 与诊断 persona 实现。 |
