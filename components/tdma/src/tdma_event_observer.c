@@ -154,8 +154,30 @@ static tdma_event_reason_t lift_sample(tdma_event_observer_t *observer,
                                        size_t stream, tdma_event_word_t current)
 {
     const bool first = observer->joined == 0u;
-    const tdma_event_interval_t previous_age = first ? observer->start :
+    tdma_event_interval_t previous_age = first ? observer->start :
                                                 observer->previous[stream].age;
+    if (!first) {
+        /* A drained DMA batch need not prove FIFO empty, so its saved age.lo
+         * can still be the epoch start after many ordinary adjacent events.
+         * Earlier UNIQUE lifts already proved the previous elapsed time E
+         * from the shared anchor A. Intersect its read bracket with A+E;
+         * otherwise the adjacent delta window grows with total uptime and
+         * falsely admits one extra full PIO period after the first wrap.
+         * This adds no new observation and cannot resolve a genuinely wide
+         * current-event gap. The first event still has no earlier lift. */
+        const uint64_t elapsed = observer->elapsed[stream];
+        if (observer->anchor_bounds.lo > UINT64_MAX - elapsed)
+            return TDMA_EVENT_TIME_OVERFLOW;
+        const uint64_t known_lo = observer->anchor_bounds.lo + elapsed;
+        /* Intersecting with a uint64 read bracket permits clipping a
+         * mathematical upper endpoint beyond UINT64_MAX, without wrapping
+         * it or dropping an otherwise representable candidate. */
+        const uint64_t known_hi = observer->anchor_bounds.hi > UINT64_MAX - elapsed
+            ? UINT64_MAX : observer->anchor_bounds.hi + elapsed;
+        if (known_lo > previous_age.lo) previous_age.lo = known_lo;
+        if (known_hi < previous_age.hi) previous_age.hi = known_hi;
+        if (!interval_valid(previous_age)) return TDMA_EVENT_ABSOLUTE_TIME;
+    }
     if (current.age.hi < previous_age.lo) {
         return TDMA_EVENT_ABSOLUTE_TIME;
     }

@@ -325,14 +325,15 @@ static void test_absolute_anchor_contradiction(void)
     tdma_event_batch_t input = batch(190u, 200u);
     append(&input, 0u, 1u, UINT32_MAX - 50u);
     assert(tdma_event_observer_feed(&observer, &input, output) == 1u);
-    /* These two locally possible adjacent lifts put RX at 1106, while a
-     * proved-empty RX FIFO at 1150 excludes that absolute event time. */
+    /* A raw counter delta would put RX at 1106, while a proved-empty RX FIFO
+     * at 1150 excludes it. The known previous event now rules out the lift
+     * before the later absolute-anchor validation. */
     input = batch(1150u, 1150u);
     assert(tdma_event_observer_feed(&observer, &input, output) == 0u);
     input = batch(1190u, 1200u);
     append(&input, 1u, 2u, UINT32_MAX - 550u);
     assert(tdma_event_observer_feed(&observer, &input, output) == 0u);
-    assert(observer.reason == TDMA_EVENT_ABSOLUTE_TIME);
+    assert(observer.reason == TDMA_EVENT_LIFT_NO_CANDIDATE);
     assert_retired(&observer);
 }
 
@@ -413,14 +414,16 @@ static void test_spacing_skew_and_overflow(void)
     input = batch(UINT64_MAX, UINT64_MAX);
     append(&input, 0u, 1u, UINT32_MAX - 50u);
     assert(tdma_event_observer_feed(&observer, &input, output) == 1u);
-    /* Prevent the empty proof from tightening away the intended overflow
-     * scenario: the previous read bracket itself still admits this delta. */
+    /* The broad previous read bracket alone admits this delta, but its
+     * intersection with the already proved elapsed time cannot: rejection
+     * now occurs before the overflowing elapsed-time addition. */
     const uint64_t room = UINT64_MAX - near_end;
     const uint32_t decrement = (uint32_t)((room + 1u) / 2u);
     input = batch(UINT64_MAX, UINT64_MAX);
     append(&input, 1u, 2u, UINT32_MAX - 50u - decrement);
     assert(tdma_event_observer_feed(&observer, &input, output) == 0u);
-    assert(observer.reason == TDMA_EVENT_TIME_OVERFLOW);
+    assert(observer.reason == TDMA_EVENT_LIFT_NO_CANDIDATE);
+    assert_retired(&observer);
 }
 
 int main(void)

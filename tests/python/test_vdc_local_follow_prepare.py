@@ -92,7 +92,7 @@ bool vdc_dpll_manager_get_committed_model(vdc_dpll_manager_committed_model_t *ou
 bool vdc_dpll_manager_copy_local_follow_path(uint32_t local,uint32_t reference,uint32_t schedule,
     uint32_t *delay,uint32_t *crc)
 { assert(local==2 && reference==0 && schedule==0xabc);if(!path_ok)return false;*delay=delay_ns;*crc=path_crc;return true; }
-static bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz,uint64_t *out)
+bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz,uint64_t *out)
 { assert(hz==250000000);*out=raw_now;return true; }
 bool distributed_refmem_copy_vdc_feedback_rx(uint32_t slot,distributed_refmem_vdc_feedback_rx_snapshot_t *out)
 { assert(slot==0);*out=rx;return true; }

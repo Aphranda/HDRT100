@@ -11,6 +11,7 @@ import shutil
 import subprocess
 
 from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
+from test_vdc_command_owner import function_body
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -36,16 +37,26 @@ def production_routines() -> str:
         ("components/tdma/src/tdma_pio_spi_phys_event.inc", "void", "tdma_event_candidate_retire", "void"),
         ("components/tdma/src/tdma_pio_spi_phys_event.inc", "void", "tdma_event_publish_state", "tdma_pio_spi_phys_t *phys"),
         ("components/tdma/src/tdma_pio_spi_phys_event.inc", "void", "tdma_pio_spi_phys_event_service", "tdma_pio_spi_phys_t *phys"),
+        ("components/tdma/src/tdma_pio_spi_phys.c", "void", "tdma_pio_spi_phys_service_observer", "tdma_pio_spi_phys_t *phys"),
+        ("components/tdma/src/tdma_runtime_owner.c", "void", "tdma_runtime_owner_service_observer", "void"),
         ("components/tdma/src/tdma_pio_spi_phys.c", "bool", "tdma_pio_spi_phys_capture_words", "tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words"),
         ("components/tdma/src/tdma_pio_spi_phys_flight_io.inc", "void", "tdma_pio_spi_phys_service_tx", "void *context, uint64_t now_ns"),
         ("components/tdma/src/tdma_runtime_owner.c", "void", "tdma_runtime_owner_service_phys_tx", "uint64_t now_ns"),
         ("components/tdma/src/tdma_rx_prepare.c", "uint32_t", "tdma_rx_prepare_state", "const tdma_rx_prepare_t *job"),
+        ("components/tdma/src/tdma_pio_spi_ring_adapter.c", "bool", "tdma_pio_spi_ring_adapter_rx_capture", "tdma_pio_spi_ring_adapter_t *adapter, uint8_t *packet, size_t packet_capacity"),
+        ("components/tdma/src/tdma_pio_spi_ring_adapter.c", "bool", "tdma_pio_spi_ring_adapter_rx_legacy", "tdma_pio_spi_ring_adapter_t *adapter"),
         ("components/tdma/src/tdma_pio_spi_ring_adapter.c", "bool", "tdma_pio_spi_ring_adapter_rx_once_impl", "tdma_pio_spi_ring_adapter_t *adapter"),
         ("components/vdc_dpll_manager/src/vdc_dpll_manager.c", "void", "tdma_component_core1_service", "void"),
     ]
-    return "\n".join(f"static {result} {name}({args}) {{" +
-                     c_definition_body((ROOT / path).read_text(encoding="utf-8"), name) + "}\n"
-                     for path, result, name, args in functions)
+    units = []
+    for path, result, name, args in functions:
+        source = (ROOT / path).read_text(encoding="utf-8")
+        # These helpers retain production's noinline attribute; the shared
+        # typed extractor recognizes its placement without rewriting source.
+        extract = function_body if name in (
+            "tdma_pio_spi_ring_adapter_rx_capture", "tdma_pio_spi_ring_adapter_rx_legacy") else c_definition_body
+        units.append(f"static {result} {name}({args}) {{" + extract(source, name) + "}\n")
+    return "\n".join(units)
 
 
 PREFIX = r'''
@@ -58,6 +69,7 @@ PREFIX = r'''
 #include "tdma_event_observer.h"
 #include "tdma_event_history.h"
 #include "tdma_rx_capture.h"
+#include "tdma_transport_frame.h"
 #include "tdma_rx_event_candidate.h"
 #include "tdma_frozen_geometry.h"
 #include "tdma_rx_first_window.h"
@@ -366,8 +378,14 @@ static void test_not_armed_master_and_uninitialized_are_noops(void) {
     assert(bank.level[1]==2u && bank.ctrl==15u);
     s_tdma_runtime_owner_initialized=true;
     ota_active=true; tdma_component_core1_service(); ota_active=false;
+    assert(fifo_reads==0u && owner_lifetimes==0u); /* OTA still excludes all work. */
     skip_phase=true; tdma_component_core1_service(); skip_phase=false;
-    assert(fifo_reads==0u && owner_lifetimes==0u); /* Existing explicit owner exclusions preserved. */
+    /* A finite origin blackout still harvests the independent observer. Its
+     * TX/owner/RefMem/training work remains suppressed. */
+    assert(fifo_reads==5u && s_tdma_event_snapshot.service_count==1u);
+    assert(s_tdma_event_observer.state==TDMA_EVENT_ACTIVE && s_tdma_event_observer.joined==1u);
+    assert(owner_lifetimes==0u && capture_calls==0u && refmem_calls==0u && training_calls==0u);
+    assert(probe_calls[TDMA_TIMING_PHYS_SERVICE]==0u && probe_calls[TDMA_TIMING_OWNER_SERVICE]==0u);
 }
 static void test_stall_remains_permanent_failure(void) {
     reset(); for(uint ordinal=0u;ordinal<5u;++ordinal) event(ordinal);
