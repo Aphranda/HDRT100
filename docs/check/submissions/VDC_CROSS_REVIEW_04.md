@@ -77,6 +77,24 @@ C11 结论 `APPROVE_PENDING_CONTRACT_EXTENSION`，同意 v4 保持 pending，不
 死区零调整与 sanity 总限幅导致的零步长须分别解释；DCO 更新不代表 GPIO 模型采用、
 相位捕获、ACK、单圈期限或锁相。软件及实板结果由 Task Progress 留证。
 
+## NO1 共钟映射增补（v7 pending）
+
+在既有相关本地差分和有限档位基线上，NO1 的 typed 新事件增加有限共钟约束
+求交；连续坐标的开上界、真实 Domain 投影、每帧独立 latch 和旧无状态准入
+保留。只有最终复验与编码成功才能提交缓存，矛盾退休 typed generation。
+同事件编码不变，普通 TDMA 继续；不改变本地量化余量或执行器提交语义。
+
+origin 原生 schema 复用维护池，从 Core1 确认的空 SYNC 开始连续记录全部成功
+贡献，并保存最后记录对应缓存；从板旧 schema、STOP ACK、读取 lease 与 CRC
+保持。实现和布局事实源为 canonical 条款及 `vdc_priority_trace.h`。
+
+独立方 `priority_review` 于 2026-09-17 复核三份契约文档及生产实现，结论
+`PASS_C11_VDC_PRIORITY_01_V7_PENDING`，不批准 active。证据为
+`out/HardwareAcceptance/20260917/dpll-priority-mapping-r1/c11-review.json`，
+同目录资源报告覆盖真实 TDMA→TX→mapped projector 和 origin trace 深调用链。
+软件、同源码 P3 和原生专项的结果由 Task Progress 记录，不据映射区间收窄
+宣称单圈期限、物理精度或锁相。
+
 ## 最终核验结论
 
 ACCEPT_WITH_DEVIATION。P3、资源和 typed 实板专项的实际结果只记录在 VDC Task Progress，

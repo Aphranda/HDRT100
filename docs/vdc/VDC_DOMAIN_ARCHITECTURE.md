@@ -568,6 +568,31 @@ origin bracket 未包含的同步器/检测偏差须在后续精度任务校准�
 模型 `valid_from_raw` 时跳过，不能用新模型重新解释旧事件。正常模型修订不强制
 变更运行 generation；同一事件首次成功编码后冻结字节，模型已变时不重新投影。
 
+NO1 新事件使用 `vdc_clock_mapping_project` 的 Core1 私有有限映射缓存；原无状态
+绝对投影仍为准入条件，其他 RATE/普通调用不使用该缓存。延续既有共钟生命周期
+前提，令连续本地坐标为 `X(r)=C+10^9*r/tick_hz`，桥接读数 U 为 TIMER0 整微秒
+读数，原始读区间为 `[b0,b1]`。每条桥约束
+`C∈[U-10^9*b1/tick_hz,U+1000-10^9*b0/tick_hz)`；上界开区间贯穿求交。
+完整事件端点映射后采用 `floor(lower)` 与 `ceil(upper)-1`，再经真实 Domain
+DCO 映射并与原绝对投影求交。这里包住 `F(floor(X(event)))`，不把它混同于
+`F(1000*floor(X(event)/1000))` 的假想粗时刻读数；Domain now、模型提交和输出
+执行器语义不变，本地 FOLLOW 的量化余量不变，每帧独立 latch 区间完整保留。
+
+缓存容量与有效跨度以 `VDC_CLOCK_MAPPING_MAX_CONSTRAINTS/MAX_SECONDS` 为准；
+容量满后保持已累计界，但当前桥仍参与本事件临时求交和矛盾检查。模型 token
+变化或正常跨度到期重新建立缓存；STOP、运行绑定退休取消缓存。候选只在源、
+会话、模型复验和编码成功后提交，同事件不贡献第二条桥、不重编码。空交集和
+缓存 epoch 耗尽明确退休本 typed generation，不停止其他 TDMA 运输，不以
+中点或静默回退代替矛盾。原始坐标回退、年龄、取整及溢出准入仍须通过。
+
+`SYSTem:VDC:PRIORity:TRACe:ORIGin` 在 STOP 下申请独立 origin schema，Core1
+确认该 SYNC 尚未编码或提交缓存后 ACK；首条再核对空缓存起点。复用原维护池，
+每次成功 fresh 编码连续保存完整 bridge、事件区间、真实 DCO 与编码上下界，
+不抽样漏掉缓存贡献。schema 与布局以 `vdc_priority_trace.h` 为准；专用扩展
+保存最后已记录提交的缓存及身份，FULL 后不随后续 TX 更新。原从板 schema
+保持不变，STOP/READ lease/CRC/RELEASE 共用原协议。离线完整重放只证明记录
+对应的模型计算及编码，不代替单圈送达、GPIO 精度或锁相证明。
+
 `SYSTem:VDC:PRIORity:SYNC` 是 Core0 STOP-only 意图，非零值必须严格递增且已有
 feedback session；零禁用。generation 不替代 feedback session、origin epoch
 或 model token。Core1 首次绑定完整 ring config、source epoch/tick rate、session、

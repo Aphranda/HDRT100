@@ -32,6 +32,57 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-013：NO1 共钟区间收窄与原生同事件验收
+
+本轮完成 NO1 typed 新事件的有限共钟桥接求交；不是锁相完成。以下数字为本轮
+实测快照，非容量、时序或精度事实源。证据根为
+`out/HardwareAcceptance/20260917/dpll-priority-clock-r1/`；独立数学、测试、源码、
+资源及 C11 审查原件在同日 `dpll-priority-mapping-r1/`。
+
+- Core1 保留有限半开约束，完整事件端点经真实 Domain 映射后与原投影求交；
+  容量及跨度以 `vdc_clock_mapping.h` 为准。只在最终复验和编码成功后提交，
+  同事件编码不变；模型/期限重建、矛盾退休、STOP 取消均有真实 TX 测试。
+  不改变 Domain now、执行器、FOLLOW 量化界或每帧独立 latch。
+- 新 origin 原生 schema 使用原维护池，从新 SYNC 的 Core1 空缓存 ACK 开始，
+  连续记录全部成功贡献。FULL 固定最后记录对应的缓存，不随之后 TX 改写。
+  旧从板 schema 及 STOP/read lease/CRC/RELEASE 保留，SCPI 运行期间零查询。
+- 软件验收合并覆盖 878 项相关测试，通过记录见 `host-summary.json`。原广测
+  835 通过、一个旧 TX SCPI fixture 缺新增头依赖；补真实 include 后定向通过。
+  独立专项 85 项含 5124 组 Fraction 输入及真实 Domain/TX/原生记录，不把
+  provider 假投影测试当数学证明。全部初始失败原件保留，未伪称单次全绿运行。
+- App A/B/Boot Release 与 Flash 检查通过。独立 linked 深链审核：新增静态
+  RAM 540 B，预留堆后主 RAM 余 37480 B，scratch gap 24 B；共享池仍 7600 B。
+  TDMA→TX→mapped projector 加 IRQ/异常为 2068 B，origin trace 深链 1584 B，
+  既有已审最大仍 2872/3072 B。局部资源证明不代替 WCET 或全部运行水位。
+- 同源码四板 quick P3 为 `PASS_WITH_WARNINGS`，221.203 秒，25 INFO、13 WARN、
+  无 ERROR/FATAL。本轮保留 TDMA explicit startup barrier timeout、NO1/NO3/NO4
+  receive_missing、VDC/RefMem deadline 增长；T1/T3 本轮未报告告警，不能照抄
+  前轮失败。`strict_gates_passed=false`，不得写严格运输/调度已通过。
+- 首次 `clock-short-r1` 专项通过，8 秒静默，完整流程 28.687 秒。NO1 连续
+  76 条中 75 条收窄；**同事件单桥宽度中位 1687 ns，实际编码中位 863 ns**，
+  中位减少 824 ns。原区间范围 1331–3875 ns，编码范围 391–1687 ns。
+  全部原始桥、真实 DCO、实际编码及最后缓存独立重放一致，不取中点冒充真值。
+- 三从与 NO1 原生窗口各有一条完全相同事件匹配：NO2 event 72，2647→863 ns；
+  NO3 event 55，2163→1159 ns；NO4 event 46，2651→1687 ns。接收到的 remote
+  上下界逐字相同。该证据只覆盖重叠原生事件，不泛化为所有帧单圈必达。
+- NO2/NO3/NO4 的 MATCH 为 37/37/36，DECISION 为 10/7/7；真实 DCO 更新
+  **5/6/7 次**、零调整 5/1/0、拒绝均零。序号及频率分别为 1→6、0→+395 ppb；
+  1→7、0→+262 ppb；1→8、0→+2240 ppb。末次原生决定与真实 Domain 末态一致。
+  NO4 完整频差区间从 `[-6576,-2199]` 到 `[-3915,-435] ppb`，仍在纠偏。
+- 三从全窗残差端点变化区间分别为 `[-15854,-6934]`、`[-21603,-7971]`、
+  `[-28267,-20163] ns`，仍有负向漂移。不能据更新次数或区间变窄宣称锁相。
+  原生分析与图见专项 `analysis/typed_residual_dco.svg`；逐板区间见
+  `comparison.json`，同事件核验见 `same-event-comparison.json`。
+- 全部 STOP、ACK、CRC 读回、共享池 RELEASE 与配置恢复完成。STOP 后调度表
+  仅为累计快照，缺 START 前差分，不能将其峰值归因于本轮新增映射或宣称 WCET。
+  后续继续收窄频差判定与验证持续漂移收敛；不重复实现共钟缓存，不重跑 P0T 寻优，
+  不引入启动首帧精细证明作为 DPLL 前置。
+
+本轮 build `20260917021736`，源码指纹
+`e211b774f0186eb807458e98ead1d79282a313d7a51e238155ca64c0230159a1`，1230 文件；
+包 SHA256 `3cb1ce47136fa9abb94806e9651029baf4f3f31c88c9b659e7dca6632f1551fb`。
+`VDC-PRIORITY-01` v7 经独立 C11 保持 pending；长期目标与物理精度尚未完成。
+
 ### VDC-PROGRESS-20260917-012：同模型基线保留与有限档位复评
 
 - TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。以下数字为本轮证据快照，非容量、
