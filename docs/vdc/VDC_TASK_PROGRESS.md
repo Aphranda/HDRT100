@@ -32,6 +32,76 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-012：同模型基线保留与有限档位复评
+
+- TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。以下数字为本轮证据快照，非容量、
+  时序或精度契约。本切片仅在宽频差区间与死区相交时延长同模型观测，保留全部真实误差界。
+- 代码与匹配 P3 凭证已提交为 `4a3bc40`，真实 pre-commit 核验 staged 源码通过。
+- `priority_follow_prepare_core1()` 在既有完整端点上限之后检查有限档位；未到档位不做
+  相关投影或频差除法，进入计算前即消耗所有已到达档位。错过档位不补算，BUSY 与新鲜
+  票据替换不退还机会。`priority_follow_apply_core1()` 只在区间与死区相交、未全落入
+  死区且还有后档时保留原基线。自己的 DCO 更新、模型/生命周期改变、STOP、最终档位、
+  到期、限幅或失败应用均保持既有重建/取消语义；事件消费和快照格式保持原界。
+- 档位与上限引用 `VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS`、
+  `VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS`、`VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS`、
+  `VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS` 和 `VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS`。
+  新私有状态使用工作结构原有尾部填充，不占诊断 reserved 或新增 wire 字段。
+- 相关软件回归 410 项及新增独立窗口测试 18 项通过。首次相关回归为 400 通过、10 个
+  fixture 编译错误：旧 model owner fixture 未接入上一切片新增的两个 trace wrapper
+  入口。补充仅验证 guard 外执行及调用顺序的 seam 后，10 项复跑通过；真实 recorder
+  行为仍由原生 trace 测试覆盖。新增测试首轮 15 项通过，补边界时 C harness 曾触发
+  misleading-indentation 编译失败，修正测试换行后完整 18 项通过；失败原件均保留。
+- 独立窗口测试连接真实 matcher、控制器、Domain 和 recorder，原生两次决策保留同一
+  baseline，先跨死区不调整、后档真实采用。计数探针覆盖等待不计算、BUSY、未决替换、
+  漏档、三档耗尽、完整上界、重复事件、窄死区、限幅、拒绝和生命周期取消。将实际
+  `0ade494` 控制器替换进临时 TU 后，三个关键用例均失败，未改工作区生产代码。
+- App A/B/Boot Release、Flash link 与独立 linked 资源审查通过：主 RAM 余 38020 B、
+  scratch 余 24 B，准备/应用完整链含 IRQ 和异常帧分别 584/768 B，既有启用路径最大
+  2872/3072 B，均未增加。这不是实际运行水位或 WCET 证明。
+- 当前源码四板 quick P3 为 `PASS_WITH_WARNINGS`，INFO/WARN/ERROR/FATAL=23/19/0/0；
+  build_id=`20260917014743`，源码指纹
+  `7291856b177a20715b9322d80da05cbdef38e36b382a2181f288763fd61addb7`，包 SHA256
+  `694c27984df8b96ea5805d5887582e5865c561c774cff7bfb02cd9d822ac7385`。
+  复用已测线序。本轮 T1 SCK 质量、T3 新测 SCK 行选择和 TDMA startup barrier 均失败，
+  已有兼容参数及基本运输仍可用，按固定范围保留 WARN；四板 receive_missing 与
+  VDC/RefMem deadline 增长也保留，不能宣称严格训练、连续性或调度通过。
+- `window-short-r1` 首次专项通过；运行八秒零查询，无 GPIO 诊断输出，完整配置、采集、
+  STOP 后原生读回与恢复流程约 25 秒。三从 MATCH 分别 38/39/38 条，各 12 条 DECISION；
+  同一基线的后续决策分别 7/8/8 次，每基线最多三次，实际间隔跨入后档。原件无丢弃，
+  分页及整文件 CRC、末次 FOLLOW 与 Domain DCO 一致，采集池显式 RELEASE。
+
+| 板卡 | 真实更新 / 零调整 | DCO 序号 | 实际频率修正 | 频差区间全宽范围 |
+|---|---|---|---|---|
+| NO2 | 2 / 10 | 1→3 | 0→−98 ppb | 2934–7383 ppb |
+| NO3 | 1 / 11 | 1→2 | 0→−22 ppb | 2761–6985 ppb |
+| NO4 | 2 / 10 | 1→3 | 0→+23 ppb | 2583–8000 ppb |
+
+- 原生同基线证据直接证明后档采用：NO2 的 baseline 1900 从约一秒的
+  `[-711,4306] ppb` 到约 1.503 秒的 `[268,3489] ppb` 后采用 −67 ppb；NO3 的
+  baseline 3695 首档 `[-1528,3450] ppb`，约 1.827 秒为 `[88,3031] ppb` 后采用
+  −22 ppb。NO4 的 baseline 3714 首档 `[-3629,1028] ppb`，约 1.811 秒为
+  `[-2945,-69] ppb` 后采用 +17 ppb；后一个基线再次延长后采用 +6 ppb。
+  数据见 `window-short-r1/retained-baseline-applies.json`；各组前后保持实际本地模型，
+  没有从缺失的 MATCH 基线重造端点。实板 DECISION 只证明已完成决策的档位，包含
+  BUSY/替换的全部准备计算上限由独立 host 覆盖。
+- 后档频差宽度确实收窄，但仍为微秒级输入对应的千 ppb 量级。全窗模型 residual
+  变化区间 NO2/NO3 为正、NO4 为负；长稳、物理输出采用、相位/100 ns 均未完成。
+  前轮与本轮启动、模型和输入不同，不能据跨轮斜率或更新数量宣称算法独立消除了漂移。
+- 证据根目录：`out/HardwareAcceptance/20260917/dpll-priority-window-r1/`，固定验收范围
+  见 `acceptance-plan.json`；软件为 `software-summary.json`、`coverage.json`、原始日志
+  和 JUnit，源码、资源及 C11 v6 独审分别为 `code-review.json`、
+  `resource-independent-review.json` 与 `c11-review.json`。实测入口为 `p3/`、
+  `window-short-r1/input-probe.json`、`comparison.json` 和 `analysis/typed_residual_dco.svg`。
+  独立 `hardware-review.json` 重算二进制、分页、CRC、频差与同基线档位，核对真实
+  DCO 链、运行零查询及 STOP/释放/恢复，结论为
+  `PASS_SCOPED_BOUNDED_SAME_MODEL_WINDOW_SLICE`。
+- 下一 gate：继续 `VDC-FAST-003`，按既有纳秒事件模型证明并收窄 NO1 参考投影的
+  TIMER0/TIMER1 共同映射区间，保留每帧独立 latch 和真实量化约束；有限缓存与原生
+  分解证据放在同一功能切片验收，不以额外诊断或首帧优化阻塞主线。既有本地差分量化界
+  和 Domain 提交/调度逻辑保持，不把粗服务时刻读数与事件纳秒模型坐标混用。后续继续
+  实际输出采用、ACK、单圈期限、物理精度及 VDC 正式发布。四板最终 STOP，配置恢复，
+  未操作 NO5、未修改 OTA；保留他人 flight engine 工作区改动。
+
 ### VDC-PROGRESS-20260917-011：相关本地差分缩界与原生决策验收
 
 - TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。以下数字为本轮证据快照，非容量、

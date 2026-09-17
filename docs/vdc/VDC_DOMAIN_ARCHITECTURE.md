@@ -656,6 +656,15 @@ MATCH 请求。Core1 在 committed-model 写 guard 外取得本拍成功匹配�
 
 频差整个区间越过 `VDC_BOUNDARY_AUTO_DEADBAND_PPB` 时才产生反向有界频率修正，
 步长上限沿用 `VDC_BOUNDARY_AUTO_MAX_DELTA_PPB`；区间跨越死区时记录不调整决策。
+若区间与死区相交但并非完全位于死区内，且仍有后续观测档位，则保持同一本地模型
+的原基线，以更长有效间隔重新估计；不删减端点误差界。档位由
+`VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS`、`VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS`、
+`VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS` 定义，完整端点仍受
+`VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS` 限制。每基线的估计次数不超过
+`VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS`；进入相关投影与频差算术之前即消耗已越过
+档位，错过档位不补算，BUSY 或新事件替换未决票据不退还计算机会。等待后续档位
+只作有界比较，不逐帧重复估计。最终档位、窄死区、限幅导致的零步长和失败应用不
+延长原基线；重建、取消和实际 DCO 更新清理档位进度。重复基线不允许重复消费事件。
 提案须在 Core1 committed-model guard 内，于既有服务之后复验显式模式、session、
 ring/role/clock/ARM/observer/RX/path 绑定、事件年龄和实际本地 DCO 更新身份，再调用
 `vdc_domain_apply_local_follow_rate_delta`。Domain 在实际服务时刻连续重基，只改本地
