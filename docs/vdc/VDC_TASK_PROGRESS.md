@@ -43,6 +43,19 @@ Last updated: 2026-09-18
   `design-review/c11-v15-semantic-independent-r1.json`。同源码四板 quick P3
   PASS_WITH_WARNINGS，181.917 秒，25 INFO/18 WARN/0 ERROR/FATAL；严格质量
   失败保留。实际 scope 复采尚未完成，不能据 host/P3 通过宣称连续或 DPLL 锁相。
+- uniform 四板实际采集 `capture-r2` 已完整 STOP/导出 scope 与 native：schema 6
+  的 `fifo_words_per_edge=1` 四板均生效，但 NO1–NO4 仍因 FIFO 耗尽 STARVED。
+  服务末间隔约 2.17–2.65 ms，退休时末沿界已落后约 0.33–2.30 ms；短服务
+  wall 约 28.7–46.7 µs，超预算计数为零。以上为本轮有限采集快照，不能外推
+  WCET 或锁相；最终 STOP 读回和示波器 STOP/EXT/NORM 均通过，原件在
+  `capture-r2/`。
+- 独立专项复核 `design-review/uniform-capture-independent-r2.json`（SHA256
+  `800d2630a645e8cebe2850f5ca905dcafdb753aaeeb5d760e834212d202e17c4`）确认四板
+  实际 uniform、高段 500 tick、采集期零查询及 STOP 收尾；将 harness 因检测到
+  STARVED 而返回非零视为专项 FAIL 原件保留，不改写为通过。
+- 该结果表明单字编码增加了 FIFO 库存密度，却未跨过 Core1 补给调度空窗。
+  下一 gate 转为对齐调度服务间隔、模型后缀准入和 DMA 退休期限的相关时序证据，
+  再决定是否调整 TDMA 服务预算；不通过放宽连续性判据结案。
 
 当前执行方向由用户进一步明确为预编码最小时间戳、确定性特等席运输和 Core1
 直接匹配，见 `VDC-PROGRESS-20260916-038/039/040/041/042/043` 与 `VDC-FAST-001/002/003`。

@@ -19,6 +19,14 @@ Last updated: 2026-09-18
 - 当前同源四板 quick P3 PASS_WITH_WARNINGS，181.917 秒，25 INFO/18 WARN，
   0 ERROR/FATAL；严格质量失败保留。实际输出专项待完成，保持
   `SYNC-OUT-002` IN PROGRESS。
+- `capture-r2` 使用同一 build 的 uniform 后端完成四板有限 RUN；schema 6 及
+  `fifo_words_per_edge=1` 已逐板读回，但四板仍 STARVED。服务间隔约 2.17–2.65 ms，
+  短服务 wall 约 28.7–46.7 µs；这说明单字 FIFO 不是连续性的充分条件，下一步需
+  关联 dispatcher 服务间隔、模型失效与 DMA 退休点。所有板和示波器已 STOP，证据
+  位于 `out/HardwareAcceptance/20260918/dpll-run-uniform-r1/capture-r2/`。
+- 独立复核 `design-review/uniform-capture-independent-r2.json` 确认四板实际采用
+  单字编码、高段 500 tick、FIFO 空/STALL/DMA 耗尽现场和零运行查询；STARVED
+  仍是本轮专项 FAIL，harness 非零退出及原始证据均保留。
 
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
