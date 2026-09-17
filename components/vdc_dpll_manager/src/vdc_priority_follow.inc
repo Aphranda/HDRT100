@@ -254,6 +254,10 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
     }
     if (w->pending) s->cancelled = priority_match_inc(s->cancelled);
     w->pending = 0u;
+    const bool baseline_model_validity_changed = w->have_baseline &&
+        w->previous.model_token == m->model_token &&
+        w->ticket.model.token == m->model_token &&
+        w->ticket.model.valid_from_raw != match->model.valid_from_raw;
     w->ticket.match = *m;
     w->ticket.model = match->model;
     w->ticket.anchor_before = match->live.timer1_enable_before;
@@ -268,9 +272,11 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
     w->bound = 1u;
     s->tickets = priority_match_inc(s->tickets);
     /* Each endpoint keeps its own admission/model identity. A known
-     * successful phase publication can span a frequency baseline;
-     * never impose the NEW valid_from on the OLD admitted event. */
+     * successful phase publication may advance the rate epoch, but a
+     * baseline admitted before the new model's validity start cannot be
+     * paired with a later event under that model. */
     if (!w->have_baseline || w->previous.rate_epoch != w->ticket.rate_epoch ||
+        baseline_model_validity_changed ||
         m->raw_lo < w->ticket.model.valid_from_raw) {
         priority_follow_baseline(); s->last_reason = VDC_PRIORITY_FOLLOW_MODEL;
         priority_follow_publish(); return;
