@@ -189,7 +189,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `DOCS-FLASH-01` | Flash 域架构、TODO、任务进度三类文档的事实边界与变更接口 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 | `DOCS-TRIPLETFORMAT-01` | 域文档 Architecture、TODO、Task Progress 三件套的最小格式、稳定 ID、状态词汇和文件接口 | `docs/check/DOCS_REGRESSION_PLAN.md` | pending |
 | `VDC-PATHMATRIX-01` | Calibration load 生成完整 source/reference observation path matrix；DPLL 运行态只做矩阵索引，禁止沿环推断 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md` | pending |
-| `VDC-PRIORITY-01` | 独立 typed 同步邮箱携带完整事件/运行代际和 output-ns 区间；Core1 编码、直接匹配，TDMA 双缓冲及 RX IRQ 交接；NO1 共钟桥有限半开求交，保留逐帧 latch，编码后提交缓存并连续原生留证，矛盾退休；typed 连续事件共钟差分保留双层整数取整与绝对准入，旧微秒阶梯余量独立保留；首档前有界窄基线选择、不退还已消耗档位，经有界复评和生命周期复验后连续更新 DCO；单圈期限、ACK、相位与锁相分别验收 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-PRIORITY-01` | pending |
+| `VDC-PRIORITY-01` | 独立 typed 同步邮箱携带完整事件/运行代际和 output-ns 区间；Core1 编码、直接匹配，TDMA 双缓冲及 RX IRQ 交接；NO1 共钟桥有限半开求交，保留逐帧 latch，编码后提交缓存并连续原生留证，矛盾退休；typed 连续事件共钟差分保留双层整数取整与绝对准入，旧微秒阶梯余量独立保留；首档前有界窄基线选择，STOP 原子配置、新绑定锁存及 Core0 显式 Flash 保存，旧配置启动只读迁移；不退还已消耗档位，经有界复评和生命周期复验后连续更新 DCO；单圈期限、ACK、相位与锁相分别验收 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-PRIORITY-01` | pending |
 | `VDC-REFERENCE-01` | 显式 STOP 参考运输复用固定配额：Core0 投影并逐目标发送，三从保留指定主机参考并回 typed 接收 ACK，主机按完整发布证明核对；不阻塞发车或本地 PI，不以确认代替 DCO 应用或锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-REFERENCE-01` | pending |
 | `VDC-BOUNDARY-01` | 特等席固定配额承载逐从频率命令；Core0 准备独立 RATE 同模型窗口并有界重复，Core1 在显式 AUTO 下逐从负反馈、连续应用及精确 ACK；未决不叠加，不授予物理锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-BOUNDARY-01` | pending |
 

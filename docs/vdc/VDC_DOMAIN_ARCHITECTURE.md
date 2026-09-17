@@ -691,14 +691,34 @@ latch/bridge 区间。算术差分区间变窄不等于物理引脚精度提高�
 
 首个估计档位尚未消耗时，同一本地模型与完整运行绑定下的新有效样本可用于
 有界基线质量替换。新远端区间必须严格更窄，且宽度不超过旧基线的一半；
-完整远端间隔上界不超过 `VDC_PRIORITY_FOLLOW_BASELINE_WINDOW_NS`，正常建立
-基线后最多替换 `VDC_PRIORITY_FOLLOW_BASELINE_REPLACEMENTS` 次。替换保留该事件
+完整远端间隔上界不超过该绑定锁存的 `window_ns`，正常建立
+基线后最多替换该绑定锁存的 `max_replacements` 次。替换保留该事件
 自己的完整端点，不追改旧样本、不伪造对应的本地坐标。没有更窄样本时沿用
 原基线及原评估档位，不等待固定质量门限；额外间隔界是远端坐标预算，不是
 缺帧时的墙钟期限。质量替换递增私有次数，正常重建、取消或实际 DCO 更新清理
 次数；任何档位已消耗后均不再质量替换，不退还估计机会。诊断枚举附加
 `VDC_PRIORITY_FOLLOW_BASELINE_QUALITY`，保持既有编号与快照布局；最近状态不
 构成质量替换历史，STOP 可覆盖该理由。
+
+早期基线参数通过 `SYSTem:VDC:PRIORity:FOLLow:BASEline` 配置整对
+`max_replacements,window_ns`，`BASEline?` 返回下次绑定使用的请求值。
+替换次数允许零（禁用质量替换），不超过 `VDC_PRIORITY_FOLLOW_BASELINE_REPLACEMENTS`；
+窗口为正，不超过 `VDC_PRIORITY_FOLLOW_BASELINE_WINDOW_NS`。这两个符号同时定义
+工厂值和有界工作量上限。Core0 是唯一配置 writer，以单个原子字发布整对值；
+Core1 仅在新的有效 FOLLOW 绑定时读取一次，此后基线重建或 DCO 更新不重读配置。
+STOP 退休 FOLLOW 请求；重新运行须显式提交新的 FOLLOW 请求，不能仅凭 ARM 恢复。
+
+设置、`BASEline:DEFAult`、`BASEline:RECall` 和 `BASEline:STORe` 均要求完整
+STOP。DEFAult 只恢复工厂 RAM 值；RECall 从 Product Config 的持久化 SRAM 视图
+召回；STORe 才调用既有 Product Config journal/FlashTransaction 显式保存。
+维护保存持有 TDMA control guard 排斥 ARM/配置竞争，不关闭中断或阻断 Core1 的
+Flash park 握手；Flash 仅在 Core0 执行，不进入有界 metadata callback 或 Core1 路径。
+Product Config 的 `PRODUCT_CONFIG_VERSION` 保留旧记录前缀及旧 CRC 域，新记录 CRC
+覆盖附加参数。新固件读取旧版本记录时仅在 RAM 补默认值，保留有效 PI/角色及设备身份，不启动写 Flash；
+CRC 有效但范围非法的基线参数仅回退该参数对，不把旧锁相状态恢复为当前事实。
+存储失败保留原有效 journal 记录，当前请求配置不因失败被改写。范围和默认值由
+Product Config 与 FOLLOW 符号的编译断言保持一致，boot 读入发生在 Core1 启动前。
+该兼容承诺不包含旧固件识别新版本记录；固件降级的配置恢复需另行验证。
 
 频差整个区间越过 `VDC_BOUNDARY_AUTO_DEADBAND_PPB` 时才产生反向有界频率修正，
 步长上限沿用 `VDC_BOUNDARY_AUTO_MAX_DELTA_PPB`；区间跨越死区时记录不调整决策。

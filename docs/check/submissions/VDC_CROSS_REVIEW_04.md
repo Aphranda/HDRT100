@@ -112,6 +112,23 @@ origin 原生 schema 复用维护池，从 Core1 确认的空 SYNC 开始连续�
 资源报告位于该证据根的 `review/resource-review.json`；硬件与物理结论由
 Task Progress 记录，不由软件策略或登记状态推定锁相。
 
+## 基线配置与显式持久化增补（v10 pending）
+
+`VDC-PRIORITY-01` v10 增加早期基线次数/窗口的 STOP-only SCPI 整对配置。
+Core0 单字原子发布，Core1 只在新的有效 FOLLOW 绑定锁存；模型更新和基线重建
+保持本绑定配置。STOP 退休旧 FOLLOW 请求，后续需要新请求而非仅 ARM。
+工厂 RAM 默认、持久化 SRAM 召回和显式 Flash 保存分别定义；维护 guard 排斥
+ARM/配置，FlashTransaction 保持 Core0 owner 和 Core1 park，实时路径不写 Flash。
+Product Config 保留旧前缀/CRC 域并只读启动迁移，保存失败保留旧 journal 记录；
+旧 PI、角色和身份字段不被新增配置覆盖。注册仍为 pending，不授予锁相。
+
+独立方 `p0_root_review` 于 2026-09-17 对照源码、测试、域文档、登记表与顶层
+完成 C11，结论 `ACCEPT_V10_PENDING_CONTRACT_SCOPE`，全部已有登记状态不变。
+原件为 `out/HardwareAcceptance/20260917/dpll-scpi-baseline-r1/control-review/c11-v10-independent-review.json`。
+实际构建、四板 P3、重启保存/恢复及原生结果由 `VDC_TASK_PROGRESS.md` 记录；
+不以条款审核替代硬件验收。软件专项、资源和 HIL 工具复核原件分别位于
+该证据根的 `control-review/` 与 `review/`。
+
 ## 最终核验结论
 
 ACCEPT_WITH_DEVIATION。P3、资源和 typed 实板专项的实际结果只记录在 VDC Task Progress，
