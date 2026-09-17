@@ -51,7 +51,7 @@ def recorder_base():
     prelude = OWNER_PRELUDE.replace("EVENT_TYPES", event_types).replace(
         '#include <assert.h>', '#include <assert.h>\n#include <stddef.h>\n#include <inttypes.h>\n'
         '#include "vdc_priority_follow.h"\n#include "vdc_priority_rx.h"\n'
-        '#include "vdc_priority_match.h"\n#include "vdc_priority_trace.h"\n'
+        '#include "vdc_priority_match.h"\n#include "vdc_priority_trace.h"\n#include "vdc_priority_tx.h"\n'
         'static unsigned core;\nstatic unsigned get_core_num(void) { return core; }')
     for name in ("vdc_dpll_manager_publish_runtime_snapshot_locked", "vdc_boundary_capture_offer_core1",
                  "vdc_boundary_capture_apply_core1", "vdc_boundary_capture_ack_core1",
@@ -98,6 +98,13 @@ static void priority_trace_decision_core1(const vdc_priority_follow_snapshot_t *
 '''
     harness += production("components/vdc_dpll_manager/src/vdc_priority_follow.inc")
     harness += "\n#undef VDC_PRIORITY_TRACE_DECISION_HOOK\n"
+    harness += r'''
+/* Schema 1 fixture has no origin TX producer; schema 2 is exercised with
+ * the real provider in test_vdc_priority_origin_trace. */
+uint32_t vdc_dpll_manager_priority_sync_generation(void) { return 0u; }
+bool vdc_priority_tx_origin_trace_eligible_core1(uint32_t generation,uint32_t session)
+{ (void)generation;(void)session;return false; }
+'''
     harness += production("components/vdc_dpll_manager/src/vdc_priority_trace.inc")
     harness += "\n" + ingress_definition(DOMAIN_HARNESS, "fixture")
     # Keep the tested real model fixture; replace only the wrapper's hooks to
@@ -302,6 +309,7 @@ static void running_ring(void)
 { ring.enabled=ring.adapter_started=ring.data_enabled=1;stopped=false;core=1; }
 static void trace_service(void)
 {
+    (void)priority_trace_origin_core1;
     const unsigned saved=core;core=1;priority_trace_service_core1();core=saved;
 }
 static void armed_trace(uint32_t capture)

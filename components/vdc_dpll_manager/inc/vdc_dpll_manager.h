@@ -8,6 +8,7 @@
 #include "tdma_service.h"
 #include "calibration_path_snapshot.h"
 #include "vdc_domain.h"
+#include "vdc_clock_mapping.h"
 #include "vdc_feedback_match.h"
 #include "vdc_local_follow.h"
 #include "vdc_priority_follow.h"
@@ -73,6 +74,11 @@ typedef struct {
     uint32_t model_token, applied_command_seq;
 } vdc_dpll_manager_projected_event_t;
 typedef struct {
+    vdc_dpll_manager_committed_model_t model;
+    vdc_timestamp_clock_bridge_t bridge;
+    vdc_clock_mapping_result_t mapping;
+} vdc_dpll_manager_mapping_projection_t;
+typedef struct {
     uint64_t absolute_output_ns_lo, coordinate_ns;
     uint32_t model_token, applied_command_seq;
 } vdc_dpll_manager_rate_event_t;
@@ -84,6 +90,16 @@ bool vdc_dpll_manager_project_feedback_event(uint32_t session,
     uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,
     uint64_t raw_lo, uint64_t raw_hi,
     vdc_dpll_manager_projected_event_t *out);
+/* Core1 typed origin only. A single fresh bridge produces tentative mapping
+ * evidence under the existing model guard. The caller owns cache and commits
+ * projection.mapping.next only after final lifecycle checks and encoding.
+ * Projection contents are usable only when the return value is OK. */
+vdc_clock_mapping_status_t vdc_dpll_manager_project_mapped_feedback_event(
+    uint32_t session, uint32_t role_generation, uint32_t clock_epoch_id,
+    uint32_t clock_run_id, uint32_t local_slot, uint32_t schedule_crc32,
+    uint32_t tick_hz, uint64_t raw_lo, uint64_t raw_hi,
+    const vdc_clock_mapping_cache_t *cache,
+    vdc_dpll_manager_mapping_projection_t *projection);
 /* RATE source keeps an absolute age basis and a separate observer-relative
  * coordinate, admitted under the same committed-model guard. */
 bool vdc_dpll_manager_project_rate_feedback_event(uint32_t session,

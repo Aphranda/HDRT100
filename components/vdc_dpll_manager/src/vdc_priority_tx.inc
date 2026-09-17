@@ -3,6 +3,10 @@
 #include "vdc_priority_tx.h"
 #include "vdc_priority_codec.h"
 
+#ifndef VDC_PRIORITY_TRACE_ORIGIN_HOOK
+#define VDC_PRIORITY_TRACE_ORIGIN_HOOK(evidence) ((void)(evidence))
+#endif
+
 static uint32_t s_priority_tx_request;
 static uint32_t s_priority_tx_last_request; /* Core0 only, never wraps. */
 static uint32_t s_priority_tx_guard;
@@ -17,6 +21,8 @@ typedef struct {
     vdc_dpll_manager_committed_model_t model, after;
     vdc_dpll_manager_projected_event_t event;
     vdc_priority_codec_record_t record;
+    vdc_clock_mapping_cache_t mapping;
+    vdc_priority_tx_origin_evidence_t evidence;
     uint32_t bound, have_seen, tick_hz;
     uint8_t candidate[TDMA_FLIGHT_SHORT_SLOT_SIZE];
 } vdc_priority_tx_work_t;
@@ -32,6 +38,19 @@ static uint32_t priority_tx_inc(uint32_t value)
 uint32_t vdc_dpll_manager_priority_sync_generation(void)
 {
     return __atomic_load_n(&s_priority_tx_request, __ATOMIC_ACQUIRE);
+}
+
+bool vdc_priority_tx_origin_trace_eligible_core1(uint32_t generation, uint32_t session)
+{
+    if (get_core_num() != 1u || !generation || !session ||
+        generation != vdc_dpll_manager_priority_sync_generation() ||
+        session != vdc_dpll_manager_feedback_session()) return false;
+    const vdc_priority_tx_work_t *w = &s_priority_tx_work;
+    if (w->status.generation == generation &&
+        (w->status.retired || w->status.have_offer || w->status.encoded || w->mapping.count))
+        return false;
+    return generation == vdc_dpll_manager_priority_sync_generation() &&
+        session == vdc_dpll_manager_feedback_session();
 }
 
 static bool priority_tx_set_stopped(void *context)
@@ -210,6 +229,8 @@ tdma_priority_tx_result_t __attribute__((noinline)) vdc_priority_tx_core1(
     if (w->have_seen) {
         const uint32_t advance = w->source.sequence - w->seen.sequence;
         if (w->source.sequence < w->seen.sequence || advance > INT32_MAX ||
+            (advance && (w->source.timer_lower < w->seen.timer_lower ||
+                w->source.timer_upper < w->seen.timer_upper)) ||
             (!advance && !priority_tx_same_source(&w->source, &w->seen)))
             return priority_tx_empty(VDC_PRIORITY_TX_REJECT_SEQUENCE, true);
     }
@@ -230,11 +251,22 @@ tdma_priority_tx_result_t __attribute__((noinline)) vdc_priority_tx_core1(
             return priority_tx_empty(VDC_PRIORITY_TX_REJECT_MODEL, false);
         return priority_tx_ready(mailbox, true);
     }
-    if (!vdc_dpll_manager_project_feedback_event(session, w->model.role_generation,
+    const vdc_clock_mapping_status_t mapping_status =
+        vdc_dpll_manager_project_mapped_feedback_event(session, w->model.role_generation,
             w->model.clock_epoch_id, w->model.clock_run_id, config->local_slot_id,
             config->schedule_crc32, w->source.tick_hz, w->source.timer_lower,
-            w->source.timer_upper, &w->event))
+            w->source.timer_upper, &w->mapping, &w->evidence.projection);
+    if (mapping_status == VDC_CLOCK_MAPPING_CONTRADICTION)
+        return priority_tx_empty(VDC_PRIORITY_TX_REJECT_MAPPING_CONTRADICTION, true);
+    if (mapping_status == VDC_CLOCK_MAPPING_EXHAUSTED)
+        return priority_tx_empty(VDC_PRIORITY_TX_REJECT_MAPPING_EXHAUSTED, true);
+    if (mapping_status != VDC_CLOCK_MAPPING_OK)
         return priority_tx_empty(VDC_PRIORITY_TX_REJECT_PROJECTION, false);
+    w->event = (vdc_dpll_manager_projected_event_t){
+        .output_ns_lo = w->evidence.projection.mapping.output_lo,
+        .output_ns_hi = w->evidence.projection.mapping.output_hi,
+        .model_token = w->evidence.projection.model.token,
+        .applied_command_seq = w->evidence.projection.model.applied_command_seq};
     uint32_t epoch;
     if (!vdc_dpll_manager_get_committed_model(&w->after) ||
         !tdma_runtime_owner_get_origin_reference_epoch(&epoch))
@@ -246,6 +278,8 @@ tdma_priority_tx_result_t __attribute__((noinline)) vdc_priority_tx_core1(
     if (w->after.token != w->model.token || w->event.model_token != w->model.token ||
         w->after.valid_from_raw != w->model.valid_from_raw ||
         w->after.applied_command_seq != w->model.applied_command_seq ||
+        w->evidence.projection.model.valid_from_raw != w->model.valid_from_raw ||
+        w->event.applied_command_seq != w->model.applied_command_seq ||
         !priority_tx_model_valid(&w->after, config, session))
         return priority_tx_empty(VDC_PRIORITY_TX_REJECT_CHANGED, false);
     if (w->event.output_ns_hi <= w->event.output_ns_lo ||
@@ -269,6 +303,13 @@ tdma_priority_tx_result_t __attribute__((noinline)) vdc_priority_tx_core1(
         return priority_tx_empty(VDC_PRIORITY_TX_REJECT_WIDTH, false);
     priority_tx_put16(w->candidate + TDMA_PROCESS_IMAGE_CRC_OFFSET,
         tdma_process_image_crc16_ccitt(w->candidate, TDMA_PROCESS_IMAGE_CRC_OFFSET));
+    if (request != vdc_dpll_manager_priority_sync_generation() ||
+        session != vdc_dpll_manager_feedback_session())
+        return priority_tx_empty(VDC_PRIORITY_TX_REJECT_BINDING, true);
+    /* No failed projection, lifecycle recheck, width gate or codec operation
+     * may teach the retained mapping a constraint. Same-event returns above
+     * never reach this commit and retain their original encoded bytes. */
+    w->mapping = w->evidence.projection.mapping.next;
     s->event_sequence = w->source.sequence;
     s->source_identity = w->source.identity;
     s->published_version = w->source.published_version;
@@ -278,5 +319,25 @@ tdma_priority_tx_result_t __attribute__((noinline)) vdc_priority_tx_core1(
     memcpy(s->mailbox, w->candidate, sizeof(s->mailbox));
     s->have_offer = 1u;
     s->encoded = priority_tx_inc(s->encoded);
+    vdc_priority_tx_origin_evidence_t *e = &w->evidence;
+    e->generation = request;
+    e->session = session;
+    e->role_generation = w->model.role_generation;
+    e->clock_epoch = w->model.clock_epoch_id;
+    e->clock_run = w->model.clock_run_id;
+    e->local_slot = config->local_slot_id;
+    e->node_count = config->node_count;
+    e->schedule_crc32 = config->schedule_crc32;
+    e->profile_crc32 = config->ring_profile_crc32;
+    e->source_epoch = w->source.epoch;
+    e->event_sequence = w->source.sequence;
+    e->source_identity = w->source.identity;
+    e->published_version = w->source.published_version;
+    e->tick_hz = w->source.tick_hz;
+    e->source_raw_lo = w->source.timer_lower;
+    e->source_raw_hi = w->source.timer_upper;
+    e->encoded_output_lo = w->record.event_time_lower;
+    e->encoded_width = w->record.uncertainty_width;
+    VDC_PRIORITY_TRACE_ORIGIN_HOOK(e);
     return priority_tx_ready(mailbox, false);
 }

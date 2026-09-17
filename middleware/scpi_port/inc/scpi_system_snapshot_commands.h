@@ -57,6 +57,7 @@ scpi_result_t scpi_cmd_vdc_priority_follow(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_trace_arm(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_trace_origin_arm(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_trace_stop(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_trace_release(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_trace_status_q(scpi_t *context);
@@ -213,6 +214,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow?", .callback = scpi_cmd_vdc_priority_follow_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow:STATus?", .callback = scpi_cmd_vdc_priority_follow_status_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:TRACe:ARM", .callback = scpi_cmd_vdc_priority_trace_arm}, \
+    {.pattern = "SYSTem:VDC:PRIORity:TRACe:ORIGin", .callback = scpi_cmd_vdc_priority_trace_origin_arm}, \
     {.pattern = "SYSTem:VDC:PRIORity:TRACe:STOP", .callback = scpi_cmd_vdc_priority_trace_stop}, \
     {.pattern = "SYSTem:VDC:PRIORity:TRACe:RELease", .callback = scpi_cmd_vdc_priority_trace_release}, \
     {.pattern = "SYSTem:VDC:PRIORity:TRACe:STATus?", .callback = scpi_cmd_vdc_priority_trace_status_q}, \

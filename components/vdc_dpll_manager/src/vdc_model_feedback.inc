@@ -142,6 +142,36 @@ bool vdc_dpll_manager_project_feedback_event(uint32_t session,
         local_slot, schedule_crc32, tick_hz, raw_lo, raw_hi, 0u, 0u, out);
 }
 
+vdc_clock_mapping_status_t vdc_dpll_manager_project_mapped_feedback_event(
+    uint32_t session, uint32_t role_generation, uint32_t clock_epoch_id,
+    uint32_t clock_run_id, uint32_t local_slot, uint32_t schedule_crc32,
+    uint32_t tick_hz, uint64_t raw_lo, uint64_t raw_hi,
+    const vdc_clock_mapping_cache_t *cache,
+    vdc_dpll_manager_mapping_projection_t *projection)
+{
+    if (get_core_num() != 1u || !cache || !projection || !session ||
+        session != vdc_dpll_manager_feedback_session()) return VDC_CLOCK_MAPPING_UNAVAILABLE;
+    const uint32_t guard = __atomic_load_n(&s_committed_model_guard, __ATOMIC_ACQUIRE);
+    if (guard & 1u) return VDC_CLOCK_MAPPING_UNAVAILABLE;
+    /* The typed owner supplies static work, keeping this full model and the
+     * bridge off the deeply nested TDMA stack. Partial evidence is never a
+     * publication, and no tentative mapping is committed by this function. */
+    vdc_dpll_manager_committed_model_t *model = &projection->model;
+    model_feedback_load(model);
+    if (!model->token || model->session != session || raw_lo < model->valid_from_raw ||
+        model->role_generation != role_generation || model->clock_epoch_id != clock_epoch_id ||
+        model->clock_run_id != clock_run_id || model->local_slot != local_slot ||
+        model->dco.tdma_schedule_crc32 != schedule_crc32 ||
+        !vdc_timestamp_clock_try_read_bridge(tick_hz, &projection->bridge))
+        return VDC_CLOCK_MAPPING_UNAVAILABLE;
+    const vdc_clock_mapping_status_t status = vdc_clock_mapping_project(cache, &model->dco,
+        &projection->bridge, model->token, raw_lo, raw_hi, &projection->mapping);
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    if (guard != __atomic_load_n(&s_committed_model_guard, __ATOMIC_ACQUIRE) ||
+        session != vdc_dpll_manager_feedback_session()) return VDC_CLOCK_MAPPING_UNAVAILABLE;
+    return status;
+}
+
 bool vdc_dpll_manager_project_rate_feedback_event(uint32_t session,
     uint32_t role_generation, uint32_t clock_epoch_id, uint32_t clock_run_id,
     uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,

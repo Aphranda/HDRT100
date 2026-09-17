@@ -17,6 +17,7 @@ import zlib
 
 MAGIC = 0x52545056
 SCHEMA = 1
+ORIGIN_SCHEMA = 2
 RECORD_BYTES = 100
 MAX_RECORDS = 76
 READ_MAX_BYTES = 128
@@ -30,6 +31,15 @@ STATUS_FIELDS = (
 PREFIX = struct.Struct('<5I')
 STATUS = struct.Struct('<' + 'I' * len(STATUS_FIELDS))
 HEADER_BYTES = PREFIX.size + STATUS.size
+ORIGIN_HEADER_BYTES = HEADER_BYTES + 96
+ORIGIN_EXTENSION = struct.Struct('<12I4Q2q')
+ORIGIN_EXTENSION_FIELDS = ('role_generation source_epoch first_source_identity last_source_identity '
+    'first_published_version last_published_version last_event_sequence last_reset_reason '
+    'cache_count cache_epoch cache_tick_hz cache_model_token anchor_raw anchor_local_ns '
+    'last_raw_after last_local_ns offset_lo offset_hi_open').split()
+ORIGIN_RECORD = struct.Struct('<5I7QiiIQI')
+ORIGIN_FIELDS = ('index kind event_sequence model_token tick_hz raw_lo raw_hi bridge_before bridge_after '
+    'bridge_local_ns base_local_ns base_output_ns rate_ppb phase_ns dco_seq encoded_lo encoded_width').split()
 COMMON = struct.Struct('<5I')
 MATCH = struct.Struct('<QQqqQQQQIIiI')
 DECISION = struct.Struct('<IIIIiiiIqqQQQQ')
@@ -54,19 +64,26 @@ def parse_status(response: str) -> dict[str, int]:
 def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     require(len(data) >= HEADER_BYTES, 'Truncated native header')
     magic, schema, header_bytes, record_bytes, payload_crc = PREFIX.unpack_from(data)
-    require((magic, schema, header_bytes, record_bytes) ==
-            (MAGIC, SCHEMA, HEADER_BYTES, RECORD_BYTES), 'Unknown native trace format')
+    expected_header = {SCHEMA: HEADER_BYTES, ORIGIN_SCHEMA: ORIGIN_HEADER_BYTES}.get(schema)
+    require((magic, header_bytes, record_bytes) ==
+            (MAGIC, expected_header, RECORD_BYTES), 'Unknown native trace format')
+    require(len(data) >= header_bytes, 'Truncated native header')
     status = dict(zip(STATUS_FIELDS, STATUS.unpack_from(data, PREFIX.size)))
-    require(status['schema'] == SCHEMA and status['capture_id'] != 0, 'Invalid capture identity')
+    require(status['schema'] == schema and status['capture_id'] != 0, 'Invalid capture identity')
     require(expected_capture_id is None or status['capture_id'] == expected_capture_id, 'Capture ID changed')
     require(status['state'] == 3 and status['request_seq'] == status['ack_seq'] != 0,
             'Capture is not acknowledged and frozen')
     require(status['command'] in (1, 2), 'Frozen capture has unexpected command')
     count = status['record_count']
     require(status['capacity'] == MAX_RECORDS and count <= status['capacity'], 'Invalid record capacity')
-    require(count == status['match_count'] + status['decision_count'], 'Record counts disagree')
-    require(len(data) == HEADER_BYTES + count * RECORD_BYTES, 'Truncated or trailing native payload')
-    require(zlib.crc32(data[HEADER_BYTES:]) == payload_crc, 'Payload CRC mismatch')
+    if schema == SCHEMA:
+        require(count == status['match_count'] + status['decision_count'], 'Record counts disagree')
+    else:
+        require(status['match_count'] == status['decision_count'] == status['sample_interval_ms'] == 0, 'Origin counters mislabelled')
+    require(len(data) == header_bytes + count * RECORD_BYTES, 'Truncated or trailing native payload')
+    require(zlib.crc32(data[header_bytes:]) == payload_crc, 'Payload CRC mismatch')
+    if schema == ORIGIN_SCHEMA:
+        return decode_origin(data, status, header_bytes)
     records = []
     counts = {1: 0, 2: 0}
     for index in range(count):
@@ -107,6 +124,84 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
                 complete_window_proven=False, physical_lock_qualified=False)
 
 
+
+def decode_origin(data: bytes, status: dict, header_bytes: int) -> dict:
+    """Replay all committed bridge inputs, with rational offset bounds.
+
+    This proves the recorded event-model computation. It does not establish
+    the clock lifetime assumptions or physical output-edge precision.
+    """
+    from fractions import Fraction
+    ext = dict(zip(ORIGIN_EXTENSION_FIELDS, ORIGIN_EXTENSION.unpack_from(data, HEADER_BYTES)))
+    records, cache, epoch, prior = [], None, 0, None
+    def floor(value):
+        return value.numerator // value.denominator
+    def ceil(value):
+        return -((-value.numerator) // value.denominator)
+    for index in range(status['record_count']):
+        r = dict(zip(ORIGIN_FIELDS, ORIGIN_RECORD.unpack_from(data, header_bytes + index * RECORD_BYTES)))
+        require(r['index'] == index and r['kind'] == 3, 'Invalid origin record index or kind')
+        h, token = r['tick_hz'], r['model_token']
+        e0, e1, b0, b1, u = (r[k] for k in ('raw_lo', 'raw_hi', 'bridge_before', 'bridge_after', 'bridge_local_ns'))
+        require(0 < h <= 500_000_000 and h == status['tick_hz'] and token > 0 and r['dco_seq'] > 0, 'Invalid origin clock/model')
+        require(e0 <= e1 <= b0 <= b1 and b1-e0 <= 2*h and u % 1000 == 0 and
+                u <= 2**64-1000, 'Invalid origin bridge interval')
+        require(r['rate_ppb'] > -10**9 and 0 < r['encoded_width'] <= 0xffffffff, 'Invalid encoded interval')
+        if prior is not None:
+            require(r['event_sequence'] > prior['event_sequence'] and e0 >= prior['raw_lo'] and
+                    e1 >= prior['raw_hi'] and b0 >= prior['bridge_after'] and u >= prior['bridge_local_ns'],
+                    'Origin event or bridge rollback')
+            if token == prior['model_token']:
+                require(all(r[k] == prior[k] for k in ('base_local_ns','base_output_ns','rate_ppb','phase_ns','dco_seq')),
+                        'Origin model changed without token')
+        reason = 1 if cache is None else (2 if token != cache['model'] else (3 if b1-cache['raw'] > 2*h else 0))
+        if reason:
+            epoch += 1
+            cache = dict(raw=e0, local=u, model=token, count=0, low=None, high=None)
+        low = Fraction(u) - Fraction(b1*10**9, h)
+        high = Fraction(u+1000) - Fraction(b0*10**9, h)
+        single = (floor(low+Fraction(e0*10**9, h)), ceil(high+Fraction(e1*10**9, h))-1)
+        if cache['count']:
+            low, high = max(low, cache['low']), min(high, cache['high'])
+        require(low < high, 'Contradictory origin clock constraints')
+        refined = (floor(low+Fraction(e0*10**9, h)), ceil(high+Fraction(e1*10**9, h))-1)
+        def output(local):
+            require(0 <= local < 2**64, 'Origin local coordinate overflow')
+            delta = local-r['base_local_ns']
+            require(delta >= 0, 'Origin projection before DCO base')
+            rate = delta*abs(r['rate_ppb'])//10**9
+            value = r['base_output_ns']+delta+(rate if r['rate_ppb'] >= 0 else -rate)+r['phase_ns']
+            require(0 <= value < 2**64, 'Origin output overflow')
+            return value
+        original = tuple(map(output, single))
+        mapped = tuple(map(output, refined))
+        actual = (max(original[0], mapped[0]), min(original[1], mapped[1]))
+        require(actual == (r['encoded_lo'], r['encoded_lo']+r['encoded_width']), 'Origin encoded interval differs from replay')
+        if cache['count'] < 8:
+            cache.update(low=low, high=high, count=cache['count']+1)
+        r.update(original_lo=original[0], original_hi=original[1], original_width=original[1]-original[0],
+                 saved_width=original[1]-original[0]-r['encoded_width'], replay_epoch=epoch, reset_reason=reason)
+        records.append(r)
+        prior = r
+    if records:
+        last = records[-1]
+        require(ext['role_generation'] > 0 and ext['source_epoch'] > 0, 'Missing origin binding')
+        expected = dict(last_event_sequence=last['event_sequence'], last_reset_reason=last['reset_reason'],
+            cache_count=cache['count'], cache_epoch=epoch, cache_tick_hz=last['tick_hz'], cache_model_token=cache['model'],
+            anchor_raw=cache['raw'], anchor_local_ns=cache['local'], last_raw_after=last['bridge_after'],
+            last_local_ns=last['bridge_local_ns'])
+        for key in ('low', 'high'):
+            scaled = (cache[key] - cache['local'] + Fraction(cache['raw']*10**9, last['tick_hz']))*last['tick_hz']
+            require(scaled.denominator == 1, 'Nonintegral scaled cache')
+            expected['offset_lo' if key == 'low' else 'offset_hi_open'] = int(scaled)
+        require(all(ext[k] == v for k, v in expected.items()), 'Origin final cache differs from replay')
+    else:
+        require(not any(ext.values()), 'Empty origin capture contains cache')
+    return dict(schema='VDC_ORIGIN_TRACE_DECODE_V2', status=status, origin=ext, records=records,
+                bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), file_crc32=zlib.crc32(data),
+                replay_matches_encoded=True, complete_window_proven=False, physical_lock_qualified=False)
+
+
 def parse_page(response: str, offset: int, size: int) -> tuple[int, int, bytes]:
     fields = next(csv.reader([response]))
     require(len(fields) == 5, 'Wrong RAM page field count')
@@ -130,7 +225,7 @@ def download_capture(query: Callable[[str], str], capture_id: int,
         command = f'{READ} {capture_id},{offset},{size}'
         raw = query(command)
         page_total, page_crc, payload = parse_page(raw, offset, size)
-        require(HEADER_BYTES <= page_total <= HEADER_BYTES + MAX_RECORDS * RECORD_BYTES, 'Invalid native total')
+        require(HEADER_BYTES <= page_total <= ORIGIN_HEADER_BYTES + MAX_RECORDS * RECORD_BYTES, 'Invalid native total')
         if total is None:
             total, crc = page_total, page_crc
         require((page_total, page_crc) == (total, crc), 'Capture changed between RAM pages')

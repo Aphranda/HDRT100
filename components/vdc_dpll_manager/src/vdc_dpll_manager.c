@@ -3007,7 +3007,11 @@ static void vdc_dpll_manager_waveform_capture_service(void)
 
 #include "vdc_dpll_feedback_match.inc"
 #include "vdc_model_feedback.inc"
+#include "vdc_priority_tx.h"
+static void priority_trace_origin_core1(const vdc_priority_tx_origin_evidence_t *evidence);
+#define VDC_PRIORITY_TRACE_ORIGIN_HOOK(evidence) priority_trace_origin_core1(evidence)
 #include "vdc_priority_tx.inc"
+#undef VDC_PRIORITY_TRACE_ORIGIN_HOOK
 #include "vdc_boundary_capture.inc"
 #include "vdc_boundary_control.inc"
 #include "vdc_priority_ingress.inc"

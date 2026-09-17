@@ -20,7 +20,8 @@ def test_priority_tx_control_and_stopped_evidence(tmp_path):
     assert compiler
     exe = tmp_path / ('commands.exe' if os.name == 'nt' else 'commands')
     result = subprocess.run([compiler, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
-        *['-I' + str(ROOT / path) for path in ('components/tdma/inc', 'components/vdc_dpll_manager/inc')],
+        *['-I' + str(ROOT / 'components' / name / 'inc') for name in
+          ('tdma', 'vdc_dpll_manager', 'vdc_domain', 'calibration_manager', 'distributed_refmem')],
         str(unit), '-o', str(exe)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
     result = subprocess.run([str(exe)], capture_output=True, text=True, timeout=5)

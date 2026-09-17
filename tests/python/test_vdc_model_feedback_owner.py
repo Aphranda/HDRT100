@@ -19,6 +19,7 @@ def owner_executable(tmp_path_factory):
 #include "vdc_dpll_manager.h"
 #include "vdc_model_projection.h"
 #define BOARD_SYS_CLOCK_HZ 250000000u
+static unsigned get_core_num(void) { return 1u; }
 static vdc_domain_context_t s_vdc_domain;
 static tdma_service_service_t owner;
 static tdma_service_service_t *s_vdc_tdma_service=&owner;

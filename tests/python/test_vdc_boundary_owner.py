@@ -24,6 +24,7 @@ def boundary_owner_executable(tmp_path_factory):
     assert live and flags and source_type
     helpers = matcher[matcher.index('static uint32_t match_inc'):matcher.index('/* Keep authorization')]
     harness = PRELUDE.replace('EVENT_TYPES', live.group(0) + '\n' + flags.group(0))
+    harness += '\nstatic unsigned get_core_num(void) { return 1u; }\n'
     harness += '\n' + source_type.group(0) + MATCH_STORAGE + helpers
     harness += '\n' + (ROOT / 'components/vdc_dpll_manager/src/vdc_model_feedback.inc').read_text(encoding='utf-8')
     harness += '\n' + (ROOT / 'components/vdc_dpll_manager/src/vdc_boundary_control.inc').read_text(encoding='utf-8')

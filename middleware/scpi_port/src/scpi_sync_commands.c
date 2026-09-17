@@ -852,6 +852,19 @@ scpi_result_t scpi_cmd_vdc_priority_trace_arm(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_vdc_priority_trace_origin_arm(scpi_t *context)
+{
+    uint32_t capture_id;
+    if (!SCPI_ParamUInt32(context, &capture_id, TRUE) || capture_id == 0u ||
+        !vdc_dpll_manager_priority_trace_origin_arm(capture_id)) {
+        scpi_port_push_exec_error(context, "Priority origin trace ARM rejected");
+        return SCPI_RES_ERR;
+    }
+    /* Admission only. STOP-only STATUS must acknowledge this request before ARM. */
+    SCPI_ResultUInt32(context, capture_id);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_vdc_priority_trace_stop(scpi_t *context)
 {
     if (!vdc_dpll_manager_priority_trace_stop()) {
