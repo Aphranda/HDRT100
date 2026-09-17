@@ -32,6 +32,84 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-030：有限持续 PIO 输出与启动观察收敛
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003`、`SYNC-OUT-002` IN PROGRESS。
+  证据根 `out/HardwareAcceptance/20260917/dpll-run-executor-r1/`。本节数字为
+  验证快照，非产品事实源；有限输出切片不授予百纳秒精度、产品 RUN 或锁相。
+  代码提交 `ad63f75` 已经真实 pre-commit 核验当前 P3 指纹；他人
+  `components/tdma/src/tdma_flight_engine.c` 未修改、未暂存、未提交。
+- 按 node-sequence 分支的预编码、资源预留及退休机制实现小型持续后端；
+  当前只驱动 OUT1，统一 SYNC_IO 管理全部语义 IO 的边界不变。使用现有
+  scheduled persona 的 PIO0 SM1、DMA2、八条指令及共享 arena 的八个源字；
+  每块四个脉冲，所有 pull 在低态，高态不等 FIFO。DMA 源退休不代表边沿完成，
+  模型更新只改新后缀，取消/断流/时钟异常/有限时长到期异步退休。
+- VDC Core1 固定入口位于 TDMA owner 之后：STOP 锁存 delay 和请求；START
+  后验证当前 session/role/clock/slot/schedule，再以整数反解与共同网格准备未来
+  边沿。复核修正了外层尚未退休就被 Core0 覆盖、DMA 忙遮蔽绑定失效、ARM
+  误当 START、首块前 STOP 遗留及完整诊断快照进入实时栈等问题。
+  `SYSTem:VDC:OUTPut:RUN` 提交有限请求，`:STOP` 只提交取消，`RUN?` 仅退休后
+  导出。真实 parser 测试发现旧 lexer 的数字尾空白截断，局部在副作用前拒绝，
+  未改第三方 parser。Release-r2 的 signedness 编译失败保留，r3/r4 修复通过。
+- 首版 owner/PIO/bridge 回归 109 项、客户端/真实 parser 62 项、既有固定输出/
+  数学/相位回归 159 项通过。`runtime-review/` 对新调用链按地址建图，保留
+  同名静态函数，未发现新 RTOS、堆分配、日志或阻塞依赖。future_raw 由
+  非作者 `event_core` 独审：四项生产测试、10284 组有理数端点案例及 6250
+  个内部样本通过，额外 raw 一拍上界不能删除；见独立数学报告。
+- 首次 P3-r1 同源 `a93a1c0902cb424d17e90068323e184eead2694305ca9a3eba10f4bc04324d6b`
+  完成，耗时 190.672 秒，25 INFO/18 WARN/0 ERROR/FATAL；原严格、closed_loop、
+  realtime 为 false，diagnostic 为 true，分级 `PASS_WITH_WARNINGS`。
+  四板各十四条原生记录、序号推进及 bad 增量零、STOP 已应用，独审见
+  `runtime-review/p3-final-independent-review.json`。
+- `capture-r1` 输出专项失败：四板均只准入首块，随后 CLOCK 退出，
+  `anchor_after=UINT64_MAX`；这只能指向 raw/PC 初次观察无效，不能归因于
+  时间锚跨度超限。没有新示波器触发，不能宣称出脉冲。三从末态相位提交
+  33/43/50 次，有限原生前缀分别记录 27/31/35 次，末态与 DCO 模型一致；
+  两种覆盖不可混写。零 RUN 查询、全板 STOP、示波器恢复 STOP/EXT/NORM。
+  初版脚本冻结副本与采集记录 SHA 相同，失败原件不被后续复测覆盖。
+- 启动观察修订为 enable 后一次 raw 观察、单次 PC、上界 raw，保留原始
+  before 下界及 PC 必须已进入低段的规则，不轮询、不放松准入。新增独立
+  PC/offset/raw flags 和两次原始读数，区别异常来源；RUN? 末尾追加字段。
+  实际 C/MMIO/真实 parser 回归 113 项通过，独审连同编码/桥接/门禁共
+  132 项通过。Release-r5 build `20260917145647`，A/B ELF→BIN→包一致；
+  源码 `e7acef7796e738af1edd7a1da1f2fbf1f968f8e03b82b3960df1839081e0ac8a`，
+  1267 文件，包 SHA `f6301d1e12d7839dc498e5e8e0153382f73cc2aa496dbfd0f489e3a1d1213acc`。
+  新 RUN 限定路径栈上界 1572/3072 B，既有限定最大路径 2872 B，
+  主 RAM 扣 heap 后余 31664 B、scratch 余 24 B；不以此宣称 WCET 或精度。
+- 修订后 P3-r2 耗时 198.391 秒，25 INFO/19 WARN/0 ERROR/FATAL，
+  `PASS_WITH_WARNINGS`；严格/closed_loop/realtime 仍 false，diagnostic true。
+  四板序号及 accepted 增量 262–264，bad 增量零，STOP 代际已应用；同指纹与
+  原始证据独审见 `runtime-review/p3-r2-final-independent-review.json`。
+- `capture-r2` 首次启用通过：四板 `start_pc=27`、`program_offset=23`、
+  `start_raw_flags=3`，已进入低段。输出周期 1 ms 时分别准入 293/117/215/86
+  块、采用 31/1/2/0 次模型变化，后续均因 TXSTALL/STARVED 退休，专项 FAIL
+  保留。计划/绑定拒绝均为零，不足以排除未计数 snapshot 暂不可读、DMA 尚未
+  ready、客户端门禁冲突或整个 TDMA 相位被跳过，不能直接定因为 CPU 过慢。
+  冻结 RAW 实际看见四路约 2 µs 脉冲；NO4 在窗口尾部约 80 ms 无输出，
+  波形也证明中断，不能以多脉冲基本检查通过替代持续输出通过。
+- 同固件 `capture-r3` 仅将输出周期改为 10 ms，TDMA 静态周期仍为 1.5 ms；
+  有限静默窗口后四板输出正常 CANCELLED、PIO/DMA 停止，分别准入
+  287/292/295/300 块，源退休 286/291/294/299 次，采用模型变化
+  8/31/33/31 次。三从相位末态提交 26/28/26 次，与频率及 DCO 末态一致；
+  原生有限前缀相位为 22/21/21 次。零 RUN 查询，四板 STOP 后导出，
+  示波器恢复 STOP/EXT/NORM，专项脚本 PASS，耗时 56.609 秒。
+  首次 enable 区间仍为微秒量级，bridge 区间也未达到百纳秒；该通过只授予
+  本次低频有限输出与动态后缀采用，不把 1 ms 失败改成通过。
+- `capture-r3/scope-run-analysis.json/.svg` 独立解码同一冻结 RAW：20 ns 采样、
+  NO1 CH1 触发附近 -10 至 +190 ms，四路各二十个完整脉冲，脉宽中位约
+  2.007–2.009 µs，无窗口内部长间隔；未覆盖整段十一秒。相对 NO1 最近边沿
+  的中位差约 46.920/43.061/53.680 µs，未认证同 ordinal。约 80/160 ms
+  三从相对差共同跳变与 NO1 自身短周期同位置，不能直接称三从共同漂移或
+  算法变差。四路首脉冲各自对齐展示只用于比较脉冲形状，不是实际边沿重合。
+- C11 稳定语义为 `ACCEPT_V13_PENDING_STABLE_SEMANTICS`，登记保持 pending；
+  数学独审、实际指令测试、资源与硬件证据分别留存。下一 gate 为补给间隔与
+  暂忙早退的有界观测，定位 1 ms 断流；随后缩小 bridge/enable 公共偏移并
+  验证真正相位精度。原始失败和已通过低频基线同时保留，长期目标继续进行。
+  最终九文档与实施事实独审为
+  `ACCEPT_V13_PENDING_CONTRACT_AND_FINITE_10MS_EXECUTION_SCOPE`，原件
+  `runtime-review/c11-v13-final-independent-review.json`；动态模型/原生/STOP
+  独审见 `runtime-review/capture-r2-r3-independent-review.json`。
+
 ### VDC-PROGRESS-20260917-029：共同边沿规划与状态机分支借鉴
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003` IN PROGRESS；证据根

@@ -4,10 +4,29 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/storage/LOG_SYSTEM_TODO.md`
-Last updated: 2026-09-15
+Last updated: 2026-09-17
 
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
+
+### SYNC-PROGRESS-20260917-001 — 持续模型 PIO 输出与统一资源交接
+
+- TODO task ID：`SYNC-OUT-002`，IN PROGRESS，联动 `VDC-OUTPUT-001`。
+  证据根 `out/HardwareAcceptance/20260917/dpll-run-executor-r1/`，完整切片
+  验证与后续结果见 `VDC-PROGRESS-20260917-030`，本文不复制各板原始计数。
+- 借鉴 node-sequence 分支的预编码、Core0 预留/Core1 执行和 DMA 退休思路，
+  使用现有 scheduled persona 与共享 workspace，新增有限块持续补给，全部
+  FIFO pull 在低态，高态不等待补给。legacy 维护入口共用一次排他准入，
+  VDC 只提交计划，不直接持有 PIO/DMA/GPIO。模型变化不追改已提交前缀。
+- 初轮同源码四板 quick P3 完成，输出专项却在首次 enable 观察时一致退出；
+  `capture-r1/` 保留首块准入、CLOCK 退出、原生 DCO/phase 与全板 STOP。
+  示波器未完成新触发，不构成物理输出通过。修订增加一次有界 raw 观察与
+  分开的 PC/offset/raw 状态，保持严格 PC 准入，不以放宽门槛掩盖失败。
+- 修订源码 quick P3 完成；`capture-r2` 启动通过但较高输出频率发生断流，
+  frozen RAW 保留实际脉冲和中断。`capture-r3` 同固件降低输出频率后，
+  四板动态模型后缀采用、有限窗口正常取消退休及冻结波形导出通过。
+  下一 gate 为补给间隔与暂忙原因观测、缩小跨钟/enable 不确定性和实际精度；
+  不能将低频有限持续输出等同于锁相或正式产品 RUN。
 
 ### SYNC-PROGRESS-20260915-001 — 共享采样区缩容与准备/导出租约
 

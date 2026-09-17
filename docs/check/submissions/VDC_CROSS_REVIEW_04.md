@@ -167,3 +167,23 @@ DPLL/VDC/SYNC 同属特等席；IN/OUT 保持统一 SYNC_IO owner，PIO 状态�
 原件为该证据根的 `control-review/c11-v12-final-independent-review.json`。
 构建、资源和同源码四板快速验收事实见进度 029；
 node-sequence 分支只用于择项借鉴，旧分支验收不能放行当前源码。
+
+## 有限持续 PIO 输出增补（v13 pending）
+
+`VDC-PRIORITY-01` v13 增加 SYNC_IO scheduled capability 的 STOP 资源预留、
+完整客户端跨核交接、START 与当前模型身份准入、有限 DMA 块及不可改写前缀。
+未来本地 ns 保留 bridge 量化与原始拍区间，首次 enable 另保留公共偏移区间；
+计划 tick、源缓冲退休和物理执行不混同。取消/断流/到期先置安全低态、异步
+abort，确认后才释放。预留可能使维护态高电平安全下降，不保证绝对无电平变化。
+
+独立方 `p0_root_review` 审核后端、SYNC 排他入口、VDC 客户端生命周期和稳定文档，
+结论为 `ACCEPT_V13_PENDING_STABLE_SEMANTICS`。原件为
+`out/HardwareAcceptance/20260917/dpll-run-executor-r1/runtime-review/c11-v13-stable-independent-review.json`。
+该审核不冒充由其本人编写的 bridge 数学独审，数学与硬件证据分别由 Task Progress
+引用；保持 pending，不授予产品 RUN、单圈期限、百纳秒同步或 VDC 发布完成。
+
+最终九文档与实施事实复核结论为
+`ACCEPT_V13_PENDING_CONTRACT_AND_FINITE_10MS_EXECUTION_SCOPE`，原件
+`out/HardwareAcceptance/20260917/dpll-run-executor-r1/runtime-review/c11-v13-final-independent-review.json`。
+审核方仍为独立的 `p0_root_review`；桥接数学由非作者 `event_core` 另行确认。
+该结论保留首次启动与较高频率断流失败，只接受已验证的有限低频输出范围。

@@ -791,6 +791,24 @@ DPLL、VDC 与 SYNC 的必要同步事件均走确定性特等席快速通道。
 PIO 指令量化由 board clock/divider 决定，不等同于物理同步精度；启动 anchor、
 跨钟映射、整数超越量、队列断流/迟到与引脚实测误差另行计入验收。
 
+有限调试输出通过 `vdc_run_output_prepare` 在 Core0 的 TDMA STOP 排他边界锁存
+独立 delay、会话和周期，并请求 SYNC_IO 预留 scheduled capability；准备阶段将
+输出置于安全低态，不启动计划脉冲。
+Core1 固定服务入口在 TDMA owner 之后运行，只有 `data_enabled` 表示 START、
+环路配置已应用且当前 committed DCO 的 slot/schedule、session、role 与 clock
+身份一致时，才规划未来边沿。已运行请求每次服务都检查生命周期，即使 DMA 忙；
+正常模型 token 更新只作用于未提交后缀，真实身份变化取消该请求。ARM 后 STOP
+即使尚无首块也取消，初始 STOP 则允许等待 ARM。
+
+`vdc_timestamp_bridge_local_to_raw` 为未来本地 ns 给出保守原始 tick 区间，保留
+TIMER0 量化、bridge 观察跨度和原始计数器分数拍；上界用于不提前的计划坐标。
+SYNC_IO 另外记录首次 PIO enable 的时间锚区间，实际边沿仍带有该公共非负偏移。
+计划 tick、DMA 源退休、物理边沿完成三者不得混同；量化或 anchor 区间未收敛时，
+不授予百纳秒精度。有限运行到期、取消、时钟异常或断流由 SYNC_IO 停止输出并退休。
+客户端整次 Core1 服务与 Core0 准备/释放/状态复制共享一次非阻塞所有权交接，
+不能仅凭后端 RETIRED 就覆盖尚在返回的客户端。状态只在退休后导出；此诊断能力
+不提升产品 RUN、lock 或 quality，也不授权 Core1 Flash/SCPI/RTOS 依赖。
+
 单帧无效、缺失或暂忙不制造控制输入，允许后续有效事件继续。STOP、模式/会话切换
 或真实绑定换代取消基线与未决提案；跨生命周期旧票据不得复活。
 `FOLLow?` 只读取配置，`FOLLow:STATus?` 仅在 ring STOP 后读取

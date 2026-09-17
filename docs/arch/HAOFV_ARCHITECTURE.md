@@ -189,7 +189,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `DOCS-FLASH-01` | Flash 域架构、TODO、任务进度三类文档的事实边界与变更接口 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 | `DOCS-TRIPLETFORMAT-01` | 域文档 Architecture、TODO、Task Progress 三件套的最小格式、稳定 ID、状态词汇和文件接口 | `docs/check/DOCS_REGRESSION_PLAN.md` | pending |
 | `VDC-PATHMATRIX-01` | Calibration load 生成完整 source/reference observation path matrix；DPLL 运行态只做矩阵索引，禁止沿环推断 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md` | pending |
-| `VDC-PRIORITY-01` | typed 同步邮箱携带完整事件/运行代际及 output-ns 区间，Core1 编码/直接匹配、TDMA 双缓冲及 RX IRQ 交接；NO1 有限共钟半开求交、逐帧 latch、编码后提交与原生重放；typed 共钟差分与旧阶梯界分离，有界窄基线和档位复评；STOP 配置、绑定锁存与 Core0 显式 Flash 保存；可选本地相位精确平移以完整发布回执授权累计平移归一化，频率变化/未知模型/STOP 取消；独立输出 delay 可配置并持久化；整数反解与共同未来网格准备，DPLL/VDC/SYNC 特等席由 SYNC_IO 统一交付 PIO 直接执行；RUN 物理边沿、单圈期限、ACK 与锁相另行验收 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-PRIORITY-01` | pending |
+| `VDC-PRIORITY-01` | typed 同步邮箱携带完整事件/运行代际及 output-ns 区间，Core1 编码/直接匹配、TDMA 双缓冲及 RX IRQ 交接；NO1 有限共钟半开求交、逐帧 latch、编码后提交与原生重放；typed 共钟差分与旧阶梯界分离，有界窄基线和档位复评；STOP 配置、绑定锁存与 Core0 显式 Flash 保存；本地相位精确平移与完整回执，频率变化/未知模型/STOP 取消；独立输出 delay、整数反解与共同网格；DPLL/VDC/SYNC 特等席由 SYNC_IO 统一交付 PIO，有限持续输出保留资源预留、完整客户端交接、START/模型身份准入、不可改写前缀、raw/enable 锚区间与异步退休；物理精度、单圈期限、ACK 与产品锁相独立验收 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-PRIORITY-01` | pending |
 | `VDC-REFERENCE-01` | 显式 STOP 参考运输复用固定配额：Core0 投影并逐目标发送，三从保留指定主机参考并回 typed 接收 ACK，主机按完整发布证明核对；不阻塞发车或本地 PI，不以确认代替 DCO 应用或锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-REFERENCE-01` | pending |
 | `VDC-BOUNDARY-01` | 特等席固定配额承载逐从频率命令；Core0 准备独立 RATE 同模型窗口并有界重复，Core1 在显式 AUTO 下逐从负反馈、连续应用及精确 ACK；未决不叠加，不授予物理锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-BOUNDARY-01` | pending |
 
