@@ -129,7 +129,7 @@ Product Config 保留旧前缀/CRC 域并只读启动迁移，保存失败保留
 不以条款审核替代硬件验收。软件专项、资源和 HIL 工具复核原件分别位于
 该证据根的 `control-review/` 与 `review/`。
 
-## 最终核验结论
+## 本地相位与输出补偿增补（v11 pending）
 
 本地相位与输出补偿增补以 `VDC-PRIORITY-01` v11 pending 登记：默认关闭的
 STOP 配置相位模式、最近零边界有限平移、Domain 实际提交与最终模型发布分层确认，
@@ -149,3 +149,21 @@ C11 独立结论为 `ACCEPT_V11_PENDING_CONTRACT_SCOPE`，原件为
 
 ACCEPT_WITH_DEVIATION。P3、资源和 typed 实板专项的实际结果只记录在 VDC Task Progress，
 不能以 pending 登记代替验收。
+
+## 共同边沿数学准备增补（v12 pending）
+
+`VDC-PRIORITY-01` v12 增加单快照精确整数逆映射及共同严格未来网格准备。
+反解返回最早合法交点，负频率平台取首点，保留正频率离散超越量；独立输出
+delay 只在本地物理轴加入一次。失败保持输出，网格序号不被纯函数提交，
+本地 ns 不是原始 TIMER1 tick，也不构成 FIFO 不变性或硬件执行证明。
+
+DPLL/VDC/SYNC 同属特等席；IN/OUT 保持统一 SYNC_IO owner，PIO 状态机直接
+执行边沿，Core1 只做有界准备和提交。资源交接、运行时钟锚、未提交后缀更新、
+迟到/断流/STOP 及物理精度均留待独立验收，登记保持 pending。
+
+源码与最终生产测试独审为 `PASS_MATHEMATICAL_PREPARATION_ONLY`，原件
+`out/HardwareAcceptance/20260917/dpll-run-output-r1/control-review/production-math-review.json`。
+独立审核方 `p0_root_review` 的最终结论为 `ACCEPT_V12_PENDING_CONTRACT_SCOPE`，
+原件为该证据根的 `control-review/c11-v12-final-independent-review.json`。
+构建、资源和同源码四板快速验收事实见进度 029；
+node-sequence 分支只用于择项借鉴，旧分支验收不能放行当前源码。
