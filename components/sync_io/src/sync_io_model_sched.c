@@ -8,6 +8,7 @@
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/pio.h"
+#include "osal.h"
 #include "pico/time.h"
 #include "sync_io.pio.h"
 #include "sync_io_core_internal.h"
@@ -36,6 +37,11 @@ typedef struct {
     uint64_t completed_elapsed_ns;
     uint64_t first_deadline_ns;
     uint32_t periodic_period_ns;
+    bool fixed_rate;
+    uint32_t fixed_system_clock_hz;
+    uint32_t fixed_pio_divider256;
+    bool (*validate_before_start)(void *context);
+    void *validation_context;
     PIO pio;
     /* The maintenance schedule holds the shared arena lease before writing
      * any words. Only the one-entry phase observer uses private storage. */
@@ -43,6 +49,31 @@ typedef struct {
 } sync_io_model_pulse_t;
 
 static sync_io_model_pulse_t s_model_pulse;
+static sync_io_fixed_rate_runtime_t s_fixed_rate_runtime;
+typedef enum {
+    SYNC_IO_SCHEDULE_IDLE = 0u,
+    SYNC_IO_SCHEDULE_LEGACY_OPERATION,
+    SYNC_IO_SCHEDULE_FIXED_PREPARING,
+    SYNC_IO_SCHEDULE_FIXED_ACTIVE,
+    SYNC_IO_SCHEDULE_FIXED_SERVICE,
+} sync_io_schedule_phase_t;
+static uint32_t s_schedule_phase;
+static bool s_fixed_rate_cancel_requested;
+
+static bool sync_io_schedule_reserve(uint32_t expected, uint32_t desired)
+{
+    return __atomic_compare_exchange_n(&s_schedule_phase, &expected, desired,
+                                        false, __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE);
+}
+
+static void sync_io_schedule_publish_phase(uint32_t phase)
+{
+    __atomic_store_n(&s_schedule_phase, phase, __ATOMIC_RELEASE);
+}
+_Static_assert(SYNC_IO_RATE_SCHEDULE_MAX_PULSES <=
+                   SYNC_IO_MODEL_PULSE_MAX_ENTRIES,
+               "fixed rate schedule must fit the existing shared workspace");
 static sync_io_persona_manager_t s_wave_output_manager;
 static sync_io_persona_manager_handle_t s_wave_output_handle;
 static bool s_wave_output_manager_initialized;
@@ -65,6 +96,9 @@ static uint64_t sync_io_model_word_ticks_to_ns(
     uint32_t ticks, uint32_t tick_period_ns);
 static uint32_t sync_io_model_saturate_u64_to_u32(uint64_t value);
 static void sync_io_model_release_pin(void);
+static void sync_io_model_pulse_schedule_disarm_owned(void);
+static void sync_io_model_pulse_schedule_get_runtime_owned(
+    sync_io_model_pulse_runtime_t *runtime);
 
 static const pio_program_t *sync_io_pio0_output_program(void)
 {
@@ -170,6 +204,30 @@ static bool sync_io_wave_output_start(
     (void)context;
     (void)descriptor;
     (void)dma_channel_mask;
+    if (s_model_pulse.fixed_rate) {
+        if (s_model_pulse.validate_before_start == NULL ||
+            !s_model_pulse.validate_before_start(
+                s_model_pulse.validation_context)) {
+            return false;
+        }
+        /* No generator, callback, abort or cleanup runs with IRQs masked.
+         * Only the final cancellation/clock check and hardware handoff do. */
+        osal_critical_enter();
+        if (s_fixed_rate_cancel_requested ||
+            clock_get_hz(clk_sys) != s_model_pulse.fixed_system_clock_hz ||
+            s_model_pulse.pio->sm[s_model_pulse.sm].clkdiv !=
+                (s_model_pulse.fixed_pio_divider256 << 8u)) {
+            osal_critical_exit();
+            return false;
+        }
+        s_model_pulse.start_us = time_us_64();
+        s_model_pulse.running = true;
+        __atomic_thread_fence(__ATOMIC_RELEASE);
+        dma_start_channel_mask(1u << s_model_pulse.dma_ch);
+        pio_sm_set_enabled(s_model_pulse.pio, s_model_pulse.sm, true);
+        osal_critical_exit();
+        return true;
+    }
     if (s_model_pulse.first_deadline_ns != 0u) {
         const uint64_t now_ns = time_us_64() * 1000ull;
         const uint64_t start_guard_ns = s_model_pulse.periodic_period_ns;
@@ -331,7 +389,8 @@ static void sync_io_wave_output_manager_release(void)
 
 bool sync_io_core_wave_output_persona_active(void)
 {
-    return s_wave_output_manager_active;
+    return __atomic_load_n(&s_schedule_phase, __ATOMIC_ACQUIRE) !=
+               SYNC_IO_SCHEDULE_IDLE || s_wave_output_manager_active;
 }
 
 static float sync_io_model_clkdiv_for_tick_rate(uint32_t tick_hz)
@@ -477,10 +536,24 @@ static void sync_io_model_update_completion(void)
     }
     s_model_pulse.completed_elapsed_ns = completed_elapsed_ns;
 
-    if (s_model_pulse.completed_pulses >= s_model_pulse.total_pulses &&
-        elapsed_ns >= s_model_pulse.total_duration_ns64 &&
+    const bool transport_empty =
         !dma_channel_is_busy(s_model_pulse.dma_ch) &&
-        pio_sm_is_tx_fifo_empty(s_model_pulse.pio, s_model_pulse.sm)) {
+        pio_sm_is_tx_fifo_empty(s_model_pulse.pio, s_model_pulse.sm);
+    /* The last high word may already be in X while DMA and FIFO are empty.
+     * Only the subsequent low PULL proves that the final falling edge ran. */
+    const bool fixed_terminal = s_model_pulse.fixed_rate && transport_empty &&
+        dma_hw->ch[s_model_pulse.dma_ch].transfer_count == 0u &&
+        pio_sm_get_pc(s_model_pulse.pio, s_model_pulse.sm) ==
+            s_model_pulse.offset;
+    if (s_model_pulse.fixed_rate && !fixed_terminal &&
+        s_model_pulse.completed_pulses == s_model_pulse.total_pulses) {
+        --s_model_pulse.completed_pulses;
+        s_model_pulse.completed_elapsed_ns -= sync_io_model_pulse_duration_ns(
+            s_model_pulse.completed_pulses);
+    }
+    if (s_model_pulse.fixed_rate ? fixed_terminal :
+        (s_model_pulse.completed_pulses >= s_model_pulse.total_pulses &&
+         elapsed_ns >= s_model_pulse.total_duration_ns64 && transport_empty)) {
         s_model_pulse.completed_pulses = s_model_pulse.total_pulses;
         s_model_pulse.completed_elapsed_ns = s_model_pulse.total_duration_ns64;
         pio_sm_set_enabled(s_model_pulse.pio, s_model_pulse.sm, false);
@@ -492,7 +565,7 @@ static void sync_io_model_update_completion(void)
     }
 }
 
-static bool sync_io_pulse_schedule_arm_on_pin_common(
+static bool sync_io_pulse_schedule_arm_on_pin_common_owned(
     PIO pulse_pio,
     uint pulse_sm,
     uint pulse_dreq,
@@ -523,6 +596,7 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
         observer_persona && use_periodic_entries && entry_count == 1u &&
         sync_io_core_capture_is_running();
     if (!sync_io_core_initialized() ||
+        (s_model_pulse.fixed_rate && s_model_pulse.running) ||
         (sync_io_core_capture_is_running() && !observer_capture_overlap) ||
         (!use_periodic_entries && entries_us == NULL && entries_ns == NULL) ||
         entry_count == 0u ||
@@ -537,7 +611,7 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
         return false;
     }
 
-    sync_io_model_pulse_schedule_disarm();
+    sync_io_model_pulse_schedule_disarm_owned();
 
     if (!observer_capture_overlap &&
         !sync_io_workspace_claim(&s_model_pulse)) {
@@ -720,6 +794,35 @@ static bool sync_io_pulse_schedule_arm_on_pin_common(
                        ((trace_output_index & 0xFFu) << 8) |
                            (rising_edge ? 1u : 0u));
     return true;
+}
+
+static bool sync_io_pulse_schedule_arm_on_pin_common(
+    PIO pulse_pio,
+    uint pulse_sm,
+    uint pulse_dreq,
+    uint32_t output_pin,
+    uint32_t trace_output_index,
+    const sync_io_model_pulse_entry_t *entries_us,
+    const sync_io_model_pulse_entry_ns_t *entries_ns,
+    uint32_t periodic_first_delay_ns,
+    uint64_t periodic_first_deadline_ns,
+    uint32_t periodic_period_ns,
+    uint32_t periodic_high_ns,
+    uint32_t entry_count,
+    bool rising_edge,
+    uint32_t tick_period_ns)
+{
+    if (!sync_io_schedule_reserve(SYNC_IO_SCHEDULE_IDLE,
+                                  SYNC_IO_SCHEDULE_LEGACY_OPERATION)) {
+        return false;
+    }
+    const bool armed = sync_io_pulse_schedule_arm_on_pin_common_owned(
+        pulse_pio, pulse_sm, pulse_dreq, output_pin, trace_output_index,
+        entries_us, entries_ns, periodic_first_delay_ns,
+        periodic_first_deadline_ns, periodic_period_ns, periodic_high_ns,
+        entry_count, rising_edge, tick_period_ns);
+    sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);
+    return armed;
 }
 
 static bool sync_io_pulse_schedule_arm_on_pin(
@@ -916,8 +1019,192 @@ bool sync_io_sma_observer_pulse_schedule_arm_periodic_at_ns(
         tick_period_ns);
 }
 
-void sync_io_model_pulse_schedule_disarm(void)
+static bool sync_io_sma_observer_fixed_rate_arm_owned(
+    const sync_io_rate_schedule_request_t *request,
+    sync_io_fixed_rate_runtime_t *runtime,
+    bool (*validate_before_start)(void *context),
+    void *context)
 {
+    if (!sync_io_core_initialized() || validate_before_start == NULL ||
+        !sync_io_rate_schedule_request_valid(request) ||
+        sync_io_core_capture_is_running() ||
+        s_model_pulse.running || s_wave_output_manager_active ||
+        s_wave_output_sm_claimed || s_wave_output_dma_claimed ||
+        s_wave_output_program_loaded ||
+        sync_io_seq_step_is_running() || sync_io_enc_count_is_running()) {
+        return false;
+    }
+    sync_io_sma_frequency_tx_status_t pwm_status;
+    sync_io_sma_frequency_tx_get_status(&pwm_status);
+    if (pwm_status.running) {
+        return false;
+    }
+    const uint32_t system_clock_hz = clock_get_hz(clk_sys);
+    const uint32_t tick_hz = 1000000000u / request->tick_period_ns;
+    const uint32_t divider = system_clock_hz / tick_hz;
+    if (system_clock_hz % tick_hz != 0u ||
+        divider == 0u || divider > UINT16_MAX ||
+        !sync_io_workspace_claim(&s_model_pulse)) {
+        return false;
+    }
+
+    /* No other owner has been stopped. The lease precedes every buffer write.
+     * Only small metadata lives off-arena; no second entry array is created. */
+    sync_io_rate_schedule_encoding_t encoding;
+    if (!sync_io_rate_schedule_generate(
+            request, sync_io_shared_workspace, SYNC_IO_SHARED_WORKSPACE_WORDS,
+            &encoding)) {
+        (void)sync_io_workspace_release(&s_model_pulse);
+        return false;
+    }
+    memset(&s_model_pulse, 0, sizeof(s_model_pulse));
+    s_model_pulse.words = sync_io_shared_workspace;
+    s_model_pulse.pio = BOARD_SYNC_PIO_FAST;
+    s_model_pulse.sm = BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM;
+    s_model_pulse.dma_ch = SYNC_IO_MODEL_PULSE_DMA_CH;
+    s_model_pulse.output_pin = BOARD_SYNC_OUTPUT_BASE_PIN;
+    s_model_pulse.active_high = true;
+    s_model_pulse.persona_managed = true;
+    s_model_pulse.total_pulses = request->pulse_count;
+    s_model_pulse.tick_period_ns = request->tick_period_ns;
+    s_model_pulse.total_duration_ns64 =
+        encoding.total_ticks * request->tick_period_ns;
+    s_model_pulse.total_duration_ns = sync_io_model_saturate_u64_to_u32(
+        s_model_pulse.total_duration_ns64);
+    s_model_pulse.total_duration_us = sync_io_model_saturate_u64_to_u32(
+        (s_model_pulse.total_duration_ns64 + 999u) / 1000u);
+    s_model_pulse.fixed_rate = true;
+    s_model_pulse.fixed_system_clock_hz = system_clock_hz;
+    s_model_pulse.fixed_pio_divider256 = divider * 256u;
+    s_model_pulse.validate_before_start = validate_before_start;
+    s_model_pulse.validation_context = context;
+    if (!sync_io_wave_output_manager_start(
+            SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER)) {
+        (void)sync_io_workspace_release(&s_model_pulse);
+        memset(&s_model_pulse, 0, sizeof(s_model_pulse));
+        return false;
+    }
+    memset(runtime, 0, sizeof(*runtime));
+    runtime->configured = true;
+    runtime->request = *request;
+    runtime->encoding = encoding;
+    runtime->system_clock_hz = system_clock_hz;
+    runtime->pio_divider256 = divider * 256u;
+    sync_io_model_pulse_schedule_get_runtime_owned(&runtime->pulse);
+    sync_io_core_trace(SYNC_IO_TRACE_MODEL_ARM, SYNC_IO_TRACE_INFO,
+                       request->pulse_count, request->request_id);
+    return true;
+}
+
+bool sync_io_sma_observer_fixed_rate_arm(
+    const sync_io_rate_schedule_request_t *request,
+    sync_io_fixed_rate_runtime_t *runtime,
+    bool (*validate_before_start)(void *context),
+    void *context)
+{
+    osal_critical_enter();
+    const bool reserved = sync_io_schedule_reserve(
+        SYNC_IO_SCHEDULE_IDLE, SYNC_IO_SCHEDULE_FIXED_PREPARING);
+    if (reserved) {
+        s_fixed_rate_cancel_requested = false;
+    }
+    osal_critical_exit();
+    if (!reserved) {
+        return false;
+    }
+    sync_io_fixed_rate_runtime_t prepared;
+    const bool armed = sync_io_sma_observer_fixed_rate_arm_owned(
+        request, &prepared, validate_before_start, context);
+    if (!armed) {
+        sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);
+        return false;
+    }
+    osal_critical_enter();
+    const bool cancelled = s_fixed_rate_cancel_requested;
+    if (!cancelled) {
+        s_fixed_rate_runtime = prepared;
+        sync_io_schedule_publish_phase(s_model_pulse.running
+            ? SYNC_IO_SCHEDULE_FIXED_ACTIVE : SYNC_IO_SCHEDULE_IDLE);
+    }
+    osal_critical_exit();
+    if (cancelled) {
+        /* A STOP can arrive after enable but before publication. It never
+         * releases an arena that the preparing task is still using. */
+        sync_io_wave_output_manager_release();
+        (void)sync_io_workspace_release(&s_model_pulse);
+        memset(&s_model_pulse, 0, sizeof(s_model_pulse));
+        sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);
+        return false;
+    }
+    if (runtime != NULL) {
+        *runtime = prepared;
+    }
+    return true;
+}
+
+void sync_io_sma_observer_fixed_rate_disarm(void)
+{
+    osal_critical_enter();
+    const uint32_t phase = __atomic_load_n(
+        &s_schedule_phase, __ATOMIC_ACQUIRE);
+    if (phase == SYNC_IO_SCHEDULE_FIXED_PREPARING ||
+        phase == SYNC_IO_SCHEDULE_FIXED_SERVICE) {
+        s_fixed_rate_cancel_requested = true;
+        osal_critical_exit();
+        return;
+    }
+    const bool reserved = sync_io_schedule_reserve(
+        SYNC_IO_SCHEDULE_FIXED_ACTIVE, SYNC_IO_SCHEDULE_FIXED_SERVICE);
+    osal_critical_exit();
+    if (reserved) {
+        sync_io_model_pulse_schedule_disarm_owned();
+        sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);
+    }
+}
+
+void sync_io_sma_observer_fixed_rate_get_runtime(
+    sync_io_fixed_rate_runtime_t *runtime)
+{
+    if (sync_io_schedule_reserve(SYNC_IO_SCHEDULE_FIXED_ACTIVE,
+                                 SYNC_IO_SCHEDULE_FIXED_SERVICE)) {
+        sync_io_model_pulse_runtime_t pulse;
+        sync_io_model_pulse_schedule_get_runtime_owned(&pulse);
+        osal_critical_enter();
+        const bool cancelled = s_fixed_rate_cancel_requested;
+        if (!cancelled) {
+            s_fixed_rate_runtime.pulse = pulse;
+            sync_io_schedule_publish_phase(s_model_pulse.running
+                ? SYNC_IO_SCHEDULE_FIXED_ACTIVE : SYNC_IO_SCHEDULE_IDLE);
+        }
+        osal_critical_exit();
+        if (cancelled) {
+            sync_io_model_pulse_schedule_disarm_owned();
+            sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);
+        }
+    }
+    if (runtime != NULL) {
+        osal_critical_enter();
+        *runtime = s_fixed_rate_runtime;
+        osal_critical_exit();
+    }
+}
+
+static void sync_io_model_pulse_schedule_disarm_owned(void)
+{
+    if (s_model_pulse.fixed_rate &&
+        __atomic_load_n(&s_schedule_phase, __ATOMIC_ACQUIRE) ==
+            SYNC_IO_SCHEDULE_FIXED_SERVICE) {
+        sync_io_model_pulse_runtime_t stopped;
+        sync_io_model_pulse_schedule_get_runtime_owned(&stopped);
+        stopped.running = false;
+        stopped.pio_enabled = false;
+        stopped.dma_busy = false;
+        stopped.tx_fifo_empty = true;
+        stopped.tx_fifo_full = false;
+        osal_critical_enter();
+        s_fixed_rate_runtime.pulse = stopped;
+        osal_critical_exit();
+    }
     if (s_model_pulse.persona_managed) {
         const uint32_t completed = s_model_pulse.completed_pulses;
         const uint32_t total = s_model_pulse.total_pulses;
@@ -965,13 +1252,24 @@ void sync_io_model_pulse_schedule_disarm(void)
     memset(&s_model_pulse, 0, sizeof(s_model_pulse));
 }
 
-bool sync_io_model_pulse_schedule_is_running(void)
+void sync_io_model_pulse_schedule_disarm(void)
 {
-    sync_io_model_update_completion();
-    return s_model_pulse.running;
+    if (sync_io_schedule_reserve(SYNC_IO_SCHEDULE_IDLE,
+                                 SYNC_IO_SCHEDULE_LEGACY_OPERATION)) {
+        sync_io_model_pulse_schedule_disarm_owned();
+        sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);
+    }
 }
 
-void sync_io_model_pulse_schedule_get_runtime(sync_io_model_pulse_runtime_t *runtime)
+bool sync_io_model_pulse_schedule_is_running(void)
+{
+    sync_io_model_pulse_runtime_t runtime;
+    sync_io_model_pulse_schedule_get_runtime(&runtime);
+    return runtime.running;
+}
+
+static void sync_io_model_pulse_schedule_get_runtime_owned(
+    sync_io_model_pulse_runtime_t *runtime)
 {
     if (runtime == NULL) {
         return;
@@ -984,6 +1282,14 @@ void sync_io_model_pulse_schedule_get_runtime(sync_io_model_pulse_runtime_t *run
     runtime->total_pulses = s_model_pulse.total_pulses;
     runtime->completed_pulses = s_model_pulse.completed_pulses;
     runtime->fault_code = s_model_pulse.fault_code;
+
+    /* A completed fixed batch has released the SM/DMA lease. Never inspect
+     * registers that may now belong to a different output owner. */
+    if (s_model_pulse.fixed_rate && !s_model_pulse.running) {
+        runtime->elapsed_us = s_model_pulse.total_duration_us;
+        runtime->tx_fifo_empty = true;
+        return;
+    }
 
     if (s_model_pulse.total_pulses == 0u) {
         runtime->tx_fifo_empty = true;
@@ -1000,4 +1306,22 @@ void sync_io_model_pulse_schedule_get_runtime(sync_io_model_pulse_runtime_t *run
     runtime->tx_fifo_full =
         pio_sm_is_tx_fifo_full(s_model_pulse.pio, s_model_pulse.sm);
     runtime->transfer_count = dma_hw->ch[s_model_pulse.dma_ch].transfer_count;
+}
+
+void sync_io_model_pulse_schedule_get_runtime(sync_io_model_pulse_runtime_t *runtime)
+{
+    if (runtime == NULL) {
+        return;
+    }
+    if (!sync_io_schedule_reserve(SYNC_IO_SCHEDULE_IDLE,
+                                  SYNC_IO_SCHEDULE_LEGACY_OPERATION)) {
+        /* Fixed output is serviced only by its Core0 maintenance owner.
+         * Ordinary callers (including Core1) get busy without reading the
+         * Core0 cache, unpublished model state, or this owner's hardware. */
+        memset(runtime, 0, sizeof(*runtime));
+        runtime->running = true;
+        return;
+    }
+    sync_io_model_pulse_schedule_get_runtime_owned(runtime);
+    sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);
 }

@@ -85,6 +85,35 @@ typedef struct {
 bool vdc_dpll_manager_set_feedback_session(uint32_t session);
 uint32_t vdc_dpll_manager_feedback_session(void);
 bool vdc_dpll_manager_get_committed_model(vdc_dpll_manager_committed_model_t *out);
+/* Core0 STOP-only finite physical observation of one actually committed
+ * rate. It does not qualify absolute phase or adopt later model updates. */
+#define VDC_FIXED_OUTPUT_MIN_PERIOD_NS 1000000u
+enum {
+    VDC_FIXED_OUTPUT_IDLE = 0u, VDC_FIXED_OUTPUT_RUNNING = 1u,
+    VDC_FIXED_OUTPUT_COMPLETE = 2u, VDC_FIXED_OUTPUT_CANCELLED = 3u,
+    VDC_FIXED_OUTPUT_FAILED = 4u,
+};
+enum {
+    VDC_FIXED_OUTPUT_OK = 0u, VDC_FIXED_OUTPUT_NOT_STOPPED = 1u,
+    VDC_FIXED_OUTPUT_MODEL = 2u, VDC_FIXED_OUTPUT_CLOCK = 3u,
+    VDC_FIXED_OUTPUT_RESOURCE_OR_ARGUMENT = 4u,
+    VDC_FIXED_OUTPUT_CHANGED = 5u, VDC_FIXED_OUTPUT_BUSY = 6u,
+    VDC_FIXED_OUTPUT_CANCEL = 7u,
+};
+typedef struct {
+    vdc_dpll_manager_committed_model_t model;
+    uint64_t first_edge_ticks, last_edge_ticks, total_ticks;
+    uint32_t schema, request_id, state, last_reason;
+    uint32_t period_ns, high_ns, pulse_count, tick_period_ns;
+    uint32_t system_clock_hz, pio_divider256;
+    uint32_t min_period_ticks, max_period_ticks, high_ticks;
+    uint32_t completed_pulses, transfer_count, pio_enabled, dma_busy;
+    uint32_t model_unchanged; /* 0 changed, 1 same, 2 snapshot contention */
+} vdc_dpll_manager_fixed_output_status_t;
+bool vdc_dpll_manager_fixed_output_start(uint32_t period_ns, uint32_t high_ns,
+    uint32_t pulse_count, uint32_t tick_period_ns, uint32_t *request_id);
+bool vdc_dpll_manager_fixed_output_stop(void);
+bool vdc_dpll_manager_get_fixed_output(vdc_dpll_manager_fixed_output_status_t *out);
 bool vdc_dpll_manager_project_feedback_event(uint32_t session,
     uint32_t role_generation, uint32_t clock_epoch_id, uint32_t clock_run_id,
     uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,

@@ -2628,6 +2628,73 @@ scpi_result_t scpi_cmd_vdc_feedback_model_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_vdc_fixed_output(scpi_t *context)
+{
+    uint32_t period_ns, high_ns, pulse_count, tick_period_ns, request_id;
+    if (!scpi_port_read_u32(context, &period_ns) ||
+        !scpi_port_read_u32(context, &high_ns) ||
+        !scpi_port_read_u32(context, &pulse_count) ||
+        !scpi_port_read_u32(context, &tick_period_ns) ||
+        !vdc_dpll_manager_fixed_output_start(period_ns, high_ns,
+            pulse_count, tick_period_ns, &request_id)) {
+        scpi_port_push_exec_error(context, "VDC_FIXED_OUTPUT_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, request_id);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_fixed_output_stop(scpi_t *context)
+{
+    if (!vdc_dpll_manager_fixed_output_stop()) {
+        scpi_port_push_exec_error(context, "VDC_FIXED_OUTPUT_BUSY");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_vdc_fixed_output_q(scpi_t *context)
+{
+    vdc_dpll_manager_fixed_output_status_t s;
+    if (!vdc_dpll_manager_get_fixed_output(&s)) {
+        scpi_port_push_exec_error(context, "VDC_FIXED_OUTPUT_STOP_REQUIRED_OR_BUSY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.request_id);
+    SCPI_ResultUInt32(context, s.state);
+    SCPI_ResultUInt32(context, s.last_reason);
+    SCPI_ResultUInt32(context, s.model.token);
+    SCPI_ResultUInt32(context, s.model.session);
+    SCPI_ResultUInt32(context, s.model.role_generation);
+    SCPI_ResultUInt32(context, s.model.applied_command_seq);
+    SCPI_ResultUInt32(context, s.model.clock_epoch_id);
+    SCPI_ResultUInt32(context, s.model.clock_run_id);
+    SCPI_ResultUInt32(context, s.model.local_slot);
+    SCPI_ResultUInt32(context, s.model.dco.dco_update_seq);
+    SCPI_ResultInt32(context, s.model.dco.period_adjust_ppb);
+    SCPI_ResultUInt32(context, s.model.dco.tdma_schedule_crc32);
+    SCPI_ResultUInt32(context, s.model.dco.servo_profile_crc32);
+    SCPI_ResultUInt32(context, s.period_ns);
+    SCPI_ResultUInt32(context, s.high_ns);
+    SCPI_ResultUInt32(context, s.pulse_count);
+    SCPI_ResultUInt32(context, s.tick_period_ns);
+    SCPI_ResultUInt32(context, s.system_clock_hz);
+    SCPI_ResultUInt32(context, s.pio_divider256);
+    SCPI_ResultUInt32(context, s.min_period_ticks);
+    SCPI_ResultUInt32(context, s.max_period_ticks);
+    SCPI_ResultUInt32(context, s.high_ticks);
+    SCPI_ResultUInt64(context, s.first_edge_ticks);
+    SCPI_ResultUInt64(context, s.last_edge_ticks);
+    SCPI_ResultUInt64(context, s.total_ticks);
+    SCPI_ResultUInt32(context, s.completed_pulses);
+    SCPI_ResultUInt32(context, s.transfer_count);
+    SCPI_ResultUInt32(context, s.pio_enabled);
+    SCPI_ResultUInt32(context, s.dma_busy);
+    SCPI_ResultUInt32(context, s.model_unchanged);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context)
 {
     uint32_t source;

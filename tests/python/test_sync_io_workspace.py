@@ -300,6 +300,7 @@ static void sync_io_model_pulse_schedule_disarm(void) {
     memset(&s_model_pulse, 0, sizeof(s_model_pulse));
     s_wave_output_manager_active = false;
 }
+#define sync_io_model_pulse_schedule_disarm_owned sync_io_model_pulse_schedule_disarm
 static bool sync_io_wave_output_manager_start(sync_io_persona_id_t id) {
     (void)id;
     ++manager_starts;
@@ -307,6 +308,13 @@ static bool sync_io_wave_output_manager_start(sync_io_persona_id_t id) {
     return manager_ok;
 }
 '''
+    phase_type = source[source.index("typedef enum {"):
+                        source.index("} sync_io_schedule_phase_t;") +
+                        len("} sync_io_schedule_phase_t;")]
+    harness += phase_type + "\nstatic uint32_t s_schedule_phase;\n"
+    harness += function(source, "sync_io_schedule_reserve")
+    harness += function(source, "sync_io_schedule_publish_phase")
+    harness += function(source, "sync_io_pulse_schedule_arm_on_pin_common_owned")
     harness += function(source, "sync_io_pulse_schedule_arm_on_pin_common")
     harness += r'''
 static bool arm(unsigned count, unsigned sm, unsigned high_ns) {

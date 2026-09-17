@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "sync_io_rate_schedule.h"
+
 typedef struct {
     uint32_t capture_sample_hz;
     uint32_t sync_clock_hz;
@@ -109,6 +111,15 @@ typedef struct {
     uint32_t elapsed_us;
     uint32_t fault_code;
 } sync_io_model_pulse_runtime_t;
+
+typedef struct {
+    bool configured;
+    sync_io_rate_schedule_request_t request;
+    sync_io_rate_schedule_encoding_t encoding;
+    sync_io_model_pulse_runtime_t pulse;
+    uint32_t system_clock_hz;
+    uint32_t pio_divider256;
+} sync_io_fixed_rate_runtime_t;
 
 typedef struct {
     bool running;
@@ -237,6 +248,17 @@ bool sync_io_sma_observer_pulse_schedule_arm_periodic_at_ns(
     uint32_t pulse_count,
     bool rising_edge,
     uint32_t tick_period_ns);
+/* STOP-only maintenance owner supplies a final identity/clock validation.
+ * This finite OUT1 batch never replaces a running schedule or capture owner.
+ * Results survive STOP; no absolute first-edge phase is promised. */
+bool sync_io_sma_observer_fixed_rate_arm(
+    const sync_io_rate_schedule_request_t *request,
+    sync_io_fixed_rate_runtime_t *runtime,
+    bool (*validate_before_start)(void *context),
+    void *context);
+void sync_io_sma_observer_fixed_rate_disarm(void);
+void sync_io_sma_observer_fixed_rate_get_runtime(
+    sync_io_fixed_rate_runtime_t *runtime);
 bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
                                        const sync_io_model_pulse_entry_t *entries,
                                        uint32_t entry_count,

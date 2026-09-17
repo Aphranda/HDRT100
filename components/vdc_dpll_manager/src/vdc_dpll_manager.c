@@ -3022,6 +3022,7 @@ static void priority_trace_decision_core1(const vdc_priority_follow_snapshot_t *
 #include "vdc_priority_follow.inc"
 #undef VDC_PRIORITY_TRACE_DECISION_HOOK
 #include "vdc_priority_trace.inc"
+#include "vdc_fixed_output.inc"
 
 /* Section placement alone does not prevent GCC from moving this whole RAM
  * step into the XIP service wrapper when that wrapper gains another call. */
@@ -3917,6 +3918,7 @@ static uint32_t vdc_dpll_manager_waveform_find_free_buffer(void)
 
 void vdc_dpll_manager_core0_service(void)
 {
+    vdc_fixed_output_service_core0();
     vdc_dpll_manager_observation_self_test_service();
     /* NO5 phase-only capture can scan a sustained 10 MHz DMA stream.  Keep
      * that diagnostic work off Core1; the PIO/DMA timestamp source remains

@@ -83,7 +83,8 @@ bool sync_io_enc_count_arm(uint32_t target,
                            uint32_t in_pin_base,
                            uint32_t output_pin)
 {
-    if (!sync_io_core_initialized() || target == 0u) {
+    if (!sync_io_core_initialized() ||
+        sync_io_core_wave_output_persona_active() || target == 0u) {
         sync_io_core_trace(SYNC_IO_TRACE_ENC_ARM_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            target,
