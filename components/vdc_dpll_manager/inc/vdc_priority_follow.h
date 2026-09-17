@@ -6,7 +6,9 @@
 
 /* Provisional output-frequency control, not phase lock or a precision grant.
  * The two source events have immutable actual-output intervals. No remote
- * affine-model token is present in, or reconstructed from, the typed body. */
+ * affine-model token is present in, or reconstructed from, the typed body.
+ * A same-anchor/same-model raw delta further bounds the LOCAL actual-output
+ * difference, with full TIMER0 quantization retained before DCO scaling. */
 #define VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS UINT64_C(1000000000)
 #define VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS UINT64_C(2000000000)
 #define VDC_PRIORITY_FOLLOW_MAX_AGE_MS 120u
@@ -31,7 +33,9 @@ enum {
  * before/after are actual local DCO facts, never a predicted remote model.
  * active is historical publication state; this getter is no actuator grant.
  * Baseline/event identify the last prepared two-event secant; missing frames
- * need not be consecutive and do not authorize synthetic observations. */
+ * need not be consecutive and do not authorize synthetic observations.
+ * local_interval is the intersection of the absolute-endpoint difference
+ * and the correlated local bound; interval retains the full remote bound. */
 typedef struct {
     uint32_t schema, active, mode, state, last_reason, request, session, generation;
     uint32_t calls, tickets, baselines, waits, prepared, applied, no_adjust;

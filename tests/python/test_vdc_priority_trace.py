@@ -199,8 +199,17 @@ def test_real_pipeline_native_values(trace_executable, case, rate):
     decision = decisions[0]
     assert (decision["baseline"], decision["event"], decision["carrier"]) == (100, 200, 203)
     first, last = matches[0], matches[-1]
+    # The decision interval intersects the two absolute endpoint brackets
+    # with a correlated raw difference under this same local DCO/anchor.
+    # Keep the conservative whole-microsecond quantization allowance before
+    # scaling by the actual DCO factor, including negative-rate rounding.
+    raw_interval = Fraction((last["raw_lo"] - first["raw_lo"]) * 10**9, status["tick_hz"])
+    factor = Fraction(10**9 + rate, 10**9)
+    correlated_lo = math.floor(max(0, math.floor(raw_interval) - 1000) * factor)
+    correlated_hi = math.ceil((math.ceil(raw_interval) + 1000) * factor)
     assert (decision["local_lo"], decision["local_hi"]) == (
-        last["local_lo"] - first["local_hi"], last["local_hi"] - first["local_lo"])
+        max(last["local_lo"] - first["local_hi"], correlated_lo),
+        min(last["local_hi"] - first["local_lo"], correlated_hi))
     assert (decision["expected_lo"], decision["expected_hi"]) == (
         last["remote_lo"] - first["remote_hi"], last["remote_hi"] - first["remote_lo"])
     assert (decision["model_token"], decision["before_seq"], decision["before_ppb"]) == (

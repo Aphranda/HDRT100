@@ -4,6 +4,8 @@
 #include "vdc_domain.h"
 #include "vdc_timestamp_clock.h"
 
+#define VDC_MODEL_CORRELATED_DELTA_QUANTIZATION_NS UINT64_C(1000)
+
 /* An affine rate coordinate, deliberately independent of model base/phase
  * and of each timestamp bridge's read-placement uncertainty. Split first:
  * ticks*q can overflow even when the exact quotient fits uint64_t. */
@@ -53,6 +55,46 @@ static inline bool vdc_model_project_interval(const vdc_dco_control_t *dco,
     if (!vdc_domain_dco_local_to_output_ns(dco, local_lo, &lo) ||
         !vdc_domain_dco_local_to_output_ns(dco, local_hi, &hi) || lo > hi)
         return false;
+    *output_lo = lo;
+    *output_hi = hi;
+    return true;
+}
+
+/* Actual-output difference, conditional on two already admitted absolute
+ * projections under this SAME committed model and a common observer anchor.
+ * The owner must preserve the bridge's clock lifetime assumptions throughout
+ * the pair. Then raw_new-raw_old cancels the common enable placement, without
+ * substituting a RATE coordinate for either absolute output timestamp.
+ *
+ * Keep one full TIMER0 microsecond on EACH side of the elapsed local time:
+ * this covers both its quantized reads and fractional-nanosecond boundaries.
+ * For integer local elapsed d, the real mapper's signed truncation satisfies
+ *   floor(d*(1e9+rate)/1e9) <= F(n+d)-F(n) <= ceil(d*(1e9+rate)/1e9),
+ * for either rate sign when both coordinates are at/after the same base.
+ * Base/phase cancel only under those caller-established model conditions.
+ * A zero lower bound is valid arithmetic; a controller must require a
+ * positive interval before using it as a frequency observation. */
+static inline bool vdc_model_project_correlated_delta(const vdc_dco_control_t *dco,
+    uint32_t tick_hz, uint64_t delta_ticks, uint64_t *output_lo, uint64_t *output_hi)
+{
+    if (!dco || !output_lo || !output_hi || output_lo == output_hi ||
+        !dco->valid || !dco->nominal_period_ns || dco->lock_state > VDC_DOMAIN_LOCK_FAULT ||
+        dco->period_adjust_ppb <= -1000000000 || !tick_hz || tick_hz > 500000000u ||
+        !delta_ticks || delta_ticks > (uint64_t)tick_hz * 2u) return false;
+    /* delta_ticks*1e9 <= 1e18; local_hi <= 2e9+1000. Even the largest
+     * int32 rate keeps local_hi*(1e9+rate) below UINT64_MAX. */
+    const uint64_t elapsed_num = delta_ticks * UINT64_C(1000000000);
+    const uint64_t elapsed_floor = elapsed_num / tick_hz;
+    const uint64_t elapsed_ceil = elapsed_floor + (elapsed_num % tick_hz != 0u);
+    const uint64_t local_lo = elapsed_floor > VDC_MODEL_CORRELATED_DELTA_QUANTIZATION_NS
+        ? elapsed_floor - VDC_MODEL_CORRELATED_DELTA_QUANTIZATION_NS : 0u;
+    const uint64_t local_hi = elapsed_ceil + VDC_MODEL_CORRELATED_DELTA_QUANTIZATION_NS;
+    const uint64_t q = (uint64_t)(INT64_C(1000000000) + dco->period_adjust_ppb);
+    const uint64_t lo_num = local_lo * q;
+    const uint64_t hi_num = local_hi * q;
+    const uint64_t lo = lo_num / UINT64_C(1000000000);
+    const uint64_t hi = hi_num / UINT64_C(1000000000) +
+        (hi_num % UINT64_C(1000000000) != 0u);
     *output_lo = lo;
     *output_hi = hi;
     return true;

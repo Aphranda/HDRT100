@@ -214,13 +214,16 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
     w->ticket.prepared_ms = board_uptime_ms();
     w->bound = 1u;
     s->tickets = priority_match_inc(s->tickets);
-    if (!w->have_baseline || w->previous.model_token != m->model_token) {
+    if (!w->have_baseline || w->previous.model_token != m->model_token ||
+        w->previous.raw_lo < w->ticket.model.valid_from_raw ||
+        m->raw_lo < w->ticket.model.valid_from_raw) {
         priority_follow_baseline(); s->last_reason = VDC_PRIORITY_FOLLOW_MODEL;
         priority_follow_publish(); return;
     }
     const vdc_priority_follow_sample_t *p = &w->previous;
     if (m->local_lo <= p->local_hi || m->expected_lo <= p->expected_hi ||
-        m->local_hi < m->local_lo || m->expected_hi < m->expected_lo) {
+        m->local_hi < m->local_lo || m->expected_hi < m->expected_lo ||
+        m->raw_lo <= p->raw_lo) {
         priority_follow_baseline(); s->last_reason = VDC_PRIORITY_FOLLOW_INTERVAL;
         priority_follow_publish(); return;
     }
@@ -238,6 +241,22 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
         s->last_reason = VDC_PRIORITY_FOLLOW_INTERVAL;
         priority_follow_publish(); return;
     }
+    /* Only a complete observation window pays for the scaled divisions.
+     * The binding/anchor checks above hold transitively from the baseline.
+     * Both MATCH endpoints retain their admitted absolute output intervals;
+     * raw_lo subtraction cancels only their shared observer enable anchor.
+     * Intersect the two bounds on the SAME actual local output difference.
+     * An inconsistency rejects the pair; neither estimate is a fallback. */
+    uint64_t correlated_lo, correlated_hi;
+    if (!vdc_model_project_correlated_delta(&w->ticket.model.dco, m->tick_hz,
+            m->raw_lo - p->raw_lo, &correlated_lo, &correlated_hi) || !correlated_lo ||
+        correlated_lo > w->local_delta_hi || correlated_hi < w->local_delta_lo) {
+        priority_follow_baseline(); s->last_reason = VDC_PRIORITY_FOLLOW_INTERVAL;
+        s->rejected = priority_match_inc(s->rejected);
+        priority_follow_publish(); return;
+    }
+    if (correlated_lo > w->local_delta_lo) w->local_delta_lo = correlated_lo;
+    if (correlated_hi < w->local_delta_hi) w->local_delta_hi = correlated_hi;
     const uint32_t result = priority_follow_rate_interval(w->local_delta_lo, w->local_delta_hi,
         w->expected_delta_lo, w->expected_delta_hi, &w->error_lo, &w->error_hi);
     if (result != VDC_PRIORITY_FOLLOW_OK) {
