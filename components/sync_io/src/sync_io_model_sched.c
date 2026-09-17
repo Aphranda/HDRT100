@@ -448,6 +448,8 @@ bool sync_io_core_run_output_reserve(const void *token)
     return true;
 }
 
+/* Shared lease observation is also used by the Core1 cached-refill path. */
+__attribute__((noinline)) bool __not_in_flash_func(sync_io_core_run_output_held)(const void *token);
 bool sync_io_core_run_output_held(const void *token)
 {
     return token != NULL &&

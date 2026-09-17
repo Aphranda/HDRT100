@@ -2723,6 +2723,13 @@ scpi_result_t scpi_cmd_vdc_run_output_q(scpi_t *context)
     SCPI_ResultUInt32(context,s.prefetched_blocks);
     SCPI_ResultUInt32(context,s.cache_hits);
     SCPI_ResultUInt32(context,s.cache_invalidations);
+    SCPI_ResultUInt32(context,s.fast_calls);
+    SCPI_ResultUInt32(context,s.fast_submissions);
+    SCPI_ResultUInt32(context,s.fast_empty);
+    SCPI_ResultUInt32(context,s.fast_body_max_us);
+    SCPI_ResultUInt32(context,s.fast_wall_samples);
+    SCPI_ResultUInt32(context,s.fast_wall_max_cycles);
+    SCPI_ResultUInt32(context,s.fast_budget_overruns);
     return SCPI_RES_OK;
 }
 

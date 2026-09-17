@@ -848,7 +848,7 @@ typedef struct {
     uint32_t service_irq_count, wait_irq_count, irq_max;
     bool eligible, sampled, clock_ok, sample_failed, previously_active;
     bool optional_load, warmup_cycle, dpll_feedback_load, disabled, start_missed;
-    bool run_service, overrun, deadline_missed, own_deadline_missed;
+    bool run_service, run_cached, ran_work, overrun, deadline_missed, own_deadline_missed;
     bool close_missed, new_run;
 } app_realtime_phase_work_t;
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
@@ -929,6 +929,19 @@ static bool app_realtime_run_phase(
     work->run_service = !work->disabled && !work->start_missed;
     if (!work->run_service) app_realtime_record_skip(phase_id, !work->disabled && work->start_missed);
     const uint32_t start_counter = app_realtime_cycle_now();
+    uint32_t cached_request = 0u;
+    /* Skip accounting can consume the remaining slack. Recheck immediately
+     * before this independent bounded handoff, with priority ingress closed.
+     * Failed IRQ sampling/clock translation cannot reopen that source, but
+     * does not invalidate this core-local phase clock or hide its failure. */
+    const uint32_t handoff_start = app_realtime_elapsed_cycles(cycle_epoch, start_counter);
+    work->run_cached = !work->run_service && !work->disabled && work->start_missed &&
+        phase_id == APP_REALTIME_PHASE_TDMA && handoff_start < work->priority.close_cycle &&
+        PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES <= work->priority.close_cycle - handoff_start;
+    if (work->run_cached) {
+        work->phase_start = handoff_start;
+        cached_request = vdc_run_output_service_cached_core1();
+    }
     if (work->run_service) {
         if (work->eligible && work->before.active && work->sampled && work->clock_ok)
             tdma_runtime_owner_priority_rx_window_core1(true, work->priority.irq_quota, work->deadline_low);
@@ -939,14 +952,19 @@ static bool app_realtime_run_phase(
         if (work->eligible) tdma_runtime_owner_priority_rx_window_core1(false, 0u, 0u);
     }
     const uint32_t end_counter = app_realtime_cycle_now();
-    work->runtime_cycles = work->run_service ?
+    work->ran_work = work->run_service || work->run_cached;
+    work->runtime_cycles = work->ran_work ?
         app_realtime_elapsed_cycles(start_counter, end_counter) : 0u;
+    if (work->run_cached)
+        vdc_run_output_note_cached_wall_core1(cached_request, work->runtime_cycles,
+            PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES);
     const uint32_t phase_end = app_realtime_elapsed_cycles(
         cycle_epoch, end_counter);
     if (work->run_service && phase_id == APP_REALTIME_PHASE_TDMA)
         tdma_service_timing_scheduler_end(work->runtime_cycles);
-    work->overrun = work->runtime_cycles > contract->wcet_cycles;
-    work->deadline_missed = work->run_service && phase_end > contract->end_cycle;
+    work->overrun = work->runtime_cycles > (work->run_cached ?
+        PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES : contract->wcet_cycles);
+    work->deadline_missed = work->ran_work && phase_end > contract->end_cycle;
     const bool inherited_lateness = work->phase_start > contract->start_cycle;
     work->own_deadline_missed = work->deadline_missed && !inherited_lateness;
 
@@ -1013,7 +1031,8 @@ static bool app_realtime_run_phase(
             irq_count * PROJECT_CORE1_PRIORITY_RX_TAIL_CYCLES;
         const uint64_t total_charge = work->runtime_cycles + work->wait_irq_cycles +
             (uint64_t)work->wait_irq_count * PROJECT_CORE1_PRIORITY_RX_TAIL_CYCLES;
-        priority_miss = !work->sampled || !work->clock_ok || work->close_missed ||
+        priority_miss = (work->run_cached && work->overrun) ||
+            !work->sampled || !work->clock_ok || work->close_missed ||
             background_cycles > work->priority.background_cycles || irq_count > work->priority.irq_quota ||
             irq_charge > work->priority.irq_cycles || total_charge > contract->wcet_cycles ||
             (irq_count != 0u && (uint64_t)work->irq_max + PROJECT_CORE1_PRIORITY_RX_TAIL_CYCLES >
@@ -1027,10 +1046,10 @@ static bool app_realtime_run_phase(
     }
 
     app_realtime_schedule_write_begin();
-    if (work->run_service) {
+    if (work->ran_work) {
         s_realtime_schedule.phase_last_start_cycle[phase_id] = work->phase_start;
         s_realtime_schedule.phase_last_runtime_cycles[phase_id] = work->runtime_cycles;
-        s_realtime_schedule.phase_run_count[phase_id]++;
+        if (work->run_service) s_realtime_schedule.phase_run_count[phase_id]++;
         if (work->runtime_cycles > s_realtime_schedule.phase_max_runtime_cycles[phase_id])
             s_realtime_schedule.phase_max_runtime_cycles[phase_id] = work->runtime_cycles;
     }

@@ -7,6 +7,9 @@
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico/time.h"
+#define TDMA_RING_CLOCK_HOT(name) __not_in_flash_func(name)
+#else
+#define TDMA_RING_CLOCK_HOT(name) name
 #endif
 
 #define TDMA_RING_RUNTIME_SNAPSHOT_RETRY_LIMIT 64u
@@ -1013,7 +1016,7 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
     return false;
 }
 
-bool tdma_ring_runtime_get_clock_snapshot(
+__attribute__((noinline)) bool TDMA_RING_CLOCK_HOT(tdma_ring_runtime_get_clock_snapshot)(
     const tdma_ring_runtime_t *runtime,
     tdma_ring_clock_snapshot_t *snapshot)
 {

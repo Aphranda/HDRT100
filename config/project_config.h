@@ -65,6 +65,9 @@ static const char g_project_build_id[] = "dev";
            PROJECT_CORE1_PRIORITY_RX_CLOSE_CYCLES))
 #define PROJECT_CORE1_TDMA_BACKGROUND_WCET_CYCLES \
     (212500u - PROJECT_CORE1_PRIORITY_RX_RESERVATION_CYCLES)
+/* Candidate for a cached RUN handoff when the full TDMA WCET cannot fit.
+ * It uses only TDMA's existing foreground interval, never a new phase. */
+#define PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES 20000u
 
 #define PROJECT_CORE1_PHASE_TDMA_START_CYCLE 0u
 #define PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES \

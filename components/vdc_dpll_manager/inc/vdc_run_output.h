@@ -38,6 +38,15 @@ typedef struct {
     /* Saturating cache diagnostics: busy-source plans, prior-cache successful
      * admissions, and model/tail invalidations (not STOP/terminal cleanup). */
     uint32_t prefetched_blocks, cache_hits, cache_invalidations;
+    /* Cached-only fallback observations, exported after retirement. The
+     * body interval excludes ownership-gate entry/exit; scheduler wall
+     * accounting remains authoritative. Microsecond quantization rounded up. */
+    uint32_t fast_calls, fast_submissions, fast_empty, fast_body_max_us;
+    /* Caller-measured function wall intervals, including ownership entry /
+     * exit. Within a retained request, missing reports can be compared with
+     * fast_calls (which excludes CAS refusal); release/reprepare resets the
+     * old statistics. Reporting itself is dispatcher bookkeeping. */
+    uint32_t fast_wall_samples, fast_wall_max_cycles, fast_budget_overruns;
 } vdc_run_output_status_t;
 
 bool vdc_run_output_prepare(uint32_t period_ns,uint32_t high_ns,
@@ -45,4 +54,9 @@ bool vdc_run_output_prepare(uint32_t period_ns,uint32_t high_ns,
 void vdc_run_output_cancel(void);
 bool vdc_run_output_status(vdc_run_output_status_t *out);
 void vdc_run_output_service_core1(void);
+/* No first block, bridge acquisition or model inverse. Only existing private
+ * suffixes may be admitted, with the same lifetime and clock validation. */
+uint32_t vdc_run_output_service_cached_core1(void);
+void vdc_run_output_note_cached_wall_core1(uint32_t request,
+    uint32_t cycles,uint32_t budget_cycles);
 #endif

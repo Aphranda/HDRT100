@@ -28,6 +28,18 @@ static uint32_t s_offset, s_duration_ms;
 static bool s_sm_claimed, s_dma_claimed, s_loaded, s_lease;
 static bool s_source_pending;
 
+/* Keep the bounded cached-refill backend in main SRAM. Attributes on these
+ * declarations also apply to their definitions below; noinline prevents a
+ * flash caller from absorbing a RAM helper back into its own XIP body. */
+static __attribute__((noinline)) void __not_in_flash_func(end_write)(void);
+static __attribute__((noinline)) void __not_in_flash_func(retire)(uint32_t reason);
+__attribute__((noinline)) void __not_in_flash_func(sync_io_run_output_cancel)(void);
+__attribute__((noinline)) void __not_in_flash_func(sync_io_run_output_service_core1)(void);
+__attribute__((noinline)) bool __not_in_flash_func(sync_io_run_output_can_submit_core1)(uint32_t generation);
+__attribute__((noinline)) bool __not_in_flash_func(sync_io_run_output_submit_core1)(uint32_t generation,
+    const sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES]);
+__attribute__((noinline)) bool __not_in_flash_func(sync_io_run_output_snapshot)(sync_io_run_output_snapshot_t *out);
+
 static void begin_write(void) { (void)__atomic_add_fetch(&s_guard,1u,__ATOMIC_ACQ_REL); }
 static void end_write(void)
 {
@@ -57,7 +69,7 @@ static bool dma_failed(void)
 /* TIMER1 is owned/initialized by the timestamp-clock domain. This capability
  * only observes it; the caller excludes timer reset and change-and-restore.
  * A single high/low/high observation has no wrap retry. */
-static bool __not_in_flash_func(read_raw)(uint64_t *out)
+static __attribute__((noinline)) bool __not_in_flash_func(read_raw)(uint64_t *out)
 {
     if (timer1_hw->pause || timer1_hw->source != TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS)
         return false;

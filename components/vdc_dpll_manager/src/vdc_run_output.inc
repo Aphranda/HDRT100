@@ -1,4 +1,9 @@
 /* VDC capability client; SYNC_IO alone touches output PIO/DMA/GPIO. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#define VDC_RUN_OUTPUT_HOT(name) __not_in_flash_func(name)
+#else
+#define VDC_RUN_OUTPUT_HOT(name) name
+#endif
 static vdc_run_output_status_t s_run_output;
 /* A single nonblocking cross-core ownership gate covers the WHOLE client
  * invocation, including backend retirement. Backend RETIRED alone cannot
@@ -102,7 +107,9 @@ bool vdc_run_output_status(vdc_run_output_status_t *out)
     return true;
 }
 
-static void run_output_service_owned(void)
+/* Keep the shared body in main SRAM even when called by an XIP wrapper.
+ * Placement does not qualify its execution budget; hardware records do. */
+static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owned)(bool cached_only)
 {
     sync_io_run_output_service_core1();
     const uint32_t request=__atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE);
@@ -186,6 +193,10 @@ static void run_output_service_owned(void)
         if (s_run_output.cache_invalidations!=UINT32_MAX) ++s_run_output.cache_invalidations;
     }
     const bool cached=s_run_output_pending.valid;
+    if (cached_only && !cached) {
+        if (s_run_output.fast_empty!=UINT32_MAX) ++s_run_output.fast_empty;
+        return;
+    }
     const bool can_submit=sync_io_run_output_can_submit_core1(request);
     if (!can_submit && (first || s_run_output_pending.valid)) {
         run_output_note(phase,VDC_RUN_OUTPUT_DMA_NOT_READY); return;
@@ -281,11 +292,56 @@ static void run_output_service_owned(void)
     run_output_note(phase,VDC_RUN_OUTPUT_SUBMITTED);
 }
 
-void vdc_run_output_service_core1(void)
+__attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(vdc_run_output_service_core1)(void)
 {
     uint32_t idle=0u;
     if (get_core_num()!=1u ||
         !__atomic_compare_exchange_n(&s_run_output_busy,&idle,1u,false,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED)) return;
-    run_output_service_owned();
+    run_output_service_owned(false);
     __atomic_store_n(&s_run_output_busy,0u,__ATOMIC_RELEASE);
 }
+
+__attribute__((noinline)) uint32_t VDC_RUN_OUTPUT_HOT(vdc_run_output_service_cached_core1)(void)
+{
+    uint32_t idle=0u;
+    if (get_core_num()!=1u ||
+        !__atomic_compare_exchange_n(&s_run_output_busy,&idle,1u,false,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED)) return 0u;
+    const uint32_t request=__atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE);
+    const bool tracked=request!=0u;
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    const uint32_t before=time_us_32();
+#endif
+    const uint32_t admitted=s_run_output.blocks_planned;
+    if (tracked && s_run_output.fast_calls!=UINT32_MAX) ++s_run_output.fast_calls;
+    run_output_service_owned(true);
+    if (tracked && s_run_output.blocks_planned!=admitted && s_run_output.fast_submissions!=UINT32_MAX)
+        ++s_run_output.fast_submissions;
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    const uint32_t elapsed=time_us_32()-before;
+    const uint32_t upper=elapsed==UINT32_MAX ? UINT32_MAX : elapsed+1u;
+    if (tracked && upper>s_run_output.fast_body_max_us) s_run_output.fast_body_max_us=upper;
+#endif
+    __atomic_store_n(&s_run_output_busy,0u,__ATOMIC_RELEASE);
+    return request;
+}
+
+__attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(vdc_run_output_note_cached_wall_core1)(uint32_t request,
+    uint32_t cycles,uint32_t budget_cycles)
+{
+    uint32_t idle=0u;
+    if (get_core_num()!=1u || !request ||
+        !__atomic_compare_exchange_n(&s_run_output_busy,&idle,1u,false,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED)) return;
+    /* Core0 may retire/reprepare after the caller returned. A delayed sample
+     * must never contaminate the next request. While the same request is
+     * retained, refused reports leave fast_calls > fast_wall_samples; a later
+     * preparation resets those old statistics and cannot qualify them. */
+    if (request==__atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE)) {
+        if (s_run_output.fast_wall_samples!=UINT32_MAX) ++s_run_output.fast_wall_samples;
+        if (cycles>s_run_output.fast_wall_max_cycles) s_run_output.fast_wall_max_cycles=cycles;
+        if (cycles>budget_cycles && s_run_output.fast_budget_overruns!=UINT32_MAX)
+            ++s_run_output.fast_budget_overruns;
+    }
+    __atomic_store_n(&s_run_output_busy,0u,__ATOMIC_RELEASE);
+}
+
+#undef VDC_RUN_OUTPUT_HOT

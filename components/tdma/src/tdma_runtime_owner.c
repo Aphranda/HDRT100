@@ -9,6 +9,13 @@
 #include "hardware/clocks.h"
 #include <string.h>
 
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "pico/platform.h"
+#define TDMA_OWNER_CLOCK_HOT(name) __not_in_flash_func(name)
+#else
+#define TDMA_OWNER_CLOCK_HOT(name) name
+#endif
+
 #if defined(PROJECT_USE_FREERTOS) && PROJECT_USE_FREERTOS
 #include "FreeRTOS.h"
 #endif
@@ -573,7 +580,7 @@ bool tdma_runtime_owner_get_rx_first_window(tdma_rx_first_window_t *snapshot)
     return tdma_pio_spi_phys_get_rx_first_window(snapshot);
 }
 
-bool tdma_runtime_owner_get_ring_clock_snapshot(
+__attribute__((noinline)) bool TDMA_OWNER_CLOCK_HOT(tdma_runtime_owner_get_ring_clock_snapshot)(
     tdma_ring_clock_snapshot_t *snapshot)
 {
     if (!s_tdma_runtime_owner_initialized || snapshot == NULL) {

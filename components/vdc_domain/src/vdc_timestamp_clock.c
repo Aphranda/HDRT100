@@ -172,7 +172,7 @@ typedef struct {
     uint32_t timer0_dbgpause, timer1_dbgpause;
 } vdc_timestamp_bridge_config_t;
 
-static bool vdc_timestamp_bridge_config(vdc_timestamp_bridge_config_t *out,
+static __attribute__((noinline)) bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_bridge_config)(vdc_timestamp_bridge_config_t *out,
     uint32_t expected_hz)
 {
     if (PICO_DEFAULT_TIMER_INSTANCE() != timer0_hw ||
@@ -241,7 +241,7 @@ static bool vdc_timestamp_bridge_config(vdc_timestamp_bridge_config_t *out,
 }
 #endif
 
-bool vdc_timestamp_clock_configuration_supported(uint32_t expected_hz)
+__attribute__((noinline)) bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_configuration_supported)(uint32_t expected_hz)
 {
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE && defined(PICO_RP2350) && PICO_RP2350 && \
     PICO_DEFAULT_TIMER == 0 && XOSC_HZ == 12000000u

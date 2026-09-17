@@ -3,6 +3,11 @@
  * projects fresh events; it never substitutes a later model for an old event.
  * The guard spans the entire step, not just the final copy: a reader cannot
  * observe the old model during a commit-before-publication gap. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#define VDC_COMMITTED_MODEL_HOT(name) __not_in_flash_func(name)
+#else
+#define VDC_COMMITTED_MODEL_HOT(name) name
+#endif
 static uint32_t s_model_feedback_session;
 static uint32_t s_model_feedback_last_session; /* Core0 stopped gate, never wraps. */
 static uint32_t s_committed_model_guard, s_committed_model_serial;
@@ -75,7 +80,7 @@ bool vdc_dpll_manager_set_feedback_session(uint32_t session)
         model_feedback_set_stopped, &session);
 }
 
-bool vdc_dpll_manager_get_committed_model(vdc_dpll_manager_committed_model_t *out)
+__attribute__((noinline)) bool VDC_COMMITTED_MODEL_HOT(vdc_dpll_manager_get_committed_model)(vdc_dpll_manager_committed_model_t *out)
 {
     if (out == NULL) return false;
     const uint32_t guard = __atomic_load_n(&s_committed_model_guard, __ATOMIC_ACQUIRE);

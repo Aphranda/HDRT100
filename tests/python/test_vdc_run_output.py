@@ -86,6 +86,18 @@ def test_prefetch_lifecycle(client, scenario):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.parametrize('scenario', [
+    'first', 'empty', 'hit', 'busy', 'token', 'tail', 'fall', 'stop',
+    'session', 'role', 'epoch', 'run', 'slot', 'schedule', 'invalid',
+    'missing_model', 'clock', 'poststop', 'cancel', 'terminal', 'reject',
+    'gate', 'core', 'wall', 'wall_stale', 'wall_busy', 'saturate',
+])
+def test_cached_only_handoff(client, scenario):
+    result = subprocess.run([str(client), 'fast_' + scenario],
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 CLIENT_PREFIX = r'''
 #include <assert.h>
 #include <stdio.h>
@@ -428,11 +440,93 @@ static void prefetch_case(const char *kind)
         arm(true);bridge_available=true;prefetch_step(1u,1u);assert(submit_calls==2u);
     }
 }
+static void fast_case(const char *kind)
+{
+    prepare();arm(true);
+    if(!strcmp(kind,"first")) {
+        assert(vdc_run_output_service_cached_core1()==generation);
+        assert(!bridge_calls && !submit_calls && s_run_output.fast_empty==1u);
+        return;
+    }
+    prefetch_step(1u,1u);
+    if(!strcmp(kind,"empty")) {
+        const unsigned bridges=bridge_calls;
+        assert(vdc_run_output_service_cached_core1()==generation);
+        assert(bridge_calls==bridges && submit_calls==1u && s_run_output.fast_empty==1u);
+        return;
+    }
+    ready=false;prefetch_step(1u,0u);ready=true;
+    const unsigned bridges=bridge_calls, attempts=submit_attempts;
+    const vdc_run_output_status_t before=s_run_output;
+    const sync_io_run_output_snapshot_t old_hw=hardware;
+    sync_io_run_output_edge_t cached[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES];
+    memcpy(cached,s_run_output_pending.edges,sizeof(cached));
+    bridge_available=false; /* Reaching planner is always a test failure. */
+    bool hit=false;
+    if(!strcmp(kind,"hit") || !strcmp(kind,"wall") ||
+       !strcmp(kind,"wall_stale") || !strcmp(kind,"wall_busy") || !strcmp(kind,"saturate")) hit=true;
+    else if(!strcmp(kind,"busy"))ready=false;
+    else if(!strcmp(kind,"token"))++model.token;
+    else if(!strcmp(kind,"tail"))++s_run_output_pending.predecessor_ordinal;
+    else if(!strcmp(kind,"fall"))++s_run_output_pending.predecessor_fall;
+    else if(!strcmp(kind,"stop")) { ring.enabled=0u;++ring.config_seq; }
+    else if(!strcmp(kind,"session"))++session;
+    else if(!strcmp(kind,"role"))++s_vdc_domain.control.profile.generation;
+    else if(!strcmp(kind,"epoch"))++s_vdc_domain.clock.epoch_id;
+    else if(!strcmp(kind,"run"))++s_vdc_domain.clock.run_id;
+    else if(!strcmp(kind,"slot"))++model.local_slot;
+    else if(!strcmp(kind,"schedule"))++model.dco.tdma_schedule_crc32;
+    else if(!strcmp(kind,"invalid"))model.dco.valid=false;
+    else if(!strcmp(kind,"missing_model"))model_available=false;
+    else if(!strcmp(kind,"clock"))clock_supported=false;
+    else if(!strcmp(kind,"poststop"))stop_ring_call=ring_calls+2u;
+    else if(!strcmp(kind,"cancel"))vdc_run_output_cancel();
+    else if(!strcmp(kind,"terminal"))hardware.state=SYNC_IO_RUN_OUTPUT_RETIRED;
+    else if(!strcmp(kind,"reject"))submit_allowed=false;
+    else if(!strcmp(kind,"gate"))s_run_output_busy=1u;
+    else if(!strcmp(kind,"core"))core=0u;
+    else assert(false);
+    if(!strcmp(kind,"saturate")) {
+        s_run_output.fast_calls=s_run_output.fast_submissions=UINT32_MAX;
+        s_run_output.fast_wall_samples=s_run_output.fast_budget_overruns=UINT32_MAX;
+    }
+    const uint32_t request=vdc_run_output_service_cached_core1();
+    assert(bridge_calls==bridges);
+    if(hit) {
+        assert(request==generation && submit_calls==2u && submit_attempts==attempts+1u);
+        assert(!memcmp(cached,admitted[1],sizeof(cached)) && !s_run_output_pending.valid);
+        assert(s_run_output.fast_submissions==(!strcmp(kind,"saturate")?UINT32_MAX:1u));
+    } else {
+        assert(submit_calls==1u && !s_run_output.fast_submissions);
+        assert_tail_unchanged(&before,&old_hw);
+        if(!strcmp(kind,"gate") || !strcmp(kind,"core")) {
+            assert(!request && !s_run_output.fast_calls);
+            return;
+        }
+        assert(request==generation && s_run_output.fast_calls==1u);
+    }
+    if(!strcmp(kind,"wall_stale")) {
+        ++s_run_output_request;
+        vdc_run_output_note_cached_wall_core1(request,30000u,20000u);
+        assert(!s_run_output.fast_wall_samples && !s_run_output.fast_wall_max_cycles);
+    } else if(!strcmp(kind,"wall_busy")) {
+        s_run_output_busy=1u;
+        vdc_run_output_note_cached_wall_core1(request,30000u,20000u);
+        assert(!s_run_output.fast_wall_samples && s_run_output.fast_calls==1u);
+    } else if(!strcmp(kind,"wall") || !strcmp(kind,"saturate")) {
+        vdc_run_output_note_cached_wall_core1(request,20000u,20000u);
+        vdc_run_output_note_cached_wall_core1(request,20001u,20000u);
+        assert(s_run_output.fast_wall_max_cycles==20001u);
+        assert(s_run_output.fast_wall_samples==(!strcmp(kind,"saturate")?UINT32_MAX:2u));
+        assert(s_run_output.fast_budget_overruns==(!strcmp(kind,"saturate")?UINT32_MAX:1u));
+    }
+}
 int main(int argc,char **argv)
 {
     assert(argc==2); const char *test=argv[1]; initialize();
     if(!strncmp(test,"diag_",5u)) { diagnostic(test+5u);return 0; }
     if(!strncmp(test,"prefetch_",9u)) { prefetch_case(test+9u);return 0; }
+    if(!strncmp(test,"fast_",5u)) { fast_case(test+5u);return 0; }
     if(!strcmp(test,"no_request")) {
         core=1u; vdc_run_output_service_core1();
         assert(service_calls==1u && !s_run_output_request && !s_run_output_busy);
@@ -575,15 +669,15 @@ def test_real_parser_exports_start_observation_receipt(parser_host):
     result = subprocess.run([str(parser_host), 'RUN?', 'query'], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stdout + result.stderr
     fields = [int(value) for value in result.stdout.strip().split(',')]
-    assert len(fields) == 88
+    assert len(fields) == 95
     # Preserve every old position: 26 small fields, ten uint64, two config.
-    assert fields[:36] == [3] + [0] * 35
+    assert fields[:36] == [4] + [0] * 35
     assert fields[36:43] == [20, 21, 13, 12, 3, 4294967303, 4294967311]
     assert fields[43:50] == list(range(4294967400, 4294967407))
     assert fields[50:59] == list(range(101, 110))
     assert fields[59:61] == [1, 5]
     assert fields[61:85] == list(range(200, 212)) + list(range(300, 312))
-    assert fields[85:] == [401, 402, 403]
+    assert fields[85:] == list(range(401, 411))
 
 
 PARSER_PREFIX = r'''
@@ -638,6 +732,9 @@ bool vdc_run_output_status(vdc_run_output_status_t *out)
     out->hardware.retire_pio_ctrl=109u;
     out->last_phase=VDC_RUN_OUTPUT_RUNNING_PHASE;out->last_outcome=VDC_RUN_OUTPUT_BRIDGE_UNAVAILABLE;
     out->prefetched_blocks=401u;out->cache_hits=402u;out->cache_invalidations=403u;
+    out->fast_calls=404u;out->fast_submissions=405u;out->fast_empty=406u;
+    out->fast_body_max_us=407u;out->fast_wall_samples=408u;
+    out->fast_wall_max_cycles=409u;out->fast_budget_overruns=410u;
     for(unsigned p=0;p<VDC_RUN_OUTPUT_PHASE_COUNT;++p)
         for(unsigned o=0;o<VDC_RUN_OUTPUT_OUTCOME_COUNT;++o)out->outcomes[p][o]=200u+p*100u+o;
     return true;
