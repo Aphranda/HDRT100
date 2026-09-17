@@ -32,6 +32,39 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-009：诊断输出扰动、示波器窗口失败与静默恢复
+
+- TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。固件维持 `6261640`，无新增生产代码，
+  不重跑 P0T/OTA。以下数字为本轮证据快照，不能作为频差或精度事实源。
+- 复用已验证 Rigol 脚本及四路接线，探头均为 1×。`follow-scope-r1/` 在示波器设置阶段
+  请求水平偏移与读回不一致，未打开板端串口；`follow-scope-r2/` 改居中窗口，但较长
+  时基下 SING 后未观察到新的 WAIT，未 START，四板已 STOP、输出关闭；根因未归定。
+  保留两次失败，不通过加长等待或沿用旧 STOP 状态冒充新采集。
+- `follow-scope-r3/` 恢复既有短时基，NO1/CH1 上升沿触发，完整导出四通道 RAW，
+  各 10M 点、20 ns 间隔、200 ms 窗口。TRIAL 应答在主板输出请求后约 656 ms 返回，
+  早于预设首次输出；运行中没有板端或示波器查询，全部 STOP 后才导出。CH1 有 17 个
+  有效上升沿，CH2–CH4 在该窗口内均无有效边沿；三从诊断输出末态 `last_error=6`
+  表示调度尝试失败。稀疏输出还存在较大时序跳变，不能把描述性直线拟合当作晶振频差。
+- 同轮 FOLLOW 专项失败：三从分别完成 3/2/2 次零调整后，末态 reason 为 BINDING；
+  observer reason=`TDMA_EVENT_PRE_FAULT`、fault=`TDMA_EVENT_FAULT_OVERFLOW`，
+  对应 DMA 环覆盖门禁，不能误称 RXSTALL。完整导出不代表有效闭环测量，零边沿也不代表
+  无需调整。当前 phase-only 输出没有每沿模型/回退身份，不作为锁相判据。
+- 关闭 SELFTEST 后，以原脚本完成 `follow-after-scope-r1/` 八秒静默对照，重新通过。
+  三从各完成 7 次区间跨零的合法零调整，末态 FOLLOW reason=STOP、observer reason/fault
+  均零，joined=8119/8120/8121；NO4 保持 DCO 序号 7、+545 ppb。对照支持停止使用当前
+  有扰动的诊断输出，不证明其内部具体延迟根因已经修复，也不证明频差已经收敛。
+- 原件位于 `out/HardwareAcceptance/20260917/dpll-priority-follow-r1/` 下上述目录；
+  `capture_follow_scope*.py` 保留各版本，`scope-capture-review.json` 记录执行前独审。
+  `follow-scope-r3/scope/analysis.json`、`slopes.svg` 为辅助输出分析，不能作为锁相证据。
+  四板最终 STOP，临时 FOLLOW/SYNC/MATCH/SELFTEST 关闭，原配置恢复；示波器 STOP 并恢复
+  EXT/NORM。原有 `tdma_flight_engine.c` 工作区修改未暂存或覆盖。
+- 下一 gate：继续 `VDC-FAST-003`，先给 typed 匹配/频率判定接入有界 SRAM 原生记录，
+  复用现有采集容量或互斥存储，记录源事件、代际、残差区间及实际 DCO，STOP 后统一读取。
+  不依赖旧 `dpll.update_seq` 变化，不引入逐次 SCPI 或额外诊断脉冲。按独立切片完成
+  host、Release、资源、同源码四板 quick P3 和专项，再判断宽区间需要优化时间输入还是
+  估计窗口；物理输出精度仍单独验收，不能通过删掉区间上下界强制产生 DCO 修正。
+  具体候选边界写入同目录 `next-typed-trace-plan.json`，是下一切片草案，尚未实现或冻结为契约。
+
 ### VDC-PROGRESS-20260917-008：typed 本地频率控制与真实 DCO 采用
 
 - TODO task ID：`VDC-FAST-003`；父任务仍 IN PROGRESS。以下数值为本轮证据快照，非产品
