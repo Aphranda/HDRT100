@@ -1,4 +1,5 @@
 /* VDC capability client; SYNC_IO alone touches output PIO/DMA/GPIO. */
+#include "vdc_output_edge_cursor.h"
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define VDC_RUN_OUTPUT_HOT(name) __not_in_flash_func(name)
 #else
@@ -328,13 +329,33 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
             s_run_output_pending.first=first;
         }
         const uint64_t high_ticks=((uint64_t)s_run_output.high_ns*BOARD_SYS_CLOCK_HZ+999999999u)/1000000000u;
-        const uint32_t end=s_run_output.block_edges-s_run_output_pending.planned>VDC_RUN_OUTPUT_PLAN_STEP_EDGES ?
-            s_run_output_pending.planned+VDC_RUN_OUTPUT_PLAN_STEP_EDGES : s_run_output.block_edges;
+        /* A late model change must not reintroduce four table periods of
+         * inverse calculations while the irrevocable FIFO tail drains.
+         * For a continuous same-model grid, seed the exact inverse once and
+         * advance its quotient/remainder for the fixed suffix. PRESTART and
+         * wide-pulse/skipped-grid cases retain the bounded scalar path.
+         * The cached-only service never reaches new planning above. */
+        vdc_output_edge_cursor_t cursor={0};
+        vdc_output_edge_plan_t first_plan={0};
+        const bool batch=!first && !s_run_output_pending.planned &&
+            vdc_output_edge_cursor_supported(&model.dco,s_run_output.period_ns,s_run_output.high_ns);
+        if (batch && !vdc_output_edge_cursor_init(&model.dco,0u,s_run_output.period_ns,
+                s_run_output_pending.next_ordinal,s_run_output_pending.last_local_ns,
+                s_run_output.delay_ns,s_run_output.high_ns,&cursor,&first_plan)) {
+            run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); ++s_run_output.plan_rejects; return;
+        }
+        const uint32_t end=batch ? s_run_output.block_edges :
+            s_run_output.block_edges-s_run_output_pending.planned>VDC_RUN_OUTPUT_PLAN_STEP_EDGES ?
+                s_run_output_pending.planned+VDC_RUN_OUTPUT_PLAN_STEP_EDGES : s_run_output.block_edges;
         for (uint32_t i=s_run_output_pending.planned;i<end;++i) {
             vdc_output_edge_plan_t plan;
             vdc_local_raw_bracket_t raw;
-            if (!vdc_output_edge_plan(&model.dco,0u,s_run_output.period_ns,s_run_output_pending.next_ordinal,
-                    s_run_output_pending.last_local_ns,s_run_output.delay_ns,&plan) ||
+            bool planned;
+            if (batch && i==0u) { plan=first_plan; planned=true; }
+            else if (batch) planned=vdc_output_edge_cursor_next(&cursor,&plan);
+            else planned=vdc_output_edge_plan(&model.dco,0u,s_run_output.period_ns,
+                s_run_output_pending.next_ordinal,s_run_output_pending.last_local_ns,s_run_output.delay_ns,&plan);
+            if (!planned ||
                 !vdc_timestamp_timeline_local_to_raw(&s_run_output_timeline,plan.physical_local_ns,&raw) ||
                 raw.hi>UINT64_MAX-high_ticks || plan.physical_local_ns>UINT64_MAX-s_run_output.high_ns ||
                 plan.ordinal==UINT64_MAX) {
@@ -368,7 +389,10 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
         run_output_note(phase,VDC_RUN_OUTPUT_BINDING_CANCELLED);
         ++s_run_output.binding_rejects; run_output_cancel_owned(); return;
     }
-    if (!can_submit) {
+    /* DMA may finish while the bounded planning step executes. Recheck that
+     * ownership boundary once instead of carrying a stale busy result into
+     * another table period; the backend still performs its final guard. */
+    if (!can_submit && !sync_io_run_output_can_submit_core1(request)) {
         run_output_note(phase,VDC_RUN_OUTPUT_DMA_NOT_READY); return;
     }
     /* Reobserve time after the bounded planning step. Never grant a new

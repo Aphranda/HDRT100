@@ -17,6 +17,12 @@ def timeline_client(tmp_path_factory):
     prefix = prefix.replace('admitted_count[4]', 'admitted_count[2100]')
     prefix = prefix.replace('submit_calls<4u', 'submit_calls<2100u')
     prefix = prefix.replace('duration==1000u', 'duration>=1u && duration<=20000u')
+    prefix = prefix.replace('static bool ready=true',
+        'static bool finish_dma_on_observation; static unsigned ready_observations;\nstatic bool ready=true')
+    prefix = prefix.replace('{ return request==hardware.generation && ready && !cancelled; }',
+        '{ ++ready_observations; if(finish_dma_on_observation) { '
+        'finish_dma_on_observation=false;ready=true;return false; } '
+        'return request==hardware.generation && ready && !cancelled; }')
     source = (ROOT / 'components/vdc_dpll_manager/src/vdc_run_output.inc').read_text(encoding='utf-8')
     return compile_host(tmp_path_factory.mktemp('timeline-client'), 'timeline',
         prefix + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
@@ -30,13 +36,78 @@ def timeline_client(tmp_path_factory):
     'default', 'count_zero', 'count_over', 'schedule_missing', 'schedule_zero',
     'schedule_too_slow', 'plan_capacity', 'low_capacity', 'latched',
     'table_prepared', 'table_running', 'bridge_jitter', 'long_wrap',
-    'partial_model', 'watermarks', 'failed_time', 'horizon',
-    'first_stop', 'first_cancel', 'cached_pristine',
+    'batch_model', 'watermarks', 'failed_time', 'horizon',
+    'first_stop', 'first_cancel', 'cached_pristine', 'dma_finishes_during_plan',
 ])
 def test_actual_client_timeline(timeline_client, scenario):
     result = subprocess.run([str(timeline_client), scenario], capture_output=True,
                             text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.fixture(scope='module')
+def late_model_client(tmp_path_factory):
+    source = (ROOT / 'components/vdc_dpll_manager/src/vdc_run_output.inc').read_text(encoding='utf-8')
+    return compile_host(tmp_path_factory.mktemp('late-model-client'), 'late_model',
+        CLIENT_PREFIX + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
+        '\n#undef main\n' + LATE_MODEL_MAIN,
+        [ROOT / 'components/vdc_domain/src/vdc_domain.c',
+         ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
+         ROOT / 'components/tdma/src/tdma_profile.c'])
+
+
+@pytest.mark.parametrize('change', ['phase', 'rate'])
+@pytest.mark.parametrize('cached_passes', [1, 2])
+def test_late_model_replan_survives_skipped_full_service(late_model_client, change, cached_passes):
+    result = subprocess.run([str(late_model_client), change, str(cached_passes)],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+LATE_MODEL_MAIN = r'''
+int main(int argc,char **argv)
+{
+    assert(argc==3); initialize();
+    timing=(vdc_output_timing_profile_t){40000u,48000u,32000u};
+    prepare();arm(true);
+    for(unsigned i=0;i<4u;++i)vdc_run_output_service_core1();
+    assert(submit_calls==1u && admitted_count[0]==16u);
+    sync_io_run_output_edge_t prefix[16];memcpy(prefix,admitted[0],sizeof(prefix));
+    const uint64_t tail=hardware.last_falling_tick;
+    ready=false;raw_override=tail-UINT64_C(3000000); /* 12 ms before tail. */
+    for(unsigned i=0;i<4u;++i)vdc_run_output_service_core1();
+    assert(s_run_output_pending.valid && submit_calls==1u);
+    ++model.token;
+    if(!strcmp(argv[1],"phase"))model.dco.phase_offset_ns=60000;
+    else { assert(!strcmp(argv[1],"rate"));model.dco.period_adjust_ppb=500; }
+    raw_override=tail-UINT64_C(1687500); /* 6.75 ms runway at invalidation. */
+    ready=true;
+    const unsigned skips=(unsigned)atoi(argv[2]);assert(skips==1u || skips==2u);
+    for(unsigned pass=0;pass<5u && submit_calls==1u;++pass) {
+        assert(raw_override<tail);
+        if(pass && pass<=skips)(void)vdc_run_output_service_cached_core1();
+        else vdc_run_output_service_core1();
+        if(submit_calls==2u)break;
+        raw_override+=375000u; /* Actual 1.5 ms table time, including skips. */
+    }
+    /* No admission after an exhausted tail can count as successful recovery. */
+    assert(submit_calls==2u && raw_override+20000u<tail && !cancelled);
+    assert(!memcmp(prefix,admitted[0],sizeof(prefix)));
+    assert(s_run_output.cache_invalidations==1u);
+    uint64_t previous_local=prefix[15].ordinal*UINT64_C(1000000)+100u+1000u;
+    uint64_t first_unqueued=prefix[15].ordinal+1u;
+    for(unsigned i=0;i<16u;++i) {
+        vdc_output_edge_plan_t scalar;
+        assert(vdc_output_edge_plan(&model.dco,0u,1000000u,first_unqueued,
+                                   previous_local,100,&scalar));
+        assert(admitted[1][i].model_token==model.token);
+        assert(admitted[1][i].ordinal==scalar.ordinal);
+        assert(admitted[1][i].rising_tick==(scalar.physical_local_ns+3u)/4u+3u);
+        previous_local=scalar.physical_local_ns+1000u;first_unqueued=scalar.ordinal+1u;
+    }
+    return 0;
+}
+'''
 
 
 TIMELINE_MAIN = r'''
@@ -112,6 +183,14 @@ int main(int argc,char **argv)
     if(!strcmp(kind,"default") || !strcmp(kind,"latched"))return 0;
     const sync_io_run_output_snapshot_t saved=hardware;
     sync_io_run_output_edge_t prefix[10];memcpy(prefix,admitted[0],sizeof(prefix));
+    if(!strcmp(kind,"dma_finishes_during_plan")) {
+        ready=false;finish_dma_on_observation=true;
+        const unsigned before=ready_observations;
+        step();
+        assert(ready_observations==before+2u && submit_calls==2u && !cancelled);
+        assert_edges(1u,0);
+        assert(!memcmp(prefix,admitted[0],sizeof(prefix)));return 0;
+    }
     if(!strcmp(kind,"table_running")) {
         ++table_cycles;step();assert(cancelled && submit_calls==1u);
         assert(!memcmp(prefix,admitted[0],sizeof(prefix)));return 0;
@@ -133,14 +212,14 @@ int main(int argc,char **argv)
         }
         assert(passed_two && wrapped && hardware.last_falling_tick>UINT64_C(5000000000));
         assert(bridge_calls==1u && s_run_output.timeline_bridge_samples==1u);
-        assert(s_run_output.partial_plan_steps==6000u);return 0;
+        assert(s_run_output.partial_plan_steps==3u+submit_calls-1u);return 0;
     }
-    if(!strcmp(kind,"partial_model")) {
+    if(!strcmp(kind,"batch_model")) {
         ready=false;raw_override=hardware.last_falling_tick-1500000u;
-        step();assert(s_run_output_pending.planned==4u);
+        step();assert(s_run_output_pending.valid && s_run_output_pending.planned==10u);
         ++model.token;model.dco.phase_offset_ns=2000;
-        step();assert(s_run_output_pending.planned==4u && s_run_output.cache_invalidations==1u);
-        step();step();assert(s_run_output_pending.valid && submit_calls==1u);
+        step();assert(s_run_output_pending.valid && s_run_output_pending.planned==10u &&
+                      s_run_output.cache_invalidations==1u && submit_calls==1u);
         assert(!memcmp(&saved,&hardware,sizeof(saved)));
         assert(!memcmp(prefix,admitted[0],sizeof(prefix)));
         ready=true;vdc_run_output_service_cached_core1();assert(submit_calls==2u);
@@ -151,8 +230,8 @@ int main(int argc,char **argv)
         const uint64_t tail=hardware.last_falling_tick;
         raw_override=tail-3000001u;step();
         assert(s_run_output.plan_waits==1u && !s_run_output_pending.planned);
-        raw_override=tail-3000000u;step();assert(s_run_output_pending.planned==4u);
-        step();step();assert(s_run_output_pending.valid && submit_calls==1u);
+        raw_override=tail-3000000u;step();
+        assert(s_run_output_pending.valid && submit_calls==1u);
         raw_override=tail-1500001u;vdc_run_output_service_cached_core1();
         assert(submit_calls==1u && s_run_output.refill_waits==2u);
         /* One tick of enable uncertainty must count against commitment,
@@ -164,16 +243,17 @@ int main(int argc,char **argv)
         assert(submit_calls==2u && !s_run_output_pending.valid);return 0;
     }
     if(!strcmp(kind,"failed_time")) {
+        ready=false;
         raw_override=hardware.last_falling_tick-1500000u;
-        step();assert(s_run_output_pending.planned==4u);
+        step();assert(s_run_output_pending.valid);
+        ready=true;
         raw_ok=false;step();
-        assert(s_run_output_pending.planned==4u && s_run_output_timeline_valid);
+        assert(s_run_output_pending.valid && s_run_output_timeline_valid);
         assert(!memcmp(&saved,&hardware,sizeof(saved)) && bridge_calls==1u);
-        raw_ok=true;step();step();assert(submit_calls==2u && bridge_calls==1u);return 0;
+        raw_ok=true;step();assert(submit_calls==2u && bridge_calls==1u);return 0;
     }
     if(!strcmp(kind,"horizon")) {
         raw_override=hardware.last_falling_tick-1500000u;
-        step();step();
         hardware.anchor_after=2000000u; /* 8 ms enable uncertainty. */
         step();assert(s_run_output_pending.valid && submit_calls==1u && s_run_output.commit_waits==1u);
         const unsigned plans=s_run_output.partial_plan_steps;
