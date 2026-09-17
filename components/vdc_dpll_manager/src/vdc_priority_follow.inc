@@ -28,13 +28,20 @@ static uint32_t s_priority_follow_guard;
 static uint32_t s_priority_follow_words[sizeof(vdc_priority_follow_snapshot_t) / 4u];
 _Static_assert(sizeof(vdc_priority_follow_snapshot_t) == 216u,
     "typed-follow diagnostics use 54 atomic words");
-_Static_assert(VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS <= UINT64_C(2000000000),
-    "scaled positive secant numerator is bounded by 2e18");
+_Static_assert(VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS <= UINT64_MAX / UINT64_C(1000000000),
+    "scaled positive secant numerator must fit uint64");
 _Static_assert(VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS < VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS &&
-    VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS < VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS &&
+    VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS < VDC_PRIORITY_FOLLOW_THIRD_INTERVAL_NS &&
+    VDC_PRIORITY_FOLLOW_THIRD_INTERVAL_NS < VDC_PRIORITY_FOLLOW_FOURTH_INTERVAL_NS &&
+    VDC_PRIORITY_FOLLOW_FOURTH_INTERVAL_NS < VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS &&
     VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS < VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS &&
-    VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS == 3u,
-    "three ordered evaluation thresholds stay below the unchanged interval limit");
+    VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS == 5u,
+    "five ordered evaluation thresholds stay below the interval limit");
+static const uint64_t s_priority_follow_intervals[VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS] = {
+    VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS, VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS,
+    VDC_PRIORITY_FOLLOW_THIRD_INTERVAL_NS, VDC_PRIORITY_FOLLOW_FOURTH_INTERVAL_NS,
+    VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS
+};
 
 static bool priority_follow_set_stopped(void *context)
 {
@@ -93,8 +100,19 @@ static uint32_t priority_follow_rate_interval(uint64_t local_lo, uint64_t local_
     const uint64_t numerator_hi = local_hi * UINT64_C(1000000000);
     const uint64_t lower = numerator_lo / expected_hi;
     const uint64_t upper = numerator_hi / expected_lo + (numerator_hi % expected_lo != 0u);
-    *lo = (int64_t)lower - INT64_C(1000000000);
-    *hi = (int64_t)upper - INT64_C(1000000000);
+    /* Ten-second positive numerators may exceed INT64_MAX. Subtract the
+     * exact 1e9 bias in the unsigned domain BEFORE converting a positive
+     * result, so every representable error is retained without a signed
+     * overflow or implementation-defined conversion of a tiny denominator. */
+    const uint64_t max_quotient = (uint64_t)INT64_MAX + UINT64_C(1000000000);
+    if (lower > max_quotient || upper > max_quotient)
+        return VDC_PRIORITY_FOLLOW_OVERFLOW;
+    *lo = lower >= UINT64_C(1000000000)
+        ? (int64_t)(lower - UINT64_C(1000000000))
+        : -(int64_t)(UINT64_C(1000000000) - lower);
+    *hi = upper >= UINT64_C(1000000000)
+        ? (int64_t)(upper - UINT64_C(1000000000))
+        : -(int64_t)(UINT64_C(1000000000) - upper);
     return VDC_PRIORITY_FOLLOW_OK;
 }
 
@@ -247,9 +265,7 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
         priority_follow_baseline(); s->last_reason = VDC_PRIORITY_FOLLOW_INTERVAL;
         priority_follow_publish(); return;
     }
-    const uint64_t next_interval = w->next_evaluation == 0u
-        ? VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS : w->next_evaluation == 1u
-        ? VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS : VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS;
+    const uint64_t next_interval = s_priority_follow_intervals[w->next_evaluation];
     if (w->expected_delta_lo < next_interval) {
         s->waits = priority_match_inc(s->waits); s->state = VDC_PRIORITY_FOLLOW_WAITING;
         s->last_reason = VDC_PRIORITY_FOLLOW_INTERVAL;
@@ -259,9 +275,10 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
      * Jump to a strictly future threshold: missed windows never catch up, and
      * BUSY/application deferral or fresh-ticket replacement cannot refund a
      * threshold and add another computation for the same baseline. */
-    w->next_evaluation = w->expected_delta_lo >= VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS
-        ? VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS
-        : w->expected_delta_lo >= VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS ? 2u : 1u;
+    do {
+        ++w->next_evaluation;
+    } while (w->next_evaluation < VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS &&
+        w->expected_delta_lo >= s_priority_follow_intervals[w->next_evaluation]);
     /* Only a complete observation window pays for the scaled divisions.
      * The binding/anchor checks above hold transitively from the baseline.
      * Both MATCH endpoints retain their admitted absolute output intervals;

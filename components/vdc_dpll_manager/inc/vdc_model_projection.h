@@ -5,6 +5,7 @@
 #include "vdc_timestamp_clock.h"
 
 #define VDC_MODEL_CORRELATED_DELTA_QUANTIZATION_NS UINT64_C(1000)
+#define VDC_MODEL_CORRELATED_DELTA_MAX_SECONDS 10u
 
 /* An affine rate coordinate, deliberately independent of model base/phase
  * and of each timestamp bridge's read-placement uncertainty. Split first:
@@ -60,6 +61,26 @@ static inline bool vdc_model_project_interval(const vdc_dco_control_t *dco,
     return true;
 }
 
+/* Positive affine scaling of an elapsed local-ns bound. Split before
+ * multiplying: a valid long interval times the largest int32 DCO rate can
+ * exceed uint64 even when its quotient is small. Failure preserves *out. */
+static inline bool vdc_model_scale_elapsed_ns(int32_t rate_ppb,
+    uint64_t local_ns, bool round_up, uint64_t *out)
+{
+    if (!out || rate_ppb <= -1000000000) return false;
+    const uint64_t q = (uint64_t)(INT64_C(1000000000) + rate_ppb);
+    const uint64_t whole = local_ns / UINT64_C(1000000000);
+    /* remainder<1e9 and q<=3147483647, so this product fits uint64. */
+    const uint64_t remainder = (local_ns % UINT64_C(1000000000)) * q;
+    if (whole > UINT64_MAX / q) return false;
+    const uint64_t base = whole * q;
+    const uint64_t fraction = remainder / UINT64_C(1000000000) +
+        (round_up && remainder % UINT64_C(1000000000) != 0u ? 1u : 0u);
+    if (base > UINT64_MAX - fraction) return false;
+    *out = base + fraction;
+    return true;
+}
+
 /* Actual-output difference, conditional on two already admitted absolute
  * projections under this SAME committed model and a common observer anchor.
  * The owner must preserve the bridge's clock lifetime assumptions throughout
@@ -80,21 +101,22 @@ static inline bool vdc_model_project_correlated_delta(const vdc_dco_control_t *d
     if (!dco || !output_lo || !output_hi || output_lo == output_hi ||
         !dco->valid || !dco->nominal_period_ns || dco->lock_state > VDC_DOMAIN_LOCK_FAULT ||
         dco->period_adjust_ppb <= -1000000000 || !tick_hz || tick_hz > 500000000u ||
-        !delta_ticks || delta_ticks > (uint64_t)tick_hz * 2u) return false;
-    /* delta_ticks*1e9 <= 1e18; local_hi <= 2e9+1000. Even the largest
-     * int32 rate keeps local_hi*(1e9+rate) below UINT64_MAX. */
+        !delta_ticks || delta_ticks > (uint64_t)tick_hz *
+            VDC_MODEL_CORRELATED_DELTA_MAX_SECONDS) return false;
+    /* delta_ticks*1e9 <= 5e18; local_hi <= 1e10+1000. Scaling this
+     * quantized bound needs split multiplication, unlike the old 2s case.
+     * The caller separately bounds accepted actual-output interval deltas;
+     * this raw horizon does not extend either event's absolute admission. */
     const uint64_t elapsed_num = delta_ticks * UINT64_C(1000000000);
     const uint64_t elapsed_floor = elapsed_num / tick_hz;
     const uint64_t elapsed_ceil = elapsed_floor + (elapsed_num % tick_hz != 0u);
     const uint64_t local_lo = elapsed_floor > VDC_MODEL_CORRELATED_DELTA_QUANTIZATION_NS
         ? elapsed_floor - VDC_MODEL_CORRELATED_DELTA_QUANTIZATION_NS : 0u;
     const uint64_t local_hi = elapsed_ceil + VDC_MODEL_CORRELATED_DELTA_QUANTIZATION_NS;
-    const uint64_t q = (uint64_t)(INT64_C(1000000000) + dco->period_adjust_ppb);
-    const uint64_t lo_num = local_lo * q;
-    const uint64_t hi_num = local_hi * q;
-    const uint64_t lo = lo_num / UINT64_C(1000000000);
-    const uint64_t hi = hi_num / UINT64_C(1000000000) +
-        (hi_num % UINT64_C(1000000000) != 0u);
+    uint64_t lo, hi;
+    if (!vdc_model_scale_elapsed_ns(dco->period_adjust_ppb, local_lo, false, &lo) ||
+        !vdc_model_scale_elapsed_ns(dco->period_adjust_ppb, local_hi, true, &hi))
+        return false;
     *output_lo = lo;
     *output_hi = hi;
     return true;

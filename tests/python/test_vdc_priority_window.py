@@ -125,21 +125,22 @@ static void window_cases(const char *name)
 {
     window_setup(!strcmp(name,"saturation_reset")?10000:0);
     if(!strcmp(name,"exact_thresholds")) {
-        const uint64_t targets[]={999999999u,1000000000u,1499999999u,1500000000u,1799999999u,1800000000u};
-        for(unsigned i=0;i<6u;++i) {
+        const uint64_t targets[]={999999999u,1000000000u,1499999999u,1500000000u,1799999999u,1800000000u,
+            UINT64_C(3999999999),UINT64_C(4000000000),UINT64_C(7999999999),UINT64_C(8000000000)};
+        for(unsigned i=0;i<10u;++i) {
             event(101+i,((targets[i]+11u)/4u)*4u);
             priority_rx.typed_record.event_time_lower=UINT64_C(12000000000)+targets[i]+7u;
             tick();window_cost((i+1u)/2u);
         }
-        assert(status().no_adjust==3u && !status().applied);
-        assert(s_priority_follow_work.previous.sequence==106u);return;
+        assert(status().no_adjust==5u && !status().applied);
+        assert(s_priority_follow_work.previous.sequence==110u);return;
     }
     if(!strcmp(name,"max_upper") || !strcmp(name,"max_upper_exceeded")) {
-        event(201,1999998000u);
-        priority_rx.typed_record.event_time_lower=UINT64_C(12000000000)+2000000000u-7u+
+        event(201,UINT64_C(9999998000));
+        priority_rx.typed_record.event_time_lower=UINT64_C(12000000000)+UINT64_C(10000000000)-7u+
             (!strcmp(name,"max_upper_exceeded")?1u:0u);
         prepare();window_cost(!strcmp(name,"max_upper")?1u:0u);
-        if(!strcmp(name,"max_upper"))assert(s_priority_follow_work.expected_delta_hi==2000000000u);
+        if(!strcmp(name,"max_upper"))assert(s_priority_follow_work.expected_delta_hi==UINT64_C(10000000000));
         else assert(status().baselines==2u && !s_priority_follow_work.pending);
         return;
     }
@@ -199,9 +200,9 @@ static void window_cases(const char *name)
         window_event(301,1910000000u);window_event(401,1920000000u);window_cost(2);return;
     }
     if(!strcmp(name,"max_reset")) {
-        window_event(201,2010000000u);window_cost(1);
+        window_event(201,UINT64_C(10010000000));window_cost(1);
         assert(s_priority_follow_work.previous.sequence==201u && status().baselines==2u);
-        window_event(301,3019999996u);window_cost(2);assert(status().baseline_sequence==201u);return;
+        window_event(301,UINT64_C(11019999996));window_cost(2);assert(status().baseline_sequence==201u);return;
     }
     if(!strcmp(name,"model_reset")) {
         ++s_vdc_domain.dco.period_adjust_ppb;publish();

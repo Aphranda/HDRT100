@@ -51,7 +51,7 @@ def absolute_oracle(case, local):
 
 def delta_oracle(case):
     if (case.flags or not case.valid or not case.nominal or case.lock > 8 or
-            not 0 < case.hz <= 500_000_000 or not 0 < case.ticks <= 2 * case.hz or
+            not 0 < case.hz <= 500_000_000 or not 0 < case.ticks <= 10 * case.hz or
             case.rate <= -M):
         return None
     interval = Fraction(case.ticks * M, case.hz)
@@ -144,11 +144,23 @@ def test_uint64_base_crossing_cancellation_and_random_phases(delta_executable):
 
 def test_invalid_bounds_and_null_alias_leave_outputs_unchanged(delta_executable):
     cases = [replace(Case(), **change) for change in [
-        dict(hz=0), dict(hz=500000001), dict(ticks=0), dict(ticks=500000001),
+        dict(hz=0), dict(hz=500000001), dict(ticks=0), dict(ticks=2500000001),
         dict(ticks=U64), dict(valid=0), dict(nominal=0), dict(lock=9), dict(lock=U64 & 0xffffffff),
         dict(rate=-M), dict(rate=-2147483648), *[dict(flags=flag) for flag in (1,2,4,8,15)],
     ]]
     check(delta_executable, "invalid", cases)
+
+
+def test_long_elapsed_quantization_scaling_and_uint64_intermediate(delta_executable):
+    cases=[]
+    for hz,seconds,extra,rate in itertools.product(
+        [1,3,125000000,250000000,333333333,499999999,500000000],
+        [2,4,8,10],[-1,0,1],[-999999999,-10000,-1,0,1,10000,2147483647]):
+        ticks=seconds*hz+extra
+        first=3*M+999
+        second=math.floor(Fraction(first)+Fraction(ticks*M,hz))
+        cases.append(Case(hz=hz,ticks=ticks,rate=rate,first=first,second=second))
+    assert check(delta_executable,"long_scale",cases,True)>500
 
 
 @pytest.mark.parametrize("case", ["wide_bridge", "empty_intersection", "model_revision", "model_valid_from",
@@ -224,7 +236,7 @@ int main(int argc,char **argv)
 {
     assert(argc==2);
     if(!strcmp(argv[1],"phases") || !strcmp(argv[1],"timer0_phases") ||
-       !strcmp(argv[1],"uint64_random") || !strcmp(argv[1],"invalid")) {
+       !strcmp(argv[1],"uint64_random") || !strcmp(argv[1],"invalid") || !strcmp(argv[1],"long_scale")) {
         vdc_dco_control_t d={0};uint32_t hz,flags;uint64_t ticks,first,second;
         while(scanf("%" SCNu32 " %" SCNu32 " %" SCNu32 " %" SCNu64 " %" SCNu64 " %" SCNd32 " %" SCNd32
             " %" SCNu32 " %" SCNu64 " %" SCNu64 " %" SCNu64 " %" SCNu32,
