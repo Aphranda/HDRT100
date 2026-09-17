@@ -9,7 +9,7 @@
 typedef enum { COMMAND_NONE, COMMAND_START, COMMAND_STOP, COMMAND_PAUSE,
                COMMAND_CONTINUE, COMMAND_STEP, COMMAND_EXHAUSTED,
                COMMAND_GATEWAY_FIRE, COMMAND_GATEWAY_READY, COMMAND_FINISH,
-               COMMAND_COUNTER_REARM } command_t;
+               COMMAND_COUNTER_REARM, COMMAND_COUNTER_INJECT } command_t;
 
 typedef struct {
     trigger_sequence_service_io_t io;
@@ -45,6 +45,8 @@ static trigger_sequence_gateway_config_t s_gateway;
 static bool (*s_gateway_guard)(void);
 static uint32_t s_repeat_count = 1u;
 static uint32_t s_configuration_guard;
+static uint32_t s_inject_input;
+static uint32_t s_inject_count;
 
 static uint32_t saturated_add(uint32_t value, uint32_t add)
 {
@@ -87,6 +89,8 @@ void trigger_sequence_service_init(void)
     s_gateway_guard = NULL;
     s_repeat_count = 1u;
     s_configuration_guard = 0u;
+    s_inject_input = 0u;
+    s_inject_count = 0u;
 }
 
 bool trigger_sequence_service_configuration_begin(void)
@@ -369,6 +373,34 @@ trigger_sequence_service_result_t trigger_sequence_service_continue(void)
 { return request(COMMAND_CONTINUE); }
 trigger_sequence_service_result_t trigger_sequence_service_step(void)
 { return request(COMMAND_STEP); }
+
+trigger_sequence_service_result_t trigger_sequence_service_counter_inject(
+    uint32_t input, uint32_t count)
+{
+    trigger_sequence_service_result_t result = TRIGGER_SEQUENCE_SERVICE_OK;
+    osal_critical_enter();
+    const trigger_sequence_service_state_t state = s_published.state;
+    if (input == 0u || input > 4u || count == 0u ||
+        count >= SYNC_IO_SEQUENCE_COUNTER_LIMIT) {
+        result = TRIGGER_SEQUENCE_SERVICE_INVALID;
+    } else if (!s_gateway.enabled || s_gateway.counter_input != input) {
+        result = TRIGGER_SEQUENCE_SERVICE_SOURCE_MISMATCH;
+    } else if (state != TRIGGER_SEQUENCE_SERVICE_READY &&
+               state != TRIGGER_SEQUENCE_SERVICE_PAUSED) {
+        result = state == TRIGGER_SEQUENCE_SERVICE_RUNNING ||
+                 state == TRIGGER_SEQUENCE_SERVICE_PAUSING ?
+                 TRIGGER_SEQUENCE_SERVICE_BUSY : TRIGGER_SEQUENCE_SERVICE_NOT_READY;
+    } else if (s_command != COMMAND_NONE || s_processing) {
+        result = TRIGGER_SEQUENCE_SERVICE_BUSY;
+    } else {
+        s_inject_input = input;
+        s_inject_count = count;
+        s_command = COMMAND_COUNTER_INJECT;
+        ++s_command_serial;
+    }
+    osal_critical_exit();
+    return result;
+}
 
 trigger_sequence_service_result_t trigger_sequence_service_set_repeat(uint32_t count)
 {
@@ -655,6 +687,9 @@ void trigger_sequence_service_service(void)
         if (!sync_io_sequence_gateway_ready()) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
     } else if (command == COMMAND_COUNTER_REARM) {
         if (!sync_io_sequence_counter_rearm()) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
+    } else if (command == COMMAND_COUNTER_INJECT) {
+        if (!sync_io_sequence_counter_inject(s_inject_input, s_inject_count))
+            fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
     } else if (command == COMMAND_PAUSE || command == COMMAND_CONTINUE) {
         /* A position arriving after Core0 accepted PAUSE wins the race: finish
          * that complete position rather than interrupting or repeating a sample. */

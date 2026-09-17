@@ -13,8 +13,9 @@ enum { LINK_OK, LINK_CONFIG_CHANGED, LINK_TIMEOUT, LINK_PROTOCOL, LINK_OWNER,
        LINK_COUNTER_BUSY, LINK_COUNTER_OVERFLOW, LINK_MAILBOX_FULL };
 static trigger_sequence_link_status_t s_link;
 static trigger_sequence_link_tx_t s_tx;
-/* Core0 is the only transport producer/consumer. Runtime never edits its
- * assembler/cursor. The copied offer is immutable until the next publish. */
+/* The Core1 flight phase is the only transport producer/consumer. LINK
+ * runtime never edits its assembler/cursor. The copied offer is immutable
+ * until the next publish. */
 static trigger_sequence_link_tx_t s_tx_offer, s_transport_tx;
 static bool s_tx_offer_enabled;
 static trigger_sequence_link_rx_t s_transport_rx;
@@ -31,6 +32,10 @@ static bool s_retry_valid;
 static trigger_sequence_link_message_t s_retry_message;
 static uint16_t s_token;
 static uint32_t s_phase_at, s_ready_baseline;
+/* Core0 publishes bounded READY credits. Core1 is the sole consumer and the
+ * only caller of the realtime sequence owner action. */
+static uint32_t s_ready_credit_count;
+static uint32_t s_ready_credit_run, s_ready_credit_generation, s_ready_credit_binding;
 static uint32_t s_resume_phase;
 static uint32_t s_rearm_baseline;
 static bool s_tx_enabled;
@@ -40,12 +45,16 @@ static trigger_sequence_link_status_t s_published;
 /* Run identity and threshold are immutable for the retained window. Avoid
  * duplicating them per record in the board's constrained static SRAM. */
 typedef struct {
-    uint32_t ordinal, position, observed_pulses;
-    uint16_t sequence_index, outcome_flags;
+    uint32_t ordinal, position, observed_pulses, exchange_id;
+    uint32_t trigger_ordinal, ready_ordinal;
+    uint32_t position_admitted_tick_ms, sample_done_tick_ms, cycle_elapsed_ms;
+    uint16_t sequence_index, sequence_state, output_code, outcome_flags;
 } history_entry_t;
 _Static_assert(TRIGGER_SEQUENCE_STATE_MAX <= UINT16_MAX, "history sequence index");
 static history_entry_t s_history[TRIGGER_SEQUENCE_LINK_HISTORY_CAPACITY];
-static uint32_t s_history_run, s_history_generation, s_history_threshold;
+static uint32_t s_history_run, s_history_generation, s_history_binding, s_history_threshold;
+static uint32_t s_position_admitted_tick_ms;
+static uint32_t s_message_started_at_ms, s_message_tx_at_ms, s_message_rx_at_ms;
 
 static bool take(void)
 { return __atomic_exchange_n(&s_guard, 1u, __ATOMIC_ACQUIRE) == 0u; }
@@ -104,6 +113,9 @@ static void discard_inbox(void)
     s_seen_overflows = __atomic_load_n(&s_inbox_overflows, __ATOMIC_ACQUIRE);
     s_retry_valid = false;
 }
+
+static void discard_ready_credits(void)
+{ __atomic_store_n(&s_ready_credit_count, 0u, __ATOMIC_RELEASE); }
 
 static bool start_guard(void)
 {
@@ -177,6 +189,7 @@ static bool configure(const trigger_sequence_link_config_t *config)
     s_tx_count_baseline = __atomic_load_n(&s_transport_tx_count, __ATOMIC_ACQUIRE);
     s_tx_enabled = false;
     discard_inbox();
+    discard_ready_credits();
     return true;
 }
 
@@ -185,6 +198,7 @@ static void fail(uint32_t error)
     s_link.error = error;
     s_link.phase = LINK_FAULT;
     s_tx_enabled = false;
+    discard_ready_credits();
     if (trigger_sequence_service_stop() == TRIGGER_SEQUENCE_SERVICE_OK) s_action_submitted = true;
 }
 
@@ -205,9 +219,12 @@ static void publish_message(uint32_t kind)
     if (!trigger_sequence_link_tx_begin(&s_tx, &message, s_token)) { fail(LINK_PROTOCOL); return; }
     s_tx_enabled = true;
     s_phase_at = osal_tick_ms();
+    s_message_started_at_ms = s_phase_at;
+    s_message_tx_at_ms = s_message_rx_at_ms = 0u;
 }
 
-static bool record_position_step(const trigger_sequence_service_status_t *owner, uint32_t target_step)
+static bool record_position_step(const trigger_sequence_service_status_t *owner,
+    uint32_t target_step, uint32_t exchange_id)
 {
     if (!s_link.config.counter_enabled) return true;
     if (s_link.history_total == UINT32_MAX) { fail(LINK_COUNTER_OVERFLOW); return false; }
@@ -218,23 +235,106 @@ static bool record_position_step(const trigger_sequence_service_status_t *owner,
         .position = s_link.counter_consumed,
         .sequence_index = owner->count ? target_step % owner->count : 0u,
         .observed_pulses = owner->counter_events,
+        .exchange_id = exchange_id,
+        .position_admitted_tick_ms = s_position_admitted_tick_ms,
+        .sequence_state = UINT16_MAX,
+        .output_code = UINT16_MAX,
         .outcome_flags = TRIGGER_SEQUENCE_LINK_HISTORY_REQUESTED,
     };
     osal_critical_enter();
     s_history_run = s_link.run_id;
     s_history_generation = s_link.generation;
+    s_history_binding = s_link.binding_epoch;
     s_history_threshold = s_link.config.counter_threshold;
     s_history[(ordinal - 1u) % TRIGGER_SEQUENCE_LINK_HISTORY_CAPACITY] = record;
     osal_critical_exit();
     return true;
 }
 
-static void record_outcome(uint32_t flags)
+static void record_outcome(uint32_t flags,
+    const trigger_sequence_service_status_t *owner)
 {
     if (!s_link.config.counter_enabled || !s_link.history_total) return;
+    history_entry_t *record =
+        &s_history[(s_link.history_total - 1u) % TRIGGER_SEQUENCE_LINK_HISTORY_CAPACITY];
     osal_critical_enter();
-    s_history[(s_link.history_total - 1u) % TRIGGER_SEQUENCE_LINK_HISTORY_CAPACITY].outcome_flags |= flags;
+    record->outcome_flags |= flags;
+    if ((flags & TRIGGER_SEQUENCE_LINK_HISTORY_APPLIED) && owner != NULL) {
+        uint32_t output_code;
+        record->sequence_state = owner->current_state <= UINT16_MAX ?
+            (uint16_t)owner->current_state : UINT16_MAX;
+        record->output_code = trigger_sequence_service_get_code(
+            owner->current_state, &output_code) && output_code <= UINT16_MAX ?
+            (uint16_t)output_code : UINT16_MAX;
+    }
+    if ((flags & TRIGGER_SEQUENCE_LINK_HISTORY_SAMPLE_DONE) && owner != NULL) {
+        record->trigger_ordinal = owner->gateway_trigger_count;
+        record->ready_ordinal = owner->gateway_ready_count;
+        record->sample_done_tick_ms = osal_tick_ms();
+        record->cycle_elapsed_ms =
+            record->sample_done_tick_ms - record->position_admitted_tick_ms;
+    }
     osal_critical_exit();
+}
+
+static uint32_t next_link_exchange_id(void)
+{
+    const uint32_t next = s_link.exchange_id + 1u;
+    return next == 0u ? 1u : next;
+}
+
+static bool submit_next_step(const trigger_sequence_service_status_t *owner)
+{
+    const trigger_sequence_service_result_t result = trigger_sequence_service_cycle_step(
+        s_link.run_id, s_link.generation, s_link.step);
+    if (result == TRIGGER_SEQUENCE_SERVICE_BUSY) return false;
+    if (result != TRIGGER_SEQUENCE_SERVICE_OK) {
+        fail(LINK_OWNER);
+        return false;
+    }
+    s_action_submitted = true;
+    if (!record_position_step(owner, s_link.step + 1u, next_link_exchange_id()))
+        return false;
+    s_link.phase = LINK_WAIT_STEP;
+    s_phase_at = osal_tick_ms();
+    return true;
+}
+
+static void advance_after_sample(const trigger_sequence_service_status_t *owner)
+{
+    if (s_link.phase != LINK_WAIT_RETURN) return;
+    if (s_link.repeat_count != 0u && (uint64_t)s_link.step + 1u >=
+        (uint64_t)owner->count * s_link.repeat_count) {
+        const trigger_sequence_service_result_t result = trigger_sequence_service_cycle_finish(
+            s_link.run_id, s_link.generation, s_link.step);
+        if (result == TRIGGER_SEQUENCE_SERVICE_BUSY) return;
+        if (result != TRIGGER_SEQUENCE_SERVICE_OK) {
+            fail(LINK_OWNER);
+            return;
+        }
+        s_action_submitted = true;
+        s_link.phase = LINK_DONE;
+        s_tx_enabled = false;
+        discard_ready_credits();
+        return;
+    }
+    if (s_link.config.counter_enabled && owner->count != 0u &&
+        ((uint64_t)s_link.step + 1u) % owner->count == 0u) {
+        const trigger_sequence_service_result_t result = trigger_sequence_service_counter_rearm(
+            s_link.run_id, s_link.generation, s_link.step);
+        if (result == TRIGGER_SEQUENCE_SERVICE_BUSY) return;
+        if (result != TRIGGER_SEQUENCE_SERVICE_OK) {
+            fail(LINK_OWNER);
+            return;
+        }
+        s_action_submitted = true;
+        s_rearm_baseline = owner->counter_rearm_count;
+        s_link.phase = LINK_WAIT_REARM;
+        s_phase_at = osal_tick_ms();
+        s_tx_enabled = false;
+        return;
+    }
+    (void)submit_next_step(owner);
 }
 
 /* Pulses continue accumulating during measurement. Reaching the next
@@ -291,6 +391,7 @@ static void service(void)
     if (trigger_sequence_service_stop_pending() ||
         owner.state == TRIGGER_SEQUENCE_SERVICE_IDLE || owner.state == TRIGGER_SEQUENCE_SERVICE_STOPPING ||
         owner.state == TRIGGER_SEQUENCE_SERVICE_FAULT) {
+        discard_ready_credits();
         if (s_link.config.counter_enabled && owner.run_id == s_link.run_id &&
             owner.counter_events >= s_link.counter_events) {
             s_link.counter_events = owner.counter_events;
@@ -336,6 +437,7 @@ static void service(void)
     if (owner.run_id != s_link.run_id || s_link.phase == LINK_PAUSED ||
         s_link.phase == LINK_WAIT_START || s_link.phase == LINK_FAULT) {
         if (owner.state != TRIGGER_SEQUENCE_SERVICE_READY || owner.accepted != owner.completed) return;
+        if (owner.run_id != s_link.run_id) discard_ready_credits();
         s_link.error = LINK_OK;
         s_link.run_id = owner.run_id;
         s_link.generation = owner.generation;
@@ -359,20 +461,56 @@ static void service(void)
         if (s_link.counter_consumed == UINT32_MAX) { fail(LINK_COUNTER_OVERFLOW); return; }
         ++s_link.counter_consumed;
         s_link.counter_partial -= s_link.config.counter_threshold;
-        s_link.phase = LINK_WAIT_COUNTER_RETURN;
-        publish_message(TRIGGER_SEQUENCE_LINK_COUNTER_NEXT);
+        s_position_admitted_tick_ms = osal_tick_ms();
+        if (s_link.counter_consumed == 1u && s_link.step == 0u) {
+            s_link.phase = LINK_WAIT_APPLIED;
+            publish_message(TRIGGER_SEQUENCE_LINK_LINK_APPLIED);
+            if (s_link.phase != LINK_FAULT &&
+                record_position_step(&owner, s_link.step, s_link.exchange_id))
+                record_outcome(TRIGGER_SEQUENCE_LINK_HISTORY_APPLIED, &owner);
+        } else {
+            (void)submit_next_step(&owner);
+        }
+    }
+    if (s_link.phase == LINK_WAIT_READY && s_link.config.ready_input == 0u &&
+        owner.gateway_waiting && !owner.gateway_pulse_busy) {
+        const uint32_t credits = __atomic_load_n(&s_ready_credit_count, __ATOMIC_ACQUIRE);
+        const bool identity_matches = credits != 0u &&
+            __atomic_load_n(&s_ready_credit_run, __ATOMIC_RELAXED) == s_link.run_id &&
+            __atomic_load_n(&s_ready_credit_generation, __ATOMIC_RELAXED) == s_link.generation &&
+            __atomic_load_n(&s_ready_credit_binding, __ATOMIC_RELAXED) == s_link.binding_epoch;
+        if (credits != 0u && !identity_matches) {
+            discard_ready_credits();
+        } else if (identity_matches) {
+            const trigger_sequence_service_result_t result = trigger_sequence_service_gateway_ready(
+                s_link.run_id, s_link.generation, s_link.step);
+            if (result == TRIGGER_SEQUENCE_SERVICE_OK) {
+                (void)__atomic_sub_fetch(&s_ready_credit_count, 1u, __ATOMIC_ACQ_REL);
+                s_action_submitted = true;
+            } else if (result != TRIGGER_SEQUENCE_SERVICE_BUSY &&
+                       result != TRIGGER_SEQUENCE_SERVICE_NOT_READY) {
+                fail(LINK_OWNER);
+                return;
+            }
+        }
     }
     if (s_link.phase == LINK_WAIT_READY && owner.gateway_ready_count > s_ready_baseline &&
         !owner.gateway_pulse_busy && !owner.gateway_waiting) {
         s_link.phase = LINK_WAIT_RETURN;
-        publish_message(TRIGGER_SEQUENCE_LINK_READY_NEXT);
+        if (s_link.config.counter_enabled) {
+            s_tx_enabled = false;
+            record_outcome(TRIGGER_SEQUENCE_LINK_HISTORY_SAMPLE_DONE, &owner);
+        } else {
+            publish_message(TRIGGER_SEQUENCE_LINK_READY_NEXT);
+        }
     } else if (s_link.phase == LINK_WAIT_STEP && owner.state == TRIGGER_SEQUENCE_SERVICE_READY &&
                owner.completed == s_link.step + 1u && owner.accepted == owner.completed) {
         s_link.step = owner.completed;
-        record_outcome(TRIGGER_SEQUENCE_LINK_HISTORY_APPLIED);
+        record_outcome(TRIGGER_SEQUENCE_LINK_HISTORY_APPLIED, &owner);
         s_link.phase = LINK_WAIT_APPLIED;
         publish_message(TRIGGER_SEQUENCE_LINK_LINK_APPLIED);
     }
+    if (s_link.config.counter_enabled) advance_after_sample(&owner);
     const bool manual_ready_wait =
         s_link.phase == LINK_WAIT_READY && s_link.config.ready_input == 0u;
     if (!manual_ready_wait && s_link.phase != LINK_WAIT_COUNT && s_link.phase != LINK_DONE &&
@@ -389,6 +527,11 @@ static void receive_message(trigger_sequence_link_message_t message)
         message.exchange_id != s_link.exchange_id) {
         ++s_link.rejected; return;
     }
+    const uint32_t consumed_at_ms = osal_tick_ms();
+    s_link.offer_delay_ms = s_message_tx_at_ms - s_message_started_at_ms;
+    s_link.return_delay_ms = s_message_rx_at_ms - s_message_tx_at_ms;
+    s_link.inbox_delay_ms = consumed_at_ms - s_message_rx_at_ms;
+    s_link.message_total_ms = consumed_at_ms - s_message_started_at_ms;
     trigger_sequence_service_status_t owner;
     trigger_sequence_service_get_status(&owner);
     if (!observe_counter(&owner)) return;
@@ -396,8 +539,8 @@ static void receive_message(trigger_sequence_link_message_t message)
         s_link.config.counter_enabled && s_link.phase == LINK_WAIT_COUNTER_RETURN &&
         message.source_slot == s_link.config.counter_slot && message.target_slot == s_link.config.dut_slot) {
         if (s_link.counter_consumed == 1u && s_link.step == 0u) {
-            if (!record_position_step(&owner, s_link.step)) return;
-            record_outcome(TRIGGER_SEQUENCE_LINK_HISTORY_APPLIED);
+            if (!record_position_step(&owner, s_link.step, message.exchange_id)) return;
+            record_outcome(TRIGGER_SEQUENCE_LINK_HISTORY_APPLIED, &owner);
             s_link.phase = LINK_WAIT_APPLIED;
             publish_message(TRIGGER_SEQUENCE_LINK_LINK_APPLIED);
         } else {
@@ -406,7 +549,8 @@ static void receive_message(trigger_sequence_link_message_t message)
             if (result == TRIGGER_SEQUENCE_SERVICE_BUSY) { s_retry_valid = true; return; }
             if (result == TRIGGER_SEQUENCE_SERVICE_OK) {
                 s_action_submitted = true;
-                if (!record_position_step(&owner, s_link.step + 1u)) return;
+                if (!record_position_step(&owner, s_link.step + 1u,
+                        message.exchange_id)) return;
                 s_link.phase = LINK_WAIT_STEP;
                 s_phase_at = osal_tick_ms();
             } else fail(LINK_OWNER);
@@ -424,7 +568,7 @@ static void receive_message(trigger_sequence_link_message_t message)
         } else fail(LINK_OWNER);
     } else if (message.kind == TRIGGER_SEQUENCE_LINK_READY_NEXT && s_link.phase == LINK_WAIT_RETURN &&
                message.source_slot == s_link.config.vna_slot && message.target_slot == s_link.config.dut_slot) {
-        record_outcome(TRIGGER_SEQUENCE_LINK_HISTORY_SAMPLE_DONE);
+        record_outcome(TRIGGER_SEQUENCE_LINK_HISTORY_SAMPLE_DONE, &owner);
         if (s_link.repeat_count != 0u && (uint64_t)s_link.step + 1u >=
             (uint64_t)owner.count * s_link.repeat_count) {
             trigger_sequence_service_result_t result = trigger_sequence_service_cycle_finish(
@@ -432,6 +576,7 @@ static void receive_message(trigger_sequence_link_message_t message)
             if (result == TRIGGER_SEQUENCE_SERVICE_BUSY) { s_retry_valid = true; return; }
             s_link.phase = LINK_DONE;
             s_tx_enabled = false;
+            discard_ready_credits();
             if (result != TRIGGER_SEQUENCE_SERVICE_OK) fail(LINK_OWNER);
             else s_action_submitted = true;
             return;
@@ -454,7 +599,8 @@ static void receive_message(trigger_sequence_link_message_t message)
         if (result == TRIGGER_SEQUENCE_SERVICE_BUSY) { s_retry_valid = true; return; }
         if (result == TRIGGER_SEQUENCE_SERVICE_OK) {
             s_action_submitted = true;
-            if (!record_position_step(&owner, s_link.step + 1u)) return;
+            if (!record_position_step(&owner, s_link.step + 1u,
+                    message.exchange_id)) return;
             s_link.phase = LINK_WAIT_STEP;
             s_phase_at = osal_tick_ms();
         } else fail(LINK_OWNER);
@@ -478,9 +624,17 @@ bool trigger_sequence_link_get_history(uint32_t ordinal, trigger_sequence_link_h
         const history_entry_t entry = s_history[(ordinal - 1u) % TRIGGER_SEQUENCE_LINK_HISTORY_CAPACITY];
         *record = (trigger_sequence_link_history_t){
             .ordinal = entry.ordinal, .run_id = s_history_run, .generation = s_history_generation,
+            .binding_epoch = s_history_binding, .exchange_id = entry.exchange_id,
             .position = entry.position, .sequence_index = entry.sequence_index,
+            .sequence_state = entry.sequence_state == UINT16_MAX ? UINT32_MAX : entry.sequence_state,
+            .output_code = entry.output_code == UINT16_MAX ? UINT32_MAX : entry.output_code,
             .threshold_pulses = entry.position * s_history_threshold,
-            .observed_pulses = entry.observed_pulses, .outcome_flags = entry.outcome_flags,
+            .observed_pulses = entry.observed_pulses,
+            .trigger_ordinal = entry.trigger_ordinal, .ready_ordinal = entry.ready_ordinal,
+            .position_admitted_tick_ms = entry.position_admitted_tick_ms,
+            .sample_done_tick_ms = entry.sample_done_tick_ms,
+            .cycle_elapsed_ms = entry.cycle_elapsed_ms,
+            .outcome_flags = entry.outcome_flags,
         };
         valid = record->ordinal == ordinal && record->run_id == s_published.run_id &&
                 record->generation == s_published.generation;
@@ -507,16 +661,46 @@ bool trigger_sequence_link_configure(const trigger_sequence_link_config_t *confi
 }
 trigger_sequence_service_result_t trigger_sequence_link_next(void)
 {
-    /* Core0 reads the published view; Core1 validates and consumes the READY
-     * intent. The command never contends for the runtime writer guard. */
     trigger_sequence_link_status_t view;
     trigger_sequence_link_get_status(&view);
-    trigger_sequence_service_result_t result = TRIGGER_SEQUENCE_SERVICE_NOT_READY;
-    if (view.config.enabled && view.config.ready_input == 0u &&
-        view.phase == LINK_WAIT_READY && view.error == LINK_OK)
-        result = trigger_sequence_service_gateway_ready(
-            view.run_id, view.generation, view.step);
-    return result;
+    if (view.phase != LINK_WAIT_READY || !view.config.enabled || view.config.ready_input != 0u)
+        return TRIGGER_SEQUENCE_SERVICE_NOT_READY;
+    if (__atomic_load_n(&s_ready_credit_count, __ATOMIC_ACQUIRE) != 0u)
+        return TRIGGER_SEQUENCE_SERVICE_BUSY;
+    return trigger_sequence_link_ready_inject(1u);
+}
+trigger_sequence_service_result_t trigger_sequence_link_ready_inject(uint32_t count)
+{
+    /* Core0 only publishes credits. Core1 validates the immutable run identity
+     * and submits the owner READY action at the actual boundary. */
+    if (count == 0u || count > TRIGGER_SEQUENCE_LINK_READY_INJECT_MAX)
+        return TRIGGER_SEQUENCE_SERVICE_INVALID;
+    trigger_sequence_link_status_t view;
+    trigger_sequence_link_get_status(&view);
+    if (!view.config.enabled || view.config.ready_input != 0u)
+        return TRIGGER_SEQUENCE_SERVICE_SOURCE_MISMATCH;
+    if (view.error != LINK_OK || view.run_id == 0u ||
+        view.phase == LINK_OFF || view.phase == LINK_WAIT_START ||
+        view.phase == LINK_FAULT || view.phase == LINK_DONE)
+        return TRIGGER_SEQUENCE_SERVICE_NOT_READY;
+
+    uint32_t pending = __atomic_load_n(&s_ready_credit_count, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if (pending == 0u) {
+            __atomic_store_n(&s_ready_credit_run, view.run_id, __ATOMIC_RELAXED);
+            __atomic_store_n(&s_ready_credit_generation, view.generation, __ATOMIC_RELAXED);
+            __atomic_store_n(&s_ready_credit_binding, view.binding_epoch, __ATOMIC_RELAXED);
+        } else if (__atomic_load_n(&s_ready_credit_run, __ATOMIC_RELAXED) != view.run_id ||
+                   __atomic_load_n(&s_ready_credit_generation, __ATOMIC_RELAXED) != view.generation ||
+                   __atomic_load_n(&s_ready_credit_binding, __ATOMIC_RELAXED) != view.binding_epoch) {
+            return TRIGGER_SEQUENCE_SERVICE_BUSY;
+        }
+        if (pending > TRIGGER_SEQUENCE_LINK_READY_INJECT_MAX - count)
+            return TRIGGER_SEQUENCE_SERVICE_EXHAUSTED;
+        if (__atomic_compare_exchange_n(&s_ready_credit_count, &pending, pending + count,
+                false, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+            return TRIGGER_SEQUENCE_SERVICE_OK;
+    }
 }
 bool trigger_sequence_link_service(void)
 {
@@ -584,8 +768,10 @@ bool trigger_sequence_link_tx_fragment(uint8_t fragment[TRIGGER_SEQUENCE_LINK_FR
     osal_critical_exit();
     if (!fragment || !enabled || !transport_permitted(&view)) return false;
     if (offer.token != s_transport_tx.token ||
-        memcmp(offer.wire, s_transport_tx.wire, sizeof(offer.wire)) != 0)
+        memcmp(offer.wire, s_transport_tx.wire, sizeof(offer.wire)) != 0) {
         s_transport_tx = offer;
+        s_message_tx_at_ms = osal_tick_ms();
+    }
     if (!trigger_sequence_link_tx_next(&s_transport_tx, fragment)) return false;
     (void)__atomic_add_fetch(&s_transport_tx_count, 1u, __ATOMIC_RELEASE);
     return true;
@@ -621,10 +807,24 @@ void trigger_sequence_link_rx_fragment(uint32_t physical_source,
     if (result != TRIGGER_SEQUENCE_LINK_RX_MESSAGE) return;
     /* Cheap stale rejection avoids filling a live inbox with preceding runs.
      * The Core1 consumer still validates full identity, route and phase. */
-    if (message.run_id != view.run_id || message.generation != view.generation ||
-        message.binding_epoch != view.binding_epoch) {
+    if (message.run_id != view.run_id || message.step_ordinal != view.step ||
+        (uint8_t)message.exchange_id != (uint8_t)view.exchange_id) {
         (void)__atomic_add_fetch(&s_transport_rejected, 1u, __ATOMIC_RELEASE);
         return;
+    }
+    message.generation = view.generation;
+    message.binding_epoch = view.binding_epoch;
+    message.exchange_id = view.exchange_id;
+    s_message_rx_at_ms = osal_tick_ms();
+    if (message.kind == TRIGGER_SEQUENCE_LINK_COUNTER_NEXT) {
+        message.source_slot = view.config.counter_slot;
+        message.target_slot = view.config.dut_slot;
+    } else if (message.kind == TRIGGER_SEQUENCE_LINK_LINK_APPLIED) {
+        message.source_slot = view.config.dut_slot;
+        message.target_slot = view.config.vna_slot;
+    } else {
+        message.source_slot = view.config.vna_slot;
+        message.target_slot = view.config.dut_slot;
     }
     const uint32_t written = __atomic_load_n(&s_inbox_written, __ATOMIC_RELAXED);
     const uint32_t read = __atomic_load_n(&s_inbox_read, __ATOMIC_ACQUIRE);

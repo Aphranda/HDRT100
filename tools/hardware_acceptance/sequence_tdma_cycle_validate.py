@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the single-board RJ45 DUT/VNA cycle through the physical RJ45 return.
 
-READY may come from IN1 or the explicit SCPI NEXT command; OUT4 is the VNA
+READY may come from IN1 or one bounded SCPI READY-credit batch; OUT4 is the VNA
 trigger. RJ45 output must be cabled to RJ45 input. This is functional evidence,
 not a multi-board, source-edge-count, pulse-width, RF or TDMA stability receipt.
 """
@@ -32,12 +32,14 @@ from tools.hardware_acceptance.sequence_trigger_acceptance import AcceptanceErro
 LINK_FIELDS = ("enabled", "phase", "error", "binding_epoch", "model_epoch", "run",
                "generation", "step", "txfragments", "rxmessages", "rejected", "triggers",
                "ready", "completed", "dutslot", "vnaslot", "input", "outputmask",
-               "pulseus", "timeoutms", "falling", "repeat", "exchange_id")
+               "pulseus", "timeoutms", "falling", "repeat", "exchange_id",
+               "offer_delay_ms", "return_delay_ms", "inbox_delay_ms", "message_total_ms")
 IDENTITY_FIELDS = ("binding_epoch", "model_epoch", "run", "generation")
 COUNTERS = ("step", "txfragments", "rxmessages", "rejected", "triggers", "ready", "completed")
 TRANSPORT_FIELDS = ("enabled", "seen", "mailbox_seq16", "last_reject", "matches", "published",
                     "snapshot_quality")
 TRANSPORT_SNAPSHOT_QUALITIES = ("UNAVAILABLE", "FRESH", "CACHED")
+READY_BATCH_MAX = 256
 TRANSPORT_REJECTIONS = (
     "NONE", "DISABLED", "LAYOUT", "ROUTE", "MAILBOX",
     "TX_SEQUENCE_IDENTITY_OR_SIZE", "MAILBOX_BYTES", "HEADER_BYTES",
@@ -231,16 +233,16 @@ def check_sequence_status(status, row, states):
             "sequence and LINK identities disagree")
 
 
-def drive_scpi_next(bench: Bench, report: dict, row: dict) -> None:
-    if not bench.args.scpi_next or row["phase"] != 3:
+def inject_ready_batch(bench: Bench, report: dict, row: dict) -> None:
+    if not bench.args.scpi_next or "ready_injection" in report:
         return
-    identity = [row[key] for key in ("run", "generation", "step", "exchange_id")]
-    records = report.setdefault("scpi_next", [])
-    if any(record.get("identity") == identity for record in records):
-        return
-    response = bench.command("TRIG:SEQ:NEXT")
-    records.append({"identity": identity, "response": response})
-    require(response == "1", "TRIG:SEQ:NEXT was not accepted")
+    count = 8 * bench.args.repeat if bench.args.repeat else READY_BATCH_MAX
+    command = f"TRIG:SEQ:INJECT READY,{count}"
+    response = bench.command(command)
+    report["ready_injection"] = {
+        "identity": [row[key] for key in ("run", "generation", "binding_epoch")],
+        "command": command, "count": count, "response": response}
+    require(response == "1", "SCPI READY batch was not accepted")
 
 
 def pause_resume(bench: Bench, report, before: dict) -> tuple[dict, dict]:
@@ -300,7 +302,6 @@ def pause_resume(bench: Bench, report, before: dict) -> tuple[dict, dict]:
     while True:
         row, status = link(bench), bench.status()
         record["resume_samples"].append({"link": row, "sequence": status})
-        drive_scpi_next(bench, report, row)
         require(all(row[k] == paused[k] for k in IDENTITY_FIELDS), "LINK run or binding changed on resume")
         require(row["repeat"] == 0, "run repeat configuration changed on resume")
         if row["phase"] != 6:
@@ -344,7 +345,7 @@ def execute(bench: Bench, port, report):
             require(row["error"] == 0, "LINK start error")
             time.sleep(args.poll)
             continue
-        drive_scpi_next(bench, report, row)
+        inject_ready_batch(bench, report, row)
         check_progress(row, previous, accounting_base)
         require(row["repeat"] == args.repeat, "run repeat configuration mismatch")
         require(args.repeat != 0 or row["phase"] != 8, "continuous run unexpectedly ended")
@@ -459,7 +460,7 @@ def parse_args(argv=None):
     parser.add_argument("--gui-control", action="store_true",
                         help="execute the actual GUI RJ45 configuration/start builders and batch executor")
     parser.add_argument("--scpi-next", action="store_true",
-                        help="supply each READY event with TRIG:SEQ:NEXT instead of an external input")
+                        help="preload bounded READY credits with SCPI instead of an external input")
     parser.add_argument("--timeout", type=float, default=3)
     parser.add_argument("--poll", type=float, default=.05)
     parser.add_argument("--quiet", type=float, default=.2)
@@ -491,6 +492,8 @@ def parse_args(argv=None):
     if not 0 <= args.repeat <= 0xffffffff // 8 or args.minimum_events < 9 or not 0 < args.gateway_pulse_us <= 0xffffffff // 10 or \
             not 0 < args.gateway_timeout_ms <= 0x7fffffff:
         parser.error("invalid event count or gateway timing")
+    if args.scpi_next and args.repeat and 8 * args.repeat > READY_BATCH_MAX:
+        parser.error("finite SCPI READY profile exceeds the bounded credit batch")
     return args
 
 

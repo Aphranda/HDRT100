@@ -110,7 +110,7 @@ def build_start_commands(mode: str) -> list[str]:
 
 def format_link_status(response: str, plan_count: int) -> str:
     values = [int(field) for field in next(csv.reader([response], strict=True))]
-    if len(values) != 23 or any(value < 0 or value > 0xffffffff for value in values):
+    if len(values) != 27 or any(value < 0 or value > 0xffffffff for value in values):
         raise ValueError("RJ45 网关状态字段不匹配")
     enabled, phase, error = values[:3]
     target = "持续" if values[21] == 0 else str(values[21])
@@ -118,7 +118,7 @@ def format_link_status(response: str, plan_count: int) -> str:
     return (f"RJ45 物理回环：{LINK_PHASES.get(phase, f'阶段 {phase}')} · 启用={enabled} · 错误={error} · "
             f"测量触发 {values[11]} / READY {values[12]} / 切换完成 {values[13]} · "
             f"轮次 {rounds}/{target} · TDMA 发送 {values[8]} / 接收 {values[9]} / 拒绝 {values[10]} · "
-            f"交换 {values[22]}")
+            f"交换 {values[22]} · 延迟 {values[23]}/{values[24]}/{values[25]}/{values[26]} ms")
 
 
 def format_counter_status(response: str) -> str:
@@ -168,7 +168,7 @@ def execute_command_batch(commands, exchange, emit, *, monotonic=time.monotonic,
         if header == "TRIG:SEQ:NEXT":
             fields = [int(field) for field in next(
                 csv.reader([query("READ:SEQ:LINK?")], strict=True))]
-            if len(fields) != 23:
+            if len(fields) != 27:
                 raise RuntimeError("RJ45 状态字段不匹配，未发送 NEXT")
             enabled, phase, error, ready_input = fields[0], fields[1], fields[2], fields[16]
             if enabled and ready_input != 0:

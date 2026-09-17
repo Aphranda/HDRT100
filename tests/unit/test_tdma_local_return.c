@@ -327,25 +327,29 @@ static void run_async_local_return(uint32_t scenario)
     phys.rx_pending = true;
     (void)ops->service(&adapter, now, &status);
     tdma_rx_prepare_t *job = adapter.rx_preparation;
-    assert(tdma_rx_prepare_state(job) == TDMA_RX_PREPARE_REQUESTED);
+    const bool fast = scenario >= 10u && scenario != 11u && scenario != 13u;
+    assert(tdma_rx_prepare_state(job) ==
+        (fast ? TDMA_RX_PREPARE_IDLE : TDMA_RX_PREPARE_REQUESTED));
     if (scenario == 0u || scenario == 8u || (scenario >= 9u && scenario < 14u)) {
         assert(job->expected_size == size);
         assert(memcmp(job->expected, returned, size) == 0);
     }
     if (scenario == 1u || scenario == 4u) assert(job->expected_size == 0u);
-    assert(!tdma_flight_fifo_core0_acquire_rx(&fifo, &received));
-    assert(tdma_rx_prepare_core0_claim(job));
-    /* One real TX reuses this slot while the worker holds its private copy.
-     * Acceptance remains inside the existing RX job freshness deadline. */
-    assert(ops->service(&adapter, now + 1999u, &status));
-    assert(adapter.reference_tx_evidence[1u].sequence != 1u);
-    assert(memcmp(job->packet, returned, size) == 0);
-    tdma_rx_prepare_core0_build_claimed(job);
-    assert(tdma_rx_prepare_state(job) == TDMA_RX_PREPARE_READY);
-    if (scenario == 6u) ++job->epoch;
-    now += 2000u;
-    if (scenario == 7u) now += adapter.receive_health.config.stale_timeout_ns;
-    (void)ops->service(&adapter, now, &status);
+    if (!fast) {
+        assert(!tdma_flight_fifo_core0_acquire_rx(&fifo, &received));
+        assert(tdma_rx_prepare_core0_claim(job));
+        /* One real TX reuses this slot while the worker holds its private copy.
+         * Acceptance remains inside the existing RX job freshness deadline. */
+        assert(ops->service(&adapter, now + 1999u, &status));
+        assert(adapter.reference_tx_evidence[1u].sequence != 1u);
+        assert(memcmp(job->packet, returned, size) == 0);
+        tdma_rx_prepare_core0_build_claimed(job);
+        assert(tdma_rx_prepare_state(job) == TDMA_RX_PREPARE_READY);
+        if (scenario == 6u) ++job->epoch;
+        now += 2000u;
+        if (scenario == 7u) now += adapter.receive_health.config.stale_timeout_ns;
+        (void)ops->service(&adapter, now, &status);
+    }
     const bool expected = scenario == 0u || scenario == 8u || (scenario >= 9u && scenario < 15u);
     const bool delivered = tdma_flight_fifo_core0_acquire_rx(&fifo, &received);
     if (delivered != expected || (expected && adapter.local_return_last_reject != 0u)) {
@@ -362,9 +366,12 @@ static void run_async_local_return(uint32_t scenario)
          * must not redeliver the message through the async path. */
         phys.rx_pending = true;
         (void)ops->service(&adapter, now + 1u, &status);
-        assert(tdma_rx_prepare_state(job) == TDMA_RX_PREPARE_REQUESTED);
-        tdma_rx_prepare_core0_service(job);
-        (void)ops->service(&adapter, now + 2u, &status);
+        assert(tdma_rx_prepare_state(job) ==
+            (fast ? TDMA_RX_PREPARE_IDLE : TDMA_RX_PREPARE_REQUESTED));
+        if (!fast) {
+            tdma_rx_prepare_core0_service(job);
+            (void)ops->service(&adapter, now + 2u, &status);
+        }
         assert(!tdma_flight_fifo_core0_acquire_rx(&fifo, &received));
         assert(adapter.local_return_last_reject == 9u);
         assert(adapter.local_return_published == 1u);

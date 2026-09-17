@@ -59,8 +59,13 @@ bool trigger_sequence_link_get_history(uint32_t ordinal, trigger_sequence_link_h
 {
     if (ordinal != 1u) return false;
     *record = (trigger_sequence_link_history_t){
-        .ordinal = 1u, .run_id = 4u, .generation = 5u, .position = 1u,
-        .sequence_index = 2u, .threshold_pulses = 1000u, .observed_pulses = 1032u,
+        .ordinal = 1u, .run_id = 4u, .generation = 5u, .binding_epoch = 6u,
+        .exchange_id = 7u, .position = 1u, .sequence_index = 2u,
+        .sequence_state = 3u, .output_code = 4u,
+        .threshold_pulses = 1000u, .observed_pulses = 1032u,
+        .trigger_ordinal = 8u, .ready_ordinal = 8u,
+        .position_admitted_tick_ms = 100u, .sample_done_tick_ms = 180u,
+        .cycle_elapsed_ms = 80u,
         .outcome_flags = 7u};
     return true;
 }
@@ -82,6 +87,7 @@ static const scpi_command_t commands[] = {
     {.pattern="READ:SEQuence:LINK:TRANsport?", .callback=scpi_sequence_link_transport_q},
     {.pattern="READ:SEQuence:COUNter?", .callback=scpi_sequence_counter_q},
     {.pattern="READ:SEQuence:COUNter:HISTory?", .callback=scpi_sequence_counter_history_q},
+    {.pattern="READ:SEQuence:HISTory?", .callback=scpi_sequence_history_q},
     SCPI_CMD_LIST_END
 };
 static size_t output(scpi_t *context, const char *data, size_t size)
@@ -121,7 +127,8 @@ int main(void)
                     .config=config, .phase=8u, .error=0u, .binding_epoch=101u, .model_epoch=102u,
                     .run_id=103u, .generation=104u, .step=7u, .tx_fragments=48u, .rx_messages=16u,
                     .rejected=2u, .triggers=8u, .ready=8u, .completed=7u, .repeat_count=1u,
-                    .exchange_id=105u};
+                    .exchange_id=105u, .offer_delay_ms=3u, .return_delay_ms=4u,
+                    .inbox_delay_ms=5u, .message_total_ms=12u};
             }
             else if (strncmp(line,"@command_busy",13)==0) {
                 const refmem_command_request_t request = {

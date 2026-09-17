@@ -173,6 +173,10 @@ scpi_result_t scpi_sequence_link_q(scpi_t *context)
     SCPI_ResultBool(context, s.config.falling);
     SCPI_ResultUInt32(context, s.repeat_count);
     SCPI_ResultUInt32(context, s.exchange_id);
+    SCPI_ResultUInt32(context, s.offer_delay_ms);
+    SCPI_ResultUInt32(context, s.return_delay_ms);
+    SCPI_ResultUInt32(context, s.inbox_delay_ms);
+    SCPI_ResultUInt32(context, s.message_total_ms);
     return SCPI_RES_OK;
 }
 
@@ -225,6 +229,36 @@ scpi_result_t scpi_sequence_counter_history_q(scpi_t *context)
     SCPI_ResultUInt32(context, record.sequence_index);
     SCPI_ResultUInt32(context, record.threshold_pulses);
     SCPI_ResultUInt32(context, record.observed_pulses);
+    SCPI_ResultUInt32(context, record.outcome_flags);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_sequence_history_q(scpi_t *context)
+{
+    uint32_t ordinal;
+    trigger_sequence_link_history_t record;
+    if (!scpi_sequence_param_u32(context, &ordinal) ||
+        !scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    if (!trigger_sequence_link_get_history(ordinal, &record)) {
+        scpi_port_push_exec_error(context, "SEQUENCE_HISTORY_NOT_RETAINED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, record.ordinal);
+    SCPI_ResultUInt32(context, record.run_id);
+    SCPI_ResultUInt32(context, record.generation);
+    SCPI_ResultUInt32(context, record.binding_epoch);
+    SCPI_ResultUInt32(context, record.exchange_id);
+    SCPI_ResultUInt32(context, record.position);
+    SCPI_ResultUInt32(context, record.sequence_index);
+    SCPI_ResultUInt32(context, record.sequence_state);
+    SCPI_ResultUInt32(context, record.output_code);
+    SCPI_ResultUInt32(context, record.threshold_pulses);
+    SCPI_ResultUInt32(context, record.observed_pulses);
+    SCPI_ResultUInt32(context, record.trigger_ordinal);
+    SCPI_ResultUInt32(context, record.ready_ordinal);
+    SCPI_ResultUInt32(context, record.position_admitted_tick_ms);
+    SCPI_ResultUInt32(context, record.sample_done_tick_ms);
+    SCPI_ResultUInt32(context, record.cycle_elapsed_ms);
     SCPI_ResultUInt32(context, record.outcome_flags);
     return SCPI_RES_OK;
 }

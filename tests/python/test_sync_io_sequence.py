@@ -181,11 +181,11 @@ def test_production_hot_load_and_pause_boundaries(tmp_path):
         "stop_hook", "prime_initial_state", "start_hardware", "read_sm_register", "stop_counter", "finish_ingress",
         "produced_receipts", "stop_receipt_dma", "resume_receipt_dma", "logical_index_for_transfer",
         "receive_word", "drain_receipts", "pending_request", "drain_idle_executor", "account_input",
-            "account_counter",
+            "account_counter", "account_counter_sources",
             "gateway_start", "gateway_service", "gateway_cancel",
             "sync_io_sequence_service",
             "sync_io_sequence_gateway_fire", "sync_io_sequence_gateway_ready",
-            "sync_io_sequence_counter_rearm",
+            "sync_io_sequence_counter_rearm", "sync_io_sequence_counter_inject",
             "sync_io_sequence_software_step",
             "sync_io_sequence_pause", "sync_io_sequence_stop"))
     template = (ROOT / "tests/unit/test_sync_io_sequence_resources.c").read_text(encoding="utf-8")

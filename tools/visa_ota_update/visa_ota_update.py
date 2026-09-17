@@ -9,6 +9,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import struct
 import subprocess
 import sys
@@ -74,10 +75,15 @@ def preflight(args, result):
     result.update(passed=False, started_at=timestamp(), transcript=[])
     started = time.monotonic()
     try:
-        # VISA resource serial plus live IDN prevents selecting a different
-        # board when the sender independently opens the same USB endpoint.
-        require(args.resource.upper().startswith("USB") and
-                args.serial_number in args.resource.split("::"), "VISA resource UID mismatch")
+        # USBTMC binds the UID in the resource string. CDC/ASRL instead binds
+        # the exact fallback COM endpoint; both still require live UID/build
+        # verification before the sender independently reopens the endpoint.
+        resource = args.resource.upper()
+        usb_bound = resource.startswith("USB") and args.serial_number in args.resource.split("::")
+        serial_match = re.fullmatch(r"ASRL([0-9]+)::INSTR", resource)
+        serial_bound = serial_match is not None and args.cdc_fallback_port.upper() == (
+            "COM" + serial_match.group(1))
+        require(usb_bound or serial_bound, "VISA resource identity binding mismatch")
         with open_visa_resource(args.resource, args.timeout) as instrument:
             replies = {}
             for command in ("*IDN?", "SYST:FW:BUILD?"):

@@ -7,14 +7,19 @@
 
 #define TRIGGER_SEQUENCE_LINK_HISTORY_CAPACITY 32u
 #define TRIGGER_SEQUENCE_LINK_MAILBOX_CAPACITY 4u
+#define TRIGGER_SEQUENCE_LINK_READY_INJECT_MAX 256u
 #define TRIGGER_SEQUENCE_LINK_HISTORY_REQUESTED 1u
 #define TRIGGER_SEQUENCE_LINK_HISTORY_APPLIED 2u
 #define TRIGGER_SEQUENCE_LINK_HISTORY_SAMPLE_DONE 4u
 typedef struct {
-    uint32_t ordinal, run_id, generation, position, sequence_index;
+    uint32_t ordinal, run_id, generation, binding_epoch, exchange_id;
+    uint32_t position, sequence_index, sequence_state, output_code;
     /* position is one-based; sequence_index is zero-based. observed_pulses
-     * is the Core1 snapshot at request acceptance, not an edge timestamp. */
+     * is the Core1 counter snapshot at request acceptance, not an edge
+     * timestamp. The tick fields are software admission/completion times. */
     uint32_t threshold_pulses, observed_pulses;
+    uint32_t trigger_ordinal, ready_ordinal;
+    uint32_t position_admitted_tick_ms, sample_done_tick_ms, cycle_elapsed_ms;
     uint32_t outcome_flags;
 } trigger_sequence_link_history_t;
 
@@ -38,19 +43,22 @@ typedef struct {
     uint32_t exchange_id;
     uint32_t counter_events, counter_consumed, counter_partial, counter_fault_events;
     uint32_t history_total, history_retained;
+    /* Last accepted transport message timing, measured on Core1. */
+    uint32_t offer_delay_ms, return_delay_ms, inbox_delay_ms, message_total_ms;
 } trigger_sequence_link_status_t;
 /* Core0 configuration/commands; called by RefMem owner and SCPI.
  * This implementation binds two or three local roles; physical topology addresses
  * remain transport-owned and are not confused with RefMem logical role slots. */
 bool trigger_sequence_link_configure(const trigger_sequence_link_config_t *config);
 trigger_sequence_service_result_t trigger_sequence_link_next(void);
+trigger_sequence_service_result_t trigger_sequence_link_ready_inject(uint32_t count);
 void trigger_sequence_link_get_status(trigger_sequence_link_status_t *status);
 bool trigger_sequence_link_get_history(uint32_t ordinal, trigger_sequence_link_history_t *record);
 /* Core1 only: bounded RUN FSM step, after the sequence IO owner service.
  * True means an IO intent/STOP was submitted; service the owner once more. */
 bool trigger_sequence_link_service(void);
-/* Core0 RefMem transport task only. RX copies complete messages to a bounded
- * SPSC inbox; neither transport API executes runtime IO actions. */
+/* Core1 RefMem flight phase only. RX copies complete messages to a bounded
+ * inbox; neither transport API executes runtime IO actions. */
 bool trigger_sequence_link_tx_fragment(uint8_t fragment[TRIGGER_SEQUENCE_LINK_FRAGMENT_SIZE]);
 void trigger_sequence_link_rx_fragment(uint32_t physical_source,
     const uint8_t fragment[TRIGGER_SEQUENCE_LINK_FRAGMENT_SIZE]);

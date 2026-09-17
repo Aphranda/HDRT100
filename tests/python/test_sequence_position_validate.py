@@ -51,11 +51,30 @@ def row(events=0, positions=0, phase=9, triggers=0, ready=0, completed=0, error=
     return dict(link=link, counter=counter)
 
 
+def completed_profile_rows():
+    rows = [row(), row(99)]
+    for ordinal in range(1, 9):
+        rows.append(row(100, 1, 3, ordinal, ordinal - 1, max(0, ordinal - 2)))
+    rows.append(row(100, 1, 9, 8, 8, 7))
+    for ordinal in range(9, 17):
+        rows.append(row(200, 2, 3, ordinal, ordinal - 1, ordinal - 2))
+    rows.append(row(200, 2, 8, 16, 16, 15))
+    return rows
+
+
 def history():
-    return [dict(ordinal=i, run=11, generation=19, position=(i - 1) // 8 + 1,
-                 sequence_index=(i - 1) % 8, threshold_pulses=((i - 1) // 8 + 1) * 100,
-                 observed_pulses=((i - 1) // 8 + 1) * 100 + (i - 1) % 8, outcome_flags=7)
-            for i in range(1, 17)]
+    records = []
+    for i in range(1, 17):
+        position, index = (i - 1) // 8 + 1, (i - 1) % 8
+        admitted = position * 1000
+        elapsed = (index + 1) * 20
+        records.append(dict(ordinal=i, run=11, generation=19, binding_epoch=1,
+            exchange_id=i, position=position, sequence_index=index, sequence_state=index,
+            output_code=index, threshold_pulses=position * 100,
+            observed_pulses=position * 100 + index, trigger_ordinal=i, ready_ordinal=i,
+            position_admitted_tick_ms=admitted, sample_done_tick_ms=admitted + elapsed,
+            cycle_elapsed_ms=elapsed, outcome_flags=7))
+    return records
 
 
 def test_position_completion_does_not_mix_before_and_after_threshold():
@@ -70,7 +89,9 @@ def profile_fixture(tmp_path, monkeypatch, rows):
     clock = [0.0]
     monkeypatch.setattr(target.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(target.time, "sleep", lambda amount: clock.__setitem__(0, clock[0] + amount))
-    monkeypatch.setattr(target, "configure", lambda *args: None)
+    configured_modes = []
+    monkeypatch.setattr(target, "configure",
+                        lambda bench, report, manual_ready=False: configured_modes.append(manual_ready))
     observations = list(rows)
     monkeypatch.setattr(target, "sample", lambda bench: observations.pop(0) if len(observations) > 1 else observations[0])
     reads = [0]
@@ -79,39 +100,48 @@ def profile_fixture(tmp_path, monkeypatch, rows):
         return {"tdma": [reads[0]] * 200}
     monkeypatch.setattr(target.ring, "sample", ring_sample)
     bench = SimpleNamespace(args=target.parse_args(cli(tmp_path, "--duration", "1")))
-    bench.command = lambda command: "2,2,1" if command == "READ:SEQ:REPEAT?" else wire(history()[int(command.split()[1]) - 1], target.HISTORY_FIELDS)
+    def command(text):
+        if text == "READ:SEQ:REPEAT?":
+            return "2,2,1"
+        if text.startswith("TRIG:SEQ:"):
+            return "1"
+        return wire(history()[int(text.split()[1]) - 1], target.HISTORY_FIELDS)
+    bench.command = command
     bench.status = lambda: dict(state="IDLE", run_id=11, generation=19, count=8,
         accepted=observations[-1]["link"]["completed"], completed=observations[-1]["link"]["completed"],
         error="NONE", faults=0, backend_fault=0)
-    return bench, {}
+    return bench, {"configured_modes": configured_modes}
 
 
 def test_two_positions_full_history(tmp_path, monkeypatch):
-    bench, report = profile_fixture(tmp_path, monkeypatch,
-        [row(4), row(211, 2, 8, 16, 16, 15)])
+    bench, report = profile_fixture(tmp_path, monkeypatch, completed_profile_rows())
     target.run_profile(bench, object(), report)
     assert report["passed"] and report["no_premature_sample_observed"]
+    assert report["configured_modes"] == [False]
     assert len(report["history"]) == 16
+    assert report["input_simulation"]["physical_ready_verified"] is True
+    assert "ready_injection" not in report
 
 
 def test_busy_boundary_withholds_ready(tmp_path, monkeypatch):
     bench, report = profile_fixture(tmp_path, monkeypatch,
-        [row(4), row(101, 1, 3, 1), row(201, 1, 7, 1, error=5)])
+        [row(), row(99), row(100, 1, 3, 1), row(200, 1, 7, 1, error=5)])
     target.run_profile(bench, object(), report, True)
-    assert report["passed"] and report["expected_busy_fault"]["counter"]["fault_events"] == 201
+    assert report["passed"] and report["expected_busy_fault"]["counter"]["fault_events"] == 200
+    assert report["configured_modes"] == [True]
 
 
 def test_fault_between_separate_queries_is_resampled(tmp_path, monkeypatch):
-    intermediate = row(201, 1, 3, 1)
-    intermediate["counter"].update(phase=7, error=5, fault_events=201)
+    intermediate = row(200, 1, 3, 1)
+    intermediate["counter"].update(phase=7, error=5, fault_events=200)
     bench, report = profile_fixture(tmp_path, monkeypatch,
-        [row(4), intermediate, row(201, 1, 7, 1, error=5)])
+        [row(), row(99), row(100, 1, 3, 1), intermediate, row(200, 1, 7, 1, error=5)])
     target.run_profile(bench, object(), report, True)
     assert report["passed"]
 
 
 def test_done_does_not_hide_owner_finish_failure(tmp_path, monkeypatch):
-    bench, report = profile_fixture(tmp_path, monkeypatch, [row(4), row(211, 2, 8, 16, 16, 15)])
+    bench, report = profile_fixture(tmp_path, monkeypatch, completed_profile_rows())
     bench.status = lambda: dict(state="FAULT", run_id=11, generation=19, count=8,
         accepted=15, completed=15, error="BACKEND_FAULT", faults=1, backend_fault=14)
     with pytest.raises(AcceptanceError, match="owner fault after LINK DONE"):
@@ -121,7 +151,7 @@ def test_done_does_not_hide_owner_finish_failure(tmp_path, monkeypatch):
 
 def test_busy_driver_fault_is_attributed(tmp_path, monkeypatch):
     bench, report = profile_fixture(tmp_path, monkeypatch,
-        [row(4), row(101, 1, 3, 1), row(201, 1, 7, 1, error=5)])
+        [row(), row(99), row(100, 1, 3, 1), row(200, 1, 7, 1, error=5)])
     bench.status = lambda: dict(state="FAULT", run_id=11, generation=19, count=8,
         accepted=0, completed=0, error="BACKEND_FAULT", faults=1, backend_fault=14)
     target.run_profile(bench, object(), report, True)
@@ -135,7 +165,8 @@ def test_configure_uses_position_builder_and_readbacks(tmp_path, monkeypatch, ma
     monkeypatch.setattr(target, "gui_batch", lambda b, r, stage, batch: commands.extend(batch))
     configured = row()
     configured["counter"].update(slot=1, input=1)
-    configured["link"].update(phase=1, dutslot=2, vnaslot=3, input=0 if manual else 2, outputmask=8, repeat=0)
+    configured["link"].update(phase=1, dutslot=2, vnaslot=3,
+                              input=0 if manual else 2, outputmask=8, repeat=0)
     monkeypatch.setattr(target, "sample", lambda b: configured)
     def command(text):
         if text == "SYST:TDMA:FLIGHT:MODE?": return "2"
@@ -148,7 +179,8 @@ def test_configure_uses_position_builder_and_readbacks(tmp_path, monkeypatch, ma
         name = {2: "COUNTER", 5: "DUT", 7: "VNA"}[instance]
         return f'{instance},"{name}",1,1,152,11,5,152,11,5'
     target.configure(SimpleNamespace(args=args, command=command), {}, manual)
-    expected = f"CONF:SEQ:LINK POSITION,1,2,3,IN1,100,{'MANUAL' if manual else 'IN2'},OUT4,1000,10000,RIS"
+    ready = "MANUAL" if manual else "IN2"
+    expected = f"CONF:SEQ:LINK POSITION,1,2,3,IN1,100,{ready},OUT4,1000,10000,RIS"
     assert expected in commands and "SYST:TDMA:RING:TRAIN 4096" in commands
     assert commands[-1] == "TRIG:START" and "TRIG:SEQ:NEXT" not in commands
 
@@ -156,19 +188,21 @@ def test_configure_uses_position_builder_and_readbacks(tmp_path, monkeypatch, ma
 @pytest.mark.parametrize("bad", [row(20, triggers=1), row(200, 1, 7, 1, error=4),
                                 row(201, 2, 8, 15, 15, 14)])
 def test_failure_keeps_offending_snapshot(tmp_path, monkeypatch, bad):
-    bench, report = profile_fixture(tmp_path, monkeypatch, [row(4), bad])
+    bench, report = profile_fixture(tmp_path, monkeypatch, [row(), row(99), bad])
     with pytest.raises(AcceptanceError):
         target.run_profile(bench, object(), report)
     assert report["samples"][-1] == bad and not report["passed"]
 
 
 @pytest.mark.parametrize("field,value", [("position", 3), ("observed_pulses", 200),
-    ("threshold_pulses", 99), ("outcome_flags", 3), ("run", 12), ("sequence_index", 7)])
+    ("threshold_pulses", 99), ("outcome_flags", 3), ("run", 12), ("sequence_index", 7),
+    ("binding_epoch", 2), ("exchange_id", 3), ("sequence_state", 2), ("output_code", 2),
+    ("trigger_ordinal", 2), ("ready_ordinal", 2), ("cycle_elapsed_ms", 201)])
 def test_history_rejects_uncompleted_wrong_or_late_record(field, value):
     records = history()
     records[0][field] = value
     with pytest.raises(AcceptanceError):
-        target.check_history(records, dict(run=11, generation=19), 100)
+        target.check_history(records, dict(run=11, generation=19, binding_epoch=1), 100)
 
 
 def transport_fixture(monkeypatch):
@@ -223,7 +257,8 @@ def test_report_cannot_overwrite_existing_evidence(tmp_path):
 
 
 @pytest.mark.parametrize("option,value", [("--threshold", "0"), ("--source-hz", "nan"),
-                                        ("--duration", "0"), ("--threshold", str(0xffffffff))])
+                                        ("--duration", "0"), ("--threshold", str(0xffffffff)),
+                                        ("--position-cycle-target-ms", "0")])
 def test_invalid_settings_fail_before_hardware(tmp_path, option, value):
     with pytest.raises(SystemExit):
         target.parse_args(cli(tmp_path, option, value))
@@ -235,8 +270,9 @@ def test_continuous_pause_restart_accounting(tmp_path, monkeypatch, fault):
     commands = []
     monkeypatch.setattr(target, "configure", lambda *a, **kw: commands.append(kw["repeat"]))
     def observation(bench, report, name, predicate, **kwargs):
-        events = {"waiting": 1, "paused": 2, "counting_while_paused": 5,
-                  "resumed": 6, "position_complete": 110, "restarted": 1}[name]
+        events = {"waiting": 0, "initial_partial": 1, "paused": 1,
+                  "counting_while_paused": 4, "resumed": 4,
+                  "position_complete": 100, "restarted": 0}[name]
         e = row(events=events, positions=int(name == "position_complete"),
                 phase=6 if name in ("paused", "counting_while_paused") else 9)
         e["owner"] = dict(state="PAUSED" if e["link"]["phase"] == 6 else "READY", accepted=0, completed=0)
@@ -253,8 +289,12 @@ def test_continuous_pause_restart_accounting(tmp_path, monkeypatch, fault):
         return e
     monkeypatch.setattr(target, "lifecycle_observation", observation)
     monkeypatch.setattr(target, "read_io", lambda unused: dict(outputs=0, owned=int(fault == "stop_owned"), armed=0, busy=0))
-    bench = SimpleNamespace(args=args, write=commands.append,
-        command=lambda command: wire(history()[int(command.split()[1]) - 1], target.HISTORY_FIELDS),
+    def command(text):
+        commands.append(text)
+        if text.startswith("TRIG:SEQ:INJECT") or text == "TRIG:SEQ:NEXT":
+            return "1"
+        return wire(history()[int(text.split()[1]) - 1], target.HISTORY_FIELDS)
+    bench = SimpleNamespace(args=args, write=commands.append, command=command,
         wait_state=lambda unused: dict(error="NONE", faults=0, backend_fault=0))
     report = {}
     if fault:
@@ -262,7 +302,11 @@ def test_continuous_pause_restart_accounting(tmp_path, monkeypatch, fault):
         assert not report["passed"]
     else:
         target.run_lifecycle(bench, object(), report)
-        assert report["passed"] and commands == [0, "TRIG:PAUS", "TRIG:CONT", "TRIG:STOP", "TRIG:START", "TRIG:STOP"]
+        assert report["passed"]
+        assert commands[:6] == [0, "TRIG:SEQ:INJECT IN1,1", "TRIG:PAUS",
+                                "TRIG:SEQ:INJECT IN1,3", "TRIG:CONT",
+                                "TRIG:SEQ:INJECT IN1,96"]
+        assert commands[-3:] == ["TRIG:STOP", "TRIG:START", "TRIG:STOP"]
 
 
 def test_lifecycle_rejects_consistent_but_changed_run(tmp_path, monkeypatch):

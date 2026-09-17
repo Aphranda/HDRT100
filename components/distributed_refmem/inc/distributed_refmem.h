@@ -272,6 +272,10 @@ typedef refmem_dpll_vector_payload_t distributed_refmem_dpll_vector_snapshot_t;
 bool distributed_refmem_init(void);
 void distributed_refmem_service(void);
 void distributed_refmem_realtime_run_once(void);
+/* Core1-only bounded runtime bridge. It consumes at most the fixed RX quota,
+ * publishes one latest-value image and delivers complete sequence messages
+ * without a Core0 task hop. */
+void distributed_refmem_tdma_flight_service_core1(void);
 /* Core1 TDMA-owner boundary for a frozen MASTER command batch.  RefMem's
  * own realtime phase may capture a batch, but it must never enqueue work
  * into the shared TDMA scheduler. */

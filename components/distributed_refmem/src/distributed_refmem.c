@@ -48,6 +48,7 @@
 #define DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT \
     TDMA_FLIGHT_SHORT_SLOT_COUNT
 #define DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_INTERVAL_MS 1u
+#define DISTRIBUTED_REFMEM_TDMA_FLIGHT_RX_QUOTA 1u
 #define DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_MAGIC \
     TDMA_FLIGHT_MAILBOX_MAGIC
 #define DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_VERSION \
@@ -247,8 +248,21 @@ typedef struct {
 } distributed_refmem_tdma_flight_sync_t;
 
 static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;
+/* Core1 is the only runtime writer after init. Core0 diagnostic readers use
+ * this guard to reject a torn multi-field view instead of sharing ownership. */
+static volatile uint32_t s_tdma_flight_sync_guard;
 static volatile uint32_t s_tdma_ring_arm_last_result =
     DISTRIBUTED_REFMEM_TDMA_ARM_NOT_ATTEMPTED;
+
+static void distributed_refmem_tdma_flight_sync_write_begin(void)
+{
+    (void)__atomic_add_fetch(&s_tdma_flight_sync_guard, 1u, __ATOMIC_ACQ_REL);
+}
+
+static void distributed_refmem_tdma_flight_sync_write_end(void)
+{
+    (void)__atomic_add_fetch(&s_tdma_flight_sync_guard, 1u, __ATOMIC_RELEASE);
+}
 
 static uint32_t distributed_refmem_flight_input_offset_for_slot(uint32_t slot)
 {
@@ -732,7 +746,12 @@ static void distributed_refmem_tdma_flight_sync_receive(
         return;
     }
 
-    for (;;) {
+    /* The TDMA owner publishes at most one returned flight image per service
+     * turn. Retain that same bound here so a backlog cannot consume the next
+     * realtime phase. Remaining descriptors stay queued for later turns. */
+    for (uint32_t attempt = 0u;
+         attempt < DISTRIBUTED_REFMEM_TDMA_FLIGHT_RX_QUOTA;
+         ++attempt) {
         tdma_flight_rx_view_t view;
         if (!tdma_service_acquire_flight_rx(owner, &view)) {
             break;
@@ -782,26 +801,31 @@ static void distributed_refmem_tdma_flight_sync_receive(
     }
 }
 
-static void distributed_refmem_tdma_flight_sync_service(void)
+void distributed_refmem_tdma_flight_service_core1(void)
 {
-    /* Core0 owns the temporary fragment transport bridge only. Complete RX
-     * events are consumed by the mandatory Core1 sequence coordinator. */
+    /* Flight RX/TX and sequence fragment assembly are runtime work. Keep the
+     * entire bridge on Core1 so physical pulse progression is never paced by
+     * the Core0 RefMem/SCPI task. */
     if (board_identity_get_no() == 5u || s_tdma_flight_sync.enabled == 0u) {
         return;
     }
+    distributed_refmem_tdma_flight_sync_write_begin();
     tdma_service_service_t *owner = tdma_runtime_owner_get();
     if (owner == NULL ||
         __atomic_load_n(&owner->ring_runtime.enabled, __ATOMIC_ACQUIRE) == 0u) {
+        distributed_refmem_tdma_flight_sync_write_end();
         return;
     }
     tdma_ring_runtime_snapshot_t ring;
     if (!tdma_ring_runtime_get_snapshot(&owner->ring_runtime, &ring)) {
         s_tdma_flight_sync.last_error = 1u;
+        distributed_refmem_tdma_flight_sync_write_end();
         return;
     }
     distributed_refmem_tdma_flight_sync_update_ring(&ring);
     distributed_refmem_tdma_flight_sync_receive(owner, &ring);
     distributed_refmem_tdma_flight_sync_publish(owner, &ring);
+    distributed_refmem_tdma_flight_sync_write_end();
 }
 
 static void distributed_refmem_node_load_auto_init(void)
@@ -2317,7 +2341,6 @@ void distributed_refmem_service(void)
     }
     distributed_refmem_vdc_follower_rx_service();
     distributed_refmem_node_load_auto_service();
-    distributed_refmem_tdma_flight_sync_service();
     distributed_refmem_log_tdma_ring_service();
 }
 
@@ -3356,45 +3379,53 @@ void distributed_refmem_get_tdma_flight_sync(
         return;
     }
     memset(snapshot, 0, sizeof(*snapshot));
-    snapshot->enabled = s_tdma_flight_sync.enabled;
-    snapshot->local_slot = s_tdma_flight_sync.local_slot;
-    snapshot->node_count = s_tdma_flight_sync.node_count;
-    snapshot->active_mask = s_tdma_flight_sync.active_mask;
-    snapshot->reference_slot = s_tdma_flight_sync.reference_slot;
-    snapshot->remote_slot = s_tdma_flight_sync.remote_slot;
-    snapshot->payload_size = tdma_flight_payload_size(s_tdma_flight_sync.node_count);
-    snapshot->mailbox_size = DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE;
-    snapshot->publish_interval_ms = s_tdma_flight_sync.publish_interval_ms;
-    snapshot->next_seq32 = s_tdma_flight_sync.next_seq32;
-    snapshot->tx_publish_count = s_tdma_flight_sync.tx_publish_count;
-    snapshot->tx_reject_count = s_tdma_flight_sync.tx_reject_count;
-    snapshot->rx_acquire_count = s_tdma_flight_sync.rx_acquire_count;
-    snapshot->rx_empty_count = s_tdma_flight_sync.rx_empty_count;
-    snapshot->rx_accept_count = s_tdma_flight_sync.rx_accept_count;
-    snapshot->rx_reject_count = s_tdma_flight_sync.rx_reject_count;
-    snapshot->rx_duplicate_skip_count =
-        s_tdma_flight_sync.rx_duplicate_skip_count;
-    snapshot->rx_bad_mailbox_count = s_tdma_flight_sync.rx_bad_mailbox_count;
-    snapshot->last_rx_result = s_tdma_flight_sync.last_rx_result;
-    snapshot->last_frame_type = s_tdma_flight_sync.last_frame_type;
-    snapshot->last_source_slot = s_tdma_flight_sync.last_source_slot;
-    snapshot->last_seq32 = s_tdma_flight_sync.last_seq32;
-    snapshot->last_value_u32 = s_tdma_flight_sync.last_value_u32;
-    snapshot->last_error = s_tdma_flight_sync.last_error;
-    snapshot->wire_layout_version = TDMA_PROCESS_IMAGE_LAYOUT_VERSION;
-    snapshot->last_vdc_phase_offset_ns =
-        s_tdma_flight_sync.last_vdc_phase_offset_ns;
-    snapshot->last_vdc_rate_adjust_ppb =
-        s_tdma_flight_sync.last_vdc_rate_adjust_ppb;
-    snapshot->last_vdc_lock_state = s_tdma_flight_sync.last_vdc_lock_state;
-    snapshot->last_vdc_quality = s_tdma_flight_sync.last_vdc_quality;
-    snapshot->last_ack_seq16 = s_tdma_flight_sync.last_ack_seq16;
-    snapshot->last_ack_flags = s_tdma_flight_sync.last_ack_flags;
-    snapshot->last_control_opcode = s_tdma_flight_sync.last_control_opcode;
-    snapshot->last_control_seq8 = s_tdma_flight_sync.last_control_seq8;
-    snapshot->last_optional_diagnostic =
-        s_tdma_flight_sync.last_optional_diagnostic;
-    snapshot->last_mailbox_crc16 = s_tdma_flight_sync.last_mailbox_crc16;
+    for (uint32_t attempt = 0u; attempt < 3u; ++attempt) {
+        const uint32_t before = __atomic_load_n(
+            &s_tdma_flight_sync_guard, __ATOMIC_ACQUIRE);
+        if (before & 1u) continue;
+        distributed_refmem_tdma_flight_sync_snapshot_t value = {
+            .enabled = s_tdma_flight_sync.enabled,
+            .local_slot = s_tdma_flight_sync.local_slot,
+            .node_count = s_tdma_flight_sync.node_count,
+            .active_mask = s_tdma_flight_sync.active_mask,
+            .reference_slot = s_tdma_flight_sync.reference_slot,
+            .remote_slot = s_tdma_flight_sync.remote_slot,
+            .payload_size = tdma_flight_payload_size(s_tdma_flight_sync.node_count),
+            .mailbox_size = DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE,
+            .publish_interval_ms = s_tdma_flight_sync.publish_interval_ms,
+            .next_seq32 = s_tdma_flight_sync.next_seq32,
+            .tx_publish_count = s_tdma_flight_sync.tx_publish_count,
+            .tx_reject_count = s_tdma_flight_sync.tx_reject_count,
+            .rx_acquire_count = s_tdma_flight_sync.rx_acquire_count,
+            .rx_empty_count = s_tdma_flight_sync.rx_empty_count,
+            .rx_accept_count = s_tdma_flight_sync.rx_accept_count,
+            .rx_reject_count = s_tdma_flight_sync.rx_reject_count,
+            .rx_duplicate_skip_count = s_tdma_flight_sync.rx_duplicate_skip_count,
+            .rx_bad_mailbox_count = s_tdma_flight_sync.rx_bad_mailbox_count,
+            .last_rx_result = s_tdma_flight_sync.last_rx_result,
+            .last_frame_type = s_tdma_flight_sync.last_frame_type,
+            .last_source_slot = s_tdma_flight_sync.last_source_slot,
+            .last_seq32 = s_tdma_flight_sync.last_seq32,
+            .last_value_u32 = s_tdma_flight_sync.last_value_u32,
+            .last_error = s_tdma_flight_sync.last_error,
+            .wire_layout_version = TDMA_PROCESS_IMAGE_LAYOUT_VERSION,
+            .last_vdc_phase_offset_ns = s_tdma_flight_sync.last_vdc_phase_offset_ns,
+            .last_vdc_rate_adjust_ppb = s_tdma_flight_sync.last_vdc_rate_adjust_ppb,
+            .last_vdc_lock_state = s_tdma_flight_sync.last_vdc_lock_state,
+            .last_vdc_quality = s_tdma_flight_sync.last_vdc_quality,
+            .last_ack_seq16 = s_tdma_flight_sync.last_ack_seq16,
+            .last_ack_flags = s_tdma_flight_sync.last_ack_flags,
+            .last_control_opcode = s_tdma_flight_sync.last_control_opcode,
+            .last_control_seq8 = s_tdma_flight_sync.last_control_seq8,
+            .last_optional_diagnostic = s_tdma_flight_sync.last_optional_diagnostic,
+            .last_mailbox_crc16 = s_tdma_flight_sync.last_mailbox_crc16,
+        };
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (before == __atomic_load_n(&s_tdma_flight_sync_guard, __ATOMIC_ACQUIRE)) {
+            *snapshot = value;
+            return;
+        }
+    }
 }
 
 bool distributed_refmem_get_tdma_flight_sync_peer(
@@ -3404,14 +3435,21 @@ bool distributed_refmem_get_tdma_flight_sync_peer(
     if (snapshot == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
         return false;
     }
-    const refmem_sync_peer_state_t *peer =
-        refmem_sync_delta_get_peer(&s_tdma_flight_sync.context,
-                             (uint8_t)source_slot);
-    if (peer == NULL) {
-        return false;
+    for (uint32_t attempt = 0u; attempt < 3u; ++attempt) {
+        const uint32_t before = __atomic_load_n(
+            &s_tdma_flight_sync_guard, __ATOMIC_ACQUIRE);
+        if (before & 1u) continue;
+        const refmem_sync_peer_state_t *peer = refmem_sync_delta_get_peer(
+            &s_tdma_flight_sync.context, (uint8_t)source_slot);
+        if (peer == NULL) return false;
+        const refmem_sync_peer_state_t value = *peer;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (before == __atomic_load_n(&s_tdma_flight_sync_guard, __ATOMIC_ACQUIRE)) {
+            *snapshot = value;
+            return true;
+        }
     }
-    *snapshot = *peer;
-    return true;
+    return false;
 }
 
 bool distributed_refmem_get_tdma_flight_sync_mirror(
@@ -3421,14 +3459,21 @@ bool distributed_refmem_get_tdma_flight_sync_mirror(
     if (snapshot == NULL || source_slot >= REFMEM_SYNC_NODE_COUNT) {
         return false;
     }
-    const refmem_sync_mirror_snapshot_t *mirror =
-        refmem_sync_delta_get_mirror(&s_tdma_flight_sync.context,
-                               (uint8_t)source_slot);
-    if (mirror == NULL) {
-        return false;
+    for (uint32_t attempt = 0u; attempt < 3u; ++attempt) {
+        const uint32_t before = __atomic_load_n(
+            &s_tdma_flight_sync_guard, __ATOMIC_ACQUIRE);
+        if (before & 1u) continue;
+        const refmem_sync_mirror_snapshot_t *mirror = refmem_sync_delta_get_mirror(
+            &s_tdma_flight_sync.context, (uint8_t)source_slot);
+        if (mirror == NULL) return false;
+        const refmem_sync_mirror_snapshot_t value = *mirror;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (before == __atomic_load_n(&s_tdma_flight_sync_guard, __ATOMIC_ACQUIRE)) {
+            *snapshot = value;
+            return true;
+        }
     }
-    *snapshot = *mirror;
-    return true;
+    return false;
 }
 
 /* Keep the dedicated VDC receiver context alive across node-load control
@@ -3720,7 +3765,20 @@ bool distributed_refmem_get_vdc_follower_command(
 void distributed_refmem_get_tdma_flight_sync_quality(
     refmem_sync_quality_counters_t *snapshot)
 {
-    refmem_sync_delta_get_quality(&s_tdma_flight_sync.context, snapshot);
+    if (snapshot == NULL) return;
+    memset(snapshot, 0, sizeof(*snapshot));
+    for (uint32_t attempt = 0u; attempt < 3u; ++attempt) {
+        const uint32_t before = __atomic_load_n(
+            &s_tdma_flight_sync_guard, __ATOMIC_ACQUIRE);
+        if (before & 1u) continue;
+        refmem_sync_quality_counters_t value;
+        refmem_sync_delta_get_quality(&s_tdma_flight_sync.context, &value);
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (before == __atomic_load_n(&s_tdma_flight_sync_guard, __ATOMIC_ACQUIRE)) {
+            *snapshot = value;
+            return;
+        }
+    }
 }
 
 bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id)

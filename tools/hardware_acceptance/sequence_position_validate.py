@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Validate two position-driven SP8T rounds and busy-position rejection.
+"""Validate position-driven SP8T using SCPI-simulated IN1 edge batches.
 
-Requires physical RJ45 return, generator on IN1 and OUT4 wired to IN2.
-The declared source frequency is metadata, not independent edge-count evidence.
+RJ45 TDMA traffic and OUT4-to-IN2 READY remain physical. IN1 edges are
+software-injected acceptance stimuli and are not independent edge evidence.
 """
 from __future__ import annotations
 
@@ -32,8 +32,11 @@ from tools.tdma_ring_monitor import tdma_single_board_loopback as ring
 
 COUNTER_FIELDS = ("enabled", "slot", "input", "threshold", "events", "positions", "partial",
                   "fault_events", "history_total", "history_retained", "phase", "error")
-HISTORY_FIELDS = ("ordinal", "run", "generation", "position", "sequence_index",
-                  "threshold_pulses", "observed_pulses", "outcome_flags")
+HISTORY_FIELDS = ("ordinal", "run", "generation", "binding_epoch", "exchange_id",
+                  "position", "sequence_index", "sequence_state", "output_code",
+                  "threshold_pulses", "observed_pulses", "trigger_ordinal", "ready_ordinal",
+                  "position_admitted_tick_ms", "sample_done_tick_ms", "cycle_elapsed_ms",
+                  "outcome_flags")
 # Snapshot of sync_io_sequence_fault_t::SYNC_IO_SEQUENCE_FAULT_COUNTER_BUSY.
 BACKEND_COUNTER_BUSY = 14
 
@@ -91,18 +94,61 @@ def configure(bench, report, manual_ready=False, repeat=2):
     gui_batch(bench, report, "start", gui.build_start_commands(gui.MODE_TURNTABLE))
 
 
-def check_history(records, final, threshold, positions=2):
+def inject_counter(bench, report, count, purpose):
+    command = f"TRIG:SEQ:INJECT IN1,{count}"
+    started = time.monotonic()
+    response = bench.command(command)
+    require(response == "1", f"SCPI counter injection rejected: {purpose}")
+    report.setdefault("injections", []).append({
+        "command": command, "count": count, "purpose": purpose,
+        "issued_at": started, "response": response})
+
+
+def inject_ready(bench, report, count, purpose):
+    command = f"TRIG:SEQ:INJECT READY,{count}"
+    started = time.monotonic()
+    response = bench.command(command)
+    require(response == "1", f"SCPI READY injection rejected: {purpose}")
+    report["ready_injection"] = {
+        "command": command, "count": count, "purpose": purpose,
+        "issued_at": started, "response": response}
+
+
+def check_history(records, final, threshold, positions=2, target_ms=200):
     require(len(records) == positions * 8, "expected every position state record")
+    summaries = []
     for ordinal, record in enumerate(records, 1):
         position, index = (ordinal - 1) // 8 + 1, (ordinal - 1) % 8
-        require([record[k] for k in ("ordinal", "run", "generation", "position", "sequence_index")] ==
-                [ordinal, final["run"], final["generation"], position, index], "history identity or state mismatch")
+        require([record[k] for k in ("ordinal", "run", "generation", "binding_epoch", "position",
+                                     "sequence_index", "sequence_state", "output_code")] ==
+                [ordinal, final["run"], final["generation"], final["binding_epoch"], position,
+                 index, index, index], "history identity, state or output mismatch")
+        require(record["exchange_id"] > 0 and
+                (ordinal == 1 or record["exchange_id"] ==
+                 records[ordinal - 2]["exchange_id"] + 1),
+                "history exchange sequence is not contiguous")
         require(record["threshold_pulses"] == position * threshold and
                 position * threshold <= record["observed_pulses"] < (position + 1) * threshold,
                 "history pulse threshold mismatch")
+        require(record["trigger_ordinal"] == record["ready_ordinal"] == ordinal,
+                "history VNA trigger/READY ordinal mismatch")
+        require(((record["sample_done_tick_ms"] - record["position_admitted_tick_ms"]) & 0xffffffff) ==
+                record["cycle_elapsed_ms"], "history software timing is incoherent")
+        require(0 < record["cycle_elapsed_ms"] <= target_ms,
+                "position sequence exceeded the configured cycle target")
         require(record["outcome_flags"] == 7, "requested state was not applied and sampled")
     require(all(a["observed_pulses"] <= b["observed_pulses"] for a, b in zip(records, records[1:])),
             "history observed pulse counts regressed")
+    for position in range(1, positions + 1):
+        group = records[(position - 1) * 8:position * 8]
+        require(len({row["position_admitted_tick_ms"] for row in group}) == 1,
+                "position records do not share one admitted pulse boundary")
+        require(all(a["cycle_elapsed_ms"] <= b["cycle_elapsed_ms"] for a, b in zip(group, group[1:])),
+                "position completion timing regressed")
+        summaries.append({"position": position, "target_ms": target_ms,
+                          "elapsed_ms": group[-1]["cycle_elapsed_ms"],
+                          "threshold_pulse_ordinal": position * threshold})
+    return summaries
 
 
 def verify_terminal(bench, report, final, manual_ready):
@@ -145,12 +191,18 @@ def run_profile(bench, port, report, manual_ready=False):
     args = bench.args
     report.update(passed=False, samples=[], no_premature_sample_observed=False)
     configure(bench, report, manual_ready)
+    report["input_simulation"] = {
+        "method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN1,<count>",
+        "ready_command": "TRIG:SEQ:INJECT READY,<count>" if manual_ready else None,
+        "physical_edge_count_verified": False, "physical_ready_verified": not manual_ready}
     report["ring_before"] = ring.sample(port, args.timeout)
     if getattr(args, "schedule_evidence", False):
         capture_schedule(bench, report, "before")
     deadline = time.monotonic() + args.duration
     previous = None
     observed_wait_ready = False
+    injected = 0
+    busy_batch_issued = False
     while time.monotonic() < deadline:
         entry = sample(bench)
         report["samples"].append(entry)
@@ -165,12 +217,26 @@ def run_profile(bench, port, report, manual_ready=False):
         if previous:
             require(all(row[k] == previous["link"][k] for k in IDENTITY_FIELDS), "run identity changed")
             require(counter["events"] >= previous["counter"]["events"], "pulse counter regressed")
+        require(counter["events"] <= injected,
+                "position counter contains events outside SCPI injection evidence")
         if counter["events"] < args.threshold:
             require(row["triggers"] == row["ready"] == row["completed"] == 0,
                     "measurement started before the first position")
             report["no_premature_sample_observed"] = True
+        if injected == 0 and row["phase"] == 9 and counter["events"] == 0:
+            inject_counter(bench, report, args.threshold - 1, "pre-threshold proof")
+            injected = args.threshold - 1
+        elif injected == args.threshold - 1 and counter["events"] == injected:
+            require(row["triggers"] == row["ready"] == row["completed"] == 0,
+                    "measurement started before simulated threshold")
+            inject_counter(bench, report, 1, "first position boundary")
+            injected += 1
         if manual_ready and row["phase"] == 3 and row["triggers"] == 1:
             observed_wait_ready = True
+            if not busy_batch_issued:
+                inject_counter(bench, report, args.threshold, "busy-boundary fault")
+                injected += args.threshold
+                busy_batch_issued = True
         if manual_ready and row["phase"] == 7:
             require(row["error"] == counter["error"] == 5 and counter["fault_events"] >= 2 * args.threshold,
                     "expected COUNTER_BUSY at the next position boundary")
@@ -187,15 +253,22 @@ def run_profile(bench, port, report, manual_ready=False):
         require(row["error"] == counter["error"] == 0 and row["phase"] in (2, 3, 4, 5, 8, 9, 10, 11),
                 "unexpected position runtime fault")
         require(row["triggers"] <= counter["positions"] * 8, "more measurements than admitted positions")
+        if (not manual_ready and row["phase"] == 9 and counter["positions"] == 1 and
+                injected == args.threshold):
+            inject_counter(bench, report, args.threshold, "second position boundary")
+            injected += args.threshold
         if not manual_ready and row["phase"] == 8:
             require(row["triggers"] == row["ready"] == 16 and row["completed"] == 15 and
                     counter["positions"] == 2 and counter["history_total"] == counter["history_retained"] == 16,
                     "two-position full-plan accounting mismatch")
+            require("ready_injection" not in report,
+                    "physical READY profile unexpectedly injected READY credits")
             report["history"] = records = []
             for ordinal in range(1, 17):
-                record = parse_uints(bench.command(f"READ:SEQ:COUNTER:HIST? {ordinal}"), HISTORY_FIELDS)
+                record = parse_uints(bench.command(f"READ:SEQ:HIST? {ordinal}"), HISTORY_FIELDS)
                 records.append(record)
-            check_history(records, row, args.threshold)
+            report["position_cycles"] = check_history(
+                records, row, args.threshold, target_ms=args.position_cycle_target_ms)
             break
         previous = entry
         time.sleep(args.poll)
@@ -279,16 +352,25 @@ def lifecycle_observation(bench, report, name, predicate, *, restarting=False):
 def run_lifecycle(bench, port, report):
     """Continuous mode: count through PAUSE, complete one position, STOP/restart."""
     report["passed"] = False
+    report["input_simulation"] = {
+        "method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN1,<count>",
+        "ready_command": None,
+        "physical_edge_count_verified": False, "physical_ready_verified": True}
     configure(bench, report, repeat=0)
     first = lifecycle_observation(bench, report, "waiting",
-        lambda e: e["link"]["phase"] == 9 and e["counter"]["events"] > 0)
+        lambda e: e["link"]["phase"] == 9 and e["owner"]["state"] == "READY")
     require(first["counter"]["positions"] == first["link"]["triggers"] == 0,
             "lifecycle needs a larger N to pause before first threshold")
+    inject_counter(bench, report, 1, "lifecycle initial partial")
+    first = lifecycle_observation(bench, report, "initial_partial",
+        lambda e: e["link"]["phase"] == 9 and e["counter"]["events"] == 1)
     bench.write("TRIG:PAUS")
     paused = lifecycle_observation(bench, report, "paused",
         lambda e: e["owner"]["state"] == "PAUSED" and e["link"]["phase"] == 6)
+    paused_batch = min(3, bench.args.threshold - 2)
+    inject_counter(bench, report, paused_batch, "lifecycle paused partial")
     counted = lifecycle_observation(bench, report, "counting_while_paused",
-        lambda e: e["counter"]["events"] >= paused["counter"]["events"] + 3)
+        lambda e: e["counter"]["events"] == paused["counter"]["events"] + paused_batch)
     require(counted["owner"]["state"] == "PAUSED" and
             counted["counter"]["positions"] == counted["link"]["triggers"] == 0,
             "pause sampled or stopped counting")
@@ -296,6 +378,8 @@ def run_lifecycle(bench, port, report):
     resumed = lifecycle_observation(bench, report, "resumed",
         lambda e: e["owner"]["state"] == "READY" and e["link"]["phase"] == 9)
     require(resumed["counter"]["events"] >= counted["counter"]["events"], "resume reset counter")
+    inject_counter(bench, report, bench.args.threshold - counted["counter"]["events"],
+                   "lifecycle position boundary")
     done = lifecycle_observation(bench, report, "position_complete",
         position_finished_observed)
     require(done["link"]["repeat"] == 0 and done["link"]["triggers"] == done["link"]["ready"] == 8 and
@@ -304,9 +388,10 @@ def run_lifecycle(bench, port, report):
     require(all(done["owner"][key] == 7 for key in
                 ("current_index", "current_state", "completed_index", "completed_state")),
             "continuous mode ended at wrong state")
-    report["history"] = records = [parse_uints(bench.command(f"READ:SEQ:COUNTER:HIST? {ordinal}"),
+    report["history"] = records = [parse_uints(bench.command(f"READ:SEQ:HIST? {ordinal}"),
         HISTORY_FIELDS) for ordinal in range(1, 9)]
-    check_history(records, done["link"], bench.args.threshold, positions=1)
+    report["position_cycles"] = check_history(records, done["link"], bench.args.threshold,
+        positions=1, target_ms=bench.args.position_cycle_target_ms)
     for name in ("stop", "restart_stop"):
         if name == "restart_stop":
             bench.write("TRIG:START")
@@ -379,16 +464,17 @@ def parse_args(argv=None):
     parser.add_argument("--source-hz", type=float, default=50, help="declared, not measured")
     parser.add_argument("--duration", type=float, default=30, help="timeout per profile")
     parser.add_argument("--timeout", type=float, default=3)
-    parser.add_argument("--poll", type=float, default=.05)
+    parser.add_argument("--poll", type=float, default=.002)
     parser.add_argument("--settle-us", type=int, default=10)
     parser.add_argument("--gateway-pulse-us", type=int, default=1000)
     parser.add_argument("--gateway-timeout-ms", type=int, default=10000)
+    parser.add_argument("--position-cycle-target-ms", type=int, default=200)
     args = parser.parse_args(argv)
-    if not 1 <= args.threshold <= 0xffffffff // 3:
-        parser.error("threshold must allow three position boundaries within uint32")
+    if not 3 <= args.threshold <= 0xffffffff // 3:
+        parser.error("threshold must support partial injection and three boundaries within uint32")
     if any(not math.isfinite(v) or v <= 0 for v in (args.duration, args.timeout, args.poll, args.source_hz)):
         parser.error("times and source frequency must be finite and positive")
-    if not 0 <= args.settle_us <= 0xffffffff // 10 or not 1 <= args.gateway_pulse_us <= 0xffffffff // 10 or not 1 <= args.gateway_timeout_ms <= 0x7fffffff:
+    if not 0 <= args.settle_us <= 0xffffffff // 10 or not 1 <= args.gateway_pulse_us <= 0xffffffff // 10 or not 1 <= args.gateway_timeout_ms <= 0x7fffffff or not 1 <= args.position_cycle_target_ms <= 0x7fffffff:
         parser.error("invalid timing configuration")
     return args
 
@@ -396,6 +482,7 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     report = {"passed": False, "scope": "single_board_position_two_rounds_and_busy_boundary",
+        "software_input_simulation_verified": True,
         "waveform_verified": False, "independent_input_count_verified": False,
         "rf_path_verified": False, "multi_board_verified": False, "p3_receipt": False,
         "started_at": datetime.now(timezone.utc).isoformat(),

@@ -45,10 +45,12 @@ def cycle_report(tool_sha256: str, profile: str = "finite") -> dict:
             max(gate.cycle.ring.RING_ENABLED,
                 gate.cycle.ring.RING_ADAPTER_STARTED) + 1)}],
         "samples": [{"link": {"phase": 3, "exchange_id": 7}}],
-        "scpi_next": [
-            {"identity": [1, 2, step, step + 1], "response": "1"}
-            for step in range(gate.MINIMUM_EVENTS)
-        ],
+        "ready_injection": {
+            "identity": [1, 2, 3],
+            "command": f"TRIG:SEQ:INJECT READY,{gate.cycle.READY_BATCH_MAX if pause else 8 * gate.FINITE_REPEAT}",
+            "count": gate.cycle.READY_BATCH_MAX if pause else 8 * gate.FINITE_REPEAT,
+            "response": "1",
+        },
     }
     if pause:
         report["pause_resume"] = {"passed": True, "exchange_rotated": True}
@@ -139,9 +141,10 @@ def common_report(scope, sha, **settings):
 
 def repeat_report(sha):
     report = common_report("single_board_independent_sp8t_repeat", sha,
-        source="IN1", repeat=10, configure_only=False, source_hz=50)
+        source="MANUAL", repeat=10, configure_only=False, source_hz=50)
     row = owner(79, state="IDLE")
-    report.update(functional_execution_verified=True, software_next_sent=0,
+    report.update(functional_execution_verified=True, software_input_simulation_verified=True,
+                  software_next_sent=79,
         configured_repeat={"configured": 10}, repeat_result=dict(configured=10, active=10, finished=1),
         samples=[{"sequence": owner(0)}, {"sequence": row}], **quiet(row))
     report["cleanup"] = dict(**quiet(row), ring_stop_samples=[ring_row()])
@@ -187,14 +190,30 @@ def position_entry(events=10, positions=0, phase=9, steps=0, triggers=0, ready=0
 
 
 def history(positions=2):
-    return [dict(ordinal=i + 1, run=1, generation=2, position=i // 8 + 1,
-                 sequence_index=i % 8, threshold_pulses=(i // 8 + 1) * 1000,
-                 observed_pulses=(i // 8 + 1) * 1000 + i % 8, outcome_flags=7)
-            for i in range(positions * 8)]
+    records = []
+    for i in range(positions * 8):
+        ordinal, position, index = i + 1, i // 8 + 1, i % 8
+        admitted, elapsed = position * 1000, (index + 1) * 20
+        records.append(dict(ordinal=ordinal, run=1, generation=2, binding_epoch=3,
+            exchange_id=ordinal, position=position, sequence_index=index, sequence_state=index,
+            output_code=index, threshold_pulses=position * 1000,
+            observed_pulses=position * 1000 + index, trigger_ordinal=ordinal,
+            ready_ordinal=ordinal, position_admitted_tick_ms=admitted,
+            sample_done_tick_ms=admitted + elapsed, cycle_elapsed_ms=elapsed, outcome_flags=7))
+    return records
+
+
+def position_cycles(positions=2):
+    return [dict(position=i, target_ms=200, elapsed_ms=160,
+                 threshold_pulse_ordinal=i * 1000) for i in range(1, positions + 1)]
 
 
 def position_config(gui_sha, *, repeat_count=2, manual=False):
     return dict(passed=True, flight_mode="2", repeat_configuration={"configured": repeat_count},
+        input_simulation={"method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN1,<count>",
+                          "ready_command": "TRIG:SEQ:INJECT READY,<count>" if manual else None,
+                          "physical_edge_count_verified": False,
+                          "physical_ready_verified": not manual},
         gui_control={"module_sha256": gui_sha}, configured={
             "counter": dict(enabled=1, slot=1, input=1, threshold=1000),
             "link": dict(enabled=1, phase=1, error=0, dutslot=2, vnaslot=3,
@@ -205,32 +224,56 @@ def position_config(gui_sha, *, repeat_count=2, manual=False):
 
 def position_report(sha, gui_sha):
     report = common_report("single_board_position_two_rounds_and_busy_boundary", sha,
-        threshold=1000, lifecycle=True, source_hz=50, duration=55, gateway_timeout_ms=10000)
+        threshold=1000, lifecycle=True, source_hz=50, duration=55, gateway_timeout_ms=10000,
+        position_cycle_target_ms=200)
+    report["software_input_simulation_verified"] = True
     for name, manual in (("two_positions", False), ("busy_boundary", True)):
         profile = position_config(gui_sha, manual=manual)
         final = position_entry(2000, 1 if manual else 2, 7 if manual else 8,
                                0 if manual else 15, 1 if manual else 16, 0 if manual else 16)
         terminal = owner(0 if manual else 15, state="IDLE")
-        samples = [position_entry(), position_entry(1000, 1, 3, triggers=1)]
+        samples = [position_entry(), position_entry(999), position_entry(1000, 1, 3, triggers=1)]
         if manual:
             final["link"]["error"] = final["counter"]["error"] = 5
             final["counter"]["fault_events"] = 2000
             profile["expected_busy_fault"] = copy.deepcopy(final)
         else:
-            profile.update(history=history(), terminal_repeat=dict(configured=2, run=2, finished=1))
-        profile.update(samples=[*samples, final], no_premature_sample_observed=True,
+            profile.update(history=history(), position_cycles=position_cycles(),
+                           terminal_repeat=dict(configured=2, run=2, finished=1))
+        profile.update(injections=[
+                dict(command="TRIG:SEQ:INJECT IN1,999", count=999, issued_at=1.0, response="1"),
+                dict(command="TRIG:SEQ:INJECT IN1,1", count=1, issued_at=2.0, response="1"),
+                dict(command="TRIG:SEQ:INJECT IN1,1000", count=1000, issued_at=3.0, response="1")],
+            ready_injection=None,
+            input_simulation={
+                "method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN1,<count>",
+                "ready_command": "TRIG:SEQ:INJECT READY,<count>" if manual else None,
+                "physical_edge_count_verified": False,
+                "physical_ready_verified": not manual},
+            samples=[*samples, final], no_premature_sample_observed=True,
             terminal_owner_samples=[terminal], ring_before=ring_row(), ring_after=ring_row(1))
         report[name] = profile
     life = position_config(gui_sha, repeat_count=0)
     life["lifecycle_identity"] = dict(binding_epoch=3, model_epoch=4, run=1, generation=2)
-    for name, events, phase in (("waiting", 10, 9), ("paused", 15, 6),
-                                ("counting_while_paused", 18, 6), ("resumed", 20, 9)):
+    for name, events, phase in (("waiting", 0, 9), ("initial_partial", 1, 9),
+                                ("paused", 1, 6), ("counting_while_paused", 4, 6),
+                                ("resumed", 4, 9)):
         row = position_entry(events, phase=phase, repeat=0)
         row["owner"]["state"] = "PAUSED" if phase == 6 else "READY"
         life[name] = [row]
-    life["position_complete"] = [position_entry(1010, 1, 9, 7, 8, 8, repeat=0)]
+    life["position_complete"] = [position_entry(1000, 1, 9, 7, 8, 8, repeat=0)]
     life["restarted"] = [position_entry(run=2, repeat=0)]
-    life.update(history=history(1), stop=owner(7, state="IDLE"), stop_io=zero_io(),
+    life.update(injections=[
+            dict(command="TRIG:SEQ:INJECT IN1,1", count=1, issued_at=1.0, response="1"),
+            dict(command="TRIG:SEQ:INJECT IN1,3", count=3, issued_at=2.0, response="1"),
+            dict(command="TRIG:SEQ:INJECT IN1,996", count=996, issued_at=3.0, response="1")],
+        ready_injection=None,
+        input_simulation={
+            "method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN1,<count>",
+            "ready_command": None, "physical_edge_count_verified": False,
+            "physical_ready_verified": True},
+        history=history(1), position_cycles=position_cycles(1),
+                stop=owner(7, state="IDLE"), stop_io=zero_io(),
                 restart_stop=owner(state="IDLE", run=2), restart_stop_io=zero_io())
     report.update(lifecycle=life, stopped=owner(state="IDLE"), stopped_io=zero_io(),
                   ring_stopped_samples=[ring_row()])
@@ -352,15 +395,15 @@ def test_report_rejects_pause_without_exchange_rotation():
 
 
 @pytest.mark.parametrize("mutation", ["missing", "duplicate", "rejected"])
-def test_report_rejects_incomplete_scpi_next_evidence(mutation):
+def test_report_rejects_invalid_scpi_ready_batch(mutation):
     report = cycle_report("a" * 64)
     if mutation == "missing":
-        report["scpi_next"] = report["scpi_next"][:-1]
+        report.pop("ready_injection")
     elif mutation == "duplicate":
-        report["scpi_next"][-1]["identity"] = report["scpi_next"][0]["identity"]
+        report["ready_injection"]["count"] -= 1
     else:
-        report["scpi_next"][-1]["response"] = "0"
-    with pytest.raises(AcceptanceError, match="SCPI NEXT"):
+        report["ready_injection"]["response"] = "0"
+    with pytest.raises(AcceptanceError, match="SCPI READY"):
         gate.validate_cycle_report(report, profile="finite", serial_number="board-1",
                                    build_id="build-1", tool_sha256="a" * 64)
 

@@ -85,6 +85,12 @@ void trigger_sequence_service_get_status(trigger_sequence_service_status_t *out)
         assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_OK);
     }
 }
+bool trigger_sequence_service_get_code(uint32_t state_id, uint32_t *value)
+{
+    if (value == NULL || state_id >= TRIGGER_SEQUENCE_STATE_MAX) return false;
+    *value = state_id;
+    return true;
+}
 trigger_sequence_service_result_t trigger_sequence_service_set_gateway_locked(
     const trigger_sequence_gateway_config_t *gateway, bool (*start_guard)(void))
 {
@@ -262,14 +268,13 @@ static void workflow(void)
     trigger_sequence_link_message_t message = decode(link);
     assert(message.kind == TRIGGER_SEQUENCE_LINK_LINK_APPLIED && message.step_ordinal == 0u);
     assert(message.exchange_id != 0u);
-    assert(message.source_slot == 2u && message.target_slot == 3u);
     for (uint32_t i = 0u; i < 20u; ++i) trigger_sequence_link_service();
     assert(fire_count == 0u && step_count == 0u); /* Publishing is not physical RX. */
-    for (uint32_t i = 0u; i < 6u; ++i) trigger_sequence_link_rx_fragment(1u, link[i]);
+    for (uint32_t i = 0u; i < TRIGGER_SEQUENCE_LINK_FRAGMENT_COUNT; ++i)
+        trigger_sequence_link_rx_fragment(1u, link[i]);
     assert(fire_count == 0u); /* Same-board milestone rejects remote physical source. */
-    for (uint32_t i = 0u; i < 5u; ++i) trigger_sequence_link_rx_fragment(0u, link[i]);
-    assert(fire_count == 0u);
-    trigger_sequence_link_rx_fragment(0u, link[5]);
+    for (uint32_t i = 0u; i < TRIGGER_SEQUENCE_LINK_FRAGMENT_COUNT; ++i)
+        trigger_sequence_link_rx_fragment(0u, link[i]);
     assert(fire_count == 0u); /* Transport cannot run the IO FSM. */
     assert(trigger_sequence_link_service());
     assert(fire_count == 1u);
@@ -316,9 +321,11 @@ static void software_next(void)
     trigger_sequence_link_get_status(&status);
     assert(status.phase == 3u && status.error == 0u && stop_count == 0u);
     assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_OK);
-    assert(ready_count == 1u && owner.gateway_ready_count == 1u);
-    assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_NOT_READY);
+    assert(ready_count == 0u && owner.gateway_ready_count == 0u);
+    assert(trigger_sequence_link_next() == TRIGGER_SEQUENCE_SERVICE_BUSY);
     owner.gateway_pulse_busy = false;
+    assert(trigger_sequence_link_service());
+    assert(ready_count == 1u && owner.gateway_ready_count == 1u);
     trigger_sequence_link_service();
     outgoing(ready);
     assert(decode(ready).kind == TRIGGER_SEQUENCE_LINK_READY_NEXT);
@@ -339,15 +346,12 @@ static void stale_messages(void)
 {
     start(); fragments_t f; outgoing(f);
     const trigger_sequence_link_message_t correct = decode(f);
-    for (uint32_t field = 0u; field < 7u; ++field) {
+    for (uint32_t field = 0u; field < 4u; ++field) {
         trigger_sequence_link_message_t bad = correct;
         if (field == 0u) --bad.run_id;
-        if (field == 1u) ++bad.generation;
-        if (field == 2u) ++bad.binding_epoch;
-        if (field == 3u) ++bad.step_ordinal;
-        if (field == 4u) { bad.source_slot = 3u; bad.target_slot = 2u; }
-        if (field == 5u) bad.kind = TRIGGER_SEQUENCE_LINK_READY_NEXT;
-        if (field == 6u) ++bad.exchange_id;
+        if (field == 1u) ++bad.step_ordinal;
+        if (field == 2u) bad.kind = TRIGGER_SEQUENCE_LINK_READY_NEXT;
+        if (field == 3u) ++bad.exchange_id;
         inject(bad, (uint16_t)(100u + field));
         assert(fire_count == 0u && step_count == 0u);
     }
@@ -522,15 +526,12 @@ static void counter_start(uint32_t repeat, uint32_t count)
 { counter_start_threshold(repeat, count, 10u); }
 static void counter_request(void)
 {
-    fragments_t f;
-    trigger_sequence_link_service(); outgoing(f);
-    trigger_sequence_link_message_t message = decode(f);
-    assert(message.kind == TRIGGER_SEQUENCE_LINK_COUNTER_NEXT);
-    assert(message.source_slot == 4u && message.target_slot == 2u);
     const uint32_t before = step_count;
-    receive(f); receive(f);
+    trigger_sequence_link_service();
     if (before != step_count) {
-        ++owner.completed; owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
+        ++owner.completed;
+        owner.current_index = owner.current_state = owner.completed % owner.count;
+        owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
         trigger_sequence_link_service();
     }
 }
@@ -541,11 +542,12 @@ static void counter_sample(void)
     receive(f); receive(f);
     owner.gateway_waiting = owner.gateway_pulse_busy = false;
     ++owner.gateway_ready_count;
-    trigger_sequence_link_service(); outgoing(f);
-    assert(decode(f).kind == TRIGGER_SEQUENCE_LINK_READY_NEXT);
-    receive(f); receive(f);
+    ++tick;
+    trigger_sequence_link_service();
     if (owner.state == TRIGGER_SEQUENCE_SERVICE_RUNNING) {
-        ++owner.completed; owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
+        ++owner.completed;
+        owner.current_index = owner.current_state = owner.completed % owner.count;
+        owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
     }
     trigger_sequence_link_service();
 }
@@ -580,9 +582,16 @@ static void counter_rounds(uint32_t repeat, uint32_t count)
         if (!present) continue;
         assert(record.ordinal == ordinal && record.position == (ordinal - 1u) / count + 1u);
         assert(record.sequence_index == (ordinal - 1u) % count);
+        assert(record.binding_epoch != 0u && record.exchange_id != 0u);
+        assert(record.exchange_id == ordinal);
+        assert(record.sequence_state == record.sequence_index);
+        assert(record.output_code == record.sequence_state);
         assert(record.threshold_pulses == record.position * 10u);
         assert(record.observed_pulses >= record.threshold_pulses &&
             record.observed_pulses < record.threshold_pulses + 10u);
+        assert(record.trigger_ordinal == ordinal && record.ready_ordinal == ordinal);
+        assert(record.sample_done_tick_ms - record.position_admitted_tick_ms ==
+            record.cycle_elapsed_ms);
         assert(record.outcome_flags == 7u);
     }
     assert(!trigger_sequence_link_get_history(0u, &record));
@@ -594,7 +603,7 @@ static void counter_busy(bool before_return)
     owner.counter_events = 12u; /* Core0 may first observe threshold plus partial. */
     trigger_sequence_link_service();
     fragments_t f; outgoing(f);
-    if (!before_return) { receive(f); outgoing(f); receive(f); }
+    if (!before_return) receive(f);
     owner.counter_events = 19u;
     trigger_sequence_link_service();
     trigger_sequence_link_status_t status; trigger_sequence_link_get_status(&status);
@@ -626,19 +635,15 @@ static void counter_stale(void)
     owner.counter_events = 10u; trigger_sequence_link_service();
     fragments_t f; outgoing(f);
     trigger_sequence_link_message_t good = decode(f);
-    for (uint32_t field = 0u; field < 7u; ++field) {
+    for (uint32_t field = 0u; field < 3u; ++field) {
         trigger_sequence_link_message_t bad = good;
         if (field == 0u) ++bad.run_id;
-        if (field == 1u) ++bad.generation;
-        if (field == 2u) ++bad.binding_epoch;
-        if (field == 3u) ++bad.step_ordinal;
-        if (field == 4u) bad.source_slot = 3u;
-        if (field == 5u) bad.target_slot = 3u;
-        if (field == 6u) ++bad.exchange_id;
+        if (field == 1u) ++bad.step_ordinal;
+        if (field == 2u) ++bad.exchange_id;
         inject(bad, (uint16_t)(200u + field));
         assert(!fire_count && !step_count);
     }
-    receive(f); outgoing(f); receive(f);
+    receive(f);
     assert(fire_count == 1u);
 }
 static void software_next_contention(void)
@@ -651,7 +656,44 @@ static void software_next_contention(void)
     trigger_sequence_link_service(); fragments_t f; outgoing(f); receive(f);
     probe_next_guard = true;
     trigger_sequence_link_service();
-    assert(ready_count == 1u && !probe_next_guard);
+    assert(ready_count == 0u && !probe_next_guard);
+    owner.gateway_pulse_busy = false;
+    assert(trigger_sequence_link_service());
+    assert(ready_count == 1u);
+}
+
+static void software_ready_batch(void)
+{
+    trigger_sequence_link_config_t manual = config;
+    manual.ready_input = 0u;
+    assert(trigger_sequence_link_configure(&manual));
+    ring.enabled = ring.adapter_started = ring.data_enabled = ring.up_running = 1u;
+    ring.local_slot_id = 0u;
+    owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
+    owner.run_id = 11u; owner.generation = 19u; owner.count = 8u;
+    owner.repeat_count = 1u; owner.accepted = owner.completed = 0u;
+    trigger_sequence_link_service();
+    assert(trigger_sequence_link_ready_inject(0u) == TRIGGER_SEQUENCE_SERVICE_INVALID);
+    assert(trigger_sequence_link_ready_inject(8u) == TRIGGER_SEQUENCE_SERVICE_OK);
+    assert(trigger_sequence_link_ready_inject(249u) == TRIGGER_SEQUENCE_SERVICE_EXHAUSTED);
+
+    fragments_t link, ready;
+    for (uint32_t i = 0u; i < 8u; ++i) {
+        outgoing(link); receive(link);
+        assert(fire_count == i + 1u && owner.gateway_waiting);
+        owner.gateway_pulse_busy = false;
+        assert(trigger_sequence_link_service());
+        assert(ready_count == i + 1u && owner.gateway_ready_count == i + 1u);
+        trigger_sequence_link_service();
+        outgoing(ready); receive(ready);
+        if (i == 7u) {
+            assert(owner.finished && stop_count == 1u && step_count == 7u);
+        } else {
+            ++owner.completed;
+            owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
+            trigger_sequence_link_service();
+        }
+    }
 }
 static void counter_config_rejections(void)
 {
@@ -709,13 +751,14 @@ static void counter_rearm_boundary(void)
     fragments_t f; outgoing(f); receive(f);
     owner.gateway_waiting = owner.gateway_pulse_busy = false;
     ++owner.gateway_ready_count; trigger_sequence_link_service();
-    outgoing(f); receive(f); /* rearm accepted; no link service sees ack yet */
+    /* Rearm is accepted locally; the next service turn observes its ack. */
     owner.counter_events = 20u; owner.counter_busy = true;
-    trigger_sequence_link_service(); outgoing(f);
-    assert(decode(f).kind == TRIGGER_SEQUENCE_LINK_COUNTER_NEXT);
+    trigger_sequence_link_service();
     trigger_sequence_link_status_t status; trigger_sequence_link_get_status(&status);
     assert(status.counter_consumed == 2u && status.error == 0u);
-    receive(f); ++owner.completed; owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
+    assert(step_count == 1u && owner.state == TRIGGER_SEQUENCE_SERVICE_RUNNING);
+    ++owner.completed; owner.current_index = owner.current_state = 0u;
+    owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
     trigger_sequence_link_service(); counter_sample();
     assert(fire_count == 2u && stop_count == 1u);
 }
@@ -749,7 +792,6 @@ static void counter_pause_after_rearm(void)
     owner.gateway_waiting = owner.gateway_pulse_busy = false;
     ++owner.gateway_ready_count;
     trigger_sequence_link_service();
-    outgoing(f); receive(f); /* Core1 rearm ack, Core0 still WAIT_REARM */
     trigger_sequence_link_status_t status;
     trigger_sequence_link_get_status(&status);
     assert(status.phase == 11u && owner.counter_rearm_count == 1u);
@@ -877,8 +919,8 @@ static void transport_mailbox_full(bool restart)
     const trigger_sequence_link_message_t good = decode(original);
     for (uint32_t i = 0u; i <= TRIGGER_SEQUENCE_LINK_MAILBOX_CAPACITY; ++i) {
         trigger_sequence_link_message_t message = good;
-        /* Differing exchange identities are complete transport events but
-         * cannot execute. Capacity exhaustion must still be observable. */
+        /* Compact frames must match the current exchange before entering the
+         * inbox. A wrong-exchange flood cannot consume mailbox capacity. */
         message.exchange_id += i;
         encode_message(message, (uint16_t)(100u + i), f);
         receive_transport_only(f);
@@ -897,10 +939,9 @@ static void transport_mailbox_full(bool restart)
         assert(trigger_sequence_link_service());
         trigger_sequence_link_status_t status;
         trigger_sequence_link_get_status(&status);
-        assert(status.phase == 7u && status.error == 7u);
-        assert(stop_count == 1u && !fire_count && !step_count);
-        uint8_t fragment[TRIGGER_SEQUENCE_LINK_FRAGMENT_SIZE];
-        assert(!trigger_sequence_link_tx_fragment(fragment));
+        assert(status.phase == 3u && status.error == 0u);
+        assert(stop_count == 0u && fire_count == 1u && !step_count);
+        assert(status.rejected >= TRIGGER_SEQUENCE_LINK_MAILBOX_CAPACITY);
     }
 }
 static void transport_stop_at_action(void)
@@ -965,6 +1006,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[1], "once")) repetitions(1u);
     else if (!strcmp(argv[1], "twice")) repetitions(2u);
     else if (!strcmp(argv[1], "continuous")) repetitions(0u);
+    else if (!strcmp(argv[1], "software_ready_batch")) software_ready_batch();
     else if (!strcmp(argv[1], "start_view")) start_published_view();
     else if (!strcmp(argv[1], "start_publication")) start_configuration_publication();
     else if (!strcmp(argv[1], "software_next")) software_next();

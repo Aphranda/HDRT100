@@ -2456,6 +2456,92 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
 
 #include "tdma_pio_spi_ring_rx_prepare.inc"
 
+static bool tdma_pio_spi_ring_rx_local_return_fast(
+    const tdma_pio_spi_ring_adapter_t *adapter)
+{
+    return adapter != NULL && adapter->topology_probe_mode != 0u &&
+        adapter->origin.active == 0u &&
+        adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
+        adapter->forwarding_mode ==
+            TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_PROCESS_IMAGE &&
+        __atomic_load_n(&adapter->local_return_delivery, __ATOMIC_ACQUIRE) != 0u;
+}
+
+static bool tdma_pio_spi_ring_rx_process_local_return_core1(
+    tdma_pio_spi_ring_adapter_t *adapter, tdma_rx_prepare_t *job,
+    size_t packet_size, uint64_t timestamp)
+{
+    if (packet_size == 0u || packet_size > sizeof(job->packet)) return false;
+    job->packet_size = packet_size;
+    job->capture_service_ns = adapter->last_service_ns;
+    job->rx_timestamp_ns = timestamp;
+    job->schedule_crc32 = adapter->config.schedule_crc32;
+    job->profile_crc32 = adapter->config.ring_profile_crc32;
+    job->map_generation = adapter->flight_engine != NULL
+        ? adapter->flight_engine->map_generation : 0u;
+    job->node_count = adapter->config.node_count;
+    job->capture_timestamp_flags = adapter->timestamp_flags;
+    job->capture_timestamp_resolution_ns = adapter->timestamp_resolution_ns;
+    job->origin_active = false;
+    job->origin_paired = false;
+    job->origin_owner_match = false;
+    job->origin_owner_generation = job->origin_owner_sequence = 0u;
+    job->origin = (tdma_origin_observation_t){0};
+    job->round_trip_ns = job->resolution_ns = job->flags = 0u;
+    job->round_trip_valid = adapter->phys_feedback != NULL &&
+        adapter->phys_feedback(adapter->phys_context, &job->round_trip_ns,
+            &job->resolution_ns, &job->flags);
+
+    uint32_t sequence = 0u, identity = 0u;
+    const uint64_t hint_start = tdma_service_timing_now();
+    (void)tdma_transport_frame_capture_hint(
+        job->packet, packet_size, &sequence, &identity);
+    job->expected_size = 0u;
+    job->expected_clock = false;
+    const uint32_t index = sequence %
+        TDMA_PIO_SPI_RING_ADAPTER_TX_EVIDENCE_DEPTH;
+    if (sequence != 0u &&
+        (adapter->reference_tx_evidence[index].valid ||
+         __atomic_load_n(&adapter->local_return_delivery,
+             __ATOMIC_ACQUIRE) != 0u) &&
+        adapter->reference_tx_evidence[index].sequence == sequence &&
+        adapter->reference_tx_evidence[index].packet_size <=
+            sizeof(job->expected)) {
+        job->expected_size = adapter->reference_tx_evidence[index].packet_size;
+        job->expected_clock =
+            adapter->reference_tx_evidence[index].clock_evidence;
+        memcpy(job->expected, adapter->reference_tx_evidence[index].packet,
+            job->expected_size);
+    }
+    tdma_service_timing_record(TDMA_TIMING_RX_REQUEST_HINT, hint_start);
+    job->local_tx_captured = false;
+    memset(&job->local_tx, 0, sizeof(job->local_tx));
+
+    job->request_epoch = job->epoch;
+    job->decoded = tdma_transport_frame_decode(
+        job->packet, job->packet_size, &job->view, &job->result);
+    job->origin_mailboxes_valid = false;
+    if (!job->decoded || job->view.schedule_crc32 != job->schedule_crc32 ||
+        job->view.ring_profile_crc32 != job->profile_crc32)
+        tdma_rx_diagnose(job->packet, job->packet_size, &job->view,
+            job->expected, job->expected_size, job->expected_clock,
+            &job->diagnostic);
+    if (adapter->phys_rx_event_query != NULL &&
+        job->capture.flags == TDMA_RX_CAPTURE_PRIVATE_COPY && job->decoded &&
+        job->result == TDMA_TRANSPORT_OK &&
+        job->view.schedule_crc32 == job->schedule_crc32 &&
+        job->view.ring_profile_crc32 == job->profile_crc32)
+        adapter->phys_rx_event_query(adapter->phys_context, &job->capture,
+            job->capture_observer_epoch, job->view.transport_sequence,
+            job->packet_size, 0u);
+    const uint64_t started = tdma_service_timing_now();
+    const bool accepted = tdma_pio_spi_ring_adapter_process_rx_impl(
+        adapter, job->packet, job->packet_size, job->rx_timestamp_ns,
+        NULL, job);
+    tdma_service_timing_record(TDMA_TIMING_RX_PARSE, started);
+    return accepted;
+}
+
 _Static_assert(TDMA_RX_PREPARE_IDLE == 0u && TDMA_RX_PREPARE_REQUESTED == 1u &&
     TDMA_RX_PREPARE_BUILDING == 2u && TDMA_RX_PREPARE_READY == 3u &&
     TDMA_RX_PREPARE_CANCELLED + 1u == TDMA_RX_TIMING_STATION_STATES,
@@ -2522,6 +2608,12 @@ static bool tdma_pio_spi_ring_adapter_rx_once_impl(
             job->capture.flags == TDMA_RX_CAPTURE_PRIVATE_COPY)
             job->capture_observer_epoch = adapter->phys_rx_event_pin(
                 adapter->phys_context, &job->capture);
+        if (tdma_pio_spi_ring_rx_local_return_fast(adapter)) {
+            const bool accepted = tdma_pio_spi_ring_rx_process_local_return_core1(
+                adapter, job, packet_size, rx_timestamp_ns);
+            tdma_service_timing_record(TDMA_TIMING_RX_REQUEST, request_start);
+            return accepted;
+        }
         if (!tdma_pio_spi_ring_rx_request(adapter, job, packet_size, rx_timestamp_ns,
             paired ? &observation : NULL)) {
             job->capture = (tdma_rx_capture_t){0};

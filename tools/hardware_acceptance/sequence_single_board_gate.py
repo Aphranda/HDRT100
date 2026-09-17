@@ -38,6 +38,7 @@ DEFAULT_RECEIPT = Path(
 FINITE_REPEAT = 10
 MINIMUM_EVENTS = 9
 POSITION_THRESHOLD = 1000
+POSITION_CYCLE_TARGET_MS = 200
 HOST_TESTS = (
     "tests/python/test_refmem_layout.py",
     "tests/python/test_refmem_pack_build.py",
@@ -79,6 +80,7 @@ PRODUCTION_ALLOWLIST = frozenset({
     "components/tdma/src/tdma_pio_spi_ring_adapter.c",
     "middleware/scpi_port/src/scpi_config_commands.c",
     "middleware/scpi_port/inc/scpi_sequence_commands.h",
+    "middleware/scpi_port/inc/scpi_sequence_node_commands.h",
     "middleware/scpi_port/src/scpi_sequence_commands.c",
     "middleware/scpi_port/src/scpi_sequence_node_commands.c",
 })
@@ -300,10 +302,12 @@ def validate_repeat_report(report: dict, *, serial_number: str, build_id: str,
     settings = _common_report(report, "single_board_independent_sp8t_repeat", serial_number,
         build_id, tool_sha256, ("independent_input_count_verified", "external_waveform_verified",
                               "rf_path_verified", "p3_receipt"))
-    _require(settings["source"] == "IN1" and settings["repeat"] == FINITE_REPEAT and
+    _require(settings["source"] == "MANUAL" and settings["repeat"] == FINITE_REPEAT and
              settings["configure_only"] is False and settings["source_hz"] == source_hz and
-             report.get("functional_execution_verified") is True and report["software_next_sent"] == 0,
-             "independent IN1 execution profile mismatch")
+             report.get("functional_execution_verified") is True and
+             report.get("software_input_simulation_verified") is True and
+             report["software_next_sent"] == 8 * FINITE_REPEAT - 1,
+             "independent software-trigger execution profile mismatch")
     _require(report["configured_repeat"]["configured"] == FINITE_REPEAT and
              report["repeat_result"] == dict(configured=FINITE_REPEAT, active=FINITE_REPEAT, finished=1),
              "independent finite repeat did not finish")
@@ -409,19 +413,41 @@ def _position_configuration(profile: dict, *, repeat_count: int, manual: bool,
              profile["codes"] == {str(i): f"{i},{i}" for i in range(8)}, "POSITION plan/code mismatch")
 
 
+def _position_injection(profile: dict, counts: list[int], manual_ready: bool) -> None:
+    simulation = profile.get("input_simulation", {})
+    _require(simulation == {
+        "method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN1,<count>",
+        "ready_command": "TRIG:SEQ:INJECT READY,<count>" if manual_ready else None,
+        "physical_edge_count_verified": False, "physical_ready_verified": not manual_ready},
+        "POSITION input simulation scope mismatch")
+    injections = profile.get("injections")
+    _require(isinstance(injections, list) and [row.get("count") for row in injections] == counts,
+             "POSITION SCPI injection batches mismatch")
+    for row, count in zip(injections, counts):
+        _require(row.get("command") == f"TRIG:SEQ:INJECT IN1,{count}" and
+                 row.get("response") == "1" and isinstance(row.get("issued_at"), (int, float)),
+                 "POSITION SCPI injection evidence invalid")
+    ready = profile.get("ready_injection")
+    _require(ready is None, "POSITION profile must not preload READY")
+
+
 def validate_position_report(report: dict, *, serial_number: str, build_id: str,
                              tool_sha256: str, gui_sha256: str, source_hz: float) -> None:
     settings = _common_report(report, "single_board_position_two_rounds_and_busy_boundary",
         serial_number, build_id, tool_sha256, ("waveform_verified", "independent_input_count_verified",
                                               "rf_path_verified", "multi_board_verified", "p3_receipt"))
+    _require(report.get("software_input_simulation_verified") is True,
+             "POSITION software input simulation claim missing")
     duration = position_duration(source_hz)
     _require(settings["threshold"] == POSITION_THRESHOLD and settings["lifecycle"] is True and
              settings["source_hz"] == source_hz and settings["duration"] >= duration and
-             settings["gateway_timeout_ms"] == 10000,
+             settings["gateway_timeout_ms"] == 10000 and
+             settings["position_cycle_target_ms"] == POSITION_CYCLE_TARGET_MS,
              "POSITION fixed profile or frequency-derived duration mismatch")
     for name, manual in (("two_positions", False), ("busy_boundary", True)):
         profile = report[name]
         _position_configuration(profile, repeat_count=2, manual=manual, gui_sha256=gui_sha256)
+        _position_injection(profile, [POSITION_THRESHOLD - 1, 1, POSITION_THRESHOLD], manual)
         final = _last(profile["samples"], name)
         link, counter = final["link"], final["counter"]
         previous = None
@@ -470,14 +496,19 @@ def validate_position_report(report: dict, *, serial_number: str, build_id: str,
                      all(owner[k] == 7 for k in ("current_index", "current_state", "completed_index", "completed_state")) and
                      profile["terminal_repeat"] == dict(configured=2, run=2, finished=1),
                      "POSITION two-round accounting mismatch")
-            position.check_history(profile["history"], link, POSITION_THRESHOLD)
+            expected_cycles = position.check_history(profile["history"], link, POSITION_THRESHOLD,
+                target_ms=POSITION_CYCLE_TARGET_MS)
+            _require(profile["position_cycles"] == expected_cycles,
+                     "POSITION cycle timing summary mismatch")
         for index in (cycle.ring.RING_ADAPTER_TX_COUNT, cycle.ring.RING_ADAPTER_RX_COUNT):
             _require(cycle.ring.delta(profile["ring_before"], profile["ring_after"], index) > 0,
                      "POSITION lacks physical RJ45 counter growth")
     life = report["lifecycle"]
     _position_configuration(life, repeat_count=0, manual=False, gui_sha256=gui_sha256)
+    _position_injection(life, [1, 3, POSITION_THRESHOLD - 4], False)
     rows = {key: _last(life[key], f"lifecycle {key}") for key in
-            ("waiting", "paused", "counting_while_paused", "resumed", "position_complete", "restarted")}
+            ("waiting", "initial_partial", "paused", "counting_while_paused", "resumed",
+             "position_complete", "restarted")}
     baseline = life["lifecycle_identity"]
     for name, entry in rows.items():
         link, owner, counter = entry["link"], entry["owner"], entry["counter"]
@@ -486,10 +517,13 @@ def validate_position_report(report: dict, *, serial_number: str, build_id: str,
                  (owner["run_id"], owner["generation"]) == (link["run"], link["generation"]) and
                  all(link[k] == baseline[k] for k in cycle.IDENTITY_FIELDS if name != "restarted" or k != "run"),
                  "POSITION lifecycle identity/fault mismatch")
-    waiting, paused, counted, resumed, done, restarted = (rows[k] for k in rows)
-    _require(waiting["link"]["phase"] == 9 and waiting["counter"]["events"] > 0 and
+    waiting, initial, paused, counted, resumed, done, restarted = (rows[k] for k in rows)
+    _require(waiting["link"]["phase"] == 9 and waiting["counter"]["events"] == 0 and
              waiting["counter"]["positions"] == waiting["link"]["triggers"] == 0,
              "POSITION did not wait for first position")
+    _require(initial["link"]["phase"] == 9 and initial["counter"]["events"] == 1 and
+             initial["counter"]["positions"] == initial["link"]["triggers"] == 0,
+             "POSITION initial simulated partial pulse mismatch")
     _require(paused["owner"]["state"] == counted["owner"]["state"] == "PAUSED" and
              paused["link"]["phase"] == 6 and counted["counter"]["events"] >= paused["counter"]["events"] + 3 and
              counted["counter"]["positions"] == counted["link"]["triggers"] == 0 and
@@ -501,7 +535,10 @@ def validate_position_report(report: dict, *, serial_number: str, build_id: str,
              done["owner"]["accepted"] == done["owner"]["completed"] == 7 and
              all(done["owner"][k] == 7 for k in ("current_index", "current_state", "completed_index", "completed_state")),
              "POSITION lifecycle round not complete")
-    position.check_history(life["history"], done["link"], POSITION_THRESHOLD, positions=1)
+    expected_cycles = position.check_history(life["history"], done["link"], POSITION_THRESHOLD,
+        positions=1, target_ms=POSITION_CYCLE_TARGET_MS)
+    _require(life["position_cycles"] == expected_cycles,
+             "POSITION lifecycle timing summary mismatch")
     _require(restarted["owner"]["state"] == "READY" and restarted["link"]["phase"] == 9 and
              restarted["link"]["run"] > baseline["run"] and
              restarted["counter"]["positions"] == restarted["counter"]["history_total"] == 0 and
@@ -581,14 +618,14 @@ def validate_cycle_report(report: dict[str, Any], *, profile: str,
               if sample.get("link", {}).get("phase") in (2, 3, 4, 5, 8)]
     if not active or any(row.get("exchange_id", 0) == 0 for row in active):
         raise AcceptanceError(f"{profile} report lacks nonzero exchange identity")
-    software_next = report.get("scpi_next")
-    if (not isinstance(software_next, list) or len(software_next) < MINIMUM_EVENTS or
-            any(record.get("response") != "1" or
-                not isinstance(record.get("identity"), list) or
-                len(record["identity"]) != 4 or record["identity"][3] == 0
-                for record in software_next) or
-            len({tuple(record["identity"]) for record in software_next}) != len(software_next)):
-        raise AcceptanceError(f"{profile} report lacks attributed SCPI NEXT events")
+    ready = report.get("ready_injection")
+    ready_count = 8 * FINITE_REPEAT if profile == "finite" else cycle.READY_BATCH_MAX
+    if (not isinstance(ready, dict) or ready.get("response") != "1" or
+            ready.get("count") != ready_count or
+            ready.get("command") != f"TRIG:SEQ:INJECT READY,{ready_count}" or
+            not isinstance(ready.get("identity"), list) or
+            len(ready["identity"]) != 3 or any(value == 0 for value in ready["identity"])):
+        raise AcceptanceError(f"{profile} report lacks attributed SCPI READY batch")
 
     if profile == "finite":
         if report.get("repeat_result") != f"{FINITE_REPEAT},{FINITE_REPEAT},1":
@@ -725,13 +762,14 @@ def _profile_args(args: argparse.Namespace, output: Path, profile: str) -> list[
     values = ["--serial-number", args.serial_number, "--build", args.build, "--out", str(output)]
     values += ["--port", args.port] if args.port else ["--visa-resource", args.visa_resource]
     if profile == "repeat":
-        values += ["--source", "IN1", "--repeat", str(FINITE_REPEAT), "--minimum-events", str(MINIMUM_EVENTS),
+        values += ["--source", "MANUAL", "--repeat", str(FINITE_REPEAT), "--minimum-events", str(MINIMUM_EVENTS),
                    "--duration", str(max(30, 8 * FINITE_REPEAT / args.source_hz + 15)),
                    "--source-hz", str(args.source_hz)]
     elif profile == "position":
         duration = position_duration(args.source_hz)
         values += ["--threshold", str(POSITION_THRESHOLD), "--lifecycle", "--source-hz", str(args.source_hz),
-                   "--duration", str(duration), "--gateway-timeout-ms", "10000"]
+                   "--duration", str(duration), "--gateway-timeout-ms", "10000",
+                   "--position-cycle-target-ms", str(POSITION_CYCLE_TARGET_MS)]
     return values
 
 

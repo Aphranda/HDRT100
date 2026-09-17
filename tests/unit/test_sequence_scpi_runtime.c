@@ -21,6 +21,8 @@ static char output[32768], error_info[128];
 static size_t output_size;
 static unsigned error_count;
 
+static bool gateway_start_guard(void) { return true; }
+
 void osal_critical_enter(void) { assert(!locked); locked = 1; }
 void osal_critical_exit(void) { assert(locked); locked = 0; }
 bool sync_trigger_sequence_can_start(void) { assert(!locked); return !legacy_running; }
@@ -75,6 +77,13 @@ bool sync_io_sequence_software_step(void)
 bool sync_io_sequence_gateway_fire(void) { return false; }
 bool sync_io_sequence_gateway_ready(void) { return false; }
 bool sync_io_sequence_counter_rearm(void) { return false; }
+bool sync_io_sequence_counter_inject(uint32_t input_channel, uint32_t count)
+{
+    if (input_channel != hw_config.counter_input_channel || !count) return false;
+    hw.counter_events += count;
+    if (hw.counter_events >= hw_config.counter_threshold) hw.counter_busy = true;
+    return true;
+}
 void sync_io_sequence_stop(void)
 {
     assert(!locked);
@@ -105,6 +114,12 @@ void trigger_sequence_link_get_status(trigger_sequence_link_status_t *status)
 { memset(status, 0, sizeof(*status)); }
 trigger_sequence_service_result_t trigger_sequence_link_next(void)
 { return TRIGGER_SEQUENCE_SERVICE_NOT_READY; }
+trigger_sequence_service_result_t trigger_sequence_link_ready_inject(uint32_t count)
+{
+    if (!count || count > TRIGGER_SEQUENCE_LINK_READY_INJECT_MAX)
+        return TRIGGER_SEQUENCE_SERVICE_INVALID;
+    return hw.armed ? TRIGGER_SEQUENCE_SERVICE_OK : TRIGGER_SEQUENCE_SERVICE_NOT_READY;
+}
 
 scpi_result_t scpi_port_result_accepted(scpi_t *context)
 { SCPI_ResultUInt32(context, 1); return SCPI_RES_OK; }
@@ -175,6 +190,16 @@ int main(void)
             else if (sscanf(line, "@legacy %u", &channel) == 1) legacy_running = channel != 0;
             else if (sscanf(line, "@armok %u", &channel) == 1) arm_ok = channel != 0;
             else if (sscanf(line, "@submitok %u", &channel) == 1) submit_ok = channel != 0;
+            else if (strcmp(line, "@position\n") == 0) {
+                const trigger_sequence_gateway_config_t gateway = {
+                    .enabled = true, .ready_input = 0u, .trigger_output_mask = 8u,
+                    .pulse_us = 10u, .counter_input = 1u, .counter_threshold = 1000u};
+                assert(trigger_sequence_service_set_outputs(
+                    7u, 0u, TRIGGER_SEQUENCE_STATUS_NONE, 10u, 0u) ==
+                    TRIGGER_SEQUENCE_SERVICE_OK);
+                assert(trigger_sequence_service_set_gateway(&gateway, gateway_start_guard) ==
+                    TRIGGER_SEQUENCE_SERVICE_OK);
+            }
             else { fprintf(stderr, "unknown control: %s", line); return 2; }
             continue;
         }

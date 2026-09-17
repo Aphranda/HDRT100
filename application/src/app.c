@@ -799,6 +799,9 @@ static void app_realtime_tdma_phase(void)
      * NO1..NO4 state-machine ring is running independently. */
     if (board_identity_get_no() != 5u) {
         tdma_component_core1_service();
+        /* Consume returned flight images and publish the next sequence
+         * fragment in the same mandatory Core1 phase as the TDMA owner. */
+        distributed_refmem_tdma_flight_service_core1();
     }
     /* The analyzer intent mailbox is a mandatory bounded Core1 service.
      * It must not live behind an optional/quarantinable load, otherwise an

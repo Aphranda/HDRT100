@@ -236,7 +236,10 @@ def test_busy_pause_stop_and_restart(parser):
     "CONF:SEQ:CODE 0,8", "CONF:SEQ:CODE 3,1", "CONF:SEQ:CODE -4294967296,1",
     "CONF:SEQ:CODE 0,4294967297", "CONF:SEQ:CODE 0,1.0", "CONF:SEQ:CODE 0,#H1",
     "TRIG:START A,", "TRIG:START A,1", "TRIG:START ,", "TRIG:START UNKNOWN",
-    "TRIG:SEQ:NEXT 1", "TRIG:PAUSE 1", "TRIG:CONT 1", "TRIG:STOP 1", "TRIG:ABOR 1",
+    "TRIG:SEQ:NEXT 1", "TRIG:SEQ:INJECT", "TRIG:SEQ:INJECT IN1",
+    "TRIG:SEQ:INJECT IN1,1,2", "TRIG:SEQ:INJECT IN5,1",
+    "TRIG:SEQ:INJECT IN1,-1", "TRIG:SEQ:INJECT IN1,4294967296",
+    "TRIG:PAUSE 1", "TRIG:CONT 1", "TRIG:STOP 1", "TRIG:ABOR 1",
     "READ:SEQ:CODE?", "READ:SEQ:CODE? 0,", "READ:SEQ:CODE? 3",
     "READ:SEQ:IO? 1", "READ:SEQ:SOUR? 1", "READ:SEQ:STATE? 1", "READ:IO:STATE? 1",
     "READ:IO:INP? 0", "READ:IO:INP? 5", "READ:IO:INP? -1", "READ:IO:INP? 1,",
@@ -270,6 +273,34 @@ def test_next_command_and_read_query(parser, advance, query):
     assert rows[5]["fields"] == rows[6]["fields"] == rows[7]["fields"]
     assert rows[5]["writes"] == rows[6]["writes"] == rows[7]["writes"] == 1
     assert all(row["errors"] > 0 for row in rows[8:])
+
+
+def test_position_counter_scpi_injection_is_owner_serialized(parser):
+    rows = run(parser, ["@position", "TRIG:SEQ:INJECT IN1,1", "TRIG:START", "@service",
+                        "TRIG:SEQ:INJECT MANUAL,1", "TRIG:SEQ:INJECT IN2,1",
+                        "TRIG:SEQ:INJECT IN1,0", "TRIG:SEQ:INJECT IN1,1000",
+                        "TRIG:SEQ:INJECT IN1,1", "@service", "TRIG:PAUSE",
+                        "TRIG:STOP", "TRIG:SEQ:INJECT IN1,1", "@service",
+                        "TRIG:SEQ:INJECT IN1,1"])
+    assert rows[0]["reason"] == "NOT_READY"
+    assert rows[2]["errors"] > 0
+    assert rows[3]["reason"] == "SOURCE_MISMATCH"
+    assert rows[4]["reason"] == "INVALID_ARGUMENT"
+    assert rows[5]["errors"] == 0 and rows[5]["fields"] == ["1"]
+    assert rows[6]["reason"] == "BUSY"
+    assert rows[7]["reason"] == "BUSY"
+    assert rows[8]["errors"] == 0
+    assert rows[9]["reason"] == "BUSY"
+    assert rows[10]["reason"] == "NOT_READY"
+
+
+def test_ready_batch_scpi_routes_to_bounded_link_mailbox(parser):
+    rows = run(parser, ["@position", "TRIG:START", "@service",
+                        "TRIG:SEQ:INJECT READY,0",
+                        "TRIG:SEQ:INJECT READY,257",
+                        "TRIG:SEQ:INJECT READY,8"])
+    assert rows[1]["reason"] == rows[2]["reason"] == "INVALID_ARGUMENT"
+    assert rows[3]["errors"] == 0 and rows[3]["fields"] == ["1"]
 
 
 def test_io_levels_are_logical_masks_and_channels(parser):

@@ -14,6 +14,7 @@ static uint32_t hw_values[TRIGGER_SEQUENCE_STATE_MAX];
 static bool legacy_idle = true, available = true, arm_success = true;
 static bool software_success = true, pause_success = true, reserved;
 static bool stop_during_arm, stop_during_step;
+static bool inject_success = true;
 static bool preserve_failed_arm_receipts;
 static bool fault_during_stop;
 static bool probe_snapshot_ownership;
@@ -140,6 +141,14 @@ bool sync_io_sequence_counter_rearm(void)
     if (!hw.counter_busy) return false;
     hw.counter_busy = false;
     ++hw.counter_rearm_count;
+    return true;
+}
+bool sync_io_sequence_counter_inject(uint32_t input_channel, uint32_t count)
+{
+    if (!inject_success || input_channel != hw_config.counter_input_channel || !count)
+        return false;
+    hw.counter_events += count;
+    if (hw.counter_events >= hw_config.counter_threshold) hw.counter_busy = true;
     return true;
 }
 bool sync_io_sequence_gateway_ready(void)
@@ -596,6 +605,21 @@ static void test_position_counter_owner(void)
     assert(trigger_sequence_service_set_gateway(&config, gateway_start_guard) == TRIGGER_SEQUENCE_SERVICE_INVALID);
     start();
     assert(hw_config.counter_input_channel == 1u && hw_config.counter_threshold == 1000u);
+    assert(trigger_sequence_service_counter_inject(0u, 1u) == TRIGGER_SEQUENCE_SERVICE_INVALID);
+    assert(trigger_sequence_service_counter_inject(1u, 0u) == TRIGGER_SEQUENCE_SERVICE_INVALID);
+    assert(trigger_sequence_service_counter_inject(2u, 1u) == TRIGGER_SEQUENCE_SERVICE_SOURCE_MISMATCH);
+    assert(trigger_sequence_service_counter_inject(1u, 999u) == TRIGGER_SEQUENCE_SERVICE_OK);
+    assert(trigger_sequence_service_counter_inject(1u, 1u) == TRIGGER_SEQUENCE_SERVICE_BUSY);
+    trigger_sequence_service_service();
+    assert(status().counter_events == 999u && !status().counter_busy);
+    assert(trigger_sequence_service_counter_inject(1u, 1u) == TRIGGER_SEQUENCE_SERVICE_OK);
+    trigger_sequence_service_service();
+    assert(status().counter_events == 1000u && status().counter_busy);
+    assert(trigger_sequence_service_stop() == TRIGGER_SEQUENCE_SERVICE_OK);
+    assert(trigger_sequence_service_counter_inject(1u, 1u) == TRIGGER_SEQUENCE_SERVICE_BUSY);
+    trigger_sequence_service_service();
+    assert(status().state == TRIGGER_SEQUENCE_SERVICE_IDLE);
+    start();
     hw.counter_events = 1099u; hw.counter_busy = true;
     trigger_sequence_service_service();
     assert(!trigger_sequence_service_stop_pending());

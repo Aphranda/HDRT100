@@ -7,10 +7,10 @@
 /* Versioned application tag; transport owns header/VDC/ACK and verifies the
  * physical source before dispatching these opaque RefMem-region fragments. */
 #define TRIGGER_SEQUENCE_LINK_CONTROL_OPCODE 0x53u
-#define TRIGGER_SEQUENCE_LINK_WIRE_SIZE 36u
+#define TRIGGER_SEQUENCE_LINK_WIRE_SIZE 10u
 #define TRIGGER_SEQUENCE_LINK_FRAGMENT_SIZE 10u
-#define TRIGGER_SEQUENCE_LINK_FRAGMENT_DATA_SIZE 6u
-#define TRIGGER_SEQUENCE_LINK_FRAGMENT_COUNT 6u
+#define TRIGGER_SEQUENCE_LINK_FRAGMENT_DATA_SIZE 10u
+#define TRIGGER_SEQUENCE_LINK_FRAGMENT_COUNT 1u
 
 typedef enum {
     TRIGGER_SEQUENCE_LINK_LINK_APPLIED = 1u,
@@ -32,15 +32,11 @@ typedef struct {
 typedef struct {
     uint8_t wire[TRIGGER_SEQUENCE_LINK_WIRE_SIZE];
     uint16_t token;
-    uint8_t next_fragment;
     bool active;
 } trigger_sequence_link_tx_t;
 
 typedef struct {
-    uint8_t wire[TRIGGER_SEQUENCE_LINK_WIRE_SIZE];
     uint8_t last_message[TRIGGER_SEQUENCE_LINK_WIRE_SIZE];
-    uint16_t token;
-    uint8_t received_mask;
     bool last_message_valid;
 } trigger_sequence_link_rx_t;
 
@@ -51,21 +47,20 @@ typedef enum {
     TRIGGER_SEQUENCE_LINK_RX_REJECTED,
 } trigger_sequence_link_rx_result_t;
 
-/* Failure leaves tx unchanged. Caller supplies a nonzero token and changes it
- * for each new message; a token is only an assembly hint, never authorization.
- * tx_next repeats the immutable message until tx_begin replaces it or the
- * owner clears tx. No retransmission timer or peer state is owned here. */
+/* Failure leaves tx unchanged. The compact wire carries kind, exact run and
+ * step, plus the low exchange byte. Generation, binding, full exchange and
+ * route are reconstructed only from the frozen Core1 run after those fields
+ * match. The process-image CRC and transport CRC protect the complete frame.
+ * Caller token remains a local replacement hint, never authorization. */
 bool trigger_sequence_link_tx_begin(trigger_sequence_link_tx_t *tx,
                                     const trigger_sequence_link_message_t *message,
                                     uint16_t token);
 bool trigger_sequence_link_tx_next(trigger_sequence_link_tx_t *tx,
                                    uint8_t fragment[TRIGGER_SEQUENCE_LINK_FRAGMENT_SIZE]);
 void trigger_sequence_link_rx_init(trigger_sequence_link_rx_t *rx);
-/* One assembler per physical source stream. Fragments may repeat/reorder or
- * disappear. A new token replaces incomplete assembly. A CRC-valid message
- * does not authorize an action: owner checks route/run/generation/epoch/step
- * and preserves its own dedup history across messages and token wrap.
- * message is written only on RX_MESSAGE. All storage is caller-owned. */
+/* A valid compact frame does not authorize an action: the link owner checks
+ * the frozen identity, route and phase before execution. Repeated frames are
+ * deduplicated. message is written only on RX_MESSAGE. */
 trigger_sequence_link_rx_result_t trigger_sequence_link_rx_feed(
     trigger_sequence_link_rx_t *rx,
     const uint8_t fragment[TRIGGER_SEQUENCE_LINK_FRAGMENT_SIZE],

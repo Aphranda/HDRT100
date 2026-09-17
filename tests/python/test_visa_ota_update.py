@@ -92,6 +92,26 @@ def test_success_is_gate_compatible_and_binds_all_artifacts(bench):
     assert summary["results"][0]["commit"]["summary"]["passed"]
 
 
+def test_asrl_success_requires_matching_fallback_and_live_identity(bench):
+    cli, out, package, state = bench
+    cli[0] = "ASRL8::INSTR"
+    cli += ["--cdc-fallback-port", "COM8"]
+    assert target.main(cli) == 0
+    summary = read(out)
+    validate_ota_summary(summary, serial_number=UID, build_id=BUILD, package=package)
+    assert summary["results"][0]["send"]["command"][2] == "ASRL8::INSTR"
+    assert state["queries"] == ["*IDN?", "SYST:FW:BUILD?"]
+
+
+def test_asrl_mismatched_fallback_is_rejected_before_query(bench):
+    cli, out, _, state = bench
+    cli[0] = "ASRL8::INSTR"
+    cli += ["--cdc-fallback-port", "COM9"]
+    assert target.main(cli) == 1
+    assert not state["queries"] and not state["calls"]
+    assert "identity binding" in read(out)["failure"]
+
+
 @pytest.mark.parametrize("change", ["uid", "resource", "build", "crc", "current", "current_expected"])
 def test_preflight_rejects_before_any_child(bench, change):
     cli, out, package, state = bench

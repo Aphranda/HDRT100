@@ -4,6 +4,7 @@
 #include "scpi/scpi.h"
 
 scpi_result_t scpi_sequence_next(scpi_t *context);
+scpi_result_t scpi_sequence_inject(scpi_t *context);
 scpi_result_t scpi_sequence_source(scpi_t *context);
 scpi_result_t scpi_sequence_source_q(scpi_t *context);
 scpi_result_t scpi_sequence_io(scpi_t *context);
@@ -26,6 +27,7 @@ scpi_result_t scpi_sequence_repeat_q(scpi_t *context);
     {.pattern = "READ:SEQuence:REPeat?", .callback = scpi_sequence_repeat_q}, \
     {.pattern = "TRIGger:SEQuence:NEXT", .callback = scpi_sequence_next}, \
     {.pattern = "TRIGger:SEQuence:NEXT?", .callback = scpi_sequence_status_q}, \
+    {.pattern = "TRIGger:SEQuence:INJect", .callback = scpi_sequence_inject}, \
     {.pattern = "CONFigure:SEQuence:SOURce", .callback = scpi_sequence_source}, \
     {.pattern = "READ:SEQuence:SOURce?", .callback = scpi_sequence_source_q}, \
     {.pattern = "CONFigure:SEQuence:IO", .callback = scpi_sequence_io}, \

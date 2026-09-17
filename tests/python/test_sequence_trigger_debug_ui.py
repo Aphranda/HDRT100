@@ -67,7 +67,7 @@ def test_turntable_counter_guard_boundary_matches_firmware():
                                         (11, "等待下一位置重新武装")])
 def test_turntable_wait_phases_are_named(phase, label):
     assert label in format_counter_status(f"1,1,1,1000,0,0,0,0,0,0,{phase},0")
-    row = [1, phase, 0] + [0] * 20
+    row = [1, phase, 0] + [0] * 24
     assert label in format_link_status(",".join(map(str, row)), 8)
 
 
@@ -354,9 +354,11 @@ def test_maximum_eight_state_repeat_count_is_accepted():
 
 
 def test_link_display_counts_all_measurements_including_first_and_done():
-    row = [1, 8, 0, 1, 2, 3, 4, 7, 48, 16, 0, 8, 8, 7, 2, 3, 0, 8, 10, 5000, 0, 1, 99]
+    row = [1, 8, 0, 1, 2, 3, 4, 7, 48, 16, 0, 8, 8, 7, 2, 3, 0, 8, 10, 5000, 0, 1,
+           99, 2, 21, 1, 24]
     text = format_link_status(",".join(map(str, row)), 8)
     assert "已完成" in text and "轮次 1/1" in text and "切换完成 7" in text and "交换 99" in text
+    assert "延迟 2/21/1/24 ms" in text
     with pytest.raises(ValueError):
         format_link_status("1,8,0", 8)
 
@@ -415,8 +417,8 @@ def test_executor_ring_ack_only_requires_verified_state_and_never_exempts_trigge
 
 
 @pytest.mark.parametrize("link_row,message", [
-    ([1, 3, 0, *([0] * 13), 1, *([0] * 6)], "不是 MANUAL"),
-    ([1, 7, 2, *([0] * 20)], "尚不能接受 NEXT"),
+    ([1, 3, 0, *([0] * 13), 1, *([0] * 10)], "不是 MANUAL"),
+    ([1, 7, 2, *([0] * 24)], "尚不能接受 NEXT"),
 ])
 def test_executor_preflights_link_before_next(link_row, message):
     calls = []
@@ -440,7 +442,7 @@ def test_visa_sequence_setter_reads_its_numeric_response(monkeypatch):
             if command == "SYST:ERR?":
                 return '0,"No error"'
             if command == "READ:SEQ:LINK?":
-                return "0," + ",".join("0" for _ in range(22))
+                return "0," + ",".join("0" for _ in range(26))
             return "1"
         def write(self, command):
             calls.append(("write", command))

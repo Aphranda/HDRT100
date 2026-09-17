@@ -29,6 +29,29 @@ def test_sequence_mailbox_survives_disabled_loads_and_offline_returns(tmp_path):
     assert "trigger_sequence_service_is_active()" in legacy_service
     transport = (ROOT / "components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
     assert "trigger_sequence_link_service();" not in transport
+    core0_refmem = _function(transport, "void distributed_refmem_service(void)")
+    assert "distributed_refmem_tdma_flight_service_core1" not in core0_refmem
+    assert "distributed_refmem_tdma_flight_service_core1();" in tdma_phase
+    flight_receive = _function(
+        transport, "static void distributed_refmem_tdma_flight_sync_receive(")
+    assert "DISTRIBUTED_REFMEM_TDMA_FLIGHT_RX_QUOTA" in flight_receive
+    assert "for (;;)" not in flight_receive
+    flight_service = _function(
+        transport, "void distributed_refmem_tdma_flight_service_core1(void)")
+    assert "distributed_refmem_tdma_flight_sync_write_begin();" in flight_service
+    assert "distributed_refmem_tdma_flight_sync_write_end();" in flight_service
+    flight_snapshot = _function(
+        transport, "void distributed_refmem_get_tdma_flight_sync(")
+    assert "s_tdma_flight_sync_guard" in flight_snapshot
+    link_source = (ROOT / "components/sync_trigger/src/trigger_sequence_link.c").read_text(
+        encoding="utf-8")
+    link_next = _function(link_source, "trigger_sequence_service_result_t trigger_sequence_link_next(")
+    link_inject = _function(
+        link_source, "trigger_sequence_service_result_t trigger_sequence_link_ready_inject(")
+    link_service = _function(link_source, "static void service(void)")
+    assert "trigger_sequence_service_gateway_ready" not in link_next
+    assert "trigger_sequence_service_gateway_ready" not in link_inject
+    assert "trigger_sequence_service_gateway_ready" in link_service
     (tmp_path / "sync_trigger.h").write_text(
         "#include <stdbool.h>\nbool sync_trigger_sequence_can_start(void);\n", encoding="utf-8")
     unit = (ROOT / "tests/unit/test_trigger_sequence_service.c").as_posix()
@@ -62,30 +85,32 @@ static void app_realtime_schedule_write_end(void) {}
 static void tdma_service_timing_phase_begin(void)
 { assert(!phase_open); phase_open=true; phase_order=0; ++mandatory_calls; }
 static void tdma_service_timing_phase_end(void)
-{ assert(phase_open && (phase_order==4 || phase_order==5)); phase_open=false; }
+{ assert(phase_open && (phase_order==5 || phase_order==6)); phase_open=false; }
 static void tdma_service_timing_context(unsigned context, bool active)
 { (void)context; (void)active; }
 static unsigned tdma_runtime_owner_timing_context(void) { return 0; }
 static unsigned board_identity_get_no(void) { return 1; }
 static void tdma_component_core1_service(void)
 { assert(phase_open && phase_order==0); phase_order=1; }
+static void distributed_refmem_tdma_flight_service_core1(void)
+{ assert(phase_open && phase_order==1); phase_order=2; }
 static void sync_io_logic_analyzer_service_core1(unsigned budget)
-{ assert(budget==8 && phase_open && phase_order==1); phase_order=2; }
+{ assert(budget==8 && phase_open && phase_order==2); phase_order=3; }
 static uint64_t tdma_service_timing_now(void) { assert(phase_open); return 0; }
 static void tdma_service_timing_record(unsigned kind, uint64_t start)
 { (void)kind; (void)start; assert(phase_open); }
 static void trigger_sequence_service_service(void)
 {
     if (offline_p3 || offline_training) assert(!phase_open);
-    else { assert(phase_open && (phase_order==2 || phase_order==4)); ++phase_order; }
+    else { assert(phase_open && (phase_order==3 || phase_order==5)); ++phase_order; }
     ++sequence_calls;
     production_sequence_service();
     if (hw.pending) physical_write();
 }
 static bool trigger_sequence_link_service(void)
 {
-    assert(phase_open && phase_order==3 && !offline_p3 && !offline_training);
-    phase_order=4;
+    assert(phase_open && phase_order==4 && !offline_p3 && !offline_training);
+    phase_order=5;
     if (!link_step) return false;
     link_step=false;
     assert(trigger_sequence_service_step()==TRIGGER_SEQUENCE_SERVICE_OK);

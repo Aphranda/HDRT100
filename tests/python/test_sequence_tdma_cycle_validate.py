@@ -107,7 +107,7 @@ class FakeBench:
             return wire(self.current)
         if text == "READ:SEQ:REP?":
             return f"{self.args.repeat},{self.args.repeat},1"
-        if text == "TRIG:SEQ:NEXT":
+        if text.startswith("TRIG:SEQ:INJECT READY,"):
             return "1"
         raise AssertionError(text)
 
@@ -141,33 +141,32 @@ def execute_fixture(tmp_path, monkeypatch, rows, repeat=1):
     return bench, {}
 
 
-def test_scpi_next_is_attributed_once_per_exchange(tmp_path):
+def test_scpi_ready_is_one_attributed_batch(tmp_path):
     args = target.parse_args(cli(tmp_path, "--scpi-next"))
     bench = FakeBench(args, [])
     report = {}
     first = snapshot(exchange_id=7)
-    second = snapshot(exchange_id=8)
+    target.inject_ready_batch(bench, report, first)
+    target.inject_ready_batch(bench, report, first)
 
-    target.drive_scpi_next(bench, report, first)
-    target.drive_scpi_next(bench, report, first)
-    target.drive_scpi_next(bench, report, second)
-
-    assert bench.commands == ["TRIG:SEQ:NEXT", "TRIG:SEQ:NEXT"]
-    assert [record["identity"] for record in report["scpi_next"]] == [
-        [11, 19, 0, 7], [11, 19, 0, 8]]
+    assert bench.commands == ["TRIG:SEQ:INJECT READY,8"]
+    assert report["ready_injection"] == {
+        "identity": [11, 19, 2], "command": "TRIG:SEQ:INJECT READY,8",
+        "count": 8, "response": "1"}
 
 
-def test_scpi_next_rejection_is_preserved_and_fails(tmp_path):
+def test_scpi_ready_rejection_is_preserved_and_fails(tmp_path):
     args = target.parse_args(cli(tmp_path, "--scpi-next"))
     bench = FakeBench(args, [])
     bench.command = lambda command: "0"
     report = {}
 
     with pytest.raises(AcceptanceError, match="was not accepted"):
-        target.drive_scpi_next(bench, report, snapshot(exchange_id=7))
+        target.inject_ready_batch(bench, report, snapshot(exchange_id=7))
 
-    assert report["scpi_next"] == [{
-        "identity": [11, 19, 0, 7], "response": "0"}]
+    assert report["ready_injection"] == {
+        "identity": [11, 19, 2], "command": "TRIG:SEQ:INJECT READY,8",
+        "count": 8, "response": "0"}
 
 
 @pytest.mark.parametrize("repeat", [1, 2])

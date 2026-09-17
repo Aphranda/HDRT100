@@ -91,6 +91,7 @@ static void publish(void) {}
 static uint32_t dma_encode_endless_transfer_count(void) { return 0xf0000000u; }
 static volatile uint32_t s_edge_latest;
 static volatile uint32_t s_counter_latest;
+static uint32_t s_counter_injected;
 static bool capture_available = true, capture_borrowed;
 static bool sync_io_core_capture_sm_lease(const void *owner) {
     (void)owner;
@@ -259,7 +260,7 @@ static void reset(void) {
         false, 0u, 0u, 0u, false, false, 0u, 0u, 0u};
     capture_available = true;
     capture_borrowed = false;
-    s_counter_latest = s_edge_latest = 0u;
+    s_counter_latest = s_edge_latest = s_counter_injected = 0u;
     dma_claims = 0x1fbu; /* RS485, capture and TDMA survive every rollback. */
     sm_claims = enabled = 1u;
     resources = RESOURCE_ARBITER_RESOURCE_SMA_GPIO;
@@ -764,12 +765,12 @@ int main(void) {
     s_counter_latest = 999u;
     sync_io_sequence_service();
     assert(s_sequence.status.counter_events == 999u && !s_sequence.status.counter_busy);
-    s_counter_latest = 1000u;
-    sync_io_sequence_service();
+    assert(!sync_io_sequence_counter_inject(2u, 1u));
+    assert(sync_io_sequence_counter_inject(1u, 1u));
     assert(s_sequence.status.counter_busy && s_sequence.counter_baseline == 1000u);
     assert(sync_io_sequence_gateway_fire());
-    assert(s_counter_latest == 1000u && (enabled & 1u) != 0u);
-    s_counter_latest = 1999u;
+    assert(s_counter_latest == 999u && (enabled & 1u) != 0u);
+    s_counter_latest = 1998u;
     sync_io_sequence_service();
     assert(s_sequence.status.fault == 0u && s_sequence.status.counter_events == 1999u);
     assert(!sync_io_sequence_counter_rearm()); /* sampling still pending */
@@ -781,11 +782,10 @@ int main(void) {
     assert(!s_sequence.status.counter_busy && s_sequence.counter_baseline == 1000u);
     assert(s_sequence.status.counter_rearm_count == 1u && s_sequence.status.counter_events == 1999u);
     assert(!sync_io_sequence_counter_rearm()); /* exactly one acknowledgement */
-    s_counter_latest = 2000u;
-    sync_io_sequence_service();
+    assert(sync_io_sequence_counter_inject(1u, 1u));
     assert(s_sequence.status.counter_busy && s_sequence.counter_baseline == 2000u);
     assert(s_sequence.status.fault == 0u);
-    s_counter_latest = 3000u;
+    s_counter_latest = 2998u;
     sync_io_sequence_service();
     assert(s_sequence.status.fault == SYNC_IO_SEQUENCE_FAULT_COUNTER_BUSY);
     assert(s_sequence.status.counter_events == 3000u);

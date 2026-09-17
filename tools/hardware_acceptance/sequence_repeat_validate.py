@@ -209,6 +209,7 @@ def main(argv=None):
     args = parse_args(argv)
     report = {"passed": False, "scope": "single_board_independent_sp8t_repeat",
               "functional_execution_verified": False, "configuration_verified": False,
+              "software_input_simulation_verified": args.source == "MANUAL",
               "independent_input_count_verified": False, "external_waveform_verified": False,
               "rf_path_verified": False, "p3_receipt": False,
               "started_at": datetime.now(timezone.utc).isoformat(),

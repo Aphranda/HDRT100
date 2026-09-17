@@ -10,6 +10,10 @@ static const scpi_choice_def_t sources[] = {
     {"MANUAL", 0}, {"IN1", 1}, {"IN2", 2}, {"IN3", 3}, {"IN4", 4},
     SCPI_CHOICE_LIST_END
 };
+static const scpi_choice_def_t inject_sources[] = {
+    {"READY", 0}, {"IN1", 1}, {"IN2", 2}, {"IN3", 3}, {"IN4", 4},
+    SCPI_CHOICE_LIST_END
+};
 static const scpi_choice_def_t outputs[] = {
     {"OUT1", 1}, {"OUT2", 2}, {"OUT3", 3}, {"OUT4", 4},
     SCPI_CHOICE_LIST_END
@@ -40,6 +44,17 @@ scpi_result_t scpi_sequence_next(scpi_t *context)
     trigger_sequence_link_get_status(&link);
     return result(context, link.config.enabled ? trigger_sequence_link_next() :
                   trigger_sequence_service_step());
+}
+
+scpi_result_t scpi_sequence_inject(scpi_t *context)
+{
+    int32_t input;
+    uint32_t count;
+    if (!SCPI_ParamChoice(context, inject_sources, &input, TRUE) ||
+        !scpi_sequence_param_u32(context, &count) ||
+        !scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    return result(context, input == 0 ? trigger_sequence_link_ready_inject(count) :
+        trigger_sequence_service_counter_inject((uint32_t)input, count));
 }
 
 scpi_result_t scpi_sequence_repeat(scpi_t *context)

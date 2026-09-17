@@ -100,6 +100,7 @@ static uint32_t s_plan[SYNC_IO_SEQUENCE_PLAN_MAX * SYNC_IO_SEQUENCE_PLAN_WORDS];
 static uint32_t s_receipts[RECEIPT_WORDS] __attribute__((aligned(1u << RECEIPT_BITS)));
 static volatile uint32_t s_edge_latest;
 static volatile uint32_t s_counter_latest;
+static uint32_t s_counter_injected;
 
 static uint32_t s_reserved;
 static uint32_t s_switch1 = 1u;
@@ -669,6 +670,7 @@ static bool arm_plan(const sync_io_sequence_config_t *config,
     s_sequence.status.timing_kind = SYNC_IO_SEQUENCE_TIMING_PIO0;
     s_edge_latest = 0u;
     s_counter_latest = 0u;
+    s_counter_injected = 0u;
     if (!build_plan(config, values, bytes, count)) {
         s_sequence.status.fault = SYNC_IO_SEQUENCE_FAULT_CONFIG;
         goto rejected;
@@ -917,6 +919,15 @@ static bool account_counter(uint32_t edges)
     return true;
 }
 
+static bool account_counter_sources(uint32_t physical_edges)
+{
+    if (s_counter_injected > UINT32_MAX - physical_edges) {
+        fail(SYNC_IO_SEQUENCE_FAULT_COUNTER_OVERFLOW);
+        return false;
+    }
+    return account_counter(physical_edges + s_counter_injected);
+}
+
 void sync_io_sequence_service(void)
 {
     if (get_core_num() != 1u || !s_sequence.status.armed || s_sequence.status.fault != 0u) return;
@@ -954,7 +965,7 @@ void sync_io_sequence_service(void)
         if (s_sequence.config.counter_input_channel != 0u) {
             const uint32_t edges = s_counter_latest;
             __dmb();
-            if (!account_counter(edges)) { publish(); return; }
+            if (!account_counter_sources(edges)) { publish(); return; }
         }
         const bool settled = s_sequence.paused && drain_idle_executor();
         if (s_sequence.status.fault != 0u) {
@@ -1155,6 +1166,27 @@ bool sync_io_sequence_counter_rearm(void)
     return true;
 }
 
+bool sync_io_sequence_counter_inject(uint32_t input_channel, uint32_t count)
+{
+    if (get_core_num() != 1u || !s_sequence.status.armed || s_sequence.priming ||
+        s_sequence.status.fault != 0u || count == 0u ||
+        input_channel == 0u || input_channel != s_sequence.config.counter_input_channel)
+        return false;
+    sync_io_sequence_service();
+    if (s_sequence.status.fault != 0u) return false;
+    const uint32_t physical_edges = s_counter_latest;
+    __dmb();
+    if (count > UINT32_MAX - s_counter_injected) {
+        fail(SYNC_IO_SEQUENCE_FAULT_COUNTER_OVERFLOW);
+        publish();
+        return false;
+    }
+    s_counter_injected += count;
+    const bool accepted = account_counter_sources(physical_edges);
+    publish();
+    return accepted;
+}
+
 static void finish_ingress(void)
 {
     PIO pio = BOARD_SYNC_PIO_FAST;
@@ -1248,7 +1280,7 @@ void sync_io_sequence_stop(void)
             if (sm_pc(TURNTABLE_SM, 3u) == sequence_counter_offset_observed)
                 pio_sm_exec(pio, TURNTABLE_SM, pio_encode_jmp_x_dec(
                     s_sequence.offset[3] + sequence_counter_offset_counted));
-            (void)account_counter(read_sm_register(TURNTABLE_SM, pio_x, true));
+            (void)account_counter_sources(read_sm_register(TURNTABLE_SM, pio_x, true));
         }
         const uint executor_pc = sm_pc(EXECUTOR_SM, 1u);
         uint32_t final_edges = 0u;

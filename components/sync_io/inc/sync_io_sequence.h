@@ -120,6 +120,9 @@ bool sync_io_sequence_gateway_ready(void);
  * the next position threshold arrived while busy. Partial pulses accumulated
  * during sampling are preserved; neither total nor threshold base resets. */
 bool sync_io_sequence_counter_rearm(void);
+/* Core1-only acceptance hook. Adds a simulated edge batch to the configured
+ * position counter; threshold and fault handling remain shared with PIO. */
+bool sync_io_sequence_counter_inject(uint32_t input_channel, uint32_t count);
 bool sync_io_sequence_pause(bool paused);
 void sync_io_sequence_stop(void);
 void sync_io_sequence_service(void);
