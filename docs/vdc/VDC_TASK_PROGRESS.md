@@ -22,6 +22,26 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-006：服务序号与退休点相关采样
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003` IN PROGRESS。本条仅记录本轮
+  schema7 诊断快照，数值不是产品契约；原始证据根为
+  `out/HardwareAcceptance/20260918/dpll-run-uniform-r3/capture-r2/`。
+- 为每次有效 Core1 服务增加 `service_sequence`，并把最后一次客户端 outcome、
+  缓存失效分别绑定到服务序号和 backend service tick；STOP 导出字段总数由 schema6
+  的旧布局扩展为 schema7。主机 RUN 解析回归与时间轴回归共 170 项通过。
+- 四板采样期间查询数为零，最终均为 `reason=STARVED`，且退休寄存器同时显示 TX FIFO
+  空、PIO TXSTALL 置位、DMA remaining 为零；因此本轮确认的是输入耗尽事实，不把
+  `PASS_WITH_WARNINGS` 或有限采样当作连续输出通过。四板最后服务到退休约 0.43 µs，
+  末次服务已落在最后下降沿完整时间界之后约 33 µs 至 1.30 ms。
+- NO1 的最后客户端结果为 `submit_rejected`，发生在服务序号 756；前一次缓存失效为
+  序号 754，之后没有形成第三个十边沿块。NO2–NO4 的最后 outcome 分别落在序号
+  1232/1435/1179，缓存失效序号为 1239/1421/1185；这些序号只建立先后关系，不能
+  单独证明 DMA 不可准入、模型重建或 deadline 哪一个是根因。
+- 本轮最小结论是“短服务体量已足够小，但服务空窗和提交竞态仍可把补给推迟到末沿之后”。
+  下一切片应在保持 schema7 相关字段的前提下，细分 `submit_rejected` 的内部拒绝原因，
+  或先验证提交失败保留私有后缀的重试策略；不得通过放宽 STARVED 判据宣称连续性。
+
 ### VDC-PROGRESS-20260918-005：固定脉宽单字 FIFO 后端（待四板专项）
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003` IN PROGRESS。以下为实现与离线
