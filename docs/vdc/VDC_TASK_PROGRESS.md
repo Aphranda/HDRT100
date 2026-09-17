@@ -32,6 +32,73 @@ Last updated: 2026-09-18
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260918-004：有限长时间轴与可配置补给窗口
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003`、`SYNC-OUT-002` IN PROGRESS。
+  本条数字为证据快照，非产品事实源；证据根
+  `out/HardwareAcceptance/20260918/dpll-run-timeline-r1/`。
+- 同次有限 RUN 复用初始 raw/local bridge，后续绝对目标映射到同一硬件时间轴；
+  规划和准入仍读取新鲜 raw 时间，不累积舍入周期，不修改 NO1 PI。较长未提交
+  后缀每次最多规划四个边沿；模型 token 或前驱改变时丢弃部分/完整缓存。
+  backend 支持有界实际边沿数，先全量校验再编码；首个单边沿块不启动零长 DMA。
+- `OUTPut:TIMing` 提供规划/承诺/低水位完整三元组；STOP 且客户端空闲时设置，
+  PREPARE 锁存并联合检查周期/容量/静态表。默认请求 12000/16000/6000 µs，
+  本轮 1 ms 输出对应十边沿块，最多十六边沿；默认不是已证明最优配置。
+  Product Config v5 保留 v1–v4 CRC 域及非零输出 delay，仅显式 STORe 写 Flash。
+- 主联合 host 671 项及独立时间轴 22 项通过，后者覆盖 20 秒运行/低字回绕、
+  分批规划、库存水位、模型变化、STOP 与容量拒绝。文档检查器测试 38 项通过。
+  双槽 Release build `20260917175835`，源码
+  `feb9aac77b4b41978730b409d95a80dc84b20a46324d3a582bfb0ac0e9249596`，包
+  `e06ee9f9df635c043d80bdb83c5a037d4163aca6922f30becce5388950cb91f6`。
+  新增 Python 测试在构建过程中落地但不参与固件编译；最终源码指纹在 P3 前冻结。
+  双槽 ELF/BIN/包一致；扣 heap 后主 RAM 22380 B，完整 RUN 栈 1524 B，
+  cached 栈 1256 B，继承路径最大 2872/3072 B，scratch 余 24 B。
+  实际 cached 调用图仍含 schedule getter、clock_get_hz、memcpy 和 GPIO helper
+  四个 XIP 叶子；不沿用前轮耗时作为本轮 WCET，详见 `design-review/`。
+- 同源码四板 quick P3 PASS_WITH_WARNINGS，182.546 秒，25 INFO/18 WARN，
+  0 ERROR/FATAL；strict/closed-loop/realtime 质量失败保留，不当作输出专项通过。
+- 配置专项首轮因工具错误地把 SET 三元组当成 OK 超时，原件保留于
+  `config-hil/live-r1/`；无 Flash 写入，四板 STOP 和原请求值已读回。修正工具后
+  `live-r2` PASS，37.531 秒：NO2 测试参数保存/重启/召回、原持久值恢复后再次
+  重启及原 RAM 值恢复完成，四板 delay/PI/角色/基线/身份保持；RAM/Flash 无待恢复项。
+  两次 RESET 的串口 ClearCommError/PermissionError 原件保留，随后重新枚举、
+  身份和不同于 RAM sentinel 的参数读回闭合，不称重启全程无异常。
+  新负测直接编译真实 callback/libscpi，裸 OK 不能冒充 SET 成功。
+- 首次输出复采 `capture-r1` 在 START 前因 NO2 重启清除临时训练矩阵而失败；
+  `TRN03STG` 返回 EMPTY，未形成有效波形，四板 STOP 留证。后续重新装载同次
+  P3 已测矩阵并核对读回，`restore-stage-r1` PASS；不重新扫描 P0 或训练延迟。
+- `capture-r2` 在 NO4 ARM 被 adapter 278 拒绝，未进入时间轴规划/输出；装载工具
+  切换至 raw-flight。后续 STOP 恢复 process-image、clock evidence、provisional
+  与 debug admission；`restore-context-r2` 全部读回通过。首次恢复脚本把
+  provisional 回读误按六字段解析（实际七字段），失败与四板 STOP 留于
+  `restore-context-r1`，未改固件。
+- `capture-r3` 已真实运行并完整导出四路 scope/native；RUN 查询零，四板请求值
+  与锁存值一致，十边沿块实际生效，bridge_samples 均为 1。NO1–NO4 分别提交
+  34/105/577/412 块，分批规划 155/324/1746/1264 次，缓存失效 29/3/5/9 次；
+  快路成功补给 0/8/35/20 次，wall 最大 31.208/47.500/62.128/48.532 µs，
+  调用与样本分别 59/99/330/185 且逐板相等，超候选预算全零。此为有限窗口，非 WCET。
+  输出专项仍 FAIL，四板均 STARVED；NO4 一次 submit 拒绝，其余零。退休时
+  原末下降沿完整界已过去约 0.47/0.81/1.32/2.13 ms。末态计数不能确定每次
+  DMA 就绪或缓存失效的因果顺序，详见 `capture-r3/refill-retirement-analysis.json`。
+- NO1 启动邻域可见 190 个脉冲（总准入 340），块内 171 个周期误差约
+  −0.181..+19.858 ns，18 个块界误差约 +28.469 ns..+56.200 µs；15 个块界
+  超过仅用于诊断分组的 100 ns。20 ns 采样及插值不证明纳秒物理精度；本轮
+  模型修订 31 次，不足以逐边界归因。固定映射已采用而块界波动仍在，不能再
+  把全部波动归于每块重采 bridge，也不能把跨启动窗口与前轮作为受控 A/B。
+  图与原件见 `no1-review/capture-r3/`；保留历史内部 PI −9..+9 ns 基线。
+- 四板最终 STOP 58/16/58/59 均已应用，输出 PIO/DMA 关闭；示波器恢复 STOP/
+  EXT/NORM，已由 `final-stopped-state.json` 另行读回核验，scope error 为零。
+  配置能力与实际采用已验证，连续性未通过；下一切片优先核对
+  模型更新使可编辑后缀重建的代价，以及 DMA 退休至末沿之间的实际补给期限。
+  参数试验可以同源码 STOP 修改后复采，无须烧录/P0；不通过放宽断流或精度
+  判据来宣称完成，不提前修改 NO1 PI。
+- 契约 `VDC-PRIORITY-01` v14 保持 pending；独立 C11 接受稳定语义范围，原件
+  `design-review/c11-v14-semantic-independent-r1.json`。扩大块容量不增加 DMA
+  退休后 FIFO 余量；固定映射不消除真实模型更新造成的边沿变化，连续性和
+  相对 NO1 同序物理边沿差仍为后续专项门禁。
+- 代码提交 `95006a3`，真实 pre-commit 核验当前 staged 指纹及 P3 凭证通过；
+  文档单独提交，外来 TDMA 工作区文件保持未暂存，未 push。
+
 ### VDC-PROGRESS-20260918-003：相位内缓存交接与 SRAM 热路径验证
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003`、`SYNC-OUT-002` IN PROGRESS。

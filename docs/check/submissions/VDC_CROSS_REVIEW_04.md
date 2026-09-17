@@ -4,7 +4,7 @@ Status: Draft
 Domain: VDC
 Canonical: `docs/check/submissions/VDC_CROSS_REVIEW_04.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/check/DOCS_REGISTRY.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
 ## 提交内容
 
@@ -187,3 +187,20 @@ abort，确认后才释放。预留可能使维护态高电平安全下降，不
 `out/HardwareAcceptance/20260917/dpll-run-executor-r1/runtime-review/c11-v13-final-independent-review.json`。
 审核方仍为独立的 `p0_root_review`；桥接数学由非作者 `event_core` 另行确认。
 该结论保留首次启动与较高频率断流失败，只接受已验证的有限低频输出范围。
+
+## 有限时间轴与配置增补（v14 pending）
+
+本次增加 STOP-only `OUTPut:TIMing` 完整三元组、PREPARE 锁存和显式 Flash 保存，
+旧持久化记录补默认值并保留 delay、PI、角色、基线与身份。准备阶段联合检查
+输出周期、每块容量和静态调度周期；运行使用同一次初始映射，但规划及准入仍
+读取新鲜 raw 时间。未提交后缀分批计算，模型改变使部分/完整缓存失效；已提交
+前缀不改写，STOP 或调度周期改变取消请求。扩展 DMA 块容量不等于扩展退休后
+FIFO 执行余量，固定映射不消除真实模型更新造成的未来周期变化。
+
+登记保持 pending，不授予连续输出、候选 WCET、百纳秒同步或产品 VDC 发布。
+独立复核与实板证据根为
+`out/HardwareAcceptance/20260918/dpll-run-timeline-r1/`。独立方 `p0_root_review`
+已复核生产代码、双槽实际链接、配置/时间轴负测和稳定文档，C11 结论为
+`ACCEPT_V14_PENDING_SEMANTICS_NO_PRODUCT_RELEASE_CLAIM`，原件位于上述根的
+`design-review/c11-v14-semantic-independent-r1.json`。固定范围 P3 与输出专项
+仍分别判定，实施事实及最终复核见 Task Progress，不由本条授予物理验收通过。

@@ -9,6 +9,34 @@ Last updated: 2026-09-18
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
 
+### SYNC-PROGRESS-20260918-004 — 有界可变块与长时间轴配置
+
+- TODO task ID：`SYNC-OUT-002` IN PROGRESS；联动 `VDC-OUTPUT-001`。
+  以下数字为证据快照，非产品事实源；证据根
+  `out/HardwareAcceptance/20260918/dpll-run-timeline-r1/`。
+- backend 增加实际边沿数入口，上限以 `SYNC_IO_RUN_OUTPUT_MAX_EDGES` 为准；
+  非法尾项在任何提交修改前拒绝，旧 wrapper 保留，首个单边沿块不启动零长 DMA。
+  PIO 程序、源缓冲退休、不可改写前缀、异步 STOP 和统一硬件 owner 不变。
+  schema 在原前缀后追加实际窗口、bridge/规划/等待计数、块数和表周期。
+- VDC 同次 RUN 固定初始时间映射，读新鲜 raw 判断规划/补给，分批准备后缀；
+  新模型只影响未提交部分。STOP 三元组通过 PREPARE 联合容量检查后锁存，
+  仅显式 Flash 保存，Core1 无 SCPI/Flash/RTOS 依赖；细节见 VDC 进度 004。
+- 693 项 host、双槽 Release、资源和当前源码四板 quick P3 通过；P3 为
+  PASS_WITH_WARNINGS，182.546 秒，25 INFO/18 WARN/0 ERROR/FATAL，严格质量
+  失败保留。主 RAM 扣 heap 后 22380 B，实际调用图与身份独审见 `design-review/`。
+- NO2 参数保存/重启/恢复专项通过，首轮工具 ACK 误判失败保留；输出首采在
+  START 前因重启丢失临时训练矩阵失败，重新装载同次已测矩阵接续。
+  软件块加长不扩大 DMA 源退休后的 FIFO 执行时间，不凭容量或参数保存宣称
+  连续输出或锁相；下一门禁仍是有限静默 RUN 后的真实波形与退休原因。
+- 恢复 process-image 及完整运行上下文后，`capture-r3` 真实采用十边沿块，
+  四板 bridge_samples 均为 1，分别准入 34/105/577/412 块；短服务 wall 最大
+  31.208/47.500/62.128/48.532 µs，超预算零且调用/报告相等。输出仍全部
+  STARVED，专项 FAIL；NO4 一次提交拒绝保留。四板 STOP58/16/58/59 已应用，
+  输出 PIO/DMA 关闭，示波器 STOP/EXT/NORM。NO1 块内周期接近原基线但块界
+  仍有微秒级波动；有限采样、模型变化与跨轮初态限制详见 VDC 进度 004。
+  下一步核对模型更新后缀重建与 DMA 退休后的真实补给期限；不以容量增大
+  宣称断流根因已消除，保持契约 pending。
+
 ### SYNC-PROGRESS-20260918-003 — 缓存交接预算实测与 SRAM 放置复核
 
 - TODO task ID：`SYNC-OUT-002` IN PROGRESS；联动 `VDC-OUTPUT-001`。

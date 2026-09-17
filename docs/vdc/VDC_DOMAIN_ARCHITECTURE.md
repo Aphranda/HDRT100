@@ -792,7 +792,7 @@ PIO 指令量化由 board clock/divider 决定，不等同于物理同步精度�
 跨钟映射、整数超越量、队列断流/迟到与引脚实测误差另行计入验收。
 
 有限调试输出通过 `vdc_run_output_prepare` 在 Core0 的 TDMA STOP 排他边界锁存
-独立 delay、会话和周期，并请求 SYNC_IO 预留 scheduled capability；准备阶段将
+独立 delay、会话、周期、时间窗口及静态表周期，并请求 SYNC_IO 预留 scheduled capability；准备阶段将
 输出置于安全低态，不启动计划脉冲。
 Core1 完整服务入口在 TDMA owner 之后运行，只有 `data_enabled` 表示 START、
 环路配置已应用且当前 committed DCO 的 slot/schedule、session、role 与 clock
@@ -803,9 +803,28 @@ Core1 完整服务入口在 TDMA owner 之后运行，只有 `data_enabled` 表�
 客户端可在 DMA 源仍占用时提前准备一个私有有限后缀；该缓存不是 DMA 源，
 不得提前推进已准入序号、末边沿或模型元数据。后续准入复验当前身份、STOP、
 模型 token、前一已准入末序号/下降沿及完整时钟配置；模型或尾部变化使缓存失效，
-取消、终态和新准备清理缓存。每次调用最多规划一个块、准入一个块，保持现有
-TDMA 内服务入口，不引入等待或额外调度预算。缓存命中只省去重复桥接采样与反解，
+取消、终态和新准备清理缓存；静态表周期改变取消请求。每次完整调用最多计算
+`VDC_RUN_OUTPUT_PLAN_STEP_EDGES` 个边沿、准入一个块，较长后缀跨调用完成，
+模型更新同时丢弃部分和完整的未提交缓存。保持现有 TDMA 内服务入口，不引入
+等待或额外调度预算。缓存命中省去桥接采样与反解，
 不缩小原桥接不确定性，也不保证服务空窗期间继续补给。
+
+`SYSTem:VDC:OUTPut:TIMing <plan_us>,<commit_us>,<low_us>` 原子设置完整请求，
+`TIMing?` 返回同序三元组，`:DEFAult`、`:RECall`、`:STORe` 提供默认、召回及显式
+保存。合法范围及默认值由 `vdc_output_timing.h` 定义；只接受完整十进制整数参数。
+配置需要 Core0、TDMA STOP 且输出客户端无准备/运行请求；新值在下一 PREPARE
+（ARM 之前）锁存。Core1 只消费 RAM 快照。只有 STORe 走既有停核 Flash 维护；
+Product Config 新记录保留各旧版本 CRC 域，旧记录补默认时间窗口并保留原 delay、
+PI、角色、基线及身份。启动恢复不写 Flash，不持久化积分或锁定状态。
+
+PREPARE 按 `floor((commit_us-low_us)*1000/period_ns)` 确定本次每块边沿数，
+零或大于 `SYNC_IO_RUN_OUTPUT_MAX_EDGES` 拒绝，不静默截断；同时检查规划切片
+所需静态表周期及低水位对两个表周期、交接候选预算和后端保护时间的容纳关系。
+这只是容量准入，不证明完整 callback 按期执行。规划水位和低水位比较新鲜 raw
+时刻与已提交最早末下降沿；提交还必须等待 DMA 源退休。新的最晚硬件末下降沿
+包含首次 enable 偏移上界，不能超过提交窗口。首次 PRESTART 提前量独立于运行
+库存上限，首块跨度仍检查；启动提前量不在每块重新增加。较长 DMA 源不扩大
+DMA 退休后 FIFO 中剩余的实际执行时间，不以软件缓存量代替硬件库存。
 
 当整段 TDMA 服务因剩余相位时间不足而跳过时，dispatcher 可在同一 TDMA
 相位内按 `PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES` 独立准入
@@ -824,6 +843,11 @@ SYNC_IO 补给主体显式放置于主 SRAM，并阻止编译器将边界重新�
 
 `vdc_timestamp_bridge_local_to_raw` 为未来本地 ns 给出保守原始 tick 区间，保留
 TIMER0 量化、bridge 观察跨度和原始计数器分数拍；上界用于不提前的计划坐标。
+该旧 API 的短期边界不变。有限 RUN 单次取得初始 bridge，后续绝对本地目标经
+`vdc_timestamp_timeline_local_to_raw` 映射到同一 raw 时间轴，使用该 helper 的
+有界长期范围，不累计舍入后的周期。规划和准入仍分别读新鲜硬件 raw 时刻，
+校验时钟配置和模型生效时刻；旧 anchor 不是当前时间。取消/终态/新准备清理映射。
+固定映射不会消除真实模型更新引起的未来边沿变化，不擅自平滑或修改 NO1 PI。
 SYNC_IO 另外记录首次 PIO enable 的时间锚区间，实际边沿仍带有该公共非负偏移。
 计划 tick、DMA 源退休、物理边沿完成三者不得混同；量化或 anchor 区间未收敛时，
 不授予百纳秒精度。有限运行到期、取消、时钟异常或断流由 SYNC_IO 停止输出并退休。
@@ -848,6 +872,10 @@ SYNC_IO 另外记录首次 PIO enable 的时间锚区间，实际边沿仍带有
 报告开销仍受原相位尾部期限检查。报告复验 request 防止污染新请求；同一保留
 请求中的调用/样本差可揭示部分丢样，释放后重新准备会清旧统计，不能外推旧请求
 已完整采样。计数、时间区间与真实连续边沿分别验收。
+时间轴诊断在原字段后追加实际锁存的三窗口、初始 bridge 次数、分批规划次数、
+规划/补给/承诺等待次数、每块边沿数与静态表周期；版本以
+`SYNC_IO_RUN_OUTPUT_SCHEMA` 为准。`BRIDGE_UNAVAILABLE` 同时涵盖新鲜 raw
+读取失败，不能将该计数都解释为初始 bridge 采样失败。
 
 物理输出验收按用户阶段目标区分粗锁定、精锁定和完全锁定，具体目标与推进状态
 见 `VDC_DOMAIN_TODO.md`。分级以声明窗口中各从板相对 NO1 的同序输出边沿

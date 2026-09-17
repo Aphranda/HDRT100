@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Related: `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
 本文档定义本机 realtime IO capability、PIO persona、逻辑分析仪、SMA 维护能力和
 PIO/DMA/IRQ 执行资源之间的稳定边界。它不定义产品 Trigger 状态机、TDMA 协议、
@@ -81,7 +81,12 @@ Core1 执行 PREPARED → RUNNING → RETIRING → RETIRED；取消只发布意�
 非阻塞 abort；确认 abort 清除且 DMA 不忙后才发布 RETIRED。Core0 取得完整
 客户端退休权后释放资源，新请求使用新 generation，不恢复旧倒计时。具体资源、
 编码开销和块容量以 board/persona 描述及 `sync_pulse_stream_encode.h`、
-`SYNC_IO_RUN_OUTPUT_BLOCK_EDGES` 为事实源，不能从指令 tick 推断跨板精度。
+`SYNC_IO_RUN_OUTPUT_MAX_EDGES` 为事实源，不能从指令 tick 推断跨板精度。
+`sync_io_run_output_submit_count_core1` 接收有界非零边沿数，先完整校验再修改
+源缓冲及元数据；旧固定块 wrapper 保留。首次最小块直接预装 FIFO，不启动
+零长度 DMA；续块按实际编码数提交。扩大软件块不扩大 DMA 退休后的 FIFO
+执行余量，也不授予跨服务空窗的连续性。上层窗口与分批规划见
+`VDC-PRIORITY-01`，SYNC_IO 仍独占硬件提交及退休。
 
 ### 类型区分
 

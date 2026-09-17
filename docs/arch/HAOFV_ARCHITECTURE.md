@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 Version: 5
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -189,7 +189,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `DOCS-FLASH-01` | Flash 域架构、TODO、任务进度三类文档的事实边界与变更接口 | `docs/arch/HAOFV_FLASH_ARCHITECTURE.md` | pending |
 | `DOCS-TRIPLETFORMAT-01` | 域文档 Architecture、TODO、Task Progress 三件套的最小格式、稳定 ID、状态词汇和文件接口 | `docs/check/DOCS_REGRESSION_PLAN.md` | pending |
 | `VDC-PATHMATRIX-01` | Calibration load 生成完整 source/reference observation path matrix；DPLL 运行态只做矩阵索引，禁止沿环推断 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md` | pending |
-| `VDC-PRIORITY-01` | typed 同步邮箱携带完整事件/运行代际及 output-ns 区间，Core1 编码/直接匹配、TDMA 双缓冲及 RX IRQ 交接；NO1 有限共钟半开求交、逐帧 latch、编码后提交与原生重放；typed 共钟差分与旧阶梯界分离，有界窄基线和档位复评；STOP 配置、绑定锁存与 Core0 显式 Flash 保存；本地相位精确平移与完整回执，频率变化/未知模型/STOP 取消；独立输出 delay、整数反解与共同网格；DPLL/VDC/SYNC 特等席由 SYNC_IO 统一交付 PIO，有限持续输出保留资源预留、完整客户端交接、START/模型身份准入、不可改写前缀、raw/enable 锚区间与异步退休；物理精度、单圈期限、ACK 与产品锁相独立验收 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-PRIORITY-01` | pending |
+| `VDC-PRIORITY-01` | typed 同步邮箱携带完整事件/运行代际及 output-ns 区间，Core1 编码/直接匹配、TDMA 双缓冲及 RX IRQ 交接；NO1 有限共钟半开求交、逐帧 latch、编码后提交与原生重放；typed 共钟差分与旧阶梯界分离，有界窄基线和档位复评；STOP 配置、绑定锁存与 Core0 显式 Flash 保存；本地相位精确平移与完整回执，频率变化/未知模型/STOP 取消；独立输出 delay、整数反解与共同网格；DPLL/VDC/SYNC 特等席由 SYNC_IO 统一交付 PIO，有限持续输出保留资源预留、完整客户端交接、START/模型身份准入、不可改写前缀、raw/enable 锚区间与异步退休；时间窗口可配置，有限 RUN 固定映射并使用新鲜硬件时刻、分批规划及静态调度容量准入；物理精度、单圈期限、ACK 与产品锁相独立验收 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-PRIORITY-01` | pending |
 | `VDC-REFERENCE-01` | 显式 STOP 参考运输复用固定配额：Core0 投影并逐目标发送，三从保留指定主机参考并回 typed 接收 ACK，主机按完整发布证明核对；不阻塞发车或本地 PI，不以确认代替 DCO 应用或锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-REFERENCE-01` | pending |
 | `VDC-BOUNDARY-01` | 特等席固定配额承载逐从频率命令；Core0 准备独立 RATE 同模型窗口并有界重复，Core1 在显式 AUTO 下逐从负反馈、连续应用及精确 ACK；未决不叠加，不授予物理锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-BOUNDARY-01` | pending |
 
