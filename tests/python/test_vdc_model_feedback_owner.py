@@ -44,6 +44,18 @@ bool vdc_domain_dco_local_to_output_ns(const vdc_dco_control_t *d,uint64_t t,uin
 { assert(d->valid);*out=t+d->phase_offset_ns;return true; }
 void vdc_domain_set_ready(vdc_domain_context_t *c,bool ready) { c->ready=ready; }
 ''' + (ROOT / "components/vdc_dpll_manager/src/vdc_model_feedback.inc").read_text(encoding="utf-8") + r'''
+/* Real recorder behavior is covered by test_vdc_priority_trace. This model
+ * owner fixture checks its placement outside the committed-model guard. */
+static void priority_trace_service_core1(void)
+{
+    assert(!(s_committed_model_guard & 1u));
+    assert(match_calls == ingress_calls && ingress_calls == step_calls);
+}
+static void priority_trace_match_core1(void)
+{
+    assert(!(s_committed_model_guard & 1u));
+    assert(match_calls == ingress_calls + 1u && ingress_calls == step_calls);
+}
 static void vdc_priority_match_core1(void)
 {
     /* Matching projects against the committed model before ingress and before

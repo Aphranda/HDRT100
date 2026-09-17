@@ -21,6 +21,7 @@ typedef struct {
     uint64_t local_delta_lo, local_delta_hi, expected_delta_lo, expected_delta_hi;
     int64_t error_lo, error_hi;
     uint32_t have_baseline, pending, bound, have_consumed, consumed_sequence;
+    uint32_t next_evaluation; /* Private next threshold index; never refunded. */
 } vdc_priority_follow_work_t;
 static vdc_priority_follow_work_t s_priority_follow_work;
 static uint32_t s_priority_follow_guard;
@@ -29,6 +30,11 @@ _Static_assert(sizeof(vdc_priority_follow_snapshot_t) == 216u,
     "typed-follow diagnostics use 54 atomic words");
 _Static_assert(VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS <= UINT64_C(2000000000),
     "scaled positive secant numerator is bounded by 2e18");
+_Static_assert(VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS < VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS &&
+    VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS < VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS &&
+    VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS < VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS &&
+    VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS == 3u,
+    "three ordered evaluation thresholds stay below the unchanged interval limit");
 
 static bool priority_follow_set_stopped(void *context)
 {
@@ -112,7 +118,7 @@ static void priority_follow_cancel(uint32_t reason, bool retire)
 {
     vdc_priority_follow_work_t *w = &s_priority_follow_work;
     if (w->pending || w->have_baseline) w->status.cancelled = priority_match_inc(w->status.cancelled);
-    w->pending = w->have_baseline = 0u;
+    w->pending = w->have_baseline = w->next_evaluation = 0u;
     w->status.last_reason = reason;
     w->status.state = retire ? VDC_PRIORITY_FOLLOW_RETIRED : VDC_PRIORITY_FOLLOW_AWAITING;
     if (retire) w->status.active = 0u;
@@ -142,6 +148,7 @@ static void priority_follow_baseline(void)
         .expected_lo = m->expected_lo, .expected_hi = m->expected_hi,
         .raw_lo = m->raw_lo, .sequence = m->event_sequence, .model_token = m->model_token};
     w->have_baseline = 1u;
+    w->next_evaluation = 0u;
     w->status.baselines = priority_match_inc(w->status.baselines);
     w->status.state = VDC_PRIORITY_FOLLOW_BASELINE;
 }
@@ -236,11 +243,25 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
         priority_follow_baseline(); s->last_reason = VDC_PRIORITY_FOLLOW_INTERVAL;
         priority_follow_publish(); return;
     }
-    if (w->expected_delta_lo < VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS) {
+    if (w->next_evaluation >= VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS) {
+        priority_follow_baseline(); s->last_reason = VDC_PRIORITY_FOLLOW_INTERVAL;
+        priority_follow_publish(); return;
+    }
+    const uint64_t next_interval = w->next_evaluation == 0u
+        ? VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS : w->next_evaluation == 1u
+        ? VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS : VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS;
+    if (w->expected_delta_lo < next_interval) {
         s->waits = priority_match_inc(s->waits); s->state = VDC_PRIORITY_FOLLOW_WAITING;
         s->last_reason = VDC_PRIORITY_FOLLOW_INTERVAL;
         priority_follow_publish(); return;
     }
+    /* Consume this opportunity BEFORE either projection or ratio arithmetic.
+     * Jump to a strictly future threshold: missed windows never catch up, and
+     * BUSY/application deferral or fresh-ticket replacement cannot refund a
+     * threshold and add another computation for the same baseline. */
+    w->next_evaluation = w->expected_delta_lo >= VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS
+        ? VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS
+        : w->expected_delta_lo >= VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS ? 2u : 1u;
     /* Only a complete observation window pays for the scaled divisions.
      * The binding/anchor checks above hold transitively from the baseline.
      * Both MATCH endpoints retain their admitted absolute output intervals;
@@ -413,14 +434,22 @@ static __attribute__((noinline)) void priority_follow_apply_core1(void)
             s->last_reason = VDC_PRIORITY_FOLLOW_OK;
             /* Own DCO commit changes the actual model/valid_from at guard end.
              * Only a later event projected by that model can seed a new pair. */
-            w->have_baseline = 0u;
+            w->have_baseline = w->next_evaluation = 0u;
             vdc_dpll_manager_publish_runtime_snapshot_locked();
         } else {
             s->no_adjust = priority_match_inc(s->no_adjust);
-            priority_follow_baseline(); s->state = VDC_PRIORITY_FOLLOW_NO_ADJUST;
-            s->last_reason = w->error_lo <= VDC_BOUNDARY_AUTO_DEADBAND_PPB &&
-                w->error_hi >= -VDC_BOUNDARY_AUTO_DEADBAND_PPB ?
-                VDC_PRIORITY_FOLLOW_DEADBAND : VDC_PRIORITY_FOLLOW_DOMAIN;
+            const bool overlaps_deadband = w->error_lo <= VDC_BOUNDARY_AUTO_DEADBAND_PPB &&
+                w->error_hi >= -VDC_BOUNDARY_AUTO_DEADBAND_PPB;
+            const bool inside_deadband = w->error_lo >= -VDC_BOUNDARY_AUTO_DEADBAND_PPB &&
+                w->error_hi <= VDC_BOUNDARY_AUTO_DEADBAND_PPB;
+            /* Only unresolved uncertainty buys a later window. A narrow
+             * deadband result, a saturated zero step, or the final consumed
+             * threshold starts a fresh baseline without forcing adjustment. */
+            if (!overlaps_deadband || inside_deadband ||
+                w->next_evaluation >= VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS)
+                priority_follow_baseline();
+            s->state = VDC_PRIORITY_FOLLOW_NO_ADJUST;
+            s->last_reason = overlaps_deadband ? VDC_PRIORITY_FOLLOW_DEADBAND : VDC_PRIORITY_FOLLOW_DOMAIN;
         }
     }
     VDC_PRIORITY_TRACE_DECISION_HOOK(s);

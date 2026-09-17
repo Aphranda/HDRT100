@@ -10,6 +10,9 @@
  * A same-anchor/same-model raw delta further bounds the LOCAL actual-output
  * difference, with full TIMER0 quantization retained before DCO scaling. */
 #define VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS UINT64_C(1000000000)
+#define VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS UINT64_C(1500000000)
+#define VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS UINT64_C(1800000000)
+#define VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS 3u
 #define VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS UINT64_C(2000000000)
 #define VDC_PRIORITY_FOLLOW_MAX_AGE_MS 120u
 
@@ -34,6 +37,9 @@ enum {
  * active is historical publication state; this getter is no actuator grant.
  * Baseline/event identify the last prepared two-event secant; missing frames
  * need not be consecutive and do not authorize synthetic observations.
+ * An uncertain deadband overlap may retain the same local-model baseline
+ * for the bounded later windows. Each threshold is consumed before prepare
+ * arithmetic, even if a pending decision is subsequently replaced or busy.
  * local_interval is the intersection of the absolute-endpoint difference
  * and the correlated local bound; interval retains the full remote bound. */
 typedef struct {
