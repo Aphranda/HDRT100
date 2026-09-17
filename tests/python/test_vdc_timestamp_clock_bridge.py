@@ -62,13 +62,14 @@ def bridge_executable(tmp_path_factory):
     source.write_text(HARNESS, encoding="utf-8")
     cc = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
     executables = {}
-    for name, device, default_timer, xosc in (
-        ("device", 1, 0, 12_000_000), ("host", 0, 0, 12_000_000),
-        ("timer1-default", 1, 1, 12_000_000), ("xosc24", 1, 0, 24_000_000),
+    for name, device, rp2350, default_timer, xosc in (
+        ("device", 1, 1, 0, 12_000_000), ("host", 0, 1, 0, 12_000_000),
+        ("timer1-default", 1, 1, 1, 12_000_000), ("xosc24", 1, 1, 0, 24_000_000),
+        ("rp2040", 1, 0, 0, 12_000_000),
     ):
         executable = directory / (name + ".exe")
         command = [cc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
-                   f"-DPICO_ON_DEVICE={device}", "-DPICO_RP2350=1",
+                   f"-DPICO_ON_DEVICE={device}", f"-DPICO_RP2350={rp2350}",
                    f"-DPICO_DEFAULT_TIMER={default_timer}", f"-DXOSC_HZ={xosc}u",
                    "-I" + str(directory), "-I" + str(ROOT / "components/vdc_domain/inc"),
                    "-I" + str(ROOT / "components/vdc_domain/src"), str(source), "-o", str(executable)]
@@ -83,7 +84,9 @@ def bridge_executable(tmp_path_factory):
                                   "bounded-rollover", "unavailable", "limits",
                                   "diagnostic-success", "diagnostic-rejection",
                                   "diagnostic-rollover", "diagnostic-uninitialized",
-                                  "sticky-badwrite", "tight-bracket", "preempted-bracket"])
+                                  "sticky-badwrite", "tight-bracket", "preempted-bracket",
+                                  "configuration-equivalence", "configuration-cost",
+                                  "configuration-counter-independence"])
 def test_actual_device_bridge(bridge_executable, case):
     result = subprocess.run([str(bridge_executable["device"]), case], capture_output=True,
                             text=True, timeout=10)
@@ -93,7 +96,7 @@ def test_actual_device_bridge(bridge_executable, case):
     assert "bridge passed" in result.stdout
 
 
-@pytest.mark.parametrize("platform", ["host", "timer1-default", "xosc24"])
+@pytest.mark.parametrize("platform", ["host", "timer1-default", "xosc24", "rp2040"])
 def test_unsupported_platform_preserves_output(bridge_executable, platform):
     result = subprocess.run([str(bridge_executable[platform]), "unsupported"],
                             capture_output=True, text=True, timeout=10)
@@ -228,9 +231,39 @@ static int rejects(uint32_t expected) {
     CHECK(timer_reads[0]<=11 && timer_reads[1]<=12 && clock_reads<=2);
     return 0;
 }
+static int configuration_equivalent(uint32_t expected, bool wanted) {
+    /* Hold fake counter progression so all memory changes would be writes. */
+    stop_raw=true;
+    const timer_t before_banks[2]={banks[0],banks[1]};
+    const clocks_t before_clocks=clocks;
+    const pll_t before_pll=pll;
+    const ticks_t before_ticks=ticks;
+    const xosc_t before_xosc=xosc;
+    const syscfg_t before_syscfg=syscfg;
+    const bool initialized=s_vdc_timestamp_clock_initialized;
+    const bool ready=s_vdc_timestamp_clock_ready;
+    const uint32_t cached=s_vdc_timestamp_clock_tick_hz;
+    const unsigned t0=timer_reads[0], t1=timer_reads[1], calls=clock_reads;
+    const bool actual=vdc_timestamp_clock_configuration_supported(expected);
+    CHECK(actual==wanted);
+    CHECK(timer_reads[0]-t0<=4 && timer_reads[1]-t1<=3 && clock_reads-calls<=1);
+    vdc_timestamp_clock_bridge_diagnostic_t d;
+    CHECK(vdc_timestamp_clock_read_bridge_diagnostic(expected,&d));
+    CHECK(actual==(bool)(d.configuration_supported && d.clock_ready));
+    CHECK(!memcmp(before_banks,banks,sizeof(banks)));
+    CHECK(!memcmp(&before_clocks,&clocks,sizeof(clocks)));
+    CHECK(!memcmp(&before_pll,&pll,sizeof(pll)));
+    CHECK(!memcmp(&before_ticks,&ticks,sizeof(ticks)));
+    CHECK(!memcmp(&before_xosc,&xosc,sizeof(xosc)));
+    CHECK(!memcmp(&before_syscfg,&syscfg,sizeof(syscfg)));
+    CHECK(initialized==s_vdc_timestamp_clock_initialized && ready==s_vdc_timestamp_clock_ready);
+    CHECK(cached==s_vdc_timestamp_clock_tick_hz);
+    return 0;
+}
 int main(int argc,char **argv) {
     CHECK(argc==2); clean();
     if (!strcmp(argv[1],"unsupported")) {
+        CHECK(!vdc_timestamp_clock_configuration_supported(hz));
         CHECK(rejects(hz)==0);
         CHECK(timer_reads[0]==0 && timer_reads[1]==0 && clock_reads==0);
         vdc_timestamp_clock_bridge_diagnostic_t d;
@@ -240,6 +273,61 @@ int main(int argc,char **argv) {
         CHECK(d.expected_hz==hz && d.timer0_sample_us==0 && d.timer1_sample_ticks==0);
         CHECK(d.bridge.raw_before==0 && d.bridge.local_ns==0 && d.bridge.raw_after==0);
         CHECK(timer_reads[0]==0 && timer_reads[1]==0 && clock_reads==0);
+        CHECK(!(d.configuration_supported && d.clock_ready));
+    } else if (!strcmp(argv[1],"configuration-equivalence")) {
+        for (unsigned code=0; code<=42; ++code) {
+            clean(); mutate(code);
+            const bool valid=code==0 || code==33 || code==34 || code==39 || code==41 || code==42;
+            CHECK(configuration_equivalent(125000000,valid)==0);
+        }
+        for (unsigned mode=0; mode<5; ++mode) {
+            clean();
+            if (mode==0) { hz=250000000; pll.prim=0x32000; }
+            if (mode==1) { hz=62500000; clocks.clk[5].div=2u<<16; }
+            if (mode==2) banks[0].dbgpause=banks[1].dbgpause=7;
+            if (mode==3) { hz=250000000; pll.prim=0x61000; xosc.status=0x81001000u; }
+            if (mode==4) { clocks.clk[4].div=2u<<16; ticks.ticks[2].cycles=6; }
+            s_vdc_timestamp_clock_tick_hz=hz;
+            CHECK(configuration_equivalent(hz,true)==0);
+        }
+        for (unsigned mode=0; mode<7; ++mode) {
+            clean(); uint32_t expected=hz;
+            if (mode==0) expected=0;
+            if (mode==1) ++expected;
+            if (mode==2) s_vdc_timestamp_clock_ready=false;
+            if (mode==3) s_vdc_timestamp_clock_initialized=s_vdc_timestamp_clock_ready=false;
+            if (mode==4) ++s_vdc_timestamp_clock_tick_hz;
+            if (mode==5) s_vdc_timestamp_clock_tick_hz=0;
+            if (mode==6) xosc.status|=1;
+            CHECK(configuration_equivalent(expected,false)==0);
+        }
+    } else if (!strcmp(argv[1],"configuration-cost")) {
+        CHECK(vdc_timestamp_clock_configuration_supported(hz));
+        /* Only config accesses: TIMER0 instance/source/pause/dbgpause and
+         * TIMER1 source/pause/dbgpause. No raw counter triplets or retry. */
+        CHECK(timer_reads[0]==4 && timer_reads[1]==3 && clock_reads==1);
+        clean();
+        vdc_timestamp_clock_bridge_diagnostic_t d;
+        CHECK(vdc_timestamp_clock_read_bridge_diagnostic(hz,&d));
+        CHECK(d.configuration_supported && d.clock_ready && d.bridge_valid);
+        CHECK(timer_reads[0]==21 && timer_reads[1]==21 && clock_reads==4);
+    } else if (!strcmp(argv[1],"configuration-counter-independence")) {
+        for (unsigned mode=0; mode<3; ++mode) {
+            clean();
+            if (mode==0) stop_raw=true;
+            if (mode==1) {
+                const uint64_t us=(UINT64_MAX-999)/1000+1;
+                banks[0].timerawh=(uint32_t)(us>>32); banks[0].timerawl=(uint32_t)us;
+            }
+            CHECK(vdc_timestamp_clock_configuration_supported(hz));
+            /* Force TIMER0 rollover in the diagnostic bridge's hi/lo/hi,
+             * after its independent raw sample and config observation. */
+            if (mode==2) { trigger_bank=0; trigger_read=timer_reads[0]+16; mutation=100; }
+            vdc_timestamp_clock_bridge_diagnostic_t d;
+            CHECK(vdc_timestamp_clock_read_bridge_diagnostic(hz,&d));
+            CHECK(d.configuration_supported && d.clock_ready && !d.bridge_valid);
+            CHECK(vdc_timestamp_clock_configuration_supported(hz));
+        }
     } else if (!strcmp(argv[1],"success")) {
         for (unsigned mode=0; mode<5; ++mode) {
             clean();

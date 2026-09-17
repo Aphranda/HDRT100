@@ -241,6 +241,19 @@ static bool vdc_timestamp_bridge_config(vdc_timestamp_bridge_config_t *out,
 }
 #endif
 
+bool vdc_timestamp_clock_configuration_supported(uint32_t expected_hz)
+{
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE && defined(PICO_RP2350) && PICO_RP2350 && \
+    PICO_DEFAULT_TIMER == 0 && XOSC_HZ == 12000000u
+    vdc_timestamp_bridge_config_t config;
+    return __atomic_load_n(&s_vdc_timestamp_clock_ready, __ATOMIC_ACQUIRE) &&
+        vdc_timestamp_bridge_config(&config, expected_hz);
+#else
+    (void)expected_hz;
+    return false;
+#endif
+}
+
 bool vdc_timestamp_clock_try_read_bridge(uint32_t expected_hz,
     vdc_timestamp_clock_bridge_t *out)
 {

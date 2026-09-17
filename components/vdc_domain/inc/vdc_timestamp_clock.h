@@ -33,6 +33,12 @@ typedef struct {
  * cross-board phase relationship is established by this local bridge. */
 bool vdc_timestamp_clock_try_read_bridge(uint32_t expected_hz,
     vdc_timestamp_clock_bridge_t *out);
+/* One read-only observation of the bridge's complete supported configuration
+ * and clock readiness, without counter sampling, initialization or retry.
+ * This is the diagnostic's configuration_supported && clock_ready predicate,
+ * not bridge validity or a reset/rate-change epoch. The caller still owns
+ * clock/timer lifetime exclusion and any required before/after validation. */
+bool vdc_timestamp_clock_configuration_supported(uint32_t expected_hz);
 /* Stopped diagnostic only. The caller owns the STOP barrier. Configuration
  * and counter snapshots are independent observations; only bridge_valid
  * grants validity to bridge. No initialization, retry, writes or static RAM.

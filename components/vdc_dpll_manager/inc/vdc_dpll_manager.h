@@ -88,6 +88,13 @@ bool vdc_dpll_manager_get_committed_model(vdc_dpll_manager_committed_model_t *ou
 /* Core0 STOP-only finite physical observation of one actually committed
  * rate. It does not qualify absolute phase or adopt later model updates. */
 #define VDC_FIXED_OUTPUT_MIN_PERIOD_NS 1000000u
+/* Per admission stage, Core0 only: attempts include the mandatory first read.
+ * After its first unknown snapshot, the time budget gates starting extra
+ * reads. An already-started complete valid observation is not rejected for
+ * elapsed IRQ/task latency. These do not bound wall time/WCET or guarantee
+ * that a rejected post-arm batch emitted no physical edge. */
+#define VDC_FIXED_OUTPUT_SNAPSHOT_ATTEMPTS 64u
+#define VDC_FIXED_OUTPUT_SNAPSHOT_BUDGET_US 128u
 enum {
     VDC_FIXED_OUTPUT_IDLE = 0u, VDC_FIXED_OUTPUT_RUNNING = 1u,
     VDC_FIXED_OUTPUT_COMPLETE = 2u, VDC_FIXED_OUTPUT_CANCELLED = 3u,
@@ -99,6 +106,19 @@ enum {
     VDC_FIXED_OUTPUT_RESOURCE_OR_ARGUMENT = 4u,
     VDC_FIXED_OUTPUT_CHANGED = 5u, VDC_FIXED_OUTPUT_BUSY = 6u,
     VDC_FIXED_OUTPUT_CANCEL = 7u,
+    /* Append-only diagnostics; schema 1 keeps its existing 32 fields.
+     * DEADLINE means the extra-read start budget expired while still unknown. */
+    VDC_FIXED_OUTPUT_INITIAL_RING_UNAVAILABLE = 8u,
+    VDC_FIXED_OUTPUT_INITIAL_MODEL_UNAVAILABLE = 9u,
+    VDC_FIXED_OUTPUT_INITIAL_DEADLINE = 10u,
+    VDC_FIXED_OUTPUT_PRE_RING_UNAVAILABLE = 11u,
+    VDC_FIXED_OUTPUT_PRE_MODEL_UNAVAILABLE = 12u,
+    VDC_FIXED_OUTPUT_PRE_DEADLINE = 13u,
+    VDC_FIXED_OUTPUT_POST_RING_UNAVAILABLE = 14u,
+    VDC_FIXED_OUTPUT_POST_MODEL_UNAVAILABLE = 15u,
+    VDC_FIXED_OUTPUT_POST_DEADLINE = 16u,
+    VDC_FIXED_OUTPUT_SELFTEST = 17u,
+    VDC_FIXED_OUTPUT_IRQ_CONTEXT = 18u,
 };
 typedef struct {
     vdc_dpll_manager_committed_model_t model;
