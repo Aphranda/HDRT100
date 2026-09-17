@@ -95,6 +95,23 @@ origin 原生 schema 复用维护池，从 Core1 确认的空 SYNC 开始连续�
 软件、同源码 P3 和原生专项的结果由 Task Progress 记录，不据映射区间收窄
 宣称单圈期限、物理精度或锁相。
 
+## 早期基线质量增补（v9 pending）
+
+`VDC-PRIORITY-01` v9 在首个估计档位消耗前，允许同模型与完整绑定下的
+有效样本有界替换基线；完整远端间隔受窗口限制，新宽度至少减半，次数由
+代码符号限定。每次使用新事件自己的真实端点；没有合格候选时沿用原基线，
+不增加固定质量前置。已消耗档位不退还，正常重建、取消和实际应用清理次数。
+额外间隔界属于参考坐标，不是缺帧情况下的墙钟期限。新增诊断理由保留
+既有编号和快照布局，最近状态不证明替换历史，STOP 可以覆盖该理由。
+
+独立方 `p0_root_review` 于 2026-09-17 对照实现、测试、域文档、登记表及顶层
+复核，结论 `APPROVE_V9_PENDING_CONTRACT_EVOLUTION`；登记仍为 pending，
+不批准 active。原件为
+`out/HardwareAcceptance/20260917/dpll-baseline-quality-r1/design-review/c11-v9-independent-review.json`。
+同目录 `implementation-independent-review.json` 核对源文件及采集器范围，
+资源报告位于该证据根的 `review/resource-review.json`；硬件与物理结论由
+Task Progress 记录，不由软件策略或登记状态推定锁相。
+
 ## 最终核验结论
 
 ACCEPT_WITH_DEVIATION。P3、资源和 typed 实板专项的实际结果只记录在 VDC Task Progress，
