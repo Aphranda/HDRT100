@@ -8,8 +8,8 @@ Last updated: 2026-09-17
 
 ## 当前范围
 
-按用户最新确认，本次最小测试系统由 DUT_LINK_CONTROL 和 VNA_GATEWAY 组成。
-保留两种运行模式：独立 SP8T 由软件或所选 IN1-IN4 逐状态推进，可配置 PULSE/LEVEL 状态反馈
+按用户最新确认，本次最小测试系统支持独立SP8T、DUT/VNA组合与COUNTER/DUT/VNA三槽位位置模式。
+保留前两种运行模式：独立 SP8T 由软件或所选 IN1-IN4 逐状态推进，可配置 PULSE/LEVEL 状态反馈
 或 NONE 纯编码；组合模式的 DUT 只输出 SP8T 编码，VNA 网关输出测量触发并接收 READY。
 两种 GUI 模式均显式配置每路 OUT 属性；组合模式不再由界面固定编码 mask 或 VNA 触发 OUT。
 组合模式按 START 首状态建立 → RJ45 TDMA LINK_APPLIED → VNA 触发 → READY 输入或 SCPI NEXT 网关 →
@@ -25,6 +25,28 @@ START 预置不计触发；首次有效反馈进入第二状态。轮次默认�
 
 本次范围修订优先于历史多节点待办和进度记录中的依赖关系。
 
+第三模式由转台累计N个脉冲触发一个位置，每位置跑完整SP8T计划，各项采样一次；
+采样期间继续累计原始脉冲，下一完整位置到达时仍忙则故障，不缓存位置。
+START仅预置编码，首位置到达才采样；REP为位置数，GUI使用独立第三页。
+细节见下方NSEQ-091至095、架构“第三模式”及进度037。
+
+### 单板调试默认构建入口
+
+按用户要求，后续单板调试默认启用USB运行时切换，统一使用已有
+`pico2-usb-runtime-switch` preset，不再直接使用未启用该功能的`pico2-release`。
+该preset设置`PROJECT_ENABLE_USB_RUNTIME_SWITCH=ON`、`PROJECT_USB_DEFAULT_MODE=CDC`；
+可用`SYST:USB:MODE CDC|USBTMC`选择模式、读回确认后用`SYST:USB:BOOT`重启枚举。
+“默认开启切换能力”不代表默认以USBTMC启动；设备保存的模式及实际枚举以读回为准。
+
+```powershell
+cmake --preset pico2-usb-runtime-switch
+cmake --build --preset pico2-usb-runtime-switch
+```
+
+OTA包位于`out/build/pico2-usb-runtime-switch/DHRT100_UPDATE.pkg`；
+如指定自定义`-B`目录，构建和OTA必须使用同一目录的新包。
+烧录后核对build及`SYST:USB:MODE?`，再执行当次序列单板验证，不能沿用另一构建配置的凭证。
+
 ## 当前交付快照与接续顺序
 
 ### 受限提交 risk 与下一提交约束
@@ -39,6 +61,7 @@ START 预置不计触发；首次有效反馈进入第二状态。轮次默认�
 | NSEQ-RISK-01 | typed snapshot quality、一致缓存及逐查询 SCPI 错误归因已由当前 build 的单板凭证验证；旧失败保留 | 已关闭：两种固定 profile 的诊断均取得一致快照且错误队列为空；`UNAVAILABLE`、解析失败或遗留错误仍由门禁拒绝 |
 | NSEQ-RISK-02 | 共享配置事务门覆盖 START 校验至入队及 SCPI/RefMem/model mutation，锁顺序已固化 | 已关闭：相关 host 并发/内部装载测试、当前 build 有限和连续板测均绑定同一 staged 指纹通过 |
 | NSEQ-RISK-03 | 非零 `exchange_id`、暂停恢复和重启轮换、旧 exchange 拒绝已实现 | 已关闭：连续 profile 证明 PAUSE 静默、CONT 后 exchange 轮换并继续推进，STOP 后输出和 TDMA owner 归零；旧帧/超时恢复由确定性注入测试覆盖 |
+| NSEQ-RISK-04 | 进度042的ROLE ACT一次返回`REFMEM_TABLE_ACTIVATE_ERR_GATE`，staging完整且重跑成功；缺少gate分项诊断，尚不能判定拒绝来自快照暂不可用还是其他准入位 | OPEN：下一代码提交先补激活gate分项/快照不可用证据与确定性回归，再同固件反复配置验证；保留原拒绝，不以盲重试或一次PASS关闭 |
 
 完整动态claim/多板分配、外部波形、射频通路及严格TDMA稳定性仍在原任务中待完成，
 当前受限提交仅准许同板物理回环调试，不把这些能力纳入可用范围。
@@ -109,7 +132,7 @@ GUI 分页批次已完成；用户已要求继续调试，并参考 real-flight 
 | NSEQ-060 | 后续提速前核对SYNC域PIO分配 | DONE | 用户确认仅使用PIO0；board/SYNC分配已核对，PIO1/PIO2不改，见进度011 |
 | NSEQ-061 | 序列PIO执行与热加载 | DONE | 生产失败回滚测试、重复装卸、暂停/恢复及STOP单板验证通过；进度012，按用户要求不以P3前置 |
 | NSEQ-062 | PIO提速验收 | IN PROGRESS | 进度012完成首档提速功能，后续按用户设置继续压力测试；独立波形、单步延迟和极限吞吐仍需另测 |
-| NSEQ-063 | START首状态预置与后继循环 | IN PROGRESS | START取得资源后输出首状态，初始建立期间禁止准入且不计数/不发完成脉冲；首次触发进入第二状态，剩余轮次允许时回绕；host、Release及BUS单板IO通过，OUT4外部波形待验收；本次单板不执行P3 |
+| NSEQ-063 | START首状态预置与后继循环 | IN PROGRESS | START取得资源后输出首状态，首项状态动作完成前禁止准入且不计推进数；首次触发进入第二状态，剩余轮次允许时回绕；历史host、Release及BUS单板IO通过；首项新增响应延时后的状态输出见NSEQ-090，OUT4外部波形待验收；本次单板不执行P3 |
 
 ## RefMem 动态槽位与同板双角色规划
 
@@ -137,6 +160,107 @@ GUI 分页批次已完成；用户已要求继续调试，并参考 real-flight 
 | NSEQ-085 | 受限提交后关闭当前risk | DONE | 当前源码已完成单板 OTA、SCPI NEXT 有限十轮、连续 PAUSE/CONT 和匹配 staged 凭证，见进度029；只关闭单板功能 risk，不表示 P3、多板、波形、RF、独立输入边沿或严格 TDMA 稳定性通过 |
 | NSEQ-086 | MANUAL 来源统一与 RJ45 READY 分流 | DONE | 对外移除 BUS；独立 MANUAL 直接 NEXT，LOOPBACK 的 MANUAL 仅代替 VNA READY 且不启动输入捕获/READY 超时，真实 READY_NEXT 回环仍为 DUT 切步门禁；host、Release、严格单板 OTA、有限十轮及连续 PAUSE/CONT gate 均通过，见进度030；不外推为 P3、多板、波形、RF、独立输入边沿或严格 TDMA 稳定性通过 |
 | NSEQ-087 | RJ45 显式 OUT 属性与紧凑布局 | DONE | RJ45 与独立页均显示四路 OUT 属性；RJ45 恰好一路 VNA 触发且与编码 mask 互斥，生成实际 `OUTx`；短标签和紧凑下拉保持四路同排，命令负向测试、双尺寸 Tk 布局及当前 build 单板 gate 通过，见进度031；未对非默认物理接线作波形或 RF 验收 |
+| NSEQ-088 | 单板默认USB切换构建 | DONE | 统一使用pico2-usb-runtime-switch；新包编译/OTA、CDC与USBTMC双向切换及VISA外部IN1十轮通过，见进度032；软件NEXT回归失败单独跟进，不代表完整门禁通过 |
+| NSEQ-089 | USB切换构建的软件NEXT拒绝定位 | DONE | NEXT改读发布快照，避免LINK writer guard争用；确定性抢占回归及当前build真实RJ45软件READY十轮PASS，见进度037；旧032/034失败保留，单板功能结论不等于提交门禁凭证 |
+| NSEQ-090 | START首项响应延时与状态输出 | DONE | 当前build的OTA、OUT4→IN2严格回接PULSE/LEVEL/NONE/单项/STOP/热加载及MANUAL十轮通过；IN1 50Hz独立十轮、RJ45外部READY十轮及持续PAUSE/CONT/STOP通过，首项零推进计数，见进度033/034/035；软件READY拒绝仍由NSEQ-089跟踪，不声明精确波形或P3通过 |
+| NSEQ-091 | 第三模式：转台位置三槽位配置 | DONE | COUNTER/DUT/VNA装载、POSITION参数和SCPI读回已实现；同build N100/N1000切换无需重编译，配置事务和运行冻结host通过，三角色板端装载读回通过，见进度037 |
+| NSEQ-092 | PIO0持续计数与位置准入 | DONE | 采样及等待位置暂停时持续计数，下一完整位置忙时Core1故障停止；余数保留；PIO0租借空闲捕获SM并恢复，资源冲突/回滚host及停止重启板端通过；未改PIO1/2，见进度037 |
+| NSEQ-093 | 位置驱动整轮SP8T/VNA闭环 | DONE | START预置不采样，阈值经真实RJ45启动整轮，末项READY后等待下一位置；有限两位置及连续位置实测通过，REP按位置计数；不声明真实VNA或RF验收，见进度037 |
+| NSEQ-094 | 序列切换脉冲记录与第三页GUI | DONE | SCPI历史含run/generation/位置/索引/阈值/请求累计快照及三阶段标记，历史容量/覆盖显式读回；GUI第三页及最新记录查询完成，Tk/命令构造和实际板端历史通过；不宣称物理锁存，见进度037 |
+| NSEQ-095 | 第三模式单板功能验证 | DONE | 固化工具、RAM压缩集成构建、VISA OTA、N100/N1000整轮与忙故障、计数余数、暂停恢复、STOP重启、历史和旧模式回归通过；见进度037，失败原件保留。仅用户要求的单板功能验收，不代表P3/多板或staged门禁放行 |
+
+| NSEQ-096 | 固定角度间隔提速验收 | IN PROGRESS | 用户指定5°/s、每1°一次位置，当前回退100/500Hz对应N20/100，位置间隔仍200ms（测试计划，非产品固定参数）。1k N200及100Hz N20均COUNTER_BUSY，首轮未完成，见进度038/039；500Hz待源切换后实测。后续定位调度/分片运输耗时，不得增大N掩盖目标 |
+| NSEQ-097 | 分环节计时与特等席迁移基线 | IN PROGRESS | 已完成现有证据及real-flight路径审计，见进度040；后续固化工具采集同一板端时钟、同一run/generation/exchange的分段时间，区分配置时长、软件观察与物理边沿；不能以SCPI轮询间隔充当实时耗时 |
+| NSEQ-098 | 序列关键IO进入Core1特等席 | PENDING | 按下方分层范围拆分短步与生命周期；优先窗口有配额、截止时间、关闭裕量及耗时统计，STOP优先，异常禁止新输出；通过回执预算/重复事件/STOP竞态/窗口不足测试、构建和当前固件单板短帧闭环后，才推进下一迁移切片 |
+| NSEQ-099 | 序列RJ45优先收发与IO联调 | PENDING | 借鉴real-flight有界保留接收和分阶段准入，适配序列路由与完整身份校验；测清分片发送、接收、重组及跨核投递，保持真实RJ45返回；与IO特等席联调后回到NSEQ-096，不能用软件直达或增大N替代目标验收 |
+
+### 特等席优化实施计划
+
+本节为用户确认方向的实施计划，尚未作为已实现能力或新冻结契约。按最新指令先固化下表，
+开始将闭环迁移为Core1事件驱动流水线；NSEQ-097计时随各切片补齐。每次状态机迁移均完成
+对应构建、软件回归、当前固件单板短帧闭环及证据复核，再进入下一切片。
+
+| ID | 任务 | 状态 | 完成或退出门禁 |
+|---|---|---|---|
+| NSEQ-100 | 闭环运行状态机迁到Core1，隔离Core0配置与运输接口 | DONE | 进度041：Core1唯一执行LINK迁移，Core0保留分片桥；有界完整消息队列/不可变TX快照、STOP撤销及BUSY重试已测；新build真实RJ45双角色十轮、三槽位有限/生命周期及独立回归通过。仅功能迁移通过，调度超限和目标周期失败保留 |
+| NSEQ-101 | PIO/DMA优先下沉及IO非阻塞短步 | IN PROGRESS | 进度042首切片已实现并通过新build单板：动态加载组合NONE executor及grant/ACK READY，FIRE只递交FIFO、READY DMA跨触发常驻。剩余固定CPU回执预算、分离异常与生命周期清理；STOP优先、READY唯一、位置忙故障保持，未完成前不宣称完整非阻塞 |
+| NSEQ-102 | 序列消息优先运输与完整接收事件接入Core1 | PENDING | 将运行时分片递交/接收重组从Core0普通任务等待中移出，复用TDMA owner的实际收发证据与有界窗口；完整身份、路由、去重及重试保留；不得以TX完成代替RJ45返回；通过短帧闭环 |
+| NSEQ-103 | 实时流水线特等席窗口、分段计时与停止撤销 | PENDING | 窗口独立于可选负载使能，有预算/配额/截止/关闭裕量；每次只执行有界迁移，硬件等待时返回；同钟阶段时间和超预算样本可读回，STOP/新run撤销旧事件；通过短帧闭环 |
+| NSEQ-104 | 固定位置周期与旧模式验收 | PENDING | 回到NSEQ-096既定源频率/N关系测第三模式整轮时长；回归独立SP8T、双角色、首末项/有限轮次/暂停/停止/异常恢复，记录当前build与源参数，不以增加N或软件回环代替通过 |
+| NSEQ-105 | 三模式单板提交凭证 | DONE | 固定双角色有限/暂停、独立IN1、START、位置计数生命周期及RefMem布局回归通过，源码/包/真实OTA/报告摘要已绑定并通过提交门禁；证据及代码提交见进度043，不将单板凭证升级为P3或性能通过 |
+
+三模式提交命令在原单板入口基础上须显式传`--source-hz <HZ>`，USBTMC使用
+`--visa-resource <RESOURCE>`代替`--port <PORT>`；OTA摘要由
+`tools/visa_ota_update/visa_ota_update.py`真实执行生成。旧版仅路径/build的OTA摘要不足以绑定
+实际包字节，新门禁不接纳手工补摘要或旧版receipt。原始profile失败保留，新运行使用新目录。
+
+流水线主路径为位置事件 → DUT编码提交 → PIO稳定完成 → LINK_APPLIED发送/真实接收 →
+VNA触发提交 → 脉冲完成与READY事件 → READY_NEXT发送/真实接收 → 后继DUT状态。
+末项READY进入位置完成/REARM，下一位置仅由计数阈值接纳；独立模式直接由所选输入驱动PIO。
+各等待节点保存事件身份并退出，不在动作内部等待外设，不依赖SCPI轮询推动。
+首切片的Core0运输桥只是迁移边界，不表示已经完成优先收发或满足位置周期；
+NSEQ-098由NSEQ-101/103落实，NSEQ-099由NSEQ-102/104落实。
+
+用户进一步确认：迁移范围仅DUT/VNA双角色及COUNTER/DUT/VNA三槽位；独立SP8T继续
+PIO0+DMA外部推进，不增加CPU逐步发车依赖。以硬件优先为实现原则，能在已仲裁PIO资源内
+完成的时序、计数和握手先下沉PIO/DMA；Core1只处理完整消息校验、角色语义、任务提交和
+异常协调。不得为迁移把已自主执行的硬件动作改成CPU轮询延时；每次扩展核算指令空间、
+SM、DMA、FIFO背压及热加载/停止恢复，不侵占PIO1/2的TDMA职责。
+PIO资源按当前功能动态装载的persona分别核算，不假定独立SP8T、双角色与三槽位全部同时常驻。
+优先评估PIO子状态机通过同块IRQ握手及DMA/FIFO完成事件调度Core1，CPU只在角色决策和
+经过校验的跨PIO消息边界参与。切换须先关闭旧准入并停止回收，再装载当前模式所需程序、
+校验资源与配置，最后发布新generation；不能为省空间覆盖仍有所有权的其他persona。
+
+NSEQ-101首切片先实现组合模式PIO握手，不改变独立SP8T程序。候选指令预算为NONE
+executor、gateway、gated READY、turntable counter及常驻capture合计31条（设计快照，
+非事实源；以实际pioasm产物及资源检查为准）。gateway通过内部IRQ grant/ACK使READY
+先进入边沿等待，再输出脉冲；两SM在ARM同步启动，FIRE不重启DMA/分频。READY初始高
+不得阻止触发输出，但仍须低到高的新边沿；MANUAL禁用READY并替换握手指令。
+READY采用每grant至多一个的累计回执；PAUSE/STOP取消及CONT重新建立baseline，清除旧
+grant和迟到DMA回执。完整动态加载/失败回滚、compact executor偏移、FIFO满、反向边沿、
+重复触发、初始高和OUT4→IN2的确定性测试及新固件单板验证均为本切片退出条件。
+
+参考`origin/wip/tdma-real-flight-processing`的优先接收记录、有限配额、窗口截止及撤销机制。
+IO特等席采用Core1唯一owner的有界实时入口，和TDMA接收协同，不把完整IO服务塞进RX IRQ。
+保留原phase边界及实际墙钟记账；窗口不足时记录未准入，不能借用后续phase或尾部guard。
+具体预算在测量和最坏路径分析后落到代码符号，不用平均耗时替代上界。
+
+| 环节 | 拟进入特等席的工作 | 保留的边界 / 进入条件 |
+|---|---|---|
+| 转台输入 | 获取PIO0/DMA累计计数、判定位置阈值、锁存忙时位置故障 | 原始脉冲继续计数；只接纳一个完整位置，不排队位置、不清零余数；阈值不是SCPI采样时间 |
+| SP8T编码 | 有效STEP意图提交、固定数量编码/完成回执、稳定完成事件投递 | 运行配置冻结、PIO0执行编码及settle；每次最多处理有界工作，不能把整个回执环一次排空 |
+| VNA触发 | 有效LINK_APPLIED对应的单次FIRE提交 | 先拆除现有同步DMA abort等待，改为owner有界状态转换或不进入短窗；编码稳定之前不得输出采样触发 |
+| VNA READY | READY事实读取、一次性确认及READY_NEXT发送意图 | 同一READY不能重复采样或推进；下一状态仍须真实RJ45返回、完整身份和phase校验 |
+| 位置结束 | 最末READY后的有界REARM提交、ACK及等待位置发布 | 保留累计计数和余数；到下一位置仍忙则故障，不通过提速改变这一语义 |
+| 生命周期 | 仅优先锁存STOP/异常并阻止新的STEP/FIRE/REARM | 配置校验、START/STOP完整清理、PIO热加载和资源获取/释放留在原owner路径；PIO1/2分工不变 |
+
+快路径发现异常时必须及时进入安全输出状态并保存原因，完整回收由生命周期owner完成。
+快路径投递及结果发布前都要重新检查STOP竞争和mailbox serial，不能旧命令覆盖新STOP。
+Core0保留SCPI、配置事务和报告；不得跨核直接读取可变RefMem配置或双写序列状态。
+TDMA IRQ仅校验并有界保留/投递传输记录；通用重组、状态机执行和PIO资源操作不得隐入ISR。
+RUN期间不换路由，不借用VDC字段；STOP/新run使旧epoch、binding、exchange事件失效。
+
+NSEQ-097至少分别记录位置阈值被观察、消息发布请求、首片实际TX、完整RX/重组、
+owner命令接纳、PIO编码完成回执、稳定完成、VNA脉冲完成回执、READY观察、
+READY_NEXT完整RX及位置REARM确认。每项明确时钟、身份、覆盖/丢记录和时间戳来源；
+软件读取回执的时间不命名为物理输出边沿，嵌套时间不重复相加。
+统计每段样本数、最小/平均/最大、总位置时长，并额外保留窗口未准入、超预算和故障样本。
+
+NSEQ-099还需处理上游reference-slot接收绑定与当前同板序列路由的差异；保留
+run/generation/binding/step/exchange/逻辑槽位校验，不能仅凭短token或CRC授权输出。
+当前逻辑消息分片和latest-value process image是单独的运输等待点：仅提升IO执行优先级
+不能证明整位置时限通过。完成运输与IO联调后，按NSEQ-096验收第三模式位置周期，
+并回归独立SP8T和双角色RJ45模式。
+
+### 第三模式确认规则
+
+用户确认：三个可装载逻辑槽位为转台计数、SP8T链路控制和VNA网关。同板调试仍走真实RJ45物理回环。
+转台是位置输入源；原始脉冲持续累计，每位置N个脉冲产生一次位置触发。每个位置执行完整SP8T
+计划，各状态采样一次；READY仅推进当前位置内的状态，最后READY后等待下一个位置阈值。
+采样期间允许原始脉冲继续计数，但不允许下一个位置触发；达到下一阈值而上一位置未完成即故障。
+例如N为1000时，位置阈值1000/2000仅为示例；采样期间累计到1999可继续，到2000仍忙则停止。
+阈值不随采样完成清零或重新计满N；每次请求的实际累计快照另记，不能用阈值冒充请求时计数。
+实现遵守Core0配置/协调、Core1实时IO/计数和一致快照边界；只在资源owner许可下热加载PIO0。
 
 NSEQ-081 的后续完整性检查如下；当前实施顺序以“当前交付快照与接续顺序”为准，
 先完成单板角色主线，再扩展动态 claim/租约。不将基础环路计数代替角色请求/回执证据：

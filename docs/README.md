@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-09-15
+Last updated: 2026-09-17
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -163,6 +163,7 @@ docs/
 | `tdma/TDMA_TASK_PROGRESS.md` | TDMA 基础件任务进度。 |
 | `refmem/README.md` | 反射内存域 README。 |
 | `refmem/REFMEM_DOMAIN_ARCHITECTURE.md` | Distributed RefMem 内部主域架构，定义 RefMem Domain 的职责边界、静态分布式应用模型和目标代码形态。 |
+| `check/submissions/REFMEM_CROSS_REVIEW_01.md` | RefMem布局压缩移植及REFMEM-LAYOUT-01 pending契约的独立交叉审核。 |
 | `refmem/REFMEM_DOMAIN_TODO.md` | Distributed RefMem 内部主域待办，跟踪分布式应用模型、slot 契约、ACK/NACK、sync protocol 和组件化。 |
 | `refmem/REFMEM_TASK_PROGRESS.md` | Distributed RefMem 内部主域任务进度。 |
 | `refmem/REFMEM_SYNC_ARCHITECTURE.md` | Distributed RefMem Sync 内部架构，定义总线无关同步协议和 adapter 边界。 |

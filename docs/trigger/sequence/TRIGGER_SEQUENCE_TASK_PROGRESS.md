@@ -35,10 +35,11 @@ IN1已接外部信号并完成低频功能验证，见进度010；四板P3失败
 配置、软件切步及IN1低频流程已通过；其余输入实际激励、独立波形和开关本体通路未验收，
 不得据此宣称支持分布式节点预约。最新范围为同板 DUT/VNA 通过已接线 RJ45 物理回环协作，
 保留独立 SP8T 和 DUT-only 模式；角色配置及同板 LINK 运行绑定已实现，见进度019/021。
-最新主线先完成功能再优化短暂接收掉落；严格稳定性失败不改写为通过。
-独立有限轮次已完成新固件 IN1/BUS 验证；进度025修复回帧证据及probe启动问题后，
-组合单轮/十轮/连续STOP、同固件独立与手动SP8T均通过。正在补暂停/恢复与异常场景；
-完整动态 claim/多板验收尚未完成。
+最新检查点为进度043：独立SP8T、DUT/VNA和转台三槽位固定单板功能验收及暂停/恢复、
+忙时保护、异常恢复通过，代码已提交为`a344e90a`，正式凭证绑定当前源码及真实VISA OTA。
+Core1运行协调及动态PIO握手首切片已落地；NSEQ-101仍在迁移，运输优先路径尚未完成。
+下一代码提交先关闭NSEQ-RISK-04角色激活诊断缺口；200ms位置周期、严格TDMA稳定性、
+完整动态claim和多板验收尚未通过，不将功能检查点写成性能或P3通过。
 物理回环基础验证及设备收尾状态见后续记录，不以早期端口和配置快照替代当前事实。
 
 ## 任务记录
@@ -670,6 +671,46 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 - host 定向回归 `150 passed`，随后 sequence/role/gate 全量相关回归 `626 passed`；包含将 VNA 触发改到 OUT3、编码改用 OUT1/OUT2/OUT4 的命令验证，以及非法 OUT、重叠、多个或缺少触发输出的拒绝。真实 Tk 在两种窗口尺寸下验证四路选择器位于边框内且同排；以上数量为本次测试快照，非产品事实源。
 - 当前 build `20260916164200` 未改变固件。复用其严格 OTA 摘要后执行 `out/HardwareAcceptance/20260917/rj45-explicit-out-single-board/`：有限十轮与连续 PAUSE/CONT 均 PASS，分别记录 80/20 次 SCPI NEXT，exchange 轮换通过，清理后 IO 和租约全零；新 receipt 经 `check-staged` 通过。本次硬件使用默认物理接线，只证明新 GUI 构造器的显式默认分配可运行，不证明非默认 OUT 接线的外部波形或 RF 通路。
 
+### NSEQ-PROGRESS-20260917-032 - 单板默认USB切换构建与实测
+
+- TODO：`NSEQ-088`；日期：2026-09-17。用户要求编译USB运行时切换，后续单板调试默认启用。使用已有`pico2-usb-runtime-switch` preset，不改普通Release默认值；TODO增加统一构建与OTA入口。以下build与次数为本次验证快照，非产品事实源。
+- 新构建目录`out/build/sequence-usb-runtime-20260917`，build `20260917012959`；cache确认`PROJECT_ENABLE_USB_RUNTIME_SWITCH=ON`、`PROJECT_USB_DEFAULT_MODE=CDC`。A/B/BOOT flash-link检查通过；日志`out/node-sequence/sequence-usb-runtime-configure-20260917-r1.log`和`sequence-usb-runtime-build-20260917-r1.log`。
+- OTA通过固化工具限定UID `839E1AE79EA20F31`与单板数量，使用`--skip-pre-reboot`；`out/node-sequence/sequence-usb-runtime-ota-20260917-r1/summary.json`为PASS。由旧CDC固件COM10重新枚举为COM3，新build及`SYST:USB:MODE?`读回CDC，错误队列为空。
+- 新增固化`tools/usb_runtime_switch/usb_runtime_switch.py`，先核验UID/build，再停止序列/TDMA、读取IO与owner停止状态，设置MODE并读回后BOOT；重枚举必须再次核验目标传输、UID、build和mode，无盲重发。配套mock回归12项通过；该维护工具不生成验收凭证，也没有修改单板gate白名单。
+- 真实CDC→USBTMC→CDC→USBTMC全部PASS，报告为`out/node-sequence/sequence-usb-to-tmc-20260917-r1.json`、`sequence-usb-back-cdc-20260917-r1.json`、`sequence-usb-final-tmc-20260917-r1.json`。最终设备保留USBTMC，VISA资源`USB0::0xCAFE::0x4030::839E1AE79EA20F31::INSTR`；默认构建启用能力与当前设备选择的模式分别记录。
+- VISA下外部IN1组合十轮PASS，报告`out/node-sequence/sequence-usb-tmc-external-ten-20260917-r1.json`；没有注入软件READY。信号源沿用先前50Hz参数作报告元数据，本轮未独立测频。PyVISA曾提示响应没有终止字符，原输出保留，未以该提示替代响应与状态核验。
+- 失败保留：`out/node-sequence/sequence-usb-cdc-ten-20260917-r1.json`的软件NEXT组合回归在第13次测量等待时返回超时及SCPI -200，未完成十轮；停止清理已执行。仅确认USB能力与VISA外部输入通过，不能宣称新构建的软件NEXT固定门禁通过。下一步定位该执行拒绝，不靠自动重发或扩大timeout掩盖。
+- 本轮未修改固件源代码、未生成新staged硬件凭证、未提交；新增维护工具不在当前单板gate白名单，后续提交必须按当时实际范围执行适用门禁，不能以本次切换报告替代。
+
+## NSEQ-PROGRESS-20260917-033：START首项响应延时与状态输出
+
+- 关联NSEQ-090。按最新要求，独立START从无序列进入首状态也执行状态输出：编码稳定后等待配置的`settle_us`响应延时，再执行PULSE或LEVEL；脉宽单独使用`pulse_us`，NONE不输出状态。此行为替代进度014/015历史版本的“START不发完成脉冲”，历史证据不改写。
+- `sync_io_sequence.c`让首项复用PIO executor的writing/settling/status路径；校验并消耗首项两条真实回执，不增加accepted/written/completed；首项状态动作结束前关闭输入准入。有限单项零后续步仍输出首项状态，再发布finished；启动中STOP不伪造推进，暂停不提前开输入。PIO指令和PIO1/2不变，RJ45的NONE路径仍由真实LINK_APPLIED回环请求网关触发。
+- GUI统一显示“响应延时”，提示启动和后续切步顺序。固化`tools/hardware_acceptance/sequence_start_validate.py`，覆盖PULSE/LEVEL/NONE、单项有限、热加载、启动高电平期间STOP及重启；OUT4→IN2采用延长建立/脉宽后的pad采样，不声明精确延时、独立脉冲计数或波形验收。
+- 软件验证：backend/service/SCPI/link共205项通过，`out/pytest/sequence-start-backend-20260917-r1/`；GUI布局/命令与已有USB工具共89项通过，`out/pytest/sequence-start-ui-20260917-r1/`；新增启动验证工具与repeat共42项通过，`out/pytest/sequence-start-tool-r3/`。PIO回归包含真实生产STOP的初始零/一/两条回执边界，验证零推进、输出归零及资源释放。
+- 构建快照（非事实源）：`pico2-usb-runtime-switch`生成build `20260917035128`，A/B/BOOT flash-link检查通过；日志`out/node-sequence/sequence-start-status-configure-20260917-r1.log`、`sequence-start-status-build-20260917-r1.log`，包和固件源码SHA256见`sequence-start-status-hashes-20260917-r1.json`。本轮在Windows原生PowerShell/CMD调用现有CMake工具链。
+- 硬件阻塞：`sequence-start-status-to-cdc-20260917-r1.json`报告找不到目标UID；`sequence-start-status-discover-20260917-r1.json`及r2均为串口/VISA列表为空。未执行新固件OTA、OUT实测或RJ45回归，不能以进度032旧build结果替代；等待板卡重新枚举。
+- 未暂存、未提交、未生成硬件凭证。新增工具和测试不在当前单板gate逐文件白名单，后续提交需按实际staged范围处理适用门禁，不修改白名单或借旧凭证放行。软件NEXT历史失败NSEQ-089保持独立待办。
+- 独立只读复审通过；文档双检查、文档测试和`git diff --check`通过。配置文档指定的旧Git Bash路径不存在，改用当前`C:/Program Files/Git/bin/sh.exe`运行pre-commit；因无staged源码，hook及P3检查跳过硬件验证，单板check-staged明确返回“no staged source change”，均不代表硬件验收通过。
+
+## NSEQ-PROGRESS-20260917-034：START输出OTA与软件触发单板验证
+
+- 用户确认板卡重新接入，无信号源，要求用软件指令模拟触发；随后补接OUT4→IN2。本轮仅使用MANUAL与`TRIG:SEQ:NEXT`，没有把软件推进声明为外部输入边沿验收。
+- 固件包及`sync_io_sequence.c/.pio`的SHA256与进度033编译记录一致；UID `839E1AE79EA20F31`在COM3枚举，`tools/ota_multi_update/ota_multi_update.py`限定单板UID、COM3及板数，OTA与boot/commit通过，板端build为`20260917035128`。报告`out/node-sequence/sequence-start-status-ota-20260917-r1/summary.json`；USB运行时切换仍启用，本轮保持CDC。
+- 首轮`sequence-start-status-hil-20260917-r1.json`失败原样保留：实际OUT4已拉高但IN2未跟随。依照用户软件模拟范围，为固化工具增加显式`--output-only`，仍检查全部输出与序列计数，报告`io_loopback_verified=false`；22项工具回归通过，`out/pytest/sequence-start-output-only-r1/`。无回接的r2全部阶段通过，未覆盖或改写r1。
+- 用户接好OUT4→IN2后，以默认严格回接模式运行`sequence-start-status-hil-20260917-r3.json`，全部阶段PASS：编码先输出、响应延时期间状态低、随后状态高、脉冲结束后低；PULSE/LEVEL/NONE、PIO热加载、单项单轮、启动中STOP和重启均通过。START推进计数保持零，NEXT只推进一项，静置不自动推进；清理后IDLE、输出归零、资源释放、无cleanup失败。延长的delay/pulse用于SCPI采样，仅为电平与执行顺序确认，不声明精确波形时序。
+- `sequence-start-status-manual-ten-20260917-r1.json`独立软件十轮PASS：START首项加后续79条NEXT，最终finished置位并自动停止；无外部信号源，未验收PIO输入准入。
+- 组合回归失败保留：`sequence-start-status-rj45-manual-ten-20260917-r1.json`使用GUI配置构造器及软件READY，真实RJ45回环运行到triggers=16、ready/completed=15、exchange=16时，`TRIG:SEQ:NEXT`超时，清理读取保留SCPI -200。复现NSEQ-089同类超时/-200现象，根因待定位；不能宣称组合十轮通过。之后严格回接工具再次完成停止和IO资源清理。
+- 本轮没有更改固件源代码、没有提交或生成staged凭证；启动验证工具的新增软件测试和实际硬件运行绑定上述报告，后续提交仍须执行适用门禁。NSEQ-090独立启动输出已完成功能确认，RJ45完整回归仍受NSEQ-089阻塞。
+
+## NSEQ-PROGRESS-20260917-035：接回IN1后的外部触发确认
+
+- 用户接回信号源并确认IN1、50Hz；电压未重新确认，频率为用户声明而非本轮独立测量。设备已切至USBTMC，发现报告`out/node-sequence/sequence-start-external-discover-20260917-r1.json`，所有运行均核验UID `839E1AE79EA20F31`及build `20260917035128`。本轮没有重新编译或OTA。
+- `sequence-start-external-ten-20260917-r1.json`：独立SP8T十轮PASS，外部IN1驱动79次后继推进，START首项包含在完整轮次中；配置/活动轮次均为十，finished置位，自动IDLE并释放输出，软件NEXT发送数为零。
+- `sequence-start-external-rj45-ten-20260917-r1.json`：GUI命令构造器配置真实RJ45回环，IN1作为VNA READY，十轮PASS；触发/READY各80，DUT完成79次后继推进，真实RX消息160，最后一步采样完成后结束，没有额外推进或软件READY注入。此为固件计数及单板闭环证据，不是独立脉冲计数或严格TDMA稳定性证据。
+- `sequence-start-external-rj45-pause-20260917-r1.json`：显式持续模式PAUSE/CONT/STOP通过，暂停静置不推进，恢复后继续执行，最终停止及资源清理通过。三份报告cleanup_failures均为空；设备保留USBTMC并停止。PyVISA的响应终止符提示保留，实际返回及状态检查均通过。
+- NSEQ-090的独立首项输出、响应延时、热加载/停止及外部驱动、组合首次至末次测量回归已获当前build功能证据，标记DONE；NSEQ-089软件READY的NEXT拒绝仍待定位，不能用外部输入通过替代。OUT4→IN2电平证据沿用同build进度034；未声明精确波形、RF、多板或P3验收通过。
+
 ## 验证与证据索引
 
 | 关联任务 | 证据 | 状态 |
@@ -697,6 +738,104 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 | NSEQ-086 | NSEQ-PROGRESS-20260917-030、`out/build-sequence-manual/`、`sequence-manual-ota/summary.json`、`sequence-manual-single-board/finite.json`、`pause-resume.json`、`config/hardware_acceptance/sequence_single_board_receipt.json` | MANUAL 统一、gateway 输入分流、host/Release、严格单板 OTA、有限十轮及连续 PAUSE/CONT gate 通过；不代表 P3、多板、波形、RF、独立输入或严格 TDMA 稳定性 |
 | NSEQ-087 | NSEQ-PROGRESS-20260917-031、`out/pytest/rj45-out-final-r2/`、`rj45-explicit-out-single-board/finite.json`、`pause-resume.json`、`config/hardware_acceptance/sequence_single_board_receipt.json` | RJ45 显式 OUT 属性、紧凑同排布局、命令负向回归及默认接线单板 gate 通过；非默认 OUT 仅验证命令构造，不代表外部波形或 RF 验收 |
 
+### NSEQ-PROGRESS-20260917-036 - 第三模式软件实现与RAM集成前检查
+
+- TODO：`NSEQ-091/092/093/094/095`；日期：2026-09-17。先写入用户确认规则，再实现COUNTER/DUT/VNA三槽位、POSITION SCPI、PIO0独立累计计数与RJ45整计划采样状态机；START预置首项但等阈值后才采样。采样期允许原始脉冲，下一完整位置阈值忙时故障；位置结束保留余数。GUI新增独立第三页和按需末条历史查询。
+- 软件回归：SCPI/owner运行时172项通过（`out/pytest/position-owner-r3`）；链路、协议及新固化工具56项通过（`out/pytest/position-compact-link-r1`）。worker另完成GUI/Tk95项、驱动资源与计数回归；独立复核发现并修复恢复边界、重装与暂停交错、非法阈值准入、停止末次计数读回问题。计数快照不等于物理锁存时间戳。
+- 首轮USB切换preset配置成功，链接失败：RAM超限1896字节。保留`out/node-sequence/position-configure-20260917-r1.log`、`position-build-20260917-r1.log`；第三模式尚未OTA或硬件验证。已实施本地紧凑历史与编码缓存候选，后续实际布局和余量以新构建map为准。
+- 已固化`tools/hardware_acceptance/sequence_position_validate.py`：校验身份/固件、真实GUI配置和读回、IN1计数及OUT4→IN2夹具READY、真实RJ45两位置整轮及历史，然后故意不回应MANUAL READY以验证下一位置忙故障。工具host测试通过，尚未运行设备。
+- 用户指示先参考real-flight RAM压缩。已fetch `origin/wip/tdma-real-flight-processing`，当次HEAD为`6ba57876`；识别`e6ff06ae`及配套文档`e2d7cda6`：反射内存静态表由65536缩为18432字节，保留节点数量、区域ID与owner，节点步长缩小、layout升v2，产包工具和旧包拒绝校验同步。早期共享工作区压缩`c8b5f4ac`已包含在当前分支，不能重复计算收益。此段数值为上游代码对比快照，非本分支事实源。
+- 下一gate：评估并移植RefMem布局压缩必要切片，保持序列角色事务和owner边界；重新运行布局/产包/序列回归、构建、单板OTA及三模式回归。未把上游P3凭证用作本分支验收，未提交，硬件仍为进度035固件。
+
+### NSEQ-PROGRESS-20260917-037 - RAM切片、VISA OTA与第三模式单板实测
+
+- TODO：`NSEQ-089/091/092/093/094/095`；日期：2026-09-17。本节build、次数和内存数值均为当次快照，非产品常量事实源。
+- 移植real-flight `e6ff06ae`的RefMem布局/产包/测试必要切片，保留当前序列角色入口，不引入优先接收及VDC调度改动。静态表节省47104字节；layout为新版本、封装格式独立，旧CRC正确部署包仍由owner拒绝。C11审核见`docs/check/submissions/REFMEM_CROSS_REVIEW_01.md`，契约维持pending。
+- `pico2-usb-runtime-switch`构建`20260917090914`成功，A/B/BOOT flash-link通过；日志`position-configure-20260917-r2.log`、`position-build-20260917-r2.log`。A槽map显示预留heap后到RAM结束剩47500字节，不视为运行时栈余量测量；本地编码缓存和历史也采用紧凑存储，历史窗口引用代码容量符号。
+- 先核验UID `839E1AE79EA20F31`及旧build，用固化`visa_ota_send.py`通过USBTMC发送并BOOT，再用`ota_boot_commit.py --skip-boot`自动重连USBTMC核验新build并确认槽位。日志`position-visa-ota-20260917-r1.log`、`position-visa-commit-20260917-r1/summary.json`；commit PASS，错误队列为空。未复制上游验收凭证。
+- N为100、声明信号源50Hz、IN1计数、OUT4→IN2模拟READY、真实RJ45回环：`position-hil-20260917-r4.json` PASS。首阈值前无采样，两个位置共16次触发/READY、15次后继切步，16条历史请求/完成/采样标志齐全；原始脉冲在测量期间增长。故意不回应MANUAL READY时，在第二阈值由Core1报告COUNTER_BUSY并停止。
+- 旧模式同build回归：`position-regression-independent-20260917-r1.json`独立IN1十轮PASS；`position-regression-rj45-manual-20260917-r1.json`真实RJ45软件READY十轮PASS。NEXT改用发布快照避免writer guard争用；确定性抢占测试通过，不盲重发失败指令。
+- START回归`position-regression-start-status-20260917-r1.json`失败保留：OUT4已高但该条先采的IN2仍低。SCPI两次GPIO读跨边沿是实现层的可能原因，单条失配不证明接线损坏。工具保留失配并要求有界窗口内匹配，持续失配仍失败；修后r2七阶段PASS。该证据不证明独立波形脉宽或边沿时延。
+- POSITION首轮`position-hil-20260917-r1.json`正常流程通过但故障归因失败：工具错误匹配BACKEND，生产返回BACKEND_FAULT；已按实际SCPI修正并补回归。权限切换中r3发生VISA超时，报告保留；r4是新独立运行，未覆盖旧失败。
+- 最终软件回归：`out/pytest/final-position-r1`的布局、产包、SCPI、GUI及工具202项PASS；`out/pytest/position-final-runtime-r1`的驱动、服务、SCPI运行时、LINK/协议223项PASS。工具审核另外补运行身份不漂移、终态错误、慢查询越过观察窗口、每项历史和错误状态检测，`out/pytest/position-tool-review-r2`57项PASS。
+- N为1000的`position-n1000-lifecycle-20260917-r1.json`通过完整流程及PAUSE/CONT/STOP/restart；独立审核后加强工具身份、截止时间和连续首位置历史校验，r2复验PASS。随后补异步START旧IDLE窗口的有界等待，最终工具`position-final-lifecycle-20260917-r1.json`在N100复验PASS；有限正常、预期故障、故障后重配置恢复、连续模式首位置、暂停计数/恢复和STOP重启均验证。最终工具/文档77项回归PASS，见`out/pytest/position-final-tools-docs-r1`。
+- 最终START工具七阶段`position-final-start-status-20260917-r1.json` PASS；独立审核方`/root/rj45_tool_evidence`只读复审确认工具身份、截止时间、历史与异步START问题均关闭。
+- 验收结束序列及TDMA均停止，编码/触发输出和资源所有权归零，设备保持USBTMC。所有单板报告仅证明输入夹具、编码与角色流程，不代表真实VNA、SP8T射频、独立脉冲计量、多板或P3。未暂存或提交；源码范围包含RefMem布局等受限白名单外变更，单板功能报告不替代提交门禁凭证。
+
+### NSEQ-PROGRESS-20260917-038 - 1kHz、每度一次位置提速失败
+
+- TODO：`NSEQ-096`；日期：2026-09-17。用户当前信号源已设1kHz；目标为模拟5°/s、每1°触发一次，故本档N200，位置间隔200ms。后续5k/10k/100k分别用N1000/2000/20000；均为本次测试计划快照，取消1MHz档。
+- 使用已固化`sequence_position_validate.py --threshold 200 --source-hz 1000 --duration 15`，同UID和build `20260917090914`、USBTMC、真实RJ45、IN1计数和OUT4→IN2夹具READY，报告`out/node-sequence/position-1khz-n200-20260917-r1.json`为FAIL。
+- 阈值前观察到累计195且未触发；后续接纳第一位置并产生一次VNA触发和一次READY。累计367的读回仍是LINK_WAIT_RETURN，切步completed为零；累计401时Core1报告`SYNC_IO_SEQUENCE_FAULT_COUNTER_BUSY`（SCPI backend_fault14），LINK error5。下一个位置已到而首轮未完成，保护按规则停止，没有放宽阈值或排队补采。
+- 结论：当前配置未满足每200ms完成整轮SP8T采样。故障前停在READY_NEXT的RJ45回程等待，仍需分解消息分片、收发与owner调度延迟；此观察不足以独立证明具体根因，也不把低速通过外推为本档通过。
+- 工具清理确认IDLE，输出、owned、armed、busy均归零，TDMA已停；完整失败及清理证据保留。此测试未改固件、不需要重新编译，不能声明独立边沿计量通过。
+
+### NSEQ-PROGRESS-20260917-039 - 回退100Hz、N20仍未满足位置周期
+
+- TODO：`NSEQ-096`；日期：2026-09-17。用户改测100Hz与500Hz，并确认当前源为100Hz；保持5°/s、每1°一次位置，本档N20，下一档N100。这里频率、计数和周期为当次测试快照。
+- 固化工具使用`--threshold 20 --source-hz 100 --duration 15`，身份/build及夹具接线与进度038相同。报告`out/node-sequence/position-100hz-n20-20260917-r1.json`为FAIL，原始数据保留。
+- 第一位置已采首项且收到READY，累计33时在WAIT_RETURN；随后切到第二项，累计40即到下一位置边界，首轮尚未完成。终态trigger/ready各一、accepted/completed各一，Core1 backend_fault14、LINK error5，符合忙时位置保护。
+- 降低原始脉冲频率并等比例减小N没有改变200ms位置间隔；本次再次证明当前闭环未达到目标，不能把它归因为单纯1kHz输入过快。尚需定位RJ45通知运输和协调调度耗时，不改变整轮或忙时拒绝语义。
+- 清理完成：序列IDLE，输出/owned/armed/busy均零、TDMA已停；500Hz尚未测试。
+
+### NSEQ-PROGRESS-20260917-040 - 环节耗时评估与IO特等席范围
+
+- TODO：`NSEQ-096/097/098/099`；日期：2026-09-17。用户要求分解每段耗时，参考real-flight TDMA特等席，并将部分IO控制提升到特等席。本轮为只读源码/已有报告评估和待办细化，尚未修改调度/IO固件、编译或OTA；设备沿用进度039停止状态。下列时间、次数和上游版本均为证据快照，非产品时限或物理波形事实源。
+- 复核上游`origin/wip/tdma-real-flight-processing`、HEAD `6ba57876`的`tdma_priority_rx.h`、`tdma_priority_rx.c`、`tdma_pio_spi_phys_priority.inc`及`application/src/app.c`：有界接收保留、IRQ配额/截止窗口、关闭裕量、epoch撤销、阶段计时可借鉴；sink回调仅借用已验证记录，不授权一般状态机或硬件生命周期执行。RAM移植未带入这一接收路径；不把上游能力记作当前分支已具备。
+- 当前`app_realtime_tdma_phase()`顺序为TDMA、analyzer、sequence，且整个phase可能因准入不足被跳过。序列PIO编码及延时已自主执行；优先提升的是CPU识别回执、递交后继意图与发布事实的等待，而不是用CPU重新产生波形。
+- `sync_io_sequence_gateway_fire()`含SDK `dma_channel_abort()`等待；`drain_receipts()`上限为`RECEIPT_WORDS`，故障路径还会停止DMA。完整`trigger_sequence_service_service()`包含START装载/STOP回收，不能原样当作短步或搬入IRQ。独立只读审核`/root/sequence_priority_audit`确认先拆短步、固定回执预算、STOP抑制、异常锁存/安全输出/后续清理，再引入有预算的Core1窗口；具体实施和回归点写入TODO。
+- 当前传输由`trigger_sequence_link_protocol.h`的逻辑消息拆成多个mailbox fragment；本轮快照每消息六片，一个位置为COUNTER_NEXT加各状态LINK_APPLIED/READY_NEXT，八项合计十七条完整消息。`distributed_refmem_tdma_flight_sync_publish()`受配置间隔和`feedback_timeout_ns`节流、TX双缓冲可用性影响，Core0接收还需完整重组。IO窗口本身不能消除这些等待，尚不能归因到单一根因。
+
+| 环节 | 现有时间依据（本轮快照） | 能支持的结论 |
+|---|---|---|
+| 位置间隔目标 | 用户模拟5°/s、每1°一次，为200ms；八项摊分为25ms/项且须包含位置管理开销 | 为验收预算，不是现有测量结果；100Hz/N20仍失败 |
+| 编码稳定延时 | 报告配置`settle_us=10`，每次实际切码由PIO执行 | 配置为10µs；尚无独立边沿时延证明，START已预置首项，不能机械按八次增加本位置耗时 |
+| 网关触发脉冲 | 报告配置`gateway_pulse_us=1000`，每项一次 | 配置1ms/项；八项配置脉宽合计8ms，不代表实际VNA采样时间 |
+| RJ45裸数据移位 | 报告`baud_hz=10000000`、`last_rx_size=100`；按字节数乘位数除速率 | 80µs仅为该字节数的理论移位时间；未含其他封装、间隔、回程及收发软件，不能当成RTT |
+| 阈值到首项请求 | 50Hz/N1000成功报告首项计数1005/2002，相对阈值1000/2000 | 按声明源频率估算100ms/40ms；计数快照不是阈值或输出边沿锁存 |
+| 相邻状态请求 | 同报告两位置的历史计数差，详见下段 | 请求到下一请求估算100–220ms，包含通信、调度、IO、夹具READY；各段尚不能独立拆出 |
+| 位置完成观察 | 首位置第一次观察WAIT_COUNT为1062，第二位置终态为2066 | 阈值到软件完成观察约1240ms/1320ms；首项含主机轮询滞后，末项停止计数，非物理完成精度 |
+| 真实VNA采样 | 当前OUT4→IN2是反馈夹具 | 未测量；后续接真实VNA还需加上其采样及反馈延时 |
+
+- 时间来源为`out/node-sequence/position-n1000-lifecycle-20260917-r2.json`的`settings`、`two_positions.history/samples/ring_after`。第一位置请求计数为1005、1010、1017、1023、1029、1038、1046、1052；相邻请求估算100、140、120、120、180、160、120ms。第二位置为2002、2009、2017、2028、2037、2045、2052、2060；相邻估算140、160、220、180、160、140、160ms。频率50Hz为当时用户声明、不是当前100Hz或独立计量结果；量化粒度20ms，不能据此分解微秒级动作，也不能用各段最大值之和冒充WCET。
+- 当前只能判断端到端等待远大于配置脉宽及裸数据移位时间，CPU调度/运输/重组链路是优先调查对象；不能声称已经测出每个软件模块的准确用时。下一gate为NSEQ-097板端同钟分段计时，再分切片接入IO与TDMA优先路径，使用新build重跑既定100Hz/N20及旧模式；频率未切换前不运行500Hz档，不提高N掩盖200ms目标。
+- 验证：文档命名/内容检查、自回归检查及18项对应pytest通过（`out/pytest/sequence-priority-plan-20260917-r1`）；保留既有`TDMA-FLIGHT-BITMAP-01`命名WARN。项目约定的Git Bash绝对路径在本机不存在，改用PATH中的`C:/Program Files/Git/bin/sh.exe`执行pre-commit成功。未暂存源码，single-board `check-staged`明确返回无staged源码，P3 check与hook跳过硬件检查；不将此写为新固件硬件通过。独立审核再次核对原始时间记录，建议的STOP复查点和第三模式验收范围措辞已修正。本轮仅细化计划，不变更契约登记状态。
+
+### NSEQ-PROGRESS-20260917-041 - Core1运行状态机迁移及动态PIO下一切片
+
+- TODO：`NSEQ-100/101/104`；日期：2026-09-17。本节build、测试数量、频率和预算均为本次快照，非产品常量事实源。Core1唯一执行LINK状态机及历史写入，Core0保留分片桥；完整接收经固定容量SPSC队列、发送经不可变offer交接。STOP待办立即抑制重试/递交，BUSY保留原消息，旧run消息及溢出按身份隔离；完整角色表在Core0 START guard校验，运行时只核对原子model epoch。
+- 软件：运行时/SCPI/RefMem/PIO/dispatch共298项通过，`out/node-sequence/core1-link-runtime-20260917-r1.log`；最终LINK与文档59项通过，`out/pytest/core1-link-final-tests-20260917-r1`。只读审核`/root/sequence_priority_audit`为PASS_WITH_NOTES，修复溢出快照acquire屏障；原有owner锁和生命周期服务仍在，不能称完整非阻塞。
+- 构建`out/build/sequence-core1-link-20260917`、preset `pico2-usb-runtime-switch`、build `20260917123949`成功，A/B/BOOT flash-link通过。指纹`out/node-sequence/core1-link-artifact-hash-20260917-r1.json`；VISA OTA及槽位确认`core1-link-visa-ota-20260917-r1.log`、`core1-link-visa-commit-20260917-r1/summary.json`通过。map的Core1栈保留量不是动态水位测量。
+- 当前build、UID `839E1AE79EA20F31`、USBTMC、真实RJ45、IN1声明100Hz、OUT4→IN2：`core1-link-position-baseline-20260917-r2.json`通过N1000两完整位置、忙时阈值故障、故障后恢复、连续首位置、暂停/恢复及STOP/restart；独立IN1十轮`core1-link-independent-20260917-r1.json`及GUI双角色软件READY十轮`core1-link-rj45-manual-20260917-r1.json`均通过。N1000仅为功能迁移基线，不代替200ms目标。
+- 三槽位r1正常两位置及忙时保护通过，但生命周期工具将跨查询的LINK WAIT_COUNT与COUNTER WAIT_COUNTER_RETURN误拼成已完成位置而失败；保留`core1-link-position-baseline-20260917-r1.json`。固化工具改为同时要求两个phase均WAIT_COUNT，保留完整采样/历史检查；工具40项通过`out/pytest/core1-link-tool-20260917-r2`，r2重新运行通过。
+- 同工具新增可选`--schedule-evidence`，保存`SYST:TDMA:SCHED?`原文、错误队列及所有phase计数，不提升严格时序结论。r2清理前TDMA phase预算850µs、最大观测约2.402ms且有超限，`strict_realtime_verified=false`；未与同等观测的旧build对比，不把所有超限归因于本次迁移，动态栈水位也未验证。
+- 固定目标复测`core1-link-position-target-20260917-r1.json`在运输配置期间VISA timeout，并记录Execution error，完整失败及清理保留；独立重跑r2进入真实序列，累计40即第二位置边界时仍在首轮，COUNTER_BUSY保护停止，目标仍FAIL。原始证据`core1-link-position-target-20260917-r2.json`；未增加N掩盖目标，不改变忙时拒绝。
+- 双角色连续模式软件READY的PAUSE/CONT独立补测`core1-link-rj45-pause-20260917-r1.json`通过；外部IN1 READY、声明100Hz十轮`core1-link-rj45-in1-20260917-r1.json`也通过。审核方只读复核身份、完整位置历史、完成谓词及调度原文，未发现功能闭环阻断；工具旧fallback标签“Core0 link guard”同步更正为Core1协调器，不改变判定。
+- 上述单板报告均在`out/node-sequence/`，清理后序列/TDMA停止并释放输出。功能迁移切片闭合，严格TDMA稳定性、200ms目标、波形/真实VNA/射频及多板仍未验收。接着按TODO推进动态装载的PIO grant/ACK切片；不改PIO1/2，不将完整软件FSM放入IRQ。未暂存或提交，现有RefMem等白名单外改动不能由手工单板报告替代提交门禁。
+
+### NSEQ-PROGRESS-20260917-042 - 动态PIO握手、常驻READY DMA与单板复验
+
+- TODO：`NSEQ-101/105`；日期：2026-09-17。仅组合模式加载精简NONE executor及grant门控READY；编码、settle、脉宽和每grant一次边沿由PIO完成，FIRE只递交FIFO，不再abort DMA/重启SM。PAUSE/STOP仍在生命周期退役DMA并清旧grant/累计baseline；独立SP8T程序保留。指令数以实际汇编产物为准：本轮快照双角色含capture为26条、三槽位31条，均未使用PIO1/2。
+- 软件94项PIO/驱动测试通过`out/pytest/n101-pio-r4`，包含双极性、初始有效电平、实际指令握手顺序、FIFO背压、每FIRE零abort、迟到DMA取消及热加载回滚；149项owner/LINK/SCPI/dispatch通过`out/node-sequence/pio-gateway-owner-tests-20260917-r1.log`。独立审核发现compact STOP在settle前一tick可能误记完成，已改用completed偏移并加取消/完成及精确settle逐周期测试，最终`PASS_WITH_NOTES`，软件时钟模型不替代波形。
+- 构建`out/build/sequence-pio-gateway-20260917`，build `20260917130449`，USB运行时切换开启，A/B/BOOT链接检查通过。源码补丁/哈希、产物哈希和构建日志分别为`pio-gateway-worktree-20260917-r1.patch`、`pio-gateway-source-hashes-20260917-r1.json`、`pio-gateway-artifact-hash-20260917-r1.json`、`pio-gateway-build-20260917-r1.log`。VISA发送及槽位B确认通过`pio-gateway-visa-ota-20260917-r1.log`、`pio-gateway-visa-commit-20260917-r1/summary.json`。
+- 用户本轮重新确认IN1为50Hz，OUT4→IN2、真实RJ45；`pio-gateway-position-baseline-20260917-r2.json`通过N1000两位置、16次触发/READY、15次切步、完整历史、忙边界、恢复、PAUSE/CONT及STOP/restart。双角色软件READY十轮`pio-gateway-rj45-manual-20260917-r2.json`、连续暂停恢复`pio-gateway-rj45-pause-20260917-r2.json`、独立IN1十轮`pio-gateway-independent-20260917-r1.json`和START七阶段`pio-gateway-start-status-20260917-r1.json`均通过。
+- 失败原件保留：position r1仍按旧100Hz设35秒窗口，实际只累计1753且第一位置8次采样已完成，未到第二位置阈值而timeout；确认50Hz后按真实位置等待时间重跑，不把延长功能观察窗口作为200ms性能通过。manual r1因主控UID参数拼写错误，被身份预检拒绝，未写设备；pause r1在ROLE ACT被拒绝，独立重跑r2通过，拒绝原因继续核查，不能隐去。
+- 所有上述报告/日志均在`out/node-sequence/`。TDMA调度仍有预算超限，位置闭环约秒级，严格实时与200ms目标未通过；下一迁移仍为运输/有界服务，当前先按用户最新要求完成三模式正式单板凭证和代码检查点。普通回执扫描及生命周期清理尚未全部拆成非阻塞短步，NSEQ-101保持IN PROGRESS。
+- 补测外部IN1 READY十轮`pio-gateway-rj45-in1-20260917-r1.json`通过；布局、产包、角色SCPI、GUI、USB工具及NO5隔离192项回归通过`pio-gateway-integration-tests-20260917-r1.log`。角色ACT拒绝由独立审核定位为`REFMEM_TABLE_ACTIVATE_ERR_GATE`，staging为OWNER_OK且CRC完整，排除将其误记为PIO运行故障；报告缺少gate位图，快照暂不可用仅为候选，记`NSEQ-RISK-04`留下一代码提交关闭。
+- 同build的固定200ms位置间隔复测（用户确认50Hz，N10）`pio-gateway-position-target-20260917-r1.json`仍以忙时位置故障失败，原件保留；PIO握手切片不被写成运输加速或性能目标完成。
+
+### NSEQ-PROGRESS-20260917-043 - 三模式功能检查点及可复验提交门禁
+
+- TODO：`NSEQ-105`；日期：2026-09-17。用户明确要求单板验收后提交一部分已实现代码，沿用仅单板功能、不做P3的任务口径。当前转台/PIO/Core1功能依赖RefMem布局及角色实现，不能拆成缺少依赖的固件提交；代码检查点集中保存这些必要实现及工具，文档另行提交，性能迁移尚未完成。
+- 新增固化`tools/visa_ota_update/visa_ota_update.py`，依次执行包校验、实时UID/build预检、实际VISA发送并BOOT、按UID重连提交，记录真实子进程返回值/原始stdout和stderr/起止时间、包与工具SHA256及子摘要。不自动重试失败的OTA事务，不手工拼成功凭证；USB重枚举/槽位确认采用有界轮询。包头保留字段不称CRC，提交槽位必须为A/B。28项相关测试通过`out/pytest/visa-ota-update-r3`，独立审核通过。
+- 已真实运行该流水线，以同一build `20260917130449`重刷当前包，`out/node-sequence/pio-gateway-visa-pipeline-20260917-r1/summary.json` PASS；这证明发送/BOOT/提交及最终build，不单靠同build文本宣称物理槽位翻转。设备仍为USBTMC。另同build两方向USB切换`pio-gateway-usb-to-cdc-20260917-r1.json`及`pio-gateway-usb-to-tmc-20260917-r1.json`通过，UID/build保持。
+- 正式单板门禁升级为三模式固定profile并精确列入新增必要文件；不新增目录通配豁免，不改P3 scope。继续要求worktree与index全源码指纹一致，旧凭证不能放行；OTA包内容、子日志和各profile/验证器摘要均核对，RefMem布局/产包/SCPI回归保存JUnit且不准skip。位置profile使用显式源频率推算等待窗口，READY超时保持原配置，不借此扩大性能声明。`NSEQ-RISK-04`尚未关闭，下一代码提交优先补激活gate诊断并收敛偶发拒绝。
+- 正式`sequence_single_board_gate.py run`通过：build `20260917130449`、UID `839E1AE79EA20F31`、USBTMC、IN1由用户确认50Hz、OUT4→IN2及真实RJ45。固定host回归183项全通过；双角色有限/暂停恢复、独立IN1十轮、START七阶段、N1000位置计数与忙时/生命周期五组profile全部PASS。完整命令及日志见`out/node-sequence/sequence-three-mode-gate-20260917-r1.log`，各JSON、host日志与JUnit在`out/HardwareAcceptance/20260917/sequence-three-mode-r1/`；以上数字为本次验收快照。
+- 凭证`config/hardware_acceptance/sequence_single_board_receipt.json`使用`HAOFV_SEQUENCE_SINGLE_BOARD_RECEIPT_V2`，绑定源码指纹、包及真实OTA摘要。暂存凭证后`check-staged`、手动及提交时pre-commit、`git diff --cached --check`均通过；代码提交`a344e90a`（`feat(sequence): checkpoint three-mode single-board control [risk]`），本次文档另行提交。NSEQ-105完成，NSEQ-101继续IN PROGRESS、NSEQ-102至104仍待完成。
+- 最终position报告`cleanup_failures`为空，序列IDLE、outputs/owned/armed/busy归零、TDMA停止且probe关闭，保留USBTMC便于继续调试。凭证仅为三模式单板功能，不证明真实VNA、RF、独立边沿计量、波形、多板、P3或严格TDMA稳定性；N1000功能等待不替代失败的200ms位置目标。
+- 独立只读审核`/root/sequence_priority_audit`结论`PASS_WITH_NOTES`、无阻断：保留RISK-04、PIO未完成范围及性能失败，RefMem契约维持pending。审核建议的下一Gate旧措辞与OTA事务重试/USB有界轮询边界已修正。
+- 文档检查`docs_check --strict-names`、`doc_regression_check`及`--log-check`通过；对应18项pytest通过，目录`out/pytest/sequence-checkpoint-docs-final-20260917-r1`。保留既有`TDMA-FLIGHT-BITMAP-01`命名WARN；本机约定Git Bash路径不存在，手动hook使用PATH中的`C:/Program Files/Git/bin/sh.exe`。
+
 ## 失败与回退
 
 配置模型、SCPI与GPIO版板端验证已完成相应记录；当前迁移PIO0，后续结果按新增记录跟踪。
@@ -704,10 +843,10 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 
 ## 下一 Gate
 
-按最新用户优先级推进 NSEQ-081/082：保留短暂掉落的严格失败，将其优化延后，
-真实 RJ45 角色递交、VNA 首次至末次测量及有限/持续协作已在进度025通过。
-保留独立 SP8T、DUT-only BUS/IN 的回归；组合角色需在统一 PIO0 owner 下管理 SMA 租约。
-当前源码已由受限门禁固定 profile 补齐 typed snapshot、PAUSE/CONT exchange 轮换、STOP 资源回收
-和 GUI 命令构造路径单板证据；后续变更仍须重新生成匹配 staged 指纹的凭证，旧报告不能替代。
+NSEQ-105三模式单板凭证及代码检查点已完成；下一代码提交优先关闭
+NSEQ-RISK-04激活gate诊断缺口，不以重跑通过代替根因闭环，再继续NSEQ-101至104迁移。
+保留独立SP8T的MANUAL/IN回归；组合角色使用统一PIO0 owner及真实RJ45运输，不软件直达。
+PIO握手首切片和Core1运行状态机功能已通过，固定200ms位置周期与严格TDMA稳定性仍未通过；
+后续改动逐片构建、OTA和单板闭环，重新生成匹配staged指纹的凭证，旧报告不能替代。
 其他输入独立激励、外部波形、SP8T 射频通路和多板同步仍按未验收项记录，不从汇总计数推断通过。
 用户单板功能验收口径保持；不宣称 P3 或全节点裁决通过，提交仍服从实际门禁，历史失败保留。

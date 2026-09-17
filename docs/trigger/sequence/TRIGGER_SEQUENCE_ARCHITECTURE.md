@@ -28,7 +28,9 @@ RJ45 回环须经过现有 TDMA 物理发送、帧接收校验和调度路径，
 首状态的首次测量触发与序列推进计数分离，不能伪造外部事件完成启动。
 旧 PULSE/LEVEL 状态输出仅为可选兼容模式，不等同于 VNA 网关角色已执行。
 编码及建立时间是本地动作定义；不声明已经切换实际仪表频点、波位或完成测量。
-START预置不计入accepted/completed，也不产生完成脉冲；READY时current为首状态、next为
+START预置不计入accepted/completed，但须执行首状态配置的状态输出：编码稳定后等待可配置的
+响应时间 delay（`settle_us`），再输出 PULSE 脉冲或置 LEVEL；NONE 不输出状态信号。
+脉宽由 `pulse_us` 独立配置，不能代替响应延时。READY时current为首状态、next为
 第二状态。一个被接纳的事件推进到后继状态；首次事件执行第二状态，DONE不推进，
 配置轮次尚未耗尽时，末状态之后的下一事件回到首状态。轮次默认值引用
 `trigger_sequence_service_init()` 的 `s_repeat_count` 初始化；零表示显式持续运行。
@@ -36,6 +38,47 @@ START预置不计入accepted/completed，也不产生完成脉冲；READY时curr
 `plan.count * repeat_count - 1`，最后状态完成后进入 IDLE，置 finished 并拉低输出、释放资源。
 组合模式须完成最后状态对应的 VNA 采样 READY 后结束，不再发送下一状态请求。
 先完成SCPI控制与IO读取，再按实际接线逐输入验证；执行进度与信号源参数见Task Progress。
+
+## 第三模式：转台位置驱动完整采样序列
+
+`POSITION` 在同板动态槽位装载 COUNTER、DUT、VNA。转台计数决定位置准入；
+START 只预置首项编码并完成响应延时，首个位置阈值到达前不输出 VNA 采样触发。
+每累计配置的 N 个脉冲，通过真实 RJ45 的 `COUNTER_NEXT` 回程启动一个位置；
+位置内每项编码稳定并等待 `settle_us` 后，经 `LINK_APPLIED` 回程触发 VNA，
+READY 经 `READY_NEXT` 回程推进下一项。末项 READY 完成本位置，不自行启动下一位置。
+`REPEAT` 在此模式表示位置数量；默认与连续取值沿用序列 owner，有限运行须等末位置末项 READY。
+
+原始脉冲在采样期间持续累计，未满下一个阈值的余数保留。当前位置未结束而下一个
+完整阈值到达时，进入 `SYNC_IO_SEQUENCE_FAULT_COUNTER_BUSY`，不排队、不忽略位置、不补采。
+位置完成后通过 Core1 `counter_rearm_count` 确认重装，不能凭单次 busy 读回推断完成。
+仅在等待位置时允许暂停；暂停期间继续累计脉冲，达到完整阈值即故障。运行中配置冻结。
+阈值必须为正且小于 `SYNC_IO_SEQUENCE_COUNTER_LIMIT`；累计计数接近该界限或回退时故障，
+不得静默回绕。位置阈值判断受 PIO/DMA/Core1 可见性延迟影响，不声称独立物理边沿时间戳判定。
+
+计数驱动只使用 PIO0，由 capture owner 租借空闲 SM0，配置独立 DMA，复用序列计数程序；
+活动 capture、analyzer、VDC 资源冲突时拒绝。STOP、失败回滚及热加载归还租约并恢复捕获配置。
+不改 PIO1/2。转台与 VNA READY 输入必须不同，且共享计数程序的边沿极性。
+Core0负责SCPI/槽位配置；Core1负责组合角色运行协调与实时IO，通过有界事件邮箱和一致快照交互。
+迁移期间Core0保留RJ45分片收发桥，完整消息只投递给Core1，不在接收回调中执行IO动作。
+
+| SCPI | 语义 |
+|---|---|
+| `CONF:SEQ:NODE:ROLE slot,instance,COUNTER` | 在已有角色装载事务内暂存计数角色；启用后与 DUT/VNA 一起验证 |
+| `CONF:SEQ:LINK POSITION,counter_slot,dut_slot,vna_slot,counter_input,N,ready_input,trigger_output,pulse_us,timeout_ms,edge` | 原子绑定位置模式；counter_input 选 IN1–IN4，ready_input 可选另一 IN 或 MANUAL |
+| `READ:SEQ:COUNter?` | `enabled,slot,input,N,events,consumed_positions,partial,fault_events,history_total,history_retained,phase,error` |
+| `READ:SEQ:COUNter:HISTory? ordinal` | `ordinal,run,generation,position,sequence_index,threshold_pulses,observed_pulses,outcome_flags` |
+
+历史 ordinal 从首条开始递增；保存窗口以 `TRIGGER_SEQUENCE_LINK_HISTORY_CAPACITY` 为准，
+查询窗口外记录返回 `COUNTER_HISTORY_NOT_RETAINED`。outcome_flags 使用
+`TRIGGER_SEQUENCE_LINK_HISTORY_REQUESTED`、`TRIGGER_SEQUENCE_LINK_HISTORY_APPLIED`、
+`TRIGGER_SEQUENCE_LINK_HISTORY_SAMPLE_DONE` 区分切换请求、编码完成及采样完成。
+`observed_pulses` 是请求时 owner 累计计数快照，不能当作编码物理边沿的精确锁存值。
+每次新运行重置窗口；有限停止保留末次记录供读回。既有 `READ:SEQ:LINK?` 字段格式保持兼容。
+
+GUI 独立第三页配置槽位、N、位置数、编码及 VNA READY，显示计数与进度；
+“最新记录”按需查询末条历史，避免连续查询全部历史占用通信时间。
+单板夹具可用信号源接计数输入、VNA 触发输出回接 READY 输入；该夹具只证明功能流程，
+不能替代真实网分采样、SP8T 射频通路或多板时序验收。
 
 ## NSEQ-A-01 配置模型
 
@@ -147,7 +190,7 @@ PIO外部运行期间输入计数与执行回执来自异步DMA，拒绝数保�
 
 | 状态或事件 | 行为 |
 |---|---|
-| IDLE -> STARTING -> READY | 校验并冻结计划/code/IO，申请资源，输出首状态并等待初始建立时间；期间关闭事件准入，不计accepted/completed且不发完成脉冲 |
+| IDLE -> STARTING -> READY | 校验并冻结计划/code/IO，申请资源，输出首状态编码；编码稳定后等待响应时间，再执行配置的 PULSE/LEVEL 状态输出（NONE 无状态输出）；完成前关闭事件准入，不计accepted/completed |
 | READY -> BUSY | 只接纳一枚事件，选择next_index，写code；实际写出后记录executed |
 | BUSY | 等待建立时间；NONE 直接记录本地 completed，PULSE 完整输出状态脉冲后记录，LEVEL 保持状态电平后记录；未达到有限运行末步则返回 READY |
 | 忙时TRIG/STEP | 拒绝并计数，不排队、不覆盖在途步骤、不恢复后重放 |
@@ -181,12 +224,14 @@ legacy Trigger负载槽，也不能在周期计时之前插入未计量的硬件
 NONE 与 LEVEL 使用相同的有界建立/回执路径并跳过脉冲计时；NONE 的计划状态位为零，
 不改变 PIO 指令容量或借用其他 PIO owner。编码外的 GPIO 不申请为该运行的输出位。
 CPU汇总回执并处理控制邮箱，不消费VDC的破坏性capture队列，不参与逐步输出门控。
-START成功取得资源后由PIO owner预置首状态，初始建立时间到期且executor就绪后才启动输入
-counter/ingress；DMA循环从第二状态开始，末状态后回到首状态。该预置不伪造执行回执。
+START成功取得资源后由PIO owner预置首状态，首项复用executor的编码写出、建立等待与状态输出路径。
+首项真实written/completed回执单独校验，不计入推进计数；状态动作完成且executor就绪后才启动输入
+counter/ingress；DMA循环从第二状态开始，末状态后回到首状态。
+RJ45组合DUT使用NONE，首项建立完成后的LINK_APPLIED经真实回环通知VNA网关输出触发，不额外生成独立状态脉冲。
 有限外部模式由 `sequence_finite_ingress` 的 Y 寄存器执行步数配额；忙时不扣配额，
 最后一枚接纳事件后进入 parked，不依赖 CPU 轮询停机。暂停边界结算尚未扣除的接纳事件，
 恢复不能清空配额或重启已 parked 的 ingress。MANUAL 模式由 owner 检查同一上限。
-零推进运行仍建立 START 首状态并等待 settle，随后发布 finished。
+零推进运行仍建立 START 首状态、等待响应时间并完成配置的状态动作，随后发布 finished。
 executor 使用 `IN Y,32` autopush 产生 written 回执；completed 仍在建立和可选脉冲结束后发布。
 倒计数补偿与指令数以 `sync_io_sequence.c/.pio` 为准，不通过修改主机延时模拟硬件边界。
 回执异常、溢出和硬件资源冲突必须如实报告，不能用DMA预填数量代替执行或完成。
@@ -229,7 +274,10 @@ run/generation/step 或旧 exchange 均不能额外推进。
 旧P3缺板失败和提交门禁结果如实保留。sequence 单板替代门禁由
 `sequence_single_board_gate.py` 的 `SOURCE_ALLOWLIST` 限定，`run` 固定执行有限轮次和连续
 PAUSE/CONT profile，并绑定 staged 源码、固件包、OTA 摘要和原始报告摘要；`check-staged`
-只读核验。任何白名单外源码仍使用 P3。该凭证只表示单板 RJ45 功能，不表示 P3、多板、
+只读核验。三模式扩展同时固定运行独立IN1有限轮次、START状态/热加载、POSITION完整位置/
+忙边界/生命周期和RefMem布局产包回归；绑定各验证器、报告及软件测试日志/JUnit摘要，
+输入频率必须显式记录，功能观察窗口不充当200ms性能条件。新增必要文件逐项列入白名单，
+不放行整个目录；任何白名单外源码仍使用 P3。该凭证只表示单板 RJ45 功能，不表示 P3、多板、
 外部波形、RF、独立边沿计数或严格 TDMA 稳定性通过。
 
 ## NSEQ-A-06 后续PIO执行与热加载边界
@@ -255,15 +303,20 @@ PAUSE/CONT profile，并绑定 staged 源码、固件包、OTA 摘要和原始�
 - 硬件承担单步触发与输出时序，CPU处理配置和汇总；执行/完成游标仍来自真实执行事实，
   不使用DMA预填数量冒充切换完成。提速结果需输入/输出共同波形及吞吐证据。
 
-当前实现使用 `sync_io_sequence.pio` 的 ingress 或 finite_ingress、executor、counter 程序。
-组合模式把未使用的 MANUAL ingress 替换成 gateway 脉冲程序。IN1-IN4 READY 使用 counter/DMA
-捕获；MANUAL READY 不启动输入 counter 或边沿 DMA，只经序列命令槽完成当前 READY 等待；
-每次 fire 先排空旧 DMA/FIFO 后重新设定捕获边界，已为有效电平的输入不冒充新边沿。
+独立模式使用 `sync_io_sequence.pio` 的 ingress 或 finite_ingress、executor、counter 程序。
+组合模式按需加载gateway、none_executor、ready_counter；有转台时另载counter并借用capture
+的SM，保持其程序驻留。各程序预算由实际汇编长度及`sync_io_sequence.c`的静态断言校验。
+IN1-IN4 READY 使用grant门控的累计counter/DMA；MANUAL READY不启动输入counter或边沿DMA，
+将gateway握手指令替换为带相同前置延迟的NOP，只经命令槽完成当前READY等待。
+gateway与READY在ARM/CONT同步启动并保持运行，FIRE仅校验状态和TX FIFO后递交倒计数，
+不再每次abort DMA或重启SM。PIO内grant/ACK先让READY进入边沿等待，再输出触发脉冲；
+输入初始已有效不阻止触发输出，但仍须经历inactive→active才能接纳，不能把旧电平当新边沿。
 单次触发最多发布一枚 READY 回执，脉冲拉低后由 PIO FIFO 发布独立完成凭证，
-READY 和脉冲完成前均不得切换 DUT。PAUSE 取消网关等待/脉冲，恢复由协调器重建当前测量；
+READY 和脉冲完成前均不得切换 DUT。完成PUSH保留FIFO背压，不静默丢弃凭证。
+PAUSE取消网关等待/脉冲，先退役DMA再清旧grant/FIFO和累计baseline；恢复由协调器重建当前测量；
 当前 PAUSE 仍保留编码和统一 SMA 租约，安全释放/恢复策略的后续工作在 TODO 中显式保留。
-指令空间预算引用
-`SYNC_IO_SEQUENCE_INSTRUCTION_WORDS`。保留常驻capture；序列占用的SM与analyzer有冲突，
+保守persona指令空间预算引用`SYNC_IO_SEQUENCE_INSTRUCTION_WORDS`，不把各模式程序长度相加
+作为同时驻留需求。保留常驻capture；序列占用的SM与analyzer有冲突，
 即使指令空间有余也不能并发申请同一SM。DMA按实际SDK已claim资源过滤，私有回执环容量
 引用`sync_io_sequence.c`的`RECEIPT_WORDS`，满环或DMA错误转FAULT，不覆盖未消费回执后继续报成功。
 
@@ -273,3 +326,25 @@ READY 和脉冲完成前均不得切换 DUT。PAUSE 取消网关等待/脉冲，
 暂停/停止读取计数边界时短暂冻结输入SM；边界窗口和可接纳最小脉冲宽度尚未用波形验收，
 不得宣称任意频率无遗漏。独立外部输入模式的单步准入和输出时序不依赖 CPU 逐步发车；
 组合模式经 TDMA/协调器发出显式步骤命令，触发脉宽与 READY 捕获仍由 PIO 执行。
+
+## NSEQ-A-07 组合角色事件流水线与所有权
+
+运行期LINK状态、位置历史及IO动作决策由Core1唯一推进。Core0在停止配置事务内验证角色表，
+START冻结运行配置；Core1只检查原子model epoch，不借用可变角色表指针。
+配置写入与Core1运行入口使用有界尝试的writer guard互斥；普通运输回调不取得这个guard，
+也不直接更改LINK游标或调用网关FIRE/切步。
+
+运输桥暂由Core0拥有分片重组器和发送游标；Core1发布不可变发送offer，Core0逐片发送。
+完整真实RX消息通过`TRIGGER_SEQUENCE_LINK_MAILBOX_CAPACITY`限定的事件邮箱投递，
+Core1每次服务最多消费一个消息。接纳前检查run/generation/binding/step/exchange、
+逻辑路由和当前phase，旧事件、重复事件及非授权来源不能触发IO。邮箱满必须显式故障，
+不能静默覆盖或丢弃已接纳动作；STOP和新运行撤销旧发送权限及待执行事件。
+
+Core1的mandatory调用按PIO/owner事实更新、LINK事件迁移、已提交IO意图执行的顺序进行；
+没有LINK意图时不增加独立SP8T的执行调用。普通命令槽暂忙时保留当前事件供下一次有界服务
+重试，STOP优先。此所有权结构不等于已经具备跨phase特等席或完整优先收发，优化范围和
+完成条件由TODO追踪，不能以主机轮询周期或软件观察时间代替硬件时限。
+
+独立SP8T、DUT/VNA与COUNTER/DUT/VNA按模式动态装载PIO persona；不按所有功能同时常驻
+预留程序。已由PIO/DMA自主完成的编码、建立时间、脉宽和计数不迁回CPU轮询；进一步硬件
+握手下沉须遵守NSEQ-A-06资源、热加载及异常恢复边界，跨PIO消息仍须完整身份校验。
