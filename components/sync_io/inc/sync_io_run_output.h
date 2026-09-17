@@ -22,6 +22,21 @@ enum {
     SYNC_IO_RUN_OUTPUT_DEADLINE, SYNC_IO_RUN_OUTPUT_ARGUMENT,
     SYNC_IO_RUN_OUTPUT_DMA, SYNC_IO_RUN_OUTPUT_EXPIRED
 };
+/* Reason for the most recent rejected block submission.  This is a
+ * diagnostic classification only; a successful submission resets it to NONE.
+ * It is sampled by the VDC client on Core1 immediately after a false return. */
+typedef enum {
+    SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_NONE,
+    SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_NOT_READY,
+    SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_RAW,
+    SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_GUARD,
+    SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_ENCODING,
+    SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_CLOCK,
+    SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_START,
+    SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_DEADLINE,
+    SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_DMA,
+    SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_ARGUMENT
+} sync_io_run_output_submit_failure_t;
 
 typedef struct {
     /* Last edge ticks are requested coordinates. Actual edges retain the
@@ -79,6 +94,7 @@ bool sync_io_run_output_can_submit_core1(uint32_t generation);
  * retired DMA source; unused workspace words are never submitted. */
 bool sync_io_run_output_submit_count_core1(uint32_t generation,
     const sync_io_run_output_edge_t *edges, uint32_t count);
+sync_io_run_output_submit_failure_t sync_io_run_output_last_submit_failure(void);
 /* Compatibility entry: exactly BLOCK_EDGES pulses. */
 bool sync_io_run_output_submit_core1(uint32_t generation,
     const sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES]);

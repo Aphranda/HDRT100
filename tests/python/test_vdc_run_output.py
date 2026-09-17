@@ -76,7 +76,7 @@ def test_diagnostic_outcomes(client, phase, outcome):
     'busy_private', 'bridge_free_hit', 'token_ready', 'token_busy',
     'tail_ready', 'tail_busy', 'falling_ready', 'falling_busy', 'clock_changed',
     'stop', 'session', 'role', 'epoch', 'slot',
-    'cancel', 'prepare_reset', 'terminal', 'reject_retry', 'postplan_stop',
+    'cancel', 'prepare_reset', 'terminal', 'reject_retry', 'retry_not_ready', 'postplan_stop',
     'postplan_unavailable', 'missing_model', 'saturate_prefetched',
     'saturate_hits', 'saturate_invalidations',
 ])
@@ -134,6 +134,7 @@ static vdc_dpll_manager_committed_model_t model;
 static sync_io_run_output_snapshot_t hardware;
 static sync_io_run_output_edge_t admitted[4][SYNC_IO_RUN_OUTPUT_MAX_EDGES];
 static uint32_t admitted_count[4];
+static sync_io_run_output_submit_failure_t submit_failure;
 static vdc_timestamp_clock_bridge_t bridge={.raw_before=1000000u,.raw_after=1000002u,
     .local_ns=4000000u,.tick_hz=BOARD_SYS_CLOCK_HZ};
 static void interleave(void);
@@ -203,7 +204,11 @@ bool sync_io_run_output_submit_count_core1(uint32_t request,
 {
     assert(request==hardware.generation && ready && !cancelled && submit_calls<4u);
     ++submit_attempts;
-    if(!submit_allowed)return false;
+    if(!submit_allowed) {
+        if (submit_failure==SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_NONE)
+            submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_GUARD;
+        return false;
+    }
     assert(count && count<=SYNC_IO_RUN_OUTPUT_MAX_EDGES);
     memcpy(admitted[submit_calls],edges,count*sizeof(edges[0]));
     admitted_count[submit_calls++]=count;
@@ -211,6 +216,8 @@ bool sync_io_run_output_submit_count_core1(uint32_t request,
     hardware.last_falling_tick=edges[count-1u].falling_tick;
     hardware.state=SYNC_IO_RUN_OUTPUT_RUNNING; return true;
 }
+sync_io_run_output_submit_failure_t sync_io_run_output_last_submit_failure(void)
+{ return submit_failure; }
 '''
 
 
@@ -427,6 +434,21 @@ static void prefetch_case(const char *kind)
         assert(s_run_output.last_outcome==VDC_RUN_OUTPUT_SUBMIT_REJECTED);
         submit_allowed=true;bridge_available=true;prefetch_step(1u,1u);
         assert(submit_calls==2u && !memcmp(cached,admitted[1],sizeof(cached)));
+        return;
+    }
+    if(!strcmp(kind,"retry_not_ready")) {
+        ready=true;submit_allowed=false;
+        submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_NOT_READY;
+        prefetch_step(0u,1u);
+        /* The backend rejected only its final readiness check. The complete
+         * suffix remains private and the admitted prefix is unchanged. */
+        assert(s_run_output_pending.valid && submit_calls==1u);
+        assert(!s_run_output.cache_hits);
+        assert_tail_unchanged(&initial,&old_hw);
+        assert(s_run_output.last_outcome==VDC_RUN_OUTPUT_SUBMIT_REJECTED);
+        submit_allowed=true;bridge_available=true;prefetch_step(0u,1u);
+        assert(submit_calls==2u && !s_run_output_pending.valid);
+        assert(!memcmp(cached,admitted[1],sizeof(cached)));
         return;
     }
     if(!strcmp(kind,"postplan_unavailable")) {
@@ -702,9 +724,9 @@ def test_real_parser_exports_start_observation_receipt(parser_host):
     result = subprocess.run([str(parser_host), 'RUN?', 'query'], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stdout + result.stderr
     fields = [int(value) for value in result.stdout.strip().split(',')]
-    assert len(fields) == 112
+    assert len(fields) == 113
     # Preserve every old position: 26 small fields, ten uint64, two config.
-    assert fields[:36] == [7] + [0] * 35
+    assert fields[:36] == [8] + [0] * 35
     assert fields[36:43] == [20, 21, 13, 12, 3, 4294967303, 4294967311]
     assert fields[43:50] == list(range(4294967400, 4294967407))
     assert fields[50:59] == list(range(101, 110))
@@ -713,7 +735,8 @@ def test_real_parser_exports_start_observation_receipt(parser_host):
     assert fields[85:105] == list(range(401, 421))
     assert fields[105:107] == [1, 500]
     assert fields[107:110] == [0, 0, 0]
-    assert fields[110:] == [0, 0]
+    assert fields[110:112] == [0, 0]
+    assert fields[112:] == [0]
 
 
 PARSER_PREFIX = r'''

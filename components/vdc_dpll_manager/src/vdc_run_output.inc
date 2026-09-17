@@ -400,8 +400,23 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
         ++s_run_output.binding_rejects; run_output_cancel_owned(); return;
     }
     if (!sync_io_run_output_submit_count_core1(request,s_run_output_pending.edges,s_run_output.block_edges)) {
-        s_run_output_pending.valid=false;
-        s_run_output_pending.planned=0u;
+        const sync_io_run_output_submit_failure_t failure=
+            sync_io_run_output_last_submit_failure();
+        s_run_output.last_submit_failure=(uint32_t)failure;
+        /* A NOT_READY result can be a same-boundary race between the
+         * admission check above and the backend's final check.  Keep the
+         * complete private suffix so the next service can revalidate the
+         * generation/tail and retry it without rebuilding or touching the
+         * already admitted prefix.  All other branches are terminal for
+         * this suffix: in particular GUARD means the hardware runway has
+         * already entered the minimum safety window, so retaining it would
+         * retry an expired block.  Cancellation, clock/encoding/deadline,
+         * DMA and start failures therefore discard the cache here.
+         */
+        if (failure!=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_NOT_READY) {
+            s_run_output_pending.valid=false;
+            s_run_output_pending.planned=0u;
+        }
         run_output_note(phase,VDC_RUN_OUTPUT_SUBMIT_REJECTED); ++s_run_output.plan_rejects; return;
     }
     s_run_output.ring_config=ring.config_seq; s_run_output.role_generation=model.role_generation;

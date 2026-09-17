@@ -35,6 +35,7 @@ static bool s_sm_claimed, s_dma_claimed, s_loaded, s_lease;
 static bool s_source_pending;
 enum { RUN_MODE_PAIRED, RUN_MODE_UNIFORM };
 static uint32_t s_mode, s_fixed_high_ticks;
+static sync_io_run_output_submit_failure_t s_last_submit_failure;
 
 /* Keep the bounded cached-refill backend in main SRAM. Attributes on these
  * declarations also apply to their definitions below; noinline prevents a
@@ -184,6 +185,7 @@ static bool prepare_mode(uint32_t hz,uint32_t duration_ms,uint32_t high_ticks,
     s_run.generation=++s_generation; s_run.tick_hz=hz;
     s_run.program_offset=s_offset;
     s_duration_ms=duration_ms; s_lease=true; s_source_pending=false;
+    s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_NONE;
     __atomic_store_n(&s_cancel,0u,__ATOMIC_RELEASE);
     publish_state(SYNC_IO_RUN_OUTPUT_PREPARED);
     end_write();
@@ -280,8 +282,13 @@ bool sync_io_run_output_submit_core1(uint32_t generation,
 bool sync_io_run_output_submit_count_core1(uint32_t generation,
     const sync_io_run_output_edge_t *edges,uint32_t count)
 {
-    if (!edges || !count || count>SYNC_IO_RUN_OUTPUT_MAX_EDGES ||
-        !sync_io_run_output_can_submit_core1(generation)) return false;
+    s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_NONE;
+    if (!edges || !count || count>SYNC_IO_RUN_OUTPUT_MAX_EDGES) {
+        s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_ARGUMENT; return false;
+    }
+    if (!sync_io_run_output_can_submit_core1(generation)) {
+        s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_NOT_READY; return false;
+    }
     const bool uniform=s_mode==RUN_MODE_UNIFORM;
     const uint32_t words_per_edge=uniform ? 1u : 2u;
     const uint32_t word_count=words_per_edge*count;
@@ -290,38 +297,53 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
     const bool first=s_run.state==SYNC_IO_RUN_OUTPUT_PREPARED;
     uint64_t submitted_at=0u;
     uint64_t now;
-    if (!read_raw(&now)) return false;
+    if (!read_raw(&now)) {
+        s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_RAW; return false;
+    }
     const uint64_t guard=s_run.tick_hz/1000000u*SYNC_IO_RUN_OUTPUT_MIN_GUARD_US;
-    if (now>UINT64_MAX-guard || (!first && s_run.last_falling_tick<=now+guard)) return false;
+    if (now>UINT64_MAX-guard || (!first && s_run.last_falling_tick<=now+guard)) {
+        s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_GUARD; return false;
+    }
     uint32_t words[SYNC_IO_RUN_OUTPUT_MAX_WORDS];
     uint64_t previous=first ? now : s_run.last_falling_tick;
     for (uint32_t i=0;i<count;++i) {
         if (!edges[i].model_token || edges[i].falling_tick<=edges[i].rising_tick ||
             (i && edges[i].ordinal<=edges[i-1u].ordinal) ||
-            (!i && !first && edges[i].ordinal<=s_run.last_ordinal)) return false;
+            (!i && !first && edges[i].ordinal<=s_run.last_ordinal)) {
+            s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_ENCODING; return false;
+        }
         if (uniform) {
             if (!sync_pulse_uniform_encode(first ? now : s_run.anchor_before,
                     first && i==0u,previous,edges[i].rising_tick,
-                    edges[i].falling_tick,s_fixed_high_ticks,&words[i])) return false;
+                    edges[i].falling_tick,s_fixed_high_ticks,&words[i])) {
+                s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_ENCODING; return false;
+            }
         } else {
             /* Compatibility encoder outputs [high countdown, low countdown]. */
             sync_pulse_stream_words_t pair;
             if (!sync_pulse_stream_encode(first ? now : s_run.anchor_before,
                     first && i==0u,previous,edges[i].rising_tick,
-                    edges[i].falling_tick,&pair)) return false;
+                    edges[i].falling_tick,&pair)) {
+                s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_ENCODING; return false;
+            }
             words[2u*i]=pair.high_count; words[2u*i+1u]=pair.low_count;
         }
         previous=edges[i].falling_tick;
     }
-    if (first && edges[0].rising_tick<=now+guard) return false;
+    if (first && edges[0].rising_tick<=now+guard) {
+        s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_GUARD; return false;
+    }
     if (clock_get_hz(clk_sys)!=s_run.tick_hz ||
-        __atomic_load_n(&s_cancel,__ATOMIC_ACQUIRE) || dma_failed()) return false;
+        __atomic_load_n(&s_cancel,__ATOMIC_ACQUIRE) || dma_failed()) {
+        s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_CLOCK; return false;
+    }
     begin_write();
     if (s_source_pending) { ++s_run.source_retirements; s_source_pending=false; }
     memcpy(sync_io_shared_workspace,words,word_count*sizeof(words[0]));
     __atomic_thread_fence(__ATOMIC_RELEASE);
     if (first) {
         if (!sync_io_persona_manager_start(&s_manager,&s_handle)) {
+            s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_START;
             retire(SYNC_IO_RUN_OUTPUT_ARGUMENT); end_write(); return false;
         }
         /* Re-encode only the first low against the final raw observation.
@@ -333,6 +355,7 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
             !read_raw(&before) || before>UINT64_MAX-guard || edges[0].rising_tick<=before+guard ||
             edges[0].rising_tick-before-first_low_overhead>UINT32_MAX ||
             before>UINT64_MAX-(uint64_t)s_duration_ms*s_run.tick_hz/1000u) {
+            s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_DEADLINE;
             retire(SYNC_IO_RUN_OUTPUT_DEADLINE); end_write(); return false;
         }
         RUN_PIO->fdebug=1u<<(PIO_FDEBUG_TXSTALL_LSB+RUN_SM);
@@ -368,11 +391,22 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
     } else {
         uint64_t ready;
         if (__atomic_load_n(&s_cancel,__ATOMIC_ACQUIRE) ||
-            !sync_io_core_run_output_held(&s_run) || dma_failed() ||
-            clock_get_hz(clk_sys)!=s_run.tick_hz ||
-            !read_raw(&ready) || ready>UINT64_MAX-guard ||
-            s_run.last_falling_tick<=ready+guard ||
+            !sync_io_core_run_output_held(&s_run) ||
+            clock_get_hz(clk_sys)!=s_run.tick_hz) {
+            s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_CLOCK;
+            retire(SYNC_IO_RUN_OUTPUT_DEADLINE); end_write(); return false;
+        }
+        if (dma_failed() ||
             (RUN_PIO->fdebug&(1u<<(PIO_FDEBUG_TXSTALL_LSB+RUN_SM)))) {
+            s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_DMA;
+            retire(SYNC_IO_RUN_OUTPUT_DEADLINE); end_write(); return false;
+        }
+        if (!read_raw(&ready)) {
+            s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_RAW;
+            retire(SYNC_IO_RUN_OUTPUT_DEADLINE); end_write(); return false;
+        }
+        if (ready>UINT64_MAX-guard || s_run.last_falling_tick<=ready+guard) {
+            s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_GUARD;
             retire(SYNC_IO_RUN_OUTPUT_DEADLINE); end_write(); return false;
         }
         dma_channel_set_read_addr(RUN_DMA,sync_io_shared_workspace,false);
@@ -398,6 +432,11 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
     s_run.last_ordinal=edges[count-1u].ordinal;
     end_write();
     return true;
+}
+
+sync_io_run_output_submit_failure_t sync_io_run_output_last_submit_failure(void)
+{
+    return s_last_submit_failure;
 }
 
 bool sync_io_run_output_release(uint32_t generation)

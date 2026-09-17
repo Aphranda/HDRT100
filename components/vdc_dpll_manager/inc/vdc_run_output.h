@@ -3,7 +3,7 @@
 #include "sync_io_run_output.h"
 #include "vdc_output_timing.h"
 
-#define VDC_RUN_OUTPUT_SCHEMA 7u
+#define VDC_RUN_OUTPUT_SCHEMA 8u
 
 enum { VDC_RUN_OUTPUT_PREPARED_PHASE, VDC_RUN_OUTPUT_RUNNING_PHASE,
        VDC_RUN_OUTPUT_PHASE_COUNT };
@@ -62,6 +62,11 @@ typedef struct {
     uint32_t service_sequence, last_outcome_service_sequence;
     uint32_t last_invalidation_service_sequence;
     uint64_t last_outcome_tick, last_invalidation_tick;
+    /* SYNC_IO's most recent rejected-submit branch; zero means no rejection
+     * has been observed in this request. NOT_READY may retain the private
+     * suffix for a later same-generation service retry; other branches clear
+     * it, with GUARD treated as an expired hardware runway. */
+    uint32_t last_submit_failure;
 } vdc_run_output_status_t;
 
 bool vdc_run_output_prepare(uint32_t period_ns,uint32_t high_ns,
