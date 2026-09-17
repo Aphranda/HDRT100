@@ -1,0 +1,44 @@
+; SYNC_IO-owned OUT1 program. All FIFO pulls occur with output low.
+; FIFO pairs are [high_count, low_count], never an auto-replaying DMA ring.
+; Divider is exactly one. Tick zero is the first instruction execution slot
+; after a fresh enable/restart, not a CPU timestamp of the enable store.
+.program sync_pulse_stream_out1
+.wrap_target
+    pull block
+    out y, 32
+    pull block
+    out x, 32
+low_delay:
+    jmp x-- low_delay
+    set pins, 1
+high_delay:
+    jmp y-- high_delay
+    set pins, 0
+.wrap
+
+% c-sdk {
+/* Sole SYNC_IO owner has already claimed this SM/program/pin and quiesced
+ * every DMA writer to its FIFO. Returns with SM disabled and output low.
+ * Owner preloads finite immutable pairs, establishes a new hardware timing
+ * origin, then enables. No raw pause/resume preserves absolute deadlines. */
+static inline bool sync_pulse_stream_out1_program_init(PIO pio, uint sm,
+        uint offset, uint pin)
+{
+    if (sm >= 4u || offset > 24u || pin >= 32u) return false;
+    pio_sm_set_enabled(pio, sm, false);
+    pio_sm_config c = sync_pulse_stream_out1_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, pin, 1u);
+    sm_config_set_out_shift(&c, true, false, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv_int_frac(&c, 1u, 0u);
+    if (pio_sm_init(pio, sm, offset, &c) != 0) return false;
+    pio_sm_clear_fifos(pio, sm);
+    pio_sm_restart(pio, sm);
+    pio_sm_clkdiv_restart(pio, sm);
+    /* Seed output latch before switching pin to this owner or driving it. */
+    pio_sm_set_pins_with_mask(pio, sm, 0u, UINT32_C(1) << pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1u, true);
+    pio_gpio_init(pio, pin);
+    return true;
+}
+%}

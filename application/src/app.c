@@ -35,6 +35,7 @@
 #include "trigger_measure.h"
 #include "ui_manager.h"
 #include "vdc_dpll_manager.h"
+#include "vdc_run_output.h"
 #include "vdc_timestamp_clock.h"
 #include "hardware/regs/m33.h"
 #include "hardware/structs/systick.h"
@@ -1083,6 +1084,7 @@ static void app_realtime_tdma_phase(void)
     if (board_identity_get_no() != 5u) {
         tdma_component_core1_service();
     }
+    vdc_run_output_service_core1();
     /* The analyzer intent mailbox is a mandatory bounded Core1 service.
      * It must not live behind an optional/quarantinable load, otherwise an
      * accepted ARM/STOP could remain pending forever.  TDMA remains first;

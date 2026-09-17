@@ -71,7 +71,20 @@ void sync_io_core_trace(sync_io_trace_event_t event_id,
                         uint32_t arg1);
 bool sync_io_core_initialized(void);
 bool sync_io_core_capture_is_running(void);
+/* One admission gate for SMA mutators and continuous output reservation.
+ * Legacy calls never nest: public wrappers call private owned helpers.
+ * RUN release requires the matching token and the caller's retirement ACK. */
+bool sync_io_core_legacy_try_enter(void);
+void sync_io_core_legacy_leave(void);
+bool sync_io_core_run_output_reserve(const void *token);
+bool sync_io_core_run_output_held(const void *token);
+bool sync_io_core_run_output_release(const void *token);
+/* Legacy gate only: services completed legacy schedule just as is_running. */
+bool sync_io_core_model_output_active(void);
+bool sync_io_core_sma_frequency_output_active(void);
 bool sync_io_core_wave_output_persona_active(void);
+/* Raw check for a legacy wrapper that already owns LEGACY_OPERATION. */
+bool sync_io_core_wave_output_persona_active_owned(void);
 bool sync_io_core_sm_is_enabled(PIO pio, uint sm);
 uint32_t sync_io_core_pack_runtime_flags(bool running,
                                          bool pio_enabled,

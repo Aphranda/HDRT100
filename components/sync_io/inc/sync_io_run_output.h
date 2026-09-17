@@ -1,0 +1,64 @@
+#ifndef SYNC_IO_RUN_OUTPUT_H
+#define SYNC_IO_RUN_OUTPUT_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#define SYNC_IO_RUN_OUTPUT_BLOCK_EDGES 4u
+#define SYNC_IO_RUN_OUTPUT_BLOCK_WORDS (2u * SYNC_IO_RUN_OUTPUT_BLOCK_EDGES)
+#define SYNC_IO_RUN_OUTPUT_SCHEMA 1u
+
+enum {
+    SYNC_IO_RUN_OUTPUT_IDLE, SYNC_IO_RUN_OUTPUT_PREPARED,
+    SYNC_IO_RUN_OUTPUT_RUNNING, SYNC_IO_RUN_OUTPUT_RETIRING,
+    SYNC_IO_RUN_OUTPUT_RETIRED
+};
+enum {
+    SYNC_IO_RUN_OUTPUT_OK, SYNC_IO_RUN_OUTPUT_CANCELLED,
+    SYNC_IO_RUN_OUTPUT_CLOCK, SYNC_IO_RUN_OUTPUT_STARVED,
+    SYNC_IO_RUN_OUTPUT_DEADLINE, SYNC_IO_RUN_OUTPUT_ARGUMENT,
+    SYNC_IO_RUN_OUTPUT_DMA, SYNC_IO_RUN_OUTPUT_EXPIRED
+};
+
+typedef struct {
+    /* Last edge ticks are requested coordinates. Actual edges retain the
+     * common nonnegative enable offset enclosed by anchor_after-before.
+     * No stall/pause is permitted within that timing epoch. */
+    uint64_t rising_tick, falling_tick;
+    uint64_t ordinal;
+    uint32_t model_token;
+} sync_io_run_output_edge_t;
+
+typedef struct {
+    uint64_t anchor_before, anchor_after, last_rising_tick, last_falling_tick;
+    uint64_t first_ordinal, last_ordinal, expires_tick;
+    uint32_t schema, generation, state, reason, blocks, edges;
+    uint32_t source_retirements, first_model, last_model, model_changes;
+    uint32_t tick_hz, transfer_count, pio_enabled, dma_busy;
+    uint32_t start_pc, program_offset, start_raw_flags;
+    uint64_t start_raw_observed, start_raw_after;
+} sync_io_run_output_snapshot_t;
+
+/* Core0 STOP preparation only. Reserves the existing SYNC_IO scheduler,
+ * shared arena, scheduled persona and physical SM/DMA before TDMA ARM.
+ * Preparation forces safe low but emits no planned pulses. Clock lifetime and product STOP guard belong
+ * to the capability caller. Duration is a finite debug lease in raw ticks. */
+bool sync_io_run_output_prepare(uint32_t expected_hz, uint32_t duration_ms,
+                                uint32_t *generation);
+/* Atomic cancellation intent; no hardware access. */
+void sync_io_run_output_cancel(void);
+/* Core1 mandatory service: bounded cancellation/fault/expiry and DMA abort
+ * retirement. Does not allocate, log, wait or release the shared arena. */
+void sync_io_run_output_service_core1(void);
+/* Core1 only. True authorizes writing a new finite block to retired source
+ * storage. DMA completion is not physical edge completion. */
+bool sync_io_run_output_can_submit_core1(uint32_t generation);
+/* True means the block was irrevocably admitted; subsequent hardware fault
+ * remains visible in state/reason. False means this block was not admitted. */
+bool sync_io_run_output_submit_core1(uint32_t generation,
+    const sync_io_run_output_edge_t edges[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES]);
+/* Core0 only, after Core1 RETIRED acknowledgement. Does not cancel live DMA. */
+bool sync_io_run_output_release(uint32_t generation);
+bool sync_io_run_output_snapshot(sync_io_run_output_snapshot_t *out);
+
+#endif

@@ -525,6 +525,7 @@ set(PROJECT_APP_SOURCES
         components/sync_io/src/sync_io_logic_analyzer.c
         components/sync_io/src/sync_io_analyzer_burst.c
         components/sync_io/src/sync_io_model_sched.c
+        components/sync_io/src/sync_io_run_output.c
         components/sync_io/src/sync_io_mode.c
         components/sync_io/src/sync_io_mode_biss_tap.c
         components/sync_io/src/sync_io_mode_enc_count.c
@@ -675,6 +676,7 @@ function(project_configure_app_target target_name app_name linker_script)
     pico_set_program_version(${target_name} "0.1.0")
 
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_io.pio)
+    pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_pulse_stream_out1.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/seq_step.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/enc_count.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/biss_tap_rx.pio)

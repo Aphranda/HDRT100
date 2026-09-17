@@ -95,7 +95,15 @@ bool sync_io_seq_step_dma_irq_service(uint32_t ints)
     return true;
 }
 
-bool sync_io_seq_step_arm(const uint32_t *seq_table,
+static bool sync_io_seq_step_arm_owned(const uint32_t *seq_table,
+                          uint32_t seq_length,
+                          uint32_t seq_width,
+                          uint32_t trigger_pin,
+                          sync_io_edge_t edge,
+                          bool gate_enabled);
+static void sync_io_seq_step_disarm_owned(void);
+
+static bool sync_io_seq_step_arm_owned(const uint32_t *seq_table,
                           uint32_t seq_length,
                           uint32_t seq_width,
                           uint32_t trigger_pin,
@@ -103,7 +111,7 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
                           bool gate_enabled)
 {
     if (!sync_io_core_initialized() ||
-        sync_io_core_wave_output_persona_active() ||
+        sync_io_core_wave_output_persona_active_owned() ||
         seq_table == NULL ||
         seq_length == 0u ||
         seq_length > SYNC_IO_SEQ_STEP_MODE_MAX_LENGTH ||
@@ -132,7 +140,7 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
     }
 
     if (s_seq_step.running) {
-        sync_io_seq_step_disarm();
+        sync_io_seq_step_disarm_owned();
     } else {
         dma_channel_abort(SYNC_IO_SEQ_STEP_DMA_CH);
         pio_sm_set_enabled(BOARD_SYNC_PIO_WAVE, BOARD_SYNC_OUTPUT_SM, false);
@@ -233,7 +241,20 @@ bool sync_io_seq_step_arm(const uint32_t *seq_table,
     return true;
 }
 
-void sync_io_seq_step_disarm(void)
+bool sync_io_seq_step_arm(const uint32_t *seq_table,
+                          uint32_t seq_length,
+                          uint32_t seq_width,
+                          uint32_t trigger_pin,
+                          sync_io_edge_t edge,
+                          bool gate_enabled)
+{
+    if (!sync_io_core_legacy_try_enter()) return false;
+    const bool result = sync_io_seq_step_arm_owned(seq_table, seq_length, seq_width, trigger_pin, edge, gate_enabled);
+    sync_io_core_legacy_leave();
+    return result;
+}
+
+static void sync_io_seq_step_disarm_owned(void)
 {
     if (!s_seq_step.running) {
         return;
@@ -271,6 +292,13 @@ void sync_io_seq_step_disarm(void)
                        SYNC_IO_TRACE_INFO,
                        (uint32_t)s_seq_step.rollover_count,
                        s_seq_step.seq_length);
+}
+
+void sync_io_seq_step_disarm(void)
+{
+    if (!sync_io_core_legacy_try_enter()) return;
+    sync_io_seq_step_disarm_owned();
+    sync_io_core_legacy_leave();
 }
 
 uint32_t sync_io_seq_step_get_index(void)

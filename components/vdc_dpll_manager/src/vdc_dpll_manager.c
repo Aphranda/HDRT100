@@ -3041,6 +3041,10 @@ static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phas
 #undef VDC_PRIORITY_TRACE_PHASE_HOOK
 #include "vdc_priority_trace.inc"
 #include "vdc_fixed_output.inc"
+#include "vdc_run_output.h"
+#include "vdc_output_edge_plan.h"
+#include "vdc_future_raw.h"
+#include "vdc_run_output.inc"
 
 /* Section placement alone does not prevent GCC from moving this whole RAM
  * step into the XIP service wrapper when that wrapper gains another call. */
@@ -3936,6 +3940,7 @@ static uint32_t vdc_dpll_manager_waveform_find_free_buffer(void)
 
 void vdc_dpll_manager_core0_service(void)
 {
+    run_output_release_core0();
     vdc_fixed_output_service_core0();
     vdc_dpll_manager_observation_self_test_service();
     /* NO5 phase-only capture can scan a sustained 10 MHz DMA stream.  Keep

@@ -10,6 +10,7 @@
 #include "hardware/pio.h"
 #include "osal.h"
 #include "pico/time.h"
+#include "pico/platform.h"
 #include "sync_io.pio.h"
 #include "sync_io_core_internal.h"
 #include "sync_io_persona_manager.h"
@@ -56,8 +57,10 @@ typedef enum {
     SYNC_IO_SCHEDULE_FIXED_PREPARING,
     SYNC_IO_SCHEDULE_FIXED_ACTIVE,
     SYNC_IO_SCHEDULE_FIXED_SERVICE,
+    SYNC_IO_SCHEDULE_RUN_RESERVED,
 } sync_io_schedule_phase_t;
 static uint32_t s_schedule_phase;
+static uintptr_t s_run_output_token;
 static bool s_fixed_rate_cancel_requested;
 
 static bool sync_io_schedule_reserve(uint32_t expected, uint32_t desired)
@@ -70,6 +73,30 @@ static bool sync_io_schedule_reserve(uint32_t expected, uint32_t desired)
 static void sync_io_schedule_publish_phase(uint32_t phase)
 {
     __atomic_store_n(&s_schedule_phase, phase, __ATOMIC_RELEASE);
+}
+
+bool sync_io_core_legacy_try_enter(void)
+{
+    return sync_io_schedule_reserve(SYNC_IO_SCHEDULE_IDLE,
+                                     SYNC_IO_SCHEDULE_LEGACY_OPERATION);
+}
+
+void sync_io_core_legacy_leave(void)
+{
+    (void)sync_io_schedule_reserve(SYNC_IO_SCHEDULE_LEGACY_OPERATION,
+                                   SYNC_IO_SCHEDULE_IDLE);
+}
+
+static void sync_io_model_update_completion(void);
+
+bool sync_io_core_model_output_active(void)
+{
+    if (__atomic_load_n(&s_schedule_phase, __ATOMIC_ACQUIRE) !=
+        SYNC_IO_SCHEDULE_LEGACY_OPERATION) return true;
+    /* Preserve legacy is_running's completed-schedule retirement while the
+     * caller already owns the gate, avoiding a nested public getter. */
+    sync_io_model_update_completion();
+    return s_model_pulse.running;
 }
 _Static_assert(SYNC_IO_RATE_SCHEDULE_MAX_PULSES <=
                    SYNC_IO_MODEL_PULSE_MAX_ENTRIES,
@@ -391,6 +418,51 @@ bool sync_io_core_wave_output_persona_active(void)
 {
     return __atomic_load_n(&s_schedule_phase, __ATOMIC_ACQUIRE) !=
                SYNC_IO_SCHEDULE_IDLE || s_wave_output_manager_active;
+}
+
+bool sync_io_core_wave_output_persona_active_owned(void)
+{
+    const uint32_t phase = __atomic_load_n(&s_schedule_phase, __ATOMIC_ACQUIRE);
+    /* Legacy mutators call this only after acquiring their short gate. */
+    return (phase != SYNC_IO_SCHEDULE_IDLE &&
+            phase != SYNC_IO_SCHEDULE_LEGACY_OPERATION) ||
+           s_wave_output_manager_active;
+}
+
+bool sync_io_core_run_output_reserve(const void *token)
+{
+    if (get_core_num() != 0u || token == NULL ||
+        !sync_io_schedule_reserve(SYNC_IO_SCHEDULE_IDLE,
+                                  SYNC_IO_SCHEDULE_RUN_RESERVED)) return false;
+    /* A legacy schedule may leave IDLE while its hardware remains active.
+     * Never call the public runtime getter here: it takes this same gate. */
+    if (!sync_io_core_initialized() || s_model_pulse.running ||
+        s_wave_output_manager_active || s_wave_output_sm_claimed ||
+        s_wave_output_dma_claimed || s_wave_output_program_loaded ||
+        sync_io_core_capture_is_running() || sync_io_seq_step_is_running() ||
+        sync_io_enc_count_is_running() || sync_io_core_sma_frequency_output_active()) {
+        sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);
+        return false;
+    }
+    __atomic_store_n(&s_run_output_token, (uintptr_t)token, __ATOMIC_RELEASE);
+    return true;
+}
+
+bool sync_io_core_run_output_held(const void *token)
+{
+    return token != NULL &&
+        __atomic_load_n(&s_schedule_phase, __ATOMIC_ACQUIRE) ==
+            SYNC_IO_SCHEDULE_RUN_RESERVED &&
+        __atomic_load_n(&s_run_output_token, __ATOMIC_ACQUIRE) == (uintptr_t)token;
+}
+
+bool sync_io_core_run_output_release(const void *token)
+{
+    if (get_core_num() != 0u || !sync_io_core_run_output_held(token)) return false;
+    /* Runtime owns generation/retirement: caller may release only after ACK. */
+    __atomic_store_n(&s_run_output_token, 0u, __ATOMIC_RELEASE);
+    sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);
+    return true;
 }
 
 static float sync_io_model_clkdiv_for_tick_rate(uint32_t tick_hz)

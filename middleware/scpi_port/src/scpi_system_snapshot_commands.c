@@ -2628,6 +2628,88 @@ scpi_result_t scpi_cmd_vdc_feedback_model_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+#include "vdc_run_output.h"
+
+static bool scpi_vdc_run_u32(scpi_t *context,uint32_t *out)
+{
+    scpi_parameter_t param;
+    if (!SCPI_Parameter(context,&param,TRUE) ||
+        param.type!=SCPI_TOKEN_DECIMAL_NUMERIC_PROGRAM_DATA || param.len<=0) return false;
+    /* This libscpi version omits consumed numeric trailing whitespace from
+     * its aggregate parameter length. Reject that spelling before it can
+     * silently truncate a later value ("1000000 ,1000,1000" -> duration 100).
+     * Whitespace before a token remains supported. Do not repair the lexer
+     * or reinterpret an incomplete command at this resource boundary. */
+    if (context->param_list.lex_state.pos!=param.ptr+param.len) return false;
+    int pos=param.ptr[0]=='+' ? 1 : 0;
+    if (pos==param.len) return false;
+    uint32_t value=0u;
+    for (;pos<param.len;++pos) {
+        const unsigned char digit=(unsigned char)param.ptr[pos];
+        if (digit<'0' || digit>'9' || value>(UINT32_MAX-(digit-'0'))/10u) return false;
+        value=value*10u+(digit-'0');
+    }
+    *out=value; return true;
+}
+
+static bool scpi_vdc_run_end(scpi_t *context)
+{
+    scpi_parameter_t extra;
+    return !SCPI_Parameter(context,&extra,FALSE) && !SCPI_ParamErrorOccurred(context);
+}
+
+scpi_result_t scpi_cmd_vdc_run_output(scpi_t *context)
+{
+    uint32_t period,high,duration,request;
+    if (!scpi_vdc_run_u32(context,&period) || !scpi_vdc_run_u32(context,&high) ||
+        !scpi_vdc_run_u32(context,&duration) || !scpi_vdc_run_end(context) ||
+        !vdc_run_output_prepare(period,high,duration,&request)) {
+        scpi_port_push_exec_error(context,"VDC_RUN_OUTPUT_REJECTED"); return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context,request); return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_run_output_stop(scpi_t *context)
+{
+    if (!scpi_vdc_run_end(context)) {
+        scpi_port_push_exec_error(context,"VDC_RUN_OUTPUT_STOP_PARAMETERS"); return SCPI_RES_ERR;
+    }
+    vdc_run_output_cancel(); return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_vdc_run_output_q(scpi_t *context)
+{
+    vdc_run_output_status_t s;
+    if (!vdc_run_output_status(&s)) {
+        scpi_port_push_exec_error(context,"VDC_RUN_OUTPUT_NOT_RETIRED"); return SCPI_RES_ERR;
+    }
+    const sync_io_run_output_snapshot_t *h=&s.hardware;
+    SCPI_ResultUInt32(context,h->schema); SCPI_ResultUInt32(context,h->generation);
+    SCPI_ResultUInt32(context,h->state); SCPI_ResultUInt32(context,h->reason);
+    SCPI_ResultUInt32(context,h->blocks); SCPI_ResultUInt32(context,h->edges);
+    SCPI_ResultUInt32(context,h->source_retirements);
+    SCPI_ResultUInt32(context,h->first_model); SCPI_ResultUInt32(context,h->last_model);
+    SCPI_ResultUInt32(context,h->model_changes); SCPI_ResultUInt32(context,h->tick_hz);
+    SCPI_ResultUInt32(context,h->transfer_count); SCPI_ResultUInt32(context,h->pio_enabled);
+    SCPI_ResultUInt32(context,h->dma_busy);
+    SCPI_ResultUInt32(context,s.session); SCPI_ResultUInt32(context,s.period_ns);
+    SCPI_ResultUInt32(context,s.high_ns); SCPI_ResultUInt32(context,s.duration_ms);
+    SCPI_ResultInt32(context,s.delay_ns); SCPI_ResultUInt32(context,s.ring_config);
+    SCPI_ResultUInt32(context,s.role_generation); SCPI_ResultUInt32(context,s.clock_epoch);
+    SCPI_ResultUInt32(context,s.clock_run); SCPI_ResultUInt32(context,s.blocks_planned);
+    SCPI_ResultUInt32(context,s.plan_rejects); SCPI_ResultUInt32(context,s.binding_rejects);
+    SCPI_ResultUInt64(context,h->anchor_before); SCPI_ResultUInt64(context,h->anchor_after);
+    SCPI_ResultUInt64(context,h->last_rising_tick); SCPI_ResultUInt64(context,h->last_falling_tick);
+    SCPI_ResultUInt64(context,h->first_ordinal); SCPI_ResultUInt64(context,h->last_ordinal);
+    SCPI_ResultUInt64(context,h->expires_tick); SCPI_ResultUInt64(context,s.last_local_ns);
+    SCPI_ResultUInt64(context,s.last_target_vdc_ns); SCPI_ResultUInt64(context,s.maximum_bridge_width_ticks);
+    SCPI_ResultUInt32(context,s.prepared_config); SCPI_ResultUInt32(context,s.arm_config);
+    SCPI_ResultUInt32(context,h->start_pc); SCPI_ResultUInt32(context,h->program_offset);
+    SCPI_ResultUInt32(context,h->start_raw_flags);
+    SCPI_ResultUInt64(context,h->start_raw_observed); SCPI_ResultUInt64(context,h->start_raw_after);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_vdc_fixed_output(scpi_t *context)
 {
     uint32_t period_ns, high_ns, pulse_count, tick_period_ns, request_id;

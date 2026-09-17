@@ -240,6 +240,8 @@ static bool instrumented_claim(const void *owner) {
 #define sync_io_core_capture_is_running() capture
 #define sync_io_seq_step_is_running() sequence
 #define sync_io_enc_count_is_running() encoder
+#define sync_io_core_sma_frequency_output_active() pwm
+#define get_core_num() 0u
 #define DMA_SIZE_32 0
 #define GPIO_FUNC_SIO 0
 #define GPIO_IN 0
@@ -314,6 +316,8 @@ static void dma_channel_configure(uint channel, const dma_channel_config *config
         "sync_io_wave_output_stop", "sync_io_wave_output_cleanup",
         "sync_io_wave_output_manager_init", "sync_io_wave_output_manager_start",
         "sync_io_wave_output_manager_release", "sync_io_core_wave_output_persona_active",
+        "sync_io_core_wave_output_persona_active_owned", "sync_io_core_run_output_reserve",
+        "sync_io_core_run_output_held", "sync_io_core_run_output_release",
         "sync_io_model_update_completion",
         "sync_io_model_pulse_schedule_get_runtime_owned",
         "sync_io_model_pulse_schedule_get_runtime", "sync_io_model_pulse_schedule_is_running",
@@ -549,7 +553,7 @@ int main(void) {
 def test_legacy_modes_guard_fixed_owner_before_side_effects(filename, name):
     body = production_function((SRC / filename).read_text(encoding="utf-8"), name)
     first_guard = body.split("{", 1)[1].split("\n    }", 1)[0]
-    assert "sync_io_core_wave_output_persona_active()" in first_guard
+    assert "sync_io_core_legacy_try_enter()" in first_guard
     assert "return false;" in first_guard
     assert "disarm();" not in first_guard
     assert "pio_sm_set_enabled" not in first_guard

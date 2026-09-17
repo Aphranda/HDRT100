@@ -9,7 +9,7 @@ SRC = ROOT / "components/sync_io/src"
 
 
 def function(source: str, name: str) -> str:
-    start = re.search(rf"(?m)^(?:static )?(?:bool|void|size_t) {name}\(", source)
+    start = re.search(rf"(?m)^(?:static )?(?:bool|void|size_t) {name}\([^;]*?\n\{{", source)
     assert start, name
     end = source.index("\n}\n", start.start()) + 3
     return source[start.start():end]
@@ -68,8 +68,10 @@ static bool dma_config_ok = true;
 #define pio_sm_restart(...) (++hardware_writes)
 #define dma_start_channel_mask(...) (++hardware_writes)
 #define dma_channel_abort(...) (++aborts)
-#define sync_io_model_pulse_schedule_is_running() false
-#define sync_io_core_wave_output_persona_active() false
+#define sync_io_core_model_output_active() false
+#define sync_io_core_wave_output_persona_active_owned() false
+#define sync_io_core_legacy_try_enter() true
+#define sync_io_core_legacy_leave() ((void)0)
 #define sync_io_common_time_now_ns() 1234u
 #define osal_critical_enter() ((void)0)
 #define osal_critical_exit() ((void)0)
@@ -79,7 +81,9 @@ static bool sync_io_capture_dma_configure(void) {
     return dma_config_ok;
 }
 '''
+    harness += function(source, "sync_io_stop_capture_owned")
     harness += function(source, "sync_io_stop_capture")
+    harness += function(source, "sync_io_start_capture_owned")
     harness += function(source, "sync_io_start_capture")
     harness += r'''
 int main(void) {

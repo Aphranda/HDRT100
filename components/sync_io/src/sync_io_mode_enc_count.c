@@ -79,12 +79,17 @@ bool sync_io_enc_count_dma_irq_service(uint32_t ints)
     return true;
 }
 
-bool sync_io_enc_count_arm(uint32_t target,
+static bool sync_io_enc_count_arm_owned(uint32_t target,
+                           uint32_t in_pin_base,
+                           uint32_t output_pin);
+static void sync_io_enc_count_disarm_owned(void);
+
+static bool sync_io_enc_count_arm_owned(uint32_t target,
                            uint32_t in_pin_base,
                            uint32_t output_pin)
 {
     if (!sync_io_core_initialized() ||
-        sync_io_core_wave_output_persona_active() || target == 0u) {
+        sync_io_core_wave_output_persona_active_owned() || target == 0u) {
         sync_io_core_trace(SYNC_IO_TRACE_ENC_ARM_FAIL,
                            SYNC_IO_TRACE_ERROR,
                            target,
@@ -102,7 +107,7 @@ bool sync_io_enc_count_arm(uint32_t target,
     }
 
     if (s_enc.running) {
-        sync_io_enc_count_disarm();
+        sync_io_enc_count_disarm_owned();
     }
 
     if (!pio_can_add_program(BOARD_SYNC_PIO_WAVE, &enc_count_program)) {
@@ -193,7 +198,17 @@ bool sync_io_enc_count_arm(uint32_t target,
     return true;
 }
 
-void sync_io_enc_count_disarm(void)
+bool sync_io_enc_count_arm(uint32_t target,
+                           uint32_t in_pin_base,
+                           uint32_t output_pin)
+{
+    if (!sync_io_core_legacy_try_enter()) return false;
+    const bool result = sync_io_enc_count_arm_owned(target, in_pin_base, output_pin);
+    sync_io_core_legacy_leave();
+    return result;
+}
+
+static void sync_io_enc_count_disarm_owned(void)
 {
     if (!s_enc.running) {
         return;
@@ -225,6 +240,13 @@ void sync_io_enc_count_disarm(void)
                        SYNC_IO_TRACE_INFO,
                        s_enc.fire_count,
                        s_enc.dma_restart_count);
+}
+
+void sync_io_enc_count_disarm(void)
+{
+    if (!sync_io_core_legacy_try_enter()) return;
+    sync_io_enc_count_disarm_owned();
+    sync_io_core_legacy_leave();
 }
 
 uint32_t sync_io_enc_count_get_count(void)

@@ -87,6 +87,9 @@ scpi_result_t scpi_cmd_vdc_feedback_local_follow(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_local_follow_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_model_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_fixed_output(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_run_output(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_run_output_stop(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_run_output_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_fixed_output_stop(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_fixed_output_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
@@ -262,6 +265,9 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:FEEDback:LOCALfollow?", .callback = scpi_cmd_vdc_feedback_local_follow_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MODel?", .callback = scpi_cmd_vdc_feedback_model_q}, \
     {.pattern = "SYSTem:VDC:OUTPut:FIXed", .callback = scpi_cmd_vdc_fixed_output}, \
+    {.pattern = "SYSTem:VDC:OUTPut:RUN", .callback = scpi_cmd_vdc_run_output}, \
+    {.pattern = "SYSTem:VDC:OUTPut:RUN:STOP", .callback = scpi_cmd_vdc_run_output_stop}, \
+    {.pattern = "SYSTem:VDC:OUTPut:RUN?", .callback = scpi_cmd_vdc_run_output_q}, \
     {.pattern = "SYSTem:VDC:OUTPut:FIXed:STOP", .callback = scpi_cmd_vdc_fixed_output_stop}, \
     {.pattern = "SYSTem:VDC:OUTPut:FIXed?", .callback = scpi_cmd_vdc_fixed_output_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BRIDge?", .callback = scpi_cmd_vdc_feedback_bridge_q}, \
