@@ -32,6 +32,55 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-017：调度入口迁入 SRAM 与外部剩余漂移复测
+
+- TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。证据根为
+  `out/HardwareAcceptance/20260917/dpll-observer-backlog-r1/`；下列数字均为本轮
+  证据快照，非产品事实源。此次仅改变 `app_realtime_run_phase()`、
+  `app_priority_counts()`、`app_priority_deadline()` 的主 SRAM 放置，不改变
+  控制算法、静态表预算、迟到准入、隔离规则、DMA 容量或估计窗口。
+- `baseline-sustained` 在无原生 trace 的静默窗口仍失败：三从 observer DMA
+  积压达到 66/74/78 字，最大服务间隔 22.416/30.060/38.854 ms，末次匹配比
+  末端接收早约 35/37/29 s；不能把末态 DCO 当作全窗持续跟踪。只排除“必须开启
+  trace 才会失败”，并未证明唯一根因。结构复核见 `event-review.json`。
+- 实际生产调度边界等 host 回归 158 项通过，Release 两槽链接与独立栈复核通过。
+  迁移代码节为 3028 B，计入对齐后主 RAM 实际增加 4096 B，扣最小堆后余
+  33040 B；当前启用 persona 的 Core1 栈分析仍为 2872/3072 B，scratch 余量
+  24 B 不变。作用范围和排除项见 `code-review.json`、`resource-review.json`。
+- 新源码四板 quick P3 为 `PASS_WITH_WARNINGS`：25 INFO、18 WARN、零 ERROR/FATAL，
+  严格调度仍未通过；原始失败不改写。源码指纹
+  `493ab59cd83fca6fe65e844c739281aae597ebf6e25e77cc8d9ef23cbb346e15`，
+  build `20260917051203`；包、两槽 ELF、四板 OTA、原生记录及凭证独审一致，
+  见 `p3-review.json`。代码与匹配凭证已独立提交 `ec9b0b0`，真实 pre-commit
+  核验通过。不重复测 P0T，复用已确认线序和 TAP 输入。
+- `after-sustained-r1` 在 NO4 START 时因 ACK 不匹配退出，未形成观测窗口；
+  四板 STOP 原件保留。返回文字中的“verified by state readback”是现有工具
+  在 timeout 时生成的占位说明，不是本轮实际读回证明；不能用计划时长或包装层
+  零查询计数追认该失败。后继两轮沿用原参数与原判据，未放宽 ACK。
+- `after-sustained-r2/r3` 均通过：三从 observer 无故障，最大积压为
+  8–10 字、最大服务间隔约 4.1–4.5 ms，末段匹配与末次真实 DCO 决定均有效，
+  停止因果为 STOP。主机命令包围时长分别约 44.094/40.328 s，名义采集等待
+  均为 40 s；不将端点证据解释成连续残差轨迹。首次失败及两轮比较见
+  `review-comparison-final.json`。
+- 对照限制：基线 quarantine 为 8，候选为 9；候选额外隔离了超时 VDC，
+  第二轮 VDC run_count 不再增加。两种固件的 ARM-lifetime VDC 背景最大值均为零，
+  该字段不是调用次数，不能证明实际负载相同。可保留本切片用于 TDMA/DPLL 调试，
+  不能独归因于 XIP，也不能宣称 VDC 调度恢复或完整预算通过。observer 自身
+  批次耗时仍可能超过 VDC/DPLL 相位预算，此项独立保留。
+- `scope-raw` 与 `scope-fixed` 成功，四板固定输出均完成全部脉冲，模型前后一致，
+  四通道由 NO1/CH1 正沿新单次触发，静默采集后统一读回。实际采用频率为
+  NO1/NO2/NO3/NO4 的 +2778/+2164/+2635/+4686 ppb；相对 NO1 输出频差拟合约
+  −822/−696/−980 ppb，与采用修正的预测相容。两类波形属于先后采集，温漂和
+  模型差异保留；不能将相较进度 016 的变化独归 SRAM 或宣布 100 ns 锁相。
+  见 `scope-fixed/analysis.json`、`scope-fixed/physical-dco-comparison.svg`。
+  最终四板 STOP、反馈会话归零，示波器 EXT/NORM/STOP 已实际读回，见
+  `final-board-scope-state.json`。
+- 下一 gate：继续 `VDC-FAST-003`，将真实输出剩余漂移与内部区间、最终档位
+  保持原因联合复核，再评估隔离且未部署的长窗口候选。VDC 隔离和 observer
+  服务成本另作有界切片，不能用扩大环或放宽准入掩盖；备用细分诊断仅完成
+  `diagnostic-design.json` 设计，尚未实现。固定模型输出不替代实时采用、绝对
+  相位、ACK、恢复和一致 VDC 发布。
+
 ### VDC-PROGRESS-20260917-016：固定已采用模型的连续物理输出
 
 - TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。本切片按用户要求用外部示波器反馈
