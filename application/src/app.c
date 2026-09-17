@@ -649,6 +649,16 @@ bool app_realtime_get_priority_snapshot(app_realtime_priority_snapshot_t *snapsh
 
 typedef tdma_priority_rx_counters_t app_priority_counts_t;
 
+/* Admission has a fixed entry margin. Keep the dispatcher and its two
+ * non-inlined helpers in main SRAM so control-plane XIP traffic cannot
+ * add flash fetch stalls to every phase decision. This changes neither
+ * the phase budgets nor the reject-on-late rule. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#define APP_DISPATCH_RAM __not_in_flash("app_realtime_dispatch")
+#else
+#define APP_DISPATCH_RAM
+#endif
+
 /* A closed IRQ cannot change these producer counts between phase services.
  * Reuse the last closed-window sample as the next baseline instead of
  * copying the whole published record twice at every phase release. Offline
@@ -673,6 +683,7 @@ static app_priority_clock_map_t s_realtime_priority_clock;
 
 /* Core1 reads its serialized producer directly while the source is closed;
  * cross-core diagnostic snapshots are not part of phase accounting. */
+APP_DISPATCH_RAM
 static __attribute__((noinline)) bool app_priority_counts(app_priority_counts_t *out)
 {
     return tdma_runtime_owner_priority_rx_counters_core1(out);
@@ -722,6 +733,7 @@ static void app_priority_record_phase(app_realtime_phase_id_t phase_id,
     app_realtime_schedule_write_end();
 }
 
+APP_DISPATCH_RAM
 static __attribute__((noinline)) bool app_priority_deadline(uint32_t cycle_epoch,
     const app_realtime_priority_contract_t *priority, uint32_t *deadline_low)
 {
@@ -844,6 +856,7 @@ static app_realtime_phase_work_t __scratch_x("app_priority_phase") s_realtime_ph
 static app_realtime_phase_work_t s_realtime_phase_work;
 #endif
 
+APP_DISPATCH_RAM
 static bool app_realtime_run_phase(
     uint32_t cycle_epoch,
     app_realtime_phase_id_t phase_id,
@@ -1056,6 +1069,8 @@ static bool app_realtime_run_phase(
     }
     return true;
 }
+
+#undef APP_DISPATCH_RAM
 
 static void app_realtime_tdma_phase(void)
 {
