@@ -131,5 +131,21 @@ Product Config 保留旧前缀/CRC 域并只读启动迁移，保存失败保留
 
 ## 最终核验结论
 
+本地相位与输出补偿增补以 `VDC-PRIORITY-01` v11 pending 登记：默认关闭的
+STOP 配置相位模式、最近零边界有限平移、Domain 实际提交与最终模型发布分层确认，
+仅精确成功平移链授权同 rate epoch 的频率坐标归一化；频率变化、未知模型和
+STOP 取消。输出独立有符号 delay 的 SCPI 与 Flash 保存不重复加入 MATCH 链路 delay，
+不将配置持久化等同于实际 RUN 输出采用。软件、HIL 工具与资源独审原件位于
+`out/HardwareAcceptance/20260917/dpll-local-phase-r1/control-review/`、
+`resource-review-strict/`。当前源码 P3-r3 引用及分级独审通过；delay-hil-r2
+逐命令保存/重启/恢复独审通过；native-phase-r5 的有限原生前缀、本地相位
+真实提交、后续频率决定及末态模型独审通过，见 `control-review/` 与
+`parser-review/` 对应报告和进度 028。首次 P3、越界解析及上下文恢复失败均
+保留；r4→r5 成功与完整配置恢复相关，未证明某一个 BINDING 子条件的因果。
+实际 RUN 输出 consumer、百纳秒物理锁相与完整频率归一化链仍未获授权声明。
+C11 独立结论为 `ACCEPT_V11_PENDING_CONTRACT_SCOPE`，原件为
+`out/HardwareAcceptance/20260917/dpll-local-phase-r1/control-review/c11-v11-final-independent-review.json`；
+登记保持 pending，配置与调试通路验收不提升为产品锁相或 VDC 发布完成。
+
 ACCEPT_WITH_DEVIATION。P3、资源和 typed 实板专项的实际结果只记录在 VDC Task Progress，
 不能以 pending 登记代替验收。

@@ -32,6 +32,88 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-028：独立输出 delay 持久化与本地相位提交
+
+- TODO task ID：`VDC-TUNE-003` DONE、`VDC-FAST-003` IN PROGRESS、
+  `VDC-OUTPUT-001` PENDING。证据根为
+  `out/HardwareAcceptance/20260917/dpll-local-phase-r1/`；本节数字为实测/构建
+  快照，非产品事实源。输出 delay 为每板独立有符号 ns，默认零，正延后、负提前；
+  不重复加入 MATCH 已使用的链路传播 delay。实际 RUN 输出 consumer 尚未接入，
+  配置持久化不等于物理边沿补偿生效，也不宣称百纳秒锁相。
+  代码提交 `c4df028` 已通过真实 pre-commit 同指纹硬件门禁；他人
+  `components/tdma/src/tdma_flight_engine.c` 保持未暂存、未修改、未提交。
+- 新增 STOP-only `SYSTem:VDC:OUTPut:DELay <ns>`、`DELay?`、
+  `DELay:DEFAult`、`DELay:RECall`、`DELay:STORe`。SET/default/recall 经
+  TDMA STOP metadata guard；显式 STORE 经 Core0 既有维护与 FlashTransaction。
+  Product Config v4/76 B 保留 v1/v2 的 64 B、v3 的 72 B CRC 域，旧记录启动只迁移
+  RAM，补偿缺省零，保留 PI、角色、基线、USB 与板号；不修改 OTA 实现。
+- 首次 `delay-hil-r1` 在任何 STORE 前发现真实目标上的通用 int32 参数转换会
+  将 `2147483648` 静默截成最大值。失败及清理原件保留；现改为完整单个十进制
+  token 的带符号溢出检查，拒绝小数、指数、单位、进制别名、引号及多余参数，
+  所有拒绝发生于 RAM 修改前。真实 libscpi 输入与配置 harness 共 52 项通过，
+  见 `delay-parser-host.xml`；不能只凭 mock 参数测试声称真实解析正确。
+- 集成 trace 回归 190 项、phase 回归 147 项通过；独立 Domain 整数预言机、
+  相位控制/频率共存、取消与模型收据复核保留于 `control-review/`。
+  相位模式默认关闭，STOP 显式开启，新 FOLLOW 绑定锁存；同事件残差向最近零边界
+  有限平移，Domain 实际修改 base_vdc 后须取得完整模型发布收据。仅已确认的自身
+  相位平移允许频率估计坐标归一化；频率改模、未知模型及 STOP 取消退休基线。
+  schema4 原生记录区分 MATCH、频率 DECISION 与实际 PHASE；负向时间坐标平移
+  仅用于调试捕获，不授予单调 RUN/GPIO 输出。公共 FOLLOW ABI 保持兼容。
+- 最终 Release build `20260917124808`，源码指纹
+  `e4aad13282ae46ab801b5d1104044b28343876afe2ed48172978554c2052ed26`，
+  1252 文件。增量构建复用 build ID，必须结合源码/package 哈希辨识；双槽
+  ELF→BIN→package 精确绑定见 `resource-review-strict/release-binding-review.json`。
+  相对进度 027 主 RAM 增用 588 B，余 32428 B，scratch 余 24 B，已审 Core1
+  最大栈仍为 2872/3072 B。严格 parser 后续修复仅 Core0 代码变化，RAM 与
+  Core1 可达调用边均无增量；没有将 Flash、SCPI 或 RTOS 加入实时处理。
+- P3-r1 在 ARM 前 NO3 topology 配置超时/Execution error，原件保留，不推定
+  物理链路或相位算法故障；P3-r2 通过但因 parser 后续修改而不再是当前凭证。
+  最终同源码 `p3-r3` 用时 180.547 秒，`PASS_WITH_WARNINGS`，25 INFO、19 WARN、
+  0 ERROR/FATAL。严格 TDMA、闭环及实时门禁原始失败继续保留；DPLL 未列为该轮
+  P3 必验，不将快速流程通过提升为严格质量或锁相通过。
+- `delay-hil-r2` 实板通过，工具耗时 19.797 秒，终端包络 22.985 秒。
+  四板核验 UID/build/STOP/初值，仅 NO2 显式保存 125 ns，用不同 RAM 哨兵再重启
+  证明 Flash 回读；随后保存原持久值、再次哨兵/重启，最终恢复原 RAM 请求。
+  两次 STORE、两次 RESET；合法正负边界、非法值不变、默认与召回分别验证，
+  PI/角色配置/基线/身份不变，RAM/Flash 无遗留恢复项；NO2 重启后的角色
+  applied generation/pending 状态改变，不能声称完整角色状态元组不变。
+  独审逐条复算 234 条指令通过，见 `parser-review/delay-hil-r2-independent-review.json`。
+  实机原 RAM/Flash 值均为零；两者不同时的恢复由 host 覆盖。实机持久化目标限于 NO2，
+  不写成四板分别完成保存/重启专项。详见 `delay-hil-r2/report.json` 与命令原件。
+- 首次相位专项 `native-phase-r1` 在 START 前发现 NO2 重启后的 TRN03STG 为
+  EMPTY；未 ARM/运行，相位执行尚未发生。失败保留，后续使用本轮 P3 的同一
+  矩阵重新装载并逐板读回，不重新扫描线序、不校准、不追加 Flash 保存。
+- `stage-restore-r1` 装载/读回通过，但该工具将 forwarding 切至 raw-flight；
+  后续 r2/r3 在 NO4 ARM 以 adapter 278（PHYS geometry）拒绝。STOP 后恢复
+  process-image 模式，r4 已运行并保留 NO3/NO4 各 55 个 MATCH，但 FOLLOW 在
+  首 ticket 执行前以 BINDING 取消，没有 PHASE。NO2 还缺少重启前的 VDC
+  provisional 绑定与 debug admission。原件及独审完整保留，不将相位调用前的
+  取消误报为 delta 算法拒绝；BINDING 的精确子条件未单独留证，不指定猜测根因。
+- 随后恢复 NO2 VDC 配置，并用既有短 TDMA 工具恢复四板的完整 P3 运行上下文，
+  包括 clock evidence、provisional 和 debug admission。`tdma-context-restore-r1`
+  四板 ARM 成功，但因原 TDMA recorder 仍保留旧记录而在新 recorder ARM 拒绝，
+  未 START，已 STOP；这一轮不记为通过，也未清掉旧记录。无需修改生产源码。
+- 恢复完整上下文后 `native-phase-r5` 通过，终端耗时 35.781 秒，静默运行约
+  11 秒、临时许可 20 秒，运行零查询，全部 STOP 后导出。NO2/NO3/NO4 实际确认
+  相位提交分别为 109/6/36 次，均 committed=applied，拒绝零；频率实际调整
+  2/0/8 次，不调整 9/8/5 次，末态 −46/0/+1805 ppb，末态 DCO 序号 112/7/45。
+  这些是控制值，不是外部残余频差或锁相精度。NO2 刚重启，原生首相位残差约
+  −109 秒，以有界步幅逐次追赶；不能把时间原点差当成晶振频差。
+- schema4 原件只保留有限前缀：三从 MATCH/DECISION/PHASE 数量分别为
+  24/4/48、55/8/6、39/8/29；满池后的过程不可由末态补造。同一次运行中
+  相位提交后继续有频率决定，STOP 最近相位尝试（包括跨零 held）与最近频率
+  决定共同核对真实 Domain 模型；不宣称完整频率归一化链或物理输出已验证。
+  四板原生 binary 重解码及控制量独审见 `control-review/native-r5-independent-review.json`；
+  590 条操作、零 RUN 查询、有限许可、STOP 后导出及清理独审见
+  `parser-review/native-r5-lifecycle-review.json`。契约 C11 结论为
+  `ACCEPT_V11_PENDING_CONTRACT_SCOPE`，登记保持 pending，原件见
+  `control-review/c11-v11-final-independent-review.json`。
+  NO3/NO4 最新内部残差区间仍为数微秒宽，NO2 尚在追赶，不能标为 LOCKED。
+- `final-stopped-state.json` 独立确认四板 STOP、会话零、输出 PIO/DMA idle，
+  示波器 STOP/EXT/NORM。下一切片为 `VDC-OUTPUT-001`：确定性输出 owner
+  在启动锁存独立 delay，采用共同未来 VDC 边沿，记录模型/生效边沿，再以 NO1
+  相对三从的实际上升沿差验证相位、斜率与抖动；长期目标继续 IN PROGRESS。
+
 ### VDC-PROGRESS-20260917-027：基线 SCPI 配置与显式 Flash 保存
 
 - TODO task ID：`VDC-TUNE-001` DONE、`VDC-FAST-003` IN PROGRESS。

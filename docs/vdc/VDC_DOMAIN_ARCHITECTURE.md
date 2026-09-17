@@ -656,12 +656,12 @@ output-ns 区间；早于模型有效边界的事件跳过。当前已装载矩�
 MATCH 请求。Core1 在 committed-model 写 guard 外取得本拍成功匹配的内部票据，
 不能用 STOP 诊断快照、重复事件或较新 carrier 替代控制授权。
 
-本地控制器保留同一运行生命周期、同一本地 committed 模型下的两个有效源事件，
+默认相位模式关闭时，本地控制器保留同一运行生命周期、同一本地 committed 模型下的两个有效源事件，
 间隔窗口与年龄界以 `vdc_priority_follow.h` 的 `VDC_PRIORITY_FOLLOW_*` 符号为准。
 记本地 output-ns 区间为 L，远端区间加定向 delay 后为 E，先取得独立端点差分
 `dL_abs=[L1.lo-L0.hi,L1.hi-L0.lo]`，`dE=[E1.lo-E0.hi,E1.hi-E0.lo]`。
 typed 本地另使用 `vdc_model_project_event_delta`：只有两个已成功绝对投影的事件处于
-相同 committed 模型、相同 observer enable anchor 和完整运行绑定，且均位于该模型
+相同 committed 模型（相位模式的精确平移例外见下文）、相同 observer enable anchor 和完整运行绑定，且各自位于原准入模型
 `valid_from_raw` 之后，才可将 `raw1.lo-raw0.lo` 解释为消除了公共启动偏移的本地间隔。
 原 bridge 所限定的 TIMER0/TIMER1 共钟及生命周期内无改钟、复位、暂停前提继续有效。
 
@@ -682,20 +682,24 @@ TIMER0 微秒阶梯读数的更宽语义及原有测试；新 helper 只授权�
 这项分离不改变 Domain now、服务边界模型提交或物理输出定义，也不缩小远端独立
 latch/bridge 区间。算术差分区间变窄不等于物理引脚精度提高。
 
-实际采用 `dL=dL_abs∩dL_corr`，空交集或非正下界拒绝本次估计，不选择一边或伪造样本。
+默认采用 `dL=dL_abs∩dL_corr`。显式相位模式下，每个事件保留原实际 L_i 与准入
+模型，另定义 `L_i_norm=L_i-S_i`，S_i 为同 rate epoch 内已确认本 owner 精确平移之和。
+仅在下文完整回执链成立、local base/rate/phase offset 几何未变时，用两个
+L_i_norm 的端点差分替代 dL_abs，与同几何 dL_corr 求交；不改写原 L_i。
+空交集或非正下界拒绝本次估计，不选择一边或伪造样本。
 远端 NO1 的每帧 latch/bridge 区间不按公共偏移抵消，`dE` 保留原式。频差区间为
 `[floor(dL.lo*10^9/dE.hi)-10^9,ceil(dL.hi*10^9/dE.lo)-10^9] ppb`。
 整数算术向外取整并检查溢出。共同本地启动偏移和固定 delay 在差分中抵消；ns residual
 不直接作为 ppb。NO1 正常模型修订仍在原 wire generation 下，其跨事件区间只表示
 实际输出的平均跟踪误差，不构造不存在的远端 model token 或假定远端模型不变。
 
-首个估计档位尚未消耗时，同一本地模型与完整运行绑定下的新有效样本可用于
+首个估计档位尚未消耗时，同一 rate epoch（默认为同一模型）与完整运行绑定下的新有效样本可用于
 有界基线质量替换。新远端区间必须严格更窄，且宽度不超过旧基线的一半；
 完整远端间隔上界不超过该绑定锁存的 `window_ns`，正常建立
 基线后最多替换该绑定锁存的 `max_replacements` 次。替换保留该事件
 自己的完整端点，不追改旧样本、不伪造对应的本地坐标。没有更窄样本时沿用
 原基线及原评估档位，不等待固定质量门限；额外间隔界是远端坐标预算，不是
-缺帧时的墙钟期限。质量替换递增私有次数，正常重建、取消或实际 DCO 更新清理
+缺帧时的墙钟期限。质量替换递增私有次数，正常重建、取消、实际频率更新或未知模型变化清理
 次数；任何档位已消耗后均不再质量替换，不退还估计机会。诊断枚举附加
 `VDC_PRIORITY_FOLLOW_BASELINE_QUALITY`，保持既有编号与快照布局；最近状态不
 构成质量替换历史，STOP 可覆盖该理由。
@@ -722,7 +726,7 @@ Product Config 与 FOLLOW 符号的编译断言保持一致，boot 读入发生�
 
 频差整个区间越过 `VDC_BOUNDARY_AUTO_DEADBAND_PPB` 时才产生反向有界频率修正，
 步长上限沿用 `VDC_BOUNDARY_AUTO_MAX_DELTA_PPB`；区间跨越死区时记录不调整决策。
-若区间与死区相交但并非完全位于死区内，且仍有后续观测档位，则保持同一本地模型
+若区间与死区相交但并非完全位于死区内，且仍有后续观测档位，则保持同一 rate epoch
 的原基线，以更长有效间隔重新估计；不删减端点误差界。档位由
 `VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS`、`VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS`、
 `VDC_PRIORITY_FOLLOW_FINAL_INTERVAL_NS` 定义，完整端点仍受
@@ -730,12 +734,45 @@ Product Config 与 FOLLOW 符号的编译断言保持一致，boot 读入发生�
 `VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS`；进入相关投影与频差算术之前即消耗已越过
 档位，错过档位不补算，BUSY 或新事件替换未决票据不退还计算机会。等待后续档位
 只作有界比较，不逐帧重复估计。最终档位、窄死区、限幅导致的零步长和失败应用不
-延长原基线；重建、取消和实际 DCO 更新清理档位进度。重复基线不允许重复消费事件。
+延长原基线；重建、取消、实际频率更新和未知模型变化清理档位进度。
+已确认的本 owner 精确相位平移可以保留档位进度。重复基线不允许重复消费事件。
 提案须在 Core1 committed-model guard 内，于既有服务之后复验显式模式、session、
 ring/role/clock/ARM/observer/RX/path 绑定、事件年龄和实际本地 DCO 更新身份，再调用
 `vdc_domain_apply_local_follow_rate_delta`。Domain 在实际服务时刻连续重基，只改本地
-频率；拒绝不得改变 DCO。一次有效事件对至多消费一次，自己的 DCO 更新后使用新模型
+频率；拒绝不得改变 DCO。一次有效事件对至多消费一次，自己的频率更新后使用新模型
 有效边界之后的事件重新建立基线，不能重新投影先前事件来延续旧窗口。
+
+显式调试采集模式 `FOLLow:PHASe` 默认关闭，Core0 仅在 STOP 配置，Core1 在
+新的 FOLLOW 绑定一次锁存。已准入同事件 residual 完全位于零的一侧时，以最近
+零边界生成相反方向的有限相位平移；跨零保持，工作间隔与单步上限分别由
+`VDC_PRIORITY_PHASE_MIN_INTERVAL_MS`、`VDC_PRIORITY_PHASE_MAX_DELTA_NS` 约束。
+非零频率提案优先，本次服务不再尝试相位；暂忙、拒绝和采样缺失不退还已消耗机会。
+Domain 的 `vdc_domain_apply_local_follow_phase_delta` 完成检查后仅平移 `base_vdc` 并
+递增实际 DCO 序号，保留 local base、rate 与 phase offset，拒绝不改变上下文。
+此操作是调试获取阶段的坐标平移，负平移不保证跨更新时间单调性；不得据此授权
+产品 RUN 相位阶跃、安全 GPIO 输出或正式锁定。
+
+频率估计保留原 MATCH 的实际端点，另外使用同一 `rate_epoch` 内的
+`actual - cumulative_phase` 坐标作差。仅本 owner 成功提交且由完整 committed-model
+发布回执确认的精确平移链可以延续旧基线：须核对原模型、实际完整 DCO、发布 token、
+valid_from 与运行绑定，不凭相同 rate 或 base 差推断授权。新事件仍检查新模型边界；
+旧事件保留原准入，不以新 valid_from 追溯否定或重新投影。真正频率更新、未知模型
+变化或回执不一致重建基线/账本，STOP 与换代取消两类未决工作并发布退休状态。
+`FOLLow:PHASe:STATus?` 仅在 STOP 读取；Domain 已提交与最终发布已确认分别计数。
+原生 `TRACe:PHASe` 使用 `VDC_PRIORITY_TRACE_PHASE_SCHEMA`，仅最终确认后记录
+PHASE 的前后模型、DCO、实际 base 平移与累计量。旧 schema 不得混入相位语义；
+有限记录满后冻结，只证明已保存前缀，最后一条频率决定不再代表最终 DCO。
+
+输出独立补偿通过 `SYSTem:VDC:OUTPut:DELay <有符号十进制整数ns>` 与 `DELay?` 读写请求值，
+允许完整 `int32_t` 范围，默认由 `PRODUCT_CONFIG_DPLL_OUTPUT_COMPENSATION_DEFAULT_NS`
+定义。解析必须完整消费唯一参数，越界、小数、指数、进制前缀和多余参数拒绝且不修改请求，
+不能将饱和或数值前缀截断当成合法配置。正值表示目标物理边沿延后，负值表示提前；此量与 MATCH 已加入的链路 delay
+分开，不能重复补偿。设置、`:DEFAult`、`:RECall`、`:STORe` 复用前述 STOP 与
+Core0 Flash 维护边界；只有 STORe 写 Flash，启动读取仅恢复 RAM 请求值。
+Product Config 保留旧 PI/角色/身份与基线配置及各版本 CRC 域。
+`vdc_dpll_manager_get_output_delay_ns` 提供无 Flash 依赖的原子请求读取；实际 RUN
+输出 owner 的一次锁存、足够未来共同目标、迟到处理与物理采用另行验收，本配置
+接口本身不改变现有固定输出的相位，也不持久化 DCO、积分或锁定状态。
 
 单帧无效、缺失或暂忙不制造控制输入，允许后续有效事件继续。STOP、模式/会话切换
 或真实绑定换代取消基线与未决提案；跨生命周期旧票据不得复活。
