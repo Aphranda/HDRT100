@@ -33,7 +33,7 @@ def link_executable(tmp_path_factory):
     return executable
 
 
-@pytest.mark.parametrize("case", ["workflow", "stale", "stop", "pause", "timeout", "model", "config", "rollback", "first_settle", "once", "twice", "continuous", "start_view", "start_publication", "software_next", "external_next"])
+@pytest.mark.parametrize("case", ["transport_stop_at_action", "transport_publish_after_discard", "transport_deferred", "transport_stop", "transport_busy", "transport_busy_stop", "transport_full", "transport_full_restart", "runtime_frozen_model", "workflow", "stale", "stop", "pause", "timeout", "model", "config", "rollback", "first_settle", "once", "twice", "continuous", "start_view", "start_publication", "software_next", "external_next", "counter_once", "counter_twice", "counter_single", "counter_continuous", "counter_busy_rx", "counter_busy", "counter_pause", "counter_stale", "software_next_contention", "counter_config", "counter_fault_restart", "counter_rearm_boundary", "counter_resume_boundary", "counter_pause_after_rearm", "counter_stop_final_edges", "counter_finish_final_edges"])
 def test_sequence_link_orchestrator(link_executable, case):
     result = subprocess.run([str(link_executable), case], text=True, capture_output=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr

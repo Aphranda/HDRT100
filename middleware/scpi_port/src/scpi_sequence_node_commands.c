@@ -43,6 +43,8 @@ scpi_result_t scpi_sequence_node_role(scpi_t *context)
         {"DUT_LINK_CONTROL", REFMEM_APP_ROLE_LINK_SWITCHER},
         {"VNA", REFMEM_APP_ROLE_INSTRUMENT_CONTROLLER},
         {"VNA_GATEWAY", REFMEM_APP_ROLE_INSTRUMENT_CONTROLLER},
+        {"COUNTER", REFMEM_APP_ROLE_PULSE_DISTRIBUTOR},
+        {"PULSE_COUNTER", REFMEM_APP_ROLE_PULSE_DISTRIBUTOR},
         SCPI_CHOICE_LIST_END
     };
     uint32_t node_id, instance_id;
@@ -75,12 +77,14 @@ scpi_result_t scpi_sequence_node_role_q(scpi_t *context)
     if (!refmem_application_model_get_sequence_instance(instance_id, false, &active) ||
         !refmem_application_model_get_sequence_instance(instance_id, true, &staging) ||
         (active.fb_type != REFMEM_APP_FB_LINK_SWITCHER &&
-         active.fb_type != REFMEM_APP_FB_INSTRUMENT_CONTROLLER)) {
+         active.fb_type != REFMEM_APP_FB_INSTRUMENT_CONTROLLER &&
+         active.fb_type != REFMEM_APP_FB_PULSE_COUNTER)) {
         scpi_port_push_exec_error(context, "SEQUENCE_ROLE_INSTANCE_INVALID");
         return SCPI_RES_ERR;
     }
     SCPI_ResultUInt32(context, instance_id);
-    SCPI_ResultText(context, active.fb_type == REFMEM_APP_FB_LINK_SWITCHER ? "DUT" : "VNA");
+    SCPI_ResultText(context, active.fb_type == REFMEM_APP_FB_PULSE_COUNTER ? "COUNTER" :
+        (active.fb_type == REFMEM_APP_FB_LINK_SWITCHER ? "DUT" : "VNA"));
     SCPI_ResultUInt32(context, active.enable_condition);
     SCPI_ResultUInt32(context, staging.enable_condition);
     SCPI_ResultUInt32(context, active.resource_claim);
@@ -97,7 +101,7 @@ scpi_result_t scpi_sequence_link_config(scpi_t *context)
     /* LOOPBACK is an explicit physical cable-return mode. RJ45 remains a
      * compatibility spelling, not a claim of remote-node routing. */
     static const scpi_choice_def_t modes[] = {
-        {"OFF", 0}, {"LOOPBACK", 1}, {"RJ45", 1}, SCPI_CHOICE_LIST_END};
+        {"OFF", 0}, {"LOOPBACK", 1}, {"RJ45", 1}, {"POSITION", 2}, SCPI_CHOICE_LIST_END};
     static const scpi_choice_def_t inputs[] = {
         {"MANUAL", 0}, {"IN1", 1}, {"IN2", 2}, {"IN3", 3}, {"IN4", 4},
         SCPI_CHOICE_LIST_END};
@@ -108,9 +112,22 @@ scpi_result_t scpi_sequence_link_config(scpi_t *context)
     trigger_sequence_link_config_t config = {0};
     if (!SCPI_ParamChoice(context, modes, &mode, TRUE)) return SCPI_RES_ERR;
     config.enabled = mode != 0;
+    config.counter_enabled = mode == 2;
     if (config.enabled) {
+        if (config.counter_enabled &&
+            !scpi_sequence_param_u32(context, &config.counter_slot)) return SCPI_RES_ERR;
         if (!scpi_sequence_param_u32(context, &config.dut_slot) ||
-            !scpi_sequence_param_u32(context, &config.vna_slot) ||
+            !scpi_sequence_param_u32(context, &config.vna_slot)) return SCPI_RES_ERR;
+        if (config.counter_enabled) {
+            if (!SCPI_ParamChoice(context, inputs, &input, TRUE) || input == 0 ||
+                !scpi_sequence_param_u32(context, &config.counter_threshold) ||
+                config.counter_threshold == 0u) {
+                scpi_port_push_exec_error(context, "COUNTER_INPUT_OR_THRESHOLD_INVALID");
+                return SCPI_RES_ERR;
+            }
+            config.counter_input = (uint32_t)input;
+        }
+        if (
             !SCPI_ParamChoice(context, inputs, &input, TRUE) ||
             !SCPI_ParamChoice(context, outputs, &output, TRUE) ||
             !scpi_sequence_param_u32(context, &config.pulse_us) ||
@@ -168,5 +185,46 @@ scpi_result_t scpi_sequence_link_transport_q(scpi_t *context)
             tdma_runtime_owner_get_ring_adapter(), values);
     for (uint32_t i = 0; i < 6u; ++i) SCPI_ResultUInt32(context, values[i]);
     SCPI_ResultUInt32(context, (uint32_t)quality);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_sequence_counter_q(scpi_t *context)
+{
+    if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    trigger_sequence_link_status_t s;
+    trigger_sequence_link_get_status(&s);
+    SCPI_ResultBool(context, s.config.counter_enabled);
+    SCPI_ResultUInt32(context, s.config.counter_slot);
+    SCPI_ResultUInt32(context, s.config.counter_input);
+    SCPI_ResultUInt32(context, s.config.counter_threshold);
+    SCPI_ResultUInt32(context, s.counter_events);
+    SCPI_ResultUInt32(context, s.counter_consumed);
+    SCPI_ResultUInt32(context, s.counter_partial);
+    SCPI_ResultUInt32(context, s.counter_fault_events);
+    SCPI_ResultUInt32(context, s.history_total);
+    SCPI_ResultUInt32(context, s.history_retained);
+    SCPI_ResultUInt32(context, s.phase);
+    SCPI_ResultUInt32(context, s.error);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_sequence_counter_history_q(scpi_t *context)
+{
+    uint32_t ordinal;
+    trigger_sequence_link_history_t record;
+    if (!scpi_sequence_param_u32(context, &ordinal) ||
+        !scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    if (!trigger_sequence_link_get_history(ordinal, &record)) {
+        scpi_port_push_exec_error(context, "COUNTER_HISTORY_NOT_RETAINED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, record.ordinal);
+    SCPI_ResultUInt32(context, record.run_id);
+    SCPI_ResultUInt32(context, record.generation);
+    SCPI_ResultUInt32(context, record.position);
+    SCPI_ResultUInt32(context, record.sequence_index);
+    SCPI_ResultUInt32(context, record.threshold_pulses);
+    SCPI_ResultUInt32(context, record.observed_pulses);
+    SCPI_ResultUInt32(context, record.outcome_flags);
     return SCPI_RES_OK;
 }

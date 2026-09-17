@@ -40,7 +40,8 @@ def parser(tmp_path_factory):
         "scpi_sequence_params_end"]]
     functions += [production_function(node, name) for name in [
         "sequence_node_config_allowed", "scpi_sequence_node_role", "scpi_sequence_node_role_q",
-        "scpi_sequence_link_config", "scpi_sequence_link_q", "scpi_sequence_link_transport_q"]]
+        "scpi_sequence_link_config", "scpi_sequence_link_q", "scpi_sequence_link_transport_q",
+        "scpi_sequence_counter_q", "scpi_sequence_counter_history_q"]]
     (directory / "sequence_role_scpi_handlers.inc").write_text("\n\n".join(functions), encoding="utf-8")
     library = ROOT / "third_party/scpi-parser/libscpi"
     includes = [directory, ROOT / "tests/unit/host_stubs", ROOT / "config", ROOT / "osal/inc",
@@ -92,6 +93,52 @@ def test_stage_read_and_activate_real_roles(parser):
     assert rows[4][1][2:4] == ["0", "1"]
     assert rows[4][1][7:] == ["152", "3", "3"]
     assert rows[5][1][2:4] == rows[6][1][2:4] == ["1", "1"]
+
+
+@pytest.mark.parametrize("counter_role", ["COUNTER", "PULSE_COUNTER"])
+@pytest.mark.parametrize("counter_first", [False, True])
+def test_three_roles_survive_full_package_activation(parser, counter_role, counter_first):
+    counter = f"CONF:SEQ:NODE:ROLE 0,2,{counter_role}"
+    pair = ["CONF:SEQ:NODE:ROLE 2,5,DUT", "CONF:SEQ:NODE:ROLE 3,7,VNA"]
+    stage = [counter, *pair] if counter_first else [*pair, counter]
+    queries = ["READ:SEQ:NODE:ROLE? 2", "READ:SEQ:NODE:ROLE? 5", "READ:SEQ:NODE:ROLE? 7"]
+    rows = run(parser, [*stage, *queries, "@activate", *queries])
+    assert rows[:3] == [(0, ["STAGED"])] * 3
+    assert all(errors == 0 for errors, _ in rows)
+    assert [row[1][1] for row in rows[3:6]] == ["COUNTER", "DUT", "VNA"]
+    for staging, active, claims in zip(rows[3:6], rows[6:9],
+                                       (["152", "1", "1"], ["152", "11", "5"],
+                                        ["152", "3", "3"])):
+        assert staging[1][2:4] == ["0", "1"]
+        assert staging[1][7:] == claims
+        assert active[1][2:4] == ["1", "1"]
+        assert active[1][4:7] == active[1][7:] == claims
+
+
+@pytest.mark.parametrize("bad", [
+    "CONF:SEQ:NODE:ROLE 0,5,COUNTER", "CONF:SEQ:NODE:ROLE 0,7,PULSE_COUNTER",
+    "CONF:SEQ:NODE:ROLE 0,3,COUNTER", "CONF:SEQ:NODE:ROLE 0,2,DUT",
+    "CONF:SEQ:NODE:ROLE 0,2,VNA", "CONF:SEQ:NODE:ROLE 0,2,COUNTER,1",
+])
+def test_counter_rejects_wrong_template_without_losing_staged_roles(parser, bad):
+    queries = ["READ:SEQ:NODE:ROLE? 2", "READ:SEQ:NODE:ROLE? 5", "READ:SEQ:NODE:ROLE? 7"]
+    rows = run(parser, ["CONF:SEQ:NODE:ROLE 0,2,COUNTER", "CONF:SEQ:NODE:ROLE 2,5,DUT",
+                        "CONF:SEQ:NODE:ROLE 3,7,VNA", *queries, bad, *queries,
+                        "@activate", *queries])
+    assert rows[6][0] > 0
+    assert rows[3:6] == rows[7:10]
+    assert all(row[1][2:4] == ["1", "1"] for row in rows[10:13])
+
+
+@pytest.mark.parametrize("busy", ["@active", "@legacy", "@command_busy", "@config_busy"])
+def test_counter_configuration_keeps_atomic_freeze(parser, busy):
+    rows = run(parser, [busy, "CONF:SEQ:NODE:ROLE 0,2,COUNTER", "READ:SEQ:NODE:ROLE? 2",
+                        "@idle", "@command_clear", "@config_clear",
+                        "CONF:SEQ:NODE:ROLE 0,2,COUNTER", "READ:SEQ:NODE:ROLE? 2"])
+    assert rows[0][0] > 0
+    assert rows[1][1][2:4] == ["0", "0"]
+    assert rows[2] == (0, ["STAGED"])
+    assert rows[3][1][2:4] == ["0", "1"]
 
 
 @pytest.mark.parametrize("bad", [
@@ -198,3 +245,27 @@ def test_transport_query_unavailable_is_typed_response_not_scpi_error(parser):
     assert run(parser, ["READ:SEQ:LINK:TRANSPORT?"]) == [
         (0, ["0", "0", "0", "0", "0", "0", "0"])
     ]
+
+
+def test_position_mode_counter_and_history_wire(parser):
+    rows = run(parser, ["CONF:SEQ:LINK POSITION,1,2,3,IN1,1000,IN2,OUT4,10,5000,RIS",
+                        "READ:SEQ:COUNTER?", "READ:SEQ:COUNTER:HIST? 1",
+                        "READ:SEQ:COUNTER:HIST? 0", "READ:SEQ:COUNTER:HIST? 2"])
+    assert rows[0] == (0, ["1"])
+    assert rows[1] == (0, ["1", "1", "1", "1000", *(["0"] * 8)])
+    assert rows[2] == (0, ["1", "4", "5", "1", "2", "1000", "1032", "7"])
+    assert rows[3][0] and rows[4][0]
+
+
+@pytest.mark.parametrize("bad", [
+    "CONF:SEQ:LINK POSITION,1,2,3,MANUAL,1000,IN2,OUT4,10,5000,RIS",
+    "CONF:SEQ:LINK POSITION,1,2,3,IN1,0,IN2,OUT4,10,5000,RIS",
+    "CONF:SEQ:LINK POSITION,1,2,3,IN1,-1,IN2,OUT4,10,5000,RIS",
+    "CONF:SEQ:LINK POSITION,1,2,3,IN1,4294967296,IN2,OUT4,10,5000,RIS",
+    "CONF:SEQ:LINK POSITION,1,2,3,IN1,1000,IN2,OUT4,10,5000,RIS,1",
+    "READ:SEQ:COUNTER? 1", "READ:SEQ:COUNTER:HIST?", "READ:SEQ:COUNTER:HIST? -1",
+])
+def test_counter_parser_rejects_invalid_and_preserves_config(parser, bad):
+    rows = run(parser, ["CONF:SEQ:LINK POSITION,1,2,3,IN1,1000,IN2,OUT4,10,5000,RIS",
+                        "READ:SEQ:COUNTER?", bad, "READ:SEQ:COUNTER?"])
+    assert rows[2][0] and rows[1] == rows[3]

@@ -71,6 +71,10 @@ void sync_io_core_trace(sync_io_trace_event_t event_id,
                         uint32_t arg1);
 bool sync_io_core_initialized(void);
 bool sync_io_core_capture_is_running(void);
+/* Core1-only temporary reuse of the idle resident capture SM. The workspace
+ * lease excludes capture/analyzer/schedule owners until restoration. */
+bool sync_io_core_capture_sm_lease(const void *owner);
+void sync_io_core_capture_sm_restore(const void *owner);
 bool sync_io_core_wave_output_persona_active(void);
 bool sync_io_core_model_output_active(void);
 bool sync_io_core_sm_is_enabled(PIO pio, uint sm);

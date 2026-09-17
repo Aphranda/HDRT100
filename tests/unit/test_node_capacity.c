@@ -34,8 +34,14 @@ void pico_get_unique_board_id_string(char *buffer, size_t size)
     assert(!"Hardware identity must not be queried by this test");
 }
 
-_Static_assert(sizeof(refmem_vector_table_t) == 65536u, "RefMem ABI");
-_Static_assert(offsetof(refmem_vector_table_t, trigger) == 16384u,
+_Static_assert(DISTRIBUTED_REFMEM_LAYOUT_VERSION == 2u, "RefMem layout ABI");
+_Static_assert(sizeof(refmem_vector_table_t) == 18432u, "RefMem layout 2 ABI");
+_Static_assert(DISTRIBUTED_REFMEM_NODE_COUNT == 8u,
+               "RefMem slots stay independent of local compiled capacity");
+_Static_assert(sizeof(refmem_vector_node_region_t) == 128u, "RefMem node slot ABI");
+_Static_assert(sizeof(((refmem_vector_table_t *)0)->node) == 1024u,
+               "Fixed RefMem node region ABI");
+_Static_assert(offsetof(refmem_vector_table_t, trigger) == 7168u,
                "Fixed RefMem region must not move with local capacity");
 _Static_assert(TDMA_TRANSPORT_SHORT_PACKET_MAX == 292u, "SHORT ABI");
 _Static_assert(TDMA_FLIGHT_SHORT_SLOT_COUNT == PROJECT_NODE_CAPACITY,

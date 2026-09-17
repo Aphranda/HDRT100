@@ -23,7 +23,7 @@ def function(source, name):
 def test_sequence_backend_receipts_and_admission(tmp_path):
     backend = (ROOT / "components/sync_io/src/sync_io_sequence.c").read_text(encoding="utf-8")
     harness = '#include "sync_io_sequence_fake.h"\n'
-    for name in ("config_valid", "logical_index_for_transfer", "receive_word", "account_input"):
+    for name in ("config_valid", "logical_index_for_transfer", "build_plan", "receive_word", "account_input"):
         harness += function(backend, name)
     harness += (ROOT / "tests/unit/test_sync_io_sequence.c").read_text(encoding="utf-8")
     path = tmp_path / "sequence.c"
@@ -40,6 +40,116 @@ def test_sequence_backend_receipts_and_admission(tmp_path):
     assert ran.returncode == 0, ran.stdout + ran.stderr
 
 
+def test_turntable_borrows_only_idle_capture_and_restores_owner(tmp_path):
+    # Exercise the real sync_io owner boundary, not a second implementation of
+    # its admission rules. Concurrent capture/analyzer work owns this workspace.
+    from test_sync_io_workspace import compile_run
+
+    source = (ROOT / "components/sync_io/src/sync_io.c").read_text(encoding="utf-8")
+    harness = r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include "sync_io_persona_resources.h"
+static struct {
+    bool initialized, capture_running, capture_timebase_valid;
+    bool capture_dma_write_index_valid;
+    unsigned capture_offset;
+    uint32_t capture_sample_hz, dropped_capture_words;
+    uint32_t capture_dma_read_seq, capture_dma_produced_seq;
+    uint32_t capture_dma_last_write_index;
+    uint64_t capture_timebase_start_ns;
+} s_sync_io;
+static unsigned core = 1u, hardware_writes, restores, aborts;
+static bool enabled, claimed = true, dma_busy;
+#define BOARD_SYNC_PIO_FAST 0u
+#define BOARD_SYNC_CAPTURE_SM 0u
+#define BOARD_SYNC_INPUT_BASE_PIN 12u
+#define BOARD_SYNC_INPUT_PIN_COUNT 4u
+#define get_core_num() core
+#define sync_io_core_sm_is_enabled(p,s) enabled
+#define pio_sm_is_claimed(p,s) claimed
+#define dma_channel_is_busy(c) dma_busy
+#define pio_sm_set_enabled(p,s,on) (++hardware_writes, enabled = (on))
+#define pio_sm_clear_fifos(...) (++hardware_writes)
+#define pio_sm_set_clkdiv(...) (++hardware_writes)
+#define pio_sm_restart(...) (++hardware_writes)
+#define dma_start_channel_mask(...) (++hardware_writes)
+#define dma_channel_abort(...) (++aborts)
+#define sync_io_model_pulse_schedule_is_running() false
+#define sync_io_core_wave_output_persona_active() false
+#define sync_io_common_time_now_ns() 1234u
+#define osal_critical_enter() ((void)0)
+#define osal_critical_exit() ((void)0)
+#define sync_io_capture_latch_reset_locked() ((void)0)
+#define sync_io_trace(...) ((void)0)
+#define sync_io_clkdiv_for_instruction_rate(hz) (hz)
+static bool sync_io_capture_dma_configure(void) { return true; }
+static void sync_capture_4bit_program_init(unsigned pio, unsigned sm,
+    unsigned offset, unsigned base, unsigned count, unsigned rate) {
+    assert(pio == 0u && sm == 0u && offset == 17u);
+    assert(base == 12u && count == 4u && rate == 123456u);
+    ++restores;
+    enabled = true; /* restore must explicitly leave the resident SM idle */
+}
+'''
+    for name in ("sync_io_core_capture_sm_lease", "sync_io_core_capture_sm_restore",
+                 "sync_io_stop_capture", "sync_io_start_capture"):
+        harness += function(source, name)
+    harness += r'''
+int main(void) {
+    static int turntable, analyzer;
+    s_sync_io.capture_offset = 17u;
+    s_sync_io.capture_sample_hz = 123456u;
+    assert(!sync_io_core_capture_sm_lease(&turntable));
+    s_sync_io.initialized = true;
+    core = 0u;
+    assert(!sync_io_core_capture_sm_lease(&turntable));
+    core = 1u;
+    assert(!sync_io_core_capture_sm_lease(NULL));
+    assert(sync_io_workspace_claim(&analyzer));
+    assert(!sync_io_core_capture_sm_lease(&turntable));
+    assert(sync_io_workspace_held_by(&analyzer));
+    assert(sync_io_workspace_release(&analyzer));
+    for (unsigned condition = 0u; condition < 4u; ++condition) {
+        s_sync_io.capture_running = condition == 0u;
+        enabled = condition == 1u;
+        claimed = condition != 2u;
+        dma_busy = condition == 3u;
+        assert(!sync_io_core_capture_sm_lease(&turntable));
+        assert(sync_io_workspace_claim(&analyzer));
+        assert(sync_io_workspace_release(&analyzer));
+    }
+    s_sync_io.capture_running = enabled = dma_busy = false;
+    claimed = true;
+    assert(hardware_writes == 0u && aborts == 0u);
+    assert(sync_io_core_capture_sm_lease(&turntable));
+    assert(!sync_io_core_capture_sm_lease(&turntable));
+    assert(!sync_io_workspace_claim(&analyzer));
+    assert(!sync_io_start_capture(1000000u));
+    sync_io_stop_capture(); /* idle capture STOP must not touch the lent SM */
+    sync_io_core_capture_sm_restore(&analyzer); /* wrong owner cannot restore */
+    assert(hardware_writes == 0u && aborts == 0u && restores == 0u);
+    core = 0u;
+    sync_io_core_capture_sm_restore(&turntable);
+    assert(sync_io_workspace_held_by(&turntable));
+    core = 1u;
+    sync_io_core_capture_sm_restore(&turntable);
+    assert(restores == 1u && !enabled && !sync_io_workspace_held_by(&turntable));
+    sync_io_core_capture_sm_restore(&turntable);
+    assert(restores == 1u);
+    assert(sync_io_start_capture(123456u));
+    assert(!sync_io_core_capture_sm_lease(&turntable));
+    sync_io_stop_capture();
+    assert(sync_io_core_capture_sm_lease(&turntable));
+    sync_io_core_capture_sm_restore(&turntable);
+    assert(restores == 2u && !enabled);
+    return 0;
+}
+'''
+    compile_run(tmp_path, harness)
+
+
 @pytest.fixture(scope="module")
 def programs(tmp_path_factory):
     directory = tmp_path_factory.mktemp("sequence-pio")
@@ -53,12 +163,13 @@ def programs(tmp_path_factory):
     assert result.returncode == 0, result.stdout + result.stderr
     text = output.read_text(encoding="utf-8")
     parsed = {}
-    for name in ("ingress", "executor", "counter", "gateway", "finite_ingress"):
+    for name in ("ingress", "executor", "counter", "gateway", "finite_ingress", "none_executor", "ready_counter"):
         body = text.split(f"sequence_{name}_program_instructions[] = {{", 1)[1].split("};", 1)[0]
         parsed[name] = [int(word, 16) for word in re.findall(r"0x([0-9a-fA-F]{4}),", body)]
-    assert [len(parsed[name]) for name in parsed] == [6, 18, 5, 6, 8]
+    assert [len(parsed[name]) for name in parsed] == [6, 18, 5, 7, 8, 12, 6]
     assert sum(len(parsed[name]) for name in ("ingress", "executor", "counter")) + 1 <= 32
-    assert sum(len(parsed[name]) for name in ("gateway", "executor", "counter")) + 1 <= 32
+    assert sum(len(parsed[name]) for name in ("gateway", "none_executor", "ready_counter")) + 1 == 26
+    assert sum(len(parsed[name]) for name in ("gateway", "none_executor", "ready_counter", "counter")) + 1 == 31
     assert sum(len(parsed[name]) for name in ("finite_ingress", "executor", "counter")) + 1 == 32
     return parsed
 
@@ -67,15 +178,16 @@ def test_production_hot_load_and_pause_boundaries(tmp_path):
     backend = (ROOT / "components/sync_io/src/sync_io_sequence.c").read_text(encoding="utf-8")
     production = "\n".join(function(backend, name) for name in (
         "sm_pc", "clear_owned_flags", "safe_low", "stop_hardware", "cleanup", "load_hardware",
-        "stop_hook", "read_sm_register", "stop_counter", "finish_ingress",
+        "stop_hook", "prime_initial_state", "start_hardware", "read_sm_register", "stop_counter", "finish_ingress",
         "produced_receipts", "stop_receipt_dma", "resume_receipt_dma", "logical_index_for_transfer",
         "receive_word", "drain_receipts", "pending_request", "drain_idle_executor", "account_input",
-        "mark_initial_status_ready",
-            "gateway_service", "gateway_cancel",
+            "account_counter",
+            "gateway_start", "gateway_service", "gateway_cancel",
             "sync_io_sequence_service",
             "sync_io_sequence_gateway_fire", "sync_io_sequence_gateway_ready",
+            "sync_io_sequence_counter_rearm",
             "sync_io_sequence_software_step",
-            "sync_io_sequence_pause"))
+            "sync_io_sequence_pause", "sync_io_sequence_stop"))
     template = (ROOT / "tests/unit/test_sync_io_sequence_resources.c").read_text(encoding="utf-8")
     harness = tmp_path / "resources.c"
     harness.write_text(template.replace("/* PRODUCTION_FUNCTIONS */", production), encoding="utf-8")
@@ -108,6 +220,8 @@ class Machine:
         self.tx, self.rx = deque(), deque()
         self.enabled = True
         self.rx_stall = False
+        self.delay = 0
+        self.irq_waiting = False
 
     def execute(self, instruction, flags, *, injected=False):
         major, arg = instruction >> 13, instruction & 255
@@ -202,10 +316,21 @@ class Machine:
             else:
                 raise AssertionError(("MOV", dest))
         elif major == 6:
+            mask = 1 << (arg & 7)
             if arg & 64:
-                self.owner.clear_flags |= 1 << (arg & 7)
+                self.owner.clear_flags |= mask
+            elif arg & 32:
+                # IRQ WAIT sets exactly once, then stalls until another SM
+                # clears it. Instruction delay starts only after completion.
+                if not self.irq_waiting:
+                    self.owner.set_flags |= mask
+                    self.irq_waiting = True
+                    return
+                if flags & mask:
+                    return
+                self.irq_waiting = False
             else:
-                self.owner.set_flags |= 1 << (arg & 7)
+                self.owner.set_flags |= mask
         elif major == 7:
             dest, value = arg >> 5, arg & 31
             assert dest == 0 and self.name == "gateway"
@@ -220,19 +345,24 @@ class Machine:
             raise AssertionError(hex(instruction))
         if not injected or major == 0:
             self.pc = following
+        self.delay = (instruction >> 8) & 31
 
     def tick(self, flags):
         if self.enabled:
-            self.execute(self.words[self.pc], flags)
+            if self.delay:
+                self.delay -= 1
+            else:
+                self.execute(self.words[self.pc], flags)
 
 
 class Sequence:
     def __init__(self, programs, values, *, settle=2, pulse=1, falling=False,
-                 status_mask=8, mode="PULSE", max_steps=None):
+                 status_mask=8, mode="PULSE", max_steps=None, startup=False):
         self.time, self.flags, self.pads = 0, 0, values[0]
         self.input = falling
         self.status_mask = status_mask
         self.writes, self.rises, self.falls, self.receipts = [], [], [], []
+        self.receipt_times = []
         self.ingress = Machine(programs["finite_ingress" if max_steps is not None else "ingress"], self, "ingress")
         self.executor = Machine(programs["executor"], self, "executor")
         self.counter = Machine(programs["counter"], self, "counter")
@@ -259,6 +389,19 @@ class Sequence:
         self.cursor = 0
         self.latest_edge = 0
         self.drain = True
+        # Default fixtures represent an already-primed executor. Startup tests
+        # enter the same writing label and preload the same FIFO word as C.
+        self.priming = startup
+        self.max_steps = max_steps
+        self.paused = False
+        if startup:
+            self.pads = values[0]
+            self.executor.enabled = True
+            self.executor.y = self.words[-3]
+            self.executor.x = self.words[-2]
+            self.executor.tx.append(self.words[-1])
+            self.executor.pc = 6
+            self.ingress.enabled = self.counter.enabled = False
 
     def tick(self, count=1):
         for _ in range(count):
@@ -273,8 +416,14 @@ class Sequence:
             if self.drain:
                 while self.executor.rx:
                     self.receipts.append(self.executor.rx.popleft())
+                    self.receipt_times.append(self.time)
                 while self.counter.rx:
                     self.latest_edge = self.counter.rx.popleft()
+            if self.priming and len(self.receipts) == 2 and self.flags & 16:
+                self.priming = False
+                if self.max_steps != 0:
+                    self.counter.enabled = True
+                    self.ingress.enabled = not self.paused
             self.time += 1
 
     def edge(self, *, falling=False, gap=80):
@@ -284,12 +433,79 @@ class Sequence:
         self.tick(gap)
 
     def pause(self):
+        self.paused = True
         self.ingress.enabled = False
         self.ingress.pc = 0
 
     def resume(self):
+        self.paused = False
         self.ingress.pc = 0
-        self.ingress.enabled = True
+        self.ingress.enabled = not self.priming
+
+
+@pytest.mark.parametrize("mode", ["PULSE", "LEVEL", "NONE"])
+@pytest.mark.parametrize("settle", [0, 1, 20])
+@pytest.mark.parametrize("pulse", [1, 10, 100])
+def test_startup_uses_same_delay_and_status_path_without_admission(programs, mode, settle, pulse):
+    mask = 0 if mode == "NONE" else 8
+    machine = Sequence(programs, [5, 2, 7], mode=mode, status_mask=mask,
+                       settle=settle, pulse=pulse, startup=True)
+    # Sustained activity during startup must not turn into another state.
+    while machine.priming:
+        machine.input = bool(machine.time & 1)
+        machine.tick()
+        assert len(machine.writes) <= 1
+        assert machine.latest_edge == 0
+    first = 5 | ((5 | mask) << 12)
+    assert machine.receipts == [first, first ^ UINT32]
+    assert machine.writes == [(0, first)]
+    assert machine.pads == 5 | (mask if mode == "LEVEL" else 0)
+    if mode != "NONE":
+        assert machine.rises == [settle * 10 if settle else 5]
+    else:
+        assert not machine.rises
+    if mode == "PULSE":
+        assert machine.falls == [machine.rises[0] + pulse * 10]
+    else:
+        assert not machine.falls
+    machine.input = False
+    machine.tick(10)
+    machine.edge(gap=settle * 10 + pulse * 10 + 30)
+    assert [tag & 15 for _, tag in machine.writes] == [5, 2]
+    assert len(machine.receipts) == 4 and machine.latest_edge == 1
+
+
+@pytest.mark.parametrize("mode", ["PULSE", "LEVEL", "NONE"])
+def test_one_state_startup_emits_status_then_remains_finished(programs, mode):
+    mask = 0 if mode == "NONE" else 8
+    machine = Sequence(programs, [5], mode=mode, status_mask=mask, startup=True, max_steps=0)
+    machine.tick(100)
+    first = 5 | ((5 | mask) << 12)
+    assert machine.receipts == [first, first ^ UINT32]
+    assert len(machine.writes) == 1 and not machine.priming
+    for _ in range(20):
+        machine.edge()
+    assert len(machine.writes) == 1 and machine.latest_edge == 0
+    assert len(machine.rises) == (mode != "NONE")
+    assert len(machine.falls) == (mode == "PULSE")
+
+
+def test_pause_during_initial_pulse_keeps_admission_closed(programs):
+    machine = Sequence(programs, [5, 2], settle=10, pulse=10, startup=True)
+    machine.tick(110)
+    assert machine.pads == 13
+    machine.pause()
+    machine.resume()
+    assert not machine.ingress.enabled
+    machine.pause()
+    for _ in range(5):
+        machine.edge()
+    assert len(machine.writes) == 1 and machine.pads == 5
+    assert not machine.priming and not machine.ingress.enabled
+    machine.resume()
+    machine.tick(10)
+    machine.edge(gap=250)
+    assert [tag & 15 for _, tag in machine.writes] == [5, 2]
 
 
 @pytest.mark.parametrize("values", [[0, 1, 2], list(range(8))])
@@ -449,38 +665,157 @@ def test_finite_pio_quota_ten_thousand_rounds_without_cpu(programs):
     assert machine.pads == 7 and machine.ingress.pc == 7
 
 
+class Gateway:
+    def __init__(self, programs, *, mask=8, falling=False, manual=False):
+        self.owner = SimpleNamespace(input=falling, pads=15 ^ mask, status_mask=mask,
+                                     time=0, rises=[], falls=[], set_flags=0, clear_flags=0)
+        self.flags = 0
+        self.pulse = Machine(programs["gateway"], self.owner, "gateway")
+        self.counter = Machine(programs["ready_counter"], self.owner, "counter")
+        self.counter.x = UINT32
+        if falling:
+            self.counter.words[1] ^= 128
+            self.counter.words[2] ^= 128
+        if manual:
+            self.pulse.words[2] = 0xA042 | (2 << 8)  # NOP [2], same as production patch
+            self.counter.enabled = False
+
+    def tick(self, count=1, *, loopback=False, reverse_order=False):
+        for _ in range(count):
+            if loopback:
+                self.owner.input = bool(self.owner.pads & self.owner.status_mask)
+            self.owner.set_flags = self.owner.clear_flags = 0
+            pair = (self.counter, self.pulse) if reverse_order else (self.pulse, self.counter)
+            for sm in pair:
+                sm.tick(self.flags)
+            self.flags = (self.flags & ~self.owner.clear_flags) | self.owner.set_flags
+            self.owner.time += 1
+
+    def fire(self, pulse_us=1):
+        assert not self.pulse.tx
+        self.pulse.tx.append(pulse_us * 10 - 2)
+
+
 @pytest.mark.parametrize("output_mask", [1, 2, 4, 8])
 @pytest.mark.parametrize("falling", [False, True])
 @pytest.mark.parametrize("pulse_us", [1, 10, 100])
 def test_gateway_pio_pulse_captures_ready_without_advancing_dut(programs, output_mask, falling, pulse_us):
-    owner = SimpleNamespace(input=falling, pads=15 ^ output_mask, status_mask=output_mask,
-                            time=0, rises=[], falls=[], set_flags=0, clear_flags=0)
-    pulse = Machine(programs["gateway"], owner, "gateway")
-    counter = Machine(programs["counter"], owner, "counter")
-    counter.x = UINT32
-    if falling:
-        counter.words[0] ^= 128
-        counter.words[1] ^= 128
-    # A stale active level does not produce READY until the next full edge.
+    machine = Gateway(programs, mask=output_mask, falling=falling)
+    owner = machine.owner
+    # Even complete edges before FIRE have no grant and cannot create READY.
+    for _ in range(5):
+        owner.input = not falling
+        machine.tick(4)
+        owner.input = falling
+        machine.tick(4)
+    assert not machine.counter.rx
+    machine.fire(pulse_us)
+    machine.tick(10)
+    assert len(owner.rises) == 1 and not owner.falls
+    # One sampled active tick suffices once WAIT active is armed, including
+    # an early READY while the long trigger pulse is still high.
     owner.input = not falling
-    for _ in range(10):
-        counter.tick(0)
-    assert not counter.rx
+    machine.tick(1)
     owner.input = falling
-    counter.tick(0)
-    pulse.tx.append(pulse_us * 10 - 2)
-    for tick in range(pulse_us * 10 + 20):
-        owner.time = tick
-        # READY can be shorter than a CPU poll interval and finish while the
-        # output pulse is still high. Counter/DMA retains its receipt.
-        owner.input = not falling if 4 <= tick < 7 else falling
-        pulse.tick(0)
-        counter.tick(0)
-        assert (owner.pads & ~output_mask) == (15 ^ output_mask)
-    assert owner.rises == [2]
-    assert owner.falls == [pulse_us * 10 + 2]
-    assert list(counter.rx) == [1]
+    machine.tick(pulse_us * 10 + 10)
+    assert list(machine.counter.rx) == [1]
+    assert owner.falls[0] - owner.rises[0] == pulse_us * 10
     assert owner.pads == 15 ^ output_mask
-    assert owner.set_flags == owner.clear_flags == 0  # no sequence IRQ request
-    assert pulse.pc == 0 and not pulse.tx
-    assert len(pulse.rx) == 1  # completion only after the physical low restore
+    assert machine.flags & ((1 << 4) | (1 << 5)) == 0
+    assert len(machine.pulse.rx) == 1
+    # Further READY edges cannot be credited to the next FIRE.
+    for _ in range(10):
+        owner.input = not falling
+        machine.tick(2)
+        owner.input = falling
+        machine.tick(2)
+    assert list(machine.counter.rx) == [1]
+    machine.pulse.rx.clear()
+    machine.fire(pulse_us)
+    machine.tick(10)
+    owner.input = not falling
+    machine.tick(1)
+    owner.input = falling
+    machine.tick(pulse_us * 10 + 10)
+    assert list(machine.counter.rx) == [1, 2]
+    assert owner.falls[1] - owner.rises[1] == pulse_us * 10
+
+
+@pytest.mark.parametrize("falling", [False, True])
+@pytest.mark.parametrize("reverse_order", [False, True])
+def test_gateway_out4_in2_loopback_with_minimum_pulse(programs, falling, reverse_order):
+    machine = Gateway(programs, falling=falling)
+    for index in range(1, 21):
+        machine.fire(1)
+        machine.tick(40, loopback=True, reverse_order=reverse_order)
+        assert list(machine.counter.rx) == [index]
+        assert len(machine.pulse.rx) == 1
+        assert machine.owner.falls[-1] - machine.owner.rises[-1] == 10
+        machine.counter.rx.clear()
+        machine.pulse.rx.clear()
+
+
+@pytest.mark.parametrize("falling", [False, True])
+def test_gateway_already_active_ready_does_not_block_trigger_or_count_stale_level(programs, falling):
+    machine = Gateway(programs, falling=falling)
+    machine.owner.input = not falling
+    machine.fire(1)
+    machine.tick(50)
+    assert len(machine.owner.rises) == len(machine.owner.falls) == 1
+    assert not machine.counter.rx
+    machine.owner.input = falling
+    machine.tick(3)
+    machine.owner.input = not falling
+    machine.tick(4)
+    assert list(machine.counter.rx) == [1]
+
+
+def test_gateway_missing_ready_sm_holds_grant_before_output(programs):
+    machine = Gateway(programs)
+    machine.counter.enabled = False
+    machine.fire(1)
+    machine.tick(50)
+    assert not machine.owner.rises and machine.flags == 1 << 6
+    assert machine.pulse.pc == 2
+    machine.counter.enabled = True
+    machine.tick(40, loopback=True)
+    assert len(machine.owner.rises) == 1 and list(machine.counter.rx) == [1]
+
+
+def test_gateway_manual_ready_and_completion_backpressure(programs):
+    machine = Gateway(programs, manual=True)
+    machine.pulse.rx.extend([1, 2, 3, 4])
+    machine.fire(1)
+    machine.tick(40)
+    assert len(machine.owner.rises) == len(machine.owner.falls) == 1
+    assert machine.owner.falls[0] - machine.owner.rises[0] == 10
+    assert machine.flags == 0 and machine.pulse.rx_stall
+    assert machine.pulse.pc == 6 and not (machine.owner.pads & 8)
+    machine.pulse.rx.clear()
+    machine.tick(1)
+    assert len(machine.pulse.rx) == 1  # DONE retained instead of dropped
+
+
+@pytest.mark.parametrize("settle", [0, 1, 20])
+def test_compact_executor_preserves_three_word_plan_and_settle_receipts(programs, settle):
+    machine = Sequence(programs, [5, 2, 7], mode="NONE", status_mask=0,
+                       settle=settle, startup=True)
+    machine.executor.words = programs["none_executor"][:]
+    machine.tick(settle * 10 + 20)
+    first = 5 | (5 << 12)
+    assert machine.receipts == [first, first ^ UINT32]
+    assert machine.pads == 5 and not machine.rises and not machine.falls
+    assert machine.writes == [(0, first)]
+    for expected in [2, 7, 5, 2]:
+        before = len(machine.receipts)
+        machine.input = False
+        machine.tick(4)
+        machine.input = True
+        machine.tick(10)
+        machine.input = False
+        machine.tick(settle * 10 + 20)
+        assert machine.pads == expected and len(machine.receipts) == before + 2
+    assert not machine.executor.rx_stall
+    expected_delay = settle * 10 if settle else 5
+    assert [machine.receipt_times[2 * index + 1] - write[0]
+            for index, write in enumerate(machine.writes)] == [expected_delay] * len(machine.writes)

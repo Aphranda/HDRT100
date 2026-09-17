@@ -13,6 +13,7 @@
 #include "hardware/pio.h"
 #include "hardware/pwm.h"
 #include "hardware/sync.h"
+#include "pico/platform.h"
 #include "osal.h"
 #include "resource_arbiter.h"
 #include "biss_tap_rx.pio.h"
@@ -667,6 +668,31 @@ bool sync_io_core_initialized(void)
 bool sync_io_core_capture_is_running(void)
 {
     return s_sync_io.capture_running;
+}
+
+bool sync_io_core_capture_sm_lease(const void *owner)
+{
+    if (get_core_num() != 1u || !s_sync_io.initialized || owner == NULL ||
+        !sync_io_workspace_claim(owner)) return false;
+    if (s_sync_io.capture_running ||
+        sync_io_core_sm_is_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM) ||
+        !pio_sm_is_claimed(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM) ||
+        dma_channel_is_busy(SYNC_IO_CAPTURE_DMA_CH)) {
+        (void)sync_io_workspace_release(owner);
+        return false;
+    }
+    return true;
+}
+
+void sync_io_core_capture_sm_restore(const void *owner)
+{
+    if (get_core_num() != 1u || !sync_io_workspace_held_by(owner)) return;
+    pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, false);
+    sync_capture_4bit_program_init(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM,
+        s_sync_io.capture_offset, BOARD_SYNC_INPUT_BASE_PIN, BOARD_SYNC_INPUT_PIN_COUNT,
+        sync_io_clkdiv_for_instruction_rate(s_sync_io.capture_sample_hz));
+    pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, false);
+    (void)sync_io_workspace_release(owner);
 }
 
 uint sync_io_core_biss_tap_offset(void)

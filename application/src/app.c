@@ -27,6 +27,7 @@
 #include "system_manager.h"
 #include "sync_trigger.h"
 #include "trigger_sequence_service.h"
+#include "trigger_sequence_link.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_service_timing.h"
 #include "sync_io.h"
@@ -809,6 +810,14 @@ static void app_realtime_tdma_phase(void)
     /* Mandatory intent processing follows TDMA and remains inside the
      * measured phase, independent of optional Trigger load quarantine. */
     trigger_sequence_service_service();
+    /* Combined-role runtime belongs to Core1. Consume at most one complete
+     * transport event after observing PIO receipts, then execute only the
+     * resulting owner intent. Independent SP8T keeps its autonomous PIO path.
+     * All work remains charged to this mandatory phase; this ownership slice
+     * does not yet introduce additional priority windows. */
+    if (trigger_sequence_link_service()) {
+        trigger_sequence_service_service();
+    }
     timing_start = tdma_service_timing_now();
     drv_watchdog_mark_progress(1u, 0x0101u);
     diagnostics_record_core1_loop();

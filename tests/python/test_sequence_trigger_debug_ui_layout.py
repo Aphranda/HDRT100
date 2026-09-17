@@ -6,7 +6,7 @@ from tkinter import ttk
 import pytest
 
 from tools.sequence_trigger_debug_ui.sequence_trigger_debug_ui import (
-    MODE_INDEPENDENT, MODE_RJ45, ROLE_GATEWAY, ROLE_SEQUENCE, SequenceUi,
+    MODE_INDEPENDENT, MODE_RJ45, MODE_TURNTABLE, ROLE_GATEWAY, ROLE_SEQUENCE, SequenceUi,
 )
 
 
@@ -53,7 +53,7 @@ def complete_configuration(ui, mode):
 
 def test_tabs_separate_mode_controls_and_keep_common_io(ui):
     assert [ui.mode_notebook.tab(tab, "text") for tab in ui.mode_notebook.tabs()] == [
-        "独立 SP8T 序列", "RJ45 物理回环", "手动 SP8T", "设备维护"]
+        "独立 SP8T 序列", "RJ45 物理回环", "转台脉冲计数", "手动 SP8T", "设备维护"]
     select(ui, ui.loopback_page)
     texts = [widget.cget("text") for widget in descendants(ui.loopback_page)
              if isinstance(widget, ttk.Button)]
@@ -206,7 +206,8 @@ def test_previous_resource_responses_cannot_update_new_device_or_authorize_start
 @pytest.mark.parametrize("size", ["1380x900", "1120x820"])
 def test_visible_controls_fit_window_and_log_remains_usable(ui, size, tmp_path):
     ui.geometry(size)
-    for page in (ui.independent_page, ui.loopback_page, ui.manual_switch_page, ui.maintenance_page):
+    for page in (ui.independent_page, ui.loopback_page, ui.turntable_page,
+                 ui.manual_switch_page, ui.maintenance_page):
         select(ui, page)
         assert ui.output.winfo_height() >= 90
         for widget in descendants(ui):
@@ -223,6 +224,85 @@ def test_visible_controls_fit_window_and_log_remains_usable(ui, size, tmp_path):
             bounds = (ui.winfo_rootx(), ui.winfo_rooty(),
                       ui.winfo_rootx() + ui.winfo_width(), ui.winfo_rooty() + ui.winfo_height())
             ImageGrab.grab(bbox=bounds).save(tmp_path / f"page-{ui.mode_notebook.index(page)}.png")
+
+
+def test_turntable_drafts_are_separate_and_device_counter_readback_survives_tab_switch(ui):
+    ui.codes.set("invalid")
+    ui.gateway_codes.set("invalid")
+    select(ui, ui.turntable_page)
+    commands = complete_configuration(ui, MODE_TURNTABLE)
+    assert "CONF:SEQ:LINK POSITION,1,2,3,IN1,1000,IN2,OUT4,10,5000,RIS" in commands
+    assert ui.next_buttons[MODE_TURNTABLE].instate(["disabled"])
+    ui.command("TRIG:SEQ:NEXT")
+    assert ui._operations.empty()
+    ui.command("TRIG:START")
+    assert "READ:SEQ:COUNTER?" in ui._operations.get_nowait()[1][2]
+    select(ui, ui.independent_page)
+    ui.command("TRIG:STOP")
+    stopped = ui._operations.get_nowait()[1][2]
+    assert "SYST:TDMA:RING:STOP" in stopped and "READ:SEQ:COUNTER?" in stopped
+    ui.update_io("READ:SEQ:COUNTER?", "1,1,1,1000,45,0,45,0,0,0,9,0")
+    assert "45/1000" in ui.counter_status.get()
+    ui.port.set("OTHER")
+    assert ui.counter_status.get() == "转台计数：未读取"
+
+
+def test_turntable_manual_ready_and_threshold_draft_invalidate_start(ui):
+    select(ui, ui.turntable_page)
+    ui.turntable_ready_input.set("MANUAL")
+    ui.update_mode_hint()
+    commands = complete_configuration(ui, MODE_TURNTABLE)
+    assert ui.next_buttons[MODE_TURNTABLE].instate(["!disabled"])
+    assert any(",MANUAL,OUT4," in command for command in commands)
+    ui.turntable_threshold.set("2000")
+    ui.command("TRIG:START")
+    assert ui._operations.empty()
+
+
+def test_turntable_invalid_counter_boundary_queues_no_mutations(ui):
+    select(ui, ui.turntable_page)
+    ui.turntable_threshold.set(str(0xffffffdf))
+    ui.configure_mode(MODE_TURNTABLE)
+    assert ui._operations.empty()
+    ui.turntable_threshold.set(str(0xffffffde))
+    commands = complete_configuration(ui, MODE_TURNTABLE)
+    assert any(",4294967262," in command for command in commands)
+
+
+def test_counter_history_queries_only_newest_on_explicit_action(ui):
+    select(ui, ui.turntable_page)
+    ui.update_io("READ:SEQ:COUNTER?", "1,1,1,1000,1000,1,0,0,70,64,9,0")
+    assert ui._operations.empty()
+    ui.read_counter_history()
+    assert ui._operations.get_nowait()[1][2] == ["READ:SEQ:COUNTER?"]
+    ui.read_counter_history()
+    assert ui._operations.empty()
+    ui.update_io("READ:SEQ:COUNTER?", "1,1,1,1000,1000,1,0,0,71,64,9,0")
+    assert ui._operations.get_nowait()[1][2] == ["READ:SEQ:COUNTER:HIST? 71"]
+    assert ui._operations.empty()
+    ui.update_io("READ:SEQ:COUNTER:HIST? 71", "71,1,1,10,6,10000,10002,7")
+    assert "记录 71" in ui.counter_history.get()
+    assert "请求时计数快照 10002" in ui.counter_history.get()
+    ui.read_counter_history()
+    ui._operations.get_nowait()
+    ui.port.set("OTHER")
+    assert ui.counter_history.get() == "历史记录：未读取"
+    assert not ui._counter_history_pending
+
+
+def test_counter_history_empty_run_and_bad_response_do_not_query_invalid_ordinal(ui):
+    ui.read_counter_history()
+    ui._operations.get_nowait()
+    ui.update_io("READ:SEQ:COUNTER?", "1,1,1,1000,0,0,0,0,0,0,9,0")
+    assert "尚无" in ui.counter_history.get()
+    assert ui._operations.empty()
+    ui.read_counter_history()
+    ui._operations.get_nowait()
+    ui.update_io("READ:SEQ:COUNTER?", "<timeout>")
+    assert not ui._counter_history_pending
+    assert ui._operations.empty()
+    ui.update_io("READ:SEQ:COUNTER:HIST? 1", "<timeout>")
+    assert "已被覆盖" in ui.counter_history.get()
 
 
 def test_long_response_keeps_connection_controls_visible(ui):

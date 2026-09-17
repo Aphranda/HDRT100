@@ -27,6 +27,8 @@ def test_sequence_mailbox_survives_disabled_loads_and_offline_returns(tmp_path):
         "void sync_trigger_get_summary", 1)[0]
     assert "trigger_sequence_service_service();" not in legacy_service
     assert "trigger_sequence_service_is_active()" in legacy_service
+    transport = (ROOT / "components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
+    assert "trigger_sequence_link_service();" not in transport
     (tmp_path / "sync_trigger.h").write_text(
         "#include <stdbool.h>\nbool sync_trigger_sequence_can_start(void);\n", encoding="utf-8")
     unit = (ROOT / "tests/unit/test_trigger_sequence_service.c").as_posix()
@@ -34,7 +36,7 @@ def test_sequence_mailbox_survives_disabled_loads_and_offline_returns(tmp_path):
                '#define main sequence_lifecycle_test_main\n#include "' + unit +
                '"\n#undef main\n#undef trigger_sequence_service_service\n')
     harness += r'''
-static bool offline_p3, offline_training, ring_capture, loads_enabled;
+static bool offline_p3, offline_training, ring_capture, loads_enabled, link_step;
 static unsigned optional_calls, mandatory_calls;
 static bool phase_open;
 static unsigned phase_order, sequence_calls;
@@ -60,7 +62,7 @@ static void app_realtime_schedule_write_end(void) {}
 static void tdma_service_timing_phase_begin(void)
 { assert(!phase_open); phase_open=true; phase_order=0; ++mandatory_calls; }
 static void tdma_service_timing_phase_end(void)
-{ assert(phase_open && phase_order==3); phase_open=false; }
+{ assert(phase_open && (phase_order==4 || phase_order==5)); phase_open=false; }
 static void tdma_service_timing_context(unsigned context, bool active)
 { (void)context; (void)active; }
 static unsigned tdma_runtime_owner_timing_context(void) { return 0; }
@@ -75,10 +77,19 @@ static void tdma_service_timing_record(unsigned kind, uint64_t start)
 static void trigger_sequence_service_service(void)
 {
     if (offline_p3 || offline_training) assert(!phase_open);
-    else { assert(phase_open && phase_order==2); phase_order=3; }
+    else { assert(phase_open && (phase_order==2 || phase_order==4)); ++phase_order; }
     ++sequence_calls;
     production_sequence_service();
     if (hw.pending) physical_write();
+}
+static bool trigger_sequence_link_service(void)
+{
+    assert(phase_open && phase_order==3 && !offline_p3 && !offline_training);
+    phase_order=4;
+    if (!link_step) return false;
+    link_step=false;
+    assert(trigger_sequence_service_step()==TRIGGER_SEQUENCE_SERVICE_OK);
+    return true;
 }
 static void app_realtime_vdc_phase(void) { ++optional_calls; }
 static void app_realtime_dpll_phase(void) { ++optional_calls; }
@@ -119,6 +130,17 @@ int main(void)
         assert(sequence_calls == 3 && !phase_open);
         assert(loads_enabled ? optional_calls != 0 : optional_calls == 0);
     }
+    /* An event admitted by the coordinator reaches the IO owner in the same
+     * mandatory phase, even when every optional service is disabled. */
+    setup();
+    offline_p3=offline_training=ring_capture=loads_enabled=false;
+    start();
+    sequence_calls=0;
+    link_step=true;
+    app_realtime_run_once();
+    assert(!link_step && sequence_calls==2 && writes==1);
+    assert(status().state==TRIGGER_SEQUENCE_SERVICE_RUNNING);
+    stop();
     puts("mandatory sequence dispatch passed");
     return 0;
 }

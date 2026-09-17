@@ -55,6 +55,15 @@ bool trigger_sequence_link_configure(const trigger_sequence_link_config_t *confi
 }
 void trigger_sequence_link_get_status(trigger_sequence_link_status_t *status)
 { *status = link_status; }
+bool trigger_sequence_link_get_history(uint32_t ordinal, trigger_sequence_link_history_t *record)
+{
+    if (ordinal != 1u) return false;
+    *record = (trigger_sequence_link_history_t){
+        .ordinal = 1u, .run_id = 4u, .generation = 5u, .position = 1u,
+        .sequence_index = 2u, .threshold_pulses = 1000u, .observed_pulses = 1032u,
+        .outcome_flags = 7u};
+    return true;
+}
 tdma_pio_spi_ring_adapter_t *tdma_runtime_owner_get_ring_adapter(void) { return NULL; }
 tdma_local_return_snapshot_quality_t tdma_pio_spi_ring_adapter_get_local_return_snapshot(
     const tdma_pio_spi_ring_adapter_t *adapter, uint32_t values[6])
@@ -71,6 +80,8 @@ static const scpi_command_t commands[] = {
     {.pattern="CONFigure:SEQuence:LINK", .callback=scpi_sequence_link_config},
     {.pattern="READ:SEQuence:LINK?", .callback=scpi_sequence_link_q},
     {.pattern="READ:SEQuence:LINK:TRANsport?", .callback=scpi_sequence_link_transport_q},
+    {.pattern="READ:SEQuence:COUNter?", .callback=scpi_sequence_counter_q},
+    {.pattern="READ:SEQuence:COUNter:HISTory?", .callback=scpi_sequence_counter_history_q},
     SCPI_CMD_LIST_END
 };
 static size_t output(scpi_t *context, const char *data, size_t size)
@@ -100,6 +111,8 @@ int main(void)
             if (strncmp(line,"@active",7)==0) frozen=true;
             else if (strncmp(line,"@legacy",7)==0) legacy_busy=true;
             else if (strncmp(line,"@idle",5)==0) { frozen=false; legacy_busy=false; }
+            else if (strncmp(line,"@config_busy",12)==0) configuration_gate=true;
+            else if (strncmp(line,"@config_clear",13)==0) configuration_gate=false;
             else if (strncmp(line,"@link_reject",12)==0) link_rejected=true;
             else if (strncmp(line,"@link_accept",12)==0) link_rejected=false;
             else if (strncmp(line,"@link_status",12)==0) {

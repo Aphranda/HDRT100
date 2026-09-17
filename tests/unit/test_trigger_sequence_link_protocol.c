@@ -143,7 +143,7 @@ static void invalid_arguments(void)
     assert(!trigger_sequence_link_tx_begin(&tx, NULL, 1u));
     for (uint32_t field = 0u; field < 7u; ++field) {
         trigger_sequence_link_message_t bad = baseline;
-        if (field == 0u) bad.kind = 3u;
+        if (field == 0u) bad.kind = 4u;
         if (field == 1u) bad.run_id = 0u;
         if (field == 2u) bad.generation = 0u;
         if (field == 3u) bad.binding_epoch = 0u;

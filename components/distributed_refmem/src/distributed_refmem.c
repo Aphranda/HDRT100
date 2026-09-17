@@ -784,7 +784,8 @@ static void distributed_refmem_tdma_flight_sync_receive(
 
 static void distributed_refmem_tdma_flight_sync_service(void)
 {
-    trigger_sequence_link_service();
+    /* Core0 owns the temporary fragment transport bridge only. Complete RX
+     * events are consumed by the mandatory Core1 sequence coordinator. */
     if (board_identity_get_no() == 5u || s_tdma_flight_sync.enabled == 0u) {
         return;
     }

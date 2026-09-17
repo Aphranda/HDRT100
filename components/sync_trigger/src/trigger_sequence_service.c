@@ -8,7 +8,8 @@
 
 typedef enum { COMMAND_NONE, COMMAND_START, COMMAND_STOP, COMMAND_PAUSE,
                COMMAND_CONTINUE, COMMAND_STEP, COMMAND_EXHAUSTED,
-               COMMAND_GATEWAY_FIRE, COMMAND_GATEWAY_READY, COMMAND_FINISH } command_t;
+               COMMAND_GATEWAY_FIRE, COMMAND_GATEWAY_READY, COMMAND_FINISH,
+               COMMAND_COUNTER_REARM } command_t;
 
 typedef struct {
     trigger_sequence_service_io_t io;
@@ -17,7 +18,7 @@ typedef struct {
     trigger_sequence_gateway_config_t gateway;
     uint32_t repeat_count;
     uint8_t ids[TRIGGER_SEQUENCE_STATE_MAX];
-    uint32_t values[TRIGGER_SEQUENCE_STATE_MAX];
+    uint8_t values[TRIGGER_SEQUENCE_STATE_MAX];
 } run_config_t;
 _Static_assert(TRIGGER_SEQUENCE_STATE_MAX <= 256u, "compact state identifiers");
 
@@ -332,6 +333,8 @@ static trigger_sequence_service_result_t request(command_t command)
         result = TRIGGER_SEQUENCE_SERVICE_EXHAUSTED;
         s_command = COMMAND_EXHAUSTED;
         ++s_command_serial;
+    } else if (command == COMMAND_PAUSE && s_gateway.counter_input && s_published.counter_busy) {
+        result = TRIGGER_SEQUENCE_SERVICE_BUSY;
     } else if (command == COMMAND_PAUSE && state != TRIGGER_SEQUENCE_SERVICE_READY &&
                state != TRIGGER_SEQUENCE_SERVICE_RUNNING) {
         result = TRIGGER_SEQUENCE_SERVICE_NOT_READY;
@@ -353,6 +356,13 @@ static trigger_sequence_service_result_t request(command_t command)
 
 trigger_sequence_service_result_t trigger_sequence_service_stop(void)
 { return request(COMMAND_STOP); }
+bool trigger_sequence_service_stop_pending(void)
+{
+    osal_critical_enter();
+    const bool pending = s_command == COMMAND_STOP;
+    osal_critical_exit();
+    return pending;
+}
 trigger_sequence_service_result_t trigger_sequence_service_pause(void)
 { return request(COMMAND_PAUSE); }
 trigger_sequence_service_result_t trigger_sequence_service_continue(void)
@@ -375,7 +385,11 @@ trigger_sequence_service_result_t trigger_sequence_service_set_gateway_locked(
     const trigger_sequence_gateway_config_t *config, bool (*start_guard)(void))
 {
     if (!configuration_available_locked()) return TRIGGER_SEQUENCE_SERVICE_FROZEN;
-    if (config == NULL || (config->enabled &&
+    if (config == NULL || config->counter_input > 4u ||
+        (config->counter_input != 0u && (!config->enabled ||
+         config->counter_threshold == 0u || config->counter_threshold >= SYNC_IO_SEQUENCE_COUNTER_LIMIT ||
+         config->counter_input == config->ready_input)) ||
+        (config->counter_input == 0u && config->counter_threshold != 0u) || (config->enabled &&
         (config->ready_input > 4u ||
          config->trigger_output_mask == 0u || config->trigger_output_mask > 15u ||
          (config->trigger_output_mask & (config->trigger_output_mask - 1u)) != 0u ||
@@ -447,6 +461,12 @@ trigger_sequence_service_result_t trigger_sequence_service_cycle_step(
 trigger_sequence_service_result_t trigger_sequence_service_cycle_finish(
     uint32_t run, uint32_t generation, uint32_t step)
 { return cycle_action(COMMAND_FINISH, run, generation, step); }
+trigger_sequence_service_result_t trigger_sequence_service_counter_rearm(
+    uint32_t run, uint32_t generation, uint32_t step)
+{
+    if (!s_gateway.counter_input) return TRIGGER_SEQUENCE_SERVICE_INVALID;
+    return cycle_action(COMMAND_COUNTER_REARM, run, generation, step);
+}
 
 static bool record_receipts(const sync_io_sequence_snapshot_t *io)
 {
@@ -473,6 +493,9 @@ static bool record_receipts(const sync_io_sequence_snapshot_t *io)
     s_runtime.gateway_trigger_count = io->gateway_trigger_count;
     s_runtime.gateway_ready_count = io->gateway_ready_count;
     s_runtime.gateway_cancelled = io->gateway_cancelled;
+    s_runtime.counter_events = io->counter_events;
+    s_runtime.counter_busy = io->counter_busy;
+    s_runtime.counter_rearm_count = io->counter_rearm_count;
     /* PIO receipts prove ordering/counts, not an absolute physical timestamp. */
     s_runtime.written_at_us = 0;
     s_runtime.completion_rise_at_us = 0;
@@ -587,10 +610,12 @@ void trigger_sequence_service_service(void)
             .gateway_output_mask = s_run.gateway.enabled ? s_run.gateway.trigger_output_mask : 0u,
             .gateway_pulse_us = s_run.gateway.enabled ? s_run.gateway.pulse_us : 0u,
             .gateway_falling = s_run.gateway.falling
+            , .counter_input_channel = s_run.gateway.counter_input
+            , .counter_threshold = s_run.gateway.counter_threshold
             , .step_limit_enabled = !s_run.gateway.enabled && s_run.repeat_count != 0u,
             .max_steps = s_run.repeat_count ? s_run.count * s_run.repeat_count - 1u : 0u
         };
-        if (!sync_io_sequence_arm_plan(&config, s_run.values, s_run.count)) {
+        if (!sync_io_sequence_arm_plan_bytes(&config, s_run.values, s_run.count)) {
             fail(TRIGGER_SEQUENCE_SERVICE_RESOURCE);
         } else {
             s_run_armed = true;
@@ -628,9 +653,15 @@ void trigger_sequence_service_service(void)
         if (!sync_io_sequence_gateway_fire()) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
     } else if (command == COMMAND_GATEWAY_READY) {
         if (!sync_io_sequence_gateway_ready()) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
+    } else if (command == COMMAND_COUNTER_REARM) {
+        if (!sync_io_sequence_counter_rearm()) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
     } else if (command == COMMAND_PAUSE || command == COMMAND_CONTINUE) {
-        s_pause_requested = command == COMMAND_PAUSE;
-        if (!sync_io_sequence_pause(s_pause_requested)) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
+        /* A position arriving after Core0 accepted PAUSE wins the race: finish
+         * that complete position rather than interrupting or repeating a sample. */
+        if (!(command == COMMAND_PAUSE && s_run.gateway.counter_input && io.counter_busy)) {
+            s_pause_requested = command == COMMAND_PAUSE;
+            if (!sync_io_sequence_pause(s_pause_requested)) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
+        }
     }
     if (s_runtime.state != TRIGGER_SEQUENCE_SERVICE_FAULT) {
         sync_io_sequence_service();

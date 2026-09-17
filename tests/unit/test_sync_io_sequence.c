@@ -10,11 +10,71 @@ static void reset(void)
     }
 }
 
+static void compact_plan(void)
+{
+    uint32_t wide[SYNC_IO_SEQUENCE_PLAN_MAX];
+    uint8_t compact[SYNC_IO_SEQUENCE_PLAN_MAX];
+    uint32_t expected[SYNC_IO_SEQUENCE_PLAN_MAX * SYNC_IO_SEQUENCE_PLAN_WORDS];
+    sync_io_sequence_config_t config = {
+        .sequence_output_mask = 7u, .status_output_mask = 8u,
+        .status_mode = SYNC_IO_SEQUENCE_STATUS_PULSE, .settle_us = 20u, .pulse_us = 10u};
+    for (uint32_t i = 0u; i < SYNC_IO_SEQUENCE_PLAN_MAX; ++i) wide[i] = compact[i] = (i + 5u) & 7u;
+    const uint32_t counts[] = {1u, 3u, SYNC_IO_SEQUENCE_PLAN_MAX};
+    for (uint32_t mode = 0u; mode < 3u; ++mode) {
+        config.status_mode = (sync_io_sequence_status_mode_t)mode;
+        config.status_output_mask = mode == SYNC_IO_SEQUENCE_STATUS_NONE ? 0u : 8u;
+        config.pulse_us = mode == SYNC_IO_SEQUENCE_STATUS_PULSE ? 10u : 0u;
+        for (uint32_t n = 0u; n < 3u; ++n) {
+            const uint32_t count = counts[n];
+            assert(build_plan(&config, wide, NULL, count));
+            memcpy(expected, s_plan, count * SYNC_IO_SEQUENCE_PLAN_WORDS * sizeof(uint32_t));
+            memset(s_plan, 0, sizeof(s_plan));
+            assert(build_plan(&config, NULL, compact, count));
+            assert(memcmp(expected, s_plan, count * SYNC_IO_SEQUENCE_PLAN_WORDS * sizeof(uint32_t)) == 0);
+            for (uint32_t i = 0u; i < count; ++i) {
+                const uint32_t logical = (i + 1u) % count;
+                const uint32_t packed = s_plan[i * SYNC_IO_SEQUENCE_PLAN_WORDS];
+                assert((packed & 15u) == compact[logical]);
+                assert(((packed >> 4u) & 255u) == logical);
+                assert(((packed >> 12u) & 15u) == (compact[logical] | config.status_output_mask));
+            }
+        }
+    }
+    assert(!build_plan(&config, NULL, NULL, 1u));
+    assert(!build_plan(&config, wide, compact, 1u));
+    assert(!build_plan(&config, NULL, compact, 0u));
+    assert(!build_plan(&config, NULL, compact, SYNC_IO_SEQUENCE_PLAN_MAX + 1u));
+    assert(!build_plan(NULL, NULL, compact, 1u));
+    compact[0] = 0x80u;
+    assert(!build_plan(&config, NULL, compact, 1u));
+    wide[0] = 0x100u; /* wide entry must never be truncated into a valid byte */
+    assert(!build_plan(&config, wide, NULL, 1u));
+    wide[0] = UINT32_MAX;
+    assert(!build_plan(&config, wide, NULL, 1u));
+}
+
 int main(void)
 {
+    compact_plan();
+    reset();
+    s_sequence.prime_receipts_remaining = 2u;
+    assert(receive_word(s_plan[6]));
+    assert(s_sequence.prime_receipts_remaining == 1u);
+    assert(receive_word(~s_plan[6]));
+    assert(s_sequence.prime_receipts_remaining == 0u);
+    assert(s_sequence.status.accepted == 0u && s_sequence.status.written == 0u &&
+           s_sequence.status.completed == 0u);
+    assert(receive_word(s_plan[0]));
+    assert(receive_word(~s_plan[0]));
+    assert(s_sequence.status.accepted == 1u && s_sequence.status.completed == 1u &&
+           s_sequence.status.current_index == 1u);
+    reset();
+    s_sequence.prime_receipts_remaining = 2u;
+    assert(!receive_word(~s_plan[6]));
+    assert(s_sequence.status.fault == SYNC_IO_SEQUENCE_FAULT_RECEIPT);
     sync_io_sequence_config_t config = {
         1u, false, 7u, 8u, SYNC_IO_SEQUENCE_STATUS_PULSE, 20u, 10u,
-        false, 0u, 0u, 0u, false, false, 0u};
+        false, 0u, 0u, 0u, false, false, 0u, 0u, 0u};
     assert(config_valid(&config));
     for (uint input = 0u; input <= 4u; ++input) {
         config.input_channel = input;
@@ -63,6 +123,24 @@ int main(void)
         .sequence_output_mask = 7u, .status_mode = SYNC_IO_SEQUENCE_STATUS_NONE,
         .gateway_enabled = true,
         .gateway_input_channel = 1u, .gateway_output_mask = 8u, .gateway_pulse_us = 10u};
+    config.counter_input_channel = 2u;
+    assert(!config_valid(&config)); /* threshold mandatory */
+    config.counter_threshold = 1000u;
+    assert(config_valid(&config));
+    config.counter_input_channel = 1u;
+    assert(!config_valid(&config)); /* READY and turntable cannot share input */
+    config.counter_input_channel = 5u;
+    assert(!config_valid(&config));
+    config.counter_input_channel = 2u;
+    config.counter_threshold = UINT32_MAX;
+    assert(!config_valid(&config));
+    config.counter_threshold = 1u;
+    config.gateway_enabled = false;
+    assert(!config_valid(&config));
+    config.gateway_enabled = true;
+    config.counter_input_channel = 0u;
+    assert(!config_valid(&config));
+    config.counter_threshold = 0u;
     for (uint channel = 1u; channel <= 4u; ++channel) {
         config.gateway_input_channel = channel;
         assert(config_valid(&config));

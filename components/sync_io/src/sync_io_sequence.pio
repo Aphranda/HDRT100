@@ -87,16 +87,61 @@ public counted:
     push noblock
 .wrap
 
-; Replaces ingress in combined MANUAL/NONE mode. SET maps only the gateway pin;
-; the independent executor is idle for the complete pulse. At 10 MHz the
-; high interval is countdown + 2 ticks. READY counter runs concurrently.
+; The combined DUT needs only code, settle and two receipts. Consume the
+; third plan word to preserve the DMA/receipt contract used by the full path.
+.program sequence_none_executor
+.wrap_target
+    pull block
+    mov y, osr
+    pull block
+    mov x, osr
+    irq set 4
+public waiting:
+    wait 1 irq 5
+public writing:
+    mov pins, y
+public written:
+    in y, 32
+public settling:
+    jmp x-- settling
+    pull block
+public status_active:
+    mov isr, ~y
+public completed:
+    push block
+.wrap
+
+; One grant admits one complete READY edge. WAIT IRQ acknowledges the grant;
+; gateway delays two synchronized PIO ticks before its output rises, allowing
+; an initially inactive input to reach the active WAIT first. An already-active
+; READY still waits inactive->active; it never prevents the trigger output.
+.program sequence_ready_counter
+.wrap_target
+public grant:
+    wait 1 irq 6
+public inactive:
+    wait 0 pin 0
+public active:
+    wait 1 pin 0
+public observed:
+    jmp x-- counted
+public counted:
+    mov isr, ~x
+    push block
+.wrap
+
+; Replaces ingress in combined MANUAL/NONE mode. IRQ6 is internal to PIO0,
+; never a CPU interrupt. Manual READY patches grant to NOP [2]. At 10 MHz
+; the high interval remains countdown + 2 ticks; grant delay is before high.
 .program sequence_gateway
 .wrap_target
     pull block
     mov x, osr
+public grant:
+    irq wait 6 [2]
     set pins, 1
 public pulsing:
     jmp x-- pulsing
     set pins, 0
-    push noblock
+    push block
 .wrap

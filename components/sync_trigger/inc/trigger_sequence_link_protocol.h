@@ -15,6 +15,7 @@
 typedef enum {
     TRIGGER_SEQUENCE_LINK_LINK_APPLIED = 1u,
     TRIGGER_SEQUENCE_LINK_READY_NEXT = 2u,
+    TRIGGER_SEQUENCE_LINK_COUNTER_NEXT = 3u,
 } trigger_sequence_link_kind_t;
 
 typedef struct {

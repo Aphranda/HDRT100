@@ -423,10 +423,11 @@ static refmem_connection_quality_table_t s_active_connection_quality;
 static tdma_foundation_profile_t s_active_tdma_foundation_profile;
 static bool s_staging_node_load_valid;
 static bool s_staging_board_capability_valid;
-/* Only the two concrete sequence roles can override a dormant template.
+/* Only the concrete sequence roles can override a dormant template.
  * Avoid another complete FB table in the constrained firmware RAM. */
-static refmem_fb_instance_entry_t s_staging_sequence_instance[2];
-static bool s_staging_sequence_valid[2];
+enum { REFMEM_SEQUENCE_ROLE_COUNT = 3 };
+static refmem_fb_instance_entry_t s_staging_sequence_instance[REFMEM_SEQUENCE_ROLE_COUNT];
+static bool s_staging_sequence_valid[REFMEM_SEQUENCE_ROLE_COUNT];
 static bool s_active_tables_from_image;
 static bool s_initialized;
 
@@ -1250,7 +1251,7 @@ static bool refmem_model_serialize_fb_instance(uint8_t *data,
     }
     for (uint32_t i = 0u; i < REFMEM_APP_MODEL_INSTANCE_COUNT; i++) {
         const refmem_fb_instance_entry_t *entry = &table->instance[i];
-        for (uint32_t role = 0u; role < 2u; ++role) {
+        for (uint32_t role = 0u; role < REFMEM_SEQUENCE_ROLE_COUNT; ++role) {
             if (s_staging_sequence_valid[role] &&
                 s_staging_sequence_instance[role].instance_id == entry->instance_id) {
                 entry = &s_staging_sequence_instance[role];
@@ -2905,30 +2906,35 @@ bool refmem_application_model_stage_sequence_role(uint32_t node_id,
     if (s_load_snapshot.mode != REFMEM_APP_MODEL_MODE_IDLE ||
         node_id >= REFMEM_APP_MODEL_NODE_COUNT ||
         (role_mask != REFMEM_APP_ROLE_LINK_SWITCHER &&
-         role_mask != REFMEM_APP_ROLE_INSTRUMENT_CONTROLLER)) return false;
+         role_mask != REFMEM_APP_ROLE_INSTRUMENT_CONTROLLER &&
+         role_mask != REFMEM_APP_ROLE_PULSE_DISTRIBUTOR)) return false;
     const bool vna = role_mask == REFMEM_APP_ROLE_INSTRUMENT_CONTROLLER;
-    const uint32_t slot = vna ? 1u : 0u;
+    const bool counter = role_mask == REFMEM_APP_ROLE_PULSE_DISTRIBUTOR;
+    const uint32_t slot = counter ? 2u : (vna ? 1u : 0u);
+    const uint32_t fb_type = counter ? REFMEM_APP_FB_PULSE_COUNTER :
+        (vna ? REFMEM_APP_FB_INSTRUMENT_CONTROLLER : REFMEM_APP_FB_LINK_SWITCHER);
+    const uint32_t persona = counter ? REFMEM_APP_PERSONA_TRIGGER_MASTER :
+        (vna ? REFMEM_APP_PERSONA_GATEWAY : REFMEM_APP_PERSONA_LINK_CONTROL);
     refmem_fb_instance_entry_t instance;
     if (!refmem_application_model_get_sequence_instance(instance_id, false, &instance) ||
-        instance.fb_type != (vna ? REFMEM_APP_FB_INSTRUMENT_CONTROLLER :
-                                  REFMEM_APP_FB_LINK_SWITCHER) ||
+        instance.fb_type != fb_type ||
         (s_staging_sequence_valid[slot] &&
          s_staging_sequence_instance[slot].instance_id != instance_id)) return false;
     refmem_node_load_table_t candidate;
     uint32_t crc;
     if (!refmem_model_make_staging_node_load_table(
             node_id, instance_id, role_mask,
-            vna ? REFMEM_APP_PERSONA_GATEWAY : REFMEM_APP_PERSONA_LINK_CONTROL,
+            persona,
             1u, 1u, slot, &candidate, &crc)) return false;
     instance.default_node_id = node_id;
     instance.enable_condition = 1u;
     instance.resource_claim = REFMEM_APP_RESOURCE_PIO | REFMEM_APP_RESOURCE_DMA |
                               REFMEM_APP_RESOURCE_CORE1_RT;
-    instance.io_claim = REFMEM_APP_IO_SMA_IN | REFMEM_APP_IO_SMA_OUT |
-                        (vna ? 0u : REFMEM_APP_IO_LINK_CONTROL);
+    instance.io_claim = REFMEM_APP_IO_SMA_IN |
+        (counter ? 0u : (REFMEM_APP_IO_SMA_OUT | (vna ? 0u : REFMEM_APP_IO_LINK_CONTROL)));
     instance.ip_core_claim = REFMEM_APP_IP_PULSE_CAPTURE |
-                             (vna ? REFMEM_APP_IP_PULSE_FIRE : REFMEM_APP_IP_LINK_SEQUENCE);
-    /* Neither role owns a separate PIO: the runtime composes them under the
+        (counter ? 0u : (vna ? REFMEM_APP_IP_PULSE_FIRE : REFMEM_APP_IP_LINK_SEQUENCE));
+    /* No role owns a separate PIO: the runtime composes them under the
      * single sequence owner. This is a declaration, not a resource lease. */
     const refmem_fb_instance_entry_t old_instance = s_staging_sequence_instance[slot];
     const bool old_valid = s_staging_sequence_valid[slot];
@@ -2944,8 +2950,7 @@ bool refmem_application_model_stage_sequence_role(uint32_t node_id,
     s_load_snapshot.staging_node_id = node_id;
     s_load_snapshot.staging_instance_id = instance_id;
     s_load_snapshot.staging_role_mask = role_mask;
-    s_load_snapshot.staging_persona_mask =
-        vna ? REFMEM_APP_PERSONA_GATEWAY : REFMEM_APP_PERSONA_LINK_CONTROL;
+    s_load_snapshot.staging_persona_mask = persona;
     s_load_snapshot.staging_enabled = 1u;
     s_load_snapshot.staging_required = 1u;
     s_load_snapshot.staging_load_order = slot;

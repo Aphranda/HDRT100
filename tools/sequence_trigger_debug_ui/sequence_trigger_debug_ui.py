@@ -32,15 +32,18 @@ from tools.tdma_ring_monitor.tdma_field_parse import RUNTIME_FIELDS
 
 MAX_LOG_LINES = 3000
 TIME_MAX_US = 0xffffffff // 10
+COUNTER_THRESHOLD_MAX = 0xffffffde
 ROLE_SEQUENCE = "编码"
 ROLE_STATUS = "状态"
 ROLE_GATEWAY = "触发"
 MODE_INDEPENDENT = "独立 SP8T 序列"
 MODE_RJ45 = "RJ45 物理回环 · SP8T + VNA 网关"
+MODE_TURNTABLE = "转台计数 · RJ45 · SP8T + VNA 网关"
 RING_STATUS_QUERY = "SYST:TDMA:RING:STAT?"
 RING_ACK_ONLY = {"SYST:TDMA:RING:STOP", "SYST:TDMA:RING:ARM", "SYST:TDMA:RING:START"}
 LINK_PHASES = {0: "未启用", 1: "等待启动", 2: "等待链路通知回环", 3: "等待 READY",
-               4: "等待 READY 回环", 5: "等待序列切换", 6: "暂停", 7: "异常", 8: "已完成"}
+               4: "等待 READY 回环", 5: "等待序列切换", 6: "暂停", 7: "异常", 8: "已完成",
+               9: "等待计数阈值", 10: "等待计数通知回环", 11: "等待下一位置重新武装"}
 
 
 def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str,
@@ -48,14 +51,22 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
                              sequence_mask: int, status_mask: int, status_mode: str,
                              ready_input: str = "MANUAL", timeout_ms: int = 5000,
                              repeat_count: int = 1,
-                             gateway_output: str = "OUT4") -> list[str]:
-    if mode not in {MODE_INDEPENDENT, MODE_RJ45}:
+                             gateway_output: str = "OUT4", *, counter_slot: int = 1,
+                             dut_slot: int = 2, vna_slot: int = 3,
+                             counter_input: str = "IN1", counter_threshold: int = 1000) -> list[str]:
+    if mode not in {MODE_INDEPENDENT, MODE_RJ45, MODE_TURNTABLE}:
         raise ValueError("请选择运行模式")
     if not 0 <= repeat_count <= 0xffffffff:
         raise ValueError("循环次数必须为非负整数；0 表示持续运行")
     if repeat_count and len(codes) * repeat_count > 0xffffffff:
         raise ValueError("循环次数与序列长度的乘积超出固件计数范围")
-    combined = mode == MODE_RJ45
+    combined = mode in {MODE_RJ45, MODE_TURNTABLE}
+    position = mode == MODE_TURNTABLE
+    if position and (counter_input not in {"IN1", "IN2", "IN3", "IN4"} or
+                     counter_input == ready_input or not 1 <= counter_threshold <= COUNTER_THRESHOLD_MAX or
+                     any(not 0 <= slot < 8 for slot in (counter_slot, dut_slot, vna_slot)) or
+                     len({counter_slot, dut_slot, vna_slot}) != 3):
+        raise ValueError(f"计数与 READY 输入须分开；阈值须在 1–{COUNTER_THRESHOLD_MAX} 内；三个槽位须不同且在 0–7 内")
     normalized_status_mode = {"无": "NONE", "电平": "LEVEL", "脉冲": "PULSE"}.get(
         status_mode, status_mode.upper())
     gateway_masks = {f"OUT{index}": 1 << (index - 1) for index in range(1, 5)}
@@ -72,19 +83,26 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
     commands = ["TRIG:STOP", "SYST:TDMA:RING:STOP", "CONF:SEQ:LINK OFF", *base[1:-2],
                 f"CONF:SEQ:REPEAT {repeat_count}"]
     if combined:
-        commands += ["CONF:SEQ:NODE:ROLE 2,5,DUT", "CONF:SEQ:NODE:ROLE 3,7,VNA",
+        if position:
+            commands += [f"CONF:SEQ:NODE:ROLE {counter_slot},2,COUNTER"]
+        else:
+            dut_slot, vna_slot = 2, 3
+        commands += [f"CONF:SEQ:NODE:ROLE {dut_slot},5,DUT", f"CONF:SEQ:NODE:ROLE {vna_slot},7,VNA",
                      "CONF:SEQ:NODE:ACT",
                      "SYST:TDMA:OPMODE:STAGE 7", "SYST:TDMA:OPMODE:APPLY",
                      "SYST:TDMA:RING:TOPOLOGY 2,0,0", "CAL:TOPOLOGY:PROBE 1,10",
-                     "SYST:TDMA:FLIGHT:MODE 1",
-                     f"CONF:SEQ:LINK LOOPBACK,2,3,{ready_input},{gateway_output},"
-                     f"{pulse_us},{timeout_ms},{edge}",
-                     "READ:SEQ:LINK?"]
+                     "SYST:TDMA:FLIGHT:MODE 1"]
+        prefix = (f"POSITION,{counter_slot},{dut_slot},{vna_slot},{counter_input},{counter_threshold}"
+                  if position else "LOOPBACK,2,3")
+        commands += [f"CONF:SEQ:LINK {prefix},{ready_input},{gateway_output},"
+                     f"{pulse_us},{timeout_ms},{edge}", "READ:SEQ:LINK?"]
+        if position:
+            commands.append("READ:SEQ:COUNTER?")
     return commands + ["READ:SEQ:REPEAT?", "TRIG:SEQ:NEXT?", "READ:IO:STAT?"]
 
 
 def build_start_commands(mode: str) -> list[str]:
-    if mode == MODE_RJ45:
+    if mode in {MODE_RJ45, MODE_TURNTABLE}:
         return ["SYST:TDMA:RING:STOP", "SYST:TDMA:RING:ARM", "SYST:TDMA:RING:TRAIN 4096",
                 "SYST:TDMA:RING:START", "TRIG:START"]
     return ["TRIG:START"]
@@ -101,6 +119,30 @@ def format_link_status(response: str, plan_count: int) -> str:
             f"测量触发 {values[11]} / READY {values[12]} / 切换完成 {values[13]} · "
             f"轮次 {rounds}/{target} · TDMA 发送 {values[8]} / 接收 {values[9]} / 拒绝 {values[10]} · "
             f"交换 {values[22]}")
+
+
+def format_counter_status(response: str) -> str:
+    values = [int(field) for field in next(csv.reader([response], strict=True))]
+    if len(values) != 12 or any(value < 0 for value in values):
+        raise ValueError("转台计数状态字段不匹配")
+    enabled, slot, channel, threshold, total, positions, partial, faults, history, retained, phase, error = values
+    return (f"计数槽位 {slot} · IN{channel} · 启用={enabled} · 累计脉冲 {total} · "
+            f"位置 {positions} · 当前 {partial}/{threshold} · 异常 {faults} · "
+            f"记录 {retained}/{history} · {LINK_PHASES.get(phase, f'阶段 {phase}')} · 错误 {error}")
+
+
+def format_counter_history(response: str) -> str:
+    values = [int(field) for field in next(csv.reader([response], strict=True))]
+    if len(values) != 8 or any(value < 0 or value > 0xffffffff for value in values):
+        raise ValueError("转台历史记录字段不匹配")
+    ordinal, run, generation, position, index, threshold, observed, flags = values
+    outcomes = [name for flag, name in [(1, "已请求切换"), (2, "切换完成"), (4, "采样完成")]
+                if flags & flag]
+    return (f"记录 {ordinal} · 运行 {run} · 配置代次 {generation}\n"
+            f"位置 {position} · 序列索引 {index}（从 0 开始）\n"
+            f"阈值脉冲数 {threshold} · 请求时计数快照 {observed}\n"
+            f"结果：{' / '.join(outcomes) or '无完成标记'}（flags={flags}）\n"
+            "计数快照是发送切换请求时的软件读数，不是实际开关输出的物理边沿测量。")
 
 
 def execute_command_batch(commands, exchange, emit, *, monotonic=time.monotonic, sleep=time.sleep):
@@ -328,6 +370,26 @@ class SequenceUi(tk.Tk):
             tk.StringVar(value=ROLE_GATEWAY)]
         self.gateway_ready_input = self.ready_input
         self.gateway_timeout = self.ready_timeout
+        self.turntable_plan = tk.StringVar(value="SP8T")
+        self.turntable_codes = tk.StringVar(value="0,1,2,3,4,5,6,7")
+        self.turntable_settle = tk.StringVar(value="10")
+        self.turntable_repeat_count = tk.StringVar(value="1")
+        self.turntable_edge = tk.StringVar(value="RIS")
+        self.turntable_pulse = tk.StringVar(value="10")
+        self.turntable_ready_input = tk.StringVar(value="IN2")
+        self.turntable_timeout = tk.StringVar(value="5000")
+        self.turntable_counter_slot = tk.StringVar(value="1")
+        self.turntable_dut_slot = tk.StringVar(value="2")
+        self.turntable_vna_slot = tk.StringVar(value="3")
+        self.turntable_input = tk.StringVar(value="IN1")
+        self.turntable_threshold = tk.StringVar(value="1000")
+        self.turntable_out_enabled = [tk.BooleanVar(value=True) for _ in range(4)]
+        self.turntable_out_roles = [tk.StringVar(value=ROLE_SEQUENCE) for _ in range(3)] + [
+            tk.StringVar(value=ROLE_GATEWAY)]
+        self.counter_status = tk.StringVar(value="转台计数：未读取")
+        self.counter_history = tk.StringVar(value="历史记录：未读取")
+        self._counter_history_pending = False
+        self._counter_history_window = None
         self.status = tk.StringVar(value="未连接")
         self.sequence_state = tk.StringVar(value="UNKNOWN")
         self.mode_hint = tk.StringVar(value="外部脉冲模式：启动后等待输入脉冲")
@@ -346,6 +408,7 @@ class SequenceUi(tk.Tk):
         self.output_lamps: list[tk.Label] = []
         self.port_box: ttk.Combobox | None = None
         self.next_button: ttk.Button | None = None
+        self.next_buttons = {}
         self.pulse_entry: ttk.Entry | None = None
         self.out_checkbuttons: list[ttk.Checkbutton] = []
         self.out_role_boxes: list[ttk.Combobox] = []
@@ -446,15 +509,18 @@ class SequenceUi(tk.Tk):
         self.mode_notebook.pack(fill="x", pady=(0, 6))
         self.independent_page = ttk.Frame(self.mode_notebook, style="Panel.TFrame", padding=10)
         self.loopback_page = ttk.Frame(self.mode_notebook, style="Panel.TFrame", padding=10)
+        self.turntable_page = ttk.Frame(self.mode_notebook, style="Panel.TFrame", padding=10)
         self.manual_switch_page = ttk.Frame(self.mode_notebook, style="Panel.TFrame", padding=12)
         self.maintenance_page = ttk.Frame(self.mode_notebook, style="App.TFrame", padding=8)
         for page, title in ((self.independent_page, "独立 SP8T 序列"),
                             (self.loopback_page, "RJ45 物理回环"),
+                            (self.turntable_page, "转台脉冲计数"),
                             (self.manual_switch_page, "手动 SP8T"),
                             (self.maintenance_page, "设备维护")):
             self.mode_notebook.add(page, text=title)
         self._build_sequence_page(self.independent_page, MODE_INDEPENDENT)
         self._build_sequence_page(self.loopback_page, MODE_RJ45)
+        self._build_turntable_page(self.turntable_page)
         self._build_manual_switch(self.manual_switch_page)
         self._build_maintenance(self.maintenance_page)
         self.mode_notebook.bind("<<NotebookTabChanged>>", self._on_mode_tab_changed)
@@ -534,7 +600,7 @@ class SequenceUi(tk.Tk):
         plan_group.pack(fill="x", pady=(0, 8))
         self._field(plan_group, 0, "计划", plan, width=10)
         self._field(plan_group, 1, "编码（首项为启动状态）", codes, width=22)
-        self._field(plan_group, 2, "建立时间 µs", settle, width=10)
+        self._field(plan_group, 2, "响应延时 µs", settle, width=10)
         self._field(plan_group, 3, "循环次数（0=持续）", repeat, width=10)
 
         if combined:
@@ -591,11 +657,82 @@ class SequenceUi(tk.Tk):
             button.pack(side="left", padx=(0, 6))
             if command == "TRIG:SEQ:NEXT":
                 self.next_button = button
+                self.next_buttons[mode] = button
         if combined:
             ttk.Label(page, textvariable=self.link_status, wraplength=1040).pack(anchor="w")
         else:
             ttk.Label(page, textvariable=self.mode_hint).pack(anchor="w")
             ttk.Label(page, textvariable=self.output_hint).pack(anchor="w", pady=(3, 0))
+
+    def _build_turntable_page(self, page):
+        plan = ttk.LabelFrame(page, text="DUT 序列 · 每个计数位置执行整轮", padding=6)
+        plan.pack(fill="x", pady=(0, 6))
+        for column, (label, variable) in enumerate([
+                ("计划", self.turntable_plan), ("编码", self.turntable_codes),
+                ("响应延时 µs", self.turntable_settle),
+                ("位置数（0=持续）", self.turntable_repeat_count),
+                ("每位置脉冲数", self.turntable_threshold)]):
+            self._field(plan, column, label, variable, width=9)
+        allocation = ttk.Frame(page)
+        allocation.pack(fill="x", pady=(0, 6))
+        counter = ttk.LabelFrame(allocation, text="转台计数与逻辑槽位", padding=8)
+        counter.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        self.turntable_counter_group = counter
+        self._field(counter, 0, "脉冲输入", self.turntable_input,
+                    values=["IN1", "IN2", "IN3", "IN4"], width=8)
+        for column, label, variable in [(1, "计数槽位", self.turntable_counter_slot),
+                (2, "DUT 槽位", self.turntable_dut_slot), (3, "VNA 槽位", self.turntable_vna_slot)]:
+            self._field(counter, column, label, variable, width=5)
+        outputs = ttk.LabelFrame(allocation, text="OUT 属性", padding=8)
+        outputs.pack(side="left", fill="both", expand=True)
+        self.turntable_output_group = outputs
+        self.turntable_out_checkbuttons, self.turntable_out_role_boxes = [], []
+        self._build_output_assignment(outputs, self.turntable_out_enabled, self.turntable_out_roles,
+            [ROLE_SEQUENCE, ROLE_GATEWAY], self.turntable_out_checkbuttons, self.turntable_out_role_boxes)
+        for box in self.turntable_out_role_boxes:
+            box.configure(width=5)
+        gateway = ttk.LabelFrame(page, text="VNA 网关", padding=6)
+        gateway.pack(fill="x", pady=(0, 6))
+        ready = self._field(gateway, 0, "READY 输入", self.turntable_ready_input,
+            values=["MANUAL", "IN1", "IN2", "IN3", "IN4"])
+        ready.bind("<<ComboboxSelected>>", lambda _event: self.update_mode_hint())
+        self._field(gateway, 1, "共同边沿", self.turntable_edge, values=["RIS", "FALL"])
+        self._field(gateway, 2, "触发脉宽 µs", self.turntable_pulse)
+        self._field(gateway, 3, "READY 超时 ms", self.turntable_timeout)
+        controls = ttk.Frame(page)
+        controls.pack(fill="x", pady=(0, 5))
+        ttk.Button(controls, text="配置此模式", style="Primary.TButton",
+            command=lambda: self.configure_mode(MODE_TURNTABLE)).pack(side="left", padx=(0, 6))
+        for label, command in [("启动", "TRIG:START"), ("模拟 READY", "TRIG:SEQ:NEXT"),
+                ("暂停", "TRIG:PAUS"), ("继续", "TRIG:CONT"), ("停止", "TRIG:STOP")]:
+            button = ttk.Button(controls, text=label,
+                command=lambda c=command: self.command_mode(MODE_TURNTABLE, c))
+            button.pack(side="left", padx=(0, 6))
+            if command == "TRIG:SEQ:NEXT":
+                self.next_buttons[MODE_TURNTABLE] = button
+        ttk.Button(controls, text="最新记录", command=self.read_counter_history).pack(side="left", padx=(0, 6))
+        ttk.Label(page, text="达到阈值 → RJ45 → DUT 整轮切换/网分采样；忙时继续计数，下一位置提前到达将报错。",
+                  wraplength=1040).pack(anchor="w")
+        ttk.Label(page, textvariable=self.counter_status, wraplength=1040).pack(anchor="w")
+
+    def read_counter_history(self):
+        if self._counter_history_pending:
+            return
+        self._counter_history_pending = True
+        if not self.enqueue_commands(["READ:SEQ:COUNTER?"]):
+            self._counter_history_pending = False
+            return
+        self.counter_history.set("正在读取最近一条记录…")
+        if self._counter_history_window is None or not self._counter_history_window.winfo_exists():
+            window = tk.Toplevel(self)
+            window.title("转台计数 · 最新切换记录")
+            window.geometry("760x240")
+            ttk.Label(window, textvariable=self.counter_history, wraplength=720,
+                      justify="left", padding=16).pack(fill="both", expand=True)
+            ttk.Button(window, text="刷新最新记录", command=self.read_counter_history).pack(pady=(0, 12))
+            self._counter_history_window = window
+        else:
+            self._counter_history_window.lift()
 
     def _build_manual_switch(self, page):
         group = ttk.LabelFrame(page, text="独立开关控制", padding=16)
@@ -613,7 +750,8 @@ class SequenceUi(tk.Tk):
 
     def _on_mode_tab_changed(self, _event=None):
         selected = self.mode_notebook.select()
-        mode = {str(self.independent_page): MODE_INDEPENDENT, str(self.loopback_page): MODE_RJ45}.get(selected)
+        mode = {str(self.independent_page): MODE_INDEPENDENT, str(self.loopback_page): MODE_RJ45,
+                str(self.turntable_page): MODE_TURNTABLE}.get(selected)
         if mode is not None and mode != self.run_mode.get():
             self.run_mode.set(mode)
             self._update_run_mode()
@@ -639,7 +777,13 @@ class SequenceUi(tk.Tk):
         gateway = [self.gateway_plan, self.gateway_codes, self.gateway_settle, self.gateway_repeat_count,
                    self.gateway_ready_input, self.gateway_edge, self.gateway_pulse,
                    self.gateway_timeout, *self.gateway_out_enabled, *self.gateway_out_roles]
-        for mode, variables in ((MODE_INDEPENDENT, independent), (MODE_RJ45, gateway)):
+        turntable = [self.turntable_plan, self.turntable_codes, self.turntable_settle,
+            self.turntable_repeat_count, self.turntable_edge, self.turntable_pulse,
+            self.turntable_ready_input, self.turntable_timeout, self.turntable_counter_slot,
+            self.turntable_dut_slot, self.turntable_vna_slot, self.turntable_input,
+            self.turntable_threshold, *self.turntable_out_enabled, *self.turntable_out_roles]
+        for mode, variables in ((MODE_INDEPENDENT, independent), (MODE_RJ45, gateway),
+                                (MODE_TURNTABLE, turntable)):
             for variable in variables:
                 variable.trace_add("write", lambda *_args, m=mode: self._draft_changed(m))
         for variable in (self.port, self.backend):
@@ -669,6 +813,9 @@ class SequenceUi(tk.Tk):
         self.io_state.set("IO 状态：未读取")
         self.repeat_status.set("循环次数：未读取")
         self.link_status.set("RJ45 状态：未读取")
+        self.counter_status.set("转台计数：未读取")
+        self.counter_history.set("历史记录：未读取")
+        self._counter_history_pending = False
         for prefix, lamps in (("IN", self.input_lamps), ("OUT", self.output_lamps)):
             for index, lamp in enumerate(lamps):
                 lamp.configure(text=f"{prefix}{index + 1}\n未知", bg="#e5e7eb")
@@ -905,11 +1052,14 @@ class SequenceUi(tk.Tk):
             self.status.set("USB 模式切换失败")
 
     def update_mode_hint(self) -> None:
+        for mode, button in self.next_buttons.items():
+            source = (self.turntable_ready_input if mode == MODE_TURNTABLE else
+                      self.gateway_ready_input if mode == MODE_RJ45 else self.source)
+            button.state(["!disabled"] if source.get() == "MANUAL" else ["disabled"])
+        if self.run_mode.get() == MODE_TURNTABLE:
+            self.mode_hint.set("启动等待计数阈值；每个位置经 RJ45 执行完整序列。")
+            return
         combined = self.run_mode.get() == MODE_RJ45
-        can_step = (combined and self.gateway_ready_input.get() == "MANUAL") or (
-            not combined and self.source.get() == "MANUAL")
-        if self.next_button is not None:
-            self.next_button.state(["!disabled"] if can_step else ["disabled"])
         if combined:
             ready = ("SCPI NEXT" if self.gateway_ready_input.get() == "MANUAL" else
                      f"{self.gateway_ready_input.get()} READY")
@@ -918,13 +1068,13 @@ class SequenceUi(tk.Tk):
             except ValueError:
                 gateway_output = "所选 OUT"
             self.mode_hint.set(
-                f"RJ45 物理回环：启动首编码 → TDMA → {gateway_output} 触发 → "
+                f"RJ45 物理回环：首编码 → 响应延时 → TDMA → {gateway_output} 触发 → "
                 f"{ready} → TDMA → 下一编码；有限次数完成后停止。")
             return
         if self.source.get() == "MANUAL":
-            self.mode_hint.set("MANUAL 软件触发模式：使用“下一步”推进")
+            self.mode_hint.set("启动首编码 → 响应延时 → 配置的状态输出；使用“下一步”推进。")
         else:
-            self.mode_hint.set(f"启动先输出首项编码；随后 {self.source.get()} 每个 {self.edge.get()} 沿推进一步。")
+            self.mode_hint.set(f"首编码 → 响应延时 → 配置的状态输出；随后 {self.source.get()} 每个 {self.edge.get()} 沿推进一步。")
 
     def _update_run_mode(self) -> None:
         self._configured_mode = None
@@ -945,8 +1095,8 @@ class SequenceUi(tk.Tk):
             widget.state(["disabled"] if disabled else ["!disabled"])
         self.output_hint.set({
             "无": "DUT 仅输出编码电平；不占用状态 OUT，不输出完成脉冲。",
-            "电平": "兼容状态电平输出；请显式勾选状态 OUT。",
-            "脉冲": "兼容状态脉冲输出；请显式勾选状态 OUT，此模式不配置 VNA 网关。",
+            "电平": "启动及切步：编码稳定后等待响应时间，再置高状态 OUT。",
+            "脉冲": "启动及切步：编码稳定后等待响应时间，再输出状态脉冲。",
         }[mode])
 
     @staticmethod
@@ -1173,6 +1323,28 @@ class SequenceUi(tk.Tk):
                 self._invalidate_device_configuration()
 
     def update_io(self, command: str, response: str) -> None:
+        if command.upper().startswith("READ:SEQ:COUNTER:HIST?"):
+            try:
+                self.counter_history.set(format_counter_history(response))
+            except (ValueError, csv.Error):
+                self.counter_history.set("历史记录不可用或已被覆盖，请重新读取最新记录。")
+            return
+        if command.upper().startswith("READ:SEQ:COUNTER?"):
+            try:
+                self.counter_status.set(format_counter_status(response))
+                if self._counter_history_pending:
+                    self._counter_history_pending = False
+                    total = int(next(csv.reader([response]))[8])
+                    if total:
+                        if not self.enqueue_commands([f"READ:SEQ:COUNTER:HIST? {total}"]):
+                            self.counter_history.set("历史记录读取未排入队列，请重试。")
+                    else:
+                        self.counter_history.set("本次运行尚无切换记录。")
+            except (ValueError, csv.Error):
+                self.counter_status.set("转台计数状态解析失败，请检查固件版本和命令日志")
+                self._counter_history_pending = False
+                self.counter_history.set("读取失败，请检查固件版本和命令日志。")
+            return
         if command.upper().startswith("READ:SEQ:LINK?"):
             try:
                 self.link_status.set(format_link_status(response, self._device_plan_count))
@@ -1221,10 +1393,12 @@ class SequenceUi(tk.Tk):
                                bg="#86efac" if high else "#e5e7eb")
 
     def command(self, command: str) -> None:
-        combined = self.run_mode.get() == MODE_RJ45
-        device_combined = self._device_mode == MODE_RJ45
+        combined = self.run_mode.get() in {MODE_RJ45, MODE_TURNTABLE}
+        device_combined = self._device_mode in {MODE_RJ45, MODE_TURNTABLE}
+        position = self.run_mode.get() == MODE_TURNTABLE or self._device_mode == MODE_TURNTABLE
+        ready = self.turntable_ready_input if position else self.gateway_ready_input
         if command == "TRIG:SEQ:NEXT" and (((combined or device_combined) and
-                self.gateway_ready_input.get() != "MANUAL") or
+                ready.get() != "MANUAL") or
                 (not combined and not device_combined and self.source.get() != "MANUAL")):
             self.log("当前模式由外部输入推进，SCPI NEXT 已禁用。")
             return
@@ -1240,6 +1414,8 @@ class SequenceUi(tk.Tk):
             commands.append("TRIG:SEQ:NEXT?")
         if device_combined or self._device_mode is None or (command == "TRIG:START" and combined):
             commands.append("READ:SEQ:LINK?")
+        if position:
+            commands.append("READ:SEQ:COUNTER?")
         self.enqueue_commands(commands)
 
     def configure(self) -> None:
@@ -1247,8 +1423,24 @@ class SequenceUi(tk.Tk):
             if not self.port.get().strip():
                 raise ValueError("请先扫描或输入通信资源")
             mode = self.run_mode.get()
-            combined = mode == MODE_RJ45
-            if combined:
+            combined = mode in {MODE_RJ45, MODE_TURNTABLE}
+            counter_options = {}
+            if mode == MODE_TURNTABLE:
+                plan, codes_text = self.turntable_plan.get(), self.turntable_codes.get()
+                source, edge = "MANUAL", self.turntable_edge.get()
+                settle, pulse = int(self.turntable_settle.get()), int(self.turntable_pulse.get())
+                repeat = int(self.turntable_repeat_count.get())
+                ready, timeout = self.turntable_ready_input.get(), int(self.turntable_timeout.get())
+                sequence_mask, gateway_mask = self._role_masks(
+                    self.turntable_out_enabled, self.turntable_out_roles, ROLE_GATEWAY)
+                if not gateway_mask or gateway_mask & (gateway_mask - 1):
+                    raise ValueError("转台模式必须分配且仅分配一路 VNA 触发 OUT")
+                gateway_output = f"OUT{gateway_mask.bit_length()}"
+                status_mask, status_mode = 0, "NONE"
+                counter_options = dict(counter_slot=int(self.turntable_counter_slot.get()),
+                    dut_slot=int(self.turntable_dut_slot.get()), vna_slot=int(self.turntable_vna_slot.get()),
+                    counter_input=self.turntable_input.get(), counter_threshold=int(self.turntable_threshold.get()))
+            elif combined:
                 plan, codes_text = self.gateway_plan.get(), self.gateway_codes.get()
                 source, edge = "MANUAL", self.gateway_edge.get()
                 settle, pulse = int(self.gateway_settle.get()), int(self.gateway_pulse.get())
@@ -1270,14 +1462,18 @@ class SequenceUi(tk.Tk):
             commands = build_mode_configuration(
                 mode, plan, codes, source, edge, settle, pulse,
                 sequence_mask, status_mask, status_mode, ready, timeout, repeat,
-                gateway_output)
+                gateway_output, **counter_options)
         except ValueError as exc:
             self.log(f"配置错误: {exc}")
             return
-        self.log(
-            f"{mode}：配置 {len(codes)} 个位置；循环次数 {repeat}（0=持续）；启动直接输出首项编码 "
-            f"{codes[0]}；序列掩码 0x{sequence_mask:X}，"
-            f"状态掩码 0x{status_mask:X}（{status_mode}）。")
+        if mode == MODE_TURNTABLE:
+            self.log(f"转台模式：每 {counter_options['counter_threshold']} 个 {counter_options['counter_input']} 脉冲"
+                f"执行 {len(codes)} 项序列，共 {repeat} 个位置（0=持续）；启动等待首个位置，响应延时 {settle} µs。")
+        else:
+            self.log(
+                f"{mode}：配置 {len(codes)} 个位置；循环次数 {repeat}（0=持续）；启动直接输出首项编码 "
+                f"{codes[0]}，编码稳定后等待响应时间 {settle} µs 再输出状态/通知网关；序列掩码 0x{sequence_mask:X}，"
+                f"状态掩码 0x{status_mask:X}（{status_mode}）。")
         if combined:
             self.log(
                 f"VNA 网关：{ready} {edge} READY，{gateway_output} 触发 "

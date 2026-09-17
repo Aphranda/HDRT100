@@ -8,6 +8,7 @@ from tools.sequence_trigger_debug_ui.sequence_trigger_debug_ui import (
     ROLE_GATEWAY,
     MODE_INDEPENDENT,
     MODE_RJ45,
+    MODE_TURNTABLE,
     RING_STATUS_QUERY,
     SequenceUi,
     build_configuration_commands,
@@ -15,12 +16,78 @@ from tools.sequence_trigger_debug_ui.sequence_trigger_debug_ui import (
     build_start_commands,
     execute_command_batch,
     format_link_status,
+    format_counter_status,
+    format_counter_history,
     build_ota_command,
     discover_serial_ports,
     discover_visa_resources,
     format_switch_position,
     parse_usb_mode,
 )
+
+
+def turntable_configuration(**changes):
+    args = dict(mode=MODE_TURNTABLE, plan="SP8T", codes=list(range(8)), source="MANUAL",
+        edge="RIS", settle_us=25, pulse_us=10, sequence_mask=7, status_mask=0,
+        status_mode="NONE", ready_input="IN2", repeat_count=10)
+    return build_mode_configuration(**(args | changes))
+
+
+def test_turntable_configures_three_roles_and_physical_transport_without_starting():
+    commands = turntable_configuration(counter_threshold=1234, counter_slot=4)
+    assert "CONF:SEQ:NODE:ROLE 4,2,COUNTER" in commands
+    assert commands.index("CONF:SEQ:NODE:ROLE 4,2,COUNTER") < commands.index("CONF:SEQ:NODE:ACT")
+    assert "CONF:SEQ:NODE:ROLE 2,5,DUT" in commands
+    assert "CONF:SEQ:NODE:ROLE 3,7,VNA" in commands
+    assert "CONF:SEQ:LINK POSITION,4,2,3,IN1,1234,IN2,OUT4,10,5000,RIS" in commands
+    assert "CONF:SEQ:OUTPUT 7,0,NONE,25,0" in commands
+    assert "CONF:SEQ:REPEAT 10" in commands
+    assert "READ:SEQ:COUNTER?" in commands
+    assert not any(command.endswith(":START") for command in commands)
+    assert build_start_commands(MODE_TURNTABLE) == build_start_commands(MODE_RJ45)
+
+
+@pytest.mark.parametrize("changes", [dict(counter_threshold=0), dict(counter_threshold=2**32),
+    dict(counter_slot=2), dict(vna_slot=2), dict(counter_slot=-1), dict(counter_slot=8),
+    dict(counter_input="MANUAL"), dict(counter_input="IN5"), dict(ready_input="IN1"),
+    dict(status_mode="PULSE", status_mask=8), dict(gateway_output="OUT1")])
+def test_turntable_invalid_wiring_and_threshold_rejected(changes):
+    with pytest.raises(ValueError):
+        turntable_configuration(**changes)
+
+
+def test_turntable_counter_guard_boundary_matches_firmware():
+    commands = turntable_configuration(counter_threshold=0xffffffde)
+    assert any(",4294967262," in command for command in commands)
+    with pytest.raises(ValueError):
+        turntable_configuration(counter_threshold=0xffffffdf)
+
+
+@pytest.mark.parametrize("phase,label", [(9, "等待计数阈值"), (10, "等待计数通知回环"),
+                                        (11, "等待下一位置重新武装")])
+def test_turntable_wait_phases_are_named(phase, label):
+    assert label in format_counter_status(f"1,1,1,1000,0,0,0,0,0,0,{phase},0")
+    row = [1, phase, 0] + [0] * 20
+    assert label in format_link_status(",".join(map(str, row)), 8)
+
+
+def test_turntable_counter_readback_shows_progress_and_faults():
+    text = format_counter_status("1,1,1,1000,2045,2,45,0,16,16,9,0")
+    assert "2045" in text and "45/1000" in text and "16/16" in text
+    with pytest.raises(ValueError):
+        format_counter_status("1,1")
+
+
+def test_turntable_history_decodes_outcomes_and_labels_request_snapshot():
+    text = format_counter_history("65,3,9,10,7,10000,10012,7")
+    assert "记录 65" in text and "序列索引 7" in text
+    assert "请求时计数快照 10012" in text
+    assert "已请求切换 / 切换完成 / 采样完成" in text
+    assert "物理边沿测量" in text
+    assert "采样完成" not in format_counter_history("1,1,1,1,0,1000,1000,3")
+    for bad in ["1,2", "1,1,1,1,0,1,-1,7", "1,1,1,1,0,1,1,4294967296"]:
+        with pytest.raises(ValueError):
+            format_counter_history(bad)
 
 
 def test_output_codes_are_mapped_to_positional_state_ids():

@@ -40,15 +40,15 @@ static void probe_immutable_snapshot(void)
     ++snapshot_probes;
 }
 
-bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
-                               const uint32_t *values, uint32_t count)
+bool sync_io_sequence_arm_plan_bytes(const sync_io_sequence_config_t *config,
+                                    const uint8_t *values, uint32_t count)
 {
     assert(!locked && reserved && count);
     probe_immutable_snapshot();
     sync_io_sequence_snapshot_t previous = hw;
     memset(&hw, 0, sizeof(hw));
     hw_config = *config;
-    memcpy(hw_values, values, count * sizeof(*values));
+    for (uint32_t i = 0u; i < count; ++i) hw_values[i] = values[i];
     hw.plan_count = count;
     hw.tick_ns = 100;
     hw.timing_kind = TRIGGER_SEQUENCE_TIMING_PIO0;
@@ -135,6 +135,13 @@ void sync_io_sequence_stop(void)
 }
 void sync_io_sequence_service(void) { assert(!locked); }
 bool sync_io_sequence_gateway_fire(void) { return false; }
+bool sync_io_sequence_counter_rearm(void)
+{
+    if (!hw.counter_busy) return false;
+    hw.counter_busy = false;
+    ++hw.counter_rearm_count;
+    return true;
+}
 bool sync_io_sequence_gateway_ready(void)
 {
     if (!hw_config.gateway_input_channel || !hw.gateway_waiting) return false;
@@ -207,6 +214,7 @@ static void start(void)
 static void stop(void)
 {
     assert(trigger_sequence_service_stop() == TRIGGER_SEQUENCE_SERVICE_OK);
+    assert(trigger_sequence_service_stop_pending());
     assert(status().state == TRIGGER_SEQUENCE_SERVICE_STOPPING);
     assert(trigger_sequence_service_config()->frozen);
     trigger_sequence_service_service();
@@ -573,6 +581,53 @@ static void test_gateway_ready_mailbox(void)
     stop();
 }
 
+static void test_position_counter_owner(void)
+{
+    setup();
+    assert(trigger_sequence_service_set_outputs(3u, 0u, TRIGGER_SEQUENCE_STATUS_NONE, 10u, 0u) ==
+           TRIGGER_SEQUENCE_SERVICE_OK);
+    trigger_sequence_gateway_config_t config = {
+        .enabled = true, .ready_input = 2u, .trigger_output_mask = 8u,
+        .pulse_us = 10u, .counter_input = 1u, .counter_threshold = 1000u};
+    assert(trigger_sequence_service_set_gateway(&config, gateway_start_guard) == TRIGGER_SEQUENCE_SERVICE_OK);
+    config.counter_threshold = SYNC_IO_SEQUENCE_COUNTER_LIMIT;
+    assert(trigger_sequence_service_set_gateway(&config, gateway_start_guard) == TRIGGER_SEQUENCE_SERVICE_INVALID);
+    config.counter_threshold = 1000u; config.counter_input = 2u;
+    assert(trigger_sequence_service_set_gateway(&config, gateway_start_guard) == TRIGGER_SEQUENCE_SERVICE_INVALID);
+    start();
+    assert(hw_config.counter_input_channel == 1u && hw_config.counter_threshold == 1000u);
+    hw.counter_events = 1099u; hw.counter_busy = true;
+    trigger_sequence_service_service();
+    assert(!trigger_sequence_service_stop_pending());
+    trigger_sequence_service_status_t before = status();
+    assert(before.counter_events == 1099u && before.counter_busy);
+    assert(trigger_sequence_service_pause() == TRIGGER_SEQUENCE_SERVICE_BUSY);
+    assert(trigger_sequence_service_counter_rearm(before.run_id + 1u, before.generation, before.completed) ==
+           TRIGGER_SEQUENCE_SERVICE_NOT_READY);
+    hw.gateway_waiting = true; trigger_sequence_service_service();
+    assert(trigger_sequence_service_counter_rearm(before.run_id, before.generation, before.completed) ==
+           TRIGGER_SEQUENCE_SERVICE_NOT_READY);
+    hw.gateway_waiting = false; trigger_sequence_service_service();
+    assert(trigger_sequence_service_counter_rearm(before.run_id, before.generation, before.completed) ==
+           TRIGGER_SEQUENCE_SERVICE_OK);
+    assert(trigger_sequence_service_counter_rearm(before.run_id, before.generation, before.completed) ==
+           TRIGGER_SEQUENCE_SERVICE_BUSY);
+    trigger_sequence_service_service();
+    assert(!status().counter_busy && status().counter_rearm_count == 1u && status().counter_events == 1099u);
+    assert(trigger_sequence_service_pause() == TRIGGER_SEQUENCE_SERVICE_OK);
+    trigger_sequence_service_service();
+    assert(status().state == TRIGGER_SEQUENCE_SERVICE_PAUSED);
+    hw.counter_events = 1120u; trigger_sequence_service_service();
+    assert(status().counter_events == 1120u);
+    assert(trigger_sequence_service_continue() == TRIGGER_SEQUENCE_SERVICE_OK);
+    trigger_sequence_service_service();
+    hw.counter_events = 2000u; hw.fault = SYNC_IO_SEQUENCE_FAULT_COUNTER_BUSY;
+    trigger_sequence_service_service();
+    assert(status().state == TRIGGER_SEQUENCE_SERVICE_FAULT);
+    assert(status().backend_fault == SYNC_IO_SEQUENCE_FAULT_COUNTER_BUSY && status().counter_events == 2000u);
+    stop();
+}
+
 int main(void)
 {
     test_bus_receipt_lifecycle();
@@ -588,6 +643,7 @@ int main(void)
     test_repeat_limits();
     test_configuration_transaction_excludes_start();
     test_gateway_ready_mailbox();
+    test_position_counter_owner();
     puts("sequence service lifecycle passed");
     return 0;
 }

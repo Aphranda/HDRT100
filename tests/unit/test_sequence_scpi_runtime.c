@@ -32,13 +32,13 @@ void scpi_port_set_trigger_debug_mode(uint32_t mode) { (void)mode; }
 bool sync_io_sequence_reserve(void)
 { assert(!locked); if (reserved) return false; reserved = true; return true; }
 void sync_io_sequence_release(void) { assert(!locked); reserved = false; }
-bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
-                               const uint32_t *values, uint32_t count)
+bool sync_io_sequence_arm_plan_bytes(const sync_io_sequence_config_t *config,
+                                    const uint8_t *values, uint32_t count)
 {
     assert(!locked && reserved);
     memset(&hw, 0, sizeof(hw));
     hw_config = *config;
-    memcpy(hw_values, values, count * sizeof(*values));
+    for (uint32_t i = 0u; i < count; ++i) hw_values[i] = values[i];
     hw.plan_count = count;
     hw.current_index = 0u;
     hw.completed_index = UINT32_MAX;
@@ -74,6 +74,7 @@ bool sync_io_sequence_software_step(void)
 { return !hw_config.input_channel && !hw.paused && hw.ready && physical_step(); }
 bool sync_io_sequence_gateway_fire(void) { return false; }
 bool sync_io_sequence_gateway_ready(void) { return false; }
+bool sync_io_sequence_counter_rearm(void) { return false; }
 void sync_io_sequence_stop(void)
 {
     assert(!locked);

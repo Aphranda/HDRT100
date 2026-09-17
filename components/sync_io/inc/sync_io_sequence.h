@@ -9,6 +9,7 @@
 #define SYNC_IO_SEQUENCE_TICK_NS 100u
 #define SYNC_IO_SEQUENCE_TIMING_PIO0 1u
 #define SYNC_IO_SEQUENCE_PLAN_WORDS 3u
+#define SYNC_IO_SEQUENCE_COUNTER_LIMIT (UINT32_MAX - 32u)
 
 typedef enum {
     SYNC_IO_SEQUENCE_STATUS_LEVEL = 0,
@@ -35,6 +36,12 @@ typedef struct {
      * steps still establishes and settles START's first state. */
     bool step_limit_enabled;
     uint32_t max_steps;
+    /* Optional cumulative turntable input (1..4); zero disables it. Only
+     * available with the gateway, distinct from its READY input. Both share
+     * gateway_falling because they execute the same PIO instructions.
+     * Starts after first-state priming and continues through busy/PAUSE. */
+    uint32_t counter_input_channel;
+    uint32_t counter_threshold;
 } sync_io_sequence_config_t;
 
 typedef enum {
@@ -52,6 +59,7 @@ typedef enum {
     SYNC_IO_SEQUENCE_FAULT_RECEIPT_REGRESSION,
     SYNC_IO_SEQUENCE_FAULT_RECEIPT_CAPACITY,
     SYNC_IO_SEQUENCE_FAULT_RECEIPT_RACE,
+    SYNC_IO_SEQUENCE_FAULT_COUNTER_BUSY,
 } sync_io_sequence_fault_t;
 
 typedef struct {
@@ -85,6 +93,9 @@ typedef struct {
     uint32_t gateway_ready_count;
     uint32_t gateway_cancelled;
     bool finished;
+    uint32_t counter_events;
+    bool counter_busy;
+    uint32_t counter_rearm_count;
 } sync_io_sequence_snapshot_t;
 
 /* Core0 reservation is software-only and precedes the START mailbox.
@@ -94,6 +105,9 @@ bool sync_io_sequence_reserve(void);
 void sync_io_sequence_release(void);
 bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
                                const uint32_t *values, uint32_t count);
+/* Compact SMA codes use identical validation and PIO packing. */
+bool sync_io_sequence_arm_plan_bytes(const sync_io_sequence_config_t *config,
+                                    const uint8_t *values, uint32_t count);
 bool sync_io_sequence_software_step(void);
 /* Core1 only. Arm fresh PIO READY capture and emit exactly one PIO pulse.
  * READY is a receipt only: it never directly requests a sequence step. */
@@ -102,6 +116,10 @@ bool sync_io_sequence_gateway_fire(void);
  * software command path. The subsequent DUT step still requires the TDMA
  * READY_NEXT return message. */
 bool sync_io_sequence_gateway_ready(void);
+/* Core1 only. Rearm after the entire triggered round has completed. Fails if
+ * the next position threshold arrived while busy. Partial pulses accumulated
+ * during sampling are preserved; neither total nor threshold base resets. */
+bool sync_io_sequence_counter_rearm(void);
 bool sync_io_sequence_pause(bool paused);
 void sync_io_sequence_stop(void);
 void sync_io_sequence_service(void);

@@ -34,7 +34,8 @@ static bool valid_message(const trigger_sequence_link_message_t *message)
 {
     return message != NULL &&
            (message->kind == TRIGGER_SEQUENCE_LINK_LINK_APPLIED ||
-            message->kind == TRIGGER_SEQUENCE_LINK_READY_NEXT) &&
+            message->kind == TRIGGER_SEQUENCE_LINK_READY_NEXT ||
+            message->kind == TRIGGER_SEQUENCE_LINK_COUNTER_NEXT) &&
            message->run_id != 0u && message->generation != 0u &&
            message->binding_epoch != 0u && message->exchange_id != 0u &&
            message->source_slot != UINT32_MAX && message->target_slot != UINT32_MAX &&
