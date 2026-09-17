@@ -4,10 +4,33 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/storage/LOG_SYSTEM_TODO.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
+
+### SYNC-PROGRESS-20260918-001 — 私有后缀预规划与服务空窗复核
+
+- TODO task ID：`SYNC-OUT-002` IN PROGRESS；联动 `VDC-OUTPUT-001`。
+  完整验证见 `VDC-PROGRESS-20260918-001`；证据在
+  `out/HardwareAcceptance/20260918/dpll-run-prefetch-r1/`，午夜前软件证据保留于前日同名目录。
+- VDC 客户端在 DMA 忙时提前准备私有后缀，保留完整生命周期和时钟复验；
+  不写 live DMA 源，不提前消费 ordinal，不改 SYNC_IO 后端/PIO 或既有 TDMA 入口。
+  软件、Release/资源、同源码四板 quick P3 通过；专项已有真实缓存准入，仍 STARVED。
+- 下一 gate 是静态相位预算内的快速交接、服务空窗及 FIFO 源退休时机，独立验收；
+  块边界阶跃由后继 bridge/模型连续性切片定位，不调 NO1 PI 掩盖输出路径问题。
+  全板 STOP 与硬件关闭已留证，失败不改判，尚未完成连续输出或物理锁相。
+
+### SYNC-PROGRESS-20260917-002 — 补给间隔与首次退休诊断
+
+- TODO task ID：`SYNC-OUT-002` IN PROGRESS；完整证据和各板结果见
+  `VDC-PROGRESS-20260917-031`、`out/HardwareAcceptance/20260917/dpll-run-refill-r1/`。
+- 保持 owner、有限 DMA、低态 pull 与不可改写前缀；复用已有 raw 观察记录
+  有效服务/成功补给间隔，首次退休在停止硬件前冻结 PIO/DMA 观察。
+  客户端分阶段计数在完整所有权锁内维护，仅退休后导出，不在实时路径增加串口查询。
+- host、Release/资源与匹配源码四板 quick P3 通过；输出专项仍复现 STARVED。
+  下一 gate 是核对服务空窗与 FIFO 补给余量、提前准备后缀；保持失败证据，
+  不将诊断完成、源退休或低频通过写成持续输出/物理精度完成。
 
 ### SYNC-PROGRESS-20260917-001 — 持续模型 PIO 输出与统一资源交接
 

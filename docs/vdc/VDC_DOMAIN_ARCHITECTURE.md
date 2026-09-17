@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
 本文是 HAOFV Virtual Distributed Clock（VDC）内部基础主域的稳定架构事实源。
 VDC 负责多节点共同时间、offset/rate 估计、质量 promotion 和时间快照发布；不拥有
@@ -800,6 +800,13 @@ Core1 固定服务入口在 TDMA owner 之后运行，只有 `data_enabled` 表�
 正常模型 token 更新只作用于未提交后缀，真实身份变化取消该请求。ARM 后 STOP
 即使尚无首块也取消，初始 STOP 则允许等待 ARM。
 
+客户端可在 DMA 源仍占用时提前准备一个私有有限后缀；该缓存不是 DMA 源，
+不得提前推进已准入序号、末边沿或模型元数据。后续准入复验当前身份、STOP、
+模型 token、前一已准入末序号/下降沿及完整时钟配置；模型或尾部变化使缓存失效，
+取消、终态和新准备清理缓存。每次调用最多规划一个块、准入一个块，保持现有
+TDMA 内服务入口，不引入等待或额外调度预算。缓存命中只省去重复桥接采样与反解，
+不缩小原桥接不确定性，也不保证服务空窗期间继续补给。
+
 `vdc_timestamp_bridge_local_to_raw` 为未来本地 ns 给出保守原始 tick 区间，保留
 TIMER0 量化、bridge 观察跨度和原始计数器分数拍；上界用于不提前的计划坐标。
 SYNC_IO 另外记录首次 PIO enable 的时间锚区间，实际边沿仍带有该公共非负偏移。
@@ -808,6 +815,21 @@ SYNC_IO 另外记录首次 PIO enable 的时间锚区间，实际边沿仍带有
 客户端整次 Core1 服务与 Core0 准备/释放/状态复制共享一次非阻塞所有权交接，
 不能仅凭后端 RETIRED 就覆盖尚在返回的客户端。状态只在退休后导出；此诊断能力
 不提升产品 RUN、lock 或 quality，也不授权 Core1 Flash/SCPI/RTOS 依赖。
+
+补给诊断由 `SYNC_IO_RUN_OUTPUT_SCHEMA` 标识：退休后导出有效服务观察与成功
+准入间隔、最小补给余量及首次退休前的 PIO/DMA 状态；客户端按 PREPARED/RUNNING
+分别记录暂忙、拒绝和准入计数，终态保留最后有效处理结果。寄存器为顺序观察，
+不是原子故障现场；raw 无效时不得当作时间零，历史最大间隔和累计计数不能单独
+用于因果判断。取消退休与断流分开解释，原始计划边沿须连同 enable 偏移界使用。
+诊断保持原准入和有界执行语义，不授予连续性或锁相。
+`prefetched_blocks`、`cache_hits`、`cache_invalidations` 分别饱和记录 DMA 忙时
+完成的私有规划、使用既有缓存的成功准入和模型/已准入尾部导致的缓存失效；
+取消/终态清理不混入模型失效计数，预规划次数不等同实际输出块数。
+
+物理输出验收按用户阶段目标区分粗锁定、精锁定和完全锁定，具体目标与推进状态
+见 `VDC_DOMAIN_TODO.md`。分级以声明窗口中各从板相对 NO1 的同序输出边沿
+最大绝对相差为依据，保留补偿配置和测量不确定性；不能以均值、独立重对齐后的
+波形或中断窗口代替。该验收分级与固件控制状态、频差目标及基础 P3 范围分别维护。
 
 单帧无效、缺失或暂忙不制造控制输入，允许后续有效事件继续。STOP、模式/会话切换
 或真实绑定换代取消基线与未决提案；跨生命周期旧票据不得复活。

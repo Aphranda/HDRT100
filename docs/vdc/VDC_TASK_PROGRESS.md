@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -31,6 +31,52 @@ Last updated: 2026-09-17
 四板 quick P3 凭证；暂存源码指纹 `fb2b46871987abe1426a52207966c93942b75fea1a58a53adb396be2d8589a52`
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
+
+### VDC-PROGRESS-20260918-001：有限后缀预规划与 NO1 块边界定位
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003`、`SYNC-OUT-002` IN PROGRESS。
+  午夜前的 host/Release/设计证据在 `out/HardwareAcceptance/20260917/dpll-run-prefetch-r1/`；
+  后续硬件及独审根为 `out/HardwareAcceptance/20260918/dpll-run-prefetch-r1/`。
+  以下数字均为本轮证据快照，非产品事实源。
+- DMA 忙时提前准备一个私有后缀；不推进已准入序号/末边沿，命中后省去重新
+  bridge 采样和模型反解。准入仍复验 STOP、身份、模型、前一末序号/下降沿及
+  完整时钟配置；原子取消意图由 owner 清缓存，准备/终态清理，每次最多一轮
+  规划和一次准入。保持 TDMA 内原服务入口、NO1 PI、桥接公式和后端安全边界。
+  RUN schema 追加预规划、成功缓存准入和模型/尾部失效计数，仅退休后读取。
+- 联合 host 193 项、独立 client 121 项和综合独审 187 项通过；Release-r1
+  build `20260917155805`，两槽 ELF/BIN/包一致；缓存净增静态 RAM 184 B，
+  RUN 调用链栈 1684/3072 B，继承路径最大 2872 B，扣 heap 后 RAM 31088 B。
+  来源与限制见新根 `runtime-review/`，不是实测 WCET 或输出精度证明。
+- 新根 `p3-r1` 同源码四板 quick P3 为 PASS_WITH_WARNINGS，耗时 238.609 秒，
+  25 INFO/18 WARN/0 ERROR/FATAL；继续保留原始严格质量失败。源码指纹
+  `1cce4002f2d838bc58dd4688ce9602280cf19458ff740a33ae3f72dc15e26735`，
+  包 SHA `a348f0dab29452d34574474be0c734912d6e610ae8776b5db923237a686775cf`。
+  独审确认耗时增长集中于 OTA ACK 等待，本轮不改 OTA；复用线序和非 OTA 流程
+  未增加。代码及匹配凭证已提交 `0903d87`，真实 pre-commit 硬件门禁通过；
+  前轮诊断一并收敛，另一工作流的 TDMA 文件修改未暂存或提交。
+- NO1 旧内部 PI 残差 −9 至 +9 ns 的基线继续保留。午夜前的只读
+  `no1-review/no1-independent-review.json` 将两轮旧物理输出复核到四脉冲块交界：
+  超过百纳秒的周期偏差全部位于交界，块内约二十纳秒内；至少部分异常不伴随
+  模型切换。既有原生 trace 晚于这些波形，不能归因具体峰值或等同引脚锁相。
+  逐块 bridge 重投影和模型换代连续性为后继独立切片，不先调整 NO1 PI。
+- 新根 `capture-r1` 有限静默输出专项仍 FAIL：四板分别准入 319/161/71/43 块，
+  成功缓存命中 251/138/63/39 次，提交拒绝均为零，随后全部 STARVED。
+  末次服务间隔为 7.569644/2.070688/6.019932/5.979860 ms，各自跨过最终下降沿
+  的完整时间界；FIFO 空、TXSTALL、DMA idle/remaining zero 的首次退休观察一致。
+  预规划已经实际使用，但不能填补服务空窗；计数与旧轮不同初态不是受控 A/B。
+  同轮另有三从 phase-endpoint 失败保留：旧采样器要求 FOLLOW 末态 STOP reason，
+  实际为 BINDING reason；离线复验末态模型序号、频率和相位基点一致。
+  取消来源尚未区分 RUN 绑定变化与 STOP 交接，不改脚本判据或把原失败改判通过。
+  四板 STOP44 已应用、输出 PIO/DMA 已停，RUN 查询为零，示波器恢复 STOP/EXT/NORM。
+- 新波形 NO1 可见 190 个完整脉冲，142 个块内周期误差约 −1.273 至 +19.768 ns，
+  47 个块边界误差约 −3079.889 至 +1480.167 ns；42 个超过百纳秒的偏差全部在
+  块边界，至少 18 个不伴随模型变化。采样间隔二十纳秒且使用插值，不能由此
+  授予独立纳秒精度；NO1 的断流晚于此短窗，以退休原件确认。
+  原生 NO1 前缀仍晚于波形窗口，具体逐块映射原因未证明；独审与图见新根
+  `no1-review/capture-r1/`。新缓存不消除原有块边界阶跃，未改 PI 或桥接算术。
+- 下一 gate：在 HAOFV 静态相位预算内独立解决快速交接和长服务空窗，并核验
+  FIFO 源退休时机；随后以逐块证据隔离 bridge 重投影与模型连续性。
+  不扩大本切片 quick P3 范围、不重复 P0 寻优、不改 OTA、不宣布连续输出或锁相。
 
 ### VDC-PROGRESS-20260917-031：有限输出补给诊断与断流分型
 
