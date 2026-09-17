@@ -660,17 +660,27 @@ MATCH 请求。Core1 在 committed-model 写 guard 外取得本拍成功匹配�
 间隔窗口与年龄界以 `vdc_priority_follow.h` 的 `VDC_PRIORITY_FOLLOW_*` 符号为准。
 记本地 output-ns 区间为 L，远端区间加定向 delay 后为 E，先取得独立端点差分
 `dL_abs=[L1.lo-L0.hi,L1.hi-L0.lo]`，`dE=[E1.lo-E0.hi,E1.hi-E0.lo]`。
-本地另使用 `vdc_model_project_correlated_delta`：只有两个已成功绝对投影的事件处于
+typed 本地另使用 `vdc_model_project_event_delta`：只有两个已成功绝对投影的事件处于
 相同 committed 模型、相同 observer enable anchor 和完整运行绑定，且均位于该模型
 `valid_from_raw` 之后，才可将 `raw1.lo-raw0.lo` 解释为消除了公共启动偏移的本地间隔。
 原 bridge 所限定的 TIMER0/TIMER1 共钟及生命周期内无改钟、复位、暂停前提继续有效。
 
-先将 raw 间隔按实际 `tick_hz` 向外取整为本地 ns，再在 DCO 缩放之前保留
-`VDC_MODEL_CORRELATED_DELTA_QUANTIZATION_NS` 两侧余量，得到 N；余量覆盖微秒计时量化
-及坐标整数边界，不删除它来获得更窄数字。令 `q=10^9+period_adjust_ppb>0`，得到
-`dL_corr=[floor(N.lo*q/10^9),ceil(N.hi*q/10^9)]`。同一本地 Domain 映射的正负频率
+typed 参考编码与本地事件投影共同指向 `F(floor(X(event)))`，其中 X 是 bridge
+限定的连续本地时间；它不是在事件时刻假想读取 TIMER0 所得的微秒阶梯值。
+在上述共同起点和固定时钟比下，令 `D=(raw1.lo-raw0.lo)*10^9/tick_hz`，有
+`floor(X1)-floor(X0)∈[floor(D),ceil(D)]`。公共起点和 bridge 的共同未知时钟偏移
+在差分中抵消，保留整数 ns 取整后得到 `N=[floor(D),ceil(D)]`。
+令 `q=10^9+period_adjust_ppb>0`，得到
+`dL_corr=[floor(N.lo*q/10^9),ceil(N.hi*q/10^9)]`；非整数 ns 时钟必须保留两层取整，
+不能直接舍入 `D*q/10^9`。同一本地 Domain 映射的正负频率
 截零误差由该向外取整包住，base/phase 常量在差分中抵消；helper 不替代两端绝对
 投影的有效性检查，也不将 RATE 坐标冒充绝对时间戳。
+
+旧 `vdc_model_project_correlated_delta` 及其
+`VDC_MODEL_CORRELATED_DELTA_QUANTIZATION_NS` 双侧余量保持不变，继续覆盖包含
+TIMER0 微秒阶梯读数的更宽语义及原有测试；新 helper 只授权上述 typed 连续事件。
+这项分离不改变 Domain now、服务边界模型提交或物理输出定义，也不缩小远端独立
+latch/bridge 区间。算术差分区间变窄不等于物理引脚精度提高。
 
 实际采用 `dL=dL_abs∩dL_corr`，空交集或非正下界拒绝本次估计，不选择一边或伪造样本。
 远端 NO1 的每帧 latch/bridge 区间不按公共偏移抵消，`dE` 保留原式。频差区间为

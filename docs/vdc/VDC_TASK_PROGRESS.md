@@ -32,6 +32,74 @@ Last updated: 2026-09-17
 已由真实 pre-commit 硬件门禁核验，见 `VDC-PROGRESS-20260917-001`。严格质量告警仍保留，
 不授予单圈同步编码、三从闭环或锁相完成。
 
+### VDC-PROGRESS-20260917-019：连续事件共钟差分与外部反馈纠偏
+
+- TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。证据根为
+  `out/HardwareAcceptance/20260917/dpll-external-correction-r1/`；以下数字均为
+  本次证据快照，非产品事实源。
+- 修改前同固件、同参数的 `native-r1` 通过：NO2/NO4 在后档实际调整
+  +10/+25 ppb；NO3 最终后档仍为 [−501,+61] ppb，不能视为已同步。
+  三从各有完整原生记录，全部决定经独立 CRC/分页、Fraction、生命周期和
+  末态模型复核。NO3 此次本地差分宽 2001 ns、参考差分宽 2490 ns；单纯增加
+  增益不能改变跨死区的零步准入。NO1 包围窗端点为 1829→1838 ppb，不能据此
+  假定具体配对期间参考恒定。见 `native-review.json`、`control-review.json`。
+- 此轮修改前 `scope-raw` 成功，`scope-fixed` 在启动请求返回超时后失败；
+  原件保留，不能声称取得新的固定模型物理频差。该次清理后的停止状态见
+  `final-board-scope-state-r2.json`，后继硬件验收状态需按各自终态另行核验。
+- `VDC-PRIORITY-01` 修订为 v8 pending，明确 typed 两端共同指向
+  `F(floor(X(event)))`。新增 `vdc_model_project_event_delta` 在同模型、共同
+  observer 起点及已准入的共钟生命周期内抵消公共偏移，保留先本地整数 ns、
+  再 DCO 缩放的两层外向取整；继续与原绝对端点差求交，空交集仍拒绝。
+  旧 helper、微秒阶梯余量及旧测试保持原义；远端区间、增益、死区和调度不变。
+- 候选经隔离工作区验证后逐文件核验导入：原有 425 项 host 与新增 7 项通过，
+  新套件含 14457 组真实 Domain/Fraction 数值例；非整数 ns 时钟必须保留内层
+  取整的反例已纳入。数学、实现与 C11 独审分别见 `continuous-delta-review.json`、
+  `implementation-review.json`、`contract-review.json`。
+- Release 两槽资源重新分析通过：静态 RAM 增量为零，余量 33040 B；当前 persona
+  的 Core1 栈仍为 2872/3072 B、scratch 余量 24 B。候选在本次时钟下的本地差分
+  算术宽度至多 1 ns，不是物理精度或 WCET 证明。
+- 代码已提交 `2d4656e`（`feat(vdc): use common-clock continuous event deltas for typed control`），
+  staged 指纹经真实 pre-commit 与四板凭证核验通过，文档分离提交。
+- 同源码四板 quick P3 为 `PASS_WITH_WARNINGS`，23 INFO、22 WARN、零 ERROR/FATAL；
+  build `20260917062327`，源码指纹
+  `304cbe74baf3737b42e2ce67baed602faf7d5b79bd2faeefda9cd46217a1f906`。
+  包、两槽 ELF、四板 OTA 及原生短帧经独审一致。相较上一切片警告净增六项：
+  T1 SCK 候选覆盖和 T3 replay 余量分别新增质量/执行告警，NO4 VDC 新增超时、
+  隔离及 max-runtime 告警，NO1 RefMem deadline 少一项。NO4 VDC 最大值由
+  188→408.608 us，quarantine 由 8→9；是真实新增质量劣化，尚无单变量因果证据，
+  不称为“基线不变”或无回归。严格质量仍未通过，见 `p3-review.json`。
+- 部署后 `native-candidate-r1` 通过：三从 165 条 MATCH、35 条决定独立 CRC/Fraction
+  重放通过，每条本地差分宽度为 0–1 ns，远端上下界保持原件；三从各有十次真实
+  DCO 更新，末态为 1348/1568/3715 ppb。OTA 后从零修正起步，不能用更新次数
+  相较修改前的变化推断收敛速度；频率/物理效果仍按各自窗口验证。
+  见 `native-candidate-review.json`、`native-comparison.json`。
+- `sustained-candidate-r1` 的后继静默持续窗口通过，末态为 NO1/NO2/NO3/NO4
+  1919/1920/2204/4424 ppb；NO2/NO3 末次实际调整 +20/+39 ppb，NO4 末次未决。
+  原件独审确认本轮请求重置计数，DCO 序号差分为三从实际新增 21/23/21 次更新；
+  末匹配距末接收约 4.81/4.18/4.14 ms，无 observer 溢出，STOP 模型一致。
+  见 `sustained-candidate-review.json`。
+  此处证明持续输入及真实控制仍可运行，不授予锁相、全负载 VDC 或发布完成。
+- `scope-raw-candidate/scope-fixed-candidate` 成功取得新 SINGLE 波形，采用上述
+  末态模型。主控在相同电压阈值下拟合 NO2/NO3/NO4 相对 NO1 为约
+  −196/−73/−338 ppb；拟合仍有剩余漂移。采样/取整条件界与所采用修正的预测
+  相容，但两次有限采集不是同时观测，不能忽略温漂或把小频差估计当作精度认证。
+  图为 `scope-fixed-candidate/physical-dco-comparison.svg`；它展示有限固定模型
+  执行效果，不证明运行中模型切换、绝对相位或 100 ns 锁相。
+  `physical-review.json` 独立复算与该拟合相容；NO2/NO3 的小修正增益方向未被
+  条件界单独分辨，NO4 正向修正可分辨。示波器仅覆盖约 0.2 s，不能把板端完整
+  批次计数当成全部脉冲均被外部观测。NO3 末次内部区间与后继外部拟合点并非
+  同一时间窗或同一采用前模型，不能声称该内部区间包含外部点或据此拟合校准常量。
+- 固定输出采集工具仅追加失败后的诊断：必须四板 output/RING STOP 都实际返回
+  OK，才在清空会话前读状态；不重发 START，不放宽成功判据，见
+  `scope-capture-review.json`。此前失败是本轮 NO1 MODEL 拒绝，和上一轮 NO2
+  资源/参数拒绝分开记录；单次快照争用仍只是候选解释，不能归咎示波器配置。
+  最新 `final-board-scope-state-final.json` 已确认四板全部停止，示波器
+  STOP/EXT/NORM、错误队列为空。
+- 下一 gate：对照物理剩余漂移、远端区间及 NO1 参考轨迹，选择下一个单因素
+  频率收敛切片；接收/采用 ACK、绝对相位、失联恢复、一致发布和严格调度质量
+  仍未完成。不重复实现已经验证的本地共钟差分，也不把实际 0–1 ns 算术宽度
+  改写成跨板物理精度。
+
 ### VDC-PROGRESS-20260917-018：有界长窗口产生真实后档 DCO 调整
 
 - TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。证据根为
