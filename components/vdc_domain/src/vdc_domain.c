@@ -2703,6 +2703,100 @@ bool vdc_domain_dco_local_to_output_ns(const vdc_dco_control_t *dco,
     return true;
 }
 
+
+/* Compute floor/ceil((n + extra) * 1e9 / divisor) exactly, even if
+ * n+extra overflows uint64. extra is at most 2^31; divisor <= 3147483647.
+ * The quotient split avoids a 96-bit product. Any rejected overflow is
+ * positive and cannot be cancelled by a subsequent term. */
+static bool vdc_domain_inverse_scale(uint64_t n, uint32_t extra,
+                                     uint32_t divisor, bool round_up,
+                                     uint64_t *scaled)
+{
+    const uint64_t billion = UINT64_C(1000000000);
+    uint64_t whole = n / divisor;
+    uint64_t remainder = n % divisor;
+    if (extra != 0u) {
+        remainder += extra;
+        const uint64_t carry = remainder / divisor;
+        remainder %= divisor;
+        if (UINT64_MAX - whole < carry) return false;
+        whole += carry;
+    }
+    if (whole > UINT64_MAX / billion) return false;
+    whole *= billion;
+    const uint64_t product = remainder * billion;
+    uint64_t fraction = product / divisor;
+    if (round_up && product % divisor != 0u) ++fraction;
+    if (UINT64_MAX - whole < fraction) return false;
+    *scaled = whole + fraction;
+    return true;
+}
+
+bool vdc_domain_dco_output_to_local_ns(const vdc_dco_control_t *dco,
+                                      uint64_t target_output_ns,
+                                      uint64_t *local_ns)
+{
+    if (dco == NULL || local_ns == NULL || dco->valid == 0u ||
+        dco->nominal_period_ns == 0u || dco->lock_state > VDC_DOMAIN_LOCK_FAULT ||
+        dco->period_adjust_ppb <= -1000000000) return false;
+    const uint64_t base = dco->base_vdc_time64_ns;
+    uint64_t need = 0u;
+    uint32_t extra = 0u;
+    if (dco->phase_offset_ns >= 0) {
+        const uint32_t phase = (uint32_t)dco->phase_offset_ns;
+        if (UINT64_MAX - base < phase) return false;
+        const uint64_t intercept = base + phase;
+        if (target_output_ns > intercept) need = target_output_ns - intercept;
+    } else {
+        const uint32_t phase = (uint32_t)(-(int64_t)dco->phase_offset_ns);
+        if (base >= phase) {
+            const uint64_t intercept = base - phase;
+            if (target_output_ns > intercept) need = target_output_ns - intercept;
+        } else {
+            /* A negative intercept is legal: later outputs may be valid.
+             * Preserve need+extra even when it needs 65 unsigned bits. */
+            need = target_output_ns;
+            extra = phase - (uint32_t)base;
+        }
+    }
+    uint64_t delta = 0u;
+    if (need != 0u || extra != 0u) {
+        const uint32_t divisor = (uint32_t)(INT64_C(1000000000) +
+                                            dco->period_adjust_ppb);
+        if (dco->period_adjust_ppb >= 0) {
+            /* F-C = floor(delta * divisor / 1e9).
+             * floor(x) >= H iff x >= H for positive integral H. */
+            if (!vdc_domain_inverse_scale(need, extra, divisor, true, &delta))
+                return false;
+        } else {
+            /* F-C = ceil(delta * divisor / 1e9).
+             * ceil(x) >= H iff x > H-1, hence floor((H-1)*1e9/D)+1.
+             * Near -1e9 ppb, using the positive-rate formula would be wrong
+             * by nearly 1e9 local ns; no fixed small correction can repair it. */
+            if (need != 0u) --need;
+            else --extra;
+            if (!vdc_domain_inverse_scale(need, extra, divisor, false, &delta) ||
+                delta == UINT64_MAX) return false;
+            ++delta;
+        }
+    }
+    if (UINT64_MAX - dco->base_local_tick64 < delta) return false;
+    const uint64_t candidate = dco->base_local_tick64 + delta;
+    uint64_t output;
+    if (!vdc_domain_dco_local_to_output_ns(dco, candidate, &output) ||
+        output < target_output_ns) return false;
+    if (delta != 0u) {
+        uint64_t previous;
+        if (vdc_domain_dco_local_to_output_ns(dco, candidate - 1u, &previous) &&
+            previous >= target_output_ns) return false;
+        /* With a valid immutable model and rate > -1e9, F is nondecreasing.
+         * Candidate is representable; a nonrepresentable predecessor can
+         * therefore only be a negative output, which is below every target. */
+    }
+    *local_ns = candidate;
+    return true;
+}
+
 bool vdc_domain_dco_output_phase_residual_ns(const vdc_dco_control_t *dco,
                                              uint64_t local_rx_ns,
                                              uint32_t reference_output_phase_ns,

@@ -819,6 +819,23 @@ bool vdc_domain_dco_control_validate(const vdc_tdma_schedule_profile_t *schedule
 bool vdc_domain_dco_local_to_output_ns(const vdc_dco_control_t *dco,
                                        uint64_t local_ns,
                                        uint64_t *output_ns);
+
+/* Pure exact inverse of one immutable DCO snapshot. Returns the least
+ * local_ns >= base_local_tick64 whose valid uint64 output is >= target.
+ * Supports -1000000000 < period_adjust_ppb <= INT32_MAX and every int32
+ * phase_offset_ns. Invalid models, an unreachable target, or a skipped
+ * target with no representable output return false without changing *local.
+ * No ownership, clock-domain, model lifetime, future-deadline or lock claim.
+ * Signed physical output delay belongs AFTER this inverse, on the local-ns
+ * axis, with separate checked addition; transport delay is not added here.
+ * Bounded: two variable-divisor quotient/remainder operations normally,
+ * three if a negative intercept needs an extra carry, then <= 2 forward
+ * checks. No search, floating point, dynamic storage, or wider integer type.
+ */
+bool vdc_domain_dco_output_to_local_ns(const vdc_dco_control_t *dco,
+                                      uint64_t target_output_ns,
+                                      uint64_t *local_ns);
+
 /* Same-event output phase residual: local projected phase minus
  * (reference output phase + directed delay), centered modulo the period. A
  * positive result means the local projected phase exceeds the expected
