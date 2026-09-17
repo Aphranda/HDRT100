@@ -99,6 +99,23 @@ def test_query_skips_stale_ack_and_returns_matching_payload():
         require_match=True) == "1"
 
 
+@pytest.mark.parametrize("header", [
+    "SYSTem:VDC:FEEDback:SESSion?", "SYST:VDC:FEED:SESS?",
+    "SYSTem:TDMA:LOAD:MASK?",
+])
+@pytest.mark.parametrize("require_match", [False, True])
+def test_u32_query_preserves_one_after_bare_ack(header, require_match):
+    serial = _ReadSerial(b"OK\r\n1\r\n")
+    assert read_scpi_response(serial, header, .05,
+                              require_match=require_match) == "1"
+
+
+def test_non_scalar_query_still_discards_stale_one():
+    serial = _ReadSerial(b"OK\r\n1\r\n0,0,5,5\r\n")
+    assert read_scpi_response(serial, "SYSTem:TDMA:RING:STATus?", .05,
+                              require_match=True) == "0,0,5,5"
+
+
 def test_topology_command_preserves_firmware_result_tuple():
     serial = _ReadSerial(b"[123] DBG ignored\r\n4,2\r\n4,2,0\r\n")
     assert read_scpi_response(

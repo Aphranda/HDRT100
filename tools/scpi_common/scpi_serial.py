@@ -76,6 +76,7 @@ SCALAR_ONE_QUERY_HEADERS = {
 }
 SCALAR_U32_QUERY_HEADERS = {
     "SYST:TDMA:LOAD:MASK?", "SYSTEM:TDMA:LOAD:MASK?",
+    "SYST:VDC:FEED:SESS?", "SYSTEM:VDC:FEEDBACK:SESSION?",
 }
 SCK_ARM_HEADERS = {
     "CAL:SCK:ARM", "CALIBRATION:SCK:ARM",
@@ -439,7 +440,9 @@ def read_scpi_response(ser: serial.Serial,
                 not scpi_response_matches_command(command, line)):
             continue
         if (query and line in {'"OK"', "OK", "1"} and
-                header not in SCALAR_ONE_QUERY_HEADERS):
+                not (line == "1" and
+                     (header in SCALAR_ONE_QUERY_HEADERS or
+                      header in SCALAR_U32_QUERY_HEADERS))):
             continue
         return line
     return "<timeout>"
