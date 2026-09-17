@@ -17,6 +17,11 @@
 #define VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS 5u
 #define VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS UINT64_C(10000000000)
 #define VDC_PRIORITY_FOLLOW_MAX_AGE_MS 120u
+/* Early measurement refinement only: at most two strict halvings, each
+ * within a quarter of the first evaluation interval from its current seed.
+ * No consumed threshold is refunded; additional reference time <= MIN/2. */
+#define VDC_PRIORITY_FOLLOW_BASELINE_REPLACEMENTS 2u
+#define VDC_PRIORITY_FOLLOW_BASELINE_WINDOW_NS (VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS / 4u)
 
 enum {
     VDC_PRIORITY_FOLLOW_DISABLED = 0u, VDC_PRIORITY_FOLLOW_AWAITING = 1u,
@@ -31,7 +36,7 @@ enum {
     VDC_PRIORITY_FOLLOW_DUPLICATE = 6u, VDC_PRIORITY_FOLLOW_INTERVAL = 7u,
     VDC_PRIORITY_FOLLOW_OVERFLOW = 8u, VDC_PRIORITY_FOLLOW_DEADBAND = 9u,
     VDC_PRIORITY_FOLLOW_DOMAIN = 10u, VDC_PRIORITY_FOLLOW_BUSY = 11u,
-    VDC_PRIORITY_FOLLOW_STOP = 12u
+    VDC_PRIORITY_FOLLOW_STOP = 12u, VDC_PRIORITY_FOLLOW_BASELINE_QUALITY = 13u
 };
 
 /* Stable diagnostic field order for STOP readback. All counters saturate.

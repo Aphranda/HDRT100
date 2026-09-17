@@ -22,6 +22,7 @@ typedef struct {
     int64_t error_lo, error_hi;
     uint32_t have_baseline, pending, bound, have_consumed, consumed_sequence;
     uint32_t next_evaluation; /* Private next threshold index; never refunded. */
+    uint32_t baseline_replacements; /* Bounded early refinement; Core1 only. */
 } vdc_priority_follow_work_t;
 static vdc_priority_follow_work_t s_priority_follow_work;
 static uint32_t s_priority_follow_guard;
@@ -139,7 +140,7 @@ static void priority_follow_cancel(uint32_t reason, bool retire)
 {
     vdc_priority_follow_work_t *w = &s_priority_follow_work;
     if (w->pending || w->have_baseline) w->status.cancelled = priority_match_inc(w->status.cancelled);
-    w->pending = w->have_baseline = w->next_evaluation = 0u;
+    w->pending = w->have_baseline = w->next_evaluation = w->baseline_replacements = 0u;
     w->status.last_reason = reason;
     w->status.state = retire ? VDC_PRIORITY_FOLLOW_RETIRED : VDC_PRIORITY_FOLLOW_AWAITING;
     if (retire) w->status.active = 0u;
@@ -170,6 +171,7 @@ static void priority_follow_baseline(void)
         .raw_lo = m->raw_lo, .sequence = m->event_sequence, .model_token = m->model_token};
     w->have_baseline = 1u;
     w->next_evaluation = 0u;
+    w->baseline_replacements = 0u;
     w->status.baselines = priority_match_inc(w->status.baselines);
     w->status.state = VDC_PRIORITY_FOLLOW_BASELINE;
 }
@@ -267,6 +269,24 @@ static __attribute__((noinline)) void priority_follow_prepare_core1(void)
     if (w->next_evaluation >= VDC_PRIORITY_FOLLOW_MAX_EVALUATIONS) {
         priority_follow_baseline(); s->last_reason = VDC_PRIORITY_FOLLOW_INTERVAL;
         priority_follow_publish(); return;
+    }
+    /* A fresh narrower source interval may replace an early seed only under
+     * the same admitted binding/model above. Bound the entire elapsed range,
+     * not its midpoint; two quarter-window replacements add at most half the
+     * first interval in reference coordinates, not wall time when input is
+     * missing. Keep each event's own endpoints. */
+    if (!w->next_evaluation && w->baseline_replacements < VDC_PRIORITY_FOLLOW_BASELINE_REPLACEMENTS &&
+        w->expected_delta_hi <= VDC_PRIORITY_FOLLOW_BASELINE_WINDOW_NS &&
+        p->expected_hi > p->expected_lo) {
+        const uint64_t old_width = p->expected_hi - p->expected_lo;
+        const uint64_t new_width = m->expected_hi - m->expected_lo;
+        if (new_width < old_width && new_width <= old_width / 2u) {
+            const uint32_t replacements = w->baseline_replacements + 1u;
+            priority_follow_baseline();
+            w->baseline_replacements = replacements;
+            s->last_reason = VDC_PRIORITY_FOLLOW_BASELINE_QUALITY;
+            priority_follow_publish(); return;
+        }
     }
     const uint64_t next_interval = s_priority_follow_intervals[w->next_evaluation];
     if (w->expected_delta_lo < next_interval) {
@@ -458,7 +478,7 @@ static __attribute__((noinline)) void priority_follow_apply_core1(void)
             s->last_reason = VDC_PRIORITY_FOLLOW_OK;
             /* Own DCO commit changes the actual model/valid_from at guard end.
              * Only a later event projected by that model can seed a new pair. */
-            w->have_baseline = w->next_evaluation = 0u;
+            w->have_baseline = w->next_evaluation = w->baseline_replacements = 0u;
             vdc_dpll_manager_publish_runtime_snapshot_locked();
         } else {
             s->no_adjust = priority_match_inc(s->no_adjust);

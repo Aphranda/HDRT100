@@ -288,6 +288,24 @@ def test_contention_does_not_hide_cancellation(follow_executable, case):
     run_case(follow_executable, case)
 
 
+@pytest.mark.parametrize("case", ["two_replacements", "half_exact", "not_half", "same_width",
+    "odd_half_reject", "odd_half_accept", "zero_width", "window_before", "window_exact",
+    "window_after", "total_delay_bound", "after_first", "busy_no_refund", "model_reset",
+    "stop_cleanup", "apply_cleanup", "final_baseline_reset", "missing", "busy", "pending"])
+def test_bounded_early_baseline_quality(follow_executable, case):
+    run_case(follow_executable, "quality_" + case)
+
+
+@pytest.mark.parametrize("change", ["stop", "session", "arm", "observer", "rx_epoch", "path", "role", "config", "clock_run"])
+def test_quality_baseline_does_not_survive_owner_change(follow_executable, change):
+    run_case(follow_executable, "quality_owner_" + change)
+
+
+def test_quality_private_storage_and_public_abi(follow_executable):
+    sizes = tuple(map(int, run_case(follow_executable, "sizes").split()))
+    assert sizes == (736, 216, 392)
+
+
 EXTERNAL_INPUTS = r'''
 /* Avoid Windows crash reporting dialogs for a failed host expectation. */
 #undef assert
@@ -615,6 +633,139 @@ static void contention_test(const char *name)
     else if(!strcmp(name,"unguarded_apply"))assert(status().last_reason==VDC_PRIORITY_FOLLOW_MODE);
     else assert(status().last_reason==VDC_PRIORITY_FOLLOW_DOMAIN && status().rejected==1u);
 }
+static void quality_event(uint32_t seq,uint64_t elapsed,uint32_t width)
+{ event(seq,elapsed);priority_rx.typed_record.uncertainty_width=width; }
+static void quality_two_seeds(void)
+{
+    quality_event(200u,100000000u,800u);tick();
+    assert(status().baselines==2u && status().last_reason==VDC_PRIORITY_FOLLOW_BASELINE_QUALITY);
+    assert(s_priority_follow_work.previous.sequence==200u && s_priority_follow_work.baseline_replacements==1u);
+    quality_event(300u,200000000u,400u);tick();
+    assert(status().baselines==3u && status().last_reason==VDC_PRIORITY_FOLLOW_BASELINE_QUALITY);
+    assert(s_priority_follow_work.previous.sequence==300u && s_priority_follow_work.baseline_replacements==2u);
+    assert(!status().prepared && !status().applied && !s_priority_follow_work.next_evaluation);
+}
+static void quality_test(const char *name)
+{
+    const char *kind=name+8;
+    setup(!strcmp(kind,"apply_cleanup")?6000:0);
+    priority_rx.typed_record.uncertainty_width=(!strncmp(kind,"odd_half",8)?1599u:1600u);
+    tick();
+    assert(status().baselines==1u && !s_priority_follow_work.baseline_replacements);
+    const vdc_domain_context_t initial=s_vdc_domain;
+    if(!strcmp(kind,"half_exact") || !strcmp(kind,"not_half") || !strcmp(kind,"same_width") ||
+       !strcmp(kind,"odd_half_reject") || !strcmp(kind,"odd_half_accept") || !strcmp(kind,"zero_width")) {
+        const uint32_t width=!strcmp(kind,"not_half")?801u:!strcmp(kind,"same_width")?1600u:
+            !strcmp(kind,"odd_half_accept")?799u:!strcmp(kind,"zero_width")?0u:800u;
+        quality_event(200u,100000000u,width);tick();
+        const bool replace=!strcmp(kind,"half_exact") || !strcmp(kind,"odd_half_accept");
+        assert(status().baselines==(replace?2u:1u));
+        assert(s_priority_follow_work.previous.sequence==(replace?200u:100u));
+        assert(s_priority_follow_work.baseline_replacements==(replace?1u:0u));
+        assert(!status().prepared && !memcmp(&initial,&s_vdc_domain,sizeof(initial)));
+        if(!replace) {
+            /* No qualifying improvement is not a prerequisite for normal evaluation. */
+            quality_event(300u,1010000000u,1600u);tick();
+            assert(status().prepared==1u && status().baseline_sequence==100u);
+        }
+        return;
+    }
+    if(!strncmp(kind,"window_",7)) {
+        quality_event(200u,250000000u,400u);
+        priority_rx.typed_record.event_time_lower=UINT64_C(12000000000)+250000000u-400u+
+            (!strcmp(kind,"window_after")?1u:0u)-(!strcmp(kind,"window_before")?1u:0u);
+        tick();
+        const bool replace=strcmp(kind,"window_after")!=0;
+        assert(status().baselines==(replace?2u:1u));
+        assert(s_priority_follow_work.previous.sequence==(replace?200u:100u));
+        assert(!status().prepared && !memcmp(&initial,&s_vdc_domain,sizeof(initial)));return;
+    }
+    if(!strcmp(kind,"total_delay_bound")) {
+        /* Two exact upper-window bounds, including source uncertainty. */
+        quality_event(200u,249999200u,800u);tick();
+        assert(status().baselines==2u && s_priority_follow_work.baseline_replacements==1u);
+        quality_event(300u,499998800u,400u);tick();
+        assert(status().baselines==3u && s_priority_follow_work.baseline_replacements==2u);
+        quality_event(400u,749998600u,200u);tick();
+        assert(status().baselines==3u && s_priority_follow_work.previous.sequence==300u);
+        quality_event(500u,1499999200u,400u);tick();
+        assert(status().prepared==1u && status().baseline_sequence==300u);
+        assert(status().interval_lo==1000000000u);
+        assert(priority_rx.typed_record.event_time_lower-UINT64_C(12000000000)<=UINT64_C(1500000000));
+        return;
+    }
+    if(!strcmp(kind,"after_first") || !strcmp(kind,"busy_no_refund")) {
+        quality_event(200u,1010000000u,1600u);prepare();
+        assert(status().prepared==1u && s_priority_follow_work.next_evaluation==1u);
+        if(!strcmp(kind,"busy_no_refund")) {
+            ring_available=false;apply();assert(status().last_reason==VDC_PRIORITY_FOLLOW_BUSY);
+            ring_available=true;
+        } else apply();
+        quality_event(300u,1100000000u,100u);tick();
+        assert(status().baselines==1u && status().prepared==1u && s_priority_follow_work.previous.sequence==100u);
+        assert(s_priority_follow_work.next_evaluation==1u && !s_priority_follow_work.baseline_replacements);
+        return;
+    }
+    if(!strcmp(kind,"missing") || !strcmp(kind,"busy") || !strcmp(kind,"pending")) {
+        quality_event(200u,100000000u,800u);
+        if(!strcmp(kind,"missing"))priority_rx_available=false;
+        else exact_result=!strcmp(kind,"busy")?TDMA_EVENT_EXACT_BUSY:TDMA_EVENT_EXACT_PENDING;
+        tick();
+        assert(status().baselines==1u && !s_priority_follow_work.baseline_replacements && !status().prepared);
+        priority_rx_available=true;exact_result=TDMA_EVENT_EXACT_OK;tick();
+        assert(status().baselines==2u && s_priority_follow_work.baseline_replacements==1u);
+        assert(s_priority_follow_work.previous.sequence==200u);return;
+    }
+    quality_two_seeds();
+    if(!strncmp(kind,"owner_",6)) {
+        change_kind=kind+6;change_owner();
+        quality_event(400u,240000000u,100u);tick();
+        assert(!s_priority_follow_work.have_baseline && !s_priority_follow_work.baseline_replacements && !status().applied);
+        assert(!memcmp(&initial.dco,&s_vdc_domain.dco,sizeof(initial.dco)));return;
+    }
+    if(!strcmp(kind,"two_replacements")) {
+        quality_event(400u,240000000u,100u);tick();
+        assert(status().baselines==3u && s_priority_follow_work.previous.sequence==300u &&
+            s_priority_follow_work.baseline_replacements==2u);
+        quality_event(500u,1210000000u,400u);tick();
+        assert(status().prepared==1u && status().baseline_sequence==300u);
+        assert(!memcmp(&initial,&s_vdc_domain,sizeof(initial)));return;
+    }
+    if(!strcmp(kind,"model_reset")) {
+        ++s_vdc_domain.dco.period_adjust_ppb;publish();
+        quality_event(400u,300000000u,1600u);tick();
+        assert(status().baselines==4u && !s_priority_follow_work.baseline_replacements &&
+            status().last_reason==VDC_PRIORITY_FOLLOW_MODEL);
+        quality_event(500u,400000000u,800u);tick();
+        assert(status().baselines==5u && s_priority_follow_work.baseline_replacements==1u &&
+            status().last_reason==VDC_PRIORITY_FOLLOW_BASELINE_QUALITY);return;
+    }
+    if(!strcmp(kind,"stop_cleanup")) {
+        ring.enabled=0u;tick();
+        assert(!s_priority_follow_work.have_baseline && !s_priority_follow_work.baseline_replacements &&
+            status().last_reason==VDC_PRIORITY_FOLLOW_STOP && !status().applied);
+        ring.enabled=1u;quality_event(400u,300000000u,100u);tick();
+        assert(!s_priority_follow_work.have_baseline && !status().applied);return;
+    }
+    if(!strcmp(kind,"apply_cleanup")) {
+        quality_event(400u,1210000000u,400u);tick();
+        assert(status().applied==1u && status().baseline_sequence==300u);
+        assert(!s_priority_follow_work.have_baseline && !s_priority_follow_work.baseline_replacements);return;
+    }
+    if(!strcmp(kind,"final_baseline_reset")) {
+        const uint64_t times[]={UINT64_C(1210000000),UINT64_C(1710000000),UINT64_C(2010000000),
+            UINT64_C(4210000000),UINT64_C(8210000000)};
+        for(unsigned i=0;i<5u;++i) {
+            quality_event(400u+i,times[i],400u);tick();
+            assert(status().prepared==i+1u && status().baseline_sequence==300u && !status().applied);
+        }
+        assert(s_priority_follow_work.previous.sequence==404u && !s_priority_follow_work.baseline_replacements);
+        quality_event(500u,8310000000u,200u);tick();
+        assert(s_priority_follow_work.previous.sequence==500u && s_priority_follow_work.baseline_replacements==1u &&
+            status().last_reason==VDC_PRIORITY_FOLLOW_BASELINE_QUALITY);return;
+    }
+    assert(0);
+}
 int main(int argc,char **argv)
 {
     (void)match_publish;
@@ -633,7 +784,8 @@ int main(int argc,char **argv)
         int64_t lo,hi;int32_t current;uint32_t limit;
         while(scanf("%" SCNd64 " %" SCNd64 " %" SCNd32 " %" SCNu32,&lo,&hi,&current,&limit)==4)
             printf("%" PRId32 "\n",priority_follow_delta(lo,hi,current,limit));
-    } else if(!strncmp(argv[1],"cancel_",7))cancellation_test(argv[1]);
+    } else if(!strncmp(argv[1],"quality_",8))quality_test(argv[1]);
+    else if(!strncmp(argv[1],"cancel_",7))cancellation_test(argv[1]);
     else if(!strncmp(argv[1],"apply_",6) || !strcmp(argv[1],"model_revision") ||
             !strcmp(argv[1],"domain_rejection") || !strcmp(argv[1],"mode_exclusive") ||
             !strcmp(argv[1],"remote_command_control"))validity_test(argv[1]);
