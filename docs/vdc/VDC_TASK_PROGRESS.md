@@ -22,6 +22,28 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-020：SRAM bridge 版本同会话四路示波器复测
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条为单次硬件
+  会话快照，非产品事实源；使用提交 `9c410a71` 对应 receipt/build
+  `20260918021531`，未改变 Flash、OTA、path-delay 表或 DPLL 参数。
+- 复用已审查的 `capture_late_scope.py`，配置 `40000,48000,32000`、NO1 CH1
+  上升沿触发、延迟窗口 2 s、20 ms/div；四板 ARM/START 后运行期间没有板卡查询，
+  捕获脚本通过，结束时四板和示波器均恢复 STOP/EXT/NORM。证据根为
+  `out/HardwareAcceptance/20260918/dpll-bridge-sram-r2/`，原始波形和本地记录均保留。
+- 离线复核 `analyze_resume_scope_cursor.py`：四路各 200 个上升沿，采样网格 20 ns，
+  窗口约 1.9--2.1 s，未发现粗大缺口；NO1 周期中位误差接近 0 ns。相对 NO1 的最近
+  边沿中位（未建立共同 ordinal）为 NO2 `580 ns`、NO3 `380 ns`、NO4 `260 ns`，
+  有限窗口斜率约 `-0.186/-1.329/-0.333 ppm`。这是实际输出仍未达到 100 ns 的证据，
+  不能用最近边沿算法替代严格同序判据。
+- 与 `VDC-PROGRESS-20260918-018` 的跨会话结果相比，零输出补偿下偏移仍发生变化，
+  所以当前证据无法把误差唯一归因于 path delay、RUN bridge 或首次 PIO enable；
+  SRAM 采样切片本身没有改变“物理锁相未完成”的结论。原始证据明确标注
+  `physical_lock_qualified=false`。
+- 下一 gate：在同一会话导出初始 bridge 三元组、首次 PIO enable 锚和每次输出映射的
+  代际，建立可复核误差预算；随后只改一个因素重测。仍须保持运行期间零查询、四板
+  STOP 收尾，并按 host、Release/资源、quick P3、专项波形和分离提交闭环。
+
 ### VDC-PROGRESS-20260918-019：SRAM bridge 采样切片完成四板 quick P3
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条数字均为
