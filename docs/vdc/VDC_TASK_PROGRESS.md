@@ -22,6 +22,27 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-002：分钟检查点连续六百秒通过
+
+- TODO task ID：`VDC-DRIFT-001`、`VDC-PRECISION-001`、`VDC-RUN-001`，仍为
+  IN PROGRESS。使用同一 observer 修复固件、同一 timing `24000,32000,16000 us`、
+  同一 delay `0/-28/-88/-160 ns`，外部示波器每 5 秒触发四路短窗；120 个计划窗口
+  全部完成，60/120/180/240/300/360/420/480/540/600 秒检查点全部继续运行。
+  证据根 `out/HardwareAcceptance/20260919/dpll-checkpoint-r2/`，源码指纹
+  `cc1a8c7961b3b0862a479e92ce9b6fb3cbfea79405975d94533a2fe715134d27`。
+- 运行报告 `passed=true`、`errors=[]`、`cleanup_errors=[]`、`restore_needed=[]`；
+  四板没有提前退休，最终由显式 STOP 收尾。离线 SHA/PREAMBLE/RAW 校验通过，
+  生成 `analysis/summary.json` 和 `analysis/sampled-phase.svg`；运行中板卡查询数为
+  0，示波器恢复 STOP/EXT/NORM。间隔采样只覆盖实际窗口，未采样区间仍不作精度声明。
+- 相对 NO1 的 2 ns 网格上升沿统计：NO2 −30.37..−9.97 ns（中位 −22.15 ns），
+  NO3 −36.00..−14.04 ns（中位 −26.69 ns），NO4 −53.52..−32.50 ns（中位
+  −43.41 ns）；三从均满足 ±100 ns，NO2/NO3 观测窗口满足 ±50 ns，NO4 仍超出
+  ±50 ns 优化目标约 3.5 ns。每路 240 个配对边沿，完整窗口无缺沿。
+- 该结果证明活参考期限修复后可连续运行十分钟，但不等于绝对 ordinal 已对账，
+  也不自动完成 VDC 发布；VDC-PRIORITY-01 v19 继续 pending。下一 gate 是在
+  不改变持续调度的前提下，单因素调整 NO4 本地 delay/路径补偿，先做短窗口 A/B，
+  再复跑分钟检查点；任何修改仍需匹配源码 quick P3。
+
 ### VDC-PROGRESS-20260919-001：分钟检查点快速失败与 NO3 输出补给失败
 
 - TODO task ID：`VDC-DRIFT-001`、`VDC-RUN-001`、`VDC-RECOVERY-001`，继续
