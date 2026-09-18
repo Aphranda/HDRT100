@@ -3,6 +3,9 @@
  * no recorder or filesystem lives here. */
 #include "tdma_rx_start_cut.h"
 #include "tdma_rx_first_window.h"
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "tdma_event_enable_anchor.h"
+#endif
 static tdma_pio_spi_event_snapshot_t s_tdma_event_snapshot;
 static bool s_tdma_event_candidate_dirty;
 
@@ -1728,9 +1731,19 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     }
     const uint64_t before = time_us_64();
     uint64_t timer_before = 0u, timer_after = 0u;
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    /* Clock qualification remains outside the actual enable bracket. The
+     * owner-local SRAM helper retains both raw samples and never retries or
+     * narrows their observed interval. Dirty-start/epoch checks below remain
+     * authoritative even when no valid timestamp anchor can be published. */
+    const bool timer_anchor_ok = tdma_event_enable_anchor_capture(pio,
+        TDMA_EVENT_SM_MASK, s_tdma_event_hz, &timer_before, &timer_after);
+#else
     const bool timer_before_ok = vdc_timestamp_clock_try_read_ticks64(s_tdma_event_hz, &timer_before);
     pio_enable_sm_mask_in_sync(pio, TDMA_EVENT_SM_MASK);
     const bool timer_after_ok = vdc_timestamp_clock_try_read_ticks64(s_tdma_event_hz, &timer_after);
+    const bool timer_anchor_ok = timer_before_ok && timer_after_ok;
+#endif
     const uint64_t after = time_us_64();
     s->start_pad_after = gpio_get_all();
     if (!recovering)
@@ -1760,7 +1773,7 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
     s_tdma_event_arm_epoch = 0u;
     (void)tdma_event_observer_start(&s_tdma_event_observer, &config,
                                    s_tdma_event_epoch, start, faults);
-    tdma_event_live_bind(timer_before, timer_after, timer_before_ok && timer_after_ok);
+    tdma_event_live_bind(timer_before, timer_after, timer_anchor_ok);
     if (s_tdma_event_observer.state == TDMA_EVENT_ACTIVE) {
         (void)tdma_event_history_start(&s_tdma_event_history,
             s_tdma_event_epoch, s_tdma_event_hz, start);

@@ -74,6 +74,16 @@ static bool s_tdma_pio_spi_rx_arm_valid=true;
 static uint32_t s_tdma_event_epoch=8, s_tdma_event_hz=125000000;
 static unsigned s_tdma_pio_spi_program_persona=13;
 static tdma_event_observer_t s_tdma_event_observer;
+/* LIVE retirement is a neighboring owner seam; its complete implementation
+ * is exercised by test_tdma_event_live. Keep this cut fixture current with
+ * the production ARM retirement call, without replacing cut arithmetic. */
+enum { TDMA_EVENT_LIVE_ARM=1u };
+static struct { uint64_t before, after, arm_epoch; uint32_t epoch, flags; }
+    s_tdma_event_live_anchor;
+static unsigned live_retire_calls;
+static void tdma_event_live_retire(uint32_t reason) {
+    assert(reason==TDMA_EVENT_LIVE_ARM); ++live_retire_calls;
+}
 static bool s_tdma_event_prelaunch;
 static tdma_frozen_geometry_snapshot_t s_tdma_event_geometry;
 static uint32_t tdma_event_prelaunch_geometry(const tdma_pio_spi_phys_t *p) {
@@ -97,6 +107,9 @@ static PIO tdma_pio_spi_phys_capture_pio(const tdma_pio_spi_phys_t *p) {
 static uint tdma_pio_spi_phys_capture_sm(const tdma_pio_spi_phys_t *p) { (void)p; return 2; }
 static uint32_t pio_sm_get_rx_fifo_level(PIO pio, uint sm) { assert(sm==2); return pio->level; }
 static uint32_t pio_sm_get_pc(PIO pio, uint sm) { assert(sm==2); return pio->pc; }
+static bool pio_sm_is_exec_stalled(PIO pio, uint sm) {
+    assert(pio==&rx_bank && sm==2); return false;
+}
 static void fence_hook(int order);
 #define __atomic_thread_fence(order) fence_hook(order)
 '''
@@ -144,7 +157,13 @@ static void reset(void) {
     s_tdma_pio_spi_rx_sequence.produced_words=UINT64_C(0x100000400);
     dma_bank.ch[4].transfer_count=mode()|(s_tdma_pio_spi_rx_sequence.reload_words-50);
     dma_bank.ch[4].ctrl_trig=DMA_CH0_CTRL_TRIG_EN_BITS|DMA_CH0_CTRL_TRIG_BUSY_BITS;
+    memset(&s_tdma_event_live_anchor,0xa5,sizeof(s_tdma_event_live_anchor));
+    const unsigned retire_before=live_retire_calls;
     tdma_rx_start_cut_arm_begin();
+    assert(live_retire_calls==retire_before+1u);
+    assert(!s_tdma_event_live_anchor.before && !s_tdma_event_live_anchor.after &&
+           !s_tdma_event_live_anchor.arm_epoch && !s_tdma_event_live_anchor.epoch &&
+           !s_tdma_event_live_anchor.flags);
 }
 static void record(void) {
     tdma_rx_dma_counter_t original=s_tdma_pio_spi_rx_sequence, local=original;
