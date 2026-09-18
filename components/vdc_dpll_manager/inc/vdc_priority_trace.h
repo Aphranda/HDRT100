@@ -6,7 +6,7 @@
 
 #define VDC_PRIORITY_TRACE_MAGIC UINT32_C(0x52545056) /* VPTR, little endian */
 #define VDC_PRIORITY_TRACE_SCHEMA 1u
-#define VDC_PRIORITY_TRACE_PHASE_SCHEMA 4u
+#define VDC_PRIORITY_TRACE_PHASE_SCHEMA 6u
 #define VDC_PRIORITY_TRACE_ORIGIN_SCHEMA 5u
 #define VDC_PRIORITY_TRACE_ORIGIN_EXTENSION_BYTES 96u
 #define VDC_PRIORITY_TRACE_RECORD_BYTES 100u
@@ -87,7 +87,11 @@ typedef struct {
  * Decision outcomes are actual facts: after_seq==before_seq is not an apply.
  * MATCH decimation uses actual raw event time; DECISION records are additional.
  * No record or getter authorizes control, phase lock or a precision claim. */
-/* Follower schema 4 retains the schema 1 header/record sizes. decision_count
+/* Follower schemas 4 and 6 retain the schema 1 header/record sizes. Schema 4
+ * used nearest-zero-bound control; schema 6 uses the residual midpoint,
+ * rounded toward zero and capped at +/-1000000000 ns before negation.
+ * This versioned control estimate never narrows the recorded interval.
+ * decision_count
  * includes both frequency DECISION and successful PHASE records. Frequency
  * local_delta is normalized by the known local phase ledger, not a changed
  * historical absolute event. MATCH always retains the actual event interval.

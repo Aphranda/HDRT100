@@ -85,12 +85,18 @@ static bool priority_phase_normalize(uint64_t actual, int64_t cumulative, uint64
 
 static int64_t priority_phase_delta(int64_t lo, int64_t hi)
 {
-    if (lo > hi || (lo <= 0 && hi >= 0)) return 0;
-    if (lo > 0) return lo > VDC_PRIORITY_PHASE_MAX_DELTA_NS
-        ? -VDC_PRIORITY_PHASE_MAX_DELTA_NS : -lo;
-    /* Compare before negating: INT64_MIN is legal input. */
-    return hi < -VDC_PRIORITY_PHASE_MAX_DELTA_NS
-        ? VDC_PRIORITY_PHASE_MAX_DELTA_NS : -hi;
+    if (lo > hi) return 0;
+    /* Control estimate only: retain the full MATCH interval as evidence.
+     * Unsigned subtraction also covers [INT64_MIN, INT64_MAX]. The half
+     * width fits int64_t and adding it to lo remains inside [lo, hi]. */
+    const uint64_t width = (uint64_t)hi - (uint64_t)lo;
+    int64_t midpoint = lo + (int64_t)(width / 2u);
+    /* Round an odd negative sum toward zero without overflowing lo + hi. */
+    if (midpoint < 0 && (width & 1u)) ++midpoint;
+    /* Clamp before negating: INT64_MIN is legal input. */
+    if (midpoint > VDC_PRIORITY_PHASE_MAX_DELTA_NS) return -VDC_PRIORITY_PHASE_MAX_DELTA_NS;
+    if (midpoint < -VDC_PRIORITY_PHASE_MAX_DELTA_NS) return VDC_PRIORITY_PHASE_MAX_DELTA_NS;
+    return -midpoint;
 }
 
 static void priority_phase_reset_request(void)

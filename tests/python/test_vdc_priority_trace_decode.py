@@ -64,6 +64,43 @@ def test_phase_records_preserve_actual_translation_and_ledger():
     assert data == phase_native()
 
 
+def midpoint_native(lo, hi, delta, schema=6):
+    words = list(struct.unpack_from('<37I', native(), 20))
+    words[0] = schema
+    words[11:14] = [1, 0, 1]
+    base = 2000000000
+    payload = struct.pack('<5I6I4q3Q', 0, 4, 1000, 10, 11,
+                          2, 3, 4, 5, 1, 0, delta, delta, lo, hi, base, base+delta, 100)
+    return struct.pack('<42I', 0x52545056, schema, 168, 100, zlib.crc32(payload), *words)+payload
+
+
+@pytest.mark.parametrize('lo,hi,delta', [(-8,200,-96),(-200,8,96),(0,192,-96),
+    (-192,0,96),(-5,-2,3),(2,5,-3),(-(1<<63),-(1<<63),1000000000),
+    ((1<<63)-1,(1<<63)-1,-1000000000)])
+def test_midpoint_versioned_control_and_ram_transfer(lo, hi, delta):
+    raw = midpoint_native(lo, hi, delta)
+    decoded = trace.decode(raw, 123)
+    assert decoded['records'][0]['delta_ns'] == delta
+    assert trace.download_capture(query_for(raw), 123)[0] == raw
+
+
+@pytest.mark.parametrize('lo,hi,delta', [(-8,200,96),(-8,200,-95),(0,192,-1),
+    (-192,0,1),(-5,-2,4),(-100,100,1)])
+def test_midpoint_rejects_crc_valid_wrong_estimate(lo, hi, delta):
+    with pytest.raises(ValueError, match='midpoint'):
+        trace.decode(midpoint_native(lo, hi, delta), 123)
+
+
+def test_midpoint_cannot_be_relabelled_as_historical_phase():
+    with pytest.raises(ValueError, match='direction'):
+        trace.decode(midpoint_native(-8, 200, -96, schema=4), 123)
+    old = bytearray(phase_native())
+    struct.pack_into('<I', old, 4, 6)
+    struct.pack_into('<I', old, 20, 6)
+    with pytest.raises(ValueError, match='midpoint'):
+        trace.decode(old, 123)
+
+
 @pytest.mark.parametrize('offset,fmt,value,reason', [
     (168+24, 'I', 2, 'identity'), (168+32, 'I', 4, 'identity'),
     (168+36, 'I', 0, 'identity'), (168+40, 'I', 1, 'identity'),

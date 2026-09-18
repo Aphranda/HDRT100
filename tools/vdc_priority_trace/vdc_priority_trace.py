@@ -18,6 +18,10 @@ import zlib
 MAGIC = 0x52545056
 SCHEMA = 1
 PHASE_SCHEMA = 4
+MIDPOINT_PHASE_SCHEMA = 6
+PHASE_SCHEMAS = (PHASE_SCHEMA, MIDPOINT_PHASE_SCHEMA)
+# Schema 6 fixes the acquisition step cap, independent of future firmware.
+MIDPOINT_PHASE_MAX_DELTA_NS = 1000000000
 ORIGIN_SCHEMA = 5
 # Immutable wire semantics: historical captures must not inherit today's cap.
 ORIGIN_SCHEMA_CAPACITIES = {2: 8, 3: 64}
@@ -72,7 +76,7 @@ def parse_status(response: str) -> dict[str, int]:
 def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     require(len(data) >= HEADER_BYTES, 'Truncated native header')
     magic, schema, header_bytes, record_bytes, payload_crc = PREFIX.unpack_from(data)
-    expected_header = {SCHEMA: HEADER_BYTES, PHASE_SCHEMA: HEADER_BYTES,
+    expected_header = {SCHEMA: HEADER_BYTES, **dict.fromkeys(PHASE_SCHEMAS, HEADER_BYTES),
                        ORIGIN_SCHEMA: ORIGIN_HEADER_BYTES,
                        **dict.fromkeys(ORIGIN_SCHEMA_CAPACITIES, ORIGIN_HEADER_BYTES)}.get(schema)
     require((magic, header_bytes, record_bytes) ==
@@ -86,7 +90,7 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     require(status['command'] in (1, 2), 'Frozen capture has unexpected command')
     count = status['record_count']
     require(status['capacity'] == MAX_RECORDS and count <= status['capacity'], 'Invalid record capacity')
-    if schema in (SCHEMA, PHASE_SCHEMA):
+    if schema == SCHEMA or schema in PHASE_SCHEMAS:
         require(count == status['match_count'] + status['decision_count'], 'Record counts disagree')
     else:
         require(status['match_count'] == status['decision_count'] == status['sample_interval_ms'] == 0, 'Origin counters mislabelled')
@@ -97,7 +101,7 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     if schema == ORIGIN_SCHEMA:
         return decode_timer1_origin(data, status, header_bytes)
     records = []
-    counts = {1: 0, 2: 0, **({4: 0} if schema == PHASE_SCHEMA else {})}
+    counts = {1: 0, 2: 0, **({4: 0} if schema in PHASE_SCHEMAS else {})}
     prior_phase = None
     for index in range(count):
         offset = HEADER_BYTES + index * RECORD_BYTES
@@ -141,9 +145,16 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
                     row['after_base_vdc_ns'] - row['before_base_vdc_ns'] == row['delta_ns'],
                     'Phase translation differs from actual model')
             delta = row['delta_ns']
-            require((row['residual_lo'] > 0 and -row['residual_lo'] <= delta < 0) or
-                    (row['residual_hi'] < 0 and 0 < delta <= -row['residual_hi']),
-                    'Phase correction has unproved direction or overshoots nearest bound')
+            if schema == MIDPOINT_PHASE_SCHEMA:
+                total = row['residual_lo'] + row['residual_hi']
+                midpoint = (abs(total) // 2) * (-1 if total < 0 else 1)
+                expected_delta = max(-MIDPOINT_PHASE_MAX_DELTA_NS,
+                                     min(MIDPOINT_PHASE_MAX_DELTA_NS, -midpoint))
+                require(delta == expected_delta, 'Phase correction differs from capped midpoint estimate')
+            else:
+                require((row['residual_lo'] > 0 and -row['residual_lo'] <= delta < 0) or
+                        (row['residual_hi'] < 0 and 0 < delta <= -row['residual_hi']),
+                        'Phase correction has unproved direction or overshoots nearest bound')
             if prior_phase is not None and row['rate_epoch'] == prior_phase['rate_epoch']:
                 require(all(row[before] == prior_phase[after] for before, after in (
                     ('before_model_token', 'after_model_token'),

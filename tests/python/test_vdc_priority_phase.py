@@ -1,6 +1,7 @@
 """Actual MATCH/FOLLOW/Domain and model publisher with external owner stubs."""
 from pathlib import Path
 import re
+import random
 import subprocess
 import sys
 
@@ -63,21 +64,37 @@ def run(exe, name, data=None):
 
 @pytest.mark.parametrize('name', ['basic', 'no_fresh', 'no_fresh_8s', 'rate_priority', 'no_adjust',
     'unknown_model', 'publication_failure', 'publication_zero_token', 'stop_pending',
-    'stop_second_validation', 'zero_crossing', 'throttle', 'config_latch', 'default_off',
+    'stop_second_validation', 'zero_crossing', 'asymmetric_crossing', 'throttle', 'config_latch', 'default_off',
     'formal_lock', 'cumulative_overflow', 'normalization_overflow', 'atomic_read', 'sizes'])
 def test_real_phase_controller(phase_follow_executable, name):
     run(phase_follow_executable, 'phase_' + name)
 
 
-def test_nearest_zero_phase_boundary_and_int64_edges(phase_follow_executable):
+def test_midpoint_phase_estimate_and_int64_edges(phase_follow_executable):
     low, high = -(1 << 63), (1 << 63) - 1
     cases = [(low, low), (low, -1), (-11, -10), (-1, 0), (-100, 100), (0, 1),
-             (1, 99), (1000000001, high), (high, high), (2, 1)]
+             (1, 99), (1000000001, high), (high, high), (2, 1),
+             (low, high), (low, high-1), (low+1, high), (-192, 0), (0, 192),
+             (-200, 8), (-8, 200), (-3, 2), (-2, 3), (-1000000001, -1000000000)]
+    rng = random.Random(192)
+    cases += [tuple(sorted((rng.randint(low, high), rng.randint(low, high)))) for _ in range(4000)]
     actual = list(map(int, run(phase_follow_executable, 'phase_delta',
                              '\n'.join(f'{lo} {hi}' for lo, hi in cases) + '\n').splitlines()))
-    expected = [min(1000000000, -hi) if hi < 0 else -min(1000000000, lo)
-                if lo > 0 and lo <= hi else 0 for lo, hi in cases]
+    def oracle(lo, hi):
+        if lo > hi:
+            return 0
+        total = lo + hi  # Python unbounded integer, independent of C width arithmetic.
+        center = (abs(total) // 2) * (-1 if total < 0 else 1)
+        return max(-1000000000, min(1000000000, -center))
+    expected = [oracle(lo, hi) for lo, hi in cases]
     assert actual == expected
+
+
+def test_opposite_approaches_reach_the_same_center(phase_follow_executable):
+    cases = [(-192, 0), (0, 192), (-196, -4), (4, 196)]
+    deltas = list(map(int, run(phase_follow_executable, 'phase_delta',
+        '\n'.join(f'{lo} {hi}' for lo, hi in cases)+'\n').splitlines()))
+    assert [(lo+delta, hi+delta) for (lo, hi), delta in zip(cases, deltas)] == [(-96, 96)]*4
 
 
 @pytest.mark.parametrize('change', ['stop', 'session', 'arm', 'observer', 'rx_epoch',
@@ -161,6 +178,18 @@ static void phase_test(const char *name)
         s_priority_follow_work.ticket.match.residual_hi=100;
         apply();assert(phase_status().reason==VDC_PRIORITY_PHASE_ZERO_CROSSING);
         assert(!phase_status().committed && !phase_rows);return;
+    }
+    if(!strcmp(name,"asymmetric_crossing")) {
+        prepare();
+        s_priority_follow_work.ticket.match.residual_lo=-8;
+        s_priority_follow_work.ticket.match.residual_hi=200;
+        const uint64_t before=s_vdc_domain.dco.base_vdc_time64_ns;
+        apply();
+        assert(phase_status().applied==1u && phase_rows==1u);
+        assert(phase_status().delta_ns==-96 && phase_status().cumulative_ns==-96);
+        assert(s_vdc_domain.dco.base_vdc_time64_ns==before-96u);
+        assert(last_phase_row.residual_lo==-8 && last_phase_row.residual_hi==200);
+        return;
     }
     if(!strcmp(name,"cumulative_overflow")) {
         prepare();s_priority_phase_work.status.cumulative_ns=INT64_MAX;

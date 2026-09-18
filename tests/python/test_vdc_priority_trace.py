@@ -150,6 +150,15 @@ def test_actual_phase_producer_and_frequency_records(trace_executable):
     assert not result['physical_lock_qualified']
 
 
+def test_actual_midpoint_crossing_producer_roundtrip(trace_executable):
+    from tools.vdc_priority_trace import vdc_priority_trace as decoder
+    result = decoder.decode(execute(trace_executable, 'phase_midpoint'), 2)
+    assert result['status']['schema'] == 6
+    phases = [r for r in result['records'] if r['kind'] == 4]
+    assert len(phases) == 1
+    assert (phases[0]['residual_lo'], phases[0]['residual_hi'], phases[0]['delta_ns']) == (-8, 200, -96)
+
+
 def test_legacy_trace_freezes_on_real_phase_after_stopped_reconfiguration(trace_executable):
     from tools.vdc_priority_trace import vdc_priority_trace as decoder
     result = decoder.decode(execute(trace_executable, 'phase_legacy_reconfigure'), 1)
@@ -416,9 +425,17 @@ static void phase_trace(const char *name)
     assert(!vdc_dpll_manager_priority_trace_arm(2)); /* Never mislabel phase. */
     if (strcmp(name,"phase_legacy_reconfigure")) {
         assert(vdc_dpll_manager_priority_trace_phase_arm(2));trace_service();
-        assert(trace_status().schema==4 && trace_status().state==VDC_PRIORITY_TRACE_ARMED);
+        assert(trace_status().schema==6 && trace_status().state==VDC_PRIORITY_TRACE_ARMED);
     }
     running_ring();
+    if (!strcmp(name,"phase_midpoint")) {
+        event(100,0);prepare();
+        s_priority_follow_work.ticket.match.residual_lo=-8;
+        s_priority_follow_work.ticket.match.residual_hi=200;
+        apply();
+        assert(s_priority_phase_work.status.applied==1u);
+        frozen_trace();export_trace();return;
+    }
     for (unsigned i=0;i<32 && trace_status().state!=VDC_PRIORITY_TRACE_FROZEN;++i) {
         event(100+i,(uint64_t)i*100000000u);tick();
     }
