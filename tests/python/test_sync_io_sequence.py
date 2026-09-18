@@ -178,7 +178,8 @@ def test_production_hot_load_and_pause_boundaries(tmp_path):
     backend = (ROOT / "components/sync_io/src/sync_io_sequence.c").read_text(encoding="utf-8")
     production = "\n".join(function(backend, name) for name in (
         "sm_pc", "clear_owned_flags", "safe_low", "stop_hardware", "cleanup", "load_hardware",
-        "stop_hook", "prime_initial_state", "start_hardware", "read_sm_register", "stop_counter", "finish_ingress",
+        "stop_hook", "feedback_capture_enabled", "configure_feedback_executor",
+        "prime_initial_state", "start_hardware", "read_sm_register", "stop_counter", "finish_ingress",
         "produced_receipts", "stop_receipt_dma", "resume_receipt_dma", "logical_index_for_transfer",
         "receive_word", "drain_receipts", "pending_request", "drain_idle_executor", "account_input",
             "account_counter", "account_counter_sources",
@@ -357,7 +358,7 @@ class Machine:
 
 class Sequence:
     def __init__(self, programs, values, *, settle=2, pulse=1, falling=False,
-                 status_mask=8, mode="PULSE", max_steps=None, startup=False):
+                 status_mask=8, mode="PULSE", max_steps=None, startup=False, feedback=False):
         self.time, self.flags, self.pads = 0, 0, values[0]
         self.input = falling
         self.status_mask = status_mask
@@ -365,6 +366,10 @@ class Sequence:
         self.receipt_times = []
         self.ingress = Machine(programs["finite_ingress" if max_steps is not None else "ingress"], self, "ingress")
         self.executor = Machine(programs["executor"], self, "executor")
+        self.feedback = feedback and mode == "PULSE" and status_mask != 0 and max_steps != 0
+        if self.feedback:
+            self.executor.words[4] = 0xA0E2  # MOV OSR, Y, replacing tail regrant
+            self.executor.words[9] = 0xC004  # IRQ SET 4, before status OUT
         self.counter = Machine(programs["counter"], self, "counter")
         self.counter.x = UINT32
         self.ingress.y = ((max_steps or 0) - 1) & UINT32
@@ -399,9 +404,11 @@ class Sequence:
             self.executor.enabled = True
             self.executor.y = self.words[-3]
             self.executor.x = self.words[-2]
+            if self.feedback:
+                self.executor.osr = self.executor.y
             self.executor.tx.append(self.words[-1])
             self.executor.pc = 6
-            self.ingress.enabled = self.counter.enabled = False
+            self.ingress.enabled = self.counter.enabled = self.feedback
 
     def tick(self, count=1):
         for _ in range(count):
@@ -419,7 +426,7 @@ class Sequence:
                     self.receipt_times.append(self.time)
                 while self.counter.rx:
                     self.latest_edge = self.counter.rx.popleft()
-            if self.priming and len(self.receipts) == 2 and self.flags & 16:
+            if self.priming and len(self.receipts) >= 2 and (self.feedback or self.flags & 16):
                 self.priming = False
                 if self.max_steps != 0:
                     self.counter.enabled = True
@@ -432,6 +439,13 @@ class Sequence:
         self.input = falling
         self.tick(gap)
 
+    def tick_until(self, predicate, limit=2000):
+        for _ in range(limit):
+            if predicate():
+                return
+            self.tick()
+        raise AssertionError("PIO feedback transition did not complete")
+
     def pause(self):
         self.paused = True
         self.ingress.enabled = False
@@ -440,7 +454,7 @@ class Sequence:
     def resume(self):
         self.paused = False
         self.ingress.pc = 0
-        self.ingress.enabled = not self.priming
+        self.ingress.enabled = not self.priming or self.feedback
 
 
 @pytest.mark.parametrize("mode", ["PULSE", "LEVEL", "NONE"])
@@ -506,6 +520,156 @@ def test_pause_during_initial_pulse_keeps_admission_closed(programs):
     machine.tick(10)
     machine.edge(gap=250)
     assert [tag & 15 for _, tag in machine.writes] == [5, 2]
+
+
+@pytest.mark.parametrize("falling", [False, True])
+@pytest.mark.parametrize("max_steps", [None, 1, 7])
+@pytest.mark.parametrize("feedback_delay", [0, 1, 7, 101])
+def test_feedback_capture_precedes_trigger_and_latches_once(programs, falling, max_steps, feedback_delay):
+    machine = Sequence(programs, [5, 2, 7], settle=20, pulse=20, falling=falling,
+                       startup=True, max_steps=max_steps, feedback=True)
+    target = max_steps if max_steps is not None else 5
+    # Noise before the first response window is counted but never queued.
+    machine.tick(4)
+    machine.edge(falling=falling, gap=4)
+    assert not machine.flags & 32 and len(machine.writes) == 1
+    for step in range(target):
+        machine.tick_until(lambda: len(machine.rises) > step)
+        assert machine.ingress.enabled and machine.counter.enabled
+        machine.tick(feedback_delay)
+        machine.input = not falling
+        machine.tick(8)
+        machine.input = falling
+        assert machine.flags & 32 and not machine.flags & 16
+        assert len(machine.writes) == step + 1
+        # Further Sweep End pulses during the same output must not queue work.
+        machine.tick(4)
+        machine.edge(falling=falling, gap=4)
+        assert len(machine.writes) == step + 1
+        machine.tick_until(lambda: len(machine.writes) > step + 1)
+        assert machine.writes[-1][0] > machine.falls[step]
+        assert not machine.flags & 16  # no accidental tail regrant
+        # A fresh edge during the next code's settling interval is rejected.
+        machine.edge(falling=falling, gap=4)
+        assert not machine.flags & 32
+    machine.tick(450)
+    assert [tag & 15 for _, tag in machine.writes] == [5, *([2, 7, 5] * 3)[:target]]
+    assert len(machine.receipts) == (target + 1) * 2
+    assert all(fall - rise == 200 for rise, fall in zip(machine.rises, machine.falls))
+    assert all(rise - write[0] == 200 for rise, write in zip(machine.rises, machine.writes))
+    assert not machine.priming
+    if max_steps is not None:
+        for _ in range(3):
+            machine.edge(falling=falling)
+        assert len(machine.writes) == max_steps + 1
+
+
+def test_feedback_pause_drains_one_latched_candidate_then_stays_paused(programs):
+    machine = Sequence(programs, [5, 2, 7], settle=1, pulse=20, startup=True,
+                       max_steps=2, feedback=True)
+    machine.tick(12)
+    machine.edge(gap=4)
+    assert machine.flags & 32 and machine.priming
+    machine.pause()
+    for _ in range(10):
+        machine.edge(gap=80)
+    assert not machine.priming and len(machine.writes) == 2 and len(machine.receipts) == 4
+    assert machine.pads == 2 and not machine.ingress.enabled
+    machine.input = True
+    machine.resume()
+    machine.tick(100)
+    assert len(machine.writes) == 2  # held level is not a fresh feedback edge
+    machine.input = False
+    machine.tick(4)
+    machine.edge(gap=250)
+    assert len(machine.writes) == 3
+    for _ in range(5):
+        machine.edge(gap=250)
+    assert len(machine.writes) == 3  # finite quota was not reset by resume
+
+
+@pytest.mark.parametrize("settle", [0, 1, 10])
+@pytest.mark.parametrize("pulse", [1, 2])
+def test_feedback_short_pulse_startup_with_immediate_sweep_end(programs, settle, pulse):
+    machine = Sequence(programs, [5, 2], settle=settle, pulse=pulse, startup=True,
+                       max_steps=1, feedback=True)
+    machine.tick_until(lambda: len(machine.rises) == 1)
+    machine.edge(gap=settle * 10 + pulse * 20 + 50)
+    assert [value & 15 for _, value in machine.writes] == [5, 2]
+    assert len(machine.receipts) == 4 and not machine.priming
+    assert machine.writes[1][0] > machine.falls[0]
+    assert [fall - rise for rise, fall in zip(machine.rises, machine.falls)] == [pulse * 10] * 2
+
+
+@pytest.mark.parametrize("falling", [False, True])
+def test_feedback_initial_active_requires_new_edge_and_accepts_late_completion(programs, falling):
+    machine = Sequence(programs, [0, 3, 6], settle=1, pulse=1, falling=falling,
+                       startup=True, max_steps=2, feedback=True)
+    machine.input = not falling
+    machine.tick(300)
+    assert len(machine.writes) == 1 and machine.latest_edge == 0
+    assert len(machine.falls) == 1 and machine.flags & 16
+    # Holding the old completion level through START cannot advance the plan.
+    # A genuine edge long after the outgoing pulse must still be accepted.
+    machine.input = falling
+    machine.tick(10)
+    machine.edge(falling=falling, gap=300)
+    assert [tag & 15 for _, tag in machine.writes] == [0, 3]
+    assert machine.latest_edge == 1 and len(machine.receipts) == 4
+    machine.edge(falling=falling, gap=300)
+    assert [tag & 15 for _, tag in machine.writes] == [0, 3, 6]
+    assert machine.latest_edge == 2 and len(machine.receipts) == 6
+    machine.edge(falling=falling, gap=300)
+    assert len(machine.writes) == 3
+
+
+@pytest.mark.parametrize("feedback_width_us", [10, 100])
+def test_feedback_width_and_next_trigger_timing(programs, feedback_width_us):
+    machine = Sequence(programs, [0, 1, 2], settle=10, pulse=10,
+                       startup=True, max_steps=2, feedback=True)
+    machine.tick_until(lambda: len(machine.falls) == 1)
+    # Sweep completion is late relative to our outgoing trigger. Keep IN1
+    # active for the entire feedback pulse, including any next OUT4 trigger.
+    machine.tick(1000)
+    feedback_rise = machine.time
+    machine.input = True
+    machine.tick(feedback_width_us * 10)
+    feedback_fall = machine.time
+    machine.input = False
+    machine.tick(400)
+    assert machine.latest_edge == 1
+    assert [word & 15 for _, word in machine.writes] == [0, 1]
+    assert len(machine.rises) == len(machine.falls) == 2
+    assert len(machine.receipts) == 4
+    next_code = machine.writes[1][0]
+    next_trigger = machine.rises[1]
+    assert next_trigger - next_code == 100  # configured settle, 100 ns ticks
+    # Current behavior does not wait for feedback deassertion before firing.
+    assert (next_trigger < feedback_fall) == (feedback_width_us == 100)
+    print(f"feedback_width_us={feedback_width_us} "
+          f"feedback_to_code_us={(next_code - feedback_rise) / 10:g} "
+          f"feedback_to_trigger_us={(next_trigger - feedback_rise) / 10:g} "
+          f"trigger_after_feedback_fall_us={(next_trigger - feedback_fall) / 10:g}")
+
+
+@pytest.mark.parametrize("pulse_us", [10, 100])
+def test_direct_feedback_loop_completes_ten_rounds(programs, pulse_us):
+    machine = Sequence(programs, list(range(8)), settle=10, pulse=pulse_us,
+                       startup=True, max_steps=79, feedback=True)
+    # OUT4 -> IN1, observed on the following tick. No host-injected edges.
+    for _ in range(100000):
+        machine.input = bool(machine.pads & 8)
+        machine.tick()
+        if len(machine.falls) == 80:
+            break
+    assert [tag & 15 for _, tag in machine.writes] == list(range(8)) * 10
+    assert len(machine.rises) == len(machine.falls) == 80
+    machine.tick(100)
+    assert len(machine.receipts) == 160
+    assert machine.latest_edge == 80
+    assert machine.ingress.pc == 7  # finite ingress has exhausted its quota
+    print(f"loopback_pulse_us={pulse_us} outputs=80 advances=79 "
+          f"first_rise_to_last_fall_us={(machine.falls[-1] - machine.rises[0]) / 10:g}")
 
 
 @pytest.mark.parametrize("values", [[0, 1, 2], list(range(8))])

@@ -116,6 +116,26 @@ static void gateway_service(void);
 static void gateway_cancel(void);
 static void gateway_start(void);
 
+static bool feedback_capture_enabled(void)
+{
+    return !s_sequence.config.gateway_enabled && s_sequence.config.input_channel != 0u &&
+        s_sequence.config.status_mode == SYNC_IO_SEQUENCE_STATUS_PULSE &&
+        s_sequence.config.status_output_mask != 0u &&
+        (!s_sequence.config.step_limit_enabled || s_sequence.config.max_steps != 0u);
+}
+
+static void configure_feedback_executor(void)
+{
+    if (!feedback_capture_enabled()) return;
+    /* Move OSR preparation before WAIT and its one-shot input grant before
+     * status OUT. The tail must not grant again over a latched REQUEST.
+     * Reusing these instructions preserves the full finite PIO0 budget. */
+    BOARD_SYNC_PIO_FAST->instr_mem[s_sequence.offset[1] + sequence_executor_offset_admission] =
+        pio_encode_mov(pio_osr, pio_y);
+    BOARD_SYNC_PIO_FAST->instr_mem[s_sequence.offset[1] + sequence_executor_offset_status_prepare] =
+        pio_encode_irq_set(false, READY_IRQ);
+}
+
 static void publish(void)
 {
     uint32_t words[SNAPSHOT_WORDS] = {0};
@@ -418,6 +438,8 @@ static void prime_initial_state(void)
     pio_sm_put(pio, EXECUTOR_SM, s_plan[first + 1u]);
     pio_sm_exec(pio, EXECUTOR_SM, pio_encode_pull(false, true));
     pio_sm_exec(pio, EXECUTOR_SM, pio_encode_mov(pio_x, pio_osr));
+    if (feedback_capture_enabled())
+        pio_sm_exec(pio, EXECUTOR_SM, pio_encode_mov(pio_osr, pio_y));
     pio_sm_put(pio, EXECUTOR_SM, s_plan[first + 2u]);
     pio_sm_exec(pio, EXECUTOR_SM, pio_encode_jmp(
         s_sequence.offset[1] + sequence_executor_offset_writing));
@@ -504,6 +526,7 @@ static bool arm_hardware(void *context, const sync_io_persona_descriptor_t *desc
     sm_config_set_in_shift(&executor, true, true, 32u);
     sm_config_set_clkdiv(&executor, (float)(hz / TICK_HZ));
     pio_sm_init(pio, EXECUTOR_SM, s_sequence.offset[1], &executor);
+    configure_feedback_executor();
     if (!gateway && s_sequence.config.status_mode != SYNC_IO_SEQUENCE_STATUS_PULSE) {
         /* NONE uses the same bounded settle/receipt path, with no status bits
          * in the plan and no pulse countdown. Only the DUT code is driven. */
@@ -572,9 +595,14 @@ static bool start_hardware(void *context, const sync_io_persona_descriptor_t *de
                            uint32_t dma_mask)
 {
     (void)context; (void)descriptor; (void)dma_mask;
-    dma_start_channel_mask((1u << (uint)s_sequence.dma[0]) |
-                          (1u << (uint)s_sequence.dma[2]));
-    pio_enable_sm_mask_in_sync(BOARD_SYNC_PIO_FAST, 1u << EXECUTOR_SM);
+    uint32_t dma = (1u << (uint)s_sequence.dma[0]) | (1u << (uint)s_sequence.dma[2]);
+    uint32_t sms = 1u << EXECUTOR_SM;
+    if (feedback_capture_enabled()) {
+        dma |= 1u << (uint)s_sequence.dma[3];
+        sms |= INPUT_SM_MASK;
+    }
+    dma_start_channel_mask(dma);
+    pio_enable_sm_mask_in_sync(BOARD_SYNC_PIO_FAST, sms);
     return true;
 }
 
@@ -847,7 +875,9 @@ static bool pending_request(void)
 {
     if (s_sequence.priming) return false;
     PIO pio = BOARD_SYNC_PIO_FAST;
-    if ((pio->irq & (1u << REQUEST_IRQ)) != 0u) return true;
+    /* External PULSE feedback may wait behind an outgoing status pulse. It
+     * becomes an accepted step only when the executor consumes the request. */
+    if (!feedback_capture_enabled() && (pio->irq & (1u << REQUEST_IRQ)) != 0u) return true;
     const uint pc = sm_pc(EXECUTOR_SM, 1u);
     /* A consumed request before MOV/PUSH is accepted even without a receipt. */
     return pc >= sequence_executor_offset_writing && pc <= sequence_executor_offset_written;
@@ -948,9 +978,10 @@ void sync_io_sequence_service(void)
         /* drain_receipts owns the fault reason. */
     } else {
         const bool no_steps = s_sequence.config.step_limit_enabled && s_sequence.config.max_steps == 0u;
+        const bool feedback = feedback_capture_enabled();
         if (s_sequence.priming && s_sequence.prime_receipts_remaining == 0u &&
-            (BOARD_SYNC_PIO_FAST->irq & (1u << READY_IRQ)) != 0u) {
-            if (s_sequence.config.input_channel != 0u && !no_steps) {
+            (feedback || (BOARD_SYNC_PIO_FAST->irq & (1u << READY_IRQ)) != 0u)) {
+            if (s_sequence.config.input_channel != 0u && !no_steps && !feedback) {
                 dma_start_channel_mask(1u << (uint)s_sequence.dma[3]);
                 pio_enable_sm_mask_in_sync(BOARD_SYNC_PIO_FAST,
                     (1u << COUNTER_SM) | (s_sequence.paused ? 0u : 1u << INGRESS_SM));
@@ -1187,12 +1218,13 @@ bool sync_io_sequence_counter_inject(uint32_t input_channel, uint32_t count)
     return accepted;
 }
 
-static void finish_ingress(void)
+static bool finish_ingress(void)
 {
     PIO pio = BOARD_SYNC_PIO_FAST;
     const uint pc = sm_pc(INGRESS_SM, 0u);
     const bool finite = s_sequence.config.step_limit_enabled;
-    if (finite && pc == sequence_finite_ingress_offset_parked) return;
+    const bool latched = (pio->irq & (1u << REQUEST_IRQ)) != 0u;
+    if (finite && pc == sequence_finite_ingress_offset_parked) return latched;
     const bool request_issued = finite && pc == sequence_finite_ingress_offset_quota;
     bool admit = pc == sequence_ingress_offset_admitted || pc == sequence_ingress_offset_request;
     /* An edge not yet checked by MOV STATUS has not entered admission. */
@@ -1216,13 +1248,14 @@ static void finish_ingress(void)
         }
     }
     pio_sm_exec(pio, INGRESS_SM, pio_encode_jmp(restart));
+    return latched || admit;
 }
 
 bool sync_io_sequence_pause(bool paused)
 {
     if (get_core_num() != 1u || !s_sequence.status.armed || s_sequence.status.fault != 0u) return false;
     if (paused == s_sequence.paused) return true;
-    if (s_sequence.priming) {
+    if (s_sequence.priming && !feedback_capture_enabled()) {
         /* Finish the initial status output, but never admit an edge early.
          * Service starts only the counter if startup completes while paused. */
         s_sequence.paused = paused;
@@ -1237,7 +1270,7 @@ bool sync_io_sequence_pause(bool paused)
     if (paused && s_sequence.config.gateway_enabled) gateway_cancel();
     if (s_sequence.config.input_channel != 0u) {
         pio_set_sm_mask_enabled(pio, INPUT_SM_MASK, false);
-        if (paused) finish_ingress();
+        if (paused) (void)finish_ingress();
         const uint32_t edges = stop_counter();
         if (paused) {
             s_sequence.pause_started = edges;
@@ -1285,16 +1318,24 @@ void sync_io_sequence_stop(void)
         const uint executor_pc = sm_pc(EXECUTOR_SM, 1u);
         uint32_t final_edges = 0u;
         if (s_sequence.config.input_channel != 0u) {
-            finish_ingress();
+            const bool latched = finish_ingress();
+            if (feedback_capture_enabled() && latched) {
+                /* A feedback candidate is not an executed step. STOP revokes
+                 * it as not-ready instead of inventing another cancellation. */
+                pio_interrupt_clear(pio, REQUEST_IRQ);
+                ++s_sequence.paused_edges;
+            }
             final_edges = stop_counter();
         }
-        const bool pending = pending_request();
         stop_receipt_dma();
         if (drain_receipts()) {
             while (!pio_sm_is_rx_fifo_empty(pio, EXECUTOR_SM)) {
                 if (!receive_word(pio_sm_get(pio, EXECUTOR_SM))) break;
             }
         }
+        if (feedback_capture_enabled() && s_sequence.prime_receipts_remaining == 0u)
+            s_sequence.priming = false;
+        const bool pending = pending_request();
         if (!s_sequence.priming && s_sequence.status.fault == 0u && executor_pc > sequence_executor_offset_writing &&
             executor_pc <= sequence_executor_offset_written &&
             s_sequence.status.written == s_sequence.status.completed) {

@@ -9,7 +9,7 @@
 typedef unsigned uint;
 typedef uint gpio_function_t;
 enum pio_src_dest { pio_null = 3, pio_x = 1, pio_y = 2, pio_isr = 6, pio_osr = 7 };
-typedef struct { uint32_t irq, irq_force, fdebug; } fake_pio_t;
+typedef struct { uint32_t irq, irq_force, fdebug, instr_mem[32]; } fake_pio_t;
 static fake_pio_t fake_pio;
 typedef fake_pio_t *PIO;
 struct pio_program { uint length; };
@@ -59,6 +59,8 @@ static const struct pio_program sequence_counter_program = {5u};
 #define sequence_finite_ingress_offset_quota 6u
 #define sequence_finite_ingress_offset_parked 7u
 #define sequence_executor_offset_waiting 5u
+#define sequence_executor_offset_admission 4u
+#define sequence_executor_offset_status_prepare 9u
 #define sequence_executor_offset_writing 6u
 #define sequence_executor_offset_written 7u
 #define sequence_executor_offset_status_active 16u
@@ -205,6 +207,7 @@ static uint pio_encode_push(bool conditional, bool block) { (void)conditional; (
 static uint pio_encode_pull(bool conditional, bool block) { (void)conditional; (void)block; return 0x80a0u; }
 static uint pio_encode_jmp(uint target) { return target; }
 static uint pio_encode_jmp_x_dec(uint target) { return 0x40u | target; }
+static uint pio_encode_irq_set(bool relative, uint irq) { (void)relative; return 0xc000u | (irq & 7u); }
 static void pio_sm_exec(PIO pio, uint sm, uint instruction) {
     (void)pio;
     if ((instruction >> 13u) == 5u) {
@@ -214,6 +217,7 @@ static void pio_sm_exec(PIO pio, uint sm, uint instruction) {
         value = (instruction & 8u) ? ~value : value;
         if (((instruction >> 5u) & 7u) == pio_x) xs[sm] = value;
         else if (((instruction >> 5u) & 7u) == pio_y) ys[sm] = value;
+        else if (((instruction >> 5u) & 7u) == pio_osr) osrs[sm] = value;
         else isrs[sm] = value;
     } else if ((instruction >> 13u) == 4u) {
         if (instruction & 0x80u) {
@@ -271,7 +275,129 @@ static void reset(void) {
     all_aborts = sm_restarts = fifo_clears = edge_abort_tail = 0u;
     arm_allowed = start_allowed = true;
 }
+
+static void prepare_feedback_runtime(void) {
+    reset();
+    const sync_io_persona_manager_hooks_t hooks = {
+        .load = load_hardware, .arm = arm_hook, .start = start_hook,
+        .stop = stop_hook, .cleanup = cleanup
+    };
+    sync_io_persona_manager_init(&s_manager, &hooks, NULL);
+    s_manager.used_dma_channel_mask = dma_claims;
+    assert(sync_io_persona_manager_claim(&s_manager, SYNC_IO_PERSONA_ID_SEQUENCE, &s_handle, NULL));
+    assert(sync_io_persona_manager_load(&s_manager, &s_handle));
+    assert(sync_io_persona_manager_arm(&s_manager, &s_handle));
+    assert(sync_io_persona_manager_start(&s_manager, &s_handle));
+    s_sequence.manager_claimed = true;
+    s_sequence.status.armed = true;
+    s_sequence.status.plan_count = 3u;
+    s_sequence.status.completed_index = UINT32_MAX;
+    s_armed = 1u;
+    s_plan[0] = 2u | (1u << 4u) | (10u << 12u);
+    s_plan[3] = 7u | (2u << 4u) | (15u << 12u);
+    s_plan[6] = 5u | (13u << 12u);
+    prime_initial_state();
+    const uint ch = (uint)s_sequence.dma[2];
+    fake_dma.ch[ch].ctrl_trig = DMA_CH0_CTRL_TRIG_EN_BITS;
+    fake_dma.ch[ch].transfer_count = RX_TRANSFERS;
+    fake_dma.ch[ch].write_addr = 0u;
+    pcs[INGRESS_SM] = s_sequence.offset[0];
+    pcs[COUNTER_SM] = s_sequence.offset[2];
+    xs[COUNTER_SM] = UINT32_MAX;
+}
+
+static void test_feedback_receipt_and_stop_windows(void) {
+    for (uint mode = 0u; mode < 4u; ++mode) {
+        reset();
+        if (mode == 0u) s_sequence.config.input_channel = 0u;
+        if (mode == 1u) s_sequence.config.status_mode = SYNC_IO_SEQUENCE_STATUS_LEVEL;
+        if (mode == 2u) s_sequence.config.status_mode = SYNC_IO_SEQUENCE_STATUS_NONE;
+        if (mode == 3u) s_sequence.config.gateway_enabled = true;
+        assert(!feedback_capture_enabled());
+        configure_feedback_executor();
+        assert(fake_pio.instr_mem[sequence_executor_offset_admission] == 0u);
+        assert(fake_pio.instr_mem[sequence_executor_offset_status_prepare] == 0u);
+    }
+    /* STOP before START completes, after START but before WAIT consumes the
+     * latch, while another state is pulsing, and after WAIT consumed it. */
+    for (uint phase = 0u; phase < 4u; ++phase) {
+        prepare_feedback_runtime();
+        const uint receipts = phase == 0u ? 1u : phase == 2u ? 3u : 2u;
+        const uint edges = phase == 2u ? 2u : 1u;
+        s_receipts[0] = s_plan[6]; s_receipts[1] = ~s_plan[6]; s_receipts[2] = s_plan[0];
+        fake_dma.ch[(uint)s_sequence.dma[2]].transfer_count = RX_TRANSFERS - receipts;
+        fake_dma.ch[(uint)s_sequence.dma[2]].write_addr = receipts * 4u;
+        s_edge_latest = edges;
+        xs[COUNTER_SM] = ~edges;
+        fake_pio.irq = phase == 3u ? 0u : 1u << REQUEST_IRQ;
+        pcs[EXECUTOR_SM] = s_sequence.offset[1] +
+            (phase == 1u ? sequence_executor_offset_waiting : phase == 3u ?
+             sequence_executor_offset_writing : 14u);
+        sync_io_sequence_service();
+        assert(s_sequence.status.fault == 0u);
+        assert(s_sequence.status.accepted == (phase >= 2u ? 1u : 0u));
+        assert(s_sequence.status.completed == 0u);
+        sync_io_sequence_stop();
+        assert(s_sequence.status.fault == 0u && !s_sequence.status.armed);
+        assert(s_sequence.status.completed == 0u);
+        assert(s_sequence.status.cancelled == (phase >= 2u ? 1u : 0u));
+        assert(s_sequence.status.notready_rejected == (phase == 3u ? 0u : 1u));
+        assert(s_sequence.status.busy_rejected == 0u);
+        assert(!(fake_pio.irq & IRQ_MASK));
+        assert(sync_io_persona_manager_deinit(&s_manager));
+    }
+
+    /* Hardware can complete several feedback cycles before Core1 observes the
+     * prime receipts. READY may already have been consumed by a later latch. */
+    prepare_feedback_runtime();
+    s_receipts[0] = s_plan[6]; s_receipts[1] = ~s_plan[6];
+    s_receipts[2] = s_plan[0]; s_receipts[3] = ~s_plan[0];
+    s_receipts[4] = s_plan[3]; s_receipts[5] = ~s_plan[3];
+    fake_dma.ch[(uint)s_sequence.dma[2]].transfer_count = RX_TRANSFERS - 6u;
+    fake_dma.ch[(uint)s_sequence.dma[2]].write_addr = 24u;
+    pcs[EXECUTOR_SM] = s_sequence.offset[1] + sequence_executor_offset_waiting;
+    fake_pio.irq = 1u << REQUEST_IRQ;
+    s_edge_latest = 3u; xs[COUNTER_SM] = ~3u;
+    sync_io_sequence_service();
+    assert(!s_sequence.priming && s_sequence.status.fault == 0u);
+    assert(s_sequence.status.accepted == 2u && s_sequence.status.completed == 2u);
+    sync_io_sequence_stop();
+    assert(s_sequence.status.fault == 0u && s_sequence.status.cancelled == 0u);
+    assert(s_sequence.status.notready_rejected == 1u && s_sequence.status.busy_rejected == 0u);
+    assert(sync_io_persona_manager_deinit(&s_manager));
+
+    /* PAUSE keeps an already-latched feedback, including during START. The
+     * next state drains once while new input edges are counted as not-ready. */
+    prepare_feedback_runtime();
+    s_receipts[0] = s_plan[6];
+    fake_dma.ch[(uint)s_sequence.dma[2]].transfer_count = RX_TRANSFERS - 1u;
+    fake_dma.ch[(uint)s_sequence.dma[2]].write_addr = 4u;
+    fake_pio.irq = 1u << REQUEST_IRQ;
+    pcs[EXECUTOR_SM] = s_sequence.offset[1] + 14u;
+    s_edge_latest = 1u; xs[COUNTER_SM] = ~1u;
+    assert(sync_io_sequence_pause(true));
+    assert(s_sequence.priming && s_sequence.status.accepted == 0u);
+    assert(!(enabled & (1u << INGRESS_SM)) && (enabled & (1u << COUNTER_SM)));
+    assert(fake_pio.irq & (1u << REQUEST_IRQ));
+    s_receipts[1] = ~s_plan[6]; s_receipts[2] = s_plan[0]; s_receipts[3] = ~s_plan[0];
+    fake_dma.ch[(uint)s_sequence.dma[2]].transfer_count = RX_TRANSFERS - 4u;
+    fake_dma.ch[(uint)s_sequence.dma[2]].write_addr = 16u;
+    fake_pio.irq = 1u << READY_IRQ;
+    pcs[EXECUTOR_SM] = s_sequence.offset[1] + sequence_executor_offset_waiting;
+    s_edge_latest = 4u; xs[COUNTER_SM] = ~4u;
+    sync_io_sequence_service();
+    assert(!s_sequence.priming && s_sequence.status.fault == 0u);
+    assert(s_sequence.status.accepted == 1u && s_sequence.status.completed == 1u);
+    assert(s_sequence.status.notready_rejected == 3u && !s_sequence.status.busy);
+    assert(sync_io_sequence_pause(false));
+    assert((enabled & INPUT_SM_MASK) == INPUT_SM_MASK && s_sequence.status.ready);
+    sync_io_sequence_stop();
+    assert(s_sequence.status.fault == 0u && s_sequence.status.cancelled == 0u);
+    assert(sync_io_persona_manager_deinit(&s_manager));
+}
+
 int main(void) {
+    test_feedback_receipt_and_stop_windows();
     /* Real startup register/FIFO setup: ordinary execution begins with state
      * zero, even when there are no later admitted steps. */
     for (uint empty = 0u; empty < 2u; ++empty) {
@@ -283,15 +409,24 @@ int main(void) {
         s_plan[7] = 195u;
         s_plan[8] = 96u;
         s_sequence.offset[1] = 8u;
+        configure_feedback_executor();
+        assert(fake_pio.instr_mem[12] == (empty ? 0u : pio_encode_mov(pio_osr, pio_y)));
+        assert(fake_pio.instr_mem[17] == (empty ? 0u : pio_encode_irq_set(false, READY_IRQ)));
         prime_initial_state();
         assert(ys[EXECUTOR_SM] == s_plan[6] && xs[EXECUTOR_SM] == 195u);
         assert(tx_valid[EXECUTOR_SM] && tx_value[EXECUTOR_SM] == 96u);
         assert(pcs[EXECUTOR_SM] == 8u + sequence_executor_offset_writing);
         assert(s_sequence.priming && s_sequence.prime_receipts_remaining == 2u);
         assert(!pending_request());
-        s_sequence.dma[0] = 1; s_sequence.dma[2] = 2;
+        if (!empty) assert(osrs[EXECUTOR_SM] == s_plan[6]);
+        s_sequence.dma[0] = 1; s_sequence.dma[2] = 2; s_sequence.dma[3] = 3;
         assert(start_hardware(NULL, NULL, 0u));
-        assert(enabled == (1u | (1u << EXECUTOR_SM)));
+        /* PULSE external feedback starts ingress/counter before the first
+         * status output, so Sweep End cannot fall into the startup blind spot. */
+        const uint32_t expected_enabled = 1u | (1u << EXECUTOR_SM) |
+            (empty == 0u ? INPUT_SM_MASK : 0u);
+        assert(enabled == expected_enabled);
+        assert(fake_dma.ch[3].busy == !empty);
         assert(fake_dma.ch[1].busy && fake_dma.ch[2].busy);
     }
     /* Execute production STOP across initial-write/pulse/completion windows.

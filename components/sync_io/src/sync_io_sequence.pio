@@ -49,6 +49,7 @@ public parked:
     mov y, osr
     pull block
     mov x, osr
+public admission:
     irq set 4
 public waiting:
     wait 1 irq 5
@@ -58,6 +59,7 @@ public written:
     in y, 32 ; autopush, preserving receipt backpressure
 public settling:
     jmp x-- settling
+public status_prepare:
     mov osr, y
     out null, 12
     out pins, 4
