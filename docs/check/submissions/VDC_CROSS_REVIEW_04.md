@@ -4,7 +4,7 @@ Status: Draft
 Domain: VDC
 Canonical: `docs/check/submissions/VDC_CROSS_REVIEW_04.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/check/DOCS_REGISTRY.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 
 ## 提交内容
 
@@ -234,3 +234,17 @@ lease/CRC 与严格 decoder 保留。汇总输入成功不等于实际 GPIO 输�
 审核覆盖匹配源码 P3、Release 资源、两轮 RAW 与原生文件、STOP 和恢复。
 全段输入完整检查仍为 FAIL；第二轮 NO4 后段超出 ±50 ns，有限后段三从在 ±100 ns。
 正式 RAM 门槛及既有资源告警保留，不授予正式锁相、产品 RUN 或 VDC 最终发布资格。
+
+## 显式持续诊断增补（v19 pending，待独立复核）
+
+本次将 RUN duration 和 TDMA TRIAL duration 的零值定义为显式持续诊断，非零值
+保持原有限模式；块规划、时钟有序与算术检查、STOP/撤销/会话及资源退休保留。
+状态 schema 和 origin 授权版本随语义更新，不提升产品准入。源码与当前四板 P3
+及持续外部采样的证据根为 `out/HardwareAcceptance/20260918/dpll-continuous-scope-r1/`。
+此条仅提交实施语义供独立复核，登记保持 pending，不构成作者自审批准。
+
+后继 observer 修复取消 `tdma_event_start` 对活参考的任意整次时长限制，使用
+通用 API 已支持的最大 epoch 范围；不改变计数器唯一展开、join timeout、
+算术/序号拒绝及 STOP。证据根为
+`out/HardwareAcceptance/20260918/dpll-observer-continuous-r1/`。
+旧有限观测器退休及长时间漂移原件保留；专项结果与未完成门禁以进度日志为准。

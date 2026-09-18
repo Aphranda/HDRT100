@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 Version: 5
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -197,6 +197,11 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 汇总成功极值与 owner 拒绝/取消/保持，显式保留无输入、观测缺口和异常终止。
 STOP 后导出的汇总与详细原生模式具有独立 schema，不增加运行态管理面采样依赖，
 也不授予 GPIO 精度、正式锁相或产品 VDC 发布资格。
+
+显式持续诊断将输出 duration 与 TDMA TRIAL duration 的零值解释为不设置整次
+到期时间；有限模式仍保留。Core1 使用 TIMER1 直接坐标，按有界块补给 PIO/DMA，
+保留时钟有序性、溢出、会话与资源核验以及 STOP/撤销/故障退休。外部示波器可
+独立间隔观测，不以主机采样或周期重启维持闭环；持续运行不自动授予持续锁相。
 
 ## 分层职责
 

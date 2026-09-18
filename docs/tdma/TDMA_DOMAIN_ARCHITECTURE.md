@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-16
+Last updated: 2026-09-19
 
 本文档定义 TDMA 在 HAOFV 下的基础件主域。TDMA 是分布式硬实时系统的确定性通讯骨架，负责在 core1/PIO/DMA 侧按窗口执行上行、下行、payload、timestamp 和 completion；VDC、RefMem、OTA、诊断等域只挂载 payload 或消费 evidence，不能拥有 TDMA 物理环路。
 
@@ -1113,7 +1113,16 @@ DeploymentGate；实际资源取得留在 TDMA 物理层的分步准备与仲裁
 `diagnostic_valid` 只表示本次试验准入；`product_valid` 保持拒绝，RAM、完整 Core1 WCET
 和未测得的重装时序拒绝位必须保留。SCPI 的许可证查询报告发布事实，runtime 查询独立报告
 实际状态，二者不合成为伪原子快照。
-到期由 TDMA owner 比较绝对期限并停止；Calibration 发布记录可以保留原 epoch 与 enabled，
+`CALIBRATION_ORIGIN_TIMING_VERSION` 当前支持显式持续诊断：TRIAL 请求的 duration
+为零时发布零 `expires_ticks`，表示不设置整次到期时间；非零值保留原绝对期限。
+持续授权仍绑定完整配置、epoch、模型、资源和源时钟，撤销与 STOP 仍进入
+既有退休路径，不能将未初始化或版本不匹配的记录当成持续授权。物理 release
+在 launch 前复验 owner 授权，并拒绝包围读取的时钟回退；此模式不授予产品准入。
+实时事件观测器是 DPLL 的活输入，不随可选 trace 记录窗口到期。
+`tdma_event_start` 使用 `UINT64_MAX` 作为 `epoch_limit_cycles`，在单次会话内
+保留计数器唯一展开、读区间有序、join timeout、序号与算术溢出检查；STOP 或
+这些检查失败仍退休。通用 observer API 的有限 epoch 上限语义保持不变。
+有限请求到期由 TDMA owner 比较绝对期限并停止；Calibration 发布记录可以保留原 epoch 与 enabled，
 不能单凭该字段宣称许可证仍有效。runtime 查询若遇到 writer 竞争则返回 `UNAVAILABLE`，
 调用者必须保留缺样；既有 Core0 snapshot 重试接口的行为不因此改变。
 

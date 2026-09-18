@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -21,6 +21,66 @@ Last updated: 2026-09-18
 | 下一 gate | 必须指向一个 TODO Task ID 或明确外部阻塞。 |
 
 ## 当前 checkpoint
+
+### VDC-PROGRESS-20260919-001：分钟检查点快速失败与 NO3 输出补给失败
+
+- TODO task ID：`VDC-DRIFT-001`、`VDC-RUN-001`、`VDC-RECOVERY-001`，继续
+  IN PROGRESS。为缩短迭代，持续专项保留 5 秒外部采样，并在每个 60 秒边界
+  （60 至 600 秒）检查一次；任一采样缺失、相位超过 ±100 ns、输出不连续或示波器
+  错误即停止该轮，执行 STOP、末态读取和参数恢复。策略函数离线五组测试通过，
+  真实本轮重放在 120 秒检查点判定失败；证据
+  `out/HardwareAcceptance/20260919/dpll-checkpoint-r1/`。
+- 真实连续运行使用 observer 修复后的四板固件，未在 RUN 中轮询板卡，示波器每 5 秒
+  新触发四路 2 ns 网格短窗。60 秒窗口 NO2/NO3/NO4 均在 ±50 ns 观测范围；约
+  75 秒后 NO3 无 2.5 V 上升沿，采样缺失持续存在。NO3 末态 RUN reason=3
+  （`SYNC_IO_RUN_OUTPUT_STARVED`），blocks=4532、plan_rejects=1、PIO debug
+  TX stall，说明当前主阻塞从活参考期限转移为 NO3 输出补给/调度裕量；NO1/NO2/NO4
+  仍持续规划到停止。完整原件、末态和停止日志见
+  `out/HardwareAcceptance/20260918/dpll-observer-continuous-r1/monitor-r1/`。
+- 本轮未完成 600 秒锁相验收，也不宣称四板持续输出合格。四板最终均 STOP、PIO/DMA
+  idle，输出 timing 恢复 `12000,16000,6000`、delay 恢复 0，示波器恢复 STOP/EXT/NORM
+  且错误队列为零；首次收尾曾记录 NO1 恢复错误，随后独立只读复核通过，原失败保留。
+  独立复核结论为持续诊断实现有限接受，v19 registry 保持 pending；见
+  `out/HardwareAcceptance/20260919/dpll-continuous-review/independent-review.json`。
+- 下一 gate：只针对 NO3 复现输出 STARVED，比较补给低水位、提交间隔、PIO stall 与
+  NO2/NO4；修复后先跑匹配源码四板 quick P3，再按分钟检查点重新验证。禁止把增加
+  检查点逻辑、缺失波形或人工重启写成长期稳定锁相证据。
+
+### VDC-PROGRESS-20260918-051：显式持续诊断输出与活参考期限修复
+
+- TODO task ID：`VDC-DRIFT-001`、`VDC-RUN-001`、`VDC-PRECISION-001`，继续
+  IN PROGRESS。以下数字均为实验快照，非事实源。连续模式代码提交 `e902352c`；
+  RUN duration_ms=0 与 TDMA TRIAL duration_ticks=0 显式持续，有限模式保留。
+  保留有界块规划、不可改写 DMA 前缀、STOP/会话/时钟/资源退休、溢出及计数饱和。
+  固件相关测试 394 passed，Release A/B/boot 链接通过，证据根
+  `out/HardwareAcceptance/20260918/dpll-continuous-scope-r1/`。
+- 连续模式同源码 quick P3 见 `out/HardwareAcceptance/20260918/p3-continuous-output-r1b/`，
+  23 INFO/22 WARN/0 ERROR/FATAL；首次错误使用派生 topology summary 的拒绝保留。
+  source `7b205e0d6997e5847be4d8f200831db1ab230bf693bf41a499265577412d14fa`，
+  package `3164b4592fdeaf415f4567e9da8e38044006f840994f7049953403b28238d3fc`。
+- 外部监测每五秒重新触发四路 RAW 短窗，RUN 无板卡查询或可选 trace；保留闭环
+  必需的活时间戳。r1/r2 因示波器缩短内存后残留 RAW 传输区间失败，NORM→RAW
+  重置修复。r3 完成至 445 s，旧分析器因 NO3 超过 100 us 中止；r4 至 175 s，
+  下一次触发超时中止。失败原件及 STOP/参数恢复保留；未完成 600 s 验收。
+- 两次波形均在约 60 s 后漂移。停止后 observer 读回三从 reason=5 SERVICE_AGE、
+  joined 约 59725；代码 `tdma_event_start` 硬设活参考 epoch_limit 为 60 s。
+  这使输出继续而闭环参考停止，不能直接归因 PI 不稳定。修复为现有 API 的
+  `UINT64_MAX` 范围，保留唯一 counter lift、join timeout、序号/算术检查与 STOP，
+  不新增 RAM。证据根 `out/HardwareAcceptance/20260918/dpll-observer-continuous-r1/`。
+- observer 专项 3 passed，含真实 C observer 连续 601000 事件、多次计数回绕和
+  STOP/旧 epoch 拒绝。扩展套件 40 passed/1 failed：既有 service fixture 仍模拟
+  `vdc_dpll_manager_now_ns`，生产 owner 已改用 `board_uptime_ms`，造成编译失败；
+  未改写原失败。产物脚本仅纠正 mock 后重跑同一生产 owner 测试通过，见
+  `tests-final.log`、`verify_service_fixture.py`、`service-fixture-r2.log`；不宣称全套绿。
+- 修复后 Release A/B/boot 链接通过，RAM free=20288 B，正式 49152 B 门槛仍未满足，
+  沿用至 2026-09-25 的已授权 16384 B 临时许可；八项既有 SYNC 文本资源失败保留。
+  同源码四板 quick P3 约 175 s，25 INFO/18 WARN/0 ERROR/FATAL，DPLL SKIPPED_TDMA_ONLY，
+  严格调度失败原件保留；见 `out/HardwareAcceptance/20260918/p3-observer-continuous-r1/`。
+  source `cc1a8c7961b3b0862a479e92ce9b6fb3cbfea79405975d94533a2fe715134d27`，
+  package `f044d49136a313e89ed24d0f69b746dac47f20692daae72b53e77d5c1fbf4968`。
+- 下一 gate：同次连续十分钟外部专项及 STOP 末态对账；波形缺失单独记录，不用
+  监测错误重启环路。C11 对持续诊断与 observer 修复独立审核，v19 保持 pending；
+  不能由输出无整次期限推定长期锁相或 VDC 发布合格。
 
 ### VDC-PROGRESS-20260918-050：原池全时段汇总与十二秒运行观测
 

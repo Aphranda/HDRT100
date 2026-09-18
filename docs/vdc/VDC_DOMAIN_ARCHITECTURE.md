@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 
 本文是 HAOFV Virtual Distributed Clock（VDC）内部基础主域的稳定架构事实源。
 VDC 负责多节点共同时间、offset/rate 估计、质量 promotion 和时间快照发布；不拥有
@@ -820,9 +820,15 @@ DPLL、VDC 与 SYNC 的必要同步事件均走确定性特等席快速通道。
 PIO 指令量化由 board clock/divider 决定，不等同于物理同步精度；启动 anchor、
 跨钟映射、整数超越量、队列断流/迟到与引脚实测误差另行计入验收。
 
-有限调试输出通过 `vdc_run_output_prepare` 在 Core0 的 TDMA STOP 排他边界锁存
+调试输出通过 `vdc_run_output_prepare` 在 Core0 的 TDMA STOP 排他边界锁存
 独立 delay、会话、周期、时间窗口及静态表周期，并请求 SYNC_IO 预留 scheduled capability；准备阶段将
 输出置于安全低态，不启动计划脉冲。
+`SYSTem:VDC:OUTPut:RUN` 的 duration 参数为零时显式请求持续运行；正值继续使用
+原有限运行范围。持续模式的后端 `expires_tick` 为零，表示不设置整次运行期限，
+不通过周期重启或 SCPI 续租维持输出。含义由 `VDC_RUN_OUTPUT_SCHEMA` 与
+`SYNC_IO_RUN_OUTPUT_SCHEMA` 标识；这不取消有限块规划、生命周期或故障退休。
+TDMA 活参考观测同样持续到 STOP 或有效性检查失败，不受可选内部记录时长或
+外部示波器采样间隔控制；具体 owner 检查见 TDMA 域的 `tdma_event_start`。
 Core1 完整服务入口在 TDMA owner 之后运行，只有 `data_enabled` 表示 START、
 环路配置已应用且当前 committed DCO 的 slot/schedule、session、role 与 clock
 身份一致时，才规划未来边沿。已运行请求每次服务都检查生命周期，即使 DMA 忙；
@@ -872,11 +878,12 @@ SYNC_IO 补给主体显式放置于主 SRAM，并阻止编译器将边界重新�
 
 `vdc_timestamp_bridge_local_to_raw` 为未来本地 ns 给出保守原始 tick 区间，保留
 TIMER0 量化、bridge 观察跨度和原始计数器分数拍；上界用于不提前的计划坐标。
-该旧 API 的短期边界不变。有限 RUN 单次取得初始 bridge，后续绝对本地目标经
-`vdc_timestamp_timeline_local_to_raw` 映射到同一 raw 时间轴，使用该 helper 的
-有界长期范围，不累计舍入后的周期。规划和准入仍分别读新鲜硬件 raw 时刻，
-校验时钟配置和模型生效时刻；旧 anchor 不是当前时间。取消/终态/新准备清理映射。
-固定映射不会消除真实模型更新引起的未来边沿变化，不擅自平滑或修改 NO1 PI。
+该旧 API 及 `vdc_timestamp_timeline_local_to_raw` 的范围不变，当前 RUN 使用
+`vdc_timer1_coordinate.h` 将 TIMER1 tick 与 DCO 本地 ns 直接转换，不经过 TIMER0
+bridge，不累计舍入后的周期。有限模式保留初始坐标跨度检查，持续模式不设整次
+跨度上限；两者均检查有序时钟、转换溢出、每块未来范围和当前模型生效时刻。
+规划及准入分别读取新鲜 raw，初始坐标不是当前时间；取消、终态及新准备清理
+客户端状态。该转换不消除真实模型更新引起的未来边沿变化，不修改 NO1 PI。
 
 RUN 在 PREPARE 将已锁存脉宽按与规划相同的整数上取整换算为 tick，并选择
 `sync_io_run_output_prepare_uniform`；SYNC_IO 在 STOP 将固定高段计数写入

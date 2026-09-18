@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 
 本文只维护当前 VDC 架构迁移的任务、依赖和退出门禁。稳定语义见 Architecture，实施证据
 见 Task Progress，重构前内容已归档到 `docs/legacy/vdc/`。
@@ -33,6 +33,21 @@ Last updated: 2026-09-18
 最终交付为可复现配置、相位/频差证据、跨启动与持续运行报告、恢复结果及 VDC 发布版本。
 
 ## 下次接续入口：扩展持续锁相证据并验证启动与恢复
+
+当前接续以持续运行专项为先：输出与 TDMA 调试授权均已增加显式零时长持续模式，
+有限模式保留；实现验证及硬件结果见最新进度。运行后只用外部示波器每五秒采集
+一至两个周期，不启用内部 trace 或轮询板卡；停止后可读取末态诊断。每次采样
+独立重新触发，记录遗漏与传输耗时。持续运行与 ±100 ns 持续精度分别判定，
+发现长期漂移时保留整轮数据，并将定位更新停滞或控制误差作为下一切片。
+
+### 快速迭代检查点
+
+持续专项仍每 5 秒触发一次四路外部短窗；只在 60、120、180、240、300、360、
+420、480、540、600 秒检查一次结果。每个检查点独立记录窗口完整性、NO2–NO4
+相对 NO1 是否超出 ±100 ns、输出是否连续及示波器错误。检查点失败立即停止本轮
+并执行 STOP/末态读取/参数恢复；不等待后续分钟，也不重启来替代连续运行。±50 ns
+仍是优化目标，稀疏窗口不能证明未采样区间。该流程属于诊断执行规则，不能提升
+P3 基础范围或 VDC 产品准入。
 
 **2026-09-18 用户确认的新优先级：** DPLL/VDC/SYNC 统一使用现有 TIMER1 高分辨率
 时间轴，TIMER0 保留 SDK 系统计时。当前 `BOARD_SYS_CLOCK_HZ` 配置下 TIMER1 一拍
