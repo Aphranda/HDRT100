@@ -67,7 +67,14 @@ ARM trace/确认 ACK，再 TDMA ARM/START；复用已验收矩阵和 TAP，不�
 停止边界、定位残差变化并做外部同窗开销与 GPIO 对照。静默运行只支持 STOP 后
 逐分钟回看，每分钟在线止损需后续有界告警机制，不能冒称已完成。
 证据和服务间隔、残差范围见 `VDC-PROGRESS-20260919-007`；`VDC-OBS-007` 保持
-IN PROGRESS，外部无扰 A/B、跨启动重复性与正式发布门禁尚未闭合。
+IN PROGRESS；外部 A/B 已完成有限窗口对照，跨启动重复性与正式发布门禁尚未闭合。
+
+接续推进已经完成探针 OFF→ON→OFF 的外部短窗对照，各轮外部边沿在 ±50 ns 内
+（实验快照，非零干扰证明）。已证实本地 DCO 提交被管理/RefMem 的旧 DPLL 序号
+去重漏掉；完整快照刷新已修复，四板 STOP 读回的实际模型、管理 DCO 与 RefMem
+DPLL 向量的五个公共 DCO 字段一致，新源码四板 quick P3 通过且保留告警，见
+`VDC-PROGRESS-20260919-008`。该修复不替代 quality/valid/freshness、失联保持、
+重新收敛或正式 RUN 门禁；旧 clock 与 DCO 模型语义不互相覆盖。
 
 ### 快速迭代检查点
 
@@ -1305,7 +1312,7 @@ TDMA/Calibration 的训练与有向时延测量流程。
 | 9 | `VDC-SERVO-001` | 实现 FLL-assisted acquisition：多周期 phase slope、受限初始 step/feed-forward、frequency sanity/slew。 | SyncDpllFB | PENDING | `VDC-EVID-001`, `VDC-ROLE-001` | 进入 `FREQ_LOCK`，只发布 coarse/tracking candidate。 |
 | 10 | `VDC-SERVO-002` | 实现二阶 Type-II PI tracking：`kp_q16/ki_q16`、显式积分状态、anti-windup、phase/rate slew、input residual 统计，以及 debug SCPI generation/mailbox 和自动回退工具。 | SyncDpllFB + System/maintenance | PENDING | `VDC-SERVO-001`, `VDC-ROLE-003` | `PHASE_LOCK` 稳定，DCO snapshot 完整可消费；debug 异常参数不被数值范围门禁拒绝，格式/资源错误仍留证。 |
 | 11 | `VDC-LOCK-001` | 建立粗锁、tracking candidate、formal lock promotion gate。 | VdcQualityGateFB + VdcSyncAO | PENDING | `VDC-SERVO-002` | fine tier、连续窗口、RMS/peak/jitter、freshness、active calibration、formal timestamp 和非 provisional path 全通过。 |
-| 12 | `VDC-SNAPSHOT-001` | 重建 VdcVector/DCO guarded snapshot，接入 core1 stable read。 | VdcVector + core1 realtime | PENDING | `VDC-LOCK-001` | seqlock/双缓冲/等价 guard 通过；stale/late/半更新 fail-closed。 |
+| 12 | `VDC-SNAPSHOT-001` | 重建 VdcVector/DCO guarded snapshot，接入 core1 stable read。 | VdcVector + core1 realtime | IN PROGRESS | `VDC-LOCK-001` | seqlock/双缓冲/等价 guard 通过；stale/late/半更新 fail-closed。本地 DCO-only 提交的完整快照刷新先独立修复，不据此关闭质量及 freshness 门禁。 |
 | 13 | `VDC-HOLD-001` | 实现 HOLDOVER aging、dispersion/drift bound、RELOCKING 和 FAULT。 | VdcSyncAO + VdcQualityGateFB | PENDING | `VDC-SNAPSHOT-001` | 丢样本不伪造锁；超预算禁止 RUN；恢复重新 acquisition。 |
 | 14 | `VDC-RUN-001` | 将 formal VDC gate 接入 RefMem mirror、T2/READY、FIRE_LOAD/RUN。 | Trigger + RefMem + SystemManager | PENDING | `VDC-LOCK-001`, `VDC-SNAPSHOT-001`, `VDC-HOLD-001` | coarse/provisional/holdover 超预算/unlocked 全部拒绝正式 FIRE_LOAD。 |
 | 15 | `VDC-VERIFY-001` | 汇总阶段 replay、故障注入、四板实际输出测量、配置矩阵和长稳报告；NO5 关联见观测扩展任务。 | 主控验收 | IN PROGRESS | 分阶段开放；最终关闭需 `VDC-RUN-001`、`VDC-ROLE-005`、`VDC-CONFIG-001` 及对应长稳证据 | 诊断、命令应用、内部锁定和正式锁相分别判定；各配置绑定当前源码及原始证据，失败和回退可追溯。 |

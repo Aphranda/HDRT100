@@ -192,6 +192,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `VDC-PRIORITY-01` | typed 同步邮箱携带完整事件/运行代际及 output-ns 区间，Core1 编码/直接匹配、TDMA 双缓冲及 RX IRQ 交接；NO1 与从板 MATCH 独立有限共钟半开求交、逐帧 latch、最终准入后提交，origin 编码与原生重放；typed 共钟差分与旧阶梯界分离，有界窄基线和档位复评；STOP 配置、绑定锁存与 Core0 显式 Flash 保存；本地相位精确平移与完整回执，频率变化/未知模型/STOP 取消；相位中点仅作限幅控制估计，保留完整残差上下界与版本化原生重放；独立输出 delay、整数反解与共同网格；DPLL/VDC/SYNC 特等席由 SYNC_IO 统一交付 PIO，有限持续输出保留资源预留、完整客户端交接、START/模型身份准入、不可改写前缀、raw/enable 锚区间与异步退休；时间窗口可配置，有限 RUN 固定映射并使用新鲜硬件时刻、分批规划及静态调度容量准入；固定高宽在 STOP 预装 ISR，单字低段提交仍须完整复验并保留原双字能力；物理精度、单圈期限、ACK 与产品锁相独立验收 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-PRIORITY-01` | pending |
 | `VDC-REFERENCE-01` | 显式 STOP 参考运输复用固定配额：Core0 投影并逐目标发送，三从保留指定主机参考并回 typed 接收 ACK，主机按完整发布证明核对；不阻塞发车或本地 PI，不以确认代替 DCO 应用或锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-REFERENCE-01` | pending |
 | `VDC-BOUNDARY-01` | 特等席固定配额承载逐从频率命令；Core0 准备独立 RATE 同模型窗口并有界重复，Core1 在显式 AUTO 下逐从负反馈、连续应用及精确 ACK；未决不叠加，不授予物理锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-BOUNDARY-01` | pending |
+| `VDC-PUBLICATION-01` | 完整快照刷新与 DPLL 证据序号分离，Core0/RefMem 按同次稳定快照的本地偶数 guard 去重；失败不消费、零值回绕有效，既有 seqlock ABA 限制保留；每 beat 至多一份向量，旧 wire/CRC/质量语义不变，不授予正式锁相或共同时间发布资格 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-PUBLICATION-01` | pending |
 
 `VDC-PRIORITY-01` 的调试观测还可互斥复用原维护记录池，按 Core1 service 时间段
 汇总成功极值与 owner 拒绝/取消/保持，显式保留无输入、观测缺口和异常终止。

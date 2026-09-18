@@ -22,6 +22,54 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-008：探针外部对照与 VDC 发布漏更新修复
+
+- TODO task ID：`VDC-OBS-007`、`VDC-SNAPSHOT-001`，保持 `IN PROGRESS`。本条数字
+  为当日实验快照，非产品事实源。先复核六百秒内部区间：残差端点包络与同段最大
+  宽度相关系数约 0.983/0.985/0.990，与最大服务间隔相关性较弱；分段极值不保证
+  同事件，不能推导因果或 GPIO 误差。独立只读分析 `probe-ab-residual-analysis.json`
+  建议优先检查时间戳/匹配区间宽度，未据此修改闭环增益。
+- `probe-scope-ab-a1/b1/a2/` 使用相同 timing `24000,32000,16000 us`、输出 delay
+  `0/-28/-88/-116 ns`，按 OFF→ON→OFF 三次独立热启动，每轮每五秒采样、六十秒
+  检查点。三轮各十二组四路新鲜 RAW 窗口，每从二十四个实际上升沿；2 ns 网格、
+  2.5 V 交点、相对 NO1 未独立居中，三轮全在 ±50 ns 内。ON 一轮三从范围为
+  −29.84..−14.82、−31.96..−14.99、−12.00..9.93 ns，未观察到明显增大，但独立
+  启动/温漂和稀疏窗口限制保留，不宣称零开销或全程精度。四板运行查询为零，
+  无提前输出退休，STOP/恢复完成；ON 严格内部报告保留 NO1 首段 COUNTER_RESET。
+  SHA/RAW 重解码对比和图在 `probe-scope-ab-analysis/`。
+- 修复前 STOP 读回 `publication-before-fix/` 证实：NO2–NO4 FOLLOW 已有新调频与
+  相位更新，Core0 DCO consumer 和 RefMem DPLL 向量仍为 DCO seq=1、0 ppb。
+  原因是两消费者按 `dpll.update_seq` 去重，而本地 rate/phase 只推进 DCO 序号。
+  本切片让完整快照带同次稳定偶数 guard 的 `publication_revision`；失败不确认，
+  零值回绕可消费，每个 RefMem beat 仍至多一份向量。旧 wire、证据序号、clock
+  模型和质量语义保留，不把更新成功当作正式 LOCKED 或失联 aging 完成。
+- 组合回归 315 项通过；既有 `test_core1_overrun_quarantines_only_the_faulting_load`
+  因旧文本期望失败，`application/src/app.c` 与该测试文件和 HEAD 完全一致，证据
+  `vdc-publication-existing-test-failure.json`。新增真实 Domain/管理/RefMem 测试
+  对旧 HEAD 的 rate/phase/quality 漏更新均可复现，新实现及布局 golden 最终
+  十六项通过。独立方同意 `VDC-PUBLICATION-01 v1 pending`，原件
+  `publication-independent-review.json`。
+- 新源码 Release 与 `p3-vdc-publication-r2/` 完成，build `20260918204248`，
+  PASS_WITH_WARNINGS、ERROR/FATAL 均零，严格质量失败保留；首次 r1 仅因复用的
+  topology 非原始测量身份在硬件前拒绝，r2 使用原始已测矩阵，未重扫线序。
+  `publication-after-fix-r1/` 静默十秒、运行查询零，四板模型/Core0 consumer/
+  RefMem DPLL 的 DCO 序号、source、lock、phase、rate 五个公共字段一致。
+  三从 DCO 序号 112/114/113、频差 2226/2538/4675 ppb 已实际发布；旧 DPLL
+  证据序号仍为一，证实修复不靠篡改证据序号。对账见
+  `publication-readback-comparison.json`，不把局部字段一致称完整发布验收。
+- `publication-scope-r1/` 在 START 前 NO3 RUN 配置超时，恢复时原 error queue
+  非空导致保留 restore-needed；最终读回四板均 STOP、参数与原值一致。原失败
+  不覆盖。同参数有界复测 r2 连续运行至六十秒检查点；首个示波器采传耗时
+  5.187 秒，十秒窗口遗漏，检查点正确 FAIL 并停止。其余十一个有效四路窗口
+  每从二十二边沿，范围 −30.33..−13.12、−30.51..−16.04、−12.04..9.71 ns，
+  均在 ±50 ns 内，未见已采窗口恶化；不能宣称完整覆盖或全程精度通过。
+  NO1 首段 COUNTER_RESET 仍使内部严格判定 false，运行查询零，STOP/RELEASE/
+  恢复完成。RAW 重解码及图见 `publication-scope-analysis/`。源码提交
+  `dbc77b6d`；独立最终核对见 `publication-final-evidence-review.json`。
+- 证据根 `out/HardwareAcceptance/20260919/`。下一 gate：内部启动/运行/停止
+  分级与分钟检查点有界告警，完善无示波器自检；继续 quality/valid/freshness
+  和失联恢复，完整 VDC 发布未完成，不能以本切片取消正式质量门禁。
+
 ### VDC-PROGRESS-20260919-007：内部汇总扩窗与连续证据推进
 
 - TODO task ID：`VDC-OBS-006`、`VDC-OBS-007`，保持 `IN PROGRESS`。本条数值为

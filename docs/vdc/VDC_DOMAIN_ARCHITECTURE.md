@@ -320,6 +320,21 @@ phase-only 诊断脉冲 deadline 与输出域残差接口共用该投影，避�
 残差正负号是归中后的本地模型相位减期望相位，不单独授予物理引脚提前/滞后结论。
 这两个纯计算接口不写 PI、DCO、lock 或 quality，也不建立共同时间映射或授予正式准入。
 
+### VDC-PUBLICATION-01：完整快照刷新与证据序号分离
+
+本地 FOLLOW 频率或相位提交可只推进 DCO 序号，不能以旧 `dpll.update_seq` 未变
+推断完整发布未变。`vdc_dpll_manager_runtime_snapshot_t`、`refmem_snapshot_t` 与
+`vector_snapshot_t` 的 `publication_revision` 取自成功读取的同一稳定偶数 guard；
+Core0 DCO 管理读者和 RefMem 运行向量分别按该本地标记去重，只确认实际复制的版本。
+快照失败不消费版本；guard 奇数表示写入中，零值是回绕后的有效变更标记。
+该字段复用既有 seqlock 的有限 ABA 假设，不是永不回绕身份、时间戳或新鲜度证明。
+
+RefMem 每个 beat 仍至多发布一个运行向量，交替公平性、原 CRC 与 wire 布局保留。
+wire 中 `source_update_seq`、`dpll_update_seq` 继续表达原 DPLL 证据，不能被本地
+快照标记替换；读取方依据 `publish_sequence`/CRC 取得更新。原 clock 模型、DCO
+模型和 quality 各保留原义，不能为了显示同步而互相覆盖。本条只保证已发布字段
+的刷新，不授予 formal lock，也不替代 STOP/失联 aging、有效性和共同时间发布验收。
+
 ## HOLDOVER、RELOCK 与失败恢复
 
 - 单份时间样本的 CRC、来源、时间有效性或代际不匹配只拒绝该样本；在当前控制

@@ -269,3 +269,23 @@ r4 完成后，独立方再次核验四板原生/分页 CRC、解码及十个分
 的成功跨度、全程零运行命令、STOP/RELEASE 与参数恢复。补充原件为同根
 `window-r4-independent-review.json`；严格 false 及三从内部区间极值扩大保留，
 仅接受内部连续跟随证据，不授予 GPIO 边沿精度。
+
+## 完整快照刷新增补（VDC-PUBLICATION-01 v1 pending）
+
+本地 rate/phase 提交不推进旧 DPLL 证据序号，管理面和 RefMem 旧去重可能永久
+漏掉实际 DCO 更新。内部快照新增同次稳定偶数 guard 的 `publication_revision`，
+消费者只确认成功复制的版本；失败不确认，零值回绕有效。原 wire、CRC、证据
+序号、clock 模型与 quality 不被替换，RefMem 每 beat 仍至多一份向量。
+
+真实 Domain→publisher→Core0/RefMem consumer 回归已对旧实现复现五项漏更新，
+新实现及布局 golden 通过；实板修复前旧 DCO 读回也已保存。独立审核入口及证据
+为 `out/HardwareAcceptance/20260919/publication-review-request.json`。
+独立方 `internal_probe_review` 已同意本切片代码/契约及 pending 登记，无阻断项；
+复跑新增与相邻测试通过，核对 P3 r2 指纹及全部引用 hash，保留质量告警。
+原件为同根 `publication-independent-review.json`。该审核不含后续 STOP 字段对照
+与物理输出专项，不授予正式发布或持续精度资格。
+
+同一独立方后续核验四板 STOP 公共 DCO 字段及模型/Core0 其余可见字段、内部
+原生 CRC、示波器 RAW 与 STOP/RELEASE/恢复，原件为同根
+`publication-final-evidence-review.json`。支持限定的发布刷新修复；保留 START 前
+超时、示波器漏窗和 NO1 初始化计数重置，不批准严格长时或正式锁相完成。
