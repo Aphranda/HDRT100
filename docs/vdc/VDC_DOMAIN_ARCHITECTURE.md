@@ -618,6 +618,18 @@ Core1 service 末尾观察 owner 累计拒绝、取消与保持计数，补足�
 部分段并冻结真实原因。离线工具核验格式、计数和时间连续性；汇总仍不授予物理
 GPIO 精度、绝对脉冲身份或正式锁相资格。
 
+汇总 ARM 单参数保持 `VDC_PRIORITY_TRACE_SUMMARY_PHASE_SCHEMA` / `ORIGIN_SCHEMA`
+及 `VDC_PRIORITY_TRACE_SUMMARY_INTERVAL_MS`；显式第二参数 `interval_ms` 选择独立
+`VDC_PRIORITY_TRACE_SUMMARY_WINDOW_PHASE_SCHEMA` / `WINDOW_ORIGIN_SCHEMA`，即使
+所选跨度等于旧默认值也不复用旧版本。跨度须为默认间隔的整倍数且不超过
+`VDC_PRIORITY_TRACE_SUMMARY_MAX_INTERVAL_MS`，并以宽整数计算当前 tick rate 下的
+偏移上限；不可表示时在抢池及消费 capture ID 前拒绝，Core1 ACK 时再次核验。
+选择的跨度随 request/ACK 一起提交，冻结头保存实际跨度，记录布局及 raw tick
+单位不变。扩窗只减少提交频率，每次 service/success 仍更新计数和极值；
+SERVICE_GAP 的单次服务缺口门限保持默认间隔，跨段迟到以所选跨度加默认间隔判定。
+长成功缺口和计数不可表示时仍饱和并保留 flags，不随扩窗放宽或清零。主机必须按
+schema、跨度、tick rate 与容量核验完整覆盖，不能仅延长等待或拼接重启片段。
+
 `SYSTem:VDC:PRIORity:SYNC` 是 Core0 STOP-only 意图，非零值必须严格递增且已有
 feedback session；零禁用。generation 不替代 feedback session、origin epoch
 或 model token。Core1 首次绑定完整 ring config、source epoch/tick rate、session、

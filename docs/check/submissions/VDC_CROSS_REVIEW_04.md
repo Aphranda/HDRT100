@@ -248,3 +248,24 @@ lease/CRC 与严格 decoder 保留。汇总输入成功不等于实际 GPIO 输�
 算术/序号拒绝及 STOP。证据根为
 `out/HardwareAcceptance/20260918/dpll-observer-continuous-r1/`。
 旧有限观测器退休及长时间漂移原件保留；专项结果与未完成门禁以进度日志为准。
+
+## 可配置汇总扩窗增补（v20 pending）
+
+STOP 下显式双参数 ARM 使用 `VDC_PRIORITY_TRACE_SUMMARY_WINDOW_*`；旧单参数
+schema 与间隔不变。整倍数、最大跨度及当前 tick 可表示范围在 Core0 准入与
+Core1 消费时双重核验，参数随既有 request/ACK 提交。固定 SRAM 池和冻结布局
+保持，扩窗不放宽服务缺口门限；饱和、FULL、空段及真实 STOP 边界完整保留。
+
+独立方 `internal_probe_review` 已完成生产代码与主机工具只读审核，未发现新增
+阻塞项，允许进入 P3 和四板实测；这不是硬件通过或产品准入结论。
+真实 libscpi 独立复跑及组合 host 测试证据见当前 Task Progress。
+同一独立方已复核稳定文档、登记、当前源码指纹、P3 引用 hash 和 r1–r3 原生
+CRC/解码、STOP/RELEASE/参数恢复，同意 v20 保持 pending 登记。
+原件为 `out/HardwareAcceptance/20260919/window-c11-review.json`。C14 超限已通过
+逐字归档及索引闭包修复，两个文档门禁重新通过；r2/r3 首段计数重置及严格失败
+完整保留。该报告未审核尚在运行的 r4，不提升产品 RUN 或物理锁相资格。
+
+r4 完成后，独立方再次核验四板原生/分页 CRC、解码及十个分钟窗口、超过六百秒
+的成功跨度、全程零运行命令、STOP/RELEASE 与参数恢复。补充原件为同根
+`window-r4-independent-review.json`；严格 false 及三从内部区间极值扩大保留，
+仅接受内部连续跟随证据，不授予 GPIO 边沿精度。

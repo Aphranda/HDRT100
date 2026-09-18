@@ -204,6 +204,7 @@ docs/
 | `legacy/vdc/LEGACY_VDC_DOMAIN_ARCHITECTURE.md` | VDC 重构前架构历史快照。 |
 | `legacy/vdc/LEGACY_VDC_DOMAIN_TODO.md` | VDC 重构前待办历史快照。 |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS.md` | VDC 重构前任务进度历史快照。 |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_06.md` | VDC 进展日志 C14 归档（`VDC-PROGRESS-20260917-024`..`VDC-PROGRESS-20260917-023`，2 条），旧条目逐字保留。 |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_05.md` | VDC 进展日志 C14 归档（`VDC-PROGRESS-20260917-022`..`VDC-PROGRESS-20260917-022`，1 条），旧条目逐字保留。 |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_04.md` | VDC 进展日志 C14 归档（`VDC-PROGRESS-20260917-021`..`VDC-PROGRESS-20260917-012`，9 条），旧条目逐字保留。 |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_02.md` | VDC 进展日志 C14 轮转归档段（`VDC-PROGRESS-20260917-010`..`VDC-PROGRESS-20260917-001`，10 条），旧条目逐字保留。 |
