@@ -43,6 +43,26 @@ Last updated: 2026-09-18
   enable、path/output delay 和实际 NO1--NO4 边沿；保持运行期间零查询，并在单因素
   复测后再处理首次 enable 偏移与严格调度告警。
 
+### VDC-PROGRESS-20260918-023：schema 9 三元组与四路波形同会话关联
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条是单次示波器
+  会话的调试快照，所有计数和相位数字均为证据快照，非产品事实源；没有修改固件、
+  path-delay 表或 OTA。
+- 使用匹配 schema 9 的采样包装器和已连接示波器，NO1 CH1 上升沿触发，延迟窗口 2 s、
+  20 ms/div，运行期间板卡查询为 0；四板和示波器均安全恢复。证据根为
+  `out/HardwareAcceptance/20260918/dpll-bridge-export-scope-r1/`，原始 RUN 查询、
+  scope 数据、解析器副本及 SHA256 均保留在 `capture/` 与 `dpll-run-timeline-r2/`。
+- 四板各得到 200 个上升沿，采样网格为 20 ns，无粗大缺口。最近边沿（模名义周期、
+  未建立共同 ordinal）相对 NO1 的中位快照为 NO2 `-319.94 ns`、NO3 `-140.11 ns`、
+  NO4 `420.17 ns`；对应线性斜率快照为 `0.558/-0.199/0.769 ppm`。解析结果明确
+  `physical_lock_qualified=false`，所以不能宣称 100 ns 锁相。
+- `scope-analysis/bridge-correlation.json` 显示四板首次 bridge 三元组的本地采样
+  区间宽度相同，首次 PIO enable 的 raw enclosure 也相同；各板输出 delay 仍为零。
+  这证明导出字段可用于关联诊断，但尚未证明跨板时间相位或消除首次 enable 偏移。
+- 下一 gate：建立共同 edge ordinal，并在保持零查询的单因素试验中分别改变 output delay
+  或 path delay；每次仍需保留 bridge 三元组、PIO enable 锚、波形和 STOP 状态，不能
+  用最近边沿中位替代严格 100 ns 判据。
+
 ### VDC-PROGRESS-20260918-021：NO1 OUT4 外部触发路径未捕获
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条为触发路径
