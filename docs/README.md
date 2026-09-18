@@ -181,6 +181,7 @@ docs/
 | `vdc/VDC_TASK_PROGRESS.md` | VDC 内部主域任务进度。 |
 | `vdc/VDC_DPLL_STATUS_REVIEW.md` | 四板 DPLL 实际闭环、连续启动收敛、有限精度与发布缺口的阶段报告。 |
 | `reports/distributed-trigger/DHRT100_DPLL_STATUS_REPORT_20260918.html` | 四板 DPLL 阶段报告，沿用项目 A4 竖版模板；含组成机制、连续收敛、完整方波与上升沿实测 SVG。 |
+| `reports/distributed-trigger/DHRT100_DPLL_STATUS_REPORT_20260918.pdf` | 四板 DPLL 阶段报告打印版，A4 竖版七页。 |
 | `vdc/VDC_DOMAIN_RISK_REVIEW.md` | VDC/DPLL 主域风险评审，记录共同时间、DPLL、硬实时 capture/fire 和文档漂移风险。 |
 | `communication/README.md` | 通信域 README。 |
 | `measure/README.md` | 测量域 README。 |
