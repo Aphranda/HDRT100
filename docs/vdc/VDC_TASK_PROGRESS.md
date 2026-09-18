@@ -22,6 +22,41 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-046：冻结补读、4 ns 外部采样与首沿覆盖缺口
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-PRECISION-001`；父任务 IN PROGRESS。
+  本条数字是本轮实验快照，非锁相或路径 delay 契约。固件、工具事实源和 P3 源码指纹
+  未变，继续使用 045 的 `c24e06dd`、`p3-phase-center-r3/` 及临时 RAM 许可；本轮仅在
+  `out/` 使用实验适配器并维护文档，没有新固件部署，也不新增 P3 精度门禁。证据根为
+  `out/HardwareAcceptance/20260918/dpll-extended-window-r1/`。
+- 扩展窗口 r1/r2 在 START 前因水平 offset 读回不符失败；r3 的 NO2 STOP 后 RAM
+  页读取异常、波形按请求的 50 M 点读取而在实际 27.85 M 点边界被拒绝。四板 STOP、
+  参数恢复完成，原失败保留。未重新 ARM 的补读获得 NO2 7768 B 完整 CRC/native，
+  此前 42 页相同；四路 112 个波形块及原 CH1 的 27 块 hash/连续性独立复核通过。
+  原件为 `compensated-r3/recovered/`、`independent-scope-recovery-audit.json`。
+- 补读的实际时间轴为 -0.557 s 至 -20 ns，但四路均为低电平噪声、没有上升沿，
+  明确拒绝作为任何相位证据。首次 STOP 查询前没有示波器 STOP 命令；后续读回 MAIN。
+  不能把该现象确定归因为主动截断、roll 或 DPLL 丢失输出。50 ms/div 配置也未达到
+  请求 offset；独立 scope-only 诊断保留，强制触发诊断中的非法小数写法失败同样保留。
+  20 ms/div 已知配置恢复正常，不靠放宽断言使用错误窗口。
+- `dense-r1/` 保持输出补偿 `0/-28/-88/-160 ns`，静默约七秒后 CH1 上升沿 SINGLE，
+  实际 50 M 点覆盖 0.2 s，采样网格由先前 20 ns 提高到 4 ns。完整流程约 144.8 秒通过，
+  四份原生解码、DCO 末态一致、RUN 参数请求/实际/恢复一致，运行期间零查询。三从
+  相对 NO1 的有限范围约为 -31.85..-13.32 / -35.13..-21.03 / -63.70..-47.94 ns；
+  各 199 组近邻配对，参考索引连续、无重复或间隙。窗口内未见漏周期；1.2/1.5/1.8 V
+  三种阈值的结论一致。原生与波形绑定见 `comparison.json`，图及原始分析见
+  `dense-r1/capture/scope-analysis/`。仍是 modulo 周期的有限相位，不是同 ordinal 锁定。
+- `startup-r1/` 改为 START 前确认新 WAIT/SING、采用 -0.1..+0.1 s 同步四通道记录，
+  其余参数保持。适配器离线覆盖正常流程及四个 START 拒绝位置，运行期间零查询；
+  硬件完整流程约 131.2 秒通过，四板 STOP、输出补偿恢复且示波器 STOP/EXT/NORM。
+  实测 START 发送跨度约 219 ms；NO1/NO2 的首沿在窗口内，NO3/NO4 的首沿已被裁剪，
+  因而 `startup-audit.json` 明确保留 `common_ordinal_qualified=false`。
+  内部 first_ordinal 及计划边沿连续不能补足未采到的首沿，也不能用整数周期平移修图。
+- 下一 gate：保持当前补偿，优先建立首沿覆盖及同 ordinal 对账；评估在现有独立串口
+  会话上有界并发发送 START、全部显式 ACK 后才触发 TRIAL，需先验证会话/日志并发、
+  任意启动失败的 STOP 收尾；或修复较长触发窗口。随后扩大稳定期连续观测，保留独立
+  forward-CS delay、单圈期限、完整误差预算及 VDC 一致发布，不将 4 ns 网格冒充物理精度。
+
 ### VDC-PROGRESS-20260918-045：冻结记录恢复与 Core1 相位中点策略
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003`；父任务 IN PROGRESS。数字为有限实测
@@ -2207,81 +2242,6 @@ Last updated: 2026-09-18
   `diagnostic-design.json` 设计，尚未实现。固定模型输出不替代实时采用、绝对
   相位、ACK、恢复和一致 VDC 发布。
 
-### VDC-PROGRESS-20260917-016：固定已采用模型的连续物理输出
-
-- TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。本切片按用户要求用外部示波器反馈
-  校核 DPLL，证据根为 `out/HardwareAcceptance/20260917/dpll-fixed-output-r1/`。
-  主控原件/指纹复核入口为 `main-summary.json`，最终硬件状态为 `final-board-scope-state.json`。
-  代码、测试及匹配四板 P3 凭证已提交 `d2021b8`，真实 pre-commit 核验通过；文档分离提交。
-  下列测试、容量与时间均为证据快照，非产品事实源；此处不授予锁相或 VDC 发布完成。
-- 新增 `vdc_dpll_manager_fixed_output_start()`：只在 Core0、TDMA 已停止且当前非零会话
-  对应真实 committed model 时准入。启动前后复验模型与时源，不退回本地裸时钟；正常
-  seqlock 争用保留批次，实际模型或运行上下文改变则取消。SCPI `SYSTem:VDC:OUTPut:FIXed`
-  只配置触发有限批次，查询保留所采用的模型身份、编码参数、硬件终态与完成计数。
-- `sync_io_rate_schedule_generate()` 对累计边沿执行逆频率量化，避免逐周期取整吞掉小
-  修正。复用现有 PIO0 scheduled-trigger persona、DMA 和共享工作区，有限批次由硬件
-  连续执行，无逐沿 Core0 重装。真正完成还要求最后下降沿后的 PIO PC、DMA 与 FIFO
-  共同满足终态；不能以 FIFO 空单独宣布完成。固定模型输出不自动采用后来模型，实时
-  换模型及绝对相位另验。
-- 独审发现并修复三项：正常模型读争用误取消、准备期旧接口夺取共享工作区、新失败
-  请求混入旧批次统计。准备期抢占的红测试保留；最终独立资源/取消测试及相关综合
-  回归通过，详见 `test/coverage.json`、`host-final.xml`、`review/code-host-final-review.json`。
-  Release 与链接资源复核通过；新增静态 RAM 为 344 B，已启用 Core1 栈上界仍为
-  2872/3072 B，数字仅为本次链接快照。通用运行状态 getter 不读取固定输出的 Core0
-  缓存，也不在 Core1 分配其完整状态对象。
-- 首轮四板 quick P3 为 `PASS_WITH_WARNINGS`，严格质量未通过；后继 `native-r1`
-  整体失败保留。三从都有 typed 参考输入；NO2/NO3 的 observer DMA 环覆盖使观测
-  失效、跟踪取消，不能把零调整解释为无需调整。NO4 原生决定与真实 DCO 一致，
-  但记录跨度不足专项判据；固定输出当时未启用，不据此推定该新增输出路径的因果。
-- `raw-r1` 已取得四通道原始时钟。`physical-r1` 在 ARM 前因新增 STOP handler 未
-  输出成功 ACK 而超时，保留失败原件。真实 handler 红测试复现；修复为既有
-  `scpi_port_result_ok()`，修复后相关 host 75 项通过。新源码 `p3-r2` 为
-  `PASS_WITH_WARNINGS`，无 ERROR/FATAL；严格启动屏障告警保留。增量 build 字符串
-  沿用缓存，实际版本由源码 `a07aa4e055f389019e81f011f5d199d73d285d1a27072c233ef6976f6cee770f`、
-  package、四板 OTA 凭证与新 ELF 联合绑定；独审已逐字节核对包内两个应用与 ELF。
-- `native-r2` 三从均有真实 DCO 更新，全部决定与末态模型一致；NO4 后段仍发生
-  observer DMA 覆盖，整体专项 FAIL 保留，不能追认为持续跟踪通过。
-  `physical-r2/r3` 分别在 NO3/NO2 启动准入被拒绝；状态为资源或参数拒绝，现有
-  原件不能区分快照争用与资源，不能宣称根因已证。STOP、资源表和失败原件保留。
-- 有界复试 `physical-r4` 成功：四板固定模型身份前后一致、各完成全部 2048 脉冲，
-  DMA/FIFO/末沿终态及全部 STOP ACK 核验通过。与 `raw-r2` 的完整 DCO 字段相同，
-  两轮均为 NO1/CH1 正沿新单次触发、四通道同帧 RAW、采集期间零查询。最终停止
-  输出、反馈会话归零，示波器恢复 EXT/NORM/STOP。
-- 外部快照（拟合值，非精度契约）：NO2/NO3/NO4 原始相对频差约 −223/−527/−2860 ppb；
-  固定 DCO 实际输出约 −2409/−2144/−4686 ppb。NO1/NO2/NO3/NO4 当时采用
-  +3786/+1598/+2096/+1984 ppb；实际变化与原始频差乘模型频率比例的预测相容，
-  确认本批次执行方向和幅度，并未消除相对漂移。不能把原始 PWM 再加一次修正当成
-  实测，也不能从当前差值单独裁定 PI 增益或长期稳态；原始与固定采样分轮，温漂等
-  系统误差尚未完全计入。图与分析在 `physical-r4/physical-dco-comparison.svg`、
-  `physical-r4/analysis.json`；独立多阈值/分段重算与完整原件绑定通过，见
-  `physical-r4/independent-final-review.json`。首次离线分析的 NumPy 布尔序列化失败亦保留。
-- 裸 PWM 不包含 NO1 的正修正，不能从裸时钟→固定输出的相对负频差增大推定从板
-  调反。以此次 NO1 修正不变、从板修正仍为零作离线反事实，预计三从起点约为
-  −4.0/−4.3/−6.6 ppm，现有从板正修正会缩小这部分差值；此起点是模型推算，
-  不是同时实测。原生窗口中的已留存 NO1 模型均为相同频率修正，尚无该窗口内
-  参考持续变化证据。短时运行、保守步长与量化区间、NO4 观测中断均须分开评估。
-- 下一 gate：用已闭合的外部频率观测对照 NO1 参考和三从采用轨迹，
-  定位跟随滞后、宽区间未决与 observer 服务积压，再评估隔离的有界长窗口候选；
-  不直接用此次静态差值写校正值或放宽量化界。实时换模型、绝对相位、持续锁相和
-  VDC 发布仍待验收；observer 连续性失败不扩大为固定模型输出的新增锁相门禁。
-
-### VDC-PROGRESS-20260917-015：外部原始频差与现有 DCO 修正对照
-
-- TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。用户授权以真实示波器反馈纠偏。
-  已用现有固件的连续硬件 PWM、NO1/CH1 正沿触发取得四路同帧冻结 RAW，证据为
-  `out/HardwareAcceptance/20260917/dpll-scope-raw-r2/`。采样期间零查询，全部输出停止后
-  导出；四板时源配置与模型前后一致，原始块、脚本和独立复算均保留。
-- 以下为本轮快照，非物理精度事实源：原始频差相对 NO1，NO2/NO3/NO4 约为
-  −235/−430/−2867 ppb；计入当前模型后的推算残差约为 +1/−194/−1068 ppb。
-  NO2 暂不调整有依据；NO3 的保守采样界仍包含零；NO4 的负剩余误差方向在保守
-  采样界内仍明确，支持继续正向补偿。原始 PWM 不受 DCO 调节，此推算不是实际 DCO
-  输出、绝对相位或锁相证明。
-- 失败保留：首次请求低于既有硬件测频接口下限；扩大记录时水平偏移读回不符及未
-  观察到新 WAIT 均拒绝，不把旧 STOP 波形当新采样。最终示波器恢复 EXT/NORM/STOP，
-  四板停止、PWM 关闭。采用 NO1/CH1 触发是因为当前固件未启用 RJ45 单脉冲命令；
-  用户 OUT4 到 EXT 的接线不代表该命令实际产生过触发。
-- 有界长窗口候选已完成主机验证，隔离于 `out/worktrees/dpll-follow-longwindow`，未部署；
-  为归因，当前主树继续采用已验收估计策略，先补固定模型的物理输出证据。
 
 ## 进度记录
 
@@ -2307,7 +2267,7 @@ Last updated: 2026-09-18
 
 | 文件 | ID 区间 | 条目数 | 归档日期 |
 |---|---|---|---|
-| `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_04.md` | VDC-PROGRESS-20260917-014..VDC-PROGRESS-20260917-012 | 3 | 2026-09-18 |
+| `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_04.md` | VDC-PROGRESS-20260917-016..VDC-PROGRESS-20260917-012 | 5 | 2026-09-18 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_03.md` | VDC-PROGRESS-20260917-011..VDC-PROGRESS-20260917-011 | 1 | 2026-09-18 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_02.md` | VDC-PROGRESS-20260917-010..VDC-PROGRESS-20260917-001 | 10 | 2026-09-18 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_01.md` | VDC-PROGRESS-20260916-043..VDC-PROGRESS-20260906-002 | 146 | 2026-09-17 |
