@@ -2880,12 +2880,14 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(
     }
 
     distributed_refmem_publish_runtime_vector_if_pending(
-        snapshot.dpll_update_seq);
+        snapshot.publication_revision);
 }
 
-/* Legacy vectors retain their wire layout and only change with a new DPLL
- * generation. The VDC owner supplies the fields they consume without copying
- * its path table and observation matrix into the realtime stack. */
+/* Legacy vectors retain wire/evidence fields. The local dedup tokens track
+ * the complete publication, including DCO-only commits with unchanged DPLL
+ * evidence. Each beat still publishes at most one vector. UINT32_MAX is an
+ * unconsumed sentinel: a successfully copied publication guard is even.
+ * The VDC owner omits path/observation tables from this realtime copy. */
 static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
     distributed_refmem_publish_runtime_vector_if_pending)(
     uint32_t source_update_seq)
@@ -2902,7 +2904,7 @@ static void DISTRIBUTED_REFMEM_TIME_CRITICAL(
     if (!vdc_dpll_manager_get_vector_snapshot(&vector_snapshot)) {
         return;
     }
-    source_update_seq = vector_snapshot.dpll.update_seq;
+    source_update_seq = vector_snapshot.publication_revision;
     const bool current_vdc_pending =
         source_update_seq != s_vdc_vector_source_update_seq;
     const bool current_dpll_pending =

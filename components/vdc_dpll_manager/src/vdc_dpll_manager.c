@@ -134,7 +134,8 @@ static vdc_domain_snapshot_t s_published_snapshot
     __attribute__((section(".scratch_y.vdc_snapshot"), aligned(4)));
 static bool s_published_snapshot_valid;
 static volatile uint32_t s_published_dpll_update_seq;
-static uint32_t s_dpll_consumed_update_seq;
+static uint32_t s_dpll_consumed_publication_revision;
+static bool s_dpll_have_consumed_publication;
 static vdc_dpll_manager_observation_self_test_status_t s_observation_self_test;
 static vdc_domain_context_t s_vdc_domain;
 static tdma_service_service_t *s_vdc_tdma_service;
@@ -258,6 +259,7 @@ typedef struct {
     vdc_servo_profile_t servo;
     vdc_dco_control_t dco;
     vdc_dpll_state_t dpll;
+    uint32_t publication_revision;
 } vdc_dpll_manager_runtime_snapshot_t;
 
 static void vdc_dpll_manager_publish_snapshot(
@@ -489,7 +491,9 @@ static bool vdc_dpll_manager_get_runtime_snapshot(
         snapshot->servo = s_published_snapshot.servo;
         snapshot->dco = s_published_snapshot.dco;
         snapshot->dpll = s_published_snapshot.dpll;
+        snapshot->publication_revision = begin;
         const bool valid = s_published_snapshot_valid;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
         const uint32_t end = __atomic_load_n(
             &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
         if (begin == end && (end & 1u) == 0u) {
@@ -1709,7 +1713,8 @@ bool vdc_dpll_manager_init(void)
     s_published_snapshot_guard = 0u;
     memset(&s_published_snapshot, 0, sizeof(s_published_snapshot));
     s_published_dpll_update_seq = 0u;
-    s_dpll_consumed_update_seq = 0u;
+    s_dpll_consumed_publication_revision = 0u;
+    s_dpll_have_consumed_publication = false;
     memset(&s_observation_self_test, 0, sizeof(s_observation_self_test));
     s_vdc_tdma_service = NULL;
     memset(&s_vdc_tdma_self_test_evidence,
@@ -2812,10 +2817,12 @@ static void vdc_dpll_manager_refresh_dco_consumer_status_core0(void)
 {
     const uint32_t now_ms = board_uptime_ms();
     vdc_dpll_manager_runtime_snapshot_t snapshot;
-    const uint32_t published_update_seq =
-        vdc_dpll_manager_published_update_seq();
-    if (published_update_seq == 0u ||
-        published_update_seq == s_dpll_consumed_update_seq) {
+    /* DCO-only local follow/phase commits do not advance the legacy DPLL
+     * evidence sequence. Deduplicate the complete publication instead. */
+    const uint32_t revision = __atomic_load_n(
+        &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+    if ((revision & 1u) || (s_dpll_have_consumed_publication &&
+        revision == s_dpll_consumed_publication_revision)) {
         return;
     }
     const bool snapshot_ok =
@@ -2875,7 +2882,8 @@ static void vdc_dpll_manager_refresh_dco_consumer_status_core0(void)
     }
 
     if (snapshot_ok) {
-        s_dpll_consumed_update_seq = snapshot.dpll.update_seq;
+        s_dpll_consumed_publication_revision = snapshot.publication_revision;
+        s_dpll_have_consumed_publication = true;
     }
     vdc_dpll_manager_publish_dpll_status();
 }
@@ -3314,6 +3322,7 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_vector_snapshot)(
         const bool valid = s_published_snapshot_valid;
         snapshot->ready = s_published_snapshot.ready;
         snapshot->service_count = s_published_snapshot.service_count;
+        snapshot->publication_revision = begin;
         snapshot->schedule = s_published_snapshot.schedule;
         snapshot->servo.servo_profile_crc32 =
             s_published_snapshot.servo.servo_profile_crc32;
@@ -3355,6 +3364,7 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_refmem_snapshot)(
         }
         const bool valid = s_published_snapshot_valid;
         snapshot->schedule = s_published_snapshot.schedule;
+        snapshot->publication_revision = begin;
         snapshot->clock_epoch_id = s_published_snapshot.clock.epoch_id;
         snapshot->clock_run_id = s_published_snapshot.clock.run_id;
         snapshot->dco_period_adjust_ppb =
@@ -3366,6 +3376,7 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_refmem_snapshot)(
         snapshot->control_profile = s_published_snapshot.control.profile;
         snapshot->quality_health_state =
             s_published_snapshot.quality.health_state;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
         const uint32_t end = __atomic_load_n(
             &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
         if (begin == end && (end & 1u) == 0u) {

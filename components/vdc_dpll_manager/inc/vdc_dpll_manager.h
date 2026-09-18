@@ -516,6 +516,9 @@ typedef struct {
  * delay and diagnostic tables on every invocation. */
 typedef struct {
     vdc_tdma_schedule_profile_t schedule;
+    /* Stable even publication guard; a wrapping change token, not evidence
+     * identity. Zero is valid. Consumers acknowledge the copied revision. */
+    uint32_t publication_revision;
     uint32_t clock_epoch_id;
     uint32_t clock_run_id;
     int32_t dco_period_adjust_ppb;
@@ -532,6 +535,7 @@ typedef struct {
 typedef struct {
     uint32_t ready;
     uint32_t service_count;
+    uint32_t publication_revision; /* Same snapshot change token as above. */
     vdc_tdma_schedule_profile_t schedule;
     struct { uint32_t servo_profile_crc32; } servo;
     vdc_clock_model_t clock;
