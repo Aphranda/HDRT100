@@ -161,8 +161,9 @@ bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_try_read_ticks64)(
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE && defined(PICO_RP2350) && PICO_RP2350 && \
     PICO_DEFAULT_TIMER == 0 && XOSC_HZ == 12000000u
-/* Keep the bridge and its configuration work in XIP. No persistent bridge
- * state is needed; even a small new RAM function can move the aligned BSS. */
+/* Keep bridge validation outside the counter enclosure. Add SRAM placement
+ * only for the bounded sampler; retain the config helper's existing placement.
+ * No persistent state is added. */
 typedef struct {
     uint32_t ref_ctrl, ref_div, ref_selected;
     uint32_t sys_ctrl, sys_div, sys_selected, resus_ctrl, resus_status;
@@ -239,6 +240,30 @@ static __attribute__((noinline)) bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_
     *out = c;
     return true;
 }
+
+static __attribute__((noinline)) bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_bridge_sample)(
+    vdc_timestamp_clock_bridge_t *out, uint64_t *local_us)
+{
+    /* No XIP fetch, helper call, retry, configuration scan or arithmetic
+     * between the counter observations. Interrupts remain enabled, so any
+     * preemption is retained in the full measured enclosure. */
+    const uint32_t raw_before_hi = timer1_hw->timerawh;
+    const uint32_t raw_before_lo = timer1_hw->timerawl;
+    const uint32_t raw_before_after_hi = timer1_hw->timerawh;
+    const uint32_t hi = timer0_hw->timerawh;
+    const uint32_t lo = timer0_hw->timerawl;
+    const uint32_t after_hi = timer0_hw->timerawh;
+    const uint32_t raw_after_hi = timer1_hw->timerawh;
+    const uint32_t raw_after_lo = timer1_hw->timerawl;
+    const uint32_t raw_after_after_hi = timer1_hw->timerawh;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    if (raw_before_hi != raw_before_after_hi || hi != after_hi ||
+        raw_after_hi != raw_after_after_hi) return false;
+    out->raw_before = ((uint64_t)raw_before_hi << 32u) | raw_before_lo;
+    out->raw_after = ((uint64_t)raw_after_hi << 32u) | raw_after_lo;
+    *local_us = ((uint64_t)hi << 32u) | lo;
+    return true;
+}
 #endif
 
 __attribute__((noinline)) bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_configuration_supported)(uint32_t expected_hz)
@@ -262,24 +287,8 @@ bool vdc_timestamp_clock_try_read_bridge(uint32_t expected_hz,
     vdc_timestamp_bridge_config_t before, after;
     vdc_timestamp_clock_bridge_t candidate = {0};
     if (out == NULL || !vdc_timestamp_bridge_config(&before, expected_hz)) return false;
-    /* Bracket TIMER0 with read-only TIMER1 samples. Keep configuration work,
-     * helper calls and arithmetic outside this window. Interrupts remain
-     * enabled: any preemption is part of the measured uncertainty. */
-    const uint32_t raw_before_hi = timer1_hw->timerawh;
-    const uint32_t raw_before_lo = timer1_hw->timerawl;
-    const uint32_t raw_before_after_hi = timer1_hw->timerawh;
-    const uint32_t hi = timer0_hw->timerawh;
-    const uint32_t lo = timer0_hw->timerawl;
-    const uint32_t after_hi = timer0_hw->timerawh;
-    const uint32_t raw_after_hi = timer1_hw->timerawh;
-    const uint32_t raw_after_lo = timer1_hw->timerawl;
-    const uint32_t raw_after_after_hi = timer1_hw->timerawh;
-    __atomic_thread_fence(__ATOMIC_SEQ_CST);
-    if (raw_before_hi != raw_before_after_hi || hi != after_hi ||
-        raw_after_hi != raw_after_after_hi) return false;
-    candidate.raw_before = ((uint64_t)raw_before_hi << 32u) | raw_before_lo;
-    candidate.raw_after = ((uint64_t)raw_after_hi << 32u) | raw_after_lo;
-    const uint64_t local_us = ((uint64_t)hi << 32u) | lo;
+    uint64_t local_us;
+    if (!vdc_timestamp_bridge_sample(&candidate, &local_us)) return false;
     if (local_us > (UINT64_MAX - 999u) / 1000u ||
         candidate.raw_after <= candidate.raw_before ||
         (candidate.raw_after >> 32u) != (candidate.raw_before >> 32u) ||
