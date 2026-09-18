@@ -22,6 +22,21 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-021：NO1 OUT4 外部触发路径未捕获
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条为触发路径
+  诊断快照，不改变固件、PIO、Flash、OTA 或输出补偿。
+- 使用与 `VDC-PROGRESS-20260918-020` 相同的四板构建、输出时序和零运行查询约束，
+  仅将示波器触发源改为已接入的 NO1 OUT4 `EXT`。示波器设置读回为
+  `EDGE/EXT/POS/1.5 V/NORM`，但整个四板运行窗口没有完成一次 single acquisition；
+  `capture_complete=false`，子流程以 `No completed single trigger` 结束。
+- 四板均完成收尾，恢复输出时序，示波器最终读回 `STOP/EXT/NORM`，没有 cleanup error。
+  证据根为 `out/HardwareAcceptance/20260918/dpll-bridge-sram-ext-r2/`。该目录只能作为
+  EXT 路径未捕获的负证据，不能与 CH1 四路波形混合分析。
+- 下一 gate：在再次做物理锁相判断前，先独立确认 NO1 OUT4 是否实际产生与 CH1 同序的
+  脉冲、触发电平/边沿及探头连接；确认后再重复同会话 EXT 采样。当前有效相位结论
+  仍以 CH1 触发的 `dpll-bridge-sram-r2/capture/scope-analysis/review.json` 为准。
+
 ### VDC-PROGRESS-20260918-020：SRAM bridge 版本同会话四路示波器复测
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条为单次硬件
