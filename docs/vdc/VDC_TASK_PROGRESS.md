@@ -22,6 +22,28 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-035：主 DCO 时间坐标重基已完成四板验证
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。复核 r17/r18 后确认，
+  证据的逻辑 TDMA/TIMER1 坐标曾直接进入主 DCO `base_local_tick64`，而 RUN 使用
+  TIMER0 本地时间；这可在模型块切换时把 ppb 速率变化放大为毫秒级边界跳变。r17
+  的五个异常周期与该坐标差的速率步变定量吻合；r20 的延迟采样窗口没有后续模型
+  更新，不能作为反证。上述数值均为验收快照，非精度契约。
+- 最小修复：`vdc_dpll_manager` 在 Core1 交接处记录 `time_us_64()*1000` 服务边界，
+  通过 `vdc_tdma_evidence_preparation_t.local_apply_time_ns` 传入 Domain；逻辑
+  `observed_time_ns` 继续只参与 PI/FLL。主 DCO 首次使用该本地锚点，后续先在该时刻
+  计算旧模型输出再重基新速率；本地时间倒退时拒绝该次提交。未把 TIMER1 RX provenance
+  直接当作 TIMER0 坐标。
+- 验证：新增 host 跨坐标回归，`test_vdc_dpll_replay.py` 85 passed；相关映射、跟随、
+  输出反解和模型测试 166 passed；Release `pico2-release` 编译、flash-link 约束和
+  资源生成通过。四板当前源码 quick P3 为 `PASS_WITH_WARNINGS`，无 ERROR/FATAL，证据
+  在 `out/HardwareAcceptance/20260918/p3-coordinate-r1/`。
+- 物理复测 `out/HardwareAcceptance/20260918/dpll-coordinate-r22/`：零 delay、
+  `24000,32000,16000` 补给配置、CH1 正边沿触发、20 ns 采样；NO1–NO4 采样审计未出现
+  `>1 us` 周期异常。NO1 的 `local_model_raw` 已显示 `base_local_tick64` 与 RUN
+  时间轴同为百毫秒量级，并不再是早期几十毫秒的逻辑锚点。该轮证明异常被消除，尚未
+  证明跨板 100 ns 锁相；下一 gate 是同一会话下完整有效边沿的相位/斜率统计。
+
 ### VDC-PROGRESS-20260918-034：RUN 软件退休与四路物理边沿已同时取得
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本轮只复用既有
