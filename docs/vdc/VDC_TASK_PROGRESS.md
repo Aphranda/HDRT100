@@ -52,16 +52,37 @@ Last updated: 2026-09-18
   20 ms/div，运行期间板卡查询为 0；四板和示波器均安全恢复。证据根为
   `out/HardwareAcceptance/20260918/dpll-bridge-export-scope-r1/`，原始 RUN 查询、
   scope 数据、解析器副本及 SHA256 均保留在 `capture/` 与 `dpll-run-timeline-r2/`。
-- 四板各得到 200 个上升沿，采样网格为 20 ns，无粗大缺口。最近边沿（模名义周期、
-  未建立共同 ordinal）相对 NO1 的中位快照为 NO2 `-319.94 ns`、NO3 `-140.11 ns`、
-  NO4 `420.17 ns`；对应线性斜率快照为 `0.558/-0.199/0.769 ppm`。解析结果明确
+- 四板各得到 200 个上升沿，采样网格为 20 ns，无粗大缺口。随后按共享时间轴和数组
+  索引建立共同 ordinal；索引相位中位快照为 NO2 `-319.97 ns`、NO3 `-140.14 ns`、
+  NO4 `420.17 ns`，对应线性斜率快照为 `0.556/-0.188/0.754 ppm`。解析结果明确
   `physical_lock_qualified=false`，所以不能宣称 100 ns 锁相。
 - `scope-analysis/bridge-correlation.json` 显示四板首次 bridge 三元组的本地采样
   区间宽度相同，首次 PIO enable 的 raw enclosure 也相同；各板输出 delay 仍为零。
   这证明导出字段可用于关联诊断，但尚未证明跨板时间相位或消除首次 enable 偏移。
-- 下一 gate：建立共同 edge ordinal，并在保持零查询的单因素试验中分别改变 output delay
-  或 path delay；每次仍需保留 bridge 三元组、PIO enable 锚、波形和 STOP 状态，不能
-  用最近边沿中位替代严格 100 ns 判据。
+- 下一 gate：在共同 ordinal 基础上保持零查询，分别改变 output delay 或 path delay；
+  每次仍需保留 bridge 三元组、PIO enable 锚、波形和 STOP 状态，不能用最近边沿中位
+  替代严格 100 ns 判据。
+
+### VDC-PROGRESS-20260918-024：output delay A/B 与零值对照完成
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条是两次独立
+  启动会话的调试快照，参数和相位均为证据值；只在 STOP 状态配置 output delay，未改
+  path-delay 表、Flash 或 OTA，结束后四板均恢复零值并通过 readback。
+- 补偿组使用 NO2 `+320 ns`、NO3 `+140 ns`、NO4 `-420 ns`，运行期间零查询，四路
+  各 200 个边沿且共同 ordinal 成立。相对 NO1 中位为 NO2 `579.83 ns`、NO3 `140.17 ns`、
+  NO4 `40.28 ns`。完整证据在
+  `out/HardwareAcceptance/20260918/dpll-bridge-export-delay-r3/`。
+- 随后的零 delay 对照重试成功（第一次重试因 `START` 返回
+  `OK(no payload; verified by state readback)` 的工具 ACK 适配失败，四板仍安全 STOP，
+  无波形结论）。零值对照共同 ordinal 也成立，中位为 NO2 `419.89 ns`、NO3 `720.93 ns`、
+  NO4 `579.94 ns`；证据在
+  `out/HardwareAcceptance/20260918/dpll-bridge-export-delay-zero-r5/`。
+- `dpll-bridge-export-delay-r3/delay-ab-comparison.json` 表明 output delay 能改变边沿，
+  但两个独立启动状态的基线相位也发生变化，不能把本轮参数提升为持久校准，更不能据此
+  宣称 100 ns 锁相。当前优先问题转为启动后 DCO/PIO 相位状态的可重复收敛，以及工具对
+  无 payload ACK 的兼容。
+- 下一 gate：在同一 DCO 状态或明确等待收敛后重复 A/B，记录 bridge 三元组、首次 enable
+  锚、共同 ordinal 和相位斜率；先解决 ACK 兼容，再评估是否需要调整 output delay。
 
 ### VDC-PROGRESS-20260918-021：NO1 OUT4 外部触发路径未捕获
 
