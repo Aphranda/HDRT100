@@ -198,6 +198,46 @@ def test_origin_summary_real_provider(summary_origin_executable, case):
 
 
 @pytest.fixture(scope='module')
+def generation_origin_executable(origin_executable, tmp_path_factory):
+    source = origin_executable.with_suffix('.c').read_text(encoding='utf-8')
+    source = source.replace('int main(int argc,char **argv)',
+                            'int old_generation_origin_main(int argc,char **argv)', 1)
+    return compile_executable(tmp_path_factory.mktemp('summary-generation'), 'generation',
+        source + GENERATION_CASES, domain_sources() + [
+            ROOT / 'components/vdc_dpll_manager/src/vdc_feedback_match.c',
+            ROOT / 'components/distributed_refmem/src/refmem_sync_vdc_feedback.c',
+            ROOT / 'components/vdc_dpll_manager/src/vdc_priority_codec.c'])
+
+
+@pytest.mark.parametrize('case', ['startup_success', 'startup_reject', 'same_generation_reset',
+                                 'foreign_after_current', 'initial_busy', 'initial_busy_reject',
+                                 'current_baseline'])
+@pytest.mark.parametrize('interval', [1000, 10000])
+def test_origin_summary_counter_generation(generation_origin_executable, case, interval):
+    raw = execute(generation_origin_executable, f'{case}_{interval}')
+    status, rows = native(raw, 8 if interval == 1000 else 10, interval)
+    assert status['generation'] == 102 and status['session'] == 124
+    assert sum(r['success_count'] for r in rows) == 1
+    rejected = sum(r['rejected_count'] for r in rows)
+    flags = 0
+    for row in rows:
+        flags |= row['flags']
+    if case == 'same_generation_reset':
+        assert flags & 8, 'An actual current-generation counter rollback must remain visible'
+        assert rejected == 1
+    elif case == 'foreign_after_current':
+        assert flags & 4, 'A foreign snapshot after current-generation adoption is a gap'
+        assert not flags & 8, 'Foreign counters must not create a same-generation reset'
+        assert rejected == 1, 'Foreign counters must not replace the current-generation baseline'
+    else:
+        assert not flags & 8, 'An old generation is not a reset in the new capture'
+        assert rejected == (1 if case in ('startup_reject', 'initial_busy_reject', 'current_baseline') else 0)
+        assert bool(flags & 4) == case.startswith('initial_busy')
+    if case in ('startup_reject', 'initial_busy_reject'):
+        assert any(row['outcome_mask'] & 32 for row in rows)
+
+
+@pytest.fixture(scope='module')
 def window_origin_executable(summary_origin_executable, tmp_path_factory):
     source = summary_origin_executable.with_suffix('.c').read_text(encoding='utf-8')
     source = source.replace('vdc_dpll_manager_priority_trace_summary_arm(1u,true)',
@@ -319,6 +359,67 @@ int main(int argc,char **argv)
     } else if (!strcmp(name,"wide")) {
         priority_summary_success(100u,4u,5,INT64_MIN,INT64_MAX,UINT64_MAX);
     } else assert(0);
+    frozen_trace();export_trace();return 0;
+}
+'''
+
+GENERATION_CASES = r'''
+static void generation_reject(void)
+{
+    /* Real provider rejection, before binding, with a valid source/config. */
+    assert(vdc_priority_tx_core1(&origin_config,NULL)==TDMA_PRIORITY_TX_EMPTY);
+}
+int main(int argc,char **argv)
+{
+#ifdef _WIN32
+    _setmode(_fileno(stdout),_O_BINARY);
+#endif
+    assert(argc==2);const char *name=argv[1];origin_setup();
+    running_ring();
+    for(unsigned i=0;i<3u;++i)generation_reject();
+    vdc_priority_tx_snapshot_t old;
+    assert(vdc_dpll_manager_get_priority_tx(&old));
+    assert(old.generation==101u&&old.rejected==3u);
+    stopped_ring();
+    assert(vdc_dpll_manager_set_feedback_session(124u));
+    assert(vdc_dpll_manager_set_priority_sync(102u));
+    /* New committed session must precede the fresh origin event. */
+    core=1u;publish();core=0u;
+    origin_fresh(250u);
+    if(strstr(name,"current_baseline")){
+        core=1u;generation_reject();core=0u;
+    }
+    const uint32_t interval=strstr(name,"_10000")?10000u:1000u;
+    if(interval==1000u)assert(vdc_dpll_manager_priority_trace_summary_arm(1u,true));
+    else assert(vdc_dpll_manager_priority_trace_summary_window_arm(1u,true,interval));
+    trace_service();assert(trace_status().state==VDC_PRIORITY_TRACE_ARMED);
+    running_ring();
+    const bool busy=strstr(name,"initial_busy")!=NULL;
+    if(busy)++s_priority_tx_guard;
+    trace_service(); /* The new capture runs before the first new-generation TX. */
+    if(busy)--s_priority_tx_guard;
+    assert(priority_summary_record()!=NULL);
+    if(strstr(name,"startup_reject") || strstr(name,"same_generation_reset") ||
+        strstr(name,"initial_busy_reject")){
+        generation_reject();priority_summary_service(true);
+        assert(s_priority_tx_work.status.generation==102u&&s_priority_tx_work.status.rejected==1u);
+    }
+    origin_offer();priority_summary_service(true);
+    assert(s_priority_tx_work.status.generation==102u);
+    if(strstr(name,"current_baseline")){
+        generation_reject();priority_summary_service(true);
+    }else if(strstr(name,"same_generation_reset")){
+        /* Fault injection into the real owner's publication, same identity. */
+        s_priority_tx_work.status.rejected=0u;priority_tx_publish();
+        priority_summary_service(true);
+    }else if(strstr(name,"foreign_after_current")){
+        const vdc_priority_tx_snapshot_t current=s_priority_tx_work.status;
+        s_priority_tx_work.status=old;priority_tx_publish();
+        priority_summary_service(true);
+        s_priority_tx_work.status=current;priority_tx_publish();
+        assert(priority_tx_empty(VDC_PRIORITY_TX_REJECT_SOURCE,false)==TDMA_PRIORITY_TX_EMPTY);
+        priority_summary_service(true);
+    }
     frozen_trace();export_trace();return 0;
 }
 '''

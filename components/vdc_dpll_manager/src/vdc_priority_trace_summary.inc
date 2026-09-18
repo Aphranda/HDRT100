@@ -52,6 +52,16 @@ static void priority_summary_counters(bool baseline)
          * counter value; a failed snapshot is neither zero nor a reset. */
         p->flags|=SUMMARY_SERVICE_GAP;return;
     }
+    if (priority_trace_origin_family(w->status.schema) &&
+        tx.generation!=w->status.generation) {
+        /* START can open the first bin before the new TX owner is called.
+         * Its published status still belongs to the preceding generation;
+         * do not adopt those counters as the new capture's baseline. Once
+         * the current owner has been observed, a mismatch is a real gap. */
+        if (w->summary.counter_valid_mask & (1u<<6))
+            p->flags|=SUMMARY_SERVICE_GAP;
+        return;
+    }
     const uint32_t values[7]={s_priority_match_work.status.rejected,
         s_priority_follow_work.status.rejected,s_priority_follow_work.status.cancelled,
         s_priority_phase_work.status.rejected,s_priority_phase_work.status.cancelled,
@@ -60,13 +70,19 @@ static void priority_summary_counters(bool baseline)
     for (unsigned i=0;i<7u;++i) {
         if ((priority_trace_origin_family(w->status.schema) && i!=6u) ||
             (!priority_trace_origin_family(w->status.schema) && i==6u)) continue;
-        const uint32_t old=w->summary.counters[i], value=values[i];
+        uint32_t old=w->summary.counters[i];
+        const uint32_t value=values[i];
         w->summary.counters[i]=value;
         const bool known=(w->summary.counter_valid_mask & (1u<<i))!=0u;
         w->summary.counter_valid_mask|=1u<<i;
         if (baseline || !known) {
-            if (!baseline) p->flags|=SUMMARY_SERVICE_GAP;
-            continue;
+            if (baseline) continue;
+            if (i!=6u) {p->flags|=SUMMARY_SERVICE_GAP;continue;}
+            /* TX initializes the current generation from zero. Include its
+             * first rejects, even when its first published snapshot is not
+             * observed until after several provider calls. A failed read
+             * above already records SERVICE_GAP and is never forgiven. */
+            old=0u;
         }
         if (value==UINT32_MAX || old==UINT32_MAX) p->flags|=SUMMARY_COUNTER_SATURATED;
         if (value<old) p->flags|=SUMMARY_COUNTER_RESET;
