@@ -22,6 +22,27 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-022：RUN bridge 初始三元组导出切片完成四板 quick P3
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条为诊断导出切片
+  的有限验收快照，不改变 OTA、活动 path-delay 表或实时调度策略。
+- `VDC_RUN_OUTPUT_SCHEMA` 升为 9；首次成功 RUN bridge 采样把
+  `timeline_raw_before`、`timeline_local_ns`、`timeline_raw_after` 保留到 STOP 诊断，
+  并通过 `SYSTem:VDC:OUTPut:RUN?` 导出。三元组仅用于把 bridge 采样区间与首次 PIO
+  enable/实际边沿关联，不是物理边沿或跨板相位结论。
+- Host 回归为 176 项通过。Release 构建目录为
+  `out/build/dpll-bridge-export-20260918`，flash-link contract 三项均为 `OK`；相对
+  SRAM bridge r2，应用 `.text` 增加 0x20 字节、`.data` 增加 8 字节、`.bss` 增加
+  0x18 字节。新增字段不进入 Core1 热入口的额外循环路径。
+- 同源码四板 quick P3 使用 `--tdma-only` 完成，证据根为
+  `out/HardwareAcceptance/20260918/p3-bridge-export-r1/`；NO1--NO4 均完成 STOP，
+  NO5 未参与。报告为 `PASS_WITH_WARNINGS`，计数 `INFO=31/WARN=22/ERROR=0/FATAL=0`；
+  receipt 已绑定本次源码树、固件包和四板摘要。既有 VDC/RefMem/DPLL 调度告警仍存在，
+  不能据此宣称严格实时预算、VDC 发布或 100 ns 锁相已经闭合。
+- 下一 gate：使用新的 RUN 三元组做同会话示波器复测，分别标注 bridge 区间、首次 PIO
+  enable、path/output delay 和实际 NO1--NO4 边沿；保持运行期间零查询，并在单因素
+  复测后再处理首次 enable 偏移与严格调度告警。
+
 ### VDC-PROGRESS-20260918-021：NO1 OUT4 外部触发路径未捕获
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条为触发路径
