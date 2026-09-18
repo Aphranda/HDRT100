@@ -22,6 +22,49 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-049：两轮运行后段 ±50 ns 与十秒连续波形
+
+- TODO task ID：`VDC-DRIFT-001`、`VDC-PRECISION-001`、`VDC-VERIFY-001`，均继续
+  IN PROGRESS。本条数字为有限实验快照，非精度契约。证据根为
+  `out/HardwareAcceptance/20260918/dpll-sustained-window-r1/`；固件保持 048 的
+  `55aa4e48e668abb485361e54d8d0041b45db0b573387226729eb871b50997030` 源码指纹，
+  使用既有匹配四板 P3 凭证，未部署/修改固件、未重复 P0、未写 Flash。
+- `capture_window.py` 复用已审查的 MAIN 配置、新 WAIT/SING 和四独立连接并发
+  START，四个显式 OK 且线程全部退出后才发 TRIAL；静默运行后 STOP 导出，保持
+  output delay `0/-28/-88/-160 ns`、timing `24000/32000/16000 us`。请求时基与
+  实际 PRE 均核验；迟窗按最近边沿计算周期相位，不套用首沿序号。
+- `late-r1/r2` 完整流程分别约 141/137 s，通过采集与参数恢复。实际 PRE 均为
+  8.9..9.89999998 s，每路 50 M 点、20 ns 网格；四路各 1000 沿，每从 998 对，
+  未见大于 1.5 周期缺口或小于 0.5 周期额外边沿。
+  r1 NO2/NO3/NO4 约 -20.225..19.773 / -20.222..2.478 / -40.111..0.054 ns；
+  r2 约 -34.347..12.739 / -23.834..1.434 / -40.169..-19.725 ns，均在 ±50 ns。
+  输出相对相位线性趋势 r1 约 -6.48/+3.03/-2.93 ns/s，r2 约 +2.76/+0.77/+1.08 ns/s；
+  这是包含相位调整的有限窗口趋势，不是晶振绝对 ppb 或长期频率资格。
+- 独立审核逐块复算两轮共 400 个 RAW 块、原生 CRC/身份、实际交点及一对一配对，
+  结果一致；RUN 无板端或示波器查询，STOP/恢复通过。r2 分析初次因 Windows
+  粗粒度 monotonic 时间相等触发严格 `<` 断言；原失败记录保留，同步 arm 返回及
+  WAIT/SING 先于 START 已核实，改为 `<=` 后分析同一份原件，未重采掩盖。
+- native 前缀限制已从代码和实测确认：四板均 76 条 FULL；r1 时间跨度
+  130/4704/4840/4742 ms，r2 为 122/4722/4663/4739 ms。这些记录不覆盖第九秒，
+  不用 STOP 模型端点冒充全程内部证据。MATCH 抽取并不能限制 ORIGIN/PHASE/DECISION
+  的额外记录；后续考虑复用原池的有限时间桶统计，方案未实现、未增加 RAM。
+- `continuous-r1` 已取得实际 0..9.9999998 s 的四路 50 M 点波形，200 ns 网格。
+  NO1/NO2/NO3/NO4 分别 10000/9996/9996/9998 沿，起始输出时间不同，未见各自
+  输出期间的粗缺口/额外边沿。启动相对周期相位偏差最高约 19 us；固定 0.4 s 后至末段的
+  粗测范围约 -15..218 ns。200 ns 网格不能判定是否达到 ±100 ns，也不能直接将
+  约一个网格的变化归为真实抖动；此轮仅补连续性与未持续发散证据。
+- 十秒轮完整流程仍为 FAIL：STOP 后 NO2 原生 READ offset 1412 返回 timeout，
+  上层报告 Wrong RAM page field count；四路波形完整，四板 STOP 与恢复成功。
+  `recover_native.py` 仅在 STOP 读取同份保留捕获，完整 7768 B、CRC/身份/状态及
+  首次已成功的 12 页逐字一致，恢复成功；原报告和错误未改写。分析显式引用独立
+  recovery，`original_capture_passed=false`。这是导出恢复，不是重新运行通过。
+- 原件与分析见各轮 `window-audit.json`、`periodic-phase.svg`，对照为
+  `late-comparison.json`；恢复记录为 `continuous-r1/native-recovery/recovery.json`。
+  独立十秒复算见 `independent-continuity-review.json`；文档门禁及 38 项自回归通过。
+  迟窗整数周期身份、通道误差预算、冷启动和全程百纳秒资格仍未证明。
+  下一 gate：有界全时段内部观测与连续精度证据；随后恢复/质量和 VDC 一致发布。
+  保持固定 P3 范围。当前四板 STOP、参数恢复，示波器 STOP/EXT/NORM。
+
 ### VDC-PROGRESS-20260918-048：从板采样区间缩窄与两轮热启动有限 ±50 ns
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-PRECISION-001`、`VDC-FAST-003`，父任务
