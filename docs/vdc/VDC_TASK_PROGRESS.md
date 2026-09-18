@@ -22,6 +22,22 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-029：四板新会话控制链 smoke 通过，示波器分辨率不足
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条验证新
+  feedback session 的 STOP 配置、四板 ARM/START、运行期间零板卡查询、统一 STOP
+  和原 RAM 时序恢复；没有写 Flash、修改 OTA 或 path-delay。
+- 证据根为 `out/HardwareAcceptance/20260918/dpll-bridge-export-delay-zero-r10/`。
+  NO1–NO4 使用零 output delay，四路都返回 200 个周期边沿，四板最终错误队列均为
+  `No error`，输出 timing 已恢复到原配置。上一轮主机 readback 参数错误已修复，命令
+  日志按阶段增量保存。
+- 本轮示波器读取走的是便捷 NORM 点数接口，原件只有 1000 个样点、约 200 µs 的采样
+  间隔；它只能证明控制链和连续周期存在，不能给出微秒、纳秒或 100 ns 相位结论，
+  也不计入物理锁定等级。
+- 下一 gate：复用同一新 session 控制链，但把示波器采集切换到已验证的 RAW/深存储
+  分块读回（目标保持 20 ns 级采样），同时保留 bridge/PIO enable、RUN 模型代次和
+  共同 ordinal 原件；若采集失败，仍须保留四板 STOP 与恢复证据。
+
 ### VDC-PROGRESS-20260918-028：RUN 模型代次与共同时间锚离线对账完成
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条只复核
