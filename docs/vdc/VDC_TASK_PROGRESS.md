@@ -22,6 +22,50 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-047：并发 START 首沿覆盖与连续一秒收敛复测
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-PRECISION-001`、`VDC-FAST-003`；父任务
+  IN PROGRESS。本条数字为有限实验快照，非锁相契约。固件源码及 P3 沿用 045，
+  未部署新固件、未改 OTA、未写 Flash。适配器和全部失败原件继续位于
+  `out/HardwareAcceptance/20260918/dpll-extended-window-r1/`，代码事实源未修改。
+- `capture_startup_parallel.py` 在 START 前检查四个已打开且身份核验的独立串口，
+  每线程只访问一个连接；意图先保存，全部事务 join 后由主线程一次落盘。任何超时或
+  异常均先 join、再 STOP，不盲重试、不在 RUN 查询。八项离线验证覆盖四个超时位置、
+  异常、缺会话与共享句柄拒绝，首次日志换行问题和时钟相等断言失败均保留；修复后
+  `parallel-validation-r3/report.json` 通过。独立复核见 `independent-parallel-start-review.json`。
+- `startup-parallel-r1` 在 START 前因示波器时基读回不符失败并恢复。scope-only 对照
+  确认 RUN 后重申 MAIN、设置时基并核验 OPC/错误队列可恢复配置；慢时基后再重申 MAIN，
+  正确读取 offset。未通过的较大存储请求和一次查询超时保留；当前实际深度为 50 M，
+  不把请求的 500 M 当成能力。`startup-parallel-r2` 四 START 均为真实 OK、首沿均可见，
+  但 NO2 末态模型读取超时，原试验仍 FAIL。条件首序号对账的启动偏差为数十微秒，
+  不与七秒后的稳定窗口混淆；收尾 STOP/恢复完整。
+- `startup-one-second-r1/r2` 两轮完整通过，各约 131 秒；四板 STOP、输出补偿恢复，
+  示波器 STOP/EXT/NORM。START 前确认 WAIT/SING，运行期间零查询；实际每路 50 M 点、
+  20 ns 网格，连续覆盖 NO1 首沿前 0.1 s 至其后 0.9 s。维持输出候选
+  `0/-28/-88/-160 ns`，不修改 path delay。四板首沿之前低电平及后续脉冲均在同份
+  记录中可见，不再用不同轮次拼接启动与收敛。
+- `audit_startup_v2.py` 按每板 `first_ordinal+j` 作条件分析，不做最近边沿或整数周期
+  平移；原 `audit_startup.py` 按 046 hash 恢复。第一轮三从约十几微秒的偏差在
+  0.4 s 前进入百纳秒范围。固定 0.4..0.9 s 窗口每从各 500 组：r1 NO2/NO3/NO4
+  范围约 -60.17..0 / -79.09..-2.14 / -79.89..-19.94 ns；r2 同窗约
+  -0.30..39.89 / 0.11..59.55 / -20.93..20.22 ns。窗口内没有漏周期形态；跨启动
+  中心仍变化，未固化补偿。两轮原生 CRC/schema、会话、真实 DCO 末态及请求/实际/恢复
+  读回一致，原件见各轮 `native-scope-review.json` 与 `startup-audit.json`。
+- r1 原生首次相位 delta 为 -16578/-17451/-17782 ns；外部最大单周期延长约
+  16580/17442/17780 ns，方向及幅度一致。`phase-step-magnitude.json` 仅支持实际
+  引脚采用的量级对照，尚不是独立硬件事件标签的逐脉冲因果证明。
+- 阶段汇总见 `VDC_DPLL_STATUS_REVIEW.md` 及其 A4 HTML/PDF：沿用指定模板，补齐
+  250 MHz / 4 ns、用户确认的 5 m 网线 / 10 Mbit/s 四板环路、锁相组成、连续收敛、
+  同脉冲全波形与上升沿（−2～+7 V），区分 ±50 ns 优化目标和 FPGA 纯硬件演进展望。
+  `report-frequency.json` 从两轮 RAW 各核验 200 块，固定半秒窗口拟合相对 NO1 的
+  输出平均频差：r1 为 -8.4/+2.2/+4.1 ppb，r2 为 +2.7/+6.1/+13.6 ppb；含相位校正，
+  不等于晶振误差或长期精度。DCO 末态修正单列；无新增硬件运行或固件变更。
+- 首沿可见消除了窗口裁剪，但若真实第一脉冲丢失，仅“先低后高”不能独立识别；因此
+  `common_ordinal_qualified` 与 `physical_lock_qualified` 均保持 false。下一 gate：
+  用独立首沿/序号标记或完整有限输出终止证据消除缺首脉冲歧义，补齐漏/多脉冲、整周期
+  位移、裁剪及跨代负例；随后扩展持续稳定性、独立路径 delay、单圈期限、误差预算与
+  VDC 一致发布。中点补偿、采样分辨率或这两轮有限结果均不替代最终发布验收。
+
 ### VDC-PROGRESS-20260918-046：冻结补读、4 ns 外部采样与首沿覆盖缺口
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-PRECISION-001`；父任务 IN PROGRESS。
