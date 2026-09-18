@@ -22,6 +22,27 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-028：RUN 模型代次与共同时间锚离线对账完成
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条只复核
+  `dpll-bridge-export-delay-zero-r7` 与 `dpll-bridge-export-delay-candidate-r8`
+  的既有 `input-probe.json`，没有修改固件、PIO、Flash、path-delay、output-delay
+  或 OTA；新增报告是诊断证据，不改变物理锁相结论。
+- 证据报告为
+  `out/HardwareAcceptance/20260918/dpll-run-model-audit-r1/model-timeline-audit.json`。
+  两个会话四板的 `last_target_vdc_ns` 都与 `last_ordinal × period_ns` 一致，说明
+  当前 `anchor_vdc_ns=0` 与共同 ordinal 网格一致；没有证据支持先修改公共锚。
+- 三从的 phase snapshot `after_base_vdc` 与末态 `follow_model.base_vdc_time64_ns`
+  一致，证明本地 phase follow 的坐标修正已写入 Domain 模型。与此同时，RUN 聚合的
+  `last_model` 在三从均早于 STOP 导出的末态 follow token，且原始记录没有逐边沿
+  model token；不能把末态模型投射到整段波形，也不能把跨会话相位变化归因于单一
+  output delay。
+- 当前主线收敛为：保持零 output delay，补齐同一会话内的模型代次/bridge/PIO enable
+  与共同 ordinal 关联；先证明运行窗口实际采用的模型和边沿，再做单因素 delay/path
+  分离。公共锚、phase follow 和运输路径暂不改动。
+- 下一 gate：在明确 DCO 收敛窗口后重复零值基线，并让采集原件保留每段输出的模型代次
+  或等价边界记录；四板安全 STOP、运行期间零查询和外部示波器证据仍是必需条件。
+
 ### VDC-PROGRESS-20260918-022：RUN bridge 初始三元组导出切片完成四板 quick P3
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条为诊断导出切片
