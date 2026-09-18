@@ -43,6 +43,24 @@ Last updated: 2026-09-19
   不改变持续调度的前提下，单因素调整 NO4 本地 delay/路径补偿，先做短窗口 A/B，
   再复跑分钟检查点；任何修改仍需匹配源码 quick P3。
 
+### VDC-PROGRESS-20260919-004：补给时基扩展后的六百秒运行
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-DRIFT-001`、`VDC-PRECISION-001`，仍为
+  IN PROGRESS。保持 NO4 −116 ns，单因素把运行时基从基线扩大到
+  `40000,48000,32000 us`（实验候选，未写 Flash）。120 个外部采样窗口和 10 个
+  分钟检查点全部通过，四板只在最终 STOP 退出。证据
+  `out/HardwareAcceptance/20260919/dpll-timing-ab-r2/`。
+- 2 ns 网格相对边沿：NO2 −31.40..−11.89 ns，中位 −22.27 ns；NO3
+  −31.27..−12.08 ns，中位 −22.84 ns；NO4 −8.93..+12.63 ns，中位 −0.03 ns。
+  每路 240 个配对边沿，无缺沿，均满足 ±50 ns；运行期间板卡查询数为 0。
+- 运行阶段无提前退休、无提交拒绝；NO3 收尾第一次检查错误队列发现 `-200`
+  Execution error，报告因此保留 cleanup warning。随后独立 STOP/读回确认四板
+  PIO/DMA idle、timing 恢复 `12000,16000,6000`、delay 恢复 0、错误队列清空、
+  示波器 STOP/EXT/NORM。该警告不被改写为严格全流程通过。
+- 当前候选仅证明较大补给时基能显著提高本轮连续性，尚未完成跨启动重复性、故障
+  恢复或正式 VDC 发布。下一 gate 是在保留失败证据的前提下复核收尾错误来源，再
+  用候选配置做重复长跑；确认后才考虑 SCPI/Flash 固化。
+
 ### VDC-PROGRESS-20260919-003：NO4 delay A/B 与长期补给复现
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-PRECISION-001`、`VDC-DRIFT-001`，继续
