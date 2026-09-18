@@ -168,6 +168,21 @@ def test_topology_timeout_is_not_reported_as_verified(monkeypatch):
         Namespace(timeout=3.0, action_timeout=0.1), object()) == "<timeout>"
 
 
+@pytest.mark.parametrize("header", ["SYSTem:TDMA:RING:START", "SYST:TDMA:RING:START"])
+@pytest.mark.parametrize("reply", ["<timeout>", "OK", 'ERR', '-200,"Execution error"'])
+def test_start_preserves_real_ack_or_failure_without_retry_or_run_query(monkeypatch, header, reply):
+    from tools.tdma_ring_monitor import tdma_start_ring as ring
+    calls = []
+    def exchange(ser, text, timeout):
+        calls.append((text, timeout))
+        return reply
+    monkeypatch.setattr(ring, "command", exchange)
+    result = _board_command_on_serial(object(), header,
+        Namespace(timeout=3.0, action_timeout=0.1), object())
+    assert result == reply
+    assert calls == [(header, 0.1)]
+
+
 def test_unknown_write_uses_action_timeout(monkeypatch):
     observed = []
     import tools.tdma_ring_monitor.tdma_start_ring as ring

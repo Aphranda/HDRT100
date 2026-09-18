@@ -238,8 +238,8 @@ def _board_command_on_serial(board: Board, text: str,
                             args: argparse.Namespace,
                             ser: serial.Serial) -> str:
     # Most action commands return a bare OK. The shared reader consumes that
-    # ACK in the same transaction; the bounded fallback remains for commands
-    # whose success is only observable through the following state readback.
+    # ACK in the same transaction. START must preserve an unknown outcome:
+    # quiet acquisition callers cannot perform a RUN state query to verify it.
     action = text.strip().split(maxsplit=1)[0].upper()
     ack_only_actions = {
         "SYSTEM:TDMA:RING:STOP", "SYST:TDMA:RING:STOP",
@@ -279,6 +279,11 @@ def _board_command_on_serial(board: Board, text: str,
         # be read. Treat that transport loss as the successful reset handoff.
         return "OK(disconnected for software reset)"
     if response == "<timeout>" and action in ack_only_actions and not result_write:
+        if action in {"SYSTEM:TDMA:RING:START", "SYST:TDMA:RING:START"}:
+            # A firmware admission rejection also has no OK payload. Do not
+            # manufacture success, retry START, or query a potentially live ring.
+            # The caller must STOP and retain the failed lifetime.
+            return response
         return "OK(no payload; verified by state readback)"
     return response
 
