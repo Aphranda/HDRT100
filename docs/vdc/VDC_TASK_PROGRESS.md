@@ -22,6 +22,24 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-032：主 SMA 输出静态探测仍无外部电平
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条只做
+  STOP 态物理诊断，没有修改固件、PIO、Flash、OTA、path-delay 或 output-delay。
+- r18 将示波器触发源改为 CH1，先确认 `WAIT`，再在 NO1（COM5）执行主输出
+  `MASK 0→1`（GPIO16/OUT1）。示波器约 220 ms 后仍为 `WAIT`；NO1
+  `REALtime:STATus?` 为 `IDLE`，`SYSTem:ERRor?` 为 `0,"No error"`，说明
+  静态输出命令已接受且没有 RUN persona 残留。原始记录在
+  `out/HardwareAcceptance/20260918/no1-out1-ch1-trigger-r18/summary.json`。
+- r19 的 STOP 只读确认 VDC RUN 已停止、realtime 状态为空闲；记录在
+  `out/HardwareAcceptance/20260918/no1-run-owner-stop-r19.json`。
+- r20 逐位驱动 NO1 主输出组并读取 NO2 主输入，四个位均保持输入掩码 `0`；该组
+  不是当前 TDMA RJ45 运输线，因此只作为主 SMA/线缆诊断，不能解释为 TDMA 链路
+  失败。记录在 `out/HardwareAcceptance/20260918/no1-to-no2-static-link-r20.json`。
+- 结论：在不改变 DPLL 的前提下，当前外部示波器仍没有可用的 NO1 物理边沿。下一
+  gate 是确认探头是否接在产品 SMA_OUT1..4（GPIO16..19）以及隔离器/连接器侧，
+  或先用示波器直接测 MCU 侧测试点；确认主输出电平后再做 EXT 和 RAW 四路采样。
+
 ### VDC-PROGRESS-20260918-031：NO1 外部 EXT 触发物理路径仍未闭合
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条是停止态
