@@ -22,6 +22,28 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-011：坏启动 seed 不再提前消费 origin 授权
+
+- TODO task ID：`VDC-OBS-007`、`VDC-RECOVERY-001`，保持 IN PROGRESS。提交
+  `c7d15493`：自动交接在一次性 admit 前检查完整 seed、邮箱 CRC/类型/槽位/目标
+  以及帧序列/身份；坏候选继续原 bootstrap，下一有效回包可启动。直接启动也复验
+  全部邮箱。授权拒绝、begin/poll 后失败仍须 STOP；不回卷授权、不改物理拒绝码，
+  自主稳态路径无新增扫描，启动扫描成本仍需持续关注。
+- 旧代码负例复现同类 MAILBOX 拒绝；新真实适配器回归证明坏候选不消费授权、不调用
+  begin/poll，后续真实 TX/RX 可恢复。相关 60 项通过；另发现旧几何夹具缺少
+  priority STOP 桩，补齐未安装 IRQ 的边界后 56 项通过，旧失败日志保留。
+- 最终指纹四板 `p3-origin-seed-r3/` PASS_WITH_WARNINGS，build `20260918221036`，
+  INFO/WARN/ERROR/FATAL 为 23/22/0/0，29 个引用 hash 核对通过。未重扫线序，
+  不把锁相质量纳入 P3 基础门禁；上述数量均为当日快照，非产品事实源。
+- 新固件独立十秒及六十秒内部复采通过，运行查询零。六十秒有效成功数
+  33416/13883/14102/14004，三从调频 14/17/24、相位更新 557/563/573；异常 flags
+  全零，首成功最大间隔 0.487/0.624/0.748/0.851 秒。原生 CRC/解码、STOP/RELEASE
+  与恢复均完成；不能据此声称 GPIO 精度或全部跨启动可靠性。
+- 证据根 `out/HardwareAcceptance/20260919/origin-seed-r1/`，含独立代码审查、旧版
+  负对照、软件测试、`receipt-hash-check.json` 和 `capture-check.json`。上一长窗
+  失败原件不覆盖，也未确定当时具体坏邮箱字节。下一 gate：设备端分钟健康判定
+  与合法停止，再扩连续长窗；内部观察不代替实际输出精度及 VDC 失联质量发布。
+
 ### VDC-PROGRESS-20260919-010：静默启动取消非必要模型查询
 
 - TODO task ID：`VDC-OBS-007`，保持 IN PROGRESS。上一轮 START 前可选 MODEL
