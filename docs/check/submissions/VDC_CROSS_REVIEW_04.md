@@ -305,3 +305,17 @@ r4 完成后，独立方再次核验四板原生/分页 CRC、解码及十个分
 `capture-60s-independent-review.json`、`capture-600s-independent-review.json`。
 短窗严格通过，长窗覆盖完整且持续成功跨度超过六百秒，但 START 前诊断 timeout
 引入的首成功间隔超限、恢复队列错误及原始 FAIL 均保留，不授予严格整轮或物理锁相。
+
+## 可选分钟诊断监督（VDC-PRIORITY-01 v22 pending）
+
+独立方 `phase_center_review` 只读复核条件 STOP、Core1 判定、Core0 配置及会话复验、
+SCPI 接口和域/顶层/登记映射，同意 v22 保持 pending。首次时钟读取失败未锁存
+配置、零配置回卷被误当未绑定两项发现均已修复；真实 owner 回归验证停止请求
+接受与实际退休分开，后续新配置不能借用，已完成退休证据可保留至 RELEASE。
+原始发现与修复证据保留，最终聚焦回归四十三项通过（当日快照，非产品事实源）。
+无启动宽限；失败时间为检测时间；PASS 只含目标窗，尾段独立核验；仅失败本板自动
+停止，PASS 不自行断环，最终由编排统一 STOP。不宣称四板同步停止、独立 watchdog、
+输出持续性或 GPIO 精度。C11 审查
+不替代硬件验收，最终 P3/实板结果见 `VDC_TASK_PROGRESS.md`。
+原件为 `out/HardwareAcceptance/20260919/internal-guard-r1/design-review.json` 与
+同目录 `c11-review.json`，审查日期为 2026-09-19。

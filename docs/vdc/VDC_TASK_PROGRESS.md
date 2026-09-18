@@ -22,6 +22,65 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-012：内部分钟监督、失败本板停止与通过保持环路
+
+- TODO task ID：`VDC-OBS-007`，参考监督子切片完成，整项仍 IN PROGRESS。代码提交 `37ca2351`，匹配凭证
+  和 pre-commit 已核对。新增可选 GUARD ARM 与独立
+  元数据，复用原汇总 schema/池；Core1 按分钟检查内部参考/覆盖，Core0 持 TDMA
+  control guard 核对原 config/capture/session/generation 后，仅对 FAIL 请求
+  输出取消和环路退休。busy 重试；停止接受、精确退休证据分别保留。不授予产品
+  隔离或 GPIO 精度，运行零主机采样，主机等待结束后才取回结果。
+- 独审发现首次时钟失败未先绑定 config、零配置回卷被当作无效两项问题，均已
+  修复；退休锁存不能借后继 config。完整首轮回归 234 项、后继 43 项通过；
+  修正停止策略后的最终聚焦回归 52 项通过，数字为当日快照，集合不累加。
+  r5 的零配置预期错误保留，修正测试为 matcher 拒绝后仍能 STOP，未放宽 matcher。
+- 初版 `positive-60s/` 保留 FAIL：NO1/NO4 达标后自动停机，NO2/NO3 在约
+  59.758/59.877 秒提前 BINDING 冻结。四板冻结前持续成功且异常 flags 全零；
+  自动停止/退休、主机清理及参数恢复均完成。各板 ARM 起点不同，不能让先达标者
+  断环；修正为 PASS 只锁存目标判定，最终由编排统一 STOP，失败仍本板自动止损。
+  原件及原适配器 `capture-before-pass-stop.py` 保留，不能把首轮写成通过。
+- Release 双槽与匹配源码 `p3-internal-guard-r2/` 完成，PASS_WITH_WARNINGS，
+  INFO/WARN/ERROR/FATAL 为 25/18/0/0，复用已确认线序，不扩大 P3。复用构建目录的
+  build ID 仍为 `20260918221036`，须按当前源码/package 指纹辨认，不能凭同号混用。
+  原件引用逐项 hash 核对见 `receipt-r2-hash-check.json`；初版 P3 r1 也保留。
+  主 RAM 静态增量 164 B，余量 20120 B，仅为 linker 快照，不代表栈峰值或 WCET。
+- 实验适配器独审补齐缺参考负例不能接受任意异常、结论不得沿用外部示波器文字；
+  最终四十五项纯内存测试通过。正常轮验证 PASS 不自动断环；负例要求原生 CRC、
+  零成功、NO_SUCCESS/UNBOUND 与原因位一致、首分钟失败和实际退休，不冒称健康。
+  证据根 `out/HardwareAcceptance/20260919/internal-guard-r1/`；独立源码与 C11
+  审查见 `design-review.json`、`c11-review.json`，v22 保持 pending。
+- 修正版 `positive-60s-r2/` 四板 PASS，目标达成后均未自行断环；完整原生 span
+  超过目标，异常 flags 全零，运行查询零，主机统一 STOP/RELEASE 与恢复通过。
+  独立重解码/分页 CRC、原始动作、退休和外层恢复核对见
+  `positive-r2-hardware-review.json`；继承的 `flow_completed=false` 是旧详细采集
+  未使用标志，本轮按真实步骤证据判断，不修改旧字段或以 passed 单字段替代核验。
+- `negative-120s/` 不发 origin TRIAL，四板均于目标中首个六十秒检查点判 FAIL；
+  NO_SUCCESS/UNBOUND、成功间隔及字段饱和与原生零成功一致，记录跨度约
+  60.001–60.003 秒，guard 的接受/环路退休/输出退休均已确认。主机约一百二十二秒
+  才发送清理命令，证明自主停止不依赖主机轮询；运行查询零，清理/恢复无遗留。
+  此负例通过只证明故障被检出且退休，不代表 DPLL 健康。数字均为当日试验快照。
+- 同一源码 `positive-600s/` 四板参考监督通过，十个分钟检查点全 PASS（mask 1023），
+  四板 TDMA 保持至主机 STOP。成功数 364333/173362/176176/164227；原生 CRC
+  重解码和保存 JSON 一致，运行查询零，清理/恢复无遗留。完整启动/尾段保留，
+  不将稳定段替代整轮判定；旧 `positive-60s/` 失败仍独立保留。
+  全部从板自第十秒起的完整段内部区间包络分别为 [-218,111]、[-207,107]、
+  [-215,139] ns，比短轮有所扩大；这不是实际 GPIO 误差，也不授予全程百纳秒锁相。
+  数字为当日试验快照；原始结果、离线表与 SVG 见 `positive-600s/offline-analysis/`。
+- 独立复核同时发现 NO2/NO3/NO4 的 `run_output_raw.reason` 均为 STARVED，
+  提前结束输出；NO1 为主机取消。当前 GUARD 只检查参考/模型，并未检查输出
+  健康，因此原试验 `passed=true` 只在参考子范围有效，整机长时输出验收失败。
+  实际退出字段见 `output-retirement-600s.json`；不能以最终 idle 掩盖饥饿，
+  也不能用全局 service 最大间隔单独断言原因。原件保持，不改写为健康。
+  独立核验 `600s-hardware-review.json`：相对 PIO anchor 约在 169.311/70.240/
+  553.306 秒饥饿，最后约 25 ms 未成功补给，期间仍有 service。NO2 末态为
+  SUBMIT_REJECTED/NOT_READY，NO3/NO4 为 DMA_NOT_READY；最大 service gap 均
+  小于配置的 refill 窗口，不能直接归因 CPU 停服。早于本 guard 的
+  `internal-generation-r1/capture-600s/` 四板末态均为正常取消，需同固件监督
+  开/关 A/B 判别当前开销与补给状态机的关系，不能先断言与探针无关。
+- 下一 gate：`VDC-OBS-007` 与 `VDC-OUTPUT-001` 先补输出健康分钟判定、定位
+  PIO 补给/缓存/提交路径并修复饥饿，再推进 `VDC-SNAPSHOT-001`、
+  `VDC-RECOVERY-001` 的质量老化、一致发布和恢复。实际 GPIO 精度仍独立验收。
+
 ### VDC-PROGRESS-20260919-011：坏启动 seed 不再提前消费 origin 授权
 
 - TODO task ID：`VDC-OBS-007`、`VDC-RECOVERY-001`，保持 IN PROGRESS。提交
@@ -2240,71 +2299,6 @@ Last updated: 2026-09-19
   在启动锁存独立 delay，采用共同未来 VDC 边沿，记录模型/生效边沿，再以 NO1
   相对三从的实际上升沿差验证相位、斜率与抖动；长期目标继续 IN PROGRESS。
 
-### VDC-PROGRESS-20260917-027：基线 SCPI 配置与显式 Flash 保存
-
-- TODO task ID：`VDC-TUNE-001` DONE、`VDC-FAST-003` IN PROGRESS。
-  证据根为 `out/HardwareAcceptance/20260917/dpll-scpi-baseline-r1/`，本节数字
-  为本轮快照，非产品事实源。用户选择先开放早期基线替换次数和窗口，
-  本轮不改变频差估计、响应比例、死区、评估档位或 NO1 PI。
-  代码提交为 `8b12944`，包含匹配的 P3 凭证，真实 pre-commit 按当前 staged
-  指纹通过；他人 `tdma_flight_engine.c` 修改未暂存、未提交。
-- 已实现 STOP-only `SYSTem:VDC:PRIORity:FOLLow:BASEline <次数>,<窗口ns>`、
-  `BASEline?`、`BASEline:DEFAult`、`BASEline:RECall`、`BASEline:STORe`。
-  工厂值为 2 次/250000000 ns；次数 0 关闭质量替换，窗口为正且不超过工厂上界。
-  Core0 发布整对原子配置，新的有效 FOLLOW 绑定一次锁存；旧 pending、模型更新
-  和基线重建不混入新参数。STOP 退休请求，后续须重新显式请求 FOLLOW。
-- Product Config 增量迁移为版本 3/72 B，保持旧 64 B 前缀与旧 CRC 域。
-  新固件只读启动迁移保留有效旧 PI/角色/USB/板号；显式保存走既有 journal 和
-  Core0 FlashTransaction。新维护入口持有 TDMA control guard 排斥 ARM/config，
-  不把 Flash 放入 Core1 或有界 metadata callback。该迁移不承诺旧固件识别新记录。
-- 软件回归分别为控制/时钟/配置首轮 153 项、最终配置专项 40 项、集成 163 项；
-  数量有重叠，不求和。真实 Product Config C 测试和独立迁移/写失败/CRC/轮转
-  复核通过。控制专项一次测试缺少 Core1 上下文失败保留，修复仅补测试上下文，
-  生产实现未为测试放宽。原件见 `control-candidate/`、`control-review/`、`review/`。
-- Release build `20260917114329`，源码指纹
-  `1b7bd8e8925d94d9e8d3dfe72d6528a90e9890e30072ebccde70c3f8838a7379`，
-  共 1241 文件。双槽 ELF/BIN/package 逐字绑定独审通过，package SHA 为
-  `12c4f97aaf49d5979f1685956d0e77502ed508febe2392064b0d1e090ed62f42`。
-  新静态对象共增 20 B，其中配置字使用原有对齐空隙，最终 RAM 余量减少 16 B
-  至 33016 B；scratch 余 24 B。已审 Core1 最大栈保持 2872/3072 B。
-  新 getter 自身零栈、一次原子读取，但位于 XIP，不宣称已证明 RAM 常时延。
-- 匹配源码四板 quick P3 用时约 191.343 秒，`PASS_WITH_WARNINGS`：25 INFO、
-  18 WARN、0 ERROR/FATAL。独审重算 29 份引用、实际四板升级、每板 14 条 TDMA
-  原生记录及终态 STOP；较前基线无新增 WARN。严格 TDMA/实时门禁仍失败，
-  `strict_gates_passed=false`；本切片不把快速流程通过写成严格质量或锁相通过。
-- 四板实读新 build、UID、STOP 和默认基线配置后，复用既有 11 秒静默原生
-  采集器，运行零查询、全部 STOP 后导出，流程约 32.718 秒通过。
-  三从实际 DCO 更新 5/6/8 次，末态分别 +81/+302/+2727 ppb；这些是本地
-  控制值，不是相对 NO1 的外部残余频差，也不据此推断精度变差或锁相。
-- STOP-only HIL 工具完成 33 项离线测试和独审后执行，238 条原始命令完整保留，
-  流程终态通过，用时约 32.61 秒（工具内部 31.5 秒）。四板核身份、build、
-  STOP 和初值，NO2 实测合法边界及 7 组非法输入拒绝/请求值不变，区分工厂默认
-  与召回；显式保存 1 次/125000000 ns 后，先写不同 RAM 哨兵再软件重启，
-  读回保存值。随后恢复原持久化 2 次/250000000 ns，再次哨兵/重启验证，
-  最终恢复原请求。PI 前六字段、角色前两字段与身份不变，代际字段原样留证，
-  不要求跨重启相同。两次重启、清理均成功，无遗留 RAM/Flash 恢复项。
-  主要耗时来自非法命令等待响应；不属于实时环路成本。
-  实机保存/重启目标仅为 NO2；维护/ARM 竞争和新绑定锁存由真实 C host 覆盖，
-  本轮原生回归采用默认参数，不声称非默认运行轨迹已全部硬件验证。
-- 最终四板会话为空、PIO/DMA idle，示波器 STOP/EXT/NORM 实读通过。
-  原件入口为 `scpi-hil/run-r1/report.json`、`commands.jsonl`、
-  `review/p3-hardware-review.json`、`review/native-independent-review.json`、
-  `review/origin-join-independent-review.json` 和 `final-stopped-state.json`。
-  HIL 工具初审发现重连沿用旧身份验证集合，已修复并以错 build 重连负测验证，
-  此问题在操作硬件之前闭合，初轮离线产物保留。
-  独立 HIL 审核逐条重放全部命令，确认恰好两次 STORE/两次 RESET、非法输入
-  错误队列及状态恢复，见 `control-review/run-r1-scpi-hil-independent-review.json`。
-  `VDC-PRIORITY-01` v10 C11 结论为 `ACCEPT_V10_PENDING_CONTRACT_SCOPE`，
-  登记状态仍为 pending，不由参数保存切片升级为已锁相。
-- 用户明确 ±50 ppb 是后续频差优化目标，以当前频差直接推进实际输出 100 ns
-  量级锁相，因此本配置切片不再追加无关的 STOP 固定频率波形门禁。
-  下一 gate 为复用同事件 MATCH 残差，接通 Core1 本地相位校正、
-  Domain 提交及 RUN 输出确定边界采用，记录事件/模型/生效边沿。
-  频差优化独立记为 `VDC-FREQ-001`，不阻塞相位闭环；ACK、误差预算和一致 VDC
-  发布继续分别验收，不把当前配置切片完成提升为长期目标完成。
-  `phase-next-plan.json` 为只读接续方案：特别覆盖频繁相位改模不能饿死现有长窗
-  频率估计，以及现有纳秒命名输出接口仍用微秒启动坐标，不能仅移除 STOP 门禁
-  或凭接口名字声明百纳秒相位。先形成真实相位修正证据，再收紧完整误差预算。
 
 ## 进度记录
 
@@ -2330,7 +2324,7 @@ Last updated: 2026-09-19
 
 | 文件 | ID 区间 | 条目数 | 归档日期 |
 |---|---|---|---|
-| `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_07.md` | VDC-PROGRESS-20260917-026..VDC-PROGRESS-20260917-025 | 2 | 2026-09-19 |
+| `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_07.md` | VDC-PROGRESS-20260917-027..VDC-PROGRESS-20260917-025 | 3 | 2026-09-19 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_06.md` | VDC-PROGRESS-20260917-024..VDC-PROGRESS-20260917-023 | 2 | 2026-09-19 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_05.md` | VDC-PROGRESS-20260917-022..VDC-PROGRESS-20260917-022 | 1 | 2026-09-19 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_04.md` | VDC-PROGRESS-20260917-021..VDC-PROGRESS-20260917-012 | 9 | 2026-09-18 |

@@ -650,6 +650,26 @@ SERVICE_GAP 的单次服务缺口门限保持默认间隔，跨段迟到以所�
 长成功缺口和计数不可表示时仍饱和并保留 flags，不随扩窗放宽或清零。主机必须按
 schema、跨度、tick rate 与容量核验完整覆盖，不能仅延长等待或拼接重启片段。
 
+可选 `SYSTem:VDC:PRIORity:TRACe:GUARd:PHASe/ORIGin <capture_id>,<duration_s>`
+沿用 STOP-only ARM 与 Core1 ACK，选择最大合法汇总跨度；检查点、最大时长、状态及
+原因位由 `VDC_PRIORITY_GUARD_*` 定义。普通汇总模式默认不启用监督。Core1 从首次
+ring 运行观测开始计时，在检查点累计检查服务缺口、无成功/未绑定、成功间隔、计数
+回退/饱和与时钟异常；无启动豁免，不因零 DCO 调整或 PARTIAL/TERMINAL 单独判失败。
+提前冻结立即终止判定；首次失败只提交本次诊断的本板停止意图。目标窗通过只记录
+PASS，不自动停止，避免各板 ARM 起点差异使先通过者截断其余节点；诊断编排完成
+等待后仍须统一 STOP 并确认退休，不能把 PASS 当成停止回执。
+Core0 经 TDMA control guard 复验原 config 与 capture/session/generation 后取消输出
+并请求环路退休，busy 留待后继处理，不能借用后续 ARM；config 的零值回卷不等于
+未绑定。Core1/Core0 停滞时该机制不是独立硬件 watchdog，也不保证四板同步停机。
+
+`GUARd?` 返回 `vdc_priority_guard_status_t` 的独立版本化元数据；旧原生 schema、
+布局和池容量不变。`first_failure_ms` 表示判定时刻，不是故障首次发生时刻；
+`checked_s/passed_mask` 只描述已检查目标窗，停止等待尾段仍需原生记录单独核验。
+停止接受与实际退休分开；退休位保留本次精确 stop_config 曾完成退休的证据，
+不表示查询时任意后续运行已停。状态供 STOP 后读取；运行不依赖串口/SD/RTOS
+采样。监督只判断内部参考和跟随完整性，不验证实际输出持续性、GPIO 相位精度、
+失联质量老化或产品隔离，也不授予正式锁相和 VDC 发布资格。
+
 `SYSTem:VDC:PRIORity:SYNC` 是 Core0 STOP-only 意图，非零值必须严格递增且已有
 feedback session；零禁用。generation 不替代 feedback session、origin epoch
 或 model token。Core1 首次绑定完整 ring config、source epoch/tick rate、session、

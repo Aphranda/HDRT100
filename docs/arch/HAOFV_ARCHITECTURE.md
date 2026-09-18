@@ -205,6 +205,12 @@ STOP 后导出的汇总与详细原生模式具有独立 schema，不增加运�
 origin 汇总计数基线绑定当前 sync generation，不混用启动前旧代计数；当前代
 首次拒绝、同代回退、读取失败及运行中异代均按真实 owner 观察保留。
 
+可选诊断 guard 在 Core1 按固定检查点判定内部跟随健康，Core0 仅在原环路配置
+与 capture/session/generation 一致时，经 TDMA control guard 请求失败本板停止；
+目标通过仅记录 PASS，完成等待后由诊断编排统一 STOP，避免先通过者截断其余节点。
+停止接受与原配置实际退休证据分别发布；旧原生记录格式不变，运行不依赖管理面
+采样。此监督不保证四板同时停机，不替代硬件 watchdog、GPIO 精度或失联质量发布。
+
 显式持续诊断将输出 duration 与 TDMA TRIAL duration 的零值解释为不设置整次
 到期时间；有限模式仍保留。Core1 使用 TIMER1 直接坐标，按有界块补给 PIO/DMA，
 保留时钟有序性、溢出、会话与资源核验以及 STOP/撤销/故障退休。外部示波器可
