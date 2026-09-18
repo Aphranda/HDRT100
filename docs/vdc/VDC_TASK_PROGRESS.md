@@ -22,6 +22,36 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-010：静默启动取消非必要模型查询
+
+- TODO task ID：`VDC-OBS-007`，保持 IN PROGRESS。上一轮 START 前可选 MODEL
+  管理查询 timeout 三秒，trace 已计时，导致首成功间隔超限。新实验适配器仅
+  配置阶段 NO1 的该查询明确省略一次，`model_before_start=null`，记录未发送；
+  不伪造旧值或有效响应，其他配置/身份/owner ACK 与 STOP 后采集均保持。
+  固件未改，源码指纹仍绑定 build `20260918210835` 的原 P3；原失败完整保留。
+- 五项独立无硬件边界核验通过，见 `adapter-review.json`。新 `capture-60s/`
+  静默 60.015 秒严格通过，四板各七段，异常 flags 全零，首成功间隔
+  0.493/0.645/0.768/0.928 秒（当日快照，非产品事实源），未修改一秒门限。
+  运行查询零，STOP/RELEASE/参数恢复通过，独立 CRC 与生命周期核验见
+  `60s-review.json`。后继 `capture-600s/` 已结束并 FAIL：NO1 在约 0.454 秒冻结，
+  四板有效参考成功数均为零；从板空段与计数饱和完整保留。该轮不是锁相精度失败，
+  而是 NO1 自主 origin 尚未完成启动。全板 STOP/RELEASE/参数恢复完成，错误原件不覆盖。
+- 按真实 SCPI 字段拆解：handoff 的 12 是阶段总数，不是 builder 拒绝码。
+  release 的 `physical_reject=1966081` 拆为 `PREPARE_STAGE` 与 MAILBOX stage；
+  仅 MAILBOX 被调用一次，后继 BUILD_BEGIN/STEP 均未进入。前置配置检查有独立
+  CONFIG 拒绝编码，当前保留的是邮箱批校验失败；尚无失败 slot/原始 seed，
+  不能断言是 CRC、class 或 mask。代码前置交接仅验 header，后置物理准备才验邮箱，
+  正在验证不消费授权、不碰硬件的坏 seed 延后准入方案；不得放宽 CRC 或伪造 seed。
+  独立核对原始分页/CRC、拒绝码与清理结果见 `capture-600s/independent-failure-review.json`；
+  从板 17.17986918 秒为字段饱和值，不能当成真实最大间隔。
+- 原固件同配置 `repeat-10s/` 单独复采通过内部覆盖/成功间隔检查，运行查询零，
+  四板有效成功数 2345/1714/1698/1698（当日快照，非产品事实源），STOP/恢复完整。
+  复采不能消除上一轮失败，也不能证明跨启动可靠或实际 GPIO 精度。
+- 证据根 `out/HardwareAcceptance/20260919/internal-startup-r1/`。分钟自动止损、
+  实际 GPIO 精度和失联质量老化仍需独立验证，不能由内部正常跟随直接授予。
+  下一 gate：先用短窗闭合启动退避/拒绝，再实现同会话设备端分钟判定与合法 STOP；
+  现有静默脚本只能结束后回看，本轮确实等待了完整长窗，不能称在线止损已完成。
+
 ### VDC-PROGRESS-20260919-009：内部探针 TX 基线绑定当前代际
 
 - TODO task ID：`VDC-OBS-007`，保持 IN PROGRESS。新 capture 首个 service 可能
