@@ -43,6 +43,25 @@ Last updated: 2026-09-19
   不改变持续调度的前提下，单因素调整 NO4 本地 delay/路径补偿，先做短窗口 A/B，
   再复跑分钟检查点；任何修改仍需匹配源码 quick P3。
 
+### VDC-PROGRESS-20260919-003：NO4 delay A/B 与长期补给复现
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-PRECISION-001`、`VDC-DRIFT-001`，继续
+  IN PROGRESS。基线 NO4 delay 为 −160 ns；误将绝对值写为 +44 ns 的首轮 A/B 在
+  60 秒即出现约 +155 ns，相对基线增加约 200 ns，证明 delay 是绝对值且不能由
+  边沿差直接当作新值。该轮按检查点停止并恢复，证据
+  `out/HardwareAcceptance/20260919/dpll-no4-delay-ab-r1/`。
+- 修正候选为 −116 ns（相对基线增加 +44 ns）。60 秒 A/B 通过：NO4
+  −0.28..+23.94 ns，中位 +7.94 ns，NO2/NO3 仍在 ±50 ns；四板无缺沿，参数和
+  scope 均恢复。证据 `out/HardwareAcceptance/20260919/dpll-no4-delay-ab-r2/`。
+- 同一 −116 ns 候选长跑在 60/120/180/240/300/360 秒均通过，但 370 秒后 NO2
+  无上升沿；420 秒检查点停止。NO2 末态 `reason=3`（`STARVED`）、blocks=22998、
+  PIO TX stall；NO1/NO3/NO4 末态由 STOP 收尾。该失败发生在与 NO3 不同的节点，
+  说明全局输出补给/调度竞争仍未闭合，不能把 NO4 delay 候选写入 Flash 或称为
+  长期锁相参数。证据 `out/HardwareAcceptance/20260919/dpll-no4-delay-ab-r3/`。
+- 下一 gate：针对不同节点随机出现的 STARVED，增加提交/服务边界的关联证据，区分
+  PIO FIFO 真实耗尽、DMA guard 拒绝和 Core1 服务间隔；修复后先 quick P3，再用
+  −116 ns 做 60→600 秒检查点复测。VDC-PRIORITY-01 v19 继续 pending。
+
 ### VDC-PROGRESS-20260919-001：分钟检查点快速失败与 NO3 输出补给失败
 
 - TODO task ID：`VDC-DRIFT-001`、`VDC-RUN-001`、`VDC-RECOVERY-001`，继续
