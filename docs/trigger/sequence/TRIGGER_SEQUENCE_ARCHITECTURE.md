@@ -4,7 +4,7 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md`
 Related: `docs/trigger/sequence/TRIGGER_SEQUENCE_TODO.md`, `docs/trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
 ## 文档接口与范围
 
@@ -38,6 +38,19 @@ START预置不计入accepted/completed，但须执行首状态配置的状态输
 `plan.count * repeat_count - 1`，最后状态完成后进入 IDLE，置 finished 并拉低输出、释放资源。
 组合模式须完成最后状态对应的 VNA 采样 READY 后结束，不再发送下一状态请求。
 先完成SCPI控制与IO读取，再按实际接线逐输入验证；执行进度与信号源参数见Task Progress。
+
+### 独立脉冲反馈的捕获顺序
+
+独立外部输入配合PULSE状态输出可组成OUT触发仪表、仪表完成反馈到IN的闭环。
+输入捕获须在START输出首个触发之前准备好，不能等首脉冲结束后再由CPU开启。
+每项编码稳定并完成`settle_us`后，PIO先开放一次反馈接纳，再输出状态脉冲；
+此后收到的首个有效边沿锁存为后继请求，当前脉冲完整结束后才可写入下一项编码。
+锁存关闭本项反馈窗口，额外边沿不再增加请求；编码建立期间的边沿仍不接纳。
+锁存候选不提前增加软件`accepted`，执行器消费请求后才计为执行准入；
+PAUSE允许已锁存请求排空，STOP撤销未消费候选并计入notready，不与已执行步骤的取消重复记账。
+初始有效电平不视为新边沿，所选输入必须经历配置的非有效到有效转换。
+有限轮次仍受原推进配额约束，START输出本身不增加推进计数。
+MANUAL、LEVEL/NONE及组合VNA网关沿用各自入口语义；本规则不将反馈转换成无界队列。
 
 ## 第三模式：转台位置驱动完整采样序列
 

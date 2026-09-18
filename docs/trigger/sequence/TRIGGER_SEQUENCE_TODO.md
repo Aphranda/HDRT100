@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/sequence/TRIGGER_SEQUENCE_TODO.md`
 Related: `docs/trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md`, `docs/trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
 ## 当前范围
 
@@ -188,6 +188,9 @@ GUI 分页批次已完成；用户已要求继续调试，并参考 real-flight 
 | NSEQ-103 | 实时流水线特等席窗口、分段计时与停止撤销 | PENDING | 窗口独立于可选负载使能，有预算/配额/截止/关闭裕量；每次只执行有界迁移，硬件等待时返回；同钟阶段时间和超预算样本可读回，STOP/新run撤销旧事件；通过短帧闭环 |
 | NSEQ-104 | 固定位置周期与旧模式验收 | PENDING | 回到NSEQ-096既定源频率/N关系测第三模式整轮时长；回归独立SP8T、双角色、首末项/有限轮次/暂停/停止/异常恢复，记录当前build与源参数，不以增加N或软件回环代替通过 |
 | NSEQ-105 | 三模式单板提交凭证 | DONE | 固定双角色有限/暂停、独立IN1、START、位置计数生命周期及RefMem布局回归通过，源码/包/真实OTA/报告摘要已绑定并通过提交门禁；证据及代码提交见进度043，不将单板凭证升级为P3或性能通过 |
+| NSEQ-106 | 独立SP8T反馈捕获先于状态触发输出 | IN PROGRESS | 反馈窗口修复、软件回归及USBTMC构建通过；用户最终澄清现场循环采样验证属于转台脉冲计数模式，不能用其关闭独立SP8T网分反馈验收。进度046记录现场证词及受限提交边界，独立模式仍需单独留证 |
+| NSEQ-RISK-05 | 反馈修复的自动验收与现场参数留证 | PENDING | 下一代码提交前补当前源码的单板工具凭证及OTA摘要，记录网分型号/触发设置/实际延时与波形，复测暂停恢复/停止/热加载；本次用户现场证词仅用于授权受限提交，不伪造或复用旧凭证 |
+| NSEQ-107 | 调试GUI的Windows便携包 | IN PROGRESS | 使用既有py2exe环境构建；打包Tk、串口、VISA及OTA辅助入口，脱离源码目录完成启动、页面和子进程检查，记录依赖与分发路径；真实设备通信及OTA仍需接板验证 |
 
 三模式提交命令在原单板入口基础上须显式传`--source-hz <HZ>`，USBTMC使用
 `--visa-resource <RESOURCE>`代替`--port <PORT>`；OTA摘要由

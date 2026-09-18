@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md`
 Related: `docs/trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md`, `docs/trigger/sequence/TRIGGER_SEQUENCE_TODO.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
 ## 文档接口
 
@@ -23,6 +23,9 @@ Last updated: 2026-09-17
 
 ## 当前 Checkpoint
 
+最新修复为进度044：独立外部PULSE模式先准备捕获，再发状态触发，反馈锁存至当前脉冲结束。
+软件回归、独立复核和USBTMC固件包已完成；本机未接板，交远程OTA后验证真实网分闭环，未提交。
+
 `NSEQ-001/002` 已完成：实际链路和源码审计、标准三件套、自动门禁与独立复核通过。
 用户已确认“一脉冲一序列状态”，对应链路切换及其他节点工作。
 `NSEQ-010` 配置模型实现、行为测试、构建与独立软件复核通过。
@@ -35,7 +38,7 @@ IN1已接外部信号并完成低频功能验证，见进度010；四板P3失败
 配置、软件切步及IN1低频流程已通过；其余输入实际激励、独立波形和开关本体通路未验收，
 不得据此宣称支持分布式节点预约。最新范围为同板 DUT/VNA 通过已接线 RJ45 物理回环协作，
 保留独立 SP8T 和 DUT-only 模式；角色配置及同板 LINK 运行绑定已实现，见进度019/021。
-最新检查点为进度043：独立SP8T、DUT/VNA和转台三槽位固定单板功能验收及暂停/恢复、
+已提交的单板验收检查点为进度043：独立SP8T、DUT/VNA和转台三槽位固定单板功能验收及暂停/恢复、
 忙时保护、异常恢复通过，代码已提交为`a344e90a`，正式凭证绑定当前源码及真实VISA OTA。
 Core1运行协调及动态PIO握手首切片已落地；NSEQ-101仍在迁移，运输优先路径尚未完成。
 下一代码提交先关闭NSEQ-RISK-04角色激活诊断缺口；200ms位置周期、严格TDMA稳定性、
@@ -836,6 +839,34 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 - 独立只读审核`/root/sequence_priority_audit`结论`PASS_WITH_NOTES`、无阻断：保留RISK-04、PIO未完成范围及性能失败，RefMem契约维持pending。审核建议的下一Gate旧措辞与OTA事务重试/USB有界轮询边界已修正。
 - 文档检查`docs_check --strict-names`、`doc_regression_check`及`--log-check`通过；对应18项pytest通过，目录`out/pytest/sequence-checkpoint-docs-final-20260917-r1`。保留既有`TDMA-FLIGHT-BITMAP-01`命名WARN；本机约定Git Bash路径不存在，手动hook使用PATH中的`C:/Program Files/Git/bin/sh.exe`。
 
+### NSEQ-PROGRESS-20260918-044 - 独立SP8T反馈捕获窗口及远程USBTMC包
+
+- TODO：`NSEQ-106`；日期：2026-09-18。用户确认OUT4接网分触发输入、Trigger Out B接IN1，B为Sweep/End正脉冲；手动切步可见反馈，自动只见一次。当前未接板，源码确认存在启动捕获晚于首状态脉冲、脉冲期间拒绝反馈的窗口；尚未实测证明这就是现场唯一根因。
+- 独立external+PULSE在START同步启动PIO输入捕获和DMA；复用executor两处指令，在编码建立完成后、状态OUT前开放一次接纳，IRQ请求锁存至当前脉冲结束再执行下一项。首项OSR同步预置，priming以真实首对回执退出，不再依赖可能已被反馈消耗的READY位。未增加PIO指令或改PIO1/2，MANUAL/LEVEL/NONE/组合网关及无推进配额保持原路径。
+- 软件accepted仍表示执行准入，未消费反馈仅为候选；PAUSE排空已锁存的一步、阻止新接纳，STOP撤销未消费候选记notready。独立复核发现的accepted与notready重复记账风险已通过`pending_request()`分流修复并增加实际C边界测试，不把反馈伪造成已完成切步。
+- 验证快照：最终PIO/驱动127项通过，含首次及连续早反馈、最短脉冲、双极性、重复沿、建立期噪声、有限配额、初始有效电平、迟反馈、暂停/停止和迟CPU回执；日志`out/node-sequence/feedback-window-final-tests-20260918-r1.log`，目录`out/pytest/feedback-window-final-20260918-r1`。上层owner/SCPI/LINK/GUI234项通过，日志`out/node-sequence/feedback-upper-tests-20260918-r1.log`。独立审核`/root/independent_feedback_review`为PASS_WITH_NOTES，无阻断，额外初始电平/迟反馈测试由主控补齐；软件模型不等于物理边沿验证。
+- 以当前HEAD `efe5ca78`加工作区修复编译，preset `pico2-usb-runtime-switch`并覆盖`PROJECT_USB_DEFAULT_MODE=USBTMC`。build `20260918074511`，A/B/BOOT flash-link通过；日志`out/node-sequence/feedback-usbtmc-configure-20260918-r1.log`、`feedback-usbtmc-build-20260918-r1.log`及最终增量确认r2。构建目录`out/build/sequence-feedback-usbtmc-20260918/`，包`DHRT100_UPDATE.pkg`；已保存的板端CDC选择仍优先于固件默认值。
+- 远程交付目录`out/remote/sequence-feedback-usbtmc-20260918/`包含带版本名的OTA包与README。包大小1554708字节，SHA256 `1f2405bf472256062775cb74fbe12a5f8beadecb901887f785976f3157f938c9`，均为本次产物快照。审核C/PIO的git对象指纹分别为`55a8141eb8db8de4558ca3e8d20e82b637cb0f19`、`b52507d38e3a9d1559d310cc3d6ea2598c30217e`。
+- 未本地OTA、未生成新硬件凭证、未提交。下一gate是远程核对build/USB枚举，并同时观察OUT4和IN1，验证首反馈、连续各项、有限轮次、PAUSE/CONT、STOP及重启。网分反馈须重新回到非有效电平再产生下一边沿；B脉宽若使相邻完成信号合并，仍需在仪表侧校准。独立有限末项仍按既有输出动作完成后结束，不新增等待最后网分READY的语义。
+- 文档检查和自回归通过，对应18项pytest通过（`out/pytest/feedback-docs-20260918-r1`）；保留既有登记命名WARN。本次`--log-check`还提示最近HEAD晚于已有hook记录，仅记录该时间差，不据此判定历史提交绕过门禁。本次源码未暂存，手动pre-commit跳过硬件分支，不作为新硬件通过证据。交付压缩包为`out/remote/DHRT100_20260918074511_USBTMC_SP8T_FEEDBACK.zip`，内含上述包和远程操作说明。
+
+### NSEQ-PROGRESS-20260918-045 - 调试 GUI Windows 便携包
+
+- TODO：`NSEQ-107`；日期：2026-09-18。使用 `D:\Microsoft\Miniconda\envs\py2exe\python.exe`（Python 3.11.15）构建 PyInstaller one-directory 包；新增 `frozen_entry.py` 作为 GUI/控制台助手入口，允许列表方式调度 VISA/Serial OTA 工具，避免冻结后把 GUI 自身重复启动。`sequence_debug.spec` 收集 Tk、PyVISA、PyVISA-py、PySerial、PyUSB、libusb 及 Conda Tcl/Tk/ffi 压缩库依赖，并内置 `5711_-_Sync_Event.png` 图标。
+- 构建工具 `tools/sequence_trigger_debug_ui/build_windows.py` 已固化构建、自检、README 和 ZIP 生成流程，并可从源码目录外调用。最终包目录为 `out/package/sequence-gui-20260918-r5/dist/DHRT100_Sequence_Debug/`，压缩包为 `out/package/sequence-gui-20260918-r5/DHRT100_Sequence_Debug.zip`；分发必须保留 `_internal`、两个 exe 和 README。自检在无硬件环境创建真实 Tk 窗口并验证 5 个分页、Tk 8.6、串口/VISA/libusb 版本，结果见 `self-test.json`。
+- 无硬件软件验证：8 个冻结 OTA 工具的 `--help` 均返回 0；VISA OTA 使用现有 `.pkg` 的 `--dry-run` 返回 0 并输出包大小/CRC；Serial dry-run 在虚构 COM 端口下按预期报告设备数不匹配。GUI 源码回归 `102 passed`；未执行本地 OTA、USBTMC 枚举、真实设备通信或硬件验收，不将便携包自检记为 NSEQ-106/NSEQ-107 的设备验收。
+
+### NSEQ-PROGRESS-20260918-046 - 转台脉冲计数模式现场循环采样确认
+
+- 日期：2026-09-18；本节数值均为现场读回或仿真快照，非产品常量。用户授权“可以依据我的证词进行提交”，并最终澄清“当时验证的是转台脉冲计数模式”。因此“网分也可以跑了”归属COUNTER/DUT/VNA三槽位模式，不归属独立SP8T反馈。现场对话：麻彦广18:03:29“在循环采样”；董力18:03:41“可以可以”、18:03:55“说明之前采样太快了，看不到”、18:04:11“现在降低速度，就能看到了”、18:04:45“终于啊，单板功能差不多了”。这是用户提供的现场证词，不是工具报告。
+- 用户提供读回原文：17:28:14 `SYST:FW:BUILD?` 返回 `"20260918074511"`；17:28:25 `TRIG:SEQ:NEXT?` 返回 `"IDLE",15,15,8,7,7,0,7,7,7,7,9,79,79,1,0,0,0,"NONE",0,0,0,0,0`；17:28:35 `READ:IO:STAT?` 返回 `0,0,0,0,0`。可确认79次推进完成、busy_rejected为1、故障为0；这些字段没有LINK模式及COUNTER历史，不能据此识别独立模式、位置数或独立物理脉冲计数。此前按独立模式解释为八项十轮的推断不作为模式验收依据。
+- 降速后转台脉冲计数模式循环采样由用户确认有效；实际最终阈值N、源频率、延时、脉宽、型号和波形未提供。此前建议100000us建立延时、10000us脉宽仅为独立模式排查建议，不冒充转台实际配置。“网分未重新武装”仍是未证实假设，不作为根因结论。
+- 增加真实PIO指令模型直接OUT4→IN1十轮及10/100us反馈时序回归。软件模型中10us建立延时/10us输出脉宽的80脉冲约1.66ms结束；模型不代表独立波形测量。保留进度044固件C/PIO指纹和构建包不变，不加入试验性诊断SCPI。
+- 本次受限代码提交仅包含反馈固件和相关测试；GUI打包代码仍在工作区，进度045记录的是工作区产物。代码与本文分开提交，提交消息标注`[risk]`。依据用户当前明确指令，一次性覆盖本次Git硬件hook要求；仓库`.githooks`及持久`core.hooksPath`保持原样，未改验收器、未制作或替换硬件凭证。自动门禁拒绝原文与测试日志保存在`out/node-sequence/feedback-testimony-20260918/`；不能记为自动验收通过。
+- NSEQ-106保持IN PROGRESS，转台证词不能替代独立反馈测试；NSEQ-RISK-05保留独立反馈自动验收、OTA摘要、现场参数与生命周期补证，要求下一代码提交解决。既有NSEQ-RISK-04保持未解决，本次反馈修复按用户既有允许未验证功能标risk的受限提交授权保存，不冒充已由现场验证覆盖。转台位置阈值、每位置完整采样记录和200ms目标尚未由本次证词单独验证；未扩大到P3、多板、RF或速度上限验收。
+- 提交前软件快照：PIO/驱动、SCPI与LINK共287项通过，文档检查器18项测试通过；`docs_check --strict-names`、`doc_regression_check`通过，保留既有登记命名WARN。C/PIO源码指纹仍与进度044一致。单板`check-staged`明确拒绝“working source differs from the staged commit”，原因包括未纳入本次提交的GUI工作区改动；既有凭证也不作为本次通过证据。用户现场授权的受限提交不消除此拒绝事实。
+- 代码检查点：`c862bf92 fix(sequence): arm feedback before status output [risk]`，仅包含固件C/PIO与两份测试；文档另行正常经过hook提交。未推送远端。
+
 ## 失败与回退
 
 配置模型、SCPI与GPIO版板端验证已完成相应记录；当前迁移PIO0，后续结果按新增记录跟踪。
@@ -843,7 +874,8 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 
 ## 下一 Gate
 
-NSEQ-105三模式单板凭证及代码检查点已完成；下一代码提交优先关闭
+转台脉冲计数模式已有用户现场循环采样确认；独立SP8T反馈NSEQ-106保持进行中，下一步补NSEQ-RISK-05自动验收与现场参数证据，本地无板不记工具验收通过。
+NSEQ-105三模式单板凭证及代码检查点已完成；既有下一代码提交约束仍优先关闭
 NSEQ-RISK-04激活gate诊断缺口，不以重跑通过代替根因闭环，再继续NSEQ-101至104迁移。
 保留独立SP8T的MANUAL/IN回归；组合角色使用统一PIO0 owner及真实RJ45运输，不软件直达。
 PIO握手首切片和Core1运行状态机功能已通过，固定200ms位置周期与严格TDMA稳定性仍未通过；
