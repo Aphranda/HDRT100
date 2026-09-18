@@ -22,6 +22,69 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-016：事件计时锚缩至 72 ns，保留映射与输出误差主线
+
+- TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。本条数字均为调试
+  快照，非产品事实源。证据根 `out/HardwareAcceptance/20260918/`，未改 OTA、
+  PIO 程序、phase 策略或 delay，保留其他设备的 `tdma_flight_engine.c` 改动。
+- 先量化剩余误差：`dpll-phase-residual-audit-r1/phase-residual-audit.json`
+  复算旧 r2 原生记录，phase 对跨零区间保持，否则只把最近端点推到零；已记录的
+  66 条相位动作符合代码。它没有额外相位 deadband，频率 deadband 改零也不能
+  改变这批频率决定。本地 raw enable 宽达微秒，叠加 TIMER0 量化和投影桥接后，
+  区间包含零并不证明实际相位已接近零；中点也不能冒充已测真实误差。
+- 晚窗口基线 `dpll-late-scope-r1/`：保持 40000/48000/32000 us 时间参数、
+  每块十六边沿、静默运行，四板均 CANCELLED，无 STARVED。1.9–2.1 s 窗口
+  四通道各 200 上升沿、20 ns 采样网格；NO1 周期误差约 -17.12～+19.53 ns，
+  三从最近 NO1 相位中位约 +1.84/+3.60/+1.48 us，NO3 仍含相位动作。
+  请求 5 s 偏移的两次示波器设置被读回检查拒绝，见 `dpll-late-scope-check-r1/r2/`，
+  当时未 START；r3 验证实际支持的 20 ms/div、2 s 中心后才采集。
+- 代码切片 `7b289126`：原 `try_read_ticks64` 前后各做时钟资格检查，使这些检查
+  落入 PIO enable 的计时窗口。新增 TDMA 私有 `tdma_event_enable_anchor_capture`
+  SRAM helper，将资格检查放在窗口外；窗口仅保留 H/L/H 原始读取、同一 SDK
+  同步 enable、H/L/H 和 fences。不屏蔽 IRQ、不重试、不裁窄观测区间；组内
+  回绕、逆序、时钟失败拒绝发布 anchor，仍保留原来的一次 enable 行为。
+  dirty-start、epoch、故障与退休检查不变，不将首帧证明新增为 DPLL 前提。
+- host/Release/审核：`enable-anchor-host-r3.txt` 最终 28 项通过，包含 device
+  分支 MMIO 顺序、失败原子性、回绕及现有 observer 生命周期。首次扩展测试的
+  两项禁用配置失败由收窄 include guard 修复；另一项 cut fixture 缺相邻 LIVE/
+  PIO 接口，在 `cut-fixture-head-repro.txt` 证明旧 HEAD 同样失败后补齐夹具，
+  保留真实 cut 算术并验证 ARM 退休/清空调用。`enable-anchor-release-r2.txt`
+  Release 与 A/B/boot 链接通过；`enable-anchor-review-r1/review.json` 独立审核
+  绑定最终源码和镜像，确认 144 B helper 位于 SRAM、局部栈 48 B，采样段没有
+  函数调用或 IRQ 屏蔽，仅一次原子 SET 启用；不新增常驻数组，未证明全栈水位。
+- 四板 P3：初次 `p3-enable-anchor-r1/` 因验收运行期间修正源码而被指纹检查
+  判 FAIL，不使用其凭证。冻结最终源码后重跑 `p3-enable-anchor-r2/`，约 233 s，
+  PASS_WITH_WARNINGS，INFO 25/WARN 18/ERROR 0/FATAL 0；严格质量仍未通过，
+  DPLL 为 TDMA-only 范围外，专项证据另列。当前 receipt 与源码指纹绑定，旧
+  build ID 不能替代 package/ELF/source 哈希。
+- 专项 `dpll-enable-anchor-scope-r1/` passed=true：三从保留的 39/39/37 个
+  MATCH 中 raw enable 区间均为 18 tick、72 ns；晚窗口基线分别为 335/335/336
+  tick、约 1.34 us。后段残差区间中位由约 3454/3446/3458 ns 降为
+  2036/1904/2166 ns。四板提交 713/724/734/744 块后主动取消，无 STARVED。
+  1.9–2.1 s 窗口 NO1 周期约 -18.48～+19.40 ns；三从最近 NO1 相位中位约
+  +0.10/+0.96/+1.36 us，但 NO2/NO4 含约 -775/-1280 ns 的周期缩短，不能将
+  中位接近 100 ns 当作锁相通过。
+- 复测 `dpll-enable-anchor-scope-r2/`：四板再提交 713/723/733/744 块，均
+  CANCELLED、退休 TXSTALL 位零；三从保留的 47/47/49 个 MATCH 再次为 72 ns。
+  原专项 passed=false：NO2 STOP 后读取 offset 7044 的 RAM 页超时，工具保留
+  冻结记录未释放。`recovered-no2/recovery.json` 无重 ARM 地补读同 capture ID
+  的 7768 B，全文件 CRC 通过、此前 56 页字节一致、前后状态相同，随后 RELEASE；
+  不改写原失败。三从后段残差区间中位约 3052/2188/2943 ns，晚波形相位中位约
+  -0.50/+1.16/+0.88 us，仍有可见相位动作和 session 间变化。
+- 结论边界：两轮 `anchor-width-comparison.json` 保存逐板宽度、原件哈希与外部
+  波形对比，r2 显式标记恢复的原生记录。72 ns 是本轮 epoch 的计时锚区间，
+  不是 GPIO 准确度、全运行误差上界或共同 ordinal 对齐证明。原生记录仍是有限
+  抽样/冻结前缀，波形只覆盖有限窗口；不同初始模型不能作严格物理单因素 A/B。
+  完整 TDMA 相位累计最大耗时仍超预算，不因输入锚变窄而宣称实时验收通过。
+  原生二进制、RAW 块及分级 P3 的独立复核见
+  `dpll-enable-anchor-scope-r1/independent-review.json`。
+- 下一 gate：事件 enable 的可避免软件宽度已明显降低，接着收窄 follower
+  MATCH 的 TIMER0/TIMER1 映射区间，并核对 RUN 输出 bridge/enable 的独立误差。
+  优先复用已有有界时钟映射与 owner 生命周期；先证明输入区间、再做实际波形
+  delay/频差调整，不用固定 delay 隐去 session 间漂移，不把区间中点当真值。
+  当前输出 anchor 仍约 1.15 us，本切片未修改它。最终四板 STOP、origin 许可
+  撤销、RAM 参数恢复原值、示波器 STOP/EXT/NORM，见 `enable-anchor-final-state.json`。
+
 ### VDC-PROGRESS-20260918-015：精确递推重建后缀，两轮四路持续至 STOP
 
 - TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。以下数字为调试

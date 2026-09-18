@@ -16,12 +16,13 @@ Last updated: 2026-09-18
 [当前配置与主线接续](VDC_TASK_PROGRESS.md#vdc-progress-20260918-004有限长时间轴与可配置补给窗口)及
 [RAM 进度 043](VDC_TASK_PROGRESS.md#vdc-progress-20260916-043refmem-缩容专项完成与主线接续)。
 
-最新运行与外部波形接续以 `VDC-PROGRESS-20260918-015` 为准：精确递推重建私有
-后缀、规划后重查 DMA 已完成当前源码四板 quick P3，两轮四路均持续至 STOP，
-未以 STARVED 终止。第二轮仍因 NO4 STOP 后模型查询超时记专项失败，补读成功
-不追改失败。完整 TDMA 相位仍超预算；有限波形不替代全程连续或锁相。下一步
-对照原生 model/ordinal 与较晚稳定窗口，区分 NO1 模型步阶及从板剩余相位差，
-继续 delay/频差收敛。候选时间参数均已还原，尚未固化为稳定配置。
+最新运行与外部波形接续以 `VDC-PROGRESS-20260918-016` 为准：补给连续性修复
+之后，TDMA 私有 SRAM 采样将三从事件 enable 计时锚从微秒缩至两轮实测 72 ns；
+host、Release、当前源码四板 quick P3 与首轮专项通过。复测 NO2 的 STOP RAM 页
+超时保留为专项失败，冻结原件已完整恢复。四路仍持续至 STOP，未 STARVED；但
+TIMER0/TIMER1 投影与 RUN 输出锚仍有微秒级不确定性，物理 100 ns 尚未证明。
+下一步先收窄 follower MATCH 的有界时钟映射，再分离输出 bridge/enable、delay
+及频差残差；完整 TDMA 超预算仍保留。候选参数已还原，未固化为稳定配置。
 
 `VDC-PROGRESS-20260918-013` 已恢复自主 origin 有限许可与
 SYNC/MATCH/FOLLOW 新代绑定已恢复，三从实际采用及末态模型一致性已复核。
@@ -226,7 +227,7 @@ DMA 退休期限的关联，不重复实现参数接口，也不以放宽连续�
 | 执行顺序 | 任务/状态 | 完成判据与下一动作 |
 |---|---|---|
 | 已完成切片 | `REFMEM-RAM-001/002/003/004`，DONE | 缩容、兼容工具、四板布局专项及固定范围快速 P3 调试验收完成；严格质量失败保留至下项，不继续扩大 RAM 完成条件。见 RefMem TODO 与 `REFMEM-TASK-20260916-001`。 |
-| 当前下一步 | 推进 `VDC-FAST-003` / `VDC-OUTPUT-001`，IN PROGRESS | `VDC-PROGRESS-20260918-015` 精确递推补给切片已通过同源码 quick P3，两轮四路持续至 STOP、未 STARVED；r2 保留末态查询超时失败。接着对照原生 model/ordinal 与较晚稳定波形，区分 NO1 模型步阶、从板相位采用及 delay/频差残差；完整 TDMA 超预算仍未闭合。不把 cached-only 计时当普通规划 WCET，也不把有限连续性改善解释为 100 ns 锁相通过。 |
+| 当前下一步 | 推进 `VDC-FAST-003` / `VDC-OUTPUT-001`，IN PROGRESS | `VDC-PROGRESS-20260918-016` 事件 enable 锚切片已通过同源码 quick P3，两轮三从原生计时锚均为 72 ns，四路持续至 STOP；r2 保留 RAM 页超时及同冻结记录恢复证据。下一步复用有界映射收窄 follower MATCH 投影，分离 RUN 输出 bridge/enable 与 delay/频差，不把区间中点、片段相位中位或 72 ns 锚宽当成 100 ns 物理锁相。完整 TDMA 超预算和共同 ordinal 核验仍待闭合。 |
 | 随后 | 完成 `VDC-FAST-001/002` | 补齐同圈保全/消费与资源预算实测，继续区分 offer、DMA selection、线上记录与 Core1 消费；不能用 IRQ-entry→read 代替物理边沿测量。配置、delay 和上下文提前安装，无普通解析、RefMem 分片或 RTOS 前置。 |
 | 随后 | `VDC-FAST-003` | 事件序号直接索引，复验完整序号/代际，计算时间差和本地 delay，实际应用 DCO；NO1 本地 PI 并发布参考，三从本地跟踪，ACK 关联收到/采用事件。 |
 | 最后 | 精度、恢复与 VDC 发布 | internal 关联参考事件、相位/速率命令及实际采用，以四路实际波形验证公共时基与用户精度目标；计入有效校正间隔、时间戳/链路 delay/输出量化误差。验证坏帧跳过、失联/恢复，以及 VDC 时间、质量、有效性和代际的一致发布。 |
