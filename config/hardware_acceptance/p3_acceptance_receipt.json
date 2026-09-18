@@ -4,64 +4,64 @@
   "acceptance_profile": "QUICK_DIAGNOSTIC",
   "dpll_observation": "SKIPPED_TDMA_ONLY",
   "passed": true,
-  "generated_at_utc": "2026-09-18T11:03:17.244035+00:00",
-  "source_tree_sha256": "902a54895daf9eaedd1b82cd5797e910ddfb52711538b69a69fc698f4309aed6",
+  "generated_at_utc": "2026-09-18T13:01:18.090419+00:00",
+  "source_tree_sha256": "55aa4e48e668abb485361e54d8d0041b45db0b573387226729eb871b50997030",
   "source_file_count": 1283,
   "bench_config_path": "config/hardware_acceptance/p3_bench_quick.json",
   "bench_config_sha256": "c032843ba0eab2e87bb3399920c0fe54f79cf1eddbb4404a7ed1d85b1ea34fc2",
   "build_id": "20260918081154",
   "firmware_package": {
     "path": "out/build/p3-timer1-20260918/DHRT100_UPDATE.pkg",
-    "sha256": "6c09b29347b3960114a43efc9e9a503e33d343cea21dc935f0994d419a9d3d18"
+    "sha256": "5bd2883814657093af2b55fb560e1f3d31c8026ea207c24082b79dab2e4ff61b"
   },
   "ota_summary": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/ota-four-board-tdma/summary.json",
-    "sha256": "a2ab94badcecca3c5c7a93070844c945ead5718a6b0029baaea88cba3ccd4924",
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/ota-four-board-tdma/summary.json",
+    "sha256": "cda614c4972e404a2ba495844cd037515d37069bb1f9f02574ac5b66b1f17a38",
     "board_count": 4
   },
   "topology_summary": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/p0t-topology/summary.json",
-    "sha256": "d79afaf961d80e5f10a51fac73ca96a348ffa58cde168815e250b13a45efc2b1"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/p0t-topology/summary.json",
+    "sha256": "45fa048daea870af5d87795674c0cc635be3f643f8abc3e468ad254956591410"
   },
   "coarse_calibration_summary": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/coarse-calibration-summary.json",
-    "sha256": "4a88f4c54170495713934ff0f020d71ca871ab2f9b49ccbee6c5b4cd077df61c"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/coarse-calibration-summary.json",
+    "sha256": "3f1b2e09e7cbe4de69d4c92b2a51a6c94c9415cf1045b3984ae519d2472708b9"
   },
   "coded_calibration_summary": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/coded-calibration-summary.json",
-    "sha256": "2c508ab4baeca448c2b909b4563cf9267bb8ca5272745c87b349216a70a0a537"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/coded-calibration-summary.json",
+    "sha256": "366c7a526262b4903e2f30e7b098021335a7e30da9ac4d79f06a4cad7e726118"
   },
   "initialization_reset": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/initialization-reset.json",
-    "sha256": "dfc5c94dd20fd885ad0f1d5f1cb5be588cdcdf3283d0e3ea86586b1d077982ea"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/initialization-reset.json",
+    "sha256": "2e7fcd205abebc0be258b43deaeaea2950bdb16e36664943e41135a129b55661"
   },
   "p3_summary": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/p3-four-board/summary.json",
-    "sha256": "1839a727c010cb6d9c1a83d5082654cdb86a050e73126cf2b6ae8f4505c02c81"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/p3-four-board/summary.json",
+    "sha256": "fb158e3f0f3bca0cf8ada42f539828dc4f03770c1792253697d18ffec74bc123"
   },
   "trn00_summary": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/trn00-summary.json",
-    "sha256": "a98423f761dfa6d7c69f1716f483973a94ec41cb50818bbf9cf8f5e43823c24d"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/trn00-summary.json",
+    "sha256": "7e55428856d33a7e06d1124d624b63d0e309898bea00c7d5ea32af08c3c3a291"
   },
   "trn01_summary": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/trn01-summary.json",
-    "sha256": "6244bf0d96be72b7c924ea388a1b35ce3e299f7432b628d5ac2cb067d0997885"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/trn01-summary.json",
+    "sha256": "8e5a61b94b095e905913dfef16e384565ec7f7fb44a32d454ba63f47f5d7da53"
   },
   "trn02_summary": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/trn02-data/summary.json",
-    "sha256": "24554613be0bdc11c05309ebb1fd0a1679dfffde43173f371841db5655a217b1"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/trn02-data/summary.json",
+    "sha256": "58990056db552e55dfec398150d1c90fcd1d07096ade67ba3fd90b792ca6736c"
   },
   "trn03_matrix": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/trn03-matrix.json",
-    "sha256": "817b1ed51ca8bf29f64d22c817da597e40a8bcac1f5eb21c8181476a63b5f3a5"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/trn03-matrix.json",
+    "sha256": "74b971d1f5c8e013c2aa03009a6516e26e3cb00155f80cdeffb06823fef1ebeb"
   },
   "calibration_parameter_handoff": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/calibration-parameter-handoff.json",
-    "sha256": "a76119fbdd8f24a085c135963ce5a759e526b81da91c26512bc653061432000d"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/calibration-parameter-handoff.json",
+    "sha256": "eafd5d2ee387155cdfd072dbae5ffe52a50242598d82f8dab5dd45f94a280961"
   },
   "tdma_summary": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/tdma-process-image/summary.json",
-    "sha256": "d7ff1facb0270bf7f4e52b44a5137b2c2312e42f3eefc92ce1dcd03848e45b88"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/tdma-process-image/summary.json",
+    "sha256": "4b975c11225d9d7b57670916676335e0a768f8860df2f66628b9d23ab9870da4"
   },
   "ota_board_ids": [
     "0010071E65B5CB38",
@@ -77,22 +77,22 @@
   ],
   "trial_count": 8,
   "delay_min_ns": 80.0,
-  "delay_max_ns": 82.0,
+  "delay_max_ns": 80.0,
   "highest_stable_frequency_mhz": 10,
   "link_delay_ns_by_link": [
-    82,
+    80,
     80,
     80,
     80
   ],
   "link_base_delay_ns_by_link": [
-    41,
+    40,
     40,
     40,
     40
   ],
   "path_delay_baseline_divisor": 2,
-  "calibration_generation": 1789729358,
+  "calibration_generation": 1789736439,
   "calibration_load_mask": 4,
   "waveform_capture_policy": {
     "trn00": false,
@@ -106,52 +106,52 @@
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 8503,
-      "schedule_miss_count": 1173
+      "cycle_count": 10437,
+      "schedule_miss_count": 1558
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 8450,
-      "schedule_miss_count": 1237
+      "cycle_count": 10429,
+      "schedule_miss_count": 1449
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 8430,
-      "schedule_miss_count": 1265
+      "cycle_count": 10388,
+      "schedule_miss_count": 1464
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 8391,
-      "schedule_miss_count": 1102
+      "cycle_count": 10334,
+      "schedule_miss_count": 1191
     }
   },
   "schedule_after": {
     "0010071E65B5CB38": {
       "enabled_mask": 91,
       "quarantined_mask": 8,
-      "cycle_count": 34943,
-      "schedule_miss_count": 8164
+      "cycle_count": 36702,
+      "schedule_miss_count": 9282
     },
     "FB276192BEF9CCE1": {
       "enabled_mask": 91,
       "quarantined_mask": 9,
-      "cycle_count": 34980,
-      "schedule_miss_count": 16154
+      "cycle_count": 36790,
+      "schedule_miss_count": 17276
     },
     "2BD5090FE009FA2A": {
       "enabled_mask": 91,
       "quarantined_mask": 9,
-      "cycle_count": 34827,
-      "schedule_miss_count": 15409
+      "cycle_count": 36362,
+      "schedule_miss_count": 15520
     },
     "A1E549202D18ED6A": {
       "enabled_mask": 91,
       "quarantined_mask": 9,
-      "cycle_count": 34634,
-      "schedule_miss_count": 16979
+      "cycle_count": 36749,
+      "schedule_miss_count": 16387
     }
   },
   "realtime_load_mask_unchanged": true,
@@ -170,67 +170,67 @@
     "output_handoff_s": 0.05
   },
   "timing_probe": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/timing.json",
-    "sha256": "ce6593c449eeb4b0dfc3e1f54b16067e9487c4aa448c18c91685110e220c3b02"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/timing.json",
+    "sha256": "3ab5097d0a6e3d1f607068ca4665e005b1583d5e61e85d00a58377eeb012222a"
   },
   "fixed_scope": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/fixed-scope.json",
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/fixed-scope.json",
     "sha256": "ab8b9c3eb8d56b7d896b3213fa20d2fac2e923d9c5f3d19b01621935acf1a35d"
   },
   "alarm_inputs": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/alarm-inputs.json",
-    "sha256": "014a9982f8a8983cfbdec14adc0663ea7b2a547dee8df817f8a41ace90df6cae"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/alarm-inputs.json",
+    "sha256": "6c85c2387e1c6a1b4a1fbebb73d61695ad8ef6a901ff396c966b79565cb16703"
   },
   "alarm_report": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/alarms.json",
-    "sha256": "35bb106599e22a9e6c66059618102e9b24e7478626a5e4b10c86b7cd4ba67c17"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/alarms.json",
+    "sha256": "ef13e711ca34fdfe9ffdb201e26a9cc9d3bc4bf3232cdf84d3aec212cf949ca5"
   },
   "alarm_stage_sources": {
     "P0": {
-      "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/p0t-topology/summary.json",
-      "sha256": "d79afaf961d80e5f10a51fac73ca96a348ffa58cde168815e250b13a45efc2b1"
+      "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/p0t-topology/summary.json",
+      "sha256": "45fa048daea870af5d87795674c0cc635be3f643f8abc3e468ad254956591410"
     },
     "P1": {
-      "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/coarse-calibration-summary.json",
-      "sha256": "4a88f4c54170495713934ff0f020d71ca871ab2f9b49ccbee6c5b4cd077df61c"
+      "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/coarse-calibration-summary.json",
+      "sha256": "3f1b2e09e7cbe4de69d4c92b2a51a6c94c9415cf1045b3984ae519d2472708b9"
     },
     "P2": {
-      "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/coded-calibration-summary.json",
-      "sha256": "2c508ab4baeca448c2b909b4563cf9267bb8ca5272745c87b349216a70a0a537"
+      "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/coded-calibration-summary.json",
+      "sha256": "366c7a526262b4903e2f30e7b098021335a7e30da9ac4d79f06a4cad7e726118"
     },
     "P3": {
-      "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/p3-four-board/summary.json",
-      "sha256": "1839a727c010cb6d9c1a83d5082654cdb86a050e73126cf2b6ae8f4505c02c81"
+      "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/p3-four-board/summary.json",
+      "sha256": "fb158e3f0f3bca0cf8ada42f539828dc4f03770c1792253697d18ffec74bc123"
     },
     "T0": {
-      "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/trn00-summary.json",
-      "sha256": "a98423f761dfa6d7c69f1716f483973a94ec41cb50818bbf9cf8f5e43823c24d"
+      "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/trn00-summary.json",
+      "sha256": "7e55428856d33a7e06d1124d624b63d0e309898bea00c7d5ea32af08c3c3a291"
     },
     "T1": {
-      "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/trn01-summary.json",
-      "sha256": "6244bf0d96be72b7c924ea388a1b35ce3e299f7432b628d5ac2cb067d0997885"
+      "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/trn01-summary.json",
+      "sha256": "8e5a61b94b095e905913dfef16e384565ec7f7fb44a32d454ba63f47f5d7da53"
     },
     "T2": {
-      "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/trn02-data/summary.json",
-      "sha256": "24554613be0bdc11c05309ebb1fd0a1679dfffde43173f371841db5655a217b1"
+      "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/trn02-data/summary.json",
+      "sha256": "58990056db552e55dfec398150d1c90fcd1d07096ade67ba3fd90b792ca6736c"
     },
     "T3": {
-      "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/trn03-matrix.json",
-      "sha256": "817b1ed51ca8bf29f64d22c817da597e40a8bcac1f5eb21c8181476a63b5f3a5"
+      "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/trn03-matrix.json",
+      "sha256": "74b971d1f5c8e013c2aa03009a6516e26e3cb00155f80cdeffb06823fef1ebeb"
     },
     "TDMA": {
-      "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/tdma-process-image/summary.json",
-      "sha256": "d7ff1facb0270bf7f4e52b44a5137b2c2312e42f3eefc92ce1dcd03848e45b88"
+      "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/tdma-process-image/summary.json",
+      "sha256": "4b975c11225d9d7b57670916676335e0a768f8860df2f66628b9d23ab9870da4"
     }
   },
   "acceptance_outcome": "PASS_WITH_WARNINGS",
   "topology_reuse_source": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/known-topology-source.json",
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/known-topology-source.json",
     "sha256": "a11333635518d1c0ffd97e6b1cf019edf5c76afb9b412858e9173a96c8201e82"
   },
   "tdma_stopped_handoff": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/tdma-stopped-handoff.json",
-    "sha256": "f373d5385c34ac0b515f7a59c3be76471deff3851aa4eb9e85eb8ab6dfd5d74a"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/tdma-stopped-handoff.json",
+    "sha256": "3191648b22cd1fb9c21a0cfe1ba3970310c137725478c8d46546277b53d449f1"
   },
   "flow_completed": true,
   "strict_gates_passed": false,
@@ -239,7 +239,7 @@
       "phase": "TRN-01 SCK training",
       "returncode": 1,
       "error": "gate did not pass",
-      "summary": "out/HardwareAcceptance/20260918/p3-phase-center-r3/trn01-sck/summary.json"
+      "summary": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/trn01-sck/summary.json"
     },
     {
       "phase": "TRN-03 SCK replay row selection",
@@ -248,21 +248,21 @@
       "selected_offset_sample_counts_by_node": [
         1,
         0,
-        0,
-        1
+        1,
+        0
       ],
       "selected_min_follower_margin_samples": -1,
-      "matrix": "out/HardwareAcceptance/20260918/p3-phase-center-r3/trn03-matrix.json"
+      "matrix": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/trn03-matrix.json"
     },
     {
       "phase": "four-Node TDMA closed loop",
       "returncode": 1,
       "error": "",
-      "summary": "out/HardwareAcceptance/20260918/p3-phase-center-r3/tdma-process-image/summary.json"
+      "summary": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/tdma-process-image/summary.json"
     }
   ],
   "diagnostic_summary": {
-    "path": "out/HardwareAcceptance/20260918/p3-phase-center-r3/diagnostic.json",
-    "sha256": "0416a51cb01e83c499e0fd1fce113922763e054099eb94a7ca3482fcf2517b31"
+    "path": "out/HardwareAcceptance/20260918/p3-follower-anchor-r2/diagnostic.json",
+    "sha256": "35bf5c008fb36689ce74d6222765b3216018c4aac510d4c208659541d4be8bb7"
   }
 }

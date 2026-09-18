@@ -39,7 +39,7 @@ timer_hw_t *anchor_timer_read_hook(void) {
     assert(fences==(reads<3u ? 1u : 3u));
     /* Every pointer evaluation advances one raw MMIO read. Wrong H/L order
      * reads the poisoned field instead of the supplied value. */
-    const bool low=reads==1u || reads==4u;
+    const bool low=reads==2u || reads==3u;
     bank.timerawh=low ? UINT32_C(0xbaadbeef) : samples[reads];
     bank.timerawl=low ? samples[reads] : UINT32_C(0xbaadbeef);
     record(low ? 'L' : 'H');
@@ -88,7 +88,7 @@ int main(void) {
         bool ok=tdma_event_enable_anchor_capture(&pio_bank,expected_mask,expected_hz,
             pointers==1u ? NULL : &before,pointers==2u ? NULL : pointers==3u ? &before : &after);
         assert(reads==6u && enables==1u && clocks==2u && fences==4u);
-        assert(strcmp(sequence,"CFHLHFEFHLHFC")==0);
+        assert(strcmp(sequence,"CFHHLFEFLHHFC")==0);
         if (!ok) assert(before==old_before && after==old_after);
         printf("%u %" PRIu64 " %" PRIu64 "\n",ok ? 1u : 0u,before,after);
     }
@@ -124,8 +124,8 @@ def anchor_executable(tmp_path_factory):
 
 
 def case(before, after, *, first_current=1, last_current=1, pointers=0, mask=14, hz=250000000):
-    return (before>>32,before&0xffffffff,before>>32,
-            after>>32,after&0xffffffff,after>>32,
+    return (before>>32,before>>32,before&0xffffffff,
+            after&0xffffffff,after>>32,after>>32,
             first_current,last_current,pointers,mask,hz)
 
 
@@ -136,8 +136,8 @@ def run_cases(executable, cases):
     rows=[tuple(map(int,line.split())) for line in result.stdout.splitlines()]
     assert len(rows)==len(cases)
     for c,row in zip(cases,rows):
-        lower=(c[0]<<32)|c[1];upper=(c[3]<<32)|c[4]
-        ok=c[0]==c[2] and c[3]==c[5] and c[6] and c[7] and c[8]==0 and upper>lower
+        lower=(c[0]<<32)|c[2];upper=(c[1]<<32)|c[3]
+        ok=c[0]==c[4] and c[1]==c[5] and c[6] and c[7] and c[8]==0 and upper>lower
         assert row==((1,lower,upper) if ok else (0,0x1122334455667788,0x8877665544332211)),(c,row)
     return rows
 
@@ -156,20 +156,32 @@ def test_single_enable_even_with_invalid_output_objects(anchor_executable):
 
 def test_incoherent_high_words_reject_without_retry(anchor_executable):
     cases=[]
-    for index in (0,2,3,5):
-        c=list(case(0x12345678fffffff0,0x1234567900000010))
+    for index in (0,1,4,5):
+        c=list(case(0x1234567800000010,0x1234567800000020))
         c[index]^=1
         cases.append(c)
-    cases += [(0xffffffff,0xfffffff0,0,0,16,0,1,1,0,14,250000000),
-              (0xfffffffe,16,0xfffffffe,0xffffffff,0xfffffff0,0,1,1,0,14,250000000)]
+    cases += [case(0xffffffff,0x100000000),case(U64,0)]
     assert all(row[0]==0 for row in run_cases(anchor_executable,cases))
 
 
-def test_low_rollover_and_full_width_positive_intervals(anchor_executable):
-    cases=[case(0,1),case(0xffffffff,0x100000000),
-           case(0x12345678fffffff0,0x1234567900000010),case(U64-1,U64),
-           case(1,U64),case(0,U64)]
+def test_coherent_positive_intervals_preserve_full_64_bit_values(anchor_executable):
+    cases=[case(0,1),case(0xfffffffe,0xffffffff),
+           case(0x1234567800000010,0x12345678fffffff0),case(U64-1,U64)]
     assert all(row[0]==1 for row in run_cases(anchor_executable,cases))
+
+
+@pytest.mark.parametrize('wrap_after',range(1,6))
+@pytest.mark.parametrize('high',[0x12345678,0xffffffff])
+def test_rollover_at_every_overlapping_read_boundary_rejects(anchor_executable,wrap_after,high):
+    # Chronological physical timer values, with a wrap in each of the five
+    # gaps, including across enable. The production helper still enables once
+    # and leaves both output objects untouched when an observation tears.
+    samples=[]
+    for index in range(6):
+        tick=(high<<32)+0xffffffff-wrap_after+index+1
+        tick &= U64
+        samples.append((tick&0xffffffff) if index in (2,3) else (tick>>32))
+    assert run_cases(anchor_executable,[tuple(samples)+(1,1,0,14,250000000)])[0][0]==0
 
 
 def test_equal_reversed_and_full_counter_wrap_rejected(anchor_executable):
@@ -184,4 +196,6 @@ def test_random_full_width_enclosures_preserve_exact_endpoints(anchor_executable
     for _ in range(500):
         before=rng.randrange(U64);after=rng.randrange(before+1,U64+1)
         cases.extend([case(before,after),case(after,before)])
+        coherent_after=(before&~0xffffffff)|rng.randrange((before&0xffffffff)+1,1<<32)
+        cases.append(case(before,coherent_after))
     run_cases(anchor_executable,cases)

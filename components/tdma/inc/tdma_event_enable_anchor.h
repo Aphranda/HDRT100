@@ -16,14 +16,16 @@
  * before/after must be distinct output objects; false leaves both unchanged.
  *
  * Clock qualification runs outside the measured enclosure. Between its raw
- * endpoints only three volatile reads, fences and the SDK's synchronized
+ * endpoints only the final low read, fences and the SDK's synchronized
  * enable occur. Interrupt/bus delays remain inside the complete enclosure;
  * no midpoint or maximum-width filter substitutes for the observed bounds.
  * SRAM placement must be checked in the actual linked device image.
  *
- * Each high/low/high observation must be internally coherent. A low-word
- * rollover BETWEEN observations is valid; a rollover within either triple
- * is rejected without retry. Equal/reversed endpoints (including complete
+ * The two high/low/high checks overlap around enable: H1,H3,L1,E,L2,H2,H4.
+ * A low-word rollover anywhere within either triple is rejected without
+ * retry, including between the low reads. Moving high reads outside the
+ * measured interval tightens its bounds without inventing event precision.
+ * Equal/reversed endpoints (including complete
  * 64-bit wrap) are rejected. The owner still excludes hidden clock changes,
  * timer resets and debug stops throughout the anchor lifetime. The two
  * configuration observations cannot detect change-and-restore in between.
@@ -35,13 +37,13 @@ static __attribute__((noinline)) bool __not_in_flash_func(tdma_event_enable_anch
     const bool clock_before = vdc_timestamp_clock_is_current(expected_hz);
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     const uint32_t before_hi = timer1_hw->timerawh;
+    const uint32_t after_hi = timer1_hw->timerawh;
     const uint32_t before_lo = timer1_hw->timerawl;
-    const uint32_t before_hi_again = timer1_hw->timerawh;
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     pio_enable_sm_mask_in_sync(pio, sm_mask);
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
-    const uint32_t after_hi = timer1_hw->timerawh;
     const uint32_t after_lo = timer1_hw->timerawl;
+    const uint32_t before_hi_again = timer1_hw->timerawh;
     const uint32_t after_hi_again = timer1_hw->timerawh;
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     const bool clock_after = vdc_timestamp_clock_is_current(expected_hz);
