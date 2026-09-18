@@ -255,8 +255,8 @@ bool sync_io_logic_analyzer_hw_start(void)
     }
     s_hw.produced_raw = 0u;
     s_hw.consumed_raw = 0u;
+    if (!sync_io_capture_time_now_ns(&s_hw.started_at_ns)) return false;
     s_hw.running = true;
-    (void)sync_io_capture_time_now_ns(&s_hw.started_at_ns);
     dma_start_channel_mask(1u << SYNC_IO_CAPTURE_DMA_CH);
     pio_sm_set_enabled(BOARD_SYNC_PIO_FAST,
                        BOARD_SYNC_PIO0_LOGIC_ANALYZER_SM, true);
@@ -298,7 +298,7 @@ size_t sync_io_logic_analyzer_hw_service(uint32_t max_records)
     }
     const uint32_t produced = sync_io_logic_analyzer_hw_raw_produced();
     uint64_t now_ns = 0u;
-    (void)sync_io_capture_time_now_ns(&now_ns);
+    if (!sync_io_capture_time_now_ns(&now_ns)) return 0u;
     if (s_hw.capture->config.timeout_us != 0u &&
         s_hw.started_at_ns != 0u &&
         now_ns - s_hw.started_at_ns >=

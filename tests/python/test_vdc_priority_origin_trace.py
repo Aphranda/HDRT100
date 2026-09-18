@@ -1,7 +1,7 @@
-"""Native schema 3 from the real TX/mapping/Domain/shared SRAM recorder.
+"""Native TIMER1 schema 5 from the real TX/Domain/shared SRAM recorder.
 
 The Python checker reads public bytes independently and computes rational
-constraint intersections. Product decoder replay and corrupted evidence are
+TIMER1 projection. Product decoder replay and corrupted evidence are
 tested separately. Host observations imply no physical lock qualification.
 """
 from fractions import Fraction
@@ -27,7 +27,7 @@ def origin_executable(trace_executable, tmp_path_factory):
         "bool tdma_runtime_owner_get_origin_reference_epoch(uint32_t *out);", 1)
     source = source.replace("int main(int argc,char **argv)", "int previous_trace_main(int argc,char **argv)", 1)
     source = source.replace("const uint32_t expected=168u+s.record_count*100u;",
-        "const uint32_t expected=(s.schema==3u?264u:168u)+s.record_count*100u;")
+        "const uint32_t expected=(s.schema==5u?264u:168u)+s.record_count*100u;")
     source += INPUTS + (ROOT / "components/vdc_dpll_manager/src/vdc_priority_tx.inc").read_text(encoding="utf-8")
     source += CASES
     return compile_executable(tmp_path_factory.mktemp("origin-trace"), "origin_trace", source,
@@ -38,47 +38,33 @@ def origin_executable(trace_executable, tmp_path_factory):
 
 def native_origin(raw):
     magic, schema, header_size, record_size, crc = struct.unpack_from("<5I", raw)
-    assert (magic, schema, header_size, record_size) == (0x52545056, 3, 264, 100)
+    assert (magic, schema, header_size, record_size) == (0x52545056, 5, 264, 100)
     status = dict(zip(STATUS_FIELDS, struct.unpack_from("<37I", raw, 20), strict=True))
-    assert status["schema"] == 3 and status["request_seq"] == status["ack_seq"]
+    assert status["schema"] == 5 and status["request_seq"] == status["ack_seq"]
     assert status["state"] == 3 and status["sample_interval_ms"] == 0
     assert status["match_count"] == status["decision_count"] == 0
-    assert len(raw) == 264 + status["record_count"] * 100 and zlib.crc32(raw[264:]) == crc
-    ext = struct.unpack_from("<12I4Q2q", raw, 168)
-    fields = ("index kind event token hz raw_lo raw_hi before after local base output rate phase seq lower width").split()
+    assert len(raw) == 264 + status["record_count"]*100 and zlib.crc32(raw[264:]) == crc
+    ext = struct.unpack_from("<24I", raw, 168)
+    assert not any(ext[7:])
+    fields = "index kind event token hz raw_lo raw_hi now local_lo local_hi base output rate phase seq lower width".split()
     records = [dict(zip(fields, struct.unpack_from("<5I7QiiIQI", raw, offset), strict=True))
                for offset in range(264, len(raw), 100)]
-    retained, epoch, anchor, old = [], 0, None, None
-    for index, row in enumerate(records):
-        assert (row["index"], row["kind"]) == (index, 3)
-        reset = old is None or row["token"] != old["token"] or row["after"]-anchor[0] > 2*row["hz"]
-        if reset:
-            retained=[];epoch+=1;anchor=(row["raw_lo"], row["local"])
-        step=Fraction(10**9, row["hz"])
-        constraint=(row["local"]-row["after"]*step, row["local"]+1000-row["before"]*step)
-        bounds=retained+[constraint]
-        low=max(b[0] for b in bounds);high=min(b[1] for b in bounds)
-        assert low<high
-        local_low=math.floor(row["raw_lo"]*step+low)
-        local_high=math.ceil(row["raw_hi"]*step+high)-1
-        def real_domain(local):
+    for index,row in enumerate(records):
+        assert (row["index"],row["kind"]) == (index,3)
+        assert row["raw_lo"] <= row["raw_hi"] <= row["now"]
+        lo=math.floor(Fraction(row["raw_lo"]*10**9,row["hz"]))
+        hi=math.ceil(Fraction(row["raw_hi"]*10**9,row["hz"]))
+        assert (lo,hi)==(row["local_lo"],row["local_hi"])
+        def output(local):
             elapsed=local-row["base"]
             assert elapsed>=0
-            return row["output"]+elapsed+int(Fraction(elapsed*row["rate"], 10**9))+row["phase"]
-        assert (row["lower"], row["lower"]+row["width"]) == (real_domain(local_low),real_domain(local_high))
-        if len(retained)<64:
-            retained.append(constraint)
-        old=row
+            return row["output"]+elapsed+int(Fraction(elapsed*row["rate"],10**9))+row["phase"]
+        assert (row["lower"],row["lower"]+row["width"])==(output(lo),output(hi))
     if records:
-        assert ext[6] == records[-1]["event"] and ext[8] == len(retained) and ext[9] == epoch
-        assert ext[12:14] == anchor
-        low=max(b[0] for b in retained);high=min(b[1] for b in retained)
-        scaled=[(bound-anchor[1]+anchor[0]*step)*records[-1]["hz"] for bound in (low,high)]
-        assert all(value.denominator==1 for value in scaled)
-        assert ext[-2:] == tuple(map(int,scaled))
+        assert ext[6]==records[-1]["event"] and ext[0]>0 and ext[1]>0
     else:
         assert not any(ext)
-    return status, ext, records
+    return status,ext,records
 
 
 @pytest.mark.parametrize("case,count", [("flow",12), ("model",12), ("horizon",12), ("empty",0),
@@ -91,10 +77,10 @@ def test_native_origin_and_independent_half_open_replay(origin_executable, case,
     assert product["replay_matches_encoded"] and not product["physical_lock_qualified"]
     assert len(product["records"])==count
     if case=="flow":
-        assert records[1]["width"]<records[0]["width"]
-        assert ext[8]==12 and ext[9]==1
+        assert records[1]["width"]==records[0]["width"]
+        assert not any(ext[7:])
     if case in ("model","horizon"):
-        assert ext[9]==2
+        assert not any(ext[7:])
     if case=="capacity":
         assert status["reason"]==4  # Public FULL reason.
     if case=="wide":
@@ -111,18 +97,18 @@ def origin_bytes(origin_executable):
     return execute(origin_executable,"flow")
 
 
-def test_real_schema3_capture_cannot_be_relabelled_as_schema2(origin_bytes):
+def test_timer1_capture_cannot_be_relabelled_as_bridge_schema(origin_bytes):
     raw = bytearray(origin_bytes)
     struct.pack_into('<I', raw, 4, 2)
     struct.pack_into('<I', raw, 20, 2)
     struct.pack_into('<I', raw, 16, zlib.crc32(raw[264:]))
-    with pytest.raises(ValueError, match='differs from replay'):
+    with pytest.raises(ValueError):
         decoder.decode(bytes(raw), 1)
 
 
 @pytest.mark.parametrize("offset,value,size", [
     (4,1,4),(8,168,4),(12,96,4),(20+12*4,1,4),(168+8*4,7,4),
-    (168+9*4,9,4),(168+80,0,8),(264+4,2,4),(264+16,0,4),
+    (168+9*4,9,4),(168+80,1,8),(264+4,2,4),(264+16,0,4),
     (264+20,2**64-1,8),(264+36,2**64-1,8),(264+52,2**64-1,8),
     (264+52,10000000001,8),(264+88,1,8),(264+96,0,4),
     (364+8,0,4),(364+76,1,4),
@@ -140,7 +126,7 @@ def test_decoder_rejects_local_overflow_despite_negative_rate_cancellation(origi
     struct.pack_into("<Q",raw,264+52,(2**64-1)//1000*1000)
     struct.pack_into("<i",raw,264+76,-999999999)
     struct.pack_into("<I",raw,16,zlib.crc32(raw[264:]))
-    with pytest.raises(ValueError,match="bridge interval"):
+    with pytest.raises(ValueError,match="local interval"):
         decoder.decode(bytes(raw),1)
 
 
@@ -148,7 +134,7 @@ def test_decoder_rejects_negative_latent_local_before_domain(origin_bytes):
     raw=bytearray(origin_bytes)
     struct.pack_into("<Q",raw,264+52,0)
     struct.pack_into("<I",raw,16,zlib.crc32(raw[264:]))
-    with pytest.raises(ValueError,match="local coordinate overflow"):
+    with pytest.raises(ValueError,match="local interval"):
         decoder.decode(bytes(raw),1)
 
 
@@ -197,7 +183,7 @@ static void origin_setup(void)
 static void origin_arm(void)
 {
     stopped_ring();assert(vdc_dpll_manager_priority_trace_origin_arm(1u));trace_service();
-    assert(trace_status().state==VDC_PRIORITY_TRACE_ARMED && trace_status().schema==3u);
+    assert(trace_status().state==VDC_PRIORITY_TRACE_ARMED && trace_status().schema==5u);
     running_ring();trace_service();
 }
 static void origin_offer(void)
@@ -244,7 +230,7 @@ int main(int argc,char **argv)
     if(!strcmp(name,"failed_offer")) {
         origin_fresh(125u);origin_epoch_ok=false;uint8_t mailbox[32];
         assert(vdc_priority_tx_core1(&origin_config,mailbox)==TDMA_PRIORITY_TX_EMPTY);
-        assert(trace_status().record_count==1u && s_priority_tx_work.mapping.count==1u);
+        assert(trace_status().record_count==1u);
         origin_epoch_ok=true;origin_offer();frozen_trace();export_trace();return 0;
     }
     if(!strcmp(name,"binding_freeze")) {

@@ -227,7 +227,8 @@ static void priority_phase_apply_core1(void)
     s->delta_ns = 0;
     uint32_t reason = VDC_PRIORITY_PHASE_OK;
     const uint64_t now = vdc_dpll_manager_now_ns();
-    if (!(__atomic_load_n(&s_committed_model_guard, __ATOMIC_ACQUIRE) & 1u)) reason = VDC_PRIORITY_PHASE_BINDING;
+    if (now == UINT64_MAX) reason = VDC_PRIORITY_PHASE_MODEL;
+    else if (!(__atomic_load_n(&s_committed_model_guard, __ATOMIC_ACQUIRE) & 1u)) reason = VDC_PRIORITY_PHASE_BINDING;
     else {
         const uint32_t current = priority_follow_current();
         if (current != VDC_PRIORITY_FOLLOW_OK) {

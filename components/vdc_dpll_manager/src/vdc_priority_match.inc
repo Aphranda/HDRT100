@@ -14,8 +14,7 @@ typedef struct {
     tdma_pio_spi_event_exact_t exact;
     vdc_priority_rx_snapshot_t rx, rx_after;
     vdc_dpll_manager_committed_model_t model, model_after;
-    vdc_dpll_manager_mapping_projection_t projection;
-    vdc_clock_mapping_cache_t mapping_cache;
+    vdc_dpll_manager_timer1_projection_t projection;
     vdc_path_delay_entry_t path, path_after;
     uint64_t raw_lo, raw_hi, remote_hi, expected_lo, expected_hi;
     int64_t residual_lo, residual_hi;
@@ -83,8 +82,6 @@ static void priority_match_skip(uint32_t reason, bool retire)
     else s->rejected = priority_match_inc(s->rejected);
     if (retire) {
         s->active = 0u; s->retired = 1u;
-        memset(&s_priority_match_work.mapping_cache, 0,
-            sizeof(s_priority_match_work.mapping_cache));
     }
     priority_match_publish();
 }
@@ -262,15 +259,11 @@ void __attribute__((noinline)) vdc_priority_match_core1(void)
     w->raw_hi = w->exact.timer1_enable_after + w->exact.record.rx_elapsed_cycles;
     if (w->raw_lo < w->model.valid_from_raw)
         return priority_match_skip(VDC_PRIORITY_MATCH_MODEL, false);
-    const vdc_clock_mapping_status_t mapping_status =
-        vdc_dpll_manager_project_mapped_feedback_event(w->session, w->model.role_generation,
+    if (!vdc_dpll_manager_project_timer1_feedback_event(w->session, w->model.role_generation,
             w->model.clock_epoch_id, w->model.clock_run_id, w->ring.local_slot_id,
             w->ring.schedule_crc32, w->live.tick_hz, w->raw_lo, w->raw_hi,
-            &w->mapping_cache, &w->projection);
-    if (mapping_status != VDC_CLOCK_MAPPING_OK)
-        return priority_match_skip(VDC_PRIORITY_MATCH_PROJECTION,
-            mapping_status == VDC_CLOCK_MAPPING_CONTRADICTION ||
-            mapping_status == VDC_CLOCK_MAPPING_EXHAUSTED);
+            &w->projection))
+        return priority_match_skip(VDC_PRIORITY_MATCH_PROJECTION, false);
     if (!vdc_dpll_manager_get_committed_model(&w->model_after) ||
         !tdma_runtime_owner_get_ring_clock_snapshot(&w->ring_after) ||
         !tdma_runtime_owner_get_event_live_snapshot(&w->live_after) ||
@@ -305,12 +298,12 @@ void __attribute__((noinline)) vdc_priority_match_core1(void)
     const uint64_t remote = w->rx.typed_record.event_time_lower;
     const uint32_t width = w->rx.typed_record.uncertainty_width;
     if (!width || remote > UINT64_MAX - width || remote + width > UINT64_MAX - w->path.delay_ns ||
-        w->projection.mapping.output_hi < w->projection.mapping.output_lo)
+        w->projection.output_hi < w->projection.output_lo)
         return priority_match_skip(VDC_PRIORITY_MATCH_OVERFLOW, false);
     w->remote_hi = remote + width; w->expected_lo = remote + w->path.delay_ns;
     w->expected_hi = w->remote_hi + w->path.delay_ns;
-    if (!priority_match_difference(w->projection.mapping.output_lo, w->expected_hi, &w->residual_lo) ||
-        !priority_match_difference(w->projection.mapping.output_hi, w->expected_lo, &w->residual_hi))
+    if (!priority_match_difference(w->projection.output_lo, w->expected_hi, &w->residual_lo) ||
+        !priority_match_difference(w->projection.output_hi, w->expected_lo, &w->residual_hi))
         return priority_match_skip(VDC_PRIORITY_MATCH_OVERFLOW, false);
     s->source_slot = w->rx.source_slot; s->event_sequence = sequence;
     s->carrier_sequence = w->rx.carrier_sequence; s->rx_epoch = w->rx.epoch;
@@ -326,15 +319,12 @@ void __attribute__((noinline)) vdc_priority_match_core1(void)
     s->path_qualification = VDC_PRIORITY_MATCH_PATH_PROVISIONAL_TRANSPOSE;
     s->arm_epoch = w->live.arm_epoch; s->valid_from_raw = w->model.valid_from_raw;
     s->raw_lo = w->raw_lo; s->raw_hi = w->raw_hi;
-    s->local_lo = w->projection.mapping.output_lo; s->local_hi = w->projection.mapping.output_hi;
+    s->local_lo = w->projection.output_lo; s->local_hi = w->projection.output_hi;
     s->remote_lo = remote; s->remote_hi = w->remote_hi;
     s->expected_lo = w->expected_lo; s->expected_hi = w->expected_hi;
     s->residual_lo = w->residual_lo; s->residual_hi = w->residual_hi;
     s->matched = priority_match_inc(s->matched); s->have_match = s->active = w->bound = 1u;
     s->last_reason = VDC_PRIORITY_MATCH_OK; w->unresolved = 0u;
-    /* Only a distinct, fully accepted event teaches the Core1 mapping.
-     * Projection failures and all post-projection rejections leave it alone. */
-    w->mapping_cache = w->projection.mapping.next;
     w->fresh = 1u;
     priority_match_publish();
 }

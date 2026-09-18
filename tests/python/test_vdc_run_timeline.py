@@ -36,6 +36,7 @@ def timeline_client(tmp_path_factory):
     'default', 'count_zero', 'count_over', 'schedule_missing', 'schedule_zero',
     'schedule_too_slow', 'plan_capacity', 'low_capacity', 'latched',
     'table_prepared', 'table_running', 'bridge_jitter', 'long_wrap',
+    'coordinate_expired', 'coordinate_rewind', 'coordinate_deadline',
     'batch_model', 'watermarks', 'failed_time', 'horizon',
     'first_stop', 'first_cancel', 'cached_pristine', 'dma_finishes_during_plan',
 ])
@@ -102,7 +103,7 @@ int main(int argc,char **argv)
                                    previous_local,100,&scalar));
         assert(admitted[1][i].model_token==model.token);
         assert(admitted[1][i].ordinal==scalar.ordinal);
-        assert(admitted[1][i].rising_tick==(scalar.physical_local_ns+3u)/4u+3u);
+        assert(admitted[1][i].rising_tick==(scalar.physical_local_ns+3u)/4u);
         previous_local=scalar.physical_local_ns+1000u;first_unqueued=scalar.ordinal+1u;
     }
     return 0;
@@ -126,9 +127,9 @@ static void assert_edges(unsigned block,int64_t phase)
     for(unsigned i=0;i<10u;++i) {
         const sync_io_run_output_edge_t *e=&admitted[block][i];
         /* Independent zero-frequency model: local = ordinal*1 ms-phase+delay.
-         * Fixed initial bridge gives upper raw = ceil(local/4)+3. */
+         * TIMER1's known rate gives raw = ceil(local/4). */
         const uint64_t local=e->ordinal*UINT64_C(1000000)-phase+100u;
-        assert(e->rising_tick==(local+3u)/4u+3u);
+        assert(e->rising_tick==(local+3u)/4u);
         assert(e->falling_tick==e->rising_tick+250u);
         if(i)assert(e->ordinal==admitted[block][i-1u].ordinal+1u);
         if(block)assert(e->rising_tick>admitted[block-1u][9].falling_tick);
@@ -176,10 +177,12 @@ int main(int argc,char **argv)
         if(!strcmp(kind,"first_stop")) { ring.enabled=0u;++ring.config_seq; }
         else vdc_run_output_cancel();
         step();assert(cancelled && !submit_calls && !s_run_output_pending.planned);
-        assert(!s_run_output_timeline_valid);return 0;
+        assert(!s_run_output_coordinate_valid);return 0;
     }
     initial_block();assert_edges(0u,0);
-    assert(bridge_calls==1u && s_run_output.timeline_bridge_samples==1u);
+    assert(!bridge_calls && !s_run_output.timeline_bridge_samples);
+    assert(s_run_output.timebase==VDC_RUN_OUTPUT_TIMEBASE_TIMER1_NS);
+    assert(s_run_output.initial_raw_tick==raw_clock && s_run_output.initial_local_ns==raw_clock*4u);
     if(!strcmp(kind,"default") || !strcmp(kind,"latched"))return 0;
     const sync_io_run_output_snapshot_t saved=hardware;
     sync_io_run_output_edge_t prefix[10];memcpy(prefix,admitted[0],sizeof(prefix));
@@ -198,7 +201,8 @@ int main(int argc,char **argv)
     if(!strcmp(kind,"bridge_jitter")) {
         bridge.raw_before+=9000000u;bridge.raw_after+=19000000u;bridge.local_ns+=70000000u;
         raw_override=hardware.last_falling_tick-1500000u;
-        step();step();step();assert(submit_calls==2u && bridge_calls==1u);
+        bridge_available=false;
+        step();step();step();assert(submit_calls==2u && !bridge_calls);
         assert_edges(1u,0);return 0;
     }
     if(!strcmp(kind,"long_wrap")) {
@@ -211,7 +215,7 @@ int main(int argc,char **argv)
             assert_edges(n,0);
         }
         assert(passed_two && wrapped && hardware.last_falling_tick>UINT64_C(5000000000));
-        assert(bridge_calls==1u && s_run_output.timeline_bridge_samples==1u);
+        assert(!bridge_calls && !s_run_output.timeline_bridge_samples);
         assert(s_run_output.partial_plan_steps==3u+submit_calls-1u);return 0;
     }
     if(!strcmp(kind,"batch_model")) {
@@ -224,7 +228,7 @@ int main(int argc,char **argv)
         assert(!memcmp(prefix,admitted[0],sizeof(prefix)));
         ready=true;vdc_run_output_service_cached_core1();assert(submit_calls==2u);
         for(unsigned i=0;i<10u;++i)assert(admitted[1][i].model_token==model.token);
-        assert_edges(1u,2000);assert(bridge_calls==1u);return 0;
+        assert_edges(1u,2000);assert(!bridge_calls);return 0;
     }
     if(!strcmp(kind,"watermarks")) {
         const uint64_t tail=hardware.last_falling_tick;
@@ -248,9 +252,9 @@ int main(int argc,char **argv)
         step();assert(s_run_output_pending.valid);
         ready=true;
         raw_ok=false;step();
-        assert(s_run_output_pending.valid && s_run_output_timeline_valid);
-        assert(!memcmp(&saved,&hardware,sizeof(saved)) && bridge_calls==1u);
-        raw_ok=true;step();assert(submit_calls==2u && bridge_calls==1u);return 0;
+        assert(s_run_output_pending.valid && s_run_output_coordinate_valid);
+        assert(!memcmp(&saved,&hardware,sizeof(saved)) && !bridge_calls);
+        raw_ok=true;step();assert(submit_calls==2u && !bridge_calls);return 0;
     }
     if(!strcmp(kind,"horizon")) {
         raw_override=hardware.last_falling_tick-1500000u;
@@ -258,9 +262,21 @@ int main(int argc,char **argv)
         step();assert(s_run_output_pending.valid && submit_calls==1u && s_run_output.commit_waits==1u);
         const unsigned plans=s_run_output.partial_plan_steps;
         raw_ok=false;vdc_run_output_service_cached_core1();
-        assert(submit_calls==1u && s_run_output_pending.valid && bridge_calls==1u);
+        assert(submit_calls==1u && s_run_output_pending.valid && !bridge_calls);
         raw_ok=true;raw_override+=2000000u;vdc_run_output_service_cached_core1();
         assert(submit_calls==2u && s_run_output.partial_plan_steps==plans);
+        assert(!memcmp(prefix,admitted[0],sizeof(prefix)));return 0;
+    }
+    if(!strncmp(kind,"coordinate_",11u)) {
+        if(!strcmp(kind,"coordinate_expired"))raw_override=raw_clock+UINT64_C(8000000001);
+        else if(!strcmp(kind,"coordinate_rewind"))raw_override=raw_clock-1u;
+        else {
+            assert(!strcmp(kind,"coordinate_deadline"));
+            raw_override=raw_clock+UINT64_C(8000000000);
+        }
+        step();assert(submit_calls==1u && !s_run_output_pending.valid);
+        assert(s_run_output.last_outcome==VDC_RUN_OUTPUT_PLAN_REJECTED);
+        if(strcmp(kind,"coordinate_deadline"))assert(cancelled && !s_run_output_coordinate_valid);
         assert(!memcmp(prefix,admitted[0],sizeof(prefix)));return 0;
     }
     assert(false);return 1;

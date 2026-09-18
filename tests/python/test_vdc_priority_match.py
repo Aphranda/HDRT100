@@ -1,8 +1,8 @@
-"""Compile the production matcher with owner-boundary fakes and real mapping.
+"""Compile the production matcher with owner-boundary fakes and TIMER1 projection.
 
 The policy matrix isolates external owner races. Additional integration cases
-link the production pure mapping and Domain forward projection; only owner
-publications and raw/bridge observations are controlled inputs. No hardware
+link the production coordinate conversion and Domain forward projection; owner
+publications and raw observations are controlled inputs. No hardware
 FIFO or physical timestamp accuracy is qualified by these host tests.
 """
 import json
@@ -63,12 +63,11 @@ def test_priority_match(match_executable, case):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-MAPPING_CASES = ["refinement", "duplicate_no_teaching", "model_duplicate_no_teaching",
-    "final_model_reject_retry", "final_field_reject_retry", "final_arithmetic_reject_retry",
-    "model_new_event", "stop_clears", "disable_clears", "observer_retire_clears",
-    "exact_retire_clears", "new_generation", "contradiction_retire", "exhausted_retire",
-    "original_admission", "bridge_rollback", "final_binding_retire_clears", "bounded_cache",
-    "horizon_reset", "contradiction_after_capacity", "projection_unavailable_retry"]
+MAPPING_CASES = ["direct", "duplicate", "model_duplicate", "final_model_reject_retry",
+    "final_field_reject_retry", "final_arithmetic_reject_retry", "model_new_event",
+    "stop", "disable", "observer_retire", "exact_retire", "new_generation",
+    "timer0_independent", "future_event", "final_binding_retire", "many_events",
+    "long_gap", "projection_unavailable_retry"]
 
 
 @pytest.fixture(scope="module")
@@ -167,32 +166,27 @@ tdma_event_exact_result_t tdma_runtime_owner_copy_event_history_exact(uint64_t a
     if(exact_result!=TDMA_EVENT_EXACT_OK)return exact_result;
     *out=exact; return TDMA_EVENT_EXACT_OK;
 }
-vdc_clock_mapping_status_t vdc_dpll_manager_project_mapped_feedback_event(uint32_t ses,uint32_t role,uint32_t epoch,
+bool vdc_dpll_manager_project_timer1_feedback_event(uint32_t ses,uint32_t role,uint32_t epoch,
     uint32_t run,uint32_t local_slot,uint32_t schedule,uint32_t tick,uint64_t lo,uint64_t hi,
-    const vdc_clock_mapping_cache_t *cache,vdc_dpll_manager_mapping_projection_t *out)
+    vdc_dpll_manager_timer1_projection_t *out)
 {
     ++project_calls;
     assert(ses==session && role==model.role_generation && epoch==model.clock_epoch_id);
     assert(run==model.clock_run_id && local_slot==ring.local_slot_id && schedule==ring.schedule_crc32);
     assert(tick==live.tick_hz && lo==exact.timer1_enable_before+exact.record.rx_elapsed_cycles);
     assert(hi==exact.timer1_enable_after+exact.record.rx_elapsed_cycles);
-    if(!project_ok)return VDC_CLOCK_MAPPING_UNAVAILABLE;
+    if(!project_ok)return false;
     memset(out,0,sizeof(*out));out->model=model;
 #ifdef MATCH_REAL_MAPPING
     {
-        out->bridge=mapping_bridge;
-        const vdc_clock_mapping_status_t result=vdc_clock_mapping_project(cache,&model.dco,
-            &mapping_bridge,model.token,lo,hi,&out->mapping);
-        if(result!=VDC_CLOCK_MAPPING_OK)return result;
+        if(hi>mapping_bridge.raw_after || mapping_bridge.raw_after-lo>(uint64_t)tick*2u ||
+            !vdc_timer1_interval_to_ns(tick,lo,hi,&out->local_lo,&out->local_hi) ||
+            !vdc_domain_dco_local_to_output_ns(&model.dco,out->local_lo,&out->output_lo) ||
+            !vdc_domain_dco_local_to_output_ns(&model.dco,out->local_hi,&out->output_hi))return false;
+        out->raw_now=mapping_bridge.raw_after;
     }
 #else
-    {
-        out->mapping.output_lo=output_lo;out->mapping.output_hi=output_hi;
-        out->mapping.next=*cache;
-        ++out->mapping.next.count;
-        out->mapping.next.model_token=model.token;
-        out->mapping.next.epoch=1u;
-    }
+    { out->output_lo=output_lo;out->output_hi=output_hi; }
 #endif
     if(action==1u)++model.token;
     if(action==2u)++model.dco.period_adjust_ppb;
@@ -207,7 +201,7 @@ vdc_clock_mapping_status_t vdc_dpll_manager_project_mapped_feedback_event(uint32
     if(action==11u)++rx.source_slot;
     if(action==12u)rx.target_mask=1u;
     if(action==13u)++out->model.applied_command_seq;
-    return VDC_CLOCK_MAPPING_OK;
+    return true;
 }
 #define __atomic_load_n read_atomic
 #include "vdc_priority_match.inc"
@@ -382,145 +376,71 @@ REAL_MAPPING_MAIN = r'''
 static void mapping_setup(void) {
     init();
     model.valid_from_raw=999000u;
-    model.dco.base_local_tick64=UINT64_C(9000000000);
+    model.dco.base_local_tick64=3000000u;
     model.dco.base_vdc_time64_ns=UINT64_C(12000000000);
-    model.dco.period_adjust_ppb=777;
-    model.dco.phase_offset_ns=-17;
+    model.dco.period_adjust_ppb=777;model.dco.phase_offset_ns=-17;
     live.timer1_enable_before=exact.timer1_enable_before=1000000u;
     live.timer1_enable_after=exact.timer1_enable_after=1000004u;
     exact.record.rx_elapsed_cycles=0u;
     mapping_bridge=(vdc_timestamp_clock_bridge_t){.raw_before=1000125u,.raw_after=1000129u,
         .local_ns=UINT64_C(10000000000),.tick_hz=250000000u};
-    rx.typed_record.event_time_lower=UINT64_C(13000000000);
+    rx.typed_record.event_time_lower=UINT64_C(12001000000);
 }
 static void mapping_fresh(uint64_t ticks) {
     next();exact.record.rx_elapsed_cycles+=ticks;
-    mapping_bridge.raw_before+=ticks;mapping_bridge.raw_after+=ticks;
-    /* Independent latent local clock: X(raw)=9996000000+4*raw ns. */
-    mapping_bridge.local_ns=(UINT64_C(9996000000)+mapping_bridge.raw_before*4u)/1000u*1000u;
-    rx.typed_record.event_time_lower+=ticks*4u;
-}
-static void assert_cache_empty(void) {
-    const vdc_clock_mapping_cache_t empty={0};
-    assert(!memcmp(&empty,&s_priority_match_work.mapping_cache,sizeof(empty)));
+    mapping_bridge.raw_after+=ticks;rx.typed_record.event_time_lower+=ticks*4u;
 }
 static void assert_interval_sound(const vdc_priority_match_snapshot_t *out) {
-    uint64_t actual_lo,actual_hi;
-    assert(vdc_domain_dco_local_to_output_ns(&model.dco,
-        UINT64_C(9996000000)+out->raw_lo*4u,&actual_lo));
-    assert(vdc_domain_dco_local_to_output_ns(&model.dco,
-        UINT64_C(9996000000)+out->raw_hi*4u,&actual_hi));
-    assert(out->local_lo<=actual_lo && actual_hi<=out->local_hi);
-    const vdc_clock_mapping_result_t *mapping=&s_priority_match_work.projection.mapping;
-    assert(out->local_lo>=mapping->original_output_lo && out->local_hi<=mapping->original_output_hi);
-    assert(out->local_lo==mapping->output_lo && out->local_hi==mapping->output_hi);
+    uint64_t lo,hi;
+    assert(vdc_domain_dco_local_to_output_ns(&model.dco,out->raw_lo*4u,&lo));
+    assert(vdc_domain_dco_local_to_output_ns(&model.dco,out->raw_hi*4u,&hi));
+    assert(out->local_lo==lo && out->local_hi==hi);
     assert(out->residual_lo==(int64_t)(out->local_lo-out->expected_hi));
     assert(out->residual_hi==(int64_t)(out->local_hi-out->expected_lo));
 }
 int main(int argc,char **argv) {
     assert(argc==2);const char *name=argv[1];mapping_setup();
     vdc_priority_match_snapshot_t first=sample(),out;
-    assert(first.matched==1u && first.active && !first.retired);
-    assert_interval_sound(&first);
-    assert(s_priority_match_work.mapping_cache.count==1u && s_priority_match_work.mapping_cache.epoch==1u);
-    const vdc_clock_mapping_cache_t saved=s_priority_match_work.mapping_cache;
+    assert(first.matched==1u && first.active && !first.retired);assert_interval_sound(&first);
     const unsigned calls=project_calls;
-    if(!strcmp(name,"duplicate_no_teaching") || !strcmp(name,"model_duplicate_no_teaching")) {
-        if(!strcmp(name,"model_duplicate_no_teaching")) {++model.token;++model.dco.period_adjust_ppb;}
-        mapping_bridge.local_ns+=100000u;project_ok=false;
-        out=sample();assert(out.matched==1u && out.repeated==1u && project_calls==calls);
-        assert(!s_priority_match_work.fresh);
-        assert(!memcmp(&saved,&s_priority_match_work.mapping_cache,sizeof(saved)));return 0;
+    if(!strcmp(name,"duplicate") || !strcmp(name,"model_duplicate")) {
+        if(!strcmp(name,"model_duplicate")) {++model.token;++model.dco.period_adjust_ppb;}
+        project_ok=false;out=sample();
+        assert(out.matched==1u && out.repeated==1u && project_calls==calls);return 0;
     }
-    if(!strcmp(name,"stop_clears") || !strcmp(name,"disable_clears") ||
-       !strcmp(name,"observer_retire_clears") || !strcmp(name,"exact_retire_clears")) {
-        if(!strcmp(name,"stop_clears")) {ring.enabled=0u;expect(VDC_PRIORITY_MATCH_STOP,true);}
-        else if(!strcmp(name,"disable_clears")) {assert(request(0u));expect(VDC_PRIORITY_MATCH_DISABLED,true);}
-        else if(!strcmp(name,"observer_retire_clears")) {++live.record.epoch;expect(VDC_PRIORITY_MATCH_BINDING,true);}
-        else {next();exact_result=TDMA_EVENT_EXACT_RETIRED;expect(VDC_PRIORITY_MATCH_SOURCE,true);}
-        assert_cache_empty();out=sample();assert(out.retired && out.matched==1u);
-        assert_cache_empty();return 0;
-    }
-    if(!strcmp(name,"bridge_rollback")) {
-        next();mapping_bridge.raw_before=saved.last_raw_after-1u;mapping_bridge.raw_after=saved.last_raw_after+1u;
-        uint64_t lo,hi;
-        assert(vdc_model_project_interval(&model.dco,&mapping_bridge,first.raw_lo,first.raw_hi,&lo,&hi));
-        expect(VDC_PRIORITY_MATCH_PROJECTION,false);
-        assert(!memcmp(&saved,&s_priority_match_work.mapping_cache,sizeof(saved)));return 0;
-    }
-    mapping_fresh(!strcmp(name,"horizon_reset") ? UINT64_C(500000001) : 125u);
+    if(!strcmp(name,"stop")) {ring.enabled=0;expect(VDC_PRIORITY_MATCH_STOP,true);return 0;}
+    if(!strcmp(name,"disable")) {assert(request(0));expect(VDC_PRIORITY_MATCH_DISABLED,true);return 0;}
+    if(!strcmp(name,"observer_retire")) {++live.record.epoch;expect(VDC_PRIORITY_MATCH_BINDING,true);return 0;}
+    if(!strcmp(name,"exact_retire")) {next();exact_result=TDMA_EVENT_EXACT_RETIRED;expect(VDC_PRIORITY_MATCH_SOURCE,true);return 0;}
+    mapping_fresh(!strcmp(name,"long_gap")?UINT64_C(500000001):125u);
     if(!strcmp(name,"projection_unavailable_retry")) {
         project_ok=false;expect(VDC_PRIORITY_MATCH_PROJECTION,false);
-        assert(!memcmp(&saved,&s_priority_match_work.mapping_cache,sizeof(saved)));
-        assert(!s_priority_match_work.fresh && s_priority_match_work.status.matched==1u);
-        project_ok=true;out=sample();assert(out.matched==2u);
-        assert(s_priority_match_work.mapping_cache.count==2u);assert_interval_sound(&out);return 0;
+        assert(s_priority_match_work.status.matched==1u && !s_priority_match_work.fresh);
+        project_ok=true;
     }
     if(!strcmp(name,"final_model_reject_retry") || !strcmp(name,"final_field_reject_retry")) {
-        action=!strcmp(name,"final_model_reject_retry") ? 1u : 2u;
-        expect(VDC_PRIORITY_MATCH_CHANGED,false);
-        assert(!memcmp(&saved,&s_priority_match_work.mapping_cache,sizeof(saved)));
-        assert(!s_priority_match_work.fresh && s_priority_match_work.status.matched==1u);
-        action=0u;out=sample();assert(out.matched==2u);assert_interval_sound(&out);
-        assert(s_priority_match_work.mapping_cache.count==(!strcmp(name,"final_model_reject_retry") ? 1u : 2u));
-        return 0;
+        action=!strcmp(name,"final_model_reject_retry")?1:2;
+        expect(VDC_PRIORITY_MATCH_CHANGED,false);action=0;
+        assert(s_priority_match_work.status.matched==1u && !s_priority_match_work.fresh);
     }
     if(!strcmp(name,"final_arithmetic_reject_retry")) {
-        const uint64_t remote=rx.typed_record.event_time_lower;
-        rx.typed_record.event_time_lower=UINT64_MAX-1u;
-        expect(VDC_PRIORITY_MATCH_OVERFLOW,false);
-        assert(!memcmp(&saved,&s_priority_match_work.mapping_cache,sizeof(saved)));
-        assert(!s_priority_match_work.fresh && s_priority_match_work.status.matched==1u);
-        rx.typed_record.event_time_lower=remote;out=sample();assert(out.matched==2u);
-        assert(s_priority_match_work.mapping_cache.count==2u);assert_interval_sound(&out);return 0;
+        const uint64_t saved=rx.typed_record.event_time_lower;rx.typed_record.event_time_lower=UINT64_MAX-1;
+        expect(VDC_PRIORITY_MATCH_OVERFLOW,false);rx.typed_record.event_time_lower=saved;
+        assert(s_priority_match_work.status.matched==1u);
     }
     if(!strcmp(name,"model_new_event")) {++model.token;++model.dco.period_adjust_ppb;}
-    if(!strcmp(name,"new_generation")) {assert(request(102u));rx.typed_record.binding_generation=102u;}
-    if(!strcmp(name,"original_admission")) {
-        mapping_bridge.raw_before=first.raw_hi-1u;
-        expect(VDC_PRIORITY_MATCH_PROJECTION,false);
-        assert(!memcmp(&saved,&s_priority_match_work.mapping_cache,sizeof(saved)));return 0;
+    if(!strcmp(name,"new_generation")) {assert(request(102));rx.typed_record.binding_generation=102;}
+    if(!strcmp(name,"future_event")) {
+        mapping_bridge.raw_after=first.raw_hi-1;expect(VDC_PRIORITY_MATCH_PROJECTION,false);return 0;
     }
-    if(!strcmp(name,"final_binding_retire_clears")) {
-        action=6u;expect(VDC_PRIORITY_MATCH_BINDING,true);assert_cache_empty();return 0;
-    }
-    if(!strcmp(name,"contradiction_retire") || !strcmp(name,"exhausted_retire")) {
-        if(!strcmp(name,"contradiction_retire"))mapping_bridge.local_ns+=100000u;
-        else {s_priority_match_work.mapping_cache.epoch=UINT32_MAX;++model.token;}
-        expect(VDC_PRIORITY_MATCH_PROJECTION,true);assert_cache_empty();return 0;
+    if(!strcmp(name,"final_binding_retire")) {action=6;expect(VDC_PRIORITY_MATCH_BINDING,true);return 0;}
+    if(!strcmp(name,"timer0_independent")) {
+        mapping_bridge.local_ns=UINT64_MAX;mapping_bridge.raw_before=0;
     }
     out=sample();assert(out.active && !out.retired);assert_interval_sound(&out);
-    if(!strcmp(name,"new_generation")) {
-        assert(out.generation==102u && out.matched==1u);
-        assert(s_priority_match_work.mapping_cache.count==1u && s_priority_match_work.mapping_cache.epoch==1u);
-        assert(s_priority_match_work.projection.mapping.reset_reason==VDC_CLOCK_MAPPING_RESET_START);return 0;
-    }
-    if(!strcmp(name,"model_new_event") || !strcmp(name,"horizon_reset")) {
-        assert(out.matched==2u && s_priority_match_work.mapping_cache.count==1u);
-        assert(s_priority_match_work.mapping_cache.epoch==2u);
-        assert(s_priority_match_work.projection.mapping.reset_reason==(!strcmp(name,"model_new_event") ?
-            VDC_CLOCK_MAPPING_RESET_MODEL : VDC_CLOCK_MAPPING_RESET_HORIZON));return 0;
-    }
-    assert(out.local_hi-out.local_lo<first.local_hi-first.local_lo);
-    assert(out.matched==2u && s_priority_match_work.mapping_cache.count==2u);
-    if(!strcmp(name,"refinement"))return 0;
-    assert(!strcmp(name,"bounded_cache") || !strcmp(name,"contradiction_after_capacity"));
-    for(unsigned i=2u;i<VDC_CLOCK_MAPPING_MAX_CONSTRAINTS;++i) {
-        mapping_fresh(125u);out=sample();assert(out.matched==i+1u);assert_interval_sound(&out);
-    }
-    const vdc_clock_mapping_cache_t full=s_priority_match_work.mapping_cache;
-    assert(full.count==VDC_CLOCK_MAPPING_MAX_CONSTRAINTS);
-    if(!strcmp(name,"contradiction_after_capacity")) {
-        mapping_fresh(125u);mapping_bridge.local_ns+=100000u;
-        expect(VDC_PRIORITY_MATCH_PROJECTION,true);assert_cache_empty();return 0;
-    }
-    for(unsigned i=0u;i<6u;++i) {
-        mapping_fresh(125u);out=sample();assert(!out.retired);assert_interval_sound(&out);
-        assert(s_priority_match_work.mapping_cache.count==VDC_CLOCK_MAPPING_MAX_CONSTRAINTS);
-        assert(!s_priority_match_work.projection.mapping.retained);
-        assert(s_priority_match_work.mapping_cache.offset_lo==full.offset_lo);
-        assert(s_priority_match_work.mapping_cache.offset_hi_open==full.offset_hi_open);
-        assert(s_priority_match_work.mapping_cache.last_raw_after>full.last_raw_after);
+    assert(out.matched==(!strcmp(name,"new_generation")?1u:2u));
+    if(!strcmp(name,"many_events"))for(unsigned i=0;i<70;++i) {
+        mapping_fresh(125);out=sample();assert(out.matched==i+3);assert_interval_sound(&out);
     }
     return 0;
 }

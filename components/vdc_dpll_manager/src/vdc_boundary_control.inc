@@ -364,10 +364,11 @@ static bool boundary_model(vdc_dpll_manager_committed_model_t *model, const vdc_
 static bool boundary_fresh(const vdc_dco_control_t *dco, uint64_t lower, uint64_t now)
 {
     uint64_t upper;
-    /* Manager now is a microsecond counter expressed in ns. Include its
-     * quantization upper bound, not a packet-arrival timestamp. */
-    return now <= UINT64_MAX - 999u &&
-        vdc_domain_dco_local_to_output_ns(dco, now + 999u, &upper) &&
+    /* Include one TIMER1 sampling bin on the local nanosecond axis. */
+    const uint64_t bin = (UINT64_C(1000000000) + BOARD_SYS_CLOCK_HZ - 1u) /
+        BOARD_SYS_CLOCK_HZ;
+    return now != UINT64_MAX && now <= UINT64_MAX - bin &&
+        vdc_domain_dco_local_to_output_ns(dco, now + bin, &upper) &&
         upper >= lower && upper - lower <= VDC_BOUNDARY_COMMAND_MAX_AGE_NS;
 }
 
@@ -666,6 +667,9 @@ static __attribute__((noinline)) void boundary_local_apply(vdc_boundary_meta_t *
     const uint64_t now = vdc_dpll_manager_now_ns();
     if (!boundary_local_current(m, c)) {
         boundary_reject(m, BOUNDARY_REJECT_CANCELLED); return;
+    }
+    if (now == UINT64_MAX) {
+        boundary_reject(m, BOUNDARY_REJECT_AGE); return;
     }
     const int32_t before_rate = model.dco.period_adjust_ppb;
     const uint32_t before_seq = model.dco.dco_update_seq;

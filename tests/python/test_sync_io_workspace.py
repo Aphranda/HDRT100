@@ -18,6 +18,13 @@ def function(source: str, name: str) -> str:
 def compile_run(tmp_path: Path, source: str, *, analyzer: bool = False) -> None:
     cc = shutil.which("gcc")
     assert cc, "host gcc is required for workspace ownership checks"
+    if "vdc_timestamp_clock_try_read_ns" in source and not re.search(
+            r"vdc_timestamp_clock_try_read_ns\s*\([^)]*\)\s*\{", source):
+        source = ("#include <stdbool.h>\n#include <stdint.h>\n"
+                  "#define BOARD_SYS_CLOCK_HZ 250000000u\n"
+                  "static __attribute__((unused)) bool vdc_timestamp_clock_try_read_ns(uint32_t hz, uint64_t *out) {\n"
+                      "if (!out || hz != BOARD_SYS_CLOCK_HZ) return false;\n"
+                      "*out=1000000000ull; return true; }\n" + source)
     harness = tmp_path / "workspace.c"
     harness.write_text(source, encoding="utf-8")
     includes = ["tests/unit/host_stubs", "boards/rp2350_trig/inc",
@@ -44,6 +51,12 @@ def test_capture_rejection_idle_stop_and_failed_restart(tmp_path: Path) -> None:
 #include <stdbool.h>
 #include <stdint.h>
 #include "sync_io_persona_resources.h"
+static __attribute__((unused)) bool vdc_timestamp_clock_try_read_ns(uint32_t hz, uint64_t *out) {
+    if (!out || hz != 250000000u) return false;
+    *out = 1000000000ull;
+    return true;
+}
+#define BOARD_SYS_CLOCK_HZ 250000000u
 static struct {
     bool initialized, capture_running, capture_timebase_valid;
     bool capture_dma_write_index_valid;

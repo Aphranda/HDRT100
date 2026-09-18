@@ -20,17 +20,15 @@ typedef enum {
     VDC_PRIORITY_TX_REJECT_MAPPING_EXHAUSTED
 } vdc_priority_tx_reject_t;
 
-/* Synchronously borrowed only after successful fresh encoding and mapping
- * commit. Full source interval and the exact bridge/model support independent
- * replay; mapping.next is the retained state, effective bounds include this
- * event's fresh bridge even after the accumulation cap. */
+/* Borrowed after successful fresh encoding. Raw interval, observation and
+ * committed model support independent TIMER1-coordinate replay. */
 typedef struct {
     uint32_t generation, session, role_generation, clock_epoch, clock_run;
     uint32_t local_slot, node_count, schedule_crc32, profile_crc32;
     uint32_t source_epoch, event_sequence, source_identity, published_version, tick_hz;
     uint64_t source_raw_lo, source_raw_hi, encoded_output_lo;
     uint32_t encoded_width;
-    vdc_dpll_manager_mapping_projection_t projection;
+    vdc_dpll_manager_timer1_projection_t projection;
 } vdc_priority_tx_origin_evidence_t;
 
 /* Core1 offer diagnostics, retained after STOP. Counts describe software

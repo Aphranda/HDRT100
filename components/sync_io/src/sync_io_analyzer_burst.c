@@ -357,7 +357,7 @@ void sync_io_analyzer_burst_service_core1(void)
         return;
     }
     uint64_t now_ns = 0u;
-    (void)sync_io_capture_time_now_ns(&now_ns);
+    if (!sync_io_capture_time_now_ns(&now_ns)) return;
     if (now_ns - s_burst.started_ns >= (uint64_t)s_burst.config.timeout_us * 1000u)
         burst_freeze(SYNC_IO_ANALYZER_BURST_END_TIMEOUT);
 }

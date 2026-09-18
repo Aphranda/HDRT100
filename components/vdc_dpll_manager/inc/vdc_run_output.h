@@ -3,7 +3,8 @@
 #include "sync_io_run_output.h"
 #include "vdc_output_timing.h"
 
-#define VDC_RUN_OUTPUT_SCHEMA 9u
+#define VDC_RUN_OUTPUT_SCHEMA 10u
+#define VDC_RUN_OUTPUT_TIMEBASE_TIMER1_NS 1u
 
 enum { VDC_RUN_OUTPUT_PREPARED_PHASE, VDC_RUN_OUTPUT_RUNNING_PHASE,
        VDC_RUN_OUTPUT_PHASE_COUNT };
@@ -26,6 +27,7 @@ typedef enum {
 
 typedef struct {
     sync_io_run_output_snapshot_t hardware;
+    /* local is TIMER1-derived ns; the former bridge width stays zero. */
     uint64_t last_local_ns, last_target_vdc_ns, maximum_bridge_width_ticks;
     uint32_t request, session, period_ns, high_ns, duration_ms;
     uint32_t ring_config, role_generation, clock_epoch, clock_run;
@@ -54,9 +56,8 @@ typedef struct {
      * are diagnostic, not hardware inventory or precision qualifications. */
     uint32_t plan_ahead_us, commit_ahead_us, refill_low_us;
     uint32_t timeline_bridge_samples, partial_plan_steps;
-    /* First accepted RUN bridge, retained after retirement for correlation with
-     * the backend start/enable enclosure. These are diagnostic bounds, not a
-     * physical edge timestamp or a cross-board phase measurement. */
+    /* Legacy TIMER0 bridge fields, reserved as zero in schema 10:
+     * timeline_bridge_samples and these three values are never populated. */
     uint64_t timeline_raw_before, timeline_local_ns, timeline_raw_after;
     uint32_t plan_waits, refill_waits, commit_waits;
     uint32_t block_edges, schedule_cycles;
@@ -71,6 +72,11 @@ typedef struct {
      * suffix for a later same-generation service retry; other branches clear
      * it, with GUARD treated as an expired hardware runway. */
     uint32_t last_submit_failure;
+    /* Schema 10: timebase=1 is TIMER1-derived ns. initial_raw_tick is a
+     * TIMER1 tick observation; initial_local_ns is its floor conversion.
+     * Both are retained after STOP, and neither is a physical edge receipt. */
+    uint32_t timebase;
+    uint64_t initial_raw_tick, initial_local_ns;
 } vdc_run_output_status_t;
 
 bool vdc_run_output_prepare(uint32_t period_ns,uint32_t high_ns,
@@ -80,7 +86,7 @@ bool vdc_run_output_status(vdc_run_output_status_t *out);
 /* Core0 configuration callback, inside the STOP metadata owner gate. */
 bool vdc_run_output_configuration_idle(void);
 void vdc_run_output_service_core1(void);
-/* No first block, bridge acquisition or model inverse. Only existing private
+/* No first block or model inverse. Only existing private
  * suffixes may be admitted, with the same lifetime and clock validation. */
 uint32_t vdc_run_output_service_cached_core1(void);
 void vdc_run_output_note_cached_wall_core1(uint32_t request,

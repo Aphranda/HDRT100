@@ -159,6 +159,25 @@ bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_try_read_ticks64)(
 #endif
 }
 
+bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_try_read_ns)(
+    uint32_t expected_hz, uint64_t *out)
+{
+    uint64_t ticks;
+    if (!out || !expected_hz ||
+        !vdc_timestamp_clock_try_read_ticks64(expected_hz, &ticks)) return false;
+    if (UINT32_C(1000000000) % expected_hz == 0u) {
+        const uint32_t scale = UINT32_C(1000000000) / expected_hz;
+        if (ticks > UINT64_MAX / scale) return false;
+        *out = ticks * scale;
+        return true;
+    }
+    const uint64_t seconds = ticks / expected_hz;
+    const uint64_t fraction = (ticks % expected_hz) * UINT64_C(1000000000) / expected_hz;
+    if (seconds > (UINT64_MAX - fraction) / UINT64_C(1000000000)) return false;
+    *out = seconds * UINT64_C(1000000000) + fraction;
+    return true;
+}
+
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE && defined(PICO_RP2350) && PICO_RP2350 && \
     PICO_DEFAULT_TIMER == 0 && XOSC_HZ == 12000000u
 /* Keep bridge validation outside the counter enclosure. Add SRAM placement

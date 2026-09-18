@@ -86,7 +86,7 @@ def bridge_executable(tmp_path_factory):
                                   "diagnostic-rollover", "diagnostic-uninitialized",
                                   "sticky-badwrite", "tight-bracket", "preempted-bracket",
                                   "configuration-equivalence", "configuration-cost",
-                                  "configuration-counter-independence"])
+                                  "configuration-counter-independence", "direct-ns"])
 def test_actual_device_bridge(bridge_executable, case):
     result = subprocess.run([str(bridge_executable["device"]), case], capture_output=True,
                             text=True, timeout=10)
@@ -262,7 +262,23 @@ static int configuration_equivalent(uint32_t expected, bool wanted) {
 }
 int main(int argc,char **argv) {
     CHECK(argc==2); clean();
-    if (!strcmp(argv[1],"unsupported")) {
+    if (!strcmp(argv[1],"direct-ns")) {
+        stop_raw=true; hz=250000000u; s_vdc_timestamp_clock_tick_hz=hz;
+        uint64_t out=123;
+        CHECK(vdc_timestamp_clock_try_read_ns(hz,&out) && out==4000);
+        CHECK(timer_reads[0]==0);
+        banks[0].pause=1; banks[0].source=1;
+        CHECK(vdc_timestamp_clock_try_read_ns(hz,&out) && out==4000);
+        banks[1].pause=1; out=123;
+        CHECK(!vdc_timestamp_clock_try_read_ns(hz,&out) && out==123);
+        banks[1].pause=0; banks[1].timerawh=UINT32_MAX;
+        CHECK(!vdc_timestamp_clock_try_read_ns(hz,&out) && out==123);
+        banks[1].timerawh=0; banks[1].timerawl=1001;
+        hz=300000000u; s_vdc_timestamp_clock_tick_hz=hz;
+        CHECK(vdc_timestamp_clock_try_read_ns(hz,&out) && out==3336);
+        CHECK(!vdc_timestamp_clock_try_read_ns(0,&out) && out==3336);
+        CHECK(!vdc_timestamp_clock_try_read_ns(hz,NULL));
+    } else if (!strcmp(argv[1],"unsupported")) {
         CHECK(!vdc_timestamp_clock_configuration_supported(hz));
         CHECK(rejects(hz)==0);
         CHECK(timer_reads[0]==0 && timer_reads[1]==0 && clock_reads==0);

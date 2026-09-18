@@ -4083,6 +4083,155 @@ static int test_master_rebases_dco_at_local_service_boundary(void)
     return failed;
 }
 
+static int test_phase_and_quality_use_their_own_time_coordinates(void)
+{
+    int failed = 0;
+    const uint64_t local_origins[] = {4000ull, 9000000000000ull};
+    const uint32_t sequences[] = {1u, 17u, 18u, 19u};
+    for (unsigned origin = 0u; origin < 2u; ++origin) {
+        vdc_domain_context_t context;
+        if (!vdc_domain_init(&context) || !install_test_path_delay(&context)) {
+            return 1;
+        }
+        vdc_domain_set_ready(&context, true);
+        uint64_t last_local_ns = 0u;
+        uint64_t rate_anchor_ns = 0u;
+        for (unsigned i = 0u; i < 4u; ++i) {
+            vdc_tdma_timestamp_evidence_t evidence = make_hardware_sample(
+                &context.schedule, sequences[i], i == 0u ? 0 : 16000);
+            vdc_tdma_evidence_preparation_t preparation;
+            const int32_t prior_phase_ns = context.clock.phase_offset_ns;
+            failed += expect_bool("prepare cross-origin sample",
+                vdc_domain_prepare_active_tdma_evidence(
+                    &context, &evidence, &preparation), true);
+            if (i >= 2u) {
+                failed += expect_i32("phase predicts only latest event span",
+                    preparation.input_residual_ns,
+                    evidence.phase_error_ns + prior_phase_ns - 1);
+                failed += expect_u64("FLL retains its longer baseline",
+                    context.dpll.last_observed_time_ns, rate_anchor_ns);
+            }
+            last_local_ns = local_origins[origin] +
+                (uint64_t)(sequences[i] - 1u) * context.schedule.period_ns;
+            preparation.local_apply_time_ns = last_local_ns;
+            bool accepted = false;
+            failed += expect_bool("apply cross-origin sample",
+                vdc_domain_apply_prepared_tdma_evidence(
+                    &context, &evidence, &preparation, &accepted), true);
+            failed += expect_bool("cross-origin accepted", accepted, true);
+            failed += expect_u64("quality uses local service origin",
+                context.quality.last_sample_time_ns, last_local_ns);
+            failed += expect_u64("phase anchor uses evidence origin",
+                context.phase_observed_anchor_ns, evidence.observed_time_ns);
+            if (i == 1u) {
+                rate_anchor_ns = evidence.observed_time_ns;
+                failed += expect_i32("cross-origin rate acquired",
+                    context.clock.period_adjust_ppb, -1250);
+            }
+            vdc_domain_service(&context, last_local_ns + 9000u);
+            failed += expect_u32("quality age ignores origin difference",
+                context.quality.last_sample_age_us, 9u);
+        }
+        vdc_tdma_timestamp_evidence_t rejected =
+            make_hardware_sample(&context.schedule, 20u, 16000);
+        rejected.timestamp_flags = 0u;
+        vdc_tdma_evidence_preparation_t preparation;
+        const uint64_t phase_anchor_ns = context.phase_observed_anchor_ns;
+        failed += expect_bool("prepare rejected cross-origin sample",
+            vdc_domain_prepare_active_tdma_evidence(
+                &context, &rejected, &preparation), true);
+        preparation.local_apply_time_ns = last_local_ns + 10000u;
+        bool accepted = true;
+        failed += expect_bool("record rejected cross-origin sample",
+            vdc_domain_apply_prepared_tdma_evidence(
+                &context, &rejected, &preparation, &accepted), true);
+        failed += expect_bool("invalid cross-origin sample rejected",
+            accepted, false);
+        failed += expect_u64("rejection retains successful local age anchor",
+            context.quality.last_sample_time_ns, last_local_ns);
+        failed += expect_u64("rejection retains phase anchor",
+            context.phase_observed_anchor_ns, phase_anchor_ns);
+        vdc_domain_service(&context, last_local_ns + 19000u);
+        failed += expect_u32("rejected sample cannot refresh age",
+            context.quality.last_sample_age_us, 19u);
+        vdc_domain_set_ready(&context, false);
+        failed += expect_u32("STOP clears phase anchor validity",
+            context.phase_observed_anchor_valid, 0u);
+        failed += expect_u64("STOP clears quality age anchor",
+            context.quality.last_sample_time_ns, 0u);
+        vdc_domain_set_ready(&context, true);
+        vdc_tdma_timestamp_evidence_t restarted =
+            make_hardware_sample(&context.schedule, 21u, 16000);
+        failed += expect_bool("prepare restarted sample",
+            vdc_domain_prepare_active_tdma_evidence(
+                &context, &restarted, &preparation), true);
+        preparation.local_apply_time_ns = last_local_ns + 2000000u;
+        failed += expect_bool("apply restarted sample",
+            vdc_domain_apply_prepared_tdma_evidence(
+                &context, &restarted, &preparation, &accepted), true);
+        context.path_delay.entry_count = context.schedule.ring_binding.node_count;
+        for (uint32_t i = 0u; i < VDC_DOMAIN_PATH_DELAY_ENTRY_COUNT; ++i) {
+            context.path_delay.entries[i].valid =
+                i < context.path_delay.entry_count ? 1u : 0u;
+            context.path_delay.entries[i].reference_slot_id =
+                (i + 1u) % context.path_delay.entry_count;
+        }
+        failed += expect_bool("build reactivation path matrix",
+            vdc_domain_load_observation_path_matrix(&context.path_delay,
+                context.schedule.ring_binding.node_count), true);
+        context.path_delay.table_crc32 =
+            vdc_domain_path_delay_table_crc32(&context.path_delay);
+        failed += expect_bool("reactivate configuration",
+            vdc_domain_activate_tdma_configuration(&context, &context.schedule,
+                &context.timestamp_dictionary, &context.path_delay), true);
+        failed += expect_u32("configuration clears phase anchor validity",
+            context.phase_observed_anchor_valid, 0u);
+        failed += expect_u64("configuration clears quality age anchor",
+            context.quality.last_sample_time_ns, 0u);
+    }
+    return failed;
+}
+
+static int test_follower_quality_age_requires_accepted_local_sample(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    if (!vdc_domain_init(&context) || !install_test_path_delay(&context)) {
+        return 1;
+    }
+    vdc_domain_set_ready(&context, true);
+    vdc_dpll_control_profile_t role = context.control.profile;
+    role.mode = VDC_DPLL_CONTROL_MODE_FOLLOWER;
+    role.follow_master_slot_id = 1u;
+    failed += expect_bool("set follower age test role",
+        vdc_domain_set_dpll_control_profile(&context, &role), true);
+    const vdc_dco_control_t prior_dco = context.dco;
+    const uint64_t first_local_ns = 9000000000000ull;
+    for (uint32_t seq = 1u; seq <= 2u; ++seq) {
+        vdc_tdma_timestamp_evidence_t evidence =
+            make_hardware_sample(&context.schedule, seq, 20);
+        if (seq == 2u) evidence.timestamp_flags = 0u;
+        vdc_tdma_evidence_preparation_t preparation;
+        failed += expect_bool("prepare follower age sample",
+            vdc_domain_prepare_active_tdma_evidence(
+                &context, &evidence, &preparation), true);
+        preparation.local_apply_time_ns = first_local_ns + (seq - 1u) * 10000u;
+        bool accepted = false;
+        failed += expect_bool("apply follower age sample",
+            vdc_domain_apply_prepared_tdma_evidence(
+                &context, &evidence, &preparation, &accepted), true);
+        failed += expect_bool("follower age admission", accepted, seq == 1u);
+        failed += expect_u64("follower retains last successful local age",
+            context.quality.last_sample_time_ns, first_local_ns);
+        failed += expect_bool("follower evidence does not run local PI",
+            memcmp(&context.dco, &prior_dco, sizeof(prior_dco)) == 0, true);
+    }
+    vdc_domain_service(&context, first_local_ns + 19000u);
+    failed += expect_u32("follower rejected sample cannot refresh age",
+        context.quality.last_sample_age_us, 19u);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -4129,6 +4278,8 @@ int main(void)
     failed += test_formal_evidence_generation_gate();
     failed += test_master_rejects_unmapped_cross_board_phase();
     failed += test_master_rebases_dco_at_local_service_boundary();
+    failed += test_phase_and_quality_use_their_own_time_coordinates();
+    failed += test_follower_quality_age_requires_accepted_local_sample();
     if (failed != 0) {
         (void)printf("vdc_domain tests failed: %d\n", failed);
         return 1;

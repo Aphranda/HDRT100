@@ -81,7 +81,7 @@ static bool retained_available, ring_available, domain_accept;
 static uint64_t now_ns;
 static bool local_follow_enabled, local_follow_busy;
 static bool priority_follow_enabled, priority_follow_busy;
-static bool vdc_dpll_manager_try_priority_follow_enabled(bool *out)
+bool vdc_dpll_manager_try_priority_follow_enabled(bool *out)
 {
     if (priority_follow_busy) return false;
     *out = priority_follow_enabled;

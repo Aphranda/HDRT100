@@ -85,7 +85,7 @@ static bool tdma_runtime_owner_priority_rx_counters_core1(tdma_priority_rx_count
     *out=(tdma_priority_rx_counters_t){lane.irq_total_cycles,lane.epoch,lane.irq_count,
         lane.irq_max_cycles,lane.active}; return true;
 }
-static bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz,uint64_t *ticks) {
+bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz,uint64_t *ticks) {
     assert(hz==BOARD_SYS_CLOCK_HZ);
     ++timer_reads;
     if (!timer_ok) return false;

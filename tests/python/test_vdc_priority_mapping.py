@@ -1,7 +1,7 @@
-"""Real typed TX + committed model + Domain integration for mapping evidence.
+"""Real typed TX + committed model + Domain on the TIMER1 coordinate.
 
 External raw-event publications and clock reads are controlled inputs. The
-mapping, original projector admission, final revalidation, codec, and cached
+direct projector admission, final revalidation, codec, and cached
 mailbox provider are production code. This is not hardware acceptance.
 """
 import json
@@ -32,9 +32,9 @@ def run(executable, case):
     return result.stdout
 
 
-@pytest.mark.parametrize("case", ["refinement", "repeat", "model_same_event", "model_fresh",
-    "final_reject_retry", "epoch_retire", "config_retire", "contradiction_retire",
-    "exhausted_retire", "stop", "new_generation", "lower_rollback", "upper_rollback",
+@pytest.mark.parametrize("case", ["direct_interval", "repeat", "model_same_event", "model_fresh",
+    "final_reject_retry", "epoch_retire", "config_retire", "timer0_independent",
+    "many_models", "stop", "new_generation", "lower_rollback", "upper_rollback",
     "old_event", "bridge_unavailable", "original_admission", "capture_eligible"])
 def test_real_mapping_is_committed_only_with_final_encoded_offer(mapping_tx_executable, case):
     run(mapping_tx_executable, case)
@@ -105,7 +105,7 @@ static void setup(void)
         .ring_profile_crc32=0x456u,.schedule_crc32=0x123u,.operating_profile_crc32=0x789u,
         .cycle_period_ns=1500000u,.geometry_generation=12u,.owner_config_seq=23u};
     s_vdc_domain.dco=(vdc_dco_control_t){.valid=1u,.nominal_period_ns=1500000u,
-        .tdma_schedule_crc32=0x123u,.base_local_tick64=UINT64_C(9000000000),
+        .tdma_schedule_crc32=0x123u,.base_local_tick64=UINT64_C(3000000),
         .base_vdc_time64_ns=UINT64_C(12000000000),.period_adjust_ppb=777,.phase_offset_ns=-17};
     s_vdc_domain.control.profile.generation=3u;
     s_vdc_domain.clock.epoch_id=4u;s_vdc_domain.clock.run_id=5u;
@@ -132,7 +132,7 @@ static void fresh(uint64_t ticks)
     ++raw.sequence;raw.identity+=9u;raw.published_version+=2u;
     raw.timer_lower+=ticks;raw.timer_upper+=ticks;
     bridge.raw_before+=ticks;bridge.raw_after+=ticks;raw_now=bridge.raw_after;
-    /* Latent offset is 9,996,000,000 ns, so bridge must be a true TIMER0 bin. */
+    /* Unrelated TIMER0 observations must have no effect on the projection. */
     bridge.local_ns=(UINT64_C(9996000000)+bridge.raw_before*4u)/1000u*1000u;
 }
 static void empty(uint32_t reason,bool retired)
@@ -146,9 +146,9 @@ static void assert_actual_inside(const vdc_priority_codec_record_t *r)
 {
     uint64_t lo,hi;
     assert(vdc_domain_dco_local_to_output_ns(&s_vdc_domain.dco,
-        UINT64_C(9996000000)+raw.timer_lower*4u,&lo));
+        raw.timer_lower*4u,&lo));
     assert(vdc_domain_dco_local_to_output_ns(&s_vdc_domain.dco,
-        UINT64_C(9996000000)+raw.timer_upper*4u,&hi));
+        raw.timer_upper*4u,&hi));
     assert(r->event_time_lower<=lo && hi<=r->event_time_lower+r->uncertainty_width);
 }
 int main(int argc,char **argv)
@@ -163,28 +163,25 @@ int main(int argc,char **argv)
     }
     const vdc_priority_codec_record_t first=offer(first_bytes);
     assert_actual_inside(&first);
-    assert(s_priority_tx_work.mapping.count==1u && s_priority_tx_work.mapping.epoch==1u);
     if(!strcmp(name,"capture_eligible")) {
         assert(!vdc_priority_tx_origin_trace_eligible_core1(101u,17u));return 0;
     }
-    const vdc_clock_mapping_cache_t committed=s_priority_tx_work.mapping;
     const unsigned calls=bridge_calls;
     if(!strcmp(name,"repeat")) {
         bridge_ok=false;bridge.local_ns+=100000u;
         (void)offer(bytes);
         assert(!memcmp(bytes,first_bytes,32u) && bridge_calls==calls);
-        assert(!memcmp(&committed,&s_priority_tx_work.mapping,sizeof(committed)));
         assert(snapshot().encoded==1u && snapshot().repeated==1u);return 0;
     }
     if(!strcmp(name,"stop")) {
         assert(vdc_priority_tx_core1(NULL,NULL)==TDMA_PRIORITY_TX_EMPTY);
         assert(snapshot().retired);empty(VDC_PRIORITY_TX_REJECT_RETIRED,true);
-        assert(!memcmp(&committed,&s_priority_tx_work.mapping,sizeof(committed)));return 0;
+        return 0;
     }
     if(!strcmp(name,"model_same_event")) {
         raw_now=raw.timer_lower;++s_vdc_domain.dco.period_adjust_ppb;model_publish();raw_now=bridge.raw_after;
         empty(VDC_PRIORITY_TX_REJECT_MODEL,false);
-        assert(!memcmp(&committed,&s_priority_tx_work.mapping,sizeof(committed)) && bridge_calls==calls);
+        assert(bridge_calls==calls);
         assert(!memcmp(snapshot().mailbox,first_bytes,32u));return 0;
     }
     if(!strcmp(name,"old_event")) {
@@ -195,47 +192,47 @@ int main(int argc,char **argv)
     if(!strcmp(name,"new_generation")) {
         core=0u;stopped=true;assert(vdc_dpll_manager_set_priority_sync(102u));core=1u;stopped=false;
         assert(vdc_priority_tx_core1(&config,bytes)==TDMA_PRIORITY_TX_READY);
-        assert(s_priority_tx_work.mapping.epoch==1u && s_priority_tx_work.mapping.count==1u);
+        assert(bridge_calls==0);
         assert(snapshot().generation==102u && snapshot().encoded==1u);return 0;
     }
     if(!strcmp(name,"model_fresh")) {
         raw_now=raw.timer_lower;++s_vdc_domain.dco.period_adjust_ppb;model_publish();raw_now=bridge.raw_after;
         (void)offer(bytes);
-        assert(s_priority_tx_work.mapping.epoch==2u && s_priority_tx_work.mapping.count==1u);
-        assert(s_priority_tx_work.evidence.projection.mapping.reset_reason==VDC_CLOCK_MAPPING_RESET_MODEL);return 0;
+        assert(s_priority_tx_work.evidence.projection.model.token==2u);return 0;
     }
     if(!strcmp(name,"final_reject_retry")) {
         epoch_ok=false;empty(VDC_PRIORITY_TX_REJECT_CHANGED,false);
-        assert(!memcmp(&committed,&s_priority_tx_work.mapping,sizeof(committed)));
         assert(snapshot().encoded==1u && !memcmp(snapshot().mailbox,first_bytes,32u));
         epoch_ok=true;(void)offer(bytes);
-        assert(s_priority_tx_work.mapping.count==2u && snapshot().encoded==2u);return 0;
+        assert(snapshot().encoded==2u && bridge_calls==0);return 0;
     }
-    if(!strcmp(name,"refinement")) {
+    if(!strcmp(name,"direct_interval")) {
         const vdc_priority_codec_record_t second=offer(bytes);assert_actual_inside(&second);
-        assert(second.uncertainty_width<first.uncertainty_width && memcmp(first_bytes,bytes,32u));
-        assert(s_priority_tx_work.mapping.count==2u && snapshot().encoded==2u);return 0;
+        assert(second.uncertainty_width==first.uncertainty_width && memcmp(first_bytes,bytes,32u));
+        assert(snapshot().encoded==2u && bridge_calls==0);return 0;
     }
     if(!strcmp(name,"epoch_retire") || !strcmp(name,"config_retire")) {
         epoch_action=!strcmp(name,"epoch_retire")?1u:2u;
         empty(VDC_PRIORITY_TX_REJECT_BINDING,true);
-    } else if(!strcmp(name,"contradiction_retire")) {
-        bridge.local_ns+=100000u;empty(VDC_PRIORITY_TX_REJECT_MAPPING_CONTRADICTION,true);
-    } else if(!strcmp(name,"exhausted_retire")) {
-        s_priority_tx_work.mapping.epoch=UINT32_MAX;
-        raw_now=raw.timer_lower;++s_vdc_domain.dco.period_adjust_ppb;model_publish();raw_now=bridge.raw_after;
-        empty(VDC_PRIORITY_TX_REJECT_MAPPING_EXHAUSTED,true);
-        assert(s_priority_tx_work.mapping.epoch==UINT32_MAX && s_priority_tx_work.mapping.count==1u);return 0;
+    } else if(!strcmp(name,"timer0_independent")) {
+        bridge.local_ns=UINT64_MAX;bridge_ok=false;
+        const vdc_priority_codec_record_t result=offer(bytes);assert_actual_inside(&result);
+        assert(bridge_calls==0);return 0;
+    } else if(!strcmp(name,"many_models")) {
+        for(unsigned i=0;i<70u;++i) {
+            raw_now=raw.timer_lower;++s_vdc_domain.dco.period_adjust_ppb;model_publish();
+            raw_now=bridge.raw_after;(void)offer(bytes);fresh(125u);
+        }
+        assert(snapshot().encoded==71u && bridge_calls==0);return 0;
     } else if(!strcmp(name,"lower_rollback")) {
         raw.timer_lower-=126u;empty(VDC_PRIORITY_TX_REJECT_SEQUENCE,true);
     } else if(!strcmp(name,"upper_rollback")) {
         raw.timer_lower-=125u;raw.timer_upper-=126u;empty(VDC_PRIORITY_TX_REJECT_SEQUENCE,true);
     } else if(!strcmp(name,"bridge_unavailable")) {
-        bridge_ok=false;empty(VDC_PRIORITY_TX_REJECT_PROJECTION,false);
+        bridge_ok=false;(void)offer(bytes);assert(bridge_calls==0);return 0;
     } else if(!strcmp(name,"original_admission")) {
-        bridge.raw_before=raw.timer_upper-1u;empty(VDC_PRIORITY_TX_REJECT_PROJECTION,false);
+        raw_now=raw.timer_upper-1u;empty(VDC_PRIORITY_TX_REJECT_MODEL,false);
     } else assert(0);
-    assert(!memcmp(&committed,&s_priority_tx_work.mapping,sizeof(committed)));
     assert(snapshot().encoded==1u && !memcmp(snapshot().mailbox,first_bytes,32u));return 0;
 }
 '''

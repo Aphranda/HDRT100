@@ -7,8 +7,8 @@
 /* Provisional output-frequency control, not phase lock or a precision grant.
  * The two source events have immutable actual-output intervals. No remote
  * affine-model token is present in, or reconstructed from, the typed body.
- * A same-anchor/same-model raw delta further bounds the LOCAL actual-output
- * difference, with full TIMER0 quantization retained before DCO scaling. */
+ * A same-origin/same-model raw delta further bounds the LOCAL actual-output
+ * difference, retaining TIMER1 event uncertainty before DCO scaling. */
 #define VDC_PRIORITY_FOLLOW_MIN_INTERVAL_NS UINT64_C(1000000000)
 #define VDC_PRIORITY_FOLLOW_SECOND_INTERVAL_NS UINT64_C(1500000000)
 #define VDC_PRIORITY_FOLLOW_THIRD_INTERVAL_NS UINT64_C(1800000000)

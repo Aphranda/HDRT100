@@ -420,11 +420,12 @@ static int32_t vdc_domain_corrected_phase_error_ns(
     }
     int32_t rate_correction_ns = 0;
     if (context->dpll.accepted_sample_count != 0u &&
+        context->phase_observed_anchor_valid != 0u &&
         context->clock.valid != 0u &&
         context->clock.period_adjust_ppb != 0 &&
-        evidence->observed_time_ns > context->clock.base_local_tick64) {
+        evidence->observed_time_ns > context->phase_observed_anchor_ns) {
         const uint64_t elapsed_ns64 =
-            evidence->observed_time_ns - context->clock.base_local_tick64;
+            evidence->observed_time_ns - context->phase_observed_anchor_ns;
         const uint32_t elapsed_ns = elapsed_ns64 > UINT32_MAX
             ? UINT32_MAX : (uint32_t)elapsed_ns64;
         rate_correction_ns = vdc_domain_ppb_elapsed_correction_ns(
@@ -1048,6 +1049,8 @@ static void vdc_domain_reset_lock_acquisition(vdc_domain_context_t *context)
     context->dpll.last_raw_phase_error_ns = 0;
     context->dpll.last_expected_window_start_ns = 0u;
     context->dpll.last_observed_time_ns = 0u;
+    context->phase_observed_anchor_ns = 0u;
+    context->phase_observed_anchor_valid = 0u;
     context->quality.accepted_sample_count = 0u;
     context->quality.consecutive_good_samples = 0u;
     context->quality.consecutive_coarse_samples = 0u;
@@ -1108,7 +1111,8 @@ static uint32_t vdc_domain_lock_state_after_reject(
 
 static void vdc_domain_record_accepted_sample(
     vdc_domain_context_t *context,
-    const vdc_tdma_timestamp_evidence_t *evidence)
+    const vdc_tdma_timestamp_evidence_t *evidence,
+    uint64_t local_apply_time_ns)
 {
     if (context == NULL || evidence == NULL) {
         return;
@@ -1160,7 +1164,8 @@ static void vdc_domain_record_accepted_sample(
     context->quality.last_timestamp_resolution_ns =
         evidence->timestamp_resolution_ns;
     context->quality.last_timestamp_flags = evidence->timestamp_flags;
-    context->quality.last_sample_time_ns = vdc_domain_evidence_time_ns(evidence);
+    context->quality.last_sample_time_ns = local_apply_time_ns != 0u
+        ? local_apply_time_ns : vdc_domain_evidence_time_ns(evidence);
     context->quality.last_sample_age_us = 0u;
     context->quality.last_offset_ns = evidence->phase_error_ns;
     context->quality.rms_offset_ns = context->dpll.rms_offset_ns;
@@ -1326,8 +1331,11 @@ static void vdc_domain_update_clock_from_evidence(
         context->dpll.last_observed_time_ns = evidence->observed_time_ns;
     }
 
-    /* observed_time_ns is a logical TDMA coordinate.  The output planner
-     * consumes TIMER0 local time, so rebase at the owner service boundary.
+    context->phase_observed_anchor_ns = evidence->observed_time_ns;
+    context->phase_observed_anchor_valid = 1u;
+
+    /* observed_time_ns is a logical TDMA coordinate. The output planner
+     * consumes TIMER1-origin nanoseconds, so rebase at the service boundary.
      * Direct host callers without an owner timestamp retain the legacy
      * synthetic coordinate for compatibility; the live manager always fills
      * local_apply_time_ns before this function is reached. */
@@ -3596,6 +3604,8 @@ static bool vdc_domain_activate_tdma_configuration_checked(
     context->path_delay = *path_delay;
     memset(&context->dpll, 0, sizeof(context->dpll));
     memset(&context->gate, 0, sizeof(context->gate));
+    context->phase_observed_anchor_ns = 0u;
+    context->phase_observed_anchor_valid = 0u;
     vdc_domain_default_clock_model(&context->clock,
                                    schedule->schedule_epoch,
                                    next_run_id,
@@ -3654,6 +3664,10 @@ void vdc_domain_set_ready(vdc_domain_context_t *context, bool ready)
     context->ready = ready ? 1u : 0u;
     if (!ready) {
         context->dpll.state = VDC_DOMAIN_LOCK_OFF;
+        context->phase_observed_anchor_ns = 0u;
+        context->phase_observed_anchor_valid = 0u;
+        context->quality.last_sample_time_ns = 0u;
+        context->quality.last_sample_age_us = 0u;
     } else if (context->dpll.state == VDC_DOMAIN_LOCK_OFF) {
         context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
     }
@@ -3934,9 +3948,6 @@ bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_apply_prepared_tdma_evidence_state)(
         context->quality.last_timestamp_resolution_ns =
             evidence->timestamp_resolution_ns;
         context->quality.last_timestamp_flags = evidence->timestamp_flags;
-        context->quality.last_sample_time_ns =
-            vdc_domain_evidence_time_ns(evidence);
-        context->quality.last_sample_age_us = 0u;
         context->quality.last_jitter_ns = evidence->jitter_ns;
         context->quality.last_offset_ns = evidence->phase_error_ns;
         context->quality.gate_reject_code = gate.reject_code;
@@ -3946,6 +3957,11 @@ bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_apply_prepared_tdma_evidence_state)(
             vdc_domain_avg_u32(context->quality.jitter_rms_ns,
                                evidence->jitter_ns);
         if (preparation->accepted != 0u) {
+            context->quality.last_sample_time_ns =
+                preparation->local_apply_time_ns != 0u
+                    ? preparation->local_apply_time_ns
+                    : vdc_domain_evidence_time_ns(evidence);
+            context->quality.last_sample_age_us = 0u;
             const int32_t residual_ns = preparation->input_residual_ns;
             const uint32_t abs_phase = vdc_domain_abs_i32(residual_ns);
             context->dpll.last_reject_code = VDC_DOMAIN_GATE_PASS;
@@ -4129,7 +4145,8 @@ bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_finalize_prepared_tdma_evidence)(
 
     vdc_tdma_timestamp_evidence_t input_evidence = *evidence;
     input_evidence.phase_error_ns = preparation->input_residual_ns;
-    vdc_domain_record_accepted_sample(context, &input_evidence);
+    vdc_domain_record_accepted_sample(
+        context, &input_evidence, preparation->local_apply_time_ns);
     return true;
 }
 

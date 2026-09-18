@@ -54,6 +54,7 @@ def client(tmp_path_factory):
     'first_session', 'first_role', 'first_epoch', 'first_run', 'first_slot',
     'first_schedule', 'first_invalid', 'model_tail', 'delay_latched',
     'stop_during_plan', 'session_during_plan', 'gate_busy', 'core_guard', 'no_request',
+    'timer0_ignored',
 ])
 def test_production_client(client, scenario):
     result = subprocess.run([str(client), scenario], capture_output=True, text=True, timeout=5)
@@ -113,6 +114,7 @@ typedef struct { uint32_t cycle_cycles; } app_realtime_schedule_snapshot_t;
 static uint32_t table_cycles=375000u;
 static bool schedule_ok=true, raw_ok=true;
 static uint64_t raw_override;
+static uint64_t raw_clock=1000002u;
 static vdc_output_timing_profile_t timing={11000u,12000u,8000u};
 bool app_realtime_get_schedule_snapshot(app_realtime_schedule_snapshot_t *out)
 { out->cycle_cycles=table_cycles; return schedule_ok; }
@@ -126,6 +128,7 @@ static unsigned hook, hook_seen, generation, snapshot_calls;
 static unsigned ring_calls, fail_ring_call, fail_snapshot_call;
 static unsigned bridge_calls, submit_attempts, stop_ring_call;
 static bool bridge_available=true, submit_allowed=true, clock_supported=true;
+static bool legacy_configuration_supported=true;
 static bool ready=true, model_available=true, cancelled;
 static int32_t delay=100;
 static uint32_t session=8u;
@@ -151,6 +154,8 @@ bool tdma_service_run_stopped_maintenance(tdma_service_service_t *service,
     bool(*callback)(void*),void *context)
 { (void)service; return !ring.enabled && !ring.adapter_started && callback(context); }
 bool vdc_timestamp_clock_configuration_supported(uint32_t hz)
+{ assert(hz==BOARD_SYS_CLOCK_HZ); return legacy_configuration_supported; }
+bool vdc_timestamp_clock_is_current(uint32_t hz)
 { assert(hz==BOARD_SYS_CLOCK_HZ); return clock_supported; }
 bool vdc_timestamp_clock_try_read_bridge(uint32_t hz,vdc_timestamp_clock_bridge_t *out)
 {
@@ -164,7 +169,7 @@ bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz,uint64_t *out)
 {
     assert(hz==BOARD_SYS_CLOCK_HZ); if(!raw_ok)return false;
     *out=raw_override ? raw_override : hardware.state==SYNC_IO_RUN_OUTPUT_RUNNING ?
-        hardware.last_falling_tick-500000u : bridge.raw_after;
+        hardware.last_falling_tick-500000u : raw_clock;
     if(hook==4u) { ring.enabled=0u; ring.data_enabled=0u; ++ring.config_seq; }
     if(hook==5u) ++session;
     return true;
@@ -287,7 +292,7 @@ static void diagnostic(const char *name)
         should_cancel=running;
     } else if(!strcmp(kind,"dma")) { ready=false;expected=VDC_RUN_OUTPUT_DMA_NOT_READY; }
     else if(!strcmp(kind,"bridge")) {
-        if(running)raw_ok=false;else bridge_available=false;
+        raw_ok=false;
         expected=VDC_RUN_OUTPUT_BRIDGE_UNAVAILABLE;
     }
     else if(!strcmp(kind,"snapshot") || !strcmp(kind,"second_snapshot")) {
@@ -587,6 +592,7 @@ int main(int argc,char **argv)
         assert(service_calls==1u && !s_run_output_request && !s_run_output_busy);
         assert(!snapshot_calls && !submit_calls && !prepare_calls && !cancels); return 0;
     }
+    if(!strcmp(test,"timer0_ignored"))legacy_configuration_supported=false;
     if(!strcmp(test,"prepare_interleave"))hook=2u;
     prepare();
     if(!strcmp(test,"prepare_interleave")) { assert(hook_seen==1u); return 0; }
@@ -624,9 +630,25 @@ int main(int argc,char **argv)
     }
     if(!strcmp(test,"stop_during_plan"))hook=4u;
     if(!strcmp(test,"session_during_plan"))hook=5u;
+    if(!strcmp(test,"timer0_ignored")) {
+        bridge=(vdc_timestamp_clock_bridge_t){.raw_before=UINT64_MAX,
+            .raw_after=0u,.local_ns=UINT64_MAX,.tick_hz=1u};
+        bridge_available=false;
+    }
     ring.data_enabled=1u; vdc_run_output_service_core1();
     if(hook==4u || hook==5u) { assert(!submit_calls && cancels); return 0; }
     assert(submit_calls==1u && s_run_output.blocks_planned==1u);
+    assert(!bridge_calls && !s_run_output.timeline_bridge_samples);
+    assert(!s_run_output.timeline_raw_before && !s_run_output.timeline_raw_after &&
+           !s_run_output.timeline_local_ns && !s_run_output.maximum_bridge_width_ticks);
+    assert(s_run_output.timebase==VDC_RUN_OUTPUT_TIMEBASE_TIMER1_NS);
+    assert(s_run_output.initial_raw_tick==raw_clock && s_run_output.initial_local_ns==raw_clock*4u);
+    if(!strcmp(test,"timer0_ignored")) {
+        for(unsigned i=0;i<admitted_count[0];++i)
+            assert(admitted[0][i].rising_tick==
+                (admitted[0][i].ordinal*UINT64_C(1000000)+100u)/4u);
+        return 0;
+    }
     if(!strncmp(test,"busy_",5u)) {
         ready=false;
         if(!strcmp(test,"busy_session"))++session;
@@ -671,10 +693,10 @@ int main(int argc,char **argv)
         assert(admitted[1][i].ordinal>prefix[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES-1u].ordinal);
         assert(admitted[1][i].rising_tick>prefix[SYNC_IO_RUN_OUTPUT_BLOCK_EDGES-1u].falling_tick);
         /* Independent zero-rate oracle: F(local)=local+2000; physical
-         * delay remains +100, not the newly requested +50000. Bridge raw
-         * upper sample is local/4+2, and the enclosure adds one tick. */
+         * delay remains +100, not the newly requested +50000. TIMER1 ns
+         * converts directly to ceil(local/4) without a TIMER0 offset. */
         const uint64_t local=admitted[1][i].ordinal*UINT64_C(1000000)-2000u+100u;
-        assert(admitted[1][i].rising_tick==local/4u+3u);
+        assert(admitted[1][i].rising_tick==(local+3u)/4u);
         assert(admitted[1][i].falling_tick-admitted[1][i].rising_tick==250u);
     }
     return 0;
@@ -724,20 +746,21 @@ def test_real_parser_exports_start_observation_receipt(parser_host):
     result = subprocess.run([str(parser_host), 'RUN?', 'query'], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stdout + result.stderr
     fields = [int(value) for value in result.stdout.strip().split(',')]
-    assert len(fields) == 116
+    assert len(fields) == 119
     # Preserve every old position: 26 small fields, ten uint64, two config.
-    assert fields[:36] == [9] + [0] * 35
+    assert fields[:36] == [10] + [0] * 35
     assert fields[36:43] == [20, 21, 13, 12, 3, 4294967303, 4294967311]
     assert fields[43:50] == list(range(4294967400, 4294967407))
     assert fields[50:59] == list(range(101, 110))
     assert fields[59:61] == [1, 5]
     assert fields[61:85] == list(range(200, 212)) + list(range(300, 312))
-    assert fields[85:105] == list(range(401, 421))
-    assert fields[105:108] == [416, 417, 418]
+    assert fields[85:105] == list(range(401, 414)) + [0] + list(range(415, 421))
+    assert fields[105:108] == [0, 0, 0]
     assert fields[108:110] == [1, 500]
     assert fields[110:113] == [0, 0, 0]
     assert fields[113:115] == [0, 0]
-    assert fields[115:] == [0]
+    assert fields[115:116] == [0]
+    assert fields[116:] == [1, 4294967410, 17179869640]
 
 
 PARSER_PREFIX = r'''
@@ -796,13 +819,13 @@ bool vdc_run_output_status(vdc_run_output_status_t *out)
     out->fast_body_max_us=407u;out->fast_wall_samples=408u;
     out->fast_wall_max_cycles=409u;out->fast_budget_overruns=410u;
     out->plan_ahead_us=411u;out->commit_ahead_us=412u;out->refill_low_us=413u;
-    out->timeline_bridge_samples=414u;out->partial_plan_steps=415u;
-    out->timeline_raw_before=UINT64_C(416);
-    out->timeline_local_ns=UINT64_C(417);
-    out->timeline_raw_after=UINT64_C(418);
+    out->partial_plan_steps=415u;
     out->plan_waits=416u;out->refill_waits=417u;out->commit_waits=418u;
     out->block_edges=419u;out->schedule_cycles=420u;
     out->hardware.fifo_words_per_edge=1u;out->hardware.fixed_high_ticks=500u;
+    out->timebase=VDC_RUN_OUTPUT_TIMEBASE_TIMER1_NS;
+    out->initial_raw_tick=UINT64_C(4294967410);
+    out->initial_local_ns=UINT64_C(17179869640);
     for(unsigned p=0;p<VDC_RUN_OUTPUT_PHASE_COUNT;++p)
         for(unsigned o=0;o<VDC_RUN_OUTPUT_OUTCOME_COUNT;++o)out->outcomes[p][o]=200u+p*100u+o;
     return true;

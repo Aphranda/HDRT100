@@ -99,7 +99,7 @@ static void priority_follow_apply_core1(void)
 }
 ''' + wrapper + r'''
 static bool project(uint64_t lo,vdc_dpll_manager_projected_event_t *out)
-{ return vdc_dpll_manager_project_feedback_event(123,9,3,4,2,0xabc,250000000,lo,1000500,out); }
+{ raw_now=1001004;return vdc_dpll_manager_project_feedback_event(123,9,3,4,2,0xabc,250000000,lo,1000500,out); }
 int main(int argc,char **argv)
 {
     assert(argc==2);const char *mode=argv[1];
@@ -112,6 +112,7 @@ int main(int argc,char **argv)
     assert(match_calls==2u && ingress_calls==2u && step_calls==2u);
     vdc_dpll_manager_committed_model_t model;assert(vdc_dpll_manager_get_committed_model(&model));
     assert(model.token==1 && model.session==123 && model.valid_from_raw==raw_now);
+    raw_now=1001004;
     vdc_dpll_manager_projected_event_t event,sentinel;memset(&sentinel,0xa5,sizeof(sentinel));event=sentinel;
     if(!strcmp(mode,"rate_coordinates")) {
         auto_mode=true;
@@ -131,7 +132,7 @@ int main(int argc,char **argv)
         bridge.raw_after+=500;bridge.local_ns+=777;
         assert(vdc_dpll_manager_project_rate_feedback_event(123,9,3,4,2,0xabc,250000000,
             1000400,1000500,400,&rate));
-        assert(rate.coordinate_ns==saved.coordinate_ns && rate.absolute_output_ns_lo!=saved.absolute_output_ns_lo);
+        assert(rate.coordinate_ns==saved.coordinate_ns && rate.absolute_output_ns_lo==saved.absolute_output_ns_lo);
         auto_mode=false;
         assert(!vdc_dpll_manager_project_rate_reference(123,9,3,4,2,0xabc,250000000,
             1000400,1000500,&event));
@@ -157,12 +158,13 @@ int main(int argc,char **argv)
         s_vdc_domain.control.profile.generation++;sync_dpll_fb_service();assert(!project(1000400,&event));
     } else if(!strcmp(mode,"clock_failure")) {
         action=1;clock_ok=false;sync_dpll_fb_service();assert(!project(1000400,&event));
-        clock_ok=true;action=0;sync_dpll_fb_service();assert(project(1000400,&event));
+        clock_ok=true;action=0;raw_now=1000300;sync_dpll_fb_service();assert(project(1000400,&event));
     } else if(!strcmp(mode,"exhaustion")) {
         s_committed_model_serial=UINT32_MAX;action=1;sync_dpll_fb_service();assert(!project(1000400,&event));
         action=0;sync_dpll_fb_service();assert(!project(1000400,&event));
     } else if(!strcmp(mode,"bridge_failure")) {
-        bridge_ok=false;assert(!project(1000400,&event));assert(!memcmp(&event,&sentinel,sizeof(event)));
+        bridge_ok=false;assert(project(1000400,&event));
+        assert(event.output_ns_lo==4001600 && event.output_ns_hi==4002000);
     } else if(!strcmp(mode,"old_event")) {
         assert(!project(999999,&event));assert(!memcmp(&event,&sentinel,sizeof(event)));
     } else assert(!"unknown scenario");

@@ -14,6 +14,10 @@ uint64_t vdc_timestamp_clock_read_ticks64(void);
  * owned by Core0 before the realtime owner starts. Raw TIMER1 has its own
  * origin and is not the manager's time_us_64()-derived local nanoseconds. */
 bool vdc_timestamp_clock_try_read_ticks64(uint32_t expected_hz, uint64_t *ticks);
+/* TIMER1-origin nanoseconds, floor-rounded from its raw tick. No init,
+ * fallback clock or retry; configuration/read/overflow failure preserves out.
+ * TIMER0 continues to own SDK microseconds and system alarms. */
+bool vdc_timestamp_clock_try_read_ns(uint32_t expected_hz, uint64_t *out);
 typedef struct {
     uint64_t raw_before;
     uint64_t local_ns;

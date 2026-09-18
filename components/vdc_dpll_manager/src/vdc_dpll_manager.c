@@ -681,10 +681,11 @@ static bool vdc_dpll_manager_apply_ring_evidence(void)
     }
 
     vdc_dpll_manager_ring_observer_status_t status = s_ring_observer_status;
-    /* Bind the master DCO to the same TIMER0 local coordinate consumed by
+    /* Bind the master DCO to the same TIMER1 local coordinate consumed by
      * RUN.  The evidence's observed/common time is a logical TDMA value and
      * is retained for PI/FLL calculations only. */
     s_vdc_ring_preparation.local_apply_time_ns = vdc_dpll_manager_now_ns();
+    if (s_vdc_ring_preparation.local_apply_time_ns == UINT64_MAX) return false;
     const bool applied = vdc_domain_apply_prepared_tdma_evidence_servo(
         &s_vdc_domain,
         &s_vdc_ring_pending_evidence,
@@ -787,6 +788,7 @@ static void vdc_dpll_manager_observation_self_test_service(void)
             return;
         }
         const uint64_t now_ns = vdc_dpll_manager_now_ns();
+        if (now_ns == UINT64_MAX) return;
         if (s_phase_tx_scheduled_count == 0u &&
             now_ns + status.pulse_period_ns < s_phase_tx_not_before_ns) {
             return;
@@ -805,6 +807,7 @@ static void vdc_dpll_manager_observation_self_test_service(void)
              * Fall back to a local monotonic deadline; formal DPLL evidence
              * remains gated by the observer and calibration contracts. */
             const uint64_t fallback_now = vdc_dpll_manager_now_ns();
+            if (fallback_now == UINT64_MAX) return;
             target_ns = not_before_ns > fallback_now + 1000u
                 ? not_before_ns : fallback_now + 1000u;
             if (target_ns <= fallback_now ||
@@ -933,7 +936,8 @@ static void vdc_dpll_manager_observation_self_test_service(void)
 static uint64_t vdc_dpll_manager_now_ns(void)
 {
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
-    return time_us_64() * 1000ull;
+    uint64_t now;
+    return vdc_timestamp_clock_try_read_ns(BOARD_SYS_CLOCK_HZ, &now) ? now : UINT64_MAX;
 #else
     return (uint64_t)board_uptime_ms() * 1000000ull;
 #endif
@@ -1008,6 +1012,7 @@ static bool vdc_dpll_manager_compute_first_pulse_delay(
     }
 
     const uint64_t now_ns = vdc_dpll_manager_now_ns();
+    if (now_ns == UINT64_MAX) return false;
     const uint64_t target_ns =
         first_window_start_ns + (uint64_t)window_offset_ns;
     const uint64_t delay_ns = target_ns > now_ns ? target_ns - now_ns : 0u;
@@ -1035,6 +1040,7 @@ static bool vdc_dpll_manager_compute_dco_phase_pulse_deadline(
 {
     vdc_dpll_manager_runtime_snapshot_t snapshot;
     const uint64_t now_ns = vdc_dpll_manager_now_ns();
+    if (now_ns == UINT64_MAX) return false;
     const uint64_t arm_ahead_ns =
         (uint64_t)pulse_period_ns *
         VDC_DPLL_MANAGER_PHASE_ARM_AHEAD_PERIODS;
@@ -1951,9 +1957,10 @@ static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(
         return;
     }
     uint64_t common_now_ns = 0u;
-    if (!vdc_time_mapping_map_local_to_common_time(
+    const uint64_t local_now_ns = vdc_dpll_manager_now_ns();
+    if (local_now_ns == UINT64_MAX || !vdc_time_mapping_map_local_to_common_time(
             &ring, s_vdc_domain.schedule.schedule_crc32,
-            vdc_dpll_manager_now_ns(), &common_now_ns)) {
+            local_now_ns, &common_now_ns)) {
         /* Do not compare a peer's common deadline with this board's raw
          * uptime. Until a fresh TDMA anchor is available, retain the command
          * and leave the previous trusted DCO output in place. */
@@ -2489,7 +2496,7 @@ bool vdc_dpll_manager_start_observation_self_test(
         return true;
     }
 
-    if (config == NULL ||
+    if (now_ns == UINT64_MAX || config == NULL ||
         config->role == VDC_DPLL_MANAGER_SELF_TEST_ROLE_NONE ||
         config->role > VDC_DPLL_MANAGER_SELF_TEST_ROLE_TX_RX ||
         config->sample_period_ns == 0u ||
@@ -3100,8 +3107,10 @@ static __attribute__((noinline)) void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_f
         return;
     }
     if (s_vdc_domain_service_pending) {
+        const uint64_t now_ns = vdc_dpll_manager_now_ns();
+        if (now_ns == UINT64_MAX) return;
         s_vdc_domain_service_pending = false;
-        vdc_domain_service(&s_vdc_domain, vdc_dpll_manager_now_ns());
+        vdc_domain_service(&s_vdc_domain, now_ns);
         vdc_dpll_manager_publish_runtime_snapshot_locked();
         return;
     }
@@ -3165,7 +3174,12 @@ void tdma_component_core1_service(void)
      * completion.  This bounded poll only harvests a completed launch/latch
      * token before the scheduler advances the next TDMA window. */
     uint64_t timing_start = tdma_service_timing_now();
-    tdma_runtime_owner_service_phys_tx(vdc_dpll_manager_now_ns());
+    /* TX deadlines are SDK uptime, not the DCO's TIMER1 coordinate. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    tdma_runtime_owner_service_phys_tx(time_us_64() * 1000ull);
+#else
+    tdma_runtime_owner_service_phys_tx((uint64_t)board_uptime_ms() * 1000000ull);
+#endif
     tdma_service_timing_record(TDMA_TIMING_PHYS_SERVICE, timing_start);
     timing_start = tdma_service_timing_now();
     if (s_vdc_tdma_service != NULL) {
@@ -3382,11 +3396,13 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(
     vdc_gate_result_t *gate)
 {
     if (snapshot == NULL) {
-        return false;
+        return vdc_domain_plan_tdma_window(NULL, window_class, 0u, plan, gate);
     }
     if (now_ns == VDC_DPLL_MANAGER_PLAN_NOW_NS) {
         now_ns = vdc_dpll_manager_now_ns();
     }
+    if (now_ns == UINT64_MAX)
+        return vdc_domain_plan_tdma_window(NULL, window_class, 0u, plan, gate);
 
     /* The snapshot was copied under s_published_snapshot_guard.  Its schedule
      * is therefore a single verified generation and needs no OSAL lock here. */
@@ -3430,6 +3446,8 @@ bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
     if (now_ns == VDC_DPLL_MANAGER_PLAN_NOW_NS) {
         now_ns = vdc_dpll_manager_now_ns();
     }
+    if (now_ns == UINT64_MAX)
+        return vdc_domain_plan_tdma_window(NULL, window_class, 0u, plan, gate);
 
     osal_critical_enter();
     result = vdc_domain_plan_tdma_window(&s_vdc_domain.schedule,

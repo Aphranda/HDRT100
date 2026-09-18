@@ -219,9 +219,8 @@ def test_real_pipeline_native_values(trace_executable, case, rate):
         raw_now = (3_000_000_000 + elapsed) // 4
         assert (row["raw_lo"], row["raw_hi"]) == (raw_now - 100, raw_now - 99)
         assert (row["remote_lo"], row["remote_hi"]) == (12_000_000_000 + elapsed, 12_000_000_007 + elapsed)
-        # TIMER0's enclosed us observation gives the full 999 ns interval;
-        # one raw tick of read placement and one tick of event width add 8 ns.
-        local_times = (3_000_000_000 + elapsed - 404, 3_000_000_000 + elapsed + 603)
+        # Direct TIMER1 conversion retains the original one-tick event width.
+        local_times = (3_000_000_000 + elapsed - 400, 3_000_000_000 + elapsed - 396)
         output = tuple(5_000_000_000 + (t - 1234) +
                        int(Fraction((t - 1234) * rate, 10**9)) - 77 for t in local_times)
         assert (row["local_lo"], row["local_hi"]) == output

@@ -18,7 +18,7 @@ import zlib
 MAGIC = 0x52545056
 SCHEMA = 1
 PHASE_SCHEMA = 4
-ORIGIN_SCHEMA = 3
+ORIGIN_SCHEMA = 5
 # Immutable wire semantics: historical captures must not inherit today's cap.
 ORIGIN_SCHEMA_CAPACITIES = {2: 8, 3: 64}
 RECORD_BYTES = 100
@@ -43,6 +43,8 @@ ORIGIN_EXTENSION_FIELDS = ('role_generation source_epoch first_source_identity l
 ORIGIN_RECORD = struct.Struct('<5I7QiiIQI')
 ORIGIN_FIELDS = ('index kind event_sequence model_token tick_hz raw_lo raw_hi bridge_before bridge_after '
     'bridge_local_ns base_local_ns base_output_ns rate_ppb phase_ns dco_seq encoded_lo encoded_width').split()
+TIMER1_ORIGIN_FIELDS = ('index kind event_sequence model_token tick_hz raw_lo raw_hi raw_now local_lo '
+    'local_hi base_local_ns base_output_ns rate_ppb phase_ns dco_seq encoded_lo encoded_width').split()
 COMMON = struct.Struct('<5I')
 MATCH = struct.Struct('<QQqqQQQQIIiI')
 DECISION = struct.Struct('<IIIIiiiIqqQQQQ')
@@ -71,6 +73,7 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     require(len(data) >= HEADER_BYTES, 'Truncated native header')
     magic, schema, header_bytes, record_bytes, payload_crc = PREFIX.unpack_from(data)
     expected_header = {SCHEMA: HEADER_BYTES, PHASE_SCHEMA: HEADER_BYTES,
+                       ORIGIN_SCHEMA: ORIGIN_HEADER_BYTES,
                        **dict.fromkeys(ORIGIN_SCHEMA_CAPACITIES, ORIGIN_HEADER_BYTES)}.get(schema)
     require((magic, header_bytes, record_bytes) ==
             (MAGIC, expected_header, RECORD_BYTES), 'Unknown native trace format')
@@ -91,6 +94,8 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     require(zlib.crc32(data[header_bytes:]) == payload_crc, 'Payload CRC mismatch')
     if schema in ORIGIN_SCHEMA_CAPACITIES:
         return decode_origin(data, status, header_bytes)
+    if schema == ORIGIN_SCHEMA:
+        return decode_timer1_origin(data, status, header_bytes)
     records = []
     counts = {1: 0, 2: 0, **({4: 0} if schema == PHASE_SCHEMA else {})}
     prior_phase = None
@@ -156,6 +161,60 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
                 bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), file_crc32=zlib.crc32(data),
                 complete_window_proven=False, physical_lock_qualified=False)
 
+
+
+def decode_timer1_origin(data: bytes, status: dict, header_bytes: int) -> dict:
+    """Replay raw TIMER1 intervals against the recorded committed DCO."""
+    from fractions import Fraction
+    import math
+    words = struct.unpack_from('<24I', data, HEADER_BYTES)
+    names = ORIGIN_EXTENSION_FIELDS[:7]
+    ext = dict(zip(names, words[:7]))
+    require(not any(words[7:]), 'TIMER1 origin reserved fields are not zero')
+    records = []
+    prior = None
+    for index in range(status['record_count']):
+        row = dict(zip(TIMER1_ORIGIN_FIELDS, ORIGIN_RECORD.unpack_from(
+            data, header_bytes + index*RECORD_BYTES)))
+        h = row['tick_hz']
+        require(row['index'] == index and row['kind'] == 3, 'Invalid origin record index or kind')
+        require(0 < h <= 500_000_000 and h == status['tick_hz'] and
+                row['model_token'] > 0 and row['dco_seq'] > 0, 'Invalid origin clock/model')
+        require(row['raw_lo'] <= row['raw_hi'] <= row['raw_now'] and
+                row['raw_now']-row['raw_lo'] <= 2*h, 'Invalid TIMER1 event interval')
+        local = (math.floor(Fraction(row['raw_lo']*10**9, h)),
+                 math.ceil(Fraction(row['raw_hi']*10**9, h)))
+        require(local == (row['local_lo'], row['local_hi']), 'TIMER1 local interval differs from replay')
+        require(row['rate_ppb'] > -10**9, 'Invalid origin rate')
+        outputs = []
+        for value in local:
+            require(0 <= value < 2**64 and value >= row['base_local_ns'], 'Origin projection before DCO base')
+            delta = value-row['base_local_ns']
+            rate = delta*abs(row['rate_ppb'])//10**9
+            output = row['base_output_ns']+delta+(rate if row['rate_ppb'] >= 0 else -rate)+row['phase_ns']
+            require(0 <= output < 2**64, 'Origin output overflow')
+            outputs.append(output)
+        require(row['encoded_width'] > 0 and tuple(outputs) ==
+                (row['encoded_lo'],row['encoded_lo']+row['encoded_width']), 'Origin encoded interval differs from replay')
+        if prior:
+            require(row['event_sequence'] > prior['event_sequence'] and
+                    row['raw_lo'] >= prior['raw_lo'] and row['raw_hi'] >= prior['raw_hi'] and
+                    row['raw_now'] >= prior['raw_now'], 'Origin event rollback')
+            if row['model_token'] == prior['model_token']:
+                require(all(row[k] == prior[k] for k in
+                    ('base_local_ns','base_output_ns','rate_ppb','phase_ns','dco_seq')),
+                    'Origin model changed without token')
+        records.append(row)
+        prior = row
+    if records:
+        require(ext['role_generation'] > 0 and ext['source_epoch'] > 0 and
+                ext['last_event_sequence'] == records[-1]['event_sequence'], 'Invalid origin binding')
+    else:
+        require(not any(words), 'Empty origin capture contains identity')
+    return dict(schema='VDC_ORIGIN_TRACE_DECODE_V5', status=status, origin=ext, records=records,
+                coordinate='TIMER1_NS', bytes=len(data), sha256=hashlib.sha256(data).hexdigest(),
+                file_crc32=zlib.crc32(data), replay_matches_encoded=True,
+                complete_window_proven=False, physical_lock_qualified=False)
 
 
 def decode_origin(data: bytes, status: dict, header_bytes: int) -> dict:

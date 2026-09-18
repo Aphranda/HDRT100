@@ -71,6 +71,8 @@ static uint64_t now_ns = 11000;
 /* These legacy transport scenarios run with LOCAL_FOLLOW disabled. */
 bool vdc_dpll_manager_try_local_follow_enabled(bool *out)
 { *out = false; return true; }
+bool vdc_dpll_manager_try_priority_follow_enabled(bool *out)
+{ *out = false; return true; }
 static uint32_t starts, stops;
 static refmem_realtime_tdma_service_t s_refmem_realtime_tdma;
 static refmem_sync_context_t s_refmem_sync_context;

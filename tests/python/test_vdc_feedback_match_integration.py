@@ -81,7 +81,7 @@ static bool tdma_runtime_owner_get_origin_reference_epoch(uint32_t *out)
 { if(!epoch_available)return false;*out=reference_active?reference.epoch:0;return true; }
 bool distributed_refmem_copy_vdc_feedback_rx(uint32_t slot,distributed_refmem_vdc_feedback_rx_snapshot_t *out)
 { ++feedback_calls;requested_slot=slot;assert(slot<PROJECT_NODE_CAPACITY);*out=feedback[slot];interleave(2);return feedback_available; }
-static bool vdc_timestamp_clock_try_read_ticks64(uint32_t expected,uint64_t *out)
+bool vdc_timestamp_clock_try_read_ticks64(uint32_t expected,uint64_t *out)
 { ++clock_calls;assert(expected==250000000u);*out=now_ticks;interleave(3);return clock_available; }
 static void controlled_fence(int order)
 { __atomic_thread_fence(order);if(race_guard)*race_guard+=2;interleave(4); }

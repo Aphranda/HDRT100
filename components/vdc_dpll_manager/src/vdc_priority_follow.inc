@@ -480,6 +480,10 @@ static __attribute__((noinline)) void priority_follow_apply_core1(void)
     /* Read actual local service time BEFORE the final owner validation: a
      * pending role/config change cannot hide in a time-read/commit gap. */
     const uint64_t now = vdc_dpll_manager_now_ns();
+    if (now == UINT64_MAX) {
+        s->last_reason = VDC_PRIORITY_FOLLOW_MODEL;
+        priority_follow_publish(); return;
+    }
     const uint32_t current = priority_follow_current();
     if (current != VDC_PRIORITY_FOLLOW_OK) {
         if (current != VDC_PRIORITY_FOLLOW_BUSY)

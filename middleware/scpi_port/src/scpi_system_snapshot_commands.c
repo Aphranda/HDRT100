@@ -2751,6 +2751,9 @@ scpi_result_t scpi_cmd_vdc_run_output_q(scpi_t *context)
     SCPI_ResultUInt64(context,s.last_outcome_tick);
     SCPI_ResultUInt64(context,s.last_invalidation_tick);
     SCPI_ResultUInt32(context,s.last_submit_failure);
+    SCPI_ResultUInt32(context,s.timebase);
+    SCPI_ResultUInt64(context,s.initial_raw_tick);
+    SCPI_ResultUInt64(context,s.initial_local_ns);
     return SCPI_RES_OK;
 }
 

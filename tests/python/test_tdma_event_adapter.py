@@ -218,7 +218,7 @@ static bool vdc_timestamp_clock_is_current(uint32_t hz) {
     if (live_clock_fail_at && live_clock_checks == live_clock_fail_at) live_clock_available = false;
     return live_clock_available && hz == 125000000u;
 }
-static bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz, uint64_t *out) {
+bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz, uint64_t *out) {
     ++live_tick_reads;
     if (!vdc_timestamp_clock_is_current(hz) || live_tick_reads == live_tick_fail_at) return false;
     *out = live_tick_now; live_tick_now += live_tick_step; return true;

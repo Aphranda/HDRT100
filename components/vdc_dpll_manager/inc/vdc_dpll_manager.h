@@ -8,7 +8,8 @@
 #include "tdma_service.h"
 #include "calibration_path_snapshot.h"
 #include "vdc_domain.h"
-#include "vdc_clock_mapping.h"
+#include "vdc_timer1_coordinate.h"
+#include "vdc_timestamp_clock.h"
 #include "vdc_feedback_match.h"
 #include "vdc_local_follow.h"
 #include "vdc_priority_follow.h"
@@ -76,9 +77,8 @@ typedef struct {
 } vdc_dpll_manager_projected_event_t;
 typedef struct {
     vdc_dpll_manager_committed_model_t model;
-    vdc_timestamp_clock_bridge_t bridge;
-    vdc_clock_mapping_result_t mapping;
-} vdc_dpll_manager_mapping_projection_t;
+    uint64_t raw_now, local_lo, local_hi, output_lo, output_hi;
+} vdc_dpll_manager_timer1_projection_t;
 typedef struct {
     uint64_t absolute_output_ns_lo, coordinate_ns;
     uint32_t model_token, applied_command_seq;
@@ -140,17 +140,13 @@ bool vdc_dpll_manager_project_feedback_event(uint32_t session,
     uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,
     uint64_t raw_lo, uint64_t raw_hi,
     vdc_dpll_manager_projected_event_t *out);
-/* Core1 typed origin/MATCH owners. A single fresh bridge produces tentative mapping
- * evidence under the existing model guard. The caller owns cache and commits
- * projection.mapping.next only after final lifecycle checks and acceptance
- * (including encoding for origin). Each owner keeps its own cache.
- * Projection contents are usable only when the return value is OK. */
-vdc_clock_mapping_status_t vdc_dpll_manager_project_mapped_feedback_event(
+/* Core1 typed origin/MATCH owners. TIMER1 raw interval -> local ns -> DCO.
+ * No bridge/cache; contents are usable only on success after owner recheck. */
+bool vdc_dpll_manager_project_timer1_feedback_event(
     uint32_t session, uint32_t role_generation, uint32_t clock_epoch_id,
     uint32_t clock_run_id, uint32_t local_slot, uint32_t schedule_crc32,
     uint32_t tick_hz, uint64_t raw_lo, uint64_t raw_hi,
-    const vdc_clock_mapping_cache_t *cache,
-    vdc_dpll_manager_mapping_projection_t *projection);
+    vdc_dpll_manager_timer1_projection_t *projection);
 /* RATE source keeps an absolute age basis and a separate observer-relative
  * coordinate, admitted under the same committed-model guard. */
 bool vdc_dpll_manager_project_rate_feedback_event(uint32_t session,
@@ -643,6 +639,8 @@ bool vdc_dpll_manager_map_local_to_common_time(uint64_t local_time_ns,
 /* Read the same monotonic local time base used by the TDMA observation
  * mapper. Callers use it to anchor a fresh sample before extrapolating a
  * bounded future schedule deadline. */
+/* TIMER1-origin nanoseconds; UINT64_MAX means the clock observation failed.
+ * SDK/system timeout time remains TIMER0 and is a separate coordinate. */
 uint64_t vdc_dpll_manager_local_time_ns(void);
 bool vdc_dpll_manager_get_vector_snapshot(
     vdc_dpll_manager_vector_snapshot_t *snapshot);

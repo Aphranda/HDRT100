@@ -483,9 +483,9 @@ typedef struct {
     uint32_t post_servo_dpll_update_seq;
     uint32_t applied;
     uint32_t post_apply_dpll_update_seq;
-    /* Core1 owner supplies the TIMER0 service-boundary coordinate immediately
-     * before servo application.  Evidence timestamps remain in the logical
-     * TDMA/TIMER1 domain and must never be used as this local anchor. */
+    /* Core1 supplies TIMER1-origin nanoseconds at the service boundary.
+     * Logical TDMA evidence can have a different origin. Zero retains the
+     * legacy single-coordinate host API behavior. */
     uint64_t local_apply_time_ns;
     int32_t input_residual_ns;
     vdc_gate_result_t gate;
@@ -691,6 +691,9 @@ typedef struct {
     vdc_gate_result_t gate;
     vdc_timestamp_dictionary_t timestamp_dictionary;
     vdc_wrap_tracker_t wrap_tracker;
+    /* Private servo anchor, independent of the longer FLL observation span. */
+    uint64_t phase_observed_anchor_ns;
+    uint32_t phase_observed_anchor_valid;
 } vdc_domain_context_t;
 
 void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,

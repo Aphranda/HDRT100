@@ -323,7 +323,8 @@ static uint64_t sync_io_capture_latch_ticks_to_ns(uint64_t ticks)
 static uint64_t sync_io_common_time_now_ns(void)
 {
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
-    return time_us_64() * 1000ull;
+    uint64_t now;
+    return vdc_timestamp_clock_try_read_ns(BOARD_SYS_CLOCK_HZ, &now) ? now : UINT64_MAX;
 #else
     return sync_io_capture_latch_ticks_to_ns(sync_io_capture_latch_read_ticks64());
 #endif
@@ -911,6 +912,10 @@ static bool sync_io_start_capture_owned(uint32_t sample_hz)
     }
 
     const uint64_t capture_start_ns = sync_io_common_time_now_ns();
+    if (capture_start_ns == UINT64_MAX) {
+        (void)sync_io_workspace_release(&s_sync_io);
+        return false;
+    }
 
     osal_critical_enter();
     sync_io_capture_latch_reset_locked();
@@ -1146,7 +1151,9 @@ bool sync_io_capture_time_now_ns(uint64_t *now_ns)
         return false;
     }
 
-    *now_ns = sync_io_common_time_now_ns();
+    const uint64_t now = sync_io_common_time_now_ns();
+    if (now == UINT64_MAX) return false;
+    *now_ns = now;
     return true;
 }
 

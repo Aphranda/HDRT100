@@ -7,7 +7,7 @@
 #define VDC_PRIORITY_TRACE_MAGIC UINT32_C(0x52545056) /* VPTR, little endian */
 #define VDC_PRIORITY_TRACE_SCHEMA 1u
 #define VDC_PRIORITY_TRACE_PHASE_SCHEMA 4u
-#define VDC_PRIORITY_TRACE_ORIGIN_SCHEMA 3u
+#define VDC_PRIORITY_TRACE_ORIGIN_SCHEMA 5u
 #define VDC_PRIORITY_TRACE_ORIGIN_EXTENSION_BYTES 96u
 #define VDC_PRIORITY_TRACE_RECORD_BYTES 100u
 #define VDC_PRIORITY_TRACE_MATCH_INTERVAL_MS 200u
@@ -68,6 +68,12 @@ typedef struct {
  * u64 raw_lo/raw_hi/bridge_before/bridge_after/bridge_local_ns/base_local_ns/
  * base_output_ns; i32 rate_ppb/phase_ns; u32 dco_seq; u64 encoded_lo;
  * u32 encoded_width. All 100 bytes describe one successful projection. */
+
+/* Origin schema 5 uses TIMER1-ns model coordinates, no bridge/cache.
+ * The 96-byte extension begins with the same seven identity words as v2/3;
+ * remaining 68 bytes are zero. In each 100-byte origin record, offsets
+ * 36/44/52 hold raw_now/local_lo/local_hi instead of bridge observations.
+ * Remaining fields retain their v2/3 layout. Replay selects by schema. */
 
 /* Each record is exactly 100 bytes; no cross-record half-group exists.
  * Common u32: zero-based index@0, kind@4, uptime_ms@8, event_sequence@12, carrier_sequence@16.

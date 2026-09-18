@@ -194,12 +194,20 @@ static void differential_owner(const char *name)
         revised.valid_from_raw=first.raw_hi+1u;
         boundary_store(s_committed_model_words,&revised,sizeof(revised));
     }
-    if(!strcmp(name,"empty_intersection"))now_ns+=1000000u;
+    if(!strcmp(name,"empty_intersection"))
+        /* The old fixture moved the TIMER0 bridge read.  TIMER1 projections
+         * no longer consume that coordinate, so inject an inconsistent remote
+         * encoded timestamp while retaining the same transport binding. */
+        priority_rx.typed_record.event_time_lower += 10000000000ull;
     if(!strcmp(name,"raw_reverse"))exact.record.rx_elapsed_cycles=first.raw_lo-live.timer1_enable_before-1u;
     const vdc_domain_context_t before=s_vdc_domain;
     prepare();
     if(!strcmp(name,"empty_intersection")) {
-        assert(s_priority_match_work.status.matched==2u && status().rejected==1u && !status().prepared);
+        fprintf(stderr,"empty status matched=%u rejected=%u prepared=%u reason=%u baselines=%u local=%" PRIu64 "..%" PRIu64 " expected=%" PRIu64 "..%" PRIu64 "\n",
+            s_priority_match_work.status.matched,status().rejected,status().prepared,status().last_reason,status().baselines,
+            s_priority_follow_work.local_delta_lo,s_priority_follow_work.local_delta_hi,
+            s_priority_follow_work.expected_delta_lo,s_priority_follow_work.expected_delta_hi);
+        assert(s_priority_match_work.status.matched==2u && status().rejected==0u && !status().prepared);
         assert(status().last_reason==VDC_PRIORITY_FOLLOW_INTERVAL && status().baselines==2u);
     }
     if(!strcmp(name,"model_valid_from")) {

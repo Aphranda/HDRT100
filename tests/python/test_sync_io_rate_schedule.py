@@ -217,6 +217,11 @@ static bool sm_claimed, dma_claimed, program_loaded, can_load=true;
 static bool busy, fifo_empty=true, enabled, pins_high;
 static uint32_t pc, sys_hz=250000000, dma_words, starts, aborts, hw_reads;
 static uint64_t now_us;
+static bool vdc_timestamp_clock_try_read_ns(uint32_t hz, uint64_t *out) {
+    if (hz!=sys_hz || !out) return false;
+    *out=now_us*1000u+4u;
+    return true;
+}
 static bool validator_ok=true, alter_clock, alter_divider;
 static unsigned validations;
 static unsigned critical_depth;

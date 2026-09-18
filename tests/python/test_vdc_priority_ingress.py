@@ -86,7 +86,7 @@ static uint32_t read_atomic(const uint32_t *p, int order)
     }
     return value;
 }
-static bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz, uint64_t *out)
+bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz, uint64_t *out)
 {
     assert(hz == BOARD_SYS_CLOCK_HZ && clock_calls < 2u);
     const unsigned index = clock_calls++;

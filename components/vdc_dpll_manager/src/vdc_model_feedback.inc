@@ -111,22 +111,20 @@ static bool model_feedback_project(uint32_t session,
         model.role_generation != role_generation || model.clock_epoch_id != clock_epoch_id ||
         model.clock_run_id != clock_run_id || model.local_slot != local_slot ||
         model.dco.tdma_schedule_crc32 != schedule_crc32) return false;
-    vdc_timestamp_clock_bridge_t bridge;
+    uint64_t raw_now, local_lo, local_hi;
     vdc_dpll_manager_projected_event_t event;
-    if (!vdc_timestamp_clock_try_read_bridge(tick_hz, &bridge)) return false;
+    if (!vdc_timestamp_clock_try_read_ticks64(tick_hz, &raw_now) ||
+        raw_lo>raw_hi || raw_hi>raw_now || raw_now-raw_lo>(uint64_t)tick_hz*2u ||
+        !vdc_timer1_interval_to_ns(tick_hz,raw_lo,raw_hi,&local_lo,&local_hi)) return false;
     if (mode == 2u) {
-        /* The read still qualifies the common TIMER0/TIMER1 clock ratio and
-         * raw age. Its read-placement bracket is not a RATE coordinate. */
-        if (raw_lo > raw_hi || raw_hi > bridge.raw_before ||
-            bridge.raw_after < bridge.raw_before ||
-            bridge.raw_after - raw_lo > (uint64_t)tick_hz * 2u ||
-            !vdc_model_rate_coordinate_ns(model.dco.period_adjust_ppb, tick_hz,
+        if (!vdc_model_rate_coordinate_ns(model.dco.period_adjust_ppb, tick_hz,
                 raw_lo, false, &event.output_ns_lo) ||
             !vdc_model_rate_coordinate_ns(model.dco.period_adjust_ppb, tick_hz,
                 raw_hi, true, &event.output_ns_hi)) return false;
     } else {
-        if (!vdc_model_project_interval(&model.dco, &bridge, raw_lo, raw_hi,
-                &event.output_ns_lo, &event.output_ns_hi)) return false;
+        if (!vdc_domain_dco_local_to_output_ns(&model.dco,local_lo,&event.output_ns_lo) ||
+            !vdc_domain_dco_local_to_output_ns(&model.dco,local_hi,&event.output_ns_hi) ||
+            event.output_ns_lo>event.output_ns_hi) return false;
         if (mode == 1u &&
             (!vdc_model_rate_coordinate_ns(model.dco.period_adjust_ppb, tick_hz,
                 elapsed_ticks, false, &event.output_ns_hi) ||
@@ -151,34 +149,35 @@ bool vdc_dpll_manager_project_feedback_event(uint32_t session,
         local_slot, schedule_crc32, tick_hz, raw_lo, raw_hi, 0u, 0u, out);
 }
 
-vdc_clock_mapping_status_t vdc_dpll_manager_project_mapped_feedback_event(
+bool vdc_dpll_manager_project_timer1_feedback_event(
     uint32_t session, uint32_t role_generation, uint32_t clock_epoch_id,
     uint32_t clock_run_id, uint32_t local_slot, uint32_t schedule_crc32,
     uint32_t tick_hz, uint64_t raw_lo, uint64_t raw_hi,
-    const vdc_clock_mapping_cache_t *cache,
-    vdc_dpll_manager_mapping_projection_t *projection)
+    vdc_dpll_manager_timer1_projection_t *projection)
 {
-    if (get_core_num() != 1u || !cache || !projection || !session ||
-        session != vdc_dpll_manager_feedback_session()) return VDC_CLOCK_MAPPING_UNAVAILABLE;
+    if (get_core_num() != 1u || !projection || !session ||
+        session != vdc_dpll_manager_feedback_session()) return false;
     const uint32_t guard = __atomic_load_n(&s_committed_model_guard, __ATOMIC_ACQUIRE);
-    if (guard & 1u) return VDC_CLOCK_MAPPING_UNAVAILABLE;
-    /* The typed owner supplies static work, keeping this full model and the
-     * bridge off the deeply nested TDMA stack. Partial evidence is never a
-     * publication, and no tentative mapping is committed by this function. */
+    if (guard & 1u) return false;
+    /* Owner-provided work keeps the full model off the nested TDMA stack.
+     * Partial evidence is never a publication. */
     vdc_dpll_manager_committed_model_t *model = &projection->model;
     model_feedback_load(model);
     if (!model->token || model->session != session || raw_lo < model->valid_from_raw ||
         model->role_generation != role_generation || model->clock_epoch_id != clock_epoch_id ||
         model->clock_run_id != clock_run_id || model->local_slot != local_slot ||
         model->dco.tdma_schedule_crc32 != schedule_crc32 ||
-        !vdc_timestamp_clock_try_read_bridge(tick_hz, &projection->bridge))
-        return VDC_CLOCK_MAPPING_UNAVAILABLE;
-    const vdc_clock_mapping_status_t status = vdc_clock_mapping_project(cache, &model->dco,
-        &projection->bridge, model->token, raw_lo, raw_hi, &projection->mapping);
+        !vdc_timestamp_clock_try_read_ticks64(tick_hz,&projection->raw_now) ||
+        raw_lo>raw_hi || raw_hi>projection->raw_now ||
+        projection->raw_now-raw_lo>(uint64_t)tick_hz*2u ||
+        !vdc_timer1_interval_to_ns(tick_hz,raw_lo,raw_hi,&projection->local_lo,&projection->local_hi) ||
+        !vdc_domain_dco_local_to_output_ns(&model->dco,projection->local_lo,&projection->output_lo) ||
+        !vdc_domain_dco_local_to_output_ns(&model->dco,projection->local_hi,&projection->output_hi) ||
+        projection->output_lo>projection->output_hi) return false;
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (guard != __atomic_load_n(&s_committed_model_guard, __ATOMIC_ACQUIRE) ||
-        session != vdc_dpll_manager_feedback_session()) return VDC_CLOCK_MAPPING_UNAVAILABLE;
-    return status;
+        session != vdc_dpll_manager_feedback_session()) return false;
+    return true;
 }
 
 bool vdc_dpll_manager_project_rate_feedback_event(uint32_t session,

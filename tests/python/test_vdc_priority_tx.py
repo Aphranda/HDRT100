@@ -96,27 +96,26 @@ bool tdma_runtime_owner_get_origin_reference_epoch(uint32_t *out)
 { if(!epoch_ok) return false; *out=raw.epoch; return true; }
 bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz,uint64_t *out)
 { assert(hz==raw.tick_hz); if(!clock_ok) return false; *out=now; return true; }
-vdc_clock_mapping_status_t vdc_dpll_manager_project_mapped_feedback_event(uint32_t ses,uint32_t role,uint32_t epoch,
+bool vdc_dpll_manager_project_timer1_feedback_event(uint32_t ses,uint32_t role,uint32_t epoch,
     uint32_t run,uint32_t local,uint32_t schedule,uint32_t hz,uint64_t lo,uint64_t hi,
-    const vdc_clock_mapping_cache_t *cache,vdc_dpll_manager_mapping_projection_t *out)
+    vdc_dpll_manager_timer1_projection_t *out)
 {
     ++project_calls;
     assert(ses==session && role==committed.role_generation && epoch==committed.clock_epoch_id);
     assert(run==committed.clock_run_id && local==config.local_slot_id && schedule==config.schedule_crc32);
     assert(hz==raw.tick_hz && lo==raw.timer_lower && hi==raw.timer_upper);
     assert(lo>=committed.valid_from_raw);
-    if(!projection_ok) return VDC_CLOCK_MAPPING_UNAVAILABLE;
+    if(!projection_ok) return false;
     /* Provider policy fixture only; real mapping/projector/Domain are linked
      * independently by test_vdc_priority_mapping. */
     memset(out,0,sizeof(*out));out->model=committed;
-    out->mapping.next=*cache;
-    out->mapping.output_lo=projected_lo;out->mapping.output_hi=projected_hi;
+    out->output_lo=projected_lo;out->output_hi=projected_hi;
     if(action==1u) ++committed.token;
     if(action==2u) ++out->model.token;
     if(action==3u) ++raw.epoch;
     if(action==4u) ++session;
     if(action==5u) ++config.owner_config_seq;
-    return VDC_CLOCK_MAPPING_OK;
+    return true;
 }
 #include "vdc_priority_tx.inc"
 

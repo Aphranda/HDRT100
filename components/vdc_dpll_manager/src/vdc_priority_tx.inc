@@ -21,7 +21,6 @@ typedef struct {
     vdc_dpll_manager_committed_model_t model, after;
     vdc_dpll_manager_projected_event_t event;
     vdc_priority_codec_record_t record;
-    vdc_clock_mapping_cache_t mapping;
     vdc_priority_tx_origin_evidence_t evidence;
     uint32_t bound, have_seen, tick_hz;
     uint8_t candidate[TDMA_FLIGHT_SHORT_SLOT_SIZE];
@@ -47,7 +46,7 @@ bool vdc_priority_tx_origin_trace_eligible_core1(uint32_t generation, uint32_t s
         session != vdc_dpll_manager_feedback_session()) return false;
     const vdc_priority_tx_work_t *w = &s_priority_tx_work;
     if (w->status.generation == generation &&
-        (w->status.retired || w->status.have_offer || w->status.encoded || w->mapping.count))
+        (w->status.retired || w->status.have_offer || w->status.encoded))
         return false;
     return generation == vdc_dpll_manager_priority_sync_generation() &&
         session == vdc_dpll_manager_feedback_session();
@@ -251,20 +250,14 @@ tdma_priority_tx_result_t __attribute__((noinline)) vdc_priority_tx_core1(
             return priority_tx_empty(VDC_PRIORITY_TX_REJECT_MODEL, false);
         return priority_tx_ready(mailbox, true);
     }
-    const vdc_clock_mapping_status_t mapping_status =
-        vdc_dpll_manager_project_mapped_feedback_event(session, w->model.role_generation,
+    if (!vdc_dpll_manager_project_timer1_feedback_event(session, w->model.role_generation,
             w->model.clock_epoch_id, w->model.clock_run_id, config->local_slot_id,
             config->schedule_crc32, w->source.tick_hz, w->source.timer_lower,
-            w->source.timer_upper, &w->mapping, &w->evidence.projection);
-    if (mapping_status == VDC_CLOCK_MAPPING_CONTRADICTION)
-        return priority_tx_empty(VDC_PRIORITY_TX_REJECT_MAPPING_CONTRADICTION, true);
-    if (mapping_status == VDC_CLOCK_MAPPING_EXHAUSTED)
-        return priority_tx_empty(VDC_PRIORITY_TX_REJECT_MAPPING_EXHAUSTED, true);
-    if (mapping_status != VDC_CLOCK_MAPPING_OK)
+            w->source.timer_upper, &w->evidence.projection))
         return priority_tx_empty(VDC_PRIORITY_TX_REJECT_PROJECTION, false);
     w->event = (vdc_dpll_manager_projected_event_t){
-        .output_ns_lo = w->evidence.projection.mapping.output_lo,
-        .output_ns_hi = w->evidence.projection.mapping.output_hi,
+        .output_ns_lo = w->evidence.projection.output_lo,
+        .output_ns_hi = w->evidence.projection.output_hi,
         .model_token = w->evidence.projection.model.token,
         .applied_command_seq = w->evidence.projection.model.applied_command_seq};
     uint32_t epoch;
@@ -306,10 +299,7 @@ tdma_priority_tx_result_t __attribute__((noinline)) vdc_priority_tx_core1(
     if (request != vdc_dpll_manager_priority_sync_generation() ||
         session != vdc_dpll_manager_feedback_session())
         return priority_tx_empty(VDC_PRIORITY_TX_REJECT_BINDING, true);
-    /* No failed projection, lifecycle recheck, width gate or codec operation
-     * may teach the retained mapping a constraint. Same-event returns above
-     * never reach this commit and retain their original encoded bytes. */
-    w->mapping = w->evidence.projection.mapping.next;
+    /* Same-event returns above retain the original encoded bytes. */
     s->event_sequence = w->source.sequence;
     s->source_identity = w->source.identity;
     s->published_version = w->source.published_version;

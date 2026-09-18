@@ -21,8 +21,7 @@ typedef struct {
 static vdc_priority_trace_work_t s_priority_trace_work;
 _Static_assert(sizeof(vdc_priority_trace_status_t) == 148u, "typed trace status ABI");
 _Static_assert(sizeof(vdc_priority_trace_header_t) == 168u, "typed trace header ABI");
-_Static_assert(VDC_PRIORITY_TRACE_ORIGIN_SCHEMA == 3u &&
-    VDC_CLOCK_MAPPING_MAX_CONSTRAINTS == 64u, "origin schema 3 retains 64 constraints");
+_Static_assert(VDC_PRIORITY_TRACE_ORIGIN_SCHEMA == 5u, "origin schema 5 uses TIMER1 directly");
 _Static_assert(sizeof(vdc_priority_trace_record_t) == sizeof(s_dpll_capture_records[0]),
     "typed trace reuses each complete legacy slot");
 
@@ -388,7 +387,7 @@ static void priority_trace_decision_core1(const vdc_priority_follow_snapshot_t *
 
 
 /* A complete consecutive origin history, beginning at an acknowledged empty
- * sync generation. This hook runs only after encoding and cache commit. */
+ * sync generation. This hook runs only after successful encoding. */
 static __attribute__((noinline)) void priority_trace_origin_core1(
     const vdc_priority_tx_origin_evidence_t *e)
 {
@@ -405,11 +404,6 @@ static __attribute__((noinline)) void priority_trace_origin_core1(
         priority_trace_freeze(VDC_PRIORITY_TRACE_BINDING); return;
     }
     if (!w->bound) {
-        if (e->projection.mapping.count_before != 0u ||
-            e->projection.mapping.next.epoch != 1u ||
-            e->projection.mapping.reset_reason != VDC_CLOCK_MAPPING_RESET_START) {
-            priority_trace_freeze(VDC_PRIORITY_TRACE_BINDING); return;
-        }
         w->role_generation = e->role_generation; w->boundary_request = e->source_epoch;
         s->clock_epoch = e->clock_epoch; s->clock_run = e->clock_run; s->tick_hz = e->tick_hz;
         s->local_slot = e->local_slot; s->node_count = e->node_count;
@@ -421,14 +415,13 @@ static __attribute__((noinline)) void priority_trace_origin_core1(
     uint8_t *p = priority_trace_record_begin(VDC_PRIORITY_TRACE_ORIGIN, 0u, 0u);
     if (!p) return;
     const vdc_dco_control_t *dco = &e->projection.model.dco;
-    const vdc_timestamp_clock_bridge_t *b = &e->projection.bridge;
-    const vdc_clock_mapping_cache_t *cache = &e->projection.mapping.next;
     boundary_capture_u32(p + 8u, e->event_sequence);
     boundary_capture_u32(p + 12u, e->projection.model.token);
     boundary_capture_u32(p + 16u, e->tick_hz);
     boundary_capture_u64(p + 20u, e->source_raw_lo); boundary_capture_u64(p + 28u, e->source_raw_hi);
-    boundary_capture_u64(p + 36u, b->raw_before); boundary_capture_u64(p + 44u, b->raw_after);
-    boundary_capture_u64(p + 52u, b->local_ns);
+    boundary_capture_u64(p + 36u, e->projection.raw_now);
+    boundary_capture_u64(p + 44u, e->projection.local_lo);
+    boundary_capture_u64(p + 52u, e->projection.local_hi);
     boundary_capture_u64(p + 60u, dco->base_local_tick64);
     boundary_capture_u64(p + 68u, dco->base_vdc_time64_ns);
     boundary_capture_u32(p + 76u, (uint32_t)dco->period_adjust_ppb);
@@ -446,13 +439,6 @@ static __attribute__((noinline)) void priority_trace_origin_core1(
     boundary_capture_u32(h + 12u, e->source_identity);
     boundary_capture_u32(h + 20u, e->published_version);
     boundary_capture_u32(h + 24u, e->event_sequence);
-    boundary_capture_u32(h + 28u, e->projection.mapping.reset_reason);
-    boundary_capture_u32(h + 32u, cache->count); boundary_capture_u32(h + 36u, cache->epoch);
-    boundary_capture_u32(h + 40u, cache->tick_hz); boundary_capture_u32(h + 44u, cache->model_token);
-    boundary_capture_u64(h + 48u, cache->anchor_raw); boundary_capture_u64(h + 56u, cache->anchor_local_ns);
-    boundary_capture_u64(h + 64u, cache->last_raw_after); boundary_capture_u64(h + 72u, cache->last_local_ns);
-    boundary_capture_u64(h + 80u, (uint64_t)cache->offset_lo);
-    boundary_capture_u64(h + 88u, (uint64_t)cache->offset_hi_open);
     w->last_match_sequence = e->event_sequence;
     s->last_ms = board_uptime_ms(); ++s->record_count;
     if (s->record_count == VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES)
