@@ -22,6 +22,19 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-033：主 OUT1 同步触发路径亦未在 CH1 捕获
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条只做
+  STOP 态输出观测，不改变 DPLL/VDC 算法和持久化配置。
+- r21 使用主输出 `REALtime:IO:OUTPut:WIDTh 1000` +
+  `REALtime:IO:OUTPut:IMMediate`，示波器触发源为 CH1、正边沿、1 V，且在发射
+  前已读回 `WAIT`。触发后仍为 `WAIT`，`SYSTem:ERRor?` 为 `0,"No error"`，宽度
+  查询为 1000。原始记录在
+  `out/HardwareAcceptance/20260918/no1-out1-immediate-ch1-r21/summary.json`。
+- 与 r18 的静态 OUT1 驱动合并判断，SIO 和主同步 PIO 两条主输出路径都没有在
+  示波器 CH1 形成可见边沿；这不是 DPLL 收敛或 TDMA 运输证据。下一 gate 仍是
+  在 MCU 侧测试点或隔离器后端确认 OUT1 电平，再恢复四板 RAW 采样。
+
 ### VDC-PROGRESS-20260918-032：主 SMA 输出静态探测仍无外部电平
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条只做
