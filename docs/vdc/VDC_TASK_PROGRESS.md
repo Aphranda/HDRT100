@@ -22,6 +22,25 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-044：中点输出补偿的两轮逼近复测
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003`；父任务仍为 `IN PROGRESS`。本条数字是
+  有限波形快照，非锁相或路径 delay 契约。沿用较晚窗口、CH1 上升沿触发和运行期间零查询，
+  仅在 STOP 配置输出 delay，试验结束恢复原值。证据目录为
+  `out/HardwareAcceptance/20260918/dpll-late-arm-r1/`。
+- 依据零补偿较晚窗口的相位范围，按 4 ns 量化取中心的反向值：NO1/NO2/NO3/NO4
+  `0/-120/-168/-232 ns`。第一轮波形相对 NO1 约为 `-220..-180/-214..-162/-220..-180 ns`
+  （NO2/NO3/NO4），说明该补偿实际生效但跨启动状态发生了整体漂移。
+- 第二轮保持同一组参数，波形回到约 `-20..+20/-20..+40/-20..+20 ns`，有限窗口内三从均
+  落在 100 ns 范围；这只能证明“中点补偿可逼近”的一次观测，不能证明跨启动重复性或持续
+  100 ns 锁定。两轮都因 STOP 后原生 RAM 导出异常而记为失败：第一轮有 NO4 `local_model`
+  超时，第二轮有 NO2 RAM page 字段格式错误；四板 STOP、delay 恢复和示波器收尾均完成。
+- 当前可用的内部观测仍是 ORIGIN/MATCH/PHASE/FOLLOW 原生记录与 RUN 状态；它们能确认同事件、
+  residual、DCO 采用和模型代际，但不能替代 GPIO 共事件边沿。示波器相对边沿仅用于输出逼近，
+  不反推 path delay，也不授予 `physical_lock_qualified`。下一 gate 是先修复/隔离 STOP 导出
+  读取的可重复性，再用相同中点参数做连续跨启动复测；若中心随启动改变，应转向频差收敛和
+  输出映射的原因定位，而不是继续固化单个补偿常数。
+
 ### VDC-PROGRESS-20260918-043：输出补偿对照与 START 超时误报修复
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003`；父任务 IN PROGRESS。数字均为有限
