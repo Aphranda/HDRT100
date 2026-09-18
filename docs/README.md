@@ -356,3 +356,4 @@ docs/
 - 查命令：先读 `interface/SCPI_COMMANDS.md`。
 - 查待办：优先读对应域的 `*_TODO.md`。
 - 查验证记录：优先读对应域的 `*_TASK_PROGRESS.md`。
+- `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_03.md` ? VDC progress archive 03.

@@ -11,6 +11,40 @@ Last updated: 2026-09-18
 
 ## 下次接续入口：三从真实 DCO 已更新，接通实际输出相位闭环
 
+**2026-09-18 用户确认的新优先级：** DPLL/VDC/SYNC 统一使用现有 TIMER1 高分辨率
+时间轴，TIMER0 保留 SDK 系统计时。当前 `BOARD_SYS_CLOCK_HZ` 配置下 TIMER1 一拍
+为 4 ns（配置快照，非物理同步精度）；不是将 `time_us_64()` 的读数乘以更细单位。
+先执行下述 `VDC-TIMEBASE-001`，再验证输出偏移；不继续扩大 TIMER0/TIMER1 求交候选。
+最新证据与候选归档见 `VDC-PROGRESS-20260918-039`。
+
+### TIMER1 统一时间轴切片
+
+`VDC-TIMEBASE-001`：IN PROGRESS（依赖审查已开展，实现尚未上板）。父任务为
+`VDC-FAST-003`、`VDC-OUTPUT-001`，不缩减长期精度、运输或一致发布目标。
+
+| 顺序 | 修改范围 | 本切片必须证明 |
+|---|---|---|
+| 1 | TIMER1 单位与生命周期 | 本地 raw tick 与 TIMER1 派生 ns 显式区分；只读已有 owner 初始化的计数器，不在 Core1 惰性初始化。检查频率、时钟 epoch/run、回绕和溢出；读取失败不能回退到 TIMER0 坐标。 |
+| 2 | DCO 本地坐标与事件发布/接收 | `vdc_dpll_manager_now_ns()`、主 PI/DCO 生效锚、三从 frequency/phase apply、模型有效起点、typed TX/MATCH 投影作为同一切片迁移。TIMER1 raw 到本地 ns 直接整数换算，保留原事件区间、年龄和模型/代际复验；不伪造 TIMER0 bridge 或保留旧求交缓存解释新坐标。 |
+| 3 | SYNC/RUN 输出反解 | 共同 VDC 网格反解到 TIMER1 本地 ns，再换为未来 raw tick；已提交前缀和单一 owner 不变。同步检查 `sync_io_common_time_now_ns()` 与 model scheduler 的目标/now 来源，避免一个目标来自 TIMER1、另一个截止期来自 TIMER0。路径 delay 和输出 delay 仍独立。 |
+| 4 | 原生记录与发布视图 | RUN、origin trace、decoder/replay 明确时间轴/schema，旧数据按旧格式解释。Core0 读取 Core1 已提交模型，不把旧 TIMER0 uptime 当作新本地时间；毫秒诊断/寿命计数明确只作耗时。 |
+| 5 | 原子迁移验收 | host 覆盖跨原点、4 ns 量化、区间端点、模型变更、STOP/ARM、失败不混轴与输出前缀；Release/资源、同源码四板 quick P3 后做零 output-delay 两次较晚窗口复采。分别报告持续运输、DCO 采用、物理相位变化，不能将 4 ns 编码分辨率当成 100 ns 锁定。 |
+
+SDK `time_us_*`、alarm、通信超时、Flash lockout 保持 TIMER0 语义。Core1 外层静态
+表释放目前仍使用微秒绝对期限，表内已有周期计数；是否迁移外层释放独立核验，不把
+CPU 一拍 4 ns 表述为整条软件路径已具备 4 ns 触发精度。PIO/DMA 继续执行已提交边沿。
+具体混轴检查点：`tdma_component_core1_service()` 当前向
+`tdma_runtime_owner_service_phys_tx()` 传入 manager 的 now，但底层与系统时间建立的
+`flight_tx_deadline_ns` 比较；迁移 manager 后必须给该超时单独保留 TIMER0 now，或将
+截止期建立/比较成对迁移。RefMem 的 `vdc_dpll_manager_local_time_ns()` 及 published
+window 必须同为新模型坐标；这属于兼容消费端校验，不把 RefMem 加回特等席前置。
+独立复核还发现 Domain 的 `evidence.observed_time_ns - clock.base_local_tick64`
+及 quality age 的 `now_ns - last_sample_time_ns` 可能混合逻辑证据和本地 service
+时间；迁移时分别保留逻辑证据锚与同域服务年龄，不能机械替换时间读取函数。
+legacy `boundary_fresh()` 的 `now + 999` 也需按真实 TIMER1 读数区间重新审计。
+原生 decoder 现有 `bridge_local_ns % 1000` 和桥交集 replay 只保留给旧 schema；
+新记录必须标识 raw-direct 坐标，不用清零原硬件事件区间来伪装更高精度。
+
 本节为用户要求保留的执行断点；长期目标仍是 `VDC-LONGTERM-001`，不缩减为原始
 邮箱接收或单次 DCO 更新。下一次“继续”从本节开始，详细实测见
 [当前配置与主线接续](VDC_TASK_PROGRESS.md#vdc-progress-20260918-004有限长时间轴与可配置补给窗口)及
@@ -232,12 +266,19 @@ DMA 退休期限的关联，不重复实现参数接口，也不以放宽连续�
 | 执行顺序 | 任务/状态 | 完成判据与下一动作 |
 |---|---|---|
 | 已完成切片 | `REFMEM-RAM-001/002/003/004`，DONE | 缩容、兼容工具、四板布局专项及固定范围快速 P3 调试验收完成；严格质量失败保留至下项，不继续扩大 RAM 完成条件。见 RefMem TODO 与 `REFMEM-TASK-20260916-001`。 |
-| 当前下一步 | 推进 `VDC-FAST-003` / `VDC-OUTPUT-001`，IN PROGRESS | `VDC-PROGRESS-20260918-027` 的候选 output delay 会话证明 NO4 可在一次窗口进入 100 ns 量级，但 NO2/NO3 未呈现可重复固定增益，跨启动状态仍是主导不确定度。保持 delay 零值，先在同一 DCO 状态或明确收敛窗口重复基线，再只改变一个 output delay；保留 bridge/PIO enable 锚、共同 ordinal、相位斜率和 STOP 状态，候选值只留在 RAM。完整 TDMA 超预算仍待独立闭合。 |
+| 当前下一步 | `VDC-TIMEBASE-001`，IN PROGRESS | 用户已确认 DPLL/VDC/SYNC 统一 TIMER1，TIMER0 留作系统计时；先闭合本地坐标、事件投影、输出反解与原生记录的原子迁移，再做同源码四板验收及零 delay 两次复采。r26/r28 的跨启动变化与一次 bridge 量化相关，候选求交实现已归档未刷板。NO1 OUT4 已接 EXT，但 RUN 当前仅 OUT1，继续 CH1 触发；OUT4 镜像仍为独立 PIO/所有权切片。 |
 | 随后 | 完成 `VDC-FAST-001/002` | 补齐同圈保全/消费与资源预算实测，继续区分 offer、DMA selection、线上记录与 Core1 消费；不能用 IRQ-entry→read 代替物理边沿测量。配置、delay 和上下文提前安装，无普通解析、RefMem 分片或 RTOS 前置。 |
 | 随后 | `VDC-FAST-003` | 事件序号直接索引，复验完整序号/代际，计算时间差和本地 delay，实际应用 DCO；NO1 本地 PI 并发布参考，三从本地跟踪，ACK 关联收到/采用事件。 |
 | 最后 | 精度、恢复与 VDC 发布 | internal 关联参考事件、相位/速率命令及实际采用，以四路实际波形验证公共时基与用户精度目标；计入有效校正间隔、时间戳/链路 delay/输出量化误差。验证坏帧跳过、失联/恢复，以及 VDC 时间、质量、有效性和代际的一致发布。 |
 
 恢复工作时按以下顺序操作：
+
+最新复采见 `VDC-PROGRESS-20260918-038`：r26/r28 已恢复四路持续输出、三从有效
+匹配与真实相位采用。较晚窗口的运行内变化已收小，但跨启动偏移仍不重复；继续
+对照输出锚与内部模型，不写死 delay，不从外部偏移反推 path-delay。r25 的 origin
+交接/绑定取消失败保留并有界定位，不再笼统归因于补给饥饿。r27 为示波器窗口配置
+读回不符、在 START 前失败；后续使用已验证窗口。OUT4 接 EXT 的用户接线保持，
+当前 RUN 仅 OUT1，继续 CH1 触发；同 SM OUT4 镜像独立实现并验收。
 
 1. 阅读本节和 `VDC-PROGRESS-20260918-003`；检查 `git status` 与实际 diff，
    保留另一设备合入的单板工作及后继改动。最新提交与源码指纹以进度和真实凭证为准。
