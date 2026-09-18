@@ -84,6 +84,25 @@ Last updated: 2026-09-18
 - 下一 gate：在同一 DCO 状态或明确等待收敛后重复 A/B，记录 bridge 三元组、首次 enable
   锚、共同 ordinal 和相位斜率；先解决 ACK 兼容，再评估是否需要调整 output delay。
 
+### VDC-PROGRESS-20260918-025：四板运输与本地 DCO 跟随证据闭合
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条只闭合本次
+  RUN 会话的运输/DCO 证据，不改变固件、Flash、path-delay 或 output-delay 配置。
+- 零 delay 对照的原生记录显示 NO2--NO4 `matched_observation_passed=true`，typed
+  observation 接收分别为有限运行快照中的万级计数，typed reject 均为 0；三板 local
+  follow model 均 `valid=1`、`lock_state=1`。NO4 的 DCO 序号在会话中实际前进，NO2/NO3
+  末态保持当前 DCO 序号但 follow 已应用有限调整，说明“收到 NO1 事件并在本地跟随”
+  与“物理输出边沿已对齐”是两个独立闭合点。
+- 证据文件为
+  `out/HardwareAcceptance/20260918/dpll-bridge-export-delay-zero-r5/capture/scope-analysis/dpll-follow-closure.json`，
+  原始 `input-probe.json`、RUN 三元组和波形均可回溯。该证据不能替代共同 ordinal、
+  100 ns 波形门禁，也不能宣称最终 VDC 一致发布。
+- 当前主线阻塞已收敛为启动后 DCO/PIO 输出映射的可重复性和 output/path delay 的独立
+  误差预算；运输、ACK、匹配和本地跟随不再作为本轮物理锁相的首要阻塞。
+- 下一 gate：在同一 DCO 状态或明确等待收敛后重复 output-delay A/B，保留 follow model、
+  bridge/enable 锚及共同 ordinal；同时修复 `START` 无 payload ACK 的采样工具适配，避免
+  工具假失败掩盖实际运行状态。
+
 ### VDC-PROGRESS-20260918-021：NO1 OUT4 外部触发路径未捕获
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条为触发路径
