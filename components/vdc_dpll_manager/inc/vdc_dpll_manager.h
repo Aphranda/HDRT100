@@ -140,9 +140,10 @@ bool vdc_dpll_manager_project_feedback_event(uint32_t session,
     uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,
     uint64_t raw_lo, uint64_t raw_hi,
     vdc_dpll_manager_projected_event_t *out);
-/* Core1 typed origin only. A single fresh bridge produces tentative mapping
+/* Core1 typed origin/MATCH owners. A single fresh bridge produces tentative mapping
  * evidence under the existing model guard. The caller owns cache and commits
- * projection.mapping.next only after final lifecycle checks and encoding.
+ * projection.mapping.next only after final lifecycle checks and acceptance
+ * (including encoding for origin). Each owner keeps its own cache.
  * Projection contents are usable only when the return value is OK. */
 vdc_clock_mapping_status_t vdc_dpll_manager_project_mapped_feedback_event(
     uint32_t session, uint32_t role_generation, uint32_t clock_epoch_id,

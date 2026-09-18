@@ -74,7 +74,7 @@ def follow_executable(tmp_path_factory):
     assert old_bridge in prelude
     prelude = prelude.replace(old_bridge,
         '{ assert(hz==BOARD_SYS_CLOCK_HZ);*out=(vdc_timestamp_clock_bridge_t){'
-        '.tick_hz=hz,.raw_before=raw_now,.raw_after=raw_now+1,.local_ns=now_ns};return true; }')
+        '.tick_hz=hz,.raw_before=raw_now,.raw_after=raw_now+1,.local_ns=(now_ns/1000u)*1000u};return true; }')
     harness = prelude + EXTERNAL_INPUTS + source_type.group(0) + MATCH_STORAGE + helpers
     harness += '\nstatic void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t *model);\n#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)\n'
     for name in ("vdc_model_feedback.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc", "vdc_priority_follow.inc"):

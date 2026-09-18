@@ -33,7 +33,7 @@ def executable(tmp_path_factory):
         'static unsigned core;\nstatic unsigned get_core_num(void) { return core; }')
     prelude = prelude.replace('{ (void)hz;(void)out;return false; }',
         '{ assert(hz==BOARD_SYS_CLOCK_HZ);*out=(vdc_timestamp_clock_bridge_t){'
-        '.tick_hz=hz,.raw_before=raw_now,.raw_after=raw_now+1,.local_ns=now_ns};return true; }')
+        '.tick_hz=hz,.raw_before=raw_now,.raw_after=raw_now+1,.local_ns=(now_ns/1000u)*1000u};return true; }')
     prelude = prelude.replace('bool boundary_test_stopped_metadata(',
         'static bool metadata_busy,maintenance_busy,metadata_locked,maintenance_locked,flash_accept=true,persisted_available=true;\n'
         'static unsigned metadata_calls,maintenance_calls,flash_calls,persisted_reads;\n'

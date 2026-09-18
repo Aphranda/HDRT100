@@ -62,7 +62,8 @@ static inline bool vdc_clock_mapping_add(uint64_t base, int64_t offset, uint64_t
 }
 
 /* Pure tentative projection: cache is never changed; *out is assigned only
- * on OK. The owner commits next only after lifecycle checks AND encoding.
+ * on OK. The owner commits next only after lifecycle checks and final event
+ * acceptance (including encoding for origin).
  * The clock relation must retain vdc_timestamp_clock.h's lifetime exclusions.
  * This bounds F(floor(X(event))), not a hypothetical floor-us TIMER0 read.
  * The original absolute projector remains a mandatory admission check. */
