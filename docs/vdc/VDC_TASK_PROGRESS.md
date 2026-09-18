@@ -22,6 +22,44 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-031：NO1 外部 EXT 触发物理路径仍未闭合
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条是停止态
+  观测诊断，不修改固件、PIO、Flash、OTA、path-delay 或 output-delay。
+- r14 在 NO1（COM5）释放后以 `REALtime:IO:OUTPut:MASK 8` 驱动 OUT4，示波器
+  配置 EXT 正边沿；输出寄存器读回由 `0` 变为 `8`，但四通道只有约 0.27 V
+  基线噪声，不能作为边沿证据。原始记录在
+  `out/HardwareAcceptance/20260918/no1-manual-ext-trigger-r14/summary.json`。
+- r15 先用 `:RUN` 确认示波器进入 `WAIT`，再驱动 OUT4；约 220 ms 后仍为
+  `WAIT`，错误队列为 `0,"No error"`。这排除了“单次触发尚未置 WAIT”的脚本时序
+  原因，但没有证明 EXT 端收到边沿。记录在
+  `out/HardwareAcceptance/20260918/no1-manual-ext-trigger-r15/summary.json`。
+- r16 改用固件已有的 `REALtime:IO:RJ45:WIDTh` + `REALtime:IO:RJ45:IMMediate`
+  触发状态机，示波器仍保持 `WAIT`；但 r17 的硬件映射读回确认该命令驱动的是
+  独立 RJ45 输出 GPIO26，而不是主输出组 OUT4/GPIO19，因此 r16 不能作为 OUT4
+  的反证。记录在 `out/HardwareAcceptance/20260918/no1-rj45-immediate-ext-trigger-r16/summary.json`。
+- r17 只读确认 NO1 固件为 `20260918024406`，主输出映射为 GPIO16..19，RJ45
+  输入/输出为 GPIO27/26，OUT4 静态输出已恢复为 0；记录在
+  `out/HardwareAcceptance/20260918/no1-io-profile-r17.json`。
+- 结论：当前不能把 NO1 OUT4→示波器 EXT 当作可用触发源，也不能据此宣称四板
+  物理锁相。下一 gate 是核对 OUT4 实物线缆/示波器 EXT 输入端和输入门限，或临时
+  将同一 OUT4 接到 CH1 做直接电压观测；确认物理边沿后才恢复 RAW 深存储四路采样。
+
+### VDC-PROGRESS-20260918-030：RAW 深存储四路采集未取得有效 NO1 触发
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条只记录
+  既有采样失败，不改变任何运行配置。
+- r11 使用 20 ns 网格但采样窗口与 START 时刻未对齐，未捕获有效边沿；r12 获得
+  NO2 156、NO3 200、NO4 200 个边沿，NO1 为 0，故 NO1 触发不能用于四路同序
+  相位判断。r13 在四板软件侧有输出规划/提交记录，但示波器 `TRIG:STAT?` 运行约
+  1 s 后仍为 `WAIT`。对应原始证据分别位于
+  `out/HardwareAcceptance/20260918/dpll-bridge-export-delay-zero-r11/`、
+  `out/HardwareAcceptance/20260918/dpll-bridge-export-delay-zero-r12/` 和
+  `out/HardwareAcceptance/20260918/dpll-no1-trigger-diagnostic-r13/`。
+- 这些结果只能证明采样对齐和触发路径尚未闭合，不能反推 DPLL 算法失败，也不计入
+  10 µs、1 µs 或 100 ns 锁定等级。下一 gate 由 `VDC-PROGRESS-20260918-031`
+  的 EXT 物理确认决定。
+
 ### VDC-PROGRESS-20260918-029：四板新会话控制链 smoke 通过，示波器分辨率不足
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条验证新
