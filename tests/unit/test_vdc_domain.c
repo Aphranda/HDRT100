@@ -4016,6 +4016,73 @@ static int test_master_rejects_unmapped_cross_board_phase(void)
     return failed;
 }
 
+static int test_master_rebases_dco_at_local_service_boundary(void)
+{
+    int failed = 0;
+    vdc_domain_context_t context;
+    vdc_domain_snapshot_t snapshot;
+    vdc_tdma_evidence_preparation_t preparation;
+    bool accepted = false;
+    const uint64_t first_local_ns = 9000000000000ull;
+
+    if (!vdc_domain_init(&context) || !install_test_path_delay(&context)) {
+        return 1;
+    }
+    vdc_domain_set_ready(&context, true);
+
+    vdc_tdma_timestamp_evidence_t first =
+        make_hardware_sample(&context.schedule, 1u, 20);
+    failed += expect_bool("prepare first master evidence",
+                          vdc_domain_prepare_active_tdma_evidence(
+                              &context, &first, &preparation),
+                          true);
+    preparation.local_apply_time_ns = first_local_ns;
+    failed += expect_bool("apply first master evidence",
+                          vdc_domain_apply_prepared_tdma_evidence_core(
+                              &context, &first, &preparation, &accepted),
+                          true);
+    failed += expect_bool("finalize first master evidence",
+                          vdc_domain_finalize_prepared_tdma_evidence(
+                              &context, &first, &preparation),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u64("first DCO uses service local anchor",
+                         snapshot.dco.base_local_tick64,
+                         first_local_ns);
+
+    uint64_t old_output_ns = 0u;
+    failed += expect_bool("evaluate old DCO at second service",
+                          vdc_domain_dco_local_to_output_ns(
+                              &context.dco, first_local_ns +
+                              context.schedule.period_ns, &old_output_ns),
+                          true);
+    vdc_tdma_timestamp_evidence_t second =
+        make_hardware_sample(&context.schedule, 2u, 20);
+    failed += expect_bool("prepare second master evidence",
+                          vdc_domain_prepare_active_tdma_evidence(
+                              &context, &second, &preparation),
+                          true);
+    preparation.local_apply_time_ns =
+        first_local_ns + context.schedule.period_ns;
+    accepted = false;
+    failed += expect_bool("apply second master evidence",
+                          vdc_domain_apply_prepared_tdma_evidence_core(
+                              &context, &second, &preparation, &accepted),
+                          true);
+    failed += expect_bool("finalize second master evidence",
+                          vdc_domain_finalize_prepared_tdma_evidence(
+                              &context, &second, &preparation),
+                          true);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u64("second DCO rebases at service local anchor",
+                         snapshot.dco.base_local_tick64,
+                         first_local_ns + context.schedule.period_ns);
+    failed += expect_u64("second DCO preserves prior output at rebase",
+                         snapshot.dco.base_vdc_time64_ns,
+                         old_output_ns);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -4061,6 +4128,7 @@ int main(void)
     failed += test_dpll_role_matrix_and_source_switch();
     failed += test_formal_evidence_generation_gate();
     failed += test_master_rejects_unmapped_cross_board_phase();
+    failed += test_master_rebases_dco_at_local_service_boundary();
     if (failed != 0) {
         (void)printf("vdc_domain tests failed: %d\n", failed);
         return 1;

@@ -1214,7 +1214,8 @@ static void vdc_domain_record_accepted_sample(
 static void vdc_domain_update_clock_from_evidence(
     vdc_domain_context_t *context,
     const vdc_tdma_timestamp_evidence_t *evidence,
-    int32_t input_residual_ns)
+    int32_t input_residual_ns,
+    uint64_t local_apply_time_ns)
 {
     if (context == NULL || evidence == NULL) {
         return;
@@ -1325,11 +1326,31 @@ static void vdc_domain_update_clock_from_evidence(
         context->dpll.last_observed_time_ns = evidence->observed_time_ns;
     }
 
+    /* observed_time_ns is a logical TDMA coordinate.  The output planner
+     * consumes TIMER0 local time, so rebase at the owner service boundary.
+     * Direct host callers without an owner timestamp retain the legacy
+     * synthetic coordinate for compatibility; the live manager always fills
+     * local_apply_time_ns before this function is reached. */
+    uint64_t base_local_tick64 = local_apply_time_ns;
+    uint64_t base_vdc_time64_ns = evidence->observed_time_ns;
+    if (base_local_tick64 == 0u) {
+        base_local_tick64 = evidence->observed_time_ns;
+    } else if (context->dco.valid != 0u &&
+               base_local_tick64 >= context->dco.base_local_tick64) {
+        uint64_t old_output_ns = 0u;
+        if (vdc_domain_dco_local_to_output_ns(
+                &context->dco, base_local_tick64, &old_output_ns)) {
+            /* Preserve the old physical output at the rebase instant; only
+             * the deliberately computed phase correction may step it. */
+            base_vdc_time64_ns = old_output_ns;
+        }
+    }
+
     context->clock.valid = 1u;
     context->clock.model_seq++;
     context->clock.epoch_id = context->schedule.schedule_epoch;
-    context->clock.base_local_tick64 = evidence->observed_time_ns;
-    context->clock.base_vdc_time64_ns = evidence->observed_time_ns;
+    context->clock.base_local_tick64 = base_local_tick64;
+    context->clock.base_vdc_time64_ns = base_vdc_time64_ns;
     context->clock.nominal_period_ns = context->schedule.period_ns;
     context->clock.phase_offset_ns = phase_offset_ns;
     context->clock.period_adjust_ppb = period_adjust_ppb;
@@ -3844,13 +3865,24 @@ bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_apply_prepared_tdma_evidence_servo)(
         return false;
     }
 
+    if (preparation->follower_bypassed == 0u &&
+        preparation->accepted != 0u &&
+        preparation->local_apply_time_ns != 0u &&
+        context->dco.valid != 0u &&
+        preparation->local_apply_time_ns < context->dco.base_local_tick64) {
+        /* A backwards owner clock would mix a new rate with an old local
+         * epoch. Reject the prepared sample and keep the previous model. */
+        return false;
+    }
+
     if (preparation->follower_bypassed != 0u) {
         vdc_domain_increment_saturating(
             &context->control.follower_local_evidence_bypass_count);
     } else if (preparation->accepted != 0u) {
         context->dpll.accepted_sample_count++;
         vdc_domain_update_clock_from_evidence(
-            context, evidence, preparation->input_residual_ns);
+            context, evidence, preparation->input_residual_ns,
+            preparation->local_apply_time_ns);
     }
     preparation->servo_applied = 1u;
     preparation->post_servo_dpll_update_seq = context->dpll.update_seq;

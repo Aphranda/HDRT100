@@ -672,6 +672,8 @@ static bool vdc_dpll_manager_prepare_ring_evidence(void)
     return vdc_dpll_manager_finish_ring_observer_service(&status, true);
 }
 
+static uint64_t vdc_dpll_manager_now_ns(void);
+
 static bool vdc_dpll_manager_apply_ring_evidence(void)
 {
     if (!s_vdc_ring_preparation_pending) {
@@ -679,6 +681,10 @@ static bool vdc_dpll_manager_apply_ring_evidence(void)
     }
 
     vdc_dpll_manager_ring_observer_status_t status = s_ring_observer_status;
+    /* Bind the master DCO to the same TIMER0 local coordinate consumed by
+     * RUN.  The evidence's observed/common time is a logical TDMA value and
+     * is retained for PI/FLL calculations only. */
+    s_vdc_ring_preparation.local_apply_time_ns = vdc_dpll_manager_now_ns();
     const bool applied = vdc_domain_apply_prepared_tdma_evidence_servo(
         &s_vdc_domain,
         &s_vdc_ring_pending_evidence,
@@ -751,7 +757,6 @@ static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
     uint32_t frame_crc32,
     bool periodic,
     uint32_t start_delay_ns);
-static uint64_t vdc_dpll_manager_now_ns(void);
 static bool vdc_dpll_manager_compute_dco_phase_pulse_deadline(
     uint64_t not_before_ns,
     uint32_t pulse_period_ns,
