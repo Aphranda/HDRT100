@@ -724,19 +724,20 @@ def test_real_parser_exports_start_observation_receipt(parser_host):
     result = subprocess.run([str(parser_host), 'RUN?', 'query'], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stdout + result.stderr
     fields = [int(value) for value in result.stdout.strip().split(',')]
-    assert len(fields) == 113
+    assert len(fields) == 116
     # Preserve every old position: 26 small fields, ten uint64, two config.
-    assert fields[:36] == [8] + [0] * 35
+    assert fields[:36] == [9] + [0] * 35
     assert fields[36:43] == [20, 21, 13, 12, 3, 4294967303, 4294967311]
     assert fields[43:50] == list(range(4294967400, 4294967407))
     assert fields[50:59] == list(range(101, 110))
     assert fields[59:61] == [1, 5]
     assert fields[61:85] == list(range(200, 212)) + list(range(300, 312))
     assert fields[85:105] == list(range(401, 421))
-    assert fields[105:107] == [1, 500]
-    assert fields[107:110] == [0, 0, 0]
-    assert fields[110:112] == [0, 0]
-    assert fields[112:] == [0]
+    assert fields[105:108] == [416, 417, 418]
+    assert fields[108:110] == [1, 500]
+    assert fields[110:113] == [0, 0, 0]
+    assert fields[113:115] == [0, 0]
+    assert fields[115:] == [0]
 
 
 PARSER_PREFIX = r'''
@@ -796,6 +797,9 @@ bool vdc_run_output_status(vdc_run_output_status_t *out)
     out->fast_wall_max_cycles=409u;out->fast_budget_overruns=410u;
     out->plan_ahead_us=411u;out->commit_ahead_us=412u;out->refill_low_us=413u;
     out->timeline_bridge_samples=414u;out->partial_plan_steps=415u;
+    out->timeline_raw_before=UINT64_C(416);
+    out->timeline_local_ns=UINT64_C(417);
+    out->timeline_raw_after=UINT64_C(418);
     out->plan_waits=416u;out->refill_waits=417u;out->commit_waits=418u;
     out->block_edges=419u;out->schedule_cycles=420u;
     out->hardware.fifo_words_per_edge=1u;out->hardware.fixed_high_ticks=500u;

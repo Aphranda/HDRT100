@@ -273,6 +273,9 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
             run_output_note(phase,VDC_RUN_OUTPUT_BRIDGE_UNAVAILABLE); return;
         }
         s_run_output_timeline_valid=true;
+        s_run_output.timeline_raw_before=s_run_output_timeline.raw_before;
+        s_run_output.timeline_local_ns=s_run_output_timeline.local_ns;
+        s_run_output.timeline_raw_after=s_run_output_timeline.raw_after;
         if (s_run_output.timeline_bridge_samples!=UINT32_MAX) ++s_run_output.timeline_bridge_samples;
     }
     uint64_t now;

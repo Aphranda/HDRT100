@@ -2740,6 +2740,9 @@ scpi_result_t scpi_cmd_vdc_run_output_q(scpi_t *context)
     SCPI_ResultUInt32(context,s.commit_waits);
     SCPI_ResultUInt32(context,s.block_edges);
     SCPI_ResultUInt32(context,s.schedule_cycles);
+    SCPI_ResultUInt64(context,s.timeline_raw_before);
+    SCPI_ResultUInt64(context,s.timeline_local_ns);
+    SCPI_ResultUInt64(context,s.timeline_raw_after);
     SCPI_ResultUInt32(context,h->fifo_words_per_edge);
     SCPI_ResultUInt32(context,h->fixed_high_ticks);
     SCPI_ResultUInt32(context,s.service_sequence);

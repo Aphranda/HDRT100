@@ -3,7 +3,7 @@
 #include "sync_io_run_output.h"
 #include "vdc_output_timing.h"
 
-#define VDC_RUN_OUTPUT_SCHEMA 8u
+#define VDC_RUN_OUTPUT_SCHEMA 9u
 
 enum { VDC_RUN_OUTPUT_PREPARED_PHASE, VDC_RUN_OUTPUT_RUNNING_PHASE,
        VDC_RUN_OUTPUT_PHASE_COUNT };
@@ -54,6 +54,10 @@ typedef struct {
      * are diagnostic, not hardware inventory or precision qualifications. */
     uint32_t plan_ahead_us, commit_ahead_us, refill_low_us;
     uint32_t timeline_bridge_samples, partial_plan_steps;
+    /* First accepted RUN bridge, retained after retirement for correlation with
+     * the backend start/enable enclosure. These are diagnostic bounds, not a
+     * physical edge timestamp or a cross-board phase measurement. */
+    uint64_t timeline_raw_before, timeline_local_ns, timeline_raw_after;
     uint32_t plan_waits, refill_waits, commit_waits;
     uint32_t block_edges, schedule_cycles;
     /* STOP-only correlation for the retained outcome and cache invalidation.
