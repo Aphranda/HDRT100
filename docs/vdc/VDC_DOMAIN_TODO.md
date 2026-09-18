@@ -17,7 +17,7 @@ Last updated: 2026-09-18
 `VDC-TIMEBASE-001` 已完成实现、同源码四板验收与两轮零 delay 外部复采。
 当前进入 `VDC-OUTPUT-001`：NO1 DMA enable 包围区间已收窄并完成两轮专项；对照
 频率收敛状态、跨启动模型相位与实际输出映射，再验证独立 output delay 的可重复响应。
-最新证据见 `VDC-PROGRESS-20260918-042`；不继续扩大旧
+最新证据见 `VDC-PROGRESS-20260918-043`；不继续扩大旧
 TIMER0/TIMER1 求交候选，不把计数分辨率当成物理锁相精度。
 
 内部观测采用原生 ORIGIN、MATCH/DECISION/PHASE 和 RUN 记录，运行期间写入有界
@@ -28,6 +28,11 @@ SRAM、STOP 后导出。当前两轮 NO1 raw 区间中位由 252 ns 降至 120 n
 PIO/DMA 实际引脚捕获是可选后续观测方案，须先证明资源及输入路径，不作为已实现能力。
 下一 gate：保留同事件原生记录，区分从板频率尚未收敛与固定输出偏差，重复启动验证；
 独立路径 delay 确认和最终 VDC 一致发布继续保留，禁止由示波器偏差反推路径 delay。
+输出补偿 A/B/A 已确认 RAM 请求/实际 RUN 值及恢复，NO2 撤销 +140 ns 后边沿中位
+变化约 -139 ns，但 NO1 模型频率及三从残差方向跨启动变化，尚不能冻结固定补偿。
+START 超时曾被公共工具伪装为已验证 OK，导致无参考空跑；本切片改为保留真实超时、
+走失败 STOP 收尾，不在 RUN 查询或盲重试。固件具体拒绝分支仍需 STOP 后诊断，
+不把补偿试验变成路径校准，也不绕过 START 身份和取消检查。
 
 ### TIMER1 统一时间轴切片
 
@@ -63,7 +68,7 @@ legacy `boundary_fresh()` 的 `now + 999` 也需按真实 TIMER1 读数区间重
 [当前配置与主线接续](VDC_TASK_PROGRESS.md#vdc-progress-20260918-004有限长时间轴与可配置补给窗口)及
 [RAM 进度 043](VDC_TASK_PROGRESS.md#vdc-progress-20260916-043refmem-缩容专项完成与主线接续)。
 
-以下为 TIMER1 迁移前的历史基线；当前执行入口以上述进度 042 为准。
+以下为 TIMER1 迁移前的历史基线；当前执行入口以上述进度 043 为准。
 历史运行与外部波形见 `VDC-PROGRESS-20260918-027`：补给连续性修复
 之后，TDMA 私有 SRAM 采样将三从事件 enable 计时锚从微秒缩至两轮实测 72 ns；
 host、Release、当前源码四板 quick P3 与首轮专项通过。复测 NO2 的 STOP RAM 页

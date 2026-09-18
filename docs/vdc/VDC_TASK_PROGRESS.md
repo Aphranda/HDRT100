@@ -22,6 +22,65 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-043：输出补偿对照与 START 超时误报修复
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003`；父任务 IN PROGRESS。数字均为有限
+  实测快照，非精度契约。本轮先使用 `a7fdd387` 固件做 STOP RAM 输出补偿 A/B/A，
+  无 Flash 参数保存、无路径 delay 修改，运行期间零查询。证据根为
+  `out/HardwareAcceptance/20260918/dpll-origin-bracket-delay-r1/`。
+- 成功采集 `zero-r2`、`candidate-r1`、`restore-r2`，分别约 59.8/63.0/59.3 秒。
+  候选 NO1–NO4 输出 delay 为 `0,+140,+80,0 ns`，RUN10 实际值和 STOP 读回均匹配，
+  每次结束都恢复原始零值；路径表不变。`comparison.json` 从原生二进制重新解码并
+  检查 CRC、会话、请求/实际/恢复值及 STOP 退休，绑定证据 hash。
+
+| 同源码波形窗口中位（相对 NO1，ns） | NO2 | NO3 | NO4 |
+|---|---|---|---|
+| zero-r2，零补偿 | -140 | -80 | -5 |
+| candidate-r1，输出补偿生效 | +300 | +299 | +280 |
+| restore-r2，恢复零补偿 | +161 | +200 | +260 |
+
+- 候选撤销后 NO2 中位变化约 -139 ns，与撤销 +140 ns 接近；NO3 约 -99 ns，NO4
+  无补偿仍变化约 -20 ns。说明存在可观测输出补偿响应，但独立启动的控制状态未固定，
+  不能把三轮差值当作独立 transfer gain 校准，更不能由它反推路径 delay。
+  NO1 原生模型频率三轮分别约 +2115/+3053/+3798 ppb，RUN enable 代理仍约
+  988–1004 ns；NO1 编码宽度中位仍为 120 ns、三从 residual 宽度约 192 ns。
+  零值轮临近波形窗残差在正侧约 `[+70,+280] ns`，候选/恢复轮在负侧约
+  `[-245,0] ns`。近窗对应仅以 NO1 首 ordinal 建立近似 VDC 窗，不是逐 GPIO 归因。
+  不同控制方向及主频变化是当前重复性核验的输入，不归因于示波器触发变化。
+- 两次失败完整保留：`zero-r1` 为 NO2 START 无真实 ACK、末态错误 -200、RUN
+  blocks=0；`restore-r1` 为 NO4 同类失败。其他从板虽有开环输出但模型未更新，NO1
+  未取得本轮有效原生发布；不能使用旧 RELEASE 留存值证明新会话发车。两次最终
+  四板 STOP/配置恢复通过，独立完整生命周期重采才得到上述有效窗口。
+- 只读审核确认公共 `tdma_start_ring._board_command_on_serial()` 把 START timeout
+  直接改写为 `OK(no payload; verified by state readback)`，实际没有 readback；采集器
+  接受该值后继续主板 START/TRIAL 和整轮等待。固件 START 单次读取 result_guard、
+  配置/ARM/train 身份并复验；瞬时发布竞争可能拒绝，Core0 control lock 等分支也
+  未排除，现有证据不足以断言具体拒绝原因。末态 MATCH STOP reason 不是根因。
+- 工具只对 START 保留 `<timeout>` 原件，不增加 RUN 查询或盲重试，不改变固件
+  admission。现有调用链遇到非 OK 抛错并执行 finally STOP。相关四套 host 为
+  173 项通过；实际 acquire/control/backend 注入四个板位的超时，均不继续 NO1 TRIAL、
+  不进入静默等待、不查询 RUN，见 `check_ack_cleanup.json`。该注入不模拟完整 STOP
+  硬件行为。较宽五套测试为 295 通过/1 失败：既有
+  `test_core1_overrun_quarantines_only_the_faulting_load` 文本定位断言已不符合当前
+  app 拆分，相关两文件与 HEAD hash 相同，保留 `preexisting-test-failure.json`，未改
+  调度隔离行为或把失败写成全绿。
+- 工具切片同源码四板 quick P3 为 `p3-start-ack-r1/`，约 183.7 秒，
+  PASS_WITH_WARNINGS、INFO/WARN/ERROR/FATAL 为 25/18/0/0；TDMA 严格原始失败和
+  DPLL SKIPPED_TDMA_ONLY 保留。build 仍为 `20260918081154`，源码指纹
+  `bc42aeb8564b3fa64b98bd8196f5d7bba89dd1c9d38027eea62099ba255c5f2c`。
+  生产固件没有修改，Release 复用有效构建并完成门禁；RAM 仍依 042 的临时许可，
+  不宣称正式 RAM 或旧静态资源检查器通过。
+- 工具与匹配凭证提交为 `e2ee1927`，pre-commit staged 指纹核验通过。随后
+  `ack-fixed-r1` 真实四板采集约 59.0 秒通过，四个 START 均为真实 OK，零补偿，
+  STOP/参数恢复无错；原生重放通过，NO1 宽度中位仍为 120 ns。P3 复位后从板由
+  0 ppb 重新跟踪，外部 NO2/NO3/NO4 相位中位约 +200/+261/+519 ns，窗口最大
+  约 +280/+360/+701 ns；不将采集流程通过当作锁相通过。此轮没有自然 START
+  拒绝，错误分支提前退出由故障注入证明，实际拒绝后的硬件收尾仍待专门观测。
+  文档两检查器和 38 项治理测试通过，既有其他域 WARN 保留。
+- 下一 gate：保留 START 具体拒绝分支的 STOP 后诊断计划；继续分离主频变化、
+  从板频率收敛与相位区间死区，不冻结本轮候选
+  输出补偿。物理 100 ns、同圈期限、独立路径校准和 VDC 一致发布仍未完成。
+
 ### VDC-PROGRESS-20260918-042：NO1 enable 采样重排及内部原生区间收窄实测
 
 - TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001`；父任务 IN PROGRESS。数字均为
