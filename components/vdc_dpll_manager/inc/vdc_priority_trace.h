@@ -8,6 +8,19 @@
 #define VDC_PRIORITY_TRACE_SCHEMA 1u
 #define VDC_PRIORITY_TRACE_PHASE_SCHEMA 6u
 #define VDC_PRIORITY_TRACE_ORIGIN_SCHEMA 5u
+#define VDC_PRIORITY_TRACE_SUMMARY_PHASE_SCHEMA 7u
+#define VDC_PRIORITY_TRACE_SUMMARY_ORIGIN_SCHEMA 8u
+#define VDC_PRIORITY_TRACE_SUMMARY_INTERVAL_MS 1000u
+/* Summary schemas retain the 168-byte base header and 100-byte slots; there
+ * is no origin extension. Core1 observes current TIMER1 time at service and
+ * success hooks, independently of historical event timestamps. One-second
+ * bins contain software-owner extrema/counts, never GPIO lock evidence.
+ * Bin index is the consecutive record index. A long service gap is retained
+ * as one flagged spanning bin. STOP commits the partial terminal bin, even
+ * if its duration is zero. Counts saturate rather than wrap. SERVICE_GAP
+ * also marks an unavailable owner-counter snapshot: its prior counter is
+ * preserved, never replaced by a fabricated zero. CLOCK_INVALID marks raw
+ * clock failure/backwards motion or a Domain clock epoch/run transition. */
 #define VDC_PRIORITY_TRACE_ORIGIN_EXTENSION_BYTES 96u
 #define VDC_PRIORITY_TRACE_RECORD_BYTES 100u
 #define VDC_PRIORITY_TRACE_MATCH_INTERVAL_MS 200u
@@ -110,6 +123,9 @@ typedef struct { uint8_t bytes[VDC_PRIORITY_TRACE_RECORD_BYTES]; } vdc_priority_
 bool vdc_dpll_manager_priority_trace_arm(uint32_t capture_id);
 bool vdc_dpll_manager_priority_trace_phase_arm(uint32_t capture_id);
 bool vdc_dpll_manager_priority_trace_origin_arm(uint32_t capture_id);
+/* Same STOP/ACK/pool-lease rules. Follower summary requires phase enabled;
+ * origin summary requires the same empty origin generation as schema 5. */
+bool vdc_dpll_manager_priority_trace_summary_arm(uint32_t capture_id, bool origin);
 bool vdc_dpll_manager_priority_trace_stop(void);
 bool vdc_dpll_manager_priority_trace_release(void);
 bool vdc_dpll_manager_get_priority_trace(vdc_priority_trace_status_t *out);

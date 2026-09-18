@@ -21,7 +21,8 @@ from tools.vdc_priority_trace import vdc_priority_trace as decoder
 @pytest.fixture(scope="module")
 def origin_executable(trace_executable, tmp_path_factory):
     source = trace_executable.with_suffix(".c").read_text(encoding="utf-8")
-    for name in ("vdc_dpll_manager_priority_sync_generation", "vdc_priority_tx_origin_trace_eligible_core1"):
+    for name in ("vdc_dpll_manager_priority_sync_generation", "vdc_priority_tx_origin_trace_eligible_core1",
+                 "vdc_dpll_manager_get_priority_tx"):
         source = source.replace(ingress_definition(source, name), "", 1)
     source = source.replace(ingress_definition(source, "tdma_runtime_owner_get_origin_reference_epoch"),
         "bool tdma_runtime_owner_get_origin_reference_epoch(uint32_t *out);", 1)

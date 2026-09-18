@@ -895,6 +895,31 @@ scpi_result_t scpi_cmd_vdc_priority_trace_phase_arm(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_vdc_priority_trace_summary_phase_arm(scpi_t *context)
+{
+    uint32_t capture_id;
+    if (!SCPI_ParamUInt32(context, &capture_id, TRUE) || capture_id == 0u ||
+        !vdc_dpll_manager_priority_trace_summary_arm(capture_id, false)) {
+        scpi_port_push_exec_error(context, "Priority summary phase ARM rejected");
+        return SCPI_RES_ERR;
+    }
+    /* Admission only; the existing STOP-only status ACK completes ownership. */
+    SCPI_ResultUInt32(context, capture_id);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_trace_summary_origin_arm(scpi_t *context)
+{
+    uint32_t capture_id;
+    if (!SCPI_ParamUInt32(context, &capture_id, TRUE) || capture_id == 0u ||
+        !vdc_dpll_manager_priority_trace_summary_arm(capture_id, true)) {
+        scpi_port_push_exec_error(context, "Priority summary origin ARM rejected");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, capture_id);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_vdc_priority_trace_arm(scpi_t *context)
 {
     uint32_t capture_id;

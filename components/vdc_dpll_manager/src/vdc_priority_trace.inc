@@ -11,14 +11,33 @@ static vdc_priority_trace_request_t s_priority_trace_request;
 static uint32_t s_priority_trace_last_capture; /* Core0, never reused. */
 static uint32_t s_priority_trace_status_guard;
 static uint32_t s_priority_trace_status_words[sizeof(vdc_priority_trace_status_t) / 4u];
+
+typedef struct {
+    uint64_t last_service, last_success;
+    uint32_t counters[7];
+    uint32_t first_ms, last_ms, open, have_success, last_model;
+    uint32_t clock_epoch, clock_run;
+    uint32_t counter_valid_mask;
+} vdc_priority_summary_work_t;
+_Static_assert(sizeof(vdc_priority_summary_work_t) <= VDC_PRIORITY_TRACE_ORIGIN_EXTENSION_BYTES,
+    "summary scratch must fit existing origin extension");
 typedef struct {
     vdc_priority_trace_status_t status;
     uint64_t last_sample_raw;
-    uint8_t origin[VDC_PRIORITY_TRACE_ORIGIN_EXTENSION_BYTES];
+    union {
+        uint8_t origin[VDC_PRIORITY_TRACE_ORIGIN_EXTENSION_BYTES];
+        vdc_priority_summary_work_t summary;
+    };
     uint32_t boundary_request, role_generation, seen_running, bound;
     uint32_t have_match, last_match_sequence, have_decision, last_decision_sequence;
 } vdc_priority_trace_work_t;
 static vdc_priority_trace_work_t s_priority_trace_work;
+static bool priority_trace_origin_family(uint32_t schema)
+{ return schema == VDC_PRIORITY_TRACE_ORIGIN_SCHEMA || schema == VDC_PRIORITY_TRACE_SUMMARY_ORIGIN_SCHEMA; }
+static bool priority_trace_summary_family(uint32_t schema)
+{ return schema == VDC_PRIORITY_TRACE_SUMMARY_PHASE_SCHEMA || schema == VDC_PRIORITY_TRACE_SUMMARY_ORIGIN_SCHEMA; }
+static void priority_summary_terminal(void);
+static void priority_summary_service(bool end);
 _Static_assert(sizeof(vdc_priority_trace_status_t) == 148u, "typed trace status ABI");
 _Static_assert(sizeof(vdc_priority_trace_header_t) == 168u, "typed trace header ABI");
 _Static_assert(VDC_PRIORITY_TRACE_ORIGIN_SCHEMA == 5u, "origin schema 5 uses TIMER1 directly");
@@ -106,14 +125,14 @@ static bool priority_trace_submit_stopped(void *context)
         !priority_trace_status_copy(&status)) goto done;
     if (input->command == VDC_PRIORITY_TRACE_COMMAND_ARM) {
         bool phase_enabled;
-        if (input->schema != VDC_PRIORITY_TRACE_ORIGIN_SCHEMA &&
+        if (!priority_trace_origin_family(input->schema) &&
             (!vdc_dpll_manager_try_priority_follow_phase_enabled(&phase_enabled) ||
              (input->schema == VDC_PRIORITY_TRACE_SCHEMA && phase_enabled) ||
-             (input->schema == VDC_PRIORITY_TRACE_PHASE_SCHEMA && !phase_enabled))) goto done;
+             ((input->schema == VDC_PRIORITY_TRACE_PHASE_SCHEMA || input->schema == VDC_PRIORITY_TRACE_SUMMARY_PHASE_SCHEMA) && !phase_enabled))) goto done;
         if (!input->capture_id || input->capture_id <= s_priority_trace_last_capture ||
             (owner == DPLL_CAPTURE_POOL_TYPED && status.state != VDC_PRIORITY_TRACE_FROZEN) ||
             !session || session != vdc_dpll_manager_feedback_session()) goto done;
-        if (input->schema == VDC_PRIORITY_TRACE_ORIGIN_SCHEMA) {
+        if (priority_trace_origin_family(input->schema)) {
             generation = vdc_dpll_manager_priority_sync_generation();
             if (!generation || session != vdc_dpll_manager_feedback_session() ||
                 generation != vdc_dpll_manager_priority_sync_generation()) goto done;
@@ -159,6 +178,8 @@ bool vdc_dpll_manager_priority_trace_phase_arm(uint32_t capture_id)
 { return priority_trace_submit(VDC_PRIORITY_TRACE_COMMAND_ARM, capture_id, VDC_PRIORITY_TRACE_PHASE_SCHEMA); }
 bool vdc_dpll_manager_priority_trace_origin_arm(uint32_t capture_id)
 { return priority_trace_submit(VDC_PRIORITY_TRACE_COMMAND_ARM, capture_id, VDC_PRIORITY_TRACE_ORIGIN_SCHEMA); }
+bool vdc_dpll_manager_priority_trace_summary_arm(uint32_t capture_id, bool origin)
+{ return priority_trace_submit(VDC_PRIORITY_TRACE_COMMAND_ARM, capture_id, origin ? VDC_PRIORITY_TRACE_SUMMARY_ORIGIN_SCHEMA : VDC_PRIORITY_TRACE_SUMMARY_PHASE_SCHEMA); }
 bool vdc_dpll_manager_priority_trace_stop(void)
 { return priority_trace_submit(VDC_PRIORITY_TRACE_COMMAND_STOP, 0u, 0u); }
 bool vdc_dpll_manager_priority_trace_release(void)
@@ -173,9 +194,12 @@ static void priority_trace_freeze(uint32_t reason)
 {
     vdc_priority_trace_status_t *s = &s_priority_trace_work.status;
     if (!priority_trace_active()) return;
+    priority_summary_terminal();
     s->state = VDC_PRIORITY_TRACE_FROZEN; s->reason = reason; s->freeze_ms = board_uptime_ms();
     priority_trace_publish();
 }
+
+#include "vdc_priority_trace_summary.inc"
 
 static __attribute__((noinline)) void priority_trace_service_core1(void)
 {
@@ -189,7 +213,7 @@ static __attribute__((noinline)) void priority_trace_service_core1(void)
         if (command.command == VDC_PRIORITY_TRACE_COMMAND_ARM) {
             /* Same Core1 boundary follows every earlier legacy append. The
              * reservation never cancelled a live legacy capture on Core0. */
-            const bool origin_invalid = command.schema == VDC_PRIORITY_TRACE_ORIGIN_SCHEMA &&
+            const bool origin_invalid = priority_trace_origin_family(command.schema) &&
                 !vdc_priority_tx_origin_trace_eligible_core1(command.generation, command.session);
             if (s_dpll_capture_armed || origin_invalid) {
                 memset(w, 0, sizeof(*w));
@@ -209,7 +233,7 @@ static __attribute__((noinline)) void priority_trace_service_core1(void)
                 s->schema = command.schema; s->capture_id = command.capture_id;
                 s->session = command.session; s->generation = command.generation; s->mode = command.mode;
                 s->capacity = VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES;
-                s->sample_interval_ms = command.schema == VDC_PRIORITY_TRACE_ORIGIN_SCHEMA ? 0u : VDC_PRIORITY_TRACE_MATCH_INTERVAL_MS;
+                s->sample_interval_ms = priority_trace_summary_family(command.schema) ? VDC_PRIORITY_TRACE_SUMMARY_INTERVAL_MS : (priority_trace_origin_family(command.schema) ? 0u : VDC_PRIORITY_TRACE_MATCH_INTERVAL_MS);
                 s->state = VDC_PRIORITY_TRACE_ARMED;
                 w->boundary_request = command.boundary_request;
             }
@@ -235,7 +259,7 @@ static __attribute__((noinline)) void priority_trace_service_core1(void)
     if (!priority_trace_active()) return;
     uint32_t request, session, mode;
     int32_t delta;
-    if (s->schema == VDC_PRIORITY_TRACE_ORIGIN_SCHEMA) {
+    if (priority_trace_origin_family(s->schema)) {
         if (vdc_dpll_manager_feedback_session() != s->session ||
             vdc_dpll_manager_priority_sync_generation() != s->generation) {
             priority_trace_freeze(VDC_PRIORITY_TRACE_SESSION); return;
@@ -245,14 +269,14 @@ static __attribute__((noinline)) void priority_trace_service_core1(void)
         __atomic_load_n(&s_priority_match_request_session, __ATOMIC_ACQUIRE) != s->session) {
         priority_trace_freeze(VDC_PRIORITY_TRACE_SESSION); return;
     }
-    if (s->schema != VDC_PRIORITY_TRACE_ORIGIN_SCHEMA &&
+    if (!priority_trace_origin_family(s->schema) &&
         boundary_request(&request, &session, &delta, &mode) &&
         (request != w->boundary_request || mode != s->mode)) {
         priority_trace_freeze(VDC_PRIORITY_TRACE_MODE); return;
     }
     tdma_ring_clock_snapshot_t *ring = &s_priority_match_work.ring_after;
     if (tdma_runtime_owner_get_ring_clock_snapshot(ring)) {
-        if (ring->enabled && ring->adapter_started) w->seen_running = 1u;
+        if (ring->enabled && ring->adapter_started) { w->seen_running = 1u; priority_summary_service(false); }
         else if (w->seen_running || w->bound) priority_trace_freeze(VDC_PRIORITY_TRACE_STOP);
     }
 }
@@ -321,7 +345,8 @@ static __attribute__((noinline)) void priority_trace_match_core1(void)
 {
     if (get_core_num() != 1u || !priority_trace_active() ||
         (s_priority_trace_work.status.schema != VDC_PRIORITY_TRACE_SCHEMA &&
-         s_priority_trace_work.status.schema != VDC_PRIORITY_TRACE_PHASE_SCHEMA)) return;
+         s_priority_trace_work.status.schema != VDC_PRIORITY_TRACE_PHASE_SCHEMA &&
+         s_priority_trace_work.status.schema != VDC_PRIORITY_TRACE_SUMMARY_PHASE_SCHEMA)) return;
     vdc_priority_trace_work_t *w = &s_priority_trace_work;
     const vdc_priority_match_work_t *match = &s_priority_match_work;
     const vdc_priority_match_snapshot_t *m = &match->status;
@@ -336,6 +361,11 @@ static __attribute__((noinline)) void priority_trace_match_core1(void)
     else if (!priority_trace_binding(m)) { priority_trace_freeze(VDC_PRIORITY_TRACE_BINDING); return; }
     if (w->have_match && m->event_sequence <= w->last_match_sequence) return;
     w->last_match_sequence = m->event_sequence;
+    if (priority_trace_summary_family(w->status.schema)) {
+        priority_summary_success(m->event_sequence,m->model_token,match->model.dco.period_adjust_ppb,
+            m->residual_lo,m->residual_hi,(uint64_t)m->residual_hi-(uint64_t)m->residual_lo);
+        w->have_match=1u; return;
+    }
     const uint64_t period = (uint64_t)m->tick_hz * VDC_PRIORITY_TRACE_MATCH_INTERVAL_MS / 1000u;
     if (w->have_match && (m->raw_lo < w->last_sample_raw || m->raw_lo - w->last_sample_raw < period)) {
         w->status.skipped_count = priority_match_inc(w->status.skipped_count); return;
@@ -359,13 +389,23 @@ static void priority_trace_decision_core1(const vdc_priority_follow_snapshot_t *
 {
     if (get_core_num() != 1u || !priority_trace_active() || !decision ||
         (s_priority_trace_work.status.schema != VDC_PRIORITY_TRACE_SCHEMA &&
-         s_priority_trace_work.status.schema != VDC_PRIORITY_TRACE_PHASE_SCHEMA)) return;
+         s_priority_trace_work.status.schema != VDC_PRIORITY_TRACE_PHASE_SCHEMA &&
+         s_priority_trace_work.status.schema != VDC_PRIORITY_TRACE_SUMMARY_PHASE_SCHEMA)) return;
     vdc_priority_trace_work_t *w = &s_priority_trace_work;
     if (!w->bound || decision->session != w->status.session || decision->generation != w->status.generation ||
         !priority_trace_binding(&s_priority_follow_work.ticket.match)) {
         priority_trace_freeze(VDC_PRIORITY_TRACE_BINDING); return;
     }
     if (w->have_decision && decision->event_sequence <= w->last_decision_sequence) return;
+    if (priority_trace_summary_family(w->status.schema)) {
+        vdc_priority_summary_record_t *p=priority_summary_record();
+        if (p) {
+            p->decision_count=priority_summary_add16(p->decision_count,1u,p);
+            if (decision->after_dco_seq!=decision->before_dco_seq)
+                p->frequency_applied_count=priority_summary_add16(p->frequency_applied_count,1u,p);
+        }
+        w->have_decision=1u;w->last_decision_sequence=decision->event_sequence;return;
+    }
     uint8_t *p = priority_trace_record_begin(VDC_PRIORITY_TRACE_DECISION,
         decision->event_sequence, decision->carrier_sequence);
     if (!p) return;
@@ -394,7 +434,7 @@ static __attribute__((noinline)) void priority_trace_origin_core1(
     vdc_priority_trace_work_t *w = &s_priority_trace_work;
     vdc_priority_trace_status_t *s = &w->status;
     if (get_core_num() != 1u || !e || !priority_trace_active() ||
-        s->schema != VDC_PRIORITY_TRACE_ORIGIN_SCHEMA) return;
+        !priority_trace_origin_family(s->schema)) return;
     if (e->session != s->session || e->generation != s->generation ||
         (w->bound && (e->role_generation != w->role_generation ||
             e->source_epoch != w->boundary_request || e->clock_epoch != s->clock_epoch ||
@@ -411,6 +451,11 @@ static __attribute__((noinline)) void priority_trace_origin_core1(
         w->bound = 1u; s->state = VDC_PRIORITY_TRACE_RUNNING;
     } else if (e->event_sequence <= w->last_match_sequence) {
         priority_trace_freeze(VDC_PRIORITY_TRACE_BINDING); return;
+    }
+    if (priority_trace_summary_family(s->schema)) {
+        priority_summary_success(e->event_sequence,e->projection.model.token,
+            e->projection.model.dco.period_adjust_ppb,0,0,e->encoded_width);
+        w->last_match_sequence=e->event_sequence;return;
     }
     uint8_t *p = priority_trace_record_begin(VDC_PRIORITY_TRACE_ORIGIN, 0u, 0u);
     if (!p) return;
@@ -456,11 +501,17 @@ static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phas
          * legacy frequency records once a real phase translation occurs. */
         priority_trace_freeze(VDC_PRIORITY_TRACE_MODE); return;
     }
-    if (w->status.schema != VDC_PRIORITY_TRACE_PHASE_SCHEMA) return;
+    if (w->status.schema != VDC_PRIORITY_TRACE_PHASE_SCHEMA &&
+        w->status.schema != VDC_PRIORITY_TRACE_SUMMARY_PHASE_SCHEMA) return;
     if (!w->bound || phase->session != w->status.session ||
         phase->generation != w->status.generation ||
         !priority_trace_binding(&s_priority_follow_work.ticket.match)) {
         priority_trace_freeze(VDC_PRIORITY_TRACE_BINDING); return;
+    }
+    if (priority_trace_summary_family(w->status.schema)) {
+        vdc_priority_summary_record_t *p=priority_summary_record();
+        if (p) p->phase_applied_count=priority_summary_add16(p->phase_applied_count,1u,p);
+        return;
     }
     uint8_t *p = priority_trace_record_begin(VDC_PRIORITY_TRACE_PHASE,
         phase->event_sequence, phase->carrier_sequence);

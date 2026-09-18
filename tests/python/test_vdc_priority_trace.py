@@ -109,11 +109,15 @@ static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phas
     harness += r'''
 /* Schema 1 fixture has no origin TX producer; origin schema is exercised with
  * the real provider in test_vdc_priority_origin_trace. */
+bool vdc_dpll_manager_get_priority_tx(vdc_priority_tx_snapshot_t *out)
+{ memset(out,0,sizeof(*out));return true; }
 uint32_t vdc_dpll_manager_priority_sync_generation(void) { return 0u; }
 bool vdc_priority_tx_origin_trace_eligible_core1(uint32_t generation,uint32_t session)
 { (void)generation;(void)session;return false; }
 '''
-    harness += production("components/vdc_dpll_manager/src/vdc_priority_trace.inc")
+    harness += production("components/vdc_dpll_manager/src/vdc_priority_trace.inc").replace(
+        '#include "vdc_priority_trace_summary.inc"',
+        production("components/vdc_dpll_manager/src/vdc_priority_trace_summary.inc"))
     harness += "\n" + ingress_definition(DOMAIN_HARNESS, "fixture")
     # Keep the tested real model fixture; replace only the wrapper's hooks to
     # use the same recorder ordering as the production Core1 service wrapper.
@@ -122,6 +126,8 @@ bool vdc_priority_tx_origin_trace_eligible_core1(uint32_t generation,uint32_t se
     helpers = helpers.replace("    vdc_priority_match_core1();\n    priority_follow_prepare_core1();",
         "    priority_trace_service_core1();\n    vdc_priority_match_core1();\n"
         "    priority_trace_match_core1();\n    priority_follow_prepare_core1();")
+    helpers = helpers.replace("    model_feedback_end_core1(vdc_dpll_manager_feedback_session());",
+        "    model_feedback_end_core1(vdc_dpll_manager_feedback_session());\n    priority_summary_service(true);")
     harness += helpers + TRACE_CASES
     return compile_executable(tmp_path_factory.mktemp("native-trace"), "priority_trace", harness,
         domain_sources() + [ROOT / "components/vdc_dpll_manager/src/vdc_feedback_match.c",

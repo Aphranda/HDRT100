@@ -3146,6 +3146,7 @@ void __attribute__((noinline)) sync_dpll_fb_service(void)
     vdc_boundary_service_core1();
     priority_follow_apply_core1();
     if (session) model_feedback_end_core1(session);
+    priority_summary_service(true);
 }
 
 void vdc_dpll_manager_dpll_service(void)

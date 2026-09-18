@@ -23,6 +23,19 @@ PHASE_SCHEMAS = (PHASE_SCHEMA, MIDPOINT_PHASE_SCHEMA)
 # Schema 6 fixes the acquisition step cap, independent of future firmware.
 MIDPOINT_PHASE_MAX_DELTA_NS = 1000000000
 ORIGIN_SCHEMA = 5
+SUMMARY_FOLLOWER_SCHEMA = 7
+SUMMARY_ORIGIN_SCHEMA = 8
+SUMMARY_SCHEMAS = (SUMMARY_FOLLOWER_SCHEMA, SUMMARY_ORIGIN_SCHEMA)
+SUMMARY = struct.Struct('<HHQQIIIIIIHHHHHHHHqqIIIiiHH')
+SUMMARY_FIELDS = ('bin_index flags observed_start_raw observed_end_raw max_service_gap_ticks '
+    'max_success_gap_ticks first_event last_event first_success_offset_ticks last_success_offset_ticks '
+    'service_count success_count rejected_count cancelled_count phase_held_count decision_count '
+    'frequency_applied_count phase_applied_count residual_min_ns residual_max_ns max_width_ns '
+    'first_model last_model min_ppb max_ppb model_changes outcome_mask').split()
+SUMMARY_FLAGS = dict(PARTIAL=1, NO_SUCCESS=2, SERVICE_GAP=4, COUNTER_RESET=8,
+    COUNTER_SATURATED=16, FIELD_SATURATED=32, CLOCK_INVALID=64, UNBOUND=128, TERMINAL=256)
+SUMMARY_OUTCOMES = dict(MATCH_REJECT=1, FOLLOW_REJECT=2, FOLLOW_CANCEL=4,
+                        PHASE_REJECT=8, PHASE_CANCEL=16, TX_REJECT=32)
 # Immutable wire semantics: historical captures must not inherit today's cap.
 ORIGIN_SCHEMA_CAPACITIES = {2: 8, 3: 64}
 RECORD_BYTES = 100
@@ -77,6 +90,7 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     require(len(data) >= HEADER_BYTES, 'Truncated native header')
     magic, schema, header_bytes, record_bytes, payload_crc = PREFIX.unpack_from(data)
     expected_header = {SCHEMA: HEADER_BYTES, **dict.fromkeys(PHASE_SCHEMAS, HEADER_BYTES),
+                       **dict.fromkeys(SUMMARY_SCHEMAS, HEADER_BYTES),
                        ORIGIN_SCHEMA: ORIGIN_HEADER_BYTES,
                        **dict.fromkeys(ORIGIN_SCHEMA_CAPACITIES, ORIGIN_HEADER_BYTES)}.get(schema)
     require((magic, header_bytes, record_bytes) ==
@@ -92,12 +106,17 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     require(status['capacity'] == MAX_RECORDS and count <= status['capacity'], 'Invalid record capacity')
     if schema == SCHEMA or schema in PHASE_SCHEMAS:
         require(count == status['match_count'] + status['decision_count'], 'Record counts disagree')
+    elif schema in SUMMARY_SCHEMAS:
+        require(status['sample_interval_ms'] == 1000 and status['skipped_count'] == 0,
+                'Invalid summary interval or skipped count')
     else:
         require(status['match_count'] == status['decision_count'] == status['sample_interval_ms'] == 0, 'Origin counters mislabelled')
     require(len(data) == header_bytes + count * RECORD_BYTES, 'Truncated or trailing native payload')
     require(zlib.crc32(data[header_bytes:]) == payload_crc, 'Payload CRC mismatch')
     if schema in ORIGIN_SCHEMA_CAPACITIES:
         return decode_origin(data, status, header_bytes)
+    if schema in SUMMARY_SCHEMAS:
+        return decode_summary(data, status, header_bytes)
     if schema == ORIGIN_SCHEMA:
         return decode_timer1_origin(data, status, header_bytes)
     records = []
@@ -172,6 +191,91 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
                 bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), file_crc32=zlib.crc32(data),
                 complete_window_proven=False, physical_lock_qualified=False)
 
+
+
+def decode_summary(data: bytes, status: dict, header_bytes: int) -> dict:
+    """Decode owner observations; neither absent events nor GPIO are reconstructed."""
+    records = []
+    hz = status['tick_hz']
+    require(not status['record_count'] or 0 < hz <= 500_000_000, 'Invalid summary clock')
+    require(status['session'] != 0 and status['generation'] != 0, 'Missing summary binding identity')
+    origin = status['schema'] == SUMMARY_ORIGIN_SCHEMA
+    success_fields = ('first_event last_event first_success_offset_ticks last_success_offset_ticks '
+        'residual_min_ns residual_max_ns max_width_ns first_model last_model min_ppb max_ppb model_changes').split()
+    counters = ('service_count success_count rejected_count cancelled_count phase_held_count '
+                'decision_count frequency_applied_count phase_applied_count model_changes').split()
+    compressed = ('max_service_gap_ticks max_success_gap_ticks first_success_offset_ticks '
+                  'last_success_offset_ticks max_width_ns').split()
+    prior_success = None
+    for index in range(status['record_count']):
+        row = dict(zip(SUMMARY_FIELDS, SUMMARY.unpack_from(data, header_bytes + index*RECORD_BYTES)))
+        flags = row['flags']
+        require(row['bin_index'] == index, 'Invalid summary bin index')
+        require(flags & ~sum(SUMMARY_FLAGS.values()) == 0 and
+                row['outcome_mask'] & ~sum(SUMMARY_OUTCOMES.values()) == 0, 'Unknown summary flags or outcomes')
+        start, end = row['observed_start_raw'], row['observed_end_raw']
+        require(start <= end, 'Reversed summary observation time')
+        if records:
+            require(start == records[-1]['observed_end_raw'], 'Discontinuous summary observation time')
+            require(not records[-1]['flags'] & SUMMARY_FLAGS['TERMINAL'], 'Summary after terminal bin')
+        if flags & SUMMARY_FLAGS['TERMINAL']:
+            require(index == status['record_count']-1 and flags & SUMMARY_FLAGS['PARTIAL'],
+                    'Invalid summary terminal bin')
+        if not flags & (SUMMARY_FLAGS['PARTIAL'] | SUMMARY_FLAGS['CLOCK_INVALID']):
+            require(end-start >= hz, 'Short nonpartial summary bin')
+        if row['max_service_gap_ticks'] >= hz or (
+                end-start >= 2*hz and not flags & SUMMARY_FLAGS['PARTIAL']):
+            require(flags & SUMMARY_FLAGS['SERVICE_GAP'], 'Unexplained summary service gap')
+        # The reverse implication is intentionally invalid: SERVICE_GAP also
+        # preserves an unavailable owner-counter snapshot or initial baseline.
+        if flags & SUMMARY_FLAGS['FIELD_SATURATED']:
+            require(any(row[k] == 0xffff for k in counters) or
+                    any(row[k] == 0xffffffff for k in compressed), 'Unexplained summary field saturation')
+        success = row['success_count']
+        require(bool(flags & SUMMARY_FLAGS['NO_SUCCESS']) == (success == 0), 'Summary success flag disagrees')
+        require(row['frequency_applied_count'] <= row['decision_count'], 'Summary apply exceeds decisions')
+        reject_mask = row['outcome_mask'] & (1 | 2 | 8 | 32)
+        cancel_mask = row['outcome_mask'] & (4 | 16)
+        require(bool(reject_mask) == bool(row['rejected_count']) and
+                bool(cancel_mask) == bool(row['cancelled_count']), 'Summary outcome counters disagree')
+        if origin:
+            require(not any(row[k] for k in ('residual_min_ns', 'residual_max_ns', 'cancelled_count',
+                'phase_held_count', 'decision_count', 'frequency_applied_count', 'phase_applied_count')) and
+                not row['outcome_mask'] & ~32, 'Origin summary has follower fields')
+        else:
+            require(not row['outcome_mask'] & 32, 'Follower summary has origin outcome')
+        if not success:
+            require(not any(row[k] for k in success_fields), 'Empty summary has successful event data')
+        else:
+            require(not flags & SUMMARY_FLAGS['UNBOUND'], 'Successful summary is unbound')
+            require(0 < row['first_event'] <= row['last_event'] and
+                    row['first_model'] > 0 and row['last_model'] > 0, 'Missing summary event/model identity')
+            require(0 <= row['first_success_offset_ticks'] <= row['last_success_offset_ticks'] <= end-start,
+                    'Summary success offset outside observations')
+            require(row['residual_min_ns'] <= row['residual_max_ns'] and
+                    -1_000_000_000 < row['min_ppb'] <= row['max_ppb'], 'Reversed or invalid summary extrema')
+            if not flags & SUMMARY_FLAGS['FIELD_SATURATED']:
+                require(row['model_changes'] <= success, 'Summary model changes exceed successful observations')
+                require(row['last_event']-row['first_event']+1 >= success,
+                        'Summary success count exceeds event sequence span')
+            if prior_success:
+                require(row['first_event'] > prior_success['last_event'], 'Summary event rollback')
+            prior_success = row
+        row['flag_names'] = [name for name, bit in SUMMARY_FLAGS.items() if flags & bit]
+        row['outcome_names'] = [name for name, bit in SUMMARY_OUTCOMES.items() if row['outcome_mask'] & bit]
+        row['success_extrema_valid'] = bool(success)
+        row['residual_extrema_valid'] = bool(success and not origin)
+        row['coverage_incomplete'] = bool(flags & (4 | 8 | 16 | 32 | 64 | 128))
+        records.append(row)
+    require(status['match_count'] == min(0xffffffff, sum(r['success_count'] for r in records)) and
+            status['decision_count'] == min(0xffffffff, sum(r['decision_count'] for r in records)),
+            'Summary totals disagree with committed bins')
+    return dict(schema=f"VDC_SUMMARY_TRACE_DECODE_V{status['schema']}", status=status, records=records,
+        coordinate='TIMER1_OWNER_OBSERVATION_TICKS', bytes=len(data),
+        sha256=hashlib.sha256(data).hexdigest(), file_crc32=zlib.crc32(data),
+        counts_describe='Owner operations, not independent frames; reject/cancel counts can overlap across owners.',
+        coverage_describes='Service observations and successful event extrema; empty bins do not mean zero error.',
+        complete_window_proven=False, physical_lock_qualified=False)
 
 
 def decode_timer1_origin(data: bytes, status: dict, header_bytes: int) -> dict:
