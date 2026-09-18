@@ -2995,7 +2995,8 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
             resident && adapter->resident_seeded && adapter->resident_return_ready &&
             adapter->comm_fsm.state == TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY &&
             !adapter->reference_tx_completion_pending && !adapter->pending_tx_evidence &&
-            adapter->phys_origin.admit != NULL) {
+            adapter->phys_origin.admit != NULL &&
+            tdma_pio_spi_ring_origin_seed_valid(adapter)) {
             uint32_t rearm_ticks = 0u, abort_polls = 0u;
             const tdma_origin_admission_result_t admission = adapter->phys_origin.admit(
                 adapter->phys_ctrl_context, &adapter->config, &rearm_ticks, &abort_polls);

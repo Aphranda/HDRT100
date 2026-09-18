@@ -72,6 +72,8 @@ static void tdma_rx_first_window_retire(uint32_t reason, bool stopped) { (void)r
 
 /* Register/physical cleanup boundaries only. All three worker cancellation
  * implementations and the complete adapter implementation are linked below. */
+/* No priority IRQ is installed by this geometry fixture. */
+static void tdma_priority_stop(void) { }
 static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys) { (void)phys; }
 static bool tdma_pio_spi_phys_rx_scan_cancel(tdma_pio_spi_phys_t *phys)
 { (void)phys; return tdma_rx_scan_cancel(&scanner); }

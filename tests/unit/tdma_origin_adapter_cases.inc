@@ -483,7 +483,7 @@ static int test_origin_adapter(void)
     };
     /* A real completed bootstrap window is the sole handoff point. Repeat
      * with a hardware start refusal to prove no legacy resubmission. */
-    for (uint32_t scenario = 0u; scenario < 10u; ++scenario) {
+    for (uint32_t scenario = 0u; scenario < 14u; ++scenario) {
         tdma_pio_spi_ring_adapter_t adapter;
         tdma_flight_engine_t engine;
         tdma_flight_fifo_t fifo;
@@ -528,11 +528,63 @@ static int test_origin_adapter(void)
             remote[TDMA_PROCESS_IMAGE_CRC_OFFSET] = (uint8_t)crc;
             remote[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] = (uint8_t)(crc >> 8u);
         }
+        if (scenario >= 9u) {
+            /* The outer mutable transport CRC does not protect mailbox
+             * contents. Reject candidate bytes before consuming admission;
+             * another complete software-owned return can still start. */
+            uint8_t saved[TDMA_FLIGHT_SHORT_PACKET_SIZE];
+            const size_t saved_size = adapter.last_rx_packet_size;
+            memcpy(saved, adapter.last_rx_packet, saved_size);
+            uint8_t *bad = adapter.last_rx_packet + TDMA_TRANSPORT_FRAME_HEADER_SIZE +
+                TDMA_FLIGHT_SHORT_SLOT_SIZE;
+            if (scenario == 9u) bad[12] ^= 1u; /* CRC failure */
+            if (scenario == 10u) bad[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] = 3u;
+            if (scenario == 11u) bad[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] |= 0x10u;
+            if (scenario == 12u) bad[3] = 0xffu;
+            if (scenario == 13u) adapter.last_rx_packet_size = 0u;
+            if (scenario >= 10u && scenario <= 12u) {
+                const uint16_t crc = tdma_process_image_crc16_ccitt(bad, TDMA_PROCESS_IMAGE_CRC_OFFSET);
+                bad[TDMA_PROCESS_IMAGE_CRC_OFFSET] = (uint8_t)crc;
+                bad[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] = (uint8_t)(crc >> 8u);
+            }
+            const uint32_t admits = p.admission_calls;
+            const uint32_t tx_before = p.bootstrap.tx_calls;
+            p.admission = TDMA_ORIGIN_ADMISSION_READY;
+            failed += expect_bool("origin direct bad seed rejected",
+                tdma_pio_spi_ring_adapter_start_origin(&adapter, 100u, 2u), false);
+            for (uint32_t pass = 0u; pass < 2u; ++pass)
+                failed += expect_bool("origin bad candidate keeps bootstrap alive",
+                    tdma_pio_spi_ring_adapter_ops()->service(&adapter, 3ull + pass, &status), true);
+            failed += expect_u32("origin bad candidate preserves grant", p.admission_calls, admits);
+            failed += expect_u32("origin bad candidate never begins", p.starts, 0u);
+            failed += expect_u32("origin bad candidate never polls", p.prepare_polls, 0u);
+            failed += expect_u32("origin bad candidate no cleanup latch", adapter.origin.active, 0u);
+            failed += expect_u32("origin bad candidate keeps boundary", adapter.comm_fsm.state,
+                TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY);
+            failed += expect_u32("origin bad candidate honors TX deadline", p.bootstrap.tx_calls, tx_before);
+            if (scenario <= 12u) {
+                /* Exercise the actual legacy TX/RX path, whose physical
+                 * fixture supplies a fresh complete follower mailbox. */
+                failed += expect_bool("origin rejected seed still sends next cycle",
+                    tdma_pio_spi_ring_adapter_ops()->service(&adapter, 4003ull, &status), true);
+                failed += expect_u32("origin rejected seed next physical TX", p.bootstrap.tx_calls, tx_before + 1u);
+            } else {
+                memcpy(adapter.last_rx_packet, saved, saved_size);
+                adapter.last_rx_packet_size = saved_size;
+            }
+            failed += expect_bool("origin replacement candidate starts",
+                tdma_pio_spi_ring_adapter_ops()->service(&adapter, 4004ull, &status), true);
+            failed += expect_u32("origin replacement consumes grant once", p.admission_calls, admits + 1u);
+            failed += expect_u32("origin replacement begins once", p.starts, 1u);
+            failed += expect_u32("origin replacement preparing", adapter.comm_fsm.state,
+                TDMA_ADAPTER_COMM_STATE_RESIDENT_PREPARING);
+            failed += expect_bool("origin candidate cleanup", tdma_pio_spi_ring_adapter_ops()->stop(&adapter), true);
+            continue;
+        }
         if (scenario >= 6u) {
             const uint32_t tx_before = p.bootstrap.tx_calls;
             p.admission = scenario == 7u ? TDMA_ORIGIN_ADMISSION_REJECTED : TDMA_ORIGIN_ADMISSION_READY;
             p.fail_start = scenario == 8u;
-            if (scenario == 9u) adapter.last_rx_packet_size = 0u;
             failed += expect_bool("origin automatic boundary handoff",
                 tdma_pio_spi_ring_adapter_ops()->service(&adapter, 3ull, &status), scenario == 6u);
             failed += expect_u32("origin automatic no second TX", p.bootstrap.tx_calls, tx_before);

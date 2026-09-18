@@ -45,6 +45,23 @@ static bool tdma_pio_spi_ring_origin_packet_valid(
     return true;
 }
 
+/* Bootstrap feedback may have a valid mutable transport header while a
+ * follower mailbox is still incomplete. Check the frozen software copy
+ * before consuming the one-shot owner grant or touching physical state.
+ * A rejected candidate stays on the existing bootstrap path until another
+ * completed return arrives; the autonomous running path never calls this. */
+static bool tdma_pio_spi_ring_origin_seed_valid(
+    const tdma_pio_spi_ring_adapter_t *adapter)
+{
+    tdma_transport_frame_view_t view;
+    tdma_transport_result_t result;
+    return tdma_transport_frame_decode(adapter->last_rx_packet, adapter->last_rx_packet_size,
+               &view, &result) &&
+        tdma_pio_spi_ring_origin_packet_valid(adapter, &view) &&
+        view.transport_sequence == adapter->up_sequence &&
+        view.identity_crc32 == adapter->up_tx_frame_crc32;
+}
+
 bool tdma_pio_spi_ring_adapter_set_phys_origin(tdma_pio_spi_ring_adapter_t *adapter,
                                               const tdma_pio_spi_ring_origin_ops_t *ops)
 {
@@ -98,7 +115,7 @@ static bool tdma_pio_spi_ring_adapter_start_origin_impl(tdma_pio_spi_ring_adapte
     tdma_transport_frame_view_t view;
     tdma_transport_result_t result;
     if (!tdma_transport_frame_decode(adapter->last_rx_packet, adapter->last_rx_packet_size,
-            &view, &result) || !tdma_pio_spi_ring_origin_header_valid(adapter, &view) ||
+            &view, &result) || !tdma_pio_spi_ring_origin_packet_valid(adapter, &view) ||
         view.transport_sequence != adapter->up_sequence || view.identity_crc32 != adapter->up_tx_frame_crc32)
         return false;
 
