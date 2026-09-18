@@ -189,10 +189,41 @@ static bool ring_service(void *context, uint64_t time, tdma_ring_adapter_status_
     return true;
 }
 
+static unsigned conditional_stop_calls;
+static bool conditional_stop_allow;
+static bool conditional_stop(void *context)
+{
+    assert(context == &service && service.ring_control_guard == 1u);
+    ++conditional_stop_calls;
+    return conditional_stop_allow;
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
     const char *test = argv[1];
+    if (strcmp(test, "conditional_stop") == 0) {
+        assert(tdma_service_init(&service));
+        service.ring_runtime.config_seq=7u;service.ring_runtime.enabled=1u;
+        uint32_t stopped=99u;
+        assert(!tdma_service_ring_stop_if_current(&service,6u,conditional_stop,&service,&stopped));
+        assert(!conditional_stop_calls && !stopped);
+        service.ring_control_guard=1u;
+        assert(!tdma_service_ring_stop_if_current(&service,7u,conditional_stop,&service,&stopped));
+        assert(!conditional_stop_calls);service.ring_control_guard=0u;
+        assert(!tdma_service_ring_stop_if_current(&service,7u,conditional_stop,&service,&stopped));
+        assert(conditional_stop_calls==1u && service.ring_runtime.enabled);
+        conditional_stop_allow=true;
+        assert(tdma_service_ring_stop_if_current(&service,7u,conditional_stop,&service,&stopped));
+        assert(stopped==8u && conditional_stop_calls==2u && !service.ring_runtime.enabled);
+        assert(service.ring_control_pending==TDMA_RING_CONTROL_RETIRE);
+        assert(!tdma_service_ring_stop_if_current(&service,7u,conditional_stop,&service,&stopped));
+        assert(conditional_stop_calls==2u);
+        service.ring_runtime.config_seq=0u;service.ring_runtime.enabled=1u;
+        assert(tdma_service_ring_stop_if_current(&service,0u,conditional_stop,&service,&stopped));
+        assert(stopped==1u && conditional_stop_calls==3u && !service.ring_runtime.enabled);
+        return 0;
+    }
     if (strcmp(test, "borrowed_reset") == 0) {
         assert(tdma_service_init(&service));
         const uint8_t old_payload[] = {0xA1, 2, 3, 4};

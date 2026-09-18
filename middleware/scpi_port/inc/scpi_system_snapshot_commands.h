@@ -75,6 +75,9 @@ scpi_result_t scpi_cmd_vdc_priority_trace_arm(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_trace_phase_arm(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_trace_summary_phase_arm(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_trace_summary_origin_arm(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_guard_phase_arm(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_guard_origin_arm(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_guard_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_phase(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_phase_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_phase_status_q(scpi_t *context);
@@ -259,6 +262,9 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:PRIORity:TRACe:PHASe", .callback = scpi_cmd_vdc_priority_trace_phase_arm}, \
     {.pattern = "SYSTem:VDC:PRIORity:TRACe:SUMMary:PHASe", .callback = scpi_cmd_vdc_priority_trace_summary_phase_arm}, \
     {.pattern = "SYSTem:VDC:PRIORity:TRACe:SUMMary:ORIGin", .callback = scpi_cmd_vdc_priority_trace_summary_origin_arm}, \
+    {.pattern = "SYSTem:VDC:PRIORity:TRACe:GUARd:PHASe", .callback = scpi_cmd_vdc_priority_guard_phase_arm}, \
+    {.pattern = "SYSTem:VDC:PRIORity:TRACe:GUARd:ORIGin", .callback = scpi_cmd_vdc_priority_guard_origin_arm}, \
+    {.pattern = "SYSTem:VDC:PRIORity:TRACe:GUARd?", .callback = scpi_cmd_vdc_priority_guard_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow:PHASe", .callback = scpi_cmd_vdc_priority_follow_phase}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow:PHASe?", .callback = scpi_cmd_vdc_priority_follow_phase_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow:PHASe:STATus?", .callback = scpi_cmd_vdc_priority_follow_phase_status_q}, \

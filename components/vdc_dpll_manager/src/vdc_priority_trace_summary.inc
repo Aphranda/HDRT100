@@ -119,6 +119,8 @@ static void priority_summary_commit(bool terminal)
     if (terminal) p->flags|=SUMMARY_PARTIAL|SUMMARY_TERMINAL;
     if (!p->success_count) p->flags|=SUMMARY_NO_SUCCESS;
     if (!w->bound) p->flags|=SUMMARY_UNBOUND;
+    priority_guard_note_bin(p->flags, p->max_success_gap_ticks,
+        p->observed_end_raw > p->observed_start_raw);
     if (!s->record_count) s->first_ms=w->summary.first_ms;
     s->last_ms=w->summary.last_ms;
     s->match_count=UINT32_MAX-s->match_count<p->success_count?UINT32_MAX:s->match_count+p->success_count;

@@ -1146,6 +1146,24 @@ bool tdma_service_ring_stop(tdma_service_service_t *service)
     return true;
 }
 
+bool tdma_service_ring_stop_if_current(tdma_service_service_t *service,
+    uint32_t config_seq, bool (*before_stop)(void *context), void *context,
+    uint32_t *stop_config_seq)
+{
+    if (stop_config_seq != NULL) *stop_config_seq = 0u;
+    if (service == NULL || before_stop == NULL ||
+        stop_config_seq == NULL || !tdma_service_ring_control_lock(service)) return false;
+    const bool current = service->ring_runtime.config_seq == config_seq &&
+        service->ring_runtime.enabled != 0u;
+    const bool accepted = current && before_stop(context);
+    if (accepted) {
+        tdma_service_ring_stop_locked(service);
+        *stop_config_seq = service->ring_runtime.config_seq;
+    }
+    tdma_service_ring_control_unlock(service);
+    return accepted;
+}
+
 bool tdma_service_submit_tx(tdma_service_service_t *service,
                                     const tdma_service_intent_config_t *config)
 {

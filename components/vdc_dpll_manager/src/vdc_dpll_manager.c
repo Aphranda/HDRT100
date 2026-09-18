@@ -3067,6 +3067,7 @@ static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phas
 #undef VDC_PRIORITY_TRACE_DECISION_HOOK
 #undef VDC_PRIORITY_TRACE_PHASE_HOOK
 #include "vdc_priority_trace.inc"
+#include "vdc_priority_guard.inc"
 #include "vdc_fixed_output.inc"
 #include "vdc_run_output.h"
 #include "vdc_output_edge_plan.h"
@@ -3155,6 +3156,7 @@ void __attribute__((noinline)) sync_dpll_fb_service(void)
     priority_follow_apply_core1();
     if (session) model_feedback_end_core1(session);
     priority_summary_service(true);
+    priority_guard_service_core1();
 }
 
 void vdc_dpll_manager_dpll_service(void)
@@ -3983,6 +3985,7 @@ static uint32_t vdc_dpll_manager_waveform_find_free_buffer(void)
 void vdc_dpll_manager_core0_service(void)
 {
     run_output_release_core0();
+    priority_guard_service_core0();
     vdc_fixed_output_service_core0();
     vdc_dpll_manager_observation_self_test_service();
     /* NO5 phase-only capture can scan a sustained 10 MHz DMA stream.  Keep

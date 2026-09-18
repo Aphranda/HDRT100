@@ -543,6 +543,12 @@ bool tdma_service_ring_train_clock(tdma_service_service_t *service,
                                    uint32_t cycles);
 bool tdma_service_ring_start(tdma_service_service_t *service);
 bool tdma_service_ring_stop(tdma_service_service_t *service);
+/* Core0 diagnostic stop: under the same control guard as ARM/configuration,
+ * require the exact active config, then invoke a bounded SRAM-only callback.
+ * Acceptance publishes retirement intent; it is not physical retirement. */
+bool tdma_service_ring_stop_if_current(tdma_service_service_t *service,
+    uint32_t config_seq, bool (*before_stop)(void *context), void *context,
+    uint32_t *stop_config_seq);
 void tdma_service_core0_lifecycle_service(tdma_service_service_t *service);
 bool tdma_service_submit_tx(tdma_service_service_t *service,
                                     const tdma_service_intent_config_t *config);

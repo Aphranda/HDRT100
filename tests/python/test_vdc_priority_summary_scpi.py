@@ -13,7 +13,7 @@ def summary_parser(tmp_path_factory):
     directory = tmp_path_factory.mktemp("summary-scpi-parser")
     source = (ROOT / "middleware/scpi_port/src/scpi_sync_commands.c").read_text(encoding="utf-8")
     callbacks = source[source.index("static bool scpi_priority_summary_u32("):
-                       source.index("scpi_result_t scpi_cmd_vdc_priority_trace_arm(")]
+                       source.index("static scpi_result_t scpi_priority_guard_arm(")]
     assert "static scpi_result_t scpi_priority_summary_arm(" in callbacks
     table = (ROOT / "middleware/scpi_port/inc/scpi_system_snapshot_commands.h").read_text(encoding="utf-8")
     registrations = re.findall(r'\{\.pattern = "SYSTem:VDC:PRIORity:TRACe:SUMMary:[^\n]+?\},', table)

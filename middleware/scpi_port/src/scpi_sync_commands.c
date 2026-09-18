@@ -947,6 +947,50 @@ scpi_result_t scpi_cmd_vdc_priority_trace_summary_phase_arm(scpi_t *context)
 scpi_result_t scpi_cmd_vdc_priority_trace_summary_origin_arm(scpi_t *context)
 { return scpi_priority_summary_arm(context, true); }
 
+static scpi_result_t scpi_priority_guard_arm(scpi_t *context, bool origin)
+{
+    uint32_t capture=0u, seconds=0u;
+    bool present;
+    scpi_parameter_t extra;
+    if (!scpi_priority_summary_u32(context,&capture,TRUE,&present) ||
+        !scpi_priority_summary_u32(context,&seconds,TRUE,&present) ||
+        SCPI_Parameter(context,&extra,FALSE) || SCPI_ParamErrorOccurred(context) ||
+        !vdc_dpll_manager_priority_trace_guard_arm(capture,origin,seconds)) {
+        scpi_port_push_exec_error(context,"Priority guard ARM rejected"); return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context,capture); return SCPI_RES_OK;
+}
+scpi_result_t scpi_cmd_vdc_priority_guard_phase_arm(scpi_t *context)
+{ return scpi_priority_guard_arm(context,false); }
+scpi_result_t scpi_cmd_vdc_priority_guard_origin_arm(scpi_t *context)
+{ return scpi_priority_guard_arm(context,true); }
+
+scpi_result_t scpi_cmd_vdc_priority_guard_q(scpi_t *context)
+{
+    vdc_priority_guard_status_t s;
+    if (!vdc_dpll_manager_get_priority_guard(&s)) {
+        SCPI_ResultText(context,"UNAVAILABLE"); return SCPI_RES_OK;
+    }
+    /* Bounded metadata only. No read lease, record scan, CRC or hardware access. */
+    SCPI_ResultUInt32(context,s.schema);
+    SCPI_ResultUInt32(context,s.capture_id);
+    SCPI_ResultUInt32(context,s.session);
+    SCPI_ResultUInt32(context,s.generation);
+    SCPI_ResultUInt32(context,s.target_s);
+    SCPI_ResultUInt32(context,s.state);
+    SCPI_ResultUInt32(context,s.reason_mask);
+    SCPI_ResultUInt32(context,s.first_failure_ms);
+    SCPI_ResultUInt32(context,s.checked_s);
+    SCPI_ResultUInt32(context,s.passed_mask);
+    SCPI_ResultUInt32(context,s.elapsed_ms);
+    SCPI_ResultUInt32(context,s.ring_config_seq);
+    SCPI_ResultUInt32(context,s.stop_config_seq);
+    SCPI_ResultUInt32(context,s.stop_accepted);
+    SCPI_ResultUInt32(context,s.ring_retired);
+    SCPI_ResultUInt32(context,s.output_retired);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_vdc_priority_trace_arm(scpi_t *context)
 {
     uint32_t capture_id;

@@ -43,7 +43,7 @@ def service_exe(tmp_path_factory):
 
 
 @pytest.mark.parametrize("case", [
-    "diagnostic_burst", "stopped_update", "writer", "changed", "window", "miss", "abort",
+    "conditional_stop", "diagnostic_burst", "stopped_update", "writer", "changed", "window", "miss", "abort",
     "resident", "map_admission", "lifecycle", "lifecycle_selected", "lifecycle_pending",
     "borrowed_reset", "reset_stop_ack", "reset_guard", "reset_arm_interleave",
 ])

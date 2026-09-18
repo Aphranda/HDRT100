@@ -34,6 +34,26 @@
 #define VDC_PRIORITY_TRACE_MATCH_INTERVAL_MS 200u
 #define VDC_PRIORITY_TRACE_READ_MAX_BYTES 128u
 
+/* Explicit diagnostic guard, independent of GPIO phase qualification.
+ * Existing summary schemas and record capacity are unchanged. */
+#define VDC_PRIORITY_GUARD_SCHEMA 1u
+#define VDC_PRIORITY_GUARD_CHECKPOINT_S 60u
+#define VDC_PRIORITY_GUARD_MAX_SECONDS 600u
+enum { VDC_PRIORITY_GUARD_DISABLED, VDC_PRIORITY_GUARD_ARMED,
+    VDC_PRIORITY_GUARD_RUNNING, VDC_PRIORITY_GUARD_PASS, VDC_PRIORITY_GUARD_FAIL };
+enum { VDC_PRIORITY_GUARD_EARLY_FREEZE = 1u << 16,
+    VDC_PRIORITY_GUARD_SUCCESS_GAP = 1u << 17,
+    VDC_PRIORITY_GUARD_COVERAGE = 1u << 18,
+    VDC_PRIORITY_GUARD_RING_READ = 1u << 19 };
+/* Low eight reason bits retain summary anomaly flag meanings. PARTIAL and
+ * TERMINAL alone are not failures. Core0 appends actual stop/retirement facts
+ * to the stable Core1 verdict; acceptance never implies physical retirement. */
+typedef struct {
+    uint32_t schema, capture_id, session, generation, target_s, state;
+    uint32_t reason_mask, first_failure_ms, checked_s, passed_mask, elapsed_ms;
+    uint32_t ring_config_seq, stop_config_seq, stop_accepted, ring_retired, output_retired;
+} vdc_priority_guard_status_t;
+
 enum {
     VDC_PRIORITY_TRACE_IDLE = 0u, VDC_PRIORITY_TRACE_ARMED = 1u,
     VDC_PRIORITY_TRACE_RUNNING = 2u, VDC_PRIORITY_TRACE_FROZEN = 3u,
@@ -136,6 +156,9 @@ bool vdc_dpll_manager_priority_trace_origin_arm(uint32_t capture_id);
 bool vdc_dpll_manager_priority_trace_summary_arm(uint32_t capture_id, bool origin);
 bool vdc_dpll_manager_priority_trace_summary_window_arm(uint32_t capture_id,
     bool origin, uint32_t interval_ms);
+bool vdc_dpll_manager_priority_trace_guard_arm(uint32_t capture_id,
+    bool origin, uint32_t duration_s);
+bool vdc_dpll_manager_get_priority_guard(vdc_priority_guard_status_t *out);
 bool vdc_dpll_manager_priority_trace_stop(void);
 bool vdc_dpll_manager_priority_trace_release(void);
 bool vdc_dpll_manager_get_priority_trace(vdc_priority_trace_status_t *out);
