@@ -204,3 +204,18 @@ FIFO 执行余量，固定映射不消除真实模型更新造成的未来周期
 `ACCEPT_V14_PENDING_SEMANTICS_NO_PRODUCT_RELEASE_CLAIM`，原件位于上述根的
 `design-review/c11-v14-semantic-independent-r1.json`。固定范围 P3 与输出专项
 仍分别判定，实施事实及最终复核见 Task Progress，不由本条授予物理验收通过。
+
+## 相位中点控制估计增补（v17 pending）
+
+本次相位 acquisition 使用已准入 residual 区间的向零取整中点，反向限幅作为
+控制量；原始区间、同事件绑定、频率优先、有限更新间隔、完整模型回执及累计
+平移归一化仍保留。中点是控制估计，不能替代真实时间戳区间或物理精度。
+历史最近端点相位原件继续按旧规则解码，新策略由独立原生 schema 标识。
+
+独立方 `origin_bracket_audit` 初审指出旧 decoder 会拒绝合法中点修正，要求
+策略版本化及真实 producer 到 decoder 联通回归。该问题已补实现及正负测。
+最终独立结论为 `ACCEPT_V17_PENDING_SEMANTICS_AND_FINITE_DEBUG_SLICE_NO_PRODUCT_LOCK_CLAIM`，
+无剩余阻断发现；核验主机测试、最终源码 P3、四轮原生解码与波形 hash、STOP/参数恢复。
+原件为下述证据根的 `c11-v17-independent-review.json`。有限近邻边沿窗口不替代同 ordinal、
+持续实际输出、独立路径校准或 VDC 最终发布，RAM 与既有资源文本失败继续保留。
+证据根为 `out/HardwareAcceptance/20260918/dpll-phase-center-r1/`，登记保持 pending。

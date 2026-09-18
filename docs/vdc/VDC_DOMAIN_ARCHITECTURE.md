@@ -746,8 +746,10 @@ ring/role/clock/ARM/observer/RX/path 绑定、事件年龄和实际本地 DCO �
 有效边界之后的事件重新建立基线，不能重新投影先前事件来延续旧窗口。
 
 显式调试采集模式 `FOLLow:PHASe` 默认关闭，Core0 仅在 STOP 配置，Core1 在
-新的 FOLLOW 绑定一次锁存。已准入同事件 residual 完全位于零的一侧时，以最近
-零边界生成相反方向的有限相位平移；跨零保持，工作间隔与单步上限分别由
+新的 FOLLOW 绑定一次锁存。已准入同事件 residual 的两端中点向零取整，作为相位
+控制估计，再反向限幅生成有限平移；中点估计为零才保持，包括非对称跨零区间在内
+均按相同规则处理。中点不代表真实事件被测准，MATCH/expected/residual 上下界必须
+原样保留；不得用估计值替代观测区间或锁相质量。工作间隔与单步上限分别由
 `VDC_PRIORITY_PHASE_MIN_INTERVAL_MS`、`VDC_PRIORITY_PHASE_MAX_DELTA_NS` 约束。
 非零频率提案优先，本次服务不再尝试相位；暂忙、拒绝和采样缺失不退还已消耗机会。
 Domain 的 `vdc_domain_apply_local_follow_phase_delta` 完成检查后仅平移 `base_vdc` 并
@@ -764,6 +766,8 @@ valid_from 与运行绑定，不凭相同 rate 或 base 差推断授权。新事
 `FOLLow:PHASe:STATus?` 仅在 STOP 读取；Domain 已提交与最终发布已确认分别计数。
 原生 `TRACe:PHASe` 使用 `VDC_PRIORITY_TRACE_PHASE_SCHEMA`，仅最终确认后记录
 PHASE 的前后模型、DCO、实际 base 平移与累计量。旧 schema 不得混入相位语义；
+中点策略具有独立 schema，解码器按记录版本复验中点取整及限幅，历史最近端点
+版本继续使用原规则，不能通过放宽历史解码掩盖策略差异。
 有限记录满后冻结，只证明已保存前缀，最后一条频率决定不再代表最终 DCO。
 
 输出独立补偿通过 `SYSTem:VDC:OUTPut:DELay <有符号十进制整数ns>` 与 `DELay?` 读写请求值，

@@ -22,6 +22,46 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-045：冻结记录恢复与 Core1 相位中点策略
+
+- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003`；父任务 IN PROGRESS。数字为有限实测
+  快照，非发布或精度契约。旧算法输出补偿 `0/-120/-168/-232 ns` 的 r3/r4 两轮完整通过，
+  三从有限窗口约 `0..+40 ns` / `-20..+20 ns`；此前约 -200 ns 轮仍保留，不宣称重复性闭合。
+- 044 的 NO2 RAM 格式错误原始返回是 `<timeout>`，并有末态 -200；不是收到损坏页。
+  未重新 ARM 的冻结记录恢复得到 7768 B，完整 CRC、schema 解码和此前 32 页逐字节一致。
+  原失败不改写，见 `dpll-late-arm-r1/midpoint-r2/recovered-no2/`。固件只读链有快照/所有权
+  暂忙拒绝，具体触发分支未记录；不以增大超时或放宽解析解决。r3/r4 后续完整导出成功，
+  不能据此称瞬时读取拒绝已修复。该问题不阻止新的完整专项继续推进物理主线。
+- 独立复核确认旧 `priority_phase_delta()` 只推向最近零端点，宽区间会依接近方向停在
+  两侧。旧实测末态 `[-194,-2]` 与 `[8,200] ns` 和该机制一致，但末态非波形同窗，
+  不声称已完成唯一因果归因。改为残差区间向零取整的中点，先限幅再取负；完整区间、
+  频率优先、更新间隔、发布回执、累计平移归一化、STOP/身份取消不变。中点仅为控制估计。
+- 初审发现 decoder 仍按旧端点规则拒绝合法新控制，故增加独立相位 schema 6，历史
+  schema 4 保持严格原规则。真实 Core1 非对称跨零记录经实际 producer/decoder 联通，
+  并覆盖 int64 两端、无界整数 oracle、限幅、历史错标、错误中点、模型/累计量及生命周期。
+  六套主机回归 567 项通过，JUnit 为 `out/pytest/phase-center-20260918-r4.xml`。
+- Release A/B 和 Flash link 通过；RAM 余量仍 20296 B，正式 49152 B 门限不满足，
+  继续已授权临时许可。八项既有 SYNC 资源文本失败保留，其输入与 HEAD 按 LF 归一后相同。
+  证据根 `out/HardwareAcceptance/20260918/dpll-phase-center-r1/` 的 `resource-inputs.json`
+  及日志不冒充正式资源全绿。P3 r1 错把复用摘要当原拓扑而在硬件前拒绝；r2 为记录版本
+  修复前的中间源码验收。最终源码 `p3-phase-center-r3/` quick P3 约 232.9 秒，
+  PASS_WITH_WARNINGS、INFO/WARN/ERROR/FATAL=23/22/0/0；DPLL SKIPPED，TDMA 严格失败保留。
+- 新策略零 output delay 两轮 `zero-r1/r2` 均完整通过，NO2/NO3/NO4 相位中位分别约
+  `+39/+87/+160 ns`、`+20/+80/+160 ns`。NO1 schema5/三从 schema6 解码、末态真实 DCO
+  一致性、四板 STOP 和恢复通过。观测仍为静默约七秒后的有限窗口、20 ns 网格、近邻
+  modulo 周期配对，不替代同 ordinal 及全时段证明。后续按合并范围中心设置
+  `0/-28/-88/-160 ns` 输出候选，独立验证物理重复性，不修改 path delay。
+- 同候选 `compensated-r1` 完整通过，NO2/NO3/NO4 相对 NO1 的有限波形范围约为
+  `-20..+20/0..+38/-40..0 ns`。仅输出 RAM 配置改变，运行期间零查询，STOP 后参数恢复；
+  原生重放与真实 DCO 末态一致。`comparison.json` 绑定原件 hash、请求/实际/恢复值、
+  会话、版本、DCO 和波形。`compensated-r2` 同参数复测完整通过，范围约
+  `-21..+20/-21..+20/-39..+1 ns`；两轮有限窗口均在 100 ns 内，各 199 组近邻配对。
+  不提升为全时段、同 ordinal、跨重上电或最终 VDC 发布已验收。
+- `origin_bracket_audit` 最终独立复核通过 v17 pending，无剩余阻断；核验 16 份原生
+  解码和 160 个波形块 hash，原件为上述证据根 `c11-v17-independent-review.json`。
+  代码/匹配凭证提交为 `c24e06dd`，staged 指纹与 P3 门禁通过；文档独立提交。
+  下一 gate 为更长观测及启动样本、同 ordinal/实际持续输出与时间误差预算闭合。
+
 ### VDC-PROGRESS-20260918-044：中点输出补偿的两轮逼近复测
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003`；父任务仍为 `IN PROGRESS`。本条数字是
