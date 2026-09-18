@@ -124,6 +124,27 @@ Last updated: 2026-09-18
   bridge/PIO enable 锚、共同 ordinal、相位斜率和 STOP 状态；任何候选值先停留在
   RAM 调试配置，不直接写入 Flash。
 
+### VDC-PROGRESS-20260918-027：候选 output delay A/B 完成并恢复零值
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条为独立启动
+  会话的输出补偿诊断快照；只在 STOP 状态通过 SCPI 写入 RAM 请求，未执行 Flash 保存、
+  OTA 或固件/PIO 修改，采样结束后四板均恢复 `0 ns` 并读回无错误。
+- 候选值为 NO2 `+440 ns`、NO3 `+60 ns`、NO4 `-240 ns`，依据上一零 delay 会话的
+  有限相位快照生成。证据根为
+  `out/HardwareAcceptance/20260918/dpll-bridge-export-delay-candidate-r8/`，对比文件为
+  `delay-candidate-comparison.json`；四板示波器仍使用 NO1 CH1 上升沿触发，四路各
+  200 个边沿、共同 ordinal 成立，运行期间零查询且安全 STOP。
+- 本次候选会话相位中位为 NO2 约 `+659 ns`、NO3 约 `-280 ns`、NO4 约 `+42 ns`。
+  相对 `VDC-PROGRESS-20260918-026` 的跨会话变化分别约 `+1098 ns`、`-220 ns`、
+  `-198 ns`；NO4 进入 100 ns 量级，但 NO2/NO3 没有按候选值呈现可重复的固定增益。
+  因此这些结果只证明 output delay 能影响边沿，不能推导持久校准或 path delay。
+- 同会话四板运输、匹配、ACK 和 local follow model 仍有效；当前首要缺口收敛为启动后
+  DCO/PIO 输出映射状态的可重复性，以及 output delay、path delay、bridge/enable 和
+  频差残差的独立误差预算。不能宣称四板 100 ns 锁相或 VDC 正式发布。
+- 下一 gate：保持 output delay 零值，先用同一 DCO 状态或明确的收敛窗口重复零值基线，
+  再只改变一个 output delay；比较共同 ordinal 的相位变化与 bridge/enable 锚，候选值
+  继续只留在 RAM 调试配置。
+
 ### VDC-PROGRESS-20260918-021：NO1 OUT4 外部触发路径未捕获
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条为触发路径
