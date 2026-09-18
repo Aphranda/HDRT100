@@ -22,6 +22,65 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-006：内部探针六十秒跟随实证与启动边界
+
+- TODO task ID：`VDC-OBS-006`、`VDC-OBS-007`，继续 `IN PROGRESS`。本条所有数值为
+  2026-09-19 实验快照，非产品事实源。运行期无主机查询、无 SD/USB 导出；Core1 原有
+  summary 路径仍执行有界取时/计数/极值更新，不宣称零 CPU 开销或 GPIO 精度。
+- 新工具 `tools/vdc_priority_trace/vdc_priority_trace_capture.py` 修复 context manager、
+  纯 OK 回包、CLI 时长类型及 trace 生命周期；新会话完全 STOP 下 ARM trace/ACK，
+  然后 TDMA ARM、各独立端口有界并行 START、origin trial、静默等待，最后全板
+  STOP/读回后统一冻结、CRC 下载和 RELEASE/ACK。恢复模式不宣称旧运行全程静默；
+  FULL、无输入、短覆盖、服务缺口、计数重置和下载失败均保留，未导出记录不释放。
+  当前槽池只允许工具 `MAX_QUIET_SECONDS` 窗口，禁止等待更久后将前缀写成全程。
+- `internal-summary-r1/` 回收旧 capture 9401..9404：四板约两秒空记录，CRC 和
+  RELEASE 均成功。只读复核指出 trace 将 ARM/TRAIN 视为已运行，TRAIN→DATA 的
+  adapter 临时退休触发 STOP 冻结；通用 start-ring 也未完整复用优先路径配置。
+  改用既有测量矩阵、TAP、load mask、新 SYNC/MATCH/FOLLOW/phase 和 origin grant，
+  不重测线序、不在 trace ARM 后 TRAIN。未修改固件或 OTA 实现。
+- 四板 P3 `p3-internal-summary-r2/` 首轮失败：NO3 START 超时、缺四板末态记录；
+  P0/P3 通过，失败保留。同固件 resume 的 `p3-internal-summary-r3/` 为
+  `PASS_WITH_WARNINGS`，无 ERROR/FATAL。工具后续并行 START 的最终指纹验收见
+  `p3-internal-summary-r4/` 也为 `PASS_WITH_WARNINGS`，ERROR/FATAL 均为零；最终
+  staged 指纹以原始 `acceptance.json` / `alarms.json` 和 check-staged 为准。
+- 专项 r2 在子进程参数类型检查前退出，四板已恢复；r3 串行 START 的六十秒采集
+  无有效匹配，NO1 记录不足一秒，三从空段及饱和完整保留。改回已验证的有界并行
+  START 后，r4 五秒实测三从均匹配并更新控制。不能仅凭这次 A/B 把全部启动失败
+  归因为串口启动偏差；保留 source/handoff 原件作为后续重复性证据。
+- `internal-summary-r5/` 完成静默 60.0 秒，运行查询数 0，全板 STOP、CRC、RELEASE
+  和 RAM 参数恢复均成功。NO1 有效发布观察 10388 次；NO2/NO3/NO4 有效匹配为
+  8091/8072/8125 次，首末成功事件跨度各约 60.45 秒；调频更新 14/16/29 次，
+  相位更新 544/554/564 次。四板无 SERVICE_GAP、CLOCK_INVALID、UNBOUND 或字段
+  饱和，证明内部观测能看到持续跟随与实际控制更新，不是靠末态零调频推断锁定。
+- 严格整轮报告仍 `passed=false`：NO1 第一段保留 COUNTER_RESET，NO2 最后一段
+  约 18.2 ms 为 PARTIAL/NO_SUCCESS/TERMINAL；不能抹掉边界段来追求全绿。
+  NO2–NO4 在本地记录起点十秒后的残差区间极值分别为 −116..112、−140..105、
+  −114..111 ns；这些是区间观测，不是 GPIO 边沿误差。每板最大服务间隔约
+  5.98/19.70/21.64/19.62 ms，未触发 summary 的秒级 SERVICE_GAP 不等于逐周期
+  确定性验收。图和离线汇总位于 `internal-summary-r5/capture/analysis/`。
+- 软件测试：summary/capture 共 94 项通过；并行 START 后 capture 21 项再次通过。
+  文档门禁与其 38 项测试通过。证据统一在 `out/HardwareAcceptance/20260919/`。
+  下一 gate：把初始化计数重置与 STOP 终止尾段显式分级，保留原始 flags；在现有
+  SRAM 池内设计可配置汇总跨度/累计检查点，处理计数及长间隔饱和后验证连续
+  120–600 秒。扩窗属于后续独立固件切片，须重新 host/Release/四板 P3；内部探针
+  与外部同窗 A/B 的开销和 GPIO 精度对照仍待完成，不授予 VDC 正式发布。
+
+### VDC-PROGRESS-20260919-005：无示波器内部长期跟随探针接续
+
+- TODO task ID：`VDC-OBS-006`、`VDC-OBS-007`，继续 `IN PROGRESS`。在已有外部示波器
+  分钟检查点策略之后，补充 `tools/vdc_priority_trace/vdc_priority_trace_capture.py`。
+  工具对各板 ARM `VDC_PRIORITY_TRACE_SUMMARY_PHASE_SCHEMA`，静默等待时不发送任何
+  SCPI 查询；结束后才 STOP、等待冻结、分页读取原生 SRAM、校验 CRC、离线解码并
+  RELEASE。输出 `summary.json`、每板原件和 `decoded.json`，保留 coverage incomplete、
+  SERVICE_GAP、COUNTER_RESET、CLOCK_INVALID、终止段等事实。
+- 主机测试 `tests/python/test_vdc_priority_trace_capture.py` 已通过 2 项，覆盖 ARM
+  命令/时长边界和静默区间零查询。该工具尚未以当前源码指纹完成四板 P3，也尚未
+  形成新的实板内部探针证据；不能把 host 通过写成锁相或长稳通过。
+- 下一 gate：先运行当前源码 quick P3，再在四板保持已验证 TDMA/DPLL 配置下做短时
+  内部探针闭环；确认 ARM/STOP/CRC/RELEASE 和每板 summary 连续后，再按既有长时
+  检查点扩展到长期 profile。内部探针只判定跟随、缺口、服务裕量和 DCO/相位残差，
+  外部示波器恢复后仍需同窗 GPIO 边沿对照。
+
 ### VDC-PROGRESS-20260919-002：分钟检查点连续六百秒通过
 
 - TODO task ID：`VDC-DRIFT-001`、`VDC-PRECISION-001`、`VDC-RUN-001`，仍为
@@ -2259,65 +2318,6 @@ Last updated: 2026-09-19
   本轮无新波形；外部剩余漂移仍以进度 022 的两段独立波形为准。
   ACK、实时换模型、100 ns 锁相和一致 VDC 发布继续保持未完成。
 
-### VDC-PROGRESS-20260917-022：外部反馈驱动的有界跟随响应试验
-
-- TODO task ID：`VDC-FAST-003`；父任务 IN PROGRESS。证据根为
-  `out/HardwareAcceptance/20260917/dpll-follow-response-r1/`；以下数字均为
-  本轮试验快照，非产品事实源或物理精度契约。
-- 在进度 021 的已采用模型上保持原四分之一响应，追加有限静默窗口建立基线。
-  独审核验 165 次 MATCH、29 条决定；三从实际更新 1/1/5 次，末态
-  1167/1361/3598 ppb，NO1 前后 1492→1384 ppb。NO2/NO3 的同一 baseline
-  确实走到后档后更新，不能把早档跨零保持解释成未接收或未执行。
-- 追加基线的新鲜固定模型四通道采集通过：相对 NO1 的三从条件频差约为
-  [−477,−402]/[−442,−388]/[−682,−603] ppb，仍偏慢。
-  与旧窗口的差异含参考变化及继续运行，不是控制增益的隔离 A/B 结论。
-- 单因素候选只调整 `priority_follow_delta()` 的最近零界响应，保留原区间、
-  窗口、deadband、单步和总限幅、生命周期、连续 Domain 提交及 NO1 PI。
-  从四分之一改为二分之一；这是当前策略试验，代码为事实源。没有缩窄远端
-  区间或用中点代替确定方向，也不改普通 AUTO/RefMem 路线的控制策略。
-- 实际倍率关系为 `R_new=R*(1e9+current+delta)/(1e9+current)`，不能声称误差
-  精确减半。host 核对当前试验频率范围的方向、截断、饱和及不越零响应；
-  软件可表示的极低倍率只证明数值/限幅安全，不扩展为全配置稳定性保证。
-  静止数学轨迹不是硬件收敛或锁相证据。
-- 候选八模块 417 项通过，按独审建议补充显式截断/饱和断言后跟随模块 57 项通过；
-  导入后三个相关模块 82 项通过。以上有重叠，不相加为不同测试数量。
-  实现独审确认仅响应比例和对应测试变化；采集器仅适配 STOP 后的决定复算，
-  不增加运行查询。保留旧采集器和基线原件。
-- Release build `20260917091644`、源码指纹
-  `0efc73091de851f479dfacf9016e1997292b7ef15ff959f20a4343fa1f96d164`
-  通过双槽资源重建及同源码四板 quick P3。可用 RAM 33040 B、静态增量零，
-  当前 persona 条件下 Core1 最大栈 2872/3072 B；链接调用图无新增边。
-  P3 为 24 INFO/21 WARN，无 ERROR/FATAL；相对进度 021 新增 T0 residence
-  质量失败、对应执行反馈及继承的 T3 矩阵质量告警。有效输入/运输仍通过，
-  不将旧或新增质量失败抹去，也没有隔离证明告警由增益变化造成。
-- 第一段原生独审 165 次 MATCH、40 条决定，三从实际更新 7/8/8 次；
-  末态 609/729/3078 ppb，NO1 791→793 ppb。逐条核到二分之一规则的真实
-  Domain 采用，末次 +54/+52/+93 ppb；新鲜四板固定输出批次均完成。
-  外部条件频差约为 [−473,−403]/[−538,−458]/[−577,−518] ppb，仍偏慢。
-- 保持候选固件与已采用 rate 再运行一个有限静默窗口，独审确认初态继承。
-  第二段 165 次 MATCH、38 条决定，三从再更新 8/8/9 次，末态
-  1718/1894/4317 ppb。NO1 起止查询 793→1905 ppb，三从新增
-  +1109/+1165/+1239 ppb；查询包含启动过程，缺少同窗轨迹，不能分配
-  具体因果或将累计 rate 增加直接解释为消除静态误差。
-  NO2/NO3 末次区间 [−875,13]/[−979,85] ppb 跨零保持；NO4 仍更新 +33 ppb。
-  第一段末次远端差分区间宽度为 1610/1610/1606 ns；第二段为
-  1598/1598/1334 ns，本地差分宽度均为 1 ns，按各段原生记录分别绑定。
-- 第二段绑定末态模型的固定输出也成功，三从相对 NO1 条件频差约为
-  [−456,−402]/[−469,−388]/[−464,−357] ppb。两段分别核原始块、模型及整数
-  计划，不能跨不同模型合并区间。所有频差界均依赖采样单元/定频假设，
-  不包含已标定模拟时变误差；两段斜率仍未消除，未授予精度达成。
-  四板与示波器已实际 STOP，会话清空、PIO/DMA idle，示波器无错误。
-- 当时下一 gate（后由进度 023 承接）：先关联同窗 NO1 参考变化与从板误差，核远端编码宽度和参考
-  响应延迟，再决定下一单因素调整；不盲目继续提高增益。
-  当前三段记录没有 NO1 的中间 rate 轨迹，起止 MODEL 不能补齐缺失样本。
-  优先复用既有 schema 2 ORIGIN 的 rate/DCO/事件/编码记录；其有限容量满即冻结，
-  先核同窗短前缀的实际覆盖，不能声称覆盖整个跟随窗口或先新增遥测。
-  三栏原始边沿漂移图见本根 `analysis/relative-phase-three-runs.svg`，各栏按
-  自己的模型独立归零；不同参考/初态，不作为受控 A/B 或绝对相位证明。
-  不将 quick P3、频率方向或静止模型输出当成
-  ACK、实时换模型、绝对相位、100 ns 锁相或一致 VDC 发布完成。
-  代码已提交 `d365f2e`，真实 pre-commit 已核暂存源码对应 P3 凭证。
-
 ## 进度记录
 
 （本节历史条目已按 C14 轮转，见文末 `## 归档索引`。）
@@ -2342,6 +2342,7 @@ Last updated: 2026-09-19
 
 | 文件 | ID 区间 | 条目数 | 归档日期 |
 |---|---|---|---|
+| `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_05.md` | VDC-PROGRESS-20260917-022..VDC-PROGRESS-20260917-022 | 1 | 2026-09-19 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_04.md` | VDC-PROGRESS-20260917-021..VDC-PROGRESS-20260917-012 | 9 | 2026-09-18 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_03.md` | VDC-PROGRESS-20260917-011..VDC-PROGRESS-20260917-011 | 1 | 2026-09-18 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_02.md` | VDC-PROGRESS-20260917-010..VDC-PROGRESS-20260917-001 | 10 | 2026-09-18 |

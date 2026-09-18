@@ -40,6 +40,29 @@ Last updated: 2026-09-19
 独立重新触发，记录遗漏与传输耗时。持续运行与 ±100 ns 持续精度分别判定，
 发现长期漂移时保留整轮数据，并将定位更新停滞或控制误差作为下一切片。
 
+外部示波器不可用时，使用内部有界探针：NO1 使用
+`VDC_PRIORITY_TRACE_SUMMARY_ORIGIN_SCHEMA`，从板使用
+`VDC_PRIORITY_TRACE_SUMMARY_PHASE_SCHEMA`。运行前在完全 STOP 状态配置新会话并
+ARM trace/确认 ACK，再 TDMA ARM/START；复用已验收矩阵和 TAP，不在 trace ARM 后
+重做 TRAIN。运行期间只由 Core1 在共享有界 SRAM 中按
+`VDC_PRIORITY_TRACE_SUMMARY_INTERVAL_MS` 汇总服务间隔、有效匹配、拒绝、DCO/相位
+极值和模型变化。service/success 路径仍有有界计数、取时和极值更新开销，不能称绝对
+零扰动；静默期间无主机查询和 SD/USB 实时导出。结束后先完成全板 TDMA STOP/确认，
+再统一冻结、分页读回、CRC 解码和 RELEASE/ACK。完整覆盖、有效输入和控制动作分别
+判定：空段不是零残差，零调频不是故障，服务/成功最大间隔必须保留。
+
+当前 `VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES` 与固定 summary 间隔只支持有限
+记录，主机工具以 `MAX_QUIET_SECONDS` 限制首轮静默检查窗口（当前配置快照：60 秒）。
+120–600 秒连续内部证据需下一切片扩展有界汇总跨度或累计检查点，并复验计数饱和、
+时间间隔溢出、最坏开销和覆盖边界；不得拼接重启段冒充连续运行。内部探针可判断
+跟随、缺口和 DCO 收敛，不能替代 GPIO 实际边沿精度；外部波形可用后需同窗对照。
+
+首轮六十秒内部实板验证已完成：三从成功事件跨度覆盖该时长，持续匹配、调频和
+相位更新均有原生记录。整轮严格判定仍保留 NO1 初始化计数重置与 NO2 STOP 尾段
+空窗；后续先独立标记启动/运行/停止边界，再扩展连续内部窗口，不抹除原始失败。
+证据和服务间隔、残差范围见 `VDC-PROGRESS-20260919-006`；`VDC-OBS-007` 保持
+IN PROGRESS，外部无扰 A/B、完整长窗与正式发布门禁尚未闭合。
+
 ### 快速迭代检查点
 
 持续专项仍每 5 秒触发一次四路外部短窗；只在 60、120、180、240、300、360、
@@ -1202,7 +1225,8 @@ PIO/DMA EDGE_TIMESTAMP producer
 | `VDC-OBS-003` | 完成离线 decoder、缺口审计、NO1--NO4 收敛曲线和 SVG：图例必须绑定 node/channel/edge mask/timebase，缺失数据不得被插值伪装。 | PENDING | `VDC-OBS-002`, `SYNC-LA-006` | decoder 可重放所有完整段；输出曲线、缺口、dropped count、质量等级和输入指纹一致；坏段可定位且不影响其他段。 |
 | `VDC-OBS-004` | 建立 NO1--NO4 内部 DPLL 与 NO5 外部观测的同窗关联：共同时间基、TDMA sequence anchor、capture generation、SD segment sequence 和外部线缆观测边界。 | PENDING | `VDC-OBS-002`, `VDC-OBS-003`, `SYNC-LA-008` | 关联结果能区分内部环路收敛、外部链路异常、SD 背压和观测缺口；NO5 不进入 DPLL 控制或 formal promotion。 |
 | `VDC-OBS-005` | 将 SCPI 调参、串口闭环状态、residual/frequency/reject/lock feedback 与分段观测统一记录，支持小步搜索、等待稳定窗口、评分、回退和参数 generation 对账。 | PENDING | `VDC-OBS-003`, `VDC-SERVO-002`, `VDC-ROLE-003` | requested/applied generation、active profile CRC、role profile/follow source/control generation、原始命令、状态读回、raw debug gate/continuation count 和回退结果齐全；异常参数或可恢复 admission 在 debug profile 留证，不自动宣称 formal lock。 |
-| `VDC-OBS-006` | 建立分级长期 soak 与发布验收：短时调试、工程长稳、发布级长稳均使用同一 segment/decoder/关联格式，并验证断电续采、SD 背压和 TDMA 无扰动。 | PENDING | `VDC-OBS-004`, `VDC-OBS-005`, `VDC-RUN-001` | 各级验收 profile 明确采样时长、允许/禁止的 drop、恢复点和退出条件；原始证据、失败事实和回退点完整，才可评估长期 `FORMAL_LOCKED`；结果输入 `VDC-VERIFY-001`，不反向依赖总验收关闭。 |
+| `VDC-OBS-006` | 建立分级长期 soak 与发布验收：短时调试、工程长稳、发布级长稳均使用同一 segment/decoder/关联格式，并验证断电续采、SD 背压和 TDMA 无扰动。 | IN PROGRESS | `VDC-OBS-004`, `VDC-OBS-005`, `VDC-RUN-001` | 各级验收 profile 明确采样时长、允许/禁止的 drop、恢复点和退出条件；原始证据、失败事实和回退点完整，才可评估长期 `FORMAL_LOCKED`；结果输入 `VDC-VERIFY-001`，不反向依赖总验收关闭。外部示波器连续检查已完成首轮，仍需内部探针和重复性闭合。 |
+| `VDC-OBS-007` | 完成无示波器内部长期跟随探针：使用 summary schema 的 Core1 有界 SRAM 记录，STOP 后统一导出/解码，形成每板跟随完整性、服务间隔、拒绝/缺口、DCO 更新和相位残差报告。 | IN PROGRESS | `VDC-OBS-004`, `VDC-OBS-006` | `vdc_priority_trace_capture.py` 在运行期间零主机查询、零 SD/USB/RTOS 实时写入；至少完成短时与长期 profile 的四板 ARM/STOP/CRC/RELEASE 闭环。内部结果只判定跟随和连续性，不能替代外部 GPIO 边沿锁定。 |
 
 观测扩展不得跳过 `VDC-TDMA-001`、`VDC-CAL-001`、`VDC-EVID-001` 的正式门禁；在正式
 evidence 未闭环前，观测与调参结果只能标记为诊断或 tracking candidate。分段长期观测
