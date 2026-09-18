@@ -289,3 +289,19 @@ r4 完成后，独立方再次核验四板原生/分页 CRC、解码及十个分
 原生 CRC、示波器 RAW 与 STOP/RELEASE/恢复，原件为同根
 `publication-final-evidence-review.json`。支持限定的发布刷新修复；保留 START 前
 超时、示波器漏窗和 NO1 初始化计数重置，不批准严格长时或正式锁相完成。
+
+## 汇总代际基线修复（VDC-PRIORITY-01 v21 pending）
+
+新 capture 早于首个新 TX owner 调用时，旧代拒绝计数不得作为当前代基线。
+尚无当前代基线时，首次当前代快照按 TX owner 的零初始化累计拒绝；开窗已有
+当前代基线则只累计后续增量。同代回退、读取失败和已采当前代
+后再次异代仍保留异常。不忽略整个首段，不修改 schema、布局、池大小或解码门禁。
+独立方 `internal_probe_review` 已复核真实 owner 正负对照、边界条件及文档，
+同意 v21 pending，未发现阻断项；旧版本负对照复现八个预期失败，新增十四项
+通过（本轮测试快照）。原件为
+`out/HardwareAcceptance/20260919/internal-generation-r1/independent-review.json`。
+后续已核验匹配源码 P3 的指纹及引用 hash，以及短窗/长窗原生 CRC、分钟离线
+交集、STOP/RELEASE/末态恢复；原件为同根 `p3-independent-review.json`、
+`capture-60s-independent-review.json`、`capture-600s-independent-review.json`。
+短窗严格通过，长窗覆盖完整且持续成功跨度超过六百秒，但 START 前诊断 timeout
+引入的首成功间隔超限、恢复队列错误及原始 FAIL 均保留，不授予严格整轮或物理锁相。
