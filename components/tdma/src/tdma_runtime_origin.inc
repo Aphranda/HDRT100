@@ -55,7 +55,7 @@ bool tdma_runtime_owner_request_origin_release(uint32_t trial_epoch, uint32_t co
         !tdma_runtime_owner_get_ring_snapshot(&ring) || !ring.enabled || !ring.adapter_started ||
         ring.config_seq != config_seq || ring.applied_config_seq != config_seq)
         return tdma_runtime_owner_origin_release_reject(TDMA_ORIGIN_RELEASE_ATTEMPT_STALE);
-    if (vdc_timestamp_clock_read_ticks64() >= trial.expires_ticks)
+    if (trial.expires_ticks && vdc_timestamp_clock_read_ticks64() >= trial.expires_ticks)
         return tdma_runtime_owner_origin_release_reject(TDMA_ORIGIN_RELEASE_ATTEMPT_EXPIRED);
     if (__atomic_load_n(&s_origin_release_ready_epoch, __ATOMIC_ACQUIRE) != trial_epoch)
         return tdma_runtime_owner_origin_release_reject(TDMA_ORIGIN_RELEASE_ATTEMPT_NOT_READY);
@@ -134,7 +134,7 @@ bool tdma_runtime_owner_get_origin_capability(refmem_realtime_origin_capability_
                     (1u << dma.loader_dma) | (1u << dma.executor_dma),
         .tx_pio = BOARD_TDMA_TX_PIO_BLOCK_ID, .rx_pio = BOARD_TDMA_RX_PIO_BLOCK_ID,
         /* Formal SRAM, full Core1 WCET and measured rearm admission remain
-         * unproven. A finite trial must carry these product rejections. */
+         * unproven. Every diagnostic trial carries these product rejections. */
         .product_reject_mask = REFMEM_RT_ORIGIN_PRODUCT_RAM | REFMEM_RT_ORIGIN_PRODUCT_WCET |
                                REFMEM_RT_ORIGIN_PRODUCT_TIMING};
     return true;
@@ -159,7 +159,7 @@ static bool tdma_runtime_owner_origin_authorized(void)
         trial->calibration_generation == stage->calibration_generation &&
         trial->topology_generation == stage->topology_generation && trial->topology_crc32 == stage->topology_crc32 &&
         trial->admission.capability.clk_sys_hz == clock_get_hz(clk_sys) &&
-        vdc_timestamp_clock_read_ticks64() < trial->expires_ticks;
+        (!trial->expires_ticks || vdc_timestamp_clock_read_ticks64() < trial->expires_ticks);
 }
 
 static uint32_t tdma_runtime_owner_origin_stage_crc(void)

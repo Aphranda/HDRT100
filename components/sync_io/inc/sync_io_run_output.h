@@ -9,7 +9,7 @@
 #define SYNC_IO_RUN_OUTPUT_MAX_EDGES 16u
 #define SYNC_IO_RUN_OUTPUT_MAX_WORDS (2u * SYNC_IO_RUN_OUTPUT_MAX_EDGES)
 #define SYNC_IO_RUN_OUTPUT_MIN_GUARD_US 100u
-#define SYNC_IO_RUN_OUTPUT_SCHEMA 6u
+#define SYNC_IO_RUN_OUTPUT_SCHEMA 7u
 
 enum {
     SYNC_IO_RUN_OUTPUT_IDLE, SYNC_IO_RUN_OUTPUT_PREPARED,
@@ -72,7 +72,12 @@ typedef struct {
 /* Core0 STOP preparation only. Reserves the existing SYNC_IO scheduler,
  * shared arena, scheduled persona and physical SM/DMA before TDMA ARM.
  * Preparation forces safe low but emits no planned pulses. Clock lifetime and product STOP guard belong
- * to the capability caller. Duration is a finite debug lease in raw ticks. */
+ * to the capability caller. Duration 1..20000 ms is a finite debug lease;
+ * duration zero explicitly selects continuous service with expires_tick=0.
+ * Zero expiry is not a deadline at tick zero. Continuous operation retains
+ * cancellation, clock/fault retirement and bounded immutable block admission.
+ * Diagnostic block/edge/model/retirement counts saturate; ordinals remain
+ * checked monotonic uint64 identities and never derive from these counts. */
 bool sync_io_run_output_prepare(uint32_t expected_hz, uint32_t duration_ms,
                                 uint32_t *generation);
 /* Fixed-width variant: one FIFO low-count word per pulse, high countdown

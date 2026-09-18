@@ -90,6 +90,7 @@ def launch_exe(tmp_path_factory):
 CASES = ["hold", "release", "expiry", "expiry_during_enable", "clock_during_enable", "stop", "stop_retry",
          "skip_records", "install_dirty", "null", "phase_numbers", "revoke", "stop_after_trigger",
          "first_reject", "builder_reject", "loader_reject", "post_install_reject", "zero_expiry",
+         "continuous_revoke", "continuous_rewind",
          "reload_before_trigger", "reload_with_residual_count", "reload_zero", "reload_short",
          "reload_long", "reload_self_trigger", "reload_endless",
          *[f"mutation_{i}" for i in range(80)]]

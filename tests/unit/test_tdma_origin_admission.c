@@ -115,7 +115,7 @@ static bool tdma_pio_spi_phys_origin_release(void *ctx, uint64_t expires, bool (
     (void)ctx;
     assert(s_tdma_pio_spi_phys.flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_READY);
     if (revoke_at_release) calibration_manager_origin_revoke();
-    if (!release_ok || !authorized() || ticks >= expires) return false;
+    if (!release_ok || !authorized() || (expires && ticks >= expires)) return false;
     ++releases;
     s_tdma_pio_spi_phys.flight_origin_prepare.stage = TDMA_ORIGIN_PREPARE_COMPLETE;
     return true;
@@ -167,7 +167,8 @@ static tdma_service_service_t *s_vdc_tdma_service = &s_tdma_runtime_owner;
 static uint32_t full_service_calls[4];
 static bool ota_active;
 static bool ota_ao_is_active(void) { return ota_active; }
-static uint64_t vdc_dpll_manager_now_ns(void) { return ticks; }
+static uint32_t board_uptime_ms(void) { return (uint32_t)(ticks / 1000000u); }
+static void tdma_runtime_owner_service_observer(void) { }
 static void tdma_runtime_owner_service_phys_tx(uint64_t now)
 { (void)now; full_service_calls[0]++; tdma_runtime_owner_origin_lifetime_core1(); }
 void tdma_service_core1_service(tdma_service_service_t *owner)
@@ -296,6 +297,27 @@ int main(int argc, char **argv)
             assert(admit() == TDMA_ORIGIN_ADMISSION_NONE);
         }
         assert(begins == 0);
+    } else if (!strcmp(argv[1], "continuous")) {
+        for (unsigned fault = 0; fault < 5; ++fault) {
+            setup(); stops=0u; clock_hz=150000000u;
+            assert(calibration_manager_origin_trial(9, 100, 8, 0));
+            assert(s_origin_timing.version == 3 && !s_origin_timing.expires_ticks);
+            assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
+            s_tdma_pio_spi_ring_adapter.origin.active = 1;
+            for (unsigned second = 0; second <= 601; ++second) {
+                ticks = (uint64_t)clock_hz * second;
+                assert(tdma_runtime_owner_origin_healthy(&s_tdma_pio_spi_phys));
+                tdma_runtime_owner_origin_lifetime_core1(); assert(!stops);
+            }
+            if (fault == 0) calibration_manager_origin_revoke();
+            if (fault == 1) s_tdma_runtime_owner.ring_runtime.enabled = 0;
+            if (fault == 2) ++clock_hz;
+            if (fault == 3) ++model_epoch;
+            if (fault == 4) ++s_tdma_runtime_owner.ring_runtime.config_seq;
+            assert(!tdma_runtime_owner_origin_healthy(&s_tdma_pio_spi_phys));
+            tdma_runtime_owner_origin_lifetime_core1(); assert(stops == (fault == 1 ? 0u : 1u));
+            assert(admit() == TDMA_ORIGIN_ADMISSION_NONE);
+        }
     } else if (!strcmp(argv[1], "expiry")) {
         publish(); assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
         assert(tdma_runtime_owner_origin_healthy(&s_tdma_pio_spi_phys));

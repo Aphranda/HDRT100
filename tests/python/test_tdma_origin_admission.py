@@ -55,7 +55,7 @@ def admission_exe(tmp_path_factory):
     return exe
 
 
-@pytest.mark.parametrize("case", ["publish", "stale", "expiry", "prepare", "fault", "record-mode",
+@pytest.mark.parametrize("case", ["publish", "stale", "expiry", "continuous", "prepare", "fault", "record-mode",
     'build-cancel', 'handoff', 'batch', 'batch-yield', 'batch-revoke', 'batch-failure',
     'blackout', 'blackout-cancel', 'blackout-deadline', 'blackout-invalid',
     'release', 'release-cancel', 'release-expiry', 'release-exhaustion', 'release-scpi', 'release-mixed',

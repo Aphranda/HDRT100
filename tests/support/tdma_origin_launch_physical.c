@@ -31,7 +31,7 @@ static int s_tdma_pio_spi_tx_dma_channel, s_tdma_pio_spi_rx_dma_channel;
 static int s_tdma_pio_spi_command_dma_channel, s_tdma_pio_spi_executor_dma_channel;
 static bool dma_claimed[16], gpio_output[64], gpio_pad[64], stop_ok;
 static uint32_t sys_hz, tick_hz, starts, enables, installs, pauses, tick_reads;
-static uint64_t first_tick, final_tick;
+static uint64_t first_tick, final_tick, launch_deadline=1000u;
 static bool change_clock_at_enable, corrupt_loader_install;
 static bool authority=true;
 static uint32_t authority_checks;
@@ -102,7 +102,7 @@ static void dma_start_channel_mask(uint32_t mask) {
     assert(mask == 1u<<BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL);
     assert(dma_hw->ch[BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL].ctrl_trig & DMA_CH0_CTRL_TRIG_EN_BITS);
     assert(physical.flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_FAILED);
-    assert(gpio_output[BOARD_TRIG_DE_PIN] && final_tick < 1000u); ++starts;
+    assert(gpio_output[BOARD_TRIG_DE_PIN] && (!launch_deadline || final_tick < launch_deadline)); ++starts;
     /* A trigger is the sole operation that copies RELOAD to the live count. */
     dma_hw->ch[BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL].transfer_count=
         dma_debug_hw->ch[BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL].dbg_tcr;
@@ -413,8 +413,20 @@ int main(int argc,char **argv) {
         assert(installs==1u);
         rejection(TDMA_ORIGIN_REJECT_LOADER,4u,5u,4u);no_launch();
     } else if(!strcmp(argv[1],"zero_expiry")) {
-        ready();assert(!tdma_pio_spi_phys_origin_release(&physical,0u,authorized));
-        rejection(TDMA_ORIGIN_REJECT_EXPIRY,0u,0u,1u);assert(tick_reads==0u);no_launch();
+        ready();launch_deadline=0u;first_tick=UINT64_C(250000000)*601u;final_tick=first_tick+10u;
+        assert(tdma_pio_spi_phys_origin_release(&physical,0u,authorized));
+        assert(starts==1u && physical.armed && authority_checks==1u);
+        assert(!tdma_pio_spi_phys_origin_release(&physical,0u,authorized));
+        assert(starts==1u);
+        assert(tdma_pio_spi_phys_disarm(&physical));assert(!physical.armed);
+    } else if(!strcmp(argv[1],"continuous_revoke")) {
+        ready();authority=false;
+        assert(!tdma_pio_spi_phys_origin_release(&physical,0u,authorized));no_launch();
+        assert(tdma_pio_spi_phys_disarm(&physical));
+    } else if(!strcmp(argv[1],"continuous_rewind")) {
+        ready();first_tick=100u;final_tick=99u;
+        assert(!tdma_pio_spi_phys_origin_release(&physical,0u,authorized));no_launch();
+        assert(tdma_pio_spi_phys_disarm(&physical));
     } else if(!strcmp(argv[1],"reload_before_trigger") || !strcmp(argv[1],"reload_with_residual_count")) {
         const uint channel=BOARD_TDMA_RX_COMMAND_LOADER_DMA_CHANNEL;
         const uint32_t previous=!strcmp(argv[1],"reload_with_residual_count")?3u:0u;

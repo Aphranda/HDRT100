@@ -158,7 +158,7 @@ static bool prepare_mode(uint32_t hz,uint32_t duration_ms,uint32_t high_ticks,
 {
     if (get_core_num()!=0u || !generation || hz!=BOARD_SYS_CLOCK_HZ ||
         (mode==RUN_MODE_UNIFORM && high_ticks<SYNC_PULSE_UNIFORM_HIGH_OVERHEAD) ||
-        clock_get_hz(clk_sys)!=hz || duration_ms==0u || duration_ms>20000u ||
+        clock_get_hz(clk_sys)!=hz || duration_ms>20000u ||
         s_generation==UINT32_MAX ||
         __atomic_load_n(&s_state,__ATOMIC_ACQUIRE)!=SYNC_IO_RUN_OUTPUT_IDLE ||
         !sync_io_core_run_output_reserve(&s_run)) return false;
@@ -235,7 +235,9 @@ void sync_io_run_output_service_core1(void)
     if (s_run.state==SYNC_IO_RUN_OUTPUT_RUNNING) {
         uint64_t now;
         if (clock_get_hz(clk_sys)!=s_run.tick_hz || !read_raw(&now) ||
-            RUN_PIO->sm[RUN_SM].clkdiv!=(1u<<16u)) retire(SYNC_IO_RUN_OUTPUT_CLOCK);
+            RUN_PIO->sm[RUN_SM].clkdiv!=(1u<<16u) || now<s_run.anchor_before ||
+            now<s_run.start_raw_after || now<s_run.service_last_tick ||
+            now<s_run.submit_last_tick) retire(SYNC_IO_RUN_OUTPUT_CLOCK);
         else {
             s_run.service_last_gap_ticks=s_run.service_observations && now>=s_run.service_last_tick ?
                 now-s_run.service_last_tick : 0u;
@@ -244,7 +246,7 @@ void sync_io_run_output_service_core1(void)
             s_run.service_last_tick=now;
             if (s_run.service_observations!=UINT32_MAX) ++s_run.service_observations;
             if (dma_failed()) retire(SYNC_IO_RUN_OUTPUT_DMA);
-            else if (now>=s_run.expires_tick) retire(SYNC_IO_RUN_OUTPUT_EXPIRED);
+            else if (s_run.expires_tick && now>=s_run.expires_tick) retire(SYNC_IO_RUN_OUTPUT_EXPIRED);
             else if (RUN_PIO->fdebug&(1u<<(PIO_FDEBUG_TXSTALL_LSB+RUN_SM))) retire(SYNC_IO_RUN_OUTPUT_STARVED);
         }
     }
@@ -300,6 +302,11 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
     if (!read_raw(&now)) {
         s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_RAW; return false;
     }
+    if (!first && (now<s_run.anchor_before || now<s_run.start_raw_after ||
+        now<s_run.service_last_tick || now<s_run.submit_last_tick)) {
+        s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_CLOCK;
+        begin_write();retire(SYNC_IO_RUN_OUTPUT_CLOCK);end_write();return false;
+    }
     const uint64_t guard=s_run.tick_hz/1000000u*SYNC_IO_RUN_OUTPUT_MIN_GUARD_US;
     if (now>UINT64_MAX-guard || (!first && s_run.last_falling_tick<=now+guard)) {
         s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_GUARD; return false;
@@ -338,7 +345,10 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
         s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_CLOCK; return false;
     }
     begin_write();
-    if (s_source_pending) { ++s_run.source_retirements; s_source_pending=false; }
+    if (s_source_pending) {
+        if (s_run.source_retirements!=UINT32_MAX) ++s_run.source_retirements;
+        s_source_pending=false;
+    }
     memcpy(sync_io_shared_workspace,words,word_count*sizeof(words[0]));
     __atomic_thread_fence(__ATOMIC_RELEASE);
     if (first) {
@@ -384,7 +394,7 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
         s_run.anchor_before=before;
         submitted_at=before;
         s_run.anchor_after=raw_valid ? after+1u : UINT64_MAX;
-        s_run.expires_tick=before+(uint64_t)s_duration_ms*s_run.tick_hz/1000u;
+        s_run.expires_tick=s_duration_ms ? before+(uint64_t)s_duration_ms*s_run.tick_hz/1000u : 0u;
         s_run.first_ordinal=edges[0].ordinal; s_run.first_model=edges[0].model_token;
         publish_state(SYNC_IO_RUN_OUTPUT_RUNNING);
         if (!valid || after<before || after+1u-before>guard) retire(SYNC_IO_RUN_OUTPUT_CLOCK);
@@ -405,6 +415,10 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
             s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_RAW;
             retire(SYNC_IO_RUN_OUTPUT_DEADLINE); end_write(); return false;
         }
+        if (ready<now) {
+            s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_CLOCK;
+            retire(SYNC_IO_RUN_OUTPUT_CLOCK);end_write();return false;
+        }
         if (ready>UINT64_MAX-guard || s_run.last_falling_tick<=ready+guard) {
             s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_GUARD;
             retire(SYNC_IO_RUN_OUTPUT_DEADLINE); end_write(); return false;
@@ -423,10 +437,12 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
     s_run.submit_service_observation=s_run.service_observations;
     s_source_pending=true;
     for (uint32_t i=0;i<count;++i) {
-        if (s_run.last_model && s_run.last_model!=edges[i].model_token) ++s_run.model_changes;
+        if (s_run.last_model && s_run.last_model!=edges[i].model_token &&
+            s_run.model_changes!=UINT32_MAX) ++s_run.model_changes;
         s_run.last_model=edges[i].model_token;
     }
-    ++s_run.blocks; s_run.edges+=count;
+    if (s_run.blocks!=UINT32_MAX) ++s_run.blocks;
+    s_run.edges=count>UINT32_MAX-s_run.edges ? UINT32_MAX : s_run.edges+count;
     s_run.last_rising_tick=edges[count-1u].rising_tick;
     s_run.last_falling_tick=edges[count-1u].falling_tick;
     s_run.last_ordinal=edges[count-1u].ordinal;

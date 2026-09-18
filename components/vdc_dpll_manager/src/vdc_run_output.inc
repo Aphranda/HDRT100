@@ -13,6 +13,7 @@ static vdc_run_output_status_t s_run_output;
 static uint32_t s_run_output_request, s_run_output_busy;
 static uint32_t s_run_output_service_sequence, s_run_output_current_service_sequence;
 static uint64_t s_run_output_current_service_tick;
+static uint64_t s_run_output_last_raw_tick;
 #define VDC_RUN_OUTPUT_PLAN_STEP_EDGES 4u
 static bool s_run_output_coordinate_valid;
 #define VDC_RUN_OUTPUT_MAX_COORDINATE_SECONDS 32u
@@ -20,8 +21,15 @@ static bool s_run_output_coordinate_valid;
 static bool run_output_coordinate_contains(uint64_t tick)
 {
     return s_run_output_coordinate_valid && tick>=s_run_output.initial_raw_tick &&
+        (!s_run_output.duration_ms ||
         tick-s_run_output.initial_raw_tick<=
-            (uint64_t)BOARD_SYS_CLOCK_HZ*VDC_RUN_OUTPUT_MAX_COORDINATE_SECONDS;
+            (uint64_t)BOARD_SYS_CLOCK_HZ*VDC_RUN_OUTPUT_MAX_COORDINATE_SECONDS);
+}
+static bool run_output_observe(uint64_t tick)
+{
+    if (!run_output_coordinate_contains(tick) || tick<s_run_output_last_raw_tick) return false;
+    s_run_output_last_raw_tick=tick;
+    return true;
 }
 /* A private uncommitted suffix, never a DMA source. The whole-client gate
  * covers this cache as well as the public metadata. Preparing it does not
@@ -92,6 +100,7 @@ static bool run_output_prepare_stopped(void *context)
     s_run_output_service_sequence=0u;
     s_run_output_current_service_sequence=0u;
     s_run_output_current_service_tick=0u;
+    s_run_output_last_raw_tick=0u;
     s_run_output.request=generation; s_run_output.session=session;
     s_run_output.prepared_config=ring.config_seq;
     s_run_output.period_ns=args[0]; s_run_output.high_ns=args[1]; s_run_output.duration_ms=args[2];
@@ -110,7 +119,7 @@ bool vdc_run_output_prepare(uint32_t period_ns,uint32_t high_ns,
 {
     uint32_t idle=0u;
     if (get_core_num()!=0u || !request || period_ns<1000000u || period_ns>100000000u ||
-        high_ns<100u || high_ns>period_ns/2u || !duration_ms || duration_ms>20000u ||
+        high_ns<100u || high_ns>period_ns/2u || duration_ms>20000u ||
         !__atomic_compare_exchange_n(&s_run_output_busy,&idle,1u,false,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED))
         return false;
     const uint32_t args[]={period_ns,high_ns,duration_ms};
@@ -191,7 +200,8 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
     if (vdc_dpll_manager_feedback_session()!=s_run_output.session ||
         app_realtime_cycle_cycles_core1()!=s_run_output.schedule_cycles) {
         run_output_note(phase,VDC_RUN_OUTPUT_BINDING_CANCELLED);
-        ++s_run_output.binding_rejects; run_output_cancel_owned(); return;
+        if (s_run_output.binding_rejects!=UINT32_MAX) ++s_run_output.binding_rejects;
+        run_output_cancel_owned(); return;
     }
     tdma_ring_clock_snapshot_t ring;
     if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring)) {
@@ -209,7 +219,8 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
     if (!s_run_output.arm_config) s_run_output.arm_config=ring.config_seq;
     if (!ring.config_seq || ring.config_seq!=s_run_output.arm_config) {
         run_output_note(phase,VDC_RUN_OUTPUT_BINDING_CANCELLED);
-        ++s_run_output.binding_rejects; run_output_cancel_owned(); return;
+        if (s_run_output.binding_rejects!=UINT32_MAX) ++s_run_output.binding_rejects;
+        run_output_cancel_owned(); return;
     }
     if (!ring.adapter_started || ring.config_seq!=ring.applied_config_seq || !ring.data_enabled) {
         if (s_run_output.ring_config) {
@@ -223,7 +234,8 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
          s_vdc_domain.clock.epoch_id!=s_run_output.clock_epoch ||
          s_vdc_domain.clock.run_id!=s_run_output.clock_run)) {
         run_output_note(phase,VDC_RUN_OUTPUT_BINDING_CANCELLED);
-        ++s_run_output.binding_rejects; run_output_cancel_owned(); return;
+        if (s_run_output.binding_rejects!=UINT32_MAX) ++s_run_output.binding_rejects;
+        run_output_cancel_owned(); return;
     }
     vdc_dpll_manager_committed_model_t model;
     if (!vdc_dpll_manager_get_committed_model(&model)) {
@@ -244,7 +256,8 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
          model.clock_epoch_id!=s_run_output.clock_epoch || model.clock_run_id!=s_run_output.clock_run))) {
         if (s_run_output.ring_config) {
             run_output_note(phase,VDC_RUN_OUTPUT_BINDING_CANCELLED);
-            ++s_run_output.binding_rejects; run_output_cancel_owned();
+            if (s_run_output.binding_rejects!=UINT32_MAX) ++s_run_output.binding_rejects;
+            run_output_cancel_owned();
         } else run_output_note(phase,VDC_RUN_OUTPUT_IDENTITY_WAIT);
         return;
     }
@@ -273,7 +286,8 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
      * never participates; fresh raw observations still guard admission. */
     if (!vdc_timestamp_clock_is_current(BOARD_SYS_CLOCK_HZ)) {
         run_output_note(phase,VDC_RUN_OUTPUT_BINDING_CANCELLED);
-        ++s_run_output.binding_rejects; run_output_cancel_owned(); return;
+        if (s_run_output.binding_rejects!=UINT32_MAX) ++s_run_output.binding_rejects;
+        run_output_cancel_owned(); return;
     }
     uint64_t now;
     if (!vdc_timestamp_clock_try_read_ticks64(BOARD_SYS_CLOCK_HZ,&now)) {
@@ -287,7 +301,7 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
         s_run_output.initial_raw_tick=now;
         s_run_output_coordinate_valid=true;
     }
-    if (!run_output_coordinate_contains(now)) {
+    if (!run_output_observe(now)) {
         run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); run_output_cancel_owned(); return;
     }
     if (now<model.valid_from_raw) {
@@ -353,7 +367,9 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
         if (batch && !vdc_output_edge_cursor_init(&model.dco,0u,s_run_output.period_ns,
                 s_run_output_pending.next_ordinal,s_run_output_pending.last_local_ns,
                 s_run_output.delay_ns,s_run_output.high_ns,&cursor,&first_plan)) {
-            run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); ++s_run_output.plan_rejects; return;
+            run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED);
+            if (s_run_output.plan_rejects!=UINT32_MAX) ++s_run_output.plan_rejects;
+            return;
         }
         const uint32_t end=batch ? s_run_output.block_edges :
             s_run_output.block_edges-s_run_output_pending.planned>VDC_RUN_OUTPUT_PLAN_STEP_EDGES ?
@@ -373,7 +389,9 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
                 plan.physical_local_ns>UINT64_MAX-s_run_output.high_ns ||
                 plan.ordinal==UINT64_MAX) {
                 s_run_output_pending.planned=0u;
-                run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); ++s_run_output.plan_rejects; return;
+                run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED);
+                if (s_run_output.plan_rejects!=UINT32_MAX) ++s_run_output.plan_rejects;
+                return;
             }
             s_run_output_pending.edges[i]=(sync_io_run_output_edge_t){.rising_tick=raw,
                 .falling_tick=raw+high_ticks,.ordinal=plan.ordinal,.model_token=model.token};
@@ -398,7 +416,8 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
         ring.local_slot_id!=model.local_slot || ring.schedule_crc32!=model.dco.tdma_schedule_crc32 ||
         vdc_dpll_manager_feedback_session()!=s_run_output.session) {
         run_output_note(phase,VDC_RUN_OUTPUT_BINDING_CANCELLED);
-        ++s_run_output.binding_rejects; run_output_cancel_owned(); return;
+        if (s_run_output.binding_rejects!=UINT32_MAX) ++s_run_output.binding_rejects;
+        run_output_cancel_owned(); return;
     }
     /* DMA may finish while the bounded planning step executes. Recheck that
      * ownership boundary once instead of carrying a stale busy result into
@@ -411,7 +430,7 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
     if (!vdc_timestamp_clock_try_read_ticks64(BOARD_SYS_CLOCK_HZ,&now)) {
         run_output_note(phase,VDC_RUN_OUTPUT_BRIDGE_UNAVAILABLE); return;
     }
-    if (!run_output_coordinate_contains(now)) {
+    if (!run_output_observe(now)) {
         run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); run_output_cancel_owned(); return;
     }
     if (!first && tail>now && tail-now>low_ticks) {
@@ -422,7 +441,9 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
     if (first && (next_tail<s_run_output_pending.edges[0].rising_tick ||
         next_tail-s_run_output_pending.edges[0].rising_tick>commit_ticks)) {
         s_run_output_pending.valid=false; s_run_output_pending.planned=0u;
-        run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); ++s_run_output.plan_rejects; return;
+        run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED);
+        if (s_run_output.plan_rejects!=UINT32_MAX) ++s_run_output.plan_rejects;
+        return;
     }
     if (!first && (next_tail>UINT64_MAX-offset || now>UINT64_MAX-commit_ticks)) {
         run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED); run_output_cancel_owned(); return;
@@ -434,7 +455,8 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
     /* A cache hit skips planning, not TIMER1's clock lifetime check. */
     if (cached && !vdc_timestamp_clock_is_current(BOARD_SYS_CLOCK_HZ)) {
         run_output_note(phase,VDC_RUN_OUTPUT_BINDING_CANCELLED);
-        ++s_run_output.binding_rejects; run_output_cancel_owned(); return;
+        if (s_run_output.binding_rejects!=UINT32_MAX) ++s_run_output.binding_rejects;
+        run_output_cancel_owned(); return;
     }
     if (!sync_io_run_output_submit_count_core1(request,s_run_output_pending.edges,s_run_output.block_edges)) {
         const sync_io_run_output_submit_failure_t failure=
@@ -454,7 +476,9 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
             s_run_output_pending.valid=false;
             s_run_output_pending.planned=0u;
         }
-        run_output_note(phase,VDC_RUN_OUTPUT_SUBMIT_REJECTED); ++s_run_output.plan_rejects; return;
+        run_output_note(phase,VDC_RUN_OUTPUT_SUBMIT_REJECTED);
+        if (s_run_output.plan_rejects!=UINT32_MAX) ++s_run_output.plan_rejects;
+        return;
     }
     s_run_output.ring_config=ring.config_seq; s_run_output.role_generation=model.role_generation;
     s_run_output.clock_epoch=model.clock_epoch_id; s_run_output.clock_run=model.clock_run_id;
@@ -463,7 +487,7 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
     if (cached && s_run_output.cache_hits!=UINT32_MAX) ++s_run_output.cache_hits;
     s_run_output_pending.valid=false;
     s_run_output_pending.planned=0u;
-    ++s_run_output.blocks_planned;
+    if (s_run_output.blocks_planned!=UINT32_MAX) ++s_run_output.blocks_planned;
     run_output_note(phase,VDC_RUN_OUTPUT_SUBMITTED);
 }
 
@@ -486,10 +510,10 @@ __attribute__((noinline)) uint32_t VDC_RUN_OUTPUT_HOT(vdc_run_output_service_cac
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
     const uint32_t before=time_us_32();
 #endif
-    const uint32_t admitted=s_run_output.blocks_planned;
+    const uint64_t admitted=s_run_output.last_local_ns;
     if (tracked && s_run_output.fast_calls!=UINT32_MAX) ++s_run_output.fast_calls;
     run_output_service_owned(true);
-    if (tracked && s_run_output.blocks_planned!=admitted && s_run_output.fast_submissions!=UINT32_MAX)
+    if (tracked && s_run_output.last_local_ns!=admitted && s_run_output.fast_submissions!=UINT32_MAX)
         ++s_run_output.fast_submissions;
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
     const uint32_t elapsed=time_us_32()-before;

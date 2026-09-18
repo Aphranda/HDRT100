@@ -748,7 +748,7 @@ def test_real_parser_exports_start_observation_receipt(parser_host):
     fields = [int(value) for value in result.stdout.strip().split(',')]
     assert len(fields) == 119
     # Preserve every old position: 26 small fields, ten uint64, two config.
-    assert fields[:36] == [10] + [0] * 35
+    assert fields[:36] == [11] + [0] * 35
     assert fields[36:43] == [20, 21, 13, 12, 3, 4294967303, 4294967311]
     assert fields[43:50] == list(range(4294967400, 4294967407))
     assert fields[50:59] == list(range(101, 110))

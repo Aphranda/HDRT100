@@ -244,7 +244,7 @@ static request_t configure(unsigned id)
     case CASE_REARM_ZERO: request.rearm = 0u; REJECT(ARGUMENT, 0u, 0u); break;
     case CASE_POLLS_ZERO: request.polls = 0u; REJECT(ARGUMENT, 0u, 0u); break;
     case CASE_POLLS_HIGH: request.polls = UINT16_MAX + 1u; REJECT(ARGUMENT, 0u, 0u); break;
-    case CASE_DURATION_ZERO: request.duration = 0u; REJECT(ARGUMENT, 0u, 0u); break;
+    case CASE_DURATION_ZERO: request.duration = 0u; break;
     case CASE_DURATION_HIGH: request.duration = (uint64_t)INT64_MAX + 1u; REJECT(ARGUMENT, 0u, 0u); break;
     case CASE_RING_UNAVAILABLE: model.ring_available[0] = false; REJECT(RING_UNAVAILABLE, 0u, 0u); break;
     case CASE_RING_DISABLED: model.ring[0].enabled = 0u; REJECT(RING_DISABLED, 0u, 1u); break;
@@ -341,6 +341,16 @@ static void test_oracle(void)
         authorized(); request = configure(id);
         const bool result = invoke(request, false);
         assert(broad_calls == 0u);
+        if (id == CASE_DURATION_ZERO) {
+            /* Version 3 deliberately adds continuous diagnostics. Keep the
+             * old oracle untouched and assert this sole duration divergence. */
+            assert(!old_result && result && s_origin_timing.enabled);
+            assert(s_origin_timing.expires_ticks == 0u);
+            calibration_origin_attempt_t attempt;
+            assert(calibration_manager_origin_get_attempt(&attempt));
+            assert_attempt(&request, &attempt);
+            continue;
+        }
         assert(result == old_result);
         assert(result == (request.reason == CALIBRATION_ORIGIN_ATTEMPT_ACCEPTED));
         assert_timing_equal(&old_timing, &s_origin_timing);

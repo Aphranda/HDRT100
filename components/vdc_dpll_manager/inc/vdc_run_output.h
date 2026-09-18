@@ -3,7 +3,7 @@
 #include "sync_io_run_output.h"
 #include "vdc_output_timing.h"
 
-#define VDC_RUN_OUTPUT_SCHEMA 10u
+#define VDC_RUN_OUTPUT_SCHEMA 11u
 #define VDC_RUN_OUTPUT_TIMEBASE_TIMER1_NS 1u
 
 enum { VDC_RUN_OUTPUT_PREPARED_PHASE, VDC_RUN_OUTPUT_RUNNING_PHASE,
@@ -79,6 +79,10 @@ typedef struct {
     uint64_t initial_raw_tick, initial_local_ns;
 } vdc_run_output_status_t;
 
+/* STOP preparation: duration_ms 1..20000 retains finite debug expiry;
+ * zero explicitly requests continuous operation until cancellation or fault.
+ * Continuous TIMER1 coordinates have no initial 32-second horizon; each
+ * finite block still requires checked absolute conversion and bounded lead. */
 bool vdc_run_output_prepare(uint32_t period_ns,uint32_t high_ns,
                             uint32_t duration_ms,uint32_t *request);
 void vdc_run_output_cancel(void);

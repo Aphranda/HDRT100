@@ -47,6 +47,93 @@ def test_actual_client_timeline(timeline_client, scenario):
 
 
 @pytest.fixture(scope='module')
+def continuous_client(tmp_path_factory):
+    # Keep only four recent admitted blocks, even over hundreds of seconds.
+    prefix = CLIENT_PREFIX.replace('duration==1000u', 'duration<=20000u')
+    prefix = prefix.replace(' && submit_calls<4u', '')
+    prefix = prefix.replace('admitted[submit_calls]', 'admitted[submit_calls%4u]')
+    prefix = prefix.replace('admitted_count[submit_calls++]=count;',
+                            'admitted_count[submit_calls%4u]=count;++submit_calls;')
+    source = (ROOT / 'components/vdc_dpll_manager/src/vdc_run_output.inc').read_text(encoding='utf-8')
+    return compile_host(tmp_path_factory.mktemp('continuous-client'), 'continuous',
+        prefix + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
+        '\n#undef main\n' + CONTINUOUS_MAIN,
+        [ROOT / 'components/vdc_domain/src/vdc_domain.c',
+         ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
+         ROOT / 'components/tdma/src/tdma_profile.c'])
+
+
+@pytest.mark.parametrize('scenario', ['600', 'stop', 'cancel', 'session', 'epoch',
+                                    'clock', 'rollback', 'saturation', 'overflow'])
+def test_continuous_actual_planner(continuous_client, scenario):
+    result = subprocess.run([str(continuous_client), scenario], capture_output=True,
+                            text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+CONTINUOUS_MAIN = r'''
+int main(int argc,char **argv)
+{
+    assert(argc==2);initialize();const char *kind=argv[1];
+    timing=(vdc_output_timing_profile_t){24000u,32000u,16000u};
+    uint32_t request=0u;assert(vdc_run_output_prepare(1000000u,1000u,0u,&request));arm(true);
+    const unsigned blocks=!strcmp(kind,"600")?37502u:2100u;
+    uint64_t previous_ordinal=0u;unsigned low_wraps=0u;
+    uint32_t previous_hi=0u;
+    for (unsigned b=0;b<blocks;++b) {
+        if(b)raw_override=hardware.last_falling_tick-4000000u;
+        for(unsigned step=0;step<4u && submit_calls==b;++step)vdc_run_output_service_core1();
+        assert(submit_calls==b+1u && !cancelled);
+        const unsigned retained=b%4u;assert(admitted_count[retained]==16u);
+        for(unsigned i=0;i<16u;++i) {
+            const sync_io_run_output_edge_t *e=&admitted[retained][i];
+            if(b||i)assert(e->ordinal==previous_ordinal+1u);
+            assert(e->rising_tick==(e->ordinal*UINT64_C(1000000)+100u+3u)/4u);
+            assert(e->falling_tick-e->rising_tick==250u);previous_ordinal=e->ordinal;
+        }
+        const uint32_t hi=(uint32_t)(hardware.last_falling_tick>>32u);
+        if(hi>previous_hi)low_wraps+=hi-previous_hi;
+        previous_hi=hi;
+    }
+    assert(hardware.last_falling_tick-s_run_output.initial_raw_tick>UINT64_C(32)*BOARD_SYS_CLOCK_HZ);
+    if(!strcmp(kind,"600")) {
+        assert(hardware.last_falling_tick-s_run_output.initial_raw_tick>UINT64_C(600)*BOARD_SYS_CLOCK_HZ);
+        assert(low_wraps>=34u);
+    }
+    assert(!bridge_calls && !s_run_output.timeline_bridge_samples);
+    raw_override=hardware.last_falling_tick-4000000u;
+    if(!strcmp(kind,"saturation")) {
+        s_run_output.blocks_planned=UINT32_MAX;s_run_output.fast_submissions=UINT32_MAX;
+        s_run_output.partial_plan_steps=UINT32_MAX;
+        vdc_run_output_service_core1();
+        assert(submit_calls==blocks+1u && s_run_output.blocks_planned==UINT32_MAX &&
+            s_run_output.partial_plan_steps==UINT32_MAX);
+    } else if(!strcmp(kind,"rollback")) {
+        raw_override=s_run_output_last_raw_tick-1u;
+        assert(raw_override>s_run_output.initial_raw_tick);vdc_run_output_service_core1();assert(cancelled);
+    } else if(!strcmp(kind,"overflow")) {
+        raw_override=UINT64_MAX;vdc_run_output_service_core1();assert(cancelled);
+    } else if(!strcmp(kind,"session")) {++session;vdc_run_output_service_core1();assert(cancelled);}
+    else if(!strcmp(kind,"epoch")) {++s_vdc_domain.clock.epoch_id;vdc_run_output_service_core1();assert(cancelled);}
+    else if(!strcmp(kind,"clock")) {clock_supported=false;vdc_run_output_service_core1();assert(cancelled);}
+    else if(!strcmp(kind,"stop")) {ring.enabled=0u;++ring.config_seq;vdc_run_output_service_core1();assert(cancelled);}
+    else {vdc_run_output_cancel();vdc_run_output_service_core1();assert(cancelled);}
+    if(!cancelled)vdc_run_output_cancel();
+    core=1u;vdc_run_output_service_core1();core=0u;run_output_release_core0();
+    assert(!s_run_output_request && !s_run_output_coordinate_valid);
+    ring.enabled=ring.adapter_started=ring.data_enabled=0u;
+    ring.config_seq=ring.applied_config_seq=7u;clock_supported=true;raw_override=0u;
+    model.session=session;model.clock_epoch_id=s_vdc_domain.clock.epoch_id;
+    const uint32_t old_request=request;
+    assert(vdc_run_output_prepare(1000000u,1000u,1000u,&request));
+    assert(request!=old_request && s_run_output.duration_ms==1000u && !s_run_output.blocks_planned &&
+        !s_run_output_last_raw_tick && !s_run_output_pending.valid);
+    return 0;
+}
+'''
+
+
+@pytest.fixture(scope='module')
 def late_model_client(tmp_path_factory):
     source = (ROOT / 'components/vdc_dpll_manager/src/vdc_run_output.inc').read_text(encoding='utf-8')
     return compile_host(tmp_path_factory.mktemp('late-model-client'), 'late_model',

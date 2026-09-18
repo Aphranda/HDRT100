@@ -6,7 +6,7 @@
 #include "tdma_ring_runtime.h"
 #include "refmem_realtime_contract.h"
 
-#define CALIBRATION_ORIGIN_TIMING_VERSION 2u
+#define CALIBRATION_ORIGIN_TIMING_VERSION 3u
 #define CALIBRATION_ORIGIN_DIAGNOSTIC_SKIP_RECORDS 1u
 #define CALIBRATION_ORIGIN_DIAGNOSTIC_SERVICE_BLACKOUT 2u
 #define CALIBRATION_ORIGIN_DIAGNOSTIC_BUILD_CANCEL 4u
@@ -27,6 +27,8 @@ typedef struct {
     uint32_t calibration_crc32;
     uint32_t rearm_budget_ticks;
     uint32_t abort_poll_count;
+    /* Zero explicitly requests continuous diagnostic operation until revoked.
+     * All epoch/configuration/resource checks still apply. */
     uint64_t expires_ticks;
     tdma_ring_runtime_config_t config;
     refmem_realtime_origin_admission_t admission;

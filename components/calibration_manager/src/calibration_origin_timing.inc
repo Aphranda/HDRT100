@@ -96,7 +96,7 @@ bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rea
          diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_BUILD_CANCEL &&
          diagnostic_flags != CALIBRATION_ORIGIN_DIAGNOSTIC_DEFER_RELEASE) ||
         trial_id == 0u || rearm_budget_ticks == 0u || abort_poll_count == 0u ||
-        abort_poll_count > UINT16_MAX || duration_ticks == 0u || duration_ticks > INT64_MAX)
+        abort_poll_count > UINT16_MAX || duration_ticks > INT64_MAX)
         return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_ARGUMENT, 0u, 0u);
     if (!tdma_runtime_owner_get_ring_snapshot(&ring))
         return calibration_origin_attempt_reject(CALIBRATION_ORIGIN_ATTEMPT_RING_UNAVAILABLE, 0u, 0u);
@@ -151,7 +151,7 @@ bool calibration_manager_origin_trial_configured(uint32_t trial_id, uint32_t rea
         .topology_generation = stage.topology_generation, .topology_crc32 = stage.topology_crc32,
         .calibration_crc32 = ota_crc32_compute((const uint8_t *)&stage, sizeof(stage)),
         .rearm_budget_ticks = rearm_budget_ticks, .abort_poll_count = abort_poll_count,
-        .expires_ticks = now + duration_ticks, .config = config,
+        .expires_ticks = duration_ticks ? now + duration_ticks : 0u, .config = config,
         .diagnostic_flags = diagnostic_flags};
     if (!refmem_realtime_contract_admit_origin_trial(&capability, foundation_crc32,
             &record.admission))

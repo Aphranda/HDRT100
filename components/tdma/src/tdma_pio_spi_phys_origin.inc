@@ -415,12 +415,10 @@ bool tdma_pio_spi_phys_origin_release(void *context, uint64_t expires_ticks,
     const tdma_state_machine_origin_dma_contract_t dma = tdma_state_machine_origin_dma_contract();
     if (!tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_AUTHORITY, 0u, authorized != NULL, true) ||
         !tdma_pio_spi_phys_origin_prepare_ready(phys)) goto failed;
-    if (expires_ticks == 0u) {
-        (void)tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_EXPIRY, 0u, 0u, 1u);
-        goto failed;
-    }
+    /* Zero is a continuous diagnostic grant; the owner callback still
+     * validates epoch, STOP, clock and resources immediately before launch. */
     const uint64_t initial_ticks = vdc_timestamp_clock_read_ticks64();
-    if (initial_ticks >= expires_ticks) {
+    if (expires_ticks && initial_ticks >= expires_ticks) {
         (void)tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_EXPIRY, 1u, initial_ticks, expires_ticks);
         goto failed;
     }
@@ -446,7 +444,7 @@ bool tdma_pio_spi_phys_origin_release(void *context, uint64_t expires_ticks,
             vdc_timestamp_clock_tick_hz(), phys->flight_origin_prepare.clk_sys_hz) ||
         !tdma_pio_spi_phys_origin_expect(phys, TDMA_ORIGIN_REJECT_AUTHORITY, 1u, authorized(), true)) goto failed;
     const uint64_t final_ticks = vdc_timestamp_clock_read_ticks64();
-    if (final_ticks >= expires_ticks) {
+    if (final_ticks < initial_ticks || (expires_ticks && final_ticks >= expires_ticks)) {
         (void)tdma_pio_spi_phys_origin_reject(phys, TDMA_ORIGIN_REJECT_EXPIRY, 2u, final_ticks, expires_ticks);
         goto failed;
     }

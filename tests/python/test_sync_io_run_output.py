@@ -63,6 +63,8 @@ CASES=['gates','prepare_reserve','prepare_workspace','prepare_claim','prepare_lo
        'diagnostics','diagnostics_invalid_raw','diagnostics_saturation',
        'count_one','count_max','count_zero','count_over_max','count_null',
        'count_invalid_last_prepared','count_invalid_last_running','count_async_stop']
+CASES += ['continuous_600', 'continuous_rollback', 'continuous_submit_rollback',
+          'continuous_dma', 'continuous_clock', 'continuous_saturation']
 
 
 @pytest.mark.parametrize('name',CASES)
@@ -406,7 +408,7 @@ static void gates(void)
 {
     uint32_t g=0x12345678;
     mock_core=1;assert(!sync_io_run_output_prepare(BOARD_SYS_CLOCK_HZ,1000,&g));
-    mock_core=0;assert(!sync_io_run_output_prepare(BOARD_SYS_CLOCK_HZ,0,&g));
+    mock_core=0;
     assert(!sync_io_run_output_prepare(BOARD_SYS_CLOCK_HZ,20001,&g));
     assert(!sync_io_run_output_prepare(BOARD_SYS_CLOCK_HZ-1,1000,&g));
     assert(!sync_io_run_output_prepare(BOARD_SYS_CLOCK_HZ,1000,NULL));
@@ -811,7 +813,7 @@ static void uniform_stream(unsigned count)
     for(unsigned i=0;i<SYNC_IO_RUN_OUTPUT_MAX_WORDS+1u;++i)sync_io_shared_workspace[i]=0xa5a5a5a5u;
     assert(sync_io_run_output_submit_count_core1(g,edges,count));probe_active=false;
     assert(fifo_count==1u&&hw_dma.ch[2].transfer_count==count-1u&&mock_busy==(count>1u));
-    assert(snap().schema==6u&&snap().fifo_words_per_edge==1u&&snap().fixed_high_ticks==1000u);
+    assert(snap().schema==7u&&snap().fifo_words_per_edge==1u&&snap().fixed_high_ticks==1000u);
     assert(snap().blocks==1u&&snap().edges==count&&snap().last_ordinal==count-1u);
     assert(sync_io_shared_workspace[count]==0xa5a5a5a5u);
     if(count==1u)assert(last_source==NULL);
@@ -877,6 +879,65 @@ static void uniform_prepare_gates(void)
     assert(sync_io_run_output_prepare_uniform(BOARD_SYS_CLOCK_HZ,1000,UINT32_MAX,&g));
     assert(mock_isr==UINT32_MAX-2u&&snap().fixed_high_ticks==UINT32_MAX);complete_stop(g);
 }
+static void continuous_stream(const char *name)
+{
+    mock_core=0;hw_timer.source=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS;raw(1000000u);
+    uint32_t g;
+    assert(use_uniform ? sync_io_run_output_prepare_uniform(BOARD_SYS_CLOCK_HZ,0u,1000u,&g) :
+        sync_io_run_output_prepare(BOARD_SYS_CLOCK_HZ,0u,&g));
+    mock_core=1;
+    sync_io_run_output_edge_t edges[16];
+    const unsigned blocks=!strcmp(name,"600") ? 37502u : 2100u;
+    for (unsigned b=0;b<blocks;++b) {
+        if (b) {
+            raw(s_run.last_falling_tick-500000u);sync_io_run_output_service_core1();
+            assert(s_run.state==SYNC_IO_RUN_OUTPUT_RUNNING);
+        }
+        make_counted_edges(edges,16u,1100000ull+(uint64_t)b*4000000u,(uint64_t)b*16u,7u+(b&1u));
+        assert(sync_io_run_output_submit_count_core1(g,edges,16u));
+        probe_active=false;hw_pio.fdebug=0u;
+        assert(s_run.expires_tick==0u && s_run.last_ordinal==(uint64_t)(b+1u)*16u-1u);
+        unsigned consumed=0u;
+        do {dma_drain_to_fifo();consumed+=fifo_count;fifo_consume(fifo_count);} while(mock_busy);
+        assert(consumed==(use_uniform?16u:32u));
+    }
+    assert(s_run.last_falling_tick-s_run.anchor_before>UINT64_C(32)*BOARD_SYS_CLOCK_HZ);
+    if (!strcmp(name,"600")) {
+        assert(s_run.last_falling_tick-s_run.anchor_before>UINT64_C(600)*BOARD_SYS_CLOCK_HZ);
+        assert(s_run.last_falling_tick>>32u>=34u);
+    }
+    raw(s_run.last_falling_tick-500000u);sync_io_run_output_service_core1();
+    if (!strcmp(name,"saturation")) {
+        s_run.blocks=s_run.source_retirements=s_run.model_changes=UINT32_MAX;
+        s_run.edges=UINT32_MAX-4u;
+        make_counted_edges(edges,16u,s_run.last_rising_tick+250000u,s_run.last_ordinal+1u,99u);
+        assert(sync_io_run_output_submit_count_core1(g,edges,16u));
+        assert(s_run.blocks==UINT32_MAX && s_run.edges==UINT32_MAX &&
+            s_run.source_retirements==UINT32_MAX && s_run.model_changes==UINT32_MAX);
+        hw_pio.fdebug=0u;
+    } else if (!strcmp(name,"rollback") || !strcmp(name,"submit_rollback")) {
+        raw(s_run.service_last_tick-1u);
+        if (!strcmp(name,"submit_rollback")) {
+            make_counted_edges(edges,16u,s_run.last_rising_tick+250000u,s_run.last_ordinal+1u,99u);
+            assert(!sync_io_run_output_submit_count_core1(g,edges,16u));
+        } else sync_io_run_output_service_core1();
+        assert(s_run.state==SYNC_IO_RUN_OUTPUT_RETIRING && s_run.reason==SYNC_IO_RUN_OUTPUT_CLOCK);
+    } else if (!strcmp(name,"dma")) {
+        hw_dma.ch[2].ctrl_trig|=DMA_CH0_CTRL_TRIG_AHB_ERROR_BITS;sync_io_run_output_service_core1();
+        assert(s_run.reason==SYNC_IO_RUN_OUTPUT_DMA);
+    } else if (!strcmp(name,"clock")) {
+        hw_timer.pause=1u;sync_io_run_output_service_core1();assert(s_run.reason==SYNC_IO_RUN_OUTPUT_CLOCK);
+    }
+    complete_stop(g);
+    /* New finite preparation must not inherit continuous expiry or counts. */
+    hw_timer.pause=0u;hw_dma.ch[2].ctrl_trig=0u;
+    const uint32_t next=prepare();assert(next>g && s_run.blocks==0u && s_run.edges==0u);
+    mock_core=1;make_counted_edges(edges,4u,1100000u,0u,7u);
+    assert(sync_io_run_output_submit_count_core1(next,edges,4u));probe_active=false;hw_pio.fdebug=0u;
+    assert(s_run.expires_tick==1000000u+BOARD_SYS_CLOCK_HZ);
+    raw(s_run.expires_tick);sync_io_run_output_service_core1();
+    assert(s_run.reason==SYNC_IO_RUN_OUTPUT_EXPIRED);complete_stop(next);
+}
 int main(int argc,char **argv)
 {
     assert(argc==2);
@@ -886,6 +947,7 @@ int main(int argc,char **argv)
     if(!strcmp(argv[1],"uniform_stream_ten")){uniform_stream(10u);return 0;}
     if(!strcmp(argv[1],"uniform_stream_max")){uniform_stream(16u);return 0;}
     if(!strcmp(argv[1],"uniform_prepare_gates")){uniform_prepare_gates();return 0;}
+    if(!strncmp(argv[1],"continuous_",11)){continuous_stream(argv[1]+11);return 0;}
     if(!strncmp(argv[1],"uniform_invalid:",16)){uniform_invalid(argv[1]+16);return 0;}
     if(!strcmp(argv[1],"gates"))gates();
     else if(!strncmp(argv[1],"prepare_",8))prepare_failure(argv[1]+8);
