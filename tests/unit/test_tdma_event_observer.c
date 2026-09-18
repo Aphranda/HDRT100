@@ -426,6 +426,46 @@ static void test_spacing_skew_and_overflow(void)
     assert_retired(&observer);
 }
 
+static void test_continuous_reference_lifetime(void)
+{
+    tdma_event_observer_t observer = started();
+    tdma_event_record_t output[TDMA_EVENT_MAX_RECORDS];
+    uint32_t raw = UINT32_MAX - 50u;
+    uint64_t elapsed = 101u;
+    unsigned wraps = 0u;
+    /* 1000 events/s for longer than ten minutes. Accumulate the PIO's actual
+     * downcounter recurrence including its extra instruction at each wrap. */
+    for (uint32_t i = 0u; i < 601000u; ++i) {
+        if (i) {
+            const uint32_t next = raw - 62497u;
+            const bool crossed = next > raw;
+            elapsed += 2u * 62497u + 5u + (crossed ? 1u : 0u);
+            wraps += crossed ? 1u : 0u;
+            raw = next;
+        }
+        tdma_event_batch_t input = batch(elapsed + 10u, elapsed + 20u);
+        /* Deliberately leave last_empty at the original epoch. A drained
+         * DMA batch need not prove FIFO empty; unique past lifts still
+         * narrow the previous event after many counter wraps. */
+        input.empty_mask = 0u;
+        append(&input, i, i + 1u, raw);
+        assert(tdma_event_observer_feed(&observer, &input, output) == 1u);
+        assert(observer.state == TDMA_EVENT_ACTIVE && output[0].ordinal == i);
+        assert(output[0].rx_elapsed_cycles == elapsed);
+        assert(observer.reads_last <= TDMA_EVENT_STREAMS * TDMA_EVENT_FIFO_WORDS);
+    }
+    assert(elapsed > (uint64_t)observer.config.pio_hz * 600u && wraps >= 8u);
+    tdma_event_observer_stop(&observer);
+    tdma_event_batch_t stale = batch(elapsed + 100u, elapsed + 100u);
+    assert(tdma_event_observer_feed(&observer, &stale, output) == 0u);
+    assert_retired(&observer);
+    const tdma_event_config_t cfg = config();
+    assert(tdma_event_observer_start(&observer, &cfg, 2u,
+        (tdma_event_interval_t){elapsed + 100u, elapsed + 100u}, 0u));
+    assert(tdma_event_observer_feed(&observer, &stale, output) == 0u);
+    assert(observer.reason == TDMA_EVENT_BAD_EPOCH);
+}
+
 int main(void)
 {
     test_lift();
@@ -441,6 +481,7 @@ int main(void)
     test_shared_anchor_between_streams();
     test_large_absolute_clock_and_multiwrap();
     test_spacing_skew_and_overflow();
-    puts("tdma_event_observer: 13 production C case groups passed");
+    test_continuous_reference_lifetime();
+    puts("tdma_event_observer: 14 production C case groups passed");
     return 0;
 }

@@ -1760,7 +1760,10 @@ static void tdma_event_start(tdma_pio_spi_phys_t *phys)
 #endif
     const tdma_event_config_t config = {
         .pio_hz = s_tdma_event_hz,
-        .epoch_limit_cycles = (uint64_t)s_tdma_event_hz * 60u,
+        /* This observer feeds the live DPLL, not a timed trace capture.
+         * Keep one epoch until STOP/fault. Each feed still proves ordered
+         * read brackets, unique counter lifts, bounded joins and arithmetic. */
+        .epoch_limit_cycles = UINT64_MAX,
         .join_timeout_cycles = (uint64_t)s_tdma_event_hz * s_tdma_event_period_ns /
                                1000000000u * join_window_frames,
         .min_frame_cycles = (uint64_t)phys->flight_physical_byte_count * 8u *

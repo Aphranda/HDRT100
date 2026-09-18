@@ -32,7 +32,7 @@ def test_production_owner_lifecycle_and_pairing(tmp_path: Path) -> None:
     compile_c([str(ROOT / "tests/unit/test_tdma_event_observer.c"), "-o", str(executable)])
     completed = subprocess.run([str(executable)], capture_output=True, text=True)
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert "13 production C case groups passed" in completed.stdout
+    assert "14 production C case groups passed" in completed.stdout
 
 
 @pytest.fixture
