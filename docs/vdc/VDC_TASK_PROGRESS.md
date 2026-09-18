@@ -22,6 +22,34 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-017：从板 MATCH 接入有界时钟映射并完成四板专项
+
+- TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。本条数字是本轮调试
+  快照，非产品事实源；证据根为 `out/HardwareAcceptance/20260918/`，未改 OTA、PIO
+  程序或其他设备的 `tdma_flight_engine.c` 工作区改动。
+- 代码切片将 follower MATCH 从无状态单次投影切换为 `vdc_dpll_manager_project_mapped_feedback_event`。
+  从板使用独立 Core1 `vdc_clock_mapping_cache_t`；只有不同事件完成模型、ring、observer、
+  RX、path 和残差复验后才提交 `mapping.next`。重复事件、投影/算术/绑定拒绝和竞争样本
+  不学习缓存；STOP、退休、禁用、请求代际切换、矛盾或 epoch 耗尽清空或退休当前代际。
+  保留原绝对 DCO 投影准入、半开上界、token/horizon、回绕和溢出约束。
+- Host 回归：`test_vdc_priority_match.py` 285 项通过（含 21 项真实 production mapping
+  集成）；FOLLOW/FOLLOW_CONFIG 127 项通过；clock mapping、SCPI 邻接 43 项通过。
+  初轮 278/4 的失败来自 fake bridge 未模拟 TIMER0 整微秒，夹具修正为微秒量化后恢复，
+  不是产品失败或静默放宽边界。文档门禁 38 项通过，docs_check 149 文件无 FAIL。
+- 独立资源审查记录 MATCH 工作区 1760 B，较前一审查快照增加 328 B；映射投影约 288 B、
+  cache 64 B，选定嵌套调用链局部栈小计 728 B，均不能替代完整运行栈高水位或 WCET 证明。
+  mapped projector 位于 XIP，未新增 PIO/SM/DMA/GPIO；完整 TDMA 超预算仍保留。
+- 四板 quick P3 `p3-match-mapping-r1/` 结果为 PASS_WITH_WARNINGS（INFO 25、WARN 18、
+  ERROR/FATAL 0），当前凭证绑定源码指纹。示波器/原生专项 `dpll-match-mapping-scope-r1/`
+  通过，NO1 CH1 rising SINGLE 触发且运行期间查询为 0；三从事件 raw enable 宽均 72 ns。
+  有限 1.9–2.1 s 波形窗口的最近边沿相对 NO1 中位约 NO2 +0.620 us、NO3 +1.240 us、
+  NO4 +1.780 us，拟合斜率约 −0.15/−1.57/+0.35 ppm（均为有限窗口快照）；三从仍有
+  0.50–2.00 us 的可见相位偏差，不能宣称 100 ns 锁相。原生 tail 样本数和模型变更随板
+  不同，不能把单个短尾区间外推为全运行上界。
+- 下一 gate：保留本轮映射收窄及拒绝不污染证据，继续分离 RUN 输出 bridge/enable、实际
+  delay 和频差残差；在新的输出切片完成 host、Release/资源、四板 P3 和有限示波器复测，
+  再决定是否需要进一步压缩 MATCH 工位或调整预算。
+
 ### VDC-PROGRESS-20260918-016：事件计时锚缩至 72 ns，保留映射与输出误差主线
 
 - TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。本条数字均为调试

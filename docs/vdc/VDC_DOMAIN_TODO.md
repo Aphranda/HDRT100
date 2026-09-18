@@ -21,8 +21,9 @@ Last updated: 2026-09-18
 host、Release、当前源码四板 quick P3 与首轮专项通过。复测 NO2 的 STOP RAM 页
 超时保留为专项失败，冻结原件已完整恢复。四路仍持续至 STOP，未 STARVED；但
 TIMER0/TIMER1 投影与 RUN 输出锚仍有微秒级不确定性，物理 100 ns 尚未证明。
-下一步先收窄 follower MATCH 的有界时钟映射，再分离输出 bridge/enable、delay
-及频差残差；完整 TDMA 超预算仍保留。候选参数已还原，未固化为稳定配置。
+follower MATCH 的独立有界时钟映射已完成一轮实现和四板专项，三从事件锚仍为 72 ns，
+但实际波形仍为微秒级相位偏差。下一步分离 RUN 输出 bridge/enable、delay 及频差残差；
+完整 TDMA 超预算仍保留。候选参数已还原，未固化为稳定配置。
 
 `VDC-PROGRESS-20260918-013` 已恢复自主 origin 有限许可与
 SYNC/MATCH/FOLLOW 新代绑定已恢复，三从实际采用及末态模型一致性已复核。
