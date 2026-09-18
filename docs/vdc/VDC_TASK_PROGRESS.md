@@ -22,6 +22,62 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-019：SRAM bridge 采样切片完成四板 quick P3
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条数字均为
+  有限验收快照，非产品事实源；本切片只改变 `vdc_timestamp_bridge_sample()` 的
+  有界 SRAM 采样位置，未修改 OTA、活动 path-delay 表或其他工作区中的
+  `tdma_flight_engine.c`。
+- Host 回归保持 245 项通过；Release 构建目录为
+  `out/build/dpll-bridge-sram-20260918`。反汇编确认采样函数位于 SRAM，采样区仅含
+  TIMER0/TIMER1 MMIO 读取、回绕比较、内存栅栏和返回；无 XIP 调用、等待、配置写入
+  或持久状态。资源快照为 text 871644、bss 462656，bss 未增加。
+- 同源码四板 quick P3 命令使用 `--tdma-only` 完成，证据根为
+  `out/HardwareAcceptance/20260918/p3-bridge-sram-r1/`，四板为 NO1--NO4，NO5
+  DPLL 观测按范围跳过，最终均完成 STOP。报告 `alarms.json` 为
+  `PASS_WITH_WARNINGS`，计数 `INFO=33/WARN=18/ERROR=0/FATAL=0`；receipt 已绑定
+  本次源码树、固件包、四板 OTA 摘要和 TDMA 摘要。
+- 该结果不是严格实时门禁通过：`tdma-process-image/summary.json` 的
+  `diagnostic_passed=true`，但 `realtime_gate_passed=false`、`closed_loop_passed=false`。
+  四板严格阶段仍报告 VDC/RefMem deadline 或负载告警，DPLL 反馈的 overrun/deadline/
+  WCET 项被标记为 diagnostic-only；因此本切片不能宣称 100 ns 锁相、VDC 发布或
+  DPLL 实时预算已经闭合。
+- 下一 gate：用本次 SRAM 采样版本做同会话示波器专项，比较 RUN bridge 映射区间与
+  实际 NO1--NO4 边沿；随后独立处理首次 PIO enable 和严格 VDC/RefMem 调度告警。
+  每项仍须 host、Release/资源、同源码四板 quick P3 和专项原始证据后再叠加。
+
+### VDC-PROGRESS-20260918-018：输出 delay A/B/A2 复测，定位 RUN 映射不确定度
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条数字均为
+  有限调试快照，非产品事实源。未改固件、活动 path-delay 表、Flash 或 OTA；其他
+  设备的 `tdma_flight_engine.c` 工作区状态保持。本轮没有新的固件切片或 P3 凭证。
+- 复用已校验源码凭证的 `capture_late_scope.py`，保持 `--scope-offset 2
+  --scope-scale .02 --profile 40000,48000,32000`，补齐 `baseline-a2`。A2 全流程
+  约 62 s，采集、清理和配置恢复成功；四板已 STOP，示波器恢复 STOP/EXT/NORM，
+  运行期间板卡/示波器查询为零。RUN 末态确认四板输出 delay 都为零。
+- 证据根 `out/HardwareAcceptance/20260918/dpll-output-delay-ab-r1/`：早期
+  `capture/` 的示波器偏移拒绝仍保留，不能算有效运行；`baseline-a`、`candidate-b`、
+  `baseline-a2` 是三次独立有效会话。B 的输出 delay 分别为 0/-620/-1240/-1780 ns，
+  结束后恢复为零且未 STORE。离线 `audit_restart_mapping.py` 生成
+  `restart-mapping-audit.json`，绑定原始报告、原生记录、波形分析及相关源码 SHA256。
+- 相对 NO1 的最近周期边沿中位（单位 ns，NO2/NO3/NO4）：A 约
+  +3126/+579/+1100，B 约 -517/-1100/-1361，A2 约 -820/+80/-260。
+  A→A2 同为零输出补偿，变化约 -3946/-499/-1360 ns，故跨会话 A/B 不能隔离
+  delay 传递增益，也不能证明每跳固定偏移或唯一根因。
+- A2 波形窗口 1.9–2.1 s，采样网格 20 ns，每通道 200 个上升沿，无粗大缺口；
+  三从相位范围约 -859～-800、+40～+120、-300～-200 ns，有限窗口斜率约
+  +0.044/+0.376/-0.174 ppm。NO3 中位接近零不代表通过 100 ns 门禁；尚未建立
+  共同 ordinal。原生记录容量先于 STOP 耗尽，亦不能由该窗口外推完整持续输出。
+- 代码与末态对账确认：RUN 每次请求仅取一个 TIMER0/TIMER1 bridge，之后使用
+  `vdc_timestamp_timeline_local_to_raw()` 的 `raw.hi` 安排边沿。三次输出映射最大
+  区间宽约 1432～4392 ns；独立输出 enable enclosure 约 1144～1152 ns。事件
+  observer 的 72 ns enclosure 不等于输出锚点精度。区间宽是误差界，不是已测的
+  固定引脚偏移；现有 RUN 末态未导出初始 bridge 三元组，不能唯一分配各项误差。
+- 下一 gate：先对 RUN 固定映射进行有界收敛与采样窗口收紧，再独立缩短首次
+  enable 区间；不改变不可撤回前缀，不把 DCO 更新当成硬件共钟变化。每个实现切片
+  依次执行 host、Release/资源、同源码四板 quick P3、原生/波形专项。独立路径确认
+  不阻塞此项修复；三从持续收敛、单圈时延、物理锁相与一致发布仍未完成。
+
 ### VDC-PROGRESS-20260918-017：从板 MATCH 接入有界时钟映射并完成四板专项
 
 - TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。本条数字是本轮调试
