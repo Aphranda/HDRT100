@@ -11,6 +11,14 @@
 #define VDC_PRIORITY_TRACE_SUMMARY_PHASE_SCHEMA 7u
 #define VDC_PRIORITY_TRACE_SUMMARY_ORIGIN_SCHEMA 8u
 #define VDC_PRIORITY_TRACE_SUMMARY_INTERVAL_MS 1000u
+#define VDC_PRIORITY_TRACE_SUMMARY_WINDOW_PHASE_SCHEMA 9u
+#define VDC_PRIORITY_TRACE_SUMMARY_WINDOW_ORIGIN_SCHEMA 10u
+#define VDC_PRIORITY_TRACE_SUMMARY_MAX_INTERVAL_MS 10000u
+/* Window schemas 9/10 preserve the same layout and raw-tick units. The ARM
+ * request explicitly selects whole-second bins, 1000..10000 ms, bounded by
+ * the current tick frequency and u32 offsets. Schemas 7/8 stay at 1000 ms.
+ * SERVICE_GAP remains a one-second owner gap, independent of bin duration;
+ * a spanning bin is also flagged at interval_ticks + one_second_ticks. */
 /* Summary schemas retain the 168-byte base header and 100-byte slots; there
  * is no origin extension. Core1 observes current TIMER1 time at service and
  * success hooks, independently of historical event timestamps. One-second
@@ -126,6 +134,8 @@ bool vdc_dpll_manager_priority_trace_origin_arm(uint32_t capture_id);
 /* Same STOP/ACK/pool-lease rules. Follower summary requires phase enabled;
  * origin summary requires the same empty origin generation as schema 5. */
 bool vdc_dpll_manager_priority_trace_summary_arm(uint32_t capture_id, bool origin);
+bool vdc_dpll_manager_priority_trace_summary_window_arm(uint32_t capture_id,
+    bool origin, uint32_t interval_ms);
 bool vdc_dpll_manager_priority_trace_stop(void);
 bool vdc_dpll_manager_priority_trace_release(void);
 bool vdc_dpll_manager_get_priority_trace(vdc_priority_trace_status_t *out);

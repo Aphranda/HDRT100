@@ -25,7 +25,11 @@ MIDPOINT_PHASE_MAX_DELTA_NS = 1000000000
 ORIGIN_SCHEMA = 5
 SUMMARY_FOLLOWER_SCHEMA = 7
 SUMMARY_ORIGIN_SCHEMA = 8
-SUMMARY_SCHEMAS = (SUMMARY_FOLLOWER_SCHEMA, SUMMARY_ORIGIN_SCHEMA)
+INTERVAL_SUMMARY_FOLLOWER_SCHEMA = 9
+INTERVAL_SUMMARY_ORIGIN_SCHEMA = 10
+INTERVAL_SUMMARY_SCHEMAS = (INTERVAL_SUMMARY_FOLLOWER_SCHEMA, INTERVAL_SUMMARY_ORIGIN_SCHEMA)
+SUMMARY_ORIGIN_SCHEMAS = (SUMMARY_ORIGIN_SCHEMA, INTERVAL_SUMMARY_ORIGIN_SCHEMA)
+SUMMARY_SCHEMAS = (SUMMARY_FOLLOWER_SCHEMA, SUMMARY_ORIGIN_SCHEMA, *INTERVAL_SUMMARY_SCHEMAS)
 SUMMARY = struct.Struct('<HHQQIIIIIIHHHHHHHHqqIIIiiHH')
 SUMMARY_FIELDS = ('bin_index flags observed_start_raw observed_end_raw max_service_gap_ticks '
     'max_success_gap_ticks first_event last_event first_success_offset_ticks last_success_offset_ticks '
@@ -78,6 +82,13 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def validate_summary_interval_ms(interval_ms: int) -> int:
+    require(isinstance(interval_ms, int) and not isinstance(interval_ms, bool) and
+            1000 <= interval_ms <= 10000 and interval_ms % 1000 == 0,
+            'Summary interval must be an integer multiple of 1000 ms in 1000..10000')
+    return interval_ms
+
+
 def parse_status(response: str) -> dict[str, int]:
     fields = next(csv.reader([response]))
     require(len(fields) == len(STATUS_FIELDS), 'Wrong status word count')
@@ -107,7 +118,14 @@ def decode(data: bytes, expected_capture_id: int | None = None) -> dict:
     if schema == SCHEMA or schema in PHASE_SCHEMAS:
         require(count == status['match_count'] + status['decision_count'], 'Record counts disagree')
     elif schema in SUMMARY_SCHEMAS:
-        require(status['sample_interval_ms'] == 1000 and status['skipped_count'] == 0,
+        interval_ms = status['sample_interval_ms']
+        if schema in INTERVAL_SUMMARY_SCHEMAS:
+            validate_summary_interval_ms(interval_ms)
+            require(status['tick_hz'] * interval_ms // 1000 <= 0xffffffff,
+                    'Summary interval ticks exceed uint32')
+        else:
+            require(interval_ms == 1000, 'Invalid legacy summary interval')
+        require(status['skipped_count'] == 0,
                 'Invalid summary interval or skipped count')
     else:
         require(status['match_count'] == status['decision_count'] == status['sample_interval_ms'] == 0, 'Origin counters mislabelled')
@@ -199,7 +217,8 @@ def decode_summary(data: bytes, status: dict, header_bytes: int) -> dict:
     hz = status['tick_hz']
     require(not status['record_count'] or 0 < hz <= 500_000_000, 'Invalid summary clock')
     require(status['session'] != 0 and status['generation'] != 0, 'Missing summary binding identity')
-    origin = status['schema'] == SUMMARY_ORIGIN_SCHEMA
+    origin = status['schema'] in SUMMARY_ORIGIN_SCHEMAS
+    interval_ticks = hz * status['sample_interval_ms'] // 1000
     success_fields = ('first_event last_event first_success_offset_ticks last_success_offset_ticks '
         'residual_min_ns residual_max_ns max_width_ns first_model last_model min_ppb max_ppb model_changes').split()
     counters = ('service_count success_count rejected_count cancelled_count phase_held_count '
@@ -222,9 +241,9 @@ def decode_summary(data: bytes, status: dict, header_bytes: int) -> dict:
             require(index == status['record_count']-1 and flags & SUMMARY_FLAGS['PARTIAL'],
                     'Invalid summary terminal bin')
         if not flags & (SUMMARY_FLAGS['PARTIAL'] | SUMMARY_FLAGS['CLOCK_INVALID']):
-            require(end-start >= hz, 'Short nonpartial summary bin')
+            require(end-start >= interval_ticks, 'Short nonpartial summary bin')
         if row['max_service_gap_ticks'] >= hz or (
-                end-start >= 2*hz and not flags & SUMMARY_FLAGS['PARTIAL']):
+                end-start >= interval_ticks+hz and not flags & SUMMARY_FLAGS['PARTIAL']):
             require(flags & SUMMARY_FLAGS['SERVICE_GAP'], 'Unexplained summary service gap')
         # The reverse implication is intentionally invalid: SERVICE_GAP also
         # preserves an unavailable owner-counter snapshot or initial baseline.

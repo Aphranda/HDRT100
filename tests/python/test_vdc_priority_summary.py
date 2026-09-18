@@ -22,11 +22,50 @@ FIELDS = ('bin_index flags observed_start_raw observed_end_raw max_service_gap_t
           'model_changes outcome_mask').split()
 
 
-def native(raw, schema=7):
+@pytest.fixture(scope='module')
+def window_executable(summary_executable, tmp_path_factory):
+    source = summary_executable.with_suffix('.c').read_text(encoding='utf-8')
+    source = source.replace('int main(int argc,char **argv)', 'int old_summary_main(int argc,char **argv)', 1)
+    return compile_executable(tmp_path_factory.mktemp('window-summary'), 'window', source + WINDOW_CASES,
+        domain_sources() + [ROOT / 'components/vdc_dpll_manager/src/vdc_feedback_match.c',
+                           ROOT / 'components/distributed_refmem/src/refmem_sync_vdc_feedback.c'])
+
+
+@pytest.mark.parametrize('case', ['1000', '2000', '10000', 'sixhundred', 'gap', 'saturation',
+                                'before', 'boundary', 'after', 'capacity', 'invalid', 'release'])
+def test_window_production(window_executable, case):
+    data = execute(window_executable, case)
+    if case in ('invalid', 'release'):
+        assert not data
+        return
+    interval = int(case) if case.isdigit() else 10000
+    status, rows = native(data, 9, interval)
+    from tools.vdc_priority_trace.vdc_priority_trace import decode
+    assert decode(data, 1)['status'] == status
+    if case == 'sixhundred':
+        assert len(rows) == 61 and sum(r['success_count'] for r in rows) == 6000
+        assert rows[-1]['observed_end_raw'] - rows[0]['observed_start_raw'] == 150_000_000_000
+        assert not any(r['flags'] & (4 | 32 | 64) for r in rows)
+        assert all(rows[i]['observed_end_raw'] == rows[i+1]['observed_start_raw'] for i in range(60))
+    elif case == 'gap':
+        assert rows[0]['flags'] & 4 and rows[0]['max_service_gap_ticks'] == 250_000_000
+    elif case == 'saturation':
+        assert rows[-1]['flags'] & 32 and rows[-1]['max_success_gap_ticks'] == 2**32-1
+    elif case in ('before', 'boundary', 'after'):
+        assert len(rows) == (1 if case == 'before' else 2)
+        assert rows[-1]['flags'] & 256 and status['reason'] == 1
+        assert not any(r['flags'] & 4 for r in rows)
+    elif case == 'capacity':
+        assert len(rows) == 76 and status['reason'] == 4
+    else:
+        assert status['sample_interval_ms'] == interval
+
+
+def native(raw, schema=7, interval_ms=1000):
     magic, version, header, size, crc = struct.unpack_from('<5I', raw)
     assert (magic, version, header, size) == (0x52545056, schema, 168, 100)
     status = dict(zip(STATUS_FIELDS, struct.unpack_from('<37I', raw, 20), strict=True))
-    assert status['schema'] == schema and status['sample_interval_ms'] == 1000
+    assert status['schema'] == schema and status['sample_interval_ms'] == interval_ms
     assert status['state'] == 3 and status['request_seq'] == status['ack_seq']
     assert len(raw) == header + size * status['record_count']
     assert zlib.crc32(raw[header:]) == crc
@@ -156,6 +195,28 @@ def test_origin_summary_real_provider(summary_origin_executable, case):
         assert rows[-1]['outcome_mask'] & 32 and rows[-1]['rejected_count'] > 0
     else:
         assert status['reason'] == 3 and rows[-1]['flags'] & 256
+
+
+@pytest.fixture(scope='module')
+def window_origin_executable(summary_origin_executable, tmp_path_factory):
+    source = summary_origin_executable.with_suffix('.c').read_text(encoding='utf-8')
+    source = source.replace('vdc_dpll_manager_priority_trace_summary_arm(1u,true)',
+                           'vdc_dpll_manager_priority_trace_summary_window_arm(1u,true,10000u)')
+    source = source.replace('i<12u', 'i<6000u')
+    return compile_executable(tmp_path_factory.mktemp('summary-window-origin'), 'window_origin', source,
+        domain_sources() + [ROOT / 'components/vdc_dpll_manager/src/vdc_feedback_match.c',
+                           ROOT / 'components/distributed_refmem/src/refmem_sync_vdc_feedback.c',
+                           ROOT / 'components/vdc_dpll_manager/src/vdc_priority_codec.c'])
+
+
+def test_origin_window_sixhundred(window_origin_executable):
+    raw = execute(window_origin_executable, 'origin_flow')
+    status, rows = native(raw, 10, 10000)
+    from tools.vdc_priority_trace.vdc_priority_trace import decode
+    assert decode(raw, 1)['status'] == status
+    assert len(rows) == 60 and sum(r['success_count'] for r in rows) == 6000
+    assert rows[-1]['observed_end_raw'] - rows[0]['observed_start_raw'] == 149_975_000_000
+    assert not any(r['flags'] & (4 | 32 | 64) for r in rows)
 
 
 CASES = r'''
@@ -291,5 +352,57 @@ int main(int argc,char **argv)
         priority_trace_origin_core1(&other);
     } else assert(0);
     frozen_trace();export_trace();return 0;
+}
+'''
+
+WINDOW_CASES = r'''
+int main(int argc,char **argv)
+{
+#ifdef _WIN32
+    _setmode(_fileno(stdout),_O_BINARY);
+#endif
+    assert(argc==2);const char *name=argv[1];setup(6000);stopped_ring();
+    assert(vdc_dpll_manager_set_priority_follow_phase(true));
+    uint32_t interval=10000u;
+    if(name[0]>='0'&&name[0]<='9')interval=(uint32_t)strtoul(name,NULL,10);
+    if(!strcmp(name,"invalid")){
+        const uint32_t bad[]={0u,999u,1001u,11000u,UINT32_MAX};
+        for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);++i){
+            assert(!vdc_dpll_manager_priority_trace_summary_window_arm(1u,false,bad[i]));
+            assert(s_priority_trace_last_capture==0u&&s_priority_trace_request.sequence==0u);
+            assert(s_dpll_capture_pool_owner==DPLL_CAPTURE_POOL_LEGACY);
+        }
+        assert(!priority_trace_summary_interval_valid(7u,2000u));
+        assert(!priority_trace_summary_interval_valid(8u,10000u));
+    }
+    assert(vdc_dpll_manager_priority_trace_summary_window_arm(1u,false,interval));
+    assert(trace_status().request_seq!=trace_status().ack_seq);trace_service();
+    assert(trace_status().schema==9u&&trace_status().sample_interval_ms==interval);
+    assert(s_priority_trace_work.summary.interval_ticks==(uint64_t)interval*250000u);
+    if(!strcmp(name,"invalid")){frozen_trace();return 0;}
+    running_ring();advance_summary(0u);
+    if(!strcmp(name,"sixhundred")||!strcmp(name,"capacity")){
+        unsigned count=!strcmp(name,"capacity")?7700u:6000u;
+        for(unsigned i=0;i<count;++i){event(100u+i,(uint64_t)i*100000000u);tick();}
+        if(count==6000u)advance_summary(600000000000ull);
+    }else if(!strcmp(name,"gap"))advance_summary(1000000000ull);
+    else if(!strcmp(name,"saturation")){
+        for(unsigned i=1;i<=180u;++i)advance_summary((uint64_t)i*100000000u);
+    }else{
+        for(unsigned i=0;i<100u;++i){event(100u+i,(uint64_t)i*100000000u);tick();}
+        uint64_t t=!strcmp(name,"before")?9999999996ull:!strcmp(name,"after")?10000000004ull:10000000000ull;
+        advance_summary(t);
+    }
+    frozen_trace();
+    uint8_t saved[sizeof(s_dpll_capture_records)];memcpy(saved,s_dpll_capture_records,sizeof(saved));
+    running_ring();advance_summary(800000000000ull);
+    assert(!memcmp(saved,s_dpll_capture_records,sizeof(saved)));stopped_ring();
+    if(!strcmp(name,"release")){
+        assert(vdc_dpll_manager_priority_trace_release());
+        assert(trace_status().request_seq!=trace_status().ack_seq);trace_service();
+        assert(trace_status().state==VDC_PRIORITY_TRACE_IDLE);
+        assert(s_dpll_capture_pool_owner==DPLL_CAPTURE_POOL_LEGACY);reject_read(1u,0u,1u);return 0;
+    }
+    export_trace();return 0;
 }
 '''

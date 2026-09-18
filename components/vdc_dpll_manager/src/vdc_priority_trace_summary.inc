@@ -158,11 +158,11 @@ static void priority_summary_service(bool end)
         priority_trace_freeze(VDC_PRIORITY_TRACE_BINDING);return;
     }
     if (!end && p && valid && raw>=p->observed_start_raw &&
-        raw-p->observed_start_raw>=BOARD_SYS_CLOCK_HZ) {
+        raw-p->observed_start_raw>=w->summary.interval_ticks) {
         const uint64_t gap=raw>=w->summary.last_service?raw-w->summary.last_service:0u;
         const uint32_t g=priority_summary_u32(gap,p);
         if (g>p->max_service_gap_ticks) p->max_service_gap_ticks=g;
-        if (gap>=BOARD_SYS_CLOCK_HZ || raw-p->observed_start_raw>=2ull*BOARD_SYS_CLOCK_HZ)
+        if (gap>=BOARD_SYS_CLOCK_HZ || raw-p->observed_start_raw>=w->summary.interval_ticks+BOARD_SYS_CLOCK_HZ)
             p->flags|=SUMMARY_SERVICE_GAP;
         priority_summary_counters(false);priority_summary_commit(false);p=NULL;
     }

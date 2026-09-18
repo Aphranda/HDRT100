@@ -2,12 +2,14 @@
 from contextlib import contextmanager
 from types import SimpleNamespace
 import copy
+import sys
 import pytest
 from tools.vdc_priority_trace import vdc_priority_trace_capture as capture
 
 
-def decoded(origin=False):
-    return dict(status=dict(schema=8 if origin else 7, tick_hz=250000000, reason=1), records=[dict(
+def decoded(origin=False, interval_ms=None):
+    return dict(status=dict(schema=(8 if origin else 7) if interval_ms is None else (10 if origin else 9),
+        sample_interval_ms=interval_ms or 1000, tick_hz=250000000, reason=1), records=[dict(
         bin_index=0, observed_start_raw=100, observed_end_raw=250000100,
         flag_names=["TERMINAL", "PARTIAL"], coverage_incomplete=False, success_count=10,
         frequency_applied_count=0, phase_applied_count=0, residual_min_ns=-96,
@@ -53,7 +55,7 @@ def test_zero_adjustment_is_valid():
     assert result["frequency_applied_count"] == 0
 
 
-def setup_run(tmp_path, monkeypatch, fail=None, recovery=False):
+def setup_run(tmp_path, monkeypatch, fail=None, recovery=False, interval_ms=None, duration_s=1):
     calls, closed, stopped, released, ring_armed = [], [], set(), set(), set()
     quiet = False
     @contextmanager
@@ -73,7 +75,7 @@ def setup_run(tmp_path, monkeypatch, fail=None, recovery=False):
             ring_armed.add(ser.port)
             return "OK"
         if cmd.startswith("CALibration:ORIGin:TRIAL"): return "2"
-        if ":SUMMary:" in cmd: return cmd.rsplit(" ",1)[1]
+        if ":SUMMary:" in cmd: return cmd.rsplit(" ",1)[1].split(",")[0]
         if cmd.endswith(":STOP"):
             assert len(stopped) == 2
             return "1"
@@ -84,7 +86,9 @@ def setup_run(tmp_path, monkeypatch, fail=None, recovery=False):
     def status(ser, *unused):
         if fail == "arm" and ser.port == "COM2" and not stopped:
             raise TimeoutError("ARM readback lost")
-        return dict(schema=8 if ser.port == "COM1" else 7,
+        schema = (8 if ser.port == "COM1" else 7) if interval_ms is None else (10 if ser.port == "COM1" else 9)
+        return dict(schema=schema if fail != "arm_schema" else 7,
+            sample_interval_ms=(interval_ms or 1000) if fail != "arm_interval" else 2000,
             capture_id=10 if ser.port == "COM1" else 11, state=1, request_seq=1, ack_seq=1)
     def ring(ser, timeout):
         active = ser.port in ring_armed and ser.port not in stopped
@@ -94,6 +98,7 @@ def setup_run(tmp_path, monkeypatch, fail=None, recovery=False):
             ring_adapter_started=int(active), ring_up_running=0, ring_down_running=0)
     def sleep(seconds):
         nonlocal quiet
+        assert 0 < seconds <= 60
         quiet = True
         calls.append(("host", "quiet"))
         quiet = False
@@ -109,10 +114,30 @@ def setup_run(tmp_path, monkeypatch, fail=None, recovery=False):
     monkeypatch.setattr(capture, "wait_frozen", lambda *a: dict(reason=1))
     monkeypatch.setattr(capture, "wait_released", lambda *a: dict(state=0, reason=6))
     monkeypatch.setattr(capture, "download_capture", download)
-    monkeypatch.setattr(capture, "decode", lambda b,expected_capture_id: decoded(expected_capture_id==10))
+    def decode(b, expected_capture_id):
+        result = decoded(expected_capture_id == 10, interval_ms)
+        template = result["records"][0]
+        result["records"] = []
+        remaining, start = duration_s, 100
+        while remaining > 0:
+            seconds = min(remaining, (interval_ms or 1000)/1000)
+            ticks = int(seconds*250000000)
+            row = dict(template, bin_index=len(result["records"]),
+                       observed_start_raw=start, observed_end_raw=start+ticks,
+                       last_success_offset_ticks=ticks-1000, flag_names=[])
+            result["records"].append(row)
+            remaining -= seconds
+            start += ticks
+        row["flag_names"] = ["PARTIAL", "TERMINAL"]
+        if fail == "decoded_interval": result["status"]["sample_interval_ms"] = 2000
+        if fail == "decoded_schema": result["status"]["schema"] = 7
+        if fail == "saturated": row.update(coverage_incomplete=True, flag_names=["PARTIAL", "TERMINAL", "FIELD_SATURATED"])
+        return result
+    monkeypatch.setattr(capture, "decode", decode)
     monkeypatch.setattr(capture.time, "sleep", sleep)
     args = SimpleNamespace(board=[capture.BoardSpec("NO1","COM1"),capture.BoardSpec("NO2","COM2")],
-        duration_s=1, capture_id=10, origin=False, origin_board=["NO1"], start_ring=not recovery,
+        duration_s=duration_s, summary_interval_ms=interval_ms,
+        capture_id=10, origin=False, origin_board=["NO1"], start_ring=not recovery,
         skip_arm=recovery, trial_epoch=2, timeout=.01, stop_timeout=.01, poll_interval_s=.001,
         settle=0, baud=115200, expected_build="test-build", out_dir=tmp_path)
     result = capture.run(args, opener=opener)
@@ -154,3 +179,91 @@ def test_query_accepts_bare_ok(monkeypatch):
     ser=SimpleNamespace(reset_input_buffer=lambda: None,write=lambda b: None,flush=lambda: None)
     monkeypatch.setattr(capture,"read_serial_line_idle",lambda *a: '\"OK\"')
     assert capture.query(ser,"STOP",1)=="OK"
+
+
+@pytest.mark.parametrize("interval_ms", [1000, 2000, 10000])
+@pytest.mark.parametrize("origin", [False, True])
+def test_explicit_interval_selects_new_arm_protocol(interval_ms, origin):
+    command = capture.arm_command(12, origin=origin, summary_interval_ms=interval_ms)
+    assert command.endswith(f"{'ORIGin' if origin else 'PHASe'} 12,{interval_ms}")
+    assert capture.summary_schema(origin, interval_ms) == (10 if origin else 9)
+    assert capture.summary_schema(origin, None) == (8 if origin else 7)
+
+
+@pytest.mark.parametrize("interval_ms", [0, 999, 1001, 1500, 11000, 1000.0, True])
+def test_invalid_interval_rejected_before_arm(interval_ms):
+    with pytest.raises(ValueError, match="interval"):
+        capture.arm_command(12, origin=False, summary_interval_ms=interval_ms)
+    with pytest.raises(ValueError, match="interval"):
+        capture.validate_duration(1, interval_ms)
+
+
+@pytest.mark.parametrize("interval_ms", [1000, 2000, 10000])
+def test_duration_capacity_scales_only_with_explicit_interval(interval_ms):
+    limit = 60*interval_ms/1000
+    assert capture.validate_duration(str(limit), interval_ms) == limit
+    with pytest.raises(ValueError):
+        capture.validate_duration(limit+0.001, interval_ms)
+    with pytest.raises(ValueError):
+        capture.validate_duration(601, interval_ms)
+
+
+@pytest.mark.parametrize("interval_ms", [None, 1000, 10000])
+def test_cli_interval_and_string_duration(tmp_path, monkeypatch, interval_ms):
+    duration = "60" if interval_ms is None else str(60*interval_ms//1000)
+    argv = ["capture", "--board", "NO1=COM1", "--duration-s", duration,
+            "--skip-arm", "--out-dir", str(tmp_path)]
+    if interval_ms is not None:
+        argv += ["--summary-interval-ms", str(interval_ms)]
+    monkeypatch.setattr(sys, "argv", argv)
+    args = capture.parse_args()
+    assert args.duration_s == float(duration) and args.summary_interval_ms == interval_ms
+
+
+@pytest.mark.parametrize("extra", [[], ["--summary-interval-ms", "1000"],
+                                   ["--summary-interval-ms", "1500"]])
+def test_cli_rejects_duration_or_interval_outside_capacity(tmp_path, monkeypatch, extra):
+    monkeypatch.setattr(sys, "argv", ["capture", "--board", "NO1=COM1", "--duration-s", "600",
+                                     "--skip-arm", "--out-dir", str(tmp_path), *extra])
+    with pytest.raises(SystemExit) as exc:
+        capture.parse_args()
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("interval_ms,duration_s", [(1000, 60), (10000, 600)])
+def test_extended_run_binds_schema_and_interval_and_stays_silent(tmp_path, monkeypatch, interval_ms, duration_s):
+    result, calls, _, _ = setup_run(tmp_path, monkeypatch, interval_ms=interval_ms, duration_s=duration_s)
+    assert result["passed"] and result["summary_interval_ms"] == interval_ms
+    assert ("COM1", capture.TRACE_ROOT+f":SUMMary:ORIGin 10,{interval_ms}") in calls
+    assert ("COM2", capture.TRACE_ROOT+f":SUMMary:PHASe 11,{interval_ms}") in calls
+    trial = next(i for i, (_, cmd) in enumerate(calls) if cmd.startswith("CALibration:ORIGin:TRIAL"))
+    stop = calls.index(("COM1", "SYSTem:TDMA:RING:STOP"))
+    assert calls[trial+1:stop] == [("host", "quiet")]*(duration_s//60)
+    for board in result["boards"]:
+        assert board["assessment"]["interval_ok"]
+        assert not board["assessment"]["physical_lock_qualified"]
+
+
+@pytest.mark.parametrize("failure", ["arm_schema", "arm_interval", "decoded_schema", "decoded_interval", "saturated"])
+def test_extended_capture_identity_and_saturation_cannot_pass(tmp_path, monkeypatch, failure):
+    result, calls, _, _ = setup_run(tmp_path, monkeypatch, fail=failure, interval_ms=10000)
+    assert not result["passed"]
+    if failure.startswith("arm_"):
+        assert result["boards"][0]["arm_attempted"]
+        assert not any(cmd == "SYSTem:TDMA:RING:START" for _, cmd in calls)
+    else:
+        assert any(not b["passed"] and b["binary"] for b in result["boards"])
+
+
+def test_extended_recovery_still_cannot_claim_pass(tmp_path, monkeypatch):
+    result, _, _, _ = setup_run(tmp_path, monkeypatch, recovery=True, interval_ms=10000)
+    assert result["recovery_only"] and not result["passed"]
+    assert result["runtime_scpi_queries"] is None
+
+
+def test_quiet_wait_splits_final_fraction_without_device_calls(monkeypatch):
+    waits = []
+    monkeypatch.setattr(capture.time, "sleep", waits.append)
+    monkeypatch.setattr(capture, "query", lambda *a: pytest.fail("query during quiet wait"))
+    capture.quiet_wait(125.5)
+    assert waits == [60, 60, 5.5]

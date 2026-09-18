@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Capture the bounded internal VDC summary trace without runtime polling.
 
-Core1 updates bounded SRAM counters on service/success and commits roughly one
-record per second. No runtime host polling or SD writes are used. This is a
+Core1 updates bounded SRAM counters on service/success and commits one record
+per selected interval. No runtime host polling or SD writes are used. This is a
 bounded internal observer, not a zero-cost probe or physical GPIO measurement.
 Prepare a fresh session with TDMA stopped before --start-ring;
 do not TRAIN or change topology after trace ARM. --skip-arm only recovers an
@@ -31,6 +31,7 @@ from tools.vdc_priority_trace.vdc_priority_trace import (  # noqa: E402
     decode,
     download_capture,
     parse_status,
+    validate_summary_interval_ms,
 )
 from tools.tdma_ring_monitor.tdma_field_parse import FIELDS as TDMA_FIELDS
 
@@ -40,7 +41,7 @@ STATE_FROZEN = 3
 STATE_IDLE = 0
 REASON_STOP = 1
 REASON_RELEASED = 6
-MAX_QUIET_SECONDS = 60.0  # 76 one-second slots, with startup/STOP headroom
+MAX_QUIET_SECONDS = 60.0  # Legacy capacity; explicit intervals scale this window.
 
 
 @dataclass(frozen=True)
@@ -81,17 +82,33 @@ def parse_board(value: str) -> BoardSpec:
     return BoardSpec(name.strip(), port.strip())
 
 
-def arm_command(capture_id: int, *, origin: bool) -> str:
+def arm_command(capture_id: int, *, origin: bool, summary_interval_ms: int | None = None) -> str:
     if not 0 < capture_id <= 0xFFFFFFFF:
         raise ValueError("capture_id must be in 1..0xffffffff")
-    return f"{TRACE_ROOT}:SUMMary:{'ORIGin' if origin else 'PHASe'} {capture_id}"
+    suffix = "" if summary_interval_ms is None else f",{validate_summary_interval_ms(summary_interval_ms)}"
+    return f"{TRACE_ROOT}:SUMMary:{'ORIGin' if origin else 'PHASe'} {capture_id}{suffix}"
 
 
-def validate_duration(duration_s: float) -> float:
+def validate_duration(duration_s: float, summary_interval_ms: int | None = None) -> float:
     duration_s = float(duration_s)
-    if not math.isfinite(duration_s) or not 0 < duration_s <= MAX_QUIET_SECONDS:
-        raise ValueError("current summary pool supports a quiet window of 0..60 seconds")
+    interval = 1000 if summary_interval_ms is None else validate_summary_interval_ms(summary_interval_ms)
+    limit = min(600.0, MAX_QUIET_SECONDS * interval / 1000)
+    if not math.isfinite(duration_s) or not 0 < duration_s <= limit:
+        raise ValueError(f"current summary interval supports a quiet window of 0..{limit:g} seconds")
     return float(duration_s)
+
+
+def summary_schema(origin: bool, summary_interval_ms: int | None) -> int:
+    return (8 if origin else 7) if summary_interval_ms is None else (10 if origin else 9)
+
+
+def quiet_wait(duration_s: float) -> None:
+    """Bound each host wait while issuing no device commands between waits."""
+    remaining = duration_s
+    while remaining > 0:
+        chunk = min(60.0, remaining)
+        time.sleep(chunk)
+        remaining -= chunk
 
 
 def is_log_line(line: str) -> bool:
@@ -178,11 +195,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--board", action="append", type=parse_board, required=True,
                         help="NAME=PORT; repeat once per board")
-    parser.add_argument("--duration-s", type=validate_duration, required=True,
+    parser.add_argument("--duration-s", type=float, required=True,
                         help="quiet internal observation duration; no runtime polling")
+    parser.add_argument("--summary-interval-ms", type=int,
+                        help="explicit 1000..10000 ms in 1000 ms steps; selects schema 9/10")
     parser.add_argument("--capture-id", type=int, default=1)
     parser.add_argument("--origin", action="store_true",
-                        help="arm the origin summary schema (schema 8); default is phase schema 7")
+                        help="arm origin schema 8 (10 with explicit interval); default is phase 7/9")
     parser.add_argument("--origin-board", action="append", default=[],
                         help="board name using origin schema; repeat for mixed-role captures")
     parser.add_argument("--skip-arm", action="store_true",
@@ -202,7 +221,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--poll-interval-s", type=float, default=0.1)
     parser.add_argument("--expected-build")
     parser.add_argument("--out-dir", type=Path, required=True)
-    return parser.parse_args()
+    args = parser.parse_args()
+    try:
+        args.duration_s = validate_duration(args.duration_s, args.summary_interval_ms)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
 
 
 def ring_status(ser: Any, timeout_s: float) -> dict[str, int]:
@@ -246,11 +270,13 @@ def stop_all(handles: list[Any], args: argparse.Namespace,
 
 
 def assess_capture(decoded: dict[str, Any], requested_s: float,
-                   origin: bool, max_success_gap_s: float = 1.0) -> dict[str, Any]:
+                   origin: bool, max_success_gap_s: float = 1.0,
+                   summary_interval_ms: int | None = None) -> dict[str, Any]:
     """Separate actual coverage from successful follow observations."""
     status, rows = decoded["status"], decoded["records"]
     hz = status["tick_hz"]
-    schema_ok = status["schema"] == (8 if origin else 7)
+    schema_ok = status["schema"] == summary_schema(origin, summary_interval_ms)
+    interval_ok = status["sample_interval_ms"] == (summary_interval_ms or 1000)
     first = rows[0]["observed_start_raw"] if rows else None
     last = rows[-1]["observed_end_raw"] if rows else None
     observed = (last - first) / hz if rows and hz else 0.0
@@ -261,7 +287,7 @@ def assess_capture(decoded: dict[str, Any], requested_s: float,
     incomplete = not rows or any(r["coverage_incomplete"] for r in rows)
     empty = [r["bin_index"] for r in rows if r["observed_end_raw"] > r["observed_start_raw"]
              and not r["success_count"]]
-    coverage = bool(schema_ok and terminal and status["reason"] == REASON_STOP
+    coverage = bool(schema_ok and interval_ok and terminal and status["reason"] == REASON_STOP
                     and not incomplete and observed >= requested_s)
     success = [r for r in rows if r["success_count"]]
     success_first = (success[0]["observed_start_raw"] + success[0]["first_success_offset_ticks"]
@@ -269,7 +295,8 @@ def assess_capture(decoded: dict[str, Any], requested_s: float,
     success_last = (success[-1]["observed_start_raw"] + success[-1]["last_success_offset_ticks"]
                     if success else None)
     gap = max((r["max_success_gap_ticks"] / hz for r in rows), default=0)
-    return dict(schema_ok=schema_ok, first_raw_tick=first, last_raw_tick=last,
+    return dict(schema_ok=schema_ok, interval_ok=interval_ok,
+                summary_interval_ms=status["sample_interval_ms"], first_raw_tick=first, last_raw_tick=last,
                 observed_s=observed, requested_s=requested_s, terminal=terminal,
                 freeze_reason=status["reason"], flags=flags, crc_verified=True,
                 coverage_complete=coverage, empty_nonzero_bins=empty,
@@ -293,7 +320,8 @@ def assess_capture(decoded: dict[str, Any], requested_s: float,
 
 
 def run(args: argparse.Namespace, opener: Callable[..., Any] = open_serial_port) -> dict[str, Any]:
-    duration = validate_duration(args.duration_s)
+    summary_interval_ms = getattr(args, "summary_interval_ms", None)
+    duration = validate_duration(args.duration_s, summary_interval_ms)
     gap_limit = getattr(args, "max_success_gap_s", 1.0)
     if not math.isfinite(gap_limit) or gap_limit <= 0:
         raise ValueError("max-success-gap-s must be finite and positive")
@@ -343,11 +371,13 @@ def run(args: argparse.Namespace, opener: Callable[..., Any] = open_serial_port)
                 for result, ser in zip(results, handles):
                     result.arm_attempted = True
                     result.arm_response = query(ser, arm_command(result.capture_id,
-                        origin=result.name in origins), args.timeout)
+                        origin=result.name in origins, summary_interval_ms=summary_interval_ms), args.timeout)
                     if result.arm_response != str(result.capture_id):
                         raise RuntimeError(f"{result.name}: ARM rejected {result.arm_response}")
                     status = wait_armed(ser, args.timeout, args.poll_interval_s)
-                    if status["capture_id"] != result.capture_id or status["schema"] != (8 if result.name in origins else 7):
+                    if (status["capture_id"] != result.capture_id or
+                            status["schema"] != summary_schema(result.name in origins, summary_interval_ms) or
+                            status["sample_interval_ms"] != (summary_interval_ms or 1000)):
                         raise RuntimeError(f"{result.name}: ARM identity mismatch")
                 order = sorted(range(len(results)), key=lambda i: results[i].name in origins)
                 for i in order:
@@ -389,7 +419,7 @@ def run(args: argparse.Namespace, opener: Callable[..., Any] = open_serial_port)
                 if not grant or grant & 1:
                     raise RuntimeError("origin trial grant rejected")
                 begin = time.monotonic()
-                time.sleep(duration)
+                quiet_wait(duration)
                 quiet_elapsed = time.monotonic() - begin
         except Exception as exc:
             errors.append(str(exc))
@@ -428,7 +458,8 @@ def run(args: argparse.Namespace, opener: Callable[..., Any] = open_serial_port)
                         path.write_text(json.dumps(decoded, indent=2), encoding="utf-8")
                         result.decoded = str(path.relative_to(args.out_dir))
                         result.records = len(decoded["records"])
-                        result.assessment = assess_capture(decoded, duration, result.name in origins, gap_limit)
+                        result.assessment = assess_capture(decoded, duration, result.name in origins,
+                                                           gap_limit, summary_interval_ms)
                         result.coverage_incomplete = not result.assessment["coverage_complete"]
                         result.status_after_stop = result.status_before_stop
                         release_trace(ser, result, args)
@@ -440,7 +471,8 @@ def run(args: argparse.Namespace, opener: Callable[..., Any] = open_serial_port)
                         errors.append(f"{result.name}: {exc}")
                         # Keep failed/unknown evidence frozen for explicit recovery.
     summary = dict(schema="VDC_INTERNAL_SUMMARY_CAPTURE_V2", created_utc=timestamp_iso(),
-        duration_s=duration, quiet_elapsed_s=quiet_elapsed, recovery_only=recovery,
+        duration_s=duration, summary_interval_ms=summary_interval_ms or 1000,
+        quiet_elapsed_s=quiet_elapsed, recovery_only=recovery,
         runtime_scpi_queries=0 if not recovery else None,
         runtime_host_polling=False if not recovery else None,
         runtime_writes="bounded SRAM counters and summary", all_boards_stopped=stopped,

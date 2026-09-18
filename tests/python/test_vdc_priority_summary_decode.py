@@ -18,7 +18,7 @@ def record(index=0, start=100, end=250000100, origin=False):
 
 
 def native(rows=None, schema=7, overrides=None):
-    rows = [record(origin=schema == 8)] if rows is None else rows
+    rows = [record(origin=schema in (8, 10))] if rows is None else rows
     words = [schema, 2, 2, 2, 3, 1, 123, 42, 42, 1000, 76, len(rows),
              sum(r[11] for r in rows), sum(r[15] for r in rows), 0, 0,
              1000, 61000, 61001, 9, 9, 1, 0, 4, 11, 12, 13, 14, 80,
@@ -168,7 +168,104 @@ def test_crc_length_capture_identity_and_old_schema_relabelling():
     with pytest.raises(ValueError, match='Record counts'):
         trace.decode(native(schema=6))
     with pytest.raises(ValueError, match='Unknown native'):
-        trace.decode(native(schema=9))
+        trace.decode(native(schema=11))
+
+
+@pytest.mark.parametrize('schema', [9, 10])
+@pytest.mark.parametrize('interval_ms', range(1000, 10001, 1000))
+def test_explicit_intervals_keep_record_layout_and_origin_semantics(schema, interval_ms):
+    ticks = 250000000 * interval_ms // 1000
+    row = record(end=100+ticks, origin=schema == 10)
+    data = native([row], schema, {9: interval_ms})
+    result = trace.decode(data, 123)
+    assert len(data) == 168+100
+    assert result['status']['schema'] == schema
+    assert result['status']['sample_interval_ms'] == interval_ms
+    assert result['records'][0]['flag_names'] == []
+    assert result['records'][0]['residual_extrema_valid'] == (schema == 9)
+
+
+@pytest.mark.parametrize('schema', [7, 8])
+def test_legacy_schema_cannot_be_relabelled_as_ten_second_summary(schema):
+    with pytest.raises(ValueError, match='legacy summary interval'):
+        trace.decode(native(schema=schema, overrides={9: 10000}))
+
+
+@pytest.mark.parametrize('interval_ms', [0, 999, 1001, 1500, 9999, 10001, 11000])
+@pytest.mark.parametrize('schema', [9, 10])
+def test_explicit_summary_rejects_invalid_interval(interval_ms, schema):
+    with pytest.raises(ValueError, match='Summary interval'):
+        trace.decode(native(schema=schema, overrides={9: interval_ms}))
+
+
+def test_explicit_interval_ticks_must_fit_uint32_even_without_records():
+    for rows in ([], [record()]):
+        with pytest.raises(ValueError, match='interval ticks'):
+            trace.decode(native(rows, 9, {9: 10000, 35: 500000000}))
+    ticks = 429496729 * 10
+    row = record(end=100+ticks)
+    assert trace.decode(native([row], 9, {9: 10000, 35: 429496729}))['records']
+
+
+@pytest.mark.parametrize('schema', [9, 10])
+def test_ten_second_interval_retains_one_second_service_gap_threshold(schema):
+    row = record(end=2500000100, origin=schema == 10)
+    row[4] = 250000000-1
+    assert not trace.decode(native([row], schema, {9: 10000}))['records'][0]['coverage_incomplete']
+    row[4] += 1
+    with pytest.raises(ValueError, match='service gap'):
+        trace.decode(native([row], schema, {9: 10000}))
+    row[1] = 4
+    assert trace.decode(native([row], schema, {9: 10000}))['records'][0]['coverage_incomplete']
+
+
+def test_interval_span_gap_boundary_and_partial_tail():
+    row = record(end=2750000099)
+    assert trace.decode(native([row], 9, {9: 10000}))['records']
+    row[3] += 1
+    with pytest.raises(ValueError, match='service gap'):
+        trace.decode(native([row], 9, {9: 10000}))
+    row[1] = 4
+    assert trace.decode(native([row], 9, {9: 10000}))['records'][0]['coverage_incomplete']
+    row[1], row[3] = 1 | 256, 1000
+    assert trace.decode(native([row], 9, {9: 10000}))['records'][0]['flag_names'] == ['PARTIAL', 'TERMINAL']
+    row[1] = 0
+    with pytest.raises(ValueError, match='Short nonpartial'):
+        trace.decode(native([row], 9, {9: 10000}))
+
+
+@pytest.mark.parametrize('schema', [9, 10])
+def test_extended_summary_retains_saturation_and_rejects_invented_flag(schema):
+    row = record(end=2500000100, origin=schema == 10)
+    row[1] = 32
+    with pytest.raises(ValueError, match='saturation'):
+        trace.decode(native([row], schema, {9: 10000}))
+    row[5] = 0xffffffff
+    decoded = trace.decode(native([row], schema, {9: 10000}))['records'][0]
+    assert decoded['coverage_incomplete'] and 'FIELD_SATURATED' in decoded['flag_names']
+    assert decoded['max_success_gap_ticks'] == 0xffffffff
+
+
+@pytest.mark.parametrize('schema', [9, 10])
+def test_six_hundred_seconds_with_raw_wraps_keep_sixty_bounded_bins(schema):
+    ticks, start = 2500000000, (1 << 32)-100
+    rows = [record(i, start+i*ticks, start+(i+1)*ticks, schema == 10) for i in range(60)]
+    result = trace.decode(native(rows, schema, {9: 10000}))
+    assert len(result['records']) == 60
+    assert result['records'][-1]['observed_end_raw']-start == 600*250000000
+    assert not any(row['coverage_incomplete'] for row in result['records'])
+
+
+@pytest.mark.parametrize('field', [13, 14, 15, 16, 17, 18, 19])
+def test_extended_origin_rejects_follower_fields(field):
+    row = record(end=2500000100, origin=True)
+    row[field] = 1
+    if field == 13:
+        row[26] = 4
+    if field == 16:
+        row[15] = 1
+    with pytest.raises(ValueError, match='Origin summary'):
+        trace.decode(native([row], 10, {9: 10000}))
 
 
 @pytest.mark.parametrize('case', ['empty', 'tail', 'gap', 'success', 'reject', 'counter',

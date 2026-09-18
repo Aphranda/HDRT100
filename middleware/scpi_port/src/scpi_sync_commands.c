@@ -895,12 +895,45 @@ scpi_result_t scpi_cmd_vdc_priority_trace_phase_arm(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-scpi_result_t scpi_cmd_vdc_priority_trace_summary_phase_arm(scpi_t *context)
+static bool scpi_priority_summary_u32(scpi_t *context, uint32_t *value,
+    scpi_bool_t required, bool *present)
 {
-    uint32_t capture_id;
-    if (!SCPI_ParamUInt32(context, &capture_id, TRUE) || capture_id == 0u ||
-        !vdc_dpll_manager_priority_trace_summary_arm(capture_id, false)) {
-        scpi_port_push_exec_error(context, "Priority summary phase ARM rejected");
+    scpi_parameter_t param;
+    *present = SCPI_Parameter(context, &param, required);
+    if (!*present) return !required && !SCPI_ParamErrorOccurred(context);
+    if (param.type != SCPI_TOKEN_DECIMAL_NUMERIC_PROGRAM_DATA || param.len <= 0 ||
+        context->param_list.lex_state.pos != param.ptr + param.len) return false;
+    size_t pos = param.ptr[0] == '+' ? 1u : 0u;
+    if (pos == (size_t)param.len) return false;
+    uint32_t parsed = 0u;
+    for (; pos < (size_t)param.len; ++pos) {
+        const unsigned char digit = (unsigned char)param.ptr[pos];
+        if (digit < '0' || digit > '9' || parsed > (UINT32_MAX-(digit-'0'))/10u) return false;
+        parsed = parsed*10u+(digit-'0');
+    }
+    *value = parsed;
+    return true;
+}
+
+static scpi_result_t scpi_priority_summary_arm(scpi_t *context, bool origin)
+{
+    uint32_t capture_id = 0u, interval_ms = 0u;
+    bool present, has_interval;
+    scpi_parameter_t extra;
+    if (!scpi_priority_summary_u32(context, &capture_id, TRUE, &present) || !capture_id ||
+        !scpi_priority_summary_u32(context, &interval_ms, FALSE, &has_interval) ||
+        SCPI_Parameter(context, &extra, FALSE) || SCPI_ParamErrorOccurred(context) ||
+        (has_interval && (interval_ms < VDC_PRIORITY_TRACE_SUMMARY_INTERVAL_MS ||
+         interval_ms > VDC_PRIORITY_TRACE_SUMMARY_MAX_INTERVAL_MS ||
+         interval_ms % VDC_PRIORITY_TRACE_SUMMARY_INTERVAL_MS != 0u))) {
+        scpi_port_push_exec_error(context, "Priority summary ARM parameters rejected");
+        return SCPI_RES_ERR;
+    }
+    const bool accepted = has_interval ?
+        vdc_dpll_manager_priority_trace_summary_window_arm(capture_id, origin, interval_ms) :
+        vdc_dpll_manager_priority_trace_summary_arm(capture_id, origin);
+    if (!accepted) {
+        scpi_port_push_exec_error(context, "Priority summary ARM rejected");
         return SCPI_RES_ERR;
     }
     /* Admission only; the existing STOP-only status ACK completes ownership. */
@@ -908,17 +941,11 @@ scpi_result_t scpi_cmd_vdc_priority_trace_summary_phase_arm(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_vdc_priority_trace_summary_phase_arm(scpi_t *context)
+{ return scpi_priority_summary_arm(context, false); }
+
 scpi_result_t scpi_cmd_vdc_priority_trace_summary_origin_arm(scpi_t *context)
-{
-    uint32_t capture_id;
-    if (!SCPI_ParamUInt32(context, &capture_id, TRUE) || capture_id == 0u ||
-        !vdc_dpll_manager_priority_trace_summary_arm(capture_id, true)) {
-        scpi_port_push_exec_error(context, "Priority summary origin ARM rejected");
-        return SCPI_RES_ERR;
-    }
-    SCPI_ResultUInt32(context, capture_id);
-    return SCPI_RES_OK;
-}
+{ return scpi_priority_summary_arm(context, true); }
 
 scpi_result_t scpi_cmd_vdc_priority_trace_arm(scpi_t *context)
 {
