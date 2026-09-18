@@ -193,6 +193,11 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `VDC-REFERENCE-01` | 显式 STOP 参考运输复用固定配额：Core0 投影并逐目标发送，三从保留指定主机参考并回 typed 接收 ACK，主机按完整发布证明核对；不阻塞发车或本地 PI，不以确认代替 DCO 应用或锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-REFERENCE-01` | pending |
 | `VDC-BOUNDARY-01` | 特等席固定配额承载逐从频率命令；Core0 准备独立 RATE 同模型窗口并有界重复，Core1 在显式 AUTO 下逐从负反馈、连续应用及精确 ACK；未决不叠加，不授予物理锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-BOUNDARY-01` | pending |
 
+`VDC-PRIORITY-01` 的调试观测还可互斥复用原维护记录池，按 Core1 service 时间段
+汇总成功极值与 owner 拒绝/取消/保持，显式保留无输入、观测缺口和异常终止。
+STOP 后导出的汇总与详细原生模式具有独立 schema，不增加运行态管理面采样依赖，
+也不授予 GPIO 精度、正式锁相或产品 VDC 发布资格。
+
 ## 分层职责
 
 ### Active Object Layer

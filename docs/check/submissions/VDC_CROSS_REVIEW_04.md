@@ -219,3 +219,18 @@ FIFO 执行余量，固定映射不消除真实模型更新造成的未来周期
 原件为下述证据根的 `c11-v17-independent-review.json`。有限近邻边沿窗口不替代同 ordinal、
 持续实际输出、独立路径校准或 VDC 最终发布，RAM 与既有资源文本失败继续保留。
 证据根为 `out/HardwareAcceptance/20260918/dpll-phase-center-r1/`，登记保持 pending。
+
+## 原池全时段汇总增补（v18 pending）
+
+本次增加独立诊断汇总 schema，复用原维护池；service 从观察到 ring 运行开始分段，
+保留成功原始极值与拒绝/取消/保持计数，空段、计数复位、缺口和异常显式标记。
+时钟回退冻结最后真实有序端点，首次时钟无效不伪造记录；STOP 部分段、原生导出
+lease/CRC 与严格 decoder 保留。汇总输入成功不等于实际 GPIO 输出或锁相。
+
+独立方 `phase_center_review` 复现并关闭 R1 时钟回退缺陷，结论为批准
+`VDC-PRIORITY-01 v18 pending` 诊断切片及对应文档，无剩余阻断级发现。
+原件为 `out/HardwareAcceptance/20260918/dpll-summary-trace-r1/independent-review-closed-r2.json`，
+两轮原件核验为同目录 `independent-final-evidence-r2.json`；源码提交 `08af197f`。
+审核覆盖匹配源码 P3、Release 资源、两轮 RAW 与原生文件、STOP 和恢复。
+全段输入完整检查仍为 FAIL；第二轮 NO4 后段超出 ±50 ns，有限后段三从在 ±100 ns。
+正式 RAM 门槛及既有资源告警保留，不授予正式锁相、产品 RUN 或 VDC 最终发布资格。

@@ -596,6 +596,28 @@ DCO 映射并与原绝对投影求交。这里包住 `F(floor(X(event)))`，不�
 保持不变，STOP/READ lease/CRC/RELEASE 共用原协议。离线完整重放只证明记录
 对应的模型计算及编码，不代替单圈送达、GPIO 精度或锁相证明。
 
+长时间调试可在 STOP 下通过 `SYSTem:VDC:PRIORity:TRACe:SUMMary:PHASe` 或
+`SUMMary:ORIGin` 申请独立汇总 schema；版本、周期和布局以
+`VDC_PRIORITY_TRACE_SUMMARY_*`、`vdc_priority_trace_summary.inc` 为准。沿用原维护池、
+单调 capture ID、Core1 ACK、READ lease、CRC 和 RELEASE。当前未提交槽用于汇总，
+已提交槽不可改写；原 origin 扩展暂存区与汇总工作区互斥复用，不另建记录环。
+首次观察到 ring 正在运行时开始计时，不等待首个有效输入；按当前 TIMER1 的 owner
+观测时刻划分时间段，历史源事件时间不用于推进覆盖轴。成功 MATCH 不经详细模式的
+抽取门槛，汇总其原始残差区间极值、模型和频率范围；origin 只记录成功编码的区间
+宽度及模型，不将其零 residual 字段解释为零相位误差。
+
+Core1 service 末尾观察 owner 累计拒绝、取消与保持计数，补足成功钩子无法反映的
+早退路径。计数表示 owner 操作，可在多个 owner 重复计数同一事件，不是坏帧数量；
+计数快照或首次基线不可用时保留观测缺口，不将其解释为零值或计数器重置。
+频率采用数表示 Domain DCO 实际更新，相位采用数表示完整模型 ledger 回执；
+两者不能合并解释为全部模型发布回执。
+模型变化数只覆盖相邻成功输入所见 token，不能代替全部模型发布次数。无成功输入的
+时间段显式标记，零极值字段无有效误差含义。跨段保留成功间隔和 service 间隔，
+长时间未获 service 时写入带缺口的跨时段记录，不补造正常时间段。压缩溢出、计数器
+重置或饱和、时钟异常和未绑定状态均须显式保留。STOP/会话或绑定失效时提交末尾
+部分段并冻结真实原因。离线工具核验格式、计数和时间连续性；汇总仍不授予物理
+GPIO 精度、绝对脉冲身份或正式锁相资格。
+
 `SYSTem:VDC:PRIORity:SYNC` 是 Core0 STOP-only 意图，非零值必须严格递增且已有
 feedback session；零禁用。generation 不替代 feedback session、origin epoch
 或 model token。Core1 首次绑定完整 ring config、source epoch/tick rate、session、
