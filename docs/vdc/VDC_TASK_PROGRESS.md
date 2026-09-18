@@ -103,6 +103,27 @@ Last updated: 2026-09-18
   bridge/enable 锚及共同 ordinal；同时修复 `START` 无 payload ACK 的采样工具适配，避免
   工具假失败掩盖实际运行状态。
 
+### VDC-PROGRESS-20260918-026：同一采样包装器完成四板零 delay 波形复测
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条是一次新的
+  四板示波器诊断快照；未改固件、PIO、Flash、OTA、活动 path-delay 或正式工具，只在
+  `out/` 采样副本中保留无 payload 控制返回并要求后续状态读回。
+- 证据根为
+  `out/HardwareAcceptance/20260918/dpll-bridge-export-delay-zero-r7/`。示波器为 NO1
+  CH1 上升沿触发，四路各 200 个边沿，采样网格 20 ns，运行期间板卡查询为 0；四板
+  完成 STOP，示波器恢复 `STOP/EXT/NORM`，采集报告 `passed=true`、无 cleanup error。
+- 共享时间轴和共同 ordinal 在本会话成立，零 output delay 的相位中位快照为 NO2
+  约 `-439 ns`、NO3 约 `-60 ns`、NO4 约 `+240 ns`；NO3 的 p01--p99 约为
+  `-80..-40 ns`，说明该次有限窗口进入 100 ns 量级，但 NO2/NO4 仍未达到完全锁定。
+  这些数字是波形快照，不能跨启动会话直接推导持久 delay 或 path 校准。
+- 同会话 `capture/input-probe.json` 仍显示 NO2--NO4
+  `matched_observation_passed=true`，typed reject 为零，三从 follow model `valid=1`、
+  `lock_state=1`。这进一步把当前缺口限定为启动后输出映射可重复性、output/path delay
+  误差分离和持续斜率收敛；不能宣称四板 100 ns 锁相或 VDC 正式发布。
+- 下一 gate：在同一 DCO 状态或明确等待收敛后重复单因素 output-delay A/B，继续保留
+  bridge/PIO enable 锚、共同 ordinal、相位斜率和 STOP 状态；任何候选值先停留在
+  RAM 调试配置，不直接写入 Flash。
+
 ### VDC-PROGRESS-20260918-021：NO1 OUT4 外部触发路径未捕获
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条为触发路径

@@ -16,15 +16,16 @@ Last updated: 2026-09-18
 [当前配置与主线接续](VDC_TASK_PROGRESS.md#vdc-progress-20260918-004有限长时间轴与可配置补给窗口)及
 [RAM 进度 043](VDC_TASK_PROGRESS.md#vdc-progress-20260916-043refmem-缩容专项完成与主线接续)。
 
-最新运行与外部波形接续以 `VDC-PROGRESS-20260918-025` 为准：补给连续性修复
+最新运行与外部波形接续以 `VDC-PROGRESS-20260918-026` 为准：补给连续性修复
 之后，TDMA 私有 SRAM 采样将三从事件 enable 计时锚从微秒缩至两轮实测 72 ns；
 host、Release、当前源码四板 quick P3 与首轮专项通过。复测 NO2 的 STOP RAM 页
 超时保留为专项失败，冻结原件已完整恢复。四路仍持续至 STOP，未 STARVED；但
 TIMER0/TIMER1 投影与 RUN 输出锚仍有微秒级不确定性，物理 100 ns 尚未证明。
 follower MATCH 的独立有界时钟映射已完成一轮实现和四板专项，三从事件锚仍为 72 ns，
 且最新零 delay 会话已取得三从 typed observation、匹配、ACK 和 local follow model
-有效的原生证据；这只闭合运输与本地跟随，不等于物理边沿锁定。下一步分离 RUN
-输出 bridge/enable、output delay、路径 delay 及频差残差；完整 TDMA 超预算仍保留。
+有效的原生证据；同一会话的 NO3 有限波形窗口进入 100 ns 量级，但 NO2/NO4 仍有
+数百纳秒级偏差，这只闭合运输与本地跟随，不等于四板物理边沿锁定。下一步分离
+RUN 输出 bridge/enable、output delay、路径 delay 及频差残差；完整 TDMA 超预算仍保留。
 候选参数已还原，未把单次相位中位提升为稳定校准。
 
 `VDC-PROGRESS-20260918-013` 已恢复自主 origin 有限许可与
@@ -230,7 +231,7 @@ DMA 退休期限的关联，不重复实现参数接口，也不以放宽连续�
 | 执行顺序 | 任务/状态 | 完成判据与下一动作 |
 |---|---|---|
 | 已完成切片 | `REFMEM-RAM-001/002/003/004`，DONE | 缩容、兼容工具、四板布局专项及固定范围快速 P3 调试验收完成；严格质量失败保留至下项，不继续扩大 RAM 完成条件。见 RefMem TODO 与 `REFMEM-TASK-20260916-001`。 |
-| 当前下一步 | 推进 `VDC-FAST-003` / `VDC-OUTPUT-001`，IN PROGRESS | `VDC-PROGRESS-20260918-025` 已证明四板运输、事件匹配、ACK 与本地 follow model 在同一运行中有效；NO2--NO4 仍需以同一 DCO 状态或明确收敛窗口重复 output-delay A/B，保留 bridge/PIO enable 锚、共同 ordinal、相位斜率和 STOP 状态。先修复采样工具对 `OK(no payload; verified by state readback)` 的兼容，再分离 output delay 与 path delay；不把单次中位、区间中点或 72 ns 锚宽当成 100 ns 物理锁相。完整 TDMA 超预算仍待独立闭合。 |
+| 当前下一步 | 推进 `VDC-FAST-003` / `VDC-OUTPUT-001`，IN PROGRESS | `VDC-PROGRESS-20260918-026` 的新零 delay 会话已证明四板运输、事件匹配、ACK 与本地 follow model 仍有效；NO3 单次窗口约 −60 ns，但 NO2/NO4 仍未达完全锁定，且跨启动状态仍漂移。下一步在同一 DCO 状态或明确收敛窗口重复单因素 output-delay A/B，保留 bridge/PIO enable 锚、共同 ordinal、相位斜率和 STOP 状态；候选值只留在 RAM 调试配置，再分离 output delay 与 path delay。完整 TDMA 超预算仍待独立闭合。 |
 | 随后 | 完成 `VDC-FAST-001/002` | 补齐同圈保全/消费与资源预算实测，继续区分 offer、DMA selection、线上记录与 Core1 消费；不能用 IRQ-entry→read 代替物理边沿测量。配置、delay 和上下文提前安装，无普通解析、RefMem 分片或 RTOS 前置。 |
 | 随后 | `VDC-FAST-003` | 事件序号直接索引，复验完整序号/代际，计算时间差和本地 delay，实际应用 DCO；NO1 本地 PI 并发布参考，三从本地跟踪，ACK 关联收到/采用事件。 |
 | 最后 | 精度、恢复与 VDC 发布 | internal 关联参考事件、相位/速率命令及实际采用，以四路实际波形验证公共时基与用户精度目标；计入有效校正间隔、时间戳/链路 delay/输出量化误差。验证坏帧跳过、失联/恢复，以及 VDC 时间、质量、有效性和代际的一致发布。 |
