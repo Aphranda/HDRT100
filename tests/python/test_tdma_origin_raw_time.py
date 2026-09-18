@@ -52,6 +52,8 @@ class Model:
         self.rtt=[]
         self.tick=(7<<32)-30 if torn else 7<<32
         self.timer_reads=[]
+        self.timestamp_events=[]
+        self.pad_high=True
         self.sniff_control=0
         self.sniff_seed=0
         self.sniff_bytes=bytearray()
@@ -118,8 +120,11 @@ class Model:
             self.tick+=13
             value=(self.tick>>32) if address==self.r['timer_hi'] else self.tick&U32
             self.timer_reads.append((address,self.tick,value))
+            self.timestamp_events.append(('hi' if address==self.r['timer_hi'] else 'lo',self.tick))
             return value
-        if address==self.r['padout']:return 1<<26
+        if address==self.r['padout']:
+            self.timestamp_events.append(('pad',self.tick))
+            return (1<<26) if self.pad_high else 0
         if address==self.r['fstat']:return ((not self.fifo)<<10)|((not self.rtt)<<9)
         if address==self.r['latch_fifo']:
             assert self.fifo,'DMA tried to wait on a missing latch'
@@ -184,10 +189,14 @@ class Model:
             if value&4:
                 assert self.latch_x==U32 and not self.fifo
                 self.latch_enabled=True
+                self.timestamp_events.append(('enable',self.tick))
         elif address==self.r['tx']+0x3000:
             if value&4:self.latch_enabled=False
+        elif address==self.r['rx']+0x2000:
+            if value&4:self.timestamp_events.append(('rx_enable',self.tick))
         elif address==self.r['ctrl_tx']:
             assert self.latch_enabled
+            self.timestamp_events.append(('launch',self.tick))
             self.launches+=1
             self.fifo=[] if self.missing_edge else [U32-50-self.launches,U32-51-self.launches]
             self.rtt=[U32-30]
@@ -294,8 +303,13 @@ def test_raw_records_follow_real_graph(graph_exe):
             assert words[17]==U32-51-i  # first FIFO word, not a stale/duplicate word
             assert not words[18]&(1<<10)
             assert words[19:21]==(1<<26,250000000)
-            before,after=m.timer_reads[i*6:(i+1)*6:3]
-            assert words[11]==before[2] and words[14]==after[2]
+            reads=m.timer_reads[i*6:(i+1)*6]
+            # The two high/low/high samples overlap in execution order.
+            assert words[11:14]==tuple(reads[j][2] for j in (1,2,4))
+            assert words[14:17]==tuple(reads[j][2] for j in (0,3,5))
+            events=m.timestamp_events[i*10:(i+1)*10]
+            assert [e[0] for e in events]==['pad','hi','hi','lo','enable','lo','hi','hi','rx_enable','launch']
+            assert reads[2][1]<=events[4][1]<=reads[3][1]
         assert seq==[(U32-1+i)&U32 for i in range(12)]
         assert m.first_record()==m.completed[0]
         assert m.first_commits==1 and m.first_writes==23
@@ -316,6 +330,67 @@ def test_first_record_is_one_shot_through_sequence_and_version_wrap(graph_exe):
     assert [struct.unpack('<22I',raw)[0] for raw in m.completed]==list(range(80))
     assert all(struct.unpack('<22I',raw)[0]==struct.unpack('<22I',raw)[-1] for raw in m.completed)
     assert m.state('fault')==0
+
+
+@pytest.fixture(scope='module')
+def raw_reference_reader(tmp_path_factory):
+    from test_vdc_command_owner import compile_executable
+    source = r'''
+#include <assert.h>
+#include <stdio.h>
+#include "tdma_origin_plan.h"
+int main(int argc, char **argv)
+{
+    assert(argc == 2);
+    FILE *input = fopen(argv[1], "rb");
+    assert(input);
+    tdma_origin_live_snapshot_t live = {.retained=1, .active=1,
+        .sample={.epoch=7, .published_version=2}};
+    assert(fread(&live.sample.record, sizeof(live.sample.record), 1, input) == 1);
+    assert(fgetc(input) == EOF);
+    fclose(input);
+    tdma_origin_raw_reference_t reference;
+    printf("%u\n", tdma_origin_raw_reference(&live, 2, 26, &reference));
+    return 0;
+}
+'''
+    return compile_executable(tmp_path_factory.mktemp('raw-reference-reader'),
+        'raw_reference_reader', source,
+        [ROOT/'components/tdma/src/tdma_origin_reference.c'])
+
+
+@pytest.mark.parametrize('rollover_read', range(8))
+def test_overlapping_high_guards_reject_rollover_and_recover(
+        graph_exe, raw_reference_reader, tmp_path, rollover_read):
+    exe, capacity = graph_exe
+    m = Model(graph(exe, capacity))
+    # Rollover at every timer read, plus before/after the entire enclosure.
+    m.tick = (7 << 32) - 13 * rollover_read
+    m.run(2)
+    for index, raw in enumerate(m.completed):
+        record = tmp_path/f'record-{index}.bin'
+        record.write_bytes(raw)
+        result = subprocess.run([str(raw_reference_reader), str(record)],
+            capture_output=True, text=True, timeout=5)
+        assert result.returncode == 0, result.stderr
+        expected = index != 0 or rollover_read not in range(2, 7)
+        assert result.stdout.strip() == str(int(expected))
+    assert m.state('fault') == 0
+
+
+def test_low_pad_record_rejected_with_healthy_transport(graph_exe, raw_reference_reader, tmp_path):
+    exe, capacity = graph_exe
+    m = Model(graph(exe, capacity))
+    m.pad_high = False
+    m.run(1)
+    raw = m.completed[0]
+    assert struct.unpack('<22I', raw)[9] == 1
+    record = tmp_path/'low-pad.bin'
+    record.write_bytes(raw)
+    result = subprocess.run([str(raw_reference_reader), str(record)],
+        capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == '0'
 
 
 @pytest.mark.parametrize('mode',('missing_edge','bad_mailbox','missing_return','torn'))

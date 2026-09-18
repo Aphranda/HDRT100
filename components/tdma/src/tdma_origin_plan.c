@@ -274,13 +274,26 @@ static uint32_t raw_latch_sm(const tdma_origin_plan_config_t *c)
     return 6u - c->control_sm - c->capture_sm - c->rtt_sm;
 }
 
-static void raw_timer_sample(builder_t *b, uint32_t destination)
+static void raw_timer_enable_before(builder_t *b)
 {
     _Static_assert(TIMER_TIMERAWL_OFFSET == TIMER_TIMERAWH_OFFSET + sizeof(uint32_t),
                    "Raw timer registers must be high then low in address order");
-    copy(b, TIMER1_BASE + TIMER_TIMERAWH_OFFSET, destination,
+    /* Overlap the two H/L/H checks so only the two low reads enclose enable.
+     * Each endpoint still has its own preceding/following high read; a low
+     * rollover across either enclosure is rejected by the existing decoder. */
+    move(b, TIMER1_BASE + TIMER_TIMERAWH_OFFSET, STATE(record_time.arm_after));
+    copy(b, TIMER1_BASE + TIMER_TIMERAWH_OFFSET, STATE(record_time.arm_before),
          2u, 4u, 63u, READ | WRITE, b->c->loader_dma);
-    move(b, TIMER1_BASE + TIMER_TIMERAWH_OFFSET, destination + 2u * sizeof(uint32_t));
+}
+
+static void raw_timer_enable_after(builder_t *b)
+{
+    move(b, TIMER1_BASE + TIMER_TIMERAWL_OFFSET,
+         STATE(record_time.arm_after) + sizeof(uint32_t));
+    move(b, TIMER1_BASE + TIMER_TIMERAWH_OFFSET,
+         STATE(record_time.arm_before) + 2u * sizeof(uint32_t));
+    move(b, TIMER1_BASE + TIMER_TIMERAWH_OFFSET,
+         STATE(record_time.arm_after) + 2u * sizeof(uint32_t));
 }
 
 static void emit(builder_t *b)
@@ -592,11 +605,11 @@ static void emit(builder_t *b)
     const uint32_t output[] = {b->out_ctrl, b->data_tx, c->physical_bytes, a->stage};
     copy(b, block(b, output, 4u), dma_reg(c->output_dma, DMA_CH0_AL3_CTRL_OFFSET), 4u, 4u, 63u, READ | WRITE, loader);
     if (!c->diagnostic_skip_records) {
-        raw_timer_sample(b, STATE(record_time.arm_before));
         move(b, b->tx_pio + PIO_DBG_PADOUT_OFFSET, STATE(record_time.arm_padout));
+        raw_timer_enable_before(b);
     }
     put(b, (1u << c->capture_sm) | (1u << c->rtt_sm) | latch_mask, b->tx_pio + 0x2000u);
-    if (!c->diagnostic_skip_records) raw_timer_sample(b, STATE(record_time.arm_after));
+    if (!c->diagnostic_skip_records) raw_timer_enable_after(b);
     put(b, 1u << c->data_sm, b->rx_pio + 0x2000u);
     fifo_put(b, ((c->guard_count - 1u) << 16u) | (c->physical_bytes * 8u - 1u), b->ctrl_tx, b->ctrl_tx_q);
     jump(b, L_BOUNDARY);

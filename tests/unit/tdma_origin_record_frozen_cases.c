@@ -53,6 +53,7 @@ static void tdma_pio_spi_phys_set_line_drivers(bool enabled) { (void)enabled; }
  * complete current selector instead of an obsolete copy of its body. */
 static void tdma_geometry_persona(tdma_pio_spi_program_persona_t persona) { (void)persona; }
 static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *p) { (void)p; }
+static void tdma_priority_stop(void) {}
 static bool tdma_pio_spi_phys_stop_dma_chain(uint32_t l,uint32_t e,uint32_t c,uint64_t d)
 { assert(l==64 && e==256 && c==48 && d==1100);return stop_ok; }
 static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *p);

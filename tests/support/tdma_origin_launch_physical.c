@@ -120,6 +120,9 @@ static bool tdma_pio_spi_phys_stop_dma_chain(uint32_t loader,uint32_t executor,u
     tdma_pio_spi_phys_disable_dma_mask(loader|executor|children); dma_hw->abort=0u; return true;
 }
 static void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys) { (void)phys; }
+static void tdma_priority_stop(void) {}
+static void tdma_rx_first_window_retire(uint32_t reason, bool stopped)
+{ (void)reason; (void)stopped; }
 static void tdma_geometry_stop_begin(tdma_pio_spi_phys_t *phys) { (void)phys; }
 bool tdma_overlay_prepare_cancel(tdma_overlay_prepare_t *job) { (void)job; return true; }
 static bool tdma_pio_spi_phys_rx_scan_cancel(tdma_pio_spi_phys_t *phys) { (void)phys; return true; }
