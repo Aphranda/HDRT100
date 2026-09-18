@@ -22,6 +22,45 @@ Last updated: 2026-09-18
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260918-034：RUN 软件退休与四路物理边沿已同时取得
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本轮只复用既有
+  DPLL/VDC、PIO/DMA 和示波器路径，没有修改 DPLL 参数、Flash、OTA、path-delay 或
+  output-delay；所有结果均为证据快照，非产品事实源。
+- 无示波器四板复测 `dpll-run-isolation-r15` 通过：四板分别退休 712/723/734/745
+  个 RUN block，source retirement、model change 和提交计数均为正，停止后四板
+  `PIO=0`、`DMA=0`，无提交失败。原始软件报告为
+  `out/HardwareAcceptance/20260918/dpll-run-isolation-r15/input-probe.json`。
+- `dpll-run-isolation-r17` 以 CH1 正边沿触发、20 ns 网格和 10 M 点 RAW 深存储，四
+  通道均完成完整读回；离线门限边沿计数快照为 CH1/CH2/CH3/CH4：96/174/200/200，
+  CH2–CH4 的周期中位为 1 ms。以 CH1 触发附近的首个同序边沿计算，NO2/NO3/NO4
+  相对偏移约为 +18.88/+17.88/+17.26 µs；该计算原件为
+  `out/HardwareAcceptance/20260918/dpll-run-isolation-r17/capture/scope/run-edge-analysis.json`。
+- 采样本身完成，但四板包装器因 NO2 的 `local_model` 末态查询得到 `<timeout>`
+  而返回失败；这不撤销已保存的四路 RAW 数据，也不能把本轮当作完整 DPLL 锁相
+  验收。包装器报告和子进程日志在 `out/HardwareAcceptance/20260918/dpll-run-isolation-r17/`。
+- 结论：RUN 从环路模型到实际 GPIO16..19 的 PIO/DMA 路径已被物理边沿证明可达，
+  但启动相位仍在十微秒量级，未达到粗锁定；下一 gate 是让物理采样不依赖末态
+  模型查询（保留超时原件），随后仅改变每板 output-delay 做同会话 A/B，并以全部
+  有效同序边沿的最大绝对差重新判级。不得用中位数或包装器 PASS 替代锁相判据。
+
+### VDC-PROGRESS-20260918-035：大幅负 output-delay 跨网格，A/B 已回退
+
+- TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本轮仅在 STOP
+  态通过既有 SCPI 设置 output-delay，未修改 path-delay、DPLL PI、Flash 或 OTA；
+  所有相位数值均为证据快照，非产品事实源。
+- 在 NO2/NO3/NO4 分别设置 `-18880/-17880/-17260 ns`、NO1 保持零值后，四板 RUN
+  包装器和示波器采样均完成；原始目录为
+  `out/HardwareAcceptance/20260918/dpll-run-isolation-r18/`。四路仍为连续约 1 ms
+  周期，证明 signed output-delay 的 STOP 配置和物理输出链有效。
+- 以 CH1 首个边沿为参考，负延迟使三从最近同周期边沿跳到 NO1 之前约
+  `173/189/186 µs`（NO2/NO3/NO4）；这是公共 1 ms 网格选点跨界造成的 ordinal 跳变，
+  不是可用于锁相的补偿结果。大幅负延迟方案已撤销，四板最终 output-delay 均读回
+  `0`，RUN/TDMA 均 STOP，错误队列均为 `No error`。
+- 结论：output-delay SCPI/持久化路径可用，但补偿必须在不改变公共 ordinal 的小窗口
+  内进行。下一 gate 是保留零值基线，先为启动 ordinal 和跨板同序边沿建立稳定对应，
+  再用单板小步长（不跨网格）复测；不得用大负延迟直接抵消启动时差。
+
 ### VDC-PROGRESS-20260918-033：主 OUT1 同步触发路径亦未在 CH1 捕获
 
 - TODO task ID：`VDC-LONGTERM-002`、`VDC-OUTPUT-001` IN PROGRESS。本条只做
