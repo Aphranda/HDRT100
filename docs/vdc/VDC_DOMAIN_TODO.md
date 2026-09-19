@@ -91,7 +91,7 @@ START 前三秒诊断 timeout 导致的首成功间隔超限；不能把稳定�
 ARM 起点不同造成先通过者截断其他节点。内部参考的正向短/长连续窗、缺参考负例、
 原生尾段、STOP/RELEASE/恢复已闭合，但十分钟末态揭示三从输出提前 STARVED：
 参考仍持续成功，该旧版 guard 未监督输出健康，不能把其 PASS 当作整机长稳通过。
-最新切片证据见 `VDC-PROGRESS-20260919-014`，`VDC-OBS-007` 保持 IN PROGRESS。
+最新切片证据见 `VDC-PROGRESS-20260919-015`，`VDC-OBS-007` 保持 IN PROGRESS。
 联合输出检查切片见 `VDC-PROGRESS-20260919-013`：新版 GUARD 首次运行绑定输出
 请求，每个检查点只读核对身份/状态/新鲜度/序号推进；尾段另审退休原因。
 关闭 GUARD 的同源码十分钟对照仍出现 NO4 STARVED，排除监督为故障必要条件。
@@ -102,6 +102,9 @@ ARM 起点不同造成先通过者截断其他节点。内部参考的正向短/
 通过不覆盖旧偶发饥饿及快速服务超限。新补给候选短窗健康通过，十分钟在
 NO3 480 秒输出快照读取失败、NO2 绑定冻结及后续断参考后 FAIL；未见 STARVED，
 不宣称偶发问题已消失。下一步闭合观察读取、计时完整性与重复长稳，再回 VDC 发布。
+后续活动输出 release 预检已消除本轮短窗计时缺口，但停止尾段仍有 BINDING。
+提前发 trace STOP 被既有 STOP-only gate 拒绝，失败原件保留；下一切片采用
+Core1 目标通过后自动封存记录，保持控制边界，不豁免真实冻结，见进度 015。
 零运行查询模式下设备可自行判失败并停止，主机仍到等待结束才读取结果；尚不承诺
 主机在首个失败分钟立即退出，也不承诺各板同步 STOP。
 
@@ -1274,7 +1277,7 @@ PIO/DMA EDGE_TIMESTAMP producer
 | `VDC-OBS-004` | 建立 NO1--NO4 内部 DPLL 与 NO5 外部观测的同窗关联：共同时间基、TDMA sequence anchor、capture generation、SD segment sequence 和外部线缆观测边界。 | PENDING | `VDC-OBS-002`, `VDC-OBS-003`, `SYNC-LA-008` | 关联结果能区分内部环路收敛、外部链路异常、SD 背压和观测缺口；NO5 不进入 DPLL 控制或 formal promotion。 |
 | `VDC-OBS-005` | 将 SCPI 调参、串口闭环状态、residual/frequency/reject/lock feedback 与分段观测统一记录，支持小步搜索、等待稳定窗口、评分、回退和参数 generation 对账。 | PENDING | `VDC-OBS-003`, `VDC-SERVO-002`, `VDC-ROLE-003` | requested/applied generation、active profile CRC、role profile/follow source/control generation、原始命令、状态读回、raw debug gate/continuation count 和回退结果齐全；异常参数或可恢复 admission 在 debug profile 留证，不自动宣称 formal lock。 |
 | `VDC-OBS-006` | 建立分级长期 soak 与发布验收：短时调试、工程长稳、发布级长稳均使用同一 segment/decoder/关联格式，并验证断电续采、SD 背压和 TDMA 无扰动。 | IN PROGRESS | `VDC-OBS-004`, `VDC-OBS-005`, `VDC-RUN-001` | 各级验收 profile 明确采样时长、允许/禁止的 drop、恢复点和退出条件；原始证据、失败事实和回退点完整，才可评估长期 `FORMAL_LOCKED`；结果输入 `VDC-VERIFY-001`，不反向依赖总验收关闭。外部示波器连续检查已完成首轮，仍需内部探针和重复性闭合。 |
-| `VDC-OBS-007` | 完成无示波器内部长期跟随探针：使用 summary schema 的 Core1 有界 SRAM 记录，STOP 后统一导出/解码，形成每板跟随完整性、服务间隔、拒绝/缺口、DCO 更新和相位残差报告。 | IN PROGRESS | `VDC-OBS-004`, `VDC-OBS-006` | 联合参考/输出 GUARD 已完成分钟检查。原相位独立规划候选通过固定 P3 与四板短窗健康检查，实际重建/提交均出现；计时样本缺口使严格计时资格保持 FAIL。十分钟在 NO3 OUTPUT_READ、NO2 BINDING 冻结及后继缺参考后 FAIL，未见 STARVED，见 `VDC-PROGRESS-20260919-014`。先闭合观察读取及计时，再重复长稳与物理精度。旧关闭监督 STARVED、负例其他节点提前冻结和快速预算超限均保留。运行查询零，无 SD/USB/RTOS 实时写入；内部判断仍不替代 GPIO 边沿精度。 |
+| `VDC-OBS-007` | 完成无示波器内部长期跟随探针：使用 summary schema 的 Core1 有界 SRAM 记录，STOP 后统一导出/解码，形成每板跟随完整性、服务间隔、拒绝/缺口、DCO 更新和相位残差报告。 | IN PROGRESS | `VDC-OBS-004`, `VDC-OBS-006` | release 只读预检通过固定 P3，短窗四板分钟检查通过且计时缺口为零，但停止尾段 BINDING 使整轮 FAIL；运行态 trace STOP 被 STOP-only gate 拒绝，原失败保留。下一切片在 Core1 目标通过后自动封存，再复测短/长窗，见 `VDC-PROGRESS-20260919-015`。旧 OUTPUT_READ、STARVED、提前冻结及超限证据均保留。运行查询零，无 SD/USB/RTOS 实时写入；内部判断仍不替代 GPIO 边沿精度。 |
 
 观测扩展不得跳过 `VDC-TDMA-001`、`VDC-CAL-001`、`VDC-EVID-001` 的正式门禁；在正式
 evidence 未闭环前，观测与调参结果只能标记为诊断或 tracking candidate。分段长期观测
