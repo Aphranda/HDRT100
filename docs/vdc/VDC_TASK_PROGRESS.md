@@ -22,6 +22,35 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-017：内部探针可选示波器同轮复核
+
+- TODO task ID：`VDC-OBS-007` IN PROGRESS。证据根
+  `out/HardwareAcceptance/20260919/internal-joint-r1/`，数字为当日快照，非产品事实源。
+  新入口 `tools/vdc_priority_trace/vdc_priority_joint_capture.py` 显式选择已验证
+  bench adapter，`--scope off/on` 切换纯内部或同轮外部观测。保留全部 GUARD、
+  CRC/身份、STOP/RELEASE/恢复；板端运行查询零。外部每五秒一份新冻结 RAW、分钟
+  检查失败后收尾，不复用旧波形，内部与外部判据独立、联合通过要求两者满足。
+  工具/测试切片已提交 `dcdc7e72`，实际 pre-commit 匹配最终 P3 指纹通过。
+- 独立作者 40 项模拟测试通过；加入可选触发源后主控联合相邻回归共 111 项通过。
+  `test-independent-review.json` 保留初版测试范围/哈希，最终测试见 `trigger-tests.txt`。
+  示波器 STOP 负验证观察到新 WAIT，无输出时拒绝旧记录。初版 EXT 实测
+  `scope-on-60s/` 12 次全部触发超时，内部四板通过、联合 FAIL，恢复完整。源码
+  `sync_io_run_output.c:RUN_PIN` 只驱动 OUT1，OUT4 接线存在但没有 RUN 脉冲；故
+  `--scope-trigger CHAN1` 为当前默认，EXT 仍可显式选择，不新增固件 GPIO 所有权。
+- 最终固定 `p3-internal-joint-r2/` PASS_WITH_WARNINGS：23 INFO、23 WARN、
+  0 ERROR/FATAL，源码 `ef0be959889f992c86d42683485a89841ea32314c75060bf57bc48574934b1a4`；
+  包 SHA 仍为 `15ba684592fee95a3cf01ea96e889a9b9a2c04b383cfbb7d6963a7357a7ec969`。
+- `scope-on-chan1-60s/` 联合通过：内部四板目标封存、外部 12 个四路窗口有效，
+  两沿/窗，实际 NO2/NO3/NO4 相对 NO1 分别约 [-35.811,-13.924]、[-34.132,-15.885]、
+  [-8.027,47.959] ns；四板规划计时无缺口/超限，最大约 200.208..205.576 µs。
+  主控从 SRAM/示波器 RAW 重放，CRC、触发源、新 WAIT、停止和恢复匹配，见
+  `scope-on-chan1-60s-main-review.json`；图为 `scope-on-chan1-60s-comparison.svg`。
+- `scope-off-60s/` 同版本关闭分支通过：外部 SKIPPED、窗口零，内部四板目标封存、
+  零运行查询、STOP/RELEASE/恢复完整，见 `scope-off-60s-main-review.json`。
+- 下一 gate：两种配置已可用，继续重复长窗与 VDC 质量发布。
+  同轮并不证明精确同事件/同汇总段配对，稀疏外部窗口不证明未采样区间；内部残差
+  与物理边沿是不同量，不以共同通过宣称绝对零扰动或全程锁定。EXT 失败原件保留。
+
 ### VDC-PROGRESS-20260919-016：目标自动封存与无查询联合探针复测
 
 - TODO task ID：`VDC-OBS-007` IN PROGRESS。证据根
