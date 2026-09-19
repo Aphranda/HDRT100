@@ -944,7 +944,10 @@ bool vdc_domain_activate_tdma_provisional_configuration(
     const vdc_timestamp_dictionary_t *dictionary,
     const vdc_path_delay_table_t *path_delay);
 void vdc_domain_set_ready(vdc_domain_context_t *context, bool ready);
-/* Age an existing evidence view without advancing evidence or service counters. */
+/* Age an existing evidence view without advancing evidence or service counters.
+ * UINT32_MAX age means unknown/saturated and cannot grant health, even with a
+ * maximum freshness limit. Invalid/backwards time latches it until accepted
+ * evidence resets the age; restoring clock reads alone does not renew evidence. */
 bool vdc_domain_age_quality(vdc_quality_table_t *quality,
                            uint32_t lock_state, bool gate_passed,
                            uint64_t now_ns);

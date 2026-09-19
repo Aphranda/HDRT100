@@ -46,7 +46,7 @@ def idle_exe(publication_exe, tmp_path_factory):
         source += definition(model, name) + '\n'
     source += DEPENDENCIES
     for name in ('vdc_dpll_manager_now_ns', 'vdc_dpll_manager_publish_runtime_snapshot_locked',
-                 'vdc_dpll_manager_set_vdc_ready', 'sync_dpll_fb_step',
+                 'vdc_dpll_manager_set_vdc_ready', 'vdc_dpll_manager_finalize_ring_evidence', 'sync_dpll_fb_step',
                  'vdc_dpll_manager_age_quality_core1', 'sync_dpll_fb_service'):
         if name == 'vdc_dpll_manager_age_quality_core1' and name not in manager:
             continue
@@ -66,6 +66,12 @@ def idle_exe(publication_exe, tmp_path_factory):
     'ready', 'ready_no_session', 'ready_early_role', 'no_reference',
     'threshold', 'saturation', 'backwards', 'clock_invalid', 'holdover',
     'unfinalized', 'unpublished_reference', 'unchanged', 'four_beat',
+    'invalid_recovery', 'age_regression', 'fault_invalid', 'max_limit',
+    'domain_service_latched', 'accepted_recovery', 'rejected_latched',
+    'invalid_no_sample', 'invalid_holdover', 'invalid_repeat',
+    'invalid_unfinalized', 'split_anchor',
+    'pending_invalid', 'pending_rollback', 'first_pending_invalid', 'first_pending_rollback',
+    'published_only_rollback',
 ])
 def test_idle_publication(idle_exe, scenario):
     result = subprocess.run([str(idle_exe), scenario], capture_output=True, text=True, timeout=20)
@@ -90,6 +96,10 @@ static uint32_t s_dpll_capture_count, s_dpll_capture_dropped;
 static uint32_t s_dpll_capture_first_update_seq, s_dpll_capture_last_update_seq;
 static uint32_t s_dpll_capture_start_ms, s_dpll_capture_end_ms;
 static uint32_t s_vdc_follower_capture_kind_hint;
+static bool s_vdc_ring_finalization_pending;
+static vdc_tdma_evidence_preparation_t s_vdc_ring_preparation;
+static vdc_tdma_timestamp_evidence_t s_vdc_ring_pending_evidence;
+static vdc_dpll_manager_ring_observer_status_t s_ring_observer_status;
 static vdc_dpll_manager_dpll_capture_record_t
     s_dpll_capture_records[VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES];
 bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz,uint64_t *out)
@@ -110,7 +120,9 @@ static bool vdc_dpll_manager_apply_pending_debug_servo_tune(void) { return tune_
 static void vdc_dpll_manager_feedback_match_retire(void) {}
 static void vdc_dpll_manager_feedback_match_service(void) {}
 static void vdc_dpll_manager_consume_follower_command(void) {}
-static bool vdc_dpll_manager_finalize_ring_evidence(void) { return false; }
+static bool vdc_dpll_manager_finish_ring_observer_service(
+    const vdc_dpll_manager_ring_observer_status_t *status,bool consumed)
+{ assert(consumed);s_ring_observer_status=*status;return true; }
 static bool vdc_dpll_manager_prepare_ring_evidence(void) { return false; }
 static bool vdc_dpll_manager_apply_ring_evidence(void) { return false; }
 static void priority_trace_service_core1(void) {}
@@ -156,7 +168,101 @@ int main(int argc,char **argv)
     const vdc_clock_model_t initial_clock=domain.clock;
     vdc_dpll_manager_committed_model_t initial_model;
     assert(vdc_dpll_manager_get_committed_model(&initial_model));
-    if(!strcmp(name,"four_beat")) {
+    if(!strcmp(name,"published_only_rollback")) {
+        audit_now_ms=1002u;sync_dpll_fb_service();
+        assert(s_published_snapshot.quality.last_sample_age_us==2000u);
+        /* Unpublished working evidence can look fresh while the committed
+         * reference alone demonstrates rollback of the shared time base. */
+        domain.quality.last_sample_time_ns=UINT64_C(1001000000);
+        domain.quality.last_sample_age_us=0u;
+        domain.control.profile.mode=VDC_DPLL_CONTROL_MODE_MASTER;
+        s_vdc_ring_pending_evidence=make_hardware_sample(&domain.schedule,2u,0);
+        assert(vdc_domain_prepare_active_tdma_evidence(&domain,&s_vdc_ring_pending_evidence,
+            &s_vdc_ring_preparation));
+        s_vdc_ring_preparation.local_apply_time_ns=UINT64_C(1001000000);
+        assert(vdc_domain_apply_prepared_tdma_evidence_servo(&domain,&s_vdc_ring_pending_evidence,
+            &s_vdc_ring_preparation));
+        s_vdc_ring_finalization_pending=true;
+        audit_now_ms=1001u;vdc_dpll_manager_age_quality_core1();
+        assert(domain.quality.last_sample_age_us==UINT32_MAX);
+        assert(s_published_snapshot.quality.last_sample_age_us==UINT32_MAX);
+        assert(s_published_snapshot.quality.last_sample_time_ns==UINT64_C(1000000000));
+        assert(s_published_snapshot.dpll.update_seq==initial_evidence_seq);
+        assert(!memcmp(&s_published_snapshot.dco,&initial_dco,sizeof(initial_dco)));
+        assert(!s_vdc_ring_preparation.valid);
+        assert(vdc_dpll_manager_finalize_ring_evidence());
+        assert(!s_vdc_ring_finalization_pending && s_ring_observer_status.rejected_count==1u);
+        /* The invalid old publication must not poison genuinely new accepted
+         * evidence when the clock becomes ordered again. */
+        s_vdc_ring_pending_evidence=make_hardware_sample(&domain.schedule,3u,0);
+        assert(vdc_domain_prepare_active_tdma_evidence(&domain,&s_vdc_ring_pending_evidence,
+            &s_vdc_ring_preparation));
+        s_vdc_ring_preparation.local_apply_time_ns=UINT64_C(1003000000);
+        assert(vdc_domain_apply_prepared_tdma_evidence_servo(&domain,&s_vdc_ring_pending_evidence,
+            &s_vdc_ring_preparation));
+        s_vdc_ring_finalization_pending=true;audit_now_ms=1003u;sync_dpll_fb_service();
+        assert(s_ring_observer_status.accepted_count==1u && !s_vdc_ring_finalization_pending);
+        assert(domain.quality.last_sample_time_ns==UINT64_C(1003000000));
+        assert(domain.quality.last_sample_age_us==0u);
+        assert(s_published_snapshot.quality.last_sample_age_us==0u);
+    } else if(!strcmp(name,"pending_invalid") || !strcmp(name,"pending_rollback") ||
+       !strncmp(name,"first_pending_",14u)) {
+        const bool first=!strncmp(name,"first_",6u);
+        /* Fixture persona only: the public role setter resets evidence,
+         * which would hide the retained pre-failure sample under test. */
+        domain.control.profile.mode=VDC_DPLL_CONTROL_MODE_MASTER;
+        domain.dpll.accepted_sample_count=domain.quality.accepted_sample_count;
+        if(first) {
+            domain.quality.last_sample_time_ns=0u;
+            domain.quality.last_sample_age_us=0u;
+            domain.quality.accepted_sample_count=0u;
+            domain.dpll.accepted_sample_count=0u;
+            domain.quality.health_state=VDC_DOMAIN_HEALTH_CHECKING;
+        }
+        vdc_dpll_manager_publish_runtime_snapshot_locked();
+        s_vdc_ring_pending_evidence=make_hardware_sample(&domain.schedule,2u,0);
+        assert(vdc_domain_prepare_active_tdma_evidence(&domain,&s_vdc_ring_pending_evidence,
+            &s_vdc_ring_preparation));
+        assert(s_vdc_ring_preparation.accepted);
+        s_vdc_ring_preparation.local_apply_time_ns=UINT64_C(1002000000);
+        assert(vdc_domain_apply_prepared_tdma_evidence_servo(&domain,&s_vdc_ring_pending_evidence,
+            &s_vdc_ring_preparation));
+        s_vdc_ring_finalization_pending=true;
+        const uint32_t accepted_before=domain.quality.accepted_sample_count;
+        const uint32_t observer_rejected=s_ring_observer_status.rejected_count;
+        audit_now_ms=1001u;
+        clock_valid=strstr(name,"rollback")!=NULL;
+        sync_dpll_fb_service();
+        assert(!s_vdc_ring_finalization_pending && !s_vdc_ring_preparation.valid);
+        assert(s_ring_observer_status.rejected_count==observer_rejected+1u);
+        assert(domain.quality.accepted_sample_count==accepted_before);
+        assert(domain.quality.health_state!=VDC_DOMAIN_HEALTH_HEALTHY);
+        assert(s_published_snapshot.quality.health_state!=VDC_DOMAIN_HEALTH_HEALTHY);
+        assert(domain.quality.last_sample_time_ns==(first ? 0u : UINT64_C(1000000000)));
+        if(!first) assert(domain.quality.last_sample_age_us==UINT32_MAX);
+        clock_valid=true;audit_now_ms=1003u;sync_dpll_fb_service();
+        assert(s_ring_observer_status.rejected_count==observer_rejected+1u);
+        assert(domain.quality.accepted_sample_count==accepted_before);
+        assert(domain.quality.health_state!=VDC_DOMAIN_HEALTH_HEALTHY);
+        s_vdc_ring_pending_evidence=make_hardware_sample(&domain.schedule,3u,0);
+        assert(vdc_domain_prepare_active_tdma_evidence(&domain,&s_vdc_ring_pending_evidence,
+            &s_vdc_ring_preparation));
+        assert(s_vdc_ring_preparation.accepted);
+        s_vdc_ring_preparation.local_apply_time_ns=UINT64_C(1003000000);
+        assert(vdc_domain_apply_prepared_tdma_evidence_servo(&domain,&s_vdc_ring_pending_evidence,
+            &s_vdc_ring_preparation));
+        s_vdc_ring_finalization_pending=true;
+        sync_dpll_fb_service();
+        assert(!s_vdc_ring_finalization_pending);
+        assert(s_ring_observer_status.accepted_count==1u);
+        /* Servo counters already include the cancelled servo operation;
+         * observer acceptance and the refreshed anchor prove this recovery. */
+        assert(domain.quality.accepted_sample_count>accepted_before);
+        assert(domain.quality.accepted_sample_count==domain.dpll.accepted_sample_count);
+        assert(domain.quality.last_sample_time_ns==UINT64_C(1003000000));
+        assert(domain.quality.last_sample_age_us==0u);
+        assert(s_published_snapshot.quality.last_sample_age_us==0u);
+    } else if(!strcmp(name,"four_beat")) {
         vdc_dpll_control_profile_t role=domain.control.profile;
         role.mode=VDC_DPLL_CONTROL_MODE_MASTER;
         assert(vdc_domain_set_dpll_control_profile(&domain,&role));
@@ -206,7 +312,7 @@ int main(int argc,char **argv)
         assert(stopped_guard==s_published_snapshot_guard);
     } else if(!strcmp(name,"threshold") || !strcmp(name,"saturation") ||
               !strcmp(name,"backwards") || !strcmp(name,"clock_invalid")) {
-        vdc_quality_table_t q=domain.quality, old=q;
+        vdc_quality_table_t q=domain.quality;
         uint64_t now=UINT64_C(1000000000);
         if(!strcmp(name,"threshold")) {
             assert(vdc_domain_age_quality(&q,VDC_DOMAIN_LOCK_LOCKED,true,now+999999u));
@@ -219,14 +325,125 @@ int main(int argc,char **argv)
             assert(vdc_domain_age_quality(&q,VDC_DOMAIN_LOCK_LOCKED,true,UINT64_MAX-1));
             assert(q.last_sample_age_us==UINT32_MAX);
         } else if(!strcmp(name,"backwards")) {
-            (void)vdc_domain_age_quality(&q,VDC_DOMAIN_LOCK_LOCKED,true,now-1);
-            assert(q.last_sample_age_us==0);
+            assert(vdc_domain_age_quality(&q,VDC_DOMAIN_LOCK_LOCKED,true,now-1));
+            assert(q.last_sample_age_us==UINT32_MAX && q.health_state==VDC_DOMAIN_HEALTH_DEGRADED);
         } else {
-            assert(!vdc_domain_age_quality(&q,VDC_DOMAIN_LOCK_LOCKED,true,UINT64_MAX));
-            assert(!memcmp(&q,&old,sizeof(q)));
+            assert(vdc_domain_age_quality(&q,VDC_DOMAIN_LOCK_LOCKED,true,UINT64_MAX));
+            assert(q.last_sample_age_us==UINT32_MAX && q.health_state==VDC_DOMAIN_HEALTH_DEGRADED);
             clock_valid=false;audit_now_ms=1200u;sync_dpll_fb_service();
-            assert(s_published_snapshot_guard==initial_guard);
-            assert(domain.quality.last_sample_age_us==0u);
+            assert(s_published_snapshot_guard!=initial_guard);
+            assert(domain.quality.last_sample_age_us==UINT32_MAX);
+            assert(s_published_snapshot.quality.last_sample_age_us==UINT32_MAX);
+            vectors();
+            assert(!(vdc_region.payload.flags & REFMEM_VECTOR_FLAG_LOCKED));
+            assert(!(dpll_region.payload.flags & REFMEM_VECTOR_FLAG_LOCKED));
+        }
+    } else if(!strcmp(name,"invalid_recovery") || !strcmp(name,"age_regression") ||
+              !strcmp(name,"fault_invalid") || !strcmp(name,"max_limit") ||
+              !strcmp(name,"domain_service_latched") || !strcmp(name,"accepted_recovery") ||
+              !strcmp(name,"rejected_latched") || !strcmp(name,"invalid_no_sample") ||
+              !strcmp(name,"invalid_holdover") || !strcmp(name,"invalid_repeat") ||
+              !strcmp(name,"invalid_unfinalized") || !strcmp(name,"split_anchor")) {
+        if(!strcmp(name,"invalid_no_sample")) {
+            domain.quality.last_sample_time_ns=0u;
+            vdc_dpll_manager_publish_runtime_snapshot_locked();
+            const vdc_quality_table_t old=domain.quality;
+            const uint32_t guard=s_published_snapshot_guard;
+            clock_valid=false;sync_dpll_fb_service();
+            assert(!memcmp(&old,&domain.quality,sizeof(old)));
+            assert(s_published_snapshot_guard==guard);return 0;
+        }
+        if(!strcmp(name,"split_anchor")) {
+            domain.quality.last_sample_time_ns=UINT64_C(1200000000);
+            audit_now_ms=1100u;sync_dpll_fb_service();
+            assert(domain.quality.last_sample_age_us==UINT32_MAX);
+            assert(s_published_snapshot.quality.last_sample_time_ns==UINT64_C(1000000000));
+            assert(s_published_snapshot.quality.last_sample_age_us==UINT32_MAX);
+            assert(s_published_snapshot.dpll.update_seq==initial_evidence_seq);return 0;
+        }
+        if(!strcmp(name,"invalid_holdover")) {
+            domain.dpll.state=domain.dco.lock_state=VDC_DOMAIN_LOCK_HOLDOVER;
+            vdc_dpll_manager_publish_runtime_snapshot_locked();
+        }
+        if(!strcmp(name,"fault_invalid")) {
+            domain.dpll.state=domain.dco.lock_state=VDC_DOMAIN_LOCK_FAULT;
+            domain.quality.health_state=VDC_DOMAIN_HEALTH_FAULT;
+            vdc_dpll_manager_publish_runtime_snapshot_locked();
+        }
+        if(!strcmp(name,"max_limit")) {
+            domain.quality.freshness_limit_us=UINT32_MAX;
+            vdc_dpll_manager_publish_runtime_snapshot_locked();
+        }
+        if(!strcmp(name,"invalid_unfinalized")) {
+            commit(false);++domain.dpll.update_seq;s_dpll_capture_armed=true;
+        }
+        if(!strcmp(name,"age_regression")) {
+            audit_now_ms=1001u;sync_dpll_fb_service();
+            assert(domain.quality.last_sample_age_us==1000u);
+            audit_now_ms=1000u;
+        } else clock_valid=false;
+        sync_dpll_fb_service();vectors();
+        assert(domain.quality.last_sample_age_us==UINT32_MAX);
+        assert(s_published_snapshot.quality.last_sample_age_us==UINT32_MAX);
+        const uint32_t expected_health=!strcmp(name,"fault_invalid") ? VDC_DOMAIN_HEALTH_FAULT : VDC_DOMAIN_HEALTH_DEGRADED;
+        assert(domain.quality.health_state==expected_health);
+        assert(s_published_snapshot.quality.health_state==expected_health);
+        assert(refmem_vdc_vector_payload_validate(&vdc_region.payload));
+        assert(refmem_dpll_vector_payload_validate(&dpll_region.payload));
+        assert(!(vdc_region.payload.flags&REFMEM_VECTOR_FLAG_LOCKED));
+        assert(!(dpll_region.payload.flags&REFMEM_VECTOR_FLAG_LOCKED));
+        assert(s_published_snapshot.dpll.update_seq==initial_evidence_seq);
+        if(!strcmp(name,"invalid_holdover")) {
+            assert(domain.dpll.holdover_age_us==UINT32_MAX);
+            assert(s_published_snapshot.dpll.holdover_age_us==UINT32_MAX);
+        } else if(!strcmp(name,"invalid_unfinalized")) {
+            assert(!s_dpll_capture_count);
+            assert(!memcmp(&s_published_snapshot.dco,&initial_dco,sizeof(initial_dco)));
+        } else if(strcmp(name,"fault_invalid")) {
+            assert(!memcmp(&domain.dco,&initial_dco,sizeof(initial_dco)));
+            assert(domain.dpll.update_seq==initial_evidence_seq);
+        }
+        const uint32_t invalid_guard=s_published_snapshot_guard;
+        for(unsigned i=0u;i<3u;++i) sync_dpll_fb_service();
+        assert(s_published_snapshot_guard==invalid_guard);
+        clock_valid=true;audit_now_ms=1001u;sync_dpll_fb_service();
+        assert(domain.quality.last_sample_age_us==UINT32_MAX);
+        assert(s_published_snapshot.quality.last_sample_age_us==UINT32_MAX);
+        assert(s_published_snapshot_guard==invalid_guard);
+        if(!strcmp(name,"domain_service_latched") || !strcmp(name,"max_limit")) {
+            vdc_domain_service(&domain,UINT64_C(1001000000));
+            assert(domain.quality.last_sample_age_us==UINT32_MAX);
+            assert(domain.quality.health_state==VDC_DOMAIN_HEALTH_DEGRADED);
+        }
+        if(!strcmp(name,"accepted_recovery") || !strcmp(name,"rejected_latched")) {
+            domain.control.profile.mode=VDC_DPLL_CONTROL_MODE_MASTER;
+            const uint64_t old_anchor=domain.quality.last_sample_time_ns;
+            vdc_tdma_timestamp_evidence_t evidence=make_hardware_sample(&domain.schedule,2u,0);
+            const bool reject=!strcmp(name,"rejected_latched");
+            if(reject)evidence.timestamp_flags=0u;
+            vdc_tdma_evidence_preparation_t prep;
+            assert(vdc_domain_prepare_active_tdma_evidence(&domain,&evidence,&prep));
+            assert(!!prep.accepted==!reject);prep.local_apply_time_ns=UINT64_C(1001000000);
+            bool accepted=false;
+            if(reject) {
+                assert(vdc_domain_apply_prepared_tdma_evidence(&domain,&evidence,&prep,&accepted));
+                assert(!accepted && domain.quality.last_sample_time_ns==old_anchor);
+                assert(domain.quality.last_sample_age_us==UINT32_MAX);
+                vdc_domain_service(&domain,UINT64_C(1001000000));
+                assert(domain.quality.health_state!=VDC_DOMAIN_HEALTH_HEALTHY);
+            } else {
+                assert(vdc_domain_apply_prepared_tdma_evidence_servo(&domain,&evidence,&prep));
+                assert(s_published_snapshot.quality.last_sample_age_us==UINT32_MAX);
+                assert(vdc_domain_apply_prepared_tdma_evidence_state(&domain,&evidence,&prep,&accepted));
+                assert(accepted);
+                assert(vdc_domain_finalize_prepared_tdma_evidence(&domain,&evidence,&prep));
+                assert(domain.quality.last_sample_time_ns==prep.local_apply_time_ns);
+                assert(domain.quality.last_sample_age_us==0u);
+                vdc_dpll_manager_publish_runtime_snapshot_locked();
+                audit_now_ms=1002u;sync_dpll_fb_service();
+                assert(domain.quality.last_sample_age_us==1000u);
+                assert(s_published_snapshot.quality.last_sample_age_us==1000u);
+            }
         }
     } else if(!strcmp(name,"no_reference") || !strcmp(name,"unchanged")) {
         if(!strcmp(name,"no_reference")) {

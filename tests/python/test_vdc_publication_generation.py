@@ -336,9 +336,11 @@ static void check_quality_lock_publication(const char *name)
     else assert(!"unknown lock publication scenario");
     publish(); vectors(); check_lock_vectors(locked, 2u, &saved_dco);
     if (!strcmp(name, "lock_recovery")) {
-        /* A renewed evidence timestamp is aged by the real Domain routine;
-         * evidence/model sequence remains fixed to exercise quality-only publication. */
+        /* Model accepted evidence's timestamp AND age reset before the real
+         * Domain ager. This fixture isolates quality-only publication; actual
+         * accepted/rejected recovery is covered by idle-maintenance tests. */
         domain.quality.last_sample_time_ns += UINT64_C(200000000);
+        domain.quality.last_sample_age_us = 0u;
         assert(vdc_domain_age_quality(&domain.quality, domain.dpll.state, true,
             domain.quality.last_sample_time_ns + 1000u));
         assert(domain.quality.health_state == VDC_DOMAIN_HEALTH_HEALTHY);

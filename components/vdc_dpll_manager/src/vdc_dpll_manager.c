@@ -3151,13 +3151,25 @@ static __attribute__((noinline)) void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_f
  * append a capture record before its existing finalize boundary. */
 static __attribute__((noinline)) void vdc_dpll_manager_age_quality_core1(void)
 {
-    if (s_vdc_domain.quality.last_sample_time_ns == 0u &&
+    if (!s_vdc_ring_finalization_pending &&
+        s_vdc_domain.quality.last_sample_time_ns == 0u &&
         (!s_published_snapshot_valid ||
          s_published_snapshot.quality.last_sample_time_ns == 0u)) return;
-    const uint64_t now_ns = vdc_dpll_manager_now_ns();
-    if (now_ns == UINT64_MAX) return;
+    uint64_t now_ns = vdc_dpll_manager_now_ns();
+    if (s_vdc_ring_finalization_pending &&
+        now_ns < s_vdc_ring_preparation.local_apply_time_ns) now_ns = UINT64_MAX;
+    const uint32_t prior_age = s_vdc_domain.quality.last_sample_age_us;
     (void)vdc_domain_age_quality(&s_vdc_domain.quality, s_vdc_domain.dpll.state,
                                  s_vdc_domain.gate.passed != 0u, now_ns);
+    if (prior_age != UINT32_MAX &&
+        s_vdc_domain.quality.last_sample_age_us == UINT32_MAX) now_ns = UINT64_MAX;
+    /* A servo accepted on an earlier beat must not clear the clock failure
+     * when state/finalize runs later on this beat. Reuse its existing reject
+     * path; an already applied DCO is held, not rolled back. Also validate the
+     * first pending sample when no quality anchor has been committed yet. */
+    if (s_vdc_ring_finalization_pending && now_ns == UINT64_MAX) {
+        s_vdc_ring_preparation.valid = 0u;
+    }
     if (s_vdc_domain.dpll.state == VDC_DOMAIN_LOCK_HOLDOVER &&
         s_vdc_domain.quality.last_sample_time_ns != 0u) {
         s_vdc_domain.dpll.holdover_age_us = s_vdc_domain.quality.last_sample_age_us;
@@ -3167,6 +3179,16 @@ static __attribute__((noinline)) void vdc_dpll_manager_age_quality_core1(void)
     vdc_quality_table_t quality = s_published_snapshot.quality;
     const bool changed = vdc_domain_age_quality(&quality, s_published_snapshot.dpll.state,
         s_published_snapshot.gate.passed != 0u, now_ns);
+    if (s_published_snapshot.quality.last_sample_age_us != UINT32_MAX &&
+        quality.last_sample_age_us == UINT32_MAX) {
+        /* Either view can expose a clock rollback. Invalidate the working
+         * evidence too, without publishing any of its unfinished fields. */
+        (void)vdc_domain_age_quality(&s_vdc_domain.quality, s_vdc_domain.dpll.state,
+                                     s_vdc_domain.gate.passed != 0u, UINT64_MAX);
+        if (s_vdc_domain.dpll.state == VDC_DOMAIN_LOCK_HOLDOVER)
+            s_vdc_domain.dpll.holdover_age_us = s_vdc_domain.quality.last_sample_age_us;
+        if (s_vdc_ring_finalization_pending) s_vdc_ring_preparation.valid = 0u;
+    }
     const uint32_t holdover_age = s_published_snapshot.dpll.state == VDC_DOMAIN_LOCK_HOLDOVER
         ? quality.last_sample_age_us : s_published_snapshot.dpll.holdover_age_us;
     if (!changed && holdover_age == s_published_snapshot.dpll.holdover_age_us) return;

@@ -739,6 +739,9 @@ static uint32_t vdc_domain_quality_health(const vdc_quality_table_t *quality,
     if (lock_state == VDC_DOMAIN_LOCK_FAULT) {
         return VDC_DOMAIN_HEALTH_FAULT;
     }
+    if (quality->last_sample_age_us == UINT32_MAX) {
+        return VDC_DOMAIN_HEALTH_DEGRADED;
+    }
     if (lock_state == VDC_DOMAIN_LOCK_LOCKED && gate_passed &&
         quality->lock_quality_tier >= VDC_DOMAIN_LOCK_QUALITY_FINE_100NS &&
         quality->freshness_limit_us != 0u &&
@@ -811,15 +814,22 @@ bool vdc_domain_age_quality(vdc_quality_table_t *quality,
                            uint32_t lock_state, bool gate_passed,
                            uint64_t now_ns)
 {
-    if (quality == NULL || quality->last_sample_time_ns == 0u ||
-        now_ns == UINT64_MAX) {
+    if (quality == NULL || quality->last_sample_time_ns == 0u) {
         return false;
     }
     const uint32_t old_age = quality->last_sample_age_us;
     const uint32_t old_health = quality->health_state;
-    const uint64_t age_ns = now_ns >= quality->last_sample_time_ns
-                                ? now_ns - quality->last_sample_time_ns : 0u;
-    quality->last_sample_age_us = vdc_domain_saturate_u64_to_u32(age_ns / 1000ull);
+    /* Unknown/saturated age stays fail-closed for this evidence. A later
+     * successful clock read alone cannot renew it; accepted evidence owns
+     * the existing age=0 reset. Compare in the stored microsecond unit. */
+    uint32_t age = UINT32_MAX;
+    if (old_age != UINT32_MAX && now_ns != UINT64_MAX &&
+        now_ns >= quality->last_sample_time_ns) {
+        age = vdc_domain_saturate_u64_to_u32(
+            (now_ns - quality->last_sample_time_ns) / 1000ull);
+        if (age < old_age) age = UINT32_MAX;
+    }
+    quality->last_sample_age_us = age;
     quality->health_state = vdc_domain_quality_health(quality, lock_state, gate_passed);
     return old_age != quality->last_sample_age_us || old_health != quality->health_state;
 }
@@ -840,8 +850,7 @@ static void vdc_domain_sync_dco_lock_state(vdc_domain_context_t *context)
 static void vdc_domain_refresh_quality_age(vdc_domain_context_t *context,
                                            uint64_t now_ns)
 {
-    if (context == NULL || context->quality.last_sample_time_ns == 0u ||
-        now_ns == UINT64_MAX) {
+    if (context == NULL || context->quality.last_sample_time_ns == 0u) {
         return;
     }
     (void)vdc_domain_age_quality(&context->quality, context->dpll.state,
