@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -21,6 +21,20 @@ Last updated: 2026-09-19
 | 下一 gate | 必须指向一个 TODO Task ID 或明确外部阻塞。 |
 
 ## 当前 checkpoint
+
+### VDC-PROGRESS-20260919-035：正式质量年龄失效锁存与待提交样本取消
+
+- TODO task ID：`VDC-SNAPSHOT-001`、`VDC-HOLD-001` IN PROGRESS；以下数字为本轮快照。原 `vdc_domain_age_quality()` 在读钟不可用（`now_ns == UINT64_MAX`）时直接返回，旧 HEALTHY/LOCKED 与旧年龄被保留；反向时间把年龄算成 0，等于旧证据自行续期。
+- 实现（Domain）：未知或饱和年龄统一锁存为 `last_sample_age_us = UINT32_MAX`——读钟不可用、时间早于样本锚点、相对已存微秒年龄回退均进入该状态；健康判定在 LOCKED/HEALTHY 与候选分支之前强制 DEGRADED（`FAULT` 仍优先），最大 freshness 上限也不能放行。仅恢复读钟不续期旧证据，仍由原 accepted 样本提交或生命周期重置解除。
+- 实现（Core1）：pending preparation 的本地 apply 时间纳入复验，首样本尚无质量锚点时增加一次条件读钟；工作视图与发布视图任一新检出“有限→未知”跃迁时互相传播失效并撤销 preparation，经既有 finalize 拒绝路径退休，已生效 servo/DCO 保持不回滚。传播为边沿触发，旧发布视图的锁存状态不会反复污染后续真实新样本。
+- 软件证据：Domain 回归 122 项、publication 回归 51 项、idle/aging 35 项、文档门禁 38 项通过；本轮复核复跑两个改动模块 63 项通过。首轮 publication 1 失败/50 通过（`lock_recovery` 夹具未按 accepted 语义重置年龄）与 idle 三轮 6/5/1 失败均保留原件，最终 r2/r4 通过；覆盖读钟不可用、反向时间、微秒年龄回退、FAULT 优先、最大 freshness、无参考、HOLDOVER、未发布模型隔离、accepted/rejected 恢复、pending 首次完成与跨锚点回滚。负测为 host 集成证据，不代表实板老化或正式 promotion。
+- P3：Release A/B/BOOT 与固定四板快速验收通过，`p3-r1` 为 PASS_WITH_WARNINGS（25 INFO / 20 WARN / 0 ERROR / 0 FATAL），build `20260919154526`，源码 SHA `4d786e0ad296688d954c59a3acfe02fea7ffb518f375b69a40d7e4444a62c818`，1325 文件，`check-staged` 指纹核验 OK。既有全表严格预算与完整 WCET 仍未过，不据此授予资格。
+- 资源对照：相对 034，text +288 B、data/bss 不增；`vdc_domain_age_quality` 174→242 B、`vdc_dpll_manager_age_quality_core1` 268→444 B，RefMem 实时入口仍 1284 B。新增条件判断与一次条件读钟有实际成本，代码大小不等于 WCET；未新增字段、诊断发布入口、席位或调度项。
+- 联合实测 `joint-gap-60s-r1` PASS（89.86 s）：内部健康与十二个外部四路窗口全过、48 份 RAW 哈希一致，全部已采边沿在 ±50 ns 内（本轮日志最大绝对相差约 47.88 ns）；`physical_continuous_lock_qualified` 与 `exact_event_correlation_qualified` 仍为 false，RUN 查询为零，四板最终 STOP/恢复、无清理错误。该轮为 RAM 时序范围，不含 Flash、重启与 P0；稀疏窗口不证明未采样区间精度。
+- 独立复核 `review.txt`：初判 PASS_WITH_NOTE、最终 PASS；保留的口径限制为年龄回退检测仅到已存微秒分辨率（不宣称纳秒单调性）、自然饱和同样取消在飞完成、pending 拒绝断言须以 servo 之后的 DCO/计为基线。复核同时记录一次工作区事件：reviewer 误用历史“外部一致性”指令改过两份 20260919 HTML 报告并重生成 PDF，四份报告已按 HEAD 恢复、无 diff 残留，未改产品、测试与域文档。
+- 原件根：`out/HardwareAcceptance/20260919/quality-clock-failclosed-r1/`（`p3-run.log`、`resource-audit.json`、`p3-phase-comparison.json`、`review.txt`、`joint-gap-60s-r1/`）；测试日志见 `out/quality-clock-*.log` 与 `out/idle-clock-failclosed-fixed-r*.log`。
+- 交付：实现与同指纹 P3 凭证提交 `bd5e7a87`；文档分离提交。
+- 下一 gate：继续 `VDC-SNAPSHOT-001` 的正式合格输入接入、调试相位控制到正式控制的迁移及逐事件保持/恢复证据；该切片只让时钟异常 fail-closed，不上调 formal quality，也不扩容特等席（须用户审核）。
 
 ### VDC-PROGRESS-20260919-034：健康锁定标志与质量一致投影
 

@@ -43,6 +43,19 @@ wire 中 `source_update_seq`、`dpll_update_seq` 继续表达原 DPLL 证据，�
 也不将 typed FRESH 提升为正式质量。`VALID/STALE` 保留向量自身的原语义，其他路径、
 硬件证据和调度 flags 保持独立；健康锁定投影不是完整 formal promotion。
 
+正式 quality 的 `last_sample_age_us == UINT32_MAX` 表示未知或饱和；即使 freshness
+上限同为该值，也不能授予 HEALTHY，控制 FAULT 优先。读钟失败、早于样本锚点或相对
+已存微秒年龄回退均进入此状态；锚点之后不足一个存储单位的回退不保证检出。仅恢复
+时钟读取不清除旧证据的失效，原 accepted 样本提交或生命周期重置才可重新建立年龄。
+工作视图与发布视图各自老化，有限年龄首次变为未知时相互传播失效，不能将旧发布
+视图的未知状态反复施加到已接受的新样本上。
+
+servo 与 finalize 跨拍时，原质量检查还须验证 pending preparation 的本地 apply
+时间，包括首样本尚无质量锚点的情况。异常撤销其 valid，经既有 finalize 拒绝路径
+退休，不回滚已生效的 servo/DCO，也不提前发布未完成的质量字段。复用原 guard 和
+age 刷新路径；新增条件、分支和首 pending 读钟有实际成本，不等于零开销或 WCET
+验收。无新字段、席位或 Core1 健康诊断发布；异步镜像仍归 Core0，扩容须用户审核。
+
 ### VDC-BOUNDARY-01：本地服务边界频率增量命令
 
 本条款独立于旧共同绝对时间命令；它定义内部 DCO 的受限频率应用，不授予 formal

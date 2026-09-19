@@ -167,7 +167,9 @@ Core0 在 TDMA STOP 排他边界 PREPARE，锁存 session、delay、周期、时
 
 `REFMEM_VECTOR_FLAG_LOCKED` 是同一快照中健康锁定状态的投影：要求非 provisional、debug continuation 关闭、Domain/quality 均为 LOCKED、quality 有效且 HEALTHY、fine tier、非零样本时间及 freshness、年龄未超界、gate 通过。控制状态因保持而仍为 LOCKED，不能掩盖质量过期；该位不代表完整 formal promotion。判定复用既有字段和两向量轮转，不新增观测或发布。按 [EXE-SAFE-01](../check/DOCS_EXECUTION_CONSTRAINTS.md#exe-safe-01可恢复拒绝的记录与有界继续)，调试态 DPLL 失锁或局部 WCET/deadline 超限本身不隔离收发仍健康的 TDMA 节点；异常须记录，节点级隔离只适用于 TDMA 或不可恢复硬件资源故障。
 
-`sync_dpll_fb_service()` 在 step 的提前返回前维护质量年龄：`vdc_domain_age_quality()` 只更新 age/health，已有 HOLDOVER 同步其年龄，不推进服务/证据计数或自动迁移控制状态。无参考时间或读钟失败跳过；工作 Domain 与已发布视图分别按各自参考时间和状态老化，不提前公开未 finalize 的证据。ready 变化刷新派生质量，并在已有 runtime 快照时发布。缺参考自动 HOLDOVER、误差边界增长、恢复重锁及正式有效发布仍属于 `VDC-SNAPSHOT-001`、`VDC-HOLD-001`、`VDC-RECOVERY-001` 后续门禁。
+`sync_dpll_fb_service()` 在 step 的提前返回前维护质量年龄：`vdc_domain_age_quality()` 只更新 age/health，已有 HOLDOVER 同步其年龄，不推进服务/证据计数或自动迁移控制状态。无参考时间跳过；读钟失败、早于参考锚点、已存微秒年龄回退或饱和时，年龄锁存为 `UINT32_MAX`，不得授予 HEALTHY，FAULT 仍优先。恢复读钟不续期旧证据，须由原有新样本 accepted 路径或生命周期重置解除。
+
+工作 Domain 与已发布视图独立老化；任一视图新检出时钟异常同步使另一视图失效，不提前公开未 finalize 的字段。待提交样本也复验本地 apply 时间，异常取消 preparation，沿原 finalize 拒绝路径保留已经采用的 DCO。首样本尚无参考锚点时增加一次条件读钟，其余复用原检查和 guard，不新增发布入口、诊断镜像或席位；成本仍须计入实时预算。ready 变化刷新派生质量，并在已有 runtime 快照时发布。缺参考自动 HOLDOVER、误差边界增长、恢复重锁及正式有效发布仍属于 `VDC-SNAPSHOT-001`、`VDC-HOLD-001`、`VDC-RECOVERY-001` 后续门禁。
 
 typed FOLLOW 的来源新鲜度独立于正式 quality。`vdc_dpll_manager_get_priority_follow_health()` 返回 Core1 单写者的原子快照：FOLLOW 身份与年龄复验通过后，只消费本拍新的 MATCH 事件；每拍按 TIMER1 `raw_lo/raw_hi` 维护年龄，期限复用 `VDC_PRIORITY_FOLLOW_MAX_AGE_MS`，不依赖可选 TRACE/GUARD。FRESH 只表示最后合格来源事件仍年轻，不表示本拍执行成功或锁相；重复事件、BUSY、旧代和拒绝不续期。STALE 时原控制路径保持 DCO、清除待执行项和基线，新事件恢复先重新建基线；STOP/绑定变化退休，诊断留存。读钟失败和反向时间不视为新鲜，`recoveries` 包括同一年轻事件在读钟恢复后的 STALE→FRESH 转换。该快照不修改 Domain 的 accepted、quality、DPLL 或 DCO 序号，也不自动进入 RefMem 正式质量字段。
 

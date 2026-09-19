@@ -57,7 +57,7 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 
 | 顺序 | 下一步 | 对应任务 / 退出条件 |
 |---|---|---|
-| 1 | 验证缺参考时模型保持、质量降级及恢复发布 | `VDC-SNAPSHOT-001`、`VDC-HOLD-001`；局部发布/恢复见 026–028，typed 新鲜度见 030，停更/再 ARM 见 031，Core0 诊断镜像见 032，GUARD 启动等待修复见 033，健康 LOCKED 投影见 034。下一步处理正式 aging 无效/反向读钟，再推进正式输入和逐事件保持/恢复证据。032 首轮源失效/停机链因果未证，保留原失败；补偿 HOLD 与 Domain HOLDOVER 分开判定。 |
+| 1 | 验证缺参考时模型保持、质量降级及恢复发布 | `VDC-SNAPSHOT-001`、`VDC-HOLD-001`；局部发布/恢复见 026–028，typed 新鲜度见 030，停更/再 ARM 见 031，Core0 诊断镜像见 032，GUARD 启动等待见 033，健康 LOCKED 投影见 034，正式 aging 失效处理见 035。下一步推进正式合格输入接入、控制迁移和逐事件保持/恢复证据。032 首轮源失效/停机链因果未证，保留原失败；补偿 HOLD 与 Domain HOLDOVER 分开判定。 |
 | 2 | 保持已验证 delay，扩展恢复及输出证据 | `VDC-OUTPUT-001`、`VDC-PRECISION-001`、`VDC-DRIFT-001`；已有同配置 STOP/ARM 证据，补单板复位恢复、脉冲身份和测量误差。 |
 | 3 | 验证失联、保持、恢复及旧会话退休 | `VDC-RECOVERY-001`、`VDC-HOLD-001`；区分偶发坏样本与持续失效，恢复后重新收敛。 |
 | 4 | 闭合正式精度及 VDC RUN 发布 | `VDC-CAL-001`、`VDC-EVID-001`、`VDC-LOCK-001`、`VDC-RUN-001`、`VDC-VERIFY-001`；校准、同事件身份、freshness、快照及完整调度证据齐全。 |
@@ -88,7 +88,7 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| `VDC-SNAPSHOT-001` | guarded snapshot 与一致发布 | IN PROGRESS | 完整关闭依赖 `VDC-LOCK-001`；DCO-only、age/ready 及外参 clock/DCO 发布见 026、027，健康 LOCKED 投影见 034。下一步修正正式 aging 的读钟失败/反向时间处理，避免旧 HEALTHY 保留或年龄归零；继续 quality/valid/freshness 与恢复验收。从板 STOP 无正式参考样本不算实板老化证明，stale/late/半更新仍须 fail-closed。 |
+| `VDC-SNAPSHOT-001` | guarded snapshot 与一致发布 | IN PROGRESS | 完整关闭依赖 `VDC-LOCK-001`；DCO-only、age/ready 及外参 clock/DCO 发布见 026、027，健康 LOCKED 投影见 034，读钟失败/年龄回退锁存及 pending 取消见 035。继续正式合格输入接入、quality/valid/freshness 与恢复验收。负测为 host 集成证据，从板 STOP 无正式参考样本不算实板老化证明，stale/late/半更新仍须 fail-closed。 |
 | `VDC-TDMA-001` | resident lifecycle 与固定 process image | IN PROGRESS | 依 active TDMA profile，关联 UP/DOWN、sequence/CRC、latch 与 RUNNING evidence；资源、方向、persona 无冲突，VDC 不接管运输。 |
 | `VDC-CAL-001` | 有向 delay/bias 与完整路径矩阵 | IN PROGRESS | 依 TDMA profile/CRC；active matrix、table CRC、代际和 freshness 齐全，缺项拒绝。独立验证 forward-CS；provisional reverse-DATA 转置值和输出补偿不替代路径校准。 |
 | `VDC-EVID-001` | 正式 DPLL evidence 准入 | IN PROGRESS | 依赖 `VDC-CAL-001`；复用既有 typed 事件身份/区间，明确合格样本接入及从调试相位 step 到正式控制的迁移（当前 step 在 LOCKED 时拒绝）。sequence/CRC/window/payload/dictionary/timestamp gate 全通过，typed FRESH 不直接升级 formal；若需要扩容特等席先用户审核。此项不阻塞已有诊断闭环实验。 |
