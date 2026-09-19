@@ -4,9 +4,51 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-17
+Last updated: 2026-09-20
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
+
+### REFMEM-TASK-20260920-053 - RefMem Sync SPI line/raw 调试入口注册恢复
+
+- 状态：完成源码恢复、构建、OTA、单板硬件验收与板端差分验证。
+- 日期：2026-09-20
+- 任务目标：
+  - 恢复 `SYSTem:REFMEM:SYNC:SPI:*` 的 line/raw bring-up 入口注册，使 `REFMEM_DOMAIN_TODO.md` 阶段 2 结论在代码上成立。
+  - 不恢复帧级阻塞命令，不新增第二条 frame transport 路径。
+- 回归认定：
+  - 提交 `3212f1aa`（2026-08-21「校准域迁移」）在迁移校准域时，从 `middleware/scpi_port/inc/scpi_system_snapshot_commands.h` 删除了 8 个原型和 8 行 `SYSTem:REFMEM:SYNC:SPI:*` 命令表注册，但未删除 `scpi_system_snapshot_commands.c` 内对应的 8 个实现（`scpi_cmd_refmem_sync_spi_{arm,disarm,status_q,line_release,line_drive,line_status_q,raw_tx,raw_rx_q}`）。
+  - 同一条计划内的 `scpi_refmem_sync_spi_send_result()` 已删除，属"删了一半"：辅助函数删除、handler 与注册不一致。
+  - 该删除范围与 `REFMEM_DOMAIN_TODO.md` 阶段 2 的"仅保留 line/raw bring-up 必要入口"相冲突：被删的正是这批入口。
+  - 后果：有文档记录的 `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`（`ARM`/`RAW:TX`/`RAW:RX?`/`STATus?`）与 `tools/refmem_spi_line_activity/refmem_spi_line_activity.py`（`ARM`/`RAW:TX`）在板端只能收到 `Undefined header`。
+  - 全量扫描 `middleware/scpi_port/src` 下 447 个 handler：仅此 8 个在自身 `.c` 之外零引用，确认为孤例而非普遍现象。
+- 完成内容：
+  - 恢复 8 个原型与 8 行命令表注册，内容与删除前逐字一致：`git diff 3212f1aa^ -- <header>` 结果中不出现任何 `refmem_sync_spi` 行。
+  - 未删除任何实现；帧级阻塞命令（`HELLo?`/`EPOCh?`/`DELTa?`/`ACK?`/`FENCe?`/`QUALity:FRAMe?`/`RX?`）保持删除状态。
+  - `tools/hardware_acceptance/sequence_single_board_gate.py` 的 `FOUNDATION_PRODUCTION_ALLOWLIST` 追加该 `.h`（其 `.c` 原本已在表内），并同步 `tests/python/test_sequence_single_board_gate.py` 的精确范围断言。
+- 验证结果（以下数字为本轮验证快照，非事实源）：
+  - host 回归 626 项通过，集合与门禁实际执行的 foundation 固定套件一致。
+  - 构建 `out/build/reservation-vdc-slice-r6`：build id `20260919162632`，A/B/BOOT 三个 flash link 契约全部 OK，构建记录 `out/node-sequence/refmem-spi-registration-r6/build-r6.json`。CMake 选项与 r5 逐项比对，仅 `PICO_DOXYGEN_PATHS` 的构建目录路径字符串不同。
+  - 本轮只烧录该一个 build，下列各槽位物理配置均在同一镜像上运行，不存在每个配置各烧一次。包 `out/build/reservation-vdc-slice-r6/DHRT100_UPDATE.pkg`：1649908 字节、sha256 `30ec7161c3ea58786be0e327f129374c9e9662ded4f891de1d82916aea8dd600`、crc32 `0xF2633C17`（本轮验证快照，非事实源）。
+  - USBTMC OTA 与 COMMIT 通过，凭证 `out/ota/refmem-spi-registration-r6/summary.json`：preflight build `20260919153532` → expected `20260919162632`，槽位提交 `2,0,2,0,1`；重枚举后经 USBTMC 读回 build `20260919162632`，`SYSTem:ERRor?` 为 `0,"No error"`。
+  - 单板验收原件 `out/HardwareAcceptance/20260920/single-board-rerun-1/`（日期优先目录；同指纹的首次通过运行 `out/HardwareAcceptance/20260920/refmem-spi-registration-r6/` 已被本次重跑取代，凭证指向重跑目录）：host、真实 RJ45 静默校准三轮、finite/pause-resume/repeat/start/position，以及本片新增的四个基础层阶段全部通过。`config/hardware_acceptance/sequence_single_board_receipt.json` 绑定源码指纹 `f40ac2791db0f7beec15e28f9ee14ce1104ebe3aecad32a10d09b74ada7173b3`、build `20260919162632`、profile `RESERVATION_VDC_TIMER1_FOUNDATION`、64 个变更源与 9 个 validator 哈希，`check-staged` 通过。
+  - 门禁扩展阶段逐项证据（均在上述目录内，数值为本轮验证快照，非事实源）：`independent-source.json` 单槽位独立 SP8T，`settings.source` 为 `IN1`、`software_next_sent` 为 0、`software_input_simulation_verified` 为 False、`repeat_result {configured 10, active 10, finished 1}`、末态 `accepted` 为 79；`dual-slot-physical.json` DUT+VNA，`settings.scpi_next` 为 False、`ready_input` 为 `IN2`、LINK 读回 `dutslot=2 vnaslot=3 input=2`、无 `ready_injection`、`repeat_result` 为 `"10,10,1"`；`turntable-external.json` COUNTER+DUT+VNA，`external_input` 为 True、`counter_input` 为 `IN1`、`positions` 为 30、`threshold` 为 1000、`source_hz` 为 1000.0、`duration` 为 40.0、`quiet_capture` 为 True、历史 240 条、`terminal_repeat {configured 30, run 30, finished 1}`、静默窗口 `commands_during_wait` 为 0、`elapsed_s` 31.2006 对 `planned_wait_s` 31.2；`standalone-sp8t.json` 不获取序列资源的独立 SP8T，位置 `[1,2,3,4,5,6,7,8,1]`、每项 `io.outputs` 等于位置减一且 `io.owned`/`io.armed`/`io.busy` 均为 0、阶段为 passed 且 `failure`/`cleanup_failure` 为 null。
+  - 板端差分验证：`SYSTem:REFMEM:SYNC:SPI:STATus?` 返回 15 字段且错误队列为空；`SYSTem:REFMEM:SYNC:SPI:LINE:STATus?` 返回 `0,16,17,18,19`（armed 与四引脚映射）。对照刻意保持删除的 `SYSTem:REFMEM:SYNC:SPI:HELLo?` 与 `SYSTem:REFMEM:SYNC:SPI:RX?` 仍返回 `-113,"Undefined header"`，证明恢复范围精确且未连带恢复帧级入口。
+- 证据边界：
+  - 本次为基础层单板凭证，`limitations` 含 `foundation_only`/`no_formal_calibration`/`no_independent_edge_count`/`no_multi_board`/`no_multi_board_vdc`/`no_p3`/`no_physical_deadline_edge`/`no_rf`/`no_sync_accuracy`/`no_tdma_stability`/`no_waveform`，不证明第四模式预约、同步精度、独立边沿计数、严格 TDMA 稳定性、波形、RF 通路或多板能力。
+  - 单槽位阶段由 IN1 外部脉冲源驱动，因此本凭证不覆盖独立模式文档中的 `OUT4 → IN1` 自回环链。
+  - 三槽位运行的物理边沿数未由板端独立计数（`input_simulation.physical_edge_count_verified` 为 false），只验证 READY 为物理来源。
+  - 板端仅验证命令可达与只读快照；未执行 ARM 后的真实物理收发闭环，历史双板 HIL 结论不继承。
+  - 静默校准三轮原始边沿为 92/144/164/216ns（三轮 `epoch_unique` 均为 true，`baseline_epoch` 依次 4/5/6，`load_guard.unchanged` 为 true，均为本轮验证快照），与历史基线一致；仍为包含收发器的整路径诊断，不是去嵌纯线缆延迟，`result_valid`/`active_eligible` 仍为 0。
+- 关联文件：
+  - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
+  - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
+  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+  - `tools/refmem_spi_line_activity/refmem_spi_line_activity.py`
+  - `tools/hardware_acceptance/sequence_single_board_gate.py`
+  - `tests/python/test_sequence_single_board_gate.py`
+- 后续动作：
+  - `refmem_spi_hil_validate.py --transport tdma` 与 `refmem_spi_line_activity.py` 的真实线束闭环需在具备两板条件时重跑，本次不宣称其通过。
+  - 该家族继续定位为 bring-up/diagnostic，不得作为正式 frame transport 入口。
 
 ### REFMEM-TASK-20260817-052 - RefMem 初始化阶段码固化
 

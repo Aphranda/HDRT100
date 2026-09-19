@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/sequence/TRIGGER_SEQUENCE_TODO.md`
 Related: `docs/trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md`, `docs/trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 ## 当前范围
 
@@ -408,7 +408,7 @@ LINK 入口已提供同板角色/IO 绑定与运行状态，完整动态 claim/l
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
 | NSEQ-120 | 第四模式需求、T2模型与owner审计 | DONE | 来源7a3e0954同步和T2接口审计完成，见NSEQ-RSV-06、进度074；第四槽SP2T切H/V，SP8T二位四状态各采H/V，OUT1/2、OUT3、OUT4分别归两开关及VNA；模式独立PIO热加载，资源/角色实现仍由后续任务验证，不表示固件完成 |
-| NSEQ-121 | 共享VDC稳定视图与位置预约规划 | PENDING | 承接NSEQ-113；参考real-flight生产调用链的TIMER1同原点/committed发布及维护；先闭合无输入aging、失参考及ready(false)完整质量发布；区分token/valid_from_raw/publication_revision，逆映射local ns再转tick；有限有界前瞻、溢出/量化、校准/模型/schedule换代及预测偏差负测；已承诺前缀冻结，诊断未锁定输出不作为正式ARM准入 |
+| NSEQ-121 | 共享VDC稳定视图与位置预约规划 | IN PROGRESS | 承接NSEQ-113；参考real-flight生产调用链的TIMER1同原点/committed发布及维护；先闭合无输入aging、失参考及ready(false)完整质量发布；区分token/valid_from_raw/publication_revision，逆映射local ns再转tick；有限有界前瞻、溢出/量化、校准/模型/schedule换代及预测偏差负测；已承诺前缀冻结，诊断未锁定输出不作为正式ARM准入。基础纯模型、生产owner和恢复门禁已通过当前源码构建/OTA、单板门禁与第三模式静默回归；正式本板校准、参考发布准入及第四模式运行接入未闭合，见进度075 |
 | NSEQ-122 | SYNC READY特等席及预约运输 | PENDING | 承接NSEQ-112/114；VNA READY、运输offer READY、预约READY-mask/fence分离；typed VDC完整body不可直接复用，新增固定布局与唯一装配者、来源/步骤/运行去重及容量预算共存；真实RJ45交接，实测到达相位/最坏圈数，无普通发布节流依赖、不吞缺口 |
 | NSEQ-123 | 并行预约FB及PIO0本地执行 | PENDING | 先核算组合预约persona的SM/指令/DMA/FIFO及VDC采集共存，当前三槽位已占满PIO0的SM，不能叠加SCHEDULED_TRIGGER；停态装载且运行期持续计数/捕获；READY只授权一次，并行PREPARE/fence/ARM、两开关均满足各自稳定期限后VNA触发；硬件deadline、STOP取消/PAUSE/CONT/热加载/迟到及VDC失效负测；不把软件观察时间当边沿 |
 | NSEQ-124 | 第四模式SCPI、GUI与配置保存 | PENDING | 模式独立分页；四槽角色/部署、SP8T二位编码及SP2T档位/极性/安全态/各自settle、组合计划、输入/频率或周期、lead/超时、总观察位置及前后VDC窗口配置/真实读回/JSON恢复；派生业务位置数与绝对计数偏移可见，无业务窗口拒绝；能力未就绪明确拒绝，前三模式回归 |
@@ -424,7 +424,16 @@ READY/fence绑定四槽配置及实际输出参与者，不能把两开关误判
 不跳过NSEQ-112至117仍适用的运输/时钟/验收门禁。
 每次实现切片都要软件回归、USBTMC构建/OTA、当前源码单板凭证和外部静默30位置
 （用户验收配置快照，非产品常量），测试期间主机不查询TDMA/PHY。
+用户追加明确：每一次验收都必须逐项说清楚证据，每项给出证据产物路径、关键实测值
+及本轮未证明的边界；只写通过/失败结论、不列证据与未证明范围的记录不算完成验收。
 第四模式未具备端到端能力前，只能报告实际实现层及第三模式回归；不得宣称预约验收通过。
+用户追加明确：单板也须经真实RJ45收发与线缆执行校准，保存原始边沿、路径延迟计算、
+校准接受结果及版本，正式预约绑定已接受的本板校准；单板验收不豁免校准。
+回环诊断估计与正式accepted路径分开报告，包含收发器的整路径延迟不能标为已去嵌纯线缆延迟。
+现有单板诊断不会自动形成正式校准，禁止用默认值、伪造training stage或注入参考替代实测。
+进度075的停止态审计另发现：既有MASTER active batch在STOP后可能重复提交，
+被取消的follower RX token缺少完整生命周期清理。NSEQ-122/123须闭合停止、重启与旧收据隔离，
+不能把本片停止态新RX准入guard视为完整STOP/reARM保证。
 每位置时间分解保留预测、READY、运输、准备/装载、硬件执行与采样等待的不同坐标和证据类型。
 性能目标承接NSEQ-115；共享VDC或同圈运输本身不代表已消除Core1慢周期，也不证明相位精度。
 

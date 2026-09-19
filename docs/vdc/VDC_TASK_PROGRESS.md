@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 > 分支范围：本文同步自real-flight的`7a3e0954`，正文任务状态、实现与证据指来源分支。
 > 本地固件状态及契约边界见[同步说明](../README.md#序列分支的上游文档同步范围)。
@@ -24,6 +24,16 @@ Last updated: 2026-09-19
 | 下一 gate | 必须指向一个 TODO Task ID 或明确外部阻塞。 |
 
 ## 当前 checkpoint
+
+### VDC-PROGRESS-20260920-026：board_uptime_ms 测试台桩第二次破损并在树内修复
+
+- TODO task ID：`VDC-DRIFT-001`、`VDC-PRECISION-001`，继续 IN PROGRESS。以下数字为本轮验证快照，非事实源；本条只记录测试台时间源修复，不改动 `tdma_component_core1_service` 的生产时间戳语义。
+- 同一类破损在 `VDC-PROGRESS-20260918-051`（该条正文中"扩展套件 40 passed/1 failed"一段）已记录过一次：测试台仍模拟 `vdc_dpll_manager_now_ns`，而生产 owner 已改用 `board_uptime_ms`，当时明确选择"未改写原失败"，只用产物脚本纠正 mock 后重跑同一测试，并声明不宣称全套绿。本轮该破损第二次出现，处置改为在树内修复，不再用脚本绕过。
+- 复现对象为 `tests/unit/test_tdma_origin_admission.c` 的 16 个错误。测试台从 `components/vdc_dpll_manager/src/vdc_dpll_manager.c` 抽取 `tdma_component_core1_service`，其函数体现用 `board_uptime_ms() * 1000000ull` 为物理TX服务打时间戳，不再调用 `vdc_dpll_manager_now_ns()`；测试台既没有 `board_uptime_ms`，其已无用的 `vdc_dpll_manager_now_ns` 桩又触发 `-Werror=unused-function`，于是整段编译失败，属于测试滞后于生产代码，不是生产代码回归。
+- 修复：按 `boards/rp2350_trig/inc/board.h:29` 核对签名后，在测试台新增 `static uint32_t board_uptime_ms(void)`，由测试台自己的 `ticks`/`clock_hz` 模型换算毫秒（`ticks * 1000 / clock_hz`），并删除死桩。该换算值在测试台内唯一的消费点即丢弃（`(void)now`），因此不要求亚毫秒保真，也未新增或削弱任何断言；失败判定口径不变。
+- 结果与对照：该文件由 16 个错误转为 16 项通过。同轮其余四类同步修复（`test_sequence_tdma_cycle_validate.py`、`tdma_start_ring.py`、`test_tdma_arm_diagnostics.py`、`test_state_machine_resource_check.py`）与全套对照见 `TRIGGER_SEQUENCE_TASK_PROGRESS.md` 进度076；修复后工作区全套为 2 failed / 3229 passed / 14 skipped / 15 errors（本轮快照，未重跑复核）。
+- 证据与边界：本轮未执行硬件、未改固件、未重新构建烧录，故不提供板端证据；本条不证明 1 ms 或亚毫秒时间精度，也不把测试台换算当作生产时钟语义。既有的两项失败与 `test_tdma_latch_arithmetic.py` 的 15 个错误属既有欠账，保持原样，不用重跑通过覆盖旧失败。
+- 下一 gate：`VDC-OBS-007` 的质量发布与恢复对账，以及正式单板 accepted 校准路径；本轮修复只让既有测试台与生产时间源重新一致，不改变这些门禁。
 
 ### VDC-PROGRESS-20260919-025：启动预检、异步保存与三会话联合验证
 
