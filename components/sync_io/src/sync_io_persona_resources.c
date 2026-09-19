@@ -178,6 +178,21 @@ static const sync_io_persona_descriptor_t s_sync_io_personas[] = {
                              SYNC_IO_MAIN_OUTPUT_GPIO_MASK |
                              SYNC_IO_TDMA_PAD_GPIO_MASK,
     },
+    {
+        .id = SYNC_IO_PERSONA_ID_REFERENCE_MONITOR,
+        .name = "reference_monitor",
+        .program_name = "sync_reference_cycles",
+        .implementation = SYNC_IO_PERSONA_IMPLEMENTATION_CURRENT,
+        .flags = SYNC_IO_PERSONA_FLAG_READ_ONLY_PAD,
+        .pio_block_id = BOARD_TDMA_SMA_PIO_BLOCK_ID,
+        .instruction_words = 11u,
+        .dma_channel_count = 2u,
+        .sm_mask = SYNC_IO_SM_BIT(2u),
+        .gpio_read_mask = SYNC_IO_MAIN_INPUT_GPIO_MASK,
+        .rx_fifo_sm_mask = SYNC_IO_SM_BIT(2u),
+        .dma_channel_mask = SYNC_IO_REFERENCE_DMA_MASK,
+        .rx_dreq_sm_mask = SYNC_IO_SM_BIT(2u),
+    },
 };
 
 static uint32_t sync_io_persona_popcount(uint32_t value)

@@ -86,6 +86,8 @@ SCK_ARM_HEADERS = {
 # Share their shape with callers selecting the response (rather than ACK)
 # deadline so a valid result cannot be discarded as an ordinary write reply.
 TDMA_CONTROL_RESULT_FIELDS = {
+    "SYST:VDC:REF:CONF": 5, "SYSTEM:VDC:REFERENCE:CONFIGURE": 5,
+    "SYST:VDC:REF:ENAB": 1, "SYSTEM:VDC:REFERENCE:ENABLE": 1,
     "SYST:TDMA:RING:TOP": 3, "SYSTEM:TDMA:RING:TOP": 3,
     "SYST:TDMA:RING:TOPOLOGY": 3, "SYSTEM:TDMA:RING:TOPOLOGY": 3,
     "SYST:TDMA:OPMODE:STAGE": 6, "SYSTEM:TDMA:OPMODE:STAGE": 6,

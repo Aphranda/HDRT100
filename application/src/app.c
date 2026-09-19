@@ -29,6 +29,7 @@
 #include "tdma_runtime_owner.h"
 #include "tdma_service_timing.h"
 #include "sync_io.h"
+#include "sync_io_reference.h"
 #include "sync_io_logic_analyzer.h"
 #include "ota_crc32.h"
 #include "project_build_info.h"
@@ -1116,6 +1117,10 @@ static void app_realtime_tdma_phase(void)
         tdma_component_core1_service();
     }
     vdc_run_output_service_core1();
+    /* Reference intent/retirement must progress even when the optional SYNC
+     * capture load is disabled. Hardware counts edges; this is one bounded
+     * state transition, inside the mandatory static TDMA phase budget. */
+    sync_io_reference_service_core1();
     /* The analyzer intent mailbox is a mandatory bounded Core1 service.
      * It must not live behind an optional/quarantinable load, otherwise an
      * accepted ARM/STOP could remain pending forever.  TDMA remains first;

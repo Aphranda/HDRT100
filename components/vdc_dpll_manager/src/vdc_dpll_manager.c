@@ -1690,6 +1690,7 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
 static bool priority_follow_baseline_init_from_product_config(void);
 static bool output_delay_init_from_product_config(void);
 static bool output_timing_init_from_product_config(void);
+static bool reference_init_from_product_config(void);
 
 bool vdc_dpll_manager_init(void)
 {
@@ -1825,6 +1826,9 @@ bool vdc_dpll_manager_init(void)
         return false;
     }
     if (!output_timing_init_from_product_config()) {
+        return false;
+    }
+    if (!reference_init_from_product_config()) {
         return false;
     }
     if (!priority_follow_baseline_init_from_product_config()) {
@@ -3061,6 +3065,7 @@ static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phas
 #define VDC_PRIORITY_TRACE_DECISION_HOOK(snapshot) priority_trace_decision_core1(snapshot)
 #include "vdc_priority_follow_config.inc"
 #include "vdc_output_delay_config.inc"
+#include "vdc_reference_config.inc"
 #include "vdc_run_output.h"
 #include "vdc_output_timing_config.inc"
 #include "vdc_priority_follow.inc"
@@ -3984,6 +3989,7 @@ static uint32_t vdc_dpll_manager_waveform_find_free_buffer(void)
 
 void vdc_dpll_manager_core0_service(void)
 {
+    reference_release_core0();
     run_output_release_core0();
     priority_guard_service_core0();
     vdc_fixed_output_service_core0();

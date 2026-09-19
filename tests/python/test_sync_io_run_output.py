@@ -135,7 +135,7 @@ def test_acquire_and_state_rejection_precede_runtime_generation_access():
     assert '||' in compact[running:lease]
     release=''.join(function_body(source,'sync_io_run_output_release').split())
     assert release.index('__atomic_load_n(&s_state,__ATOMIC_ACQUIRE)!=SYNC_IO_RUN_OUTPUT_RETIRED') < release.index('generation!=s_run.generation')
-    assert release.index('generation!=s_run.generation') < release.index('sync_io_persona_manager_release')
+    assert release.index('generation!=s_run.generation') < release.index('sync_io_pio0_runtime_release')
 
 
 def test_first_low_reencode_uses_the_shared_pio_cycle_constant():
@@ -340,6 +340,14 @@ bool sync_io_persona_manager_arm(sync_io_persona_manager_t *m,sync_io_persona_ma
 bool sync_io_persona_manager_start(sync_io_persona_manager_t *m,sync_io_persona_manager_handle_t *h) {(void)m;(void)h;++starts;if(cancel_at_start)sync_io_run_output_cancel();return !deny_start;}
 bool sync_io_persona_manager_handle_valid(const sync_io_persona_manager_t *m,const sync_io_persona_manager_handle_t *h) {(void)m;(void)h;return manager_valid;}
 bool sync_io_persona_manager_release(sync_io_persona_manager_t *m,sync_io_persona_manager_handle_t *h) {(void)m;(void)h;assert(manager_valid);saved_hooks.cleanup(saved_context,&descriptor,1u<<2);manager_valid=false;return true;}
+bool sync_io_pio0_runtime_prepare(sync_io_persona_id_t id,const sync_io_persona_manager_hooks_t *hooks,void *ctx,sync_io_persona_manager_handle_t *h) {
+    sync_io_persona_manager_init(NULL,hooks,ctx);
+    bool ok=sync_io_persona_manager_claim(NULL,id,h,NULL)&&sync_io_persona_manager_load(NULL,h)&&sync_io_persona_manager_arm(NULL,h);
+    if(!ok&&manager_valid)sync_io_persona_manager_release(NULL,h);
+    return ok;
+}
+bool sync_io_pio0_runtime_release(sync_io_persona_manager_handle_t *h) {return sync_io_persona_manager_release(NULL,h);}
+bool sync_io_pio0_runtime_start_core1(sync_io_persona_manager_handle_t *h) {return sync_io_persona_manager_start(NULL,h);}
 
 #endif
 '''

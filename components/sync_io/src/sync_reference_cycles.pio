@@ -1,0 +1,19 @@
+; Finite reciprocal-frequency window. Two FIFO tokens then block at pull.
+; Caller preloads N-1. Start token occurs two instructions after selected edge;
+; end token three instructions after edge N. Subtract one clk_sys tick from
+; DMA timestamp delta. DMA arbitration uncertainty remains separate.
+.program sync_reference_cycles
+.wrap_target
+    pull block
+    out x, 32
+    wait 0 pin 0
+    wait 1 pin 0
+    mov isr, x
+    push block
+period:
+    wait 0 pin 0
+    wait 1 pin 0
+    jmp x-- period
+    mov isr, x
+    push block
+.wrap

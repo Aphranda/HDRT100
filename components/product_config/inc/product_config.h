@@ -37,6 +37,30 @@ typedef struct {
 bool product_config_get_vdc_output_timing_profile(product_config_vdc_output_timing_profile_t *profile);
 bool product_config_set_vdc_output_timing_profile(const product_config_vdc_output_timing_profile_t *profile);
 
+/* Signal parameters only: arming an external reference is session-local. */
+typedef struct {
+    uint32_t input_port;
+    uint32_t edge; /* 0: rising, 1: falling */
+    uint32_t nominal_hz;
+    uint32_t window_ms;
+    uint32_t timeout_ms;
+} product_config_vdc_reference_profile_t;
+
+#define PRODUCT_CONFIG_VDC_REFERENCE_DEFAULT_INPUT_PORT 4u
+#define PRODUCT_CONFIG_VDC_REFERENCE_DEFAULT_EDGE 0u
+#define PRODUCT_CONFIG_VDC_REFERENCE_DEFAULT_NOMINAL_HZ 10000000u
+#define PRODUCT_CONFIG_VDC_REFERENCE_DEFAULT_WINDOW_MS 1000u
+#define PRODUCT_CONFIG_VDC_REFERENCE_DEFAULT_TIMEOUT_MS 2500u
+#define PRODUCT_CONFIG_VDC_REFERENCE_MIN_INPUT_PORT 1u
+#define PRODUCT_CONFIG_VDC_REFERENCE_MAX_INPUT_PORT 4u
+#define PRODUCT_CONFIG_VDC_REFERENCE_MIN_NOMINAL_HZ 1000u
+#define PRODUCT_CONFIG_VDC_REFERENCE_MAX_NOMINAL_HZ 20000000u
+#define PRODUCT_CONFIG_VDC_REFERENCE_MIN_WINDOW_MS 100u
+#define PRODUCT_CONFIG_VDC_REFERENCE_MAX_WINDOW_MS 5000u
+#define PRODUCT_CONFIG_VDC_REFERENCE_MAX_TIMEOUT_MS 10000u
+bool product_config_get_vdc_reference_profile(product_config_vdc_reference_profile_t *profile);
+bool product_config_set_vdc_reference_profile(const product_config_vdc_reference_profile_t *profile);
+
 /* Output-only compensation, independent of MATCH transport delay. Positive
  * delays the physical edge; boot migration defaults to zero in RAM only. */
 #define PRODUCT_CONFIG_DPLL_OUTPUT_COMPENSATION_DEFAULT_NS INT32_C(0)

@@ -328,7 +328,7 @@ static bool sync_io_wave_output_manager_start(sync_io_persona_id_t id) {
     phase_type = source[source.index("typedef enum {"):
                         source.index("} sync_io_schedule_phase_t;") +
                         len("} sync_io_schedule_phase_t;")]
-    harness += phase_type + "\nstatic uint32_t s_schedule_phase;\n"
+    harness += phase_type + "\nstatic uint32_t s_schedule_phase;\nstatic uintptr_t s_reference_token;\n"
     harness += function(source, "sync_io_schedule_reserve")
     harness += function(source, "sync_io_schedule_publish_phase")
     harness += function(source, "sync_io_pulse_schedule_arm_on_pin_common_owned")

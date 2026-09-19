@@ -79,6 +79,8 @@ void sync_io_core_legacy_leave(void);
 bool sync_io_core_run_output_reserve(const void *token);
 bool sync_io_core_run_output_held(const void *token);
 bool sync_io_core_run_output_release(const void *token);
+bool sync_io_core_reference_reserve(const void *token);
+bool sync_io_core_reference_release(const void *token);
 /* Legacy gate only: services completed legacy schedule just as is_running. */
 bool sync_io_core_model_output_active(void);
 bool sync_io_core_sma_frequency_output_active(void);

@@ -66,6 +66,14 @@ scpi_result_t scpi_cmd_vdc_output_timing_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_output_timing_default(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_output_timing_recall(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_output_timing_store(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_reference_config(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_reference_config_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_reference_enable(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_reference_enable_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_reference_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_reference_default(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_reference_recall(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_reference_store(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_baseline(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_baseline_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_baseline_default(scpi_t *context);
@@ -253,6 +261,14 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:OUTPut:TIMing:DEFAult", .callback = scpi_cmd_vdc_output_timing_default}, \
     {.pattern = "SYSTem:VDC:OUTPut:TIMing:RECall", .callback = scpi_cmd_vdc_output_timing_recall}, \
     {.pattern = "SYSTem:VDC:OUTPut:TIMing:STORe", .callback = scpi_cmd_vdc_output_timing_store}, \
+    {.pattern = "SYSTem:VDC:REFerence:CONFigure", .callback = scpi_cmd_vdc_reference_config}, \
+    {.pattern = "SYSTem:VDC:REFerence:CONFigure?", .callback = scpi_cmd_vdc_reference_config_q}, \
+    {.pattern = "SYSTem:VDC:REFerence:ENABle", .callback = scpi_cmd_vdc_reference_enable}, \
+    {.pattern = "SYSTem:VDC:REFerence:ENABle?", .callback = scpi_cmd_vdc_reference_enable_q}, \
+    {.pattern = "SYSTem:VDC:REFerence:STATus?", .callback = scpi_cmd_vdc_reference_status_q}, \
+    {.pattern = "SYSTem:VDC:REFerence:DEFAult", .callback = scpi_cmd_vdc_reference_default}, \
+    {.pattern = "SYSTem:VDC:REFerence:RECall", .callback = scpi_cmd_vdc_reference_recall}, \
+    {.pattern = "SYSTem:VDC:REFerence:STORe", .callback = scpi_cmd_vdc_reference_store}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow:BASEline", .callback = scpi_cmd_vdc_priority_follow_baseline}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow:BASEline?", .callback = scpi_cmd_vdc_priority_follow_baseline_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow:BASEline:DEFAult", .callback = scpi_cmd_vdc_priority_follow_baseline_default}, \

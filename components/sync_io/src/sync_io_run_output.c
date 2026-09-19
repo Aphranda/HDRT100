@@ -10,6 +10,7 @@
 #include "pico/platform.h"
 #include "sync_io_core_internal.h"
 #include "sync_io_persona_manager.h"
+#include "sync_io_pio0_runtime.h"
 #include "sync_pulse_stream_out1.pio.h"
 #include "sync_pulse_stream_encode.h"
 #include "sync_pulse_uniform_out1.pio.h"
@@ -25,7 +26,6 @@ _Static_assert(SYNC_IO_RUN_OUTPUT_MAX_WORDS <= SYNC_IO_SHARED_WORKSPACE_WORDS,
 _Static_assert(SYNC_IO_RUN_OUTPUT_BLOCK_EDGES <= SYNC_IO_RUN_OUTPUT_MAX_EDGES,
                "compatibility output block must fit the counted entry");
 
-static sync_io_persona_manager_t s_manager;
 static sync_io_persona_manager_handle_t s_handle;
 static sync_io_run_output_snapshot_t s_run;
 static uint32_t s_state, s_cancel, s_guard, s_generation;
@@ -167,12 +167,7 @@ static bool prepare_mode(uint32_t hz,uint32_t duration_ms,uint32_t high_ticks,
     }
     s_mode=mode; s_fixed_high_ticks=high_ticks;
     const sync_io_persona_manager_hooks_t hooks={.load=load,.arm=arm,.cleanup=cleanup};
-    sync_io_persona_manager_init(&s_manager,&hooks,NULL);
-    if (!sync_io_persona_manager_claim(&s_manager,SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER,&s_handle,NULL) ||
-        !sync_io_persona_manager_load(&s_manager,&s_handle) ||
-        !sync_io_persona_manager_arm(&s_manager,&s_handle)) {
-        if (sync_io_persona_manager_handle_valid(&s_manager,&s_handle))
-            (void)sync_io_persona_manager_release(&s_manager,&s_handle);
+    if (!sync_io_pio0_runtime_prepare(SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER,&hooks,NULL,&s_handle)) {
         (void)sync_io_workspace_release(&s_run);
         (void)sync_io_core_run_output_release(&s_run);
         return false;
@@ -352,7 +347,7 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
     memcpy(sync_io_shared_workspace,words,word_count*sizeof(words[0]));
     __atomic_thread_fence(__ATOMIC_RELEASE);
     if (first) {
-        if (!sync_io_persona_manager_start(&s_manager,&s_handle)) {
+        if (!sync_io_pio0_runtime_start_core1(&s_handle)) {
             s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_START;
             retire(SYNC_IO_RUN_OUTPUT_ARGUMENT); end_write(); return false;
         }
@@ -460,7 +455,7 @@ bool sync_io_run_output_release(uint32_t generation)
     if (get_core_num()!=0u ||
         __atomic_load_n(&s_state,__ATOMIC_ACQUIRE)!=SYNC_IO_RUN_OUTPUT_RETIRED ||
         generation!=s_run.generation) return false;
-    if (s_lease && !sync_io_persona_manager_release(&s_manager,&s_handle)) return false;
+    if (s_lease && !sync_io_pio0_runtime_release(&s_handle)) return false;
     s_lease=false;
     (void)sync_io_workspace_release(&s_run);
     if (!sync_io_core_run_output_release(&s_run)) return false;

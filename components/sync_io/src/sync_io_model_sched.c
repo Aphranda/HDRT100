@@ -62,13 +62,22 @@ typedef enum {
 } sync_io_schedule_phase_t;
 static uint32_t s_schedule_phase;
 static uintptr_t s_run_output_token;
+static uintptr_t s_reference_token;
 static bool s_fixed_rate_cancel_requested;
 
 static bool sync_io_schedule_reserve(uint32_t expected, uint32_t desired)
 {
-    return __atomic_compare_exchange_n(&s_schedule_phase, &expected, desired,
-                                        false, __ATOMIC_ACQ_REL,
-                                        __ATOMIC_ACQUIRE);
+    const bool excludes_reference=expected==SYNC_IO_SCHEDULE_IDLE &&
+        desired!=SYNC_IO_SCHEDULE_RUN_RESERVED;
+    if(excludes_reference && __atomic_load_n(&s_reference_token,__ATOMIC_ACQUIRE))
+        return false;
+    if(!__atomic_compare_exchange_n(&s_schedule_phase,&expected,desired,
+        false,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)) return false;
+    if(excludes_reference && __atomic_load_n(&s_reference_token,__ATOMIC_ACQUIRE)) {
+        __atomic_store_n(&s_schedule_phase,SYNC_IO_SCHEDULE_IDLE,__ATOMIC_RELEASE);
+        return false;
+    }
+    return true;
 }
 
 static void sync_io_schedule_publish_phase(uint32_t phase)
@@ -78,8 +87,13 @@ static void sync_io_schedule_publish_phase(uint32_t phase)
 
 bool sync_io_core_legacy_try_enter(void)
 {
-    return sync_io_schedule_reserve(SYNC_IO_SCHEDULE_IDLE,
-                                     SYNC_IO_SCHEDULE_LEGACY_OPERATION);
+    if (__atomic_load_n(&s_reference_token,__ATOMIC_ACQUIRE) ||
+        !sync_io_schedule_reserve(SYNC_IO_SCHEDULE_IDLE,
+                                     SYNC_IO_SCHEDULE_LEGACY_OPERATION)) return false;
+    if (__atomic_load_n(&s_reference_token,__ATOMIC_ACQUIRE)) {
+        sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE); return false;
+    }
+    return true;
 }
 
 void sync_io_core_legacy_leave(void)
@@ -448,6 +462,28 @@ bool sync_io_core_run_output_reserve(const void *token)
     }
     __atomic_store_n(&s_run_output_token, (uintptr_t)token, __ATOMIC_RELEASE);
     return true;
+}
+
+bool sync_io_core_reference_reserve(const void *token)
+{
+    uintptr_t empty=0u;
+    if (get_core_num()!=0u || !token || !sync_io_core_initialized() ||
+        !__atomic_compare_exchange_n(&s_reference_token,&empty,(uintptr_t)token,
+            false,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)) return false;
+    const uint32_t phase=__atomic_load_n(&s_schedule_phase,__ATOMIC_ACQUIRE);
+    if ((phase!=SYNC_IO_SCHEDULE_IDLE && phase!=SYNC_IO_SCHEDULE_RUN_RESERVED) ||
+        s_model_pulse.running || s_wave_output_manager_active ||
+        sync_io_core_capture_is_running() || sync_io_seq_step_is_running() ||
+        sync_io_enc_count_is_running() || sync_io_core_sma_frequency_output_active()) {
+        __atomic_store_n(&s_reference_token,0u,__ATOMIC_RELEASE); return false;
+    }
+    return true;
+}
+bool sync_io_core_reference_release(const void *token)
+{
+    uintptr_t expected=(uintptr_t)token;
+    return get_core_num()==0u && token && __atomic_compare_exchange_n(
+        &s_reference_token,&expected,0u,false,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE);
 }
 
 /* Shared lease observation is also used by the Core1 cached-refill path. */

@@ -526,6 +526,8 @@ set(PROJECT_APP_SOURCES
         components/sync_io/src/sync_io_analyzer_burst.c
         components/sync_io/src/sync_io_model_sched.c
         components/sync_io/src/sync_io_run_output.c
+        components/sync_io/src/sync_io_reference.c
+        components/sync_io/src/sync_io_pio0_runtime.c
         components/sync_io/src/sync_io_mode.c
         components/sync_io/src/sync_io_mode_biss_tap.c
         components/sync_io/src/sync_io_mode_enc_count.c
@@ -612,6 +614,7 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_realtime_sequence_commands.c
         middleware/scpi_port/src/scpi_realtime_status_commands.c
         middleware/scpi_port/src/scpi_sync_commands.c
+        middleware/scpi_port/src/scpi_reference_commands.c
         middleware/scpi_port/src/scpi_system_access_commands.c
         middleware/scpi_port/src/scpi_system_diagnostics_commands.c
         middleware/scpi_port/src/scpi_system_runtime_commands.c
@@ -676,6 +679,7 @@ function(project_configure_app_target target_name app_name linker_script)
     pico_set_program_version(${target_name} "0.1.0")
 
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_io.pio)
+    pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_reference_cycles.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_pulse_stream_out1.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_pulse_uniform_out1.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/seq_step.pio)

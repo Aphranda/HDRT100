@@ -26,6 +26,7 @@ static bool s_wave_output_manager_active, s_wave_output_sm_claimed;
 static bool s_wave_output_dma_claimed, s_wave_output_program_loaded;
 static uint32_t s_schedule_phase;
 static uintptr_t s_run_output_token;
+static uintptr_t s_reference_token;
 #define get_core_num() core
 #define sync_io_core_initialized() initialized
 #define sync_io_core_capture_is_running() capture
