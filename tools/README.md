@@ -131,6 +131,16 @@ Get-Content -Path tools\README.md -Encoding UTF8
   `SYSTem:SYNC:VDC:LOCK:READiness?`, and verifies the current diagnostic path
   remains blocked at `TIMESTAMP_NOT_ELIGIBLE` instead of reporting a false
   lock.
+- `vdc_sync_metrology/vdc_sync_metrology.py`: offline synchronization metrology
+  over frozen joint-capture evidence. It reads only the recorded
+  `capture/input-probe.json` (no boards, no scope, no firmware symbols), builds
+  the sampled phase series, estimates within-capture repeatability, the
+  overlapping Allan deviation across averaging factors, the least-squares
+  fractional frequency offset with 1 sigma / 2 sigma, and the SC-T5
+  unobserved-interval bound `(|offset| + 2 sigma) x max_gap`. The receipt binds
+  the input digests, keeps `continuous_lock_claimed` false, leaves the
+  measurement noise floor unqualified, and writes nothing when timestamps,
+  series, capture completeness or cadence uniformity do not hold up.
 - `dpll_vdc_monitor/dpll_vdc_monitor.py`: read-only multi-board VDC/DPLL
   monitor. It polls NO1..NO8 (including the NO5 observer), validates the
   core1-owned RefMem vectors and TDMA simultaneous-feedback/timestamp gates,
