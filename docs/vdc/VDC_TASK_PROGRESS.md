@@ -47,6 +47,11 @@ Last updated: 2026-09-19
   `scope-on-chan1-60s-main-review.json`；图为 `scope-on-chan1-60s-comparison.svg`。
 - `scope-off-60s/` 同版本关闭分支通过：外部 SKIPPED、窗口零，内部四板目标封存、
   零运行查询、STOP/RELEASE/恢复完整，见 `scope-off-60s-main-review.json`。
+- 用户提示后验证 HDO 内置 `:MEAS:ITEM? RRDELay,CHAN1,CHAN2/3/4`，并添加三组显示。
+  同一末次冻结波形读得 -28/-26/-8 ns，与 RAW 边沿相差约 2 ns 内；单项查询
+  约 2.5..3.2 ms，见 `scope-built-in-delays.json`。旧 `RDEL` 名称被 -222 拒绝的
+  原件保留。当前联合脚本仍下载 RAW，后续可用内置读数快速巡检并定期 RAW 复核，
+  须保持新触发完成和无效读数判定，不能把冻结旧读数当持续测量。
 - 下一 gate：两种配置已可用，继续重复长窗与 VDC 质量发布。
   同轮并不证明精确同事件/同汇总段配对，稀疏外部窗口不证明未采样区间；内部残差
   与物理边沿是不同量，不以共同通过宣称绝对零扰动或全程锁定。EXT 失败原件保留。
