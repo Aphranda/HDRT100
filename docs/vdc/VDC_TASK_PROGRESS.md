@@ -22,6 +22,19 @@ Last updated: 2026-09-20
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260920-037：示波器通道时延读回与收敛窗分级判据
+
+- TODO task ID：`VDC-PRECISION-001`、`VDC-OBS-007`、`VDC-VERIFY-001` IN PROGRESS；以下数字为本轮实测快照，非产品资格。
+- 目的：`VDC-PRECISION-001` 要求核验"探头/通道时延及测量不确定度"，本轮把两件此前只靠人工解释的事变成可复核证据——示波器自身通道时延随每个稀疏窗口读回留档；启动首点的未收敛现象写成显式、可审计、可关闭的判据，而不是默认豁免或事后口径。
+- 通道时延读回：`tools/vdc_priority_trace/vdc_scope_evidence.py` 在同一 650k RAW 前缀捕获内逐通道查询 `:CHANn:TCAL?`，`channels` 每行新增 `channel_delay_s`，报告新增 `channel_delays_s` 与相对参考通道（默认 CH1）的 `channel_delays_relative_s`；查询失败或不可解析记 `None`，不伪造 0。本轮台架四通道均返回 `0.000000` s，即该仪器未声明通道间偏斜，十二个窗口读数一致（仅 1 个不同取值），故相对相位无需仪器偏斜修正——该假设现为逐窗实测事实，而非默认前提。
+- 收敛窗分级判据：`tools/vdc_priority_trace/vdc_priority_joint_capture.py` 把相位判据分两级。±100 ns 仍是 fail-fast 粗门限，对含首窗的全部窗口生效（行为未变）；±50 ns 为稳态资格门限，仅对超出 `--settle-s`（默认 5 s，0 关闭）所声明收敛窗之后的窗口生效。每个 60 s checkpoint 记录 `settle_s`、`settling_windows`、`steady_windows`、`steady_failures` 与 `settling_exemptions`；判定层新增 `external_steady_state_passed` 与 `external_settling_exemptions`。
+- fail-closed：checkpoint 未携带稳态分类时该项不得视为通过（`external_steady_state_passed=false` 且整体 `passed=false`）；收敛窗内超出 ±100 ns 仍判失败；缺 `due_s` 的窗口不能借用收敛豁免；`--settle-s` 必须有限且不超过 `--seconds`，否则在接触硬件前拒绝。host 测试覆盖首窗豁免与后窗不豁免、粗门限仍作用于收敛窗、0 关闭豁免、未分类不得通过、豁免计数可见及参数校验；本轮定向套件 282 项通过。
+- 实测（60 s，`joint-60s-r3`，88.0 s）：12 窗全过粗门限，`external_steady_state_passed=true`、`external_settling_exemptions=0`，checkpoint 60 判 `settling=[5]`、稳态 11 窗、无稳态失败；首窗 NO2/NO3/NO4 最大绝对相位 5.945/3.945/19.944 ns 均在 ±50 ns 内，其余 11 窗最大绝对相位分别 ≤5.252/≤12.000/≤9.399 ns。同口径前一轮 `joint-60s-r2` 首窗 NO4 为 +61.986 ns（越 ±50 未越 ±100）：在本判据下该点计入 `settling_exemptions` 并被显式列出，r3 未用到豁免。两轮都说明首窗越 ±50 属正常收敛，不是需要人工解释的异常。
+- 内部对照（同轮，6 bin / 60 s）：NO1 success 24103、freq/phase applies 0/0、最大成功间隔 49.633 ms；NO2 11687、18/542、56.008 ms；NO3 11760、36/569、51.379 ms；NO4 11610、15/550、52.114 ms；10 s 后内部残差包络 NO2/NO3/NO4 为 −116…+100 / −123…+102 / −113…+104 ns。内部残差与 GPIO 边沿是不同量、不同时间原点，不作逐事件或逐 bin 配对；`physical_continuous_lock_qualified` 与 `exact_event_correlation_qualified` 恒为 false。
+- 原件：`out/HardwareAcceptance/20260920/joint-60s-r3/`（`capture/input-probe.json`、`capture/sample-*/{scope.json,phase.json,ch*.block}`、`capture/NO*/`、`capture/analysis/`）；对比图 `out/HardwareAcceptance/20260920/joint-60s-r3-comparison.svg`（新增收敛窗阴影、±50 ns 稳态带与收敛窗标注）；前一轮 `joint-60s-r2/` 与其对比图保留。P3 凭证 `out/HardwareAcceptance/20260920/settle-policy-preflight-r1/`（`PASS_WITH_WARNINGS`，33 INFO / 20 WARN / 0 ERROR / 0 FATAL）。
+- 交付：实现与同指纹 P3 凭证提交 `4616d1b9`；文档分离提交。
+- 下一 gate：继续 `VDC-PRECISION-001` 的测量不确定度与"全部有效边沿/窗口"口径，并把进度 036 的未观测区间界（5.046 s / 0.038 ns）接入发布验收；`VDC-VERIFY-001` 仍缺 RUN、角色/配置矩阵与长稳，本切片不上调 formal quality，也不宣称连续物理锁相。
+
 ### VDC-PROGRESS-20260920-036：离线同步计量工具与未观测区间有界化
 
 - TODO task ID：`VDC-OBS-007`、`VDC-PRECISION-001`、`VDC-VERIFY-001` IN PROGRESS；以下数字为本轮快照，非产品资格。
