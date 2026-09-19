@@ -924,14 +924,18 @@ PREPARE 按 `floor((commit_us-low_us)*1000/period_ns)` 确定本次每块边沿�
 DMA 退休后 FIFO 中剩余的实际执行时间，不以软件缓存量代替硬件库存。
 
 当整段 TDMA 服务因剩余相位时间不足而跳过时，dispatcher 可在同一 TDMA
-相位内按 `PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES` 独立准入
-`vdc_run_output_service_cached_core1()`。准入前重新读取相位时钟，短服务期间
+相位内优先按 `PROJECT_CORE1_RUN_OUTPUT_PLAN_WCET_CYCLES` 独立准入
+`vdc_run_output_service_planned_core1()`，调用原有完整输出规划/补给主体；若该预算
+不能容纳，再按 `PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES` 准入
+`vdc_run_output_service_cached_core1()`，两个入口互斥。准入前重新读取相位时钟，两种服务期间
 priority RX IRQ 保持关闭；随后仍按原配额开放剩余 ingress 窗口，不借后续相位
-或 GUARD。该入口先处理后端退休和完整生命周期检查，只提交仍有效的已有后缀，
+或 GUARD。cached-only 入口先处理后端退休和完整生命周期检查，只提交仍有效的已有后缀，
 不生成首块、不采 bridge、不反解或规划；缓存失效/缺失即返回完整服务后续处理。
-短预算为须经目标板验证的候选，不等于已证明 WCET。完整 TDMA 的 skip/start-miss
+输出规划入口不修改模型失效、不可改写前缀、STOP/身份取消和 DMA 源退休语义；
+只在本相位有足够余量时执行，不保证任意迟到下都有补给机会。两个独立预算
+均为须经目标板验证的候选，不等于已证明 WCET。完整 TDMA 的 skip/start-miss
 与失败结果保留，`phase_run_count` 仅计完整服务；phase last/max runtime 包含
-实际执行的短服务，短服务按自身预算检查 overrun，并进入原相位 IRQ/背景和期限账。
+实际执行的输出服务，各入口按自身预算检查 overrun，并进入原相位 IRQ/背景和期限账。
 客户端短入口及共享服务体、committed model 与 ring clock 读取、时钟配置校验和
 SYNC_IO 补给主体显式放置于主 SRAM，并阻止编译器将边界重新内联到 XIP caller。
 仅函数 section 标注不能证明整个调用链脱离 Flash；共享 SDK 叶函数、最终链接
@@ -973,9 +977,17 @@ SYNC_IO 另外记录首次 PIO enable 的时间锚区间，实际边沿仍带有
 缓存缺失及函数体微秒量化上界；CAS 拒绝不计入调用数。caller 测量的完整函数
 墙钟由 `fast_wall_samples`、`fast_wall_max_cycles`、`fast_budget_overruns`
 记录，覆盖所有权入口/退出，但不含随后报告自身的 dispatcher 记账开销；
-报告开销仍受原相位尾部期限检查。报告复验 request 防止污染新请求；同一保留
+报告开销不在该计时中；eligible 路径另有相位尾部检查，非 eligible 路径当前没有
+等价的 reporter 后采样，不能由该计数证明整相位期限。报告复验 request 防止污染新请求；同一保留
 请求中的调用/样本差可揭示部分丢样，释放后重新准备会清旧统计，不能外推旧请求
 已完整采样。计数、时间区间与真实连续边沿分别验收。
+独立规划入口在 `VDC_RUN_OUTPUT_SCHEMA` 中追加 `planned_calls`、
+`planned_submissions`、`planned_rebuilds`，分别饱和记录持有所有权且有请求的调用、
+推进已准入末本地时刻的服务、推进分批规划步数的服务；后者不是完整块计数。
+`planned_wall_samples`、`planned_wall_max_cycles`、`planned_budget_overruns`
+按同样的 caller 墙钟和 request 复验规则计量。入口和报告各用一次弱 CAS，失败
+即返回；调用与样本差不得隐藏。原输出状态字段位置保留，新字段只追加，旧解码器
+必须拒绝不支持的 schema，不能把独立规划成本混入 cached-only 的短预算。
 时间轴诊断在原字段后追加实际锁存的三窗口、初始 bridge 次数、分批规划次数、
 规划/补给/承诺等待次数、每块边沿数与静态表周期；版本以
 `SYNC_IO_RUN_OUTPUT_SCHEMA` 为准。`BRIDGE_UNAVAILABLE` 同时涵盖新鲜 raw

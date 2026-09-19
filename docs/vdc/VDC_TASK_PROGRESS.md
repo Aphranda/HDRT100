@@ -22,6 +22,48 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-014：原 TDMA 相位内独立规划补给与内部长检
+
+- TODO task ID：`VDC-OBS-007` IN PROGRESS。证据根
+  `out/HardwareAcceptance/20260919/output-replan-r1/`；本节数字均为当日快照，
+  非产品事实源。针对上一切片复现的缓存失效后无规划机会，在完整 TDMA 不能
+  准入时，优先以独立候选预算执行原输出规划主体，余量更小时才执行缓存交接。
+  两入口互斥、只占原相位；保留模型失效、已准入前缀、STOP/身份取消与 DMA 退休。
+- `VDC_RUN_OUTPUT_SCHEMA` 追加六个 `planned_*` 字段，分别观测调用、提交、
+  推进规划的服务和 caller 墙钟。弱 CAS 只试一次，失败不阻塞。完整 TDMA 的
+  skip/start-miss 与 phase_run_count 语义保持；实际输出服务按自己的预算留账。
+  候选预算没有变成 WCET 证明，任意迟到下的补给机会也未保证。
+  代码切片提交 `f14c58ab`，实际 pre-commit 硬件凭证核对通过；契约 v24
+  独审接受 pending 范围，见 `c11-v24-review.json`，不授予长稳或产品发布。
+- 主控回归 `tests-final.txt` 为 225 项通过；独立测试作者增加 dispatcher 边界、
+  缓存失效负控与重建恢复、DMA busy、取消及统计用例，四个隔离变异均检出，见
+  `../output-refill-r1/independent-tests.json`。Release 与双 slot/boot 链接检查通过。
+  独审 `source-review.json` 未发现所有权/相位选择阻断，目标反汇编确认两新增
+  入口单次弱 CAS。静态 RAM 增用 24 B、主区余 20052 B；wrapper 与共享规划体
+  栈帧合计 888 B，不含更深调用，不是整条 Core1 峰值栈。
+- 固定 `p3-output-replan-r1/` PASS_WITH_WARNINGS，25 INFO、19 WARN、0 ERROR/FATAL；
+  复用已确认拓扑，未重扫。最终源码
+  `092143a701b2341668a1918a076c6545d2b4a3e14ad7ff1e14f39e62f3e3c567`，
+  包 SHA `a8219efad3189870277053a89b26afd0295be82fae24335fa60ad2f620ce0858`。
+  build ID 沿用旧值，必须以指纹区分；P3 基础门禁未扩展为锁相门禁。
+- `positive-60s/` 四板联合参考/输出检查通过，最终均 CANCELLED，未见 STARVED；
+  运行查询为零，CRC/STOP/RELEASE/配置恢复完成。独立规划调用
+  6447/3547/3746/3437 次、提交 387/271/269/246 次、推进规划
+  466/456/460/396 次，已记录最大墙钟约 199.324/210.112/231.928/205.520 µs，
+  未记录预算超限。NO1/NO3/NO4 调用与计时样本差为 1/3/1，NO2 为零，
+  因此 `strict_replan_qualification` 为 FAIL，不能以健康 PASS 覆盖计时缺口。
+- `positive-600s/` 整轮 FAIL 保留：四板均通过至 420 秒；NO3 在自身 480 秒检查
+  返回 `OUTPUT_READ`，NO2 在自身约 479.894 秒以 BINDING 提前冻结并触发
+  `EARLY_FREEZE`，NO1/NO4 在 540 秒检出缺参考。各板起点不同，以上本地经过
+  时间不能直接排列共同时间线或证明唯一因果。最终输出均 CANCELLED，未见
+  STARVED；四板自主停止接受/退休、原生 CRC、STOP/RELEASE/恢复完整，运行查询零。
+  已记录规划最大墙钟约 209.308/209.064/212.212/210.140 µs、预算超限零，但样本
+  缺口 9/15/16/9，严格计时亦 FAIL。不能将部分正常窗口写成十分钟长稳通过。
+- 下一 gate：先核对 OUTPUT_READ 与客户端门控竞争、NO2 绑定冻结的发生路径，
+  修复观察可用性及计时发布；失败不降级为 PASS，也不以旧快照填充当前观察。
+  `next-measurement-plan.json` 保留门控与生命周期的待证假设。随后重复长稳并与
+  外部稀疏波形交叉核验；内部残差/引擎状态不授予实际 GPIO ±100 ns 或产品发布。
+
 ### VDC-PROGRESS-20260919-013：参考与输出引擎联合探针及关闭监督对照
 
 - TODO task ID：`VDC-OBS-007` IN PROGRESS。证据根
@@ -2225,62 +2267,6 @@ Last updated: 2026-09-19
   `runtime-review/c11-v13-final-independent-review.json`；动态模型/原生/STOP
   独审见 `runtime-review/capture-r2-r3-independent-review.json`。
 
-### VDC-PROGRESS-20260917-029：共同边沿规划与状态机分支借鉴
-
-- TODO task ID：`VDC-OUTPUT-001`、`VDC-FAST-003` IN PROGRESS；证据根
-  `out/HardwareAcceptance/20260917/dpll-run-output-r1/`。本节数字为验证快照，
-  非产品事实源。本切片实现边沿数学准备，尚无持续 RUN 硬件 consumer，
-  不能据此宣称物理 delay 已生效、单圈期限满足或百纳秒锁相。
-  代码提交 `ac57b8e` 已通过同指纹 pre-commit 硬件门禁；他人
-  `components/tdma/src/tdma_flight_engine.c` 未暂存、未修改、未提交。
-- `vdc_domain_dco_output_to_local_ns` 导入精确整数反解：正频率用 floor 几何，
-  负频率按 ceil 平台取最早交点；支持负截距所需的超宽中间需求，不使用浮点、
-  二分搜索或动态分配。失败保持输出，成功仍保留实际投影可能越过目标的整数余量。
-  `vdc_output_edge_plan` 选择共同严格未来网格点，尊重未提交序号下限，
-  独立有符号 delay 在本地物理轴只加入一次；本地 ns 尚未换算成 TIMER1 原始 tick。
-- 首轮 host-r1 的 inverse/既有 phase 共 18 项通过，planner 因夹具少传 context
-  编译失败；修复后 r2 的一项新边界预期多算一拍，独立 oracle 与实现一致，
-  已修正测试输入并保留失败。host-planner-r3 共 5 项通过；独立方最终生产
-  inverse/planner 合并 10 项通过，覆盖 30000/1800 个随机输入及极值、平台、
-  空指针、非法模型和失败不变。候选/生产函数一致性与独审见
-  `control-review/production-math-review.json`，纯计划测试不充当 FIFO 不变性证明。
-- 新目录 Release `out/build-run-output-r1` 成功，build ID `20260917135528`；
-  A/B/boot Flash 链接检查通过。源码指纹
-  `8d36ff03a46a454e7c65f29e0ef0c2f7c3a76a06b1c33c30cc0d13f9ef32290e`，
-  1255 文件。资源独审 `resource-review/release-binding-review.json` 验证
-  ELF→BIN→PKG 绑定；静态 RAM 增量为零，主 RAM 余 32428 B、scratch 余 24 B，
-  原审计范围内 Core1 最大栈仍为 2872/3072 B。inverse 对象为 832 B，但未被
-  生产调用，最终已链接 GC；planner 也尚无生产调用，不能把候选 host 成本当成
-  Core1 WCET。既有 forward 仍在原运行链，不将其误记为未接入。
-- 同源码四板 quick P3-r1 完成，耗时 185.953 秒，`PASS_WITH_WARNINGS`，
-  25 INFO、18 WARN、0 ERROR/FATAL；复用已测线序，没有重新 P0T 扫描。
-  严格 TDMA、闭环及实时质量失败原件保留，DPLL 专项为 SKIPPED_TDMA_ONLY。
-  本切片专项为纯数学实际 C/oracle 验证，未生成新物理输出锁相证据。
-  四板采样窗均有 TX/RX 序号推进及有效新输入，坏帧增量为零；结束均已应用
-  STOP，原生记录逐板保留。独立凭证/分级复核见
-  `resource-review/p3-reference-review.json`。文档 C11 为
-  `ACCEPT_V12_PENDING_CONTRACT_SCOPE`，见
-  `control-review/c11-v12-final-independent-review.json`；登记保持 pending。
-- 根据用户建议，只读审计
-  `origin/feature/node-sequence-reservation-trigger`，固定 SHA
-  `f4ab099eea2fa399149bff7b1861ceca94347d9b`；没有 checkout 或整分支合并。
-  `branch-review/node-sequence-review.json` 与 `source-bindings.json` 保留
-  文件行、git blob 和当前实现对照。可采纳四路预编码同拍写、Core1 执行交接、
-  PIO 内部 READY/IRQ 握手、written/completed 分层回执及 STOP 退休顺序。
-- 分支现有 executor 采用 100 ns 指令 tick，静态 DMA 无限重放，资源声明为
-  31 条 PIO 指令及 3–4 SM/4–5 DMA；这些是分支代码快照，不能直接作为
-  当前连续 DPLL 输出后端。其硬件触发没有建立跨板共同 VDC/TIMER1 时间锚，
-  active 后 pull 与回执背压可能延长脉冲，原方案不能原样用于持续精确输出。
-  全分支覆盖还会丢失当前输出改进并牵入 Flash/OTA 改动，未采纳。
-- 后续方案保持统一 SYNC_IO 管理全部 IN/OUT；DPLL/VDC/SYNC 都是特等席。
-  借鉴预编码和硬件执行做法，使用当前 board 时钟/divider 的指令节拍，
-  不由 CPU 逐边沿调度。下一 gate：STOP 资源预留及 Core1 owner 交接，
-  小型 PIO 执行器低态预取完整动作，有界有限块补给与已提交前缀保护，
-  原始时间锚/迟到/断流/STOP 留证，再做同源码四板 P3 与有限四通道示波器专项。
-  已有固定模型诊断输出不能代替持续模型更新；长期目标保持进行中。
-
-
-
 ## 进度记录
 
 （本节历史条目已按 C14 轮转，见文末 `## 归档索引`。）
@@ -2305,7 +2291,7 @@ Last updated: 2026-09-19
 
 | 文件 | ID 区间 | 条目数 | 归档日期 |
 |---|---|---|---|
-| `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_07.md` | VDC-PROGRESS-20260917-028..VDC-PROGRESS-20260917-025 | 4 | 2026-09-19 |
+| `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_07.md` | VDC-PROGRESS-20260917-029..VDC-PROGRESS-20260917-025 | 5 | 2026-09-19 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_06.md` | VDC-PROGRESS-20260917-024..VDC-PROGRESS-20260917-023 | 2 | 2026-09-19 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_05.md` | VDC-PROGRESS-20260917-022..VDC-PROGRESS-20260917-022 | 1 | 2026-09-19 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_04.md` | VDC-PROGRESS-20260917-021..VDC-PROGRESS-20260917-012 | 9 | 2026-09-18 |
