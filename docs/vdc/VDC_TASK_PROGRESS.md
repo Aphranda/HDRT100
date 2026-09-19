@@ -22,6 +22,16 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-025：启动预检、异步保存与三会话联合验证
+
+- TODO task ID：`VDC-OBS-007`、`VDC-OUTPUT-001`、`VDC-PRECISION-001`、`VDC-SNAPSHOT-001` IN PROGRESS。以下数字为实测快照，非产品资格；工具/测试改动仍在工作区，本次文档提交不包含这些实现。
+- 证据根 `out/HardwareAcceptance/20260919/probe-scope-correlation-r1/`。启动预检核对 STOP/config ACK、IDN/编号/UID、build、凭证矩阵及逐 link 内容、process-image 模式和错误队列。先前 NO1 重启丢失训练 RAM，重装矩阵又恢复 raw 模式，均已定位并恢复；新预检在 ARM 前拒绝此类配置。不把此项视为单板独立复位恢复已完成：此前大相位差导致 RUN 输出 STARVED，以及一次 ARM 前 trace status 超时，仍保留原始失败。
+- 示波器 RAW/报告采用主机后台有界写队列，VISA 单线程；内存分析、不可变副本、最终 flush 和写失败保持分别验证。73 项相关测试及独立只读复审通过；`p3-async-evidence-r2/` 为 PASS_WITH_WARNINGS，25 INFO/19 WARN/0 ERROR/FATAL。源码 SHA `05f2725f56e905f722019337976b9331ff587a4b2aa17bbc40d0ffa66d0e45b2`，build `20260919101812`；固定 quick P3 不授予严格 TDMA 预算或 DPLL 精度。
+- 同指纹、相同输出 delay `[0,-8,-68,-116] ns`、外参补偿 `100/4/10000`，零模型初值分别执行 `run-600s-async-r1`、`restart-120s-r1`、`restart-120s-r2`。三轮独立会话的内部健康与外部窗口均通过，共 168 个新鲜四路窗口、672 份 RAW 哈希复核一致；RUN 板端查询为零，STOP/释放/参数恢复正常。这是 STOP/ARM 重复启动，不是 MCU 复位或断电重启验证。
+- 全部已采边沿相对 NO1 均在 ±50 ns 内；各轮 60 秒后样本合并范围：NO2 [-13.959,9.483]、NO3 [-15.940,16.159]、NO4 [-9.917,12.125] ns。比较保留原始中心，见 `restart-comparison.json/.svg`；十分钟单次采集 1.813–2.172 s，第 475 秒后台写盘耗时 1.031 s 未导致漏采或超时。
+- 内部 GUARD/目标封存通过不等于原生解码器的 `complete_window_proven`：后者仍 false；内部残差、命令 ppb、GPIO 相差及绝对频率准确度分开解释。示波器用 CHAN1 触发，OUT4→EXT 接线仍存在但当前 RUN 仅输出 OUT1。稀疏窗口不证明空档或同 ordinal/同 bin 精确对应，不能由本轮直接完成内部自校准。
+- 下一 gate：`VDC-SNAPSHOT-001` 的无新参考 age 与 ready 一致发布。只读复核确认 setter 还需更新派生 quality；age 维护不能伪造 service/evidence 计数，也不能通过完整 publisher 提前公开尚未 finalize 的四拍证据。参考补偿后 runtime DCO 可见性另列核查，后续仍需坏帧/失联恢复及正式 VDC 发布验收。
+
 ### VDC-PROGRESS-20260919-024：外参补偿参数外置及两分钟斜率对比
 
 - TODO task ID：`VDC-TUNE-002`、`VDC-FREQ-001`、`VDC-DRIFT-001` IN PROGRESS。以下测量与版本数字为本轮快照，非产品事实源。

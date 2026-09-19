@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_PROGRESS_ROTATION_PLAN.md`
 Related: `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/check/DOCS_REGISTRY.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-19
 
 > 本文件是 C14（轮转）与 C15（倒排）的**操作规程 + 债务基线**唯一落点。
 > 约束条款本身在 `docs/check/DOCS_REGRESSION_PLAN.md` §0；机器事实源在
@@ -75,7 +75,7 @@ R2/R6 以**日期**为边界判定，**同日内部顺序不限**。实测依据
 | 文件 | 登记时体量 | 状态 / 截止日 |
 |---|---|---|
 | `docs/vdc/VDC_TASK_PROGRESS.md` | 668KB / 176 条 | **已轮转**（2026-09-17，→ 归档段 `_01`） |
-| `docs/tdma/TDMA_TASK_PROGRESS.md` | 570KB / 132 条 | 待轮转，截止 2026-10-17 |
+| `docs/tdma/TDMA_TASK_PROGRESS.md` | 570KB / 132 条 | **已轮转**（2026-09-19，归档 `_01`–`_03`；证据见该域归档索引及 `out/doc-audit/tdma-refresh-20260919/rotation-audit.json`） |
 | `docs/refmem/REFMEM_TASK_PROGRESS.md` | 297KB / 108 条 | 待轮转，截止 2026-10-17 |
 | `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md` | 209KB / 123 条 | 待轮转，截止 2026-10-17 |
 
@@ -90,7 +90,8 @@ R2/R6 以**日期**为边界判定，**同日内部顺序不限**。实测依据
 | `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md` | 1 | 2026-10-17 |
 | `docs/communication/COMMUNICATION_RS485_TASK_PROGRESS.md` | 1 | 2026-10-17 |
 | `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md` | 1 | 2026-10-17 |
-| `docs/tdma/TDMA_TASK_PROGRESS.md` | 1 | 2026-10-17 |
+
+TDMA 的尾部补记已在 2026-09-19 轮转中按日期稳定归位，旧正文保留；TDMA 尺寸和倒序债务已完成。检查器中的既有截止日兼容项本轮不改，检查当前文件已不触发对应告警。
 
 ### 5.3 已完成的样板轮转
 
