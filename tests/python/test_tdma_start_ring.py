@@ -100,10 +100,10 @@ def test_query_skips_stale_ack_and_returns_matching_payload():
 
 
 def test_topology_command_preserves_firmware_result_tuple():
-    serial = _ReadSerial(b"[123] DBG ignored\r\n4,2\r\n4,2,0\r\n")
+    serial = _ReadSerial(b'[123] DBG ignored\r\n"QUEUED",4,2,0\r\n"QUEUED",4,2,0,123\r\n')
     assert read_scpi_response(
         serial, "SYSTem:TDMA:RING:TOPology 4,2,0", 0.1,
-        require_match=True) == "4,2,0"
+        require_match=True) == '"QUEUED",4,2,0,123'
 
 
 @pytest.mark.parametrize("action", ["STAGe 7", "APPLy"])
@@ -117,7 +117,7 @@ def test_operating_profile_preserves_firmware_result_tuple(action):
 @pytest.mark.parametrize("text,payload", [
     ("CALibration:TOPology:PROBe 1,2", "1,2"),
     ("CALibration:TOPology:PROBe 0", "0,0"),
-    ("SYSTem:TDMA:RING:TOPology 4,2,0", "4,2,0"),
+    ("SYSTem:TDMA:RING:TOPology 4,2,0", '"QUEUED",4,2,0,123'),
     ("SYSTem:TDMA:OPMode:STAGe 7", "7,10000000,1000000,4096,0,1383759744"),
     ("SYSTem:TDMA:OPMode:APPLy", "7,10000000,1000000,4096,0,1383759744"),
 ])

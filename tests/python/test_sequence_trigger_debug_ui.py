@@ -598,3 +598,28 @@ def test_combined_next_sends_unified_command():
         log=lambda *args: None, enqueue_commands=sent.append)
     SequenceUi.command(ui, "TRIG:SEQ:NEXT")
     assert sent and sent[0][0] == "TRIG:SEQ:NEXT"
+
+
+@pytest.mark.parametrize("final_state", ["7,7,1,2,0", "7,7,1,3,0"])
+def test_topology_owner_completion_gates_dependent_configuration(final_state):
+    calls = []
+    states = iter(["7,6,1,1,1", "7,7,1,2,1", final_state])
+
+    def exchange(command):
+        calls.append(command)
+        if command == "SYST:TDMA:RING:TOPOLOGY 2,0,0":
+            return '"QUEUED",2,0,0,7'
+        if command == "SYSTem:SYNC:VDC:DPLL:OWNer?":
+            return next(states)
+        if command == "SYST:ERR?":
+            return '0,"No error"'
+        return "1"
+
+    commands = ["SYST:TDMA:RING:TOPOLOGY 2,0,0", "CAL:TOPOLOGY:PROBE 1,10"]
+    if ",3," in final_state:
+        with pytest.raises(RuntimeError, match="rejected"):
+            execute_command_batch(commands, exchange, lambda *_: None, sleep=lambda _: None)
+        assert commands[1] not in calls
+    else:
+        execute_command_batch(commands, exchange, lambda *_: None, sleep=lambda _: None)
+        assert calls.index(commands[1]) == 5

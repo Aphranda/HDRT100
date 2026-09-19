@@ -524,7 +524,11 @@ def test_sync_io_pio0_wave_output_is_independent_of_tdma() -> None:
     assert "first_deadline_ns" in hardware_start
     assert "periodic_period_ns" in hardware_start
     assert "minimum_deadline_ns" in hardware_start
-    assert "time_us_64() * 1000ull" in hardware_start
+    # The wave start must take its deadline from the hardware timestamp clock
+    # (TIMER1 registers) rather than a Core1 software tick, so PIO0 output stays
+    # independent of TDMA; fail closed when that hardware read is unavailable.
+    # start_us bookkeeping may still use the coarser microsecond timer.
+    assert "vdc_timestamp_clock_try_read_ns(BOARD_SYS_CLOCK_HZ" in hardware_start
     assert "s_model_pulse.words[0] = sync_io_model_delay_word" in hardware_start
 
     init = sync_io.split("bool sync_io_init(", 1)[1]

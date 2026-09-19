@@ -13,6 +13,7 @@
 #include "sync_io.pio.h"
 #include "sync_io_core_internal.h"
 #include "sync_io_persona_manager.h"
+#include "vdc_timestamp_clock.h"
 
 #define SYNC_IO_MODEL_PULSE_US_TICK_HZ 1000000u
 #define SYNC_IO_MODEL_PULSE_DEFAULT_TICK_PERIOD_NS 100u
@@ -172,7 +173,9 @@ static bool sync_io_wave_output_start(
     (void)descriptor;
     (void)dma_channel_mask;
     if (s_model_pulse.first_deadline_ns != 0u) {
-        const uint64_t now_ns = time_us_64() * 1000ull;
+        uint64_t now_ns;
+        if (!vdc_timestamp_clock_try_read_ns(BOARD_SYS_CLOCK_HZ, &now_ns))
+            return false;
         const uint64_t start_guard_ns = s_model_pulse.periodic_period_ns;
         if (s_model_pulse.periodic_period_ns == 0u ||
             now_ns > UINT64_MAX - start_guard_ns) {
@@ -575,7 +578,11 @@ static bool sync_io_pulse_schedule_arm_on_pin_unleased(
                 return false;
             }
             if (i == 0u && periodic_first_deadline_ns != 0u) {
-                const uint64_t now_ns = time_us_64() * 1000ull;
+                uint64_t now_ns;
+                if (!vdc_timestamp_clock_try_read_ns(BOARD_SYS_CLOCK_HZ, &now_ns)) {
+                    (void)sync_io_workspace_release(&s_model_pulse);
+                    return false;
+                }
                 if (periodic_first_deadline_ns > now_ns &&
                     periodic_first_deadline_ns - now_ns > UINT32_MAX) {
                     (void)sync_io_workspace_release(&s_model_pulse);

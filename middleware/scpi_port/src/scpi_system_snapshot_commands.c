@@ -2937,14 +2937,18 @@ scpi_result_t scpi_cmd_system_tdma_flight_rx_q(scpi_t *context)
 scpi_result_t scpi_cmd_system_tdma_ring_local(scpi_t *context)
 {
     uint32_t local_slot = 0u;
+    uint32_t owner_sequence = 0u;
     if (!scpi_port_read_u32(context, &local_slot)) {
         return SCPI_RES_ERR;
     }
-    if (!distributed_refmem_set_tdma_ring_local_slot(local_slot)) {
+    if (!distributed_refmem_set_tdma_ring_local_slot(local_slot,
+                                                     &owner_sequence)) {
         scpi_port_push_exec_error(context, "TDMA_RING_LOCAL");
         return SCPI_RES_ERR;
     }
+    SCPI_ResultText(context, "QUEUED");
     SCPI_ResultUInt32(context, local_slot);
+    SCPI_ResultUInt32(context, owner_sequence);
     return SCPI_RES_OK;
 }
 
@@ -2953,6 +2957,7 @@ scpi_result_t scpi_cmd_system_tdma_ring_topology(scpi_t *context)
     uint32_t node_count = 0u;
     uint32_t local_slot = 0u;
     uint32_t reference_slot = 0u;
+    uint32_t owner_sequence = 0u;
     if (!scpi_port_read_u32(context, &node_count) ||
         !scpi_port_read_u32(context, &local_slot) ||
         !scpi_port_read_u32(context, &reference_slot)) {
@@ -2960,13 +2965,16 @@ scpi_result_t scpi_cmd_system_tdma_ring_topology(scpi_t *context)
     }
     if (!distributed_refmem_set_tdma_ring_topology(local_slot,
                                                    reference_slot,
-                                                   node_count)) {
+                                                   node_count,
+                                                   &owner_sequence)) {
         scpi_port_push_exec_error(context, "TDMA_RING_TOPOLOGY");
         return SCPI_RES_ERR;
     }
+    SCPI_ResultText(context, "QUEUED");
     SCPI_ResultUInt32(context, node_count);
     SCPI_ResultUInt32(context, local_slot);
     SCPI_ResultUInt32(context, reference_slot);
+    SCPI_ResultUInt32(context, owner_sequence);
     return SCPI_RES_OK;
 }
 

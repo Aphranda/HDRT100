@@ -25,7 +25,7 @@ def test_vdc_path_tables_follow_reverse_tdma_data_flow() -> None:
     provisional = _function(
         source,
         "static bool vdc_dpll_manager_build_provisional_training_path_table(",
-        "bool vdc_dpll_manager_activate_tdma_provisional_training(void)")
+        "bool vdc_dpll_manager_activate_tdma_provisional_training(")
     assert "entry->source_slot_id = link->data_source_node" in provisional
     assert ("entry->reference_slot_id = link->data_destination_node" in
             provisional)

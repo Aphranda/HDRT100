@@ -154,3 +154,23 @@ bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_try_read_ticks64)(
     return false;
 #endif
 }
+
+bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_try_read_ns)(
+    uint32_t expected_hz, uint64_t *out)
+{
+    uint64_t ticks;
+    if (out == NULL || expected_hz == 0u ||
+        !vdc_timestamp_clock_try_read_ticks64(expected_hz, &ticks)) return false;
+    if (UINT32_C(1000000000) % expected_hz == 0u) {
+        const uint32_t scale = UINT32_C(1000000000) / expected_hz;
+        if (ticks > UINT64_MAX / scale) return false;
+        *out = ticks * scale;
+        return true;
+    }
+    const uint64_t seconds = ticks / expected_hz;
+    const uint64_t fraction =
+        (ticks % expected_hz) * UINT64_C(1000000000) / expected_hz;
+    if (seconds > (UINT64_MAX - fraction) / UINT64_C(1000000000)) return false;
+    *out = seconds * UINT64_C(1000000000) + fraction;
+    return true;
+}

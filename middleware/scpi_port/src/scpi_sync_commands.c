@@ -809,13 +809,16 @@ scpi_result_t scpi_cmd_sync_vdc_path_delay_q(scpi_t *context)
 scpi_result_t scpi_cmd_sync_vdc_dpll_provisional(scpi_t *context)
 {
     uint32_t enabled = 0u;
+    uint32_t owner_sequence = 0u;
     if (!scpi_port_read_u32(context, &enabled) || enabled != 1u ||
-        !vdc_dpll_manager_activate_tdma_provisional_training()) {
+        !vdc_dpll_manager_activate_tdma_provisional_training(
+            &owner_sequence)) {
         scpi_port_push_exec_error(context, "VDC_DPLL_PROVISIONAL");
         return SCPI_RES_ERR;
     }
-    SCPI_ResultText(context, "OK");
+    SCPI_ResultText(context, "QUEUED");
     SCPI_ResultUInt32(context, enabled);
+    SCPI_ResultUInt32(context, owner_sequence);
     return SCPI_RES_OK;
 }
 
@@ -835,6 +838,22 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_provisional_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.path_delay.topology_generation);
     SCPI_ResultUInt32(context, snapshot.path_delay.schedule_crc32);
     SCPI_ResultUInt32(context, snapshot.path_delay.table_crc32);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_sync_vdc_dpll_owner_q(scpi_t *context)
+{
+    vdc_dpll_manager_owner_status_t owner;
+    bool pending = true;
+    if (!vdc_dpll_manager_get_control_owner_status(&owner, &pending)) {
+        scpi_port_push_exec_error(context, "VDC_DPLL_OWNER");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, owner.requested_sequence);
+    SCPI_ResultUInt32(context, owner.applied_sequence);
+    SCPI_ResultUInt32(context, owner.opcode);
+    SCPI_ResultUInt32(context, owner.result);
+    SCPI_ResultBool(context, pending ? TRUE : FALSE);
     return SCPI_RES_OK;
 }
 

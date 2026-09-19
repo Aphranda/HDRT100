@@ -37,6 +37,7 @@ scpi_result_t scpi_cmd_sync_vdc_path_delay_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_lock_readiness_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_provisional(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_provisional_q(scpi_t *context);
+scpi_result_t scpi_cmd_sync_vdc_dpll_owner_q(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_trace_arm(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_trace_stop(scpi_t *context);
 scpi_result_t scpi_cmd_sync_vdc_dpll_trace_status_q(scpi_t *context);
@@ -89,6 +90,7 @@ scpi_result_t scpi_cmd_sync_vdc_observer_phase_q(scpi_t *context);
     {.pattern = "SYSTem:SYNC:VDC:LOCK:READiness?", .callback = scpi_cmd_sync_vdc_lock_readiness_q}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:PROVisional?", .callback = scpi_cmd_sync_vdc_dpll_provisional_q}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:PROVisional", .callback = scpi_cmd_sync_vdc_dpll_provisional}, \
+    {.pattern = "SYSTem:SYNC:VDC:DPLL:OWNer?", .callback = scpi_cmd_sync_vdc_dpll_owner_q}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:ARM", .callback = scpi_cmd_sync_vdc_dpll_trace_arm}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:STOP", .callback = scpi_cmd_sync_vdc_dpll_trace_stop}, \
     {.pattern = "SYSTem:SYNC:VDC:DPLL:TRACe:STATus?", .callback = scpi_cmd_sync_vdc_dpll_trace_status_q}, \

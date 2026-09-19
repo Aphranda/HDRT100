@@ -302,7 +302,7 @@ bool calibration_manager_get_path_import_link(
     uint32_t link_index,
     calibration_path_link_evidence_t *link,
     bool *valid);
-bool calibration_manager_activate_path_candidate(void);
-bool calibration_manager_rollback_path(void);
+bool calibration_manager_activate_path_candidate(uint32_t *owner_sequence);
+bool calibration_manager_rollback_path(uint32_t *owner_sequence);
 
 #endif

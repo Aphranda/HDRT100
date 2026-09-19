@@ -285,7 +285,15 @@ static pio_program_t sync_model_sched_pulse_high_program, sync_model_sched_pulse
 #define sync_io_core_trace(a,b,c,d) ((void)(a),(void)(b),(void)(c),(void)(d))
 #define sync_io_core_initialized() true
 #define sync_io_core_capture_is_running() capture_running
+#define BOARD_SYS_CLOCK_HZ 250000000u
 #define time_us_64() 0u
+static bool clock_ok = true;
+static bool vdc_timestamp_clock_try_read_ns(uint32_t hz, uint64_t *now) {
+    assert(hz == BOARD_SYS_CLOCK_HZ);
+    if (!clock_ok) return false;
+    *now = 0u;
+    return true;
+}
 #define sync_io_model_delay_ticks_for_duration(ns,tick) ((ns)/(tick))
 #define sync_io_model_high_ticks_for_duration(ns,tick) ((ns)/(tick))
 #define sync_io_model_delay_word(ticks) (ticks)
@@ -349,6 +357,14 @@ int main(void) {
     assert(sync_io_workspace_claim(&burst));
     assert(sync_io_workspace_release(&burst));
     manager_ok = true;
+    clock_ok = false;
+    assert(!sync_io_pulse_schedule_arm_on_pin_common(BOARD_SYNC_PIO_FAST,
+        BOARD_SYNC_PIO0_WAVE_OUTPUT_SM, 0u, 0u, 0u, NULL, NULL,
+        0u, 10000u, 1000u, 500u, 2u, true, 100u));
+    assert(sync_io_workspace_claim(&burst));
+    assert(sync_io_workspace_release(&burst));
+    assert(!lease_held);
+    clock_ok = true;
     assert(arm(SYNC_IO_MODEL_PULSE_MAX_ENTRIES,
                BOARD_SYNC_PIO0_WAVE_OUTPUT_SM, 500u));
     assert(s_model_pulse.words == sync_io_shared_workspace);

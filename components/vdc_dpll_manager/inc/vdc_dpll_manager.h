@@ -345,6 +345,7 @@ typedef struct {
  * delay and diagnostic tables on every invocation. */
 typedef struct {
     vdc_tdma_schedule_profile_t schedule;
+    uint32_t publication_revision;
     uint32_t clock_epoch_id;
     uint32_t clock_run_id;
     int32_t dco_period_adjust_ppb;
@@ -361,6 +362,7 @@ typedef struct {
 typedef struct {
     uint32_t ready;
     uint32_t service_count;
+    uint32_t publication_revision;
     vdc_tdma_schedule_profile_t schedule;
     struct { uint32_t servo_profile_crc32; } servo;
     vdc_clock_model_t clock;
@@ -373,9 +375,24 @@ typedef struct {
         uint32_t table_crc32;
         uint32_t calibration_generation;
         uint32_t freshness_us;
+        uint32_t schedule_crc32;
     } path_delay;
     vdc_gate_result_t gate;
 } vdc_dpll_manager_vector_snapshot_t;
+
+typedef enum {
+    VDC_DPLL_MANAGER_OWNER_RESULT_NONE = 0u,
+    VDC_DPLL_MANAGER_OWNER_RESULT_PENDING,
+    VDC_DPLL_MANAGER_OWNER_RESULT_APPLIED,
+    VDC_DPLL_MANAGER_OWNER_RESULT_REJECTED,
+} vdc_dpll_manager_owner_result_t;
+
+typedef struct {
+    uint32_t requested_sequence;
+    uint32_t applied_sequence;
+    uint32_t opcode;
+    uint32_t result;
+} vdc_dpll_manager_owner_status_t;
 
 bool vdc_dpll_manager_init(void);
 void vdc_dpll_manager_set_vdc_ready(bool ready);
@@ -383,6 +400,7 @@ void vdc_dpll_manager_set_dpll_ready(bool ready);
 void vdc_sync_ao_service(void);
 void vdc_dpll_manager_core0_service(void);
 void vdc_dpll_manager_sync_io_capture_service_core1(void);
+void vdc_dpll_manager_owner_service_core1(void);
 void sync_dpll_fb_service(void);
 void tdma_component_core1_service(void);
 void vdc_dpll_manager_vdc_service(void);
@@ -456,6 +474,13 @@ bool vdc_dpll_manager_get_refmem_snapshot(
     vdc_dpll_manager_refmem_snapshot_t *snapshot);
 bool vdc_dpll_manager_get_vector_snapshot(
     vdc_dpll_manager_vector_snapshot_t *snapshot);
+void vdc_dpll_manager_get_owner_status(
+    vdc_dpll_manager_owner_status_t *status);
+bool vdc_dpll_manager_get_control_owner_status(
+    vdc_dpll_manager_owner_status_t *status,
+    bool *pending);
+bool vdc_dpll_manager_ack_owner_status(uint32_t sequence);
+bool vdc_dpll_manager_owner_change_pending(void);
 uint32_t vdc_dpll_manager_published_update_seq(void);
 bool vdc_dpll_manager_get_tdma_snapshot(tdma_service_snapshot_t *snapshot);
 bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
@@ -470,11 +495,27 @@ bool vdc_dpll_manager_plan_published_tdma_window(
     uint64_t now_ns,
     vdc_tdma_window_plan_t *plan,
     vdc_gate_result_t *gate);
+/* TDMA's software scheduler retains the TIMER0/time_us_64 coordinate. Convert
+ * a TIMER1-local plan only at that transport boundary; reservation deadlines
+ * and VDC mappings remain in TIMER1/VDC coordinates. */
+bool vdc_dpll_manager_translate_tdma_transport_plan(
+    const vdc_tdma_window_plan_t *local_plan,
+    vdc_tdma_window_plan_t *transport_plan);
+bool vdc_dpll_manager_local_to_vdc_time(uint64_t local_time_ns,
+                                        uint64_t *vdc_time_ns);
 bool vdc_dpll_manager_plan_tdma_ring(vdc_tdma_ring_plan_t *plan);
-bool vdc_dpll_manager_set_tdma_ring_local_slot(uint32_t local_slot_id);
+bool vdc_dpll_manager_set_tdma_ring_local_slot(uint32_t local_slot_id,
+                                                uint32_t *owner_sequence);
 bool vdc_dpll_manager_set_tdma_ring_topology(uint32_t local_slot_id,
                                              uint32_t reference_slot_id,
-                                             uint32_t node_count);
+                                             uint32_t node_count,
+                                             uint32_t *owner_sequence);
+bool vdc_dpll_manager_restore_tdma_ring_topology(uint32_t local_slot_id,
+                                                 uint32_t reference_slot_id,
+                                                 uint32_t node_count,
+                                                 uint32_t *owner_sequence);
+bool vdc_dpll_manager_reject_control_owner_status(uint32_t sequence);
+bool vdc_dpll_manager_complete_control_owner_status(uint32_t sequence);
 bool vdc_dpll_manager_publish_timestamp_dictionary(
     const vdc_timestamp_dictionary_t *dictionary,
     uint32_t initial_tick_l32);
@@ -485,12 +526,15 @@ bool vdc_dpll_manager_publish_calibration_path_snapshot(
 /* Atomically binds the staged TDMA runtime schedule, a derived timestamp
  * dictionary and one active Calibration path matrix. */
 bool vdc_dpll_manager_activate_tdma_calibration(
-    const calibration_path_snapshot_t *snapshot);
+    const calibration_path_snapshot_t *snapshot,
+    uint32_t *owner_sequence);
 /* Explicit P4-LIVE development path. The frozen TRN-03 link-base matrix is
  * converted to a DIAGNOSTIC_ONLY observation matrix while TDMA is STOPPED.
  * It never creates or replaces a CalibrationManager active snapshot. */
-bool vdc_dpll_manager_activate_tdma_provisional_training(void);
+bool vdc_dpll_manager_activate_tdma_provisional_training(
+    uint32_t *owner_sequence);
 bool vdc_dpll_manager_submit_compact_observation(
-    const vdc_compact_observation_sample_t *compact);
+    const vdc_compact_observation_sample_t *compact,
+    uint32_t *owner_sequence);
 
 #endif

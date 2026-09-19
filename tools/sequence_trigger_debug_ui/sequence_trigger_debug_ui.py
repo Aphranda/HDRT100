@@ -32,6 +32,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.scpi_common.scpi_serial import open_serial_port
+from tools.scpi_common.vdc_owner_state import queued_sequence, wait_owner_applied
 from tools.scpi_query.scpi_query import send_command
 from tools.tdma_ring_monitor.tdma_field_parse import RUNTIME_FIELDS
 from tools.hardware_acceptance.sequence_trigger_acceptance import parse_status
@@ -459,6 +460,9 @@ def execute_command_batch(commands, exchange, emit, *, monotonic=time.monotonic,
                 raise RuntimeError(f"{command} 未确认执行：{response}")
         if header == "TRIG:STOP":
             wait_until("TRIG:SEQ:NEXT?", lambda value: next(csv.reader([value]))[0] == "IDLE")
+        elif header == "SYST:TDMA:RING:TOPOLOGY":
+            wait_owner_applied(query, queued_sequence(response), 5.0, [],
+                               monotonic=monotonic, sleep=sleep)
         elif header in RING_ACK_ONLY:
             def ready(value):
                 fields = [int(field) for field in next(csv.reader([value], strict=True))]

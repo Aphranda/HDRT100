@@ -803,6 +803,10 @@ static void app_realtime_tdma_phase(void)
          * fragment in the same mandatory Core1 phase as the TDMA owner. */
         distributed_refmem_tdma_flight_service_core1();
     }
+    /* VDC control, STOP and no-input aging must remain live when optional
+     * DPLL work is disabled. One bounded owner transition is charged to this
+     * mandatory phase, after the transport owner has advanced. */
+    vdc_dpll_manager_owner_service_core1();
     /* The analyzer intent mailbox is a mandatory bounded Core1 service.
      * It must not live behind an optional/quarantinable load, otherwise an
      * accepted ARM/STOP could remain pending forever.  TDMA remains first;
@@ -887,6 +891,7 @@ void app_realtime_run_once(void)
      * it outside the TDMA realtime phase/load-mask contract and advance one
      * bounded transition per core1 cycle. */
     if (calibration_manager_p3_offline_active_core1()) {
+        vdc_dpll_manager_owner_service_core1();
         trigger_sequence_service_service();
         calibration_manager_p3_service_core1();
         drv_watchdog_mark_progress(1u, 0x0104u);
@@ -911,6 +916,7 @@ void app_realtime_run_once(void)
      * than the optional online snapshot phase, but they cannot perturb a
      * running short-frame cycle or be hidden by its quarantine mechanism. */
     if (calibration_manager_training_offline_active_core1()) {
+        vdc_dpll_manager_owner_service_core1();
         trigger_sequence_service_service();
         calibration_manager_service_core1();
         drv_watchdog_mark_progress(1u, 0x0104u);

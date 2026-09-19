@@ -85,12 +85,29 @@ SCK_ARM_HEADERS = {
 # Share their shape with callers selecting the response (rather than ACK)
 # deadline so a valid result cannot be discarded as an ordinary write reply.
 TDMA_CONTROL_RESULT_FIELDS = {
-    "SYST:TDMA:RING:TOP": 3, "SYSTEM:TDMA:RING:TOP": 3,
-    "SYST:TDMA:RING:TOPOLOGY": 3, "SYSTEM:TDMA:RING:TOPOLOGY": 3,
     "SYST:TDMA:OPMODE:STAGE": 6, "SYSTEM:TDMA:OPMODE:STAGE": 6,
     "SYST:TDMA:OPMODE:APPLY": 6, "SYSTEM:TDMA:OPMODE:APPLY": 6,
     "CAL:TOP:PROB": 2, "CALIBRATION:TOPOLOGY:PROBE": 2,
 }
+QUEUED_OWNER_RESULT_FIELDS = {
+    "SYST:TDMA:RING:TOP": 4, "SYSTEM:TDMA:RING:TOP": 4,
+    "SYST:TDMA:RING:TOPOLOGY": 4, "SYSTEM:TDMA:RING:TOPOLOGY": 4,
+    "SYST:TDMA:RING:LOC": 2, "SYSTEM:TDMA:RING:LOC": 2,
+    "SYST:TDMA:RING:LOCAL": 2, "SYSTEM:TDMA:RING:LOCAL": 2,
+    # Retain the conceptual SLOT spelling for callers sharing this matcher;
+    # deployed firmware currently registers the LOCAL/LOC SCPI pattern.
+    "SYST:TDMA:RING:SLOT": 2, "SYSTEM:TDMA:RING:SLOT": 2,
+    "CAL:ACT": 1, "CALIBRATION:ACTIVATE": 1,
+    "CAL:ROLL": 1, "CALIBRATION:ROLLBACK": 1,
+    "SYST:SYNC:VDC:DPLL:PROV": 2,
+    "SYSTEM:SYNC:VDC:DPLL:PROVISIONAL": 2,
+}
+OWNER_STATUS_QUERY_HEADERS = {
+    "SYST:SYNC:VDC:DPLL:OWN?",
+    "SYSTEM:SYNC:VDC:DPLL:OWNER?",
+}
+STRUCTURED_WRITE_HEADERS = (
+    set(TDMA_CONTROL_RESULT_FIELDS) | set(QUEUED_OWNER_RESULT_FIELDS))
 
 SERIAL_LIFECYCLE_COMMAND = "command"
 SERIAL_LIFECYCLE_PHASE = "phase"
@@ -270,6 +287,12 @@ def _csv_uints_match(line: str, count: int) -> bool:
     return re.fullmatch(r"\s*\d+\s*" + (r",\s*\d+\s*" * (count - 1)), line) is not None
 
 
+def _queued_uints_match(line: str, count: int) -> bool:
+    return re.fullmatch(
+        r'\s*"?QUEUED"?\s*' + (r',\s*\d+\s*' * count), line,
+        flags=re.IGNORECASE) is not None
+
+
 def scpi_response_matches_command(command: str, line: str) -> bool:
     """Screen obvious boot logs and stale responses for command-sensitive tools."""
     header = command.strip().split(maxsplit=1)[0].upper()
@@ -301,6 +324,10 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return _csv_uints_match(text, 8)
     if header in TDMA_CONTROL_RESULT_FIELDS:
         return _csv_uints_match(text, TDMA_CONTROL_RESULT_FIELDS[header])
+    if header in QUEUED_OWNER_RESULT_FIELDS:
+        return _queued_uints_match(text, QUEUED_OWNER_RESULT_FIELDS[header])
+    if header in OWNER_STATUS_QUERY_HEADERS:
+        return _csv_uints_match(text, 5)
     if re.fullmatch(r'SYST(?:EM)?:TDMA:PER(?:IOD)?', header):
         pending = re.fullmatch(r'(?:"PENDING"|PENDING),\s*(\d+)', text)
         return pending is not None and int(pending[1]) <= 0xFFFFFFFF
@@ -429,7 +456,7 @@ def read_scpi_response(ser: serial.Serial,
                 # every action wait for the full query timeout and can leave
                 # a delayed ACK in front of the next query.
                 if not query and not (
-                        require_match and header in TDMA_CONTROL_RESULT_FIELDS):
+                        require_match and header in STRUCTURED_WRITE_HEADERS):
                     return "OK"
                 continue
             line = without_ack

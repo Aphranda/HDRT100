@@ -13,6 +13,9 @@ uint64_t vdc_timestamp_clock_read_ticks64(void);
  * rate and TIMER1's unpaused clk_sys source. Failure preserves ticks. The
  * owner excludes timer resets and clock changes throughout each run. */
 bool vdc_timestamp_clock_try_read_ticks64(uint32_t expected_hz, uint64_t *ticks);
+/* TIMER1-origin nanoseconds, floor-rounded from the raw tick. No lazy init,
+ * fallback clock or retry; failure preserves out. */
+bool vdc_timestamp_clock_try_read_ns(uint32_t expected_hz, uint64_t *out);
 /* Bounded configuration observation only; no timestamp or lazy init. */
 bool vdc_timestamp_clock_is_current(uint32_t expected_hz);
 uint64_t vdc_timestamp_clock_ticks_to_ns(uint64_t ticks);

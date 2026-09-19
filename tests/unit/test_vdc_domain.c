@@ -2853,6 +2853,168 @@ static int test_quality_age_updates_on_service(void)
     failed += expect_u32("sample age us",
                          snapshot.quality.last_sample_age_us,
                          50u);
+    snapshot.quality.lock_quality_tier = VDC_DOMAIN_LOCK_QUALITY_FINE_100NS;
+    snapshot.quality.freshness_limit_us = 100u;
+    snapshot.quality.health_state = VDC_DOMAIN_HEALTH_HEALTHY;
+    failed += expect_bool("independent age changes publication",
+                          vdc_domain_age_quality(&snapshot.quality,
+                              VDC_DOMAIN_LOCK_LOCKED, true,
+                              snapshot.quality.last_sample_time_ns + 100000u), true);
+    failed += expect_u32("fresh boundary remains healthy",
+                         snapshot.quality.health_state,
+                         VDC_DOMAIN_HEALTH_HEALTHY);
+    failed += expect_bool("no-input age becomes stale",
+                          vdc_domain_age_quality(&snapshot.quality,
+                              VDC_DOMAIN_LOCK_LOCKED, true,
+                              snapshot.quality.last_sample_time_ns + 101000u), true);
+    failed += expect_u32("stale quality is not formal admission",
+                         snapshot.quality.health_state,
+                         VDC_DOMAIN_HEALTH_DEGRADED);
+    (void)vdc_domain_age_quality(&snapshot.quality,
+        VDC_DOMAIN_LOCK_LOCKED, true, snapshot.quality.last_sample_time_ns - 1u);
+    failed += expect_u32("clock rollback cannot rejuvenate quality",
+                         snapshot.quality.last_sample_age_us, UINT32_MAX);
+    (void)vdc_domain_age_quality(&snapshot.quality,
+        VDC_DOMAIN_LOCK_LOCKED, true, UINT64_MAX);
+    failed += expect_u32("clock read failure cannot admit quality",
+                         snapshot.quality.health_state,
+                         VDC_DOMAIN_HEALTH_DEGRADED);
+    context.quality.health_state = VDC_DOMAIN_HEALTH_HEALTHY;
+    context.quality.lock_state = VDC_DOMAIN_LOCK_LOCKED;
+    context.dpll.state = VDC_DOMAIN_LOCK_LOCKED;
+    vdc_domain_set_ready(&context, false);
+    (void)vdc_domain_get_snapshot(&context, &snapshot);
+    failed += expect_u32("ready false publishes checking health",
+                         snapshot.quality.health_state,
+                         VDC_DOMAIN_HEALTH_CHECKING);
+    failed += expect_u32("ready false publishes off quality lock",
+                         snapshot.quality.lock_state,
+                         VDC_DOMAIN_LOCK_OFF);
+    failed += expect_u64("ready false clears freshness anchor",
+                         snapshot.quality.last_sample_time_ns, 0u);
+    return failed;
+}
+
+static int test_recovery_requires_new_lock_evidence(void)
+{
+    int failed = 0;
+    for (uint32_t cause = 0u; cause < 3u; ++cause) {
+        vdc_domain_context_t context;
+        if (!vdc_domain_init(&context) || !install_test_path_delay(&context) ||
+            !install_fast_test_servo(&context))
+            return 1;
+        vdc_domain_set_ready(&context, true);
+        for (uint32_t i = 1u; i <= 4u; ++i) {
+            const vdc_tdma_timestamp_evidence_t evidence =
+                make_hardware_sample(&context.schedule, i, 0);
+            failed += expect_bool("lock before recovery",
+                vdc_domain_submit_tdma_evidence(&context, &evidence), true);
+        }
+        failed += expect_u32("recovery starts locked", context.dpll.state,
+                             VDC_DOMAIN_LOCK_LOCKED);
+        if (cause == 0u) {
+            vdc_domain_set_ready(&context, false);
+            vdc_domain_set_ready(&context, true);
+        } else if (cause == 1u) {
+            vdc_domain_service(&context, context.quality.last_sample_time_ns +
+                (uint64_t)context.quality.freshness_limit_us * 1000u + 1000u);
+        } else {
+            vdc_path_delay_table_t table = context.path_delay;
+            table.calibration_generation++;
+            table.table_crc32 = vdc_domain_path_delay_table_crc32(&table);
+            failed += expect_bool("replace accepted calibration",
+                vdc_domain_publish_path_delay_table(&context, &table), true);
+        }
+        failed += expect_u32("recovery resets acquisition count",
+                             context.dpll.accepted_sample_count, 0u);
+        failed += expect_u32("recovery resets fine streak",
+                             context.quality.consecutive_fine_samples, 0u);
+        vdc_tdma_timestamp_evidence_t resumed =
+            make_hardware_sample(&context.schedule, 5u, 0);
+        resumed.delay_generation = context.path_delay.calibration_generation;
+        failed += expect_bool("first recovery evidence accepted",
+            vdc_domain_submit_tdma_evidence(&context, &resumed), true);
+        failed += expect_bool("first recovery evidence cannot relock",
+            context.dpll.state == VDC_DOMAIN_LOCK_LOCKED, false);
+        failed += expect_bool("first recovery evidence cannot admit",
+            context.quality.health_state == VDC_DOMAIN_HEALTH_HEALTHY, false);
+    }
+    for (uint32_t stage = 0u; stage < 3u; ++stage) {
+        vdc_domain_context_t context;
+        if (!vdc_domain_init(&context) || !install_test_path_delay(&context)) return 1;
+        vdc_domain_set_ready(&context, true);
+        const vdc_tdma_timestamp_evidence_t evidence =
+            make_hardware_sample(&context.schedule, 1u, 0);
+        vdc_tdma_evidence_preparation_t preparation;
+        failed += expect_bool("prepare before stop",
+            vdc_domain_prepare_active_tdma_evidence(&context, &evidence,
+                                                   &preparation), true);
+        bool accepted = false;
+        if (stage >= 1u)
+            failed += expect_bool("servo before stop",
+                vdc_domain_apply_prepared_tdma_evidence_servo(
+                    &context, &evidence, &preparation), true);
+        if (stage >= 2u)
+            failed += expect_bool("state before stop",
+                vdc_domain_apply_prepared_tdma_evidence_state(
+                    &context, &evidence, &preparation, &accepted), true);
+        vdc_domain_set_ready(&context, false);
+        vdc_domain_set_ready(&context, true);
+        const bool applied = stage == 0u
+            ? vdc_domain_apply_prepared_tdma_evidence_servo(
+                &context, &evidence, &preparation)
+            : stage == 1u ? vdc_domain_apply_prepared_tdma_evidence_state(
+                &context, &evidence, &preparation, &accepted)
+            : vdc_domain_finalize_prepared_tdma_evidence(
+                &context, &evidence, &preparation);
+        failed += expect_bool("stop invalidates every split stage", applied, false);
+    }
+    return failed;
+}
+
+static int test_dco_projection_inverse_contract(void)
+{
+    int failed = 0;
+    const int32_t rates[] = {-999999999, -1000, 0, 1000, INT32_MAX};
+    const int32_t phases[] = {INT32_MIN, -1, 0, 1, INT32_MAX};
+    for (uint32_t r = 0u; r < sizeof(rates) / sizeof(rates[0]); ++r) {
+        for (uint32_t p = 0u; p < sizeof(phases) / sizeof(phases[0]); ++p) {
+            vdc_dco_control_t dco = {0};
+            dco.valid = 1u;
+            dco.nominal_period_ns = 1000000u;
+            dco.base_local_tick64 = 5000000000ull;
+            dco.base_vdc_time64_ns = 6000000000ull;
+            dco.period_adjust_ppb = rates[r];
+            dco.phase_offset_ns = phases[p];
+            dco.lock_state = VDC_DOMAIN_LOCK_LOCKED;
+            const uint64_t probe_local = dco.base_local_tick64 + 4000000000ull;
+            uint64_t target = UINT64_MAX, inverse = UINT64_MAX, output = UINT64_MAX;
+            const bool projected = vdc_domain_dco_local_to_output_ns(
+                &dco, probe_local, &target);
+            failed += expect_bool("forward projection representable", projected, true);
+            if (!projected) continue;
+            failed += expect_bool("inverse projection representable",
+                vdc_domain_dco_output_to_local_ns(&dco, target, &inverse), true);
+            failed += expect_bool("inverse reprojects",
+                vdc_domain_dco_local_to_output_ns(&dco, inverse, &output), true);
+            failed += expect_bool("inverse reaches target", output >= target, true);
+            if (inverse > dco.base_local_tick64) {
+                uint64_t previous;
+                if (vdc_domain_dco_local_to_output_ns(&dco, inverse - 1u, &previous))
+                    failed += expect_bool("inverse is least local", previous < target, true);
+            }
+        }
+    }
+    vdc_dco_control_t invalid = {0};
+    uint64_t unchanged = 123u;
+    failed += expect_bool("invalid inverse rejected",
+        vdc_domain_dco_output_to_local_ns(&invalid, 1u, &unchanged), false);
+    failed += expect_u64("invalid inverse preserves output", unchanged, 123u);
+    invalid.valid = 1u;
+    invalid.nominal_period_ns = 1u;
+    invalid.period_adjust_ppb = -1000000000;
+    failed += expect_bool("non-positive rate rejected",
+        vdc_domain_dco_output_to_local_ns(&invalid, 1u, &unchanged), false);
     return failed;
 }
 
@@ -4015,6 +4177,7 @@ static int test_master_rejects_unmapped_cross_board_phase(void)
 int main(void)
 {
     int failed = 0;
+    failed += test_recovery_requires_new_lock_evidence();
     failed += test_default_schedule_and_clock();
     failed += test_default_servo_is_conservative();
     failed += test_tdma_ring_profile_contract();
@@ -4039,6 +4202,7 @@ int main(void)
     failed += test_tdma_configuration_activation_is_atomic();
     failed += test_sync_io_adapter_to_vdc_submit();
     failed += test_quality_age_updates_on_service();
+    failed += test_dco_projection_inverse_contract();
     failed += test_dpll_updates_clock_rate_from_sample_period();
     failed += test_dpll_rate_estimator_waits_and_slews();
     failed += test_dpll_rate_correction_enters_next_phase_prediction();

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Exercise the single-board RJ45 DUT/VNA cycle through the physical RJ45 return.
 
-READY may come from IN1 or one bounded SCPI READY-credit batch; OUT4 is the VNA
-trigger. RJ45 output must be cabled to RJ45 input. This is functional evidence,
-not a multi-board, source-edge-count, pulse-width, RF or TDMA stability receipt.
+READY may come from a configurable physical input pin (default IN1) or one bounded
+SCPI READY-credit batch; OUT4 is the VNA trigger. RJ45 output must be cabled to RJ45
+input. This is functional evidence, not a multi-board, source-edge-count, pulse-width,
+RF or TDMA stability receipt.
 """
 from __future__ import annotations
 
@@ -170,7 +171,7 @@ def configure(bench: Bench, port, report):
         report["flight_mode"] = ring.checked_action(port, "SYST:TDMA:FLIGHT:MODE 1", args.timeout)
         report["flight_mode_readback"] = ring.query(port, "SYST:TDMA:FLIGHT:MODE?", args.timeout)
         require(report["flight_mode_readback"] == "2", "TDMA process-image forwarding mode not active")
-        ready_source = "MANUAL" if args.scpi_next else "IN1"
+        ready_source = "MANUAL" if args.scpi_next else args.ready_input
         bench.write(f"CONF:SEQ:LINK LOOPBACK,{args.dut_slot},{args.vna_slot},{ready_source},OUT4,"
                     f"{args.gateway_pulse_us},{args.gateway_timeout_ms},RIS")
     prepare_ring(port, args, report, before_arm=bind_link)
@@ -183,7 +184,7 @@ def verify_link_configuration(bench: Bench, report):
     report["link_configuration"] = row
     require(row["enabled"] == 1 and row["phase"] == 1 and row["error"] == 0 and
             [row[k] for k in ("dutslot", "vnaslot", "input", "outputmask", "pulseus", "timeoutms", "falling")] ==
-            [args.dut_slot, args.vna_slot, 0 if args.scpi_next else 1, 8,
+            [args.dut_slot, args.vna_slot, 0 if args.scpi_next else int(args.ready_input[-1]), 8,
              args.gateway_pulse_us, args.gateway_timeout_ms, 0],
             "LINK configuration readback mismatch")
 
@@ -216,7 +217,7 @@ def configure_gui(bench: Bench, report):
     gui_batch(bench, report, "configure", gui.build_mode_configuration(
         gui.MODE_RJ45, "SP8T", list(range(8)), "MANUAL", "RIS", 10,
         args.gateway_pulse_us, 7, 0, "NONE",
-        "MANUAL" if args.scpi_next else "IN1", args.gateway_timeout_ms, args.repeat))
+        "MANUAL" if args.scpi_next else args.ready_input, args.gateway_timeout_ms, args.repeat))
     report["flight_mode_readback"] = bench.command("SYST:TDMA:FLIGHT:MODE?")
     require(report["flight_mode_readback"] == "2", "TDMA process-image forwarding mode not active")
     plan = next(csv.reader([bench.command("READ:SEQ? SP8T")]))
@@ -491,6 +492,8 @@ def parse_args(argv=None):
                         help="execute the actual GUI RJ45 configuration/start builders and batch executor")
     parser.add_argument("--scpi-next", action="store_true",
                         help="preload bounded READY credits with SCPI instead of an external input")
+    parser.add_argument("--ready-input", choices=("IN1", "IN2", "IN3", "IN4"), default="IN1",
+                        help="physical READY input pin used when SCPI READY credits are not preloaded")
     parser.add_argument("--timeout", type=float, default=3)
     parser.add_argument("--poll", type=float, default=.05)
     parser.add_argument("--quiet", type=float, default=.2)

@@ -30,7 +30,7 @@ from scpi_common.board_identity import parse_idn_response  # noqa: E402
 from scpi_common.scpi_serial import (  # noqa: E402
     COMPOSITE_ACK_HEADERS,
     SERIAL_LIFECYCLE_PHASE,
-    TDMA_CONTROL_RESULT_FIELDS,
+    STRUCTURED_WRITE_HEADERS,
     SerialSession,
     is_scpi_query,
     read_scpi_response,
@@ -264,7 +264,7 @@ def _board_command_on_serial(board: Board, text: str,
         float(getattr(args, "action_timeout", args.timeout)),
         float(args.timeout),
     )
-    result_write = action in COMPOSITE_ACK_HEADERS or action in TDMA_CONTROL_RESULT_FIELDS
+    result_write = action in COMPOSITE_ACK_HEADERS or action in STRUCTURED_WRITE_HEADERS
     ordinary_write = not is_scpi_query(text) and not result_write
     try:
         response = command(

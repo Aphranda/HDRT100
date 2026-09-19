@@ -24,6 +24,7 @@ ENUM_DEFINITION
 static tdma_service_service_t owner;
 static bool s_initialized, owner_available, snapshot_available, runtime_active;
 static bool calibration_valid, runtime_accepts;
+static bool topology_pending, owner_pending;
 static uint32_t board_no, map_calls, arm_calls, s_tdma_ring_arm_last_result;
 static tdma_service_flight_map_result_t rejection;
 static tdma_service_service_t *tdma_runtime_owner_get(void) { return owner_available ? &owner : NULL; }
@@ -49,10 +50,13 @@ bool tdma_ring_runtime_validate_calibration_stage(const tdma_ring_calibration_st
 bool tdma_service_ring_arm(tdma_service_service_t *service) {
     assert(service == &owner); ++arm_calls; return runtime_accepts;
 }
+static bool distributed_refmem_tdma_topology_change_pending(void) { return topology_pending; }
+static bool vdc_dpll_manager_owner_change_pending(void) { return owner_pending; }
 bool distributed_refmem_tdma_ring_arm(void) { ARM_BODY }
 static void reset(void) {
     memset(&owner, 0, sizeof(owner));
     s_initialized = owner_available = snapshot_available = calibration_valid = runtime_accepts = true;
+    topology_pending = owner_pending = false;
     runtime_active = false; board_no = 1; map_calls = arm_calls = 0;
     owner.ring_staged_config.enabled = 1; owner.ring_staged_config.node_count = 4;
     rejection = TDMA_SERVICE_FLIGHT_MAP_OK;
@@ -83,6 +87,8 @@ int main(void) {
     reset(); owner.calibration_gate_required = 1; calibration_valid = false;
     result(DISTRIBUTED_REFMEM_TDMA_ARM_CALIBRATION_GATE_REJECTED, 1, 0);
     reset(); runtime_accepts = false; result(DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED, 1, 1);
+    reset(); topology_pending = true; result(DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED, 0, 0);
+    reset(); owner_pending = true; result(DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED, 0, 0);
     reset(); result(DISTRIBUTED_REFMEM_TDMA_ARM_OK, 1, 1);
     return 0;
 }

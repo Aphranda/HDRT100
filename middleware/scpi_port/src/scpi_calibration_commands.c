@@ -1751,20 +1751,26 @@ scpi_result_t scpi_calibration_save(scpi_t *context)
 
 scpi_result_t scpi_calibration_activate(scpi_t *context)
 {
-    if (!calibration_manager_activate_path_candidate()) {
+    uint32_t owner_sequence = 0u;
+    if (!calibration_manager_activate_path_candidate(&owner_sequence)) {
         scpi_port_push_exec_error(context, "CAL_ACTIVATE_REJECTED");
         return SCPI_RES_ERR;
     }
-    return scpi_port_result_ok(context);
+    SCPI_ResultText(context, "QUEUED");
+    SCPI_ResultUInt32(context, owner_sequence);
+    return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_calibration_rollback(scpi_t *context)
 {
-    if (!calibration_manager_rollback_path()) {
+    uint32_t owner_sequence = 0u;
+    if (!calibration_manager_rollback_path(&owner_sequence)) {
         scpi_port_push_exec_error(context, "CAL_ROLLBACK_REJECTED");
         return SCPI_RES_ERR;
     }
-    return scpi_port_result_ok(context);
+    SCPI_ResultText(context, "QUEUED");
+    SCPI_ResultUInt32(context, owner_sequence);
+    return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_calibration_clear(scpi_t *context)

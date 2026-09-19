@@ -524,6 +524,9 @@ set(PROJECT_APP_SOURCES
         components/sync_trigger/src/trigger_sequence_service.c
         components/sync_trigger/src/trigger_sequence_link_protocol.c
         components/sync_trigger/src/trigger_sequence_link.c
+        components/sync_trigger/src/trigger_reservation_config.c
+        components/sync_trigger/src/trigger_reservation_clock.c
+        components/sync_trigger/src/trigger_reservation_planner.c
         components/sync_trigger/src/trigger_fb.c
         components/sync_trigger/src/trigger_measure.c
         components/sync_trigger/src/trigger_resource_map.c

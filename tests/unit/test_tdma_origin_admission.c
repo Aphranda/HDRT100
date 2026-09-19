@@ -111,7 +111,15 @@ static tdma_service_service_t *s_vdc_tdma_service = &s_tdma_runtime_owner;
 static uint32_t full_service_calls[4];
 static bool ota_active;
 static bool ota_ao_is_active(void) { return ota_active; }
-static uint64_t vdc_dpll_manager_now_ns(void) { return ticks; }
+/* The production census body timestamps the physical-TX service with the board
+ * millisecond uptime converted to ns (board_uptime_ms() * 1000000ull); this
+ * fixture owns no board clock, so derive the millisecond value from the same
+ * time model the assertions use: `ticks` counted at `clock_hz`, i.e.
+ * ms = ticks * 1000 / clock_hz. The converted ns coordinate then advances with
+ * every `ticks += ...` below. The harness stub consumes that argument as a
+ * discard ((void)now), so no assertion needs sub-millisecond fidelity here. */
+static uint32_t board_uptime_ms(void)
+{ return clock_hz == 0u ? 0u : (uint32_t)((ticks * 1000u) / clock_hz); }
 static void tdma_runtime_owner_service_phys_tx(uint64_t now)
 { (void)now; full_service_calls[0]++; tdma_runtime_owner_origin_lifetime_core1(); }
 void tdma_service_core1_service(tdma_service_service_t *owner)

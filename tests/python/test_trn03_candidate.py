@@ -433,5 +433,5 @@ def test_firmware_calibration_lifecycle_is_not_an_unconditional_stub() -> None:
     assert '.pattern = "CALibration:CLEAr", .callback = scpi_calibration_clear' in header
     source = (root / "middleware" / "scpi_port" / "src" /
               "scpi_calibration_commands.c").read_text(encoding="utf-8")
-    assert "calibration_manager_activate_path_candidate()" in source
-    assert "calibration_manager_rollback_path()" in source
+    assert "calibration_manager_activate_path_candidate(&owner_sequence)" in source
+    assert "calibration_manager_rollback_path(&owner_sequence)" in source

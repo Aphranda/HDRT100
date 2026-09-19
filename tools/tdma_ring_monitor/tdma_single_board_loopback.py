@@ -11,6 +11,7 @@ validate the electrical/data loopback.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import sys
@@ -29,6 +30,10 @@ if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
 
 from scpi_common.scpi_serial import open_serial_port  # noqa: E402
 from scpi_common.board_identity import parse_idn_response  # noqa: E402
+from scpi_common.vdc_owner_state import (  # noqa: E402
+    queued_sequence,
+    wait_owner_applied,
+)
 from ring_rate_measure import PHYS_FIELDS, parse_named  # noqa: E402
 from tdma_field_parse import FIELDS as TDMA_FIELDS  # noqa: E402
 from tdma_ring_monitor import (  # noqa: E402
@@ -48,6 +53,8 @@ from tdma_ring_monitor import (  # noqa: E402
     query as transport_query,
     tdma_status_fields,
 )
+
+VDC_OWNER_OPCODE_TOPOLOGY = 1
 
 
 class EvidencePort:
@@ -138,6 +145,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-cycles", type=int, default=4096,
                         help="clock-training cycles before START; 0 disables TRAIN")
     parser.add_argument("--arm-wait", type=float, default=3.0)
+    parser.add_argument("--owner-wait", type=float, default=3.0,
+                        help="bounded pre-run wait for queued topology application")
     parser.add_argument("--start-wait", type=float, default=2.0)
     parser.add_argument("--out-dir", type=Path)
     return parser.parse_args()
@@ -262,12 +271,46 @@ def prepare_single_board_ring(ser, args: argparse.Namespace,
         "SYSTem:TDMA:RING:STOP",
         f"SYSTem:TDMA:OPMode:STAGe {args.operating_level}",
         "SYSTem:TDMA:OPMode:APPLy",
-        (f"SYSTem:TDMA:RING:TOPology {args.node_count},"
-         f"{args.local_slot},{args.reference_slot}"),
-        f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}",
     ):
         steps.append(checked_action(ser, command, args.timeout))
         time.sleep(0.2)
+
+    topology_command = (f"SYSTem:TDMA:RING:TOPology {args.node_count},"
+                        f"{args.local_slot},{args.reference_slot}")
+    topology_step = checked_action(ser, topology_command, args.timeout)
+    steps.append(topology_step)
+    topology_fields = [field.strip() for field in next(
+        csv.reader([topology_step["response"]]), [])]
+    try:
+        topology_identity = [int(field, 0) for field in topology_fields[1:4]]
+    except ValueError as exc:
+        raise RuntimeError(
+            f"invalid queued topology acknowledgement: {topology_step['response']!r}") from exc
+    if (len(topology_fields) != 5 or topology_fields[0].upper() != "QUEUED" or
+            topology_identity != [args.node_count, args.local_slot,
+                                  args.reference_slot]):
+        raise RuntimeError(
+            f"invalid queued topology acknowledgement: {topology_step['response']!r}")
+    topology_sequence = queued_sequence(topology_step["response"])
+    owner_observations: list[dict] = []
+    result["topology_owner"] = {
+        "queued_response": topology_step["response"],
+        "sequence": topology_sequence,
+        "wait_result": None,
+        "observations": owner_observations,
+    }
+    owner_result = wait_owner_applied(
+        lambda command: retryable_query(ser, command, args.timeout),
+        topology_sequence, args.owner_wait, owner_observations)
+    result["topology_owner"]["wait_result"] = owner_result
+    if owner_result.get("opcode") != VDC_OWNER_OPCODE_TOPOLOGY:
+        raise RuntimeError(
+            f"topology owner opcode mismatch: {owner_result!r}")
+    time.sleep(0.2)
+    steps.append(checked_action(
+        ser, f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}",
+        args.timeout))
+    time.sleep(0.2)
 
     if before_arm is not None:
         before_arm()
@@ -328,7 +371,8 @@ def prepare_single_board_ring(ser, args: argparse.Namespace,
 
 def main() -> int:
     args = parse_args()
-    for name in ("duration_s", "poll_interval_s", "timeout", "arm_wait", "start_wait"):
+    for name in ("duration_s", "poll_interval_s", "timeout", "arm_wait",
+                 "owner_wait", "start_wait"):
         value = getattr(args, name)
         if not math.isfinite(value) or value <= 0.0:
             raise SystemExit(f"{name} must be finite and positive")

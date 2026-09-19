@@ -36,6 +36,9 @@ from tools.calibration_ring_validate.trn03_candidate import (  # noqa: E402
 from tools.calibration_ring_validate.trn03_stage import (  # noqa: E402
     checked_action,
 )
+from tools.scpi_common.vdc_owner_state import (  # noqa: E402
+    queued_sequence, wait_owner_applied,
+)
 
 
 PATH_SNAPSHOT_VERSION = 2
@@ -464,6 +467,16 @@ def stage_board(board: Board, package: dict[str, Any],
     }
 
 
+def owner_action(board: Board, command: str, args: argparse.Namespace,
+                 evidence: dict[str, Any]) -> None:
+    evidence.update(checked_action(board, command, args))
+    evidence["owner_wait"] = []
+    evidence["owner_applied"] = wait_owner_applied(
+        lambda query: board_command(board, query, args),
+        queued_sequence(evidence["response"]), args.timeout,
+        evidence["owner_wait"])
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidate", type=Path, required=True)
@@ -528,8 +541,8 @@ def main() -> int:
             results.append(stage_board(board, package, args))
         if args.activate:
             for result, board in zip(results, ordered):
-                result["activate"] = checked_action(
-                    board, "CALibration:ACTivate", args)
+                result["activate"] = {}
+                owner_action(board, "CALibration:ACTivate", args, result["activate"])
                 result["active"] = _query(
                     board, "READ:CALibration:PATH:ACTive?",
                     SNAPSHOT_QUERY_FIELDS, "CALPATHACTIVE", args)
@@ -540,11 +553,19 @@ def main() -> int:
                         f"{board.address}: active snapshot mismatch")
             if args.rollback:
                 for result, board in zip(results, ordered):
-                    result["rollback"] = checked_action(
-                        board, "CALibration:ROLLback", args)
+                    result["rollback_expected"] = _query(
+                        board, "READ:CALibration:PATH:ROLLback?",
+                        SNAPSHOT_QUERY_FIELDS, "CALPATHROLLBACK", args)
+                    result["rollback"] = {}
+                    owner_action(board, "CALibration:ROLLback", args, result["rollback"])
                     result["active_after_rollback"] = _query(
                         board, "READ:CALibration:PATH:ACTive?",
                         SNAPSHOT_QUERY_FIELDS, "CALPATHACTIVE", args)
+                    expected = result["rollback_expected"]
+                    active = result["active_after_rollback"]
+                    if (expected["valid"] != 1 or active["valid"] != 1 or
+                            active["table_crc32"] != expected["table_crc32"]):
+                        raise RuntimeError(f"{board.address}: rollback snapshot mismatch")
     except Exception as exc:  # noqa: BLE001 - retain partial board evidence
         error = f"{type(exc).__name__}: {exc}"
     passed = not error and len(results) == len(ordered) and all(

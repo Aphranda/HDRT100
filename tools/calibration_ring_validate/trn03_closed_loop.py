@@ -48,6 +48,7 @@ from trn03_waveform import (  # noqa: E402
     save_ring_capture,
 )
 from tdma_board_record import export_frozen, record_status  # noqa: E402
+from scpi_common.vdc_owner_state import queued_sequence, wait_owner_applied  # noqa: E402
 
 
 CRC_DIAGNOSTIC_FIELDS = (
@@ -525,6 +526,12 @@ def checked_stopped_ring_action(
             evidence = checked_ring_action(board, action, command, args)
             evidence["attempt_count"] = attempt
             evidence["rejected_attempts"] = rejected_attempts
+            if action == "TOPOLOGY":
+                evidence["owner_wait"] = []
+                evidence["owner_applied"] = wait_owner_applied(
+                    lambda query: board_command(board, query, args),
+                    queued_sequence(evidence["response"]), args.arm_wait,
+                    evidence["owner_wait"])
             # Owner mutations advance config_seq asynchronously on Core1.
             # Do not let the next ARM observe a stopped ring with an older
             # applied generation; retain the exact acknowledgement as part of
@@ -604,6 +611,11 @@ def activate_dpll_provisional(board: Board, args: argparse.Namespace,
                               config: dict[str, Any]) -> dict[str, Any]:
     action = checked_action(
         board, "SYSTem:SYNC:VDC:DPLL:PROVisional 1", args)
+    action["owner_wait"] = []
+    action["owner_applied"] = wait_owner_applied(
+        lambda command: board_command(board, command, args),
+        queued_sequence(action["response"]), args.arm_wait,
+        action["owner_wait"])
     raw = board_command(
         board, "SYSTem:SYNC:VDC:DPLL:PROVisional?", args)
     fields = [value.strip().strip('"') for value in raw.split(",")]

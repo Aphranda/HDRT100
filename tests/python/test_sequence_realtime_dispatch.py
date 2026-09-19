@@ -60,7 +60,7 @@ def test_sequence_mailbox_survives_disabled_loads_and_offline_returns(tmp_path):
                '"\n#undef main\n#undef trigger_sequence_service_service\n')
     harness += r'''
 static bool offline_p3, offline_training, ring_capture, loads_enabled, link_step;
-static unsigned optional_calls, mandatory_calls;
+static unsigned optional_calls, mandatory_calls, vdc_owner_calls;
 static bool phase_open;
 static unsigned phase_order, sequence_calls;
 static struct { uint32_t cycle_count; } s_realtime_schedule;
@@ -94,6 +94,12 @@ static void tdma_component_core1_service(void)
 { assert(phase_open && phase_order==0); phase_order=1; }
 static void distributed_refmem_tdma_flight_service_core1(void)
 { assert(phase_open && phase_order==1); phase_order=2; }
+static void vdc_dpll_manager_owner_service_core1(void)
+{
+    if (offline_p3 || offline_training) assert(!phase_open);
+    else assert(phase_open && phase_order==2);
+    ++vdc_owner_calls;
+}
 static void sync_io_logic_analyzer_service_core1(unsigned budget)
 { assert(budget==8 && phase_open && phase_order==2); phase_order=3; }
 static uint64_t tdma_service_timing_now(void) { assert(phase_open); return 0; }
@@ -139,7 +145,7 @@ int main(void)
         ring_capture = mode == 3;
         loads_enabled = mode == 4;
         mandatory_calls = optional_calls = 0;
-        sequence_calls = 0;
+        sequence_calls = vdc_owner_calls = 0;
         assert(trigger_sequence_service_start(NULL) == TRIGGER_SEQUENCE_SERVICE_OK);
         assert(status().state == TRIGGER_SEQUENCE_SERVICE_STARTING);
         app_realtime_run_once();
@@ -153,6 +159,7 @@ int main(void)
         assert(status().cancelled == 1 && !reserved);
         assert(mandatory_calls != 0);
         assert(sequence_calls == 3 && !phase_open);
+        assert(vdc_owner_calls == 3);
         assert(loads_enabled ? optional_calls != 0 : optional_calls == 0);
     }
     /* An event admitted by the coordinator reaches the IO owner in the same

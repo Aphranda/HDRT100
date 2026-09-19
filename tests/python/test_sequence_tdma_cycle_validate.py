@@ -421,6 +421,10 @@ def gui_bench(tmp_path, fail_command=None, fail_response="0"):
             return '"STAGED"'
         if command == "CONF:SEQ:NODE:ACT":
             return '"ACTIVE",1'
+        if command.startswith("SYST:TDMA:RING:TOPOLOGY"):
+            return "QUEUED,1"
+        if command.upper() == "SYSTEM:SYNC:VDC:DPLL:OWNER?":
+            return "1,1,3,2,0"
         return "1"
 
     return target.Bench(object(), args, report, exchange), report, commands

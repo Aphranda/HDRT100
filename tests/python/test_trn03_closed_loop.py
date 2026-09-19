@@ -35,6 +35,27 @@ if str(TOOL_DIR) not in sys.path:
     sys.path.insert(0, str(TOOL_DIR))
 
 import trn03_closed_loop as trn03  # noqa: E402
+
+
+def test_provisional_waits_for_owner_before_reading_identity(monkeypatch):
+    monkeypatch.setattr(trn03, "checked_action", lambda *args: {"response": '"QUEUED",1,7'})
+    commands = []
+    replies = iter(["7,6,5,1,1", "7,7,5,2,0", "1,16,2,9,8,123,456"])
+
+    def query(board, command, args):
+        commands.append(command)
+        return next(replies)
+
+    monkeypatch.setattr(trn03, "board_command", query)
+    result = trn03.activate_dpll_provisional(
+        SimpleNamespace(address="node0"), SimpleNamespace(arm_wait=1),
+        {"node_count": 2, "calibration_generation": 9,
+         "topology_generation": 8, "schedule_crc32": 123})
+    assert result["owner_applied"]["sequence"] == 7
+    assert commands[:2] == ["SYSTem:SYNC:VDC:DPLL:OWNer?"] * 2
+    assert commands[2].endswith("PROVisional?")
+
+
 from tools.scpi_common.scpi_serial import scpi_response_matches_command  # noqa: E402
 from trn03_closed_loop import (  # noqa: E402
     ArmRejectedError,
@@ -392,9 +413,11 @@ def test_stopped_owner_action_retries_with_readback_evidence(monkeypatch) -> Non
         if len(attempts) < 3:
             raise RuntimeError(f"transient-{len(attempts)}")
         return {"node": board.address, "action": action,
-                "command": command, "error_after": '0,"No error"'}
+                "command": command, "response": '"QUEUED",2,0,0,7',
+                "error_after": '0,"No error"'}
 
     monkeypatch.setattr(trn03, "checked_ring_action", checked)
+    monkeypatch.setattr(trn03, "board_command", lambda *args: "7,7,1,2,0")
     monkeypatch.setattr(
         trn03, "wait_runtime_stopped",
         lambda board, args, node_index: stopped.append(node_index) or {
@@ -402,7 +425,7 @@ def test_stopped_owner_action_retries_with_readback_evidence(monkeypatch) -> Non
             "ring_config_seq": 9, "ring_applied_config_seq": 9,
             "passed": 1})
     monkeypatch.setattr(trn03.time, "sleep", lambda delay: None)
-    args = type("Args", (), {"owner_action_retries": 3})()
+    args = type("Args", (), {"owner_action_retries": 3, "arm_wait": 1})()
     evidence = checked_stopped_ring_action(
         FakeBoard(), "TOPOLOGY", "topology", args, 0)
     assert evidence["attempt_count"] == 3

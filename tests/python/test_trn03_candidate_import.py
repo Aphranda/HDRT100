@@ -7,6 +7,18 @@ import pytest
 from tools.calibration_ring_validate import trn03_candidate_import as importer
 
 
+def test_owner_action_keeps_pending_and_rejected_evidence(monkeypatch):
+    monkeypatch.setattr(importer, "checked_action", lambda *args: {"response": '"QUEUED",7'})
+    replies = iter(["7,6,4,1,1", "7,7,4,3,1"])
+    monkeypatch.setattr(importer, "board_command", lambda *args: next(replies))
+    evidence = {}
+    with pytest.raises(RuntimeError, match="rejected"):
+        importer.owner_action(SimpleNamespace(address="node0"), "CAL:ACT",
+                              SimpleNamespace(timeout=1), evidence)
+    assert len(evidence["owner_wait"]) == 2
+    assert "owner_applied" not in evidence
+
+
 def crc_golden_snapshot() -> dict:
     links = []
     for index in range(4):

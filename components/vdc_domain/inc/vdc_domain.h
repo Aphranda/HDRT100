@@ -437,6 +437,9 @@ typedef struct {
     uint32_t post_servo_dpll_update_seq;
     uint32_t applied;
     uint32_t post_apply_dpll_update_seq;
+    /* Core1 supplies TIMER1-origin nanoseconds at the service boundary.
+     * Zero retains the single-coordinate host-test API behavior. */
+    uint64_t local_apply_time_ns;
     int32_t input_residual_ns;
     vdc_gate_result_t gate;
 } vdc_tdma_evidence_preparation_t;
@@ -641,6 +644,8 @@ typedef struct {
     vdc_gate_result_t gate;
     vdc_timestamp_dictionary_t timestamp_dictionary;
     vdc_wrap_tracker_t wrap_tracker;
+    uint64_t phase_observed_anchor_ns;
+    uint32_t phase_observed_anchor_valid;
 } vdc_domain_context_t;
 
 void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
@@ -719,6 +724,18 @@ bool vdc_domain_clock_model_local_to_vdc_ns(const vdc_clock_model_t *model,
 bool vdc_domain_dco_control_validate(const vdc_tdma_schedule_profile_t *schedule,
                                      const vdc_servo_profile_t *servo,
                                      const vdc_dco_control_t *dco);
+/* Pure projection of one immutable DCO snapshot. This does not grant
+ * scheduling eligibility; callers still own lifetime, quality and identity
+ * admission. False preserves the output argument. */
+bool vdc_domain_dco_local_to_output_ns(const vdc_dco_control_t *dco,
+                                       uint64_t local_ns,
+                                       uint64_t *output_ns);
+/* Exact inverse of the projection above. Returns the least representable
+ * local_ns whose output is at least target_output_ns. False preserves the
+ * output argument. Physical output delay is applied after this inverse. */
+bool vdc_domain_dco_output_to_local_ns(const vdc_dco_control_t *dco,
+                                       uint64_t target_output_ns,
+                                       uint64_t *local_ns);
 void vdc_domain_default_path_delay_table(
     vdc_path_delay_table_t *table,
     const vdc_tdma_schedule_profile_t *schedule);
@@ -793,6 +810,13 @@ bool vdc_domain_activate_tdma_provisional_configuration(
     const vdc_timestamp_dictionary_t *dictionary,
     const vdc_path_delay_table_t *path_delay);
 void vdc_domain_set_ready(vdc_domain_context_t *context, bool ready);
+/* Age an already-published evidence view without advancing evidence or
+ * service counters. Used by the owner even when no new input arrives. */
+bool vdc_domain_age_quality(vdc_quality_table_t *quality,
+                            uint32_t lock_state, bool gate_passed,
+                            uint64_t now_ns);
+/* Owner maintenance: true means evidence expired and split work was invalidated. */
+bool vdc_domain_maintain_quality(vdc_domain_context_t *context, uint64_t now_ns);
 void vdc_domain_service(vdc_domain_context_t *context, uint64_t now_ns);
 bool vdc_domain_publish_clock_model(vdc_domain_context_t *context,
                                     const vdc_clock_model_t *model);

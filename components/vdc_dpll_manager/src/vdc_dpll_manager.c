@@ -21,6 +21,7 @@
 #include "vdc_ring_observer.h"
 #include "vdc_sync_io_adapter.h"
 #include "vdc_tdma_payload.h"
+#include "vdc_timestamp_clock.h"
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
@@ -41,6 +42,8 @@
 #define VDC_DPLL_MANAGER_WAVEFORM_SCHEMA 4u
 #define VDC_DPLL_MANAGER_WAVEFORM_BUFFER_COUNT 3u
 #define VDC_DPLL_MANAGER_PHASE_ARM_AHEAD_PERIODS 2u
+
+static uint64_t vdc_dpll_manager_now_ns(void);
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;
@@ -109,6 +112,18 @@ static vdc_dpll_manager_sync_io_observer_config_t s_sync_io_observer_config;
 static vdc_dpll_manager_sync_io_observer_status_t s_sync_io_observer_status;
 static uint32_t s_vdc_follower_last_applied_seq;
 static uint32_t s_vdc_follower_last_generation;
+typedef struct {
+    bool valid;
+    uint64_t local_effective_time_ns;
+    uint32_t schedule_crc32;
+    uint32_t clock_epoch_id;
+    uint32_t clock_run_id;
+    uint32_t control_generation;
+    uint32_t source_model_seq;
+    vdc_dpll_follower_command_t command;
+} vdc_dpll_manager_pending_follower_command_t;
+static vdc_dpll_manager_pending_follower_command_t
+    s_vdc_follower_pending_command;
 static vdc_dpll_manager_vdc_status_t s_published_vdc_status;
 static vdc_dpll_manager_dpll_status_t s_published_dpll_status;
 static vdc_dpll_manager_dco_consumer_status_t s_dco_consumer_status;
@@ -122,6 +137,7 @@ static volatile uint32_t s_published_snapshot_guard;
  * control data; SCRATCH_X remains exclusively available to Core1's stack. */
 static vdc_domain_snapshot_t s_published_snapshot
     __attribute__((section(".scratch_y.vdc_snapshot"), aligned(4)));
+static vdc_timestamp_dictionary_t s_published_timestamp_dictionary;
 static bool s_published_snapshot_valid;
 static volatile uint32_t s_published_dpll_update_seq;
 static uint32_t s_dpll_consumed_update_seq;
@@ -162,6 +178,81 @@ static vdc_dpll_control_profile_t s_dpll_role_profile;
 static volatile uint32_t s_dpll_role_guard;
 static volatile uint32_t s_dpll_role_requested_generation;
 static volatile uint32_t s_dpll_role_applied_generation;
+typedef enum {
+    VDC_DPLL_MANAGER_OWNER_INTENT_NONE = 0u,
+    VDC_DPLL_MANAGER_OWNER_INTENT_TOPOLOGY,
+    VDC_DPLL_MANAGER_OWNER_INTENT_DICTIONARY,
+    VDC_DPLL_MANAGER_OWNER_INTENT_PATH_DELAY,
+    VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_CONFIGURATION,
+    VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_PROVISIONAL,
+    VDC_DPLL_MANAGER_OWNER_INTENT_COMPACT_OBSERVATION,
+    VDC_DPLL_MANAGER_OWNER_INTENT_TDMA_EVIDENCE,
+    VDC_DPLL_MANAGER_OWNER_INTENT_REANCHOR_WRAP,
+} vdc_dpll_manager_owner_intent_opcode_t;
+
+typedef struct {
+    volatile uint32_t guard;
+    uint32_t sequence;
+    uint32_t ready_generation;
+    uint32_t opcode;
+    uint32_t report_control;
+    union {
+        struct {
+            uint32_t local_slot_id;
+            uint32_t reference_slot_id;
+            uint32_t node_count;
+        } topology;
+        struct {
+            vdc_timestamp_dictionary_t dictionary;
+            uint32_t initial_tick_l32;
+        } dictionary;
+        vdc_path_delay_table_t path_delay;
+        struct {
+            vdc_tdma_schedule_profile_t schedule;
+            vdc_timestamp_dictionary_t dictionary;
+            vdc_path_delay_table_t path_delay;
+        } configuration;
+        vdc_compact_observation_sample_t compact;
+        vdc_tdma_timestamp_evidence_t evidence;
+        uint64_t wrap_anchor_ns;
+    } payload;
+} vdc_dpll_manager_owner_intent_t;
+
+/* Core0 publishes a single immutable intent. Core1 is the only runtime
+ * writer of s_vdc_domain and the only writer of s_published_snapshot. */
+static vdc_dpll_manager_owner_intent_t s_owner_intent;
+static uint32_t s_owner_intent_next_sequence;
+static volatile uint32_t s_owner_intent_consumed_sequence;
+static volatile uint32_t s_owner_intent_result_guard;
+static uint32_t s_owner_intent_result_sequence;
+static uint32_t s_owner_intent_result_opcode;
+static uint32_t s_owner_intent_result;
+static volatile uint32_t s_owner_intent_ack_required_sequence;
+typedef struct {
+    volatile uint32_t guard;
+    uint32_t sequence;
+    uint32_t opcode;
+} vdc_dpll_manager_control_request_t;
+typedef struct {
+    volatile uint32_t guard;
+    uint32_t sequence;
+    uint32_t opcode;
+    uint32_t result;
+} vdc_dpll_manager_control_result_t;
+static vdc_dpll_manager_control_request_t s_control_request;
+static vdc_dpll_manager_control_result_t s_control_result;
+static volatile uint32_t s_control_ack_sequence;
+static volatile uint32_t s_control_rejected_sequence;
+typedef struct {
+    volatile uint32_t guard;
+    uint32_t value;
+    uint32_t generation;
+    uint32_t stop_generation;
+} vdc_dpll_manager_ready_request_t;
+static vdc_dpll_manager_ready_request_t s_vdc_ready_request;
+static volatile uint32_t s_vdc_ready_applied_generation;
+static volatile uint32_t s_vdc_stop_applied_generation;
+static uint32_t s_sync_io_observer_pending_owner_sequence;
 static vdc_dpll_manager_dpll_capture_record_t
     s_dpll_capture_records[VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES];
 static bool s_dpll_capture_armed;
@@ -234,23 +325,150 @@ typedef struct {
     vdc_dpll_state_t dpll;
 } vdc_dpll_manager_runtime_snapshot_t;
 
-static void vdc_dpll_manager_publish_snapshot(
-    const vdc_domain_snapshot_t *snapshot)
+static uint32_t vdc_dpll_manager_increment_nonzero(uint32_t value)
 {
-    if (snapshot == NULL) {
-        return;
+    value++;
+    return value != 0u ? value : 1u;
+}
+
+static bool vdc_dpll_manager_read_ready_request(
+    uint32_t *value, uint32_t *generation, uint32_t *stop_generation)
+{
+    if (value == NULL || generation == NULL || stop_generation == NULL) {
+        return false;
     }
-    (void)__atomic_add_fetch(&s_published_snapshot_guard,
-                             1u,
-                             __ATOMIC_ACQ_REL);
-    s_published_snapshot = *snapshot;
-    s_published_snapshot_valid = true;
-    __atomic_store_n(&s_published_dpll_update_seq,
-                     snapshot->dpll.update_seq,
-                     __ATOMIC_RELEASE);
-    (void)__atomic_add_fetch(&s_published_snapshot_guard,
-                             1u,
-                             __ATOMIC_RELEASE);
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &s_vdc_ready_request.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        const uint32_t candidate_value = s_vdc_ready_request.value;
+        const uint32_t candidate_generation = s_vdc_ready_request.generation;
+        const uint32_t candidate_stop_generation =
+            s_vdc_ready_request.stop_generation;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_vdc_ready_request.guard, __ATOMIC_ACQUIRE);
+        if (begin != end || (end & 1u) != 0u) continue;
+        *value = candidate_value;
+        *generation = candidate_generation;
+        *stop_generation = candidate_stop_generation;
+        return true;
+    }
+    return false;
+}
+
+static bool vdc_dpll_manager_owner_intent_begin_locked(uint32_t opcode)
+{
+    const uint32_t consumed = __atomic_load_n(
+        &s_owner_intent_consumed_sequence, __ATOMIC_ACQUIRE);
+    if (opcode == VDC_DPLL_MANAGER_OWNER_INTENT_NONE ||
+        s_owner_intent.sequence != consumed ||
+        __atomic_load_n(&s_owner_intent_ack_required_sequence,
+                        __ATOMIC_ACQUIRE) != 0u) {
+        return false;
+    }
+    (void)__atomic_add_fetch(&s_owner_intent.guard, 1u, __ATOMIC_ACQ_REL);
+    s_owner_intent.opcode = opcode;
+    uint32_t ready_value, ready_generation, stop_generation;
+    if (!vdc_dpll_manager_read_ready_request(
+            &ready_value, &ready_generation, &stop_generation)) {
+        (void)__atomic_add_fetch(&s_owner_intent.guard, 1u,
+                                 __ATOMIC_RELEASE);
+        return false;
+    }
+    (void)ready_value;
+    (void)stop_generation;
+    s_owner_intent.ready_generation = ready_generation;
+    s_owner_intent.report_control = 0u;
+    return true;
+}
+
+static bool vdc_dpll_manager_is_control_intent(uint32_t opcode)
+{
+    return opcode == VDC_DPLL_MANAGER_OWNER_INTENT_TOPOLOGY ||
+        opcode == VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_CONFIGURATION ||
+        opcode == VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_PROVISIONAL;
+}
+
+static void vdc_dpll_manager_publish_control_request(uint32_t sequence,
+                                                      uint32_t opcode)
+{
+    if (!vdc_dpll_manager_is_control_intent(opcode)) return;
+    __atomic_store_n(&s_control_rejected_sequence, 0u, __ATOMIC_RELEASE);
+    (void)__atomic_add_fetch(&s_control_request.guard, 1u, __ATOMIC_ACQ_REL);
+    s_control_request.sequence = sequence;
+    s_control_request.opcode = opcode;
+    (void)__atomic_add_fetch(&s_control_request.guard, 1u, __ATOMIC_RELEASE);
+}
+
+static void vdc_dpll_manager_publish_control_result(uint32_t sequence,
+                                                     uint32_t opcode,
+                                                     uint32_t result)
+{
+    if (!vdc_dpll_manager_is_control_intent(opcode)) return;
+    (void)__atomic_add_fetch(&s_control_result.guard, 1u, __ATOMIC_ACQ_REL);
+    s_control_result.sequence = sequence;
+    s_control_result.opcode = opcode;
+    s_control_result.result = result;
+    (void)__atomic_add_fetch(&s_control_result.guard, 1u, __ATOMIC_RELEASE);
+}
+
+static void vdc_dpll_manager_owner_intent_end_locked(void)
+{
+    s_owner_intent_next_sequence = vdc_dpll_manager_increment_nonzero(
+        s_owner_intent_next_sequence);
+    s_owner_intent.sequence = s_owner_intent_next_sequence;
+    if (s_owner_intent.opcode ==
+            VDC_DPLL_MANAGER_OWNER_INTENT_TOPOLOGY ||
+        s_owner_intent.opcode ==
+            VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_CONFIGURATION ||
+        s_owner_intent.opcode ==
+            VDC_DPLL_MANAGER_OWNER_INTENT_COMPACT_OBSERVATION) {
+        __atomic_store_n(&s_owner_intent_ack_required_sequence,
+                         s_owner_intent.sequence,
+                         __ATOMIC_RELEASE);
+    }
+    if (s_owner_intent.report_control != 0u) {
+        vdc_dpll_manager_publish_control_request(s_owner_intent.sequence,
+                                                 s_owner_intent.opcode);
+    }
+    (void)__atomic_add_fetch(&s_owner_intent.guard, 1u, __ATOMIC_RELEASE);
+}
+
+static bool vdc_dpll_manager_owner_intent_pending(uint32_t *sequence,
+                                                   uint32_t *opcode,
+                                                   uint32_t *ready_generation,
+                                                   bool *report_control)
+{
+    if (sequence == NULL || opcode == NULL || ready_generation == NULL ||
+        report_control == NULL) {
+        return false;
+    }
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &s_owner_intent.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        const uint32_t candidate_sequence = s_owner_intent.sequence;
+        const uint32_t candidate_opcode = s_owner_intent.opcode;
+        const uint32_t candidate_ready_generation =
+            s_owner_intent.ready_generation;
+        const bool candidate_report_control =
+            s_owner_intent.report_control != 0u;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_owner_intent.guard, __ATOMIC_ACQUIRE);
+        if (begin != end || (end & 1u) != 0u) continue;
+        if (candidate_sequence == __atomic_load_n(
+                &s_owner_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+            return false;
+        }
+        *sequence = candidate_sequence;
+        *opcode = candidate_opcode;
+        *ready_generation = candidate_ready_generation;
+        *report_control = candidate_report_control;
+        return true;
+    }
+    return false;
 }
 
 /* Schedule, servo and path matrices are immutable between configuration
@@ -439,12 +657,22 @@ static void vdc_dpll_manager_publish_runtime_snapshot_locked(void)
 
 static bool vdc_dpll_manager_publish_domain_snapshot_locked(void)
 {
-    vdc_domain_snapshot_t snapshot;
-    if (!vdc_domain_get_snapshot(&s_vdc_domain, &snapshot)) {
-        return false;
+    (void)__atomic_add_fetch(&s_published_snapshot_guard,
+                             1u,
+                             __ATOMIC_ACQ_REL);
+    const bool valid = vdc_domain_get_snapshot(
+        &s_vdc_domain, &s_published_snapshot);
+    if (valid) {
+        s_published_timestamp_dictionary = s_vdc_domain.timestamp_dictionary;
+        s_published_snapshot_valid = true;
+        __atomic_store_n(&s_published_dpll_update_seq,
+                         s_vdc_domain.dpll.update_seq,
+                         __ATOMIC_RELEASE);
     }
-    vdc_dpll_manager_publish_snapshot(&snapshot);
-    return true;
+    (void)__atomic_add_fetch(&s_published_snapshot_guard,
+                             1u,
+                             __ATOMIC_RELEASE);
+    return valid;
 }
 
 static bool vdc_dpll_manager_get_runtime_snapshot(
@@ -469,6 +697,48 @@ static bool vdc_dpll_manager_get_runtime_snapshot(
         if (begin == end && (end & 1u) == 0u) {
             return valid;
         }
+    }
+    return false;
+}
+
+static bool vdc_dpll_manager_get_configuration_basis(
+    vdc_tdma_schedule_profile_t *schedule,
+    uint32_t *path_update_seq)
+{
+    if (schedule == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        const bool valid = s_published_snapshot_valid;
+        *schedule = s_published_snapshot.schedule;
+        if (path_update_seq != NULL) {
+            *path_update_seq = s_published_snapshot.path_delay.update_seq;
+        }
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) return valid;
+    }
+    return false;
+}
+
+static bool vdc_dpll_manager_get_observation_basis(
+    vdc_timestamp_dictionary_t *dictionary,
+    vdc_gate_result_t *gate)
+{
+    if (dictionary == NULL || gate == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        const bool valid = s_published_snapshot_valid;
+        *dictionary = s_published_timestamp_dictionary;
+        *gate = s_published_snapshot.gate;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) return valid;
     }
     return false;
 }
@@ -652,6 +922,8 @@ static bool vdc_dpll_manager_apply_ring_evidence(void)
     }
 
     vdc_dpll_manager_ring_observer_status_t status = s_ring_observer_status;
+    s_vdc_ring_preparation.local_apply_time_ns = vdc_dpll_manager_now_ns();
+    if (s_vdc_ring_preparation.local_apply_time_ns == UINT64_MAX) return false;
     const bool applied = vdc_domain_apply_prepared_tdma_evidence_servo(
         &s_vdc_domain,
         &s_vdc_ring_pending_evidence,
@@ -724,7 +996,6 @@ static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
     uint32_t frame_crc32,
     bool periodic,
     uint32_t start_delay_ns);
-static uint64_t vdc_dpll_manager_now_ns(void);
 static bool vdc_dpll_manager_compute_dco_phase_pulse_deadline(
     uint64_t not_before_ns,
     uint32_t pulse_period_ns,
@@ -733,6 +1004,34 @@ static bool vdc_dpll_manager_apply_pending_debug_servo_tune(void);
 static bool vdc_dpll_manager_apply_pending_dpll_role(void);
 static bool vdc_dpll_manager_apply_pending_debug_continue(void);
 static void vdc_dpll_manager_consume_follower_command(void);
+
+static bool vdc_dpll_manager_stage_tdma_evidence(
+    const vdc_tdma_timestamp_evidence_t *evidence)
+{
+    if (evidence == NULL) return false;
+    osal_critical_enter();
+    const bool accepted = vdc_dpll_manager_owner_intent_begin_locked(
+        VDC_DPLL_MANAGER_OWNER_INTENT_TDMA_EVIDENCE);
+    if (accepted) {
+        s_owner_intent.payload.evidence = *evidence;
+        vdc_dpll_manager_owner_intent_end_locked();
+    }
+    osal_critical_exit();
+    return accepted;
+}
+
+static bool vdc_dpll_manager_stage_wrap_reanchor(uint64_t anchor_ns)
+{
+    osal_critical_enter();
+    const bool accepted = vdc_dpll_manager_owner_intent_begin_locked(
+        VDC_DPLL_MANAGER_OWNER_INTENT_REANCHOR_WRAP);
+    if (accepted) {
+        s_owner_intent.payload.wrap_anchor_ns = anchor_ns;
+        vdc_dpll_manager_owner_intent_end_locked();
+    }
+    osal_critical_exit();
+    return accepted;
+}
 
 static void vdc_dpll_manager_observation_self_test_service(void)
 {
@@ -755,6 +1054,7 @@ static void vdc_dpll_manager_observation_self_test_service(void)
             return;
         }
         const uint64_t now_ns = vdc_dpll_manager_now_ns();
+        if (now_ns == UINT64_MAX) return;
         if (s_phase_tx_scheduled_count == 0u &&
             now_ns + status.pulse_period_ns < s_phase_tx_not_before_ns) {
             return;
@@ -773,6 +1073,7 @@ static void vdc_dpll_manager_observation_self_test_service(void)
              * Fall back to a local monotonic deadline; formal DPLL evidence
              * remains gated by the observer and calibration contracts. */
             const uint64_t fallback_now = vdc_dpll_manager_now_ns();
+            if (fallback_now == UINT64_MAX) return;
             target_ns = not_before_ns > fallback_now + 1000u
                 ? not_before_ns : fallback_now + 1000u;
             if (target_ns <= fallback_now ||
@@ -831,7 +1132,12 @@ static void vdc_dpll_manager_observation_self_test_service(void)
             const uint32_t completed_seq =
                 tdma.traffic_scheduler_completed_seq[
                     TDMA_TRAFFIC_VDC_REALTIME];
-            osal_critical_enter();
+            const uint32_t vdc_result =
+                tdma.traffic_class_last_result[
+                    TDMA_TRAFFIC_VDC_REALTIME];
+            bool evidence_handed_off =
+                vdc_result != tdma_service_RESULT_FRAME_READY ||
+                s_vdc_tdma_self_test_submitted_seq == completed_seq;
             if (s_vdc_tdma_self_test_submitted_seq != completed_seq) {
                 vdc_tdma_timestamp_evidence_t evidence =
                     s_vdc_tdma_self_test_evidence;
@@ -845,16 +1151,16 @@ static void vdc_dpll_manager_observation_self_test_service(void)
                 evidence.timestamp_flags =
                     tdma.traffic_class_timestamp_flags[
                         TDMA_TRAFFIC_VDC_REALTIME];
-                (void)vdc_domain_submit_tdma_evidence(&s_vdc_domain,
-                                                       &evidence);
-                s_vdc_tdma_self_test_submitted_seq = completed_seq;
+                if (vdc_dpll_manager_stage_tdma_evidence(&evidence)) {
+                    s_vdc_tdma_self_test_submitted_seq = completed_seq;
+                    evidence_handed_off = true;
+                }
             }
+            if (!evidence_handed_off) return;
+            osal_critical_enter();
             if (s_observation_self_test.active &&
                 s_observation_self_test.started_ms == status.started_ms) {
                 s_observation_self_test.active = false;
-                const uint32_t vdc_result =
-                    tdma.traffic_class_last_result[
-                        TDMA_TRAFFIC_VDC_REALTIME];
                 if (vdc_result != tdma_service_RESULT_FRAME_READY) {
                     s_observation_self_test.last_error = vdc_result;
                 }
@@ -900,7 +1206,9 @@ static void vdc_dpll_manager_observation_self_test_service(void)
 static uint64_t vdc_dpll_manager_now_ns(void)
 {
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
-    return time_us_64() * 1000ull;
+    uint64_t now;
+    return vdc_timestamp_clock_try_read_ns(BOARD_SYS_CLOCK_HZ, &now)
+        ? now : UINT64_MAX;
 #else
     return (uint64_t)board_uptime_ms() * 1000000ull;
 #endif
@@ -948,21 +1256,98 @@ static uint32_t vdc_dpll_manager_ns_to_ceil_us(uint32_t ns)
 }
 
 static uint32_t vdc_dpll_manager_observer_window_width_ns(
-    const vdc_domain_context_t *context,
+    const vdc_tdma_schedule_profile_t *schedule,
+    uint32_t lock_state,
     uint32_t scheduled_width_ns,
     uint32_t sample_period_ns)
 {
-    if (context == NULL ||
-        context->dpll.state == VDC_DOMAIN_LOCK_LOCKED) {
+    if (schedule == NULL || lock_state == VDC_DOMAIN_LOCK_LOCKED) {
         return scheduled_width_ns;
     }
 
     (void)sample_period_ns;
-    if (context->schedule.period_ns == 0u) {
+    if (schedule->period_ns == 0u) {
         return scheduled_width_ns;
     }
 
-    return context->schedule.period_ns;
+    return schedule->period_ns;
+}
+
+static bool vdc_dpll_manager_translate_clock_point(uint64_t point,
+                                                    uint64_t source_now,
+                                                    uint64_t target_now,
+                                                    uint64_t *translated)
+{
+    if (translated == NULL) return false;
+    if (point >= source_now) {
+        const uint64_t delta = point - source_now;
+        if (target_now > UINT64_MAX - delta) return false;
+        *translated = target_now + delta;
+        return true;
+    }
+    const uint64_t delta = source_now - point;
+    if (target_now < delta) return false;
+    *translated = target_now - delta;
+    return true;
+}
+
+bool vdc_dpll_manager_translate_tdma_transport_plan(
+    const vdc_tdma_window_plan_t *local_plan,
+    vdc_tdma_window_plan_t *transport_plan)
+{
+    if (local_plan == NULL || transport_plan == NULL ||
+        local_plan->valid == 0u) return false;
+    *transport_plan = *local_plan;
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    const uint64_t timer0_before_us = time_us_64();
+    const uint64_t timer1_now_ns = vdc_dpll_manager_now_ns();
+    const uint64_t timer0_after_us = time_us_64();
+    if (timer1_now_ns == UINT64_MAX ||
+        timer0_before_us > UINT64_MAX / 1000u ||
+        timer0_after_us > UINT64_MAX / 1000u) return false;
+    const uint64_t timer0_before_ns = timer0_before_us * 1000u;
+    const uint64_t timer0_after_ns = timer0_after_us * 1000u;
+    const uint64_t timer0_now_ns = timer0_before_ns +
+        (timer0_after_ns - timer0_before_ns) / 2u;
+    if (!vdc_dpll_manager_translate_clock_point(
+            local_plan->now_ns, timer1_now_ns, timer0_now_ns,
+            &transport_plan->now_ns) ||
+        !vdc_dpll_manager_translate_clock_point(
+            local_plan->window_start_ns, timer1_now_ns, timer0_now_ns,
+            &transport_plan->window_start_ns) ||
+        !vdc_dpll_manager_translate_clock_point(
+            local_plan->window_end_ns, timer1_now_ns, timer0_now_ns,
+            &transport_plan->window_end_ns) ||
+        !vdc_dpll_manager_translate_clock_point(
+            local_plan->guard_start_ns, timer1_now_ns, timer0_now_ns,
+            &transport_plan->guard_start_ns) ||
+        !vdc_dpll_manager_translate_clock_point(
+            local_plan->guard_end_ns, timer1_now_ns, timer0_now_ns,
+            &transport_plan->guard_end_ns)) return false;
+#endif
+    return transport_plan->guard_start_ns <= transport_plan->window_start_ns &&
+           transport_plan->window_start_ns < transport_plan->window_end_ns &&
+           transport_plan->window_end_ns <= transport_plan->guard_end_ns;
+}
+
+bool vdc_dpll_manager_local_to_vdc_time(uint64_t local_time_ns,
+                                        uint64_t *vdc_time_ns)
+{
+    if (vdc_time_ns == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        const bool valid = s_published_snapshot_valid;
+        const vdc_dco_control_t dco = s_published_snapshot.dco;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if (begin != end || (end & 1u) != 0u) continue;
+        return valid && vdc_domain_dco_local_to_output_ns(
+                            &dco, local_time_ns, vdc_time_ns);
+    }
+    return false;
 }
 
 static bool vdc_dpll_manager_compute_first_pulse_delay(
@@ -975,6 +1360,7 @@ static bool vdc_dpll_manager_compute_first_pulse_delay(
     }
 
     const uint64_t now_ns = vdc_dpll_manager_now_ns();
+    if (now_ns == UINT64_MAX) return false;
     const uint64_t target_ns =
         first_window_start_ns + (uint64_t)window_offset_ns;
     const uint64_t delay_ns = target_ns > now_ns ? target_ns - now_ns : 0u;
@@ -1015,6 +1401,7 @@ static bool vdc_dpll_manager_compute_dco_phase_pulse_deadline(
 {
     vdc_dpll_manager_runtime_snapshot_t snapshot;
     const uint64_t now_ns = vdc_dpll_manager_now_ns();
+    if (now_ns == UINT64_MAX) return false;
     const uint64_t arm_ahead_ns =
         (uint64_t)pulse_period_ns *
         VDC_DPLL_MANAGER_PHASE_ARM_AHEAD_PERIODS;
@@ -1106,13 +1493,16 @@ static void vdc_dpll_manager_publish_sync_io_observer_locked(void)
         status.quality_flags = s_sync_io_observer_config.quality_flags;
         status.sample0_lsb =
             s_sync_io_observer_config.sample0_lsb ? 1u : 0u;
-        status.schedule_crc32 = s_vdc_domain.schedule.schedule_crc32;
-        status.dictionary_crc32 =
-            s_vdc_domain.timestamp_dictionary.dictionary_crc32;
-        status.dictionary_entry_count =
-            s_vdc_domain.timestamp_dictionary.entry_count;
-        status.dictionary_profile_crc32 =
-            s_vdc_domain.timestamp_dictionary.profile_crc32;
+        vdc_tdma_schedule_profile_t schedule;
+        vdc_timestamp_dictionary_t dictionary;
+        vdc_gate_result_t gate;
+        if (vdc_dpll_manager_get_configuration_basis(&schedule, NULL) &&
+            vdc_dpll_manager_get_observation_basis(&dictionary, &gate)) {
+            status.schedule_crc32 = schedule.schedule_crc32;
+            status.dictionary_crc32 = dictionary.dictionary_crc32;
+            status.dictionary_entry_count = dictionary.entry_count;
+            status.dictionary_profile_crc32 = dictionary.profile_crc32;
+        }
     }
 
     s_published_sync_io_observer_status = status;
@@ -1343,21 +1733,72 @@ static void vdc_dpll_manager_phase_observe_word(
     }
 }
 
+static bool vdc_dpll_manager_finish_compact_observation_request(void)
+{
+    const uint32_t sequence = s_sync_io_observer_pending_owner_sequence;
+    if (sequence == 0u) return false;
+
+    vdc_dpll_manager_owner_status_t owner;
+    vdc_dpll_manager_get_owner_status(&owner);
+    if (owner.requested_sequence != sequence ||
+        owner.applied_sequence != sequence ||
+        (owner.result != VDC_DPLL_MANAGER_OWNER_RESULT_APPLIED &&
+         owner.result != VDC_DPLL_MANAGER_OWNER_RESULT_REJECTED) ||
+        !vdc_dpll_manager_ack_owner_status(sequence)) {
+        return true;
+    }
+
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_gate_result_t gate;
+    const bool gate_valid =
+        vdc_dpll_manager_get_observation_basis(&dictionary, &gate);
+    (void)dictionary;
+    osal_critical_enter();
+    if (s_sync_io_observer_pending_owner_sequence == sequence) {
+        if (owner.result == VDC_DPLL_MANAGER_OWNER_RESULT_APPLIED) {
+            s_sync_io_observer_status.accepted_count++;
+            s_sync_io_observer_status.last_gate_reject_code =
+                VDC_DOMAIN_GATE_PASS;
+        } else {
+            s_sync_io_observer_status.rejected_count++;
+            s_sync_io_observer_status.last_gate_reject_code =
+                gate_valid ? gate.reject_code : VDC_DOMAIN_GATE_DISABLED;
+        }
+        s_sync_io_observer_pending_owner_sequence = 0u;
+        vdc_dpll_manager_publish_sync_io_observer_locked();
+    }
+    osal_critical_exit();
+    return true;
+}
+
 static void vdc_dpll_manager_sync_io_observer_service(void)
 {
     sync_io_capture_latched_word_t words[VDC_DPLL_MANAGER_SYNC_IO_MAX_BATCH_WORDS];
     size_t count = 0u;
     vdc_dpll_manager_sync_io_observer_config_t config;
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_gate_result_t published_gate;
 
     osal_critical_enter();
     config = s_sync_io_observer_config;
     osal_critical_exit();
 
+    if (vdc_dpll_manager_finish_compact_observation_request()) return;
     if (!config.enabled || config.max_words_per_service == 0u) {
         return;
     }
+    if (!config.phase_only &&
+        !vdc_dpll_manager_get_observation_basis(
+            &dictionary, &published_gate)) {
+        return;
+    }
 
-    count = sync_io_read_capture_latched(words, config.max_words_per_service);
+    /* One owner request is retained until its terminal ACK. Leaving the
+     * remaining PIO words in the source FIFO provides bounded backpressure
+     * instead of reading a batch that the one-slot owner mailbox cannot hold. */
+    const size_t read_limit = config.phase_only
+        ? config.max_words_per_service : 1u;
+    count = sync_io_read_capture_latched(words, read_limit);
     if (count == 0u) {
         return;
     }
@@ -1597,9 +2038,8 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
                     words[i].timestamp_resolution_ns;
                 status.last_timestamp_flags =
                     words[i].timestamp_flags;
-                osal_critical_enter();
                 if (vdc_timestamp_dictionary_find(
-                        &s_vdc_domain.timestamp_dictionary,
+                        &dictionary,
                         compact.event_id,
                         &entry)) {
                     status.last_source_slot_id =
@@ -1614,19 +2054,18 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
                     status.last_payload_class = 0u;
                 }
             }
-            status.submitted_count++;
             status.last_event_id = compact.event_id;
             status.last_tick_l32 = compact.tick_l32;
-            if (vdc_domain_submit_compact_observation(&s_vdc_domain, &compact)) {
-                status.accepted_count++;
-                status.last_gate_reject_code =
-                    VDC_DOMAIN_GATE_PASS;
+            uint32_t owner_sequence = 0u;
+            if (vdc_dpll_manager_submit_compact_observation(
+                    &compact, &owner_sequence)) {
+                status.submitted_count++;
+                s_sync_io_observer_pending_owner_sequence = owner_sequence;
             } else {
                 status.rejected_count++;
                 status.last_gate_reject_code =
-                    s_vdc_domain.gate.reject_code;
+                    published_gate.reject_code;
             }
-            osal_critical_exit();
             break;
         case VDC_SYNC_IO_CAPTURE_NO_EDGE:
             status.no_edge_count++;
@@ -1670,6 +2109,8 @@ bool vdc_dpll_manager_init(void)
            sizeof(s_published_sync_io_observer_status));
     s_published_snapshot_guard = 0u;
     memset(&s_published_snapshot, 0, sizeof(s_published_snapshot));
+    memset(&s_published_timestamp_dictionary, 0,
+           sizeof(s_published_timestamp_dictionary));
     s_published_dpll_update_seq = 0u;
     s_dpll_consumed_update_seq = 0u;
     memset(&s_observation_self_test, 0, sizeof(s_observation_self_test));
@@ -1704,6 +2145,24 @@ bool vdc_dpll_manager_init(void)
     s_dpll_role_guard = 0u;
     s_dpll_role_requested_generation = 0u;
     s_dpll_role_applied_generation = 0u;
+    memset(&s_owner_intent, 0, sizeof(s_owner_intent));
+    s_owner_intent_next_sequence = 0u;
+    s_owner_intent_consumed_sequence = 0u;
+    s_owner_intent_result_guard = 0u;
+    s_owner_intent_result_sequence = 0u;
+    s_owner_intent_result_opcode = 0u;
+    s_owner_intent_result = VDC_DPLL_MANAGER_OWNER_RESULT_NONE;
+    s_owner_intent_ack_required_sequence = 0u;
+    memset(&s_control_request, 0, sizeof(s_control_request));
+    memset(&s_control_result, 0, sizeof(s_control_result));
+    s_control_ack_sequence = 0u;
+    s_control_rejected_sequence = 0u;
+    memset(&s_vdc_ready_request, 0, sizeof(s_vdc_ready_request));
+    s_vdc_ready_applied_generation = 0u;
+    s_vdc_stop_applied_generation = 0u;
+    s_sync_io_observer_pending_owner_sequence = 0u;
+    memset(&s_vdc_follower_pending_command, 0,
+           sizeof(s_vdc_follower_pending_command));
     memset(s_dpll_capture_records, 0, sizeof(s_dpll_capture_records));
     s_dpll_capture_armed = false;
     s_dpll_capture_complete = false;
@@ -1795,7 +2254,9 @@ bool vdc_dpll_manager_init(void)
     s_dpll_status.last_service_ms = now_ms;
     s_published_vdc_status = s_vdc_status;
     s_published_dpll_status = s_dpll_status;
-    s_published_snapshot_valid = false;
+    if (!vdc_dpll_manager_publish_domain_snapshot_locked()) {
+        return false;
+    }
     s_vdc_ready = false;
     s_dpll_ready = false;
     return true;
@@ -1804,9 +2265,19 @@ bool vdc_dpll_manager_init(void)
 void vdc_dpll_manager_set_vdc_ready(bool ready)
 {
     osal_critical_enter();
-    s_vdc_ready = ready;
+    __atomic_store_n(&s_vdc_ready, ready, __ATOMIC_RELEASE);
     s_vdc_status.ready = ready;
-    vdc_domain_set_ready(&s_vdc_domain, ready);
+    (void)__atomic_add_fetch(&s_vdc_ready_request.guard, 1u,
+                             __ATOMIC_ACQ_REL);
+    const uint32_t generation = vdc_dpll_manager_increment_nonzero(
+        s_vdc_ready_request.generation);
+    s_vdc_ready_request.value = ready ? 1u : 0u;
+    s_vdc_ready_request.generation = generation;
+    if (!ready) {
+        s_vdc_ready_request.stop_generation = generation;
+    }
+    (void)__atomic_add_fetch(&s_vdc_ready_request.guard, 1u,
+                             __ATOMIC_RELEASE);
     s_published_vdc_status = s_vdc_status;
     osal_critical_exit();
 }
@@ -1820,8 +2291,228 @@ void vdc_dpll_manager_set_dpll_ready(bool ready)
     osal_critical_exit();
 }
 
+static void vdc_dpll_manager_cancel_follower_pending(void)
+{
+    memset(&s_vdc_follower_pending_command, 0,
+           sizeof(s_vdc_follower_pending_command));
+}
+
+static void vdc_dpll_manager_cancel_ring_transaction(void)
+{
+    const bool pending = s_vdc_ring_evidence_pending ||
+        s_vdc_ring_preparation_pending || s_vdc_ring_finalization_pending ||
+        s_vdc_domain_service_pending;
+    s_vdc_ring_evidence_pending = false;
+    s_vdc_ring_preparation_pending = false;
+    s_vdc_ring_finalization_pending = false;
+    s_vdc_domain_service_pending = false;
+    s_vdc_ring_pending_config_seq = 0u;
+    memset(&s_vdc_ring_pending_evidence, 0,
+           sizeof(s_vdc_ring_pending_evidence));
+    memset(&s_vdc_ring_preparation, 0, sizeof(s_vdc_ring_preparation));
+    if (pending) {
+        vdc_dpll_manager_ring_observer_status_t status =
+            s_ring_observer_status;
+        if (status.rejected_count != UINT32_MAX) status.rejected_count++;
+        status.last_result =
+            VDC_DPLL_MANAGER_RING_OBSERVER_SUBMIT_REJECTED;
+        (void)vdc_dpll_manager_finish_ring_observer_service(&status, true);
+    }
+}
+
+static bool vdc_dpll_manager_apply_pending_ready(void)
+{
+    uint32_t requested_value, requested, stop_requested;
+    if (!vdc_dpll_manager_read_ready_request(
+            &requested_value, &requested, &stop_requested)) {
+        return false;
+    }
+    const uint32_t stop_applied = __atomic_load_n(
+        &s_vdc_stop_applied_generation, __ATOMIC_ACQUIRE);
+    if (stop_requested != stop_applied) {
+        vdc_dpll_manager_cancel_ring_transaction();
+        vdc_dpll_manager_cancel_follower_pending();
+        vdc_domain_set_ready(&s_vdc_domain, false);
+        __atomic_store_n(&s_vdc_stop_applied_generation,
+                         stop_requested,
+                         __ATOMIC_RELEASE);
+        if (requested == stop_requested) {
+            __atomic_store_n(&s_vdc_ready_applied_generation,
+                             stop_requested,
+                             __ATOMIC_RELEASE);
+        }
+        (void)vdc_dpll_manager_publish_domain_snapshot_locked();
+        return true;
+    }
+
+    const uint32_t applied = __atomic_load_n(
+        &s_vdc_ready_applied_generation, __ATOMIC_ACQUIRE);
+    if (requested == applied) return false;
+    const bool ready = requested_value != 0u;
+    if (!ready) {
+        vdc_dpll_manager_cancel_ring_transaction();
+        vdc_dpll_manager_cancel_follower_pending();
+    }
+    vdc_domain_set_ready(&s_vdc_domain, ready);
+    __atomic_store_n(&s_vdc_ready_applied_generation,
+                     requested,
+                     __ATOMIC_RELEASE);
+    (void)vdc_dpll_manager_publish_domain_snapshot_locked();
+    return true;
+}
+
+static bool vdc_dpll_manager_apply_owner_intent(void)
+{
+    uint32_t sequence, opcode, ready_generation;
+    bool report_control = false;
+    if (!vdc_dpll_manager_owner_intent_pending(
+            &sequence, &opcode, &ready_generation, &report_control)) {
+        return false;
+    }
+
+    const uint32_t applied_ready_generation = __atomic_load_n(
+        &s_vdc_ready_applied_generation, __ATOMIC_ACQUIRE);
+    bool owner_runtime_stopped = true;
+    if (opcode == VDC_DPLL_MANAGER_OWNER_INTENT_TOPOLOGY ||
+        opcode == VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_CONFIGURATION ||
+        opcode == VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_PROVISIONAL) {
+        tdma_ring_runtime_snapshot_t ring;
+        owner_runtime_stopped = tdma_runtime_owner_get_ring_snapshot(&ring) &&
+                                ring.enabled == 0u &&
+                                ring.adapter_started == 0u;
+    }
+    bool changed = false;
+    bool runtime_only = false;
+    if (ready_generation == applied_ready_generation && owner_runtime_stopped) {
+        switch ((vdc_dpll_manager_owner_intent_opcode_t)opcode) {
+        case VDC_DPLL_MANAGER_OWNER_INTENT_TOPOLOGY:
+            changed = vdc_domain_set_schedule_ring_topology(
+                &s_vdc_domain,
+                s_owner_intent.payload.topology.local_slot_id,
+                s_owner_intent.payload.topology.reference_slot_id,
+                s_owner_intent.payload.topology.node_count);
+            break;
+        case VDC_DPLL_MANAGER_OWNER_INTENT_DICTIONARY:
+            changed = vdc_domain_publish_timestamp_dictionary(
+                &s_vdc_domain,
+                &s_owner_intent.payload.dictionary.dictionary,
+                s_owner_intent.payload.dictionary.initial_tick_l32);
+            break;
+        case VDC_DPLL_MANAGER_OWNER_INTENT_PATH_DELAY:
+            changed = vdc_domain_publish_path_delay_table(
+                &s_vdc_domain, &s_owner_intent.payload.path_delay);
+            break;
+        case VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_CONFIGURATION:
+            changed = vdc_domain_activate_tdma_configuration(
+                &s_vdc_domain,
+                &s_owner_intent.payload.configuration.schedule,
+                &s_owner_intent.payload.configuration.dictionary,
+                &s_owner_intent.payload.configuration.path_delay);
+            break;
+        case VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_PROVISIONAL:
+            changed = vdc_domain_activate_tdma_provisional_configuration(
+                &s_vdc_domain,
+                &s_owner_intent.payload.configuration.schedule,
+                &s_owner_intent.payload.configuration.dictionary,
+                &s_owner_intent.payload.configuration.path_delay);
+            break;
+        case VDC_DPLL_MANAGER_OWNER_INTENT_COMPACT_OBSERVATION:
+            runtime_only = true;
+            if (s_vdc_domain.ready != 0u) {
+                changed = vdc_domain_submit_compact_observation(
+                    &s_vdc_domain, &s_owner_intent.payload.compact);
+            }
+            break;
+        case VDC_DPLL_MANAGER_OWNER_INTENT_TDMA_EVIDENCE:
+            runtime_only = true;
+            if (s_vdc_domain.ready != 0u) {
+                changed = vdc_domain_submit_tdma_evidence(
+                    &s_vdc_domain, &s_owner_intent.payload.evidence);
+            }
+            break;
+        case VDC_DPLL_MANAGER_OWNER_INTENT_REANCHOR_WRAP:
+            vdc_wrap_tracker_init(
+                &s_vdc_domain.wrap_tracker,
+                (uint32_t)s_owner_intent.payload.wrap_anchor_ns);
+            s_vdc_domain.wrap_tracker.tick_hi64 =
+                s_owner_intent.payload.wrap_anchor_ns &
+                UINT64_C(0xFFFFFFFF00000000);
+            changed = true;
+            break;
+        case VDC_DPLL_MANAGER_OWNER_INTENT_NONE:
+        default:
+            break;
+        }
+    }
+
+    if (changed && (opcode == VDC_DPLL_MANAGER_OWNER_INTENT_TOPOLOGY ||
+                    opcode == VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_CONFIGURATION ||
+                    opcode == VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_PROVISIONAL)) {
+        s_vdc_ring_observation_config_seq = 0u;
+        s_vdc_ring_observation_sequence = 0u;
+        vdc_dpll_manager_cancel_follower_pending();
+    }
+    if (changed || runtime_only) {
+        if (runtime_only) vdc_dpll_manager_publish_runtime_snapshot_locked();
+        else (void)vdc_dpll_manager_publish_domain_snapshot_locked();
+    }
+    (void)__atomic_add_fetch(&s_owner_intent_result_guard,
+                             1u,
+                             __ATOMIC_ACQ_REL);
+    s_owner_intent_result_sequence = sequence;
+    s_owner_intent_result_opcode = opcode;
+    s_owner_intent_result =
+        changed ? VDC_DPLL_MANAGER_OWNER_RESULT_APPLIED
+                : VDC_DPLL_MANAGER_OWNER_RESULT_REJECTED;
+    (void)__atomic_add_fetch(&s_owner_intent_result_guard,
+                             1u,
+                             __ATOMIC_RELEASE);
+    if (report_control) {
+        vdc_dpll_manager_publish_control_result(
+            sequence, opcode, s_owner_intent_result);
+    }
+    /* Releasing the mailbox is last: a new Core0 request cannot overwrite
+     * payload or status before the old publication and result are coherent. */
+    __atomic_store_n(&s_owner_intent_consumed_sequence,
+                     sequence,
+                     __ATOMIC_RELEASE);
+    return true;
+}
+
 /* Keep the command boundary in Flash as before. Inlining it into the SRAM
  * service moves the following aligned DMA BSS region by a whole page. */
+static bool vdc_dpll_manager_service_pending_follower_command(
+    const vdc_dpll_control_profile_t *profile,
+    uint64_t now_ns)
+{
+    if (!s_vdc_follower_pending_command.valid) return false;
+    vdc_dpll_manager_pending_follower_command_t *pending =
+        &s_vdc_follower_pending_command;
+    const bool identity_matches = profile != NULL &&
+        pending->schedule_crc32 == s_vdc_domain.schedule.schedule_crc32 &&
+        pending->clock_epoch_id == s_vdc_domain.clock.epoch_id &&
+        pending->clock_run_id == s_vdc_domain.clock.run_id &&
+        pending->control_generation == profile->generation;
+    if (!identity_matches) {
+        s_vdc_follower_last_applied_seq = pending->command.command_seq;
+        s_vdc_follower_capture_kind_hint =
+            VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE;
+        vdc_dpll_manager_cancel_follower_pending();
+        return true;
+    }
+    if (now_ns == UINT64_MAX || now_ns < pending->local_effective_time_ns) {
+        return true;
+    }
+    const bool applied = vdc_domain_apply_follower_command(
+        &s_vdc_domain, &pending->command);
+    s_vdc_follower_last_applied_seq = pending->command.command_seq;
+    s_vdc_follower_capture_kind_hint =
+        applied ? VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND
+                : VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE;
+    vdc_dpll_manager_cancel_follower_pending();
+    return true;
+}
+
 static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(void)
 {
     /* This function runs only at the Core1 DPLL owner boundary, after role
@@ -1835,6 +2526,7 @@ static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(
         profile->mode != VDC_DPLL_CONTROL_MODE_FOLLOWER) {
         s_vdc_follower_last_applied_seq = 0u;
         s_vdc_follower_last_generation = 0u;
+        vdc_dpll_manager_cancel_follower_pending();
         return;
     }
 
@@ -1842,6 +2534,12 @@ static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(
     if (generation != s_vdc_follower_last_generation) {
         s_vdc_follower_last_generation = generation;
         s_vdc_follower_last_applied_seq = 0u;
+        vdc_dpll_manager_cancel_follower_pending();
+    }
+
+    const uint64_t now_ns = vdc_dpll_manager_now_ns();
+    if (vdc_dpll_manager_service_pending_follower_command(profile, now_ns)) {
+        return;
     }
 
     refmem_sync_vdc_command_snapshot_t retained;
@@ -1873,7 +2571,7 @@ static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(
         retained.command_seq <= s_vdc_follower_last_applied_seq) {
         return;
     }
-    if (retained.effective_vdc_time_ns > vdc_dpll_manager_now_ns()) {
+    if (now_ns == UINT64_MAX) {
         return;
     }
 
@@ -1889,14 +2587,29 @@ static __attribute__((noinline)) void vdc_dpll_manager_consume_follower_command(
     command.phase_offset_ns = retained.phase_offset_ns;
     command.lock_state = retained.lock_state;
     command.quality = retained.quality;
-    const bool applied =
-        vdc_domain_apply_follower_command(&s_vdc_domain, &command);
-    /* Retain the attempted sequence even when Domain rejects its schedule,
-     * rate or state fields; a bad command must not be retried as local PI. */
-    s_vdc_follower_last_applied_seq = retained.command_seq;
-    s_vdc_follower_capture_kind_hint =
-        applied ? VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_COMMAND
-                : VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_FOLLOWER_STATE;
+    uint64_t local_effective_time_ns;
+    if (!vdc_domain_dco_output_to_local_ns(
+            &s_vdc_domain.dco,
+            retained.effective_vdc_time_ns,
+            &local_effective_time_ns)) {
+        return;
+    }
+
+    /* Freeze the VDC-to-TIMER1 conversion once. This is a Core1 software
+     * service boundary, not a hardware reservation deadline; later DCO model
+     * publications must not move an already retained command. */
+    s_vdc_follower_pending_command =
+        (vdc_dpll_manager_pending_follower_command_t){
+            .valid = true,
+            .local_effective_time_ns = local_effective_time_ns,
+            .schedule_crc32 = s_vdc_domain.schedule.schedule_crc32,
+            .clock_epoch_id = s_vdc_domain.clock.epoch_id,
+            .clock_run_id = s_vdc_domain.clock.run_id,
+            .control_generation = profile->generation,
+            .source_model_seq = s_vdc_domain.dco.source_model_seq,
+            .command = command,
+        };
+    (void)vdc_dpll_manager_service_pending_follower_command(profile, now_ns);
 }
 
 static uint32_t vdc_dpll_manager_stage_debug_servo_profile(
@@ -2011,6 +2724,7 @@ static bool vdc_dpll_manager_apply_pending_dpll_role(void)
     if (!vdc_domain_set_dpll_control_profile(&s_vdc_domain, &profile)) {
         return false;
     }
+    vdc_dpll_manager_cancel_follower_pending();
     __atomic_store_n(&s_dpll_role_applied_generation,
                      status.requested_generation, __ATOMIC_RELEASE);
     return true;
@@ -2275,7 +2989,10 @@ static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
     vdc_dpll_manager_sync_io_observer_config_t config = {0};
     vdc_tdma_window_plan_t plan;
     vdc_gate_result_t gate;
+    vdc_dpll_manager_runtime_snapshot_t runtime;
     uint64_t now_ns = vdc_dpll_manager_now_ns();
+    if (now_ns == UINT64_MAX) return false;
+    if (!vdc_dpll_manager_get_runtime_snapshot(&runtime)) return false;
     const uint32_t sanitized_sample_period_ns =
         sample_period_ns != 0u ? sample_period_ns : 1000u;
 
@@ -2298,7 +3015,8 @@ static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
     const uint32_t scheduled_width_ns =
         (uint32_t)(plan.window_end_ns - plan.window_start_ns);
     const uint32_t window_width_ns =
-        vdc_dpll_manager_observer_window_width_ns(&s_vdc_domain,
+        vdc_dpll_manager_observer_window_width_ns(&runtime.schedule,
+                                                  runtime.dpll.state,
                                                   scheduled_width_ns,
                                                   sanitized_sample_period_ns);
 
@@ -2313,7 +3031,7 @@ static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
     config.sample_period_ns = sanitized_sample_period_ns;
     config.expected_window_start_ns = window_start_ns;
     config.frame_crc32 = frame_crc32 != 0u ? frame_crc32 : plan.schedule_crc32;
-    config.max_backward_ticks = s_vdc_domain.schedule.period_ns;
+    config.max_backward_ticks = runtime.schedule.period_ns;
     config.quality_flags =
         VDC_DPLL_MANAGER_OBSERVER_QUALITY_TDMA_WINDOW_BASE;
 
@@ -2321,18 +3039,13 @@ static bool vdc_dpll_manager_configure_sync_io_observer_tdma_mask(
         return false;
     }
 
-    osal_critical_enter();
-    vdc_wrap_tracker_init(&s_vdc_domain.wrap_tracker,
-                          (uint32_t)(window_start_ns & 0xFFFFFFFFull));
-    s_vdc_domain.wrap_tracker.tick_hi64 =
-        window_start_ns & 0xFFFFFFFF00000000ull;
-    osal_critical_exit();
+    if (!vdc_dpll_manager_stage_wrap_reanchor(window_start_ns)) return false;
 
     const bool armed = periodic
         ? sync_io_capture_arm_periodic_timestamp_window(
               window_start_ns,
               window_width_ns,
-              s_vdc_domain.schedule.period_ns,
+              runtime.schedule.period_ns,
               sanitized_sample_period_ns,
               config.observed_mask,
               initial_sample_mask)
@@ -2360,6 +3073,8 @@ bool vdc_dpll_manager_start_observation_self_test(
     uint64_t now_ns = vdc_dpll_manager_now_ns();
     vdc_dpll_manager_observation_self_test_status_t status = {0};
     bool plan_available;
+
+    if (now_ns == UINT64_MAX) return false;
 
     if (config != NULL && config->phase_only &&
         config->role == VDC_DPLL_MANAGER_SELF_TEST_ROLE_NONE) {
@@ -2531,7 +3246,9 @@ bool vdc_dpll_manager_start_observation_self_test(
     if ((config->role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_TX) != 0u) {
         uint8_t frame[VDC_TDMA_PAYLOAD_FRAME_SIZE];
         size_t frame_size = 0u;
+        vdc_tdma_schedule_profile_t active_schedule;
         vdc_tdma_window_plan_t tx_plan = plan;
+        vdc_tdma_window_plan_t transport_plan;
         vdc_tdma_frame_envelope_t envelope;
         vdc_tdma_payload_status_t payload_status;
         const uint32_t pulse_window_offset_ns = 2000u;
@@ -2547,7 +3264,9 @@ bool vdc_dpll_manager_start_observation_self_test(
             s_vdc_tdma_self_test_frame_seq = 1u;
         }
 
-        if (!vdc_tdma_payload_build_frame(&s_vdc_domain.schedule,
+        if (!vdc_dpll_manager_get_configuration_basis(
+                &active_schedule, NULL) ||
+            !vdc_tdma_payload_build_frame(&active_schedule,
                                           &tx_plan,
                                           VDC_DOMAIN_PAYLOAD_SYNC_SAMPLE,
                                           s_vdc_tdma_self_test_frame_seq,
@@ -2563,6 +3282,18 @@ bool vdc_dpll_manager_start_observation_self_test(
                 sync_io_capture_disarm_timestamp_window();
             }
             status.last_error = 2u;
+            osal_critical_enter();
+            s_observation_self_test = status;
+            osal_critical_exit();
+            return false;
+        }
+        if (!vdc_dpll_manager_translate_tdma_transport_plan(
+                &tx_plan, &transport_plan)) {
+            if ((config->role & VDC_DPLL_MANAGER_SELF_TEST_ROLE_RX) != 0u) {
+                sync_io_stop_capture();
+                sync_io_capture_disarm_timestamp_window();
+            }
+            status.last_error = 3u;
             osal_critical_enter();
             s_observation_self_test = status;
             osal_critical_exit();
@@ -2609,10 +3340,10 @@ bool vdc_dpll_manager_start_observation_self_test(
             .scheduled_window_valid = 1u,
             .scheduled_window_class = tx_plan.window_class,
             .schedule_crc32 = tx_plan.schedule_crc32,
-            .scheduled_window_start_ns = tx_plan.window_start_ns,
-            .scheduled_window_end_ns = tx_plan.window_end_ns,
-            .scheduled_guard_start_ns = tx_plan.guard_start_ns,
-            .scheduled_guard_end_ns = tx_plan.guard_end_ns,
+            .scheduled_window_start_ns = transport_plan.window_start_ns,
+            .scheduled_window_end_ns = transport_plan.window_end_ns,
+            .scheduled_guard_start_ns = transport_plan.guard_start_ns,
+            .scheduled_guard_end_ns = transport_plan.guard_end_ns,
             .frame = frame,
             .frame_size = frame_size,
         };
@@ -2663,6 +3394,14 @@ void vdc_dpll_manager_get_sync_io_observer_status(
         return;
     }
 
+    vdc_tdma_schedule_profile_t schedule;
+    vdc_timestamp_dictionary_t dictionary;
+    vdc_gate_result_t gate;
+    const bool basis_valid =
+        vdc_dpll_manager_get_configuration_basis(&schedule, NULL) &&
+        vdc_dpll_manager_get_observation_basis(&dictionary, &gate);
+    (void)gate;
+
     osal_critical_enter();
     *status = s_sync_io_observer_status;
     status->enabled = s_sync_io_observer_config.enabled;
@@ -2688,13 +3427,12 @@ void vdc_dpll_manager_get_sync_io_observer_status(
         status->quality_flags = s_sync_io_observer_config.quality_flags;
         status->sample0_lsb =
             s_sync_io_observer_config.sample0_lsb ? 1u : 0u;
-        status->schedule_crc32 = s_vdc_domain.schedule.schedule_crc32;
-        status->dictionary_crc32 =
-            s_vdc_domain.timestamp_dictionary.dictionary_crc32;
-        status->dictionary_entry_count =
-            s_vdc_domain.timestamp_dictionary.entry_count;
-        status->dictionary_profile_crc32 =
-            s_vdc_domain.timestamp_dictionary.profile_crc32;
+        if (basis_valid) {
+            status->schedule_crc32 = schedule.schedule_crc32;
+            status->dictionary_crc32 = dictionary.dictionary_crc32;
+            status->dictionary_entry_count = dictionary.entry_count;
+            status->dictionary_profile_crc32 = dictionary.profile_crc32;
+        }
     }
     osal_critical_exit();
 }
@@ -2922,8 +3660,79 @@ static void vdc_dpll_manager_waveform_capture_service(void)
     }
 }
 
+static __attribute__((noinline)) bool vdc_dpll_manager_age_quality_core1(void)
+{
+    if (s_vdc_domain.quality.last_sample_time_ns == 0u &&
+        (!s_published_snapshot_valid ||
+         s_published_snapshot.quality.last_sample_time_ns == 0u)) return false;
+    const uint64_t now_ns = vdc_dpll_manager_now_ns();
+    if (vdc_domain_maintain_quality(&s_vdc_domain, now_ns)) {
+        vdc_dpll_manager_cancel_ring_transaction();
+        vdc_dpll_manager_publish_runtime_snapshot_locked();
+        return true;
+    }
+    if (!s_published_snapshot_valid ||
+        s_published_snapshot.quality.last_sample_time_ns == 0u) return false;
+    vdc_quality_table_t quality = s_published_snapshot.quality;
+    const bool changed = vdc_domain_age_quality(&quality,
+        s_published_snapshot.dpll.state,
+        s_published_snapshot.gate.passed != 0u, now_ns);
+    const uint32_t holdover_age =
+        s_published_snapshot.dpll.state == VDC_DOMAIN_LOCK_HOLDOVER
+            ? quality.last_sample_age_us
+            : s_published_snapshot.dpll.holdover_age_us;
+    if (!changed &&
+        holdover_age == s_published_snapshot.dpll.holdover_age_us) return false;
+    (void)__atomic_add_fetch(&s_published_snapshot_guard, 1u,
+                             __ATOMIC_ACQ_REL);
+    s_published_snapshot.quality.last_sample_age_us =
+        quality.last_sample_age_us;
+    s_published_snapshot.quality.health_state = quality.health_state;
+    s_published_snapshot.dpll.holdover_age_us = holdover_age;
+    (void)__atomic_add_fetch(&s_published_snapshot_guard, 1u,
+                             __ATOMIC_RELEASE);
+    return false;
+}
+
+static bool vdc_dpll_manager_progress_ring_transaction(void)
+{
+    if (s_vdc_domain_service_pending) {
+        const uint64_t now_ns = vdc_dpll_manager_now_ns();
+        s_vdc_domain_service_pending = false;
+        vdc_domain_service(&s_vdc_domain, now_ns);
+        vdc_dpll_manager_publish_runtime_snapshot_locked();
+        return true;
+    }
+    if (vdc_dpll_manager_finalize_ring_evidence()) {
+        vdc_dpll_manager_publish_runtime_snapshot_locked();
+        return true;
+    }
+    return vdc_dpll_manager_apply_ring_evidence();
+}
+
+static bool VDC_DPLL_MANAGER_TIME_CRITICAL(
+    vdc_dpll_manager_owner_service_step_core1)(void)
+{
+    /* STOP is sticky and wins over every admitted or staged transaction. */
+    if (vdc_dpll_manager_apply_pending_ready()) return true;
+    /* Freshness is a property of elapsed time, not of receiving another
+     * sample. Keep the committed view current even on every early return. */
+    if (vdc_dpll_manager_age_quality_core1()) return true;
+    /* Once evidence is prepared, finish or cancel it before any control,
+     * follower or configuration mutation can advance the domain sequence. */
+    if (vdc_dpll_manager_progress_ring_transaction()) return true;
+    return vdc_dpll_manager_apply_owner_intent();
+}
+
+void VDC_DPLL_MANAGER_TIME_CRITICAL(
+    vdc_dpll_manager_owner_service_core1)(void)
+{
+    (void)vdc_dpll_manager_owner_service_step_core1();
+}
+
 void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
 {
+    if (vdc_dpll_manager_owner_service_step_core1()) return;
     /* Debug admission is a control-plane policy, not a local-servo action.
      * Apply it before any role/follower early return so every node can enter
      * QUICK_DIAGNOSTIC even when its DPLL role is already FOLLOWER. */
@@ -2949,31 +3758,19 @@ void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_fb_service)(void)
     /* FOLLOWER consumes only a verified, absolutely scheduled command.  The
      * local TDMA evidence path still runs for observability, but Domain marks
      * it as diagnostic-only and never feeds the local PI/DCO path. */
+    const uint32_t follower_update_seq = s_vdc_domain.dpll.update_seq;
     vdc_dpll_manager_consume_follower_command();
-    /* Complete already-admitted domain work before accepting another ring
-     * sample. This keeps one bounded four-beat pipeline at the 4 ms evidence
-     * cadence: prepare, servo, state/finalize, service/publish. */
+    if (s_vdc_domain.dpll.update_seq != follower_update_seq) {
+        vdc_dpll_manager_publish_runtime_snapshot_locked();
+        return;
+    }
     if (vdc_dpll_manager_apply_pending_debug_servo_tune()) {
         vdc_dpll_manager_publish_runtime_snapshot_locked();
         return;
     }
-    if (s_vdc_domain_service_pending) {
-        s_vdc_domain_service_pending = false;
-        vdc_domain_service(&s_vdc_domain, vdc_dpll_manager_now_ns());
-        vdc_dpll_manager_publish_runtime_snapshot_locked();
-        return;
-    }
-    if (vdc_dpll_manager_finalize_ring_evidence()) {
-        /* Finalization advances the follower observation sequence. Publish
-         * immediately so a subsequent peer command cannot overwrite the
-         * capture-kind hint before this local evidence is recorded. */
-        vdc_dpll_manager_publish_runtime_snapshot_locked();
-        return;
-    }
-    if (vdc_dpll_manager_prepare_ring_evidence()) {
-        return;
-    }
-    (void)vdc_dpll_manager_apply_ring_evidence();
+    /* Admit new raw evidence only after every pending owner/control request
+     * had a bounded opportunity at this idle transaction boundary. */
+    (void)vdc_dpll_manager_prepare_ring_evidence();
 }
 
 void vdc_dpll_manager_dpll_service(void)
@@ -2998,7 +3795,13 @@ void tdma_component_core1_service(void)
      * completion.  This bounded poll only harvests a completed launch/latch
      * token before the scheduler advances the next TDMA window. */
     uint64_t timing_start = tdma_service_timing_now();
-    tdma_runtime_owner_service_phys_tx(vdc_dpll_manager_now_ns());
+    /* TDMA physical TX retains its SDK/TIMER0 deadline coordinate. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    tdma_runtime_owner_service_phys_tx(time_us_64() * 1000ull);
+#else
+    tdma_runtime_owner_service_phys_tx(
+        (uint64_t)board_uptime_ms() * 1000000ull);
+#endif
     tdma_service_timing_record(TDMA_TIMING_PHYS_SERVICE, timing_start);
     timing_start = tdma_service_timing_now();
     if (s_vdc_tdma_service != NULL) {
@@ -3114,6 +3917,7 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_vector_snapshot)(
         const bool valid = s_published_snapshot_valid;
         snapshot->ready = s_published_snapshot.ready;
         snapshot->service_count = s_published_snapshot.service_count;
+        snapshot->publication_revision = begin;
         snapshot->schedule = s_published_snapshot.schedule;
         snapshot->servo.servo_profile_crc32 =
             s_published_snapshot.servo.servo_profile_crc32;
@@ -3129,6 +3933,8 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_vector_snapshot)(
             s_published_snapshot.path_delay.calibration_generation;
         snapshot->path_delay.freshness_us =
             s_published_snapshot.path_delay.freshness_us;
+        snapshot->path_delay.schedule_crc32 =
+            s_published_snapshot.path_delay.schedule_crc32;
         snapshot->gate = s_published_snapshot.gate;
         /* Finish all payload reads before rechecking the publication guard. */
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
@@ -3139,6 +3945,208 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_vector_snapshot)(
         }
     }
     return false;
+}
+
+void vdc_dpll_manager_get_owner_status(
+    vdc_dpll_manager_owner_status_t *status)
+{
+    if (status == NULL) return;
+    memset(status, 0, sizeof(*status));
+    uint32_t requested_sequence = 0u;
+    uint32_t requested_opcode = 0u;
+    bool request_read = false;
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &s_owner_intent.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        requested_sequence = s_owner_intent.sequence;
+        requested_opcode = s_owner_intent.opcode;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_owner_intent.guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            request_read = true;
+            break;
+        }
+    }
+    if (!request_read) return;
+
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &s_owner_intent_result_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        const uint32_t applied_sequence = s_owner_intent_result_sequence;
+        const uint32_t applied_opcode = s_owner_intent_result_opcode;
+        const uint32_t result = s_owner_intent_result;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_owner_intent_result_guard, __ATOMIC_ACQUIRE);
+        if (begin != end || (end & 1u) != 0u) continue;
+        status->requested_sequence = requested_sequence;
+        status->applied_sequence = applied_sequence;
+        status->opcode = requested_sequence == applied_sequence
+            ? applied_opcode : requested_opcode;
+        status->result = requested_sequence == applied_sequence
+            ? result : VDC_DPLL_MANAGER_OWNER_RESULT_PENDING;
+        return;
+    }
+}
+
+bool vdc_dpll_manager_get_control_owner_status(
+    vdc_dpll_manager_owner_status_t *status,
+    bool *pending)
+{
+    if (status == NULL || pending == NULL) return false;
+    memset(status, 0, sizeof(*status));
+    *pending = true;
+
+    uint32_t requested_sequence = 0u;
+    uint32_t requested_opcode = 0u;
+    bool request_read = false;
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &s_control_request.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        requested_sequence = s_control_request.sequence;
+        requested_opcode = s_control_request.opcode;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_control_request.guard, __ATOMIC_ACQUIRE);
+        if (begin == end && (end & 1u) == 0u) {
+            request_read = true;
+            break;
+        }
+    }
+    if (!request_read) return false;
+    status->requested_sequence = requested_sequence;
+    status->opcode = requested_opcode;
+    if (requested_sequence == 0u) {
+        *pending = false;
+        return true;
+    }
+
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &s_control_result.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        const uint32_t applied_sequence = s_control_result.sequence;
+        const uint32_t applied_opcode = s_control_result.opcode;
+        uint32_t result = s_control_result.result;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_control_result.guard, __ATOMIC_ACQUIRE);
+        if (begin != end || (end & 1u) != 0u) continue;
+        uint32_t effective_applied_sequence = applied_sequence;
+        if (__atomic_load_n(&s_control_rejected_sequence,
+                            __ATOMIC_ACQUIRE) == requested_sequence) {
+            effective_applied_sequence = requested_sequence;
+            result = VDC_DPLL_MANAGER_OWNER_RESULT_REJECTED;
+        }
+        status->applied_sequence = effective_applied_sequence;
+        if (effective_applied_sequence == requested_sequence) {
+            status->opcode = applied_opcode;
+            status->result = result;
+        } else {
+            status->result = VDC_DPLL_MANAGER_OWNER_RESULT_PENDING;
+        }
+        const bool terminal = effective_applied_sequence == requested_sequence &&
+            (result == VDC_DPLL_MANAGER_OWNER_RESULT_APPLIED ||
+             result == VDC_DPLL_MANAGER_OWNER_RESULT_REJECTED);
+        const bool ack_required =
+            requested_opcode == VDC_DPLL_MANAGER_OWNER_INTENT_TOPOLOGY ||
+            requested_opcode ==
+                VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_CONFIGURATION;
+        *pending = !terminal ||
+            (ack_required &&
+             __atomic_load_n(&s_control_ack_sequence,
+                             __ATOMIC_ACQUIRE) != requested_sequence);
+        return true;
+    }
+    return false;
+}
+
+bool vdc_dpll_manager_reject_control_owner_status(uint32_t sequence)
+{
+    if (sequence == 0u) return false;
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &s_control_request.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        const uint32_t requested_sequence = s_control_request.sequence;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_control_request.guard, __ATOMIC_ACQUIRE);
+        if (begin != end || (end & 1u) != 0u) continue;
+        if (requested_sequence != sequence) return false;
+        __atomic_store_n(&s_control_rejected_sequence,
+                         sequence,
+                         __ATOMIC_RELEASE);
+        return true;
+    }
+    return false;
+}
+
+bool vdc_dpll_manager_complete_control_owner_status(uint32_t sequence)
+{
+    vdc_dpll_manager_owner_status_t status;
+    bool pending = true;
+    if (sequence == 0u ||
+        !vdc_dpll_manager_get_control_owner_status(&status, &pending) ||
+        status.requested_sequence != sequence ||
+        status.applied_sequence != sequence ||
+        (status.result != VDC_DPLL_MANAGER_OWNER_RESULT_APPLIED &&
+         status.result != VDC_DPLL_MANAGER_OWNER_RESULT_REJECTED)) {
+        return false;
+    }
+    __atomic_store_n(&s_control_ack_sequence, sequence, __ATOMIC_RELEASE);
+    return true;
+}
+
+bool vdc_dpll_manager_ack_owner_status(uint32_t sequence)
+{
+    vdc_dpll_manager_owner_status_t status;
+    vdc_dpll_manager_get_owner_status(&status);
+    if (sequence == 0u || status.requested_sequence != sequence ||
+        status.applied_sequence != sequence ||
+        status.result == VDC_DPLL_MANAGER_OWNER_RESULT_PENDING ||
+        __atomic_load_n(&s_owner_intent_consumed_sequence,
+                        __ATOMIC_ACQUIRE) != sequence) {
+        return false;
+    }
+    uint32_t expected = sequence;
+    return __atomic_compare_exchange_n(
+        &s_owner_intent_ack_required_sequence,
+        &expected,
+        0u,
+        false,
+        __ATOMIC_ACQ_REL,
+        __ATOMIC_ACQUIRE);
+}
+
+bool vdc_dpll_manager_owner_change_pending(void)
+{
+    vdc_dpll_manager_owner_status_t control;
+    bool control_pending = true;
+    if (!vdc_dpll_manager_get_control_owner_status(
+            &control, &control_pending) || control_pending) {
+        return true;
+    }
+    if (__atomic_load_n(&s_owner_intent_ack_required_sequence,
+                        __ATOMIC_ACQUIRE) != 0u) return true;
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        const uint32_t begin = __atomic_load_n(
+            &s_owner_intent.guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) continue;
+        const uint32_t requested = s_owner_intent.sequence;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        const uint32_t end = __atomic_load_n(
+            &s_owner_intent.guard, __ATOMIC_ACQUIRE);
+        if (begin != end || (end & 1u) != 0u) continue;
+        return requested != __atomic_load_n(
+                                &s_owner_intent_consumed_sequence,
+                                __ATOMIC_ACQUIRE);
+    }
+    return true;
 }
 
 bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_refmem_snapshot)(
@@ -3155,6 +4163,7 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_refmem_snapshot)(
         }
         const bool valid = s_published_snapshot_valid;
         snapshot->schedule = s_published_snapshot.schedule;
+        snapshot->publication_revision = begin;
         snapshot->clock_epoch_id = s_published_snapshot.clock.epoch_id;
         snapshot->clock_run_id = s_published_snapshot.clock.run_id;
         snapshot->dco_period_adjust_ppb =
@@ -3188,6 +4197,9 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(
     }
     if (now_ns == VDC_DPLL_MANAGER_PLAN_NOW_NS) {
         now_ns = vdc_dpll_manager_now_ns();
+    }
+    if (now_ns == UINT64_MAX) {
+        return false;
     }
 
     /* The snapshot was copied under s_published_snapshot_guard.  Its schedule
@@ -3224,7 +4236,6 @@ bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
                                        vdc_tdma_window_plan_t *plan,
                                        vdc_gate_result_t *gate)
 {
-    bool result = false;
     if (plan == NULL) {
         return false;
     }
@@ -3232,68 +4243,114 @@ bool vdc_dpll_manager_plan_tdma_window(uint32_t window_class,
     if (now_ns == VDC_DPLL_MANAGER_PLAN_NOW_NS) {
         now_ns = vdc_dpll_manager_now_ns();
     }
+    if (now_ns == UINT64_MAX) {
+        return false;
+    }
 
-    osal_critical_enter();
-    result = vdc_domain_plan_tdma_window(&s_vdc_domain.schedule,
-                                         window_class,
-                                         now_ns,
-                                         plan,
-                                         gate);
-    osal_critical_exit();
-    return result;
+    vdc_tdma_schedule_profile_t schedule;
+    return vdc_dpll_manager_get_configuration_basis(&schedule, NULL) &&
+        vdc_domain_plan_tdma_window(&schedule,
+                                    window_class,
+                                    now_ns,
+                                    plan,
+                                    gate);
 }
 
 bool vdc_dpll_manager_plan_tdma_ring(vdc_tdma_ring_plan_t *plan)
 {
-    bool result = false;
     if (plan == NULL) {
         return false;
     }
-
-    osal_critical_enter();
-    result = vdc_domain_plan_tdma_ring(&s_vdc_domain.schedule, plan);
-    osal_critical_exit();
-    return result;
+    vdc_tdma_schedule_profile_t schedule;
+    return vdc_dpll_manager_get_configuration_basis(&schedule, NULL) &&
+        vdc_domain_plan_tdma_ring(&schedule, plan);
 }
 
-bool vdc_dpll_manager_set_tdma_ring_local_slot(uint32_t local_slot_id)
+static bool vdc_dpll_manager_control_transaction_open(void)
 {
-    osal_critical_enter();
-    const bool changed = vdc_domain_set_schedule_ring_topology(
-        &s_vdc_domain,
+    vdc_dpll_manager_owner_status_t status;
+    bool pending = true;
+    return !vdc_dpll_manager_get_control_owner_status(&status, &pending) ||
+        pending;
+}
+
+bool vdc_dpll_manager_set_tdma_ring_local_slot(uint32_t local_slot_id,
+                                                uint32_t *owner_sequence)
+{
+    vdc_tdma_schedule_profile_t schedule;
+    if (!vdc_dpll_manager_get_configuration_basis(&schedule, NULL)) return false;
+    return vdc_dpll_manager_set_tdma_ring_topology(
         local_slot_id,
-        s_vdc_domain.schedule.reference_slot_id,
-        s_vdc_domain.schedule.ring_binding.node_count);
+        schedule.reference_slot_id,
+        schedule.ring_binding.node_count,
+        owner_sequence);
+}
+
+static bool vdc_dpll_manager_queue_tdma_ring_topology(
+    uint32_t local_slot_id,
+    uint32_t reference_slot_id,
+    uint32_t node_count,
+    bool report_control,
+    uint32_t *owner_sequence)
+{
+    if (owner_sequence == NULL || node_count < 2u ||
+        node_count > VDC_DOMAIN_NODE_COUNT ||
+        local_slot_id >= node_count || reference_slot_id >= node_count) {
+        return false;
+    }
+    osal_critical_enter();
+    const bool accepted = vdc_dpll_manager_owner_intent_begin_locked(
+        VDC_DPLL_MANAGER_OWNER_INTENT_TOPOLOGY);
+    if (accepted) {
+        s_owner_intent.report_control = report_control ? 1u : 0u;
+        s_owner_intent.payload.topology.local_slot_id = local_slot_id;
+        s_owner_intent.payload.topology.reference_slot_id = reference_slot_id;
+        s_owner_intent.payload.topology.node_count = node_count;
+        vdc_dpll_manager_owner_intent_end_locked();
+        *owner_sequence = s_owner_intent.sequence;
+    }
     osal_critical_exit();
-    return changed;
+    return accepted;
 }
 
 bool vdc_dpll_manager_set_tdma_ring_topology(uint32_t local_slot_id,
                                              uint32_t reference_slot_id,
-                                             uint32_t node_count)
+                                             uint32_t node_count,
+                                             uint32_t *owner_sequence)
 {
-    osal_critical_enter();
-    const bool changed = vdc_domain_set_schedule_ring_topology(
-        &s_vdc_domain, local_slot_id, reference_slot_id, node_count);
-    osal_critical_exit();
-    return changed;
+    if (vdc_dpll_manager_control_transaction_open()) return false;
+    return vdc_dpll_manager_queue_tdma_ring_topology(
+        local_slot_id, reference_slot_id, node_count, true, owner_sequence);
+}
+
+bool vdc_dpll_manager_restore_tdma_ring_topology(uint32_t local_slot_id,
+                                                 uint32_t reference_slot_id,
+                                                 uint32_t node_count,
+                                                 uint32_t *owner_sequence)
+{
+    return vdc_dpll_manager_queue_tdma_ring_topology(
+        local_slot_id, reference_slot_id, node_count, false, owner_sequence);
 }
 
 bool vdc_dpll_manager_publish_timestamp_dictionary(
     const vdc_timestamp_dictionary_t *dictionary,
     uint32_t initial_tick_l32)
 {
-    bool result = false;
-    if (dictionary == NULL) {
+    if (dictionary == NULL ||
+        !vdc_timestamp_dictionary_validate(dictionary)) {
         return false;
     }
 
     osal_critical_enter();
-    result = vdc_domain_publish_timestamp_dictionary(&s_vdc_domain,
-                                                     dictionary,
-                                                     initial_tick_l32);
+    const bool accepted = vdc_dpll_manager_owner_intent_begin_locked(
+        VDC_DPLL_MANAGER_OWNER_INTENT_DICTIONARY);
+    if (accepted) {
+        s_owner_intent.payload.dictionary.dictionary = *dictionary;
+        s_owner_intent.payload.dictionary.initial_tick_l32 = initial_tick_l32;
+        vdc_dpll_manager_owner_intent_end_locked();
+    }
     osal_critical_exit();
-    return result;
+    return accepted;
 }
 
 bool vdc_dpll_manager_publish_calibration_path_delay(
@@ -3303,8 +4360,12 @@ bool vdc_dpll_manager_publish_calibration_path_delay(
         return false;
     }
     osal_critical_enter();
-    const bool accepted = vdc_domain_publish_path_delay_table(
-        &s_vdc_domain, table);
+    const bool accepted = vdc_dpll_manager_owner_intent_begin_locked(
+        VDC_DPLL_MANAGER_OWNER_INTENT_PATH_DELAY);
+    if (accepted) {
+        s_owner_intent.payload.path_delay = *table;
+        vdc_dpll_manager_owner_intent_end_locked();
+    }
     osal_critical_exit();
     return accepted;
 }
@@ -3749,27 +4810,32 @@ bool vdc_dpll_manager_publish_calibration_path_snapshot(
         return false;
     }
 
-    osal_critical_enter();
+    vdc_tdma_schedule_profile_t schedule;
+    uint32_t path_update_seq;
     vdc_path_delay_table_t table;
+    if (!vdc_dpll_manager_get_configuration_basis(
+            &schedule, &path_update_seq)) return false;
     if (!vdc_dpll_manager_build_calibration_path_table(
             snapshot,
-            &s_vdc_domain.schedule,
-            s_vdc_domain.path_delay.update_seq,
+            &schedule,
+            path_update_seq,
             &table)) {
-        osal_critical_exit();
         return false;
     }
-    const bool accepted = vdc_domain_publish_path_delay_table(
-        &s_vdc_domain, &table);
-    osal_critical_exit();
-    return accepted;
+    return vdc_dpll_manager_publish_calibration_path_delay(&table);
 }
 
 bool vdc_dpll_manager_activate_tdma_calibration(
-    const calibration_path_snapshot_t *snapshot)
+    const calibration_path_snapshot_t *snapshot,
+    uint32_t *owner_sequence)
 {
     tdma_service_ring_runtime_config_t runtime;
-    if (snapshot == NULL || !calibration_path_snapshot_validate(snapshot) ||
+    tdma_ring_runtime_snapshot_t ring;
+    if (snapshot == NULL || owner_sequence == NULL ||
+        vdc_dpll_manager_control_transaction_open() ||
+        !calibration_path_snapshot_validate(snapshot) ||
+        !tdma_runtime_owner_get_ring_snapshot(&ring) ||
+        ring.enabled != 0u || ring.adapter_started != 0u ||
         !tdma_runtime_owner_get_staged_ring_config(&runtime) ||
         runtime.enabled == 0u || runtime.schedule_crc32 == 0u ||
         runtime.operating_profile_crc32 == 0u ||
@@ -3790,35 +4856,35 @@ bool vdc_dpll_manager_activate_tdma_calibration(
         .effective_schedule_crc32 = runtime.schedule_crc32,
     };
 
-    osal_critical_enter();
     vdc_tdma_schedule_profile_t schedule;
     vdc_timestamp_dictionary_t dictionary;
     vdc_path_delay_table_t path_delay;
+    vdc_tdma_schedule_profile_t base_schedule;
+    uint32_t path_update_seq;
+    if (!vdc_dpll_manager_get_configuration_basis(
+            &base_schedule, &path_update_seq)) return false;
     bool prepared = vdc_domain_build_tdma_runtime_schedule(
-        &s_vdc_domain.schedule, &binding, &schedule);
+        &base_schedule, &binding, &schedule);
     if (prepared) {
         vdc_domain_default_timestamp_dictionary(&dictionary, &schedule);
         prepared = vdc_timestamp_dictionary_validate(&dictionary);
     }
     if (prepared) {
         prepared = vdc_dpll_manager_build_calibration_path_table(
-            snapshot, &schedule, s_vdc_domain.path_delay.update_seq,
+            snapshot, &schedule, path_update_seq,
             &path_delay);
     }
-    const bool accepted = prepared &&
-        vdc_domain_activate_tdma_configuration(
-            &s_vdc_domain, &schedule, &dictionary, &path_delay);
+    if (!prepared) return false;
+    osal_critical_enter();
+    const bool accepted = vdc_dpll_manager_owner_intent_begin_locked(
+        VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_CONFIGURATION);
     if (accepted) {
-        s_vdc_ring_observation_config_seq = 0u;
-        s_vdc_ring_observation_sequence = 0u;
-        s_vdc_ring_pending_config_seq = 0u;
-        s_vdc_ring_evidence_pending = false;
-        s_vdc_ring_preparation_pending = false;
-        s_vdc_ring_finalization_pending = false;
-        memset(&s_vdc_ring_preparation, 0,
-               sizeof(s_vdc_ring_preparation));
-        s_vdc_domain_service_pending = false;
-        (void)vdc_dpll_manager_publish_domain_snapshot_locked();
+        s_owner_intent.report_control = 1u;
+        s_owner_intent.payload.configuration.schedule = schedule;
+        s_owner_intent.payload.configuration.dictionary = dictionary;
+        s_owner_intent.payload.configuration.path_delay = path_delay;
+        vdc_dpll_manager_owner_intent_end_locked();
+        *owner_sequence = s_owner_intent.sequence;
     }
     osal_critical_exit();
     return accepted;
@@ -3887,13 +4953,16 @@ static bool vdc_dpll_manager_build_provisional_training_path_table(
     return vdc_domain_path_delay_table_validate_provisional(table);
 }
 
-bool vdc_dpll_manager_activate_tdma_provisional_training(void)
+bool vdc_dpll_manager_activate_tdma_provisional_training(
+    uint32_t *owner_sequence)
 {
     tdma_service_ring_runtime_config_t runtime;
     tdma_ring_runtime_snapshot_t ring;
     tdma_ring_calibration_stage_t stage;
     bool complete = false;
-    if (!tdma_runtime_owner_get_staged_ring_config(&runtime) ||
+    if (owner_sequence == NULL ||
+        vdc_dpll_manager_control_transaction_open() ||
+        !tdma_runtime_owner_get_staged_ring_config(&runtime) ||
         !tdma_runtime_owner_get_ring_snapshot(&ring) || ring.enabled != 0u ||
         !tdma_runtime_owner_get_calibration_stage(&stage, &complete) ||
         !complete || runtime.enabled == 0u ||
@@ -3914,50 +4983,56 @@ bool vdc_dpll_manager_activate_tdma_provisional_training(void)
         .effective_schedule_crc32 = runtime.schedule_crc32,
     };
 
-    osal_critical_enter();
     vdc_tdma_schedule_profile_t schedule;
     vdc_timestamp_dictionary_t dictionary;
     vdc_path_delay_table_t path_delay;
+    vdc_tdma_schedule_profile_t base_schedule;
+    uint32_t path_update_seq;
+    if (!vdc_dpll_manager_get_configuration_basis(
+            &base_schedule, &path_update_seq)) return false;
     bool prepared = vdc_domain_build_tdma_runtime_schedule(
-        &s_vdc_domain.schedule, &binding, &schedule);
+        &base_schedule, &binding, &schedule);
     if (prepared) {
         vdc_domain_default_timestamp_dictionary(&dictionary, &schedule);
         prepared = vdc_timestamp_dictionary_validate(&dictionary);
     }
     if (prepared) {
         prepared = vdc_dpll_manager_build_provisional_training_path_table(
-            &stage, &schedule, s_vdc_domain.path_delay.update_seq,
+            &stage, &schedule, path_update_seq,
             &path_delay);
     }
-    const bool accepted = prepared &&
-        vdc_domain_activate_tdma_provisional_configuration(
-            &s_vdc_domain, &schedule, &dictionary, &path_delay);
+    if (!prepared) return false;
+    osal_critical_enter();
+    const bool accepted = vdc_dpll_manager_owner_intent_begin_locked(
+        VDC_DPLL_MANAGER_OWNER_INTENT_ACTIVATE_PROVISIONAL);
     if (accepted) {
-        s_vdc_ring_observation_config_seq = 0u;
-        s_vdc_ring_observation_sequence = 0u;
-        s_vdc_ring_pending_config_seq = 0u;
-        s_vdc_ring_evidence_pending = false;
-        s_vdc_ring_preparation_pending = false;
-        s_vdc_ring_finalization_pending = false;
-        memset(&s_vdc_ring_preparation, 0,
-               sizeof(s_vdc_ring_preparation));
-        s_vdc_domain_service_pending = false;
-        (void)vdc_dpll_manager_publish_domain_snapshot_locked();
+        s_owner_intent.report_control = 1u;
+        s_owner_intent.payload.configuration.schedule = schedule;
+        s_owner_intent.payload.configuration.dictionary = dictionary;
+        s_owner_intent.payload.configuration.path_delay = path_delay;
+        vdc_dpll_manager_owner_intent_end_locked();
+        *owner_sequence = s_owner_intent.sequence;
     }
     osal_critical_exit();
     return accepted;
 }
 
 bool vdc_dpll_manager_submit_compact_observation(
-    const vdc_compact_observation_sample_t *compact)
+    const vdc_compact_observation_sample_t *compact,
+    uint32_t *owner_sequence)
 {
-    bool result = false;
-    if (compact == NULL) {
+    if (compact == NULL || owner_sequence == NULL) {
         return false;
     }
 
     osal_critical_enter();
-    result = vdc_domain_submit_compact_observation(&s_vdc_domain, compact);
+    const bool accepted = vdc_dpll_manager_owner_intent_begin_locked(
+        VDC_DPLL_MANAGER_OWNER_INTENT_COMPACT_OBSERVATION);
+    if (accepted) {
+        s_owner_intent.payload.compact = *compact;
+        vdc_dpll_manager_owner_intent_end_locked();
+        *owner_sequence = s_owner_intent.sequence;
+    }
     osal_critical_exit();
-    return result;
+    return accepted;
 }

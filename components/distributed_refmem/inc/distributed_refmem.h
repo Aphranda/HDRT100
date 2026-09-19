@@ -427,10 +427,12 @@ void distributed_refmem_get_tdma_flight_sync_quality(
  * the ring runtime restarts the adapter with the matching REFERENCE/FORWARD
  * role. The same firmware can therefore run as reference (local==reference)
  * or forward node without a separate build. */
-bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id);
+bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id,
+                                                 uint32_t *owner_sequence);
 bool distributed_refmem_set_tdma_ring_topology(uint32_t local_slot_id,
                                                uint32_t reference_slot_id,
-                                               uint32_t node_count);
+                                               uint32_t node_count,
+                                               uint32_t *owner_sequence);
 bool distributed_refmem_tdma_ring_arm(void);
 distributed_refmem_tdma_arm_result_t
 distributed_refmem_tdma_ring_arm_last_result(void);

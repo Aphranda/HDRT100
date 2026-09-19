@@ -235,7 +235,7 @@ def test_uid_mismatch_has_evidence_and_no_mutation(bench):
 
 
 @pytest.mark.parametrize("name", ["duration_s", "poll_interval_s", "timeout",
-                                   "arm_wait", "start_wait", "settle"])
+                                   "arm_wait", "owner_wait", "start_wait", "settle"])
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), -1.0])
 def test_invalid_timing_rejected_before_hardware(bench, name, value):
     args, calls, _ = bench
@@ -306,10 +306,20 @@ def test_real_setup_failure_keeps_completed_steps(bench, monkeypatch):
 def test_binding_hook_runs_after_topology_before_arm_and_failure_never_starts(bench, monkeypatch):
     args, _, _ = bench
     commands = []
+    owner_waits = []
     monkeypatch.setattr(target, "write_only", lambda *a: {})
     monkeypatch.setattr(target, "query", lambda *a: '0,"No error"')
-    monkeypatch.setattr(target, "checked_action", lambda port, command, timeout:
-                        commands.append(command) or {"command": command})
+    def action(port, command, timeout):
+        commands.append(command)
+        response = "QUEUED,2,0,0,17" if "RING:TOPology" in command else "OK"
+        return {"command": command, "response": response, "error": '0,"No error"'}
+    monkeypatch.setattr(target, "checked_action", action)
+    def wait(query, sequence, timeout, evidence):
+        owner_waits.append((sequence, timeout))
+        evidence.append({"command": "SYSTem:SYNC:VDC:DPLL:OWNer?",
+                         "response": "17,17,1,2,0"})
+        return {"sequence": sequence, "opcode": 1, "applied": True}
+    monkeypatch.setattr(target, "wait_owner_applied", wait)
     monkeypatch.setattr(target.time, "sleep", lambda _: None)
 
     def bind():
@@ -320,7 +330,113 @@ def test_binding_hook_runs_after_topology_before_arm_and_failure_never_starts(be
 
     with pytest.raises(RuntimeError, match="binding rejected"):
         PREPARE_RING(object(), args, {}, before_arm=bind)
+    assert owner_waits == [(17, args.owner_wait)]
     assert not any(command.endswith((":ARM", ":START")) for command in commands)
+
+
+def test_topology_requires_queued_identity_and_token_before_probe_or_arm(bench, monkeypatch):
+    args, _, _ = bench
+    commands = []
+    monkeypatch.setattr(target, "write_only", lambda *a: {})
+    monkeypatch.setattr(target, "query", lambda *a: '0,"No error"')
+    def action(port, command, timeout):
+        commands.append(command)
+        return {"command": command, "response": "1", "error": '0,"No error"'}
+    monkeypatch.setattr(target, "checked_action", action)
+    monkeypatch.setattr(target.time, "sleep", lambda _: None)
+
+    with pytest.raises(RuntimeError, match="queued topology acknowledgement"):
+        PREPARE_RING(object(), args, {})
+
+    assert any("RING:TOPology" in command for command in commands)
+    assert not any("TOPology:PROBe" in command or command.endswith((":ARM", ":START"))
+                   for command in commands)
+
+
+def test_owner_wait_failure_retains_raw_observation_before_probe(bench, monkeypatch):
+    args, _, _ = bench
+    result = {}
+    commands = []
+    monkeypatch.setattr(target, "write_only", lambda *a: {})
+    monkeypatch.setattr(target, "query", lambda *a: '0,"No error"')
+    def action(port, command, timeout):
+        commands.append(command)
+        response = "QUEUED,2,0,0,23" if "RING:TOPology" in command else "OK"
+        return {"command": command, "response": response, "error": '0,"No error"'}
+    monkeypatch.setattr(target, "checked_action", action)
+    def timeout(query, sequence, timeout_s, evidence):
+        evidence.append({"command": "SYSTem:SYNC:VDC:DPLL:OWNer?",
+                         "response": "23,0,1,1,1", "host_monotonic": 1.0})
+        raise TimeoutError("owner application timed out")
+    monkeypatch.setattr(target, "wait_owner_applied", timeout)
+    monkeypatch.setattr(target.time, "sleep", lambda _: None)
+
+    with pytest.raises(TimeoutError, match="owner application timed out"):
+        PREPARE_RING(object(), args, result)
+
+    assert result["topology_owner"] == {
+        "queued_response": "QUEUED,2,0,0,23",
+        "sequence": 23,
+        "wait_result": None,
+        "observations": [{"command": "SYSTem:SYNC:VDC:DPLL:OWNer?",
+                          "response": "23,0,1,1,1", "host_monotonic": 1.0}],
+    }
+    assert not any("TOPology:PROBe" in command or command.endswith((":ARM", ":START"))
+                   for command in commands)
+
+
+def test_real_owner_wait_reaches_applied_pending_zero_before_probe(bench, monkeypatch):
+    args, _, _ = bench
+    result = {}
+    commands = []
+    owner_replies = iter(("31,0,1,1,1", "31,31,1,2,0"))
+    monkeypatch.setattr(target, "write_only", lambda *a: {})
+    monkeypatch.setattr(target, "query", lambda *a: '0,"No error"')
+    def action(port, command, timeout):
+        commands.append(command)
+        response = "QUEUED,2,0,0,31" if "RING:TOPology" in command else "OK"
+        return {"command": command, "response": response, "error": '0,"No error"'}
+    monkeypatch.setattr(target, "checked_action", action)
+    def owner_query(port, command, timeout):
+        assert command == "SYSTem:SYNC:VDC:DPLL:OWNer?"
+        return next(owner_replies)
+    monkeypatch.setattr(target, "retryable_query", owner_query)
+
+    def stop_before_arm():
+        assert commands[-1].startswith("CALibration:TOPology:PROBe")
+        raise RuntimeError("stop after owner proof")
+
+    with pytest.raises(RuntimeError, match="stop after owner proof"):
+        PREPARE_RING(object(), args, result, before_arm=stop_before_arm)
+
+    owner = result["topology_owner"]
+    assert owner["wait_result"] == {"sequence": 31, "opcode": 1, "applied": True}
+    assert [row["response"] for row in owner["observations"]] == [
+        "31,0,1,1,1", "31,31,1,2,0"]
+    assert commands.index("SYSTem:TDMA:RING:TOPology 2,0,0") < commands.index(
+        "CALibration:TOPology:PROBe 1,10")
+    assert not any(command.endswith((":ARM", ":START")) for command in commands)
+
+
+def test_wrong_owner_opcode_blocks_probe_and_arm(bench, monkeypatch):
+    args, _, _ = bench
+    commands = []
+    monkeypatch.setattr(target, "write_only", lambda *a: {})
+    monkeypatch.setattr(target, "query", lambda *a: '0,"No error"')
+    def action(port, command, timeout):
+        commands.append(command)
+        response = "QUEUED,2,0,0,41" if "RING:TOPology" in command else "OK"
+        return {"command": command, "response": response, "error": '0,"No error"'}
+    monkeypatch.setattr(target, "checked_action", action)
+    monkeypatch.setattr(target, "wait_owner_applied", lambda *a, **k: {
+        "sequence": 41, "opcode": 2, "applied": True})
+    monkeypatch.setattr(target.time, "sleep", lambda _: None)
+
+    with pytest.raises(RuntimeError, match="opcode mismatch"):
+        PREPARE_RING(object(), args, {})
+
+    assert not any("TOPology:PROBe" in command or command.endswith((":ARM", ":START"))
+                   for command in commands)
 
 
 def test_recovered_query_exception_still_fails_evidence(bench, monkeypatch):

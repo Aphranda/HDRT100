@@ -130,6 +130,7 @@ typedef struct {
     uint32_t schedule_crc32;
     uint32_t window_epoch;
     uint64_t effective_vdc_time_ns;
+    uint64_t transport_window_start_ns;
     uint64_t window_end_ns;
     uint64_t guard_start_ns;
     uint64_t guard_end_ns;
@@ -149,6 +150,19 @@ static refmem_spi_physical_adapter_t s_refmem_realtime_spi;
 static distributed_refmem_node_load_owner_entry_t
     s_node_load_owners[DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT];
 static distributed_refmem_status_t s_status;
+typedef struct {
+    bool pending;
+    bool rollback_needed;
+    uint32_t owner_sequence;
+    uint32_t control_sequence;
+    uint32_t local_slot_id;
+    uint32_t reference_slot_id;
+    uint32_t node_count;
+    uint32_t previous_local_slot_id;
+    uint32_t previous_reference_slot_id;
+    uint32_t previous_node_count;
+} distributed_refmem_tdma_topology_pending_t;
+static distributed_refmem_tdma_topology_pending_t s_tdma_topology_pending;
 static refmem_sync_context_t s_refmem_sync_context;
 /* VDC commands have a sequence domain separate from node-load deltas.
  * Keep their retained receiver state in ordinary RAM.  The substantially
@@ -897,6 +911,7 @@ static bool distributed_refmem_fill_vdc_data_window_plan(
     refmem_realtime_tdma_intent_config_t *config)
 {
     vdc_tdma_window_plan_t plan;
+    vdc_tdma_window_plan_t transport_plan;
     vdc_gate_result_t gate;
     if (config == NULL) {
         return false;
@@ -904,17 +919,19 @@ static bool distributed_refmem_fill_vdc_data_window_plan(
     if (!vdc_dpll_manager_plan_tdma_window(VDC_DOMAIN_WINDOW_REFMEM_DATA,
                                            VDC_DPLL_MANAGER_PLAN_NOW_NS,
                                            &plan,
-                                           &gate)) {
+                                           &gate) ||
+        !vdc_dpll_manager_translate_tdma_transport_plan(
+            &plan, &transport_plan)) {
         (void)gate;
         return false;
     }
     config->vdc_window_plan_valid = plan.valid;
     config->vdc_window_class = plan.window_class;
     config->vdc_schedule_crc32 = plan.schedule_crc32;
-    config->vdc_window_start_ns = plan.window_start_ns;
-    config->vdc_window_end_ns = plan.window_end_ns;
-    config->vdc_guard_start_ns = plan.guard_start_ns;
-    config->vdc_guard_end_ns = plan.guard_end_ns;
+    config->vdc_window_start_ns = transport_plan.window_start_ns;
+    config->vdc_window_end_ns = transport_plan.window_end_ns;
+    config->vdc_guard_start_ns = transport_plan.guard_start_ns;
+    config->vdc_guard_end_ns = transport_plan.guard_end_ns;
     return true;
 }
 
@@ -938,6 +955,31 @@ static bool distributed_refmem_tdma_busy(const refmem_realtime_tdma_snapshot_t *
      * therefore safe even while another class is carrying extra load. */
     return snapshot != NULL && snapshot->intent_seq != 0u &&
            (int32_t)(snapshot->intent_seq - snapshot->completed_seq) > 0;
+}
+
+static bool distributed_refmem_tdma_admission_open(bool *state_readable)
+{
+    if (state_readable != NULL) {
+        *state_readable = false;
+    }
+    tdma_traffic_scheduler_t *scheduler =
+        tdma_runtime_owner_get_scheduler();
+    if (scheduler != NULL &&
+        __atomic_load_n(&scheduler->admission_open, __ATOMIC_ACQUIRE) == 0u) {
+        if (state_readable != NULL) {
+            *state_readable = true;
+        }
+        return false;
+    }
+    tdma_traffic_scheduler_snapshot_t snapshot;
+    if (scheduler == NULL ||
+        !tdma_traffic_scheduler_get_snapshot(scheduler, &snapshot)) {
+        return false;
+    }
+    if (state_readable != NULL) {
+        *state_readable = true;
+    }
+    return snapshot.configured != 0u && snapshot.admission_open != 0u;
 }
 
 static uint32_t distributed_refmem_u32_payload_crc32(const uint32_t *fields,
@@ -1106,6 +1148,120 @@ static bool distributed_refmem_apply_tdma_foundation_profile(
         &s_refmem_realtime_tdma,
         profile,
         schedule_crc32);
+}
+
+static bool distributed_refmem_tdma_topology_change_pending(void)
+{
+    osal_critical_enter();
+    const bool pending = s_tdma_topology_pending.pending;
+    osal_critical_exit();
+    return pending;
+}
+
+static void distributed_refmem_tdma_topology_service(void)
+{
+    distributed_refmem_tdma_topology_pending_t pending;
+    osal_critical_enter();
+    pending = s_tdma_topology_pending;
+    osal_critical_exit();
+    if (!pending.pending) return;
+
+    if (pending.rollback_needed && pending.owner_sequence == 0u) {
+        uint32_t rollback_sequence = 0u;
+        if (!vdc_dpll_manager_restore_tdma_ring_topology(
+                pending.previous_local_slot_id,
+                pending.previous_reference_slot_id,
+                pending.previous_node_count,
+                &rollback_sequence)) {
+            return;
+        }
+        osal_critical_enter();
+        if (s_tdma_topology_pending.pending &&
+            s_tdma_topology_pending.rollback_needed &&
+            s_tdma_topology_pending.owner_sequence == 0u) {
+            s_tdma_topology_pending.owner_sequence = rollback_sequence;
+        }
+        osal_critical_exit();
+        return;
+    }
+
+    vdc_dpll_manager_owner_status_t owner;
+    vdc_dpll_manager_get_owner_status(&owner);
+    if (owner.requested_sequence != pending.owner_sequence ||
+        owner.applied_sequence != pending.owner_sequence ||
+        (owner.result != VDC_DPLL_MANAGER_OWNER_RESULT_APPLIED &&
+         owner.result != VDC_DPLL_MANAGER_OWNER_RESULT_REJECTED)) {
+        return;
+    }
+
+    if (pending.rollback_needed) {
+        if (!vdc_dpll_manager_ack_owner_status(pending.owner_sequence)) return;
+        bool restored = false;
+        osal_critical_enter();
+        if (s_tdma_topology_pending.pending &&
+            s_tdma_topology_pending.owner_sequence == pending.owner_sequence) {
+            if (owner.result == VDC_DPLL_MANAGER_OWNER_RESULT_APPLIED) {
+                memset(&s_tdma_topology_pending, 0,
+                       sizeof(s_tdma_topology_pending));
+                restored = true;
+            } else {
+                s_tdma_topology_pending.owner_sequence = 0u;
+            }
+        }
+        osal_critical_exit();
+        if (restored) {
+            (void)vdc_dpll_manager_complete_control_owner_status(
+                pending.control_sequence);
+        }
+        return;
+    }
+
+    bool applied = owner.result == VDC_DPLL_MANAGER_OWNER_RESULT_APPLIED;
+    if (applied) {
+        applied = refmem_application_model_set_tdma_ring_topology(
+            pending.local_slot_id,
+            pending.reference_slot_id,
+            pending.node_count);
+    }
+    if (applied) {
+        const tdma_foundation_profile_t *profile =
+            refmem_application_model_get_tdma_foundation_profile();
+        uint32_t schedule_crc32 = 0u;
+        applied = distributed_refmem_tdma_profile_activation_ready(
+                      profile, &schedule_crc32) &&
+                  distributed_refmem_apply_tdma_foundation_profile(
+                      profile, schedule_crc32);
+    }
+    if (!applied && owner.result == VDC_DPLL_MANAGER_OWNER_RESULT_APPLIED) {
+        (void)refmem_application_model_set_tdma_ring_topology(
+            pending.previous_local_slot_id,
+            pending.previous_reference_slot_id,
+            pending.previous_node_count);
+        if (!vdc_dpll_manager_reject_control_owner_status(
+                pending.owner_sequence)) {
+            return;
+        }
+    }
+    if (!vdc_dpll_manager_ack_owner_status(pending.owner_sequence)) return;
+
+    bool completed = false;
+    osal_critical_enter();
+    if (s_tdma_topology_pending.pending &&
+        s_tdma_topology_pending.owner_sequence == pending.owner_sequence) {
+        if (owner.result == VDC_DPLL_MANAGER_OWNER_RESULT_APPLIED && !applied) {
+            s_tdma_topology_pending.rollback_needed = true;
+            s_tdma_topology_pending.owner_sequence = 0u;
+        } else {
+            memset(&s_tdma_topology_pending, 0,
+                   sizeof(s_tdma_topology_pending));
+            completed = true;
+        }
+    }
+    osal_critical_exit();
+    if (completed) {
+        (void)vdc_dpll_manager_complete_control_owner_status(
+            pending.control_sequence);
+    }
 }
 
 static refmem_command_reason_t distributed_refmem_activation_nack_reason(uint32_t result)
@@ -1978,11 +2134,13 @@ static void distributed_refmem_vdc_follower_rx_service(void)
     distributed_refmem_vdc_follower_rx_process_completed(&tdma,
                                                           expected_source_slot);
     if (!follower || s_vdc_follower_rx.active != 0u ||
+        !distributed_refmem_tdma_admission_open(NULL) ||
         distributed_refmem_tdma_busy(&tdma)) {
         return;
     }
 
     vdc_tdma_window_plan_t plan;
+    vdc_tdma_window_plan_t transport_plan;
     vdc_gate_result_t gate;
     if (!vdc_dpll_manager_plan_published_tdma_window(
             &vdc,
@@ -1991,7 +2149,9 @@ static void distributed_refmem_vdc_follower_rx_service(void)
             &plan,
             &gate) ||
         plan.valid == 0u || plan.window_start_ns == 0u ||
-        plan.schedule_crc32 != vdc.schedule.schedule_crc32) {
+        plan.schedule_crc32 != vdc.schedule.schedule_crc32 ||
+        !vdc_dpll_manager_translate_tdma_transport_plan(
+            &plan, &transport_plan)) {
         (void)gate;
         s_vdc_follower_rx.last_error = 3u;
         return;
@@ -2015,10 +2175,10 @@ static void distributed_refmem_vdc_follower_rx_service(void)
         .vdc_window_plan_valid = 1u,
         .vdc_window_class = VDC_DOMAIN_WINDOW_REFMEM_DATA,
         .vdc_schedule_crc32 = plan.schedule_crc32,
-        .vdc_window_start_ns = plan.window_start_ns,
-        .vdc_window_end_ns = plan.window_end_ns,
-        .vdc_guard_start_ns = plan.guard_start_ns,
-        .vdc_guard_end_ns = plan.guard_end_ns,
+        .vdc_window_start_ns = transport_plan.window_start_ns,
+        .vdc_window_end_ns = transport_plan.window_end_ns,
+        .vdc_guard_start_ns = transport_plan.guard_start_ns,
+        .vdc_guard_end_ns = transport_plan.guard_end_ns,
         .frame = NULL,
         .frame_size = 0u,
     };
@@ -2123,6 +2283,7 @@ static void distributed_refmem_publish_runtime_locked(void)
 bool distributed_refmem_init(void)
 {
     memset(&s_status, 0, sizeof(s_status));
+    memset(&s_tdma_topology_pending, 0, sizeof(s_tdma_topology_pending));
     s_initialized = false;
     s_vdc_vector_publish_sequence = 0u;
     s_dpll_vector_publish_sequence = 0u;
@@ -2252,10 +2413,20 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(
         snapshot.control_profile.valid == 1u &&
         snapshot.control_profile.mode == VDC_DPLL_CONTROL_MODE_MASTER;
     if (master_profile) {
-        /* RefMem only freezes MASTER output fields in this phase.  The TDMA
-         * owner later selects the common future window and admits one target
-         * to its single scheduler. */
-        (void)distributed_refmem_capture_vdc_command_batch(&snapshot);
+        bool admission_state_readable = false;
+        if (distributed_refmem_tdma_admission_open(
+                &admission_state_readable)) {
+            /* RefMem only freezes MASTER output fields in this phase.  The
+             * TDMA owner later selects the common future window and admits
+             * one target to its single scheduler. */
+            (void)distributed_refmem_capture_vdc_command_batch(&snapshot);
+        } else if (admission_state_readable &&
+                   s_vdc_command_batch.active != 0u) {
+            /* A readable closed scheduler invalidates any frozen transport
+             * window.  An unreadable snapshot only defers until its state can
+             * be classified without inventing an identity transition. */
+            distributed_refmem_reset_vdc_command_batch();
+        }
     } else if (s_vdc_command_batch.active != 0u) {
         distributed_refmem_reset_vdc_command_batch();
     }
@@ -2348,6 +2519,7 @@ void distributed_refmem_service(void)
     if (ota_ao_is_active()) {
         return;
     }
+    distributed_refmem_tdma_topology_service();
     distributed_refmem_vdc_follower_rx_service();
     distributed_refmem_node_load_auto_service();
     distributed_refmem_log_tdma_ring_service();
@@ -3730,7 +3902,9 @@ static bool distributed_refmem_publish_vdc_command_once(
 
     if (s_vdc_command_batch.window_planned == 0u) {
         vdc_tdma_window_plan_t plan;
+        vdc_tdma_window_plan_t transport_plan;
         vdc_gate_result_t gate;
+        uint64_t effective_vdc_time_ns = 0u;
         if (!vdc_dpll_manager_plan_published_tdma_window(
                 snapshot,
                 VDC_DOMAIN_WINDOW_REFMEM_DATA,
@@ -3738,16 +3912,22 @@ static bool distributed_refmem_publish_vdc_command_once(
                 &plan,
                 &gate) ||
             !plan.valid || plan.window_start_ns == 0u ||
-            plan.schedule_crc32 != s_vdc_command_batch.schedule_crc32) {
+            plan.schedule_crc32 != s_vdc_command_batch.schedule_crc32 ||
+            !vdc_dpll_manager_local_to_vdc_time(
+                plan.window_start_ns, &effective_vdc_time_ns) ||
+            !vdc_dpll_manager_translate_tdma_transport_plan(
+                &plan, &transport_plan)) {
             (void)gate;
             distributed_refmem_reset_vdc_command_batch();
             return false;
         }
         s_vdc_command_batch.window_epoch = plan.schedule_epoch;
-        s_vdc_command_batch.effective_vdc_time_ns = plan.window_start_ns;
-        s_vdc_command_batch.window_end_ns = plan.window_end_ns;
-        s_vdc_command_batch.guard_start_ns = plan.guard_start_ns;
-        s_vdc_command_batch.guard_end_ns = plan.guard_end_ns;
+        s_vdc_command_batch.effective_vdc_time_ns = effective_vdc_time_ns;
+        s_vdc_command_batch.transport_window_start_ns =
+            transport_plan.window_start_ns;
+        s_vdc_command_batch.window_end_ns = transport_plan.window_end_ns;
+        s_vdc_command_batch.guard_start_ns = transport_plan.guard_start_ns;
+        s_vdc_command_batch.guard_end_ns = transport_plan.guard_end_ns;
         s_vdc_command_batch.window_planned = 1u;
     }
 
@@ -3801,7 +3981,8 @@ static bool distributed_refmem_publish_vdc_command_once(
             .vdc_window_plan_valid = 1u,
             .vdc_window_class = VDC_DOMAIN_WINDOW_REFMEM_DATA,
             .vdc_schedule_crc32 = s_vdc_command_batch.schedule_crc32,
-            .vdc_window_start_ns = s_vdc_command_batch.effective_vdc_time_ns,
+            .vdc_window_start_ns =
+                s_vdc_command_batch.transport_window_start_ns,
             .vdc_window_end_ns = s_vdc_command_batch.window_end_ns,
             .vdc_guard_start_ns = s_vdc_command_batch.guard_start_ns,
             .vdc_guard_end_ns = s_vdc_command_batch.guard_end_ns,
@@ -3830,6 +4011,14 @@ static bool distributed_refmem_publish_vdc_command_once(
 void distributed_refmem_tdma_publish_service(void)
 {
     if (!s_initialized || s_vdc_command_batch.active == 0u) {
+        return;
+    }
+    bool admission_state_readable = false;
+    if (!distributed_refmem_tdma_admission_open(
+            &admission_state_readable)) {
+        if (admission_state_readable) {
+            distributed_refmem_reset_vdc_command_batch();
+        }
         return;
     }
     vdc_dpll_manager_refmem_snapshot_t snapshot;
@@ -3875,7 +4064,8 @@ void distributed_refmem_get_tdma_flight_sync_quality(
     }
 }
 
-bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id)
+bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id,
+                                                 uint32_t *owner_sequence)
 {
     const tdma_foundation_profile_t *profile =
         refmem_application_model_get_tdma_foundation_profile();
@@ -3883,22 +4073,25 @@ bool distributed_refmem_set_tdma_ring_local_slot(uint32_t local_slot_id)
         return false;
     }
     return distributed_refmem_set_tdma_ring_topology(
-        local_slot_id, profile->ring.reference_index, profile->ring.node_count);
+        local_slot_id, profile->ring.reference_index, profile->ring.node_count,
+        owner_sequence);
 }
 
 bool distributed_refmem_set_tdma_ring_topology(uint32_t local_slot_id,
                                                uint32_t reference_slot_id,
-                                               uint32_t node_count)
+                                               uint32_t node_count,
+                                               uint32_t *queued_owner_sequence)
 {
     /* NO5 is an external phase/DPLL observer.  It must remain outside the
      * NO1..NO4 TDMA ring so a maintenance command cannot claim flight PIO,
      * state-machine, DMA, GPIO, IRQ or DREQ resources on the observer board. */
-    if (board_identity_get_no() == 5u) {
+    if (queued_owner_sequence == NULL || board_identity_get_no() == 5u) {
         return false;
     }
     if (!s_initialized) {
         return false;
     }
+    if (distributed_refmem_tdma_topology_change_pending()) return false;
     tdma_service_service_t *tdma_owner = tdma_runtime_owner_get();
     tdma_ring_runtime_snapshot_t ring_snapshot;
     if (tdma_owner == NULL ||
@@ -3907,25 +4100,30 @@ bool distributed_refmem_set_tdma_ring_topology(uint32_t local_slot_id,
         ring_snapshot.enabled != 0u) {
         return false;
     }
-    if (!vdc_dpll_manager_set_tdma_ring_topology(local_slot_id,
-                                                 reference_slot_id,
-                                                 node_count)) {
-        return false;
-    }
-    if (!refmem_application_model_set_tdma_ring_topology(local_slot_id,
-                                                         reference_slot_id,
-                                                         node_count)) {
-        return false;
-    }
     const tdma_foundation_profile_t *profile =
         refmem_application_model_get_tdma_foundation_profile();
-    uint32_t schedule_crc32 = 0u;
-    if (!distributed_refmem_tdma_profile_activation_ready(profile,
-                                                          &schedule_crc32) ||
-        !distributed_refmem_apply_tdma_foundation_profile(profile,
-                                                          schedule_crc32)) {
+    if (profile == NULL) return false;
+    uint32_t owner_sequence = 0u;
+    if (!vdc_dpll_manager_set_tdma_ring_topology(local_slot_id,
+                                                 reference_slot_id,
+                                                 node_count,
+                                                 &owner_sequence)) {
         return false;
     }
+    osal_critical_enter();
+    s_tdma_topology_pending = (distributed_refmem_tdma_topology_pending_t){
+        .pending = true,
+        .owner_sequence = owner_sequence,
+        .control_sequence = owner_sequence,
+        .local_slot_id = local_slot_id,
+        .reference_slot_id = reference_slot_id,
+        .node_count = node_count,
+        .previous_local_slot_id = profile->ring.local_index,
+        .previous_reference_slot_id = profile->ring.reference_index,
+        .previous_node_count = profile->ring.node_count,
+    };
+    osal_critical_exit();
+    *queued_owner_sequence = owner_sequence;
     return true;
 }
 
@@ -3941,6 +4139,13 @@ bool distributed_refmem_tdma_ring_arm(void)
     if (!s_initialized || owner == NULL) {
         __atomic_store_n(&s_tdma_ring_arm_last_result,
                          DISTRIBUTED_REFMEM_TDMA_ARM_OWNER_UNAVAILABLE,
+                         __ATOMIC_RELEASE);
+        return false;
+    }
+    if (distributed_refmem_tdma_topology_change_pending() ||
+        vdc_dpll_manager_owner_change_pending()) {
+        __atomic_store_n(&s_tdma_ring_arm_last_result,
+                         DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED,
                          __ATOMIC_RELEASE);
         return false;
     }
@@ -4026,14 +4231,20 @@ distributed_refmem_tdma_ring_arm_last_result(void)
 bool distributed_refmem_tdma_ring_train(uint32_t cycles)
 {
     return board_identity_get_no() != 5u &&
-           s_initialized && tdma_runtime_owner_train_clock(cycles);
+           s_initialized &&
+           !distributed_refmem_tdma_topology_change_pending() &&
+           !vdc_dpll_manager_owner_change_pending() &&
+           tdma_runtime_owner_train_clock(cycles);
 }
 
 bool distributed_refmem_tdma_ring_start(void)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();
     return board_identity_get_no() != 5u &&
-           s_initialized && owner != NULL && tdma_service_ring_start(owner);
+           s_initialized && owner != NULL &&
+           !distributed_refmem_tdma_topology_change_pending() &&
+           !vdc_dpll_manager_owner_change_pending() &&
+           tdma_service_ring_start(owner);
 }
 
 bool distributed_refmem_tdma_ring_stop(void)
