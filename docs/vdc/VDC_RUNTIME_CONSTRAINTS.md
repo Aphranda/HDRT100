@@ -331,7 +331,12 @@ schema、跨度、tick rate 与容量核验完整覆盖，不能仅延长等待�
 沿用 STOP-only ARM 与 Core1 ACK，选择最大合法汇总跨度；检查点、最大时长、状态及
 原因位由 `VDC_PRIORITY_GUARD_*` 定义。普通汇总模式默认不启用监督。Core1 从首次
 ring 运行观测开始计时，在检查点累计检查服务缺口、无成功/未绑定、成功间隔、计数
-回退/饱和与时钟异常；无启动豁免，不因零 DCO 调整或 PARTIAL/TERMINAL 单独判失败。
+回退/饱和与时钟异常。带 `SUMMARY_STEADY_SUCCESS_GAP` 标记的 GUARD 记录从首次成功
+后累计成功间隔；此前等待单独保留为 `first_success_offset_ticks`，主机报告
+`initial_wait_s` 和 `success_gap_basis=after_first_success`。首次成功不是物理锁定。
+本段后续、跨段和尾段缺口仍受原界限约束；首次完整非空段无成功/未绑定仍锁存失败，
+并非无限启动豁免。普通及历史无标记记录仍按 START-inclusive 解释，禁止混用标记模式。
+服务、时钟、计数器和绑定异常不豁免，不因零 DCO 调整或 PARTIAL/TERMINAL 单独判失败。
 提前冻结立即终止判定；首次失败只提交本次诊断的本板停止意图。目标窗完成时先封存
 最后汇总段，末次时钟/计数器/缺口检查仍能否决 PASS；通过后将原生记录以
 `VDC_PRIORITY_TRACE_TARGET_COMPLETE` 原因冻结。该 Core1 本地封存不请求输出或环路

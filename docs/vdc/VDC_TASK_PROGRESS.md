@@ -22,6 +22,19 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-033：GUARD 分离启动等待与后续参考缺口
+
+- TODO task ID：`VDC-OBS-007`、`VDC-SNAPSHOT-001`、`VDC-HOLD-001`；诊断修复切片 DONE，父任务 IN PROGRESS。以下数字为验收快照，非配置事实源。
+- 根因：原 `last_success` 以 START 初始化，首次成功前的等待进入最大成功间隔；032 首轮 NO3/NO4 因此超过诊断界。新 GUARD 原生段带 `SUMMARY_STEADY_SUCCESS_GAP`，首次成功后才累计成功缺口，启动等待单列；同段后续、跨段、尾段真实缺口继续约束。首次完整非空段无成功/未绑定仍失败，当前最大段跨度为十秒，不是无限启动豁免。首次成功不是物理锁定。
+- 边界：复用既有 capture 状态与原生 flags；不新增记录字节、时钟读取、快照发布或特等席，不改 wire、PIO/DMA、OTA。Core1 原诊断点增加条件判断，不能宣称零成本或完整 WCET 合格。健康镜像仍只由 Core0 发布，后续特等席增设仍须 `EXE-SEAT-01` 用户审核。
+- 软件：summary/decoder/capture 252 项、GUARD 62 项及文档 38 项通过。新增真实 recorder/GUARD 场景覆盖启动等待、后续/跨段/尾段缺口、整段无参考、再 ARM、时钟/绑定/服务错误与严格边界；13 份 host 原生记录独立解码通过。旧八份实板原件仍按 `start_inclusive` 解释，032 首轮原失败保留；同捕获混合标记拒绝。
+- P3：Release A/B/BOOT 与固定四板快速验收通过，`p3-r1` 为 PASS_WITH_WARNINGS（25 INFO / 18 WARN / 0 ERROR / 0 FATAL）。build `20260919145017`，源码 SHA `1189838276cc621280ef97862dbe7cd7e2c18e53e8a130d18606570c7849dff0`，1325 文件；staged 指纹核验通过。复用已知环序，不扩大 P3 门禁。
+- 受控启动实测：STOP 下配置既有 GAP 将 NO1 首次新参考延迟 1200 ms，运行不查询板卡。`joint-startup-60s-r1` PASS：三从首次成功等待 1.911/2.046/2.178 s，之后最大成功间隔 32.736/26.690/32.215 ms；四板 GUARD 正常完成，未因启动等待误退休。十二个外部窗口、48 RAW 哈希通过，三从最大绝对相差 35.605/41.745/76.060 ns；NO4 一样本超 ±50 ns，全部已采样本仍在 ±100 ns 内。
+- 再 STOP/ARM 的 `joint-startup-120s-r1` PASS：三从首次成功等待 1.879/2.020/2.161 s，之后最大成功间隔 34.043/38.463/36.865 ms；六十秒和一百二十秒检查点均通过。二十四个外部窗口、96 RAW 哈希通过，三从最大绝对相差 34.072/25.986/25.959 ns，已采样本均在 ±50 ns 内。两轮模型末态一致、RUN 查询均为零，四板最终 STOP、清除注入并恢复配置，无清理错误。
+- 原件：`out/HardwareAcceptance/20260919/guard-startup-gap-r1/`；两轮各有 `startup-audit.json`、`joint-summary.json`、原生记录及波形，实际示波器触发为 CHAN1。独立复核从八份 `read-pages.json` 重组并校验原生 CRC/解码，结论 PASS_WITH_NOTE，见 `startup-hardware-review.txt`。首次新参考抑制不是物理断链，成功间隔是 owner 操作间隔，不是逐帧运输期限；稀疏相差与内部汇总不授予连续精度或同事件关联。新轮通过不证明 032 首轮多板停机的共同事件因果。
+- 交付：实现与同指纹 P3 凭证提交 `21ee638c`，文档分离提交。
+- 下一 gate：继续 `VDC-SNAPSHOT-001`/`VDC-HOLD-001` 的正式 quality/valid/freshness 和逐事件保持/恢复证据；该修复消除启动误判，不据此升级 formal quality。普通诊断经 Core0，任何需增加特等席的方案先交用户审核。
+
 ### VDC-PROGRESS-20260919-032：Core0 异步健康镜像与特等席授权边界
 
 - TODO task ID：`VDC-SNAPSHOT-001`、`VDC-HOLD-001`、`VDC-RECOVERY-001`；本切片 DONE，父任务 IN PROGRESS。

@@ -192,7 +192,7 @@ typed health 的独立 RefMem 诊断扩展由 Core0 的 `distributed_refmem_serv
 
 详细 trace、汇总、GUARD 互斥复用原维护 SRAM 池，布局和容量见 `vdc_priority_trace.h`。详细模式满后只证明前缀；汇总保留成功极值、拒绝/缺口、服务/成功间隔、计数回退及饱和，空段不表示零残差。
 
-GUARD 由 Core1 按检查点判参考和输出健康，目标完成先封存末段再发布 PASS，保持输出到主机统一 STOP；失败意图由 Core0 复验原配置/session 后请求本板退休。PASS 不等于 STOP 回执，也不是独立硬件 watchdog，不能保证全板同步停机。封存后的尾段输出退休另审。
+GUARD 由 Core1 按检查点判参考和输出健康，目标完成先封存末段再发布 PASS，保持输出到主机统一 STOP；失败意图由 Core0 复验原配置/session 后请求本板退休。带 `SUMMARY_STEADY_SUCCESS_GAP` 标记的记录分开报告首次成功等待与之后的成功间隔；首次完整非空段无成功仍失败，后续及跨段缺口不豁免，历史无标记记录不改判。首次成功不表示锁定。PASS 不等于 STOP 回执，也不是独立硬件 watchdog，不能保证全板同步停机。封存后的尾段输出退休另审。
 
 运行记录不走串口/SD 实时导出，全部 STOP 后读取、CRC 解码和 RELEASE；可选示波器只在主机观测实际 GPIO。内部/外部、同轮/同事件、稀疏窗口/连续覆盖分别判定，外部结果不回写实时控制。
 
