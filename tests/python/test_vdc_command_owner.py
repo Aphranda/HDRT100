@@ -44,7 +44,7 @@ def compile_executable(directory, name, text, sources=()):
     exe = directory / (name + (".exe" if os.name == "nt" else ""))
     includes = [ROOT / f"components/{component}/inc" for component in (
         "tdma", "vdc_domain", "vdc_dpll_manager", "distributed_refmem",
-        "calibration_manager", "ota_manager")]
+        "calibration_manager", "ota_manager", "sync_io")]
     result = subprocess.run([
         compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
         *[f"-I{path}" for path in includes], str(source),

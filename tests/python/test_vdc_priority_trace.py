@@ -298,10 +298,32 @@ def test_decimation_uses_raw_time_across_uptime_wrap(trace_executable):
 
 
 GUARD_EXTERNALS = r'''
+#include "vdc_run_output.h"
 static unsigned guard_cancels;
 static bool guard_stop_busy, guard_output_idle;
-static void vdc_run_output_cancel(void) { ++guard_cancels; }
-static bool vdc_run_output_configuration_idle(void) { return guard_output_idle; }
+static unsigned guard_output_fault;
+void vdc_run_output_cancel(void) { ++guard_cancels; }
+bool vdc_run_output_configuration_idle(void) { return guard_output_idle; }
+bool vdc_run_output_observe_core1(vdc_run_output_observation_t *out)
+{
+    if(guard_output_fault==1u)return false;
+    *out=(vdc_run_output_observation_t){.request=9u,.session=s_model_feedback_session,
+        .ring_config=ring.config_seq,.state=SYNC_IO_RUN_OUTPUT_RUNNING,
+        .service_observations=1u,.service_last_tick=raw_now,.submit_last_tick=raw_now,
+        .last_ordinal=raw_now/250000u};
+    if(guard_output_fault==2u)out->state=SYNC_IO_RUN_OUTPUT_RETIRED;
+    if(guard_output_fault==2u)out->reason=SYNC_IO_RUN_OUTPUT_STARVED;
+    if(guard_output_fault==3u)++out->request;
+    if(guard_output_fault==4u)++out->session;
+    if(guard_output_fault==5u)++out->ring_config;
+    if(guard_output_fault==6u)out->service_last_tick=0u;
+    if(guard_output_fault==7u)out->submit_last_tick=0u;
+    if(guard_output_fault==8u)out->last_ordinal=0u;
+    if(guard_output_fault==9u)out->service_last_tick=raw_now+1u;
+    if(guard_output_fault==10u)out->submit_last_tick=raw_now+1u;
+    if(guard_output_fault==11u)out->state=SYNC_IO_RUN_OUTPUT_PREPARED;
+    return true;
+}
 #define tdma_service_ring_stop_if_current guard_fake_ring_stop
 static bool guard_fake_ring_stop(tdma_service_service_t *service, uint32_t config,
     bool (*before)(void *), void *context, uint32_t *stopped)

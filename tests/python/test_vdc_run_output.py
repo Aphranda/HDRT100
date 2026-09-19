@@ -99,6 +99,34 @@ def test_cached_only_handoff(client, scenario):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.fixture(scope='module')
+def observation_client(tmp_path_factory):
+    source = (ROOT / 'components/vdc_dpll_manager/src/vdc_run_output.inc').read_text(encoding='utf-8')
+    prefix = ('static unsigned observation_hook;\n'
+              'static void observation_interleave(void);\n' + CLIENT_PREFIX)
+    prefix = prefix.replace('    ++snapshot_calls; if(snapshot_calls==fail_snapshot_call)return false;',
+        '    if(observation_hook)observation_interleave();\n'
+        '    ++snapshot_calls; if(snapshot_calls==fail_snapshot_call)return false;')
+    return compile_host(tmp_path_factory.mktemp('vdc-run-observation'), 'observation',
+        prefix + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
+        '\n#undef main\n' + OBSERVATION_MAIN,
+        [ROOT / 'components/vdc_domain/src/vdc_domain.c',
+         ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
+         ROOT / 'components/tdma/src/tdma_profile.c'])
+
+
+@pytest.mark.parametrize('scenario', [
+    'prepared', 'running', 'retired', 'released', 'new_request',
+    'retained_identity', 'never_prepared', 'wrong_core', 'null', 'busy',
+    'snapshot_missing', 'generation_mismatch', 'released_generation_mismatch',
+    'owner_interleave',
+])
+def test_read_only_core1_observation(observation_client, scenario):
+    result = subprocess.run([str(observation_client), scenario],
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 CLIENT_PREFIX = r'''
 #include <assert.h>
 #include <stdio.h>
@@ -698,6 +726,106 @@ int main(int argc,char **argv)
         const uint64_t local=admitted[1][i].ordinal*UINT64_C(1000000)-2000u+100u;
         assert(admitted[1][i].rising_tick==(local+3u)/4u);
         assert(admitted[1][i].falling_tick-admitted[1][i].rising_tick==250u);
+    }
+    return 0;
+}
+'''
+
+
+OBSERVATION_MAIN = r'''
+static void observation_interleave(void)
+{
+    const unsigned kind=observation_hook;observation_hook=0u;
+    /* Snapshot itself must already be inside the whole-client owner gate. */
+    assert(s_run_output_busy==1u);
+    if(kind!=2u)return;
+    const uint32_t retained=s_run_output.request;
+    const unsigned services=service_calls,releases=release_calls,prepares=prepare_calls;
+    core=0u;run_output_release_core0();
+    uint32_t request=0xdeadbeefu;
+    assert(!vdc_run_output_prepare(1000000u,1000u,1000u,&request));
+    assert(request==0xdeadbeefu && s_run_output.request==retained);
+    core=1u;vdc_run_output_service_core1();
+    vdc_run_output_observation_t nested,before;
+    memset(&nested,0x5a,sizeof(nested));before=nested;
+    assert(!vdc_run_output_observe_core1(&nested));
+    assert(!memcmp(&nested,&before,sizeof(nested)));
+    assert(service_calls==services && release_calls==releases && prepare_calls==prepares);
+}
+int main(int argc,char **argv)
+{
+    assert(argc==2);initialize();const char *kind=argv[1];
+    bool expected=true,read_backend=true;
+    if(strcmp(kind,"never_prepared")) {
+        prepare();core=1u;
+        if(strcmp(kind,"prepared")) { arm(true);vdc_run_output_service_core1(); }
+    } else { core=1u;expected=false; }
+    if(!strcmp(kind,"retired") || !strcmp(kind,"released") ||
+       !strcmp(kind,"released_generation_mismatch") || !strcmp(kind,"new_request") ||
+       !strcmp(kind,"owner_interleave")) {
+        hardware.state=SYNC_IO_RUN_OUTPUT_RETIRED;
+        hardware.reason=SYNC_IO_RUN_OUTPUT_STARVED;
+    }
+    if(!strcmp(kind,"released") || !strcmp(kind,"released_generation_mismatch") ||
+       !strcmp(kind,"new_request")) {
+        core=0u;run_output_release_core0();core=1u;
+        assert(!s_run_output_request && s_run_output.request==generation);
+        if(!strcmp(kind,"new_request")) {
+            ring.enabled=ring.adapter_started=ring.data_enabled=0u;
+            ring.config_seq=ring.applied_config_seq=9u;
+            ++session;prepare();core=1u;
+            assert(generation==2u && s_run_output.session==session);
+        }
+    }
+    if(!strcmp(kind,"retained_identity")) {
+        session+=100u;ring.config_seq+=200u;
+        assert(s_run_output.session!=session && s_run_output.ring_config!=ring.config_seq);
+    }
+    hardware.last_ordinal=UINT64_C(0x100000007);
+    hardware.service_last_tick=UINT64_C(0x200000009);
+    hardware.submit_last_tick=UINT64_C(0x30000000b);
+    hardware.service_observations=123u;
+    if(!strcmp(kind,"wrong_core")) { core=0u;expected=false;read_backend=false; }
+    if(!strcmp(kind,"null")) { expected=false;read_backend=false; }
+    if(!strcmp(kind,"busy")) { s_run_output_busy=1u;expected=false;read_backend=false; }
+    if(!strcmp(kind,"snapshot_missing")) { fail_snapshot_call=snapshot_calls+1u;expected=false; }
+    if(!strcmp(kind,"generation_mismatch") || !strcmp(kind,"released_generation_mismatch")) {
+        ++hardware.generation;expected=false;
+    }
+    const unsigned services=service_calls,cancel_count=cancels,submits=submit_attempts;
+    const unsigned prepares=prepare_calls,releases=release_calls,snapshots=snapshot_calls;
+    const unsigned rings=ring_calls,bridges=bridge_calls;
+    const uint32_t active_request=s_run_output_request,held=s_run_output_busy;
+    const vdc_run_output_status_t client_before=s_run_output;
+    const sync_io_run_output_snapshot_t backend_before=hardware;
+    unsigned char cache_before[sizeof(s_run_output_pending)];
+    memcpy(cache_before,&s_run_output_pending,sizeof(cache_before));
+    vdc_run_output_observation_t result,before;
+    memset(&result,0xa5,sizeof(result));before=result;
+    observation_hook=!strcmp(kind,"owner_interleave")?2u:1u;
+    assert(vdc_run_output_observe_core1(!strcmp(kind,"null")?NULL:&result)==expected);
+    observation_hook=0u;
+    if(expected) {
+        assert(result.request==client_before.request && result.session==client_before.session);
+        assert(result.ring_config==client_before.ring_config);
+        assert(result.state==backend_before.state && result.reason==backend_before.reason);
+        assert(result.last_ordinal==backend_before.last_ordinal);
+        assert(result.service_last_tick==backend_before.service_last_tick);
+        assert(result.submit_last_tick==backend_before.submit_last_tick);
+        assert(result.service_observations==backend_before.service_observations);
+        if(!strcmp(kind,"released")) assert(result.reason==SYNC_IO_RUN_OUTPUT_STARVED);
+    } else assert(!memcmp(&result,&before,sizeof(result)));
+    assert(service_calls==services && cancels==cancel_count && submit_attempts==submits);
+    assert(prepare_calls==prepares && release_calls==releases && ring_calls==rings && bridge_calls==bridges);
+    assert(s_run_output_busy==held && s_run_output_request==active_request);
+    assert(!memcmp(&s_run_output,&client_before,sizeof(client_before)));
+    assert(!memcmp(&hardware,&backend_before,sizeof(backend_before)));
+    assert(!memcmp(&s_run_output_pending,cache_before,sizeof(cache_before)));
+    if(!read_backend)assert(snapshot_calls==snapshots);
+    /* Snapshot failure must relinquish the gate, so a subsequent read works. */
+    if(!strcmp(kind,"snapshot_missing")) {
+        assert(vdc_run_output_observe_core1(&result));
+        assert(result.request==generation && !s_run_output_busy);
     }
     return 0;
 }

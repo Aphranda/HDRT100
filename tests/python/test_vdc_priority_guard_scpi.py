@@ -34,7 +34,7 @@ def parser(tmp_path_factory):
     ('SYST:VDC:PRIOR:TRAC:GUAR:PHAS -1,60','ERROR'),
     ('SYST:VDC:PRIOR:TRAC:GUAR:PHAS 42,1e2','ERROR'),
     ('SYST:VDC:PRIOR:TRAC:GUAR:PHAS 42','ERROR'),
-    ('SYST:VDC:PRIOR:TRAC:GUAR?','1,42,123,102,600,4,2,100,60,0,60000,7,8,1,0,0')])
+    ('SYST:VDC:PRIOR:TRAC:GUAR?','2,42,123,102,600,4,2,100,60,0,60000,7,8,1,0,0,9,4,3,70024,1')])
 def test_guard_registered_control(parser,command,expected):
     r=subprocess.run([str(parser),command,expected],capture_output=True,text=True,timeout=5)
     assert r.returncode==0,r.stdout+r.stderr
@@ -44,7 +44,7 @@ STUBS=r'''
 bool vdc_dpll_manager_priority_trace_guard_arm(uint32_t id,bool origin,uint32_t seconds)
 { (void)origin;return id && seconds && seconds<=600 && seconds%60==0; }
 bool vdc_dpll_manager_get_priority_guard(vdc_priority_guard_status_t *s)
-{ *s=(vdc_priority_guard_status_t){1,42,123,102,600,4,2,100,60,0,60000,7,8,1,0,0};return true; }
+{ *s=(vdc_priority_guard_status_t){2,42,123,102,600,4,2,100,60,0,60000,7,8,1,0,0,9,4,3,70024,1};return true; }
 '''
 MAIN=r'''
 int main(int argc,char **argv){

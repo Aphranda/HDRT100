@@ -36,7 +36,7 @@
 
 /* Explicit diagnostic guard, independent of GPIO phase qualification.
  * Existing summary schemas and record capacity are unchanged. */
-#define VDC_PRIORITY_GUARD_SCHEMA 1u
+#define VDC_PRIORITY_GUARD_SCHEMA 2u
 #define VDC_PRIORITY_GUARD_CHECKPOINT_S 60u
 #define VDC_PRIORITY_GUARD_MAX_SECONDS 600u
 enum { VDC_PRIORITY_GUARD_DISABLED, VDC_PRIORITY_GUARD_ARMED,
@@ -44,7 +44,12 @@ enum { VDC_PRIORITY_GUARD_DISABLED, VDC_PRIORITY_GUARD_ARMED,
 enum { VDC_PRIORITY_GUARD_EARLY_FREEZE = 1u << 16,
     VDC_PRIORITY_GUARD_SUCCESS_GAP = 1u << 17,
     VDC_PRIORITY_GUARD_COVERAGE = 1u << 18,
-    VDC_PRIORITY_GUARD_RING_READ = 1u << 19 };
+    VDC_PRIORITY_GUARD_RING_READ = 1u << 19,
+    VDC_PRIORITY_GUARD_OUTPUT_READ = 1u << 20,
+    VDC_PRIORITY_GUARD_OUTPUT_IDENTITY = 1u << 21,
+    VDC_PRIORITY_GUARD_OUTPUT_STOPPED = 1u << 22,
+    VDC_PRIORITY_GUARD_OUTPUT_STALE = 1u << 23,
+    VDC_PRIORITY_GUARD_OUTPUT_PROGRESS = 1u << 24 };
 /* Low eight reason bits retain summary anomaly flag meanings. PARTIAL and
  * TERMINAL alone are not failures. Core0 appends actual stop/retirement facts
  * to the stable Core1 verdict; acceptance never implies physical retirement. */
@@ -52,6 +57,10 @@ typedef struct {
     uint32_t schema, capture_id, session, generation, target_s, state;
     uint32_t reason_mask, first_failure_ms, checked_s, passed_mask, elapsed_ms;
     uint32_t ring_config_seq, stop_config_seq, stop_accepted, ring_retired, output_retired;
+    /* Schema 2 requires the same prepared output request throughout the
+     * reference experiment. These are checkpoint observations, not edges. */
+    uint32_t output_request, output_state, output_reason;
+    uint32_t output_ordinal_lo, output_ordinal_hi;
 } vdc_priority_guard_status_t;
 
 enum {

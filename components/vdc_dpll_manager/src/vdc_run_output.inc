@@ -155,6 +155,23 @@ static void run_output_release_core0(void)
     __atomic_store_n(&s_run_output_busy,0u,__ATOMIC_RELEASE);
 }
 
+bool vdc_run_output_observe_core1(vdc_run_output_observation_t *out)
+{
+    uint32_t idle=0u;
+    if (!out || get_core_num()!=1u ||
+        !__atomic_compare_exchange_n(&s_run_output_busy,&idle,1u,true,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED)) return false;
+    sync_io_run_output_snapshot_t hw;
+    const bool ok=s_run_output.request && sync_io_run_output_snapshot(&hw) &&
+        hw.generation==s_run_output.request;
+    if (ok) *out=(vdc_run_output_observation_t){
+        .last_ordinal=hw.last_ordinal, .service_last_tick=hw.service_last_tick,
+        .submit_last_tick=hw.submit_last_tick, .request=s_run_output.request,
+        .session=s_run_output.session, .ring_config=s_run_output.ring_config,
+        .state=hw.state, .reason=hw.reason, .service_observations=hw.service_observations};
+    __atomic_store_n(&s_run_output_busy,0u,__ATOMIC_RELEASE);
+    return ok;
+}
+
 bool vdc_run_output_status(vdc_run_output_status_t *out)
 {
     /* Execution metadata is Core1-owned and exported only after retirement.

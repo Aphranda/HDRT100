@@ -988,6 +988,11 @@ scpi_result_t scpi_cmd_vdc_priority_guard_q(scpi_t *context)
     SCPI_ResultUInt32(context,s.stop_accepted);
     SCPI_ResultUInt32(context,s.ring_retired);
     SCPI_ResultUInt32(context,s.output_retired);
+    SCPI_ResultUInt32(context,s.output_request);
+    SCPI_ResultUInt32(context,s.output_state);
+    SCPI_ResultUInt32(context,s.output_reason);
+    SCPI_ResultUInt32(context,s.output_ordinal_lo);
+    SCPI_ResultUInt32(context,s.output_ordinal_hi);
     return SCPI_RES_OK;
 }
 

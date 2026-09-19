@@ -87,6 +87,14 @@ bool vdc_run_output_prepare(uint32_t period_ns,uint32_t high_ns,
                             uint32_t duration_ms,uint32_t *request);
 void vdc_run_output_cancel(void);
 bool vdc_run_output_status(vdc_run_output_status_t *out);
+/* Bounded Core1 diagnostic observation, not GPIO edge evidence. Retains the
+ * request identity after backend retirement/release. No service or mutation;
+ * one ownership attempt and one published backend snapshot, no retry. */
+typedef struct {
+    uint64_t last_ordinal, service_last_tick, submit_last_tick;
+    uint32_t request, session, ring_config, state, reason, service_observations;
+} vdc_run_output_observation_t;
+bool vdc_run_output_observe_core1(vdc_run_output_observation_t *out);
 /* Core0 configuration callback, inside the STOP metadata owner gate. */
 bool vdc_run_output_configuration_idle(void);
 void vdc_run_output_service_core1(void);

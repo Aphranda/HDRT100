@@ -8,6 +8,34 @@ static uint32_t s_priority_guard_words[sizeof(vdc_priority_guard_status_t)/4u];
 static uint32_t s_priority_guard_stop_capture, s_priority_guard_stop_config;
 static uint32_t s_priority_guard_ring_retired, s_priority_guard_output_retired;
 
+static void priority_guard_output(uint64_t now, bool initial)
+{
+    vdc_priority_guard_status_t *g=&s_priority_guard_work;
+    vdc_run_output_observation_t o;
+    if (!vdc_run_output_observe_core1(&o)) {
+        g->reason_mask |= VDC_PRIORITY_GUARD_OUTPUT_READ;
+        return;
+    }
+    const uint64_t prior=((uint64_t)g->output_ordinal_hi<<32u)|g->output_ordinal_lo;
+    g->output_state=o.state; g->output_reason=o.reason;
+    g->output_ordinal_lo=(uint32_t)o.last_ordinal;
+    g->output_ordinal_hi=(uint32_t)(o.last_ordinal>>32u);
+    if (initial) g->output_request=o.request;
+    if (!o.request || o.request!=g->output_request || o.session!=g->session ||
+        (!initial && o.ring_config!=g->ring_config_seq))
+        g->reason_mask |= VDC_PRIORITY_GUARD_OUTPUT_IDENTITY;
+    /* The first observation may precede first-block admission. Minute
+     * checkpoints require running output, a fresh owner and real admission
+     * progress. Never drive/service PIO from the diagnostic observer. */
+    if (initial) return;
+    if (o.state!=SYNC_IO_RUN_OUTPUT_RUNNING || o.reason!=SYNC_IO_RUN_OUTPUT_OK)
+        g->reason_mask |= VDC_PRIORITY_GUARD_OUTPUT_STOPPED;
+    if (!o.service_observations || o.service_last_tick>now || o.submit_last_tick>now ||
+        now-o.service_last_tick>BOARD_SYS_CLOCK_HZ || now-o.submit_last_tick>BOARD_SYS_CLOCK_HZ)
+        g->reason_mask |= VDC_PRIORITY_GUARD_OUTPUT_STALE;
+    if (o.last_ordinal<=prior) g->reason_mask |= VDC_PRIORITY_GUARD_OUTPUT_PROGRESS;
+}
+
 static void priority_guard_publish(void)
 {
     const uint32_t seq = __atomic_load_n(&s_priority_guard_sequence, __ATOMIC_RELAXED);
@@ -74,6 +102,7 @@ static void priority_guard_service_core1(void)
         }
         s_priority_guard_start=first->observed_start_raw;
         s_priority_guard_started=1u; g->state=VDC_PRIORITY_GUARD_RUNNING;
+        priority_guard_output(s_priority_guard_start,true);
         priority_guard_publish();
     }
     tdma_ring_clock_snapshot_t ring;
@@ -93,6 +122,7 @@ static void priority_guard_service_core1(void)
             g->reason_mask |= VDC_PRIORITY_GUARD_EARLY_FREEZE;
             g->state=VDC_PRIORITY_GUARD_FAIL;
         } else if (g->elapsed_ms >= (g->checked_s+VDC_PRIORITY_GUARD_CHECKPOINT_S)*1000u) {
+            priority_guard_output(now,false);
             /* Include the open partial bin: bin closure is not a minute
              * boundary and cannot hide a current gap or missing input. */
             vdc_priority_summary_record_t *p=priority_summary_record();
