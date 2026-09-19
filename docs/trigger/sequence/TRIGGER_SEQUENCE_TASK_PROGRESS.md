@@ -1090,6 +1090,48 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 - 上一状态完成到下一FIRE入队均值9.417ms、P95 9.786ms、最大10.814ms，不能替代物理READY到OUT边沿指标，低于1ms目标仍未通过。主机静默消除了本工具在线查询，RAM记录仍有成本；停止前调度快照仍有累计miss/overrun，缺少本轮起点差分，不能全部归于本次30位置，也不能声明严格实时通过。PyVISA终止符提示仍保留，工具退出0且报告passed=true。
 - 结合进度067的修复、映射/竞争负测、配置连续事务和源码单板凭证，本条关闭NSEQ-RISK-04的无关锁依赖缺陷及所缺外部验证；不扩大到任意并发重绑。NSEQ-RISK-06原间歇OFF拒绝仍未取得新现场原因，继续OPEN。用户认可的单板功能口径满足本切片闭环，不声明多板、独立边沿计数、真实网分/RF、物理波形或P3通过；保留进度067零输入失败及全部隔离失败原件。
 
+### 069：停止态LINK写锁竞争复现、修复及单板闭环
+
+- TODO：`NSEQ-117`、`NSEQ-RISK-06`；日期：2026-09-19。以下为本轮测试/构建快照，非产品常量。旧build `20260919092554`的`config-hundred-r1.json`连续100次配置通过，不能证明间歇拒绝已消失。固化工具`sequence_config_validate.py`新增有界`--link-off-probes`，重复成功的独立OFF事务，首次拒绝即保存原文、SCPI错误、所在序号并停止，不重放失败命令。
+- 原件目录`out/node-sequence/sequence-quality-20260919/`：`config-off-stress-r1.json`在第一事务第177次OFF返回`"REJECTED",8,0,0,0`及执行错误，前176次成功；停止清理通过。这将本次失败明确定位为`TRIGGER_SEQUENCE_LINK_CONFIG_WRITER_BUSY`。Core1在LINK OFF后仍每周期无条件占writer，Core0配置单次抢锁因此偶发拒绝；历史无分项诊断的r3不能反推必然是同一原因。
+- 修复`trigger_sequence_link_service`：在同一OSAL临界区读取已发布enabled及有待处理拒绝事实，并单次尝试writer；已关闭且无待处理事件时直接返回，避免旧ON快照跨越OFF提交后再抢锁。启用态IDLE/STOP仍走原服务和末次计数/收件箱/credit清理。成功配置新binding时消费旧binding未发布拒绝增量，与既有状态清零一致；失败配置保留增量，不清全局TDMA质量计数或累计TX。
+- 软件回归`sequence-off-quiescent-r1.xml`保留新增夹具未初始化角色导致的失败；补齐夹具后LINK/配置压力/真实角色SCPI组合170项通过，`out/pytest/sequence-off-quiescent-r2.xml`。新增覆盖关闭态静默、pending拒绝排空、启用态停止服务保留、失败不消费诊断和换代不串统计。独立只读复核锁序和状态边界无阻断问题，复跑100项通过；真正锁冲突及TDMA停止许可拒绝仍有效。
+- 新build `20260919101510`，默认USBTMC且运行时USB切换开启，A/B/BOOT链接检查通过。包`out/build/sequence-off-usbtmc-20260919/DHRT100_UPDATE.pkg`，SHA-256 `2d15f90f881406fd601367a6a9a3de3e67c11565b0efa4d435293280607424c7`；日志`off-build-r1.log`。真实VISA OTA `out/ota/sequence-off-20260919-r1/summary.json`通过升级、重枚举、build校验及commit。
+- 新build同参数`config-off-stress-r2.json`完成10000次OFF、十次角色配置激活及清理，全部通过。固定单板门禁`out/HardwareAcceptance/20260919/sequence-off-r1`通过双角色有限/暂停恢复、独立重复、START全部profile及三槽位注入/忙时阈值/生命周期；固定host回归196项通过。新凭证绑定源码指纹`f7ac69cdff55adbe48278a6d83307f2514fe294fc73756fcbd080022145e5329`，`check-staged`通过。
+- 本切片外部验收`third-mode-off-1khz-30-quiet-r1.json`通过：IN1声明1kHz、N=1000、OUT4到IN2、RJ45真实回环、网关1us。单次START后32s零主机命令；30位置、240次触发/READY、239次后继推进及240条完整历史，零覆盖，末累计30096脉冲，故障/拒绝零，自然IDLE及停止清理通过。PyVISA终止符提示保留，不据功能通过宣称波形或严格TDMA稳定性通过。
+- 原始拍离线分析`timing-off-quiet-r1.{json,csv,md}`记录逐位置/状态分段，整轮均值94.851ms、最大96.453ms；上一完成观察到后继FIRE入队均值9.377ms、P95 9.811ms、最大10.167ms。仍是Core1观察/提交边界，物理READY到触发低于1ms未证明，本次不是运行性能优化。
+- 本轮以复现、修复、负向回归、新固件压力和外部闭环关闭NSEQ-RISK-06已确认的稳定OFF后台写者缺陷。enabled-idle首次配置仍可能因必要清理竞争而拒绝，其他TDMA拒绝原因不在本修复保证范围；失败原件与清晰诊断继续保留。下一片回到NSEQ-112物理部署映射，随后共享VDC及运输配额，不以本次单板功能验收宣称长期目标完成。
+- 已fetch上游`origin/wip/tdma-real-flight-processing`至`c09006e4`；相对进度060基线，运行代码新增`024915dc`的外部参考慢速discipline及持久化调参，本轮未合并。共享VDC接入仍须核对唯一参考、本板坐标/模型和邮箱共存，不继承上游同步精度结论。
+
+### 070：Core归属及周期等待的性能核对
+
+- TODO：`NSEQ-114/115`；日期：2026-09-19。用户询问是否由Core0或每次TDMA周期造成延迟。本条为进度069同build报告和调用链审计快照，未修改运行流水线，也未做缩短周期的硬件因果对照。
+- `application/src/app.c:app_realtime_tdma_phase`依次调用TDMA owner、`distributed_refmem_tdma_flight_service_core1`、sequence owner和LINK，再按LINK动作结果有界补一次owner。真实flight收发/消息交付、序列FSM及PIO收据消费均在Core1；Core0保留SCPI、配置、停止生命周期准备和管理，不能把全段等待归因于Core0命令轮询。
+- 本次调度快照`clock_hz=250000000`、`cycle_cycles=375000`对应1.5ms的Core1周期，事实源是`PROJECT_CORE1_CYCLE_CYCLES`及硬件读回；GUI配置选`SYST:TDMA:OPMODE:STAGE 7`，对应`tdma_operating_profile.c`的1ms档位，档位不等于实测线缆发车间隔。RefMem当前还取`max(publish_interval_ms, ceil(feedback_timeout_ns/1ms))`为发布节流下限；本次环配置的反馈超时为2ms。三者必须分开分析。
+- 调用顺序意味着LINK本次生成的新消息需等待后继flight服务，PIO完成也需再次观察；停止前snapshot还保留调度miss/overrun累计值，不能把每段视为恰好一个周期。离线每状态观察均值：请求到应用2.326ms、应用到offer 2.089ms、offer到返回4.316ms、返回到FIRE入队0.595ms、入队到观察完成2.466ms；配置settle为10us、OUT4为1us。主要优化候选是重复跨周期等待及发布节流，不是继续减小这些已很短的IO参数。
+- 稳定小于1ms需要有界快速事件服务和明确运输配额，配合必要的PIO/DMA硬件完成事件及同阶段流水线，保持HAOFV owner、静态预算和真实回程。下一步不能只把全部1.5ms压小：当前TDMA phase存在累计超预算证据，必须先确认WCET和可用窗口，不能占用后续phase/guard；物理边沿仍须单独验证。
+
+### 071：启用态IDLE清理静默及第四模式接续
+
+- TODO：`NSEQ-112/115/117`、`NSEQ-120`；日期：2026-09-19。以下为验证快照，非产品常量。
+- 快速档位比较在初始`CONF:SEQ:LINK OFF`被拒绝，原件`out/node-sequence/sequence-quality-20260919/third-mode-level14-1khz-30-quiet-r1.json`；当时尚未修改TDMA档位，不能归因为快速环路失败。启用但已完成的IDLE仍反复取得LINK writer，NSEQ-RISK-06重新打开。
+- 修复由Core1保存完成IDLE清理后的binding及run/generation/trigger/READY/completed/counter指纹，无变化时不取writer；配置换代、START/STOP、最终计数或待记拒绝均唤醒。首次必要清理与真实配置冲突仍可拒绝，不自动重放修改命令。
+- 软件LINK/工具/GUI回归337项通过，`out/pytest/sequence-idle-r2.xml`；独立只读审核无阻断问题并独立复跑相同数量测试。USBTMC build `20260919103901`构建及A/B/BOOT链接检查通过，`idle-build-r1.log`保留完整输出。配置命令曾因PowerShell原生stderr表现为非零，日志实际完成configure/generate，最终构建成功；不把该退出状态隐藏为首次命令通过。
+- 真实VISA OTA通过，包`out/build/sequence-idle-usbtmc-20260919/DHRT100_UPDATE.pkg`，摘要`out/ota/sequence-idle-20260919-r1/summary.json`。当前源码单板凭证`out/HardwareAcceptance/20260919/sequence-idle-r1`通过，绑定源码`410384fb4923129e37a29d46c2fdfe46f646b4e51c8cfc3ff932b09d97fcdd63`及包SHA256 `3f9c781d2b981b0ec4bb0a20f95d4281a6a53a40c7fa79899cfa7d62c64bf1c8`，包含固定三模式功能回归；代码提交`2ff4abd4`已通过真实pre-commit。
+- 外部IN1 1kHz、N=1000、OUT4到IN2及真实RJ45静默30位置通过，原件`out/node-sequence/sequence-quality-20260919/third-mode-idle-1khz-30-quiet-r1.json`。240次采样/READY、239次后继推进、30098个累计脉冲，历史240保留且零覆盖；32秒窗口主机零命令，末态IDLE、输出/租约/armed/busy归零。随后`config-idle-stress-r1.json`的10次完整配置及1000次OFF成功，无自动重放失败修改，清理通过。
+- NSEQ-RISK-06本次后台空转争用在修复、负测与硬件证据闭合后关闭；首次必要清理或其他真实争用仍可明确拒绝。离线分段`timing-idle-quiet-r1.{json,csv,md}`保留完整位置记录：请求到应用均值2.316ms、应用到offer 2.065ms、offer到返回4.447ms、返回到FIRE队列0.595ms、队列到完成观察2.497ms，仍是软件观察边界，未达物理低于1ms目标。
+- 位置验收工具新增显式TDMA档位选择与活动/暂存读回核验，GUI默认档位不变。后续优先第四模式的时间预约与SYNC快速交接，档位比较仅作为诊断工具，不再把单独缩短周期作为完成目标。
+
+### 072：第四模式预约语义与能力差距审计
+
+- TODO：`NSEQ-120`至`NSEQ-125`；日期：2026-09-19。用户确认第四模式：三个业务槽位共享VDC并行准备/执行，每次VNA READY后预约下一步；连续外部脉冲及已知计划可用于提前规划位置T2；READY的捕获/快速传递走SYNC域特等席，与VDC同圈。
+- 已在架构新增NSEQ-RSV-01至04草案，并在TODO拆分时间模型、SYNC运输、并行执行、SCPI/GUI和验证；未登记冻结wire契约，未增加假成功命令或第四页启动入口。位置预测不替代真实计数，READY完成与预约准备确认分开，DUT稳定时间保留。
+- 独立只读审计`/root/link_off_audit`确认：现有VDC向量缺完整clock epoch/run投影；TIMER1原始ticks与VDC本地ns必须同原点显式转换；现有sequence STEP/FIRE立即提交，尚无绝对deadline；PIO0三个角色已用满SM，须重新核算persona；当前compact LINK无完整预约时间、模型身份、fence及硬件completion语义。
+- 主控补查`vdc_dpll_manager_compute_dco_phase_pulse_deadline()`已有用于相位脉冲的内部迭代换算，但它自动选择后续周期且不提供指定预约目标/完整质量和溢出准入，不能直接当通用预约API。`sync_io_model_sched.c`现有软件微秒调度也不能作为预约硬件边沿证据。
+- 下一gate：进度071当前切片完成单板及外部静默30位置后，先实现共享VDC完整只读快照与有界规划/准入，再逐片接入SYNC特等席和硬件执行。运行期间不插入TDMA/PHY查询；每位置时间拆解继续经Trigger本地诊断向量停止后导出。第四模式、低于1ms响应及物理同步精度均未验收。
+- 用户后续确认前后只验VDC：默认总观察30位置，前5建立/验证、中间20业务采样、后5验证稳态；前后窗口可配置，后续可能改为前2后2，固定总数时中间派生26。架构补NSEQ-RSV-05，工具尚未实现该分段；进度071的30位置全采样仅是第三模式回归，不能当第四模式证据。
+- 按用户要求再次fetch`origin/wip/tdma-real-flight-processing`，当前仍为`c09006e4`。该分支已包含TIMER1统一坐标、`vdc_clock_mapping.h`/`vdc_future_raw.h`/`vdc_timer1_coordinate.h`、committed model及维护发布路径，迁移须优先复用完整依赖，不在Trigger重复实现VDC。用户提供四板±25ns结果及单板4至8ns预期；本轮未复核对应原始波形，不把预期登记为当前能力。
+
 ## 失败与回退
 
 配置模型、SCPI与GPIO版板端验证已完成相应记录；当前迁移PIO0，后续结果按新增记录跟踪。
@@ -1097,13 +1139,13 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 
 ## 下一 Gate
 
-最新配置修复及单板凭证以进度067为准；进度068已在信号源开启后补齐同build独立IN1及外部静默三十位置，NSEQ-RISK-04本次缺陷闭合。下一代码切片继续定位NSEQ-RISK-06原间歇OFF拒绝，响应提速及部署/VDC迁移尚未完成。
+最新配置修复和当前源码单板/外部闭环见进度071；NSEQ-RISK-04和06已确认缺陷已闭合，必要清理及真实配置争用仍可拒绝。第四模式规划见进度072及NSEQ-120至125，先参考real-flight统一VDC快照/预约规划，再接入SYNC特等席和PIO执行；前后VDC窗口可配置，历史失败保留。
 
 三模式均有本地物理反馈功能证据，转台已补外部50Hz、N=50两位置GUI命令路径验证。NSEQ-106仍待独立真实网分及生命周期补证，NSEQ-RISK-05自动验收与OTA摘要仍未闭合；NSEQ-108待回环窗口及打包EXE完整验证，保留TDMA诊断快照偶发失败与固件时间尺度偏差。
 历史TIMER1版1kHz完整360位置证据见进度058/059，旧RTOS tick分析仅保留历史；当前build三模式固定回归及提交凭证以进度065为准。全局Core0时钟及迁移后的最终完整扫描仍需分别闭合。
 最新诊断及计时切片以进度063/064为准：向量版新固件外部1kHz三十位置静默闭环通过，主机零运行期命令，完整历史零覆盖。双角色诊断/清理在进度063对应build已通过；主动诊断压力仍会BUSY，不把它作为性能基线。后续每切片保持静默30位置、完整历史及停止清理核验，再推进统一部署、共享VDC与运输共存。最终完整扫描保留360位置，当前毫秒级性能和调度超预算未关闭。
-NSEQ-105三模式单板凭证及代码检查点已完成；既有下一代码提交约束仍优先关闭
-NSEQ-RISK-06原配置拒绝根因；NSEQ-RISK-04修复及外部闭环见进度067/068，不以重跑通过代替其他间歇失败的根因闭环，再继续NSEQ-101至104迁移。
+NSEQ-105三模式单板凭证及代码检查点已完成；NSEQ-RISK-04修复及外部闭环见进度067/068，
+NSEQ-RISK-06本次实测原因、修复及闭环见进度069。后续继续NSEQ-112至116，承接NSEQ-101至104的未闭合项，不以重跑通过替代新失败归因。
 保留独立SP8T的MANUAL/IN回归；组合角色使用统一PIO0 owner及真实RJ45运输，不软件直达。
 PIO握手首切片和Core1运行状态机功能已通过，固定200ms位置周期与严格TDMA稳定性仍未通过；
 后续改动逐片构建、OTA和单板闭环，重新生成匹配staged指纹的凭证，旧报告不能替代。
