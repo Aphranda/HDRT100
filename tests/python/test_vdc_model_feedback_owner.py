@@ -107,6 +107,8 @@ static void priority_follow_apply_core1(void)
     assert(match_calls == step_calls && ingress_calls == step_calls);
     assert((s_committed_model_guard & 1u) == (vdc_dpll_manager_feedback_session() ? 1u : 0u));
 }
+static void priority_follow_health_service_core1(void)
+{ assert(match_calls == step_calls); }
 ''' + wrapper + r'''
 static bool project(uint64_t lo,vdc_dpll_manager_projected_event_t *out)
 { raw_now=1001004;return vdc_dpll_manager_project_feedback_event(123,9,3,4,2,0xabc,250000000,lo,1000500,out); }

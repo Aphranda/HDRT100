@@ -3199,6 +3199,7 @@ void __attribute__((noinline)) sync_dpll_fb_service(void)
     sync_dpll_fb_step();
     vdc_boundary_service_core1();
     priority_follow_apply_core1();
+    priority_follow_health_service_core1();
     reference_discipline_service_core1(session);
     if (session) model_feedback_end_core1(session);
     priority_summary_service(true);

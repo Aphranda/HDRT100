@@ -99,6 +99,7 @@ bool vdc_timestamp_clock_try_read_ns(uint32_t hz,uint64_t *out)
 '''
 
 DEPENDENCIES = r'''
+static void priority_follow_health_service_core1(void) {}
 static void osal_critical_enter(void) {}
 static void osal_critical_exit(void) {}
 static bool vdc_dpll_manager_apply_pending_debug_continue(void) { return debug_pending; }

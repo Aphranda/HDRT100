@@ -379,6 +379,7 @@ static void apply(void)
     ++s_committed_model_guard;
     vdc_boundary_service_core1();
     priority_follow_apply_core1();
+    priority_follow_health_service_core1();
     model_feedback_end_core1(vdc_dpll_manager_feedback_session());
 }
 static void tick(void) { prepare();apply(); }

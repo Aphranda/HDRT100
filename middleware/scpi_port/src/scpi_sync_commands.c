@@ -1330,6 +1330,34 @@ scpi_result_t scpi_cmd_vdc_priority_follow_baseline_store(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_vdc_priority_follow_health_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    vdc_priority_follow_health_t s;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !vdc_dpll_manager_get_priority_follow_health(&s)) {
+        scpi_port_push_exec_error(context, "Priority follow health requires STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, s.schema);
+    SCPI_ResultUInt32(context, s.state);
+    SCPI_ResultUInt32(context, s.reason);
+    SCPI_ResultUInt32(context, s.request);
+    SCPI_ResultUInt32(context, s.session);
+    SCPI_ResultUInt32(context, s.generation);
+    SCPI_ResultUInt32(context, s.event_sequence);
+    SCPI_ResultUInt32(context, s.tick_hz);
+    SCPI_ResultUInt32(context, s.age_us);
+    SCPI_ResultUInt32(context, s.freshness_limit_us);
+    SCPI_ResultUInt32(context, s.accepted);
+    SCPI_ResultUInt32(context, s.stale_transitions);
+    SCPI_ResultUInt32(context, s.recoveries);
+    SCPI_ResultUInt32(context, s.reserved);
+    scpi_sync_result_u64_parts(context, s.raw_lo);
+    scpi_sync_result_u64_parts(context, s.raw_hi);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_vdc_priority_follow_status_q(scpi_t *context)
 {
     tdma_ring_clock_snapshot_t ring;

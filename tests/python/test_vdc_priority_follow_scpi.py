@@ -11,8 +11,8 @@ def test_priority_follow_commands(tmp_path):
     source = (ROOT / 'middleware/scpi_port/src/scpi_sync_commands.c').read_text(encoding='utf-8')
     header = (ROOT / 'middleware/scpi_port/inc/scpi_system_snapshot_commands.h').read_text(encoding='utf-8')
     names = ('scpi_cmd_vdc_priority_follow', 'scpi_cmd_vdc_priority_follow_q',
-             'scpi_cmd_vdc_priority_follow_status_q')
-    for pattern, name in zip(('FOLLow', 'FOLLow?', 'FOLLow:STATus?'), names):
+             'scpi_cmd_vdc_priority_follow_status_q', 'scpi_cmd_vdc_priority_follow_health_q')
+    for pattern, name in zip(('FOLLow', 'FOLLow?', 'FOLLow:STATus?', 'FOLLow:HEALth?'), names):
         assert header.count(f'.pattern = "SYSTem:VDC:PRIORity:{pattern}", .callback = {name}') == 1
     unit = tmp_path / 'commands.c'
     unit.write_text(HARNESS + '\n'.join(callback(source, name) for name in names) + MAIN, encoding='utf-8')
@@ -59,6 +59,12 @@ bool vdc_dpll_manager_get_priority_follow(vdc_priority_follow_snapshot_t *s)
   s->local_interval_lo=123456789;s->local_interval_hi=123456790;
   s->error_lo_ppb=INT64_MIN;s->error_hi_ppb=-1;
   return snapshot_ok; }
+bool vdc_dpll_manager_get_priority_follow_health(vdc_priority_follow_health_t *s)
+{ ++gets;*s=(vdc_priority_follow_health_t){.schema=1,.state=VDC_PRIORITY_HEALTH_RETIRED,
+    .request=17,.session=123,.generation=101,.event_sequence=456,.tick_hz=250000000,
+    .age_us=127,.freshness_limit_us=120000,.accepted=99,.stale_transitions=2,.recoveries=1,
+    .raw_lo=UINT64_C(0x123456789abcdef0),.raw_hi=UINT64_C(0x123456789abcdef1)};
+  return snapshot_ok; }
 static void SCPI_ResultUInt32(scpi_t *c,uint32_t v) { (void)c;assert(results<64);fields[results++]=v; }
 static void scpi_sync_result_u64_parts(scpi_t *c,uint64_t v)
 { SCPI_ResultUInt32(c,(uint32_t)v);SCPI_ResultUInt32(c,(uint32_t)(v>>32)); }
@@ -96,6 +102,20 @@ int main(void)
     assert(fields[34]==0x9abcdef0 && fields[35]==0x12345678);
     assert(fields[46]==123456789 && fields[47]==0 && fields[48]==123456790 && fields[49]==0);
     assert(fields[50]==0 && fields[51]==0x80000000 && fields[52]==UINT32_MAX && fields[53]==UINT32_MAX);
+    results=0;ring.enabled=1;
+    assert(scpi_cmd_vdc_priority_follow_health_q(&c)==SCPI_RES_ERR && !results && gets==2);
+    ring.enabled=0;ring.adapter_started=1;
+    assert(scpi_cmd_vdc_priority_follow_health_q(&c)==SCPI_RES_ERR && !results && gets==2);
+    ring.adapter_started=0;ring_ok=false;
+    assert(scpi_cmd_vdc_priority_follow_health_q(&c)==SCPI_RES_ERR && !results && gets==2);
+    ring_ok=true;snapshot_ok=false;
+    assert(scpi_cmd_vdc_priority_follow_health_q(&c)==SCPI_RES_ERR && !results && gets==3);
+    snapshot_ok=true;
+    assert(scpi_cmd_vdc_priority_follow_health_q(&c)==SCPI_RES_OK && results==18 && gets==4);
+    assert(fields[0]==1 && fields[1]==VDC_PRIORITY_HEALTH_RETIRED && fields[3]==17);
+    assert(fields[4]==123 && fields[5]==101 && fields[6]==456 && fields[7]==250000000);
+    assert(fields[8]==127 && fields[9]==120000 && fields[10]==99 && fields[11]==2 && fields[12]==1);
+    assert(fields[14]==0x9abcdef0 && fields[15]==0x12345678 && fields[16]==0x9abcdef1 && fields[17]==0x12345678);
     results=0;parameter=0;
     assert(scpi_cmd_vdc_priority_follow(&c)==SCPI_RES_OK && fields[0]==0 && !enabled);
     return 0;

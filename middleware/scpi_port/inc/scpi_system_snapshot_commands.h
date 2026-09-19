@@ -56,6 +56,7 @@ scpi_result_t scpi_cmd_vdc_priority_match_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_follow_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_follow_health_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_output_delay(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_output_delay_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_output_delay_default(scpi_t *context);
@@ -259,6 +260,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow", .callback = scpi_cmd_vdc_priority_follow}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow?", .callback = scpi_cmd_vdc_priority_follow_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:FOLLow:STATus?", .callback = scpi_cmd_vdc_priority_follow_status_q}, \
+    {.pattern = "SYSTem:VDC:PRIORity:FOLLow:HEALth?", .callback = scpi_cmd_vdc_priority_follow_health_q}, \
     {.pattern = "SYSTem:VDC:OUTPut:DELay", .callback = scpi_cmd_vdc_output_delay}, \
     {.pattern = "SYSTem:VDC:OUTPut:DELay?", .callback = scpi_cmd_vdc_output_delay_q}, \
     {.pattern = "SYSTem:VDC:OUTPut:DELay:DEFAult", .callback = scpi_cmd_vdc_output_delay_default}, \

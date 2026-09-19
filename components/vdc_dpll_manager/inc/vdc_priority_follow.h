@@ -90,4 +90,24 @@ bool vdc_dpll_manager_try_priority_follow_enabled(bool *enabled);
 /* One bounded atomic-word copy; false preserves *out. Diagnostic only. */
 bool vdc_dpll_manager_get_priority_follow(vdc_priority_follow_snapshot_t *out);
 
+enum {
+    VDC_PRIORITY_HEALTH_DISABLED = 0u, VDC_PRIORITY_HEALTH_WAITING = 1u,
+    VDC_PRIORITY_HEALTH_FRESH = 2u, VDC_PRIORITY_HEALTH_STALE = 3u,
+    VDC_PRIORITY_HEALTH_RETIRED = 4u
+};
+/* Source freshness only, independent of formal quality and optional TRACE.
+ * reason uses VDC_PRIORITY_FOLLOW_* reasons. Age is conservative TIMER1
+ * event age, never receipt/handler age. Retired evidence is frozen for STOP.
+ * FRESH is not actuator admission. recoveries counts STALE->FRESH transitions,
+ * including clock-read recovery while the same source event is still young.
+ * Counters saturate and reset with the FOLLOW request. No lock grant. */
+typedef struct {
+    uint32_t schema, state, reason, request, session, generation;
+    uint32_t event_sequence, tick_hz, age_us, freshness_limit_us;
+    uint32_t accepted, stale_transitions, recoveries, reserved;
+    uint64_t raw_lo, raw_hi;
+} vdc_priority_follow_health_t;
+/* One bounded atomic-word read; false preserves *out. */
+bool vdc_dpll_manager_get_priority_follow_health(vdc_priority_follow_health_t *out);
+
 #endif

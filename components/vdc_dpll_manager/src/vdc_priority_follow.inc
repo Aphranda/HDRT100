@@ -38,6 +38,10 @@ static bool priority_phase_known_successor(
     const vdc_dpll_manager_committed_model_t *current);
 static uint32_t s_priority_follow_guard;
 static uint32_t s_priority_follow_words[sizeof(vdc_priority_follow_snapshot_t) / 4u];
+static vdc_priority_follow_health_t s_priority_health;
+static uint32_t s_priority_health_guard;
+static uint32_t s_priority_health_words[sizeof(vdc_priority_follow_health_t) / 4u];
+static bool s_priority_health_dirty;
 _Static_assert(sizeof(vdc_priority_follow_snapshot_t) == 216u,
     "typed-follow diagnostics use 54 atomic words");
 _Static_assert(VDC_PRIORITY_FOLLOW_MAX_INTERVAL_NS <= UINT64_MAX / UINT64_C(1000000000),
@@ -96,6 +100,93 @@ bool vdc_dpll_manager_get_priority_follow(vdc_priority_follow_snapshot_t *out)
     if (guard != __atomic_load_n(&s_priority_follow_guard, __ATOMIC_ACQUIRE)) return false;
     *out = copy;
     return true;
+}
+
+bool vdc_dpll_manager_get_priority_follow_health(vdc_priority_follow_health_t *out)
+{
+    if (!out) return false;
+    const uint32_t guard = __atomic_load_n(&s_priority_health_guard, __ATOMIC_ACQUIRE);
+    if (guard & 1u) return false;
+    vdc_priority_follow_health_t value;
+    match_load_words(s_priority_health_words, &value, sizeof(value));
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    if (guard != __atomic_load_n(&s_priority_health_guard, __ATOMIC_ACQUIRE)) return false;
+    *out = value;
+    return true;
+}
+
+static void priority_follow_health_request(void)
+{
+    const vdc_priority_follow_snapshot_t *s = &s_priority_follow_work.status;
+    if (s_priority_health.schema && s_priority_health.request == s->request) return;
+    s_priority_health = (vdc_priority_follow_health_t){.schema = 1u,
+        .request = s->request, .session = s->session, .generation = s->generation,
+        .state = VDC_PRIORITY_HEALTH_WAITING,
+        .freshness_limit_us = VDC_PRIORITY_FOLLOW_MAX_AGE_MS * 1000u};
+    s_priority_health_dirty = true;
+}
+
+static void priority_follow_health_accept(void)
+{
+    const vdc_priority_match_work_t *match = &s_priority_match_work;
+    const vdc_priority_match_snapshot_t *m = &s_priority_follow_work.ticket.match;
+    if (!match->fresh || match->status.event_sequence != m->event_sequence ||
+        match->status.generation != m->generation || match->status.session != m->session) return;
+    priority_follow_health_request();
+    if (s_priority_health.tick_hz && m->event_sequence <= s_priority_health.event_sequence) return;
+    s_priority_health.event_sequence = m->event_sequence;
+    s_priority_health.tick_hz = m->tick_hz;
+    s_priority_health.raw_lo = m->raw_lo;
+    s_priority_health.raw_hi = m->raw_hi;
+    s_priority_health.accepted = priority_match_inc(s_priority_health.accepted);
+    s_priority_health_dirty = true;
+}
+
+/* Mandatory wrapper calls this even without a fresh carrier or a DCO change. */
+static void priority_follow_health_service_core1(void)
+{
+    if (get_core_num() != 1u) return;
+    priority_follow_health_request();
+    const vdc_priority_follow_snapshot_t *follow = &s_priority_follow_work.status;
+    vdc_priority_follow_health_t next = s_priority_health;
+    if (!follow->active) {
+        next.state = follow->state == VDC_PRIORITY_FOLLOW_DISABLED
+            ? VDC_PRIORITY_HEALTH_DISABLED : VDC_PRIORITY_HEALTH_RETIRED;
+        next.reason = follow->last_reason;
+    } else if (!next.tick_hz) {
+        next.state = VDC_PRIORITY_HEALTH_WAITING;
+        next.reason = VDC_PRIORITY_FOLLOW_OK;
+    } else {
+        uint64_t now;
+        next.state = VDC_PRIORITY_HEALTH_STALE;
+        next.age_us = UINT32_MAX;
+        if (!vdc_timestamp_clock_try_read_ticks64(next.tick_hz, &now)) {
+            next.reason = VDC_PRIORITY_FOLLOW_BUSY;
+        } else if (now < next.raw_hi || next.raw_hi < next.raw_lo) {
+            next.reason = VDC_PRIORITY_FOLLOW_AGE;
+        } else {
+            const uint64_t elapsed = now - next.raw_lo;
+            const uint64_t seconds = elapsed / next.tick_hz;
+            const uint64_t age = seconds > UINT32_MAX / 1000000u ? UINT32_MAX :
+                seconds * 1000000u + (elapsed % next.tick_hz) * 1000000u / next.tick_hz;
+            next.age_us = age > UINT32_MAX ? UINT32_MAX : (uint32_t)age;
+            const bool fresh = elapsed <= (uint64_t)next.tick_hz * VDC_PRIORITY_FOLLOW_MAX_AGE_MS / 1000u;
+            next.state = fresh ? VDC_PRIORITY_HEALTH_FRESH : VDC_PRIORITY_HEALTH_STALE;
+            next.reason = fresh ? VDC_PRIORITY_FOLLOW_OK : VDC_PRIORITY_FOLLOW_AGE;
+        }
+        if (next.state == VDC_PRIORITY_HEALTH_STALE && s_priority_health.state == VDC_PRIORITY_HEALTH_FRESH)
+            next.stale_transitions = priority_match_inc(next.stale_transitions);
+        if (next.state == VDC_PRIORITY_HEALTH_FRESH && s_priority_health.state == VDC_PRIORITY_HEALTH_STALE)
+            next.recoveries = priority_match_inc(next.recoveries);
+    }
+    if (!s_priority_health_dirty && !memcmp(&next, &s_priority_health, sizeof(next))) return;
+    s_priority_health = next;
+    s_priority_health_dirty = false;
+    const uint32_t guard = __atomic_load_n(&s_priority_health_guard, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_priority_health_guard, guard + 1u, __ATOMIC_RELEASE);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    boundary_store(s_priority_health_words, &next, sizeof(next));
+    __atomic_store_n(&s_priority_health_guard, guard + 2u, __ATOMIC_RELEASE);
 }
 
 /* Inputs are positive interval DELTAS, all in actual output ns. Perform
@@ -492,6 +583,7 @@ static __attribute__((noinline)) void priority_follow_apply_core1(void)
         else s->last_reason = current;
         priority_follow_publish(); return;
     }
+    priority_follow_health_accept();
     if (!w->pending) { priority_phase_apply_core1(); return; }
     const vdc_priority_match_snapshot_t *m = &w->ticket.match;
     if (w->have_consumed && m->event_sequence <= w->consumed_sequence) {
