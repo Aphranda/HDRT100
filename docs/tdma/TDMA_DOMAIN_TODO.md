@@ -28,6 +28,8 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 
 优先收敛 **实时预算与飞行处理**，保留已工作的特等席。预算以当前 `PROJECT_CORE1_*`、`app_realtime_profile_*` 和实际 profile generation 为准；历史 380/500/850 us 仅是对应轮次的门限，不作为现行统一判据。
 
+新增或扩容特等席须先提交席位、字节、频率、Core1/IRQ 最坏耗时及 SYNC 余量清单，由用户审核后实施，见 `EXE-SEAT-01`。健康镜像与统计走 Core0 异步诊断，不占特等席或新增 Core1 发布配额。
+
 | 顺序 | 工作 | 可评审的退出证据 |
 |---|---|---|
 | 1 | 完整 TDMA phase 与 IRQ 预算核对 | 同源码/同配置的前台、IRQ、关窗、skip/late、RUN/RESET/OTHER 和物理进展分别对账。 |

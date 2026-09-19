@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
 Related: `AGENTS.md`, `README.md`, `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-19
 
 > 本文是跨 worker/agent 的长期执行流程入口。它描述如何工作、如何留证和何时停止；不替代产品架构、域内运行时契约或单次验收报告。
 
@@ -48,6 +48,14 @@ Last updated: 2026-09-17
 6. 主控复核证据后，代码与文档分离提交；提交后按任务授权选择性 push。
 
 失败不能被摘要覆盖。`forced_continue` 只能表示调试流程在记录拒绝后继续，不得写成严格门禁通过。
+
+### EXE-SEAT-01：特等席增设须用户审核
+
+用户要求（2026-09-19）：新增或扩容 DPLL/VDC/SYNC 特等席位，必须先取得用户明确审核同意，再实施。既有主线授权不等于授权增加席位。审核材料须列出载荷语义、owner、字节数、频率、Core1 最坏耗时、当前占用及剩余预算，并说明对既有席位及后续 SYNC 的影响；未测余量必须标为待验证，不能按空闲字节直接授予实时能力。
+
+VDC 健康镜像、统计和查询属于异步诊断，不新增特等邮箱、快速通道处理或 Core1 发布工作。由 Core0 有界读取既有快照，允许延后；镜像的 FRESH/age 是采样时状态，不能作为实时控制或锁相授权。实现变更同时检查 wire 席位与 CPU/IRQ 静态预算，不借 GUARD 或其他域配额。
+
+本条记录任务执行授权边界，不新增 wire 契约；产品资源变更仍按原登记与交叉审核流程处理。
 
 ### EXE-STATE-01：状态机迁移与 TDMA 短帧闭环
 

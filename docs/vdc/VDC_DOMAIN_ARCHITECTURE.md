@@ -175,6 +175,8 @@ typed FOLLOW 的来源新鲜度独立于正式 quality。`vdc_dpll_manager_get_p
 
 ## 快照与管理发布
 
+typed health 的独立 RefMem 诊断扩展由 Core0 的 `distributed_refmem_service()` 有界采样发布，位置与大小由 `REFMEM_VDC_PRIORITY_OFFSET`、`refmem_vdc_priority_region_t` 定义。源快照与 source revision 同次 guarded copy，扩展有独立 Core0 writer/guard/checksum；不增加 Core1 发布或 typed 邮箱载荷。FRESH/age 是最后采样时状态，Core0 停顿或 OTA 期间允许滞后，不能授予实时控制、formal quality 或 LOCKED，也不能按同一 DPLL 序号拼接 legacy 模型。新增或扩容特等席须先用户审核，见 `EXE-SEAT-01`。
+
 | 发布层 | 当前语义 |
 |---|---|
 | committed DCO | 活动 session 的 guard 包围整个 Core1 owner step，末尾 `model_feedback_end_core1()` 发布实际 DCO；变化建立 token/`valid_from_raw`。读者单次稳定检查，奇数或变化即失败。 |

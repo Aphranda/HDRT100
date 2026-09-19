@@ -22,6 +22,19 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-032：Core0 异步健康镜像与特等席授权边界
+
+- TODO task ID：`VDC-SNAPSHOT-001`、`VDC-HOLD-001`、`VDC-RECOVERY-001`；本切片 DONE，父任务 IN PROGRESS。
+- 用户要求：VDC 健康诊断不得占特等席或新增 Core1 发布；增设/扩容特等席必须先用户审核。已写入 `EXE-SEAT-01` 和 TDMA/VDC 待办。草稿的 Core1 镜像调用已撤掉，未进入硬件版本；实际实现只由 Core0 RefMem task 在临界区外、OTA 保护后采样既有 guarded health。
+- 代码边界：独立健康扩展使用 VDC 保留区，完整携带源 revision、身份、事件和年龄，Core0 单写并有独立 guard/checksum。旧 wire、Core1 实时函数/两向量轮转、PIO/IRQ/静态预算均未增加工作或配额。STOP 查询 `SYST:REFMEM:VDC:PRIOR?` 返回采样诊断；FRESH/age 可能滞后，不能授权控制或与 legacy model 假定同代。当前 typed 正文已完整分配，普通 class optional 不能重复算作其余量。
+- 验证：相关基线 84 项、新镜像/reader/SCPI 边界 84 项、文档门禁测试 38 项通过。Release A/B/BOOT 与链接检查通过；相对上一 gap build 的 text +640 B、data/bss +0 B（构建快照，非事实源）。主控复核独立只读审查 `review.txt`；相同实时函数大小不等于绝对无共享总线影响。
+- 固定四板 P3：`p3-r1` 为 PASS_WITH_WARNINGS（25 INFO / 19 WARN / 0 ERROR / 0 FATAL，快照），build `20260919140543`，源码 SHA `fdbd901e9ab339643728ea66aafb230da6d0e5d2a8cca4a25068ffcc83b19db2`，1325 文件。复用已知环序，未操作 NO5。新增告警为 NO1 RefMem deadline miss 增 1，overrun 增 0；RefMem max 17105 cycles、配置 WCET 29000 cycles，旧 DPLL 超时仍存在，不能宣称完整静态表通过。对照见 `p3-phase-comparison.json`。
+- 联合实测失败保留：`joint-gap-60s-r1` 四板镜像和模型末态一致，但 NO2/NO3 trace 以 BINDING 冻结，GUARD 分别在 59742/59883 ms 记录提前冻结，后续本地 STOP；NO3/NO4 还记录 SUCCESS_GAP。60 s 窗口 CH2 无上升沿，整轮 FAIL。已有 11 个有效窗口不代替最后失败。末态 MATCH 原因是 SOURCE，trace 的 BINDING 是退休汇总代码，不直接证明身份字段变化；NO3/NO4 首 bin 首次成功等待约 1046.839/1168.597 ms，超过 GUARD 成功间隔界，区别于 22 s 的注入暂停。复测对应约 759.595/890.291 ms。具体源失效与各板自主停机先后仍待对账。
+- 同配置有界复测：`joint-gap-60s-r2` PASS，三从各恢复一次；新 offer 暂停至恢复约 304.607 ms，抑制 99 次（快照）。四板 STOP 后源/镜像 18 词一致且校验通过、模型一致；12 个外部窗口、48 个 RAW 文件 hash 核验通过，NO2/NO3/NO4 最大绝对相差约 36.098/27.389/36.947 ns。两轮 RUN 查询均为 0，最终四板 STOP、配置恢复，无清理错误。
+- 原件：`out/HardwareAcceptance/20260919/typed-health-core0-mirror-r1/`，含 `resource-audit.json`、`runs-audit.json`、P3、两轮联合原件及各自 `joint-summary.json`；测试日志为 `out/health-mirror-core0-base-tests.log` 和 `out/pytest/refmem-priority-health-core0-review-r2/`。
+- 交付：代码与同指纹 P3 凭证提交 `f4992cbc`；文档分离提交。
+- 下一 gate：先对照 GUARD 首次成功等待与稳态缺口的判定边界、源失效与自主停机链，再继续 `VDC-SNAPSHOT-001`/`VDC-HOLD-001` 正式质量发布。末态相等不证明逐事件镜像及时性，复测通过不抹去首轮失败，稀疏波形不授予连续物理锁定。
+
 ### VDC-PROGRESS-20260919-031：同会话参考停更恢复与清除计划后再 ARM
 
 - TODO task ID：`VDC-RECOVERY-001`、`VDC-SNAPSHOT-001`、`VDC-OBS-007` IN PROGRESS。数字均为本轮快照，非事实源；实现提交 `b9a082ec`。
