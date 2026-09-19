@@ -52,6 +52,45 @@ def test_target_seal_preserves_terminal_veto_and_immutable_evidence(seal_executa
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.fixture(scope='module')
+def startup_gap_executable(summary_executable, tmp_path_factory):
+    source = summary_executable.with_suffix('.c').read_text(encoding='utf-8')
+    source = source.replace('int main(int argc,char **argv)', 'int prior_startup_summary_main(int argc,char **argv)', 1)
+    return compile_executable(tmp_path_factory.mktemp('priority-startup-gap'), 'startup_gap',
+        source + STARTUP_GAP_CASES, domain_sources() + [
+            ROOT/'components/vdc_dpll_manager/src/vdc_feedback_match.c',
+            ROOT/'components/distributed_refmem/src/refmem_sync_vdc_feedback.c'])
+
+
+@pytest.mark.parametrize('case', ['delayed_first', 'first_bin_gap', 'cross_bin_gap', 'tail_gap',
+    'empty_first_bin', 'new_arm', 'one_second', 'one_second_plus_tick', 'startup_clock',
+    'startup_service', 'startup_epoch', 'startup_binding', 'no_reference'])
+def test_startup_wait_is_not_a_steady_gap(startup_gap_executable, case):
+    from test_vdc_priority_summary import native
+    result = subprocess.run([str(startup_gap_executable), case], capture_output=True, timeout=12)
+    (startup_gap_executable.parent / f'{case}.stderr.log').write_bytes(result.stderr)
+    assert result.returncode == 0, result.stderr.decode('utf-8', errors='replace')
+    # Native bytes are available for independent decoder/acceptance tests.
+    (startup_gap_executable.parent / f'{case}.ram.bin').write_bytes(result.stdout)
+    status, rows = native(result.stdout, 9, 10000)
+    assert rows and all(row['flags'] & 512 for row in rows)
+    assert rows[-1]['flags'] & 256
+    if case in ('delayed_first', 'new_arm', 'one_second'):
+        assert status['reason'] == 8
+        assert rows[0]['first_success_offset_ticks'] == 300_000_000
+        assert max(row['max_success_gap_ticks'] for row in rows) <= 250_000_000
+    if case == 'first_bin_gap':
+        assert rows[0]['first_success_offset_ticks'] == 300_000_000
+        assert rows[0]['max_success_gap_ticks'] == 375_000_000
+    if case == 'one_second_plus_tick':
+        assert max(row['max_success_gap_ticks'] for row in rows) == 250_000_001
+    if case in ('no_reference', 'startup_clock', 'startup_service', 'startup_epoch', 'startup_binding'):
+        assert status['reason'] != 8
+    if case == 'no_reference':
+        assert not any(row['success_count'] for row in rows)
+        assert not any(row['max_success_gap_ticks'] for row in rows)
+
+
 CASES = r'''
 static void guard_service(void)
 { core=1;priority_guard_service_core1(); }
@@ -184,6 +223,94 @@ int main(int argc,char **argv)
         }
     }
     return 0;
+}
+'''
+
+
+STARTUP_GAP_CASES = r'''
+static void startup_guard_service(void) { core=1u; priority_guard_service_core1(); }
+static void startup_arm(uint32_t capture, uint64_t elapsed)
+{
+    stopped_ring();
+    assert(vdc_dpll_manager_priority_trace_guard_arm(capture,false,60u)); trace_service();
+    assert(!s_priority_trace_work.summary.have_success);
+    running_ring(); advance_summary(elapsed); startup_guard_service();
+    assert(s_priority_guard_work.state==VDC_PRIORITY_GUARD_RUNNING);
+    assert(priority_summary_record()->flags & 512u);
+}
+static void startup_run(const char *name,uint64_t base,uint32_t sequence)
+{
+    const bool expected_pass=!strcmp(name,"delayed_first") || !strcmp(name,"new_arm") ||
+        !strcmp(name,"one_second");
+    uint32_t evidence_count=0u;
+    for(unsigned i=1u;i<=600u;++i) {
+        const uint64_t elapsed=base+(uint64_t)i*100000000u;
+        if(!strcmp(name,"startup_service") && i<12u) continue;
+        if(!strcmp(name,"startup_clock") && i==5u) summary_clock_read_available=0;
+        if(!strcmp(name,"startup_epoch") && i==5u) ++s_vdc_domain.clock.epoch_id;
+        if(!strcmp(name,"startup_binding") && i==5u) ++ring.config_seq;
+        advance_summary(elapsed);
+        summary_clock_read_available=1;
+        startup_guard_service();
+        if(i<12u && s_priority_trace_work.summary.open)
+            assert(!priority_summary_record()->max_success_gap_ticks);
+        bool produce=i>=12u && i<600u;
+        if(!strcmp(name,"no_reference")) produce=false;
+        if(!strcmp(name,"empty_first_bin") && i<112u) produce=false;
+        if(!strcmp(name,"first_bin_gap") && i>12u && i<27u) produce=false;
+        if(!strcmp(name,"cross_bin_gap") && i>98u && i<113u) produce=false;
+        if(!strcmp(name,"tail_gap") && i>584u) produce=false;
+        if((!strcmp(name,"one_second") || !strcmp(name,"one_second_plus_tick")) && i>20u && i<30u)
+            produce=false;
+        if(produce && s_priority_trace_work.status.state!=VDC_PRIORITY_TRACE_FROZEN) {
+            const uint64_t extra=!strcmp(name,"one_second_plus_tick") && i==30u ? 4u : 0u;
+            event(sequence+i,elapsed+extra); tick(); ++evidence_count;
+        }
+        if(!strcmp(name,"startup_clock") || !strcmp(name,"startup_epoch")) {
+            if(i==5u) break;
+        }
+    }
+    startup_guard_service();
+    assert(s_priority_guard_work.state==(expected_pass ? VDC_PRIORITY_GUARD_PASS : VDC_PRIORITY_GUARD_FAIL));
+    if(expected_pass) {
+        assert(!s_priority_guard_work.reason_mask && s_priority_guard_work.checked_s==60u);
+        assert(trace_status().reason==VDC_PRIORITY_TRACE_TARGET_COMPLETE);
+        assert(evidence_count>0u && s_priority_trace_work.summary.have_success);
+    } else if(!strcmp(name,"first_bin_gap") || !strcmp(name,"cross_bin_gap") ||
+              !strcmp(name,"tail_gap") || !strcmp(name,"one_second_plus_tick")) {
+        assert(s_priority_guard_work.reason_mask & VDC_PRIORITY_GUARD_SUCCESS_GAP);
+        assert(!(s_priority_guard_work.reason_mask & (SUMMARY_SERVICE_GAP|SUMMARY_CLOCK_INVALID)));
+    } else if(!strcmp(name,"empty_first_bin") || !strcmp(name,"no_reference")) {
+        assert(s_priority_guard_work.reason_mask & SUMMARY_NO_SUCCESS);
+        if(!strcmp(name,"no_reference")) {
+            assert(s_priority_guard_work.reason_mask & SUMMARY_UNBOUND);
+            assert(!(s_priority_guard_work.reason_mask & VDC_PRIORITY_GUARD_SUCCESS_GAP));
+        }
+    } else if(!strcmp(name,"startup_service")) {
+        assert(s_priority_guard_work.reason_mask & SUMMARY_SERVICE_GAP);
+    } else if(!strcmp(name,"startup_clock") || !strcmp(name,"startup_epoch")) {
+        assert(s_priority_guard_work.reason_mask & SUMMARY_CLOCK_INVALID);
+    } else if(!strcmp(name,"startup_binding")) {
+        assert(s_priority_guard_work.reason_mask & VDC_PRIORITY_GUARD_COVERAGE);
+    }
+}
+int main(int argc,char **argv)
+{
+#ifdef _WIN32
+    _setmode(_fileno(stdout),_O_BINARY);
+#endif
+    assert(argc==2); const char *name=argv[1]; setup(6000); stopped_ring();
+    assert(vdc_dpll_manager_set_priority_follow_phase(true));
+    startup_arm(1u,0u);
+    startup_run(name,0u,100u);
+    if(!strcmp(name,"new_arm")) {
+        frozen_trace(); assert(vdc_dpll_manager_priority_trace_release()); trace_service();
+        startup_arm(2u,UINT64_C(70000000000));
+        startup_run(name,UINT64_C(70000000000),1000u);
+    }
+    /* Complete the stopped owner acknowledgement after deliberate config drift. */
+    if(!strcmp(name,"startup_binding")) ring.applied_config_seq=ring.config_seq;
+    frozen_trace(); export_trace(); return 0;
 }
 '''
 

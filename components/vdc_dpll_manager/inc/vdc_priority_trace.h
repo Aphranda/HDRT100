@@ -28,7 +28,13 @@
  * if its duration is zero. Counts saturate rather than wrap. SERVICE_GAP
  * also marks an unavailable owner-counter snapshot: its prior counter is
  * preserved, never replaced by a fabricated zero. CLOCK_INVALID marks raw
- * clock failure/backwards motion or a Domain clock epoch/run transition. */
+ * clock failure/backwards motion or a Domain clock epoch/run transition.
+ * GUARD window records set flag bit 9 (STEADY_SUCCESS_GAP): their maximum
+ * success gap starts only after the first accepted event, including later
+ * cross-bin/tail gaps. Initial waiting is retained by the first success
+ * offset and capture start. Empty/unbound bins still fail GUARD. All records
+ * in that capture carry the marker; unmarked historical and ordinary
+ * summaries keep the original START-inclusive maximum. Layout is unchanged. */
 #define VDC_PRIORITY_TRACE_ORIGIN_EXTENSION_BYTES 96u
 #define VDC_PRIORITY_TRACE_RECORD_BYTES 100u
 #define VDC_PRIORITY_TRACE_MATCH_INTERVAL_MS 200u

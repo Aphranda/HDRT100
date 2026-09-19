@@ -54,6 +54,7 @@ static void priority_summary_terminal(void);
 static void priority_summary_service(bool end);
 static void priority_guard_reset_core1(uint32_t duration_s);
 static void priority_guard_note_bin(uint32_t flags, uint32_t success_gap, bool nonempty);
+static bool priority_guard_steady_gaps(void);
 static void priority_guard_service_core1(void);
 static void priority_guard_ring_core1(uint32_t config_seq);
 _Static_assert(sizeof(vdc_priority_trace_status_t) == 148u, "typed trace status ABI");

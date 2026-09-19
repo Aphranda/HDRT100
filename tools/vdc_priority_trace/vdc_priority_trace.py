@@ -37,7 +37,8 @@ SUMMARY_FIELDS = ('bin_index flags observed_start_raw observed_end_raw max_servi
     'frequency_applied_count phase_applied_count residual_min_ns residual_max_ns max_width_ns '
     'first_model last_model min_ppb max_ppb model_changes outcome_mask').split()
 SUMMARY_FLAGS = dict(PARTIAL=1, NO_SUCCESS=2, SERVICE_GAP=4, COUNTER_RESET=8,
-    COUNTER_SATURATED=16, FIELD_SATURATED=32, CLOCK_INVALID=64, UNBOUND=128, TERMINAL=256)
+    COUNTER_SATURATED=16, FIELD_SATURATED=32, CLOCK_INVALID=64, UNBOUND=128, TERMINAL=256,
+    STEADY_SUCCESS_GAP=512)
 SUMMARY_OUTCOMES = dict(MATCH_REJECT=1, FOLLOW_REJECT=2, FOLLOW_CANCEL=4,
                         PHASE_REJECT=8, PHASE_CANCEL=16, TX_REJECT=32)
 # Immutable wire semantics: historical captures must not inherit today's cap.
@@ -226,12 +227,19 @@ def decode_summary(data: bytes, status: dict, header_bytes: int) -> dict:
     compressed = ('max_service_gap_ticks max_success_gap_ticks first_success_offset_ticks '
                   'last_success_offset_ticks max_width_ns').split()
     prior_success = None
+    steady_gap_mode = None
     for index in range(status['record_count']):
         row = dict(zip(SUMMARY_FIELDS, SUMMARY.unpack_from(data, header_bytes + index*RECORD_BYTES)))
         flags = row['flags']
         require(row['bin_index'] == index, 'Invalid summary bin index')
         require(flags & ~sum(SUMMARY_FLAGS.values()) == 0 and
                 row['outcome_mask'] & ~sum(SUMMARY_OUTCOMES.values()) == 0, 'Unknown summary flags or outcomes')
+        steady = bool(flags & SUMMARY_FLAGS['STEADY_SUCCESS_GAP'])
+        require(not steady or status['schema'] in INTERVAL_SUMMARY_SCHEMAS,
+                'Unknown summary gap mode for this schema')
+        require(steady_gap_mode is None or steady_gap_mode == steady,
+                'Mixed summary success-gap semantics')
+        steady_gap_mode = steady
         start, end = row['observed_start_raw'], row['observed_end_raw']
         require(start <= end, 'Reversed summary observation time')
         if records:
@@ -251,6 +259,8 @@ def decode_summary(data: bytes, status: dict, header_bytes: int) -> dict:
             require(any(row[k] == 0xffff for k in counters) or
                     any(row[k] == 0xffffffff for k in compressed), 'Unexplained summary field saturation')
         success = row['success_count']
+        if steady and not prior_success and not success:
+            require(row['max_success_gap_ticks'] == 0, 'Success gap before any successful event')
         require(bool(flags & SUMMARY_FLAGS['NO_SUCCESS']) == (success == 0), 'Summary success flag disagrees')
         require(row['frequency_applied_count'] <= row['decision_count'], 'Summary apply exceeds decisions')
         reject_mask = row['outcome_mask'] & (1 | 2 | 8 | 32)
@@ -289,7 +299,12 @@ def decode_summary(data: bytes, status: dict, header_bytes: int) -> dict:
     require(status['match_count'] == min(0xffffffff, sum(r['success_count'] for r in records)) and
             status['decision_count'] == min(0xffffffff, sum(r['decision_count'] for r in records)),
             'Summary totals disagree with committed bins')
+    first_success = next((r for r in records if r['success_count']), None)
+    initial_wait_ticks = (first_success['observed_start_raw'] + first_success['first_success_offset_ticks'] -
+                          records[0]['observed_start_raw']) if first_success else None
     return dict(schema=f"VDC_SUMMARY_TRACE_DECODE_V{status['schema']}", status=status, records=records,
+        success_gap_basis=('after_first_success' if steady_gap_mode else 'start_inclusive') if records else None,
+        initial_wait_ticks=initial_wait_ticks,
         coordinate='TIMER1_OWNER_OBSERVATION_TICKS', bytes=len(data),
         sha256=hashlib.sha256(data).hexdigest(), file_crc32=zlib.crc32(data),
         counts_describe='Owner operations, not independent frames; reject/cancel counts can overlap across owners.',

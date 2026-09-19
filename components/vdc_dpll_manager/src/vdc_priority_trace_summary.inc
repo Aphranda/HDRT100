@@ -4,7 +4,10 @@ enum {
     SUMMARY_PARTIAL=1u, SUMMARY_NO_SUCCESS=2u, SUMMARY_SERVICE_GAP=4u,
     SUMMARY_COUNTER_RESET=8u, SUMMARY_COUNTER_SATURATED=16u,
     SUMMARY_FIELD_SATURATED=32u, SUMMARY_CLOCK_INVALID=64u,
-    SUMMARY_UNBOUND=128u, SUMMARY_TERMINAL=256u
+    SUMMARY_UNBOUND=128u, SUMMARY_TERMINAL=256u,
+    /* Semantic marker, not an anomaly. Old unmarked records retain the
+     * START-to-first-success interval in their maximum. */
+    SUMMARY_STEADY_SUCCESS_GAP=512u
 };
 typedef struct __attribute__((packed, may_alias)) {
     uint16_t bin_index, flags;
@@ -105,9 +108,15 @@ static bool priority_summary_observe(uint64_t raw)
     if (!p) return false;
     if (raw<p->observed_end_raw) {p->flags|=SUMMARY_CLOCK_INVALID;return false;}
     p->observed_end_raw=raw;w->summary.last_ms=board_uptime_ms();
-    const uint64_t since=w->summary.last_success;
-    const uint32_t gap=priority_summary_u32(raw-since,p);
-    if (gap>p->max_success_gap_ticks) p->max_success_gap_ticks=gap;
+    /* The first accepted event starts GUARD's success-gap clock. Its wait
+     * remains in first_success_offset_ticks; neither later gaps in this bin
+     * nor cross-bin/tail gaps are exempt. Ordinary unmarked summaries keep
+     * their original semantics. No extra clock read, state or publication. */
+    if (!(p->flags & SUMMARY_STEADY_SUCCESS_GAP) || w->summary.have_success) {
+        const uint64_t since=w->summary.last_success;
+        const uint32_t gap=priority_summary_u32(raw-since,p);
+        if (gap>p->max_success_gap_ticks) p->max_success_gap_ticks=gap;
+    }
     return true;
 }
 static void priority_summary_commit(bool terminal)
@@ -190,6 +199,7 @@ static void priority_summary_service(bool end)
         w->summary.open=1u;
         p=priority_summary_record();if (!p) return;
         memset(p,0,sizeof(*p));p->bin_index=(uint16_t)w->status.record_count;
+        if (priority_guard_steady_gaps()) p->flags|=SUMMARY_STEADY_SUCCESS_GAP;
         p->observed_start_raw=p->observed_end_raw=valid?raw:w->summary.last_service;
         w->summary.first_ms=w->summary.last_ms=board_uptime_ms();
         if (!w->status.record_count) {

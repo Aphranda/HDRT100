@@ -301,3 +301,54 @@ def test_decode_actual_origin_bins(summary_origin_executable, case):
         row = decoded['records'][-1]
         assert row['coverage_incomplete'] and 'SERVICE_GAP' in row['flag_names']
         assert row['rejected_count'] == 0 and 'COUNTER_RESET' not in row['flag_names']
+
+
+@pytest.mark.parametrize('schema', [9, 10])
+def test_marked_guard_retains_startup_wait_without_reinterpreting_history(schema):
+    from tools.vdc_priority_trace.vdc_priority_trace_capture import assess_capture
+    row = record(end=2_500_000_100, origin=schema == 10)
+    row[1] = 1 | 256 | 512
+    row[5] = 25_000_000  # 100 ms between accepted events, including the tail.
+    row[6:10] = [1, 88, 300_000_000, 2_475_000_000]
+    row[11] = 88
+    decoded = trace.decode(native([row], schema, {9: 10000}))
+    assert decoded['success_gap_basis'] == 'after_first_success'
+    assert decoded['initial_wait_ticks'] == 300_000_000
+    assessed = assess_capture(decoded, 10, schema == 10, summary_interval_ms=10000)
+    assert assessed['initial_wait_s'] == 1.2 and assessed['max_success_gap_s'] == .1
+    assert assessed['coverage_complete'] and assessed['success_gap_passed']
+    assert not assessed['physical_lock_qualified']
+    row[1] &= ~512
+    row[5] = 300_000_000
+    old = trace.decode(native([row], schema, {9: 10000}))
+    assessed = assess_capture(old, 10, schema == 10, summary_interval_ms=10000)
+    assert old['success_gap_basis'] == 'start_inclusive'
+    assert assessed['initial_wait_s'] == 1.2 and not assessed['success_gap_passed']
+
+
+@pytest.mark.parametrize('first_marked', [False, True])
+def test_capture_cannot_mix_success_gap_semantics(first_marked):
+    rows = [record(0), record(1, 250000100, 500000100)]
+    rows[0 if first_marked else 1][1] |= 512
+    with pytest.raises(ValueError, match='Mixed summary success-gap semantics'):
+        trace.decode(native(rows, 9))
+
+
+def test_marked_no_reference_is_empty_not_success_and_cannot_invent_gap():
+    from tools.vdc_priority_trace.vdc_priority_trace_capture import assess_capture
+    row = [0, 1 | 2 | 128 | 256 | 512, 100, 2_500_000_100, 250000, 0] + [0] * 21
+    decoded = trace.decode(native([row], 9, {9: 10000}))
+    assert decoded['initial_wait_ticks'] is None
+    assessed = assess_capture(decoded, 10, False, summary_interval_ms=10000)
+    assert assessed['initial_wait_s'] is None and not assessed['success_gap_passed']
+    assert not assessed['all_bins_have_success'] and not assessed['coverage_complete']
+    row[5] = 1
+    with pytest.raises(ValueError, match='before any successful event'):
+        trace.decode(native([row], 9, {9: 10000}))
+
+
+def test_unassigned_marker_still_fails_with_a_valid_crc():
+    row = record()
+    row[1] = 1024
+    with pytest.raises(ValueError, match='Unknown summary'):
+        trace.decode(native([row], 9))

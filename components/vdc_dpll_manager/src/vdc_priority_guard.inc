@@ -65,6 +65,11 @@ static void priority_guard_reset_core1(uint32_t duration_s)
     priority_guard_publish();
 }
 
+static bool priority_guard_steady_gaps(void)
+{
+    return s_priority_guard_work.target_s != 0u;
+}
+
 static void priority_guard_note_bin(uint32_t flags, uint32_t success_gap, bool nonempty)
 {
     vdc_priority_guard_status_t *g=&s_priority_guard_work;
