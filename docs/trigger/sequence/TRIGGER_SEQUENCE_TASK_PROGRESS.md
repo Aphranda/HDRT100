@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md`
 Related: `docs/trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md`, `docs/trigger/sequence/TRIGGER_SEQUENCE_TODO.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 
 ## 文档接口
 
@@ -24,7 +24,7 @@ Last updated: 2026-09-18
 ## 当前 Checkpoint
 
 最新修复为进度044：独立外部PULSE模式先准备捕获，再发状态触发，反馈锁存至当前脉冲结束。
-软件回归、独立复核和USBTMC固件包已完成；本机未接板，交远程OTA后验证真实网分闭环，未提交。
+软件回归、独立复核和USBTMC固件包已完成；进度047补本地OUT4到IN1独立模式闭环及GUI观察实测。
 
 `NSEQ-001/002` 已完成：实际链路和源码审计、标准三件套、自动门禁与独立复核通过。
 用户已确认“一脉冲一序列状态”，对应链路切换及其他节点工作。
@@ -867,6 +867,102 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 - 提交前软件快照：PIO/驱动、SCPI与LINK共287项通过，文档检查器18项测试通过；`docs_check --strict-names`、`doc_regression_check`通过，保留既有登记命名WARN。C/PIO源码指纹仍与进度044一致。单板`check-staged`明确拒绝“working source differs from the staged commit”，原因包括未纳入本次提交的GUI工作区改动；既有凭证也不作为本次通过证据。用户现场授权的受限提交不消除此拒绝事实。
 - 代码检查点：`c862bf92 fix(sequence): arm feedback before status output [risk]`，仅包含固件C/PIO与两份测试；文档另行正常经过hook提交。未推送远端。
 
+### NSEQ-PROGRESS-20260919-047 - 三模式回环工具与独立SP8T启动观察
+
+- TODO：`NSEQ-106`、`NSEQ-108`；日期：2026-09-19。本节数字是本次实测或工具默认值快照，非产品事实源。GUI三模式各增加回环工具窗口，提供填入预设、配置、启动并观察和停止；预设填入不下发，观察不发送NEXT，不修改既有参数。沿用现有SCPI和owner边界，无固件或PIO修改。
+- 预设接线：独立模式OUT4到IN1；双槽位RJ45物理回环加OUT4到READY IN1；转台模式外部计数源到IN1，OUT4到READY IN2，RJ45物理回环保留。接真实网分时OUT4接网分触发输入，网分反馈OUT接READY输入；计数源独立提供。转台预设保留用户阈值和槽位分配，达到一个位置后执行整个SP8T序列。
+- GUI默认预设为八项、十轮或十位置、建立延时10000us、脉宽100us；以`SequenceUi.apply_loopback_preset`为代码事实源。观察时长可调，转台默认延长以覆盖低频累计阈值；观察结果包含计数、轮次、错误和忙拒绝，转台另读累计脉冲/位置/阈值。停止绑定测试启动时设备，每次启动阶段交换前检查取消。日志写入`out/sequence-loopback/`，观察结束不额外STOP，运行中明确提示设备仍运行。
+- 初次设备枚举为空；重新连接后USBTMC身份为`839E1AE79EA20F31`，build为`20260918074511`。第一次读取为MANUAL、输出配置未有效，查询不存在的SP8T计划超时，未发送START；失败原文保留在`out/node-sequence/independent-loopback-20260919/start-observe-r1.json`，工具随后增加有效外部反馈配置前置检查。
+- 再次检查时设备已有有效配置（本工具未配置）：`IN1,RISING`、输出`7,8,PULSE,10,10,4,1`、重复`100,100,1`、LINK disabled。`sequence_start_observe.py`仅发一次START，run由14进入15，八项百轮完成799次推进，最终IDLE，accepted=completed=799，cycles=99，busy_rejected=1，faults/backend_fault=0，error=NONE，IO全部归零，SCPI无错误。START首项不计入推进，因此799与八项百轮一致；末项回环沿未被接纳，不据此声明物理边沿零丢失。原始记录`out/node-sequence/independent-loopback-20260919/start-observe-r2.json`。
+- 使用工具`--gui-observer`调用GUI同一`observe_loopback`函数，第二次独立启动得到相同完成计数及IDLE，证据为`out/node-sequence/independent-loopback-20260919/gui-observer-r3.json`。两次均出现PyVISA结束字符提示，实际SCPI数据完整且解析成功，保留提示，不以其替代通信稳定性验收。只证明本板独立线缆反馈启动闭环与有限轮次停止；未覆盖真实网分、暂停恢复、其他输入及新GUI双槽位/转台实测，也未生成P3或当前staged指纹验收凭证。
+- 软件回归和真实Tk布局测试覆盖模式隔离、无反馈、故障、取消及切换资源后停止；独立复核指出的取消时序和停止资源问题已修复，普通停止与回环窗口专用停止分别绑定当前设备与测试设备，同板不同模式的停止也取消当前观察。最终GUI与文档回归共133项通过，目录`out/pytest/gui-loopback-20260919-r6`；便携GUI为`out/package/sequence-gui-20260919-loopback-r3/DHRT100_Sequence_Debug.zip`，两个EXE自检通过。本次未执行OTA，打包后的硬件通信仍待验证；源码GUI观察函数实测不等同于EXE实测。GUI打包旧改动与本次新改动均仍待独立提交，未扩大现场证词范围。
+- 文档检查通过，保留既有登记命名WARN；本机约定的D盘Git Bash路径不存在，使用PATH中的`C:\Program Files\Git\bin\sh.exe`执行pre-commit。hook及P3 `check-staged`拒绝当前暂存状态：GUI与布局测试工作树不同于旧暂存版本，且打包源码超出单板白名单；未绕过门禁，未生成或复用凭证，本次未提交推送。
+
+### NSEQ-PROGRESS-20260919-048 - 第二模式RJ45双槽位物理反馈验证
+
+- TODO：`NSEQ-108`；日期：2026-09-19。使用已有`tools/hardware_acceptance/sequence_tdma_cycle_validate.py --gui-control`调用实际GUI配置/启动命令构建器及执行器；USBTMC设备`839E1AE79EA20F31`、build `20260918074511`。本节数字均为测试快照，非产品事实源；本次未修改固件或验收工具。
+- 接线为RJ45物理返回及OUT4到IN1，后者模拟VNA触发后的READY；DUT/VNA槽位为2/3，OUT1到OUT3输出SP8T编码，独立状态输出为NONE。配置八项序列、建立延时10us、网关脉宽1000us、READY超时5000ms；输入为IN1上升沿，未启用`--scpi-next`，无软件READY或NEXT注入。
+- 首次一轮功能完成：trigger=ready=8、completed=7，序列IDLE、LINK phase=8、无序列或LINK故障，IO归零。然而后续`SYSTem:REFMEM:SYNC:TDMA:STATus?`诊断读取超时，之后RING STOP返回OK、错误队列返回`-200,Execution error`，报告整体FAIL。诊断查询与STOP之间没有读取错误队列，因此不能把该错误确定归因于STOP；源码中TDMA快照不可得时查询可返回SCPI_RES_ERR，实际原因仍未闭合。保留`out/node-sequence/rj45-loopback-20260919/gui-one-round-r1.json`，不将其改写为通过。
+- 随后十轮运行PASS：run=18、generation=6，trigger=ready=80，accepted=completed=79，busy_rejected=0、faults/backend_fault=0，LINK rejected/error=0，重复读回`10,10,1`。全部状态完成后序列IDLE、LINK完成；STOP后静默期计数稳定、IO归零，TDMA STOP返回OK且错误队列为0，readback确认owner停止。该次清理无失败，证据`out/node-sequence/rj45-loopback-20260919/gui-ten-rounds-r2.json`。
+- 物理TDMA发送/接收和LINK返回消息有记录，双槽位主线及有限轮次退出已确认；本次未接真实网分，不代表采样质量、RF、多板或TDMA稳定性验收。GUI命令构建/执行路径已实测，新回环窗口的观察函数及打包EXE仍需独立验证；首轮诊断快照失败不由重复通过关闭。未提交推送，既有staged凭证缺口仍保留。
+
+### NSEQ-PROGRESS-20260919-049 - 第三模式外部计数与每秒位置验证
+
+- TODO：`NSEQ-108`；日期：2026-09-19。用户确认50Hz脉冲源到IN1、OUT4到IN2，并指定后续提高频率仍保持约每秒一个位置。按`N = 输入频率 × 位置周期`通过SCPI配置阈值；本次N=50、两个位置，每位置完整八项SP8T序列，RJ45物理返回保持。网关脉宽1000us，编码建立10us，READY超时10000ms，设备和build同进度048；数字为本次快照。
+- `sequence_position_validate.py`新增`--external-input`，复用真实GUI POSITION配置/启动构建器，禁止与注入式lifecycle组合。无IN1、READY或NEXT软件注入；检查阈值前无采样、两位置完整结果、历史恰好16条、各记录阈值/观测计数/状态编码/触发READY序号/完成标志、运行标识及RJ45收发增长，最后检查owner完成和输出释放。独立只读审核补充的TDMA增长和额外历史记录拒绝已落实；工具53项测试通过，目录`out/pytest/position-external-20260919-r4`。
+- 原N=1000测试按用户要求中止，进程exit=1，`out/node-sequence/position-external-20260919/two-positions-r1.json`为空，不能作为任何通过证据；下一轮工具先STOP并重新配置。N=50两次运行通过，最终证据`out/node-sequence/position-external-20260919/two-positions-n50-r3.json`：两个位置、16次触发、16次READY、15次推进、16条历史；阈值分别为50和100，采样期间计数继续，最终计数104。序列/LINK/COUNTER无错误，清理无失败，序列及TDMA停止，IO归零；频率为用户声明，未做独立源边沿计量。
+- 主机SCPI时间快照：首次位置由4921.156秒的45脉冲/0位置变到4921.265秒的50脉冲/1位置；第二次由4922.234秒的98脉冲/1位置变到4922.328秒的103脉冲/2位置，与约1秒一个位置相符。固件历史`position_admitted_tick_ms`却相差1669，明显与主机尺度不同；`cycle_elapsed_ms`为138/137仅能作为固件软件时间快照，不能解释为真实毫秒。此次`--position-cycle-target-ms 1000`是功能测试上限，不证明实际1秒预算或原200ms性能目标；时间尺度偏差需后续独立校准。
+- 结论为第三模式外部脉冲计数、整序列采样回环及有限位置停止通过；不宣称真实网分测量、多板、RF、严格TDMA稳定性或打包EXE验收。没有编译/OTA/固件改动，没有提交推送或新硬件门禁凭证。
+
+### NSEQ-PROGRESS-20260919-050 - 转台输入指令复核与GUI频率周期换算
+
+- TODO：`NSEQ-109`；日期：2026-09-19。用户要求GUI填写脉冲频率或周期，同时保持每秒一个位置。转台页增加“频率/周期…”窗口，接受Hz或ms，通过`calculate_position_threshold`换算N；固定目标一秒，整数四舍五入并显示实际预计间隔。仅填入阈值草稿，须重新配置后启动，不控制信号源，不自动检测实际频率，不改变固件/PIO。
+- 回顾SCPI原指令表P5：`CONFigure:ANGLe:SWEEp start,stop,step`描述扫描角度范围，`CONFigure:ANGLe:PULSe edge,pulse_width_us,timeout_ms`描述目标角度触发输入；脉宽不等于周期。原业务是一角度事件执行完整序列，目前原始脉冲模式是累计N个脉冲形成一个位置事件。源码`scpi_config_commands.h`将ANGLE写入映射到accepted占位回调，`scpi_config_commands.c`对应查询仍返回固定值，不能称为真实配置或实际角度读取。
+- 真实已实测的输入配置为`CONF:SEQ:LINK POSITION,counter_slot,dut_slot,vna_slot,counter_input,N,ready_input,trigger_output,pulse_us,timeout_ms,edge`；后两个时间参数属于网关输出与READY等待，不能当作转台输入周期。HTML指令表新增实现状态说明、POSITION、COUNTER和完整HISTORY接口描述；不修改旧ANGLE语法、不伪称已实现。后续ANGLE接入需统一原始计数到业务角度事件的映射和owner，另列NSEQ-109跟踪。
+- GUI回归快照130项通过，目录`out/pytest/gui-rate-20260919-r1`；涵盖50Hz/20ms、较高频率、非法值、取整提示以及填入后必须重新配置。便携包`out/package/sequence-gui-20260919-rate-r1/DHRT100_Sequence_Debug.zip`，两个EXE自检通过；未对新频率窗口执行硬件通信或OTA，既有第三模式N=50实测证据仍见进度049。
+
+### 051：ANGLE四参数、真实绑定与单板闭环
+
+- TODO：`NSEQ-109`；日期：2026-09-19。以下build、测试数量和运行计数均为本次快照，非事实源；未提交。
+- 主配置为`CONF:ANGLE:SWEEP start,stop,step,speed`，速度单位°/s；`CONF:ANGLE:INPUT INx,pulses_per_degree`提供输入标定，SPEED允许停止态单独更新声明速度。SWEEP/INPUT/POSITION读取真实值；未实现的PULSE及BREAKPOINT明确报错。同步HTML、Markdown指令表与SCPI基础命令文档，字段事实源为`scpi_config_angle_*`回调。
+- 配置阶段将角度网格导出为整数N和有限位置数，通过既有service配置锁和link锁原子生效；Core1运行FSM、PIO0及RJ45流程不变，无实时浮点计算。校验反向网格、整数脉冲、累计计数和状态总量溢出，节点模型或LINK绑定变化使angle bound失效。首个N脉冲对应开始角度，每位置整轮采样；速度不驱动机械运动。
+- GUI第三模式新增可选角度扫描，四项主参数和独立输入标定，实时显示位置数、N、输入/位置频率及周期；编辑使旧配置失效。下发必须核验ANGLE ACK和SWEEP/INPUT读回，拒绝旧占位值、bound为假及参数不一致；仍保留原始计数模式。
+- 独立审核发现并修复两项：ANGLE引用缓存model epoch可能虚报绑定；GUI原先未验证ANGLE ACK/读回。固件回归255通过（`out/pytest/angle-firmware-r6`），GUI/回环178通过（`out/pytest/angle-gui-binding-final`）；后续JSON功能另补测试。
+- USBTMC及运行时USB切换构建通过，目录`out/build/sequence-angle-usbtmc-20260919`，最终增量日志`out/node-sequence/angle-usbtmc-build-20260919-r3.log`，A/B/BOOT flash-link检查通过。build `20260919033909`通过VISA实际OTA、重枚举及COMMIT，摘要`out/ota/sequence-angle-20260919-r1/summary.json`。
+- `sequence_position_validate.py --external-input --angle-scan --threshold 50 --source-hz 50`在UID `839E1AE79EA20F31`上通过。IN1外部源、OUT4→IN2、RJ45物理回环；角度0至1、步长1、速度1、标定50，N=50且位置数2。读回均bound有效；首位置前current_valid为假，最终角度1、current有效/next无效，16次采样/READY、15次推进、16条历史、累计104脉冲。证据`out/node-sequence/angle-external-20260919/two-positions-r1.json`，无软件脉冲注入，结束释放IO及停止环路。
+- 同新build双角色RJ45十轮回归通过：`out/node-sequence/angle-external-20260919/rj45-regression-r1.json`。仅功能验证；声明源频率不等于独立边沿测量，历史软件时间尺度偏差仍保留，不从软件毫秒推断波形性能。
+- 文档检查及18项自回归通过。提交门禁仍因先前打包文件超出单板白名单、index/worktree源码不同而失败，未生成或声称新staged硬件凭证，未绕过门禁。
+
+### 052：GUI本地JSON参数恢复
+
+- TODO：`NSEQ-109`；日期：2026-09-19。使用`tools/sequence_trigger_debug_ui/settings.py`保存版本化JSON，路径为`%LOCALAPPDATA%/DHRT100/sequence_trigger_debug_ui.json`；无该环境变量时使用用户目录`.config/DHRT100`。
+- 启动恢复三模式参数草稿、角度/速度及输入标定、OUT分配、连接选择、分页和观察时长，关闭前写入临时文件并原子替换。仅恢复白名单字段，不恢复设备运行态、配置成功标记、IO读数或待发指令；恢复不下发设备命令。文件损坏/版本不支持时提示并使用默认值，无效字段忽略；保存失败弹窗提示，旧有效文件保留。
+- 实际Tk窗口关闭/重开、错误文件/字段、保存失败、OTA阻止退出、历史三模式及ANGLE行为共194项通过：`out/pytest/gui-settings-full-r1`。打包自测显式禁用配置持久化，避免测试覆盖用户配置。新增保存失败弹窗后Tk回归41项通过：`out/pytest/gui-settings-close-20260919-r1`。
+- 便携包`out/package/sequence-gui-20260919-angle-settings-r1/DHRT100_Sequence_Debug.zip`构建通过，GUI与工具EXE自检均通过（`gui-self-test.json`、`self-test.json`）。包内README注明本地JSON路径及草稿恢复行为。新EXE未执行实板OTA，固件及源码GUI命令路径实测证据仍见进度051。
+- 独立只读复核`/root/angle_review`通过：缓存模型绑定和GUI读回校验两项问题均关闭，JSON草稿白名单、无自动下发及原子保存边界确认，无新增阻塞发现。复核采用主控的测试/硬件证据，未重复实测。
+
+### 053：500Hz第三模式六十位置验证
+
+- TODO：`NSEQ-109/108`；日期：2026-09-19。以下配置和计数均为本次单板快照，非事实源；未改固件、未重新OTA、未提交。
+- 用户将外部源改为500Hz，保持IN1输入、OUT4→IN2、RJ45物理回环。两位置首次运行完成16次触发/READY及全部历史，但结束诊断`SYSTem:REFMEM:SYNC:TDMA:STATus?`超时；随后STOP ACK为OK而错误队列读到-200，不能归因于STOP。失败原件`out/node-sequence/angle-external-20260919/third-mode-500hz-r1.json`保留。相同参数r2通过，不能据重跑关闭诊断快照偶发失败。
+- 按用户要求扩展既有`sequence_position_validate.py --positions`，有限位置数量同步到SWEEP及repeat。运行中持续拉取已完成历史，在板端环形记录覆盖前保存；检查序号/运行身份/完成标志，丢失时明确失败。容量引用`TRIGGER_SEQUENCE_LINK_HISTORY_CAPACITY`的工具快照，不增固件RAM。相关回归67项通过：`out/pytest/position-sixty-20260919-r3`，含超过环形容量、记录覆盖拒绝、未完成记录等待、整数溢出。
+- 实测命令参数：`--external-input --angle-scan --positions 60 --threshold 500 --source-hz 500 --duration 80 --poll 0.05 --position-cycle-target-ms 1000`；实际UID `839E1AE79EA20F31`、build `20260919033909`。角度0至59、步长1、速度1°/s，模拟标定500脉冲/度；声明500Hz对应每秒一个位置，不代表真实转台标定。
+- 六十位置通过：480次触发/READY、479次后继推进、60整轮、480条完整历史全部校验。首阈值500，末阈值30000，最终累计30043脉冲（末轮采样期间继续计数）；末角度59且next无效。故障/拒绝均为零，末项自动IDLE，清理后OUT和占用均为零，物理TDMA收发计数增长、清理无异常。证据`out/node-sequence/angle-external-20260919/third-mode-500hz-sixty-r1.json`。
+- START至末角度读回主机时间约60.391秒，仅为本次主机观察；固件软件tick比例偏差仍未关闭，不作为准确硬件时序、独立边沿计数、真实网分/RF或P3验收。
+
+### 054：1kHz第三模式六十位置验证
+
+- TODO：`NSEQ-109/108`；日期：2026-09-19。以下数字为本次单板快照，非事实源。用户将输入源调整为1kHz；沿用IN1、OUT4→IN2和RJ45物理回环，仅SCPI改为N=1000，保持每秒一个位置、六十位置。未改代码/固件、未重新编译或OTA。
+- 既有工具参数`--external-input --angle-scan --positions 60 --threshold 1000 --source-hz 1000 --duration 80 --poll 0.05 --position-cycle-target-ms 1000`；UID `839E1AE79EA20F31`、build `20260919033909`。角度0至59、步长1、速度1°/s，本次输入标定1000脉冲/度；由外部信号源模拟转台脉冲。
+- 首次运行通过：60个位置各8状态，共480次触发、480次READY、479次后继推进；480条历史完整收集校验，终点角度59、next无效。末位置阈值60000，最终累计60081脉冲，余量来自末轮采样期间继续计数；故障/拒绝均零。自然完成到IDLE，清理OUT/占用为零，TDMA诊断及停止无异常。证据`out/node-sequence/angle-external-20260919/third-mode-1khz-sixty-r1.json`。
+- 主机START至末角度读回约60.391秒；仅功能及主机观察，不是精确硬件时序或独立边沿计数验收。既有500Hz诊断快照偶发超时及固件软件tick尺度问题未因本次通过而关闭。
+
+### 055：1kHz第三模式三百六十位置完整运行
+
+- TODO：`NSEQ-109/108`；日期：2026-09-19。以下为本次单板实测快照，非事实源。用户要求完整运行360位置；沿用IN1外部1kHz源、OUT4→IN2模拟网分READY、RJ45物理回环，N=1000，每秒一个位置。角度0至359、步长1、速度1°/s、标定1000脉冲/度；只通过SCPI配置，未改固件或重新OTA。
+- 既有工具参数`--external-input --angle-scan --positions 360 --threshold 1000 --source-hz 1000 --duration 400 --poll 0.05 --position-cycle-target-ms 1000`。设备UID `839E1AE79EA20F31`、build `20260919033909`，首次运行通过；证据`out/node-sequence/angle-external-20260919/third-mode-1khz-360-r1.json`。
+- 全部360个位置各执行SP8T整轮8状态：2880次触发、2880次READY、2879次后继推进；持续拉取保存的2880条历史全部通过身份、位置/状态/编码、阈值/请求累计脉冲、采样完成和连续序号核验。板端保留末32条，主机无历史覆盖丢失。首阈值1000，末阈值360000；最终累计360085脉冲，余量为末轮采样期间计数。
+- 终点角度359、next无效；末项自然进入IDLE，故障/忙拒绝/未就绪拒绝均零。真实TDMA收发增长；结束诊断及停止清理通过，OUT、占用、armed、busy均零。START至末角度读回主机观察约360.344秒。
+- 本次是单板模拟网分反馈的完整有限扫描，不扩展为真实网分/RF、多板、精确硬件时序或独立边沿计数通过；既有诊断快照偶发超时和固件tick尺度风险继续保留。暂停、忙时故障和异常恢复未在本次正常扫描中注入，不能据本次结果新增这些生命周期验收结论。
+
+### 056：360位置分段运行时间分析
+
+- TODO：`NSEQ-097/101/103/109`；日期：2026-09-19。以下统计来自进度055原始报告，是离线估算快照，不是物理时序事实源。分析工具为`tools/hardware_acceptance/sequence_timing_analyze.py`，报告`out/node-sequence/angle-external-20260919/timing-1khz-360-r1.json`，源报告SHA-256已写入分析结果。
+- 360个位置、2880条历史的阈值间隔原始软件tick均值1666.657，按声明输入频率1000Hz和N=1000校准后位置周期均值1000.000ms，p95约1001.406ms；主机START至末角度读回约360.344s，轮廓回归得到输入计数约1000.035Hz。实际输入频率未用独立计数器测量。
+- 从位置阈值接纳到该位置最后状态完成，原始`cycle_elapsed_ms`均值137.894，p50=139，p95=145；按上述位置周期比例估算约82.737ms（p50=83.400，p95=87.000）。因此每个位置约917.266ms（p50=916.805，p95=922.205）处于等待下一位置；等待不表示状态机阻塞，原始脉冲仍继续累计。
+- 状态分段估算（状态0至7）均值约10.512、10.580、10.582、10.473、10.358、10.175、10.007、10.050ms；各段p95约11.4–12.0ms。状态0包含位置接纳/首项路径，不能直接与后续七段等同；历史时间是接纳到READY完成的累计值，相邻状态相减才得到这些段间隔。
+- 脉冲计数显示每位置首项相对阈值的接纳延迟均值约0.561ms（脉冲粒度估算），末状态请求相对阈值约73.333ms，说明采样期间脉冲继续累计；这不是额外等待，也不是位置提前触发。最后位置余量仍在采样期间累计。
+- 读取到的最近消息分段样本（非2880条全量，受状态查询采样限制）按同一倍率估算：offer均值1.815ms/p95=2.400，return均值3.568ms/p95=4.800，inbox均值0.435ms/p95=0.600，message_total均值5.818ms/p95=7.200；四项相加无不一致样本。return包含TDMA调度、分片、回环和重组，不能命名为RJ45线缆传播时间。
+- 已定位软件tick偏快约5/3的源码原因：FreeRTOS RP2350端口在`vPortSetupTimerInterrupt`按启动时`clk_sys`配置Core0 SysTick；调度器启动后`board_init()`才把150MHz提高到`BOARD_SYS_CLOCK_HZ`的250MHz，未重装SysTick。`osal_tick_ms()`随后直接使用`xTaskGetTickCount()*portTICK_PERIOD_MS`。因此原始“ms”乘约0.6才是当前源码倍率下的估算，不代表已修复；PIO/真实硬件时钟不应盲目套用该倍率。该结论由独立只读时钟审计确认，未修改固件。
+- 当前记录没有独立的编码写出、settle完成、OUT边沿、网分触发边沿或READY边沿硬件时间戳；配置的settle和网关脉宽不能当作实测段时长。跨Core1的LINK字段均在同一Core1服务路径使用共享RTOS tick，但仍受上述SysTick倍率问题影响。
+- 分析工具回归5项通过：`out/pytest/timing-analysis-20260919-r1`。该统计不关闭NSEQ-097/101/103的时钟修复、PIO预算、物理波形和严格TDMA门禁。
+
+### 057：提交范围与剩余门禁
+
+- 日期：2026-09-19。用户要求先提交推送。本次文档保存进度047至056的工作区实现、实测与分析记录；ANGLE、GUI配置保存、打包及验证工具的代码尚未提交，不能将本文的功能记录当作远端已有实现。
+- 新增SCPI头文件改动、GUI配置模块、打包文件及测试等超出当前`sequence_single_board_gate.py`逐文件白名单；按仓库现行规则需要P3凭证。现有单板接线不满足四板P3，已完成的单板报告不能直接替代staged源码指纹凭证。代码提交等待明确验收范围和对应真实门禁结果，不修改或复用旧凭证。
+- 保留TDMA诊断查询偶发超时、SysTick时间尺度偏差及打包EXE硬件验证缺口。消息分段统计为665个去重快照（本次分析快照，非事实源）；历史采样完成边界是网关READY且owner退出busy，早于后继READY_NEXT推进，不把返回消息耗时归入该完成边界。
+
 ## 失败与回退
 
 配置模型、SCPI与GPIO版板端验证已完成相应记录；当前迁移PIO0，后续结果按新增记录跟踪。
@@ -874,7 +970,7 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 
 ## 下一 Gate
 
-转台脉冲计数模式已有用户现场循环采样确认；独立SP8T反馈NSEQ-106保持进行中，下一步补NSEQ-RISK-05自动验收与现场参数证据，本地无板不记工具验收通过。
+三模式均有本地物理反馈功能证据，转台已补外部50Hz、N=50两位置GUI命令路径验证。NSEQ-106仍待独立真实网分及生命周期补证，NSEQ-RISK-05自动验收与OTA摘要仍未闭合；NSEQ-108待回环窗口及打包EXE完整验证，保留TDMA诊断快照偶发失败与固件时间尺度偏差。
 NSEQ-105三模式单板凭证及代码检查点已完成；既有下一代码提交约束仍优先关闭
 NSEQ-RISK-04激活gate诊断缺口，不以重跑通过代替根因闭环，再继续NSEQ-101至104迁移。
 保留独立SP8T的MANUAL/IN回归；组合角色使用统一PIO0 owner及真实RJ45运输，不软件直达。

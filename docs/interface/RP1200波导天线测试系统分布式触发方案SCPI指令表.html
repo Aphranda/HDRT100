@@ -838,16 +838,20 @@ SYSTem:SCPI:RUN:ALLOW?</code></pre>
   <div class="main">
 <div class="note-box">P5-P7 为现场测试业务域，默认归 <code>TEST+</code>。现场测试程序只拿 <code>TEST</code> 权限时，仍应能完成业务配置、序列准备、运行门禁、启动/停止、暂停/继续、断点续测、状态读取和结束复盘；限制来自状态边界和 profile，不来自 <code>DEBUG</code> 权限。</div>
 <div class="section-title">触发参数配置</div>
+<div class="note-box">Last updated: 2026-09-19。ANGLE 集成采用开始、终止、步长、速度四项扫描参数，基于既有 <code>CONFigure:SEQuence:LINK POSITION,...</code> 绑定真实输入阈值和有限位置数量；本次构建及硬件验证状态见 Trigger Sequence 待办 NSEQ-109。旧固件的 ANGLE accepted/固定查询不代表配置生效，须升级后使用。速度是外部转台的声明值，不是电机控制；位置是脉冲推导游标，不是机械编码器绝对反馈。原规划的 ANGLE:PULSE 脉宽检测、角度超时与断点尚未实现，不作为当前能力。</div>
 <table class="compact">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
 <tbody>
 <tr><td><code>CONFigure:TRIGger</code></td><td><code>&lt;chan_cnt&gt;,&lt;pol&gt;,&lt;freq_cnt&gt;,&lt;wave_cnt&gt;</code></td><td><code>1</code></td><td>设置内部展开序列所需的通道数、极化、频点数和波位数；<code>pol</code> 取 <code>0=H</code>、<code>1=V</code>、<code>2=BOTH</code></td></tr>
 <tr><td><code>READ:TRIGger:PARameter?</code></td><td></td><td>param block</td><td>读取触发参数，返回通道、极化、频点、波位和总状态数</td></tr>
-<tr><td><code>CONFigure:ANGLe:SWEEp</code></td><td><code>&lt;start_deg&gt;,&lt;stop_deg&gt;,&lt;step_deg&gt;</code></td><td><code>1</code></td><td>设置扫描起始角度、终止角度和扫描角度步长，用于将输出脉冲对应到扫描位置</td></tr>
-<tr><td><code>READ:ANGLe:SWEEp?</code></td><td></td><td>angle block</td><td>读取当前扫描角度范围和步长</td></tr>
-<tr><td><code>CONFigure:ANGLe:PULSe</code></td><td><code>&lt;RISING|FALLING&gt;,&lt;pulse_width_us&gt;,&lt;timeout_ms&gt;</code></td><td><code>1</code></td><td>配置 A0 接收转台目标角度触发脉冲的边沿、脉宽和超时；归入角度域</td></tr>
-<tr><td><code>READ:ANGLe:PULSe?</code></td><td></td><td>angle pulse block</td><td>读取角度脉冲配置、有效计数、漏脉冲计数、超时和最近边沿时间</td></tr>
-<tr><td><code>READ:ANGLe:POSition?</code></td><td></td><td>position block</td><td>读取 DTC 侧由扫描配置和角度脉冲推导出的角度状态；不代表真实转台位置</td></tr>
+<tr><td><code>CONFigure:ANGLe:SWEEp</code></td><td><code>&lt;start_deg&gt;,&lt;stop_deg&gt;,&lt;step_deg&gt;,&lt;speed_deg_s&gt;</code></td><td><code>1</code></td><td>停止态设置开始角度、终止角度、有符号步长及正运行速度；终止点必须在步长网格上，首末位置均计入。配合 INPUT 标定绑定 POSITION 计数及有限位置数量</td></tr>
+<tr><td><code>READ:ANGLe:SWEEp?</code></td><td></td><td><code>start_deg,stop_deg,step_deg,speed_deg_s,position_count,bound</code></td><td>读取真实扫描配置、速度、位置数量及当前绑定有效性；bound 为假时不能认为角度配置已用于运行</td></tr>
+<tr><td><code>CONFigure:ANGLe:INPut</code></td><td><code>IN1|IN2|IN3|IN4,&lt;pulses_per_degree&gt;</code></td><td><code>1</code></td><td>输入标定；N=abs(step_deg)×pulses_per_degree 须为整数，计数输入不得与 VNA READY 输入相同</td></tr>
+<tr><td><code>READ:ANGLe:INPut?</code></td><td></td><td><code>input,pulses_per_degree,input_hz,N,position_period_s,position_hz,bound</code></td><td>读取输入标定及速度换算结果；频率是预期值，不表示已经测量或设置外部信号源</td></tr>
+<tr><td><code>CONFigure:ANGLe:SPEed</code> / <code>READ:ANGLe:SPEed?</code></td><td><code>&lt;speed_deg_s&gt;</code> / 无参数</td><td><code>1</code> / <code>speed_deg_s</code></td><td>停止态单独调整或查询声明运行速度；主配置仍使用四参数 SWEEP</td></tr>
+<tr><td><code>CONFigure:ANGLe:PULSe</code></td><td><code>&lt;RISING|FALLING&gt;,&lt;pulse_width_us&gt;,&lt;timeout_ms&gt;</code></td><td>error（未实现）</td><td>规划的角度脉冲检测接口；当前输入边沿由 POSITION 链路共同边沿配置，不做输入脉宽检测</td></tr>
+<tr><td><code>READ:ANGLe:PULSe?</code></td><td></td><td>error（未实现）</td><td>不再返回固定脉冲统计；原始计数使用 READ:SEQ:COUNTER?</td></tr>
+<tr><td><code>READ:ANGLe:POSition?</code></td><td></td><td><code>"POSITION",admitted,total,current_angle,next_angle,raw_pulses,partial,current_valid,next_valid,error,bound</code></td><td>读取脉冲推导游标；首个N脉冲前current_valid为假，末点之后next_valid为假，不代表真实转台位置</td></tr>
 </tbody>
 </table>
 <h4>参数说明</h4>
@@ -860,11 +864,14 @@ SYSTem:SCPI:RUN:ALLOW?</code></pre>
 <tr><td><code>wave_cnt</code></td><td><code>&gt;0</code></td><td>波位数量</td></tr>
 <tr><td><code>start_deg</code></td><td>角度值</td><td>扫描起始角度，单位度</td></tr>
 <tr><td><code>stop_deg</code></td><td>角度值</td><td>扫描终止角度，单位度</td></tr>
-<tr><td><code>step_deg</code></td><td>角度值</td><td>扫描角度步长，单位度，必须大于 0；用于输出脉冲与扫描位置的对应判断</td></tr>
+<tr><td><code>step_deg</code></td><td>非零角度值</td><td>扫描角度步长，单位度；符号与开始至终止方向一致</td></tr>
+<tr><td><code>speed_deg_s</code></td><td>有限正数</td><td>声明运行速度，单位 °/s；位置周期=abs(step_deg)/speed_deg_s，位置频率为周期倒数</td></tr>
+<tr><td><code>pulses_per_degree</code></td><td>有限正数</td><td>每度原始脉冲数；预期输入频率=pulses_per_degree×speed_deg_s</td></tr>
 <tr><td><code>pulse_width_us</code></td><td><code>&gt;0</code></td><td>转台在目标角度点输出给 A0 的触发脉冲宽度，单位 us</td></tr>
 <tr><td><code>timeout_ms</code></td><td><code>&gt;0</code></td><td>等待下一角度脉冲的超时，超过后进入停止或故障策略</td></tr>
 </tbody>
 </table>
+<div class="note-box">使用顺序：停止序列及 TDMA → 配置 POSITION 三槽位链路 → <code>CONF:ANGLE:SWEEP 0,9,1,1</code> → <code>CONF:ANGLE:INPUT IN1,1000</code> → 查询配置 → 启动。此示例为快照、非事实源：包含首末位置共 10 个位置、N=1000、预期输入 1 kHz、每秒一个位置；每位置执行完整 SP8T 序列。START 后首个 N 脉冲对应开始角度，不会立即采样开始点；实际机械零点及外部脉冲源须由上位机对齐。</div>
 <div class="section-title">序列配置指令</div>
 <table class="compact">
 <thead><tr><th>指令</th><th>参数</th><th>响应</th><th>说明</th></tr></thead>
@@ -2100,6 +2107,9 @@ READ:SYNC:STATe?</code></pre>
         <tr><td><code>CONFigure:SEQuence:CODE</code></td><td><code>state_id,value</code></td><td>本节点状态编码；value只能设置output_mask内的位。</td></tr>
         <tr><td><code>READ:SEQuence:CODE?</code></td><td><code>state_id</code> → <code>state_id,value</code></td><td>缺失或参数generation失效时返回错误。</td></tr>
         <tr><td><code>CONFigure:SEQuence:LINK</code></td><td><code>OFF</code> 或 <code>LOOPBACK,dut_slot,vna_slot,MANUAL|IN1|IN2|IN3|IN4,OUT1|OUT2|OUT3|OUT4,pulse_us,timeout_ms,RISING|FALLING</code></td><td>配置RJ45物理回环；MANUAL只代替VNA READY输入，READY_NEXT仍须经过真实回环。</td></tr>
+        <tr><td><code>CONFigure:SEQuence:LINK</code>（转台累计模式）</td><td><code>POSITION,counter_slot,dut_slot,vna_slot,counter_input,N,ready_input,trigger_output,pulse_us,timeout_ms,RISING|FALLING</code></td><td>停止序列及TDMA后配置；counter_input为IN1–IN4，累计N个原始脉冲到一个位置，各位置执行完整活动序列。READY与计数输入必须分开；采样中继续计数，下一位置提前到达报错。pulse_us是网关输出脉宽，timeout_ms是网关等待READY超时。</td></tr>
+        <tr><td><code>READ:SEQuence:COUNter?</code></td><td><code>enabled,slot,input,N,total,positions,partial,fault_events,history_total,history_retained,phase,error</code></td><td>真实计数配置和运行快照；字段事实源为scpi_sequence_counter_q。频率f下要每T秒一个位置，可按N=f×T计算整数阈值；这只是计数换算，不是定时器触发，不自动测量或设置外部脉冲源。</td></tr>
+        <tr><td><code>READ:SEQuence:HISTory?</code></td><td><code>ordinal</code> → 完整位置/状态记录</td><td>读取触发下一状态时的累计脉冲快照、位置/状态标识、触发及READY序号、完成标志；软件时间字段不等同物理边沿时间。字段事实源为scpi_sequence_history_q。</td></tr>
         <tr><td><code>TRIGger:SEQuence:NEXT</code></td><td>无参数；<code>1</code> / error</td><td>独立MANUAL模式请求下一步；LOOPBACK仅在READY来源为MANUAL时提交网关软件READY，DUT仍须收到真实RJ45回环并校验通过的READY_NEXT后才切步；外部IN模式拒绝。</td></tr>
         <tr><td><code>TRIGger:SEQuence:NEXT?</code></td><td>无参数；本地运行状态块</td><td>与READ:SEQuence:STATe?响应一致，不推进序列。旧STEP、CONF:NEXT和READ:NEXT?不再注册。</td></tr>
         <tr><td><code>READ:SEQuence:STATe?</code></td><td>本地运行状态块</td><td>分别读取所选、已写出、已完成游标、循环、接纳/拒绝/中止计数及时间/错误；具体字段顺序见专项架构。</td></tr>

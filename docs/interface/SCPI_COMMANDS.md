@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-19
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -226,8 +226,18 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 
 | 命令 | 说明 |
 |---|---|
-| `CONFigure:ANGLe:SWEEp <start_deg>,<stop_deg>,<step_deg>` | 设置扫描起始角度、终止角度和扫描角度步长，用于将输出脉冲对应到扫描位置。 |
-| `READ:ANGLe:SWEEp?` | 查询当前扫描角度范围和步长。 |
+| `CONFigure:ANGLe:SWEEp <start_deg>,<stop_deg>,<step_deg>,<speed_deg_s>` | 停止态设置开始、终止、有符号步长和正运行速度；端点对齐步长网格，位置数量包含首末点。与 INPUT 标定共同绑定既有 POSITION 链路。 |
+| `READ:ANGLe:SWEEp?` | 返回 `start_deg,stop_deg,step_deg,speed_deg_s,position_count,bound`。 |
+| `CONFigure:ANGLe:INPut IN1\|IN2\|IN3\|IN4,<pulses_per_degree>` | 配置计数输入及每度脉冲标定，阈值 `N=abs(step_deg)×pulses_per_degree` 必须为整数；输入不得与 READY 冲突。 |
+| `READ:ANGLe:INPut?` | 返回 `input,pulses_per_degree,input_hz,N,position_period_s,position_hz,bound`，换算频率不是实测值。 |
+| `CONFigure:ANGLe:SPEed <speed_deg_s>` / `READ:ANGLe:SPEed?` | 停止态单独设置或查询声明速度（°/s）。不控制电机或外部信号源。 |
+| `READ:ANGLe:POSition?` | 读取位置接纳数量、当前/下一角度及有效性、原始/余量脉冲和链路错误；不是机械位置反馈。 |
+
+先配置 POSITION 三槽位链路，再下发 SWEEP 和 INPUT；只有 `bound` 有效才表示角度配置
+已绑定到真实阈值及有限位置数。START 后首个 N 脉冲对应开始角度，每位置执行完整活动序列。
+位置周期为 `abs(step_deg)/speed_deg_s`，预期输入频率为 `pulses_per_degree×speed_deg_s`。
+集成验证状态见 `docs/trigger/sequence/TRIGGER_SEQUENCE_TODO.md` 的 NSEQ-109；
+旧固件 ANGLE 固定查询不可作为配置证据。ANGLE:PULSE 的脉宽检测/角度超时和断点功能尚未实现。
 
 ## 序列维护
 
@@ -246,6 +256,9 @@ SCPI 产品接口按语义通道描述触发 IO，不应要求用户理解或切
 `READ:SEQuence:NEXT?` 已合并并移除，不作为兼容别名继续注册。
 
 ## 断点与分段运行
+
+本节为目标规划，当前 ANGLE:BREAkpoint 写入/查询/清除均返回未实现错误，
+不执行下述断点行为；历史 BP 拼写也不代表当前已注册能力。
 
 | 命令 | 说明 |
 |---|---|

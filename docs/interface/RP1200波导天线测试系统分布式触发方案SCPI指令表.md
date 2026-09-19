@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
 Related: `docs/reports/scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/interface/SCPI_COMMANDS.md`, `docs/archive/TASK_PROGRESS.md`
-Last updated: 2026-08-11
+Last updated: 2026-09-19
 
 版本：0.11
 日期：2026-08-13
@@ -217,10 +217,13 @@ HTML 分页将系统域拆成两页：系统状态与日志、系统门禁与分
 |---|---|---|---|
 | `CONFigure:TRIGger` | `<chan_cnt>,<pol>,<freq_cnt>,<wave_cnt>` | `1` | 配置角度点内序列展开参数；展开顺序为通道 -> 极化 -> 频点 -> 波位 |
 | `READ:TRIGger:PARameter?` |  | `param block` | 读取通道数、极化、频点数、波位数、展开状态数和 CRC |
-| `CONFigure:ANGLe:SWEEP` | `<start_deg>,<stop_deg>,<step_deg>` | `1` | 配置扫描角度范围和步长，用于输出脉冲与转台位置对应 |
-| `READ:ANGLe:SWEEP?` |  | `angle block` | 读取扫描起始角、终止角、步长、角度点数和当前角度索引 |
-| `CONFigure:ANGLe:PULSe` | `<RISING|FALLING>,<pulse_width_us>,<timeout_ms>` | `1` | 配置 A0 接收转台角度触发脉冲的边沿、脉宽和超时；归属角度域，不做编码器 PCNT 换算 |
-| `READ:ANGLe:PULSe?` |  | `angle pulse block` | 读取角度脉冲输入配置、有效计数、漏脉冲计数、超时状态和最近边沿时间 |
+| `CONFigure:ANGLe:SWEEP` | `<start_deg>,<stop_deg>,<step_deg>,<speed_deg_s>` | `1` | 停止态配置开始、终止、有符号步长及正运行速度（°/s）；端点须对齐步长网格，包含首末位置 |
+| `READ:ANGLe:SWEEP?` |  | `start_deg,stop_deg,step_deg,speed_deg_s,position_count,bound` | 读取真实扫描配置、位置数和绑定有效性 |
+| `CONFigure:ANGLe:INPut` | `IN1\|IN2\|IN3\|IN4,<pulses_per_degree>` | `1` | 输入标定；与SWEEP共同导出原始脉冲阈值及有限位置数，绑定既有POSITION三槽位链路 |
+| `READ:ANGLe:INPut?` |  | `input,pulses_per_degree,input_hz,N,position_period_s,position_hz,bound` | 读取输入标定及换算结果；频率为预期值，不是实测值 |
+| `CONFigure:ANGLe:SPEed` / `READ:ANGLe:SPEed?` | `<speed_deg_s>` / 无参数 | `1` / `speed_deg_s` | 停止态单独设置或查询声明运行速度，不控制运动设备 |
+| `CONFigure:ANGLe:PULSe` | `<RISING|FALLING>,<pulse_width_us>,<timeout_ms>` | error（未实现） | 规划接口；当前输入边沿由POSITION链路共同边沿配置，不做输入脉宽检测 |
+| `READ:ANGLe:PULSe?` |  | error（未实现） | 不再返回固定统计，原始计数使用READ:SEQ:COUNTER? |
 | `READ:ANGLe:POSition?` |  | `position block` | 读取 DTC 侧由扫描配置和角度脉冲推导出的角度状态；不代表运动控制器反馈的真实转台位置 |
 | `CONFigure:ANGLe:BREAkpoint` | `[angle_deg]` | `1` | 配置角度断点；给出参数时绑定指定扫描角度，运行中或暂停中省略参数时使用当前待输出角度游标 |
 | `CONFigure:ANGLe:BREAkpoint:CLEAr` |  | `1` | 清除角度断点和命中标志；若当前已因断点暂停，仅清除断点标志，不自动继续运行 |
@@ -240,13 +243,15 @@ HTML 分页将系统域拆成两页：系统状态与日志、系统门禁与分
 5 x 8 x 1 x 2 = 80 states
 ```
 
-角度域分两层：`CONFigure:ANGLe:SWEEP` 定义本次测试的角度点集合；`CONFigure:ANGLe:PULSe`
-定义 A0 如何接收转台在目标角度点输出的触发脉冲。转台自身的
-`ConfigureTrigger(dimension,start,stop,step,pulseWidth,isRaisingEdge,timeout)` 由测试上位机
-调用，DTC 不再把连续编码器脉冲换算为角度。
-`READ:ANGLe:POSition?` 返回的是 A0 当前扫描游标和最近角度脉冲状态，例如
-`angle_index/current_angle_by_sweep/last_pulse_time`；真实转台位置、速度和伺服状态由调试上位机
-通过运动控制器 API 获取。
+本次ANGLE集成基于原始脉冲累计的POSITION模式：先配置三槽位链路，再配置四参数SWEEP
+和INPUT标定。位置数量为`(stop_deg-start_deg)/step_deg+1`，每位置阈值为
+`abs(step_deg)×pulses_per_degree`，两者必须为整数；位置周期为
+`abs(step_deg)/speed_deg_s`，预期输入频率为`pulses_per_degree×speed_deg_s`。
+START后首个N脉冲对应开始角度，每位置执行完整SP8T序列；当前角度无效时不能视为已经到达开始点。
+`READ:ANGLe:POSition?`返回脉冲推导的扫描游标，不是运动控制器的真实机械位置。
+实际转台速度、机械零点和外部信号源由测试上位机设置和对齐。
+集成和硬件验证状态见NSEQ-109；旧固件的ANGLE占位回包不表示配置真实生效。
+表中ANGLE:PULSE的输入脉宽检测、独立角度超时及断点仍为未实现规划，不得与网关输出脉宽或READY超时混用。
 
 ### 3.2 序列配置
 
