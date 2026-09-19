@@ -175,6 +175,7 @@ docs/
 | `refmem/REFMEM_DOMAIN_RISK_REVIEW.md` | Distributed RefMem 主域风险评审，记录 P0-P3 架构偏差、HAOFV 边界风险和纠偏结论。 |
 | `vdc/README.md` | VDC 内部主域 README。 |
 | `vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间、DPLL、timestamp、HOLDOVER 和质量门禁。 |
+| `vdc/VDC_RUNTIME_CONSTRAINTS.md` | VDC 已登记运行接口细则：typed 同步、本地跟踪、输出/探针及兼容分片协议。 |
 | `vdc/VDC_DOMAIN_TODO.md` | VDC 内部主域待办，跟踪数据契约、DPLL、RefMem 映射、组件化和验证。 |
 | `vdc/VDC_COMMAND_TRANSPORT_PLAN.md` | VDC 定时命令与共同时间传输待审方案，含原函数反例、固定邮箱候选及资源/负测门禁。 |
 | `vdc/VDC_STABLE_INPUT_PLAN.md` | VDC 稳定时间输入与丢样本处理方案；首帧优化退出锁相前置，有效样本驱动更新。 |
@@ -182,6 +183,7 @@ docs/
 | `vdc/VDC_DPLL_STATUS_REVIEW.md` | 四板 DPLL 实际闭环、连续启动收敛、有限精度与发布缺口的阶段报告。 |
 | `reports/distributed-trigger/DHRT100_DPLL_STATUS_REPORT_20260918.html` | 四板 DPLL 阶段报告，沿用项目 A4 竖版模板；含组成机制、连续收敛、完整方波与上升沿实测 SVG。 |
 | `reports/distributed-trigger/DHRT100_DPLL_STATUS_REPORT_20260918.pdf` | 四板 DPLL 阶段报告打印版，A4 竖版七页。 |
+| `reports/distributed-trigger/DHRT100_PROJECT_OVERVIEW_REPORT_20260919.html` | 项目综述更新版：A4 竖版七页，按当前实现汇总 HAOFV、TDMA/RefMem、四板 DPLL 实测和 VDC 发布路径；保留 20260827 原版。 |
 | `vdc/VDC_DOMAIN_RISK_REVIEW.md` | VDC/DPLL 主域风险评审，记录共同时间、DPLL、硬实时 capture/fire 和文档漂移风险。 |
 | `communication/README.md` | 通信域 README。 |
 | `measure/README.md` | 测量域 README。 |

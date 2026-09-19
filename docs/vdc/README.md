@@ -4,20 +4,21 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/README.md`
 Related: `docs/README.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-09-06
+Last updated: 2026-09-19
 
-本目录是 Virtual Distributed Clock / VDC 内部主域入口。VDC Domain 维护多节点共同时间、`local_tick -> vdc_time` 映射、SYNC DPLL、HOLDOVER/RELOCK、timestamp dictionary、时间质量和预测分发时间基准。
+本目录是 Virtual Distributed Clock / VDC 内部主域入口，负责本地时间到共同输出时间的映射、DPLL 控制和时间质量发布。失联保持、恢复及正式共同时间服务的完成边界见主架构与 TODO。
 
-当前三件标准文件已按 HAOFV 事实边界重建：Architecture 只保留稳定语义，TODO 只保留迁移门禁，Task Progress 只保留当前 checkpoint 和证据；重构前版本位于 `docs/legacy/vdc/`。
+Architecture 描述当前实现、owner 和能力边界，运行细则保留契约细节；TODO 维护任务与门禁，Task Progress 保存验证证据。历史由 `docs/legacy/vdc/` 与进度归档索引查找。
 
-当前 VDC 架构已收敛为 TDMA Foundation 与 DPLL 融合的共同时间基础件：TDMA Foundation 提供确定性同步观测窗口、上/下行 ring runtime、payload registry 和参考边沿，VDC DPLL 基于硬件 timestamp 样本估计 offset/rate，低频驯服环管理长期漂移、温度/老化补偿和 HOLDOVER 误差边界。VDC 最终发布的是可门禁、可回滚、可报告的共同时间 snapshot，而不是单个自由运行的软件计数器。
+当前主线为 TDMA typed 参考运输、Core1 同事件匹配与从板本地 DCO 跟踪、SYNC_IO 的 PIO/DMA 输出。低频晶振 actuator、完整 HOLDOVER/恢复及产品质量发布仍需接线和验收，不能由已有输出闭环推定完成。
 
 ## 当前主线
 
 | 当前路径 | 定位 | 使用规则 |
 |---|---|---|
-| `VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间事实、owner、数据模型、跨域关系和目标代码形态。 | VDC 主域 canonical 架构入口。 |
-| `VDC_DOMAIN_TODO.md` | VDC 主域独立待办，维护文档同步、数据契约、DPLL、HOLDOVER、RefMem 映射、组件化和验证事项。 | 只记录未完成事项，不写验证流水账。 |
+| `VDC_DOMAIN_ARCHITECTURE.md` | 面向总体评审，说明当前模块、数据流、owner、时间模型及完成边界。 | VDC 主域 canonical 架构入口。 |
+| `VDC_RUNTIME_CONSTRAINTS.md` | 编码 ABI、生命周期、并发、输出与探针细则。 | 由主架构契约入口引用，旧模式与当前 TIMER1 主线分别解释。 |
+| `VDC_DOMAIN_TODO.md` | VDC 主域任务索引，按未完成与已完成分组，维护当前主线、状态、依赖和退出门禁。 | 实施与验证证据见 Task Progress，不在 TODO 重复流水账。 |
 | `VDC_TASK_PROGRESS.md` | VDC 主域任务进度，记录阶段性工作、验证结果和后续动作。 | VDC 新任务完成后追加记录。 |
 | `VDC_DOMAIN_RISK_REVIEW.md` | VDC/DPLL 风险评审记录，收敛正确性缺陷、半接线路径、文档漂移和测试缺口。 | 评审/纠偏时更新，不写普通流水账。 |
 
@@ -26,9 +27,9 @@ Last updated: 2026-09-06
 | 主线 | 当前结论 | 后续落点 |
 |---|---|---|
 | TDMA Foundation 硬实时环 | TDMA Foundation 负责无冲突同步窗口、同步帧参考边沿、上/下行 runtime 和 PIO/DMA timestamp capture。 | TDMA schedule profile、sync window、guard window、capture FIFO word 和 late 规则归 `docs/tdma/`；VDC 只读 observation binding。 |
-| DPLL 锁相环 | DPLL 负责从 timestamp sample 估计 offset/rate，并通过 slew/phase pull 形成 VDC_CLOCK。 | 冻结 `VdcServoProfile`、`VdcDpllState`、环路滤波和 lock gate。 |
-| 低频驯服环 | 秒级任务只更新长期漂移模型、温度/老化补偿和 HOLDOVER drift bound，不干扰实时输出。 | 冻结 `VdcHoldoverModel`、error budget 和持久化策略。 |
-| Core 边界 | core1/PIO 只执行 capture/fire 和读取稳定 snapshot；core0/VdcSyncAO 是 offset/rate 唯一 writer。 | 增加跨核 snapshot guard、sequence 和质量 evidence。 |
+| DPLL 锁相环 | MASTER Domain PI 与显式 typed follower 本地控制分开；当前输出以 committed DCO 为准。 | 固件状态、内部质量和实际 GPIO 精度分别验收。 |
+| 低频驯服与恢复 | Domain 有 trim/freeze 接口与 HOLDOVER 枚举，实物 actuator 和完整失联恢复尚未闭合。 | 见 TODO 的角色扩展、HOLDOVER 和质量发布任务。 |
+| Core 边界 | Core1 是运行态控制/DCO writer；Core0 配置/intent/显式保存与管理发布，PIO/DMA 执行边沿。 | 以主架构的生命周期和 guard 边界为准。 |
 
 ## 相关参考
 

@@ -22,6 +22,17 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-021：外部参考 MONITOR 可配置，四板共存通过
+
+- TODO task ID：`VDC-REFERENCE-002` DONE；`VDC-FREQ-001` 的基准补偿未实施。
+- 实现：`SYST:VDC:REF:CONF/ENAB/STAT?` 和 `DEFA/REC/STOR`；STOP 配置端口、标称 Hz、边沿、窗口和超时。产品配置 v6 只保存参数，上电不自启；兼容 v1–v5 CRC/字段。SYNC_IO 独占参考 SM，DMA9/10 读取 TIMER1；Core1 必经 TDMA 相位推进一次有界状态，Core0 只在退休 ACK 后释放。RS485、RUN 输出及 TDMA 原 owner 保留。
+- 软件验证（本轮快照）：相关解析/配置/Flash/timing/静态调度 130 项、SYNC 后端及既有资源回归 108 项、路由/观测回归 23 项、文档回归 38 项通过。Release A/B 构建及链接契约通过；P3 `p3-reference-monitor-r4` 为 PASS_WITH_WARNINGS（25 INFO / 18 WARN / 0 ERROR / 0 FATAL），未要求 NO5。TDMA `diagnostic_passed=true`，`passed/realtime_gate_passed/closed_loop_passed=false`；严格调度告警保留，与此前 `p3-vdc-publication-r2` / `p3-internal-seal-r1` 判级一致，不能宣称严格 TDMA 门禁通过。
+- 专项证据：`out/HardwareAcceptance/20260919/reference-monitor/standalone-r2/report.json`。IN4=GPIO20，上升沿序号 3→5、下降沿序号 2；停用释放、IN3 无信号超时、非默认窗口 Flash 保存/召回通过。读数约 +3680～+3692 ppb 为“输入相对本地标称时钟”，不代表独立绝对精度。
+- 同轮共存：`reference-monitor/joint-60s-r1/capture/input-probe.json`，参考完成 67 个窗口，末态 +4380 ppb；四板 GUARD 全通过，RUN 查询为零，示波器每五秒一窗共十二窗通过。相对 NO1 边沿范围：NO2 −10.07～+25.88 ns、NO3 −11.58～+4.10 ns、NO4 −7.94～+59.59 ns（实测快照）；稀疏窗口不覆盖空档，不宣称完全连续物理精度。
+- 失败与修复：初版 DMA0/1 与 RS485 冲突，改为9/10；独立审查指出 sticky DMA error，取得通道后停态 W1C 清理并回归。`standalone-r1` 中 PREPARED/取消不推进，是服务误挂可隔离 SYNC 相位，改至必经相位后通过。失败原件保留，不能用早期 P3 替代 r4。
+- 重启验证：`reference-monitor/boot-check-r3.json` 证明非默认参数恢复且 enabled/resource/state 均 idle。前两次测试在重枚举后立即恢复 RAM 配置遇执行拒绝，原件 `boot-check.json`、`boot-check-r2.json` 保留；r3 留存拒绝并有界重试 RAM 配置后恢复默认 Flash。USB 可查询不等于 STOP 写入准入已稳定，Flash 写入未重试。
+- 收尾：四板 STOP；NO1 参考关闭，参数恢复 IN4/10 MHz/上升沿/1000 ms/2500 ms。DMA 仲裁误差仍标记未定界，未改变任何 DCO；下一切片为参考频偏稳定性/误差预算，再决定慢速基准补偿。
+
 ### VDC-PROGRESS-20260919-020：显式 delay 与批量示波器留证，联合长窗通过
 
 - TODO task ID：`VDC-OBS-007`、`VDC-DRIFT-001`、`VDC-OUTPUT-001` IN PROGRESS。

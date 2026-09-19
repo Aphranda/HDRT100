@@ -166,7 +166,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `TDMA-SEQLOCK-01` | runtime snapshot 必须使用 seqlock | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“core0/core1 双 FIFO 与所有权”章节 | 跨核共享事实的实现要求。 |
 | `TDMA-HOP-01` | `hop_limit` 归属 ring profile | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“Transport Envelope 与长短帧”章节 | 分布式确定性通讯约束。 |
 | `REFMEM-260B-01` | critical delta 容量合同 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“Transport Envelope 与长短帧”章节 | RefMem 实时短帧容量约束。 |
-| `VDC-DPLL-01` | DPLL 准入要求 `timestamp_resolution_ns <= 100` 且来自硬实时 latch | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:301-308` | 分布式共同时间证据门禁。 |
+| `VDC-DPLL-01` | DPLL 准入要求 `timestamp_resolution_ns <= 100` 且来自硬实时 latch | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-DPLL-01` | 分布式共同时间证据门禁；通用代码入口的粗粒度准入差异见域架构，不能视为契约已满足。 |
 
 登记表中的扩展契约仍为 `pending`，顶层只显示其可见性，不把它们当作已冻结
 硬约束：
@@ -193,6 +193,12 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | `VDC-REFERENCE-01` | 显式 STOP 参考运输复用固定配额：Core0 投影并逐目标发送，三从保留指定主机参考并回 typed 接收 ACK，主机按完整发布证明核对；不阻塞发车或本地 PI，不以确认代替 DCO 应用或锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-REFERENCE-01` | pending |
 | `VDC-BOUNDARY-01` | 特等席固定配额承载逐从频率命令；Core0 准备独立 RATE 同模型窗口并有界重复，Core1 在显式 AUTO 下逐从负反馈、连续应用及精确 ACK；未决不叠加，不授予物理锁相 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-BOUNDARY-01` | pending |
 | `VDC-PUBLICATION-01` | 完整快照刷新与 DPLL 证据序号分离，Core0/RefMem 按同次稳定快照的本地偶数 guard 去重；失败不消费、零值回绕有效，既有 seqlock ABA 限制保留；每 beat 至多一份向量，旧 wire/CRC/质量语义不变，不授予正式锁相或共同时间发布资格 | `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md:VDC-PUBLICATION-01` | pending |
+
+当前 VDC 主线由 Core1 typed 参考编码、从板同事件匹配/本地 DCO 跟踪和 SYNC_IO
+输出组成；TIMER1 直接坐标用于当前事件投影与 RUN，TIMER0 桥接求交保留给旧
+helper/schema 重放。主架构与 `docs/vdc/VDC_RUNTIME_CONSTRAINTS.md` 分别说明
+现状和详细条款；committed DCO 不等于 legacy clock。完整 freshness 一致发布、
+失联恢复和产品 formal promotion 仍待闭合，职责名称不代表已有同名独立模块。
 
 `VDC-PRIORITY-01` 的调试观测还可互斥复用原维护记录池，按 Core1 service 时间段
 汇总成功极值与 owner 拒绝/取消/保持，显式保留无输入、观测缺口和异常终止。
