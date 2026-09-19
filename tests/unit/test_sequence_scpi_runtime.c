@@ -75,6 +75,8 @@ static bool physical_step(void)
 bool sync_io_sequence_software_step(void)
 { return !hw_config.input_channel && !hw.paused && hw.ready && physical_step(); }
 bool sync_io_sequence_gateway_fire(void) { return false; }
+bool sync_io_sequence_software_step_prepared(void) { return sync_io_sequence_software_step(); }
+bool sync_io_sequence_counter_rearm_prepared(void) { return false; }
 bool sync_io_sequence_gateway_ready(void) { return false; }
 bool sync_io_sequence_counter_rearm(void) { return false; }
 bool sync_io_sequence_counter_inject(uint32_t input_channel, uint32_t count)
@@ -112,6 +114,11 @@ uint32_t sync_io_sequence_owned_mask(void) { return hw.output_ownership_mask; }
 
 void trigger_sequence_link_get_status(trigger_sequence_link_status_t *status)
 { memset(status, 0, sizeof(*status)); }
+bool trigger_sequence_link_binding_is_current(uint32_t binding_epoch, uint32_t model_epoch)
+{ (void)binding_epoch; (void)model_epoch; return false; }
+bool trigger_sequence_link_configure_position_locked(
+    const trigger_sequence_link_config_t *config, uint32_t repeat_count)
+{ (void)config; (void)repeat_count; return false; }
 trigger_sequence_service_result_t trigger_sequence_link_next(void)
 { return TRIGGER_SEQUENCE_SERVICE_NOT_READY; }
 trigger_sequence_service_result_t trigger_sequence_link_ready_inject(uint32_t count)

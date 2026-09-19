@@ -44,6 +44,8 @@
 #define SCPI_REFMEM_SYNC_DEFAULT_LATENCY_US 50u
 #define SCPI_REFMEM_SYNC_SPI_RAW_MAX 256u
 #define SCPI_COMMAND_ACK_SCHEMA_VERSION 1u
+#define SCPI_TDMA_SNAPSHOT_ATTEMPTS 8u
+#define SCPI_TDMA_SNAPSHOT_BACKOFF_US 50u
 
 typedef struct {
     uint32_t reason_id;
@@ -1787,8 +1789,21 @@ scpi_result_t scpi_cmd_refmem_sync_auto_q(scpi_t *context)
 scpi_result_t scpi_cmd_refmem_sync_tdma_status_q(scpi_t *context)
 {
     refmem_realtime_tdma_snapshot_t snapshot;
-    if (!distributed_refmem_get_realtime_tdma(&snapshot)) {
-        return SCPI_RES_ERR;
+    bool available = false;
+    /* Only the Core0 diagnostic caller waits. The realtime snapshot APIs
+     * remain nonblocking, and every retry obtains a fresh complete view. */
+    for (uint32_t attempt = 0u; attempt < SCPI_TDMA_SNAPSHOT_ATTEMPTS; ++attempt) {
+        if (distributed_refmem_get_realtime_tdma(&snapshot)) {
+            available = true;
+            break;
+        }
+        if (attempt + 1u < SCPI_TDMA_SNAPSHOT_ATTEMPTS) {
+            sleep_us(SCPI_TDMA_SNAPSHOT_BACKOFF_US);
+        }
+    }
+    if (!available) {
+        SCPI_ResultText(context, "BUSY");
+        return SCPI_RES_OK;
     }
 
     SCPI_ResultUInt32(context, snapshot.state);

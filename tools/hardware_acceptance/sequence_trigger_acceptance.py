@@ -34,7 +34,7 @@ STATUS_FIELDS = (
 )
 STATES = {"IDLE", "STARTING", "READY", "BUSY", "PAUSING", "PAUSED", "STOPPING", "FAULT"}
 # Snapshot of SYNC_IO_SEQUENCE_TIME_MAX_US; the firmware validates configuration.
-TIME_MAX_US = 0xffffffff // 10
+TIME_MAX_US = 0xffffffff // 250
 
 
 class AcceptanceError(RuntimeError):

@@ -107,6 +107,24 @@ def link(bench: Bench) -> dict:
     return parse_link(bench.command("READ:SEQ:LINK?"))
 
 
+def ring_snapshot(port, args, report=None, label="ring"):
+    """Read a complete TDMA snapshot, bounding explicit diagnostic BUSY replies."""
+    deadline = time.monotonic() + args.timeout
+    while True:
+        try:
+            return ring.sample(port, args.timeout)
+        except ring.SnapshotBusy as exc:
+            error = ring.query(port, "SYSTem:ERRor?", args.timeout)
+            if report is not None:
+                report.setdefault("ring_snapshot_busy", []).append(
+                    {"label": label, "response": exc.response, "error": error})
+            require(error.lstrip().startswith("0,"),
+                    "TDMA snapshot BUSY with SCPI error: " + error)
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(min(args.poll, 0.01))
+
+
 def prepare_ring(port, args, report, before_arm=None):
     setup = report.setdefault("ring_setup", {})
     try:
@@ -119,7 +137,7 @@ def prepare_ring(port, args, report, before_arm=None):
         require(str(exc).startswith("ring state wait expired:") and steps and
                 steps[-1]["command"] == "SYSTem:TDMA:RING:START",
                 f"TDMA setup failed: {exc}")
-        observation = ring.sample(port, args.timeout)
+        observation = ring_snapshot(port, args, report, "prepare")
         setup["after_wait_failure"] = observation
         require(all(ring.field(observation, index) == 1 for index in
                     (ring.RING_ENABLED, ring.RING_ADAPTER_STARTED, ring.RING_UP_RUNNING)) and
@@ -326,7 +344,7 @@ def pause_resume(bench: Bench, report, before: dict) -> tuple[dict, dict]:
 def execute(bench: Bench, port, report):
     args = bench.args
     configure(bench, port, report)
-    report["ring_before"] = ring.sample(port, args.timeout)
+    report["ring_before"] = ring_snapshot(port, args, report, "before")
     if args.gui_control:
         from tools.sequence_trigger_debug_ui import sequence_trigger_debug_ui as gui
         gui_batch(bench, report, "start", gui.build_start_commands(gui.MODE_RJ45))
@@ -373,7 +391,7 @@ def execute(bench: Bench, port, report):
             "insufficient completed RJ45 cycles; inspect READY source and transcript")
     require(not args.pause_resume or report.get("pause_resume", {}).get("passed", False),
             "pause/resume verification incomplete")
-    report["ring_after"] = ring.sample(port, args.timeout)
+    report["ring_after"] = ring_snapshot(port, args, report, "after")
     for index, name in ((ring.RING_ADAPTER_TX_COUNT, "tx"), (ring.RING_ADAPTER_RX_COUNT, "rx")):
         require(ring.delta(report["ring_before"], report["ring_after"], index) > 0,
                 f"no physical TDMA {name} counter growth")
@@ -404,9 +422,15 @@ def cleanup(bench, port, report):
         except (Exception, KeyboardInterrupt) as exc:
             diagnostics[command] = {"failure": f"{type(exc).__name__}: {exc}"}
     try:
-        report["ring_before_cleanup"] = ring.sample(port, bench.args.timeout)
+        report["ring_before_cleanup"] = ring_snapshot(port, bench.args, report, "before_cleanup")
     except (Exception, KeyboardInterrupt) as exc:
         report["diagnostic_failure"] = f"{type(exc).__name__}: {exc}"
+        failures.append(f"ring diagnostic snapshot: {report['diagnostic_failure']}")
+        try:
+            report["diagnostic_error_after"] = bench.command("SYST:ERR?")
+        except (Exception, KeyboardInterrupt) as error_exc:
+            report["diagnostic_error_read_failure"] = f"{type(error_exc).__name__}: {error_exc}"
+            failures.append(f"ring diagnostic error query: {report['diagnostic_error_read_failure']}")
     try:
         bench.write("TRIG:STOP")
         stopped = bench.wait_state("IDLE")
@@ -429,7 +453,7 @@ def cleanup(bench, port, report):
         observations = report["ring_stop_readbacks"] = []
         deadline = time.monotonic() + bench.args.timeout
         while True:
-            stopped_ring = ring.sample(port, bench.args.timeout)
+            stopped_ring = ring_snapshot(port, bench.args, report, "cleanup")
             observations.append(stopped_ring)
             if all(ring.field(stopped_ring, index) == 0 for index in
                    (ring.RING_ENABLED, ring.RING_ADAPTER_STARTED)):
@@ -489,7 +513,7 @@ def parse_args(argv=None):
     if any(not math.isfinite(v) or v <= 0 for v in
            (args.duration, args.timeout, args.poll, args.quiet, args.source_hz, args.arm_wait, args.start_wait)):
         parser.error("times and source-hz must be finite and positive")
-    if not 0 <= args.repeat <= 0xffffffff // 8 or args.minimum_events < 9 or not 0 < args.gateway_pulse_us <= 0xffffffff // 10 or \
+    if not 0 <= args.repeat <= 0xffffffff // 8 or args.minimum_events < 9 or not 0 < args.gateway_pulse_us <= 0xffffffff // 250 or \
             not 0 < args.gateway_timeout_ms <= 0x7fffffff:
         parser.error("invalid event count or gateway timing")
     if args.scpi_next and args.repeat and 8 * args.repeat > READY_BATCH_MAX:

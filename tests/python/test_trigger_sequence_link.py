@@ -12,11 +12,14 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture(scope="module")
 def link_executable(tmp_path_factory):
     path = tmp_path_factory.mktemp("sequence-link")
+    (path / "board_config.h").write_text(
+        "#define BOARD_SYS_CLOCK_HZ 250000000u\n", encoding="utf-8")
     (path / "tdma_runtime_owner.h").write_text(
         "#ifndef TEST_TDMA_OWNER_H\n#define TEST_TDMA_OWNER_H\n"
         "#include <stdbool.h>\n#include <stdint.h>\n"
         "#include \"tdma_ring_runtime.h\"\n"
         "bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *out);\n"
+        "bool tdma_runtime_owner_run_bound_action(uint32_t c, uint32_t a, bool (*f)(void), bool *r);\n"
         "bool tdma_runtime_owner_set_local_return_delivery(bool enabled);\n#endif\n", encoding="utf-8")
     executable = path / "sequence-link.exe"
     compiler = (os.environ.get("HOST_CC") or shutil.which("gcc") or
@@ -38,3 +41,51 @@ def test_sequence_link_orchestrator(link_executable, case):
     result = subprocess.run([str(link_executable), case], text=True, capture_output=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "sequence link orchestrator passed" in result.stdout
+
+
+def test_angle_binding_updates_repeat_atomically(link_executable):
+    result = subprocess.run([str(link_executable), "angle_atomic"], text=True,
+                            capture_output=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("case", ["raw_timing", "raw_timing_fresh", "clock_timeout", "clock_history_wrap",
+    "clock_failure_start", "clock_failure_service", "clock_failure_tx", "clock_failure_rx"])
+def test_hardware_clock_boundaries(link_executable, case):
+    result = subprocess.run([str(link_executable), case], text=True,
+                            capture_output=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("case", ["binding_config", "binding_reapply", "binding_reference",
+    "binding_local", "binding_schedule", "binding_profile", "binding_operating", "binding_cycle",
+    "binding_baud", "binding_nodes", "binding_down", "binding_flags", "binding_groups", "binding_restart",
+    "transport_snapshot_busy", "transport_snapshot_timeout", "transport_counter_wait_busy"])
+def test_transport_binding_boundaries(link_executable, case):
+    result = subprocess.run([str(link_executable), case], text=True,
+                            capture_output=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.fixture(scope="module")
+def history_vector_executable(link_executable):
+    path = link_executable.parent
+    compiler = (os.environ.get("HOST_CC") or shutil.which("gcc") or
+                shutil.which("clang") or "D:/Microsoft/mingw64/bin/gcc.exe")
+    includes = [path, ROOT / "osal/inc"]
+    includes.extend(sorted((ROOT / "components").glob("*/inc")))
+    executable = path / "history-vector.exe"
+    command = [compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread"]
+    command.extend("-I" + str(inc) for inc in includes)
+    command.extend([str(ROOT / "components/sync_trigger/src/trigger_sequence_link_protocol.c"),
+                    str(ROOT / "tests/unit/test_trigger_sequence_history_vector.c"), "-o", str(executable)])
+    built = subprocess.run(command, text=True, capture_output=True, timeout=60)
+    assert built.returncode == 0, built.stdout + built.stderr
+    return executable
+
+
+@pytest.mark.parametrize("case", ["retention", "busy", "concurrent", "lifecycle", "overflow_fault"])
+def test_history_vector(history_vector_executable, case):
+    result = subprocess.run([str(history_vector_executable), case], text=True,
+                            capture_output=True, timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr

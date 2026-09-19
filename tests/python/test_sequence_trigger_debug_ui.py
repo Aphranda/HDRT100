@@ -23,7 +23,73 @@ from tools.sequence_trigger_debug_ui.sequence_trigger_debug_ui import (
     discover_visa_resources,
     format_switch_position,
     parse_usb_mode,
+    calculate_position_threshold,
+    calculate_angle_scan,
 )
+
+
+@pytest.mark.parametrize("kind,value,expected", [
+    ("频率 Hz", "50", 50), ("周期 ms", "20", 50),
+    ("频率 Hz", "1000", 1000), ("周期 ms", "0.2", 5000),
+    ("频率 Hz", "100000", 100000), ("频率 Hz", "49.5", 50)])
+def test_position_rate_conversion(kind, value, expected):
+    threshold, frequency, seconds = calculate_position_threshold(kind, value)
+    assert threshold == expected
+    assert abs(float(seconds) - 1) <= .011
+    assert float(frequency) > 0
+
+
+@pytest.mark.parametrize("value", ["", "no", "0", "-1", "NaN", "Infinity", "1e999999999", "0.1"])
+def test_position_rate_invalid(value):
+    with pytest.raises(ValueError):
+        calculate_position_threshold("频率 Hz", value)
+
+
+@pytest.mark.parametrize("start,stop,step,speed,ppd,count,n,hz,period", [
+    ("0", "9", "1", "1", "1000", 10, 1000, 1000, 1),
+    ("10", "0", "-2", "5", "1000", 6, 2000, 5000, .4),
+    ("-0.3", "0.3", "0.1", "0.1", "1000", 7, 100, 100, 1),
+    ("0", "0", "1", "0.05", "1000", 1, 1000, 50, 20),
+    ("0", "0.05", "0.05", "0.05", "1000", 2, 50, 50, 1)])
+def test_angle_scan_derives_exact_position_budget(start, stop, step, speed, ppd, count, n, hz, period):
+    scan = calculate_angle_scan(start, stop, step, speed, ppd)
+    assert (scan.positions, scan.threshold) == (count, n)
+    assert float(scan.frequency) == hz
+    assert float(scan.period) == period
+
+
+@pytest.mark.parametrize("args", [
+    ("0", "1", "-1", "1", "1000"),
+    ("0", "1", "0", "1", "1000"),
+    ("0", "1", "0.3", "1", "1000"),
+    ("0", "1", "0.1", "1", "3"),
+    ("0", "1", "1", "0", "1000"),
+    ("0", "1", "1", "1", "0"),
+    ("NaN", "1", "1", "1", "1000"),
+    ("0", "1", "1", "Infinity", "1000"),
+    ("0", "1", "1", "1e999999999", "1000"),
+    ("0", "1", "1", "1e-999999999", "1000"),
+    ("0", "1.000000000000000000001", "1", "1", "1000"),
+    ("0", "1", "1", "1", "2147483632"),
+    ("0", "1", "1", "1e308", "1000"),
+    ("100000000000000000000", "100000000000000000001", "1", "1", "1000"),
+])
+def test_angle_scan_rejects_invalid_or_fractional_configuration(args):
+    with pytest.raises(ValueError):
+        calculate_angle_scan(*args)
+
+
+def test_angle_commands_override_raw_repeat_and_threshold_and_read_back_real_config():
+    scan = calculate_angle_scan("0", "0.05", "0.05", "0.05", "1000")
+    commands = turntable_configuration(angle_scan=scan, counter_threshold=999, repeat_count=999)
+    link = "CONF:SEQ:LINK POSITION,1,2,3,IN1,50,IN2,OUT4,10,5000,RIS"
+    sweep = "CONF:ANGLE:SWEEP 0,0.05,0.05,0.05"
+    assert link in commands and "CONF:SEQ:REPEAT 2" in commands
+    assert commands.index(link) < commands.index(sweep) < commands.index("CONF:ANGLE:INPUT IN1,1000")
+    assert commands[-7:-3] == ["READ:ANGLE:SWEEP?", "READ:ANGLE:INPUT?",
+                               "READ:ANGLE:SPEED?", "READ:ANGLE:POSITION?"]
+    assert not any(command.endswith(":START") for command in commands)
+    assert not any("ANGLE" in command for command in turntable_configuration())
 
 
 def turntable_configuration(**changes):
@@ -262,6 +328,17 @@ def test_tmc_ota_command_uses_existing_visa_sender(tmp_path):
     assert command[-1] == "--boot"
 
 
+@pytest.mark.parametrize("backend", ["Serial", "USB TMC"])
+def test_frozen_ota_uses_console_helper(monkeypatch, tmp_path, backend):
+    from tools.sequence_trigger_debug_ui import sequence_trigger_debug_ui as module
+
+    monkeypatch.setattr(module.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    command = module.build_ota_command(tmp_path / "firmware.pkg", "TEST", tmp_path / "log", backend)
+    assert command[0] == str(tmp_path / "DHRT100_Tool.exe")
+    assert command[1].endswith("visa_ota_send.py" if backend == "USB TMC" else "ota_multi_update.py")
+
+
 def test_visa_discovery_filters_and_sorts_usb_instruments():
     class ResourceManager:
         def list_resources(self, query):
@@ -395,6 +472,62 @@ def test_role_staging_uses_real_response_and_stops_on_rejection(stage_response):
         with pytest.raises(RuntimeError, match="未暂存"):
             execute_command_batch(commands, exchange, lambda *_: None)
         assert "CONF:SEQ:NODE:ACT" not in calls
+
+
+ANGLE_COMMANDS = ["CONF:ANGLE:SWEEP 0,0.05,0.05,0.05", "CONF:ANGLE:INPUT IN1,1000",
+                  "READ:ANGLE:SWEEP?", "READ:ANGLE:INPUT?"]
+ANGLE_READBACKS = {"READ:ANGLE:SWEEP?": "0,0.05,0.05,0.05,2,1",
+                   "READ:ANGLE:INPUT?": '"IN1",1000,50,50,1,1,1'}
+
+
+@pytest.mark.parametrize("override", [
+    {"READ:ANGLE:SWEEP?": "0,0.05,0.05,0.05,2,0"},
+    {"READ:ANGLE:INPUT?": '"IN1",1000,50,50,1,1,0'},
+    {"READ:ANGLE:SWEEP?": "0,0.1,0.05,0.05,3,1"},
+    {"READ:ANGLE:SWEEP?": "0,0.05,0.05,0.1,2,1"},
+    {"READ:ANGLE:INPUT?": '"IN2",1000,50,50,1,1,1'},
+    {"READ:ANGLE:INPUT?": '"IN1",2000,50,50,1,1,1'},
+    {"READ:ANGLE:INPUT?": '"IN1",1000,100,50,1,1,1'},
+    {"READ:ANGLE:INPUT?": '"IN1",1000,50,100,1,1,1'},
+    {"READ:ANGLE:INPUT?": '"IN1",1000,50,50,2,1,1'},
+    {"READ:ANGLE:INPUT?": '"IN1",1000,50,50,1,2,1'},
+    {"READ:ANGLE:INPUT?": '"IN1",1000,NaN,50,1,1,1'},
+    {"READ:ANGLE:SWEEP?": "1"},
+    {"READ:ANGLE:INPUT?": "1"},
+    {"READ:ANGLE:INPUT?": ""},
+])
+def test_angle_configuration_executor_rejects_unbound_stale_and_invalid_readback(override):
+    replies = ANGLE_READBACKS | override
+    def exchange(command):
+        return '0,"No error"' if command == "SYST:ERR?" else replies.get(command, "1")
+    with pytest.raises(RuntimeError, match="ANGLE 配置读回校验失败"):
+        execute_command_batch(ANGLE_COMMANDS, exchange, lambda *_: None)
+
+
+@pytest.mark.parametrize("ack", ["", "0", "STAGED", "<timeout>"])
+@pytest.mark.parametrize("setter", ANGLE_COMMANDS[:2])
+def test_angle_setters_require_positive_ack_and_stop_batch(ack, setter):
+    calls = []
+    def exchange(command):
+        calls.append(command)
+        if command == setter:
+            return ack
+        return '0,"No error"' if command == "SYST:ERR?" else ANGLE_READBACKS.get(command, "1")
+    with pytest.raises(RuntimeError):
+        execute_command_batch(ANGLE_COMMANDS, exchange, lambda *_: None)
+    assert "READ:ANGLE:SWEEP?" not in calls
+
+
+def test_angle_configuration_requires_post_write_readbacks_but_manual_queries_allow_unbound():
+    def exchange(command):
+        return '0,"No error"' if command == "SYST:ERR?" else ANGLE_READBACKS.get(command, "1")
+    execute_command_batch(ANGLE_COMMANDS, exchange, lambda *_: None)
+    with pytest.raises(RuntimeError, match="缺少下发完成后的"):
+        execute_command_batch(ANGLE_COMMANDS[:2], exchange, lambda *_: None)
+    with pytest.raises(RuntimeError, match="缺少下发完成后的"):
+        execute_command_batch(ANGLE_COMMANDS[2:] + ANGLE_COMMANDS[:2], exchange, lambda *_: None)
+    execute_command_batch(["READ:ANGLE:SWEEP?", "READ:ANGLE:INPUT?"],
+                          lambda _command: "0,0,0,0,0,0", lambda *_: None)
 
 
 def test_executor_ring_ack_only_requires_verified_state_and_never_exempts_trigger_timeout():

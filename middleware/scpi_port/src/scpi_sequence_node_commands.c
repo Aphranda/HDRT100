@@ -9,6 +9,7 @@
 #include "sync_trigger.h"
 #include "trigger_sequence_link.h"
 #include "tdma_runtime_owner.h"
+#include "board_config.h"
 
 static bool sequence_node_config_allowed(scpi_t *context)
 {
@@ -230,6 +231,52 @@ scpi_result_t scpi_sequence_counter_history_q(scpi_t *context)
     SCPI_ResultUInt32(context, record.threshold_pulses);
     SCPI_ResultUInt32(context, record.observed_pulses);
     SCPI_ResultUInt32(context, record.outcome_flags);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_sequence_history_status_q(scpi_t *context)
+{
+    if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    trigger_sequence_link_history_status_t status;
+    if (!trigger_sequence_link_get_history_status(&status)) {
+        SCPI_ResultText(context, "BUSY");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultUInt32(context, status.version);
+    SCPI_ResultUInt32(context, status.clock_hz);
+    SCPI_ResultUInt32(context, status.capacity);
+    SCPI_ResultUInt32(context, status.run_id);
+    SCPI_ResultUInt32(context, status.generation);
+    SCPI_ResultUInt32(context, status.binding_epoch);
+    SCPI_ResultUInt32(context, status.threshold);
+    SCPI_ResultUInt32(context, status.total);
+    SCPI_ResultUInt32(context, status.retained);
+    SCPI_ResultUInt32(context, status.overwritten);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_sequence_history_timing_q(scpi_t *context)
+{
+    uint32_t ordinal;
+    trigger_sequence_link_history_t record;
+    if (!scpi_sequence_param_u32(context, &ordinal) ||
+        !scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    if (!trigger_sequence_link_get_history(ordinal, &record)) {
+        scpi_port_push_exec_error(context, "SEQUENCE_HISTORY_NOT_RETAINED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, TRIGGER_SEQUENCE_LINK_TIMING_VERSION);
+    SCPI_ResultUInt32(context, BOARD_SYS_CLOCK_HZ);
+    SCPI_ResultUInt32(context, record.ordinal);
+    SCPI_ResultUInt32(context, record.run_id);
+    SCPI_ResultUInt32(context, record.generation);
+    SCPI_ResultUInt32(context, record.binding_epoch);
+    SCPI_ResultUInt32(context, record.exchange_id);
+    SCPI_ResultUInt32(context, record.position);
+    SCPI_ResultUInt32(context, record.sequence_index);
+    SCPI_ResultUInt32(context, record.timing_flags);
+    for (uint32_t i = 0u; i < TRIGGER_SEQUENCE_LINK_TIME_COUNT; ++i)
+        SCPI_ResultUInt64(context, record.timing_ticks[i]);
     return SCPI_RES_OK;
 }
 

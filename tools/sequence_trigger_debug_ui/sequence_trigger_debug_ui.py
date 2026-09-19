@@ -4,7 +4,12 @@
 from __future__ import annotations
 
 import csv
+import json
+from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal, DecimalException, ROUND_HALF_UP
+from fractions import Fraction
+import math
 import queue
 import re
 import subprocess
@@ -21,17 +26,21 @@ from serial.tools import list_ports
 # When launched from its tool directory Python adds only that directory to
 # sys.path, not the repository root.
 # Add the root explicitly so the shared SCPI helpers remain importable.
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
+        else Path(__file__).resolve().parents[2])
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.scpi_common.scpi_serial import open_serial_port
 from tools.scpi_query.scpi_query import send_command
 from tools.tdma_ring_monitor.tdma_field_parse import RUNTIME_FIELDS
+from tools.hardware_acceptance.sequence_trigger_acceptance import parse_status
+from tools.sequence_trigger_debug_ui import settings as gui_settings
 
 
 MAX_LOG_LINES = 3000
-TIME_MAX_US = 0xffffffff // 10
+# Snapshot of SYNC_IO_SEQUENCE_TICKS_PER_US for the 4 ns PIO sequence clock.
+TIME_MAX_US = 0xffffffff // 250
 COUNTER_THRESHOLD_MAX = 0xffffffde
 ROLE_SEQUENCE = "编码"
 ROLE_STATUS = "状态"
@@ -44,6 +53,107 @@ RING_ACK_ONLY = {"SYST:TDMA:RING:STOP", "SYST:TDMA:RING:ARM", "SYST:TDMA:RING:ST
 LINK_PHASES = {0: "未启用", 1: "等待启动", 2: "等待链路通知回环", 3: "等待 READY",
                4: "等待 READY 回环", 5: "等待序列切换", 6: "暂停", 7: "异常", 8: "已完成",
                9: "等待计数阈值", 10: "等待计数通知回环", 11: "等待下一位置重新武装"}
+_DEFAULT_SETTINGS = object()
+SETTINGS_TEXT_FIELDS = (
+    "backend", "port", "plan", "codes", "settle", "repeat_count", "source", "edge", "pulse", "status_mode",
+    "gateway_plan", "gateway_codes", "gateway_settle", "gateway_repeat_count", "gateway_ready_input",
+    "gateway_edge", "gateway_pulse", "gateway_timeout", "turntable_plan", "turntable_codes",
+    "turntable_settle", "turntable_repeat_count", "turntable_edge", "turntable_pulse",
+    "turntable_ready_input", "turntable_timeout", "turntable_counter_slot", "turntable_dut_slot",
+    "turntable_vna_slot", "turntable_input", "turntable_threshold", "turntable_rate_kind",
+    "turntable_rate_value", "turntable_angle_start", "turntable_angle_stop", "turntable_angle_step",
+    "turntable_angle_speed", "turntable_angle_ppd", "independent_switch")
+SETTINGS_BOOL_FIELDS = ("turntable_angle_enabled", "auto_scroll")
+SETTINGS_ARRAY_FIELDS = ("out_enabled", "out_roles", "gateway_out_enabled", "gateway_out_roles",
+                         "turntable_out_enabled", "turntable_out_roles")
+SETTINGS_ENUMS = {
+    "backend": {"Serial", "USB TMC"}, "source": {"MANUAL", "IN1", "IN2", "IN3", "IN4"},
+    "gateway_ready_input": {"MANUAL", "IN1", "IN2", "IN3", "IN4"},
+    "turntable_ready_input": {"MANUAL", "IN1", "IN2", "IN3", "IN4"},
+    "turntable_input": {"IN1", "IN2", "IN3", "IN4"}, "edge": {"RIS", "FALL"},
+    "gateway_edge": {"RIS", "FALL"}, "turntable_edge": {"RIS", "FALL"},
+    "status_mode": {"无", "电平", "脉冲"}, "turntable_rate_kind": {"频率 Hz", "周期 ms"},
+    "independent_switch": {str(index) for index in range(1, 9)},
+}
+SETTINGS_TABS = ("independent_page", "loopback_page", "turntable_page", "manual_switch_page", "maintenance_page")
+
+
+def calculate_position_threshold(kind: str, value: str) -> tuple[int, Decimal, Decimal]:
+    """Convert a declared source rate to integral pulses for a one-second position."""
+    try:
+        number = Decimal(value.strip())
+        if not number.is_finite() or number <= 0:
+            raise ValueError
+        if kind == "频率 Hz":
+            frequency = number
+        elif kind == "周期 ms":
+            frequency = Decimal(1000) / number
+        else:
+            raise ValueError
+        if not Decimal("0.5") <= frequency <= Decimal(COUNTER_THRESHOLD_MAX) + Decimal("0.49"):
+            raise ValueError
+        threshold = int(frequency.to_integral_value(rounding=ROUND_HALF_UP))
+        if not 1 <= threshold <= COUNTER_THRESHOLD_MAX:
+            raise ValueError
+        return threshold, frequency, Decimal(threshold) / frequency
+    except (DecimalException, ValueError, OverflowError) as exc:
+        raise ValueError("请输入有效正数；每秒脉冲数须能换算为固件支持的整数阈值。") from exc
+
+
+@dataclass(frozen=True)
+class AngleScan:
+    start: Decimal
+    stop: Decimal
+    step: Decimal
+    speed: Decimal
+    pulses_per_degree: Decimal
+    positions: int
+    threshold: int
+    frequency: Decimal
+    period: Decimal
+
+
+def calculate_angle_scan(start: str, stop: str, step: str, speed: str,
+                         pulses_per_degree: str) -> AngleScan:
+    """Validate an exact angular grid before any SCPI mutations are queued."""
+    try:
+        raw = (start, stop, step, speed, pulses_per_degree)
+        if any(len(value.strip()) > 128 for value in raw):
+            raise ValueError("数值过长")
+        values = tuple(Decimal(value.strip()) for value in raw)
+        if any(not value.is_finite() or not math.isfinite(float(value)) or
+               (value != 0 and float(value) == 0) for value in values):
+            raise ValueError("参数必须是固件可表示的有限数值")
+        start_d, stop_d, step_d, speed_d, ppd_d = values
+        if step_d == 0 or speed_d <= 0 or ppd_d <= 0:
+            raise ValueError("步长不能为 0；速度和每度脉冲数必须大于 0")
+        # Fraction avoids silently rounding a fractional endpoint or pulse count.
+        intervals = (Fraction(stop_d) - Fraction(start_d)) / Fraction(step_d)
+        pulses = abs(Fraction(step_d)) * Fraction(ppd_d)
+        if intervals < 0 or intervals.denominator != 1:
+            raise ValueError("步长方向必须指向终止角度，且终止角度须准确落在步长网格上")
+        if pulses.denominator != 1 or pulses < 1:
+            raise ValueError("每步脉冲数必须为正整数；请调整步长或每度脉冲数")
+        count, threshold = int(intervals) + 1, int(pulses)
+        if count * threshold > COUNTER_THRESHOLD_MAX:
+            raise ValueError("本次扫描累计脉冲数超出固件计数范围，请缩小扫描范围")
+        start_f, stop_f, step_f, _, ppd_f = map(float, values)
+        firmware_intervals = (stop_f - start_f) / step_f
+        firmware_pulses = abs(step_f) * ppd_f
+        if (not math.isfinite(firmware_intervals) or
+                abs(firmware_intervals - (count - 1)) > 1e-7 or
+                not math.isfinite(firmware_pulses) or abs(firmware_pulses - threshold) > 1e-7 or
+                (count > 1 and (start_f + step_f == start_f or stop_f - step_f == stop_f))):
+            raise ValueError("角度或脉冲数超出固件浮点精度，请调整范围或步长")
+        frequency = ppd_d * speed_d
+        period = abs(step_d) / speed_d
+        if any(not math.isfinite(float(value)) or float(value) <= 0
+               for value in (frequency, period, Decimal(1) / period)):
+            raise ValueError("换算后的频率或周期超出固件数值范围")
+        return AngleScan(start_d, stop_d, step_d, speed_d, ppd_d,
+                         count, threshold, frequency, period)
+    except (DecimalException, OverflowError) as exc:
+        raise ValueError("角度、速度及输入标定须为有效有限数值") from exc
 
 
 def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str,
@@ -53,9 +163,18 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
                              repeat_count: int = 1,
                              gateway_output: str = "OUT4", *, counter_slot: int = 1,
                              dut_slot: int = 2, vna_slot: int = 3,
-                             counter_input: str = "IN1", counter_threshold: int = 1000) -> list[str]:
+                             counter_input: str = "IN1", counter_threshold: int = 1000,
+                             angle_scan: AngleScan | None = None) -> list[str]:
     if mode not in {MODE_INDEPENDENT, MODE_RJ45, MODE_TURNTABLE}:
         raise ValueError("请选择运行模式")
+    if angle_scan is not None:
+        if mode != MODE_TURNTABLE:
+            raise ValueError("角度扫描仅适用于转台计数模式")
+        # Revalidate callers' data too: a manually constructed object is not authority.
+        angle_scan = calculate_angle_scan(*(str(value) for value in (
+            angle_scan.start, angle_scan.stop, angle_scan.step,
+            angle_scan.speed, angle_scan.pulses_per_degree)))
+        repeat_count, counter_threshold = angle_scan.positions, angle_scan.threshold
     if not 0 <= repeat_count <= 0xffffffff:
         raise ValueError("循环次数必须为非负整数；0 表示持续运行")
     if repeat_count and len(codes) * repeat_count > 0xffffffff:
@@ -98,6 +217,12 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
                      f"{pulse_us},{timeout_ms},{edge}", "READ:SEQ:LINK?"]
         if position:
             commands.append("READ:SEQ:COUNTER?")
+            if angle_scan is not None:
+                commands += [f"CONF:ANGLE:SWEEP {angle_scan.start},{angle_scan.stop},"
+                             f"{angle_scan.step},{angle_scan.speed}",
+                             f"CONF:ANGLE:INPUT {counter_input},{angle_scan.pulses_per_degree}",
+                             "READ:ANGLE:SWEEP?", "READ:ANGLE:INPUT?", "READ:ANGLE:SPEED?",
+                             "READ:ANGLE:POSITION?"]
     return commands + ["READ:SEQ:REPEAT?", "TRIG:SEQ:NEXT?", "READ:IO:STAT?"]
 
 
@@ -106,6 +231,96 @@ def build_start_commands(mode: str) -> list[str]:
         return ["SYST:TDMA:RING:STOP", "SYST:TDMA:RING:ARM", "SYST:TDMA:RING:TRAIN 4096",
                 "SYST:TDMA:RING:START", "TRIG:START"]
     return ["TRIG:START"]
+
+
+def observe_loopback(mode, exchange, emit, *, duration=10, monotonic=time.monotonic,
+                     sleep=time.sleep, cancelled=lambda: False):
+    """Start once, then observe real input-driven progress without software NEXT."""
+    def checked_exchange(command):
+        if cancelled():
+            raise InterruptedError("观察已取消；未继续发送启动命令。")
+        return exchange(command)
+
+    def query(command):
+        response = checked_exchange(command)
+        emit(command, response)
+        if response == "<timeout>":
+            raise RuntimeError(f"{command} 超时")
+        return response
+
+    query("*IDN?")
+    query("SYST:FW:BUILD?")
+    before = parse_status(query("TRIG:SEQ:NEXT?"))
+    if before["state"] != "IDLE":
+        raise ValueError("请先停止序列，再启动回环观察")
+    link = list(map(int, query("READ:SEQ:LINK?").split(",")))
+    if len(link) != 27 or bool(link[0]) != (mode != MODE_INDEPENDENT):
+        raise ValueError("设备链路模式与当前页面不一致，请重新配置")
+    if mode == MODE_INDEPENDENT:
+        source = next(csv.reader([query("READ:SEQ:SOUR?")]))
+        output = next(csv.reader([query("READ:SEQ:OUTPUT?")]))
+        if (source[0] not in {"IN1", "IN2", "IN3", "IN4"} or len(output) != 7
+                or output[2] != "PULSE" or int(output[1]) == 0 or output[-1] != "1"):
+            raise ValueError("回环需要有效的外部输入和状态脉冲输出配置")
+    elif link[16] == 0:
+        raise ValueError("回环 READY 必须选择物理输入")
+    if mode == MODE_TURNTABLE:
+        counter = list(map(int, query("READ:SEQ:COUNTER?").split(",")))
+        if len(counter) != 12 or not counter[0]:
+            raise ValueError("转台计数角色未启用")
+    elif mode == MODE_RJ45:
+        counter = list(map(int, query("READ:SEQ:COUNTER?").split(",")))
+        if len(counter) != 12 or counter[0]:
+            raise ValueError("设备当前为转台模式，请重新配置双槽位模式")
+    execute_command_batch(build_start_commands(mode), checked_exchange, emit)
+    deadline = monotonic() + duration
+    samples = []
+    counter_detail = ""
+    identity = None
+    while monotonic() < deadline:
+        if cancelled():
+            return "观察已取消；停止命令按队列执行。"
+        row = parse_status(query("TRIG:SEQ:NEXT?"))
+        current = row["run_id"], row["generation"]
+        if identity is None and current == (before["run_id"], before["generation"]):
+            sleep(.25)
+            continue
+        if identity is not None and current != identity:
+            raise RuntimeError("观察期间运行代次改变")
+        identity = current
+        if row["state"] == "FAULT" or row["error"] != "NONE" or row["faults"] or row["backend_fault"]:
+            raise RuntimeError(f"序列异常：{row}")
+        if samples and any(row[key] < samples[-1][key] for key in ("accepted", "completed")):
+            raise RuntimeError("序列计数回退")
+        samples.append(row)
+        query("READ:IO:STAT?")
+        if mode != MODE_INDEPENDENT:
+            fields = list(map(int, query("READ:SEQ:LINK?").split(",")))
+            if len(fields) != 27 or fields[2]:
+                raise RuntimeError(f"链路异常：{fields}")
+        if mode == MODE_TURNTABLE:
+            counter = list(map(int, query("READ:SEQ:COUNTER?").split(",")))
+            if len(counter) != 12 or counter[7] or counter[11]:
+                raise RuntimeError(f"计数角色异常：{counter}")
+            counter_detail = f"累计脉冲 {counter[4]}，位置 {counter[5]}，当前 {counter[6]}/{counter[3]}。"
+        if row["state"] == "IDLE":
+            break
+        sleep(.5)
+    if not samples:
+        raise RuntimeError("启动后没有观察到新运行")
+    last = samples[-1]
+    repeat = query("READ:SEQ:REPEAT?")
+    repeat_fields = list(map(int, repeat.split(",")))
+    if len(repeat_fields) != 3:
+        raise ValueError("循环次数读回格式异常")
+    finished = repeat_fields[-1] == 1 and last['state'] == 'IDLE'
+    progressed = last["completed"] > 0
+    detail = ("有限轮次已结束" if finished else
+              "已观察到自动推进" if progressed else "未观察到推进，请检查输入及接线")
+    return (f"{detail}；接纳 {last['accepted']} / 完成 {last['completed']}，"
+            f"回绕 {last['cycles']}，忙拒绝 {last['busy_rejected']}，状态 {last['state']}。"
+            + counter_detail
+            + ("观察结束，设备仍在运行。" if last['state'] != 'IDLE' else ""))
 
 
 def format_link_status(response: str, plan_count: int) -> str:
@@ -145,8 +360,51 @@ def format_counter_history(response: str) -> str:
             "计数快照是发送切换请求时的软件读数，不是实际开关输出的物理边沿测量。")
 
 
+def validate_angle_configuration_readback(scan, source, sweep_response, input_response):
+    """Validate the binding and values returned by the final ANGLE readbacks."""
+    try:
+        sweep = next(csv.reader([sweep_response], strict=True))
+        input_row = next(csv.reader([input_response], strict=True))
+        if len(sweep) != 6 or len(input_row) != 7:
+            raise ValueError("字段数不匹配")
+        if sweep[-1] != "1" or input_row[-1] != "1":
+            raise ValueError("配置未绑定到当前 POSITION 序列")
+        if int(sweep[4]) != scan.positions or int(input_row[3]) != scan.threshold:
+            raise ValueError("位置数或脉冲阈值与提交配置不一致")
+        if input_row[0] != source:
+            raise ValueError("输入端口与提交配置不一致")
+        expected = (scan.start, scan.stop, scan.step, scan.speed,
+                    scan.pulses_per_degree, scan.frequency, scan.period, Decimal(1) / scan.period)
+        actual = (*sweep[:4], input_row[1], input_row[2], input_row[4], input_row[5])
+        for value, submitted in zip(actual, expected, strict=True):
+            number = float(value)
+            # SCPI_ResultDouble emits 15 significant digits.
+            if not math.isfinite(number) or not math.isclose(number, float(submitted),
+                                                           rel_tol=1e-13, abs_tol=0.0):
+                raise ValueError(f"参数与提交配置不一致：{value} != {submitted}")
+    except (ValueError, TypeError, csv.Error, StopIteration) as exc:
+        raise RuntimeError(f"ANGLE 配置读回校验失败：{exc}") from exc
+
+
 def execute_command_batch(commands, exchange, emit, *, monotonic=time.monotonic, sleep=time.sleep):
     """Verify asynchronous boundaries before issuing dependent configuration."""
+    setters = {command.split(maxsplit=1)[0].upper(): (index, command.split(maxsplit=1)[1])
+               for index, command in enumerate(commands)
+               if command.upper().startswith(("CONF:ANGLE:SWEEP ", "CONF:ANGLE:INPUT ", "CONF:ANGLE:SPEED "))}
+    expected_angle = None
+    if "CONF:ANGLE:SWEEP" in setters and "CONF:ANGLE:INPUT" in setters:
+        sweep_args = next(csv.reader([setters["CONF:ANGLE:SWEEP"][1]], strict=True))
+        input_args = next(csv.reader([setters["CONF:ANGLE:INPUT"][1]], strict=True))
+        if len(sweep_args) != 4 or len(input_args) != 2:
+            raise ValueError("ANGLE 配置参数数量错误")
+        if ("CONF:ANGLE:SPEED" in setters and
+                setters["CONF:ANGLE:SPEED"][0] > setters["CONF:ANGLE:SWEEP"][0]):
+            sweep_args[3] = setters["CONF:ANGLE:SPEED"][1]
+        expected_angle = calculate_angle_scan(*sweep_args, input_args[1])
+        expected_source = input_args[0].strip().upper()
+        last_angle_write = max(index for index, _ in setters.values())
+    angle_readbacks = {}
+
     def query(command):
         response = exchange(command)
         emit(command, response)
@@ -163,7 +421,7 @@ def execute_command_batch(commands, exchange, emit, *, monotonic=time.monotonic,
                 raise RuntimeError(f"等待设备状态超时：{command}")
             sleep(.05)
 
-    for command in commands:
+    for command_index, command in enumerate(commands):
         header = command.split(maxsplit=1)[0].upper()
         if header == "TRIG:SEQ:NEXT":
             fields = [int(field) for field in next(
@@ -181,11 +439,13 @@ def execute_command_batch(commands, exchange, emit, *, monotonic=time.monotonic,
         if response == "<timeout>" and header not in RING_ACK_ONLY:
             raise RuntimeError(f"{command} 超时，已停止后续命令")
         if "?" in header:
+            if expected_angle is not None and command_index > last_angle_write:
+                angle_readbacks[header] = response
             continue
         error = next(csv.reader([query("SYST:ERR?")], strict=True))
         if not error or error[0] != "0":
             raise RuntimeError(f"{command} 被设备拒绝：{','.join(error)}")
-        if header.startswith(("CONF:SEQ", "CONF:TRIG", "TRIG:")):
+        if header.startswith(("CONF:SEQ", "CONF:TRIG", "CONF:ANGLE", "TRIG:")):
             if header == "CONF:SEQ:NODE:ROLE":
                 if next(csv.reader([response])) != ["STAGED"]:
                     raise RuntimeError(f"角色配置未暂存：{response}")
@@ -210,6 +470,11 @@ def execute_command_batch(commands, exchange, emit, *, monotonic=time.monotonic,
             wait_until(RING_STATUS_QUERY, ready)
         elif header == "SYST:TDMA:RING:TRAIN":
             sleep(.2)
+    if expected_angle is not None:
+        if any(command not in angle_readbacks for command in ("READ:ANGLE:SWEEP?", "READ:ANGLE:INPUT?")):
+            raise RuntimeError("ANGLE 配置缺少下发完成后的 SWEEP/INPUT 读回，未确认配置成功")
+        validate_angle_configuration_readback(expected_angle, expected_source,
+            angle_readbacks["READ:ANGLE:SWEEP?"], angle_readbacks["READ:ANGLE:INPUT?"])
 
 
 def discover_serial_ports(candidates=None) -> list[str]:
@@ -240,14 +505,15 @@ def discover_visa_resources(resource_manager=None) -> list[str]:
 
 def build_ota_command(image: Path, resource: str, out_dir: Path,
                       backend: str = "Serial") -> list[str]:
+    interpreter = str(ROOT / "DHRT100_Tool.exe") if getattr(sys, "frozen", False) else sys.executable
     if backend == "USB TMC":
         return [
-            sys.executable,
+            interpreter,
             str(ROOT / "tools" / "visa_ota_send" / "visa_ota_send.py"),
             resource, str(image), "--boot",
         ]
     return [
-        sys.executable,
+        interpreter,
         str(ROOT / "tools" / "ota_multi_update" / "ota_multi_update.py"),
         str(image),
         "--ports", resource,
@@ -325,12 +591,23 @@ def parse_usb_mode(response: str) -> str:
 
 
 class SequenceUi(tk.Tk):
-    def __init__(self) -> None:
+    def __init__(self, *, settings_path=_DEFAULT_SETTINGS) -> None:
         super().__init__()
+        self._settings_path = (gui_settings.default_path() if settings_path is _DEFAULT_SETTINGS
+                               else Path(settings_path) if settings_path is not None else None)
         self.title("DHRT100 序列触发调试")
         self.geometry("1180x860")
         self.minsize(1120, 820)
         super().configure(bg="#f3f4f6")
+        try:
+            asset_dir = (Path(sys._MEIPASS) if getattr(sys, "frozen", False)
+                         else Path(__file__).resolve().parent)
+            icon_path = asset_dir / "5711_-_Sync_Event.png"
+            if icon_path.exists():
+                self._window_icon = tk.PhotoImage(file=str(icon_path))
+                self.iconphoto(True, self._window_icon)
+        except tk.TclError:
+            self._window_icon = None
         self._configure_style()
         self.port = tk.StringVar()
         self.backend = tk.StringVar(value="Serial")
@@ -383,6 +660,20 @@ class SequenceUi(tk.Tk):
         self.turntable_vna_slot = tk.StringVar(value="3")
         self.turntable_input = tk.StringVar(value="IN1")
         self.turntable_threshold = tk.StringVar(value="1000")
+        self.turntable_rate_kind = tk.StringVar(value="频率 Hz")
+        self.turntable_rate_value = tk.StringVar(value="50")
+        self.turntable_rate_preview = tk.StringVar()
+        self._turntable_rate_window = None
+        self.turntable_angle_enabled = tk.BooleanVar(value=False)
+        self.turntable_angle_start = tk.StringVar(value="0")
+        self.turntable_angle_stop = tk.StringVar(value="9")
+        self.turntable_angle_step = tk.StringVar(value="1")
+        self.turntable_angle_speed = tk.StringVar(value="1")
+        self.turntable_angle_ppd = tk.StringVar(value="1000")
+        self.turntable_angle_preview = tk.StringVar()
+        self.turntable_angle_count = tk.StringVar(value="—")
+        self.turntable_angle_threshold = tk.StringVar(value="—")
+        self._turntable_angle_window = None
         self.turntable_out_enabled = [tk.BooleanVar(value=True) for _ in range(4)]
         self.turntable_out_roles = [tk.StringVar(value=ROLE_SEQUENCE) for _ in range(3)] + [
             tk.StringVar(value=ROLE_GATEWAY)]
@@ -419,16 +710,107 @@ class SequenceUi(tk.Tk):
         self.ota_progress: ttk.Progressbar | None = None
         self._ota_running = False
         self._transport_switching = False
+        self._loopback_running = False
+        self._loopback_target = None
+        self._loopback_targets = {}
+        self._loopback_cancel = threading.Event()
+        self.loopback_results = {mode: tk.StringVar(value="尚未观察") for mode in
+                                 (MODE_INDEPENDENT, MODE_RJ45, MODE_TURNTABLE)}
+        self.loopback_durations = {mode: tk.StringVar(value="60" if mode == MODE_TURNTABLE else "10")
+                                   for mode in self.loopback_results}
+        self._loopback_windows = {}
         self._operations: queue.Queue[tuple[str, object] | None] = queue.Queue()
         self._ui_events: queue.Queue[tuple[str, tuple]] = queue.Queue()
         self._closing = False
         self._build()
         self._watch_configuration_changes()
+        self._load_settings()
         self.refresh_ports(log_result=False)
         self._worker = threading.Thread(target=self._operation_loop, daemon=True)
         self._worker.start()
         self.after(50, self._poll_ui_events)
         self.protocol("WM_DELETE_WINDOW", self.close)
+
+    def _load_settings(self):
+        if self._settings_path is None:
+            return
+        try:
+            values = gui_settings.load(self._settings_path)
+        except (OSError, ValueError) as exc:
+            self.log(f"本地配置读取失败，使用默认参数：{exc}", "WARN")
+            return
+        invalid = []
+        for name in SETTINGS_TEXT_FIELDS:
+            if name not in values:
+                continue
+            value = values[name]
+            if (not isinstance(value, str) or len(value) > 4096 or any(c in value for c in "\r\n\x00") or
+                    (name in SETTINGS_ENUMS and value not in SETTINGS_ENUMS[name])):
+                invalid.append(name)
+                continue
+            getattr(self, name).set(value)
+        for name in SETTINGS_BOOL_FIELDS:
+            if name in values:
+                if type(values[name]) is bool:
+                    getattr(self, name).set(values[name])
+                else:
+                    invalid.append(name)
+        for name in SETTINGS_ARRAY_FIELDS:
+            if name not in values:
+                continue
+            value = values[name]
+            roles = {ROLE_SEQUENCE, ROLE_STATUS} if name == "out_roles" else {ROLE_SEQUENCE, ROLE_GATEWAY}
+            valid = (isinstance(value, list) and len(value) == 4 and
+                     all(type(item) is bool if name.endswith("enabled") else
+                         isinstance(item, str) and item in roles for item in value))
+            if not valid:
+                invalid.append(name)
+                continue
+            for variable, item in zip(getattr(self, name), value, strict=True):
+                variable.set(item)
+        if "loopback_durations" in values:
+            durations = values["loopback_durations"]
+            if isinstance(durations, dict):
+                for mode, variable in self.loopback_durations.items():
+                    if mode not in durations:
+                        continue
+                    duration = durations[mode]
+                    if (isinstance(duration, str) and len(duration) <= 3 and duration.isascii() and
+                            duration.isdecimal() and 1 <= int(duration) <= 600):
+                        variable.set(duration)
+                    else:
+                        invalid.append("loopback_durations")
+            else:
+                invalid.append("loopback_durations")
+        if "selected_tab" in values:
+            tab = values["selected_tab"]
+            if isinstance(tab, str) and tab in SETTINGS_TABS:
+                self.mode_notebook.select(getattr(self, tab))
+                self._on_mode_tab_changed()
+            else:
+                invalid.append("selected_tab")
+        self._update_status_mode()
+        self.update_mode_hint()
+        self.preview_turntable_angle()
+        self.preview_turntable_rate()
+        if invalid:
+            self.log("本地配置中无效字段已忽略：" + ", ".join(sorted(set(invalid))), "WARN")
+        if values:
+            self.log("已载入本地参数草稿；设备配置尚未下发。")
+
+    def _save_settings(self):
+        if self._settings_path is None:
+            return
+        values = {name: getattr(self, name).get() for name in (*SETTINGS_TEXT_FIELDS, *SETTINGS_BOOL_FIELDS)}
+        values.update({name: [variable.get() for variable in getattr(self, name)] for name in SETTINGS_ARRAY_FIELDS})
+        values["loopback_durations"] = {mode: variable.get() for mode, variable in self.loopback_durations.items()}
+        values["selected_tab"] = next(name for name in SETTINGS_TABS
+                                       if str(getattr(self, name)) == self.mode_notebook.select())
+        try:
+            gui_settings.save(self._settings_path, values)
+        except (OSError, ValueError) as exc:
+            self.log(f"本地配置保存失败：{exc}", "WARN")
+            messagebox.showwarning("配置未保存", f"无法保存本次参数：{exc}\n配置文件：{self._settings_path}", parent=self)
 
     def _configure_style(self) -> None:
         style = ttk.Style(self)
@@ -658,6 +1040,7 @@ class SequenceUi(tk.Tk):
             if command == "TRIG:SEQ:NEXT":
                 self.next_button = button
                 self.next_buttons[mode] = button
+        ttk.Button(controls, text="回环工具", command=lambda: self.open_loopback(mode)).pack(side="left")
         if combined:
             ttk.Label(page, textvariable=self.link_status, wraplength=1040).pack(anchor="w")
         else:
@@ -672,7 +1055,15 @@ class SequenceUi(tk.Tk):
                 ("响应延时 µs", self.turntable_settle),
                 ("位置数（0=持续）", self.turntable_repeat_count),
                 ("每位置脉冲数", self.turntable_threshold)]):
-            self._field(plan, column, label, variable, width=9)
+            entry = self._field(plan, column, label, variable, width=9)
+            if column == 3:
+                self.turntable_repeat_entry = entry
+            elif column == 4:
+                self.turntable_threshold_entry = entry
+        ttk.Button(plan, text="频率/周期…", command=self.open_turntable_rate).grid(
+            row=1, column=5, padx=6)
+        ttk.Button(plan, text="角度扫描…", command=self.open_turntable_angle).grid(
+            row=1, column=6, padx=6)
         allocation = ttk.Frame(page)
         allocation.pack(fill="x", pady=(0, 6))
         counter = ttk.LabelFrame(allocation, text="转台计数与逻辑槽位", padding=8)
@@ -711,9 +1102,219 @@ class SequenceUi(tk.Tk):
             if command == "TRIG:SEQ:NEXT":
                 self.next_buttons[MODE_TURNTABLE] = button
         ttk.Button(controls, text="最新记录", command=self.read_counter_history).pack(side="left", padx=(0, 6))
+        ttk.Button(controls, text="回环工具", command=lambda: self.open_loopback(MODE_TURNTABLE)).pack(side="left")
         ttk.Label(page, text="达到阈值 → RJ45 → DUT 整轮切换/网分采样；忙时继续计数，下一位置提前到达将报错。",
                   wraplength=1040).pack(anchor="w")
         ttk.Label(page, textvariable=self.counter_status, wraplength=1040).pack(anchor="w")
+
+    def _angle_draft(self):
+        return calculate_angle_scan(self.turntable_angle_start.get(),
+            self.turntable_angle_stop.get(), self.turntable_angle_step.get(),
+            self.turntable_angle_speed.get(), self.turntable_angle_ppd.get())
+
+    def preview_turntable_angle(self, *_args):
+        enabled = self.turntable_angle_enabled.get()
+        self.turntable_repeat_entry.configure(
+            textvariable=self.turntable_angle_count if enabled else self.turntable_repeat_count,
+            state="readonly" if enabled else "normal")
+        self.turntable_threshold_entry.configure(
+            textvariable=self.turntable_angle_threshold if enabled else self.turntable_threshold,
+            state="readonly" if enabled else "normal")
+        try:
+            scan = self._angle_draft()
+            self.turntable_angle_count.set(str(scan.positions))
+            self.turntable_angle_threshold.set(str(scan.threshold))
+            self.turntable_angle_preview.set(
+                f"位置数 {scan.positions}（含起止） · 每位置 N={scan.threshold} 个脉冲\n"
+                f"输入频率 {scan.frequency:.8g} Hz · 脉冲周期 {Decimal(1000)/scan.frequency:.8g} ms\n"
+                f"位置周期 {scan.period:.8g} s · 位置频率 {Decimal(1)/scan.period:.8g} Hz\n"
+                f"启动后累计首个 N 脉冲对应开始角度 {scan.start}°；每位置执行整轮 SP8T。")
+        except ValueError as exc:
+            self.turntable_angle_count.set("—")
+            self.turntable_angle_threshold.set("—")
+            self.turntable_angle_preview.set(str(exc))
+
+    def open_turntable_angle(self):
+        if self._turntable_angle_window is not None and self._turntable_angle_window.winfo_exists():
+            self._turntable_angle_window.lift()
+            return
+        window = self._turntable_angle_window = tk.Toplevel(self)
+        window.title("转台角度扫描")
+        window.geometry("720x490")
+        window.minsize(720, 490)
+        group = ttk.Frame(window, padding=16)
+        group.pack(fill="both", expand=True)
+        ttk.Checkbutton(group, text="启用角度扫描（位置数与阈值由角度参数确定）",
+                        variable=self.turntable_angle_enabled).pack(anchor="w", pady=(0, 12))
+        scan = ttk.LabelFrame(group, text="扫描配置", padding=8)
+        scan.pack(fill="x")
+        for column, (label, variable) in enumerate([
+                ("开始 °", self.turntable_angle_start), ("终止 °", self.turntable_angle_stop),
+                ("步长 °", self.turntable_angle_step), ("运行速度 °/s", self.turntable_angle_speed)]):
+            self._field(scan, column, label, variable, width=13)
+        advanced = ttk.LabelFrame(group, text="输入标定（与实际编码器一致）", padding=8)
+        advanced.pack(fill="x", pady=10)
+        self._field(advanced, 0, "每度脉冲数", self.turntable_angle_ppd, width=14)
+        ttk.Label(advanced, text="输入端口沿用主页面“脉冲输入”。").grid(row=1, column=1, padx=16)
+        ttk.Label(group, textvariable=self.turntable_angle_preview, wraplength=675).pack(anchor="w", pady=8)
+        ttk.Label(group, text="速度用于配置/换算；实际转台或信号源需另行设置。\n"
+                  "这里编辑配置草稿；关闭后点击“配置此模式”下发 ANGLE 指令，再点击启动。",
+                  wraplength=675).pack(anchor="w")
+        ttk.Button(group, text="读取设备角度配置 / 位置", command=lambda: self.enqueue_commands([
+            "READ:ANGLE:SWEEP?", "READ:ANGLE:INPUT?", "READ:ANGLE:SPEED?",
+            "READ:ANGLE:POSITION?"])).pack(anchor="w", pady=8)
+        self.preview_turntable_angle()
+
+    def preview_turntable_rate(self, *_args):
+        try:
+            threshold, frequency, seconds = calculate_position_threshold(
+                self.turntable_rate_kind.get(), self.turntable_rate_value.get())
+            period_ms = Decimal(1000) / frequency
+            self.turntable_rate_preview.set(
+                f"频率 {frequency:.6g} Hz · 脉冲周期 {period_ms:.6g} ms\n"
+                f"目标：每 1 秒一个位置 → N={threshold}\n"
+                f"按整数脉冲取最近阈值，预计位置间隔 {seconds:.6g} 秒。")
+        except ValueError as exc:
+            self.turntable_rate_preview.set(str(exc))
+
+    def apply_turntable_rate(self):
+        if self.turntable_angle_enabled.get():
+            self.turntable_rate_preview.set("当前启用了角度扫描；请先关闭角度扫描，再使用原始阈值换算。")
+            return
+        try:
+            threshold, _, _ = calculate_position_threshold(
+                self.turntable_rate_kind.get(), self.turntable_rate_value.get())
+        except ValueError as exc:
+            self.turntable_rate_preview.set(str(exc))
+            return
+        self.turntable_threshold.set(str(threshold))
+        self.preview_turntable_rate()
+        self.log(f"每秒位置阈值已填入 N={threshold}；请点击“配置此模式”下发。")
+
+    def open_turntable_rate(self):
+        if self._turntable_rate_window is not None and self._turntable_rate_window.winfo_exists():
+            self._turntable_rate_window.lift()
+            return
+        window = self._turntable_rate_window = tk.Toplevel(self)
+        window.title("转台输入 · 每秒一个位置")
+        window.geometry("640x250")
+        group = ttk.Frame(window, padding=16)
+        group.pack(fill="both", expand=True)
+        self._field(group, 0, "脉冲源参数", self.turntable_rate_kind,
+                    values=["频率 Hz", "周期 ms"], width=12)
+        self._field(group, 1, "数值", self.turntable_rate_value, width=16)
+        ttk.Button(group, text="填入阈值 N", command=self.apply_turntable_rate).grid(row=1, column=2, padx=8)
+        ttk.Label(group, textvariable=self.turntable_rate_preview, wraplength=600).grid(
+            row=2, column=0, columnspan=3, sticky="w", pady=16)
+        ttk.Label(group, text="填写信号源实际设置；这里不控制信号源。填入后请重新配置，再启动。",
+                  wraplength=600).grid(row=3, column=0, columnspan=3, sticky="w")
+        # Variables survive window closure; register their observers once.
+        if not getattr(self, "_turntable_rate_traced", False):
+            self.turntable_rate_kind.trace_add("write", self.preview_turntable_rate)
+            self.turntable_rate_value.trace_add("write", self.preview_turntable_rate)
+            self._turntable_rate_traced = True
+        self.preview_turntable_rate()
+
+    def open_loopback(self, mode):
+        window = self._loopback_windows.get(mode)
+        if window is not None and window.winfo_exists():
+            window.lift()
+            return
+        window = tk.Toplevel(self)
+        window.title(f"回环工具 · {mode}")
+        window.geometry("740x270")
+        window.minsize(740, 270)
+        self._loopback_windows[mode] = window
+        wiring = ("OUT4 → IN1；OUT1–OUT3 为 SP8T 编码" if mode == MODE_INDEPENDENT else
+                  "RJ45 物理回环；OUT4 → IN1（READY）；OUT1–OUT3 为 SP8T 编码"
+                  if mode == MODE_RJ45 else
+                  "RJ45 物理回环；外部计数脉冲 → IN1；OUT4 → IN2（READY）；OUT1–OUT3 为 SP8T 编码")
+        ttk.Label(window, text="预设接线：" + wiring, wraplength=700).pack(anchor="w", padx=16, pady=(16, 8))
+        if mode != MODE_INDEPENDENT:
+            ttk.Label(window, text="实际网分：OUT4 → 网分触发输入；网分反馈 OUT → READY 输入。",
+                      wraplength=700).pack(anchor="w", padx=16, pady=(0, 8))
+        timing = ttk.Frame(window, padding=(16, 0))
+        timing.pack(fill="x")
+        ttk.Label(timing, text="观察时长（秒）").pack(side="left")
+        ttk.Spinbox(timing, from_=1, to=600, width=8,
+                    textvariable=self.loopback_durations[mode]).pack(side="left", padx=8)
+        controls = ttk.Frame(window, padding=12)
+        controls.pack(fill="x")
+        for label, action in (
+                ("填入回环预设", lambda: self.apply_loopback_preset(mode)),
+                ("配置此模式", lambda: self.configure_mode(mode)),
+                ("启动并观察", lambda: self.start_loopback(mode)),
+                ("停止", lambda: self.stop_loopback(mode))):
+            ttk.Button(controls, text=label, command=action).pack(side="left", padx=4)
+        ttk.Label(window, textvariable=self.loopback_results[mode], wraplength=700).pack(
+            anchor="w", padx=16, pady=8)
+
+    def apply_loopback_preset(self, mode):
+        if self._loopback_running:
+            self.log("回环观察正在运行，请先停止。", "WARN")
+            return
+        if mode == MODE_INDEPENDENT:
+            variables = (self.plan, self.codes, self.settle, self.pulse, self.repeat_count, self.edge)
+            self.source.set("IN1")
+            self.status_mode.set("脉冲")
+            enabled, roles, secondary = self.out_enabled, self.out_roles, ROLE_STATUS
+        elif mode == MODE_RJ45:
+            variables = (self.gateway_plan, self.gateway_codes, self.gateway_settle,
+                         self.gateway_pulse, self.gateway_repeat_count, self.gateway_edge)
+            self.gateway_ready_input.set("IN1")
+            self.gateway_timeout.set("5000")
+            enabled, roles, secondary = self.gateway_out_enabled, self.gateway_out_roles, ROLE_GATEWAY
+        else:
+            variables = (self.turntable_plan, self.turntable_codes, self.turntable_settle,
+                         self.turntable_pulse, self.turntable_repeat_count, self.turntable_edge)
+            self.turntable_ready_input.set("IN2")
+            self.turntable_input.set("IN1")
+            self.turntable_timeout.set("5000")
+            enabled, roles, secondary = self.turntable_out_enabled, self.turntable_out_roles, ROLE_GATEWAY
+        for variable, value in zip(variables, ("SP8T", "0,1,2,3,4,5,6,7", "10000", "100", "10", "RIS")):
+            variable.set(value)
+        for index in range(4):
+            enabled[index].set(True)
+            roles[index].set(ROLE_SEQUENCE if index < 3 else secondary)
+        if mode == MODE_TURNTABLE and self.turntable_angle_enabled.get():
+            self.loopback_results[mode].set(
+                "回环预设已填入；保留角度扫描的位置数/阈值，延时 10000 µs，脉宽 100 µs。尚未下发。")
+        else:
+            self.loopback_results[mode].set("预设已填入，尚未下发；10 轮/位置，延时 10000 µs，脉宽 100 µs。")
+        self.update_mode_hint()
+
+    def start_loopback(self, mode):
+        if self._loopback_running or self._ota_running or self._transport_switching:
+            self.log("通信任务正在运行，请稍后重试。", "WARN")
+            return
+        if self._configured_mode != mode or self._configured_resource != self._resource_key():
+            self.loopback_results[mode].set("请先配置此模式，再启动观察。")
+            return
+        try:
+            duration = int(self.loopback_durations[mode].get())
+            if not 1 <= duration <= 600:
+                raise ValueError
+        except ValueError:
+            self.loopback_results[mode].set("观察时长须为 1–600 秒整数。")
+            return
+        self._loopback_running = True
+        self._loopback_target = (*self._resource_key(), mode)
+        self._loopback_targets[mode] = self._loopback_target
+        self._loopback_cancel.clear()
+        self.loopback_results[mode].set("正在启动并观察…")
+        self._operations.put(("loopback", (*self._loopback_target, duration)))
+
+    def stop_loopback(self, mode):
+        target = self._loopback_targets.get(mode)
+        if target is None:
+            self.command_mode(mode, "TRIG:STOP")
+            return
+        backend, resource, _ = target
+        if self._loopback_target is not None and target[:2] == self._loopback_target[:2]:
+            self._loopback_cancel.set()
+        commands = ["TRIG:STOP", "SYST:TDMA:RING:STOP"]
+        self._operations.put(("commands", (backend, resource,
+            commands + ["TRIG:SEQ:NEXT?", "READ:IO:STAT?"])))
 
     def read_counter_history(self):
         if self._counter_history_pending:
@@ -781,16 +1382,23 @@ class SequenceUi(tk.Tk):
             self.turntable_repeat_count, self.turntable_edge, self.turntable_pulse,
             self.turntable_ready_input, self.turntable_timeout, self.turntable_counter_slot,
             self.turntable_dut_slot, self.turntable_vna_slot, self.turntable_input,
-            self.turntable_threshold, *self.turntable_out_enabled, *self.turntable_out_roles]
+            self.turntable_threshold, self.turntable_angle_enabled, self.turntable_angle_start,
+            self.turntable_angle_stop, self.turntable_angle_step, self.turntable_angle_speed,
+            self.turntable_angle_ppd, *self.turntable_out_enabled, *self.turntable_out_roles]
         for mode, variables in ((MODE_INDEPENDENT, independent), (MODE_RJ45, gateway),
                                 (MODE_TURNTABLE, turntable)):
             for variable in variables:
                 variable.trace_add("write", lambda *_args, m=mode: self._draft_changed(m))
         for variable in (self.port, self.backend):
             variable.trace_add("write", self._connection_changed)
+        for variable in (self.turntable_angle_enabled, self.turntable_angle_start,
+                         self.turntable_angle_stop, self.turntable_angle_step,
+                         self.turntable_angle_speed, self.turntable_angle_ppd):
+            variable.trace_add("write", self.preview_turntable_angle)
+        self.preview_turntable_angle()
 
     def _draft_changed(self, mode):
-        if mode == self.run_mode.get():
+        if mode == self.run_mode.get() or mode == self._configured_mode:
             self._configured_mode = None
             self._configuration_generation += 1
             self.status.set("参数已修改，请配置此模式")
@@ -922,8 +1530,6 @@ class SequenceUi(tk.Tk):
         current = self.port.get().strip()
         if ports and current not in ports:
             self.port.set(ports[0])
-        elif not ports:
-            self.port.set("")
         kind = "串口" if backend == "Serial" else "USBTMC 资源"
         self.status.set(f"发现 {len(ports)} 个{kind}" if ports else
                         f"未发现{kind}")
@@ -983,6 +1589,10 @@ class SequenceUi(tk.Tk):
                 passed = self.run_commands(backend, resource, commands)
                 self._ui_events.put(("configured", (mode if passed else None, count if passed else 0,
                     generation, (backend, resource))))
+            elif kind == "loopback":
+                backend, resource, mode, duration = payload
+                self.run_commands(backend, resource, [], observe_mode=mode, observe_duration=duration)
+                self._ui_events.put(("loopback-finish", ()))
             elif kind == "ota":
                 image, port, backend = payload
                 self.run_ota(image, port, backend)
@@ -1004,6 +1614,13 @@ class SequenceUi(tk.Tk):
                 self.status.set(*args)
             elif kind == "configured":
                 self._configuration_finished(*args)
+            elif kind == "loopback-result":
+                mode, resource_key, result = args
+                if resource_key == self._resource_key():
+                    self.loopback_results[mode].set(result)
+            elif kind == "loopback-finish":
+                self._loopback_running = False
+                self._loopback_target = None
             elif kind == "ota-finish":
                 self._finish_ota(*args)
             elif kind == "usb-switch-finish":
@@ -1016,11 +1633,16 @@ class SequenceUi(tk.Tk):
             messagebox.showwarning("OTA 正在运行",
                                    "请等待升级完成后再关闭调试工具。")
             return
+        self._save_settings()
+        self._loopback_cancel.set()
         self._closing = True
         self._operations.put(None)
         self.destroy()
 
     def switch_usb_mode(self, mode: str) -> None:
+        if getattr(self, "_loopback_running", False):
+            self.log("请先结束回环观察，再切换 USB 模式。", "WARN")
+            return
         if self._ota_running or self._transport_switching:
             self.log("设备维护正在占用通信资源，请稍后切换 USB 模式。", "WARN")
             return
@@ -1127,9 +1749,20 @@ class SequenceUi(tk.Tk):
         return sequence_mask, f"OUT{gateway_mask.bit_length()}"
 
     def run_commands(self, backend: str, resource: str,
-                     commands: list[str]) -> bool:
+                     commands: list[str], *, observe_mode=None, observe_duration=10) -> bool:
+        transcript = []
         def emit(command, response):
+            transcript.append({"at": datetime.now().isoformat(), "command": command, "response": response})
             self._ui_events.put(("exchange", (command, response, (backend, resource))))
+        def execute(exchange):
+            if observe_mode is None:
+                execute_command_batch(commands, exchange, emit)
+            else:
+                result = observe_loopback(observe_mode, exchange, emit,
+                                          duration=observe_duration,
+                                          cancelled=self._loopback_cancel.is_set)
+                self._ui_events.put(("loopback-result", (observe_mode, (backend, resource), result)))
+                self._ui_events.put(("log", (result, "INFO")))
         try:
             if backend == "USB TMC":
                 try:
@@ -1155,19 +1788,32 @@ class SequenceUi(tk.Tk):
                             if header in RING_ACK_ONLY and exc.error_code == pyvisa.constants.StatusCode.error_timeout:
                                 return "<timeout>"
                             raise
-                    execute_command_batch(commands, exchange, emit)
+                    execute(exchange)
                 finally:
                     instrument.close()
                     rm.close()
             else:
                 with open_serial_port(resource, 115200, 2, .2,
                                       read_timeout_s=.2) as ser:
-                    execute_command_batch(commands, lambda command: send_command(ser, command, 2), emit)
+                    execute(lambda command: send_command(ser, command, 2))
             return True
         except Exception as exc:
+            if observe_mode is not None:
+                self._ui_events.put(("loopback-result", (observe_mode, (backend, resource), f"观察失败：{exc}")))
             self._ui_events.put(("log", (f"命令执行失败：{exc}", "ERROR")))
             self._ui_events.put(("status", ("执行失败，请检查日志",)))
             return False
+        finally:
+            if observe_mode is not None:
+                try:
+                    folder = ROOT / "out" / "sequence-loopback"
+                    folder.mkdir(parents=True, exist_ok=True)
+                    path = folder / f"observe-{datetime.now():%Y%m%d-%H%M%S-%f}.json"
+                    path.write_text(json.dumps({"mode": observe_mode, "resource": resource,
+                                               "transcript": transcript}, ensure_ascii=False, indent=2), encoding="utf-8")
+                    self._ui_events.put(("log", (f"回环记录：{path}", "INFO")))
+                except OSError as exc:
+                    self._ui_events.put(("log", (f"回环记录保存失败：{exc}", "ERROR")))
 
     def run_usb_switch(self, backend: str, resource: str, mode: str) -> None:
         target_backend = "USB TMC" if mode == "USBTMC" else "Serial"
@@ -1252,6 +1898,9 @@ class SequenceUi(tk.Tk):
             self.log(f"已选择 OTA 固件：{filename}", "OTA")
 
     def start_ota(self) -> None:
+        if getattr(self, "_loopback_running", False):
+            self.log("请先结束回环观察，再进行 OTA。", "WARN")
+            return
         if self._ota_running or self._transport_switching:
             self.log("设备维护正在占用通信资源，请稍后升级。", "WARN")
             return
@@ -1313,6 +1962,9 @@ class SequenceUi(tk.Tk):
         self.after(1200, self.refresh_ports)
 
     def send_manual_command(self) -> None:
+        if self._loopback_running:
+            self.log("请先结束回环观察，再发送手动指令。", "WARN")
+            return
         command = self.manual_command.get().strip()
         if command and self.enqueue_commands([command]):
             # Inspect every header, rather than a '?' anywhere in parameters.
@@ -1393,6 +2045,20 @@ class SequenceUi(tk.Tk):
                                bg="#86efac" if high else "#e5e7eb")
 
     def command(self, command: str) -> None:
+        if command == "TRIG:STOP":
+            self._loopback_cancel.set()
+            if self._loopback_running and self._loopback_target is not None:
+                backend, resource, mode = self._loopback_target
+                commands = ["TRIG:STOP"]
+                if mode != MODE_INDEPENDENT:
+                    commands.append("SYST:TDMA:RING:STOP")
+                commands += ["TRIG:SEQ:NEXT?", "READ:IO:STAT?"]
+                self._operations.put(("commands", (backend, resource, commands)))
+                self._loopback_target = None
+                return
+        elif getattr(self, "_loopback_running", False) and not command.endswith("?"):
+            self.log("回环观察期间只接受读取和停止。", "WARN")
+            return
         combined = self.run_mode.get() in {MODE_RJ45, MODE_TURNTABLE}
         device_combined = self._device_mode in {MODE_RJ45, MODE_TURNTABLE}
         position = self.run_mode.get() == MODE_TURNTABLE or self._device_mode == MODE_TURNTABLE
@@ -1416,9 +2082,14 @@ class SequenceUi(tk.Tk):
             commands.append("READ:SEQ:LINK?")
         if position:
             commands.append("READ:SEQ:COUNTER?")
+            if self.turntable_angle_enabled.get():
+                commands.append("READ:ANGLE:POSITION?")
         self.enqueue_commands(commands)
 
     def configure(self) -> None:
+        if getattr(self, "_loopback_running", False):
+            self.log("请先结束回环观察，再配置序列。", "WARN")
+            return
         try:
             if not self.port.get().strip():
                 raise ValueError("请先扫描或输入通信资源")
@@ -1426,10 +2097,11 @@ class SequenceUi(tk.Tk):
             combined = mode in {MODE_RJ45, MODE_TURNTABLE}
             counter_options = {}
             if mode == MODE_TURNTABLE:
+                angle_scan = self._angle_draft() if self.turntable_angle_enabled.get() else None
                 plan, codes_text = self.turntable_plan.get(), self.turntable_codes.get()
                 source, edge = "MANUAL", self.turntable_edge.get()
                 settle, pulse = int(self.turntable_settle.get()), int(self.turntable_pulse.get())
-                repeat = int(self.turntable_repeat_count.get())
+                repeat = angle_scan.positions if angle_scan else int(self.turntable_repeat_count.get())
                 ready, timeout = self.turntable_ready_input.get(), int(self.turntable_timeout.get())
                 sequence_mask, gateway_mask = self._role_masks(
                     self.turntable_out_enabled, self.turntable_out_roles, ROLE_GATEWAY)
@@ -1439,7 +2111,9 @@ class SequenceUi(tk.Tk):
                 status_mask, status_mode = 0, "NONE"
                 counter_options = dict(counter_slot=int(self.turntable_counter_slot.get()),
                     dut_slot=int(self.turntable_dut_slot.get()), vna_slot=int(self.turntable_vna_slot.get()),
-                    counter_input=self.turntable_input.get(), counter_threshold=int(self.turntable_threshold.get()))
+                    counter_input=self.turntable_input.get(),
+                    counter_threshold=angle_scan.threshold if angle_scan else int(self.turntable_threshold.get()),
+                    angle_scan=angle_scan)
             elif combined:
                 plan, codes_text = self.gateway_plan.get(), self.gateway_codes.get()
                 source, edge = "MANUAL", self.gateway_edge.get()
@@ -1469,6 +2143,10 @@ class SequenceUi(tk.Tk):
         if mode == MODE_TURNTABLE:
             self.log(f"转台模式：每 {counter_options['counter_threshold']} 个 {counter_options['counter_input']} 脉冲"
                 f"执行 {len(codes)} 项序列，共 {repeat} 个位置（0=持续）；启动等待首个位置，响应延时 {settle} µs。")
+            if angle_scan is not None:
+                self.log(f"角度扫描：{angle_scan.start}° → {angle_scan.stop}°，步长 {angle_scan.step}°，"
+                    f"速度 {angle_scan.speed}°/s；输入频率应为 {angle_scan.frequency} Hz，"
+                    f"位置周期 {angle_scan.period:.8g} s。实际转台/信号源需另行设置；即将下发并读回 ANGLE 配置。")
         else:
             self.log(
                 f"{mode}：配置 {len(codes)} 个位置；循环次数 {repeat}（0=持续）；启动直接输出首项编码 "

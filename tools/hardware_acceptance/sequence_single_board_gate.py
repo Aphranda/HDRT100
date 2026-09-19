@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run and gate the scoped sequence single-board hardware acceptance.
 
-This is an alternative only for the exact sequence-risk source allowlist.  It
+This is an alternative only for the exact sequence source allowlist.  It
 does not produce P3, multi-board, waveform, RF, independent edge-count, or
 TDMA stability evidence.
 """
@@ -38,6 +38,7 @@ DEFAULT_RECEIPT = Path(
 FINITE_REPEAT = 10
 MINIMUM_EVENTS = 9
 POSITION_THRESHOLD = 1000
+POSITION_COUNTER_INPUT = 3  # IN1 remains connected to the external pulse source.
 POSITION_CYCLE_TARGET_MS = 200
 HOST_TESTS = (
     "tests/python/test_refmem_layout.py",
@@ -56,6 +57,7 @@ VALIDATOR_PATHS = {
 
 PRODUCTION_ALLOWLIST = frozenset({
     "application/src/app.c",
+    "application/src/app_runtime.c",
     "components/distributed_refmem/inc/distributed_refmem.h",
     "components/distributed_refmem/inc/refmem_vector_table.h",
     "components/distributed_refmem/src/refmem_application_model.c",
@@ -78,7 +80,17 @@ PRODUCTION_ALLOWLIST = frozenset({
     "components/sync_trigger/src/trigger_sequence_service.c",
     "components/tdma/inc/tdma_pio_spi_ring_adapter.h",
     "components/tdma/src/tdma_pio_spi_ring_adapter.c",
+    # Shared TDMA/clock files used by the single-board physical sequence loop.
+    # Their inclusion does not extend the receipt to multi-board acceptance.
+    "components/tdma/inc/tdma_runtime_owner.h",
+    "components/tdma/inc/tdma_service.h",
+    "components/tdma/src/tdma_runtime_owner.c",
+    "components/tdma/src/tdma_service.c",
+    "components/vdc_domain/inc/vdc_timestamp_clock.h",
+    "components/vdc_domain/src/vdc_timestamp_clock.c",
+    "middleware/scpi_port/inc/scpi_config_commands.h",
     "middleware/scpi_port/src/scpi_config_commands.c",
+    "middleware/scpi_port/src/scpi_system_snapshot_commands.c",
     "middleware/scpi_port/inc/scpi_sequence_commands.h",
     "middleware/scpi_port/inc/scpi_sequence_node_commands.h",
     "middleware/scpi_port/src/scpi_sequence_commands.c",
@@ -86,6 +98,18 @@ PRODUCTION_ALLOWLIST = frozenset({
 })
 
 SUPPORT_ALLOWLIST = frozenset({
+    "tests/python/test_app_realtime_release.py",
+    "tests/python/test_sequence_angle_scpi.py",
+    "tests/python/test_sequence_flight_clock.py",
+    "tests/python/test_sequence_gui_settings.py",
+    "tests/python/test_sequence_loopback_observe.py",
+    "tests/python/test_sequence_timer1_clock.py",
+    "tests/python/test_sequence_timing_analyze.py",
+    "tests/python/test_tdma_service_nonblocking.py",
+    "tests/python/test_tdma_snapshot_scpi.py",
+    "tests/python/test_tdma_single_board_loopback.py",
+    "tests/unit/test_tdma_service_nonblocking.c",
+    "tests/unit/test_trigger_sequence_history_vector.c",
     "tests/python/test_refmem_layout.py",
     "tests/python/test_refmem_pack_build.py",
     "tests/python/test_sequence_position_validate.py",
@@ -132,6 +156,16 @@ SUPPORT_ALLOWLIST = frozenset({
     "tools/hardware_acceptance/sequence_repeat_validate.py",
     "tools/hardware_acceptance/sequence_tdma_cycle_validate.py",
     "tools/hardware_acceptance/sequence_trigger_acceptance.py",
+    "tools/hardware_acceptance/sequence_start_observe.py",
+    "tools/hardware_acceptance/sequence_timing_analyze.py",
+    "tools/tdma_ring_monitor/tdma_single_board_loopback.py",
+    "tools/sequence_trigger_debug_ui/5711_-_Sync_Event.png",
+    "tools/sequence_trigger_debug_ui/5711_-_Sync_Event.svg",
+    "tools/sequence_trigger_debug_ui/build_windows.py",
+    "tools/sequence_trigger_debug_ui/frozen_entry.py",
+    "tools/sequence_trigger_debug_ui/requirements-build.txt",
+    "tools/sequence_trigger_debug_ui/sequence_debug.spec",
+    "tools/sequence_trigger_debug_ui/settings.py",
     "tools/sequence_trigger_debug_ui/sequence_trigger_debug_ui.py",
 })
 
@@ -403,7 +437,7 @@ def _position_configuration(profile: dict, *, repeat_count: int, manual: bool,
              "POSITION configuration/GUI identity mismatch")
     row, counter = profile["configured"]["link"], profile["configured"]["counter"]
     _require([counter[k] for k in ("enabled", "slot", "input", "threshold")] ==
-             [1, 1, 1, POSITION_THRESHOLD] and
+             [1, 1, POSITION_COUNTER_INPUT, POSITION_THRESHOLD] and
              [row[k] for k in ("enabled", "phase", "error", "dutslot", "vnaslot", "input", "outputmask")] ==
              [1, 1, 0, 2, 3, 0 if manual else 2, 8], "POSITION slot/IO readback mismatch")
     for instance, name in ((2, "COUNTER"), (5, "DUT"), (7, "VNA")):
@@ -416,7 +450,7 @@ def _position_configuration(profile: dict, *, repeat_count: int, manual: bool,
 def _position_injection(profile: dict, counts: list[int], manual_ready: bool) -> None:
     simulation = profile.get("input_simulation", {})
     _require(simulation == {
-        "method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN1,<count>",
+        "method": "SCPI", "counter_command": f"TRIG:SEQ:INJECT IN{POSITION_COUNTER_INPUT},<count>",
         "ready_command": "TRIG:SEQ:INJECT READY,<count>" if manual_ready else None,
         "physical_edge_count_verified": False, "physical_ready_verified": not manual_ready},
         "POSITION input simulation scope mismatch")
@@ -424,7 +458,7 @@ def _position_injection(profile: dict, counts: list[int], manual_ready: bool) ->
     _require(isinstance(injections, list) and [row.get("count") for row in injections] == counts,
              "POSITION SCPI injection batches mismatch")
     for row, count in zip(injections, counts):
-        _require(row.get("command") == f"TRIG:SEQ:INJECT IN1,{count}" and
+        _require(row.get("command") == f"TRIG:SEQ:INJECT IN{POSITION_COUNTER_INPUT},{count}" and
                  row.get("response") == "1" and isinstance(row.get("issued_at"), (int, float)),
                  "POSITION SCPI injection evidence invalid")
     ready = profile.get("ready_injection")
@@ -441,6 +475,7 @@ def validate_position_report(report: dict, *, serial_number: str, build_id: str,
     duration = position_duration(source_hz)
     _require(settings["threshold"] == POSITION_THRESHOLD and settings["lifecycle"] is True and
              settings["source_hz"] == source_hz and settings["duration"] >= duration and
+             settings.get("counter_input") == f"IN{POSITION_COUNTER_INPUT}" and
              settings["gateway_timeout_ms"] == 10000 and
              settings["position_cycle_target_ms"] == POSITION_CYCLE_TARGET_MS,
              "POSITION fixed profile or frequency-derived duration mismatch")
@@ -454,7 +489,8 @@ def validate_position_report(report: dict, *, serial_number: str, build_id: str,
         prethreshold, wait_ready = False, False
         for sample in profile["samples"]:
             row, count = sample["link"], sample["counter"]
-            _require(count["enabled"] == 1 and count["input"] == 1 and count["threshold"] == POSITION_THRESHOLD,
+            _require(count["enabled"] == 1 and count["input"] == POSITION_COUNTER_INPUT and
+                     count["threshold"] == POSITION_THRESHOLD,
                      "POSITION counter binding changed")
             if row["phase"] == 1 and previous is None:
                 continue
@@ -768,6 +804,7 @@ def _profile_args(args: argparse.Namespace, output: Path, profile: str) -> list[
     elif profile == "position":
         duration = position_duration(args.source_hz)
         values += ["--threshold", str(POSITION_THRESHOLD), "--lifecycle", "--source-hz", str(args.source_hz),
+                   "--counter-input", f"IN{POSITION_COUNTER_INPUT}",
                    "--duration", str(duration), "--gateway-timeout-ms", "10000",
                    "--position-cycle-target-ms", str(POSITION_CYCLE_TARGET_MS)]
     return values

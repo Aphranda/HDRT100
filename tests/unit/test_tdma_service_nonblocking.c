@@ -174,10 +174,40 @@ static bool stopped_configuration(void *context)
     return true;
 }
 
+static bool bound_action(void)
+{
+    ++tx_calls;
+    assert(service.ring_control_guard == 1u);
+    assert(!tdma_service_ring_stop(&service));
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
     const char *test = argv[1];
+    if (!strcmp(test, "bound_action")) {
+        assert(tdma_service_init(&service));
+        service.ring_runtime.enabled = service.ring_runtime.adapter_started = 1u;
+        service.ring_runtime.data_enabled = service.ring_runtime.up_running =
+            service.ring_runtime.down_running = 1u;
+        service.ring_runtime.config_seq = service.ring_runtime.applied_config_seq = 5u;
+        service.ring_runtime.adapter_start_count = 2u;
+        bool result = false;
+        assert(!tdma_service_run_bound_action(&service, 4u, 2u, bound_action, &result));
+        assert(!tdma_service_run_bound_action(&service, 5u, 1u, bound_action, &result));
+        service.ring_control_guard = 1u;
+        assert(!tdma_service_run_bound_action(&service, 5u, 2u, bound_action, &result));
+        service.ring_control_guard = 0u;
+        assert(!tx_calls && !result);
+        assert(tdma_service_run_bound_action(&service, 5u, 2u, bound_action, &result));
+        assert(tx_calls == 1u && result && !service.ring_control_guard);
+        assert(tdma_service_ring_stop(&service));
+        result = false;
+        assert(!tdma_service_run_bound_action(&service, 5u, 2u, bound_action, &result));
+        assert(tx_calls == 1u && !result && !service.ring_control_guard);
+        return 0;
+    }
     if (strcmp(test, "stopped_configuration") == 0) {
         uint32_t calls = 0u;
         assert(tdma_service_init(&service));

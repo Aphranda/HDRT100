@@ -7,6 +7,7 @@
 #include "calibration_origin_timing.h"
 #include "ota_crc32.h"
 #include "hardware/clocks.h"
+#include "pico/platform.h"
 #include <string.h>
 
 #if defined(PROJECT_USE_FREERTOS) && PROJECT_USE_FREERTOS
@@ -405,6 +406,14 @@ bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *snapshot
     }
     return tdma_ring_runtime_get_snapshot(&s_tdma_runtime_owner.ring_runtime,
                                           snapshot);
+}
+
+bool tdma_runtime_owner_run_bound_action(uint32_t config_seq,
+    uint32_t adapter_start_count, bool (*action)(void), bool *action_result)
+{
+    return get_core_num() == 1u && s_tdma_runtime_owner_initialized &&
+        tdma_service_run_bound_action(&s_tdma_runtime_owner, config_seq,
+            adapter_start_count, action, action_result);
 }
 
 bool tdma_runtime_owner_get_phys_snapshot(tdma_pio_spi_phys_snapshot_t *snapshot)

@@ -3,6 +3,11 @@
 
 #include "trigger_sequence_config.h"
 
+/* Core0 configuration transaction only. LINK installs the TDMA owner gate
+ * for combined-role hardware submissions; standalone backends need no gate. */
+void trigger_sequence_service_set_transport_action_locked(
+    bool (*dispatch)(bool (*action)(void), bool *result));
+
 #define TRIGGER_SEQUENCE_NO_INDEX UINT32_MAX
 
 typedef enum {
@@ -142,6 +147,8 @@ bool trigger_sequence_service_is_active(void);
  * Realtime coordinators must not submit another action over a pending STOP. */
 bool trigger_sequence_service_stop_pending(void);
 trigger_sequence_service_result_t trigger_sequence_service_set_repeat(uint32_t count);
+/* Core0 only, with configuration_begin held; used for atomic linked setup. */
+void trigger_sequence_service_set_repeat_locked(uint32_t count);
 uint32_t trigger_sequence_service_get_repeat(void);
 /* Core0 orchestration submits actions; Core1 remains the IO/runtime owner. */
 trigger_sequence_service_result_t trigger_sequence_service_set_gateway(

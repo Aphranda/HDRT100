@@ -528,6 +528,11 @@ bool tdma_service_ring_train_clock(tdma_service_service_t *service,
                                    uint32_t cycles);
 bool tdma_service_ring_start(tdma_service_service_t *service);
 bool tdma_service_ring_stop(tdma_service_service_t *service);
+/* Core1 only: one bounded submission serialized with Core0 STOP/config.
+ * False means no action ran. Callback must not wait or service lifecycle. */
+bool tdma_service_run_bound_action(tdma_service_service_t *service,
+    uint32_t config_seq, uint32_t adapter_start_count,
+    bool (*action)(void), bool *action_result);
 void tdma_service_core0_lifecycle_service(tdma_service_service_t *service);
 bool tdma_service_submit_tx(tdma_service_service_t *service,
                                     const tdma_service_intent_config_t *config);

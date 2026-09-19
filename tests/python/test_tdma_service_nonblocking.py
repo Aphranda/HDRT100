@@ -38,3 +38,9 @@ def test_service_yields_without_losing_intent(service_exe, case):
     result = subprocess.run([str(service_exe), case], capture_output=True,
                             text=True, timeout=3)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_bound_action_serializes_with_stop(service_exe):
+    result = subprocess.run([str(service_exe), "bound_action"], capture_output=True,
+                            text=True, timeout=3)
+    assert result.returncode == 0, result.stdout + result.stderr

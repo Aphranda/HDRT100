@@ -4,9 +4,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define SYNC_IO_SEQUENCE_TIME_MAX_US (UINT32_MAX / 10u)
+/* Sequence-owned PIO0 state machines use a 250 MHz instruction clock. Duration
+ * parameters remain whole microseconds; countdown packing must not overflow. */
+#define SYNC_IO_SEQUENCE_TICK_NS 4u
+#define SYNC_IO_SEQUENCE_TICKS_PER_US (1000u / SYNC_IO_SEQUENCE_TICK_NS)
+#define SYNC_IO_SEQUENCE_TIME_MAX_US (UINT32_MAX / SYNC_IO_SEQUENCE_TICKS_PER_US)
 #define SYNC_IO_SEQUENCE_PLAN_MAX 256u
-#define SYNC_IO_SEQUENCE_TICK_NS 100u
 #define SYNC_IO_SEQUENCE_TIMING_PIO0 1u
 #define SYNC_IO_SEQUENCE_PLAN_WORDS 3u
 #define SYNC_IO_SEQUENCE_COUNTER_LIMIT (UINT32_MAX - 32u)
@@ -109,6 +112,8 @@ bool sync_io_sequence_arm_plan(const sync_io_sequence_config_t *config,
 bool sync_io_sequence_arm_plan_bytes(const sync_io_sequence_config_t *config,
                                     const uint8_t *values, uint32_t count);
 bool sync_io_sequence_software_step(void);
+/* Core1 owner only, after service: bounded submission without nested service. */
+bool sync_io_sequence_software_step_prepared(void);
 /* Core1 only. Arm fresh PIO READY capture and emit exactly one PIO pulse.
  * READY is a receipt only: it never directly requests a sequence step. */
 bool sync_io_sequence_gateway_fire(void);
@@ -120,6 +125,7 @@ bool sync_io_sequence_gateway_ready(void);
  * the next position threshold arrived while busy. Partial pulses accumulated
  * during sampling are preserved; neither total nor threshold base resets. */
 bool sync_io_sequence_counter_rearm(void);
+bool sync_io_sequence_counter_rearm_prepared(void);
 /* Core1-only acceptance hook. Adds a simulated edge batch to the configured
  * position counter; threshold and fault handling remain shared with PIO. */
 bool sync_io_sequence_counter_inject(uint32_t input_channel, uint32_t count);

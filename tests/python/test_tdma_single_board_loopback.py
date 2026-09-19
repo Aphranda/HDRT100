@@ -9,6 +9,22 @@ from tools.tdma_ring_monitor import tdma_single_board_loopback as target
 PREPARE_RING = target.prepare_single_board_ring
 
 
+@pytest.mark.parametrize("response,busy", [('"BUSY"', True), ("broken", False)])
+def test_snapshot_busy_is_explicit_and_never_a_partial_sample(monkeypatch, response, busy):
+    commands = []
+
+    def query(port, command, timeout):
+        commands.append(command)
+        return response
+
+    monkeypatch.setattr(target, "query", query)
+    with pytest.raises(target.SnapshotBusy if busy else AssertionError) as caught:
+        target.sample(object(), 1)
+    assert commands == ["SYSTem:REFMEM:SYNC:TDMA:STATus?"]
+    if busy:
+        assert caught.value.response == response
+
+
 @pytest.fixture
 def bench(monkeypatch, tmp_path):
     monkeypatch.setattr("sys.argv", ["loopback", "COM_TEST", "--out-dir",

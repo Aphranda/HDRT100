@@ -1,10 +1,13 @@
 #include "scpi_config_commands.h"
 
 #include <string.h>
+#include <math.h>
+#include <float.h>
 
 #include "distributed_config.h"
 #include "trigger_sequence_service.h"
 #include "sync_io_sequence.h"
+#include "trigger_sequence_link.h"
 
 /* Host-side SCPI parser tests do not link the hardware IO backend.  Firmware
  * provides the strong implementations from sync_io_sequence.c; these weak
@@ -162,53 +165,241 @@ scpi_result_t scpi_config_trigger_parameter_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* Core0 angle metadata only. Floating point conversion never enters the
+ * realtime plane: Core1 continues to consume integer N and finite repeats.
+ * Different SCPI transports can run on different Core0 tasks. The short
+ * try-lock protects metadata while the service gate serializes with START. */
+typedef struct {
+    double start, stop, step, speed, pulses_per_degree, input_hz;
+    uint32_t input, count, threshold, binding_epoch, model_epoch;
+    bool sweep_set, input_set;
+} angle_config_t;
+static angle_config_t s_angle;
+static uint32_t s_angle_guard;
+
+static bool angle_take(scpi_t *context)
+{
+    if (__atomic_exchange_n(&s_angle_guard, 1u, __ATOMIC_ACQUIRE) == 0u) return true;
+    scpi_port_push_exec_error(context, "ANGLE_CONFIGURATION_BUSY");
+    return false;
+}
+static void angle_release(void) { __atomic_store_n(&s_angle_guard, 0u, __ATOMIC_RELEASE); }
+
+static bool angle_number(scpi_t *context, double *value)
+{
+    if (!SCPI_ParamDouble(context, value, TRUE)) return false;
+    if (isfinite(*value)) return true;
+    SCPI_ErrorPush(context, SCPI_ERROR_ILLEGAL_PARAMETER_VALUE);
+    return false;
+}
+
+static bool angle_integer(double value, uint32_t *result)
+{
+    if (!isfinite(value) || value < 0.0 || value > UINT32_MAX) return false;
+    const double nearest = floor(value + 0.5);
+    const double tolerance = 4.0 * DBL_EPSILON * fmax(1.0, fabs(value));
+    if (fabs(value - nearest) > tolerance || nearest > UINT32_MAX) return false;
+    *result = (uint32_t)nearest;
+    return true;
+}
+
+static bool angle_derive(angle_config_t *value)
+{
+    if (value->sweep_set) {
+        uint32_t intervals;
+        if (!(value->speed > 0.0) || !isfinite(value->speed) || value->step == 0.0 || !angle_integer(
+                (value->stop - value->start) / value->step, &intervals) ||
+            intervals == UINT32_MAX) return false;
+        value->count = intervals + 1u;
+        if (!intervals && value->start != value->stop) return false;
+        if (intervals && (value->start + value->step == value->start ||
+            value->stop - value->step == value->stop)) return false;
+    }
+    if (value->input_set && (!(value->pulses_per_degree > 0.0) ||
+        !isfinite(value->pulses_per_degree))) return false;
+    if (value->sweep_set && value->input_set) {
+        value->input_hz = value->speed * value->pulses_per_degree;
+        if (!isfinite(value->input_hz) || value->input_hz <= 0.0) return false;
+        if (!angle_integer(fabs(value->step) * value->pulses_per_degree, &value->threshold) ||
+            !value->threshold || (uint64_t)value->threshold * value->count >=
+                SYNC_IO_SEQUENCE_COUNTER_LIMIT ||
+            !isfinite(value->threshold / value->input_hz) ||
+            value->threshold / value->input_hz <= 0.0 ||
+            !isfinite(value->input_hz / value->threshold) ||
+            value->input_hz / value->threshold <= 0.0) return false;
+    }
+    return true;
+}
+
+static bool angle_bound(const angle_config_t *value, const trigger_sequence_link_status_t *link)
+{
+    return value->sweep_set && value->input_set && value->binding_epoch &&
+        value->binding_epoch == link->binding_epoch && value->model_epoch == link->model_epoch &&
+        trigger_sequence_link_binding_is_current(value->binding_epoch, value->model_epoch) &&
+        link->config.enabled && link->config.counter_enabled &&
+        value->input == link->config.counter_input && value->threshold == link->config.counter_threshold &&
+        value->count == trigger_sequence_service_get_repeat();
+}
+
+/* Caller owns both angle and service configuration guards. A partial pair is
+ * retained as a draft; a complete pair binds to an existing POSITION role
+ * configuration, preserving READY, output timing and TDMA slot assignment. */
+static bool angle_apply(angle_config_t *value)
+{
+    if (!angle_derive(value)) return false;
+    if (!value->sweep_set || !value->input_set) {
+        value->binding_epoch = 0u;
+        return true;
+    }
+    trigger_sequence_link_status_t link;
+    trigger_sequence_link_get_status(&link);
+    if (!link.config.enabled || !link.config.counter_enabled) return false;
+    const trigger_sequence_plan_t *plan = trigger_sequence_get_plan(
+        trigger_sequence_service_config(), NULL);
+    if (plan && (uint64_t)plan->count * value->count > UINT32_MAX) return false;
+    link.config.counter_input = value->input;
+    link.config.counter_threshold = value->threshold;
+    if (!trigger_sequence_link_configure_position_locked(&link.config, value->count)) return false;
+    trigger_sequence_link_get_status(&link);
+    value->binding_epoch = link.binding_epoch;
+    value->model_epoch = link.model_epoch;
+    return true;
+}
+
+static bool angle_write_begin(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(context, DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG) ||
+        !angle_take(context)) return false;
+    if (sequence_configuration_begin(context)) return true;
+    angle_release();
+    return false;
+}
+static scpi_result_t angle_write_end(scpi_t *context, const angle_config_t *value, bool valid)
+{
+    if (valid) s_angle = *value;
+    trigger_sequence_service_configuration_end();
+    angle_release();
+    if (valid) return scpi_port_result_accepted(context);
+    scpi_port_push_exec_error(context, "ANGLE_INVALID_OR_POSITION_UNAVAILABLE");
+    return SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_config_angle_sweep(scpi_t *context)
+{
+    double start, stop, step, speed;
+    if (!angle_number(context, &start) || !angle_number(context, &stop) ||
+        !angle_number(context, &step) || !angle_number(context, &speed) ||
+        !sequence_end_parameters(context)) return SCPI_RES_ERR;
+    if (!angle_write_begin(context)) return SCPI_RES_ERR;
+    angle_config_t value = s_angle;
+    trigger_sequence_link_status_t link;
+    trigger_sequence_link_get_status(&link);
+    if (value.binding_epoch && !angle_bound(&value, &link)) {
+        value.input_set = false; value.input = 0u;
+        value.pulses_per_degree = value.input_hz = 0.0;
+        value.threshold = value.binding_epoch = 0u;
+    }
+    value.start = start; value.stop = stop; value.step = step; value.speed = speed; value.sweep_set = true;
+    const bool valid = angle_apply(&value);
+    return angle_write_end(context, &value, valid);
+}
+
+scpi_result_t scpi_config_angle_input(scpi_t *context)
+{
+    const char *input; size_t length;
+    double ppd;
+    if (!SCPI_ParamCharacters(context, &input, &length, TRUE) ||
+        !angle_number(context, &ppd) ||
+        !sequence_end_parameters(context)) return SCPI_RES_ERR;
+    if (length != 3u || (input[0] != 'I' && input[0] != 'i') ||
+        (input[1] != 'N' && input[1] != 'n') || input[2] < '1' || input[2] > '4') {
+        SCPI_ErrorPush(context, SCPI_ERROR_ILLEGAL_PARAMETER_VALUE);
+        return SCPI_RES_ERR;
+    }
+    if (!angle_write_begin(context)) return SCPI_RES_ERR;
+    angle_config_t value = s_angle;
+    value.input = (uint32_t)(input[2] - '0'); value.pulses_per_degree = ppd;
+    value.input_set = true;
+    const bool valid = angle_apply(&value);
+    return angle_write_end(context, &value, valid);
+}
+
+scpi_result_t scpi_config_angle_speed(scpi_t *context)
+{
+    double speed;
+    if (!angle_number(context, &speed) || !sequence_end_parameters(context)) return SCPI_RES_ERR;
+    if (!angle_write_begin(context)) return SCPI_RES_ERR;
+    angle_config_t value = s_angle;
+    value.speed = speed;
+    const bool valid = value.sweep_set && angle_derive(&value);
+    /* Expected speed is metadata, not motor control or a hardware timer. */
+    return angle_write_end(context, &value, valid);
+}
+
+static bool angle_read(scpi_t *context, angle_config_t *value,
+    trigger_sequence_link_status_t *link, bool *bound)
+{
+    if (!sequence_end_parameters(context) || !angle_take(context)) return false;
+    *value = s_angle;
+    trigger_sequence_link_get_status(link);
+    *bound = angle_bound(value, link);
+    angle_release();
+    return true;
+}
+
 scpi_result_t scpi_config_angle_sweep_q(scpi_t *context)
 {
-    SCPI_ResultInt32(context, -10);
-    SCPI_ResultInt32(context, 370);
-    SCPI_ResultUInt32(context, 1u);
-    SCPI_ResultUInt32(context, 381u);
-    SCPI_ResultUInt32(context, 0u);
+    angle_config_t value; trigger_sequence_link_status_t link; bool bound;
+    if (!angle_read(context, &value, &link, &bound)) return SCPI_RES_ERR;
+    SCPI_ResultDouble(context, value.start); SCPI_ResultDouble(context, value.stop);
+    SCPI_ResultDouble(context, value.step); SCPI_ResultDouble(context, value.speed);
+    SCPI_ResultUInt32(context, value.count);
+    SCPI_ResultBool(context, bound);
     return SCPI_RES_OK;
 }
-
-scpi_result_t scpi_config_angle_pulse_q(scpi_t *context)
+scpi_result_t scpi_config_angle_input_q(scpi_t *context)
 {
-    SCPI_ResultText(context, "RISING");
-    SCPI_ResultUInt32(context, 10u);
-    SCPI_ResultUInt32(context, 30000u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultText(context, "OK");
-    SCPI_ResultBool(context, TRUE);
-    SCPI_ResultUInt32(context, 0u);
+    angle_config_t value; trigger_sequence_link_status_t link; bool bound;
+    if (!angle_read(context, &value, &link, &bound)) return SCPI_RES_ERR;
+    const char *inputs[] = {"NONE", "IN1", "IN2", "IN3", "IN4"};
+    SCPI_ResultText(context, inputs[value.input]);
+    SCPI_ResultDouble(context, value.pulses_per_degree); SCPI_ResultDouble(context, value.input_hz);
+    SCPI_ResultUInt32(context, value.threshold);
+    SCPI_ResultDouble(context, value.threshold && value.input_set ? value.threshold / value.input_hz : 0.0);
+    SCPI_ResultDouble(context, value.threshold ? value.input_hz / value.threshold : 0.0);
+    SCPI_ResultBool(context, bound);
     return SCPI_RES_OK;
 }
-
+scpi_result_t scpi_config_angle_speed_q(scpi_t *context)
+{
+    angle_config_t value; trigger_sequence_link_status_t link; bool bound;
+    if (!angle_read(context, &value, &link, &bound)) return SCPI_RES_ERR;
+    SCPI_ResultDouble(context, value.speed);
+    return SCPI_RES_OK;
+}
 scpi_result_t scpi_config_angle_position_q(scpi_t *context)
 {
-    SCPI_ResultText(context, "DTC_SWEEP");
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 381u);
-    SCPI_ResultInt32(context, -10);
-    SCPI_ResultInt32(context, -9);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultBool(context, TRUE);
-    SCPI_ResultBool(context, FALSE);
-    SCPI_ResultUInt32(context, 0u);
+    angle_config_t value; trigger_sequence_link_status_t link; bool bound;
+    if (!angle_read(context, &value, &link, &bound)) return SCPI_RES_ERR;
+    const uint32_t admitted = bound ? link.counter_consumed : 0u;
+    const bool current = bound && admitted > 0u && admitted <= value.count;
+    const bool next = bound && admitted < value.count;
+    SCPI_ResultText(context, "POSITION"); SCPI_ResultUInt32(context, admitted);
+    SCPI_ResultUInt32(context, value.count);
+    SCPI_ResultDouble(context, current ? value.start + (admitted - 1u) * value.step : 0.0);
+    SCPI_ResultDouble(context, next ? value.start + admitted * value.step : 0.0);
+    SCPI_ResultUInt32(context, link.counter_events); SCPI_ResultUInt32(context, link.counter_partial);
+    SCPI_ResultBool(context, current); SCPI_ResultBool(context, next);
+    SCPI_ResultUInt32(context, link.error); SCPI_ResultBool(context, bound);
     return SCPI_RES_OK;
 }
-
-scpi_result_t scpi_config_angle_breakpoint_q(scpi_t *context)
+scpi_result_t scpi_config_angle_unsupported(scpi_t *context)
 {
-    SCPI_ResultInt32(context, 0);
-    SCPI_ResultBool(context, FALSE);
-    SCPI_ResultBool(context, FALSE);
-    SCPI_ResultUInt32(context, 0u);
-    return SCPI_RES_OK;
+    scpi_port_push_exec_error(context, "ANGLE_COMMAND_NOT_IMPLEMENTED");
+    return SCPI_RES_ERR;
 }
+scpi_result_t scpi_config_angle_pulse_q(scpi_t *context) { return scpi_config_angle_unsupported(context); }
+scpi_result_t scpi_config_angle_breakpoint_q(scpi_t *context) { return scpi_config_angle_unsupported(context); }
 
 scpi_result_t scpi_config_sequence(scpi_t *context)
 {

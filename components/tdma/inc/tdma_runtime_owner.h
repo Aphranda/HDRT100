@@ -49,6 +49,8 @@ bool tdma_runtime_owner_core0_release_ring_rx(uint32_t slot_index);
 /* Read-only ring snapshot for low-frequency maintenance logging on core0
  * (the resident ring itself is driven by the core1 TDMA service). */
 bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *snapshot);
+bool tdma_runtime_owner_run_bound_action(uint32_t config_seq,
+    uint32_t adapter_start_count, bool (*action)(void), bool *action_result);
 bool tdma_runtime_owner_get_ring_clock_snapshot(
     tdma_ring_clock_snapshot_t *snapshot);
 /* Last accepted ring configuration retained by the TDMA service while the

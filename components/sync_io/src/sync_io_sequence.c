@@ -679,9 +679,10 @@ static bool build_plan(const sync_io_sequence_config_t *config,
         const uint32_t base = i * SYNC_IO_SEQUENCE_PLAN_WORDS;
         s_plan[base] = value | (logical << PLAN_INDEX_SHIFT) |
             ((value | config->status_output_mask) << ACTIVE_VALUE_SHIFT);
-        s_plan[base + 1u] = config->settle_us == 0u ? 0u : config->settle_us * 10u - 5u;
+        s_plan[base + 1u] = config->settle_us == 0u ? 0u :
+            config->settle_us * SYNC_IO_SEQUENCE_TICKS_PER_US - 5u;
         s_plan[base + 2u] = config->status_mode == SYNC_IO_SEQUENCE_STATUS_PULSE ?
-            config->pulse_us * 10u - 4u : 0u;
+            config->pulse_us * SYNC_IO_SEQUENCE_TICKS_PER_US - 4u : 0u;
     }
     return true;
 }
@@ -1027,9 +1028,15 @@ void sync_io_sequence_service(void)
 
 bool sync_io_sequence_software_step(void)
 {
+    if (get_core_num() != 1u) return false;
+    sync_io_sequence_service();
+    return sync_io_sequence_software_step_prepared();
+}
+
+bool sync_io_sequence_software_step_prepared(void)
+{
     if (get_core_num() != 1u || !s_sequence.status.armed || s_sequence.config.input_channel != 0u ||
         s_sequence.paused || s_sequence.status.fault != 0u) return false;
-    sync_io_sequence_service();
     if (!s_sequence.status.ready ||
         (s_sequence.config.step_limit_enabled && s_sequence.status.accepted >= s_sequence.config.max_steps) ||
         s_sequence.status.gateway_waiting ||
@@ -1159,7 +1166,7 @@ bool sync_io_sequence_gateway_fire(void)
     s_sequence.status.gateway_pulse_busy = true;
     ++s_sequence.status.gateway_trigger_count;
     pio_sm_put(BOARD_SYNC_PIO_FAST, INGRESS_SM,
-        s_sequence.config.gateway_pulse_us * 10u - 2u);
+        s_sequence.config.gateway_pulse_us * SYNC_IO_SEQUENCE_TICKS_PER_US - 2u);
     publish();
     return true;
 }
@@ -1183,10 +1190,16 @@ bool sync_io_sequence_gateway_ready(void)
 
 bool sync_io_sequence_counter_rearm(void)
 {
+    if (get_core_num() != 1u) return false;
+    sync_io_sequence_service();
+    return sync_io_sequence_counter_rearm_prepared();
+}
+
+bool sync_io_sequence_counter_rearm_prepared(void)
+{
     if (get_core_num() != 1u || !s_sequence.status.armed || s_sequence.paused ||
         s_sequence.status.fault != 0u || s_sequence.config.counter_input_channel == 0u)
         return false;
-    sync_io_sequence_service();
     if (s_sequence.status.fault != 0u || !s_sequence.status.counter_busy ||
         s_sequence.status.busy || s_sequence.status.gateway_waiting ||
         s_sequence.status.gateway_pulse_busy) return false;

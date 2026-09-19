@@ -15,6 +15,8 @@ scpi_result_t scpi_sequence_link_transport_q(scpi_t *context);
 scpi_result_t scpi_sequence_counter_q(scpi_t *context);
 scpi_result_t scpi_sequence_counter_history_q(scpi_t *context);
 scpi_result_t scpi_sequence_history_q(scpi_t *context);
+scpi_result_t scpi_sequence_history_timing_q(scpi_t *context);
+scpi_result_t scpi_sequence_history_status_q(scpi_t *context);
 
 #define SCPI_SEQUENCE_NODE_COMMANDS \
     {.pattern = "CONFigure:SEQuence:NODE:LOAD", .callback = scpi_sequence_node_load}, \
@@ -27,6 +29,8 @@ scpi_result_t scpi_sequence_history_q(scpi_t *context);
     {.pattern = "READ:SEQuence:LINK:TRANsport?", .callback = scpi_sequence_link_transport_q}, \
     {.pattern = "READ:SEQuence:COUNter?", .callback = scpi_sequence_counter_q}, \
     {.pattern = "READ:SEQuence:COUNter:HISTory?", .callback = scpi_sequence_counter_history_q}, \
-    {.pattern = "READ:SEQuence:HISTory?", .callback = scpi_sequence_history_q}
+    {.pattern = "READ:SEQuence:HISTory?", .callback = scpi_sequence_history_q}, \
+    {.pattern = "READ:SEQuence:HISTory:TIMing?", .callback = scpi_sequence_history_timing_q}, \
+    {.pattern = "READ:SEQuence:HISTory:STATus?", .callback = scpi_sequence_history_status_q}
 
 #endif

@@ -11,6 +11,13 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 UINT32 = (1 << 32) - 1
+HEADER = (ROOT / "components/sync_io/inc/sync_io_sequence.h").read_text(encoding="utf-8")
+TICK_NS = int(re.search(r"#define SYNC_IO_SEQUENCE_TICK_NS (\d+)u", HEADER)[1])
+TICKS_PER_US = 1000 // TICK_NS
+
+
+def us(value):
+    return value * TICKS_PER_US
 
 
 def function(source, name):
@@ -25,7 +32,53 @@ def test_sequence_backend_receipts_and_admission(tmp_path):
     harness = '#include "sync_io_sequence_fake.h"\n'
     for name in ("config_valid", "logical_index_for_transfer", "build_plan", "receive_word", "account_input"):
         harness += function(backend, name)
+    harness += '#define main receipt_tests_main\n'
     harness += (ROOT / "tests/unit/test_sync_io_sequence.c").read_text(encoding="utf-8")
+    harness += r'''
+#undef main
+int main(void) {
+    assert(receipt_tests_main() == 0);
+    assert(SYNC_IO_SEQUENCE_TICK_NS == 4u);
+    assert(SYNC_IO_SEQUENCE_TICKS_PER_US == 250u);
+    const uint32_t value = 3u;
+    sync_io_sequence_config_t config = {
+        .sequence_output_mask = 7u, .status_output_mask = 8u,
+        .status_mode = SYNC_IO_SEQUENCE_STATUS_PULSE,
+        .settle_us = 1u, .pulse_us = 1u};
+    const uint32_t times[] = {1u, 10u, 1000u, SYNC_IO_SEQUENCE_TIME_MAX_US};
+    for (unsigned i = 0u; i < sizeof(times) / sizeof(times[0]); ++i) {
+        config.settle_us = config.pulse_us = times[i];
+        assert(build_plan(&config, &value, NULL, 1u));
+        const uint64_t cycles = (uint64_t)times[i] * SYNC_IO_SEQUENCE_TICKS_PER_US;
+        assert(cycles <= UINT32_MAX);
+        assert((uint64_t)s_plan[1] + 5u == cycles);
+        assert((uint64_t)s_plan[2] + 4u == cycles);
+    }
+    ++config.settle_us;
+    assert(!build_plan(&config, &value, NULL, 1u));
+    config.settle_us = 0u;
+    ++config.pulse_us;
+    assert(!build_plan(&config, &value, NULL, 1u));
+    config.pulse_us = 0u;
+    assert(!build_plan(&config, &value, NULL, 1u));
+    config.pulse_us = 1u;
+    assert(build_plan(&config, &value, NULL, 1u));
+    assert(s_plan[1] == 0u && s_plan[2] == 246u);
+    config.status_mode = SYNC_IO_SEQUENCE_STATUS_NONE;
+    config.status_output_mask = config.pulse_us = 0u;
+    config.gateway_enabled = true;
+    config.gateway_output_mask = 8u;
+    config.gateway_pulse_us = SYNC_IO_SEQUENCE_TIME_MAX_US;
+    assert(config_valid(&config));
+    ++config.gateway_pulse_us;
+    assert(!config_valid(&config));
+    config.gateway_pulse_us = 0u;
+    assert(!config_valid(&config));
+    config.gateway_pulse_us = 1u;
+    assert(config_valid(&config));
+    return 0;
+}
+'''
     path = tmp_path / "sequence.c"
     path.write_text(harness, encoding="utf-8")
     compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or shutil.which("clang")
@@ -186,8 +239,8 @@ def test_production_hot_load_and_pause_boundaries(tmp_path):
             "gateway_start", "gateway_service", "gateway_cancel",
             "sync_io_sequence_service",
             "sync_io_sequence_gateway_fire", "sync_io_sequence_gateway_ready",
-            "sync_io_sequence_counter_rearm", "sync_io_sequence_counter_inject",
-            "sync_io_sequence_software_step",
+            "sync_io_sequence_counter_rearm_prepared", "sync_io_sequence_counter_rearm", "sync_io_sequence_counter_inject",
+            "sync_io_sequence_software_step_prepared", "sync_io_sequence_software_step",
             "sync_io_sequence_pause", "sync_io_sequence_stop"))
     template = (ROOT / "tests/unit/test_sync_io_sequence_resources.c").read_text(encoding="utf-8")
     harness = tmp_path / "resources.c"
@@ -389,8 +442,8 @@ class Sequence:
             index = (transfer + 1) % len(values)
             value = values[index]
             self.words += [value | (index << 4) | ((value | status_mask) << 12),
-                           0 if settle == 0 else settle * 10 - 5,
-                           pulse * 10 - 4 if mode == "PULSE" else 0]
+                           0 if settle == 0 else us(settle) - 5,
+                           us(pulse) - 4 if mode == "PULSE" else 0]
         self.cursor = 0
         self.latest_edge = 0
         self.drain = True
@@ -433,13 +486,13 @@ class Sequence:
                     self.ingress.enabled = not self.paused
             self.time += 1
 
-    def edge(self, *, falling=False, gap=80):
+    def edge(self, *, falling=False, gap=us(8)):
         self.input = not falling
         self.tick(8)
         self.input = falling
         self.tick(gap)
 
-    def tick_until(self, predicate, limit=2000):
+    def tick_until(self, predicate, limit=us(200)):
         for _ in range(limit):
             if predicate():
                 return
@@ -475,16 +528,16 @@ def test_startup_uses_same_delay_and_status_path_without_admission(programs, mod
     assert machine.writes == [(0, first)]
     assert machine.pads == 5 | (mask if mode == "LEVEL" else 0)
     if mode != "NONE":
-        assert machine.rises == [settle * 10 if settle else 5]
+        assert machine.rises == [us(settle) if settle else 5]
     else:
         assert not machine.rises
     if mode == "PULSE":
-        assert machine.falls == [machine.rises[0] + pulse * 10]
+        assert machine.falls == [machine.rises[0] + us(pulse)]
     else:
         assert not machine.falls
     machine.input = False
     machine.tick(10)
-    machine.edge(gap=settle * 10 + pulse * 10 + 30)
+    machine.edge(gap=us(settle) + us(pulse) + 30)
     assert [tag & 15 for _, tag in machine.writes] == [5, 2]
     assert len(machine.receipts) == 4 and machine.latest_edge == 1
 
@@ -493,7 +546,7 @@ def test_startup_uses_same_delay_and_status_path_without_admission(programs, mod
 def test_one_state_startup_emits_status_then_remains_finished(programs, mode):
     mask = 0 if mode == "NONE" else 8
     machine = Sequence(programs, [5], mode=mode, status_mask=mask, startup=True, max_steps=0)
-    machine.tick(100)
+    machine.tick(us(10))
     first = 5 | ((5 | mask) << 12)
     assert machine.receipts == [first, first ^ UINT32]
     assert len(machine.writes) == 1 and not machine.priming
@@ -506,7 +559,7 @@ def test_one_state_startup_emits_status_then_remains_finished(programs, mode):
 
 def test_pause_during_initial_pulse_keeps_admission_closed(programs):
     machine = Sequence(programs, [5, 2], settle=10, pulse=10, startup=True)
-    machine.tick(110)
+    machine.tick(us(11))
     assert machine.pads == 13
     machine.pause()
     machine.resume()
@@ -518,7 +571,7 @@ def test_pause_during_initial_pulse_keeps_admission_closed(programs):
     assert not machine.priming and not machine.ingress.enabled
     machine.resume()
     machine.tick(10)
-    machine.edge(gap=250)
+    machine.edge(gap=us(25))
     assert [tag & 15 for _, tag in machine.writes] == [5, 2]
 
 
@@ -552,11 +605,11 @@ def test_feedback_capture_precedes_trigger_and_latches_once(programs, falling, m
         # A fresh edge during the next code's settling interval is rejected.
         machine.edge(falling=falling, gap=4)
         assert not machine.flags & 32
-    machine.tick(450)
+    machine.tick(us(45))
     assert [tag & 15 for _, tag in machine.writes] == [5, *([2, 7, 5] * 3)[:target]]
     assert len(machine.receipts) == (target + 1) * 2
-    assert all(fall - rise == 200 for rise, fall in zip(machine.rises, machine.falls))
-    assert all(rise - write[0] == 200 for rise, write in zip(machine.rises, machine.writes))
+    assert all(fall - rise == us(20) for rise, fall in zip(machine.rises, machine.falls))
+    assert all(rise - write[0] == us(20) for rise, write in zip(machine.rises, machine.writes))
     assert not machine.priming
     if max_steps is not None:
         for _ in range(3):
@@ -567,12 +620,12 @@ def test_feedback_capture_precedes_trigger_and_latches_once(programs, falling, m
 def test_feedback_pause_drains_one_latched_candidate_then_stays_paused(programs):
     machine = Sequence(programs, [5, 2, 7], settle=1, pulse=20, startup=True,
                        max_steps=2, feedback=True)
-    machine.tick(12)
+    machine.tick(us(1) + 2)
     machine.edge(gap=4)
     assert machine.flags & 32 and machine.priming
     machine.pause()
     for _ in range(10):
-        machine.edge(gap=80)
+        machine.edge(gap=us(8))
     assert not machine.priming and len(machine.writes) == 2 and len(machine.receipts) == 4
     assert machine.pads == 2 and not machine.ingress.enabled
     machine.input = True
@@ -581,10 +634,10 @@ def test_feedback_pause_drains_one_latched_candidate_then_stays_paused(programs)
     assert len(machine.writes) == 2  # held level is not a fresh feedback edge
     machine.input = False
     machine.tick(4)
-    machine.edge(gap=250)
+    machine.edge(gap=us(25))
     assert len(machine.writes) == 3
     for _ in range(5):
-        machine.edge(gap=250)
+        machine.edge(gap=us(25))
     assert len(machine.writes) == 3  # finite quota was not reset by resume
 
 
@@ -594,11 +647,11 @@ def test_feedback_short_pulse_startup_with_immediate_sweep_end(programs, settle,
     machine = Sequence(programs, [5, 2], settle=settle, pulse=pulse, startup=True,
                        max_steps=1, feedback=True)
     machine.tick_until(lambda: len(machine.rises) == 1)
-    machine.edge(gap=settle * 10 + pulse * 20 + 50)
+    machine.edge(gap=us(settle) + us(pulse * 2) + 50)
     assert [value & 15 for _, value in machine.writes] == [5, 2]
     assert len(machine.receipts) == 4 and not machine.priming
     assert machine.writes[1][0] > machine.falls[0]
-    assert [fall - rise for rise, fall in zip(machine.rises, machine.falls)] == [pulse * 10] * 2
+    assert [fall - rise for rise, fall in zip(machine.rises, machine.falls)] == [us(pulse)] * 2
 
 
 @pytest.mark.parametrize("falling", [False, True])
@@ -606,20 +659,20 @@ def test_feedback_initial_active_requires_new_edge_and_accepts_late_completion(p
     machine = Sequence(programs, [0, 3, 6], settle=1, pulse=1, falling=falling,
                        startup=True, max_steps=2, feedback=True)
     machine.input = not falling
-    machine.tick(300)
+    machine.tick(us(30))
     assert len(machine.writes) == 1 and machine.latest_edge == 0
     assert len(machine.falls) == 1 and machine.flags & 16
     # Holding the old completion level through START cannot advance the plan.
     # A genuine edge long after the outgoing pulse must still be accepted.
     machine.input = falling
     machine.tick(10)
-    machine.edge(falling=falling, gap=300)
+    machine.edge(falling=falling, gap=us(30))
     assert [tag & 15 for _, tag in machine.writes] == [0, 3]
     assert machine.latest_edge == 1 and len(machine.receipts) == 4
-    machine.edge(falling=falling, gap=300)
+    machine.edge(falling=falling, gap=us(30))
     assert [tag & 15 for _, tag in machine.writes] == [0, 3, 6]
     assert machine.latest_edge == 2 and len(machine.receipts) == 6
-    machine.edge(falling=falling, gap=300)
+    machine.edge(falling=falling, gap=us(30))
     assert len(machine.writes) == 3
 
 
@@ -633,23 +686,23 @@ def test_feedback_width_and_next_trigger_timing(programs, feedback_width_us):
     machine.tick(1000)
     feedback_rise = machine.time
     machine.input = True
-    machine.tick(feedback_width_us * 10)
+    machine.tick(us(feedback_width_us))
     feedback_fall = machine.time
     machine.input = False
-    machine.tick(400)
+    machine.tick(us(40))
     assert machine.latest_edge == 1
     assert [word & 15 for _, word in machine.writes] == [0, 1]
     assert len(machine.rises) == len(machine.falls) == 2
     assert len(machine.receipts) == 4
     next_code = machine.writes[1][0]
     next_trigger = machine.rises[1]
-    assert next_trigger - next_code == 100  # configured settle, 100 ns ticks
+    assert next_trigger - next_code == us(10)
     # Current behavior does not wait for feedback deassertion before firing.
     assert (next_trigger < feedback_fall) == (feedback_width_us == 100)
     print(f"feedback_width_us={feedback_width_us} "
-          f"feedback_to_code_us={(next_code - feedback_rise) / 10:g} "
-          f"feedback_to_trigger_us={(next_trigger - feedback_rise) / 10:g} "
-          f"trigger_after_feedback_fall_us={(next_trigger - feedback_fall) / 10:g}")
+          f"feedback_to_code_us={(next_code - feedback_rise) / TICKS_PER_US:g} "
+          f"feedback_to_trigger_us={(next_trigger - feedback_rise) / TICKS_PER_US:g} "
+          f"trigger_after_feedback_fall_us={(next_trigger - feedback_fall) / TICKS_PER_US:g}")
 
 
 @pytest.mark.parametrize("pulse_us", [10, 100])
@@ -657,7 +710,7 @@ def test_direct_feedback_loop_completes_ten_rounds(programs, pulse_us):
     machine = Sequence(programs, list(range(8)), settle=10, pulse=pulse_us,
                        startup=True, max_steps=79, feedback=True)
     # OUT4 -> IN1, observed on the following tick. No host-injected edges.
-    for _ in range(100000):
+    for _ in range(80 * (us(10 + pulse_us) + 32)):
         machine.input = bool(machine.pads & 8)
         machine.tick()
         if len(machine.falls) == 80:
@@ -669,7 +722,7 @@ def test_direct_feedback_loop_completes_ten_rounds(programs, pulse_us):
     assert machine.latest_edge == 80
     assert machine.ingress.pc == 7  # finite ingress has exhausted its quota
     print(f"loopback_pulse_us={pulse_us} outputs=80 advances=79 "
-          f"first_rise_to_last_fall_us={(machine.falls[-1] - machine.rises[0]) / 10:g}")
+          f"first_rise_to_last_fall_us={(machine.falls[-1] - machine.rises[0]) / TICKS_PER_US:g}")
 
 
 @pytest.mark.parametrize("values", [[0, 1, 2], list(range(8))])
@@ -687,8 +740,8 @@ def test_full_plan_runs_without_cpu_steps(programs, values, falling):
     assert [value for _, value in machine.writes] == expected
     assert machine.receipts == [word for tag in expected for word in (tag, tag ^ UINT32)]
     assert machine.latest_edge == len(expected)
-    assert [rise - write[0] for rise, write in zip(machine.rises, machine.writes)] == [20] * len(expected)
-    assert [fall - rise for fall, rise in zip(machine.falls, machine.rises)] == [10] * len(expected)
+    assert [rise - write[0] for rise, write in zip(machine.rises, machine.writes)] == [us(2)] * len(expected)
+    assert [fall - rise for fall, rise in zip(machine.falls, machine.rises)] == [us(1)] * len(expected)
 
 
 def test_busy_edges_not_replayed_and_pause_finishes_current_step(programs):
@@ -710,7 +763,7 @@ def test_busy_edges_not_replayed_and_pause_finishes_current_step(programs):
     assert len(machine.writes) == 1
     machine.input = False
     machine.tick(10)
-    machine.edge(gap=300)
+    machine.edge(gap=us(30))
     assert [tag & 15 for _, tag in machine.writes] == [2, 3]
 
 
@@ -767,17 +820,17 @@ def test_multiple_status_outputs_pulse_together(programs):
     machine.tick(20)
     machine.edge()
     assert machine.pads == 1
-    assert machine.rises == [machine.writes[0][0] + 20]
-    assert machine.falls == [machine.rises[0] + 10]
+    assert machine.rises == [machine.writes[0][0] + us(2)]
+    assert machine.falls == [machine.rises[0] + us(1)]
 
 
 def test_level_status_stays_high_until_next_switch(programs):
     machine = Sequence(programs, [0, 1, 2], status_mask=12, mode="LEVEL")
     machine.tick(20)
-    machine.edge(gap=80)
+    machine.edge(gap=us(8))
     assert machine.pads == 13
     assert machine.falls[0] == machine.writes[0][0]
-    assert machine.rises[-1] == machine.writes[0][0] + 20
+    assert machine.rises[-1] == machine.writes[0][0] + us(2)
     tag = 17 | (13 << 12)
     assert machine.receipts == [tag, tag ^ UINT32]
 
@@ -857,7 +910,7 @@ class Gateway:
 
     def fire(self, pulse_us=1):
         assert not self.pulse.tx
-        self.pulse.tx.append(pulse_us * 10 - 2)
+        self.pulse.tx.append(us(pulse_us) - 2)
 
 
 @pytest.mark.parametrize("output_mask", [1, 2, 4, 8])
@@ -881,9 +934,9 @@ def test_gateway_pio_pulse_captures_ready_without_advancing_dut(programs, output
     owner.input = not falling
     machine.tick(1)
     owner.input = falling
-    machine.tick(pulse_us * 10 + 10)
+    machine.tick(us(pulse_us) + 10)
     assert list(machine.counter.rx) == [1]
-    assert owner.falls[0] - owner.rises[0] == pulse_us * 10
+    assert owner.falls[0] - owner.rises[0] == us(pulse_us)
     assert owner.pads == 15 ^ output_mask
     assert machine.flags & ((1 << 4) | (1 << 5)) == 0
     assert len(machine.pulse.rx) == 1
@@ -900,9 +953,9 @@ def test_gateway_pio_pulse_captures_ready_without_advancing_dut(programs, output
     owner.input = not falling
     machine.tick(1)
     owner.input = falling
-    machine.tick(pulse_us * 10 + 10)
+    machine.tick(us(pulse_us) + 10)
     assert list(machine.counter.rx) == [1, 2]
-    assert owner.falls[1] - owner.rises[1] == pulse_us * 10
+    assert owner.falls[1] - owner.rises[1] == us(pulse_us)
 
 
 @pytest.mark.parametrize("falling", [False, True])
@@ -911,10 +964,10 @@ def test_gateway_out4_in2_loopback_with_minimum_pulse(programs, falling, reverse
     machine = Gateway(programs, falling=falling)
     for index in range(1, 21):
         machine.fire(1)
-        machine.tick(40, loopback=True, reverse_order=reverse_order)
+        machine.tick(us(1) + 30, loopback=True, reverse_order=reverse_order)
         assert list(machine.counter.rx) == [index]
         assert len(machine.pulse.rx) == 1
-        assert machine.owner.falls[-1] - machine.owner.rises[-1] == 10
+        assert machine.owner.falls[-1] - machine.owner.rises[-1] == us(1)
         machine.counter.rx.clear()
         machine.pulse.rx.clear()
 
@@ -924,7 +977,7 @@ def test_gateway_already_active_ready_does_not_block_trigger_or_count_stale_leve
     machine = Gateway(programs, falling=falling)
     machine.owner.input = not falling
     machine.fire(1)
-    machine.tick(50)
+    machine.tick(us(1) + 40)
     assert len(machine.owner.rises) == len(machine.owner.falls) == 1
     assert not machine.counter.rx
     machine.owner.input = falling
@@ -942,7 +995,7 @@ def test_gateway_missing_ready_sm_holds_grant_before_output(programs):
     assert not machine.owner.rises and machine.flags == 1 << 6
     assert machine.pulse.pc == 2
     machine.counter.enabled = True
-    machine.tick(40, loopback=True)
+    machine.tick(us(1) + 30, loopback=True)
     assert len(machine.owner.rises) == 1 and list(machine.counter.rx) == [1]
 
 
@@ -950,9 +1003,9 @@ def test_gateway_manual_ready_and_completion_backpressure(programs):
     machine = Gateway(programs, manual=True)
     machine.pulse.rx.extend([1, 2, 3, 4])
     machine.fire(1)
-    machine.tick(40)
+    machine.tick(us(1) + 30)
     assert len(machine.owner.rises) == len(machine.owner.falls) == 1
-    assert machine.owner.falls[0] - machine.owner.rises[0] == 10
+    assert machine.owner.falls[0] - machine.owner.rises[0] == us(1)
     assert machine.flags == 0 and machine.pulse.rx_stall
     assert machine.pulse.pc == 6 and not (machine.owner.pads & 8)
     machine.pulse.rx.clear()
@@ -965,7 +1018,7 @@ def test_compact_executor_preserves_three_word_plan_and_settle_receipts(programs
     machine = Sequence(programs, [5, 2, 7], mode="NONE", status_mask=0,
                        settle=settle, startup=True)
     machine.executor.words = programs["none_executor"][:]
-    machine.tick(settle * 10 + 20)
+    machine.tick(us(settle) + 20)
     first = 5 | (5 << 12)
     assert machine.receipts == [first, first ^ UINT32]
     assert machine.pads == 5 and not machine.rises and not machine.falls
@@ -977,9 +1030,9 @@ def test_compact_executor_preserves_three_word_plan_and_settle_receipts(programs
         machine.input = True
         machine.tick(10)
         machine.input = False
-        machine.tick(settle * 10 + 20)
+        machine.tick(us(settle) + 20)
         assert machine.pads == expected and len(machine.receipts) == before + 2
     assert not machine.executor.rx_stall
-    expected_delay = settle * 10 if settle else 5
+    expected_delay = us(settle) if settle else 5
     assert [machine.receipt_times[2 * index + 1] - write[0]
             for index, write in enumerate(machine.writes)] == [expected_delay] * len(machine.writes)

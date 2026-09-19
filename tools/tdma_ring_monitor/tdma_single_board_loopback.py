@@ -122,8 +122,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+class SnapshotBusy(RuntimeError):
+    """A complete SCPI reply explicitly reports unavailable diagnostic data."""
+
+    def __init__(self, response: str):
+        super().__init__("TDMA diagnostic snapshot is BUSY")
+        self.response = response
+
+
 def sample(ser, timeout_s: float) -> dict:
     raw_tdma = query(ser, "SYSTem:REFMEM:SYNC:TDMA:STATus?", timeout_s)
+    if raw_tdma.strip() == '"BUSY"':
+        raise SnapshotBusy(raw_tdma)
     tdma = tdma_status_fields(raw_tdma)
     raw_phys = query(ser, "SYSTem:SYNC:VDC:TDMA:PHYS?", timeout_s)
     phys = parse_named(raw_phys, PHYS_FIELDS)

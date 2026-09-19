@@ -10,8 +10,9 @@
 #include "pota_types.h"
 #include "trigger_sequence_link.h"
 #include "tdma_pio_spi_ring_adapter.h"
+#include "board_config.h"
 
-static bool frozen, legacy_busy;
+static bool frozen, legacy_busy, history_busy;
 static bool configuration_gate;
 static bool link_rejected;
 static trigger_sequence_link_status_t link_status;
@@ -66,7 +67,16 @@ bool trigger_sequence_link_get_history(uint32_t ordinal, trigger_sequence_link_h
         .trigger_ordinal = 8u, .ready_ordinal = 8u,
         .position_admitted_tick_ms = 100u, .sample_done_tick_ms = 180u,
         .cycle_elapsed_ms = 80u,
-        .outcome_flags = 7u};
+        .outcome_flags = 7u, .timing_flags = 63u,
+        .timing_ticks = {0u, 1u, 4294967296ull, 4294967297ull, 4294967298ull, 4294967299ull}};
+    return true;
+}
+bool trigger_sequence_link_get_history_status(trigger_sequence_link_history_status_t *status)
+{
+    if (history_busy) return false;
+    *status = (trigger_sequence_link_history_status_t){
+        TRIGGER_SEQUENCE_LINK_HISTORY_VECTOR_VERSION, BOARD_SYS_CLOCK_HZ,
+        TRIGGER_SEQUENCE_LINK_HISTORY_CAPACITY, 4u, 5u, 6u, 1000u, 240u, 240u, 0u};
     return true;
 }
 tdma_pio_spi_ring_adapter_t *tdma_runtime_owner_get_ring_adapter(void) { return NULL; }
@@ -88,6 +98,8 @@ static const scpi_command_t commands[] = {
     {.pattern="READ:SEQuence:COUNter?", .callback=scpi_sequence_counter_q},
     {.pattern="READ:SEQuence:COUNter:HISTory?", .callback=scpi_sequence_counter_history_q},
     {.pattern="READ:SEQuence:HISTory?", .callback=scpi_sequence_history_q},
+    {.pattern="READ:SEQuence:HISTory:TIMing?", .callback=scpi_sequence_history_timing_q},
+    {.pattern="READ:SEQuence:HISTory:STATus?", .callback=scpi_sequence_history_status_q},
     SCPI_CMD_LIST_END
 };
 static size_t output(scpi_t *context, const char *data, size_t size)
@@ -121,6 +133,8 @@ int main(void)
             else if (strncmp(line,"@config_clear",13)==0) configuration_gate=false;
             else if (strncmp(line,"@link_reject",12)==0) link_rejected=true;
             else if (strncmp(line,"@link_accept",12)==0) link_rejected=false;
+            else if (strncmp(line,"@history_busy",13)==0) history_busy=true;
+            else if (strncmp(line,"@history_ready",14)==0) history_busy=false;
             else if (strncmp(line,"@link_status",12)==0) {
                 const trigger_sequence_link_config_t config = link_status.config;
                 link_status = (trigger_sequence_link_status_t){

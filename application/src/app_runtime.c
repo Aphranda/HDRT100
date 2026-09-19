@@ -180,7 +180,7 @@ static void core1_realtime_entry(void)
     /* HAOFV realtime core discipline: core1 uses a cycle count as its timing
      * source of truth. Every round executes at a deterministic phase so the
      * TDMA/VDC window schedule (vdc_domain_plan_tdma_window) stays
-     * predictable; microseconds below are only the pico-sdk sleep API's
+     * predictable; microseconds below are only the pico-sdk timer API's
      * derived representation. */
     _Static_assert(BOARD_SYS_CLOCK_HZ % 1000000u == 0u,
                    "clk_sys must convert to whole cycles per microsecond");
@@ -189,7 +189,12 @@ static void core1_realtime_entry(void)
     app_realtime_cycle_counter_init();
     uint64_t next_tick_us = to_us_since_boot(get_absolute_time()) + tick_us;
     while (true) {
-        sleep_until(from_us_since_boot(next_tick_us));
+        /* This bare-metal core must release from its own hardware timer.
+         * SDK sleep_until uses the shared alarm pool and a Core0 wake event;
+         * its non-RTOS WFE path can defer an otherwise ready realtime cycle.
+         * Polling only waits for the existing absolute release: it admits no
+         * extra work in GUARD and a late release still catches up below. */
+        busy_wait_until(from_us_since_boot(next_tick_us));
         drv_flash_core1_lockout_poll();
         if (app_realtime_apply_pending_profile_core1()) {
             tick_us = app_realtime_cycle_cycles_core1() /

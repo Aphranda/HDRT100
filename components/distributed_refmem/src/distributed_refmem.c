@@ -27,6 +27,7 @@
 #include "tdma_process_image_map.h"
 #include "tdma_profile.h"
 #include "vdc_dpll_manager.h"
+#include "vdc_timestamp_clock.h"
 #include "trigger_sequence_link.h"
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
@@ -215,7 +216,7 @@ typedef struct {
     uint32_t reference_slot;
     uint32_t remote_slot;
     uint32_t publish_interval_ms;
-    uint32_t last_publish_ms;
+    uint64_t last_publish_ticks;
     uint32_t next_seq32;
     uint32_t tx_publish_count;
     uint32_t tx_reject_count;
@@ -670,14 +671,20 @@ static void distributed_refmem_tdma_flight_sync_publish(
         return;
     }
 
-    const uint32_t now_ms = osal_tick_ms();
+    uint64_t now_ticks;
+    if (!vdc_timestamp_clock_try_read_ticks64(BOARD_SYS_CLOCK_HZ, &now_ticks) ||
+        now_ticks < s_tdma_flight_sync.last_publish_ticks) {
+        s_tdma_flight_sync.last_error = 8u; /* Hardware timestamp unavailable. */
+        return;
+    }
     uint32_t publish_interval_ms = s_tdma_flight_sync.publish_interval_ms;
     const uint32_t ring_interval_ms =
-        (ring->feedback_timeout_ns + 999999u) / 1000000u;
+        (uint32_t)(((uint64_t)ring->feedback_timeout_ns + 999999u) / 1000000u);
     if (ring_interval_ms > publish_interval_ms) {
         publish_interval_ms = ring_interval_ms;
     }
-    if (now_ms - s_tdma_flight_sync.last_publish_ms < publish_interval_ms) {
+    if (now_ticks - s_tdma_flight_sync.last_publish_ticks <
+        (uint64_t)publish_interval_ms * BOARD_SYS_CLOCK_HZ / 1000u) {
         return;
     }
 
@@ -691,7 +698,7 @@ static void distributed_refmem_tdma_flight_sync_publish(
         fifo.tx_ready_count != 0u) {
         return;
     }
-    s_tdma_flight_sync.last_publish_ms = now_ms;
+    s_tdma_flight_sync.last_publish_ticks = now_ticks;
 
     uint8_t frame[DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE];
     size_t frame_size = 0u;

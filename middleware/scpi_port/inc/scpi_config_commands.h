@@ -14,6 +14,12 @@ bool scpi_sequence_param_plan(scpi_t *context,
 scpi_result_t scpi_config_trigger_parameter(scpi_t *context);
 scpi_result_t scpi_config_trigger_parameter_q(scpi_t *context);
 scpi_result_t scpi_config_angle_sweep_q(scpi_t *context);
+scpi_result_t scpi_config_angle_sweep(scpi_t *context);
+scpi_result_t scpi_config_angle_input(scpi_t *context);
+scpi_result_t scpi_config_angle_input_q(scpi_t *context);
+scpi_result_t scpi_config_angle_speed(scpi_t *context);
+scpi_result_t scpi_config_angle_speed_q(scpi_t *context);
+scpi_result_t scpi_config_angle_unsupported(scpi_t *context);
 scpi_result_t scpi_config_angle_pulse_q(scpi_t *context);
 scpi_result_t scpi_config_angle_position_q(scpi_t *context);
 scpi_result_t scpi_config_angle_breakpoint_q(scpi_t *context);
@@ -29,13 +35,17 @@ scpi_result_t scpi_config_switch(scpi_t *context);
 #define SCPI_CONFIG_COMMANDS \
     {.pattern = "CONFigure:TRIGger", .callback = scpi_config_trigger_parameter}, \
     {.pattern = "READ:TRIGger:PARameter?", .callback = scpi_config_trigger_parameter_q}, \
-    {.pattern = "CONFigure:ANGLe:SWEEp", .callback = scpi_port_result_accepted}, \
+    {.pattern = "CONFigure:ANGLe:SWEEp", .callback = scpi_config_angle_sweep}, \
+    {.pattern = "CONFigure:ANGLe:INPut", .callback = scpi_config_angle_input}, \
+    {.pattern = "READ:ANGLe:INPut?", .callback = scpi_config_angle_input_q}, \
+    {.pattern = "CONFigure:ANGLe:SPEEd", .callback = scpi_config_angle_speed}, \
+    {.pattern = "READ:ANGLe:SPEEd?", .callback = scpi_config_angle_speed_q}, \
     {.pattern = "READ:ANGLe:SWEEp?", .callback = scpi_config_angle_sweep_q}, \
-    {.pattern = "CONFigure:ANGLe:PULSe", .callback = scpi_port_result_accepted}, \
+    {.pattern = "CONFigure:ANGLe:PULSe", .callback = scpi_config_angle_unsupported}, \
     {.pattern = "READ:ANGLe:PULSe?", .callback = scpi_config_angle_pulse_q}, \
     {.pattern = "READ:ANGLe:POSition?", .callback = scpi_config_angle_position_q}, \
-    {.pattern = "CONFigure:ANGLe:BREAkpoint", .callback = scpi_port_result_accepted}, \
-    {.pattern = "CONFigure:ANGLe:BREAkpoint:CLEAr", .callback = scpi_port_result_accepted}, \
+    {.pattern = "CONFigure:ANGLe:BREAkpoint", .callback = scpi_config_angle_unsupported}, \
+    {.pattern = "CONFigure:ANGLe:BREAkpoint:CLEAr", .callback = scpi_config_angle_unsupported}, \
     {.pattern = "READ:ANGLe:BREAkpoint?", .callback = scpi_config_angle_breakpoint_q}, \
     {.pattern = "CONFigure:SEQuence", .callback = scpi_config_sequence}, \
     {.pattern = "READ:SEQuence?", .callback = scpi_config_sequence_q}, \

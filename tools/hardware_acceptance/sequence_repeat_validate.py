@@ -66,7 +66,17 @@ def stop_ring(port, args, report):
     deadline = time.monotonic() + args.timeout
     samples = report.setdefault("ring_stop_samples", [])
     while True:
-        observation = ring.sample(port, args.timeout)
+        try:
+            observation = ring.sample(port, args.timeout)
+        except ring.SnapshotBusy as exc:
+            error = ring.query(port, "SYSTem:ERRor?", args.timeout)
+            report.setdefault("ring_stop_unavailable", []).append(
+                {"raw_tdma": exc.response, "error": error})
+            require(error.lstrip().startswith("0,"),
+                    "TDMA STOP snapshot BUSY with SCPI error: " + error)
+            require(time.monotonic() < deadline, "TDMA STOP snapshot remained BUSY")
+            time.sleep(args.poll)
+            continue
         samples.append(observation)
         if all(ring.field(observation, index) == 0 for index in
                (ring.RING_ADAPTER_STARTED, ring.RING_UP_RUNNING, ring.RING_DOWN_RUNNING)):
@@ -200,7 +210,7 @@ def parse_args(argv=None):
         parser.error("times and source-hz must be finite and positive")
     if not 0 <= args.repeat <= 0xffffffff // 8 or args.minimum_events < 9:
         parser.error("repeat must fit the firmware step counter; minimum-events must be >=9")
-    if not 0 <= args.settle_us <= 0xffffffff // 10 or not 0 < args.pulse_us <= 0xffffffff // 10:
+    if not 0 <= args.settle_us <= 0xffffffff // 250 or not 0 < args.pulse_us <= 0xffffffff // 250:
         parser.error("invalid timing range")
     return args
 

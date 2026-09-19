@@ -3,6 +3,7 @@
 #include "refmem_realtime_contract.h"
 #include "tdma_runtime_owner.h"
 #include "sync_io_sequence.h"
+#include "board_config.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -12,6 +13,9 @@ static refmem_node_load_table_t loads;
 static refmem_fb_instance_table_t instances;
 static tdma_ring_runtime_snapshot_t ring;
 static uint32_t tick, model_epoch = 7u, fire_count, ready_count, step_count, stop_count;
+static uint64_t clock_offset;
+static uint32_t clock_read_step;
+static bool clock_valid = true;
 static bool transport_enabled, transport_accept = true, gateway_accept = true;
 static bool probe_service_guard, probe_config_guard, snapshot_accept = true;
 static bool probe_next_guard;
@@ -19,15 +23,35 @@ static bool reconfigure_in_snapshot, model_change_in_snapshot, restart_in_snapsh
 static uint32_t stop_on_owner_read;
 static bool configuration_gate, stop_pending, action_busy;
 static uint32_t service_guard_calls, config_guard_calls;
+static uint32_t critical_entries, owner_status_reads;
 static bool (*guard)(void);
+static bool (*transport_action)(bool (*action)(void), bool *result);
+void trigger_sequence_service_set_transport_action_locked(
+    bool (*dispatch)(bool (*action)(void), bool *result))
+{ assert(configuration_gate); transport_action = dispatch; }
+bool tdma_runtime_owner_run_bound_action(uint32_t config_seq, uint32_t starts,
+    bool (*action)(void), bool *result)
+{
+    if (!ring.enabled || ring.config_seq != config_seq ||
+        ring.adapter_start_count != starts) return false;
+    *result = action();
+    return true;
+}
 static const trigger_sequence_link_config_t config = {
     .enabled = true, .dut_slot = 2u, .vna_slot = 3u, .ready_input = 1u,
     .trigger_output_mask = 8u, .pulse_us = 10u, .timeout_ms = 100u,
 };
 
-void osal_critical_enter(void) {}
+void osal_critical_enter(void) { ++critical_entries; }
 void osal_critical_exit(void) {}
-uint32_t osal_tick_ms(void) { return tick; }
+bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz, uint64_t *out)
+{
+    assert(hz == BOARD_SYS_CLOCK_HZ);
+    if (!clock_valid) return false;
+    *out = clock_offset + (uint64_t)tick * (BOARD_SYS_CLOCK_HZ / 1000u);
+    clock_offset += clock_read_step;
+    return true;
+}
 uint32_t refmem_realtime_contract_origin_model_epoch(void) { return model_epoch; }
 const refmem_node_load_table_t *refmem_application_model_get_node_load_table(void) { return &loads; }
 const refmem_fb_instance_table_t *refmem_application_model_get_fb_instance_table(void) { return &instances; }
@@ -70,8 +94,11 @@ bool trigger_sequence_service_configuration_begin(void)
 }
 void trigger_sequence_service_configuration_end(void)
 { assert(configuration_gate); configuration_gate = false; }
+void trigger_sequence_service_set_repeat_locked(uint32_t count)
+{ assert(configuration_gate); owner.repeat_count = count; }
 void trigger_sequence_service_get_status(trigger_sequence_service_status_t *out)
 {
+    ++owner_status_reads;
     if (probe_service_guard) {
         /* Real service() has already taken its writer lock. A preempting
          * START reader must still authorize the unchanged frozen binding. */
@@ -160,6 +187,10 @@ trigger_sequence_service_result_t trigger_sequence_service_counter_rearm(uint32_
 
 static void fixture(void)
 {
+    ring = (tdma_ring_runtime_snapshot_t){.config_seq = 1u, .applied_config_seq = 1u,
+        .node_count = 2u, .down_running = 1u, .ring_profile_crc32 = 31u,
+        .schedule_crc32 = 41u, .operating_profile_crc32 = 51u,
+        .cycle_period_ns = 1000000u, .baud_hz = 10000000u};
     loads.load_count = 2u;
     loads.load[0] = (refmem_node_load_entry_t){.node_id = 2u, .instance_id = 5u,
         .role_mask = REFMEM_APP_ROLE_LINK_SWITCHER, .enabled = 1u};
@@ -306,6 +337,7 @@ static void software_next(void)
     assert(trigger_sequence_link_configure(&manual));
     ring.enabled = ring.adapter_started = ring.data_enabled = ring.up_running = 1u;
     ring.local_slot_id = 0u;
+    assert(guard());
     owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
     owner.run_id = 11u; owner.generation = 19u; owner.count = 8u;
     owner.accepted = owner.completed = 0u;
@@ -408,6 +440,47 @@ static void timeout(void)
     receive(f); assert(fire_count == 0u && step_count == 0u);
     receive(restarted); assert(fire_count == 1u && step_count == 0u);
 }
+static void hardware_clock_timeout(void)
+{
+    clock_offset = UINT64_C(0xffffffff) - 100u;
+    start();
+    tick = config.timeout_ms;
+    trigger_sequence_link_service();
+    assert(stop_count == 0u);
+    ++clock_offset; /* One TIMER1 cycle beyond the exact configured deadline. */
+    trigger_sequence_link_service();
+    trigger_sequence_link_status_t status; trigger_sequence_link_get_status(&status);
+    assert(status.error == 2u && stop_count == 1u);
+}
+static void hardware_clock_failure(const char *stage)
+{
+    start();
+    fragments_t f;
+    if (!strcmp(stage, "rx")) outgoing(f);
+    clock_valid = false;
+    if (!strcmp(stage, "start")) {
+        assert(!guard());
+        return;
+    }
+    if (!strcmp(stage, "tx")) {
+        uint8_t fragment[10];
+        assert(!trigger_sequence_link_tx_fragment(fragment));
+    } else if (!strcmp(stage, "rx")) {
+        for (uint32_t i = 0u; i < TRIGGER_SEQUENCE_LINK_FRAGMENT_COUNT; ++i)
+            trigger_sequence_link_rx_fragment(0u, f[i]);
+    }
+    trigger_sequence_link_service();
+    trigger_sequence_link_status_t status; trigger_sequence_link_get_status(&status);
+    assert(status.error == 8u && stop_count == 1u && fire_count == 0u);
+    owner.state = TRIGGER_SEQUENCE_SERVICE_IDLE;
+    trigger_sequence_link_service(); /* STOP remains possible without a clock. */
+    clock_valid = true;
+    ++owner.run_id;
+    owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
+    trigger_sequence_link_service();
+    outgoing(f); receive(f);
+    assert(fire_count == 1u);
+}
 static void model_changed(void)
 {
     start(); ++model_epoch; trigger_sequence_link_service();
@@ -442,6 +515,7 @@ static void first_settle(void)
     assert(trigger_sequence_link_configure(&config));
     ring.enabled = ring.adapter_started = ring.data_enabled = ring.up_running = 1u;
     ring.local_slot_id = 0u;
+    assert(guard());
     owner.state = TRIGGER_SEQUENCE_SERVICE_RUNNING;
     owner.run_id = 11u; owner.generation = 19u;
     owner.accepted = 1u; owner.completed = 0u;
@@ -593,6 +667,11 @@ static void counter_rounds(uint32_t repeat, uint32_t count)
         assert(record.sample_done_tick_ms - record.position_admitted_tick_ms ==
             record.cycle_elapsed_ms);
         assert(record.outcome_flags == 7u);
+        assert(record.timing_flags == (1u << TRIGGER_SEQUENCE_LINK_TIME_COUNT) - 1u);
+        for (uint32_t i = 1u; i < TRIGGER_SEQUENCE_LINK_TIME_COUNT; ++i)
+            assert(record.timing_ticks[i] >= record.timing_ticks[i - 1u]);
+        assert(record.timing_ticks[TRIGGER_SEQUENCE_LINK_TIME_DONE] /
+            (BOARD_SYS_CLOCK_HZ / 1000u) == record.cycle_elapsed_ms);
     }
     assert(!trigger_sequence_link_get_history(0u, &record));
     assert(!trigger_sequence_link_get_history(status.history_total + 1u, &record));
@@ -651,6 +730,7 @@ static void software_next_contention(void)
     trigger_sequence_link_config_t manual = config; manual.ready_input = 0u;
     assert(trigger_sequence_link_configure(&manual));
     ring.enabled = ring.adapter_started = ring.data_enabled = ring.up_running = 1u;
+    assert(guard());
     owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
     owner.run_id = 11u; owner.generation = 19u; owner.count = 8u;
     trigger_sequence_link_service(); fragments_t f; outgoing(f); receive(f);
@@ -669,6 +749,7 @@ static void software_ready_batch(void)
     assert(trigger_sequence_link_configure(&manual));
     ring.enabled = ring.adapter_started = ring.data_enabled = ring.up_running = 1u;
     ring.local_slot_id = 0u;
+    assert(guard());
     owner.state = TRIGGER_SEQUENCE_SERVICE_READY;
     owner.run_id = 11u; owner.generation = 19u; owner.count = 8u;
     owner.repeat_count = 1u; owner.accepted = owner.completed = 0u;
@@ -724,6 +805,33 @@ static void counter_config_rejections(void)
     assert(trigger_sequence_link_configure(&maximum));
     trigger_sequence_link_get_status(&after);
     assert(after.config.counter_threshold == SYNC_IO_SEQUENCE_COUNTER_LIMIT - 1u);
+}
+static void angle_atomic_configuration(void)
+{
+    counter_start(1u, 8u);
+    owner.state = TRIGGER_SEQUENCE_SERVICE_IDLE;
+    ring.enabled = ring.adapter_started = 0u;
+    trigger_sequence_link_status_t before, after;
+    trigger_sequence_link_get_status(&before);
+    trigger_sequence_link_config_t next = before.config;
+    next.counter_threshold = 50u;
+    assert(trigger_sequence_link_binding_is_current(before.binding_epoch, before.model_epoch));
+    ++model_epoch;
+    assert(!trigger_sequence_link_binding_is_current(before.binding_epoch, before.model_epoch));
+    --model_epoch;
+    assert(trigger_sequence_service_configuration_begin());
+    gateway_accept = false;
+    assert(!trigger_sequence_link_configure_position_locked(&next, 2u));
+    trigger_sequence_link_get_status(&after);
+    assert(after.binding_epoch == before.binding_epoch && owner.repeat_count == 1u);
+    gateway_accept = true;
+    assert(trigger_sequence_link_configure_position_locked(&next, 2u));
+    trigger_sequence_link_get_status(&after);
+    assert(after.binding_epoch == before.binding_epoch + 1u && owner.repeat_count == 2u);
+    assert(!trigger_sequence_link_binding_is_current(before.binding_epoch, before.model_epoch));
+    assert(trigger_sequence_link_binding_is_current(after.binding_epoch, after.model_epoch));
+    assert(after.config.counter_threshold == 50u && after.config.ready_input == before.config.ready_input);
+    trigger_sequence_service_configuration_end();
 }
 static void counter_fault_restart(void)
 {
@@ -982,10 +1090,119 @@ static void runtime_frozen_model(void)
     ++model_epoch;
     assert(trigger_sequence_link_service() && stop_count == 1u);
 }
+
+static void transport_binding_change(const char *field)
+{
+    start(); fragments_t f; outgoing(f); receive_transport_only(f);
+    if (!strcmp(field, "config")) ++ring.config_seq;
+    else if (!strcmp(field, "reapply")) { ++ring.config_seq; ++ring.applied_config_seq; }
+    else if (!strcmp(field, "reference")) ++ring.reference_slot_id;
+    else if (!strcmp(field, "local")) ++ring.local_slot_id;
+    else if (!strcmp(field, "schedule")) ++ring.schedule_crc32;
+    else if (!strcmp(field, "profile")) ++ring.ring_profile_crc32;
+    else if (!strcmp(field, "operating")) ++ring.operating_profile_crc32;
+    else if (!strcmp(field, "cycle")) ++ring.cycle_period_ns;
+    else if (!strcmp(field, "baud")) ++ring.baud_hz;
+    else if (!strcmp(field, "nodes")) ++ring.node_count;
+    else if (!strcmp(field, "down")) ring.down_running = 0u;
+    else if (!strcmp(field, "flags")) ++ring.flags;
+    else if (!strcmp(field, "groups")) ++ring.down_group_id;
+    else if (!strcmp(field, "restart")) ++ring.adapter_start_count;
+    else assert(0);
+    assert(!trigger_sequence_link_tx_fragment(f[0]));
+    receive_transport_only(f);
+    assert(trigger_sequence_link_service() && stop_count == 1u && !fire_count);
+    trigger_sequence_link_status_t status;
+    trigger_sequence_link_get_status(&status);
+    assert(status.phase == 7u && status.error == 9u);
+}
+
+static void transport_snapshot_busy(bool expires)
+{
+    start(); fragments_t f; outgoing(f); receive_transport_only(f);
+    snapshot_accept = false;
+    assert(!trigger_sequence_link_tx_fragment(f[0]));
+    assert(!trigger_sequence_link_service() && !fire_count && !stop_count);
+    if (expires) {
+        tick += config.timeout_ms + 1u;
+        assert(trigger_sequence_link_service() && stop_count == 1u && !fire_count);
+    } else {
+        snapshot_accept = true;
+        /* A physical cycle update is not a configuration change. */
+        ++ring.ring_seq; ++ring.service_seq; ++ring.adapter_tx_count;
+        assert(trigger_sequence_link_service() && fire_count == 1u && !stop_count);
+    }
+}
+
+static void transport_counter_wait_busy(void)
+{
+    counter_start(1u, 8u);
+    tick += 10000u;
+    snapshot_accept = false;
+    assert(!trigger_sequence_link_service() && !stop_count);
+    ++tick;
+    snapshot_accept = true;
+    assert(!trigger_sequence_link_service() && !stop_count);
+    owner.counter_events = 10u;
+    counter_request();
+    counter_sample();
+    assert(fire_count == 1u && !stop_count);
+}
+
+static void raw_timing_boundaries(void)
+{
+    clock_offset = UINT64_C(0xffffffff) - 300u * (BOARD_SYS_CLOCK_HZ / 1000u);
+    counter_start(1u, 1u);
+    owner.counter_events = 10u;
+    counter_request();
+    trigger_sequence_link_history_t record;
+    assert(trigger_sequence_link_get_history(1u, &record) && record.timing_flags == 3u);
+    fragments_t f;
+    ++clock_offset;
+    outgoing(f);
+    clock_offset += 2u;
+    receive_transport_only(f);
+    action_busy = true;
+    trigger_sequence_link_service();
+    assert(!fire_count);
+    clock_offset += 4u;
+    action_busy = false;
+    trigger_sequence_link_service();
+    assert(fire_count == 1u);
+    clock_offset += 11u;
+    owner.gateway_waiting = owner.gateway_pulse_busy = false;
+    ++owner.gateway_ready_count;
+    trigger_sequence_link_service();
+    assert(trigger_sequence_link_get_history(1u, &record));
+    assert(record.timing_flags == 63u && record.outcome_flags == 7u);
+    const uint64_t expected[] = {0u, 0u, 1u, 3u, 7u, 18u};
+    assert(memcmp(expected, record.timing_ticks, sizeof(expected)) == 0);
+    assert(record.cycle_elapsed_ms == 0u); /* Sub-millisecond data is retained. */
+}
+
+static void raw_timing_fresh_reads(void)
+{
+    counter_start(1u, 1u);
+    clock_read_step = 1u;
+    owner.counter_events = 10u;
+    counter_request();
+    counter_sample();
+    trigger_sequence_link_history_t record;
+    assert(trigger_sequence_link_get_history(1u, &record) && record.timing_flags == 63u);
+    assert(record.timing_ticks[0] > 0u);
+    for (unsigned i = 1u; i < TRIGGER_SEQUENCE_LINK_TIME_COUNT; ++i)
+        assert(record.timing_ticks[i] > record.timing_ticks[i - 1u]);
+}
 int main(int argc, char **argv)
 {
     assert(argc == 2); fixture();
-    if (!strcmp(argv[1], "transport_stop_at_action")) transport_stop_at_action();
+    if (!strcmp(argv[1], "raw_timing")) raw_timing_boundaries();
+    else if (!strcmp(argv[1], "raw_timing_fresh")) raw_timing_fresh_reads();
+    else if (!strncmp(argv[1], "binding_", 8)) transport_binding_change(argv[1] + 8);
+    else if (!strcmp(argv[1], "transport_snapshot_busy")) transport_snapshot_busy(false);
+    else if (!strcmp(argv[1], "transport_snapshot_timeout")) transport_snapshot_busy(true);
+    else if (!strcmp(argv[1], "transport_counter_wait_busy")) transport_counter_wait_busy();
+    else if (!strcmp(argv[1], "transport_stop_at_action")) transport_stop_at_action();
     else if (!strcmp(argv[1], "transport_publish_after_discard")) transport_publish_after_discard();
     else if (!strcmp(argv[1], "transport_deferred")) transport_deferred();
     else if (!strcmp(argv[1], "transport_stop")) transport_stop_pending();
@@ -999,6 +1216,12 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[1], "stop")) stopped();
     else if (!strcmp(argv[1], "pause")) paused();
     else if (!strcmp(argv[1], "timeout")) timeout();
+    else if (!strcmp(argv[1], "clock_timeout")) hardware_clock_timeout();
+    else if (!strncmp(argv[1], "clock_failure_", 14)) hardware_clock_failure(argv[1] + 14);
+    else if (!strcmp(argv[1], "clock_history_wrap")) {
+        clock_offset = (UINT64_C(0xffffffff) - 305u) * (BOARD_SYS_CLOCK_HZ / 1000u);
+        counter_rounds(2u, 8u);
+    }
     else if (!strcmp(argv[1], "model")) model_changed();
     else if (!strcmp(argv[1], "config")) configure_rejections();
     else if (!strcmp(argv[1], "rollback")) configure_rollback();
@@ -1021,6 +1244,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[1], "counter_stale")) counter_stale();
     else if (!strcmp(argv[1], "software_next_contention")) software_next_contention();
     else if (!strcmp(argv[1], "counter_config")) counter_config_rejections();
+    else if (!strcmp(argv[1], "angle_atomic")) angle_atomic_configuration();
     else if (!strcmp(argv[1], "counter_fault_restart")) counter_fault_restart();
     else if (!strcmp(argv[1], "counter_rearm_boundary")) counter_rearm_boundary();
     else if (!strcmp(argv[1], "counter_resume_boundary")) counter_resume_boundary();

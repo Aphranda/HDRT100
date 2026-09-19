@@ -53,6 +53,38 @@ def test_transport_diagnostics_preserve_facts_without_claiming_root_cause(reason
                       last_reject_name=name, snapshot_quality_name="FRESH")
 
 
+@pytest.mark.parametrize("scenario", ["recover", "expired", "scpi_error", "malformed"])
+def test_ring_snapshot_retries_only_explicit_busy_with_deadline(monkeypatch, scenario):
+    args = type("Args", (), {"timeout": 1.0, "poll": 0.01})()
+    clock = iter([0.0, 2.0 if scenario == "expired" else 0.0])
+    monkeypatch.setattr(target.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(target.time, "sleep", lambda _: None)
+    error = '-200,"Execution error"' if scenario == "scpi_error" else '0,"No error"'
+    monkeypatch.setattr(target.ring, "query", lambda *unused: error)
+    calls = []
+
+    def sample(*unused):
+        calls.append(1)
+        if scenario == "malformed":
+            raise AssertionError("malformed TDMA status")
+        if len(calls) == 1:
+            raise target.ring.SnapshotBusy('"BUSY"')
+        return {"tdma": [0]}
+
+    monkeypatch.setattr(target.ring, "sample", sample)
+    report = {}
+    if scenario == "recover":
+        assert target.ring_snapshot(object(), args, report, "test") == {"tdma": [0]}
+        assert len(calls) == 2
+    else:
+        match = {"expired": "snapshot is BUSY", "scpi_error": "SCPI error", "malformed": "malformed"}
+        with pytest.raises((RuntimeError, AssertionError), match=match[scenario]):
+            target.ring_snapshot(object(), args, report, "test")
+        assert len(calls) == 1
+    if scenario != "malformed":
+        assert report["ring_snapshot_busy"] == [{"label": "test", "response": '"BUSY"', "error": error}]
+
+
 @pytest.mark.parametrize("bad", ["", "1,0,0,5,0,0", "1,0,0,5,0,0,0,0",
     "1,0,0,-1,0,0,1", "１,0,0,0,0,0,1", "2,0,0,0,0,0,1", "1,2,0,0,0,0,1",
     "1,0,65536,0,0,0,1", "1,0,0,4294967296,0,0,1", "1,0,0,0,0,0,3"])
@@ -238,8 +270,10 @@ def test_execute_exception_preserves_cleanup_failures(tmp_path, monkeypatch, err
     report = json.loads((tmp_path / "evidence.json").read_text(encoding="utf-8"))
     assert report["raw_failed_snapshot"] == "kept"
     assert type(error).__name__ in report["failure"]
-    assert len(report["cleanup_failures"]) == 3
-    assert "sequence stop lost port" in report["cleanup_failures"][0]
+    assert len(report["cleanup_failures"]) == 5
+    assert report["cleanup_failures"][0].startswith("ring diagnostic snapshot:")
+    assert report["cleanup_failures"][1].startswith("ring diagnostic error query:")
+    assert "sequence stop lost port" in report["cleanup_failures"][2]
     assert actions == ["SYSTem:TDMA:RING:STOP", "CALibration:TOPology:PROBe 0"]
     assert not report["passed"]
 
@@ -531,3 +565,53 @@ def test_cleanup_attributes_scpi_error_to_transport_query(tmp_path, monkeypatch)
     assert record["error_before"].startswith("0,")
     assert record["error_after"].startswith("-200,")
     assert "SCPI error from READ:SEQ:LINK:TRANSPORT?" in report["cleanup_failures"][0]
+
+
+@pytest.mark.parametrize("error_reply", ['-200,"Execution error"', '0,"No error"', None])
+def test_cleanup_preserves_ring_diagnostic_failure_before_stop(tmp_path, monkeypatch, error_reply):
+    bench, report = execute_fixture(tmp_path, monkeypatch, [snapshot(phase=1)], repeat=0)
+    bench.current = bench.rows.pop(0)
+    original = bench.command
+    pending_diagnostic = [False]
+    commands = []
+    def command(text):
+        commands.append(text)
+        if text == "SYST:ERR?":
+            if pending_diagnostic[0]:
+                pending_diagnostic[0] = False
+                if error_reply is None:
+                    raise TimeoutError("error queue unavailable")
+                return error_reply
+            return '0,"No error"'
+        if text == "READ:SEQ:LINK:TRANSPORT?":
+            return "1,0,0,0,0,0,1"
+        if text.startswith("SYST:"):
+            return "0"
+        return original(text)
+    bench.command = command
+    def ring_sample(*args):
+        if "diagnostic_failure" not in report:
+            pending_diagnostic[0] = True
+            commands.append("failed ring snapshot")
+            raise TimeoutError("TDMA snapshot timeout")
+        return {"tdma": [0] * 200}
+    def checked_action(port, command, timeout):
+        assert not pending_diagnostic[0]
+        commands.append(command)
+        return {"response": "OK"}
+    monkeypatch.setattr(target.ring, "sample", ring_sample)
+    monkeypatch.setattr(target.ring, "checked_action", checked_action)
+    monkeypatch.setattr(target, "read_io",
+        lambda b: dict(inputs=0, outputs=0, owned=0, armed=0, busy=0))
+    target.cleanup(bench, object(), report)
+    assert commands[commands.index("failed ring snapshot") + 1] == "SYST:ERR?"
+    assert report["diagnostic_failure"] == "TimeoutError: TDMA snapshot timeout"
+    assert report["cleanup_failures"][0].startswith("ring diagnostic snapshot:")
+    assert all(not failure.startswith("TDMA stop:") for failure in report["cleanup_failures"])
+    assert report["ring_stop_readbacks"] and report["stopped"]["io"]["owned"] == 0
+    if error_reply is None:
+        assert "error queue unavailable" in report["diagnostic_error_read_failure"]
+        assert len(report["cleanup_failures"]) == 2
+    else:
+        assert report["diagnostic_error_after"] == error_reply
+        assert len(report["cleanup_failures"]) == 1

@@ -43,6 +43,7 @@ static bool s_pause_requested;
 static bool s_run_armed;
 static trigger_sequence_gateway_config_t s_gateway;
 static bool (*s_gateway_guard)(void);
+static bool (*s_transport_action)(bool (*action)(void), bool *result);
 static uint32_t s_repeat_count = 1u;
 static uint32_t s_configuration_guard;
 static uint32_t s_inject_input;
@@ -87,6 +88,7 @@ void trigger_sequence_service_init(void)
     s_run_armed = false;
     memset(&s_gateway, 0, sizeof(s_gateway));
     s_gateway_guard = NULL;
+    s_transport_action = NULL;
     s_repeat_count = 1u;
     s_configuration_guard = 0u;
     s_inject_input = 0u;
@@ -411,6 +413,7 @@ trigger_sequence_service_result_t trigger_sequence_service_set_repeat(uint32_t c
     trigger_sequence_service_configuration_end();
     return result;
 }
+void trigger_sequence_service_set_repeat_locked(uint32_t count) { s_repeat_count = count; }
 uint32_t trigger_sequence_service_get_repeat(void) { return s_repeat_count; }
 
 trigger_sequence_service_result_t trigger_sequence_service_set_gateway_locked(
@@ -612,6 +615,20 @@ static void publish(command_t command, uint32_t serial)
     osal_critical_exit();
 }
 
+void trigger_sequence_service_set_transport_action_locked(
+    bool (*dispatch)(bool (*action)(void), bool *result))
+{
+    s_transport_action = dispatch;
+}
+
+static bool dispatch_output(bool (*action)(void), bool *result)
+{
+    if (s_run.gateway.enabled && s_transport_action)
+        return s_transport_action(action, result);
+    *result = action();
+    return true;
+}
+
 void trigger_sequence_service_service(void)
 {
     osal_critical_enter();
@@ -679,14 +696,23 @@ void trigger_sequence_service_service(void)
     } else if (command == COMMAND_EXHAUSTED) {
         fail(TRIGGER_SEQUENCE_SERVICE_EXHAUSTED);
     } else if (command == COMMAND_STEP) {
+        bool action_result;
         if (s_runtime.accepted == UINT32_MAX) fail(TRIGGER_SEQUENCE_SERVICE_EXHAUSTED);
-        else if (!sync_io_sequence_software_step()) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
+        else if (!dispatch_output(sync_io_sequence_software_step_prepared, &action_result)) {
+            publish(COMMAND_NONE, serial); return;
+        } else if (!action_result) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
     } else if (command == COMMAND_GATEWAY_FIRE) {
-        if (!sync_io_sequence_gateway_fire()) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
+        bool action_result;
+        if (!dispatch_output(sync_io_sequence_gateway_fire, &action_result)) {
+            publish(COMMAND_NONE, serial); return;
+        } else if (!action_result) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
     } else if (command == COMMAND_GATEWAY_READY) {
         if (!sync_io_sequence_gateway_ready()) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
     } else if (command == COMMAND_COUNTER_REARM) {
-        if (!sync_io_sequence_counter_rearm()) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
+        bool action_result;
+        if (!dispatch_output(sync_io_sequence_counter_rearm_prepared, &action_result)) {
+            publish(COMMAND_NONE, serial); return;
+        } else if (!action_result) fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);
     } else if (command == COMMAND_COUNTER_INJECT) {
         if (!sync_io_sequence_counter_inject(s_inject_input, s_inject_count))
             fail(TRIGGER_SEQUENCE_SERVICE_BACKEND);

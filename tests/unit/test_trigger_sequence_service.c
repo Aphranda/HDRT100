@@ -51,7 +51,7 @@ bool sync_io_sequence_arm_plan_bytes(const sync_io_sequence_config_t *config,
     hw_config = *config;
     for (uint32_t i = 0u; i < count; ++i) hw_values[i] = values[i];
     hw.plan_count = count;
-    hw.tick_ns = 100;
+    hw.tick_ns = SYNC_IO_SEQUENCE_TICK_NS;
     hw.timing_kind = TRIGGER_SEQUENCE_TIMING_PIO0;
     hw.current_index = 0u;
     hw.completed_index = UINT32_MAX;
@@ -92,6 +92,8 @@ bool sync_io_sequence_software_step(void)
     }
     return hw.fault == 0;
 }
+bool sync_io_sequence_software_step_prepared(void)
+{ return sync_io_sequence_software_step(); }
 
 static void physical_write(void)
 {
@@ -143,6 +145,8 @@ bool sync_io_sequence_counter_rearm(void)
     ++hw.counter_rearm_count;
     return true;
 }
+bool sync_io_sequence_counter_rearm_prepared(void)
+{ return sync_io_sequence_counter_rearm(); }
 bool sync_io_sequence_counter_inject(uint32_t input_channel, uint32_t count)
 {
     if (!inject_success || input_channel != hw_config.counter_input_channel || !count)
@@ -214,7 +218,8 @@ static void start(void)
     assert(trigger_sequence_service_config()->frozen && !hw.armed);
     trigger_sequence_service_service();
     assert(status().state == TRIGGER_SEQUENCE_SERVICE_READY && hw.armed);
-    assert(status().tick_ns == 100 && status().timing_kind == TRIGGER_SEQUENCE_TIMING_PIO0);
+    assert(status().tick_ns == SYNC_IO_SEQUENCE_TICK_NS &&
+           status().timing_kind == TRIGGER_SEQUENCE_TIMING_PIO0);
     assert(status().current_index == 0u &&
            status().next_index == (status().count == 1u ? 0u : 1u));
     assert(status().accepted == 0u && status().completed == 0u);
@@ -652,6 +657,52 @@ static void test_position_counter_owner(void)
     stop();
 }
 
+static bool permit_transport;
+static bool transport_dispatch(bool (*action)(void), bool *result)
+{
+    if (!permit_transport) return false;
+    *result = action();
+    return true;
+}
+
+static void test_transport_revokes_queued_output(void)
+{
+    for (unsigned kind = 0u; kind < 3u; ++kind) {
+        setup();
+        assert(trigger_sequence_service_set_outputs(3u, 0u,
+            TRIGGER_SEQUENCE_STATUS_NONE, 10u, 0u) == TRIGGER_SEQUENCE_SERVICE_OK);
+        const trigger_sequence_gateway_config_t gateway = {
+            .enabled = true, .ready_input = 1u, .trigger_output_mask = 8u,
+            .pulse_us = 10u, .counter_input = 2u, .counter_threshold = 1000u};
+        assert(trigger_sequence_service_set_gateway(&gateway, gateway_start_guard) == TRIGGER_SEQUENCE_SERVICE_OK);
+        assert(trigger_sequence_service_configuration_begin());
+        trigger_sequence_service_set_transport_action_locked(transport_dispatch);
+        trigger_sequence_service_configuration_end();
+        start();
+        hw.counter_busy = true;
+        trigger_sequence_service_service();
+        const trigger_sequence_service_status_t before = status();
+        trigger_sequence_service_result_t queued = kind == 0u ?
+            trigger_sequence_service_cycle_step(before.run_id, before.generation, before.completed) :
+            kind == 1u ? trigger_sequence_service_gateway_fire(before.run_id, before.generation, before.completed) :
+            trigger_sequence_service_counter_rearm(before.run_id, before.generation, before.completed);
+        assert(queued == TRIGGER_SEQUENCE_SERVICE_OK);
+        permit_transport = false; /* TDMA STOP wins after the command was queued. */
+        trigger_sequence_service_service();
+        assert(s_command != COMMAND_NONE && !s_processing);
+        assert(hw.accepted == before.accepted && !hw.gateway_trigger_count && !hw.counter_rearm_count);
+        if (kind == 0u) {
+            permit_transport = true; /* Transient control lock contention: retry once. */
+            trigger_sequence_service_service();
+            assert(hw.accepted == before.accepted + 1u && s_command == COMMAND_NONE);
+        }
+        stop();
+        permit_transport = true;
+        trigger_sequence_service_service();
+        assert(status().state == TRIGGER_SEQUENCE_SERVICE_IDLE && !hw.armed);
+    }
+}
+
 int main(void)
 {
     test_bus_receipt_lifecycle();
@@ -668,6 +719,7 @@ int main(void)
     test_configuration_transaction_excludes_start();
     test_gateway_ready_mailbox();
     test_position_counter_owner();
+    test_transport_revokes_queued_output();
     puts("sequence service lifecycle passed");
     return 0;
 }

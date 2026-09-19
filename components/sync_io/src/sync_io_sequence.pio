@@ -133,7 +133,7 @@ public counted:
 .wrap
 
 ; Replaces ingress in combined MANUAL/NONE mode. IRQ6 is internal to PIO0,
-; never a CPU interrupt. Manual READY patches grant to NOP [2]. At 10 MHz
+; never a CPU interrupt. Manual READY patches grant to NOP [2]. At 250 MHz
 ; the high interval remains countdown + 2 ticks; grant delay is before high.
 .program sequence_gateway
 .wrap_target

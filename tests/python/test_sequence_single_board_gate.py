@@ -184,7 +184,7 @@ def start_report(sha):
 def position_entry(events=10, positions=0, phase=9, steps=0, triggers=0, ready=0, run=1, repeat=2):
     return dict(link=dict(enabled=1, phase=phase, error=0, binding_epoch=3, model_epoch=4,
         run=run, generation=2, repeat=repeat, triggers=triggers, ready=ready, completed=steps),
-        counter=dict(enabled=1, input=1, threshold=1000, events=events, positions=positions,
+        counter=dict(enabled=1, input=3, threshold=1000, events=events, positions=positions,
                      history_total=triggers, history_retained=triggers, phase=phase, error=0, fault_events=0),
         owner=owner(steps, run=run))
 
@@ -210,12 +210,12 @@ def position_cycles(positions=2):
 
 def position_config(gui_sha, *, repeat_count=2, manual=False):
     return dict(passed=True, flight_mode="2", repeat_configuration={"configured": repeat_count},
-        input_simulation={"method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN1,<count>",
+        input_simulation={"method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN3,<count>",
                           "ready_command": "TRIG:SEQ:INJECT READY,<count>" if manual else None,
                           "physical_edge_count_verified": False,
                           "physical_ready_verified": not manual},
         gui_control={"module_sha256": gui_sha}, configured={
-            "counter": dict(enabled=1, slot=1, input=1, threshold=1000),
+            "counter": dict(enabled=1, slot=1, input=3, threshold=1000),
             "link": dict(enabled=1, phase=1, error=0, dutslot=2, vnaslot=3,
                          input=0 if manual else 2, outputmask=8)},
         roles={str(i): f"{i},{name},1,1,0,0,0,0,0,0" for i, name in ((2, "COUNTER"), (5, "DUT"), (7, "VNA"))},
@@ -224,7 +224,7 @@ def position_config(gui_sha, *, repeat_count=2, manual=False):
 
 def position_report(sha, gui_sha):
     report = common_report("single_board_position_two_rounds_and_busy_boundary", sha,
-        threshold=1000, lifecycle=True, source_hz=50, duration=55, gateway_timeout_ms=10000,
+        threshold=1000, lifecycle=True, source_hz=50, duration=55, gateway_timeout_ms=10000, counter_input="IN3",
         position_cycle_target_ms=200)
     report["software_input_simulation_verified"] = True
     for name, manual in (("two_positions", False), ("busy_boundary", True)):
@@ -241,12 +241,12 @@ def position_report(sha, gui_sha):
             profile.update(history=history(), position_cycles=position_cycles(),
                            terminal_repeat=dict(configured=2, run=2, finished=1))
         profile.update(injections=[
-                dict(command="TRIG:SEQ:INJECT IN1,999", count=999, issued_at=1.0, response="1"),
-                dict(command="TRIG:SEQ:INJECT IN1,1", count=1, issued_at=2.0, response="1"),
-                dict(command="TRIG:SEQ:INJECT IN1,1000", count=1000, issued_at=3.0, response="1")],
+                dict(command="TRIG:SEQ:INJECT IN3,999", count=999, issued_at=1.0, response="1"),
+                dict(command="TRIG:SEQ:INJECT IN3,1", count=1, issued_at=2.0, response="1"),
+                dict(command="TRIG:SEQ:INJECT IN3,1000", count=1000, issued_at=3.0, response="1")],
             ready_injection=None,
             input_simulation={
-                "method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN1,<count>",
+                "method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN3,<count>",
                 "ready_command": "TRIG:SEQ:INJECT READY,<count>" if manual else None,
                 "physical_edge_count_verified": False,
                 "physical_ready_verified": not manual},
@@ -264,12 +264,12 @@ def position_report(sha, gui_sha):
     life["position_complete"] = [position_entry(1000, 1, 9, 7, 8, 8, repeat=0)]
     life["restarted"] = [position_entry(run=2, repeat=0)]
     life.update(injections=[
-            dict(command="TRIG:SEQ:INJECT IN1,1", count=1, issued_at=1.0, response="1"),
-            dict(command="TRIG:SEQ:INJECT IN1,3", count=3, issued_at=2.0, response="1"),
-            dict(command="TRIG:SEQ:INJECT IN1,996", count=996, issued_at=3.0, response="1")],
+            dict(command="TRIG:SEQ:INJECT IN3,1", count=1, issued_at=1.0, response="1"),
+            dict(command="TRIG:SEQ:INJECT IN3,3", count=3, issued_at=2.0, response="1"),
+            dict(command="TRIG:SEQ:INJECT IN3,996", count=996, issued_at=3.0, response="1")],
         ready_injection=None,
         input_simulation={
-            "method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN1,<count>",
+            "method": "SCPI", "counter_command": "TRIG:SEQ:INJECT IN3,<count>",
             "ready_command": None, "physical_edge_count_verified": False,
             "physical_ready_verified": True},
         history=history(1), position_cycles=position_cycles(1),
@@ -517,6 +517,7 @@ def test_position_window_tracks_declared_frequency(source_hz, duration):
     assert float(cli[cli.index("--duration") + 1]) == duration
     assert cli[cli.index("--gateway-timeout-ms") + 1] == "10000"
     assert "--lifecycle" in cli and "1000" == cli[cli.index("--threshold") + 1]
+    assert cli[cli.index("--counter-input") + 1] == "IN3"
 
 
 @pytest.mark.parametrize("frequency", [0, -1, float("nan"), float("inf"), None, True])
@@ -527,7 +528,14 @@ def test_invalid_source_frequency_is_rejected(frequency):
 
 def test_scope_expansion_is_exact_and_excludes_unrelated_tdma():
     gate.validate_scope(["application/src/app.c", "tools/visa_ota_update/visa_ota_update.py",
-                         "tests/python/test_refmem_layout.py"])
+                         "tests/python/test_refmem_layout.py",
+                         "application/src/app_runtime.c",
+                         "components/tdma/src/tdma_service.c",
+                         "components/tdma/src/tdma_runtime_owner.c",
+                         "components/vdc_domain/src/vdc_timestamp_clock.c",
+                         "middleware/scpi_port/src/scpi_system_snapshot_commands.c",
+                         "tests/unit/test_trigger_sequence_history_vector.c",
+                         "tools/hardware_acceptance/sequence_timing_analyze.py"])
     with pytest.raises(AcceptanceError, match="outside"):
-        gate.validate_scope(["components/tdma/src/tdma_service.c"])
+        gate.validate_scope(["components/tdma/src/tdma_ring_runtime.c"])
     assert not any("*" in path for path in gate.SOURCE_ALLOWLIST)

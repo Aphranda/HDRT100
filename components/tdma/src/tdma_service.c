@@ -1088,6 +1088,23 @@ bool tdma_service_ring_stop(tdma_service_service_t *service)
     return true;
 }
 
+bool tdma_service_run_bound_action(tdma_service_service_t *service,
+    uint32_t config_seq, uint32_t adapter_start_count,
+    bool (*action)(void), bool *action_result)
+{
+    if (!service || !action || !action_result ||
+        !tdma_service_ring_control_lock(service)) return false;
+    /* Runtime result fields have the calling Core1 as their sole writer.
+     * The control guard excludes Core0 STOP/config changes through submit. */
+    const tdma_ring_runtime_t *r = &service->ring_runtime;
+    const bool valid = r->enabled && r->adapter_started && r->data_enabled &&
+        r->up_running && r->down_running && r->config_seq == config_seq &&
+        r->applied_config_seq == config_seq && r->adapter_start_count == adapter_start_count;
+    if (valid) *action_result = action();
+    tdma_service_ring_control_unlock(service);
+    return valid;
+}
+
 bool tdma_service_submit_tx(tdma_service_service_t *service,
                                     const tdma_service_intent_config_t *config)
 {

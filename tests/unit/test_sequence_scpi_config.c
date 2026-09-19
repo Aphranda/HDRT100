@@ -5,6 +5,8 @@
 #include "scpi_config_commands.h"
 #include "distributed_config.h"
 #include "trigger_sequence_service.h"
+#include "trigger_sequence_link.h"
+#include "sync_io_sequence.h"
 
 static trigger_sequence_store_t store;
 static char output[32768];
@@ -12,6 +14,33 @@ static size_t output_size;
 static unsigned error_count;
 static bool legacy_running;
 static bool configuration_gate;
+static trigger_sequence_link_status_t link;
+static uint32_t repeat_count = 1u;
+static bool link_accept = true;
+static uint32_t model_epoch;
+
+uint32_t trigger_sequence_service_get_repeat(void) { return repeat_count; }
+void trigger_sequence_link_get_status(trigger_sequence_link_status_t *out) { *out = link; }
+bool trigger_sequence_link_binding_is_current(uint32_t binding_epoch, uint32_t epoch)
+{
+    return binding_epoch != 0u && binding_epoch == link.binding_epoch &&
+        epoch == link.model_epoch && epoch == model_epoch && link.config.enabled;
+}
+bool trigger_sequence_link_configure_position_locked(
+    const trigger_sequence_link_config_t *config, uint32_t repeat)
+{
+    assert(configuration_gate);
+    if (!link_accept || !config->enabled || !config->counter_enabled ||
+        config->counter_input == config->ready_input ||
+        !config->counter_threshold || config->counter_threshold >= SYNC_IO_SEQUENCE_COUNTER_LIMIT)
+        return false;
+    link.config = *config;
+    link.model_epoch = model_epoch;
+    ++link.binding_epoch;
+    link.counter_consumed = link.counter_events = link.counter_partial = 0u;
+    repeat_count = repeat;
+    return true;
+}
 
 trigger_sequence_store_t *trigger_sequence_service_config(void) { return &store; }
 bool trigger_sequence_service_configuration_begin(void)
@@ -80,6 +109,24 @@ int main(void)
         if (strcmp(line, "@thaw\n") == 0) { store.frozen = false; continue; }
         if (strcmp(line, "@legacy\n") == 0) { legacy_running = true; continue; }
         if (strcmp(line, "@idle\n") == 0) { legacy_running = false; continue; }
+        if (strcmp(line, "@position\n") == 0) {
+            link.config.enabled = link.config.counter_enabled = true;
+            link.config.counter_input = 1u; link.config.ready_input = 2u;
+            link.config.counter_threshold = 1000u;
+            ++link.binding_epoch; continue;
+        }
+        if (strcmp(line, "@linkfail\n") == 0) { link_accept = false; continue; }
+        if (strcmp(line, "@linkok\n") == 0) { link_accept = true; continue; }
+        if (strcmp(line, "@repeat\n") == 0) { repeat_count = 123u; continue; }
+        if (strcmp(line, "@modelchange\n") == 0) { ++model_epoch; continue; }
+        if (strcmp(line, "@first\n") == 0) {
+            link.counter_consumed = 1u; link.counter_events = link.config.counter_threshold + 2u;
+            link.counter_partial = 2u; continue;
+        }
+        if (strcmp(line, "@last\n") == 0) {
+            link.counter_consumed = repeat_count; link.counter_events = repeat_count * link.config.counter_threshold;
+            link.counter_partial = 0u; continue;
+        }
         const trigger_sequence_store_t before = store;
         SCPI_ErrorClear(&context);
         output_size = 0u;

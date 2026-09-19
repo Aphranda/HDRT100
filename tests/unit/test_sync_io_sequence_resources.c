@@ -713,7 +713,8 @@ int main(void) {
     assert(enabled == fire_enabled && fake_dma.ch[(uint)s_sequence.dma[3]].busy);
     assert(s_edge_latest == 0u && s_sequence.status.gateway_waiting);
     assert(s_sequence.status.gateway_trigger_count == 1u);
-    assert(tx_value[INGRESS_SM] == 98u && xs[COUNTER_SM] == UINT32_MAX);
+    assert(tx_value[INGRESS_SM] == s_sequence.config.gateway_pulse_us *
+        SYNC_IO_SEQUENCE_TICKS_PER_US - 2u && xs[COUNTER_SM] == UINT32_MAX);
     assert(!sync_io_sequence_gateway_fire());
     assert(!sync_io_sequence_software_step());
     s_edge_latest = 1u; /* Gated counter admits one READY while trigger remains high */

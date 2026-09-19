@@ -182,3 +182,40 @@ def test_existing_evidence_refused_before_discovery(tmp_path, monkeypatch):
     with pytest.raises(FileExistsError):
         tool.main(["--serial-number", "UID", "--build", "BUILD", "--out", str(settings.out)])
     assert settings.out.read_text(encoding="utf-8") == "original failed evidence"
+
+
+@pytest.mark.parametrize("scenario", ["recover", "expired", "scpi_error", "malformed"])
+def test_stop_snapshot_busy_is_bounded_and_preserved(tmp_path, monkeypatch, scenario):
+    settings = args(tmp_path)
+    report = {}
+    monkeypatch.setattr(tool.ring, "checked_action", lambda *a: {"response": '"OK"'})
+    monkeypatch.setattr(tool.time, "sleep", lambda *a: None)
+    times = iter([0, settings.timeout + 1 if scenario == "expired" else 0])
+    monkeypatch.setattr(tool.time, "monotonic", lambda: next(times))
+    error = '-200,"Execution error"' if scenario == "scpi_error" else '0,"No error"'
+    monkeypatch.setattr(tool.ring, "query", lambda *a: error)
+    stopped = {"tdma": [0] * (max(tool.ring.RING_ADAPTER_STARTED,
+        tool.ring.RING_UP_RUNNING, tool.ring.RING_DOWN_RUNNING) + 1)}
+    calls = []
+
+    def sample(*unused):
+        calls.append(1)
+        if scenario == "malformed":
+            raise AssertionError("malformed TDMA status")
+        if len(calls) == 1:
+            raise tool.ring.SnapshotBusy('"BUSY"')
+        return stopped
+
+    monkeypatch.setattr(tool.ring, "sample", sample)
+    if scenario == "recover":
+        tool.stop_ring(object(), settings, report)
+        assert report["ring_stop_samples"] == [stopped]
+        assert len(calls) == 2
+    else:
+        match = {"expired": "remained BUSY", "scpi_error": "SCPI error", "malformed": "malformed"}
+        with pytest.raises((RuntimeError, AssertionError), match=match[scenario]):
+            tool.stop_ring(object(), settings, report)
+        assert len(calls) == 1
+        assert not report["ring_stop_samples"]
+    if scenario != "malformed":
+        assert report["ring_stop_unavailable"] == [{"raw_tdma": '"BUSY"', "error": error}]

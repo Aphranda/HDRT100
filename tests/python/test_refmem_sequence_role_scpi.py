@@ -42,7 +42,7 @@ def parser(tmp_path_factory):
             "sequence_node_config_allowed", "scpi_sequence_node_role", "scpi_sequence_node_role_q",
             "scpi_sequence_link_config", "scpi_sequence_link_q", "scpi_sequence_link_transport_q",
             "scpi_sequence_counter_q", "scpi_sequence_counter_history_q",
-            "scpi_sequence_history_q"]]
+            "scpi_sequence_history_q", "scpi_sequence_history_timing_q", "scpi_sequence_history_status_q"]]
     (directory / "sequence_role_scpi_handlers.inc").write_text("\n\n".join(functions), encoding="utf-8")
     library = ROOT / "third_party/scpi-parser/libscpi"
     includes = [directory, ROOT / "tests/unit/host_stubs", ROOT / "config", ROOT / "osal/inc",
@@ -94,6 +94,14 @@ def test_stage_read_and_activate_real_roles(parser):
     assert rows[4][1][2:4] == ["0", "1"]
     assert rows[4][1][7:] == ["152", "3", "3"]
     assert rows[5][1][2:4] == rows[6][1][2:4] == ["1", "1"]
+
+
+def test_raw_timing_retains_single_tick_and_uint64_values(parser):
+    rows = run(parser, ["READ:SEQ:HIST:TIM? 1", "READ:SEQ:HISTORY:TIMING? 2",
+                        "READ:SEQ:HIST:TIM? 0", "READ:SEQ:HIST:TIM? 1,2"])
+    assert rows[0] == (0, ["1", "250000000", "1", "4", "5", "6", "7", "1", "2", "63",
+                          "0", "1", "4294967296", "4294967297", "4294967298", "4294967299"])
+    assert all(errors > 0 for errors, _ in rows[1:])
 
 
 @pytest.mark.parametrize("counter_role", ["COUNTER", "PULSE_COUNTER"])
@@ -274,3 +282,13 @@ def test_counter_parser_rejects_invalid_and_preserves_config(parser, bad):
     rows = run(parser, ["CONF:SEQ:LINK POSITION,1,2,3,IN1,1000,IN2,OUT4,10,5000,RIS",
                         "READ:SEQ:COUNTER?", bad, "READ:SEQ:COUNTER?"])
     assert rows[2][0] and rows[1] == rows[3]
+
+
+def test_history_vector_status_has_identity_capacity_and_explicit_unavailable(parser):
+    rows = run(parser, ["READ:SEQ:HIST:STAT?", "READ:SEQ:HIST:STAT? 1",
+                        "@history_busy", "READ:SEQ:HIST:STAT?",
+                        "@history_ready", "READ:SEQ:HIST:STAT?"])
+    assert rows[0] == (0, ["1", "250000000", "256", "4", "5", "6", "1000", "240", "240", "0"])
+    assert rows[1][0] > 0
+    assert rows[2] == (0, ["BUSY"])
+    assert rows[3] == rows[0]
