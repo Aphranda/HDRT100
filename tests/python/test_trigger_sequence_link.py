@@ -18,9 +18,12 @@ def link_executable(tmp_path_factory):
         "#ifndef TEST_TDMA_OWNER_H\n#define TEST_TDMA_OWNER_H\n"
         "#include <stdbool.h>\n#include <stdint.h>\n"
         "#include \"tdma_ring_runtime.h\"\n"
+        "#include \"tdma_service.h\"\n"
         "bool tdma_runtime_owner_get_ring_snapshot(tdma_ring_runtime_snapshot_t *out);\n"
         "bool tdma_runtime_owner_run_bound_action(uint32_t c, uint32_t a, bool (*f)(void), bool *r);\n"
-        "bool tdma_runtime_owner_set_local_return_delivery(bool enabled);\n#endif\n", encoding="utf-8")
+        "bool tdma_runtime_owner_set_local_return_delivery(bool enabled);\n"
+        "tdma_stopped_config_result_t tdma_runtime_owner_set_local_return_delivery_checked(bool enabled);\n"
+        "#endif\n", encoding="utf-8")
     executable = path / "sequence-link.exe"
     compiler = (os.environ.get("HOST_CC") or shutil.which("gcc") or
                 shutil.which("clang") or "D:/Microsoft/mingw64/bin/gcc.exe")
@@ -84,7 +87,7 @@ def history_vector_executable(link_executable):
     return executable
 
 
-@pytest.mark.parametrize("case", ["retention", "busy", "concurrent", "lifecycle", "overflow_fault"])
+@pytest.mark.parametrize("case", ["retention", "busy", "concurrent", "lifecycle", "overflow_fault", "config_guards"])
 def test_history_vector(history_vector_executable, case):
     result = subprocess.run([str(history_vector_executable), case], text=True,
                             capture_output=True, timeout=15)

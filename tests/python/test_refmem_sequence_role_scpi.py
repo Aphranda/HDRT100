@@ -231,12 +231,17 @@ def test_link_strict_parameters_preserve_previous_configuration(parser, bad):
     assert rows[1] == rows[3]
 
 
-@pytest.mark.parametrize("busy", ["@active", "@link_reject"])
-def test_link_frozen_or_owner_rejected_preserves_configuration(parser, busy):
+@pytest.mark.parametrize("busy,expected", [
+    ("@active", ["REJECTED", "2", "0", "0", "0"]),
+    ("@config_busy", ["REJECTED", "7", "0", "0", "0"]),
+    ("@link_reject", ["REJECTED", "9", "8", "0", "0"]),
+])
+def test_link_frozen_or_owner_rejected_preserves_configuration(parser, busy, expected):
     rows = run(parser, ["CONF:SEQ:LINK LOOPBACK,2,3,IN1,OUT4,10,5000,RIS",
                         "READ:SEQ:LINK?", busy, "CONF:SEQ:LINK OFF", "READ:SEQ:LINK?",
-                        "@idle", "@link_accept", "CONF:SEQ:LINK OFF", "READ:SEQ:LINK?"])
+                        "@idle", "@config_clear", "@link_accept", "CONF:SEQ:LINK OFF", "READ:SEQ:LINK?"])
     assert rows[2][0] > 0
+    assert rows[2][1] == expected
     assert rows[1] == rows[3]
     assert rows[4] == (0, ["1"])
     assert rows[5][1][0] == "0"

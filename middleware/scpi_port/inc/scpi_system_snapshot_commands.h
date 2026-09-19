@@ -12,6 +12,7 @@ scpi_result_t scpi_cmd_refmem_load_sd(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_node(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_board(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_activate(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_load_activation_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_board_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_table_q(scpi_t *context);
@@ -129,6 +130,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:LOAD:NODE", .callback = scpi_cmd_refmem_load_node}, \
     {.pattern = "SYSTem:REFMEM:LOAD:BOARD", .callback = scpi_cmd_refmem_load_board}, \
     {.pattern = "SYSTem:REFMEM:LOAD:ACTivate", .callback = scpi_cmd_refmem_load_activate}, \
+    {.pattern = "SYSTem:REFMEM:LOAD:ACTivate:STATus?", .callback = scpi_cmd_refmem_load_activation_status_q}, \
     {.pattern = "SYSTem:REFMEM:LOAD:STATus?", .callback = scpi_cmd_refmem_load_status_q}, \
     {.pattern = "SYSTem:REFMEM:LOAD:BOARD:STATus?", .callback = scpi_cmd_refmem_load_board_status_q}, \
     {.pattern = "SYSTem:REFMEM:TABle:IMAGe?", .callback = scpi_cmd_refmem_table_image_q}, \

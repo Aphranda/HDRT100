@@ -184,6 +184,23 @@ static void overflow_and_fault(void)
     assert(status.total == UINT32_MAX && status.overwritten == UINT32_MAX - status.retained);
 }
 
+static void config_guards(void)
+{
+    const trigger_sequence_link_status_t before = s_link;
+    s_guard = 1u;
+    trigger_sequence_link_config_diagnostic_t diagnostic = trigger_sequence_link_configure_checked(&config);
+    assert(diagnostic.result == TRIGGER_SEQUENCE_LINK_CONFIG_WRITER_BUSY);
+    assert(s_guard == 1u && !configuration_gate && !s_configuring);
+    assert(!memcmp(&s_link, &before, sizeof(before)));
+    s_guard = 0u;
+    s_link.binding_epoch = UINT32_MAX;
+    diagnostic = trigger_sequence_link_configure_checked(&config);
+    assert(diagnostic.result == TRIGGER_SEQUENCE_LINK_CONFIG_EPOCH_EXHAUSTED);
+    assert(!s_guard && !configuration_gate && !s_configuring);
+    assert(s_link.binding_epoch == UINT32_MAX && !transport_enabled);
+    assert(!diagnostic.tdma_result && !diagnostic.gateway_result && !diagnostic.rollback_result);
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
@@ -192,6 +209,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[1], "concurrent")) concurrent();
     else if (!strcmp(argv[1], "lifecycle")) lifecycle();
     else if (!strcmp(argv[1], "overflow_fault")) overflow_and_fault();
+    else if (!strcmp(argv[1], "config_guards")) config_guards();
     else assert(false);
     puts("history vector passed");
     return 0;

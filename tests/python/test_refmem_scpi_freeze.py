@@ -35,6 +35,7 @@ def parser(tmp_path_factory):
     names = ["scpi_refmem_model_mode_idle", "scpi_refmem_realtime_idle",
              "scpi_refmem_sequence_config_allowed", "scpi_refmem_result_load_snapshot",
              "scpi_refmem_result_board_load_snapshot", "scpi_refmem_result_table_image_descriptor",
+             "scpi_refmem_result_activation_diagnostic", "scpi_cmd_refmem_load_activation_status_q",
              "scpi_cmd_refmem_load_sd", "scpi_cmd_refmem_load_node", "scpi_cmd_refmem_load_board",
              "scpi_cmd_refmem_load_activate", "scpi_refmem_sync_apply_node_load_delta"]
     config = (ROOT / "middleware/scpi_port/src/scpi_config_commands.c").read_text(encoding="utf-8")

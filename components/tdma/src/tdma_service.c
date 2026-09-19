@@ -943,15 +943,31 @@ void tdma_service_core0_lifecycle_service(tdma_service_service_t *service)
 bool tdma_service_apply_stopped_configuration(tdma_service_service_t *service,
     bool (*apply)(void *context), void *context)
 {
-    if (service == NULL || apply == NULL || !tdma_service_ring_control_lock(service)) return false;
+    return tdma_service_apply_stopped_configuration_checked(service, apply, context) ==
+        TDMA_STOPPED_CONFIG_OK;
+}
+
+tdma_stopped_config_result_t tdma_service_apply_stopped_configuration_checked(
+    tdma_service_service_t *service, bool (*apply)(void *context), void *context)
+{
+    if (service == NULL || apply == NULL) return TDMA_STOPPED_CONFIG_INVALID;
+    if (!tdma_service_ring_control_lock(service)) return TDMA_STOPPED_CONFIG_CONTROL_BUSY;
     tdma_ring_runtime_snapshot_t snapshot;
-    const bool stopped = __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) == 0u &&
-        tdma_service_ring_retire_stopped(service) &&
-        service->ring_control_pending == TDMA_RING_CONTROL_NONE &&
-        tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) &&
-        snapshot.enabled == 0u && snapshot.adapter_started == 0u && snapshot.data_enabled == 0u &&
-        snapshot.config_seq == snapshot.applied_config_seq;
-    const bool result = stopped && apply(context);
+    tdma_stopped_config_result_t result;
+    if (__atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) != 0u)
+        result = TDMA_STOPPED_CONFIG_UPDATE_PENDING;
+    else if (!tdma_service_ring_retire_stopped(service))
+        result = TDMA_STOPPED_CONFIG_RETIRE_PENDING;
+    else if (service->ring_control_pending != TDMA_RING_CONTROL_NONE)
+        result = TDMA_STOPPED_CONFIG_CONTROL_PENDING;
+    else if (!tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot))
+        result = TDMA_STOPPED_CONFIG_SNAPSHOT_BUSY;
+    else if (snapshot.enabled || snapshot.adapter_started || snapshot.data_enabled)
+        result = TDMA_STOPPED_CONFIG_RUNTIME_ACTIVE;
+    else if (snapshot.config_seq != snapshot.applied_config_seq)
+        result = TDMA_STOPPED_CONFIG_GENERATION_PENDING;
+    else
+        result = apply(context) ? TDMA_STOPPED_CONFIG_OK : TDMA_STOPPED_CONFIG_APPLY_REJECTED;
     tdma_service_ring_control_unlock(service);
     return result;
 }
@@ -1529,6 +1545,40 @@ bool tdma_service_get_foundation_crc32(const tdma_service_service_t *service,
             *crc32 = value;
             return true;
         }
+    }
+    return false;
+}
+
+bool tdma_service_get_quality_snapshot(const tdma_service_service_t *service,
+    uint32_t traffic_class, tdma_service_quality_snapshot_t *snapshot)
+{
+    if (service == NULL || snapshot == NULL || traffic_class >= TDMA_TRAFFIC_CLASS_COUNT)
+        return false;
+    /* Binding is lifecycle-owned. configured is separately release-published
+     * by the scheduler; initialization/rebinding requires quiescent readers. */
+    const tdma_traffic_scheduler_t *scheduler = service->traffic_scheduler;
+    for (uint32_t attempt = 0u; attempt < TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT; ++attempt) {
+        const uint32_t intent = tdma_service_load(&service->intent_guard);
+        const uint32_t result = tdma_service_load(&service->result_guard);
+        if ((intent | result) & 1u) continue;
+        const uint32_t configured = scheduler != NULL ?
+            __atomic_load_n(&scheduler->configured, __ATOMIC_ACQUIRE) : 0u;
+        const tdma_service_quality_snapshot_t copy = {
+            .intent_publication = intent, .result_publication = result,
+            .reject_count = tdma_service_load(&service->reject_count),
+            .overrun_count = tdma_service_load(&service->overrun_count),
+            .timeout_count = tdma_service_load(&service->timeout_count),
+            .last_error = configured != 0u ?
+                tdma_service_load(&service->traffic_class_last_error[traffic_class]) :
+                tdma_service_load(&service->last_error),
+        };
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (intent != tdma_service_load(&service->intent_guard) ||
+            result != tdma_service_load(&service->result_guard) ||
+            (scheduler != NULL && configured !=
+                __atomic_load_n(&scheduler->configured, __ATOMIC_ACQUIRE))) continue;
+        *snapshot = copy;
+        return true;
     }
     return false;
 }

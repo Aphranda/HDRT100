@@ -306,18 +306,20 @@ static bool dispatch_transport_action(bool (*action)(void), bool *result)
         expected.adapter_start_count, action, result);
 }
 
-static bool configure(const trigger_sequence_link_config_t *config)
+static trigger_sequence_link_config_result_t configure(
+    const trigger_sequence_link_config_t *config, trigger_sequence_link_config_diagnostic_t *diagnostic)
 {
-    if (!config || (config->counter_enabled && !config->enabled) ||
-        trigger_sequence_service_is_active() ||
-        s_link.binding_epoch == UINT32_MAX) return false;
+    if (!config || (config->counter_enabled && !config->enabled))
+        return TRIGGER_SEQUENCE_LINK_CONFIG_INVALID;
+    if (trigger_sequence_service_is_active()) return TRIGGER_SEQUENCE_LINK_CONFIG_ACTIVE;
+    if (s_link.binding_epoch == UINT32_MAX) return TRIGGER_SEQUENCE_LINK_CONFIG_EPOCH_EXHAUSTED;
     if (config->enabled &&
         (config->dut_slot >= REFMEM_APP_MODEL_NODE_COUNT ||
          config->vna_slot >= REFMEM_APP_MODEL_NODE_COUNT || config->dut_slot == config->vna_slot ||
          config->timeout_ms == 0u || config->timeout_ms > INT32_MAX ||
          !role_present(config->dut_slot, REFMEM_APP_ROLE_LINK_SWITCHER, REFMEM_APP_FB_LINK_SWITCHER) ||
          !role_present(config->vna_slot, REFMEM_APP_ROLE_INSTRUMENT_CONTROLLER,
-                       REFMEM_APP_FB_INSTRUMENT_CONTROLLER))) return false;
+                       REFMEM_APP_FB_INSTRUMENT_CONTROLLER))) return TRIGGER_SEQUENCE_LINK_CONFIG_ROLE_INVALID;
     if (config->counter_enabled &&
         (config->counter_slot >= REFMEM_APP_MODEL_NODE_COUNT ||
          config->counter_slot == config->dut_slot || config->counter_slot == config->vna_slot ||
@@ -325,7 +327,7 @@ static bool configure(const trigger_sequence_link_config_t *config)
          config->counter_input == config->ready_input || config->counter_threshold == 0u ||
          config->counter_threshold >= SYNC_IO_SEQUENCE_COUNTER_LIMIT ||
          !role_present(config->counter_slot, REFMEM_APP_ROLE_PULSE_DISTRIBUTOR,
-                       REFMEM_APP_FB_PULSE_COUNTER))) return false;
+                       REFMEM_APP_FB_PULSE_COUNTER))) return TRIGGER_SEQUENCE_LINK_CONFIG_COUNTER_INVALID;
     trigger_sequence_gateway_config_t gateway = {
         .enabled = config->enabled, .ready_input = config->ready_input,
         .counter_input = config->counter_enabled ? config->counter_input : 0u,
@@ -337,12 +339,15 @@ static bool configure(const trigger_sequence_link_config_t *config)
     if (config->enabled && (config->ready_input > 4u ||
         config->trigger_output_mask == 0u || config->trigger_output_mask > 15u ||
         (config->trigger_output_mask & (config->trigger_output_mask - 1u)) != 0u ||
-        config->pulse_us == 0u || config->pulse_us > SYNC_IO_SEQUENCE_TIME_MAX_US)) return false;
-    if (!tdma_runtime_owner_set_local_return_delivery(config->enabled)) return false;
-    if (trigger_sequence_service_set_gateway_locked(&gateway, start_guard) !=
-        TRIGGER_SEQUENCE_SERVICE_OK) {
-        (void)tdma_runtime_owner_set_local_return_delivery(s_link.config.enabled);
-        return false;
+        config->pulse_us == 0u || config->pulse_us > SYNC_IO_SEQUENCE_TIME_MAX_US))
+        return TRIGGER_SEQUENCE_LINK_CONFIG_GATEWAY_INVALID;
+    diagnostic->tdma_result = tdma_runtime_owner_set_local_return_delivery_checked(config->enabled);
+    if (diagnostic->tdma_result != TDMA_STOPPED_CONFIG_OK)
+        return TRIGGER_SEQUENCE_LINK_CONFIG_TDMA_REJECTED;
+    diagnostic->gateway_result = trigger_sequence_service_set_gateway_locked(&gateway, start_guard);
+    if (diagnostic->gateway_result != TRIGGER_SEQUENCE_SERVICE_OK) {
+        diagnostic->rollback_result = tdma_runtime_owner_set_local_return_delivery_checked(s_link.config.enabled);
+        return TRIGGER_SEQUENCE_LINK_CONFIG_GATEWAY_REJECTED;
     }
     uint32_t epoch = s_link.binding_epoch + 1u;
     trigger_sequence_service_set_transport_action_locked(
@@ -356,7 +361,7 @@ static bool configure(const trigger_sequence_link_config_t *config)
     s_tx_enabled = false;
     discard_inbox();
     discard_ready_credits();
-    return true;
+    return TRIGGER_SEQUENCE_LINK_CONFIG_OK;
 }
 
 static void fail(uint32_t error)
@@ -893,20 +898,34 @@ bool trigger_sequence_link_get_history_status(trigger_sequence_link_history_stat
 }
 bool trigger_sequence_link_configure(const trigger_sequence_link_config_t *config)
 {
-    if (!trigger_sequence_service_configuration_begin()) return false;
+    return trigger_sequence_link_configure_checked(config).result == TRIGGER_SEQUENCE_LINK_CONFIG_OK;
+}
+trigger_sequence_link_config_diagnostic_t trigger_sequence_link_configure_checked(
+    const trigger_sequence_link_config_t *config)
+{
+    trigger_sequence_link_config_diagnostic_t diagnostic = {0};
+    if (trigger_sequence_service_is_active()) {
+        diagnostic.result = TRIGGER_SEQUENCE_LINK_CONFIG_ACTIVE;
+        return diagnostic;
+    }
+    if (!trigger_sequence_service_configuration_begin()) {
+        diagnostic.result = TRIGGER_SEQUENCE_LINK_CONFIG_SERVICE_BUSY;
+        return diagnostic;
+    }
     if (!take()) {
         trigger_sequence_service_configuration_end();
-        return false;
+        diagnostic.result = TRIGGER_SEQUENCE_LINK_CONFIG_WRITER_BUSY;
+        return diagnostic;
     }
     __atomic_store_n(&s_configuring, 1u, __ATOMIC_RELEASE);
-    bool result = configure(config);
+    diagnostic.result = configure(config, &diagnostic);
     publish();
     /* Clear before releasing the sole-writer lock, so a subsequent
      * configure cannot have its in-progress flag cleared by this call. */
     __atomic_store_n(&s_configuring, 0u, __ATOMIC_RELEASE);
     __atomic_store_n(&s_guard, 0u, __ATOMIC_RELEASE);
     trigger_sequence_service_configuration_end();
-    return result;
+    return diagnostic;
 }
 bool trigger_sequence_link_configure_position_locked(
     const trigger_sequence_link_config_t *config, uint32_t repeat_count)
@@ -914,7 +933,8 @@ bool trigger_sequence_link_configure_position_locked(
     if (!config || !config->enabled || !config->counter_enabled || !repeat_count || !take())
         return false;
     __atomic_store_n(&s_configuring, 1u, __ATOMIC_RELEASE);
-    const bool result = configure(config);
+    trigger_sequence_link_config_diagnostic_t diagnostic = {0};
+    const bool result = configure(config, &diagnostic) == TRIGGER_SEQUENCE_LINK_CONFIG_OK;
     if (result) trigger_sequence_service_set_repeat_locked(repeat_count);
     publish();
     __atomic_store_n(&s_configuring, 0u, __ATOMIC_RELEASE);

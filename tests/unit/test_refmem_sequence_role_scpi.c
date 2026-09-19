@@ -9,6 +9,7 @@
 #include "sync_trigger.h"
 #include "pota_types.h"
 #include "trigger_sequence_link.h"
+#include "tdma_service.h"
 #include "tdma_pio_spi_ring_adapter.h"
 #include "board_config.h"
 
@@ -48,11 +49,19 @@ void scpi_port_push_exec_error(scpi_t *context, const char *message)
 { (void)message; SCPI_ErrorPush(context, SCPI_ERROR_EXECUTION_ERROR); }
 scpi_result_t scpi_port_result_accepted(scpi_t *context)
 { SCPI_ResultUInt32(context, 1u); return SCPI_RES_OK; }
-bool trigger_sequence_link_configure(const trigger_sequence_link_config_t *config)
+trigger_sequence_link_config_diagnostic_t trigger_sequence_link_configure_checked(
+    const trigger_sequence_link_config_t *config)
 {
-    if (link_rejected) return false;
+    trigger_sequence_link_config_diagnostic_t diagnostic = {0};
+    if (frozen) diagnostic.result = TRIGGER_SEQUENCE_LINK_CONFIG_ACTIVE;
+    else if (configuration_gate) diagnostic.result = TRIGGER_SEQUENCE_LINK_CONFIG_SERVICE_BUSY;
+    else if (link_rejected) {
+        diagnostic.result = TRIGGER_SEQUENCE_LINK_CONFIG_TDMA_REJECTED;
+        diagnostic.tdma_result = TDMA_STOPPED_CONFIG_GENERATION_PENDING;
+    }
+    if (diagnostic.result != TRIGGER_SEQUENCE_LINK_CONFIG_OK) return diagnostic;
     link_status.config = *config;
-    return true;
+    return diagnostic;
 }
 void trigger_sequence_link_get_status(trigger_sequence_link_status_t *status)
 { *status = link_status; }

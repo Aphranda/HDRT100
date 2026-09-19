@@ -91,8 +91,14 @@ class VisaPort:
         self.buffer = b""
 
     def write(self, data):
-        reply = visa_command(self.instrument, data.decode("ascii").strip(), self.timeout)
-        self.buffer = (reply + "\n").encode("utf-8")
+        command = data.decode("ascii").strip()
+        if command.upper() == "*CLS":
+            self.buffer = b""
+            self.instrument.timeout = int(self.timeout * 1000)
+            self.instrument.write(command)
+        else:
+            reply = visa_command(self.instrument, command, self.timeout)
+            self.buffer = (reply + "\n").encode("utf-8")
         return len(data)
 
     def flush(self):

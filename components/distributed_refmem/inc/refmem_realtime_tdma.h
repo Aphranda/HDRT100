@@ -298,6 +298,9 @@ void refmem_realtime_tdma_core1_service(refmem_realtime_tdma_service_t *service)
 bool refmem_realtime_tdma_get_snapshot(
     const refmem_realtime_tdma_service_t *service,
     refmem_realtime_tdma_snapshot_t *snapshot);
+bool refmem_realtime_tdma_get_quality_snapshot(
+    const refmem_realtime_tdma_service_t *service,
+    tdma_service_quality_snapshot_t *snapshot);
 bool refmem_realtime_tdma_get_snapshot_for_payload_class(
     const refmem_realtime_tdma_service_t *service,
     uint32_t payload_class,

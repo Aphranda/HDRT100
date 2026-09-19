@@ -509,6 +509,20 @@ bool tdma_service_set_ring_diagnostic_burst(tdma_service_service_t *service,
  * stopped-update workers. It must not wait or access hardware. */
 bool tdma_service_apply_stopped_configuration(tdma_service_service_t *service,
     bool (*apply)(void *context), void *context);
+typedef enum {
+    TDMA_STOPPED_CONFIG_OK = 0u,
+    TDMA_STOPPED_CONFIG_INVALID,
+    TDMA_STOPPED_CONFIG_CONTROL_BUSY,
+    TDMA_STOPPED_CONFIG_UPDATE_PENDING,
+    TDMA_STOPPED_CONFIG_RETIRE_PENDING,
+    TDMA_STOPPED_CONFIG_CONTROL_PENDING,
+    TDMA_STOPPED_CONFIG_SNAPSHOT_BUSY,
+    TDMA_STOPPED_CONFIG_RUNTIME_ACTIVE,
+    TDMA_STOPPED_CONFIG_GENERATION_PENDING,
+    TDMA_STOPPED_CONFIG_APPLY_REJECTED,
+} tdma_stopped_config_result_t;
+tdma_stopped_config_result_t tdma_service_apply_stopped_configuration_checked(
+    tdma_service_service_t *service, bool (*apply)(void *context), void *context);
 bool tdma_service_stage_calibration(
     tdma_service_service_t *service,
     const tdma_ring_calibration_stage_t *stage);
@@ -542,6 +556,15 @@ void tdma_service_abort(tdma_service_service_t *service);
 void tdma_service_core1_service(tdma_service_service_t *service);
 bool tdma_service_get_snapshot(const tdma_service_service_t *service,
                                        tdma_service_snapshot_t *snapshot);
+/* Quality-only read: no scheduler/ring/registry locks. Counts are global;
+ * last_error follows the selected class when the scheduler is configured,
+ * matching the RefMem full-snapshot mapping. Failure leaves output intact. */
+typedef struct {
+    uint32_t intent_publication, result_publication;
+    uint32_t reject_count, overrun_count, timeout_count, last_error;
+} tdma_service_quality_snapshot_t;
+bool tdma_service_get_quality_snapshot(const tdma_service_service_t *service,
+    uint32_t traffic_class, tdma_service_quality_snapshot_t *snapshot);
 /* Bounded foundation identity read under the existing intent publication.
  * Independent of result, registry, ring and scheduler diagnostic snapshots.
  * False clears a non-NULL output. True may return zero (including an empty

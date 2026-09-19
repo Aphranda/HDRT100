@@ -43,7 +43,13 @@ def bench(monkeypatch, tmp_path):
 
     @contextmanager
     def port(_args):
-        yield object()
+        class Port:
+            def write(self, data):
+                calls.append(data.decode("ascii").strip())
+                return len(data)
+            def flush(self):
+                pass
+        yield Port()
 
     def transport(_port, command, _timeout):
         nonlocal count, running
@@ -300,7 +306,8 @@ def test_real_setup_failure_keeps_completed_steps(bench, monkeypatch):
 def test_binding_hook_runs_after_topology_before_arm_and_failure_never_starts(bench, monkeypatch):
     args, _, _ = bench
     commands = []
-    monkeypatch.setattr(target, "ring_action", lambda *a: None)
+    monkeypatch.setattr(target, "write_only", lambda *a: {})
+    monkeypatch.setattr(target, "query", lambda *a: '0,"No error"')
     monkeypatch.setattr(target, "checked_action", lambda port, command, timeout:
                         commands.append(command) or {"command": command})
     monkeypatch.setattr(target.time, "sleep", lambda _: None)

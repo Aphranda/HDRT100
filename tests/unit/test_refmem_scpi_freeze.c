@@ -50,6 +50,11 @@ bool distributed_refmem_stage_board_capability(uint32_t a, uint32_t b, uint32_t 
 { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; (void)g; (void)h; (void)i; ++mutations; return true; }
 bool distributed_refmem_activate_staging(uint32_t idle)
 { if (!idle) return false; ++mutations; return true; }
+bool distributed_refmem_activate_staging_checked(uint32_t idle,
+    distributed_refmem_activation_diagnostic_t *diagnostic)
+{ memset(diagnostic, 0, sizeof(*diagnostic)); return distributed_refmem_activate_staging(idle); }
+void distributed_refmem_get_activation_diagnostic(distributed_refmem_activation_diagnostic_t *diagnostic)
+{ memset(diagnostic, 0, sizeof(*diagnostic)); }
 bool distributed_refmem_stage_sd_system_pack(const char *path, uint32_t path_hash,
     uint32_t manifest_status, uint32_t manifest_schema, uint32_t required, uint32_t missing,
     const char *build, uint32_t crc, uint32_t valid, uint32_t error, const uint8_t *data,

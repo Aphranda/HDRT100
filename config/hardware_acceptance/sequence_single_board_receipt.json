@@ -10,80 +10,50 @@
     "no_independent_edge_count",
     "no_tdma_stability"
   ],
-  "created_at": "2026-09-19T08:30:50.809405+00:00",
+  "created_at": "2026-09-19T09:35:39.728489+00:00",
   "serial_number": "839E1AE79EA20F31",
-  "build_id": "20260919074927",
-  "source_tree_sha256": "b59c3c89b4e643e501fa220c7117f8ac245e656a0ffdba316210a818ae50b2a9",
-  "source_file_count": 1187,
+  "build_id": "20260919092554",
+  "source_tree_sha256": "54bb4f69528f8a4eebcbcc8d705c3f84964ef1000fc93fa4b422b1dd42dacecd",
+  "source_file_count": 1191,
   "changed_sources": [
-    "application/src/app_runtime.c",
+    "components/distributed_refmem/inc/distributed_refmem.h",
+    "components/distributed_refmem/inc/refmem_realtime_tdma.h",
     "components/distributed_refmem/src/distributed_refmem.c",
-    "components/sync_io/inc/sync_io_sequence.h",
-    "components/sync_io/src/sync_io_sequence.c",
-    "components/sync_io/src/sync_io_sequence.pio",
+    "components/distributed_refmem/src/refmem_realtime_tdma.c",
     "components/sync_trigger/inc/trigger_sequence_link.h",
-    "components/sync_trigger/inc/trigger_sequence_service.h",
     "components/sync_trigger/src/trigger_sequence_link.c",
-    "components/sync_trigger/src/trigger_sequence_service.c",
     "components/tdma/inc/tdma_runtime_owner.h",
     "components/tdma/inc/tdma_service.h",
     "components/tdma/src/tdma_runtime_owner.c",
     "components/tdma/src/tdma_service.c",
-    "components/vdc_domain/inc/vdc_timestamp_clock.h",
-    "components/vdc_domain/src/vdc_timestamp_clock.c",
-    "middleware/scpi_port/inc/scpi_config_commands.h",
-    "middleware/scpi_port/inc/scpi_sequence_node_commands.h",
-    "middleware/scpi_port/src/scpi_config_commands.c",
+    "middleware/scpi_port/inc/scpi_system_snapshot_commands.h",
     "middleware/scpi_port/src/scpi_sequence_node_commands.c",
     "middleware/scpi_port/src/scpi_system_snapshot_commands.c",
-    "tests/python/test_app_realtime_release.py",
+    "tests/python/test_refmem_activation_diagnostic.py",
+    "tests/python/test_refmem_scpi_freeze.py",
     "tests/python/test_refmem_sequence_role_scpi.py",
-    "tests/python/test_sequence_angle_scpi.py",
-    "tests/python/test_sequence_flight_clock.py",
-    "tests/python/test_sequence_gui_settings.py",
-    "tests/python/test_sequence_loopback_observe.py",
-    "tests/python/test_sequence_position_validate.py",
-    "tests/python/test_sequence_repeat_validate.py",
-    "tests/python/test_sequence_single_board_gate.py",
+    "tests/python/test_sequence_config_validate.py",
     "tests/python/test_sequence_tdma_cycle_validate.py",
-    "tests/python/test_sequence_timer1_clock.py",
-    "tests/python/test_sequence_timing_analyze.py",
-    "tests/python/test_sequence_trigger_debug_ui.py",
-    "tests/python/test_sequence_trigger_debug_ui_layout.py",
-    "tests/python/test_sync_io_sequence.py",
+    "tests/python/test_tdma_foundation_snapshot.py",
     "tests/python/test_tdma_service_nonblocking.py",
     "tests/python/test_tdma_single_board_loopback.py",
-    "tests/python/test_tdma_snapshot_scpi.py",
     "tests/python/test_trigger_sequence_link.py",
+    "tests/unit/test_refmem_activation_diagnostic.c",
+    "tests/unit/test_refmem_realtime_tdma.c",
+    "tests/unit/test_refmem_scpi_freeze.c",
     "tests/unit/test_refmem_sequence_role_scpi.c",
-    "tests/unit/test_sequence_scpi_config.c",
-    "tests/unit/test_sequence_scpi_runtime.c",
-    "tests/unit/test_sync_io_sequence_resources.c",
     "tests/unit/test_tdma_service_nonblocking.c",
     "tests/unit/test_trigger_sequence_history_vector.c",
     "tests/unit/test_trigger_sequence_link.c",
-    "tests/unit/test_trigger_sequence_service.c",
-    "tools/hardware_acceptance/sequence_position_validate.py",
-    "tools/hardware_acceptance/sequence_repeat_validate.py",
+    "tools/hardware_acceptance/sequence_config_validate.py",
     "tools/hardware_acceptance/sequence_single_board_gate.py",
-    "tools/hardware_acceptance/sequence_start_observe.py",
     "tools/hardware_acceptance/sequence_tdma_cycle_validate.py",
-    "tools/hardware_acceptance/sequence_timing_analyze.py",
-    "tools/hardware_acceptance/sequence_trigger_acceptance.py",
-    "tools/sequence_trigger_debug_ui/5711_-_Sync_Event.png",
-    "tools/sequence_trigger_debug_ui/5711_-_Sync_Event.svg",
-    "tools/sequence_trigger_debug_ui/build_windows.py",
-    "tools/sequence_trigger_debug_ui/frozen_entry.py",
-    "tools/sequence_trigger_debug_ui/requirements-build.txt",
-    "tools/sequence_trigger_debug_ui/sequence_debug.spec",
-    "tools/sequence_trigger_debug_ui/sequence_trigger_debug_ui.py",
-    "tools/sequence_trigger_debug_ui/settings.py",
     "tools/tdma_ring_monitor/tdma_single_board_loopback.py"
   ],
-  "validator_sha256": "2c13757c5fc6565954bc6e0588120416935a879ef3d1c22afda97e3ac289d2d5",
+  "validator_sha256": "5540b1d43f5605fffd6d53ccdfeda717ae517e02f16740bd99d94db75c33f2c9",
   "validator_hashes": {
-    "gate": "690fc4ff4543e857f9866a2252f4851a30c367d3dcd452ffc8e0d7050adbb7d4",
-    "cycle": "2c13757c5fc6565954bc6e0588120416935a879ef3d1c22afda97e3ac289d2d5",
+    "gate": "808cc15a227cbaa353370e6c7b39bdcc3bae6ea444e5d51df8aa182560bedb1a",
+    "cycle": "5540b1d43f5605fffd6d53ccdfeda717ae517e02f16740bd99d94db75c33f2c9",
     "repeat": "4369e35eb2bfa6f823b96d9671d14a582a5ad83acc3cfb78f58e92f9b1a1ba99",
     "start": "4f24ea32b09f110a5f45c632b23813171a22d23e0a5461440ade326bdacb11ab",
     "position": "c989256332fe5b98f9c9ffbc8d7ed366b729afb328f0e2e9654e5a50bfb377f9",
@@ -91,35 +61,35 @@
   },
   "source_hz": 1000.0,
   "host_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-vector-checkpoint-r7/host.json",
-    "sha256": "80b647090fa09a794b06eed613ae7288040ce37ac44eb09e2fcb67f74d5b7f1c"
+    "path": "out/HardwareAcceptance/20260919/sequence-quality-r1/host.json",
+    "sha256": "80a404557594b5046dfa4e028a549b9b0c31ec585b12bab7c57888814bb7860b"
   },
   "repeat_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-vector-checkpoint-r7/repeat.json",
-    "sha256": "f82b51691f99fbc715703b47246e1fa452a7bf62e7128f1bf8fb9235b1a7ff6c"
+    "path": "out/HardwareAcceptance/20260919/sequence-quality-r1/repeat.json",
+    "sha256": "9cda96a1c7a0a3c9bb2847fdff6833bc39892dd2971c93dd4ebad4d6020c0527"
   },
   "start_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-vector-checkpoint-r7/start.json",
-    "sha256": "814b97d44222a162e58c88f59fea34b03d36eb81c831d714bd1ca9a080f874f9"
+    "path": "out/HardwareAcceptance/20260919/sequence-quality-r1/start.json",
+    "sha256": "b3a9a404596c3741590d59f7f2c35d97e99bcf7e931aff91e58bf870eea6ce34"
   },
   "position_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-vector-checkpoint-r7/position.json",
-    "sha256": "04d3e82fd9934822ca4461b8b86b6db4bfd1467fb63d09fb0e3d26b13841b3a0"
+    "path": "out/HardwareAcceptance/20260919/sequence-quality-r1/position.json",
+    "sha256": "375f4758f7d76a28cab67490844a05e823f39cb1295512794b1db49083d6bf65"
   },
   "firmware_package": {
-    "path": "out/build/sequence-vector-usbtmc-20260919/DHRT100_UPDATE.pkg",
-    "sha256": "9c8cb27422c4dce2dbf4f4b86b2efae1db0bdda99f45aa7ff7deedbbe61bc4fe"
+    "path": "out/build/sequence-quality-usbtmc-20260919/DHRT100_UPDATE.pkg",
+    "sha256": "571f8d3eb3aafa7c472629062176d21c399aee8ff12141866a19055d9a729515"
   },
   "ota_summary": {
-    "path": "out/ota/sequence-vector-20260919-r1/summary.json",
-    "sha256": "792393f51cfe2f587ae91ba0716aad7e205d60851ee1dd465733229c85627b6e"
+    "path": "out/ota/sequence-quality-20260919-r1/summary.json",
+    "sha256": "89f77ee382013e094fc313fbcaca47a40257ed9d6f2a8d91d08e062de06079c5"
   },
   "finite_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-vector-checkpoint-r7/finite.json",
-    "sha256": "4b08c70aabdf892ef15a0ab9b188ef6e83a915ae41ce2e6e0a46c2be777cf0b4"
+    "path": "out/HardwareAcceptance/20260919/sequence-quality-r1/finite.json",
+    "sha256": "82af0e52d0f4687803c2acc9193461ebd8453bd07a52260634975f5c13c6b66f"
   },
   "pause_resume_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-vector-checkpoint-r7/pause-resume.json",
-    "sha256": "a0a9f5263ad46acc1899fca10777285f1c3d407edfda1c6cdc74d5fb4863173b"
+    "path": "out/HardwareAcceptance/20260919/sequence-quality-r1/pause-resume.json",
+    "sha256": "808455400c17adcf75487ddc7013bf6e1423e939f7b13cf6da459c14ad099a8e"
   }
 }

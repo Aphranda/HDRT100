@@ -345,6 +345,34 @@ bool distributed_refmem_stage_sd_system_pack(const char *path,
                                              uint32_t owner_validated_table_mask,
                                              uint32_t first_bad_table);
 bool distributed_refmem_activate_staging(uint32_t realtime_idle);
+typedef enum {
+    DISTRIBUTED_REFMEM_ACT_OK = 0u,
+    DISTRIBUTED_REFMEM_ACT_CONFIG_BUSY,
+    DISTRIBUTED_REFMEM_ACT_NOT_INITIALIZED,
+    DISTRIBUTED_REFMEM_ACT_STAGING_UNAVAILABLE,
+    DISTRIBUTED_REFMEM_ACT_COMMAND_BUSY,
+    DISTRIBUTED_REFMEM_ACT_TAKE_REJECTED,
+    DISTRIBUTED_REFMEM_ACT_GATE_REJECTED,
+    DISTRIBUTED_REFMEM_ACT_SNAPSHOT_UNAVAILABLE,
+    DISTRIBUTED_REFMEM_ACT_PREPARE_REJECTED,
+    DISTRIBUTED_REFMEM_ACT_PROFILE_REJECTED,
+    DISTRIBUTED_REFMEM_ACT_REGISTRY_REJECTED,
+    DISTRIBUTED_REFMEM_ACT_APPLY_REJECTED,
+} distributed_refmem_activation_result_t;
+typedef struct {
+    uint32_t attempt_seq, result, registry_error;
+    /* Bits 0..7: RefMem idle, RT idle, flash, CRC, owner, claim, deployment, ACK.
+     * Unavailable evidence is excluded from evaluated_mask and failed_mask. */
+    uint32_t evaluated_mask, failed_mask, unavailable_mask;
+    uint32_t staging_crc32, staging_seq;
+    /* Quality: 0 not checked, 1 unavailable, 2 passed, 3 rejected. */
+    uint32_t quality_state, quality_reason;
+    uint32_t reject_count, overrun_count, timeout_count, last_error;
+} distributed_refmem_activation_diagnostic_t;
+bool distributed_refmem_activate_staging_checked(uint32_t realtime_idle,
+    distributed_refmem_activation_diagnostic_t *diagnostic);
+void distributed_refmem_get_activation_diagnostic(
+    distributed_refmem_activation_diagnostic_t *diagnostic);
 bool distributed_refmem_stage_board_capability(uint32_t board_id,
                                                uint32_t board_uuid_crc32,
                                                uint32_t capability_mask,

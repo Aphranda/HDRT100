@@ -84,6 +84,13 @@ bool tdma_runtime_owner_set_local_return_delivery(bool enabled)
     transport_enabled = enabled;
     return true;
 }
+tdma_stopped_config_result_t tdma_runtime_owner_set_local_return_delivery_checked(bool enabled)
+{
+    if (!transport_accept) return TDMA_STOPPED_CONFIG_CONTROL_BUSY;
+    if (ring.enabled || ring.adapter_started) return TDMA_STOPPED_CONFIG_RUNTIME_ACTIVE;
+    transport_enabled = enabled;
+    return TDMA_STOPPED_CONFIG_OK;
+}
 bool trigger_sequence_service_stop_pending(void) { return stop_pending; }
 bool trigger_sequence_service_is_active(void) { return owner.state != TRIGGER_SEQUENCE_SERVICE_IDLE; }
 bool trigger_sequence_service_configuration_begin(void)
@@ -490,24 +497,43 @@ static void model_changed(void)
 static void configure_rejections(void)
 {
     trigger_sequence_link_config_t bad = config;
+    trigger_sequence_link_status_t before, after;
+    trigger_sequence_link_get_status(&before);
+    assert(trigger_sequence_link_configure_checked(NULL).result == TRIGGER_SEQUENCE_LINK_CONFIG_INVALID);
+    configuration_gate = true;
+    assert(trigger_sequence_link_configure_checked(&config).result == TRIGGER_SEQUENCE_LINK_CONFIG_SERVICE_BUSY);
+    assert(configuration_gate);
+    configuration_gate = false;
     instances.instance[0].enable_condition = 0u;
-    assert(!trigger_sequence_link_configure(&config) && !transport_enabled);
+    assert(trigger_sequence_link_configure_checked(&config).result == TRIGGER_SEQUENCE_LINK_CONFIG_ROLE_INVALID);
     instances.instance[0].enable_condition = 1u;
     bad.trigger_output_mask = 3u;
-    assert(!trigger_sequence_link_configure(&bad) && !transport_enabled);
+    assert(trigger_sequence_link_configure_checked(&bad).result == TRIGGER_SEQUENCE_LINK_CONFIG_GATEWAY_INVALID);
     transport_accept = false;
-    assert(!trigger_sequence_link_configure(&config) && !transport_enabled);
+    trigger_sequence_link_config_diagnostic_t diagnostic = trigger_sequence_link_configure_checked(&config);
+    assert(diagnostic.result == TRIGGER_SEQUENCE_LINK_CONFIG_TDMA_REJECTED);
+    assert(diagnostic.tdma_result == TDMA_STOPPED_CONFIG_CONTROL_BUSY);
     transport_accept = true;
     ring.enabled = 1u;
-    assert(!trigger_sequence_link_configure(&config) && !transport_enabled);
+    diagnostic = trigger_sequence_link_configure_checked(&config);
+    assert(diagnostic.result == TRIGGER_SEQUENCE_LINK_CONFIG_TDMA_REJECTED);
+    assert(diagnostic.tdma_result == TDMA_STOPPED_CONFIG_RUNTIME_ACTIVE);
     ring.enabled = 0u;
     owner.state = TRIGGER_SEQUENCE_SERVICE_PAUSED;
-    assert(!trigger_sequence_link_configure(&config) && !transport_enabled);
+    diagnostic = trigger_sequence_link_configure_checked(&config);
+    assert(diagnostic.result == TRIGGER_SEQUENCE_LINK_CONFIG_ACTIVE);
+    assert(!diagnostic.tdma_result && !diagnostic.gateway_result && !diagnostic.rollback_result);
+    assert(!transport_enabled && !configuration_gate);
+    trigger_sequence_link_get_status(&after);
+    assert(!memcmp(&before, &after, sizeof(before)));
 }
 static void configure_rollback(void)
 {
     gateway_accept = false;
-    assert(!trigger_sequence_link_configure(&config));
+    const trigger_sequence_link_config_diagnostic_t diagnostic = trigger_sequence_link_configure_checked(&config);
+    assert(diagnostic.result == TRIGGER_SEQUENCE_LINK_CONFIG_GATEWAY_REJECTED);
+    assert(diagnostic.gateway_result == TRIGGER_SEQUENCE_SERVICE_IO_CONFIG);
+    assert(diagnostic.rollback_result == TDMA_STOPPED_CONFIG_OK);
     assert(!transport_enabled); /* A rejected config must not partially mutate transport. */
 }
 static void first_settle(void)

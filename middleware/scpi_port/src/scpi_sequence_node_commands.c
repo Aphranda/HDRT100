@@ -28,7 +28,6 @@ scpi_result_t scpi_sequence_node_load(scpi_t *context)
 
 scpi_result_t scpi_sequence_node_activate(scpi_t *context)
 {
-    if (!sequence_node_config_allowed(context)) return SCPI_RES_ERR;
     return scpi_cmd_refmem_load_activate(context);
 }
 
@@ -138,10 +137,18 @@ scpi_result_t scpi_sequence_link_config(scpi_t *context)
         config.trigger_output_mask = (uint32_t)output;
         config.falling = edge != 0;
     }
-    if (!scpi_sequence_params_end(context) || !sequence_node_config_allowed(context)) return SCPI_RES_ERR;
-    if (!trigger_sequence_link_configure(&config)) {
-        scpi_port_push_exec_error(context, "SEQUENCE_LINK_CONFIG_REJECTED_STOP_TDMA_FIRST");
-        return SCPI_RES_ERR;
+    if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    const trigger_sequence_link_config_diagnostic_t diagnostic =
+        trigger_sequence_link_configure_checked(&config);
+    if (diagnostic.result != TRIGGER_SEQUENCE_LINK_CONFIG_OK) {
+        scpi_port_push_exec_error(context, "SEQUENCE_LINK_CONFIG_REJECTED");
+        SCPI_ResultText(context, "REJECTED");
+        SCPI_ResultUInt32(context, diagnostic.result);
+        SCPI_ResultUInt32(context, diagnostic.tdma_result);
+        SCPI_ResultUInt32(context, diagnostic.gateway_result);
+        SCPI_ResultUInt32(context, diagnostic.rollback_result);
+        /* Returning OK flushes the rejection reply; the error remains queued. */
+        return SCPI_RES_OK;
     }
     return scpi_port_result_accepted(context);
 }

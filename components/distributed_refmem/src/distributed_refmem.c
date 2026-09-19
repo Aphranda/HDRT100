@@ -159,6 +159,8 @@ static distributed_refmem_node_load_auto_sync_t s_node_load_auto_sync;
 static distributed_refmem_vdc_follower_rx_t s_vdc_follower_rx;
 static uint32_t s_service_count;
 static bool s_initialized;
+static distributed_refmem_activation_diagnostic_t s_activation_diagnostic;
+static uint32_t s_activation_attempt_seq;
 static uint32_t s_tdma_ring_log_last_ms;
 static bool s_tdma_ring_log_enabled;
 static uint32_t s_vdc_vector_publish_sequence;
@@ -2505,7 +2507,8 @@ void distributed_refmem_abort_realtime_tdma(void)
     refmem_realtime_tdma_abort(&s_refmem_realtime_tdma);
 }
 
-bool distributed_refmem_quality_gate_ready(void)
+static bool distributed_refmem_quality_gate_check(
+    distributed_refmem_activation_diagnostic_t *diagnostic)
 {
     const refmem_quality_gate_threshold_t threshold = {
         .max_crc_error_count = 0u,
@@ -2516,9 +2519,18 @@ bool distributed_refmem_quality_gate_ready(void)
         .require_no_last_error = 1u,
     };
 
-    refmem_realtime_tdma_snapshot_t tdma;
-    if (!refmem_realtime_tdma_get_snapshot(&s_refmem_realtime_tdma, &tdma)) {
+    tdma_service_quality_snapshot_t tdma;
+    if (!refmem_realtime_tdma_get_quality_snapshot(&s_refmem_realtime_tdma, &tdma)) {
+        if (diagnostic != NULL) diagnostic->quality_state = 1u;
         return false;
+    }
+    if (diagnostic != NULL) {
+        diagnostic->quality_state = 3u;
+        diagnostic->quality_reason = REFMEM_QUALITY_GATE_BAD_ARGUMENT;
+        diagnostic->reject_count = tdma.reject_count;
+        diagnostic->overrun_count = tdma.overrun_count;
+        diagnostic->timeout_count = tdma.timeout_count;
+        diagnostic->last_error = tdma.last_error;
     }
 
     refmem_quality_runtime_table_t table;
@@ -2526,17 +2538,28 @@ bool distributed_refmem_quality_gate_ready(void)
     table.version = REFMEM_APP_MODEL_VERSION;
     table.entry_count = 1u;
     table.local_slot = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
-    if (!refmem_quality_map_realtime_tdma_slot(DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
-                                               &tdma,
-                                               &table.entry[0])) {
-        return false;
-    }
+    /* Same quality projection as refmem_quality_map_realtime_tdma_slot;
+     * unrelated sequence/timing diagnostics are not activation predicates. */
+    table.entry[0].late_count = tdma.reject_count;
+    table.entry[0].drop_count = tdma.overrun_count;
+    table.entry[0].timeout_count = tdma.timeout_count;
+    table.entry[0].last_error = tdma.last_error;
 
     refmem_quality_gate_result_t gate;
     if (!refmem_quality_evaluate_deployment_gate(&table, &threshold, &gate)) {
         return false;
     }
-    return gate.last_state == REFMEM_APP_GATE_PASS;
+    const bool ready = gate.last_state == REFMEM_APP_GATE_PASS;
+    if (diagnostic != NULL) {
+        diagnostic->quality_state = ready ? 2u : 3u;
+        diagnostic->quality_reason = gate.reject_code;
+    }
+    return ready;
+}
+
+bool distributed_refmem_quality_gate_ready(void)
+{
+    return distributed_refmem_quality_gate_check(NULL);
 }
 
 bool distributed_refmem_command_set_reason_table_crc32(uint32_t reason_table_crc32)
@@ -2918,17 +2941,22 @@ bool distributed_refmem_stage_sd_system_pack(const char *path,
     return false;
 }
 
-static bool distributed_refmem_activate_staging_locked(uint32_t realtime_idle)
+static bool distributed_refmem_activate_staging_locked(uint32_t realtime_idle,
+    distributed_refmem_activation_diagnostic_t *diagnostic)
 {
     if (!s_initialized) {
+        diagnostic->result = DISTRIBUTED_REFMEM_ACT_NOT_INITIALIZED;
         return false;
     }
 
     refmem_table_image_descriptor_t staging;
     if (!refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_STAGING,
                                                     &staging)) {
+        diagnostic->result = DISTRIBUTED_REFMEM_ACT_STAGING_UNAVAILABLE;
         return false;
     }
+    diagnostic->staging_crc32 = staging.package_crc32;
+    diagnostic->staging_seq = staging.table_seq;
 
     const uint32_t fields[] = {
         staging.table_mask,
@@ -2958,6 +2986,7 @@ static bool distributed_refmem_activate_staging_locked(uint32_t realtime_idle)
         .timeout_us = 50000u,
     };
 
+    diagnostic->result = DISTRIBUTED_REFMEM_ACT_COMMAND_BUSY;
     if (!distributed_refmem_post_command_replacing_complete(&request, osal_tick_ms())) {
         return false;
     }
@@ -2972,6 +3001,7 @@ static bool distributed_refmem_activate_staging_locked(uint32_t realtime_idle)
                                 REFMEM_VECTOR_REGION_ACK_CMD);
     osal_critical_exit();
     if (take_result != REFMEM_COMMAND_TAKE_TAKEN) {
+        diagnostic->result = DISTRIBUTED_REFMEM_ACT_TAKE_REJECTED;
         return false;
     }
 
@@ -2987,11 +3017,22 @@ static bool distributed_refmem_activate_staging_locked(uint32_t realtime_idle)
         .slot_claim_ok = distributed_refmem_slot_claim_gate_ready() ? 1u : 0u,
         .deployment_gate_ok =
             refmem_application_model_get_snapshot()->valid != 0u &&
-                    distributed_refmem_quality_gate_ready()
+                    distributed_refmem_quality_gate_check(diagnostic)
                 ? 1u
                 : 0u,
         .command_ack_ok = 1u,
     };
+    const uint32_t checks[] = {gate.refmem_idle, gate.realtime_idle, gate.flash_safe,
+        gate.crc_ok, gate.owner_ok, gate.slot_claim_ok, gate.deployment_gate_ok, gate.command_ack_ok};
+    diagnostic->evaluated_mask = 0xffu;
+    for (uint32_t i = 0u; i < 8u; ++i) {
+        if (checks[i] == 0u) diagnostic->failed_mask |= 1u << i;
+    }
+    if (diagnostic->quality_state == 1u) {
+        diagnostic->unavailable_mask = 0x40u;
+        diagnostic->evaluated_mask &= ~0x40u;
+        diagnostic->failed_mask &= ~0x40u;
+    }
 
     const bool staging_candidate_ready =
         staging.state == REFMEM_TABLE_VALIDATION_OWNER_OK &&
@@ -3011,6 +3052,8 @@ static bool distributed_refmem_activate_staging_locked(uint32_t realtime_idle)
     uint32_t prepared_tdma_schedule_crc32 = 0u;
     if (staging_candidate_ready && gate_ready_for_preparse) {
         if (!refmem_application_model_prepare_staging_table_views()) {
+            diagnostic->result = DISTRIBUTED_REFMEM_ACT_PREPARE_REJECTED;
+            diagnostic->registry_error = REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID;
             (void)refmem_table_registry_note_activation_result(
                 REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID);
             refmem_application_model_discard_prepared_table_views();
@@ -3026,6 +3069,8 @@ static bool distributed_refmem_activate_staging_locked(uint32_t realtime_idle)
             !distributed_refmem_tdma_profile_activation_ready(
                 &prepared_tdma_profile,
                 &prepared_tdma_schedule_crc32)) {
+            diagnostic->result = DISTRIBUTED_REFMEM_ACT_PROFILE_REJECTED;
+            diagnostic->registry_error = REFMEM_TABLE_ACTIVATE_ERR_RUNTIME_PROFILE;
             (void)refmem_table_registry_note_activation_result(
                 REFMEM_TABLE_ACTIVATE_ERR_RUNTIME_PROFILE);
             refmem_application_model_discard_prepared_table_views();
@@ -3041,6 +3086,7 @@ static bool distributed_refmem_activate_staging_locked(uint32_t realtime_idle)
     const bool activated = refmem_table_registry_activate_staging(&gate);
     refmem_table_registry_snapshot_t registry;
     refmem_table_registry_get_snapshot(&registry);
+    diagnostic->registry_error = registry.last_error;
     if (activated) {
         const bool model_applied =
             refmem_application_model_commit_prepared_table_views() ||
@@ -3049,6 +3095,8 @@ static bool distributed_refmem_activate_staging_locked(uint32_t realtime_idle)
             !distributed_refmem_apply_tdma_foundation_profile(
                 &prepared_tdma_profile,
                 prepared_tdma_schedule_crc32)) {
+            diagnostic->result = DISTRIBUTED_REFMEM_ACT_APPLY_REJECTED;
+            diagnostic->registry_error = REFMEM_TABLE_ACTIVATE_ERR_RUNTIME_PROFILE;
             (void)refmem_table_registry_note_activation_result(
                 REFMEM_TABLE_ACTIVATE_ERR_RUNTIME_PROFILE);
             (void)distributed_refmem_command_nack(
@@ -3059,9 +3107,15 @@ static bool distributed_refmem_activate_staging_locked(uint32_t realtime_idle)
             return false;
         }
         (void)distributed_refmem_command_ack(local_target, REFMEM_VECTOR_REGION_ACK_CMD);
+        diagnostic->result = DISTRIBUTED_REFMEM_ACT_OK;
         return true;
     }
 
+    diagnostic->result = registry.last_error != REFMEM_TABLE_ACTIVATE_ERR_GATE ?
+        DISTRIBUTED_REFMEM_ACT_REGISTRY_REJECTED :
+        diagnostic->failed_mask != 0u ? DISTRIBUTED_REFMEM_ACT_GATE_REJECTED :
+        diagnostic->unavailable_mask != 0u ? DISTRIBUTED_REFMEM_ACT_SNAPSHOT_UNAVAILABLE :
+        DISTRIBUTED_REFMEM_ACT_REGISTRY_REJECTED;
     refmem_application_model_discard_prepared_table_views();
     (void)distributed_refmem_command_nack(
         local_target,
@@ -3072,10 +3126,43 @@ static bool distributed_refmem_activate_staging_locked(uint32_t realtime_idle)
 
 bool distributed_refmem_activate_staging(uint32_t realtime_idle)
 {
-    if (!trigger_sequence_service_configuration_begin()) return false;
-    const bool activated = distributed_refmem_activate_staging_locked(realtime_idle);
-    trigger_sequence_service_configuration_end();
+    return distributed_refmem_activate_staging_checked(realtime_idle, NULL);
+}
+
+bool distributed_refmem_activate_staging_checked(uint32_t realtime_idle,
+    distributed_refmem_activation_diagnostic_t *diagnostic)
+{
+    distributed_refmem_activation_diagnostic_t current = {
+        .result = DISTRIBUTED_REFMEM_ACT_CONFIG_BUSY,
+        .registry_error = REFMEM_TABLE_ACTIVATE_ERR_BAD_ARGUMENT,
+    };
+    osal_critical_enter();
+    current.attempt_seq = ++s_activation_attempt_seq;
+    osal_critical_exit();
+    bool activated = false;
+    if (realtime_idle == 0u) {
+        current.result = DISTRIBUTED_REFMEM_ACT_GATE_REJECTED;
+        current.registry_error = REFMEM_TABLE_ACTIVATE_ERR_GATE;
+        current.evaluated_mask = current.failed_mask = 0x02u;
+    } else if (trigger_sequence_service_configuration_begin()) {
+        activated = distributed_refmem_activate_staging_locked(realtime_idle, &current);
+        trigger_sequence_service_configuration_end();
+    }
+    osal_critical_enter();
+    if ((int32_t)(current.attempt_seq - s_activation_diagnostic.attempt_seq) >= 0)
+        s_activation_diagnostic = current;
+    osal_critical_exit();
+    if (diagnostic != NULL) *diagnostic = current;
     return activated;
+}
+
+void distributed_refmem_get_activation_diagnostic(
+    distributed_refmem_activation_diagnostic_t *diagnostic)
+{
+    if (diagnostic == NULL) return;
+    osal_critical_enter();
+    *diagnostic = s_activation_diagnostic;
+    osal_critical_exit();
 }
 
 bool distributed_refmem_stage_board_capability(uint32_t board_id,

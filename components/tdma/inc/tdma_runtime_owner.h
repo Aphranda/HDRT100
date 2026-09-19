@@ -35,6 +35,7 @@ bool tdma_runtime_owner_set_flight_process_image_mode(bool enabled);
 bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled);
 /* Core0, STOP fully acknowledged and no configuration worker pending. */
 bool tdma_runtime_owner_set_local_return_delivery(bool enabled);
+tdma_stopped_config_result_t tdma_runtime_owner_set_local_return_delivery_checked(bool enabled);
 bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled);
 bool tdma_runtime_owner_set_ring_diagnostic_burst(uint32_t limit);
 

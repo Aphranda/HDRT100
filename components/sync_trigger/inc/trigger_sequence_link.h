@@ -59,6 +59,24 @@ typedef struct {
     bool counter_enabled;
     uint32_t counter_slot, counter_input, counter_threshold;
 } trigger_sequence_link_config_t;
+typedef enum {
+    TRIGGER_SEQUENCE_LINK_CONFIG_OK = 0,
+    TRIGGER_SEQUENCE_LINK_CONFIG_INVALID,
+    TRIGGER_SEQUENCE_LINK_CONFIG_ACTIVE,
+    TRIGGER_SEQUENCE_LINK_CONFIG_EPOCH_EXHAUSTED,
+    TRIGGER_SEQUENCE_LINK_CONFIG_ROLE_INVALID,
+    TRIGGER_SEQUENCE_LINK_CONFIG_COUNTER_INVALID,
+    TRIGGER_SEQUENCE_LINK_CONFIG_GATEWAY_INVALID,
+    TRIGGER_SEQUENCE_LINK_CONFIG_SERVICE_BUSY,
+    TRIGGER_SEQUENCE_LINK_CONFIG_WRITER_BUSY,
+    TRIGGER_SEQUENCE_LINK_CONFIG_TDMA_REJECTED,
+    TRIGGER_SEQUENCE_LINK_CONFIG_GATEWAY_REJECTED,
+} trigger_sequence_link_config_result_t;
+/* Per-call Core0 diagnostics; detail values use the owning domain's enums. */
+typedef struct {
+    trigger_sequence_link_config_result_t result;
+    uint32_t tdma_result, gateway_result, rollback_result;
+} trigger_sequence_link_config_diagnostic_t;
 typedef struct {
     trigger_sequence_link_config_t config;
     uint32_t phase, error, binding_epoch, model_epoch;
@@ -75,6 +93,8 @@ typedef struct {
  * This implementation binds two or three local roles; physical topology addresses
  * remain transport-owned and are not confused with RefMem logical role slots. */
 bool trigger_sequence_link_configure(const trigger_sequence_link_config_t *config);
+trigger_sequence_link_config_diagnostic_t trigger_sequence_link_configure_checked(
+    const trigger_sequence_link_config_t *config);
 /* Core0 only, configuration_begin held. Commits POSITION binding and finite
  * repeat together; on failure neither binding nor repeat is changed. */
 bool trigger_sequence_link_configure_position_locked(

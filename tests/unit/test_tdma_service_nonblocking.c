@@ -173,6 +173,12 @@ static bool stopped_configuration(void *context)
     assert(!tdma_service_apply_stopped_configuration(&service, stopped_configuration, context));
     return true;
 }
+static bool rejected_configuration(void *context)
+{
+    ++*(uint32_t *)context;
+    assert(service.ring_control_guard == 1u);
+    return false;
+}
 
 static bool bound_action(void)
 {
@@ -186,6 +192,43 @@ int main(int argc, char **argv)
 {
     assert(argc == 2);
     const char *test = argv[1];
+    if (!strcmp(test, "quality_snapshot")) {
+        assert(tdma_service_init(&service));
+        tdma_service_quality_snapshot_t out, sentinel;
+        memset(&sentinel, 0xa5, sizeof(sentinel)); out = sentinel;
+        assert(!tdma_service_get_quality_snapshot(NULL, 0u, &out));
+        assert(!tdma_service_get_quality_snapshot(&service, TDMA_TRAFFIC_CLASS_COUNT, &out));
+        assert(!memcmp(&out, &sentinel, sizeof(out)));
+        assert(!tdma_service_get_quality_snapshot(&service, 0u, NULL));
+        service.reject_count = 1u; service.overrun_count = 2u;
+        service.timeout_count = 3u; service.last_error = 4u;
+        service.traffic_class_last_error[TDMA_TRAFFIC_REFMEM_REALTIME] = 5u;
+        assert(tdma_service_get_quality_snapshot(&service, TDMA_TRAFFIC_REFMEM_REALTIME, &out));
+        assert(out.reject_count == 1u && out.overrun_count == 2u && out.timeout_count == 3u && out.last_error == 4u);
+        assert(tdma_service_bind_traffic_scheduler(&service, &selected_scheduler));
+        assert(tdma_service_get_quality_snapshot(&service, TDMA_TRAFFIC_REFMEM_REALTIME, &out));
+        assert(out.last_error == 4u); /* Bound but not yet configured. */
+        selected_scheduler.configured = 1u;
+        selected_scheduler.lock = 1u;
+        service.payload_registry.guard = 1u;
+        service.ring_runtime.config_guard = service.ring_runtime.result_guard = 1u;
+        tdma_service_snapshot_t broad;
+        assert(!tdma_service_get_snapshot(&service, &broad));
+        assert(tdma_service_get_quality_snapshot(&service, TDMA_TRAFFIC_REFMEM_REALTIME, &out));
+        assert(out.reject_count == 1u && out.overrun_count == 2u && out.timeout_count == 3u && out.last_error == 5u);
+        assert(selected_scheduler.lock == 1u && service.payload_registry.guard == 1u);
+        for (unsigned writer = 0u; writer < 2u; ++writer) {
+            out = sentinel;
+            service.intent_guard = writer == 0u ? 1u : 0u;
+            service.result_guard = writer == 1u ? 1u : 0u;
+            assert(!tdma_service_get_quality_snapshot(&service, TDMA_TRAFFIC_REFMEM_REALTIME, &out));
+            assert(!memcmp(&out, &sentinel, sizeof(out)));
+        }
+        service.intent_guard = 2u; service.result_guard = 4u;
+        assert(tdma_service_get_quality_snapshot(&service, TDMA_TRAFFIC_REFMEM_REALTIME, &out));
+        assert(out.intent_publication == 2u && out.result_publication == 4u);
+        return 0;
+    }
     if (!strcmp(test, "bound_action")) {
         assert(tdma_service_init(&service));
         service.ring_runtime.enabled = service.ring_runtime.adapter_started = 1u;
@@ -213,9 +256,18 @@ int main(int argc, char **argv)
         assert(tdma_service_init(&service));
         assert(!tdma_service_apply_stopped_configuration(NULL, stopped_configuration, &calls));
         assert(!tdma_service_apply_stopped_configuration(&service, NULL, &calls));
+        assert(tdma_service_apply_stopped_configuration_checked(NULL, stopped_configuration, &calls) ==
+               TDMA_STOPPED_CONFIG_INVALID);
         service.ring_control_guard = 1u;
         assert(!tdma_service_apply_stopped_configuration(&service, stopped_configuration, &calls));
+        assert(tdma_service_apply_stopped_configuration_checked(&service, stopped_configuration, &calls) ==
+               TDMA_STOPPED_CONFIG_CONTROL_BUSY);
         service.ring_control_guard = 0u;
+        const tdma_stopped_config_result_t expected[] = {
+            TDMA_STOPPED_CONFIG_UPDATE_PENDING, TDMA_STOPPED_CONFIG_UPDATE_PENDING,
+            TDMA_STOPPED_CONFIG_RUNTIME_ACTIVE, TDMA_STOPPED_CONFIG_RUNTIME_ACTIVE,
+            TDMA_STOPPED_CONFIG_RUNTIME_ACTIVE, TDMA_STOPPED_CONFIG_GENERATION_PENDING,
+            TDMA_STOPPED_CONFIG_CONTROL_PENDING};
         for (uint32_t condition = 0u; condition < 7u; ++condition) {
             service.stopped_update = condition == 0u ? TDMA_STOPPED_UPDATE_REQUESTED | 1u :
                 condition == 1u ? TDMA_STOPPED_UPDATE_APPLYING | 1u : 0u;
@@ -225,11 +277,25 @@ int main(int argc, char **argv)
             service.ring_runtime.config_seq = condition == 5u;
             service.ring_control_pending = condition == 6u ? TDMA_RING_CONTROL_ARM : TDMA_RING_CONTROL_NONE;
             assert(!tdma_service_apply_stopped_configuration(&service, stopped_configuration, &calls));
+            assert(tdma_service_apply_stopped_configuration_checked(&service, stopped_configuration, &calls) ==
+                   expected[condition]);
             assert(service.ring_control_guard == 0u && calls == 0u);
         }
         service.ring_control_pending = TDMA_RING_CONTROL_NONE;
-        assert(tdma_service_apply_stopped_configuration(&service, stopped_configuration, &calls));
+        service.ring_runtime.result_guard = 1u;
+        assert(tdma_service_apply_stopped_configuration_checked(&service, stopped_configuration, &calls) ==
+               TDMA_STOPPED_CONFIG_SNAPSHOT_BUSY);
+        service.ring_control_pending = TDMA_RING_CONTROL_RETIRE;
+        assert(tdma_service_apply_stopped_configuration_checked(&service, stopped_configuration, &calls) ==
+               TDMA_STOPPED_CONFIG_RETIRE_PENDING);
+        assert(calls == 0u && service.ring_control_guard == 0u);
+        service.ring_runtime.result_guard = 0u;
+        service.ring_control_pending = TDMA_RING_CONTROL_NONE;
+        assert(tdma_service_apply_stopped_configuration_checked(&service, rejected_configuration, &calls) ==
+               TDMA_STOPPED_CONFIG_APPLY_REJECTED);
         assert(calls == 1u && service.ring_control_guard == 0u);
+        assert(tdma_service_apply_stopped_configuration(&service, stopped_configuration, &calls));
+        assert(calls == 2u && service.ring_control_guard == 0u);
         return 0;
     }
     if (strcmp(test, "diagnostic_burst") == 0) {

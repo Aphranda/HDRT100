@@ -215,3 +215,60 @@ def test_real_foundation_read_is_bounded_and_independent(tmp_path: Path) -> None
         (tmp_path / f"{stage}.log").write_text(result.stdout + result.stderr, encoding="utf-8")
         assert result.returncode == 0, result.stdout + result.stderr
     assert "5 production case groups" in result.stdout
+
+
+def test_quality_reader_rechecks_both_publications(tmp_path: Path) -> None:
+    source = (ROOT / "components/tdma/src/tdma_service.c").read_text(encoding="utf-8")
+    limit = re.search(r"(?m)^#define TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT\s+[^\n]+", source).group(0)
+    load = c_definition_body(source, "tdma_service_load")
+    quality = c_definition_body(source, "tdma_service_get_quality_snapshot")
+    text = PREFIX + limit + "\nuint32_t tdma_service_load(const volatile uint32_t *value) {" + load + "}\n"
+    text += r'''
+static tdma_service_service_t service;
+static unsigned fences, remaining, which;
+static void writer_at_fence(int order) {
+    __atomic_thread_fence(order);
+    ++fences;
+    if (!remaining) return;
+    --remaining;
+    volatile uint32_t *guard = which ? &service.result_guard : &service.intent_guard;
+    ++*guard;
+    if (which) { ++service.overrun_count; ++service.timeout_count; ++service.last_error; }
+    else ++service.reject_count;
+    ++*guard;
+}
+#define __atomic_thread_fence writer_at_fence
+'''
+    text += "bool tdma_service_get_quality_snapshot(const tdma_service_service_t *service, uint32_t traffic_class, tdma_service_quality_snapshot_t *snapshot) {" + quality + "}\n"
+    text += r'''
+#undef __atomic_thread_fence
+int main(void) {
+    for (which = 0; which < 2; ++which) {
+        memset(&service, 0, sizeof(service));
+        service.intent_guard = service.result_guard = UINT32_MAX - 1u;
+        tdma_service_quality_snapshot_t out, sentinel;
+        memset(&sentinel, 0xa5, sizeof(sentinel));
+        remaining = 1; fences = 0;
+        assert(tdma_service_get_quality_snapshot(&service, 0, &out));
+        assert(fences == 2 && !remaining);
+        assert(out.reject_count == (which ? 0u : 1u));
+        assert(out.overrun_count == (which ? 1u : 0u));
+        assert(out.timeout_count == (which ? 1u : 0u));
+        assert(out.last_error == (which ? 1u : 0u));
+        out = sentinel; remaining = TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT; fences = 0;
+        assert(!tdma_service_get_quality_snapshot(&service, 0, &out));
+        assert(fences == TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT && !remaining);
+        assert(!memcmp(&out, &sentinel, sizeof(out)));
+    }
+    return 0;
+}
+'''
+    unit = tmp_path / "quality.c"
+    unit.write_text(text, encoding="utf-8")
+    compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
+    executable = tmp_path / "quality.exe"
+    command = [compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+               "-I" + str(ROOT / "components/tdma/inc"), str(unit), "-o", str(executable)]
+    for call in (command, [str(executable)]):
+        result = subprocess.run(call, capture_output=True, text=True, timeout=60)
+        assert result.returncode == 0, result.stdout + result.stderr

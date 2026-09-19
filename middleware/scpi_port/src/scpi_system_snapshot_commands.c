@@ -610,36 +610,65 @@ scpi_result_t scpi_cmd_refmem_load_board(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+static void scpi_refmem_result_activation_diagnostic(scpi_t *context,
+    const distributed_refmem_activation_diagnostic_t *diagnostic)
+{
+    SCPI_ResultUInt32(context, diagnostic->attempt_seq);
+    SCPI_ResultUInt32(context, diagnostic->result);
+    SCPI_ResultUInt32(context, diagnostic->registry_error);
+    SCPI_ResultUInt32(context, diagnostic->evaluated_mask);
+    SCPI_ResultUInt32(context, diagnostic->failed_mask);
+    SCPI_ResultUInt32(context, diagnostic->unavailable_mask);
+    SCPI_ResultUInt32(context, diagnostic->staging_crc32);
+    SCPI_ResultUInt32(context, diagnostic->staging_seq);
+    SCPI_ResultUInt32(context, diagnostic->quality_state);
+    SCPI_ResultUInt32(context, diagnostic->quality_reason);
+    SCPI_ResultUInt32(context, diagnostic->reject_count);
+    SCPI_ResultUInt32(context, diagnostic->overrun_count);
+    SCPI_ResultUInt32(context, diagnostic->timeout_count);
+    SCPI_ResultUInt32(context, diagnostic->last_error);
+}
+
+scpi_result_t scpi_cmd_refmem_load_activation_status_q(scpi_t *context)
+{
+    if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
+    distributed_refmem_activation_diagnostic_t diagnostic;
+    distributed_refmem_get_activation_diagnostic(&diagnostic);
+    scpi_refmem_result_activation_diagnostic(context, &diagnostic);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_load_activate(scpi_t *context)
 {
-    if (!scpi_refmem_realtime_idle()) {
-        scpi_port_push_exec_error(context, "REFMEM_RT_NOT_IDLE");
-        return SCPI_RES_ERR;
-    }
     if (!scpi_sequence_params_end(context)) return SCPI_RES_ERR;
-    const bool activated =
-        distributed_refmem_activate_staging(scpi_refmem_realtime_idle() ? 1u : 0u);
+    const bool realtime_idle = scpi_refmem_realtime_idle();
+    distributed_refmem_activation_diagnostic_t diagnostic;
+    const bool activated = distributed_refmem_activate_staging_checked(
+        realtime_idle ? 1u : 0u, &diagnostic);
 
     refmem_table_registry_snapshot_t snapshot;
     refmem_table_registry_get_snapshot(&snapshot);
-    refmem_table_image_descriptor_t active;
-    refmem_table_image_descriptor_t staging;
-    refmem_table_image_descriptor_t rollbackable;
+    refmem_table_image_descriptor_t active = {0};
+    refmem_table_image_descriptor_t staging = {0};
+    refmem_table_image_descriptor_t rollbackable = {0};
     (void)refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_ACTIVE, &active);
     (void)refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_STAGING, &staging);
     (void)refmem_table_registry_get_image_descriptor(REFMEM_TABLE_IMAGE_ROLLBACKABLE,
                                                     &rollbackable);
 
-    SCPI_ResultText(context, activated ? "ACTIVE" : "REJECTED");
+    SCPI_ResultText(context, activated ? "ACTIVE" :
+        diagnostic.result == DISTRIBUTED_REFMEM_ACT_SNAPSHOT_UNAVAILABLE ? "BUSY" : "REJECTED");
     SCPI_ResultUInt32(context, snapshot.version);
     SCPI_ResultUInt32(context, snapshot.table_count);
     SCPI_ResultUInt32(context, snapshot.active_table_mask);
     SCPI_ResultUInt32(context, snapshot.staging_table_mask);
     SCPI_ResultUInt32(context, snapshot.registry_crc32);
-    SCPI_ResultUInt32(context, snapshot.last_error);
+    SCPI_ResultUInt32(context, diagnostic.registry_error);
     scpi_refmem_result_table_image_descriptor(context, &active);
     scpi_refmem_result_table_image_descriptor(context, &staging);
     scpi_refmem_result_table_image_descriptor(context, &rollbackable);
+    if (!activated) scpi_refmem_result_activation_diagnostic(context, &diagnostic);
+    if (!realtime_idle) scpi_port_push_exec_error(context, "REFMEM_RT_NOT_IDLE");
     return SCPI_RES_OK;
 }
 

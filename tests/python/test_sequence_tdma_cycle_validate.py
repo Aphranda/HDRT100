@@ -13,6 +13,91 @@ def cli(tmp_path, *extra):
             "--out", str(tmp_path / "evidence.json"), *extra]
 
 
+def test_visa_cls_is_write_only_and_keeps_query_response_path():
+    class Instrument:
+        def __init__(self):
+            self.calls = []
+        def write(self, command):
+            self.calls.append(("write", command))
+        def query(self, command):
+            self.calls.append(("query", command))
+            return '0,"No error"'
+    instrument = Instrument()
+    port = target.VisaPort(instrument, 2)
+    port.buffer = b"old reply"
+    assert port.write(b"*CLS\n") == 5
+    assert port.read() == b"" and instrument.timeout == 2000
+    port.write(b"SYST:ERR?\n")
+    assert port.read(100) == b'0,"No error"\n'
+    assert instrument.calls == [("write", "*CLS"), ("query", "SYST:ERR?")]
+
+
+def test_visa_cls_failure_is_not_retried_or_buffered():
+    class Instrument:
+        calls = 0
+        def write(self, command):
+            self.calls += 1
+            raise TimeoutError("write lost")
+        def query(self, command):
+            pytest.fail("write-only command was queried")
+    instrument = Instrument()
+    port = target.VisaPort(instrument, 1)
+    with pytest.raises(TimeoutError, match="write lost"):
+        port.write(b"*CLS\n")
+    assert instrument.calls == 1 and port.read() == b""
+
+
+@pytest.mark.parametrize("error", ['0,"No error"', '-200,"Execution error"', "<timeout>"])
+def test_ring_prepare_cls_preserves_write_evidence_then_checks_error(tmp_path, monkeypatch, error):
+    class Instrument:
+        def __init__(self):
+            self.calls = []
+        def write(self, command):
+            self.calls.append(("write", command))
+        def query(self, command):
+            self.calls.append(("query", command))
+            assert command == "SYSTem:ERR?"
+            return error
+    instrument = Instrument()
+    transcript = []
+    port = target.ring.EvidencePort(target.VisaPort(instrument, 1), transcript)
+    def transport_query(physical, command, timeout):
+        physical.write((command + "\n").encode("ascii"))
+        return physical.read(100).decode("ascii").strip()
+    monkeypatch.setattr(target.ring, "transport_query", transport_query)
+    def reached_setup(*args):
+        raise RuntimeError("reached ring setup")
+    monkeypatch.setattr(target.ring, "checked_action", reached_setup)
+    report = {}
+    expected = "reached ring setup" if error.startswith("0,") else "CLS error check failed"
+    with pytest.raises(RuntimeError, match=expected):
+        target.ring.prepare_single_board_ring(port, target.parse_args(cli(tmp_path)), report)
+    assert instrument.calls == [("write", "*CLS"), ("query", "SYSTem:ERR?")]
+    assert transcript[0] == report["clear_status"]
+    assert transcript[0]["response_expected"] is False and transcript[0]["write_completed"]
+    assert transcript[0]["bytes_written"] == 5 and "response" not in transcript[0]
+    assert transcript[1]["response"] == report["clear_status_error"] == error
+
+
+@pytest.mark.parametrize("short", [True, False])
+def test_ring_write_only_failure_preserves_attempt_without_retry(short):
+    class Port:
+        calls = 0
+        def write(self, data):
+            self.calls += 1
+            if short:
+                return 2
+            raise OSError("USB disconnected")
+        def flush(self):
+            pytest.fail("failed write flushed")
+    physical = Port()
+    transcript = []
+    with pytest.raises(OSError):
+        target.ring.write_only(target.ring.EvidencePort(physical, transcript), "*CLS")
+    assert physical.calls == 1 and len(transcript) == 1
+    assert "exception" in transcript[0] and "response" not in transcript[0]
+
+
 def snapshot(completed=0, phase=3, repeat=1, **changes):
     row = dict.fromkeys(target.LINK_FIELDS, 0)
     row.update(enabled=1, phase=phase, binding_epoch=2, model_epoch=7, run=11,

@@ -72,6 +72,27 @@ def query(ser, command: str, timeout_s: float) -> str:
         raise
 
 
+def write_only(ser, command: str) -> dict:
+    """Send one command with no response contract; record transmission, not ACK."""
+    entry = {"command": command, "timestamp": datetime.now().isoformat(),
+             "write_only": True, "response_expected": False}
+    physical = ser
+    if isinstance(ser, EvidencePort):
+        ser.transcript.append(entry)
+        physical = ser.port
+    try:
+        data = (command + "\n").encode("ascii")
+        entry["bytes_written"] = physical.write(data)
+        if entry["bytes_written"] != len(data):
+            raise OSError(f"short SCPI write: {entry['bytes_written']} of {len(data)} bytes")
+        physical.flush()
+        entry["write_completed"] = True
+        return entry
+    except Exception as exc:
+        entry["exception"] = f"{type(exc).__name__}: {exc}"
+        raise
+
+
 @contextmanager
 def open_loopback_port(args: argparse.Namespace):
     last_error: Exception | None = None
@@ -232,7 +253,10 @@ def prepare_single_board_ring(ser, args: argparse.Namespace,
     if args.train_cycles != 0 and args.train_cycles % 8 != 0:
         raise SystemExit("--train-cycles must be 0 or an 8-cycle multiple")
 
-    ring_action(ser, "*CLS", args.timeout)
+    result["clear_status"] = write_only(ser, "*CLS")
+    result["clear_status_error"] = query(ser, "SYSTem:ERR?", args.timeout)
+    if result["clear_status_error"] != '0,"No error"':
+        raise RuntimeError(f"*CLS error check failed: {result['clear_status_error']}")
     steps = result["steps"]
     for command in (
         "SYSTem:TDMA:RING:STOP",

@@ -786,9 +786,43 @@ static int test_foundation_profile_freezes_runtime_resources(void)
     return failed;
 }
 
+static int test_narrow_quality_matches_full_snapshot(void)
+{
+    int failed = 0;
+    refmem_realtime_tdma_service_t service;
+    tdma_traffic_scheduler_t scheduler = {0};
+    refmem_realtime_tdma_snapshot_t broad;
+    tdma_service_quality_snapshot_t narrow;
+    failed += expect_bool("quality init", refmem_realtime_tdma_init(&service), true);
+    service.scheduler->traffic_scheduler = &scheduler;
+    service.scheduler->reject_count = 11u;
+    service.scheduler->timeout_count = 12u;
+    service.scheduler->overrun_count = 13u;
+    service.scheduler->last_error = 14u;
+    service.scheduler->traffic_class_last_error[TDMA_TRAFFIC_CONFIG_CONTROL] = 15u;
+    service.scheduler->traffic_class_last_error[TDMA_TRAFFIC_REFMEM_REALTIME] = 16u;
+    const uint32_t payloads[] = {REFMEM_REALTIME_TDMA_PAYLOAD_DEFAULT,
+        TDMA_SERVICE_PAYLOAD_CLASS_CONFIG_CONTROL, TDMA_SERVICE_PAYLOAD_CLASS_REFMEM_DELTA};
+    for (unsigned configured = 0u; configured < 2u; ++configured) {
+        scheduler.configured = configured;
+        for (unsigned i = 0u; i < 3u; ++i) {
+            service.last_submit_payload_class = payloads[i];
+            failed += expect_bool("quality broad", refmem_realtime_tdma_get_snapshot(&service, &broad), true);
+            failed += expect_bool("quality narrow", refmem_realtime_tdma_get_quality_snapshot(&service, &narrow), true);
+            failed += expect_u32("quality reject", narrow.reject_count, broad.reject_count);
+            failed += expect_u32("quality timeout", narrow.timeout_count, broad.timeout_count);
+            failed += expect_u32("quality overrun", narrow.overrun_count, broad.overrun_count);
+            failed += expect_u32("quality error", narrow.last_error, broad.last_error);
+        }
+    }
+    service.scheduler->traffic_scheduler = NULL;
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
+    failed += test_narrow_quality_matches_full_snapshot();
     failed += test_init_snapshot();
     failed += test_class_submit_watermarks_are_independent();
     failed += test_refmem_payload_registration_contract();

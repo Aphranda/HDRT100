@@ -496,9 +496,14 @@ static bool tdma_runtime_owner_apply_local_return_delivery(void *context)
 
 bool tdma_runtime_owner_set_local_return_delivery(bool enabled)
 {
-    return s_tdma_runtime_owner_initialized &&
-        tdma_service_apply_stopped_configuration(&s_tdma_runtime_owner,
-            tdma_runtime_owner_apply_local_return_delivery, &enabled);
+    return tdma_runtime_owner_set_local_return_delivery_checked(enabled) == TDMA_STOPPED_CONFIG_OK;
+}
+
+tdma_stopped_config_result_t tdma_runtime_owner_set_local_return_delivery_checked(bool enabled)
+{
+    if (!s_tdma_runtime_owner_initialized) return TDMA_STOPPED_CONFIG_INVALID;
+    return tdma_service_apply_stopped_configuration_checked(&s_tdma_runtime_owner,
+        tdma_runtime_owner_apply_local_return_delivery, &enabled);
 }
 
 bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled)
