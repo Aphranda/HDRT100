@@ -22,6 +22,20 @@ Last updated: 2026-09-20
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260920-036：离线同步计量工具与未观测区间有界化
+
+- TODO task ID：`VDC-OBS-007`、`VDC-PRECISION-001`、`VDC-VERIFY-001` IN PROGRESS；以下数字为本轮快照，非产品资格。
+- 目的：把"未观测区间有界化"从定性说法变成可复核证据，并给发布验收提供不依赖台架的离线计量。新工具 `tools/vdc_sync_metrology/vdc_sync_metrology.py` 只读冻结联合捕获证据（`capture/input-probe.json`；不连板卡、不连示波器、不引用固件符号），计算采样相位序列、窗内重复性、重叠 Allan 偏差、最小二乘频偏（1σ/2σ）与 `(|offset|+2σ)×最大空档`；收据绑定输入摘要（sha256/字节数）并记录工具自身哈希。
+- fail-closed：缺时间戳或相位序列、捕获不完整、overrun、`large_phase_ambiguity`、窗口数不足、无任何平均因子达到最小差分、节拍抖动 >5% 均拒绝出收据（`--allow-incomplete`/`--allow-nonuniform` 才继续并在收据标注）；`continuous_lock_claimed` 恒为 false，`measurement_noise_floor_qualified` 恒为 false。host 测试 13 项通过：频偏回算、界=乘积、白相位噪声 ADEV 定律与 τ 标度、差分不足记录、缺时间戳/相位歧义/不完整/非均匀拒绝、输入摘要随内容变化、永不宣称连续锁相，以及真实 600 s 证据回归。
+- 实测（600 s / 120 窗，`dpll-delay-center-r2/plus20-batched-600s`）：三通道频偏 +0.000124 / −0.002599 / +0.003526 ppb，2σ 0.0040 / 0.0044 / 0.0041 ppb，与既有"≤0.004 ppb（2σ）"口径一致；重叠 ADEV 在 τ=5/10/20/40/80/160 s 为 1.30/0.59/0.34/0.14/0.08/0.04 ppb（NO2，NO3/NO4 同量级），呈 ∝1/τ 的白相位噪声行为；反推白相位 σ 3.755/3.922/3.746 ns，与文档"约 3.8 ns rms、来源未定位"独立一致；τ=320 s 差分不足 8，工具拒绝外推。
+- 未观测区间（新口径）：单窗可证观测约 1 ms（示波器记录 2 ms 内的边沿跨度），最大连续未观测空档 **5.046 s**、占空比 0.02%、p95 5.031 s、窗间无重叠；界 =（|offset|+2σ）× 5.046 s = **0.038 ns**，远低于 class A/B 阈值。60 s 轮（035 切片 `quality-clock-failclosed-r1/joint-gap-60s-r1`）为 −0.326/−0.403/−0.412 ppb（2σ 0.354–0.408 ppb，窗口长度不足以定 ppb 级绝对值），界 4.11 ns。
+- 文档口径修正：`ARCH_FUTURE_APPLICATION_PLAN.md` 与 `ARCH_SYNC_STANDARD_CORE_DESIGN.md` 原记"单次捕获中位约 3.36 s、最大空档约 1.8 s"把捕获**墙钟时间**当观测时间（墙钟主要是主机读取与搬运开销）；以可证观测计为 5.046 s，两份 Draft 已按新口径改写并保留旧口径说明，后者第 9 节 SC-T5 前置条件按"已具备可复核证据"标注，SC-X1/SC-X3 状态不变。
+- P3 与失败保留：首轮 `metrology-tool-r1` 因默认 quick 配置的 `ota_board_ids` 仍含 NO5 序列（`config/hardware_acceptance/p3_bench.json` 第 3–8 行；同文件第 59 行 `dpll_observer_board_id`）而在 OTA 阶段失败（`missing_serial_numbers=839E1AE79EA20F31`），失败证据保留、旧收据未被覆盖；按现役台架（四板 + 示波器 + 内部观测）改用 `--tdma-only` 的 `metrology-tool-r2` 通过：PASS_WITH_WARNINGS（32 INFO / 21 WARN / 0 ERROR / 0 FATAL），build `20260919163402`，1327 文件，OTA 4 板。
+- 严格门禁现状（本轮实测，两轮一致）：`strict_gates_passed=false`，`diagnostic_continue=true`，`outcome=PASS_WITH_WARNINGS`。r2 保留两条失败：`TRN-00 residence matrix`（gate did not pass）与 `four-Node TDMA closed loop`（returncode 1）；035 轮保留 `four-Node TDMA closed loop`（explicit startup barrier timed out）。r2 未复用既有拓扑（重跑 P0T 线序探测），故告警构成与 035 不同（新增 9 INFO `CANDIDATE_REJECTED`、2 WARN `QUALITY_GATE_FAILED`、1 WARN `EXECUTION_FEEDBACK`；035 的 `TDMA_STARTUP_QUALITY`/`TDMA_NODE_QUALITY` 两条本轮未出现）。两轮共同的既有严格预算告警仍在（`vdc_deadline_miss_count_grew`、`vdc_overrun_count_grew`、`vdc_max_runtime_exceeded_wcet`、`vdc_load_quarantined`），既有全表严格预算未过这一结论不变；**四板 TDMA 闭环与短时 DPLL 发布尚未进入必需验收项，本轮不据此声称其通过**。NO5 是否从 quick 配置清理待用户决定（属 `config/` 变更，须重跑 P3）。
+- 原件：`out/HardwareAcceptance/20260919/dpll-delay-center-r2/plus20-batched-600s/metrology.json`、`out/HardwareAcceptance/20260919/quality-clock-failclosed-r1/joint-gap-60s-r1/metrology.json`；P3 见 `out/HardwareAcceptance/20260920/metrology-tool-r2/`（失败轮 `metrology-tool-r1/` 保留）。
+- 交付：实现与同指纹 P3 凭证提交 `6d004b2a`（hook 实跑：docs 门禁 OK + P3 门禁 OK）；文档分离提交。
+- 下一 gate：把四板 TDMA 闭环与短时 DPLL 发布纳入必需验收（当前仅诊断告警），再推进 `VDC-EVID-001` 正式合格输入与控制迁移；计量侧下一步是仪器噪声底标定（SC-X3）与把计量收据接入 `VDC-VERIFY-001` 发布验收。本切片只提供离线界，不上调 formal quality，不宣称连续物理锁相，也不替代 GPIO 精度。
+
 ### VDC-PROGRESS-20260919-035：正式质量年龄失效锁存与待提交样本取消
 
 - TODO task ID：`VDC-SNAPSHOT-001`、`VDC-HOLD-001` IN PROGRESS；以下数字为本轮快照。原 `vdc_domain_age_quality()` 在读钟不可用（`now_ns == UINT64_MAX`）时直接返回，旧 HEALTHY/LOCKED 与旧年龄被保留；反向时间把年龄算成 0，等于旧证据自行续期。

@@ -4,7 +4,7 @@ Status: Draft
 Domain: ARCH
 Canonical: `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`
 Related: `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 本文档记录 Distributed Hard Real-Time Trigger System 在当前产品完成后的平台化应用规划。它不是当前固件必须立即实现的功能清单，也不替代 `ARCH_PRODUCT_ARCHITECTURE.md`、`RTOS_HAOFV_TODO.md` 或各功能域待办。当前近期目标仍然是完成 DHRT100 / RP2350 平台上的分布式触发产品闭环；本文面向后续产品线、产业应用和开源生态扩展。
 
@@ -51,11 +51,21 @@ VDC / DPLL 已经具备可复核的四板相位锁定证据。以下数值是**�
 | 相对相位包络 | 三通道约 24 ns 峰峰 | 三通道中位数仍为负，delay center 尚未回中 |
 | 残余频偏 | 不高于 0.004 ppb（2σ；斜率分辨率 0.002 ppb） | 三通道均在 2σ 内与 0 不可区分，即频率锁定 |
 | 相位噪声性质 | 白相位噪声 rms 约 3.8 ns，样本间不相关（lag-1 约为 0） | 与频偏无关，不能由 ppb 界定 |
-| 未观测空档 | 采样间隔 5 s、单次捕获中位约 3.36 s，最大空档约 1.8 s | 空档的确定性漂移上界为皮秒级 |
+| 未观测空档 | 采样间隔 5 s；单窗可证观测仅约 1 ms（示波器记录 2 ms 内的边沿跨度），最大连续空档 **5.046 s**、占空比 0.02%、p95 5.031 s | 已按 SC-T5 有界化：`(|offset|+2σ) × 最大空档 = 0.038 ns` |
+
+未观测区间的口径以可证观测为准：`out/HardwareAcceptance/20260919/dpll-delay-center-r2/plus20-batched-600s/metrology.json`
+由 `tools/vdc_sync_metrology/vdc_sync_metrology.py` 从冻结证据离线重算，输入摘要绑定在收据内。
+此前记录的"单次捕获中位约 3.36 s、最大空档约 1.8 s"把捕获的**墙钟时间**当作观测时间；墙钟
+时间主要是主机读取与搬运开销，示波器实际数字化记录为 2 ms（1e6 样本 / 500 MS/s）。以可证观测
+计，最大连续未观测空档是 5.046 s。同一轮 120 窗的重叠 Allan 偏差在 τ=5 s 处给出 1.30–1.36 ppb，
+反推的白相位噪声 σ 为 3.75–3.92 ns，与上表"约 3.8 ns"独立一致；随机相位散布不随空档累积，
+因此空档界由频偏不确定度主导，而非由该散布主导。
 
 **尚未取得工具资格的部分**：`physical_continuous_lock_qualified`、
 `exact_event_correlation_qualified`、`unobserved_intervals_qualified` 均为 false。
-对外表述必须使用"稀疏采样窗口内相对相位在阈值内"的口径，不得写成"连续物理锁相"。
+`unobserved_intervals_qualified` 反映的是"缺少连续观测能力"这一事实，未观测区间本身已按
+SC-T5 给出定量界；对外表述仍必须使用"稀疏采样窗口内相对相位在阈值内"的口径，不得写成
+"连续物理锁相"。
 
 ### 外部频率参考的定位：相干不等于溯源
 

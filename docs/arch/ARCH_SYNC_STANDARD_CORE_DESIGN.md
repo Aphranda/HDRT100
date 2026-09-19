@@ -4,7 +4,7 @@ Status: Draft
 Domain: ARCH
 Canonical: `docs/arch/ARCH_SYNC_STANDARD_CORE_DESIGN.md`
 Related: `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 > 本文是「核心甜区」规范的**第一版条款清单（草稿）**。按 C7，草稿**不登记为契约**；
 > 条款冻结前必须按 C11 走独立交叉审核，并以 `ARCH-SYNCCORE-<序号>` 形式登记
@@ -103,18 +103,23 @@ Last updated: 2026-09-19
 | 相对相位包络 | 三通道约 24 ns 峰峰 | 达 B 档包络要求 |
 | 频率偏差 | 不高于 0.004 ppb（2σ） | 优于 C 档频率要求 |
 | 连续锁相 | `physical_continuous_lock_qualified` 为 false | **只能按采样窗口锁相声明** |
-| 未观测区间 | `unobserved_intervals_qualified` 为 false；最大空档约 1.8 s | 需按 SC-T5 有界化 |
-| 测量噪声底（SC-X3） | 约 3.8 ns rms 白噪声，来源未定位 | **未满足** |
+| 未观测区间 | `unobserved_intervals_qualified` 仍为 false（缺少连续观测能力）；按可证观测重算的最大连续空档 5.046 s、占空比 0.02% | **已按 SC-T5 有界化**：`(|offset|+2σ) × 最大空档 = 0.038 ns` |
+| 测量噪声底（SC-X3） | 约 3.8 ns rms 白噪声，来源未定位；离线 Allan 独立反推 3.75–3.92 ns | **未满足**（缺仪器噪声底分离） |
 | 黑盒测试（SC-X1） | 现有一致性测试为白盒（编译生产代码函数体） | **未满足** |
 | 校准不确定度（SC-C5） | 未做来源分解 | **未满足** |
 
-**结论**：技术指标已进入甜区（B 档），但**规范符合性还差计量与黑盒化两件**。
+**结论**：技术指标已进入甜区（B 档），**规范符合性已落地未观测区间有界化（SC-T5）**，
+仍差测量噪声底标定（SC-X3）与黑盒化（SC-X1/SC-X2）两件。上表未观测区间一行的数值来自
+`out/HardwareAcceptance/20260919/dpll-delay-center-r2/plus20-batched-600s/metrology.json`
+（`tools/vdc_sync_metrology/vdc_sync_metrology.py` 离线重算，输入摘要绑定在收据内）；本文件
+9 条款冻结前置条件第 4 项据此可按"已具备可复核证据"处理，其余各项状态不变。
 
 ## 9. 条款冻结前置条件
 
 1. 测量噪声底标定，并证明其显著低于目标 class 指标（SC-X3）。
 2. 一致性测试黑盒化，与当前实现解耦（SC-X1、SC-X2）。
 3. 第二个独立实现，用于证明规范充分性与无歧义（SC-X1 的前提）。
-4. 未观测区间有界化方法落地为可复核证据（SC-T5）。
+4. 未观测区间有界化方法落地为可复核证据（SC-T5）：已具备——`tools/vdc_sync_metrology/vdc_sync_metrology.py`
+   从冻结联合捕获证据离线重算，收据绑定输入摘要，600 s 轮给出 0.038 ns 界。
 5. fail-closed 全项负测（SC-F1 至 SC-F5）。
 6. 校准不确定度预算与实测包络比对（SC-C5）。
