@@ -87,6 +87,12 @@ static void sync_dpll_fb_step(void)
 }
 /* Boundary owner is exercised separately; this fixture isolates model publication. */
 static void vdc_boundary_service_core1(void) {}
+static void reference_discipline_service_core1(uint32_t session)
+{ assert(!session || (s_committed_model_guard & 1u)); }
+static void priority_summary_service(bool active)
+{ assert(active && !(s_committed_model_guard & 1u)); }
+static void priority_guard_service_core1(void)
+{ assert(!(s_committed_model_guard & 1u)); }
 static void priority_follow_prepare_core1(void)
 {
     assert(!(s_committed_model_guard & 1u));

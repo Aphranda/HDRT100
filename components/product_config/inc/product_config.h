@@ -61,6 +61,20 @@ typedef struct {
 bool product_config_get_vdc_reference_profile(product_config_vdc_reference_profile_t *profile);
 bool product_config_set_vdc_reference_profile(const product_config_vdc_reference_profile_t *profile);
 
+/* Debug tuning values are stored verbatim; the realtime owner defines their
+ * saturated arithmetic, including zero. Enabling discipline is session-local. */
+typedef struct {
+    uint32_t slew_ppb_per_s;
+    uint32_t filter_divisor;
+    uint32_t max_ppb;
+} product_config_vdc_reference_discipline_profile_t;
+
+#define PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_SLEW_PPB_PER_S 100u
+#define PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_FILTER_DIVISOR 4u
+#define PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_MAX_PPB 10000u
+bool product_config_get_vdc_reference_discipline_profile(product_config_vdc_reference_discipline_profile_t *profile);
+bool product_config_set_vdc_reference_discipline_profile(const product_config_vdc_reference_discipline_profile_t *profile);
+
 /* Output-only compensation, independent of MATCH transport delay. Positive
  * delays the physical edge; boot migration defaults to zero in RAM only. */
 #define PRODUCT_CONFIG_DPLL_OUTPUT_COMPENSATION_DEFAULT_NS INT32_C(0)

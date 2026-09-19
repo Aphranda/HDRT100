@@ -6,6 +6,71 @@ static uint32_t s_reference_control_gate;
 static uint32_t s_reference_config_generation = 1u;
 static uint32_t s_reference_active_generation;
 static bool s_reference_enabled;
+static uint32_t s_reference_discipline_request;
+static uint32_t s_reference_discipline_capture_generation;
+static vdc_reference_discipline_config_t s_reference_discipline_config = {
+    PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_SLEW_PPB_PER_S,
+    PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_FILTER_DIVISOR,
+    PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_MAX_PPB,
+};
+static uint32_t s_reference_discipline_config_generation = 1u;
+static uint32_t s_reference_discipline_armed[5];
+static bool reference_control_enter(void);
+static void reference_control_leave(void);
+
+static uint32_t reference_discipline_config_crc32(const vdc_reference_discipline_config_t *config)
+{
+    const uint32_t words[] = {config->slew_ppb_per_s, config->filter_divisor, config->max_ppb};
+    uint32_t crc = UINT32_MAX;
+    for (size_t i = 0; i < 3u; ++i) {
+        for (unsigned byte = 0; byte < 4u; ++byte) {
+            crc ^= (words[i] >> (byte * 8u)) & 0xffu;
+            for (unsigned bit = 0; bit < 8u; ++bit)
+                crc = (crc >> 1u) ^ (UINT32_C(0xedb88320) & (0u - (crc & 1u)));
+        }
+    }
+    return ~crc;
+}
+
+/* Even request values cancel; odd values arm. Never recycle a request token.
+ * Called with the Core0 reference gate held, including monitor cancellation. */
+static bool reference_discipline_request(bool enabled)
+{
+    const uint32_t old = __atomic_load_n(&s_reference_discipline_request, __ATOMIC_RELAXED);
+    if (enabled && old > UINT32_MAX - 4u) return false;
+    if (!enabled && !(old & 1u)) return true;
+    if (enabled) {
+        const uint32_t words[] = {s_reference_discipline_config_generation,
+            reference_discipline_config_crc32(&s_reference_discipline_config),
+            s_reference_discipline_config.slew_ppb_per_s,
+            s_reference_discipline_config.filter_divisor, s_reference_discipline_config.max_ppb};
+        for (size_t i = 0; i < 5u; ++i)
+            __atomic_store_n(s_reference_discipline_armed + i, words[i], __ATOMIC_RELAXED);
+    }
+    __atomic_store_n(&s_reference_discipline_capture_generation,
+        enabled ? s_reference_active_generation : 0u, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_reference_discipline_request,
+        enabled ? ((old + 2u) | 1u) : ((old + 1u) & ~1u), __ATOMIC_RELEASE);
+    return true;
+}
+
+static bool reference_discipline_enable_stopped(void *context)
+{
+    (void)context;
+    return s_reference_enabled && s_reference_active_generation &&
+        reference_discipline_request(true);
+}
+
+bool vdc_dpll_manager_set_reference_discipline(bool enabled)
+{
+    if (!reference_control_enter()) return false;
+    const bool ok = enabled
+        ? s_vdc_tdma_service && tdma_service_update_stopped_metadata(
+            s_vdc_tdma_service, reference_discipline_enable_stopped, NULL)
+        : reference_discipline_request(false);
+    reference_control_leave();
+    return ok;
+}
 static sync_io_reference_config_t s_reference_config = {
     .input_port = PRODUCT_CONFIG_VDC_REFERENCE_DEFAULT_INPUT_PORT,
     .edge = PRODUCT_CONFIG_VDC_REFERENCE_DEFAULT_EDGE,
@@ -35,6 +100,81 @@ static bool reference_config_install(void *context)
     s_reference_config = *config;
     ++s_reference_config_generation;
     return true;
+}
+
+static bool reference_discipline_config_install(void *context)
+{
+    if ((__atomic_load_n(&s_reference_discipline_request, __ATOMIC_ACQUIRE) & 1u) ||
+        s_reference_discipline_config_generation == UINT32_MAX) return false;
+    s_reference_discipline_config = *(const vdc_reference_discipline_config_t *)context;
+    ++s_reference_discipline_config_generation;
+    return true;
+}
+
+bool vdc_dpll_manager_get_reference_discipline_config(vdc_reference_discipline_config_t *config)
+{
+    if (!config || !reference_control_enter()) return false;
+    *config = s_reference_discipline_config;
+    reference_control_leave();
+    return true;
+}
+
+bool vdc_dpll_manager_set_reference_discipline_config(const vdc_reference_discipline_config_t *config)
+{
+    if (!config || !reference_control_enter()) return false;
+    const vdc_reference_discipline_config_t copy = *config;
+    const bool ok = s_vdc_tdma_service && tdma_service_update_stopped_metadata(
+        s_vdc_tdma_service, reference_discipline_config_install, (void *)&copy);
+    reference_control_leave();
+    return ok;
+}
+
+static bool reference_discipline_recall_stopped(void *context)
+{
+    (void)context;
+    product_config_vdc_reference_discipline_profile_t profile;
+    if (!product_config_get_vdc_reference_discipline_profile(&profile)) return false;
+    const vdc_reference_discipline_config_t config = {
+        profile.slew_ppb_per_s, profile.filter_divisor, profile.max_ppb};
+    return reference_discipline_config_install((void *)&config);
+}
+
+bool vdc_dpll_manager_recall_reference_discipline(void)
+{
+    if (!reference_control_enter()) return false;
+    const bool ok = s_vdc_tdma_service && tdma_service_update_stopped_metadata(
+        s_vdc_tdma_service, reference_discipline_recall_stopped, NULL);
+    reference_control_leave();
+    return ok;
+}
+
+bool vdc_dpll_manager_default_reference_discipline(void)
+{
+    const vdc_reference_discipline_config_t config = {
+        PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_SLEW_PPB_PER_S,
+        PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_FILTER_DIVISOR,
+        PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_MAX_PPB};
+    return vdc_dpll_manager_set_reference_discipline_config(&config);
+}
+
+static bool reference_discipline_store_maintenance(void *context)
+{
+    (void)context;
+    const product_config_vdc_reference_discipline_profile_t profile = {
+        s_reference_discipline_config.slew_ppb_per_s,
+        s_reference_discipline_config.filter_divisor, s_reference_discipline_config.max_ppb};
+    return product_config_set_vdc_reference_discipline_profile(&profile);
+}
+
+bool vdc_dpll_manager_store_reference_discipline(void)
+{
+    if (!reference_control_enter()) return false;
+    const bool ok = s_vdc_tdma_service && !s_reference_active_generation &&
+        !(__atomic_load_n(&s_reference_discipline_request, __ATOMIC_ACQUIRE) & 1u) &&
+        tdma_service_run_stopped_maintenance(s_vdc_tdma_service,
+            reference_discipline_store_maintenance, NULL);
+    reference_control_leave();
+    return ok;
 }
 
 bool vdc_dpll_manager_get_reference_config(sync_io_reference_config_t *config)
@@ -79,6 +219,7 @@ bool vdc_dpll_manager_set_reference_enabled(bool enabled)
         ok = s_vdc_tdma_service && tdma_service_update_stopped_metadata(
             s_vdc_tdma_service, reference_enable_stopped, NULL);
     } else {
+        ok = reference_discipline_request(false);
         if (s_reference_active_generation) sync_io_reference_cancel();
         s_reference_enabled = false;
     }
@@ -184,7 +325,8 @@ static bool reference_init_from_product_config(void)
 {
     if (!reference_control_enter()) return false;
     const bool ok = !s_reference_active_generation &&
-        !vdc_dpll_manager_feedback_session() && reference_recall_stopped(NULL);
+        !vdc_dpll_manager_feedback_session() && reference_recall_stopped(NULL) &&
+        reference_discipline_recall_stopped(NULL);
     reference_control_leave();
     return ok;
 }

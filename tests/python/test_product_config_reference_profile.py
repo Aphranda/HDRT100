@@ -143,8 +143,9 @@ static void reference_crc(void){
         assert(product_config_init());expect_ref(&ref_a);
     }
     test_reset_flash();assert(product_config_init());assert(product_config_set_vdc_reference_profile(&ref_a));
+    /* Construct a v6 record explicitly; newly saved records may be newer. */
     reference_record_t r;memcpy(&r,s_flash,sizeof(r));
-    assert(r.timing.prefix.version==6u);r.edge=2u;r.timing.prefix.crc32=0u;
+    r.timing.prefix.version=6u;r.edge=2u;r.timing.prefix.crc32=0u;
     r.timing.prefix.crc32=ota_crc32_compute((const uint8_t *)&r,sizeof(r));
     memcpy(s_flash,&r,sizeof(r));assert(product_config_init());expect_default_ref();
     assert(s_program_count==1u&&s_erase_count==0u);

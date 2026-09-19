@@ -11,7 +11,8 @@
 #include "project_config.h"
 
 #define PRODUCT_CONFIG_MAGIC   0x47544346u
-#define PRODUCT_CONFIG_VERSION 6u
+#define PRODUCT_CONFIG_VERSION 7u
+#define PRODUCT_CONFIG_VERSION_REFERENCE 6u
 #define PRODUCT_CONFIG_VERSION_OUTPUT_TIMING 5u
 #define PRODUCT_CONFIG_VERSION_OUTPUT_DELAY 4u
 #define PRODUCT_CONFIG_VERSION_BASELINE 3u
@@ -52,11 +53,15 @@ typedef struct {
     uint32_t reference_nominal_hz;
     uint32_t reference_window_ms;
     uint32_t reference_timeout_ms;
+    uint32_t reference_discipline_slew_ppb_per_s;
+    uint32_t reference_discipline_filter_divisor;
+    uint32_t reference_discipline_max_ppb;
 } product_config_record_t;
 
 /* Versions 1/2 end at the existing CRC word; retain their byte-exact CRC
  * domain. Version 3 covers baseline fields, version 4 output delay, and
- * version 5 adds output timing; version 6 adds external signal parameters. */
+ * version 5 adds output timing; version 6 adds external signal parameters;
+ * version 7 adds reference discipline tuning. */
 #define PRODUCT_CONFIG_LEGACY_BYTES offsetof(product_config_record_t, baseline_max_replacements)
 _Static_assert(PRODUCT_CONFIG_LEGACY_BYTES == 64u, "v1/v2 CRC domain remains 64 bytes");
 #define PRODUCT_CONFIG_BASELINE_BYTES offsetof(product_config_record_t, output_compensation_ns)
@@ -65,7 +70,9 @@ _Static_assert(PRODUCT_CONFIG_BASELINE_BYTES == 72u, "v3 CRC domain remains 72 b
 _Static_assert(PRODUCT_CONFIG_OUTPUT_DELAY_BYTES == 76u, "v4 CRC domain remains 76 bytes");
 #define PRODUCT_CONFIG_OUTPUT_TIMING_BYTES offsetof(product_config_record_t, reference_input_port)
 _Static_assert(PRODUCT_CONFIG_OUTPUT_TIMING_BYTES == 88u, "v5 CRC domain remains 88 bytes");
-_Static_assert(sizeof(product_config_record_t) == 108u, "v6 record is 108 bytes");
+#define PRODUCT_CONFIG_REFERENCE_BYTES offsetof(product_config_record_t, reference_discipline_slew_ppb_per_s)
+_Static_assert(PRODUCT_CONFIG_REFERENCE_BYTES == 108u, "v6 CRC domain remains 108 bytes");
+_Static_assert(sizeof(product_config_record_t) == 120u, "v7 record is 120 bytes");
 _Static_assert(sizeof(product_config_record_t) <= PRODUCT_CONFIG_SLOT_SIZE,
                "Product Config record must fit one journal page");
 
@@ -166,7 +173,8 @@ static uint32_t product_config_crc32(const product_config_record_t *record)
     product_config_record_t copy = *record;
     copy.crc32 = 0u;
     const size_t length = copy.version == PRODUCT_CONFIG_VERSION
-        ? sizeof(copy) : copy.version == PRODUCT_CONFIG_VERSION_OUTPUT_TIMING
+        ? sizeof(copy) : copy.version == PRODUCT_CONFIG_VERSION_REFERENCE
+            ? PRODUCT_CONFIG_REFERENCE_BYTES : copy.version == PRODUCT_CONFIG_VERSION_OUTPUT_TIMING
             ? PRODUCT_CONFIG_OUTPUT_TIMING_BYTES : copy.version == PRODUCT_CONFIG_VERSION_OUTPUT_DELAY
             ? PRODUCT_CONFIG_OUTPUT_DELAY_BYTES : copy.version == PRODUCT_CONFIG_VERSION_BASELINE
             ? PRODUCT_CONFIG_BASELINE_BYTES : PRODUCT_CONFIG_LEGACY_BYTES;
@@ -178,6 +186,7 @@ static bool product_config_record_is_valid(const product_config_record_t *record
     if (record == NULL ||
         record->magic != PRODUCT_CONFIG_MAGIC ||
         (record->version != PRODUCT_CONFIG_VERSION &&
+         record->version != PRODUCT_CONFIG_VERSION_REFERENCE &&
          record->version != PRODUCT_CONFIG_VERSION_OUTPUT_TIMING &&
          record->version != PRODUCT_CONFIG_VERSION_OUTPUT_DELAY &&
          record->version != PRODUCT_CONFIG_VERSION_BASELINE &&
@@ -317,6 +326,13 @@ static void product_config_default_reference(product_config_record_t *record)
     record->reference_timeout_ms = PRODUCT_CONFIG_VDC_REFERENCE_DEFAULT_TIMEOUT_MS;
 }
 
+static void product_config_default_reference_discipline(product_config_record_t *record)
+{
+    record->reference_discipline_slew_ppb_per_s = PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_SLEW_PPB_PER_S;
+    record->reference_discipline_filter_divisor = PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_FILTER_DIVISOR;
+    record->reference_discipline_max_ppb = PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_MAX_PPB;
+}
+
 static void product_config_set_default(product_config_record_t *record)
 {
     const product_config_dpll_servo_profile_t default_profile =
@@ -333,6 +349,7 @@ static void product_config_set_default(product_config_record_t *record)
     record->baseline_window_ns = PRODUCT_CONFIG_DPLL_BASELINE_DEFAULT_WINDOW_NS;
     product_config_default_output_timing(record);
     product_config_default_reference(record);
+    product_config_default_reference_discipline(record);
     product_config_record_set_dpll_profile(record, &default_profile);
     product_config_record_set_dpll_control_profile(record, &default_control);
     record->crc32 = product_config_crc32(record);
@@ -491,8 +508,10 @@ bool product_config_init(void)
     if (s_product_config.version < PRODUCT_CONFIG_VERSION_OUTPUT_TIMING || !product_config_output_timing_valid(&timing))
         product_config_default_output_timing(&s_product_config);
     const product_config_vdc_reference_profile_t reference = product_config_record_reference(&s_product_config);
-    if (s_product_config.version < PRODUCT_CONFIG_VERSION || !product_config_reference_valid(&reference))
+    if (s_product_config.version < PRODUCT_CONFIG_VERSION_REFERENCE || !product_config_reference_valid(&reference))
         product_config_default_reference(&s_product_config);
+    if (s_product_config.version < PRODUCT_CONFIG_VERSION)
+        product_config_default_reference_discipline(&s_product_config);
     if (!have_servo)
         product_config_record_set_dpll_profile(&s_product_config, &default_profile);
     if (!have_control)
@@ -722,6 +741,34 @@ bool product_config_set_vdc_reference_profile(const product_config_vdc_reference
         readback.input_port == profile->input_port && readback.edge == profile->edge &&
         readback.nominal_hz == profile->nominal_hz && readback.window_ms == profile->window_ms &&
         readback.timeout_ms == profile->timeout_ms;
+}
+
+bool product_config_get_vdc_reference_discipline_profile(product_config_vdc_reference_discipline_profile_t *profile)
+{
+    if (profile == NULL || !product_config_record_is_valid(&s_product_config) ||
+        s_product_config.version != PRODUCT_CONFIG_VERSION) return false;
+    *profile = (product_config_vdc_reference_discipline_profile_t){
+        s_product_config.reference_discipline_slew_ppb_per_s,
+        s_product_config.reference_discipline_filter_divisor,
+        s_product_config.reference_discipline_max_ppb};
+    return true;
+}
+
+bool product_config_set_vdc_reference_discipline_profile(const product_config_vdc_reference_discipline_profile_t *profile)
+{
+    if (profile == NULL) return false;
+    product_config_record_t record = s_product_config;
+    if (!product_config_record_is_valid(&record)) product_config_set_default(&record);
+    record.version = PRODUCT_CONFIG_VERSION;
+    record.reference_discipline_slew_ppb_per_s = profile->slew_ppb_per_s;
+    record.reference_discipline_filter_divisor = profile->filter_divisor;
+    record.reference_discipline_max_ppb = profile->max_ppb;
+    record.sequence++;
+    record.crc32 = product_config_crc32(&record);
+    product_config_vdc_reference_discipline_profile_t readback;
+    return product_config_store(&record) && product_config_get_vdc_reference_discipline_profile(&readback) &&
+        readback.slew_ppb_per_s == profile->slew_ppb_per_s &&
+        readback.filter_divisor == profile->filter_divisor && readback.max_ppb == profile->max_ppb;
 }
 
 bool product_config_set_vdc_output_timing_profile(const product_config_vdc_output_timing_profile_t *profile)

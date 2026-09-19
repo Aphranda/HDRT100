@@ -422,14 +422,16 @@ static int32_t vdc_domain_corrected_phase_error_ns(
     if (context->dpll.accepted_sample_count != 0u &&
         context->phase_observed_anchor_valid != 0u &&
         context->clock.valid != 0u &&
-        context->clock.period_adjust_ppb != 0 &&
+        context->clock.period_adjust_ppb != context->reference_baseline_ppb &&
         evidence->observed_time_ns > context->phase_observed_anchor_ns) {
         const uint64_t elapsed_ns64 =
             evidence->observed_time_ns - context->phase_observed_anchor_ns;
         const uint32_t elapsed_ns = elapsed_ns64 > UINT32_MAX
             ? UINT32_MAX : (uint32_t)elapsed_ns64;
         rate_correction_ns = vdc_domain_ppb_elapsed_correction_ns(
-            context->clock.period_adjust_ppb, elapsed_ns);
+            vdc_domain_clamp_i64_to_i32(
+                (int64_t)context->clock.period_adjust_ppb -
+                context->reference_baseline_ppb), elapsed_ns);
     }
 
     int64_t corrected =
@@ -1290,10 +1292,14 @@ static void vdc_domain_update_clock_from_evidence(
         (int64_t)frequency_error_ppb +
         (int64_t)context->dpll.loop_filter_integrator_ppb +
         (int64_t)integrator_delta_ppb;
+    const int64_t negative_rate_limit = context->reference_baseline_ppb != 0 &&
+        limit_ppb > 999999999 ? 999999999 : limit_ppb;
     const bool winds_further_positive =
-        unsaturated_correction > limit_ppb && integrator_delta_ppb > 0;
+        unsaturated_correction > (int64_t)context->reference_baseline_ppb + negative_rate_limit &&
+        integrator_delta_ppb > 0;
     const bool winds_further_negative =
-        unsaturated_correction < -limit_ppb && integrator_delta_ppb < 0;
+        unsaturated_correction < (int64_t)context->reference_baseline_ppb - limit_ppb &&
+        integrator_delta_ppb < 0;
     if (!winds_further_positive && !winds_further_negative) {
         context->dpll.loop_filter_integrator_ppb = vdc_domain_clamp_ppb(
             (int64_t)context->dpll.loop_filter_integrator_ppb +
@@ -1318,10 +1324,15 @@ static void vdc_domain_update_clock_from_evidence(
         : vdc_domain_slew_i32(context->clock.phase_offset_ns,
                               phase_target_ns,
                               phase_slew_limit_ns);
-    const int32_t period_adjust_ppb =
+    const int32_t residual_rate_ppb =
         -vdc_domain_clamp_ppb((int64_t)frequency_error_ppb +
                                   (int64_t)context->dpll.loop_filter_integrator_ppb,
                               context->servo.sanity_freq_limit_ppb);
+    int32_t period_adjust_ppb = vdc_domain_clamp_ppb(
+        (int64_t)context->reference_baseline_ppb + residual_rate_ppb,
+        context->servo.sanity_freq_limit_ppb);
+    if (context->reference_baseline_ppb != 0 && period_adjust_ppb <= -1000000000)
+        period_adjust_ppb = -999999999;
 
     context->dpll.last_frequency_error_ppb = frequency_error_ppb;
     if (update_rate_anchor) {
@@ -1883,6 +1894,10 @@ bool vdc_domain_set_dpll_control_profile(
     applied.generation =
         vdc_domain_increment_nonzero(context->control.profile.generation);
     context->control.profile = applied;
+    /* The held clock/DCO already contains the last physical rate. Retire
+     * its reference attribution on a role/source change without changing
+     * output coordinates; the new role acquires its own correction history. */
+    context->reference_baseline_ppb = 0;
     context->control.last_follower_source_slot_id = 0u;
     context->control.last_follower_control_generation = 0u;
     context->control.last_follower_command_seq = 0u;
@@ -2218,6 +2233,64 @@ static bool vdc_domain_translate_u64(uint64_t value, int64_t delta,
         if (UINT64_MAX - value < magnitude) return false;
         *translated = value + magnitude;
     }
+    return true;
+}
+
+bool __attribute__((noinline)) vdc_domain_apply_reference_baseline(
+    vdc_domain_context_t *context, int32_t absolute_ppb, uint64_t local_now_ns)
+{
+    if (context == NULL || !context->ready || !context->schedule.enabled ||
+        !context->servo.enabled || context->control.profile.valid != 1u ||
+        context->control.profile.mode != VDC_DPLL_CONTROL_MODE_MASTER ||
+        context->schedule.local_slot_id != context->schedule.reference_slot_id ||
+        !context->clock.valid || !context->dco.valid ||
+        context->clock.period_adjust_ppb <= -1000000000 ||
+        context->dco.period_adjust_ppb <= -1000000000 || absolute_ppb <= -1000000000 ||
+        context->clock.epoch_id != context->dco.epoch_id ||
+        context->clock.run_id != context->dco.run_id ||
+        context->clock.tdma_schedule_crc32 != context->schedule.schedule_crc32 ||
+        context->clock.servo_profile_crc32 != context->servo.servo_profile_crc32 ||
+        local_now_ns < context->clock.base_local_tick64 ||
+        local_now_ns < context->dco.base_local_tick64 ||
+        vdc_domain_abs_i32(absolute_ppb) > context->servo.sanity_freq_limit_ppb ||
+        !vdc_domain_dco_control_validate(&context->schedule, &context->servo,
+                                         &context->dco)) return false;
+    const int64_t delta = (int64_t)absolute_ppb - context->reference_baseline_ppb;
+    const int64_t clock_rate = (int64_t)context->clock.period_adjust_ppb + delta;
+    const int64_t dco_rate = (int64_t)context->dco.period_adjust_ppb + delta;
+    if (clock_rate <= -1000000000 || clock_rate > INT32_MAX ||
+        dco_rate <= -1000000000 || dco_rate > INT32_MAX ||
+        vdc_domain_abs_i32((int32_t)clock_rate) > context->servo.sanity_freq_limit_ppb ||
+        vdc_domain_abs_i32((int32_t)dco_rate) > context->servo.sanity_freq_limit_ppb)
+        return false;
+    if (!delta) return true;
+    if (context->clock.model_seq == UINT32_MAX ||
+        context->dco.dco_update_seq == UINT32_MAX) return false;
+
+    vdc_clock_model_t clock = context->clock;
+    vdc_dco_control_t dco = context->dco, clock_projection;
+    vdc_domain_default_dco_control(&clock_projection, &clock, context->dpll.state);
+    uint64_t old_clock, old_output;
+    if (!vdc_domain_dco_local_to_output_ns(&clock_projection, local_now_ns, &old_clock) ||
+        !vdc_domain_dco_local_to_output_ns(&dco, local_now_ns, &old_output) ||
+        !vdc_domain_translate_u64(old_clock, -(int64_t)clock.phase_offset_ns,
+                                  &clock.base_vdc_time64_ns) ||
+        !vdc_domain_translate_u64(old_output, -(int64_t)dco.phase_offset_ns,
+                                  &dco.base_vdc_time64_ns)) return false;
+    clock.base_local_tick64 = dco.base_local_tick64 = local_now_ns;
+    clock.period_adjust_ppb = (int32_t)clock_rate;
+    dco.period_adjust_ppb = (int32_t)dco_rate;
+    ++clock.model_seq;
+    ++dco.dco_update_seq;
+    dco.source_model_seq = clock.model_seq;
+    uint64_t new_clock, new_output;
+    vdc_domain_default_dco_control(&clock_projection, &clock, context->dpll.state);
+    if (!vdc_domain_dco_local_to_output_ns(&clock_projection, local_now_ns, &new_clock) ||
+        !vdc_domain_dco_local_to_output_ns(&dco, local_now_ns, &new_output) ||
+        new_clock != old_clock || new_output != old_output) return false;
+    context->clock = clock;
+    context->dco = dco;
+    context->reference_baseline_ppb = absolute_ppb;
     return true;
 }
 
@@ -3594,6 +3667,7 @@ static bool vdc_domain_activate_tdma_configuration_checked(
     }
 
     const uint32_t next_run_id = context->clock.run_id + 1u;
+    context->reference_baseline_ppb = 0;
     const uint32_t ready = context->ready;
     const uint32_t debug_continue_enabled =
         context->dpll.debug_continue_enabled;

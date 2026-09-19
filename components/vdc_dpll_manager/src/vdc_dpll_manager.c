@@ -3078,6 +3078,7 @@ static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phas
 #include "vdc_output_edge_plan.h"
 #include "vdc_future_raw.h"
 #include "vdc_run_output.inc"
+#include "vdc_reference_discipline.inc"
 
 /* Section placement alone does not prevent GCC from moving this whole RAM
  * step into the XIP service wrapper when that wrapper gains another call. */
@@ -3159,6 +3160,7 @@ void __attribute__((noinline)) sync_dpll_fb_service(void)
     sync_dpll_fb_step();
     vdc_boundary_service_core1();
     priority_follow_apply_core1();
+    reference_discipline_service_core1(session);
     if (session) model_feedback_end_core1(session);
     priority_summary_service(true);
     priority_guard_service_core1();

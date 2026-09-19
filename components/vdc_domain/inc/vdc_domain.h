@@ -694,7 +694,17 @@ typedef struct {
     /* Private servo anchor, independent of the longer FLL observation span. */
     uint64_t phase_observed_anchor_ns;
     uint32_t phase_observed_anchor_valid;
+    /* Core1-owned absolute external reference contribution to the published
+     * clock/DCO rate. The TDMA PI observes only the residual contribution. */
+    int32_t reference_baseline_ppb;
 } vdc_domain_context_t;
+
+/* Core1 owner only. MASTER/reference slot, continuous at local_now_ns.
+ * Absolute target (not a delta); preserves PI history and phase residual.
+ * False leaves the entire context unchanged. Measurement lifetime/quality
+ * admission belongs to the caller. A repeated target is an exact no-op. */
+bool vdc_domain_apply_reference_baseline(vdc_domain_context_t *context,
+    int32_t absolute_ppb, uint64_t local_now_ns);
 
 void vdc_domain_default_schedule(vdc_tdma_schedule_profile_t *profile,
                                  uint32_t local_slot_id,

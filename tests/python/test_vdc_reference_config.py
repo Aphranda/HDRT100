@@ -26,7 +26,8 @@ def reference_config_host(tmp_path_factory):
     return executable
 
 
-@pytest.mark.parametrize("mode", ["lifecycle", "snapshots", "timeout", "gates", "persistence", "boot"])
+@pytest.mark.parametrize("mode", ["discipline", "discipline_config", "discipline_gates",
+    "discipline_persistence", "lifecycle", "snapshots", "timeout", "gates", "persistence", "boot"])
 def test_real_reference_config_owner(reference_config_host, mode):
     result = subprocess.run([str(reference_config_host), mode], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -50,6 +51,9 @@ static bool backend_ok=true,snapshot_ok=true,release_ok=true,read_ok=true,write_
 static unsigned backend_generation;
 static sync_io_reference_snapshot_t backend;
 static product_config_vdc_reference_profile_t stored={2,1,1234000,500,1500};
+static product_config_vdc_reference_discipline_profile_t discipline_stored={50,8,9000};
+static unsigned discipline_read_calls,discipline_write_calls;
+static bool discipline_read_ok=true,discipline_write_ok=true;
 static int service;
 static void *s_vdc_tdma_service=&service;
 static unsigned get_core_num(void){return core;}
@@ -95,12 +99,134 @@ bool product_config_set_vdc_reference_profile(const product_config_vdc_reference
     if(!write_ok)return false;
     stored=*p;return true;
 }
+bool product_config_get_vdc_reference_discipline_profile(product_config_vdc_reference_discipline_profile_t *p){
+    assert(core==0);++discipline_read_calls;
+    if(!discipline_read_ok)return false;
+    *p=discipline_stored;return true;
+}
+bool product_config_set_vdc_reference_discipline_profile(const product_config_vdc_reference_discipline_profile_t *p){
+    assert(core==0 && stopped && inside_maintenance);++discipline_write_calls;
+    if(!discipline_write_ok)return false;
+    discipline_stored=*p;return true;
+}
 #include "components/vdc_dpll_manager/src/vdc_reference_config.inc"
 static const sync_io_reference_config_t candidate={3,1,2000000,250,1200};
 static const sync_io_reference_config_t defaults={4,0,10000000,1000,2500};
 static bool same(const sync_io_reference_config_t *a,const sync_io_reference_config_t *b){
     return a->input_port==b->input_port && a->edge==b->edge && a->nominal_hz==b->nominal_hz &&
         a->window_ms==b->window_ms && a->timeout_ms==b->timeout_ms;
+}
+static const vdc_reference_discipline_config_t discipline_defaults={100,4,10000};
+static const vdc_reference_discipline_config_t discipline_candidate={50,8,9000};
+static void expect_discipline_config(const vdc_reference_discipline_config_t *expected){
+    vdc_reference_discipline_config_t got;
+    assert(vdc_dpll_manager_get_reference_discipline_config(&got));
+    assert(got.slew_ppb_per_s==expected->slew_ppb_per_s &&
+        got.filter_divisor==expected->filter_divisor && got.max_ppb==expected->max_ppb);
+}
+static void discipline_config(void){
+    expect_discipline_config(&discipline_defaults);
+    assert(vdc_dpll_manager_set_reference_discipline_config(&discipline_candidate));
+    expect_discipline_config(&discipline_candidate);
+    assert(!discipline_write_calls && !prepare_calls);
+    assert(vdc_dpll_manager_set_reference_enabled(true));
+    assert(vdc_dpll_manager_set_reference_discipline(true));
+    const uint32_t generation=s_reference_discipline_armed[0];
+    const uint32_t crc=s_reference_discipline_armed[1];
+    assert(generation && crc && s_reference_discipline_armed[2]==50 &&
+        s_reference_discipline_armed[3]==8 && s_reference_discipline_armed[4]==9000);
+    assert(!vdc_dpll_manager_set_reference_discipline_config(&discipline_defaults));
+    assert(!vdc_dpll_manager_default_reference_discipline());
+    assert(!vdc_dpll_manager_recall_reference_discipline());
+    assert(!vdc_dpll_manager_store_reference_discipline());
+    expect_discipline_config(&discipline_candidate);
+    assert(s_reference_discipline_armed[0]==generation && s_reference_discipline_armed[1]==crc);
+    assert(vdc_dpll_manager_set_reference_discipline(false));
+    assert(vdc_dpll_manager_set_reference_discipline_config(&discipline_defaults));
+    assert(s_reference_discipline_armed[0]==generation && s_reference_discipline_armed[1]==crc);
+    assert(vdc_dpll_manager_set_reference_discipline(true));
+    assert(s_reference_discipline_armed[0]>generation && s_reference_discipline_armed[1]!=crc);
+    assert(s_reference_discipline_armed[2]==100 && s_reference_discipline_armed[3]==4);
+    assert(vdc_dpll_manager_set_reference_discipline(false));
+    const vdc_reference_discipline_config_t limits[]={
+        {0,0,0},{0,1,UINT32_MAX},{UINT32_MAX,UINT32_MAX,UINT32_MAX}};
+    for(unsigned i=0;i<sizeof(limits)/sizeof(limits[0]);++i){
+        assert(vdc_dpll_manager_set_reference_discipline_config(limits+i));
+        expect_discipline_config(limits+i);
+    }
+}
+static void discipline_gates(void){
+    assert(!vdc_dpll_manager_get_reference_discipline_config(NULL));
+    assert(!vdc_dpll_manager_set_reference_discipline_config(NULL));
+    for(unsigned mode=0;mode<5;++mode){
+        if(mode==0)core=1;
+        if(mode==1)s_reference_control_gate=1;
+        if(mode==2)stopped=false;
+        if(mode==3)s_vdc_tdma_service=NULL;
+        if(mode==4){gate_ok=false;maintenance_ok=false;}
+        assert(!vdc_dpll_manager_set_reference_discipline_config(&discipline_candidate));
+        assert(!vdc_dpll_manager_default_reference_discipline());
+        assert(!vdc_dpll_manager_recall_reference_discipline());
+        assert(!vdc_dpll_manager_store_reference_discipline());
+        if(mode<2){
+            vdc_reference_discipline_config_t got=discipline_candidate;
+            assert(!vdc_dpll_manager_get_reference_discipline_config(&got));
+            assert(got.slew_ppb_per_s==50 && got.filter_divisor==8 && got.max_ppb==9000);
+        }
+        core=0;s_reference_control_gate=0;stopped=true;s_vdc_tdma_service=&service;
+        gate_ok=true;maintenance_ok=true;
+        expect_discipline_config(&discipline_defaults);
+        assert(!discipline_write_calls && !prepare_calls);
+    }
+    s_reference_discipline_config_generation=UINT32_MAX;
+    assert(!vdc_dpll_manager_set_reference_discipline_config(&discipline_candidate));
+    expect_discipline_config(&discipline_defaults);
+}
+static void discipline_persistence(void){
+    assert(vdc_dpll_manager_set_reference_discipline_config(&discipline_defaults));
+    const uint32_t generation=s_reference_discipline_config_generation;
+    maintenance_ok=false;assert(!vdc_dpll_manager_store_reference_discipline());
+    assert(!discipline_write_calls);
+    maintenance_ok=true;discipline_write_ok=false;
+    assert(!vdc_dpll_manager_store_reference_discipline());
+    expect_discipline_config(&discipline_defaults);
+    assert(s_reference_discipline_config_generation==generation && discipline_stored.slew_ppb_per_s==50);
+    discipline_write_ok=true;assert(vdc_dpll_manager_store_reference_discipline());
+    assert(discipline_stored.slew_ppb_per_s==100 && discipline_stored.filter_divisor==4 && discipline_stored.max_ppb==10000);
+    assert(vdc_dpll_manager_set_reference_discipline_config(&discipline_candidate));
+    discipline_read_ok=false;assert(!vdc_dpll_manager_recall_reference_discipline());
+    expect_discipline_config(&discipline_candidate);
+    discipline_read_ok=true;assert(vdc_dpll_manager_recall_reference_discipline());
+    expect_discipline_config(&discipline_defaults);
+    assert(vdc_dpll_manager_default_reference_discipline());
+    assert(discipline_write_calls==2 && !write_calls);
+    assert(vdc_dpll_manager_set_reference_enabled(true));
+    assert(!vdc_dpll_manager_store_reference_discipline());
+    assert(vdc_dpll_manager_set_reference_enabled(false));
+    assert(!vdc_dpll_manager_store_reference_discipline());
+    backend.state=SYNC_IO_REFERENCE_RETIRED;reference_release_core0();
+    assert(vdc_dpll_manager_store_reference_discipline());
+    assert(discipline_write_calls==3);
+}
+static void discipline(void){
+    assert(!vdc_dpll_manager_set_reference_discipline(true));
+    assert(vdc_dpll_manager_set_reference_enabled(true));
+    assert(vdc_dpll_manager_set_reference_discipline(true));
+    const uint32_t first=s_reference_discipline_request;
+    assert((first&1u) && s_reference_discipline_capture_generation==backend.generation);
+    stopped=false;assert(!vdc_dpll_manager_set_reference_discipline(true));
+    assert(s_reference_discipline_request==first);
+    assert(vdc_dpll_manager_set_reference_discipline(false));
+    assert(!(s_reference_discipline_request&1u));
+    stopped=true;assert(vdc_dpll_manager_set_reference_discipline(true));
+    assert(s_reference_discipline_request>first);
+    assert(vdc_dpll_manager_set_reference_enabled(false));
+    assert(!(s_reference_discipline_request&1u));
+    s_reference_enabled=true;s_reference_discipline_request=UINT32_MAX-5u;
+    assert(vdc_dpll_manager_set_reference_discipline(true));
+    assert(vdc_dpll_manager_set_reference_discipline(false));
+    assert(!vdc_dpll_manager_set_reference_discipline(true));
+    assert(vdc_dpll_manager_set_reference_discipline(false));
 }
 static void expect_config(const sync_io_reference_config_t *p){
     sync_io_reference_config_t got;assert(vdc_dpll_manager_get_reference_config(&got));assert(same(&got,p));
@@ -209,6 +335,8 @@ static void persistence(void){
 static void boot(void){
     assert(reference_init_from_product_config());
     const sync_io_reference_config_t expected={2,1,1234000,500,1500};expect_config(&expected);
+    expect_discipline_config(&discipline_candidate);
+    assert(!(s_reference_discipline_request&1u) && !discipline_write_calls && discipline_read_calls==1);
     assert(!status().enabled&&!status().resource_held&&!prepare_calls&&!write_calls);
     session=1;const unsigned calls=read_calls;assert(!reference_init_from_product_config());assert(read_calls==calls);
     session=0;core=1;assert(!reference_init_from_product_config());core=0;
@@ -216,7 +344,11 @@ static void boot(void){
 }
 int main(int argc,char **argv){
     assert(argc==2);
-    if(!strcmp(argv[1],"lifecycle"))lifecycle();
+    if(!strcmp(argv[1],"discipline"))discipline();
+    else if(!strcmp(argv[1],"discipline_config"))discipline_config();
+    else if(!strcmp(argv[1],"discipline_gates"))discipline_gates();
+    else if(!strcmp(argv[1],"discipline_persistence"))discipline_persistence();
+    else if(!strcmp(argv[1],"lifecycle"))lifecycle();
     else if(!strcmp(argv[1],"snapshots"))snapshots();
     else if(!strcmp(argv[1],"timeout"))timeout_result();
     else if(!strcmp(argv[1],"gates"))gates();
