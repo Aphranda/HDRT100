@@ -55,7 +55,7 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 
 | 顺序 | 下一步 | 对应任务 / 退出条件 |
 |---|---|---|
-| 1 | 验证缺参考时模型保持、质量降级及恢复发布 | `VDC-SNAPSHOT-001`、`VDC-HOLD-001`；age/ready、外参模型发布及采集超时重试见进度 026–028。继续 typed 参考断流、正式质量及物理断接后同会话恢复对账，补偿 HOLD 与 Domain HOLDOVER 分开判定。 |
+| 1 | 验证缺参考时模型保持、质量降级及恢复发布 | `VDC-SNAPSHOT-001`、`VDC-HOLD-001`；局部发布与外参恢复见进度 026–028，独立 typed 新鲜度发布见 030。继续实板 typed 参考断流、RefMem 诊断视图及正式质量对账，补偿 HOLD 与 Domain HOLDOVER 分开判定。 |
 | 2 | 保持已验证 delay，扩展恢复及输出证据 | `VDC-OUTPUT-001`、`VDC-PRECISION-001`、`VDC-DRIFT-001`；已有同配置 STOP/ARM 证据，补单板复位恢复、脉冲身份和测量误差。 |
 | 3 | 验证失联、保持、恢复及旧会话退休 | `VDC-RECOVERY-001`、`VDC-HOLD-001`；区分偶发坏样本与持续失效，恢复后重新收敛。 |
 | 4 | 闭合正式精度及 VDC RUN 发布 | `VDC-CAL-001`、`VDC-EVID-001`、`VDC-LOCK-001`、`VDC-RUN-001`、`VDC-VERIFY-001`；校准、同事件身份、freshness、快照及完整调度证据齐全。 |
@@ -77,7 +77,7 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 | `VDC-LOCAL-001` | NO1 自主 PI 与事件发布 | IN PROGRESS | 参考发布已有验收；补齐自主窗口有效输入、PI/DCO 持续更新与已编码事件对账。允许后续帧携带实测事件，不要求首帧可用。 |
 | `VDC-LOCAL-003` | 从板本地 delay 跟踪 | IN PROGRESS | 依赖 `VDC-LOCAL-002`，沿 `VDC-FAST-001/002/003` 收敛；三从已有真实采用，补齐持续性与生命周期门禁。使用 NO1 对应事件加有向 delay，与集中式控制互斥。 |
 | `VDC-LOCAL-004` | 四板最小闭环联合验收 | PENDING | 依赖 `VDC-LOCAL-003`；同轮对账 NO1 PI/发布、三从接收/ACK/采用及 internal 斜率，不以 ACK 或诊断 LOCKED 代替物理精度。 |
-| `VDC-RECOVERY-001` | 坏帧、失联和重启恢复 | PENDING | 偶发坏样本跳过更新；持续断流有保持/降级/恢复行为。覆盖重复、旧代、STOP/ARM，禁止旧会话重放。 |
+| `VDC-RECOVERY-001` | 坏帧、失联和重启恢复 | IN PROGRESS | typed 新鲜度与保持/恢复/退休负测已通过，见进度 030；仍需健康 TDMA 下参考断流及恢复的实板验证。覆盖重复、旧代、STOP/ARM，禁止旧会话重放；STOP 尾段超时不替代 RUN 断流证据。 |
 | `VDC-SAMPLE-001` | 拒绝单次坏样本但保持可信状态 | IN PROGRESS | host/P3 拒绝分类已验收；补实板坏样本恢复和独立 clock/path 换代清理。保持 DCO、积分及有效时间锚；Ki 和持续超时 HOLDOVER 另验。 |
 
 ### 正式时间、质量与发布
@@ -150,6 +150,13 @@ SYST:VDC:REF:ENAB 0
 频偏为“按本地标称时钟测得的输入频率相对配置标称值”，不是本地晶振的同号误差；
 DMA 仲裁延迟尚未定界，不据此宣称绝对 ppb 精度，也不自动修正 DCO。
 RUN 时不轮询 SCPI 采样；硬件自主测量，STOP 后统一读回末态。
+
+typed 来源另用 STOP-only `SYST:VDC:PRIOR:FOLL:HEAL?` 读取，字段按
+`vdc_priority_follow_health_t`：schema、state、reason、request、session、generation、
+event_sequence、tick_hz、age_us、freshness_limit_us、accepted、stale_transitions、
+recoveries、reserved、raw_lo 低/高字、raw_hi 低/高字。state 枚举见
+`VDC_PRIORITY_HEALTH_*`；reason 沿用 FOLLOW。FRESH 不等于锁定；退休后保留末态，
+旧正式 quality 年龄仍是原口径。此接口供 STOP 留证，不用于 RUN 实时采样。
 
 补偿调参已完成 SCPI/Flash 与四板短窗验收，见 `VDC-PROGRESS-20260919-024`。
 以下为配置示例快照，依次为斜率 ppb/s、滤波分母、测量准入限幅 ppb：

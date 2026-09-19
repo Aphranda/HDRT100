@@ -22,6 +22,15 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-030：typed 来源新鲜度独立发布
+
+- TODO task ID：`VDC-SNAPSHOT-001`、`VDC-RECOVERY-001` IN PROGRESS；数字为本轮快照。实现 `c3d1bb6e`：FOLLOW 最终准入后单次记录新事件，Core1 每拍维护独立 TIMER1 年龄，STOP-only `SYST:VDC:PRIOR:FOLL:HEAL?` 读取；不污染正式 quality/DCO。FRESH 不是锁相，恢复计数包含读钟恢复。
+- 初轮相关 host 154+133 项通过，最终新鲜度 27 用例通过，独立复核无阻塞；缺失/重复/旧代不续期、过期保持模型、恢复先建基线及退休负测通过。Release A/B/BOOT 通过，BSS 增 148 B、代码增 1112 B、wrapper 栈帧增 32 B；不授予完整 WCET。
+- 证据根 `out/HardwareAcceptance/20260919/typed-reference-health-r1/`，`p3-r1` 为 PASS_WITH_WARNINGS：25 INFO/19 WARN/0 ERROR/FATAL。build `20260919123817`，源码 SHA `c38b1639ccc2569e355432a872c60ea7fc9e2c2bb19a52d3602956a032efa4c0`，staged 门禁通过。
+- `joint-60s-r1` 保留 FAIL：四板 GUARD/波形通过，但 NO4 模型读回超时、错误队列影响恢复判定；NO3 峰值 51.986 ns。停态复核 `stop-audit-1789822167451896300.json` 确认参数恢复、模型可读；前次核验脚本误用缩写的失败也保留。适配器只对 STOP 模型读取有限重试并留痕。
+- 同固件 `joint-60s-r2` 通过：模型均首次读回一致，十二窗/48 RAW 哈希一致、RUN 查询为零；NO2/3/4 最大绝对相差 34.353/34.083/43.852 ns。三从 typed accepted 为 12333/12544/12308，退休原因均 STOP；超时计数包含依次 STOP 尾段，不能单独认定 RUN 断流。四板已 STOP、恢复，无 cleanup error。
+- 下一 gate：健康 TDMA 下 typed 参考中断/恢复实板注入、RefMem 独立诊断投影与正式质量；连续物理精度及内外精确事件关联仍未授予。
+
 ### VDC-PROGRESS-20260919-029：已验实现按指纹收敛提交
 
 - TODO task ID：`VDC-SNAPSHOT-001`、`VDC-OBS-007`、`VDC-FREQ-001` IN PROGRESS。实现提交 `7a1f2434` 包含启动预检、异步留证、age/ready、外参模型发布和超时恢复；staged P3 门禁核对通过，build/源码 SHA 沿用 028，未合入文档。

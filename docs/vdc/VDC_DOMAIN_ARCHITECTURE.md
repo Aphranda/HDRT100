@@ -169,6 +169,8 @@ Core0 在 TDMA STOP 排他边界 PREPARE，锁存 session、delay、周期、时
 
 `sync_dpll_fb_service()` 在 step 的提前返回前维护质量年龄：`vdc_domain_age_quality()` 只更新 age/health，已有 HOLDOVER 同步其年龄，不推进服务/证据计数或自动迁移控制状态。无参考时间或读钟失败跳过；工作 Domain 与已发布视图分别按各自参考时间和状态老化，不提前公开未 finalize 的证据。ready 变化刷新派生质量，并在已有 runtime 快照时发布。缺参考自动 HOLDOVER、误差边界增长、恢复重锁及正式有效发布仍属于 `VDC-SNAPSHOT-001`、`VDC-HOLD-001`、`VDC-RECOVERY-001` 后续门禁。
 
+typed FOLLOW 的来源新鲜度独立于正式 quality。`vdc_dpll_manager_get_priority_follow_health()` 返回 Core1 单写者的原子快照：FOLLOW 身份与年龄复验通过后，只消费本拍新的 MATCH 事件；每拍按 TIMER1 `raw_lo/raw_hi` 维护年龄，期限复用 `VDC_PRIORITY_FOLLOW_MAX_AGE_MS`，不依赖可选 TRACE/GUARD。FRESH 只表示最后合格来源事件仍年轻，不表示本拍执行成功或锁相；重复事件、BUSY、旧代和拒绝不续期。STALE 时原控制路径保持 DCO、清除待执行项和基线，新事件恢复先重新建基线；STOP/绑定变化退休，诊断留存。读钟失败和反向时间不视为新鲜，`recoveries` 包括同一年轻事件在读钟恢复后的 STALE→FRESH 转换。该快照不修改 Domain 的 accepted、quality、DPLL 或 DCO 序号，也不自动进入 RefMem 正式质量字段。
+
 ## 快照与管理发布
 
 | 发布层 | 当前语义 |
