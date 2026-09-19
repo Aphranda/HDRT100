@@ -3,8 +3,8 @@
 Status: Draft
 Domain: ARCH
 Canonical: `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`
-Related: `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-Last updated: 2026-08-21
+Related: `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+Last updated: 2026-09-19
 
 本文档记录 Distributed Hard Real-Time Trigger System 在当前产品完成后的平台化应用规划。它不是当前固件必须立即实现的功能清单，也不替代 `ARCH_PRODUCT_ARCHITECTURE.md`、`RTOS_HAOFV_TODO.md` 或各功能域待办。当前近期目标仍然是完成 DHRT100 / RP2350 平台上的分布式触发产品闭环；本文面向后续产品线、产业应用和开源生态扩展。
 
@@ -20,6 +20,7 @@ HAOFV
 + VDC / DPLL virtual DC time
 + PIO / DMA / IRQ hard real-time trigger chain
 + multi-node AO/FB role/persona loading
++ 外部频率参考输入与跨板共时钟（相干性，见「时间与相位精度与外部参考」）
 ```
 
 因此，系统名 `Distributed Hard Real-Time Trigger System` 不只覆盖当前相控阵/波导天线测试应用，也能承接后续分布式仪表、工业同步、运动控制、数据采集和开源硬实时平台方向。
@@ -35,6 +36,62 @@ HAOFV
 | 多板协同测试系统 | A0/A1/A2/A3 角色协同，节点共同认知和 delta 同步。 | DistributedApplicationMap、NodeSlot[8]、RJ45_SYNC_RING、RefMem Sync。 |
 
 这些场景是当前产品的第一优先级。后续平台化规划不能削弱当前产品的构建、烧录、板端验证和报告闭环。
+
+## 时间与相位精度及外部参考
+
+### 已建立的实测能力
+
+VDC / DPLL 已经具备可复核的四板相位锁定证据。以下数值是**快照，非事实源**（来源
+`out/HardwareAcceptance/20260919/dpll-delay-center-r2/`），能力声明以该目录的原始证据和
+工具判定字段为准：
+
+| 项 | 实测（快照） | 含义 |
+|---|---|---|
+| 外部采样窗口判定 | 600 s / 120 窗口 / 4 板，全部 120 个窗口在 50 ns 内 | 工具判定 `external_sampled_windows_passed` |
+| 相对相位包络 | 三通道约 24 ns 峰峰 | 三通道中位数仍为负，delay center 尚未回中 |
+| 残余频偏 | 不高于 0.004 ppb（2σ；斜率分辨率 0.002 ppb） | 三通道均在 2σ 内与 0 不可区分，即频率锁定 |
+| 相位噪声性质 | 白相位噪声 rms 约 3.8 ns，样本间不相关（lag-1 约为 0） | 与频偏无关，不能由 ppb 界定 |
+| 未观测空档 | 采样间隔 5 s、单次捕获中位约 3.36 s，最大空档约 1.8 s | 空档的确定性漂移上界为皮秒级 |
+
+**尚未取得工具资格的部分**：`physical_continuous_lock_qualified`、
+`exact_event_correlation_qualified`、`unobserved_intervals_qualified` 均为 false。
+对外表述必须使用"稀疏采样窗口内相对相位在阈值内"的口径，不得写成"连续物理锁相"。
+
+### 外部频率参考的定位：相干不等于溯源
+
+计划接入外部 10 MHz 参考（源为 VNA 或示波器的参考输出）。必须区分它买到的两件事：
+
+| 目标 | 外部参考是否解决 |
+|---|---|
+| 板与仪器、板与板之间的**相干性** | **是**，主要价值在此 |
+| **溯源性**（可对外声明的绝对准确度） | **否**——仪器参考输出自身未溯源，需要 GPSDO / 铷钟加校准报告 |
+
+还需注意：相对相位在同一台仪器上比较时，仪器时基误差是共模量、本来就被抵消。因此接入
+参考**不改进测量本身**，改进的是 DUT 侧（板间相干）与跨域/绝对时间比较能力。
+
+### 接入的架构约束
+
+- **参考只能作频率与准确度参考，不能作时间戳刻度**：10 MHz 周期为 100 ns，比当前
+  250 MHz 的 4 ns 粗 25 倍。必须倍频回不低于 250 MHz 再用于 timestamp 与相位检测。
+- **窄带锁**：PLL 带宽应远低于环路带宽（建议低于 0.1 Hz），短期噪声仍由板上振荡器承担。
+  宽带宽会把参考近端相噪整段引入，短期抖动反而变差；仪器参考输出（尤其示波器）的短期
+  相噪可能差于板上振荡器。
+- **参考分配路径必须进标定**：分配器与电缆的端口/长度不对称会直接进入板间相对相位
+  （1 m 同轴约 4.8 ns，与当前包络同阶），必须等长并标定，纳入既有 per-link base 与
+  per-Node offset 的标定链路。
+- **失锁与滑周 fail-closed**：10 MHz 一个滑周即 100 ns，超过当前全部相位预算；参考丢失
+  或滑周不得静默退化为自由运行，应与 `TDMA-EMISSIONCLOCK-01` 的"低于下界必须 fail-closed
+  拒绝"保持一致。
+- **测量噪声底必须单独标定**：当前约 3.8 ns rms 白噪声的来源尚未定位。已确认**不是**
+  4 ns 量化——实测相位相对 4 ns 网格呈均匀分布；仍需排除仪器边沿检出贡献。未标定测量底
+  之前，精度提升无法归因到环路、参考或仪器。
+
+### 判定实验（接入前后必须先做）
+
+1. 两块板接**同一个** 10 MHz 参考并窄带锁，重跑 600 s：若白噪声下降，说明它原本来自两板
+   独立振荡器的相对噪声；若不变，说明它来自板内（边沿生成或 DPLL 颗粒度），接参考不能解决。
+2. 测量底标定：同一路信号分两路进仪器两个通道，或对同一批边沿重复判定，量出仪器自身贡献。
+3. 记录接入前后的 Allan 偏差对比（τ 从 5 s 到 160 s），作为"精度提升"的证据，而不是只看包络。
 
 ## 横向扩展场景
 
@@ -152,7 +209,7 @@ RP2350 16 MiB 是 Open Reference 的 reference map，不是所有产品线的固
 |---|---|---|
 | HAOFV core | AO/FB event、owner、state、result、budget。 | RTOS queue、thread、timer、critical section。 |
 | RefMem core | slot layout、guard、snapshot、ACK/NACK、delta。 | memory placement、cache coherency、barrier、endianness。 |
-| Time core | timestamp sample、DPLL update、VDC state、holdover。 | hardware timestamp、timer frequency、clock discipline。 |
+| Time core | timestamp sample、DPLL update、VDC state、holdover、参考输入与锁定状态、滑周/失锁处理、精度声明口径。 | hardware timestamp、timer frequency、clock discipline、reference input path 与分配延迟标定。 |
 | Realtime backend | ARM/FIRE_LOAD、capture、local_fire、T2/READY。 | PIO/PRU/TIM/RMT/FPGA pipeline implementation。 |
 
 跨平台原则：
@@ -203,6 +260,7 @@ RP2350 16 MiB 是 Open Reference 的 reference map，不是所有产品线的固
 - RefMem 不变成任意共享内存；它仍然只保存共同事实、命令意图、ACK/NACK、版本、质量和证据。
 - VDC/DPLL 是硬实时预测分发的基础，不和业务域混用。
 - 开源组件优先选择模拟器、验证器、可视化工具和 portable 基础件，避免过早暴露未冻结的产品细节。
+- 时间与相位的能力声明必须绑定原始证据、测量噪声底标定和未观测区间的定量界；不得用稀疏采样结果冒充连续锁相，也不得把仪器参考输出当作溯源。
 
 ## 未来阶段建议
 
@@ -210,6 +268,8 @@ RP2350 16 MiB 是 Open Reference 的 reference map，不是所有产品线的固
 |---|---|---|
 | F0 | 当前分布式触发产品闭环。 | DHRT100 / RP2350 板端可稳定完成配置、同步、校准、触发、T2、报告和恢复。 |
 | F1 | 平台基础件抽象。 | RefMem、AckCommandSlot、VDC/DPLL、System Pack 和工具链可在非当前产品中复用。 |
+| F1b | 外部相干参考接入。 | 四板与仪器共用同一 10 MHz 参考并在窄带锁下重跑 600 s：相位噪声不劣化、相对频偏仍受控；滑周与失锁的 fail-closed 专项有证据。 |
+| F1c | 可溯源精度声明。 | 参考源替换为可溯源源并附校准报告；测量噪声底单独标定；对外可声明绝对相位/频率准确度，而不只是相对稳定性。 |
 | F2 | 仪表/DAQ/ATE 示例。 | 至少 2 个非相控阵 demo persona 可通过同一 ApplicationMap 加载运行。 |
 | F3 | 工业同步/运动控制探索。 | 能给出多轴/多执行器同步 demo、错误边界和安全限制。 |
 | F4 | 开源生态包。 | 提供 simulator、visualizer、validator、reference examples 和清晰的兼容策略。 |
