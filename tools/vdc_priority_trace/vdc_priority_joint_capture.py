@@ -103,13 +103,25 @@ def verify_startup(probe):
         probe.save()
 
 
-def scope_checkpoint(samples, due_s):
+def scope_checkpoint(samples, due_s, settle_s=5.0):
+    """Grade one minute of sparse windows against the coarse and steady bands.
+
+    The coarse +/-100 ns bound is the fail-fast abort criterion and applies to
+    every window, including the first one after START. The tight +/-50 ns bound
+    is the steady-state qualification and applies only to windows later than the
+    declared ``settle_s`` settling allowance: the first window still carries the
+    loop's convergence transient, so holding it to the steady band would fail a
+    healthy run. Every window is classified in the returned evidence, and a
+    settling window that used the allowance is listed explicitly rather than
+    silently dropped.
+    """
     expected = set(range(due_s - 55, due_s + 1, 5))
     window = [r for r in samples if due_s - 60 < r['due_s'] <= due_s]
     seen = [r['due_s'] for r in window]
     failures = [{'due_s': s, 'reason': 'missing_schedule'} for s in sorted(expected - set(seen))]
     if len(seen) != len(set(seen)):
         failures.append({'reason': 'duplicate_schedule'})
+    settling, steady, exemptions, steady_failures = [], [], [], []
     for row in window:
         phase = row.get('phase', {})
         delta = phase.get('relative_ns', [])
@@ -118,24 +130,52 @@ def scope_checkpoint(samples, due_s):
                  and all(math.isfinite(v) for values in delta for v in values))
         if not valid:
             failures.append({'due_s': row['due_s'], 'reason': 'invalid_waveform'})
-        elif any(abs(v) > 100 for values in delta for v in values):
-            failures.append({'due_s': row['due_s'], 'reason': 'phase_outside_100ns'})
+        else:
+            worst = max(abs(v) for values in delta for v in values)
+            # An unreadable schedule time cannot claim the settling allowance.
+            is_settling = isinstance(row.get('due_s'), (int, float)) and row['due_s'] <= settle_s
+            if worst > 100:
+                failures.append({'due_s': row['due_s'], 'reason': 'phase_outside_100ns',
+                                 'max_abs_ns': worst})
+            elif is_settling:
+                settling.append(row['due_s'])
+                if worst > 50:
+                    exemptions.append({'due_s': row['due_s'], 'max_abs_ns': worst})
+            else:
+                steady.append(row['due_s'])
+                if worst > 50:
+                    steady_failures.append({'due_s': row['due_s'], 'reason': 'phase_outside_50ns',
+                                            'max_abs_ns': worst})
         if row.get('overrun'):
             failures.append({'due_s': row['due_s'], 'reason': 'acquisition_overrun'})
     return dict(checkpoint_s=due_s, continue_run=not failures, failures=failures,
-                threshold_ns=100, unobserved_intervals_qualified=False)
+                threshold_ns=100, steady_threshold_ns=50, settle_s=settle_s,
+                settling_windows=sorted(settling), steady_windows=sorted(steady),
+                settling_exemptions=exemptions, steady_failures=steady_failures,
+                unobserved_intervals_qualified=False)
 
 
 def joint_verdict(internal_passed, scope_enabled, decisions, seconds, errors):
     external = None
+    steady = None
+    exemptions = None
     if scope_enabled:
         external = (len(decisions) == seconds // 60
                     and [d['checkpoint_s'] for d in decisions] == list(range(60, seconds + 1, 60))
                     and all(d['continue_run'] for d in decisions))
+        # Fail-closed on the steady band: a checkpoint that never carried the
+        # classification cannot prove it, so the qualification stays unproven
+        # instead of defaulting to a pass.
+        steady = bool(external) and all('steady_failures' in d and not d['steady_failures']
+                                        for d in decisions)
+        exemptions = sum(len(d.get('settling_exemptions', [])) for d in decisions)
     return dict(internal_health_passed=bool(internal_passed),
                 external_sampled_windows_passed=external,
+                external_steady_state_passed=steady,
+                external_settling_exemptions=exemptions,
                 external_status='PASS' if external else 'FAIL' if scope_enabled else 'SKIPPED',
-                passed=bool(internal_passed and not errors and external is not False),
+                passed=bool(internal_passed and not errors and external is not False
+                            and steady is not False),
                 physical_continuous_lock_qualified=False,
                 exact_event_correlation_qualified=False)
 
@@ -270,6 +310,7 @@ def make_probe_class(adapter):
             self.report['plan'].update(external_scope=self.opt.external_scope,
                 scope_trigger=self.opt.scope_trigger if self.opt.external_scope else None,
                 scope_sample_interval_s=5 if self.opt.external_scope else None,
+                scope_settle_s=getattr(self.opt, 'settle_s', 5.0) if self.opt.external_scope else None,
                 scope_observation='fresh sparse RAW windows; no claim for gaps between samples')
             self.report['joint_tool_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
             self.report['bench_adapter_sha256'] = hashlib.sha256(self.opt.bench_adapter.read_bytes()).hexdigest()
@@ -325,7 +366,7 @@ def make_probe_class(adapter):
                 row['ended_s'] = time.monotonic() - start
                 row['overrun'] = row['ended_s'] > due + 5
                 if due % 60 == 0:
-                    decision = scope_checkpoint(samples, due)
+                    decision = scope_checkpoint(samples, due, getattr(self.opt, 'settle_s', 5.0))
                     decisions.append(decision)
                     (self.opt.out / f'scope-checkpoint-{due}.json').write_text(json.dumps(decision, indent=2), encoding='utf-8')
                     if not decision['continue_run']:
@@ -388,6 +429,9 @@ def parse_args(argv=None):
     p.add_argument('--scope-trigger', choices=('CHAN1', 'EXT'), default='CHAN1',
                    help='CHAN1 observes NO1 OUT1; EXT requires an independently active OUT4 signal')
     p.add_argument('--seconds', type=int, default=60)
+    p.add_argument('--settle-s', type=float, default=5.0,
+                   help='after START, windows up to this time are graded against the coarse 100 ns '
+                        'bound only; later windows must hold the steady 50 ns band (0 disables)')
     p.add_argument('--output-delays', type=int, nargs=4, default=(0, -28, -88, -116),
                    metavar=('NO1', 'NO2', 'NO3', 'NO4'),
                    help='STOP-only signed output delays in ns; restored after capture, not saved to Flash')
@@ -396,6 +440,8 @@ def parse_args(argv=None):
     a = p.parse_args(argv)
     if a.seconds not in range(60, 601, 60):
         p.error('seconds must be a whole minute from 60 through 600')
+    if not math.isfinite(a.settle_s) or not 0 <= a.settle_s <= a.seconds:
+        p.error('settle-s must be a finite allowance from 0 through seconds')
     if any(not -(1 << 31) <= value < (1 << 31) for value in a.output_delays):
         p.error('output-delays must be signed int32 nanoseconds')
     if not a.bench_adapter.is_file():
@@ -412,6 +458,7 @@ def main():
             baseline=ROOT/'out/HardwareAcceptance/20260917/dpll-priority-rx-direct-r1/stopped-baseline.json',
             tap_baseline=ROOT/'out/HardwareAcceptance/20260916/dpll-event-recovery-r1/capture-r2/input-probe.json',
             period_ns=1000000, scope=False, check_only=False, seconds=a.seconds, summary_interval_ms=10000,
+            settle_s=a.settle_s,
             no_reference=False, expire_output=False, external_scope=a.scope=='on', scope_trigger=a.scope_trigger,
             bench_adapter=a.bench_adapter)
         probe = make_probe_class(adapter)(opt)
@@ -421,7 +468,8 @@ def main():
     receipt = base.external.base.trial.hil.validate_receipt(ROOT/'config/hardware_acceptance/p3_acceptance_receipt.json')
     child = [sys.executable, str(Path(__file__).resolve()), '--bench-adapter', str(a.bench_adapter.resolve()),
              '--scope', a.scope, '--scope-trigger', a.scope_trigger,
-             '--seconds', str(a.seconds), '--out', str(a.out/'capture'), '--child']
+             '--seconds', str(a.seconds), '--settle-s', str(a.settle_s),
+             '--out', str(a.out/'capture'), '--child']
     runner = base.external.base.ResumeTrial(base.external.base.trial.hil.SerialBackend(), receipt, a.out,
         (24000, 32000, 16000), child, output_delays=tuple(a.output_delays), capture_timeout=a.seconds+240)
     result = runner.run()

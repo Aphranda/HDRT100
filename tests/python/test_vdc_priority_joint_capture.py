@@ -14,6 +14,42 @@ def good_sample(due):
                 phase=dict(relative_ns=[[-100.0, 100.0], [0.0], [1.0]]))
 
 
+def steady_sample(due, ns=0.0):
+    return dict(due_s=due, capture_complete=True, phase=dict(relative_ns=[[ns], [0.0], [0.0]]))
+
+
+def test_first_window_transient_is_graded_coarse_and_named_as_settling():
+    rows = [steady_sample(due) for due in range(5, 121, 5)]
+    rows[0]['phase']['relative_ns'] = [[61.986], [0.0], [0.0]]  # measured NO4 convergence point
+    first = joint.scope_checkpoint(rows, 60)
+    assert first['continue_run'] and not first['failures']
+    assert first['settle_s'] == 5.0 and first['steady_threshold_ns'] == 50
+    assert first['settling_windows'] == [5] and first['steady_windows'] == list(range(10, 61, 5))
+    assert first['settling_exemptions'] == [{'due_s': 5, 'max_abs_ns': 61.986}]
+    assert not first['steady_failures']
+    # The same deviation one window later is a steady-state failure, not settling.
+    rows[1]['phase']['relative_ns'] = [[50.001], [0.0], [0.0]]
+    later = joint.scope_checkpoint(rows, 60)
+    assert later['continue_run']  # Coarse fail-fast bound is unchanged.
+    assert later['steady_failures'] == [{'due_s': 10, 'reason': 'phase_outside_50ns', 'max_abs_ns': 50.001}]
+    # Only the settling window may use the allowance; window 10 is graded steady.
+    assert later['settling_exemptions'] == [{'due_s': 5, 'max_abs_ns': 61.986}]
+    # The coarse bound still applies during settling.
+    rows[0]['phase']['relative_ns'] = [[100.001], [0.0], [0.0]]
+    rows[1]['phase']['relative_ns'] = [[0.0], [0.0], [0.0]]
+    assert not joint.scope_checkpoint(rows, 60)['continue_run']
+
+
+def test_settling_allowance_is_explicit_and_cannot_be_assumed():
+    rows = [steady_sample(due) for due in range(5, 121, 5)]
+    rows[0]['phase']['relative_ns'] = [[61.986], [0.0], [0.0]]
+    assert joint.scope_checkpoint(rows, 60, 0)['steady_failures'] == [
+        {'due_s': 5, 'reason': 'phase_outside_50ns', 'max_abs_ns': 61.986}]
+    assert joint.scope_checkpoint(rows, 60, 10)['settling_windows'] == [5, 10]
+    duplicated = [steady_sample(due) for due in range(5, 121, 5)] + [steady_sample(10)]
+    assert joint.scope_checkpoint(duplicated, 60)['failures'] == [{'reason': 'duplicate_schedule'}]
+
+
 @pytest.mark.parametrize('due', [60, 600])
 def test_complete_checkpoint_uses_only_its_minute(due):
     rows = [good_sample(s) for s in range(due-55, due+1, 5)]
@@ -51,12 +87,32 @@ def test_bad_checkpoint_cannot_borrow_a_preceding_good_result(fault):
 ])
 def test_joint_verdict_keeps_internal_external_and_cleanup_separate(internal, enabled, external, errors, passed):
     result = joint.joint_verdict(internal, enabled,
-        [dict(checkpoint_s=60, continue_run=external)], 60, errors)
+        [dict(checkpoint_s=60, continue_run=external, steady_failures=[])], 60, errors)
     assert result['passed'] is passed
     assert result['internal_health_passed'] is internal
     assert result['external_sampled_windows_passed'] is (external if enabled else None)
     assert not result['physical_continuous_lock_qualified']
     assert not result['exact_event_correlation_qualified']
+
+
+def test_joint_verdict_cannot_pass_an_ungraded_steady_state_band():
+    graded = [dict(checkpoint_s=60, continue_run=True, steady_failures=[])]
+    assert joint.joint_verdict(True, True, graded, 60, [])['passed']
+    assert joint.joint_verdict(True, True, graded, 60, [])['external_steady_state_passed'] is True
+    # A checkpoint without the classification proves nothing about the tight band.
+    ungraded = [dict(checkpoint_s=60, continue_run=True)]
+    unproven = joint.joint_verdict(True, True, ungraded, 60, [])
+    assert unproven['external_steady_state_passed'] is False
+    assert unproven['external_sampled_windows_passed'] is True and not unproven['passed']
+    deviating = [dict(checkpoint_s=60, continue_run=True,
+                      steady_failures=[{'due_s': 10, 'reason': 'phase_outside_50ns', 'max_abs_ns': 55.0}])]
+    assert not joint.joint_verdict(True, True, deviating, 60, [])['passed']
+    exempted = [dict(checkpoint_s=60, continue_run=True,
+                     settling_exemptions=[{'due_s': 5, 'max_abs_ns': 61.986}], steady_failures=[])]
+    used = joint.joint_verdict(True, True, exempted, 60, [])
+    assert used['passed'] and used['external_settling_exemptions'] == 1
+    off = joint.joint_verdict(True, False, [], 60, [])
+    assert off['external_steady_state_passed'] is None and off['external_settling_exemptions'] is None
 
 
 @pytest.mark.parametrize('decisions', [[],
@@ -312,6 +368,9 @@ def test_joint_acquisition_keeps_board_silent_and_always_cleans_up(tmp_path, clo
     if fault is None:
         assert len(probe.report['scope_samples']) == 12
         assert verdict['external_sampled_windows_passed'] is True
+        assert verdict['external_steady_state_passed'] is True
+        assert verdict['external_settling_exemptions'] == 0
+        assert probe.report['plan']['scope_settle_s'] == 5.0
         assert probe.report['quiet_elapsed_s'] >= 62
     if fault == 'capture':
         final = probe.report['scope_samples'][-1]
@@ -358,6 +417,17 @@ def test_invalid_delays_rejected_before_hardware(tmp_path, values):
     with pytest.raises(SystemExit):
         joint.parse_args(['--bench-adapter', str(adapter), '--out', str(tmp_path),
                           '--output-delays', *values])
+
+
+@pytest.mark.parametrize('value', ['-1', 'nan', 'inf', '61'])
+def test_settle_allowance_is_validated_before_hardware(tmp_path, value):
+    adapter = tmp_path/'adapter.py'
+    adapter.write_text('# fixture', encoding='utf-8')
+    with pytest.raises(SystemExit):
+        joint.parse_args(['--bench-adapter', str(adapter), '--out', str(tmp_path), '--settle-s', value])
+    assert joint.parse_args(['--bench-adapter', str(adapter), '--out', str(tmp_path)]).settle_s == 5.0
+    assert joint.parse_args(['--bench-adapter', str(adapter), '--out', str(tmp_path),
+                             '--settle-s', '0']).settle_s == 0.0
 
 
 def test_explicit_delays_reach_stop_restore_runner(tmp_path, monkeypatch):

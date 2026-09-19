@@ -62,6 +62,32 @@ class EvidenceWriter:
         self._raise_errors()
 
 
+def channel_delay_s(query, channel: int) -> float | None:
+    """Instrument channel-to-channel delay (``:CHANn:TCAL?``) in seconds.
+
+    This is the scope's own declared per-channel skew. The relative phases this
+    capture supports are CH2..CH4 against the reference channel, so recording the
+    difference attributes the instrument's contribution instead of assuming it is
+    zero. A model that cannot answer the query yields None rather than a
+    fabricated 0.
+    """
+    try:
+        return float(str(query(f':CHAN{channel}:TCAL?')).strip().strip('"'))
+    except (ValueError, TypeError, OSError):
+        return None
+
+
+def record_channel_delays(report: dict, *, reference_channel: int = 1) -> None:
+    """Publish the absolute and reference-relative channel delays on a report."""
+    delays = {row['channel']: row.get('channel_delay_s')
+              for row in report.get('channels', [])}
+    reference = delays.get(reference_channel)
+    report['channel_delays_s'] = {str(key): value for key, value in delays.items()}
+    report['channel_delays_relative_s'] = {
+        str(key): (None if value is None or reference is None else value - reference)
+        for key, value in delays.items()}
+
+
 def capture_raw(scope, reader):
     """Same validated 650k prefix, with no file I/O in the VISA owner."""
     if scope.quiet or not scope.report.get('armed_ns'):
@@ -109,11 +135,13 @@ def capture_raw(scope, reader):
         scope._raw_blocks[name] = raw  # Preserve malformed responses as evidence too.
         reader.decode_block(raw, count)
         scope.report['channels'].append(dict(channel=channel, preamble=preamble,
-            sample_count=count, read_started_ns=started, read_ended_ns=ended,
+            sample_count=count, channel_delay_s=channel_delay_s(query, channel),
+            read_started_ns=started, read_ended_ns=ended,
             blocks=[dict(start=1, stop=count, path=name, readback=settings,
                          sha256=hashlib.sha256(raw).hexdigest())]))
     if query(':TRIG:STAT?') != 'STOP' or not query(':SYST:ERR?').startswith(('0,', '+0,')):
         raise ValueError('Scope final state or error queue invalid')
+    record_channel_delays(scope.report)
     scope.report['capture_complete'] = True
 
 
