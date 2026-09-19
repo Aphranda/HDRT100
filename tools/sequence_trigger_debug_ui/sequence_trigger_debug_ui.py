@@ -164,9 +164,12 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
                              gateway_output: str = "OUT4", *, counter_slot: int = 1,
                              dut_slot: int = 2, vna_slot: int = 3,
                              counter_input: str = "IN1", counter_threshold: int = 1000,
-                             angle_scan: AngleScan | None = None) -> list[str]:
+                             angle_scan: AngleScan | None = None,
+                             operating_level: int = 7) -> list[str]:
     if mode not in {MODE_INDEPENDENT, MODE_RJ45, MODE_TURNTABLE}:
         raise ValueError("请选择运行模式")
+    if not isinstance(operating_level, int) or not 0 <= operating_level <= 0xffffffff:
+        raise ValueError("TDMA operating level must be uint32")
     if angle_scan is not None:
         if mode != MODE_TURNTABLE:
             raise ValueError("角度扫描仅适用于转台计数模式")
@@ -208,7 +211,7 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
             dut_slot, vna_slot = 2, 3
         commands += [f"CONF:SEQ:NODE:ROLE {dut_slot},5,DUT", f"CONF:SEQ:NODE:ROLE {vna_slot},7,VNA",
                      "CONF:SEQ:NODE:ACT",
-                     "SYST:TDMA:OPMODE:STAGE 7", "SYST:TDMA:OPMODE:APPLY",
+                     f"SYST:TDMA:OPMODE:STAGE {operating_level}", "SYST:TDMA:OPMODE:APPLY",
                      "SYST:TDMA:RING:TOPOLOGY 2,0,0", "CAL:TOPOLOGY:PROBE 1,10",
                      "SYST:TDMA:FLIGHT:MODE 1"]
         prefix = (f"POSITION,{counter_slot},{dut_slot},{vna_slot},{counter_input},{counter_threshold}"

@@ -584,8 +584,10 @@ def test_busy_driver_fault_is_attributed(tmp_path, monkeypatch):
 @pytest.mark.parametrize("manual", [False, True])
 @pytest.mark.parametrize("start", [False, True])
 @pytest.mark.parametrize("counter_input", ["IN1", "IN3", "IN4"])
-def test_configure_uses_position_builder_and_readbacks(tmp_path, monkeypatch, manual, start, counter_input):
-    args = target.parse_args(cli(tmp_path, "--counter-input", counter_input))
+@pytest.mark.parametrize("operating_level", [7, 14])
+def test_configure_uses_position_builder_and_readbacks(tmp_path, monkeypatch, manual, start, counter_input, operating_level):
+    args = target.parse_args(cli(tmp_path, "--counter-input", counter_input,
+                                 "--operating-level", str(operating_level)))
     commands = []
     monkeypatch.setattr(target, "gui_batch", lambda b, r, stage, batch: commands.extend(batch))
     configured = row()
@@ -594,6 +596,9 @@ def test_configure_uses_position_builder_and_readbacks(tmp_path, monkeypatch, ma
                               input=0 if manual else 2, outputmask=8, repeat=0)
     monkeypatch.setattr(target, "sample", lambda b: configured)
     def command(text):
+        if text == "SYST:TDMA:OPMODE?":
+            profile = f"{operating_level},30000000,100000,4096,0,123"
+            return f"{profile},{profile},1,1,0,0"
         if text == "SYST:TDMA:FLIGHT:MODE?": return "2"
         if text == "READ:SEQ:REPEAT?": return "2,0,0"
         if text == "READ:SEQ? SP8T": return '"SP8T",0,1,2,3,4,5,6,7'
@@ -607,6 +612,7 @@ def test_configure_uses_position_builder_and_readbacks(tmp_path, monkeypatch, ma
     ready = "MANUAL" if manual else "IN2"
     expected = f"CONF:SEQ:LINK POSITION,1,2,3,{counter_input},100,{ready},OUT4,1000,10000,RIS"
     assert expected in commands and "TRIG:SEQ:NEXT" not in commands
+    assert f"SYST:TDMA:OPMODE:STAGE {operating_level}" in commands
     if start:
         assert "SYST:TDMA:RING:TRAIN 4096" in commands and commands[-1] == "TRIG:START"
     else:
@@ -621,6 +627,25 @@ def test_counter_injection_uses_selected_unused_input(tmp_path):
     target.inject_counter(bench, report, 999, "prethreshold")
     assert commands == ["TRIG:SEQ:INJECT IN3,999"]
     assert report["injections"][0]["command"] == commands[0]
+
+
+def test_wrong_operating_readback_stops_before_ring_start(tmp_path, monkeypatch):
+    args = target.parse_args(cli(tmp_path, "--operating-level", "14"))
+    commands = []
+    monkeypatch.setattr(target, "gui_batch", lambda b, r, stage, batch: commands.extend(batch))
+    bench = SimpleNamespace(args=args, command=lambda command:
+        "7,10000000,1000000,4096,0,123,14,30000000,100000,4096,0,456,1,1,0,0")
+    report = {}
+    with pytest.raises(AcceptanceError, match="profile readback mismatch"):
+        target.configure(bench, report)
+    assert report["operating_profile"]["fields"]["level"] == 7
+    assert "SYST:TDMA:RING:ARM" not in commands and "TRIG:START" not in commands
+
+
+@pytest.mark.parametrize("level", ["-1", "4294967296"])
+def test_operating_level_range_checked_before_device(tmp_path, level):
+    with pytest.raises(SystemExit):
+        target.parse_args(cli(tmp_path, "--operating-level", level))
 
 
 def test_external_profile_cannot_claim_in1_with_another_input(tmp_path):

@@ -10,17 +10,17 @@
     "no_independent_edge_count",
     "no_tdma_stability"
   ],
-  "created_at": "2026-09-19T10:22:41.930724+00:00",
+  "created_at": "2026-09-19T10:49:02.385984+00:00",
   "serial_number": "839E1AE79EA20F31",
-  "build_id": "20260919101510",
-  "source_tree_sha256": "f7ac69cdff55adbe48278a6d83307f2514fe294fc73756fcbd080022145e5329",
+  "build_id": "20260919103901",
+  "source_tree_sha256": "410384fb4923129e37a29d46c2fdfe46f646b4e51c8cfc3ff932b09d97fcdd63",
   "source_file_count": 1191,
   "changed_sources": [
     "components/sync_trigger/src/trigger_sequence_link.c",
-    "tests/python/test_sequence_config_validate.py",
-    "tests/python/test_trigger_sequence_link.py",
+    "tests/python/test_sequence_position_validate.py",
     "tests/unit/test_trigger_sequence_history_vector.c",
-    "tools/hardware_acceptance/sequence_config_validate.py"
+    "tools/hardware_acceptance/sequence_position_validate.py",
+    "tools/sequence_trigger_debug_ui/sequence_trigger_debug_ui.py"
   ],
   "validator_sha256": "5540b1d43f5605fffd6d53ccdfeda717ae517e02f16740bd99d94db75c33f2c9",
   "validator_hashes": {
@@ -28,40 +28,40 @@
     "cycle": "5540b1d43f5605fffd6d53ccdfeda717ae517e02f16740bd99d94db75c33f2c9",
     "repeat": "4369e35eb2bfa6f823b96d9671d14a582a5ad83acc3cfb78f58e92f9b1a1ba99",
     "start": "4f24ea32b09f110a5f45c632b23813171a22d23e0a5461440ade326bdacb11ab",
-    "position": "c989256332fe5b98f9c9ffbc8d7ed366b729afb328f0e2e9654e5a50bfb377f9",
-    "gui": "cd5fdd15d152a260498de40c4f25eaa8762ff5359df453cecb6f27672275cdd9"
+    "position": "6d82200fa1b1dd6d0cca1980cdbbdc73a46f0b02571f801358fae4eb3f727fbb",
+    "gui": "cda6a51bcf93cd79b8e462e04113183a0f492175f20055f39572b05c8e75a5f6"
   },
   "source_hz": 1000.0,
   "host_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-off-r1/host.json",
-    "sha256": "e7dc256b456a21a6fb81e23c65acb1d91e8819f34850c2be7f18d8bdae71e94f"
+    "path": "out/HardwareAcceptance/20260919/sequence-idle-r1/host.json",
+    "sha256": "bbb2f1ce008b92495f59fd489ac31790cacd75f32e59157f823479485c5d7ae8"
   },
   "repeat_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-off-r1/repeat.json",
-    "sha256": "62bb1c497bc36ded21988cbc5cf60023c6eec11eccda92ae26f1745a3d71dca9"
+    "path": "out/HardwareAcceptance/20260919/sequence-idle-r1/repeat.json",
+    "sha256": "408ecfe02bb29f1a19daf86c78e4968d0089eb9595e2cfbdea495278f5e7d729"
   },
   "start_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-off-r1/start.json",
-    "sha256": "478e429044493012db1b7992e8effe499a8a14af8f23a2022b3ec56bd6c5c197"
+    "path": "out/HardwareAcceptance/20260919/sequence-idle-r1/start.json",
+    "sha256": "5bcc67e6cbeb81f67a023afe0c81762b07b1dc6f8c4028c284a53f18ce8a7f81"
   },
   "position_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-off-r1/position.json",
-    "sha256": "db310bf8f02a628b82d9930893983efff45d107dd323686bdc80312ca26c46df"
+    "path": "out/HardwareAcceptance/20260919/sequence-idle-r1/position.json",
+    "sha256": "bcf4b691744eaf4df44a8512598b57ca233fb410f97b920300fb4ca57ce65251"
   },
   "firmware_package": {
-    "path": "out/build/sequence-off-usbtmc-20260919/DHRT100_UPDATE.pkg",
-    "sha256": "2d15f90f881406fd601367a6a9a3de3e67c11565b0efa4d435293280607424c7"
+    "path": "out/build/sequence-idle-usbtmc-20260919/DHRT100_UPDATE.pkg",
+    "sha256": "3f9c781d2b981b0ec4bb0a20f95d4281a6a53a40c7fa79899cfa7d62c64bf1c8"
   },
   "ota_summary": {
-    "path": "out/ota/sequence-off-20260919-r1/summary.json",
-    "sha256": "a3ac520a14e20375afc7e49df23411b14f85c2ad3fb3b111657fb041268d72dd"
+    "path": "out/ota/sequence-idle-20260919-r1/summary.json",
+    "sha256": "17aa2e617daefee649df1d7468dba7f074c4c7ac418febf53b225350f23c6ba5"
   },
   "finite_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-off-r1/finite.json",
-    "sha256": "84f2dc949ca95872532f353732492588757a4feff3b5f43304248ee34390e51a"
+    "path": "out/HardwareAcceptance/20260919/sequence-idle-r1/finite.json",
+    "sha256": "7ecca4188aaa0b2c48e5bf49a3a95c48bdd77773a0953ee9ddf86cc8b8b958b0"
   },
   "pause_resume_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-off-r1/pause-resume.json",
-    "sha256": "2eb11bf5c7a8276b81c36caaeb1bf7e6775817aace2a2fa8d6bcbe0e63187c0a"
+    "path": "out/HardwareAcceptance/20260919/sequence-idle-r1/pause-resume.json",
+    "sha256": "d32ba0e0fec4c865e3d63aff37d3269118ec4ab063b0cc3847f5c3fff784a9a6"
   }
 }

@@ -75,8 +75,17 @@ def configure(bench, report, manual_ready=False, repeat=2, start=True):
         "MANUAL", "RIS", args.settle_us, args.gateway_pulse_us, 7, 0, "NONE",
         "MANUAL" if manual_ready else "IN2", args.gateway_timeout_ms, repeat,
         counter_slot=1, dut_slot=2, vna_slot=3,
-        counter_input=getattr(args, "counter_input", "IN1"), counter_threshold=args.threshold)
+        counter_input=getattr(args, "counter_input", "IN1"), counter_threshold=args.threshold,
+        operating_level=args.operating_level)
     gui_batch(bench, report, "configure", commands)
+    profile = report["operating_profile"] = {"raw": bench.command("SYST:TDMA:OPMODE?")}
+    profile["fields"] = fields = parse_uints(profile["raw"], (
+        "level", "baud_hz", "cycle_ns", "train_cycles", "flags", "crc",
+        "staged_level", "staged_baud_hz", "staged_cycle_ns", "staged_train_cycles",
+        "staged_flags", "staged_crc", "stage_count", "apply_count", "reject_count", "last_result"))
+    require(fields["level"] == fields["staged_level"] == args.operating_level and
+            fields["baud_hz"] > 0 and fields["cycle_ns"] > 0 and fields["last_result"] == 0,
+            "TDMA operating profile readback mismatch")
     if getattr(args, "angle_scan", False):
         # Inclusive points with one degree between them. N remains the
         # externally supplied threshold; speed derives from declared source Hz.
@@ -778,6 +787,8 @@ def parse_args(argv=None):
     parser.add_argument("--gateway-pulse-us", type=int, default=1000)
     parser.add_argument("--gateway-timeout-ms", type=int, default=10000)
     parser.add_argument("--position-cycle-target-ms", type=int, default=200)
+    parser.add_argument("--operating-level", type=int, default=7,
+                        help="TDMA operating profile: level 7 is 1 ms, level 14 is 100 us")
     args = parser.parse_args(argv)
     if not 1 <= args.positions <= 0xffffffff // 8 or args.positions * args.threshold >= gui.COUNTER_THRESHOLD_MAX + 1:
         parser.error("position count or cumulative pulse count exceeds firmware range")
@@ -803,6 +814,8 @@ def parse_args(argv=None):
         parser.error("times and source frequency must be finite and positive")
     if not 0 <= args.settle_us <= gui.TIME_MAX_US or not 1 <= args.gateway_pulse_us <= gui.TIME_MAX_US or not 1 <= args.gateway_timeout_ms <= 0x7fffffff or not 1 <= args.position_cycle_target_ms <= 0x7fffffff:
         parser.error("invalid timing configuration")
+    if not 0 <= args.operating_level <= 0xffffffff:
+        parser.error("operating-level must be uint32")
     if args.quiet_capture and args.duration < quiet_wait_seconds(args):
         parser.error("duration shorter than quiet capture window")
     return args

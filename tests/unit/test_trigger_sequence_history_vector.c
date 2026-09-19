@@ -218,7 +218,20 @@ static void off_service_quiescent(void)
     trigger_sequence_link_service();
     s_link.rejected = 11u;
     trigger_sequence_link_service();
-    assert(s_published.rejected == 11u); /* Enabled IDLE still services STOP. */
+    assert(s_published.rejected == 0u); /* Cleaned IDLE no longer republishes. */
+    ++owner.counter_events;
+    trigger_sequence_link_service();
+    assert(s_published.rejected == 11u); /* Final counter change wakes cleanup. */
+    owner.state = TRIGGER_SEQUENCE_SERVICE_STOPPING;
+    trigger_sequence_link_service();
+    assert(s_idle_binding == 0u);
+    owner.state = TRIGGER_SEQUENCE_SERVICE_IDLE;
+    trigger_sequence_link_service();
+    assert(s_idle_binding == s_link.binding_epoch);
+    ++owner.generation;
+    s_link.rejected = 12u;
+    trigger_sequence_link_service();
+    assert(s_published.rejected == 12u);
     __atomic_store_n(&s_transport_rejected, 5u, __ATOMIC_RELEASE);
     transport_accept = false;
     assert(!trigger_sequence_link_configure(&off));

@@ -47,6 +47,20 @@ static bool s_tx_enabled;
 static uint32_t s_guard;
 static uint32_t s_configuring;
 static trigger_sequence_link_status_t s_published;
+/* Core1-only stopped observation. Binding changes invalidate this key without
+ * a Core0 write; START/STOP and final counter changes wake the service. */
+static uint32_t s_idle_binding;
+static uint32_t s_idle_owner[6];
+
+static void idle_owner_key(const trigger_sequence_service_status_t *owner, uint32_t key[6])
+{
+    key[0] = owner->run_id;
+    key[1] = owner->generation;
+    key[2] = owner->gateway_trigger_count;
+    key[3] = owner->gateway_ready_count;
+    key[4] = owner->completed;
+    key[5] = owner->counter_events;
+}
 /* Run identity and threshold are immutable for the retained window. Avoid
  * duplicating them per record in the board's constrained static SRAM. */
 typedef struct {
@@ -600,6 +614,10 @@ static void service(void)
         s_transport_snapshot_waiting = false;
         s_now_ticks = 0u;
         if (s_link.phase != LINK_FAULT && s_link.phase != LINK_DONE) s_link.phase = LINK_WAIT_START;
+        if (owner.state == TRIGGER_SEQUENCE_SERVICE_IDLE) {
+            idle_owner_key(&owner, s_idle_owner);
+            s_idle_binding = s_link.binding_epoch;
+        }
         return;
     }
     if (!model_valid()) { fail(LINK_CONFIG_CHANGED); return; }
@@ -987,15 +1005,27 @@ trigger_sequence_service_result_t trigger_sequence_link_ready_inject(uint32_t co
 }
 bool trigger_sequence_link_service(void)
 {
+    bool idle_current = false;
+    if (s_idle_binding != 0u) {
+        trigger_sequence_service_status_t owner;
+        uint32_t key[6];
+        trigger_sequence_service_get_status(&owner);
+        idle_owner_key(&owner, key);
+        idle_current = owner.state == TRIGGER_SEQUENCE_SERVICE_IDLE &&
+            !trigger_sequence_service_stop_pending() &&
+            memcmp(key, s_idle_owner, sizeof(key)) == 0;
+    }
     /* OFF has no runtime work. Do not contend with Core0 configuration on
      * every cycle; enabled STOP cleanup still runs through the writer path.
      * An enable after this snapshot is serviced on the next Core1 cycle. */
     osal_critical_enter();
-    const bool work = s_published.config.enabled ||
+    const bool work = (s_published.config.enabled &&
+        !(idle_current && s_idle_binding == s_published.binding_epoch)) ||
         __atomic_load_n(&s_transport_rejected, __ATOMIC_ACQUIRE) != 0u;
     const bool acquired = work && take();
     osal_critical_exit();
     if (!acquired) return false;
+    s_idle_binding = 0u;
     s_action_submitted = false;
     s_transport_ready = false;
     s_link.tx_fragments = __atomic_load_n(&s_transport_tx_count, __ATOMIC_ACQUIRE) - s_tx_count_baseline;
