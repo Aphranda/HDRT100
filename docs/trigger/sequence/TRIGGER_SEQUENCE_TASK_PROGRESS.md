@@ -1131,6 +1131,30 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 - 下一gate：进度071当前切片完成单板及外部静默30位置后，先实现共享VDC完整只读快照与有界规划/准入，再逐片接入SYNC特等席和硬件执行。运行期间不插入TDMA/PHY查询；每位置时间拆解继续经Trigger本地诊断向量停止后导出。第四模式、低于1ms响应及物理同步精度均未验收。
 - 用户后续确认前后只验VDC：默认总观察30位置，前5建立/验证、中间20业务采样、后5验证稳态；前后窗口可配置，后续可能改为前2后2，固定总数时中间派生26。架构补NSEQ-RSV-05，工具尚未实现该分段；进度071的30位置全采样仅是第三模式回归，不能当第四模式证据。
 - 按用户要求再次fetch`origin/wip/tdma-real-flight-processing`，当前仍为`c09006e4`。该分支已包含TIMER1统一坐标、`vdc_clock_mapping.h`/`vdc_future_raw.h`/`vdc_timer1_coordinate.h`、committed model及维护发布路径，迁移须优先复用完整依赖，不在Trigger重复实现VDC。用户提供四板±25ns结果及单板4至8ns预期；本轮未复核对应原始波形，不把预期登记为当前能力。
+- 按用户追加要求对照T2 canonical、顶层“总装配”、TDMA固定预约分段及SYNC_IO capability：并行准备/执行仍需提前完成同代READY-mask和fence，lead由真实活动运输及装载预算派生，绑定accepted calibration/generation。首段原始latch可先于LOCKED形成，正式ARM必须等待质量通过；末段不能仅检查最终LOCKED。
+- 进一步核对上游实际调用链：`vdc_run_output.inc`消费`vdc_dpll_manager_get_committed_model()`并用`vdc_timer1_coordinate.h`做同原点ns/tick换算；`vdc_model_feedback.inc`在整个owner步骤guard内发布token、session、clock epoch/run及valid-from-raw。`vdc_future_raw.h`和`vdc_clock_mapping.h`仍含TIMER0桥接旧语义，不能因为文件存在就作为本次生产移植入口；RUN诊断的未锁定允许条件也不扩展到正式预约。
+
+### 073：上游重构文档同步，等待TDMA归档提交
+
+- TODO：`NSEQ-120/121/122`；日期：2026-09-19。用户要求以real-flight重构后的SYNC/VDC/TDMA文档为准，允许同步到本分支；历史已归档，不再将旧主架构当当前事实。
+- 已再次fetch并核对`c09006e4`：VDC主架构、运行细则、待办/进度、参考方案及历史进度归档已存在；TDMA索引提到的运行细则和`docs/legacy/tdma/`在该提交树中尚不存在。用户确认先让来源分支提交，故暂停后续同步和提交。
+- 工作区先导入已提交的VDC文档及进度归档，SYNC/TDMA三件套暂为同来源版本；总索引和主架构注明来源、本地未移植及契约边界。未覆盖序列三件套、本地登记表或修改固件；上游新增契约不因导入文档自动在本分支生效。历史正文保留原日期，证据仍属于原构建/板卡。
+- 下一gate：用户确认来源已提交后fetch，核对真正TDMA重构版本并同步细则/归档及必要引用，再审查T2预约接口映射和运行质量限制，执行完整文档门禁。当前工作区未提交，不能把本次同步记为完成。
+
+### 074：同步real-flight重构文档并完成预约接口审计
+
+- TODO：`NSEQ-120`完成上游文档/owner及四槽角色设计审计；`NSEQ-121/122`待实现。日期：2026-09-19。来源为`origin/wip/tdma-real-flight-processing`的`7a3e0954`，接续进度073等待；本条快照不表示第四模式固件完成。
+- 已同步VDC/TDMA架构、运行细则、待办/进度及历史归档、SYNC三件套和必要参考方案。总索引与各域活动文档注明来源语义；本地登记表、固件及硬件凭证保持独立，上游新增或已登记契约不自动在本分支生效。T2 canonical与来源相同，无需覆盖；未迁入上游治理改动或打印件。
+- 核对这些域目录在共同祖先之后无本分支独有文档修改；旧进度可在活动文档及legacy追溯。来源修正的历史重复TDMA任务ID沿用归档说明，不另改原始历史。既有登记入口保留。
+- 架构新增NSEQ-RSV-06逐项对照：提前准备/有界采用，VNA READY与offer及fence分离，typed VDC专用body共存预算，committed有效起点/token与快照revision，VDC逆映射local ns再转TIMER1 tick，已承诺前缀冻结、硬件latch及真实RJ45证明。
+- 上游仍有无输入aging及ready(false)完整质量发布缺口；正式T2布局/配额/生命周期仍待集成。NSEQ-121将这些列为正式预约准入前置，不能以四板输出精度或诊断RUN可用绕过。Core1表周期、wire周期和物理发车间隔分别评估。
+- 用户追问PIO0三槽位并行容量：按当前代码确认SM已由转台、VNA输出、DUT输出及READY捕获占满；第四模式须组合预约persona，不能再叠加独立预约输出。NSEQ-RSV-04及NSEQ-123补资源预算、停态热加载、连续计数/捕获及VDC采集共存门禁，尚未宣称新persona已可装载。
+- 用户进一步明确每个模式独立PIO热加载。架构和待办据此明确只计算当前模式同时驻留需求，第四模式可重新分配SM及程序；不得把第三模式占用或各模式资源总和作为第四模式不可行的结论。
+- 独立审查通过，来源范围、历史保留、T2接口映射及质量门禁无阻断发现；修正TODO进入顺序与NSEQ-120完成状态一致。strict-names文档检查、文档回归、十八项检查器测试、diff空白检查及逃生门审计通过；保留既有`TDMA-FLIGHT-BITMAP-01`命名WARN。
+- 审查之后用户增加第四槽SP2T，并明确SP8T使用OUT1/OUT2四个译码状态。据此规划四个业务槽位COUNTER/SP8T/SP2T/VNA，OUT3给SP2T、OUT4给VNA，VDC继续为共享服务；撤销将新增槽解释为VDC槽的临时理解。架构和TODO已更新；组合采样顺序待确认，NSEQ-120恢复IN PROGRESS，仅已完成的上游文档审计保持有效。SP2T代码、SCPI及GUI尚未实现。
+- 用户随后确认SP8T每档采SP2T两档，SP2T切换H/V极化。组合计划按SP8T外层、H/V内层展开，本轮配置为四个SP8T状态各两次采样，共八次/位置；READY后预约下一组合项，最后一项READY才完成位置。H/V电平映射、安全态及两开关各自稳定时间纳入配置/读回；不假定物理极性，不改前三模式。新增角色设计闭合后NSEQ-120恢复DONE；PIO组合程序、角色绑定、SCPI/GUI及硬件能力仍待后续实现验收。
+- 四槽H/V设计追加独立审核通过，无阻断发现；统一第四模式中的旧三角色/DUT简称，明确两开关稳定期限。暂存检查发现来源归档末尾空行，仅规整空行后`git diff --cached --check`通过。纯文档无staged源码，单板check-staged报告无源码不适用，P3检查及pre-commit按无固件改动通过；本轮未执行硬件测试。
+- 本轮仅文档，软件/板端仍以进度071为最新验证；后续从NSEQ-121实施，每片仍须构建、OTA、单板功能验收及主机静默的转台闭环；第四模式再执行可配置前后VDC窗口。文档检查和独立审查结果随本条闭环记录。
 
 ## 失败与回退
 

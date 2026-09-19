@@ -4,16 +4,310 @@ Status: Draft
 Domain: VDC
 Canonical: `docs/vdc/VDC_COMMAND_TRANSPORT_PLAN.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-09-14
+Last updated: 2026-09-19
+
+> 分支范围：本文同步自real-flight的`7a3e0954`，正文任务状态、实现与证据指来源分支。
+> 本地固件状态及契约边界见[同步说明](../README.md#序列分支的上游文档同步范围)。
 
 本文是 `VDC-CMD-001` 的待审方案，服务于 `VDC-LONGTERM-001`，不冻结 wire 契约，
 不允许据此启用从机控制，也不替代调度、角色、Calibration 和正式锁相门禁。
 当前证据与 host 反例见 `VDC-PROGRESS-20260914-004`；自主 origin 输入缺口及
 目标模式补测见 `VDC-PROGRESS-20260914-007`。
 
+当前执行顺序以 `VDC_DOMAIN_TODO.md` 的 `VDC-FLIGHT-001` 至 `VDC-RECOVERY-001`
+为准：先接通普通特等席数据接收，再将各从 internal 反馈送回主机，由主机形成各从
+专属校正并在各板 SyncDpllFB 应用，随后调频率漂移和相位。本页完整共同时间与
+定时命令方案保留为待审路线，不作为普通数据运输的前置。复制主机自身 DCO 快照
+不等于各从闭环；现有命令原型继续默认关闭，下一控制切片须明确有效测量关联、
+目标、身份、有效期与应用边界，不能直接放宽旧原型校验。
+首帧诊断归 TDMA 后续优化，预热后从有效样本开始，偶发坏帧跳过并保持控制输出；
+样本策略见 `VDC_STABLE_INPUT_PLAN.md`。
+
+### 当前候选：各从反馈与有界校正
+
+这是 `VDC-FEEDBACK-001` 的方案入口，尚未冻结或接线。源码审计索引见
+`VDC-PROGRESS-20260916-003`，按以下最小切片逐项验证：
+
+1. 保留 NO1 准备发布的确切数据版本，与从板实际接收的同序记录对账；准备成功本身
+   不等于实际发出。复用固定邮箱，不增加独立帧，也不恢复首帧特殊前置。
+2. 优先直接消费各从 PIO internal 观察器的 RX/TX 边沿与独立线上序列，不经过 DMA
+   数据帧候选；因此 DMA 字节候选到事件 ordinal 的关联不是该入口的前置。须核实
+   观察器各采样流内部的同次 CS 配对、相对 CS 的序列采样偏移和采样相位，不能直接
+   使用 DMA alignment 的偏移。首个序列仅作本地基线，可以跳过；观察器失效只退休
+   并重新建立自身 epoch，健康 TDMA 继续运行。此候选不更改旧 history 的资格标志。
+   在各从的同次有效 internal 观测上保留原始误差、真实测量序号、指定参考和当时
+   已应用的 DCO 版本，形成能反映输出校正效果的残差。现有
+   `vdc_domain_corrected_phase_error_ns()` 使用 `clock`，而
+   `vdc_domain_apply_follower_command()` 修改 `dco`；不能直接假定旧曲线随新命令收敛。
+   对齐 NO1 信号时，参考须对应 NO1 同次发射事件的 DCO 相位；物理 TDMA 节拍不能
+   静默替代 NO1 信号。无有效观测时保持反馈无效，数据运输仍继续。
+   输出域转换只需先闭合本板硬件时钟锚和当时应用模型，不要求完整跨板绝对时间；
+   timer uptime、PIO elapsed、逻辑环路时间与 DCO 本地锚不能直接混用。
+3. Core0 经特等席发送完整反馈，NO1 按从节点分离接收、排序和保存。NO1 的
+   SyncDpllFB 为每个从节点维护独立、定长的控制状态；先按实际有效测量间隔验证
+   频率校正，再调相位与积分。运输 publication sequence 不替代 measurement sequence。
+4. 主机在自己的 mailbox 内按有界目标轮换发送专属命令，从板 SyncDpllFB 验证后
+   在约定 service boundary 应用并返回应用身份。候选采用单独定义的边界命令，
+   不将本地 uptime 填入旧 `effective_vdc_time_ns`。更新 rate 时须明确本地锚重定基和
+   相位连续性；重复命令不能重复叠加相位步进。
+
+候选编码可复用既有固定 VDC 区并显式区分反馈/命令类型；测量关联、真实应用 ACK、
+旧会话拒绝及长周期量程必须能容纳，无法容纳时再比较小记录分片。现有普通
+phase/rate/lock/quality 语义不能暗改，RefMem 接收 ACK 不能冒充 DCO 应用 ACK。
+精确字段、版本、有效期和服务边界先完成域文档及交叉审核，再进入固件。
+
+快速验收同时保留 raw 与输出模型残差，先以可追溯的小校正证明响应方向，再看斜率。
+`vdc_dpll_manager_refresh_dco_consumer_status_core0()` 的 accepted_update_count 只表示
+Core0 读到并验证模型；实际应用须以 Core1 命令/应用序号、本地应用边界和输出模型
+版本对账。每个切片单独完成 host、Release、四板 quick P3 及专项，最终输出精度再用
+示波器复核；不要求每轮依赖外部仪器。
+
+独立 PIO 采样入口已增加 STOP 配置、ARM 冻结和历史读回，实施证据见
+`VDC-PROGRESS-20260916-006`。`SYSTem:TDMA:EVENt:TAP` 提交 enabled、相对 CS 的
+prefix_bits 和 WAIT-high delay；`TAP?` 分别读取 requested、applied 和实际装载值。
+Core0 发布期间持有既有 ring control guard，Core1 独占冻结与 PIO 编程；所有配置
+请求要求物理 STOP 完成且未选择 frozen geometry，显式模式不读取 DMA alignment。
+actual_valid 只表示指令及 OSR 已装载，STOP 后仍作为历史保留，不表示当前观察器
+运行或时间戳有效。帧头实验的常量序列拒绝保留为正常诊断结果，不能赋予 DPLL 资格。
+后继将保留同次有效边沿/测量序号和本板时钟锚，经固定配额发送反馈；此接口本身
+未建立反馈运输、NO1 控制器或从板 DCO 应用，也不冻结新 wire 契约。
+
+观察器自身恢复切片见 `VDC-PROGRESS-20260916-007`。显式 tap 下纯 SEQUENCE 拒绝
+会先记录失败、退休当前 epoch；后继 service 分开执行局部 reset 与一次 idle/start
+尝试，继续使用同一 ARM 冻结的采样配置。STOP、绑定/时钟变化、epoch 耗尽或硬件
+fault 取消恢复；每个新 epoch 的序号、ordinal 和整批检查仍保持严格。恢复不重新
+ARM TDMA、不修改 DMA 或转发 SM，也不重采物理 ARM 的首次 RXSTARTCUT 档案。
+`SYSTem:TDMA:EVENt:RECovery?` 只读累计失败、尝试、启用、延期和取消计数，以及
+最后失败与 ARM/tap 绑定。enable_count 表示成功启用观察器，持续观测仍须用恢复后
+同 epoch 的 joined/sequence/ordinal 增长证明；batch_sequence_first 只是该次采集批次
+首词，不能与最后发布的样本拼接成同事件记录。该切片尚不提供 DPLL 更新或输出精度。
+
+同条观测留存切片见 `VDC-PROGRESS-20260916-008`。Core1 只在最终 fault 复验成功后
+保留 batch 的最后一条完整 `tdma_event_record_t`，并将其与同 observer epoch 的
+TIMER1 enable 前后区间、ARM 身份和 tick_hz 一起发布。新 epoch 锚先存入私有候选，
+不能在新记录形成前覆盖旧历史记录的锚。Core0 经独立有界 getter 取得 SRAM 副本，
+`SYSTem:TDMA:EVENt:LIVE?` 导出原始字段，不扩大 native EVENT ABI 或 wire 格式。
+
+`ANCHOR_VALID` 表示所保留记录生成时本板锚获取成功；STOP、INVALID、新 ARM 或
+时钟配置失效撤销 `ACTIVE` 并保留原因，历史 record/锚不被改写。当前候选消费须同时
+检查 `ACTIVE`、`ANCHOR_VALID`、来源与生命周期。锚读取无懒初始化、无等待循环，
+读取失败或时钟不可用不阻塞 TDMA。这里的 TIMER1 raw tick、record 的 ARM 相对
+cycle 区间与 DPLL manager 的 time_us 时间原点不同，不能直接混算；当前寄存器
+检查也不证明期间未发生 debug pause。所有记录保持 diagnostic-only，不授予
+timestamp_valid 或 dpll_eligible；反馈运输和实际控制按后继独立切片接通。
+
+### 下一控制切片：连续重基与实际应用确认
+
+本节是 `VDC-FEEDBACK-001` 的实现候选，不冻结新 wire 契约。先单独验证 Domain 的
+连续调频原语，再审核命令编码和有界跨核交接，最后接通逐从控制；每个实际功能
+切片分别完成当前源码四板 quick P3。完整共同绝对时间映射不作为该本地服务边界
+频率命令的前置，也不通过放宽旧绝对时间命令的校验来实现。
+原语独立切片的实施及验收边界见 `VDC-PROGRESS-20260916-013`。
+
+- Domain 原语在本地实际应用时刻计算旧 DCO 输出，令新本地锚为该时刻、新输出锚为
+  旧输出，并吸收旧 phase 项，再提交受限的 rate 增量。提交前验证相同应用点输出
+  完全相等、时间前向、算术无溢出、指定主机/目标及本地角色、时钟、调度和旧应用
+  版本匹配；失败保持整个 Domain 不变。它不触发晶振 trim，也不提升 lock/quality。
+- 外层 Core1 owner 在现有 guard 内调用原语，负责当前 session、ARM、observer、
+  model token、观测年龄和 STOP 取消。Domain 原语没有这些生命周期字段，不能以
+  原语的单元测试代替外层准入；应用时刻保留在新 DCO 本地锚，不能冒充共同时间。
+- NO1 对各从独立维护待处理命令，只以回传的实际应用序号和新模型身份确认成功。
+  命令到期后保留未决身份；未确认旧命令是否已应用前，不叠加下一次校正。接收 ACK、
+  分片发送完成和 Core0 消费模型均不能替代 Core1 应用确认。
+- 先以显式诊断模式的受限单次校正验证运输、连续应用及反馈响应，再接自动跟踪。
+  误差区间跨零时不能声称方向已确定；自动控制需有可验证的观测窗口和误差策略。
+  跨模型端点不能默认连续，控制策略须排除未知相位跳变；同模型长窗口和连续模型
+  累积的可用性分别实测，不提前声明能消除漂移。
+- 新命令复用现有固定配额，完整记录才交接；片段准入、应用 freshness 和 ACK 等待
+  分别有界。后续长周期配置重新验证交付年龄与控制更新率。新增静态状态、实际目标
+  链接和 Core1 栈单独核算，资源不足时先复用已证实冗余的缓冲，不改 OTA。
+
+原语未接入生产调用前，四板 P3 只证明集成回归；只有逐从真实命令及应用反馈对账
+通过后，才可声明从板已经纳入内部闭环。物理输出响应与最终精度仍按后续阶段验证。
+
+### 原始反馈运输实施候选
+
+`VDC-FEEDBACK-001` 的原始反馈切片直接接通各从完整原始观测到 NO1，候选审计见
+`out/HardwareAcceptance/20260916/dpll-event-live-r1/next-feedback-audit-r1.json`。
+本节数字是诊断实现快照，非冻结 wire 契约；实际常量以
+`refmem_sync_vdc_feedback.h`、`tdma_process_image_layout.h` 为准，验收见
+`VDC-PROGRESS-20260916-009`，不授予控制或锁相资格。
+
+候选沿用固定 mailbox、广播 target mask 和全部 RefMem/ACK/Control 区，只用新的
+诊断 class `0x12` 区分 VDC 区解释。普通 class 和默认关闭的旧命令 class 不变；
+其他节点仍消费 RefMem，不能把反馈字节解析为 phase/rate，也不能因内层反馈仅给
+主机而缩窄整个 mailbox 的 target mask，破坏其他节点的 mailbox presence/WKC。
+TDMA 的 RX/overlay 准备、origin adapter 和物理 seed/publish 校验统一通过
+`tdma_process_image_transport_class_valid()` 准入普通与反馈 class；仅修改 RefMem
+parser 不足以接通飞行路径。旧命令 class 和未知 class 继续拒绝。
+
+完整记录按小端显式编码为 64 B，依次为 schema/source/target/domain_flags（各 1 B）、
+source clock epoch/run（各 4 B）、source ARM（8 B）、observer epoch/measurement
+sequence/tick_hz（各 4 B）、RX/TX elapsed（各 8 B）、TIMER1 enable before（8 B）、
+enable width（4 B）和 CRC32（4 B）。schema 为 1，flags 固定为 `0x07`：bit0 表示
+本地 TIMER1/PIO clk_sys 原始域，bit1 表示历史采集锚存在，bit2 表示仅诊断；不表示
+公共时间或当前控制资格。CRC32 采用 IEEE reflected `0xEDB88320`，初值及末异或均
+为 `0xFFFFFFFF`，覆盖前 60 B；`123456789` 校验值为 `0xCBF43926`。
+width 超出编码范围、倒序锚或不合法域必须拒绝，不截断。完整 LIVE 继续在本地保存。
+
+每个 VDC 区传 index/count 和 4 B 数据，共 16 片；Core0 在组首冻结一次完整记录，
+仅 FIFO 发布成功才推进片号及邮箱序列。组完成后成功发布一条普通 VDC mailbox，
+再捕获新的 LIVE；没有新记录时继续普通数据。输入须来自当前显式 TAP，且 LIVE
+为 ACTIVE、ANCHOR_VALID，配置/角色/时钟及 ARM 绑定在复制前后相符。
+
+NO1 按编译节点容量分配独立组装区，并按运行准入节点检查索引。片段使用 mailbox
+完整 seq32，保留现有跳过零的回绕规则；旧 index0 按半区序判旧，不得复位新组。
+重复相同片幂等，不前进或续时；冲突、缺片及乱序只取消该源部分组装，合法新组首
+可重新开始。总组装时限候选为首片后 1000 ms，空队列也检查，毫秒回绕安全；
+它是取消门限，不是交付 WCET。同 source clock epoch/run、ARM、observer epoch
+内 measurement sequence 必须递增；相同完整记录不更新 complete 或新鲜度，
+同序不同内容拒绝并保留旧完整记录。同 observer epoch 不允许测量序号回绕。
+
+唯一 Core0 RefMem writer 管理发布/取消；FIFO admission tag 在普通接收与反馈间
+统一复用，不能相互推进而失效。确认 STOP、DATA 暂停、角色/配置/绑定变化时取消
+未完成 TX/RX，保留已完成诊断历史；暂时快照竞争只跳过本次服务。各板 epoch/run
+是来源命名空间，不能与主机本地编号比较为共同会话；跨重启完整旧记录拒绝及控制
+有效期仍须后续共享会话/同次主机参考证明，不能由本诊断通路授予 DCO 应用资格。
+
+四板专项须逐源将 NO1 完整接收字节与从板完整发布历史对账，记录更新计数、测量
+序号推进、实际组装时间及 STOP/ARM 取消。短 TX 历史不保证一定覆盖接收记录，
+无法匹配时判证据不足，不能用最新 LIVE 拼造。NO1 当前原始记录缓存也不足以
+承诺延迟反馈的同序匹配；后续控制另行补齐缓存及本地输出域关联。节点容量参数化
+约束 RAM，保持 Core1 无解析等待；每切片完成软件、Release、四板 P3 与专项后再提交。
+
+### 稀疏参考配对实施候选
+
+诊断配对及准备迁移见 `VDC-PROGRESS-20260916-010/011`，不修改原始反馈 wire。
+Core0 RefMem 单写者发布完整已解码反馈，并在 `distributed_refmem_service()` 中调用
+`vdc_dpll_manager_feedback_prepare_core0()`，有界取得一条 TDMA owner 的原始参考，
+轮询一个来源并完成缓存、配对和差分。Core1 只发布或退休紧凑授权，不修改准备状态。
+缓存容量及区间范围以 `vdc_feedback_match.h` 为准；缓存条目的完整
+测量序号和本地主机参考代际必须精确一致，缺参考不插值，源生命周期改变先退休
+旧基线。本地参考代际不等于跨板共同会话身份；当前 raw wire 未携带后者，
+共同会话尚未资格化。时间差的
+原始 ppb 区间向外取整，保留两条配对证据便于独立复算；STOP 保留诊断历史但撤销
+当前有效性。查询 `SYSTem:VDC:FEEDback:MATCh?` 仅供 STOP 后读取或 START 前基线。
+
+该原始区间只反映输入参考括号，未覆盖物理检测不确定度，也未结合实际生效的
+DCO 输出模型，不能直接作为各从控制误差。准备迁移复用既有发布缓冲；授权 token
+覆盖角色、配置、时钟和参考 epoch，退休后即使同一绑定再次授权也使用新 token，
+耗尽保持撤权。Core0 发布及 getter 复验 token 和参考 epoch，迟到准备只能留下历史，
+不能恢复当前资格。TDMA LIVE 将 SM/CS 来源与 epoch 纳入同一 guard；轻量 epoch
+facade 只读 SRAM，忙快照跳过，确认 inactive 才撤权。raw reference facade 仍有
+有界 TIMER1 读取，不能称为纯 SRAM 路径。相关取消、真实 service 早退及跨核反例见
+`VDC-PROGRESS-20260916-011`；这是实施边界，未新增冻结 wire 契约。
+
+后继关联事件发生时 Core1 已提交的 DCO 模型，形成逐从模型域观测，再接专属命令
+和 Core1 实际应用。内部控制对象是该 DCO；可选诊断 GPIO 消费确认及 PIO 完成属于
+后续物理输出证据，不作为内部反馈前置。完整绝对时间映射不作为初期频率闭环前置；
+仍须验证本板时钟速率关系、模型有效区间和切换取消。跨模型端点差可保留实际相位
+跳变，不能直接解释为纯频偏；后继控制须连续重基或排除相位跳变贡献。
+本轮模型反馈候选与证据见 `VDC-PROGRESS-20260916-012`，未冻结新 wire 契约。
+Core0 任务延时不等于固定
+服务覆盖保证，缺项率和 RX 覆盖须继续记录；现有时序改善不等于预算验收通过，
+Core0 独占 CPU 时间尚未测量。
+
+### 当前实现快照（仍未冻结契约）
+
+模型反馈候选使用 `vdc_timestamp_clock_try_read_bridge()` 建立本板 TIMER1 与
+TIMER0 本地纳秒的有界关系，再以事件当时有效的 Core1 已提交 DCO 做区间投影。
+`SYSTem:VDC:FEEDback:BRIDge?` 只在 ring STOP 时读取配置诊断；独立计数器读值
+不等于有效 bridge，只有生产接口成功结果可用于投影。晶振 BADWRITE 是历史粘滞
+标志，当前时钟资格仍由稳定、启用、频率档位及完整 PLL/分频配置判断；前后快照
+保留完整状态并拒绝变化，不通过清除寄存器消除历史。owner 仍须排除观测生命周期
+内的时钟写入、隐藏变更和 debug pause。此候选不授予物理精度，实施见
+`VDC-PROGRESS-20260916-012`。
+
+当前源码已经有一个受限的 resident VDC 命令运输原型，用于验证固定 process image
+上的分片、重组和跨核交接边界。它不是本方案中尚未完成的共同时间契约，也不能单独
+开放正式从机控制或锁相验收。实现边界如下：
+
+- 当前按 `VDC-PROGRESS-20260915-028` 完成编译隔离：
+  `DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED` 默认关闭，resident command
+  的构造、发片、接收分派和私有组装状态均不进入默认编译；普通 mailbox 继续发布。
+  通用命令校验和 follower 时间门禁仍保留，命令 class 在普通接收路径中被拒绝。
+  该开关不恢复 standalone VDC 窗口，不能作为从机 apply 已恢复的证据。恢复次序和
+  每项功能修改后的四板 P3 要求以 `VDC_DOMAIN_TODO.md` 当前执行入口为准。
+- `TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS` 选择命令片段格式；mailbox header
+  保留 source、target mask 和 `TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET` 运输序列，VDC
+  区由 `TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET`、fragment count 和固定
+  `TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_SIZE` 组成。
+- `refmem_sync_vdc_fragment_push()` 只允许一个活动 source，要求片段从零开始、
+  index 连续、运输序列在 `uint16_t` 回绕下连续，缺片、乱序、重复起始或 source/
+  target 改变都会清理当前组装状态。
+- 完整 payload 仍由 `refmem_sync_vdc_command_payload_validate()` 和内层 CRC
+  校验；通过后才构造现有 `REFMEM_SYNC_FRAME_COMMAND`，由
+  `refmem_sync_vdc_receive_frame()` 按 epoch/run、source、target、frame/command
+  序列再次准入。
+- 命令 payload 现在同时携带 `epoch_id` 和 `run_id`，并要求它们与接收端当前
+  context 一致；在 context 身份已正确更新且稳定的前提下，旧 ARM/STOP 会话即使
+  重新出现相同 source 或 command sequence，也会被接收校验拒绝。这不证明下述
+  跨核 reset 生命周期已经闭合。payload 尺寸和分片数量只由
+  `sizeof(refmem_sync_vdc_command_payload_t)`、`REFMEM_SYNC_VDC_FRAGMENT_COUNT`
+  和 mailbox layout symbols 决定。
+- 命令发布与复制使用 `vdc_command_guard` 和 `refmem_sync_vdc_copy_command()`；
+  忙或撕裂时复制有界失败。`VDC-PROGRESS-20260915-030` 将接收 context 的刷新和
+  退休收敛到 Core0 RefMem 任务，Core1 与 SCPI 任务不再直接清空；在线
+  `refmem_sync_vdc_reset()` 保留发布序列，清空及身份更新都在 guard 内完成，
+  `refmem_sync_vdc_init()` 只供并发读取开始前冷初始化。RefMem 快照读取失败时
+  暂停命令准入，普通 flight 服务继续。Core1 在消费序号前独立拒绝 epoch/run
+  错配，并在本地会话变化时重置序号水位。`VDC-PROGRESS-20260915-031` 进一步把
+  guarded copy 绑定到 Core1 当前实际本地 role generation；Core0 观察到角色变化
+  时只作废 retained 值并取消组装，保留各来源已接收的 command/frame 序号水位。
+  同代际重绑定不取消待执行命令；parser 要求 transport 与接收 context 的本地
+  generation 一致。该边界阻止已接收命令在 A→B→A 后复活。后继 FIFO 入站取消
+  实现及证据见 `VDC-PROGRESS-20260915-032`：Core0 RefMem 在身份刷新时通过
+  `tdma_service_core0_advance_flight_rx_admission_epoch()` 推进独立本地代际，
+  Core1 在复制 RX payload 前捕获该值，slot/view 保留原值；接收端只取消旧代际的
+  command mailbox，同 view 普通数据继续处理。同身份刷新不推进；推进失败时不
+  提交新绑定，命令准入保持无效，代际耗尽不回绕复用。该字段不改变 wire，也不是
+  map generation、本地 role generation 或远端 command generation。
+  这只覆盖 producer 已捕获旧 tag 的 FIFO 发布，含排队及复制中途；DMA/station
+  尚未进入该发布边界的旧输入和之后完整重发的旧记录仍需协议有效期/切换生效规则。
+  边界是 Core0 观察并刷新身份，不能宣称精确等于 Core1 角色激活瞬间。
+  `tdma_flight_fifo_reset_stopped()` 保留 admission epoch。后继借用保护见
+  `VDC-PROGRESS-20260915-033`：Core0 FIFO guard 覆盖 publish 及 acquire 到 release
+  的完整借用；同一 FIFO 同时只许一个 Core0 RX view，忙时不回收。service reset
+  持控制锁并核物理 STOP ACK，SCPI 仅对 BUSY 有界让出重试；Core1 不使用该 guard。
+  这解决借用中的 FIFO 回收与 Core0 任务交错，不表示命令区/session 已随 STOP
+  完整退休。`VDC-PROGRESS-20260915-034` 进一步把 resident 命令的 guarded copy
+  绑定到本地角色与已 ACK 的 TDMA config sequence：普通 STOP/ARM 即使未改变
+  VDC epoch/run，也取消旧 retained 值和待准备记录/组装；同 wire 会话的排序水位
+  保留。Core0 暂时读不到一致快照时保留状态并暂停本次准入；确认关闭或未 ACK 时
+  绑定为零，普通数据继续。所有生产命令接收入口在关闭期间拒绝写入水位，Core1
+  在 guarded copy 后、消费命令序号前复验环路配置。紧凑 clock snapshot 同时提供
+  applied ACK 并复验配置/结果的双 guard，命令时间映射及观察准入核对 ACK。
+  本地 config sequence 不等于分布式 session，零值仅关闭命令准入，不改变普通
+  TDMA 的回绕语义；最终检查之后的 STOP 在后继 Core1 owner 边界完成。
+  已进入 TX image/FIFO/PIO/DMA 的旧片段及之后完整重发的旧记录仍需协议有效期
+  与共同 session 取消，不能宣称所有旧 TX 或命令/session 已完整退休。远端
+  control generation 重启以及 schedule/STOP 取消仍需端到端负测；本地 role
+  generation 与远端 command generation 不能直接比较。
+  `vdc_domain_publish_clock_model()` 任意换会话后的 Domain history 退休也未验收，
+  manager 测试中的 Domain 应用 stub 不能代替该证据。
+- resident master 在一条记录的全部片段发完前保持记录不可变；完成后重复发送当前
+  记录，直到新的 DPLL update。FOLLOWER 只接受配置的主机 source；计数器分别记录
+  fragment RX、complete、reject、command accept 和最后 command sequence。
+- `effective_vdc_time_ns` 使用 VDC owner 提供的 TDMA hardware-latched
+  `common_effective_time_ns + (local_now - local_rx_timestamp_ns)` 映射；映射必须满足
+  当前 schedule CRC、硬件时间戳、共同时间 flags 和 `feedback_timeout_ns` 新鲜度。主机
+  无有效映射时不建记录，从机无有效映射时不比较 peer deadline、不调用 DCO apply。
+
+重新启用前还须明确 payload 扩展后的 `REFMEM_SYNC_VDC_COMMAND_VERSION` 兼容决策，
+以及实际发布间隔、FIFO 背压和重复片段下的完整交付上界；仅按分片数乘周期估算
+effective time 提前量尚不足以放行。
+
+上述格式当前只完成 host/目标构建和单测验证；共同 session、local-to-common 映射、
+过期/取消上界、实际三从应用和命令启用态四板功能验收仍未闭合。因此本节是实现快照，不能作为
+`VDC-CMD-001` 的冻结条款或登记表事实源；独立交叉审核完成前不得把其状态改为
+active。
+
 ## 1. 需要解决的实际缺口
 
-| 边界 | 当前事实源 | 对后续接线的要求 |
+下表记录方案起点的源码缺口，用于解释改动动机；当前原型已加入 guarded copy、
+共同时间检查和模差序列判断，实现与仍待完成的硬件证据以本页顶部快照为准。
+
+| 边界 | 方案起点的源码与缺口 | 对后续接线的要求 |
 |---|---|---|
 | 邮箱容量 | `TDMA_PROCESS_IMAGE_VDC_SIZE`；`refmem_sync_vdc_command_payload_t` | 现有诊断区不能直接表达完整命令；必须明确编码和完整性，不能补默认代际或接收时间。 |
 | 运输到命令区 | `distributed_refmem_tdma_flight_parse_mailbox()` 与 `distributed_refmem_get_vdc_follower_command()` | resident parser 只更新诊断，getter 读取独立命令区；需要显式、受保护的交接。 |

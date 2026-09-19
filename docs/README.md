@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-19
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -12,6 +12,16 @@ Last updated: 2026-09-17
 当前阶段已经完成平铺文档命名迁移，后续文档管理进入“按产品主域目录化”的规划阶段。
 域目录目标、迁移批次和 gate 以 `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md` 为准。迁移完成前，
 根目录中的历史路径仍是有效路径；新文档优先按目标域选择落点。
+
+## 序列分支的上游文档同步范围
+
+本分支于2026-09-19从`origin/wip/tdma-real-flight-processing`的`7a3e0954`导入
+VDC、TDMA当前架构/运行细则/待办/进度及历史归档，以及SYNC三件套。导入文档中的“当前实现”、
+任务DONE、四板验收及新增契约登记描述均指来源分支，不能作为本序列分支固件完成证明。
+本分支代码/板端状态见`trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md`，本地契约
+仍以`check/DOCS_REGISTRY.md`为准；未随本次文档导入新增或激活上游契约。
+本次仅同步文档，不合并固件、上游登记表或硬件凭证；第四模式接口对照见序列架构NSEQ-RSV-06。
+历史归档正文及原日期保持来源版本，仅规整文件末尾空行；其中`out/`证据和外部报告不保证在本工作区存在。
 
 ## Docs 目标域结构
 
@@ -154,6 +164,7 @@ docs/
 | `calibration/README.md` | 校准域 README。 |
 | `tdma/README.md` | TDMA 基础件主域 README。 |
 | `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件架构，定义上/下行 TDMA、payload registry、adapter、ring runtime 和 HAOFV 边界。 |
+| `tdma/TDMA_RUNTIME_CONSTRAINTS.md` | real-flight重构后的TDMA运行细则：异步准备、特等席、时基、资源与证据边界；适用范围见本页同步说明。 |
 | `calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md` | 校准域维护多板 SPI CLK 训练、双向测量、residence/bias/path-delay 证据和 EtherCAT DC 风格门禁。 |
 | `calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` | 校准训练子域的 CS marker cut-through、DATA codeword 相关、单跳收敛和 TDMA 接入方案。 |
 | `calibration/CALIBRATION_RING_AUTOCALIBRATION_PLAN.md` | 校准域 P0 环序搜索、P1--P3 板内单指令自校准、SCPI 候选接口、状态机和实施待办。 |
@@ -171,6 +182,9 @@ docs/
 | `refmem/REFMEM_DOMAIN_RISK_REVIEW.md` | Distributed RefMem 主域风险评审，记录 P0-P3 架构偏差、HAOFV 边界风险和纠偏结论。 |
 | `vdc/README.md` | VDC 内部主域 README。 |
 | `vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间、DPLL、timestamp、HOLDOVER 和质量门禁。 |
+| `vdc/VDC_RUNTIME_CONSTRAINTS.md` | real-flight重构后的VDC运行细则，区分typed主线与旧兼容路径；适用范围见本页同步说明。 |
+| `vdc/VDC_STABLE_INPUT_PLAN.md` | real-flight稳定输入及丢样本处理方案，非本序列分支实现声明。 |
+| `vdc/VDC_DPLL_STATUS_REVIEW.md` | real-flight四板DPLL实验报告快照，精度与证据范围沿用来源记录。 |
 | `vdc/VDC_DOMAIN_TODO.md` | VDC 内部主域待办，跟踪数据契约、DPLL、RefMem 映射、组件化和验证。 |
 | `vdc/VDC_COMMAND_TRANSPORT_PLAN.md` | VDC 定时命令与共同时间传输待审方案，含原函数反例、固定邮箱候选及资源/负测门禁。 |
 | `vdc/VDC_TASK_PROGRESS.md` | VDC 内部主域任务进度。 |
@@ -196,6 +210,20 @@ docs/
 | `legacy/vdc/LEGACY_VDC_DOMAIN_ARCHITECTURE.md` | VDC 重构前架构历史快照。 |
 | `legacy/vdc/LEGACY_VDC_DOMAIN_TODO.md` | VDC 重构前待办历史快照。 |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS.md` | VDC 重构前任务进度历史快照。 |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_01.md` | real-flight VDC历史进度归档01，正文保留来源版本。 |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_02.md` | real-flight VDC历史进度归档02，正文保留来源版本。 |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_03.md` | real-flight VDC历史进度归档03，正文保留来源版本。 |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_04.md` | real-flight VDC历史进度归档04，正文保留来源版本。 |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_05.md` | real-flight VDC历史进度归档05，正文保留来源版本。 |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_06.md` | real-flight VDC历史进度归档06，正文保留来源版本。 |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_07.md` | real-flight VDC历史进度归档07，正文保留来源版本。 |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_08.md` | real-flight VDC历史进度归档08，正文保留来源版本。 |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_09.md` | real-flight VDC历史进度归档09，正文保留来源版本。 |
+| `legacy/tdma/LEGACY_TDMA_DOMAIN_ARCHITECTURE.md` | real-flight TDMA重构前架构快照，不作为当前能力事实。 |
+| `legacy/tdma/LEGACY_TDMA_DOMAIN_TODO.md` | real-flight TDMA重构前待办快照，当前状态见TDMA域TODO。 |
+| `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_01.md` | real-flight TDMA历史进度归档01，正文保留来源版本。 |
+| `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_02.md` | real-flight TDMA历史进度归档02，正文保留来源版本。 |
+| `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_03.md` | real-flight TDMA历史进度归档03，正文保留来源版本。 |
 | `archive/README.md` | 归档域 README。 |
 
 ## 01 系统架构

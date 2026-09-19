@@ -4,7 +4,10 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Related: `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`
-Last updated: 2026-09-15
+Last updated: 2026-09-19
+
+> 分支范围：本文同步自real-flight的`7a3e0954`，新增能力描述不表示本分支代码已移植。
+> 来源及验收边界见[同步说明](../README.md#序列分支的上游文档同步范围)。
 
 本文档定义本机 realtime IO capability、PIO persona、逻辑分析仪、SMA 维护能力和
 PIO/DMA/IRQ 执行资源之间的稳定边界。它不定义产品 Trigger 状态机、TDMA 协议、
@@ -61,6 +64,45 @@ SCPI / UI / System Pack intent
   属于结构错误，必须阻止该 persona ARM，不能用调试门禁绕过。
 
 ## 能力、Mode 与 Persona
+
+### 持续模型输出的 scheduled capability
+
+`sync_io_run_output.h` 定义有限调试窗口的持续输出能力，VDC 是能力请求方，
+全部 IN/OUT 仍归统一 SYNC_IO owner。Core0 在 STOP 顺序预留 scheduler、共享
+workspace、persona 和实际 PIO/DMA；与 legacy capture、频率输出、输入换脚和
+序列模式共用排他入口。预留将输出置于安全低态，不启动计划脉冲，不能由另一个
+legacy 请求覆盖引脚；先前已被维护操作置高的引脚可能因此出现安全下降沿。
+
+Core1 执行 PREPARED → RUNNING → RETIRING → RETIRED；取消只发布意图，
+实时服务不等待 Core0。有限编码块由 DMA 送入 PIO；高、低持续时间均在上升沿前确定，
+升沿后不再依赖 FIFO 补给才能下降。只有 DMA 已不忙、计数清零且无错误，才能
+复用该源缓冲；FIFO、OSR 与执行中计数器仍属于不可改写的已提交前缀。DMA 完成
+不证明物理边沿已完成，提交成功也不抹去随后的硬件故障。
+
+首次 enable 保留原始计时器观察区间及 PIO 已进入低段的证据；后续编码维持同一
+时间轴。断流、时钟失效、到期或取消先关闭 SM、强制低态并关闭 DMA EN，再发起
+非阻塞 abort；确认 abort 清除且 DMA 不忙后才发布 RETIRED。Core0 取得完整
+客户端退休权后释放资源，新请求使用新 generation，不恢复旧倒计时。具体资源、
+编码开销和块容量以 board/persona 描述及 `sync_pulse_stream_encode.h`、
+`SYNC_IO_RUN_OUTPUT_MAX_EDGES` 为事实源，不能从指令 tick 推断跨板精度。
+`sync_io_run_output_submit_count_core1` 接收有界非零边沿数，先完整校验再修改
+源缓冲及元数据；旧固定块 wrapper 保留。首次最小块直接预装 FIFO，不启动
+零长度 DMA；续块按实际编码数提交。扩大软件块不扩大 DMA 退休后的 FIFO
+执行余量，也不授予跨服务空窗的连续性。上层窗口与分批规划见
+`VDC-PRIORITY-01`，SYNC_IO 仍独占硬件提交及退休。
+
+固定脉宽请求可显式使用 `sync_io_run_output_prepare_uniform`：STOP 预留时将
+高段计数预装入 ISR，运行每脉冲只消费一个低段计数字；默认 prepare 仍选择原
+高/低双字程序。两模式互斥占用同一 persona/SM/DMA，不同时装入，不循环重放
+旧缓冲。模式只有取得空闲 owner/workspace 后才改变；失败按实际已装程序清理。
+uniform 全段宽度须与锁存值一致，含末项在内完整验证后才能改源缓冲/元数据。
+首次最小块预装单字且不触发 DMA，其余提交长度与源退休按实际模式计算。
+低/高段开销分别以 `sync_pulse_uniform_encode.h` 及真实汇编为准，启动 PC 验证
+采用所选程序的低段范围。ISR 只在 STOP 初始化，运行补给不改已提交前缀；断流
+仍退休，不能靠恢复 FIFO 继续旧时间轴。单字模式增加硬件库存密度，但不单独
+证明服务期限、连续性或同步精度。
+
+### 类型区分
 
 三个概念不得混用：
 

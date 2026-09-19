@@ -4,10 +4,156 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/storage/LOG_SYSTEM_TODO.md`
-Last updated: 2026-09-15
+Last updated: 2026-09-19
+
+> 分支范围：本文同步自real-flight的`7a3e0954`，正文任务状态、实现与证据指来源分支。
+> 本地固件状态及契约边界见[同步说明](../README.md#序列分支的上游文档同步范围)。
+
+### SYNC-PROGRESS-20260918-005 — 固定脉宽单字 FIFO（待四板专项）
+
+- TODO task ID：`SYNC-OUT-002` IN PROGRESS。实现快照及原始证据位于
+  `out/HardwareAcceptance/20260918/dpll-run-uniform-r1/`。
+- 新增 uniform PIO 程序：STOP 时将固定高段计数装入 ISR，运行中每个脉冲仅提交
+  一个低段 FIFO 字；paired 双字接口继续作为兼容路径。首字 CPU 预装、DMA 按剩余
+  实际字数启动，完整宽度和失败清理均在 owner 边界内完成。
+- 主联合回归 748 项及另行时间轴 22 项通过，包含真实汇编/编码/backend/FIFO 模型；四个 SDK
+  XIP 叶子、RAM/栈与双槽包已完成独立资源审计。模型库存余量增加不等于目标板
+  连续性、WCET 或跨板精度，需新源码四板 P3 和 scope 专项确认。
+- 当前同源四板 quick P3 PASS_WITH_WARNINGS，181.917 秒，25 INFO/18 WARN，
+  0 ERROR/FATAL；严格质量失败保留。实际输出专项待完成，保持
+  `SYNC-OUT-002` IN PROGRESS。
+- `capture-r2` 使用同一 build 的 uniform 后端完成四板有限 RUN；schema 6 及
+  `fifo_words_per_edge=1` 已逐板读回，但四板仍 STARVED。服务间隔约 2.17–2.65 ms，
+  短服务 wall 约 28.7–46.7 µs；这说明单字 FIFO 不是连续性的充分条件，下一步需
+  关联 dispatcher 服务间隔、模型失效与 DMA 退休点。所有板和示波器已 STOP，证据
+  位于 `out/HardwareAcceptance/20260918/dpll-run-uniform-r1/capture-r2/`。
+- 独立复核 `design-review/uniform-capture-independent-r2.json` 确认四板实际采用
+  单字编码、高段 500 tick、FIFO 空/STALL/DMA 耗尽现场和零运行查询；STARVED
+  仍是本轮专项 FAIL，harness 非零退出及原始证据均保留。
 
 本文档只记录 SYNC_IO 域的提交、构建、测试、OTA/HIL、失败、回退和证据位置。任务状态以
 `SYNC_IO_TODO.md` 为唯一事实源，稳定语义以 `SYNC_IO_ARCHITECTURE.md` 为准。
+
+### SYNC-PROGRESS-20260918-004 — 有界可变块与长时间轴配置
+
+- TODO task ID：`SYNC-OUT-002` IN PROGRESS；联动 `VDC-OUTPUT-001`。
+  以下数字为证据快照，非产品事实源；证据根
+  `out/HardwareAcceptance/20260918/dpll-run-timeline-r1/`。
+- backend 增加实际边沿数入口，上限以 `SYNC_IO_RUN_OUTPUT_MAX_EDGES` 为准；
+  非法尾项在任何提交修改前拒绝，旧 wrapper 保留，首个单边沿块不启动零长 DMA。
+  PIO 程序、源缓冲退休、不可改写前缀、异步 STOP 和统一硬件 owner 不变。
+  schema 在原前缀后追加实际窗口、bridge/规划/等待计数、块数和表周期。
+- VDC 同次 RUN 固定初始时间映射，读新鲜 raw 判断规划/补给，分批准备后缀；
+  新模型只影响未提交部分。STOP 三元组通过 PREPARE 联合容量检查后锁存，
+  仅显式 Flash 保存，Core1 无 SCPI/Flash/RTOS 依赖；细节见 VDC 进度 004。
+- 693 项 host、双槽 Release、资源和当前源码四板 quick P3 通过；P3 为
+  PASS_WITH_WARNINGS，182.546 秒，25 INFO/18 WARN/0 ERROR/FATAL，严格质量
+  失败保留。主 RAM 扣 heap 后 22380 B，实际调用图与身份独审见 `design-review/`。
+- NO2 参数保存/重启/恢复专项通过，首轮工具 ACK 误判失败保留；输出首采在
+  START 前因重启丢失临时训练矩阵失败，重新装载同次已测矩阵接续。
+  软件块加长不扩大 DMA 源退休后的 FIFO 执行时间，不凭容量或参数保存宣称
+  连续输出或锁相；下一门禁仍是有限静默 RUN 后的真实波形与退休原因。
+- 恢复 process-image 及完整运行上下文后，`capture-r3` 真实采用十边沿块，
+  四板 bridge_samples 均为 1，分别准入 34/105/577/412 块；短服务 wall 最大
+  31.208/47.500/62.128/48.532 µs，超预算零且调用/报告相等。输出仍全部
+  STARVED，专项 FAIL；NO4 一次提交拒绝保留。四板 STOP58/16/58/59 已应用，
+  输出 PIO/DMA 关闭，示波器 STOP/EXT/NORM。NO1 块内周期接近原基线但块界
+  仍有微秒级波动；有限采样、模型变化与跨轮初态限制详见 VDC 进度 004。
+  下一步核对模型更新后缀重建与 DMA 退休后的真实补给期限；不以容量增大
+  宣称断流根因已消除，保持契约 pending。
+
+### SYNC-PROGRESS-20260918-003 — 缓存交接预算实测与 SRAM 放置复核
+
+- TODO task ID：`SYNC-OUT-002` IN PROGRESS；联动 `VDC-OUTPUT-001`。
+  以下数字为本轮证据快照，非产品事实源；前置失败证据在
+  `out/HardwareAcceptance/20260918/dpll-run-fallback-r1/`，原件及独审见其中的
+  `runtime-review/capture-independent-r1.json`；SRAM 切片证据在
+  `out/HardwareAcceptance/20260918/dpll-run-sram-r1/`。
+- 完整 TDMA 服务因迟到跳过时，dispatcher 在原相位关闭点前重新读取本地时钟，
+  按 `PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES` 准入一次缓存交接；期间
+  priority IRQ 保持关闭，后续等待仍只用原 quota。完整服务的 skip/start-miss 与
+  失败返回保留，缓存交接不增加完整服务 run_count，实际 wall/overrun 仍记原相位。
+  调用后报告按 request 复验身份，报告自身成本由相位尾部期限覆盖。
+- VDC 缓存入口继续由原 owner 串行化，先处理取消/退休并复验会话、模型、时钟、
+  配置代际及已准入尾部；缺缓存时返回，不做新 bridge/模型逆变换或首块启动。
+  SYNC_IO 仍独占 PIO/DMA/GPIO；不改 live DMA 源、不可改写前缀、低态 pull 或 STOP。
+- 该轮四板均有真实缓存提交，分别 44/70/15/40 次，但专项仍全部 STARVED；
+  caller wall 最大值分别 327.152/345.884/342.832/376.292 µs，均超过上述候选
+  预算对应的 80 µs。计数包含空缓存及终止服务，最大值未关联单次结果，不能解释为
+  成功提交耗时，也不能将全部超时归因于 XIP。末次服务间隔跨过各板已准入尾部
+  时间界，具体调度跳过、拒绝或耗时来源尚未闭合。四板 STOP 与硬件关闭留证。
+- 后继仅将缓存路径实际调用的后端 service/can-submit/submit/snapshot、发布、
+  退休、取消、租约观察及 raw 读取边界放入主 SRAM，并禁止被内联回 XIP；
+  保留算法、所有权、PIO/DMA、保护门限及预算。客户端与 ring/model/clock 放置
+  由同一切片协同处理。最终链接确认所选函数放置，仍有 SDK XIP 叶函数，见新根的
+  `runtime-review/actual-placement-independent-r1.json`；不声称全调用链都在 SRAM。
+- 新 SRAM 源码联合 host 504 项、双槽 Release 与独立资源复核通过；同源码四板
+  quick P3 为 PASS_WITH_WARNINGS，189.390 秒，25 INFO/18 WARN/0 ERROR/FATAL。
+  严格质量门禁仍保留，详见 `runtime-review/p3-independent-r1.json`；基础通过
+  不代表动态输出专项通过，也不追改前置失败。
+- 新 `capture-r1` 静默窗口内四板缓存提交为 108/18/33/53 次；caller wall 最大值
+  为 46.480/42.944/38.576/42.644 µs，均未超过上述候选预算，超预算计数全零；
+  调用/报告样本分别为 535/109/157/213，逐板相等。这是有限窗口实测，未证明 WCET。
+  四板分别准入 2474/384/582/725 块，补给拒绝全零，却仍全部 STARVED，专项仍 FAIL。
+  原始记录、首次退休分析在新根 `capture-r1/`；四板 STOP44 已应用，输出 PIO/DMA 关闭。
+- 两轮失败及各自 NO1 波形原件独立保留；内部 PI、物理周期误差和板间同序边沿
+  相位仍分开判断。下一 gate 是连续硬件时间轴、提前准备后缀与服务可用性的核验，
+  继续在静态预算内解决持续补给，再独立处理块间 bridge/模型连续性；保留 NO1 PI，
+  不宣称连续输出、物理锁相或 VDC 发布完成。
+
+### SYNC-PROGRESS-20260918-002 — Core1 自主释放仍未消除输出断流
+
+- TODO task ID：`SYNC-OUT-002` IN PROGRESS；完整证据见
+  `VDC-PROGRESS-20260918-002`、`out/HardwareAcceptance/20260918/dpll-run-release-r1/`。
+- 应用入口改为直接硬件计时等待，保持绝对周期、静态预算和 Flash lockout poll；
+  未改变 SYNC_IO owner、PIO、DMA、后缀准入或 NO1 PI。软件与 Release/资源通过。
+  首次四板 P3 的 NO3 START 超时失败保留，同源码一次有界复测 quick P3 通过。
+- 同源输出专项仍四板 STARVED；共享唤醒依赖已移除，长服务空窗及补给拒绝仍存在。
+  STOP、PIO/DMA 关闭和冻结示波器原件已留证；不将结构改动或 P3 基础通过视为
+  连续输出恢复。下一 gate 是原静态预算内必要交接、整相位跳过及 FIFO 补给余量，
+  后继再隔离 bridge/模型连续性，保留内部 PI 与外部输出观测的区别。
+
+### SYNC-PROGRESS-20260918-001 — 私有后缀预规划与服务空窗复核
+
+- TODO task ID：`SYNC-OUT-002` IN PROGRESS；联动 `VDC-OUTPUT-001`。
+  完整验证见 `VDC-PROGRESS-20260918-001`；证据在
+  `out/HardwareAcceptance/20260918/dpll-run-prefetch-r1/`，午夜前软件证据保留于前日同名目录。
+- VDC 客户端在 DMA 忙时提前准备私有后缀，保留完整生命周期和时钟复验；
+  不写 live DMA 源，不提前消费 ordinal，不改 SYNC_IO 后端/PIO 或既有 TDMA 入口。
+  软件、Release/资源、同源码四板 quick P3 通过；专项已有真实缓存准入，仍 STARVED。
+- 下一 gate 是静态相位预算内的快速交接、服务空窗及 FIFO 源退休时机，独立验收；
+  块边界阶跃由后继 bridge/模型连续性切片定位，不调 NO1 PI 掩盖输出路径问题。
+  全板 STOP 与硬件关闭已留证，失败不改判，尚未完成连续输出或物理锁相。
+
+### SYNC-PROGRESS-20260917-002 — 补给间隔与首次退休诊断
+
+- TODO task ID：`SYNC-OUT-002` IN PROGRESS；完整证据和各板结果见
+  `VDC-PROGRESS-20260917-031`、`out/HardwareAcceptance/20260917/dpll-run-refill-r1/`。
+- 保持 owner、有限 DMA、低态 pull 与不可改写前缀；复用已有 raw 观察记录
+  有效服务/成功补给间隔，首次退休在停止硬件前冻结 PIO/DMA 观察。
+  客户端分阶段计数在完整所有权锁内维护，仅退休后导出，不在实时路径增加串口查询。
+- host、Release/资源与匹配源码四板 quick P3 通过；输出专项仍复现 STARVED。
+  下一 gate 是核对服务空窗与 FIFO 补给余量、提前准备后缀；保持失败证据，
+  不将诊断完成、源退休或低频通过写成持续输出/物理精度完成。
+
+### SYNC-PROGRESS-20260917-001 — 持续模型 PIO 输出与统一资源交接
+
+- TODO task ID：`SYNC-OUT-002`，IN PROGRESS，联动 `VDC-OUTPUT-001`。
+  证据根 `out/HardwareAcceptance/20260917/dpll-run-executor-r1/`，完整切片
+  验证与后续结果见 `VDC-PROGRESS-20260917-030`，本文不复制各板原始计数。
+- 借鉴 node-sequence 分支的预编码、Core0 预留/Core1 执行和 DMA 退休思路，
+  使用现有 scheduled persona 与共享 workspace，新增有限块持续补给，全部
+  FIFO pull 在低态，高态不等待补给。legacy 维护入口共用一次排他准入，
+  VDC 只提交计划，不直接持有 PIO/DMA/GPIO。模型变化不追改已提交前缀。
+- 初轮同源码四板 quick P3 完成，输出专项却在首次 enable 观察时一致退出；
+  `capture-r1/` 保留首块准入、CLOCK 退出、原生 DCO/phase 与全板 STOP。
+  示波器未完成新触发，不构成物理输出通过。修订增加一次有界 raw 观察与
+  分开的 PC/offset/raw 状态，保持严格 PC 准入，不以放宽门槛掩盖失败。
+- 修订源码 quick P3 完成；`capture-r2` 启动通过但较高输出频率发生断流，
+  frozen RAW 保留实际脉冲和中断。`capture-r3` 同固件降低输出频率后，
+  四板动态模型后缀采用、有限窗口正常取消退休及冻结波形导出通过。
+  下一 gate 为补给间隔与暂忙原因观测、缩小跨钟/enable 不确定性和实际精度；
+  不能将低频有限持续输出等同于锁相或正式产品 RUN。
 
 ### SYNC-PROGRESS-20260915-001 — 共享采样区缩容与准备/导出租约
 
