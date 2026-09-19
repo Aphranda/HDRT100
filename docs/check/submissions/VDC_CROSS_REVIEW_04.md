@@ -319,3 +319,18 @@ SCPI 接口和域/顶层/登记映射，同意 v22 保持 pending。首次时钟
 不替代硬件验收，最终 P3/实板结果见 `VDC_TASK_PROGRESS.md`。
 原件为 `out/HardwareAcceptance/20260919/internal-guard-r1/design-review.json` 与
 同目录 `c11-review.json`，审查日期为 2026-09-19。
+
+## 目标完成自动封存（VDC-PRIORITY-01 v25 pending）
+
+独立方 `internal_probe_review` 已只读复核源码、目标汇编、诊断适配器以及域架构、
+顶层和登记表，同意 v25 保持 pending，未发现阻断项。GUARD 在仍为 RUNNING 时
+封存最后汇总段，末次时钟/计数器/覆盖异常仍能否决 PASS；通过后以
+`VDC_PRIORITY_TRACE_TARGET_COMPLETE` 冻结原生记录，不请求输出或环路停止。
+普通 SUMMary 行为、原生布局和池容量保持；主机仍在等待结束后统一 STOP/RELEASE。
+
+适配器联合核对新版 GUARD、原生完成原因、capture/session/generation、目标与
+完整检查点、CRC 和输出退休，不将原生覆盖单独当成 GUARD 通过。运行期间无查询。
+封存后的参考质量不再被记录，输出尾段须独立核验；本审核不授予零扰动、GPIO 精度
+或正式发布资格。源码及 C11 原件为
+`out/HardwareAcceptance/20260919/internal-seal-r1/source-review.json`，审核日期
+2026-09-19；软件、固定 P3 和短/长窗实测由 Task Progress 分别引用。

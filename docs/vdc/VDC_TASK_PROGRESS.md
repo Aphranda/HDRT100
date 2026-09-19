@@ -22,6 +22,42 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-016：目标自动封存与无查询联合探针复测
+
+- TODO task ID：`VDC-OBS-007` IN PROGRESS。证据根
+  `out/HardwareAcceptance/20260919/internal-seal-r1/`；下列数字为当日快照，非产品
+  事实源。显式 GUARD 目标完成时先封存末段，保持 RUNNING 直到最后时钟、计数器和
+  覆盖检查结束；异常仍否决 PASS。成功使用独立 TARGET_COMPLETE 原因冻结记录，
+  不停止输出或环路；主机最终统一 STOP。普通 SUMMary、原生布局与记录池保持。
+  GUARD 独立版本升级，解码工具只承认覆盖，不单独授予 GUARD 或物理锁相通过。
+  代码已提交 `b539118b`，实际 pre-commit 匹配本次 P3 指纹通过。
+- 主控 235 项回归、Release A/B/boot 链接通过；独立测试作者最终 119 项专项通过，
+  两个隔离变异负控均检出，见 `independent-tests.json`。适配器 227 个策略检查通过。
+  独立 `source-review.json` 复核源码、目标汇编与适配器，同意 `VDC-PRIORITY-01`
+  v25 保持 pending；明确封存后不再记录参考，输出尾段另审，不宣称零扰动。
+  `ram-check.json` 确认 A/B 静态 RAM 间隙仍为 20052 B，未增加记录池。
+- 固定 `p3-internal-seal-r1/` PASS_WITH_WARNINGS：25 INFO、18 WARN、0 ERROR/FATAL，
+  沿用确认拓扑，源码 `e91aafe851022f9a61c923dc37e0e7e5340bba282212ee12317962c3c0d24380`，
+  包 SHA `15ba684592fee95a3cf01ea96e889a9b9a2c04b383cfbb7d6963a7357a7ec969`。
+- `positive-60s/` 整轮健康与独立规划计时资格通过，主控从 RAM 原始字节重放，
+  见 `positive-60s-main-review.json`。四板覆盖 60.001..60.004 秒、全部目标完成
+  封存；计时缺口和预算超限均零，规划路径最大约 196.828/198.380/202.496/203.136 µs。
+  输出最终 CANCELLED，CRC、STOP/RELEASE、恢复及零运行查询成立。三从稳定汇总段
+  内部残差分别为 [-116,102]/[-123,106]/[-122,104] ns，属于估计区间，非 GPIO 精度。
+  独立 `p3-short-review.json` 核对源码与全部凭证引用、原生页 CRC、保存的解码、
+  判据、恢复和输出退休，结论一致；离线图为 `positive-60s-internal-follow.svg`。
+- `positive-600s/` 连续十分钟整轮健康与独立规划计时资格通过；四板覆盖
+  600.001..600.004 秒、全部十个分钟通过位完整，原生各 60 段，运行查询零。
+  四板计时缺口/超限均零，规划最大约 228.364/221.724/217.800/207.848 µs，
+  输出最终 CANCELLED，无本轮 STARVED，CRC、STOP/RELEASE 和配置恢复完整。
+  三从稳定内部残差为 [-231,110]/[-194,112]/[-219,113] ns，长窗区间扩大，不能
+  用本次健康通过宣称物理 ±100 ns。主控重放与图分别为
+  `positive-600s-main-review.json`、`positive-600s-internal-follow.svg`。
+- 下一 gate：按用户补充增加可配置外部示波器联合复核；关闭时保持内部静默自检，
+  开启时在同一次运行中稀疏外部采样，分别报告内部健康、物理观测及窗口对应关系。
+  单次长窗不宣称偶发故障消失；旧 OUTPUT_READ、STARVED、BINDING、非法运行态
+  trace STOP 和超限失败原件均保留。后续仍需重复长稳、失联恢复与 VDC 质量发布。
+
 ### VDC-PROGRESS-20260919-015：活动输出释放预检与探针收尾顺序
 
 - TODO task ID：`VDC-OBS-007` IN PROGRESS。证据根

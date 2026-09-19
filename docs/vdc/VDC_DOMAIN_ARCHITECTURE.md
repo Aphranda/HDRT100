@@ -655,8 +655,10 @@ schema、跨度、tick rate 与容量核验完整覆盖，不能仅延长等待�
 原因位由 `VDC_PRIORITY_GUARD_*` 定义。普通汇总模式默认不启用监督。Core1 从首次
 ring 运行观测开始计时，在检查点累计检查服务缺口、无成功/未绑定、成功间隔、计数
 回退/饱和与时钟异常；无启动豁免，不因零 DCO 调整或 PARTIAL/TERMINAL 单独判失败。
-提前冻结立即终止判定；首次失败只提交本次诊断的本板停止意图。目标窗通过只记录
-PASS，不自动停止，避免各板 ARM 起点差异使先通过者截断其余节点；诊断编排完成
+提前冻结立即终止判定；首次失败只提交本次诊断的本板停止意图。目标窗完成时先封存
+最后汇总段，末次时钟/计数器/缺口检查仍能否决 PASS；通过后将原生记录以
+`VDC_PRIORITY_TRACE_TARGET_COMPLETE` 原因冻结。该 Core1 本地封存不请求输出或环路
+停止，避免各板 ARM 起点差异使先通过者截断其余节点；诊断编排完成
 等待后仍须统一 STOP 并确认退休，不能把 PASS 当成停止回执。
 Core0 经 TDMA control guard 复验原 config 与 capture/session/generation 后取消输出
 并请求环路退休，busy 留待后继处理，不能借用后续 ARM；config 的零值回卷不等于
@@ -664,10 +666,15 @@ Core0 经 TDMA control guard 复验原 config 与 capture/session/generation 后
 
 `GUARd?` 返回 `vdc_priority_guard_status_t` 的独立版本化元数据；旧原生 schema、
 布局和池容量不变。`first_failure_ms` 表示判定时刻，不是故障首次发生时刻；
-`checked_s/passed_mask` 只描述已检查目标窗，停止等待尾段仍需原生记录单独核验。
+`checked_s/passed_mask` 只描述已检查目标窗。目标完成封存后原生参考记录不再覆盖
+停止等待尾段，该尾段须另审输出最终退休原因；不能外推尾段参考质量或 GPIO 连续性。
 停止接受与实际退休分开；退休位保留本次精确 stop_config 曾完成退休的证据，
 不表示查询时任意后续运行已停。状态供 STOP 后读取；运行不依赖串口/SD/RTOS
-采样。`VDC_PRIORITY_GUARD_SCHEMA` 的新版将显式 GUARD 升级为参考与输出引擎联合
+采样。`VDC_PRIORITY_GUARD_SCHEMA` 区分自动封存与旧版持续记录到主机 STOP 的语义。
+原生布局不变，主机须显式识别新完成原因：记录覆盖判据不等于 GUARD 通过，专项
+验收还须核对相同 capture/session/generation、目标/完整检查点、末段覆盖与 CRC，
+以及最终输出/STOP/RELEASE/恢复证据。历史冻结和普通 SUMMary 行为不变，仍不开放
+运行态 trace STOP。显式 GUARD 进行参考与输出引擎联合
 检查；普通 SUMMary 仍只记录参考。首次运行观测绑定当时已准备的输出 request，
 不能延迟到检查点才选择请求；初次读取或身份失败锁存，后续正常不能清除。
 每个检查点经 `vdc_run_output_observe_core1()` 一次非阻塞客户端所有权尝试及后端
