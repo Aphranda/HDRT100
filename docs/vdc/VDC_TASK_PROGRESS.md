@@ -22,6 +22,68 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-013：参考与输出引擎联合探针及关闭监督对照
+
+- TODO task ID：`VDC-OBS-007` IN PROGRESS。证据根
+  `out/HardwareAcceptance/20260919/output-starvation-r1/`。先闭合长检假通过缺口，
+  输出补给修复保持后继独立切片，固定 quick P3 范围不扩大。代码已提交
+  `b6aedfd8`，真实 pre-commit 核对最终源码与硬件凭证通过。
+- 同一进度 012 源码关闭分钟 GUARD、保留普通 SUMMary 的十分钟对照：首轮
+  `guard-off-600s/` 在 NO1 START 未取得显式 OK 后停止，未进入采样；原件保留。
+  父清理曾报告 NO1 error queue 非空，最终配置读回与原值一致，不能将该轮写成通过。
+  复测 `guard-off-600s-r2/` 完整采样、运行查询零、原生 CRC 复解一致、清理恢复
+  全部完成。参考通过，但 NO4 在约 468.828 秒 STARVED，NO1–NO3 到主机 STOP。
+  因此分钟监督不是饥饿的必要条件；不能由该对照量化探针开销或唯一确定根因。
+  数字为当日快照，详细末态见 `guard-off-600s-r2-analysis.json`。
+- 独审 `vdc-refill-review.json` 用生产 client/planner 复现：模型改变使缓存失效，
+  连续 cached-only 服务不能重建，在 FIFO 尾部耗尽前若没有完整规划机会即断流。
+  模型不变和恢复完整服务两组对照可继续补给。关闭 GUARD 的 NO4 末次失效距尾部
+  约 8 ms，之后仍有三次服务，与该路径相符，但不称为完整硬件因果证明。
+  既有快速预算已出现少量超限，不能把完整规划直接塞进同一个短预算或重放旧模型。
+- 新版 GUARD 元数据沿用同一显式 ARM 命令，普通 SUMMary 不受影响。首次运行
+  绑定当时输出 request，读取/身份失败锁存；检查点通过一次客户端弱 CAS 和后端
+  已发布快照，核对身份、RUNNING/OK、服务/提交新鲜度与末序号推进。观察器不调用
+  service/submit；失败仍按原本板 STOP/退休机制执行。最终 PASS 后到主机 STOP
+  的尾段另审实际退休原因，不用旧参考 passed 字段代替联合健康结论。
+- 主机测试最终 206 项通过，集成 trace/summary/owner 的独立集合 191 项通过，
+  文档检查器测试 38 项通过，集合不相加。观察器测试覆盖释放后证据、错误代际、
+  门控重入、失败不覆盖输出和无硬件副作用；三个隔离变异负控均被检测。首次读取
+  失败/错误会话恢复后仍失败的用例已补。构建复核发现强 CAS 可生成重试，已改为
+  弱 CAS 单次尝试，目标反汇编确认无 retry backedge。
+- Release linker 快照静态 RAM 增用 44 B，主区余 20076 B；新观察器及其调用的
+  后端快照嵌套栈帧合计 568 B，不是整条 Core1 峰值栈，也不是 WCET 证明，见
+  `resource-r2.json`。本次不宣称零干扰或 GPIO 精度。P3 r1 因运行中有上述源码
+  修正而拒绝签发凭证，原失败保留；须以最终指纹的 P3 和后继联合探针专项为准。
+- 最终 `p3-output-guard-r2/` 为 PASS_WITH_WARNINGS，25 INFO、18 WARN、0 ERROR/FATAL；
+  源码指纹 `ffb2397a110f041e2a1d5dfff610debb38b4b6f1598ad2d351180e8e732c78d8`，
+  1293 文件。build ID 复用，按源码和 package 哈希辨认。凭证引用的 29 份原件
+  逐一复算匹配，见 `receipt-r2-hash-check.json`。
+- `positive-60s/` 四板新版 GUARD 均在首分钟 PASS、原因零、输出 RUNNING/OK、
+  无自主 STOP；成功参考分别 35649/15339/15548/15322，运行查询零。主机统一
+  STOP 后四路原生末态均为 CANCELLED，capture/request/session 身份、CRC、
+  STOP/RELEASE 与父层 RAM 恢复通过；不是只看冻结 PASS。耗时 83.891 秒为试验
+  快照，未用内部 residual 或已准入序号宣称 GPIO 精度。
+- `expiry-120s/` 保留整轮 FAIL：STOP 配置 NO4 为有限输出，其引擎约二十秒
+  EXPIRED，参考继续成功；第六十秒 GUARD 精确锁存 OUTPUT_STOPPED|OUTPUT_STALE，
+  原因 EXPIRED，参考异常 flags 全零，并完成原 config 的本板 STOP/退休。
+  NO2/NO3 分别在约 59.761/59.888 秒以 BINDING 提前冻结，GUARD 保留 EARLY_FREEZE；
+  NO1 首分钟通过，第二分钟记录缺参考后退休。负例脚本原先只接受其他节点首分钟
+  通过、第二分钟缺参考，因此整轮未通过，不能把 NO4 检出成功改写为全流程 PASS。
+  主机约一百二十二秒才清理，运行查询零、原生 CRC、STOP/RELEASE 与恢复完成。
+  该负例证明输出失效能独立于参考被检出，不代表健康锁相或四板同步停止。
+- 独立复核 `hardware-review.json` 重算 P3 原件引用、两轮共八份原生 CRC 与
+  生命周期；`c11-v23-review.json` 接受 v23 pending 范围，未提升产品发布或锁相。
+  本次 C14 仅逐字迁出最旧进度 028 至 archive07，索引和 README 已闭合。
+- `positive-600s/` 四板参考与输出引擎联合检查通过：十个检查点全部 PASS，mask
+  1023，输出状态 RUNNING/OK；最终统一 STOP 后四路原因均为 CANCELLED，没有
+  STARVED。运行查询零，四份原生 CRC 重解码通过，覆盖约 603.157–603.772 秒，
+  每板 61 段，STOP/RELEASE 与恢复无遗留。详细复核见 `positive-600s-main-review.json`。
+  NO2/NO3/NO4 相位实际提交 5501/5543/5604 次、频率提交 39/69/14 次；稳定完整
+  段内部残差包络 [-234,108]/[-234,112]/[-203,110] ns，不是 GPIO 实测精度。
+  输出快速服务预算超限计数 34/13/19/13 仍保留，不能用联合健康 PASS 声称 WCET
+  已闭合。本轮无故障不覆盖旧偶发 STARVED；补给路径未修改、根因与重复性仍待
+  后继切片。以上数字均为当日证据快照，非长期保证或正式锁相资格。
+
 ### VDC-PROGRESS-20260919-012：内部分钟监督、失败本板停止与通过保持环路
 
 - TODO task ID：`VDC-OBS-007`，参考监督子切片完成，整项仍 IN PROGRESS。代码提交 `37ca2351`，匹配凭证
@@ -2217,87 +2279,6 @@ Last updated: 2026-09-19
   原始时间锚/迟到/断流/STOP 留证，再做同源码四板 P3 与有限四通道示波器专项。
   已有固定模型诊断输出不能代替持续模型更新；长期目标保持进行中。
 
-### VDC-PROGRESS-20260917-028：独立输出 delay 持久化与本地相位提交
-
-- TODO task ID：`VDC-TUNE-003` DONE、`VDC-FAST-003` IN PROGRESS、
-  `VDC-OUTPUT-001` PENDING。证据根为
-  `out/HardwareAcceptance/20260917/dpll-local-phase-r1/`；本节数字为实测/构建
-  快照，非产品事实源。输出 delay 为每板独立有符号 ns，默认零，正延后、负提前；
-  不重复加入 MATCH 已使用的链路传播 delay。实际 RUN 输出 consumer 尚未接入，
-  配置持久化不等于物理边沿补偿生效，也不宣称百纳秒锁相。
-  代码提交 `c4df028` 已通过真实 pre-commit 同指纹硬件门禁；他人
-  `components/tdma/src/tdma_flight_engine.c` 保持未暂存、未修改、未提交。
-- 新增 STOP-only `SYSTem:VDC:OUTPut:DELay <ns>`、`DELay?`、
-  `DELay:DEFAult`、`DELay:RECall`、`DELay:STORe`。SET/default/recall 经
-  TDMA STOP metadata guard；显式 STORE 经 Core0 既有维护与 FlashTransaction。
-  Product Config v4/76 B 保留 v1/v2 的 64 B、v3 的 72 B CRC 域，旧记录启动只迁移
-  RAM，补偿缺省零，保留 PI、角色、基线、USB 与板号；不修改 OTA 实现。
-- 首次 `delay-hil-r1` 在任何 STORE 前发现真实目标上的通用 int32 参数转换会
-  将 `2147483648` 静默截成最大值。失败及清理原件保留；现改为完整单个十进制
-  token 的带符号溢出检查，拒绝小数、指数、单位、进制别名、引号及多余参数，
-  所有拒绝发生于 RAM 修改前。真实 libscpi 输入与配置 harness 共 52 项通过，
-  见 `delay-parser-host.xml`；不能只凭 mock 参数测试声称真实解析正确。
-- 集成 trace 回归 190 项、phase 回归 147 项通过；独立 Domain 整数预言机、
-  相位控制/频率共存、取消与模型收据复核保留于 `control-review/`。
-  相位模式默认关闭，STOP 显式开启，新 FOLLOW 绑定锁存；同事件残差向最近零边界
-  有限平移，Domain 实际修改 base_vdc 后须取得完整模型发布收据。仅已确认的自身
-  相位平移允许频率估计坐标归一化；频率改模、未知模型及 STOP 取消退休基线。
-  schema4 原生记录区分 MATCH、频率 DECISION 与实际 PHASE；负向时间坐标平移
-  仅用于调试捕获，不授予单调 RUN/GPIO 输出。公共 FOLLOW ABI 保持兼容。
-- 最终 Release build `20260917124808`，源码指纹
-  `e4aad13282ae46ab801b5d1104044b28343876afe2ed48172978554c2052ed26`，
-  1252 文件。增量构建复用 build ID，必须结合源码/package 哈希辨识；双槽
-  ELF→BIN→package 精确绑定见 `resource-review-strict/release-binding-review.json`。
-  相对进度 027 主 RAM 增用 588 B，余 32428 B，scratch 余 24 B，已审 Core1
-  最大栈仍为 2872/3072 B。严格 parser 后续修复仅 Core0 代码变化，RAM 与
-  Core1 可达调用边均无增量；没有将 Flash、SCPI 或 RTOS 加入实时处理。
-- P3-r1 在 ARM 前 NO3 topology 配置超时/Execution error，原件保留，不推定
-  物理链路或相位算法故障；P3-r2 通过但因 parser 后续修改而不再是当前凭证。
-  最终同源码 `p3-r3` 用时 180.547 秒，`PASS_WITH_WARNINGS`，25 INFO、19 WARN、
-  0 ERROR/FATAL。严格 TDMA、闭环及实时门禁原始失败继续保留；DPLL 未列为该轮
-  P3 必验，不将快速流程通过提升为严格质量或锁相通过。
-- `delay-hil-r2` 实板通过，工具耗时 19.797 秒，终端包络 22.985 秒。
-  四板核验 UID/build/STOP/初值，仅 NO2 显式保存 125 ns，用不同 RAM 哨兵再重启
-  证明 Flash 回读；随后保存原持久值、再次哨兵/重启，最终恢复原 RAM 请求。
-  两次 STORE、两次 RESET；合法正负边界、非法值不变、默认与召回分别验证，
-  PI/角色配置/基线/身份不变，RAM/Flash 无遗留恢复项；NO2 重启后的角色
-  applied generation/pending 状态改变，不能声称完整角色状态元组不变。
-  独审逐条复算 234 条指令通过，见 `parser-review/delay-hil-r2-independent-review.json`。
-  实机原 RAM/Flash 值均为零；两者不同时的恢复由 host 覆盖。实机持久化目标限于 NO2，
-  不写成四板分别完成保存/重启专项。详见 `delay-hil-r2/report.json` 与命令原件。
-- 首次相位专项 `native-phase-r1` 在 START 前发现 NO2 重启后的 TRN03STG 为
-  EMPTY；未 ARM/运行，相位执行尚未发生。失败保留，后续使用本轮 P3 的同一
-  矩阵重新装载并逐板读回，不重新扫描线序、不校准、不追加 Flash 保存。
-- `stage-restore-r1` 装载/读回通过，但该工具将 forwarding 切至 raw-flight；
-  后续 r2/r3 在 NO4 ARM 以 adapter 278（PHYS geometry）拒绝。STOP 后恢复
-  process-image 模式，r4 已运行并保留 NO3/NO4 各 55 个 MATCH，但 FOLLOW 在
-  首 ticket 执行前以 BINDING 取消，没有 PHASE。NO2 还缺少重启前的 VDC
-  provisional 绑定与 debug admission。原件及独审完整保留，不将相位调用前的
-  取消误报为 delta 算法拒绝；BINDING 的精确子条件未单独留证，不指定猜测根因。
-- 随后恢复 NO2 VDC 配置，并用既有短 TDMA 工具恢复四板的完整 P3 运行上下文，
-  包括 clock evidence、provisional 和 debug admission。`tdma-context-restore-r1`
-  四板 ARM 成功，但因原 TDMA recorder 仍保留旧记录而在新 recorder ARM 拒绝，
-  未 START，已 STOP；这一轮不记为通过，也未清掉旧记录。无需修改生产源码。
-- 恢复完整上下文后 `native-phase-r5` 通过，终端耗时 35.781 秒，静默运行约
-  11 秒、临时许可 20 秒，运行零查询，全部 STOP 后导出。NO2/NO3/NO4 实际确认
-  相位提交分别为 109/6/36 次，均 committed=applied，拒绝零；频率实际调整
-  2/0/8 次，不调整 9/8/5 次，末态 −46/0/+1805 ppb，末态 DCO 序号 112/7/45。
-  这些是控制值，不是外部残余频差或锁相精度。NO2 刚重启，原生首相位残差约
-  −109 秒，以有界步幅逐次追赶；不能把时间原点差当成晶振频差。
-- schema4 原件只保留有限前缀：三从 MATCH/DECISION/PHASE 数量分别为
-  24/4/48、55/8/6、39/8/29；满池后的过程不可由末态补造。同一次运行中
-  相位提交后继续有频率决定，STOP 最近相位尝试（包括跨零 held）与最近频率
-  决定共同核对真实 Domain 模型；不宣称完整频率归一化链或物理输出已验证。
-  四板原生 binary 重解码及控制量独审见 `control-review/native-r5-independent-review.json`；
-  590 条操作、零 RUN 查询、有限许可、STOP 后导出及清理独审见
-  `parser-review/native-r5-lifecycle-review.json`。契约 C11 结论为
-  `ACCEPT_V11_PENDING_CONTRACT_SCOPE`，登记保持 pending，原件见
-  `control-review/c11-v11-final-independent-review.json`。
-  NO3/NO4 最新内部残差区间仍为数微秒宽，NO2 尚在追赶，不能标为 LOCKED。
-- `final-stopped-state.json` 独立确认四板 STOP、会话零、输出 PIO/DMA idle，
-  示波器 STOP/EXT/NORM。下一切片为 `VDC-OUTPUT-001`：确定性输出 owner
-  在启动锁存独立 delay，采用共同未来 VDC 边沿，记录模型/生效边沿，再以 NO1
-  相对三从的实际上升沿差验证相位、斜率与抖动；长期目标继续 IN PROGRESS。
 
 
 ## 进度记录
@@ -2324,7 +2305,7 @@ Last updated: 2026-09-19
 
 | 文件 | ID 区间 | 条目数 | 归档日期 |
 |---|---|---|---|
-| `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_07.md` | VDC-PROGRESS-20260917-027..VDC-PROGRESS-20260917-025 | 3 | 2026-09-19 |
+| `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_07.md` | VDC-PROGRESS-20260917-028..VDC-PROGRESS-20260917-025 | 4 | 2026-09-19 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_06.md` | VDC-PROGRESS-20260917-024..VDC-PROGRESS-20260917-023 | 2 | 2026-09-19 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_05.md` | VDC-PROGRESS-20260917-022..VDC-PROGRESS-20260917-022 | 1 | 2026-09-19 |
 | `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_04.md` | VDC-PROGRESS-20260917-021..VDC-PROGRESS-20260917-012 | 9 | 2026-09-18 |

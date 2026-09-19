@@ -667,8 +667,18 @@ Core0 经 TDMA control guard 复验原 config 与 capture/session/generation 后
 `checked_s/passed_mask` 只描述已检查目标窗，停止等待尾段仍需原生记录单独核验。
 停止接受与实际退休分开；退休位保留本次精确 stop_config 曾完成退休的证据，
 不表示查询时任意后续运行已停。状态供 STOP 后读取；运行不依赖串口/SD/RTOS
-采样。监督只判断内部参考和跟随完整性，不验证实际输出持续性、GPIO 相位精度、
-失联质量老化或产品隔离，也不授予正式锁相和 VDC 发布资格。
+采样。`VDC_PRIORITY_GUARD_SCHEMA` 的新版将显式 GUARD 升级为参考与输出引擎联合
+检查；普通 SUMMary 仍只记录参考。首次运行观测绑定当时已准备的输出 request，
+不能延迟到检查点才选择请求；初次读取或身份失败锁存，后续正常不能清除。
+每个检查点经 `vdc_run_output_observe_core1()` 一次非阻塞客户端所有权尝试及后端
+已发布快照，核对原 request/session/ring 配置、RUNNING/OK、服务和提交新鲜度、
+已准入末序号推进；新鲜度采用 `BOARD_SYS_CLOCK_HZ` 对应的一秒诊断界，不是实时
+补给预算。读取失败不复用旧 PASS，退休/释放后仍保留原请求与后端原因，STARVED
+等故障不能被参考正常掩盖。新增输出元数据表示检查点观测，不是物理边沿计数或
+实测时刻。最终 PASS 后停止等待尾段仍需单独核对退休原因，不能以冻结 PASS 掩盖
+尾段故障。观察器不调用输出 service/submit，不重规划或操作 PIO/DMA；开销有界
+但不为零，栈和执行时间另行验证。联合监督不验证 GPIO 相位精度、失联质量老化
+或产品隔离，也不授予正式锁相和 VDC 发布资格。
 
 `SYSTem:VDC:PRIORity:SYNC` 是 Core0 STOP-only 意图，非零值必须严格递增且已有
 feedback session；零禁用。generation 不替代 feedback session、origin epoch
