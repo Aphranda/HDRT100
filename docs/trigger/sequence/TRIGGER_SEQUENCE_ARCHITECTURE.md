@@ -4,7 +4,7 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md`
 Related: `docs/trigger/sequence/TRIGGER_SEQUENCE_TODO.md`, `docs/trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.html`, `docs/reports/distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 
 ## 文档接口与范围
 
@@ -51,6 +51,42 @@ PAUSE允许已锁存请求排空，STOP撤销未消费候选并计入notready，
 初始有效电平不视为新边沿，所选输入必须经历配置的非有效到有效转换。
 有限轮次仍受原推进配额约束，START输出本身不增加推进计数。
 MANUAL、LEVEL/NONE及组合VNA网关沿用各自入口语义；本规则不将反馈转换成无界队列。
+
+## 统一多板 TDMA/VDC 接入目标
+
+本节为用户确认的迁移设计，尚未作为实现完成或冻结跨域契约；执行门禁见 TODO 的
+NSEQ-111 至 NSEQ-117。单板 RJ45 回环是多板模型的一种部署，业务槽位集中在一块物理板，
+仍经真实运输返回后交付，不以软件直达替代。独立 SP8T 保留 PIO 自主路径。
+
+物理板身份、TDMA 物理槽位、RefMem 业务槽位和 AO/FB 实例分别管理。部署表决定业务槽位
+所在物理板；业务槽位数量不决定物理环路节点数。当前单板夹具的逻辑双节点 topology 是
+兼容配置，不能据此推定存在第二块板，也不能把三个业务角色直接转换成三节点 topology。
+统一运输继续由 TDMA owner 管理固定帧、资源、START/STOP、回程证据、背压和去重。
+START 冻结已应用的环路身份，STOP 或配置换代撤销未完成消息；旧身份不能在新环路重新授权动作。
+
+整条环路只有一个 VDC 参考发布者，其来源绑定环路参考物理节点。同板 COUNTER、DUT、VNA
+共用本板的稳定时间模型，不为角色各自运行 DPLL。多板时各板有独立硬件计数、本地锚点和
+DCO，跟踪同一参考事件时间；不得复制发布板的 local anchor 作为从板计数坐标。
+共同参考来源/代次、本地 clock epoch/run、序列 run/generation、部署 binding 和 transport
+sequence 分层校验，本地计数不要求跨板数值相等。
+
+以 real-flight 的 TIMER1 本地纳秒坐标及 committed DCO 发布为迁移依据。逻辑 TDMA
+observation、TIMER0 uptime、TIMER1 raw 和 VDC 输出坐标不得混用；模型更新、有效性和
+publication revision 一致发布。序列只消费只读模型，不写 DPLL 或改变原始硬件计数器。
+有效模型绑定、来源、schedule、质量或生命周期失效时阻止依赖该绑定的新动作并记录原因。
+
+VDC 同步与序列事件分别具有固定运输分配和预算，由 TDMA 唯一装配者交接，不允许两个域
+覆盖同一邮箱。real-flight 当前 typed priority publisher 会接管参考节点邮箱，不能直接
+与现有序列 compact 消息同时启用并宣称共存。具体布局/轮转必须完成容量、期限及兼容验证。
+
+运行短步与 START/STOP、PIO 热加载、DMA 回收等生命周期分开；仅将有界回执处理、完整
+消息校验和 STEP/FIRE 提交纳入声明窗口。保留 STOP 优先、预算准入、截止和关闭裕量，不借
+后续 phase 或 guard。序列使用 PIO0，TDMA 的 PIO1/2 owner 分工保持。
+
+性能目标为 READY 到下一次 VNA 采样触发低于 1 ms（用户验收目标，非已达成事实）。
+分别记录硬件边沿与 Core1 观察/递交时间；毫秒字段为零不能证明达标。配置的 settle 和
+脉宽单独列出；短脉宽用于响应目标验证，长脉宽用于对照，不缩短实际仪表要求来伪造通过。
+单板功能和响应验收不继承上游多板相位精度结论。
 
 ## 第三模式：转台位置驱动完整采样序列
 
@@ -194,6 +230,34 @@ PIO0回执无物理时间戳，valid为false，原写出/完成时间及alarm_la
 CPU收取回执时间不得冒充PIO latch或TDMA共同时间。未建立运行时backend为NONE。
 此前GPIO版本的时间字段含义仅保留在进度记录中。
 
+分段诊断另用`READ:SEQuence:HISTory:TIMing? ordinal`，保留原后端查询语义。
+版本引用`TRIGGER_SEQUENCE_LINK_TIMING_VERSION`，字段顺序为version、clock_hz、ordinal、
+run、generation、binding_epoch、exchange_id、position、sequence_index、flags，再按
+`trigger_sequence_link_time_t`输出request、applied、offered、returned、fire_queued、done。
+阶段值为相对该位置接纳时刻的无符号64位TIMER1原始拍数，flags按该枚举的位表示有效性；
+零偏移是有效值，不用零表示缺失。原历史查询与诊断查询须核对完整记录身份，不能拼接覆盖前后的记录。
+request为状态请求接纳，applied为LINK观察到IO稳定完成，offered为片段交给RefMem运输，
+returned为RJ45回程交入收件箱，fire_queued为采样命令入owner邮箱，done为观察到READY且脉冲已结束。
+这些观察/递交边界不是PIO物理边沿；首位置的首项可能已在START预置，不把其零切换耗时推广至后续位置。
+`sequence_position_validate.py --timing-evidence`流式采集，`sequence_timing_analyze.py --csv`导出
+逐位置/状态分段和未取整原始拍；旧毫秒历史继续兼容，但不能支撑微秒分段精度。
+
+历史记录作为Trigger域本地诊断向量发布，容量引用`TRIGGER_SEQUENCE_LINK_HISTORY_CAPACITY`，
+布局版本引用`TRIGGER_SEQUENCE_LINK_HISTORY_VECTOR_VERSION`。`READ:SEQuence:HISTory:STATus?`
+按`trigger_sequence_link_history_status_t`返回version、clock_hz、capacity、run_id、generation、
+binding_epoch、threshold、total、retained、overwritten；快照暂不可用返回`"BUSY"`，不得伪造零记录。
+Core1为唯一运行期写者，以原子字和sequence发布完整视图；Core0读者有界重试，仅访问诊断向量，
+不调用运行态owner、不取得实时临界区锁、不回写读游标或让生产者等待。每个新run重新开始
+可见窗口，STOP/故障保留已有记录和未完成标志，配置后读回的旧run不能误认作新run结果。
+向量是本地诊断事实，不是TDMA/VDC同步载荷；后续跨板采集由RefMem按独立接口映射摘要。
+其字段writer/value domain/lifecycle/snapshot-needed分别为Core1、运行身份及TIMER1偏移、
+新run重置且停止保留、必须取得一致sequence；不能将软件边界提升为物理边沿事实。
+
+静默验收先验证容量足以保存完整计划，再发一次START，期间不轮询LINK/COUNTER/TDMA/PHY或
+流式读历史；有限轮次结束后再读回向量。超容量、记录覆盖、身份改变或部分记录均不能通过。
+主机完整命令记录须证明静默区间内无命令；硬件计数和RAM发布仍有有界开销，不能命名为绝对
+无干扰。普通在线历史采集与`--diagnostic-stress`压力探针分别记录观察负载，禁止混作静默基线。
+
 `READ:SEQuence:REJections?`返回run_id,generation,busy_rejected,notready_rejected,pending。
 PIO外部运行期间输入计数与执行回执来自异步DMA，拒绝数保留最近稳定结算值，pending为true；
 暂停或停止完成排空后结算。pending为true时，零拒绝不能作为无丢失或无忙时拒绝的证据。
@@ -334,6 +398,10 @@ PAUSE取消网关等待/脉冲，先退役DMA再清旧grant/FIFO和累计baselin
 引用`sync_io_sequence.c`的`RECEIPT_WORDS`，满环或DMA错误转FAULT，不覆盖未消费回执后继续报成功。
 
 时基为`SYNC_IO_SEQUENCE_TICK_NS`；sysclk不能精确整除目标PIO频率时拒绝ARM。
+PIO0序列基础拍与`BOARD_SYS_CLOCK_HZ`驱动的TIMER1对齐，当前源码配置快照为250MHz、4ns，
+以这两个代码符号为事实源。延时换算使用`SYNC_IO_SEQUENCE_TICKS_PER_US`，单段上界使用
+`SYNC_IO_SEQUENCE_TIME_MAX_US`，SCPI和GUI仍按微秒配置；PIO1/PIO2保持TDMA分工。
+更细的基础拍只减少量化误差，不等于VDC同步精度、输入捕获或输出物理边沿已达到同等精度。
 建立时间和脉宽按ARM中倒计数公式补偿固定指令周期。零建立时间仍有固定指令延迟，
 不是同一时刻完成编码和完成输出；具体延迟需实测，不将PIO模型当作示波器证据。
 暂停/停止读取计数边界时短暂冻结输入SM；边界窗口和可接纳最小脉冲宽度尚未用波形验收，
@@ -347,7 +415,8 @@ START冻结运行配置；Core1只检查原子model epoch，不借用可变角�
 配置写入与Core1运行入口使用有界尝试的writer guard互斥；普通运输回调不取得这个guard，
 也不直接更改LINK游标或调用网关FIRE/切步。
 
-运输桥暂由Core0拥有分片重组器和发送游标；Core1发布不可变发送offer，Core0逐片发送。
+运输桥由Core1的RefMem flight阶段拥有重组器和发送游标；LINK发布不可变发送offer，
+运输阶段递交片段。Core0负责配置，不参与运行期逐片发送。
 完整真实RX消息通过`TRIGGER_SEQUENCE_LINK_MAILBOX_CAPACITY`限定的事件邮箱投递，
 Core1每次服务最多消费一个消息。接纳前检查run/generation/binding/step/exchange、
 逻辑路由和当前phase，旧事件、重复事件及非授权来源不能触发IO。邮箱满必须显式故障，

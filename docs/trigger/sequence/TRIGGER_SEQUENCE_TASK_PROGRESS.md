@@ -963,6 +963,98 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 - 新增SCPI头文件改动、GUI配置模块、打包文件及测试等超出当前`sequence_single_board_gate.py`逐文件白名单；按仓库现行规则需要P3凭证。现有单板接线不满足四板P3，已完成的单板报告不能直接替代staged源码指纹凭证。代码提交等待明确验收范围和对应真实门禁结果，不修改或复用旧凭证。
 - 保留TDMA诊断查询偶发超时、SysTick时间尺度偏差及打包EXE硬件验证缺口。消息分段统计为665个去重快照（本次分析快照，非事实源）；历史采样完成边界是网关READY且owner退出busy，早于后继READY_NEXT推进，不把返回消息耗时归入该完成边界。
 
+### 058：TIMER1硬件时基迁移与第三模式重验准备
+
+- TODO：`NSEQ-110/097`；日期：2026-09-19。用户要求禁止序列运行使用软件tick，对照`origin/wip/tdma-real-flight-processing`的`48ac0c69`及`750ff810`，仅迁移本次序列所需的硬件周期释放与checked TIMER1读取，不合并整条分支。
+- Core0初始化TIMER1后以release/acquire发布就绪；checked接口检查初始化、频率、source、pause及high/low/high一致性，失败保留输出，不惰性初始化、不回退到软件tick。Core1继续使用硬件cycle计数控制phase/WCET，周期入口改为硬件绝对时间`busy_wait_until()`。
+- LINK运行超时、位置接纳/完成、消息offer/return/inbox改为64位TIMER1原始计数，先相减再换算毫秒；SCPI字段顺序保持，绝对毫秒字段按原无符号宽度回绕，时差字段饱和。时钟不可用或计数回退进入`LINK_CLOCK`，STOP优先于时钟检查，恢复后允许新run。历史字段代表Core1观察边界，不是物理IO边沿锁存。
+- RefMem flight发布间隔也改用同一TIMER1，避免实际序列发车仍受RTOS tick控制；保留FIFO背压、单owner和已有发布间隔配置。时钟不可用时拒绝发布并报告该路径的错误，纳秒反馈间隔向上换算先提升宽度以避免溢出。全局Core0 RTOS tick初始化偏差未在本次修改，不能声明全系统时钟均已修复。
+- 软件验证：LINK/SCPI/ANGLE/位置工具/TIMER1/Core1释放组合回归302项通过，14项为device/host互斥用例跳过；新增flight发布回归8项通过。后续工具、LINK、flight及既有时钟回归147项通过，目录`out/pytest/sequence-timer1-final-r1`。覆盖精确超时边界、低位回绕、时钟无效/回退、启动拒绝、故障STOP/新run、发布背压及取整界限。
+- USBTMC默认且运行时切换启用，build `20260919052648`；A/B/BOOT链接检查通过，日志`out/node-sequence/timer1-usbtmc-build-20260919-r2.log`。VISA OTA、重枚举、build核对及COMMIT通过，原件`out/ota/sequence-timer1-20260919-r1/summary.json`。源码工作区差异留于`out/node-sequence/timer1-firmware-20260919.patch`，不是staged提交凭证。
+- 用户重新确认1kHz。IN1外部源、OUT4到IN2、RJ45物理回环，两位置预检通过，记录`out/node-sequence/timer1-external-20260919/third-mode-1khz-smoke-r1.json`。16次触发/READY、完整历史、自然完成及清理通过。PyVISA终止符提示保留；PowerShell合并stderr时给出外层退出1，原工具JSON为passed=true，不能将两者混写为无告警执行。
+- 分析工具必须显式指定`--clock-source timer1 --timer1-build 20260919052648`并与报告build一致；直接统计硬件毫秒，不按声明输入频率归一化。两位置整轮81/82ms，间隔1001ms为预检快照，非事实源；完整扫描与最终统计见后续记录。
+
+### 059：TIMER1版第三模式1kHz完整360位置通过
+
+- TODO：`NSEQ-110/097/109`；日期：2026-09-19。以下数字为本次硬件/分析快照，非产品事实源。UID `839E1AE79EA20F31`、build `20260919052648`，沿用进度058的OTA包；用户确认IN1为1kHz外部源，OUT4到IN2模拟READY，RJ45物理回环。阈值1000脉冲、360位置、每位置八状态，ANGLE范围0至359、步长1、速度1、标定1000。未注入计数、READY或NEXT。
+- 原始报告`out/node-sequence/timer1-external-20260919/third-mode-1khz-360-r1.json`：passed=true，主机观察约360.344s；360位置、2880触发/READY、2879后继推进及2880条连续完整历史均通过核验。末位置阈值360000，最终累计360089脉冲，末角度359有效且next无效。额外89脉冲来自末轮采样期间继续计数。
+- LINK/COUNTER/序列故障和拒绝均零；末项自然IDLE，清理后OUT/owned/armed/busy均零；TDMA发送接收增长，环路STOP与读回通过，cleanup_failures为空。此次TDMA诊断查询无超时，但不据单次通过关闭既有偶发快照风险。完整运行使用CMD直接保留stdout/stderr并退出0，日志`out/node-sequence/timer1-full-20260919-r1.log`仍记录PyVISA终止符提示。
+- 分析原件`out/node-sequence/timer1-external-20260919/timing-1khz-360-r1.json`绑定源报告SHA-256及明确的TIMER1 build；比例固定1，不使用输入频率修正时间。位置间隔均值999.992ms，P95=1001ms，范围998至1002ms；每位置整轮均值85.375ms，P95=90ms，最大96ms；相邻位置之间采样完成后的等待均值约914.624ms。
+- 状态0至7的间隔均值分别为10.333、10.839、10.836、10.750、10.911、10.592、10.542、10.564ms，P95为12至13ms。首状态为位置接纳至首项READY完成，其余为相邻完成记录之差；不是独立测得的SP8T编码或网分采样脉宽。
+- 最近消息查询得到680个去重快照，非完整消息轨迹。offer均值2.188ms、return均值3.004ms、inbox读回均为0ms、total均值6ms；inbox的0仅表示取整后不足1ms，不表示零耗时。各段单独向下取整，段和与整段差0至2ms均符合量化界限。return包含TDMA调度/运输/重组，不是线缆传播时延。
+- 完成本次第三模式主线复验，不宣称真实网分/RF、独立边沿计数、硬件波形、其他模式、严格TDMA预算或P3通过。PIO定时未改，全局Core0 RTOS时间偏差仍保留；毫秒SCPI字段不能证明微秒级IO时序。软件/文档检查通过，代码尚未提交，进度057的白名单及staged凭证缺口未因此消除。
+
+### 060：统一多板 TDMA/VDC 模型审计与长期任务启动
+
+- TODO：`NSEQ-111/112`；日期：2026-09-19。用户确认每条环路唯一VDC参考发布、每板本地模型、同板三角色共享，并要求TDMA也按多板架构应用于单板。已更新架构草案和长期迁移待办；本条为审计/规划快照，不新增冻结契约或宣称迁移完成。
+- 已fetch并核对`origin/wip/tdma-real-flight-processing`的`30e073e0`。上游typed TX只在reference物理槽位发布参考事件，从板exact-sequence MATCH后校正本板committed DCO；旧文档的FOLLOWER直接镜像命令不能代替最新typed路径。clock本地epoch/run与共同来源身份分层，不能要求各板计数恰好相等。
+- 当前分支LINK仅接收`physical_source == ring.local_slot_id`的回程，单板工具采用逻辑双节点topology；三个业务槽位仍集中在本板，完整跨板部署路由未接入。START未冻结transport配置身份，优先补该边界，再接后续部署/模型。
+- 时间迁移需同时处理原点与单位：当前manager仍用TIMER0 uptime纳秒，旧servo锚点来自逻辑observation，不能把TIMER1 raw或只乘周期直接输入旧模型。上游TIMER1重锚与committed DCO/publication revision为后续复用依据。
+- 上游`vdc_priority_tx.inc`与`tdma_pio_spi_ring_origin_publish_priority()`会接管参考节点完整邮箱，当前序列也使用本地邮箱；接入前须定义共存运输分配、期限和背压，不能直接启用两个producer。上游特等席的物理周期准入本身不证明序列端到端响应达标。
+- 已有短脉宽基线原件`out/node-sequence/sequence-fast-20260919/baseline-10us-20positions-r1.json`及`baseline-10us-timing-r1.json`：旧build `20260919052648`、外部1kHz、20位置/160采样通过；八状态整轮均值84.35ms，后继采样间隔均值10.636ms。与进度059长脉宽基线相比，调度/运输仍是主要待优化环节；当前无低于1ms或物理波形达标证据。
+- 本轮保留全部既有未提交变更，设备尚未因架构审计重新配置或OTA。后续每个切片记录源码、构建、真实OTA、短帧和功能报告；进度057的提交门禁范围缺口继续保留。
+
+### 061：TDMA运行绑定及动作提交首切片三十位置通过
+
+- TODO：`NSEQ-112`；日期：2026-09-19。以下构建、参数、计数和计时为本次验收快照，非产品常量。用户要求快速迭代时每个代码切片只跑30位置；该规则已写入TODO，最终完整扫描仍按NSEQ-116执行。
+- START冻结已应用transport配置及adapter启动身份；LINK服务、发送、接收均核对，快照暂不可读时推迟，连续不可读使用独立计时，换代或停止撤销旧运行。实际STEP/FIRE/COUNTER_REARM提交通过TDMA owner的`ring_control_guard`执行身份核对及单次有界回调，Core0 STOP不能在核对后、提交前穿入。prepared IO入口不执行完整service、等待或DMA清理；已递交PIO前缀允许完成。
+- 软件验证原件保留：r1模拟START未经过真实guard导致失败，修正fixture后LINK r2通过；r4提取式IO测试缺少新prepared函数，补齐提取列表后r5的LINK/service/IO/TDMA组合212项全过，目录`out/pytest/sequence-binding-20260919-r5`。此前SCPI运行态用例已通过。独立只读审查`/root/sequence_fast_audit`确认三个提交点修复无阻断发现；START加载和初始编码仍走生命周期路径，不据此宣称全部初始化可同步撤销或即时硬件静默。
+- 构建目录`out/build/sequence-binding-usbtmc-20260919`，build `20260919061724`；USB运行时切换启用，默认USBTMC，A/B/boot链接检查通过，日志`out/node-sequence/binding-build-20260919-r2.log`。真实VISA OTA报告`out/ota/sequence-binding-20260919-r1/summary.json`通过发送、BOOT、重枚举和commit确认；设备UID `839E1AE79EA20F31`。
+- 使用固化工具`sequence_position_validate.py --external-input --angle-scan --positions 30 --threshold 1000 --source-hz 1000 --duration 50 --poll 0.05 --gateway-pulse-us 10 --position-cycle-target-ms 1000 --schedule-evidence`。IN1沿用用户确认的外部1kHz，OUT4到IN2，RJ45物理回环；未注入计数、READY或NEXT。原始报告`out/node-sequence/sequence-binding-20260919/third-mode-1khz-30-r1.json`通过：30位置、240次触发/READY、239次后继推进及240条完整历史；最终累计30090脉冲，末轮采样期间继续计数，故障/拒绝均零。
+- 有限轮次自然完成，清理后OUT/owned/armed/busy均零，cleanup_failures为空；TDMA物理TX从39增至14935、RX从38增至14935，坏帧及overrun无增长。SCPI完整原始交互随报告保存，运行时仍有PyVISA终止符提示。调度诊断`strict_realtime_verified=false`且有超预算/错过阶段记录，单板功能通过不代表严格TDMA性能门禁通过。
+- TIMER1离线分析`out/node-sequence/sequence-binding-20260919/timing-1khz-30-r1.json`绑定源报告哈希和build，比例固定1：位置周期均值999.966ms；八状态整轮均值89.8ms、P95=93ms、最大96ms；后继状态完成间隔均值11.329ms。现有毫秒记录不能证明READY到OUT边沿低于1ms，性能目标继续待办。
+- 首切片完成，NSEQ-112整体仍进行中；完整多板业务路由、共享VDC、运输共存及有界快速调度尚待迁移。源码未提交，进度057的提交凭证范围缺口未关闭；本报告不作为P3、多板、独立边沿或真实网分/RF验收。
+
+### 062：PIO基础拍与逐状态计时、短脉宽闭环验证
+
+- TODO：`NSEQ-115/097`；日期：2026-09-19。以下构建、计数及耗时为本次实测快照，非产品常量。PIO0定时统一使用`SYNC_IO_SEQUENCE_TICK_NS`及派生换算，当前基础拍为4ns；PIO1/2不变。整数微秒参数上限由`SYNC_IO_SEQUENCE_TIME_MAX_US`派生，同步工具及GUI校验；这不代表物理波形精度或VDC同步误差已验收。
+- 新增`READ:SEQ:HIST:TIM? <ordinal>`，保留既有`READ:SEQ:TIM?`。每条历史携带版本、时钟、运行/绑定/交换身份、位置/状态、有效标志及六个64位TIMER1阶段偏移；REQUEST/APPLIED/FIRE_QUEUED/DONE分别即时读取硬件计数，OFFERED/RETURNED复用运输记录。零偏移可有效，缺失标记不得冒充零时长。边界均为Core1观察或递交，不是物理编码/OUT/READY边沿。
+- `sequence_position_validate.py --timing-evidence`持续保存全部历史及时间身份，`sequence_timing_analyze.py`输出逐位置/逐状态JSON、CSV及Markdown，按原始计数相减，不使用软件tick或按声明输入频率校准。各段之和精确等于该位置总时间；跨位置等待仍使用粗粒度毫秒，最终位置等待留空。
+- 最终构建`20260919070600`，USBTMC及运行时USB切换启用，A/B/BOOT链接检查通过；包`out/build/sequence-4ns-timing-usbtmc-20260919-r2/DHRT100_UPDATE.pkg`，SHA-256 `a5ac2f3e1607539a103bac73e99f5206858dfc9542aa0fd97b3a3e40fd14c58e`。真实OTA报告`out/ota/sequence-4ns-timing-20260919-r2/summary.json`通过。初版重复SCPI符号构建失败已修正；中间build的共享服务时间戳数据保留，不作为最终逐段依据。
+- 软件回归覆盖LINK、SCPI、IO、工具、GUI、64位回绕、每阶段独立读取、缺失标记、时间加和及导出；最终受影响LINK/分析器组合94项通过，`out/pytest/sequence-4ns-timing-20260919-r6`。此前组合及GUI布局回归结果分别保留于同名前缀r1至r5和`sequence-4ns-gui-20260919-r1`，不将重复执行数量累加为独立用例数。
+- 用户确认接线保持IN1外部1kHz、N=1000、OUT4到IN2、RJ45物理回环；每轮30位置、每位置八状态。最终build的10us和1000us脉宽报告分别为`out/node-sequence/sequence-4ns-timing-20260919/third-mode-1khz-30-r2.json`、`third-mode-1khz-30-1000us-r1.json`，均passed=true：240次触发/READY、239次后继推进、240条完整计时历史，自然结束和停止清理通过。
+- 用户追加短脉宽测试后，1us首轮`third-mode-1khz-30-1us-r1.json`因启动后的`SYST:REFMEM:SYNC:TDMA:STAT?`超时而提前停止，并读取到SCPI执行错误；输出和资源已释放。原件保留，不能当作脉冲捕获失败或完整通过。相同参数重跑`third-mode-1khz-30-1us-r2.json`通过全部30位置/240次采样及历史，cleanup_failures为空；重跑通过不关闭诊断查询风险。
+- 分析报告与原件同目录：`timing-1khz-30-r2.{json,csv,md}`、`timing-1khz-30-1000us-r1.{json,csv,md}`、`timing-1khz-30-1us-r2.{json,csv,md}`。10us与1000us的整位置均值分别89.702ms、89.496ms；1us仍约89ms。1us每状态平均：请求至应用观察2.124ms、应用至运输递交2.587ms、递交至回程3.800ms、回程至FIRE排队0.479ms、排队至完成观察2.105ms、请求前空隙0.046ms。运输回程包含调度/分片/重组，不等于线缆传播；应用观察也不等于PIO编码实际耗时。
+- 1us下前项完成观察至后项FIRE排队均值9.018ms、P95为10.372ms、最大11.382ms，仅为软件边界代理值，不能称作物理READY至OUT响应。当前样本说明脉宽不是主导等待，下一切片仍需减少状态机/运输等待；低于1ms目标未通过。100ns虽对应当前25个基础拍，但SCPI仍只接受整数微秒，本轮未扩展接口或冒充100ns已验证。独立波形、±50ns VDC及严格实时预算均未验收。
+- 另外回归独立SP8T外部1kHz十轮通过，原件`independent-1khz-ten-r1.json`；双角色`dual-1khz-ten-r1.json`完成80次触发/READY及79次推进，但整体passed=false：清理前TDMA诊断查询超时，随后STOP返回OK而错误队列含执行错误，清理检查失败。现有交互不能把该错误唯一归因于STOP；停止后输出/资源为零。保留NSEQ-RISK-04，不以业务计数通过替代完整验收。
+- 本切片完成计时和短脉宽功能确认，NSEQ-115整体保持进行中；完整部署、共享VDC和快速流水线继续待办。源码未提交，进度057的staged凭证范围缺口仍在。
+
+### 063：诊断不可用显式回复与主动探针边界
+
+- 日期：2026-09-19。以下为本切片快照，非产品常量。已追踪`SYST:REFMEM:SYNC:TDMA:STAT?`：底层组合快照任一guard或scheduler try-lock忙时返回false，旧handler直接返回SCPI错误且无查询结果，真实解析器不发送结果终止符并压入执行错误，因此形成主机超时和下一条STOP读到遗留错误的链路。旧报告不能区分当时具体哪个guard竞争；不能把STOP的OK回复说成执行失败。
+- Core0诊断handler按`SCPI_TDMA_SNAPSHOT_ATTEMPTS`有限重读，退避引用`SCPI_TDMA_SNAPSHOT_BACKOFF_US`；耗尽返回明确BUSY且不遗留执行错误，正常字段不变，不输出失败拷贝留下的部分数据。底层Core1接口未增加等待。SDK短退避不保证让出RTOS任务，仍可能BUSY；这是诊断可用性边界，不据此宣称根除所有竞争。
+- 真实SCPI解析器与真实底层快照组合测试11项通过，目录`out/pytest/tdma-snapshot-scpi-20260919-r3`。早期r1暴露ERR返回不发换行，r2测试输出CRLF归一化导致两项fixture失败，修正后r3通过，原件保留。工具支持显式`--diagnostic-stress`并保存每次诊断前后错误；双角色清理失败时立即记录诊断错误队列，再执行STOP，避免误归因。工具/分析器组合189项通过，`out/pytest/sequence-snapshot-tools-20260919-r1`。独立审查确认修复范围及非物理时序边界。
+- build `20260919073022`，包`out/build/sequence-snapshot-usbtmc-20260919/DHRT100_UPDATE.pkg`，USBTMC及运行时USB切换启用，A/B/BOOT链接通过；真实OTA `out/ota/sequence-snapshot-20260919-r1/summary.json`通过。包SHA-256为`487bfd1689174f969191383e2a209904ea56e4d3a79c40e754340f5b6eaaba93`。
+- 主动诊断压力原件`out/node-sequence/sequence-snapshot-20260919/third-mode-1khz-30-stress-r1.json`失败：连续TDMA/PHY查询期间收到BUSY；错误队列为空，序列及TDMA停止清理正常。用户指出该方式是干扰探针，确认不作为正常性能验收。原件保留，不以增加重试或盲重跑将其改称通过。
+- 关闭额外诊断压力后的`third-mode-1khz-30-r1.json`通过外部1kHz、N=1000、1us触发、OUT4到IN2及真实RJ45三十位置闭环：240次采样及完整计时历史，自然完成/清理通过。该轮仍有常规SCPI历史轮询，不能称作静默无查询。双角色`dual-1khz-ten-r1.json`在同build下十轮完整通过，诊断及停止清理均无失败。
+- 用户随后确认使用HAOFV向量隔离：Trigger本地诊断向量由Core1单写，Core0只读；保留完整短轮次记录，START后主机静默，完成后读回，不占用TDMA/VDC同步载荷。下一切片按此迁移；RAM发布仍有成本，不宣称绝对零干扰。本次不关闭NSEQ-RISK-04的ROLE ACT拒绝分项诊断缺口，源码未提交。
+
+### 064：HAOFV本地诊断向量隔离与静默三十位置通过
+
+- TODO：`NSEQ-115/097`；日期：2026-09-19。以下为本次验证快照，非产品常量。用户确认Trigger域本地诊断向量、Core1单写、Core0只读，不占用TDMA/VDC同步载荷；同意运行期间不使用GUI查询。实现复用紧凑历史存储，容量由`TRIGGER_SEQUENCE_LINK_HISTORY_CAPACITY`定义，当前为256条，每条96字节，无第二份完整历史缓冲。
+- 向量以atomic32 payload及有界sequence快照发布；历史读者不取得实时临界区锁、不访问运行态owner，失败不改调用方输出。Core1新run重置可见窗口，STOP/故障保留已有和部分记录；配置后旧记录保留原身份，不能映射成新配置。新`READ:SEQ:HIST:STAT?`报告版本、时钟、容量、运行/绑定身份、阈值、total/retained/overwritten；旧HIST/TIM字段排列保持。
+- 工具`sequence_position_validate.py --quiet-capture --external-input`先读回配置、准备真实环路、核对向量容量，最后单次START；等待声明位置总时间加末轮预算及余量，其间无LINK/COUNTER/TDMA/PHY/历史查询。结束后先确认自然终态，再读取完整历史；前后运行必须换代，向量身份/容量/计数须保持，读回前后元数据一致且零覆盖。默认不隐式重试BUSY。停止清理由既有finally执行，容量不足、错误终态、丢历史、插入命令均失败。
+- 静默报告不再声称在线观察过首阈值前状态；只以完成历史证明阈值及请求累计计数关系。`quiet_capture`保存START和首查询序号/时间及静默命令数；只能证明本工具未查询，不证明USB无后台事务或其他未知客户端静默。分析器分别标记静默向量、在线历史轮询、主动诊断压力；没有中途COUNTER样本时host频率回归为null，不制造数据。计数读取/RAM发布仍有开销，绝对零干扰与物理边沿精度均未证明。
+- 软件证据：LINK和分析器102项通过，`out/pytest/sequence-vector-core-20260919-r1`；真实SCPI角色/历史接口69项通过，`sequence-history-vector-scpi-20260919-r1`；工具及分析器208项通过，`sequence-vector-tools-20260919-r1`。向量专项覆盖240条完整保留、环形覆盖、旧ordinal拒绝、序号回绕、BUSY输出不变、十万次并发发布、停止/重配/新run隔离及故障/总数溢出，不把主机并发测试等同硬件WCET。
+- 新build `20260919074927`，USBTMC及运行时切换启用；A/B/BOOT链接通过，包`out/build/sequence-vector-usbtmc-20260919/DHRT100_UPDATE.pkg`，SHA-256 `9c8cb27422c4dce2dbf4f4b86b2efae1db0bdda99f45aa7ff7deedbbe61bc4fe`。链接map的BSS末地址为`0x2007b21c`，至RAM上界尚余19940字节（链接快照，不等于运行期堆余量）。真实VISA OTA `out/ota/sequence-vector-20260919-r1/summary.json`完成升级、重枚举、build核对与commit。
+- 硬件原件`out/node-sequence/sequence-vector-20260919/third-mode-1khz-30-quiet-r1.json`通过；接线仍为IN1外部1kHz、N=1000、OUT4到IN2及RJ45物理回环，网关脉宽1us。START为传输记录第105条，静默约32.015秒后第106条才开始查询，commands_during_wait=0。30位置、240次触发/READY、239次后继推进、240条完整计时记录；向量overwritten=0，读回前后元数据一致。末计数30095，额外95脉冲发生于末位置采样期；故障/拒绝零，自然完成后owner为IDLE，清理后OUT/owned/armed/busy均零。
+- 同目录`timing-1khz-30-quiet-r1.{json,csv,md}`提供逐位置、逐状态硬件拍分析。整位置均值95.273616ms，最小92.096348ms、最大97.032620ms；各状态阶段均值：请求至应用观察2.321ms、应用至递交2.119ms、递交至回程4.338ms、回程至FIRE排队0.590ms、FIRE排队至完成观察2.483ms、请求前空隙0.058ms。前项完成观察至后项排队均值9.436ms、P95为9.834ms、最大9.979ms，仅为观察边界代理值。
+- 与旧build在线轮询的时间不能直接作因果比较；本次先建立向量隔离后的静默基线，没有实现低于1ms，也没有实际READY/OUT边沿锁存证据。有限向量容量不支持完整长扫描一次性静默保留，超容量会拒绝；后续长扫描须另行规划证据运输。共享VDC、完整物理部署路由和快速流水线仍未完成，代码尚未提交。
+
+### 065：单板验收范围授权与提交检查点
+
+- 日期：2026-09-19；以下为执行快照，非产品常量。用户要求先提交推送再继续，并明确本批TDMA参考多板架构的共享实现只需通过单板闭环验收。单板工具逐文件扩展实时入口、TDMA运行绑定、TIMER1、SCPI诊断及本批测试/GUI依赖；仍拒绝未列举文件，保留暂存与工作树一致性、完整源码指纹、真实包摘要及OTA原件校验，不修改pre-commit分流或伪造P3结果。
+- 软件检查`out/pytest/sequence-checkpoint-20260919-r1.xml`为889项通过、14项按另一时钟实现选择跳过；门禁范围测试54项通过。向量及门禁扩展经独立只读审查无阻断问题。固件未因本次提交检查变更，沿用进度064实烧的build及包；本段工具改动不作为另一个固件构建。
+- 固定单板验收首次原件`out/HardwareAcceptance/20260919/sequence-vector-checkpoint-r1`中双角色有限/暂停通过；独立MANUAL十轮完成79次推进、输出释放，但STOP读回收到明确BUSY后被旧解析器按格式错误拒绝，整轮失败。修复将该协议结果分类为`SnapshotBusy`，停止等待在原deadline内记录原文和错误队列，最终仍需真实停止快照；不自动重发修改命令。
+- r2双角色暂停恢复功能完成，结束后汇总查询同样遇到BUSY；r3在配置阶段`CONF:SEQ:LINK OFF`产生执行错误而无结果，主机超时，原件及清理错误归因保留。后者不是诊断BUSY，尚不能区分configuration guard、LINK writer guard及配置内部拒绝，不能以重跑通过关闭。功能验收的TDMA汇总读回显式处理短暂BUSY并逐次留证；主动压力探针及静默历史读取仍直接拒绝不可用结果。
+- 工具相关回归最终341项通过，`out/pytest/sequence-checkpoint-stop-busy-20260919-r3.xml`；r1的旧异常类型断言失败已保留，随后按新的明确BUSY异常更新断言。新增用例覆盖恢复、持续BUSY、SCPI错误、畸形报文及失败原文保留。等待期限不重置；该期限沿用主机工具语义，不承诺单次通信超时也包含在严格墙钟上界内。
+- r4固定验收的双角色有限/暂停、独立MANUAL十轮和全部START输出模式通过；位置注入profile拒绝外部IN1计数与软件注入混合，整轮失败。工具新增`--counter-input`选择未接脉冲源的输入；固定注入profile使用`POSITION_COUNTER_INPUT`（本次为IN3），保持OUT4到IN2真实READY和RJ45回程。判据仍逐项核对实际输入绑定、注入命令及累计数，不放宽为允许未知额外脉冲；外部静默profile继续强制IN1。相关回归351项通过，`out/pytest/sequence-checkpoint-input-20260919-r1.xml`。
+- r5有限双角色通过，随后暂停profile的角色激活返回`REJECTED`及gate错误，保留`pause-resume.json`；与既有NSEQ-RISK-04同类，尚无分项拒绝位诊断，不能把它归因于已分类的TDMA查询BUSY。本次检查点保留risk标记，下一切片优先收敛配置准入诊断及并发拒绝；不以任何后续单板PASS消除该风险。
+- r6的双角色、独立模式、START及IN3注入两位置通过；随后忙阈值profile开始时的TDMA汇总读取BUSY导致整体失败。转台工具运行前后及清理汇总现复用`ring_snapshot`有界读取，BUSY原文和错误队列写入报告；运行期静默窗口不变，HIST及主动诊断探针仍不隐式重试。相关247项回归通过，`out/pytest/sequence-checkpoint-position-busy-20260919-r1.xml`。每次汇总读取有自己的期限，嵌套在清理循环时总墙钟可能超过外层期限，不能声称严格共用一个deadline。
+- 最终固定验收`out/HardwareAcceptance/20260919/sequence-vector-checkpoint-r7`全部通过：双角色有限及暂停恢复、独立MANUAL十轮、START的PULSE/LEVEL/NONE/单项/停止重启/热加载、IN3注入两位置及忙阈值故障/暂停累计/停止重启，全部清理通过。固定主机回归195项通过。真实生成并暂存`config/hardware_acceptance/sequence_single_board_receipt.json`，build `20260919074927`、UID `839E1AE79EA20F31`、源码指纹`b59c3c89b4e643e501fa220c7117f8ac245e656a0ffdba316210a818ae50b2a9`；`check-staged`与pre-commit实跑通过，进度057的本批白名单/暂存凭证缺口关闭。
+- 提交前另跑`out/node-sequence/sequence-vector-20260919/third-mode-1khz-30-checkpoint-quiet-r1.json`，外部IN1 1kHz、N=1000、OUT4到IN2、1us脉宽和真实RJ45三十位置静默通过：240次采样及完整计时记录，零覆盖；START记录105至首查询106之间等待32秒、零命令，向量读回前后身份/计数一致，自然结束及资源释放通过。离线逐位置/状态拆解为同目录`timing-1khz-30-checkpoint-quiet-r1.{json,csv,md}`，源报告SHA-256 `284ccd651b6c5eca4a1985d95a87ef2ff01e82569d9857ebf835ce8b1a3ea0c1`。前项完成观察至后项FIRE排队均值约9.493ms，仍非物理边沿延迟，低于1ms目标未通过。
+- 代码与单板凭证已提交为`ae156377`，带`risk`标记。文档单独提交；NSEQ-RISK-04/06继续OPEN，失败原件未删除。此次只确认单板功能，不声明P3、多板同步、独立边沿计数、波形/RF或严格TDMA稳定性通过；部署映射、共享VDC和快速流水线继续按原长期任务推进，先处理配置拒绝诊断。
+
 ## 失败与回退
 
 配置模型、SCPI与GPIO版板端验证已完成相应记录；当前迁移PIO0，后续结果按新增记录跟踪。
@@ -971,8 +1063,10 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 ## 下一 Gate
 
 三模式均有本地物理反馈功能证据，转台已补外部50Hz、N=50两位置GUI命令路径验证。NSEQ-106仍待独立真实网分及生命周期补证，NSEQ-RISK-05自动验收与OTA摘要仍未闭合；NSEQ-108待回环窗口及打包EXE完整验证，保留TDMA诊断快照偶发失败与固件时间尺度偏差。
+历史TIMER1版1kHz完整360位置证据见进度058/059，旧RTOS tick分析仅保留历史；当前build三模式固定回归及提交凭证以进度065为准。全局Core0时钟及迁移后的最终完整扫描仍需分别闭合。
+最新诊断及计时切片以进度063/064为准：向量版新固件外部1kHz三十位置静默闭环通过，主机零运行期命令，完整历史零覆盖。双角色诊断/清理在进度063对应build已通过；主动诊断压力仍会BUSY，不把它作为性能基线。后续每切片保持静默30位置、完整历史及停止清理核验，再推进统一部署、共享VDC与运输共存。最终完整扫描保留360位置，当前毫秒级性能和调度超预算未关闭。
 NSEQ-105三模式单板凭证及代码检查点已完成；既有下一代码提交约束仍优先关闭
-NSEQ-RISK-04激活gate诊断缺口，不以重跑通过代替根因闭环，再继续NSEQ-101至104迁移。
+NSEQ-RISK-04激活gate与NSEQ-RISK-06配置拒绝诊断缺口，不以重跑通过代替根因闭环，再继续NSEQ-101至104迁移。
 保留独立SP8T的MANUAL/IN回归；组合角色使用统一PIO0 owner及真实RJ45运输，不软件直达。
 PIO握手首切片和Core1运行状态机功能已通过，固定200ms位置周期与严格TDMA稳定性仍未通过；
 后续改动逐片构建、OTA和单板闭环，重新生成匹配staged指纹的凭证，旧报告不能替代。
