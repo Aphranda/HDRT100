@@ -358,6 +358,7 @@ static trigger_sequence_link_config_result_t configure(
     s_link.model_epoch = refmem_realtime_contract_origin_model_epoch();
     s_link.phase = config->enabled ? LINK_WAIT_START : LINK_OFF;
     s_tx_count_baseline = __atomic_load_n(&s_transport_tx_count, __ATOMIC_ACQUIRE);
+    (void)__atomic_exchange_n(&s_transport_rejected, 0u, __ATOMIC_ACQ_REL);
     s_tx_enabled = false;
     discard_inbox();
     discard_ready_credits();
@@ -986,7 +987,15 @@ trigger_sequence_service_result_t trigger_sequence_link_ready_inject(uint32_t co
 }
 bool trigger_sequence_link_service(void)
 {
-    if (!take()) return false;
+    /* OFF has no runtime work. Do not contend with Core0 configuration on
+     * every cycle; enabled STOP cleanup still runs through the writer path.
+     * An enable after this snapshot is serviced on the next Core1 cycle. */
+    osal_critical_enter();
+    const bool work = s_published.config.enabled ||
+        __atomic_load_n(&s_transport_rejected, __ATOMIC_ACQUIRE) != 0u;
+    const bool acquired = work && take();
+    osal_critical_exit();
+    if (!acquired) return false;
     s_action_submitted = false;
     s_transport_ready = false;
     s_link.tx_fragments = __atomic_load_n(&s_transport_tx_count, __ATOMIC_ACQUIRE) - s_tx_count_baseline;

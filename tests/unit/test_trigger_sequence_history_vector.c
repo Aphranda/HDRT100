@@ -201,6 +201,36 @@ static void config_guards(void)
     assert(!diagnostic.tdma_result && !diagnostic.gateway_result && !diagnostic.rollback_result);
 }
 
+static void off_service_quiescent(void)
+{
+    fixture();
+    const trigger_sequence_link_config_t off = {0};
+    assert(trigger_sequence_link_configure(&off));
+    /* Pending rejected transport observations are still drained once. */
+    __atomic_store_n(&s_transport_rejected, 3u, __ATOMIC_RELEASE);
+    assert(!trigger_sequence_link_service());
+    assert(s_published.rejected == 3u && s_transport_rejected == 0u);
+    /* A real writer visit republishes this changed private counter. */
+    s_link.rejected = 7u;
+    for (unsigned i = 0; i < 1000u; ++i) assert(!trigger_sequence_link_service());
+    assert(s_published.rejected == 3u);
+    assert(trigger_sequence_link_configure(&config));
+    trigger_sequence_link_service();
+    s_link.rejected = 11u;
+    trigger_sequence_link_service();
+    assert(s_published.rejected == 11u); /* Enabled IDLE still services STOP. */
+    __atomic_store_n(&s_transport_rejected, 5u, __ATOMIC_RELEASE);
+    transport_accept = false;
+    assert(!trigger_sequence_link_configure(&off));
+    assert(s_transport_rejected == 5u); /* Failure must preserve diagnostics. */
+    transport_accept = true;
+    assert(trigger_sequence_link_configure(&off));
+    assert(s_transport_rejected == 0u);
+    assert(trigger_sequence_link_configure(&config));
+    trigger_sequence_link_service();
+    assert(s_published.rejected == 0u); /* No old-binding increments leak. */
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
@@ -210,6 +240,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[1], "lifecycle")) lifecycle();
     else if (!strcmp(argv[1], "overflow_fault")) overflow_and_fault();
     else if (!strcmp(argv[1], "config_guards")) config_guards();
+    else if (!strcmp(argv[1], "off_service_quiescent")) off_service_quiescent();
     else assert(false);
     puts("history vector passed");
     return 0;

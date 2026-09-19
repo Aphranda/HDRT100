@@ -10,45 +10,17 @@
     "no_independent_edge_count",
     "no_tdma_stability"
   ],
-  "created_at": "2026-09-19T09:35:39.728489+00:00",
+  "created_at": "2026-09-19T10:22:41.930724+00:00",
   "serial_number": "839E1AE79EA20F31",
-  "build_id": "20260919092554",
-  "source_tree_sha256": "54bb4f69528f8a4eebcbcc8d705c3f84964ef1000fc93fa4b422b1dd42dacecd",
+  "build_id": "20260919101510",
+  "source_tree_sha256": "f7ac69cdff55adbe48278a6d83307f2514fe294fc73756fcbd080022145e5329",
   "source_file_count": 1191,
   "changed_sources": [
-    "components/distributed_refmem/inc/distributed_refmem.h",
-    "components/distributed_refmem/inc/refmem_realtime_tdma.h",
-    "components/distributed_refmem/src/distributed_refmem.c",
-    "components/distributed_refmem/src/refmem_realtime_tdma.c",
-    "components/sync_trigger/inc/trigger_sequence_link.h",
     "components/sync_trigger/src/trigger_sequence_link.c",
-    "components/tdma/inc/tdma_runtime_owner.h",
-    "components/tdma/inc/tdma_service.h",
-    "components/tdma/src/tdma_runtime_owner.c",
-    "components/tdma/src/tdma_service.c",
-    "middleware/scpi_port/inc/scpi_system_snapshot_commands.h",
-    "middleware/scpi_port/src/scpi_sequence_node_commands.c",
-    "middleware/scpi_port/src/scpi_system_snapshot_commands.c",
-    "tests/python/test_refmem_activation_diagnostic.py",
-    "tests/python/test_refmem_scpi_freeze.py",
-    "tests/python/test_refmem_sequence_role_scpi.py",
     "tests/python/test_sequence_config_validate.py",
-    "tests/python/test_sequence_tdma_cycle_validate.py",
-    "tests/python/test_tdma_foundation_snapshot.py",
-    "tests/python/test_tdma_service_nonblocking.py",
-    "tests/python/test_tdma_single_board_loopback.py",
     "tests/python/test_trigger_sequence_link.py",
-    "tests/unit/test_refmem_activation_diagnostic.c",
-    "tests/unit/test_refmem_realtime_tdma.c",
-    "tests/unit/test_refmem_scpi_freeze.c",
-    "tests/unit/test_refmem_sequence_role_scpi.c",
-    "tests/unit/test_tdma_service_nonblocking.c",
     "tests/unit/test_trigger_sequence_history_vector.c",
-    "tests/unit/test_trigger_sequence_link.c",
-    "tools/hardware_acceptance/sequence_config_validate.py",
-    "tools/hardware_acceptance/sequence_single_board_gate.py",
-    "tools/hardware_acceptance/sequence_tdma_cycle_validate.py",
-    "tools/tdma_ring_monitor/tdma_single_board_loopback.py"
+    "tools/hardware_acceptance/sequence_config_validate.py"
   ],
   "validator_sha256": "5540b1d43f5605fffd6d53ccdfeda717ae517e02f16740bd99d94db75c33f2c9",
   "validator_hashes": {
@@ -61,35 +33,35 @@
   },
   "source_hz": 1000.0,
   "host_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-quality-r1/host.json",
-    "sha256": "80a404557594b5046dfa4e028a549b9b0c31ec585b12bab7c57888814bb7860b"
+    "path": "out/HardwareAcceptance/20260919/sequence-off-r1/host.json",
+    "sha256": "e7dc256b456a21a6fb81e23c65acb1d91e8819f34850c2be7f18d8bdae71e94f"
   },
   "repeat_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-quality-r1/repeat.json",
-    "sha256": "9cda96a1c7a0a3c9bb2847fdff6833bc39892dd2971c93dd4ebad4d6020c0527"
+    "path": "out/HardwareAcceptance/20260919/sequence-off-r1/repeat.json",
+    "sha256": "62bb1c497bc36ded21988cbc5cf60023c6eec11eccda92ae26f1745a3d71dca9"
   },
   "start_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-quality-r1/start.json",
-    "sha256": "b3a9a404596c3741590d59f7f2c35d97e99bcf7e931aff91e58bf870eea6ce34"
+    "path": "out/HardwareAcceptance/20260919/sequence-off-r1/start.json",
+    "sha256": "478e429044493012db1b7992e8effe499a8a14af8f23a2022b3ec56bd6c5c197"
   },
   "position_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-quality-r1/position.json",
-    "sha256": "375f4758f7d76a28cab67490844a05e823f39cb1295512794b1db49083d6bf65"
+    "path": "out/HardwareAcceptance/20260919/sequence-off-r1/position.json",
+    "sha256": "db310bf8f02a628b82d9930893983efff45d107dd323686bdc80312ca26c46df"
   },
   "firmware_package": {
-    "path": "out/build/sequence-quality-usbtmc-20260919/DHRT100_UPDATE.pkg",
-    "sha256": "571f8d3eb3aafa7c472629062176d21c399aee8ff12141866a19055d9a729515"
+    "path": "out/build/sequence-off-usbtmc-20260919/DHRT100_UPDATE.pkg",
+    "sha256": "2d15f90f881406fd601367a6a9a3de3e67c11565b0efa4d435293280607424c7"
   },
   "ota_summary": {
-    "path": "out/ota/sequence-quality-20260919-r1/summary.json",
-    "sha256": "89f77ee382013e094fc313fbcaca47a40257ed9d6f2a8d91d08e062de06079c5"
+    "path": "out/ota/sequence-off-20260919-r1/summary.json",
+    "sha256": "a3ac520a14e20375afc7e49df23411b14f85c2ad3fb3b111657fb041268d72dd"
   },
   "finite_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-quality-r1/finite.json",
-    "sha256": "82af0e52d0f4687803c2acc9193461ebd8453bd07a52260634975f5c13c6b66f"
+    "path": "out/HardwareAcceptance/20260919/sequence-off-r1/finite.json",
+    "sha256": "84f2dc949ca95872532f353732492588757a4feff3b5f43304248ee34390e51a"
   },
   "pause_resume_report": {
-    "path": "out/HardwareAcceptance/20260919/sequence-quality-r1/pause-resume.json",
-    "sha256": "808455400c17adcf75487ddc7013bf6e1423e939f7b13cf6da459c14ad099a8e"
+    "path": "out/HardwareAcceptance/20260919/sequence-off-r1/pause-resume.json",
+    "sha256": "2eb11bf5c7a8276b81c36caaeb1bf7e6775817aace2a2fa8d6bcbe0e63187c0a"
   }
 }

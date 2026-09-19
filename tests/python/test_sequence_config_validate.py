@@ -115,6 +115,38 @@ def test_bad_diagnostic_preserves_raw_reply(reply):
     assert report["diagnostic"]["raw"] == reply
 
 
+def test_off_stress_stops_at_first_rejection_without_activation(tmp_path, monkeypatch):
+    bench, commands, report = fixture(tmp_path, monkeypatch)
+    bench.args.link_off_probes = 20
+    original = bench.command
+    calls = 0
+    def command(text):
+        nonlocal calls
+        if text == "CONF:SEQ:LINK OFF":
+            calls += 1
+            if calls == 4:
+                commands.append(text)
+                return '\"REJECTED\",8,0,0,0'
+        return original(text)
+    bench.command = command
+    with pytest.raises(AcceptanceError, match="rejected"):
+        target.run_attempts(bench, object(), report)
+    assert calls == 4 and len(report["attempts"]) == 1
+    attempt = report["attempts"][0]
+    assert attempt["link_off_completed"] == 3 and attempt["link_off_probe"] == 4
+    assert "CONF:SEQ:NODE:ACT" not in commands
+    assert any(action.get("response") == '\"REJECTED\",8,0,0,0' for action in attempt["actions"])
+
+
+def test_off_stress_count_is_bounded_per_transaction(tmp_path, monkeypatch):
+    bench, commands, report = fixture(tmp_path, monkeypatch)
+    bench.args.link_off_probes = 7
+    target.run_attempts(bench, object(), report)
+    assert commands.count("CONF:SEQ:LINK OFF") == 21
+    assert commands.count("CONF:SEQ:NODE:ACT") == 3
+    assert all(row["link_off_completed"] == 7 for row in report["attempts"])
+
+
 def transport_fixture(monkeypatch):
     @contextmanager
     def opened(*args, **kwargs):
@@ -176,6 +208,7 @@ def test_cleanup_pending_error_does_not_suppress_stop_command():
 
 
 @pytest.mark.parametrize("extra", [("--attempts", "0"), ("--attempts", "101"),
+                                  ("--link-off-probes", "0"), ("--link-off-probes", "1001"),
                                   ("--timeout", "nan"), ("--poll", "0")])
 def test_settings_rejected_before_hardware(tmp_path, extra):
     with pytest.raises(SystemExit):

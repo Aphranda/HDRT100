@@ -2,7 +2,7 @@
 """Repeat stopped sequence-role configuration without starting acquisition.
 
 This checks configuration transactions only, not timing, physical transport,
-multi-board operation, or P3 acceptance. Every mutation is issued once.
+multi-board operation, or P3 acceptance. Failed mutations are never retried.
 """
 from __future__ import annotations
 
@@ -136,7 +136,11 @@ def run_attempts(bench, port, report):
         try:
             stop_sequence(bench, attempt)
             stop_ring(bench, port, attempt)
-            command_once(bench, attempt, "CONF:SEQ:LINK OFF", "1")
+            attempt["link_off_completed"] = 0
+            for probe in range(bench.args.link_off_probes):
+                attempt["link_off_probe"] = probe + 1
+                command_once(bench, attempt, "CONF:SEQ:LINK OFF", "1")
+                attempt["link_off_completed"] += 1
             for slot, instance, name, *_ in ROLES:
                 command_once(bench, attempt, f"CONF:SEQ:NODE:ROLE {slot},{instance},{name}", "STAGED")
             role_readbacks(bench, attempt, "staged_roles", False)
@@ -183,11 +187,15 @@ def parse_args(argv=None):
     parser.add_argument("--build", required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--attempts", type=int, default=10)
+    parser.add_argument("--link-off-probes", type=int, default=1,
+                        help="successful OFF transactions per attempt; stop on first rejection")
     parser.add_argument("--timeout", type=float, default=3)
     parser.add_argument("--poll", type=float, default=.05)
     args = parser.parse_args(argv)
     if not 1 <= args.attempts <= 100:
         parser.error("attempts must be between 1 and 100")
+    if not 1 <= args.link_off_probes <= 1000:
+        parser.error("link-off-probes must be between 1 and 1000")
     if any(not math.isfinite(value) or value <= 0 for value in (args.timeout, args.poll)):
         parser.error("timeout and poll must be finite and positive")
     return args

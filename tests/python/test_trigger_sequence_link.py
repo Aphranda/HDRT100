@@ -87,7 +87,7 @@ def history_vector_executable(link_executable):
     return executable
 
 
-@pytest.mark.parametrize("case", ["retention", "busy", "concurrent", "lifecycle", "overflow_fault", "config_guards"])
+@pytest.mark.parametrize("case", ["retention", "busy", "concurrent", "lifecycle", "overflow_fault", "config_guards", "off_service_quiescent"])
 def test_history_vector(history_vector_executable, case):
     result = subprocess.run([str(history_vector_executable), case], text=True,
                             capture_output=True, timeout=15)
