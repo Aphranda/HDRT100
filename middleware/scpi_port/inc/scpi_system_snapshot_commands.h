@@ -104,6 +104,9 @@ scpi_result_t scpi_cmd_vdc_priority_trace_release(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_trace_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_trace_read_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_priority_tx_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_tx_gap(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_tx_gap_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_priority_tx_gap_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_probe(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_auto(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_auto_q(scpi_t *context);
@@ -308,6 +311,9 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:PRIORity:TRACe:STATus?", .callback = scpi_cmd_vdc_priority_trace_status_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:TRACe:READ?", .callback = scpi_cmd_vdc_priority_trace_read_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:TX?", .callback = scpi_cmd_vdc_priority_tx_q}, \
+    {.pattern = "SYSTem:VDC:PRIORity:TX:GAP", .callback = scpi_cmd_vdc_priority_tx_gap}, \
+    {.pattern = "SYSTem:VDC:PRIORity:TX:GAP?", .callback = scpi_cmd_vdc_priority_tx_gap_q}, \
+    {.pattern = "SYSTem:VDC:PRIORity:TX:GAP:STATus?", .callback = scpi_cmd_vdc_priority_tx_gap_status_q}, \
     {.pattern = "SYSTem:VDC:PRIORity:RX?", .callback = scpi_cmd_vdc_priority_rx_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:PROBe", .callback = scpi_cmd_vdc_feedback_probe}, \
     {.pattern = "SYSTem:VDC:FEEDback:AUTO", .callback = scpi_cmd_vdc_feedback_auto}, \

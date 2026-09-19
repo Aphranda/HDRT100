@@ -39,6 +39,8 @@ uint32_t vdc_dpll_manager_priority_sync_generation(void)
     return __atomic_load_n(&s_priority_tx_request, __ATOMIC_ACQUIRE);
 }
 
+#include "vdc_priority_tx_gap.inc"
+
 bool vdc_priority_tx_origin_trace_eligible_core1(uint32_t generation, uint32_t session)
 {
     if (get_core_num() != 1u || !generation || !session ||
@@ -103,7 +105,7 @@ static tdma_priority_tx_result_t priority_tx_empty(uint32_t reason, bool retire)
     vdc_priority_tx_snapshot_t *s = &s_priority_tx_work.status;
     s->rejected = priority_tx_inc(s->rejected);
     s->last_reject = reason;
-    if (retire) { s->active = 0u; s->retired = 1u; }
+    if (retire) { s->active = 0u; s->retired = 1u; priority_gap_cancel(); }
     priority_tx_publish();
     return TDMA_PRIORITY_TX_EMPTY;
 }
@@ -158,6 +160,7 @@ static tdma_priority_tx_result_t priority_tx_ready(uint8_t *mailbox, bool repeat
     if (repeated) s->repeated = priority_tx_inc(s->repeated);
     s->last_reject = VDC_PRIORITY_TX_REJECT_NONE;
     memcpy(mailbox, s->mailbox, sizeof(s->mailbox));
+    priority_gap_resumed();
     priority_tx_publish();
     return TDMA_PRIORITY_TX_READY;
 }
@@ -172,6 +175,7 @@ tdma_priority_tx_result_t __attribute__((noinline)) vdc_priority_tx_core1(
     vdc_priority_tx_work_t *w = &s_priority_tx_work;
     vdc_priority_tx_snapshot_t *s = &w->status;
     if (!request) {
+        priority_gap_cancel();
         if (s->generation && !s->retired) {
             s->active = 0u; s->retired = 1u; s->last_reject = VDC_PRIORITY_TX_REJECT_STOP;
             priority_tx_publish();
@@ -182,6 +186,7 @@ tdma_priority_tx_result_t __attribute__((noinline)) vdc_priority_tx_core1(
         memset(w, 0, sizeof(*w));
         s->schema = 1u;
         s->generation = request;
+        priority_gap_reset(request);
     }
     s->calls = priority_tx_inc(s->calls);
     if (!config) return priority_tx_empty(VDC_PRIORITY_TX_REJECT_STOP, true);
@@ -243,6 +248,7 @@ tdma_priority_tx_result_t __attribute__((noinline)) vdc_priority_tx_core1(
         now < w->source.timer_upper ||
         now - w->source.timer_lower > (uint64_t)w->source.tick_hz * 2u)
         return priority_tx_empty(VDC_PRIORITY_TX_REJECT_MODEL, false);
+    if (priority_gap_suppress(now)) return TDMA_PRIORITY_TX_EMPTY;
     if (s->have_offer && s->event_sequence == w->source.sequence) {
         /* The first encoded projection is immutable. A new model does not
          * authorize reprojection of the same source event. */

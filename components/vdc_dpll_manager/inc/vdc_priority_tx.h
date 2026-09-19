@@ -51,6 +51,28 @@ bool vdc_dpll_manager_set_priority_sync(uint32_t generation);
 uint32_t vdc_dpll_manager_priority_sync_generation(void);
 /* One atomic-word snapshot attempt; failure leaves *out unchanged. */
 bool vdc_dpll_manager_get_priority_tx(vdc_priority_tx_snapshot_t *out);
+/* Volatile, one-generation diagnostic pause of fresh offers. EMPTY leaves
+ * TDMA running and may repeat its last DMA mailbox. Never saved to Flash. */
+typedef struct {
+    uint32_t generation, session, after_ms, duration_ms;
+} vdc_priority_tx_gap_config_t;
+enum {
+    VDC_PRIORITY_GAP_DISABLED, VDC_PRIORITY_GAP_WAITING,
+    VDC_PRIORITY_GAP_ACTIVE, VDC_PRIORITY_GAP_RECOVERING,
+    VDC_PRIORITY_GAP_DONE, VDC_PRIORITY_GAP_CANCELLED,
+    VDC_PRIORITY_GAP_MISSED
+};
+typedef struct {
+    uint32_t schema, generation, session, state, suppressed;
+    uint32_t before_sequence, resume_sequence, tick_hz, after_ms, duration_ms;
+    uint64_t anchor_raw, first_suppressed_raw, last_suppressed_raw, resume_raw;
+} vdc_priority_tx_gap_snapshot_t;
+/* Core0 STOP only, current nonzero SYNC generation/session. All-zero clears.
+ * Times are relative to the first valid source observation in this run. */
+bool vdc_dpll_manager_set_priority_tx_gap(uint32_t generation, uint32_t after_ms,
+    uint32_t duration_ms);
+bool vdc_dpll_manager_get_priority_tx_gap_config(vdc_priority_tx_gap_config_t *out);
+bool vdc_dpll_manager_get_priority_tx_gap(vdc_priority_tx_gap_snapshot_t *out);
 /* Core1 trace ARM/ACK check: this stopped-installed generation must not have
  * encoded an event or committed a cache yet. Core0 must use atomic getters,
  * never inspect the owner-private TX work to authorize its capture. */

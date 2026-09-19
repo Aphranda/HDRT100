@@ -1566,6 +1566,58 @@ scpi_result_t scpi_cmd_vdc_priority_tx_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_vdc_priority_tx_gap(scpi_t *context)
+{
+    uint32_t generation, after_ms, duration_ms;
+    if (!SCPI_ParamUInt32(context, &generation, TRUE) ||
+        !SCPI_ParamUInt32(context, &after_ms, TRUE) ||
+        !SCPI_ParamUInt32(context, &duration_ms, TRUE) ||
+        !vdc_dpll_manager_set_priority_tx_gap(generation, after_ms, duration_ms)) {
+        scpi_port_push_exec_error(context, "VDC_PRIORITY_GAP_STOP_SESSION_OR_GENERATION");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, generation);
+    SCPI_ResultUInt32(context, after_ms);
+    SCPI_ResultUInt32(context, duration_ms);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_tx_gap_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    vdc_priority_tx_gap_config_t c;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !vdc_dpll_manager_get_priority_tx_gap_config(&c)) {
+        scpi_port_push_exec_error(context, "VDC_PRIORITY_GAP_REQUIRES_STOP");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, c.generation);
+    SCPI_ResultUInt32(context, c.after_ms);
+    SCPI_ResultUInt32(context, c.duration_ms);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_priority_tx_gap_status_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    vdc_priority_tx_gap_snapshot_t s;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !vdc_dpll_manager_get_priority_tx_gap(&s)) {
+        scpi_port_push_exec_error(context, "VDC_PRIORITY_GAP_REQUIRES_STOP");
+        return SCPI_RES_ERR;
+    }
+    const uint32_t fields[] = {s.schema, s.generation, s.session, s.state,
+        s.suppressed, s.before_sequence, s.resume_sequence, s.tick_hz,
+        s.after_ms, s.duration_ms};
+    for (size_t i = 0u; i < sizeof(fields) / sizeof(fields[0]); ++i)
+        SCPI_ResultUInt32(context, fields[i]);
+    scpi_sync_result_u64_parts(context, s.anchor_raw);
+    scpi_sync_result_u64_parts(context, s.first_suppressed_raw);
+    scpi_sync_result_u64_parts(context, s.last_suppressed_raw);
+    scpi_sync_result_u64_parts(context, s.resume_raw);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_priority_rx_consumer_q(scpi_t *context)
 {
     tdma_ring_clock_snapshot_t ring;
