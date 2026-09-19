@@ -91,7 +91,7 @@ START 前三秒诊断 timeout 导致的首成功间隔超限；不能把稳定�
 ARM 起点不同造成先通过者截断其他节点。内部参考的正向短/长连续窗、缺参考负例、
 原生尾段、STOP/RELEASE/恢复已闭合，但十分钟末态揭示三从输出提前 STARVED：
 参考仍持续成功，该旧版 guard 未监督输出健康，不能把其 PASS 当作整机长稳通过。
-最新切片证据见 `VDC-PROGRESS-20260919-017`，`VDC-OBS-007` 保持 IN PROGRESS。
+最新切片证据见 `VDC-PROGRESS-20260919-019`，`VDC-OBS-007` 保持 IN PROGRESS。
 联合输出检查切片见 `VDC-PROGRESS-20260919-013`：新版 GUARD 首次运行绑定输出
 请求，每个检查点只读核对身份/状态/新鲜度/序号推进；尾段另审退休原因。
 关闭 GUARD 的同源码十分钟对照仍出现 NO4 STARVED，排除监督为故障必要条件。
@@ -131,6 +131,15 @@ python tools/vdc_priority_trace/vdc_priority_joint_capture.py --bench-adapter ou
 ```
 
 无示波器时改为 `--scope off`，外部结果为 SKIPPED；不得用 SKIPPED 宣称物理精度。
+
+后续同轮十分钟四板内部通过、外部全部有效窗口在 ±50 ns 内，但主机采集两次
+超时使严格整轮 FAIL，见进度 018；不放宽既定分钟门禁。用户授权 NO2/NO3 各加
+20 ns 后，两次独立短窗联合通过，见进度 019。后续推荐试验 delay 为
+[0,-8,-68,-116] ns（快照，尚未 Flash 固化），使用
+`out/HardwareAcceptance/20260919/dpll-delay-center-r1/capture.py --seconds 60 --out <新证据目录>`；
+上面的通用入口当前仍使用旧基线，下一工具切片须显式参数化。内置 RRDELay 的
+无效大数/超时必须保留并回查 RAW，不能作为零误差；减少逐查询报告写盘与传输量，
+再验收新鲜触发的低开销巡检和连续长窗。
 
 发布与失联后继审计见本切片证据根 `vdc-publication-next-audit.json`：实际输出和
 反馈投影使用已提交 DCO，legacy clock 保持独立语义；不能靠替换旧向量字段追求
