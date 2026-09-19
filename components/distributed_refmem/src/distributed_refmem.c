@@ -1924,8 +1924,20 @@ static uint32_t __attribute__((noinline)) DISTRIBUTED_REFMEM_TIME_CRITICAL(
     if (distributed_refmem_vector_hardware_evidence_valid(snapshot)) {
         flags |= REFMEM_VECTOR_FLAG_HARDWARE_EVIDENCE;
     }
+    /* Project the health-qualified owner state, not just its retained servo
+     * state: aging can degrade quality without changing DPLL/DCO sequences.
+     * All inputs come from this same guarded snapshot. No new observation,
+     * publication or formal promotion is performed by the vector writer. */
     if (!provisional && snapshot->dpll.debug_continue_enabled == 0u &&
-        snapshot->dpll.state == VDC_DOMAIN_LOCK_LOCKED) {
+        snapshot->dpll.state == VDC_DOMAIN_LOCK_LOCKED &&
+        snapshot->quality.valid == 1u &&
+        snapshot->quality.lock_state == VDC_DOMAIN_LOCK_LOCKED &&
+        snapshot->quality.health_state == VDC_DOMAIN_HEALTH_HEALTHY &&
+        snapshot->quality.lock_quality_tier >= VDC_DOMAIN_LOCK_QUALITY_FINE_100NS &&
+        snapshot->quality.last_sample_time_ns != 0u &&
+        snapshot->quality.freshness_limit_us != 0u &&
+        snapshot->quality.last_sample_age_us <= snapshot->quality.freshness_limit_us &&
+        snapshot->gate.passed != 0u) {
         flags |= REFMEM_VECTOR_FLAG_LOCKED;
     }
 

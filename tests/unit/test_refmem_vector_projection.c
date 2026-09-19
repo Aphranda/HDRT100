@@ -64,7 +64,20 @@ int main(void)
         dpll.payload_crc32=b;
         assert(refmem_vdc_vector_payload_validate(&vdc));
         assert(refmem_dpll_vector_payload_validate(&dpll));
-        printf("%s[%u,%u]", test ? "," : "", a, b);
+        /* The randomized quality bytes are not a health-qualified lock.
+         * Check the actual payload first, then restore ONLY the historical
+         * LOCKED bit for the unchanged legacy-byte golden. Independent
+         * publication tests cover healthy/aged/recovered qualification. */
+        assert(!(vdc.flags & REFMEM_VECTOR_FLAG_LOCKED));
+        assert(!(dpll.flags & REFMEM_VECTOR_FLAG_LOCKED));
+        if (!(projected.path_delay.flags & VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) &&
+            projected.dpll.debug_continue_enabled == 0u) {
+            vdc.flags |= REFMEM_VECTOR_FLAG_LOCKED;
+            dpll.flags |= REFMEM_VECTOR_FLAG_LOCKED;
+        }
+        const uint32_t legacy_a = refmem_vdc_vector_payload_crc(&vdc);
+        const uint32_t legacy_b = refmem_dpll_vector_payload_crc(&dpll);
+        printf("%s[%u,%u]", test ? "," : "", legacy_a, legacy_b);
     }
     /* Bounded read rejection, including a writer at the guard recheck and
      * generation wrap. Retrying must recopy the new generation's payload. */

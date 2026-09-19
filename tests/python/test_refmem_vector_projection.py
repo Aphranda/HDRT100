@@ -1,4 +1,9 @@
-"""Execute the production projection and retain legacy serialized vectors."""
+"""Production projection: retain legacy bytes after the explicit LOCKED fix.
+
+The native harness validates current payload CRCs and rejects unqualified lock,
+then normalizes only that historical flag for the unchanged legacy-byte golden.
+Healthy/aging/recovery semantics run through test_vdc_publication_generation.
+"""
 import json
 import os
 from pathlib import Path

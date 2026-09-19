@@ -91,6 +91,10 @@ def publication_exe(tmp_path_factory):
     "rate_core", "rate_vector", "phase_core", "phase_vector", "quality_ready",
     "odd", "contention", "invalid", "wrap", "initial_zero", "stale_hint",
     "core_copy_race", "unchanged",
+    "lock_healthy", "lock_boundary", "lock_expired", "lock_gate", "lock_invalid",
+    "lock_not_fine", "lock_quality_state", "lock_health_degraded", "lock_no_limit",
+    "lock_no_sample", "lock_provisional", "lock_debug", "lock_recovery",
+    "lock_healthy_but_expired", "lock_healthy_but_gate_rejected",
 ])
 def test_publication_consumers(publication_exe, scenario):
     result = subprocess.run([str(publication_exe), scenario], capture_output=True,
@@ -255,6 +259,93 @@ static void commit(bool phase)
     assert(memcmp(&original_clock, &domain.clock, sizeof(original_clock)) == 0);
 }
 
+static void health_qualified_lock_fixture(void)
+{
+    domain.path_delay.flags &= ~VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY;
+    domain.dpll.debug_continue_enabled = 0u;
+    domain.dpll.state = VDC_DOMAIN_LOCK_LOCKED;
+    domain.dco.lock_state = VDC_DOMAIN_LOCK_LOCKED;
+    domain.gate.passed = 1u;
+    domain.quality.valid = 1u;
+    domain.quality.lock_state = VDC_DOMAIN_LOCK_LOCKED;
+    domain.quality.lock_quality_tier = VDC_DOMAIN_LOCK_QUALITY_FINE_100NS;
+    domain.quality.freshness_limit_us = 120000u;
+    domain.quality.last_sample_time_ns = UINT64_C(3000000000);
+    domain.quality.last_sample_age_us = 0u;
+    domain.quality.health_state = VDC_DOMAIN_HEALTH_HEALTHY;
+    domain.quality.accepted_sample_count = 17u;
+    domain.quality.last_timestamp_source = VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK;
+    domain.quality.last_timestamp_resolution_ns = 4u;
+    domain.quality.last_timestamp_flags = VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+}
+
+static void check_lock_vectors(bool locked, uint32_t expected_publications,
+    const vdc_dco_control_t *saved_dco)
+{
+    assert(refmem_vdc_vector_payload_validate(&vdc_region.payload));
+    assert(refmem_dpll_vector_payload_validate(&dpll_region.payload));
+    assert(!!(vdc_region.payload.flags & REFMEM_VECTOR_FLAG_LOCKED) == locked);
+    assert(!!(dpll_region.payload.flags & REFMEM_VECTOR_FLAG_LOCKED) == locked);
+    assert(vdc_region.payload.quality_health_state == domain.quality.health_state);
+    assert(dpll_region.payload.quality_health_state == domain.quality.health_state);
+    assert(vdc_region.payload.quality_last_sample_age_us == domain.quality.last_sample_age_us);
+    assert(dpll_region.payload.quality_last_sample_age_us == domain.quality.last_sample_age_us);
+    assert(vdc_region.payload.source_update_seq == evidence_seq);
+    assert(dpll_region.payload.source_update_seq == evidence_seq);
+    assert(domain.dpll.update_seq == evidence_seq);
+    assert(!memcmp(saved_dco, &domain.dco, sizeof(*saved_dco)));
+    assert(dpll_region.payload.dco_update_seq == saved_dco->dco_update_seq);
+    assert(dpll_region.payload.dco_period_adjust_ppb == saved_dco->period_adjust_ppb);
+    assert(s_vdc_vector_publish_sequence == expected_publications);
+    assert(s_dpll_vector_publish_sequence == expected_publications);
+}
+
+static void check_quality_lock_publication(const char *name)
+{
+    health_qualified_lock_fixture();
+    const vdc_dco_control_t saved_dco = domain.dco;
+    publish(); vectors(); check_lock_vectors(true, 1u, &saved_dco);
+    if (!strcmp(name, "lock_healthy")) return;
+    bool locked = false;
+    if (!strcmp(name, "lock_boundary")) {
+        assert(vdc_domain_age_quality(&domain.quality, domain.dpll.state, true,
+            domain.quality.last_sample_time_ns + UINT64_C(120000000)));
+        locked = true;
+    } else if (!strcmp(name, "lock_expired") || !strcmp(name, "lock_recovery")) {
+        assert(vdc_domain_age_quality(&domain.quality, domain.dpll.state, true,
+            domain.quality.last_sample_time_ns + UINT64_C(120001000)));
+        assert(domain.quality.health_state == VDC_DOMAIN_HEALTH_DEGRADED);
+    } else if (!strcmp(name, "lock_gate")) {
+        domain.gate.passed = 0u;
+        assert(vdc_domain_age_quality(&domain.quality, domain.dpll.state, false,
+            domain.quality.last_sample_time_ns));
+    } else if (!strcmp(name, "lock_healthy_but_expired")) {
+        domain.quality.last_sample_age_us = domain.quality.freshness_limit_us + 1u;
+        assert(domain.quality.health_state == VDC_DOMAIN_HEALTH_HEALTHY);
+    } else if (!strcmp(name, "lock_healthy_but_gate_rejected")) {
+        domain.gate.passed = 0u;
+        assert(domain.quality.health_state == VDC_DOMAIN_HEALTH_HEALTHY);
+    } else if (!strcmp(name, "lock_invalid")) domain.quality.valid = 0u;
+    else if (!strcmp(name, "lock_not_fine")) domain.quality.lock_quality_tier = VDC_DOMAIN_LOCK_QUALITY_DEBUG_1US;
+    else if (!strcmp(name, "lock_quality_state")) domain.quality.lock_state = VDC_DOMAIN_LOCK_FREQ_LOCK;
+    else if (!strcmp(name, "lock_health_degraded")) domain.quality.health_state = VDC_DOMAIN_HEALTH_DEGRADED;
+    else if (!strcmp(name, "lock_no_limit")) domain.quality.freshness_limit_us = 0u;
+    else if (!strcmp(name, "lock_no_sample")) domain.quality.last_sample_time_ns = 0u;
+    else if (!strcmp(name, "lock_provisional")) domain.path_delay.flags |= VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY;
+    else if (!strcmp(name, "lock_debug")) domain.dpll.debug_continue_enabled = 1u;
+    else assert(!"unknown lock publication scenario");
+    publish(); vectors(); check_lock_vectors(locked, 2u, &saved_dco);
+    if (!strcmp(name, "lock_recovery")) {
+        /* A renewed evidence timestamp is aged by the real Domain routine;
+         * evidence/model sequence remains fixed to exercise quality-only publication. */
+        domain.quality.last_sample_time_ns += UINT64_C(200000000);
+        assert(vdc_domain_age_quality(&domain.quality, domain.dpll.state, true,
+            domain.quality.last_sample_time_ns + 1000u));
+        assert(domain.quality.health_state == VDC_DOMAIN_HEALTH_HEALTHY);
+        publish(); vectors(); check_lock_vectors(true, 3u, &saved_dco);
+    }
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
@@ -263,6 +354,10 @@ int main(int argc, char **argv)
     domain.dpll.update_seq = 17u;
     evidence_seq = domain.dpll.update_seq;
     original_clock = domain.clock;
+    if (!strncmp(argv[1], "lock_", 5u)) {
+        check_quality_lock_publication(argv[1]);
+        puts("health-qualified lock publication passed"); return 0;
+    }
     if (!strcmp(argv[1], "initial_zero"))
         s_published_snapshot_guard = UINT32_MAX - 1u;
     publish();
