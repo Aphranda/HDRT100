@@ -144,12 +144,18 @@ static void run_output_cancel_owned(void)
 
 static void run_output_release_core0(void)
 {
-    uint32_t idle=0u;
-    if (get_core_num()!=0u || !__atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE) ||
-        !__atomic_compare_exchange_n(&s_run_output_busy,&idle,1u,false,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED)) return;
-    const uint32_t request=__atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE);
+    if (get_core_num()!=0u) return;
+    const uint32_t candidate=__atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE);
     sync_io_run_output_snapshot_t hw;
-    if (request && sync_io_run_output_snapshot(&hw) && hw.generation==request &&
+    /* Active output needs no Core0 client ownership. This speculative read
+     * only skips work; release still requires the same request and a fresh
+     * retired backend snapshot under the whole-client gate below. */
+    if (!candidate || !sync_io_run_output_snapshot(&hw) ||
+        hw.generation!=candidate || hw.state!=SYNC_IO_RUN_OUTPUT_RETIRED) return;
+    uint32_t idle=0u;
+    if (!__atomic_compare_exchange_n(&s_run_output_busy,&idle,1u,true,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED)) return;
+    const uint32_t request=__atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE);
+    if (request==candidate && sync_io_run_output_snapshot(&hw) && hw.generation==request &&
         hw.state==SYNC_IO_RUN_OUTPUT_RETIRED && sync_io_run_output_release(request))
         __atomic_store_n(&s_run_output_request,0u,__ATOMIC_RELEASE);
     __atomic_store_n(&s_run_output_busy,0u,__ATOMIC_RELEASE);

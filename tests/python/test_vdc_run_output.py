@@ -127,6 +127,37 @@ def test_read_only_core1_observation(observation_client, scenario):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.fixture(scope='module')
+def release_precheck_client(tmp_path_factory):
+    source = (ROOT / 'components/vdc_dpll_manager/src/vdc_run_output.inc').read_text(encoding='utf-8')
+    prefix = ('static unsigned release_probe_watch, release_probe_release_failure;\n'
+              'static void release_probe_snapshot_boundary(void);\n' + CLIENT_PREFIX)
+    prefix = prefix.replace('    ++snapshot_calls; if(snapshot_calls==fail_snapshot_call)return false;',
+        '    if(release_probe_watch)release_probe_snapshot_boundary();\n'
+        '    ++snapshot_calls; if(snapshot_calls==fail_snapshot_call)return false;')
+    prefix = prefix.replace('    ++release_calls; hardware.state=SYNC_IO_RUN_OUTPUT_IDLE; return true;',
+        '    ++release_calls; if(release_probe_release_failure)return false;\n'
+        '    hardware.state=SYNC_IO_RUN_OUTPUT_IDLE; return true;')
+    return compile_host(tmp_path_factory.mktemp('vdc-release-precheck'), 'release_precheck',
+        prefix + RELEASE_PRECHECK_ATOMICS + source +
+        '\n#define main inherited_main\n' + CLIENT_MAIN + '\n#undef main\n' + RELEASE_PRECHECK_MAIN,
+        [ROOT / 'components/vdc_domain/src/vdc_domain.c',
+         ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
+         ROOT / 'components/tdma/src/tdma_profile.c'])
+
+
+@pytest.mark.parametrize('scenario', [
+    'prepared', 'running', 'idle', 'active_busy', 'unavailable', 'mismatch',
+    'wrong_core', 'request_zero', 'retired', 'active_to_retired',
+    'retired_busy', 'cas_refused', 'recheck_unavailable', 'recheck_running',
+    'recheck_mismatch', 'request_cleared', 'request_replaced', 'release_failure',
+])
+def test_core0_release_precheck_avoids_active_gate(release_precheck_client, scenario):
+    result = subprocess.run([str(release_precheck_client), scenario],
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 CLIENT_PREFIX = r'''
 #include <assert.h>
 #include <stdio.h>
@@ -726,6 +757,127 @@ int main(int argc,char **argv)
         const uint64_t local=admitted[1][i].ordinal*UINT64_C(1000000)-2000u+100u;
         assert(admitted[1][i].rising_tick==(local+3u)/4u);
         assert(admitted[1][i].falling_tick-admitted[1][i].rising_tick==250u);
+    }
+    return 0;
+}
+'''
+
+
+RELEASE_PRECHECK_ATOMICS = r'''
+static unsigned release_probe_cas_calls, release_probe_snapshot_calls;
+static unsigned release_probe_fail_cas, release_probe_request_change, release_probe_recheck_change;
+static unsigned release_probe_gates[4];
+static void release_probe_before_cas(void);
+/* Macro substitution instruments the real production call sites, while the
+ * wrapper delegates successful attempts to GCC's actual atomic primitive. */
+static bool release_probe_cas(uint32_t *ptr,uint32_t *expected,uint32_t desired,
+                              bool weak,int success_order,int failure_order)
+{
+    if(release_probe_watch) {
+        ++release_probe_cas_calls;
+        assert(weak && desired==1u && *expected==0u);
+        release_probe_before_cas();
+        if(release_probe_fail_cas)return false;
+    }
+    return __atomic_compare_exchange_n(ptr,expected,desired,weak,success_order,failure_order);
+}
+#define __atomic_compare_exchange_n(...) release_probe_cas(__VA_ARGS__)
+'''
+
+
+RELEASE_PRECHECK_MAIN = r'''
+static void release_probe_before_cas(void)
+{
+    if(release_probe_request_change==1u)s_run_output_request=0u;
+    if(release_probe_request_change==2u)++s_run_output_request;
+}
+static void release_probe_snapshot_boundary(void)
+{
+    assert(release_probe_snapshot_calls<4u);
+    release_probe_gates[release_probe_snapshot_calls++]=s_run_output_busy;
+    if(release_probe_snapshot_calls==2u) {
+        assert(s_run_output_busy==1u);
+        if(release_probe_recheck_change==1u)hardware.state=SYNC_IO_RUN_OUTPUT_RUNNING;
+        if(release_probe_recheck_change==2u)++hardware.generation;
+    }
+}
+int main(int argc,char **argv)
+{
+    assert(argc==2);initialize();const char *kind=argv[1];
+    prepare();arm(true);vdc_run_output_service_core1();
+    const uint32_t request=s_run_output_request;
+    assert(request && s_run_output.request==request);
+    core=0u;
+    hardware.state=SYNC_IO_RUN_OUTPUT_RETIRED;
+    hardware.reason=SYNC_IO_RUN_OUTPUT_STARVED;
+    bool expects_release=false,expects_cas=true;
+    uint32_t expected_busy=0u,expected_request=request;
+    if(!strcmp(kind,"prepared"))hardware.state=SYNC_IO_RUN_OUTPUT_PREPARED;
+    if(!strcmp(kind,"running") || !strcmp(kind,"active_to_retired") || !strcmp(kind,"active_busy"))
+        hardware.state=SYNC_IO_RUN_OUTPUT_RUNNING;
+    if(!strcmp(kind,"idle"))hardware.state=SYNC_IO_RUN_OUTPUT_IDLE;
+    if(!strcmp(kind,"active_busy") || !strcmp(kind,"retired_busy"))s_run_output_busy=expected_busy=1u;
+    if(hardware.state!=SYNC_IO_RUN_OUTPUT_RETIRED)expects_cas=false;
+    if(!strcmp(kind,"unavailable")) { fail_snapshot_call=snapshot_calls+1u;expects_cas=false; }
+    if(!strcmp(kind,"mismatch")) { ++hardware.generation;expects_cas=false; }
+    if(!strcmp(kind,"wrong_core")) { core=1u;expects_cas=false; }
+    if(!strcmp(kind,"request_zero")) { s_run_output_request=expected_request=0u;expects_cas=false; }
+    if(!strcmp(kind,"cas_refused"))release_probe_fail_cas=1u;
+    if(!strcmp(kind,"recheck_unavailable"))fail_snapshot_call=snapshot_calls+2u;
+    if(!strcmp(kind,"recheck_running"))release_probe_recheck_change=1u;
+    if(!strcmp(kind,"recheck_mismatch"))release_probe_recheck_change=2u;
+    if(!strcmp(kind,"request_cleared")) {
+        release_probe_request_change=1u;expected_request=0u;
+    }
+    if(!strcmp(kind,"request_replaced")) {
+        release_probe_request_change=2u;expected_request=request+1u;
+    }
+    if(!strcmp(kind,"release_failure"))release_probe_release_failure=1u;
+    if(!strcmp(kind,"retired")) { expects_release=true;expected_request=0u; }
+    const unsigned services=service_calls,cancel_count=cancels,submits=submit_attempts;
+    const unsigned prepares=prepare_calls,releases=release_calls;
+    const unsigned rings=ring_calls,bridges=bridge_calls;
+    const vdc_run_output_status_t metadata=s_run_output;
+    const sync_io_run_output_snapshot_t backend=hardware;
+    unsigned char cache[sizeof(s_run_output_pending)];
+    memcpy(cache,&s_run_output_pending,sizeof(cache));
+    release_probe_watch=1u;
+    run_output_release_core0();
+    release_probe_watch=0u;
+    assert(release_probe_cas_calls==(expects_cas?1u:0u));
+    assert(s_run_output_busy==expected_busy && s_run_output_request==expected_request);
+    assert(release_calls==releases+(expects_release || release_probe_release_failure?1u:0u));
+    assert(service_calls==services && cancels==cancel_count && submit_attempts==submits);
+    assert(prepare_calls==prepares && ring_calls==rings && bridge_calls==bridges);
+    assert(!memcmp(&s_run_output,&metadata,sizeof(metadata)));
+    assert(!memcmp(&s_run_output_pending,cache,sizeof(cache)));
+    if(!strcmp(kind,"wrong_core") || !strcmp(kind,"request_zero")) {
+        assert(!release_probe_snapshot_calls);
+    } else {
+        assert(release_probe_snapshot_calls>=1u && release_probe_gates[0]==expected_busy);
+        if(release_probe_snapshot_calls>1u)assert(release_probe_gates[1]==1u);
+    }
+    if(!expects_release && !release_probe_recheck_change)
+        assert(!memcmp(&hardware,&backend,sizeof(backend)));
+    if(expects_release)assert(hardware.state==SYNC_IO_RUN_OUTPUT_IDLE && hardware.reason==SYNC_IO_RUN_OUTPUT_STARVED);
+    if(!strcmp(kind,"active_to_retired")) {
+        assert(!release_probe_cas_calls && !release_calls && s_run_output_request==request);
+        hardware.state=SYNC_IO_RUN_OUTPUT_RETIRED;
+        release_probe_snapshot_calls=0u;release_probe_watch=1u;
+        run_output_release_core0();release_probe_watch=0u;
+        assert(release_probe_cas_calls==1u && release_probe_snapshot_calls==2u);
+        assert(release_probe_gates[0]==0u && release_probe_gates[1]==1u);
+        assert(!s_run_output_request && release_calls==releases+1u);
+        assert(!memcmp(&s_run_output,&metadata,sizeof(metadata)));
+    }
+    /* Refused atomic acquisition or a temporary release error cannot clear
+     * retained ownership; a later independent probe may complete retirement. */
+    if(!strcmp(kind,"cas_refused") || !strcmp(kind,"release_failure") ||
+       !strcmp(kind,"recheck_unavailable")) {
+        release_probe_fail_cas=release_probe_release_failure=0u;
+        fail_snapshot_call=0u;release_probe_snapshot_calls=0u;release_probe_watch=1u;
+        run_output_release_core0();release_probe_watch=0u;
+        assert(!s_run_output_request && !s_run_output_busy && hardware.state==SYNC_IO_RUN_OUTPUT_IDLE);
     }
     return 0;
 }
