@@ -2754,6 +2754,12 @@ scpi_result_t scpi_cmd_vdc_run_output_q(scpi_t *context)
     SCPI_ResultUInt32(context,s.timebase);
     SCPI_ResultUInt64(context,s.initial_raw_tick);
     SCPI_ResultUInt64(context,s.initial_local_ns);
+    SCPI_ResultUInt32(context,s.planned_calls);
+    SCPI_ResultUInt32(context,s.planned_submissions);
+    SCPI_ResultUInt32(context,s.planned_rebuilds);
+    SCPI_ResultUInt32(context,s.planned_wall_samples);
+    SCPI_ResultUInt32(context,s.planned_wall_max_cycles);
+    SCPI_ResultUInt32(context,s.planned_budget_overruns);
     return SCPI_RES_OK;
 }
 

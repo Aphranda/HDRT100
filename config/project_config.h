@@ -68,6 +68,9 @@ static const char g_project_build_id[] = "dev";
 /* Candidate for a cached RUN handoff when the full TDMA WCET cannot fit.
  * It uses only TDMA's existing foreground interval, never a new phase. */
 #define PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES 20000u
+/* Separate candidate for output-only planning/refill when whole TDMA no
+ * longer fits. Measured independently; does not enlarge the static phase. */
+#define PROJECT_CORE1_RUN_OUTPUT_PLAN_WCET_CYCLES 100000u
 
 #define PROJECT_CORE1_PHASE_TDMA_START_CYCLE 0u
 #define PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES \

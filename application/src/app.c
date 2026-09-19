@@ -848,7 +848,7 @@ typedef struct {
     uint32_t service_irq_count, wait_irq_count, irq_max;
     bool eligible, sampled, clock_ok, sample_failed, previously_active;
     bool optional_load, warmup_cycle, dpll_feedback_load, disabled, start_missed;
-    bool run_service, run_cached, ran_work, overrun, deadline_missed, own_deadline_missed;
+    bool run_service, run_cached, run_planned, ran_work, overrun, deadline_missed, own_deadline_missed;
     bool close_missed, new_run;
 } app_realtime_phase_work_t;
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
@@ -930,14 +930,22 @@ static bool app_realtime_run_phase(
     if (!work->run_service) app_realtime_record_skip(phase_id, !work->disabled && work->start_missed);
     const uint32_t start_counter = app_realtime_cycle_now();
     uint32_t cached_request = 0u;
+    uint32_t planned_request = 0u;
     /* Skip accounting can consume the remaining slack. Recheck immediately
      * before this independent bounded handoff, with priority ingress closed.
      * Failed IRQ sampling/clock translation cannot reopen that source, but
      * does not invalidate this core-local phase clock or hide its failure. */
     const uint32_t handoff_start = app_realtime_elapsed_cycles(cycle_epoch, start_counter);
-    work->run_cached = !work->run_service && !work->disabled && work->start_missed &&
+    work->run_planned = !work->run_service && !work->disabled && work->start_missed &&
+        phase_id == APP_REALTIME_PHASE_TDMA && handoff_start < work->priority.close_cycle &&
+        PROJECT_CORE1_RUN_OUTPUT_PLAN_WCET_CYCLES <= work->priority.close_cycle - handoff_start;
+    work->run_cached = !work->run_planned && !work->run_service && !work->disabled && work->start_missed &&
         phase_id == APP_REALTIME_PHASE_TDMA && handoff_start < work->priority.close_cycle &&
         PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES <= work->priority.close_cycle - handoff_start;
+    if (work->run_planned) {
+        work->phase_start = handoff_start;
+        planned_request = vdc_run_output_service_planned_core1();
+    }
     if (work->run_cached) {
         work->phase_start = handoff_start;
         cached_request = vdc_run_output_service_cached_core1();
@@ -952,17 +960,21 @@ static bool app_realtime_run_phase(
         if (work->eligible) tdma_runtime_owner_priority_rx_window_core1(false, 0u, 0u);
     }
     const uint32_t end_counter = app_realtime_cycle_now();
-    work->ran_work = work->run_service || work->run_cached;
+    work->ran_work = work->run_service || work->run_cached || work->run_planned;
     work->runtime_cycles = work->ran_work ?
         app_realtime_elapsed_cycles(start_counter, end_counter) : 0u;
     if (work->run_cached)
         vdc_run_output_note_cached_wall_core1(cached_request, work->runtime_cycles,
             PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES);
+    if (work->run_planned)
+        vdc_run_output_note_planned_wall_core1(planned_request, work->runtime_cycles,
+            PROJECT_CORE1_RUN_OUTPUT_PLAN_WCET_CYCLES);
     const uint32_t phase_end = app_realtime_elapsed_cycles(
         cycle_epoch, end_counter);
     if (work->run_service && phase_id == APP_REALTIME_PHASE_TDMA)
         tdma_service_timing_scheduler_end(work->runtime_cycles);
-    work->overrun = work->runtime_cycles > (work->run_cached ?
+    work->overrun = work->runtime_cycles > (work->run_planned ?
+        PROJECT_CORE1_RUN_OUTPUT_PLAN_WCET_CYCLES : work->run_cached ?
         PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES : contract->wcet_cycles);
     work->deadline_missed = work->ran_work && phase_end > contract->end_cycle;
     const bool inherited_lateness = work->phase_start > contract->start_cycle;
@@ -1031,7 +1043,7 @@ static bool app_realtime_run_phase(
             irq_count * PROJECT_CORE1_PRIORITY_RX_TAIL_CYCLES;
         const uint64_t total_charge = work->runtime_cycles + work->wait_irq_cycles +
             (uint64_t)work->wait_irq_count * PROJECT_CORE1_PRIORITY_RX_TAIL_CYCLES;
-        priority_miss = (work->run_cached && work->overrun) ||
+        priority_miss = ((work->run_cached || work->run_planned) && work->overrun) ||
             !work->sampled || !work->clock_ok || work->close_missed ||
             background_cycles > work->priority.background_cycles || irq_count > work->priority.irq_quota ||
             irq_charge > work->priority.irq_cycles || total_charge > contract->wcet_cycles ||

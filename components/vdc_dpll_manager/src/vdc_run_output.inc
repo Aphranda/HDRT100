@@ -517,6 +517,39 @@ __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(vdc_run_output_service_core1)(
     __atomic_store_n(&s_run_output_busy,0u,__ATOMIC_RELEASE);
 }
 
+__attribute__((noinline)) uint32_t VDC_RUN_OUTPUT_HOT(vdc_run_output_service_planned_core1)(void)
+{
+    uint32_t idle=0u;
+    if (get_core_num()!=1u ||
+        !__atomic_compare_exchange_n(&s_run_output_busy,&idle,1u,true,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED)) return 0u;
+    const uint32_t request=__atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE);
+    const uint64_t admitted=s_run_output.last_local_ns;
+    const uint32_t planned=s_run_output.partial_plan_steps;
+    if (request && s_run_output.planned_calls!=UINT32_MAX) ++s_run_output.planned_calls;
+    run_output_service_owned(false);
+    if (request && s_run_output.last_local_ns!=admitted && s_run_output.planned_submissions!=UINT32_MAX)
+        ++s_run_output.planned_submissions;
+    if (request && s_run_output.partial_plan_steps!=planned && s_run_output.planned_rebuilds!=UINT32_MAX)
+        ++s_run_output.planned_rebuilds;
+    __atomic_store_n(&s_run_output_busy,0u,__ATOMIC_RELEASE);
+    return request;
+}
+
+__attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(vdc_run_output_note_planned_wall_core1)(uint32_t request,
+    uint32_t cycles,uint32_t budget_cycles)
+{
+    uint32_t idle=0u;
+    if (get_core_num()!=1u || !request ||
+        !__atomic_compare_exchange_n(&s_run_output_busy,&idle,1u,true,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED)) return;
+    if (request==__atomic_load_n(&s_run_output_request,__ATOMIC_ACQUIRE)) {
+        if (s_run_output.planned_wall_samples!=UINT32_MAX) ++s_run_output.planned_wall_samples;
+        if (cycles>s_run_output.planned_wall_max_cycles) s_run_output.planned_wall_max_cycles=cycles;
+        if (cycles>budget_cycles && s_run_output.planned_budget_overruns!=UINT32_MAX)
+            ++s_run_output.planned_budget_overruns;
+    }
+    __atomic_store_n(&s_run_output_busy,0u,__ATOMIC_RELEASE);
+}
+
 __attribute__((noinline)) uint32_t VDC_RUN_OUTPUT_HOT(vdc_run_output_service_cached_core1)(void)
 {
     uint32_t idle=0u;

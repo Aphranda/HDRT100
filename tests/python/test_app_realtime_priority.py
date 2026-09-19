@@ -32,8 +32,10 @@ static uint32_t entry_deadline, entries, opens, closes, calls;
 static uint32_t body_cost, tail_cost, timer_read_delay, service_cost;
 static uint32_t snapshot_cost, snapshot_calls, accounting_cost;
 static uint32_t cached_calls, cached_cost, cached_request, cached_notes;
+static uint32_t planned_calls, planned_cost, planned_request, planned_notes;
+static uint32_t planned_noted_request, planned_noted_wall, planned_noted_budget;
 static uint32_t noted_request, noted_wall, noted_budget, note_cost, scheduler_ends;
-static uint64_t cached_started;
+static uint64_t cached_started, planned_started;
 static uint32_t timer_reads;
 static uint64_t events[32];
 static uint32_t event_count, event_next;
@@ -69,6 +71,7 @@ static void app_realtime_schedule_write_end(void) { advance(accounting_cost); }
 static void tdma_service_timing_scheduler_end(uint32_t cycles) { (void)cycles; ++scheduler_ends; }
 static uint32_t vdc_run_output_service_cached_core1(void) {
     assert(!enabled); /* Fallback never inherits the priority IRQ lease. */
+    assert(!planned_calls);
     ++cached_calls; cached_started=now;
     advance(cached_cost);
     return cached_request;
@@ -76,6 +79,18 @@ static uint32_t vdc_run_output_service_cached_core1(void) {
 static void vdc_run_output_note_cached_wall_core1(uint32_t request,uint32_t cycles,uint32_t budget) {
     assert(!enabled && cached_calls==cached_notes+1u);
     ++cached_notes; noted_request=request; noted_wall=cycles; noted_budget=budget;
+    advance(note_cost);
+}
+static uint32_t vdc_run_output_service_planned_core1(void) {
+    assert(!enabled && !cached_calls);
+    ++planned_calls; planned_started=now;
+    advance(planned_cost);
+    return planned_request;
+}
+static void vdc_run_output_note_planned_wall_core1(uint32_t request,uint32_t cycles,uint32_t budget) {
+    assert(!enabled && planned_calls==planned_notes+1u && !cached_notes);
+    ++planned_notes; planned_noted_request=request;
+    planned_noted_wall=cycles; planned_noted_budget=budget;
     advance(note_cost);
 }
 static bool tdma_runtime_owner_priority_rx_counters_core1(tdma_priority_rx_counters_t *out) {
@@ -127,6 +142,8 @@ static void reset(void) {
     accounting_cost=0u;
     cached_calls=cached_notes=noted_request=noted_wall=noted_budget=note_cost=scheduler_ends=0u;
     cached_cost=100u; cached_request=7u; cached_started=0u;
+    planned_calls=planned_notes=planned_noted_request=planned_noted_wall=planned_noted_budget=0u;
+    planned_cost=100u; planned_request=9u; planned_started=0u;
     reset_baseline();
 }
 '''
@@ -232,8 +249,110 @@ static void test_cached_fallback(void) {
     assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
     assert(s_realtime_schedule.phase_overrun_count[0]==1u && s_realtime_schedule.phase_deadline_miss_count[0]==1u);
 }
+static void test_planned_fallback(void) {
+    const uint32_t budget=PROJECT_CORE1_RUN_OUTPUT_PLAN_WCET_CYCLES;
+    const uint32_t cached_budget=PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES;
+    const uint32_t periods[]={375000u,1250000u,2500000u,3750000u};
+    reset();
+    assert(app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+    assert(calls==1u && scheduler_ends==1u && !planned_calls && !planned_notes && !cached_calls);
+    for(unsigned i=0u;i<4u;++i) {
+        reset();
+        assert(app_realtime_profile_install(&s_realtime_schedule,periods[i],2u));
+        const uint32_t close=s_realtime_schedule.phase_end_cycle[0]-PROJECT_CORE1_PRIORITY_RX_CLOSE_CYCLES;
+        now=close-budget-1000u; pending=true;
+        events[event_count++]=now+2000u;
+        events[event_count++]=now+4000u;
+        assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+        assert(!calls && !scheduler_ends && planned_calls==1u && planned_notes==1u);
+        assert(!cached_calls && !cached_notes);
+        assert(planned_noted_request==9u && planned_noted_wall==planned_cost+1u && planned_noted_budget==budget);
+        assert(s_realtime_schedule.phase_run_count[0]==0u && s_realtime_schedule.phase_skip_count[0]==1u);
+        assert(s_realtime_schedule.phase_start_miss_count[0]==1u);
+        assert(s_realtime_schedule.phase_last_start_cycle[0]==planned_started);
+        assert(s_realtime_schedule.phase_last_runtime_cycles[0]==planned_noted_wall);
+        assert(s_realtime_schedule.phase_max_runtime_cycles[0]==planned_noted_wall);
+        assert(s_realtime_priority.background_max_cycles[0]==planned_noted_wall);
+        assert(!s_realtime_schedule.phase_overrun_count[0] && s_realtime_schedule.schedule_miss_count==1u);
+        const uint32_t quota=(periods[i]-1u)/PROJECT_CORE1_PRIORITY_RX_MIN_PHYSICAL_CYCLES+1u;
+        assert(lane.irq_count==(quota<3u?quota:3u) && opens==1u && !enabled);
+    }
+    /* Selection is based on a fresh read after skip accounting. A one-cycle
+     * planned deficit must select cached only, never both or the full owner. */
+    reset(); lane.active=0u;
+    const uint32_t close=s_realtime_schedule.phase_end_cycle[0]-PROJECT_CORE1_PRIORITY_RX_CLOSE_CYCLES;
+    now=close-budget-3u;
+    assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+    assert(planned_calls==1u && planned_started==close-budget && !cached_calls);
+    reset(); lane.active=0u; now=close-budget-2u;
+    assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+    assert(!planned_calls && cached_calls==1u && noted_budget==cached_budget && !calls);
+    reset(); lane.active=0u; accounting_cost=10u; now=close-budget-10u;
+    assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+    assert(!planned_calls && cached_calls==1u);
+    reset(); lane.active=0u; now=close-cached_budget-2u;
+    assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+    assert(!planned_calls && !cached_calls && !calls);
+    reset(); now=close;
+    assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+    assert(!planned_calls && !cached_calls && !opens);
+    reset(); now=PROJECT_CORE1_PHASE_GUARD_START_CYCLE;
+    assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+    assert(!planned_calls && !cached_calls && !calls);
+    /* NULL, disabled and quarantined work cannot gain a fallback. */
+    reset(); now=close-budget-1000u;
+    assert(app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,NULL));
+    assert(!planned_calls && !cached_calls);
+    for(unsigned disabled=0u;disabled<2u;++disabled) {
+        reset(); now=close-budget-1000u;
+        if(disabled) s_realtime_load_quarantined_mask=APP_REALTIME_LOAD_BIT(APP_REALTIME_LOAD_VDC);
+        else s_realtime_load_enabled_mask=0u;
+        assert(app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,APP_REALTIME_LOAD_VDC,service));
+        assert(!planned_calls && !cached_calls && !calls);
+    }
+    for(uint32_t phase=1u;phase<APP_REALTIME_PHASE_COUNT;++phase) {
+        reset(); now=s_realtime_schedule.phase_end_cycle[phase]+1u;
+        assert(!app_realtime_run_phase(0u,phase,-1,service));
+        assert(!planned_calls && !cached_calls && !calls);
+        /* Give the non-TDMA test slot TDMA-sized capacity to ensure the
+         * phase-id guard, rather than insufficient time, excludes fallback. */
+        reset();
+        s_realtime_schedule.phase_start_cycle[phase]=0u;
+        s_realtime_schedule.phase_end_cycle[phase]=s_realtime_schedule.phase_end_cycle[0];
+        s_realtime_schedule.phase_wcet_cycles[phase]=s_realtime_schedule.phase_wcet_cycles[0];
+        now=close-budget-1000u;
+        assert(!app_realtime_run_phase(0u,phase,-1,service));
+        assert(!planned_calls && !cached_calls && !calls);
+    }
+    /* IRQ attribution failure remains recorded; the independently sampled
+     * core-local phase clock can still admit output work with ingress shut. */
+    for(unsigned failure=0u;failure<2u;++failure) {
+        reset(); now=close-budget-1000u; pending=true; s_realtime_priority_active=true;
+        if(failure)timer_ok=false; else snapshot_ok=false;
+        assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+        assert(planned_calls==1u && planned_notes==1u && !cached_calls && !opens && !lane.irq_count);
+        assert(s_realtime_priority.sample_failures && s_realtime_priority.budget_misses[0]);
+    }
+    reset(); now=close-budget-1000u; planned_cost=budget+10u;
+    assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+    assert(planned_noted_wall==budget+11u && s_realtime_schedule.phase_overrun_count[0]==1u);
+    assert(!s_realtime_schedule.phase_run_count[0] && s_realtime_schedule.phase_skip_count[0]==1u);
+    assert(s_realtime_priority.budget_misses[0]==1u && s_realtime_schedule.schedule_miss_count>=2u);
+    reset(); now=close-budget-1000u; planned_request=0u;
+    assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+    assert(planned_calls==1u && !planned_noted_request && planned_noted_wall==planned_cost+1u);
+    assert(s_realtime_schedule.phase_last_runtime_cycles[0]==planned_noted_wall);
+    reset(); now=close-budget-1000u; note_cost=budget+10000u;
+    assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+    assert(planned_noted_wall==planned_cost+1u && !s_realtime_schedule.phase_overrun_count[0]);
+    assert(s_realtime_schedule.phase_deadline_miss_count[0]==1u);
+    reset(); now=close-budget-1000u; planned_cost=budget+10000u;
+    assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_TDMA,-1,service));
+    assert(s_realtime_schedule.phase_overrun_count[0]==1u && s_realtime_schedule.phase_deadline_miss_count[0]==1u);
+}
 int main(void) {
     test_cached_fallback();
+    test_planned_fallback();
     /* Every allowed phase services pending work during an optional/omitted
      * foreground slot; the protected three never enable this IRQ. */
     for(uint32_t phase=0u;phase<APP_REALTIME_PHASE_COUNT;++phase) {

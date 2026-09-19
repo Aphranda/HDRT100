@@ -198,6 +198,172 @@ int main(int argc,char **argv)
 '''
 
 
+@pytest.fixture(scope='module')
+def planned_fallback_client(tmp_path_factory):
+    # The production client/planner is unchanged. This backend seam retires
+    # when the admitted tail has passed; it does not emulate PIO or DMA.
+    prefix = CLIENT_PREFIX.replace('    ++service_calls;', '''    ++service_calls;
+    if(hardware.state==SYNC_IO_RUN_OUTPUT_RUNNING && raw_override) {
+        hardware.service_last_tick=raw_override;
+        ++hardware.service_observations;
+        if(raw_override>hardware.last_falling_tick) {
+            hardware.state=SYNC_IO_RUN_OUTPUT_RETIRED;
+            hardware.reason=SYNC_IO_RUN_OUTPUT_STARVED;
+        }
+    }''')
+    source = (ROOT / 'components/vdc_dpll_manager/src/vdc_run_output.inc').read_text(encoding='utf-8')
+    return compile_host(tmp_path_factory.mktemp('planned-fallback-client'), 'planned_fallback',
+        prefix + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
+        '\n#undef main\n' + PLANNED_FALLBACK_MAIN,
+        [ROOT / 'components/vdc_domain/src/vdc_domain.c',
+         ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
+         ROOT / 'components/tdma/src/tdma_profile.c'])
+
+
+@pytest.mark.parametrize('change', ['phase', 'rate'])
+@pytest.mark.parametrize('mode', ['cached_only', 'planned_first', 'planned_after_cached',
+                                 'unchanged', 'dma_busy'])
+def test_planned_fallback_recovers_invalidated_cache(planned_fallback_client, change, mode):
+    result = subprocess.run([str(planned_fallback_client), mode, change],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize('mode', ['first_block', 'no_request', 'wrong_core', 'busy',
+                                  'wall', 'wall_stale', 'wall_busy', 'wall_core',
+                                  'wall_zero', 'saturate', 'cancel'])
+def test_planned_fallback_accounting_and_owner(planned_fallback_client, mode):
+    result = subprocess.run([str(planned_fallback_client), mode, 'phase'],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+PLANNED_FALLBACK_MAIN = r'''
+static void assert_current_suffix(const sync_io_run_output_edge_t prefix[16])
+{
+    uint64_t previous_local=prefix[15].falling_tick*4u;
+    uint64_t next=prefix[15].ordinal+1u;
+    for(unsigned i=0;i<16u;++i) {
+        vdc_output_edge_plan_t scalar;
+        assert(vdc_output_edge_plan(&model.dco,0u,1000000u,next,previous_local,100,&scalar));
+        assert(admitted[1][i].model_token==model.token);
+        assert(admitted[1][i].ordinal==scalar.ordinal);
+        assert(admitted[1][i].rising_tick==(scalar.physical_local_ns+3u)/4u);
+        previous_local=scalar.physical_local_ns+1000u;next=scalar.ordinal+1u;
+    }
+}
+int main(int argc,char **argv)
+{
+    assert(argc==3);initialize();const char *mode=argv[1];
+    timing=(vdc_output_timing_profile_t){24000u,32000u,16000u};
+    if(!strcmp(mode,"no_request")) {
+        core=1u;assert(!vdc_run_output_service_planned_core1());
+        assert(!s_run_output.planned_calls && !s_run_output.planned_rebuilds &&
+               !s_run_output.planned_submissions && !submit_calls);
+        return 0;
+    }
+    prepare();arm(true);
+    if(!strcmp(mode,"wrong_core") || !strcmp(mode,"busy")) {
+        if(!strcmp(mode,"wrong_core"))core=0u;else s_run_output_busy=1u;
+        const unsigned services=service_calls;
+        assert(!vdc_run_output_service_planned_core1());
+        assert(service_calls==services && !s_run_output.planned_calls && !s_run_output.planned_rebuilds);
+        return 0;
+    }
+    if(!strcmp(mode,"first_block")) {
+        for(unsigned i=0;i<4u;++i) {
+            assert(vdc_run_output_service_planned_core1()==generation);
+            assert(s_run_output.planned_calls==i+1u && s_run_output.planned_rebuilds==i+1u);
+            assert(submit_calls==(i==3u?1u:0u));
+        }
+        assert(s_run_output.planned_submissions==1u && !s_run_output.fast_calls);
+        return 0;
+    }
+    for(unsigned i=0;i<4u;++i)vdc_run_output_service_core1();
+    assert(submit_calls==1u && admitted_count[0]==16u);
+    const uint64_t old_tail=hardware.last_falling_tick;
+    sync_io_run_output_edge_t prefix[16];memcpy(prefix,admitted[0],sizeof(prefix));
+    ready=false;raw_override=old_tail-2500000u;
+    vdc_run_output_service_core1();
+    assert(s_run_output_pending.valid && s_run_output.last_outcome==VDC_RUN_OUTPUT_DMA_NOT_READY);
+    assert(!s_run_output.planned_calls && !s_run_output.planned_rebuilds);
+    if(strcmp(mode,"unchanged")) {
+        ++model.token;
+        if(!strcmp(argv[2],"phase"))model.dco.phase_offset_ns=60;
+        else { assert(!strcmp(argv[2],"rate"));model.dco.period_adjust_ppb=500; }
+    }
+    ready=true;raw_override=old_tail-1875000u; /* 7.5 ms, then 1.5 ms calls. */
+    if(!strcmp(mode,"cancel")) {
+        vdc_run_output_cancel();
+        assert(vdc_run_output_service_planned_core1()==generation);
+        assert(hardware.state==SYNC_IO_RUN_OUTPUT_RETIRED && submit_calls==1u);
+        assert(s_run_output.planned_calls==1u && !s_run_output.planned_rebuilds &&
+               !s_run_output.planned_submissions && !s_run_output_pending.valid);
+        return 0;
+    }
+    if(!strncmp(mode,"wall",4u) || !strcmp(mode,"saturate")) {
+        const uint32_t budget=100000u;
+        if(!strcmp(mode,"saturate")) {
+            s_run_output.planned_calls=s_run_output.planned_rebuilds=UINT32_MAX;
+            s_run_output.planned_submissions=s_run_output.planned_wall_samples=UINT32_MAX;
+            s_run_output.planned_budget_overruns=UINT32_MAX;
+        }
+        const uint32_t request=vdc_run_output_service_planned_core1();
+        assert(request==generation && submit_calls==2u);
+        const bool saturation=!strcmp(mode,"saturate");
+        assert(s_run_output.planned_calls==(saturation?UINT32_MAX:1u));
+        assert(s_run_output.planned_rebuilds==(saturation?UINT32_MAX:1u));
+        assert(s_run_output.planned_submissions==(saturation?UINT32_MAX:1u));
+        const bool rejected=strcmp(mode,"wall") && !saturation;
+        if(!strcmp(mode,"wall_stale"))++s_run_output_request;
+        if(!strcmp(mode,"wall_busy"))s_run_output_busy=1u;
+        if(!strcmp(mode,"wall_core"))core=0u;
+        const uint32_t report_request=!strcmp(mode,"wall_zero")?0u:request;
+        vdc_run_output_note_planned_wall_core1(report_request,budget,budget);
+        vdc_run_output_note_planned_wall_core1(report_request,budget+1u,budget);
+        assert(s_run_output.planned_wall_samples==(saturation?UINT32_MAX:rejected?0u:2u));
+        assert(s_run_output.planned_budget_overruns==(saturation?UINT32_MAX:rejected?0u:1u));
+        assert(s_run_output.planned_wall_max_cycles==(rejected?0u:budget+1u));
+        assert(!s_run_output.fast_calls && !s_run_output.fast_wall_samples);
+        return 0;
+    }
+    for(unsigned i=0;i<7u;++i) {
+        const bool planned=(!strcmp(mode,"planned_first") && i==0u) ||
+            (!strcmp(mode,"planned_after_cached") && i==2u) ||
+            (!strcmp(mode,"dma_busy") && i==0u);
+        if(!strcmp(mode,"dma_busy"))ready=i!=0u;
+        if(planned)assert(vdc_run_output_service_planned_core1()==generation);
+        else assert(vdc_run_output_service_cached_core1()==generation);
+        if(hardware.state==SYNC_IO_RUN_OUTPUT_RETIRED || submit_calls==2u)break;
+        raw_override+=375000u;
+    }
+    assert(!memcmp(prefix,admitted[0],sizeof(prefix)) && !cancelled);
+    if(!strcmp(mode,"cached_only")) {
+        /* Negative control: backend services continue, but an empty cached
+         * suffix makes no forward progress without a planning opportunity. */
+        assert(submit_calls==1u && hardware.reason==SYNC_IO_RUN_OUTPUT_STARVED);
+        assert(s_run_output.fast_empty>=5u && s_run_output.cache_invalidations==1u);
+        assert(s_run_output.last_outcome==VDC_RUN_OUTPUT_DMA_NOT_READY);
+        assert(!s_run_output.planned_calls && !s_run_output.planned_rebuilds);
+        return 0;
+    }
+    assert(submit_calls==2u && hardware.state==SYNC_IO_RUN_OUTPUT_RUNNING);
+    assert(raw_override+20000u<old_tail); /* Admission preceded tail expiry. */
+    if(!strcmp(mode,"unchanged")) {
+        assert(!s_run_output.cache_invalidations && !s_run_output.planned_calls);
+        assert(s_run_output.fast_submissions==1u);
+    } else {
+        assert(s_run_output.cache_invalidations==1u && s_run_output.planned_calls==1u);
+        assert(s_run_output.planned_rebuilds==1u);
+        assert(s_run_output.planned_submissions==(!strcmp(mode,"dma_busy")?0u:1u));
+        assert(s_run_output.fast_submissions==(!strcmp(mode,"dma_busy")?1u:0u));
+    }
+    assert_current_suffix(prefix);
+    return 0;
+}
+'''
+
+
 TIMELINE_MAIN = r'''
 static void step(void) { vdc_run_output_service_core1(); }
 static void begin(void) { prepare(); arm(true); }

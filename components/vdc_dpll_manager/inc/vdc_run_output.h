@@ -3,7 +3,7 @@
 #include "sync_io_run_output.h"
 #include "vdc_output_timing.h"
 
-#define VDC_RUN_OUTPUT_SCHEMA 11u
+#define VDC_RUN_OUTPUT_SCHEMA 12u
 #define VDC_RUN_OUTPUT_TIMEBASE_TIMER1_NS 1u
 
 enum { VDC_RUN_OUTPUT_PREPARED_PHASE, VDC_RUN_OUTPUT_RUNNING_PHASE,
@@ -77,6 +77,10 @@ typedef struct {
      * Both are retained after STOP, and neither is a physical edge receipt. */
     uint32_t timebase;
     uint64_t initial_raw_tick, initial_local_ns;
+    /* Independently admitted output-only full service, not ordinary TDMA or
+     * cached-only handoff. Caller wall includes ownership and return. */
+    uint32_t planned_calls, planned_submissions, planned_rebuilds;
+    uint32_t planned_wall_samples, planned_wall_max_cycles, planned_budget_overruns;
 } vdc_run_output_status_t;
 
 /* STOP preparation: duration_ms 1..20000 retains finite debug expiry;
@@ -101,6 +105,11 @@ void vdc_run_output_service_core1(void);
 /* No first block or model inverse. Only existing private
  * suffixes may be admitted, with the same lifetime and clock validation. */
 uint32_t vdc_run_output_service_cached_core1(void);
+/* Same full planner and lifecycle as ordinary service, independently admitted
+ * within the existing TDMA phase. Never use the cached-only budget for it. */
+uint32_t vdc_run_output_service_planned_core1(void);
+void vdc_run_output_note_planned_wall_core1(uint32_t request,
+    uint32_t cycles,uint32_t budget_cycles);
 void vdc_run_output_note_cached_wall_core1(uint32_t request,
     uint32_t cycles,uint32_t budget_cycles);
 #endif

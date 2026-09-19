@@ -874,9 +874,9 @@ def test_real_parser_exports_start_observation_receipt(parser_host):
     result = subprocess.run([str(parser_host), 'RUN?', 'query'], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stdout + result.stderr
     fields = [int(value) for value in result.stdout.strip().split(',')]
-    assert len(fields) == 119
+    assert len(fields) == 125
     # Preserve every old position: 26 small fields, ten uint64, two config.
-    assert fields[:36] == [11] + [0] * 35
+    assert fields[:36] == [12] + [0] * 35
     assert fields[36:43] == [20, 21, 13, 12, 3, 4294967303, 4294967311]
     assert fields[43:50] == list(range(4294967400, 4294967407))
     assert fields[50:59] == list(range(101, 110))
@@ -888,7 +888,8 @@ def test_real_parser_exports_start_observation_receipt(parser_host):
     assert fields[110:113] == [0, 0, 0]
     assert fields[113:115] == [0, 0]
     assert fields[115:116] == [0]
-    assert fields[116:] == [1, 4294967410, 17179869640]
+    assert fields[116:119] == [1, 4294967410, 17179869640]
+    assert fields[119:] == list(range(501,507))
 
 
 PARSER_PREFIX = r'''
@@ -954,6 +955,8 @@ bool vdc_run_output_status(vdc_run_output_status_t *out)
     out->timebase=VDC_RUN_OUTPUT_TIMEBASE_TIMER1_NS;
     out->initial_raw_tick=UINT64_C(4294967410);
     out->initial_local_ns=UINT64_C(17179869640);
+    out->planned_calls=501u; out->planned_submissions=502u; out->planned_rebuilds=503u;
+    out->planned_wall_samples=504u; out->planned_wall_max_cycles=505u; out->planned_budget_overruns=506u;
     for(unsigned p=0;p<VDC_RUN_OUTPUT_PHASE_COUNT;++p)
         for(unsigned o=0;o<VDC_RUN_OUTPUT_OUTCOME_COUNT;++o)out->outcomes[p][o]=200u+p*100u+o;
     return true;
