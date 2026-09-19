@@ -30,7 +30,7 @@ VDC 维护本地时间到输出时间的映射、DPLL 控制及其发布视图�
 | 共同网格输出 | 整数反解、独立 output delay、有限后缀规划和 SYNC_IO PIO/DMA 输出已接通。 | 诊断持续输出不自动授权正式产品 RUN；前缀、供给期限及物理精度分别验证。 |
 | 运行配置与持久化 | PI/角色、早期基线、输出 delay/时间窗口有配置接口；关键调试模式经 STOP 安装。 | Core1 仅用 RAM 快照；Flash 不保存运行积分、锁状态或会话。 |
 | 内部与外部观测 | 有界原生/汇总/GUARD SRAM 记录，STOP 后导出；主机可选示波器联合采集。 | 内部模型不等于 GPIO；稀疏波形不证明未采样区间。 |
-| 一致发布 | committed DCO 小快照与完整 runtime 快照分别加 guard；本地 publication revision 已独立于 evidence 序号。 | 无新 evidence 时年龄维护、ready 变化后的完整发布仍有缺口。 |
+| 一致发布 | committed DCO 与完整 runtime 分别加 guard；publication revision 独立于 evidence 序号，空转维护 age/health，ready 变化发布派生质量，外参非零采用发布 clock/DCO。 | 局部发布修复见进度 026、027；正式有效性、失联与恢复仍待闭合。 |
 | 正式质量与恢复 | Domain 有 lock、quality tier、health、age 和恢复状态接口。 | 自动失联降级、HOLDOVER/恢复和完整产品门禁尚未闭合；详见 TODO。 |
 
 ## 数据流与代码落点
@@ -167,14 +167,15 @@ Core0 在 TDMA STOP 排他边界 PREPARE，锁存 session、delay、周期、时
 
 `distributed_refmem.c` 在 debug continuation 开启时不发布 `REFMEM_VECTOR_FLAG_LOCKED`。按 [EXE-SAFE-01](../check/DOCS_EXECUTION_CONSTRAINTS.md#exe-safe-01可恢复拒绝的记录与有界继续)，调试态 DPLL 失锁或局部 WCET/deadline 超限本身不隔离收发仍健康的 TDMA 节点；异常须记录，节点级隔离只适用于 TDMA 或不可恢复硬件资源故障。
 
-Domain 已有 age/health 计算，但 manager 目前仅在 `s_vdc_domain_service_pending` 分支调用 `vdc_domain_service()`，无输入空转不保证持续刷新 age。`set_ready(false)` 更新控制状态和 DCO 后也不保证完整 runtime/quality 同拍发布。缺参考自动 HOLDOVER、误差边界增长、恢复重锁及统一发布属于 `VDC-SNAPSHOT-001`、`VDC-HOLD-001`、`VDC-RECOVERY-001` 后续门禁。
+`sync_dpll_fb_service()` 在 step 的提前返回前维护质量年龄：`vdc_domain_age_quality()` 只更新 age/health，已有 HOLDOVER 同步其年龄，不推进服务/证据计数或自动迁移控制状态。无参考时间或读钟失败跳过；工作 Domain 与已发布视图分别按各自参考时间和状态老化，不提前公开未 finalize 的证据。ready 变化刷新派生质量，并在已有 runtime 快照时发布。缺参考自动 HOLDOVER、误差边界增长、恢复重锁及正式有效发布仍属于 `VDC-SNAPSHOT-001`、`VDC-HOLD-001`、`VDC-RECOVERY-001` 后续门禁。
 
 ## 快照与管理发布
 
 | 发布层 | 当前语义 |
 |---|---|
 | committed DCO | 活动 session 的 guard 包围整个 Core1 owner step，末尾 `model_feedback_end_core1()` 发布实际 DCO；变化建立 token/`valid_from_raw`。读者单次稳定检查，奇数或变化即失败。 |
-| 完整 runtime snapshot | 汇总 Domain 的 clock/DCO/DPLL/quality 等字段；特定 service/提交分支更新，不能假设每拍必新。 |
+| 完整 runtime snapshot | service/提交及 ready 变化发布完整视图；空转仅以同一 guard 刷新已发布的 age/health/holdover age，不调用带 capture 副作用的完整 publisher，也不替换 DCO/证据字段。 |
+| 外参模型采用 | `reference_discipline_service_core1()` 非零基线采用成功后，以 runtime guard 只发布 clock/DCO；保留上次已完成的 DPLL/quality，未完成的 servo 证据仍等 finalize。不因重复、零步进或拒绝推进模型发布。 |
 | Core0 / RefMem mirror | 按成功复制快照的 `publication_revision` 去重；wire evidence 序号保留原语义。 |
 
 小模型发布解决事件投影的提交/可见性边界，不代替质量老化。`clock.valid`、model token、publication revision、DCO update seq 都不是 freshness 或正式共同时间资格。
@@ -223,7 +224,11 @@ STOP 后显式授权、固定分片配额、完整发布证明和逐字节 ACK �
 
 外部 10 MHz 输入先作为诊断测量源。`SYSTem:VDC:REFerence:CONFigure` 设置输入端口、边沿、标称频率、测量窗口和失联超时；`ENABle 1` 只在 STOP 阶段申请 SYNC_IO 的 PIO/DMA 资源，Core1 负责有限窗口采样，`STATus?` 返回状态、样本序号、原始计数和相对标称频偏。`DEFAult`、`RECall`、`STORe` 只处理参数，Flash 不保存使能状态。测量的 DMA 延迟尚未形成有界精度证明，也不会自动改写 DCO；基准驯服另行验收。
 
+`sync_io_reference_service_core1()` 将采样超时作为可恢复状态：异步中止并排空旧窗口，保留 lease/generation 后重试，直到完整新窗口有效才清除 TIMEOUT。地址、token、序号或 DMA/时钟故障仍终止；取消在退休确认后释放资源。完整记录先检结构，再判 deadline，未超时才做计数求值，避免失联拉长窗口被误判为永久坏记录。
+
 补偿由独立的 `DISCipline` 意图启用，STOP 配置且上电关闭。`vdc_reference_discipline.inc` 在 Core1 committed-model 提交边界消费新鲜硬件窗口，按会话、参考代际、角色、时钟和主板 origin epoch 去重绑定。`DISCipline:CONFigure` 配置调频斜率、滤波分母及测量准入限幅，默认值见 `PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_*`；`DEFAult/RECall/STORe` 分别恢复默认、读取保存值及显式保存。配置仅在 STOP 且补偿未启用时修改，ARM 锁存；`CONFigure?` 读请求参数，`ACTive?` 读 Core1 锁存参数、代次和 CRC。Flash 仍经 Core0 停态维护与 FlashTransaction，旧记录仅在 RAM 迁移，上电不自动启用。Domain 将绝对参考基线与 MASTER PI 残差分开，再合成实际速率；更新时连续重基，不调整 TIMER0/TIMER1 原始计数器。失联或取消冻结最后基线，新的运行配置重建模型；从板继续跟踪 NO1 已提交时间戳。此实现不提升 formal quality，实板精度和失联恢复按 TODO 分别验收。
+
+已绑定会话失去有效窗口时，外参补偿进入 `VDC_REFERENCE_DISCIPLINE_HOLD`，冻结最后基线、清除滤波历史；恢复后的新鲜窗口只获得正常单窗口调频预算，不累计失联期间的调整额度。此 HOLD 不等同于 Domain 的正式 HOLDOVER，也不自动提升 quality；实板超时重试、显式重启和物理断接后同会话恢复须分别留证。
 
 ### VDC-BOUNDARY-01：兼容逐从命令
 

@@ -22,6 +22,38 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-029：已验实现按指纹收敛提交
+
+- TODO task ID：`VDC-SNAPSHOT-001`、`VDC-OBS-007`、`VDC-FREQ-001` IN PROGRESS。实现提交 `7a1f2434` 包含启动预检、异步留证、age/ready、外参模型发布和超时恢复；staged P3 门禁核对通过，build/源码 SHA 沿用 028，未合入文档。
+- 下一切片：typed FOLLOW 当前有 AGE 取消和新样本重新建基线，但通用 quality 是正式证据口径，不能用 MATCH 成功填充。独立复核建议单独发布 typed 事件新鲜度，使用 TIMER1 事件年龄和已有 FOLLOW 期限；不续期重复事件，不授予 formal，随后对账 Core0/RefMem 与参考失联恢复。
+
+### VDC-PROGRESS-20260919-028：外参超时重试与补偿 HOLD 恢复切片
+
+- TODO task ID：`VDC-FREQ-001`、`VDC-SNAPSHOT-001` IN PROGRESS；以下数字为本轮快照。采集 TIMEOUT 异步排空并同 lease/generation 重试，完整新窗口才清除失效；DMA/时钟/结构故障仍终止。补偿无有效窗口进入 HOLD，冻结基线，恢复仅用正常单窗口斜率；不代表正式 Domain HOLDOVER。
+- 初版完整超时窗口先被数学判坏，新增回归复现 1 失败/1 通过；改为结构检查→deadline→求值后，最终后端 44 项通过，独立复核无阻塞。此前管理/配置/发布相关 157 项及真实 Domain 集成 13 场景通过。
+- 证据根 `out/HardwareAcceptance/20260919/vdc-reference-recovery-r1/`；最终 `p3-r2` 为 PASS_WITH_WARNINGS，23 INFO/22 WARN/0 ERROR/FATAL，Release A/B/BOOT 通过。build `20260919120914`，源码 SHA `ad0d95657fb57dac7259e4014594d0b80f31a71fca4e2686533a8a5a76facf83`；保留修正前 `p3-r1`，不混用凭证或授予严格 WCET。
+- `timeout-stop-1789820052283056800.json`：STOP 下故意配置无法按时完成的窗口，三次读回同代 TIMEOUT/invalid 且资源保持；取消释放后恢复正常配置，重新使能得到 3 个有效窗口。配置已恢复、无 Flash 写入。此项证明实板持续 TIMEOUT 状态与显式重启，未测重试次数，不证明物理断接后同会话恢复。
+- `joint-60s-r1/joint-summary.json`：内部健康、外部十二窗、四板末态模型一致性通过；48 份 RAW 哈希一致，RUN 查询为零，读取 1.813–2.141 s。相对 NO1 范围：NO2 [0.201,35.910]、NO3 [-10.940,28.000]、NO4 [3.318,38.000] ns；全部已采边沿在 ±50 ns 内。四板 STOP/释放/恢复正常。
+- 下一 gate：typed 参考失联、正式 quality 与物理参考同会话恢复。内部 `complete_window_proven` 仍 false，同事件精确对应及未采区间物理精度不作通过声明；实现尚未提交。
+
+### VDC-PROGRESS-20260919-027：外参 clock/DCO 采用与管理发布一致
+
+- TODO task ID：`VDC-SNAPSHOT-001`、`VDC-FREQ-001` IN PROGRESS；数字为本轮快照，非产品资格。非零补偿成功后按原 guard 只发布 clock/DCO；DPLL/quality/capture 仍按原 evidence 完成边界推进，PI 和调频参数未改。
+- 修复前集成测试 3 失败/5 通过，直接复现模型未发布；修复后相关 75 项通过，最终九场景集成回归通过。真实 Domain 覆盖 prepare→reference→servo、servo→reference→finalize、Core0/RefMem 去重及拒绝/取消/零步进；独立只读复核无阻塞项。Release A/B/BOOT 链接通过，新增 XIP 100 B，静态 RAM 边界及函数栈帧未变；不据此授予 WCET。
+- 证据根 `out/HardwareAcceptance/20260919/vdc-reference-publication-r1/`；`p3-r1` 为 PASS_WITH_WARNINGS，25 INFO/18 WARN/0 ERROR/FATAL。build `20260919114207`，源码 SHA `6689805c9f68a1133a26515e8d158b00714a16a028767b8f5168cc6b91ecba0a`。沿用已测线序，PowerShell/Python 原生入口运行，未重扫 P0。
+- `joint-60s-r1` 内部健康与外部窗口通过；十二个四路窗口、48 份 RAW 哈希一致，读取 1.812–2.125 s，无漏采/超时，RUN 板端查询为零。相对 NO1 范围：NO2 [-12.000,33.851]、NO3 [-1.827,28.197]、NO4 [4.000,38.061] ns。局部 planned 输出路径预算通过，不替代完整静态表或未采区间精度。
+- STOP 后四板 Core1 保留模型与 Core0 DCO 的序号、频率、锚点及 CRC 全部一致；NO1 补偿 accepted/applied 均 60，基线 4412 ppb、DCO seq 104。ppb 为控制量，非绝对频率精度。Core0 历史 invalid 计数非零，本轮只证明末态有效且一致；RefMem 的逐字段一致由 host 集成验证。四板已 STOP、释放并恢复，无 cleanup error；实现未提交。
+- 下一 gate：缺参考时保持/降级、重新输入后的恢复及旧会话退休；正式 quality、内外精确事件关联和连续物理输出资格保持未完成。
+
+### VDC-PROGRESS-20260919-026：空转质量老化与 ready 发布切片验收
+
+- TODO task ID：`VDC-SNAPSHOT-001`、`VDC-OBS-007` IN PROGRESS；以下数字为本轮快照，非产品资格，实现尚未提交。
+- Core1 wrapper 在 step 提前返回前分别维护工作 Domain 和已发布视图的 age/health/holdover age；不推进 service、证据或模型序号，不进入带 capture 副作用的完整 publisher。ready 变化同步派生 quality 和已有 runtime 发布。保留 prepare/servo/finalize/service 边界，无参考及读钟失败不伪造样本。
+- 相关 host 回归 58+63 项、Domain C tests 通过；旧 manager 负对照 9 失败/9 通过，复现 age/ready 缺陷。Release A/B/BOOT 及链接契约通过。证据根 `out/HardwareAcceptance/20260919/vdc-idle-publication-r1/`；`p3-r1` 为 PASS_WITH_WARNINGS，23 INFO/24 WARN/0 ERROR/FATAL。build `20260919112440`，源码 SHA `46d18204f99544c4e00cd4090a84c8cb401a65624d74c8b48f0378b281254585`；不授予严格 WCET 资格。
+- `joint-60s-r1` 内部健康及外部窗口通过，十二个四路窗口、48 份 RAW 哈希一致，RUN 板端查询为零；相对 NO1 范围：NO2 [-8.742,40.365]、NO3 [-14.223,28.061]、NO4 [-3.340,36.057] ns。固定 delay 和外参参数同 025；读取 2.000–2.266 s，后台写盘最大 7.265 s，未漏采/超时，最终 flush 完成。全程含启动，不据此宣称稳态退化或未采区间精度。
+- `idle-observation-1789817581103122500.json`：四板 STOP/配置 ACK、UID/build 和错误队列核验通过；NO1 age 从 116273504 增至 117298009 µs，accepted 保持 39，health 为 DEGRADED。NO2–NO4 为 CHECKING/无正式参考样本，age=0 不作为老化实测证明；本地 typed DCO 跟踪与正式质量样本分开。全部采集正常 STOP/释放/恢复。
+- 下一 gate：独立修复参考补偿采用后的 runtime DCO 可见性，再推进失联/恢复、正式质量及 RefMem 一致发布；内部 `complete_window_proven` 和内外同事件精确关联仍未闭合。
+
 ### VDC-PROGRESS-20260919-025：启动预检、异步保存与三会话联合验证
 
 - TODO task ID：`VDC-OBS-007`、`VDC-OUTPUT-001`、`VDC-PRECISION-001`、`VDC-SNAPSHOT-001` IN PROGRESS。以下数字为实测快照，非产品资格；工具/测试改动仍在工作区，本次文档提交不包含这些实现。

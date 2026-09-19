@@ -43,7 +43,7 @@ Last updated: 2026-09-19
 
 当前试验为四板环路、5 m 网线、10 Mbit/s、250 MHz / 4 ns TIMER1（配置快照，非硬件契约）。TIMER0 保留 SDK 系统计时；DPLL/VDC/SYNC 使用 TIMER1，PIO/DMA 执行已提交边沿。
 
-已具备 typed 参考发布、三从匹配/ACK/本地 DCO 采用、独立输出 delay、有限及持续输出、内部 GUARD 和可选示波器联合采集。外参补偿下十分钟及相同配置两轮 STOP/ARM 验证通过，见 `VDC-PROGRESS-20260919-025`；稀疏外部窗口不证明未采样区间精度，也不替代复位恢复和 VDC 有效发布。该轮启动预检与异步保存工具仍在制，源码指纹及提交边界见进度。
+已具备 typed 参考发布、三从匹配/ACK/本地 DCO 采用、独立输出 delay、有限及持续输出、内部 GUARD 和可选示波器联合采集。外参补偿下十分钟及相同配置两轮 STOP/ARM 验证通过，见 `VDC-PROGRESS-20260919-025`；稀疏外部窗口不证明未采样区间精度，也不替代复位恢复和 VDC 有效发布。启动预检、异步保存及后续发布/恢复修复已提交，源码指纹及提交边界见进度 029。
 
 ## 未完成
 
@@ -55,7 +55,7 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 
 | 顺序 | 下一步 | 对应任务 / 退出条件 |
 |---|---|---|
-| 1 | 修复无新 evidence 时质量不老化、idle ready 变化不及时发布 | `VDC-SNAPSHOT-001`；Core1、Core0、RefMem 的年龄/有效性/质量一致，不伪造服务/有效样本计数，不提前公开未 finalize 的证据；参考补偿后 runtime DCO 可见性独立核查。缺口见进度 018、025。 |
+| 1 | 验证缺参考时模型保持、质量降级及恢复发布 | `VDC-SNAPSHOT-001`、`VDC-HOLD-001`；age/ready、外参模型发布及采集超时重试见进度 026–028。继续 typed 参考断流、正式质量及物理断接后同会话恢复对账，补偿 HOLD 与 Domain HOLDOVER 分开判定。 |
 | 2 | 保持已验证 delay，扩展恢复及输出证据 | `VDC-OUTPUT-001`、`VDC-PRECISION-001`、`VDC-DRIFT-001`；已有同配置 STOP/ARM 证据，补单板复位恢复、脉冲身份和测量误差。 |
 | 3 | 验证失联、保持、恢复及旧会话退休 | `VDC-RECOVERY-001`、`VDC-HOLD-001`；区分偶发坏样本与持续失效，恢复后重新收敛。 |
 | 4 | 闭合正式精度及 VDC RUN 发布 | `VDC-CAL-001`、`VDC-EVID-001`、`VDC-LOCK-001`、`VDC-RUN-001`、`VDC-VERIFY-001`；校准、同事件身份、freshness、快照及完整调度证据齐全。 |
@@ -86,7 +86,7 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| `VDC-SNAPSHOT-001` | guarded snapshot 与一致发布 | IN PROGRESS | 完整关闭依赖 `VDC-LOCK-001`；DCO-only 刷新已有修复。继续验证 quality/valid/freshness、ready 变化、Core1 稳定读取及 Core0/RefMem 镜像，stale/late/半更新 fail-closed。 |
+| `VDC-SNAPSHOT-001` | guarded snapshot 与一致发布 | IN PROGRESS | 完整关闭依赖 `VDC-LOCK-001`；DCO-only、age/ready 及外参 clock/DCO 发布局部修复已验，见进度 026、027。继续正式 quality/valid/freshness 与恢复镜像；从板 STOP 无正式参考样本不算实板老化证明，stale/late/半更新仍须 fail-closed。 |
 | `VDC-TDMA-001` | resident lifecycle 与固定 process image | IN PROGRESS | 依 active TDMA profile，关联 UP/DOWN、sequence/CRC、latch 与 RUNNING evidence；资源、方向、persona 无冲突，VDC 不接管运输。 |
 | `VDC-CAL-001` | 有向 delay/bias 与完整路径矩阵 | IN PROGRESS | 依 TDMA profile/CRC；active matrix、table CRC、代际和 freshness 齐全，缺项拒绝。独立验证 forward-CS；provisional reverse-DATA 转置值和输出补偿不替代路径校准。 |
 | `VDC-EVID-001` | 正式 DPLL evidence 准入 | IN PROGRESS | 依赖 `VDC-CAL-001`；sequence/CRC/window/payload/dictionary/timestamp gate 全通过，diagnostic-only 不升级为 formal。 |
@@ -176,7 +176,7 @@ config_crc32、上述三个参数，用于核对 ARM 锁存。50 ppb/s 两分钟
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
 | `VDC-TUNE-002` | 按需开放其他 DPLL 参数 | IN PROGRESS | 本轮开放外参调频斜率、滤波分母及测量准入限幅的 SCPI/Flash；STOP 配置、ARM 锁存，提供采用代次/CRC，默认/召回/保存分别验收。其他参数逐组推进，不要求先全部开放。 |
-| `VDC-FREQ-001` | 残余频差与外部基准补偿 | IN PROGRESS | 显式慢速参考补偿已实现，绝对基线与 PI 残差分离；同源码四板 P3、一分钟 GPIO 共存和实际 DCO 采用通过，见进度 022。后续失联保持/恢复、同启动频率对照及独立频率复核。不以参考读数或软件补偿量代替实际频率精度。 |
+| `VDC-FREQ-001` | 残余频差与外部基准补偿 | IN PROGRESS | 显式补偿、绝对基线与 PI 残差分离已实现。超时同代重试、HOLD/限速恢复已过 host；实板持续 TIMEOUT 状态与显式重新使能恢复通过，见进度 028。物理断接后同会话恢复、同启动频率对照及独立频率复核待验，不以补偿量代替实际频率精度。 |
 | `VDC-ROLE-001` | Domain 控制 profile 与角色边界 | IN PROGRESS | 依 evidence 接口；角色切换清理积分/锁历史、generation 可见。旧命令 follower 旁路本地控制；当前本地跟踪显式启用，模式互斥，主机 PI 不退化。 |
 | `VDC-ROLE-002` | 集中式定时 follower apply | PENDING | 暂停旧路线；依赖 `VDC-SCHED-001`、`VDC-ROLE-001`、`VDC-CMD-001` 至 `VDC-CMD-005` 完整门禁，不隐式回退本地 PI。 |
 | `VDC-ROLE-003` | Flash/SCPI 角色配置 | PENDING | 既有扩展依赖 `VDC-ROLE-001/002`；任意节点可配置角色/来源，legacy 默认迁移明确，requested/applied generation 可读，Flash 仅显式保存。 |
