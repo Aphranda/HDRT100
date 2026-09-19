@@ -1080,6 +1080,16 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 - 按既有受限提交授权保存已通过单板门禁的修复，继续保留risk：质量快照无关锁依赖已修复，NSEQ-RISK-04仍待外部短轮次闭合；NSEQ-RISK-06原间歇OFF拒绝尚无新现场诊断，不能称根因消除。下一步恢复并验证外部输入，再跑静默30位置和逐段计时；该切片闭合前不推进部署/VDC下一迁移。
 - 代码提交`177a1fe9`带`risk`，提交钩子已核验当前单板凭证，文档分离提交。文档全量检查及回归通过；仅保留既有`TDMA-FLIGHT-BITMAP-01`格式警告。约定的`D:/Aphranda/Git/bin/bash.exe`在本机不存在，手动门禁使用已安装的`C:/Program Files/Git/bin/sh.exe`通过；构建和工具继续使用本机PowerShell/CMD及Python入口。
 
+### 068：信号源开启后外部静默三十位置通过
+
+- TODO：`NSEQ-117/115`、`NSEQ-RISK-04/06`；日期：2026-09-19。以下参数、计数和时间为本次验收快照，非产品事实源。沿用进度067的build `20260919092554`、OTA及源码，未修改固件或工具。UID `839E1AE79EA20F31`；用户开启外部源，沿用IN1声明1kHz、N=1000、OUT4到IN2及RJ45物理回环，网关脉宽1us，编码稳定配置10us。
+- 输入隔离原件保留于`out/node-sequence/sequence-quality-20260919/`：开启前`input-isolation-independent-r1.json`及`input-isolation-pad-r1.json`无输入，`input-isolation-positive-in2-r1.json`证明OUT4到IN2有效。开启后误并行运行同设备客户端导致`input-isolation-independent-r2.json`超时及`input-isolation-pad-r2.json`build回复异常，属于主机编排失误，不据此归因固件回归。恢复单客户端后`input-isolation-independent-r3.json`通过独立IN1有限八状态及清理，实际build匹配。
+- `third-mode-1khz-30-quiet-r2.json`通过：一次START后静默32s，本工具运行期命令数为零；未注入计数、READY或NEXT。30位置、240次触发/READY、239次后继推进，末位置阈值30000，最终累计30096脉冲，末角度29有效且无后继。240条历史全部保留、零覆盖，读回前后向量身份一致；LINK/COUNTER/序列故障及拒绝均零，有限运行自然IDLE。清理后OUT/owned/armed/busy均零，TDMA STOP确认成功，错误队列为空、cleanup_failures为空。
+- 离线分析`timing-quiet-r2.json/.csv/.md`绑定原报告SHA-256 `ef7dc70cd6726312d8c534f237730f1d2f49e6aaea200532756962654e75cec3`；明确选择TIMER1 build，不按声明源频率缩放时间。向量时基250MHz、4ns基础拍，PIO0读回4ns；这不表示物理边沿精度或VDC同步精度已验证。逐位置/逐状态完整拆分见Markdown和CSV。
+- 每位置间隔均值999.966ms；毫秒字段整轮均值94.167ms，原始拍计时整轮均值94.710ms、最大96.225ms。每状态原始拍分段均值：请求到观察编码稳定2.313ms、稳定到运输offer 2.097ms、offer到RJ45返回4.319ms、返回到FIRE入队0.599ms、FIRE入队到观察READY完成2.445ms。上述边界是Core1观察或提交，含调度等待；不是PIO执行时间、线缆传播时间或真实网分处理时间。
+- 上一状态完成到下一FIRE入队均值9.417ms、P95 9.786ms、最大10.814ms，不能替代物理READY到OUT边沿指标，低于1ms目标仍未通过。主机静默消除了本工具在线查询，RAM记录仍有成本；停止前调度快照仍有累计miss/overrun，缺少本轮起点差分，不能全部归于本次30位置，也不能声明严格实时通过。PyVISA终止符提示仍保留，工具退出0且报告passed=true。
+- 结合进度067的修复、映射/竞争负测、配置连续事务和源码单板凭证，本条关闭NSEQ-RISK-04的无关锁依赖缺陷及所缺外部验证；不扩大到任意并发重绑。NSEQ-RISK-06原间歇OFF拒绝仍未取得新现场原因，继续OPEN。用户认可的单板功能口径满足本切片闭环，不声明多板、独立边沿计数、真实网分/RF、物理波形或P3通过；保留进度067零输入失败及全部隔离失败原件。
+
 ## 失败与回退
 
 配置模型、SCPI与GPIO版板端验证已完成相应记录；当前迁移PIO0，后续结果按新增记录跟踪。
@@ -1087,13 +1097,13 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 
 ## 下一 Gate
 
-最新配置修复及单板凭证以进度067为准；当前外部IN1计数为零，需先确认并恢复外部输入，再完成本切片静默短轮次。以下早期验收和性能记录不替代该待办。
+最新配置修复及单板凭证以进度067为准；进度068已在信号源开启后补齐同build独立IN1及外部静默三十位置，NSEQ-RISK-04本次缺陷闭合。下一代码切片继续定位NSEQ-RISK-06原间歇OFF拒绝，响应提速及部署/VDC迁移尚未完成。
 
 三模式均有本地物理反馈功能证据，转台已补外部50Hz、N=50两位置GUI命令路径验证。NSEQ-106仍待独立真实网分及生命周期补证，NSEQ-RISK-05自动验收与OTA摘要仍未闭合；NSEQ-108待回环窗口及打包EXE完整验证，保留TDMA诊断快照偶发失败与固件时间尺度偏差。
 历史TIMER1版1kHz完整360位置证据见进度058/059，旧RTOS tick分析仅保留历史；当前build三模式固定回归及提交凭证以进度065为准。全局Core0时钟及迁移后的最终完整扫描仍需分别闭合。
 最新诊断及计时切片以进度063/064为准：向量版新固件外部1kHz三十位置静默闭环通过，主机零运行期命令，完整历史零覆盖。双角色诊断/清理在进度063对应build已通过；主动诊断压力仍会BUSY，不把它作为性能基线。后续每切片保持静默30位置、完整历史及停止清理核验，再推进统一部署、共享VDC与运输共存。最终完整扫描保留360位置，当前毫秒级性能和调度超预算未关闭。
 NSEQ-105三模式单板凭证及代码检查点已完成；既有下一代码提交约束仍优先关闭
-NSEQ-RISK-04激活gate与NSEQ-RISK-06配置拒绝诊断缺口，不以重跑通过代替根因闭环，再继续NSEQ-101至104迁移。
+NSEQ-RISK-06原配置拒绝根因；NSEQ-RISK-04修复及外部闭环见进度067/068，不以重跑通过代替其他间歇失败的根因闭环，再继续NSEQ-101至104迁移。
 保留独立SP8T的MANUAL/IN回归；组合角色使用统一PIO0 owner及真实RJ45运输，不软件直达。
 PIO握手首切片和Core1运行状态机功能已通过，固定200ms位置周期与严格TDMA稳定性仍未通过；
 后续改动逐片构建、OTA和单板闭环，重新生成匹配staged指纹的凭证，旧报告不能替代。
