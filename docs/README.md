@@ -88,6 +88,7 @@ docs/
 | ARCH/VDC-DPLL | `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | 既有 HAOFV VDC/DPLL 融合架构输入；后续逐步迁入 VDC canonical。 |
 | ARCH/PRODUCT | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 面向 Distributed Hard Real-Time Trigger System 的产品系统架构特化，服从 HAOFV 顶层约束。 |
 | ARCH/FUTURE | `arch/ARCH_FUTURE_APPLICATION_PLAN.md` | 当前产品完成后的应用场景、跨平台移植、版本分层和开源生态路线图。 |
+| ARCH/SYNCCORE | `arch/ARCH_SYNC_STANDARD_CORE_DESIGN.md` | 分布式同步核心规范第一版条款清单（甜区：通用 MCU 上 10-100 ns 级相位与触发同步）；草稿，未登记为契约。 |
 | SYNC_IO | `sync/SYNC_IO_ARCHITECTURE.md` | PIO、GPIO、DMA、语义 IO 和硬实时资源约束入口。 |
 | TDMA | `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件主域，定义上/下行 TDMA、payload registry、adapter、ring runtime、completion evidence 和 HAOFV system node 边界。 |
 | STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md` | 状态机与底层实时资源域，定义 PIO SM、DMA/FIFO、上下行控制和资源仲裁边界。 |
@@ -158,14 +159,15 @@ docs/
 | `sync/README.md` | 同步域 README。 |
 | `calibration/README.md` | 校准域 README。 |
 | `tdma/README.md` | TDMA 基础件主域 README。 |
-| `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件架构，定义上/下行 TDMA、payload registry、adapter、ring runtime 和 HAOFV 边界。 |
+| `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 总体架构评审入口：按代码说明实时预算、自主飞行、typed 快速通道与 HAOFV owner 边界。 |
+| `tdma/TDMA_RUNTIME_CONSTRAINTS.md` | TDMA 运行接口细则：wire/CRC、异步准备、特等席 IRQ、拍级预算、STOP/ARM 和分级验收。 |
 | `calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md` | 校准域维护多板 SPI CLK 训练、双向测量、residence/bias/path-delay 证据和 EtherCAT DC 风格门禁。 |
 | `calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` | 校准训练子域的 CS marker cut-through、DATA codeword 相关、单跳收敛和 TDMA 接入方案。 |
 | `calibration/CALIBRATION_RING_AUTOCALIBRATION_PLAN.md` | 校准域 P0 环序搜索、P1--P3 板内单指令自校准、SCPI 候选接口、状态机和实施待办。 |
 | `calibration/CALIBRATION_DOMAIN_TODO.md` | 校准域分阶段待办、跨域边界、验收门禁和八节点扩展准备。 |
 | `calibration/CALIBRATION_TASK_PROGRESS.md` | 校准域方案、粗捕获、编码测距和双向测距的任务记录与证据规则。 |
-| `tdma/TDMA_DOMAIN_TODO.md` | TDMA 基础件待办，跟踪 runtime、reliability、system node、adapter 和 HIL 验收。 |
-| `tdma/TDMA_TASK_PROGRESS.md` | TDMA 基础件任务进度。 |
+| `tdma/TDMA_DOMAIN_TODO.md` | TDMA 未完成/已完成任务及退出门禁，优先实时预算、resident 飞行和确定性交付，保留原 ID。 |
+| `tdma/TDMA_TASK_PROGRESS.md` | TDMA 近期进展、失败及证据，历史从文末归档索引查找。 |
 | `refmem/README.md` | 反射内存域 README。 |
 | `refmem/REFMEM_DOMAIN_ARCHITECTURE.md` | Distributed RefMem 内部主域架构，定义 RefMem Domain 的职责边界、静态分布式应用模型和目标代码形态。 |
 | `refmem/REFMEM_DOMAIN_TODO.md` | Distributed RefMem 内部主域待办，跟踪分布式应用模型、slot 契约、ACK/NACK、sync protocol 和组件化。 |
@@ -205,6 +207,11 @@ docs/
 | `legacy/pinprobe/README.md` | PinProbe A1 历史资料 README。 |
 | `legacy/rp1200/README.md` | RP1200 历史资料 README。 |
 | `legacy/external/README.md` | 外部参考资料 README。 |
+| `legacy/tdma/LEGACY_TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 架构重构前历史快照，保留旧方案、迁移过程与原描述。 |
+| `legacy/tdma/LEGACY_TDMA_DOMAIN_TODO.md` | TDMA 待办重构前历史快照，当前状态以主域 TODO 为准。 |
+| `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_03.md` | TDMA 进展归档：`TDMA-PROGRESS-20260913-067`..`TDMA-PROGRESS-20260913-030`，38 条。 |
+| `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_02.md` | TDMA 进展归档：`TDMA-PROGRESS-20260912-029`..`TDMA-PROGRESS-20260912-001`，29 条。 |
+| `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_01.md` | TDMA 进展归档：`TDMA-PROGRESS-20260911-007`..`TDMA-TASK-20260817-001`，51 条；重复历史编号别名见归档头。 |
 | `legacy/vdc/README.md` | VDC 三件标准文件重构前历史快照入口。 |
 | `legacy/vdc/LEGACY_VDC_DOMAIN_ARCHITECTURE.md` | VDC 重构前架构历史快照。 |
 | `legacy/vdc/LEGACY_VDC_DOMAIN_TODO.md` | VDC 重构前待办历史快照。 |
