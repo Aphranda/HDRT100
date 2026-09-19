@@ -171,6 +171,8 @@ Core0 在 TDMA STOP 排他边界 PREPARE，锁存 session、delay、周期、时
 
 typed FOLLOW 的来源新鲜度独立于正式 quality。`vdc_dpll_manager_get_priority_follow_health()` 返回 Core1 单写者的原子快照：FOLLOW 身份与年龄复验通过后，只消费本拍新的 MATCH 事件；每拍按 TIMER1 `raw_lo/raw_hi` 维护年龄，期限复用 `VDC_PRIORITY_FOLLOW_MAX_AGE_MS`，不依赖可选 TRACE/GUARD。FRESH 只表示最后合格来源事件仍年轻，不表示本拍执行成功或锁相；重复事件、BUSY、旧代和拒绝不续期。STALE 时原控制路径保持 DCO、清除待执行项和基线，新事件恢复先重新建基线；STOP/绑定变化退休，诊断留存。读钟失败和反向时间不视为新鲜，`recoveries` 包括同一年轻事件在读钟恢复后的 STALE→FRESH 转换。该快照不修改 Domain 的 accepted、quality、DPLL 或 DCO 序号，也不自动进入 RefMem 正式质量字段。
 
+参考停更诊断由 `vdc_priority_tx_gap.inc` 承接：Core0 在 STOP 边界安装绑定当前 SYNC generation/session 的一次计划，Core1 使用既有 TIMER1 观测按半开窗口暂停新 offer，截止后仅允许新产生的 source event 恢复。暂停仍复验生命周期，STOP/绑定变化取消；默认关闭、不写 Flash、不跨代重放。返回 EMPTY 保留 TDMA 的旧 DMA 邮箱，故验证的是旧参考重复与新鲜度过期，不是物理断链。诊断状态独立发布，不修改正式 quality 或 DCO。
+
 ## 快照与管理发布
 
 | 发布层 | 当前语义 |
