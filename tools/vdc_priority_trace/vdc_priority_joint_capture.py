@@ -73,6 +73,12 @@ def make_scope_class(external):
     class ExternalScope(external.SparseScope):
         trigger_source = 'EXT'
 
+        def save(self):
+            # Keep query/RAW evidence in memory through one acquisition. The
+            # inherited query() otherwise rewrites the report after every I/O.
+            if not getattr(self, '_defer_save', False):
+                return super().save()
+
         def prepare(self):
             super().prepare()
             self.write(f':TRIG:EDGE:SOUR {self.trigger_source}')
@@ -87,8 +93,17 @@ def make_scope_class(external):
             self.save()
 
         def fresh_snapshot(self, folder):
-            self.folder = folder
+            # Never replace an existing capture, including on an error path.
             folder.mkdir(parents=True, exist_ok=False)
+            self._defer_save = True
+            try:
+                return self._capture_snapshot(folder)
+            finally:
+                self._defer_save = False
+                self.save()  # Persist partial evidence on timeout/export failure too.
+
+        def _capture_snapshot(self, folder):
+            self.folder = folder
             self.report = dict(resource=external.base.scope_reader.RESOURCE, commands=[], channels=[],
                                capture_complete=False, identity=self.identity, settings=self.settings,
                                voltage_formula='(code-y_origin-y_reference)*y_increment')
@@ -250,11 +265,16 @@ def parse_args(argv=None):
     p.add_argument('--scope-trigger', choices=('CHAN1', 'EXT'), default='CHAN1',
                    help='CHAN1 observes NO1 OUT1; EXT requires an independently active OUT4 signal')
     p.add_argument('--seconds', type=int, default=60)
+    p.add_argument('--output-delays', type=int, nargs=4, default=(0, -28, -88, -116),
+                   metavar=('NO1', 'NO2', 'NO3', 'NO4'),
+                   help='STOP-only signed output delays in ns; restored after capture, not saved to Flash')
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--child', action='store_true', help=argparse.SUPPRESS)
     a = p.parse_args(argv)
     if a.seconds not in range(60, 601, 60):
         p.error('seconds must be a whole minute from 60 through 600')
+    if any(not -(1 << 31) <= value < (1 << 31) for value in a.output_delays):
+        p.error('output-delays must be signed int32 nanoseconds')
     if not a.bench_adapter.is_file():
         p.error('bench-adapter must be an existing validated GUARD capture script')
     return a
@@ -280,7 +300,7 @@ def main():
              '--scope', a.scope, '--scope-trigger', a.scope_trigger,
              '--seconds', str(a.seconds), '--out', str(a.out/'capture'), '--child']
     runner = base.external.base.ResumeTrial(base.external.base.trial.hil.SerialBackend(), receipt, a.out,
-        (24000, 32000, 16000), child, output_delays=(0, -28, -88, -116), capture_timeout=a.seconds+240)
+        (24000, 32000, 16000), child, output_delays=tuple(a.output_delays), capture_timeout=a.seconds+240)
     result = runner.run()
     print(json.dumps({k: result[k] for k in ('passed', 'errors', 'cleanup_errors', 'restore_needed', 'duration_s')}))
     return 0 if result['passed'] else 1

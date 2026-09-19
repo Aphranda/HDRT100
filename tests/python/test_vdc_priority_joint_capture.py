@@ -98,12 +98,13 @@ def scope_external(clock, mode='good'):
             self.level = 1.5
             self.source = 'EXT'
             self.exports = 0
+            self.saved_reports = []
 
         def prepare(self):
             pass
 
         def save(self):
-            pass
+            self.saved_reports.append(copy.deepcopy(self.report))
 
         def write(self, command):
             self.commands.append(command)
@@ -119,6 +120,7 @@ def scope_external(clock, mode='good'):
         def query(self, command):
             self.commands.append(command)
             clock.sleep(.001)
+            self.save()  # The real inherited query persists after every I/O.
             return {':TRIG:STAT?': self.state, ':TRIG:EDGE:LEV?': str(self.level),
                     ':TRIG:SWE?': 'AUTO' if mode == 'wrong_mode' else 'SING',
                     ':TRIG:EDGE:SOUR?': self.source, ':SYST:ERR?': '0,"No error"'}[command]
@@ -126,6 +128,10 @@ def scope_external(clock, mode='good'):
         def export(self):
             assert self.state == 'STOP' and self.report['fresh_wait_ns'] <= self.report['trigger_admitted_ns']
             self.exports += 1
+            if mode == 'export_failure':
+                self.report['partial_block'] = 'retained'
+                self.save()
+                raise IOError('RAW transfer failed')
             self.report['capture_complete'] = True
 
     return SimpleNamespace(SparseScope=Scope, base=SimpleNamespace(scope_reader=SimpleNamespace(RESOURCE='MOCK')))
@@ -154,6 +160,26 @@ def test_scope_never_exports_preceding_frozen_record(tmp_path, clock, mode):
     with pytest.raises((TimeoutError, ValueError)):
         scope.fresh_snapshot(tmp_path/'failed')
     assert not scope.report['capture_complete'] and not scope.exports
+
+
+@pytest.mark.parametrize('mode', ['good', 'no_new_trigger', 'export_failure'])
+def test_snapshot_batches_disk_saves_and_flushes_partial_evidence(tmp_path, clock, mode):
+    scope = joint.make_scope_class(scope_external(clock, mode))()
+    scope.prepare()
+    before = len(scope.saved_reports)
+    if mode == 'good':
+        scope.fresh_snapshot(tmp_path/'sample')
+    else:
+        with pytest.raises((TimeoutError, IOError)):
+            scope.fresh_snapshot(tmp_path/'sample')
+    assert len(scope.saved_reports) == before + 1
+    assert scope.saved_reports[-1] == scope.report
+    assert not scope._defer_save
+    assert scope.report['capture_complete'] is (mode == 'good')
+    if mode == 'export_failure':
+        assert scope.report['partial_block'] == 'retained'
+    scope.query(':SYST:ERR?')
+    assert len(scope.saved_reports) == before + 2  # Recovery/setup still persists.
 
 
 def fake_adapter(tmp_path, clock, *, enabled=True, fault=None, internal=True):
@@ -305,7 +331,40 @@ def test_scope_default_off_and_minute_duration_limit(tmp_path):
     adapter.write_text('# validated test adapter\n', encoding='utf-8')
     options = joint.parse_args(['--bench-adapter', str(adapter), '--out', str(tmp_path), '--seconds', '600'])
     assert options.scope == 'off' and options.seconds == 600
+    assert tuple(options.output_delays) == (0, -28, -88, -116)
     assert options.scope_trigger == 'CHAN1'
     options = joint.parse_args(['--bench-adapter', str(adapter), '--out', str(tmp_path),
                                 '--scope', 'on', '--scope-trigger', 'EXT'])
     assert options.scope == 'on' and options.scope_trigger == 'EXT'
+
+
+@pytest.mark.parametrize('values', [('-2147483649', '0', '0', '0'),
+                                   ('0', '0', '0', '2147483648'), ('0', '20', '0')])
+def test_invalid_delays_rejected_before_hardware(tmp_path, values):
+    adapter = tmp_path/'adapter.py'
+    adapter.write_text('# fixture', encoding='utf-8')
+    with pytest.raises(SystemExit):
+        joint.parse_args(['--bench-adapter', str(adapter), '--out', str(tmp_path),
+                          '--output-delays', *values])
+
+
+def test_explicit_delays_reach_stop_restore_runner(tmp_path, monkeypatch):
+    path = tmp_path/'adapter.py'
+    path.write_text('# fixture', encoding='utf-8')
+    monkeypatch.setattr(joint.sys, 'argv', ['capture', '--bench-adapter', str(path),
+                        '--out', str(tmp_path), '--output-delays', '0', '-8', '-68', '-116'])
+    seen = {}
+
+    class Runner:
+        def __init__(self, *args, **kwargs):
+            seen.update(kwargs)
+
+        def run(self):
+            return dict(passed=True, errors=[], cleanup_errors=[], restore_needed=False, duration_s=60)
+
+    hil = SimpleNamespace(validate_receipt=lambda path: 'receipt', SerialBackend=lambda: 'backend')
+    base = SimpleNamespace(ResumeTrial=Runner, trial=SimpleNamespace(hil=hil))
+    monkeypatch.setattr(joint, 'load_adapter', lambda path:
+                        SimpleNamespace(base=SimpleNamespace(external=SimpleNamespace(base=base))))
+    assert joint.main() == 0
+    assert seen['output_delays'] == (0, -8, -68, -116)
