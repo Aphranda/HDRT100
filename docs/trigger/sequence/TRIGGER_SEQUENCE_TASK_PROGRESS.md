@@ -1055,12 +1055,39 @@ python tools/hardware_acceptance/sequence_feedback_validate.py --serial-number 8
 - 提交前另跑`out/node-sequence/sequence-vector-20260919/third-mode-1khz-30-checkpoint-quiet-r1.json`，外部IN1 1kHz、N=1000、OUT4到IN2、1us脉宽和真实RJ45三十位置静默通过：240次采样及完整计时记录，零覆盖；START记录105至首查询106之间等待32秒、零命令，向量读回前后身份/计数一致，自然结束及资源释放通过。离线逐位置/状态拆解为同目录`timing-1khz-30-checkpoint-quiet-r1.{json,csv,md}`，源报告SHA-256 `284ccd651b6c5eca4a1985d95a87ef2ff01e82569d9857ebf835ce8b1a3ea0c1`。前项完成观察至后项FIRE排队均值约9.493ms，仍非物理边沿延迟，低于1ms目标未通过。
 - 代码与单板凭证已提交为`ae156377`，带`risk`标记。文档单独提交；NSEQ-RISK-04/06继续OPEN，失败原件未删除。此次只确认单板功能，不声明P3、多板同步、独立边沿计数、波形/RF或严格TDMA稳定性通过；部署映射、共享VDC和快速流水线继续按原长期任务推进，先处理配置拒绝诊断。
 
+### 066：配置拒绝可归因诊断与单板复现
+
+- TODO：`NSEQ-117`、`NSEQ-RISK-04/06`；日期：2026-09-19。以下构建、计数和测试数量为本次执行快照，非产品常量。检查点代码`ae156377`及文档`54387901`已推送，远端核对为`543879012862691c93e7404d8d5c9e84bb7a4f16`；本条后续改动尚未提交。
+- TDMA stopped-config 增加typed拒绝原因，保持原检查顺序、锁与回调边界；LINK checked配置返回本次阶段和TDMA/gateway/回退结果。合法但未接纳的`CONF:SEQ:LINK`返回`REJECTED`及原因，同时保留执行错误，不再无回复超时；成功仍返回原accepted值。不重试配置、不放宽运行冻结或停止代次检查。
+- ACT checked结果包含本次attempt、registry错误、evaluated/failed/unavailable位、staging身份和质量状态。`SYST:REFMEM:LOAD:ACT:STAT?`提供读回；成功ACT原字段保持，失败追加诊断，纯快照不可用返回BUSY。独立只读审查发现NODE ACT别名提前退出且测试未经过实际wrapper，已统一委托处理器并补真实别名测试，运行期拒绝仍保持。参数解析失败不算owner激活尝试。沿用完整TDMA快照，本切片仅分类，没有消除其无关锁依赖；gateway回退及registry激活后的apply失败仍有既有事务边界，不能宣称所有失败完全无副作用。
+- 软件证据：LINK/TDMA/角色SCPI组合157项通过，`out/pytest/sequence-config-diagnostic-r3.xml`；补充真实writer guard及epoch耗尽后LINK74项通过，`sequence-config-guards-r1.xml`；周边SCPI/TDMA快照和文档186项通过，`sequence-config-surrounding-r1.xml`；最终ACT别名、冻结和配置工具105项通过，`sequence-config-alias-r1.xml`。r1缺少新测试桩声明、r2返回值补丁落错函数导致失败均保留，已修正后再验。新增固化工具`sequence_config_validate.py`逐次保存配置回复、错误队列、当前attempt和角色读回，首次拒绝即停止，不重放修改命令。
+- 初版build `20260919085259`的真实VISA OTA通过，`out/ota/sequence-config-diagnostic-20260919-r1/summary.json`。初版外部静默报告`out/node-sequence/sequence-config-diagnostic-20260919/third-mode-1khz-30-quiet-r1.json`失败：START后静默约32秒，零运行期命令；COUNTER events/positions/partial均为零，LINK等待首位置且error为零，未发生采样。清理后输出和owner释放，不能判定信号源关闭或固件捕获故障；已请用户确认IN1外部1kHz，确认前不冒充外部闭环通过。
+- 别名修正最终build `20260919090217`，目录`out/build/sequence-config-diagnostic-usbtmc-20260919-r2`，USBTMC默认及USB运行时切换启用，A/B/BOOT链接检查通过。包SHA-256 `4b6f5a884bfddb7c4e3a6c94454d797f0fc9a6e0c46123ee15d13fb828939d7f`，真实OTA `out/ota/sequence-config-diagnostic-20260919-r2/summary.json`完成升级、重枚举及commit。PowerShell重配置日志将SDK正常stderr包装为NativeCommandError并返回非零，原件保留；最终使用CMD直接保存日志的独立目录构建退出零。
+- 最终固件配置工具`config-ten-r2.json`前九次通过，第十次ACT返回BUSY而非超时，当前诊断原文`10,7,3,191,0,64,2178798616,10,1,0,0,0,0,0`，证明此次不可用来自质量快照，真实失败位为空。后四项零值在quality unavailable时不是有效质量证据，不据此宣称计数为零。初版`config-ten-r1.json`十次通过仍保留，不能抵消最终固件复现。后续应提供窄质量快照，避免无关scheduler/ring/registry依赖，仍须保留相关发布竞争和真实质量错误拒绝。
+- 最终固件独立MANUAL十轮`independent-manual-ten-r2.json`通过；三槽位`position-injected-r2.json`通过IN3软件注入两位置、忙阈值故障及暂停/恢复/停止重启，OUT4到IN2与RJ45仍为真实物理回环。双角色普通工具路径`dual-manual-ten-r2.json`在`*CLS`无回复命令上等待结果超时，未开始业务运行，清理通过；使用既有GUI命令路径`dual-gui-manual-ten-r2.json`软件READY十轮通过，不把它称作修复了普通工具路径。
+- 按用户单板口径补充本切片接口头及测试/配置工具逐文件白名单；未改门禁判据。固定验收`out/HardwareAcceptance/20260919/sequence-config-diagnostic-r1`的双角色有限、暂停恢复、独立十轮和全部START profile通过；位置profile的角色激活再次返回BUSY，diagnostic attempt为18、failed_mask为空、unavailable_mask为质量位，整体验收失败，未生成新凭证。原receipt仍只覆盖检查点源码，禁止用于本次提交。
+- 本轮保留配置诊断切片待后续修复和外部脉冲复验，不推进部署/VDC下一迁移，不关闭NSEQ-RISK-04/06，不将注入profile替代外部静默30位置。当前设备已停止序列和TDMA，后续先修窄质量读取及普通工具无回复命令处理，再真实构建/OTA、固定单板门禁和外部短轮次；通过后才能提交本切片。
+
+### 067：窄质量快照修复及当前源码单板验收
+
+- TODO：`NSEQ-117`、`NSEQ-RISK-04/06`；日期：2026-09-19。以下为本轮执行快照，非产品常量。用户再次确认TDMA参考多板模型、单板跑通即可功能验收。本轮保留受限提交口径，不以单板凭证宣称多板或物理时序通过。
+- 新增`tdma_service_get_quality_snapshot`及RefMem包装，只读取质量准入需要的intent/result发布，避开无关ring/registry/scheduler锁。保留全局reject/overrun/timeout与原traffic-class错误映射；有界重读耗尽仍拒绝且不改输出，不清零错误、不重放ACT。scheduler绑定及初始化仍要求静止生命周期。普通VISA工具的标准无回复`*CLS`改为只写，随后独立查错误队列，不伪造ACK。
+- 软件组合160项通过，`out/pytest/sequence-quality-combined-r1.xml`；真实RefMem完整/窄快照映射测试通过，`out/pytest/sequence-quality-mapping-r1`；文档测试18项通过，`sequence-quality-docs-r1.xml`。独立只读审查未发现阻断问题，指出尚无读取途中configured变化的独立注入测试，代码已有复查；不据此声明任意并发重绑安全。
+- build `20260919092554`，USBTMC默认及USB运行时切换启用，A/B/BOOT链接通过；包`out/build/sequence-quality-usbtmc-20260919/DHRT100_UPDATE.pkg`，SHA-256 `571f8d3eb3aafa7c472629062176d21c399aee8ff12141866a19055d9a729515`。真实OTA `out/ota/sequence-quality-20260919-r1/summary.json`通过升级、重枚举、build核对及commit。
+- 配置工具连续30次独立事务全部通过，`out/node-sequence/sequence-quality-20260919/config-thirty-r1.json`；普通双角色工具软件READY十轮通过，`dual-manual-ten-r1.json`，覆盖此前`*CLS`失败路径。相关发布竞争负测仍拒绝，成功重跑不证明所有间歇配置问题根除。
+- 固定单板门禁`out/HardwareAcceptance/20260919/sequence-quality-r1`全部通过：双角色有限轮次及暂停恢复、独立重复、START全部profile、三槽位注入及忙阈值/生命周期。生成`config/hardware_acceptance/sequence_single_board_receipt.json`，绑定staged源码指纹`54bb4f69528f8a4eebcbcc8d705c3f84964ef1000fc93fa4b422b1dd42dacecd`。三槽位为IN3软件注入，OUT4到IN2及RJ45为真实物理回环；不替代外部转台计数验证。
+- 同build外部复验`out/node-sequence/sequence-quality-20260919/third-mode-1khz-30-quiet-r1.json`失败：声明IN1为1kHz、N=1000、30位置、1us OUT4到IN2；START之后32秒静默且零运行期命令，counter events/positions/partial均零，phase为WAIT_POSITION、error零，未产生采样历史。停止后OUT/owned/armed/busy归零，错误队列为空。此结果不能区分外部信号缺失与输入捕获故障；等待已发出的信号源确认，不生成无样本的计时结论。
+- 按既有受限提交授权保存已通过单板门禁的修复，继续保留risk：质量快照无关锁依赖已修复，NSEQ-RISK-04仍待外部短轮次闭合；NSEQ-RISK-06原间歇OFF拒绝尚无新现场诊断，不能称根因消除。下一步恢复并验证外部输入，再跑静默30位置和逐段计时；该切片闭合前不推进部署/VDC下一迁移。
+- 代码提交`177a1fe9`带`risk`，提交钩子已核验当前单板凭证，文档分离提交。文档全量检查及回归通过；仅保留既有`TDMA-FLIGHT-BITMAP-01`格式警告。约定的`D:/Aphranda/Git/bin/bash.exe`在本机不存在，手动门禁使用已安装的`C:/Program Files/Git/bin/sh.exe`通过；构建和工具继续使用本机PowerShell/CMD及Python入口。
+
 ## 失败与回退
 
 配置模型、SCPI与GPIO版板端验证已完成相应记录；当前迁移PIO0，后续结果按新增记录跟踪。
 后续失败必须按 progress ID 追加原因、输出文件和回退状态，不覆盖旧失败记录。
 
 ## 下一 Gate
+
+最新配置修复及单板凭证以进度067为准；当前外部IN1计数为零，需先确认并恢复外部输入，再完成本切片静默短轮次。以下早期验收和性能记录不替代该待办。
 
 三模式均有本地物理反馈功能证据，转台已补外部50Hz、N=50两位置GUI命令路径验证。NSEQ-106仍待独立真实网分及生命周期补证，NSEQ-RISK-05自动验收与OTA摘要仍未闭合；NSEQ-108待回环窗口及打包EXE完整验证，保留TDMA诊断快照偶发失败与固件时间尺度偏差。
 历史TIMER1版1kHz完整360位置证据见进度058/059，旧RTOS tick分析仅保留历史；当前build三模式固定回归及提交凭证以进度065为准。全局Core0时钟及迁移后的最终完整扫描仍需分别闭合。
