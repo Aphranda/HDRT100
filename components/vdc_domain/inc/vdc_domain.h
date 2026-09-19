@@ -944,6 +944,10 @@ bool vdc_domain_activate_tdma_provisional_configuration(
     const vdc_timestamp_dictionary_t *dictionary,
     const vdc_path_delay_table_t *path_delay);
 void vdc_domain_set_ready(vdc_domain_context_t *context, bool ready);
+/* Age an existing evidence view without advancing evidence or service counters. */
+bool vdc_domain_age_quality(vdc_quality_table_t *quality,
+                           uint32_t lock_state, bool gate_passed,
+                           uint64_t now_ns);
 void vdc_domain_service(vdc_domain_context_t *context, uint64_t now_ns);
 bool vdc_domain_publish_clock_model(vdc_domain_context_t *context,
                                     const vdc_clock_model_t *model);

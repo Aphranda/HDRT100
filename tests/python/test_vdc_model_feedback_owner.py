@@ -24,6 +24,10 @@ static vdc_domain_context_t s_vdc_domain;
 static tdma_service_service_t owner;
 static tdma_service_service_t *s_vdc_tdma_service=&owner;
 static bool s_vdc_ready=true, stopped=true, clock_ok=true, bridge_ok=true;
+static bool s_published_snapshot_valid;
+/* Full quality publication is exercised by test_vdc_idle_maintenance. */
+static void vdc_dpll_manager_publish_runtime_snapshot_locked(void) {}
+static void vdc_dpll_manager_age_quality_core1(void) {}
 static uint64_t raw_now=1000000;
 static unsigned action;
 static unsigned match_calls, ingress_calls, step_calls;

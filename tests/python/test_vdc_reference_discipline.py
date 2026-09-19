@@ -34,6 +34,9 @@ HARNESS = r'''
 #include "tdma_origin_plan.h"
 #define BOARD_SYS_CLOCK_HZ 250000000u
 static vdc_domain_context_t s_vdc_domain;
+static vdc_domain_snapshot_t s_published_snapshot;
+static uint32_t s_published_snapshot_guard;
+static bool s_published_snapshot_valid=true;
 static tdma_service_service_t owner;
 static tdma_service_service_t *s_vdc_tdma_service=&owner;
 static tdma_ring_clock_snapshot_t ring;
@@ -51,7 +54,9 @@ static bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_
 static bool tdma_runtime_owner_get_origin_raw_reference(tdma_origin_raw_reference_t *out){*out=origin;return origin_available;}
 bool vdc_domain_apply_reference_baseline(vdc_domain_context_t *c,int32_t target,uint64_t now){
     assert(c==&s_vdc_domain && now==raw*4u && (s_reference_discipline_request&1u));
-    ++calls;if(!allow)return false;c->reference_baseline_ppb=target;++c->dco.dco_update_seq;return true;
+    ++calls;if(!allow)return false;
+    if(c->reference_baseline_ppb!=target){c->reference_baseline_ppb=target;++c->dco.dco_update_seq;}
+    return true;
 }
 // DISCIPLINE
 static void tick(void){

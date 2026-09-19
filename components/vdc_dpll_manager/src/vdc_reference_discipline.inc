@@ -82,7 +82,11 @@ static void reference_discipline_service_core1(uint32_t session)
     }
     uint64_t now;
     if (!vdc_timestamp_clock_try_read_ticks64(BOARD_SYS_CLOCK_HZ, &now)) return;
-    if (!m.valid || !m.sample_seq) return;
+    if (!m.valid || !m.sample_seq) {
+        if (s->session && s->state != VDC_REFERENCE_DISCIPLINE_HOLD)
+            reference_discipline_hold(VDC_REFERENCE_DISCIPLINE_NO_INPUT, false);
+        return;
+    }
     if (m.tick_hz != BOARD_SYS_CLOCK_HZ || m.completed_raw > now ||
         now - m.completed_raw > (uint64_t)m.tick_hz * m.config.timeout_ms / 1000u) {
         if (s->reason != VDC_REFERENCE_DISCIPLINE_STALE)
@@ -182,5 +186,14 @@ static void reference_discipline_service_core1(uint32_t session)
     if (step && s->applied != UINT32_MAX) ++s->applied;
     s->state = VDC_REFERENCE_DISCIPLINE_TRACK;
     s->reason = VDC_REFERENCE_DISCIPLINE_OK;
+    if (step && s_published_snapshot_valid) {
+        /* The actuator is committed even between servo and finalize beats.
+         * Publish its model pair without promoting unfinished evidence or
+         * invoking the capture side effects of the full runtime publisher. */
+        (void)__atomic_add_fetch(&s_published_snapshot_guard, 1u, __ATOMIC_ACQ_REL);
+        s_published_snapshot.clock = s_vdc_domain.clock;
+        s_published_snapshot.dco = s_vdc_domain.dco;
+        (void)__atomic_add_fetch(&s_published_snapshot_guard, 1u, __ATOMIC_RELEASE);
+    }
     reference_discipline_publish();
 }

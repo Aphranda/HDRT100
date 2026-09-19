@@ -168,7 +168,8 @@ static void start_window(uint64_t now)
     dma_channel_configure(REF_POP0_DMA,&pop,s_tokens,&REF_PIO->rxf[REF_SM],1u,false);
     pio_sm_put(REF_PIO,REF_SM,s_ref.reference_cycles-1u);
     s_started=now;s_ref.deadline_raw=now+(uint64_t)s_ref.tick_hz*s_ref.config.timeout_ms/1000u;
-    s_ref.state=SYNC_IO_REFERENCE_RUNNING;s_ref.reason=SYNC_IO_REFERENCE_OK;
+    /* Keep TIMEOUT/invalid visible across retries until a full new window. */
+    s_ref.state=SYNC_IO_REFERENCE_RUNNING;
     dma_start_channel_mask(1u<<REF_POP0_DMA);pio_sm_set_enabled(REF_PIO,REF_SM,true);
     publish();
 }
@@ -190,30 +191,39 @@ void sync_io_reference_service_core1(void)
     } else if(cancelled) {begin_abort(SYNC_IO_REFERENCE_CANCELLED,false);return;}
     uint64_t now;
     if(!now_raw(&now)) {begin_abort(SYNC_IO_REFERENCE_CLOCK_ERROR,false);return;}
-    if(state==SYNC_IO_REFERENCE_PREPARED || s_restart) {
-        s_restart=false;start_window(now);return;
-    }
-    if(now<s_started) {begin_abort(SYNC_IO_REFERENCE_CLOCK_ERROR,false);return;}
-    if(now>s_ref.deadline_raw) {begin_abort(SYNC_IO_REFERENCE_TIMEOUT,false);return;}
     const uint32_t error=DMA_CH0_CTRL_TRIG_AHB_ERROR_BITS|
         DMA_CH0_CTRL_TRIG_READ_ERROR_BITS|DMA_CH0_CTRL_TRIG_WRITE_ERROR_BITS;
     if((dma_hw->ch[REF_POP0_DMA].ctrl_trig|dma_hw->ch[REF_STAMP0_DMA].ctrl_trig)&error) {
         begin_abort(SYNC_IO_REFERENCE_DMA_ERROR,false);return;
     }
+    if(state==SYNC_IO_REFERENCE_PREPARED || s_restart) {
+        s_restart=false;start_window(now);return;
+    }
+    if(now<s_started) {begin_abort(SYNC_IO_REFERENCE_CLOCK_ERROR,false);return;}
     const uintptr_t done=dma_hw->ch[REF_STAMP0_DMA].write_addr;
+    const uintptr_t popped=dma_hw->ch[REF_POP0_DMA].write_addr;
+    if(done<(uintptr_t)s_stamps || done>(uintptr_t)(s_stamps+2u) ||
+        (done-(uintptr_t)s_stamps)%sizeof(uint32_t) ||
+        popped<(uintptr_t)s_tokens || popped>(uintptr_t)(s_tokens+2u) ||
+        (popped-(uintptr_t)s_tokens)%sizeof(uint32_t)) {
+        begin_abort(SYNC_IO_REFERENCE_BAD_RECORD,false);return;
+    }
     if(done==(uintptr_t)(s_stamps+2u) && !dma_channel_is_busy(REF_STAMP0_DMA)) {
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
         uint32_t ticks;int32_t ppb;
         if(s_tokens[0]!=s_ref.reference_cycles-1u || s_tokens[1]!=UINT32_MAX ||
             dma_hw->ch[REF_POP0_DMA].write_addr!=(uintptr_t)(s_tokens+2u) ||
-            !sync_io_reference_evaluate(&s_ref.config,s_ref.tick_hz,s_stamps[0],s_stamps[1],&ticks,&ppb) ||
             s_ref.sample_seq==UINT32_MAX) {begin_abort(SYNC_IO_REFERENCE_BAD_RECORD,false);return;}
+        /* A signal-loss-extended window is retryable even after both tokens arrive. */
+        if(now>s_ref.deadline_raw) {begin_abort(SYNC_IO_REFERENCE_TIMEOUT,true);return;}
+        if(!sync_io_reference_evaluate(&s_ref.config,s_ref.tick_hz,s_stamps[0],s_stamps[1],&ticks,&ppb)) {
+            begin_abort(SYNC_IO_REFERENCE_BAD_RECORD,false);return;
+        }
         s_ref.start_raw32=s_stamps[0];s_ref.end_raw32=s_stamps[1];s_ref.elapsed_ticks=ticks;
         s_ref.frequency_error_ppb=ppb;s_ref.completed_raw=now;s_ref.sample_seq++;s_ref.valid=1u;
         begin_abort(SYNC_IO_REFERENCE_OK,true);return;
     }
-    if(done<(uintptr_t)s_stamps || done>(uintptr_t)(s_stamps+2u))
-        begin_abort(SYNC_IO_REFERENCE_BAD_RECORD,false);
+    if(now>s_ref.deadline_raw) begin_abort(SYNC_IO_REFERENCE_TIMEOUT,true);
 }
 bool sync_io_reference_release(uint32_t generation)
 {

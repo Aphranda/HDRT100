@@ -9,6 +9,7 @@ this is a diagnostic launcher, not a discovery or automatic calibration tool.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import importlib.util
 import json
@@ -21,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from tools.vdc_priority_trace.vdc_scope_evidence import EvidenceWriter, capture_raw, analyze_memory
+
 
 def load_adapter(path):
     spec = importlib.util.spec_from_file_location('joint_guard_adapter', path)
@@ -30,6 +33,74 @@ def load_adapter(path):
         if not hasattr(module, name):
             raise ValueError(f'GUARD bench adapter missing {name}')
     return module
+
+
+def verify_startup(probe):
+    """Read-only admission on the adapter's existing STOP-owned connections."""
+    from tools.calibration_ring_validate import trn03_stage as stage
+
+    report = probe.report['startup_preflight'] = dict(passed=False, boards=[], errors=[])
+    probe.save()
+    try:
+        if not probe.barrier or probe.block_queries:
+            raise ValueError('STOP barrier is required before startup preflight')
+        matrix_path = ROOT / probe.receipt['trn03_matrix']['path']
+        raw = matrix_path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != probe.receipt['trn03_matrix']['sha256']:
+            raise ValueError('Receipt matrix fingerprint mismatch')
+        matrix = json.loads(raw)
+        expected = matrix['node_ids_in_loop_order']
+        if ([board.address for board in probe.boards] != expected or
+                len(set(expected)) != matrix['node_count'] or
+                len({board.port for board in probe.boards}) != len(expected)):
+            raise ValueError('Board order or unique UID/port mapping mismatch')
+        report['matrix_sha256'] = hashlib.sha256(raw).hexdigest()
+        for slot, board in enumerate(probe.boards):
+            row = dict(uid=board.address, port=board.port, passed=False, responses={})
+            report['boards'].append(row)
+
+            def query(command):
+                response = probe.command(board, command)
+                row['responses'][command] = response
+                probe.save()
+                return response
+
+            identity = next(csv.reader([query('*IDN?')]))
+            if (len(identity) != 4 or identity[0] != f'NO.{slot + 1}' or
+                    identity[2] != board.address or
+                    int(query('SYSTem:BOARD:NO?').strip('"')) != slot + 1):
+                raise ValueError(f'{board.address}: IDN/board number mismatch')
+            if query('SYSTem:FW:BUILD?').strip('"') != str(probe.receipt['build_id']):
+                raise ValueError(f'{board.address}: firmware build mismatch')
+            ring = list(map(int, query('SYSTem:TDMA:RING:STATus?').split(',')))
+            if (len(ring) != 40 or ring[0] != 0
+                    or ring[4] or ring[5] or ring[8] or ring[38] != ring[39]):
+                raise ValueError(f'{board.address}: STOP/config ACK not ready')
+            if query('SYSTem:TDMA:FLIGHT:MODE?').strip('"') != '2':
+                raise ValueError(f'{board.address}: process-image mode required; restore MODE 1 while STOPPED')
+            header = stage.parse_query(query('READ:CALibration:TRAINing:STAGe?'),
+                                       stage.STAGE_QUERY_FIELDS, 'TRN03STG')
+            if (header['enabled'] != 1 or header['complete'] != 1 or
+                    header['valid_link_bitmap'] != (1 << len(expected)) - 1 or
+                    any(header[key] != matrix[key] for key in stage.HEADER_FIELDS)):
+                raise ValueError(f'{board.address}: training header differs from receipt')
+            for index, link in enumerate(matrix['links']):
+                observed = stage.parse_query(query(f'READ:CALibration:TRAINing:STAGe:LINK? {index}'),
+                                             stage.LINK_QUERY_FIELDS, 'TRN03LNK')
+                if (observed['valid'] != 1 or
+                        any(observed[key] != link[key] for key in stage.LINK_FIELDS) or
+                        any(observed[key] != matrix[key] for key in stage.HEADER_FIELDS[2:]) or
+                        any(observed[key] != link.get(key, 0) for key in stage.ORIGIN_CAPTURE_FIELDS)):
+                    raise ValueError(f'{board.address}: training link {index} differs from receipt')
+            if not query('SYSTem:ERR?').startswith(('0,', '+0,')):
+                raise ValueError(f'{board.address}: startup SCPI error queue not empty')
+            row['passed'] = True
+        report['passed'] = True
+    except Exception as exc:
+        report['errors'].append(f'{type(exc).__name__}: {exc}')
+        raise RuntimeError(f'STARTUP_CONFIGURATION: {exc}') from exc
+    finally:
+        probe.save()
 
 
 def scope_checkpoint(samples, due_s):
@@ -76,8 +147,20 @@ def make_scope_class(external):
         def save(self):
             # Keep query/RAW evidence in memory through one acquisition. The
             # inherited query() otherwise rewrites the report after every I/O.
-            if not getattr(self, '_defer_save', False):
+            if not getattr(self, '_defer_save', False) and not getattr(self, 'evidence_writer', None):
                 return super().save()
+
+        def enable_async_evidence(self):
+            self.evidence_writer = EvidenceWriter()
+
+        def finish_evidence(self):
+            if getattr(self, 'evidence_writer', None):
+                self.evidence_writer.close()
+
+        def export(self):
+            if getattr(self, 'evidence_writer', None):
+                return capture_raw(self, external.base.scope_reader)
+            return super().export()
 
         def prepare(self):
             super().prepare()
@@ -93,14 +176,23 @@ def make_scope_class(external):
             self.save()
 
         def fresh_snapshot(self, folder):
+            writer = getattr(self, 'evidence_writer', None)
+            if writer:
+                writer.check()
+                if len(writer.pending) >= writer.capacity:
+                    raise RuntimeError('Evidence write queue full before acquisition')
             # Never replace an existing capture, including on an error path.
             folder.mkdir(parents=True, exist_ok=False)
+            self._raw_blocks = {}
             self._defer_save = True
             try:
                 return self._capture_snapshot(folder)
             finally:
                 self._defer_save = False
-                self.save()  # Persist partial evidence on timeout/export failure too.
+                if writer:
+                    writer.submit(folder, self.report, self._raw_blocks)
+                else:
+                    self.save()  # Persist partial evidence on timeout/export failure too.
 
         def _capture_snapshot(self, folder):
             self.folder = folder
@@ -139,6 +231,11 @@ def make_scope_class(external):
             if not math.isclose(float(self.query(':TRIG:EDGE:LEV?')), 1.5):
                 raise ValueError('Trigger admission threshold rejected')
             self.export()  # All four channels from one frozen RAW record.
+            if getattr(self, 'evidence_writer', None):
+                analysis_start = time.monotonic_ns()
+                self.report['phase'] = analyze_memory(self.report, self._raw_blocks,
+                                                      external.base.scope_reader.decode_block)
+                self.report['analysis_elapsed_ns'] = time.monotonic_ns() - analysis_start
             self.report['elapsed_s'] = time.monotonic() - begun
             self.save()
             return self.report
@@ -150,12 +247,25 @@ def make_probe_class(adapter):
     external = base.external
 
     class JointProbe(adapter.Probe):
+        def command(self, board, text, unused=None):
+            if getattr(self, '_startup_rejected', False):
+                # Bypass adapter initialization hooks during failed-admission
+                # cleanup; retain the original command journal and STOP guard.
+                return base.follow.parent.base.Probe.command(self, board, text, unused)
+            return super().command(board, text, unused)
+
         def configure(self):
+            try:
+                verify_startup(self)
+            except Exception:
+                self._startup_rejected = True
+                raise
             if self.opt.external_scope:
                 cls = make_scope_class(external)
                 self.scope = cls(self.opt.out / 'scope-setup', scale=.0002, points=1000000, offset=.0008)
                 self.scope.trigger_source = self.opt.scope_trigger
                 self.scope.prepare()
+                self.scope.enable_async_evidence()
             super().configure()
             self.report['plan'].update(external_scope=self.opt.external_scope,
                 scope_trigger=self.opt.scope_trigger if self.opt.external_scope else None,
@@ -196,7 +306,7 @@ def make_probe_class(adapter):
                         folder = self.opt.out / f'sample-{due:04d}'
                         raw = self.scope.fresh_snapshot(folder)
                         row.update(capture_complete=raw['capture_complete'],
-                                   phase=external.analyze_window(folder),
+                                   phase=raw['phase'],
                                    acquisition_host_ns=[raw['trigger_admitted_ns'], raw['trigger_complete_observed_ns']],
                                    capture_elapsed_s=raw['elapsed_s'])
                     except Exception as exc:
@@ -232,6 +342,11 @@ def make_probe_class(adapter):
             self.report['quiet_elapsed_s'] = time.monotonic() - start
 
         def collect(self):
+            if not self.report.get('startup_preflight', {}).get('passed'):
+                self.report['joint_internal_health_passed'] = False
+                self.report['collection_skipped'] = 'startup configuration rejected before ARM'
+                self.save()
+                return
             super().collect()
             # Preserve the internal capture verdict before scope restoration
             # or the optional external precision verdict affects overall PASS.
@@ -242,6 +357,14 @@ def make_probe_class(adapter):
             try:
                 super().run()
             finally:
+                scope = getattr(self, 'scope', None)
+                if scope is not None and hasattr(scope, 'finish_evidence'):
+                    try:
+                        scope.finish_evidence()
+                        self.report['scope_evidence_flushed'] = True
+                    except Exception as exc:
+                        self.report['errors'].append(dict(scope='evidence_flush', error=repr(exc)))
+                        self.report['scope_evidence_flushed'] = False
                 verdict = joint_verdict(self.report.get('joint_internal_health_passed', False), self.opt.external_scope,
                                         self.report.get('scope_checkpoints', []), self.opt.seconds,
                                         self.report['errors'])

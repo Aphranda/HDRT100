@@ -30,7 +30,10 @@ def backend(tmp_path_factory):
     assert result.returncode==0,result.stderr
     return exe
 
-@pytest.mark.parametrize('case',['admission','cancel_prepared','timeout','clock','dma','three_windows'])
+@pytest.mark.parametrize('case',['admission','cancel_prepared','timeout','clock','dma','three_windows',
+                               'timeout_recover','timeout_partial','timeout_cancel','timeout_fault',
+                               'timeout_late_fault','timeout_bad_address','timeout_bad_token',
+                               'timeout_after_success','timeout_late_complete','timeout_delayed_service'])
 def test_backend_dma_pairing_and_lifetime(backend,case):
     result=subprocess.run([str(backend),case],capture_output=True,text=True)
     assert result.returncode==0,result.stdout+result.stderr

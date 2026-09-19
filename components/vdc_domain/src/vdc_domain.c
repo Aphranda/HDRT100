@@ -733,6 +733,31 @@ static uint64_t vdc_domain_evidence_time_ns(
     return evidence->observed_time_ns;
 }
 
+static uint32_t vdc_domain_quality_health(const vdc_quality_table_t *quality,
+                                         uint32_t lock_state, bool gate_passed)
+{
+    if (lock_state == VDC_DOMAIN_LOCK_FAULT) {
+        return VDC_DOMAIN_HEALTH_FAULT;
+    }
+    if (lock_state == VDC_DOMAIN_LOCK_LOCKED && gate_passed &&
+        quality->lock_quality_tier >= VDC_DOMAIN_LOCK_QUALITY_FINE_100NS &&
+        quality->freshness_limit_us != 0u &&
+        quality->last_sample_age_us <= quality->freshness_limit_us) {
+        return VDC_DOMAIN_HEALTH_HEALTHY;
+    }
+    if (lock_state == VDC_DOMAIN_LOCK_PHASE_LOCK ||
+        lock_state == VDC_DOMAIN_LOCK_FREQ_LOCK) {
+        return VDC_DOMAIN_HEALTH_LOCK_CANDIDATE;
+    }
+    if (lock_state == VDC_DOMAIN_LOCK_OFF ||
+        lock_state == VDC_DOMAIN_LOCK_CHECKING ||
+        lock_state == VDC_DOMAIN_LOCK_INITIAL_SYNC ||
+        lock_state == VDC_DOMAIN_LOCK_RELOCKING) {
+        return VDC_DOMAIN_HEALTH_CHECKING;
+    }
+    return VDC_DOMAIN_HEALTH_DEGRADED;
+}
+
 static void VDC_DOMAIN_TIME_CRITICAL(vdc_domain_refresh_quality_state)(
     vdc_domain_context_t *context)
 {
@@ -778,27 +803,25 @@ static void VDC_DOMAIN_TIME_CRITICAL(vdc_domain_refresh_quality_state)(
                 &context->servo,
                 vdc_domain_lock_quality_error_ns(context));
     }
-    if (context->dpll.state == VDC_DOMAIN_LOCK_FAULT) {
-        context->quality.health_state = VDC_DOMAIN_HEALTH_FAULT;
-    } else if (context->dpll.state == VDC_DOMAIN_LOCK_LOCKED &&
-               context->gate.passed != 0u &&
-               context->quality.lock_quality_tier >=
-                   VDC_DOMAIN_LOCK_QUALITY_FINE_100NS &&
-               context->quality.freshness_limit_us != 0u &&
-               context->quality.last_sample_age_us <=
-                   context->quality.freshness_limit_us) {
-        context->quality.health_state = VDC_DOMAIN_HEALTH_HEALTHY;
-    } else if (context->dpll.state == VDC_DOMAIN_LOCK_PHASE_LOCK ||
-               context->dpll.state == VDC_DOMAIN_LOCK_FREQ_LOCK) {
-        context->quality.health_state = VDC_DOMAIN_HEALTH_LOCK_CANDIDATE;
-    } else if (context->dpll.state == VDC_DOMAIN_LOCK_OFF ||
-               context->dpll.state == VDC_DOMAIN_LOCK_CHECKING ||
-               context->dpll.state == VDC_DOMAIN_LOCK_INITIAL_SYNC ||
-               context->dpll.state == VDC_DOMAIN_LOCK_RELOCKING) {
-        context->quality.health_state = VDC_DOMAIN_HEALTH_CHECKING;
-    } else {
-        context->quality.health_state = VDC_DOMAIN_HEALTH_DEGRADED;
+    context->quality.health_state = vdc_domain_quality_health(
+        &context->quality, context->dpll.state, context->gate.passed != 0u);
+}
+
+bool vdc_domain_age_quality(vdc_quality_table_t *quality,
+                           uint32_t lock_state, bool gate_passed,
+                           uint64_t now_ns)
+{
+    if (quality == NULL || quality->last_sample_time_ns == 0u ||
+        now_ns == UINT64_MAX) {
+        return false;
     }
+    const uint32_t old_age = quality->last_sample_age_us;
+    const uint32_t old_health = quality->health_state;
+    const uint64_t age_ns = now_ns >= quality->last_sample_time_ns
+                                ? now_ns - quality->last_sample_time_ns : 0u;
+    quality->last_sample_age_us = vdc_domain_saturate_u64_to_u32(age_ns / 1000ull);
+    quality->health_state = vdc_domain_quality_health(quality, lock_state, gate_passed);
+    return old_age != quality->last_sample_age_us || old_health != quality->health_state;
 }
 
 static void vdc_domain_sync_dco_lock_state(vdc_domain_context_t *context)
@@ -817,15 +840,12 @@ static void vdc_domain_sync_dco_lock_state(vdc_domain_context_t *context)
 static void vdc_domain_refresh_quality_age(vdc_domain_context_t *context,
                                            uint64_t now_ns)
 {
-    if (context == NULL || context->quality.last_sample_time_ns == 0u) {
+    if (context == NULL || context->quality.last_sample_time_ns == 0u ||
+        now_ns == UINT64_MAX) {
         return;
     }
-    const uint64_t age_ns =
-        now_ns >= context->quality.last_sample_time_ns
-            ? now_ns - context->quality.last_sample_time_ns
-            : 0u;
-    context->quality.last_sample_age_us =
-        vdc_domain_saturate_u64_to_u32(age_ns / 1000ull);
+    (void)vdc_domain_age_quality(&context->quality, context->dpll.state,
+                                 context->gate.passed != 0u, now_ns);
     if (context->dpll.state == VDC_DOMAIN_LOCK_HOLDOVER) {
         context->dpll.holdover_age_us = context->quality.last_sample_age_us;
     }
@@ -3746,6 +3766,7 @@ void vdc_domain_set_ready(vdc_domain_context_t *context, bool ready)
         context->dpll.state = VDC_DOMAIN_LOCK_CHECKING;
     }
     vdc_domain_sync_dco_lock_state(context);
+    vdc_domain_refresh_quality_state(context);
 }
 
 void vdc_domain_service(vdc_domain_context_t *context, uint64_t now_ns)

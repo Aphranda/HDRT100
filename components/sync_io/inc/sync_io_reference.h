@@ -31,7 +31,9 @@ bool sync_io_reference_config_valid(const sync_io_reference_config_t *config);
 /* STOP/config owner calls prepare and release on Core0. Runtime only observes
  * TIMER1; it never changes the timer or DCO. Each valid sample measures input
  * frequency using nominal local tick_hz, not an independently calibrated time.
- * DMA latency variation is not bounded by this interface. */
+ * Timeout invalidates the partial window and retries under the same lease;
+ * only a complete new window clears TIMEOUT. Cancel, clock/DMA faults and bad
+ * records retire instead. DMA latency variation is not bounded here. */
 bool sync_io_reference_prepare(const sync_io_reference_config_t *config, uint32_t *generation);
 void sync_io_reference_cancel(void);
 void sync_io_reference_service_core1(void);

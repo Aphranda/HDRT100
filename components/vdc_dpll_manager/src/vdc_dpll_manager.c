@@ -1865,7 +1865,11 @@ void vdc_dpll_manager_set_vdc_ready(bool ready)
     osal_critical_enter();
     __atomic_store_n(&s_vdc_ready, ready, __ATOMIC_RELEASE);
     s_vdc_status.ready = ready;
-    if (!vdc_dpll_manager_feedback_session()) vdc_domain_set_ready(&s_vdc_domain, ready);
+    if (!vdc_dpll_manager_feedback_session() &&
+        s_vdc_domain.ready != (uint32_t)ready) {
+        vdc_domain_set_ready(&s_vdc_domain, ready);
+        if (s_published_snapshot_valid) vdc_dpll_manager_publish_runtime_snapshot_locked();
+    }
     s_published_vdc_status = s_vdc_status;
     osal_critical_exit();
 }
@@ -3142,6 +3146,37 @@ static __attribute__((noinline)) void VDC_DPLL_MANAGER_TIME_CRITICAL(sync_dpll_f
     (void)vdc_dpll_manager_apply_ring_evidence();
 }
 
+/* Age the committed publication independently of a partially applied evidence
+ * beat. Copying the working Domain here would expose an unfinished sample and
+ * append a capture record before its existing finalize boundary. */
+static __attribute__((noinline)) void vdc_dpll_manager_age_quality_core1(void)
+{
+    if (s_vdc_domain.quality.last_sample_time_ns == 0u &&
+        (!s_published_snapshot_valid ||
+         s_published_snapshot.quality.last_sample_time_ns == 0u)) return;
+    const uint64_t now_ns = vdc_dpll_manager_now_ns();
+    if (now_ns == UINT64_MAX) return;
+    (void)vdc_domain_age_quality(&s_vdc_domain.quality, s_vdc_domain.dpll.state,
+                                 s_vdc_domain.gate.passed != 0u, now_ns);
+    if (s_vdc_domain.dpll.state == VDC_DOMAIN_LOCK_HOLDOVER &&
+        s_vdc_domain.quality.last_sample_time_ns != 0u) {
+        s_vdc_domain.dpll.holdover_age_us = s_vdc_domain.quality.last_sample_age_us;
+    }
+    if (!s_published_snapshot_valid ||
+        s_published_snapshot.quality.last_sample_time_ns == 0u) return;
+    vdc_quality_table_t quality = s_published_snapshot.quality;
+    const bool changed = vdc_domain_age_quality(&quality, s_published_snapshot.dpll.state,
+        s_published_snapshot.gate.passed != 0u, now_ns);
+    const uint32_t holdover_age = s_published_snapshot.dpll.state == VDC_DOMAIN_LOCK_HOLDOVER
+        ? quality.last_sample_age_us : s_published_snapshot.dpll.holdover_age_us;
+    if (!changed && holdover_age == s_published_snapshot.dpll.holdover_age_us) return;
+    (void)__atomic_add_fetch(&s_published_snapshot_guard, 1u, __ATOMIC_ACQ_REL);
+    s_published_snapshot.quality.last_sample_age_us = quality.last_sample_age_us;
+    s_published_snapshot.quality.health_state = quality.health_state;
+    s_published_snapshot.dpll.holdover_age_us = holdover_age;
+    (void)__atomic_add_fetch(&s_published_snapshot_guard, 1u, __ATOMIC_RELEASE);
+}
+
 /* Keep the small publication wrapper in XIP. The existing realtime step stays
  * in RAM; duplicating its entry wrapper there crosses a 4 KiB BSS alignment. */
 void __attribute__((noinline)) sync_dpll_fb_service(void)
@@ -3155,8 +3190,12 @@ void __attribute__((noinline)) sync_dpll_fb_service(void)
     if (session) {
         (void)__atomic_add_fetch(&s_committed_model_guard, 1u, __ATOMIC_ACQ_REL);
         const bool ready = __atomic_load_n(&s_vdc_ready, __ATOMIC_ACQUIRE);
-        if (s_vdc_domain.ready != (uint32_t)ready) vdc_domain_set_ready(&s_vdc_domain, ready);
+        if (s_vdc_domain.ready != (uint32_t)ready) {
+            vdc_domain_set_ready(&s_vdc_domain, ready);
+            if (s_published_snapshot_valid) vdc_dpll_manager_publish_runtime_snapshot_locked();
+        }
     }
+    vdc_dpll_manager_age_quality_core1();
     sync_dpll_fb_step();
     vdc_boundary_service_core1();
     priority_follow_apply_core1();
