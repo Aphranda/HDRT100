@@ -22,6 +22,39 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-020：显式 delay 与批量示波器留证，联合长窗通过
+
+- TODO task ID：`VDC-OBS-007`、`VDC-DRIFT-001`、`VDC-OUTPUT-001` IN PROGRESS。
+  工具切片 `cd8fd17a` 增加 `--output-delays` 四个 int32 参数，经既有 ResumeTrial
+  STOP/快照/应用/读回/恢复路径处理；默认保留旧基线，本次显式选择
+  [0,-8,-68,-116] ns。示波器采样内的逐查询 JSON 重写合并为正常/异常退出时
+  保存；RAW 块仍即时落盘。保留新 WAIT→STOP、四路同窗 RAW、哈希、分钟门禁，
+  不放宽采集超时或相位判据。进程强杀可能丢失当前窗尚未保存的 JSON，不能用
+  不完整原件签发通过。本条全部测量数字为当日快照，非事实源。
+- 联合与采集 helper 测试 118 项通过；独立只读 reviewer
+  `/root/joint_capture_review` 另跑 48 项通过、无阻断项，未连接硬件。
+  复核及测试原件见 `out/HardwareAcceptance/20260919/p3-joint-batch-r1/`。
+  同源码构建及固定四板 P3 PASS_WITH_WARNINGS，25 INFO / 18 WARN / 0 ERROR/FATAL；
+  source SHA `a41895ce7ada7757b2fe308c9f508860d771cfbefe6b36f5aca7a8a2bd000fe8`，
+  package SHA `15ba684592fee95a3cf01ea96e889a9b9a2c04b383cfbb7d6963a7357a7ec969`。
+  固件未改；本次不以锁相质量扩充基础 P3。
+- 证据根 `out/HardwareAcceptance/20260919/dpll-delay-center-r2/`。
+  `plus20-batched-60s/` 十二窗通过；NO2/NO3/NO4 范围分别
+  [-9.924,16.531]/[-16.014,5.986]/[-4.491,60.118] ns。NO4 的最大值在首个
+  第五秒窗口，之后收敛，不能将该轮写成全窗 ±50 ns。
+  `plus20-batched-600s/` 连续运行十分钟，120 个新鲜外部窗口、十个分钟门禁及
+  四板内部 GUARD 全部通过；三从范围分别 [-28.127,-3.705]/[-29.588,-4.961]/
+  [-21.783,2.188] ns，全部在 ±50 ns 内。该轮跨启动中心仍有变化，不追加补偿。
+- `comparison.json` 保留旧轮 FAIL 与新轮 PASS：旧十分钟最长采集 7.328 s，
+  第 550/555 秒超时；新十分钟最长 3.531 s，无漏采/超时，采集耗时中位 3.359 s。
+  这证明本轮调度通过，不宣称主机偶发停顿已永久消除。主控从原始 SRAM/RAW
+  重新解码并复算，见两份 `*-main-review.json`；长窗图为
+  `plus20-batched-600s-comparison.svg`。两轮运行板端查询均为零，原生封存、
+  计时资格、STOP/RELEASE、参数恢复全部通过，无 cleanup error，未写 Flash。
+- 下一 gate：沿用显式新 delay 做跨启动与失联恢复；推进 VDC 无新 evidence 时
+  的质量老化和 idle ready 发布缺口。稀疏 GPIO 窗口通过不等于未采样区间精度、
+  精确事件关联、全程物理锁定或 VDC 一致发布完成。内置 RRDELay 尚不替代 RAW。
+
 ### VDC-PROGRESS-20260919-019：NO2/NO3 输出 delay 各增加 20 ns
 
 - TODO task ID：`VDC-OUTPUT-001`、`VDC-PRECISION-001` IN PROGRESS。用户观察到

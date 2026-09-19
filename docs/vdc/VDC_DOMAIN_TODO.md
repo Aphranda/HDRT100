@@ -127,7 +127,7 @@ Core1 目标检查完成前封存末段并复验异常，通过后记录目标�
 见 `VDC-PROGRESS-20260919-017`。运行示例（参数为本次四板配置快照）：
 
 ```powershell
-python tools/vdc_priority_trace/vdc_priority_joint_capture.py --bench-adapter out/HardwareAcceptance/20260919/internal-seal-r1/capture.py --scope on --scope-trigger CHAN1 --seconds 60 --out out/HardwareAcceptance/20260919/joint-next
+python tools/vdc_priority_trace/vdc_priority_joint_capture.py --bench-adapter out/HardwareAcceptance/20260919/internal-seal-r1/capture.py --scope on --scope-trigger CHAN1 --output-delays 0 -8 -68 -116 --seconds 60 --out out/HardwareAcceptance/20260919/joint-next
 ```
 
 无示波器时改为 `--scope off`，外部结果为 SKIPPED；不得用 SKIPPED 宣称物理精度。
@@ -135,11 +135,14 @@ python tools/vdc_priority_trace/vdc_priority_joint_capture.py --bench-adapter ou
 后续同轮十分钟四板内部通过、外部全部有效窗口在 ±50 ns 内，但主机采集两次
 超时使严格整轮 FAIL，见进度 018；不放宽既定分钟门禁。用户授权 NO2/NO3 各加
 20 ns 后，两次独立短窗联合通过，见进度 019。后续推荐试验 delay 为
-[0,-8,-68,-116] ns（快照，尚未 Flash 固化），使用
-`out/HardwareAcceptance/20260919/dpll-delay-center-r1/capture.py --seconds 60 --out <新证据目录>`；
-上面的通用入口当前仍使用旧基线，下一工具切片须显式参数化。内置 RRDELay 的
-无效大数/超时必须保留并回查 RAW，不能作为零误差；减少逐查询报告写盘与传输量，
-再验收新鲜触发的低开销巡检和连续长窗。
+[0,-8,-68,-116] ns（快照，尚未 Flash 固化），通过上面通用入口的
+`--output-delays` 显式选择；省略该参数仍使用旧基线。参数仅在 STOP 后应用并读回，
+结束后恢复试验前配置。采样中报告写盘已合并，正常或异常退出均保存该窗证据，
+逐窗 RAW 与原分钟门禁保留，见进度 020。内置 RRDELay 的无效大数/超时必须保留
+并回查 RAW，不能作为零误差；内置测量替代 RAW 巡检仍待验证。
+新工具已完成同源码固定 P3、短窗及连续长窗联合验收，主控复算原始数据后通过，
+详见进度 020。上一轮超时失败原件保留；新轮通过不外推未采样区间或所有启动。
+下一步保持该显式配置，继续跨启动、失联恢复与 VDC 质量/有效性一致发布。
 
 发布与失联后继审计见本切片证据根 `vdc-publication-next-audit.json`：实际输出和
 反馈投影使用已提交 DCO，legacy clock 保持独立语义；不能靠替换旧向量字段追求
