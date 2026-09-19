@@ -109,5 +109,9 @@ typedef struct {
 } vdc_priority_follow_health_t;
 /* One bounded atomic-word read; false preserves *out. */
 bool vdc_dpll_manager_get_priority_follow_health(vdc_priority_follow_health_t *out);
+/* The even revision is a wrapping publication change token, not event ID.
+ * Failure preserves both outputs. No extra publication or counter update. */
+bool vdc_dpll_manager_get_priority_follow_health_revision(
+    vdc_priority_follow_health_t *out, uint32_t *revision);
 
 #endif

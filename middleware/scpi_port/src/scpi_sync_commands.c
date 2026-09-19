@@ -7,6 +7,7 @@
 #include "vdc_output_delay.h"
 #include "vdc_output_timing.h"
 #include "vdc_priority_ingress.h"
+#include "distributed_refmem.h"
 
 scpi_result_t scpi_sync_state_q(scpi_t *context)
 {
@@ -1579,6 +1580,26 @@ scpi_result_t scpi_cmd_vdc_priority_tx_gap(scpi_t *context)
     SCPI_ResultUInt32(context, generation);
     SCPI_ResultUInt32(context, after_ms);
     SCPI_ResultUInt32(context, duration_ms);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_vdc_priority_q(scpi_t *context)
+{
+    tdma_ring_clock_snapshot_t ring;
+    refmem_vdc_priority_payload_t p;
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&ring) || ring.enabled ||
+        ring.adapter_started || !distributed_refmem_get_vdc_priority_snapshot(&p)) {
+        scpi_port_push_exec_error(context, "REFMEM_VDC_PRIORITY_REQUIRES_STOP_OR_SNAPSHOT");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, p.schema);
+    SCPI_ResultUInt32(context, p.payload_bytes);
+    SCPI_ResultUInt32(context, p.writer);
+    SCPI_ResultUInt32(context, p.source_revision);
+    for (size_t i = 0u; i < REFMEM_VDC_PRIORITY_SOURCE_WORDS; ++i)
+        SCPI_ResultUInt32(context, p.source_words[i]);
+    SCPI_ResultUInt32(context, p.payload_crc32);
+    SCPI_ResultUInt32(context, p.reserved);
     return SCPI_RES_OK;
 }
 

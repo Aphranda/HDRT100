@@ -16,6 +16,7 @@
 #define REFMEM_VDC_VECTOR_LAYOUT_VERSION  1u
 #define REFMEM_DPLL_VECTOR_LAYOUT_VERSION 1u
 #define REFMEM_VECTOR_WRITER_CORE1        1u
+#define REFMEM_VECTOR_WRITER_CORE0        0u
 
 #define REFMEM_VECTOR_FLAG_VALID              (1u << 0u)
 #define REFMEM_VECTOR_FLAG_STALE              (1u << 1u)
@@ -24,6 +25,26 @@
 #define REFMEM_VECTOR_FLAG_HARDWARE_EVIDENCE  (1u << 4u)
 #define REFMEM_VECTOR_FLAG_LOCKED             (1u << 5u)
 #define REFMEM_VECTOR_FLAG_PROVISIONAL        (1u << 6u)
+
+/* Independent diagnostic extension inside the VDC region's reserved tail.
+ * Legacy VDC/DPLL layout/CRC/flags retain their original meanings. No lock,
+ * actuator or formal clock-valid grant may be derived from this mirror.
+ * Core0 alone publishes this asynchronous diagnostic subregion. Its source
+ * age is sampled, not a live freshness guarantee. No TDMA seat is allocated. */
+#define REFMEM_VDC_PRIORITY_OFFSET 512u
+#define REFMEM_VDC_PRIORITY_SCHEMA 1u
+#define REFMEM_VDC_PRIORITY_SOURCE_WORDS 18u
+typedef struct {
+    uint32_t schema, payload_bytes, writer, source_revision;
+    /* Source schema 1: same 18 uint32 words as PRIOR:FOLL:HEAL?;
+     * raw_lo/raw_hi are low word first. Kept independent of manager headers. */
+    uint32_t source_words[REFMEM_VDC_PRIORITY_SOURCE_WORDS];
+    uint32_t payload_crc32, reserved;
+} refmem_vdc_priority_payload_t;
+typedef struct {
+    uint32_t guard, reserved;
+    uint32_t words[sizeof(refmem_vdc_priority_payload_t) / sizeof(uint32_t)];
+} refmem_vdc_priority_region_t;
 
 typedef struct {
     uint32_t layout_version;

@@ -92,7 +92,7 @@ typedef struct {
     uint8_t reserved[DISTRIBUTED_REFMEM_NODE_SLOT_SIZE - 9u * sizeof(uint32_t)];
 } refmem_vector_node_region_t;
 
-/* The payloads are written by core1 and read by core0/diagnostic clients.
+/* The legacy payloads are written by core1 and read by core0/diagnostic clients.
  * Keep the seqlock outside the CRC-covered payload so an in-progress write is
  * unambiguously rejected by readers.  The reserved tail fills each region
  * to its configured size in the DistributedVectorTable layout. */
@@ -106,12 +106,16 @@ typedef struct {
             ? _Alignof(refmem_vdc_vector_payload_t) - sizeof(uint32_t)
             : 0u];
     refmem_vdc_vector_payload_t payload;
-    uint8_t reserved[DISTRIBUTED_REFMEM_VDC_SIZE -
+    uint8_t reserved[REFMEM_VDC_PRIORITY_OFFSET -
                      sizeof(uint32_t) -
                      (_Alignof(refmem_vdc_vector_payload_t) > sizeof(uint32_t)
                           ? _Alignof(refmem_vdc_vector_payload_t) - sizeof(uint32_t)
                           : 0u) -
                      sizeof(refmem_vdc_vector_payload_t)];
+    /* Separate guard and sole Core0 writer: asynchronous diagnostics only. */
+    refmem_vdc_priority_region_t priority;
+    uint8_t reserved_tail[DISTRIBUTED_REFMEM_VDC_SIZE - REFMEM_VDC_PRIORITY_OFFSET -
+                          sizeof(refmem_vdc_priority_region_t)];
 } refmem_vdc_vector_region_t;
 
 typedef struct {

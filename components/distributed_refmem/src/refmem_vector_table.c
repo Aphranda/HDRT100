@@ -15,6 +15,11 @@ _Static_assert(sizeof(refmem_vector_node_region_t) == DISTRIBUTED_REFMEM_NODE_SL
                "refmem node region must match its configured slot size");
 _Static_assert(sizeof(refmem_vdc_vector_region_t) == DISTRIBUTED_REFMEM_VDC_SIZE,
                "refmem VDC region must match its configured size");
+_Static_assert(offsetof(refmem_vdc_vector_region_t, priority) == REFMEM_VDC_PRIORITY_OFFSET,
+               "typed diagnostic extension has an independent fixed offset");
+_Static_assert(sizeof(refmem_vdc_priority_payload_t) == 96u &&
+               sizeof(refmem_vdc_priority_region_t) == 104u,
+               "typed diagnostic schema uses fixed whole-word layout");
 _Static_assert(sizeof(refmem_dpll_vector_region_t) == DISTRIBUTED_REFMEM_DPLL_SIZE,
                "refmem DPLL region must match its configured size");
 _Static_assert(offsetof(refmem_vdc_vector_region_t, payload) %

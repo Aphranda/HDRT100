@@ -413,6 +413,10 @@ void distributed_refmem_get_vdc_follower_rx(
     distributed_refmem_vdc_follower_rx_snapshot_t *snapshot);
 bool distributed_refmem_get_vdc_vector_snapshot(
     distributed_refmem_vdc_vector_snapshot_t *snapshot);
+/* One bounded atomic read of the asynchronous Core0 diagnostic mirror.
+ * Checksum/schema checked; failure preserves output. FRESH and age describe
+ * the last source sample, not current freshness, control authority or lock. */
+bool distributed_refmem_get_vdc_priority_snapshot(refmem_vdc_priority_payload_t *out);
 bool distributed_refmem_get_dpll_vector_snapshot(
     distributed_refmem_dpll_vector_snapshot_t *snapshot);
 bool distributed_refmem_get_realtime_tdma_frame(uint8_t *frame,

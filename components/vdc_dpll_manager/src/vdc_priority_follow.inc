@@ -102,9 +102,10 @@ bool vdc_dpll_manager_get_priority_follow(vdc_priority_follow_snapshot_t *out)
     return true;
 }
 
-bool vdc_dpll_manager_get_priority_follow_health(vdc_priority_follow_health_t *out)
+bool vdc_dpll_manager_get_priority_follow_health_revision(
+    vdc_priority_follow_health_t *out, uint32_t *revision)
 {
-    if (!out) return false;
+    if (!out || !revision) return false;
     const uint32_t guard = __atomic_load_n(&s_priority_health_guard, __ATOMIC_ACQUIRE);
     if (guard & 1u) return false;
     vdc_priority_follow_health_t value;
@@ -112,7 +113,14 @@ bool vdc_dpll_manager_get_priority_follow_health(vdc_priority_follow_health_t *o
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
     if (guard != __atomic_load_n(&s_priority_health_guard, __ATOMIC_ACQUIRE)) return false;
     *out = value;
+    *revision = guard;
     return true;
+}
+
+bool vdc_dpll_manager_get_priority_follow_health(vdc_priority_follow_health_t *out)
+{
+    uint32_t revision;
+    return vdc_dpll_manager_get_priority_follow_health_revision(out, &revision);
 }
 
 static void priority_follow_health_request(void)

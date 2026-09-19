@@ -183,6 +183,7 @@ scpi_result_t scpi_cmd_system_tdma_ring_log(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_log_q(scpi_t *context);
 scpi_result_t scpi_cmd_core_vector_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_vdc_vector_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_vdc_priority_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_dpll_vector_q(scpi_t *context);
 scpi_result_t scpi_cmd_runtime_protection_q(scpi_t *context);
 scpi_result_t scpi_cmd_config_gate_status_q(scpi_t *context);
@@ -389,6 +390,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:RING:LOG", .callback = scpi_cmd_system_tdma_ring_log}, \
     {.pattern = "SYSTem:CORE:VECTOR?", .callback = scpi_cmd_core_vector_q}, \
     {.pattern = "SYSTem:REFMEM:VDC:VECtor?", .callback = scpi_cmd_refmem_vdc_vector_q}, \
+    {.pattern = "SYSTem:REFMEM:VDC:PRIORity?", .callback = scpi_cmd_refmem_vdc_priority_q}, \
     {.pattern = "SYSTem:REFMEM:DPLL:VECtor?", .callback = scpi_cmd_refmem_dpll_vector_q}, \
     {.pattern = "SYSTem:PROTection:STATus?", .callback = scpi_cmd_runtime_protection_q}, \
     {.pattern = "SYSTem:MODE:TABle?", .callback = scpi_cmd_system_mode_table_q}, \

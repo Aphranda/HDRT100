@@ -2847,6 +2847,8 @@ bool distributed_refmem_init(void)
     return true;
 }
 
+#include "distributed_refmem_priority_health.inc"
+
 void DISTRIBUTED_REFMEM_TIME_CRITICAL(
     distributed_refmem_realtime_run_once)(void)
 {
@@ -2969,6 +2971,9 @@ void distributed_refmem_service(void)
     if (ota_ao_is_active()) {
         return;
     }
+    /* Asynchronous diagnostics belong to the sole Core0 RefMem task. Never
+     * add this copy/checksum to the deterministic Core1 publication quota. */
+    distributed_refmem_publish_priority_health_core0();
     /* The sole RefMem task prepares at most one reference/peer outside the
      * critical section and before any RX drain/borrow window. Core1 owns
      * authorization and eventual control, not this cache or arithmetic. */
