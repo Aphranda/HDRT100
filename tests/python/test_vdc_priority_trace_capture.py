@@ -55,6 +55,42 @@ def test_zero_adjustment_is_valid():
     assert result["frequency_applied_count"] == 0
 
 
+@pytest.mark.parametrize("origin", [False, True])
+@pytest.mark.parametrize("seconds", [60, 600])
+def test_target_complete_frozen_window_proves_coverage_only(origin, seconds):
+    data = decoded(origin, 10000)
+    data["status"].update(reason=8, state=3)
+    data["records"][0]["observed_end_raw"] = 100 + seconds * 250000000
+    result = capture.assess_capture(data, seconds, origin, summary_interval_ms=10000)
+    assert result["coverage_complete"] and result["terminal"] and result["freeze_reason"] == 8
+    assert not result["requested_window_proven"] and not result["physical_lock_qualified"]
+    assert "guard_passed" not in result  # Sealed records cannot invent a GUARD verdict.
+
+
+@pytest.mark.parametrize("origin", [False, True])
+@pytest.mark.parametrize("change", ["old_schema", "not_frozen", "short", "gap",
+                                     "no_terminal", "interval", "binding"])
+def test_target_complete_still_rejects_incomplete_coverage(origin, change):
+    data = decoded(origin, 10000)
+    data["status"].update(reason=8, state=3)
+    data["records"][0]["observed_end_raw"] = 100 + 60 * 250000000
+    interval = 10000
+    if change == "old_schema":
+        data["status"].update(schema=8 if origin else 7, sample_interval_ms=1000)
+        interval = None
+    elif change == "not_frozen": data["status"]["state"] = 2
+    elif change == "short": data["records"][0]["observed_end_raw"] -= 1
+    elif change == "gap":
+        data["records"][0]["coverage_incomplete"] = True
+        data["records"][0]["flag_names"].append("SERVICE_GAP")
+    elif change == "no_terminal": data["records"][0]["flag_names"].remove("TERMINAL")
+    elif change == "interval": data["status"]["sample_interval_ms"] = 2000
+    elif change == "binding": data["status"]["reason"] = 3
+    result = capture.assess_capture(data, 60, origin, summary_interval_ms=interval)
+    assert not result["coverage_complete"]
+    assert not result["requested_window_proven"] and not result["physical_lock_qualified"]
+
+
 def setup_run(tmp_path, monkeypatch, fail=None, recovery=False, interval_ms=None, duration_s=1):
     calls, closed, stopped, released, ring_armed = [], [], set(), set(), set()
     quiet = False

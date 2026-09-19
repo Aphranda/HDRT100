@@ -40,6 +40,7 @@ TRACE_ROOT = "SYSTem:VDC:PRIORity:TRACe"
 STATE_FROZEN = 3
 STATE_IDLE = 0
 REASON_STOP = 1
+REASON_TARGET_COMPLETE = 8
 REASON_RELEASED = 6
 MAX_QUIET_SECONDS = 60.0  # Legacy capacity; explicit intervals scale this window.
 
@@ -287,7 +288,12 @@ def assess_capture(decoded: dict[str, Any], requested_s: float,
     incomplete = not rows or any(r["coverage_incomplete"] for r in rows)
     empty = [r["bin_index"] for r in rows if r["observed_end_raw"] > r["observed_start_raw"]
              and not r["success_count"]]
-    coverage = bool(schema_ok and interval_ok and terminal and status["reason"] == REASON_STOP
+    # A sealed summary proves record coverage, not the separate GUARD verdict
+    # or physical output precision. Bench acceptance must bind those receipts.
+    completed = status["reason"] == REASON_STOP or (
+        status["reason"] == REASON_TARGET_COMPLETE and status["schema"] in (9, 10)
+        and status["state"] == 3)
+    coverage = bool(schema_ok and interval_ok and terminal and completed
                     and not incomplete and observed >= requested_s)
     success = [r for r in rows if r["success_count"]]
     success_first = (success[0]["observed_start_raw"] + success[0]["first_success_offset_ticks"]

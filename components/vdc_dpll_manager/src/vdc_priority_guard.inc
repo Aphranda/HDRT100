@@ -133,6 +133,18 @@ static void priority_guard_service_core1(void)
             if (g->elapsed_ms >= (g->checked_s+2u*VDC_PRIORITY_GUARD_CHECKPOINT_S)*1000u)
                 g->reason_mask |= VDC_PRIORITY_GUARD_COVERAGE;
             g->checked_s += VDC_PRIORITY_GUARD_CHECKPOINT_S;
+            if (!g->reason_mask && g->checked_s>=g->target_s) {
+                /* Seal while still RUNNING so the terminal clock/counter
+                 * observations can veto PASS through note_bin. This is a
+                 * local recorder boundary, not a ring/output STOP. */
+                priority_summary_terminal();
+                const uint32_t count=w->status.record_count;
+                if (w->summary.open || !count || count>w->status.capacity ||
+                    !(((const vdc_priority_summary_record_t *)&s_dpll_capture_records[count-1u])->flags & SUMMARY_TERMINAL))
+                    g->reason_mask |= VDC_PRIORITY_GUARD_COVERAGE;
+                priority_trace_freeze(g->reason_mask ? VDC_PRIORITY_TRACE_BINDING :
+                    VDC_PRIORITY_TRACE_TARGET_COMPLETE);
+            }
             if (g->reason_mask) g->state=VDC_PRIORITY_GUARD_FAIL;
             else {
                 g->passed_mask |= 1u << (g->checked_s/VDC_PRIORITY_GUARD_CHECKPOINT_S-1u);

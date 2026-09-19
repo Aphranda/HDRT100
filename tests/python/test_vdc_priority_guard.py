@@ -27,6 +27,31 @@ def test_guard_checkpoint_and_stop_ownership(guard_executable, case):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.fixture(scope='module')
+def seal_executable(summary_executable, tmp_path_factory):
+    source = summary_executable.with_suffix('.c').read_text(encoding='utf-8')
+    source = source.replace('int main(int argc,char **argv)', 'int prior_seal_summary_main(int argc,char **argv)', 1)
+    old = ('if(!summary_clock_read_available)return false;'
+           '*out=raw_now;return true; }')
+    assert old in source
+    source = ('#include <stdint.h>\nstatic int (*seal_probe_hook)(uint64_t *);\n' +
+              source.replace(old, 'if(!summary_clock_read_available)return false;'
+                  '*out=raw_now;if(seal_probe_hook)return seal_probe_hook(out);return true; }', 1))
+    return compile_executable(tmp_path_factory.mktemp('priority-seal'), 'seal', source + SEAL_CASES,
+        domain_sources() + [ROOT/'components/vdc_dpll_manager/src/vdc_feedback_match.c',
+                           ROOT/'components/distributed_refmem/src/refmem_sync_vdc_feedback.c'])
+
+
+@pytest.mark.parametrize('case', ['sixty', 'sixhundred', 'release_new_arm', 'ordinary',
+    'terminal_clock_read', 'terminal_rollback', 'terminal_epoch', 'terminal_run',
+    'terminal_counter_reset', 'terminal_counter_saturation', 'terminal_field_saturation',
+    'terminal_owner', 'missing_terminal', 'late_checkpoint',
+    'sixhundred_terminal_clock_read', 'sixhundred_terminal_counter_reset'])
+def test_target_seal_preserves_terminal_veto_and_immutable_evidence(seal_executable, case):
+    result = subprocess.run([str(seal_executable), case], capture_output=True, text=True, timeout=12)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 CASES = r'''
 static void guard_service(void)
 { core=1;priority_guard_service_core1(); }
@@ -107,7 +132,7 @@ int main(int argc,char **argv)
             VDC_PRIORITY_GUARD_OUTPUT_STALE,VDC_PRIORITY_GUARD_OUTPUT_PROGRESS,
             VDC_PRIORITY_GUARD_OUTPUT_STALE,VDC_PRIORITY_GUARD_OUTPUT_STALE,
             VDC_PRIORITY_GUARD_OUTPUT_STOPPED};
-        assert(g.schema==2 && g.output_request==9u && g.reason_mask==reasons[guard_output_fault]);
+        assert(g.schema==3 && g.output_request==9u && g.reason_mask==reasons[guard_output_fault]);
         assert(g.first_failure_ms==60000u);
         if(guard_output_fault==2u) assert(g.output_reason==SYNC_IO_RUN_OUTPUT_STARVED);
     }
@@ -157,6 +182,139 @@ int main(int argc,char **argv)
             g=guard_status();assert(g.capture_id==2 && !g.stop_accepted && !g.reason_mask);
             priority_guard_service_core0();assert(guard_cancels==1);
         }
+    }
+    return 0;
+}
+'''
+
+
+SEAL_CASES = r'''
+static const char *seal_case;
+static unsigned seal_reads;
+static int seal_read_hook(uint64_t *raw)
+{
+    ++seal_reads;
+    assert(s_priority_guard_work.state==VDC_PRIORITY_GUARD_RUNNING);
+    if(seal_reads==1u) {
+        /* These owner/counter changes occur after the checkpoint's clock
+         * observation and are first consumed by the terminal recorder. */
+        if(!strcmp(seal_case,"terminal_epoch"))++s_vdc_domain.clock.epoch_id;
+        if(!strcmp(seal_case,"terminal_run"))++s_vdc_domain.clock.run_id;
+        if(!strcmp(seal_case,"terminal_counter_reset")) {
+            s_priority_trace_work.summary.counters[0]=10u;
+            s_priority_match_work.status.rejected=0u;
+        }
+        if(!strcmp(seal_case,"terminal_counter_saturation"))
+            s_priority_match_work.status.rejected=UINT32_MAX;
+        if(!strcmp(seal_case,"terminal_field_saturation"))
+            s_priority_match_work.status.rejected+=UINT16_MAX+1u;
+        if(!strcmp(seal_case,"terminal_owner"))s_dpll_capture_pool_owner=DPLL_CAPTURE_POOL_LEGACY;
+        if(!strcmp(seal_case,"missing_terminal"))s_priority_trace_work.summary.open=0u;
+    }
+    if(seal_reads==2u) {
+        if(!strcmp(seal_case,"terminal_clock_read"))return 0;
+        if(!strcmp(seal_case,"terminal_rollback"))--*raw;
+    }
+    return 1;
+}
+static void seal_guard_service(void) { core=1u;priority_guard_service_core1(); }
+static void seal_assert_unchanged(const vdc_priority_trace_status_t *status,
+    const unsigned char *records,size_t bytes)
+{
+    const vdc_priority_trace_status_t current=trace_status();
+    assert(!memcmp(&current,status,sizeof(current)));
+    assert(!memcmp(s_dpll_capture_records,records,bytes));
+}
+int main(int argc,char **argv)
+{
+    assert(argc==2);seal_case=argv[1];setup(6000);stopped_ring();
+    assert(vdc_dpll_manager_set_priority_follow_phase(true));
+    const bool ordinary=!strcmp(seal_case,"ordinary");
+    const bool long_run=!strcmp(seal_case,"sixhundred") || !strncmp(seal_case,"sixhundred_",11u);
+    const unsigned seconds=long_run?600u:60u;
+    if(!strncmp(seal_case,"sixhundred_",11u))seal_case+=11u;
+    if(ordinary)assert(vdc_dpll_manager_priority_trace_summary_window_arm(1u,false,10000u));
+    else assert(vdc_dpll_manager_priority_trace_guard_arm(1u,false,seconds));
+    trace_service();running_ring();advance_summary(0u);seal_guard_service();
+    for(unsigned i=0u;i<seconds*10u;++i) {
+        core=1u;event(100u+i,(uint64_t)i*100000000u);tick();
+    }
+    advance_summary((uint64_t)seconds*1000000000u);
+    if(ordinary) {
+        seal_guard_service();
+        assert(s_priority_guard_work.state==VDC_PRIORITY_GUARD_DISABLED);
+        assert(trace_status().state==VDC_PRIORITY_TRACE_RUNNING && s_priority_trace_work.summary.open);
+        advance_summary(UINT64_C(60100000000));
+        assert(trace_status().state==VDC_PRIORITY_TRACE_RUNNING);
+        frozen_trace();assert(trace_status().reason==VDC_PRIORITY_TRACE_STOP);return 0;
+    }
+    const bool success=!strcmp(seal_case,"sixty") || !strcmp(seal_case,"sixhundred") ||
+        !strcmp(seal_case,"release_new_arm");
+    const uint32_t previous_mask=s_priority_guard_work.passed_mask;
+    assert(previous_mask==(seconds==600u?511u:0u));
+    assert(s_priority_guard_work.state==VDC_PRIORITY_GUARD_RUNNING);
+    if(!strcmp(seal_case,"late_checkpoint"))raw_now+=UINT64_C(60)*BOARD_SYS_CLOCK_HZ;
+    if(!success && strcmp(seal_case,"late_checkpoint"))seal_probe_hook=seal_read_hook;
+    seal_guard_service();seal_probe_hook=NULL;
+    assert(s_priority_guard_work.schema==3u);
+    const vdc_priority_trace_status_t sealed=trace_status();
+    if(!success) {
+        assert(s_priority_guard_work.state==VDC_PRIORITY_GUARD_FAIL);
+        assert(s_priority_guard_work.reason_mask && s_priority_guard_work.passed_mask==previous_mask);
+        assert(s_priority_guard_work.first_failure_ms>=seconds*1000u);
+        if(!strcmp(seal_case,"late_checkpoint") || !strcmp(seal_case,"missing_terminal")) {
+            assert(s_priority_guard_work.reason_mask & VDC_PRIORITY_GUARD_COVERAGE);return 0;
+        }
+        assert(sealed.state==VDC_PRIORITY_TRACE_FROZEN && sealed.reason==VDC_PRIORITY_TRACE_BINDING);
+        if(!strcmp(seal_case,"terminal_owner")) {
+            assert(s_priority_guard_work.reason_mask & VDC_PRIORITY_GUARD_COVERAGE);
+            assert(s_priority_trace_work.summary.open);return 0;
+        }
+        const vdc_priority_summary_record_t *last=(const void *)&s_dpll_capture_records[sealed.record_count-1u];
+        assert(last->flags & SUMMARY_TERMINAL);
+        uint32_t expected=SUMMARY_CLOCK_INVALID;
+        if(!strcmp(seal_case,"terminal_counter_reset"))expected=SUMMARY_COUNTER_RESET;
+        if(!strcmp(seal_case,"terminal_counter_saturation"))expected=SUMMARY_COUNTER_SATURATED;
+        if(!strcmp(seal_case,"terminal_field_saturation"))expected=SUMMARY_FIELD_SATURATED;
+        assert((last->flags & expected) && (s_priority_guard_work.reason_mask & expected));
+        return 0;
+    }
+    assert(s_priority_guard_work.state==VDC_PRIORITY_GUARD_PASS && !s_priority_guard_work.reason_mask);
+    assert(s_priority_guard_work.checked_s==seconds &&
+        s_priority_guard_work.passed_mask==(1u<<(seconds/60u))-1u);
+    assert(sealed.state==VDC_PRIORITY_TRACE_FROZEN && sealed.reason==VDC_PRIORITY_TRACE_TARGET_COMPLETE);
+    assert(sealed.schema==9u && sealed.record_count==seconds/10u+1u && !s_priority_trace_work.summary.open);
+    assert(sealed.match_count==seconds*10u);
+    const vdc_priority_summary_record_t *first=(const void *)&s_dpll_capture_records[0];
+    const vdc_priority_summary_record_t *last=(const void *)&s_dpll_capture_records[sealed.record_count-1u];
+    assert((last->flags & SUMMARY_TERMINAL) && last->observed_end_raw-first->observed_start_raw==
+        (uint64_t)seconds*BOARD_SYS_CLOCK_HZ);
+    for(unsigned i=1u;i<sealed.record_count;++i) {
+        const vdc_priority_summary_record_t *prior=(const void *)&s_dpll_capture_records[i-1u];
+        const vdc_priority_summary_record_t *current=(const void *)&s_dpll_capture_records[i];
+        assert(prior->observed_end_raw==current->observed_start_raw);
+    }
+    assert(ring.enabled && ring.adapter_started && !guard_cancels);
+    unsigned char records[sizeof(s_dpll_capture_records)];
+    memcpy(records,s_dpll_capture_records,sizeof(records));
+    const vdc_priority_guard_status_t guard=s_priority_guard_work;
+    for(unsigned i=1u;i<4u;++i) {
+        core=1u;event(100u+seconds*10u+i,((uint64_t)seconds*1000u+i*100u)*1000000u);tick();
+        seal_guard_service();core=0u;priority_guard_service_core0();
+        seal_assert_unchanged(&sealed,records,sizeof(records));
+        assert(!memcmp(&guard,&s_priority_guard_work,sizeof(guard)) && ring.enabled && !guard_cancels);
+    }
+    stopped_ring();trace_service();seal_guard_service();
+    seal_assert_unchanged(&sealed,records,sizeof(records));
+    assert(!memcmp(&guard,&s_priority_guard_work,sizeof(guard)));
+    if(!strcmp(seal_case,"release_new_arm")) {
+        core=0u;assert(vdc_dpll_manager_priority_trace_release());trace_service();
+        assert(s_priority_guard_work.state==VDC_PRIORITY_GUARD_DISABLED);
+        assert(vdc_dpll_manager_priority_trace_guard_arm(2u,false,60u));trace_service();
+        assert(s_priority_guard_work.state==VDC_PRIORITY_GUARD_ARMED && s_priority_guard_work.capture_id==2u);
+        assert(!s_priority_guard_work.passed_mask && !s_priority_guard_work.reason_mask &&
+            !s_priority_guard_work.checked_s && !s_priority_guard_started);
+        assert(!trace_status().record_count && !trace_status().match_count);
     }
     return 0;
 }

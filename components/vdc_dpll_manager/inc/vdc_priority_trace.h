@@ -36,7 +36,7 @@
 
 /* Explicit diagnostic guard, independent of GPIO phase qualification.
  * Existing summary schemas and record capacity are unchanged. */
-#define VDC_PRIORITY_GUARD_SCHEMA 2u
+#define VDC_PRIORITY_GUARD_SCHEMA 3u
 #define VDC_PRIORITY_GUARD_CHECKPOINT_S 60u
 #define VDC_PRIORITY_GUARD_MAX_SECONDS 600u
 enum { VDC_PRIORITY_GUARD_DISABLED, VDC_PRIORITY_GUARD_ARMED,
@@ -58,7 +58,9 @@ typedef struct {
     uint32_t reason_mask, first_failure_ms, checked_s, passed_mask, elapsed_ms;
     uint32_t ring_config_seq, stop_config_seq, stop_accepted, ring_retired, output_retired;
     /* Schema 2 requires the same prepared output request throughout the
-     * reference experiment. These are checkpoint observations, not edges. */
+     * reference experiment. Schema 3 seals the native summary at target
+     * PASS, after final-bin validation. Output still awaits ordinary STOP.
+     * These are checkpoint observations, not edges. */
     uint32_t output_request, output_state, output_reason;
     uint32_t output_ordinal_lo, output_ordinal_hi;
 } vdc_priority_guard_status_t;
@@ -76,7 +78,8 @@ enum {
     VDC_PRIORITY_TRACE_OK = 0u, VDC_PRIORITY_TRACE_STOP = 1u,
     VDC_PRIORITY_TRACE_SESSION = 2u, VDC_PRIORITY_TRACE_BINDING = 3u,
     VDC_PRIORITY_TRACE_FULL = 4u, VDC_PRIORITY_TRACE_LEGACY_BUSY = 5u,
-    VDC_PRIORITY_TRACE_RELEASED = 6u, VDC_PRIORITY_TRACE_MODE = 7u
+    VDC_PRIORITY_TRACE_RELEASED = 6u, VDC_PRIORITY_TRACE_MODE = 7u,
+    VDC_PRIORITY_TRACE_TARGET_COMPLETE = 8u
 };
 enum { VDC_PRIORITY_TRACE_MATCH = 1u, VDC_PRIORITY_TRACE_DECISION = 2u,
     VDC_PRIORITY_TRACE_ORIGIN = 3u, VDC_PRIORITY_TRACE_PHASE = 4u };
