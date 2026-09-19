@@ -219,9 +219,11 @@ Calibration load 建立完整 source/reference 矩阵，运行态只做索引，
 
 STOP 后显式授权、固定分片配额、完整发布证明和逐字节 ACK 对账；收到不等于 DCO 采用，ACK 不阻塞 PI/发车。见 [参考运输细则](VDC_RUNTIME_CONSTRAINTS.md#vdc-reference-01显式参考事件时间戳运输)。
 
-### 外部参考监视切片
+### 外部参考测量与慢速补偿
 
 外部 10 MHz 输入先作为诊断测量源。`SYSTem:VDC:REFerence:CONFigure` 设置输入端口、边沿、标称频率、测量窗口和失联超时；`ENABle 1` 只在 STOP 阶段申请 SYNC_IO 的 PIO/DMA 资源，Core1 负责有限窗口采样，`STATus?` 返回状态、样本序号、原始计数和相对标称频偏。`DEFAult`、`RECall`、`STORe` 只处理参数，Flash 不保存使能状态。测量的 DMA 延迟尚未形成有界精度证明，也不会自动改写 DCO；基准驯服另行验收。
+
+补偿由独立的 `DISCipline` 意图启用，STOP 配置且上电关闭。`vdc_reference_discipline.inc` 在 Core1 committed-model 提交边界消费新鲜硬件窗口，按会话、参考代际、角色、时钟和主板 origin epoch 去重绑定。`DISCipline:CONFigure` 配置调频斜率、滤波分母及测量准入限幅，默认值见 `PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_*`；`DEFAult/RECall/STORe` 分别恢复默认、读取保存值及显式保存。配置仅在 STOP 且补偿未启用时修改，ARM 锁存；`CONFigure?` 读请求参数，`ACTive?` 读 Core1 锁存参数、代次和 CRC。Flash 仍经 Core0 停态维护与 FlashTransaction，旧记录仅在 RAM 迁移，上电不自动启用。Domain 将绝对参考基线与 MASTER PI 残差分开，再合成实际速率；更新时连续重基，不调整 TIMER0/TIMER1 原始计数器。失联或取消冻结最后基线，新的运行配置重建模型；从板继续跟踪 NO1 已提交时间戳。此实现不提升 formal quality，实板精度和失联恢复按 TODO 分别验收。
 
 ### VDC-BOUNDARY-01：兼容逐从命令
 

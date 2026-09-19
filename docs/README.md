@@ -183,7 +183,10 @@ docs/
 | `vdc/VDC_DPLL_STATUS_REVIEW.md` | 四板 DPLL 实际闭环、连续启动收敛、有限精度与发布缺口的阶段报告。 |
 | `reports/distributed-trigger/DHRT100_DPLL_STATUS_REPORT_20260918.html` | 四板 DPLL 阶段报告，沿用项目 A4 竖版模板；含组成机制、连续收敛、完整方波与上升沿实测 SVG。 |
 | `reports/distributed-trigger/DHRT100_DPLL_STATUS_REPORT_20260918.pdf` | 四板 DPLL 阶段报告打印版，A4 竖版七页。 |
-| `reports/distributed-trigger/DHRT100_PROJECT_OVERVIEW_REPORT_20260919.html` | 项目综述更新版：A4 竖版七页，按当前实现汇总 HAOFV、TDMA/RefMem、四板 DPLL 实测和 VDC 发布路径；保留 20260827 原版。 |
+| `reports/distributed-trigger/DHRT100_PROJECT_OVERVIEW_REPORT_20260919.html` | 项目综述更新版：A4 竖版，汇总 HAOFV、四板 DPLL、无外参长窗、外参相干性及调参实测；保留 20260827 原版。 |
+| `reports/distributed-trigger/DHRT100_PROJECT_OVERVIEW_REPORT_20260919.pdf` | 项目综述更新打印版，与同日期 HTML 同步。 |
+| `reports/distributed-trigger/DHRT100_DPLL_STATUS_REPORT_20260919.html` | DPLL 更新报告：A4 竖版八页，含收敛/方波、长窗、外参斜率对比、SCPI/Flash 与相干性边界。 |
+| `reports/distributed-trigger/DHRT100_DPLL_STATUS_REPORT_20260919.pdf` | DPLL 更新打印版，与同日期 HTML 同步，保留 20260918 历史版本。 |
 | `vdc/VDC_DOMAIN_RISK_REVIEW.md` | VDC/DPLL 主域风险评审，记录共同时间、DPLL、硬实时 capture/fire 和文档漂移风险。 |
 | `communication/README.md` | 通信域 README。 |
 | `measure/README.md` | 测量域 README。 |
@@ -206,6 +209,7 @@ docs/
 | `legacy/vdc/LEGACY_VDC_DOMAIN_ARCHITECTURE.md` | VDC 重构前架构历史快照。 |
 | `legacy/vdc/LEGACY_VDC_DOMAIN_TODO.md` | VDC 重构前待办历史快照。 |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS.md` | VDC 重构前任务进度历史快照。 |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_09.md` | VDC C14 archive: `VDC-PROGRESS-20260918-006`..`VDC-PROGRESS-20260918-004`, 3 unchanged entries. |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_08.md` | VDC C14 archive: `VDC-PROGRESS-20260918-003`..`VDC-PROGRESS-20260917-031`, 4 unchanged entries. |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_07.md` | VDC C14 archive: `VDC-PROGRESS-20260917-030`..`VDC-PROGRESS-20260917-025`, 6 unchanged entries. |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_06.md` | VDC 进展日志 C14 归档（`VDC-PROGRESS-20260917-024`..`VDC-PROGRESS-20260917-023`，2 条），旧条目逐字保留。 |

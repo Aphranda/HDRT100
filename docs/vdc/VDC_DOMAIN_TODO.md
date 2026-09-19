@@ -126,7 +126,7 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 
 ### 后续参数、角色与配置扩展
 
-外部参考当前为 MONITOR 诊断切片，代码入口 `vdc_reference.h`、`sync_io_reference.h`。
+外部参考包含 MONITOR 与显式慢速补偿，代码入口 `vdc_reference.h`、`sync_io_reference.h`。
 NO1 IN4 已接示波器参考输出；以下为本轮配置示例快照，非频率精度承诺：
 
 ```text
@@ -151,14 +151,32 @@ SYST:VDC:REF:ENAB 0
 DMA 仲裁延迟尚未定界，不据此宣称绝对 ppb 精度，也不自动修正 DCO。
 RUN 时不轮询 SCPI 采样；硬件自主测量，STOP 后统一读回末态。
 
+补偿调参已完成 SCPI/Flash 与四板短窗验收，见 `VDC-PROGRESS-20260919-024`。
+以下为配置示例快照，依次为斜率 ppb/s、滤波分母、测量准入限幅 ppb：
+
+```text
+SYST:VDC:REF:DISC 0
+SYST:VDC:REF:ENAB 0
+SYST:VDC:REF:STAT?
+SYST:VDC:REF:DISC:CONF 100,4,10000
+SYST:VDC:REF:DISC:CONF?
+SYST:VDC:REF:DISC:STOR
+```
+
+必须先 STOP，保存前确认参考资源已释放；重枚举后可查询不等于配置已准入，
+拒绝需读错误并有界重试 RAM 配置，不盲重试 Flash。`DISC:DEFA/REC` 分别恢复
+工厂 RAM/已保存值；`DISC:ACT?` 返回 schema、request、config_generation、
+config_crc32、上述三个参数，用于核对 ARM 锁存。50 ppb/s 两分钟末态仍在追赶，
+未证明稳态优于默认 100 ppb/s；默认值以 `PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_*` 为准。
+
 本组保留既有扩展任务及依赖；集中式命令依赖仅约束旧模式，不能反向成为当前从板本地跟踪前置。恢复旧模式或调整契约时另行审查。
 
 节点容量以 `PROJECT_NODE_CAPACITY` 为准，Core1 周期目录以 `app_realtime_profile.c` 为准，TDMA wire 周期另按 operating profile 验证。传统 DPLL `TUNE`/`COEFficient?` 与 typed-follow 参数分开；`BASEline:DEFAult` 为工厂 RAM 值，`BASEline:RECall` 召回已保存值，旧 DPLL 默认命令语义不变。Flash 不保存积分、当前 DCO/锁状态或运行会话，资源上限仍受构建约束。
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| `VDC-TUNE-002` | 按需开放其他 DPLL 参数 | PENDING | 逐组定义单位、请求/采用身份、默认/召回/保存/回退，各组独立 host/build/P3；不要求先开放所有参数。 |
-| `VDC-FREQ-001` | 残余频差优化 | PENDING | 依用户频差目标，以绑定参考模型的原生记录和外部有效窗口共同验证，不阻塞当前相位主线。 |
+| `VDC-TUNE-002` | 按需开放其他 DPLL 参数 | IN PROGRESS | 本轮开放外参调频斜率、滤波分母及测量准入限幅的 SCPI/Flash；STOP 配置、ARM 锁存，提供采用代次/CRC，默认/召回/保存分别验收。其他参数逐组推进，不要求先全部开放。 |
+| `VDC-FREQ-001` | 残余频差与外部基准补偿 | IN PROGRESS | 显式慢速参考补偿已实现，绝对基线与 PI 残差分离；同源码四板 P3、一分钟 GPIO 共存和实际 DCO 采用通过，见进度 022。后续失联保持/恢复、同启动频率对照及独立频率复核。不以参考读数或软件补偿量代替实际频率精度。 |
 | `VDC-ROLE-001` | Domain 控制 profile 与角色边界 | IN PROGRESS | 依 evidence 接口；角色切换清理积分/锁历史、generation 可见。旧命令 follower 旁路本地控制；当前本地跟踪显式启用，模式互斥，主机 PI 不退化。 |
 | `VDC-ROLE-002` | 集中式定时 follower apply | PENDING | 暂停旧路线；依赖 `VDC-SCHED-001`、`VDC-ROLE-001`、`VDC-CMD-001` 至 `VDC-CMD-005` 完整门禁，不隐式回退本地 PI。 |
 | `VDC-ROLE-003` | Flash/SCPI 角色配置 | PENDING | 既有扩展依赖 `VDC-ROLE-001/002`；任意节点可配置角色/来源，legacy 默认迁移明确，requested/applied generation 可读，Flash 仅显式保存。 |
@@ -210,6 +228,21 @@ python tools/vdc_priority_trace/vdc_priority_joint_capture.py --bench-adapter ou
 - 板端在 STOP 配置新会话、ARM/ACK 后再启动，运行不轮询；有界 SRAM 记录，全部 STOP 后冻结、分页、CRC 和 RELEASE。封存之后不外推参考覆盖，输出尾段单独核验。
 - 内部 GUARD 可在失败时请求本板 STOP，目标 PASS 不停止输出；零查询模式不承诺主机即时获知或全板同时停止。内部与外部各自判定，不宣称严格同事件配对。
 - 内置 RRDELay 尚不替代 RAW；无效大数和 timeout 保留。采样批量保存降低写盘成本，异常保留部分证据；强杀造成的不完整记录不能通过。
+
+## 外部参考调试入口
+
+仅在 STOP 后依次配置 `SYST:VDC:REF:CONF port,hz,edge,window_ms,timeout_ms`、
+`SYST:VDC:REF:ENAB 1`，需要补偿时另发 `SYST:VDC:REF:DISC 1`。
+`CONF?`/`STAT?` 保留测量读回；`DISC?` 独立返回补偿状态，RUN 期间不作串口采样。
+参数由 `STOR` 显式保存；补偿使能不写 Flash，每轮须重新授权。
+`DISC 0` 或 `ENAB 0` 停止新增补偿但保留最后已应用基线，不能理解为频偏清零；
+新 TDMA 配置激活重建模型。限幅、滤波和调频斜率通过 `DISC:CONF` 配置，
+经 `DISC:STOR` 显式保存；默认值与 ARM 锁存读回见上文“后续参数、角色与配置扩展”。
+
+`DISC?` 字段顺序以 `vdc_reference_discipline_status_t`/SCPI callback 为准：
+schema、已确认 request、当前 requested enable、state/reason、reference generation、sample sequence、
+accepted/rejected/applied、measured/filtered/baseline ppb、session、role generation、clock epoch/run、
+origin epoch/sequence、DCO update sequence。禁用后保留历史计数用于 STOP 对账，不能当作仍在调节。
 
 ## HAOFV owner 与执行约束
 
