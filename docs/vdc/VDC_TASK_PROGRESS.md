@@ -22,6 +22,21 @@ Last updated: 2026-09-19
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260919-034：健康锁定标志与质量一致投影
+
+- TODO task ID：`VDC-SNAPSHOT-001`、`VDC-VERIFY-001` IN PROGRESS；以下数字为本轮快照。原 RefMem `LOCKED` 位仅看 Domain 控制状态、debug 和 provisional；quality 老化为 DEGRADED 后仍可能置位，与同一向量的质量字段矛盾。
+- 实现只收紧 `distributed_refmem_vector_flags()`：复核既有同快照 quality 有效性、锁状态、HEALTHY/fine、样本时间、freshness/age 及 gate。两向量复用原轮转和 CRC，不增加发布次数、时钟读取、健康镜像、wire 或特等席；保留 DCO/证据序号及 VALID/STALE 原义。此位是健康控制状态投影，不是 formal promotion，也不提升 typed FRESH。
+- 软件证据：独立测试先在旧代码复现 9 失败/4 通过；修复后 publication 28 项、idle/reference/health 115 项、两/六/八节点 projection 3 项、文档 38 项通过。健康、边界、超龄、gate/valid/tier/时间缺失及矛盾快照、恢复均覆盖。正例使用健康资格夹具，经真实 Domain aging、manager 发布和两向量路径验证；不是实板正式样本准入或锁定过程证明。
+- 旧 golden 三项初测因预期 LOCKED 位撤销而失败，原件留存；夹具先检查当前 payload CRC/无 LOCKED，再仅归一历史 LOCKED 位对照原 CRC golden，文件本身未改，其余字节继续受原基线约束。独立最终复核 PASS，见 `review.txt`。
+- Release A/B/BOOT 与固定四板 P3 通过：build `20260919151458`，源码 SHA `d574aa0f88dcbe45793ee3b964cc13fe22020ff4ad163edb99e5af0f30d7a13d`，1325 文件，staged 指纹匹配。P3 为 PASS_WITH_WARNINGS（25 INFO / 19 WARN / 0 ERROR / 0 FATAL）；既有全表严格预算仍未过。NO1 RefMem 本轮 deadline miss 增 1、overrun 增 0，最大 17035 cycles 对配置 WCET 29000；不据此推定与本改动的因果或授予 WCET，四板相位对照见 `p3-phase-comparison.json`。
+- 资源对照：相对 033，text +72 B、data/bss 不增，flags 函数 120→186 B，RefMem 实时入口仍 1284 B；代码大小不等于执行时间，既有判断增加有界成本。见 `resource-audit.json`，未调整静态预算或增加席位。
+- 联合首轮 `joint-gap-60s-r1` FAIL 保留：四板 GUARD、300 ms 新参考暂停/恢复、模型及 Core0 镜像通过，外部十二窗/48 RAW 哈希通过；NO4 峰值 52.145 ns，已采边沿仍在 ±100 ns 内。适配器读取两向量时，通用串口层去掉复合结果的 OK 前缀，导致 VDC 查询解析失败、DPLL 查询未执行。只在 out 适配器登记两条复合查询，再作同配置实测；未改固件或重释首轮结论。
+- 同配置 `joint-gap-60s-r2` PASS：新参考暂停至恢复约 301.598 ms，三从各记录一次恢复；四板 GUARD、模型末态与 Core0 健康镜像一致。STOP 下原生 reader 校验两向量后查询成功，各板两表分别保持 flags 85/69/69/69，均无 LOCKED，未将 typed 诊断闭环上提资格。SCPI 是字段子集，不据此声称主机独立重算完整向量 CRC。
+- 复测十二个外部窗口、48 RAW 哈希通过；NO2/NO3/NO4 最大绝对相差 53.824/34.117/38.596 ns，NO2 三个已采边沿超 ±50 ns，全部已采边沿在 ±100 ns 内。两轮 RUN 查询均零，四板最终 STOP、清除注入并恢复参数，无清理错误。稀疏波形不证明未采样区间或暂停期间的连续精度，末态镜像一致不证明逐事件及时性。
+- 原件根：`out/HardwareAcceptance/20260919/vector-health-lock-r1/`；失败、资源、P3、评审、采集日志及两轮 `joint-summary.json` 均留存。健康投影修复切片 DONE，整体发布/锁相目标保持 IN PROGRESS。
+- 交付：实现与同指纹 P3 凭证提交 `a1d4b336`；文档分离提交。
+- 下一 gate：正式 aging 对失效读钟/反向时间的 fail-closed 修复；随后明确 typed 合格证据接入及调试相位控制到正式控制的迁移。当前 phase step 遇 LOCKED 会拒绝，不能只上提一个状态位。两者是发布主线后续切片，不阻塞现有诊断闭环；不得借此扩充未经用户审核的特等席。
+
 ### VDC-PROGRESS-20260919-033：GUARD 分离启动等待与后续参考缺口
 
 - TODO task ID：`VDC-OBS-007`、`VDC-SNAPSHOT-001`、`VDC-HOLD-001`；诊断修复切片 DONE，父任务 IN PROGRESS。以下数字为验收快照，非配置事实源。

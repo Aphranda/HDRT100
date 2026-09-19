@@ -165,7 +165,7 @@ Core0 在 TDMA STOP 排他边界 PREPARE，锁存 session、delay、周期、时
 
 普通样本拒绝与当前绑定失效分开：单个坏/旧样本不冒充新输入，也不自动证明当前时间基已换代。真正 STOP、角色/session/observer/clock 换代撤销授权；raw counter 不回写。调试 continuation 保留原 gate 且不执行 PI/DCO，不授予正式质量。
 
-`distributed_refmem.c` 在 debug continuation 开启时不发布 `REFMEM_VECTOR_FLAG_LOCKED`。按 [EXE-SAFE-01](../check/DOCS_EXECUTION_CONSTRAINTS.md#exe-safe-01可恢复拒绝的记录与有界继续)，调试态 DPLL 失锁或局部 WCET/deadline 超限本身不隔离收发仍健康的 TDMA 节点；异常须记录，节点级隔离只适用于 TDMA 或不可恢复硬件资源故障。
+`REFMEM_VECTOR_FLAG_LOCKED` 是同一快照中健康锁定状态的投影：要求非 provisional、debug continuation 关闭、Domain/quality 均为 LOCKED、quality 有效且 HEALTHY、fine tier、非零样本时间及 freshness、年龄未超界、gate 通过。控制状态因保持而仍为 LOCKED，不能掩盖质量过期；该位不代表完整 formal promotion。判定复用既有字段和两向量轮转，不新增观测或发布。按 [EXE-SAFE-01](../check/DOCS_EXECUTION_CONSTRAINTS.md#exe-safe-01可恢复拒绝的记录与有界继续)，调试态 DPLL 失锁或局部 WCET/deadline 超限本身不隔离收发仍健康的 TDMA 节点；异常须记录，节点级隔离只适用于 TDMA 或不可恢复硬件资源故障。
 
 `sync_dpll_fb_service()` 在 step 的提前返回前维护质量年龄：`vdc_domain_age_quality()` 只更新 age/health，已有 HOLDOVER 同步其年龄，不推进服务/证据计数或自动迁移控制状态。无参考时间或读钟失败跳过；工作 Domain 与已发布视图分别按各自参考时间和状态老化，不提前公开未 finalize 的证据。ready 变化刷新派生质量，并在已有 runtime 快照时发布。缺参考自动 HOLDOVER、误差边界增长、恢复重锁及正式有效发布仍属于 `VDC-SNAPSHOT-001`、`VDC-HOLD-001`、`VDC-RECOVERY-001` 后续门禁。
 

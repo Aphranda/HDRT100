@@ -37,6 +37,12 @@ wire 中 `source_update_seq`、`dpll_update_seq` 继续表达原 DPLL 证据，�
 模型和 quality 各保留原义，不能为了显示同步而互相覆盖。本条只保证已发布字段
 的刷新，不授予 formal lock，也不替代 STOP/失联 aging、有效性和共同时间发布验收。
 
+既有两向量的 `REFMEM_VECTOR_FLAG_LOCKED` 由 `distributed_refmem_vector_flags()`
+复核同一快照的健康资格，不能仅按保留的控制 LOCKED 状态置位。quality 超龄、无有效
+样本时间、无 freshness、非 HEALTHY/fine 或 gate 拒绝时清除此位；不改 DCO/证据序号，
+也不将 typed FRESH 提升为正式质量。`VALID/STALE` 保留向量自身的原语义，其他路径、
+硬件证据和调度 flags 保持独立；健康锁定投影不是完整 formal promotion。
+
 ### VDC-BOUNDARY-01：本地服务边界频率增量命令
 
 本条款独立于旧共同绝对时间命令；它定义内部 DCO 的受限频率应用，不授予 formal
