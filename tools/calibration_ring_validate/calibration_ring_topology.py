@@ -198,8 +198,10 @@ def main() -> int:
     args = parse_args()
     args.keep_open = not args.short_open
     board_ids = list(args.board_id)
-    if len(board_ids) < 2 or len(board_ids) > 8:
-        raise SystemExit("board count must be in [2, 8]")
+    # 1..8: a single board is a one-node ring whose link closes through its own
+    # RJ45 loopback, so the adjacency probe must be able to classify it as well.
+    if len(board_ids) < 1 or len(board_ids) > 8:
+        raise SystemExit("board count must be in [1, 8]")
     if len(set(board_ids)) != len(board_ids):
         raise SystemExit("board IDs must be unique")
     if args.anchor_id and args.anchor_id not in board_ids:
@@ -232,27 +234,34 @@ def main() -> int:
     def apply_profile(address: str) -> dict[str, object]:
         board = boards[address]
         _ = board_command(board, "SYSTem:TDMA:RING:STOP", args)
-        stage_response = board_command(
-            board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
-        apply_response = board_command(
-            board, "SYSTem:TDMA:OPMode:APPLy", args)
-        # OPMode APPLY is an owner transition and its bare ACK may be lost
-        # during USB settle.  Poll the read-only snapshot instead of treating
-        # one immediate level=0 observation as a permanent profile failure.
+        # The operating-profile transition can be deferred while the board is
+        # still settling right after an OTA/software reset, in which case the
+        # STAGE/APPLY replies are lost and the level never changes.  Retry the
+        # pair in a bounded loop, but only when the read-only snapshot has not
+        # confirmed the level: APPLY is not idempotent (a repeat raises an
+        # execution error), so an unconditional resend would fabricate faults.
+        stage_response = apply_response = active_response = ""
         active_level = 0
-        profile_deadline = time.monotonic() + args.timeout
-        active_response = ""
-        while time.monotonic() < profile_deadline:
-            active_response = board_command(
-                board, "SYSTem:TDMA:OPMode?", args)
-            try:
-                active_level = int(
-                    active_response.split(",", 1)[0].strip().strip('"'), 0)
-            except (ValueError, IndexError):
-                active_level = 0
+        for _attempt in range(3):
+            stage_response = board_command(
+                board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
+            apply_response = board_command(
+                board, "SYSTem:TDMA:OPMode:APPLy", args)
+            profile_deadline = time.monotonic() + args.timeout
+            while time.monotonic() < profile_deadline:
+                active_response = board_command(
+                    board, "SYSTem:TDMA:OPMode?", args)
+                try:
+                    active_level = int(
+                        active_response.split(",", 1)[0].strip().strip('"'), 0)
+                except (ValueError, IndexError):
+                    active_level = 0
+                if active_level == args.level:
+                    break
+                time.sleep(0.02)
             if active_level == args.level:
                 break
-            time.sleep(0.02)
+            time.sleep(float(getattr(args, "gap", 0.05)) + 0.5)
         probe_response = board_command(
             board,
             f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}", args)
@@ -275,6 +284,31 @@ def main() -> int:
     transport_recoveries: list[dict[str, object]] = []
     adjacency = {address: [] for address in board_ids}
     try:
+        if len(board_ids) == 1:
+            # A single board is a one-node ring: the link closes through the
+            # board's own RJ45 loopback, so the directed adjacency is measured
+            # with the one-node topology instead of a driver/receiver pair. The
+            # measurement still decides the topology class (single node vs
+            # multi-node ring) and yields the line order, which
+            # render_ring_order already accepts as a complete ring when
+            # adjacency[reference] == [reference].
+            only = board_ids[0]
+            only_board = boards[only]
+            _ = board_command(only_board, "SYSTem:TDMA:RING:STOP", args)
+            time.sleep(args.gap)
+            _ = board_command(only_board, "SYSTem:TDMA:RING:TOPology 1,0,0", args)
+            time.sleep(args.gap)
+            arm_pair_board(only_board, args)
+            self_loopback_started = wait_started_with_transport_recovery(
+                only_board, args, transport_recoveries, f"{only}->{only}")
+            # No pair exists for a one-node ring, so pair_results stays empty;
+            # the measured self-loopback fact is recorded separately instead of
+            # being dressed up with pair-shaped counters it does not have.
+            if not self_loopback_started:
+                raise RuntimeError(
+                    f"single-node ring did not start: {only}")
+            print(f"single-node ring self-loopback started: {only}", flush=True)
+            adjacency[only].append(only)
         # P0T uses temporary two-node topologies. Clear any persisted formal
         # training stage once before the matrix scan; later pairs do not add a
         # stage, so repeating this action only adds serial timeout latency.

@@ -469,8 +469,12 @@ def read_scpi_response(ser: serial.Serial,
         if (require_match and not preserve_composite_ack and
                 not scpi_response_matches_command(command, line)):
             continue
+        # A scalar query may legitimately answer exactly "1" (a single-node TDMA
+        # load mask, for example). Only treat that reply as a bare ACK when the
+        # command is not one of the fixed scalar numeric query headers.
         if (query and line in {'"OK"', "OK", "1"} and
-                header not in SCALAR_ONE_QUERY_HEADERS):
+                header not in SCALAR_ONE_QUERY_HEADERS and
+                header not in SCALAR_U32_QUERY_HEADERS):
             continue
         return line
     return "<timeout>"

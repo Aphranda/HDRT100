@@ -1959,12 +1959,12 @@ def validate_runtime_schedules(
 
 
 def acceptance_config_path(args: argparse.Namespace, root: Path) -> Path:
-    if getattr(args, "command", "") == "run":
-        return root / (
-            "config/hardware_acceptance/p3_bench.json"
-            if getattr(args, "full", False)
-            else "config/hardware_acceptance/p3_bench_quick.json"
-        )
+    # --full selects the full bench config for a run; every other case honours
+    # the --config argument, whose default is the quick bench config. Honouring
+    # --config is what lets a run target a different ring size (1/2/3/4-8 nodes)
+    # instead of always the four-node/two-plus-spare bench.
+    if getattr(args, "command", "") == "run" and getattr(args, "full", False):
+        return root / "config/hardware_acceptance/p3_bench.json"
     return root / args.config
 
 
@@ -2132,6 +2132,8 @@ def run_acceptance(args: argparse.Namespace) -> None:
         ]
         for board_id in ota_board_ids:
             ota_command.extend(["--serial-number", board_id])
+        if getattr(args, "skip_pre_reboot", False):
+            ota_command.append("--skip-pre-reboot")
         if diagnostic_continue:
             ota_command.append("--diagnostic-continue")
         _run_step(ota_command, root, out_dir / "ota.log")
@@ -2885,7 +2887,7 @@ def run_acceptance(args: argparse.Namespace) -> None:
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "source_tree_sha256": fingerprint_after,
             "source_file_count": source_count,
-            "bench_config_path": args.config.as_posix(),
+            "bench_config_path": config_path.resolve().relative_to(root).as_posix(),
             "bench_config_sha256": sha256_file(config_path),
             "build_id": build_id,
             "firmware_package": evidence_entry(root, package),
@@ -3092,6 +3094,11 @@ def parse_args() -> argparse.Namespace:
     run.add_argument(
         "--full", action="store_true",
         help="use the full bench config instead of the quick default")
+    run.add_argument(
+        "--skip-pre-reboot", action="store_true",
+        help=("skip the default picotool pre-OTA reboot so the package is "
+              "delivered through the running application's own OTA path; "
+              "required when the board is not reachable in BOOTSEL mode"))
     resume = subparsers.add_parser(
         "resume",
         help="reuse an existing package/OTA record; never build or OTA")

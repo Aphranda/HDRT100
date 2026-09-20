@@ -13,6 +13,7 @@ from test_tdma_board_record import recorder  # noqa: F401 - shared production C 
 
 from tools.hardware_acceptance.p3_hardware_acceptance import (
     AcceptanceError,
+    DEFAULT_CONFIG,
     LIMITED_RECEIPT_SCHEMA,
     QUICK_DIAGNOSTIC_RECEIPT_SCHEMA,
     RECEIPT_SCHEMA,
@@ -53,19 +54,26 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
 )
 
 
-def test_run_full_selects_full_bench_config() -> None:
+def test_run_config_selection_keeps_quick_default_and_honours_overrides() -> None:
     root = Path("repo")
     full = argparse.Namespace(
         command="run", full=True, config=Path("ignored.json"))
-    quick = argparse.Namespace(
-        command="run", full=False, config=Path("ignored.json"))
+    default = argparse.Namespace(command="run", full=False, config=DEFAULT_CONFIG)
+    single = argparse.Namespace(
+        command="run", full=False,
+        config=Path("config/hardware_acceptance/p3_bench_single.json"))
     resume = argparse.Namespace(
         command="resume", config=Path("custom.json"))
 
     assert acceptance_config_path(full, root) == (
         root / "config/hardware_acceptance/p3_bench.json")
-    assert acceptance_config_path(quick, root) == (
-        root / "config/hardware_acceptance/p3_bench_quick.json")
+    # A plain `run` still selects the quick four-node bench because --config
+    # defaults to it; any other --config selects that bench, which is how a
+    # one-node ring is run instead of always the four-node/two-plus-spare bench.
+    assert DEFAULT_CONFIG == Path("config/hardware_acceptance/p3_bench_quick.json")
+    assert acceptance_config_path(default, root) == root / DEFAULT_CONFIG
+    assert acceptance_config_path(single, root) == (
+        root / "config/hardware_acceptance/p3_bench_single.json")
     assert acceptance_config_path(resume, root) == root / "custom.json"
 
 

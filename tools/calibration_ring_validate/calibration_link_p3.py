@@ -135,8 +135,22 @@ def parse_p3_status(raw: str) -> dict[str, int]:
 
 
 def p3_status(board: Board, args: argparse.Namespace) -> dict[str, int]:
-    return parse_p3_status(
-        board_command(board, "READ:CALibration:P3?", args))
+    # A status reply can be read misaligned: a fragment of a neighbouring
+    # reply gets glued onto the front of the line, which shows up as an
+    # unexpected field count with empty columns. That is a read-alignment
+    # fault, not a measurement result, so re-read a bounded number of times
+    # before failing. The accepted widths and every state/epoch check stay
+    # unchanged: this only stops discarding a whole trial over a torn read.
+    last_error: Exception | None = None
+    for _attempt in range(3):
+        raw = board_command(board, "READ:CALibration:P3?", args)
+        try:
+            return parse_p3_status(raw)
+        except RuntimeError as exc:
+            last_error = exc
+            time.sleep(min(0.1, float(getattr(args, "gap", 0.05))))
+    raise last_error if last_error is not None else RuntimeError(
+        "P3 status read failed")
 
 
 def action_args(args: argparse.Namespace) -> argparse.Namespace:
@@ -178,6 +192,15 @@ def stop_ring_and_wait(board: Board, args: argparse.Namespace) -> dict[str, int]
 
 def stop_p3(boards: list[Board], args: argparse.Namespace) -> None:
     fast = action_args(args)
+    # A one-node ring passes the same board as both endpoints; driving one CDC
+    # port from two workers interleaves replies, so reduce to unique ports.
+    seen: set[str] = set()
+    unique_boards: list[Board] = []
+    for board in boards:
+        if board.address not in seen:
+            seen.add(board.address)
+            unique_boards.append(board)
+    boards = unique_boards
     # Each board owns an independent CDC session and P3 state machine.  Stop
     # them concurrently; no per-board protocol ordering is changed.
     with ThreadPoolExecutor(max_workers=len(boards)) as executor:
@@ -247,6 +270,13 @@ def wait_complete_pair(source: Board, destination: Board, epoch: int,
                        args: argparse.Namespace) -> tuple[dict[str, int],
                                                            dict[str, int]]:
     """Poll both endpoints concurrently after the ordered START handshake."""
+    if source.address == destination.address:
+        # A one-node ring is its own peer: the single board holds both roles, so
+        # one serial poll sequence yields the snapshot for both endpoints.
+        # Polling the same CDC port from two threads interleaves the replies and
+        # tears the field layout apart.
+        snapshot = wait_complete(source, epoch, args)
+        return snapshot, snapshot
     with ThreadPoolExecutor(max_workers=2) as executor:
         initiator, responder = executor.map(
             lambda board: wait_complete(board, epoch, args),
@@ -594,8 +624,10 @@ def main() -> int:
             frequencies_mhz = validation_frequency_ladder(args.frequency_mhz)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
-    if not 2 <= len(args.board_id) <= 8:
-        raise SystemExit("board count must be in [2, 8]")
+    # 1..8: a single board is a one-node ring whose only link is its own RJ45
+    # loopback, so the link measurement must be able to classify it as well.
+    if not 1 <= len(args.board_id) <= 8:
+        raise SystemExit("board count must be in [1, 8]")
     if len(set(args.board_id)) != len(args.board_id):
         raise SystemExit("board IDs must be unique")
     if not 1 <= args.repeats <= 1000:
