@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import re
@@ -11,6 +10,7 @@ import time
 from types import SimpleNamespace
 
 from tools.vdc_priority_trace import vdc_priority_trace_capture as helper
+from tools.workflows.vdc_joint_capture.runtime_base import load_runtime
 
 
 GUARD_FIELDS = (
@@ -28,18 +28,10 @@ PLANNED_FIELDS = (
 PLANNED_BUDGET_CYCLES = 100000
 
 
-def _load_module(path: Path):
-    spec = importlib.util.spec_from_file_location("vdc_joint_runtime_base", path)
-    if spec is None or spec.loader is None:
-        raise ValueError("Historical runtime entrypoint cannot be loaded")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def load_adapter(runtime_entrypoint: Path, *, runtime_module=None):
+def load_adapter(runtime_entrypoint: Path, *, board_uids=None, runtime_module=None):
     """Create the tracked adapter after manifest admission has completed."""
-    external = runtime_module if runtime_module is not None else _load_module(runtime_entrypoint)
+    external = (runtime_module if runtime_module is not None else
+                load_runtime(runtime_entrypoint, board_uids))
     for name in ("Probe", "base", "capture", "follow", "phase", "startup"):
         if not hasattr(external, name):
             raise ValueError(f"Historical runtime base missing {name}")

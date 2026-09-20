@@ -24,16 +24,33 @@ def workflow_input_fixture(tmp_path):
     adapter = root / 'out/adapter.py'
     startup = root / 'out/startup.py'
     summary = root / 'out/summary.py'
+    monitor = root / 'out/monitor.py'
+    parallel = root / 'out/parallel.py'
+    late_scope = root / 'out/late_scope.py'
+    outer_trial = root / 'out/outer_trial.py'
+    outer_hil = root / 'out/outer_hil.py'
+    legacy_scope = root / 'out/legacy_scope.py'
     ancestor = root / 'out/ancestor.py'
     receipt = root / 'config/receipt.json'
     baseline = root / 'out/baseline.json'
     tap = root / 'out/tap.json'
     manifest = root / 'config/workflow.json'
-    for path in (adapter, startup, summary, ancestor, receipt, baseline, tap, manifest):
+    migrated = {
+        'internal_seal': adapter,
+        'quiet_startup': startup,
+        'internal_summary': summary,
+        'external_monitor': monitor,
+        'parallel_startup': parallel,
+        'late_scope_adapter': late_scope,
+        'outer_trial': outer_trial,
+        'outer_hil': outer_hil,
+        'legacy_scope_reader': legacy_scope,
+    }
+    for path in (*migrated.values(), ancestor, receipt, baseline, tap, manifest):
         path.parent.mkdir(parents=True, exist_ok=True)
+    for role, path in migrated.items():
+        path.write_text(f'# migrated {role}\n', encoding='utf-8')
     adapter.write_text('raise AssertionError("adapter must not import")\n', encoding='utf-8')
-    startup.write_text('# migrated quiet startup\n', encoding='utf-8')
-    summary.write_text('# migrated internal summary\n', encoding='utf-8')
     ancestor.write_text('# transitive executable dependency\n', encoding='utf-8')
     receipt.write_text(json.dumps({'tdma_board_ids': list(WORKFLOW_UIDS)}), encoding='utf-8')
     baseline.write_text(json.dumps([
@@ -57,10 +74,7 @@ def workflow_input_fixture(tmp_path):
         'adapter': {
             'compatibility_entrypoint': adapter.relative_to(root).as_posix(),
             'migrated_sources': {
-                'internal_seal': declared(adapter),
-                'quiet_startup': declared(startup),
-                'internal_summary': declared(summary),
-            },
+                role: declared(path) for role, path in migrated.items()},
             'runtime_entrypoint': ancestor.relative_to(root).as_posix(),
             'runtime_closure': [declared(ancestor)],
         },
@@ -73,6 +87,9 @@ def workflow_input_fixture(tmp_path):
     }
     manifest.write_text(json.dumps(data), encoding='utf-8')
     return SimpleNamespace(root=root, adapter=adapter, startup=startup, summary=summary,
+                           monitor=monitor, parallel=parallel, late_scope=late_scope,
+                           outer_trial=outer_trial, outer_hil=outer_hil,
+                           legacy_scope=legacy_scope, migrated=migrated,
                            ancestor=ancestor, receipt=receipt, baseline=baseline,
                            tap=tap, manifest=manifest, data=data)
 
@@ -517,7 +534,8 @@ def test_workflow_manifest_pins_all_inputs_before_adapter_import(tmp_path):
     loaded = workflow_inputs.load_inputs(fixture.manifest, fixture.root, fixture.adapter)
     assert loaded.board_uids == tuple(WORKFLOW_UIDS)
     assert loaded.bench_adapter == fixture.adapter
-    assert loaded.migrated_sources == (fixture.adapter, fixture.startup, fixture.summary)
+    assert loaded.migrated_sources == tuple(
+        fixture.migrated[role] for role in workflow_inputs.MIGRATED_SOURCE_ROLES)
     assert loaded.runtime_entrypoint == fixture.ancestor
     assert loaded.executable_closure == (fixture.ancestor,)
     assert loaded.receipt == fixture.receipt
@@ -532,6 +550,7 @@ def test_workflow_manifest_pins_all_inputs_before_adapter_import(tmp_path):
     ('entrypoint', 'adapter', r'migrated source internal_seal sha256 mismatch'),
     ('startup', 'startup', r'migrated source quiet_startup sha256 mismatch'),
     ('summary', 'summary', r'migrated source internal_summary sha256 mismatch'),
+    ('monitor', 'monitor', r'migrated source external_monitor sha256 mismatch'),
     ('ancestor', 'ancestor', r'runtime closure\[0\] sha256 mismatch'),
     ('baseline', 'baseline', 'baseline sha256 mismatch'),
     ('tap_baseline', 'tap', 'tap_baseline sha256 mismatch'),
@@ -589,7 +608,8 @@ def test_main_rejects_manifest_before_adapter_import(tmp_path, monkeypatch):
         'capture', '--bench-adapter', str(fixture.adapter),
         '--workflow-inputs', str(fixture.manifest), '--out', str(tmp_path / 'run')])
     monkeypatch.setattr(joint, 'load_internal_seal_adapter',
-                        lambda path: pytest.fail('tracked adapter loaded before manifest admission'))
+                        lambda path, **kwargs: pytest.fail(
+                            'tracked adapter loaded before manifest admission'))
     with pytest.raises(ValueError, match=r'migrated source internal_seal sha256 mismatch'):
         joint.main()
 
@@ -604,7 +624,8 @@ def test_main_rejects_stale_receipt_before_adapter_import(tmp_path, monkeypatch)
                         lambda inputs, root: (_ for _ in ()).throw(
                             ValueError('current source does not match the P3 receipt')))
     monkeypatch.setattr(joint, 'load_internal_seal_adapter',
-                        lambda path: pytest.fail('tracked adapter loaded before P3 admission'))
+                        lambda path, **kwargs: pytest.fail(
+                            'tracked adapter loaded before P3 admission'))
     with pytest.raises(ValueError, match='current source does not match'):
         joint.main()
 
@@ -680,7 +701,7 @@ def test_explicit_delays_reach_stop_restore_runner(tmp_path, monkeypatch):
     monkeypatch.setattr(joint, 'ResumeTrial', Runner)
     monkeypatch.setattr(joint, 'SerialBackend', lambda board_uids: ('backend', tuple(board_uids)))
     monkeypatch.setattr(joint, 'load_internal_seal_adapter',
-                        lambda path: pytest.fail('outer lifecycle loaded child adapter'))
+                        lambda path, **kwargs: pytest.fail('outer lifecycle loaded child adapter'))
     assert joint.main() == 0
     assert seen['output_delays'] == (0, -8, -68, -116)
     assert seen['child'][seen['child'].index('--scope-resource') + 1] == 'USB::TEST'
@@ -716,10 +737,12 @@ def test_child_uses_tracked_adapter_factory_with_runtime_entrypoint(tmp_path, mo
 
     adapter = SimpleNamespace(Probe=object, base=SimpleNamespace())
     monkeypatch.setattr(joint, 'load_internal_seal_adapter',
-                        lambda path: (seen.update(runtime_entrypoint=path) or adapter))
+                        lambda path, **kwargs: (
+                            seen.update(runtime_entrypoint=path, factory_kwargs=kwargs) or adapter))
     monkeypatch.setattr(joint, 'make_probe_class', lambda value: Probe)
     assert joint.main() == 0
     assert seen['runtime_entrypoint'] == fixture.ancestor
+    assert seen['factory_kwargs']['board_uids'] == tuple(WORKFLOW_UIDS)
     assert seen['opt'].bench_adapter == fixture.adapter
     assert seen['opt'].workflow_inputs_evidence['adapter']['runtime_entrypoint'] == 'out/ancestor.py'
     assert seen['ran'] and seen['saved']['workflow_inputs']['schema'] == workflow_inputs.SCHEMA

@@ -9,6 +9,9 @@ restoration, and final connection close. It never stores Flash settings.
 `internal_seal.py` owns the former internal-summary, quiet-startup, and sealed
 GUARD adapter layers. Their original bytes remain pinned as migrated sources;
 only the deeper admitted runtime closure is dynamically loaded.
+`runtime_base.py` owns the former monitor control and bounded parallel START
+layers and loads the remaining RunProbe ancestry directly. Historical scope,
+Trial and HIL modules are retained as migrated sources but no longer executed.
 
 The CLI remains `tools/vdc_priority_trace/vdc_priority_joint_capture.py`. Its
 `--workflow-inputs` JSON fixes the scenario, board UID order, the complete

@@ -469,7 +469,8 @@ def main():
     inputs = load_inputs(a.workflow_inputs, ROOT, a.bench_adapter)
     receipt = validate_current_receipt(inputs, ROOT)
     if a.child:
-        adapter = load_internal_seal_adapter(inputs.runtime_entrypoint)
+        adapter = load_internal_seal_adapter(
+            inputs.runtime_entrypoint, board_uids=inputs.board_uids)
         opt = argparse.Namespace(receipt=inputs.receipt, out=a.out,
             baseline=inputs.baseline, tap_baseline=inputs.tap_baseline,
             period_ns=1000000, scope=False, check_only=False, seconds=a.seconds, summary_interval_ms=10000,
