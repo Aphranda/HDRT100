@@ -12,6 +12,15 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-017：Core0 Tick 升频顺序纠错与四板复验
+
+- TODO task ID：TOOLS-P3-DPLL-SHORT-001；本记录纠正 TOOLS-PROGRESS-20260920-011 中“board 在 scheduler 前升频”的误判，不改变 TOOLS TODO 状态，也不新增跨域契约。
+- 根因核验：RP2350 FreeRTOS port 的 `vPortSetupTimerInterrupt()` 在 scheduler 启动时使用运行态 `clock_get_hz(clk_sys)` 装载 Core0 SysTick；此前 `task_system()` 启动后才经 `app_runtime_bringup()` 调用 `board_init()` 将系统时钟切到 `BOARD_SYS_CLOCK_HZ`。因此 reload 仍按启动时默认时钟装载，升频后由 `configTICK_RATE_HZ` 表示的 1 ms Tick 实际约为 0.6 ms（推导快照，非事实源）。`configCPU_CLOCK_HZ` 已等于 `BOARD_SYS_CLOCK_HZ`，但非 tickless port 的 reload 路径不使用该宏，单改宏不能修复启动顺序。
+- 修复提交 `6c8b0b41` 新增幂等 `board_clock_init()`，在 `osal_kernel_init()`、任务创建和 scheduler 启动前建立板级时钟；后续 `board_init()` 再次核对同一 owner。新增源码顺序/时钟契约回归与既有 Core1 release 回归共 10 passed（快照），`pico2-release` 构建及 Flash link 检查通过。
+- 影响边界：Core1 TDMA 使用独立 core-local SysTick，并且只在 `board_init()` 后启动，故其线速周期没有直接按 150 MHz 运行；受影响的是 Core0 上所有 RTOS delay/timeout，以及每 Tick 调用 `tdma_runtime_owner_core0_prepare_service()` 的准备/控制面，历史执行频率曾被间接加速，不能再表述为“对 TDMA 无影响”。
+- 同指纹四板 P3 原件位于 `out/HardwareAcceptance/20260921/core0-tick-r1..r3/`。`r1` 因未暂存 match 迁移被 child loader 拒绝，`r2` 因隔离 worktree 缺冻结 bench adapter 被准入拒绝，两次均在采集前失败并保留；补齐冻结输入后的 `r3` 为 PASS_WITH_WARNINGS（快照：INFO 33 / WARN 19 / ERROR 0 / FATAL 0），四节点基础收发均通过且 transport bad 为零。HDO 联合 DPLL 60 s 外部最大绝对相差 35.972 ns，三个内部 endpoint 最大绝对残差 95 ns（快照）；errors / cleanup_errors / restore_needed 为空，`check-staged` 与 pre-commit 通过。
+- `r3` 仍报告 VDC/RefMem deadline 和 VDC quarantine 等 TDMA schedule-quality WARN，因此本次结论只证明 Core0 Tick 修复未破坏四节点基础运输与 60 s DPLL 相差门限，不把快速诊断结果提升为严格实时调度通过。隔离 worktree 与临时 HEAD 版 observer 已留在 `out/archive/pending-deletion/`，等待用户最终评审删除。
+
 ### TOOLS-PROGRESS-20260921-016：child observer snapshot wrapper 迁移
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-OBSERVER-001。
