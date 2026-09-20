@@ -37,13 +37,14 @@ Last updated: 2026-09-20
 | TOOLS-WORKFLOW-SEAL-001 | child internal summary / quiet startup / sealed GUARD 三层迁移 | DONE | tracked factory 接管三层 Probe/parser/verdict；旧三份原件固定角色归档且不执行，runtime out closure 从 20 降到 17。characterization、四板 frozen golden、独立复核、同指纹 P3 及 scope-off/on 实测通过，见 TOOLS-PROGRESS-20260920-007。 |
 | TOOLS-WORKFLOW-RUNTIME-001 | child monitor control / parallel START runtime 基座迁移 | DONE | tracked runtime base 直接加载剩余 RunProbe，接管 phase/RUN control 与 bounded parallel START；旧 monitor/startup/late-scope/Trial/HIL/reader 六份原件归档且不执行，runtime closure 从 17 降到 11。动态闭包、回归、独立复核、同指纹 P3 及 scope-off/on 实测通过，见 TOOLS-PROGRESS-20260920-008。 |
 | TOOLS-WORKFLOW-RUN-001 | child RUN output 层迁移 | DONE | tracked RunProbe 接管 schema10、timing/RUN prepare、output STOP 与 STOP-only 校验；内部旧 scope owner 禁用，outer 独占恢复。旧 RunProbe 原件归档且不执行，runtime closure 从 11 降到 10；回归、golden、独立复核、P3 及 scope-off/on 通过，见 TOOLS-PROGRESS-20260920-009。 |
+| TOOLS-WORKFLOW-PROBE-SUPPORT-001 | child probe support 叶端迁移 | DONE | tracked 纯 helper 接管 UID、字段解析、receipt 绑定和 native summary；旧 helper 固定为 migrated lineage 且不执行，runtime closure 从 10 降到 9。导入锁、真实 provenance、无环登记、回归、独立复核、四板 P3 及 scope-on 实测通过，见 TOOLS-PROGRESS-20260920-010。 |
 | TOOLS-DOCS-001 | 建立独立 tools 文档域和标准三件套 | DONE | 三文件职责分离、总索引及域路由完整，独立复核与文档门禁通过；见 TOOLS-PROGRESS-20260920-001。 |
 | TOOLS-INVENTORY-001 | 全量文件归属与静态依赖候选盘点 | DONE | 已完成文件归属、静态候选及四板 out 链专项复核；不代表全部存量运行依赖已闭合。测试、独立审查及同指纹快速 P3 已完成，见 TOOLS-PROGRESS-20260920-002。 |
 | TOOLS-REGISTRY-001 | 登记结构和唯一事实源 | DONE | registry/schema、首批登记及目录同步完成；UNASSESSED 与支持资格分离，正反测试、独立审查及同指纹快速 P3 通过并保留告警，见 TOOLS-PROGRESS-20260920-002。 |
 
 ## 接续顺序与交付规则
 
-文档建域、文件盘点、首批登记、scope、输入、outer、seal、runtime control/START 和 RUN output 已完成；TOOLS-WORKFLOW-001 下一步迁移剩余 phase/follow/match 深层祖先，专项注入保持显式配置。不要求搬完全部存量才能推进主线。示波器可用时可补 scope-on 组合验收，但无示波器切片仍优先使用 scope-off，不把设备状态改写成产品结论。四板主线优先，OTA 实现保持现有边界。任务受阻时记录具体证据和解除条件，不用扩展 P3 范围替代工具治理。
+文档建域、文件盘点、首批登记、scope、输入、outer、seal、runtime control/START、RUN output 和 probe support 已完成；TOOLS-WORKFLOW-001 下一步迁移剩余 phase/follow/match 深层祖先，专项注入保持显式配置。不要求搬完全部存量才能推进主线。示波器可用时可补 scope-on 组合验收，但无示波器切片仍优先使用 scope-off，不把设备状态改写成产品结论。四板主线优先，OTA 实现保持现有边界。任务受阻时记录具体证据和解除条件，不用扩展 P3 范围替代工具治理。
 
 文档和实现分离提交；实现切片按现行 P3 规则验收。特等席资源变更必须先由用户审核，工具治理本身不授予新增实时资源。
 

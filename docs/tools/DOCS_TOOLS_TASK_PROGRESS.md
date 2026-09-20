@@ -12,6 +12,16 @@ Last updated: 2026-09-20
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260920-010：child probe support 纯叶端迁移
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-PROBE-SUPPORT-001。
+- 新增 `tools/domains/vdc/priority_trace/probe_support.py`，迁入 UID 顺序、SCPI 字段解析、receipt provenance、observer delta 和 frozen native summary。V5 manifest 将 archived helper 固定为 `probe_support` migrated role；runtime closure 从 10 降到 9，旧源码原位归档且不执行。
+- tracked RUN loader 仅在持有 Python 全局 import lock 时为历史 phase 链提供兼容模块名，成功、异常和并发路径均恢复原 `sys.modules` 状态；继承报告移除未执行 archived helper 的来源行，改记实际 tracked 路径/SHA。helper 独立登记为无下游依赖 leaf，workflow 与 priority trace 单向依赖，登记图无环。
+- 软件与审查证据：聚焦回归 109 passed，最终宽回归 300 passed / 1 skipped，跳过项为 Windows 无符号链接权限；工具治理/catalog、编译和 whitespace 检查通过。独立复核先发现 alias 并发、provenance 和登记依赖三项问题，修复后 PASS，无剩余 finding。
+- 同指纹硬件验收快照，非事实源：首次默认五板尝试 `p3-r1` 因旧配置要求未枚举 NO5，在 OTA 准入阶段拒绝并保留原件；随后 build `20260920130659` 的四板 `p3-r2` 为 PASS_WITH_WARNINGS（INFO 33 / WARN 22 / ERROR 0 / FATAL 0），凭证与实现指纹一致。该旧 P3 仍将 DPLL 标为 SKIPPED，后续按用户要求改为四板 60 s DPLL 闭环，不再要求 NO5。
+- scope-on `joint-scope-on-r1` outer/inner/joint PASS：12 个新鲜窗口、48 个 RAW block，最大绝对相差 41.643 ns（快照）；11 个 migrated source / 9 个 runtime closure，报告只记录实际 tracked helper，RUN 内板端查询为零，四板 timing/delay 恢复，errors / cleanup_errors / restore_needed 均为空。原件位于 `out/HardwareAcceptance/20260920/tools-probe-support-r1/`。
+- 实现提交 `3b3d8d02`；TOOLS-WORKFLOW-PROBE-SUPPORT-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一批迁移 phase/follow/match 深层祖先；旧原件仍只归档，不删除，任何待删除候选移入归档区后由用户最终评审。
+
 ### TOOLS-PROGRESS-20260920-009：child RUN output 层迁移
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-RUN-001。
