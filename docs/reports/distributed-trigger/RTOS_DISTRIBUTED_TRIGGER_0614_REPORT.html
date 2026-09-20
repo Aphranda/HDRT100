@@ -2,7 +2,7 @@
 <html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>相控阵测试系统分布式触发方案技术报告</title>
+<title>多设备测试系统分布式触发方案技术报告</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   body {
@@ -192,7 +192,7 @@
 <div class="page cover-page">
   <div class="page-header"></div>
   <div class="main">
-    <h1 class="cover-title">相控阵测试系统<br>分布式触发方案技术报告</h1>
+    <h1 class="cover-title">多设备测试系统<br>分布式触发方案技术报告</h1>
     <div class="cover-divider"></div>
     <div class="cover-subtitle">EtherCAT &nbsp;·&nbsp; Zynq SoC &nbsp;·&nbsp; DC同步 &nbsp;·&nbsp; PDO数据交换</div>
     <div class="cover-info"> &nbsp;|&nbsp; 2026 年 6 月</div>
@@ -291,7 +291,7 @@
   <div class="page-header"></div>
   <div class="main">
     <div class="h1">系统需求与核心指标</div>
-    <div class="sub">相控阵天线测试系统 — 触发子系统分层验收口径</div>
+    <div class="sub">多设备天线测试系统 — 触发子系统分层验收口径</div>
 
     <div class="row3" style="margin-bottom:16px;">
       <div class="col3">
@@ -322,7 +322,7 @@
         <tr><td class="b">C. PDO预约装载提前量 t_margin</td><td class="c val">周期抖动P99≤10µs<br>典型1-2ms</td><td class="c val">最小≥500µs/≥2周期<br>late packet率=0</td><td>每节点不少于10^6次触发事件; PDO只装载未来时间戳, FPGA本地比较DC时间产生边沿。</td></tr>
         <tr><td class="b">D. 设备动作残差 e_act</td><td class="c val">静态P99.9≤100ns</td><td class="c val">连续旋转P99.9≤150ns<br>p-p≤300ns</td><td>统一口径e_act=T2_i-T_fire_base-Δt_i; VNA、链路、波控三类设备分别统计, 超窗样本禁止进入射频结果。</td></tr>
         <tr><td class="b">E. DPLL角度时间残差 e_pll</td><td class="c val">工程P99.9≤50µs</td><td class="c val">优化P99.9≤30µs<br>单次≤100µs</td><td>评价角度到时间映射精度, 不与跨节点同步指标混用; 10-20µs作为硬件在环挑战目标。</td></tr>
-        <tr><td class="b">F. 射频测量结果</td><td class="c val">建立≤1°相位重复性基线</td><td class="c val">与最终相控阵指标绑定</td><td>幅相一致性、波束指向误差、动态范围和VNA校准由射频/测量系统独立定义; 触发系统提供时序证据链。</td></tr>
+        <tr><td class="b">F. 射频测量结果</td><td class="c val">建立≤1°相位重复性基线</td><td class="c val">与最终多设备指标绑定</td><td>幅相一致性、波束指向误差、动态范围和VNA校准由射频/测量系统独立定义; 触发系统提供时序证据链。</td></tr>
       </tbody>
     </table>
 
@@ -636,7 +636,7 @@
 
     <div class="conc" style="margin-top:10px;">
       <h3>综合判断</h3>
-      <p>对相控阵触发链路而言, DPLL负责角度到时间映射, 其验收量统一为DPLL角度时间残差e_pll; 触发执行链路负责多设备同步动作, 其验收量统一为设备动作残差e_act。当前工程口径采用e_pll P99.9≤50µs、优化目标≤30µs, 不把角度预测误差写成纳秒级指标。</p>
+      <p>对多设备触发链路而言, DPLL负责角度到时间映射, 其验收量统一为DPLL角度时间残差e_pll; 触发执行链路负责多设备同步动作, 其验收量统一为设备动作残差e_act。当前工程口径采用e_pll P99.9≤50µs、优化目标≤30µs, 不把角度预测误差写成纳秒级指标。</p>
     </div>
   </div>
   <div class="page-footer"><span></span><span><span class="page-num">9 / 22</span></span></div>
@@ -731,7 +731,7 @@
 
     <div class="row2" style="margin-top:10px;">
       <div class="col2">
-        <div class="card cg"><div class="card-h">对相控阵测试的直接价值</div><div class="card-b">
+        <div class="card cg"><div class="card-h">对多设备测试的直接价值</div><div class="card-b">
           每个角度点可同时安排波控码锁存、链路门控、功放/开关矩阵动作和VNA采集触发。各动作只需满足自身建立时间和相对delay, 不需要等待上一台设备确认后再触发下一台设备。
         </div></div>
       </div>
@@ -1562,7 +1562,7 @@
       <span>射频指标独立验收</span>
     </div>
   </div>
-  <div class="page-footer"><span> 相控阵测试系统分布式触发方案技术报告 &nbsp;|&nbsp; 2026年6月</span><span><span class="page-num">22 / 22</span></span></div>
+  <div class="page-footer"><span> 多设备测试系统分布式触发方案技术报告 &nbsp;|&nbsp; 2026年6月</span><span><span class="page-num">22 / 22</span></span></div>
 </div>
 
 <script>
