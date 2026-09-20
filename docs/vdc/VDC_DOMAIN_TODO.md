@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-09-20
+Last updated: 2026-09-21
 
 ## 文档接口与状态规则
 
@@ -230,10 +230,10 @@ config_crc32、上述三个参数，用于核对 ARM 锁存。50 ppb/s 两分钟
 
 ## 验证入口
 
-当前联合入口及参数为已验证台架快照；适配器依赖证据目录内的配置/校准脚本，不用于任意新设备自动发现。
+当前联合入口及参数为已验证台架快照；tracked 工作流由 manifest 固定板卡顺序、archive lineage 和输入摘要，不用于任意新设备自动发现。
 
 ```powershell
-python tools/vdc_priority_trace/vdc_priority_joint_capture.py --bench-adapter out/HardwareAcceptance/20260919/internal-seal-r1/capture.py --scope on --scope-trigger CHAN1 --output-delays 0 -8 -68 -116 --seconds 60 --out out/HardwareAcceptance/20260919/joint-next
+python tools/vdc_priority_trace/vdc_priority_joint_capture.py --bench-adapter tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_seal.py --workflow-inputs config/tool_workflows/vdc_joint_capture_internal_seal.json --scope on --scope-trigger CHAN1 --seconds 60 --out out/HardwareAcceptance/<date>/<fresh-run>
 ```
 
 - 使用新证据目录；`--seconds` 选择支持的整分钟窗口，具体范围见工具 `parse_args()`。长窗不拼接重启段。

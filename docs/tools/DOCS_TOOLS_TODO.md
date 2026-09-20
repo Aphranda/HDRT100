@@ -18,7 +18,6 @@ Last updated: 2026-09-21
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| TOOLS-HANDOFF-001 | 标准结果与交接复现 | PENDING | TOOLS-WORKFLOW-001；声明命令、环境、设备、版本、原始证据及失败恢复；另一工作区离线复算，对应硬件配置重跑留证。 |
 | TOOLS-CHECK-001 | 工具治理静态检查 | IN PROGRESS | inventory/check/catalog 入口已落地；登记结构、路径、角色和目录漂移有正反测试。继续存量准入、配置/输出接口版本与证明内容检查，不以文件存在代替资格审查；检查过程无设备副作用。 |
 | TOOLS-GATE-001 | 修复门禁触发范围与现行要求的差异 | PENDING | TOOLS-CHECK-001；独立核对工具/测试/hook staged 变更触发，正反测试及同指纹 P3 通过；不得缩减现行验收要求。 |
 | TOOLS-CONSOLIDATE-001 | 分批复用、目录迁移与退役 | PENDING | 按 TG-LAYOUT，确认完成一批再迁入标准目录一批；先核清用途、依赖、调用者、恢复及源位置验证。目标位置保持稳定 ID，同步 registry、目录和调用者，旧入口兼容，相关回归、同指纹 P3 和独立复核后交付；未完成工具原位登记，不自动提升支持资格或删除旧文件。 |
@@ -29,7 +28,8 @@ Last updated: 2026-09-21
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| TOOLS-WORKFLOW-001 | 四板 DPLL/VDC 工作流依赖闭合 | DONE | internal-seal 从 scope/outer 到 base 全链已迁入 tracked 目录；V14 固定完整 lineage/输入但 runtime entrypoint 为 null、out executable closure 为空。旧源码原位保留且不执行；characterization、动态闭包、独立复核及同指纹四板 DPLL P3 通过，见 TOOLS-PROGRESS-20260920-004..20260921-021。交接复现仍由 TOOLS-HANDOFF-001 单独验收。 |
+| TOOLS-HANDOFF-001 | 标准结果与交接复现 | DONE | TOOLS-WORKFLOW-001；已完成另一 detached worktree 的离线复算、工具 catalog 校验、自建 package/四板 OTA、带 HDO 的 P3 run/resume 及直接 joint CLI；失败与恢复证据见 TOOLS-PROGRESS-20260921-022。 |
+| TOOLS-WORKFLOW-001 | 四板 DPLL/VDC 工作流依赖闭合 | DONE | internal-seal 从 scope/outer 到 base 全链已迁入 tracked 目录；V14 固定完整 lineage/输入但 runtime entrypoint 为 null、out executable closure 为空。旧源码原位保留且不执行；characterization、动态闭包、独立复核及同指纹四板 DPLL P3 通过，见 TOOLS-PROGRESS-20260920-004..20260921-021。交接复现已由 TOOLS-HANDOFF-001 单独闭合。 |
 | TOOLS-LAYOUT-001 | 目录规划与首批路径映射 | DONE | TG-LAYOUT 分层、稳定入口例外和首批目标已建立；scope 叶端逐文件来源/目标/调用者/兼容/验证/回滚映射完成并经独立复核，见 TOOLS-PROGRESS-20260920-003/004。后续批次仍须各自建映射。 |
 | TOOLS-SCOPE-001 | 联合采样示波器叶端迁入标准目录 | DONE | 旧源码原位归档且 SHA 可核；新 reader/SparseScope 无 out 代码依赖，回归、真实 RAW 离线对照、独立复核、同指纹 P3 和 60 s 联合实测已通过，见 TOOLS-PROGRESS-20260920-004；不代表板卡工作流全部闭合。 |
 | TOOLS-WORKFLOW-INPUTS-001 | internal-seal 工作流显式输入与准入 | DONE | tracked manifest 绑定完整历史可执行闭包、receipt/baseline/tap、板卡顺序及摘要；首次 import/硬件前 fail-closed，父子流程先落准入证据。回归、独立复核、同指纹 P3 和 scope-off 四板实测通过，见 TOOLS-PROGRESS-20260920-005。 |
@@ -54,7 +54,7 @@ Last updated: 2026-09-21
 
 ## 接续顺序与交付规则
 
-四板 internal-seal 从 scope/outer 到 base 的 executable out 依赖已经清零，完整历史 lineage 与输入仍固定留证。下一步进入 TOOLS-HANDOFF-001：在新工作区按文档验证离线复算与对应硬件重跑；专项注入继续保持显式配置，不把 vector/reference fault injection 混入默认采样。示波器可用时执行 scope-on，无示波器时按既有策略 scope-off，不把设备状态改写成产品结论。OTA 实现保持现有边界，存量工具治理继续按批推进。
+四板 internal-seal 从 scope/outer 到 base 的 executable out 依赖已经清零，完整历史 lineage 与输入仍固定留证。TOOLS-HANDOFF-001 已完成：在 detached worktree 完成离线复算、工具 catalog 校验，并在 HDO 已枚举时完成对应四板 P3 scope-on 重跑；专项注入继续保持显式配置，不把 vector/reference fault injection 混入默认采样。下一步进入 TOOLS-CHECK-001，继续做存量准入、配置/输出接口版本与证明内容检查；不以文件存在代替资格审查。无示波器时仍按既有 scope-off 策略运行，不把设备状态改写成产品结论。OTA 实现保持现有边界，存量工具治理继续按批推进。
 
 文档和实现分离提交；实现切片按现行 P3 规则验收。特等席资源变更必须先由用户审核，工具治理本身不授予新增实时资源。
 
