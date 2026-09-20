@@ -20,6 +20,8 @@ ARCHIVED_PHASE = (ROOT / "out/HardwareAcceptance/20260918/"
                   "dpll-phase-center-r1/capture_phase_timer1.py")
 ARCHIVED_LONGWINDOW = (ROOT / "out/HardwareAcceptance/20260917/"
                        "dpll-longwindow-adoption-r1/capture_longwindow.py")
+TRACE_ENTRYPOINT = (ROOT / "out/HardwareAcceptance/20260917/"
+                    "dpll-priority-trace-r1/capture_trace.py")
 GOLDEN_REPORT = (ROOT / "out/HardwareAcceptance/20260920/"
                  "p3-dpll-short-r4/dpll-four-board-short/capture/input-probe.json")
 
@@ -175,7 +177,7 @@ def fake_longwindow(tmp_path, *, fail_download_slot=None,
 
 def test_phase_parser_matches_archived_for_real_four_board_endpoints():
     archived = load_archived_phase()
-    tracked = tracked_phase.load_phase(ARCHIVED_LONGWINDOW)
+    tracked = tracked_phase.load_phase(TRACE_ENTRYPOINT)
     report = json.loads(GOLDEN_REPORT.read_text(encoding="utf-8"))
     rows = [row["final_phase_raw"] for row in report["boards"].values()
             if row["final_phase_raw"].split(",", 1)[0] == "1"]
@@ -189,7 +191,7 @@ def test_phase_parser_matches_archived_for_real_four_board_endpoints():
 
 @pytest.mark.parametrize("raw", ["", "1,2", ",".join(["x"] * 52)])
 def test_phase_parser_rejects_malformed_closed_set(raw):
-    tracked = tracked_phase.load_phase(ARCHIVED_LONGWINDOW)
+    tracked = tracked_phase.load_phase(TRACE_ENTRYPOINT)
     with pytest.raises((ValueError, TypeError, AssertionError)):
         tracked.parse_phase(raw)
 
@@ -369,8 +371,9 @@ print(json.dumps({
         [sys.executable, "-c", code], cwd=ROOT,
         check=True, capture_output=True, text=True)
     result = json.loads(completed.stdout)
-    assert len(result["actual"]) == len(result["declared"]) == 8
+    assert len(result["actual"]) == len(result["declared"]) == 7
     assert not result["missing"]
     assert not result["declared_not_loaded"]
     assert not result["migrated_loaded"]
     assert ARCHIVED_PHASE.relative_to(ROOT).as_posix() not in result["actual"]
+    assert ARCHIVED_LONGWINDOW.relative_to(ROOT).as_posix() not in result["actual"]

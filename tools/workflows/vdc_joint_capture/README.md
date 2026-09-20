@@ -19,6 +19,10 @@ scope remains a separate workflow component.
 collection, endpoint consistency, and trace release. It loads only the next
 manifest-pinned long-window ancestor; the archived phase source remains
 lineage evidence and is not executed.
+`longwindow.py` owns the finite-run wait, temporary origin trial, rational
+decision-window oracle, and final correlated projection check. It loads only
+the next manifest-pinned native trace ancestor; the archived long-window source
+remains lineage evidence and is not executed.
 
 The CLI remains `tools/vdc_priority_trace/vdc_priority_joint_capture.py`. Its
 `--workflow-inputs` JSON fixes the scenario, board UID order, the complete

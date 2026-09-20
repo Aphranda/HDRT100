@@ -34,6 +34,7 @@ def workflow_input_fixture(tmp_path):
     run_output = root / 'out/run_output.py'
     probe_support = root / 'out/probe_support.py'
     phase_timer1 = root / 'out/phase_timer1.py'
+    longwindow = root / 'out/longwindow.py'
     ancestor = root / 'out/ancestor.py'
     receipt = root / 'config/receipt.json'
     baseline = root / 'out/baseline.json'
@@ -52,6 +53,7 @@ def workflow_input_fixture(tmp_path):
         'run_output': run_output,
         'probe_support': probe_support,
         'phase_timer1': phase_timer1,
+        'longwindow': longwindow,
     }
     for path in (*migrated.values(), ancestor, receipt, baseline, tap, manifest):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,6 +100,7 @@ def workflow_input_fixture(tmp_path):
                            outer_trial=outer_trial, outer_hil=outer_hil,
                            legacy_scope=legacy_scope, run_output=run_output,
                            probe_support=probe_support, phase_timer1=phase_timer1,
+                           longwindow=longwindow,
                            migrated=migrated,
                            ancestor=ancestor, receipt=receipt, baseline=baseline,
                            tap=tap, manifest=manifest, data=data)
