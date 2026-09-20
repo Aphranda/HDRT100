@@ -1,15 +1,24 @@
 # ────────────────────────────────────────────────
-# publish/docs 分支忽略规则
+# publish/docs —— 文档发布分支
 #
-# 本分支只承载「可对外发布的文档」：架构 MD、
-# 报告 HTML 与少量渲染资源。任何构建、验收、
-# 调试、临时产物都不得进入本分支。
+# 策略：白名单。仓库根目录下只保留 docs/ 与本文件，
+#       其余一切（含其它分支残留的源码目录）全部忽略。
+#       目的是让这个分支永远只承载「可对外发布的文档」。
 #
-# 如果将来确实要把某个同名目录放进本分支，
-# 删除对应那几行即可。
+# 如需在根目录增加发布用文件（README / 许可等），
+# 在下方 negate 区补一行 !/文件名 即可。
 # ────────────────────────────────────────────────
 
-# ---- 操作系统与编辑器 ----
+# ---- 根目录白名单 ----
+/*
+!/.gitignore
+!/docs
+!/README.md
+!/LICENSE
+!/LICENSE.md
+!/NOTICE
+
+# ---- 操作系统与编辑器（任意层级）----
 Thumbs.db
 Desktop.ini
 .DS_Store
@@ -19,35 +28,19 @@ Desktop.ini
 .vscode/
 .idea/
 
-# ---- Python 产物 ----
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.pytest-basetemp/
-
-# ---- 构建与验收产物（不属于文档分支）----
-out/
-build/
-artifacts/
-dist/
-*.log
+# ---- HTML -> PDF 打印 / 导出临时产物 ----
+.tmp-edge-pdf/
+**/.tmp-edge-pdf/
+export-tmp/
+redact-tmp/
+.publish-review/
+.publish-tmp/
 *.tmp
 *.bak
 *.orig
 *.rej
 
-# ---- 本地复核 / 导出临时区 ----
-.publish-review/
-.publish-tmp/
-export-tmp/
-redact-tmp/
-
-# ---- HTML -> PDF 打印临时目录（沿用手工 Edge 打印的既有约定）----
-.tmp-edge-pdf/
-
-
-# ---- 从其它分支遗留在同一工作区的源码目录 ----
-# 切分支后这些目录可能残留，不应被提交进文档分支
-middleware/
-tests/
-tools/
+# ---- Python 缓存（防御性保留）----
+__pycache__/
+*.py[cod]
+.pytest_cache/
