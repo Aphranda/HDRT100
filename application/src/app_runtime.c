@@ -223,6 +223,12 @@ void app_runtime_start_realtime_core(void)
 
 bool app_runtime_init(void)
 {
+    /* FreeRTOS snapshots clk_sys when it programs Core0 SysTick. Establish the
+     * board clock before the scheduler starts so one RTOS tick remains 1 ms. */
+    if (!board_clock_init()) {
+        return false;
+    }
+
     if (!osal_kernel_init()) {
         return false;
     }
