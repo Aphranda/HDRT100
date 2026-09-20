@@ -28,8 +28,10 @@ ARCHIVED_FOLLOW = FOLLOW_ENTRYPOINT
 OBSERVER_ENTRYPOINT = (ROOT / "out/HardwareAcceptance/20260917/"
                        "capture_observer_dma_match.py")
 ARCHIVED_OBSERVER = OBSERVER_ENTRYPOINT
-MATCH_ENTRYPOINT = (ROOT / "out/HardwareAcceptance/20260917/"
-                    "dpll-priority-match-r1/capture_match.py")
+DIRECT_ENTRYPOINT = (ROOT / "out/HardwareAcceptance/20260917/"
+                     "dpll-priority-rx-direct-r1/capture_direct_rx.py")
+ARCHIVED_MATCH = (ROOT / "out/HardwareAcceptance/20260917/"
+                  "dpll-priority-match-r1/capture_match.py")
 GOLDEN_REPORT = (ROOT / "out/HardwareAcceptance/20260920/"
                  "p3-dpll-short-r4/dpll-four-board-short/capture/input-probe.json")
 
@@ -185,7 +187,7 @@ def fake_longwindow(tmp_path, *, fail_download_slot=None,
 
 def test_phase_parser_matches_archived_for_real_four_board_endpoints():
     archived = load_archived_phase()
-    tracked = tracked_phase.load_phase(MATCH_ENTRYPOINT)
+    tracked = tracked_phase.load_phase(DIRECT_ENTRYPOINT)
     report = json.loads(GOLDEN_REPORT.read_text(encoding="utf-8"))
     rows = [row["final_phase_raw"] for row in report["boards"].values()
             if row["final_phase_raw"].split(",", 1)[0] == "1"]
@@ -199,7 +201,7 @@ def test_phase_parser_matches_archived_for_real_four_board_endpoints():
 
 @pytest.mark.parametrize("raw", ["", "1,2", ",".join(["x"] * 52)])
 def test_phase_parser_rejects_malformed_closed_set(raw):
-    tracked = tracked_phase.load_phase(MATCH_ENTRYPOINT)
+    tracked = tracked_phase.load_phase(DIRECT_ENTRYPOINT)
     with pytest.raises((ValueError, TypeError, AssertionError)):
         tracked.parse_phase(raw)
 
@@ -379,7 +381,7 @@ print(json.dumps({
         [sys.executable, "-c", code], cwd=ROOT,
         check=True, capture_output=True, text=True)
     result = json.loads(completed.stdout)
-    assert len(result["actual"]) == len(result["declared"]) == 4
+    assert len(result["actual"]) == len(result["declared"]) == 3
     assert not result["missing"]
     assert not result["declared_not_loaded"]
     assert not result["migrated_loaded"]
@@ -388,3 +390,4 @@ print(json.dumps({
     assert ARCHIVED_TRACE.relative_to(ROOT).as_posix() not in result["actual"]
     assert ARCHIVED_FOLLOW.relative_to(ROOT).as_posix() not in result["actual"]
     assert ARCHIVED_OBSERVER.relative_to(ROOT).as_posix() not in result["actual"]
+    assert ARCHIVED_MATCH.relative_to(ROOT).as_posix() not in result["actual"]

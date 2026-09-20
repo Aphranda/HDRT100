@@ -35,6 +35,11 @@ the archived follow source remains lineage evidence and is not executed.
 each snapshot before delegating to match collection. It loads only the next
 manifest-pinned match ancestor; the archived observer wrapper remains lineage
 evidence and is not executed.
+`match.py` owns exact-match status decoding, directed path-delay reconstruction,
+optional TAP install/restore, follower MATCH enable/readback, STOP-only evidence
+collection, and per-follower identity/model assessment. It loads only the next
+manifest-pinned direct-RX ancestor; the archived match source remains lineage
+evidence and is not executed.
 
 The CLI remains `tools/vdc_priority_trace/vdc_priority_joint_capture.py`. Its
 `--workflow-inputs` JSON fixes the scenario, board UID order, the complete

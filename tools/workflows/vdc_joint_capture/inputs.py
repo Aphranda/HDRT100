@@ -8,7 +8,7 @@ import json
 from pathlib import Path, PurePosixPath
 
 
-SCHEMA = "VDC_JOINT_CAPTURE_INPUTS_V10"
+SCHEMA = "VDC_JOINT_CAPTURE_INPUTS_V11"
 SCENARIO = "internal_seal"
 FILE_KEYS = ("receipt", "baseline", "tap_baseline")
 BASELINE_COMMANDS = {
@@ -29,6 +29,7 @@ MIGRATED_SOURCE_ROLES = (
     "native_trace",
     "local_follow",
     "observer_snapshot",
+    "exact_match",
 )
 
 

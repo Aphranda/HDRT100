@@ -16,8 +16,8 @@ ARCHIVED = (ROOT / "out/HardwareAcceptance/20260917/"
             "dpll-priority-follow-r1/capture_follow.py")
 OBSERVER = (ROOT / "out/HardwareAcceptance/20260917/"
             "capture_observer_dma_match.py")
-MATCH = (ROOT / "out/HardwareAcceptance/20260917/"
-         "dpll-priority-match-r1/capture_match.py")
+DIRECT = (ROOT / "out/HardwareAcceptance/20260917/"
+          "dpll-priority-rx-direct-r1/capture_direct_rx.py")
 GOLDEN = (ROOT / "out/HardwareAcceptance/20260917/"
           "dpll-longwindow-adoption-r1/native-r1/input-probe.json")
 
@@ -32,7 +32,7 @@ def archived_module():
 
 def test_parser_and_decision_match_archived_and_frozen_hardware():
     old = archived_module()
-    new = tracked_follow.load_follow(MATCH)
+    new = tracked_follow.load_follow(DIRECT)
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
     assert new.U32 == old.U32
     assert new.I32 == old.I32
@@ -51,7 +51,7 @@ def test_parser_and_decision_match_archived_and_frozen_hardware():
 @pytest.mark.parametrize("mutation", ["prepared", "interval", "error", "step", "sequence"])
 def test_decision_check_rejects_same_closed_set_as_archived(mutation):
     old = archived_module()
-    new = tracked_follow.load_follow(MATCH)
+    new = tracked_follow.load_follow(DIRECT)
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
     status = deepcopy(list(report["boards"].values())[1]["follow"])
     if mutation == "prepared":
