@@ -12,6 +12,15 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-016：child observer snapshot wrapper 迁移
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-OBSERVER-001。
+- 新增 `tools/workflows/vdc_joint_capture/observer.py`，从 manifest 指定的 match 入口构造 tracked ObserverProbe，接管 all-board STOP gate，以及按板序执行 event snapshot、每板立即 save、全部完成后才调用 parent collect 的 standalone 语义。internal-seal SummaryProbe 自己接管 summary collect，不调用该深层 collect；本 checkpoint 不声称 P3 发送了 event snapshot 查询。
+- V10 manifest 将 archived `capture_observer_dma_match.py` 固定为 `observer_snapshot` migrated role，runtime entrypoint 下沉到 `capture_match.py`；动态 out closure 快照从 5 降到 4。fresh-process actual=declared=4，missing / declared-not-loaded / migrated_loaded 全为空；实际 provenance 中 archived observer 为零、tracked observer 唯一，旧原件不删除。
+- 软件与独立审查：characterization 覆盖 barrier 缺失和 queries-blocked 在任何设备操作前拒绝、四板 snapshot 按序、逐板 save、parent collect 最后执行；实际 FollowProbe/TraceProbe 的 observer 指针均指向 tracked owner。最终宽组合 489 passed / 1 skipped（快照），跳过项仅为 Windows 无符号链接权限；工具治理/catalog、编译和 whitespace 检查通过。独立复核 PASS，无剩余 finding。
+- 同指纹四板 P3 使用 build `20260920141158`，`tools-observer-r1/p3-r1` 为 PASS_WITH_WARNINGS（快照：INFO 33 / WARN 20 / ERROR 0 / FATAL 0）。tracked observer 在实际 MRO/provenance 中唯一，DPLL 60 s scope-on outer/inner/joint 通过，12 份 scope record、48 个 RAW block、四板 trace release 完整，外部最大绝对相差 5.669 ns（快照，INFO）；errors / cleanup_errors / restore_needed 均为空，`check-staged` 通过。原件位于 `out/HardwareAcceptance/20260921/tools-observer-r1/p3-r1/`。
+- 实现提交 `9a86145e`；TOOLS-WORKFLOW-OBSERVER-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一批迁移 match/direct/typed/base 剩余祖先，继续保留 archived 原件和失败证据。
+
 ### TOOLS-PROGRESS-20260921-015：child local follow 层迁移
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-FOLLOW-001。

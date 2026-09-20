@@ -114,6 +114,8 @@ native trace 层由 tracked workflow 管理 status/ACK bounded polling、三个 
 
 local follow 层由 tracked workflow 管理 signed/wide status 解码、独立 frequency decision 检查、follower enable/disable readback、STOP-only status snapshot 和 model/DCO endpoint 一致性。reference 不启用 follower mode；三个 follower 的 assessment 相互隔离，任何单板 parser/decision/model 错误都进入 errors 并压低 passed。历史 follow 原件只保留为 migrated lineage，下一层 observer/match ancestry 仍由 manifest 固定路径和 SHA 准入。
 
+observer snapshot 层由 tracked workflow 提供 all-board STOP 后的四板 TDMA event snapshot-before-parent-collect 语义。internal-seal 的 summary collect 由更上层 tracked owner 接管，不调用此深层 collect；因此 P3 只证明 tracked observer 进入实际 MRO/provenance 且联合流程无回归，standalone snapshot 顺序由直接 characterization 证明，不把未发送的 snapshot 查询写成硬件证据。历史 observer wrapper 只保留为 migrated lineage，下一层 match ancestry 仍由 manifest 固定路径和 SHA 准入。
+
 ## TG-LIFECYCLE：生命周期与迁移
 
 | 状态 | 准入或退出条件 |
