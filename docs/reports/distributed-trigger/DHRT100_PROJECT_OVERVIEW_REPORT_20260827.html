@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DHRT100 项目综述报告</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body {
+    font-family:"Microsoft YaHei","SimSun","DengXian",Arial,sans-serif;
+    background:#d7d9df;
+    color:#1f2328;
+    padding:18px;
+    line-height:1.42;
+  }
+  @page { size:A4 portrait; margin:0; }
+  .page {
+    width:210mm;
+    height:297mm;
+    margin:0 auto 18px;
+    background:#fff;
+    box-shadow:0 3px 14px rgba(0,0,0,.16);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    break-after:page;
+    page-break-after:always;
+  }
+  .page-header {
+    padding:10mm 16mm 5mm;
+    border-bottom:5px solid #d9e1ef;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:18px;
+  }
+  .brand {
+    width:48mm;
+    height:14mm;
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    white-space:nowrap;
+  }
+  .brand-logo {
+    display:block;
+    width:38mm;
+    height:auto;
+  }
+  .doc-meta { text-align:right; font-size:10.5px; color:#687381; white-space:nowrap; }
+  .doc-meta strong { display:block; color:#1f3864; font-size:13px; margin-bottom:3px; }
+  .main { flex:1; padding:5mm 16mm 5mm; }
+  .page-footer {
+    padding:3mm 16mm 4mm;
+    border-top:5px solid #d9e1ef;
+    color:#8b949e;
+    font-size:9px;
+    display:flex;
+    justify-content:space-between;
+  }
+  h1 { font-size:23px; color:#172033; letter-spacing:0; margin-bottom:3px; }
+  .subtitle { color:#5b6573; font-size:12px; }
+  .chips { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:0 0 9px; }
+  .chip { border:1px solid #d9e1ef; border-left:4px solid #1f3864; padding:6px 8px; min-height:44px; background:#f8fafc; }
+  .chip:nth-child(2) { border-left-color:#2e7d32; }
+  .chip:nth-child(3) { border-left-color:#d97706; }
+  .chip:nth-child(4) { border-left-color:#6a1b9a; }
+  .chip .k { display:block; color:#687381; font-size:9.5px; margin-bottom:1px; }
+  .chip .v { display:block; color:#111827; font-size:12px; font-weight:700; }
+  .pct { font-weight:800; color:#1f3864; white-space:nowrap; }
+  .section { margin-top:7px; }
+  .section-title {
+    font-size:14px;
+    color:#1f3864;
+    font-weight:700;
+    padding-bottom:4px;
+    border-bottom:2px solid #1f3864;
+    margin-bottom:6px;
+  }
+  table { width:100%; border-collapse:collapse; font-size:10.1px; border:1.5px solid #2f3542; }
+  th {
+    background:#1f3864;
+    color:#fff;
+    text-align:left;
+    padding:4px 6px;
+    border:1px solid #182b4c;
+    font-weight:700;
+  }
+  td { padding:4px 6px; border:1px solid #c8d1dc; vertical-align:top; }
+  tbody tr:nth-child(even) td { background:#f5f8fc; }
+  .compact td { padding-top:3px; padding-bottom:3px; }
+  .mini { font-size:9.2px; line-height:1.28; }
+  .mini th { padding:3px 5px; }
+  .mini td { padding:2px 5px; }
+  .c { text-align:center; }
+  .b { font-weight:700; }
+  .tag { display:inline-block; color:#fff; font-weight:700; font-size:9.5px; padding:1px 6px; border-radius:3px; white-space:nowrap; }
+  .green { background:#2e7d32; }
+  .blue { background:#1565c0; }
+  .orange { background:#d97706; }
+  .purple { background:#6a1b9a; }
+  .gray { background:#6b7280; }
+  .red { background:#c62828; }
+  .summary { display:grid; grid-template-columns:1.12fr .88fr; gap:10px; align-items:stretch; }
+  .note-box, .todo-box, .coord-box, .risk-box {
+    padding:8px 10px;
+    font-size:10.8px;
+  }
+  .note-box { background:#f7fbf5; border-left:4px solid #2e7d32; }
+  .note-box strong { color:#1b5e20; }
+  .todo-box { background:#fff8ed; border-left:4px solid #d97706; }
+  .todo-box strong { color:#a14d00; }
+  .coord-box { background:#f5f7ff; border-left:4px solid #6a1b9a; }
+  .coord-box strong { color:#4a148c; }
+  .risk-box { background:#fff5f5; border-left:4px solid #c62828; }
+  .risk-box strong { color:#9f1239; }
+  ul { padding-left:17px; }
+  li { margin:1px 0; }
+  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .three-col { display:grid; grid-template-columns:1fr 1fr 1fr; gap:9px; }
+  .small-list { font-size:10.4px; color:#2f3542; }
+  .mono { font-family:Consolas,"Courier New",monospace; font-size:10px; }
+  .flow {
+    border:1px solid #d5dce6;
+    background:#f8fafc;
+    padding:8px 10px;
+    font-family:Consolas,"Courier New",monospace;
+    font-size:10px;
+    color:#243044;
+    white-space:pre-wrap;
+  }
+  .delay-page .main { padding-top:4mm; padding-bottom:4mm; }
+  .delay-page .flow { padding:5px 7px; font-size:8.8px; line-height:1.16; }
+  .delay-page .section-title { margin-bottom:5px; }
+  .delay-page table { font-size:8.45px; line-height:1.17; }
+  .delay-page th { padding:2px 4px; }
+  .delay-page td { padding:2px 4px; }
+  .bar {
+    margin-top:8px;
+    padding:7px 10px;
+    background:#172033;
+    color:#fff;
+    font-size:11.5px;
+    text-align:center;
+  }
+  .bar strong { color:#ffd166; }
+  @media print {
+    @page { size:A4 portrait; margin:0; }
+    html, body {
+      width:210mm;
+      min-width:210mm;
+      max-width:210mm;
+      background:#fff;
+      padding:0;
+      overflow:visible;
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+    }
+    .page {
+      width:210mm !important;
+      height:297mm !important;
+      min-height:297mm !important;
+      margin:0;
+      box-shadow:none;
+      break-after:page;
+      page-break-after:always;
+      transform:none !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>DHRT100 项目综述报告</h1>
+      <div class="subtitle">分布式硬实时触发系统 | HAOFV（融合型主动对象功能块向量架构）与基础件进度快照</div>
+    </div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-1 brand-desc-1"><title id="brand-title-1">DHRT100</title><desc id="brand-desc-1">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
+    <div class="doc-meta">
+      <strong>2026年8月27日</strong>
+      星期四<br>
+      内部研发综述
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="chips">
+      <div class="chip"><span class="k">资料基线</span><span class="v">docs 截至 2026-08-27</span></div>
+      <div class="chip"><span class="k">总体进度</span><span class="v">约 65% / active gate</span></div>
+      <div class="chip"><span class="k">当前硬件</span><span class="v">产品样板 / 四板环路</span></div>
+      <div class="chip"><span class="k">扩展目标</span><span class="v">A0-A7 / 最大 8 节点</span></div>
+    </div>
+
+    <div class="summary">
+      <div class="note-box">
+        <strong>项目定位：</strong>DHRT100 是基于 RP2350 的分布式硬实时触发平台，目标是在多板节点之间形成共同事实、共同时间、确定性传输、预约分发和实际 T2（第二触发时刻）回读闭环。当前架构主线已从单板功能堆叠收敛到 HAOFV（融合型主动对象功能块向量架构）：AO（主动对象）管运行，FB（功能块）管状态机，Vector/RefMem（向量表/反射内存）管事实，TDMA（时分多址确定性通信）管传输，Calibration（校准域）管链路测量，VDC/DPLL（虚拟分布式时钟/数字锁相环）管共同时间。
+      </div>
+      <div class="todo-box">
+        <strong>当前结论：</strong>RefMem（反射内存）、TDMA（时分通信）、VDC（虚拟分布式时钟）和 Calibration（校准）均已建立独立主域和关键代码基础件；TRN-03A/B 已完成四板 raw-flight 与 process-image/FIFO 诊断闭环，TRN-03C/D 正在推进 active candidate、误帧压降、RX gate 和长稳门禁；文档自回归体系已成为跨主域防漂移机制。
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">一、总体状态摘要</div>
+      <table class="compact">
+        <thead>
+          <tr><th style="width:112px;">主域</th><th>当前进展</th><th style="width:66px;" class="c">进度</th><th style="width:86px;" class="c">状态</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="b">HAOFV 架构</td><td>融合型主动对象功能块向量架构 v4 已刷新，纳入校准、虚拟分布式时钟、时分通信、反射内存、T2 预约、看门狗/诊断和部署门禁。</td><td class="c pct">85%</td><td class="c"><span class="tag green">已刷新</span></td></tr>
+          <tr><td class="b">文档自回归</td><td>建立三环自回归、DOCS_REGISTRY、Last updated 新鲜度、strict name/index/metadata 和 pre-commit 门禁；报告快照与冻结契约边界清晰。</td><td class="c pct">90%</td><td class="c"><span class="tag green">门禁运行</span></td></tr>
+          <tr><td class="b">RTOS/双核</td><td>实时操作系统与双核分工：core0 承载 FreeRTOS 控制面，core1 承载实时 fast path；Flash/XIP lockout、心跳、AO/service 壳和看门狗监督已进入主线。</td><td class="c pct">70%</td><td class="c"><span class="tag blue">推进中</span></td></tr>
+          <tr><td class="b">RefMem 反射内存</td><td>DistributedVectorTable（分布式向量表）、9 表 RMTP package、节点装载、表注册、槽位声明、命令/应答和质量派生视图已落地；跨节点 ACK/FENCE 仍待补齐。</td><td class="c pct">72%</td><td class="c"><span class="tag blue">推进中</span></td></tr>
+          <tr><td class="b">TDMA 时分通信</td><td>基础档位、载荷注册、环路运行时、流量调度、双 FIFO、8 槽 RX（接收）位图和 process-image（过程镜像）四板诊断闭环已完成；严格 cut-through 仍待完成。</td><td class="c pct">68%</td><td class="c"><span class="tag blue">诊断闭环</span></td></tr>
+          <tr><td class="b">VDC/DPLL 时钟</td><td>VDC（虚拟分布式时钟）主域、时间戳字典、回绕跟踪、时钟模型、DPLL（数字锁相环）门禁、DCO（数控振荡器）快照已形成；P4-LIVE 等硬件 latch。</td><td class="c pct">48%</td><td class="c"><span class="tag orange">待锁定</span></td></tr>
+          <tr><td class="b">Calibration 校准</td><td>校准主域 TRN-03A/B 已完成；TRN-03C candidate lifecycle 接入但缺端点偏置/fresh P3；TRN-03D 正在做物理误帧压降、RX gate、retry、health 和 soak。</td><td class="c pct">62%</td><td class="c"><span class="tag purple">关键路径</span></td></tr>
+          <tr><td class="b">LOG/WDT 日志看门狗</td><td>日志与看门狗：硬件看门狗、任务心跳、复位快照、scratch evidence、core0/core1 进度标记和 runtime log ring 已接入；fault bundle/log tail 仍待完善。</td><td class="c pct">60%</td><td class="c"><span class="tag blue">已接入</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">二、当前可引用证据</div>
+      <table class="compact">
+        <thead><tr><th style="width:118px;">证据类型</th><th>结果摘要</th><th style="width:150px;">边界说明</th></tr></thead>
+        <tbody>
+          <tr><td class="b">TRN-03A/B 四板</td><td>release build 20260826055402 完成 staging/ARM、raw-flight、process-image/FIFO（过程镜像/先进先出队列）、map apply、bitmap、SD raw capture 和逐 Node SVG；STOP -> ARM 重复通过。</td><td>DIAGNOSTIC_ONLY，不等同 active calibration。</td></tr>
+          <tr><td class="b">TRN-03D 长稳复测</td><td>2026-08-27 Node0 DATA +6 候选 32/32 accepted；61 点周期 soak 共 64444 次 RX 机会、各 Node raw bad=0，零错误 FER 95% 上界约 1.86e-4。</td><td>诊断快照，需扩大样本与产品门限。</td></tr>
+          <tr><td class="b">P3 双向测距</td><td>build 20260822085100 下四条相邻链路、10/25/30 MHz、每档 3 次，36/36 accepted；observed delay estimate 约 78..82 ns。</td><td>缺 endpoint bias，不能发布 active delay。</td></tr>
+          <tr><td class="b">TDMA 位图/FIFO</td><td>8 × 32 B 短帧过程镜像、TX/RX（发送/接收）FIFO、RX bitmap 快路径、两板位图 HIL 和四板 process-image 闭环均已有证据。</td><td>严格 cut-through、WKC/尾 CRC V2 待补。</td></tr>
+          <tr><td class="b">RefMem 两板同步</td><td>COM5/COM6 已完成 NodeLoad AUTO 双向同步、table CRC、SlotClaim 和 runtime quality 摘要一致。</td><td>跨节点 ACK/FENCE 仍需补齐。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bar">
+      当前项目已经从“基础件集成”推进到“诊断闭环 + active gate”：下一阶段重点是 <strong>endpoint bias、硬件 timestamp latch、RX gate/retry/health、VDC live lock 和 T2 预约执行</strong>。
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>资料来源：HAOFV / TDMA / VDC / REFMEM / CALIBRATION canonical docs</span>
+    <span>DHRT100 项目综述报告 | 1 / 7</span>
+  </div>
+</div>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>HAOFV 总体架构</h1>
+      <div class="subtitle">融合型主动对象功能块向量架构：所有者、事实、时间、传输和硬实时路径的分层</div>
+    </div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-2 brand-desc-2"><title id="brand-title-2">DHRT100</title><desc id="brand-desc-2">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
+    <div class="doc-meta"><strong>2026年8月27日</strong>架构页<br>内部研发综述</div>
+  </div>
+
+  <div class="main">
+    <div class="section" style="margin-top:0;">
+      <div class="section-title">三、HAOFV 分层模型</div>
+      <div class="flow">SCPI(维护指令) / UI(界面) / SD(存储) / Bootloader(升级结果)
+  -> AO 主动对象：任务、队列、生命周期
+  -> FB 功能块：状态机、输入输出、门禁
+  -> Vector 向量黑板：唯一事实源
+  -> VDC 虚拟分布式时钟 + Calibration 校准
+  -> RefMem 分布式反射内存 + TDMA 时分通信
+  -> WDT/Diagnostics 看门狗与诊断证据
+  -> Hardware Service 硬件服务
+
+Hard Realtime Side Path: PIO(可编程 IO) / DMA(直接内存访问) / IRQ(中断)</div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">四、架构核心规则</div>
+      <table class="compact">
+        <thead><tr><th style="width:135px;">规则</th><th>工程含义</th><th style="width:145px;">当前落点</th></tr></thead>
+        <tbody>
+          <tr><td class="b">唯一 owner</td><td>每个事实、状态机和硬件资源只有一个 writer；外部入口只提交 intent 或读取 snapshot。</td><td>AO（主动对象）/FB（功能块）/Vector（向量事实表）。</td></tr>
+          <tr><td class="b">跨核事实保护</td><td>core0/core1 共享多字段事实必须用 seqlock、双缓冲或 sequence/version 发布。</td><td>RefMem 命令、TDMA 运行态、flight FIFO。</td></tr>
+          <tr><td class="b">硬实时旁路</td><td>PIO/DMA/IRQ 只做边沿、搬运、deadline 和最小 evidence，不访问 USB、SD、SCPI 或业务解析。</td><td>core1 实时环、TDMA PIO persona、sync_io。</td></tr>
+          <tr><td class="b">动态 PIO persona</td><td>PIO program 随签名固件发布，只选择 catalog/persona ID；相比 FPGA，可热切已验证 persona，不重新综合。</td><td>ARCH-PIOCAT-01、persona recovery。</td></tr>
+          <tr><td class="b">事实/时间/证据分离</td><td>RefMem 管共同事实，VDC 管共同时间；诊断样本不能升级为产品锁定证据，watchdog 复位必须可追溯。</td><td>DeploymentGate、DPLL gate、WDT snapshot。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section two-col">
+      <div>
+        <div class="section-title">五、运行面划分</div>
+        <table class="compact">
+          <thead><tr><th>执行面</th><th>职责</th></tr></thead>
+          <tbody>
+            <tr><td class="b">core0 控制面</td><td>FreeRTOS 任务、USB/SCPI（维护指令）、OTA（在线升级）、Storage、UI、诊断和配置门禁。</td></tr>
+            <tr><td class="b">core1 实时面</td><td>TDMA 快路径、Trigger 快路径、PIO/DMA 服务、deadline 和硬件 evidence。</td></tr>
+            <tr><td class="b">共享向量表</td><td>命令槽、状态 ring、RefMem、heartbeat、fault evidence、WDT（看门狗）reset snapshot；必须有 guard。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="section-title">六、产品运行状态</div>
+        <table class="compact">
+          <thead><tr><th>状态</th><th>约束</th></tr></thead>
+          <tbody>
+            <tr><td class="b">IDLE / CONFIG</td><td>空闲/配置态：允许配置、OTA、SD、校准和同步准备。</td></tr>
+            <tr><td class="b">LOCK / CAL</td><td>锁定/校准态：允许时钟训练、校准测试脉冲和 VDC 收敛。</td></tr>
+            <tr><td class="b">ARMED / RUN</td><td>待触发/运行态：禁止热改 pin/profile/calibration；只允许安全查询、STOP 和 evidence 读取。</td></tr>
+            <tr><td class="b">HOLDOVER / FAULT</td><td>保持/故障态：按策略拒绝新预约或进入安全态，保留可追溯证据。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">七、文档自回归与契约治理</div>
+      <table class="compact">
+        <thead><tr><th style="width:120px;">机制</th><th>作用</th><th style="width:110px;" class="c">状态</th></tr></thead>
+        <tbody>
+          <tr><td class="b">三环自回归</td><td>顶层新鲜度、契约登记、孤儿条款扫描和交叉审核共同约束文档，防止实现、TODO、架构和报告口径漂移。</td><td class="c"><span class="tag green">运行中</span></td></tr>
+          <tr><td class="b">DOCS_REGISTRY</td><td>冻结跨域契约的唯一登记表；reason code、seqlock、hop_limit、RefMem 容量、VDC/DPLL 准入等均由登记表追溯。</td><td class="c"><span class="tag green">事实源</span></td></tr>
+          <tr><td class="b">pre-commit 门禁</td><td>docs_check、doc_regression 和 pytest 检查命名、索引、元数据、契约和顶层刷新；报告快照不替代冻结契约。</td><td class="c"><span class="tag blue">持续使用</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bar">HAOFV 的价值是把“谁能写、谁能读、什么证据可升级、PIO persona 如何安全切换、复位后如何追溯”变成可验证边界，而不是只描述模块名称。</div>
+  </div>
+
+  <div class="page-footer">
+    <span>参考：docs/arch/HAOFV_ARCHITECTURE.md、RTOS_HAOFV_ARCHITECTURE.md</span>
+    <span>DHRT100 项目综述报告 | 2 / 7</span>
+  </div>
+</div>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>RefMem 与 TDMA 技术路线</h1>
+      <div class="subtitle">RefMem（反射内存）承载共同事实，TDMA（时分多址）承载确定性传输、飞行处理和双 FIFO</div>
+    </div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-3 brand-desc-3"><title id="brand-title-3">DHRT100</title><desc id="brand-desc-3">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
+    <div class="doc-meta"><strong>2026年8月27日</strong>基础件页<br>内部研发综述</div>
+  </div>
+
+  <div class="main">
+    <div class="section" style="margin-top:0;">
+      <div class="section-title">八、Distributed RefMem（分布式反射内存）路线</div>
+      <table class="compact">
+        <thead><tr><th style="width:125px;">技术点</th><th>路线说明</th><th style="width:105px;" class="c">进度</th></tr></thead>
+        <tbody>
+          <tr><td class="b">向量事实表</td><td>用 DistributedVectorTable（分布式向量表）承接多节点共同事实、slot、命令、ACK/NACK（确认/否认）、质量和证据；完整表不是周期广播对象。</td><td class="c"><span class="tag green">已落地</span></td></tr>
+          <tr><td class="b">RMTP 表镜像</td><td>表镜像传输包参考 cFS Table Services：staging（候选）、active（生效）、rollbackable（可回滚）、CRC、owner validation 和 activation gate。</td><td class="c"><span class="tag blue">推进中</span></td></tr>
+          <tr><td class="b">RMA 子集</td><td>参考远端内存访问的 completion/fence 思想，但只允许 slot delta、command、dirty、heartbeat、quality 等白名单字段。</td><td class="c"><span class="tag orange">待完善</span></td></tr>
+          <tr><td class="b">静态 FB 图</td><td>借鉴 IEC 61499 的 ApplicationMap、NodeLoad、EventLink、DataLink、DeploymentGate，不引入动态功能块部署。</td><td class="c"><span class="tag blue">推进中</span></td></tr>
+          <tr><td class="b">事件驱动同步</td><td>owner 提交事实后进入 dirty descriptor，TDMA 短帧只发送 critical delta；ACK/fence 后才能清 dirty。</td><td class="c"><span class="tag orange">待闭环</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">九、TDMA Foundation（时分多址通信基础件）路线</div>
+      <table class="compact">
+        <thead><tr><th style="width:125px;">技术点</th><th>路线说明</th><th style="width:105px;" class="c">进度</th></tr></thead>
+        <tbody>
+          <tr><td class="b">基础档位</td><td>TDMA 作为 HAOFV system node（系统节点），声明 adapter、PIO/SM/DMA、core1 service、短长帧容量、payload whitelist 和资源 claim。</td><td class="c"><span class="tag green">已完成</span></td></tr>
+          <tr><td class="b">载荷注册表</td><td>VDC（时钟）、RefMem（反射内存）、OTA（在线升级）、LOG（日志）等只注册 payload class；TDMA 统一准入、排队、窗口和完成证据。</td><td class="c"><span class="tag green">已完成</span></td></tr>
+          <tr><td class="b">流量调度器</td><td>采用 TSN-style（时间敏感网络风格）五类流：时钟实时、反射内存实时、配置控制、OTA 批量、LOG 尽力而为；实时窗口优先。</td><td class="c"><span class="tag blue">首版完成</span></td></tr>
+          <tr><td class="b">环路运行时</td><td>管理 UP/DOWN（上/下行）、profile CRC、schedule CRC、running 状态、last error、quality snapshot 和闭环证据；不得伪造 timestamp 闭环。</td><td class="c"><span class="tag blue">推进中</span></td></tr>
+          <tr><td class="b">动态 PIO 加载</td><td>PIO2 支持按 persona 切换 NORMAL、CLOCK_COARSE、coded marker、raw-flight/process-image 等程序；优势是像“微型硬实时 datapath”一样热加载，不走 FPGA 重新综合/实现/bitstream 流程。</td><td class="c"><span class="tag blue">已接入</span></td></tr>
+          <tr><td class="b">PIO-SPI 适配器</td><td>当前作为 bring-up adapter，产品样板使用 PIO2、CS/CLK/DATA 三线和 ISO1452 差分路径；未来可替换为 BiSS-C/UART/RS485 adapter。</td><td class="c"><span class="tag blue">可用</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">十、EtherCAT-style（工业以太网风格）飞行处理</div>
+      <div class="flow">cycle N wire:
+  core1 在 frame boundary 锁定 TX generation G
+  对固定 byte offset 执行 input mirror / output replace / hop / WKC / CRC
+  RX descriptor 非阻塞发布给 core0
+
+after cycle N:
+  core0 解析 RX descriptor，构造下一代 shadow image G+1
+
+cycle N+1 boundary:
+  core1 若 G+1 完整则切换，否则复用 G</div>
+      <table class="compact" style="margin-top:7px;">
+        <thead><tr><th style="width:132px;">组件</th><th>已完成</th><th style="width:150px;">仍需完成</th></tr></thead>
+        <tbody>
+          <tr><td class="b">发送镜像 FIFO</td><td>TDMA_TX_IMAGE_FIFO：core0 -> core1，固定 TX（发送）双缓冲，core1 在帧边界原子锁定 generation；四板 process-image 已验证 TX/RX FIFO 同时增长。</td><td>接入正式 System Pack process-image 表。</td></tr>
+          <tr><td class="b">接收帧 FIFO</td><td>TDMA_RX_FRAME_FIFO：core1 -> core0，固定 RX（接收）buffer pool + descriptor ring，满时丢镜像不阻塞转发；坏帧不得覆盖上一 accepted image。</td><td>补 RX verdict、stale image 和 per-class quality/evidence 映射。</td></tr>
+          <tr><td class="b">飞行处理引擎</td><td>V1 完整帧软件 flight engine 可按固定 offset 替换本节点 slice，支持 8 × 32 B process image、RX bitmap、raw-flight persona 和动态 PIO program switch 证据。</td><td>PIO/DMA byte/block overlap、尾部 CRC/WKC V2、固定 per-hop pipeline HIL。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bar">TDMA 当前已经能承担“可配置、可观测、可回归、可热切 persona”的四板诊断传输骨架；严格飞行模式的最后缺口是硬件 timestamp、RX gate/health 和真正 overlap cut-through 证据。</div>
+  </div>
+
+  <div class="page-footer">
+    <span>参考：docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md、docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md</span>
+    <span>DHRT100 项目综述报告 | 3 / 7</span>
+  </div>
+</div>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>VDC、DPLL 与 T2 预约</h1>
+      <div class="subtitle">VDC（虚拟分布式时钟）、DPLL（数字锁相环）、T2（第二触发时刻）的预约分发和完成回读</div>
+    </div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-4 brand-desc-4"><title id="brand-title-4">DHRT100</title><desc id="brand-desc-4">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
+    <div class="doc-meta"><strong>2026年8月27日</strong>时间页<br>内部研发综述</div>
+  </div>
+
+  <div class="main">
+    <div class="section" style="margin-top:0;">
+      <div class="section-title">十一、VDC/DPLL（虚拟分布式时钟/数字锁相环）技术路线</div>
+      <table class="compact">
+        <thead><tr><th style="width:128px;">对象</th><th>技术路线</th><th style="width:105px;" class="c">状态</th></tr></thead>
+        <tbody>
+          <tr><td class="b">本地原始时钟</td><td>local_tick_raw 是每块板自由运行、单调递增的原始硬件 tick；硬件 latch 锁存原始 tick，DPLL 不修改原始计数器。</td><td class="c"><span class="tag blue">基础成立</span></td></tr>
+          <tr><td class="b">时钟映射快照</td><td>VdcMapSnapshot 维护 local_tick_raw 到 vdc_time（共同时间）的仿射映射：anchor、offset、rate、phase slew、epoch、quality 和 generation。</td><td class="c"><span class="tag blue">首版完成</span></td></tr>
+          <tr><td class="b">同步锁相功能块</td><td>SyncDpllFB 借鉴 LinuxPTP/Chrony servo：相位误差、频率误差、Kp/Ki、outlier、jitter、RMS、holdover 和 reset 策略；P4-DBG 可用诊断样本调参。</td><td class="c"><span class="tag orange">待长稳</span></td></tr>
+          <tr><td class="b">EtherCAT DC 思想</td><td>借鉴 EtherCAT Distributed Clocks（分布式时钟）的 reference clock、propagation delay、initial sync、drift compensation 和同步 timestamp；不采用 EtherCAT 协议。</td><td class="c"><span class="tag blue">已纳入</span></td></tr>
+          <tr><td class="b">DCO 快照</td><td>DCO Snapshot 是数字控制振荡器只读快照，供 core1 的 FIRE_LOAD 和相位牵引消费；core1 不写 offset/rate。</td><td class="c"><span class="tag orange">待接入</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">十二、硬件时间戳锁存与 VDC 的关系</div>
+      <div class="note-box">
+        <strong>关键结论：</strong>硬件 timestamp latch（时间戳锁存）不需要先有 VDC。它只锁存原始 local_tick_raw，因此系统启动时可以先用固定本地 tick 采集同步边沿；随后 DPLL 根据这些原始样本和校准 delay 形成 VDC 映射。VDC 锁定后，PIO 预约执行不直接读取软件 system_tick，而是由 core1 使用 VDC 的 <span class="mono">local_from_vdc()</span> 把未来共同时间反算为本地硬件 deadline；完成后再用 <span class="mono">vdc_from_local()</span> 回映射 T2_actual。
+      </div>
+      <table class="compact" style="margin-top:7px;">
+        <thead><tr><th style="width:135px;">接口</th><th>用途</th><th>门禁</th></tr></thead>
+        <tbody>
+          <tr><td class="b mono">vdc_from_local()</td><td>把 T2_actual_local、SYNC/READY latch 等原始硬件 tick 映射回共同时间。</td><td>必须绑定 map_generation 和 mapping quality。</td></tr>
+          <tr><td class="b mono">local_from_vdc()</td><td>把未来 T_fire_target_vdc 反算为本地 PIO deadline。</td><td>必须使用稳定 VdcMapSnapshot，guard 前 generation 变化需重算。</td></tr>
+          <tr><td class="b mono">system_tick</td><td>可以作为 VDC API 的只读封装，包含 offset/rate/slew。</td><td>不能只是 local + fixed offset，也不能替代硬件 latch。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">十三、T2（第二触发时刻）预约端到端流水线</div>
+      <div class="flow">raw local clock + hardware edge latch
+  -> TDMA clock-training observation
+  -> VDC DPLL offset/rate mapping
+  -> Trigger future reservation in VDC time
+  -> TDMA flight distribution + READY/fence
+  -> VDC target-to-local inverse mapping
+  -> sync_io / PIO executes local deadline
+  -> hardware latches actual edge as raw local tick
+  -> VDC maps completion back to common time
+  -> RefMem/TDMA publishes completion evidence</div>
+    </div>
+
+    <div class="section two-col">
+      <div>
+        <div class="section-title">十四、VDC 当前缺口</div>
+        <ul class="small-list">
+          <li>P4-DBG（调试路径）可先做 trace replay、sample admission、offset/rate/lock 曲线和参数扫描。</li>
+          <li>P4-LIVE（实时时钟路径）必须接真实 PIO 边沿 hardware latch、HARDWARE_TICK、分辨率和非 DIAGNOSTIC_ONLY flags。</li>
+          <li>active calibration CRC、link delay、bias generation 和 freshness 尚未完全接入正式 VDC lock gate。</li>
+          <li>100 ns fine tier 需要稳定硬件 timestamp evidence、BAD_FRAME/WINDOW_BOUND 收敛和长时间验证。</li>
+          <li>core1 稳定读取 DCO snapshot 并驱动 FIRE_LOAD / sync output 的路径仍需验证。</li>
+        </ul>
+      </div>
+      <div>
+        <div class="section-title">十五、T2 当前缺口</div>
+        <ul class="small-list">
+          <li>TriggerReservationFB 的精确 wire layout 和 System Pack segment 仍未冻结。</li>
+          <li>READY/NACK、fence、completion 的丢帧策略、retry/fail-closed 和 watchdog/reset evidence 需要 HIL。</li>
+          <li>T2_actual_local 必须来自硬件 latch，不能由 CPU 查询或软件完成时刻填充。</li>
+          <li>1/2/3/5/8 节点逐级验证尚未完成。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="bar">VDC/DPLL 的正确方向是“原始 tick 先可测、诊断算法先可跑、VDC live 只吃硬件 latch、预约用反向映射、完成用正向映射”。</div>
+  </div>
+
+  <div class="page-footer">
+    <span>参考：docs/vdc/VDC_DOMAIN_ARCHITECTURE.md、docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md</span>
+    <span>DHRT100 项目综述报告 | 4 / 7</span>
+  </div>
+</div>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>校准与训练方法</h1>
+      <div class="subtitle">CLK（时钟）/DATA（数据）/SYNC（同步）测量、双向同时对比和 active gate</div>
+    </div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-5 brand-desc-5"><title id="brand-title-5">DHRT100</title><desc id="brand-desc-5">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
+    <div class="doc-meta"><strong>2026年8月27日</strong>计划页<br>内部研发综述</div>
+  </div>
+
+  <div class="main">
+    <div class="section" style="margin-top:0;">
+      <div class="section-title">十六、校准与训练流水线</div>
+      <table class="compact mini">
+        <thead><tr><th style="width:92px;">阶段简述</th><th>流程位置</th><th>核心功能</th></tr></thead>
+        <tbody>
+          <tr><td class="b">拓扑线序</td><td>先确认“谁连着谁”。</td><td>建立板卡身份、邻接关系和环路顺序，避免后续测量套错节点。</td></tr>
+          <tr><td class="b">时钟粗测</td><td>先用 CLK 找大致时间窗。</td><td>给编码循环和双向测距提供搜索范围，不直接当作精确链路延迟。</td></tr>
+          <tr><td class="b">编码循环</td><td>用 MARK 编码跑一圈。</td><td>校准 MARK 环路基准和 marker 边界，确认编码能被稳定捕获和相关。</td></tr>
+          <tr><td class="b">码元时隙</td><td>SCK 独立校准，DATA 按 SCK 相位定窗。</td><td>确定 SCK offset 矩阵、DATA 采样窗和码元中心，为短帧和测距提供相位预算。</td></tr>
+          <tr><td class="b">双向测距</td><td>在已校准时隙内锁存四个边沿。</td><td>用 CLK 正向、DATA 反向的双程时间传递估算每条链路 delay candidate。</td></tr>
+          <tr><td class="b">短帧闭环</td><td>把训练结果接到 TDMA 短帧。</td><td>验证 raw-flight、process-image、FIFO、bitmap 和动态 PIO persona 是否能同 generation 闭环。</td></tr>
+          <tr><td class="b">active 候选</td><td>把诊断证据升级为候选。</td><td>只有 fresh P3、端点 bias、完整 link 集合和回滚路径满足后，才进入 active calibration。</td></tr>
+          <tr><td class="b">可靠性/VDC</td><td>最后接入产品门禁和共同时间。</td><td>形成 RX gate、retry、health、soak、DPLL lock 和 T2 预约/完成回读证据。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">十六、阶段输入与交付</div>
+      <table class="compact mini">
+        <thead><tr><th style="width:92px;">阶段</th><th>输入</th><th>交付给下一阶段</th><th style="width:74px;" class="c">状态</th></tr></thead>
+        <tbody>
+          <tr><td class="b">拓扑线序</td><td>板卡唯一 ID、端口/slot、三线接线、单板/多板 probe。</td><td>accepted topology、邻接矩阵、环路顺序、slot map，供后续所有测量绑定身份。</td><td class="c"><span class="tag blue">推进中</span></td></tr>
+          <tr><td class="b">时钟粗测</td><td>拓扑、CLK PIO persona、主从轮换、10/25/30 MHz 档位。</td><td>RTT 粗区间、可用频率档、异常链路提示；只给 P2/P3 选窗，不直接产出 path delay。</td><td class="c"><span class="tag green">诊断完成</span></td></tr>
+          <tr><td class="b">编码循环</td><td>拓扑、M255 Manchester marker、MARK PIO persona、PIO/DMA 原始采样。</td><td>MARK 环路基准、marker 边界、相关峰值、offset 归因和 persona recovery 证据。</td><td class="c"><span class="tag blue">推进中</span></td></tr>
+          <tr><td class="b">码元时隙</td><td>MARK 环路基准、独立 SCK 训练结果、DATA 采样窗口、repeat residual。</td><td>SCK offset 矩阵、DATA 码元中心、有效采样窗和短帧 ARM 所需相位预算。</td><td class="c"><span class="tag green">已接入</span></td></tr>
+          <tr><td class="b">双向测距</td><td>已校准 SCK/DATA 时隙、CLK/DATA/SYNC 四边沿、residence、同 persona 端点 bias。</td><td>per-link path-sum/delay candidate、freshness、bias generation；缺 bias 时只能诊断。</td><td class="c"><span class="tag purple">关键路径</span></td></tr>
+          <tr><td class="b">短帧闭环</td><td>拓扑/profile/schedule CRC、相位矩阵、动态 PIO persona、process-image map。</td><td>staging/ARM、raw-flight、process-image/FIFO、bitmap/WKC、SD/SVG 同 generation 证据。</td><td class="c"><span class="tag green">完成</span></td></tr>
+          <tr><td class="b">active 候选</td><td>fresh P3、有效端点 bias、完整 link 集合、evidence package。</td><td>CalibrationManager candidate/active/rollback、VDC accepted snapshot；当前缺受控导入和四板激活。</td><td class="c"><span class="tag purple">关键路径</span></td></tr>
+          <tr><td class="b">可靠性门禁</td><td>短帧闭环、故障注入、raw FER/BER、Node0 DATA +6 及相邻 offset。</td><td>RX verdict、stale image、retry、health、watchdog/fault/soak 证据，供发布级 P4-REL。</td><td class="c"><span class="tag blue">推进中</span></td></tr>
+          <tr><td class="b">VDC 接入</td><td>active calibration、硬件 latch 样本、schedule CRC、DPLL 参数。</td><td>VDC local/time 映射、DPLL lock/holdover、T2 deadline 反算和 completion 回读。</td><td class="c"><span class="tag orange">分层推进</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">十六、校准域待办与风险</div>
+      <table class="compact mini">
+        <thead><tr><th style="width:100px;">事项</th><th>当前风险</th><th>出口条件</th></tr></thead>
+        <tbody>
+          <tr><td class="b">端点偏置</td><td>没有同 persona 板内 reference loopback，observed delay 不能升级为 active delay。</td><td>每板三线 TX->RX 回环生成有效 bias generation。</td></tr>
+          <tr><td class="b">active 候选</td><td>fresh P3、完整 link 集、受控导入和 activate/rollback 未闭环。</td><td>candidate 导入、四板激活、回滚、持久化和 VDC readback 通过。</td></tr>
+          <tr><td class="b">接收门禁</td><td>坏帧、旧 generation、缺 Node 或晚到帧若未统一裁决，可能污染 process-image。</td><td>RX verdict 覆盖 CRC、sequence、bitmap/WKC、deadline 和 stale image。</td></tr>
+          <tr><td class="b">长稳发布</td><td>短时 raw bad=0 只是诊断快照，不能替代最差 Node/link 的发布级 FER/BER。</td><td>按 PHY/RXGATE/RETRY/HEALTH/SOAK 完成长时间验收。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <div class="page-footer">
+    <span>参考：CALIBRATION_TDMA_CLK_TRAINING_PLAN.md、CALIBRATION_DOMAIN_TODO.md</span>
+    <span>DHRT100 项目综述报告 | 5 / 7</span>
+  </div>
+</div>
+
+<div class="page delay-page">
+  <div class="page-header">
+    <div>
+      <h1>校准域时间参数</h1>
+      <div class="subtitle">path_delay、link_delay、node_delay、SMA delay、chip propagation、PIO 指令周期和 loop_delay</div>
+    </div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-6 brand-desc-6"><title id="brand-title-6">DHRT100</title><desc id="brand-desc-6">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
+    <div class="doc-meta"><strong>2026年8月27日</strong>校准页<br>内部研发综述</div>
+  </div>
+
+  <div class="main">
+    <div class="section" style="margin-top:0;">
+      <div class="section-title">十七、校准域时间参数</div>
+      <div class="flow">校准域输出的是可被 VDC/TDMA 消费的时间参数；双向同时对比法只是生成 path_delay/link_delay 证据的入口之一。
+
+per directed link i: node_i -> node_(i+1)
+  pio_instruction_period_ns = derived(clk_sys_hz, actual_pio_clkdiv, persona_id)
+  node_tx_delay_i           = pio_tx_launch + gpio_out + tx_chip_propagation
+  node_rx_delay_j           = rx_chip_propagation + gpio_in_sync + pio_latch + capture_quantization
+  link_delay_i              = node_tx_delay_i + path_delay_i + node_rx_delay_(i+1)
+  loop_delay_origin_i       = sum(link_delay_k + forward_residence_k + guard_k)
+
+bidirectional evidence for A -> B:
+  t1_A=A.CLK_TX, t2_B=B.CLK_RX, t3_B=B.DATA_TX, t4_A=A.DATA_RX
+  path_sum_AB = (t4_A - t1_A) - scale_B_to_A(t3_B - t2_B)
+  link_delay_AB_observed ~= path_sum_AB / 2, then bias/freshness/asymmetry gates decide active.</div>
+      <table class="compact mini" style="margin-top:7px;">
+        <thead><tr><th style="width:128px;">校准参数</th><th>定义/计算关系</th><th>事实源和消费者</th></tr></thead>
+        <tbody>
+          <tr><td class="b">sample_period_ns</td><td class="mono">raw_capture_clock period</td><td>PIO/DMA raw capture 和相关峰搜索的采样分辨率；决定 latch quantization、offset sample 和 residual 解释。</td></tr>
+          <tr><td class="b">pio_instruction_period_ns</td><td class="mono">derived(clk_sys_hz, clkdiv, persona)</td><td>来自实际装载的 PIO persona 和系统时钟；TDMA 把 ns 预算换算成 cycles，不能用 RTOS tick 代替。</td></tr>
+          <tr><td class="b">chip_propagation_delay</td><td class="mono">tx_chip_pd / rx_chip_pd</td><td>单端转差分/差分转单端芯片传播 delay，作为 endpoint bias 或 guard；不得在线缆 path_delay 上重复叠加。</td></tr>
+          <tr><td class="b">node_delay</td><td class="mono">node_tx_delay + node_rx_delay</td><td>板内 TX/RX、GPIO synchronizer、PIO latch、芯片传播和量化项；由同 persona reference loopback 建 bias generation。</td></tr>
+          <tr><td class="b">forward_residence</td><td class="mono">local_tx_latch - local_rx_latch</td><td>节点切通/转发驻留时间，归入 loop/link budget；它不是线缆传播，也不由目标板 offset 代替。</td></tr>
+          <tr><td class="b">path_delay</td><td class="mono">physical cable/connector propagation</td><td>相邻板卡物理链路传播项；由编码循环、SCK/DATA 定窗和双向测距证据生成 candidate，active 后供 VDC `PATH_DELAY` 表消费。</td></tr>
+          <tr><td class="b">sma_delay</td><td class="mono">sma_tx/rx_endpoint + sma_cable_path</td><td>SMA 外触发/同步路径的独立校准项，来自 SMA sweep/loopback；可供触发预测和 VDC 事件对齐使用，不能与 RJ45/TDMA ring path_delay 混用。</td></tr>
+          <tr><td class="b">link_delay</td><td class="mono">node_tx + path_delay + node_rx + capture_q</td><td>一条 directed link 的端到端训练 delay；TDMA 用于 RX window、link budget 和 phase matrix，禁止由 loop aggregate 均分。</td></tr>
+          <tr><td class="b">data_offset</td><td class="mono">relative receive-window offset</td><td>MARK/SCK 锚定后的 DATA 采样窗相对修正；它是窗口参数，不等同于 path_delay 或 loop_delay。</td></tr>
+          <tr><td class="b">guard_delay</td><td class="mono">jitter + asymmetry + margin</td><td>温漂、抖动、方向不对称和重复统计残差的保护项；参与 link/loop budget，不作为已测物理 delay。</td></tr>
+          <tr><td class="b">loop_delay</td><td class="mono">sum(link_delay + residence + guard)</td><td>从某 origin 出发返回本节点的整圈预算；只用于 feedback window、timeout 和整圈残差，不替代 per-link delay。</td></tr>
+        </tbody>
+      </table>
+      <table class="compact mini" style="margin-top:7px;">
+        <thead><tr><th style="width:126px;">生成阶段</th><th>输入</th><th>给下一层的输出</th></tr></thead>
+        <tbody>
+          <tr><td class="b">profile 固化</td><td>clk_sys、PIO clkdiv、persona_id、码本、baud/profile CRC。</td><td>`pio_instruction_period_ns`、bit period、half-chip 和 cycles/ns 换算事实。</td></tr>
+          <tr><td class="b">endpoint bias</td><td>同 persona 板内 reference loopback、芯片传播 guard、latch flags。</td><td>`node_delay` / bias generation；缺失时 `path_delay` 只能保持 diagnostic。</td></tr>
+          <tr><td class="b">编码循环</td><td>MARK 编码、raw PIO/DMA capture、相关峰和粗窗口。</td><td>marker origin、搜索窗、reject reason，不直接发布 active link delay。</td></tr>
+          <tr><td class="b">SCK/DATA 定窗</td><td>SCK 独立校准、DATA 码元窗口、repeat residual。</td><td>receive-window offset、guard、phase matrix 和 short-frame ARM 相位预算。</td></tr>
+          <tr><td class="b">双向测距证据</td><td>同 epoch 四边沿硬件 latch、residence、bias generation。</td><td>`path_delay` candidate、asymmetry bound、freshness 和 per-link 质量分数。</td></tr>
+          <tr><td class="b">整圈预算</td><td>全部 directed link、forward residence、guard、profile/schedule CRC。</td><td>`loop_delay`、feedback timeout、residual gate 和 TDMA raw-flight/process-image 门禁。</td></tr>
+        </tbody>
+      </table>
+      <table class="compact" style="margin-top:7px;">
+        <thead><tr><th style="width:125px;">门禁</th><th>要求</th><th style="width:95px;" class="c">状态</th></tr></thead>
+        <tbody>
+          <tr><td class="b">四边沿 latch</td><td>t1..t4 必须来自同一 epoch、同一 PIO persona 的 hardware-latched edge，CPU timer 不能替代；当前部分路径仍为诊断边界。</td><td class="c"><span class="tag blue">诊断具备</span></td></tr>
+          <tr><td class="b">endpoint bias</td><td>必须用同 persona 的板内 reference loopback 生成 bias generation，未生成时只能发布 observed value；这是 TRN-03C 当前阻塞点。</td><td class="c"><span class="tag red">关键缺口</span></td></tr>
+          <tr><td class="b">对称性</td><td>等长差分线缆支持对称假设，但需通过重复统计、asymmetry bound、四板 residual 和故障注入检验。</td><td class="c"><span class="tag orange">待冻结</span></td></tr>
+          <tr><td class="b">active 发布</td><td>需同时通过 hardware latch、bias、freshness、topology/profile CRC、完整 link 集合、重复统计和 rollback/persistence。</td><td class="c"><span class="tag gray">未发布</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <div class="page-footer">
+    <span>参考：CALIBRATION_TDMA_CLK_TRAINING_PLAN.md、CALIBRATION_RING_AUTOCALIBRATION_PLAN.md</span>
+    <span>DHRT100 项目综述报告 | 6 / 7</span>
+  </div>
+</div>
+
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>后续计划与主要风险</h1>
+      <div class="subtitle">active calibration、VDC live lock、TDMA flight、T2 completion 和发布门禁</div>
+    </div>
+    <div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-7 brand-desc-7"><title id="brand-title-7">DHRT100</title><desc id="brand-desc-7">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div>
+    <div class="doc-meta"><strong>2026年8月27日</strong>计划页<br>内部研发综述</div>
+  </div>
+
+  <div class="main">
+    <div class="section two-col" style="margin-top:0;">
+      <div>
+        <div class="section-title">十八、近期工作清单</div>
+        <ul class="small-list">
+          <li>补齐 P3-3 endpoint bias/reference loopback，形成有效 bias generation、失效策略和 fresh P3 candidate。</li>
+          <li>完成 evidence package 到 CalibrationManager 的受控分段导入、四板 activate/rollback、掉电持久化和 VDC readback。</li>
+          <li>实现 TDMA RX verdict：CRC、sequence、profile/schedule/calibration generation、bitmap/WKC、deadline 和 stale image。</li>
+          <li>继续扩大 Node0 DATA +6 及相邻 offset 的 raw FER/BER 样本，保留 SD raw waveform、SVG 和 bit/error histogram。</li>
+          <li>并行推进 P4-DBG trace replay、DPLL sample admission、offset/rate/lock 曲线和参数扫描。</li>
+          <li>完成 T2 单板、2/3/5/8 节点 PREPARE/READY-NACK/fence/completion/watchdog evidence 验证。</li>
+        </ul>
+      </div>
+      <div>
+        <div class="section-title">十九、主要风险</div>
+        <div class="risk-box"><strong>时间戳风险：</strong>若没有真实硬件 latch 和非 diagnostic flags，VDC/DPLL 不能进入正式 100 ns lock gate。</div>
+        <div class="risk-box" style="margin-top:7px;"><strong>校准风险：</strong>缺少 endpoint bias 会让 observed delay 无法升级为 per-link active delay。</div>
+        <div class="risk-box" style="margin-top:7px;"><strong>可靠性风险：</strong>raw FER、RX verdict、stale image、retry/health 和发布级 soak 未完成前，不能用单次 HIL 通过替代产品门禁。</div>
+        <div class="risk-box" style="margin-top:7px;"><strong>追溯风险：</strong>watchdog 已接入，但 fault bundle、日志尾部和复位前后 evidence 聚合仍需完善，避免只知道发生了复位却缺少根因上下文。</div>
+      </div>
+    </div>
+
+    <div class="bar">最终发布口径：<strong>先让校准 active，再让 VDC live lock，再让 TDMA flight 分发预约，最后用 T2_actual 与 watchdog/log evidence 证明闭环。</strong></div>
+  </div>
+
+  <div class="page-footer">
+    <span>本报告为研发综述快照；依据 HAOFV / TDMA / VDC / REFMEM / CALIBRATION canonical docs，不新增或替代 DOCS_REGISTRY 冻结契约</span>
+    <span>DHRT100 项目综述报告 | 7 / 7</span>
+  </div>
+</div>
+
+</body>
+</html>

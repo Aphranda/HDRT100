@@ -1,0 +1,285 @@
+# Distributed Hard Real-Time Trigger System 未来应用路线图
+
+Status: Draft
+Domain: ARCH
+Canonical: `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`
+Related: `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
+Last updated: 2026-09-20
+
+本文档记录 Distributed Hard Real-Time Trigger System 在当前产品完成后的平台化应用规划。它不是当前固件必须立即实现的功能清单，也不替代 `ARCH_PRODUCT_ARCHITECTURE.md`、`RTOS_HAOFV_TODO.md` 或各功能域待办。当前近期目标仍然是完成 DHRT / RP2350 平台上的分布式触发产品闭环；本文面向后续产品线、产业应用和开源生态扩展。
+
+## 核心判断
+
+当前架构已经从单一“多设备触发控制器”演进为通用的分布式硬实时系统平台基础：
+
+```text
+HAOFV
++ RTOS + dual-core AMP
++ Distributed Vector Blackboard / RefMem Sync Domain
++ 64 KB DistributedVectorTable
++ VDC / DPLL virtual DC time
++ PIO / DMA / IRQ hard real-time trigger chain
++ multi-node AO/FB role/persona loading
++ 外部频率参考输入与跨板共时钟（相干性，见「时间与相位精度与外部参考」）
+```
+
+因此，系统名 `Distributed Hard Real-Time Trigger System` 不只覆盖当前多设备/多设备测试应用，也能承接后续分布式仪表、工业同步、运动控制、数据采集和开源硬实时平台方向。
+
+## 近期主场景
+
+近期主场景仍然是当前产品化闭环已经覆盖或正在覆盖的场景。
+
+| 场景 | 价值 | 现有架构支撑 |
+|---|---|---|
+| 多设备 / 多通道同步触发 | 多节点同步发射、采样、切换、极化、扫描和校准。 | LoopEngine、TriggerAO、T2/READY、VDC/DPLL、RefMem。 |
+| 分布式仪表同步 | VNA/网分、示波器、AWG 等多仪表同步触发、同步采样和同步扫描。 | A3 gateway、SCPI、System Pack、AckCommandSlot、GatewaySlot。 |
+| 多板协同测试系统 | A0/A1/A2/A3 角色协同，节点共同认知和 delta 同步。 | DistributedApplicationMap、NodeSlot[8]、RJ45_SYNC_RING、RefMem Sync。 |
+
+这些场景是当前产品的第一优先级。后续平台化规划不能削弱当前产品的构建、烧录、板端验证和报告闭环。
+
+## 时间与相位精度及外部参考
+
+### 已建立的实测能力
+
+VDC / DPLL 已经具备可复核的四板相位锁定证据。以下数值是**快照，非事实源**（来源
+`<evidence-root>/20260919/dpll-delay-center-r2/`），能力声明以该目录的原始证据和
+工具判定字段为准：
+
+| 项 | 实测（快照） | 含义 |
+|---|---|---|
+| 外部采样窗口判定 | 600 s / 120 窗口 / 4 板，全部 120 个窗口在 50 ns 内 | 工具判定 `external_sampled_windows_passed` |
+| 相对相位包络 | 三通道约 24 ns 峰峰 | 三通道中位数仍为负，delay center 尚未回中 |
+| 残余频偏 | 不高于 0.004 ppb（2σ；斜率分辨率 0.002 ppb） | 三通道均在 2σ 内与 0 不可区分，即频率锁定 |
+| 相位噪声性质 | 白相位噪声 rms 约 3.8 ns，样本间不相关（lag-1 约为 0） | 与频偏无关，不能由 ppb 界定 |
+| 未观测空档 | 采样间隔 5 s；单窗可证观测仅约 1 ms（示波器记录 2 ms 内的边沿跨度），最大连续空档 **5.046 s**、占空比 0.02%、p95 5.031 s | 已按 SC-T5 有界化：`(|offset|+2σ) × 最大空档 = 0.038 ns` |
+
+未观测区间的口径以可证观测为准：`<evidence-root>/20260919/dpll-delay-center-r2/plus20-batched-600s/metrology.json`
+由 `tools/vdc_sync_metrology/vdc_sync_metrology.py` 从冻结证据离线重算，输入摘要绑定在收据内。
+此前记录的"单次捕获中位约 3.36 s、最大空档约 1.8 s"把捕获的**墙钟时间**当作观测时间；墙钟
+时间主要是主机读取与搬运开销，示波器实际数字化记录为 2 ms（1e6 样本 / 500 MS/s）。以可证观测
+计，最大连续未观测空档是 5.046 s。同一轮 120 窗的重叠 Allan 偏差在 τ=5 s 处给出 1.30–1.36 ppb，
+反推的白相位噪声 σ 为 3.75–3.92 ns，与上表"约 3.8 ns"独立一致；随机相位散布不随空档累积，
+因此空档界由频偏不确定度主导，而非由该散布主导。
+
+**尚未取得工具资格的部分**：`physical_continuous_lock_qualified`、
+`exact_event_correlation_qualified`、`unobserved_intervals_qualified` 均为 false。
+`unobserved_intervals_qualified` 反映的是"缺少连续观测能力"这一事实，未观测区间本身已按
+SC-T5 给出定量界；对外表述仍必须使用"稀疏采样窗口内相对相位在阈值内"的口径，不得写成
+"连续物理锁相"。
+
+### 外部频率参考的定位：相干不等于溯源
+
+计划接入外部 10 MHz 参考（源为 VNA 或示波器的参考输出）。必须区分它买到的两件事：
+
+| 目标 | 外部参考是否解决 |
+|---|---|
+| 板与仪器、板与板之间的**相干性** | **是**，主要价值在此 |
+| **溯源性**（可对外声明的绝对准确度） | **否**——仪器参考输出自身未溯源，需要 GPSDO / 铷钟加校准报告 |
+
+还需注意：相对相位在同一台仪器上比较时，仪器时基误差是共模量、本来就被抵消。因此接入
+参考**不改进测量本身**，改进的是 DUT 侧（板间相干）与跨域/绝对时间比较能力。
+
+### 接入的架构约束
+
+- **参考只能作频率与准确度参考，不能作时间戳刻度**：10 MHz 周期为 100 ns，比当前
+  250 MHz 的 4 ns 粗 25 倍。必须倍频回不低于 250 MHz 再用于 timestamp 与相位检测。
+- **窄带锁**：PLL 带宽应远低于环路带宽（建议低于 0.1 Hz），短期噪声仍由板上振荡器承担。
+  宽带宽会把参考近端相噪整段引入，短期抖动反而变差；仪器参考输出（尤其示波器）的短期
+  相噪可能差于板上振荡器。
+- **参考分配路径必须进标定**：分配器与电缆的端口/长度不对称会直接进入板间相对相位
+  （1 m 同轴约 4.8 ns，与当前包络同阶），必须等长并标定，纳入既有 per-link base 与
+  per-Node offset 的标定链路。
+- **失锁与滑周 fail-closed**：10 MHz 一个滑周即 100 ns，超过当前全部相位预算；参考丢失
+  或滑周不得静默退化为自由运行，应与 `TDMA-EMISSIONCLOCK-01` 的"低于下界必须 fail-closed
+  拒绝"保持一致。
+- **测量噪声底必须单独标定**：当前约 3.8 ns rms 白噪声的来源尚未定位。已确认**不是**
+  4 ns 量化——实测相位相对 4 ns 网格呈均匀分布；仍需排除仪器边沿检出贡献。未标定测量底
+  之前，精度提升无法归因到环路、参考或仪器。
+
+### 判定实验（接入前后必须先做）
+
+1. 两块板接**同一个** 10 MHz 参考并窄带锁，重跑 600 s：若白噪声下降，说明它原本来自两板
+   独立振荡器的相对噪声；若不变，说明它来自板内（边沿生成或 DPLL 颗粒度），接参考不能解决。
+2. 测量底标定：同一路信号分两路进仪器两个通道，或对同一批边沿重复判定，量出仪器自身贡献。
+3. 记录接入前后的 Allan 偏差对比（τ 从 5 s 到 160 s），作为"精度提升"的证据，而不是只看包络。
+
+## 横向扩展场景
+
+这些场景不要求改 HAOFV 主架构，只需要新增或替换 AO/FB、role/persona、IO owner 和 System Pack 配置。
+
+| 场景 | 可复用能力 | 需要新增的主要域能力 |
+|---|---|---|
+| 分布式运动控制 | 共同时间、分布式状态机、反射内存、动作链路、校准链路、故障证据。 | 运动轨迹 AO、轴同步 FB、位置反馈 owner、运动安全门禁。 |
+| 分布式电机控制 | 多驱动同步 PWM、同步采样、同步换相、同步故障处理。 | PWM/ADC 硬实时 owner、电机控制 FB、驱动保护和功率级状态。 |
+| 分布式测量系统 | T2/READY 捕获、时间基准、delay 校准、统计 slot、fault evidence。 | TDC/TOF/LiDAR/光纤传感测量 AO、timestamp 压缩和报告模板。 |
+| 分布式 DAQ | 多节点同步采样、同步触发、同步事件捕获和数据面桥接。 | ADC/采样 buffer owner、采集任务、数据压缩和流式导出。 |
+| 分布式 ATE / 产测 | System Pack、OTA、Diagnostics、Snapshot、Trace、Report 和 ACK/NACK。 | 工站 profile、产测流程 FB、夹具 IO、批次报告和权限矩阵。 |
+
+这些扩展都应通过静态分布式应用模型加载到 A0-A7 通用节点，不应新增固定“第 9 类节点”。例如模型网分、模拟转台、脉冲分发、链路切换、仪表控制、运动轴控制器和测试代理都只是 role/persona/instance。
+
+## 高价值商业方向
+
+这些方向适合作为后续产品线或商业模块，而不是当前产品第一阶段目标。
+
+| 方向 | 商业价值 | 平台化关键点 |
+|---|---|---|
+| 分布式射频系统 | MIMO、Massive MIMO、雷达阵列、射频扫描和多通道校准。 | 相位/时间校准、阵列状态表、仪表网关、质量报告。 |
+| 分布式测试仪器 | 开源或低成本 VNA/AWG/示波器/多通道触发器。 | SCPI/USBTMC、仪器状态模型、采样/输出后端、校准证书。 |
+| 分布式同步控制器 | EtherCAT DC、PXI Trigger、LXI Trigger 的轻量替代或补充。 | VDC/DPLL 质量、同步协议、节点一致性门禁、互操作接口。 |
+| 分布式边缘控制 | 多节点协同采样、决策、动作和诊断。 | AO/FB 插件化、DistributedApplicationMap、连接质量和部署门禁。 |
+
+这里的目标不是复制 EtherCAT、PXI 或 LXI 的全部生态，而是提供更轻量、可裁剪、可验证的硬实时同步控制平台。
+
+## 开源生态方向
+
+如果后续准备开源或半开源，建议优先开放不会暴露具体产品机密、但能形成生态吸引力的工具和基础件：
+
+| 生态组件 | 作用 |
+|---|---|
+| RefMem simulator | 模拟 64 KB DistributedVectorTable、slot owner、ACK/NACK、stale 和 CRC。 |
+| Distributed state visualizer | 可视化 AO/FB 实例、事件连接、数据连接和 DeploymentGate。 |
+| DPLL visualizer | 可视化 VDC offset/rate、环路误差、LOCK/HOLDOVER/RELOCK 过程。 |
+| Trigger chain analyzer | 分析 FIRE_LOAD、local_fire、T2/READY、late 和 fault evidence。 |
+| Consistency validator | 验证 ApplicationMap、FbInstanceTable、EventLinkTable、DataLinkTable 和 System Pack CRC。 |
+| Instrument control examples | 给 VNA/AWG/示波器/DAQ 的示例 owner、SCPI 和报告模板。 |
+| Motion/robotics examples | 展示分布式同步动作和安全门禁，但不承诺替代完整工业运动控制标准。 |
+
+开源生态的核心卖点不是“能控制某个 GPIO”，而是“用小 MCU 构建可观察、可校准、可恢复的分布式硬实时系统”。
+
+## 跨平台可移植性
+
+HAOFV 的核心思想与具体 MCU 无强绑定。RP2350 是当前最低成本、最容易推广的参考实现，不是架构边界。真正需要跨平台保持不变的是逻辑层：
+
+```text
+Active Object
+Function Block
+Vector / DistributedVectorTable
+owner-based write contract
+AckCommandSlot
+VDC / DPLL virtual DC time
+T2 / READY capture contract
+System Pack / Diagnostics / Evidence
+```
+
+需要替换的是平台层：
+
+```text
+hard real-time backend
+shared memory / cache / barrier
+RTOS or Linux service model
+OTA / boot chain
+storage filesystem
+network / sync transport
+board profile
+```
+
+### 与板载 Flash 的关系
+
+未来应用会复用持久化语义，但不能把板载 Flash 变成任意文件盘或实时数据面。跨平台稳定
+部分是 Partition ID、事务 completion、Boot Control、NVS/blob/FCB record 和 manifest；
+容量、offset、XIP、cache coherency、保护能力由各平台 geometry port 提供。详细架构见
+`docs/arch/HAOFV_FLASH_ARCHITECTURE.md`。
+
+| 应用数据 | 推荐宿主 | 原因 |
+|---|---|---|
+| identity、能力、安全计数、关键配置 | 板载 critical NVS/Boot Control | 小、关键、需掉电一致性。 |
+| accepted calibration、active deployment ref | 板载 NVS/blob | 上电离线可恢复，需 generation/schema/rollback。 |
+| role/persona/profile/mission 最小部署子集 | 签名 Deployment Capsule | 支持离线启动；只选择静态编译实现，不加载任意机器码。 |
+| OTA manifest/stage、TDMA resume | 板载 OTA stage/journal | 完整 package 留在 PC/SD/source，目标只接收 inactive slot object。 |
+| 关键 boot/power/fault 摘要 | 板载 FCB | SD 缺失时仍可追溯。 |
+| 轨迹、波形、原始采样、完整报告和长日志 | RAM + SD/外部数据面 | 体积大、写频高，不能阻塞实时路径或消耗片上 Flash 寿命。 |
+
+RP2350 16 MiB 是 Open Reference 的 reference map，不是所有产品线的固定分区模板。更大
+平台可扩展容量，但不得改变“Boot 与 App 分离、唯一 Flash writer、关键 KV 与 blob/FCB
+分离、实时路径不写 Flash”的 HAOFV 契约。
+
+动态 PIO persona 不需要独立 Flash 分区。PIO program 随签名 firmware 编译，System Pack
+只选择已登记的 program/persona ID；PIO owner 在安全状态下装载 instruction memory。未来若
+需要独立更新 PIO bytecode，应按可执行模块另立签名、ABI、资源 sandbox 和回滚契约，不能
+复用普通数据 blob 的信任模型。
+
+### 平台映射
+
+| 平台 | 控制面 | 硬实时路径 | RefMem 承载 | 适合方向 |
+|---|---|---|---|---|
+| RP2350 / RP2350B | core0 RTOS | core1 + PIO + DMA + IRQ | SRAM 64 KB 表 | 低成本开源版、教学版、基础仪器控制。 |
+| AM3352 | Linux / RTOS control | PRU + DMA / Ethernet | DDR、OCMC RAM 或 PRU shared RAM | 工业版、Linux 网关、PRU 实时同步。 |
+| i.MX RT1170 | M7 control | M4、FlexIO、GPT、DMA | TCM / OCRAM | 高性能 MCU 版、复杂 UI + 实时双核。 |
+| STM32H7 | M7 或 M7/M4 | TIM、HRTIM、DMA、EXTI、ITCM/DTCM | SRAM / DTCM | 工业 MCU、运动控制、DAQ、HRTIM 应用。 |
+| ESP32-S3 | 双核 Xtensa + FreeRTOS | RMT、I2S、DMA、GPIO matrix | SRAM | 低成本无线/边缘版本，适合非极限实时场景。 |
+| TI C2000 | DSP/control core | ePWM、CLA、ADC trigger、DMA | RAM | 电机控制、电源控制、多驱动同步。 |
+| FPGA | softcore 或外部 CPU | 硬件 pipeline、counter、TDC、SERDES | BRAM / URAM | 极限硬实时、亚 ns TDC、大规模阵列。 |
+| Zynq | ARM A9/A53 | PL FPGA fabric | DDR + BRAM | 商业高性能版、仪器/PXI/LXI/雷达阵列。 |
+
+### 抽象层边界
+
+跨平台时建议形成四层 portable 边界：
+
+| 抽象层 | 保持稳定的接口 | 平台适配内容 |
+|---|---|---|
+| HAOFV core | AO/FB event、owner、state、result、budget。 | RTOS queue、thread、timer、critical section。 |
+| RefMem core | slot layout、guard、snapshot、ACK/NACK、delta。 | memory placement、cache coherency、barrier、endianness。 |
+| Time core | timestamp sample、DPLL update、VDC state、holdover、参考输入与锁定状态、滑周/失锁处理、精度声明口径。 | hardware timestamp、timer frequency、clock discipline、reference input path 与分配延迟标定。 |
+| Realtime backend | ARM/FIRE_LOAD、capture、local_fire、T2/READY。 | PIO/PRU/TIM/RMT/FPGA pipeline implementation。 |
+
+跨平台原则：
+
+- AO/FB 不直接依赖 PIO、PRU、TIM、RMT 或 FPGA 寄存器。
+- TriggerAO/TriggerFB 的输入输出契约保持不变；硬实时 backend 只实现 `arm/load/capture/status`。
+- RefMem 64 KB 首版布局保持同构；更大平台可以增加 extension，不直接破坏基础 slot。
+- DPLL 算法保持平台无关；平台只提供 timestamp 观测、tick 频率和时钟质量。
+- Linux 平台可以把 SCPI/UI/System Pack 放在用户态，但实时 backend 和 RefMem 同步必须有明确 owner、权限和 cache/barrier 策略。
+
+### 产品版本分层
+
+| 版本 | 定位 | 典型平台 | 目标 |
+|---|---|---|---|
+| Open Reference | 低成本开源参考实现。 | RP2350 / RP2350B | 证明 HAOFV + RefMem + DPLL + Trigger chain 的最小闭环。 |
+| Industrial MCU | 工业 MCU 产品化版本。 | STM32H7、i.MX RT | 更强算力、更强外设、更完整安全和工业 IO。 |
+| Linux Gateway | 工业网关/仪表网关版本。 | AM3352、i.MX Linux SoC | Linux 上位服务 + PRU/实时核硬实时后端。 |
+| Extreme Realtime | 极限时间精度版本。 | FPGA、Zynq | 硬件 pipeline、TDC、SERDES、阵列级同步。 |
+
+## 移植路线图
+
+后续跨平台不建议直接“大移植”，而应先抽象 portable contract：
+
+| 阶段 | 目标 | 交付物 |
+|---|---|---|
+| P0 | 冻结 portable boundary。 | `portable_haofv`、`portable_refmem`、`portable_realtime_backend` 接口草案。 |
+| P1 | RP2350 反向整理为 reference port。 | RP2350 port 层、PIO backend、SDK/FreeRTOS 适配清单。 |
+| P2 | 主机仿真。 | RefMem simulator、DPLL unit test、command transaction test。 |
+| P3 | 第二 MCU 试移植。 | STM32H7 或 i.MX RT 的 timer/DMA backend demo。 |
+| P4 | Linux + realtime coprocessor 试移植。 | AM3352 PRU 或 Zynq PL backend demo。 |
+| P5 | 生态发布。 | 平台兼容矩阵、移植指南、参考硬件、示例 persona。 |
+
+## 平台化分层
+
+后续产品化建议按三层推进：
+
+| 层级 | 目标 | 交付物 |
+|---|---|---|
+| 产品层 | 完成当前 DHRT / RP2350 分布式触发系统闭环。 | 固件、硬件约束、SCPI 指令表、System Pack、报告和验证工具。 |
+| 平台层 | 把 HAOFV、RefMem、VDC/DPLL、AckCommandSlot 和 System Pack 抽象为可复用基础。 | portable refmem、portable command transaction、DPLL toolkit、配置/验证工具。 |
+| 生态层 | 支持仪表、DAQ、运动控制、ATE、RF 和边缘控制示例。 | 示例 persona、仿真器、可视化工具、参考硬件和应用指南。 |
+
+## 推进原则
+
+- 当前产品闭环优先，不为远期生态牺牲近期构建、烧录、板端验证和报告闭环。
+- 所有扩展应用都必须服从 HAOFV：owner、AO/FB、Vector、Resource Arbiter、Hardware Service 和硬实时边界。
+- 未来应用通过 role/persona/instance 加载，不破坏 A0-A7 通用节点模型。
+- RefMem 不变成任意共享内存；它仍然只保存共同事实、命令意图、ACK/NACK、版本、质量和证据。
+- VDC/DPLL 是硬实时预测分发的基础，不和业务域混用。
+- 开源组件优先选择模拟器、验证器、可视化工具和 portable 基础件，避免过早暴露未冻结的产品细节。
+- 时间与相位的能力声明必须绑定原始证据、测量噪声底标定和未观测区间的定量界；不得用稀疏采样结果冒充连续锁相，也不得把仪器参考输出当作溯源。
+
+## 未来阶段建议
+
+| 阶段 | 目标 | 判断标准 |
+|---|---|---|
+| F0 | 当前分布式触发产品闭环。 | DHRT / RP2350 板端可稳定完成配置、同步、校准、触发、T2、报告和恢复。 |
+| F1 | 平台基础件抽象。 | RefMem、AckCommandSlot、VDC/DPLL、System Pack 和工具链可在非当前产品中复用。 |
+| F1b | 外部相干参考接入。 | 四板与仪器共用同一 10 MHz 参考并在窄带锁下重跑 600 s：相位噪声不劣化、相对频偏仍受控；滑周与失锁的 fail-closed 专项有证据。 |
+| F1c | 可溯源精度声明。 | 参考源替换为可溯源源并附校准报告；测量噪声底单独标定；对外可声明绝对相位/频率准确度，而不只是相对稳定性。 |
+| F2 | 仪表/DAQ/ATE 示例。 | 至少 2 个非多设备 demo persona 可通过同一 ApplicationMap 加载运行。 |
+| F3 | 工业同步/运动控制探索。 | 能给出多轴/多执行器同步 demo、错误边界和安全限制。 |
+| F4 | 开源生态包。 | 提供 simulator、visualizer、validator、reference examples 和清晰的兼容策略。 |

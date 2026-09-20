@@ -1,0 +1,1579 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>相控阵测试系统分布式触发方案技术报告</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body {
+    font-family:"等线","SimSun","Microsoft YaHei",sans-serif;
+    background:#d0d0d0;
+    display:flex; flex-direction:column; align-items:center; padding:20px; gap:24px;
+  }
+  @media print {
+    @page { size:1120px 700px; margin:0; }
+    body { background:#fff; padding:0; gap:0; }
+    .page { box-shadow:none; margin:0; width:1120px; height:700px; break-after:page; break-inside:avoid; page-break-after:always; page-break-inside:avoid; }
+  }
+
+  .page { background:#fff; width:1120px; height:700px; box-shadow:0 2px 8px rgba(0,0,0,.15); display:flex; flex-direction:column; }
+
+  .page-header { padding:16px 44px 12px; display:flex; justify-content:flex-end; align-items:center; border-bottom:8px solid #d0d6e4; }
+  .page-logo { width:106px; height:24px; object-fit:contain; display:block; flex:0 0 auto; }
+
+  .main { flex:1; display:flex; flex-direction:column; justify-content:center; padding:16px 44px; }
+
+  .page-footer { padding:10px 44px 14px; border-top:8px solid #d0d6e4; display:flex; justify-content:space-between; align-items:center; font-size:9px; color:#aaa; }
+  .page-num { font-size:10px; color:#999; }
+
+  .h1 { font-size:24px; font-weight:700; color:#1a1a1a; margin-bottom:4px; }
+  .sub  { font-size:13px; color:#666; margin-bottom:22px; }
+  .h2 { font-size:16px; font-weight:700; color:#1F3864; margin:18px 0 10px; padding-bottom:6px; border-bottom:2px solid #1F3864; }
+  .h2:first-of-type { margin-top:0; }
+
+  table { width:100%; border-collapse:collapse; font-size:13px; border:1.5px solid #333; margin-bottom:14px; }
+  thead th { background:#1F3864; color:#fff; font-size:13px; font-weight:600; padding:9px 12px; text-align:left; border:1px solid #1a2e52; }
+  thead th.c { text-align:center; }
+  tbody td { padding:8px 12px; border:1px solid #bbb; color:#1a1a1a; vertical-align:top; line-height:1.55; }
+  /* 密集模式：长页面使用 */
+  .dense .page-header { padding:10px 44px 6px; }
+  .dense .main { padding:8px 44px; }
+  .dense .page-footer { padding:6px 44px 8px; }
+  .dense .h1 { font-size:20px; margin-bottom:1px; }
+  .dense .sub { font-size:11px; margin-bottom:10px; }
+  .dense .h2 { font-size:14px; margin:10px 0 4px; padding-bottom:3px; }
+  .dense table { font-size:11px; margin-bottom:8px; }
+  .dense thead th { font-size:11px; padding:5px 7px; }
+  .dense tbody td { padding:4px 7px; line-height:1.35; }
+  tbody td.c { text-align:center; }
+  tbody tr:nth-child(even) td { background:#f2f6fc; }
+  td.b { font-weight:700; }
+
+  .tag-r { display:inline-block; background:#d32f2f; color:#fff; padding:2px 10px; border-radius:3px; font-size:11px; font-weight:700; }
+  .tag-y { display:inline-block; background:#f57c00; color:#fff; padding:2px 10px; border-radius:3px; font-size:11px; font-weight:700; }
+  .tag-g { display:inline-block; background:#388e3c; color:#fff; padding:2px 10px; border-radius:3px; font-size:11px; font-weight:700; }
+  .tag-b { display:inline-block; background:#1565c0; color:#fff; padding:2px 10px; border-radius:3px; font-size:11px; font-weight:700; }
+
+  .row2 { display:flex; gap:20px; } .col2 { flex:1; }
+  .row3 { display:flex; gap:16px; } .col3 { flex:1; }
+  .row4 { display:flex; gap:14px; } .col4 { flex:1; }
+  .equal-cards .col2, .equal-cards .col3 { display:flex; }
+  .equal-cards .card { width:100%; display:flex; flex-direction:column; }
+  .equal-cards .card-b { flex:1; }
+
+  .card { border:1px solid #ddd; border-radius:6px; overflow:hidden; flex:1; }
+  .card-h { padding:10px 14px; font-size:13px; font-weight:700; color:#fff; display:flex; align-items:center; gap:8px; }
+  .card-b { padding:14px; background:#fafafa; font-size:12px; line-height:1.6; }
+  /* 密集卡片 */
+  .dense .row2 { gap:12px; } .dense .row3 { gap:10px; }
+  .dense .card-h { padding:6px 10px; font-size:11px; }
+  .dense .card-b { padding:8px; font-size:10px; line-height:1.4; }
+  .dense .card-b table { font-size:10px; }
+  .dense .card-b table td { padding:3px 5px; }
+  .dense .bar { margin-top:8px; padding:8px 16px; font-size:12px; }
+  .dense .bar span { font-size:15px; }
+  .dense .conc { padding:8px 12px; margin-top:8px; }
+  .dense .conc h3 { font-size:12px; margin-bottom:3px; }
+  .dense .conc p { font-size:11px; line-height:1.4; }
+  .dense .img-wrap { margin-bottom:8px; padding:4px; }
+
+  /* 可选压缩页：只收紧排版，不删减内容 */
+  .compress-light .page-header { padding:9px 44px 6px; }
+  .compress-light .main { padding:8px 42px; }
+  .compress-light .page-footer { padding:6px 44px 8px; }
+  .compress-light .h1 { font-size:19px; margin-bottom:1px; }
+  .compress-light .sub { font-size:11px; margin-bottom:8px; }
+  .compress-light table { font-size:10.5px; margin-bottom:7px; }
+  .compress-light thead th { font-size:10.5px; padding:4px 6px; }
+  .compress-light tbody td { padding:3px 6px; line-height:1.28; }
+  .compress-light .row2 { gap:10px; }
+  .compress-light .row3 { gap:9px; margin-bottom:7px !important; }
+  .compress-light .card-h { padding:5px 9px; font-size:10.5px; }
+  .compress-light .card-b { padding:7px; font-size:9.8px; line-height:1.32; }
+  .compress-light .card-b table { font-size:9.8px; }
+  .compress-light .card-b table td { padding:3px 5px; }
+  .compress-light .big-number { line-height:1; }
+  .compress-light .bar { margin-top:7px; padding:7px 14px; font-size:11px; }
+  .compress-light .bar span { font-size:13px; }
+  .compress-light .conc { padding:7px 10px; margin-top:7px; }
+  .compress-light .conc h3 { font-size:11px; margin-bottom:2px; }
+  .compress-light .conc p { font-size:10.2px; line-height:1.32; }
+  .compress-light .img-wrap { margin-bottom:6px; padding:4px; }
+  .compress-medium .page-header { padding:8px 44px 5px; }
+  .compress-medium .main { padding:6px 40px; }
+  .compress-medium .page-footer { padding:5px 44px 6px; }
+  .compress-medium .h1 { font-size:18px; margin-bottom:1px; }
+  .compress-medium .sub { font-size:10px; margin-bottom:6px; }
+  .compress-medium table { font-size:10px; margin-bottom:5px; }
+  .compress-medium thead th { font-size:10px; padding:3px 5px; }
+  .compress-medium tbody td { padding:2px 5px; line-height:1.18; }
+  .compress-medium .row2 { gap:8px; }
+  .compress-medium .row3 { gap:8px; margin-bottom:5px !important; }
+  .compress-medium .card-h { padding:4px 8px; font-size:10px; }
+  .compress-medium .card-b { padding:5px 6px; font-size:9px; line-height:1.22; }
+  .compress-medium .card-b table { font-size:9px; }
+  .compress-medium .card-b table td { padding:2px 4px; }
+  .compress-medium .big-number { line-height:1; }
+  .compress-medium .bar { margin-top:5px; padding:5px 12px; font-size:10px; }
+  .compress-medium .bar span { font-size:12px; }
+  .compress-medium .conc { padding:5px 8px; margin-top:5px; }
+  .compress-medium .conc h3 { font-size:10px; margin-bottom:2px; }
+  .compress-medium .conc p { font-size:9.5px; line-height:1.22; }
+  .compress-medium .img-wrap { margin-bottom:4px; padding:3px; }
+  .media-tight .img-wrap svg { max-height:265px; }
+  .flow-tight .step-num { width:36px; height:36px; font-size:14px; margin-bottom:5px; }
+  .flow-tight .step-title { font-size:11px; margin-bottom:3px; }
+  .flow-tight .step-desc { font-size:9.8px; line-height:1.28; padding:0 4px; }
+  .flow-tight .step-time { font-size:9px; padding:1px 6px; margin-top:3px; }
+  .flow-tight .flow { padding:4px 0 7px !important; }
+  .card-b ul { list-style:none; padding:0; }
+  .card-b li { padding:4px 0; padding-left:14px; position:relative; }
+  .card-b li::before { content:'▸'; position:absolute; left:0; font-size:10px; }
+  .cr .card-h { background:#d32f2f; } .cr li::before { color:#d32f2f; }
+  .co .card-h { background:#e65100; } .co li::before { color:#e65100; }
+  .cg .card-h { background:#2e7d32; } .cg li::before { color:#2e7d32; }
+  .cb .card-h { background:#1565c0; } .cb li::before { color:#1565c0; }
+
+  .flow { display:flex; align-items:flex-start; gap:0; padding:10px 0 20px; }
+  .step { flex:1; text-align:center; }
+  .step-num { width:40px;height:40px;border-radius:50%;background:#1F3864;color:#fff;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;margin:0 auto 8px; }
+  .step-title { font-size:13px; font-weight:700; color:#1a1a1a; margin-bottom:4px; }
+  .step-desc { font-size:11px; color:#555; line-height:1.4; padding:0 6px; }
+  .step-time { display:inline-block; margin-top:4px; font-size:10px; color:#d84315; font-weight:600; background:#fff3e0; padding:1px 7px; border-radius:10px; }
+  .arrow { display:flex; align-items:center; padding-top:6px; flex-shrink:0; }
+  .arrow-l { width:36px; height:3px; background:#1F3864; }
+  .arrow-h { width:0;height:0; border-top:6px solid transparent; border-bottom:6px solid transparent; border-left:11px solid #1F3864; }
+
+  .bar { margin-top:14px; padding:13px 20px; background:linear-gradient(90deg,#1F3864,#283593); color:#fff; border-radius:4px; text-align:center; font-size:14px; font-weight:600; }
+  .bar span { color:#ffcc80; font-size:18px; }
+
+  .badges { display:flex; gap:12px; margin-top:8px; }
+  .badge { flex:1; text-align:center; padding:12px 10px; border-radius:5px; font-size:13px; font-weight:700; color:#fff; }
+  .badge .n { font-size:24px; display:block; }
+  .bo { background:#e65100; } .bg { background:#2e7d32; } .bb { background:#1565c0; } .bp { background:#6a1b9a; }
+
+  .img-wrap { text-align:center; margin-bottom:14px; border:1px solid #e0e0e0; border-radius:4px; padding:8px; background:#fafafa; }
+  .img-wrap img { max-width:100%; max-height:340px; object-fit:contain; }
+  .img-wrap svg { max-width:100%; max-height:340px; }
+
+  .hl { background:#e8f5e9; padding:1px 5px; border-radius:2px; color:#2e7d32; font-weight:700; }
+  .val { font-family:"Consolas","Courier New",monospace; font-weight:700; }
+  .note { font-size:10px; color:#999; margin-top:12px; line-height:1.5; }
+
+  .principles { padding:14px 18px; background:linear-gradient(90deg,#e8eaf6,#f5f5f5); border-left:5px solid #1F3864; border-radius:4px; display:flex; gap:24px; justify-content:center; flex-wrap:wrap; }
+  .principles span { font-size:13px; font-weight:600; color:#1F3864; }
+  .risk-page .principles { padding:8px 12px; gap:12px; }
+  .risk-page .principles span { font-size:11px; line-height:1.35; }
+
+  .conc { background:linear-gradient(90deg,#e8f5e9,#f1f8e9); border-left:4px solid #2e7d32; border-radius:4px; padding:12px 16px; margin-top:12px; }
+  .conc h3 { font-size:14px; color:#2e7d32; margin-bottom:5px; }
+  .conc p { font-size:12px; color:#333; line-height:1.55; }
+
+  .cover-page { justify-content:center; align-items:center; text-align:center; }
+  .cover-page .page-header { padding:104px 44px 10px; }
+  .cover-page .page-logo { width:212px; height:48px; }
+  .cover-title { font-size:32px; font-weight:800; color:#1a1a1a; margin-bottom:12px; }
+  .cover-divider { width:80px; height:4px; background:#1F3864; margin:30px auto; }
+  .cover-subtitle { font-size:16px; color:#1F3864; margin-bottom:60px; }
+  .cover-info { font-size:14px; color:#666; line-height:2; }
+
+  .big-number { font-size:48px; font-weight:800; color:#1F3864; text-align:center; }
+  .big-number-label { font-size:14px; color:#666; text-align:center; margin-top:4px; }
+
+  svg text { font-family:"等线","Microsoft YaHei",sans-serif; }
+</style>
+</head>
+<body>
+<template id="page-header-template">
+  <img class="page-logo" src="model/logo.png" alt="GTS">
+</template>
+
+<!-- ===== P1 封面 ===== -->
+<div class="page cover-page">
+  <div class="page-header"></div>
+  <div class="main">
+    <h1 class="cover-title">相控阵测试系统<br>分布式触发方案技术报告</h1>
+    <div class="cover-divider"></div>
+    <div class="cover-subtitle">EtherCAT &nbsp;·&nbsp; Zynq SoC &nbsp;·&nbsp; DC同步 &nbsp;·&nbsp; PDO数据交换</div>
+    <div class="cover-info">前沿部 &nbsp;|&nbsp; 产线组 &nbsp;|&nbsp; 董力 &nbsp;|&nbsp; 2026 年 6 月</div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">1 / 22</span></span></div>
+</div>
+
+<!-- ===== P2 目录 ===== -->
+<div class="page dense compress-light">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">目 录</div>
+    <div class="row2" style="margin-top:16px;">
+      <div class="col2">
+        <div style="margin-bottom:20px;">
+          <div style="font-size:15px; font-weight:700; color:#1F3864; padding-bottom:6px; border-bottom:2px solid #1F3864; margin-bottom:10px;">Part 1 &nbsp; 方案概述</div>
+          <div style="font-size:13px; line-height:2.2; color:#333;">
+            P3 参数解释表<br>P4 系统需求与指标<br>P5 方案架构总览<br>P6 物料成本精算<br>
+          </div>
+        </div>
+        <div style="margin-bottom:20px;">
+          <div style="font-size:15px; font-weight:700; color:#1F3864; padding-bottom:6px; border-bottom:2px solid #1F3864; margin-bottom:10px;">Part 2 &nbsp; 核心技术</div>
+          <div style="font-size:13px; line-height:2.2; color:#333;">
+            P7 分布式触发同步：实现方法<br>P8 DPLL反馈调节与脉冲预测分发<br>P9 DPLL环路性能、收敛与稳定性<br>P10 误差预算与指标推导<br>P11 分布式触发同步：优势分析<br>P12 Zynq触发执行 + 板载OCXO<br>P13 噪声源分析<br>P14 EMC防护策略<br>
+          </div>
+        </div>
+      </div>
+      <div class="col2">
+        <div style="margin-bottom:20px;">
+          <div style="font-size:15px; font-weight:700; color:#1F3864; padding-bottom:6px; border-bottom:2px solid #1F3864; margin-bottom:10px;">Part 3 &nbsp; 工程实现</div>
+          <div style="font-size:13px; line-height:2.2; color:#333;">
+            P15 工程实现细节（一）<br>P16 工程实现细节（二）<br>P17 硬件框图<br>P18 操作与使用流程<br>
+          </div>
+        </div>
+        <div style="margin-bottom:20px;">
+          <div style="font-size:15px; font-weight:700; color:#1F3864; padding-bottom:6px; border-bottom:2px solid #1F3864; margin-bottom:10px;">Part 4 &nbsp; 实施与总结</div>
+          <div style="font-size:13px; line-height:2.2; color:#333;">
+            P19 实施路线图<br>P20 风险与应对<br>P21 总结结论<br>P22 实施策略<br>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">2 / 22</span></span></div>
+</div>
+
+<!-- ===== P3 参数解释表 ===== -->
+<div class="page dense compress-light">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">参数解释表</div>
+    <div class="sub">先定义时间基准、残差符号和验收边界，再进入技术指标页</div>
+
+    <table>
+      <thead><tr><th class="c">参数</th><th>名称</th><th>定义/测量口径</th><th class="c">主要用途</th></tr></thead>
+      <tbody>
+        <tr><td class="c val">T_fire_base</td><td class="b">系统基准触发时刻</td><td>DPLL根据目标角度、转台反馈和预跑模型生成的未来DC绝对时间。</td><td class="c">全局预约基准</td></tr>
+        <tr><td class="c val">T_fire_i</td><td class="b">第i设备预约触发时刻</td><td><span class="val">T_fire_i=T_fire_base+Δt_i</span>。各节点FPGA本地比较DC时间，到点输出硬件边沿。</td><td class="c">本地执行</td></tr>
+        <tr><td class="c val">Δt_i</td><td class="b">第i设备延时补偿量</td><td>由线缆、输出通道、接收阈值、仪表动作时间和期望相对delay组成；测试前标定并可慢速更新。</td><td class="c">对齐末端动作</td></tr>
+        <tr><td class="c val">T2_i</td><td class="b">第i设备完成回读时间戳</td><td>射频近端分支节点经短线向设备输出触发脉冲后, 由本节点TDC捕获设备返回的完成脉冲, 表示末端设备实际输出、锁存或采集触发完成时间。</td><td class="c">闭环验收</td></tr>
+        <tr><td class="c val">e_dc</td><td class="b">DC时间轴同步误差</td><td>以节点间SYNC0脉冲沿偏差实测。评价多节点是否共享同一DC时间轴，不代表设备动作残差。</td><td class="c">跨节点时间基准</td></tr>
+        <tr><td class="c val">e_io</td><td class="b">输出通道校准残差</td><td>SMA/LVDS驱动、电缆、接收阈值和温漂经交叉标定后剩余的固定/慢变残差。</td><td class="c">末端到达修正</td></tr>
+        <tr><td class="c val">e_j</td><td class="b">FPGA本地输出随机抖动</td><td>PLL、IO和驱动器随机噪声的RSS合成，通常以RMS或3σ统计。</td><td class="c">本地边沿质量</td></tr>
+        <tr><td class="c val">e_i[k]</td><td class="b">单节点反馈残差</td><td><span class="val">e_i[k]=T_fb_i[k]-T_pred_i[k]</span>。T_fb_i来自本节点TDC捕获的设备完成脉冲; 先剔除乱序、缺失和超窗样本，再进入共模/本地分解。</td><td class="c">闭环输入</td></tr>
+        <tr><td class="c val">e_c[k]</td><td class="b">共模反馈残差</td><td><span class="val">e_c[k]=Σw_i(e_i[k]-b_i[k])</span>。反映DPLL预测共模偏差，用于修正相位和速度估计。</td><td class="c">DPLL校正</td></tr>
+        <tr><td class="c val">e_pll</td><td class="b">DPLL角度时间残差</td><td>目标角度映射到未来触发时间的预测误差。受速度纹波、编码器量化、反馈延迟和环路带宽影响。</td><td class="c">角度触发准确性</td></tr>
+        <tr><td class="c val">e_act</td><td class="b">设备动作残差</td><td><span class="val">e_act=T2_i-T_fire_base-Δt_i</span>。扣除预设相对delay后，评价链路、波控、VNA等末端设备实际动作是否对齐。</td><td class="c">最终同步验收</td></tr>
+        <tr><td class="c val">e_dev</td><td class="b">设备内部触发不确定度</td><td>VNA触发死区、波控锁存、链路门控等设备内部响应抖动，是e_act的来源之一。</td><td class="c">设备侧边界</td></tr>
+        <tr><td class="c val">e_q</td><td class="b">预约量化/调度残差</td><td>未来绝对时间戳装载和比较的量化残差。PDO到达抖动只影响t_margin是否充足，不直接产生边沿。</td><td class="c">预算辅助项</td></tr>
+        <tr><td class="c val">e_cross</td><td class="b">跨板触发到达误差</td><td>按<span class="val">sqrt(e_dc²+e_q²+e_io²+e_j²)</span>估算，用于说明预约触发执行链路的百纳秒级预算。</td><td class="c">RSS推导</td></tr>
+        <tr><td class="c val">t_near</td><td class="b">近端硬触发响应延迟</td><td>同板输入脉冲到本板SMA/LVDS输出的硬件路径延迟，不代表DPLL预测误差或跨板同步误差。</td><td class="c">同板快路径</td></tr>
+        <tr><td class="c val">t_margin</td><td class="b">PDO预约装载提前量</td><td>触发队列到达从站时刻与T_fire_i之间的安全余量。只要未late，主站周期抖动不进入触发边沿。</td><td class="c">队列安全裕度</td></tr>
+      </tbody>
+    </table>
+
+    <div class="row2" style="margin-top:10px;">
+      <div class="col2">
+        <div class="card cb"><div class="card-h">指标分层</div><div class="card-b">
+          <span class="val">e_pll</span>评价“是否打在目标角度时间点”；<span class="val">e_act</span>评价“末端设备之间是否同步动作”。DPLL预测晚几十微秒属于共模角度误差，不等同于设备间同步误差。
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cg"><div class="card-h">验收顺序</div><div class="card-b">
+          先验收<span class="val">e_dc</span>和<span class="val">t_margin</span>，再验收<span class="val">e_io/e_j</span>，最后通过硬件在环统计<span class="val">e_pll</span>和<span class="val">e_act</span>。
+        </div></div>
+      </div>
+    </div>
+
+    <div class="bar">读数原则: <span>时间基准</span>、<span>本地输出</span>、<span>角度预测</span>、<span>末端动作</span> 分开命名和验收</div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">3 / 22</span></span></div>
+</div>
+
+<!-- ===== P4 系统需求与指标 ===== -->
+<div class="page dense compress-light">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">系统需求与核心指标</div>
+    <div class="sub">相控阵天线测试系统 — 触发子系统分层验收口径</div>
+
+    <div class="row3" style="margin-bottom:16px;">
+      <div class="col3">
+        <div class="card cb"><div class="card-h">🎯 DC同步验收</div><div class="card-b">
+          <div class="big-number">≤30ns</div>
+          <div class="big-number-label">Demo e_dc, P99, 由SYNC0实测</div>
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card cg"><div class="card-h">⚡ 板内输出验收</div><div class="card-b">
+          <div class="big-number">≤2.5ns</div>
+          <div class="big-number-label">校准后通道间偏斜上限</div>
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card co"><div class="card-h">🔌 设备动作验收</div><div class="card-b">
+          <div class="big-number">≤100ns</div>
+          <div class="big-number-label">静态e_act, P99.9目标</div>
+        </div></div>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr><th>验收层级</th><th class="c">Demo预估目标</th><th class="c">工程冻结门限</th><th>统计口径与边界</th></tr></thead>
+      <tbody>
+        <tr><td class="b">A. DC时间轴同步误差 e_dc</td><td class="c val">4-6节点<br>RMS≤10ns, P99≤30ns, P99.9≤50ns</td><td class="c val">20节点或等效拓扑<br>P99.9≤100ns, p-p≤200ns</td><td>连续1h起步, 工程冻结阶段执行24h复测; 250µs/1ms周期、满负载/空载、铜口/光口分别测。该指标只证明节点共享DC时间轴。</td></tr>
+        <tr><td class="b">B. FPGA本地输出/通道残差</td><td class="c val">e_io≤2.5ns<br>e_j RMS≤200ps</td><td class="c val">全温通道校准残差≤2.5ns<br>P99.9≤1ns随机抖动</td><td>同板SMA/LVDS输出到同一仪器, 扣除电缆延迟; 线缆延迟、接收端阈值和温漂残差单独入预算。</td></tr>
+        <tr><td class="b">C. PDO预约装载提前量 t_margin</td><td class="c val">周期抖动P99≤10µs<br>典型1-2ms</td><td class="c val">最小≥500µs/≥2周期<br>late packet率=0</td><td>每节点不少于10^6次触发事件; PDO只装载未来时间戳, FPGA本地比较DC时间产生边沿。</td></tr>
+        <tr><td class="b">D. 设备动作残差 e_act</td><td class="c val">静态P99.9≤100ns</td><td class="c val">连续旋转P99.9≤150ns<br>p-p≤300ns</td><td>统一口径e_act=T2_i-T_fire_base-Δt_i; VNA、链路、波控三类设备分别统计, 超窗样本禁止进入射频结果。</td></tr>
+        <tr><td class="b">E. DPLL角度时间残差 e_pll</td><td class="c val">工程P99.9≤50µs</td><td class="c val">优化P99.9≤30µs<br>单次≤100µs</td><td>评价角度到时间映射精度, 不与跨节点同步指标混用; 10-20µs作为硬件在环挑战目标。</td></tr>
+        <tr><td class="b">F. 射频测量结果</td><td class="c val">建立≤1°相位重复性基线</td><td class="c val">与最终相控阵指标绑定</td><td>幅相一致性、波束指向误差、动态范围和VNA校准由射频/测量系统独立定义; 触发系统提供时序证据链。</td></tr>
+      </tbody>
+    </table>
+
+    <div class="bar">验收原则: <span>e_dc</span>、<span>e_io/e_j</span>、<span>e_act</span>、<span>e_pll</span>、<span>射频结果</span> 分层统计, 不混用指标</div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">4 / 22</span></span></div>
+</div>
+
+<!-- ===== P5 方案架构总览 ===== -->
+<div class="page dense media-tight">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">方案架构总览</div>
+    <div class="sub">统一通用节点板 — 同一硬件通过角色配置成为主控节点或普通从站节点</div>
+
+    <div class="img-wrap">
+      <svg viewBox="0 0 1000 280" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <lineargradient id="bgGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1F3864"></stop><stop offset="100%" stop-color="#283593"></stop></lineargradient>
+          <lineargradient id="zynqGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1565c0"></stop><stop offset="100%" stop-color="#0d47a1"></stop></lineargradient>
+        </defs>
+        <!-- Master -->
+        <rect x="340" y="10" width="320" height="45" rx="6" fill="url(#bgGrad)"></rect>
+        <text x="500" y="30" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">主控工作站 / 主控Zynq</text>
+        <text x="500" y="46" text-anchor="middle" fill="#bbdefb" font-size="10">PetaLinux + Xenomai 3(Cobalt) + Macb Native Driver + IgH</text>
+
+        <!-- EtherCAT bus line -->
+        <line x1="500" y1="55" x2="500" y2="80" stroke="#1F3864" stroke-width="3"></line>
+        <line x1="80" y1="80" x2="920" y2="80" stroke="#1F3864" stroke-width="3"></line>
+        <text x="500" y="98" text-anchor="middle" fill="#1F3864" font-size="12" font-weight="700">EtherCAT 总线 (铜口或100BASE-FX/FXS光口, DC同步 + PDO队列 + CoE/SDO配置)</text>
+
+        <!-- Node lines -->
+        <line x1="180" y1="80" x2="180" y2="115" stroke="#1565c0" stroke-width="2"></line>
+        <line x1="500" y1="80" x2="500" y2="115" stroke="#1565c0" stroke-width="2"></line>
+        <line x1="820" y1="80" x2="820" y2="115" stroke="#1565c0" stroke-width="2"></line>
+
+        <!-- Node 1 -->
+        <rect x="80" y="118" width="200" height="55" rx="5" fill="url(#zynqGrad)"></rect>
+        <text x="180" y="140" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">通用板 #1 (主控角色)</text>
+        <text x="180" y="158" text-anchor="middle" fill="#bbdefb" font-size="10">启用Master口 + 管理口 + 本地触发IO</text>
+
+        <!-- Node 2 -->
+        <rect x="400" y="118" width="200" height="55" rx="5" fill="url(#zynqGrad)"></rect>
+        <text x="500" y="140" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">通用板 #2 (从站角色)</text>
+        <text x="500" y="158" text-anchor="middle" fill="#bbdefb" font-size="10">Slave IN/OUT: 光口初始化优先, RJ45回退</text>
+
+        <!-- Node 3 -->
+        <rect x="720" y="118" width="200" height="55" rx="5" fill="url(#zynqGrad)"></rect>
+        <text x="820" y="140" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">通用板 #3 (从站角色)</text>
+        <text x="820" y="158" text-anchor="middle" fill="#bbdefb" font-size="10">Slave IN/OUT + LVDS同步/锁存</text>
+
+        <!-- OCXO indicators -->
+        <rect x="110" y="185" width="140" height="22" rx="3" fill="#e8f5e9" stroke="#388e3c" stroke-width="1"></rect>
+        <text x="180" y="200" text-anchor="middle" fill="#2e7d32" font-size="9">板载OCXO 10MHz</text>
+        <rect x="430" y="185" width="140" height="22" rx="3" fill="#e8f5e9" stroke="#388e3c" stroke-width="1"></rect>
+        <text x="500" y="200" text-anchor="middle" fill="#2e7d32" font-size="9">板载OCXO 10MHz</text>
+        <rect x="750" y="185" width="140" height="22" rx="3" fill="#e8f5e9" stroke="#388e3c" stroke-width="1"></rect>
+        <text x="820" y="200" text-anchor="middle" fill="#2e7d32" font-size="9">板载OCXO 10MHz</text>
+
+        <!-- Instrument OCXO -->
+        <rect x="330" y="230" width="340" height="35" rx="5" fill="#fff3e0" stroke="#f57c00" stroke-width="1.5"></rect>
+        <text x="500" y="252" text-anchor="middle" fill="#e65100" font-size="11" font-weight="700">仪表频标: 独立OCXO(¥500) → VNA/链路仪表群 (短SMA≤2m)</text>
+      </svg>
+    </div>
+
+    <table>
+      <thead><tr><th class="c">功能</th><th class="c">机制</th><th class="c">精度</th><th>承载内容</th></tr></thead>
+      <tbody>
+        <tr><td class="c b">统一硬件</td><td class="c">一板两角色</td><td class="c">BOM基本不变</td><td>从站板硬件已包含Zynq PS/GEM和ESC双口, 天然可作为主站或从站; 主控/从站差异主要由启动配置、驱动加载和应用角色决定</td></tr>
+        <tr><td class="c b">主站调度</td><td class="c">PetaLinux + Xenomai 3(Cobalt)</td><td class="c">周期抖动单独验收</td><td>IgH Master运行在Cobalt实时线程; 自研Macb Native Driver绕开通用网络栈。验收重点是周期抖动、t_margin(PDO预约装载提前量)、收发路径延迟、CPU/网络负载和恢复行为。</td></tr>
+        <tr><td class="c b">时钟同步</td><td class="c">DC (Distributed Clocks)</td><td class="c">冻结P99.9≤100ns</td><td>主站配置参考时钟和漂移补偿, 所有节点共享同一DC时间轴; 该指标不等同于设备端动作残差。</td></tr>
+        <tr><td class="c b">数据同步</td><td class="c">PDO (Process Data Object)</td><td class="c">62.5-1000 µs</td><td>armed、急停、心跳、计数、T_fire_base队列、各端Δt</td></tr>
+        <tr><td class="c b">光口链路</td><td class="c">LAN9252 + 100BASE-FX/FXS</td><td class="c">Demo前置验证</td><td>SFP不能由MII/RMII直连SerDes; 需验证光模块速率兼容、链路不对称延迟、DC补偿、丢帧率和EMI稳定性。</td></tr>
+        <tr><td class="c b">并行预约触发</td><td class="c">DC绝对时间</td><td class="c">e_act另验收</td><td>链路系统、波控、VNA提前接收队列, 按各自delay到点本地输出/锁存</td></tr>
+        <tr><td class="c b">大块传输</td><td class="c">CoE/SDO</td><td class="c">非实时</td><td>触发计划表、链路时序表、波控码表 — 测试前一次性预载</td></tr>
+      </tbody>
+    </table>
+
+    <div class="bar">同一T_fire_base并行编排: <span>链路delay</span> + <span>波控delay</span> + <span>VNA delay</span>; 不按设备序列等待</div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">5 / 22</span></span></div>
+</div>
+
+<!-- ===== P6 物料成本精算 ===== -->
+<div class="page dense compress-light">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">物料成本精算</div>
+    <div class="sub">估算边界: 10-20套原型价, 人民币未税; 板级物料与工业完整节点分开核算</div>
+
+    <table>
+      <thead><tr><th>成本模块</th><th>主要物料</th><th class="c">板级物料</th><th class="c">工业节点增量</th></tr></thead>
+      <tbody>
+        <tr><td class="b">核心计算</td><td>Zynq-7020 + DDR3×2 + QSPI + EEPROM/MicroSD</td><td class="c val">¥610-850</td><td class="c">—</td></tr>
+        <tr><td class="b">EtherCAT通信</td><td>LAN9252 + RJ45铜口 + 100BASE-FX/FXS光收发接口 + 上电链路选择</td><td class="c val">¥110-190</td><td class="c val">光链路前置验证, ¥60-170</td></tr>
+        <tr><td class="b">时钟系统</td><td>10MHz ±30ppb OCXO + 25/33.33MHz TCXO + 时钟缓冲</td><td class="c val">¥125-210</td><td class="c">—</td></tr>
+        <tr><td class="b">电源/保护</td><td>隔离DC-DC + TPS7A47 + TPS74401×3 + TVS/反接保护</td><td class="c val">¥130-240</td><td class="c">—</td></tr>
+        <tr><td class="b">TTL触发</td><td>SN74LVC1G17×16 + SMA×16 + 预留SMA×4 + TVS/匹配</td><td class="c val">¥75-140</td><td class="c">—</td></tr>
+        <tr><td class="b">LVDS波控</td><td>DS90LV047A×6 + MDR26P×3 + 端接/ESD</td><td class="c val">¥85-160</td><td class="c">—</td></tr>
+        <tr><td class="b">人机/调试</td><td>TFT 2.4" + 按键/LED/DIP + UART/JTAG + 外狗接口</td><td class="c val">¥35-85</td><td class="c">语音件可选 ¥20-50</td></tr>
+        <tr><td class="b">PCB/基础辅料</td><td>120×140mm 4层2oz PCB + 阻容磁珠 + 端子/紧固件</td><td class="c val">¥160-300</td><td class="c">—</td></tr>
+        <tr style="background:#e8f5e9;"><td class="b">板级小计</td><td>不含PCBA加工、机壳、线束、测试夹具</td><td class="c val" style="color:#2e7d32;font-weight:800;">¥1,330-2,155</td><td class="c">—</td></tr>
+        <tr><td class="b">装配/工业化</td><td>PCBA贴装测试 + DIN导轨铝壳 + 端子线束/标签</td><td class="c">—</td><td class="c val">¥250-510</td></tr>
+        <tr style="background:#e8f5e9;"><td class="b">完整节点</td><td>可上机交付的单节点硬件成本</td><td class="c" colspan="2"><span class="val" style="color:#2e7d32;font-weight:800;">¥1,650-2,800</span></td></tr>
+      </tbody>
+    </table>
+
+    <div class="row2" style="margin-top:8px;">
+      <div class="col2">
+        <div class="card cg"><div class="card-h">✅ 最终方案单节点BOM</div><div class="card-b">
+          <div class="big-number" style="font-size:30px;">¥1,650-2,800</div>
+          <div style="text-align:center;margin-top:4px;">完整工业节点; 50套批量目标 ¥1,250-1,850</div>
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cr"><div class="card-h">❌ 反射内存方案单节点</div><div class="card-b">
+          <div class="big-number" style="font-size:36px;color:#d32f2f;">¥21,000-62,000</div>
+          <div style="text-align:center;margin-top:4px;">仍贵<span class="val">8-35倍</span>; 且不含触发板本体</div>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="conc"><h3>结论</h3><p>基础成本按统一通用节点核算: 原型完整节点约¥1,650-2,800; 批量后目标¥1,250-1,850。主站能力复用Zynq PS/GEM、管理口和既有电源/时钟资源, 不新增一套主站硬件BOM; 主要增量来自PetaLinux/Xenomai、Macb Native Driver、IgH集成、角色配置、主站实时性测试和光口/铜口验证矩阵。</p></div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">6 / 22</span></span></div>
+</div>
+
+<!-- ===== P7 分布式触发同步：实现方法 ===== -->
+<div class="page dense compress-light">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">核心技术：纳秒级分布式触发同步（一）</div>
+    <div class="sub">实现方法：DC统一时间轴 + PDO预约队列 + DPLL预测 + FPGA本地到点执行</div>
+
+    <div class="row3" style="margin-bottom:10px;">
+      <div class="col3">
+        <div class="card cr"><div class="card-h">⏱ DC时间轴同步</div><div class="card-b">
+          <div class="big-number" style="font-size:38px;">≤100ns</div>
+          <div style="text-align:center;">e_dc冻结P99.9, 由SYNC0实测</div>
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card co"><div class="card-h">🎯 DC系统时间</div><div class="card-b">
+          <div class="big-number" style="font-size:38px;">1ns</div>
+          <div style="text-align:center;">分辨率, 64位可覆盖&gt;500年</div>
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card cg"><div class="card-h">⚡ 近端硬触发</div><div class="card-b">
+          <div class="big-number" style="font-size:34px;">≤1µs</div>
+          <div style="text-align:center;">同板输入到输出验收上限</div>
+        </div></div>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr><th>触发实时性指标</th><th class="c">数值</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="b">DC时间轴同步误差 e_dc</td><td class="c val">Demo P99≤30ns<br>冻结P99.9≤100ns</td><td>以任意两个Zynq板的SYNC0硬件脉冲沿偏差实测; 需按完整拓扑统计, 不从芯片典型值外推</td></tr>
+        <tr><td class="b">ESC SYNC0输出抖动</td><td class="c val">ps级典型, 仅作参考</td><td>单颗ESC硬件输出抖动低于系统预算主项; 系统验收仍以e_dc和e_act为准</td></tr>
+        <tr><td class="b">DC补偿/PDO周期</td><td class="c val">250 µs ~ 1 ms</td><td>用于门控、心跳、状态、未来T_fire队列; 不事后转发脉冲沿</td></tr>
+        <tr><td class="b">整机时钟校准</td><td class="c val">测试前多轮</td><td>SYNC0/TDC/回环脉冲多轮测量, 更新节点时钟偏置、链路延迟和各端Δt初值, 提升预测准确性和锁相速度</td></tr>
+        <tr><td class="b">PDO预约装载提前量 t_margin</td><td class="c val">典型1-2ms<br>最小≥500µs/≥2周期</td><td>整机校准后再做-5°~0°预跑, DPLL生成T_fire_base, 各端按Δt_i本地输出; late packet=0</td></tr>
+        <tr><td class="b">单节点反馈残差 e_i[k]</td><td class="c val">e_i[k]=T_fb_i[k]-T_pred_i[k]</td><td>每节点带触发序号回传反馈时间戳, 先分解共模预测误差和本地延时误差, 只修正后续T_fire和补偿参数。</td></tr>
+        <tr><td class="b">连续触发频率</td><td class="c val">f=ω/Δθ</td><td>由转速ω、角度间隔Δθ、VNA采集死区、链路稳定时间和波控锁存时间共同限制</td></tr>
+        <tr><td class="b">跨板时钟漂移补偿</td><td class="c val">&lt;10 ps/周期</td><td>±30ppb OCXO在250µs内漂移约7.5ps, DC自动修正</td></tr>
+        <tr><td class="b">FPGA本地输出抖动 e_j</td><td class="c val" style="color:#2e7d32;">目标&lt;200 ps RMS</td><td>从PLL→IO→SMA的本地硬件链路; 实际值由首板示波器/TIA实测确认, 跨节点对齐按e_dc验收</td></tr>
+        <tr><td class="b">近端硬触发响应延迟</td><td class="c val">典型100-330 ns<br>验收≤1 µs</td><td>典型100-330ns; 仅限转台脉冲进入同一板卡后本地输出; 慢速光耦、外设建立时间、跨板预约触发不计入</td></tr>
+      </tbody>
+    </table>
+
+    <div class="row2" style="margin-top:10px;">
+      <div class="col2">
+        <div class="card cb"><div class="card-h">💡 TDC用途边界</div><div class="card-b">
+          TDC用于同板通道相对时间戳、输出回读和温漂趋势补偿。跨板绝对偏差以SYNC0实测e_dc、以T2_i回读计算e_act验收; 若要求50ps级绝对校准, 需外部参考源和码密度校准。<br><span class="hl">边界清晰</span>
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cg"><div class="card-h">💡 DC延迟自动补偿触发偏移</div><div class="card-b">
+          DC初始化已测EtherCAT延迟; SMA电缆交叉测试标定→存入EEPROM→触发自动查表补偿→所有SMA口脉冲同时到达设备。<br><span class="hl">¥0</span>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="conc" style="margin-top:8px;"><p><b>DPLL连续旋转模式：</b> 状态量取<span class="val">x=[φ,ω]</span>, 输入为转台角度脉冲DC时间戳, 单节点反馈残差为<span class="val">e_i[k]=T_fb_i[k]-T_pred_i[k]</span>。-5°~-3°只用于完成加速和匀速确认, 不冻结预测结果; -3°~0°统计<span class="val">DPLL角度时间残差e_pll</span>并确认预约队列已装载。0°~360°期间DPLL滚动生成<span class="val">T_fire_base[k]</span>, 各端按<span class="val">T_fire_i=T_fire_base+Δt_i</span>本地执行。e_pll按<span class="val">工程P99.9≤50µs、优化≤30µs</span>验收; 设备动作一致性按<span class="val">e_act=T2_i-T_fire_base-Δt_i</span>的纳秒级残差单独验收。</p></div>
+
+    <div class="bar">实现闭环: 匀速确认 → DPLL收敛确认 → 队列装载确认 → FPGA本地执行 → T_fb_i回读修正后续预测</div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">7 / 22</span></span></div>
+</div>
+
+<!-- ===== P8 DPLL反馈调节与脉冲预测分发 ===== -->
+<div class="page dense compress-light">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">DPLL反馈调节与脉冲预测分发</div>
+    <div class="sub">主节点生成T_fire_base并分发预约; 射频近端分支节点短线触发设备, 用本节点TDC捕获设备完成脉冲并向上反馈</div>
+
+    <div class="img-wrap">
+      <svg viewBox="0 0 1000 220" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrowPDLL" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#1F3864"/>
+          </marker>
+          <marker id="arrowReturn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#c62828"/>
+          </marker>
+        </defs>
+
+        <rect x="20" y="42" width="120" height="50" rx="4" fill="#e3f2fd" stroke="#1565c0"/>
+        <text x="80" y="61" text-anchor="middle" font-size="10" fill="#0d47a1">Compare Out / 编码器</text>
+        <text x="80" y="77" text-anchor="middle" font-size="9" fill="#333">角度脉冲时间戳</text>
+        <rect x="170" y="42" width="130" height="50" rx="4" fill="#fff3e0" stroke="#e65100"/>
+        <text x="235" y="61" text-anchor="middle" font-size="10" fill="#e65100">主节点DPLL预测器</text>
+        <text x="235" y="77" text-anchor="middle" font-size="9" fill="#333">x=[φ,ω], T_fire_base</text>
+        <rect x="330" y="42" width="120" height="50" rx="4" fill="#e8f5e9" stroke="#2e7d32"/>
+        <text x="390" y="61" text-anchor="middle" font-size="10" fill="#2e7d32">主节点预约分发</text>
+        <text x="390" y="77" text-anchor="middle" font-size="9" fill="#333">seq,T_fire,mask,CRC</text>
+        <rect x="480" y="42" width="120" height="50" rx="4" fill="#ede7f6" stroke="#6a1b9a"/>
+        <text x="540" y="61" text-anchor="middle" font-size="10" fill="#6a1b9a">分支节点FIFO</text>
+        <text x="540" y="77" text-anchor="middle" font-size="9" fill="#333">T_fire_i=T_fire_base+Δt_i</text>
+        <rect x="630" y="42" width="130" height="50" rx="4" fill="#e8f5e9" stroke="#2e7d32"/>
+        <text x="695" y="61" text-anchor="middle" font-size="10" fill="#2e7d32">分支节点DC比较</text>
+        <text x="695" y="77" text-anchor="middle" font-size="9" fill="#333">TRIG 脉冲短线输出</text>
+        <rect x="790" y="42" width="190" height="50" rx="4" fill="#ffebee" stroke="#c62828"/>
+        <text x="885" y="61" text-anchor="middle" font-size="10" fill="#c62828">本节点TDC / 完成回读</text>
+        <text x="885" y="77" text-anchor="middle" font-size="9" fill="#333">设备完成脉冲, T_fb_i[k], T2_i</text>
+        <path d="M140 67 L170 67" stroke="#1F3864" stroke-width="2" marker-end="url(#arrowPDLL)"/>
+        <path d="M300 67 L330 67" stroke="#1F3864" stroke-width="2" marker-end="url(#arrowPDLL)"/>
+        <path d="M450 67 L480 67" stroke="#1F3864" stroke-width="2" marker-end="url(#arrowPDLL)"/>
+        <path d="M600 67 L630 67" stroke="#1F3864" stroke-width="2" marker-end="url(#arrowPDLL)"/>
+        <path d="M760 67 L790 67" stroke="#1F3864" stroke-width="2" marker-end="url(#arrowPDLL)"/>
+        <rect x="630" y="108" width="130" height="36" rx="4" fill="#fffde7" stroke="#f9a825"/>
+        <text x="695" y="123" text-anchor="middle" font-size="10" fill="#f57f17">设备: 波控 / 仪表</text>
+        <text x="695" y="137" text-anchor="middle" font-size="9" fill="#333">READY脉冲返回</text>
+        <path d="M695 92 L695 108" stroke="#1F3864" stroke-width="2" marker-end="url(#arrowPDLL)"/>
+        <path d="M760 126 L842 126 L842 92" fill="none" stroke="#c62828" stroke-width="2" marker-end="url(#arrowReturn)"/>
+        <rect x="805" y="145" width="160" height="44" rx="4" fill="#fffde7" stroke="#f9a825"/>
+        <text x="885" y="164" text-anchor="middle" font-size="10" fill="#f57f17">残差分解</text>
+        <text x="885" y="179" text-anchor="middle" font-size="9" fill="#333">e_i[k]=T_fb_i[k]-T_pred_i[k]</text>
+        <rect x="450" y="145" width="180" height="44" rx="4" fill="#f3e5f5" stroke="#7b1fa2"/>
+        <text x="540" y="164" text-anchor="middle" font-size="10" fill="#7b1fa2">本地补偿表</text>
+        <text x="540" y="179" text-anchor="middle" font-size="9" fill="#333">Δt_i / skew / 温漂</text>
+        <rect x="135" y="145" width="200" height="44" rx="4" fill="#e3f2fd" stroke="#1565c0"/>
+        <text x="235" y="164" text-anchor="middle" font-size="10" fill="#0d47a1">环路滤波 F(z)</text>
+        <text x="235" y="179" text-anchor="middle" font-size="9" fill="#333">共模→相位/速度修正</text>
+        <path d="M885 92 L885 145" fill="none" stroke="#1F3864" stroke-width="2" marker-end="url(#arrowPDLL)"/>
+        <path d="M805 167 L630 167" fill="none" stroke="#1F3864" stroke-width="2" marker-end="url(#arrowPDLL)"/>
+        <path d="M885 189 L885 206 L235 206 L235 189" fill="none" stroke="#1F3864" stroke-width="2" marker-end="url(#arrowPDLL)"/>
+        <path d="M235 145 L235 92" fill="none" stroke="#1F3864" stroke-width="2" marker-end="url(#arrowPDLL)"/>
+        <path d="M540 145 L540 92" fill="none" stroke="#1F3864" stroke-width="2" marker-end="url(#arrowPDLL)"/>
+      </svg>
+    </div>
+
+    <table>
+      <colgroup>
+        <col style="width:12%;">
+        <col style="width:32%;">
+        <col style="width:56%;">
+      </colgroup>
+      <thead><tr><th>离散模型</th><th class="c">表达式</th><th>工程含义</th></tr></thead>
+      <tbody>
+        <tr><td class="b">单节点反馈残差</td><td class="c val">e_i[k]=T_fb_i[k]-T_pred_i[k]</td><td>节点短线触发设备后, 本节点TDC捕获设备返回的完成脉冲并带触发序号回传。先剔除乱序、超窗和无效样本，再进入共模/本地误差分解。</td></tr>
+        <tr><td class="b">共模残差</td><td class="c val">e_c[k]=Σw_i(e_i[k]-b_i[k])</td><td>w_i由节点T2有效率、抖动方差和健康状态给权; b_i由校准表/温漂模型给出。残差限幅后再求和, 避免单个节点异常主导全局环路。</td></tr>
+        <tr><td class="b">采样与延迟</td><td class="c val">T_s=Δθ/ω<br>d=d_calc+T_fb/T_s</td><td>10°/s、0.001°时T_s=100µs; 计算、队列和TDC/READY回读形成总环路延迟d。d接近0.5时必须降低带宽或引入预测补偿。</td></tr>
+        <tr><td class="b">PI 环路滤波</td><td class="c val">F(z)=K_p+K_i/(1-z^-1)</td><td>K_p 修正相位/时间偏置，K_i 修正速度/周期偏置, 均为离散域增益。K_p/K_i不在文档中承诺固定值, 通过10°/s HIL扫参冻结, 约束超调、收敛时间和噪声放大。</td></tr>
+        <tr><td class="b">开环传递函数</td><td class="c val">L(z)=K_dK_0·z^-d·[K_p(1-z^-1)+K_i]/(1-z^-1)^2</td><td>相位检测器 K_d、时间 NCO/预测器 K_0。z^-d表示计算、队列和TDC/READY回读总延迟; 非整数延迟通过HIL扫参和实测相位裕度闭合。</td></tr>
+        <tr><td class="b">闭环预测传递函数</td><td class="c val">H(z)=L(z)/(1+L(z))</td><td>描述目标角度/反馈时间戳变化如何进入 T_fire_base 预测。带宽应低于转台速度纹波主频，避免追随随机抖动。</td></tr>
+        <tr><td class="b">误差传递函数</td><td class="c val">E(z)/R(z)=1/(1+L(z))</td><td>低频速度偏差被环路抑制；高频测量噪声和 TDC 抖动不应被逐点追随，只进入统计和告警。</td></tr>
+        <tr><td class="b">限幅与冻结条件</td><td class="c val">|e_pll|门限<br>queue ready</td><td>-3°~0°阶段完成参数收敛确认; 0°前必须满足e_pll窗口、预约队列深度、DC锁定和T2回读有效率。正式采集阶段只允许平滑微调, 禁止突变参数。</td></tr>
+        <tr><td class="b">本地补偿更新</td><td class="c val">Δt_i[k+1]=Δt_i[k]+γ·LPF(e_i-e_c)</td><td>本地慢变残差进入线缆、通道skew和温漂补偿; γ取小值, 只修正慢变项, 不回改已输出边沿。</td></tr>
+        <tr><td class="b">异常样本处理</td><td class="c val">late / missing / reorder / timeout</td><td>缺失、乱序、超窗反馈不进入环路滤波; 只记录诊断并触发HOLDOVER/FAULT判据。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">8 / 22</span></span></div>
+</div>
+
+<!-- ===== P9 DPLL环路性能、收敛与稳定性 ===== -->
+<div class="page dense compress-light">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">DPLL环路性能、收敛与稳定性</div>
+    <div class="sub">评估转台角度预测链路的收敛速度、稳态误差、异常恢复和对触发执行链路的影响</div>
+
+    <table>
+      <thead><tr><th>性能项</th><th class="c">预估值</th><th>结论</th></tr></thead>
+      <tbody>
+        <tr><td class="b">反馈频率</td><td class="c val">10 kHz验收<br>3 kHz典型</td><td>按 0.001° Compare Out 和 10°/s 上限工况, 采样周期为100µs; 3°/s时为3000Hz、333.3µs, 仅作典型参考。</td></tr>
+        <tr><td class="b">编码器量化</td><td class="c val">0.0000429°/LSB</td><td>在10°/s下约4.29µs/LSB, 在3°/s下约14.3µs/LSB; 小数分频可均化长期误差, 不能消除单点量化噪声。</td></tr>
+        <tr><td class="b">反馈总延迟</td><td class="c val">≤50µs</td><td>在10°/s上限工况占采样周期约50%, 必须纳入环路延迟建模并限制正式采集带宽; 3°/s典型工况约15%。</td></tr>
+        <tr><td class="b">速度纹波主频</td><td class="c val">50-200Hz</td><td>该频段作为伺服控制、预跑建模和前馈处理重点对象; DPLL正式采集阶段限制带宽, 避免追随高频噪声。</td></tr>
+        <tr><td class="b">环路带宽配置</td><td class="c val">预跑 50-100Hz<br>正式 20-50Hz</td><td>预跑阶段提高收敛速度; 正式采集阶段降低噪声追随, 抑制 Compare Out 和编码器量化噪声放大。</td></tr>
+        <tr><td class="b">DPLL角度时间残差 e_pll</td><td class="c val">工程P99.9≤50µs<br>优化P99.9≤30µs</td><td>工程承诺口径按P99.9≤50µs执行; 10-20µs仅作为硬件在环挑战目标。</td></tr>
+        <tr><td class="b">失锁/异常门限</td><td class="c val">单次 >100µs<br>连续3-5次 >50µs</td><td>单点超限标记无效, 连续超限进入降速、停采或重锁。</td></tr>
+      </tbody>
+    </table>
+
+    <div class="row2">
+      <div class="col2">
+        <div class="card cg"><div class="card-h">收敛性结论</div><div class="card-b">
+          在 10°/s、0.001° Compare Out 和 2^23 编码器条件下, DPLL 仍有足够采样密度, 但反馈延迟占比显著上升。工程冻结前通过硬件在环验证环路带宽和延迟补偿, 并以 P99.9 ≤50µs 作为工程目标。
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cb"><div class="card-h">稳定性边界</div><div class="card-b">
+          若速度纹波落在 50-200Hz 且幅度偏大, 需降低正式采集带宽并加强前馈/滤波; 否则高频追随会放大量化抖动和 Compare Out 噪声。
+        </div></div>
+      </div>
+    </div>
+
+    <div class="conc" style="margin-top:10px;">
+      <h3>综合判断</h3>
+      <p>对相控阵触发链路而言, DPLL负责角度到时间映射, 其验收量统一为DPLL角度时间残差e_pll; 触发执行链路负责多设备同步动作, 其验收量统一为设备动作残差e_act。当前工程口径采用e_pll P99.9≤50µs、优化目标≤30µs, 不把角度预测误差写成纳秒级指标。</p>
+    </div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">9 / 22</span></span></div>
+</div>
+
+<!-- ===== P10 误差预算与指标推导 ===== -->
+<div class="page dense compress-light">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">误差预算与指标推导</div>
+    <div class="sub">把e_dc、e_pll、e_io/e_j和e_act拆开计算；RSS只作预算估算，P99.9需实测闭合</div>
+
+    <table>
+      <thead><tr><th>误差项</th><th class="c">符号</th><th class="c">取值/统计口径</th><th>来源与计算</th></tr></thead>
+      <tbody>
+        <tr><td class="b">DC时间轴同步误差</td><td class="c val">e_dc</td><td class="c val">Demo P99≤30ns<br>冻结P99.9≤100ns</td><td>由EtherCAT DC/SYNC0实测给出。该项评价跨节点时间轴一致性, 必须按完整拓扑、负载、线缆和温度条件统计; RSS预算需另取RMS或等效标准差, 不直接混用P99.9门限。</td></tr>
+        <tr><td class="b">预约量化/调度残差</td><td class="c val">e_q</td><td class="c val">≤1ns</td><td>触发边沿不由PDO到达时刻产生, PDO只装载未来绝对时间。主站/PDO抖动只影响t_margin是否充足; 只要未late, FPGA以1ns时间戳比较输出。</td></tr>
+        <tr><td class="b">输出通道校准残差</td><td class="c val">e_io</td><td class="c val">≤2.5ns 全温上限</td><td>驱动器、SMA/LVDS、电缆、接收端阈值差异经交叉测试补偿后保留残差。该项影响设备端到达时间, 不是网络同步误差。</td></tr>
+        <tr><td class="b">FPGA本地输出抖动</td><td class="c val">e_j</td><td class="c val">0.2ns RMS目标</td><td>PLL、IO、驱动器噪声RSS合成。即使按3σ计约0.6ns, 仍小于DC同步和DPLL预测误差。</td></tr>
+        <tr><td class="b">DPLL角度时间残差</td><td class="c val">e_pll</td><td class="c val">工程P99.9≤50µs<br>优化P99.9≤30µs</td><td>由转台速度纹波、角脉冲抖动、预跑拟合误差决定。该项评价角度映射, 不是跨节点同步误差, 必须通过转台硬件在环测试验证。</td></tr>
+        <tr><td class="b">设备内部触发不确定度</td><td class="c val">e_dev</td><td class="c val">设备相关<br>必须实测</td><td>VNA触发死区、波控锁存、链路门控实际响应由各子系统提供。e_dev是设备动作残差e_act的来源之一, 触发板只能记录T2_i并参与补偿; 若e_dev不可忽略, e_act必须由T2_i统计闭合。</td></tr>
+      </tbody>
+    </table>
+
+    <div class="row2">
+      <div class="col2">
+        <div class="card cb"><div class="card-h">推导1：跨板预约触发</div><div class="card-b">
+          跨板触发到达误差可按独立项RSS估算量级: <span class="val">e_cross≈sqrt(e_dc²+e_q²+e_io²+e_j²)</span>。若代入冻结门限100ns、1ns、2.5ns、0.6ns, 只能说明为<span class="val">100ns级</span>预算上限; P99.9验收必须使用统一统计口径的实测分布, 不能用混合门限RSS替代。
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cg"><div class="card-h">推导2：近端硬触发</div><div class="card-b">
+          同板近端不经过跨板预约, 延迟为<span class="val">t_near=t_cmp+t_iso+t_filter+t_cap+t_out+t_cable</span>。按150ns、100ns、50ns、30ns合计约330ns; 若开启更长去毛刺或慢速隔离, 按&lt;1µs验收。
+        </div></div>
+      </div>
+    </div>
+
+    <table style="margin-top:8px;">
+      <thead><tr><th>连续旋转预测误差</th><th class="c">计算式</th><th>含义</th></tr></thead>
+      <tbody>
+        <tr><td class="b">角度到时间换算</td><td class="c val">t_k=t_0+k·Δθ/ω</td><td>等角度脉冲在角速度ω下转为时间序列; ω单位为deg/s时, 时间间隔为Δθ/ω。</td></tr>
+        <tr><td class="b">速度误差引起的时间误差</td><td class="c val">δt≈T_pred·δω/ω</td><td>预测提前量T_pred越长、转速相对误差δω/ω越大, 触发时间误差越大。例如提前2ms、速度误差100ppm时仅0.2ns; 若转台瞬时速度扰动1%, 则为20µs, 必须由预跑+DPLL限制。</td></tr>
+        <tr><td class="b">角度误差换算</td><td class="c val">Δθ=ω·Δt</td><td>按10°/s上限工况, 10µs/50µs/100µs分别对应0.0001°/0.0005°/0.001°; DPLL不按纳秒级预测误差冻结。</td></tr>
+        <tr><td class="b">失锁判据</td><td class="c val">|e_pll|&gt;100µs单次<br>|e_pll|&gt;50µs连续3-5次</td><td>DPLL角度时间残差e_pll超限时标记本次数据无效, 连续超限进入降速、停采或重锁; 设备动作残差e_act另按纳秒级窗口处理。</td></tr>
+      </tbody>
+    </table>
+
+    <div class="bar">结论: <span>预算</span>与<span>验收</span>分开；<span>e_act</span>必须由T2_i实测闭合</div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">10 / 22</span></span></div>
+</div>
+
+<!-- ===== P11 分布式触发同步：优势分析 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">核心技术：纳秒级分布式触发同步（二）</div>
+    <div class="sub">优势分析：并行触发编排、短触发线缆、可校准闭环、测试节拍压缩</div>
+
+    <div class="row3" style="margin-bottom:10px;">
+      <div class="col3">
+        <div class="card cg"><div class="card-h">并行预约触发</div><div class="card-b">
+          <div class="big-number" style="font-size:34px;">T+Δt</div>
+          <div style="text-align:center;">链路/波控/VNA不串行等待</div>
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card cb"><div class="card-h">抗EMC干扰</div><div class="card-b">
+          <div class="big-number" style="font-size:34px;">短线</div>
+          <div style="text-align:center;">射频/触发同轴只保留近端段</div>
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card co"><div class="card-h">可验证闭环</div><div class="card-b">
+          <div class="big-number" style="font-size:34px;">T2_i</div>
+          <div style="text-align:center;">实际输出时间戳回读校正</div>
+        </div></div>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr><th>优势维度</th><th class="c">传统串行/实时转发</th><th class="c">本方案</th><th>收益</th></tr></thead>
+      <tbody>
+        <tr><td class="b">触发逻辑</td><td>设备A完成后再触发设备B/C</td><td>T_fire_base + Δt_i并行编排</td><td>避免链路→波控→VNA串行等待</td></tr>
+        <tr><td class="b">单点测试节拍</td><td class="c">Σ(t_i+τ_i)</td><td class="c val">max(t_i+τ_i)</td><td>由最慢设备窗口决定, 大幅缩短角度驻留时间</td></tr>
+        <tr><td class="b">跨板同步</td><td>依赖网络转发脉冲边沿</td><td>提前装载未来DC绝对时间</td><td>网络周期抖动不进入触发边沿</td></tr>
+        <tr><td class="b">触发线缆</td><td>转台到使用端长同轴传脉冲</td><td>转台近端采样, 使用端本地输出</td><td>缩短同轴路径, 降低SiC伺服EMC耦合</td></tr>
+        <tr><td class="b">误差处理</td><td>事后发现偏差, 难以在线补偿</td><td>单节点反馈残差e_i分解</td><td>共模残差e_c修正DPLL预测, 本地慢变项修正Δt_i和温漂补偿</td></tr>
+        <tr><td class="b">扩展性</td><td>新增设备增加等待链路</td><td>新增一组Δt_i和本地输出通道</td><td>链路系统、波控、网分/VNA可继续扩展</td></tr>
+      </tbody>
+    </table>
+
+    <div class="row2" style="margin-top:10px;">
+      <div class="col2">
+        <div class="card cg"><div class="card-h">对相控阵测试的直接价值</div><div class="card-b">
+          每个角度点可同时安排波控码锁存、链路门控、功放/开关矩阵动作和VNA采集触发。各动作只需满足自身建立时间和相对delay, 不需要等待上一台设备确认后再触发下一台设备。
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cb"><div class="card-h">工程验收口径</div><div class="card-b">
+          验收不只看DC时间轴同步误差e_dc, 还要回读T2_link/T2_wave/T2_vna实际输出时间戳, 分别验证设备动作残差e_act、丢脉冲、超窗告警和DPLL角度时间残差e_pll。
+        </div></div>
+      </div>
+    </div>
+
+    <div class="row2" style="margin-top:8px;">
+      <div class="col2">
+        <div class="card co"><div class="card-h">参考材料可采纳部分</div><div class="card-b">
+          EtherCAT DC只负责统一时间轴; 主站把未来绝对触发时刻写入队列, 从站FPGA在本地比较DC时间并输出硬件边沿。这个架构能隔离PDO周期抖动, 也是本方案的核心。
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cr"><div class="card-h">不纳入本触发板承诺</div><div class="card-b">
+          阵元级高压激励、波束形成相位控制、探头/阵面通道间远小于1ns的相干抖动属于前端/射频系统指标。本触发板只承诺设备级触发时序和设备动作残差e_act。
+        </div></div>
+      </div>
+    </div>
+
+    <div class="conc" style="margin-top:8px;"><p><b>核心优势：</b> EtherCAT DC提供统一时间轴, PDO只传未来触发队列和状态, FPGA在各设备近端按绝对时间输出。这样既保留硬触发确定性, 又获得分布式系统的可扩展性; 通过Δt_i并行编排, 测试节拍从串行等待变成同步协同, 对0°~360°连续扫描尤其有效。</p></div>
+
+    <div class="bar">优势归纳: <span>不实时转发脉冲</span> + <span>本地到点输出</span> + <span>多设备delay并行</span> + <span>T2_i回读计算e_act</span></div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">11 / 22</span></span></div>
+</div>
+
+<!-- ===== P12 Zynq触发执行 + 板载OCXO ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">核心技术：Zynq触发执行 + 板载OCXO</div>
+    <div class="sub">ARM跑协议栈，FPGA跑纳秒级脉冲 — 单芯片搞定。OCXO本地自跑，不外传</div>
+
+    <div class="img-wrap">
+      <svg viewBox="0 0 920 240" xmlns="http://www.w3.org/2000/svg">
+        <rect x="10" y="10" width="900" height="220" rx="8" fill="#f5f5f5" stroke="#1F3864" stroke-width="2"></rect>
+        <text x="460" y="36" text-anchor="middle" fill="#1F3864" font-size="13" font-weight="700">Zynq-7020 触发板 (每节点硬件完全一致)</text>
+
+        <!-- ARM side -->
+        <rect x="30" y="55" width="280" height="155" rx="6" fill="#e8eaf6" stroke="#1565c0" stroke-width="1.5"></rect>
+        <text x="170" y="78" text-anchor="middle" fill="#1565c0" font-size="12" font-weight="700">ARM Cortex-A9 ×2 (PS)</text>
+        <text x="170" y="100" text-anchor="middle" fill="#333" font-size="10">EtherCAT从站应用 (SSC/对象字典)</text>
+        <text x="170" y="118" text-anchor="middle" fill="#333" font-size="10">触发计划表管理 (DDR缓冲)</text>
+        <text x="170" y="136" text-anchor="middle" fill="#333" font-size="10">CoE对象字典 + PDO映射</text>
+        <text x="170" y="154" text-anchor="middle" fill="#333" font-size="10">状态监控 + 日志上报</text>
+        <text x="170" y="175" text-anchor="middle" fill="#999" font-size="9">Linux / 裸机RTOS</text>
+
+        <!-- SPI bridge -->
+        <rect x="330" y="100" width="60" height="40" rx="4" fill="#fff3e0" stroke="#f57c00" stroke-width="1"></rect>
+        <text x="360" y="125" text-anchor="middle" fill="#e65100" font-size="10" font-weight="700">SPI</text>
+
+        <!-- FPGA side -->
+        <rect x="410" y="55" width="480" height="155" rx="6" fill="#e8f5e9" stroke="#388e3c" stroke-width="1.5"></rect>
+        <text x="650" y="78" text-anchor="middle" fill="#2e7d32" font-size="12" font-weight="700">FPGA Artix-7 (PL)</text>
+        <text x="500" y="105" text-anchor="start" fill="#333" font-size="10">▪ DC系统时间维护 (1ns分辨率)</text>
+        <text x="500" y="123" text-anchor="start" fill="#333" font-size="10">▪ 触发序列状态机 (按DC时刻精确发射)</text>
+        <text x="740" y="105" text-anchor="start" fill="#333" font-size="10">▪ PLL: OCXO 10MHz→200MHz</text>
+        <text x="740" y="123" text-anchor="start" fill="#333" font-size="10">▪ TDC: 亚ns时间戳 + 自校准</text>
+        <text x="500" y="145" text-anchor="start" fill="#333" font-size="10">▪ 16-64ch脉冲发生器 (≤2.5ns边沿)</text>
+        <text x="740" y="145" text-anchor="start" fill="#333" font-size="10">▪ 双缓冲触发表无缝切换</text>
+        <text x="500" y="167" text-anchor="start" fill="#333" font-size="10">▪ 数字去抖 + 输出回读验证</text>
+        <text x="740" y="167" text-anchor="start" fill="#333" font-size="10">▪ DC看门狗 + 安全互锁</text>
+
+        <!-- OCXO -->
+        <rect x="500" y="195" width="380" height="20" rx="10" fill="#c8e6c9" stroke="#388e3c" stroke-width="1"></rect>
+        <text x="690" y="209" text-anchor="middle" fill="#2e7d32" font-size="9">板载OCXO 10MHz ±30ppb — 本地自跑，不对外分配</text>
+      </svg>
+    </div>
+
+    <div class="row2">
+      <div class="col2">
+        <div class="conc"><h3>为什么不分配时钟</h3><p>SiC伺服PWM谐波覆盖到数十MHz。10MHz模拟线缆拉进暗室≈天线接收500mV共模噪声，信噪比0dB。每板自一颗OCXO，DC数字补偿替代模拟分发。</p></div>
+      </div>
+      <div class="col2">
+        <div class="conc"><h3>两种OCXO互不依赖</h3><p>板载OCXO管FPGA时序(每板¥90-160, ±30ppb级)；独立OCXO管仪表频标(¥500/系统, 控制间内短SMA)。前者坏了切TCXO降级，后者坏了切VNA菊花链兜底。</p></div>
+      </div>
+    </div>
+
+    <div class="row2" style="margin-top:12px;">
+      <div class="col2">
+        <div class="card cg"><div class="card-h">💡 双缓冲触发表</div><div class="card-b">
+          FPGA PL内A/B双缓冲。ARM写入新表→写切换位→下一SYNC0原子切换。触发序列切换<b>零死时间</b>。上一序列最后脉冲与下一序列第一脉冲间隔完全由触发表定义。<br><span class="hl">¥0</span> — 多用一块Block RAM。
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cb"><div class="card-h">💡 触发脉冲回读 + 温度补偿</div><div class="card-b">
+          <b>回读:</b> 每SMA输出经1kΩ回读至TDC。正常Δ&lt;500ps; 开路&gt;10ns告警。SMA松动秒级定位。<br>
+          <b>温补:</b> 出厂温箱校准→EEPROM。运行中Zynq XADC测温→查表→微调PLL。±20°C波动时稳定度±2ppb。<br><span class="hl">¥0</span> — TDC通道/XADC都是Zynq内置的。
+        </div></div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">12 / 22</span></span></div>
+</div>
+
+<!-- ===== P13 噪声源分析 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">噪声源分析与EMC策略</div>
+    <div class="sub">识别全部6个主要噪声源，针对性设计防护 — 不传模拟时钟是架构层面最大防护</div>
+
+    <table>
+      <thead><tr><th>噪声源</th><th class="c">频率</th><th class="c">峰值幅度</th><th>攻击目标</th><th class="c">风险</th></tr></thead>
+      <tbody>
+        <tr><td class="b">SiC/GaN伺服PWM</td><td class="c">50kHz-64MHz</td><td class="c" style="color:#d32f2f;">500mV共模</td><td>10MHz时钟线</td><td class="c"><span class="tag-r">高风险</span></td></tr>
+        <tr><td class="b">地电位差</td><td class="c">DC-数kHz</td><td class="c" style="color:#d32f2f;">1-5V</td><td>长距离屏蔽电缆</td><td class="c"><span class="tag-r">高风险</span></td></tr>
+        <tr><td class="b">RF功放电源传导</td><td class="c">100kHz-30MHz</td><td class="c">Vpp级</td><td>Zynq电源轨</td><td class="c"><span class="tag-y">高</span></td></tr>
+        <tr><td class="b">仪表SMPS群</td><td class="c">100kHz-2MHz</td><td class="c">50-300mVpp</td><td>FPGA PLL抖动</td><td class="c"><span class="tag-b">中</span></td></tr>
+        <tr><td class="b">电网浪涌/EFT</td><td class="c">宽带ns级沿</td><td class="c">数百V</td><td>所有电子设备</td><td class="c"><span class="tag-b">中</span></td></tr>
+        <tr><td class="b">RF空间辐射</td><td class="c">数百MHz-18GHz</td><td class="c">30V/m</td><td>屏蔽不良的电缆</td><td class="c"><span class="tag-g">低</span></td></tr>
+      </tbody>
+    </table>
+
+    <div class="img-wrap">
+      <svg viewBox="0 0 920 160" xmlns="http://www.w3.org/2000/svg">
+        <text x="20" y="20" fill="#333" font-size="11">伺服PWM噪声频谱 (SiC/GaN, PWM 100kHz, tr=5ns)</text>
+        <!-- Axes -->
+        <line x1="60" y1="130" x2="880" y2="130" stroke="#333" stroke-width="1"></line>
+        <line x1="60" y1="30" x2="60" y2="130" stroke="#333" stroke-width="1"></line>
+        <text x="460" y="150" text-anchor="middle" fill="#666" font-size="10">频率 →</text>
+        <text x="50" y="80" text-anchor="middle" fill="#666" font-size="10" transform="rotate(-90,50,80)">幅度</text>
+        <!-- Freq labels -->
+        <text x="60" y="148" text-anchor="middle" fill="#999" font-size="9">10kHz</text>
+        <text x="220" y="148" text-anchor="middle" fill="#999" font-size="9">100kHz</text>
+        <text x="380" y="148" text-anchor="middle" fill="#999" font-size="9">1MHz</text>
+        <text x="580" y="148" text-anchor="middle" fill="#d32f2f" font-size="9" font-weight="700">10MHz ★</text>
+        <text x="730" y="148" text-anchor="middle" fill="#999" font-size="9">64MHz (f拐点)</text>
+        <!-- Spectral envelope -->
+        <path d="M60,130 L120,90 L220,70 L380,55 L500,50 L650,48 L800,70 L880,110" fill="none" stroke="#d32f2f" stroke-width="2.5"></path>
+        <!-- PWM fundamental -->
+        <line x1="200" y1="130" x2="200" y2="75" stroke="#1565c0" stroke-width="1" stroke-dasharray="4,3"></line>
+        <text x="200" y="68" text-anchor="middle" fill="#1565c0" font-size="9">PWM 100kHz</text>
+        <!-- 10MHz marker -->
+        <line x1="580" y1="130" x2="580" y2="45" stroke="#d32f2f" stroke-width="2" stroke-dasharray="6,4"></line>
+        <text x="580" y="38" text-anchor="middle" fill="#d32f2f" font-size="10" font-weight="700">10MHz时钟线</text>
+        <text x="580" y="26" text-anchor="middle" fill="#d32f2f" font-size="9">(谐波密集区)</text>
+        <!-- Note -->
+        <rect x="650" y="35" width="230" height="45" rx="4" fill="#ffebee" stroke="#d32f2f" stroke-width="1"></rect>
+        <text x="765" y="52" text-anchor="middle" fill="#d32f2f" font-size="9">1m平行, 间距0.5m</text>
+        <text x="765" y="66" text-anchor="middle" fill="#d32f2f" font-size="9">共模感应电压≈500mV</text>
+        <text x="765" y="78" text-anchor="middle" fill="#d32f2f" font-size="9">10MHz信号≈500mV-1V → SNR≈0dB</text>
+      </svg>
+    </div>
+
+    <div class="bar">伺服PWM + 地电位差 = 两类<span>高风险</span>噪声源 &nbsp;|&nbsp; 10MHz模拟线缆耦合<span>信噪比≈0dB</span> &nbsp;|&nbsp; 具体防护策略 → P14</div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">13 / 22</span></span></div>
+</div>
+
+<!-- ===== P14 EMC防护策略 ===== -->
+<div class="page dense">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">EMC防护策略</div>
+    <div class="sub">三层防护 + 缩短触发路径 — 降低风险, 但必须通过组合EMI场景实测闭环</div>
+
+    <div class="row3 equal-cards" style="margin-bottom:14px;">
+      <div class="col3">
+        <div class="card cr"><div class="card-h">🏗️ 架构层 — 不传模拟时钟</div><div class="card-b">
+          <b>板载OCXO:</b> 每板自一颗±30ppb OCXO，纯本地使用。<br>
+          <b>DC补偿:</b> 数字方式替代10MHz分发，每周期自动对齐。<br>
+          <b>零时钟线缆:</b> 从源头降低伺服PWM对时钟的共模耦合风险, 不表述为绝对免疫。
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card co"><div class="card-h">🔌 传输层 — 光口优先/铜口回退</div><div class="card-b">
+          <b>STP:</b> 双层屏蔽+差分+变压器隔离，覆盖95%场景。<br>
+          <b>上电选择:</b> 初始化阶段先读光口PHY/SFP LOS与Link状态; 光口Link有效则启用光口, 否则启用RJ45铜口。运行中不热切换。<br>
+          <b>实现:</b> LAN9252 Port A/B可配置100BASE-TX铜口或100BASE-FX/FXS光口。光口不是MII直连SFP SerDes, 而是使用百兆光纤收发接口接SFF/SFP类100M光模块。重点验证链路不对称延迟、DC补偿、丢帧率和EMI稳定性。
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card cb"><div class="card-h">🛡️ 板级 — 隔离+滤波</div><div class="card-b">
+          <b>供电隔离:</b> 暗室24V DC母线→隔离DC-DC，与伺服电源独立变压器分离。<br>
+          <b>IO防护:</b> TVS(ESD±15kV) + SMA串22Ω源端匹配。转台侧加RF限幅器(防误接功放)。<br>
+          <b>数字去抖:</b> FPGA 100ns滤波窗口，消除窄脉冲假触发。
+        </div></div>
+      </div>
+    </div>
+
+    <div class="row2 equal-cards" style="margin-bottom:10px;">
+      <div class="col2">
+        <div class="card cg"><div class="card-h">🔌 EtherCAT STP屏蔽网线 — 工业验证的抗干扰</div><div class="card-b">
+          <table style="margin:0;">
+            <tbody><tr><td class="b">线缆</td><td>Cat6a SFTP (铝箔+镀锡铜编织网双层屏蔽)</td></tr>
+            <tr><td class="b">信号</td><td>100Ω差分对 — 共模抑制 &gt;30dB</td></tr>
+            <tr><td class="b">隔离</td><td>每端口变压器 1500Vrms — 阻断地环路</td></tr>
+            <tr><td class="b">检错</td><td>每帧CRC32 — BER &lt;10<sup>-12</sup></td></tr>
+            <tr><td class="b">工程</td><td>风电变桨/轧机/注塑机 — 紧邻MW级电机</td></tr>
+          </tbody></table>
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cb"><div class="card-h">📊 屏蔽网线 vs 同轴 vs 光纤</div><div class="card-b">
+          <table style="margin:0;">
+            <tbody><tr><th style="background:#f5f5f5;color:#333;">线缆</th><th style="background:#f5f5f5;color:#333;">隔离</th><th style="background:#f5f5f5;color:#333;">距离</th><th style="background:#f5f5f5;color:#333;">适用</th></tr>
+            <tr><td class="b">SFTP</td><td>差分+屏蔽+变压器</td><td>≤100m</td><td>95%场景</td></tr>
+            <tr><td class="b">光口链路</td><td>电气隔离, 上电优先选择</td><td>≤2km</td><td>暗室节点优先, 无Link则回退RJ45</td></tr>
+            <tr><td>同轴</td><td>单端+编织屏蔽</td><td>≤25m</td><td>仪表短跳线</td></tr>
+          </tbody></table>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="card cg" style="margin-bottom:12px;">
+      <div class="card-h">📍 缩短触发路径 — 最关键的一步</div>
+      <div class="card-b">
+        <table style="font-size:12px;margin:0;">
+          <thead><tr><th>信号</th><th class="c">最大长度</th><th>线缆</th><th>原因</th></tr></thead>
+          <tbody>
+            <tr><td class="b">TTL触发 (控制间)</td><td class="c">≤3m</td><td>RG-58同轴</td><td>&gt;3m边沿退化&gt;5ns</td></tr>
+            <tr><td class="b">TTL触发 (暗室)</td><td class="c" style="color:#d32f2f;font-weight:800;">≤0.3m</td><td>RG-58同轴</td><td>短=少接收空间辐射</td></tr>
+            <tr><td class="b">LVDS触发 (波控)</td><td class="c">典型≤3m, 上限≤10m</td><td>双绞线 100Ω</td><td>当前按约3m布局; 10m仅作工程上限并需实测眼图/偏斜</td></tr>
+            <tr><td class="b">EtherCAT STP</td><td class="c">≤100m</td><td>Cat6a SFTP</td><td>以太网标准距离</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top:8px;font-size:12px;color:#d32f2f;font-weight:700;">→ 原则: 移动Zynq板靠近设备，决不延长触发电缆来适应设备位置</div>
+      </div>
+    </div>
+
+    <div class="bar">EMI验收: <span>伺服</span> + <span>功放/开关矩阵</span> + <span>VNA采集</span> + <span>转台旋转</span> + <span>多节点触发</span> 组合实测</div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">14 / 22</span></span></div>
+</div>
+
+<!-- ===== P15 工程实现细节（一） ===== -->
+<div class="page dense compress-light">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">工程实现细节（一）</div>
+    <div class="sub">软件栈、ESC接口、启动时序、连续触发链路和跨设备时序编排</div>
+
+    <div class="row3 equal-cards">
+      <div class="col3">
+        <div class="card cb"><div class="card-h">🖥️ 主站软件栈</div><div class="card-b">
+          PetaLinux + Xenomai 3(Cobalt)运行IgH实时主站线程。Macb Native Driver直连Zynq GEM/macb收发原始EtherCAT帧, 绕开Linux通用网络栈; 主站只负责队列装载和状态回读, 不直接产生纳秒触发边沿。
+          <br><span class="hl">验收: 周期抖动、t_margin、丢帧率、CPU负载</span>
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card cg"><div class="card-h">🔌 从站ESC接口</div><div class="card-b">
+          LAN9252通过SPI或并行总线接Zynq。Port A/B按100BASE-TX铜口或100BASE-FX/FXS光纤收发接口设计; SFP类模块走百兆光收发路径, 不把MII/RMII直接接SFP SerDes。
+          <br><span class="hl">边界: 链路选择仅初始化判定, 运行中不热切换</span>
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card co"><div class="card-h">🔄 启动时序</div><div class="card-b">
+          T=0上电→PetaLinux启动→Cobalt实时核与驱动加载→IgH扫描从站并进入OP→DC锁定→队列自检→触发输出使能。光口Link优先, 无Link回退RJ45。
+          <br><span class="hl">门槛: DC锁定+队列有效+互锁闭合</span>
+        </div></div>
+      </div>
+    </div>
+
+    <table style="margin-top:10px;">
+      <thead><tr><th>连续触发链路</th><th class="c">时间/误差</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>转台角度脉冲输入</td><td class="c val">0ns基准</td><td>控制器Compare Out/编码器等角度脉冲, 按差分或隔离输入设计</td></tr>
+        <tr><td>输入整形+同步</td><td class="c val">50-150 ns</td><td>高速比较/隔离+FPGA同步; 慢速光耦不进触发快路径</td></tr>
+        <tr><td>数字滤波/去毛刺</td><td class="c val">0-100 ns</td><td>连续脉冲模式用可配置窗口; 编码器干净时可旁路</td></tr>
+        <tr><td>FPGA捕获+延时计数</td><td class="c val">10-50 ns</td><td>TDC记录DC时间戳; 可按通道补偿固定线缆/仪表延时</td></tr>
+        <tr><td>整机时钟校准</td><td class="c val">多轮迭代</td><td>正式测试前执行; 估计DC偏置、TDC零点、线缆延迟、输出通道固定延迟和温漂趋势, 提高T_fire预测准确性</td></tr>
+        <tr><td>预跑校准段</td><td class="c val">-5°~-3°</td><td>仅用于完成加速和匀速确认; DPLL不冻结预测结果。</td></tr>
+        <tr><td>正式预测段</td><td class="c val">-3°~0°</td><td>基于编码器/Compare Out 时间戳估计x=[φ,ω], 统计DPLL角度时间残差e_pll并确认预约队列已装载。</td></tr>
+        <tr><td>单节点反馈残差</td><td class="c val">e_i[k]=T_fb_i[k]-T_pred_i[k]</td><td>射频近端分支节点短线输出触发后, 由本节点TDC捕获设备返回的完成脉冲并带触发序号回传反馈时间戳; 共模残差e_c修正DPLL相位/速度, 本地慢变项修正通道延时和温漂, 缺失或乱序样本按异常处理。</td></tr>
+        <tr><td>PDO预约装载提前量 t_margin</td><td class="c val">典型1-2 ms<br>最小≥500µs/≥2周期</td><td>仅跨板预测模式需要; 队列深度≥8点, 每条含seq、T_fire、mask、pulse_width、CRC。过期触发不补发, late packet直接拒收。</td></tr>
+        <tr><td>多目标相对时序</td><td class="c val">T_fire_i=T_fire_base+Δt_i</td><td>链路系统、波控、VNA各自按配置delay本地短线输出; 固定延迟由TDC/电缆标定和设备完成脉冲回读补偿</td></tr>
+        <tr><td>参数适用边界</td><td class="c val">同板近端/跨板预约分离</td><td>t_near只评价同板硬件快路径; 跨板链路以T2_i回读计算e_act验收, 不把e_pll写成同步误差。</td></tr>
+      </tbody>
+    </table>
+
+    <div class="row2 equal-cards" style="margin-top:10px;">
+      <div class="col2">
+        <div class="card cg"><div class="card-h">多设备时序编排</div><div class="card-b">
+          <b>统一基准:</b> DPLL只生成<span class="val">T_fire_base</span>。链路、波控、VNA分别使用<span class="val">T_fire_i=T_fire_base+Δt_i</span>。<br>
+          <b>并行执行:</b> 设备准备、波控锁存、链路门控、VNA采集按相对delay展开, 单点节拍由<span class="val">max(t_i+τ_i)</span>决定。<br>
+          <b>闭环验收:</b> 末端回读<span class="val">T2_i</span>, 计算<span class="val">e_act</span>, 超窗样本不进入射频结果。
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cb"><div class="card-h">配置与ICD约束</div><div class="card-b">
+          <b>队列字段:</b> seq、T_fire_i、mask、pulse_width、polarity、CRC、valid_window。<br>
+          <b>接口字段:</b> 电平、极性、最小脉宽、最小间隔、T2_i回读方式、超窗行为。<br>
+          <b>校准字段:</b> 线缆延迟、通道skew、接收阈值、设备动作固定延迟、温漂系数。
+        </div></div>
+      </div>
+    </div>
+
+    <div class="bar" style="margin-top:10px;">实现边界: <span>DPLL负责T_fire_base</span> + <span>PDO负责未来队列</span> + <span>FPGA负责到点边沿</span> + <span>T2_i回读计算e_act</span></div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">15 / 22</span></span></div>
+</div>
+
+<!-- ===== P16 工程实现细节（二） ===== -->
+<div class="page dense compress-light">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">工程实现细节（二）</div>
+    <div class="sub">预约队列状态机、输出误差验收、安全互锁、升级维护与工业化约束</div>
+
+    <table>
+      <thead><tr><th>预约队列状态</th><th class="c">进入条件</th><th>处理规则</th></tr></thead>
+      <tbody>
+        <tr><td class="b">IDLE</td><td class="c">未使能或未锁定</td><td>输出保持安全电平; 只允许接收配置和自检命令。</td></tr>
+        <tr><td class="b">ARMED</td><td class="c">DC锁定 + 互锁闭合</td><td>只接收未来触发队列; 校验seq连续、CRC正确、T_fire_i晚于当前DC时间+t_margin_min。</td></tr>
+        <tr><td class="b">QUEUED</td><td class="c">队列已装载</td><td>缓存未来触发时间戳、mask、脉宽、极性和CRC; 重复packet丢弃并计数, seq跳变上报异常。</td></tr>
+        <tr><td class="b">FIRING</td><td class="c">到达T_fire_i窗口</td><td>FPGA本地比较绝对时间并输出; PDO抖动不进入边沿。已过期触发不补发, 防止误动作。</td></tr>
+        <tr><td class="b">HOLDOVER</td><td class="c">DC失锁或队列欠载</td><td>停止后续预约输出, 保留TDC日志; 等待主站重同步和补队列。主站重启时节点不自动重入FIRING。</td></tr>
+        <tr><td class="b">FAULT</td><td class="c">残差超窗/CRC错误/反馈乱序</td><td>拒绝新预约并锁存异常状态; 需人工或上层控制清除后重新校准。</td></tr>
+      </tbody>
+    </table>
+
+    <table style="margin-top:8px;">
+      <thead><tr><th>输出误差项</th><th class="c">独立验收口径</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="b">FPGA定时分辨率</td><td class="c val">≤2.5ns</td><td>由时钟、相位插值或延时单元决定; 属于时间戳/比较粒度, 不等同于随机抖动。</td></tr>
+        <tr><td class="b">FPGA本地输出抖动 e_j</td><td class="c val">RMS≤200ps目标</td><td>PLL、IO、供电噪声和阈值噪声统计, 首板通过示波器/TIA实测确认。</td></tr>
+        <tr><td class="b">输出通道校准残差 e_io</td><td class="c val">校准后≤2.5ns</td><td>SMA/LVDS驱动、电缆、接收端阈值和温漂经交叉标定后的剩余残差。</td></tr>
+        <tr><td class="b">近端硬触发 t_near</td><td class="c val">典型100-330ns<br>验收≤1µs</td><td>仅同板输入到输出路径; 留足输入隔离、去毛刺窗口和线缆余量。</td></tr>
+        <tr><td class="b">使用端触发/锁存建立</td><td class="c val">设备相关</td><td>VNA触发、链路门控、波控锁存分别验证; 设备内部不确定度计入e_dev。</td></tr>
+      </tbody>
+    </table>
+
+    <div class="row2 equal-cards">
+      <div class="col2">
+        <div class="card cr"><div class="card-h">🛡️ 安全互锁 (三重)</div><div class="card-b">
+          <ul>
+            <li><b>硬线急停</b> ≤1µs — 直连所有Zynq板</li>
+            <li><b>PDO急停</b> ≤250µs — 每周期广播</li>
+            <li><b>ESC看门狗</b> ≤100ms — 主站崩溃兜底</li>
+          </ul>
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cb"><div class="card-h">📡 固件升级 (FoE)</div><div class="card-b">
+          <ul>
+            <li><b>远程升级</b> — File over EtherCAT协议</li>
+            <li><b>无需物理接触</b> — 固件通过总线下发到Flash</li>
+            <li><b>批量操作</b> — 所有Zynq板同时更新</li>
+            <li><b>回滚保护</b> — A/B镜像+版本校验+失败回退</li>
+          </ul>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="row2 equal-cards" style="margin-top:8px;">
+      <div class="col2">
+        <div class="card cg"><div class="card-h">工业化约束</div><div class="card-b">
+          DIN导轨机壳, 9-36V宽压输入, 反接/浪涌/ESD保护, 全隔离IO, -20~70°C工作范围。光口、铜口、SMA/LVDS、电源和屏蔽地需按EMC测试矩阵验证。
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card co"><div class="card-h">日志与维护</div><div class="card-b">
+          节点本地保存触发计数、late/CRC/seq错误、DC失锁、e_pll/e_act超窗、温度和电源事件。支持SDO批量回传、MicroSD导出和按测试批次归档。
+        </div></div>
+      </div>
+    </div>
+
+    <div class="bar" style="margin-top:10px;">工程落地: <span>队列状态机</span> + <span>分层误差验收</span> + <span>三重互锁</span> + <span>FoE升级回滚</span> + <span>批次日志追溯</span></div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">16 / 22</span></span></div>
+</div>
+
+<!-- ===== P17 硬件框图 ===== -->
+<div class="page">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">统一通用节点板硬件框图</div>
+    <div class="sub">硬件同时支持主站/从站/管理通信; 角色由软件配置决定, 复杂度主要在启动与验证矩阵</div>
+
+    <div class="img-wrap" style="padding:0;border:none;background:#fff;">
+      <svg viewBox="0 0 1020 510" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <lineargradient id="core" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1F3864"></stop><stop offset="100%" stop-color="#283593"></stop></lineargradient>
+          <lineargradient id="power" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#e65100"></stop><stop offset="100%" stop-color="#f57c00"></stop></lineargradient>
+          <lineargradient id="io" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#2e7d32"></stop><stop offset="100%" stop-color="#388e3c"></stop></lineargradient>
+          <lineargradient id="mem" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6a1b9a"></stop><stop offset="100%" stop-color="#8e24aa"></stop></lineargradient>
+          <lineargradient id="clk" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1565c0"></stop><stop offset="100%" stop-color="#1976d2"></stop></lineargradient>
+        </defs>
+
+        <!-- PCB outline -->
+        <rect x="20" y="10" width="980" height="490" rx="12" fill="#fafafa" stroke="#bbb" stroke-width="2"></rect>
+        <text x="510" y="38" text-anchor="middle" fill="#999" font-size="12">统一通用节点板 &nbsp;|&nbsp; 120×140mm &nbsp;|&nbsp; 4层 FR4</text>
+
+        <!-- ===== Zynq SoC (center) ===== -->
+        <rect x="340" y="60" width="340" height="180" rx="10" fill="url(#core)" stroke="#1a2e52" stroke-width="2"></rect>
+        <text x="510" y="90" text-anchor="middle" fill="#ffcc80" font-size="14" font-weight="700">Xilinx Zynq-7020</text>
+        <text x="510" y="112" text-anchor="middle" fill="#fff" font-size="11">XC7Z020-2CLG400I</text>
+        <line x1="380" y1="125" x2="640" y2="125" stroke="#ffcc80" stroke-width="0.5" opacity="0.5"></line>
+        <!-- PS side -->
+        <rect x="355" y="135" width="150" height="95" rx="5" fill="rgba(255,255,255,0.12)"></rect>
+        <text x="430" y="155" text-anchor="middle" fill="#bbdefb" font-size="11" font-weight="700">ARM Cortex-A9×2</text>
+        <text x="430" y="173" text-anchor="middle" fill="#e3f2fd" font-size="9">主站/从站角色管理</text>
+        <text x="430" y="190" text-anchor="middle" fill="#e3f2fd" font-size="9">触发计划管理</text>
+        <text x="430" y="207" text-anchor="middle" fill="#e3f2fd" font-size="9">状态监控/日志</text>
+        <text x="430" y="224" text-anchor="middle" fill="#90caf9" font-size="8">PetaLinux/Xenomai或从站应用</text>
+        <!-- PL side -->
+        <rect x="515" y="135" width="155" height="95" rx="5" fill="rgba(255,255,255,0.12)"></rect>
+        <text x="592" y="155" text-anchor="middle" fill="#c8e6c9" font-size="11" font-weight="700">Artix-7 FPGA</text>
+        <text x="592" y="173" text-anchor="middle" fill="#e8f5e9" font-size="9">DC时间维护+TDC</text>
+        <text x="592" y="190" text-anchor="middle" fill="#e8f5e9" font-size="9">触发序列状态机</text>
+        <text x="592" y="207" text-anchor="middle" fill="#e8f5e9" font-size="9">32ch脉冲发生器</text>
+        <text x="592" y="224" text-anchor="middle" fill="#a5d6a7" font-size="8">数字去抖+看门狗</text>
+
+        <!-- SPI bridge -->
+        <rect x="465" y="170" width="90" height="20" rx="8" fill="#ffcc80"></rect>
+        <text x="510" y="184" text-anchor="middle" fill="#1a1a1a" font-size="9" font-weight="700">SPI 50MHz</text>
+
+        <!-- ===== ESC (left) ===== -->
+        <rect x="60" y="80" width="180" height="70" rx="8" fill="#eceff1" stroke="#546e7a" stroke-width="2"></rect>
+        <text x="150" y="105" text-anchor="middle" fill="#37474f" font-size="12" font-weight="700">LAN9252 ESC</text>
+        <text x="150" y="123" text-anchor="middle" fill="#546e7a" font-size="9">2口EtherCAT从站控制器</text>
+        <text x="150" y="139" text-anchor="middle" fill="#78909c" font-size="8">内置PHY + DC单元</text>
+        <!-- ESC → Zynq -->
+        <line x1="240" y1="115" x2="338" y2="115" stroke="#546e7a" stroke-width="2" stroke-dasharray="6,3"></line>
+        <text x="290" y="108" text-anchor="middle" fill="#546e7a" font-size="7">SPI</text>
+        <!-- ESC → RJ45 (Port 0) -->
+        <line x1="60" y1="90" x2="42" y2="90" stroke="#546e7a" stroke-width="2"></line>
+        <rect x="12" y="78" width="30" height="24" rx="3" fill="#37474f"></rect>
+        <text x="27" y="94" text-anchor="middle" fill="#fff" font-size="7">RJ45</text>
+        <!-- ESC → optical candidate (Port 1) -->
+        <line x1="60" y1="115" x2="38" y2="115" stroke="#546e7a" stroke-width="2"></line>
+        <rect x="10" y="106" width="28" height="18" rx="3" fill="#ffcc80"></rect>
+        <text x="24" y="119" text-anchor="middle" fill="#37474f" font-size="6">OPT</text>
+        <text x="80" y="160" fill="#78909c" font-size="7">Slave Port0/1: 光口Link优先 &nbsp;|&nbsp; 无光Link回退RJ45铜口</text>
+
+        <!-- ===== Memory (top-right) ===== -->
+        <rect x="720" y="60" width="180" height="55" rx="7" fill="url(#mem)"></rect>
+        <text x="810" y="82" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">DDR3 256MB</text>
+        <text x="810" y="100" text-anchor="middle" fill="#e1bee7" font-size="8">MT41K128M16JT ×2</text>
+        <line x1="720" y1="88" x2="682" y2="88" stroke="#8e24aa" stroke-width="1.5" stroke-dasharray="6,3"></line>
+
+        <rect x="720" y="125" width="180" height="36" rx="7" fill="url(#mem)"></rect>
+        <text x="810" y="141" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">QSPI Flash 32MB</text>
+        <text x="810" y="155" text-anchor="middle" fill="#e1bee7" font-size="7">启动镜像 + 固件</text>
+        <line x1="720" y1="143" x2="682" y2="143" stroke="#8e24aa" stroke-width="1.5" stroke-dasharray="6,3"></line>
+
+        <rect x="720" y="170" width="180" height="30" rx="7" fill="url(#mem)"></rect>
+        <text x="810" y="184" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">MicroSD + EEPROM</text>
+        <text x="810" y="196" text-anchor="middle" fill="#e1bee7" font-size="7">校准/日志/备援 + MAC/序列号</text>
+        <line x1="720" y1="185" x2="682" y2="185" stroke="#8e24aa" stroke-width="1.5" stroke-dasharray="6,3"></line>
+
+        <!-- ===== Clocks (below Zynq) ===== -->
+        <rect x="60" y="260" width="520" height="80" rx="8" fill="url(#clk)"></rect>
+        <text x="320" y="282" text-anchor="middle" fill="#ffcc80" font-size="11" font-weight="700">时钟域</text>
+        <rect x="75" y="292" width="155" height="38" rx="4" fill="rgba(255,255,255,0.12)"></rect>
+        <text x="152" y="308" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">OCXO 10MHz ±30ppb</text>
+        <text x="152" y="324" text-anchor="middle" fill="#bbdefb" font-size="8">FPGA PL精确时序基准</text>
+        <rect x="240" y="292" width="120" height="38" rx="4" fill="rgba(255,255,255,0.12)"></rect>
+        <text x="300" y="308" text-anchor="middle" fill="#fff" font-size="10">TCXO 25MHz</text>
+        <text x="300" y="324" text-anchor="middle" fill="#bbdefb" font-size="8">ESC时钟源</text>
+        <rect x="370" y="292" width="120" height="38" rx="4" fill="rgba(255,255,255,0.12)"></rect>
+        <text x="430" y="308" text-anchor="middle" fill="#fff" font-size="10">TCXO 33.33MHz</text>
+        <text x="430" y="324" text-anchor="middle" fill="#bbdefb" font-size="8">Zynq PS 系统时钟</text>
+        <!-- Clock → Zynq connections (upward arrows) -->
+        <line x1="152" y1="260" x2="152" y2="248" stroke="#fff" stroke-width="1"></line>
+        <line x1="300" y1="260" x2="330" y2="248" stroke="#fff" stroke-width="1"></line>
+        <line x1="430" y1="260" x2="480" y2="248" stroke="#fff" stroke-width="1"></line>
+        <rect x="140" y="236" width="24" height="12" rx="3" fill="#bbdefb"></rect>
+        <text x="152" y="245" text-anchor="middle" fill="#1565c0" font-size="7">PL</text>
+        <rect x="318" y="236" width="24" height="12" rx="3" fill="#bbdefb"></rect>
+        <text x="330" y="245" text-anchor="middle" fill="#1565c0" font-size="7">ESC</text>
+        <rect x="468" y="236" width="24" height="12" rx="3" fill="#bbdefb"></rect>
+        <text x="480" y="245" text-anchor="middle" fill="#1565c0" font-size="7">PS</text>
+
+        <!-- TFT LCD + buttons -->
+        <rect x="710" y="207" width="130" height="42" rx="4" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"></rect>
+        <text x="775" y="221" text-anchor="middle" fill="#1565c0" font-size="8" font-weight="700">TFT 2.4" + 按键×4</text>
+        <text x="775" y="234" text-anchor="middle" fill="#1565c0" font-size="7">320×240 SPI / 上下左右 菜单导航</text>
+        <text x="775" y="247" text-anchor="middle" fill="#1565c0" font-size="6">状态页/错误详情/网络配置/自检</text>
+        <line x1="710" y1="228" x2="682" y2="228" stroke="#1565c0" stroke-width="1" stroke-dasharray="4,2"></line>
+
+        <!-- ===== Utility (right edge, below TFT) ===== -->
+        <rect x="855" y="207" width="125" height="42" rx="6" fill="#eceff1" stroke="#90a4ae" stroke-width="1"></rect>
+        <text x="917" y="221" text-anchor="middle" fill="#546e7a" font-size="8" font-weight="700">调试/人机</text>
+        <text x="917" y="234" text-anchor="middle" fill="#78909c" font-size="6">LED×4 DIP×4 UART JTAG 复位</text>
+        <text x="917" y="246" text-anchor="middle" fill="#78909c" font-size="6">外狗 喇叭 麦克 可选语音</text>
+
+        <!-- ===== Power (right, aligned with clocks) ===== -->
+        <rect x="720" y="260" width="260" height="80" rx="8" fill="url(#power)"></rect>
+        <text x="850" y="282" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">供电架构</text>
+        <text x="850" y="300" text-anchor="middle" fill="#ffe0b2" font-size="9">24V DC → 隔离DC-DC →</text>
+        <text x="850" y="316" text-anchor="middle" fill="#ffe0b2" font-size="9">TPS7A47(3.3V) + TPS74401×3</text>
+        <text x="850" y="332" text-anchor="middle" fill="#ffcc80" font-size="8">OCXO独立超低噪LDO (&lt;10µVrms)</text>
+
+        <!-- ===== Trigger Outputs (bottom) ===== -->
+        <rect x="60" y="370" width="940" height="120" rx="8" fill="url(#io)"></rect>
+        <text x="510" y="392" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">触发输出 (32通道)</text>
+
+        <!-- TTL channels -->
+        <rect x="75" y="405" width="380" height="50" rx="5" fill="rgba(255,255,255,0.12)"></rect>
+        <text x="265" y="420" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">SMA 16ch</text>
+        <text x="265" y="436" text-anchor="middle" fill="#c8e6c9" font-size="8">SN74LVC1G17×16驱动 → 22Ω源端 → TVS → SMA</text>
+        <text x="265" y="450" text-anchor="middle" fill="#a5d6a7" font-size="7">ESD ±15kV &nbsp;|&nbsp; 转台侧RF限幅器 &nbsp;|&nbsp; 输出回读TDC</text>
+
+        <!-- LVDS channels -->
+        <rect x="475" y="405" width="250" height="50" rx="5" fill="rgba(255,255,255,0.12)"></rect>
+        <text x="600" y="420" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">LVDS 24ch (MDR×3)</text>
+        <text x="600" y="436" text-anchor="middle" fill="#c8e6c9" font-size="8">DS90LV047A×6差分驱动 → MDR 26P×3</text>
+        <text x="600" y="450" text-anchor="middle" fill="#a5d6a7" font-size="7">波控阵面同步 &nbsp;|&nbsp; ≤100ns偏差 &nbsp;|&nbsp; 典型≤3m</text>
+
+        <!-- Reserved -->
+        <rect x="745" y="405" width="240" height="50" rx="5" fill="rgba(255,255,255,0.12)"></rect>
+        <text x="865" y="420" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">预留 (默认贴装)</text>
+        <text x="865" y="436" text-anchor="middle" fill="#c8e6c9" font-size="8">SMA-F×4: 10MHz×2 + 1PPS×2</text>
+        <text x="865" y="450" text-anchor="middle" fill="#a5d6a7" font-size="7">将来GPSDO/外部OCXO即插即用 &nbsp;|&nbsp; SMA×4 仅¥30-60</text>
+
+        <!-- Protection bar -->
+        <rect x="75" y="468" width="910" height="16" rx="4" fill="rgba(0,0,0,0.15)"></rect>
+        <text x="510" y="480" text-anchor="middle" fill="#e8f5e9" font-size="8">ESD/TVS保护 &nbsp;|&nbsp; 电源去耦网络 &nbsp;|&nbsp; 独立模拟/数字地分区 &nbsp;|&nbsp; OCXO恒温槽独立供电</text>
+      </svg>
+    </div>
+
+    <div class="row3 equal-cards" style="margin-top:8px;">
+      <div class="col3"><div class="card cg"><div class="card-h">🔌 统一通信接口</div><div class="card-b">管理千兆口×1 — Web/SSH/日志<br>EtherCAT Master口×1 — 主控角色启用<br>ESC Slave Port0/1 — 铜/光上电二选一</div></div></div>
+      <div class="col3"><div class="card co"><div class="card-h">⚡ 供电输入</div><div class="card-b">24V DC母线 (暗室)<br>12V ATX (控制间可选)<br>隔离DC-DC → 四轨LDO</div></div></div>
+      <div class="col3"><div class="card cb"><div class="card-h">📐 物理/工业规格</div><div class="card-b">
+          <b>PCB:</b> 120×140mm 4层FR4 2oz铜<br>
+          <b>机壳:</b> DIN导轨安装 铝合金型材<br>
+          <b>电源:</b> 9-36V DC宽压 反接保护<br>
+          <b>温度:</b> -20~+70°C (OCXO -10~+70°C)<br>
+          <b>认证:</b> CE EMI/EMS + RoHS
+        </div></div></div>
+    </div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">17 / 22</span></span></div>
+</div>
+
+<!-- ===== P18 操作流程 ===== -->
+<div class="page dense compress-light flow-tight">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">操作与使用流程</div>
+    <div class="sub">上电即用 — DC自动锁定 + TFT可视化状态 + 日志可追溯；AI语音作为选配维护增强</div>
+
+    <div class="card cb" style="margin-bottom:8px;">
+      <div class="card-h" style="font-size:12px;">AI语音维护助手 — 选配功能</div>
+      <div class="card-b" style="font-size:10.5px;line-height:1.45;">
+        <ul style="margin:0;">
+          <li><b>能力定位:</b> 暗室维护辅助功能, 用于提升系统易用性和现场维护效率。</li>
+          <li><b>功能范围:</b> 支持状态查询、自检播报、告警播报和归档日志摘要。</li>
+          <li><b>边界约束:</b> 不参与触发时序闭环, 不纳入Demo验收条件, 不具备修改DPLL、Δt_i或队列状态的控制权限。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="row2 equal-cards" style="margin-bottom:10px;">
+      <div class="col2">
+        <div class="card cg"><div class="card-h">🟢 上电启动 (T=0-5s, 全自动)</div><div class="card-b">
+          <b>1.</b> 系统上电 → 各Zynq板自动启动<br>
+          <b>2.</b> ESC初始化 → EtherCAT链路Up (T≈1s)<br>
+          <b>3.</b> 主站扫描→配置PDO→进入OP模式 (T≈2s)<br>
+          <b>4.</b> DC自动锁定 → TFT绿色"DC: LOCKED" (T≈5s)<br>
+          <b>5.</b> OCXO预热中 → TFT黄色"OCXO: WARMING" (T&lt;3min)<br>
+          <b>6.</b> 系统就绪 → 全部绿色, 语音播报"系统就绪"
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cb"><div class="card-h">操作入口 (日常操作)</div><div class="card-b">
+          <b>TFT:</b> 查看DC锁定、队列状态、触发计数、温度和错误码<br>
+          <b>按键:</b> 确认告警、切换页面、启动本地自检<br>
+          <b>主控:</b> 下发测试计划、读取日志、执行批量校准<br>
+          <b>SDO/MicroSD:</b> 导出TDC、late、CRC、DC失锁和e_act/e_pll记录<br>
+          <b>语音:</b> 仅作状态查询和告警播报增强, 不作为控制闭环入口
+        </div></div>
+      </div>
+    </div>
+
+    <div class="flow" style="padding:6px 0 10px;">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-title">预置连续扫描</div>
+        <div class="step-desc">SDO下发-5°~360°窗口<br>链路/波控/VNA时序表<br>波控码预载到DDR</div>
+        <div class="step-time">测试前(非实时)</div>
+      </div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-title">整机校准+DPLL锁定</div>
+        <div class="step-desc">多轮时钟/链路校准<br>转台从-5°进入建模<br>残差合格才进0°</div>
+        <div class="step-time">测试前+校准段</div>
+      </div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-title">正式触发</div>
+        <div class="step-desc">0°~360°采集<br>并行delay触发队列<br>T_fb_i修正后续预测</div>
+        <div class="step-time">测试段</div>
+      </div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-title">监控与回读</div>
+        <div class="step-desc">PDO刷新触发计数<br>丢脉冲/超窗告警<br>SDO回读TDC日志</div>
+        <div class="step-time">秒级</div>
+      </div>
+    </div>
+
+    <div class="row3 equal-cards" style="margin-top:6px;">
+      <div class="col3">
+        <div class="card cg"><div class="card-h">📊 TFT显示</div><div class="card-b">
+          首页: 节点ID / DC状态 / IP / 触发计数 / 错误 / 温度<br>
+          告警: 故障通道+原因+时间+已屏蔽→按键确认<br>
+          网络/自检: IP/掩码可修改, 外设状态一览
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card co"><div class="card-h">🔴 异常处理</div><div class="card-b">
+          <b>通道故障:</b> 自动屏蔽→TFT红屏→语音播报→按键确认<br>
+          <b>DC失锁:</b> 自动重同步, 3次失败告警, 提示检查网线<br>
+          <b>温度超限:</b> 黄预警→红告警→提示检查通风<br>
+          <b>OCXO异常:</b> 自动切TCXO降级→提示送修
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card cb"><div class="card-h">🔧 日常维护</div><div class="card-b">
+          <b>换板:</b> 断电→换新→DIP设ID→DC自动纳入<br>
+          <b>升级:</b> FoE批量下发→自动重启→版本核对<br>
+          <b>电缆标定:</b> 交叉测试测各SMA电缆延迟→EEPROM→触发自动补偿<br><b>整机自校准:</b> "运行自校准"→多轮SYNC0/TDC/回环脉冲测量→更新Δt_i和DPLL初值<br>
+          <b>日志:</b> 拔MicroSD / SDO批量回传
+        </div></div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">18 / 22</span></span></div>
+</div>
+
+<!-- ===== P19 实施路线图 ===== -->
+<div class="page dense compress-light flow-tight">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">实施路线图</div>
+    <div class="sub">Demo板快速启动，自研PCB同步推进，6周完成Demo级验证</div>
+
+    <div class="flow">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-title">最小闭环</div>
+        <div class="step-desc">Zynq+ESC Demo板<br>PetaLinux+Xenomai<br>Macb Native+IgH<br>PCB同步设计</div>
+        <div class="step-time">2周</div>
+      </div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-title">多节点扩展</div>
+        <div class="step-desc">自研板投板跟进<br>4-6节点DC调优<br>链路/波控/VNA接口<br>EMI预验证</div>
+        <div class="step-time">3周</div>
+      </div>
+      <div class="arrow"><div class="arrow-l"></div><div class="arrow-h"></div></div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-title">Demo级验证</div>
+        <div class="step-desc">Demo/首板混合<br>系统联调+性能测试<br>48h稳定性<br>工程化清单</div>
+        <div class="step-time">1周</div>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr><th>阶段</th><th>硬件</th><th>固件/软件</th><th>辅助工具</th><th class="c">周期</th></tr></thead>
+      <tbody>
+        <tr><td class="b">第一阶段</td><td>Zynq DevKit + LAN9252 EVB</td><td>PetaLinux/Xenomai + Macb Native + IgH; DC闭环验证</td><td>RTL/驱动/脚本</td><td class="c">2周</td></tr>
+        <tr><td class="b">第二阶段</td><td>自研PCB投板跟进 + 4-6节点Demo</td><td>PDO映射、波控/VNA接口、EMI预验证</td><td>Layout review/多板验证</td><td class="c">3周</td></tr>
+        <tr><td class="b">第三阶段</td><td>Demo板/首板混合验证</td><td>系统联调、性能测试、48h稳定性</td><td>测试报告/工程清单</td><td class="c">1周</td></tr>
+        <tr style="background:#e8f5e9;"><td class="b">合计</td><td colspan="3" style="text-align:center;font-weight:700;color:#2e7d32;">Demo板即刻启动，自研PCB同步推进，固件一套代码双平台通用</td><td class="c" style="font-weight:700;color:#2e7d32;">6周Demo验证</td></tr>
+      </tbody>
+    </table>
+
+    <div class="row2 equal-cards">
+      <div class="col2">
+        <div class="card cg"><div class="card-h">关键里程碑</div><div class="card-b">
+          <ul><li>W1: Demo板搭建, 主站跑通</li>
+          <li>W2: e_dc&lt;100ns, 单节点闭环</li>
+          <li>W3: PCB投板, 多节点扩展</li>
+          <li>W4-5: 组网、EMI、设备联调</li>
+          <li>W6: 48h稳定性+工程清单</li></ul>
+        </div></div>
+      </div>
+      <div class="col2">
+        <div class="card cb"><div class="card-h">关键技术选型</div><div class="card-b">
+          <table style="margin:0;">
+            <tbody><tr><td>主站OS</td><td class="b">PetaLinux + Xenomai 3(Cobalt)</td></tr>
+            <tr><td>网口驱动</td><td class="b">自研 Macb Native Driver</td></tr>
+            <tr><td>Master Stack</td><td class="b">IgH EtherCAT Master</td></tr>
+            <tr><td>ESC</td><td class="b">LAN9252</td></tr>
+            <tr><td>SoC</td><td class="b">Zynq-7020</td></tr>
+            <tr><td>OCXO</td><td class="b">国产 ±30ppb</td></tr>
+            <tr><td>线缆</td><td class="b">Cat6a SFTP / 100BASE-FX光缆</td></tr>
+          </tbody></table>
+        </div></div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">19 / 22</span></span></div>
+</div>
+
+<!-- ===== P20 风险与应对 ===== -->
+<div class="page dense compress-light risk-page">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">风险识别与应对措施</div>
+    <div class="sub">按同步链路、触发执行、接口兼容、工程交付四类风险统一归口</div>
+
+    <table>
+      <colgroup>
+        <col style="width:24%;">
+        <col style="width:7%;">
+        <col style="width:7%;">
+        <col style="width:62%;">
+      </colgroup>
+      <thead><tr><th>风险项</th><th class="c">概率</th><th class="c">影响</th><th>应对措施</th></tr></thead>
+      <tbody>
+        <tr><td class="b">DC同步在复杂拓扑下精度下降</td><td class="c"><span class="tag-y">中</span></td><td class="c"><span class="tag-r">高</span></td><td>采用总线型拓扑优先; 20节点或等效拓扑、250µs/1ms、满负载和满长线缆条件下实测SYNC0 P99.9≤100ns后冻结拓扑</td></tr>
+        <tr><td class="b">FPGA多板间时钟相位不确定性</td><td class="c"><span class="tag-y">中</span></td><td class="c"><span class="tag-r">高</span></td><td>不做跨板模拟时钟分发; TDC仅作同板相对测量和回读; 跨板验收以DC时间轴同步误差e_dc和设备动作残差e_act为准</td></tr>
+        <tr><td class="b">DPLL环路失锁/预测误差</td><td class="c"><span class="tag-y">中</span></td><td class="c"><span class="tag-r">高</span></td><td>定义x=[φ,ω]、DPLL角度时间残差e_pll和单节点反馈残差e_i[k]; -3°~0°时e_pll达标且队列装载完成才允许0°采集; |e_pll|连续超50µs则降速/停采/重锁。</td></tr>
+        <tr><td class="b">LAN9252光口/铜口初始化选择</td><td class="c"><span class="tag-y">中</span></td><td class="c"><span class="tag-r">高</span></td><td>仅复位/初始化阶段判定链路: 光口Link优先, 无Link回退RJ45; 不做运行中热切换。光口按LAN9252 100BASE-FX/FXS接口设计, 前置验证光模块速率兼容、链路不对称延迟、DC补偿、丢帧率和EMI稳定性。</td></tr>
+        <tr><td class="b">OCXO批次一致性差</td><td class="c"><span class="tag-y">中</span></td><td class="c"><span class="tag-y">中</span></td><td>DC补偿兜底±30ppb偏差在250µs内约7.5ps；如有超标个体，DC看门狗自动标记</td></tr>
+        <tr><td class="b">使用端触发接口兼容性</td><td class="c"><span class="tag-g">低</span></td><td class="c"><span class="tag-b">中</span></td><td>VNA/链路/波控分别做兼容性测试；FPGA支持脉宽/极性/电平可配置；预留软触发备用</td></tr>
+        <tr><td class="b">射频系统指标边界不清</td><td class="c"><span class="tag-y">中</span></td><td class="c"><span class="tag-r">高</span></td><td>本方案只负责触发时序；射频相干、幅相一致性、动态范围、链路稳定度、VNA校准由射频/测量系统单独验收</td></tr>
+        <tr><td class="b">统一板软件复杂度上升</td><td class="c"><span class="tag-y">中</span></td><td class="c"><span class="tag-b">中</span></td><td>硬件成本基本不变, 但需验证主站/从站两种启动角色、Cobalt调度延迟、Macb Native Driver收发路径、IgH DC收敛、异常中断压力和主站恢复流程。</td></tr>
+        <tr><td class="b">主站实时性不足导致队列欠载</td><td class="c"><span class="tag-y">中</span></td><td class="c"><span class="tag-r">高</span></td><td>主站实时性单独验收: EtherCAT周期抖动P99/P99.9、t_margin分布、CPU/网络负载、长时间DC漂移和恢复行为; t_margin最小值不小于最大抖动10倍。</td></tr>
+        <tr><td class="b">开发周期超出预期</td><td class="c"><span class="tag-y">中</span></td><td class="c"><span class="tag-r">高</span></td><td>分阶段交付(先Demo验证再工程化)；FPGA核心使用成熟IP；自研硬件交付预留8-12周</td></tr>
+        <tr><td class="b">各子系统接口联调困难</td><td class="c"><span class="tag-r">高</span></td><td class="c"><span class="tag-y">中</span></td><td>提前制定ICD: 电平、极性、脉宽、最小间隔、T2回读方式、超窗行为; FPGA预留可配置IO Bank; 模拟器先行</td></tr>
+      </tbody>
+    </table>
+
+    <div class="principles">
+      <span>工程冻结关口: 20节点e_dc | 4-6节点10°/s e_pll HIL | 三类e_act残差 | LAN9252光口 | 主站实时性 | PDO异常注入 | 误差预算/ICD | EMI 48h</span>
+    </div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">20 / 22</span></span></div>
+</div>
+
+<!-- ===== P21 总结结论 ===== -->
+<div class="page dense compress-light">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">总结结论</div>
+    <div class="sub">先冻结触发链路责任边界和验收口径, 再进入Demo验证</div>
+
+    <div class="bar" style="font-size:16px;">方案结论: <span>EtherCAT + Zynq SoC + 板载OCXO</span> &nbsp;—&nbsp; 有条件进入Demo验证</div>
+
+    <table style="margin-top:14px;">
+      <thead><tr><th class="c">指标</th><th class="c">验收口径</th><th>推导依据/限制条件</th><th>Demo前置动作</th></tr></thead>
+      <tbody>
+        <tr><td class="b">DC时间轴同步误差 e_dc</td><td class="c val">Demo: RMS≤10ns/P99≤30ns/P99.9≤50ns<br>冻结: P99.9≤100ns, p-p≤200ns</td><td>只证明节点共享DC时间轴; 工程冻结前扩展到20节点或等效拓扑, 覆盖铜口/光口、满载/空载、250µs/1ms周期</td><td>4-6节点连续1h起步, 工程冻结阶段执行24h复测; 输出SYNC0统计P99/P99.9/p-p</td></tr>
+        <tr><td class="b">输出通道校准残差 e_io / 输出抖动 e_j</td><td class="c val">e_io校准后≤2.5ns<br>e_j RMS≤200ps</td><td>扣除电缆/光缆延迟并完成通道校准; 全温、接收阈值、IO供电噪声和温漂残差单独统计</td><td>建立每通道Δt_i表, 示波器/TIA首板实测并写入校准记录</td></tr>
+        <tr><td class="b">转台脉冲→近端触发</td><td class="c val">典型100-330ns<br>验收≤1µs</td><td>同板输入捕获+可编程延时+本地SMA/LVDS输出; 该指标不代表跨板同步误差</td><td>用Compare Out模拟源扫频/扫脉宽, 验证最小间隔、极性和超窗行为</td></tr>
+        <tr><td class="b">设备动作残差 e_act</td><td class="c val">静态P99.9≤100ns<br>连续旋转P99.9≤150ns, p-p≤300ns</td><td>统一口径e_act=T2_i-T_fire_base-Δt_i; 由e_dc、e_io/e_j和设备内部触发不确定度e_dev共同决定, 不能只由触发板预算外推</td><td>链路、波控、VNA分别做T2回读并形成实测分布; 若e_dev超出预算, 需调整Δt_i、窗口或设备接口策略后再承诺系统级同步</td></tr>
+        <tr><td class="b">DPLL角度时间残差 e_pll</td><td class="c val">工程P99.9≤50µs<br>优化P99.9≤30µs</td><td>按10°/s上限工况, 50µs对应约0.0005°角度误差; 不与纳秒级跨节点同步混用</td><td>-5°~-3°匀速确认, -3°~0°预测收敛; 连续超50µs降速/停采/重锁</td></tr>
+        <tr><td class="b">射频指标责任边界</td><td class="c val">不纳入触发板承诺</td><td>本方案保证“何时触发、是否按时动作、残差是否收敛”; 幅相一致性、相干性、动态范围和VNA校准由射频/测量系统验收</td><td>在ICD中拆分触发验收项与射频验收项, 避免同一指标重复归责</td></tr>
+        <tr><td class="b">统一板成本口径</td><td class="c val">主站能力不新增硬件BOM<br>单节点¥1,650-2,800</td><td>从站板硬件已具备Zynq PS/GEM和通信接口; 主控角色通过软件启用, 批量目标¥1,250-1,850</td><td>Demo阶段把实时驱动、协议栈集成、测试矩阵和维护工时单独列项</td></tr>
+        <tr><td class="b">系统工作周期/急停</td><td class="c val">250µs~1ms<br>硬线急停≤1µs</td><td>EtherCAT DC周期可配置; 硬线急停独立于EtherCAT, PDO急停和ESC看门狗只作补充</td><td>急停链路单独打点, 不用网络周期推算硬线动作时间</td></tr>
+      </tbody>
+    </table>
+
+    <div class="conc" style="margin-top:10px;"><h3>核心认知</h3>
+      <p><b>① 不传模拟时钟。</b> 板载OCXO+DC数字补偿降低10MHz长线在伺服PWM环境下的共模耦合风险。<br>
+      <b>② PDO承担预约控制面。</b> 实时边沿由FPGA按DC绝对时间产生; PDO只传未来触发队列、状态和回读, 网络周期抖动不直接进入触发边沿。<br>
+      <b>③ 连续触发不做事后转发。</b> DPLL生成T_fire_base, 各设备按Δt_i本地并行输出/锁存, 用T_fb_i反馈修正后续预测和补偿参数。<br>
+      <b>④ 触发系统不替代射频系统指标。</b> 射频幅相一致性、相干性、动态范围、链路稳定度和仪表校准仍由射频/测量系统独立保证。</p>
+    </div>
+  </div>
+  <div class="page-footer"><span>内部文件</span><span><span class="page-num">21 / 22</span></span></div>
+</div>
+
+<!-- ===== P22 实施策略 ===== -->
+<div class="page dense compress-light">
+  <div class="page-header"></div>
+  <div class="main">
+    <div class="h1">实施策略</div>
+    <div class="sub">按“保留主链路、前置验证风险项、延后非必要扩展”的方式推进</div>
+
+    <div class="row3 equal-cards" style="margin-top:12px;">
+      <div class="col3">
+        <div class="card cg"><div class="card-h">✅ 保留</div><div class="card-b">
+          <b>EtherCAT DC</b> — 时钟同步核心<br>
+          <b>PetaLinux+Xenomai+IgH</b> — 主站实时调度<br>
+          <b>Macb Native Driver</b> — Zynq GEM原始帧通道<br>
+          <b>LAN9252</b> — ESC双口, 铜口/100BASE-FX/FXS光口前置验证<br>
+          <b>Zynq SoC</b> — 脉冲执行核心<br>
+          <b>板载OCXO</b> — 本地时序基准<br>
+          <b>PDO数据交换</b> — 预约队列与状态同步<br>
+          <b>链路/波控/VNA队列</b> — 同一触发域<br>
+          <b>SDO预载</b> — 大块数据一次性下发<br>
+          <b>仪表OCXO</b> — 频标统一
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card co"><div class="card-h">⚠️ 可选扩展</div><div class="card-b">
+          <b>光口链路</b> — 暗室节点电气隔离, 初始化优先, 无Link回退RJ45<br>
+          <b>GPSDO</b> — 如需UTC绝对时间戳<br>
+          <b>反射内存</b> — 仅作独立高速急停冗余专项评估<br>
+          <b>FPD-Link</b> — 如需视频+触发共传<br>
+          <b>独立OCXO(仪表)</b> — 替代VNA菊花链<br>
+          <b>光纤媒体转换器</b> — Demo或已有STP段临时转光纤
+        </div></div>
+      </div>
+      <div class="col3">
+        <div class="card cr"><div class="card-h">❌ 砍掉</div><div class="card-b">
+          <b>GPSDO(基础方案)</b> — UTC无用<br>
+          <b>反射内存(基础触发队列)</b> — PDO预约已覆盖<br>
+          <b>FPD-Link(基础方案)</b> — 无视频需求<br>
+          <b>10MHz长距离分发</b> — EMC风险高<br>
+          <b>外部时钟分配网络</b> — DC替代<br>
+          <b>事后逐脉冲转发</b> — DC预约替代
+        </div></div>
+      </div>
+    </div>
+
+    <table style="margin-top:12px;">
+      <thead><tr><th class="c">阶段</th><th>执行动作</th><th>通过标准</th><th>未通过处理</th></tr></thead>
+      <tbody>
+        <tr><td class="b c">Demo验证</td><td>4-6节点闭环; 同步测试、DPLL预测、近端硬触发、三类设备T2回读同时打通</td><td>e_dc、e_pll、e_act达到Demo口径; 队列无欠载、无late packet补发</td><td>先定位到DC、IO、设备动作或DPLL, 不直接修改系统指标</td></tr>
+        <tr><td class="b c">工程冻结</td><td>扩展到20节点或等效拓扑; 覆盖铜口/100BASE-FX光口、满长线缆、满负载、48h EMI</td><td>P99.9、p-p、失锁恢复和温漂残差满足冻结口径</td><td>冻结拓扑和线缆类型; 超标节点进入黑名单或降级配置</td></tr>
+        <tr><td class="b c">系统联调</td><td>固化ICD: 电平、极性、脉宽、最小间隔、T2回读、超窗、急停和异常码</td><td>链路/波控/VNA可按同一T_fire_base并行动作, 记录可追溯</td><td>接口差异通过Δt_i和配置项吸收, 不改主同步架构</td></tr>
+        <tr><td class="b c">量产准备</td><td>形成校准工装、参数烧录流程、版本追踪、回归测试矩阵和现场复测脚本</td><td>每块板有e_io、e_j、温漂、DC锁定和动作残差记录</td><td>把校准失败作为出厂拦截项, 不依赖现场人工补偿</td></tr>
+      </tbody>
+    </table>
+
+    <div class="principles" style="margin-top:8px;">
+      <span>Demo先证明闭环可收敛</span>
+      <span>冻结前证明复杂拓扑可复现</span>
+      <span>量产前证明校准和追溯可执行</span>
+      <span>射频指标独立验收</span>
+    </div>
+  </div>
+  <div class="page-footer"><span>内部文件 &nbsp;|&nbsp; 相控阵测试系统分布式触发方案技术报告 &nbsp;|&nbsp; 2026年6月</span><span><span class="page-num">22 / 22</span></span></div>
+</div>
+
+<script>
+  (() => {
+    const template = document.getElementById("page-header-template");
+    document.querySelectorAll(".page-header").forEach((header) => {
+      if (!header.hasChildNodes()) header.appendChild(template.content.cloneNode(true));
+    });
+  })();
+</script>
+</body></html>
+
+
+

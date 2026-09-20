@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="50" viewBox="0 0 180 50" role="img" aria-labelledby="title desc">
+  <title id="title">DHRT100</title>
+  <desc id="desc">红色方框与右下角实心方块组成的 DHRT100 标志</desc>
+  <g fill="none" stroke="#d60037" stroke-width="2" shape-rendering="geometricPrecision">
+    <rect x="5" y="5" width="32" height="32" />
+  </g>
+  <rect x="29" y="29" width="16" height="16" fill="#d60037" />
+  <text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text>
+</svg>
