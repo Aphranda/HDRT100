@@ -102,6 +102,8 @@ child adapter 的逐层迁移使用固定角色 lineage：兼容 selector 只可
 
 runtime control/START 基座同样归 tracked workflow：只加载 manifest 指定的剩余 RunProbe 入口，四板 allowlist 来自已准入清单；parallel START 只使用已验证且互异的 persistent session，全部 worker join 后统一落 JSONL，任一非 OK 只能在全部 join 后失败并交给外层 STOP。已由 tracked outer/scope 替代的 monitor、startup、late-scope、Trial/HIL 和 reader 原件转为命名归档来源，不得继续作为 import 副作用加载。
 
+RUN output 层由 tracked workflow 唯一管理 timing snapshot/apply、RUN prepare、output STOP 和 STOP 后 schema 校验；外层 lifecycle 是 RAM timing/delay 恢复的唯一 owner。历史 RunProbe 内部示波器 owner 在本工作流中 fail-closed 禁用，物理采样只走独立 tracked sparse-scope 组件，防止双 owner 或旧 reader 重新进入 child import 链。
+
 ## TG-LIFECYCLE：生命周期与迁移
 
 | 状态 | 准入或退出条件 |

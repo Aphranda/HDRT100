@@ -12,6 +12,17 @@ Last updated: 2026-09-20
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260920-009：child RUN output 层迁移
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-RUN-001。
+- 新增 `tools/workflows/vdc_joint_capture/run_output.py`，接管 119 字段 schema10 parser、timing snapshot/apply、四板 RUN prepare/parser 注册、output STOP-before-parent-barrier 和 STOP 后 RUN activity/retirement/timing/anchor 校验。外层 tracked lifecycle 继续作为 timing/delay 唯一恢复 owner；历史 RunProbe 内部 scope owner显式拒绝，联合 scope 只走已迁移的外部 sparse-scope。
+- V4 manifest 将 archived `capture_run_output_schema10.py` 纳入固定 `run_output` migrated role，runtime entrypoint 下沉到 phase 层，动态 out closure 从 11 降到 10。默认 manifest/loader schema 有直接自回归；fresh closure actual=declared=10，missing / declared-not-loaded / migrated-loaded 为空。
+- 软件与审查证据：tracked characterization 覆盖 schema10 合法行和八类 closed-set 拒绝、timing 读写、RUN prepare、parser 表、output STOP 顺序、STOP-only 四板校验和内部 scope 拒绝；最终宽组合 336 passed / 1 skipped，跳过项为 Windows 无符号链接权限。archived/tracked golden 的 FIELDS/WIDE 完全一致，119 字段合法行 parse dict 全等，八类负测两边同拒；四板 internal-seal golden 继续全等。独立复核在当前 tracked SHA 上 PASS；登记/catalog、编译、source length 与 whitespace 检查通过。
+- 同指纹 P3 快照，非事实源：build `20260920121536` 的四板 quick P3 为 PASS_WITH_WARNINGS（INFO 23 / WARN 31 / ERROR 0 / FATAL 0），DPLL 按 tdma-only 范围 SKIPPED；原件在 `out/HardwareAcceptance/20260920/tools-run-output-r1/p3-r1/`，staged receipt 同指纹。
+- scope-off `joint-scope-off-r1` outer/inner PASS：V4 报告记录 10 migrated / 10 runtime 与 run-output SHA，internal health 通过、external SKIPPED、RUN 内板端查询为零，四板 timing/delay 恢复，errors / cleanup_errors / restore_needed 均为空。
+- scope-on `joint-scope-on-r1` outer/inner PASS：12 个新鲜窗口、48 RAW 块、steady qualification 通过，最大绝对相差 32.804 ns（快照）；RUN 内板端查询为零，四板 timing/delay 恢复且无清理错误。硬件原件位于同任务目录，scope 结果不授予未采区间连续锁相或精确事件对应资格。
+- 实现提交 `95f2504d`；TOOLS-WORKFLOW-RUN-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一批迁移剩余 10-file phase/follow/match 深层祖先；十份 migrated source 原位归档，不删除。
+
 ### TOOLS-PROGRESS-20260920-008：child runtime control / parallel START 基座迁移
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-RUNTIME-001。
