@@ -12,6 +12,15 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-020：child typed-TX 与 lifecycle 层迁移
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-TYPED-001。
+- 新增 `tools/workflows/vdc_joint_capture/typed.py`，从 manifest 指定的 base 入口构造 tracked TypedProbe，接管 fields/CRC16/typed mailbox、receipt/source/UID/build 准入、四板连接、stage/load/FIFO/TX prime、SYNC/ARM、START/TRIAL、STOP collect、逐板 disable/restore、revoke、逐连接 best-effort close 和两个 board-command owner 恢复。transport registry 从 admitted base 的实际 `SerialSession` module 解析并 fail-closed，移除 archived `sys.path` 隐式导入。
+- V13 manifest 将 archived `capture_typed_tx.py` 固定为 `typed_tx` migrated role，runtime entrypoint 下沉到 `input_probe.py`；动态 out closure 快照从 2 降到 1。fresh-process actual=declared=1，missing / declared-not-loaded / migrated_loaded 全为空；实际 provenance 中 archived typed 为零、tracked typed 唯一，旧原件不删除。
+- 软件与独立审查：冻结 `native-r1/input-probe.json` 的 mailbox/CRC/event 对 archived/tracked 全等，8 类 mailbox 负测同拒；characterization 覆盖 configure/acquire/collect、check-only、非 check-only 完整 lifecycle，以及 configure/collect/单板 restore/单板 close 故障。宽组合 2074 passed / 1 skipped（快照），跳过项仅为 Windows 无符号链接权限；最终 Probe fresh-process 构造及 transport registry identity 聚焦回归通过。独立复核先发现 close 异常可阻断 owner 恢复及 lifecycle fault 覆盖不足，修正后又由 P3 暴露重复 transport module，改为实际 backend module identity 后最终 PASS，无剩余 finding。
+- 同指纹四板 P3 失败证据完整保留：`p3-r1` 因 typed namespace 缺 `scpi_serial` 在 Probe 构造期拒绝；`p3-r2`、`p3-r4`、`p3-r6` 在 P0T 链路准入失败；`p3-r3`、`p3-r5` 因 transport registry 写入第二模块实例，FOLLOW 查询稳定返回 timeout，tracked cleanup 均完成逐板恢复、revoke 和连接关闭。最终 `p3-r7` 使用 build `20260920171028`，结果 PASS_WITH_WARNINGS（快照：INFO 33 / WARN 18 / ERROR 0 / FATAL 0）；V13 报告记录 19 migrated / 1 runtime，tracked typed/direct 在实际 provenance 中唯一。DPLL 60 s scope-on outer/inner/joint 通过，12 份 scope record、48 个 RAW block，外部最大绝对相差 2.000 ns，三个内部 endpoint 最大绝对残差 94 ns（快照，INFO）；errors / cleanup_errors / restore_needed 均为空，`check-staged` 通过。原件位于 `out/HardwareAcceptance/20260921/tools-typed-r1/p3-r1..r7/`。
+- 实现提交 `535ce95c`；TOOLS-WORKFLOW-TYPED-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一批迁移唯一剩余 base 祖先，继续保留 archived 原件和失败证据。
+
 ### TOOLS-PROGRESS-20260921-019：child direct-RX 层迁移
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-DIRECT-001。
