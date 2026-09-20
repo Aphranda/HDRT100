@@ -222,6 +222,25 @@ def test_zero_dco_adjustment_is_not_an_error():
     assert not any(row["severity"] in ("ERROR", "FATAL") for row in findings(report, "DPLL"))
 
 
+@pytest.mark.parametrize("severity,blocked", [("INFO", False), ("WARN", False), ("ERROR", True)])
+def test_four_board_short_phase_severity_is_preserved(severity, blocked):
+    stages = stage_set()
+    stages["DPLL"] = {
+        "schema": "HAOFV_P3_DPLL_SHORT_V1", "passed": severity != "ERROR",
+        "evidence_status": "PASS",
+        "duration_s": 60, "external_status": "SKIPPED",
+        "phase_severity": severity, "phase_max_abs_ns": 50 if severity == "INFO" else 500,
+        "phase_source": "internal", "phase_domain": "internal",
+        "internal_phase_endpoints": [{}, {}, {}], "errors": [],
+    }
+    result = report_for(stages, required=("DPLL",))
+    assert (result["outcome"] == "BLOCKED") is blocked
+    if severity == "WARN":
+        assert any(row["code"] == "DPLL_PHASE_OUTSIDE_100NS" for row in findings(result, "DPLL"))
+    if severity == "ERROR":
+        assert any(row["code"] == "DPLL_PHASE_OUTSIDE_1US" for row in findings(result, "DPLL"))
+
+
 def test_strict_dpll_requires_measured_lock_evidence_even_when_summary_claims_pass():
     stages = stage_set()
     for board in stages["DPLL"]["boards"]:

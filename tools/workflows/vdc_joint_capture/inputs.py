@@ -89,13 +89,18 @@ def _pinned_file(root: Path, declaration, label: str) -> tuple[Path, dict[str, s
     return path, {"path": declaration["path"], "sha256": digest}
 
 
-def validate_current_receipt(inputs: WorkflowInputs, root: Path) -> dict:
+def validate_current_receipt(inputs: WorkflowInputs, root: Path, *,
+                             allow_p3_provisional: bool = False) -> dict:
     """Bind the manifest to the current tracked source before adapter import."""
     from tools.hardware_acceptance import p3_hardware_acceptance as gate
 
     receipt = _read_json(inputs.receipt, "receipt")
     if not isinstance(receipt, dict):
         raise ValueError("receipt must be a JSON object")
+    if allow_p3_provisional:
+        from tools.hardware_acceptance.p3_dpll_short import validate_provisional_receipt
+        validate_provisional_receipt(root, receipt, list(inputs.board_uids))
+        return receipt
     if receipt.get("schema") != gate.QUICK_GRADED_RECEIPT_SCHEMA:
         raise ValueError("receipt schema is not the required quick graded schema")
     gate._validate_quick_diagnostic_receipt(root, receipt)

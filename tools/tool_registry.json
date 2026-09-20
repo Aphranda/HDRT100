@@ -10,14 +10,13 @@
       "operation": "DEVICE_CONFIGURE",
       "entrypoints": [],
       "files": [
-        {"path": "tools/workflows/vdc_joint_capture/inputs.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/internal_seal.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/lifecycle.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/run_output.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/runtime_base.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/README.md", "role": "documentation"}
       ],
-      "depends_on": ["TOOL-HARDWARE-ACCEPTANCE", "TOOL-SCPI-COMMON", "TOOL-TDMA-RING-MONITOR", "TOOL-VDC-PROBE-SUPPORT"],
+      "depends_on": ["TOOL-SCPI-COMMON", "TOOL-TDMA-RING-MONITOR", "TOOL-VDC-PROBE-SUPPORT"],
       "external_dependencies": ["pyserial for four-board hardware runs"],
       "dependency_review": "COMPLETE",
       "aliases": [],
@@ -1227,11 +1226,16 @@
       "operation": "UNASSESSED",
       "entrypoints": [
         "tools/hardware_acceptance/p3_hardware_acceptance.py",
-        "tools/hardware_acceptance/single_board_hardware_acceptance.py"
+        "tools/hardware_acceptance/single_board_hardware_acceptance.py",
+        "tools/vdc_priority_trace/vdc_priority_joint_capture.py"
       ],
       "files": [
         {
           "path": "tools/hardware_acceptance/p3_alarm_policy.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/hardware_acceptance/p3_dpll_short.py",
           "role": "module"
         },
         {
@@ -1241,17 +1245,35 @@
         {
           "path": "tools/hardware_acceptance/single_board_hardware_acceptance.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_priority_trace/vdc_priority_joint_capture.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/inputs.py",
+          "role": "module"
         }
       ],
       "depends_on": [
         "TOOL-CALIBRATION-RING-VALIDATE",
+        "TOOL-HDO-RAW-READER",
         "TOOL-OTA-MULTI-UPDATE",
-        "TOOL-SCPI-COMMON"
+        "TOOL-SCPI-COMMON",
+        "TOOL-TDMA-RING-MONITOR",
+        "TOOL-VDC-JOINT-WORKFLOW",
+        "TOOL-VDC-PRIORITY-TRACE",
+        "TOOL-VDC-PROBE-SUPPORT",
+        "TOOL-VDC-SPARSE-SCOPE"
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
       "aliases": [],
-      "validation": [],
+      "validation": [
+        "tests/python/test_p3_hardware_acceptance.py",
+        "tests/python/test_p3_alarm_policy.py",
+        "tests/python/test_p3_dpll_short.py"
+      ],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
     },
@@ -3217,15 +3239,10 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/vdc_priority_trace/vdc_priority_joint_capture.py",
         "tools/vdc_priority_trace/vdc_priority_trace.py",
         "tools/vdc_priority_trace/vdc_priority_trace_capture.py"
       ],
       "files": [
-        {
-          "path": "tools/vdc_priority_trace/vdc_priority_joint_capture.py",
-          "role": "entrypoint"
-        },
         {
           "path": "tools/vdc_priority_trace/vdc_priority_trace.py",
           "role": "entrypoint"

@@ -29,11 +29,15 @@ from typing import Any, Iterable
 
 if __package__:
     from .p3_alarm_policy import build_acceptance_report
+    from .p3_dpll_short import PROVISIONAL_SCHEMA, summarize_joint, validate_summary
 else:
     from p3_alarm_policy import build_acceptance_report
+    from p3_dpll_short import PROVISIONAL_SCHEMA, summarize_joint, validate_summary
 
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 DEFAULT_CONFIG = Path("config/hardware_acceptance/p3_bench_quick.json")
 DEFAULT_RECEIPT = Path("config/hardware_acceptance/p3_acceptance_receipt.json")
 RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_V4"
@@ -88,6 +92,8 @@ def acceptance_scope(profile: str, tdma_only: bool,
     if tdma_only and "DPLL" in strict:
         raise AcceptanceError("DPLL cannot be required with --tdma-only")
     required = ["P0", "P3", "T3", "TDMA"]
+    if not tdma_only:
+        required.append("DPLL")
     if profile != "QUICK_DIAGNOSTIC":
         required = [stage for stage in ALARM_STAGES if stage != "DPLL" or not tdma_only]
         strict = list(dict.fromkeys(required + strict))
@@ -1181,9 +1187,33 @@ def _validate_evidence(root: Path, record: dict[str, Any], *,
             "trn01_summary", "trn02_summary",
             "trn03_matrix", "tdma_summary")
     if include_dpll:
-        names += ("sma_observer_wiring", "dpll_summary")
+        names += ("dpll_summary", "dpll_scope_discovery")
     for name in names:
         _validate_evidence_file(root, record.get(name), name)
+    if include_dpll:
+        path = _validate_evidence_file(root, record.get("dpll_summary"), "dpll_summary")
+        summary = json.loads(path.read_text(encoding="utf-8"))
+        validate_summary(root, summary)
+        discovery_path = _validate_evidence_file(
+            root, record.get("dpll_scope_discovery"), "dpll_scope_discovery")
+        discovery = json.loads(discovery_path.read_text(encoding="utf-8"))
+        config_relative = record.get("bench_config_path")
+        config_expected = record.get("bench_config_sha256")
+        config_path = root / config_relative if isinstance(config_relative, str) else None
+        if config_path is not None or config_expected is not None:
+            if (config_path is None or not isinstance(config_expected, str) or
+                    not config_path.is_file() or sha256_file(config_path) != config_expected):
+                raise AcceptanceError("bench config evidence is missing or changed")
+            bench = load_bench_config(config_path)
+            if (discovery.get("schema") != "HAOFV_P3_SCOPE_DISCOVERY_V1" or
+                    not isinstance(discovery.get("present"), bool) or
+                    discovery.get("present") is not summary.get("scope_enabled") or
+                    discovery.get("resource") != bench.get("dpll_short_scope_resource") or
+                    discovery.get("expected_serial") != bench.get("dpll_short_scope_serial") or
+                    (summary.get("scope_enabled") is True and
+                     (summary.get("scope_resource") != discovery.get("resource") or
+                      summary.get("scope_serial") != discovery.get("expected_serial")))):
+                raise AcceptanceError("DPLL scope discovery differs from short observation")
     validate_topology_reuse_evidence(root, record)
     timing = record.get("timing_probe")
     if timing is not None:
@@ -1446,15 +1476,23 @@ def _validate_quick_diagnostic_receipt(
         root: Path, record: dict[str, Any]) -> None:
     """Validate a debug-only flow receipt without gating phase quality."""
     failures = record.get("diagnostic_failures")
-    if (record.get("acceptance_scope") !=
-            "FOUR_NODE_TDMA_QUICK_DIAGNOSTIC" or
+    dpll_required = record.get("dpll_observation") != "SKIPPED_TDMA_ONLY"
+    expected_scope = ("FOUR_NODE_DPLL_QUICK_DIAGNOSTIC" if dpll_required else
+                      "FOUR_NODE_TDMA_QUICK_DIAGNOSTIC")
+    if (record.get("acceptance_scope") != expected_scope or
             record.get("acceptance_profile") != "QUICK_DIAGNOSTIC" or
+            record.get("tdma_board_ids") != record.get("ota_board_ids") or
+            not isinstance(record.get("tdma_board_ids"), list) or
+            len(record["tdma_board_ids"]) != 4 or
             record.get("flow_completed") is not True or
             record.get("passed") is not True or
             not isinstance(failures, list) or
             record.get("strict_gates_passed") is not (not failures)):
         raise AcceptanceError("quick diagnostic receipt has invalid flow state")
-    _validate_evidence(root, record, include_dpll=False)
+    _validate_evidence(root, record, include_dpll=dpll_required)
+    if dpll_required:
+        path = _validate_evidence_file(root, record.get("dpll_summary"), "dpll_summary")
+        validate_summary(root, json.loads(path.read_text(encoding="utf-8")))
     _validate_evidence_file(
         root, record.get("diagnostic_summary"), "diagnostic_summary")
     diagnostic_path = root / record["diagnostic_summary"]["path"]
@@ -1544,9 +1582,6 @@ def check_staged(root: Path, receipt_path: Path) -> None:
         else:
             _validate_evidence(root, receipt, include_dpll=False)
     elif schema in (QUICK_DIAGNOSTIC_RECEIPT_SCHEMA, QUICK_GRADED_RECEIPT_SCHEMA):
-        # Quick runs OTA all five boards so NO5 can remain the external
-        # observer, while TDMA still intentionally covers NO1..NO4 only.
-        # It is therefore not a TDMA-only receipt and its board sets differ.
         _validate_quick_diagnostic_receipt(root, receipt)
     else:
         _validate_evidence(root, receipt)
@@ -1716,7 +1751,7 @@ def validate_ota(summary: dict[str, Any], expected_ids: list[str],
             any(ota_capabilities.get(board_id) != REQUIRED_OTA_BLOCK_SIZE
                 for board_id in expected_ids)):
         raise AcceptanceError(
-            "five-board OTA summary did not meet acceptance; "
+            "configured-board OTA summary did not meet acceptance; "
             "all boards must advertise 4096-byte OTA blocks")
 
 
@@ -1880,7 +1915,7 @@ def summary_failure_detail(summary: dict[str, Any]) -> str:
         return "TDMA preflight did not pass"
     raw_gate = summary.get("sd_waveform", {}).get("raw_gate", {})
     if isinstance(raw_gate, dict) and raw_gate.get("errors"):
-        return "NO5 SD waveform: " + ", ".join(
+        return "DPLL SD waveform: " + ", ".join(
             map(str, raw_gate["errors"]))
     failures = summary.get("diagnostic_failures", [])
     if isinstance(failures, list) and failures:
@@ -1894,6 +1929,114 @@ def validate_pass_summary(summary: dict[str, Any], label: str) -> None:
     if summary.get("passed") is not True:
         raise AcceptanceError(
             f"{label} did not meet acceptance: {summary_failure_detail(summary)}")
+
+
+def discover_optional_scope(resource: str, expected_serial: str) -> dict[str, Any]:
+    """Discover the configured HDO without making its absence an error."""
+    result: dict[str, Any] = {
+        "schema": "HAOFV_P3_SCOPE_DISCOVERY_V1",
+        "resource": resource,
+        "expected_serial": expected_serial,
+        "present": False,
+    }
+    try:
+        import pyvisa
+        manager = pyvisa.ResourceManager()
+        try:
+            resources = list(manager.list_resources())
+        finally:
+            manager.close()
+        result["resources"] = resources
+        result["present"] = resource in resources
+        result["reason"] = "CONFIGURED_RESOURCE_ENUMERATED" if result["present"] else "CONFIGURED_RESOURCE_ABSENT"
+    except Exception as exc:
+        result["resources"] = []
+        result["present"] = None
+        result["reason"] = "VISA_DISCOVERY_UNAVAILABLE"
+        result["discovery_error"] = f"{type(exc).__name__}: {exc}"
+    return result
+
+
+def run_four_board_dpll_short(
+        root: Path, config: dict[str, Any], receipt_path: Path, out_dir: Path,
+        *, build_id: str, board_ids: list[str], source_fingerprint: str,
+        source_count: int, package: Path, ota_summary_path: Path,
+        trn03_matrix_path: Path, tdma_summary_path: Path,
+        stopped_handoff_path: Path,
+        calibration_generation: int) -> tuple[Path, dict[str, Any], Path]:
+    """Run the four-board joint workflow under a non-committable receipt."""
+    provisional = {
+        "schema": PROVISIONAL_SCHEMA,
+        "joint_capture_only": True,
+        "passed": True,
+        "strict_gates_passed": True,
+        "build_id": build_id,
+        "source_tree_sha256": source_fingerprint,
+        "source_file_count": source_count,
+        "tdma_board_ids": board_ids,
+        "ota_board_ids": board_ids,
+        "calibration_generation": calibration_generation,
+        "firmware_package": evidence_entry(root, package),
+        "ota_summary": evidence_entry(root, ota_summary_path),
+        "trn03_matrix": evidence_entry(root, trn03_matrix_path),
+        "tdma_summary": evidence_entry(root, tdma_summary_path),
+        "tdma_stopped_handoff": evidence_entry(root, stopped_handoff_path),
+    }
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(
+        json.dumps(provisional, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+
+    resource = str(config["dpll_short_scope_resource"])
+    serial = str(config["dpll_short_scope_serial"])
+    discovery = discover_optional_scope(resource, serial)
+    discovery_path = out_dir / "dpll-scope-discovery.json"
+    discovery_path.write_text(
+        json.dumps(discovery, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    if discovery["present"] is None:
+        raise AcceptanceError(
+            "scope discovery failed; cannot distinguish absent hardware from VISA failure")
+    scope_enabled = discovery["present"] is True
+    seconds = int(config["dpll_short_seconds"])
+    joint_dir = out_dir / "dpll-four-board-short"
+    command = [
+        sys.executable,
+        str(root / "tools/vdc_priority_trace/vdc_priority_joint_capture.py"),
+        "--bench-adapter", str(root / config["dpll_short_bench_adapter"]),
+        "--workflow-inputs", str(root / config["dpll_short_workflow_inputs"]),
+        "--scope", "on" if scope_enabled else "off",
+        "--scope-trigger", "CHAN1",
+        "--scope-resource", resource,
+        "--scope-serial", serial,
+        "--seconds", str(seconds),
+        "--settle-s", str(config["dpll_short_settle_s"]),
+        "--scope-threshold-ns", "1000",
+        "--scope-steady-threshold-ns", "1000",
+        "--p3-provisional",
+        "--out", str(joint_dir),
+    ]
+    print(
+        "Hardware acceptance: four-board DPLL 60 s joint observation " +
+        ("with HDO scope" if scope_enabled else "with internal evidence; scope absent"),
+        flush=True)
+    _run_step(command, root, out_dir / "dpll-short.log")
+    report_path = joint_dir / "report.json"
+    input_path = joint_dir / "capture" / "input-probe.json"
+    if not report_path.is_file() or not input_path.is_file():
+        raise AcceptanceError("four-board DPLL short workflow did not write complete reports")
+    summary = summarize_joint(
+        root, report_path, input_path,
+        scope_enabled=scope_enabled, seconds=seconds)
+    summary_path = out_dir / "dpll-short-summary.json"
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    try:
+        validate_summary(root, summary)
+    except ValueError as exc:
+        raise AcceptanceError(str(exc)) from exc
+    return summary_path, summary, discovery_path
 
 
 def build_diagnostic_feedback(
@@ -1971,55 +2114,6 @@ def build_diagnostic_feedback(
             "boards": dpll_boards,
         },
     }
-
-
-def validate_sma_observer_topology(
-        summary: dict[str, Any], config: dict[str, Any]) -> list[dict[str, int]]:
-    """Require the measured five-board SMA routes to match the bench wiring."""
-    validate_pass_summary(summary, "five-board bidirectional SMA wiring")
-    expected = config.get("sma_observer_routes")
-    observed = summary.get("wire_order", {}).get("routes")
-    route_fields = (
-        "node_no", "node_output_channel", "validator_input_channel",
-        "validator_output_channel", "node_input_channel",
-    )
-    if not isinstance(expected, list) or not isinstance(observed, list):
-        raise AcceptanceError("SMA observer route contract is missing")
-
-    def normalize(routes: list[Any], label: str) -> list[dict[str, int]]:
-        normalized: list[dict[str, int]] = []
-        for route in routes:
-            if not isinstance(route, dict) or any(
-                    isinstance(route.get(field), bool) or
-                    not isinstance(route.get(field), int)
-                    for field in route_fields):
-                raise AcceptanceError(
-                    f"invalid {label} SMA observer route: {route!r}")
-            normalized.append({
-                field: int(route[field]) for field in route_fields
-            })
-        return sorted(normalized, key=lambda route: route["node_no"])
-
-    expected_routes = normalize(expected, "configured")
-    observed_routes = normalize(observed, "measured")
-    if observed_routes != expected_routes:
-        raise AcceptanceError(
-            f"measured SMA topology differs from bench contract: "
-            f"{observed_routes} != {expected_routes}")
-
-    identities = summary.get("identities", {})
-    expected_ids = list(config.get("p3_board_ids_in_physical_order", []))
-    expected_ids.append(str(config.get("dpll_observer_board_id", "")))
-    measured_ids = [
-        identities.get(str(board_no), identities.get(board_no, {})).get(
-            "address")
-        for board_no in range(1, 6)
-    ] if isinstance(identities, dict) else []
-    if measured_ids != expected_ids:
-        raise AcceptanceError(
-            f"SMA topology board identities differ from bench contract: "
-            f"{measured_ids} != {expected_ids}")
-    return observed_routes
 
 
 def p3_link_delays(summary: dict[str, Any], config: dict[str, Any]) -> list[int]:
@@ -2323,7 +2417,7 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
     diagnostic_continue = bool(getattr(args, "diagnostic_continue", False))
     acceptance_profile = str(config.get("acceptance_profile", "FULL"))
     quick_diagnostic = acceptance_profile == "QUICK_DIAGNOSTIC"
-    finite_tdma = tdma_only and quick_diagnostic
+    finite_tdma = True
     # QUICK_DIAGNOSTIC is the default iteration path. It retains every
     # rejection and never upgrades diagnostics to strict product PASS.
     if quick_diagnostic:
@@ -2372,10 +2466,10 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
             })
         return summary
 
-    ota_board_ids = board_ids if tdma_only else list(config["ota_board_ids"])
-    if tdma_only and len(board_ids) != 4:
+    ota_board_ids = list(config["ota_board_ids"])
+    if len(board_ids) != 4 or ota_board_ids != board_ids:
         raise AcceptanceError(
-            "TDMA-only acceptance requires exactly four configured ring nodes")
+            "P3 acceptance requires the same four configured OTA and ring nodes")
     timing = acceptance_timing(config)
     # Imported calibration tools resolve the same read quantum through the
     # process environment, even when their legacy CLI has no read-timeout
@@ -2447,8 +2541,7 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
             raise AcceptanceError(f"firmware package missing: {package}")
         build_id = _read_package_build_id(package)
 
-        ota_dir = out_dir / ("ota-four-board-tdma" if tdma_only
-                             else "ota-five-board")
+        ota_dir = out_dir / "ota-four-board"
         print(
             f"P3 acceptance: asynchronous OTA {len(ota_board_ids)} boards "
             f"build={build_id}",
@@ -2984,28 +3077,6 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
             "matrix": trn03_matrix_path.resolve().relative_to(root).as_posix(),
         })
 
-    sma_wire_order_summary_path: Path | None = None
-    if not tdma_only:
-        sma_dir = out_dir / "sma-no5-full-txrx"
-        sma_command = [
-            sys.executable,
-            str(root / "tools/sma_cable_delay_validate/sma_cable_symmetric_rtt.py"),
-            "--output-dir", str(sma_dir),
-            "--repeats", str(config["sma_observer_rtt_repeats"]),
-            "--capture-words", str(config["sma_observer_capture_words"]),
-            "--line-settle", str(timing["output_handoff_s"]),
-        ]
-        for board_id in config["ota_board_ids"]:
-            sma_command.extend(["--board-id", str(board_id)])
-        add_serial_timing(sma_command, timing)
-        print("Hardware acceptance: five-board bidirectional SMA topology and RTT",
-              flush=True)
-        _run_step(sma_command, root, out_dir / "sma-no5-full-txrx.log")
-        sma_wire_order_summary_path = sma_dir / "sma_cable_symmetric_rtt.json"
-        sma_summary = json.loads(
-            sma_wire_order_summary_path.read_text(encoding="utf-8"))
-        validate_sma_observer_topology(sma_summary, config)
-
     tdma_dir = out_dir / "tdma-process-image"
     tdma_command = [
         sys.executable,
@@ -3084,142 +3155,22 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         })
 
     dpll_summary_path: Path | None = None
-    internal_dpll_summary_path: Path | None = None
+    dpll_scope_discovery_path: Path | None = None
     if tdma_only:
-        print(
-            "Hardware acceptance: skip NO5 DPLL observation "
-            "(TDMA four-node scope)", flush=True)
+        print("Hardware acceptance: skip optional four-board DPLL short observation", flush=True)
     else:
-        all_board_ids = list(config["ota_board_ids"])
-        ports = discover_board_ports(all_board_ids, timing)
-        internal_dir = out_dir / "dpll-no1-4-internal"
-        internal_command = [
-            sys.executable,
-            str(root / "tools/dpll_observation_capture/dpll_observation_capture.py"),
-            "--duration-s", str(config["dpll_monitor_duration_s"]),
-            "--out-dir", str(internal_dir),
-        ]
-        add_serial_timing(internal_command, timing)
-        for index, board_id in enumerate(board_ids, 1):
-            internal_command.extend(["--board", f"NO{index}={ports[board_id]}"])
-        if not capture_policy["dpll"]:
-            internal_command.append("--skip-capture")
-        print("Hardware acceptance: internal DPLL observation NO1..NO4" +
-              (" with SD capture" if capture_policy["dpll"] else
-               " (SD capture disabled)"), flush=True)
-        internal_returncode = _run_step(
-            internal_command, root, out_dir / "dpll-internal.log",
-            allow_failure=diagnostic_continue)
-        internal_dpll_summary_path = internal_dir / "summary.json"
-        if not internal_dpll_summary_path.is_file():
-            if not diagnostic_continue:
-                raise AcceptanceError("internal DPLL capture did not write summary.json")
-            internal_summary = {
-                "schema": "HAOFV_FAILED_STEP_V1", "passed": False,
-                "error": "internal DPLL capture did not write summary.json",
-                "returncode": internal_returncode,
-            }
-            internal_dir.mkdir(parents=True, exist_ok=True)
-            internal_dpll_summary_path.write_text(
-                json.dumps(internal_summary, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8")
-        else:
-            internal_summary = json.loads(
-                internal_dpll_summary_path.read_text(encoding="utf-8"))
-        internal_capture_passed = internal_summary.get("passed") is True
-        if diagnostic_continue and (
-                internal_returncode != 0 or not internal_capture_passed):
-            diagnostic_failures.append({
-                "phase": "internal DPLL SD capture NO1..NO4",
-                "returncode": internal_returncode,
-                "error": str(internal_summary.get(
-                    "error", internal_summary.get("failures", ""))),
-                "summary": internal_dpll_summary_path.resolve().relative_to(root).as_posix(),
-            })
-        elif not diagnostic_continue:
-            validate_pass_summary(internal_summary, "internal DPLL SD capture NO1..NO4")
-        dpll_dir = out_dir / "dpll-no5-observation"
-        dpll_command = [
-            sys.executable,
-            str(root / "tools/dpll_vdc_monitor/dpll_vdc_monitor.py"),
-            "--observer-name", str(config["dpll_observer_name"]),
-            "--duration-s", str(config["dpll_monitor_duration_s"]),
-            "--poll-interval-s", str(config["dpll_monitor_poll_interval_s"]),
-            "--expected-interval-ms", str(config["dpll_expected_interval_ms"]),
-            "--interval-tolerance-ms", str(config["dpll_interval_tolerance_ms"]),
-            "--sequence-skew-tolerance",
-            str(config["dpll_sequence_skew_tolerance"]),
-            "--phase-sample-period-ns",
-            str(config["dpll_phase_sample_period_ns"]),
-            "--phase-pulse-period-ns",
-            str(config["dpll_phase_pulse_period_ns"]),
-            "--phase-pulse-high-ns",
-            str(config["dpll_phase_pulse_high_ns"]),
-            "--phase-pulse-count",
-            str(config["dpll_phase_pulse_count"]),
-            "--phase-start-delay-ns",
-            str(config["dpll_phase_start_delay_ns"]),
-            "--phase-coverage-min-s",
-            str(config.get("dpll_phase_coverage_min_s", 2.0)),
-            "--phase-max-span-ns",
-            str(config["dpll_phase_max_span_ns"]),
-            "--phase-min-complete-rounds",
-            str(config["dpll_phase_min_complete_rounds"]),
-            "--fail-on-gate", "--out-dir", str(dpll_dir),
-        ]
-        if diagnostic_continue:
-            dpll_command.append("--diagnostic-continue")
-        if capture_policy["dpll"]:
-            dpll_command.append("--capture-waveform")
-        add_serial_timing(dpll_command, timing)
-        for index, board_id in enumerate(board_ids, 1):
-            dpll_command.extend(["--board", f"NO{index}={ports[board_id]}"])
-        observer_id = str(config["dpll_observer_board_id"])
-        dpll_command.extend([
-            "--board", f"{config['dpll_observer_name']}={ports[observer_id]}"])
-        waveform_analysis_path = tdma_dir / "analysis" / "ring_capture_analysis.json"
-        if capture_policy["tdma"] and waveform_analysis_path.is_file():
-            dpll_command.extend([
-                "--waveform-analysis", str(waveform_analysis_path)])
-        elif capture_policy["tdma"]:
-            # SD capture/analysis is an offline diagnostic attachment.  A
-            # missing attachment must not block the independent NO5 DPLL
-            # state/sequence observation after the realtime TDMA gate passed.
-            print(
-                "Hardware acceptance: SD waveform evidence unavailable; "
-                "continue DPLL observation without attachment", flush=True)
-        print("Hardware acceptance: DPLL/VDC observation on NO5", flush=True)
-        dpll_returncode = _run_step(
-            dpll_command, root, out_dir / "dpll.log",
-            allow_failure=diagnostic_continue)
-        dpll_summary_path = dpll_dir / "summary.json"
-        if not dpll_summary_path.is_file():
-            if not diagnostic_continue:
-                raise AcceptanceError("DPLL monitor did not write summary.json")
-            dpll_summary = {
-                "schema": "HAOFV_FAILED_STEP_V1",
-                "passed": False,
-                "error": "DPLL monitor did not write summary.json",
-                "returncode": dpll_returncode,
-            }
-            dpll_summary_path.parent.mkdir(parents=True, exist_ok=True)
-            dpll_summary_path.write_text(
-                json.dumps(dpll_summary, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8")
-        else:
-            dpll_summary = json.loads(
-                dpll_summary_path.read_text(encoding="utf-8"))
-        if diagnostic_continue and dpll_returncode != 0:
-            diagnostic_failures.append({
-                "phase": "DPLL/VDC NO5 observation",
-                "returncode": dpll_returncode,
-                "error": summary_failure_detail(dpll_summary),
-                "summary": dpll_summary_path.resolve().relative_to(root).as_posix(),
-            })
-        else:
-            validate_pass_summary(dpll_summary, "DPLL/VDC NO5 observation")
-
-    if dpll_summary_path is not None:
+        if stopped_handoff_path is None:
+            raise AcceptanceError("four-board DPLL short observation requires stopped TDMA evidence")
+        dpll_summary_path, dpll_summary, dpll_scope_discovery_path = \
+            run_four_board_dpll_short(
+                root, config, receipt_path, out_dir, build_id=build_id,
+                board_ids=board_ids, source_fingerprint=fingerprint_before,
+                source_count=source_count, package=package,
+                ota_summary_path=ota_summary_path,
+                trn03_matrix_path=trn03_matrix_path,
+                tdma_summary_path=tdma_summary_path,
+                stopped_handoff_path=stopped_handoff_path,
+                calibration_generation=training_generation)
         alarm_context["stages"]["DPLL"] = dpll_summary
     final_schedules = read_schedules(board_ids, timing)
     try:
@@ -3244,12 +3195,12 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
             "acceptance_scope": scope,
             "acceptance_profile": acceptance_profile,
             "dpll_observation": (
-                "SKIPPED_TDMA_ONLY" if tdma_only else "REQUIRED"),
+                "SKIPPED_TDMA_ONLY" if tdma_only else "FOUR_BOARD_SHORT_60S"),
             "passed": True,
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "source_tree_sha256": fingerprint_after,
             "source_file_count": source_count,
-            "bench_config_path": args.config.as_posix(),
+            "bench_config_path": config_path.resolve().relative_to(root).as_posix(),
             "bench_config_sha256": sha256_file(config_path),
             "build_id": build_id,
             "firmware_package": evidence_entry(root, package),
@@ -3294,16 +3245,13 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         }
         if dpll_summary_path is not None:
             value["dpll_summary"] = evidence_entry(root, dpll_summary_path)
+        if dpll_scope_discovery_path is not None:
+            value["dpll_scope_discovery"] = evidence_entry(
+                root, dpll_scope_discovery_path)
         if topology_reuse_source is not None:
             value["topology_reuse_source"] = topology_reuse_source
         if stopped_handoff_path is not None:
             value["tdma_stopped_handoff"] = evidence_entry(root, stopped_handoff_path)
-        if internal_dpll_summary_path is not None:
-            value["internal_dpll_summary"] = evidence_entry(
-                root, internal_dpll_summary_path)
-        if sma_wire_order_summary_path is not None:
-            value["sma_observer_wiring"] = evidence_entry(
-                root, sma_wire_order_summary_path)
         return value
 
     def persist_receipt(value: dict[str, Any]) -> None:
@@ -3368,9 +3316,6 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
             "dpll_summary": (
                 dpll_summary_path.resolve().relative_to(root).as_posix()
                 if dpll_summary_path is not None else None),
-            "internal_dpll_summary": (
-                internal_dpll_summary_path.resolve().relative_to(root).as_posix()
-                if internal_dpll_summary_path is not None else None),
             "feedback_inputs": build_diagnostic_feedback(
                 tdma_summary,
                 dpll_summary if dpll_summary_path is not None else None,
@@ -3392,7 +3337,8 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         if quick_diagnostic:
             receipt = make_receipt(
                 QUICK_GRADED_RECEIPT_SCHEMA,
-                "FOUR_NODE_TDMA_QUICK_DIAGNOSTIC")
+                ("FOUR_NODE_TDMA_QUICK_DIAGNOSTIC" if tdma_only else
+                 "FOUR_NODE_DPLL_QUICK_DIAGNOSTIC"))
             receipt.update({
                 "flow_completed": True,
                 "strict_gates_passed": not diagnostic_failures,
@@ -3463,7 +3409,8 @@ def parse_args() -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command", required=True)
     run = subparsers.add_parser(
         "run", help=("quick acceptance by default: build, 4096 OTA, "
-                     "P0-P3/TRN-03 and TDMA; use --full for full bench"))
+                     "P0-P3/TRN-03, TDMA, and four-board DPLL 60 s; "
+                     "use --full for full bench"))
     run.add_argument("--root", type=Path, default=ROOT)
     run.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     run.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
@@ -3473,7 +3420,7 @@ def parse_args() -> argparse.Namespace:
                      help="reuse an original passing P0T summary; quick four-board mode only")
     run.add_argument(
         "--tdma-only", action="store_true",
-        help="run calibration and four-node TDMA acceptance without NO5/DPLL")
+        help="run calibration and four-node TDMA acceptance without the DPLL short test")
     run.add_argument(
         "--diagnostic-continue", action="store_true",
         help=("retain quality failures and continue bounded diagnostics; "
@@ -3500,7 +3447,7 @@ def parse_args() -> argparse.Namespace:
                         help="require this stage's strict quality in this run; repeatable")
     resume.add_argument(
         "--tdma-only", action="store_true",
-        help="resume four-node TDMA acceptance without NO5/DPLL")
+        help="resume four-node TDMA acceptance without the DPLL short test")
     resume.add_argument(
         "--diagnostic-continue", action="store_true",
         help=("retain quality failures and continue bounded diagnostics; "

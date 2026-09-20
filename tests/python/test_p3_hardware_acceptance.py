@@ -42,7 +42,6 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     validate_p3,
     validate_runtime_schedules,
     validate_schedule_isolation,
-    validate_sma_observer_topology,
     validate_tdma_diagnostic_summary,
     write_phase_summary,
     write_trn03_diagnostic_fallback_inputs,
@@ -81,16 +80,16 @@ def test_default_acceptance_output_uses_date_partition() -> None:
             root / "out/HardwareAcceptance/20260907/vdc-run")
 
 
-def test_check_staged_accepts_quick_five_board_ota_and_four_board_tdma(
+def test_check_staged_accepts_same_four_board_quick_scope(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Quick profile keeps NO5 as an observer, unlike a TDMA-only run."""
+    """Quick acceptance binds OTA, TDMA, and DPLL to the same four boards."""
     receipt = {
         "schema": QUICK_DIAGNOSTIC_RECEIPT_SCHEMA,
         "passed": True,
         "source_tree_sha256": "fingerprint",
         "source_file_count": 1,
         "acceptance_scope": "FOUR_NODE_TDMA_QUICK_DIAGNOSTIC",
-        "ota_board_ids": ["no1", "no2", "no3", "no4", "no5"],
+        "ota_board_ids": ["no1", "no2", "no3", "no4"],
         "tdma_board_ids": ["no1", "no2", "no3", "no4"],
     }
     validated: list[dict[str, object]] = []
@@ -108,6 +107,19 @@ def test_check_staged_accepts_quick_five_board_ota_and_four_board_tdma(
     p3_acceptance.check_staged(tmp_path, Path("receipt.json"))
 
     assert validated == [receipt]
+
+
+def test_check_staged_rejects_joint_provisional_receipt(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    receipt = {
+        "schema": "HAOFV_P3_JOINT_PROVISIONAL_V1", "passed": True,
+        "source_tree_sha256": "fingerprint", "source_file_count": 1,
+    }
+    monkeypatch.setattr(p3_acceptance, "changed_staged_sources", lambda root: ["tools/x.py"])
+    monkeypatch.setattr(p3_acceptance, "unstaged_sources", lambda root: [])
+    monkeypatch.setattr(p3_acceptance, "read_index_json", lambda root, path: receipt)
+    with pytest.raises(AcceptanceError, match="not PASS"):
+        p3_acceptance.check_staged(tmp_path, Path("receipt.json"))
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -264,7 +276,7 @@ def test_monitor_failure_detail_prefers_persisted_no5_gate_evidence() -> None:
         "passed": False,
         "sd_waveform": {"raw_gate": {
             "errors": ["capture_dropped_records", "segment_dropped_records"]}},
-    }) == ("NO5 SD waveform: capture_dropped_records, "
+    }) == ("DPLL SD waveform: capture_dropped_records, "
            "segment_dropped_records")
 
 
@@ -488,24 +500,28 @@ def test_tdma_diagnostic_summary_rejects_broken_base_flow() -> None:
         validate_tdma_diagnostic_summary(summary, board_ids)
 
 
-def test_receipt_evidence_requires_every_acceptance_phase(tmp_path: Path) -> None:
+def test_receipt_evidence_requires_every_acceptance_phase(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     names = (
         "firmware_package", "ota_summary", "topology_summary",
         "coarse_calibration_summary", "coded_calibration_summary",
         "initialization_reset", "p3_summary", "trn00_summary",
         "trn01_summary", "trn02_summary",
-        "trn03_matrix", "tdma_summary", "sma_observer_wiring",
-        "dpll_summary",
+        "trn03_matrix", "tdma_summary", "dpll_summary",
+        "dpll_scope_discovery",
     )
     record = {}
     for name in names:
         path = tmp_path / f"{name}.json"
-        path.write_text("{}\n", encoding="utf-8")
+        value = ({"schema": "HAOFV_P3_SCOPE_DISCOVERY_V1", "present": None}
+                 if name == "dpll_scope_discovery" else {})
+        path.write_text(json.dumps(value) + "\n", encoding="utf-8")
         import hashlib
         record[name] = {
             "path": path.name,
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         }
+    monkeypatch.setattr(p3_acceptance, "validate_summary", lambda root, value: None)
     _validate_evidence(tmp_path, record)
     del record["trn02_summary"]
     with pytest.raises(AcceptanceError, match="trn02_summary"):
@@ -640,7 +656,7 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
         "training_data_codebook",
         "training_marker_offsets_by_node", "training_sck_offsets_by_node",
         "training_data_offsets_by_node", "tdma_window_s",
-        "dpll_observer_board_id", "sma_observer_routes",
+        "dpll_short_seconds", "dpll_short_scope_resource",
         "hardware_acceptance_timing",
     ):
         assert key in bench
@@ -656,8 +672,8 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
     for stage in ("trn00", "trn01", "trn02", "trn03"):
         assert quick[f"{stage}_capture_waveforms"] is False
     assert quick["tdma_capture_waveforms"] is False
-    assert quick["dpll_capture_waveforms"] is True
-    assert quick["dpll_monitor_duration_s"] == 30.0
+    assert loaded_quick["dpll_short_seconds"] == 60
+    assert loaded_quick["ota_board_ids"] == loaded_quick["p3_board_ids_in_physical_order"]
     assert loaded_quick["training_sck_offsets_by_node"] == [0, 0, 0, 0]
     assert loaded_quick["training_max_offset_span"] == 1
     assert acceptance_timing(loaded_quick)["p3_capture_timeout_s"] == 20.0
@@ -668,14 +684,13 @@ def test_bench_and_orchestrator_cover_full_hardware_acceptance() -> None:
         "calibration_clk_coded.py", "calibration_link_p3.py",
         "calibration_marker_train.py", "calibration_sck_train.py",
         "calibration_data_train.py", "trn03_matrix.py",
-        "trn03_closed_loop.py", "sma_cable_symmetric_rtt.py",
-        "dpll_vdc_monitor.py", "dpll_observation_capture.py",
+        "trn03_closed_loop.py", "vdc_priority_joint_capture.py",
     ):
         assert tool in source
     assert "--tdma-only" in source
     assert "--reference-node" not in source
-    assert "internal DPLL observation NO1..NO4" in source
-    assert '"internal_dpll_summary"' in source
+    assert "four-board DPLL 60 s joint observation" in source
+    assert '"dpll_scope_discovery"' in source
     tdma_command = source.split("tdma_command = [", 1)[1].split(
         "print(\"Hardware acceptance: four-Node TDMA", 1)[0]
     assert 'capture=capture_policy["tdma"]' in source
@@ -988,30 +1003,13 @@ def test_trn03_previous_matrix_fallback_rebinds_current_debug_row(
     assert manifest["failure"] == "no trials"
 
 
-def test_sma_observer_topology_is_fixed_to_measured_bidirectional_routes() -> None:
+def test_bench_has_no_no5_or_sma_observer_dependency() -> None:
     bench = json.loads((ROOT / "config" / "hardware_acceptance" /
                         "p3_bench.json").read_text(encoding="utf-8"))
-    identities = {
-        str(index): {"address": board_id}
-        for index, board_id in enumerate(bench["ota_board_ids"], start=1)
-    }
-    summary = {
-        "passed": True,
-        "identities": identities,
-        "wire_order": {
-            "passed": True,
-            "routes": bench["sma_observer_routes"],
-        },
-    }
-    assert validate_sma_observer_topology(summary, bench) == \
-        bench["sma_observer_routes"]
-
-    summary["wire_order"]["routes"] = [
-        dict(route) for route in bench["sma_observer_routes"]
-    ]
-    summary["wire_order"]["routes"][1]["validator_output_channel"] = 2
-    with pytest.raises(AcceptanceError, match="differs from bench contract"):
-        validate_sma_observer_topology(summary, bench)
+    assert bench["ota_board_ids"] == bench["p3_board_ids_in_physical_order"]
+    assert len(bench["ota_board_ids"]) == 4
+    assert "dpll_observer_board_id" not in bench
+    assert "sma_observer_routes" not in bench
 
 
 def test_hardware_acceptance_timing_is_explicit_and_bounded() -> None:

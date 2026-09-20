@@ -100,7 +100,8 @@ def verify_startup(probe):
         probe.save()
 
 
-def scope_checkpoint(samples, due_s, settle_s=5.0):
+def scope_checkpoint(samples, due_s, settle_s=5.0, *,
+                     threshold_ns=100.0, steady_threshold_ns=50.0):
     """Grade one minute of sparse windows against the coarse and steady bands.
 
     The coarse +/-100 ns bound is the fail-fast abort criterion and applies to
@@ -131,22 +132,27 @@ def scope_checkpoint(samples, due_s, settle_s=5.0):
             worst = max(abs(v) for values in delta for v in values)
             # An unreadable schedule time cannot claim the settling allowance.
             is_settling = isinstance(row.get('due_s'), (int, float)) and row['due_s'] <= settle_s
-            if worst > 100:
-                failures.append({'due_s': row['due_s'], 'reason': 'phase_outside_100ns',
+            if worst > threshold_ns:
+                reason = ('phase_outside_100ns' if threshold_ns == 100 else
+                          'phase_outside_threshold')
+                failures.append({'due_s': row['due_s'], 'reason': reason,
                                  'max_abs_ns': worst})
             elif is_settling:
                 settling.append(row['due_s'])
-                if worst > 50:
+                if worst > steady_threshold_ns:
                     exemptions.append({'due_s': row['due_s'], 'max_abs_ns': worst})
             else:
                 steady.append(row['due_s'])
-                if worst > 50:
-                    steady_failures.append({'due_s': row['due_s'], 'reason': 'phase_outside_50ns',
+                if worst > steady_threshold_ns:
+                    reason = ('phase_outside_50ns' if steady_threshold_ns == 50 else
+                              'phase_outside_steady_threshold')
+                    steady_failures.append({'due_s': row['due_s'], 'reason': reason,
                                             'max_abs_ns': worst})
         if row.get('overrun'):
             failures.append({'due_s': row['due_s'], 'reason': 'acquisition_overrun'})
     return dict(checkpoint_s=due_s, continue_run=not failures, failures=failures,
-                threshold_ns=100, steady_threshold_ns=50, settle_s=settle_s,
+                threshold_ns=threshold_ns, steady_threshold_ns=steady_threshold_ns,
+                settle_s=settle_s,
                 settling_windows=sorted(settling), steady_windows=sorted(steady),
                 settling_exemptions=exemptions, steady_failures=steady_failures,
                 unobserved_intervals_qualified=False)
@@ -372,7 +378,11 @@ def make_probe_class(adapter):
                 row['ended_s'] = time.monotonic() - start
                 row['overrun'] = row['ended_s'] > due + 5
                 if due % 60 == 0:
-                    decision = scope_checkpoint(samples, due, getattr(self.opt, 'settle_s', 5.0))
+                    decision = scope_checkpoint(
+                        samples, due, getattr(self.opt, 'settle_s', 5.0),
+                        threshold_ns=getattr(self.opt, 'scope_threshold_ns', 100.0),
+                        steady_threshold_ns=getattr(
+                            self.opt, 'scope_steady_threshold_ns', 50.0))
                     decisions.append(decision)
                     (self.opt.out / f'scope-checkpoint-{due}.json').write_text(json.dumps(decision, indent=2), encoding='utf-8')
                     if not decision['continue_run']:
@@ -444,6 +454,11 @@ def parse_args(argv=None):
     p.add_argument('--settle-s', type=float, default=5.0,
                    help='after START, windows up to this time are graded against the coarse 100 ns '
                         'bound only; later windows must hold the steady 50 ns band (0 disables)')
+    p.add_argument('--scope-threshold-ns', type=float, default=100.0,
+                   help=argparse.SUPPRESS)
+    p.add_argument('--scope-steady-threshold-ns', type=float, default=50.0,
+                   help=argparse.SUPPRESS)
+    p.add_argument('--p3-provisional', action='store_true', help=argparse.SUPPRESS)
     p.add_argument('--output-delays', type=int, nargs=4, default=(0, -28, -88, -116),
                    metavar=('NO1', 'NO2', 'NO3', 'NO4'),
                    help='STOP-only signed output delays in ns; restored after capture, not saved to Flash')
@@ -454,6 +469,11 @@ def parse_args(argv=None):
         p.error('seconds must be a whole minute from 60 through 600')
     if not math.isfinite(a.settle_s) or not 0 <= a.settle_s <= a.seconds:
         p.error('settle-s must be a finite allowance from 0 through seconds')
+    if (not math.isfinite(a.scope_threshold_ns) or
+            not math.isfinite(a.scope_steady_threshold_ns) or
+            a.scope_threshold_ns <= 0 or a.scope_steady_threshold_ns <= 0 or
+            a.scope_steady_threshold_ns > a.scope_threshold_ns):
+        p.error('scope thresholds must be finite, positive, and steady <= coarse')
     if any(not -(1 << 31) <= value < (1 << 31) for value in a.output_delays):
         p.error('output-delays must be signed int32 nanoseconds')
     if any(not value.strip() or any(c in value for c in '\r\n')
@@ -467,7 +487,19 @@ def parse_args(argv=None):
 def main():
     a = parse_args()
     inputs = load_inputs(a.workflow_inputs, ROOT, a.bench_adapter)
-    receipt = validate_current_receipt(inputs, ROOT)
+    receipt = (validate_current_receipt(
+        inputs, ROOT, allow_p3_provisional=True) if a.p3_provisional else
+        validate_current_receipt(inputs, ROOT))
+    if a.p3_provisional:
+        # The archived phase chain invokes the historical quick-receipt gate
+        # during Probe.run(). P3's provisional admission is stricter and is
+        # intentionally scoped to this child process; it is never a final
+        # receipt and remains rejected by check-staged.
+        from tools.hardware_acceptance.p3_dpll_short import validate_provisional_receipt
+        from tools.hardware_acceptance import p3_hardware_acceptance as p3_gate
+        p3_gate._validate_quick_diagnostic_receipt = (
+            lambda root, value: validate_provisional_receipt(
+                root, value, list(inputs.board_uids)))
     if a.child:
         adapter = load_internal_seal_adapter(
             inputs.runtime_entrypoint, board_uids=inputs.board_uids)
@@ -475,6 +507,8 @@ def main():
             baseline=inputs.baseline, tap_baseline=inputs.tap_baseline,
             period_ns=1000000, scope=False, check_only=False, seconds=a.seconds, summary_interval_ms=10000,
             settle_s=a.settle_s,
+            scope_threshold_ns=a.scope_threshold_ns,
+            scope_steady_threshold_ns=a.scope_steady_threshold_ns,
             no_reference=False, expire_output=False, external_scope=a.scope=='on', scope_trigger=a.scope_trigger,
             scope_resource=a.scope_resource, scope_serial=a.scope_serial,
             bench_adapter=inputs.bench_adapter, workflow_inputs_evidence=inputs.evidence(ROOT))
@@ -490,7 +524,11 @@ def main():
              '--scope', a.scope, '--scope-trigger', a.scope_trigger,
              '--scope-resource', a.scope_resource, '--scope-serial', a.scope_serial,
              '--seconds', str(a.seconds), '--settle-s', str(a.settle_s),
+             '--scope-threshold-ns', str(a.scope_threshold_ns),
+             '--scope-steady-threshold-ns', str(a.scope_steady_threshold_ns),
              '--out', str(a.out/'capture'), '--child']
+    if a.p3_provisional:
+        child.append('--p3-provisional')
     runner = ResumeTrial(
         SerialBackend(inputs.board_uids), receipt, a.out,
         (24000, 32000, 16000), child, board_uids=inputs.board_uids,

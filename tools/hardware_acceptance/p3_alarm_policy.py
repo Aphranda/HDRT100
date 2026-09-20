@@ -104,6 +104,15 @@ def _topology_valid(summary: dict) -> bool:
 
 
 def _dpll_observation_valid(summary: dict) -> bool:
+    if summary.get("schema") == "HAOFV_P3_DPLL_SHORT_V1":
+        return (summary.get("duration_s") == 60 and
+                summary.get("passed") is True and
+                summary.get("evidence_status") == "PASS" and
+                not _rows(summary.get("errors")) and
+                summary.get("external_status") in ("PASS", "SKIPPED") and
+                summary.get("phase_severity") in ("INFO", "WARN", "ERROR") and
+                isinstance(summary.get("phase_max_abs_ns"), (int, float)) and
+                len(_rows(summary.get("internal_phase_endpoints"))) == 3)
     if summary.get("_input_validated") is True:
         return True
     rows = _rows(summary.get("boards"))
@@ -296,10 +305,25 @@ def build_acceptance_report(*, profile: str, stages: dict[str, dict],
                     for error in _rows(node.get("dpll_feedback")):
                         add(stage, "INFO", "DPLL_DIAGNOSTIC_FEEDBACK", str(error), error, uid)
             if stage == "DPLL":
+                short_severity = summary.get("phase_severity")
+                if short_severity == "WARN":
+                    add(stage, "WARN", "DPLL_PHASE_OUTSIDE_100NS",
+                        "Observed absolute phase exceeded 100 ns but did not exceed 1 us",
+                        {"max_abs_ns": summary.get("phase_max_abs_ns"),
+                         "source": summary.get("phase_source"),
+                         "domain": summary.get("phase_domain")})
+                elif short_severity == "ERROR":
+                    add(stage, "ERROR", "DPLL_PHASE_OUTSIDE_1US",
+                        "Observed absolute phase exceeded 1 us",
+                        {"max_abs_ns": summary.get("phase_max_abs_ns"),
+                         "source": summary.get("phase_source"),
+                         "domain": summary.get("phase_domain")})
                 if summary.get("ring_sequence_consistent") is False:
                     add(stage, quality_severity, "DPLL_SEQUENCE_QUALITY", "Ring sequence consistency gate did not pass", {
                         "ring_sequence_consistent": False, "ring_sequence_skew": summary.get("ring_sequence_skew")})
-                for raw_board in _rows(summary.get("boards")):
+                legacy_boards = (_rows(summary.get("boards"))
+                                 if summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V1" else [])
+                for raw_board in legacy_boards:
                     board = _dict(raw_board)
                     uid = board.get("board", board.get("address"))
                     if board.get("role") == "observer":
@@ -309,7 +333,8 @@ def build_acceptance_report(*, profile: str, stages: dict[str, dict],
                     elif board.get("reference_node") is not True and board.get("dpll_locked") is not True:
                         add(stage, quality_severity, "DPLL_LOCK_QUALITY",
                             "Follower has not demonstrated lock", board, uid)
-                if not _rows(summary.get("boards")):
+                if (summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V1" and
+                        not _rows(summary.get("boards"))):
                     add(stage, quality_severity, "DPLL_LOCK_EVIDENCE_MISSING",
                         "No per-board lock or phase evidence is available", summary)
         for path, risk in _irrecoverable_risks(summary):

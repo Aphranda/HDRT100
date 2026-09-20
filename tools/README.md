@@ -61,7 +61,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-FLASH-MAP | FLASH / FLASH tool maintenance | UNASSESSED | `tools/flash_map/flash_consumer_check.py`<br>`tools/flash_map/flash_inventory.py`<br>`tools/flash_map/flash_link_check.py`<br>`tools/flash_map/flash_map.py`<br>`tools/flash_map/flash_map_board_validate.py`<br>`tools/flash_map/flash_migration_check.py`<br>`tools/flash_map/flash_release_report.py`<br>`tools/flash_map/flash_wire_check.py`<br>`tools/flash_map/make_factory_baseline.py`<br>`tools/flash_map/persistence_schema_check.py` |
 | TOOL-FLASH-PARK-TIMEOUT-HIL-VALIDATE | FLASH / FLASH tool maintenance | UNASSESSED | `tools/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py` |
 | TOOL-FLASH-SCRATCH-VALIDATE | FLASH / FLASH tool maintenance | UNASSESSED | `tools/flash_scratch_validate/flash_scratch_validate.py` |
-| TOOL-HARDWARE-ACCEPTANCE | TOOLS / TOOLS tool maintenance | UNASSESSED | `tools/hardware_acceptance/p3_hardware_acceptance.py`<br>`tools/hardware_acceptance/single_board_hardware_acceptance.py` |
+| TOOL-HARDWARE-ACCEPTANCE | TOOLS / TOOLS tool maintenance | UNASSESSED | `tools/hardware_acceptance/p3_hardware_acceptance.py`<br>`tools/hardware_acceptance/single_board_hardware_acceptance.py`<br>`tools/vdc_priority_trace/vdc_priority_joint_capture.py` |
 | TOOL-HDO-RAW-READER | TOOLS / Scope transport maintenance | EXPERIMENTAL | Library / resources |
 | TOOL-MODEL-TURNTABLE-LOAD-VALIDATE | TRIGGER / TRIGGER tool maintenance | UNASSESSED | `tools/model_turntable_load_validate/model_turntable_load_validate.py` |
 | TOOL-MULTICORE-BOARD-VALIDATE | RTOS / RTOS tool maintenance | UNASSESSED | `tools/multicore_board_validate/multicore_board_validate.py` |
@@ -123,7 +123,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-VDC-LOCK-READINESS-VALIDATE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py` |
 | TOOL-VDC-LONG-MONITOR | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_long_monitor/vdc_long_monitor.py` |
 | TOOL-VDC-OBSERVER-VALIDATE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_observer_validate/vdc_observer_validate.py` |
-| TOOL-VDC-PRIORITY-TRACE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_priority_trace/vdc_priority_joint_capture.py`<br>`tools/vdc_priority_trace/vdc_priority_trace.py`<br>`tools/vdc_priority_trace/vdc_priority_trace_capture.py` |
+| TOOL-VDC-PRIORITY-TRACE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_priority_trace/vdc_priority_trace.py`<br>`tools/vdc_priority_trace/vdc_priority_trace_capture.py` |
 | TOOL-VDC-PROBE-SUPPORT | VDC / VDC tool maintenance | EXPERIMENTAL | Library / resources |
 | TOOL-VDC-SPARSE-SCOPE | VDC / VDC tool maintenance | EXPERIMENTAL | Library / resources |
 | TOOL-VDC-SYNC-METROLOGY | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_sync_metrology/vdc_sync_metrology.py` |
