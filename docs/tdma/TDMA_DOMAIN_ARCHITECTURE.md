@@ -87,7 +87,7 @@ Core0 提前编码 ordinary mailbox、准备 RX decode 与 overlay 描述符；C
 ### DPLL/VDC/SYNC 特等席快速通道
 
 ```text
-NO1 已提交时间模型 + 对应事件
+Node 1 已提交时间模型 + 对应事件
   -> Core1 VDC 编码 typed 同步 mailbox
   -> TDMA origin provider / 双缓冲发布
   -> 固定 SHORT 飞行运输

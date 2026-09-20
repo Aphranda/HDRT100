@@ -191,7 +191,7 @@ typedef struct {
 | BCB | full lane、GC、torn body/commit/seal、旧记录回退和 security counter。 |
 | Vector | SCPI 查询只读 snapshot，不触发 Flash IO。 |
 | Boot | A→B、B→A、未确认回滚、损坏 BCB fail closed。 |
-| Hardware | 当前源码指纹的构建、COM7 双向 OTA 和仓库 P3 hardware acceptance receipt。 |
+| Hardware | 当前源码指纹的构建、COMx 双向 OTA 和仓库 P3 hardware acceptance receipt。 |
 
 ## 历史迁移
 

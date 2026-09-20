@@ -43,7 +43,7 @@ Last updated: 2026-09-20
 | `tools/hardware_acceptance/`、`docs_check/`、`tool_governance/`、`checks/`、`tests/`、`bench/` | 保留现有稳定入口：硬件验收、文档检查、工具治理、代码检查、测试启动器、交互台架。`tools/doc_regression_check.py` 同样保留；不为目录美观改动门禁和既有调用契约。 |
 | `tests/python/` 等现有测试树 | 工具测试与小型冻结 fixture；`tools/tests/` 只承担已有测试启动器职责，不复制测试套件。 |
 | `config/tool_workflows/` | 可复用工作流参数和台架配置；现有 `config/hardware_acceptance/` 保留。配置不存凭据，不用个人绝对路径，不包含可执行 Python；首批 internal-seal 清单绑定完整历史可执行闭包、输入摘要与板卡顺序。 |
-| `out/<task>/<run>/`；硬件证据沿用 `out/HardwareAcceptance/<date>/<run>/` | 日志、波形、结果、缓存、运行状态和一次性探索产物。正式工作流不执行其中代码；历史原件不因目录治理迁走。 |
+| `out/<task>/<run>/`；硬件证据沿用 `<evidence-root>/<date>/<run>/` | 日志、波形、结果、缓存、运行状态和一次性探索产物。正式工作流不执行其中代码；历史原件不因目录治理迁走。 |
 
 归类时先判断是否为跨域编排，再判断是否为已有调用者共享的能力，其余归业务 owner；名称含 capture、decode、validate 不构成新的一级分类。一个工具可有多个明确入口，不按每个脚本机械拆目录；跨域共享实现只有一个落点，通过登记依赖复用。
 

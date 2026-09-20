@@ -131,7 +131,7 @@ codec body 由 `VDC_PRIORITY_CODEC_BODY_SIZE` 及 `TDMA_PROCESS_IMAGE_PRIORITY_S
 
 `MASTER/FOLLOWER` 仍是 Domain 控制 profile；FOLLOWER 的普通 local evidence 不进入 MASTER PI。**显式 typed 本地跟踪**是独立控制路径，并非隐式回退：开启后旁路旧 RefMem follower command 消费，与 boundary PROBE/AUTO、旧 LOCAL_FOLLOW 互斥。
 
-`VDC-REFERENCE-01` 的 Core0 分片参考/接收 ACK、`VDC-BOUNDARY-01` 的逐从命令及绝对定时 command 均保留兼容实现。ACK 只证明对应接收或命令采用语义，不是 typed matcher 自动产生的锁相凭证，也不阻塞 NO1 PI 或 TDMA 发车。
+`VDC-REFERENCE-01` 的 Core0 分片参考/接收 ACK、`VDC-BOUNDARY-01` 的逐从命令及绝对定时 command 均保留兼容实现。ACK 只证明对应接收或命令采用语义，不是 typed matcher 自动产生的锁相凭证，也不阻塞 Node 1 PI 或 TDMA 发车。
 
 任意角色组合和多主机配置仍须逐配置验收。本地 oscillator discipline 已有 Domain profile/request/freeze 接口，但尚未接入应用侧实物 actuator；不能描述为已实现晶振驯服。
 
@@ -234,7 +234,7 @@ STOP 后显式授权、固定分片配额、完整发布证明和逐字节 ACK �
 
 `sync_io_reference_service_core1()` 将采样超时作为可恢复状态：异步中止并排空旧窗口，保留 lease/generation 后重试，直到完整新窗口有效才清除 TIMEOUT。地址、token、序号或 DMA/时钟故障仍终止；取消在退休确认后释放资源。完整记录先检结构，再判 deadline，未超时才做计数求值，避免失联拉长窗口被误判为永久坏记录。
 
-补偿由独立的 `DISCipline` 意图启用，STOP 配置且上电关闭。`vdc_reference_discipline.inc` 在 Core1 committed-model 提交边界消费新鲜硬件窗口，按会话、参考代际、角色、时钟和主板 origin epoch 去重绑定。`DISCipline:CONFigure` 配置调频斜率、滤波分母及测量准入限幅，默认值见 `PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_*`；`DEFAult/RECall/STORe` 分别恢复默认、读取保存值及显式保存。配置仅在 STOP 且补偿未启用时修改，ARM 锁存；`CONFigure?` 读请求参数，`ACTive?` 读 Core1 锁存参数、代次和 CRC。Flash 仍经 Core0 停态维护与 FlashTransaction，旧记录仅在 RAM 迁移，上电不自动启用。Domain 将绝对参考基线与 MASTER PI 残差分开，再合成实际速率；更新时连续重基，不调整 TIMER0/TIMER1 原始计数器。失联或取消冻结最后基线，新的运行配置重建模型；从板继续跟踪 NO1 已提交时间戳。此实现不提升 formal quality，实板精度和失联恢复按 TODO 分别验收。
+补偿由独立的 `DISCipline` 意图启用，STOP 配置且上电关闭。`vdc_reference_discipline.inc` 在 Core1 committed-model 提交边界消费新鲜硬件窗口，按会话、参考代际、角色、时钟和主板 origin epoch 去重绑定。`DISCipline:CONFigure` 配置调频斜率、滤波分母及测量准入限幅，默认值见 `PRODUCT_CONFIG_VDC_REFERENCE_DISCIPLINE_DEFAULT_*`；`DEFAult/RECall/STORe` 分别恢复默认、读取保存值及显式保存。配置仅在 STOP 且补偿未启用时修改，ARM 锁存；`CONFigure?` 读请求参数，`ACTive?` 读 Core1 锁存参数、代次和 CRC。Flash 仍经 Core0 停态维护与 FlashTransaction，旧记录仅在 RAM 迁移，上电不自动启用。Domain 将绝对参考基线与 MASTER PI 残差分开，再合成实际速率；更新时连续重基，不调整 TIMER0/TIMER1 原始计数器。失联或取消冻结最后基线，新的运行配置重建模型；从板继续跟踪 Node 1 已提交时间戳。此实现不提升 formal quality，实板精度和失联恢复按 TODO 分别验收。
 
 已绑定会话失去有效窗口时，外参补偿进入 `VDC_REFERENCE_DISCIPLINE_HOLD`，冻结最后基线、清除滤波历史；恢复后的新鲜窗口只获得正常单窗口调频预算，不累计失联期间的调整额度。此 HOLD 不等同于 Domain 的正式 HOLDOVER，也不自动提升 quality；实板超时重试、显式重启和物理断接后同会话恢复须分别留证。
 

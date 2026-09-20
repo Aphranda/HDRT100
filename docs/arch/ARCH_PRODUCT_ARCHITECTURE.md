@@ -16,15 +16,15 @@ Last updated: 2026-09-06
 |---|---|---|
 | 系统/项目名 | `Distributed Hard Real-Time Trigger System` | 文档、架构和产品化系统总称。 |
 | 架构名 | `HAOFV Architecture` | 软件架构方法和 owner/layer/vector 约束。 |
-| 当前设备型号 | `DHRT100` | SCPI `*IDN?`、铭牌、设备枚举和产品型号。 |
+| 当前设备型号 | `DHRT` | SCPI `*IDN?`、铭牌、设备枚举和产品型号。 |
 | 当前硬件平台 | `RP2350 / RP2350B` | MCU、PIO/DMA/IRQ、板级硬件约束和网表。 |
-| 历史工程名 | `RP2350_TRIG` | 现有仓库、构建产物、脚本和历史验证记录，后续单独迁移。 |
+| 历史工程名 | `RP2350` | 现有仓库、构建产物、脚本和历史验证记录，后续单独迁移。 |
 
-因此，架构文档优先使用系统/项目名；涉及设备对外识别时保留 `DHRT100`；涉及芯片、PIO、DMA、Flash/XIP 和 IO 约束时保留 `RP2350 / RP2350B`；涉及现有 UF2/bin/pkg 名称和历史日志时保留 `RP2350_TRIG`。
+因此，架构文档优先使用系统/项目名；涉及设备对外识别时保留 `DHRT`；涉及芯片、PIO、DMA、Flash/XIP 和 IO 约束时保留 `RP2350 / RP2350B`；涉及现有 UF2/bin/pkg 名称和历史日志时保留 `RP2350`。
 
 ## 产品定位
 
-Distributed Hard Real-Time Trigger System 是面向相控阵/多设备同步测试的分布式硬实时触发系统。产品化目标不是单板脉冲工具，而是一套可由同一硬件配置成 A0/A1/A2/A3 角色的多节点协同系统：
+Distributed Hard Real-Time Trigger System 是面向多设备同步测试的分布式硬实时触发系统。产品化目标不是单板脉冲工具，而是一套可由同一硬件配置成 A0/A1/A2/A3 角色的多节点协同系统：
 
 | 角色 | 产品职责 |
 |---|---|

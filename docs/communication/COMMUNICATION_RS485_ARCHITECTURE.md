@@ -6,7 +6,7 @@ Canonical: `docs/communication/COMMUNICATION_RS485_ARCHITECTURE.md`
 Related: `docs/communication/COMMUNICATION_RS485_TODO.md`, `docs/communication/COMMUNICATION_RS485_TASK_PROGRESS.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/interface/SCPI_COMMANDS.md`
 Last updated: 2026-08-25
 
-本文定义 DHRT100 的 RS485 半双工通信边界和后续 OTA 联调入口。它只冻结 owner、生命周期和
+本文定义 DHRT 的 RS485 半双工通信边界和后续 OTA 联调入口。它只冻结 owner、生命周期和
 fail-closed 原则；波特率、引脚、收发器 DE/RE 时序等板级数值必须来自实际 board 配置或硬件
 评审，不能在本文中猜测。
 
@@ -18,8 +18,8 @@ fail-closed 原则；波特率、引脚、收发器 DE/RE 时序等板级数值�
   不直接调用 Flash erase/program，也不绕过 `FlashTransactionAO`。
 - TDMA、BiSS-C 和 SYNC_IO 的实时 owner 不迁移到 RS485。需要实时确定性的业务必须经相应域
   的 mailbox/traffic scheduler 申请资源。
-- COM11 是当前外部 RS485 通讯器的主机端口标签，不是产品身份；板卡身份始终由 `*IDN?`
-  返回的 DHRT100 identity 确认。
+- COMx 是当前外部 RS485 通讯器的主机端口标签，不是产品身份；板卡身份始终由 `*IDN?`
+  返回的 DHRT identity 确认。
 - RS485/UART# 的维护协议由 USB 上的 SCPI 配置：`COMMunication:SERial:UART#:MODE SCPI`
   或 `MODE MODBUS`。默认保持 SCPI 兼容；选择 `MODBUS` 后才允许 Modbus RTU adapter 接管
   RS485 数据面，不能靠总线上的业务帧隐式切换。
@@ -66,9 +66,9 @@ RS485 UART/DMA + DE/RE owner
 
 1. Host：frame codec、CRC、重传/重复/乱序、半双工 ACK 和 serial lifecycle。
 2. Build：RS485 adapter 不引入 raw Flash caller，V2 构建保持 Direct A/B 和 FlashMap gate。
-3. DHRT100：使用确认身份的板卡验证 `*IDN?`、通信状态、短帧 loopback、stream OPEN/DATA/
+3. DHRT：使用确认身份的板卡验证 `*IDN?`、通信状态、短帧 loopback、stream OPEN/DATA/
    CLOSE、durable ACK、abort/restart 和错误队列。
-4. COM11 联调：仅作为当前 RS485 通讯器端口；脚本必须显式打开、清空、收尾并输出原始 transcript。
+4. COMx 联调：仅作为当前 RS485 通讯器端口；脚本必须显式打开、清空、收尾并输出原始 transcript。
 
 在 host/build/板端证据和独立 C11 审核齐全前，不将 `ARCH-OTASTREAM-01` 或任何 RS485
 实现契约从 `pending` 改为 `active`。

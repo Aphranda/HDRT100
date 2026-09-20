@@ -6,7 +6,7 @@ Canonical: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`
 Last updated: 2026-09-06
 
-本文档是 RP2350_TRIG 板载 QSPI Flash 的跨域 canonical。它定义 FlashMap、App/Boot writer、
+本文档是 RP2350 板载 QSPI Flash 的跨域 canonical。它定义 FlashMap、App/Boot writer、
 掉电事务、Boot/Direct A/B、OTA、关键配置、Calibration、VDC、System Pack、RefMem package、
 故障事件和动态 PIO catalog 的边界。实施顺序、任务状态和完成证据统一在
 `docs/arch/HAOFV_FLASH_TODO.md` 跟踪。
@@ -438,9 +438,9 @@ release 固件不提供任意 offset erase/program。validation destructive comm
 | Wear | sector rotation、GC、write frequency、温度 policy 和最后有效记录。 |
 | Release | image signature、anti-rollback、factory/recovery artifact、SBOM/key policy 和报告齐全。 |
 
-只有 host test、build/link gate 和相应 DHRT100/两板/四板 HIL 都具备证据，registry 契约才可从
-`pending` 进入 `active`。状态变化必须另做 C11 交叉审核。M4 的系统对象名为 `DHRT100`；`COM8`
-仅表示当前物理验证端口，不能作为产品或系统名称；历史 `RP2350_TRIG_*` 构建产物名保留到回退
+只有 host test、build/link gate 和相应 DHRT/两板/四板 HIL 都具备证据，registry 契约才可从
+`pending` 进入 `active`。状态变化必须另做 C11 交叉审核。M4 的系统对象名为 `DHRT`；`COMx`
+仅表示当前物理验证端口，不能作为产品或系统名称；历史 `RP2350_*` 构建产物名保留到回退
 迁移完成。
 
 ## 九、迁移与发布边界
