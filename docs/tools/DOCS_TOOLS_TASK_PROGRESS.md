@@ -12,6 +12,18 @@ Last updated: 2026-09-20
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260920-006：联合采样 outer 生命周期迁入 tracked workflow
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-LIFECYCLE-001。
+- 新增 `tools/workflows/vdc_joint_capture/lifecycle.py`，接管父进程四板 UID→动态 COM 映射、串口 session、output/TDMA 双 STOP、identity/build/board order、RAM timing/delay 临时应用、child 日志与 timeout、最终恢复/读回和逐板关闭。联合入口 outer 分支不再 import adapter 或经 `base.external.base.trial.hil` 取得历史 runner；adapter 仅在已准入的 child 分支导入。
+- 生命周期只迁入本工作流实际调用面，不带入历史 Flash STORE/reboot HIL。`scpi_serial.SerialSession` 新增向后兼容的实例级 response matcher，识别 timing 三元组及 signed delay，不再靠历史模块全局 monkey patch。报告保留 `DPLL_RAM_TIMING_TRIAL_V1`、`basis_script_sha256` 和原结果字段，新增 lifecycle version/source 及 restore detail。
+- 安全语义：所有可达板收到两类 STOP 后才允许首个 query；RAM timing 与 delay 分别保持 dirty/uncertain，只有最终逐板 STOP、identity、PI/role/baseline、timing/delay 和 error queue 全过才清除。device-free 用例覆盖 child/restore/final drift/open/close/真实 subprocess timeout 等失败路径；独立复核在报告兼容、登记副作用和 restore false-negative 修复后最终 PASS。
+- 软件验证快照，非事实源：最终组合回归 312 passed / 1 skipped，跳过项为 Windows 无符号链接权限；lifecycle/joint/TDMA 定向 146 passed。共享 SCPI 宽回归 521 / 522 passed，唯一失败是未修改的 `test_trn03_closed_loop.py` 对未修改 `application/src/app.c` 的既有文本断言，本批不把它改写为通过。工具登记/catalog、编译、source length 与 whitespace 检查通过。
+- 硬件验收快照，非事实源：build `20260920094117` 的 scope-off 四板 P3 为 PASS_WITH_WARNINGS（INFO 23 / WARN 22 / ERROR 0 / FATAL 0），DPLL 按 tdma-only 范围 SKIPPED；原件在 `out/HardwareAcceptance/20260920/tools-workflow-lifecycle-r1/p3-r1/`，staged receipt 与实现指纹一致。
+- 首次实测 `joint-scope-off-r1` 保留 FAIL：NO1 并行 START 在原 action timeout 内返回 `<timeout>`，其余三板 OK；child 按既有规则 STOP，NO1 留下 `-200`，outer 记录 child 和 restore error，随后 final readback 证明四板 timing/delay 已恢复且 `restore_needed=[]`，失败未被覆盖。
+- 同源码/凭证有界复验 `joint-scope-off-r2` PASS：九个 outer stage 全过，父报告 lifecycle SHA 与源码一致，四板 initial/final timing 和 delay 精确相同；child internal health 与 joint verdict 通过，RUN 内板端查询为零，external 为 SKIPPED，未创建 scope/sample 目录，errors / cleanup_errors / restore_needed 均为空。原件位于同任务目录。
+- 实现提交 `f37c5fa0`；TOOLS-WORKFLOW-LIFECYCLE-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一步迁移不依赖示波器的 child Probe/基础 adapter；历史 outer 文件因 child 祖先仍 import 而暂留 manifest closure，不删除原件或提前宣称全链解除。
+
 ### TOOLS-PROGRESS-20260920-005：internal-seal 工作流输入显式化
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-INPUTS-001。

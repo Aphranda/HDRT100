@@ -24,6 +24,7 @@ Last updated: 2026-09-20
 | 登记结构 | 根目录 `tools/tool_registry.schema.json`；字段与版本检查。 |
 | 使用导航 | 根目录 `tools/README.md`；目录部分从登记生成，操作说明留在工具自身 README，不人工维护重复状态。 |
 | 工作流输入 | `config/tool_workflows/`；步骤、输入、资源、固定判据、检查点及失败恢复。internal-seal 联合采样已落地首份受版本控制的输入清单，其他场景仍须分别登记。 |
+| 工作流生命周期 | `tools/workflows/<workflow>/` 中的 tracked owner；父流程负责设备会话、STOP barrier、子进程、恢复及结果汇总。VDC joint outer 生命周期已迁入，child Probe/adapter 仍按清单逐批收敛。 |
 | 执行证据 | `out/` 下独立运行目录；原始数据、日志、实际配置、指纹和结果，不能反向成为正式工具的代码依赖。 |
 
 ## TG-LAYOUT：目录规划与增量迁移
@@ -94,6 +95,8 @@ Last updated: 2026-09-20
 正式支持的入口不得执行或导入 `out/` 中的代码。历史证据可作为显式输入，须声明来源、哈希、获取方式及缺失时行为。实验适配器成为正式工作流依赖前，应纳入版本管理并验证。输入证据与可执行插件必须分开处理。
 
 迁移期间仍需执行历史 adapter 时，入口必须在首次动态 import 和硬件访问前核验该场景的完整可执行闭包，而不是只核验最外层脚本；受 Git 跟踪的依赖继续由同指纹 P3 覆盖。baseline 等数据输入同时校验摘要和实际消费字段，receipt 同时校验 schema、证据引用、源码指纹和设备顺序。父子流程在 `run()` 前分别持久化本次清单与摘要，使启动、配置或清理早期失败仍可回溯准入输入。
+
+outer 生命周期不得通过 adapter 的多层属性链取得串口 backend 或恢复 runner。它使用实例级响应匹配器，先向所有可达板发送 output STOP 和 TDMA STOP，再进行任何查询；临时 RAM timing/delay 的 dirty/uncertain 状态只在最终逐板 identity、invariant、读回与错误队列全部通过后清除。报告保留兼容 schema 并另记 lifecycle 版本和源摘要。此流程不写 Flash、不 reboot、不因 child 成功而省略 STOP/恢复。
 
 ## TG-LIFECYCLE：生命周期与迁移
 
