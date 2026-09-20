@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import _imp
 from fractions import Fraction
 import hashlib
-import importlib.util
 import math
 from pathlib import Path
-import sys
 import time
 from types import SimpleNamespace
 
-from tools.domains.vdc.priority_trace import probe_support as tracked_probe_support
+from tools.workflows.vdc_joint_capture.trace import load_trace
 
 
 THRESHOLDS = (1_000_000_000, 1_500_000_000, 1_800_000_000,
@@ -160,31 +157,10 @@ def check_last_projection(follower, status):
     }
 
 
-def _load_parent(path: Path):
-    spec = importlib.util.spec_from_file_location("vdc_joint_trace_base", path)
-    if spec is None or spec.loader is None:
-        raise ValueError("Historical trace entrypoint cannot be loaded")
-    module = importlib.util.module_from_spec(spec)
-    missing = object()
-    _imp.acquire_lock()
-    previous = sys.modules.get("probe_support", missing)
-    try:
-        sys.modules["probe_support"] = tracked_probe_support
-        try:
-            spec.loader.exec_module(module)
-            return module
-        finally:
-            if previous is missing:
-                sys.modules.pop("probe_support", None)
-            else:
-                sys.modules["probe_support"] = previous
-    finally:
-        _imp.release_lock()
-
-
 def load_longwindow(runtime_entrypoint: Path, *, runtime_module=None):
     """Build the tracked long-window layer over an admitted TraceProbe module."""
-    parent = runtime_module if runtime_module is not None else _load_parent(runtime_entrypoint)
+    parent = (runtime_module if runtime_module is not None else
+              load_trace(runtime_entrypoint))
     if not hasattr(parent, "TraceProbe") or not hasattr(parent, "follow"):
         raise ValueError("Historical trace entrypoint lacks TraceProbe/follow")
     source = Path(__file__).resolve()

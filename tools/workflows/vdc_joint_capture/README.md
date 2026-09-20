@@ -23,6 +23,10 @@ lineage evidence and is not executed.
 decision-window oracle, and final correlated projection check. It loads only
 the next manifest-pinned native trace ancestor; the archived long-window source
 remains lineage evidence and is not executed.
+`trace.py` owns trace status/ACK polling, follower trace ARM, STOP/download/decode,
+coverage and last-decision consistency, and release/retain recovery. It loads
+only the next manifest-pinned follow ancestor; the archived trace source remains
+lineage evidence and is not executed.
 
 The CLI remains `tools/vdc_priority_trace/vdc_priority_joint_capture.py`. Its
 `--workflow-inputs` JSON fixes the scenario, board UID order, the complete

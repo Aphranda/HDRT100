@@ -16,15 +16,16 @@
         {"path": "tools/workflows/vdc_joint_capture/phase.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/run_output.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/runtime_base.py", "role": "module"},
+        {"path": "tools/workflows/vdc_joint_capture/trace.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/README.md", "role": "documentation"}
       ],
       "depends_on": ["TOOL-SCPI-COMMON", "TOOL-TDMA-RING-MONITOR", "TOOL-VDC-PROBE-SUPPORT"],
       "external_dependencies": ["pyserial for four-board hardware runs"],
       "dependency_review": "COMPLETE",
       "aliases": [],
-      "validation": ["tests/python/test_vdc_priority_joint_capture.py", "tests/python/test_vdc_joint_lifecycle.py", "tests/python/test_vdc_internal_seal.py", "tests/python/test_vdc_joint_runtime_base.py", "tests/python/test_vdc_joint_run_output.py", "tests/python/test_vdc_joint_phase.py", "tests/python/test_vdc_joint_longwindow.py", "tests/python/test_vdc_probe_support.py"],
+      "validation": ["tests/python/test_vdc_priority_joint_capture.py", "tests/python/test_vdc_joint_lifecycle.py", "tests/python/test_vdc_internal_seal.py", "tests/python/test_vdc_joint_runtime_base.py", "tests/python/test_vdc_joint_run_output.py", "tests/python/test_vdc_joint_phase.py", "tests/python/test_vdc_joint_longwindow.py", "tests/python/test_vdc_joint_trace.py", "tests/python/test_vdc_probe_support.py"],
       "handoff_evidence": null,
-      "notes": "Validates config/tool_workflows/vdc_joint_capture_internal_seal.json before import; tracked code owns outer STOP/RAM/child/restore, summary/startup/seal, runtime control/START, RUN output, phase, and long-window layers. The remaining seven-file trace/follow/match ancestry stays pinned. No Flash writes; vector/reference-injection scenarios remain separate."
+      "notes": "Validates config/tool_workflows/vdc_joint_capture_internal_seal.json before import; tracked code owns outer STOP/RAM/child/restore, summary/startup/seal, runtime control/START, RUN output, phase, long-window, and native trace layers. The remaining six-file follow/match ancestry stays pinned. No Flash writes; vector/reference-injection scenarios remain separate."
     },
     {
       "id": "TOOL-VDC-PROBE-SUPPORT",
@@ -3272,7 +3273,7 @@
       "aliases": [],
       "validation": [],
       "handoff_evidence": null,
-      "notes": "Joint capture keeps the archived internal-seal path as a compatibility selector; tracked code owns outer lifecycle, summary/startup/seal, monitor control, parallel START, RUN output, phase, long-window and pure probe support. Historical baselines and the remaining seven-file trace/follow/match ancestry remain explicit handoff debt. Do not assume vector fault-injection adapter is normal capture."
+      "notes": "Joint capture keeps the archived internal-seal path as a compatibility selector; tracked code owns outer lifecycle, summary/startup/seal, monitor control, parallel START, RUN output, phase, long-window, native trace and pure probe support. Historical baselines and the remaining six-file follow/match ancestry remain explicit handoff debt. Do not assume vector fault-injection adapter is normal capture."
     },
     {
       "id": "TOOL-VDC-SYNC-METROLOGY",
