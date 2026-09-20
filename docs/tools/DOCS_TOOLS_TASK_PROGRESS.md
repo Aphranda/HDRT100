@@ -12,6 +12,17 @@ Last updated: 2026-09-20
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260920-007：child internal summary / startup / seal 三层迁移
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-SEAL-001。
+- 新增 `tools/workflows/vdc_joint_capture/internal_seal.py`，在 tracked factory 中重建 internal summary trace、可选 pre-START MODEL 省略和 sealed GUARD/parser/verdict 三层；联合 child 只从 manifest 的 `runtime_entrypoint` 加载下一层，不再 exec archived compatibility selector。V2 manifest 用固定角色 `internal_seal / quiet_startup / internal_summary` 保存三份原件路径/SHA，compatibility selector 必须绑定 internal_seal；三份 migrated source 与 runtime closure 不得重叠，out 动态执行闭包由 20 降至 17。
+- 软件与等价性证据：tracked fake-runtime characterization 实际构造 SealProbe，覆盖四板 summary arm/parser 注册、optional MODEL 不发送、SUMMARY→GUARD 与 expiry 命令改写、quiet parallel START、STOP collect gate、cleanup 后资格重算；最终组合回归 321 passed / 1 skipped，跳过项为 Windows 无符号链接权限。frozen golden 使用上一批通过的四板 native SRAM 和 RUN raw，对 archived/tracked parser 及 `evaluate_board` 逐字段比较，四板全相等且 PASS；原件在 `out/tools-governance/20260920/internal-seal-r1/`。
+- 独立审查先后发现并推动修复：golden 路径核对、固定 lineage 角色、compatibility selector 与 internal_seal 强绑定、真实 tracked 类 characterization、GUARD parser 表直接断言及 registry 债务措辞。最终复核 PASS，无剩余 finding；工具登记/catalog、编译、source length 和 whitespace 检查通过。
+- P3 失败与复验，快照非事实源：修复前指纹 `p3-r1` 在 TRN-00 MARK 未形成完整 selected offset row 时拒绝，原件保留且不改写；最终 build `20260920105121` 的 `p3-r2` 为 PASS_WITH_WARNINGS（INFO 25 / WARN 21 / ERROR 0 / FATAL 0），DPLL 按 tdma-only 范围 SKIPPED，staged receipt 同指纹。
+- 最终 scope-off 实测 `joint-scope-off-r1` outer/inner PASS：V2 manifest 在 child 报告中记录固定三角色和 17-file runtime closure，tracked adapter SHA 与源码一致，internal health 通过、external SKIPPED、RUN 内板端查询为零，未创建 scope/sample 目录；四板 timing/delay 恢复，errors / cleanup_errors / restore_needed 均为空。
+- 示波器恢复后补 scope-on 组合实测 `joint-scope-on-r1` outer/inner PASS：12 个新鲜窗口、48 RAW 块、steady qualification 通过，最大绝对相差 47.929 ns（快照）；RUN 内板端查询为零，四板 timing/delay 恢复，errors / cleanup_errors / restore_needed 均为空。scope 证据不授予未采区间连续锁相或精确事件对应资格。硬件原件均在 `out/HardwareAcceptance/20260920/tools-internal-seal-r1/`。
+- 实现提交 `8a53402c`；TOOLS-WORKFLOW-SEAL-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一批迁移 `monitor_external`、startup 和 RunProbe 的更深基础链；17 份 runtime 原件继续按 SHA 准入，旧三份 migrated source 原位归档，不删除。
+
 ### TOOLS-PROGRESS-20260920-006：联合采样 outer 生命周期迁入 tracked workflow
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-LIFECYCLE-001。

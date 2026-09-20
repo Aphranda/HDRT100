@@ -98,6 +98,8 @@ Last updated: 2026-09-20
 
 outer 生命周期不得通过 adapter 的多层属性链取得串口 backend 或恢复 runner。它使用实例级响应匹配器，先向所有可达板发送 output STOP 和 TDMA STOP，再进行任何查询；临时 RAM timing/delay 的 dirty/uncertain 状态只在最终逐板 identity、invariant、读回与错误队列全部通过后清除。报告保留兼容 schema 并另记 lifecycle 版本和源摘要。此流程不写 Flash、不 reboot、不因 child 成功而省略 STOP/恢复。
 
+child adapter 的逐层迁移使用固定角色 lineage：兼容 selector 只可指向 archived internal-seal 原件；已迁移 source 继续按角色、路径和 SHA 保留，但不得留在 runtime closure。tracked adapter 从 manifest 指定的下一未迁移入口构造，不能回退执行 compatibility selector。每批用 frozen native bytes 对 archived/tracked parser 与 verdict 做 golden，并对 configure、命令改写、quiet RUN、STOP collect gate 和 cleanup 后重算做直接 characterization。
+
 ## TG-LIFECYCLE：生命周期与迁移
 
 | 状态 | 准入或退出条件 |
