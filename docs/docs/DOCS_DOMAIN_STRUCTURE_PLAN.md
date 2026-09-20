@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation
 Canonical: `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-Last updated: 2026-08-13
+Last updated: 2026-09-20
 
 本文档定义 `docs/` 后续按产品主域整理的目标结构、迁移规则和文档归属。当前阶段不直接移动大批文件，先冻结目录规划、迁移 gate 和索引规则，后续按域小批量迁移。
 
@@ -38,7 +38,8 @@ docs/
   storage/              ; SD、StorageAO、日志、trace、snapshot、报告证据
   ota/                  ; OTA、boot、A/B、回滚、System Pack
   hardware/             ; IO 约束、PCB、网表、BOM、Gerber、硬件评审
-  validation/           ; HIL、工具验证、闭环验证记录和脚本说明
+  tools/                ; 工具身份、依赖、生命周期、治理门禁与交接
+  validation/           ; HIL、验证方法、闭环验证记录和证据说明
   release/              ; 发布门禁、打印/PDF、产品冻结 checklist
   legacy/               ; PinProbe、历史报告、最初版 HTML、外部迁入资料
   archive/              ; 废弃路径说明、旧索引和批量迁移记录
@@ -79,6 +80,7 @@ docs/
 | Sync Action / SYNC_IO Engine | `sync/` | `_DESIGN.md`, `_ANALYSIS.md`, `_TASK_PROGRESS.md` |
 | Measurement Service | `measure/` | `_DESIGN.md`, `_COMMANDS.md`, `_ANALYSIS.md` |
 | Evidence / Report / Snapshot | `storage/` | `_DESIGN.md`, `_PLAYBOOK.md`, `_CHECKLIST.md` |
+| Tools Governance | `tools/` | 独立文档域；`DOCS_TOOLS_ARCHITECTURE.md`, `DOCS_TOOLS_TODO.md`, `DOCS_TOOLS_TASK_PROGRESS.md`；不是固件实时 owner |
 | Access / Permission / Mode Policy | `interface/` 或 `arch/` | `_DESIGN.md`, `_COMMANDS.md` |
 
 ## Canonical 初始归属
@@ -102,6 +104,7 @@ docs/
 | `ota/` | `OTA_SYSTEM_DESIGN.md`, `OTA_TODO.md`, `OTA_AB_SWITCH_DESIGN.md`, `OTA_COPY_TRANSACTION_DESIGN.md` |
 | `hardware/` | `HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`, `HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`, `RP2350B_QFN80_IO_CONSTRAINTS.md`, `hardware/Netlist_CTL-SYNCTRIG4F4-HASL_2026-08-13.tel`, `hardware/Netlist_Schematic1_2026-08-04.tel` |
 | `validation/` | `SCPI_TASK_PROGRESS.md`, `RTOS_HAOFV_TASK_PROGRESS.md`, `BISSC_TASK_PROGRESS.md` 的后续验证索引 |
+| `tools/` | `DOCS_TOOLS_ARCHITECTURE.md`, `DOCS_TOOLS_TODO.md`, `DOCS_TOOLS_TASK_PROGRESS.md`；治理语义、状态、证据分离，根目录 `tools/` 保留实现 |
 | `release/` | `release/RELEASE_CHECKLIST.md`, PDF/打印规则相关文档 |
 | `legacy/` | PinProbe HTML、0614/0804 原始 HTML、最初版 SCPI HTML、外部迁入 PDF |
 
@@ -166,7 +169,7 @@ docs/
 11. 是否是 SD、日志、trace、snapshot、报告证据：放 `storage/`。
 12. 是否是 OTA、boot、A/B、回滚、System Pack：放 `ota/`。
 13. 是否是 PCB、网表、IO 约束、BOM/Gerber：放 `hardware/`。
-14. 是否是验证流程、HIL 工具、任务进度和闭环记录：放 `validation/`。
+14. 是否是验证方法、HIL 流程和闭环记录：放 `validation/`；工具身份、登记、依赖、生命周期、运行接口和交接治理放 `tools/`，业务资格判据仍归原业务域。
 15. 是否是发布、打印、PDF、冻结检查：放 `release/`。
 16. 是否是历史资料或外部迁入原文：放 `legacy/` 或 `archive/`。
 
@@ -202,6 +205,7 @@ Distributed Hard Real-Time Trigger System
 ├─ 5. 硬件、验证和发布
 │  ├─ hardware/ 最小系统约束、产品板约束、最新网表与 IO 约束
 │  ├─ validation/*_TASK_PROGRESS.md
+│  ├─ tools/DOCS_TOOLS_ARCHITECTURE.md、DOCS_TOOLS_TODO.md、DOCS_TOOLS_TASK_PROGRESS.md
 │  └─ release/RELEASE_CHECKLIST.md
 └─ 6. 历史和外部参考
    ├─ legacy/PinProbe*

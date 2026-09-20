@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -36,7 +36,8 @@ docs/
   storage/        SD、StorageAO、日志、trace、snapshot、报告证据
   ota/            OTA、boot、A/B、回滚、System Pack
   hardware/       IO 约束、PCB、网表、BOM、Gerber、硬件评审
-  validation/     HIL、工具验证、闭环验证记录和脚本说明
+  tools/          工具治理、登记、依赖、生命周期与交接
+  validation/     HIL、验证方法、闭环验证记录和证据说明
   state_machine/  PIO SM、DMA/FIFO、上下行资源和底层实时状态机
   release/        发布门禁、打印/PDF、产品冻结 checklist
   reports/        当前产品 HTML/PDF 输出、打印和交付件
@@ -67,7 +68,8 @@ docs/
 | `storage/` | `storage/README.md` | SD、StorageAO、日志、trace、snapshot 和报告证据 |
 | `ota/` | `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA HAOFV、boot、A/B、回滚和 System Pack |
 | `hardware/` | `hardware/README.md` | IO 约束、PCB、网表、BOM、Gerber 和硬件评审 |
-| `validation/` | `validation/README.md` | HIL、工具验证、任务进度和闭环验证记录 |
+| `tools/` | `tools/DOCS_TOOLS_ARCHITECTURE.md` | 工具治理三件套：身份、依赖、生命周期、验证与交接；实现仍位于根目录 tools/ |
+| `validation/` | `validation/README.md` | HIL、验证方法、任务进度和闭环验证记录 |
 | `state_machine/` | `state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md` | PIO SM、DMA/FIFO、上下行资源和底层实时状态机 |
 | `watchdog/` | `watchdog/README.md` | 硬件 watchdog、健康监督、复位证据和故障注入 |
 | `release/` | `release/README.md` | 发布门禁、打印/PDF、产品冻结 checklist |
@@ -81,6 +83,7 @@ docs/
 | 领域 | 当前 canonical 主文档 | 说明 |
 |---|---|---|
 | EVALUATION | `evaluation/PRODUCT_VALUE_EVALUATION.md` | 项目价值评估 canonical：开源/商业/学术三维评估单链结论；行动追踪见 `evaluation/PRODUCT_VALUE_TRACKING_TODO.md`。 |
+| TOOLS | `tools/DOCS_TOOLS_ARCHITECTURE.md` | 工具域治理草案，定义工具、组件、工作流、证据及交接边界；自动化尚待实施。 |
 | ARCH/HAOFV | `arch/HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口，定义组件约束、层次逻辑、Vector/Blackboard 和约束传递。 |
 | ARCH/FLASH | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 16 MiB 板载 Flash、Boot/Direct A/B、NVS/blob/FCB、统一 OTA stream 和 TDMA OTA 跨域 canonical。 |
 | ARCH/T2 | `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | T2 预约与分布式时钟分发跨域主线，定义训练、VDC 映射、flight 分发、fence、本地执行和 completion。 |
@@ -119,10 +122,13 @@ docs/
 | OTA | `ota/OTA_TASK_PROGRESS.md` | OTA 代码、构建、A/B HIL、失败与回退证据。 |
 | WATCHDOG | `watchdog/ARCH_WATCHDOG_TODO.md` | Watchdog 子域任务、故障注入、五板 P3 和 OTA/reset/commit 验收写入本文件。 |
 | WATCHDOG | `watchdog/ARCH_WATCHDOG_TASK_PROGRESS.md` | Watchdog 构建、测试、P3、五板 OTA 和失败证据写入本文件。 |
+| TOOLS | `tools/DOCS_TOOLS_TASK_PROGRESS.md` | 工具盘点、依赖收敛、门禁与交接复现证据；状态见 `tools/DOCS_TOOLS_TODO.md`。 |
 | 其他领域 | 新建或补齐 `<DOMAIN>_TASK_PROGRESS.md` | 后续新闭环记录优先建立领域进度文件，不再追加到全局历史文件。 |
 | 全局历史 | `TASK_PROGRESS.md` | 只保留跨域历史和迁移前记录；除跨域总览外不再作为默认新任务入口。 |
 
 ## 00 文档治理
+
+工具域入口：[治理架构](tools/DOCS_TOOLS_ARCHITECTURE.md)、[实施待办](tools/DOCS_TOOLS_TODO.md)、[任务进度](tools/DOCS_TOOLS_TASK_PROGRESS.md)。工具治理归 `docs/tools/`，通用文档体系仍归 `docs/check/` 与 `docs/docs/`。
 
 | 文件 | 定位 |
 |---|---|
