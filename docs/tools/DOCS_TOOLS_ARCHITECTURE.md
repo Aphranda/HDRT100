@@ -116,7 +116,9 @@ local follow 层由 tracked workflow 管理 signed/wide status 解码、独立 f
 
 observer snapshot 层由 tracked workflow 提供 all-board STOP 后的四板 TDMA event snapshot-before-parent-collect 语义。internal-seal 的 summary collect 由更上层 tracked owner 接管，不调用此深层 collect；因此 P3 只证明 tracked observer 进入实际 MRO/provenance 且联合流程无回归，standalone snapshot 顺序由直接 characterization 证明，不把未发送的 snapshot 查询写成硬件证据。历史 observer wrapper 只保留为 migrated lineage，并委托 tracked exact-match 层。
 
-exact-match 层由 tracked workflow 管理 match status 解码、按已装载 path matrix 独立重建有向 delay、可选 TAP 安装/恢复、三个 follower 的 MATCH/session 启用读回，以及 STOP 后 origin、match、model、event、TAP 和 recovery 证据采集。parent transport assessment 失败仍须记录并继续逐 follower 核验；单 follower 的 identity/path/interval 错误不得阻断其他 follower。internal-seal 不调用此深层 collect，因此 P3 证明 tracked match 进入实际 MRO/provenance 和联合流程无回归，standalone TAP/MATCH/collect 语义由直接 characterization 与冻结 golden 证明。历史 match 原件只保留为 migrated lineage，下一层 direct-RX ancestry 仍由 manifest 固定路径和 SHA 准入。
+exact-match 层由 tracked workflow 管理 match status 解码、按已装载 path matrix 独立重建有向 delay、可选 TAP 安装/恢复、三个 follower 的 MATCH/session 启用读回，以及 STOP 后 origin、match、model、event、TAP 和 recovery 证据采集。parent transport assessment 失败仍须记录并继续逐 follower 核验；单 follower 的 identity/path/interval 错误不得阻断其他 follower。internal-seal 不调用此深层 collect，因此 P3 证明 tracked match 进入实际 MRO/provenance 和联合流程无回归，standalone TAP/MATCH/collect 语义由直接 characterization 与冻结 golden 证明。历史 match 原件只保留为 migrated lineage，并委托 tracked direct-RX 层。
+
+direct-RX 层由 tracked workflow 管理 direct/lane/timing/budget 解码、冻结 timing baseline 的独立差分、retained transport header 与 mailbox 的 CRC/identity/payload 核验，以及 direct、master 和较慢 polled consumer 之间的 event 比较。四板 STOP 后先持久化所有原始 snapshot，再逐 follower assessment；单 follower 的 parser、计数、header、mailbox 或 payload 错误不得阻断其他 follower。不同 identity 的最终 retained event 不视为损坏，同 identity 的 payload 不一致必须拒绝。历史 direct-RX 原件只保留为 migrated lineage，下一层 typed-TX ancestry 仍由 manifest 固定路径和 SHA 准入。
 
 ## TG-LIFECYCLE：生命周期与迁移
 

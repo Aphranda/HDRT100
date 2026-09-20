@@ -12,6 +12,15 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-019：child direct-RX 层迁移
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-DIRECT-001。
+- 新增 `tools/workflows/vdc_joint_capture/direct.py`，从 manifest 指定的 typed-TX 入口构造 tracked DirectProbe，接管 direct/lane/timing/budget parser、冻结 baseline 差分、retained header/mailbox CRC 与 identity/payload 核验，以及 direct、master 和 polled consumer 的 event 比较。STOP 后先逐项保存四板原始 snapshot，再隔离执行三个 follower assessment；同 identity 的 payload mismatch 必须拒绝，不同 identity 的 retained event 仅记录 disposition。
+- V12 manifest 将 archived `capture_direct_rx.py` 固定为 `direct_rx` migrated role，runtime entrypoint 下沉到 `capture_typed_tx.py`；动态 out closure 快照从 3 降到 2。fresh-process actual=declared=2，missing / declared-not-loaded / migrated_loaded 全为空；实际 provenance 中 archived direct 为零、tracked direct 唯一，旧原件不删除。
+- 软件与独立审查：冻结 `native-r1/input-probe.json` 的四板 direct/lane/timing/budget、retained header 与 event comparison 对 archived/tracked 逐字段全等；characterization 覆盖 STOP gate、baseline、retained/polled 成功路径、sequence/transport CRC/packet CRC/schedule/profile/mailbox CRC、same-identity payload mismatch、different identity 和单 follower 隔离。宽组合 2045 passed / 1 skipped（快照），跳过项仅为 Windows 无符号链接权限；补测后聚焦回归 54 passed，工具治理/catalog、编译、source length 和 whitespace 检查通过。独立复核先给出 CRC/event 负测覆盖备注，补齐后最终 PASS，无剩余 finding。
+- 同指纹四板 P3 首次 `tools-direct-r1/p3-r1` 在 P0T 邻接准备时出现 STOP ACK 未确认及 `rx_frames=0` / `magic_fail=106`，未进入本批 child，失败原件保留。新目录重跑 `p3-r2` 使用 build `20260920171028`，结果 PASS_WITH_WARNINGS（快照：INFO 32 / WARN 22 / ERROR 0 / FATAL 0）；V12 报告记录 18 migrated / 2 runtime，tracked direct/match 在实际 provenance 中唯一。DPLL 60 s scope-on outer/inner/joint 通过，12 份 scope record、48 个 RAW block，外部最大绝对相差 47.959 ns；三个内部 endpoint 最大绝对残差 102 ns，按实现门限为 WARN、未达 ERROR（快照）。errors / cleanup_errors / restore_needed 均为空，`check-staged` 通过。internal-seal 不调用深层 DirectProbe.collect，standalone 语义由直接测试证明。原件位于 `out/HardwareAcceptance/20260921/tools-direct-r1/p3-r1..r2/`。
+- 实现提交 `6b883073`；TOOLS-WORKFLOW-DIRECT-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一批迁移 typed/base 剩余祖先，继续保留 archived 原件和失败证据。
+
 ### TOOLS-PROGRESS-20260921-018：child exact-match 层迁移
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-MATCH-001。
