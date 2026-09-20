@@ -4,7 +4,7 @@ Status: Draft
 Domain: Tools
 Canonical: `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`
 Related: `docs/tools/DOCS_TOOLS_TODO.md`, `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`, `tools/README.md`
-Last updated: 2026-09-20
+Last updated: 2026-09-21
 
 ## 文档接口与范围
 
@@ -109,6 +109,8 @@ RUN output 层由 tracked workflow 唯一管理 timing snapshot/apply、RUN prep
 phase 层由 tracked workflow 管理 phase status 解码、phase/origin trace ARM、STOP 后 native trace 下载/解码、phase/frequency endpoint 一致性和 trace release。只有完整读取的 trace 才允许 release；下载/解码失败的 trace 必须保留用于恢复，endpoint 或 release 错误必须进入最终 errors 并压低 passed。历史 phase 原件只保留为 migrated lineage，下一层 long-window ancestry 仍由 manifest 固定路径和 SHA 准入。
 
 long-window 层由 tracked workflow 管理反向四板 START、临时 origin trial、有限静默窗口、rational secant 向外取整、同 baseline/model 的 threshold progression 和最终 correlated projection。长区间只是观测，不自动成为 lock 或精度资格；单 follower oracle 失败独立记错并压低 passed。历史 long-window 原件只保留为 migrated lineage，下一层 native trace ancestry 仍由 manifest 固定路径和 SHA 准入。
+
+native trace 层由 tracked workflow 管理 status/ACK bounded polling、三个 follower ARM、STOP/download/decode、match/decision coverage、跨度和 last-decision endpoint 一致性，以及 release/retain 恢复。reference 不走 follower ARM；未完整读取的 trace 不 release，已完整读取的 trace 即使后续 endpoint 失败也必须尝试 release。历史 trace 原件只保留为 migrated lineage，下一层 follow ancestry 仍由 manifest 固定路径和 SHA 准入。
 
 ## TG-LIFECYCLE：生命周期与迁移
 

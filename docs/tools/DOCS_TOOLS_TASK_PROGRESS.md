@@ -4,13 +4,22 @@ Status: Active
 Domain: Tools
 Canonical: `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`
 Related: `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`, `docs/tools/DOCS_TOOLS_TODO.md`, `docs/check/DOCS_REGRESSION_PLAN.md`
-Last updated: 2026-09-20
+Last updated: 2026-09-21
 
 ## 文档接口
 
 本文只记录实施与验证事实，任务状态以 TODO 为准，治理语义以 Architecture 为准。每条记录引用稳定任务 ID，使用唯一 `TOOLS-PROGRESS-YYYYMMDD-NNN`，最新记录在上；轮转遵循文档自回归 C14/C15，历史失败和原始证据不得丢失。
 
 ## 当前 checkpoint
+
+### TOOLS-PROGRESS-20260921-014：child native trace 层迁移
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-TRACE-001。
+- 新增 `tools/workflows/vdc_joint_capture/trace.py`，从 manifest 指定的 follow 入口构造 tracked TraceProbe，接管 trace status/ACK bounded polling、三个 follower ARM、STOP/download/decode、match/decision coverage、跨度和 last-decision endpoint 一致性，以及 release/retain 恢复；reference 不走 follower ARM。
+- V8 manifest 将 archived `capture_trace.py` 固定为 `native_trace` migrated role，runtime entrypoint 下沉到 `capture_follow.py`；动态 out closure 快照从 7 降到 6。fresh-process actual=declared=6，missing / declared-not-loaded / migrated_loaded 全为空；实际 provenance 中 archived trace 为零、tracked trace 唯一，旧原件不删除。
+- 软件与独立审查：characterization 覆盖 command/query 注册、ACK 成功/timeout 全 samples、follower-only ARM、成功 STOP/download/decode/coverage/span/last-decision/release，以及 download failure retain/no-release、endpoint mismatch 后 release、release failure 继续其他板。最终宽组合 476 passed / 1 skipped（快照），跳过项仅为 Windows 无符号链接权限；工具治理/catalog、编译和 whitespace 检查通过。独立复核 PASS，无剩余 finding。
+- 同指纹四板 P3 使用 build `20260920141158`，`tools-trace-r1/p3-r1` 为 PASS_WITH_WARNINGS（快照：INFO 33 / WARN 19 / ERROR 0 / FATAL 0）。DPLL 60 s scope-on outer/inner/joint 均通过，12 份 scope record、48 个 RAW block、四板 trace release 完整，外部最大绝对相差 33.211 ns（快照，INFO）；errors / cleanup_errors / restore_needed 均为空，`check-staged` 通过。原件位于 `out/HardwareAcceptance/20260921/tools-trace-r1/p3-r1/`。
+- 实现提交 `80f4475c`；TOOLS-WORKFLOW-TRACE-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一批迁移 follow/match 剩余祖先，继续保留 archived 原件和失败证据。
 
 ### TOOLS-PROGRESS-20260920-013：child long-window policy 层迁移
 
