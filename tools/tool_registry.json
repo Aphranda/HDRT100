@@ -1,0 +1,3266 @@
+{
+  "schema_version": 1,
+  "tools": [
+    {
+      "id": "TOOL-ANALYZER-BURST",
+      "purpose": "analyzer burst",
+      "domain": "SYNC",
+      "owner": "SYNC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/analyzer_burst/analyzer_burst.py"
+      ],
+      "files": [
+        {
+          "path": "tools/analyzer_burst/analyzer_burst.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-ANALYZER-TRACE-EXPORT",
+        "TOOL-CALIBRATION-RING-VALIDATE",
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-ANALYZER-NO5-CORRELATOR",
+      "purpose": "analyzer no5 correlator",
+      "domain": "SYNC",
+      "owner": "SYNC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/analyzer_no5_correlator/analyzer_no5_correlator.py"
+      ],
+      "files": [
+        {
+          "path": "tools/analyzer_no5_correlator/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/analyzer_no5_correlator/analyzer_no5_correlator.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-ANALYZER-TDMA-HIL",
+      "purpose": "analyzer tdma hil",
+      "domain": "TDMA",
+      "owner": "TDMA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/analyzer_tdma_hil/analyzer_tdma_hil.py"
+      ],
+      "files": [
+        {
+          "path": "tools/analyzer_tdma_hil/analyzer_tdma_hil.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-ANALYZER-TRACE-BATCH-INDEX",
+      "purpose": "analyzer trace batch index",
+      "domain": "SYNC",
+      "owner": "SYNC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/analyzer_trace_batch_index/analyzer_trace_batch_index.py"
+      ],
+      "files": [
+        {
+          "path": "tools/analyzer_trace_batch_index/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/analyzer_trace_batch_index/analyzer_trace_batch_index.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-ANALYZER-TRACE-DECODE"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-ANALYZER-TRACE-DECODE",
+      "purpose": "analyzer trace decode",
+      "domain": "SYNC",
+      "owner": "SYNC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/analyzer_trace_decode/analyzer_trace_decode.py"
+      ],
+      "files": [
+        {
+          "path": "tools/analyzer_trace_decode/analyzer_trace_decode.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-ANALYZER-TRACE-EXPORT",
+      "purpose": "analyzer trace export",
+      "domain": "SYNC",
+      "owner": "SYNC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/analyzer_trace_export/analyzer_trace_export.py"
+      ],
+      "files": [
+        {
+          "path": "tools/analyzer_trace_export/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/analyzer_trace_export/analyzer_trace_export.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-ANALYZER-TRACE-BATCH-INDEX",
+        "TOOL-ANALYZER-TRACE-DECODE",
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-ARTIFACT-CHECKSUM",
+      "purpose": "artifact checksum",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/artifact_checksum/artifact_checksum.py"
+      ],
+      "files": [
+        {
+          "path": "tools/artifact_checksum/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/artifact_checksum/artifact_checksum.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-BENCH",
+      "purpose": "bench",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/bench/rp2350_tk_toolbox.py",
+        "tools/rp2350_tk_toolbox.py"
+      ],
+      "files": [
+        {
+          "path": "tools/bench/rp2350_tk_toolbox.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/rp2350_tk_toolbox.py",
+          "role": "compatibility_wrapper"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [
+        {
+          "path": "tools/rp2350_tk_toolbox.py",
+          "target": "tools/bench/rp2350_tk_toolbox.py"
+        }
+      ],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-BISS-BOARD-VALIDATE",
+      "purpose": "biss board validate",
+      "domain": "COMMUNICATION",
+      "owner": "COMMUNICATION tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/biss_board_validate/biss_board_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/biss_board_validate/biss_board_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON",
+        "TOOL-SD-TRACE-DECODE"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-BISS-WAVEGEN",
+      "purpose": "biss wavegen",
+      "domain": "COMMUNICATION",
+      "owner": "COMMUNICATION tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/biss_wavegen/biss_wave_plot.py",
+        "tools/biss_wavegen/biss_wave_validate.py",
+        "tools/biss_wavegen/biss_wavegen.py"
+      ],
+      "files": [
+        {
+          "path": "tools/biss_wavegen/biss_wave_plot.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/biss_wavegen/biss_wave_validate.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/biss_wavegen/biss_wavegen.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-BUILD-INFO",
+      "purpose": "build info",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/build_info/gen_build_info.py"
+      ],
+      "files": [
+        {
+          "path": "tools/build_info/gen_build_info.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-CALIBRATION-LOOPBACK-VALIDATE",
+      "purpose": "calibration loopback validate",
+      "domain": "CALIBRATION",
+      "owner": "CALIBRATION tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/calibration_loopback_validate/calibration_loopback_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/calibration_loopback_validate/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/calibration_loopback_validate/calibration_loopback_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-CALIBRATION-RING-VALIDATE",
+      "purpose": "calibration ring validate",
+      "domain": "CALIBRATION",
+      "owner": "CALIBRATION tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/calibration_ring_validate/calibration_bias_train.py",
+        "tools/calibration_ring_validate/calibration_clk_codebook_eval.py",
+        "tools/calibration_ring_validate/calibration_clk_coded.py",
+        "tools/calibration_ring_validate/calibration_clk_train.py",
+        "tools/calibration_ring_validate/calibration_data_train.py",
+        "tools/calibration_ring_validate/calibration_data_waveform.py",
+        "tools/calibration_ring_validate/calibration_link_p3.py",
+        "tools/calibration_ring_validate/calibration_link_plan.py",
+        "tools/calibration_ring_validate/calibration_marker_offsets.py",
+        "tools/calibration_ring_validate/calibration_marker_train.py",
+        "tools/calibration_ring_validate/calibration_marker_waveform.py",
+        "tools/calibration_ring_validate/calibration_p3_waveform.py",
+        "tools/calibration_ring_validate/calibration_path_delay_probe.py",
+        "tools/calibration_ring_validate/calibration_ring_topology.py",
+        "tools/calibration_ring_validate/calibration_sck_train.py",
+        "tools/calibration_ring_validate/trn02_offset_fault.py",
+        "tools/calibration_ring_validate/trn02_profile_gate.py",
+        "tools/calibration_ring_validate/trn03_candidate.py",
+        "tools/calibration_ring_validate/trn03_candidate_import.py",
+        "tools/calibration_ring_validate/trn03_candidate_lifecycle.py",
+        "tools/calibration_ring_validate/trn03_closed_loop.py",
+        "tools/calibration_ring_validate/trn03_matrix.py",
+        "tools/calibration_ring_validate/trn03_negative_gates.py",
+        "tools/calibration_ring_validate/trn03_stage.py",
+        "tools/calibration_ring_validate/trn03_waveform.py"
+      ],
+      "files": [
+        {
+          "path": "tools/calibration_ring_validate/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_bias_train.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_clk_codebook_eval.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_clk_coded.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_clk_train.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_data_train.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_data_waveform.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_link_frequency_policy.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_link_p3.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_link_plan.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_load_guard.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_marker_offsets.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_marker_train.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_marker_waveform.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_p3_waveform.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_path_delay_probe.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_phase.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_ring_topology.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_sck_train.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_storage_job.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/calibration_ring_validate/calibration_timeout_config.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/calibration_ring_validate/tdma_autonomous_record.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/calibration_ring_validate/tdma_board_record.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/calibration_ring_validate/tdma_observation_audit.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/calibration_ring_validate/tdma_rx_start_cut.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/calibration_ring_validate/trn02_offset_fault.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/trn02_profile_gate.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/trn03_candidate.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/trn03_candidate_import.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/trn03_candidate_lifecycle.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/trn03_closed_loop.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/trn03_matrix.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/trn03_negative_gates.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/trn03_stage.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_ring_validate/trn03_waveform.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-ANALYZER-TRACE-EXPORT",
+        "TOOL-TDMA-RING-MONITOR"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-CATALOG",
+      "purpose": "Repository tool navigation and operating notes",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "OFFLINE",
+      "entrypoints": [],
+      "files": [
+        {
+          "path": "tools/README.md",
+          "role": "documentation"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-CHECKS",
+      "purpose": "checks",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/check_scpi_usb_namespace.py",
+        "tools/checks/check_scpi_usb_namespace.py",
+        "tools/checks/check_source_lengths.py"
+      ],
+      "files": [
+        {
+          "path": "tools/check_scpi_usb_namespace.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/checks/check_scpi_usb_namespace.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/checks/check_source_lengths.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [
+        {
+          "path": "tools/check_scpi_usb_namespace.py",
+          "target": "tools/checks/check_scpi_usb_namespace.py"
+        }
+      ],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-CMAKE-BUILD-AUTO",
+      "purpose": "cmake build auto",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/cmake_build_auto/cmake_build_auto.py"
+      ],
+      "files": [
+        {
+          "path": "tools/cmake_build_auto/cmake_build_auto.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-CODEX-WATCHDOG",
+      "purpose": "codex watchdog",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/codex_watchdog/codex_supervisor.ps1",
+        "tools/codex_watchdog/codex_watchdog.ps1",
+        "tools/codex_watchdog/heartbeat.ps1",
+        "tools/codex_watchdog/run_hourly.ps1",
+        "tools/codex_watchdog/start_heartbeat.cmd"
+      ],
+      "files": [
+        {
+          "path": "tools/codex_watchdog/codex_supervisor.ps1",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/codex_watchdog/codex_watchdog.ps1",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/codex_watchdog/dpll_task_prompt.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/codex_watchdog/heartbeat.ps1",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/codex_watchdog/heartbeat_state.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/codex_watchdog/run_hourly.ps1",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/codex_watchdog/start_heartbeat.cmd",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/codex_watchdog/state.json",
+          "role": "resource"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Host process supervisor and historical runtime-state JSON; personal paths/state are migration debt, not portable configuration. Do not launch during governance scans."
+    },
+    {
+      "id": "TOOL-DEBUG-MODEL-OVERLAY-VALIDATE",
+      "purpose": "debug model overlay validate",
+      "domain": "SYNC",
+      "owner": "SYNC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/debug_model_overlay_validate/debug_model_overlay_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/debug_model_overlay_validate/debug_model_overlay_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-DISTRIBUTED-LOOPBACK-VALIDATE",
+      "purpose": "distributed loopback validate",
+      "domain": "COMMUNICATION",
+      "owner": "COMMUNICATION tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/distributed_loopback_validate/distributed_loopback_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/distributed_loopback_validate/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/distributed_loopback_validate/distributed_loopback_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-DOC-REGRESSION",
+      "purpose": "doc regression",
+      "domain": "DOCS",
+      "owner": "DOCS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/doc_regression_check.py"
+      ],
+      "files": [
+        {
+          "path": "tools/doc_regression_check.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-DOCS-CHECK",
+      "purpose": "docs check",
+      "domain": "DOCS",
+      "owner": "DOCS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/docs_check/docs_check.py"
+      ],
+      "files": [
+        {
+          "path": "tools/docs_check/docs_check.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-DPLL-OBSERVATION-CAPTURE",
+      "purpose": "dpll observation capture",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/dpll_observation_capture/dpll_observation_capture.py"
+      ],
+      "files": [
+        {
+          "path": "tools/dpll_observation_capture/dpll_observation_capture.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-DPLL-OBSERVATION-DECODE",
+        "TOOL-DPLL-RESIDUAL-ANALYZE"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-DPLL-OBSERVATION-DECODE",
+      "purpose": "dpll observation decode",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/dpll_observation_decode/dpll_observation_decode.py"
+      ],
+      "files": [
+        {
+          "path": "tools/dpll_observation_decode/dpll_observation_decode.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-DPLL-RESIDUAL-ANALYZE",
+      "purpose": "dpll residual analyze",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/dpll_residual_analyze/dpll_residual_analyze.py"
+      ],
+      "files": [
+        {
+          "path": "tools/dpll_residual_analyze/dpll_residual_analyze.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-DPLL-SERVO-TUNE",
+      "purpose": "dpll servo tune",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/dpll_servo_tune/dpll_servo_tune.py"
+      ],
+      "files": [
+        {
+          "path": "tools/dpll_servo_tune/dpll_servo_tune.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-DPLL-VDC-MONITOR",
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-DPLL-VDC-MONITOR",
+      "purpose": "dpll vdc monitor",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/dpll_vdc_monitor/dpll_vdc_monitor.py"
+      ],
+      "files": [
+        {
+          "path": "tools/dpll_vdc_monitor/dpll_vdc_monitor.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-DPLL-RESIDUAL-ANALYZE",
+        "TOOL-DPLL-WAVEFORM-CAPTURE",
+        "TOOL-TDMA-RING-MONITOR"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-DPLL-WAVEFORM-CAPTURE",
+      "purpose": "dpll waveform capture",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/dpll_waveform_capture/dpll_waveform_capture.py"
+      ],
+      "files": [
+        {
+          "path": "tools/dpll_waveform_capture/dpll_waveform_capture.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-FACTORY-PACKAGE",
+      "purpose": "factory package",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/factory_package/factory_package.py"
+      ],
+      "files": [
+        {
+          "path": "tools/factory_package/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/factory_package/factory_package.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-OTA-KEYS"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-FACTORY-RESTORE",
+      "purpose": "factory restore",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/factory_restore/factory_restore.py"
+      ],
+      "files": [
+        {
+          "path": "tools/factory_restore/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/factory_restore/factory_restore.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-FACTORY-PACKAGE",
+        "TOOL-FLASH-MAP"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-FLASH-LOCKOUT-HIL-VALIDATE",
+      "purpose": "flash lockout hil validate",
+      "domain": "FLASH",
+      "owner": "FLASH tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/flash_lockout_hil_validate/flash_lockout_hil_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/flash_lockout_hil_validate/flash_lockout_hil_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-FLASH-MAP",
+      "purpose": "flash map",
+      "domain": "FLASH",
+      "owner": "FLASH tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/flash_map/flash_consumer_check.py",
+        "tools/flash_map/flash_inventory.py",
+        "tools/flash_map/flash_link_check.py",
+        "tools/flash_map/flash_map.py",
+        "tools/flash_map/flash_map_board_validate.py",
+        "tools/flash_map/flash_migration_check.py",
+        "tools/flash_map/flash_release_report.py",
+        "tools/flash_map/flash_wire_check.py",
+        "tools/flash_map/make_factory_baseline.py",
+        "tools/flash_map/persistence_schema_check.py"
+      ],
+      "files": [
+        {
+          "path": "tools/flash_map/flash_consumer_check.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/flash_map/flash_inventory.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/flash_map/flash_link_check.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/flash_map/flash_map.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/flash_map/flash_map_board_validate.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/flash_map/flash_migration_check.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/flash_map/flash_release_report.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/flash_map/flash_wire_check.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/flash_map/make_factory_baseline.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/flash_map/persistence_schema_check.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-OTA-KEYS",
+        "TOOL-OTA-PACKAGER"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-FLASH-PARK-TIMEOUT-HIL-VALIDATE",
+      "purpose": "flash park timeout hil validate",
+      "domain": "FLASH",
+      "owner": "FLASH tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-FLASH-LOCKOUT-HIL-VALIDATE"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-FLASH-SCRATCH-VALIDATE",
+      "purpose": "flash scratch validate",
+      "domain": "FLASH",
+      "owner": "FLASH tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/flash_scratch_validate/flash_scratch_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/flash_scratch_validate/flash_scratch_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-HARDWARE-ACCEPTANCE",
+      "purpose": "hardware acceptance",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/hardware_acceptance/p3_hardware_acceptance.py",
+        "tools/hardware_acceptance/single_board_hardware_acceptance.py"
+      ],
+      "files": [
+        {
+          "path": "tools/hardware_acceptance/p3_alarm_policy.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/hardware_acceptance/p3_hardware_acceptance.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/hardware_acceptance/single_board_hardware_acceptance.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-CALIBRATION-RING-VALIDATE",
+        "TOOL-OTA-MULTI-UPDATE",
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-MODEL-TURNTABLE-LOAD-VALIDATE",
+      "purpose": "model turntable load validate",
+      "domain": "TRIGGER",
+      "owner": "TRIGGER tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/model_turntable_load_validate/model_turntable_load_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/model_turntable_load_validate/model_turntable_load_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-MULTICORE-BOARD-VALIDATE",
+      "purpose": "multicore board validate",
+      "domain": "RTOS",
+      "owner": "RTOS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/multicore_board_validate/multicore_board_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/multicore_board_validate/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/multicore_board_validate/multicore_board_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-REFMEM-TABLE-IMAGE"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-OTA-BIN-INFO",
+      "purpose": "ota bin info",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/ota_bin_info/ota_bin_info.py"
+      ],
+      "files": [
+        {
+          "path": "tools/ota_bin_info/ota_bin_info.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-OTA-BOARD-VALIDATE",
+      "purpose": "ota board validate",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/ota_board_validate/ota_board_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/ota_board_validate/ota_board_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-OTA-BOOT-COMMIT",
+      "purpose": "ota boot commit",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/ota_boot_commit/ota_boot_commit.py"
+      ],
+      "files": [
+        {
+          "path": "tools/ota_boot_commit/ota_boot_commit.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-OTA-HAOFV-GATE",
+      "purpose": "ota haofv gate",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/ota_haofv_gate/ota_haofv_gate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/ota_haofv_gate/ota_haofv_gate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-OTA-KEYS",
+      "purpose": "ota keys",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/ota_keys/gen_ota_key_registry.py",
+        "tools/ota_keys/generate_ota_key.py",
+        "tools/ota_keys/sign_ota_signature.py",
+        "tools/ota_keys/verify_ota_signature.py"
+      ],
+      "files": [
+        {
+          "path": "tools/ota_keys/gen_ota_key_registry.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota_keys/generate_ota_key.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota_keys/sign_ota_signature.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota_keys/verify_ota_signature.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-OTA-MULTI-UPDATE",
+      "purpose": "ota multi update",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/ota_multi_update/ota_multi_update.py"
+      ],
+      "files": [
+        {
+          "path": "tools/ota_multi_update/ota_multi_update.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-OTA-PACKAGER",
+      "purpose": "ota packager",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/ota_packager/ota_packager.py"
+      ],
+      "files": [
+        {
+          "path": "tools/ota_packager/ota_packager.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-OTA-SEND",
+      "purpose": "ota send",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/ota_send/ota_send.py"
+      ],
+      "files": [
+        {
+          "path": "tools/ota_send/ota_send.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-OTA-STREAM-SEND",
+      "purpose": "ota stream send",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/ota_stream_send/ota_stream_send.py"
+      ],
+      "files": [
+        {
+          "path": "tools/ota_stream_send/ota_stream_send.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-PDF-TEXT-EXTRACT",
+      "purpose": "pdf text extract",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/pdf_text_extract/pdf_text_extract.py"
+      ],
+      "files": [
+        {
+          "path": "tools/pdf_text_extract/pdf_text_extract.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-PICOTOOL-FLASH",
+      "purpose": "picotool flash",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/picotool_flash/picotool_flash.py"
+      ],
+      "files": [
+        {
+          "path": "tools/picotool_flash/picotool_flash.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-PICOTOOL-REBOOT",
+      "purpose": "picotool reboot",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/picotool_reboot/picotool_reboot.py"
+      ],
+      "files": [
+        {
+          "path": "tools/picotool_reboot/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/picotool_reboot/picotool_reboot.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-PRODUCT-SCPI-VALIDATE",
+      "purpose": "product scpi validate",
+      "domain": "INTERFACE",
+      "owner": "INTERFACE tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/product_scpi_validate/product_scpi_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/product_scpi_validate/product_scpi_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-RAM-BUDGET-CHECK",
+      "purpose": "ram budget check",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/ram_budget_check/ram_budget_check.py"
+      ],
+      "files": [
+        {
+          "path": "tools/ram_budget_check/ram_budget_check.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REALTIME-SCPI-VALIDATE",
+      "purpose": "realtime scpi validate",
+      "domain": "VALIDATION",
+      "owner": "VALIDATION tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/realtime_scpi_validate/realtime_scpi_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/realtime_scpi_validate/realtime_scpi_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REFMEM-NETWORK-VALIDATE",
+      "purpose": "refmem network validate",
+      "domain": "REFMEM",
+      "owner": "REFMEM tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/refmem_network_validate/refmem_network_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/refmem_network_validate/refmem_network_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REFMEM-NODE-LOAD-AUTO-HIL-VALIDATE",
+      "purpose": "refmem node load auto hil validate",
+      "domain": "REFMEM",
+      "owner": "REFMEM tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REFMEM-PACK-BUILD",
+      "purpose": "refmem pack build",
+      "domain": "REFMEM",
+      "owner": "REFMEM tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/refmem_pack_build/refmem_pack_build.py"
+      ],
+      "files": [
+        {
+          "path": "tools/refmem_pack_build/refmem_pack_build.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-REFMEM-TABLE-IMAGE"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REFMEM-PACK-WRITE",
+      "purpose": "refmem pack write",
+      "domain": "REFMEM",
+      "owner": "REFMEM tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/refmem_pack_write/refmem_pack_write.py"
+      ],
+      "files": [
+        {
+          "path": "tools/refmem_pack_write/refmem_pack_write.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REFMEM-QUALITY-GATE-HIL-VALIDATE",
+      "purpose": "refmem quality gate hil validate",
+      "domain": "REFMEM",
+      "owner": "REFMEM tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REFMEM-SCPI-LOAD-VALIDATE",
+      "purpose": "refmem scpi load validate",
+      "domain": "REFMEM",
+      "owner": "REFMEM tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-REFMEM-TABLE-IMAGE"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REFMEM-SPI-HIL-VALIDATE",
+      "purpose": "refmem spi hil validate",
+      "domain": "REFMEM",
+      "owner": "REFMEM tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REFMEM-SPI-LINE-ACTIVITY",
+      "purpose": "refmem spi line activity",
+      "domain": "REFMEM",
+      "owner": "REFMEM tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/refmem_spi_line_activity/refmem_spi_line_activity.py"
+      ],
+      "files": [
+        {
+          "path": "tools/refmem_spi_line_activity/refmem_spi_line_activity.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REFMEM-SYNC-HIL-VALIDATE",
+      "purpose": "refmem sync hil validate",
+      "domain": "REFMEM",
+      "owner": "REFMEM tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REFMEM-TABLE-IMAGE",
+      "purpose": "refmem table image",
+      "domain": "REFMEM",
+      "owner": "REFMEM tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [],
+      "files": [
+        {
+          "path": "tools/refmem_table_image/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/refmem_table_image/refmem_table_image.py",
+          "role": "module"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-REFMEM-TABLE-REGISTRY-VALIDATE",
+      "purpose": "refmem table registry validate",
+      "domain": "REFMEM",
+      "owner": "REFMEM tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/refmem_table_registry_validate/refmem_table_registry_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/refmem_table_registry_validate/refmem_table_registry_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-REFMEM-TABLE-IMAGE",
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-RELEASE-CHECK",
+      "purpose": "release check",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/release_check/release_check.py"
+      ],
+      "files": [
+        {
+          "path": "tools/release_check/release_check.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-FLASH-MAP"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-RS485-MODBUS-VALIDATE",
+      "purpose": "rs485 modbus validate",
+      "domain": "COMMUNICATION",
+      "owner": "COMMUNICATION tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/rs485_modbus_validate/rs485_modbus_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/rs485_modbus_validate/rs485_modbus_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-RTOS-WATERMARK-CAPTURE",
+      "purpose": "rtos watermark capture",
+      "domain": "RTOS",
+      "owner": "RTOS tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/rtos_watermark_capture/rtos_watermark_capture.py"
+      ],
+      "files": [
+        {
+          "path": "tools/rtos_watermark_capture/rtos_watermark_capture.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-SCOPE-DPLL-CAPTURE",
+      "purpose": "scope dpll capture",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/scope_dpll_capture/scope_dpll_capture.py"
+      ],
+      "files": [
+        {
+          "path": "tools/scope_dpll_capture/scope_dpll_capture.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-SCPI-COMMON",
+      "purpose": "Shared serial lifecycle, board identity and OTA timing modules",
+      "domain": "INTERFACE",
+      "owner": "INTERFACE tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [],
+      "files": [
+        {
+          "path": "tools/scpi_common/__init__.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/scpi_common/board_identity.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/scpi_common/ota_timing.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/scpi_common/scpi_serial.py",
+          "role": "module"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-SCPI-LEGACY-VALIDATE",
+      "purpose": "scpi legacy validate",
+      "domain": "INTERFACE",
+      "owner": "INTERFACE tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/scpi_legacy_validate/scpi_legacy_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/scpi_legacy_validate/scpi_legacy_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-SCPI-QUERY",
+      "purpose": "scpi query",
+      "domain": "INTERFACE",
+      "owner": "INTERFACE tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/scpi_query/scpi_query.py"
+      ],
+      "files": [
+        {
+          "path": "tools/scpi_query/model_gpio_drive_g6.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/scpi_query/model_gpio_probe.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/scpi_query/refmem_file_read_probe.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/scpi_query/refmem_storage_info_probe.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/scpi_query/rs485_mode_probe.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/scpi_query/rs485_scpi_loopback_probe.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/scpi_query/sample_capture_debug_probe.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/scpi_query/scpi_query.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/scpi_query/vdc_readback_probe.scpi",
+          "role": "resource"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-SD-BOARD-VALIDATE",
+      "purpose": "sd board validate",
+      "domain": "STORAGE",
+      "owner": "STORAGE tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/sd_board_validate/sd_board_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/sd_board_validate/sd_board_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON",
+        "TOOL-SD-TRACE-DECODE"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-SD-FS-BUILD",
+      "purpose": "sd fs build",
+      "domain": "STORAGE",
+      "owner": "STORAGE tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/sd_fs_build/sd_fs_build.py"
+      ],
+      "files": [
+        {
+          "path": "tools/sd_fs_build/sd_fs_build.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-REFMEM-TABLE-IMAGE"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-SD-MKFS",
+      "purpose": "sd mkfs",
+      "domain": "STORAGE",
+      "owner": "STORAGE tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/sd_mkfs/sd_mkfs.py"
+      ],
+      "files": [
+        {
+          "path": "tools/sd_mkfs/sd_mkfs.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-SD-RAW-CLEAR",
+      "purpose": "sd raw clear",
+      "domain": "STORAGE",
+      "owner": "STORAGE tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/sd_raw_clear/sd_raw_clear.py"
+      ],
+      "files": [
+        {
+          "path": "tools/sd_raw_clear/sd_raw_clear.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-SD-TRACE-DECODE",
+      "purpose": "sd trace decode",
+      "domain": "STORAGE",
+      "owner": "STORAGE tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/sd_trace_decode/sd_trace_decode.py"
+      ],
+      "files": [
+        {
+          "path": "tools/sd_trace_decode/sd_trace_decode.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-SMA-CABLE-DELAY-VALIDATE",
+      "purpose": "sma cable delay validate",
+      "domain": "CALIBRATION",
+      "owner": "CALIBRATION tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/sma_cable_delay_validate/sma_cable_appointment_validate.py",
+        "tools/sma_cable_delay_validate/sma_cable_delay_analyze.py",
+        "tools/sma_cable_delay_validate/sma_cable_delay_sweep.py",
+        "tools/sma_cable_delay_validate/sma_cable_five_board_validate.py",
+        "tools/sma_cable_delay_validate/sma_cable_symmetric_rtt.py",
+        "tools/sma_cable_delay_validate/sma_cable_wire_order.py"
+      ],
+      "files": [
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_appointment_validate.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_delay_analyze.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_delay_sweep.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_five_board_validate.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_symmetric_rtt.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_wire_order.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-SMA-LOOPBACK-VALIDATE",
+      "purpose": "sma loopback validate",
+      "domain": "CALIBRATION",
+      "owner": "CALIBRATION tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/sma_loopback_validate/sma_single_board_loopback.py",
+        "tools/sma_loopback_validate/sma_two_board_frequency_sweep.py",
+        "tools/sma_loopback_validate/sma_two_board_in1_out1.py",
+        "tools/sma_loopback_validate/sma_two_board_matrix.py"
+      ],
+      "files": [
+        {
+          "path": "tools/sma_loopback_validate/sma_single_board_loopback.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sma_loopback_validate/sma_two_board_frequency_sweep.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sma_loopback_validate/sma_two_board_in1_out1.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/sma_loopback_validate/sma_two_board_matrix.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-STATE-MACHINE-RESOURCE-CHECK",
+      "purpose": "state machine resource check",
+      "domain": "STATE_MACHINE",
+      "owner": "STATE_MACHINE tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/state_machine_resource_check/state_machine_resource_check.py"
+      ],
+      "files": [
+        {
+          "path": "tools/state_machine_resource_check/state_machine_resource_check.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-STORAGE-FILE-UPLOAD",
+      "purpose": "storage file upload",
+      "domain": "STORAGE",
+      "owner": "STORAGE tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/storage_file_upload/storage_file_upload.py"
+      ],
+      "files": [
+        {
+          "path": "tools/storage_file_upload/storage_file_upload.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-STORAGE-SCPI-VALIDATE",
+      "purpose": "storage scpi validate",
+      "domain": "STORAGE",
+      "owner": "STORAGE tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/storage_scpi_validate/storage_scpi_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/storage_scpi_validate/storage_scpi_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [
+        "TOOL-SCPI-COMMON"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-TDMA-RING-MONITOR",
+      "purpose": "tdma ring monitor",
+      "domain": "TDMA",
+      "owner": "TDMA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/tdma_ring_monitor/flight_bitmap_validate.py",
+        "tools/tdma_ring_monitor/ring_rate_measure.py",
+        "tools/tdma_ring_monitor/sd_fault_read.py",
+        "tools/tdma_ring_monitor/tdma_cycle_schedule.py",
+        "tools/tdma_ring_monitor/tdma_field_parse.py",
+        "tools/tdma_ring_monitor/tdma_frequency_sweep.py",
+        "tools/tdma_ring_monitor/tdma_load_budget.py",
+        "tools/tdma_ring_monitor/tdma_pio_timing_check.py",
+        "tools/tdma_ring_monitor/tdma_process_image_budget.py",
+        "tools/tdma_ring_monitor/tdma_ring_monitor.py",
+        "tools/tdma_ring_monitor/tdma_set_roles.py",
+        "tools/tdma_ring_monitor/tdma_single_board_loopback.py",
+        "tools/tdma_ring_monitor/tdma_start_ring.py"
+      ],
+      "files": [
+        {
+          "path": "tools/tdma_ring_monitor/flight_bitmap_validate.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/ring_rate_measure.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/sd_fault_read.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/tdma_cycle_schedule.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/tdma_field_parse.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/tdma_frequency_sweep.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/tdma_load_budget.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/tdma_pio_timing_check.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/tdma_process_image_budget.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/tdma_ring_monitor.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/tdma_service_timing.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/tdma_set_roles.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/tdma_single_board_loopback.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tdma_ring_monitor/tdma_start_ring.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-TESTS",
+      "purpose": "tests",
+      "domain": "VALIDATION",
+      "owner": "VALIDATION tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/run_biss_protocol_tests.ps1",
+        "tools/run_portable_log_tests.ps1",
+        "tools/run_portable_ota_tests.ps1",
+        "tools/tests/run_biss_protocol_tests.ps1",
+        "tools/tests/run_calibration_bias_tests.ps1",
+        "tools/tests/run_calibration_bidirectional_tests.ps1",
+        "tools/tests/run_calibration_clk_marker_tests.ps1",
+        "tools/tests/run_calibration_training_data_tests.ps1",
+        "tools/tests/run_calibration_training_marker_tests.ps1",
+        "tools/tests/run_calibration_training_sck_tests.ps1",
+        "tools/tests/run_calibration_training_store_tests.ps1",
+        "tools/tests/run_drv_flash_geometry_tests.ps1",
+        "tools/tests/run_drv_flash_lockout_tests.ps1",
+        "tools/tests/run_flash_map_tests.ps1",
+        "tools/tests/run_flash_store_nvs_tests.ps1",
+        "tools/tests/run_flash_store_record_tests.ps1",
+        "tools/tests/run_flash_transaction_tests.ps1",
+        "tools/tests/run_host_unit_tests.ps1",
+        "tools/tests/run_ota_journal_tests.ps1",
+        "tools/tests/run_portable_log_tests.ps1",
+        "tools/tests/run_portable_ota_tests.ps1",
+        "tools/tests/run_product_config_tests.ps1",
+        "tools/tests/run_refmem_application_contract_tests.ps1",
+        "tools/tests/run_refmem_command_tests.ps1",
+        "tools/tests/run_refmem_node_load_sync_tests.ps1",
+        "tools/tests/run_refmem_pio_spi_adapter_tests.ps1",
+        "tools/tests/run_refmem_quality_tests.ps1",
+        "tools/tests/run_refmem_realtime_contract_tests.ps1",
+        "tools/tests/run_refmem_realtime_tdma_tests.ps1",
+        "tools/tests/run_refmem_slot_claim_tests.ps1",
+        "tools/tests/run_refmem_sync_frame_tests.ps1",
+        "tools/tests/run_refmem_sync_hello_tests.ps1",
+        "tools/tests/run_refmem_sync_tests.ps1",
+        "tools/tests/run_refmem_table_registry_tests.ps1",
+        "tools/tests/run_refmem_vdc_bridge_tests.ps1",
+        "tools/tests/run_refmem_vdc_vector_tests.ps1",
+        "tools/tests/run_resource_arbiter_tests.ps1",
+        "tools/tests/run_sma_cable_delay_tests.ps1",
+        "tools/tests/run_sync_io_logic_analyzer_tests.ps1",
+        "tools/tests/run_tdma_adapter_comm_fsm_tests.ps1",
+        "tools/tests/run_tdma_flight_fifo_tests.ps1",
+        "tools/tests/run_tdma_flight_overlay_tests.ps1",
+        "tools/tests/run_tdma_operating_profile_tests.ps1",
+        "tools/tests/run_tdma_payload_registry_tests.ps1",
+        "tools/tests/run_tdma_pio_spi_persona_fsm_tests.ps1",
+        "tools/tests/run_tdma_pio_spi_ring_adapter_tests.ps1",
+        "tools/tests/run_tdma_process_image_map_tests.ps1",
+        "tools/tests/run_tdma_profile_tests.ps1",
+        "tools/tests/run_tdma_receive_health_tests.ps1",
+        "tools/tests/run_tdma_ring_runtime_tests.ps1",
+        "tools/tests/run_tdma_rx_sequence_tests.ps1",
+        "tools/tests/run_tdma_service_scheduler_tests.ps1",
+        "tools/tests/run_tdma_traffic_scheduler_tests.ps1",
+        "tools/tests/run_tdma_transport_frame_tests.ps1",
+        "tools/tests/run_vdc_domain_tests.ps1",
+        "tools/tests/run_vdc_time_mapping_tests.ps1"
+      ],
+      "files": [
+        {
+          "path": "tools/run_biss_protocol_tests.ps1",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/run_portable_log_tests.ps1",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/run_portable_ota_tests.ps1",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/tests/run_biss_protocol_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_calibration_bias_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_calibration_bidirectional_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_calibration_clk_marker_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_calibration_training_data_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_calibration_training_marker_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_calibration_training_sck_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_calibration_training_store_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_drv_flash_geometry_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_drv_flash_lockout_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_flash_map_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_flash_store_nvs_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_flash_store_record_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_flash_transaction_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_host_unit_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_ota_journal_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_portable_log_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_portable_ota_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_product_config_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_application_contract_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_command_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_node_load_sync_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_pio_spi_adapter_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_quality_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_realtime_contract_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_realtime_tdma_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_slot_claim_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_sync_frame_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_sync_hello_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_sync_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_table_registry_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_vdc_bridge_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_refmem_vdc_vector_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_resource_arbiter_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_sma_cable_delay_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_sync_io_logic_analyzer_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_adapter_comm_fsm_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_flight_fifo_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_flight_overlay_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_operating_profile_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_payload_registry_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_pio_spi_persona_fsm_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_pio_spi_ring_adapter_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_process_image_map_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_profile_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_receive_health_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_ring_runtime_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_rx_sequence_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_service_scheduler_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_traffic_scheduler_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_tdma_transport_frame_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_vdc_domain_tests.ps1",
+          "role": "test_runner"
+        },
+        {
+          "path": "tools/tests/run_vdc_time_mapping_tests.ps1",
+          "role": "test_runner"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [
+        {
+          "path": "tools/run_biss_protocol_tests.ps1",
+          "target": "tools/tests/run_biss_protocol_tests.ps1"
+        },
+        {
+          "path": "tools/run_portable_log_tests.ps1",
+          "target": "tools/tests/run_portable_log_tests.ps1"
+        },
+        {
+          "path": "tools/run_portable_ota_tests.ps1",
+          "target": "tools/tests/run_portable_ota_tests.ps1"
+        }
+      ],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-TOOL-GOVERNANCE",
+      "purpose": "Static file inventory, explicit tool registry checks and catalog generation",
+      "domain": "TOOLS",
+      "owner": "TOOLS tool maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "OFFLINE",
+      "entrypoints": [
+        "tools/tool_governance/tool_governance.py"
+      ],
+      "files": [
+        {
+          "path": "tools/tool_governance/README.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/tool_governance/requirements.txt",
+          "role": "resource"
+        },
+        {
+          "path": "tools/tool_governance/tool_governance.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/tool_registry.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/tool_registry.schema.json",
+          "role": "resource"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [
+        "Python >=3.10",
+        "Git",
+        "jsonschema==4.23.0 (requirements.txt)"
+      ],
+      "dependency_review": "COMPLETE",
+      "aliases": [],
+      "validation": [
+        "tests/python/test_tool_governance.py"
+      ],
+      "handoff_evidence": null,
+      "notes": "Explicit invocation only; no pre-commit integration, entrypoint imports or hardware access. Inventory hints are not a complete runtime graph; handoff qualification pending."
+    },
+    {
+      "id": "TOOL-TRIGGER-MEAS",
+      "purpose": "trigger meas",
+      "domain": "TRIGGER",
+      "owner": "TRIGGER tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/trigger_meas/debug_trigger.py",
+        "tools/trigger_meas/loopback_test.py",
+        "tools/trigger_meas/trigger_meas.py"
+      ],
+      "files": [
+        {
+          "path": "tools/trigger_meas/debug_trigger.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/trigger_meas/loopback_test.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/trigger_meas/trigger_meas.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-TRIGGER-TIMING-TEST",
+      "purpose": "trigger timing test",
+      "domain": "TRIGGER",
+      "owner": "TRIGGER tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/trigger_timing_test/trigger_timing_test.py"
+      ],
+      "files": [
+        {
+          "path": "tools/trigger_timing_test/trigger_timing_test.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-TWO-BOARD-IO-VALIDATE",
+      "purpose": "two board io validate",
+      "domain": "SYNC",
+      "owner": "SYNC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/two_board_io_validate/two_board_io_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/two_board_io_validate/README.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/two_board_io_validate/two_board_io_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-UART-LOG-MONITOR",
+      "purpose": "uart log monitor",
+      "domain": "COMMUNICATION",
+      "owner": "COMMUNICATION tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/uart_log_monitor/uart_log_monitor.py"
+      ],
+      "files": [
+        {
+          "path": "tools/uart_log_monitor/uart_log_monitor.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-UF2-JOIN",
+      "purpose": "uf2 join",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/uf2_join/make_fill_bin.py",
+        "tools/uf2_join/uf2_join.py"
+      ],
+      "files": [
+        {
+          "path": "tools/uf2_join/make_fill_bin.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/uf2_join/uf2_join.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-VDC-DPLL-REPLAY",
+      "purpose": "vdc dpll replay",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/vdc_dpll_replay/vdc_dpll_replay.py"
+      ],
+      "files": [
+        {
+          "path": "tools/vdc_dpll_replay/vdc_dpll_replay.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_dpll_replay/vdc_dpll_replay_runner.c",
+          "role": "resource"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-VDC-GPIO-LOCK-VALIDATE",
+      "purpose": "vdc gpio lock validate",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-VDC-LATCH-VALIDATE",
+      "purpose": "vdc latch validate",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/vdc_latch_validate/vdc_latch_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/vdc_latch_validate/vdc_latch_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-VDC-LOCK-READINESS-VALIDATE",
+      "purpose": "vdc lock readiness validate",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-VDC-LONG-MONITOR",
+      "purpose": "vdc long monitor",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/vdc_long_monitor/vdc_long_monitor.py"
+      ],
+      "files": [
+        {
+          "path": "tools/vdc_long_monitor/vdc_long_monitor.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-VDC-OBSERVER-VALIDATE",
+      "purpose": "vdc observer validate",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/vdc_observer_validate/vdc_observer_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/vdc_observer_validate/vdc_observer_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-VDC-PRIORITY-TRACE",
+      "purpose": "vdc priority trace",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/vdc_priority_trace/vdc_priority_joint_capture.py",
+        "tools/vdc_priority_trace/vdc_priority_trace.py",
+        "tools/vdc_priority_trace/vdc_priority_trace_capture.py"
+      ],
+      "files": [
+        {
+          "path": "tools/vdc_priority_trace/vdc_priority_joint_capture.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_priority_trace/vdc_priority_trace.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_priority_trace/vdc_priority_trace_capture.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_priority_trace/vdc_scope_evidence.py",
+          "role": "module"
+        }
+      ],
+      "depends_on": [
+        "TOOL-CALIBRATION-RING-VALIDATE",
+        "TOOL-SCPI-COMMON",
+        "TOOL-TDMA-RING-MONITOR"
+      ],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Joint capture requires an executable bench adapter; historical out baselines and adapter code chain remain explicit handoff debt. Do not assume vector fault-injection adapter is normal capture."
+    },
+    {
+      "id": "TOOL-VDC-SYNC-METROLOGY",
+      "purpose": "vdc sync metrology",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/vdc_sync_metrology/vdc_sync_metrology.py"
+      ],
+      "files": [
+        {
+          "path": "tools/vdc_sync_metrology/vdc_sync_metrology.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-VDC-TDMA-SELFTEST-VALIDATE",
+      "purpose": "vdc tdma selftest validate",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py"
+      ],
+      "files": [
+        {
+          "path": "tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-VISA-OTA-SEND",
+      "purpose": "visa ota send",
+      "domain": "OTA",
+      "owner": "OTA tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/visa_ota_send/visa_ota_send.py"
+      ],
+      "files": [
+        {
+          "path": "tools/visa_ota_send/visa_ota_send.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    },
+    {
+      "id": "TOOL-WATCHDOG-MONITOR",
+      "purpose": "watchdog monitor",
+      "domain": "WATCHDOG",
+      "owner": "WATCHDOG tool maintenance",
+      "lifecycle": "UNASSESSED",
+      "operation": "UNASSESSED",
+      "entrypoints": [
+        "tools/watchdog_monitor/watchdog_reset_probe.py"
+      ],
+      "files": [
+        {
+          "path": "tools/watchdog_monitor/watchdog_reset_probe.py",
+          "role": "entrypoint"
+        }
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "PENDING",
+      "aliases": [],
+      "validation": [],
+      "handoff_evidence": null,
+      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+    }
+  ]
+}
