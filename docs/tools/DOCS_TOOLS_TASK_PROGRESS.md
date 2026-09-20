@@ -12,6 +12,27 @@ Last updated: 2026-09-20
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260920-004：示波器叶端首批迁入标准目录
+
+- TODO task ID：TOOLS-LAYOUT-001、TOOLS-WORKFLOW-001、TOOLS-SCOPE-001。
+- 范围：联合采样当前 CLI 保持原路径；显式导入 `tools/common/hdo_scope/reader.py` 和 `tools/domains/vdc/scope_capture/sparse.py`，替换示波器运行路径的外置类继承与 monkey patch。板卡 adapter/Probe/Trial、START/STOP/恢复逻辑不迁移，本批不宣称 out 执行链全部解除。
+- 用户追加要求：旧代码只归档、不删除。四份历史源文件原位保留，来源 SHA、迁移符号、目标与回滚方式登记在 `tools/domains/vdc/scope_capture/migration.json`；仍被旧板卡链导入的历史脚本不标为完全退役。
+
+| 旧来源（均在 out/HardwareAcceptance/ 下原位保留） | 迁移符号 | 目标 | 调用/兼容和回滚 |
+|---|---|---|---|
+| 20260916/dpll-scope-hold-r1/capture_scope_r3.py | Scope / decode_block | tools/common/hdo_scope/reader.py | joint 改用显式 reader；旧源码及旧调用方保留，回滚本批 caller/registry 需重新验收。 |
+| 20260918/dpll-phase-center-r1/capture_late_scope_schema10.py | ConfigurableScope | tools/domains/vdc/scope_capture/sparse.py | 保留 PRE 范围归一和内存配置行为；原 ResumeTrial 不迁移。 |
+| 20260918/dpll-extended-window-r1/capture_startup_one_second.py | LongScope.write | 同上 | 保留 MAIN/OPC 顺序，取消模块 monkey patch；parallel_start 仍由旧板卡链承担。 |
+| 20260919/dpll-checkpoint-r2/monitor_external.py | SparseScope | 同上 | 保留 RAW 缓存重置和 runtime WAV setter 等待；joint 的负阈值 fresh WAIT/STOP 和异步落盘保持原语义。 |
+
+- 新增 `--scope-resource` / `--scope-serial`，传递到子进程并记录生效配置；默认仍为既有台架。新模块独立登记 EXPERIMENTAL，完整工作流保持 UNASSESSED，不自动授予跨设备/跨机支持。Scope 的 Python assert 改为显式错误，失败命令/坏块保留，关闭资源用 finally；这些差异由回归覆盖。
+- 软件验证快照，非事实源：最终组合回归 242 passed / 1 skipped，跳过项为当前 Windows 账户无符号链接权限；真实离线对照 12 窗口 / 48 RAW 块、31,200,576 bytes，结果与原 phase.json 精确一致。原件来自 `out/HardwareAcceptance/20260920/joint-60s-r3/capture/`，新解码器不导入原脚本；新模块在无 out 的隔离目录可导入且不打开设备。文档回归 38 passed；四份旧源 SHA 全部一致。
+- 审查失败与修复：初审发现 Scope 打开 VISA 后设置 timeout/chunk_size 失败会泄漏句柄；已将打开/设置纳入同一异常清理边界，分别关闭已得句柄，清理失败不替换原始异常。后续独立复核发现序列号曾在整个 IDN 字段集合中匹配，型号也可误通过；已改为精确比较 `*IDN?` 第三字段，并补厂商/型号/固件字段负测。修复后交回复核；两轮 CHANGES_REQUESTED 与最终结论均保留，不更改采样时序。
+- 硬件验收快照，非事实源：最终源码指纹见 `config/hardware_acceptance/p3_acceptance_receipt.json`；build `20260920072724` 的快速四板 P3 为 PASS_WITH_WARNINGS（INFO 24 / WARN 21 / ERROR 0 / FATAL 0），P0/P3/T3 通过，TDMA 带告警通过，DPLL 按四板范围 SKIPPED。原件在 `out/HardwareAcceptance/20260920/tools-scope-leaf-r1/p3-r3/`，`check-staged` 已核对同指纹。
+- 真实联合采样快照，非事实源：`joint-60s-r3` 外层及 joint verdict 均通过，12 个新鲜窗口和 48 个 RAW 块完整，11 个稳态窗口与首个收敛窗口均在 50 ns 带内；最大绝对相差为 37.596 ns。RUN 中板端查询为零，四板内部健康、STOP/恢复、异步落盘和示波器关闭完成，errors / cleanup_errors / restore_needed 均为空；不授予未采区间连续锁相或精确事件对应资格。原件在 `out/HardwareAcceptance/20260920/tools-scope-leaf-r1/joint-60s-r3/`。
+- 失败证据：`joint-60s-r1` 因 HDO 未枚举而在 Scope 构造时拒绝，板卡完成 STOP/恢复，原目录保留；序列号修复后首次重跑因源码与旧 P3 凭证不匹配，在外层 preflight、输出目录创建和硬件运行前 fail-closed，因此没有 `joint-60s-r2` 硬件原件，本 checkpoint 只保留拒绝事实，不声称存在原始目录；错误选择链式复用摘要的 P3 尝试在硬件操作前拒绝，结构化拒绝原件保留在 `p3-r2/`。这些失败均未改写为通过。
+- 工具治理证据目录 `out/tools-governance/20260920/scope-leaf-r1/` 包括软件回归、离线 golden、来源 SHA 和独立审查；TOOLS-LAYOUT-001 与 TOOLS-SCOPE-001 据此关闭。下一步仍是 TOOLS-WORKFLOW-001 的板卡生命周期与显式历史输入收敛，不能仅移动最外 adapter 来宣布全链迁移完成。
+
 ### TOOLS-PROGRESS-20260920-003：目录分层与迁移边界规划
 
 - TODO task ID：TOOLS-LAYOUT-001；与 WORKFLOW、CONSOLIDATE 联动。
