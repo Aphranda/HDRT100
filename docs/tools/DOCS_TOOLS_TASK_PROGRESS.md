@@ -12,6 +12,17 @@ Last updated: 2026-09-20
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260920-011：P3 四板 DPLL 60 s 短闭环门禁
+
+- TODO task ID：TOOLS-P3-DPLL-SHORT-001；与 TOOLS-GATE-001、TOOLS-WORKFLOW-001 联动，但不据此关闭后二者。
+- P3 bench 的 OTA、TDMA 和 DPLL 均固定为同一组四板，不再枚举、OTA、连接或要求 NO5。默认 quick 在 TDMA STOP handoff 后运行 `dpll_short_seconds`；配置 HDO 被 VISA 枚举时 scope-on，确认缺席时 scope-off 且 external=SKIPPED，VISA discovery 失败阻断。
+- 相差策略由 `p3_dpll_short.py` 的 `PHASE_WARN_NS` / `PHASE_ERROR_NS` 唯一定义：外部路径只用 scope RAW 离线复算的 `relative_ns`，内部路径只用三个 follower 最终 residual interval，不跨测量域混算。缺样本、解析、内部健康、STOP/恢复失败记录 evidence ERROR；provisional receipt 只供同轮 joint，复核 package/build、OTA、calibration generation、TRN-03/TDMA readback 和原始 STOP records，且 `check-staged` 明确拒绝 provisional schema。
+- 软件与独立审查：最终组合回归 449 passed / 1 skipped，跳过项仅为 Windows 无符号链接权限；工具治理/catalog、文档门禁、编译和 whitespace 检查通过。独立审查先发现 evidence error 误标相差超限、provisional 准入过弱、owner 依赖环、scope discovery 未交叉绑定和 short schema 虚假 lock WARN；逐项修复后最终 PASS，无剩余 finding。
+- 失败证据保留：`p3-dpll-short-r1` 在 archived phase 链再次使用旧 quick validator 时 child 拒绝；`p3-dpll-short-r2` 在 provisional 缺 calibration generation 时配置拒绝。两次 outer 均完成四板 STOP、RAM timing/delay 恢复和最终 readback，cleanup_errors / restore_needed 为空；失败不改写为通过。
+- 功能通过 `p3-dpll-short-r3` 后，registry/catalog owner 修正改变源码指纹，因此不作为最终凭证。最终同指纹 `p3-dpll-short-r4` 使用 build `20260920141158`，结果 PASS_WITH_WARNINGS（快照：INFO 33 / WARN 20 / ERROR 0 / FATAL 0）；DPLL 为 60 s scope-on，12 份 scope record、48 个 RAW block、三个内部 endpoint、errors 为空，外部最大绝对相差 8.301 ns（快照，INFO），RAW 离线复算和 `check-staged` 通过。原件位于 `out/HardwareAcceptance/20260920/p3-dpll-short-r1..r4/`。
+- 对用户提出的 150→250 MHz Core0 tick 假设做了代码核验：当前分支与 `origin/feature/node-sequence-reservation-trigger` 的 FreeRTOS/board 时钟配置无差异；`configCPU_CLOCK_HZ` 与 `BOARD_SYS_CLOCK_HZ` 均为 250 MHz 对应符号值，board 在 scheduler 前升频，RP2350 FreeRTOS port 从运行时 `clock_get_hz(clk_sys)` 装载 Core0 SysTick。Core1 TDMA 使用独立 core-local SysTick。因此未找到 150 MHz 残留，不能把本轮失败归因于 Core0 tick，也未据此修改固件。
+- 实现提交 `181bc3a4`。后续继续 TOOLS-WORKFLOW-001 的 phase/follow/match 祖先迁移；P3 新门禁已作为每个实现批次的默认验收路径。
+
 ### TOOLS-PROGRESS-20260920-010：child probe support 纯叶端迁移
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-PROBE-SUPPORT-001。
