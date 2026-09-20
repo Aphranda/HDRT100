@@ -12,6 +12,15 @@ Last updated: 2026-09-20
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260920-013：child long-window policy 层迁移
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-LONGWINDOW-001。
+- 新增 `tools/workflows/vdc_joint_capture/longwindow.py`，从 manifest 指定的 native trace 入口构造 tracked LongWindowProbe，接管四板 reverse START、temporary origin trial、有限 quiet wait、rational secant 向外取整、同 baseline/model threshold progression 和最终 correlated projection。长区间继续标为 observation-only，不授予 lock/精度资格；单 follower oracle 失败独立进入 errors。
+- V7 manifest 将 archived `capture_longwindow.py` 固定为 `longwindow` migrated role，runtime entrypoint 下沉到 `capture_trace.py`；动态 out closure 快照从 8 降到 7。fresh-process actual=declared=7，missing / declared-not-loaded / migrated_loaded 全为空；实际 provenance 中 archived long-window 为零、tracked long-window 唯一，旧原件不删除。
+- 软件与独立审查：冻结 `native-r1/input-probe.json` 的三个 follower 各 8 个 decision，tracked `decision_oracle` / `check_windows` / `check_last_projection` 与 archived 和冻结结论逐字段全等；负测同拒。characterization 覆盖 NO4→NO1 START、trial 参数、11 s wait、非法 grant 和逐 follower collect 隔离。最终宽组合 470 passed / 1 skipped（快照），跳过项仅为 Windows 无符号链接权限；工具治理/catalog、编译和 whitespace 检查通过。独立复核 PASS，无剩余 finding。
+- 同指纹四板 P3 使用 build `20260920141158`，`tools-longwindow-r1/p3-r1` 为 PASS_WITH_WARNINGS（快照：INFO 31 / WARN 28 / ERROR 0 / FATAL 0）。DPLL 60 s scope-on outer/inner/joint 均通过，12 份 scope record、48 个 RAW block、四板 trace release 完整，外部最大绝对相差 17.702 ns（快照，INFO）；errors / cleanup_errors / restore_needed 均为空，`check-staged` 通过。原件位于 `out/HardwareAcceptance/20260920/tools-longwindow-r1/p3-r1/`。
+- 实现提交 `394ff57c`；TOOLS-WORKFLOW-LONGWINDOW-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一批迁移 native trace/follow/match 剩余祖先，继续保留 archived 原件和失败证据。
+
 ### TOOLS-PROGRESS-20260920-012：child phase / native trace 层迁移
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-PHASE-001。
