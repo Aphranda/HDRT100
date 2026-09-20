@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
-import importlib.util
 import json
 import math
 from pathlib import Path
@@ -26,20 +25,11 @@ from tools.vdc_priority_trace.vdc_scope_evidence import EvidenceWriter, capture_
 from tools.common.hdo_scope import reader as scope_reader
 from tools.domains.vdc.scope_capture.sparse import SparseScope
 from tools.workflows.vdc_joint_capture.inputs import load_inputs, validate_current_receipt
+from tools.workflows.vdc_joint_capture.internal_seal import load_adapter as load_internal_seal_adapter
 from tools.workflows.vdc_joint_capture.lifecycle import ResumeTrial, SerialBackend
 
 
 DEFAULT_WORKFLOW_INPUTS = ROOT / 'config/tool_workflows/vdc_joint_capture_internal_seal.json'
-
-
-def load_adapter(path):
-    spec = importlib.util.spec_from_file_location('joint_guard_adapter', path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    for name in ('Probe', 'base', 'parse_run_output', 'evaluate_board'):
-        if not hasattr(module, name):
-            raise ValueError(f'GUARD bench adapter missing {name}')
-    return module
 
 
 def verify_startup(probe):
@@ -479,7 +469,7 @@ def main():
     inputs = load_inputs(a.workflow_inputs, ROOT, a.bench_adapter)
     receipt = validate_current_receipt(inputs, ROOT)
     if a.child:
-        adapter = load_adapter(inputs.bench_adapter)
+        adapter = load_internal_seal_adapter(inputs.runtime_entrypoint)
         opt = argparse.Namespace(receipt=inputs.receipt, out=a.out,
             baseline=inputs.baseline, tap_baseline=inputs.tap_baseline,
             period_ns=1000000, scope=False, check_only=False, seconds=a.seconds, summary_interval_ms=10000,

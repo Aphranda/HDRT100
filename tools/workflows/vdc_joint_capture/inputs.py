@@ -8,7 +8,7 @@ import json
 from pathlib import Path, PurePosixPath
 
 
-SCHEMA = "VDC_JOINT_CAPTURE_INPUTS_V1"
+SCHEMA = "VDC_JOINT_CAPTURE_INPUTS_V2"
 SCENARIO = "internal_seal"
 FILE_KEYS = ("receipt", "baseline", "tap_baseline")
 BASELINE_COMMANDS = {
@@ -19,6 +19,7 @@ BASELINE_COMMANDS = {
     "SYSTEM:TDMA:FLIGHT:PRIORITY:BUDGET?",
     "SYSTEM:TDMA:FLIGHT:PRIORITY?",
 }
+MIGRATED_SOURCE_ROLES = ("internal_seal", "quiet_startup", "internal_summary")
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,8 @@ class WorkflowInputs:
     scenario: str
     board_uids: tuple[str, ...]
     bench_adapter: Path
+    runtime_entrypoint: Path
+    migrated_sources: tuple[Path, ...]
     executable_closure: tuple[Path, ...]
     receipt: Path
     baseline: Path
@@ -125,24 +128,44 @@ def load_inputs(manifest: Path, root: Path, selected_adapter: Path) -> WorkflowI
         raise ValueError("workflow input file declarations are incomplete")
 
     adapter = data["adapter"]
-    if not isinstance(adapter, dict) or set(adapter) != {"entrypoint", "closure"}:
+    adapter_fields = {
+        "compatibility_entrypoint", "migrated_sources",
+        "runtime_entrypoint", "runtime_closure",
+    }
+    if not isinstance(adapter, dict) or set(adapter) != adapter_fields:
         raise ValueError("adapter declaration fields are invalid")
-    closure = adapter["closure"]
-    if not isinstance(closure, list) or not closure:
-        raise ValueError("adapter closure must be a nonempty list")
+    migrated_paths = []
+    migrated_evidence = []
+    migrated = adapter["migrated_sources"]
+    if not isinstance(migrated, dict) or set(migrated) != set(MIGRATED_SOURCE_ROLES):
+        raise ValueError("migrated sources must declare the fixed internal-seal lineage")
+    for role in MIGRATED_SOURCE_ROLES:
+        path, item = _pinned_file(root, migrated[role], f"migrated source {role}")
+        migrated_paths.append(path)
+        migrated_evidence.append((role, item))
+    if not migrated_paths or len(set(migrated_paths)) != len(migrated_paths):
+        raise ValueError("migrated sources must be a nonempty unique list")
+    compatibility_entrypoint = _repository_file(
+        root, adapter["compatibility_entrypoint"], "compatibility entrypoint")
+    if compatibility_entrypoint != migrated_paths[0]:
+        raise ValueError("compatibility entrypoint must select migrated internal_seal")
+    if compatibility_entrypoint != selected_adapter.resolve():
+        raise ValueError("selected bench adapter differs from workflow input manifest")
+
     executable_paths = []
     executable_evidence = []
-    for index, declaration in enumerate(closure):
-        path, item = _pinned_file(root, declaration, f"adapter closure[{index}]")
+    for index, declaration in enumerate(adapter["runtime_closure"]):
+        path, item = _pinned_file(root, declaration, f"runtime closure[{index}]")
         executable_paths.append(path)
         executable_evidence.append(item)
     if len(set(executable_paths)) != len(executable_paths):
-        raise ValueError("adapter closure contains duplicate paths")
-    entrypoint = _repository_file(root, adapter["entrypoint"], "adapter entrypoint")
-    if entrypoint not in executable_paths:
-        raise ValueError("adapter entrypoint is absent from executable closure")
-    if entrypoint != selected_adapter.resolve():
-        raise ValueError("selected bench adapter differs from workflow input manifest")
+        raise ValueError("runtime closure contains duplicate paths")
+    runtime_entrypoint = _repository_file(
+        root, adapter["runtime_entrypoint"], "runtime entrypoint")
+    if runtime_entrypoint not in executable_paths:
+        raise ValueError("runtime entrypoint is absent from runtime closure")
+    if set(migrated_paths) & set(executable_paths):
+        raise ValueError("migrated sources must not remain in runtime closure")
 
     paths = {}
     evidence = {}
@@ -198,12 +221,18 @@ def load_inputs(manifest: Path, root: Path, selected_adapter: Path) -> WorkflowI
         manifest_sha256=hashlib.sha256(raw).hexdigest(),
         scenario=data["scenario"],
         board_uids=tuple(board_uids),
-        bench_adapter=entrypoint,
+        bench_adapter=compatibility_entrypoint,
+        runtime_entrypoint=runtime_entrypoint,
+        migrated_sources=tuple(migrated_paths),
         executable_closure=tuple(executable_paths),
         receipt=paths["receipt"],
         baseline=paths["baseline"],
         tap_baseline=paths["tap_baseline"],
-        adapter_evidence={"entrypoint": adapter["entrypoint"],
-                          "closure": executable_evidence},
+        adapter_evidence={
+            "compatibility_entrypoint": adapter["compatibility_entrypoint"],
+            "migrated_sources": dict(migrated_evidence),
+            "runtime_entrypoint": adapter["runtime_entrypoint"],
+            "runtime_closure": executable_evidence,
+        },
         files=evidence,
     )

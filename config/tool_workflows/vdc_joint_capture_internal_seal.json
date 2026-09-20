@@ -1,5 +1,5 @@
 {
-  "schema": "VDC_JOINT_CAPTURE_INPUTS_V1",
+  "schema": "VDC_JOINT_CAPTURE_INPUTS_V2",
   "scenario": "internal_seal",
   "board_uids": [
     "0010071E65B5CB38",
@@ -8,11 +8,14 @@
     "A1E549202D18ED6A"
   ],
   "adapter": {
-    "entrypoint": "out/HardwareAcceptance/20260919/internal-seal-r1/capture.py",
-    "closure": [
-      {"path": "out/HardwareAcceptance/20260919/internal-seal-r1/capture.py", "sha256": "58944daa97d5afce9ac524f3a3b6ab0104d7a41c05cfb0b7d6af737864833888"},
-      {"path": "out/HardwareAcceptance/20260919/internal-startup-r1/capture.py", "sha256": "f65356cbf7d65205c0778963d0d1c79989379a8f6676178930d073c334aa03e2"},
-      {"path": "out/HardwareAcceptance/20260919/internal-summary-probe.py", "sha256": "7455e310318368ddcd08083855738dcc2955a50347c547897cc6d7653bd29f78"},
+    "compatibility_entrypoint": "out/HardwareAcceptance/20260919/internal-seal-r1/capture.py",
+    "migrated_sources": {
+      "internal_seal": {"path": "out/HardwareAcceptance/20260919/internal-seal-r1/capture.py", "sha256": "58944daa97d5afce9ac524f3a3b6ab0104d7a41c05cfb0b7d6af737864833888"},
+      "quiet_startup": {"path": "out/HardwareAcceptance/20260919/internal-startup-r1/capture.py", "sha256": "f65356cbf7d65205c0778963d0d1c79989379a8f6676178930d073c334aa03e2"},
+      "internal_summary": {"path": "out/HardwareAcceptance/20260919/internal-summary-probe.py", "sha256": "7455e310318368ddcd08083855738dcc2955a50347c547897cc6d7653bd29f78"}
+    },
+    "runtime_entrypoint": "out/HardwareAcceptance/20260919/dpll-checkpoint-r2/monitor_external.py",
+    "runtime_closure": [
       {"path": "out/HardwareAcceptance/20260919/dpll-checkpoint-r2/monitor_external.py", "sha256": "6f73562af2a017003b7c00cbc5a39208b184135baef3bc3365415980946ab397"},
       {"path": "out/HardwareAcceptance/20260918/dpll-extended-window-r1/capture_startup_one_second.py", "sha256": "6deb892332f8eb4ef330509c0124e9fe514669264afc03f1ad63580b056f1053"},
       {"path": "out/HardwareAcceptance/20260918/dpll-phase-center-r1/capture_late_scope_schema10.py", "sha256": "afae92b0f3a73cba3e1da7ba0a29dc1cb290bcd21e0e633ff5fb58ebddaa2a11"},

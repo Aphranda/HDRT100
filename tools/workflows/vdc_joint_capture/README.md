@@ -6,11 +6,15 @@ baseline inputs before importing executable evidence code or opening hardware.
 `lifecycle.py` owns the tracked outer four-board serial sessions, all-board STOP
 barriers, temporary RAM timing/delay application, child process boundary,
 restoration, and final connection close. It never stores Flash settings.
+`internal_seal.py` owns the former internal-summary, quiet-startup, and sealed
+GUARD adapter layers. Their original bytes remain pinned as migrated sources;
+only the deeper admitted runtime closure is dynamically loaded.
 
 The CLI remains `tools/vdc_priority_trace/vdc_priority_joint_capture.py`. Its
 `--workflow-inputs` JSON fixes the scenario, board UID order, the complete
-historical executable closure, repository-relative evidence paths, and SHA256
-values. Every executable is checked before the entrypoint is imported. The P3
+remaining historical runtime closure, migrated source archive, repository-relative
+evidence paths, and SHA256 values. Every runtime executable is checked before
+the runtime entrypoint is imported. The P3
 receipt is intentionally checked by its schema and current source fingerprint
 instead of a static digest because each accepted source revision generates a
 new receipt.

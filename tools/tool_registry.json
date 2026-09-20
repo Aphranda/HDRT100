@@ -11,6 +11,7 @@
       "entrypoints": [],
       "files": [
         {"path": "tools/workflows/vdc_joint_capture/inputs.py", "role": "module"},
+        {"path": "tools/workflows/vdc_joint_capture/internal_seal.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/lifecycle.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/README.md", "role": "documentation"}
       ],
@@ -18,9 +19,9 @@
       "external_dependencies": ["pyserial for four-board hardware runs"],
       "dependency_review": "COMPLETE",
       "aliases": [],
-      "validation": ["tests/python/test_vdc_priority_joint_capture.py", "tests/python/test_vdc_joint_lifecycle.py"],
+      "validation": ["tests/python/test_vdc_priority_joint_capture.py", "tests/python/test_vdc_joint_lifecycle.py", "tests/python/test_vdc_internal_seal.py"],
       "handoff_evidence": null,
-      "notes": "Validates config/tool_workflows/vdc_joint_capture_internal_seal.json and the historical closure before import, then owns four-board serial sessions, all-board STOP, temporary RAM timing/delay, child execution, restoration and close. No Flash writes. It does not migrate the child adapter ancestry or qualify vector/reference-injection scenarios."
+      "notes": "Validates config/tool_workflows/vdc_joint_capture_internal_seal.json before import; tracked code owns the former summary/startup/seal layers plus outer STOP/RAM/child/restore lifecycle. Deeper child ancestry remains pinned. No Flash writes; vector/reference-injection scenarios remain separate."
     },
     {
       "id": "TOOL-HDO-RAW-READER",
@@ -3229,7 +3230,7 @@
       "aliases": [],
       "validation": [],
       "handoff_evidence": null,
-      "notes": "Joint capture requires an executable bench adapter; historical out baselines and adapter code chain remain explicit handoff debt. Do not assume vector fault-injection adapter is normal capture."
+      "notes": "Joint capture keeps the archived internal-seal path as a compatibility selector; tracked code now owns outer lifecycle and summary/startup/seal layers. Historical baselines and the remaining 17-file deeper runtime ancestry remain explicit handoff debt. Do not assume vector fault-injection adapter is normal capture."
     },
     {
       "id": "TOOL-VDC-SYNC-METROLOGY",
