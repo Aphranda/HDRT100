@@ -12,6 +12,9 @@ only the deeper admitted runtime closure is dynamically loaded.
 `runtime_base.py` owns the former monitor control and bounded parallel START
 layers and loads the remaining RunProbe ancestry directly. Historical scope,
 Trial and HIL modules are retained as migrated sources but no longer executed.
+`run_output.py` owns output timing/RUN prepare, output STOP and STOP-only RUN
+validation. It rejects historical internal scope ownership; external sparse
+scope remains a separate workflow component.
 
 The CLI remains `tools/vdc_priority_trace/vdc_priority_joint_capture.py`. Its
 `--workflow-inputs` JSON fixes the scenario, board UID order, the complete

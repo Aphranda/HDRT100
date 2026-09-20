@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -30,6 +31,7 @@ def workflow_input_fixture(tmp_path):
     outer_trial = root / 'out/outer_trial.py'
     outer_hil = root / 'out/outer_hil.py'
     legacy_scope = root / 'out/legacy_scope.py'
+    run_output = root / 'out/run_output.py'
     ancestor = root / 'out/ancestor.py'
     receipt = root / 'config/receipt.json'
     baseline = root / 'out/baseline.json'
@@ -45,6 +47,7 @@ def workflow_input_fixture(tmp_path):
         'outer_trial': outer_trial,
         'outer_hil': outer_hil,
         'legacy_scope_reader': legacy_scope,
+        'run_output': run_output,
     }
     for path in (*migrated.values(), ancestor, receipt, baseline, tap, manifest):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,7 +92,7 @@ def workflow_input_fixture(tmp_path):
     return SimpleNamespace(root=root, adapter=adapter, startup=startup, summary=summary,
                            monitor=monitor, parallel=parallel, late_scope=late_scope,
                            outer_trial=outer_trial, outer_hil=outer_hil,
-                           legacy_scope=legacy_scope, migrated=migrated,
+                           legacy_scope=legacy_scope, run_output=run_output, migrated=migrated,
                            ancestor=ancestor, receipt=receipt, baseline=baseline,
                            tap=tap, manifest=manifest, data=data)
 
@@ -544,6 +547,16 @@ def test_workflow_manifest_pins_all_inputs_before_adapter_import(tmp_path):
     evidence = loaded.evidence(fixture.root)
     assert evidence['scenario'] == 'internal_seal'
     assert evidence['files']['receipt']['validation'] == 'P3_SOURCE_FINGERPRINT'
+
+
+def test_repository_workflow_manifest_matches_loader_schema():
+    root = Path(__file__).resolve().parents[2]
+    manifest = json.loads((
+        root / 'config/tool_workflows/vdc_joint_capture_internal_seal.json'
+    ).read_text(encoding='utf-8'))
+    assert manifest['schema'] == workflow_inputs.SCHEMA
+    assert set(manifest['adapter']['migrated_sources']) == set(
+        workflow_inputs.MIGRATED_SOURCE_ROLES)
 
 
 @pytest.mark.parametrize('name,attribute,error', [

@@ -5,26 +5,19 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import time
 import traceback
 from types import SimpleNamespace
 
-
-def _load_module(path: Path):
-    spec = importlib.util.spec_from_file_location("vdc_joint_run_output_base", path)
-    if spec is None or spec.loader is None:
-        raise ValueError("Historical RunProbe entrypoint cannot be loaded")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from tools.workflows.vdc_joint_capture.run_output import load_run_output
 
 
 def load_runtime(runtime_entrypoint: Path, board_uids, *, runtime_module=None):
     """Build the tracked control/START base after manifest admission."""
-    capture = runtime_module if runtime_module is not None else _load_module(runtime_entrypoint)
+    capture = (runtime_module if runtime_module is not None else
+               load_run_output(runtime_entrypoint))
     if not hasattr(capture, "RunProbe") or not hasattr(capture, "phase"):
         raise ValueError("Historical runtime entrypoint lacks RunProbe/phase")
     phase = capture.phase
