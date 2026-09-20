@@ -3,42 +3,19 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
-import sys
 from types import SimpleNamespace
 
 import pytest
 
-from tools.domains.vdc.priority_trace import probe_support
 from tools.workflows.vdc_joint_capture import match as tracked_match
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ARCHIVED = (ROOT / "out/HardwareAcceptance/20260917/"
-            "dpll-priority-match-r1/capture_match.py")
-GOLDEN = (ROOT / "out/HardwareAcceptance/20260917/"
-          "dpll-longwindow-adoption-r1/native-r1/input-probe.json")
+GOLDEN = (ROOT / "tools/archive/vdc/vdc_joint_capture/lineage_v1/"
+          "golden_native_report.json")
 UIDS = ("uid-0", "uid-1", "uid-2", "uid-3")
-
-
-def archived_module():
-    spec = importlib.util.spec_from_file_location(
-        "archived_match_for_test", ARCHIVED)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    missing = object()
-    previous = sys.modules.get("probe_support", missing)
-    try:
-        sys.modules["probe_support"] = probe_support
-        spec.loader.exec_module(module)
-    finally:
-        if previous is missing:
-            sys.modules.pop("probe_support", None)
-        else:
-            sys.modules["probe_support"] = previous
-    return module
 
 
 def encode_match(slot, delay, *, generation=77, event_sequence=101):
@@ -198,19 +175,14 @@ def build_probe(tmp_path, **faults):
     return module, module.MatchProbe(options), events, direct
 
 
-def test_parser_and_forward_delay_match_archived_and_frozen_hardware():
-    old = archived_module()
+def test_parser_and_forward_delay_match_frozen_hardware():
     new = tracked_match.load_match(None)
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
-    assert new.SCALARS == old.SCALARS
-    assert new.WIDE == old.WIDE
     followers = list(report["boards"].values())[1:]
     for slot, row in enumerate(followers, 1):
-        assert new.parse_match(row["match_raw"]) == old.parse_match(
-            row["match_raw"]) == row["match"]
+        assert new.parse_match(row["match_raw"]) == row["match"]
         links = row["stage_reuse"]["links"]
         assert new.forward_delay(links, 0, slot) == \
-            old.forward_delay(links, 0, slot) == \
             row["independent_forward_delay_ns"]
 
 

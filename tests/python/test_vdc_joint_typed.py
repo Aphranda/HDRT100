@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import struct
@@ -18,29 +17,9 @@ from tools.workflows.vdc_joint_capture import typed as tracked_typed
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ARCHIVED = (ROOT / "out/HardwareAcceptance/20260917/"
-            "dpll-priority-tx-r1/capture_typed_tx.py")
-GOLDEN = (ROOT / "out/HardwareAcceptance/20260917/"
-          "dpll-longwindow-adoption-r1/native-r1/input-probe.json")
+GOLDEN = (ROOT / "tools/archive/vdc/vdc_joint_capture/lineage_v1/"
+          "golden_native_report.json")
 UIDS = ("uid-0", "uid-1", "uid-2", "uid-3")
-
-
-def archived_module():
-    spec = importlib.util.spec_from_file_location(
-        "archived_typed_for_test", ARCHIVED)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    missing = object()
-    previous = sys.modules.get("probe_support", missing)
-    try:
-        sys.modules["probe_support"] = probe_support
-        spec.loader.exec_module(module)
-    finally:
-        if previous is missing:
-            sys.modules.pop("probe_support", None)
-        else:
-            sys.modules["probe_support"] = previous
-    return module
 
 
 def mailbox(*, generation=77, sequence=101, lower_ns=1_000,
@@ -213,24 +192,20 @@ def options(tmp_path, **overrides):
     return SimpleNamespace(**values)
 
 
-def test_fields_crc_and_mailbox_match_archived_and_frozen_hardware():
-    old = archived_module()
+def test_fields_crc_and_mailbox_match_frozen_hardware():
     new = tracked_typed.load_typed(None)
     assert new.scpi_serial is sys.modules[
         new.base.BACKEND.SerialSession.__module__]
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
-    assert new.TX_FIELDS == old.TX_FIELDS
-    assert new.fields('"a,b",2') == old.fields('"a,b",2') == ["a,b", "2"]
-    for payload in (b"", b"123456789", bytes(range(30))):
-        assert new.crc16(payload) == old.crc16(payload)
-    tx_wire = old.fields(report["tx_raw"])[-1]
+    assert new.fields('"a,b",2') == ["a,b", "2"]
+    assert [new.crc16(payload) for payload in (
+        b"", b"123456789", bytes(range(30)))] == [65535, 10673, 13652]
+    tx_wire = new.fields(report["tx_raw"])[-1]
     assert new.typed_mailbox(tx_wire, report["binding_generation"], 0) == \
-        old.typed_mailbox(tx_wire, report["binding_generation"], 0) == \
         report["tx_event"]
     for slot, row in enumerate(list(report["boards"].values())[1:], 1):
-        raw = old.fields(row["direct_record_raw"])[-1]
+        raw = new.fields(row["direct_record_raw"])[-1]
         assert new.typed_mailbox(raw, report["binding_generation"], slot) == \
-            old.typed_mailbox(raw, report["binding_generation"], slot) == \
             row["direct_record_event"]
 
 

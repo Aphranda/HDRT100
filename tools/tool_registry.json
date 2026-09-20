@@ -16,6 +16,8 @@
         {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/direct_rx.py", "role": "resource"},
         {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/exact_match.py", "role": "resource"},
         {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/external_monitor.py", "role": "resource"},
+        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/golden_native_report.json", "role": "resource"},
+        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/golden_phase_report.json", "role": "resource"},
         {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_seal.py", "role": "resource"},
         {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_summary.py", "role": "resource"},
         {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/late_scope_adapter.py", "role": "resource"},

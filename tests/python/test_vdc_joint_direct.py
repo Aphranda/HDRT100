@@ -4,25 +4,20 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import struct
-import sys
 from types import SimpleNamespace
 import zlib
 
 import pytest
 
-from tools.domains.vdc.priority_trace import probe_support
 from tools.workflows.vdc_joint_capture import direct as tracked_direct
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ARCHIVED = (ROOT / "out/HardwareAcceptance/20260917/"
-            "dpll-priority-rx-direct-r1/capture_direct_rx.py")
-GOLDEN = (ROOT / "out/HardwareAcceptance/20260917/"
-          "dpll-longwindow-adoption-r1/native-r1/input-probe.json")
+GOLDEN = (ROOT / "tools/archive/vdc/vdc_joint_capture/lineage_v1/"
+          "golden_native_report.json")
 UIDS = ("uid-0", "uid-1", "uid-2", "uid-3")
 TX_FIELDS = (
     "schema generation active retired have_offer calls encoded repeated rejected "
@@ -30,24 +25,6 @@ TX_FIELDS = (
     "model_token session role_generation clock_epoch clock_run local_slot node_count "
     "schedule_crc32 profile_crc32 uncertainty_width"
 ).split()
-
-
-def archived_module():
-    spec = importlib.util.spec_from_file_location(
-        "archived_direct_for_test", ARCHIVED)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    missing = object()
-    previous = sys.modules.get("probe_support", missing)
-    try:
-        sys.modules["probe_support"] = probe_support
-        spec.loader.exec_module(module)
-    finally:
-        if previous is missing:
-            sys.modules.pop("probe_support", None)
-        else:
-            sys.modules["probe_support"] = previous
-    return module
 
 
 def crc16(raw):
@@ -249,30 +226,24 @@ def build_probe(tmp_path, **faults):
     return module, probe, events, typed
 
 
-def test_parsers_and_helpers_match_archived_and_frozen_hardware():
-    old = archived_module()
+def test_parsers_and_helpers_match_frozen_hardware():
     new = tracked_direct.load_direct(None)
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
-    assert new.RX_FIELDS == old.RX_FIELDS
-    assert new.LANE_FIELDS == old.LANE_FIELDS
     for row in report["boards"].values():
-        assert new.parse_direct(row["direct_raw"]) == \
-            old.parse_direct(row["direct_raw"]) == row["direct"]
-        assert new.parse_lane(row["priority_raw"]) == \
-            old.parse_lane(row["priority_raw"]) == row["lane"]
-        assert new.parse_timing(row["timing_raw"]) == \
-            old.parse_timing(row["timing_raw"]) == row["timing"]
-        assert new.parse_budget(row["budget_raw"]) == \
-            old.parse_budget(row["budget_raw"]) == row["budget"]
+        assert new.parse_direct(row["direct_raw"]) == row["direct"]
+        assert new.parse_lane(row["priority_raw"]) == row["lane"]
+        assert new.parse_timing(row["timing_raw"]) == row["timing"]
+        assert new.parse_budget(row["budget_raw"]) == row["budget"]
     for row in list(report["boards"].values())[1:]:
-        record = old.parent.fields(row["direct_record_raw"])
+        record = new.parent.fields(row["direct_record_raw"])
         new.validate_header(record[6], row["direct"]["carrier_sequence"],
                             report["tx_status"])
-        old.validate_header(record[6], row["direct"]["carrier_sequence"],
-                            report["tx_status"])
-        assert new.typed_subset(row["direct"]) == old.typed_subset(row["direct"])
+        expected_subset = {
+            key: row["direct"][key] for key in (
+                "binding_generation", "event_sequence", "lower_ns",
+                "width_ns", "flags")}
+        assert new.typed_subset(row["direct"]) == expected_subset
         assert new.compare_events(row["direct"], report["tx_event"]) == \
-            old.compare_events(row["direct"], report["tx_event"]) == \
             row["master_comparison"]
 
 

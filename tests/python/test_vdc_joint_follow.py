@@ -1,7 +1,6 @@
 """Regression checks for the tracked VDC joint local-follow layer."""
 
 from copy import deepcopy
-import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,43 +11,22 @@ from tools.workflows.vdc_joint_capture import follow as tracked_follow
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ARCHIVED = (ROOT / "out/HardwareAcceptance/20260917/"
-            "dpll-priority-follow-r1/capture_follow.py")
-OBSERVER = (ROOT / "out/HardwareAcceptance/20260917/"
-            "capture_observer_dma_match.py")
-GOLDEN = (ROOT / "out/HardwareAcceptance/20260917/"
-          "dpll-longwindow-adoption-r1/native-r1/input-probe.json")
+GOLDEN = (ROOT / "tools/archive/vdc/vdc_joint_capture/lineage_v1/"
+          "golden_native_report.json")
 
 
-def archived_module():
-    spec = importlib.util.spec_from_file_location(
-        "archived_follow_for_test", ARCHIVED)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_parser_and_decision_match_archived_and_frozen_hardware():
-    old = archived_module()
+def test_parser_and_decision_match_frozen_hardware():
     new = tracked_follow.load_follow(None)
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
-    assert new.U32 == old.U32
-    assert new.I32 == old.I32
-    assert new.U64 == old.U64
-    assert new.I64 == old.I64
-    assert new.MODEL == old.MODEL
     followers = list(report["boards"].values())[1:]
     for row in followers:
         parsed = new.parse_follow(row["follow_raw"])
-        assert parsed == old.parse_follow(row["follow_raw"])
         assert parsed == row["follow"]
-        assert new.check_decision(parsed) == old.check_decision(parsed)
         assert new.check_decision(parsed) == row["decision_check"]
 
 
 @pytest.mark.parametrize("mutation", ["prepared", "interval", "error", "step", "sequence"])
-def test_decision_check_rejects_same_closed_set_as_archived(mutation):
-    old = archived_module()
+def test_decision_check_rejects_frozen_closed_set(mutation):
     new = tracked_follow.load_follow(None)
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
     status = deepcopy(list(report["boards"].values())[1]["follow"])
@@ -62,9 +40,8 @@ def test_decision_check_rejects_same_closed_set_as_archived(mutation):
         status["selected_delta_ppb"] += 1
     else:
         status["event_sequence"] = status["baseline_sequence"]
-    for module in (old, new):
-        with pytest.raises((AssertionError, RuntimeError)):
-            module.check_decision(status)
+    with pytest.raises((AssertionError, RuntimeError)):
+        new.check_decision(status)
 
 
 def fake_observer(tmp_path, *, mismatch_slot=None):

@@ -2,7 +2,6 @@
 
 from copy import deepcopy
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,51 +12,31 @@ from tools.workflows.vdc_joint_capture import longwindow as tracked_longwindow
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ARCHIVED = (ROOT / "out/HardwareAcceptance/20260917/"
-            "dpll-longwindow-adoption-r1/capture_longwindow.py")
-TRACE = (ROOT / "out/HardwareAcceptance/20260917/"
-         "dpll-priority-trace-r1/capture_trace.py")
-FOLLOW = (ROOT / "out/HardwareAcceptance/20260917/"
-          "dpll-priority-follow-r1/capture_follow.py")
-OBSERVER = (ROOT / "out/HardwareAcceptance/20260917/"
-            "capture_observer_dma_match.py")
-GOLDEN = (ROOT / "out/HardwareAcceptance/20260917/"
-          "dpll-longwindow-adoption-r1/native-r1/input-probe.json")
+GOLDEN = (ROOT / "tools/archive/vdc/vdc_joint_capture/lineage_v1/"
+          "golden_native_report.json")
 
 
-def archived_module():
-    spec = importlib.util.spec_from_file_location(
-        "archived_longwindow_for_test", ARCHIVED)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_oracles_match_archived_and_frozen_hardware_report():
-    old = archived_module()
+def test_oracles_match_frozen_hardware_report():
     new = tracked_longwindow.load_longwindow(None)
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
-    assert new.THRESHOLDS == old.THRESHOLDS
-    assert new.MAX_NS == old.MAX_NS
-    assert new.QUANTIZATION_NS == old.QUANTIZATION_NS
-    assert new.RUN_SECONDS == old.RUN_SECONDS
-    assert new.TRIAL_SECONDS == old.TRIAL_SECONDS
+    assert new.THRESHOLDS == tuple(report["plan"]["window_thresholds_ns"])
+    assert new.MAX_NS == report["plan"]["max_interval_ns"]
+    assert new.QUANTIZATION_NS == \
+        report["plan"]["correlated_local_delta_quantization_ns"]
+    assert new.RUN_SECONDS == report["run_seconds"] == report["plan"]["run_seconds"]
+    assert new.TRIAL_SECONDS == report["plan"]["temporary_trial_seconds"]
     followers = list(report["boards"].values())[1:]
     assert [len(row["trace_decisions"]) for row in followers] == [8, 8, 8]
     for row in followers:
         decisions = row["trace_decisions"]
-        assert new.check_windows(decisions) == old.check_windows(decisions)
         assert new.check_windows(decisions) == row["longwindow_check"]
         status = row["trace_stop_ack"]["status"]
-        assert new.check_last_projection(row["follow"], status) == \
-            old.check_last_projection(row["follow"], status)
         assert new.check_last_projection(row["follow"], status) == \
             row["correlated_last_decision"]
 
 
 @pytest.mark.parametrize("mutation", ["range", "error", "identity", "width"])
-def test_decision_oracle_rejects_same_closed_set_as_archived(mutation):
-    old = archived_module()
+def test_decision_oracle_rejects_frozen_closed_set(mutation):
     new = tracked_longwindow.load_longwindow(None)
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
     record = deepcopy(list(report["boards"].values())[1]["trace_decisions"][0])
@@ -69,9 +48,8 @@ def test_decision_oracle_rejects_same_closed_set_as_archived(mutation):
         record["before_seq"] = 0
     else:
         record["local_delta_hi"] += 100_000
-    for module in (old, new):
-        with pytest.raises(ValueError):
-            module.decision_oracle(record)
+    with pytest.raises(ValueError):
+        new.decision_oracle(record)
 
 
 def fake_trace_parent(tmp_path, *, trial_grant=24):

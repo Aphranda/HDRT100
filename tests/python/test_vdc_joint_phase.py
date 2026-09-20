@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -16,36 +15,85 @@ from tools.workflows.vdc_joint_capture import phase as tracked_phase
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ARCHIVED_PHASE = (ROOT / "out/HardwareAcceptance/20260918/"
-                  "dpll-phase-center-r1/capture_phase_timer1.py")
-ARCHIVED_LONGWINDOW = (ROOT / "out/HardwareAcceptance/20260917/"
-                       "dpll-longwindow-adoption-r1/capture_longwindow.py")
-ARCHIVED_TRACE = (ROOT / "out/HardwareAcceptance/20260917/"
-                  "dpll-priority-trace-r1/capture_trace.py")
-FOLLOW_ENTRYPOINT = (ROOT / "out/HardwareAcceptance/20260917/"
-                     "dpll-priority-follow-r1/capture_follow.py")
+ARCHIVE = ROOT / "tools/archive/vdc/vdc_joint_capture/lineage_v1"
+ARCHIVED_PHASE = ARCHIVE / "phase_timer1.py"
+ARCHIVED_LONGWINDOW = ARCHIVE / "longwindow.py"
+ARCHIVED_TRACE = ARCHIVE / "native_trace.py"
+FOLLOW_ENTRYPOINT = ARCHIVE / "local_follow.py"
 ARCHIVED_FOLLOW = FOLLOW_ENTRYPOINT
-OBSERVER_ENTRYPOINT = (ROOT / "out/HardwareAcceptance/20260917/"
-                       "capture_observer_dma_match.py")
+OBSERVER_ENTRYPOINT = ARCHIVE / "observer_snapshot.py"
 ARCHIVED_OBSERVER = OBSERVER_ENTRYPOINT
-ARCHIVED_BASE = (ROOT / "out/HardwareAcceptance/20260915/"
-                 "dpll-input-probe-r1/input_probe.py")
-ARCHIVED_MATCH = (ROOT / "out/HardwareAcceptance/20260917/"
-                  "dpll-priority-match-r1/capture_match.py")
-ARCHIVED_DIRECT = (ROOT / "out/HardwareAcceptance/20260917/"
-                   "dpll-priority-rx-direct-r1/capture_direct_rx.py")
-ARCHIVED_TYPED = (ROOT / "out/HardwareAcceptance/20260917/"
-                  "dpll-priority-tx-r1/capture_typed_tx.py")
-GOLDEN_REPORT = (ROOT / "out/HardwareAcceptance/20260920/"
-                 "p3-dpll-short-r4/dpll-four-board-short/capture/input-probe.json")
-
-
-def load_archived_phase():
-    spec = importlib.util.spec_from_file_location(
-        "archived_phase_timer1_for_test", ARCHIVED_PHASE)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+ARCHIVED_BASE = ARCHIVE / "base_probe.py"
+ARCHIVED_MATCH = ARCHIVE / "exact_match.py"
+ARCHIVED_DIRECT = ARCHIVE / "direct_rx.py"
+ARCHIVED_TYPED = ARCHIVE / "typed_tx.py"
+GOLDEN_REPORT = ARCHIVE / "golden_phase_report.json"
+GOLDEN_NATIVE = ARCHIVE / "golden_native_report.json"
+GOLDEN_PHASE_SHA256 = "1d4c9fa2a67b6ab8e2bd13fe30c7f7d8857e6db6364acdce9d0df7998555b6d5"
+GOLDEN_NATIVE_SHA256 = "c6ad2b8ffb5814caaf76dc9106a6dbfce37b7e907943f798f6112fe6795ed051"
+EXPECTED_U32 = (
+    "schema enabled active state reason request session generation calls prepared attempted "
+    "committed applied held rejected cancelled event_sequence carrier_sequence source_slot "
+    "target_slot before_model after_model before_dco after_dco rate_epoch reserved"
+).split()
+EXPECTED_I64 = "delta_ns cumulative_ns residual_lo residual_hi".split()
+EXPECTED_U64 = (
+    "before_base_vdc after_base_vdc raw_lo raw_hi local_lo local_hi expected_lo expected_hi "
+    "valid_from_raw"
+).split()
+EXPECTED_PHASES = [
+    {
+        "schema": 1, "enabled": 1, "active": 0, "state": 6,
+        "reason": 12, "request": 8, "session": 1789915962,
+        "generation": 1789915962, "calls": 12073, "prepared": 12088,
+        "attempted": 605, "committed": 570, "applied": 570,
+        "held": 50, "rejected": 0, "cancelled": 0,
+        "event_sequence": 62348, "carrier_sequence": 62350,
+        "source_slot": 0, "target_slot": 1, "before_model": 585,
+        "after_model": 586, "before_dco": 585, "after_dco": 586,
+        "rate_epoch": 16, "reserved": 0, "delta_ns": -8,
+        "cumulative_ns": -606, "residual_lo": -78, "residual_hi": 94,
+        "before_base_vdc": 127517475384, "after_base_vdc": 127517475376,
+        "raw_lo": 39741371450, "raw_hi": 39741371463,
+        "local_lo": 159053829787, "local_hi": 159053829839,
+        "expected_lo": 159053829745, "expected_hi": 159053829865,
+        "valid_from_raw": 39742282834,
+    },
+    {
+        "schema": 1, "enabled": 1, "active": 0, "state": 6,
+        "reason": 12, "request": 8, "session": 1789915962,
+        "generation": 1789915962, "calls": 12066, "prepared": 12083,
+        "attempted": 606, "committed": 571, "applied": 571,
+        "held": 52, "rejected": 0, "cancelled": 0,
+        "event_sequence": 62322, "carrier_sequence": 62328,
+        "source_slot": 0, "target_slot": 2, "before_model": 589,
+        "after_model": 0, "before_dco": 589, "after_dco": 0,
+        "rate_epoch": 18, "reserved": 0, "delta_ns": 0,
+        "cumulative_ns": 53, "residual_lo": -86, "residual_hi": 86,
+        "before_base_vdc": 157961644891, "after_base_vdc": 157961644891,
+        "raw_lo": 39712329026, "raw_hi": 39712329039,
+        "local_lo": 159027821905, "local_hi": 159027821957,
+        "expected_lo": 159027821871, "expected_hi": 159027821991,
+        "valid_from_raw": 39688695978,
+    },
+    {
+        "schema": 1, "enabled": 1, "active": 0, "state": 6,
+        "reason": 12, "request": 8, "session": 1789915962,
+        "generation": 1789915962, "calls": 11858, "prepared": 11870,
+        "attempted": 604, "committed": 556, "applied": 556,
+        "held": 60, "rejected": 0, "cancelled": 0,
+        "event_sequence": 62384, "carrier_sequence": 62388,
+        "source_slot": 0, "target_slot": 3, "before_model": 568,
+        "after_model": 569, "before_dco": 568, "after_dco": 569,
+        "rate_epoch": 13, "reserved": 0, "delta_ns": -7,
+        "cumulative_ns": -243, "residual_lo": -79, "residual_hi": 93,
+        "before_base_vdc": 151687565746, "after_base_vdc": 151687565739,
+        "raw_lo": 39704676194, "raw_hi": 39704676207,
+        "local_lo": 159089840967, "local_hi": 159089841019,
+        "expected_lo": 159089840926, "expected_hi": 159089841046,
+        "valid_from_raw": 39706095117,
+    },
+]
 
 
 def encode_phase(*, slot=1, residual_lo=-91, residual_hi=81):
@@ -189,18 +237,26 @@ def fake_longwindow(tmp_path, *, fail_download_slot=None,
         __file__=str(source), LongWindowProbe=LongWindowProbe, parent=parent), events
 
 
-def test_phase_parser_matches_archived_for_real_four_board_endpoints():
-    archived = load_archived_phase()
+def test_frozen_handoff_reports_have_expected_source_hashes():
+    assert hashlib.sha256(GOLDEN_REPORT.read_bytes()).hexdigest() == \
+        GOLDEN_PHASE_SHA256
+    assert hashlib.sha256(GOLDEN_NATIVE.read_bytes()).hexdigest() == \
+        GOLDEN_NATIVE_SHA256
+
+
+def test_phase_parser_matches_frozen_four_board_endpoints():
     tracked = tracked_phase.load_phase(None)
+    assert tracked.U32 == EXPECTED_U32
+    assert tracked.I64 == EXPECTED_I64
+    assert tracked.U64 == EXPECTED_U64
     report = json.loads(GOLDEN_REPORT.read_text(encoding="utf-8"))
     rows = [row["final_phase_raw"] for row in report["boards"].values()
             if row["final_phase_raw"].split(",", 1)[0] == "1"]
     assert len(rows) == 3
-    for raw in rows + [encode_phase()]:
-        assert tracked.parse_phase(raw) == archived.parse_phase(raw)
-    assert tracked.U32 == archived.U32
-    assert tracked.I64 == archived.I64
-    assert tracked.U64 == archived.U64
+    assert [tracked.parse_phase(raw) for raw in rows] == EXPECTED_PHASES
+    synthetic = tracked.parse_phase(encode_phase())
+    assert (synthetic["target_slot"], synthetic["residual_lo"],
+            synthetic["residual_hi"]) == (1, -91, 81)
 
 
 @pytest.mark.parametrize("raw", ["", "1,2", ",".join(["x"] * 52)])
