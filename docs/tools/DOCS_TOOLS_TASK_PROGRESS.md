@@ -12,6 +12,15 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-021：child base probe 与零 runtime closure
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-BASE-001。
+- 新增 `tools/workflows/vdc_joint_capture/base.py`，接管四板 allowlist、query barrier、work/file 上限、JSONL action、control/trace ACK、STOP barrier、record poll、TDMA/trace export、pipeline、load/configure/acquire/collect 和基础 standalone lifecycle。模块从 calibration owner 已加载的 command 解析唯一 backend，不修改 `sys.path`，import 不枚举或打开设备；standalone cleanup 只处理自身连接，三个全局 owner 无条件恢复。
+- V14 manifest 将 archived `input_probe.py` 固定为 `base_probe` migrated role，runtime entrypoint 改为 null、runtime closure 为空。fresh-process actual=declared=0，missing / declared-not-loaded / migrated_loaded 全为空；P3 provenance 只有 tracked base/typed，20 份 archived lineage 均不执行，旧原件不删除。
+- 软件与独立审查：base characterization 覆盖 command/control/trace、STOP 重试、poll、load、TDMA cancel→RAM→SAVE→SD、trace SAVE/count/decode、configure/ARM、acquire/START/TRIAL、collect 顺序、import 无设备副作用，以及 standalone 成功和 configure/collect/单板 restore/单板 close 故障。修复前宽组合 2086 passed / 1 skipped（快照），跳过项仅为 Windows 无符号链接权限；reviewer 随后发现 standalone run 的 close 可阻断三个 owner 恢复及方法覆盖不足，补齐后聚焦组合 191 passed。最终独立复核 PASS，无剩余 finding；工具治理/catalog、编译、source length 和 whitespace 检查通过。
+- 同指纹四板 P3 `tools-base-r1/p3-r1` 使用 build `20260920171028`，结果 PASS_WITH_WARNINGS（快照：INFO 33 / WARN 20 / ERROR 0 / FATAL 0）。V14 报告记录 20 migrated / 0 runtime，tracked base/typed 在 provenance 中唯一；DPLL 60 s scope-on outer/inner/joint 通过，12 份 scope record、48 个 RAW block，外部最大绝对相差 77.958 ns，三个内部 endpoint 最大绝对残差 96 ns（快照，INFO）；errors / cleanup_errors / restore_needed 均为空，`check-staged` 通过。原件位于 `out/HardwareAcceptance/20260921/tools-base-r1/p3-r1/`。
+- 实现提交 `a130215b`；TOOLS-WORKFLOW-BASE-001 与 TOOLS-WORKFLOW-001 关闭。下一项为 TOOLS-HANDOFF-001，在另一新工作区按受控输入复现离线与硬件流程；本 checkpoint 不把当前工作区通过替代跨工作区交接。
+
 ### TOOLS-PROGRESS-20260921-020：child typed-TX 与 lifecycle 层迁移
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-TYPED-001。

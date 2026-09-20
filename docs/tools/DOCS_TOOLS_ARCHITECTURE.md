@@ -120,7 +120,9 @@ exact-match 层由 tracked workflow 管理 match status 解码、按已装载 pa
 
 direct-RX 层由 tracked workflow 管理 direct/lane/timing/budget 解码、冻结 timing baseline 的独立差分、retained transport header 与 mailbox 的 CRC/identity/payload 核验，以及 direct、master 和较慢 polled consumer 之间的 event 比较。四板 STOP 后先持久化所有原始 snapshot，再逐 follower assessment；单 follower 的 parser、计数、header、mailbox 或 payload 错误不得阻断其他 follower。不同 identity 的最终 retained event 不视为损坏，同 identity 的 payload 不一致必须拒绝。历史 direct-RX 原件只保留为 migrated lineage，并委托 tracked typed-TX 层。
 
-typed-TX 层由 tracked workflow 管理 typed mailbox CRC/target/generation/interval 解码，以及 child 的 receipt/source/UID/build 准入、四板会话、stage 复用、load/FIFO/TX prime、SYNC、反向 ARM/START、TRIAL、STOP collect、disable/restore/revoke/close 和最终 verdict。transport query registry 必须从 admitted base 的实际 backend module 解析并保持对象 identity，禁止以第二份包导入或 `sys.path` 隐式配置注册到错误实例。cleanup 对 final STOP、collect、逐板各恢复项、revoke 和逐连接 close 分别隔离；任何单项失败均须留证，连接 map 清空及两个 board-command owner 恢复必须位于无条件 finally。历史 typed-TX 原件只保留为 migrated lineage，下一层 base ancestry 仍由 manifest 固定路径和 SHA 准入。
+typed-TX 层由 tracked workflow 管理 typed mailbox CRC/target/generation/interval 解码，以及 child 的 receipt/source/UID/build 准入、四板会话、stage 复用、load/FIFO/TX prime、SYNC、反向 ARM/START、TRIAL、STOP collect、disable/restore/revoke/close 和最终 verdict。transport query registry 必须从 tracked base 的实际 backend module 解析并保持对象 identity，禁止以第二份包导入或 `sys.path` 隐式配置注册到错误实例。cleanup 对 final STOP、collect、逐板各恢复项、revoke 和逐连接 close 分别隔离；任何单项失败均须留证，连接 map 清空及两个 board-command owner 恢复必须位于无条件 finally。历史 typed-TX 原件只保留为 migrated lineage，并委托 tracked base。
+
+base 层由 tracked workflow 管理 allowlist、query barrier、总工作量/文件读取上限、JSONL action 持久化、control/trace ACK、全板 STOP、load mask、TDMA/trace export、pipeline snapshot 和基础 lifecycle。它从已加载的 calibration owner 解析唯一 TDMA backend，不修改 `sys.path`，import 不枚举或打开设备。standalone run 只关闭自身打开的连接；final STOP、collect、逐板恢复、revoke 和 close 分别隔离，三个全局 owner 必须无条件恢复。历史 base 原件只保留为 migrated lineage；internal-seal manifest 的 runtime entrypoint 为 null、runtime closure 为空，正式运行不再执行任何 `out/` Python。
 
 ## TG-LIFECYCLE：生命周期与迁移
 

@@ -18,7 +18,6 @@ Last updated: 2026-09-21
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| TOOLS-WORKFLOW-001 | 四板 DPLL/VDC 工作流依赖闭合 | IN PROGRESS | scope、输入、outer、seal、runtime control/START、RUN output、probe support、phase、long-window、native trace、local follow、observer wrapper、exact match、direct RX 与 typed TX 已完成；剩余 base 深层祖先仍待迁入。internal-seal 与 vector 专项分开迁移，不能把参考中断注入变成默认采样。最终移除日期目录代码依赖，保留 STOP/恢复和证据语义。 |
 | TOOLS-HANDOFF-001 | 标准结果与交接复现 | PENDING | TOOLS-WORKFLOW-001；声明命令、环境、设备、版本、原始证据及失败恢复；另一工作区离线复算，对应硬件配置重跑留证。 |
 | TOOLS-CHECK-001 | 工具治理静态检查 | IN PROGRESS | inventory/check/catalog 入口已落地；登记结构、路径、角色和目录漂移有正反测试。继续存量准入、配置/输出接口版本与证明内容检查，不以文件存在代替资格审查；检查过程无设备副作用。 |
 | TOOLS-GATE-001 | 修复门禁触发范围与现行要求的差异 | PENDING | TOOLS-CHECK-001；独立核对工具/测试/hook staged 变更触发，正反测试及同指纹 P3 通过；不得缩减现行验收要求。 |
@@ -30,6 +29,7 @@ Last updated: 2026-09-21
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
+| TOOLS-WORKFLOW-001 | 四板 DPLL/VDC 工作流依赖闭合 | DONE | internal-seal 从 scope/outer 到 base 全链已迁入 tracked 目录；V14 固定完整 lineage/输入但 runtime entrypoint 为 null、out executable closure 为空。旧源码原位保留且不执行；characterization、动态闭包、独立复核及同指纹四板 DPLL P3 通过，见 TOOLS-PROGRESS-20260920-004..20260921-021。交接复现仍由 TOOLS-HANDOFF-001 单独验收。 |
 | TOOLS-LAYOUT-001 | 目录规划与首批路径映射 | DONE | TG-LAYOUT 分层、稳定入口例外和首批目标已建立；scope 叶端逐文件来源/目标/调用者/兼容/验证/回滚映射完成并经独立复核，见 TOOLS-PROGRESS-20260920-003/004。后续批次仍须各自建映射。 |
 | TOOLS-SCOPE-001 | 联合采样示波器叶端迁入标准目录 | DONE | 旧源码原位归档且 SHA 可核；新 reader/SparseScope 无 out 代码依赖，回归、真实 RAW 离线对照、独立复核、同指纹 P3 和 60 s 联合实测已通过，见 TOOLS-PROGRESS-20260920-004；不代表板卡工作流全部闭合。 |
 | TOOLS-WORKFLOW-INPUTS-001 | internal-seal 工作流显式输入与准入 | DONE | tracked manifest 绑定完整历史可执行闭包、receipt/baseline/tap、板卡顺序及摘要；首次 import/硬件前 fail-closed，父子流程先落准入证据。回归、独立复核、同指纹 P3 和 scope-off 四板实测通过，见 TOOLS-PROGRESS-20260920-005。 |
@@ -47,13 +47,14 @@ Last updated: 2026-09-21
 | TOOLS-WORKFLOW-MATCH-001 | child exact-match 层迁移 | DONE | tracked factory 接管 parser、有向 delay、TAP 安装/恢复、MATCH/session 启停读回、STOP-only evidence 与逐 follower assessment；parent transport 失败和单 follower 错误独立留证。旧 match 固定为 migrated lineage 且不执行，runtime closure 从 4 降到 3；冻结 golden、故障矩阵、动态闭包、独立复核和四板 DPLL P3 集成通过，见 TOOLS-PROGRESS-20260921-018。 |
 | TOOLS-WORKFLOW-DIRECT-001 | child direct-RX 层迁移 | DONE | tracked factory 接管 direct/lane/timing/budget parser、baseline 差分、retained header/mailbox 与 direct/master/polled event 一致性；CRC/payload 故障按 follower 隔离。旧 direct 固定为 migrated lineage 且不执行，runtime closure 从 3 降到 2；冻结 golden、完整性负测、动态闭包、独立复核和四板 DPLL P3 集成通过，见 TOOLS-PROGRESS-20260921-019。 |
 | TOOLS-WORKFLOW-TYPED-001 | child typed-TX 与 lifecycle 层迁移 | DONE | tracked factory 接管 mailbox codec、receipt/UID/build、配置/START/TRIAL、最终 STOP、逐项恢复/revoke、best-effort close/owner 恢复；实际 backend transport registry 保持唯一对象。旧 typed 固定为 migrated lineage 且不执行，runtime closure 从 2 降到 1；golden、完整 lifecycle fault injection、fresh Probe 构造、独立复核和四板 DPLL P3 通过，见 TOOLS-PROGRESS-20260921-020。 |
+| TOOLS-WORKFLOW-BASE-001 | child base probe 层迁移 | DONE | tracked base 接管 bounded command/action、STOP、load、export、pipeline 与 standalone cleanup；import 无设备副作用，三个 owner 无条件恢复。旧 base 固定为 migrated lineage 且不执行，runtime closure 从 1 降到 0；方法/fault characterization、fresh closure、独立复核和四板 DPLL P3 通过，见 TOOLS-PROGRESS-20260921-021。 |
 | TOOLS-DOCS-001 | 建立独立 tools 文档域和标准三件套 | DONE | 三文件职责分离、总索引及域路由完整，独立复核与文档门禁通过；见 TOOLS-PROGRESS-20260920-001。 |
 | TOOLS-INVENTORY-001 | 全量文件归属与静态依赖候选盘点 | DONE | 已完成文件归属、静态候选及四板 out 链专项复核；不代表全部存量运行依赖已闭合。测试、独立审查及同指纹快速 P3 已完成，见 TOOLS-PROGRESS-20260920-002。 |
 | TOOLS-REGISTRY-001 | 登记结构和唯一事实源 | DONE | registry/schema、首批登记及目录同步完成；UNASSESSED 与支持资格分离，正反测试、独立审查及同指纹快速 P3 通过并保留告警，见 TOOLS-PROGRESS-20260920-002。 |
 
 ## 接续顺序与交付规则
 
-文档建域、文件盘点、首批登记、scope、输入、outer、seal、runtime control/START、RUN output、probe support、phase、long-window、native trace、local follow、observer wrapper、exact match、direct RX 和 typed TX 已完成；TOOLS-WORKFLOW-001 下一步迁移唯一剩余 base 深层祖先，专项注入保持显式配置。不要求搬完全部存量才能推进主线。示波器可用时可补 scope-on 组合验收，但无示波器切片仍优先使用 scope-off，不把设备状态改写成产品结论。四板主线优先，OTA 实现保持现有边界。任务受阻时记录具体证据和解除条件，不用扩展 P3 范围替代工具治理。
+四板 internal-seal 从 scope/outer 到 base 的 executable out 依赖已经清零，完整历史 lineage 与输入仍固定留证。下一步进入 TOOLS-HANDOFF-001：在新工作区按文档验证离线复算与对应硬件重跑；专项注入继续保持显式配置，不把 vector/reference fault injection 混入默认采样。示波器可用时执行 scope-on，无示波器时按既有策略 scope-off，不把设备状态改写成产品结论。OTA 实现保持现有边界，存量工具治理继续按批推进。
 
 文档和实现分离提交；实现切片按现行 P3 规则验收。特等席资源变更必须先由用户审核，工具治理本身不授予新增实时资源。
 
