@@ -48,6 +48,10 @@ archived direct-RX source remains lineage evidence and is not executed.
 configuration, START/TRIAL, final STOP, disable/restore, connection-close, and
 conclusion lifecycle. It loads only the next manifest-pinned base probe; the
 archived typed-TX source remains lineage evidence and is not executed.
+`base.py` owns the bounded command/action log, all-board STOP barrier, load-mask
+control, TDMA/trace export helpers, pipeline snapshots, and base probe state. It
+uses repository imports and the already-admitted TDMA backend owner; the archived
+base source remains lineage evidence and no `out/` Python remains executable.
 
 The CLI remains `tools/vdc_priority_trace/vdc_priority_joint_capture.py`. Its
 `--workflow-inputs` JSON fixes the scenario, board UID order, the complete
@@ -58,10 +62,10 @@ receipt is intentionally checked by its schema and current source fingerprint
 instead of a static digest because each accepted source revision generates a
 new receipt.
 
-The current manifest does not make the historical adapter chain supported or
-self-contained in Git. Missing evidence fails closed. Reference interruption,
-profile A/B, mirror, and vector adapters are separate experiments and must not
-reuse the internal-seal manifest.
+The current internal-seal runtime is self-contained in tracked workflow/domain
+modules. Historical lineage and baseline evidence remain mandatory pinned inputs;
+missing evidence fails closed. Reference interruption, profile A/B, mirror, and
+vector adapters are separate experiments and must not reuse this manifest.
 
 Run from the repository root with Python 3.10 or newer, pyserial, NumPy, and the
 declared four-board bench. `--scope on` additionally requires PyVISA, the VISA

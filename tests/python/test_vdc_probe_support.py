@@ -5,15 +5,13 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
-import threading
-import time
 from types import ModuleType
 from types import SimpleNamespace
 
 import pytest
 
 from tools.domains.vdc.priority_trace import probe_support as tracked
-from tools.workflows.vdc_joint_capture import typed as tracked_typed
+from tools.workflows.vdc_joint_capture import base as tracked_base
 from tools.workflows.vdc_joint_capture import run_output as tracked_run_output
 from tools.workflows.vdc_joint_capture.run_output import load_run_output
 
@@ -110,99 +108,20 @@ def test_receipt_provenance_matches_archived(tmp_path):
         tracked.bind_receipt(tmp_path, path, fingerprint, validate_ota)
 
 
-def phase_source(path, *, fail=False):
-    archived_sha = tracked_run_output.ARCHIVED_PROBE_SUPPORT_SHA256
-    path.write_text(
-        "from types import SimpleNamespace\n"
-        "from probe_support import IDS, fields\n"
-        "BOUND_IDS = IDS\n"
-        "BOUND_FIELDS = fields\n"
-        "class PhaseProbe:\n"
-        "    def __init__(self, opt):\n"
-        f"        self.report = {{'plan': {{}}, 'tool_sources': ["
-        f"{{'path': 'archived/probe_support.py', 'sha256': {archived_sha!r}}}]}}\n"
-        "backend = SimpleNamespace(TDMA_CONTROL_RESULT_FIELDS={})\n"
-        "base = SimpleNamespace(BACKEND=backend)\n"
-        "parent = SimpleNamespace(fields=lambda raw: raw.split(','), base=base)\n"
-        "follow = SimpleNamespace(parent=parent)\n"
-        + ("raise RuntimeError('phase load failed')\n" if fail else ""),
-        encoding="utf-8")
-
-
 @pytest.mark.parametrize("existing", [False, True])
-@pytest.mark.parametrize("fail", [False, True])
-def test_phase_loader_restores_compat_alias(tmp_path, monkeypatch, existing, fail):
-    phase = tmp_path / "phase.py"
-    phase_source(phase, fail=fail)
+def test_tracked_base_does_not_mutate_compat_alias(monkeypatch, existing):
     sentinel = ModuleType("probe_support")
     if existing:
         monkeypatch.setitem(sys.modules, "probe_support", sentinel)
     else:
         monkeypatch.delitem(sys.modules, "probe_support", raising=False)
-    if fail:
-        with pytest.raises(RuntimeError, match="phase load failed"):
-            tracked_typed._load_base(phase)
-    else:
-        module = tracked_typed._load_base(phase)
-        assert module.BOUND_IDS is tracked.IDS
-        assert module.BOUND_FIELDS is tracked.fields
+    module = tracked_base.load_base()
+    assert module.IDS is tracked.IDS
+    assert module.fields is tracked.fields
     if existing:
         assert sys.modules["probe_support"] is sentinel
     else:
         assert "probe_support" not in sys.modules
-
-
-def test_phase_loader_serializes_concurrent_aliases(tmp_path, monkeypatch):
-    phase = tmp_path / "phase.py"
-    phase_source(phase)
-    sentinel = ModuleType("probe_support")
-    monkeypatch.setitem(sys.modules, "probe_support", sentinel)
-    entered = threading.Event()
-    release = threading.Event()
-    original = tracked_typed.importlib.util.spec_from_file_location
-
-    class BlockingLoader:
-        def __init__(self, loader):
-            self.loader = loader
-
-        def create_module(self, spec):
-            return self.loader.create_module(spec)
-
-        def exec_module(self, module):
-            if not entered.is_set():
-                entered.set()
-                assert release.wait(2)
-            self.loader.exec_module(module)
-
-    def blocking_spec(*args, **kwargs):
-        spec = original(*args, **kwargs)
-        spec.loader = BlockingLoader(spec.loader)
-        return spec
-
-    monkeypatch.setattr(
-        tracked_typed.importlib.util, "spec_from_file_location", blocking_spec)
-    results = []
-    errors = []
-
-    def worker():
-        try:
-            results.append(tracked_typed._load_base(phase).BOUND_IDS)
-        except Exception as exc:
-            errors.append(exc)
-
-    first = threading.Thread(target=worker)
-    second = threading.Thread(target=worker)
-    first.start()
-    assert entered.wait(2)
-    second.start()
-    time.sleep(0.05)
-    release.set()
-    first.join(2)
-    second.join(2)
-    assert not first.is_alive() and not second.is_alive()
-    assert errors == []
-    assert results == [tracked.IDS, tracked.IDS]
-    assert sys.modules["probe_support"] is sentinel
 
 
 def test_run_probe_replaces_archived_probe_support_provenance(tmp_path):

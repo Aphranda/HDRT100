@@ -41,6 +41,7 @@ def workflow_input_fixture(tmp_path):
     exact_match = root / 'out/exact_match.py'
     direct_rx = root / 'out/direct_rx.py'
     typed_tx = root / 'out/typed_tx.py'
+    base_probe = root / 'out/base_probe.py'
     ancestor = root / 'out/ancestor.py'
     receipt = root / 'config/receipt.json'
     baseline = root / 'out/baseline.json'
@@ -66,6 +67,7 @@ def workflow_input_fixture(tmp_path):
         'exact_match': exact_match,
         'direct_rx': direct_rx,
         'typed_tx': typed_tx,
+        'base_probe': base_probe,
     }
     for path in (*migrated.values(), ancestor, receipt, baseline, tap, manifest):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -117,8 +119,9 @@ def workflow_input_fixture(tmp_path):
                             local_follow=local_follow,
                             observer_snapshot=observer_snapshot,
                             exact_match=exact_match,
-                            direct_rx=direct_rx,
-                            typed_tx=typed_tx,
+                             direct_rx=direct_rx,
+                             typed_tx=typed_tx,
+                             base_probe=base_probe,
                            migrated=migrated,
                            ancestor=ancestor, receipt=receipt, baseline=baseline,
                            tap=tap, manifest=manifest, data=data)
@@ -574,6 +577,34 @@ def test_workflow_manifest_pins_all_inputs_before_adapter_import(tmp_path):
     evidence = loaded.evidence(fixture.root)
     assert evidence['scenario'] == 'internal_seal'
     assert evidence['files']['receipt']['validation'] == 'P3_SOURCE_FINGERPRINT'
+
+
+def test_workflow_manifest_accepts_fully_tracked_runtime(tmp_path):
+    fixture = workflow_input_fixture(tmp_path)
+    fixture.data['adapter']['runtime_entrypoint'] = None
+    fixture.data['adapter']['runtime_closure'] = []
+    fixture.manifest.write_text(json.dumps(fixture.data), encoding='utf-8')
+    loaded = workflow_inputs.load_inputs(
+        fixture.manifest, fixture.root, fixture.adapter)
+    assert loaded.runtime_entrypoint is None
+    assert loaded.executable_closure == ()
+    assert loaded.evidence(fixture.root)['adapter']['runtime_entrypoint'] is None
+
+
+@pytest.mark.parametrize('entrypoint,closure,error', [
+    (None, 'declared', 'fully tracked runtime must have an empty runtime closure'),
+    ('missing', 'empty', 'runtime entrypoint file is missing'),
+])
+def test_workflow_manifest_rejects_inconsistent_runtime_boundary(
+        tmp_path, entrypoint, closure, error):
+    fixture = workflow_input_fixture(tmp_path)
+    fixture.data['adapter']['runtime_entrypoint'] = (
+        None if entrypoint is None else 'out/missing.py')
+    fixture.data['adapter']['runtime_closure'] = (
+        fixture.data['adapter']['runtime_closure'] if closure == 'declared' else [])
+    fixture.manifest.write_text(json.dumps(fixture.data), encoding='utf-8')
+    with pytest.raises(ValueError, match=error):
+        workflow_inputs.load_inputs(fixture.manifest, fixture.root, fixture.adapter)
 
 
 def test_repository_workflow_manifest_matches_loader_schema():

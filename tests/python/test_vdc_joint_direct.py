@@ -21,8 +21,6 @@ from tools.workflows.vdc_joint_capture import direct as tracked_direct
 ROOT = Path(__file__).resolve().parents[2]
 ARCHIVED = (ROOT / "out/HardwareAcceptance/20260917/"
             "dpll-priority-rx-direct-r1/capture_direct_rx.py")
-BASE = (ROOT / "out/HardwareAcceptance/20260915/"
-        "dpll-input-probe-r1/input_probe.py")
 GOLDEN = (ROOT / "out/HardwareAcceptance/20260917/"
           "dpll-longwindow-adoption-r1/native-r1/input-probe.json")
 UIDS = ("uid-0", "uid-1", "uid-2", "uid-3")
@@ -253,7 +251,7 @@ def build_probe(tmp_path, **faults):
 
 def test_parsers_and_helpers_match_archived_and_frozen_hardware():
     old = archived_module()
-    new = tracked_direct.load_direct(BASE)
+    new = tracked_direct.load_direct(None)
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
     assert new.RX_FIELDS == old.RX_FIELDS
     assert new.LANE_FIELDS == old.LANE_FIELDS
@@ -285,7 +283,7 @@ def test_parsers_and_helpers_match_archived_and_frozen_hardware():
     ("parse_budget", "1,2,3"),
 ])
 def test_direct_parsers_reject_malformed_closed_sets(parser, raw):
-    module = tracked_direct.load_direct(BASE)
+    module = tracked_direct.load_direct(None)
     with pytest.raises((RuntimeError, ValueError)):
         getattr(module, parser)(raw)
 
@@ -293,7 +291,7 @@ def test_direct_parsers_reject_malformed_closed_sets(parser, raw):
 @pytest.mark.parametrize("fault", [
     "sequence", "transport_crc", "packet_crc", "schedule", "profile"])
 def test_validate_header_rejects_each_integrity_fault(fault):
-    module = tracked_direct.load_direct(BASE)
+    module = tracked_direct.load_direct(None)
     raw = retained_header()
     sequence = 101
     tx = {"schedule_crc32": 11, "profile_crc32": 12}
@@ -310,7 +308,7 @@ def test_validate_header_rejects_each_integrity_fault(fault):
 
 
 def test_compare_events_distinguishes_identity_from_payload():
-    module = tracked_direct.load_direct(BASE)
+    module = tracked_direct.load_direct(None)
     first = decode_mailbox(mailbox(), 77, 1)
     different_identity = dict(first, event_sequence=102)
     same_identity_different_payload = dict(first, lower_ns=1_001)

@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import _imp
 import csv
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import struct
@@ -13,8 +11,8 @@ import sys
 import time
 from types import SimpleNamespace
 
-from tools.domains.vdc.priority_trace import probe_support as tracked_probe_support
 from tools.hardware_acceptance import p3_hardware_acceptance as gate
+from tools.workflows.vdc_joint_capture.base import load_base
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -34,28 +32,6 @@ TX_FIELDS = (
 def require(condition, message):
     if not condition:
         raise RuntimeError(message)
-
-
-def _load_base(path: Path):
-    spec = importlib.util.spec_from_file_location("vdc_joint_probe_base", path)
-    if spec is None or spec.loader is None:
-        raise ValueError("Historical base entrypoint cannot be loaded")
-    module = importlib.util.module_from_spec(spec)
-    missing = object()
-    _imp.acquire_lock()
-    previous = sys.modules.get("probe_support", missing)
-    try:
-        sys.modules["probe_support"] = tracked_probe_support
-        try:
-            spec.loader.exec_module(module)
-            return module
-        finally:
-            if previous is missing:
-                sys.modules.pop("probe_support", None)
-            else:
-                sys.modules["probe_support"] = previous
-    finally:
-        _imp.release_lock()
 
 
 def fields(raw):
@@ -97,7 +73,7 @@ def typed_mailbox(raw, generation, slot):
 
 def load_typed(runtime_entrypoint: Path, *, runtime_module=None):
     """Build the tracked typed-TX layer over an admitted base Probe module."""
-    base = runtime_module if runtime_module is not None else _load_base(runtime_entrypoint)
+    base = runtime_module if runtime_module is not None else load_base()
     if not hasattr(base, "Probe") or not hasattr(base, "BACKEND") or \
             not hasattr(base, "trn"):
         raise ValueError("Historical base entrypoint lacks Probe/BACKEND/trn")

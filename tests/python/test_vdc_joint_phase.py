@@ -28,8 +28,8 @@ ARCHIVED_FOLLOW = FOLLOW_ENTRYPOINT
 OBSERVER_ENTRYPOINT = (ROOT / "out/HardwareAcceptance/20260917/"
                        "capture_observer_dma_match.py")
 ARCHIVED_OBSERVER = OBSERVER_ENTRYPOINT
-BASE_ENTRYPOINT = (ROOT / "out/HardwareAcceptance/20260915/"
-                   "dpll-input-probe-r1/input_probe.py")
+ARCHIVED_BASE = (ROOT / "out/HardwareAcceptance/20260915/"
+                 "dpll-input-probe-r1/input_probe.py")
 ARCHIVED_MATCH = (ROOT / "out/HardwareAcceptance/20260917/"
                   "dpll-priority-match-r1/capture_match.py")
 ARCHIVED_DIRECT = (ROOT / "out/HardwareAcceptance/20260917/"
@@ -191,7 +191,7 @@ def fake_longwindow(tmp_path, *, fail_download_slot=None,
 
 def test_phase_parser_matches_archived_for_real_four_board_endpoints():
     archived = load_archived_phase()
-    tracked = tracked_phase.load_phase(BASE_ENTRYPOINT)
+    tracked = tracked_phase.load_phase(None)
     report = json.loads(GOLDEN_REPORT.read_text(encoding="utf-8"))
     rows = [row["final_phase_raw"] for row in report["boards"].values()
             if row["final_phase_raw"].split(",", 1)[0] == "1"]
@@ -205,7 +205,7 @@ def test_phase_parser_matches_archived_for_real_four_board_endpoints():
 
 @pytest.mark.parametrize("raw", ["", "1,2", ",".join(["x"] * 52)])
 def test_phase_parser_rejects_malformed_closed_set(raw):
-    tracked = tracked_phase.load_phase(BASE_ENTRYPOINT)
+    tracked = tracked_phase.load_phase(None)
     with pytest.raises((ValueError, TypeError, AssertionError, RuntimeError)):
         tracked.parse_phase(raw)
 
@@ -385,7 +385,7 @@ print(json.dumps({
         [sys.executable, "-c", code], cwd=ROOT,
         check=True, capture_output=True, text=True)
     result = json.loads(completed.stdout)
-    assert len(result["actual"]) == len(result["declared"]) == 1
+    assert len(result["actual"]) == len(result["declared"]) == 0
     assert not result["missing"]
     assert not result["declared_not_loaded"]
     assert not result["migrated_loaded"]
@@ -397,6 +397,7 @@ print(json.dumps({
     assert ARCHIVED_MATCH.relative_to(ROOT).as_posix() not in result["actual"]
     assert ARCHIVED_DIRECT.relative_to(ROOT).as_posix() not in result["actual"]
     assert ARCHIVED_TYPED.relative_to(ROOT).as_posix() not in result["actual"]
+    assert ARCHIVED_BASE.relative_to(ROOT).as_posix() not in result["actual"]
 
 
 def test_repository_adapter_constructs_final_probe_in_fresh_process():

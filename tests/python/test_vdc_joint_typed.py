@@ -20,8 +20,6 @@ from tools.workflows.vdc_joint_capture import typed as tracked_typed
 ROOT = Path(__file__).resolve().parents[2]
 ARCHIVED = (ROOT / "out/HardwareAcceptance/20260917/"
             "dpll-priority-tx-r1/capture_typed_tx.py")
-BASE = (ROOT / "out/HardwareAcceptance/20260915/"
-        "dpll-input-probe-r1/input_probe.py")
 GOLDEN = (ROOT / "out/HardwareAcceptance/20260917/"
           "dpll-longwindow-adoption-r1/native-r1/input-probe.json")
 UIDS = ("uid-0", "uid-1", "uid-2", "uid-3")
@@ -217,7 +215,7 @@ def options(tmp_path, **overrides):
 
 def test_fields_crc_and_mailbox_match_archived_and_frozen_hardware():
     old = archived_module()
-    new = tracked_typed.load_typed(BASE)
+    new = tracked_typed.load_typed(None)
     assert new.scpi_serial is sys.modules[
         new.base.BACKEND.SerialSession.__module__]
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))

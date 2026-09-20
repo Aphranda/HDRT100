@@ -8,7 +8,7 @@ import json
 from pathlib import Path, PurePosixPath
 
 
-SCHEMA = "VDC_JOINT_CAPTURE_INPUTS_V13"
+SCHEMA = "VDC_JOINT_CAPTURE_INPUTS_V14"
 SCENARIO = "internal_seal"
 FILE_KEYS = ("receipt", "baseline", "tap_baseline")
 BASELINE_COMMANDS = {
@@ -32,6 +32,7 @@ MIGRATED_SOURCE_ROLES = (
     "exact_match",
     "direct_rx",
     "typed_tx",
+    "base_probe",
 )
 
 
@@ -42,7 +43,7 @@ class WorkflowInputs:
     scenario: str
     board_uids: tuple[str, ...]
     bench_adapter: Path
-    runtime_entrypoint: Path
+    runtime_entrypoint: Path | None
     migrated_sources: tuple[Path, ...]
     executable_closure: tuple[Path, ...]
     receipt: Path
@@ -178,10 +179,16 @@ def load_inputs(manifest: Path, root: Path, selected_adapter: Path) -> WorkflowI
         executable_evidence.append(item)
     if len(set(executable_paths)) != len(executable_paths):
         raise ValueError("runtime closure contains duplicate paths")
-    runtime_entrypoint = _repository_file(
-        root, adapter["runtime_entrypoint"], "runtime entrypoint")
-    if runtime_entrypoint not in executable_paths:
-        raise ValueError("runtime entrypoint is absent from runtime closure")
+    runtime_value = adapter["runtime_entrypoint"]
+    if runtime_value is None:
+        if executable_paths:
+            raise ValueError("fully tracked runtime must have an empty runtime closure")
+        runtime_entrypoint = None
+    else:
+        runtime_entrypoint = _repository_file(
+            root, runtime_value, "runtime entrypoint")
+        if runtime_entrypoint not in executable_paths:
+            raise ValueError("runtime entrypoint is absent from runtime closure")
     if set(migrated_paths) & set(executable_paths):
         raise ValueError("migrated sources must not remain in runtime closure")
 
