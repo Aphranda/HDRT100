@@ -1,5 +1,5 @@
 {
-  "schema": "VDC_JOINT_CAPTURE_INPUTS_V9",
+  "schema": "VDC_JOINT_CAPTURE_INPUTS_V10",
   "scenario": "internal_seal",
   "board_uids": [
     "0010071E65B5CB38",
@@ -24,11 +24,11 @@
       "phase_timer1": {"path": "out/HardwareAcceptance/20260918/dpll-phase-center-r1/capture_phase_timer1.py", "sha256": "46b1638d02782fd8bf7bcceed63af83c20bc92032c27b321075605c6a182777e"},
       "longwindow": {"path": "out/HardwareAcceptance/20260917/dpll-longwindow-adoption-r1/capture_longwindow.py", "sha256": "b08d0b3d0de911f4d312a7f85b6278525ab54cb9dc20cd7047d657b66f521fe2"},
       "native_trace": {"path": "out/HardwareAcceptance/20260917/dpll-priority-trace-r1/capture_trace.py", "sha256": "402924286476282f2bfc4d3d9cb663fd27476b43f0c69932befef683d7070b50"},
-      "local_follow": {"path": "out/HardwareAcceptance/20260917/dpll-priority-follow-r1/capture_follow.py", "sha256": "e6a418fe31ea32b958afe4ac6323d241226aeb0af5a09b22d9c4f38d216276bc"}
+      "local_follow": {"path": "out/HardwareAcceptance/20260917/dpll-priority-follow-r1/capture_follow.py", "sha256": "e6a418fe31ea32b958afe4ac6323d241226aeb0af5a09b22d9c4f38d216276bc"},
+      "observer_snapshot": {"path": "out/HardwareAcceptance/20260917/capture_observer_dma_match.py", "sha256": "d7fea94ce22bfd8c0f1d09e6fe815c8a52a8ed4a1d2da93bc68feadee2db1aef"}
     },
-    "runtime_entrypoint": "out/HardwareAcceptance/20260917/capture_observer_dma_match.py",
+    "runtime_entrypoint": "out/HardwareAcceptance/20260917/dpll-priority-match-r1/capture_match.py",
     "runtime_closure": [
-      {"path": "out/HardwareAcceptance/20260917/capture_observer_dma_match.py", "sha256": "d7fea94ce22bfd8c0f1d09e6fe815c8a52a8ed4a1d2da93bc68feadee2db1aef"},
       {"path": "out/HardwareAcceptance/20260917/dpll-priority-match-r1/capture_match.py", "sha256": "3457de44788d84063ae31f18539bb9cb698c415d533d57e09ae67379c55147c4"},
       {"path": "out/HardwareAcceptance/20260917/dpll-priority-rx-direct-r1/capture_direct_rx.py", "sha256": "3568f8a03bb4c6ed7ebd2a17ae5bc219ee559bba2115a978e3b60afc5aeb9fc3"},
       {"path": "out/HardwareAcceptance/20260917/dpll-priority-tx-r1/capture_typed_tx.py", "sha256": "75bdfeac288ff6904a6c9b223589040a2cc5910671f8edc613fb383b5a9e52ef"},

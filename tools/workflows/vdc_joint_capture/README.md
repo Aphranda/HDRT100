@@ -31,6 +31,10 @@ lineage evidence and is not executed.
 checking, follower enable/disable, STOP-only status snapshots, and model/DCO
 endpoint consistency. It loads only the next manifest-pinned observer ancestor;
 the archived follow source remains lineage evidence and is not executed.
+`observer.py` owns the four-board STOP-only TDMA event snapshots and persists
+each snapshot before delegating to match collection. It loads only the next
+manifest-pinned match ancestor; the archived observer wrapper remains lineage
+evidence and is not executed.
 
 The CLI remains `tools/vdc_priority_trace/vdc_priority_joint_capture.py`. Its
 `--workflow-inputs` JSON fixes the scenario, board UID order, the complete
