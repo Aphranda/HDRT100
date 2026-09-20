@@ -15,6 +15,10 @@ Trial and HIL modules are retained as migrated sources but no longer executed.
 `run_output.py` owns output timing/RUN prepare, output STOP and STOP-only RUN
 validation. It rejects historical internal scope ownership; external sparse
 scope remains a separate workflow component.
+`phase.py` owns phase status decoding, phase/origin trace ARM, native trace
+collection, endpoint consistency, and trace release. It loads only the next
+manifest-pinned long-window ancestor; the archived phase source remains
+lineage evidence and is not executed.
 
 The CLI remains `tools/vdc_priority_trace/vdc_priority_joint_capture.py`. Its
 `--workflow-inputs` JSON fixes the scenario, board UID order, the complete

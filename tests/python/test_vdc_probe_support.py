@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from tools.domains.vdc.priority_trace import probe_support as tracked
+from tools.workflows.vdc_joint_capture import phase as tracked_phase
 from tools.workflows.vdc_joint_capture import run_output as tracked_run_output
 from tools.workflows.vdc_joint_capture.run_output import load_run_output
 
@@ -140,11 +141,11 @@ def test_phase_loader_restores_compat_alias(tmp_path, monkeypatch, existing, fai
         monkeypatch.delitem(sys.modules, "probe_support", raising=False)
     if fail:
         with pytest.raises(RuntimeError, match="phase load failed"):
-            load_run_output(phase)
+            tracked_phase._load_previous(phase)
     else:
-        module = load_run_output(phase)
-        assert module.phase.BOUND_IDS is tracked.IDS
-        assert module.phase.BOUND_FIELDS is tracked.fields
+        module = tracked_phase._load_previous(phase)
+        assert module.BOUND_IDS is tracked.IDS
+        assert module.BOUND_FIELDS is tracked.fields
     if existing:
         assert sys.modules["probe_support"] is sentinel
     else:
@@ -158,7 +159,7 @@ def test_phase_loader_serializes_concurrent_aliases(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "probe_support", sentinel)
     entered = threading.Event()
     release = threading.Event()
-    original = tracked_run_output.importlib.util.spec_from_file_location
+    original = tracked_phase.importlib.util.spec_from_file_location
 
     class BlockingLoader:
         def __init__(self, loader):
@@ -179,13 +180,13 @@ def test_phase_loader_serializes_concurrent_aliases(tmp_path, monkeypatch):
         return spec
 
     monkeypatch.setattr(
-        tracked_run_output.importlib.util, "spec_from_file_location", blocking_spec)
+        tracked_phase.importlib.util, "spec_from_file_location", blocking_spec)
     results = []
     errors = []
 
     def worker():
         try:
-            results.append(load_run_output(phase).phase.BOUND_IDS)
+            results.append(tracked_phase._load_previous(phase).BOUND_IDS)
         except Exception as exc:
             errors.append(exc)
 
@@ -205,9 +206,19 @@ def test_phase_loader_serializes_concurrent_aliases(tmp_path, monkeypatch):
 
 
 def test_run_probe_replaces_archived_probe_support_provenance(tmp_path):
-    phase = tmp_path / "phase.py"
-    phase_source(phase)
-    loaded = load_run_output(phase)
+    class PhaseProbe:
+        def __init__(self, opt):
+            self.report = {"plan": {}, "tool_sources": [{
+                "path": "archived/probe_support.py",
+                "sha256": tracked_run_output.ARCHIVED_PROBE_SUPPORT_SHA256,
+            }]}
+
+    backend = SimpleNamespace(TDMA_CONTROL_RESULT_FIELDS={})
+    base = SimpleNamespace(BACKEND=backend)
+    parent = SimpleNamespace(fields=lambda raw: raw.split(","), base=base)
+    phase = SimpleNamespace(
+        PhaseProbe=PhaseProbe, follow=SimpleNamespace(parent=parent))
+    loaded = load_run_output(Path("unused.py"), runtime_module=phase)
     probe = loaded.RunProbe(SimpleNamespace(period_ns=1_000_000))
     sources = probe.report["tool_sources"]
     assert not any(
