@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import _imp
 import importlib.util
 from pathlib import Path
 import re
+import sys
 from types import SimpleNamespace
+
+from tools.domains.vdc.priority_trace import probe_support as tracked_probe_support
 
 
 PREFIX = "SYSTem:VDC:OUTPut:RUN"
@@ -30,6 +34,8 @@ OUTCOMES = (
     "plan_rejected submit_rejected submitted binding_cancelled"
 ).split()
 PHASES = ("prepared", "running")
+ARCHIVED_PROBE_SUPPORT_SHA256 = (
+    "d45477115de1891f93ce19b2f68e17972cbc430f6eab62d18aee73ae60a66829")
 FIELDS += [f"{phase}_{outcome}" for phase in PHASES for outcome in OUTCOMES]
 FIELDS += ["prefetched_blocks", "cache_hits", "cache_invalidations"]
 FIELDS_V3 = tuple(FIELDS)
@@ -67,8 +73,21 @@ def _load_module(path: Path):
     if spec is None or spec.loader is None:
         raise ValueError("Historical phase entrypoint cannot be loaded")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    missing = object()
+    _imp.acquire_lock()
+    previous = sys.modules.get("probe_support", missing)
+    try:
+        sys.modules["probe_support"] = tracked_probe_support
+        try:
+            spec.loader.exec_module(module)
+            return module
+        finally:
+            if previous is missing:
+                sys.modules.pop("probe_support", None)
+            else:
+                sys.modules["probe_support"] = previous
+    finally:
+        _imp.release_lock()
 
 
 def load_run_output(runtime_entrypoint: Path, *, runtime_module=None):
@@ -78,6 +97,8 @@ def load_run_output(runtime_entrypoint: Path, *, runtime_module=None):
         raise ValueError("Historical phase entrypoint lacks PhaseProbe/follow")
     source = Path(__file__).resolve()
     source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+    probe_support_source = Path(tracked_probe_support.__file__).resolve()
+    probe_support_sha256 = hashlib.sha256(probe_support_source.read_bytes()).hexdigest()
 
     def fields(raw):
         return phase.follow.parent.fields(raw)
@@ -164,8 +185,15 @@ def load_run_output(runtime_entrypoint: Path, *, runtime_module=None):
                     "no counter-only causal claim"),
                 internal_scope_owner=False,
             )
-            self.report.setdefault("tool_sources", []).append({
-                "path": str(source), "sha256": source_sha256})
+            sources = self.report.setdefault("tool_sources", [])
+            sources[:] = [
+                row for row in sources
+                if row.get("sha256") != ARCHIVED_PROBE_SUPPORT_SHA256
+            ]
+            sources.extend((
+                {"path": str(probe_support_source), "sha256": probe_support_sha256},
+                {"path": str(source), "sha256": source_sha256},
+            ))
             phase.follow.parent.base.BACKEND.TDMA_CONTROL_RESULT_FIELDS[PREFIX.upper()] = 1
             phase.follow.parent.base.BACKEND.TDMA_CONTROL_RESULT_FIELDS[
                 TIMING_PREFIX.upper()] = 3

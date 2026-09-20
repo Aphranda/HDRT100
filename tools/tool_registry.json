@@ -17,13 +17,33 @@
         {"path": "tools/workflows/vdc_joint_capture/runtime_base.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/README.md", "role": "documentation"}
       ],
-      "depends_on": ["TOOL-HARDWARE-ACCEPTANCE", "TOOL-SCPI-COMMON", "TOOL-TDMA-RING-MONITOR"],
+      "depends_on": ["TOOL-HARDWARE-ACCEPTANCE", "TOOL-SCPI-COMMON", "TOOL-TDMA-RING-MONITOR", "TOOL-VDC-PROBE-SUPPORT"],
       "external_dependencies": ["pyserial for four-board hardware runs"],
       "dependency_review": "COMPLETE",
       "aliases": [],
-      "validation": ["tests/python/test_vdc_priority_joint_capture.py", "tests/python/test_vdc_joint_lifecycle.py", "tests/python/test_vdc_internal_seal.py", "tests/python/test_vdc_joint_runtime_base.py", "tests/python/test_vdc_joint_run_output.py"],
+      "validation": ["tests/python/test_vdc_priority_joint_capture.py", "tests/python/test_vdc_joint_lifecycle.py", "tests/python/test_vdc_internal_seal.py", "tests/python/test_vdc_joint_runtime_base.py", "tests/python/test_vdc_joint_run_output.py", "tests/python/test_vdc_probe_support.py"],
       "handoff_evidence": null,
       "notes": "Validates config/tool_workflows/vdc_joint_capture_internal_seal.json before import; tracked code owns the former summary/startup/seal layers plus outer STOP/RAM/child/restore lifecycle. Deeper child ancestry remains pinned. No Flash writes; vector/reference-injection scenarios remain separate."
+    },
+    {
+      "id": "TOOL-VDC-PROBE-SUPPORT",
+      "purpose": "Pure parsing and provenance support for VDC four-board probes",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "OFFLINE",
+      "entrypoints": [],
+      "files": [
+        {"path": "tools/domains/vdc/priority_trace/probe_support.py", "role": "module"},
+        {"path": "tools/domains/vdc/priority_trace/README.md", "role": "documentation"}
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "COMPLETE",
+      "aliases": [],
+      "validation": ["tests/python/test_vdc_probe_support.py"],
+      "handoff_evidence": null,
+      "notes": "Pure host leaf shared by the joint workflow and priority-trace tools. Import has no device side effects; the archived source remains pinned as migrated lineage."
     },
     {
       "id": "TOOL-HDO-RAW-READER",
@@ -3224,6 +3244,7 @@
         "TOOL-SCPI-COMMON",
         "TOOL-HDO-RAW-READER",
         "TOOL-VDC-JOINT-WORKFLOW",
+        "TOOL-VDC-PROBE-SUPPORT",
         "TOOL-VDC-SPARSE-SCOPE",
         "TOOL-TDMA-RING-MONITOR"
       ],
@@ -3232,7 +3253,7 @@
       "aliases": [],
       "validation": [],
       "handoff_evidence": null,
-      "notes": "Joint capture keeps the archived internal-seal path as a compatibility selector; tracked code owns outer lifecycle, summary/startup/seal, monitor control, parallel START and RUN output. Historical baselines and the remaining 10-file phase/follow/match ancestry remain explicit handoff debt. Do not assume vector fault-injection adapter is normal capture."
+      "notes": "Joint capture keeps the archived internal-seal path as a compatibility selector; tracked code owns outer lifecycle, summary/startup/seal, monitor control, parallel START, RUN output and pure probe support. Historical baselines and the remaining 9-file phase/follow/match ancestry remain explicit handoff debt. Do not assume vector fault-injection adapter is normal capture."
     },
     {
       "id": "TOOL-VDC-SYNC-METROLOGY",

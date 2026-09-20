@@ -124,6 +124,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-VDC-LONG-MONITOR | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_long_monitor/vdc_long_monitor.py` |
 | TOOL-VDC-OBSERVER-VALIDATE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_observer_validate/vdc_observer_validate.py` |
 | TOOL-VDC-PRIORITY-TRACE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_priority_trace/vdc_priority_joint_capture.py`<br>`tools/vdc_priority_trace/vdc_priority_trace.py`<br>`tools/vdc_priority_trace/vdc_priority_trace_capture.py` |
+| TOOL-VDC-PROBE-SUPPORT | VDC / VDC tool maintenance | EXPERIMENTAL | Library / resources |
 | TOOL-VDC-SPARSE-SCOPE | VDC / VDC tool maintenance | EXPERIMENTAL | Library / resources |
 | TOOL-VDC-SYNC-METROLOGY | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_sync_metrology/vdc_sync_metrology.py` |
 | TOOL-VDC-TDMA-SELFTEST-VALIDATE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py` |

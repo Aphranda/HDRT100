@@ -32,6 +32,7 @@ def workflow_input_fixture(tmp_path):
     outer_hil = root / 'out/outer_hil.py'
     legacy_scope = root / 'out/legacy_scope.py'
     run_output = root / 'out/run_output.py'
+    probe_support = root / 'out/probe_support.py'
     ancestor = root / 'out/ancestor.py'
     receipt = root / 'config/receipt.json'
     baseline = root / 'out/baseline.json'
@@ -48,6 +49,7 @@ def workflow_input_fixture(tmp_path):
         'outer_hil': outer_hil,
         'legacy_scope_reader': legacy_scope,
         'run_output': run_output,
+        'probe_support': probe_support,
     }
     for path in (*migrated.values(), ancestor, receipt, baseline, tap, manifest):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -92,7 +94,8 @@ def workflow_input_fixture(tmp_path):
     return SimpleNamespace(root=root, adapter=adapter, startup=startup, summary=summary,
                            monitor=monitor, parallel=parallel, late_scope=late_scope,
                            outer_trial=outer_trial, outer_hil=outer_hil,
-                           legacy_scope=legacy_scope, run_output=run_output, migrated=migrated,
+                           legacy_scope=legacy_scope, run_output=run_output,
+                           probe_support=probe_support, migrated=migrated,
                            ancestor=ancestor, receipt=receipt, baseline=baseline,
                            tap=tap, manifest=manifest, data=data)
 
