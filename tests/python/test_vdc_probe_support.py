@@ -1,7 +1,6 @@
 """Regression checks for migrated VDC priority probe support helpers."""
 
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -17,41 +16,46 @@ from tools.workflows.vdc_joint_capture.run_output import load_run_output
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ARCHIVED = (ROOT / "out/HardwareAcceptance/20260915/dpll-input-probe-r1/"
-            "probe_support.py")
+EXPECTED_IDS = [
+    "0010071E65B5CB38", "FB276192BEF9CCE1",
+    "2BD5090FE009FA2A", "A1E549202D18ED6A",
+]
+EXPECTED_OBSERVER_FIELDS = (
+    "service snapshot eligible path expand submitted accepted rejected "
+    "last_sequence last_config last_result"
+).split()
+EXPECTED_TRACE_FIELDS = (
+    "armed complete sample_count dropped first_update_seq last_update_seq "
+    "start_ms end_ms"
+).split()
 
 
-def archived_module():
-    spec = importlib.util.spec_from_file_location("archived_probe_support", ARCHIVED)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_constants_and_pure_decoders_match_archived():
-    old = archived_module()
-    for name in (
-            "IDS", "OBSERVER_FIELDS", "TRACE_FIELDS", "BASELINE_SOURCE",
-            "BASELINE_PACKAGE", "BASELINE_OTA"):
-        assert getattr(tracked, name) == getattr(old, name)
-    for raw in ('"a", 2,0x3', '1,2,3'):
-        assert tracked.fields(raw) == old.fields(raw)
+def test_constants_and_pure_decoders_match_frozen_values():
+    assert tracked.IDS == EXPECTED_IDS
+    assert tracked.OBSERVER_FIELDS == EXPECTED_OBSERVER_FIELDS
+    assert tracked.TRACE_FIELDS == EXPECTED_TRACE_FIELDS
+    assert tracked.BASELINE_SOURCE == \
+        "2e61755a453b740193a28061463f4e0bba3f1460616cec485918173fa6cfcbd9"
+    assert tracked.BASELINE_PACKAGE == \
+        "8353019b485c986b19ded5436a8a7261fb2cea94fbb0e920efbe6dbb9b9a9ce2"
+    assert tracked.BASELINE_OTA == \
+        "83db8bad02ccbaa40896b640fddb6500d66cfaf77db53f87c589c66ca3e15d51"
+    assert tracked.fields('"a", 2,0x3') == ["a", "2", "0x3"]
+    assert tracked.fields("1,2,3") == ["1", "2", "3"]
     names = ["a", "b", "c"]
-    assert tracked.uints("1,2,0xffffffff", names) == old.uints(
-        "1,2,0xffffffff", names)
+    assert tracked.uints("1,2,0xffffffff", names) == {
+        "a": 1, "b": 2, "c": 0xFFFFFFFF}
     for raw in ("1,2", "-1,2,3", "4294967296,2,3"):
         with pytest.raises((ValueError, TypeError)):
             tracked.uints(raw, names)
-        with pytest.raises((ValueError, TypeError)):
-            old.uints(raw, names)
     before = {name: 0xFFFFFFFE for name in tracked.OBSERVER_FIELDS}
     after = {name: 1 for name in tracked.OBSERVER_FIELDS}
-    assert tracked.observer_delta(before, after) == old.observer_delta(before, after)
+    assert tracked.observer_delta(before, after) == {
+        name: 3 for name in EXPECTED_OBSERVER_FIELDS[:8]}
 
 
 @pytest.mark.parametrize("with_samples", [False, True])
-def test_native_input_summary_matches_archived(with_samples):
-    old = archived_module()
+def test_native_input_summary_matches_frozen_values(with_samples):
     before = {"rx_count": 0xFFFFFFFE, "transport_bad": 2, "value": 7}
     after = {"rx_count": 1, "transport_bad": 5, "value": 9}
     samples = ([{"snapshot": {"runtime": after, "tag": "first"}}]
@@ -62,7 +66,22 @@ def test_native_input_summary_matches_archived(with_samples):
         "terminal": {"state": "STOP"},
         "errors": [],
     }
-    assert tracked.native_input_summary(decoded) == old.native_input_summary(decoded)
+    summary = tracked.native_input_summary(decoded)
+    if not with_samples:
+        assert summary == {
+            "sample_count": 0, "reason": "no_runtime_snapshot",
+            "terminal": {"state": "STOP"}}
+    else:
+        assert summary == {
+            "sample_count": 1,
+            "terminal": {"state": "STOP"},
+            "collection_errors": [],
+            "runtime_counter_deltas": {"rx_count": 3, "transport_bad": 3},
+            "first_runtime_snapshot": {"runtime": after, "tag": "first"},
+            "last_runtime_snapshot": {"runtime": after, "tag": "first"},
+            "qualification": (
+                "Sparse Core0 diagnostics; not per-edge accuracy or WCET proof"),
+        }
 
 
 def receipt_fixture(tmp_path):
@@ -87,8 +106,7 @@ def receipt_fixture(tmp_path):
     return path
 
 
-def test_receipt_provenance_matches_archived(tmp_path):
-    old = archived_module()
+def test_receipt_provenance_matches_frozen_contract(tmp_path):
     path = receipt_fixture(tmp_path)
     calls = []
 
@@ -96,11 +114,21 @@ def test_receipt_provenance_matches_archived(tmp_path):
         calls.append((value, tuple(ids), build))
 
     fingerprint = lambda root: ("work", 9)
-    expected = old.bind_receipt(tmp_path, path, fingerprint, validate_ota)
-    calls.clear()
-    actual = tracked.bind_receipt(tmp_path, path, fingerprint, validate_ota)
-    assert actual == expected
+    receipt, evidence = tracked.bind_receipt(
+        tmp_path, path, fingerprint, validate_ota)
+    assert receipt["build_id"] == "123"
     assert calls == [({"passed": True}, tuple(tracked.IDS), "123")]
+    assert evidence["receipt_path"] == str(path.resolve())
+    assert evidence["receipt_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert evidence["board_source_sha256"] == "source"
+    assert evidence["board_source_file_count"] == 7
+    assert evidence["working_source_sha256"] == "work"
+    assert evidence["working_source_file_count"] == 9
+    assert evidence["working_source_matches_board_receipt"] is False
+    assert evidence["known_p3_r2_baseline"] is False
+    assert [Path(row["path"]).name for row in evidence["artifacts"]] == [
+        "package.bin", "ota.json"]
+    assert "Build labels alone" in evidence["binding_limit"]
     value = json.loads(path.read_text(encoding="utf-8"))
     value["strict_gates_passed"] = False
     path.write_text(json.dumps(value), encoding="utf-8")
