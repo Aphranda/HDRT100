@@ -61,6 +61,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-FLASH-PARK-TIMEOUT-HIL-VALIDATE | FLASH / FLASH tool maintenance | UNASSESSED | `tools/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py` |
 | TOOL-FLASH-SCRATCH-VALIDATE | FLASH / FLASH tool maintenance | UNASSESSED | `tools/flash_scratch_validate/flash_scratch_validate.py` |
 | TOOL-HARDWARE-ACCEPTANCE | TOOLS / TOOLS tool maintenance | UNASSESSED | `tools/hardware_acceptance/p3_hardware_acceptance.py`<br>`tools/hardware_acceptance/single_board_hardware_acceptance.py` |
+| TOOL-HDO-RAW-READER | TOOLS / Scope transport maintenance | EXPERIMENTAL | Library / resources |
 | TOOL-MODEL-TURNTABLE-LOAD-VALIDATE | TRIGGER / TRIGGER tool maintenance | UNASSESSED | `tools/model_turntable_load_validate/model_turntable_load_validate.py` |
 | TOOL-MULTICORE-BOARD-VALIDATE | RTOS / RTOS tool maintenance | UNASSESSED | `tools/multicore_board_validate/multicore_board_validate.py` |
 | TOOL-OTA-BIN-INFO | OTA / OTA tool maintenance | UNASSESSED | `tools/ota_bin_info/ota_bin_info.py` |
@@ -121,6 +122,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-VDC-LONG-MONITOR | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_long_monitor/vdc_long_monitor.py` |
 | TOOL-VDC-OBSERVER-VALIDATE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_observer_validate/vdc_observer_validate.py` |
 | TOOL-VDC-PRIORITY-TRACE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_priority_trace/vdc_priority_joint_capture.py`<br>`tools/vdc_priority_trace/vdc_priority_trace.py`<br>`tools/vdc_priority_trace/vdc_priority_trace_capture.py` |
+| TOOL-VDC-SPARSE-SCOPE | VDC / VDC tool maintenance | EXPERIMENTAL | Library / resources |
 | TOOL-VDC-SYNC-METROLOGY | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_sync_metrology/vdc_sync_metrology.py` |
 | TOOL-VDC-TDMA-SELFTEST-VALIDATE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py` |
 | TOOL-VISA-OTA-SEND | OTA / OTA tool maintenance | UNASSESSED | `tools/visa_ota_send/visa_ota_send.py` |

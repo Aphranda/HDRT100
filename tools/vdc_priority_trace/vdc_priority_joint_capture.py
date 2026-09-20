@@ -23,6 +23,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.vdc_priority_trace.vdc_scope_evidence import EvidenceWriter, capture_raw, analyze_memory
+from tools.common.hdo_scope import reader as scope_reader
+from tools.domains.vdc.scope_capture.sparse import SparseScope
 
 
 def load_adapter(path):
@@ -180,8 +182,8 @@ def joint_verdict(internal_passed, scope_enabled, decisions, seconds, errors):
                 exact_event_correlation_qualified=False)
 
 
-def make_scope_class(external):
-    class ExternalScope(external.SparseScope):
+def make_scope_class(scope_base=SparseScope, reader=scope_reader):
+    class ExternalScope(scope_base):
         trigger_source = 'EXT'
 
         def save(self):
@@ -199,7 +201,7 @@ def make_scope_class(external):
 
         def export(self):
             if getattr(self, 'evidence_writer', None):
-                return capture_raw(self, external.base.scope_reader)
+                return capture_raw(self, reader)
             return super().export()
 
         def prepare(self):
@@ -236,7 +238,7 @@ def make_scope_class(external):
 
         def _capture_snapshot(self, folder):
             self.folder = folder
-            self.report = dict(resource=external.base.scope_reader.RESOURCE, commands=[], channels=[],
+            self.report = dict(resource=self.resource, commands=[], channels=[],
                                capture_complete=False, identity=self.identity, settings=self.settings,
                                voltage_formula='(code-y_origin-y_reference)*y_increment')
             self.sampling = True
@@ -274,7 +276,7 @@ def make_scope_class(external):
             if getattr(self, 'evidence_writer', None):
                 analysis_start = time.monotonic_ns()
                 self.report['phase'] = analyze_memory(self.report, self._raw_blocks,
-                                                      external.base.scope_reader.decode_block)
+                                                      reader.decode_block)
                 self.report['analysis_elapsed_ns'] = time.monotonic_ns() - analysis_start
             self.report['elapsed_s'] = time.monotonic() - begun
             self.save()
@@ -301,18 +303,28 @@ def make_probe_class(adapter):
                 self._startup_rejected = True
                 raise
             if self.opt.external_scope:
-                cls = make_scope_class(external)
-                self.scope = cls(self.opt.out / 'scope-setup', scale=.0002, points=1000000, offset=.0008)
+                cls = make_scope_class()
+                self.scope = cls(self.opt.out / 'scope-setup', scale=.0002, points=1000000, offset=.0008,
+                                 resource=self.opt.scope_resource, expected_serial=self.opt.scope_serial)
                 self.scope.trigger_source = self.opt.scope_trigger
                 self.scope.prepare()
                 self.scope.enable_async_evidence()
             super().configure()
             self.report['plan'].update(external_scope=self.opt.external_scope,
                 scope_trigger=self.opt.scope_trigger if self.opt.external_scope else None,
+                scope_resource=self.opt.scope_resource if self.opt.external_scope else None,
+                scope_serial=self.opt.scope_serial if self.opt.external_scope else None,
                 scope_sample_interval_s=5 if self.opt.external_scope else None,
                 scope_settle_s=getattr(self.opt, 'settle_s', 5.0) if self.opt.external_scope else None,
                 scope_observation='fresh sparse RAW windows; no claim for gaps between samples')
             self.report['joint_tool_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+            self.report['scope_tool_sources'] = [
+                dict(path=path.relative_to(ROOT).as_posix(), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+                for path in (
+                    ROOT / 'tools/common/hdo_scope/reader.py',
+                    ROOT / 'tools/domains/vdc/scope_capture/sparse.py',
+                    ROOT / 'tools/vdc_priority_trace/vdc_scope_evidence.py')
+            ] if self.opt.external_scope else []
             self.report['bench_adapter_sha256'] = hashlib.sha256(self.opt.bench_adapter.read_bytes()).hexdigest()
             self.save()
 
@@ -428,6 +440,10 @@ def parse_args(argv=None):
     p.add_argument('--scope', choices=('off', 'on'), default='off')
     p.add_argument('--scope-trigger', choices=('CHAN1', 'EXT'), default='CHAN1',
                    help='CHAN1 observes NO1 OUT1; EXT requires an independently active OUT4 signal')
+    p.add_argument('--scope-resource', default=scope_reader.RESOURCE,
+                   help='VISA resource for the HDO scope; recorded in every capture')
+    p.add_argument('--scope-serial', default='HDO4A244301137',
+                   help='required instrument serial from *IDN?; does not relax the HDO protocol')
     p.add_argument('--seconds', type=int, default=60)
     p.add_argument('--settle-s', type=float, default=5.0,
                    help='after START, windows up to this time are graded against the coarse 100 ns '
@@ -444,6 +460,9 @@ def parse_args(argv=None):
         p.error('settle-s must be a finite allowance from 0 through seconds')
     if any(not -(1 << 31) <= value < (1 << 31) for value in a.output_delays):
         p.error('output-delays must be signed int32 nanoseconds')
+    if any(not value.strip() or any(c in value for c in '\r\n')
+           for value in (a.scope_resource, a.scope_serial)):
+        p.error('scope resource and serial must be nonempty single-line values')
     if not a.bench_adapter.is_file():
         p.error('bench-adapter must be an existing validated GUARD capture script')
     return a
@@ -460,6 +479,7 @@ def main():
             period_ns=1000000, scope=False, check_only=False, seconds=a.seconds, summary_interval_ms=10000,
             settle_s=a.settle_s,
             no_reference=False, expire_output=False, external_scope=a.scope=='on', scope_trigger=a.scope_trigger,
+            scope_resource=a.scope_resource, scope_serial=a.scope_serial,
             bench_adapter=a.bench_adapter)
         probe = make_probe_class(adapter)(opt)
         probe.run()
@@ -468,6 +488,7 @@ def main():
     receipt = base.external.base.trial.hil.validate_receipt(ROOT/'config/hardware_acceptance/p3_acceptance_receipt.json')
     child = [sys.executable, str(Path(__file__).resolve()), '--bench-adapter', str(a.bench_adapter.resolve()),
              '--scope', a.scope, '--scope-trigger', a.scope_trigger,
+             '--scope-resource', a.scope_resource, '--scope-serial', a.scope_serial,
              '--seconds', str(a.seconds), '--settle-s', str(a.settle_s),
              '--out', str(a.out/'capture'), '--child']
     runner = base.external.base.ResumeTrial(base.external.base.trial.hil.SerialBackend(), receipt, a.out,

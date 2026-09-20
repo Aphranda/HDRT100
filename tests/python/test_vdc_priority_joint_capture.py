@@ -150,6 +150,7 @@ def scope_external(clock, mode='good'):
     class Scope:
         def __init__(self, *args, **kwargs):
             self.scope = SimpleNamespace(timeout=0)
+            self.resource = 'MOCK'
             self.report = dict(identity='mock scope', settings={})
             self.commands = []
             self.state = 'STOP'
@@ -192,7 +193,7 @@ def scope_external(clock, mode='good'):
                 raise IOError('RAW transfer failed')
             self.report['capture_complete'] = True
 
-    return SimpleNamespace(SparseScope=Scope, base=SimpleNamespace(scope_reader=SimpleNamespace(RESOURCE='MOCK')))
+    return Scope
 
 
 @pytest.mark.parametrize('source', ['EXT', 'CHAN1'])
@@ -326,7 +327,8 @@ def fake_adapter(tmp_path, clock, *, enabled=True, fault=None, internal=True):
 
     path = tmp_path/'adapter.py'
     path.write_text('# fake validated bench adapter\n', encoding='utf-8')
-    opt = SimpleNamespace(external_scope=enabled, scope_trigger='CHAN1', seconds=60, out=tmp_path, bench_adapter=path)
+    opt = SimpleNamespace(external_scope=enabled, scope_trigger='CHAN1', scope_resource='MOCK',
+                          scope_serial='MOCK123', seconds=60, out=tmp_path, bench_adapter=path)
     return SimpleNamespace(Probe=Probe, base=SimpleNamespace(external=external)), opt, events
 
 
@@ -353,7 +355,7 @@ def test_scope_off_never_constructs_scope_and_delegates_original_capture(tmp_pat
 def test_joint_acquisition_keeps_board_silent_and_always_cleans_up(tmp_path, clock, monkeypatch, fault, internal):
     monkeypatch.setattr(joint, 'verify_startup', admit_fake_startup)
     adapter, opt, events = fake_adapter(tmp_path, clock, fault=fault, internal=internal)
-    monkeypatch.setattr(joint, 'make_scope_class', lambda external: external.SparseScope)
+    monkeypatch.setattr(joint, 'make_scope_class', lambda: adapter.base.external.SparseScope)
     probe = joint.make_probe_class(adapter)(opt)
     if fault == 'undrained':
         with pytest.raises(RuntimeError, match='did not drain'): probe.run()
@@ -404,9 +406,20 @@ def test_scope_default_off_and_minute_duration_limit(tmp_path):
     assert options.scope == 'off' and options.seconds == 600
     assert tuple(options.output_delays) == (0, -28, -88, -116)
     assert options.scope_trigger == 'CHAN1'
+    assert options.scope_resource == joint.scope_reader.RESOURCE
+    assert options.scope_serial == 'HDO4A244301137'
     options = joint.parse_args(['--bench-adapter', str(adapter), '--out', str(tmp_path),
                                 '--scope', 'on', '--scope-trigger', 'EXT'])
     assert options.scope == 'on' and options.scope_trigger == 'EXT'
+
+
+@pytest.mark.parametrize('flag,value', [('--scope-resource', ''), ('--scope-serial', ' '),
+                                        ('--scope-resource', 'USB\nBAD'), ('--scope-serial', 'X\rY')])
+def test_scope_identity_rejected_before_adapter_import(tmp_path, flag, value):
+    path = tmp_path / 'adapter.py'
+    path.write_text('raise AssertionError("must not import")\n', encoding='utf-8')
+    with pytest.raises(SystemExit):
+        joint.parse_args(['--bench-adapter', str(path), '--out', str(tmp_path), flag, value])
 
 
 @pytest.mark.parametrize('values', [('-2147483649', '0', '0', '0'),
@@ -434,12 +447,14 @@ def test_explicit_delays_reach_stop_restore_runner(tmp_path, monkeypatch):
     path = tmp_path/'adapter.py'
     path.write_text('# fixture', encoding='utf-8')
     monkeypatch.setattr(joint.sys, 'argv', ['capture', '--bench-adapter', str(path),
-                        '--out', str(tmp_path), '--output-delays', '0', '-8', '-68', '-116'])
+                        '--out', str(tmp_path), '--output-delays', '0', '-8', '-68', '-116',
+                        '--scope-resource', 'USB::TEST', '--scope-serial', 'TEST123'])
     seen = {}
 
     class Runner:
         def __init__(self, *args, **kwargs):
             seen.update(kwargs)
+            seen['child'] = args[4]
 
         def run(self):
             return dict(passed=True, errors=[], cleanup_errors=[], restore_needed=False, duration_s=60)
@@ -450,6 +465,8 @@ def test_explicit_delays_reach_stop_restore_runner(tmp_path, monkeypatch):
                         SimpleNamespace(base=SimpleNamespace(external=SimpleNamespace(base=base))))
     assert joint.main() == 0
     assert seen['output_delays'] == (0, -8, -68, -116)
+    assert seen['child'][seen['child'].index('--scope-resource') + 1] == 'USB::TEST'
+    assert seen['child'][seen['child'].index('--scope-serial') + 1] == 'TEST123'
 
 
 def startup_fixture(tmp_path, monkeypatch):

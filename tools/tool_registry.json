@@ -2,6 +2,47 @@
   "schema_version": 1,
   "tools": [
     {
+      "id": "TOOL-HDO-RAW-READER",
+      "purpose": "HDO frozen RAW BYTE transport and offline block decoder",
+      "domain": "TOOLS",
+      "owner": "Scope transport maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "DEVICE_CONFIGURE",
+      "entrypoints": [],
+      "files": [
+        {"path": "tools/common/hdo_scope/reader.py", "role": "module"},
+        {"path": "tools/common/hdo_scope/README.md", "role": "documentation"}
+      ],
+      "depends_on": [],
+      "external_dependencies": ["PyVISA and VISA/USB backend for hardware; Python standard library for decoding"],
+      "dependency_review": "COMPLETE",
+      "aliases": [],
+      "validation": ["tests/python/test_hdo_scope_migration.py"],
+      "handoff_evidence": null,
+      "notes": "Extracted from frozen four-channel RAW reader; no out imports or board access. Explicit resource/identity, injected instrument for tests. Destination hardware acceptance and full handoff remain separately qualified."
+    },
+    {
+      "id": "TOOL-VDC-SPARSE-SCOPE",
+      "purpose": "Explicit HDO setup for sparse DPLL scope observation",
+      "domain": "VDC",
+      "owner": "VDC tool maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "DEVICE_CONFIGURE",
+      "entrypoints": [],
+      "files": [
+        {"path": "tools/domains/vdc/scope_capture/sparse.py", "role": "module"},
+        {"path": "tools/domains/vdc/scope_capture/migration.json", "role": "resource"},
+        {"path": "tools/domains/vdc/scope_capture/README.md", "role": "documentation"}
+      ],
+      "depends_on": ["TOOL-HDO-RAW-READER"],
+      "external_dependencies": [],
+      "dependency_review": "COMPLETE",
+      "aliases": [],
+      "validation": ["tests/python/test_hdo_scope_migration.py", "tests/python/test_vdc_priority_joint_capture.py", "tests/python/test_vdc_scope_evidence.py"],
+      "handoff_evidence": null,
+      "notes": "Explicit setup replaces historical scope inheritance/monkey patches for joint capture. Does not qualify the remaining board adapter chain or unsampled phase."
+    },
+    {
       "id": "TOOL-ANALYZER-BURST",
       "purpose": "analyzer burst",
       "domain": "SYNC",
@@ -3157,6 +3198,8 @@
       "depends_on": [
         "TOOL-CALIBRATION-RING-VALIDATE",
         "TOOL-SCPI-COMMON",
+        "TOOL-HDO-RAW-READER",
+        "TOOL-VDC-SPARSE-SCOPE",
         "TOOL-TDMA-RING-MONITOR"
       ],
       "external_dependencies": [],

@@ -1,0 +1,39 @@
+{
+  "schema": "TOOLS_MIGRATION_PROVENANCE_V1",
+  "batch": "scope-leaf-20260920",
+  "archive_policy": "Historical source bytes remain in place; never delete or rewrite. These out scripts still serve the unmigrated board adapter, so they are not declared fully retired.",
+  "sources": [
+    {
+      "path": "out/HardwareAcceptance/20260916/dpll-scope-hold-r1/capture_scope_r3.py",
+      "sha256": "5952266131b6a21371d87f2c0b1311cf1565daa93960a36069ddbe74641fb592",
+      "symbols": ["decode_block", "Scope"],
+      "target": "tools/common/hdo_scope/reader.py"
+    },
+    {
+      "path": "out/HardwareAcceptance/20260918/dpll-phase-center-r1/capture_late_scope_schema10.py",
+      "sha256": "afae92b0f3a73cba3e1da7ba0a29dc1cb290bcd21e0e633ff5fb58ebddaa2a11",
+      "symbols": ["ConfigurableScope"],
+      "target": "tools/domains/vdc/scope_capture/sparse.py"
+    },
+    {
+      "path": "out/HardwareAcceptance/20260918/dpll-extended-window-r1/capture_startup_one_second.py",
+      "sha256": "6deb892332f8eb4ef330509c0124e9fe514669264afc03f1ad63580b056f1053",
+      "symbols": ["LongScope.write"],
+      "target": "tools/domains/vdc/scope_capture/sparse.py"
+    },
+    {
+      "path": "out/HardwareAcceptance/20260919/dpll-checkpoint-r2/monitor_external.py",
+      "sha256": "6f73562af2a017003b7c00cbc5a39208b184135baef3bc3365415980946ab397",
+      "symbols": ["SparseScope"],
+      "target": "tools/domains/vdc/scope_capture/sparse.py"
+    }
+  ],
+  "active_caller": "tools/vdc_priority_trace/vdc_priority_joint_capture.py",
+  "compatibility": "Existing CLI path, trigger, timings, output delays, RAW prefix and board adapter remain. Scope class factory now accepts an explicit base and reader instead of a nested external adapter module.",
+  "validation": [
+    "tests/python/test_hdo_scope_migration.py",
+    "tests/python/test_vdc_priority_joint_capture.py",
+    "tests/python/test_vdc_scope_evidence.py"
+  ],
+  "rollback": "Revert this batch's caller/registry changes in a new change with regression and P3; keep new modules and historical originals archived. Do not automatically select an old adapter or delete either implementation."
+}
