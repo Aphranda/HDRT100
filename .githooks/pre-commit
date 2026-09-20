@@ -1,20 +1,42 @@
 #!/bin/sh
 # Run gates according to the staged change scope.
+#
+# Scope rule (AGENTS.md §2.7/§2.8): a hardware acceptance credential is required
+# only for staged sources that can change the device image, PIO, build inputs or
+# the board-side contract -- the "device" class below.  Host-side sources
+# (tools/, tests/, config/hardware_acceptance/, pytest.ini) and the gate tooling
+# itself are committable on their own: they must pass the documentation gates,
+# and their behaviour is locked by the repository test suite instead of a bench
+# run.  A receipt still fingerprints the whole tracked tree, so a host-side
+# change made between a bench run and a device-side commit invalidates that
+# receipt and forces a fresh run.
 set -e
 cd "$(git rev-parse --show-toplevel)" || exit 1
+
+# First match wins.  Keep exactly one pattern list per line in the form
+# `PATTERNS) echo CLASS ;;` -- tests/python/test_sequence_single_board_gate.py
+# parses this table to lock the routing, so reflowing it breaks that test.
+classify_path() {
+    case "$1" in
+        docs/*|AGENTS.md) echo docs ;;
+        .githooks/*|tools/docs_check/*|tools/doc_regression_check.py) echo docs ;;
+        config/hardware_acceptance/*|tools/*|tests/*|pytest.ini) echo host ;;
+        CMakeLists.txt|CMakePresets.json|pico_sdk_import.cmake) echo device ;;
+        application/*|boards/*|bootloader/*|cmake/*|components/*|drivers/*|linker/*) echo device ;;
+        middleware/*|osal/*|platform/*|third_party/*|config/*) echo device ;;
+        *) echo host ;;
+    esac
+}
 
 needs_docs=0
 needs_firmware_gate=0
 while IFS= read -r path; do
-    case "$path" in
-        docs/*|AGENTS.md)
+    [ -n "$path" ] || continue
+    case "$(classify_path "$path")" in
+        docs)
             needs_docs=1
             ;;
-        tools/docs_check/*|tools/doc_regression_check.py|.githooks/*)
-            needs_docs=1
-            needs_firmware_gate=1
-            ;;
-        CMakeLists.txt|application/*|boards/*|components/*|drivers/*|middleware/*|config/hardware_acceptance/*|tools/*|tests/*)
+        device)
             needs_firmware_gate=1
             ;;
     esac
@@ -53,7 +75,7 @@ if [ "$needs_firmware_gate" -eq 1 ]; then
         echo "[pre-commit] P3 hardware acceptance OK"
     fi
 else
-    echo "[pre-commit] P3 hardware gate skipped (no firmware-scope changes)"
+    echo "[pre-commit] hardware gate skipped (no device-scope source staged)"
 fi
 
 doc_verify_last="$(git rev-parse --git-path doc-verify-last)"

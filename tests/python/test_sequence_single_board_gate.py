@@ -1,6 +1,8 @@
 import hashlib
 import json
 import copy
+import fnmatch
+import re
 from pathlib import Path
 
 import pytest
@@ -783,12 +785,82 @@ def test_ota_summary_rejects_another_package(tmp_path):
                                   build_id="build-1", package=requested)
 
 
-def test_precommit_routes_only_allowlisted_source_to_single_board_gate():
+def _hook_scope_table():
+    """Parse the pre-commit `classify_path` table as (patterns, class) rows.
+
+    The hook resolves a staged path with first-match-wins shell `case` semantics,
+    so the table order is part of the rule and is asserted here rather than
+    re-implemented.
+    """
+    hook = (gate.ROOT / ".githooks/pre-commit").read_text(encoding="utf-8")
+    body = hook.split("classify_path() {", 1)[1].split("\n}", 1)[0]
+    rows = []
+    for line in body.splitlines():
+        match = re.match(r'\s*(\S+)\)\s*echo\s+(\w+)\s*;;\s*$', line)
+        if match:
+            rows.append((tuple(match.group(1).split("|")), match.group(2)))
+    assert rows, "pre-commit classify_path table is missing or unparsable"
+    assert rows[-1][0] == ("*",), "pre-commit classify_path must end with a catch-all"
+    return rows
+
+
+def _hook_classify(rows, path):
+    for patterns, scope in rows:
+        if any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns):
+            return scope
+    return None
+
+
+@pytest.mark.parametrize("path", [
+    # Host-side scope: committable without a hardware acceptance receipt.
+    "tools/hardware_acceptance/p3_hardware_acceptance.py",
+    "tools/hardware_acceptance/sequence_single_board_gate.py",
+    "tools/scpi_common/scpi_serial.py",
+    "tools/calibration_ring_validate/calibration_link_p3.py",
+    "tests/python/test_sequence_single_board_gate.py",
+    "tests/unit/test_tdma_origin_admission.c",
+    "config/hardware_acceptance/p3_bench_single.json",
+    "config/hardware_acceptance/sequence_single_board_receipt.json",
+    "pytest.ini",
+    ".githooks/pre-commit",
+])
+def test_precommit_keeps_host_scope_out_of_the_hardware_gate(path):
+    assert _hook_classify(_hook_scope_table(), path) in ("host", "docs")
+
+
+@pytest.mark.parametrize("path", [
+    # Device-side scope: still requires a credentialed hardware acceptance.
+    "CMakeLists.txt",
+    "CMakePresets.json",
+    "pico_sdk_import.cmake",
+    "application/src/app.c",
+    "boards/dhrt100/board.c",
+    "bootloader/src/main.c",
+    "cmake/toolchain.cmake",
+    "components/sync_trigger/src/trigger_reservation_clock.c",
+    "config/project_config.h",
+    "config/refmem/app_model.rmtp",
+    "drivers/sd/sd_card.c",
+    "linker/app.ld",
+    "middleware/scpi_port/src/scpi_system_snapshot_commands.c",
+    "osal/freertos/osal_task.c",
+    "platform/rp2350/platform_clock.c",
+    "third_party/foo/foo.c",
+])
+def test_precommit_routes_device_scope_to_the_hardware_gate(path):
+    assert _hook_classify(_hook_scope_table(), path) == "device"
+
+
+def test_precommit_gate_order_and_doc_routing_are_locked():
     hook = (gate.ROOT / ".githooks/pre-commit").read_text(encoding="utf-8")
     assert "sequence_single_board_gate.py covers-staged" in hook
     assert "sequence_single_board_gate.py check-staged" in hook
     assert hook.index("covers-staged") < hook.index("p3_hardware_acceptance.py check-staged")
-    assert "|tools/*|tests/*)" in hook
+    assert hook.index("doc gates OK") < hook.index("covers-staged")
+    table = _hook_scope_table()
+    assert _hook_classify(table, "docs/check/DOCS_REGISTRY.md") == "docs"
+    assert _hook_classify(table, "AGENTS.md") == "docs"
+    assert _hook_classify(table, "tools/doc_regression_check.py") == "docs"
 
 
 @pytest.mark.parametrize("profile,mutation", [
