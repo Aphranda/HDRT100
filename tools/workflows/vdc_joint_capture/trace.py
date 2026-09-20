@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import _imp
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
-import sys
 import time
 from types import SimpleNamespace
 
-from tools.domains.vdc.priority_trace import probe_support as tracked_probe_support
 from tools.vdc_priority_trace import vdc_priority_trace as trace_codec
+from tools.workflows.vdc_joint_capture.follow import load_follow
 
 
 PREFIX = "SYSTem:VDC:PRIORity:TRACe:"
@@ -23,31 +20,10 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
-def _load_follow(path: Path):
-    spec = importlib.util.spec_from_file_location("vdc_joint_follow_base", path)
-    if spec is None or spec.loader is None:
-        raise ValueError("Historical follow entrypoint cannot be loaded")
-    module = importlib.util.module_from_spec(spec)
-    missing = object()
-    _imp.acquire_lock()
-    previous = sys.modules.get("probe_support", missing)
-    try:
-        sys.modules["probe_support"] = tracked_probe_support
-        try:
-            spec.loader.exec_module(module)
-            return module
-        finally:
-            if previous is missing:
-                sys.modules.pop("probe_support", None)
-            else:
-                sys.modules["probe_support"] = previous
-    finally:
-        _imp.release_lock()
-
-
 def load_trace(runtime_entrypoint: Path, *, runtime_module=None):
     """Build the tracked native trace layer over an admitted FollowProbe module."""
-    follow = runtime_module if runtime_module is not None else _load_follow(runtime_entrypoint)
+    follow = (runtime_module if runtime_module is not None else
+              load_follow(runtime_entrypoint))
     if not hasattr(follow, "FollowProbe") or not hasattr(follow, "parent"):
         raise ValueError("Historical follow entrypoint lacks FollowProbe/parent")
     source = Path(__file__).resolve()
