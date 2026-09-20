@@ -12,6 +12,15 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-018：child exact-match 层迁移
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-MATCH-001。
+- 新增 `tools/workflows/vdc_joint_capture/match.py`，从 manifest 指定的 direct-RX 入口构造 tracked MatchProbe，接管 match parser、有向 path delay 重建、可选 TAP 安装/恢复、三个 follower 的 MATCH/session 启用读回、STOP-only origin/match/model/event/TAP/recovery 采集，以及 identity/path/interval 独立核验。parent transport assessment 失败仍继续 follower assessment，单 follower 错误不阻断其他板。
+- V11 manifest 将 archived `capture_match.py` 固定为 `exact_match` migrated role，runtime entrypoint 下沉到 `capture_direct_rx.py`；动态 out closure 快照从 4 降到 3。fresh-process actual=declared=3，missing / declared-not-loaded / migrated_loaded 全为空；实际 provenance 中 archived match 为零、tracked match 唯一，旧原件不删除。
+- 软件与独立审查：冻结 `native-r1/input-probe.json` 的三个 follower `match_raw`、parsed match 与独立 delay 对 archived/tracked 逐字段全等；characterization 覆盖 directed path 负测、TAP/MATCH 启停和恢复读回、STOP gate、采集顺序、parent failure 后继续 assessment 与单 follower 隔离。宽组合 2033 passed / 1 skipped（快照），跳过项仅为 Windows 无符号链接权限；工具治理/catalog、编译、source length 和 whitespace 检查通过。独立复核先发现一处重复登记仍写四文件 ancestry，修正后最终 PASS，无剩余 finding。
+- 同指纹四板 P3 使用 build `20260920171028`，`tools-match-r1/p3-r1` 为 PASS_WITH_WARNINGS（快照：INFO 33 / WARN 18 / ERROR 0 / FATAL 0）。V11 报告记录 17 migrated / 3 runtime，tracked match/observer 在实际 provenance 中唯一；DPLL 60 s scope-on outer/inner/joint 通过，12 份 scope record、48 个 RAW block，外部最大绝对相差 50.208 ns，三个内部 endpoint 最大绝对残差 99 ns（快照，INFO）；errors / cleanup_errors / restore_needed 均为空，`check-staged` 通过。internal-seal 不调用深层 MatchProbe.collect，本次 P3 不虚构 match 查询；standalone 语义由直接测试证明。原件位于 `out/HardwareAcceptance/20260921/tools-match-r1/p3-r1/`。
+- 实现提交 `bd495a05`；TOOLS-WORKFLOW-MATCH-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一批迁移 direct/typed/base 剩余祖先，继续保留 archived 原件和失败证据。
+
 ### TOOLS-PROGRESS-20260921-017：Core0 Tick 升频顺序纠错与四板复验
 
 - TODO task ID：TOOLS-P3-DPLL-SHORT-001；本记录纠正 TOOLS-PROGRESS-20260920-011 中“board 在 scheduler 前升频”的误判，不改变 TOOLS TODO 状态，也不新增跨域契约。
