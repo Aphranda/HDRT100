@@ -12,6 +12,15 @@ Last updated: 2026-09-20
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260920-012：child phase / native trace 层迁移
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-PHASE-001。
+- 新增 `tools/workflows/vdc_joint_capture/phase.py`，从 manifest 指定的 long-window 入口构造 tracked PhaseProbe，接管 52-word phase status parser、phase/origin trace ARM、STOP 后 native SRAM 下载/解码、phase/frequency endpoint 一致性和 trace release。只有完整读取的 trace 才 release；失败 trace 保留用于恢复，endpoint/release 错误进入 errors 并压低 passed。
+- V6 manifest 将 archived `capture_phase_timer1.py` 固定为 `phase_timer1` migrated role，runtime entrypoint 下沉到 `capture_longwindow.py`；动态 out closure 快照从 9 降到 8。fresh-process actual=declared=8，missing / declared-not-loaded / migrated-loaded 全为空；运行 provenance 只记录 tracked phase 和下一层 long-window，archived phase 不执行，旧原件不删除。
+- 软件与独立审查：真实 r4 follower endpoint 与 archived/tracked parser/constants 全等；characterization 覆盖 plan/provenance、phase/origin ARM、四板成功 collect/release、单板 download 失败 retain/no-release、endpoint 失败仍释放全部完整 trace、release 失败记错并继续其他板。最终宽组合 460 passed / 1 skipped（快照），跳过项仅为 Windows 无符号链接权限；工具治理/catalog、编译、source length 报告和 whitespace 检查通过。独立复核最终 PASS，无剩余 finding。
+- 同指纹四板 P3 使用 build `20260920141158`，`tools-phase-r1/p3-r1` 为 PASS_WITH_WARNINGS（快照：INFO 33 / WARN 18 / ERROR 0 / FATAL 0）。DPLL 60 s scope-on outer/inner/joint 均通过，12 份 scope record、48 个 RAW block、四板 trace release 完整，外部最大绝对相差 10.185 ns（快照，INFO）；errors / cleanup_errors / restore_needed 均为空，`check-staged` 通过。原件位于 `out/HardwareAcceptance/20260920/tools-phase-r1/p3-r1/`。
+- 实现提交 `0e72f1fe`；TOOLS-WORKFLOW-PHASE-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一批从 long-window/trace/follow/match 剩余祖先选择独立切片，继续保留 archived 原件和失败证据。
+
 ### TOOLS-PROGRESS-20260920-011：P3 四板 DPLL 60 s 短闭环门禁
 
 - TODO task ID：TOOLS-P3-DPLL-SHORT-001；与 TOOLS-GATE-001、TOOLS-WORKFLOW-001 联动，但不据此关闭后二者。

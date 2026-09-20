@@ -106,6 +106,8 @@ runtime control/START 基座同样归 tracked workflow：只加载 manifest 指�
 
 RUN output 层由 tracked workflow 唯一管理 timing snapshot/apply、RUN prepare、output STOP 和 STOP 后 schema 校验；外层 lifecycle 是 RAM timing/delay 恢复的唯一 owner。历史 RunProbe 内部示波器 owner 在本工作流中 fail-closed 禁用，物理采样只走独立 tracked sparse-scope 组件，防止双 owner 或旧 reader 重新进入 child import 链。
 
+phase 层由 tracked workflow 管理 phase status 解码、phase/origin trace ARM、STOP 后 native trace 下载/解码、phase/frequency endpoint 一致性和 trace release。只有完整读取的 trace 才允许 release；下载/解码失败的 trace 必须保留用于恢复，endpoint 或 release 错误必须进入最终 errors 并压低 passed。历史 phase 原件只保留为 migrated lineage，下一层 long-window ancestry 仍由 manifest 固定路径和 SHA 准入。
+
 ## TG-LIFECYCLE：生命周期与迁移
 
 | 状态 | 准入或退出条件 |
