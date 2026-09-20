@@ -57,11 +57,16 @@ def test_load_base_has_tracked_provenance_and_no_out_runtime(tmp_path):
 
 def test_repository_manifest_has_zero_runtime_closure():
     manifest = ROOT / "config/tool_workflows/vdc_joint_capture_internal_seal.json"
-    adapter = ROOT / "out/HardwareAcceptance/20260919/internal-seal-r1/capture.py"
+    adapter = (ROOT / "tools/archive/vdc/vdc_joint_capture/lineage_v1/"
+               "internal_seal.py")
     inputs = load_inputs(manifest, ROOT, adapter)
     assert inputs.runtime_entrypoint is None
     assert inputs.executable_closure == ()
     assert len(inputs.migrated_sources) == 20
+    archive = ROOT / "tools/archive/vdc/vdc_joint_capture/lineage_v1"
+    assert all(path.is_relative_to(archive) for path in inputs.migrated_sources)
+    assert inputs.baseline == archive / "stopped_baseline.json"
+    assert inputs.tap_baseline == archive / "tap_baseline.json"
 
 
 def test_base_import_has_no_device_side_effects_in_fresh_process():

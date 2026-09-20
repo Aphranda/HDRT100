@@ -349,9 +349,9 @@ from tools.workflows.vdc_joint_capture.internal_seal import load_adapter
 root = Path('.').resolve()
 inputs = load_inputs(
     root / 'config/tool_workflows/vdc_joint_capture_internal_seal.json', root,
-    root / 'out/HardwareAcceptance/20260919/internal-seal-r1/capture.py')
+    root / 'tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_seal.py')
 adapter = load_adapter(inputs.runtime_entrypoint, board_uids=inputs.board_uids)
-seen, actual = set(), set()
+seen, actual, loaded = set(), set(), set()
 stack = [adapter, *tuple(sys.modules.values())]
 while stack:
     value = stack.pop()
@@ -365,6 +365,8 @@ while stack:
             relative = Path(path).resolve().relative_to(root).as_posix()
         except ValueError:
             relative = ''
+        if relative:
+            loaded.add(relative)
         if relative.startswith('out/HardwareAcceptance/'):
             actual.add(relative)
     if isinstance(value, (ModuleType, SimpleNamespace)):
@@ -378,7 +380,7 @@ print(json.dumps({
     'actual': sorted(actual), 'declared': sorted(declared),
     'missing': sorted(actual - declared),
     'declared_not_loaded': sorted(declared - actual),
-    'migrated_loaded': sorted(actual & migrated),
+    'migrated_loaded': sorted(loaded & migrated),
 }))
 '''
     completed = subprocess.run(
@@ -411,7 +413,7 @@ from tools.vdc_priority_trace.vdc_priority_joint_capture import make_probe_class
 root = Path('.').resolve()
 inputs = load_inputs(
     root / 'config/tool_workflows/vdc_joint_capture_internal_seal.json', root,
-    root / 'out/HardwareAcceptance/20260919/internal-seal-r1/capture.py')
+    root / 'tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_seal.py')
 adapter = load_adapter(inputs.runtime_entrypoint, board_uids=inputs.board_uids)
 options = SimpleNamespace(
     out=root / f'out/pytest/vdc-typed-construction-probe-{os.getpid()}',

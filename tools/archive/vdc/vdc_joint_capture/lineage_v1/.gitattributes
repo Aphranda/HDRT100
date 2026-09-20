@@ -1,0 +1,3 @@
+*.py binary
+*.json binary
+README.md text eol=lf

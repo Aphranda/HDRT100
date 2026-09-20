@@ -8,28 +8,28 @@
     "A1E549202D18ED6A"
   ],
   "adapter": {
-    "compatibility_entrypoint": "out/HardwareAcceptance/20260919/internal-seal-r1/capture.py",
+    "compatibility_entrypoint": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_seal.py",
     "migrated_sources": {
-      "internal_seal": {"path": "out/HardwareAcceptance/20260919/internal-seal-r1/capture.py", "sha256": "58944daa97d5afce9ac524f3a3b6ab0104d7a41c05cfb0b7d6af737864833888"},
-      "quiet_startup": {"path": "out/HardwareAcceptance/20260919/internal-startup-r1/capture.py", "sha256": "f65356cbf7d65205c0778963d0d1c79989379a8f6676178930d073c334aa03e2"},
-      "internal_summary": {"path": "out/HardwareAcceptance/20260919/internal-summary-probe.py", "sha256": "7455e310318368ddcd08083855738dcc2955a50347c547897cc6d7653bd29f78"},
-      "external_monitor": {"path": "out/HardwareAcceptance/20260919/dpll-checkpoint-r2/monitor_external.py", "sha256": "6f73562af2a017003b7c00cbc5a39208b184135baef3bc3365415980946ab397"},
-      "parallel_startup": {"path": "out/HardwareAcceptance/20260918/dpll-extended-window-r1/capture_startup_one_second.py", "sha256": "6deb892332f8eb4ef330509c0124e9fe514669264afc03f1ad63580b056f1053"},
-      "late_scope_adapter": {"path": "out/HardwareAcceptance/20260918/dpll-phase-center-r1/capture_late_scope_schema10.py", "sha256": "afae92b0f3a73cba3e1da7ba0a29dc1cb290bcd21e0e633ff5fb58ebddaa2a11"},
-      "outer_trial": {"path": "out/HardwareAcceptance/20260918/dpll-run-timeline-r2/timing_trial_safe_schema9.py", "sha256": "c70ac5cb3de90039b59da03f9b04c85f1f059a329085433ab91401b0f720fd3e"},
-      "outer_hil": {"path": "out/HardwareAcceptance/20260918/dpll-run-timeline-r2/config-hil/accept_output_timing.py", "sha256": "47f2cff6758ca4e6b0e66b08e291bbea8cda118d9fa157f0dbb7af822c314514"},
-      "legacy_scope_reader": {"path": "out/HardwareAcceptance/20260916/dpll-scope-hold-r1/capture_scope_r3.py", "sha256": "5952266131b6a21371d87f2c0b1311cf1565daa93960a36069ddbe74641fb592"},
-      "run_output": {"path": "out/HardwareAcceptance/20260918/dpll-phase-center-r1/capture_run_output_schema10.py", "sha256": "ae3ac088b9cca2f1cd99b55b7175573eee25aa51bd11b5f57b827e69a58e26d4"},
-      "probe_support": {"path": "out/HardwareAcceptance/20260915/dpll-input-probe-r1/probe_support.py", "sha256": "d45477115de1891f93ce19b2f68e17972cbc430f6eab62d18aee73ae60a66829"},
-      "phase_timer1": {"path": "out/HardwareAcceptance/20260918/dpll-phase-center-r1/capture_phase_timer1.py", "sha256": "46b1638d02782fd8bf7bcceed63af83c20bc92032c27b321075605c6a182777e"},
-      "longwindow": {"path": "out/HardwareAcceptance/20260917/dpll-longwindow-adoption-r1/capture_longwindow.py", "sha256": "b08d0b3d0de911f4d312a7f85b6278525ab54cb9dc20cd7047d657b66f521fe2"},
-      "native_trace": {"path": "out/HardwareAcceptance/20260917/dpll-priority-trace-r1/capture_trace.py", "sha256": "402924286476282f2bfc4d3d9cb663fd27476b43f0c69932befef683d7070b50"},
-      "local_follow": {"path": "out/HardwareAcceptance/20260917/dpll-priority-follow-r1/capture_follow.py", "sha256": "e6a418fe31ea32b958afe4ac6323d241226aeb0af5a09b22d9c4f38d216276bc"},
-      "observer_snapshot": {"path": "out/HardwareAcceptance/20260917/capture_observer_dma_match.py", "sha256": "d7fea94ce22bfd8c0f1d09e6fe815c8a52a8ed4a1d2da93bc68feadee2db1aef"},
-      "exact_match": {"path": "out/HardwareAcceptance/20260917/dpll-priority-match-r1/capture_match.py", "sha256": "3457de44788d84063ae31f18539bb9cb698c415d533d57e09ae67379c55147c4"},
-      "direct_rx": {"path": "out/HardwareAcceptance/20260917/dpll-priority-rx-direct-r1/capture_direct_rx.py", "sha256": "3568f8a03bb4c6ed7ebd2a17ae5bc219ee559bba2115a978e3b60afc5aeb9fc3"},
-      "typed_tx": {"path": "out/HardwareAcceptance/20260917/dpll-priority-tx-r1/capture_typed_tx.py", "sha256": "75bdfeac288ff6904a6c9b223589040a2cc5910671f8edc613fb383b5a9e52ef"},
-      "base_probe": {"path": "out/HardwareAcceptance/20260915/dpll-input-probe-r1/input_probe.py", "sha256": "3cb5bb5347232481f889fbd0ff2a48820b3ab5d3bdc02b2336bb68d12e0ff2d5"}
+      "internal_seal": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_seal.py", "sha256": "58944daa97d5afce9ac524f3a3b6ab0104d7a41c05cfb0b7d6af737864833888"},
+      "quiet_startup": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/quiet_startup.py", "sha256": "f65356cbf7d65205c0778963d0d1c79989379a8f6676178930d073c334aa03e2"},
+      "internal_summary": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_summary.py", "sha256": "7455e310318368ddcd08083855738dcc2955a50347c547897cc6d7653bd29f78"},
+      "external_monitor": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/external_monitor.py", "sha256": "6f73562af2a017003b7c00cbc5a39208b184135baef3bc3365415980946ab397"},
+      "parallel_startup": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/parallel_startup.py", "sha256": "6deb892332f8eb4ef330509c0124e9fe514669264afc03f1ad63580b056f1053"},
+      "late_scope_adapter": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/late_scope_adapter.py", "sha256": "afae92b0f3a73cba3e1da7ba0a29dc1cb290bcd21e0e633ff5fb58ebddaa2a11"},
+      "outer_trial": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/outer_trial.py", "sha256": "c70ac5cb3de90039b59da03f9b04c85f1f059a329085433ab91401b0f720fd3e"},
+      "outer_hil": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/outer_hil.py", "sha256": "47f2cff6758ca4e6b0e66b08e291bbea8cda118d9fa157f0dbb7af822c314514"},
+      "legacy_scope_reader": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/legacy_scope_reader.py", "sha256": "5952266131b6a21371d87f2c0b1311cf1565daa93960a36069ddbe74641fb592"},
+      "run_output": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/run_output.py", "sha256": "ae3ac088b9cca2f1cd99b55b7175573eee25aa51bd11b5f57b827e69a58e26d4"},
+      "probe_support": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/probe_support.py", "sha256": "d45477115de1891f93ce19b2f68e17972cbc430f6eab62d18aee73ae60a66829"},
+      "phase_timer1": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/phase_timer1.py", "sha256": "46b1638d02782fd8bf7bcceed63af83c20bc92032c27b321075605c6a182777e"},
+      "longwindow": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/longwindow.py", "sha256": "b08d0b3d0de911f4d312a7f85b6278525ab54cb9dc20cd7047d657b66f521fe2"},
+      "native_trace": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/native_trace.py", "sha256": "402924286476282f2bfc4d3d9cb663fd27476b43f0c69932befef683d7070b50"},
+      "local_follow": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/local_follow.py", "sha256": "e6a418fe31ea32b958afe4ac6323d241226aeb0af5a09b22d9c4f38d216276bc"},
+      "observer_snapshot": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/observer_snapshot.py", "sha256": "d7fea94ce22bfd8c0f1d09e6fe815c8a52a8ed4a1d2da93bc68feadee2db1aef"},
+      "exact_match": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/exact_match.py", "sha256": "3457de44788d84063ae31f18539bb9cb698c415d533d57e09ae67379c55147c4"},
+      "direct_rx": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/direct_rx.py", "sha256": "3568f8a03bb4c6ed7ebd2a17ae5bc219ee559bba2115a978e3b60afc5aeb9fc3"},
+      "typed_tx": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/typed_tx.py", "sha256": "75bdfeac288ff6904a6c9b223589040a2cc5910671f8edc613fb383b5a9e52ef"},
+      "base_probe": {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/base_probe.py", "sha256": "3cb5bb5347232481f889fbd0ff2a48820b3ab5d3bdc02b2336bb68d12e0ff2d5"}
     },
     "runtime_entrypoint": null,
     "runtime_closure": []
@@ -40,11 +40,11 @@
       "validation": "P3_SOURCE_FINGERPRINT"
     },
     "baseline": {
-      "path": "out/HardwareAcceptance/20260917/dpll-priority-rx-direct-r1/stopped-baseline.json",
+      "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/stopped_baseline.json",
       "sha256": "d500591fb3592f1bd6f3e8621868feb5e1006f8a0c33f8ebcea20676685acded"
     },
     "tap_baseline": {
-      "path": "out/HardwareAcceptance/20260916/dpll-event-recovery-r1/capture-r2/input-probe.json",
+      "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/tap_baseline.json",
       "sha256": "1dc9f89c8a9cf18a580fc6f7718085354934d1696657057cac5b171e58dcfe25"
     }
   }
