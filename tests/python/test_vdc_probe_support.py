@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from tools.domains.vdc.priority_trace import probe_support as tracked
-from tools.workflows.vdc_joint_capture import direct as tracked_direct
+from tools.workflows.vdc_joint_capture import typed as tracked_typed
 from tools.workflows.vdc_joint_capture import run_output as tracked_run_output
 from tools.workflows.vdc_joint_capture.run_output import load_run_output
 
@@ -141,9 +141,9 @@ def test_phase_loader_restores_compat_alias(tmp_path, monkeypatch, existing, fai
         monkeypatch.delitem(sys.modules, "probe_support", raising=False)
     if fail:
         with pytest.raises(RuntimeError, match="phase load failed"):
-            tracked_direct._load_typed(phase)
+            tracked_typed._load_base(phase)
     else:
-        module = tracked_direct._load_typed(phase)
+        module = tracked_typed._load_base(phase)
         assert module.BOUND_IDS is tracked.IDS
         assert module.BOUND_FIELDS is tracked.fields
     if existing:
@@ -159,7 +159,7 @@ def test_phase_loader_serializes_concurrent_aliases(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "probe_support", sentinel)
     entered = threading.Event()
     release = threading.Event()
-    original = tracked_direct.importlib.util.spec_from_file_location
+    original = tracked_typed.importlib.util.spec_from_file_location
 
     class BlockingLoader:
         def __init__(self, loader):
@@ -180,13 +180,13 @@ def test_phase_loader_serializes_concurrent_aliases(tmp_path, monkeypatch):
         return spec
 
     monkeypatch.setattr(
-        tracked_direct.importlib.util, "spec_from_file_location", blocking_spec)
+        tracked_typed.importlib.util, "spec_from_file_location", blocking_spec)
     results = []
     errors = []
 
     def worker():
         try:
-            results.append(tracked_direct._load_typed(phase).BOUND_IDS)
+            results.append(tracked_typed._load_base(phase).BOUND_IDS)
         except Exception as exc:
             errors.append(exc)
 

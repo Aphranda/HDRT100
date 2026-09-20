@@ -44,6 +44,10 @@ evidence and is not executed.
 comparison, retained header/mailbox validation, and per-follower delivery
 assessment. It loads only the next manifest-pinned typed-TX ancestor; the
 archived direct-RX source remains lineage evidence and is not executed.
+`typed.py` owns typed mailbox encoding validation plus the child receipt/UID/build,
+configuration, START/TRIAL, final STOP, disable/restore, connection-close, and
+conclusion lifecycle. It loads only the next manifest-pinned base probe; the
+archived typed-TX source remains lineage evidence and is not executed.
 
 The CLI remains `tools/vdc_priority_trace/vdc_priority_joint_capture.py`. Its
 `--workflow-inputs` JSON fixes the scenario, board UID order, the complete

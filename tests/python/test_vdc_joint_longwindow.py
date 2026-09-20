@@ -21,8 +21,8 @@ FOLLOW = (ROOT / "out/HardwareAcceptance/20260917/"
           "dpll-priority-follow-r1/capture_follow.py")
 OBSERVER = (ROOT / "out/HardwareAcceptance/20260917/"
             "capture_observer_dma_match.py")
-TYPED = (ROOT / "out/HardwareAcceptance/20260917/"
-         "dpll-priority-tx-r1/capture_typed_tx.py")
+BASE = (ROOT / "out/HardwareAcceptance/20260915/"
+        "dpll-input-probe-r1/input_probe.py")
 GOLDEN = (ROOT / "out/HardwareAcceptance/20260917/"
           "dpll-longwindow-adoption-r1/native-r1/input-probe.json")
 
@@ -37,7 +37,7 @@ def archived_module():
 
 def test_oracles_match_archived_and_frozen_hardware_report():
     old = archived_module()
-    new = tracked_longwindow.load_longwindow(TYPED)
+    new = tracked_longwindow.load_longwindow(BASE)
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
     assert new.THRESHOLDS == old.THRESHOLDS
     assert new.MAX_NS == old.MAX_NS
@@ -60,7 +60,7 @@ def test_oracles_match_archived_and_frozen_hardware_report():
 @pytest.mark.parametrize("mutation", ["range", "error", "identity", "width"])
 def test_decision_oracle_rejects_same_closed_set_as_archived(mutation):
     old = archived_module()
-    new = tracked_longwindow.load_longwindow(TYPED)
+    new = tracked_longwindow.load_longwindow(BASE)
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
     record = deepcopy(list(report["boards"].values())[1]["trace_decisions"][0])
     if mutation == "range":

@@ -40,6 +40,7 @@ def workflow_input_fixture(tmp_path):
     observer_snapshot = root / 'out/observer_snapshot.py'
     exact_match = root / 'out/exact_match.py'
     direct_rx = root / 'out/direct_rx.py'
+    typed_tx = root / 'out/typed_tx.py'
     ancestor = root / 'out/ancestor.py'
     receipt = root / 'config/receipt.json'
     baseline = root / 'out/baseline.json'
@@ -64,6 +65,7 @@ def workflow_input_fixture(tmp_path):
         'observer_snapshot': observer_snapshot,
         'exact_match': exact_match,
         'direct_rx': direct_rx,
+        'typed_tx': typed_tx,
     }
     for path in (*migrated.values(), ancestor, receipt, baseline, tap, manifest):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -116,6 +118,7 @@ def workflow_input_fixture(tmp_path):
                             observer_snapshot=observer_snapshot,
                             exact_match=exact_match,
                             direct_rx=direct_rx,
+                            typed_tx=typed_tx,
                            migrated=migrated,
                            ancestor=ancestor, receipt=receipt, baseline=baseline,
                            tap=tap, manifest=manifest, data=data)
