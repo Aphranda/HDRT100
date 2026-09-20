@@ -18,8 +18,8 @@ from tools.workflows.vdc_joint_capture import match as tracked_match
 ROOT = Path(__file__).resolve().parents[2]
 ARCHIVED = (ROOT / "out/HardwareAcceptance/20260917/"
             "dpll-priority-match-r1/capture_match.py")
-DIRECT = (ROOT / "out/HardwareAcceptance/20260917/"
-          "dpll-priority-rx-direct-r1/capture_direct_rx.py")
+TYPED = (ROOT / "out/HardwareAcceptance/20260917/"
+         "dpll-priority-tx-r1/capture_typed_tx.py")
 GOLDEN = (ROOT / "out/HardwareAcceptance/20260917/"
           "dpll-longwindow-adoption-r1/native-r1/input-probe.json")
 UIDS = ("uid-0", "uid-1", "uid-2", "uid-3")
@@ -202,7 +202,7 @@ def build_probe(tmp_path, **faults):
 
 def test_parser_and_forward_delay_match_archived_and_frozen_hardware():
     old = archived_module()
-    new = tracked_match.load_match(DIRECT)
+    new = tracked_match.load_match(TYPED)
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
     assert new.SCALARS == old.SCALARS
     assert new.WIDE == old.WIDE
@@ -233,7 +233,7 @@ def test_forward_delay_rejects_invalid_directed_paths(fault):
     else:
         links[0]["link_base_delay_ns"] = -1
     with pytest.raises(RuntimeError):
-        tracked_match.load_match(DIRECT).forward_delay(links, 0, 2)
+        tracked_match.load_match(TYPED).forward_delay(links, 0, 2)
 
 
 def test_match_factory_registers_commands_installs_and_restores_tap(tmp_path):

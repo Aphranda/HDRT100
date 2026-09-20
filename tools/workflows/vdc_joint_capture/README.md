@@ -40,6 +40,10 @@ optional TAP install/restore, follower MATCH enable/readback, STOP-only evidence
 collection, and per-follower identity/model assessment. It loads only the next
 manifest-pinned direct-RX ancestor; the archived match source remains lineage
 evidence and is not executed.
+`direct.py` owns direct-RX/lane/timing/budget decoding, frozen timing-baseline
+comparison, retained header/mailbox validation, and per-follower delivery
+assessment. It loads only the next manifest-pinned typed-TX ancestor; the
+archived direct-RX source remains lineage evidence and is not executed.
 
 The CLI remains `tools/vdc_priority_trace/vdc_priority_joint_capture.py`. Its
 `--workflow-inputs` JSON fixes the scenario, board UID order, the complete

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import _imp
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
-import sys
 from types import SimpleNamespace
 
-from tools.domains.vdc.priority_trace import probe_support as tracked_probe_support
+from tools.workflows.vdc_joint_capture.direct import load_direct
 
 
 MATCH = "SYSTem:VDC:PRIORity:MATCH"
@@ -34,31 +31,10 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
-def _load_direct(path: Path):
-    spec = importlib.util.spec_from_file_location("vdc_joint_direct_base", path)
-    if spec is None or spec.loader is None:
-        raise ValueError("Historical direct-RX entrypoint cannot be loaded")
-    module = importlib.util.module_from_spec(spec)
-    missing = object()
-    _imp.acquire_lock()
-    previous = sys.modules.get("probe_support", missing)
-    try:
-        sys.modules["probe_support"] = tracked_probe_support
-        try:
-            spec.loader.exec_module(module)
-            return module
-        finally:
-            if previous is missing:
-                sys.modules.pop("probe_support", None)
-            else:
-                sys.modules["probe_support"] = previous
-    finally:
-        _imp.release_lock()
-
-
 def load_match(runtime_entrypoint: Path, *, runtime_module=None):
     """Build the tracked exact-match layer over an admitted DirectProbe module."""
-    direct = runtime_module if runtime_module is not None else _load_direct(runtime_entrypoint)
+    direct = (runtime_module if runtime_module is not None else
+              load_direct(runtime_entrypoint))
     if not hasattr(direct, "DirectProbe") or not hasattr(direct, "parent"):
         raise ValueError("Historical direct-RX entrypoint lacks DirectProbe/parent")
     parent = direct.parent
