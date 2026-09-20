@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -116,9 +116,9 @@
     <h1 class="cover-title">RP1200波导天线<br>DHRT100 分布式触发方案技术报告</h1>
     <div class="cover-divider"></div>
     <div class="cover-subtitle">RP2350B QFN-80 &nbsp;·&nbsp; PIO 硬实时 &nbsp;·&nbsp; RJ45_SYNC_RING &nbsp;·&nbsp; 虚拟 DC</div>
-    <div class="cover-info">前沿部 &nbsp;|&nbsp; 产线组 &nbsp;|&nbsp; RP2350_TRIG &nbsp;|&nbsp; 2026 年 8 月</div>
+    <div class="cover-info">RP2350 &nbsp;|&nbsp; 2026 年 8 月</div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">1 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">1 / 22</span></span></div>
 </div>
 
 <!-- ===== P2 目录 ===== -->
@@ -150,7 +150,7 @@
     </div>
     <div class="bar">新版报告以 <span>RP2350B_QFN80_IO_CONSTRAINTS + 2026-08-04 PCB 网表</span> 为准，不沿用旧 AUX0..AUX3 校准环路脚位</div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">2 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">2 / 22</span></span></div>
 </div>
 
 <!-- ===== P3 参数解释表 ===== -->
@@ -176,7 +176,7 @@
     </table>
     <div class="principles"><span>e_vdc 评价时间轴</span><span>e_q/e_io 评价本地执行</span><span>e_pll 评价角度预测</span><span>e_act 评价末端动作</span></div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">3 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">3 / 22</span></span></div>
 </div>
 
 <!-- ===== P4 系统需求与指标 ===== -->
@@ -203,7 +203,7 @@
     </table>
     <div class="bar">指标分层原则：<span>虚拟时间轴、PIO 执行、角度预测、设备动作</span> 分开统计，不混用</div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">4 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">4 / 22</span></span></div>
 </div>
 
 <!-- ===== P5 方案架构总览 ===== -->
@@ -252,7 +252,7 @@
       </tbody>
     </table>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">5 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">5 / 22</span></span></div>
 </div>
 
 <!-- ===== P6 IO 约束 ===== -->
@@ -283,7 +283,7 @@
       <div class="col3"><div class="card cg"><div class="card-h">✅ ADC 已按网表修正</div><div class="card-b">GPIO43=BOARD_TEMP1，GPIO44=BOARD_CUR1/AMC1301，GPIO45=BOARD_CUR2 预留；不再写 HW_ID_MON/INA180。</div></div></div>
     </div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">6 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">6 / 22</span></span></div>
 </div>
 
 <!-- ===== P7 四板业务拓扑 ===== -->
@@ -318,7 +318,7 @@
     </div>
     <div class="bar">核心认知：<span>环路传预约和状态，SMA 输出真实边沿</span>；通信包到达时刻不直接变成业务触发时刻</div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">7 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">7 / 22</span></span></div>
 </div>
 
 <!-- ===== P8 RJ45_SYNC_RING ===== -->
@@ -357,7 +357,7 @@
       <div class="col3"><div class="card cr"><div class="card-h">禁止事项</div><div class="card-b">不把多板挂成共享总线；不运行中切方向；不把 DONE 当作串行实时触发边沿。</div></div></div>
     </div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">8 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">8 / 22</span></span></div>
 </div>
 
 <!-- ===== P9 虚拟 DC 时间模型 ===== -->
@@ -396,7 +396,7 @@
     </div>
     <div class="bar">时间轴不是芯片典型值，而是 <span>同步帧边沿 + 回环标定 + 长时间分布统计</span> 的工程结果</div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">9 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">9 / 22</span></span></div>
 </div>
 
 <!-- ===== P10 预约触发执行 ===== -->
@@ -429,7 +429,7 @@
     </table>
     <div class="principles"><span>late 不补发</span><span>seq 必须连续</span><span>CRC 错误不执行</span><span>通信抖动不进入已装载边沿</span></div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">10 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">10 / 22</span></span></div>
 </div>
 
 <!-- ===== P11 DPLL ===== -->
@@ -456,7 +456,7 @@
     </div>
     <div class="bar">DPLL 目标：<span>e_pll P99.9≤50µs</span>；设备同步目标另看 <span>e_act</span></div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">11 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">11 / 22</span></span></div>
 </div>
 
 <!-- ===== P12 T2 回读 ===== -->
@@ -496,7 +496,7 @@
       </tbody>
     </table>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">12 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">12 / 22</span></span></div>
 </div>
 
 <!-- ===== P13 误差预算 ===== -->
@@ -534,7 +534,7 @@
       </tbody>
     </table>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">13 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">13 / 22</span></span></div>
 </div>
 
 <!-- ===== P14 PIO 执行 ===== -->
@@ -559,7 +559,7 @@
     </div>
     <div class="bar">实现红线：<span>触发模式 armed 后不得切换已分配 PIO 输出 GPIO 的 owner 或 GPIO base</span></div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">14 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">14 / 22</span></span></div>
 </div>
 
 <!-- ===== P15 硬件框图 ===== -->
@@ -607,7 +607,7 @@
       </tbody>
     </table>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">15 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">15 / 22</span></span></div>
 </div>
 
 <!-- ===== P16 EMC ===== -->
@@ -633,7 +633,7 @@
     </table>
     <div class="bar">EMC 策略：<span>不分发模拟时钟，不长线传单端触发，不多点短接地</span></div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">16 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">16 / 22</span></span></div>
 </div>
 
 <!-- ===== P17 操作流程 ===== -->
@@ -668,7 +668,7 @@
       <div class="col3"><div class="card cr"><div class="card-h">故障</div><div class="card-b">互锁、CRC 连续错误、READY 超窗、输出异常，锁存 FAULT 并要求清除。</div></div></div>
     </div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">17 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">17 / 22</span></span></div>
 </div>
 
 <!-- ===== P18 校准流程 ===== -->
@@ -697,7 +697,7 @@
     </div>
     <div class="bar">校准不是一次性常数：<span>固定项写表，慢变项低带宽更新，异常项只记诊断</span></div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">18 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">18 / 22</span></span></div>
 </div>
 
 <!-- ===== P19 上位机指令接口 ===== -->
@@ -725,7 +725,7 @@
     </div>
     <div class="bar">详细指令表：<span><a href="相控阵测试系统RP分布式触发方案SCPI指令表.html" style="color:#fff; text-decoration:underline;">RP1200波导天线分布式触发 SCPI 指令表</a></span></div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">19 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">19 / 22</span></span></div>
 </div>
 
 <!-- ===== P20 路线图 ===== -->
@@ -753,7 +753,7 @@
     </div>
     <div class="bar">冻结顺序：<span>pin map → 同步环 → A3网关/A0扫描引擎 → 本地触发 → T2/e_act → DPLL/e_pll</span></div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">20 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">20 / 22</span></span></div>
 </div>
 
 <!-- ===== P21 风险 ===== -->
@@ -777,7 +777,7 @@
     </table>
     <div class="principles"><span>先冻结硬件口径</span><span>指标只按实测承诺</span><span>异常样本不入环路</span><span>射频指标独立验收</span></div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">21 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">21 / 22</span></span></div>
 </div>
 
 <!-- ===== P22 总结 ===== -->
@@ -809,7 +809,7 @@
     </div>
     <div class="bar">最终策略：<span>用 RP2350B 快速闭合四板触发原型；若指标要求进入 &lt;10ns 或亚 ns，升级 FPGA/TDC/EtherCAT DC 架构</span></div>
   </div>
-  <div class="page-footer"><span>Accurate · Simple · Fast · Agile &nbsp;|&nbsp; &copy; General Test Systems Inc. All rights reserved.</span><span>内部文件 &nbsp;|&nbsp; <span class="page-num">22 / 22</span></span></div>
+  <div class="page-footer"><span>&nbsp;|&nbsp; </span><span> <span class="page-num">22 / 22</span></span></div>
 </div>
 
 <script>

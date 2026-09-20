@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -185,7 +185,7 @@
 </head>
 <body>
 <template id="page-header-template">
-  <img class="page-logo" src="model/logo.png" alt="GTS">
+  <img class="page-logo" src="DHRT100-brand.svg" alt="DHRT100">
 </template>
 
 <!-- ===== P1 封面 ===== -->
@@ -195,9 +195,9 @@
     <h1 class="cover-title">相控阵测试系统<br>分布式触发方案技术报告</h1>
     <div class="cover-divider"></div>
     <div class="cover-subtitle">EtherCAT &nbsp;·&nbsp; Zynq SoC &nbsp;·&nbsp; DC同步 &nbsp;·&nbsp; PDO数据交换</div>
-    <div class="cover-info">前沿部 &nbsp;|&nbsp; 产线组 &nbsp;|&nbsp; 董力 &nbsp;|&nbsp; 2026 年 6 月</div>
+    <div class="cover-info"> &nbsp;|&nbsp; 2026 年 6 月</div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">1 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">1 / 22</span></span></div>
 </div>
 
 <!-- ===== P2 目录 ===== -->
@@ -236,7 +236,7 @@
       </div>
     </div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">2 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">2 / 22</span></span></div>
 </div>
 
 <!-- ===== P3 参数解释表 ===== -->
@@ -283,7 +283,7 @@
 
     <div class="bar">读数原则: <span>时间基准</span>、<span>本地输出</span>、<span>角度预测</span>、<span>末端动作</span> 分开命名和验收</div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">3 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">3 / 22</span></span></div>
 </div>
 
 <!-- ===== P4 系统需求与指标 ===== -->
@@ -328,7 +328,7 @@
 
     <div class="bar">验收原则: <span>e_dc</span>、<span>e_io/e_j</span>、<span>e_act</span>、<span>e_pll</span>、<span>射频结果</span> 分层统计, 不混用指标</div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">4 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">4 / 22</span></span></div>
 </div>
 
 <!-- ===== P5 方案架构总览 ===== -->
@@ -403,7 +403,7 @@
 
     <div class="bar">同一T_fire_base并行编排: <span>链路delay</span> + <span>波控delay</span> + <span>VNA delay</span>; 不按设备序列等待</div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">5 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">5 / 22</span></span></div>
 </div>
 
 <!-- ===== P6 物料成本精算 ===== -->
@@ -447,7 +447,7 @@
 
     <div class="conc"><h3>结论</h3><p>基础成本按统一通用节点核算: 原型完整节点约¥1,650-2,800; 批量后目标¥1,250-1,850。主站能力复用Zynq PS/GEM、管理口和既有电源/时钟资源, 不新增一套主站硬件BOM; 主要增量来自PetaLinux/Xenomai、Macb Native Driver、IgH集成、角色配置、主站实时性测试和光口/铜口验证矩阵。</p></div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">6 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">6 / 22</span></span></div>
 </div>
 
 <!-- ===== P7 分布式触发同步：实现方法 ===== -->
@@ -511,7 +511,7 @@
 
     <div class="bar">实现闭环: 匀速确认 → DPLL收敛确认 → 队列装载确认 → FPGA本地执行 → T_fb_i回读修正后续预测</div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">7 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">7 / 22</span></span></div>
 </div>
 
 <!-- ===== P8 DPLL反馈调节与脉冲预测分发 ===== -->
@@ -598,7 +598,7 @@
       </tbody>
     </table>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">8 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">8 / 22</span></span></div>
 </div>
 
 <!-- ===== P9 DPLL环路性能、收敛与稳定性 ===== -->
@@ -639,7 +639,7 @@
       <p>对相控阵触发链路而言, DPLL负责角度到时间映射, 其验收量统一为DPLL角度时间残差e_pll; 触发执行链路负责多设备同步动作, 其验收量统一为设备动作残差e_act。当前工程口径采用e_pll P99.9≤50µs、优化目标≤30µs, 不把角度预测误差写成纳秒级指标。</p>
     </div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">9 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">9 / 22</span></span></div>
 </div>
 
 <!-- ===== P10 误差预算与指标推导 ===== -->
@@ -686,7 +686,7 @@
 
     <div class="bar">结论: <span>预算</span>与<span>验收</span>分开；<span>e_act</span>必须由T2_i实测闭合</div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">10 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">10 / 22</span></span></div>
 </div>
 
 <!-- ===== P11 分布式触发同步：优势分析 ===== -->
@@ -759,7 +759,7 @@
 
     <div class="bar">优势归纳: <span>不实时转发脉冲</span> + <span>本地到点输出</span> + <span>多设备delay并行</span> + <span>T2_i回读计算e_act</span></div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">11 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">11 / 22</span></span></div>
 </div>
 
 <!-- ===== P12 Zynq触发执行 + 板载OCXO ===== -->
@@ -828,7 +828,7 @@
       </div>
     </div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">12 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">12 / 22</span></span></div>
 </div>
 
 <!-- ===== P13 噪声源分析 ===== -->
@@ -883,7 +883,7 @@
 
     <div class="bar">伺服PWM + 地电位差 = 两类<span>高风险</span>噪声源 &nbsp;|&nbsp; 10MHz模拟线缆耦合<span>信噪比≈0dB</span> &nbsp;|&nbsp; 具体防护策略 → P14</div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">13 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">13 / 22</span></span></div>
 </div>
 
 <!-- ===== P14 EMC防护策略 ===== -->
@@ -959,7 +959,7 @@
 
     <div class="bar">EMI验收: <span>伺服</span> + <span>功放/开关矩阵</span> + <span>VNA采集</span> + <span>转台旋转</span> + <span>多节点触发</span> 组合实测</div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">14 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">14 / 22</span></span></div>
 </div>
 
 <!-- ===== P15 工程实现细节（一） ===== -->
@@ -1026,7 +1026,7 @@
 
     <div class="bar" style="margin-top:10px;">实现边界: <span>DPLL负责T_fire_base</span> + <span>PDO负责未来队列</span> + <span>FPGA负责到点边沿</span> + <span>T2_i回读计算e_act</span></div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">15 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">15 / 22</span></span></div>
 </div>
 
 <!-- ===== P16 工程实现细节（二） ===== -->
@@ -1096,7 +1096,7 @@
 
     <div class="bar" style="margin-top:10px;">工程落地: <span>队列状态机</span> + <span>分层误差验收</span> + <span>三重互锁</span> + <span>FoE升级回滚</span> + <span>批次日志追溯</span></div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">16 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">16 / 22</span></span></div>
 </div>
 
 <!-- ===== P17 硬件框图 ===== -->
@@ -1261,7 +1261,7 @@
         </div></div></div>
     </div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">17 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">17 / 22</span></span></div>
 </div>
 
 <!-- ===== P18 操作流程 ===== -->
@@ -1360,7 +1360,7 @@
       </div>
     </div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">18 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">18 / 22</span></span></div>
 </div>
 
 <!-- ===== P19 实施路线图 ===== -->
@@ -1428,7 +1428,7 @@
       </div>
     </div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">19 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">19 / 22</span></span></div>
 </div>
 
 <!-- ===== P20 风险与应对 ===== -->
@@ -1465,7 +1465,7 @@
       <span>工程冻结关口: 20节点e_dc | 4-6节点10°/s e_pll HIL | 三类e_act残差 | LAN9252光口 | 主站实时性 | PDO异常注入 | 误差预算/ICD | EMI 48h</span>
     </div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">20 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">20 / 22</span></span></div>
 </div>
 
 <!-- ===== P21 总结结论 ===== -->
@@ -1498,7 +1498,7 @@
       <b>④ 触发系统不替代射频系统指标。</b> 射频幅相一致性、相干性、动态范围、链路稳定度和仪表校准仍由射频/测量系统独立保证。</p>
     </div>
   </div>
-  <div class="page-footer"><span>内部文件</span><span><span class="page-num">21 / 22</span></span></div>
+  <div class="page-footer"><span></span><span><span class="page-num">21 / 22</span></span></div>
 </div>
 
 <!-- ===== P22 实施策略 ===== -->
@@ -1562,7 +1562,7 @@
       <span>射频指标独立验收</span>
     </div>
   </div>
-  <div class="page-footer"><span>内部文件 &nbsp;|&nbsp; 相控阵测试系统分布式触发方案技术报告 &nbsp;|&nbsp; 2026年6月</span><span><span class="page-num">22 / 22</span></span></div>
+  <div class="page-footer"><span> 相控阵测试系统分布式触发方案技术报告 &nbsp;|&nbsp; 2026年6月</span><span><span class="page-num">22 / 22</span></span></div>
 </div>
 
 <script>
