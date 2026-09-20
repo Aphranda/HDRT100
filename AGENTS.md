@@ -34,12 +34,20 @@
 4. 登记契约不可物理删除（只能 `superseded`）
 5. 修改任何文档 → 必须更新 `Last updated`
 6. 临时内容（评审快照/草稿）**不得**登记为契约
-7. 修改任何固件、PIO、构建、工具、测试或 hook 实现后，提交前必须执行硬件验收。
+7. 硬件验收只对**设备侧源码**必需：`application/`、`boards/`、`bootloader/`、`cmake/`、
+   `components/`、`drivers/`、`linker/`、`middleware/`、`osal/`、`platform/`、`third_party/`、
+   `config/`（不含 `config/hardware_acceptance/`），以及根构建文件 `CMakeLists.txt`、
+   `CMakePresets.json`、`pico_sdk_import.cmake`。
    默认执行 `python tools/hardware_acceptance/p3_hardware_acceptance.py run`；仅当全部 staged
    源码属于 `sequence_single_board_gate.py` 的逐文件白名单时，允许执行该工具的 `run`
    作为单板功能替代。pre-commit 按 staged 源码指纹分流并核验对应凭证；旧凭证、手工报告、
    replay 或白名单外变更不能由单板凭证放行。单板凭证不表示 P3、多板、波形、RF、独立边沿计数
    或严格 TDMA 稳定性通过
+8. **宿主侧源码**（`tools/`、`tests/`、`config/hardware_acceptance/`、`pytest.ini`、`.githooks/`）
+   不要求硬件验收，可独立提交：它们仍必须通过文档门禁，并由仓库测试套件锁定行为；
+   `.githooks/pre-commit` 的 scope 分流表由 `tests/python/test_sequence_single_board_gate.py`
+   锁定，改 hook 必须同步该测试。receipt 的源码树指纹覆盖全部被跟踪的验收源码，因此在
+   硬件验收之后、设备侧提交之前插入宿主侧改动仍会使该凭证失效并需要重跑
 
 ## 3. 修改文档的标准流程
 
@@ -64,12 +72,15 @@ python tools/doc_regression_check.py
 python -m pytest tests/python/test_doc_regression.py tests/python/test_docs_check.py -p no:cacheprovider
 sh .githooks/pre-commit
 python tools/doc_regression_check.py --log-check   # 逃生门审计（建议每周）
-python tools/hardware_acceptance/sequence_single_board_gate.py check-staged
-python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged
+python -m pytest tests/python/test_sequence_single_board_gate.py -k precommit -p no:cacheprovider   # 改 .githooks/pre-commit 后必跑
+python tools/hardware_acceptance/sequence_single_board_gate.py check-staged   # 仅设备侧 staged 范围
+python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged       # 仅设备侧 staged 范围
 ```
 
-> 两个硬件凭证检查按 staged 范围二选一；sequence 单板工具超出白名单时必须回到 P3，
-> 不能以单板检查失败后跳过硬件门禁。
+> 两个硬件凭证检查按 staged 范围二选一，且只在 staged 包含设备侧源码时才有意义；
+> 纯宿主侧（`tools/`、`tests/`、`config/hardware_acceptance/`、`pytest.ini`、`.githooks/`）
+> staged 范围由 pre-commit 直接跳过硬件门禁，可独立提交。
+> sequence 单板工具超出白名单时必须回到 P3，不能以单板检查失败后跳过硬件门禁。
 > 单板路径先完成构建和单板 OTA，再执行
 > `python tools/hardware_acceptance/sequence_single_board_gate.py run --serial-number <UID> --build <BUILD> --package <PKG> --ota-summary <JSON> --port <PORT>`；
 > 工具固定运行验收 profile 并生成待暂存的 receipt。

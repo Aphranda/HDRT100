@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
 Related: `AGENTS.md`, `README.md`, `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-17
+Last updated: 2026-09-20
 
 > 本文是跨 worker/agent 的长期执行流程入口。它描述如何工作、如何留证和何时停止；不替代产品架构、域内运行时契约或单次验收报告。
 
@@ -43,10 +43,16 @@ Last updated: 2026-09-17
 1. 明确状态机节点、变更边界、风险和回滚方式。
 2. 运行相关软件测试并记录完整命令和结果。
 3. 编译受影响配置，保留 build 输出和源码指纹。
-4. 对固件/PIO/构建/工具/测试改动执行硬件验收；默认使用 P3。只有全部 staged 源码均属于
+4. 硬件验收只对设备侧源码必需（`application/`、`boards/`、`bootloader/`、`cmake/`、`components/`、
+   `drivers/`、`linker/`、`middleware/`、`osal/`、`platform/`、`third_party/`、`config/` 不含
+   `config/hardware_acceptance/`，以及 `CMakeLists.txt`、`CMakePresets.json`、
+   `pico_sdk_import.cmake`）；默认使用 P3。只有全部 staged 源码均属于
    `sequence_single_board_gate.py` 的逐文件白名单时，才可使用该工具的单板功能验收替代；两类凭证
    都必须绑定当前 staged 源码指纹。单板凭证不得声明 P3、多板、波形、RF、独立边沿计数或严格
    TDMA 稳定性通过，任何白名单外源码继续要求 P3。
+   纯宿主侧改动（`tools/`、`tests/`、`config/hardware_acceptance/`、`pytest.ini`、`.githooks/`）
+   不要求硬件验收，可独立提交：它们只需通过文档门禁，并由仓库测试套件锁定行为；
+   `.githooks/pre-commit` 的 scope 分流表由 `tests/python/test_sequence_single_board_gate.py` 锁定。
 5. 将成功、失败、拒绝原因、资源冲突、状态快照和原始数据写入 `out/`。
 6. 主控复核证据后，代码与文档分离提交；提交后按任务授权选择性 push。
 

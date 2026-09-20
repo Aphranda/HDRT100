@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Related: `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 > 分支范围：本文同步自real-flight的`7a3e0954`，新增能力描述不表示本分支代码已移植。
 > 来源及验收边界见[同步说明](../README.md#序列分支的上游文档同步范围)。
@@ -362,8 +362,10 @@ bounded ring/counter，不在 IRQ 或 Core1 路径输出文本日志。
 | 双核边界 | snapshot 并发读、Core1 禁止 FatFs/日志/动态内存。 | 串口持续查询不扰动实时路径，Core0 SD drain 不造成实时回归。 |
 | 外部证据 | source/eligibility/profile generation gate。 | 本机 pad capture 与 NO5/SMA 外部波形关联。 |
 
-任何固件、PIO、工具或测试实现变更都必须按仓库规则运行统一硬件验收；文档重构本身只运行
-文档自回归门禁，不冒充硬件验收结果。
+任何设备侧（固件、PIO、构建、板端契约）实现变更都必须按仓库规则运行统一硬件验收；纯宿主侧
+变更（`tools/`、`tests/`、`config/hardware_acceptance/`、`pytest.ini`、`.githooks/`）不要求硬件验收，
+可独立提交，但仍须通过文档门禁和仓库测试；文档重构本身只运行文档自回归门禁，两者都不冒充
+硬件验收结果。范围判定见 `AGENTS.md` §2.7/§2.8 与 `.githooks/pre-commit`。
 
 ## 当前迁移边界
 
