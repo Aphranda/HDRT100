@@ -7,6 +7,63 @@ from types import SimpleNamespace
 import pytest
 
 from tools.vdc_priority_trace import vdc_priority_joint_capture as joint
+from tools.workflows.vdc_joint_capture import inputs as workflow_inputs
+
+
+WORKFLOW_UIDS = ['uid1', 'uid2', 'uid3', 'uid4']
+WORKFLOW_BASELINE_COMMANDS = [
+    '*IDN?', 'SYSTem:FW:BUILD?', 'SYSTem:TDMA:RING:STATus?',
+    'SYSTem:TDMA:FLIGHT:PRIORity:TIMing?',
+    'SYSTem:TDMA:FLIGHT:PRIORity:BUDGet?',
+    'SYSTem:TDMA:FLIGHT:PRIORity?',
+]
+
+
+def workflow_input_fixture(tmp_path):
+    root = tmp_path / 'repo'
+    adapter = root / 'out/adapter.py'
+    ancestor = root / 'out/ancestor.py'
+    receipt = root / 'config/receipt.json'
+    baseline = root / 'out/baseline.json'
+    tap = root / 'out/tap.json'
+    manifest = root / 'config/workflow.json'
+    for path in (adapter, ancestor, receipt, baseline, tap, manifest):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    adapter.write_text('raise AssertionError("adapter must not import")\n', encoding='utf-8')
+    ancestor.write_text('# transitive executable dependency\n', encoding='utf-8')
+    receipt.write_text(json.dumps({'tdma_board_ids': WORKFLOW_UIDS}), encoding='utf-8')
+    baseline.write_text(json.dumps([
+        {'uid': uid, 'command': command, 'raw': uid}
+        for uid in WORKFLOW_UIDS for command in WORKFLOW_BASELINE_COMMANDS
+    ]), encoding='utf-8')
+    tap.write_text(json.dumps({
+        'passed': True,
+        'boards': {uid: {'tap_request': [0, 0, 0] if index == 0 else [1, 2, 3]}
+                   for index, uid in enumerate(WORKFLOW_UIDS)},
+    }), encoding='utf-8')
+
+    def declared(path):
+        return {'path': path.relative_to(root).as_posix(),
+                'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+
+    data = {
+        'schema': workflow_inputs.SCHEMA,
+        'scenario': workflow_inputs.SCENARIO,
+        'board_uids': WORKFLOW_UIDS,
+        'adapter': {
+            'entrypoint': adapter.relative_to(root).as_posix(),
+            'closure': [declared(adapter), declared(ancestor)],
+        },
+        'files': {
+            'receipt': {'path': receipt.relative_to(root).as_posix(),
+                        'validation': 'P3_SOURCE_FINGERPRINT'},
+            'baseline': declared(baseline),
+            'tap_baseline': declared(tap),
+        },
+    }
+    manifest.write_text(json.dumps(data), encoding='utf-8')
+    return SimpleNamespace(root=root, adapter=adapter, ancestor=ancestor, receipt=receipt,
+                           baseline=baseline, tap=tap, manifest=manifest, data=data)
 
 
 def good_sample(due):
@@ -328,7 +385,8 @@ def fake_adapter(tmp_path, clock, *, enabled=True, fault=None, internal=True):
     path = tmp_path/'adapter.py'
     path.write_text('# fake validated bench adapter\n', encoding='utf-8')
     opt = SimpleNamespace(external_scope=enabled, scope_trigger='CHAN1', scope_resource='MOCK',
-                          scope_serial='MOCK123', seconds=60, out=tmp_path, bench_adapter=path)
+                          scope_serial='MOCK123', seconds=60, out=tmp_path, bench_adapter=path,
+                          workflow_inputs_evidence={'schema': 'TEST_WORKFLOW_INPUTS'})
     return SimpleNamespace(Probe=Probe, base=SimpleNamespace(external=external)), opt, events
 
 
@@ -443,10 +501,131 @@ def test_settle_allowance_is_validated_before_hardware(tmp_path, value):
                              '--settle-s', '0']).settle_s == 0.0
 
 
+def test_workflow_manifest_pins_all_inputs_before_adapter_import(tmp_path):
+    fixture = workflow_input_fixture(tmp_path)
+    loaded = workflow_inputs.load_inputs(fixture.manifest, fixture.root, fixture.adapter)
+    assert loaded.board_uids == tuple(WORKFLOW_UIDS)
+    assert loaded.bench_adapter == fixture.adapter
+    assert loaded.executable_closure == (fixture.adapter, fixture.ancestor)
+    assert loaded.receipt == fixture.receipt
+    assert loaded.baseline == fixture.baseline
+    assert loaded.tap_baseline == fixture.tap
+    evidence = loaded.evidence(fixture.root)
+    assert evidence['scenario'] == 'internal_seal'
+    assert evidence['files']['receipt']['validation'] == 'P3_SOURCE_FINGERPRINT'
+
+
+@pytest.mark.parametrize('name,attribute,error', [
+    ('entrypoint', 'adapter', r'adapter closure\[0\] sha256 mismatch'),
+    ('ancestor', 'ancestor', r'adapter closure\[1\] sha256 mismatch'),
+    ('baseline', 'baseline', 'baseline sha256 mismatch'),
+    ('tap_baseline', 'tap', 'tap_baseline sha256 mismatch'),
+])
+def test_workflow_manifest_rejects_tampered_pinned_input(tmp_path, name, attribute, error):
+    fixture = workflow_input_fixture(tmp_path)
+    getattr(fixture, attribute).write_text(
+        'tampered', encoding='utf-8')
+    with pytest.raises(ValueError, match=error):
+        workflow_inputs.load_inputs(fixture.manifest, fixture.root, fixture.adapter)
+
+
+def test_workflow_manifest_rejects_adapter_selection_and_uid_drift(tmp_path):
+    fixture = workflow_input_fixture(tmp_path)
+    other = fixture.root / 'out/other.py'
+    other.write_text('# another adapter\n', encoding='utf-8')
+    with pytest.raises(ValueError, match='selected bench adapter differs'):
+        workflow_inputs.load_inputs(fixture.manifest, fixture.root, other)
+    fixture.data['board_uids'].reverse()
+    fixture.manifest.write_text(json.dumps(fixture.data), encoding='utf-8')
+    with pytest.raises(ValueError, match='receipt board UID order differs'):
+        workflow_inputs.load_inputs(fixture.manifest, fixture.root, fixture.adapter)
+
+
+def test_workflow_manifest_rejects_path_escape_before_adapter_import(tmp_path):
+    fixture = workflow_input_fixture(tmp_path)
+    fixture.data['adapter']['closure'][0]['path'] = '../adapter.py'
+    fixture.manifest.write_text(json.dumps(fixture.data), encoding='utf-8')
+    with pytest.raises(ValueError, match='repository-relative'):
+        workflow_inputs.load_inputs(fixture.manifest, fixture.root, fixture.adapter)
+
+
+def test_main_rejects_manifest_before_adapter_import(tmp_path, monkeypatch):
+    fixture = workflow_input_fixture(tmp_path)
+    fixture.adapter.write_text('tampered executable\n', encoding='utf-8')
+    monkeypatch.setattr(joint, 'ROOT', fixture.root)
+    monkeypatch.setattr(joint.sys, 'argv', [
+        'capture', '--bench-adapter', str(fixture.adapter),
+        '--workflow-inputs', str(fixture.manifest), '--out', str(tmp_path / 'run')])
+    monkeypatch.setattr(joint, 'load_adapter',
+                        lambda path: pytest.fail('adapter imported before manifest admission'))
+    with pytest.raises(ValueError, match=r'adapter closure\[0\] sha256 mismatch'):
+        joint.main()
+
+
+def test_main_rejects_stale_receipt_before_adapter_import(tmp_path, monkeypatch):
+    fixture = workflow_input_fixture(tmp_path)
+    monkeypatch.setattr(joint, 'ROOT', fixture.root)
+    monkeypatch.setattr(joint.sys, 'argv', [
+        'capture', '--bench-adapter', str(fixture.adapter),
+        '--workflow-inputs', str(fixture.manifest), '--out', str(tmp_path / 'run')])
+    monkeypatch.setattr(joint, 'validate_current_receipt',
+                        lambda inputs, root: (_ for _ in ()).throw(
+                            ValueError('current source does not match the P3 receipt')))
+    monkeypatch.setattr(joint, 'load_adapter',
+                        lambda path: pytest.fail('adapter imported before P3 admission'))
+    with pytest.raises(ValueError, match='current source does not match'):
+        joint.main()
+
+
+def test_current_receipt_validation_binds_source_and_board_order(tmp_path, monkeypatch):
+    from tools.hardware_acceptance import p3_hardware_acceptance as gate
+
+    fixture = workflow_input_fixture(tmp_path)
+    receipt = {'schema': gate.QUICK_GRADED_RECEIPT_SCHEMA,
+               'tdma_board_ids': WORKFLOW_UIDS, 'source_tree_sha256': 'a' * 64,
+               'source_file_count': 7}
+    fixture.receipt.write_text(json.dumps(receipt), encoding='utf-8')
+    loaded = workflow_inputs.load_inputs(fixture.manifest, fixture.root, fixture.adapter)
+    monkeypatch.setattr(gate, '_validate_quick_diagnostic_receipt', lambda root, value: None)
+    monkeypatch.setattr(gate, 'working_source_fingerprint', lambda root: ('a' * 64, 7))
+    assert workflow_inputs.validate_current_receipt(loaded, fixture.root) == receipt
+    monkeypatch.setattr(gate, 'working_source_fingerprint', lambda root: ('b' * 64, 7))
+    with pytest.raises(ValueError, match='current source does not match'):
+        workflow_inputs.validate_current_receipt(loaded, fixture.root)
+    receipt['schema'] = 'WRONG_RECEIPT_SCHEMA'
+    fixture.receipt.write_text(json.dumps(receipt), encoding='utf-8')
+    with pytest.raises(ValueError, match='receipt schema'):
+        workflow_inputs.validate_current_receipt(loaded, fixture.root)
+
+
+@pytest.mark.parametrize('target', ['baseline', 'tap'])
+def test_workflow_manifest_rejects_malformed_nested_evidence(tmp_path, target):
+    fixture = workflow_input_fixture(tmp_path)
+    if target == 'baseline':
+        value = json.loads(fixture.baseline.read_text(encoding='utf-8'))
+        value[0].pop('raw')
+        path = fixture.baseline
+        key = 'baseline'
+        error = 'baseline rows'
+    else:
+        value = json.loads(fixture.tap.read_text(encoding='utf-8'))
+        value['boards'][WORKFLOW_UIDS[1]]['tap_request'] = '1,2,3'
+        path = fixture.tap
+        key = 'tap_baseline'
+        error = 'tap_request'
+    path.write_text(json.dumps(value), encoding='utf-8')
+    fixture.data['files'][key]['sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+    fixture.manifest.write_text(json.dumps(fixture.data), encoding='utf-8')
+    with pytest.raises(ValueError, match=error):
+        workflow_inputs.load_inputs(fixture.manifest, fixture.root, fixture.adapter)
+
+
 def test_explicit_delays_reach_stop_restore_runner(tmp_path, monkeypatch):
-    path = tmp_path/'adapter.py'
-    path.write_text('# fixture', encoding='utf-8')
-    monkeypatch.setattr(joint.sys, 'argv', ['capture', '--bench-adapter', str(path),
+    fixture = workflow_input_fixture(tmp_path)
+    monkeypatch.setattr(joint, 'ROOT', fixture.root)
+    monkeypatch.setattr(joint, 'validate_current_receipt', lambda inputs, root: 'receipt')
+    monkeypatch.setattr(joint.sys, 'argv', ['capture', '--bench-adapter', str(fixture.adapter),
+                        '--workflow-inputs', str(fixture.manifest),
                         '--out', str(tmp_path), '--output-delays', '0', '-8', '-68', '-116',
                         '--scope-resource', 'USB::TEST', '--scope-serial', 'TEST123'])
     seen = {}
@@ -455,6 +634,10 @@ def test_explicit_delays_reach_stop_restore_runner(tmp_path, monkeypatch):
         def __init__(self, *args, **kwargs):
             seen.update(kwargs)
             seen['child'] = args[4]
+            self.report = {}
+
+        def save(self):
+            seen['saved_workflow_inputs'] = self.report.get('workflow_inputs')
 
         def run(self):
             return dict(passed=True, errors=[], cleanup_errors=[], restore_needed=False, duration_s=60)
@@ -467,6 +650,8 @@ def test_explicit_delays_reach_stop_restore_runner(tmp_path, monkeypatch):
     assert seen['output_delays'] == (0, -8, -68, -116)
     assert seen['child'][seen['child'].index('--scope-resource') + 1] == 'USB::TEST'
     assert seen['child'][seen['child'].index('--scope-serial') + 1] == 'TEST123'
+    assert seen['child'][seen['child'].index('--workflow-inputs') + 1] == str(fixture.manifest)
+    assert seen['saved_workflow_inputs']['adapter']['entrypoint'] == 'out/adapter.py'
 
 
 def startup_fixture(tmp_path, monkeypatch):

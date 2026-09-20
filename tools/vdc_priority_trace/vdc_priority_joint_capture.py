@@ -25,6 +25,10 @@ if str(ROOT) not in sys.path:
 from tools.vdc_priority_trace.vdc_scope_evidence import EvidenceWriter, capture_raw, analyze_memory
 from tools.common.hdo_scope import reader as scope_reader
 from tools.domains.vdc.scope_capture.sparse import SparseScope
+from tools.workflows.vdc_joint_capture.inputs import load_inputs, validate_current_receipt
+
+
+DEFAULT_WORKFLOW_INPUTS = ROOT / 'config/tool_workflows/vdc_joint_capture_internal_seal.json'
 
 
 def load_adapter(path):
@@ -325,7 +329,6 @@ def make_probe_class(adapter):
                     ROOT / 'tools/domains/vdc/scope_capture/sparse.py',
                     ROOT / 'tools/vdc_priority_trace/vdc_scope_evidence.py')
             ] if self.opt.external_scope else []
-            self.report['bench_adapter_sha256'] = hashlib.sha256(self.opt.bench_adapter.read_bytes()).hexdigest()
             self.save()
 
         def acquire(self):
@@ -437,6 +440,8 @@ def make_probe_class(adapter):
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--bench-adapter', type=Path, required=True)
+    p.add_argument('--workflow-inputs', type=Path, default=DEFAULT_WORKFLOW_INPUTS,
+                   help='pinned internal-seal adapter, receipt and baseline input manifest')
     p.add_argument('--scope', choices=('off', 'on'), default='off')
     p.add_argument('--scope-trigger', choices=('CHAN1', 'EXT'), default='CHAN1',
                    help='CHAN1 observes NO1 OUT1; EXT requires an independently active OUT4 signal')
@@ -470,29 +475,35 @@ def parse_args(argv=None):
 
 def main():
     a = parse_args()
-    adapter = load_adapter(a.bench_adapter)
+    inputs = load_inputs(a.workflow_inputs, ROOT, a.bench_adapter)
+    receipt = validate_current_receipt(inputs, ROOT)
+    adapter = load_adapter(inputs.bench_adapter)
     base = adapter.base
     if a.child:
-        opt = argparse.Namespace(receipt=ROOT/'config/hardware_acceptance/p3_acceptance_receipt.json', out=a.out,
-            baseline=ROOT/'out/HardwareAcceptance/20260917/dpll-priority-rx-direct-r1/stopped-baseline.json',
-            tap_baseline=ROOT/'out/HardwareAcceptance/20260916/dpll-event-recovery-r1/capture-r2/input-probe.json',
+        opt = argparse.Namespace(receipt=inputs.receipt, out=a.out,
+            baseline=inputs.baseline, tap_baseline=inputs.tap_baseline,
             period_ns=1000000, scope=False, check_only=False, seconds=a.seconds, summary_interval_ms=10000,
             settle_s=a.settle_s,
             no_reference=False, expire_output=False, external_scope=a.scope=='on', scope_trigger=a.scope_trigger,
             scope_resource=a.scope_resource, scope_serial=a.scope_serial,
-            bench_adapter=a.bench_adapter)
+            bench_adapter=inputs.bench_adapter, workflow_inputs_evidence=inputs.evidence(ROOT))
         probe = make_probe_class(adapter)(opt)
+        probe.report['bench_adapter_sha256'] = hashlib.sha256(inputs.bench_adapter.read_bytes()).hexdigest()
+        probe.report['workflow_inputs'] = inputs.evidence(ROOT)
+        probe.save()
         probe.run()
         print(json.dumps(probe.report['joint_verdict']))
         return 0 if probe.report['passed'] else 2
-    receipt = base.external.base.trial.hil.validate_receipt(ROOT/'config/hardware_acceptance/p3_acceptance_receipt.json')
-    child = [sys.executable, str(Path(__file__).resolve()), '--bench-adapter', str(a.bench_adapter.resolve()),
+    child = [sys.executable, str(Path(__file__).resolve()), '--bench-adapter', str(inputs.bench_adapter),
+             '--workflow-inputs', str(inputs.manifest),
              '--scope', a.scope, '--scope-trigger', a.scope_trigger,
              '--scope-resource', a.scope_resource, '--scope-serial', a.scope_serial,
              '--seconds', str(a.seconds), '--settle-s', str(a.settle_s),
              '--out', str(a.out/'capture'), '--child']
     runner = base.external.base.ResumeTrial(base.external.base.trial.hil.SerialBackend(), receipt, a.out,
         (24000, 32000, 16000), child, output_delays=tuple(a.output_delays), capture_timeout=a.seconds+240)
+    runner.report['workflow_inputs'] = inputs.evidence(ROOT)
+    runner.save()
     result = runner.run()
     print(json.dumps({k: result[k] for k in ('passed', 'errors', 'cleanup_errors', 'restore_needed', 'duration_s')}))
     return 0 if result['passed'] else 1

@@ -15,6 +15,7 @@ The current layout is grouped by function:
 
 - `tools/bench/`: bench GUI and ad-hoc trigger helpers
 - `tools/checks/`: repository guards and namespace checks
+- `tools/workflows/`: pinned cross-tool orchestration inputs and lifecycle helpers
 - `tools/tests/`: host/ARM fallback test runners
 - feature-specific subdirectories such as `tools/ota_send/` and
   `tools/sd_board_validate/`
@@ -117,6 +118,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-UF2-JOIN | OTA / OTA tool maintenance | UNASSESSED | `tools/uf2_join/make_fill_bin.py`<br>`tools/uf2_join/uf2_join.py` |
 | TOOL-VDC-DPLL-REPLAY | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_dpll_replay/vdc_dpll_replay.py` |
 | TOOL-VDC-GPIO-LOCK-VALIDATE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py` |
+| TOOL-VDC-JOINT-WORKFLOW | VDC / VDC workflow maintenance | EXPERIMENTAL | Library / resources |
 | TOOL-VDC-LATCH-VALIDATE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_latch_validate/vdc_latch_validate.py` |
 | TOOL-VDC-LOCK-READINESS-VALIDATE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py` |
 | TOOL-VDC-LONG-MONITOR | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_long_monitor/vdc_long_monitor.py` |
