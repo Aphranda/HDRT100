@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Callable, Iterator
 import os
 import re
 import time
@@ -148,12 +148,14 @@ class SerialSession:
     """
 
     def __init__(self, port: str, baud: int, timeout_s: float,
-                 settle_s: float, *, read_timeout_s: float = 0.1) -> None:
+                 settle_s: float, *, read_timeout_s: float = 0.1,
+                 response_matcher: Callable[[str, str], bool] | None = None) -> None:
         self.port = port
         self.baud = baud
         self.timeout_s = timeout_s
         self.settle_s = settle_s
         self.read_timeout_s = read_timeout_s
+        self.response_matcher = response_matcher
         self.ser: serial.Serial | None = None
 
     def open(self) -> "SerialSession":
@@ -201,7 +203,8 @@ class SerialSession:
         self.ser.write((command + "\n").encode("ascii"))
         self.ser.flush()
         return read_scpi_response(
-            self.ser, command, self.timeout_s, require_match=require_match)
+            self.ser, command, self.timeout_s, require_match=require_match,
+            response_matcher=self.response_matcher)
 
 
 def read_serial_line_idle(ser: serial.Serial,
@@ -411,12 +414,14 @@ def read_scpi_response(ser: serial.Serial,
                        command: str,
                        timeout_s: float,
                        *,
-                       require_match: bool = False) -> str:
+                       require_match: bool = False,
+                       response_matcher: Callable[[str, str], bool] | None = None) -> str:
     """Read a command response while filtering startup logs on the CDC stream."""
     deadline = time.monotonic() + timeout_s
     header = command.strip().split(maxsplit=1)[0].upper()
     query = is_scpi_query(command)
     preserve_composite_ack = header in COMPOSITE_ACK_HEADERS
+    matcher = response_matcher or scpi_response_matches_command
     while time.monotonic() < deadline:
         line = read_serial_line_idle(ser, deadline)
         if line is None or is_scpi_log_line(line):
@@ -440,8 +445,7 @@ def read_scpi_response(ser: serial.Serial,
         # field is itself "OK".  The input buffer was cleared immediately
         # before the command, so preserve and return the complete tuple rather
         # than treating its first field as a standalone acknowledgement.
-        if (require_match and not preserve_composite_ack and
-                not scpi_response_matches_command(command, line)):
+        if require_match and not preserve_composite_ack and not matcher(command, line):
             continue
         if (query and line in {'"OK"', "OK", "1"} and
                 not (line == "1" and

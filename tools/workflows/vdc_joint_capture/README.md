@@ -3,6 +3,9 @@
 This directory owns the versioned input boundary for the four-board VDC joint
 capture. `inputs.py` validates the selected internal-seal adapter and its frozen
 baseline inputs before importing executable evidence code or opening hardware.
+`lifecycle.py` owns the tracked outer four-board serial sessions, all-board STOP
+barriers, temporary RAM timing/delay application, child process boundary,
+restoration, and final connection close. It never stores Flash settings.
 
 The CLI remains `tools/vdc_priority_trace/vdc_priority_joint_capture.py`. Its
 `--workflow-inputs` JSON fixes the scenario, board UID order, the complete

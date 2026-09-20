@@ -3,23 +3,24 @@
   "tools": [
     {
       "id": "TOOL-VDC-JOINT-WORKFLOW",
-      "purpose": "Pinned input boundary for four-board VDC joint capture",
+      "purpose": "Pinned inputs and outer four-board lifecycle for VDC joint capture",
       "domain": "VDC",
       "owner": "VDC workflow maintenance",
       "lifecycle": "EXPERIMENTAL",
-      "operation": "OFFLINE",
+      "operation": "DEVICE_CONFIGURE",
       "entrypoints": [],
       "files": [
         {"path": "tools/workflows/vdc_joint_capture/inputs.py", "role": "module"},
+        {"path": "tools/workflows/vdc_joint_capture/lifecycle.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/README.md", "role": "documentation"}
       ],
-      "depends_on": ["TOOL-HARDWARE-ACCEPTANCE"],
-      "external_dependencies": [],
+      "depends_on": ["TOOL-HARDWARE-ACCEPTANCE", "TOOL-SCPI-COMMON", "TOOL-TDMA-RING-MONITOR"],
+      "external_dependencies": ["pyserial for four-board hardware runs"],
       "dependency_review": "COMPLETE",
       "aliases": [],
-      "validation": ["tests/python/test_vdc_priority_joint_capture.py"],
+      "validation": ["tests/python/test_vdc_priority_joint_capture.py", "tests/python/test_vdc_joint_lifecycle.py"],
       "handoff_evidence": null,
-      "notes": "Validates config/tool_workflows/vdc_joint_capture_internal_seal.json, the internal-seal adapter and frozen evidence paths/hashes before dynamic import or device access. It does not migrate the adapter ancestry or qualify vector/reference-injection scenarios."
+      "notes": "Validates config/tool_workflows/vdc_joint_capture_internal_seal.json and the historical closure before import, then owns four-board serial sessions, all-board STOP, temporary RAM timing/delay, child execution, restoration and close. No Flash writes. It does not migrate the child adapter ancestry or qualify vector/reference-injection scenarios."
     },
     {
       "id": "TOOL-HDO-RAW-READER",

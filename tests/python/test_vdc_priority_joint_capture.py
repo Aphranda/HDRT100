@@ -31,7 +31,7 @@ def workflow_input_fixture(tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True)
     adapter.write_text('raise AssertionError("adapter must not import")\n', encoding='utf-8')
     ancestor.write_text('# transitive executable dependency\n', encoding='utf-8')
-    receipt.write_text(json.dumps({'tdma_board_ids': WORKFLOW_UIDS}), encoding='utf-8')
+    receipt.write_text(json.dumps({'tdma_board_ids': list(WORKFLOW_UIDS)}), encoding='utf-8')
     baseline.write_text(json.dumps([
         {'uid': uid, 'command': command, 'raw': uid}
         for uid in WORKFLOW_UIDS for command in WORKFLOW_BASELINE_COMMANDS
@@ -49,7 +49,7 @@ def workflow_input_fixture(tmp_path):
     data = {
         'schema': workflow_inputs.SCHEMA,
         'scenario': workflow_inputs.SCENARIO,
-        'board_uids': WORKFLOW_UIDS,
+        'board_uids': list(WORKFLOW_UIDS),
         'adapter': {
             'entrypoint': adapter.relative_to(root).as_posix(),
             'closure': [declared(adapter), declared(ancestor)],
@@ -623,7 +623,10 @@ def test_workflow_manifest_rejects_malformed_nested_evidence(tmp_path, target):
 def test_explicit_delays_reach_stop_restore_runner(tmp_path, monkeypatch):
     fixture = workflow_input_fixture(tmp_path)
     monkeypatch.setattr(joint, 'ROOT', fixture.root)
-    monkeypatch.setattr(joint, 'validate_current_receipt', lambda inputs, root: 'receipt')
+    monkeypatch.setattr(joint, 'validate_current_receipt', lambda inputs, root: {
+        'tdma_board_ids': list(inputs.board_uids), 'build_id': '1',
+        'source_tree_sha256': 'source',
+    })
     monkeypatch.setattr(joint.sys, 'argv', ['capture', '--bench-adapter', str(fixture.adapter),
                         '--workflow-inputs', str(fixture.manifest),
                         '--out', str(tmp_path), '--output-delays', '0', '-8', '-68', '-116',
@@ -642,10 +645,10 @@ def test_explicit_delays_reach_stop_restore_runner(tmp_path, monkeypatch):
         def run(self):
             return dict(passed=True, errors=[], cleanup_errors=[], restore_needed=False, duration_s=60)
 
-    hil = SimpleNamespace(validate_receipt=lambda path: 'receipt', SerialBackend=lambda: 'backend')
-    base = SimpleNamespace(ResumeTrial=Runner, trial=SimpleNamespace(hil=hil))
-    monkeypatch.setattr(joint, 'load_adapter', lambda path:
-                        SimpleNamespace(base=SimpleNamespace(external=SimpleNamespace(base=base))))
+    monkeypatch.setattr(joint, 'ResumeTrial', Runner)
+    monkeypatch.setattr(joint, 'SerialBackend', lambda board_uids: ('backend', tuple(board_uids)))
+    monkeypatch.setattr(joint, 'load_adapter',
+                        lambda path: pytest.fail('outer lifecycle imported historical adapter'))
     assert joint.main() == 0
     assert seen['output_delays'] == (0, -8, -68, -116)
     assert seen['child'][seen['child'].index('--scope-resource') + 1] == 'USB::TEST'

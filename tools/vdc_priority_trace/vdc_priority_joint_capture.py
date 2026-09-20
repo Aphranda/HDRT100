@@ -26,6 +26,7 @@ from tools.vdc_priority_trace.vdc_scope_evidence import EvidenceWriter, capture_
 from tools.common.hdo_scope import reader as scope_reader
 from tools.domains.vdc.scope_capture.sparse import SparseScope
 from tools.workflows.vdc_joint_capture.inputs import load_inputs, validate_current_receipt
+from tools.workflows.vdc_joint_capture.lifecycle import ResumeTrial, SerialBackend
 
 
 DEFAULT_WORKFLOW_INPUTS = ROOT / 'config/tool_workflows/vdc_joint_capture_internal_seal.json'
@@ -477,9 +478,8 @@ def main():
     a = parse_args()
     inputs = load_inputs(a.workflow_inputs, ROOT, a.bench_adapter)
     receipt = validate_current_receipt(inputs, ROOT)
-    adapter = load_adapter(inputs.bench_adapter)
-    base = adapter.base
     if a.child:
+        adapter = load_adapter(inputs.bench_adapter)
         opt = argparse.Namespace(receipt=inputs.receipt, out=a.out,
             baseline=inputs.baseline, tap_baseline=inputs.tap_baseline,
             period_ns=1000000, scope=False, check_only=False, seconds=a.seconds, summary_interval_ms=10000,
@@ -500,8 +500,10 @@ def main():
              '--scope-resource', a.scope_resource, '--scope-serial', a.scope_serial,
              '--seconds', str(a.seconds), '--settle-s', str(a.settle_s),
              '--out', str(a.out/'capture'), '--child']
-    runner = base.external.base.ResumeTrial(base.external.base.trial.hil.SerialBackend(), receipt, a.out,
-        (24000, 32000, 16000), child, output_delays=tuple(a.output_delays), capture_timeout=a.seconds+240)
+    runner = ResumeTrial(
+        SerialBackend(inputs.board_uids), receipt, a.out,
+        (24000, 32000, 16000), child, board_uids=inputs.board_uids,
+        output_delays=tuple(a.output_delays), capture_timeout=a.seconds + 240)
     runner.report['workflow_inputs'] = inputs.evidence(ROOT)
     runner.save()
     result = runner.run()
