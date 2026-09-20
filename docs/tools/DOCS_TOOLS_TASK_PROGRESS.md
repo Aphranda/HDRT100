@@ -12,6 +12,15 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-015：child local follow 层迁移
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-FOLLOW-001。
+- 新增 `tools/workflows/vdc_joint_capture/follow.py`，从 manifest 指定的 observer 入口构造 tracked FollowProbe，接管 signed/wide follower status parser、独立 frequency decision 检查、follower enable/disable readback、STOP-only status snapshot 和 model/DCO endpoint 一致性；reference 不启用 follower mode，三个 follower assessment 相互隔离。
+- V9 manifest 将 archived `capture_follow.py` 固定为 `local_follow` migrated role，runtime entrypoint 下沉到 `capture_observer_dma_match.py`；动态 out closure 快照从 6 降到 5。fresh-process actual=declared=5，missing / declared-not-loaded / migrated_loaded 全为空；实际 provenance 中 archived follow 为零、tracked follow 唯一，旧原件不删除。
+- 软件与独立审查：冻结 `native-r1/input-probe.json` 的三个 follower `follow_raw`、parsed status、decision_check 与 model endpoint 对 tracked/archived 逐字段全等；prepared/interval/error/step/sequence 负测同拒。characterization 覆盖 SYNC disable、三个 follower enable/readback、四板 STOP status、parent model collect 和单 follower model mismatch 隔离。最终宽组合 485 passed / 1 skipped（快照），跳过项仅为 Windows 无符号链接权限；工具治理/catalog、编译和 whitespace 检查通过。独立复核 PASS，无剩余 finding。
+- 同指纹四板 P3 使用 build `20260920141158`，`tools-follow-r1/p3-r1` 为 PASS_WITH_WARNINGS（快照：INFO 33 / WARN 20 / ERROR 0 / FATAL 0）。DPLL 60 s scope-on outer/inner/joint 均通过，12 份 scope record、48 个 RAW block、四板 trace release 完整，外部最大绝对相差 18.964 ns（快照，INFO）；errors / cleanup_errors / restore_needed 均为空，`check-staged` 通过。原件位于 `out/HardwareAcceptance/20260921/tools-follow-r1/p3-r1/`。
+- 实现提交 `e9e9d920`；TOOLS-WORKFLOW-FOLLOW-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一批迁移 observer/match/direct/typed/base 剩余祖先，继续保留 archived 原件和失败证据。
+
 ### TOOLS-PROGRESS-20260921-014：child native trace 层迁移
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-TRACE-001。
