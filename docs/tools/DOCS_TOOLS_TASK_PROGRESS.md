@@ -12,6 +12,17 @@ Last updated: 2026-09-20
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260920-008：child runtime control / parallel START 基座迁移
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-RUNTIME-001。
+- 新增 `tools/workflows/vdc_joint_capture/runtime_base.py`，直接加载剩余 `capture_run_output_schema10.py` RunProbe 入口，接管历史 monitor 的 deadline/report、phase/RUN control 和 bounded parallel START。parallel START 从 V3 manifest 接受四板 allowlist，只使用已验证 persistent session 和互异 serial transport，保留 action budget、quiet barrier、四 worker join、排序/JSONL 及 fail-after-join 语义。
+- V3 manifest 将 `external_monitor / parallel_startup / late_scope_adapter / outer_trial / outer_hil / legacy_scope_reader` 六份旧实现加入固定角色 migrated lineage；它们继续按路径/SHA 原位归档，但不再执行。runtime entrypoint 下沉到 RunProbe，out 动态闭包由 17 降到 11。fresh-process 动态检查遍历 factory 对象图和 `sys.modules`，actual=declared，missing / declared-not-loaded / migrated-loaded 全为空；原件在 `out/tools-governance/20260920/runtime-base-r1/closure.json`。
+- 软件/审查证据：runtime fake characterization 覆盖 master/follower phase 与 RUN prepare 顺序、UID/port/allowlist、persistent session、distinct transport、deadline/action budget、quiet barrier、并发 join、单板 timeout 后全 join 和日志；宽组合回归 331 passed / 1 skipped，跳过项为 Windows 无符号链接权限。V3 frozen golden 为 9 migrated / 11 runtime，四板 archived/tracked parser/evaluation 逐字段全相等。独立复核 PASS，无剩余 finding；登记/catalog、编译、source length 与 whitespace 检查通过。
+- 同指纹 P3 快照，非事实源：build `20260920113143` 的四板 quick P3 为 PASS_WITH_WARNINGS（INFO 25 / WARN 19 / ERROR 0 / FATAL 0），DPLL 按 tdma-only 范围 SKIPPED；原件在 `out/HardwareAcceptance/20260920/tools-runtime-base-r1/p3-r1/`，staged receipt 同指纹。
+- scope-off `joint-scope-off-r1` outer/inner PASS：V3 报告记录 9 migrated / 11 runtime 与 runtime-base SHA，internal health 通过、external SKIPPED、RUN 内板端查询为零，四板 timing/delay 恢复，errors / cleanup_errors / restore_needed 均为空。
+- scope-on `joint-scope-on-r1` outer/inner PASS：12 个新鲜窗口、48 RAW 块、steady qualification 通过，最大绝对相差 35.638 ns（快照）；RUN 内板端查询为零，四板 timing/delay 恢复且无清理错误。scope 结果不授予未采区间连续锁相或精确事件对应资格。硬件原件位于同任务目录。
+- 实现提交 `b6fe5cf8`；TOOLS-WORKFLOW-RUNTIME-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。下一批迁移剩余 11-file RunProbe/phase/follow/match 深层祖先；九份 migrated source 原位归档，不删除。
+
 ### TOOLS-PROGRESS-20260920-007：child internal summary / startup / seal 三层迁移
 
 - TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-SEAL-001。

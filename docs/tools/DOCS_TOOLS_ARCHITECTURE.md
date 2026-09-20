@@ -100,6 +100,8 @@ outer 生命周期不得通过 adapter 的多层属性链取得串口 backend �
 
 child adapter 的逐层迁移使用固定角色 lineage：兼容 selector 只可指向 archived internal-seal 原件；已迁移 source 继续按角色、路径和 SHA 保留，但不得留在 runtime closure。tracked adapter 从 manifest 指定的下一未迁移入口构造，不能回退执行 compatibility selector。每批用 frozen native bytes 对 archived/tracked parser 与 verdict 做 golden，并对 configure、命令改写、quiet RUN、STOP collect gate 和 cleanup 后重算做直接 characterization。
 
+runtime control/START 基座同样归 tracked workflow：只加载 manifest 指定的剩余 RunProbe 入口，四板 allowlist 来自已准入清单；parallel START 只使用已验证且互异的 persistent session，全部 worker join 后统一落 JSONL，任一非 OK 只能在全部 join 后失败并交给外层 STOP。已由 tracked outer/scope 替代的 monitor、startup、late-scope、Trial/HIL 和 reader 原件转为命名归档来源，不得继续作为 import 副作用加载。
+
 ## TG-LIFECYCLE：生命周期与迁移
 
 | 状态 | 准入或退出条件 |
