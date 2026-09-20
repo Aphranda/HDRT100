@@ -12,6 +12,17 @@ Last updated: 2026-09-20
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260920-005：internal-seal 工作流输入显式化
+
+- TODO task ID：TOOLS-WORKFLOW-001、TOOLS-WORKFLOW-INPUTS-001。
+- 新增 `config/tool_workflows/vdc_joint_capture_internal_seal.json` 与 `tools/workflows/vdc_joint_capture/inputs.py`，将基础场景的 adapter entrypoint、完整历史可执行闭包、P3 receipt、stopped baseline、tap baseline 和四板 UID 顺序变为单一 tracked 输入清单。现有 CLI 路径与 `--bench-adapter` 保留，所选 adapter 必须与清单一致；vector/reference/gap 场景未混入。
+- 准入顺序：解析 UTF-8 JSON、拒绝路径逃逸/重复、逐文件比对 SHA、校验 baseline 每板实际消费字段和唯一命令集合、校验 tap 主从请求、限定 quick-graded receipt schema 并验证完整证据/当前源码指纹/板卡顺序，全部通过后才动态 import adapter。父进程和子进程均在 `run()` 前写入 manifest、完整 closure 与摘要。
+- 独立审查先后发现并推动修复：只 pin 最外 adapter、receipt schema 未显式限制、baseline/tap 深层字段浅校验、准入证据落盘过晚。最终复核 PASS，无剩余 finding；声明 closure 与既有基础链审计一致，当前 SHA 全部匹配，Git tracked 依赖由 P3 源码指纹覆盖。
+- 软件验证快照，非事实源：最终组合回归 254 passed / 1 skipped，跳过项为当前 Windows 账户无符号链接权限；聚焦联合采样/输入/scope 组 159 passed。工具登记/catalog、JSON、编译和 whitespace 检查通过；旧 receipt 对新源码在 adapter import 和硬件前按预期拒绝。
+- 硬件验收快照，非事实源：build `20260920085328` 的 scope-off 四板 P3 为 PASS_WITH_WARNINGS（INFO 25 / WARN 19 / ERROR 0 / FATAL 0），DPLL 按 tdma-only 范围 SKIPPED；原件在 `out/HardwareAcceptance/20260920/tools-workflow-inputs-r1/p3-r1/`，staged receipt 与当前实现指纹一致。
+- scope-off 基础工作流实测快照，非事实源：`joint-scope-off-r1` outer/inner 均 PASS，运行 60 s，manifest closure 在父子报告中均完整，RUN 内板端查询为零，external status 为 SKIPPED，未创建 scope/sample 目录；errors / cleanup_errors / restore_needed 均为空。原件在 `out/HardwareAcceptance/20260920/tools-workflow-inputs-r1/joint-scope-off-r1/`。
+- 实现提交 `3f13f8d4`；TOOLS-WORKFLOW-INPUTS-001 关闭，TOOLS-WORKFLOW-001 保持 IN PROGRESS。当前示波器已移出台架，下一批只推进不需要示波器的 Probe/Trial、基础 adapter、静态检查或离线交接工作，不重跑 scope 硬件。
+
 ### TOOLS-PROGRESS-20260920-004：示波器叶端首批迁入标准目录
 
 - TODO task ID：TOOLS-LAYOUT-001、TOOLS-WORKFLOW-001、TOOLS-SCOPE-001。
