@@ -26,6 +26,49 @@ Last updated: 2026-09-20
 | 工作流（拟议） | `config/tool_workflows/`；步骤、输入、资源、固定判据、检查点及失败恢复。 |
 | 执行证据 | `out/` 下独立运行目录；原始数据、日志、实际配置、指纹和结果，不能反向成为正式工具的代码依赖。 |
 
+## TG-LAYOUT：目录规划与增量迁移
+
+目录按责任与依赖方向组织，工具身份由登记 ID 保持稳定。下面是目标布局，非当前已完成目录；按需创建有实际内容的目录，不先建空骨架。现有路径继续以登记表为准。
+
+| 目标位置 | 放置内容与边界 |
+|---|---|
+| `tools/README.md`、`tool_registry.json`、`tool_registry.schema.json` | 根导航、工具身份与登记结构。根目录不再新增独立业务脚本；现有根入口作为迁移兼容路径单独登记。 |
+| `tools/domains/<domain>/<tool>/` | 单域工具及私有模块；domain 沿用责任域，如 tdma、vdc、sync、trigger、refmem、calibration、communication、interface、storage、flash、rtos、watchdog、ota。DPLL 仍归 VDC，不另造平行责任域。 |
+| `tools/common/<capability>/` | 已有多个调用者的公共协议、解码、设备传输或证据处理能力；纯离线模块与设备操作模块分开，导入不访问设备。不设无归属的 utils 杂物目录。 |
+| `tools/workflows/<workflow>/` | 跨工具/跨域编排，管理设备占用、启动、采集、STOP、恢复与证据汇总；业务算法仍由域工具负责。 |
+| `tools/build/<tool>/` | 构建驱动、构建信息、资源预算和发布检查；固件包格式与 OTA 逻辑仍归对应责任域，不因命令用于发布而混放。 |
+| `tools/host/<tool>/` | 主机辅助和文档转换等非板端工具；主机状态与个人配置另存运行目录。 |
+| `tools/hardware_acceptance/`、`docs_check/`、`tool_governance/`、`checks/`、`tests/`、`bench/` | 保留现有稳定入口：硬件验收、文档检查、工具治理、代码检查、测试启动器、交互台架。`tools/doc_regression_check.py` 同样保留；不为目录美观改动门禁和既有调用契约。 |
+| `tests/python/` 等现有测试树 | 工具测试与小型冻结 fixture；`tools/tests/` 只承担已有测试启动器职责，不复制测试套件。 |
+| `config/tool_workflows/`（拟议） | 可复用工作流参数和台架配置；现有 `config/hardware_acceptance/` 保留。配置不存凭据，不用个人绝对路径，不包含可执行 Python。 |
+| `out/<task>/<run>/`；硬件证据沿用 `out/HardwareAcceptance/<date>/<run>/` | 日志、波形、结果、缓存、运行状态和一次性探索产物。正式工作流不执行其中代码；历史原件不因目录治理迁走。 |
+
+归类时先判断是否为跨域编排，再判断是否为已有调用者共享的能力，其余归业务 owner；名称含 capture、decode、validate 不构成新的一级分类。一个工具可有多个明确入口，不按每个脚本机械拆目录；跨域共享实现只有一个落点，通过登记依赖复用。
+
+单工具目录只保留实现、README、必要的依赖声明和随版本发布的资源。README 说明输入输出、运行前提、资源、副作用、命令和恢复方法；架构与任务状态回链 docs/tools，避免重复三份治理文档。目录名使用小写下划线，按稳定能力命名，不使用日期、个人名、final、new 或 v2 表示迭代；接口/证据版本显式管理。EXPERIMENTAL 是登记状态，具备长期保留价值的实验代码也归对应工具，不新建无限增长的 temp/sandbox 工具池。
+
+依赖方向为工作流调用域工具与公共组件、域工具调用公共组件，公共组件不反向依赖业务工作流；模块 import 不启动设备。迁移时显式确定包/CLI 入口与仓库定位方法，避免依赖当前工作目录或新增 sys.path/全局 monkey patch；标准库同名目录不能靠修改搜索路径解决。包装入口保持参数、退出码和异常清理语义，不能复制第二套实现。
+
+### 首批路径决策（拟议，迁移前复核调用者）
+
+| 当前入口或来源 | 目标决策 | 迁移约束 |
+|---|---|---|
+| `tools/vdc_priority_trace/` 的联合采集入口及 internal-seal 基础 out 链 | 编排归 `tools/workflows/vdc_joint_capture/`；域内解码/探针归 `tools/domains/vdc/priority_trace/` | 先消除 out 可执行依赖；原入口兼容，参考中断注入单独显式选项。 |
+| `tools/vdc_sync_metrology/` | `tools/domains/vdc/sync_metrology/` | 保持离线语义与输入 schema，不混入设备采集。 |
+| `tools/scope_dpll_capture/` | DPLL 分析归 `tools/domains/vdc/scope_capture/`；确认复用的 RAW/SCPI 设备接口才抽入 common | 不把现有 NORM 采集冒充联合采集的冻结 RAW 实现。 |
+| `tools/tdma_ring_monitor/`、`tools/calibration_ring_validate/` | 分别归 domains/tdma 和 domains/calibration 的工具目录 | 先复核动态加载、相对路径和 P3 调用；不整组盲搬。 |
+| `tools/scpi_common/` | 评估迁入 `tools/common/scpi/` | 先确认真实调用关系和唯一实现，保留原导入兼容。 |
+| `tools/cmake_build_auto/`、`tools/codex_watchdog/` | 分别归 build 和 host | 构建定位、运行状态与恢复方式须回归。 |
+| OTA、Flash 工具及全部稳定验收/门禁入口 | 仅登记分类，当前原位保留 | OTA 本轮不改；路径调整不得借机改变刷写行为。 |
+
+完整旧路径→目标路径→调用者→兼容方式→验证→回滚映射由逐批迁移任务维护；上表不是已执行搬迁清单。迁移优先级为主线工作流依赖闭合、公共叶模块、对应域入口，最后评估低收益的纯路径整理。单批同时更新登记、生成导航、调用方与测试，执行同指纹 P3；通过前不推进下一批。旧入口保持可用，退役/删除另行处理，不因标记 ARCHIVED 自动搬动历史文件。
+
+### 按完成度逐批入位
+
+按用户要求，确认完成的工具逐步迁入标准规划目录。分开判断“源位置的工具已具备迁移条件”和“目标位置已验证交付”：前者要求用途/owner、实际调用者与运行依赖、配置/输出、设备副作用/恢复已核清，相关回归和适用验收已有证据；仅有文件登记、一次运行成功或目录名合规不算确认完成。当前 UNASSESSED 存量逐组核验，不能整组默认授予迁移资格。
+
+每批依次执行：确认迁移条件和映射，迁入目标位置并保留兼容入口，同步登记/导航/交接说明并核对新旧命令及依赖，运行相关回归和同指纹 P3，独立复核后提交。目标路径交付完成才关闭本批迁移；SUPPORTED 仍须另满足完整交接准入，目录入位不会自动提升生命周期。未完成工具原位登记待办；out 中需长期复用的实验链先完成依赖和行为收敛，再作为已登记工具迁入，不长期依靠临时代码维持正式工作流。
+
 ## TG-OWNER：职责与 HAOFV 边界
 
 | 角色 | 职责 |

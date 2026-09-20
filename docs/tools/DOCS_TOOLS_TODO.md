@@ -18,11 +18,12 @@ Last updated: 2026-09-20
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| TOOLS-WORKFLOW-001 | 四板 DPLL/VDC 工作流依赖闭合 | PENDING | 前两项；按已复核的 internal-seal 基础链和 vector 专项分开迁移，不能把参考中断注入变成默认采样。移除日期目录代码依赖，历史基线/设备参数显式输入，保留 STOP/恢复和证据语义。 |
+| TOOLS-LAYOUT-001 | 目录规划与首批路径映射 | IN PROGRESS | TG-LAYOUT 已给出分层、稳定入口例外和首批目标；迁移前完成该批逐文件旧/新路径、调用者、兼容、验证与回滚映射并独立复核。不以规划完成冒充物理整理完成。 |
+| TOOLS-WORKFLOW-001 | 四板 DPLL/VDC 工作流依赖闭合 | PENDING | INVENTORY、REGISTRY 已完成；采用 LAYOUT 首批映射，按已复核的 internal-seal 基础链和 vector 专项分开迁移，不能把参考中断注入变成默认采样。移除日期目录代码依赖，历史基线/设备参数显式输入，保留 STOP/恢复和证据语义。 |
 | TOOLS-HANDOFF-001 | 标准结果与交接复现 | PENDING | TOOLS-WORKFLOW-001；声明命令、环境、设备、版本、原始证据及失败恢复；另一工作区离线复算，对应硬件配置重跑留证。 |
 | TOOLS-CHECK-001 | 工具治理静态检查 | IN PROGRESS | inventory/check/catalog 入口已落地；登记结构、路径、角色和目录漂移有正反测试。继续存量准入、配置/输出接口版本与证明内容检查，不以文件存在代替资格审查；检查过程无设备副作用。 |
 | TOOLS-GATE-001 | 修复门禁触发范围与现行要求的差异 | PENDING | TOOLS-CHECK-001；独立核对工具/测试/hook staged 变更触发，正反测试及同指纹 P3 通过；不得缩减现行验收要求。 |
-| TOOLS-CONSOLIDATE-001 | 分批复用、迁移与退役 | PENDING | 登记及相应工作流验证；列调用者与替代路径，每批回归、保留兼容和失败证据，不自动删除旧文件。 |
+| TOOLS-CONSOLIDATE-001 | 分批复用、目录迁移与退役 | PENDING | 按 TG-LAYOUT，确认完成一批再迁入标准目录一批；先核清用途、依赖、调用者、恢复及源位置验证。目标位置保持稳定 ID，同步 registry、目录和调用者，旧入口兼容，相关回归、同指纹 P3 和独立复核后交付；未完成工具原位登记，不自动提升支持资格或删除旧文件。 |
 | TOOLS-LEGACY-IO-001 | 清理导入即访问硬件的旧脚本 | PENDING | TOOLS-INVENTORY-001；优先处理 tdma_ring_monitor/sd_fault_read.py 的顶层串口访问、固定 COM 与旧绝对路径；改动须验证并保留旧用途，不在扫描中执行。 |
 | TOOLS-RUNTIME-STATE-001 | 分离工具代码与主机运行状态 | PENDING | TOOLS-INVENTORY-001；codex_watchdog 内历史 state/heartbeat JSON 与个人路径纳入迁移，配置模板与 out 状态分离，恢复语义验证后交付，不自动删除旧文件。 |
 
@@ -36,7 +37,7 @@ Last updated: 2026-09-20
 
 ## 接续顺序与交付规则
 
-文档建域、文件盘点和首批登记已完成，下一步推进 TOOLS-WORKFLOW-001；先迁移叶端解码与采集接口，再收敛 Probe/Trial 和基础 adapter，专项注入保持显式配置。四板主线优先，OTA 实现保持现有边界。任务受阻时记录具体证据和解除条件，不用扩展 P3 范围替代工具治理。
+文档建域、文件盘点和首批登记已完成，先完成 TOOLS-LAYOUT-001 的主线首批映射，再推进 TOOLS-WORKFLOW-001；先迁移叶端解码与采集接口，再收敛 Probe/Trial 和基础 adapter，专项注入保持显式配置。不要求搬完全部存量才能推进主线。四板主线优先，OTA 实现保持现有边界。任务受阻时记录具体证据和解除条件，不用扩展 P3 范围替代工具治理。
 
 文档和实现分离提交；实现切片按现行 P3 规则验收。特等席资源变更必须先由用户审核，工具治理本身不授予新增实时资源。
 
