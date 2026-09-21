@@ -12,6 +12,16 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-029：无扰内外时间关联与 P0T 随机帧对齐解耦
+
+- TODO task ID：TOOLS-P3-DPLL-SHORT-001 DONE、TOOLS-CHECK-001 IN PROGRESS。实现提交 `a7eb455c` 将短闭环 schema 升为 `HAOFV_P3_DPLL_SHORT_V3`；每板仅在全局 START 前和最终全局 STOP 后读取既有 TIMER1 bridge，RUN 内板端查询为零，不增加 Core1 工作或实时席位。原始 action、双 STOP 锚、原生 trace tick identity 与 scope trigger host timestamp 一并进入离线复算。
+- 关联采用全部仿射包围角点和最坏速率偏差，只输出 `AFFINE_UNIQUE`、`AFFINE_AMBIGUOUS`、`OUTSIDE_CAPTURE`、`UNMAPPED`。它只证明外部窗口落入唯一十秒内部 bin；`exact_event_correlation_qualified=false`、`numeric_error_qualified=false`，不能把外部 GPIO 相差和内部 residual 逐事件相减。关联证据不足在 quick debug 下为 evidence false/WARN，显式 strict DPLL 才升级，不把新增诊断质量变成基础验收拒绝。
+- P0T 同批修正错误拒绝：P0T 只负责从 `rx_frames`、`rx_words` 或 `rx_edges` 的唯一物理活动识别线序；未校准时帧可能偶然对齐，也可能完全不对齐，因此 frame/magic 只保留诊断，不参与唯一线序成败。r1 已在第一条真实链检测到 `rx_words_delta=13696`（快照），随后 STOP 返回 `OK(no payload; verified by state readback)` 且新鲜状态读回已停止，旧 helper 却只接受字面 `OK` 而中止；修复后只接受这两个精确 ACK，并继续强制新鲜 STOP 状态读回，timeout、空串、未知 ACK 和断连仍拒绝。
+- 软件依赖闭包最终 655 passed / 1 skipped（快照），唯一跳过为 Windows symlink 权限；此前核心、扩展、P0T/关联聚焦轮次均保留。Python 编译、工具治理、catalog、whitespace 和 `check-staged` 通过；未重复约十九分钟的完整 Python 回归。
+- 硬件失败和中间结果均保留：`p3-nonintrusive-correlation-v3-r1/` 因上述 STOP ACK 兼容缺陷在首链后失败；`r2` 完成 scope-on，但绑定较早 staged 实现，只作中间证据；最终 `r3` 使用 build `20260921141824`，同指纹四板 scope-on P3 为 `PASS_WITH_WARNINGS`（快照：INFO 33 / WARN 19 / ERROR 0 / FATAL 0），HDO 外部最大绝对相差 39.165 ns，DPLL external PASS。
+- r3 的三个 follower 均有十一窗落在 capture、十个稳态窗为 `AFFINE_UNIQUE`，due=60 的一窗为 AFTER-capture，ambiguous 为零；最坏仿射角点速率偏差约 120.890/249.935/112.500 ppm（均为该轮快照）。内部稳态 residual 分别为 `[-114,+100]`、`[-113,+102]`、`[-119,+105]` ns，最大 119 ns，三板 tick rate 均为当前 build 的 250 MHz；按 `PHASE_WARN_NS` 为 WARN，不冒充物理连续精度。原件位于 `out/HardwareAcceptance/20260921/p3-nonintrusive-correlation-v3-r1..r3/`。
+- r3 P0T 完成十二个有向组合，四条有 `rx_words` 活动的链唯一组成 NO1→NO2→NO3→NO4→NO1；全部组合 `rx_frames=0`（快照）仍正确 PASS，正好证明帧对齐不是线序门禁。下一 gate：继续 TOOLS-CONSOLIDATE-001 的下一批分类；内部监控精度主线继续收紧锚点或建立同事件标识，在此之前不声明数值误差资格。
+
 ### TOOLS-PROGRESS-20260921-028：DPLL 离线证据 decoder/analyzer 分类迁移
 
 - TODO task ID：TOOLS-CONSOLIDATE-001、TOOLS-CHECK-001 IN PROGRESS。实现提交 `fc609c64` 将 binary observation decoder 与 residual analyzer 分别迁入 `tools/domains/vdc/dpll_observation_decode/`、`tools/domains/vdc/dpll_residual_analyze/`；二者保持独立 ID 和职责，旧 Python 路径保留 CLI/import 包装。`dpll_observation_capture`、`dpll_vdc_monitor`、相关测试及 joint workflow provenance 均改用 canonical 路径；joint registry 显式依赖 decoder。

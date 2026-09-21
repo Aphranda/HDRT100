@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
 Related: `AGENTS.md`, `README.md`, `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-21
 
 > 本文是跨 worker/agent 的长期执行流程入口。它描述如何工作、如何留证和何时停止；不替代产品架构、域内运行时契约或单次验收报告。
 
@@ -88,7 +88,7 @@ VDC 健康镜像、统计和查询属于异步诊断，不新增特等邮箱、�
 
 | 阶段 | 基础目标 | 候选与质量信息 |
 |---|---|---|
-| P0/P0T | 完整所需环序、身份与编号对应正确，清理完成；兼容的已确认线序可复用。 | 其他候选链路不通为 INFO，不要求全连接。 |
+| P0/P0T | 完整所需环序、身份与编号对应正确，清理完成；兼容的已确认线序可复用。P0T 的功能是从物理活动中识别唯一线序；未校准前帧可能偶然对齐，也可能完全不对齐，因此 frame/magic 命中只作诊断，唯一线序已成立时不得据其失败。 | 其他候选链路不通为 INFO，不要求全连接；STOP ACK 仍须结合新鲜状态读回确认，不能因兼容成功文本误报失败。 |
 | P1 | 后继可用的 CLK 粗捕获输入。 | 搜索窗口外拒绝为 INFO；粗测质量不足但后继已验证所选输入可用为 WARN。 |
 | P2 | 后继可用的编码 marker 时间基线。 | 未选相关候选失败为 INFO；已选输入可用但重复质量不足为 WARN。 |
 | P3 | 指定稳定工作档位、链路和信号组的有效延迟基线。 | 明确标为非必验 LIMITED_RX 且高于目标稳定频率的探测试验失败为 INFO；目标档位失败仍阻断。 |

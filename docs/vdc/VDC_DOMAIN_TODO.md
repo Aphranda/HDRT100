@@ -109,11 +109,11 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| `VDC-OBS-007` | 内部长期探针及外部对比 | IN PROGRESS | summary/GUARD、长窗与离线计量见进度 025/036；内部稳态 extrema 与分页/身份/endpoint 复算见进度 038；scope-on 对比复验见进度 039。继续质量发布及恢复对账。完整覆盖、服务/成功最大间隔、拒绝/缺口及计数完整性分别判定；启动 bin 保留但不进入稳态分级，空段非零残差，零调频非故障。当前精度 gate 必须有外部 RAW，且内部 residual 与 GPIO 相差不混算、不逐事件相减。 |
+| `VDC-OBS-007` | 内部长期探针及外部对比 | IN PROGRESS | summary/GUARD、长窗与离线计量见进度 025/036；内部稳态 extrema 与分页/身份/endpoint 复算见进度 038；scope-on 对比及 V3 双 STOP 仿射 bin 关联见进度 039/040。继续质量发布、恢复对账和关联精度提升。完整覆盖、服务/成功最大间隔、拒绝/缺口及计数完整性分别判定；启动 bin 保留但不进入稳态分级，空段非零残差，零调频非故障。当前精度 gate 必须有外部 RAW；现有关联只到唯一十秒 bin，`exact_event_correlation_qualified` 与 `numeric_error_qualified` 仍为 false，内部 residual 与 GPIO 相差不逐事件相减。 |
 | `VDC-OBS-001` | EDGE_TIMESTAMP 与 bounded drain | IN PROGRESS | 依赖 `SYNC-LA-003/005`；active/shadow ownership、wrap、重臂、STOP、overrun/drop 和批次交接可审计，TDMA 短帧无扰动。 |
 | `VDC-OBS-002` | StorageAO 分段 SD 与恢复 | PENDING | 依赖 `VDC-OBS-001`；段号/时间基/CRC、落盘 ACK、背压、缺口、断电恢复齐全。写入不进入 Core1，背压不阻塞实时环路。 |
 | `VDC-OBS-003` | 分段解码、缺口审计与 SVG | PENDING | 依赖 `VDC-OBS-002`、`SYNC-LA-006`；完整段可重放，坏段可定位，图例绑定节点/通道/边沿/时基，缺失不插值伪装。 |
-| `VDC-OBS-004` | 内外同窗关联及 NO5 扩展 | PENDING | 依赖 `VDC-OBS-002/003`、`SYNC-LA-008`；共同时间锚、TDMA sequence、capture generation、segment 连续性和外部线缆边界明确。NO5 只观察，不参与控制或 promotion。 |
+| `VDC-OBS-004` | 内外同窗精确关联 | PENDING | 依赖 `VDC-OBS-002/003`、`SYNC-LA-008`；共同时间锚、TDMA sequence、capture generation、segment 连续性和外部线缆边界明确。基础验收固定 NO1--NO4，不要求 NO5；额外观察节点只有在单独明确授权时才进入扩展范围，且不参与控制或 promotion。 |
 | `VDC-OBS-005` | 调参与观测统一记录 | PENDING | 依赖 `VDC-OBS-003`、`VDC-SERVO-002`、`VDC-ROLE-003`；原始 SCPI、requested/applied generation、profile CRC、角色/来源、残差/拒绝、debug continuation 和回退结果齐全。 |
 | `VDC-OBS-006` | 分级 soak 与发布级长稳 | IN PROGRESS | 完整扩展依赖 `VDC-OBS-004/005`、`VDC-RUN-001`；各 profile 明确时长、允许缺口、恢复和退出条件，验证 SD 背压/断电续采及 TDMA 无扰动；向总验收提供结果。 |
 

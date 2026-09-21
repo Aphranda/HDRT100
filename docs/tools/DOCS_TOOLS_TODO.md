@@ -38,7 +38,7 @@ Last updated: 2026-09-21
 | TOOLS-WORKFLOW-RUNTIME-001 | child monitor control / parallel START runtime 基座迁移 | DONE | tracked runtime base 直接加载剩余 RunProbe，接管 phase/RUN control 与 bounded parallel START；旧 monitor/startup/late-scope/Trial/HIL/reader 六份原件归档且不执行，runtime closure 从 17 降到 11。动态闭包、回归、独立复核、同指纹 P3 及 scope-off/on 实测通过，见 TOOLS-PROGRESS-20260920-008。 |
 | TOOLS-WORKFLOW-RUN-001 | child RUN output 层迁移 | DONE | tracked RunProbe 接管 schema10、timing/RUN prepare、output STOP 与 STOP-only 校验；内部旧 scope owner 禁用，outer 独占恢复。旧 RunProbe 原件归档且不执行，runtime closure 从 11 降到 10；回归、golden、独立复核、P3 及 scope-off/on 通过，见 TOOLS-PROGRESS-20260920-009。 |
 | TOOLS-WORKFLOW-PROBE-SUPPORT-001 | child probe support 叶端迁移 | DONE | tracked 纯 helper 接管 UID、字段解析、receipt 绑定和 native summary；旧 helper 固定为 migrated lineage 且不执行，runtime closure 从 10 降到 9。导入锁、真实 provenance、无环登记、回归、独立复核、四板 P3 及 scope-on 实测通过，见 TOOLS-PROGRESS-20260920-010。 |
-| TOOLS-P3-DPLL-SHORT-001 | P3 四板 DPLL 短闭环与相差分级 | DONE | 默认 P3 不再要求 NO5；同一组四板完成 `dpll_short_seconds` 闭环，有 HDO 时联合外部采样，无 HDO 时 external=SKIPPED，并从三从原生 summary trace 的稳态 residual extrema 分级。完整窗口、bin、成功间隔、endpoint/末 bin、分页重组及源码/build/四板/session/generation 绑定均 fail-closed；WARN/ERROR 引用实现符号，内部包络不替代 GPIO 精度。见 TOOLS-PROGRESS-20260920-011、TOOLS-PROGRESS-20260921-026。 |
+| TOOLS-P3-DPLL-SHORT-001 | P3 四板 DPLL 短闭环与相差分级 | DONE | 默认 P3 不再要求 NO5；同一组四板完成 `dpll_short_seconds` 闭环，有 HDO 时联合外部采样，无 HDO 时 external=SKIPPED，并从三从原生 summary trace 的稳态 residual extrema 分级。V3 以全局 RUN 外的双 STOP bridge 锚和原始 action 将 scope 窗保守关联到内部 bin，RUN 板端查询为零；完整窗口、bin、成功间隔、endpoint/末 bin、分页重组及源码/build/四板/session/generation 绑定均 fail-closed。WARN/ERROR 引用实现符号，仿射 bin 关联和内部包络均不替代同事件或 GPIO 数值精度。见 TOOLS-PROGRESS-20260920-011、TOOLS-PROGRESS-20260921-026/029。 |
 | TOOLS-WORKFLOW-PHASE-001 | child phase / native trace 层迁移 | DONE | tracked phase factory 接管 phase parser、phase/origin ARM、native trace collect、endpoint consistency 与 release；失败 trace 保留、已完成 trace 有界 release。旧 phase 固定为 migrated lineage 且不执行，runtime closure 从 9 降到 8；回归、动态闭包、独立复核和四板 DPLL P3 通过，见 TOOLS-PROGRESS-20260920-012。 |
 | TOOLS-WORKFLOW-LONGWINDOW-001 | child long-window policy 层迁移 | DONE | tracked factory 接管 reverse START、temporary trial、finite wait、decision window oracle 与 final projection；长区间保持 observation-only。旧 long-window 固定为 migrated lineage且不执行，runtime closure 从 8 降到 7；冻结 golden、回归、动态闭包、独立复核和四板 DPLL P3 通过，见 TOOLS-PROGRESS-20260920-013。 |
 | TOOLS-WORKFLOW-TRACE-001 | child native trace 层迁移 | DONE | tracked factory 接管 status/ACK polling、follower ARM、STOP/download/decode、coverage、last-decision consistency 与 release/retain。旧 trace 固定为 migrated lineage 且不执行，runtime closure 从 7 降到 6；故障矩阵、回归、动态闭包、独立复核和四板 DPLL P3 通过，见 TOOLS-PROGRESS-20260921-014。 |
@@ -54,7 +54,7 @@ Last updated: 2026-09-21
 
 ## 接续顺序与交付规则
 
-四板 internal-seal 从 scope/outer 到 base 的 executable out 依赖已经清零，完整历史 lineage 与输入仍固定留证。TOOLS-HANDOFF-001 已完成。顶层布局基线已阻止遗留目录继续增长，已分类项以目标段和 registry 为准；下一步选择调用关系已核清的下一批，同时继续 TOOLS-CHECK-001 的配置/输出接口与证明内容检查。当前内部精度改进验收必须联合已枚举示波器；scope-off 只保留诊断证据，不关闭外部对比 gate。OTA 实现保持现有边界。
+四板 internal-seal 从 scope/outer 到 base 的 executable out 依赖已经清零，完整历史 lineage 与输入仍固定留证。TOOLS-HANDOFF-001 已完成。顶层布局基线已阻止遗留目录继续增长，已分类项以目标段和 registry 为准；下一步选择调用关系已核清的下一批，同时继续 TOOLS-CHECK-001 的配置/输出接口与证明内容检查。当前内部精度改进验收必须联合已枚举示波器；scope-off 只保留诊断证据，不关闭外部对比 gate。V3 已闭合无扰的十秒 bin 时间关联，但 `numeric_error_qualified` 仍为 false；后续精度提升须继续缩小主机/TIMER1 锚点不确定区间或建立同事件标识，不能直接相减内外数值。OTA 实现保持现有边界。
 
 文档和实现分离提交；实现切片按现行 P3 规则验收。特等席资源变更必须先由用户审核，工具治理本身不授予新增实时资源。
 
