@@ -22,6 +22,16 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20260921-039：外部 HDO 对比下的内部稳态包络复验
+
+- TODO task ID：`VDC-OBS-007`、`VDC-PRECISION-001`、`VDC-VERIFY-001` IN PROGRESS；本轮由 tools 离线 decoder/analyzer 分类迁移触发同指纹四板复验，不改固件、VDC owner、Core1 工作或特等席。当前目标收紧为外部示波器对比前提，scope-off 结果不能单独关闭内部精度 gate。
+- 实现提交 `fc609c64` 将 observation binary decoder 与 residual analyzer 迁入 VDC 标准目录，活跃 capture/monitor import 和 joint provenance 全部切换到 canonical；旧入口兼容、原件归档。decoder 的 CRC/schema 拒绝和 analyzer 的 metadata/坐标域/decimation/lock 声明边界保持不变。
+- 软件与复核：最终聚焦依赖闭包 242 passed / 1 skipped，唯一跳过是 Windows symlink 权限；完整回归按用户反馈在无失败至 24% 时停止，不宣称本批全量通过。独立复核先指出外部 cwd 未固化一项 P2，补新旧成功/失败 CLI 的仓库外运行后最终 PASS；治理器 351 owned/visible files 闭合（快照）。
+- scope-on P3：`out/HardwareAcceptance/20260921/tools-dpll-offline-evidence-r1/`，build `20260921115305`，HDO serial `HDO4A244301137`，结果 `PASS_WITH_WARNINGS`（快照：INFO 33 / WARN 18 / ERROR 0 / FATAL 0）。外部十二窗、四十八个 RAW block 均绑定收据并离线复算；最大绝对 GPIO 相差 40.151 ns，全部窗在 ±50 ns 内，外部分级 INFO。
+- 同轮内部对照：NO2/NO3/NO4 约五十秒稳态 residual 包络为 `[-117,+110]`、`[-114,+101]`、`[-115,+104]` ns，最大 117 ns；末态 endpoint 最大仅 97 ns。原生分页重组、完整六十秒 coverage、成功间隔、共同 session/generation 与末 bin/endpoint 均通过。内部 extrema 继续比 endpoint 更能发现窗口内超 ±100 ns 的偏离。
+- 证据边界：外部 GPIO 稀疏窗与内部 owner residual 的量、时间原点和采样时刻不同，不能逐事件相减或把 117 ns 与 40.151 ns 的差声明为监控误差；本轮只证明两条链在同一四板会话各自完整、可复算，并给内部保守包络提供外部物理对照。WARN 来自既有 TDMA 质量反馈，DPLL 外部相差为 INFO，不提升 formal lock、连续物理锁相或产品 RUN。
+- 下一 gate：继续 `VDC-PRECISION-001`，建立内部 bin 与外部窗口的显式时间关联后才能量化内部监控误差；同时推进 `VDC-OBS-007` 的质量发布/恢复对账。未具备同事件关联前，不用两个 envelope 的数值差调参或授予精度。
+
 ### VDC-PROGRESS-20260921-038：四板内部稳态包络替代最终端点分级
 
 - TODO task ID：`VDC-OBS-007`、`VDC-PRECISION-001`、`VDC-VERIFY-001` IN PROGRESS；本轮只改 P3 host 证据消费与复算，不改固件、VDC owner、Core1 负载或特等席。

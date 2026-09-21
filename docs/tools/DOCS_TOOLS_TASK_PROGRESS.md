@@ -12,6 +12,16 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-028：DPLL 离线证据 decoder/analyzer 分类迁移
+
+- TODO task ID：TOOLS-CONSOLIDATE-001、TOOLS-CHECK-001 IN PROGRESS。实现提交 `fc609c64` 将 binary observation decoder 与 residual analyzer 分别迁入 `tools/domains/vdc/dpll_observation_decode/`、`tools/domains/vdc/dpll_residual_analyze/`；二者保持独立 ID 和职责，旧 Python 路径保留 CLI/import 包装。`dpll_observation_capture`、`dpll_vdc_monitor`、相关测试及 joint workflow provenance 均改用 canonical 路径；joint registry 显式依赖 decoder。
+- 两份迁移前源码原字节归档，SHA-256 分别为 `dd6536dbe2c638fbc3b6f6e7b7d036dbc2a0240b855d7ebffe44f353fb7fa528`、`bd3e411331f554d1cacaf374bc13b4c450c7d9e4076b525d45f93acb21a57bbd`；局部 binary 属性与 index blob 复核防止 Windows 行尾改写。旧代码未删除。两项登记均收敛为 `EXPERIMENTAL/OFFLINE`，依赖审查 COMPLETE，并分别定义 frozen corpus/interface 转正条件和 ARCHIVED 退出路径，不提升 SUPPORTED。
+- 行为边界未改：decoder 仍验证 header、schema、长度和 payload CRC，输出 analyzer 使用的 samples JSON；analyzer 仍区分 raw/transport-corrected residual、路径与 generation metadata、坐标域、decimation 和 follower command，不能把 monitor snapshot 当 full-rate trace 或本地 PI/物理锁相证据。两者只读本地文件，不访问板卡、串口、VISA 或示波器。
+- 迁移前聚焦基线 217 passed / 1 skipped。首次迁移回归因 analyzer 归档 SHA 测试常量漏一位十六进制字符出现 1 failed / 220 passed / 1 skipped，原件保留；修正常量后继续发现 joint provenance 仍引用旧路径并补 canonical 正反断言。独立复核指出外部 cwd 未自动覆盖一项 P2，主控另发现 dependency 补丁误落 BISS 项；两项修复后最终聚焦 242 passed / 1 skipped，唯一跳过是 Windows symlink 权限，reviewer 最终 PASS。治理器确认 351 owned files 等于 351 visible files（快照），Python 编译、catalog 和 whitespace 检查通过。
+- 按用户反馈，重复完整 `tests/python` 在无失败运行至 24% 时主动中止，不把部分结果记作全量通过；上一实现批的 6768 passed / 1 skipped 只作为累计基线，不替代本批聚焦门禁。
+- 同指纹四板 scope-on P3 使用 build `20260921115305`，结果 `PASS_WITH_WARNINGS`（快照：INFO 33 / WARN 18 / ERROR 0 / FATAL 0）。HDO `HDO4A244301137` 生成十二个外部窗与四十八个 RAW block，外部最大绝对相差 40.151 ns、INFO，全部窗口在 ±50 ns 内；内部三从约五十秒稳态包络为 `[-117,+110]`、`[-114,+101]`、`[-115,+104]` ns，最大 117 ns，endpoint 最大仅 97 ns。内部包络比稀疏外部窗更保守，但二者不是同事件/同时间原点，不以差值声明测量误差。分页重组、末 bin/endpoint、scope RAW 离线复算、`check-staged` 与 pre-commit 均通过；原件位于 `out/HardwareAcceptance/20260921/tools-dpll-offline-evidence-r1/`。
+- 下一 gate：继续 TOOLS-CONSOLIDATE-001；优先评估 observation capture 与 monitor 的设备 owner/恢复边界，再决定是否迁移。当前内部精度改进切片继续要求 scope-on 对比，不以 scope-off 单独关闭。
+
 ### TOOLS-PROGRESS-20260921-027：VDC DPLL 离线 replay 分类迁移
 
 - TODO task ID：TOOLS-CONSOLIDATE-001、TOOLS-CHECK-001 IN PROGRESS。实现提交 `061104b3` 将唯一 Python 实现和 C runner 迁入 `tools/domains/vdc/dpll_replay/`；旧 Python 路径保留兼容包装，旧 C 文件保留为 inert compatibility material。工具只编译仓内 production VDC/TDMA C 源并离线回放，不枚举或访问板卡、串口、VISA 或示波器。
