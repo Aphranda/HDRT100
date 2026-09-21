@@ -12,6 +12,15 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-023：顶层增长冻结与首批三项分类迁移
+
+- TODO task ID：TOOLS-CHECK-001、TOOLS-CONSOLIDATE-001。
+- 实现提交 `45d1440a` 新增 `tools/tool_layout.json`：标准根和稳定基础设施根可在登记后增长，根文件使用显式白名单，其余一级目录及当前文件路径作为遗留基线冻结。当前基线包含九十个遗留根和一百九十六个遗留文件路径（快照，非事实源；实时事实以该 JSON 为准）。正反测试覆盖标准分类路径、新根文件、新一级目录、遗留根存量与新增文件、基线缩减；新增或未登记文件仍由 registry 所有权检查独立阻断。
+- `TOOL-SCPI-QUERY`、`TOOL-SD-TRACE-DECODE`、`TOOL-VDC-SYNC-METROLOGY` 的唯一正式实现分别迁入 `tools/domains/interface/scpi_query/`、`tools/domains/storage/sd_trace_decode/`、`tools/domains/vdc/sync_metrology/`。两个 SD 调用者和相关测试改用新入口；旧 Python 路径为薄兼容包装，SCPI 旧资源暂留。三个迁移前实现分别归档到 `tools/archive/<domain>/.../pre_domain_migration/`，Git blob 与来源 HEAD 完全一致：`dd4b0f5af9b772b39e17fba6bc47429fafa8df2f`、`b5d92cb7fb0941a87540f612c1a151b0bb02a323`、`3b4dd61c3900c7da011e94e979bb212b1195058d`；未删除旧代码或资源，生命周期仍为 UNASSESSED。
+- 软件验证：governance/catalog 为 passed，登记文件与 Git-visible 文件均由检查器闭合；聚焦集合结果为一百二十九项通过、一项因 Windows 无符号链接权限跳过（快照），新旧 import 指向同一函数对象，三个新旧 CLI 的 help 均可执行。`git diff --cached --check` 通过。曾尝试在真实树创建负向布局探针的复合命令，被执行策略在创建前拒绝；负向行为改由隔离 Git fixture 证明，没有留下临时目录。
+- 同指纹 P3：`p3-r1` 在设备操作前因错误使用仅限 TDMA-only 的 topology reuse 被拒绝，保留为失败记录；`p3-r2` 完成构建 `20260921014600`、四板 OTA、P0T、P1..P3、TRN-00..03、TDMA 与无示波器内部 DPLL 六十秒。修复复制文件的 EOF 空行后，`p3-r3` 通过 resume 重新完成同一四板链，最终 `PASS_WITH_WARNINGS`（快照：INFO 33 / WARN 18 / ERROR 0 / FATAL 0）。DPLL 使用 `p3_dpll_short.py` 阈值，内部 endpoint residual 最大绝对值为九十四纳秒（快照，INFO）；十八条 WARN 均来自 TDMA 质量反馈，`check-staged` 与 pre-commit 通过。原件位于 `out/HardwareAcceptance/20260921/tools-layout-r1/`。
+- 本批实现、归档、调用者和证据已经闭合；按 TODO 的退出定义，独立复核尚待完成，因此 TOOLS-CONSOLIDATE-001 保持 IN PROGRESS，不把目录迁移等同 SUPPORTED，也不推进下一批。
+
 ### TOOLS-PROGRESS-20260921-022：标准结果与交接复现
 
 - TODO task ID：TOOLS-HANDOFF-001。

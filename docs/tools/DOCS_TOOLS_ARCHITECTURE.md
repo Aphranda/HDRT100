@@ -29,7 +29,7 @@ Last updated: 2026-09-21
 
 ## TG-LAYOUT：目录规划与增量迁移
 
-目录按责任与依赖方向组织，工具身份由登记 ID 保持稳定。下面是目标布局，非当前已完成目录；按需创建有实际内容的目录，不先建空骨架。现有路径继续以登记表为准。
+目录按责任与依赖方向组织，工具身份由登记 ID 保持稳定。下面是目标布局；按需创建有实际内容的目录，不先建空骨架。现有路径继续以登记表为准。
 
 | 目标位置 | 放置内容与边界 |
 |---|---|
@@ -47,16 +47,20 @@ Last updated: 2026-09-21
 
 归类时先判断是否为跨域编排，再判断是否为已有调用者共享的能力，其余归业务 owner；名称含 capture、decode、validate 不构成新的一级分类。一个工具可有多个明确入口，不按每个脚本机械拆目录；跨域共享实现只有一个落点，通过登记依赖复用。
 
+已落地 `tools/tool_layout.json` 作为版本化布局基线。治理检查允许标准根与稳定基础设施根在完成登记后增长；根文件必须在白名单中，其他一级目录及其当前文件路径作为遗留存量冻结。新增根文件、新增未分类一级目录，或在遗留根中新增文件，即使已经登记归属也会失败。基线可随迁移缩减；扩大遗留例外必须显式修改该文件接受评审，不能借登记绕过分类。
+
 单工具目录只保留实现、README、必要的依赖声明和随版本发布的资源。README 说明输入输出、运行前提、资源、副作用、命令和恢复方法；架构与任务状态回链 docs/tools，避免重复三份治理文档。目录名使用小写下划线，按稳定能力命名，不使用日期、个人名、final、new 或 v2 表示迭代；接口/证据版本显式管理。EXPERIMENTAL 是登记状态，具备长期保留价值的实验代码也归对应工具，不新建无限增长的 temp/sandbox 工具池。
 
 依赖方向为工作流调用域工具与公共组件、域工具调用公共组件，公共组件不反向依赖业务工作流；模块 import 不启动设备。迁移时显式确定包/CLI 入口与仓库定位方法，避免依赖当前工作目录或新增 sys.path/全局 monkey patch；标准库同名目录不能靠修改搜索路径解决。包装入口保持参数、退出码和异常清理语义，不能复制第二套实现。
 
-### 首批路径决策（拟议，迁移前复核调用者）
+### 首批路径决策与当前落地
 
 | 当前入口或来源 | 目标决策 | 迁移约束 |
 |---|---|---|
 | `tools/vdc_priority_trace/` 的联合采集入口及 internal-seal 基础 out 链 | 编排归 `tools/workflows/vdc_joint_capture/`；域内解码/探针归 `tools/domains/vdc/priority_trace/` | 先消除 out 可执行依赖；原入口兼容，参考中断注入单独显式选项。 |
-| `tools/vdc_sync_metrology/` | `tools/domains/vdc/sync_metrology/` | 保持离线语义与输入 schema，不混入设备采集。 |
+| `tools/scpi_query/` | `tools/domains/interface/scpi_query/` | 已迁移实现与命令资源；旧 Python 入口兼容转发，旧资源暂留，迁移前实现按原字节归档。 |
+| `tools/sd_trace_decode/` | `tools/domains/storage/sd_trace_decode/` | 已迁移唯一离线实现并更新两个调用者；旧入口兼容转发，迁移前实现按原字节归档。 |
+| `tools/vdc_sync_metrology/` | `tools/domains/vdc/sync_metrology/` | 已迁移唯一离线实现并更新 receipt provenance；旧入口兼容转发，保持输入 schema，不混入设备采集。 |
 | `tools/scope_dpll_capture/` | DPLL 分析归 `tools/domains/vdc/scope_capture/`；确认复用的 RAW/SCPI 设备接口才抽入 common | 不把现有 NORM 采集冒充联合采集的冻结 RAW 实现。 |
 | `tools/tdma_ring_monitor/`、`tools/calibration_ring_validate/` | 分别归 domains/tdma 和 domains/calibration 的工具目录 | 先复核动态加载、相对路径和 P3 调用；不整组盲搬。 |
 | `tools/scpi_common/` | 评估迁入 `tools/common/scpi/` | 先确认真实调用关系和唯一实现，保留原导入兼容。 |
@@ -152,7 +156,7 @@ P3 默认绑定同一组四板完成 OTA、TDMA 与 `p3_bench.json` 的 `dpll_sh
 
 inventory 枚举 Git 跟踪及非忽略的新文件，记录字节哈希、角色、静态导入候选和待审位置。Python 用 AST，文本按 UTF-8 读取，不透明资源只记哈希；动态加载、shell/subprocess 调用须人工复核，`out/` 引用可能只是合法输出位置，不能一律判成代码依赖。已声明 depends_on 是确认的部分关系，dependency_review 为 PENDING 时，空列表不代表独立。
 
-check 使用随仓库登记的 schema 校验字段、唯一身份、精确文件归属、入口角色、显式依赖、兼容别名及证明文件引用；不授予证明内容充分性。`--check-catalog` 复核根目录 `tools/README.md` 的生成块，catalog 只输出文本。所有命令只写 stdout，调用者将结果存入 out；其结果不是 staged 指纹或硬件凭证。新增非忽略文件未登记即报告错误，存量未评估状态保留告警。
+check 使用随仓库登记的 schema 校验字段、唯一身份、精确文件归属、入口角色、显式依赖、兼容别名、非空证明引用及 `tool_layout.json` 布局基线；不授予证明内容充分性。`--check-catalog` 复核根目录 `tools/README.md` 的生成块，catalog 只输出文本。所有命令只写 stdout，调用者将结果存入 out；其结果不是 staged 指纹或硬件凭证。新增非忽略文件未登记即报告错误，未分类顶层增长和遗留根文件增长独立报错，存量未评估状态保留告警。
 
 下表是完整目标及落地顺序；当前已执行的结构检查以上述 check 入口为准。动态运行依赖、接口证明充分性和 hook 准入仍为后续工作，不能据此表宣称已经自动强制。
 
