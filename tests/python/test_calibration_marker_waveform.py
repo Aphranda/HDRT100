@@ -18,7 +18,7 @@ from tools.calibration_ring_validate.calibration_marker_waveform import (
 from tools.calibration_ring_validate.calibration_clk_codebook_eval import (
     marker_raw_waveform,
 )
-from tools.scpi_common.scpi_serial import scpi_response_matches_command
+from tools.common.scpi.scpi_serial import scpi_response_matches_command
 
 
 def test_unpack_interleaved_channels_in_capture_order() -> None:

@@ -33,7 +33,7 @@ from tools.dpll_residual_analyze.dpll_residual_analyze import (  # noqa: E402
     load_monitor_samples,
     write_reports,
 )
-from scpi_common.scpi_serial import (  # noqa: E402
+from tools.common.scpi.scpi_serial import (  # noqa: E402
     STORAGE_FILE_READ_MAX_BYTES,
     open_serial_port,
     read_scpi_response,

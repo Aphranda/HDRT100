@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools.scpi_common.scpi_serial import open_serial_port, read_serial_line_idle
+from tools.common.scpi.scpi_serial import open_serial_port, read_serial_line_idle
 from tools.refmem_table_image import refmem_table_image
 
 

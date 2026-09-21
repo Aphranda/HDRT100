@@ -31,7 +31,7 @@ if str(ROOT) not in sys.path:
 from tools.ota_multi_update.ota_multi_update import (  # noqa: E402
     read_package_build_id,
 )
-from tools.scpi_common.scpi_serial import SerialSession  # noqa: E402
+from tools.common.scpi.scpi_serial import SerialSession  # noqa: E402
 
 
 class AcceptanceError(RuntimeError):

@@ -10,7 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools.scpi_common.scpi_serial import scpi_response_matches_command
+from tools.common.scpi.scpi_serial import scpi_response_matches_command
 
 
 @pytest.mark.parametrize("header", [

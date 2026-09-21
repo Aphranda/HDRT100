@@ -2138,29 +2138,80 @@
       "entrypoints": [],
       "files": [
         {
-          "path": "tools/scpi_common/__init__.py",
+          "path": "tools/archive/interface/scpi/pre_common_migration/__init__.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/interface/scpi/pre_common_migration/board_identity.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/interface/scpi/pre_common_migration/ota_timing.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/interface/scpi/pre_common_migration/scpi_serial.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/common/scpi/__init__.py",
           "role": "module"
+        },
+        {
+          "path": "tools/common/scpi/board_identity.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/common/scpi/ota_timing.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/common/scpi/scpi_serial.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/scpi_common/__init__.py",
+          "role": "compatibility_wrapper"
         },
         {
           "path": "tools/scpi_common/board_identity.py",
-          "role": "module"
+          "role": "compatibility_wrapper"
         },
         {
           "path": "tools/scpi_common/ota_timing.py",
-          "role": "module"
+          "role": "compatibility_wrapper"
         },
         {
           "path": "tools/scpi_common/scpi_serial.py",
-          "role": "module"
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
-      "validation": [],
+      "aliases": [
+        {
+          "path": "tools/scpi_common/__init__.py",
+          "target": "tools/common/scpi/__init__.py"
+        },
+        {
+          "path": "tools/scpi_common/board_identity.py",
+          "target": "tools/common/scpi/board_identity.py"
+        },
+        {
+          "path": "tools/scpi_common/ota_timing.py",
+          "target": "tools/common/scpi/ota_timing.py"
+        },
+        {
+          "path": "tools/scpi_common/scpi_serial.py",
+          "target": "tools/common/scpi/scpi_serial.py"
+        }
+      ],
+      "validation": [
+        "tests/python/test_scpi_common_layout.py"
+      ],
       "handoff_evidence": null,
-      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+      "notes": "Canonical shared modules live under common/scpi. Pre-migration bytes are preserved under archive; legacy tools.scpi_common and bare scpi_common imports resolve to the same canonical package and child module objects so transport registries cannot split. Active repository callers use the canonical import; lifecycle qualification is still pending."
     },
     {
       "id": "TOOL-SCPI-LEGACY-VALIDATE",

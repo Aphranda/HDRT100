@@ -28,7 +28,7 @@ from tools.dpll_vdc_monitor.dpll_vdc_monitor import (
     _ring_sequence_consistency,
     _evaluate_tdma_preflight,
 )
-from tools.scpi_common.scpi_serial import scpi_response_matches_command
+from tools.common.scpi.scpi_serial import scpi_response_matches_command
 
 
 ROOT = Path(__file__).resolve().parents[2]

@@ -26,7 +26,7 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools.scpi_common.scpi_serial import open_serial_port, read_serial_line_idle  # noqa: E402
+from tools.common.scpi.scpi_serial import open_serial_port, read_serial_line_idle  # noqa: E402
 from tools.vdc_priority_trace.vdc_priority_trace import (  # noqa: E402
     decode,
     download_capture,

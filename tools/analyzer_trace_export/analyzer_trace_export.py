@@ -30,7 +30,7 @@ from tools.analyzer_trace_batch_index.analyzer_trace_batch_index import (  # noq
     write_csv,
 )
 from tools.analyzer_trace_decode.analyzer_trace_decode import decode  # noqa: E402
-from tools.scpi_common.scpi_serial import (  # noqa: E402
+from tools.common.scpi.scpi_serial import (  # noqa: E402
     STORAGE_FILE_READ_MAX_BYTES,
     open_serial_port,
     read_scpi_response,

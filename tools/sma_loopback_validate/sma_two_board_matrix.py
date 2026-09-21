@@ -17,13 +17,15 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from scpi_common.board_identity import parse_idn_response  # noqa: E402
-from scpi_common.scpi_serial import open_serial_port  # noqa: E402
+from tools.common.scpi.board_identity import parse_idn_response  # noqa: E402
+from tools.common.scpi.scpi_serial import open_serial_port  # noqa: E402
 from sma_two_board_in1_out1 import (  # noqa: E402
     Board,
     check_profile,

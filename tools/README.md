@@ -22,6 +22,8 @@ The classified layout is grouped by ownership:
 - `tools/checks/`: repository guards and namespace checks
 - `tools/domains/<domain>/<tool>/`: domain-owned implementations
 - `tools/common/<capability>/`: shared capabilities with multiple callers
+- `tools/common/scpi/`: canonical SCPI serial, board identity, and OTA timing modules;
+  `tools/scpi_common/` only preserves legacy imports
 - `tools/workflows/`: pinned cross-tool orchestration inputs and lifecycle helpers
 - `tools/build/`: build and release-driving tools
 - `tools/host/`: host-only support tools

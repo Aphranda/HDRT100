@@ -21,7 +21,7 @@ import tools.dpll_observation_capture.dpll_observation_capture as capture
 from tools.dpll_servo_tune.dpll_servo_tune import Profile, parse_profile
 from tools.dpll_residual_analyze.dpll_residual_analyze import render_combined_svg
 from tools.dpll_residual_analyze.dpll_residual_analyze import ResidualPoint
-from tools.scpi_common.scpi_serial import scpi_response_matches_command
+from tools.common.scpi.scpi_serial import scpi_response_matches_command
 
 
 def test_trace_save_response_is_kept_as_composite_tuple() -> None:

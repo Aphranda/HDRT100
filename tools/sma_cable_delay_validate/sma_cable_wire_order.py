@@ -12,13 +12,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 TOOLS = ROOT / "tools"
 TDMA_TOOLS = TOOLS / "tdma_ring_monitor"
 for item in (TOOLS, TDMA_TOOLS):
     if str(item) not in sys.path:
         sys.path.insert(0, str(item))
 
-from scpi_common.scpi_serial import (  # noqa: E402
+from tools.common.scpi.scpi_serial import (  # noqa: E402
     is_scpi_log_line,
     open_serial_port,
     read_scpi_response,

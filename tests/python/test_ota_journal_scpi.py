@@ -6,7 +6,7 @@ HEADER = ROOT / "middleware/scpi_port/inc/scpi_ota_commands.h"
 SOURCE = ROOT / "middleware/scpi_port/src/scpi_ota_commands.c"
 SCHEMA = ROOT / "config/persistence_schema_registry.json"
 BOARD_VALIDATOR = ROOT / "tools/ota_board_validate/ota_board_validate.py"
-SCPI_SERIAL = ROOT / "tools/scpi_common/scpi_serial.py"
+SCPI_SERIAL = ROOT / "tools/common/scpi/scpi_serial.py"
 
 
 def test_ota_journal_query_has_independent_namespace() -> None:

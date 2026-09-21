@@ -11,8 +11,8 @@ import re
 import subprocess
 import time
 
-from tools.scpi_common import scpi_serial
-from tools.scpi_common.board_identity import parse_idn_response
+from tools.common.scpi import scpi_serial
+from tools.common.scpi.board_identity import parse_idn_response
 from tools.tdma_ring_monitor.tdma_field_parse import RUNTIME_FIELDS
 
 

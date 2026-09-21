@@ -256,8 +256,15 @@ def _check_registry(root: Path, registry: dict, schema: dict) -> dict:
                 errors.append(f"alias is not an owned compatibility wrapper: {alias['path']}")
             if alias["target"] not in ownership:
                 errors.append(f"alias target not registered: {alias['target']}")
-            elif alias["target"] not in ids[ownership[alias["target"]]]["entrypoints"]:
-                errors.append(f"alias target is not an entrypoint: {alias['target']}")
+            else:
+                target_owner = ids[ownership[alias["target"]]]
+                target_role = next(
+                    field["role"] for field in target_owner["files"]
+                    if field["path"] == alias["target"])
+                if (alias["target"] not in target_owner["entrypoints"] and
+                        target_role != "module"):
+                    errors.append(
+                        f"alias target is not an entrypoint or module: {alias['target']}")
     for path in alias_targets:
         seen, cursor = set(), path
         while cursor in alias_targets:

@@ -23,7 +23,7 @@ from tools.ota_stream_send.ota_stream_send import (
     stream_chunks,
     verified_connection,
 )
-from tools.scpi_common.scpi_serial import scpi_response_matches_command
+from tools.common.scpi.scpi_serial import scpi_response_matches_command
 
 
 def test_encode_open_uses_fixed_little_endian_layout() -> None:

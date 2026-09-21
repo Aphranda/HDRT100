@@ -1,7 +1,10 @@
 import sys, time
 from pathlib import Path
-sys.path.insert(0, r"D:\Work\PICO\RP2350_TRIG\tools")
-from scpi_common.scpi_serial import open_serial_port, read_serial_line_idle
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.common.scpi.scpi_serial import open_serial_port, read_serial_line_idle
 
 port = "COM5"
 outdir = Path(r"D:\Work\PICO\RP2350_TRIG\build-rtos-multicore-smoke\tdma_trace_readback")

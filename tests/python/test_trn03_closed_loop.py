@@ -35,7 +35,7 @@ if str(TOOL_DIR) not in sys.path:
     sys.path.insert(0, str(TOOL_DIR))
 
 import trn03_closed_loop as trn03  # noqa: E402
-from tools.scpi_common.scpi_serial import scpi_response_matches_command  # noqa: E402
+from tools.common.scpi.scpi_serial import scpi_response_matches_command  # noqa: E402
 from trn03_closed_loop import (  # noqa: E402
     ArmRejectedError,
     activate_dpll_debug_admission,
@@ -719,7 +719,8 @@ def test_core1_overrun_quarantines_only_the_faulting_load() -> None:
         encoding="utf-8")
     bounded = app.split("static bool app_realtime_run_phase", 1)[1]
     bounded = bounded.split("static void app_realtime_tdma_phase", 1)[0]
-    assert "runtime_cycles > contract->wcet_cycles" in bounded
+    assert "work->overrun = work->runtime_cycles > (work->run_planned ?" in bounded
+    assert "PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES : contract->wcet_cycles" in bounded
     assert "phase_overrun_count[phase_id]++" in bounded
     assert "__atomic_fetch_or(&s_realtime_load_quarantined_mask" in bounded
     assert "optional_load" in bounded

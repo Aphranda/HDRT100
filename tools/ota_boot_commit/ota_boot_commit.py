@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.scpi_common.scpi_serial import read_scpi_response  # noqa: E402
+from tools.common.scpi.scpi_serial import read_scpi_response  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:

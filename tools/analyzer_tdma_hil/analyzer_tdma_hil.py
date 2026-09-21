@@ -11,10 +11,12 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
 
-from scpi_common.scpi_serial import open_serial_port, read_scpi_response  # noqa: E402
+from tools.common.scpi.scpi_serial import open_serial_port, read_scpi_response  # noqa: E402
 from tdma_field_parse import parse_status_named  # noqa: E402
 
 

@@ -254,7 +254,7 @@ def test_instance_response_matcher_handles_timing_and_signed_delay():
 
 
 def test_serial_session_uses_instance_response_matcher(monkeypatch):
-    from tools.scpi_common import scpi_serial
+    from tools.common.scpi import scpi_serial
 
     class MemorySerial:
         def __init__(self):

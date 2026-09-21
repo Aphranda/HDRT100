@@ -22,7 +22,7 @@ import tools.calibration_ring_validate.calibration_load_guard as load_guard_modu
 from tools.calibration_ring_validate.calibration_load_guard import (
     CalibrationLoadGuard,
 )
-from tools.scpi_common.scpi_serial import scpi_response_matches_command
+from tools.common.scpi.scpi_serial import scpi_response_matches_command
 
 
 def make_row(**overrides: int) -> dict[str, int | str]:

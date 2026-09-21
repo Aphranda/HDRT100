@@ -9,7 +9,7 @@ from tools.tdma_ring_monitor.tdma_start_ring import (
     resolve_board_ids,
     status,
 )
-from tools.scpi_common.scpi_serial import (
+from tools.common.scpi.scpi_serial import (
     read_scpi_response,
     serial_lifecycle_mode,
 )

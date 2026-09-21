@@ -18,10 +18,12 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
-from scpi_common.scpi_serial import (  # noqa: E402
+from tools.common.scpi.scpi_serial import (  # noqa: E402
     open_serial_port,
     read_scpi_response,
 )

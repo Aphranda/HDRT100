@@ -25,6 +25,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
@@ -68,7 +70,7 @@ from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
 from calibration_ring_validate.calibration_storage_job import (  # noqa: E402
     wait_file_write_job,
 )
-from scpi_common.scpi_serial import STORAGE_FILE_READ_MAX_BYTES  # noqa: E402
+from tools.common.scpi.scpi_serial import STORAGE_FILE_READ_MAX_BYTES  # noqa: E402
 
 
 SCK_FIELDS = (

@@ -340,6 +340,31 @@ def test_alias_chain_to_real_entrypoint_remains_valid(repo):
     assert governance.check(*repo)["passed"]
 
 
+def test_library_wrapper_may_target_registered_module(repo):
+    root, registry, _ = repo
+    tool = registry["tools"][0]
+    tool["files"][0]["role"] = "compatibility_wrapper"
+    write(root, "tools/canonical.py", "pass\n")
+    library = family("TOOL-LIBRARY", "tools/canonical.py", "module")
+    library["entrypoints"] = []
+    registry["tools"].append(library)
+    tool["aliases"] = [dict(path="tools/alpha.py", target="tools/canonical.py")]
+    assert governance.check(*repo)["passed"]
+
+
+@pytest.mark.parametrize("role", ["resource", "documentation"])
+def test_library_wrapper_rejects_nonmodule_nonentrypoint_target(repo, role):
+    root, registry, _ = repo
+    tool = registry["tools"][0]
+    tool["files"][0]["role"] = "compatibility_wrapper"
+    write(root, "tools/canonical.txt", "data\n")
+    target = family("TOOL-DATA", "tools/canonical.txt", role)
+    target["entrypoints"] = []
+    registry["tools"].append(target)
+    tool["aliases"] = [dict(path="tools/alpha.py", target="tools/canonical.txt")]
+    rejected(repo, "alias target is not an entrypoint or module")
+
+
 @pytest.mark.parametrize("dependency", ["TOOL-UNKNOWN", "TOOL-ALPHA"])
 def test_dependency_requires_distinct_registered_family(repo, dependency):
     repo[1]["tools"][0]["depends_on"] = [dependency]

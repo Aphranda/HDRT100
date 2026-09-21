@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
     ("SYSTEM:VDC:REFERENCE:DISCIPLINE:CONFIGURE", "0,1,4294967295", "0,1,4294967295,0"),
 ])
 def test_serial_write_result_shape(header, valid, invalid):
-    from tools.scpi_common.scpi_serial import scpi_response_matches_command
+    from tools.common.scpi.scpi_serial import scpi_response_matches_command
     assert scpi_response_matches_command(header, valid)
     assert not scpi_response_matches_command(header, invalid)
 

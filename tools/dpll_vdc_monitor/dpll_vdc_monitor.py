@@ -28,7 +28,7 @@ if str(ROOT) not in sys.path:
 if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
-from scpi_common.scpi_serial import (  # noqa: E402
+from tools.common.scpi.scpi_serial import (  # noqa: E402
     STORAGE_FILE_READ_MAX_BYTES,
     is_scpi_log_line,
     open_serial_port,

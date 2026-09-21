@@ -15,13 +15,15 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 TOOLS = ROOT / "tools"
 HERE = Path(__file__).resolve().parent
 for item in (TOOLS, HERE):
     if str(item) not in sys.path:
         sys.path.insert(0, str(item))
 
-from scpi_common.scpi_serial import open_serial_port, read_scpi_response  # noqa: E402
+from tools.common.scpi.scpi_serial import open_serial_port, read_scpi_response  # noqa: E402
 from sma_cable_delay_analyze import PhasePoint, fit_phase  # noqa: E402
 
 DEFAULT_FREQUENCIES_MHZ = "2,4,6,8,10,12,14,16,18"

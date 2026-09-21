@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.scpi_common.ota_timing import OtaTiming  # noqa: E402
+from tools.common.scpi.ota_timing import OtaTiming  # noqa: E402
 
 
 DEFAULT_BLOCK_SIZE = 4096

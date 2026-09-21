@@ -18,7 +18,7 @@ from tools.calibration_ring_validate.trn03_waveform import (
     validate_capture_schedule,
     validate_capture,
 )
-from tools.scpi_common.scpi_serial import scpi_response_matches_command
+from tools.common.scpi.scpi_serial import scpi_response_matches_command
 
 
 def capture(node: int, rx: list[int], tx: list[int]) -> dict:

@@ -14,13 +14,15 @@ from pathlib import Path
 from typing import Any, Sequence
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 for tool_path in (ROOT / "tools", ROOT / "tools" / "tdma_ring_monitor",
                   ROOT / "tools" / "calibration_ring_validate"):
     if str(tool_path) not in sys.path:
         sys.path.insert(0, str(tool_path))
 
 from calibration_data_train import parse_storage_read  # noqa: E402
-from scpi_common.scpi_serial import STORAGE_FILE_READ_MAX_BYTES  # noqa: E402
+from tools.common.scpi.scpi_serial import STORAGE_FILE_READ_MAX_BYTES  # noqa: E402
 from tdma_start_ring import Board, board_command  # noqa: E402
 
 

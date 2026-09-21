@@ -14,7 +14,7 @@ from tools.analyzer_trace_export.analyzer_trace_export import (
     parse_runtime_status,
     runtime_stopped,
 )
-from tools.scpi_common.scpi_serial import (
+from tools.common.scpi.scpi_serial import (
     STORAGE_FILE_READ_MAX_BYTES,
     read_scpi_response,
 )

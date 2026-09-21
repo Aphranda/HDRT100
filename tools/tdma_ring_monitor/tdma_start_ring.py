@@ -21,13 +21,15 @@ except ImportError as exc:  # pragma: no cover - bench dependency
     raise SystemExit("pyserial is required: python -m pip install pyserial") from exc
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 if str(ROOT / "tools" / "tdma_ring_monitor") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
 
-from scpi_common.board_identity import parse_idn_response  # noqa: E402
-from scpi_common.scpi_serial import (  # noqa: E402
+from tools.common.scpi.board_identity import parse_idn_response  # noqa: E402
+from tools.common.scpi.scpi_serial import (  # noqa: E402
     COMPOSITE_ACK_HEADERS,
     SERIAL_LIFECYCLE_PHASE,
     TDMA_CONTROL_RESULT_FIELDS,

@@ -33,7 +33,7 @@ from tools.calibration_ring_validate.calibration_marker_offsets import (
     aggregate_summaries,
     derive_link_delay_offset_plan,
 )
-from tools.scpi_common.scpi_serial import scpi_response_matches_command
+from tools.common.scpi.scpi_serial import scpi_response_matches_command
 
 
 def test_board_no_defines_one_based_physical_loop_order(monkeypatch) -> None:

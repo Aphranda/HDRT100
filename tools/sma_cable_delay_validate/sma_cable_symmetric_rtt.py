@@ -15,6 +15,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 TOOLS = ROOT / "tools"
 HERE = Path(__file__).resolve().parent
 TDMA_TOOLS = TOOLS / "tdma_ring_monitor"
@@ -22,7 +24,7 @@ for item in (TOOLS, HERE, TDMA_TOOLS):
     if str(item) not in sys.path:
         sys.path.insert(0, str(item))
 
-from scpi_common.scpi_serial import open_serial_port  # noqa: E402
+from tools.common.scpi.scpi_serial import open_serial_port  # noqa: E402
 from sma_cable_wire_order import (  # noqa: E402
     command_ack_optional,
     query,

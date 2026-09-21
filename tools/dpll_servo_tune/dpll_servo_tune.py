@@ -31,7 +31,7 @@ from tools.dpll_vdc_monitor.dpll_vdc_monitor import (  # noqa: E402
     parse_named_int_response,
     parse_vector_response,
 )
-from tools.scpi_common.scpi_serial import (  # noqa: E402
+from tools.common.scpi.scpi_serial import (  # noqa: E402
     open_serial_port,
     read_scpi_response,
 )

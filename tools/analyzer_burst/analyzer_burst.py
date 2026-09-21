@@ -26,7 +26,7 @@ from tools.analyzer_trace_export.analyzer_trace_export import (  # noqa: E402
 from tools.calibration_ring_validate.trn03_closed_loop import (  # noqa: E402
     RUNTIME_FIELDS, parse_snapshot,
 )
-from tools.scpi_common.scpi_serial import SerialSession  # noqa: E402
+from tools.common.scpi.scpi_serial import SerialSession  # noqa: E402
 
 FACT_FIELDS = (
     "schema", "state", "capture_sequence", "end_reason", "timing_valid",
