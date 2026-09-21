@@ -12,6 +12,16 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-027：VDC DPLL 离线 replay 分类迁移
+
+- TODO task ID：TOOLS-CONSOLIDATE-001、TOOLS-CHECK-001 IN PROGRESS。实现提交 `061104b3` 将唯一 Python 实现和 C runner 迁入 `tools/domains/vdc/dpll_replay/`；旧 Python 路径保留兼容包装，旧 C 文件保留为 inert compatibility material。工具只编译仓内 production VDC/TDMA C 源并离线回放，不枚举或访问板卡、串口、VISA 或示波器。
+- 迁移前 Python/C 原件归档到 `tools/archive/vdc/dpll_replay/pre_domain_migration/`，原始 SHA-256 分别为 `0e4a340dab10b52fe8ae5148d6ff18c452c00f05777c08e17f1eaf8f678e29ba` 与 `8640d710f6dae809bd51c47f25aa85356781f785078dfa40ed6bed9eca168516`；局部 binary 属性和 index blob 复核保证历史 CRLF 字节不被 Git 规范化。canonical C 只清理行尾空格，测试按行尾归一后逐字比较逻辑内容；未删除旧代码。
+- 登记从 UNASSESSED 收敛为 `EXPERIMENTAL/OFFLINE`，依赖审查 COMPLETE，但不提升 SUPPORTED。转正需在干净工作区重建 runner、复现冻结 trace、记录编译器前提并把 summary 绑定输入与可执行源码；production C API/schema 不兼容且无活跃调用者时只转 ARCHIVED，不删除归档。回放内的 flag promotion 只存在于隔离 host 进程，不能作为 active calibration、firmware lock 或硬件验收证据。
+- 兼容与回归：新旧普通 import 的完整业务公开 API 指向同一 canonical 对象；成功 CLI 真实编译/运行 production core 并对关键 summary 等价，missing trace 与 invalid schema 均锁定 exit 2、stdout/stderr 一致。迁移前基线 191 passed / 1 skipped；最终聚焦 194 passed / 1 skipped；完整 `tests/python` 为 6768 passed / 1 skipped（快照），唯一跳过是 Windows symlink 权限。治理器确认 345 owned files 等于 345 visible files（快照）；Python 编译、catalog 和 whitespace 检查通过。
+- 独立复核初次发现 `EXPERIMENTAL` 缺转正/退出条件、失败 CLI 与公开 API 未自动锁定两项 P2，结论 FAIL。补登记条件、完整 API identity 和两类失败回归后复核无剩余 finding，最终 PASS。
+- 同指纹 P3 失败均保留：`tools-vdc-dpll-replay-r1` 在 TRN-00 selected row 四板 observation count 全为零而 fail-closed；`r2` 在接触硬件前因 DPLL quick 不允许 topology reuse 被配置门禁拒绝。完整重跑 `r3` 使用 build `20260921111307`，结果 `PASS_WITH_WARNINGS`（快照：INFO 32 / WARN 21 / ERROR 0 / FATAL 0），P0T、P1..P3、TRN-00..03、TDMA 和 scope-off DPLL 六十秒均执行；三从约五十秒稳态 residual 包络为 `[-123,+101]`、`[-131,+100]`、`[-111,+102]` ns，总最大绝对值 131 ns，按实现阈值输出 WARN。分页重组与末 bin/endpoint 通过，`check-staged` 和 pre-commit 同指纹复算通过，原件位于 `out/HardwareAcceptance/20260921/tools-vdc-dpll-replay-r1..r3/`。
+- 下一 gate：继续 TOOLS-CONSOLIDATE-001，优先选择调用关系可闭合且不触发设备副作用的下一批；`dpll_vdc_monitor`、`vdc_long_monitor` 等实时采集类需先独立核清 owner、配置和恢复语义，不因同属 VDC 就与本离线工具合并迁移。
+
 ### TOOLS-PROGRESS-20260921-026：P3 scope-off 原生稳态 trace 分级
 
 - TODO task ID：TOOLS-P3-DPLL-SHORT-001 DONE、TOOLS-CHECK-001 IN PROGRESS；本切片提高内部观测证据精度和可复算性，不新增固件、Core1 工作或特等席。

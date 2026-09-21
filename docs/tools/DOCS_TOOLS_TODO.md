@@ -12,7 +12,7 @@ Last updated: 2026-09-21
 
 ## 目标与当前阶段
 
-建立可发现、可复用、可复现、可交接的工具体系，控制重复增长和临时依赖。当前切片已用版本化布局基线冻结顶层和遗留目录增长，完成三个域工具和共享 SCPI 组件的分类迁移；其余存量按批核清、迁移和验收。
+建立可发现、可复用、可复现、可交接的工具体系，控制重复增长和临时依赖。当前切片已用版本化布局基线冻结顶层和遗留目录增长，完成 SCPI query、SD trace decode、VDC sync metrology、VDC DPLL replay 和共享 SCPI 组件的分类迁移；其余存量按批核清、迁移和验收。
 
 ## 未完成
 
@@ -20,7 +20,7 @@ Last updated: 2026-09-21
 |---|---|---|---|
 | TOOLS-CHECK-001 | 工具治理静态检查 | IN PROGRESS | inventory/check/catalog 与布局基线已落地；新增根文件、未分类一级目录、遗留根新增文件及证明空文件均有正反测试。全量 Python 基线异常已清零，状态机资源检查器同步现行 owned/TIMER1 契约并加固 C11 预处理、多候选函数/persona/board 宏判定；继续存量准入、配置/输出接口版本与证明内容检查，不以文件存在代替资格审查。 |
 | TOOLS-GATE-001 | 修复门禁触发范围与现行要求的差异 | PENDING | TOOLS-CHECK-001；独立核对工具/测试/hook staged 变更触发，正反测试及同指纹 P3 通过；不得缩减现行验收要求。 |
-| TOOLS-CONSOLIDATE-001 | 分批复用、目录迁移与退役 | IN PROGRESS | SCPI query、SD trace decode、VDC sync metrology 与共享 SCPI 组件已迁入标准目录；旧实现原字节归档，兼容入口、调用者、回归、独立复核和同指纹四板 P3 已闭合。继续按 TG-LAYOUT 核清下一批；未完成工具原位登记，不自动提升支持资格或删除旧文件。 |
+| TOOLS-CONSOLIDATE-001 | 分批复用、目录迁移与退役 | IN PROGRESS | SCPI query、SD trace decode、VDC sync metrology、VDC DPLL replay 与共享 SCPI 组件已迁入标准目录；旧实现原字节归档，兼容入口、调用者、回归、独立复核和同指纹四板 P3 已闭合，见进度 023、024、027。继续按 TG-LAYOUT 核清下一批；未完成工具原位登记，不自动提升支持资格或删除旧文件。 |
 | TOOLS-LEGACY-IO-001 | 清理导入即访问硬件的旧脚本 | PENDING | TOOLS-INVENTORY-001；优先处理 tdma_ring_monitor/sd_fault_read.py 的顶层串口访问、固定 COM 与旧绝对路径；改动须验证并保留旧用途，不在扫描中执行。 |
 | TOOLS-RUNTIME-STATE-001 | 分离工具代码与主机运行状态 | PENDING | TOOLS-INVENTORY-001；codex_watchdog 内历史 state/heartbeat JSON 与个人路径纳入迁移，配置模板与 out 状态分离，恢复语义验证后交付，不自动删除旧文件。 |
 
@@ -54,7 +54,7 @@ Last updated: 2026-09-21
 
 ## 接续顺序与交付规则
 
-四板 internal-seal 从 scope/outer 到 base 的 executable out 依赖已经清零，完整历史 lineage 与输入仍固定留证。TOOLS-HANDOFF-001 已完成。顶层布局基线已阻止遗留目录继续增长，三个域工具与共享 SCPI 组件已进入标准目录；下一步选择调用关系已核清的下一批，同时继续 TOOLS-CHECK-001 的配置/输出接口与证明内容检查。无示波器时仍按既有 scope-off 内部观测策略运行，不把设备状态改写成产品结论。OTA 实现保持现有边界。
+四板 internal-seal 从 scope/outer 到 base 的 executable out 依赖已经清零，完整历史 lineage 与输入仍固定留证。TOOLS-HANDOFF-001 已完成。顶层布局基线已阻止遗留目录继续增长，SCPI query、SD trace decode、VDC sync metrology、VDC DPLL replay 与共享 SCPI 组件已进入标准目录；下一步选择调用关系已核清的下一批，同时继续 TOOLS-CHECK-001 的配置/输出接口与证明内容检查。无示波器时仍按既有 scope-off 内部观测策略运行，不把设备状态改写成产品结论。OTA 实现保持现有边界。
 
 文档和实现分离提交；实现切片按现行 P3 规则验收。特等席资源变更必须先由用户审核，工具治理本身不授予新增实时资源。
 
