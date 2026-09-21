@@ -12,6 +12,14 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-025：全量 Python 异常与静态资源门禁闭环
+
+- TODO task ID：TOOLS-CHECK-001。实现提交 `18add5f4` 清理上一轮全量基线的十项失败与十九项 setup error（快照，非事实源）：P3 known-topology fixture 同步现行四板 OTA/ring 集合与目录；VDC owner harness 补 priority-health publish 并严格验证 health→prepare→context→RX 顺序；TDMA harness 同步 event-selected、priority STOP、board uptime、observer 长时 ACTIVE 及 STOP/故障退役契约。未修改生产固件，不通过放宽产品行为来换取测试通过。
+- `state_machine_resource_check.py` 从旧包装函数和 `time_us_64()` 文本断言迁到 `*_owned` 实现与 `vdc_timestamp_clock_try_read_ns()`。C 定义提取支持属性宏并保留原文坐标；静态 required/forbidden 使用 definite/possible 双视图，枚举全部函数、persona descriptor 与 board macro 候选。解析覆盖 C11 trigraph、phase-2 行拼接、注释/字面量、预处理 digraph、嵌套条件和常见整数条件表达式；unknown 条件、整数 signedness/ABI 不确定性不允许证明 required，同时不能隐藏 forbidden。攻击回归覆盖注释/字符串/宏/续行/非活动分支、unknown duplicate、persona 与 board owner 遮蔽。
+- 独立攻击性复核连续发现并推动修复：注释伪定义、函数体注释 token、预处理与 `//` 续行、`#if 0`/表达式、digraph/trigraph、unknown/suffix、重复函数、重复 persona、board 宏注释遮蔽。最终复核 PASS：当前冻结的函数/persona/board required/forbidden 未发现具体合法 C11 绕过。资源检查器 CLI 为 `OK PIO/SM/DMA flight-persona resource contract`。
+- 最终当前源码完整 `tests/python` 为六千七百五十三项通过、一项跳过（快照）；唯一跳过是 Windows 无符号链接权限，失败和 error 均为零。中间 `anomaly-full-fixed` 曾只剩 FPU 三项错误，后续轮次随提取器和攻击测试增加逐步全绿；最终原件位于 `out/pytest/anomaly-full-final-r4/`，不以较早轮次替代最终源码结果。
+- 同指纹四板 P3 使用 build `20260921060104`。`p3-r1` 在 DPLL child capture 失败且 NO2 restore 报非空 SCPI error queue；`p3-r3` 在 P0T 首链出现 `rx_frames=0` / `magic_fail=80`，均 fail-closed 并原样保留。最终 `p3-r4` 重新完成 P0T、P1..P3、TRN-00..03、TDMA 与无示波器内部 DPLL 六十秒，结果 `PASS_WITH_WARNINGS`（快照：INFO 32 / WARN 22 / ERROR 0 / FATAL 0）；内部 endpoint residual 最大绝对值九十四纳秒（快照，INFO），WARN 来自 T0/T3/TDMA 质量反馈。`check-staged` 与 pre-commit 通过，证据位于 `out/HardwareAcceptance/20260921/anomaly-fix-r1/`。
+
 ### TOOLS-PROGRESS-20260921-024：共享 SCPI 组件分类迁移
 
 - TODO task ID：TOOLS-CHECK-001、TOOLS-CONSOLIDATE-001。
