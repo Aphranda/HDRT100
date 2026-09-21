@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
 Related: `AGENTS.md`, `README.md`, `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-21
+Last updated: 2026-09-22
 
 > 本文是跨 worker/agent 的长期执行流程入口。它描述如何工作、如何留证和何时停止；不替代产品架构、域内运行时契约或单次验收报告。
 
@@ -149,7 +149,8 @@ UP/DOWN、process-image、FIFO 和基础收发仍连续，不能因此新增实�
 
 ## 6. 文档自回归与契约边界
 
-- 新增或修改文档必须满足 5 字段元数据、命名规则、`docs/README.md` 索引和 `Last updated` 要求。
+- 新增或修改 `docs/**` 文档语料必须满足 5 字段元数据、命名规则、`docs/README.md` 索引和 `Last updated` 要求。
+- `.agents/skills/**` 下的 skill、配套说明与评审文本采用独立格式，具体范围及 Git 跟踪、独立评审要求见 `AGENTS.md` §2「文档格式范围」。该格式例外不改变安全、授权、契约和 EXE-CHANGE-01 实现验收义务，也不取消仓库级规则或文档治理实现变更的文档门禁。
 - 文档门禁使用 `tools/docs_check/docs_check.py --strict-names`、`tools/doc_regression_check.py`、对应 pytest 和 pre-commit；所有临时输出放入 `out/doc-audit/<run-id>/`。
 - 本文是流程规范草案，不新增 `DOCS_REGISTRY` 契约。若将其中某条冻结为产品或跨域运行时契约，必须下沉到对应域 canonical，登记唯一 `contract_id`，并按 C11 交叉审核和顶层刷新规则处理。
 - 契约登记行不可物理删除，只能转为 `superseded`；评审快照和草稿不得登记为契约。
