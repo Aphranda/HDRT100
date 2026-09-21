@@ -12,6 +12,15 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-024：共享 SCPI 组件分类迁移
+
+- TODO task ID：TOOLS-CHECK-001、TOOLS-CONSOLIDATE-001。
+- 实现提交 `fd3e83ec` 将 `board_identity.py`、`ota_timing.py`、`scpi_serial.py` 及 package init 的唯一实现迁入 `tools/common/scpi/`，仓内五十一个活跃调用者全部改用 canonical import（快照，实时事实以源码扫描为准）。旧 `tools.scpi_common` 与裸 `scpi_common` 均由兼容包映射到同一 canonical package 和三个 child module；普通 import 的全部包顺序在仓库外 cwd 验证父包属性与对象 identity，避免响应 parser registry、monkeypatch 或 cache 分裂。治理器允许 compatibility wrapper 指向已登记 module、继续拒绝 resource/documentation，并用四条 alias 登记替代关系。
+- 四份迁移前实现原字节归档到 `tools/archive/interface/scpi/pre_common_migration/`，对应 Git blob 为 `e977645574f3253c9d1c56fb68c89afa21e9dcfa`、`4ddca667d5d339251eca81cc43eb01f7ba74ecb2`、`6c629cefa668ef33285e2ef37bfc1cd9793187bf`、`10cb30ad1366df554cfb44fad27e22f8ca1a2bda`；逐项等于迁移前 HEAD。旧文件保留为包装，没有删除源码，生命周期仍为 UNASSESSED。历史 `sd_fault_read.py` 的个人绝对 import 路径同时改为仓库定位，但其导入即访问硬件、固定端口和输出路径债务仍由 TOOLS-LEGACY-IO-001 管理。
+- 独立复核初次发现仓库外裸导入失败、package identity 分裂和 alias 未登记；修复后又发现裸包先导入时 `tools.scpi_common` 父属性缺失。逐项补仓库根自举、package/child 双名称绑定、父包属性、六种普通 import 排列及治理正反测试后，最终复核 PASS，无剩余 finding。最终聚焦回归为五百六十一项通过、一项因 Windows 无符号链接权限跳过（快照）；governance/catalog、Python 编译、source-length 报告及 whitespace 检查通过。
+- 全量 `tests/python` 基线实跑结果为六千六百九十一项通过、一项跳过、十项失败和十九项 setup error（快照）。异常均位于未改动的 known-topology、state-machine、TDMA/VDC 固件静态断言或 C harness；SCPI、OTA、DPLL、P3、TRN-03、VDC joint/priority 和工具治理集合已通过。执行中发现 `test_trn03_closed_loop.py` 仍断言旧单一 WCET 表达式，已改为验证现行 planned handoff 与普通 contract 的二选一预算，不改变固件行为。完整原件位于 `out/pytest/scpi-common-full-python/`，不把聚焦通过写成全库全绿。
+- 同指纹四板 P3 `tools-scpi-common-r1/p3-r1` 使用 build `20260921030814`，完成四板 OTA、P0T、P1..P3、TRN-00..03、TDMA 与无示波器内部 DPLL 六十秒，结果 `PASS_WITH_WARNINGS`（快照：INFO 32 / WARN 21 / ERROR 0 / FATAL 0）。内部 endpoint residual 最大绝对值九十五纳秒（快照，INFO），未触发 `PHASE_WARN_NS`；WARN 来自 P2、TDMA 与 RUN 质量反馈。`check-staged` 和 pre-commit 通过，原件位于 `out/HardwareAcceptance/20260921/tools-scpi-common-r1/p3-r1/`。
+
 ### TOOLS-PROGRESS-20260921-023：顶层增长冻结与首批三项分类迁移
 
 - TODO task ID：TOOLS-CHECK-001、TOOLS-CONSOLIDATE-001。

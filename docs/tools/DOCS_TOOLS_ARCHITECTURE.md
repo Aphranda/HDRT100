@@ -63,7 +63,7 @@ Last updated: 2026-09-21
 | `tools/vdc_sync_metrology/` | `tools/domains/vdc/sync_metrology/` | 已迁移唯一离线实现并更新 receipt provenance；旧入口兼容转发，保持输入 schema，不混入设备采集。 |
 | `tools/scope_dpll_capture/` | DPLL 分析归 `tools/domains/vdc/scope_capture/`；确认复用的 RAW/SCPI 设备接口才抽入 common | 不把现有 NORM 采集冒充联合采集的冻结 RAW 实现。 |
 | `tools/tdma_ring_monitor/`、`tools/calibration_ring_validate/` | 分别归 domains/tdma 和 domains/calibration 的工具目录 | 先复核动态加载、相对路径和 P3 调用；不整组盲搬。 |
-| `tools/scpi_common/` | 评估迁入 `tools/common/scpi/` | 先确认真实调用关系和唯一实现，保留原导入兼容。 |
+| `tools/scpi_common/` | `tools/common/scpi/` | 已迁移 serial lifecycle、board identity 与 OTA timing 唯一实现；全部仓内调用者改用 canonical import，旧 qualified/bare 包名保持 package/child 对象身份，迁移前实现按原字节归档。 |
 | `tools/cmake_build_auto/`、`tools/codex_watchdog/` | 分别归 build 和 host | 构建定位、运行状态与恢复方式须回归。 |
 | OTA、Flash 工具及全部稳定验收/门禁入口 | 仅登记分类，当前原位保留 | OTA 本轮不改；路径调整不得借机改变刷写行为。 |
 
