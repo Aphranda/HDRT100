@@ -5,7 +5,8 @@ import json
 
 import pytest
 
-from tools.hardware_acceptance.p3_alarm_policy import build_acceptance_report
+from tools.hardware_acceptance.p3_alarm_policy import (
+    _dpll_observation_valid, build_acceptance_report)
 from tools.hardware_acceptance import p3_hardware_acceptance as p3
 
 
@@ -226,7 +227,7 @@ def test_zero_dco_adjustment_is_not_an_error():
 def test_four_board_short_phase_severity_is_preserved(severity, blocked):
     stages = stage_set()
     stages["DPLL"] = {
-        "schema": "HAOFV_P3_DPLL_SHORT_V2", "passed": severity != "ERROR",
+        "schema": "HAOFV_P3_DPLL_SHORT_V3", "passed": severity != "ERROR",
         "evidence_status": "PASS",
         "duration_s": 60, "external_status": "SKIPPED",
         "phase_severity": severity, "phase_max_abs_ns": 50 if severity == "INFO" else 500,
@@ -244,10 +245,11 @@ def test_four_board_short_phase_severity_is_preserved(severity, blocked):
         assert any(row["code"] == "DPLL_PHASE_OUTSIDE_1US" for row in findings(result, "DPLL"))
 
 
-def test_v1_endpoint_only_short_summary_cannot_satisfy_v2_gate():
+@pytest.mark.parametrize("schema", ["HAOFV_P3_DPLL_SHORT_V1", "HAOFV_P3_DPLL_SHORT_V2"])
+def test_legacy_short_summary_cannot_satisfy_v3_gate(schema):
     stages = stage_set()
     stages["DPLL"] = {
-        "schema": "HAOFV_P3_DPLL_SHORT_V1",
+        "schema": schema,
         "passed": True,
         "evidence_status": "PASS",
         "duration_s": 60,
@@ -258,6 +260,58 @@ def test_v1_endpoint_only_short_summary_cannot_satisfy_v2_gate():
         "errors": [],
     }
     assert_blocked(report_for(stages, required=("DPLL",)), "DPLL")
+
+
+@pytest.mark.parametrize("schema", ["HAOFV_P3_DPLL_SHORT_V1", "HAOFV_P3_DPLL_SHORT_V2"])
+@pytest.mark.parametrize("shortcut", [False, True])
+def test_legacy_short_schema_cannot_fall_through_generic_or_shortcut(schema, shortcut):
+    row = {
+        "schema": schema, "_input_validated": shortcut,
+        "tdma_preflight_passed": True,
+        "boards": [
+            {"board": "n1", "role": "ring_node", "samples": 2,
+             "errors": [], "ring_up_running": True, "ring_down_running": True},
+            {"board": "n2", "role": "ring_node", "samples": 2,
+             "errors": [], "ring_up_running": True, "ring_down_running": True},
+        ],
+    }
+    assert _dpll_observation_valid(row) is False
+
+
+def test_v3_scope_run_reports_unqualified_time_correlation_without_quick_reject():
+    stages = stage_set()
+    stages["DPLL"] = {
+        "schema": "HAOFV_P3_DPLL_SHORT_V3", "passed": True,
+        "evidence_status": "PASS", "duration_s": 60,
+        "scope_enabled": True, "external_status": "PASS",
+        "phase_severity": "INFO", "phase_max_abs_ns": 50,
+        "phase_source": "scope", "phase_domain": "external",
+        "internal_phase_endpoints": [{}, {}, {}],
+        "internal_phase_traces": [{}, {}, {}], "errors": [],
+        "time_correlation": {
+            "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V1",
+            "probe_mode": "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE",
+            "evidence_valid": False, "reasons": ["ambiguous"],
+            "exact_event_correlation_qualified": False,
+            "numeric_error_qualified": False,
+        },
+    }
+    quick = report_for(stages, required=("DPLL",))
+    assert quick["outcome"] == "PASS_WITH_WARNINGS"
+    assert any(row["code"] == "DPLL_TIME_CORRELATION_UNQUALIFIED" and
+               row["severity"] == "WARN" for row in findings(quick, "DPLL"))
+    assert_blocked(
+        report_for(stages, required=("DPLL",), strict=("DPLL",)), "DPLL")
+    stages["DPLL"]["time_correlation"] = {
+        "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V1",
+        "probe_mode": "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE",
+        "runtime_board_queries": 0, "core1_probe_work_added": False,
+        "realtime_resource_seat_added": False, "evidence_valid": True,
+        "exact_event_correlation_qualified": False,
+        "numeric_error_qualified": False,
+        "models": [{}, {}, {}], "associations": [{}],
+    }
+    assert report_for(stages, required=("DPLL",))["outcome"] != "BLOCKED"
 
 
 def test_strict_dpll_requires_measured_lock_evidence_even_when_summary_claims_pass():

@@ -5,12 +5,39 @@ import pytest
 
 import tools.calibration_ring_validate.calibration_ring_topology as topology
 from tools.calibration_ring_validate.calibration_ring_topology import (
+    _stop_pair_board,
     compact_pair_results,
     counter_delta,
     counter_regressed,
     render_ring_order,
     wait_started_with_transport_recovery,
 )
+
+
+@pytest.mark.parametrize("response", [
+    "OK", '"OK"', "OK(no payload; verified by state readback)",
+    '"OK(no payload; verified by state readback)"'])
+def test_stop_pair_accepts_explicit_or_readback_verified_ack(monkeypatch, response):
+    board = SimpleNamespace(address="B")
+    monkeypatch.setattr(topology, "board_command", lambda *args: response)
+    monkeypatch.setattr(topology, "_wait_pair_state",
+                        lambda *args, **kwargs: {
+                            "ring_enabled": 0, "ring_adapter_started": 0})
+    result = _stop_pair_board(board, argparse.Namespace())
+    assert result["passed"] is True
+    assert result["stopped"] == {"ring_enabled": 0, "ring_adapter_started": 0}
+
+
+@pytest.mark.parametrize("response", ["<timeout>", "1", "", "OK(unverified)"])
+def test_stop_pair_rejects_unknown_ack_even_with_stopped_readback(monkeypatch, response):
+    board = SimpleNamespace(address="B")
+    monkeypatch.setattr(topology, "board_command", lambda *args: response)
+    monkeypatch.setattr(topology, "_wait_pair_state",
+                        lambda *args, **kwargs: {
+                            "ring_enabled": 0, "ring_adapter_started": 0})
+    result = _stop_pair_board(board, argparse.Namespace())
+    assert result["passed"] is False
+    assert "unknown" in result["error"]
 
 
 def test_render_ring_order_from_unique_cycle():

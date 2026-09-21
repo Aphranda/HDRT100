@@ -26,6 +26,50 @@ PLANNED_FIELDS = (
     "planned_wall_max_cycles planned_budget_overruns"
 ).split()
 PLANNED_BUDGET_CYCLES = 100000
+BRIDGE_QUERY = "SYSTem:VDC:FEEDback:BRIDge?"
+BRIDGE_FIELDS = (
+    "schema platform_supported configuration_supported bridge_valid clock_ready "
+    "expected_hz cached_hz sdk_sys_hz default_timer proc_config timer0_source "
+    "timer0_pause timer0_dbgpause timer1_source timer1_pause timer1_dbgpause "
+    "ref_ctrl ref_div ref_selected sys_ctrl sys_div sys_selected resus_ctrl "
+    "resus_status pll_cs pll_pwr pll_fbdiv pll_prim tick_ctrl tick_cycles "
+    "xosc_ctrl xosc_status xosc_dormant timer0_sample_valid timer1_sample_valid "
+    "timer0_sample_us timer1_sample_ticks raw_before local_ns raw_after tick_hz"
+).split()
+BRIDGE_WIDE_FIELDS = {
+    "timer0_sample_us", "timer1_sample_ticks", "raw_before", "local_ns", "raw_after"}
+BRIDGE_DYNAMIC_FIELDS = BRIDGE_WIDE_FIELDS | {
+    "timer0_sample_valid", "timer1_sample_valid"}
+
+
+def parse_bridge(raw):
+    tokens = [value.strip().strip('"') for value in raw.split(",")]
+    if (len(tokens) != len(BRIDGE_FIELDS) or
+            not all(re.fullmatch(r"[0-9]+", value) for value in tokens)):
+        raise ValueError("Bridge schema requires exactly 41 decimal unsigned fields")
+    bridge = dict(zip(BRIDGE_FIELDS, map(int, tokens)))
+    for name, value in bridge.items():
+        bits = 64 if name in BRIDGE_WIDE_FIELDS else 32
+        if not 0 <= value < (1 << bits):
+            raise ValueError(f"Bridge field outside uint{bits}: {name}")
+    if (bridge["schema"] != 1 or bridge["platform_supported"] != 1 or
+            bridge["configuration_supported"] != 1 or bridge["bridge_valid"] != 1 or
+            bridge["clock_ready"] != 1 or bridge["timer0_sample_valid"] != 1 or
+            bridge["timer1_sample_valid"] != 1):
+        raise ValueError("Bridge support, clock, or sample validity gate failed")
+    if (bridge["expected_hz"] == 0 or
+            not (bridge["expected_hz"] == bridge["cached_hz"] ==
+                 bridge["sdk_sys_hz"] == bridge["tick_hz"])):
+        raise ValueError("Bridge clock identities differ")
+    if (bridge["raw_before"] >= bridge["raw_after"] or
+            bridge["local_ns"] % 1000 != 0):
+        raise ValueError("Bridge raw enclosure or TIMER0 coordinate is invalid")
+    return bridge
+
+
+def bridge_configuration(bridge):
+    return {name: bridge[name] for name in BRIDGE_FIELDS
+            if name not in BRIDGE_DYNAMIC_FIELDS}
 
 
 def load_adapter(runtime_entrypoint: Path, *, board_uids=None, runtime_module=None):
@@ -225,12 +269,36 @@ def load_adapter(runtime_entrypoint: Path, *, board_uids=None, runtime_module=No
         }
 
     class SummaryProbe(external.Probe):
+        def capture_host_raw_anchor(self, board, label):
+            if not self.barrier or self.block_queries:
+                raise RuntimeError("Host/raw anchor requires all-board STOP")
+            host_start_ns = time.monotonic_ns()
+            raw = self.command(board, BRIDGE_QUERY)
+            host_end_ns = time.monotonic_ns()
+            bridge = parse_bridge(raw)
+            anchor = {
+                "schema": "VDC_HOST_RAW_ANCHOR_V1", "label": label,
+                "uid": board.address, "host_start_ns": host_start_ns,
+                "host_end_ns": host_end_ns, "bridge": bridge,
+            }
+            if host_end_ns < host_start_ns:
+                raise ValueError("Host monotonic anchor moved backwards")
+            self.report["boards"][board.address].setdefault(
+                "host_raw_anchors", {})[label] = anchor
+            self.save()
+            return anchor
+
         def configure(self):
+            for board in self.boards:
+                self.capture_host_raw_anchor(board, "pre")
             for board in self.boards:
                 if self.trace_status(board)["state"] != 0:
                     raise RuntimeError("Prior trace is not released")
             self.report["plan"].update(
                 internal_trace=True, external_scope=False, no_runtime_queries=True,
+                host_raw_correlation="two STOP-only bridge anchors; offline only",
+                runtime_anchor_queries=0, core1_probe_work_added=False,
+                realtime_resource_seat_added=False,
                 summary_pool_limit_s=600,
                 summary_interval_ms=self.opt.summary_interval_ms)
             self.report.setdefault("tool_sources", []).append({
@@ -287,6 +355,12 @@ def load_adapter(runtime_entrypoint: Path, *, board_uids=None, runtime_module=No
         def collect(self):
             if not self.barrier or self.block_queries:
                 raise RuntimeError("Summary collection requires all-board STOP")
+            for board in self.boards:
+                self.capture_host_raw_anchor(board, "post")
+                anchors = self.report["boards"][board.address]["host_raw_anchors"]
+                if (bridge_configuration(anchors["pre"]["bridge"]) !=
+                        bridge_configuration(anchors["post"]["bridge"])):
+                    raise ValueError("Bridge configuration changed across acquisition")
             for board in self.boards:
                 row = self.report["boards"][board.address]
                 for key, command in (

@@ -262,7 +262,7 @@ def test_permanent_failure_has_two_lifetimes_and_retained_negative_reply(monkeyp
     assert len([1 for uid, cmd in bench.calls if uid == "A" and cmd.endswith(":START")]) == 2
 
 
-@pytest.mark.parametrize("stop_response", ["<timeout>", "OK(no payload; verified by state readback)", "1", None])
+@pytest.mark.parametrize("stop_response", ["<timeout>", "1", None])
 def test_unknown_stop_ack_blocks_rearm_even_when_physically_stopped(monkeypatch, tmp_path, stop_response):
     bench = Bench({"B": ["refused"]})
     def hook(b, board, command):

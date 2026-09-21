@@ -12,6 +12,21 @@ from tools.workflows.vdc_joint_capture import internal_seal
 UIDS = ("u1", "u2", "u3", "u4")
 
 
+def bridge_raw(call_index):
+    values = {name: 0 for name in internal_seal.BRIDGE_FIELDS}
+    raw_before = 1_000_000 + call_index * 20_000_000_000
+    values.update(
+        schema=1, platform_supported=1, configuration_supported=1,
+        bridge_valid=1, clock_ready=1, expected_hz=250_000_000,
+        cached_hz=250_000_000, sdk_sys_hz=250_000_000,
+        timer0_sample_valid=1, timer1_sample_valid=1,
+        timer0_sample_us=raw_before // 250,
+        timer1_sample_ticks=raw_before + 1,
+        raw_before=raw_before, local_ns=(raw_before // 250) * 1000,
+        raw_after=raw_before + 2, tick_hz=250_000_000)
+    return ",".join(str(values[name]) for name in internal_seal.BRIDGE_FIELDS)
+
+
 def fake_runtime(events):
     backend = SimpleNamespace(TDMA_CONTROL_RESULT_FIELDS={})
     parent = SimpleNamespace(
@@ -38,6 +53,7 @@ def fake_runtime(events):
             }
             self.block_queries = False
             self.barrier = True
+            self.bridge_calls = {uid: 0 for uid in UIDS}
 
         def save(self):
             events.append(("save",))
@@ -56,6 +72,10 @@ def fake_runtime(events):
 
         def command(self, board, text, unused=None):
             events.append(("command", board.address, text))
+            if text == internal_seal.BRIDGE_QUERY:
+                call_index = self.bridge_calls[board.address]
+                self.bridge_calls[board.address] += 1
+                return bridge_raw(call_index)
             if text.startswith("CALibration:ORIGin:TRIAL"):
                 return "2"
             return "OK"
@@ -119,6 +139,11 @@ def test_tracked_configure_omits_model_and_arms_all_summary_traces(tmp_path):
     assert probe.report["startup_adapter"]["base_sha256"] == "c" * 64
     assert probe.report["plan"]["internal_trace"] is True
     assert probe.report["guard_plan"]["scope"] is False
+    assert all(probe.report["boards"][uid]["host_raw_anchors"]["pre"]["bridge"]
+               ["bridge_valid"] == 1 for uid in UIDS)
+    assert probe.report["plan"]["runtime_anchor_queries"] == 0
+    assert probe.report["plan"]["core1_probe_work_added"] is False
+    assert probe.report["plan"]["realtime_resource_seat_added"] is False
     assert len([event for event in events if event[0] == "follow_control"]) == 4
     assert all(probe.report["boards"][uid]["trace_arm_requested"] for uid in UIDS)
     assert not any(event[:3] == ("command", UIDS[0], "MODEL?") for event in events)
@@ -140,6 +165,34 @@ def test_tracked_command_rewrites_guard_and_expiry(tmp_path):
     assert "SYSTem:VDC:OUTPut:RUN 7,1000,2000,20000" in commands
     assert runtime.follow.parent.base.BACKEND.TDMA_CONTROL_RESULT_FIELDS[
         f"{trace}:GUARD:PHASE".upper()] == 1
+
+
+def test_stop_only_bridge_anchors_are_ordered_and_configuration_bound(tmp_path):
+    events = []
+    adapter = internal_seal.load_adapter(
+        Path("unused.py"), runtime_module=fake_runtime(events))
+    probe = adapter.Probe(options(tmp_path))
+    pre = probe.capture_host_raw_anchor(probe.boards[0], "pre")
+    post = probe.capture_host_raw_anchor(probe.boards[0], "post")
+    assert pre["bridge"]["raw_after"] < post["bridge"]["raw_before"]
+    assert internal_seal.bridge_configuration(pre["bridge"]) == \
+        internal_seal.bridge_configuration(post["bridge"])
+    probe.block_queries = True
+    probe.barrier = False
+    with pytest.raises(RuntimeError, match="all-board STOP"):
+        probe.capture_host_raw_anchor(probe.boards[0], "during")
+
+
+def test_bridge_parser_rejects_invalid_clock_or_enclosure():
+    values = bridge_raw(0).split(",")
+    values[internal_seal.BRIDGE_FIELDS.index("cached_hz")] = "150000000"
+    with pytest.raises(ValueError, match="clock identities"):
+        internal_seal.parse_bridge(",".join(values))
+    values = bridge_raw(0).split(",")
+    values[internal_seal.BRIDGE_FIELDS.index("raw_after")] = values[
+        internal_seal.BRIDGE_FIELDS.index("raw_before")]
+    with pytest.raises(ValueError, match="enclosure"):
+        internal_seal.parse_bridge(",".join(values))
 
 
 def test_tracked_quiet_acquire_and_collect_stop_gate(tmp_path, monkeypatch):

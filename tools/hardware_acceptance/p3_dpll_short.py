@@ -7,10 +7,11 @@ import json
 import math
 from pathlib import Path
 import re
+from fractions import Fraction
 from typing import Any
 import zlib
 
-SCHEMA = "HAOFV_P3_DPLL_SHORT_V2"
+SCHEMA = "HAOFV_P3_DPLL_SHORT_V3"
 PROVISIONAL_SCHEMA = "HAOFV_P3_JOINT_PROVISIONAL_V1"
 PHASE_WARN_NS = 100.0
 PHASE_ERROR_NS = 1000.0
@@ -19,6 +20,7 @@ U32_FIELD_COUNT = 26
 INTERNAL_SETTLING_BINS = 1
 INTERNAL_SUMMARY_INTERVAL_MS = 10000
 INTERNAL_MAX_SUCCESS_GAP_S = 1.0
+HOST_RAW_RATE_TOLERANCE_PPM = 5000
 
 
 def sha256_file(path: Path) -> str:
@@ -194,11 +196,21 @@ def _internal_trace_summary(
         record["observed_end_raw"] - record["observed_start_raw"]
         for record in steady)
     startup = records[0]
+    bins = [{
+        "bin_index": record["bin_index"],
+        "settling": record["bin_index"] < INTERNAL_SETTLING_BINS,
+        "observed_start_raw": record["observed_start_raw"],
+        "observed_end_raw": record["observed_end_raw"],
+        "residual_min_ns": record.get("residual_min_ns"),
+        "residual_max_ns": record.get("residual_max_ns"),
+        "residual_extrema_valid": record.get("residual_extrema_valid") is True,
+    } for record in records]
     return {
         "board_id": uid,
         "capture_id": capture_id,
         "schema": decoded["schema"],
         "sample_interval_ms": interval_ms,
+        "tick_hz": tick_hz,
         "session": status["session"],
         "generation": status["generation"],
         "local_slot": status["local_slot"],
@@ -218,10 +230,328 @@ def _internal_trace_summary(
         "last_bin_residual_max_ns": last["residual_max_ns"],
         "endpoint_within_last_bin": endpoint_consistent,
         "read_pages_verified": True,
+        "bins": bins,
         "coverage_assessment": assessment,
         "native_trace": evidence_entry(root, raw_path),
         "decoded_trace": evidence_entry(root, decoded_path),
         "read_pages": evidence_entry(root, pages_path),
+    }
+
+
+def _fraction_floor(value: Fraction) -> int:
+    return value.numerator // value.denominator
+
+
+def _fraction_ceil(value: Fraction) -> int:
+    return -((-value.numerator) // value.denominator)
+
+
+def _validate_anchor(uid: str, raw: Any, label: str) -> dict[str, Any]:
+    if (not isinstance(raw, dict) or raw.get("schema") != "VDC_HOST_RAW_ANCHOR_V1" or
+            raw.get("label") != label or raw.get("uid") != uid):
+        raise ValueError(f"{label} host/raw anchor identity is invalid")
+    start, end, bridge = raw.get("host_start_ns"), raw.get("host_end_ns"), raw.get("bridge")
+    if (isinstance(start, bool) or not isinstance(start, int) or
+            isinstance(end, bool) or not isinstance(end, int) or end < start or
+            not isinstance(bridge, dict)):
+        raise ValueError(f"{label} host/raw anchor shape is invalid")
+    required = (
+        "schema", "platform_supported", "configuration_supported", "bridge_valid",
+        "clock_ready", "expected_hz", "cached_hz", "sdk_sys_hz",
+        "timer0_sample_valid", "timer1_sample_valid", "timer0_sample_us",
+        "timer1_sample_ticks", "raw_before", "local_ns", "raw_after", "tick_hz")
+    if any(isinstance(bridge.get(name), bool) or not isinstance(bridge.get(name), int)
+           for name in required):
+        raise ValueError(f"{label} bridge fields are invalid")
+    if (bridge["schema"] != 1 or
+            any(bridge[name] != 1 for name in (
+                "platform_supported", "configuration_supported", "bridge_valid",
+                "clock_ready", "timer0_sample_valid", "timer1_sample_valid")) or
+            bridge["expected_hz"] <= 0 or
+            not (bridge["expected_hz"] == bridge["cached_hz"] ==
+                 bridge["sdk_sys_hz"] == bridge["tick_hz"]) or
+            bridge["raw_before"] >= bridge["raw_after"] or
+            bridge["local_ns"] % 1000):
+        raise ValueError(f"{label} bridge validity gate failed")
+    return raw
+
+
+def _host_projection_model(uid: str, board: dict[str, Any], trace: dict[str, Any]) -> dict[str, Any]:
+    anchors = board.get("host_raw_anchors")
+    if not isinstance(anchors, dict):
+        raise ValueError("host/raw anchors are missing")
+    pre = _validate_anchor(uid, anchors.get("pre"), "pre")
+    post = _validate_anchor(uid, anchors.get("post"), "post")
+    first, last = pre["bridge"], post["bridge"]
+    dynamic = {
+        "timer0_sample_valid", "timer1_sample_valid", "timer0_sample_us",
+        "timer1_sample_ticks", "raw_before", "local_ns", "raw_after"}
+    if ({key: value for key, value in first.items() if key not in dynamic} !=
+            {key: value for key, value in last.items() if key not in dynamic}):
+        raise ValueError("bridge configuration changed across acquisition")
+    if (last["raw_before"] <= first["raw_after"] or
+            post["host_start_ns"] <= pre["host_end_ns"]):
+        raise ValueError("host/raw anchors are not ordered")
+    if trace.get("tick_hz") != first["tick_hz"] or trace.get("tick_hz") != last["tick_hz"]:
+        raise ValueError("native trace tick rate differs from bridge clock identity")
+    bins = trace.get("bins")
+    if not isinstance(bins, list) or not bins:
+        raise ValueError("internal trace bins are missing")
+    if (bins[0]["observed_start_raw"] < first["raw_after"] or
+            bins[-1]["observed_end_raw"] > last["raw_before"]):
+        raise ValueError("internal trace is not enclosed by host/raw anchors")
+
+    pre_raw_center = Fraction(first["raw_before"] + first["raw_after"], 2)
+    post_raw_center = Fraction(last["raw_before"] + last["raw_after"], 2)
+    pre_host_center = Fraction(pre["host_start_ns"] + pre["host_end_ns"], 2)
+    post_host_center = Fraction(post["host_start_ns"] + post["host_end_ns"], 2)
+    measured = (post_host_center - pre_host_center) / (post_raw_center - pre_raw_center)
+    expected = Fraction(1_000_000_000, first["tick_hz"])
+    center_rate_error_ppm = float((measured - expected) / expected * 1_000_000)
+
+    corners = []
+    for raw0 in (first["raw_before"], first["raw_after"]):
+        for host0 in (pre["host_start_ns"], pre["host_end_ns"]):
+            for raw1 in (last["raw_before"], last["raw_after"]):
+                for host1 in (post["host_start_ns"], post["host_end_ns"]):
+                    if raw1 > raw0:
+                        corners.append((raw0, host0, raw1, host1))
+    corner_rate_errors = [
+        float((Fraction(host1 - host0, raw1 - raw0) - expected) /
+              expected * 1_000_000)
+        for raw0, host0, raw1, host1 in corners]
+    rate_error_ppm_worst = max(abs(value) for value in corner_rate_errors)
+    if rate_error_ppm_worst > HOST_RAW_RATE_TOLERANCE_PPM:
+        raise ValueError("host/raw anchor corner rate differs from admitted TIMER1 rate")
+
+    def project(raw_tick: int) -> tuple[int, int]:
+        values = [
+            Fraction(host0) + Fraction(raw_tick - raw0, raw1 - raw0) * (host1 - host0)
+            for raw0, host0, raw1, host1 in corners]
+        return _fraction_floor(min(values)), _fraction_ceil(max(values))
+
+    projected_bins = []
+    for row in bins:
+        start_lo, start_hi = project(row["observed_start_raw"])
+        end_lo, end_hi = project(row["observed_end_raw"])
+        if end_lo <= start_hi:
+            raise ValueError("projected internal bin has no certain host-time interior")
+        projected_bins.append({
+            **row,
+            "host_start_ns": [start_lo, start_hi],
+            "host_end_ns": [end_lo, end_hi],
+        })
+    return {
+        "board_id": uid,
+        "tick_hz": first["tick_hz"],
+        "center_rate_error_ppm": center_rate_error_ppm,
+        "corner_rate_error_ppm": [min(corner_rate_errors), max(corner_rate_errors)],
+        "worst_rate_error_ppm": rate_error_ppm_worst,
+        "pre": {"host_ns": [pre["host_start_ns"], pre["host_end_ns"]],
+                "raw_ticks": [first["raw_before"], first["raw_after"]],
+                "local_ns": first["local_ns"]},
+        "post": {"host_ns": [post["host_start_ns"], post["host_end_ns"]],
+                 "raw_ticks": [last["raw_before"], last["raw_after"]],
+                 "local_ns": last["local_ns"]},
+        "bins": projected_bins,
+    }
+
+
+def _time_correlate_scope(inner: dict[str, Any], traces: list[dict[str, Any]]) -> dict[str, Any]:
+    boards, samples = inner.get("boards"), inner.get("scope_samples")
+    if not isinstance(boards, dict) or not isinstance(samples, list):
+        raise ValueError("scope correlation inputs are missing")
+    plan, actions = inner.get("plan"), inner.get("actions")
+    if (not isinstance(plan, dict) or not isinstance(actions, list) or
+            inner.get("queries_during_acquisition") != 0 or
+            plan.get("runtime_anchor_queries") != 0 or
+            plan.get("core1_probe_work_added") is not False or
+            plan.get("realtime_resource_seat_added") is not False):
+        raise ValueError("nonintrusive probe boundary is not proven")
+    bridge_command = "SYSTEM:VDC:FEEDBACK:BRIDGE?"
+    start_command = "SYSTEM:TDMA:RING:START"
+    stop_command = "SYSTEM:TDMA:RING:STOP"
+    for row in actions:
+        if not isinstance(row, dict):
+            raise ValueError("raw action row is invalid")
+        command = row.get("command")
+        normalized = command.upper() if isinstance(command, str) else ""
+        if "?" in normalized or normalized in (bridge_command, start_command, stop_command):
+            start_ns, end_ns = row.get("start_ns"), row.get("end_ns")
+            if (row.get("uid") not in boards or not normalized or
+                    isinstance(start_ns, bool) or not isinstance(start_ns, int) or
+                    isinstance(end_ns, bool) or not isinstance(end_ns, int) or end_ns < start_ns):
+                raise ValueError("timed raw action identity or interval is invalid")
+    pre_actions, post_actions, run_starts, run_stops = [], [], [], []
+    for uid, board in boards.items():
+        anchors = board.get("host_raw_anchors") if isinstance(board, dict) else None
+        bridge_actions = [row for row in actions if isinstance(row, dict) and
+                          row.get("uid") == uid and
+                          str(row.get("command", "")).upper() == bridge_command]
+        start_actions = [row for row in actions if isinstance(row, dict) and
+                         row.get("uid") == uid and
+                         str(row.get("command", "")).upper() == start_command]
+        stop_actions = [row for row in actions if isinstance(row, dict) and
+                        row.get("uid") == uid and
+                        str(row.get("command", "")).upper() == stop_command]
+        if (not isinstance(anchors, dict) or len(bridge_actions) != 2 or
+                len(start_actions) != 1 or not stop_actions):
+            raise ValueError("STOP-only bridge action set is incomplete")
+        bridge_actions.sort(key=lambda row: row.get("start_ns", -1))
+        start_action = start_actions[0]
+        stop_action = max(stop_actions, key=lambda row: row.get("end_ns", -1))
+        if (start_action.get("error") or stop_action.get("error") or
+                str(start_action.get("raw", "")).strip().strip('"') != "OK" or
+                str(stop_action.get("raw", "")).strip().strip('"') != "OK"):
+            raise ValueError("START/STOP action did not complete successfully")
+        for label, action in zip(("pre", "post"), bridge_actions):
+            anchor = anchors.get(label)
+            if (not isinstance(anchor, dict) or
+                    any(isinstance(action.get(name), bool) or
+                        not isinstance(action.get(name), int)
+                        for name in ("start_ns", "end_ns")) or
+                    not (anchor.get("host_start_ns") <= action["start_ns"] <=
+                         action["end_ns"] <= anchor.get("host_end_ns"))):
+                raise ValueError("host/raw anchor does not enclose its raw action")
+            try:
+                from tools.workflows.vdc_joint_capture.internal_seal import parse_bridge
+                action_bridge = parse_bridge(str(action.get("raw", "")))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("bridge action raw response is invalid") from exc
+            if action.get("error") or action_bridge != anchor.get("bridge"):
+                raise ValueError("structured bridge anchor differs from raw action")
+        if (bridge_actions[0]["end_ns"] > start_action.get("start_ns", -1) or
+                bridge_actions[1]["start_ns"] < stop_action.get("end_ns", 1 << 80)):
+            raise ValueError("bridge query occurred inside the RUN interval")
+        pre_actions.append(bridge_actions[0])
+        post_actions.append(bridge_actions[1])
+        run_starts.append(start_action)
+        run_stops.append(stop_action)
+    global_start_ns = min(row["start_ns"] for row in run_starts)
+    global_stop_ns = max(row["end_ns"] for row in run_stops)
+    if (max(row["end_ns"] for row in pre_actions) > global_start_ns or
+            min(row["start_ns"] for row in post_actions) < global_stop_ns):
+        raise ValueError("bridge anchors do not enclose the all-board RUN interval")
+    runtime_queries = [
+        row for row in actions if isinstance(row, dict) and "?" in str(row.get("command", "")) and
+        row["end_ns"] > global_start_ns and row["start_ns"] < global_stop_ns]
+    if runtime_queries:
+        raise ValueError("raw actions contain a query inside the all-board RUN interval")
+    models = [
+        _host_projection_model(trace["board_id"], boards.get(trace["board_id"], {}), trace)
+        for trace in traces]
+    expected_due = list(range(5, 61, 5))
+    if [sample.get("due_s") if isinstance(sample, dict) else None for sample in samples] != expected_due:
+        raise ValueError("scope due sequence differs from the fixed 5..60 second schedule")
+    rows = []
+    unique_steady_by_board = {model["board_id"]: 0 for model in models}
+    outside_by_board = {model["board_id"]: 0 for model in models}
+    in_capture_by_board = {model["board_id"]: 0 for model in models}
+    ambiguous_by_board = {model["board_id"]: 0 for model in models}
+    for sample in samples:
+        interval = sample.get("acquisition_host_ns") if isinstance(sample, dict) else None
+        relative = sample.get("phase", {}).get("relative_ns") if isinstance(sample, dict) else None
+        if (not isinstance(interval, list) or len(interval) != 2 or
+                any(isinstance(value, bool) or not isinstance(value, int) for value in interval) or
+                interval[1] < interval[0] or not isinstance(relative, list) or len(relative) != 3):
+            raise ValueError("scope sample lacks a valid host-time interval")
+        for index, model in enumerate(models):
+            channel = relative[index]
+            if (not isinstance(channel, list) or not channel or
+                    any(isinstance(value, bool) or not isinstance(value, (int, float)) or
+                        not math.isfinite(value) for value in channel)):
+                raise ValueError("scope correlation phase channel is invalid")
+            candidates, certain = [], []
+            for bin_row in model["bins"]:
+                if (interval[1] >= bin_row["host_start_ns"][0] and
+                        interval[0] <= bin_row["host_end_ns"][1]):
+                    candidates.append(bin_row["bin_index"])
+                if (interval[0] >= bin_row["host_start_ns"][1] and
+                        interval[1] <= bin_row["host_end_ns"][0]):
+                    certain.append(bin_row["bin_index"])
+            unique_bin = (certain[0]
+                          if len(candidates) == 1 and certain == candidates else None)
+            selected = next((row for row in model["bins"]
+                             if row["bin_index"] == unique_bin), None)
+            before_capture = interval[1] < model["bins"][0]["host_start_ns"][0]
+            after_capture = interval[0] > model["bins"][-1]["host_end_ns"][1]
+            if unique_bin is not None:
+                association = "AFFINE_UNIQUE"
+            elif candidates:
+                association = "AFFINE_AMBIGUOUS"
+            elif before_capture or after_capture:
+                association = "OUTSIDE_CAPTURE"
+                outside_by_board[model["board_id"]] += 1
+            else:
+                association = "UNMAPPED"
+            if candidates:
+                in_capture_by_board[model["board_id"]] += 1
+            if association == "AFFINE_AMBIGUOUS":
+                ambiguous_by_board[model["board_id"]] += 1
+            if unique_bin is not None and selected is not None and not selected["settling"]:
+                unique_steady_by_board[model["board_id"]] += 1
+            rows.append({
+                "due_s": sample.get("due_s"), "board_id": model["board_id"],
+                "scope_host_ns": interval,
+                "external_relative_ns": [float(min(channel)), float(max(channel))],
+                "candidate_bins": candidates, "unique_bin": unique_bin,
+                "association": association,
+                "outside_direction": (
+                    "BEFORE" if before_capture else "AFTER" if after_capture else None),
+                "internal_residual_ns": (
+                    [selected["residual_min_ns"], selected["residual_max_ns"]]
+                    if selected is not None and selected["residual_extrema_valid"] else None),
+                "settling_bin": selected["settling"] if selected is not None else None,
+                "exact_event_correlation_qualified": False,
+                "numeric_error_qualified": False,
+            })
+    invalid_outside = [
+        row for row in rows if row["association"] == "OUTSIDE_CAPTURE" and
+        (row["outside_direction"] != "AFTER" or row["due_s"] != 60)]
+    if (any(row["association"] == "UNMAPPED" for row in rows) or invalid_outside or
+            any(value > 1 for value in outside_by_board.values()) or
+            any(value < 10 for value in in_capture_by_board.values()) or
+            any(value < 5 for value in unique_steady_by_board.values())):
+        raise ValueError("host/raw correlation lacks complete or steady unique associations")
+    return {
+        "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V1",
+        "probe_mode": "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE",
+        "runtime_board_queries": 0,
+        "core1_probe_work_added": False,
+        "realtime_resource_seat_added": False,
+        "affine_projection_assumption": True,
+        "rate_tolerance_ppm": HOST_RAW_RATE_TOLERANCE_PPM,
+        "evidence_valid": True,
+        "exact_event_correlation_qualified": False,
+        "numeric_error_qualified": False,
+        "models": models,
+        "associations": rows,
+        "unique_steady_associations_by_board": unique_steady_by_board,
+        "outside_capture_associations_by_board": outside_by_board,
+        "in_capture_associations_by_board": in_capture_by_board,
+        "ambiguous_associations_by_board": ambiguous_by_board,
+    }
+
+
+def _time_correlation_failure(inner: dict[str, Any], reason: str) -> dict[str, Any]:
+    plan = inner.get("plan") if isinstance(inner.get("plan"), dict) else {}
+    return {
+        "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V1",
+        "probe_mode": "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE",
+        "runtime_board_queries": inner.get("queries_during_acquisition"),
+        "core1_probe_work_added": plan.get("core1_probe_work_added"),
+        "realtime_resource_seat_added": plan.get("realtime_resource_seat_added"),
+        "affine_projection_assumption": True,
+        "rate_tolerance_ppm": HOST_RAW_RATE_TOLERANCE_PPM,
+        "evidence_valid": False,
+        "reasons": [reason],
+        "exact_event_correlation_qualified": False,
+        "numeric_error_qualified": False,
+        "models": [], "associations": [],
+        "unique_steady_associations_by_board": {},
+        "outside_capture_associations_by_board": {},
+        "in_capture_associations_by_board": {},
+        "ambiguous_associations_by_board": {},
     }
 
 
@@ -311,6 +641,7 @@ def summarize_joint(root: Path, joint_report_path: Path, input_report_path: Path
 
     raw_blocks: list[dict[str, str]] = []
     scope_records: list[dict[str, str]] = []
+    time_correlation = None
     if scope_enabled:
         try:
             external_values = _flatten_scope_phase(inner.get("scope_samples"), seconds // 5)
@@ -327,6 +658,10 @@ def summarize_joint(root: Path, joint_report_path: Path, input_report_path: Path
             errors.append("scope RAW block set is incomplete")
         if len(scope_records) != seconds // 5:
             errors.append("scope record set is incomplete")
+        try:
+            time_correlation = _time_correlate_scope(inner, internal_traces)
+        except (KeyError, TypeError, ValueError) as exc:
+            time_correlation = _time_correlation_failure(inner, str(exc))
         phase_source = "scope_samples[].phase.relative_ns"
         phase_domain = "external_physical_sampled_windows"
         phase_values = external_values
@@ -359,6 +694,7 @@ def summarize_joint(root: Path, joint_report_path: Path, input_report_path: Path
         "internal_settling_bins_excluded": INTERNAL_SETTLING_BINS,
         "scope_resource": plan.get("scope_resource") if scope_enabled else None,
         "scope_serial": plan.get("scope_serial") if scope_enabled else None,
+        "time_correlation": time_correlation,
         "joint_report": evidence_entry(root, joint_report_path),
         "joint_input_report": evidence_entry(root, input_report_path),
         "scope_records": scope_records, "scope_raw_blocks": raw_blocks,
@@ -384,6 +720,15 @@ def _validate_scope_decode(root: Path, summary: dict[str, Any], input_path: Path
     for index, (entry, sample) in enumerate(zip(records, samples)):
         path = _evidence_path(root, entry, f"scope record {index}")
         report = json.loads(path.read_text(encoding="utf-8"))
+        interval = sample.get("acquisition_host_ns") if isinstance(sample, dict) else None
+        expected_interval = [report.get("trigger_admitted_ns"),
+                             report.get("trigger_complete_observed_ns")]
+        if (report.get("capture_complete") is not True or
+                any(isinstance(value, bool) or not isinstance(value, int)
+                    for value in expected_interval) or
+                expected_interval[1] < expected_interval[0] or
+                interval != expected_interval):
+            raise ValueError("scope host-time interval differs from bound scope record")
         blocks = {}
         for channel in report.get("channels", []):
             for block in channel.get("blocks", []):

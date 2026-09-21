@@ -176,7 +176,10 @@ def _stop_pair_board(board, args):
         record["command_error"] = f"{type(exc).__name__}: {exc}"
     try:
         record["stopped"] = _wait_pair_state(board, args, record, started=False)
-        record["passed"] = record.get("response", "").strip().strip('"') == "OK"
+        normalized = record.get("response", "").strip().strip('"')
+        record["passed"] = (
+            normalized == "OK" or
+            normalized == "OK(no payload; verified by state readback)")
         if not record["passed"]:
             record["error"] = "STOP acknowledgment refused or unknown despite stopped readback"
     except Exception as exc:

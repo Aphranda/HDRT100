@@ -8,9 +8,31 @@ import pytest
 
 from tools.hardware_acceptance import p3_dpll_short as short
 from tools.hardware_acceptance import p3_hardware_acceptance as p3
+from tools.workflows.vdc_joint_capture import internal_seal
 
 
 UIDS = ["no1", "no2", "no3", "no4"]
+TICK_HZ = 250_000_000
+TRACE_BASE_TICK = 1_000_000
+HOST_OFFSET_NS = 1_000_000_000_000
+
+
+def anchor(uid, label, raw_before, host_start_ns):
+    bridge = {name: 0 for name in internal_seal.BRIDGE_FIELDS}
+    bridge.update(
+        schema=1, platform_supported=1, configuration_supported=1,
+        bridge_valid=1, clock_ready=1, expected_hz=TICK_HZ,
+        cached_hz=TICK_HZ, sdk_sys_hz=TICK_HZ,
+        timer0_sample_valid=1, timer1_sample_valid=1,
+        timer0_sample_us=raw_before // 250,
+        timer1_sample_ticks=raw_before + 1,
+        raw_before=raw_before, local_ns=(raw_before // 250) * 1000,
+        raw_after=raw_before + 2, tick_hz=TICK_HZ)
+    return {
+        "schema": "VDC_HOST_RAW_ANCHOR_V1", "label": label, "uid": uid,
+        "host_start_ns": host_start_ns, "host_end_ns": host_start_ns + 100_000,
+        "bridge": bridge,
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -86,8 +108,8 @@ def reports(tmp_path, *, scope, maximum=80.0, missing=False,
             bound = startup_maximum if index == 0 else trace_maximum
             records.append({
                 "bin_index": index,
-                "observed_start_raw": index * 2_500_000_000,
-                "observed_end_raw": (index + 1) * 2_500_000_000,
+                "observed_start_raw": TRACE_BASE_TICK + index * 2_500_000_000,
+                "observed_end_raw": TRACE_BASE_TICK + (index + 1) * 2_500_000_000,
                 "success_count": 10,
                 "first_success_offset_ticks": 1,
                 "last_success_offset_ticks": 2_499_999_999,
@@ -110,10 +132,36 @@ def reports(tmp_path, *, scope, maximum=80.0, missing=False,
                        "state": 3, "reason": 8, "session": 71,
                        "generation": 72, "local_slot": slot,
                        "reference_slot": 0, "node_count": 4,
-                       "sample_interval_ms": 10000, "tick_hz": 250_000_000},
+                       "sample_interval_ms": 10000, "tick_hz": TICK_HZ},
             "records": records,
         }
         write_trace(folder, decoded)
+    actions = []
+    if scope:
+        pre_raw = TRACE_BASE_TICK - 1_000_000
+        post_raw = TRACE_BASE_TICK + 15_000_000_000 + 1_000_000
+        for uid in UIDS:
+            pre = anchor(uid, "pre", pre_raw, HOST_OFFSET_NS + pre_raw * 4)
+            post = anchor(uid, "post", post_raw, HOST_OFFSET_NS + post_raw * 4)
+            boards[uid]["host_raw_anchors"] = {"pre": pre, "post": post}
+            pre_raw_text = ",".join(
+                str(pre["bridge"][name]) for name in internal_seal.BRIDGE_FIELDS)
+            post_raw_text = ",".join(
+                str(post["bridge"][name]) for name in internal_seal.BRIDGE_FIELDS)
+            actions.extend((
+                {"uid": uid, "command": "SYSTem:VDC:FEEDback:BRIDge?",
+                 "start_ns": pre["host_start_ns"] + 10,
+                 "end_ns": pre["host_end_ns"] - 10, "raw": pre_raw_text},
+                {"uid": uid, "command": "SYSTem:TDMA:RING:START",
+                 "start_ns": pre["host_end_ns"] + 1_000_000,
+                 "end_ns": pre["host_end_ns"] + 2_000_000, "raw": "OK"},
+                {"uid": uid, "command": "SYSTem:TDMA:RING:STOP",
+                 "start_ns": post["host_start_ns"] - 2_000_000,
+                 "end_ns": post["host_start_ns"] - 1_000_000, "raw": "OK"},
+                {"uid": uid, "command": "SYSTem:VDC:FEEDback:BRIDge?",
+                 "start_ns": post["host_start_ns"] + 10,
+                 "end_ns": post["host_end_ns"] - 10, "raw": post_raw_text},
+            ))
     samples = []
     if scope:
         for due in range(5, 61, 5):
@@ -121,17 +169,27 @@ def reports(tmp_path, *, scope, maximum=80.0, missing=False,
                 continue
             folder = capture / f"sample-{due:04d}"
             folder.mkdir()
+            sample_raw = TRACE_BASE_TICK + int((due + 0.375) * TICK_HZ)
+            sample_host = HOST_OFFSET_NS + sample_raw * 4
             for channel in range(1, 5):
                 (folder / f"ch{channel}.block").write_bytes(
                     f"{due}:{channel}".encode("ascii"))
             (folder / "scope.json").write_text(json.dumps({
+                "capture_complete": True,
+                "trigger_admitted_ns": sample_host,
+                "trigger_complete_observed_ns": sample_host + 100_000,
                 "channels": [{"blocks": [{"path": f"ch{channel}.block"}]}
                              for channel in range(1, 5)]}), encoding="utf-8")
             samples.append({"due_s": due, "capture_complete": True,
+                            "acquisition_host_ns": [sample_host, sample_host + 100_000],
                             "phase": {"relative_ns": [[maximum], [0.0], [0.0]]}})
     payload = {
         "passed": True, "joint_internal_health_passed": True,
         "quiet_elapsed_s": 62.0, "errors": [], "boards": boards,
+        "actions": actions, "queries_during_acquisition": 0,
+        "plan": {"runtime_anchor_queries": 0,
+                 "core1_probe_work_added": False,
+                 "realtime_resource_seat_added": False},
         "joint_verdict": {"internal_health_passed": True,
                           "external_status": "PASS" if scope else "SKIPPED"},
     }
@@ -293,9 +351,224 @@ def test_scope_path_uses_relative_ns_and_binds_every_raw_block(tmp_path, monkeyp
     assert summary["phase_domain"] == "external_physical_sampled_windows"
     assert len(summary["scope_raw_blocks"]) == 48
     assert len(summary["scope_records"]) == 12
+    correlation = summary["time_correlation"]
+    assert correlation["evidence_valid"] is True
+    assert correlation["probe_mode"] == "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE"
+    assert correlation["runtime_board_queries"] == 0
+    assert correlation["core1_probe_work_added"] is False
+    assert correlation["realtime_resource_seat_added"] is False
+    assert correlation["exact_event_correlation_qualified"] is False
+    assert correlation["numeric_error_qualified"] is False
+    assert all(value > 0 for value in
+               correlation["unique_steady_associations_by_board"].values())
+    assert correlation["outside_capture_associations_by_board"] == {
+        uid: 1 for uid in UIDS[1:]}
+    assert all(row["association"] == "OUTSIDE_CAPTURE" for row in
+               correlation["associations"] if row["due_s"] == 60)
     monkeypatch.setattr(short, "_analyze_scope_memory", lambda report, blocks: {
         "relative_ns": [[999], [0.0], [0.0]]})
     short.validate_summary(tmp_path, summary)
+
+
+def mutate_anchor_rate(payload):
+    post = payload["boards"][UIDS[1]]["host_raw_anchors"]["post"]
+    post.update(host_start_ns=HOST_OFFSET_NS + 90_000_000_000,
+                host_end_ns=HOST_OFFSET_NS + 90_000_100_000)
+    actions = [row for row in payload["actions"] if row["uid"] == UIDS[1] and
+               row["command"].upper() == "SYSTEM:VDC:FEEDBACK:BRIDGE?"]
+    actions[1].update(start_ns=post["host_start_ns"] + 10,
+                      end_ns=post["host_end_ns"] - 10)
+
+
+def mutate_bridge_clock(payload):
+    post = payload["boards"][UIDS[1]]["host_raw_anchors"]["post"]
+    post["bridge"]["cached_hz"] = 249_000_000
+    actions = [row for row in payload["actions"] if row["uid"] == UIDS[1] and
+               row["command"].upper() == "SYSTEM:VDC:FEEDBACK:BRIDGE?"]
+    actions[1]["raw"] = ",".join(
+        str(post["bridge"][name]) for name in internal_seal.BRIDGE_FIELDS)
+
+
+def mutate_anchor_width(payload):
+    uid = UIDS[1]
+    anchors = payload["boards"][uid]["host_raw_anchors"]
+    actions = [row for row in payload["actions"] if row["uid"] == uid]
+    bridge_actions = sorted(
+        (row for row in actions if
+         row["command"].upper() == "SYSTEM:VDC:FEEDBACK:BRIDGE?"),
+        key=lambda row: row["start_ns"])
+    for label, action in zip(("pre", "post"), bridge_actions):
+        item = anchors[label]
+        center = (item["host_start_ns"] + item["host_end_ns"]) // 2
+        item.update(host_start_ns=center - 200_000_000,
+                    host_end_ns=center + 200_000_000)
+        action.update(start_ns=item["host_start_ns"] + 10,
+                      end_ns=item["host_end_ns"] - 10)
+    for row in payload["actions"]:
+        command = row["command"].upper()
+        if command == "SYSTEM:TDMA:RING:START":
+            row["start_ns"] += 500_000_000
+            row["end_ns"] += 500_000_000
+        elif command == "SYSTEM:TDMA:RING:STOP":
+            row["start_ns"] -= 500_000_000
+            row["end_ns"] -= 500_000_000
+
+
+def mutate_cross_board_pre_anchor(payload):
+    uid = UIDS[3]
+    anchor_row = payload["boards"][uid]["host_raw_anchors"]["pre"]
+    anchor_row["host_start_ns"] += 5_000_000
+    anchor_row["host_end_ns"] += 5_000_000
+    actions = [row for row in payload["actions"] if row["uid"] == uid]
+    pre = min((row for row in actions if
+               row["command"].upper() == "SYSTEM:VDC:FEEDBACK:BRIDGE?"),
+              key=lambda row: row["start_ns"])
+    pre["start_ns"] += 5_000_000
+    pre["end_ns"] += 5_000_000
+    start = next(row for row in actions if
+                 row["command"].upper() == "SYSTEM:TDMA:RING:START")
+    start["start_ns"] += 10_000_000
+    start["end_ns"] += 10_000_000
+
+
+def insert_runtime_query(payload):
+    starts = [row["start_ns"] for row in payload["actions"] if
+              row["command"].upper() == "SYSTEM:TDMA:RING:START"]
+    stops = [row["end_ns"] for row in payload["actions"] if
+             row["command"].upper() == "SYSTEM:TDMA:RING:STOP"]
+    middle = (min(starts) + max(stops)) // 2
+    payload["actions"].append({
+        "uid": UIDS[1], "command": "SYSTem:VDC:UNRELATED?",
+        "start_ns": middle, "end_ns": middle + 1, "raw": "0"})
+
+
+def insert_malformed_query(payload, start_ns, end_ns):
+    payload["actions"].append({
+        "uid": UIDS[1], "command": "SYSTem:VDC:UNRELATED?",
+        "start_ns": start_ns, "end_ns": end_ns, "raw": "0"})
+
+
+def insert_query_at_stop_boundary(payload):
+    stop = max(row["end_ns"] for row in payload["actions"] if
+               row["command"].upper() == "SYSTEM:TDMA:RING:STOP")
+    payload["actions"].append({
+        "uid": UIDS[1], "command": "SYSTem:TDMA:RING:STATus?",
+        "start_ns": stop, "end_ns": stop + 1, "raw": "0"})
+
+
+def move_most_scope_windows_after_capture(payload):
+    for sample in payload["scope_samples"]:
+        if sample["due_s"] != 15:
+            sample["acquisition_host_ns"] = [
+                HOST_OFFSET_NS + 100_000_000_000 + sample["due_s"],
+                HOST_OFFSET_NS + 100_000_000_001 + sample["due_s"]]
+
+
+def move_first_scope_before_capture(payload):
+    payload["scope_samples"][0]["acquisition_host_ns"] = [
+        HOST_OFFSET_NS - 1000, HOST_OFFSET_NS - 999]
+
+
+@pytest.mark.parametrize("mutation,error", [
+    (lambda payload: payload["boards"][UIDS[1]].pop("host_raw_anchors"),
+     "action set is incomplete"),
+    (mutate_bridge_clock, "bridge action raw response is invalid"),
+    (mutate_anchor_rate, "corner rate differs"),
+    (mutate_anchor_width, "corner rate differs"),
+    (lambda payload: payload["boards"][UIDS[1]]["host_raw_anchors"]["post"]
+     ["bridge"].update(raw_after=payload["boards"][UIDS[1]]["host_raw_anchors"]
+                       ["post"]["bridge"]["raw_after"] + 1),
+     "structured bridge anchor differs"),
+    (mutate_cross_board_pre_anchor, "all-board RUN interval"),
+    (insert_runtime_query, "raw actions contain a query"),
+    (lambda payload: insert_malformed_query(payload, "inside", "inside"),
+     "timed raw action identity or interval is invalid"),
+    (lambda payload: insert_malformed_query(payload, True, False),
+     "timed raw action identity or interval is invalid"),
+    (lambda payload: insert_malformed_query(payload, 2, 1),
+     "timed raw action identity or interval is invalid"),
+    (lambda payload: payload["actions"][1].update(raw="NOT_OK"),
+     "START/STOP action did not complete"),
+    (move_most_scope_windows_after_capture,
+     "lacks complete or steady unique associations"),
+    (move_first_scope_before_capture,
+     "lacks complete or steady unique associations"),
+    (lambda payload: payload["scope_samples"][0].update(due_s=60),
+     "due sequence differs"),
+])
+def test_scope_time_correlation_fails_closed(tmp_path, mutation, error):
+    joint, inner = reports(tmp_path, scope=True)
+    payload = json.loads(inner.read_text(encoding="utf-8"))
+    mutation(payload)
+    inner.write_text(json.dumps(payload), encoding="utf-8")
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=True, seconds=60)
+    assert summary["passed"] is True
+    assert summary["errors"] == []
+    assert summary["time_correlation"]["evidence_valid"] is False
+    assert any(error in value for value in summary["time_correlation"]["reasons"])
+
+
+@pytest.mark.parametrize("field,value", [
+    ("queries_during_acquisition", 1),
+    ("runtime_anchor_queries", 1),
+    ("core1_probe_work_added", True),
+    ("realtime_resource_seat_added", True),
+])
+def test_scope_time_correlation_requires_nonintrusive_probe_boundary(
+        tmp_path, field, value):
+    joint, inner = reports(tmp_path, scope=True)
+    payload = json.loads(inner.read_text(encoding="utf-8"))
+    if field == "queries_during_acquisition":
+        payload[field] = value
+    else:
+        payload["plan"][field] = value
+    inner.write_text(json.dumps(payload), encoding="utf-8")
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=True, seconds=60)
+    assert summary["passed"] is True
+    assert summary["time_correlation"]["evidence_valid"] is False
+    assert any("nonintrusive probe boundary" in error for error in
+               summary["time_correlation"]["reasons"])
+
+
+def test_scope_time_correlation_binds_native_trace_tick_rate(tmp_path):
+    joint, inner = reports(tmp_path, scope=True)
+    mutate_trace(inner, 2, lambda decoded: decoded["status"].update(tick_hz=150_000_000))
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=True, seconds=60)
+    assert summary["passed"] is True
+    assert summary["time_correlation"]["evidence_valid"] is False
+    assert any("trace tick rate differs" in error for error in
+               summary["time_correlation"]["reasons"])
+
+
+def test_scope_interval_on_conservative_bin_boundary_is_ambiguous(tmp_path):
+    joint, inner = reports(tmp_path, scope=True)
+    first = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=True, seconds=60)
+    boundary = first["time_correlation"]["models"][0]["bins"][0]["host_end_ns"][0]
+    payload = json.loads(inner.read_text(encoding="utf-8"))
+    payload["scope_samples"][0]["acquisition_host_ns"] = [boundary, boundary]
+    inner.write_text(json.dumps(payload), encoding="utf-8")
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=True, seconds=60)
+    row = next(item for item in summary["time_correlation"]["associations"]
+               if item["due_s"] == 5 and item["board_id"] == UIDS[1])
+    assert row["candidate_bins"] == [0, 1]
+    assert row["unique_bin"] is None
+    assert row["association"] == "AFFINE_AMBIGUOUS"
+    assert row["internal_residual_ns"] is None
+
+
+def test_query_starting_at_global_stop_boundary_is_not_runtime_intrusion(tmp_path):
+    joint, inner = reports(tmp_path, scope=True)
+    payload = json.loads(inner.read_text(encoding="utf-8"))
+    insert_query_at_stop_boundary(payload)
+    inner.write_text(json.dumps(payload), encoding="utf-8")
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=True, seconds=60)
+    assert summary["time_correlation"]["evidence_valid"] is True
 
 
 def test_over_one_microsecond_and_missing_sample_are_errors(tmp_path, monkeypatch):
@@ -347,6 +620,19 @@ def test_rehashed_json_phase_must_still_match_offline_raw_decode(tmp_path, monke
     monkeypatch.setattr(short, "_analyze_scope_memory", lambda report, blocks: {
         "relative_ns": [[80], [0.0], [0.0]]})
     with pytest.raises(ValueError, match="offline RAW decode"):
+        short.validate_summary(tmp_path, summary)
+
+
+def test_rehashed_scope_host_interval_must_match_bound_scope_record(tmp_path, monkeypatch):
+    joint, inner = reports(tmp_path, scope=True, maximum=80)
+    payload = json.loads(inner.read_text(encoding="utf-8"))
+    payload["scope_samples"][0]["acquisition_host_ns"][0] += 1
+    inner.write_text(json.dumps(payload), encoding="utf-8")
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=True, seconds=60)
+    monkeypatch.setattr(short, "_analyze_scope_memory", lambda report, blocks: {
+        "relative_ns": [[80], [0.0], [0.0]]})
+    with pytest.raises(ValueError, match="host-time interval differs"):
         short.validate_summary(tmp_path, summary)
 
 

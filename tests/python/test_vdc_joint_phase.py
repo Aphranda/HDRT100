@@ -461,6 +461,7 @@ print(json.dumps({
 def test_repository_adapter_constructs_final_probe_in_fresh_process():
     code = r'''
 import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from tools.workflows.vdc_joint_capture.inputs import load_inputs
@@ -472,7 +473,7 @@ inputs = load_inputs(
     root / 'tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_seal.py')
 adapter = load_adapter(inputs.runtime_entrypoint, board_uids=inputs.board_uids)
 options = SimpleNamespace(
-    out=root / f'out/pytest/vdc-typed-construction-probe-{os.getpid()}',
+    out=root / f'out/pytest/vdc-typed-construction-probe-{os.getpid()}-{time.time_ns()}',
     seconds=60, period_ns=1000000,
     summary_interval_ms=0, no_reference=False, expire_output=False,
     scope=False, external_scope=True, workflow_inputs_evidence=inputs.evidence(root),

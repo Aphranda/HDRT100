@@ -104,7 +104,28 @@ def _topology_valid(summary: dict) -> bool:
 
 
 def _dpll_observation_valid(summary: dict) -> bool:
-    if summary.get("schema") == "HAOFV_P3_DPLL_SHORT_V2":
+    schema = summary.get("schema")
+    if (isinstance(schema, str) and schema.startswith("HAOFV_P3_DPLL_SHORT_V") and
+            schema != "HAOFV_P3_DPLL_SHORT_V3"):
+        return False
+    if schema == "HAOFV_P3_DPLL_SHORT_V3":
+        correlation = _dict(summary.get("time_correlation"))
+        correlation_shape_valid = (
+            correlation.get("schema") == "HAOFV_DPLL_HOST_TIME_CORRELATION_V1" and
+            correlation.get("probe_mode") ==
+            "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE" and
+            isinstance(correlation.get("evidence_valid"), bool) and
+            correlation.get("exact_event_correlation_qualified") is False and
+            correlation.get("numeric_error_qualified") is False)
+        correlation_detail_valid = (
+            (correlation.get("evidence_valid") is True and
+             correlation.get("runtime_board_queries") == 0 and
+             correlation.get("core1_probe_work_added") is False and
+             correlation.get("realtime_resource_seat_added") is False and
+             len(_rows(correlation.get("models"))) == 3 and
+             bool(_rows(correlation.get("associations")))) or
+            (correlation.get("evidence_valid") is False and
+             bool(_rows(correlation.get("reasons")))))
         return (summary.get("duration_s") == 60 and
                 summary.get("passed") is True and
                 summary.get("evidence_status") == "PASS" and
@@ -113,7 +134,9 @@ def _dpll_observation_valid(summary: dict) -> bool:
                 summary.get("phase_severity") in ("INFO", "WARN", "ERROR") and
                 isinstance(summary.get("phase_max_abs_ns"), (int, float)) and
                 len(_rows(summary.get("internal_phase_endpoints"))) == 3 and
-                len(_rows(summary.get("internal_phase_traces"))) == 3)
+                len(_rows(summary.get("internal_phase_traces"))) == 3 and
+                (summary.get("scope_enabled") is not True or
+                 (correlation_shape_valid and correlation_detail_valid)))
     if summary.get("_input_validated") is True:
         return True
     rows = _rows(summary.get("boards"))
@@ -306,6 +329,13 @@ def build_acceptance_report(*, profile: str, stages: dict[str, dict],
                     for error in _rows(node.get("dpll_feedback")):
                         add(stage, "INFO", "DPLL_DIAGNOSTIC_FEEDBACK", str(error), error, uid)
             if stage == "DPLL":
+                correlation = _dict(summary.get("time_correlation"))
+                if (summary.get("schema") == "HAOFV_P3_DPLL_SHORT_V3" and
+                        summary.get("scope_enabled") is True and
+                        correlation.get("evidence_valid") is False):
+                    add(stage, quality_severity, "DPLL_TIME_CORRELATION_UNQUALIFIED",
+                        "External/internal time correlation was observed but not qualified",
+                        correlation)
                 short_severity = summary.get("phase_severity")
                 if short_severity == "WARN":
                     add(stage, "WARN", "DPLL_PHASE_OUTSIDE_100NS",
@@ -323,7 +353,7 @@ def build_acceptance_report(*, profile: str, stages: dict[str, dict],
                     add(stage, quality_severity, "DPLL_SEQUENCE_QUALITY", "Ring sequence consistency gate did not pass", {
                         "ring_sequence_consistent": False, "ring_sequence_skew": summary.get("ring_sequence_skew")})
                 legacy_boards = (_rows(summary.get("boards"))
-                                 if summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V2" else [])
+                                 if summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V3" else [])
                 for raw_board in legacy_boards:
                     board = _dict(raw_board)
                     uid = board.get("board", board.get("address"))
@@ -334,7 +364,7 @@ def build_acceptance_report(*, profile: str, stages: dict[str, dict],
                     elif board.get("reference_node") is not True and board.get("dpll_locked") is not True:
                         add(stage, quality_severity, "DPLL_LOCK_QUALITY",
                             "Follower has not demonstrated lock", board, uid)
-                if (summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V2" and
+                if (summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V3" and
                         not _rows(summary.get("boards"))):
                     add(stage, quality_severity, "DPLL_LOCK_EVIDENCE_MISSING",
                         "No per-board lock or phase evidence is available", summary)
