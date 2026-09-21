@@ -146,7 +146,7 @@ base 层由 tracked workflow 管理 allowlist、query barrier、总工作量/文
 
 结果分开表达执行成败、证据完整性、被测能力判定与清理结果。沿用 `INFO/WARN/ERROR/FATAL` 分级，判据在运行前固定；采集成功不能代替锁相通过，离线分析不能代替硬件验收。
 
-P3 默认绑定同一组四板完成 OTA、TDMA 与 `p3_bench.json` 的 `dpll_short_seconds` 短闭环，不再要求 NO5。配置的 HDO 可枚举时联合稀疏物理采样；确认未枚举时仅使用内部 endpoint residual，外部状态明确为 SKIPPED；VISA discovery 自身失败不能冒充设备缺席。外部 `scope_samples[].phase.relative_ns` 与内部 `final_phase_raw` residual 是不同测量域，不混合取值。相差分级引用 `p3_dpll_short.py` 的 `PHASE_WARN_NS` 与 `PHASE_ERROR_NS`；证据缺失、解析、内部健康、STOP 或恢复失败使用独立 evidence ERROR，不伪装成相差超限。最终 receipt 哈希绑定 summary、joint reports、scope records 和 RAW block，`check-staged` 离线复算后放行。
+P3 默认绑定同一组四板完成 OTA、TDMA 与 `p3_bench.json` 的 `dpll_short_seconds` 短闭环，不再要求 NO5。配置的 HDO 可枚举时联合稀疏物理采样；确认未枚举时 external 明确为 SKIPPED，并以 NO2--NO4 原生 summary trace 的稳态 residual extrema 包络分级，不再只看最终 endpoint。内部路径校验完整请求窗、终止/覆盖、每 bin 成功、`INTERNAL_MAX_SUCCESS_GAP_S`、最后稳态 bin 与 endpoint 一致性；`INTERNAL_SETTLING_BINS` 对应启动 bin 保留在证据中但不进入稳态精度分级。分页响应必须按 canonical 读序重组，并与 `summary.ram.bin`、原生解码结果一致；summary 还绑定源码指纹、build、四板 UID、session、generation、slot 与 node count。外部 `scope_samples[].phase.relative_ns` 与内部 owner residual 是不同测量域，不混合取值；内部包络不授予连续 GPIO 波形精度。相差分级引用 `p3_dpll_short.py` 的 `PHASE_WARN_NS` 与 `PHASE_ERROR_NS`；证据缺失、解析、内部健康、STOP 或恢复失败使用独立 evidence ERROR，不伪装成相差超限。最终 receipt 哈希绑定 summary、joint reports、内部原生 trace/分页记录，以及 scope-on 时的 scope records 和 RAW block，`check-staged` 离线复算后放行。
 
 交接验收要求：新工作区可按声明环境和输入完成离线复算；具备对应硬件时可重跑工作流并安全恢复。证据包不得包含密钥或本机凭据。最近成功记录必须注明适用配置和版本，不能以日期新鲜替代兼容性证明。
 

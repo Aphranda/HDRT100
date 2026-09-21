@@ -109,7 +109,7 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| `VDC-OBS-007` | 内部长期探针及可选外部复核 | IN PROGRESS | summary/GUARD 封存、十分钟和重复 STOP/ARM 联合窗口已通过，见进度 025；未观测区间有界化、重叠 Allan 偏差与离线计量工具见进度 036。继续质量发布及恢复对账。完整覆盖、服务/成功最大间隔、拒绝/缺口及计数完整性分别判定；空段非零残差，零调频非故障。零 RUN 查询，尾段/退休独立核验；内部残差不替代 GPIO 精度。 |
+| `VDC-OBS-007` | 内部长期探针及可选外部复核 | IN PROGRESS | summary/GUARD 封存、十分钟和重复 STOP/ARM 联合窗口已通过，见进度 025；未观测区间有界化与离线计量见进度 036；P3 scope-off 已改用三从原生稳态 residual extrema，并闭合分页、身份和末 bin/endpoint 复算，见进度 038。继续质量发布及恢复对账。完整覆盖、服务/成功最大间隔、拒绝/缺口及计数完整性分别判定；启动 bin 保留但不进入稳态分级，空段非零残差，零调频非故障。零 RUN 查询，尾段/退休独立核验；内部残差不替代 GPIO 精度。 |
 | `VDC-OBS-001` | EDGE_TIMESTAMP 与 bounded drain | IN PROGRESS | 依赖 `SYNC-LA-003/005`；active/shadow ownership、wrap、重臂、STOP、overrun/drop 和批次交接可审计，TDMA 短帧无扰动。 |
 | `VDC-OBS-002` | StorageAO 分段 SD 与恢复 | PENDING | 依赖 `VDC-OBS-001`；段号/时间基/CRC、落盘 ACK、背压、缺口、断电恢复齐全。写入不进入 Core1，背压不阻塞实时环路。 |
 | `VDC-OBS-003` | 分段解码、缺口审计与 SVG | PENDING | 依赖 `VDC-OBS-002`、`SYNC-LA-006`；完整段可重放，坏段可定位，图例绑定节点/通道/边沿/时基，缺失不插值伪装。 |

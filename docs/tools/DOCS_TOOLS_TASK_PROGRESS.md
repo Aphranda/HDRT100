@@ -12,6 +12,16 @@ Last updated: 2026-09-21
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20260921-026：P3 scope-off 原生稳态 trace 分级
+
+- TODO task ID：TOOLS-P3-DPLL-SHORT-001 DONE、TOOLS-CHECK-001 IN PROGRESS；本切片提高内部观测证据精度和可复算性，不新增固件、Core1 工作或特等席。
+- 根因与修复：V1 只用三个 follower 的最终 endpoint residual 分级，可能漏掉短闭环稳态窗内的极值。实现提交 `14742cee` 将 schema 升为 `HAOFV_P3_DPLL_SHORT_V2`；scope-off 改用 NO2--NO4 `summary.ram.bin` 的稳态 residual extrema。完整捕获仍校验终止、覆盖、每 bin 成功和最大成功间隔；首个 `INTERNAL_SETTLING_BINS` 启动 bin 保留但不参与精度分级，endpoint 必须落入最后稳态 bin。
+- 原生证据链：严格按首读与后续页长重组 `read-pages.json`，逐字节等于 `summary.ram.bin`，重新解码后等于 `decoded.json`；同时绑定源码指纹、build、四板 UID、三从共同 session/generation、source/target 与 local/reference slot、node count。V1 endpoint-only summary 被明确拒绝，scope-on 的 RAW 离线复算路径保持不变。
+- 漏报复现：用当前 V2 逻辑离线重算 `out/HardwareAcceptance/20260921/anomaly-fix-r1/p3-r4/`，旧 V1 endpoint 最大绝对值为 94 ns、INFO；原生稳态包络为 119 ns、WARN，NO2/NO3/NO4 分别为 `[-113,+100]`、`[-112,+102]`、`[-119,+109]` ns（快照，非事实源）。这证明最终端点不足以代表稳定窗内极值。
+- 软件验证：P3 DPLL/alarm/acceptance 与 VDC summary/seal 聚焦回归 296 项通过；扩大复核集合 559 项通过，Python 编译、工具治理/catalog 与 whitespace 检查通过；独立复核结论 PASS。
+- 同指纹四板 P3：`out/HardwareAcceptance/20260921/p3-internal-trace-v2-r1/p3-r1/` 使用 build `20260921101121`，结果 `PASS_WITH_WARNINGS`（快照：INFO 32 / WARN 22 / ERROR 0 / FATAL 0）。scope 未枚举，external=SKIPPED；三从约五十秒稳态包络分别为 `[-126,+98]`、`[-137,+99]`、`[-172,+103]` ns，总最大绝对值 172 ns，正确产生 `DPLL_PHASE_OUTSIDE_100NS`。完整六十秒覆盖、分页重组、末 bin/endpoint 和共同 session/generation 均通过，`check-staged` 通过。
+- 边界：启动 bin 的大残差继续留在原件但不冒充稳态精度；内部 summary 是 owner 观测包络，不是连续 GPIO 波形或逐事件相关证据。下一步继续 TOOLS-CHECK-001 与下一批工具分类，不因本次 WARN 上调产品锁相资格。
+
 ### TOOLS-PROGRESS-20260921-025：全量 Python 异常与静态资源门禁闭环
 
 - TODO task ID：TOOLS-CHECK-001。实现提交 `18add5f4` 清理上一轮全量基线的十项失败与十九项 setup error（快照，非事实源）：P3 known-topology fixture 同步现行四板 OTA/ring 集合与目录；VDC owner harness 补 priority-health publish 并严格验证 health→prepare→context→RX 顺序；TDMA harness 同步 event-selected、priority STOP、board uptime、observer 长时 ACTIVE 及 STOP/故障退役契约。未修改生产固件，不通过放宽产品行为来换取测试通过。

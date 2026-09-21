@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-20
+Last updated: 2026-09-21
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -21,6 +21,16 @@ Last updated: 2026-09-20
 | 下一 gate | 必须指向一个 TODO Task ID 或明确外部阻塞。 |
 
 ## 当前 checkpoint
+
+### VDC-PROGRESS-20260921-038：四板内部稳态包络替代最终端点分级
+
+- TODO task ID：`VDC-OBS-007`、`VDC-PRECISION-001`、`VDC-VERIFY-001` IN PROGRESS；本轮只改 P3 host 证据消费与复算，不改固件、VDC owner、Core1 负载或特等席。
+- 异常：scope-off 的 V1 P3 只检查 STOP 后 `final_phase_raw` endpoint，不能覆盖前一稳态区间的 residual 极值。对 `out/HardwareAcceptance/20260921/anomaly-fix-r1/p3-r4/` 离线重算时，旧端点为 94 ns、INFO，原生稳态包络为 119 ns、WARN；三从范围分别为 `[-113,+100]`、`[-112,+102]`、`[-119,+109]` ns（快照，非事实源）。
+- 修复提交 `14742cee`：`HAOFV_P3_DPLL_SHORT_V2` 从 NO2--NO4 的 `summary.ram.bin` 提取稳态 residual extrema。完整六十秒 capture 必须满足 schema/interval、terminal/freeze、覆盖、全部 bin 有成功和成功最大间隔；首个 `INTERNAL_SETTLING_BINS` 启动 bin 完整保留、显式排除于稳态精度，最终 endpoint 必须落在最后稳态 bin。分页记录按 canonical 顺序重组并与 native bytes、`decoded.json` 双重一致。
+- 身份绑定：summary 与 receipt 逐项绑定 staged 源码指纹、firmware build、按序四板 UID；三从 trace 绑定共同 session/generation、source/target slot、local/reference slot 与 node count。V1 endpoint-only 证据 fail-closed，scope-on 外部 RAW 路径未放宽。
+- 软件验证：P3 DPLL/alarm/acceptance 与 VDC summary/seal 聚焦回归 296 项通过；扩大复核集合 559 项通过，独立复核 PASS。Python 编译、工具治理/catalog 与 whitespace 检查通过。
+- 四板实测：`out/HardwareAcceptance/20260921/p3-internal-trace-v2-r1/p3-r1/`，build `20260921101121`，scope absent、external=SKIPPED，结果 `PASS_WITH_WARNINGS`（快照：INFO 32 / WARN 22 / ERROR 0 / FATAL 0）。NO2/NO3/NO4 约五十秒稳态包络为 `[-126,+98]`、`[-137,+99]`、`[-172,+103]` ns，总最大绝对值 172 ns，按实现阈值正确输出 `DPLL_PHASE_OUTSIDE_100NS`；完整 capture、分页重组、endpoint/末 bin 及共同 session/generation 全部通过。
+- 边界与下一 gate：内部 owner residual 包络不是 GPIO 物理精度、连续波形或逐事件相关证据；启动大残差仍可审计。继续 `VDC-OBS-007` 的质量发布/恢复对账和 `VDC-PRECISION-001` 的物理测量不确定度，不因本轮 WARN 提升 formal lock 或产品 RUN。
 
 ### VDC-PROGRESS-20260920-037：示波器通道时延读回与收敛窗分级判据
 
