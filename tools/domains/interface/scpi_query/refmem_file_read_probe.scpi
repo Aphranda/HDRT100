@@ -1,0 +1,7 @@
+# Probe the RefMem package file through generic Storage read jobs.
+SYSTem:ERRor?
+SYSTem:STORage:FILE:READ? "/refmem/app_model.rmtp",0,64
+SYSTem:STORage:FILE:READ? "/refmem/app_model.rmtp",4096,512
+SYSTem:STORage:FILE:READ? "/refmem/app_model.rmtp",4512,64
+SYSTem:STORage:JOB?
+SYSTem:ERRor?

@@ -1,0 +1,10 @@
+# Probe RefMem HIL manifest dependencies on the board SD storage.
+SYSTem:ERRor?
+SYSTem:ERRor?
+SYSTem:STORage:FILE:INFO? "/manifest.idx"
+SYSTem:STORage:FILE:INFO? "/profile/active.json"
+SYSTem:STORage:FILE:INFO? "/mission/recipe.json"
+SYSTem:STORage:FILE:INFO? "/cal/board_cal.json"
+SYSTem:STORage:FILE:INFO? "/refmem/app_model.rmtp"
+SYSTem:REFMEM:LOAD:STATus?
+SYSTem:ERRor?

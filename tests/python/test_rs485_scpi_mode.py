@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tools.scpi_query.scpi_query import strip_rs485_test_echo
+from tools.domains.interface.scpi_query.scpi_query import strip_rs485_test_echo
+from tools.scpi_query.scpi_query import strip_rs485_test_echo as legacy_strip_rs485_test_echo
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,8 +14,12 @@ MODBUS_COMPONENT = ROOT / "components/communication/rs485_modbus"
 COMMUNICATION_HEADER = MODBUS_COMPONENT / "inc/rs485_communication.h"
 COMMUNICATION_SOURCE = MODBUS_COMPONENT / "src/rs485_communication.c"
 COMMANDS = ROOT / "docs/interface/SCPI_COMMANDS.md"
-PROBE = ROOT / "tools/scpi_query/rs485_scpi_loopback_probe.scpi"
+PROBE = ROOT / "tools/domains/interface/scpi_query/rs485_scpi_loopback_probe.scpi"
 VALIDATOR = ROOT / "tools/rs485_modbus_validate/rs485_modbus_validate.py"
+
+
+def test_scpi_query_legacy_import_forwards_to_classified_implementation():
+    assert legacy_strip_rs485_test_echo is strip_rs485_test_echo
 
 
 def test_usb_scpi_mode_commands_are_registered_for_uart_rs485_channel():

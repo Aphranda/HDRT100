@@ -21,7 +21,7 @@ except ImportError as exc:  # pragma: no cover - bench dependency
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools.sd_trace_decode.sd_trace_decode import decode_trace  # noqa: E402
+from tools.domains.storage.sd_trace_decode.sd_trace_decode import decode_trace  # noqa: E402
 from tools.scpi_common.scpi_serial import STORAGE_FILE_READ_MAX_BYTES  # noqa: E402
 
 BISS_STATUS_FIELDS = (

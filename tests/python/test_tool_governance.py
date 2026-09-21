@@ -60,6 +60,19 @@ def rejected(repo, contains):
     return result
 
 
+def layout(**overrides):
+    value = dict(
+        schema="TOOLS_LAYOUT_V1",
+        standard_roots=["archive", "build", "common", "domains", "host", "workflows"],
+        stable_roots=["tool_governance"],
+        allowed_root_files=["tools/alpha.py"],
+        legacy_roots=["legacy"],
+        legacy_files=[],
+    )
+    value.update(overrides)
+    return value
+
+
 def test_valid_unassessed_is_inventory_not_qualification(repo):
     result = governance.check(*repo)
     assert result["passed"] and not result["errors"]
@@ -82,6 +95,51 @@ def test_ignored_untracked_tool_is_not_claimed_visible(repo):
     write(root, "tools/scratch.py", "pass\n", tracked=False)
     assert "tools/scratch.py" not in governance.visible_files(root)
     assert governance.check(*repo)["passed"]
+
+
+def test_layout_allows_classified_standard_path(repo):
+    root, registry, schema = repo
+    write(root, "tools/domains/vdc/new_tool.py", "pass\n")
+    registry["tools"].append(family("TOOL-VDC", "tools/domains/vdc/new_tool.py"))
+    assert governance.check(root, registry, schema, layout())["passed"]
+
+
+def test_layout_rejects_new_top_level_directory(repo):
+    root, registry, schema = repo
+    write(root, "tools/new_family/new_tool.py", "pass\n")
+    registry["tools"].append(family("TOOL-NEW", "tools/new_family/new_tool.py"))
+    result = governance.check(root, registry, schema, layout())
+    assert any("unclassified top-level tool directory" in error for error in result["errors"])
+
+
+def test_layout_rejects_new_root_script_even_when_registered(repo):
+    root, registry, schema = repo
+    write(root, "tools/new_tool.py", "pass\n")
+    registry["tools"].append(family("TOOL-NEW", "tools/new_tool.py"))
+    result = governance.check(root, registry, schema, layout())
+    assert any("unclassified tool root file" in error for error in result["errors"])
+
+
+def test_layout_allows_frozen_legacy_file(repo):
+    root, registry, schema = repo
+    path = "tools/legacy/old_tool.py"
+    write(root, path, "pass\n")
+    registry["tools"].append(family("TOOL-OLD", path))
+    frozen = layout(legacy_files=[path])
+    assert governance.check(root, registry, schema, frozen)["passed"]
+
+
+def test_layout_rejects_growth_inside_legacy_root(repo):
+    root, registry, schema = repo
+    path = "tools/legacy/new_tool.py"
+    write(root, path, "pass\n")
+    registry["tools"].append(family("TOOL-NEW", path))
+    result = governance.check(root, registry, schema, layout())
+    assert any("new file in frozen legacy tool root" in error for error in result["errors"])
+
+
+def test_layout_allows_reduced_legacy_baseline(repo):
+    assert governance.check(*repo, layout())["passed"]
 
 
 @pytest.mark.parametrize("case", ["cross_family", "within_family"])
@@ -302,6 +360,16 @@ def test_supported_requires_explicit_evidence(repo):
     assert governance.check(*repo)["passed"]
 
 
+@pytest.mark.parametrize("field", ["validation", "handoff_evidence"])
+def test_supported_rejects_empty_proof_reference(repo, field):
+    root, registry, _ = repo
+    empty = "tests/empty-proof.txt" if field == "validation" else "docs/empty-proof.txt"
+    write(root, empty, "")
+    tool = qualify(root, registry)
+    tool[field] = [empty] if field == "validation" else empty
+    rejected(repo, f"empty {('validation' if field == 'validation' else 'handoff evidence')} reference")
+
+
 @pytest.mark.parametrize("field,value", [("dependency_review", "PENDING"), ("validation", []),
     ("handoff_evidence", None), ("operation", "UNASSESSED")])
 def test_supported_rejects_incomplete_qualification(repo, field, value):
@@ -459,9 +527,14 @@ def test_cli_optional_catalog_check_does_not_affect_default(repo, capsys):
     registry["tools"][0]["files"].extend([
         dict(path=governance.REGISTRY, role="resource"),
         dict(path=governance.SCHEMA, role="resource"),
+        dict(path=governance.LAYOUT, role="resource"),
         dict(path="tools/README.md", role="documentation")])
     write(root, governance.REGISTRY, json.dumps(registry))
     write(root, governance.SCHEMA, json.dumps(schema))
+    write(root, governance.LAYOUT, json.dumps(layout(allowed_root_files=sorted([
+        "tools/README.md", "tools/alpha.py", governance.LAYOUT,
+        governance.REGISTRY, governance.SCHEMA,
+    ]))))
     write(root, "tools/README.md", "manual notes, catalog not yet generated\n")
     assert governance.main(["check", "--root", str(root)]) == 0
     assert json.loads(capsys.readouterr().out)["passed"]

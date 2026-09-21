@@ -8,17 +8,27 @@ operating-condition, dependency and handoff review. Use
 `python tools/tool_governance/tool_governance.py check --check-catalog` to check
 ownership and navigation. See [governance tool usage](tool_governance/README.md).
 
+`tools/tool_layout.json` freezes the remaining legacy top-level roots and their
+current file paths. New implementations must enter `domains/`, `common/`,
+`workflows/`, `build/`, or `host/`; adding a root script, a new top-level tool
+directory, or a new file inside a frozen legacy root fails the governance check.
+
 Place build, flashing, release packaging, production test, and diagnostics
 tools in this directory.
 
-The current layout is grouped by function:
+The classified layout is grouped by ownership:
 
 - `tools/bench/`: bench GUI and ad-hoc trigger helpers
 - `tools/checks/`: repository guards and namespace checks
+- `tools/domains/<domain>/<tool>/`: domain-owned implementations
+- `tools/common/<capability>/`: shared capabilities with multiple callers
 - `tools/workflows/`: pinned cross-tool orchestration inputs and lifecycle helpers
+- `tools/build/`: build and release-driving tools
+- `tools/host/`: host-only support tools
 - `tools/tests/`: host/ARM fallback test runners
-- feature-specific subdirectories such as `tools/ota_send/` and
-  `tools/sd_board_validate/`
+
+Legacy feature directories remain as frozen compatibility locations while they
+are migrated in reviewed batches.
 
 ## Registered tool families
 
@@ -97,12 +107,12 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-SCOPE-DPLL-CAPTURE | VDC / VDC tool maintenance | UNASSESSED | `tools/scope_dpll_capture/scope_dpll_capture.py` |
 | TOOL-SCPI-COMMON | INTERFACE / INTERFACE tool maintenance | UNASSESSED | Library / resources |
 | TOOL-SCPI-LEGACY-VALIDATE | INTERFACE / INTERFACE tool maintenance | UNASSESSED | `tools/scpi_legacy_validate/scpi_legacy_validate.py` |
-| TOOL-SCPI-QUERY | INTERFACE / INTERFACE tool maintenance | UNASSESSED | `tools/scpi_query/scpi_query.py` |
+| TOOL-SCPI-QUERY | INTERFACE / INTERFACE tool maintenance | UNASSESSED | `tools/domains/interface/scpi_query/scpi_query.py` |
 | TOOL-SD-BOARD-VALIDATE | STORAGE / STORAGE tool maintenance | UNASSESSED | `tools/sd_board_validate/sd_board_validate.py` |
 | TOOL-SD-FS-BUILD | STORAGE / STORAGE tool maintenance | UNASSESSED | `tools/sd_fs_build/sd_fs_build.py` |
 | TOOL-SD-MKFS | STORAGE / STORAGE tool maintenance | UNASSESSED | `tools/sd_mkfs/sd_mkfs.py` |
 | TOOL-SD-RAW-CLEAR | STORAGE / STORAGE tool maintenance | UNASSESSED | `tools/sd_raw_clear/sd_raw_clear.py` |
-| TOOL-SD-TRACE-DECODE | STORAGE / STORAGE tool maintenance | UNASSESSED | `tools/sd_trace_decode/sd_trace_decode.py` |
+| TOOL-SD-TRACE-DECODE | STORAGE / STORAGE tool maintenance | UNASSESSED | `tools/domains/storage/sd_trace_decode/sd_trace_decode.py` |
 | TOOL-SMA-CABLE-DELAY-VALIDATE | CALIBRATION / CALIBRATION tool maintenance | UNASSESSED | `tools/sma_cable_delay_validate/sma_cable_appointment_validate.py`<br>`tools/sma_cable_delay_validate/sma_cable_delay_analyze.py`<br>`tools/sma_cable_delay_validate/sma_cable_delay_sweep.py`<br>`tools/sma_cable_delay_validate/sma_cable_five_board_validate.py`<br>`tools/sma_cable_delay_validate/sma_cable_symmetric_rtt.py`<br>`tools/sma_cable_delay_validate/sma_cable_wire_order.py` |
 | TOOL-SMA-LOOPBACK-VALIDATE | CALIBRATION / CALIBRATION tool maintenance | UNASSESSED | `tools/sma_loopback_validate/sma_single_board_loopback.py`<br>`tools/sma_loopback_validate/sma_two_board_frequency_sweep.py`<br>`tools/sma_loopback_validate/sma_two_board_in1_out1.py`<br>`tools/sma_loopback_validate/sma_two_board_matrix.py` |
 | TOOL-STATE-MACHINE-RESOURCE-CHECK | STATE_MACHINE / STATE_MACHINE tool maintenance | UNASSESSED | `tools/state_machine_resource_check/state_machine_resource_check.py` |
@@ -126,7 +136,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-VDC-PRIORITY-TRACE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_priority_trace/vdc_priority_trace.py`<br>`tools/vdc_priority_trace/vdc_priority_trace_capture.py` |
 | TOOL-VDC-PROBE-SUPPORT | VDC / VDC tool maintenance | EXPERIMENTAL | Library / resources |
 | TOOL-VDC-SPARSE-SCOPE | VDC / VDC tool maintenance | EXPERIMENTAL | Library / resources |
-| TOOL-VDC-SYNC-METROLOGY | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_sync_metrology/vdc_sync_metrology.py` |
+| TOOL-VDC-SYNC-METROLOGY | VDC / VDC tool maintenance | UNASSESSED | `tools/domains/vdc/sync_metrology/vdc_sync_metrology.py` |
 | TOOL-VDC-TDMA-SELFTEST-VALIDATE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py` |
 | TOOL-VISA-OTA-SEND | OTA / OTA tool maintenance | UNASSESSED | `tools/visa_ota_send/visa_ota_send.py` |
 | TOOL-WATCHDOG-MONITOR | WATCHDOG / WATCHDOG tool maintenance | UNASSESSED | `tools/watchdog_monitor/watchdog_reset_probe.py` |
@@ -252,7 +262,7 @@ Get-Content -Path tools\README.md -Encoding UTF8
   `SYSTem:SYNC:VDC:LOCK:READiness?`, and verifies the current diagnostic path
   remains blocked at `TIMESTAMP_NOT_ELIGIBLE` instead of reporting a false
   lock.
-- `vdc_sync_metrology/vdc_sync_metrology.py`: offline synchronization metrology
+- `domains/vdc/sync_metrology/vdc_sync_metrology.py`: offline synchronization metrology
   over frozen joint-capture evidence. It reads only the recorded
   `capture/input-probe.json` (no boards, no scope, no firmware symbols), builds
   the sampled phase series, estimates within-capture repeatability, the
@@ -392,7 +402,7 @@ python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port
   arms/disarms SEQ_STEP, ENC_COUNT, and BISS_TAP, then asserts `SYST:RES?`
   contains the expected mode resources while armed and releases them after
   disarm.
-- `sd_trace_decode/sd_trace_decode.py`: offline decoder for SD trace `.bin`
+- `domains/storage/sd_trace_decode/sd_trace_decode.py`: offline decoder for SD trace `.bin`
   files. It verifies header, event CRC, and optional `.idx` metadata, then
   emits JSON or CSV with decoded domain/event/severity names and details such
   as trigger state transitions, source/edge/gate/safe configuration changes,
@@ -495,10 +505,10 @@ Get-Content -Encoding UTF8 build\sd_validation_*\trace_readback\decoded_fault_tr
 Decode a copied SD trace after validation or field capture:
 
 ```powershell
-python tools\sd_trace_decode\sd_trace_decode.py traces\fault\fault_000001.bin `
+python tools\domains\storage\sd_trace_decode\sd_trace_decode.py traces\fault\fault_000001.bin `
   --idx traces\fault\fault_000001.idx `
   --output build\fault_000001_trace.json
-python tools\sd_trace_decode\sd_trace_decode.py traces\fault\fault_000001.bin --csv
+python tools\domains\storage\sd_trace_decode\sd_trace_decode.py traces\fault\fault_000001.bin --csv
 ```
 
 ## OTA Board Validation Loop

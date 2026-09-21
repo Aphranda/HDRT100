@@ -56,8 +56,8 @@
       "dependency_review": "COMPLETE",
       "aliases": [],
       "validation": ["tests/python/test_vdc_priority_joint_capture.py", "tests/python/test_vdc_joint_lifecycle.py", "tests/python/test_vdc_internal_seal.py", "tests/python/test_vdc_joint_runtime_base.py", "tests/python/test_vdc_joint_run_output.py", "tests/python/test_vdc_joint_phase.py", "tests/python/test_vdc_joint_longwindow.py", "tests/python/test_vdc_joint_trace.py", "tests/python/test_vdc_joint_follow.py", "tests/python/test_vdc_joint_observer.py", "tests/python/test_vdc_joint_match.py", "tests/python/test_vdc_joint_direct.py", "tests/python/test_vdc_joint_typed.py", "tests/python/test_vdc_joint_base.py", "tests/python/test_vdc_probe_support.py"],
-      "handoff_evidence": null,
-      "notes": "Validates config/tool_workflows/vdc_joint_capture_internal_seal.json before import; tracked code owns the complete internal-seal runtime from outer STOP/RAM/child/restore through base command/export state. Archived lineage stays pinned as evidence with a zero-file executable closure. No Flash writes; vector/reference-injection scenarios remain separate."
+      "handoff_evidence": "docs/tools/DOCS_TOOLS_TASK_PROGRESS.md",
+      "notes": "Validates config/tool_workflows/vdc_joint_capture_internal_seal.json before import; tracked code owns the complete internal-seal runtime from outer STOP/RAM/child/restore through base command/export state. Archived lineage stays pinned as evidence with a zero-file executable closure. Detached-worktree offline recomputation and hardware rerun handoff are recorded in DOCS_TOOLS_TASK_PROGRESS. No Flash writes; vector/reference-injection scenarios remain separate."
     },
     {
       "id": "TOOL-VDC-PROBE-SUPPORT",
@@ -2194,9 +2194,49 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/scpi_query/scpi_query.py"
+        "tools/domains/interface/scpi_query/scpi_query.py"
       ],
       "files": [
+        {
+          "path": "tools/archive/interface/scpi_query/pre_domain_migration/scpi_query.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/interface/scpi_query/model_gpio_drive_g6.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/interface/scpi_query/model_gpio_probe.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/interface/scpi_query/refmem_file_read_probe.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/interface/scpi_query/refmem_storage_info_probe.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/interface/scpi_query/rs485_mode_probe.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/interface/scpi_query/rs485_scpi_loopback_probe.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/interface/scpi_query/sample_capture_debug_probe.scpi",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/interface/scpi_query/scpi_query.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/domains/interface/scpi_query/vdc_readback_probe.scpi",
+          "role": "resource"
+        },
         {
           "path": "tools/scpi_query/model_gpio_drive_g6.scpi",
           "role": "resource"
@@ -2227,7 +2267,7 @@
         },
         {
           "path": "tools/scpi_query/scpi_query.py",
-          "role": "entrypoint"
+          "role": "compatibility_wrapper"
         },
         {
           "path": "tools/scpi_query/vdc_readback_probe.scpi",
@@ -2239,10 +2279,17 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
-      "validation": [],
+      "aliases": [
+        {
+          "path": "tools/scpi_query/scpi_query.py",
+          "target": "tools/domains/interface/scpi_query/scpi_query.py"
+        }
+      ],
+      "validation": [
+        "tests/python/test_rs485_scpi_mode.py"
+      ],
       "handoff_evidence": null,
-      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+      "notes": "Classified implementation and probe resources live under domains/interface; the previous implementation is preserved byte-for-byte under archive and the old Python path is a compatibility wrapper. Lifecycle qualification and full device operating conditions remain pending."
     },
     {
       "id": "TOOL-SD-BOARD-VALIDATE",
@@ -2353,21 +2400,36 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/sd_trace_decode/sd_trace_decode.py"
+        "tools/domains/storage/sd_trace_decode/sd_trace_decode.py"
       ],
       "files": [
         {
-          "path": "tools/sd_trace_decode/sd_trace_decode.py",
+          "path": "tools/archive/storage/sd_trace_decode/pre_domain_migration/sd_trace_decode.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/storage/sd_trace_decode/sd_trace_decode.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/sd_trace_decode/sd_trace_decode.py",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
-      "validation": [],
+      "aliases": [
+        {
+          "path": "tools/sd_trace_decode/sd_trace_decode.py",
+          "target": "tools/domains/storage/sd_trace_decode/sd_trace_decode.py"
+        }
+      ],
+      "validation": [
+        "tests/python/test_sd_trace_decode_layout.py"
+      ],
       "handoff_evidence": null,
-      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+      "notes": "Classified offline implementation lives under domains/storage; the previous implementation is preserved byte-for-byte under archive and the old Python path is a compatibility wrapper. Lifecycle qualification remains pending."
     },
     {
       "id": "TOOL-SMA-CABLE-DELAY-VALIDATE",
@@ -2957,6 +3019,10 @@
           "role": "entrypoint"
         },
         {
+          "path": "tools/tool_layout.json",
+          "role": "resource"
+        },
+        {
           "path": "tools/tool_registry.json",
           "role": "resource"
         },
@@ -2977,7 +3043,7 @@
         "tests/python/test_tool_governance.py"
       ],
       "handoff_evidence": null,
-      "notes": "Explicit invocation only; no pre-commit integration, entrypoint imports or hardware access. Inventory hints are not a complete runtime graph; handoff qualification pending."
+      "notes": "Explicit invocation only; no pre-commit integration, entrypoint imports or hardware access. The versioned layout baseline rejects new root files, new top-level directories and new files inside frozen legacy roots while allowing classified roots to grow. Inventory hints are not a complete runtime graph; handoff qualification pending."
     },
     {
       "id": "TOOL-TRIGGER-MEAS",
@@ -3315,21 +3381,36 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/vdc_sync_metrology/vdc_sync_metrology.py"
+        "tools/domains/vdc/sync_metrology/vdc_sync_metrology.py"
       ],
       "files": [
         {
-          "path": "tools/vdc_sync_metrology/vdc_sync_metrology.py",
+          "path": "tools/archive/vdc/sync_metrology/pre_domain_migration/vdc_sync_metrology.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/vdc/sync_metrology/vdc_sync_metrology.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_sync_metrology/vdc_sync_metrology.py",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
-      "validation": [],
+      "aliases": [
+        {
+          "path": "tools/vdc_sync_metrology/vdc_sync_metrology.py",
+          "target": "tools/domains/vdc/sync_metrology/vdc_sync_metrology.py"
+        }
+      ],
+      "validation": [
+        "tests/python/test_vdc_sync_metrology.py"
+      ],
       "handoff_evidence": null,
-      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+      "notes": "Classified offline implementation lives under domains/vdc; the previous implementation is preserved byte-for-byte under archive and the old Python path is a compatibility wrapper. The receipt provenance points at the classified implementation; lifecycle qualification remains pending."
     },
     {
       "id": "TOOL-VDC-TDMA-SELFTEST-VALIDATE",

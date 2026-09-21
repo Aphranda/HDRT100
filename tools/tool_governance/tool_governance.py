@@ -22,6 +22,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = "tools/tool_registry.json"
 SCHEMA = "tools/tool_registry.schema.json"
+LAYOUT = "tools/tool_layout.json"
 WRAPPERS = {
     "tools/check_scpi_usb_namespace.py": "tools/checks/check_scpi_usb_namespace.py",
     "tools/rp2350_tk_toolbox.py": "tools/bench/rp2350_tk_toolbox.py",
@@ -155,9 +156,23 @@ def load_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=pairs)
 
 
-def check(root: Path, registry: dict, schema: dict) -> dict:
+def _proof_reference_error(root: Path, path: str, label: str) -> str | None:
+    """Require proof references to contain bytes, not only to exist."""
     try:
-        return _check_registry(root, registry, schema)
+        if (root / path).stat().st_size == 0:
+            return f"empty {label} reference: {path}"
+    except OSError as exc:
+        return f"unreadable {label} reference: {path}: {type(exc).__name__}"
+    return None
+
+
+def check(root: Path, registry: dict, schema: dict, layout: dict | None = None) -> dict:
+    try:
+        result = _check_registry(root, registry, schema)
+        if layout is not None:
+            result["errors"].extend(layout_errors(root, layout))
+            result["passed"] = not result["errors"]
+        return result
     except (KeyError, TypeError, AttributeError, ValueError) as exc:
         return dict(passed=False, errors=[f"invalid registry/schema input: {type(exc).__name__}: {exc}"], warnings=[])
 
@@ -208,6 +223,10 @@ def _check_registry(root: Path, registry: dict, schema: dict) -> dict:
         for evidence in tool["validation"]:
             if not safe_path(root, evidence) or not (root / evidence).is_file():
                 errors.append(f"missing/unsafe validation reference: {identity}: {evidence}")
+            else:
+                proof_error = _proof_reference_error(root, evidence, "validation")
+                if proof_error:
+                    errors.append(f"{identity}: {proof_error}")
         if tool["lifecycle"] == "UNASSESSED":
             warnings.append(f"unassessed legacy tool family: {identity}")
         if tool["dependency_review"] != "COMPLETE":
@@ -219,6 +238,11 @@ def _check_registry(root: Path, registry: dict, schema: dict) -> dict:
         if tool["handoff_evidence"] and (not safe_path(root, tool["handoff_evidence"]) or
                                         not (root / tool["handoff_evidence"]).is_file()):
             errors.append(f"missing/unsafe handoff evidence: {identity}")
+        elif tool["handoff_evidence"]:
+            proof_error = _proof_reference_error(root, tool["handoff_evidence"],
+                                                 "handoff evidence")
+            if proof_error:
+                errors.append(f"{identity}: {proof_error}")
     alias_targets = {}
     for tool in registry["tools"]:
         for dep in tool["depends_on"]:
@@ -246,6 +270,68 @@ def _check_registry(root: Path, registry: dict, schema: dict) -> dict:
     return dict(passed=not errors, errors=errors, warnings=warnings,
                 tool_families=len(ids), owned_files=len(ownership), visible_files=len(visible),
                 scope="Structure/ownership only. No entrypoint execution, runtime dependency or hardware qualification.")
+
+
+def layout_errors(root: Path, layout: dict) -> list[str]:
+    """Reject growth outside classified roots and inside frozen legacy roots."""
+    required = {
+        "schema", "standard_roots", "stable_roots", "allowed_root_files",
+        "legacy_roots", "legacy_files",
+    }
+    if not isinstance(layout, dict) or set(layout) != required:
+        return ["invalid tool layout fields"]
+    if layout["schema"] != "TOOLS_LAYOUT_V1":
+        return ["unsupported tool layout schema"]
+
+    errors = []
+    list_fields = required - {"schema"}
+    for field in sorted(list_fields):
+        values = layout[field]
+        if (not isinstance(values, list) or any(not isinstance(value, str) for value in values)
+                or len(values) != len(set(values)) or values != sorted(values)):
+            errors.append(f"tool layout {field} must be a sorted unique string list")
+    if errors:
+        return errors
+
+    roots = {}
+    for field in ("standard_roots", "stable_roots", "legacy_roots"):
+        for value in layout[field]:
+            if (not value or "/" in value or "\\" in value or value in roots
+                    or not re.fullmatch(r"[a-z][a-z0-9_]*", value)):
+                errors.append(f"invalid or duplicate tool layout root: {value}")
+            else:
+                roots[value] = field
+
+    root_files = set(layout["allowed_root_files"])
+    for path in root_files:
+        parts = PurePosixPath(path).parts
+        if not safe_path(root, path) or len(parts) != 2 or parts[0] != "tools":
+            errors.append(f"invalid allowed tool root file: {path}")
+
+    legacy_roots = set(layout["legacy_roots"])
+    legacy_files = set(layout["legacy_files"])
+    for path in legacy_files:
+        parts = PurePosixPath(path).parts
+        if (not safe_path(root, path) or len(parts) < 3 or parts[0] != "tools"
+                or parts[1] not in legacy_roots):
+            errors.append(f"legacy baseline path outside a legacy root: {path}")
+
+    if errors:
+        return errors
+
+    for path in visible_files(root):
+        parts = PurePosixPath(path).parts
+        if len(parts) == 2:
+            if path not in root_files:
+                errors.append(f"unclassified tool root file: {path}")
+            continue
+        top = parts[1]
+        category = roots.get(top)
+        if category is None:
+            errors.append(f"unclassified top-level tool directory: tools/{top}/")
+        elif category == "legacy_roots" and path not in legacy_files:
+            errors.append(f"new file in frozen legacy tool root: {path}")
+    return errors
 
 
 def catalog(registry: dict) -> str:
@@ -285,7 +371,8 @@ def main(argv=None) -> int:
             code = int(any("error" in item for item in result["files"]))
         else:
             registry = load_json(args.root / REGISTRY)
-            result = check(args.root, registry, load_json(args.root / SCHEMA))
+            result = check(args.root, registry, load_json(args.root / SCHEMA),
+                           load_json(args.root / LAYOUT))
             if args.check_catalog and result["passed"]:
                 result["errors"].extend(catalog_errors(args.root, registry))
                 result["passed"] = not result["errors"]

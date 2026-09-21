@@ -12,16 +12,21 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.vdc_sync_metrology.vdc_sync_metrology import (  # noqa: E402
+from tools.domains.vdc.sync_metrology.vdc_sync_metrology import (  # noqa: E402
     MetrologyRefusal,
     analyze,
     main,
     overlapping_adev,
     sha256_file,
 )
+from tools.vdc_sync_metrology.vdc_sync_metrology import analyze as legacy_analyze  # noqa: E402
 
 REAL_600S = (ROOT / "out/HardwareAcceptance/20260919/dpll-delay-center-r2"
              / "plus20-batched-600s")
+
+
+def test_legacy_import_forwards_to_classified_implementation():
+    assert legacy_analyze is analyze
 
 
 def synth_windows(count=24, cadence_s=5.0, slope=0.0, sigma_ns=0.0,
