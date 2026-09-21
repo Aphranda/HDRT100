@@ -51,7 +51,7 @@
         {"path": "tools/workflows/vdc_joint_capture/typed.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/README.md", "role": "documentation"}
       ],
-      "depends_on": ["TOOL-SCPI-COMMON", "TOOL-TDMA-RING-MONITOR", "TOOL-VDC-PROBE-SUPPORT"],
+      "depends_on": ["TOOL-DPLL-OBSERVATION-DECODE", "TOOL-SCPI-COMMON", "TOOL-TDMA-RING-MONITOR", "TOOL-VDC-PROBE-SUPPORT"],
       "external_dependencies": ["pyserial for four-board hardware runs"],
       "dependency_review": "COMPLETE",
       "aliases": [],
@@ -920,51 +920,98 @@
     },
     {
       "id": "TOOL-DPLL-OBSERVATION-DECODE",
-      "purpose": "dpll observation decode",
+      "purpose": "Offline CRC-checked decode of persisted DPLL observation captures into the shared samples JSON shape",
       "domain": "VDC",
       "owner": "VDC tool maintenance",
-      "lifecycle": "UNASSESSED",
-      "operation": "UNASSESSED",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "OFFLINE",
       "entrypoints": [
-        "tools/dpll_observation_decode/dpll_observation_decode.py"
+        "tools/domains/vdc/dpll_observation_decode/dpll_observation_decode.py"
       ],
       "files": [
         {
-          "path": "tools/dpll_observation_decode/dpll_observation_decode.py",
+          "path": "tools/archive/vdc/dpll_observation_decode/pre_domain_migration/.gitattributes",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/dpll_observation_decode/pre_domain_migration/dpll_observation_decode.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/vdc/dpll_observation_decode/dpll_observation_decode.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/dpll_observation_decode/dpll_observation_decode.py",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
-      "external_dependencies": [],
-      "dependency_review": "PENDING",
-      "aliases": [],
-      "validation": [],
+      "external_dependencies": [
+        "Python >=3.10"
+      ],
+      "dependency_review": "COMPLETE",
+      "aliases": [
+        {
+          "path": "tools/dpll_observation_decode/dpll_observation_decode.py",
+          "target": "tools/domains/vdc/dpll_observation_decode/dpll_observation_decode.py"
+        }
+      ],
+      "validation": [
+        "tests/python/test_dpll_observation_decode.py",
+        "tests/python/test_vdc_auto_capture.py",
+        "tests/python/test_vdc_capture_ram_export.py"
+      ],
       "handoff_evidence": null,
-      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+      "notes": "Classified implementation lives under domains/vdc; the prior source is preserved byte-for-byte under archive and the old path is a compatibility wrapper. It reads local files only and never opens a board or changes TDMA state. Promotion to SUPPORTED requires a frozen binary corpus covering every accepted schema and corruption gate, plus clean-workspace CLI reproduction with output hashes. If the firmware capture schema is retired with no active consumer, retain the source and corpus and move the family to ARCHIVED rather than deleting it."
     },
     {
       "id": "TOOL-DPLL-RESIDUAL-ANALYZE",
-      "purpose": "dpll residual analyze",
+      "purpose": "Offline DPLL residual, convergence and anomaly analysis over monitor or decoded samples JSON",
       "domain": "VDC",
       "owner": "VDC tool maintenance",
-      "lifecycle": "UNASSESSED",
-      "operation": "UNASSESSED",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "OFFLINE",
       "entrypoints": [
-        "tools/dpll_residual_analyze/dpll_residual_analyze.py"
+        "tools/domains/vdc/dpll_residual_analyze/dpll_residual_analyze.py"
       ],
       "files": [
         {
-          "path": "tools/dpll_residual_analyze/dpll_residual_analyze.py",
+          "path": "tools/archive/vdc/dpll_residual_analyze/pre_domain_migration/.gitattributes",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/dpll_residual_analyze/pre_domain_migration/dpll_residual_analyze.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/vdc/dpll_residual_analyze/dpll_residual_analyze.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/dpll_residual_analyze/dpll_residual_analyze.py",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
-      "external_dependencies": [],
-      "dependency_review": "PENDING",
-      "aliases": [],
-      "validation": [],
+      "external_dependencies": [
+        "Python >=3.10",
+        "samples JSON produced by a compatible monitor or DPLL observation decoder"
+      ],
+      "dependency_review": "COMPLETE",
+      "aliases": [
+        {
+          "path": "tools/dpll_residual_analyze/dpll_residual_analyze.py",
+          "target": "tools/domains/vdc/dpll_residual_analyze/dpll_residual_analyze.py"
+        }
+      ],
+      "validation": [
+        "tests/python/test_dpll_residual_analyze.py",
+        "tests/python/test_dpll_observation_capture.py",
+        "tests/python/test_dpll_vdc_monitor.py"
+      ],
       "handoff_evidence": null,
-      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+      "notes": "Classified implementation lives under domains/vdc; the prior source is preserved byte-for-byte under archive and the old path is a compatibility wrapper. It is offline and records decimation, metadata and coordinate-domain limits instead of treating monitor snapshots as a full-rate trace. Promotion to SUPPORTED requires frozen decoder and monitor fixtures, clean-workspace reproduction and explicit versioning of the accepted samples JSON interface. If all compatible producers are retired, retain the source and fixtures and move the family to ARCHIVED rather than deleting it."
     },
     {
       "id": "TOOL-DPLL-SERVO-TUNE",

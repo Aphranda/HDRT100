@@ -6,7 +6,7 @@ import zlib
 import pytest
 
 from test_vdc_command_owner import ROOT, compile_executable, function_body
-from tools.dpll_observation_decode.dpll_observation_decode import HEADER, MAGIC, decode
+from tools.domains.vdc.dpll_observation_decode.dpll_observation_decode import HEADER, MAGIC, decode
 
 
 @pytest.fixture(scope="module")

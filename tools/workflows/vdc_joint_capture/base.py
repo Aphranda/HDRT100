@@ -106,7 +106,8 @@ class Probe:
             Path(capture.__file__), Path(trn.__file__),
             Path(BACKEND.__file__),
             ROOT / "tools/calibration_ring_validate/tdma_board_record.py",
-            ROOT / "tools/dpll_observation_decode/dpll_observation_decode.py",
+            (ROOT / "tools/domains/vdc/dpll_observation_decode/"
+             "dpll_observation_decode.py"),
         )
         self.report["tool_sources"] = [
             {"path": str(path), "sha256": sha(path)} for path in sources]

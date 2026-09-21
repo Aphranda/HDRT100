@@ -26,10 +26,10 @@ for path in (ROOT, ROOT / "tools", ROOT / "tools" / "calibration_ring_validate")
         sys.path.insert(0, str(path))
 
 from calibration_data_train import parse_storage_read  # noqa: E402
-from tools.dpll_observation_decode.dpll_observation_decode import (  # noqa: E402
+from tools.domains.vdc.dpll_observation_decode.dpll_observation_decode import (  # noqa: E402
     decode,
 )
-from tools.dpll_residual_analyze.dpll_residual_analyze import (  # noqa: E402
+from tools.domains.vdc.dpll_residual_analyze.dpll_residual_analyze import (  # noqa: E402
     load_monitor_samples,
     write_reports,
 )

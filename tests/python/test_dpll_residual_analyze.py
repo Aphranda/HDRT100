@@ -1,16 +1,85 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 
-from tools.dpll_residual_analyze.dpll_residual_analyze import (
+from tools.domains.vdc.dpll_residual_analyze import dpll_residual_analyze as analyze_module
+from tools.domains.vdc.dpll_residual_analyze.dpll_residual_analyze import (
     ResidualPoint,
     analyze_series,
     load_monitor_samples,
     render_svg,
     run,
 )
+
+
+ROOT = Path(__file__).resolve().parents[2]
+TOOL_DIR = ROOT / "tools" / "domains" / "vdc" / "dpll_residual_analyze"
+LEGACY_ENTRYPOINT = (ROOT / "tools" / "dpll_residual_analyze" /
+                     "dpll_residual_analyze.py")
+ARCHIVE_SOURCE = (ROOT / "tools" / "archive" / "vdc" /
+                  "dpll_residual_analyze" / "pre_domain_migration" /
+                  "dpll_residual_analyze.py")
+
+
+def test_classified_analyzer_archive_and_compatibility_api_are_bound() -> None:
+    assert hashlib.sha256(ARCHIVE_SOURCE.read_bytes()).hexdigest() == (
+        "bd3e411331f554d1cacaf374bc13b4c450c7d9e4076b525d45f93acb21a57bbd")
+    spec = importlib.util.spec_from_file_location(
+        "legacy_dpll_residual_analyze", LEGACY_ENTRYPOINT)
+    assert spec is not None and spec.loader is not None
+    legacy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(legacy)
+    public_api = (
+        "DPLL_LOCKED_STATE", "DEFAULT_LOCK_THRESHOLD_NS",
+        "CORRELATION_FLAG_CYCLE_PHASE", "CORRELATION_FLAG_COMMON_TIME",
+        "CORRELATION_FLAG_LOCAL_PHASE_SAME_CLOCK",
+        "CORRELATION_FLAG_LOCAL_PHASE_COMMON_MAPPED", "ResidualPoint",
+        "load_monitor_samples", "analyze_series", "render_follower_svg",
+        "render_follower_evidence_svg", "render_svg", "render_combined_svg",
+        "write_reports", "parse_args", "run", "main",
+    )
+    for name in public_api:
+        assert getattr(legacy, name) is getattr(analyze_module, name)
+
+
+def test_classified_and_compatibility_analyzer_cli_match(tmp_path: Path) -> None:
+    source = tmp_path / "samples.json"
+    source.write_text(json.dumps({"NO2": [{
+        "elapsed_s": float(index), "error": "",
+        "dpll_vector": {"last_phase_error_ns": residual,
+                        "last_frequency_error_ppb": index,
+                        "dco_phase_offset_ns": index * 2,
+                        "dco_period_adjust_ppb": -index,
+                        "state": 5, "gate_reject_code": 0,
+                        "dpll_update_seq": index + 1},
+        "readiness": {"accepted_count": index + 1, "rejected_count": 0},
+    } for index, residual in enumerate((100, -80, 60, -40, 20, -10))]}),
+                      encoding="utf-8")
+    out_dir = tmp_path / "analysis"
+    successes = []
+    for entrypoint in (TOOL_DIR / "dpll_residual_analyze.py", LEGACY_ENTRYPOINT):
+        successes.append(subprocess.run(
+            [sys.executable, str(entrypoint), "--input", str(source),
+            "--out-dir", str(out_dir)], cwd=tmp_path, text=True,
+            capture_output=True, timeout=20))
+    assert [result.returncode for result in successes] == [0, 0]
+    assert successes[0].stdout == successes[1].stdout
+    assert successes[0].stderr == successes[1].stderr == ""
+
+    failures = []
+    for entrypoint in (TOOL_DIR / "dpll_residual_analyze.py", LEGACY_ENTRYPOINT):
+        failures.append(subprocess.run(
+            [sys.executable, str(entrypoint), "--input", str(tmp_path / "missing.json")],
+            cwd=tmp_path, text=True, capture_output=True, timeout=20))
+    assert [result.returncode for result in failures] == [2, 2]
+    assert failures[0].stdout == failures[1].stdout
+    assert failures[0].stderr == failures[1].stderr == ""
 
 
 def point(index: int, residual: int, *, state: int = 5,

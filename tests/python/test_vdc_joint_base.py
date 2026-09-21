@@ -48,6 +48,10 @@ def test_load_base_has_tracked_provenance_and_no_out_runtime(tmp_path):
     sources = [Path(row["path"]).resolve() for row in probe.report["tool_sources"]]
     assert module.source_path.resolve() in sources
     assert Path(tracked_base.tracked_probe_support.__file__).resolve() in sources
+    assert (ROOT / "tools/domains/vdc/dpll_observation_decode/"
+            "dpll_observation_decode.py").resolve() in sources
+    assert (ROOT / "tools/dpll_observation_decode/"
+            "dpll_observation_decode.py").resolve() not in sources
     assert not any(path.is_relative_to(ROOT / "out") for path in sources)
     source = module.source_path.read_text(encoding="utf-8")
     assert "sys.path.insert" not in source

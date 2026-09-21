@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import importlib.util
 import json
 import struct
+import subprocess
+import sys
 import zlib
+from pathlib import Path
 
-from tools.dpll_observation_decode.dpll_observation_decode import (
+from tools.domains.vdc.dpll_observation_decode import dpll_observation_decode as decode_module
+from tools.domains.vdc.dpll_observation_decode.dpll_observation_decode import (
     HEADER,
     MAGIC,
     RECORD,
@@ -19,6 +25,64 @@ from tools.dpll_observation_decode.dpll_observation_decode import (
     SCHEMA_V1,
     run,
 )
+
+
+ROOT = Path(__file__).resolve().parents[2]
+TOOL_DIR = ROOT / "tools" / "domains" / "vdc" / "dpll_observation_decode"
+LEGACY_ENTRYPOINT = (ROOT / "tools" / "dpll_observation_decode" /
+                     "dpll_observation_decode.py")
+ARCHIVE_SOURCE = (ROOT / "tools" / "archive" / "vdc" /
+                  "dpll_observation_decode" / "pre_domain_migration" /
+                  "dpll_observation_decode.py")
+
+
+def test_classified_decoder_archive_and_compatibility_api_are_bound() -> None:
+    assert hashlib.sha256(ARCHIVE_SOURCE.read_bytes()).hexdigest() == (
+        "dd6536dbe2c638fbc3b6f6e7b7d036dbc2a0240b855d7ebffe44f353fb7fa528")
+    spec = importlib.util.spec_from_file_location(
+        "legacy_dpll_observation_decode", LEGACY_ENTRYPOINT)
+    assert spec is not None and spec.loader is not None
+    legacy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(legacy)
+    public_api = (
+        "MAGIC", "SCHEMA_V1", "SCHEMA", "SCHEMA_V3", "SCHEMA_V4", "SCHEMA_V5",
+        "SCHEMA_V6", "HEADER", "RECORD_V1", "RECORD", "RECORD_V3", "RECORD_V4",
+        "RECORD_V5", "CAPTURE_KIND_MASTER", "CAPTURE_KIND_FOLLOWER_COMMAND",
+        "CAPTURE_KIND_FOLLOWER_STATE", "CAPTURE_KIND_FOLLOWER_EVIDENCE",
+        "AUTO_KINDS", "LOCAL_KINDS", "DECODED_COMMAND", "decode", "run",
+        "parse_args", "main",
+    )
+    for name in public_api:
+        assert getattr(legacy, name) is getattr(decode_module, name)
+
+
+def test_classified_and_compatibility_decoder_cli_match(tmp_path: Path) -> None:
+    records = RECORD_V1.pack(1, 10, -2, 3, 5)
+    capture = HEADER.pack(
+        MAGIC, SCHEMA_V1, RECORD_V1.size, 1, 0, 10, 10,
+        zlib.crc32(records) & 0xFFFFFFFF) + records
+    source = tmp_path / "capture.bin"
+    output = tmp_path / "samples.json"
+    source.write_bytes(capture)
+    successes = []
+    for entrypoint in (TOOL_DIR / "dpll_observation_decode.py", LEGACY_ENTRYPOINT):
+        successes.append(subprocess.run(
+            [sys.executable, str(entrypoint), "--input", str(source),
+             "--board", "NO1", "--output", str(output)],
+            cwd=tmp_path, text=True, capture_output=True, timeout=20))
+    assert [result.returncode for result in successes] == [0, 0]
+    assert successes[0].stdout == successes[1].stdout
+    assert successes[0].stderr == successes[1].stderr == ""
+
+    failures = []
+    for entrypoint in (TOOL_DIR / "dpll_observation_decode.py", LEGACY_ENTRYPOINT):
+        failures.append(subprocess.run(
+            [sys.executable, str(entrypoint), "--input", str(tmp_path / "missing.bin"),
+             "--board", "NO1", "--output", str(output)],
+            cwd=tmp_path, text=True, capture_output=True, timeout=20))
+    assert [result.returncode for result in failures] == [2, 2]
+    assert failures[0].stdout == failures[1].stdout
+    assert failures[0].stderr == failures[1].stderr == ""
 
 
 def test_decode_verifies_header_and_emits_monitor_shape(tmp_path):

@@ -62,8 +62,8 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-DOC-REGRESSION | DOCS / DOCS tool maintenance | UNASSESSED | `tools/doc_regression_check.py` |
 | TOOL-DOCS-CHECK | DOCS / DOCS tool maintenance | UNASSESSED | `tools/docs_check/docs_check.py` |
 | TOOL-DPLL-OBSERVATION-CAPTURE | VDC / VDC tool maintenance | UNASSESSED | `tools/dpll_observation_capture/dpll_observation_capture.py` |
-| TOOL-DPLL-OBSERVATION-DECODE | VDC / VDC tool maintenance | UNASSESSED | `tools/dpll_observation_decode/dpll_observation_decode.py` |
-| TOOL-DPLL-RESIDUAL-ANALYZE | VDC / VDC tool maintenance | UNASSESSED | `tools/dpll_residual_analyze/dpll_residual_analyze.py` |
+| TOOL-DPLL-OBSERVATION-DECODE | VDC / VDC tool maintenance | EXPERIMENTAL | `tools/domains/vdc/dpll_observation_decode/dpll_observation_decode.py` |
+| TOOL-DPLL-RESIDUAL-ANALYZE | VDC / VDC tool maintenance | EXPERIMENTAL | `tools/domains/vdc/dpll_residual_analyze/dpll_residual_analyze.py` |
 | TOOL-DPLL-SERVO-TUNE | VDC / VDC tool maintenance | UNASSESSED | `tools/dpll_servo_tune/dpll_servo_tune.py` |
 | TOOL-DPLL-VDC-MONITOR | VDC / VDC tool maintenance | UNASSESSED | `tools/dpll_vdc_monitor/dpll_vdc_monitor.py` |
 | TOOL-DPLL-WAVEFORM-CAPTURE | VDC / VDC tool maintenance | UNASSESSED | `tools/dpll_waveform_capture/dpll_waveform_capture.py` |

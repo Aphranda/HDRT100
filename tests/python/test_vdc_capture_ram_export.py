@@ -9,7 +9,7 @@ import pytest
 from test_vdc_command_owner import ROOT, compile_executable, function_body
 from test_vdc_local_follow_capture import local_capture_exe  # noqa: F401
 from test_vdc_auto_capture import run_capture
-from tools.dpll_observation_decode.dpll_observation_decode import HEADER, MAGIC, decode
+from tools.domains.vdc.dpll_observation_decode.dpll_observation_decode import HEADER, MAGIC, decode
 
 
 @pytest.fixture(scope='module')

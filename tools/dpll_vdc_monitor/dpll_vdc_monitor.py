@@ -1516,7 +1516,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if args.internal_only:
         try:
-            from tools.dpll_residual_analyze.dpll_residual_analyze import (
+            from tools.domains.vdc.dpll_residual_analyze.dpll_residual_analyze import (
                 load_monitor_samples,
                 write_reports,
             )
