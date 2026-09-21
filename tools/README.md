@@ -128,7 +128,7 @@ UNASSESSED means inventoried, not qualified or deprecated. IDs denote tool famil
 | TOOL-TWO-BOARD-IO-VALIDATE | SYNC / SYNC tool maintenance | UNASSESSED | `tools/two_board_io_validate/two_board_io_validate.py` |
 | TOOL-UART-LOG-MONITOR | COMMUNICATION / COMMUNICATION tool maintenance | UNASSESSED | `tools/uart_log_monitor/uart_log_monitor.py` |
 | TOOL-UF2-JOIN | OTA / OTA tool maintenance | UNASSESSED | `tools/uf2_join/make_fill_bin.py`<br>`tools/uf2_join/uf2_join.py` |
-| TOOL-VDC-DPLL-REPLAY | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_dpll_replay/vdc_dpll_replay.py` |
+| TOOL-VDC-DPLL-REPLAY | VDC / VDC tool maintenance | EXPERIMENTAL | `tools/domains/vdc/dpll_replay/vdc_dpll_replay.py` |
 | TOOL-VDC-GPIO-LOCK-VALIDATE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py` |
 | TOOL-VDC-JOINT-WORKFLOW | VDC / VDC workflow maintenance | EXPERIMENTAL | Library / resources |
 | TOOL-VDC-LATCH-VALIDATE | VDC / VDC tool maintenance | UNASSESSED | `tools/vdc_latch_validate/vdc_latch_validate.py` |

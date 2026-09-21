@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import importlib.util
 import sys
 import json
 import os
@@ -10,17 +12,93 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-TOOL_DIR = ROOT / "tools" / "vdc_dpll_replay"
-if str(TOOL_DIR) not in sys.path:
-    sys.path.insert(0, str(TOOL_DIR))
+TOOL_DIR = ROOT / "tools" / "domains" / "vdc" / "dpll_replay"
+LEGACY_ENTRYPOINT = ROOT / "tools" / "vdc_dpll_replay" / "vdc_dpll_replay.py"
+LEGACY_RUNNER = ROOT / "tools" / "vdc_dpll_replay" / "vdc_dpll_replay_runner.c"
+ARCHIVE_DIR = (ROOT / "tools" / "archive" / "vdc" / "dpll_replay" /
+               "pre_domain_migration")
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from vdc_dpll_replay import (  # noqa: E402
+from tools.domains.vdc.dpll_replay.vdc_dpll_replay import (  # noqa: E402
     DIAGNOSTIC_ONLY,
     SCHEMA,
     demo_trace,
     parse_int_list,
     validate_trace,
 )
+from tools.domains.vdc.dpll_replay import vdc_dpll_replay as replay_module  # noqa: E402
+
+
+def test_classified_source_and_compatibility_entrypoint_are_bound() -> None:
+    archived = ARCHIVE_DIR / "vdc_dpll_replay.py"
+    assert hashlib.sha256(archived.read_bytes()).hexdigest() == (
+        "0e4a340dab10b52fe8ae5148d6ff18c452c00f05777c08e17f1eaf8f678e29ba")
+    runner = (ARCHIVE_DIR / "vdc_dpll_replay_runner.c").read_bytes()
+    assert hashlib.sha256(runner).hexdigest() == (
+        "8640d710f6dae809bd51c47f25aa85356781f785078dfa40ed6bed9eca168516")
+    assert runner == LEGACY_RUNNER.read_bytes()
+    canonical_runner = (TOOL_DIR / "vdc_dpll_replay_runner.c").read_bytes()
+    normalize = lambda value: b"\n".join(  # noqa: E731
+        line.rstrip() for line in value.replace(b"\r\n", b"\n").split(b"\n"))
+    assert normalize(runner) == normalize(canonical_runner)
+
+    spec = importlib.util.spec_from_file_location(
+        "legacy_vdc_dpll_replay_entrypoint", LEGACY_ENTRYPOINT)
+    assert spec is not None and spec.loader is not None
+    legacy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(legacy)
+    public_api = (
+        "SCHEMA", "RESULT_SCHEMA", "DIAGNOSTIC_ONLY", "DPLL_ELIGIBLE", "LOCKED",
+        "integer", "validate_trace", "demo_trace", "build_runner", "run_core",
+        "write_csv", "svg_polyline", "write_svg", "parse_int_list", "run_score",
+        "parse_args", "main",
+    )
+    for name in public_api:
+        assert getattr(legacy, name) is getattr(replay_module, name)
+
+
+def test_classified_and_compatibility_cli_failures_match(tmp_path: Path) -> None:
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text('{"schema":"INVALID"}\n', encoding="utf-8")
+    for trace in (tmp_path / "missing.json", invalid):
+        results = []
+        for entrypoint in (TOOL_DIR / "vdc_dpll_replay.py", LEGACY_ENTRYPOINT):
+            results.append(subprocess.run(
+                [sys.executable, str(entrypoint), "--trace", str(trace)],
+                cwd=ROOT, text=True, capture_output=True, timeout=20))
+        assert [result.returncode for result in results] == [2, 2]
+        assert results[0].stdout == results[1].stdout == ""
+        assert results[0].stderr == results[1].stderr
+        assert results[0].stderr.startswith("ERROR: ")
+
+
+def test_classified_and_compatibility_cli_replay_match(tmp_path: Path) -> None:
+    summaries = []
+    build_dir = tmp_path / "build"
+    for name, entrypoint in (("classified", TOOL_DIR / "vdc_dpll_replay.py"),
+                             ("compatibility", LEGACY_ENTRYPOINT)):
+        command = [
+            sys.executable, str(entrypoint), "--demo", "settle", "--samples", "16",
+            "--node-count", "4", "--build-dir", str(build_dir),
+            "--out-dir", str(tmp_path / name),
+        ]
+        completed = subprocess.run(
+            command, cwd=ROOT, text=True, capture_output=True, timeout=60)
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        summaries.append(json.loads(completed.stdout))
+    keys = (
+        "schema", "passed", "diagnostic_only", "reusable_as_active_calibration",
+        "reusable_as_firmware_lock_evidence", "production_c_core", "trace_source",
+        "node_count", "sample_count", "accepted_count", "rejected_count",
+        "final_gate", "final_lock_state", "final_locked_in_replay",
+        "final_quality_tier", "final_residual_ns", "final_phase_offset_ns",
+        "final_period_adjust_ppb", "rms_offset_ns", "max_abs_offset_ns",
+    )
+    assert ({key: summaries[0][key] for key in keys} ==
+            {key: summaries[1][key] for key in keys})
+    assert summaries[0]["passed"] is True
+    assert summaries[0]["accepted_count"] == 16
 
 
 def test_demo_trace_is_diagnostic_and_supports_eight_nodes() -> None:

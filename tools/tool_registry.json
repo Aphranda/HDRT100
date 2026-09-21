@@ -3237,18 +3237,38 @@
     },
     {
       "id": "TOOL-VDC-DPLL-REPLAY",
-      "purpose": "vdc dpll replay",
+      "purpose": "Offline diagnostic replay of recorded or generated VDC samples through the production DPLL C core",
       "domain": "VDC",
       "owner": "VDC tool maintenance",
-      "lifecycle": "UNASSESSED",
-      "operation": "UNASSESSED",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "OFFLINE",
       "entrypoints": [
-        "tools/vdc_dpll_replay/vdc_dpll_replay.py"
+        "tools/domains/vdc/dpll_replay/vdc_dpll_replay.py"
       ],
       "files": [
         {
-          "path": "tools/vdc_dpll_replay/vdc_dpll_replay.py",
+          "path": "tools/archive/vdc/dpll_replay/pre_domain_migration/.gitattributes",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/dpll_replay/pre_domain_migration/vdc_dpll_replay.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/dpll_replay/pre_domain_migration/vdc_dpll_replay_runner.c",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/vdc/dpll_replay/vdc_dpll_replay.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/domains/vdc/dpll_replay/vdc_dpll_replay_runner.c",
+          "role": "resource"
+        },
+        {
+          "path": "tools/vdc_dpll_replay/vdc_dpll_replay.py",
+          "role": "compatibility_wrapper"
         },
         {
           "path": "tools/vdc_dpll_replay/vdc_dpll_replay_runner.c",
@@ -3256,12 +3276,23 @@
         }
       ],
       "depends_on": [],
-      "external_dependencies": [],
-      "dependency_review": "PENDING",
-      "aliases": [],
-      "validation": [],
+      "external_dependencies": [
+        "Python >=3.10",
+        "Host C compiler: gcc or clang",
+        "Repository VDC and TDMA production C sources"
+      ],
+      "dependency_review": "COMPLETE",
+      "aliases": [
+        {
+          "path": "tools/vdc_dpll_replay/vdc_dpll_replay.py",
+          "target": "tools/domains/vdc/dpll_replay/vdc_dpll_replay.py"
+        }
+      ],
+      "validation": [
+        "tests/python/test_vdc_dpll_replay.py"
+      ],
       "handoff_evidence": null,
-      "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
+      "notes": "Classified offline implementation lives under domains/vdc. The previous Python and C sources are preserved byte-for-byte under archive; the old Python path is a compatibility wrapper, and its retained C file is inert compatibility material. Replay may promote flags only inside the isolated host process and never qualifies active calibration, firmware lock or hardware acceptance. Promotion to SUPPORTED requires a clean-workspace handoff that rebuilds the runner, reproduces a frozen trace result, documents compiler prerequisites and binds the produced summary to its inputs and executable sources. If the production C API or trace schema becomes incompatible and no active caller remains, retain the archived sources and move this family to ARCHIVED rather than deleting it."
     },
     {
       "id": "TOOL-VDC-GPIO-LOCK-VALIDATE",
