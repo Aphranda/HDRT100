@@ -362,7 +362,9 @@ int main(void) {
     prelaunch_setup(); assert(finish());
     clock_us=s_tdma_event_base_us+61000000u;
     tdma_pio_spi_phys_event_service(&physical);
-    assert(geometry_fixture.observer_state==TDMA_GEOMETRY_OBSERVER_RETIRED);
+    /* The live DPLL observer has no fixed trace horizon: it remains active
+     * until an explicit STOP, binding loss, or hardware/service fault. */
+    require_active();
     puts("prelaunch: 18 production groups passed");
     return 0;
 }

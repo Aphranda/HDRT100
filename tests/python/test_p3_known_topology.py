@@ -148,6 +148,7 @@ def test_run_reuses_topology_then_reaches_fresh_calibration(tmp_path, monkeypatc
     """Exercise the real run dispatcher, not only the identity helper."""
     config = p3.load_bench_config(p3.ROOT / p3.DEFAULT_CONFIG)
     config['p3_board_ids_in_physical_order'] = IDS
+    config['ota_board_ids'] = IDS
     config['topology_anchor_board_id'] = IDS[0]
     source = tmp_path / 'old.json'
     source.write_text(json.dumps(measured()), encoding='utf-8')
@@ -155,8 +156,8 @@ def test_run_reuses_topology_then_reaches_fresh_calibration(tmp_path, monkeypatc
     package.parent.mkdir()
     package.write_bytes(b'fake package')
     out = tmp_path / 'run'
-    (out / 'ota-four-board-tdma').mkdir(parents=True)
-    (out / 'ota-four-board-tdma' / 'summary.json').write_text('{}')
+    (out / 'ota-four-board').mkdir(parents=True)
+    (out / 'ota-four-board' / 'summary.json').write_text('{}')
     calls = fake_transport(monkeypatch)
     steps = []
     class CalibrationReached(Exception):

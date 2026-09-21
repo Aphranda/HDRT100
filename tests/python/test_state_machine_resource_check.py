@@ -1,9 +1,32 @@
 from pathlib import Path
 
+import pytest
+
 from tools.state_machine_resource_check import state_machine_resource_check
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_c_definition_body_skips_noncode_declarations_and_calls() -> None:
+    source = r'''
+/* void target(void) { fake_comment(); } */
+const char *description = "void target(void) { fake_string(); }";
+void target(void);
+void caller(void) { target(); }
+void target(void) /* __attribute__((naked)) */ PRIVILEGED_FUNCTION
+{
+    const char *brace = "}";
+    real_body(); /* } */
+}
+'''
+
+    body = state_machine_resource_check.c_definition_body(source, "target")
+
+    assert 'const char *brace = "}";' in body
+    assert "real_body();" in body
+    assert "fake_comment" not in body
+    assert "fake_string" not in body
 
 
 def test_directional_resource_contract_is_valid() -> None:
@@ -12,6 +35,55 @@ def test_directional_resource_contract_is_valid() -> None:
         ROOT / "components/tdma/src/tdma_pio_spi.pio",
     )
     assert failures == []
+
+
+def test_sync_board_profile_comment_cannot_fake_pio_owner(tmp_path: Path) -> None:
+    board = tmp_path / "board_config.h"
+    board_text = (
+        ROOT / "boards/rp2350_trig/inc/board_config.h"
+    ).read_text(encoding="utf-8")
+    board.write_text(
+        "/* #define BOARD_SYNC_PIO_FAST pio0 */\n" +
+        board_text.replace(
+            "#define BOARD_SYNC_PIO_FAST pio0",
+            "#define BOARD_SYNC_PIO_FAST pio1",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        board,
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+    )
+
+    assert any("BOARD_SYNC_PIO_FAST" in failure for failure in failures)
+
+
+def test_sync_board_profile_trigraph_redefinition_cannot_hide_owner(
+    tmp_path: Path,
+) -> None:
+    board = tmp_path / "board_config.h"
+    board_text = (
+        ROOT / "boards/rp2350_trig/inc/board_config.h"
+    ).read_text(encoding="utf-8")
+    board.write_text(
+        board_text.replace(
+            "#define BOARD_SYNC_PIO_FAST pio0",
+            "#define BOARD_SYNC_PIO_FAST pio0\n"
+            "#undef BOARD_SYNC_PIO_FAST\n"
+            "??=define BOARD_SYNC_PIO_FAST pio1",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        board,
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+    )
+
+    assert any("BOARD_SYNC_PIO_FAST" in failure for failure in failures)
 
 
 def test_overlay_binding_rejects_crossed_fifo_and_dreq() -> None:
@@ -487,42 +559,43 @@ def test_sync_io_pio0_wave_output_is_independent_of_tdma() -> None:
         encoding="utf-8"
     )
 
-    output_arm = model_sched.split(
-        "bool sync_io_output_pulse_schedule_arm(", 1
-    )[1].split("bool sync_io_output_pulse_schedule_arm_ns", 1)[0]
-    output_arm_ns = model_sched.split(
-        "bool sync_io_output_pulse_schedule_arm_ns", 1
-    )[1].split(
-        "bool sync_io_sma_observer_pulse_schedule_arm_periodic_ns", 1
-    )[0]
+    output_arm = state_machine_resource_check.c_definition_body(
+        model_sched, "sync_io_output_pulse_schedule_arm"
+    )
+    output_arm_ns = state_machine_resource_check.c_definition_body(
+        model_sched, "sync_io_output_pulse_schedule_arm_ns"
+    )
     for function in (output_arm, output_arm_ns):
         assert "BOARD_SYNC_PIO_FAST" in function
         assert "BOARD_SYNC_PIO0_WAVE_OUTPUT_SM" in function
         assert "BOARD_SYNC_PIO_WAVE" not in function
         assert "sync_io_core_tdma_flight_suspended" not in function
 
-    observer_arm = model_sched.split(
-        "bool sync_io_sma_observer_pulse_schedule_arm_periodic_ns(", 1
-    )[1].split(
-        "bool sync_io_sma_observer_pulse_schedule_arm_periodic_at_ns(", 1
-    )[0]
+    observer_arm = state_machine_resource_check.c_definition_body(
+        model_sched, "sync_io_sma_observer_pulse_schedule_arm_periodic_ns"
+    )
     assert "BOARD_SYNC_PIO_FAST" in observer_arm
     assert "BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM" in observer_arm
     assert "BOARD_SYNC_PIO_WAVE" not in observer_arm
 
-    absolute_observer_arm = model_sched.split(
-        "bool sync_io_sma_observer_pulse_schedule_arm_periodic_at_ns(", 1
-    )[1].split("void sync_io_model_pulse_schedule_disarm", 1)[0]
+    absolute_observer_arm = state_machine_resource_check.c_definition_body(
+        model_sched,
+        "sync_io_sma_observer_pulse_schedule_arm_periodic_at_ns",
+    )
     assert "first_deadline_ns" in absolute_observer_arm
     assert "BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM" in absolute_observer_arm
 
-    hardware_start = model_sched.split(
-        "static bool sync_io_wave_output_start(", 1
-    )[1].split("static void sync_io_wave_output_stop", 1)[0]
+    hardware_start = state_machine_resource_check.c_definition_body(
+        model_sched, "sync_io_wave_output_start"
+    )
     assert "first_deadline_ns" in hardware_start
     assert "periodic_period_ns" in hardware_start
     assert "minimum_deadline_ns" in hardware_start
-    assert "time_us_64() * 1000ull" in hardware_start
+    assert (
+        "vdc_timestamp_clock_try_read_ns(BOARD_SYS_CLOCK_HZ, &now_ns)"
+        in hardware_start
+    )
+    assert "time_us_64() * 1000ull" not in hardware_start
     assert "s_model_pulse.words[0] = sync_io_model_delay_word" in hardware_start
 
     init = sync_io.split("bool sync_io_init(", 1)[1]
@@ -678,6 +751,475 @@ def test_sync_io_static_gate_rejects_schedule_without_capture_guard(
     )
 
 
+def test_sync_io_static_gate_ignores_owned_pseudo_definition(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        "/* static bool sync_io_start_capture_owned(uint32_t sample_hz) {\n"
+        "    return sync_io_core_wave_output_persona_active_owned();\n"
+        "} */\n"
+        + core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()",
+            "false",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" in failures
+
+
+def test_sync_io_static_gate_ignores_ownership_token_in_body_comment(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()",
+            "false /* sync_io_core_wave_output_persona_active_owned() */",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" in failures
+
+
+def test_sync_io_static_gate_ignores_continued_macro_pseudo_definition(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        "#define sync_io_start_capture_owned(sample_hz) \\\n"
+        "    { \\\n"
+        "        sync_io_core_wave_output_persona_active_owned(); \\\n"
+        "    }\n"
+        + core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()",
+            "false",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" in failures
+
+
+def test_sync_io_static_gate_ignores_continued_line_comment_pseudo_definition(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        "// static bool sync_io_start_capture_owned(uint32_t sample_hz) { \\\n"
+        "    return sync_io_core_wave_output_persona_active_owned(); \\\n"
+        "}\n"
+        + core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()",
+            "false",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" in failures
+
+
+def test_sync_io_static_gate_ignores_phase2_split_line_comment_pseudo_definition(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        "/\\\n"
+        "/ static bool sync_io_start_capture_owned(uint32_t sample_hz) {\n"
+        "    return sync_io_core_wave_output_persona_active_owned();\n"
+        "}\n"
+        + core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()",
+            "false",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" in failures
+
+
+def test_sync_io_static_gate_masks_token_in_nested_if_zero(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()",
+            "false\n"
+            "#if 0\n"
+            "#if 1\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#endif\n"
+            "#endif",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" in failures
+
+
+def test_sync_io_static_gate_accepts_active_else_after_nested_if_zero(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()",
+            "false\n"
+            "#if 0\n"
+            "#if 1\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#endif\n"
+            "#elif 0\n"
+            "        || false\n"
+            "#else\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#endif",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" not in failures
+
+
+@pytest.mark.parametrize("expression", [
+    "0 && UNDEFINED_SYMBOL",
+    "-1 < 1U",
+    "UNKNOWN_BUILD_FLAG",
+])
+def test_sync_io_static_gate_unknown_condition_cannot_prove_ownership(
+    tmp_path: Path,
+    expression: str,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()",
+            "false\n"
+            f"#if {expression}\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#endif",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" in failures
+
+
+def test_sync_io_static_gate_checks_real_definition_after_unknown_duplicate(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        "#if UNKNOWN_BUILD_FLAG\n"
+        "static bool sync_io_start_capture_owned(uint32_t sample_hz) {\n"
+        "    return sync_io_core_wave_output_persona_active_owned();\n"
+        "}\n"
+        "#endif\n"
+        + core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()", "false", 1),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" in failures
+
+
+def test_sync_io_static_gate_scans_forbidden_in_all_possible_definitions(
+    tmp_path: Path,
+) -> None:
+    model = tmp_path / "sync_io_model_sched.c"
+    model_text = (
+        ROOT / "components/sync_io/src/sync_io_model_sched.c"
+    ).read_text(encoding="utf-8")
+    model.write_text(
+        "#if UNKNOWN_BUILD_FLAG\n"
+        "bool sync_io_output_pulse_schedule_arm(uint32_t output_index,\n"
+        "    const sync_io_model_pulse_entry_t *entries, uint32_t entry_count,\n"
+        "    bool rising_edge) {\n"
+        "    return sync_io_pulse_schedule_arm_on_pin_common(\n"
+        "        BOARD_SYNC_PIO_FAST, BOARD_SYNC_PIO0_WAVE_OUTPUT_SM,\n"
+        "        DREQ_PIO0_TX0, output_index, entries, entry_count, rising_edge);\n"
+        "}\n"
+        "#endif\n"
+        + model_text.replace(
+            "BOARD_SYNC_PIO_FAST,\n        BOARD_SYNC_PIO0_WAVE_OUTPUT_SM",
+            "BOARD_SYNC_PIO_WAVE,\n        BOARD_SYNC_PIO0_WAVE_OUTPUT_SM",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_model=model,
+    )
+
+    assert any("BOARD_SYNC_PIO_WAVE" in failure for failure in failures)
+
+
+def test_sync_io_static_gate_scans_all_possible_persona_descriptors(
+    tmp_path: Path,
+) -> None:
+    personas = tmp_path / "sync_io_persona_resources.c"
+    persona_text = (
+        ROOT / "components/sync_io/src/sync_io_persona_resources.c"
+    ).read_text(encoding="utf-8")
+    fake = (
+        "#if UNKNOWN_BUILD_FLAG\n"
+        "static const sync_io_persona_descriptor_t fake[] = {{\n"
+        "    .id = SYNC_IO_PERSONA_ID_LOGIC_ANALYZER,\n"
+        "    .flags = SYNC_IO_PERSONA_FLAG_READ_ONLY_PAD,\n"
+        "    .sm_mask = SYNC_IO_SM_BIT(BOARD_SYNC_PIO0_LOGIC_ANALYZER_SM),\n"
+        "    .gpio_read_mask = 1u,\n"
+        "    .dma_channel_mask = SYNC_IO_DMA_BIT(SYNC_IO_CAPTURE_DMA_CH),\n"
+        "}};\n"
+        "#endif\n"
+    )
+    personas.write_text(
+        fake + persona_text.replace(
+            ".gpio_read_mask = SYNC_IO_MAIN_INPUT_GPIO_MASK |",
+            ".gpio_write_mask = SYNC_IO_MAIN_INPUT_GPIO_MASK |",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_personas=personas,
+    )
+
+    assert any(
+        "SYNC LOGIC_ANALYZER descriptor" in failure and
+        ".gpio_write_mask" in failure
+        for failure in failures
+    )
+
+
+def test_sync_io_static_gate_masks_false_integer_constant_expressions(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()",
+            "false\n"
+            "#if 0uL && 1LL\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#elif !1U\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#elif ((0LL))\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#endif",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" in failures
+
+
+def test_sync_io_static_gate_accepts_else_after_false_constant_expressions(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()",
+            "false\n"
+            "#if 0 && 1\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#elif !1\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#elif ((0))\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#else\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#endif",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" not in failures
+
+
+def test_sync_io_static_gate_masks_common_false_arithmetic_conditions(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()",
+            "false\n"
+            "#if 1 - 1\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#elif 2 < 1\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#elif 1 == 0\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#elif 0 | 0\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#elif 0 ? 1 : 0\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#else\n"
+            "        || sync_io_core_wave_output_persona_active_owned()\n"
+            "#endif",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" not in failures
+
+
+def test_sync_io_static_gate_ignores_digraph_define_pseudo_definition(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "sync_io.c"
+    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
+        encoding="utf-8"
+    )
+    core.write_text(
+        "%:define sync_io_start_capture_owned(sample_hz) "
+        "{ sync_io_core_wave_output_persona_active_owned(); }\n"
+        + core_text.replace(
+            "sync_io_core_wave_output_persona_active_owned()",
+            "false",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    failures = state_machine_resource_check.check(
+        ROOT / "boards/rp2350_trig/inc/board_config.h",
+        ROOT / "components/tdma/src/tdma_pio_spi.pio",
+        sync_core=core,
+    )
+
+    assert "SYNC capture start must observe WAVE_OUTPUT persona ownership" in failures
+
+
 def test_sync_io_static_gate_rejects_private_schedule_workspace(
     tmp_path: Path,
 ) -> None:
@@ -714,9 +1256,9 @@ def test_sync_io_static_gate_rejects_schedule_replacement_before_disarm(
         (
             ROOT / "components/sync_io/src/sync_io_model_sched.c"
         ).read_text(encoding="utf-8").replace(
-            "sync_io_model_pulse_schedule_disarm();",
+            "sync_io_model_pulse_schedule_disarm_owned();",
             "s_model_pulse.words = sync_io_shared_workspace;\n"
-            "    sync_io_model_pulse_schedule_disarm();",
+            "    sync_io_model_pulse_schedule_disarm_owned();",
             1,
         ),
         encoding="utf-8",

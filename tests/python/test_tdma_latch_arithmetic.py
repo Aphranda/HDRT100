@@ -71,6 +71,10 @@ static bool tdma_pio_spi_phys_is_flight_persona(void) {
     return (s_tdma_pio_spi_program_persona >= 11 && s_tdma_pio_spi_program_persona <= 13) ||
         s_tdma_pio_spi_program_persona == 16;
 }
+static bool tdma_pio_spi_phys_event_selected(const tdma_pio_spi_phys_t *p) {
+    return p != NULL && p->role == TDMA_PIO_SPI_ROLE_SLAVE &&
+        s_tdma_pio_spi_program_persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
+}
 static PIO tdma_pio_spi_phys_evidence_pio(const tdma_pio_spi_phys_t *p) { (void)p; return 1; }
 static uint tdma_pio_spi_phys_latch_sm(const tdma_pio_spi_phys_t *p) { (void)p; return 2; }
 static uint tdma_pio_spi_phys_latch_offset(const tdma_pio_spi_phys_t *p) { (void)p; return 17; }
@@ -154,7 +158,10 @@ void exercise_tx_read(unsigned mode) {
         .flight_tx_clock_latch_epoch_ns = mode == 3 ? UINT64_MAX - 1 : 1000,
         .flight_tx_clock_latch_resolution_ns = 8};
     uint64_t timestamp = 9999;
-    hz = mode == 4 ? 0 : 250000000; s_tdma_pio_spi_program_persona = 13;
+    hz = mode == 4 ? 0 : 250000000;
+    s_tdma_pio_spi_program_persona = mode == 5 ?
+        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER :
+        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER;
     endpoint = 2; events = clock_calls = 0; fifo_cursor = mode == 1 ? 2 : 0;
     fifo[0] = UINT32_MAX - 2;
     memset(probe_calls, 0, sizeof(probe_calls));
@@ -162,8 +169,8 @@ void exercise_tx_read(unsigned mode) {
     assert(ok == (mode == 2));
     assert(timestamp == ((mode == 2 || mode == 4) ? 1016u : 0u));
     assert(probe_calls[TDMA_TIMING_TX_LATCH_READ] == 1);
-    assert(probe_calls[TDMA_TIMING_TX_LATCH_REARM] == (mode >= 2));
-    assert(clock_calls == (mode >= 2));
+    assert(probe_calls[TDMA_TIMING_TX_LATCH_REARM] == (mode >= 2 && mode <= 4));
+    assert(clock_calls == (mode >= 2 && mode <= 4));
     assert(events == ((mode == 2 || mode == 3) ? 7u : 0u));
     assert(p.snapshot.clock_latch_miss_count == (mode == 1 || mode == 3));
     assert(p.snapshot.clock_latch_count == (mode == 2 || mode == 4));
@@ -175,13 +182,19 @@ void exercise_rearm(uint32_t frequency, unsigned persona, unsigned role, unsigne
     events = clock_calls = 0; endpoint = tx ? 2 : 1;
     countdown_x = frequency ^ 0x13579bdfu; tx_fifo_words = 4u;
     sm_enabled = true; latch_pc = 31u; /* Dirty state from a prior use. */
+    const bool event_selected = !null_phys && tx && role == TDMA_PIO_SPI_ROLE_SLAVE &&
+        persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
     const bool admitted = !null_phys && (tx ? role == TDMA_PIO_SPI_ROLE_SLAVE &&
         tdma_pio_spi_phys_is_flight_persona() : persona >= 11 && persona <= 13);
     const uint32_t expected = frequency ? (uint32_t)((UINT64_C(2000000000) + frequency / 2u) / frequency) : 0;
     const bool ok = tx ? tdma_pio_spi_phys_tx_clock_latch_rearm(null_phys ? NULL : &p)
         : tdma_pio_spi_phys_clock_latch_rearm(null_phys ? NULL : &p);
-    assert(ok == (admitted && expected != 0));
-    assert(clock_calls == (admitted ? 1u : 0u));
+    assert(ok == (event_selected || (admitted && expected != 0)));
+    assert(clock_calls == (admitted && !event_selected ? 1u : 0u));
+    if (event_selected) {
+        assert(events == 0 && memcmp(&p,&before,sizeof(p)) == 0);
+        return;
+    }
     if (!ok) { assert(events == 0 && memcmp(&p,&before,sizeof(p)) == 0); return; }
     assert(events == 7);
     const uint32_t order[] = {1, 2, 3, 6, 7, 8, 9};
@@ -227,7 +240,7 @@ unsigned exercise_feedback(uint32_t frequency, uint32_t remaining, uint32_t *dur
 
 
 def test_tx_latch_probe_preserves_empty_overflow_and_failed_rearm(timing):
-    for mode in range(5):
+    for mode in range(6):
         timing.exercise_tx_read(mode)
 
 
@@ -292,7 +305,7 @@ def test_seed_runs_resident_latch_and_preserves_first_edge(timing, tx):
         else:
             program.append(op.replace(",", "").split())
     for high_steps in (0, 1, 2, 17, 257):
-        timing.exercise_rearm(250_000_000, 13, 1, tx, False)
+        timing.exercise_rearm(250_000_000, 12, 1, tx, False)
         registers = {"x": timing.seeded_x(), "isr": 0x87654321, "osr": 0x12345678}
         pc, received = 0, []
         for tick in range(2 * high_steps + 40):

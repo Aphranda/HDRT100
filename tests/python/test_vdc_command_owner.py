@@ -392,7 +392,8 @@ typedef struct { uint32_t heartbeat, slot_version, last_update_ms, state; } refm
 #define DISTRIBUTED_REFMEM_LOCAL_NODE_ID 0u
 #define DISTRIBUTED_REFMEM_NODE_OK 1u
 static bool s_initialized, ota, s_vdc_command_context_ready, refresh_ok = true;
-static uint32_t s_service_count, order, refreshed, received, node_load, flight_services;
+static uint32_t s_service_count, order, priority_publishes, prepares;
+static uint32_t refreshed, received, node_load, flight_services;
 static refmem_vector_header_region_t header_storage;
 static refmem_vector_node_region_t node_storage;
 static void osal_critical_enter(void) { }
@@ -404,25 +405,32 @@ static refmem_vector_node_region_t *distributed_refmem_node_region(uint32_t node
 static void distributed_refmem_publish_runtime_locked(void) { }
 static void distributed_refmem_publish_status_locked(void) { }
 static bool ota_ao_is_active(void) { return ota; }
+static void distributed_refmem_publish_priority_health_core0(void)
+{ assert(s_initialized && !ota && order == 0); order = 1; ++priority_publishes; }
+static void vdc_dpll_manager_feedback_prepare_core0(void)
+{ assert(s_initialized && !ota && order == 1); order = 2; ++prepares; }
 static bool distributed_refmem_refresh_vdc_command_context(void)
-{ assert(order == 0); order = 1; ++refreshed; return refresh_ok; }
+{ assert(order == 2); order = 3; ++refreshed; return refresh_ok; }
 static void distributed_refmem_vdc_follower_rx_service(void)
-{ assert(order == 1 && s_vdc_command_context_ready); order = 2; ++received; }
+{ assert(order == 3 && s_vdc_command_context_ready); order = 4; ++received; }
 static void distributed_refmem_node_load_auto_service(void)
 { assert(s_vdc_command_context_ready); ++node_load; }
 static void distributed_refmem_tdma_flight_sync_service(void) { ++flight_services; }
-static void vdc_dpll_manager_feedback_prepare_core0(void) { assert(s_initialized && !ota); }
 static void distributed_refmem_log_tdma_ring_service(void) { }
 static void distributed_refmem_service(void) {
 ''' + body + r'''
 }
 int main(void)
 {
-    distributed_refmem_service(); assert(!refreshed && !received && !s_service_count);
+    distributed_refmem_service();
+    assert(!priority_publishes && !prepares && !refreshed && !received && !s_service_count);
     s_initialized = true; ota = true;
-    distributed_refmem_service(); assert(!refreshed && !received);
+    distributed_refmem_service();
+    assert(!priority_publishes && !prepares && !refreshed && !received);
     ota = false;
-    distributed_refmem_service(); assert(refreshed == 1 && received == 1 && order == 2);
+    distributed_refmem_service();
+    assert(priority_publishes == 1 && prepares == 1);
+    assert(refreshed == 1 && received == 1 && order == 4);
     order = 0; distributed_refmem_service(); assert(refreshed == 2 && received == 2);
     /* A transient snapshot failure gates command reception, while ordinary
      * resident mailbox service remains live and the following beat retries. */
@@ -431,6 +439,7 @@ int main(void)
     assert(!s_vdc_command_context_ready);
     order = 0; refresh_ok = true; distributed_refmem_service();
     assert(refreshed == 4 && received == 3 && node_load == 3 && flight_services == 4);
+    assert(priority_publishes == 4 && prepares == 4);
     return 0;
 }
 '''

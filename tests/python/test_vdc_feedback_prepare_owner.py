@@ -24,7 +24,7 @@ def prepare_owner_executable(tmp_path_factory):
 #include "refmem_vector_table.h"
 static bool s_initialized, s_vdc_command_context_ready, ota_active, context_ready;
 static bool in_critical;
-static unsigned prepare_calls, refresh_calls, rx_calls, load_calls, drain_calls, log_calls;
+static unsigned priority_calls, prepare_calls, refresh_calls, rx_calls, load_calls, drain_calls, log_calls;
 static uint32_t s_service_count;
 static refmem_vector_header_region_t header;
 static refmem_vector_node_region_t node;
@@ -41,10 +41,12 @@ static void distributed_refmem_publish_runtime_locked(void) { assert(in_critical
 static void distributed_refmem_publish_status_locked(void) { assert(in_critical);event('S'); }
 static uint32_t osal_tick_ms(void) { assert(in_critical);return 1234; }
 static bool ota_ao_is_active(void) { assert(!in_critical);event('O');return ota_active; }
+static void distributed_refmem_publish_priority_health_core0(void)
+{ assert(!in_critical && !ota_active && priority_calls==prepare_calls);++priority_calls;event('H'); }
 /* No new sample is available: preparation returns without a result. The
  * enclosing service must still progress and must never borrow RX first. */
 void vdc_dpll_manager_feedback_prepare_core0(void)
-{ assert(!in_critical && !ota_active);++prepare_calls;event('P'); }
+{ assert(!in_critical && !ota_active && priority_calls==prepare_calls+1);++prepare_calls;event('P'); }
 static bool distributed_refmem_refresh_vdc_command_context(void)
 { assert(!in_critical && prepare_calls==refresh_calls+1);++refresh_calls;event('C');return context_ready; }
 static void distributed_refmem_vdc_follower_rx_service(void)
@@ -65,18 +67,18 @@ int main(int argc,char **argv)
     distributed_refmem_service();
     if(!s_initialized) {
         assert(!event_count && !s_service_count && !header.table_seq && !node.heartbeat);
-        assert(!prepare_calls && !refresh_calls && !drain_calls);
+        assert(!priority_calls && !prepare_calls && !refresh_calls && !drain_calls);
     } else {
         assert(s_service_count==1 && header.table_seq==1 && node.heartbeat==1);
         assert(node.slot_version==1 && node.last_update_ms==1234 && node.state==DISTRIBUTED_REFMEM_NODE_OK);
         if(ota_active) {
-            assert(!strcmp(events,"ERSXO") && !prepare_calls && !refresh_calls && !drain_calls && !log_calls);
+            assert(!strcmp(events,"ERSXO") && !priority_calls && !prepare_calls && !refresh_calls && !drain_calls && !log_calls);
         } else {
-            assert(!strcmp(events,context_ready?"ERSXOPCFADL":"ERSXOPCDL"));
-            assert(prepare_calls==1 && refresh_calls==1 && drain_calls==1 && log_calls==1);
+            assert(!strcmp(events,context_ready?"ERSXOHPCFADL":"ERSXOHPCDL"));
+            assert(priority_calls==1 && prepare_calls==1 && refresh_calls==1 && drain_calls==1 && log_calls==1);
             assert(rx_calls==(unsigned)context_ready && load_calls==(unsigned)context_ready);
             distributed_refmem_service();
-            assert(prepare_calls==2 && refresh_calls==2 && drain_calls==2 && log_calls==2);
+            assert(priority_calls==2 && prepare_calls==2 && refresh_calls==2 && drain_calls==2 && log_calls==2);
         }
     }
     assert(!in_critical);puts("Core0 RefMem preparation ownership passed");return 0;

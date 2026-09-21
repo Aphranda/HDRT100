@@ -211,6 +211,7 @@ typedef struct {
     bool flight_origin_workspace_owned, flight_origin_rx_observation_ready;
     bool flight_origin_record_frozen;
     uint32_t flight_origin_record_guard, flight_origin_record_published_version, flight_origin_record_fault;
+    struct { uint32_t active; } flight_origin_live;
     struct { uint32_t stage; } flight_origin_prepare;
     bool rx_capture_active;
     tdma_overlay_prepare_t *overlay_preparation;
@@ -248,7 +249,7 @@ typedef struct { uintptr_t read_addr; uint32_t ctrl_trig, transfer_count, al3_ct
 static struct { Channel ch[16]; uint32_t abort; } bus;
 #define dma_hw (&bus)
 static bool busy[16], hang_abort, stopped, enabled, late_trigger, late_restart;
-static unsigned now, stop_clear_output_count, start_calls;
+static unsigned now, stop_clear_output_count, start_calls, priority_stop_calls;
 static int s_tdma_pio_spi_command_dma_channel = 6, s_tdma_pio_spi_tx_dma_channel = 5;
 static int s_tdma_pio_spi_rx_dma_channel = 4;
 static int s_tdma_pio_spi_executor_dma_channel = -1;
@@ -285,6 +286,7 @@ static uint64_t tdma_pio_spi_phys_now_us(void) {
     return now;
 }
 static void __dmb(void) {}
+static void tdma_priority_stop(void) { ++priority_stop_calls; }
 static void tdma_pio_spi_phys_set_line_drivers(bool value) { enabled = value; }
 static void tdma_pio_spi_phys_pause_sm_pair(tdma_pio_spi_phys_t *phys) { (void)phys; stopped = true; }
 #define tdma_pio_spi_phys_data_pio(phys) (&pio)
@@ -379,7 +381,7 @@ static void stop_race(bool hang, bool loader_write, bool restart_write) {
     busy[5] = busy[6] = true;
     late_trigger = loader_write; late_restart = restart_write;
     hang_abort = hang; enabled = true; phys.armed = true;
-    unsigned started = now;
+    unsigned started = now, stops_before = priority_stop_calls;
     if (hang) {
         assert(!tdma_pio_spi_phys_stop_command_dma(&phys));
         assert(now - started <= TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US + 1);
@@ -387,6 +389,7 @@ static void stop_race(bool hang, bool loader_write, bool restart_write) {
         hang_abort = false;
     }
     assert(tdma_pio_spi_phys_stop_command_dma(&phys));
+    assert(priority_stop_calls - stops_before == (hang ? 2u : 1u));
     assert(!phys.flight_overlay_dma_active && !busy[5] && !busy[6]);
     assert(!(bus.ch[5].ctrl_trig & 1) && !(bus.ch[6].ctrl_trig & 1));
 }

@@ -153,7 +153,7 @@ static unsigned hz_reads, fault_at_hz_read;
 static unsigned cut_monitor_calls;
 static bool ota_active, skip_phase;
 static uint64_t time_us_64(void) { return now_us; }
-static uint64_t vdc_dpll_manager_now_ns(void) { return now_us*1000u; }
+static uint32_t board_uptime_ms(void) { return (uint32_t)(now_us / 1000u); }
 static uint64_t vdc_timestamp_clock_now_ns(void) { return now_us*1000u; }
 static uint64_t probe_ticks;
 static uint32_t probe_calls[TDMA_TIMING_STAGE_COUNT];
