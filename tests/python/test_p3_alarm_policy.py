@@ -226,19 +226,38 @@ def test_zero_dco_adjustment_is_not_an_error():
 def test_four_board_short_phase_severity_is_preserved(severity, blocked):
     stages = stage_set()
     stages["DPLL"] = {
-        "schema": "HAOFV_P3_DPLL_SHORT_V1", "passed": severity != "ERROR",
+        "schema": "HAOFV_P3_DPLL_SHORT_V2", "passed": severity != "ERROR",
         "evidence_status": "PASS",
         "duration_s": 60, "external_status": "SKIPPED",
         "phase_severity": severity, "phase_max_abs_ns": 50 if severity == "INFO" else 500,
         "phase_source": "internal", "phase_domain": "internal",
         "internal_phase_endpoints": [{}, {}, {}], "errors": [],
+        "internal_phase_traces": [{}, {}, {}],
     }
     result = report_for(stages, required=("DPLL",))
     assert (result["outcome"] == "BLOCKED") is blocked
+    assert not any(row["code"] == "DPLL_LOCK_EVIDENCE_MISSING"
+                   for row in findings(result, "DPLL"))
     if severity == "WARN":
         assert any(row["code"] == "DPLL_PHASE_OUTSIDE_100NS" for row in findings(result, "DPLL"))
     if severity == "ERROR":
         assert any(row["code"] == "DPLL_PHASE_OUTSIDE_1US" for row in findings(result, "DPLL"))
+
+
+def test_v1_endpoint_only_short_summary_cannot_satisfy_v2_gate():
+    stages = stage_set()
+    stages["DPLL"] = {
+        "schema": "HAOFV_P3_DPLL_SHORT_V1",
+        "passed": True,
+        "evidence_status": "PASS",
+        "duration_s": 60,
+        "external_status": "SKIPPED",
+        "phase_severity": "INFO",
+        "phase_max_abs_ns": 50,
+        "internal_phase_endpoints": [{}, {}, {}],
+        "errors": [],
+    }
+    assert_blocked(report_for(stages, required=("DPLL",)), "DPLL")
 
 
 def test_strict_dpll_requires_measured_lock_evidence_even_when_summary_claims_pass():

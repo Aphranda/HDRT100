@@ -510,7 +510,11 @@ def test_receipt_evidence_requires_every_acceptance_phase(
         "trn03_matrix", "tdma_summary", "dpll_summary",
         "dpll_scope_discovery",
     )
-    record = {}
+    record = {
+        "source_tree_sha256": "a" * 64,
+        "build_id": "123",
+        "tdma_board_ids": ["no1", "no2", "no3", "no4"],
+    }
     for name in names:
         path = tmp_path / f"{name}.json"
         value = ({"schema": "HAOFV_P3_SCOPE_DISCOVERY_V1", "present": None}
@@ -521,8 +525,16 @@ def test_receipt_evidence_requires_every_acceptance_phase(
             "path": path.name,
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         }
-    monkeypatch.setattr(p3_acceptance, "validate_summary", lambda root, value: None)
+    validated = []
+    monkeypatch.setattr(
+        p3_acceptance, "validate_summary",
+        lambda root, value, **identity: validated.append(identity))
     _validate_evidence(tmp_path, record)
+    assert validated == [{
+        "expected_source_tree_sha256": "a" * 64,
+        "expected_build_id": "123",
+        "expected_board_uids": ["no1", "no2", "no3", "no4"],
+    }]
     del record["trn02_summary"]
     with pytest.raises(AcceptanceError, match="trn02_summary"):
         _validate_evidence(tmp_path, record)

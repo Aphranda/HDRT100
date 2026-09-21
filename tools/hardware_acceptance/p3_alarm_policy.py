@@ -104,7 +104,7 @@ def _topology_valid(summary: dict) -> bool:
 
 
 def _dpll_observation_valid(summary: dict) -> bool:
-    if summary.get("schema") == "HAOFV_P3_DPLL_SHORT_V1":
+    if summary.get("schema") == "HAOFV_P3_DPLL_SHORT_V2":
         return (summary.get("duration_s") == 60 and
                 summary.get("passed") is True and
                 summary.get("evidence_status") == "PASS" and
@@ -112,7 +112,8 @@ def _dpll_observation_valid(summary: dict) -> bool:
                 summary.get("external_status") in ("PASS", "SKIPPED") and
                 summary.get("phase_severity") in ("INFO", "WARN", "ERROR") and
                 isinstance(summary.get("phase_max_abs_ns"), (int, float)) and
-                len(_rows(summary.get("internal_phase_endpoints"))) == 3)
+                len(_rows(summary.get("internal_phase_endpoints"))) == 3 and
+                len(_rows(summary.get("internal_phase_traces"))) == 3)
     if summary.get("_input_validated") is True:
         return True
     rows = _rows(summary.get("boards"))
@@ -322,7 +323,7 @@ def build_acceptance_report(*, profile: str, stages: dict[str, dict],
                     add(stage, quality_severity, "DPLL_SEQUENCE_QUALITY", "Ring sequence consistency gate did not pass", {
                         "ring_sequence_consistent": False, "ring_sequence_skew": summary.get("ring_sequence_skew")})
                 legacy_boards = (_rows(summary.get("boards"))
-                                 if summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V1" else [])
+                                 if summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V2" else [])
                 for raw_board in legacy_boards:
                     board = _dict(raw_board)
                     uid = board.get("board", board.get("address"))
@@ -333,7 +334,7 @@ def build_acceptance_report(*, profile: str, stages: dict[str, dict],
                     elif board.get("reference_node") is not True and board.get("dpll_locked") is not True:
                         add(stage, quality_severity, "DPLL_LOCK_QUALITY",
                             "Follower has not demonstrated lock", board, uid)
-                if (summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V1" and
+                if (summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V2" and
                         not _rows(summary.get("boards"))):
                     add(stage, quality_severity, "DPLL_LOCK_EVIDENCE_MISSING",
                         "No per-board lock or phase evidence is available", summary)

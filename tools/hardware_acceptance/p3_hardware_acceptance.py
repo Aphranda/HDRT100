@@ -1193,7 +1193,11 @@ def _validate_evidence(root: Path, record: dict[str, Any], *,
     if include_dpll:
         path = _validate_evidence_file(root, record.get("dpll_summary"), "dpll_summary")
         summary = json.loads(path.read_text(encoding="utf-8"))
-        validate_summary(root, summary)
+        validate_summary(
+            root, summary,
+            expected_source_tree_sha256=record.get("source_tree_sha256"),
+            expected_build_id=str(record.get("build_id", "")),
+            expected_board_uids=record.get("tdma_board_ids"))
         discovery_path = _validate_evidence_file(
             root, record.get("dpll_scope_discovery"), "dpll_scope_discovery")
         discovery = json.loads(discovery_path.read_text(encoding="utf-8"))
@@ -1492,7 +1496,11 @@ def _validate_quick_diagnostic_receipt(
     _validate_evidence(root, record, include_dpll=dpll_required)
     if dpll_required:
         path = _validate_evidence_file(root, record.get("dpll_summary"), "dpll_summary")
-        validate_summary(root, json.loads(path.read_text(encoding="utf-8")))
+        validate_summary(
+            root, json.loads(path.read_text(encoding="utf-8")),
+            expected_source_tree_sha256=record.get("source_tree_sha256"),
+            expected_build_id=str(record.get("build_id", "")),
+            expected_board_uids=record.get("tdma_board_ids"))
     _validate_evidence_file(
         root, record.get("diagnostic_summary"), "diagnostic_summary")
     diagnostic_path = root / record["diagnostic_summary"]["path"]
@@ -2033,7 +2041,11 @@ def run_four_board_dpll_short(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8")
     try:
-        validate_summary(root, summary)
+        validate_summary(
+            root, summary,
+            expected_source_tree_sha256=source_fingerprint,
+            expected_build_id=build_id,
+            expected_board_uids=board_ids)
     except ValueError as exc:
         raise AcceptanceError(str(exc)) from exc
     return summary_path, summary, discovery_path
