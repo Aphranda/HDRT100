@@ -32,6 +32,9 @@
 #include "vdc_dpll_manager.h"
 #include "vdc_timestamp_clock.h"
 
+#include "scpi_trigger_grid_commands.inc"
+#include "scpi_trigger_deployment_commands.inc"
+
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u
 #define SCPI_TDMA_FIFO_RESET_WAIT_LOOPS 100u
 #define SCPI_REFMEM_PACKAGE_PATH "/refmem/app_model.rmtp"
@@ -2788,13 +2791,9 @@ scpi_result_t scpi_cmd_vdc_fixed_output_stop(scpi_t *context)
     return scpi_port_result_ok(context);
 }
 
-scpi_result_t scpi_cmd_vdc_fixed_output_q(scpi_t *context)
+static scpi_result_t scpi_vdc_output_status(scpi_t *context,
+    vdc_dpll_manager_fixed_output_status_t s)
 {
-    vdc_dpll_manager_fixed_output_status_t s;
-    if (!vdc_dpll_manager_get_fixed_output(&s)) {
-        scpi_port_push_exec_error(context, "VDC_FIXED_OUTPUT_STOP_REQUIRED_OR_BUSY");
-        return SCPI_RES_ERR;
-    }
     SCPI_ResultUInt32(context, s.schema);
     SCPI_ResultUInt32(context, s.request_id);
     SCPI_ResultUInt32(context, s.state);
@@ -2828,6 +2827,104 @@ scpi_result_t scpi_cmd_vdc_fixed_output_q(scpi_t *context)
     SCPI_ResultUInt32(context, s.dma_busy);
     SCPI_ResultUInt32(context, s.model_unchanged);
     return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_fixed_output_q(scpi_t *context)
+{
+    vdc_dpll_manager_fixed_output_status_t s;
+    if (!vdc_dpll_manager_get_fixed_output(&s)) {
+        scpi_port_push_exec_error(context, "VDC_FIXED_OUTPUT_STOP_REQUIRED_OR_BUSY");
+        return SCPI_RES_ERR;
+    }
+    return scpi_vdc_output_status(context, s);
+}
+
+scpi_result_t scpi_cmd_vdc_subdivision_output(scpi_t *context)
+{
+    uint32_t interval_ns, pulse_high_ns, subdivision_count;
+    uint32_t marker_high_ns, tick_period_ns, request_id;
+    if (!scpi_port_read_u32(context, &interval_ns) ||
+        !scpi_port_read_u32(context, &pulse_high_ns) ||
+        !scpi_port_read_u32(context, &subdivision_count) ||
+        !scpi_port_read_u32(context, &marker_high_ns) ||
+        !scpi_port_read_u32(context, &tick_period_ns) ||
+        !vdc_dpll_manager_subdivision_output_start(interval_ns, pulse_high_ns,
+            subdivision_count, marker_high_ns, tick_period_ns, &request_id)) {
+        scpi_port_push_exec_error(context, "VDC_SUBDIVISION_OUTPUT_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, request_id);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_subdivision_output_stop(scpi_t *context)
+{
+    if (!vdc_dpll_manager_subdivision_output_stop()) {
+        scpi_port_push_exec_error(context, "VDC_SUBDIVISION_OUTPUT_BUSY_OR_MODE");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+static scpi_result_t scpi_vdc_subdivision_status(scpi_t *context,
+    vdc_dpll_manager_subdivision_output_status_t s)
+{
+    /* SUBDIV schema 1: schema, mode, marker_ns, marker_ticks, subdivision_count,
+     * followed by the unchanged 32-field FIXED batch schema (including schema).
+     * pulse_count includes one marker in mode 1, two in window mode 2. */
+    SCPI_ResultUInt32(context, 1u);
+    SCPI_ResultUInt32(context, s.mode);
+    SCPI_ResultUInt32(context, s.marker_high_ns);
+    SCPI_ResultUInt32(context, s.marker_high_ticks);
+    SCPI_ResultUInt32(context, s.subdivision_count);
+    return scpi_vdc_output_status(context, s.batch);
+}
+
+scpi_result_t scpi_cmd_vdc_subdivision_output_q(scpi_t *context)
+{
+    vdc_dpll_manager_subdivision_output_status_t s;
+    if (!vdc_dpll_manager_get_subdivision_output(&s)) {
+        scpi_port_push_exec_error(context, "VDC_SUBDIVISION_OUTPUT_STOP_REQUIRED_OR_BUSY_OR_MODE");
+        return SCPI_RES_ERR;
+    }
+    return scpi_vdc_subdivision_status(context, s);
+}
+
+scpi_result_t scpi_cmd_vdc_subdivision_window(scpi_t *context)
+{
+    uint32_t sync_period_ns, interval_ns, pulse_high_ns;
+    uint32_t marker_high_ns, tick_period_ns, request_id;
+    if (!scpi_port_read_u32(context, &sync_period_ns) ||
+        !scpi_port_read_u32(context, &interval_ns) ||
+        !scpi_port_read_u32(context, &pulse_high_ns) ||
+        !scpi_port_read_u32(context, &marker_high_ns) ||
+        !scpi_port_read_u32(context, &tick_period_ns) ||
+        !vdc_dpll_manager_subdivision_window_start(sync_period_ns, interval_ns,
+            pulse_high_ns, marker_high_ns, tick_period_ns, &request_id)) {
+        scpi_port_push_exec_error(context, "VDC_SUBDIVISION_WINDOW_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, request_id);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_vdc_subdivision_window_stop(scpi_t *context)
+{
+    if (!vdc_dpll_manager_subdivision_window_stop()) {
+        scpi_port_push_exec_error(context, "VDC_SUBDIVISION_WINDOW_BUSY_OR_MODE");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+
+scpi_result_t scpi_cmd_vdc_subdivision_window_q(scpi_t *context)
+{
+    vdc_dpll_manager_subdivision_output_status_t s;
+    if (!vdc_dpll_manager_get_subdivision_window(&s)) {
+        scpi_port_push_exec_error(context, "VDC_SUBDIVISION_WINDOW_STOP_REQUIRED_OR_BUSY_OR_MODE");
+        return SCPI_RES_ERR;
+    }
+    return scpi_vdc_subdivision_status(context, s);
 }
 
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context)

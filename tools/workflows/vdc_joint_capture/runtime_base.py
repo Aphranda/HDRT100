@@ -11,6 +11,7 @@ import time
 import traceback
 from types import SimpleNamespace
 
+from tools.common.host_evidence_clock import now_ns
 from tools.workflows.vdc_joint_capture.run_output import load_run_output
 
 
@@ -63,7 +64,7 @@ def load_runtime(runtime_entrypoint: Path, board_uids, *, runtime_module=None):
                 "uid": board.address,
                 "port": board.port,
                 "command": command,
-                "start_ns": time.monotonic_ns(),
+                "start_ns": now_ns(),
                 "utc": datetime.now(timezone.utc).isoformat(),
                 "dispatch": "one preverified connection per worker",
             }
@@ -72,7 +73,7 @@ def load_runtime(runtime_entrypoint: Path, board_uids, *, runtime_module=None):
             except Exception as exc:
                 row["error"] = f"{type(exc).__name__}: {exc}"
             finally:
-                row["end_ns"] = time.monotonic_ns()
+                row["end_ns"] = now_ns()
             return row
 
         with ThreadPoolExecutor(max_workers=len(boards)) as executor:
@@ -85,7 +86,7 @@ def load_runtime(runtime_entrypoint: Path, board_uids, *, runtime_module=None):
         with (probe.opt.out / "actions.jsonl").open("a", encoding="utf-8") as stream:
             for row in rows:
                 stream.write(json.dumps(row, ensure_ascii=False) + "\n")
-        probe.report["parallel_start_joined_ns"] = time.monotonic_ns()
+        probe.report["parallel_start_joined_ns"] = now_ns()
         probe.save()
         if any(row.get("error") or row.get("raw", "").strip().strip('"') != "OK"
                for row in rows):

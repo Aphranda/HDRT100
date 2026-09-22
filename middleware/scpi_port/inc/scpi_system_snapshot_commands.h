@@ -117,11 +117,26 @@ scpi_result_t scpi_cmd_vdc_feedback_local_follow(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_local_follow_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_model_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_fixed_output(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_grid_configure(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_grid_clear(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_grid_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_grid_plan_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_deployment_stage(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_deployment_activate(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_deployment_clear(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_deployment_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_deployment_plan_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_run_output(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_run_output_stop(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_run_output_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_fixed_output_stop(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_fixed_output_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_subdivision_output(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_subdivision_output_stop(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_subdivision_output_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_subdivision_window(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_subdivision_window_stop(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_subdivision_window_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
@@ -325,12 +340,27 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:FEEDback:LOCALfollow", .callback = scpi_cmd_vdc_feedback_local_follow}, \
     {.pattern = "SYSTem:VDC:FEEDback:LOCALfollow?", .callback = scpi_cmd_vdc_feedback_local_follow_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MODel?", .callback = scpi_cmd_vdc_feedback_model_q}, \
+    {.pattern = "TRIGger:REServation:DEPloyment:STAGe", .callback = scpi_cmd_trigger_deployment_stage}, \
+    {.pattern = "TRIGger:REServation:DEPloyment:ACTivate", .callback = scpi_cmd_trigger_deployment_activate}, \
+    {.pattern = "TRIGger:REServation:DEPloyment:CLEar", .callback = scpi_cmd_trigger_deployment_clear}, \
+    {.pattern = "TRIGger:REServation:DEPloyment?", .callback = scpi_cmd_trigger_deployment_q}, \
+    {.pattern = "TRIGger:REServation:DEPloyment:PLAN?", .callback = scpi_cmd_trigger_deployment_plan_q}, \
+    {.pattern = "TRIGger:REServation:GRID:CONFigure", .callback = scpi_cmd_trigger_grid_configure}, \
+    {.pattern = "TRIGger:REServation:GRID:CLEar", .callback = scpi_cmd_trigger_grid_clear}, \
+    {.pattern = "TRIGger:REServation:GRID?", .callback = scpi_cmd_trigger_grid_q}, \
+    {.pattern = "TRIGger:REServation:GRID:PLAN?", .callback = scpi_cmd_trigger_grid_plan_q}, \
     {.pattern = "SYSTem:VDC:OUTPut:FIXed", .callback = scpi_cmd_vdc_fixed_output}, \
     {.pattern = "SYSTem:VDC:OUTPut:RUN", .callback = scpi_cmd_vdc_run_output}, \
     {.pattern = "SYSTem:VDC:OUTPut:RUN:STOP", .callback = scpi_cmd_vdc_run_output_stop}, \
     {.pattern = "SYSTem:VDC:OUTPut:RUN?", .callback = scpi_cmd_vdc_run_output_q}, \
     {.pattern = "SYSTem:VDC:OUTPut:FIXed:STOP", .callback = scpi_cmd_vdc_fixed_output_stop}, \
     {.pattern = "SYSTem:VDC:OUTPut:FIXed?", .callback = scpi_cmd_vdc_fixed_output_q}, \
+    {.pattern = "SYSTem:VDC:OUTPut:SUBDivision", .callback = scpi_cmd_vdc_subdivision_output}, \
+    {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:STOP", .callback = scpi_cmd_vdc_subdivision_output_stop}, \
+    {.pattern = "SYSTem:VDC:OUTPut:SUBDivision?", .callback = scpi_cmd_vdc_subdivision_output_q}, \
+    {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:WINdow", .callback = scpi_cmd_vdc_subdivision_window}, \
+    {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:WINdow:STOP", .callback = scpi_cmd_vdc_subdivision_window_stop}, \
+    {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:WINdow?", .callback = scpi_cmd_vdc_subdivision_window_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BRIDge?", .callback = scpi_cmd_vdc_feedback_bridge_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MATCh?", .callback = scpi_cmd_vdc_feedback_match_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \

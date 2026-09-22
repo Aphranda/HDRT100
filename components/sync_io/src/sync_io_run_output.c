@@ -30,7 +30,9 @@ static sync_io_persona_manager_handle_t s_handle;
 static sync_io_run_output_snapshot_t s_run;
 static uint32_t s_state, s_cancel, s_guard, s_generation;
 static uint32_t s_snapshot[sizeof(sync_io_run_output_snapshot_t)/sizeof(uint32_t)];
-static uint32_t s_offset, s_duration_ms;
+static uint32_t s_offset;
+/* Core0 prepares the immutable lease before publishing PREPARED. */
+static uint64_t s_duration_ticks;
 static bool s_sm_claimed, s_dma_claimed, s_loaded, s_lease;
 static bool s_source_pending;
 enum { RUN_MODE_PAIRED, RUN_MODE_UNIFORM };
@@ -179,7 +181,8 @@ static bool prepare_mode(uint32_t hz,uint32_t duration_ms,uint32_t high_ticks,
     s_run.fixed_high_ticks=high_ticks;
     s_run.generation=++s_generation; s_run.tick_hz=hz;
     s_run.program_offset=s_offset;
-    s_duration_ms=duration_ms; s_lease=true; s_source_pending=false;
+    s_duration_ticks=(uint64_t)duration_ms*hz/1000u;
+    s_lease=true; s_source_pending=false;
     s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_NONE;
     __atomic_store_n(&s_cancel,0u,__ATOMIC_RELEASE);
     publish_state(SYNC_IO_RUN_OUTPUT_PREPARED);
@@ -351,27 +354,29 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
             s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_START;
             retire(SYNC_IO_RUN_OUTPUT_ARGUMENT); end_write(); return false;
         }
-        /* Re-encode only the first low against the final raw observation.
-         * No callback, model inverse or resource operation occurs inside
-         * the retained enable bracket. Its width is evidence, not precision. */
+        /* Prepare without starting DMA or the disabled SM. Keep setup and
+         * duration arithmetic outside the measured output-origin interval. */
+        const uint32_t remaining_words=word_count-words_per_edge;
+        const uint64_t duration_ticks=s_duration_ticks;
+        if (remaining_words)
+            dma_channel_set_read_addr(RUN_DMA,sync_io_shared_workspace+words_per_edge,false);
+        RUN_PIO->fdebug=1u<<(PIO_FDEBUG_TXSTALL_LSB+RUN_SM);
+        if (!uniform) pio_sm_put(RUN_PIO,RUN_SM,words[0]);
+        /* Re-encode the first low against the final raw sample. A rejection
+         * after preload retires the leased FIFO; it cannot retry PREPARED. */
         uint64_t before,observed,after;
         if (__atomic_load_n(&s_cancel,__ATOMIC_ACQUIRE) ||
             !sync_io_core_run_output_held(&s_run) || clock_get_hz(clk_sys)!=s_run.tick_hz ||
             !read_raw(&before) || before>UINT64_MAX-guard || edges[0].rising_tick<=before+guard ||
             edges[0].rising_tick-before-first_low_overhead>UINT32_MAX ||
-            before>UINT64_MAX-(uint64_t)s_duration_ms*s_run.tick_hz/1000u) {
+            before>UINT64_MAX-duration_ticks) {
             s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_DEADLINE;
             retire(SYNC_IO_RUN_OUTPUT_DEADLINE); end_write(); return false;
         }
-        RUN_PIO->fdebug=1u<<(PIO_FDEBUG_TXSTALL_LSB+RUN_SM);
-        if (!uniform) pio_sm_put(RUN_PIO,RUN_SM,words[0]);
         pio_sm_put(RUN_PIO,RUN_SM,(uint32_t)(edges[0].rising_tick-before-first_low_overhead));
         /* A one-pulse first block is entirely in the CPU-preloaded FIFO.
          * Do not trigger a zero-length DMA transfer. */
-        if (word_count>words_per_edge) {
-            dma_channel_set_read_addr(RUN_DMA,sync_io_shared_workspace+words_per_edge,false);
-            dma_channel_set_trans_count(RUN_DMA,word_count-words_per_edge,true);
-        }
+        if (remaining_words) dma_channel_set_trans_count(RUN_DMA,remaining_words,true);
         pio_sm_set_enabled(RUN_PIO,RUN_SM,true);
         /* The enable write and an immediate PC read need not observe the
          * same SM cycle. Take one raw observation before sampling PC, then
@@ -389,7 +394,7 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
         s_run.anchor_before=before;
         submitted_at=before;
         s_run.anchor_after=raw_valid ? after+1u : UINT64_MAX;
-        s_run.expires_tick=s_duration_ms ? before+(uint64_t)s_duration_ms*s_run.tick_hz/1000u : 0u;
+        s_run.expires_tick=duration_ticks ? before+duration_ticks : 0u;
         s_run.first_ordinal=edges[0].ordinal; s_run.first_model=edges[0].model_token;
         publish_state(SYNC_IO_RUN_OUTPUT_RUNNING);
         if (!valid || after<before || after+1u-before>guard) retire(SYNC_IO_RUN_OUTPUT_CLOCK);

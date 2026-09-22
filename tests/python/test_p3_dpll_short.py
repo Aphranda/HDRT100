@@ -15,6 +15,14 @@ UIDS = ["no1", "no2", "no3", "no4"]
 TICK_HZ = 250_000_000
 TRACE_BASE_TICK = 1_000_000
 HOST_OFFSET_NS = 1_000_000_000_000
+HOST_CLOCK = {
+    "schema": "HAOFV_HOST_EVIDENCE_CLOCK_V1",
+    "name": "perf_counter",
+    "implementation": "fixture-qpc",
+    "monotonic": True,
+    "adjustable": False,
+    "resolution_ns": 100,
+}
 
 
 def anchor(uid, label, raw_before, host_start_ns):
@@ -31,7 +39,7 @@ def anchor(uid, label, raw_before, host_start_ns):
     return {
         "schema": "VDC_HOST_RAW_ANCHOR_V1", "label": label, "uid": uid,
         "host_start_ns": host_start_ns, "host_end_ns": host_start_ns + 100_000,
-        "bridge": bridge,
+        "host_clock": HOST_CLOCK, "bridge": bridge,
     }
 
 
@@ -176,9 +184,21 @@ def reports(tmp_path, *, scope, maximum=80.0, missing=False,
                     f"{due}:{channel}".encode("ascii"))
             (folder / "scope.json").write_text(json.dumps({
                 "capture_complete": True,
+                "host_clock": HOST_CLOCK,
+                "fresh_wait_ns": sample_host - 100,
                 "trigger_admitted_ns": sample_host,
                 "trigger_complete_observed_ns": sample_host + 100_000,
-                "channels": [{"blocks": [{"path": f"ch{channel}.block"}]}
+                "commands": [
+                    {"command": ":TRIG:STAT?", "raw": "WAIT",
+                     "start_ns": sample_host - 300, "end_ns": sample_host - 200},
+                    {"command": ":TRIG:EDGE:LEV 1.5",
+                     "start_ns": sample_host, "end_ns": sample_host},
+                    {"command": ":TRIG:STAT?", "raw": "STOP",
+                     "start_ns": sample_host + 90_000, "end_ns": sample_host + 100_000}],
+                "channels": [{"channel": channel,
+                              "preamble": "0,2,650000,1,2e-9,-.0002,0,.1,0,128",
+                              "blocks": [{"path": f"ch{channel}.block",
+                                          "start": 1, "stop": 650000}]}
                              for channel in range(1, 5)]}), encoding="utf-8")
             samples.append({"due_s": due, "capture_complete": True,
                             "acquisition_host_ns": [sample_host, sample_host + 100_000],
@@ -186,6 +206,7 @@ def reports(tmp_path, *, scope, maximum=80.0, missing=False,
     payload = {
         "passed": True, "joint_internal_health_passed": True,
         "quiet_elapsed_s": 62.0, "errors": [], "boards": boards,
+        "host_clock": HOST_CLOCK,
         "actions": actions, "queries_during_acquisition": 0,
         "plan": {"runtime_anchor_queries": 0,
                  "core1_probe_work_added": False,
@@ -221,9 +242,11 @@ def test_internal_only_uses_steady_native_envelope_and_skips_external(tmp_path):
     assert summary["phase_max_abs_ns"] == 101
     assert summary["external_status"] == "SKIPPED"
     assert summary["phase_domain"] == "internal_steady_summary_residual_envelope"
-    assert summary["internal_settling_bins_excluded"] == 1
+    assert summary["internal_summary_interval_ms"] == 10000
+    assert summary["internal_settling_seconds_excluded"] == 10
     assert len(summary["internal_phase_traces"]) == 3
-    assert all(row["steady_bins"] == 5 and row["endpoint_within_last_bin"]
+    assert all(row["settling_bins_excluded"] == 1 and row["steady_bins"] == 5 and
+               row["endpoint_within_last_bin"]
                for row in summary["internal_phase_traces"])
     short.validate_summary(tmp_path, summary)
 
@@ -339,6 +362,24 @@ def test_summary_identity_must_match_acceptance_receipt(tmp_path):
             expected_source_tree_sha256="b" * 64,
             expected_build_id="123",
             expected_board_uids=UIDS)
+
+
+@pytest.mark.parametrize("magnitude,severity,passed", [
+    (100, "INFO", True), (101, "WARN", True),
+    (1000, "WARN", True), (1001, "ERROR", False),
+])
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_external_phase_thresholds_are_symmetric(tmp_path, magnitude, severity, passed, sign):
+    joint, inner = reports(tmp_path, scope=True)
+    payload = json.loads(inner.read_text(encoding="utf-8"))
+    # All-negative windows must work too, with no zero or positive sentinel.
+    for sample in payload["scope_samples"]:
+        sample["phase"]["relative_ns"] = [[sign * magnitude], [-2], [-1]]
+    inner.write_text(json.dumps(payload), encoding="utf-8")
+    summary = short.summarize_joint(tmp_path, joint, inner, scope_enabled=True, seconds=60)
+    assert summary["phase_max_abs_ns"] == magnitude
+    assert summary["phase_severity"] == severity
+    assert summary["passed"] is passed
 
 
 def test_scope_path_uses_relative_ns_and_binds_every_raw_block(tmp_path, monkeypatch):
@@ -469,6 +510,19 @@ def move_first_scope_before_capture(payload):
         HOST_OFFSET_NS - 1000, HOST_OFFSET_NS - 999]
 
 
+def remove_host_clock(payload):
+    payload.pop("host_clock")
+
+
+def mix_anchor_host_clock(payload):
+    payload["boards"][UIDS[1]]["host_raw_anchors"]["pre"]["host_clock"] = {
+        **HOST_CLOCK, "implementation": "other-clock"}
+
+
+def degrade_host_clock_resolution(payload):
+    payload["host_clock"]["resolution_ns"] = 15_625_000
+
+
 @pytest.mark.parametrize("mutation,error", [
     (lambda payload: payload["boards"][UIDS[1]].pop("host_raw_anchors"),
      "action set is incomplete"),
@@ -490,9 +544,12 @@ def move_first_scope_before_capture(payload):
     (lambda payload: payload["actions"][1].update(raw="NOT_OK"),
      "START/STOP action did not complete"),
     (move_most_scope_windows_after_capture,
-     "lacks complete or steady unique associations"),
+     "scope host-time interval differs"),
     (move_first_scope_before_capture,
-     "lacks complete or steady unique associations"),
+     "scope host-time interval differs"),
+    (remove_host_clock, "clock identity"),
+    (mix_anchor_host_clock, "anchor identity"),
+    (degrade_host_clock_resolution, "clock identity"),
     (lambda payload: payload["scope_samples"][0].update(due_s=60),
      "due sequence differs"),
 ])
@@ -551,6 +608,17 @@ def test_scope_interval_on_conservative_bin_boundary_is_ambiguous(tmp_path):
     payload = json.loads(inner.read_text(encoding="utf-8"))
     payload["scope_samples"][0]["acquisition_host_ns"] = [boundary, boundary]
     inner.write_text(json.dumps(payload), encoding="utf-8")
+    scope_path = inner.parent / "sample-0005/scope.json"
+    record = json.loads(scope_path.read_text(encoding="utf-8"))
+    record.update(fresh_wait_ns=boundary - 1, trigger_admitted_ns=boundary,
+                  trigger_complete_observed_ns=boundary)
+    record["commands"] = [
+        {"command": ":TRIG:STAT?", "raw": "WAIT",
+         "start_ns": boundary - 2, "end_ns": boundary - 1},
+        {"command": ":TRIG:EDGE:LEV 1.5", "start_ns": boundary, "end_ns": boundary},
+        {"command": ":TRIG:STAT?", "raw": "STOP",
+         "start_ns": boundary, "end_ns": boundary}]
+    scope_path.write_text(json.dumps(record), encoding="utf-8")
     summary = short.summarize_joint(
         tmp_path, joint, inner, scope_enabled=True, seconds=60)
     row = next(item for item in summary["time_correlation"]["associations"]
@@ -569,6 +637,85 @@ def test_query_starting_at_global_stop_boundary_is_not_runtime_intrusion(tmp_pat
     summary = short.summarize_joint(
         tmp_path, joint, inner, scope_enabled=True, seconds=60)
     assert summary["time_correlation"]["evidence_valid"] is True
+
+
+def test_scope_record_interval_includes_write_latency_and_rounds_pretrigger_outward(tmp_path):
+    _, inner = reports(tmp_path, scope=True)
+    payload = json.loads(inner.read_text(encoding="utf-8"))
+    sample = payload["scope_samples"][0]
+    record = json.loads((inner.parent / "sample-0005/scope.json").read_text(encoding="utf-8"))
+    admitted, complete = sample["acquisition_host_ns"]
+    record["commands"][1]["start_ns"] -= 50
+    for channel in record["channels"]:
+        channel["preamble"] = "0,2,650000,1,2e-9,-.0002000000001,0,.1,0,128"
+    assert short._scope_record_interval(record, sample) == [admitted - 50 - 200001, complete]
+
+
+@pytest.mark.parametrize("fault", [
+    "missing_commands", "duplicate_admission", "write_error", "bool_timestamp",
+    "reversed_write", "no_wait", "late_wait", "no_stop", "early_completion",
+    "missing_channel", "nan_axis", "zero_denominator", "axis_mismatch", "invalid_block",
+])
+def test_scope_record_interval_rejects_unproven_window(tmp_path, fault):
+    _, inner = reports(tmp_path, scope=True)
+    sample = json.loads(inner.read_text(encoding="utf-8"))["scope_samples"][0]
+    record = json.loads((inner.parent / "sample-0005/scope.json").read_text(encoding="utf-8"))
+    commands = record["commands"]
+    if fault == "missing_commands":
+        record.pop("commands")
+    elif fault == "duplicate_admission":
+        commands.append(dict(commands[1]))
+    elif fault == "write_error":
+        commands[1]["error"] = "timeout"
+    elif fault == "bool_timestamp":
+        commands[1]["start_ns"] = True
+    elif fault == "reversed_write":
+        commands[1]["end_ns"] -= 1
+    elif fault == "no_wait":
+        commands[0]["raw"] = "STOP"
+    elif fault == "late_wait":
+        record["fresh_wait_ns"] = commands[1]["end_ns"] + 1
+    elif fault == "no_stop":
+        commands[2]["raw"] = "WAIT"
+    elif fault == "early_completion":
+        record["trigger_complete_observed_ns"] -= 1
+    elif fault == "missing_channel":
+        record["channels"].pop()
+    elif fault in ("nan_axis", "zero_denominator", "axis_mismatch"):
+        value = {"nan_axis": "nan", "zero_denominator": "1/0",
+                 "axis_mismatch": "-.0003"}[fault]
+        record["channels"][1]["preamble"] = f"0,2,650000,1,2e-9,{value},0,.1,0,128"
+    elif fault == "invalid_block":
+        record["channels"][0]["blocks"][0]["start"] = 0
+    with pytest.raises(ValueError):
+        short._scope_record_interval(record, sample)
+
+
+def test_raw_pretrigger_prevents_false_unique_bin_association(tmp_path):
+    joint, inner = reports(tmp_path, scope=True)
+    baseline = short.summarize_joint(tmp_path, joint, inner, scope_enabled=True, seconds=60)
+    bins = baseline["time_correlation"]["models"][0]["bins"]
+    admitted = bins[0]["host_end_ns"][1] + 1000
+    complete = admitted + 100_000
+    assert admitted >= bins[1]["host_start_ns"][1]
+    assert complete <= bins[1]["host_end_ns"][0]
+    payload = json.loads(inner.read_text(encoding="utf-8"))
+    payload["scope_samples"][0]["acquisition_host_ns"] = [admitted, complete]
+    inner.write_text(json.dumps(payload), encoding="utf-8")
+    path = inner.parent / "sample-0005/scope.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record.update(fresh_wait_ns=admitted - 100, trigger_admitted_ns=admitted,
+                  trigger_complete_observed_ns=complete)
+    for row, bounds in zip(record["commands"], [
+            (admitted - 300, admitted - 200), (admitted - 50, admitted),
+            (complete - 100, complete)]):
+        row.update(start_ns=bounds[0], end_ns=bounds[1])
+    path.write_text(json.dumps(record), encoding="utf-8")
+    corrected = short.summarize_joint(tmp_path, joint, inner, scope_enabled=True, seconds=60)
+    row = corrected["time_correlation"]["associations"][0]
+    assert row["association"] == "AFFINE_AMBIGUOUS"
+    assert row["candidate_bins"] == [0, 1]
+    assert row["scope_host_ns"] == [admitted - 50 - 200000, complete]
 
 
 def test_over_one_microsecond_and_missing_sample_are_errors(tmp_path, monkeypatch):

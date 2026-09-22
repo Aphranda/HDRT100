@@ -39,6 +39,14 @@ bool generate(const sync_io_rate_schedule_request_t *r, uint32_t *w,
               size_t n, sync_io_rate_schedule_encoding_t *e) {
     return sync_io_rate_schedule_generate(r, w, n, e);
 }
+bool marked(const sync_io_rate_schedule_request_t *r, uint32_t marker,
+            uint32_t *w, size_t n, sync_io_rate_schedule_encoding_t *e) {
+    return sync_io_rate_schedule_generate_marked(r, marker, w, n, e);
+}
+bool window(const sync_io_rate_schedule_request_t *r, uint32_t marker,
+            uint32_t *w, size_t n, sync_io_rate_schedule_encoding_t *e) {
+    return sync_io_rate_schedule_generate_window(r, marker, w, n, e);
+}
 ''', encoding="utf-8")
     cc = shutil.which("gcc")
     assert cc, "host gcc is required for independent rate-schedule validation"
@@ -51,6 +59,14 @@ bool generate(const sync_io_rate_schedule_request_t *r, uint32_t *w,
     library.generate.argtypes = [ctypes.POINTER(Request), ctypes.POINTER(ctypes.c_uint32),
                                  ctypes.c_size_t, ctypes.POINTER(Encoding)]
     library.generate.restype = ctypes.c_bool
+    library.marked.argtypes = [ctypes.POINTER(Request), ctypes.c_uint32,
+                              ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
+                              ctypes.POINTER(Encoding)]
+    library.marked.restype = ctypes.c_bool
+    library.generate.marked = library.marked
+    library.window.argtypes = library.marked.argtypes
+    library.window.restype = ctypes.c_bool
+    library.generate.window = library.window
     return library.generate
 
 
@@ -181,6 +197,98 @@ def test_capacity_and_section_boundary(generator):
     words, _ = encode(generator, Request(1, 0, 36, 16, 2, 4))
     assert words == [5, 0, 1, 0]
     assert_rejected_unchanged(generator, Request(1, -999999999, 18, 16, 2, 4))
+
+
+@pytest.mark.parametrize("tick", [4, 100])
+@pytest.mark.parametrize("rate", [-100000000, -1001, 0, 1001, 2147483647])
+@pytest.mark.parametrize("count", [2, 9, 2048])
+def test_marked_grid_preserves_all_rising_edges(generator, tick, rate, count):
+    request = Request(23, rate, 10003, 401, count, tick)
+    marker_ns = 1601
+    marked = lambda r, w, n, e: generator.marked(r, marker_ns, w, n, e)
+    words, encoded = encode(marked, request)
+    base_words, base = encode(generator, request)
+    ideal = Fraction(request.period_ns * 10**9, (10**9 + rate) * tick)
+    elapsed = 0
+    for index, (low, high) in enumerate(zip(words[::2], words[1::2]), 1):
+        assert low > 0
+        elapsed += low + 4
+        assert elapsed == ceil_fraction(index * ideal)
+        expected_high = ceil_fraction(Fraction(marker_ns if index == 1 else request.high_ns, tick))
+        assert high + 4 == expected_high
+        elapsed += high + 4
+    assert bytes(encoded) == bytes(base)
+    assert encoded.total_ticks == elapsed
+    assert words[0] == base_words[0] and words[3:] == base_words[3:]
+
+
+@pytest.mark.parametrize("marker,count,capacity", [
+    (0, 9, 18), (400, 9, 18), (401, 9, 18), (404, 9, 18),
+    (9990, 9, 18), (0xFFFFFFFF, 9, 18), (1600, 1, 18),
+    (1600, 0, 18), (1600, 2049, 4096), (1600, 9, 17),
+])
+def test_marked_invalid_request_preserves_outputs(generator, marker, count, capacity):
+    marked = lambda r, w, n, e: generator.marked(r, marker, w, n, e)
+    assert_rejected_unchanged(marked, Request(1, 0, 10000, 401, count, 4), capacity)
+
+
+@pytest.mark.parametrize("null_arg", ["request", "words", "encoding"])
+def test_marked_null_preserves_outputs(generator, null_arg):
+    marked = lambda r, w, n, e: generator.marked(r, 1600, w, n, e)
+    assert_rejected_unchanged(marked, Request(1, 0, 10000, 400, 9, 4), null_arg=null_arg)
+
+
+@pytest.mark.parametrize("tick", [4, 100])
+@pytest.mark.parametrize("rate", [-100000000, -1001, 0, 1001, 2147483647])
+@pytest.mark.parametrize("count", [3, 1000, 2048])
+def test_window_markers_silent_last_slot_and_absolute_grid(generator, tick, rate, count):
+    request = Request(27, rate, 10003, 401, count, tick)
+    marker_ns = 1601
+    window = lambda r, w, n, e: generator.window(r, marker_ns, w, n, e)
+    words, encoded = encode(window, request)
+    step = Fraction(request.period_ns * 10**9, (10**9 + rate) * tick)
+    elapsed = 0
+    rises = []
+    widths = []
+    for low, high in zip(words[::2], words[1::2]):
+        assert low > 0
+        elapsed += low + 4
+        rises.append(elapsed)
+        widths.append(high + 4)
+        elapsed += high + 4
+    expected_indices = list(range(1, count)) + [count + 1]
+    assert rises == [ceil_fraction(index * step) for index in expected_indices]
+    assert ceil_fraction(count * step) not in rises  # guard slot has no edge
+    marker_ticks = ceil_fraction(Fraction(marker_ns, tick))
+    high_ticks = ceil_fraction(Fraction(request.high_ns, tick))
+    assert widths == [marker_ticks] + [high_ticks] * (count - 2) + [marker_ticks]
+    periods = [rises[0]] + [b-a for a, b in zip(rises, rises[1:])]
+    assert encoded.first_edge_ticks == rises[0]
+    assert encoded.last_edge_ticks == rises[-1]
+    assert encoded.total_ticks == elapsed == rises[-1] + marker_ticks
+    assert encoded.min_period_ticks == min(periods)
+    assert encoded.max_period_ticks == max(periods)
+    assert abs(Fraction(rises[-1] - rises[0]) - count * step) < 1
+
+
+@pytest.mark.parametrize("count,period,marker,capacity", [
+    (0, 1000, 200, 4096), (1, 1000, 200, 4096), (2, 1000, 200, 4096),
+    (2049, 1000, 200, 4096), (1000, 1000, 200, 1999),
+    (1000, 1000, 100, 4096), (1000, 1000, 984, 4096),
+    (3, 0xFFFFFFFF, 200, 4096),
+])
+def test_window_rejection_does_not_mutate(generator, count, period, marker, capacity):
+    window = lambda r, w, n, e: generator.window(r, marker, w, n, e)
+    # Large negative rate makes the final double interval exceed uint32 even
+    # though a single period still fits, exercising the additional tail bound.
+    rate = -500000001 if period == 0xFFFFFFFF else 0
+    assert_rejected_unchanged(window, Request(1, rate, period, 100, count, 4), capacity)
+
+
+@pytest.mark.parametrize("null_arg", ["request", "words", "encoding"])
+def test_window_null_preserves_outputs(generator, null_arg):
+    window = lambda r, w, n, e: generator.window(r, 200, w, n, e)
+    assert_rejected_unchanged(window, Request(1, 0, 1000, 100, 1000, 4), null_arg=null_arg)
 
 
 def production_function(source, name):
@@ -332,7 +440,10 @@ static void dma_channel_configure(uint channel, const dma_channel_config *config
         "sync_io_pulse_schedule_arm_on_pin_common_owned",
         "sync_io_pulse_schedule_arm_on_pin_common",
         "sync_io_sma_observer_fixed_rate_arm_owned",
+        "sync_io_sma_observer_finite_arm",
         "sync_io_sma_observer_fixed_rate_arm",
+        "sync_io_sma_observer_subdivision_arm",
+        "sync_io_sma_observer_subdivision_window_arm",
     ]
     harness += "\n".join(production_function(source, name) for name in functions)
     harness += r'''
@@ -507,7 +618,8 @@ int main(void) {
     /* Interleave immediately after lease acquisition (before fill), and from
      * the real manager START validator (after DMA configuration, before start).
      * Each phase is exercised with and without an explicit fixed STOP. */
-    for (unsigned injection=0;injection<2;++injection) {
+    for (unsigned mode=0;mode<3;++mode) {
+      for (unsigned injection=0;injection<2;++injection) {
         for (unsigned cancel=0;cancel<2;++cancel) {
             sync_io_sma_observer_fixed_rate_get_runtime(&published_before);
             unsigned starts_before=starts, interleavings_before=interleavings;
@@ -516,7 +628,9 @@ int main(void) {
             else validator_interleave=exercise_preparing_reentry;
             ++req.request_id;
             const sync_io_fixed_rate_runtime_t output_before=rt;
-            bool armed=sync_io_sma_observer_fixed_rate_arm(&req,&rt,validator,&validations);
+            bool armed=mode==2 ? sync_io_sma_observer_subdivision_window_arm(&req,4000,&rt,validator,&validations)
+                : mode==1 ? sync_io_sma_observer_subdivision_arm(&req,4000,&rt,validator,&validations)
+                          : sync_io_sma_observer_fixed_rate_arm(&req,&rt,validator,&validations);
             claim_interleave=NULL; validator_interleave=NULL;
             assert(interleavings==interleavings_before+1);
             if (cancel_preparing) {
@@ -527,10 +641,16 @@ int main(void) {
             } else {
                 assert(armed && starts==starts_before+1);
                 assert(rt.pulse.running && rt.request.request_id==req.request_id);
+                assert(sync_io_shared_workspace[1]==(mode ? 1000u : 250u)-4u);
+                assert(sync_io_shared_workspace[2u*req.pulse_count-1u]==(mode==2 ? 1000u : 250u)-4u);
+                /* Neither mode may replace an active marked/unmarked batch. */
+                assert(!sync_io_sma_observer_subdivision_arm(&req,4000,&rt,validator,&validations));
+                assert(!sync_io_sma_observer_subdivision_window_arm(&req,4000,&rt,validator,&validations));
                 sync_io_sma_observer_fixed_rate_disarm();
             }
             assert_released();
         }
+      }
     }
     return 0;
 }

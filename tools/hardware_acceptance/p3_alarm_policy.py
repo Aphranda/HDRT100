@@ -106,12 +106,23 @@ def _topology_valid(summary: dict) -> bool:
 def _dpll_observation_valid(summary: dict) -> bool:
     schema = summary.get("schema")
     if (isinstance(schema, str) and schema.startswith("HAOFV_P3_DPLL_SHORT_V") and
-            schema != "HAOFV_P3_DPLL_SHORT_V3"):
+            schema != "HAOFV_P3_DPLL_SHORT_V4"):
         return False
-    if schema == "HAOFV_P3_DPLL_SHORT_V3":
+    if schema == "HAOFV_P3_DPLL_SHORT_V4":
         correlation = _dict(summary.get("time_correlation"))
+        host_clock = _dict(correlation.get("host_clock"))
+        host_clock_valid = (
+            host_clock.get("schema") == "HAOFV_HOST_EVIDENCE_CLOCK_V1" and
+            host_clock.get("name") == "perf_counter" and
+            isinstance(host_clock.get("implementation"), str) and
+            bool(host_clock.get("implementation")) and
+            host_clock.get("monotonic") is True and
+            host_clock.get("adjustable") is False and
+            isinstance(host_clock.get("resolution_ns"), int) and
+            not isinstance(host_clock.get("resolution_ns"), bool) and
+            0 < host_clock["resolution_ns"] <= 1000)
         correlation_shape_valid = (
-            correlation.get("schema") == "HAOFV_DPLL_HOST_TIME_CORRELATION_V1" and
+            correlation.get("schema") == "HAOFV_DPLL_HOST_TIME_CORRELATION_V2" and
             correlation.get("probe_mode") ==
             "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE" and
             isinstance(correlation.get("evidence_valid"), bool) and
@@ -122,6 +133,7 @@ def _dpll_observation_valid(summary: dict) -> bool:
              correlation.get("runtime_board_queries") == 0 and
              correlation.get("core1_probe_work_added") is False and
              correlation.get("realtime_resource_seat_added") is False and
+             host_clock_valid and
              len(_rows(correlation.get("models"))) == 3 and
              bool(_rows(correlation.get("associations")))) or
             (correlation.get("evidence_valid") is False and
@@ -133,6 +145,8 @@ def _dpll_observation_valid(summary: dict) -> bool:
                 summary.get("external_status") in ("PASS", "SKIPPED") and
                 summary.get("phase_severity") in ("INFO", "WARN", "ERROR") and
                 isinstance(summary.get("phase_max_abs_ns"), (int, float)) and
+                summary.get("internal_summary_interval_ms") == 10000 and
+                summary.get("internal_settling_seconds_excluded") == 10 and
                 len(_rows(summary.get("internal_phase_endpoints"))) == 3 and
                 len(_rows(summary.get("internal_phase_traces"))) == 3 and
                 (summary.get("scope_enabled") is not True or
@@ -330,7 +344,7 @@ def build_acceptance_report(*, profile: str, stages: dict[str, dict],
                         add(stage, "INFO", "DPLL_DIAGNOSTIC_FEEDBACK", str(error), error, uid)
             if stage == "DPLL":
                 correlation = _dict(summary.get("time_correlation"))
-                if (summary.get("schema") == "HAOFV_P3_DPLL_SHORT_V3" and
+                if (summary.get("schema") == "HAOFV_P3_DPLL_SHORT_V4" and
                         summary.get("scope_enabled") is True and
                         correlation.get("evidence_valid") is False):
                     add(stage, quality_severity, "DPLL_TIME_CORRELATION_UNQUALIFIED",
@@ -353,7 +367,7 @@ def build_acceptance_report(*, profile: str, stages: dict[str, dict],
                     add(stage, quality_severity, "DPLL_SEQUENCE_QUALITY", "Ring sequence consistency gate did not pass", {
                         "ring_sequence_consistent": False, "ring_sequence_skew": summary.get("ring_sequence_skew")})
                 legacy_boards = (_rows(summary.get("boards"))
-                                 if summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V3" else [])
+                                 if summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V4" else [])
                 for raw_board in legacy_boards:
                     board = _dict(raw_board)
                     uid = board.get("board", board.get("address"))
@@ -364,7 +378,7 @@ def build_acceptance_report(*, profile: str, stages: dict[str, dict],
                     elif board.get("reference_node") is not True and board.get("dpll_locked") is not True:
                         add(stage, quality_severity, "DPLL_LOCK_QUALITY",
                             "Follower has not demonstrated lock", board, uid)
-                if (summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V3" and
+                if (summary.get("schema") != "HAOFV_P3_DPLL_SHORT_V4" and
                         not _rows(summary.get("boards"))):
                     add(stage, quality_severity, "DPLL_LOCK_EVIDENCE_MISSING",
                         "No per-board lock or phase evidence is available", summary)

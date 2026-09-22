@@ -6,6 +6,8 @@ import json
 import math
 import time
 
+from tools.common.host_evidence_clock import now_ns
+
 
 class EvidenceWriter:
     def __init__(self, capacity=4):
@@ -45,12 +47,12 @@ class EvidenceWriter:
 
     @staticmethod
     def _write(folder, report, blocks):
-        started = time.monotonic_ns()
+        started = now_ns()
         for name, raw in blocks.items():
             with (folder / name).open('xb') as stream:
                 stream.write(raw)
         report['persistence'] = dict(completed=True, started_ns=started,
-                                      ended_ns=time.monotonic_ns())
+                                      ended_ns=now_ns())
         (folder / 'scope.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         if 'phase' in report:
             (folder / 'phase.json').write_text(json.dumps(report['phase'], indent=2), encoding='utf-8')
@@ -128,9 +130,9 @@ def capture_raw(scope, reader):
         if query(':TRIG:STAT?') != 'STOP':
             raise ValueError('Acquisition changed during export')
         scope.write(':WAV:DATA?')
-        started = time.monotonic_ns()
+        started = now_ns()
         raw = scope.scope.read_raw()
-        ended = time.monotonic_ns()
+        ended = now_ns()
         name = f'ch{channel}-00000001.block'
         scope._raw_blocks[name] = raw  # Preserve malformed responses as evidence too.
         reader.decode_block(raw, count)

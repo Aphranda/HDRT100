@@ -9,6 +9,7 @@ import re
 import time
 from types import SimpleNamespace
 
+from tools.common.host_evidence_clock import identity as host_clock_identity, now_ns
 from tools.vdc_priority_trace import vdc_priority_trace_capture as helper
 from tools.workflows.vdc_joint_capture.runtime_base import load_runtime
 
@@ -272,14 +273,17 @@ def load_adapter(runtime_entrypoint: Path, *, board_uids=None, runtime_module=No
         def capture_host_raw_anchor(self, board, label):
             if not self.barrier or self.block_queries:
                 raise RuntimeError("Host/raw anchor requires all-board STOP")
-            host_start_ns = time.monotonic_ns()
+            clock = host_clock_identity()
+            if self.report.get("host_clock") != clock:
+                raise RuntimeError("Host evidence clock identity changed")
+            host_start_ns = now_ns()
             raw = self.command(board, BRIDGE_QUERY)
-            host_end_ns = time.monotonic_ns()
+            host_end_ns = now_ns()
             bridge = parse_bridge(raw)
             anchor = {
                 "schema": "VDC_HOST_RAW_ANCHOR_V1", "label": label,
                 "uid": board.address, "host_start_ns": host_start_ns,
-                "host_end_ns": host_end_ns, "bridge": bridge,
+                "host_end_ns": host_end_ns, "host_clock": clock, "bridge": bridge,
             }
             if host_end_ns < host_start_ns:
                 raise ValueError("Host monotonic anchor moved backwards")

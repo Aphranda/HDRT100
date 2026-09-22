@@ -27,6 +27,10 @@ from itertools import product
 from pathlib import Path
 from typing import Any, Iterable
 
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 if __package__:
     from .p3_alarm_policy import build_acceptance_report
     from .p3_dpll_short import PROVISIONAL_SCHEMA, summarize_joint, validate_summary
@@ -34,10 +38,6 @@ else:
     from p3_alarm_policy import build_acceptance_report
     from p3_dpll_short import PROVISIONAL_SCHEMA, summarize_joint, validate_summary
 
-
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 DEFAULT_CONFIG = Path("config/hardware_acceptance/p3_bench_quick.json")
 DEFAULT_RECEIPT = Path("config/hardware_acceptance/p3_acceptance_receipt.json")
 RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_V4"

@@ -521,6 +521,8 @@ set(PROJECT_APP_SOURCES
         components/sync_trigger/src/trigger_fb.c
         components/sync_trigger/src/trigger_measure.c
         components/sync_trigger/src/trigger_resource_map.c
+        components/sync_trigger/src/trigger_grid_preview.c
+        components/sync_trigger/src/trigger_deployment_service.c
         components/sync_io/src/sync_io.c
         components/sync_io/src/sync_io_logic_analyzer.c
         components/sync_io/src/sync_io_analyzer_burst.c

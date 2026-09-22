@@ -135,6 +135,37 @@ bool vdc_dpll_manager_fixed_output_start(uint32_t period_ns, uint32_t high_ns,
     uint32_t pulse_count, uint32_t tick_period_ns, uint32_t *request_id);
 bool vdc_dpll_manager_fixed_output_stop(void);
 bool vdc_dpll_manager_get_fixed_output(vdc_dpll_manager_fixed_output_status_t *out);
+/* STOP-only local interval observation: one marker, then subdivision_count
+ * narrow pulses. The committed rate is frozen for this finite batch; the
+ * marker is not an absolute or live RUN synchronization reference. FIXED and
+ * SUBDIV share one owner but have separate queries and cancellation commands.
+ * Representable geometry is not a DMA throughput qualification: physical
+ * interval accuracy must be measured for the selected diagnostic settings. */
+enum {
+    VDC_OUTPUT_OBSERVATION_FIXED = 0u,
+    VDC_OUTPUT_OBSERVATION_SUBDIVISION = 1u,
+    VDC_OUTPUT_OBSERVATION_SUBDIVISION_WINDOW = 2u,
+};
+typedef struct {
+    vdc_dpll_manager_fixed_output_status_t batch;
+    uint32_t mode, marker_high_ns, marker_high_ticks, subdivision_count;
+} vdc_dpll_manager_subdivision_output_status_t;
+bool vdc_dpll_manager_subdivision_output_start(uint32_t interval_ns,
+    uint32_t pulse_high_ns, uint32_t subdivision_count, uint32_t marker_high_ns,
+    uint32_t tick_period_ns, uint32_t *request_id);
+bool vdc_dpll_manager_subdivision_output_stop(void);
+bool vdc_dpll_manager_get_subdivision_output(
+    vdc_dpll_manager_subdivision_output_status_t *out);
+/* A finite local window: markers at q0 and qN, narrow pulses q1..qN-2,
+ * and no pulse at qN-1. sync_period_ns must contain N whole intervals.
+ * Query mode 2 reports N total pulses and N-2 subdivisions; the nominal
+ * marker-to-marker period is batch.period_ns * batch.pulse_count. */
+bool vdc_dpll_manager_subdivision_window_start(uint32_t sync_period_ns,
+    uint32_t interval_ns, uint32_t pulse_high_ns, uint32_t marker_high_ns,
+    uint32_t tick_period_ns, uint32_t *request_id);
+bool vdc_dpll_manager_subdivision_window_stop(void);
+bool vdc_dpll_manager_get_subdivision_window(
+    vdc_dpll_manager_subdivision_output_status_t *out);
 bool vdc_dpll_manager_project_feedback_event(uint32_t session,
     uint32_t role_generation, uint32_t clock_epoch_id, uint32_t clock_run_id,
     uint32_t local_slot, uint32_t schedule_crc32, uint32_t tick_hz,

@@ -227,10 +227,12 @@ def test_zero_dco_adjustment_is_not_an_error():
 def test_four_board_short_phase_severity_is_preserved(severity, blocked):
     stages = stage_set()
     stages["DPLL"] = {
-        "schema": "HAOFV_P3_DPLL_SHORT_V3", "passed": severity != "ERROR",
+        "schema": "HAOFV_P3_DPLL_SHORT_V4", "passed": severity != "ERROR",
         "evidence_status": "PASS",
         "duration_s": 60, "external_status": "SKIPPED",
         "phase_severity": severity, "phase_max_abs_ns": 50 if severity == "INFO" else 500,
+        "internal_summary_interval_ms": 10000,
+        "internal_settling_seconds_excluded": 10,
         "phase_source": "internal", "phase_domain": "internal",
         "internal_phase_endpoints": [{}, {}, {}], "errors": [],
         "internal_phase_traces": [{}, {}, {}],
@@ -245,7 +247,29 @@ def test_four_board_short_phase_severity_is_preserved(severity, blocked):
         assert any(row["code"] == "DPLL_PHASE_OUTSIDE_1US" for row in findings(result, "DPLL"))
 
 
-@pytest.mark.parametrize("schema", ["HAOFV_P3_DPLL_SHORT_V1", "HAOFV_P3_DPLL_SHORT_V2"])
+@pytest.mark.parametrize("field,value", [
+    ("internal_summary_interval_ms", 1_000),
+    ("internal_settling_seconds_excluded", 1),
+])
+def test_scope_off_v4_rejects_internal_interval_drift(field, value):
+    stages = stage_set()
+    stages["DPLL"] = {
+        "schema": "HAOFV_P3_DPLL_SHORT_V4", "passed": True,
+        "evidence_status": "PASS", "duration_s": 60,
+        "scope_enabled": False, "external_status": "SKIPPED",
+        "phase_severity": "INFO", "phase_max_abs_ns": 50,
+        "internal_summary_interval_ms": 10000,
+        "internal_settling_seconds_excluded": 10,
+        "internal_phase_endpoints": [{}, {}, {}],
+        "internal_phase_traces": [{}, {}, {}], "errors": [],
+    }
+    stages["DPLL"][field] = value
+    assert_blocked(report_for(stages, required=("DPLL",)), "DPLL")
+
+
+@pytest.mark.parametrize("schema", [
+    "HAOFV_P3_DPLL_SHORT_V1", "HAOFV_P3_DPLL_SHORT_V2",
+    "HAOFV_P3_DPLL_SHORT_V3"])
 def test_legacy_short_summary_cannot_satisfy_v3_gate(schema):
     stages = stage_set()
     stages["DPLL"] = {
@@ -262,7 +286,9 @@ def test_legacy_short_summary_cannot_satisfy_v3_gate(schema):
     assert_blocked(report_for(stages, required=("DPLL",)), "DPLL")
 
 
-@pytest.mark.parametrize("schema", ["HAOFV_P3_DPLL_SHORT_V1", "HAOFV_P3_DPLL_SHORT_V2"])
+@pytest.mark.parametrize("schema", [
+    "HAOFV_P3_DPLL_SHORT_V1", "HAOFV_P3_DPLL_SHORT_V2",
+    "HAOFV_P3_DPLL_SHORT_V3"])
 @pytest.mark.parametrize("shortcut", [False, True])
 def test_legacy_short_schema_cannot_fall_through_generic_or_shortcut(schema, shortcut):
     row = {
@@ -281,15 +307,21 @@ def test_legacy_short_schema_cannot_fall_through_generic_or_shortcut(schema, sho
 def test_v3_scope_run_reports_unqualified_time_correlation_without_quick_reject():
     stages = stage_set()
     stages["DPLL"] = {
-        "schema": "HAOFV_P3_DPLL_SHORT_V3", "passed": True,
+        "schema": "HAOFV_P3_DPLL_SHORT_V4", "passed": True,
         "evidence_status": "PASS", "duration_s": 60,
         "scope_enabled": True, "external_status": "PASS",
         "phase_severity": "INFO", "phase_max_abs_ns": 50,
+        "internal_summary_interval_ms": 10000,
+        "internal_settling_seconds_excluded": 10,
         "phase_source": "scope", "phase_domain": "external",
         "internal_phase_endpoints": [{}, {}, {}],
         "internal_phase_traces": [{}, {}, {}], "errors": [],
         "time_correlation": {
-            "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V1",
+            "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V2",
+            "host_clock": {"schema": "HAOFV_HOST_EVIDENCE_CLOCK_V1",
+                           "name": "perf_counter", "implementation": "fixture-qpc",
+                           "monotonic": True, "adjustable": False,
+                           "resolution_ns": 100},
             "probe_mode": "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE",
             "evidence_valid": False, "reasons": ["ambiguous"],
             "exact_event_correlation_qualified": False,
@@ -303,7 +335,11 @@ def test_v3_scope_run_reports_unqualified_time_correlation_without_quick_reject(
     assert_blocked(
         report_for(stages, required=("DPLL",), strict=("DPLL",)), "DPLL")
     stages["DPLL"]["time_correlation"] = {
-        "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V1",
+        "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V2",
+        "host_clock": {"schema": "HAOFV_HOST_EVIDENCE_CLOCK_V1",
+                       "name": "perf_counter", "implementation": "fixture-qpc",
+                       "monotonic": True, "adjustable": False,
+                       "resolution_ns": 100},
         "probe_mode": "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE",
         "runtime_board_queries": 0, "core1_probe_work_added": False,
         "realtime_resource_seat_added": False, "evidence_valid": True,
@@ -312,6 +348,75 @@ def test_v3_scope_run_reports_unqualified_time_correlation_without_quick_reject(
         "models": [{}, {}, {}], "associations": [{}],
     }
     assert report_for(stages, required=("DPLL",))["outcome"] != "BLOCKED"
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda summary: summary.update(internal_summary_interval_ms=1_000),
+    lambda summary: summary.update(internal_settling_seconds_excluded=1),
+])
+def test_v4_correlation_shape_rejects_clock_or_interval_drift(mutation):
+    stages = stage_set()
+    stages["DPLL"] = {
+        "schema": "HAOFV_P3_DPLL_SHORT_V4", "passed": True,
+        "evidence_status": "PASS", "duration_s": 60,
+        "scope_enabled": True, "external_status": "PASS",
+        "phase_severity": "INFO", "phase_max_abs_ns": 50,
+        "internal_summary_interval_ms": 10000,
+        "internal_settling_seconds_excluded": 10,
+        "internal_phase_endpoints": [{}, {}, {}],
+        "internal_phase_traces": [{}, {}, {}], "errors": [],
+        "time_correlation": {
+            "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V2",
+            "host_clock": {"schema": "HAOFV_HOST_EVIDENCE_CLOCK_V1",
+                           "name": "perf_counter", "implementation": "fixture-qpc",
+                           "monotonic": True, "adjustable": False,
+                           "resolution_ns": 100},
+            "probe_mode": "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE",
+            "runtime_board_queries": 0, "core1_probe_work_added": False,
+            "realtime_resource_seat_added": False, "evidence_valid": True,
+            "exact_event_correlation_qualified": False,
+            "numeric_error_qualified": False,
+            "models": [{}, {}, {}], "associations": [{}],
+        },
+    }
+    mutation(stages["DPLL"])
+    assert_blocked(report_for(stages, required=("DPLL",)), "DPLL")
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda summary: summary["time_correlation"].pop("host_clock"),
+    lambda summary: summary["time_correlation"]["host_clock"].update(
+        resolution_ns=15_625_000),
+])
+def test_v4_unqualified_host_clock_is_warn_in_quick_and_error_in_strict(mutation):
+    stages = stage_set()
+    stages["DPLL"] = {
+        "schema": "HAOFV_P3_DPLL_SHORT_V4", "passed": True,
+        "evidence_status": "PASS", "duration_s": 60,
+        "scope_enabled": True, "external_status": "PASS",
+        "phase_severity": "INFO", "phase_max_abs_ns": 50,
+        "internal_summary_interval_ms": 10000,
+        "internal_settling_seconds_excluded": 10,
+        "internal_phase_endpoints": [{}, {}, {}],
+        "internal_phase_traces": [{}, {}, {}], "errors": [],
+        "time_correlation": {
+            "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V2",
+            "host_clock": {"schema": "HAOFV_HOST_EVIDENCE_CLOCK_V1",
+                           "name": "perf_counter", "implementation": "fixture-qpc",
+                           "monotonic": True, "adjustable": False,
+                           "resolution_ns": 100},
+            "probe_mode": "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE",
+            "evidence_valid": False, "reasons": ["host clock unqualified"],
+            "exact_event_correlation_qualified": False,
+            "numeric_error_qualified": False,
+        },
+    }
+    mutation(stages["DPLL"])
+    quick = report_for(stages, required=("DPLL",))
+    assert quick["outcome"] == "PASS_WITH_WARNINGS"
+    assert any(row["code"] == "DPLL_TIME_CORRELATION_UNQUALIFIED" and
+               row["severity"] == "WARN" for row in findings(quick, "DPLL"))
+    assert_blocked(report_for(stages, required=("DPLL",), strict=("DPLL",)), "DPLL")
 
 
 def test_strict_dpll_requires_measured_lock_evidence_even_when_summary_claims_pass():

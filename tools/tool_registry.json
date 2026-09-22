@@ -2,6 +2,25 @@
   "schema_version": 1,
   "tools": [
     {
+      "id": "TOOL-HOST-EVIDENCE-CLOCK",
+      "purpose": "High-resolution monotonic host timestamp identity for auditable evidence",
+      "domain": "TOOLS",
+      "owner": "Host evidence maintenance",
+      "lifecycle": "EXPERIMENTAL",
+      "operation": "OFFLINE",
+      "entrypoints": [],
+      "files": [
+        {"path": "tools/common/host_evidence_clock.py", "role": "module"}
+      ],
+      "depends_on": [],
+      "external_dependencies": [],
+      "dependency_review": "COMPLETE",
+      "aliases": [],
+      "validation": ["tests/python/test_host_evidence_clock.py"],
+      "handoff_evidence": "docs/tools/DOCS_TOOLS_TASK_PROGRESS.md",
+      "notes": "Pure standard-library capability using perf_counter/QPC identity. Consumers bind schema, implementation, monotonicity, adjustability and declared resolution; it does not synchronize clocks or qualify physical event timing."
+    },
+    {
       "id": "TOOL-VDC-JOINT-WORKFLOW",
       "purpose": "Pinned inputs and outer four-board lifecycle for VDC joint capture",
       "domain": "VDC",
@@ -51,7 +70,7 @@
         {"path": "tools/workflows/vdc_joint_capture/typed.py", "role": "module"},
         {"path": "tools/workflows/vdc_joint_capture/README.md", "role": "documentation"}
       ],
-      "depends_on": ["TOOL-DPLL-OBSERVATION-DECODE", "TOOL-SCPI-COMMON", "TOOL-TDMA-RING-MONITOR", "TOOL-VDC-PROBE-SUPPORT"],
+      "depends_on": ["TOOL-DPLL-OBSERVATION-DECODE", "TOOL-HOST-EVIDENCE-CLOCK", "TOOL-SCPI-COMMON", "TOOL-TDMA-RING-MONITOR", "TOOL-VDC-PROBE-SUPPORT"],
       "external_dependencies": ["pyserial for four-board hardware runs"],
       "dependency_review": "COMPLETE",
       "aliases": [],
@@ -91,7 +110,7 @@
         {"path": "tools/common/hdo_scope/reader.py", "role": "module"},
         {"path": "tools/common/hdo_scope/README.md", "role": "documentation"}
       ],
-      "depends_on": [],
+      "depends_on": ["TOOL-HOST-EVIDENCE-CLOCK"],
       "external_dependencies": ["PyVISA and VISA/USB backend for hardware; Python standard library for decoding"],
       "dependency_review": "COMPLETE",
       "aliases": [],
@@ -112,7 +131,7 @@
         {"path": "tools/domains/vdc/scope_capture/migration.json", "role": "resource"},
         {"path": "tools/domains/vdc/scope_capture/README.md", "role": "documentation"}
       ],
-      "depends_on": ["TOOL-HDO-RAW-READER"],
+      "depends_on": ["TOOL-HDO-RAW-READER", "TOOL-HOST-EVIDENCE-CLOCK"],
       "external_dependencies": [],
       "dependency_review": "COMPLETE",
       "aliases": [],
@@ -3488,6 +3507,7 @@
       ],
       "depends_on": [
         "TOOL-CALIBRATION-RING-VALIDATE",
+        "TOOL-HOST-EVIDENCE-CLOCK",
         "TOOL-SCPI-COMMON",
         "TOOL-HDO-RAW-READER",
         "TOOL-VDC-JOINT-WORKFLOW",

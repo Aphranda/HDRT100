@@ -5,6 +5,7 @@ from pathlib import Path
 import time
 
 from tools.common.hdo_scope.reader import Scope
+from tools.common.host_evidence_clock import identity as host_clock_identity, now_ns
 
 
 class SparseScope(Scope):
@@ -19,7 +20,7 @@ class SparseScope(Scope):
 
     def write(self, command):
         if getattr(self, "sampling", False):
-            row = dict(command=command, start_ns=time.monotonic_ns())
+            row = dict(command=command, start_ns=now_ns())
             self.report["commands"].append(row)
             try:
                 self.scope.write(command)
@@ -30,7 +31,7 @@ class SparseScope(Scope):
                 row["error"] = repr(exc)
                 raise
             finally:
-                row["end_ns"] = time.monotonic_ns()
+                row["end_ns"] = now_ns()
             return
         if command.startswith(":TIM:SCAL "):
             if self.quiet:
@@ -78,6 +79,7 @@ class SparseScope(Scope):
         self.folder = folder
         self.report = dict(resource=self.resource, expected_serial=self.expected_serial,
                            commands=[], channels=[], capture_complete=False,
+                           host_clock=host_clock_identity(),
                            voltage_formula="(code-y_origin-y_reference)*y_increment",
                            time_formula="x_origin + (start-1 + index - x_reference) * x_increment",
                            identity=self.identity, settings=self.settings,
@@ -102,10 +104,10 @@ class SparseScope(Scope):
                 raise ValueError("Fresh arm source/mode mismatch")
             if not self.query(":SYST:ERR?").startswith(("0,", "+0,")):
                 raise ValueError("Fresh arm rejected")
-            self.report["fresh_wait_ns"] = time.monotonic_ns()
-            self.report["armed_ns"] = time.monotonic_ns()
+            self.report["fresh_wait_ns"] = now_ns()
+            self.report["armed_ns"] = now_ns()
             self.write(":TRIG:EDGE:LEV 1.5")
-            self.report["trigger_admitted_ns"] = time.monotonic_ns()
+            self.report["trigger_admitted_ns"] = now_ns()
             deadline = time.monotonic() + 1.0
             while self.query(":TRIG:STAT?") != "STOP":
                 if time.monotonic() >= deadline:

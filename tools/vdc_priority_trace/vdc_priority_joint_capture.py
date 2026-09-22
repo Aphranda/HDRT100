@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
 
 from tools.vdc_priority_trace.vdc_scope_evidence import EvidenceWriter, capture_raw, analyze_memory
 from tools.common.hdo_scope import reader as scope_reader
+from tools.common.host_evidence_clock import identity as host_clock_identity, now_ns
 from tools.domains.vdc.scope_capture.sparse import SparseScope
 from tools.workflows.vdc_joint_capture.inputs import load_inputs, validate_current_receipt
 from tools.workflows.vdc_joint_capture.internal_seal import load_adapter as load_internal_seal_adapter
@@ -241,6 +242,7 @@ def make_scope_class(scope_base=SparseScope, reader=scope_reader):
             self.folder = folder
             self.report = dict(resource=self.resource, commands=[], channels=[],
                                capture_complete=False, identity=self.identity, settings=self.settings,
+                               host_clock=host_clock_identity(),
                                voltage_formula='(code-y_origin-y_reference)*y_increment')
             self.sampling = True
             self.scope.timeout = 1800
@@ -261,24 +263,24 @@ def make_scope_class(scope_base=SparseScope, reader=scope_reader):
                 time.sleep(.01)
             if self.query(':TRIG:SWE?') != 'SING' or self.query(':TRIG:EDGE:SOUR?') != self.trigger_source:
                 raise ValueError('Fresh arm source/mode mismatch')
-            self.report['fresh_wait_ns'] = time.monotonic_ns()
-            self.report['armed_ns'] = time.monotonic_ns()
+            self.report['fresh_wait_ns'] = now_ns()
+            self.report['armed_ns'] = now_ns()
             self.write(':TRIG:EDGE:LEV 1.5')
-            self.report['trigger_admitted_ns'] = time.monotonic_ns()
+            self.report['trigger_admitted_ns'] = now_ns()
             deadline = time.monotonic() + 1.0
             while self.query(':TRIG:STAT?') != 'STOP':
                 if time.monotonic() >= deadline:
                     raise TimeoutError(f'No new {self.trigger_source}-triggered complete acquisition')
                 time.sleep(.01)
-            self.report['trigger_complete_observed_ns'] = time.monotonic_ns()
+            self.report['trigger_complete_observed_ns'] = now_ns()
             if not math.isclose(float(self.query(':TRIG:EDGE:LEV?')), 1.5):
                 raise ValueError('Trigger admission threshold rejected')
             self.export()  # All four channels from one frozen RAW record.
             if getattr(self, 'evidence_writer', None):
-                analysis_start = time.monotonic_ns()
+                analysis_start = now_ns()
                 self.report['phase'] = analyze_memory(self.report, self._raw_blocks,
                                                       reader.decode_block)
-                self.report['analysis_elapsed_ns'] = time.monotonic_ns() - analysis_start
+                self.report['analysis_elapsed_ns'] = now_ns() - analysis_start
             self.report['elapsed_s'] = time.monotonic() - begun
             self.save()
             return self.report

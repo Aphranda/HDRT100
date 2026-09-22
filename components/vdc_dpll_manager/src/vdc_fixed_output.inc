@@ -2,6 +2,8 @@
  * serializes SCPI and Core0 service without waiting or holding IRQs off. */
 static uint32_t s_fixed_output_busy;
 static vdc_dpll_manager_fixed_output_status_t s_fixed_output;
+static uint32_t s_output_observation_mode;
+static uint32_t s_output_marker_high_ns;
 
 static bool fixed_output_enter(void)
 {
@@ -189,8 +191,9 @@ static void vdc_fixed_output_service_core0(void)
     fixed_output_leave();
 }
 
-bool vdc_dpll_manager_fixed_output_start(uint32_t period_ns, uint32_t high_ns,
-    uint32_t pulse_count, uint32_t tick_period_ns, uint32_t *request_id)
+static bool fixed_output_start(uint32_t period_ns, uint32_t high_ns,
+    uint32_t pulse_count, uint32_t tick_period_ns, uint32_t mode,
+    uint32_t marker_high_ns, uint32_t *request_id)
 {
     if (!request_id || !fixed_output_enter()) return false;
     bool ok = false;
@@ -203,9 +206,10 @@ bool vdc_dpll_manager_fixed_output_start(uint32_t period_ns, uint32_t high_ns,
     if (!fixed_output_validate(VDC_FIXED_OUTPUT_INITIAL_RING_UNAVAILABLE, NULL, &model)) {
         goto done;
     }
-    /* This observer is a low-rate finite diagnostic, not an unrestricted
-     * pulse generator. Leave ample DMA service time between each pair. */
-    if (period_ns < VDC_FIXED_OUTPUT_MIN_PERIOD_NS ||
+    /* Preserve FIXED's admitted low-rate range. SUBDIV is an explicit finite
+     * interval experiment; its physical timing is qualified by measurement. */
+    if ((mode == VDC_OUTPUT_OBSERVATION_FIXED &&
+         period_ns < VDC_FIXED_OUTPUT_MIN_PERIOD_NS) ||
         s_fixed_output.request_id == UINT32_MAX) {
         s_fixed_output.last_reason = VDC_FIXED_OUTPUT_RESOURCE_OR_ARGUMENT;
         goto done;
@@ -217,6 +221,8 @@ bool vdc_dpll_manager_fixed_output_start(uint32_t period_ns, uint32_t high_ns,
         .pulse_count = pulse_count, .tick_period_ns = tick_period_ns,
     };
     memset(&s_fixed_output, 0, sizeof(s_fixed_output));
+    s_output_observation_mode = mode;
+    s_output_marker_high_ns = marker_high_ns;
     s_fixed_output.schema = 1u;
     s_fixed_output.model = model;
     s_fixed_output.request_id = request.request_id;
@@ -227,8 +233,18 @@ bool vdc_dpll_manager_fixed_output_start(uint32_t period_ns, uint32_t high_ns,
     s_fixed_output.state = VDC_FIXED_OUTPUT_FAILED;
     s_fixed_output.last_reason = VDC_FIXED_OUTPUT_RESOURCE_OR_ARGUMENT;
     sync_io_fixed_rate_runtime_t runtime;
-    if (!sync_io_sma_observer_fixed_rate_arm(&request, &runtime,
-            fixed_output_validate_start, NULL)) {
+    bool armed;
+    if (mode == VDC_OUTPUT_OBSERVATION_SUBDIVISION_WINDOW) {
+        armed = sync_io_sma_observer_subdivision_window_arm(&request, marker_high_ns,
+            &runtime, fixed_output_validate_start, NULL);
+    } else if (mode == VDC_OUTPUT_OBSERVATION_SUBDIVISION) {
+        armed = sync_io_sma_observer_subdivision_arm(&request, marker_high_ns,
+            &runtime, fixed_output_validate_start, NULL);
+    } else {
+        armed = sync_io_sma_observer_fixed_rate_arm(&request, &runtime,
+            fixed_output_validate_start, NULL);
+    }
+    if (!armed) {
         /* The pre-enable callback may have captured a more precise cause.
          * Lower resource failures leave the generic reason intact. */
         goto done;
@@ -256,9 +272,47 @@ done:
     return ok;
 }
 
-bool vdc_dpll_manager_fixed_output_stop(void)
+bool vdc_dpll_manager_fixed_output_start(uint32_t period_ns, uint32_t high_ns,
+    uint32_t pulse_count, uint32_t tick_period_ns, uint32_t *request_id)
+{
+    return fixed_output_start(period_ns, high_ns, pulse_count, tick_period_ns,
+        VDC_OUTPUT_OBSERVATION_FIXED, 0u, request_id);
+}
+
+bool vdc_dpll_manager_subdivision_output_start(uint32_t interval_ns,
+    uint32_t pulse_high_ns, uint32_t subdivision_count, uint32_t marker_high_ns,
+    uint32_t tick_period_ns, uint32_t *request_id)
+{
+    /* Reject before addition, including zero (a marker alone is not an
+     * interval observation). Geometry and tick validation remain in SYNC_IO. */
+    if (!subdivision_count ||
+        subdivision_count >= SYNC_IO_RATE_SCHEDULE_MAX_PULSES) return false;
+    return fixed_output_start(interval_ns, pulse_high_ns, subdivision_count + 1u,
+        tick_period_ns, VDC_OUTPUT_OBSERVATION_SUBDIVISION, marker_high_ns,
+        request_id);
+}
+
+bool vdc_dpll_manager_subdivision_window_start(uint32_t sync_period_ns,
+    uint32_t interval_ns, uint32_t pulse_high_ns, uint32_t marker_high_ns,
+    uint32_t tick_period_ns, uint32_t *request_id)
+{
+    if (!interval_ns || sync_period_ns % interval_ns) return false;
+    const uint32_t pulse_count = sync_period_ns / interval_ns;
+    if (pulse_count < 3u || pulse_count > SYNC_IO_RATE_SCHEDULE_MAX_PULSES) {
+        return false;
+    }
+    return fixed_output_start(interval_ns, pulse_high_ns, pulse_count,
+        tick_period_ns, VDC_OUTPUT_OBSERVATION_SUBDIVISION_WINDOW, marker_high_ns,
+        request_id);
+}
+
+static bool fixed_output_stop(uint32_t mode)
 {
     if (!fixed_output_enter()) return false;
+    if (s_output_observation_mode != mode) {
+        fixed_output_leave();
+        return false;
+    }
     if (s_fixed_output.state == VDC_FIXED_OUTPUT_RUNNING) {
         fixed_output_runtime();
         sync_io_sma_observer_fixed_rate_disarm();
@@ -272,10 +326,26 @@ bool vdc_dpll_manager_fixed_output_stop(void)
     return true;
 }
 
+bool vdc_dpll_manager_fixed_output_stop(void)
+{
+    return fixed_output_stop(VDC_OUTPUT_OBSERVATION_FIXED);
+}
+
+bool vdc_dpll_manager_subdivision_output_stop(void)
+{
+    return fixed_output_stop(VDC_OUTPUT_OBSERVATION_SUBDIVISION);
+}
+
+bool vdc_dpll_manager_subdivision_window_stop(void)
+{
+    return fixed_output_stop(VDC_OUTPUT_OBSERVATION_SUBDIVISION_WINDOW);
+}
+
 bool vdc_dpll_manager_get_fixed_output(vdc_dpll_manager_fixed_output_status_t *out)
 {
     if (!out || !fixed_output_enter()) return false;
-    const bool stopped = fixed_output_stopped_state() == 1u;
+    const bool stopped = s_output_observation_mode == VDC_OUTPUT_OBSERVATION_FIXED &&
+        fixed_output_stopped_state() == 1u;
     if (stopped) {
         if (s_fixed_output.request_id) fixed_output_runtime();
         s_fixed_output.schema = 1u;
@@ -283,4 +353,41 @@ bool vdc_dpll_manager_get_fixed_output(vdc_dpll_manager_fixed_output_status_t *o
     }
     fixed_output_leave();
     return stopped;
+}
+
+static bool subdivision_output_get(uint32_t mode,
+    vdc_dpll_manager_subdivision_output_status_t *out)
+{
+    if (!out || !fixed_output_enter()) return false;
+    const bool stopped = s_output_observation_mode == mode &&
+        fixed_output_stopped_state() == 1u;
+    if (stopped) {
+        fixed_output_runtime();
+        out->batch = s_fixed_output;
+        out->mode = s_output_observation_mode;
+        out->marker_high_ns = s_output_marker_high_ns;
+        /* Failed requests may have an unsupported/zero tick. No encoded
+         * marker exists until the backend has successfully armed. */
+        out->marker_high_ticks = s_fixed_output.system_clock_hz
+            ? (uint32_t)(((uint64_t)s_output_marker_high_ns +
+                s_fixed_output.tick_period_ns - 1u) / s_fixed_output.tick_period_ns)
+            : 0u;
+        const uint32_t markers = mode == VDC_OUTPUT_OBSERVATION_SUBDIVISION_WINDOW
+            ? 2u : 1u;
+        out->subdivision_count = s_fixed_output.pulse_count - markers;
+    }
+    fixed_output_leave();
+    return stopped;
+}
+
+bool vdc_dpll_manager_get_subdivision_output(
+    vdc_dpll_manager_subdivision_output_status_t *out)
+{
+    return subdivision_output_get(VDC_OUTPUT_OBSERVATION_SUBDIVISION, out);
+}
+
+bool vdc_dpll_manager_get_subdivision_window(
+    vdc_dpll_manager_subdivision_output_status_t *out)
+{
+    return subdivision_output_get(VDC_OUTPUT_OBSERVATION_SUBDIVISION_WINDOW, out);
 }

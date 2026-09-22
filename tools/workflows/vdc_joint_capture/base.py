@@ -16,6 +16,7 @@ from serial.tools.list_ports import comports
 from tools.calibration_ring_validate import trn03_closed_loop as trn
 from tools.calibration_ring_validate.tdma_board_record import (
     decode_record, record_status)
+from tools.common.host_evidence_clock import identity as host_clock_identity, now_ns
 from tools.domains.vdc.priority_trace import probe_support as tracked_probe_support
 from tools.domains.vdc.priority_trace.probe_support import (
     IDS, OBSERVER_FIELDS, TRACE_FIELDS, bind_receipt, fields,
@@ -82,6 +83,7 @@ class Probe:
             "no5_operated": False,
             "ota_operated": False,
             "queries_during_acquisition": 0,
+            "host_clock": host_clock_identity(),
             "actions": [],
             "errors": [],
             "boards": {},
@@ -125,7 +127,7 @@ class Probe:
     def command(self, board, text, unused=None):
         row = {
             "uid": board.address, "port": board.port, "command": text,
-            "start_ns": time.monotonic_ns(),
+            "start_ns": now_ns(),
             "utc": datetime.now(timezone.utc).isoformat(),
         }
         self.report["actions"].append(row)
@@ -153,7 +155,7 @@ class Probe:
             row["error"] = f"{type(exc).__name__}: {exc}"
             raise
         finally:
-            row["end_ns"] = time.monotonic_ns()
+            row["end_ns"] = now_ns()
             with (self.opt.out / "actions.jsonl").open(
                     "a", encoding="utf-8") as stream:
                 stream.write(json.dumps(row, ensure_ascii=False) + "\n")

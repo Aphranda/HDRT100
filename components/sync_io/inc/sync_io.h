@@ -256,6 +256,18 @@ bool sync_io_sma_observer_fixed_rate_arm(
     sync_io_fixed_rate_runtime_t *runtime,
     bool (*validate_before_start)(void *context),
     void *context);
+/* Same finite maintenance lease; pulse zero is the wider marker. */
+bool sync_io_sma_observer_subdivision_arm(
+    const sync_io_rate_schedule_request_t *request, uint32_t marker_high_ns,
+    sync_io_fixed_rate_runtime_t *runtime,
+    bool (*validate_before_start)(void *context), void *context);
+/* Two local markers enclose a finite grid; omit its final subdivision slot.
+ * request.pulse_count includes both markers, so their separation is
+ * pulse_count * period_ns in the model time domain. Same maintenance lease. */
+bool sync_io_sma_observer_subdivision_window_arm(
+    const sync_io_rate_schedule_request_t *request, uint32_t marker_high_ns,
+    sync_io_fixed_rate_runtime_t *runtime,
+    bool (*validate_before_start)(void *context), void *context);
 void sync_io_sma_observer_fixed_rate_disarm(void);
 void sync_io_sma_observer_fixed_rate_get_runtime(
     sync_io_fixed_rate_runtime_t *runtime);

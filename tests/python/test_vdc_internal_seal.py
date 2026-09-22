@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from tools.vdc_priority_trace import vdc_priority_trace_capture as helper
+from tools.common.host_evidence_clock import identity as host_clock_identity
 from tools.workflows.vdc_joint_capture import internal_seal
 
 
@@ -50,6 +51,7 @@ def fake_runtime(events):
                 "plan": {}, "boards": {uid: {} for uid in UIDS},
                 "errors": [], "passed": True, "tool_sources": [],
                 "binding_generation": 7, "queries_during_acquisition": 0,
+                "host_clock": host_clock_identity(),
             }
             self.block_queries = False
             self.barrier = True
@@ -141,6 +143,8 @@ def test_tracked_configure_omits_model_and_arms_all_summary_traces(tmp_path):
     assert probe.report["guard_plan"]["scope"] is False
     assert all(probe.report["boards"][uid]["host_raw_anchors"]["pre"]["bridge"]
                ["bridge_valid"] == 1 for uid in UIDS)
+    assert all(probe.report["boards"][uid]["host_raw_anchors"]["pre"]["host_clock"] ==
+               probe.report["host_clock"] for uid in UIDS)
     assert probe.report["plan"]["runtime_anchor_queries"] == 0
     assert probe.report["plan"]["core1_probe_work_added"] is False
     assert probe.report["plan"]["realtime_resource_seat_added"] is False

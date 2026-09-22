@@ -21,7 +21,7 @@ HARNESS = r'''
 #include "hardware/structs/timer.h"
 static timer_hw_t bank;
 static pio_hw_t pio_bank;
-static uint32_t samples[6], reads, enables, clocks, fences;
+static uint32_t samples[4], reads, enables, clocks, fences;
 static uint32_t expected_mask, expected_hz;
 static bool current[2];
 static char sequence[32];
@@ -34,12 +34,12 @@ static void record(char kind) {
 }
 
 timer_hw_t *anchor_timer_read_hook(void) {
-    assert(reads<6u && clocks==1u);
-    assert(enables==(reads<3u ? 0u : 1u));
-    assert(fences==(reads<3u ? 1u : 3u));
+    assert(reads<4u && clocks==1u);
+    assert(enables==(reads<2u ? 0u : 1u));
+    assert(fences==(reads<2u ? 1u : 3u));
     /* Every pointer evaluation advances one raw MMIO read. Wrong H/L order
      * reads the poisoned field instead of the supplied value. */
-    const bool low=reads==2u || reads==3u;
+    const bool low=reads==1u || reads==2u;
     bank.timerawh=low ? UINT32_C(0xbaadbeef) : samples[reads];
     bank.timerawl=low ? samples[reads] : UINT32_C(0xbaadbeef);
     record(low ? 'L' : 'H');
@@ -49,7 +49,7 @@ timer_hw_t *anchor_timer_read_hook(void) {
 
 bool vdc_timestamp_clock_is_current(uint32_t hz) {
     assert(clocks<2u && hz==expected_hz);
-    assert(reads==(clocks ? 6u : 0u));
+    assert(reads==(clocks ? 4u : 0u));
     assert(enables==clocks && fences==(clocks ? 4u : 0u));
     record('C');
     return current[clocks++];
@@ -57,7 +57,7 @@ bool vdc_timestamp_clock_is_current(uint32_t hz) {
 
 void pio_enable_sm_mask_in_sync(PIO pio, uint32_t mask) {
     assert(pio==&pio_bank && mask==expected_mask);
-    assert(reads==3u && clocks==1u && enables==0u && fences==2u);
+    assert(reads==2u && clocks==1u && enables==0u && fences==2u);
     ++enables;
     record('E');
 }
@@ -65,7 +65,7 @@ void pio_enable_sm_mask_in_sync(PIO pio, uint32_t mask) {
 static void anchor_fence_hook(int order) {
     assert(order==__ATOMIC_SEQ_CST);
     assert(fences<4u);
-    assert(reads==(fences==0u ? 0u : fences==3u ? 6u : 3u));
+    assert(reads==(fences==0u ? 0u : fences==3u ? 4u : 2u));
     assert(clocks==1u && enables==(fences>=2u ? 1u : 0u));
     ++fences;
     record('F');
@@ -77,18 +77,18 @@ static void anchor_fence_hook(int order) {
 
 int main(void) {
     unsigned before_current,after_current,pointers;
-    while (scanf("%" SCNu32 " %" SCNu32 " %" SCNu32 " %" SCNu32 " %" SCNu32
-                 " %" SCNu32 " %u %u %u %" SCNu32 " %" SCNu32,
-                 &samples[0],&samples[1],&samples[2],&samples[3],&samples[4],
-                 &samples[5],&before_current,&after_current,&pointers,&expected_mask,&expected_hz)==11) {
+    while (scanf("%" SCNu32 " %" SCNu32 " %" SCNu32 " %" SCNu32
+                 " %u %u %u %" SCNu32 " %" SCNu32,
+                 &samples[0],&samples[1],&samples[2],&samples[3],
+                 &before_current,&after_current,&pointers,&expected_mask,&expected_hz)==9) {
         current[0]=before_current!=0u; current[1]=after_current!=0u;
         reads=enables=clocks=fences=0u;sequence_count=0u;sequence[0]=0;
         uint64_t before=UINT64_C(0x1122334455667788),after=UINT64_C(0x8877665544332211);
         const uint64_t old_before=before,old_after=after;
         bool ok=tdma_event_enable_anchor_capture(&pio_bank,expected_mask,expected_hz,
             pointers==1u ? NULL : &before,pointers==2u ? NULL : pointers==3u ? &before : &after);
-        assert(reads==6u && enables==1u && clocks==2u && fences==4u);
-        assert(strcmp(sequence,"CFHHLFEFLHHFC")==0);
+        assert(reads==4u && enables==1u && clocks==2u && fences==4u);
+        assert(strcmp(sequence,"CFHLFEFLHFC")==0);
         if (!ok) assert(before==old_before && after==old_after);
         printf("%u %" PRIu64 " %" PRIu64 "\n",ok ? 1u : 0u,before,after);
     }
@@ -124,8 +124,7 @@ def anchor_executable(tmp_path_factory):
 
 
 def case(before, after, *, first_current=1, last_current=1, pointers=0, mask=14, hz=250000000):
-    return (before>>32,before>>32,before&0xffffffff,
-            after&0xffffffff,after>>32,after>>32,
+    return (before>>32,before&0xffffffff,after&0xffffffff,after>>32,
             first_current,last_current,pointers,mask,hz)
 
 
@@ -136,8 +135,8 @@ def run_cases(executable, cases):
     rows=[tuple(map(int,line.split())) for line in result.stdout.splitlines()]
     assert len(rows)==len(cases)
     for c,row in zip(cases,rows):
-        lower=(c[0]<<32)|c[2];upper=(c[1]<<32)|c[3]
-        ok=c[0]==c[4] and c[1]==c[5] and c[6] and c[7] and c[8]==0 and upper>lower
+        lower=(c[0]<<32)|c[1];upper=(c[3]<<32)|c[2]
+        ok=c[0]==c[3] and c[4] and c[5] and c[6]==0 and upper>lower
         assert row==((1,lower,upper) if ok else (0,0x1122334455667788,0x8877665544332211)),(c,row)
     return rows
 
@@ -156,7 +155,7 @@ def test_single_enable_even_with_invalid_output_objects(anchor_executable):
 
 def test_incoherent_high_words_reject_without_retry(anchor_executable):
     cases=[]
-    for index in (0,1,4,5):
+    for index in (0,3):
         c=list(case(0x1234567800000010,0x1234567800000020))
         c[index]^=1
         cases.append(c)
@@ -170,17 +169,17 @@ def test_coherent_positive_intervals_preserve_full_64_bit_values(anchor_executab
     assert all(row[0]==1 for row in run_cases(anchor_executable,cases))
 
 
-@pytest.mark.parametrize('wrap_after',range(1,6))
+@pytest.mark.parametrize('wrap_after',range(1,4))
 @pytest.mark.parametrize('high',[0x12345678,0xffffffff])
 def test_rollover_at_every_overlapping_read_boundary_rejects(anchor_executable,wrap_after,high):
-    # Chronological physical timer values, with a wrap in each of the five
+    # Chronological physical timer values, with a wrap in each of the three
     # gaps, including across enable. The production helper still enables once
     # and leaves both output objects untouched when an observation tears.
     samples=[]
-    for index in range(6):
+    for index in range(4):
         tick=(high<<32)+0xffffffff-wrap_after+index+1
         tick &= U64
-        samples.append((tick&0xffffffff) if index in (2,3) else (tick>>32))
+        samples.append((tick&0xffffffff) if index in (1,2) else (tick>>32))
     assert run_cases(anchor_executable,[tuple(samples)+(1,1,0,14,250000000)])[0][0]==0
 
 

@@ -110,7 +110,8 @@ int main(int argc,char **argv)
     const bool output_fault=!strncmp(name,"output_",7);
     const bool initial_output=!strncmp(name,"initial_output_",15);
     const bool positive=!strcmp(name,"sixty")||!strcmp(name,"sixhundred");
-    assert(vdc_dpll_manager_priority_trace_guard_arm(1,false,seconds));trace_service();
+    assert(vdc_dpll_manager_priority_trace_guard_arm(1,false,seconds));
+    trace_service();
     assert(guard_status().state==VDC_PRIORITY_GUARD_ARMED);
     if(!strcmp(name,"zero_config")) ring.config_seq=ring.applied_config_seq=0u;
     if(!strncmp(name,"first_clock",11)) {
@@ -410,7 +411,8 @@ int main(int argc,char **argv)
     assert(s_priority_guard_work.checked_s==seconds &&
         s_priority_guard_work.passed_mask==(1u<<(seconds/60u))-1u);
     assert(sealed.state==VDC_PRIORITY_TRACE_FROZEN && sealed.reason==VDC_PRIORITY_TRACE_TARGET_COMPLETE);
-    assert(sealed.schema==9u && sealed.record_count==seconds/10u+1u && !s_priority_trace_work.summary.open);
+    assert(sealed.schema==9u && sealed.sample_interval_ms==10000u &&
+        sealed.record_count==seconds/10u+1u && !s_priority_trace_work.summary.open);
     assert(sealed.match_count==seconds*10u);
     const vdc_priority_summary_record_t *first=(const void *)&s_dpll_capture_records[0];
     const vdc_priority_summary_record_t *last=(const void *)&s_dpll_capture_records[sealed.record_count-1u];

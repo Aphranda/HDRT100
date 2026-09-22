@@ -11,13 +11,16 @@ from fractions import Fraction
 from typing import Any
 import zlib
 
-SCHEMA = "HAOFV_P3_DPLL_SHORT_V3"
+from tools.common.host_evidence_clock import validate as validate_host_clock
+
+
+SCHEMA = "HAOFV_P3_DPLL_SHORT_V4"
 PROVISIONAL_SCHEMA = "HAOFV_P3_JOINT_PROVISIONAL_V1"
 PHASE_WARN_NS = 100.0
 PHASE_ERROR_NS = 1000.0
 PHASE_WORD_COUNT = 52
 U32_FIELD_COUNT = 26
-INTERNAL_SETTLING_BINS = 1
+INTERNAL_SETTLING_SECONDS = 10
 INTERNAL_SUMMARY_INTERVAL_MS = 10000
 INTERNAL_MAX_SUCCESS_GAP_S = 1.0
 HOST_RAW_RATE_TOLERANCE_PPM = 5000
@@ -151,6 +154,8 @@ def _internal_trace_summary(
         raise ValueError("internal trace shape is invalid")
     interval_ms, tick_hz = status.get("sample_interval_ms"), status.get("tick_hz")
     expected_bins = math.ceil(seconds * 1000 / INTERNAL_SUMMARY_INTERVAL_MS)
+    settling_bins = math.ceil(INTERNAL_SETTLING_SECONDS * 1000 /
+                              INTERNAL_SUMMARY_INTERVAL_MS)
     if (not decoded.get("schema", "").startswith("VDC_SUMMARY_TRACE_DECODE_V") or
             status.get("capture_id") != capture_id or status.get("mode") != 4 or
             status.get("session") != endpoint["session"] or
@@ -158,20 +163,20 @@ def _internal_trace_summary(
             status.get("local_slot") != board_index or
             status.get("reference_slot") != 0 or status.get("node_count") != 4 or
             isinstance(tick_hz, bool) or not isinstance(tick_hz, int) or tick_hz <= 0 or
-            len(records) != expected_bins or len(records) <= INTERNAL_SETTLING_BINS):
+            len(records) != expected_bins or len(records) <= settling_bins):
         raise ValueError("internal trace identity, mode, clock, or bin count is invalid")
     assessment = _assess_internal_trace(decoded, seconds)
     if not all(assessment.get(field) is True for field in (
             "schema_ok", "interval_ok", "terminal", "coverage_complete",
             "all_bins_have_success", "success_gap_passed")):
         raise ValueError("internal trace coverage or success-gap assessment failed")
-    settling = records[:INTERNAL_SETTLING_BINS]
+    settling = records[:settling_bins]
     expected_settling_ticks = tick_hz * INTERNAL_SUMMARY_INTERVAL_MS // 1000
     if any((record["observed_end_raw"] - record["observed_start_raw"] <
             expected_settling_ticks or "PARTIAL" in record.get("flag_names", []) or
             "CLOCK_INVALID" in record.get("flag_names", [])) for record in settling):
         raise ValueError("internal settling bin is incomplete")
-    steady = records[INTERNAL_SETTLING_BINS:]
+    steady = records[settling_bins:]
     for expected_index, record in enumerate(records):
         if not isinstance(record, dict) or record.get("bin_index") != expected_index:
             raise ValueError("internal trace bin sequence is invalid")
@@ -198,7 +203,7 @@ def _internal_trace_summary(
     startup = records[0]
     bins = [{
         "bin_index": record["bin_index"],
-        "settling": record["bin_index"] < INTERNAL_SETTLING_BINS,
+        "settling": record["bin_index"] < settling_bins,
         "observed_start_raw": record["observed_start_raw"],
         "observed_end_raw": record["observed_end_raw"],
         "residual_min_ns": record.get("residual_min_ns"),
@@ -217,7 +222,8 @@ def _internal_trace_summary(
         "reference_slot": status["reference_slot"],
         "node_count": status["node_count"],
         "total_bins": len(records),
-        "settling_bins_excluded": INTERNAL_SETTLING_BINS,
+        "settling_seconds_excluded": INTERNAL_SETTLING_SECONDS,
+        "settling_bins_excluded": settling_bins,
         "steady_bins": len(steady),
         "steady_observed_s": observed_ticks / tick_hz,
         "steady_residual_min_ns": low,
@@ -246,9 +252,11 @@ def _fraction_ceil(value: Fraction) -> int:
     return -((-value.numerator) // value.denominator)
 
 
-def _validate_anchor(uid: str, raw: Any, label: str) -> dict[str, Any]:
+def _validate_anchor(uid: str, raw: Any, label: str,
+                     host_clock: dict[str, Any]) -> dict[str, Any]:
     if (not isinstance(raw, dict) or raw.get("schema") != "VDC_HOST_RAW_ANCHOR_V1" or
-            raw.get("label") != label or raw.get("uid") != uid):
+            raw.get("label") != label or raw.get("uid") != uid or
+            raw.get("host_clock") != host_clock):
         raise ValueError(f"{label} host/raw anchor identity is invalid")
     start, end, bridge = raw.get("host_start_ns"), raw.get("host_end_ns"), raw.get("bridge")
     if (isinstance(start, bool) or not isinstance(start, int) or
@@ -276,12 +284,13 @@ def _validate_anchor(uid: str, raw: Any, label: str) -> dict[str, Any]:
     return raw
 
 
-def _host_projection_model(uid: str, board: dict[str, Any], trace: dict[str, Any]) -> dict[str, Any]:
+def _host_projection_model(uid: str, board: dict[str, Any], trace: dict[str, Any],
+                           host_clock: dict[str, Any]) -> dict[str, Any]:
     anchors = board.get("host_raw_anchors")
     if not isinstance(anchors, dict):
         raise ValueError("host/raw anchors are missing")
-    pre = _validate_anchor(uid, anchors.get("pre"), "pre")
-    post = _validate_anchor(uid, anchors.get("post"), "post")
+    pre = _validate_anchor(uid, anchors.get("pre"), "pre", host_clock)
+    post = _validate_anchor(uid, anchors.get("post"), "post", host_clock)
     first, last = pre["bridge"], post["bridge"]
     dynamic = {
         "timer0_sample_valid", "timer1_sample_valid", "timer0_sample_us",
@@ -357,7 +366,73 @@ def _host_projection_model(uid: str, board: dict[str, Any], trace: dict[str, Any
     }
 
 
-def _time_correlate_scope(inner: dict[str, Any], traces: list[dict[str, Any]]) -> dict[str, Any]:
+def _scope_record_interval(report: dict[str, Any], sample: dict[str, Any]) -> list[int]:
+    """Enclose the exported RAW record, not merely the observed trigger reply."""
+    def timestamp(value):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("scope command timestamp is invalid")
+        return value
+
+    commands = report.get("commands")
+    if not isinstance(commands, list) or not commands:
+        raise ValueError("scope command evidence is missing")
+    for row in commands:
+        if (not isinstance(row, dict) or row.get("error") or
+                timestamp(row.get("start_ns")) > timestamp(row.get("end_ns"))):
+            raise ValueError("scope command interval or result is invalid")
+    release = [row for row in commands if row.get("command") == ":TRIG:EDGE:LEV 1.5"]
+    if len(release) != 1:
+        raise ValueError("scope trigger admission command is not unique")
+    release = release[0]
+    wait = [row for row in commands if row.get("command") == ":TRIG:STAT?" and
+            row.get("raw") == "WAIT" and row["end_ns"] <= release["start_ns"]]
+    stopped = [row for row in commands if row.get("command") == ":TRIG:STAT?" and
+               row.get("raw") == "STOP" and row["start_ns"] >= release["end_ns"]]
+    fresh = timestamp(report.get("fresh_wait_ns"))
+    admitted = timestamp(report.get("trigger_admitted_ns"))
+    complete = timestamp(report.get("trigger_complete_observed_ns"))
+    if (not wait or not stopped or report.get("capture_complete") is not True or
+            not max(row["end_ns"] for row in wait) <= fresh <= release["start_ns"] or
+            not release["end_ns"] <= admitted <= complete or
+            min(row["end_ns"] for row in stopped) > complete):
+        raise ValueError("scope fresh WAIT/admission/STOP ordering is invalid")
+    recorded = sample.get("acquisition_host_ns")
+    if (not isinstance(recorded, list) or len(recorded) != 2 or
+            any(isinstance(value, bool) or not isinstance(value, int) for value in recorded) or
+            recorded != [admitted, complete]):
+        raise ValueError("scope host-time interval differs from bound scope record")
+    channels = report.get("channels", [])
+    if [row.get("channel") for row in channels] != [1, 2, 3, 4]:
+        raise ValueError("scope RAW interval requires four ordered channels")
+    earliest = Fraction(0)
+    axis = None
+    for row in channels:
+        try:
+            preamble = [Fraction(value) for value in row["preamble"].split(",")]
+        except (ValueError, ZeroDivisionError) as exc:
+            raise ValueError("scope RAW time axis is invalid") from exc
+        if len(preamble) != 10 or preamble[4] <= 0:
+            raise ValueError("scope RAW time axis is invalid")
+        if axis is not None and axis != preamble[2:7]:
+            raise ValueError("scope RAW channel time axes differ")
+        axis = preamble[2:7]
+        blocks = row.get("blocks", [])
+        if not blocks:
+            raise ValueError("scope RAW block range is missing")
+        for block in blocks:
+            start, stop = timestamp(block.get("start")), timestamp(block.get("stop"))
+            if not 1 <= start <= stop <= preamble[2]:
+                raise ValueError("scope RAW block range is invalid")
+            earliest = min(earliest, preamble[5] +
+                           (start - 1 - preamble[6]) * preamble[4])
+    # The device can trigger before write() returns. Its frozen record can
+    # include samples preceding that trigger; round that extension outward.
+    return [release["start_ns"] + _fraction_floor(earliest * 1_000_000_000),
+            min(row["end_ns"] for row in stopped)]
+
+
+def _time_correlate_scope(inner: dict[str, Any], traces: list[dict[str, Any]],
+                          scope_reports: list[dict[str, Any]]) -> dict[str, Any]:
     boards, samples = inner.get("boards"), inner.get("scope_samples")
     if not isinstance(boards, dict) or not isinstance(samples, list):
         raise ValueError("scope correlation inputs are missing")
@@ -368,6 +443,7 @@ def _time_correlate_scope(inner: dict[str, Any], traces: list[dict[str, Any]]) -
             plan.get("core1_probe_work_added") is not False or
             plan.get("realtime_resource_seat_added") is not False):
         raise ValueError("nonintrusive probe boundary is not proven")
+    host_clock = validate_host_clock(inner.get("host_clock"))
     bridge_command = "SYSTEM:VDC:FEEDBACK:BRIDGE?"
     start_command = "SYSTEM:TDMA:RING:START"
     stop_command = "SYSTEM:TDMA:RING:STOP"
@@ -438,18 +514,23 @@ def _time_correlate_scope(inner: dict[str, Any], traces: list[dict[str, Any]]) -
     if runtime_queries:
         raise ValueError("raw actions contain a query inside the all-board RUN interval")
     models = [
-        _host_projection_model(trace["board_id"], boards.get(trace["board_id"], {}), trace)
+        _host_projection_model(
+            trace["board_id"], boards.get(trace["board_id"], {}), trace, host_clock)
         for trace in traces]
     expected_due = list(range(5, 61, 5))
     if [sample.get("due_s") if isinstance(sample, dict) else None for sample in samples] != expected_due:
         raise ValueError("scope due sequence differs from the fixed 5..60 second schedule")
+    if len(scope_reports) != len(samples):
+        raise ValueError("scope record/sample count differs")
     rows = []
     unique_steady_by_board = {model["board_id"]: 0 for model in models}
     outside_by_board = {model["board_id"]: 0 for model in models}
     in_capture_by_board = {model["board_id"]: 0 for model in models}
     ambiguous_by_board = {model["board_id"]: 0 for model in models}
-    for sample in samples:
-        interval = sample.get("acquisition_host_ns") if isinstance(sample, dict) else None
+    for sample, report in zip(samples, scope_reports):
+        if report.get("host_clock") != host_clock:
+            raise ValueError("scope record host clock differs")
+        interval = _scope_record_interval(report, sample)
         relative = sample.get("phase", {}).get("relative_ns") if isinstance(sample, dict) else None
         if (not isinstance(interval, list) or len(interval) != 2 or
                 any(isinstance(value, bool) or not isinstance(value, int) for value in interval) or
@@ -514,8 +595,10 @@ def _time_correlate_scope(inner: dict[str, Any], traces: list[dict[str, Any]]) -
             any(value < 5 for value in unique_steady_by_board.values())):
         raise ValueError("host/raw correlation lacks complete or steady unique associations")
     return {
-        "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V1",
+        "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V2",
         "probe_mode": "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE",
+        "host_clock": host_clock,
+        "scope_interval_basis": "ADMISSION_WRITE_START_PLUS_RAW_PRETRIGGER_TO_STOP_REPLY",
         "runtime_board_queries": 0,
         "core1_probe_work_added": False,
         "realtime_resource_seat_added": False,
@@ -536,8 +619,9 @@ def _time_correlate_scope(inner: dict[str, Any], traces: list[dict[str, Any]]) -
 def _time_correlation_failure(inner: dict[str, Any], reason: str) -> dict[str, Any]:
     plan = inner.get("plan") if isinstance(inner.get("plan"), dict) else {}
     return {
-        "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V1",
+        "schema": "HAOFV_DPLL_HOST_TIME_CORRELATION_V2",
         "probe_mode": "PASSIVE_SCOPE_PLUS_STOP_ONLY_DOUBLE_BRIDGE",
+        "host_clock": inner.get("host_clock"),
         "runtime_board_queries": inner.get("queries_during_acquisition"),
         "core1_probe_work_added": plan.get("core1_probe_work_added"),
         "realtime_resource_seat_added": plan.get("realtime_resource_seat_added"),
@@ -659,7 +743,9 @@ def summarize_joint(root: Path, joint_report_path: Path, input_report_path: Path
         if len(scope_records) != seconds // 5:
             errors.append("scope record set is incomplete")
         try:
-            time_correlation = _time_correlate_scope(inner, internal_traces)
+            scope_reports = [json.loads((root / row["path"]).read_text(encoding="utf-8"))
+                             for row in scope_records]
+            time_correlation = _time_correlate_scope(inner, internal_traces, scope_reports)
         except (KeyError, TypeError, ValueError) as exc:
             time_correlation = _time_correlation_failure(inner, str(exc))
         phase_source = "scope_samples[].phase.relative_ns"
@@ -676,7 +762,7 @@ def summarize_joint(root: Path, joint_report_path: Path, input_report_path: Path
 
     if not phase_values:
         errors.append("selected phase source contains no samples")
-    max_abs_ns = max(phase_values) if phase_values else 0.0
+    max_abs_ns = max(map(abs, phase_values), default=0.0)
     severity = phase_severity(max_abs_ns)
     if severity == "ERROR":
         errors.append(f"phase exceeds {PHASE_ERROR_NS:g} ns")
@@ -691,7 +777,8 @@ def summarize_joint(root: Path, joint_report_path: Path, input_report_path: Path
         "phase_error_ns": PHASE_ERROR_NS, "phase_max_abs_ns": max_abs_ns,
         "phase_severity": severity, "internal_phase_endpoints": internal_rows,
         "internal_phase_traces": internal_traces,
-        "internal_settling_bins_excluded": INTERNAL_SETTLING_BINS,
+        "internal_summary_interval_ms": INTERNAL_SUMMARY_INTERVAL_MS,
+        "internal_settling_seconds_excluded": INTERNAL_SETTLING_SECONDS,
         "scope_resource": plan.get("scope_resource") if scope_enabled else None,
         "scope_serial": plan.get("scope_serial") if scope_enabled else None,
         "time_correlation": time_correlation,
@@ -720,10 +807,12 @@ def _validate_scope_decode(root: Path, summary: dict[str, Any], input_path: Path
     for index, (entry, sample) in enumerate(zip(records, samples)):
         path = _evidence_path(root, entry, f"scope record {index}")
         report = json.loads(path.read_text(encoding="utf-8"))
+        host_clock = inner.get("host_clock")
         interval = sample.get("acquisition_host_ns") if isinstance(sample, dict) else None
         expected_interval = [report.get("trigger_admitted_ns"),
                              report.get("trigger_complete_observed_ns")]
         if (report.get("capture_complete") is not True or
+                report.get("host_clock") != host_clock or
                 any(isinstance(value, bool) or not isinstance(value, int)
                     for value in expected_interval) or
                 expected_interval[1] < expected_interval[0] or

@@ -89,6 +89,10 @@ class Instrument:
 
 def test_import_from_clean_tree_needs_no_out_or_hardware(tmp_path):
     root = Path(__file__).resolve().parents[2]
+    clock_source = root / 'tools/common/host_evidence_clock.py'
+    clock_target = tmp_path / 'tools/common/host_evidence_clock.py'
+    clock_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(clock_source, clock_target)
     for directory in ('tools/common/hdo_scope', 'tools/domains/vdc/scope_capture'):
         for source in (root / directory).glob('*.py'):
             target = tmp_path / directory / source.name

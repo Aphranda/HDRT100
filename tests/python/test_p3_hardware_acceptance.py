@@ -125,6 +125,16 @@ def test_check_staged_rejects_joint_provisional_receipt(
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_direct_script_help_loads_repository_dependencies():
+    result = subprocess.run(
+        [sys.executable,
+         str(ROOT / "tools/hardware_acceptance/p3_hardware_acceptance.py"),
+         "--help"],
+        cwd=ROOT, text=True, capture_output=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "check-staged" in result.stdout
+
+
 def test_bench_config_overlay_deep_merges_without_copying_topology(
         tmp_path: Path) -> None:
     base = tmp_path / "base.json"

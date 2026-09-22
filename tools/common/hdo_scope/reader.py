@@ -10,6 +10,8 @@ import math
 from pathlib import Path
 import time
 
+from tools.common.host_evidence_clock import identity as host_clock_identity, now_ns
+
 
 DEFAULT_RESOURCE = "USB0::0x1AB1::0x0610::HDO4A244301137::INSTR"
 DEFAULT_SERIAL = "HDO4A244301137"
@@ -69,6 +71,7 @@ class Scope:
         self.quiet = False
         self.report = dict(
             resource=resource, expected_serial=expected_serial,
+            host_clock=host_clock_identity(),
             wiring="CH1..CH4 = NO1..NO4, 1x probes", commands=[], channels=[],
             capture_complete=False,
             voltage_formula="(code - y_origin - y_reference) * y_increment",
@@ -80,7 +83,7 @@ class Scope:
             json.dumps(self.report, indent=2), encoding="utf-8")
 
     def write(self, command):
-        row = dict(command=command, start_ns=time.monotonic_ns())
+        row = dict(command=command, start_ns=now_ns())
         self.report["commands"].append(row)
         try:
             self.scope.write(command)
@@ -89,13 +92,13 @@ class Scope:
             row["error"] = repr(exc)
             raise
         finally:
-            row["end_ns"] = time.monotonic_ns()
+            row["end_ns"] = now_ns()
             self.save()
 
     def query(self, command):
         if self.quiet:
             raise RuntimeError("Scope query forbidden inside board acquisition")
-        row = dict(command=command, start_ns=time.monotonic_ns())
+        row = dict(command=command, start_ns=now_ns())
         self.report["commands"].append(row)
         try:
             row["raw"] = self.scope.query(command).strip()
@@ -104,7 +107,7 @@ class Scope:
             row["error"] = repr(exc)
             raise
         finally:
-            row["end_ns"] = time.monotonic_ns()
+            row["end_ns"] = now_ns()
             self.save()
 
     def prepare(self):
@@ -157,7 +160,7 @@ class Scope:
             raise TimeoutError("No new WAIT; previous STOP is not a capture")
         if self.query(":TRIG:SWE?") != "SING" or self.query(":TRIG:EDGE:SOUR?") != "CHAN1":
             raise ValueError("Armed source/mode changed")
-        self.report["armed_ns"] = time.monotonic_ns()
+        self.report["armed_ns"] = now_ns()
         self.save()
 
     def export(self):
@@ -168,7 +171,7 @@ class Scope:
         if self.query(":TRIG:STAT?") != "STOP":
             raise RuntimeError("No completed single trigger")
         self.report["capture_complete"] = False
-        self.report["stopped_ns"] = time.monotonic_ns()
+        self.report["stopped_ns"] = now_ns()
         self.report["sample_rate"] = self.query(":ACQ:SRAT?")
         axis = None
         for ch in range(1, 5):

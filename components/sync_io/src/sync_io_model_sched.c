@@ -1137,12 +1137,17 @@ bool sync_io_sma_observer_pulse_schedule_arm_periodic_at_ns(
 
 static bool sync_io_sma_observer_fixed_rate_arm_owned(
     const sync_io_rate_schedule_request_t *request,
+    uint32_t marker_high_ns,
+    bool closed_window,
     sync_io_fixed_rate_runtime_t *runtime,
     bool (*validate_before_start)(void *context),
     void *context)
 {
     if (!sync_io_core_initialized() || validate_before_start == NULL ||
         !sync_io_rate_schedule_request_valid(request) ||
+        (marker_high_ns != 0u &&
+         !sync_io_rate_schedule_marked_valid(request, marker_high_ns)) ||
+        (closed_window && !sync_io_rate_schedule_window_valid(request, marker_high_ns)) ||
         sync_io_core_capture_is_running() ||
         s_model_pulse.running || s_wave_output_manager_active ||
         s_wave_output_sm_claimed || s_wave_output_dma_claimed ||
@@ -1167,9 +1172,18 @@ static bool sync_io_sma_observer_fixed_rate_arm_owned(
     /* No other owner has been stopped. The lease precedes every buffer write.
      * Only small metadata lives off-arena; no second entry array is created. */
     sync_io_rate_schedule_encoding_t encoding;
-    if (!sync_io_rate_schedule_generate(
+    const bool generated = closed_window
+        ? sync_io_rate_schedule_generate_window(
+            request, marker_high_ns, sync_io_shared_workspace,
+            SYNC_IO_SHARED_WORKSPACE_WORDS, &encoding)
+        : marker_high_ns != 0u
+        ? sync_io_rate_schedule_generate_marked(
+            request, marker_high_ns, sync_io_shared_workspace,
+            SYNC_IO_SHARED_WORKSPACE_WORDS, &encoding)
+        : sync_io_rate_schedule_generate(
             request, sync_io_shared_workspace, SYNC_IO_SHARED_WORKSPACE_WORDS,
-            &encoding)) {
+            &encoding);
+    if (!generated) {
         (void)sync_io_workspace_release(&s_model_pulse);
         return false;
     }
@@ -1212,8 +1226,10 @@ static bool sync_io_sma_observer_fixed_rate_arm_owned(
     return true;
 }
 
-bool sync_io_sma_observer_fixed_rate_arm(
+static bool sync_io_sma_observer_finite_arm(
     const sync_io_rate_schedule_request_t *request,
+    uint32_t marker_high_ns,
+    bool closed_window,
     sync_io_fixed_rate_runtime_t *runtime,
     bool (*validate_before_start)(void *context),
     void *context)
@@ -1230,7 +1246,7 @@ bool sync_io_sma_observer_fixed_rate_arm(
     }
     sync_io_fixed_rate_runtime_t prepared;
     const bool armed = sync_io_sma_observer_fixed_rate_arm_owned(
-        request, &prepared, validate_before_start, context);
+        request, marker_high_ns, closed_window, &prepared, validate_before_start, context);
     if (!armed) {
         sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);
         return false;
@@ -1256,6 +1272,36 @@ bool sync_io_sma_observer_fixed_rate_arm(
         *runtime = prepared;
     }
     return true;
+}
+
+bool sync_io_sma_observer_fixed_rate_arm(
+    const sync_io_rate_schedule_request_t *request,
+    sync_io_fixed_rate_runtime_t *runtime,
+    bool (*validate_before_start)(void *context), void *context)
+{
+    return sync_io_sma_observer_finite_arm(
+        request, 0u, false, runtime, validate_before_start, context);
+}
+
+bool sync_io_sma_observer_subdivision_arm(
+    const sync_io_rate_schedule_request_t *request, uint32_t marker_high_ns,
+    sync_io_fixed_rate_runtime_t *runtime,
+    bool (*validate_before_start)(void *context), void *context)
+{
+    if (marker_high_ns == 0u) {
+        return false;
+    }
+    return sync_io_sma_observer_finite_arm(
+        request, marker_high_ns, false, runtime, validate_before_start, context);
+}
+
+bool sync_io_sma_observer_subdivision_window_arm(
+    const sync_io_rate_schedule_request_t *request, uint32_t marker_high_ns,
+    sync_io_fixed_rate_runtime_t *runtime,
+    bool (*validate_before_start)(void *context), void *context)
+{
+    return sync_io_sma_observer_finite_arm(
+        request, marker_high_ns, true, runtime, validate_before_start, context);
 }
 
 void sync_io_sma_observer_fixed_rate_disarm(void)

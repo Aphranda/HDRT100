@@ -112,6 +112,22 @@ bool sync_io_sma_observer_fixed_rate_arm(const sync_io_rate_schedule_request_t *
     phase=2;
     return true;
 }
+static uint32_t admitted_marker;
+bool sync_io_sma_observer_subdivision_arm(const sync_io_rate_schedule_request_t *req,
+    uint32_t marker_high_ns, sync_io_fixed_rate_runtime_t *out,
+    bool(*validate)(void*), void *context)
+{
+    if(!sync_io_rate_schedule_marked_valid(req,marker_high_ns))return false;
+    admitted_marker=marker_high_ns;
+    return sync_io_sma_observer_fixed_rate_arm(req,out,validate,context);
+}
+bool sync_io_sma_observer_subdivision_window_arm(const sync_io_rate_schedule_request_t *req,
+    uint32_t marker_high_ns, sync_io_fixed_rate_runtime_t *out,
+    bool(*validate)(void*), void *context)
+{
+    return req->pulse_count>=3 && sync_io_sma_observer_subdivision_arm(
+        req,marker_high_ns,out,validate,context);
+}
 void sync_io_sma_observer_fixed_rate_disarm(void)
 { ++abort_calls;leases=0;hardware.pulse.running=false;hardware.pulse.pio_enabled=false;
   hardware.pulse.dma_busy=false; }
@@ -187,8 +203,172 @@ static void probe(unsigned target,const char *mode)
     if(!strcmp(mode,"wrap"))assert(time_reads[target]>=3 && now_us<1000u);
     if(!strcmp(mode,"irq_before"))assert(!ring_reads[target] && !model_reads[target] && !irq_ready);
 }
+static void subdivision_probe(const char *mode)
+{
+    current=(vdc_dpll_manager_committed_model_t){.token=2,.session=100,
+        .dco={.valid=1,.dco_update_seq=3,.period_adjust_ppb=1563}};
+    uint32_t request=0xabcdef, count=8, tick=4, marker=2001;
+    if(!strcmp(mode,"zero_count"))count=0;
+    if(!strcmp(mode,"overflow_count"))count=UINT_MAX;
+    if(!strcmp(mode,"oversize_count"))count=2048;
+    if(!strcmp(mode,"max_count"))count=2047;
+    if(!strcmp(mode,"zero_tick"))tick=0;
+    if(!strcmp(mode,"bad_marker"))marker=1000;
+    if(!strcmp(mode,"run"))stopped=false;
+    if(!strcmp(mode,"race_before"))race=1;
+    if(!strcmp(mode,"race_after"))race=2;
+    if(!strcmp(mode,"resource"))resource_ok=false;
+    if(!strcmp(mode,"core1"))core=1;
+    if(!strcmp(mode,"fixed_busy")) {
+        assert(vdc_dpll_manager_fixed_output_start(1000000,1000,9,4,&request));
+        assert(!vdc_dpll_manager_subdivision_output_start(10000,1000,8,2001,4,&request));
+        assert(!vdc_dpll_manager_subdivision_output_stop());
+        assert(!abort_calls && hardware.pulse.running && s_output_observation_mode==0);
+        vdc_dpll_manager_subdivision_output_status_t s,copy;
+        memset(&s,0xa5,sizeof(s));copy=s;
+        assert(!vdc_dpll_manager_get_subdivision_output(&s));
+        assert(!memcmp(&s,&copy,sizeof(s)));
+        assert(vdc_dpll_manager_fixed_output_stop() && abort_calls==1);
+        return;
+    }
+    const bool accepted=vdc_dpll_manager_subdivision_output_start(
+        10000,1000,count,marker,tick,&request);
+    if(!count || count>=2048 || core || !stopped) {
+        assert(!accepted && request==0xabcdef && !arm_calls && !abort_calls);
+        return;
+    }
+    if(race || !resource_ok || !tick || marker==1000) {
+        assert(!accepted && request==0xabcdef && !leases);
+        assert(abort_calls==(race==2 ? 1u:0u));
+        vdc_dpll_manager_subdivision_output_status_t s;
+        assert(vdc_dpll_manager_get_subdivision_output(&s));
+        assert(s.batch.state==VDC_FIXED_OUTPUT_FAILED && s.subdivision_count==8);
+        assert(s.marker_high_ticks==(race==2 ? 501u:0u));
+        return;
+    }
+    assert(accepted && request==1 && hardware.request.pulse_count==count+1);
+    assert(hardware.request.period_ns==10000 && hardware.request.rate_ppb==1563);
+    assert(admitted_marker==2001 && s_output_observation_mode==1);
+    vdc_dpll_manager_fixed_output_status_t fixed,copy;
+    memset(&fixed,0xa5,sizeof(fixed));copy=fixed;
+    assert(!vdc_dpll_manager_get_fixed_output(&fixed));
+    assert(!memcmp(&fixed,&copy,sizeof(fixed)));
+    assert(!vdc_dpll_manager_fixed_output_stop() && !abort_calls);
+    vdc_dpll_manager_subdivision_output_status_t s;
+    assert(vdc_dpll_manager_get_subdivision_output(&s));
+    assert(s.mode==1 && s.marker_high_ns==2001 && s.marker_high_ticks==501);
+    assert(s.subdivision_count==count && s.batch.pulse_count==count+1);
+    assert(s.batch.state==VDC_FIXED_OUTPUT_RUNNING);
+    if(!strcmp(mode,"busy")) {
+        assert(!vdc_dpll_manager_fixed_output_start(1000000,1000,9,4,&request));
+        assert(!vdc_dpll_manager_subdivision_output_start(10000,1000,8,2001,4,&request));
+        assert(arm_calls==1 && !abort_calls && hardware.pulse.running);
+    } else if(!strcmp(mode,"changed")) {
+        ++current.token;vdc_fixed_output_service_core0();
+        assert(s_fixed_output.state==VDC_FIXED_OUTPUT_CANCELLED && abort_calls==1);
+    } else if(!strcmp(mode,"start_tdma")) {
+        stopped=false;vdc_fixed_output_service_core0();
+        assert(s_fixed_output.state==VDC_FIXED_OUTPUT_CANCELLED && abort_calls==1);
+        assert(!vdc_dpll_manager_get_subdivision_output(&s));
+    } else if(!strcmp(mode,"complete")) {
+        hardware.pulse.running=false;hardware.pulse.completed_pulses=count+1;
+        hardware.pulse.pio_enabled=false;hardware.pulse.dma_busy=false;leases=0;
+        vdc_fixed_output_service_core0();
+        assert(s_fixed_output.state==VDC_FIXED_OUTPUT_COMPLETE);
+        assert(vdc_dpll_manager_subdivision_output_stop() && !abort_calls);
+        assert(vdc_dpll_manager_fixed_output_start(1000000,1000,9,4,&request));
+        assert(request==2 && !vdc_dpll_manager_get_subdivision_output(&s));
+        assert(!vdc_dpll_manager_subdivision_output_stop() && !abort_calls);
+        assert(vdc_dpll_manager_fixed_output_stop() && abort_calls==1);
+        return;
+    }
+    assert(vdc_dpll_manager_subdivision_output_stop());
+    assert(abort_calls==1 && !leases);
+    assert(vdc_dpll_manager_subdivision_output_stop() && abort_calls==1);
+}
+static void window_probe(const char *mode)
+{
+    current=(vdc_dpll_manager_committed_model_t){.token=2,.session=100,
+        .dco={.valid=1,.dco_update_seq=3,.period_adjust_ppb=1563}};
+    uint32_t request=0xabcdef, sync=1000000, interval=1000, high=100, marker=200, tick=4;
+    if(!strcmp(mode,"min_count"))sync=3000;
+    if(!strcmp(mode,"max_count"))sync=2048000;
+    if(!strcmp(mode,"small_count"))sync=2000;
+    if(!strcmp(mode,"oversize_count"))sync=2049000;
+    if(!strcmp(mode,"overflow_count")){sync=UINT_MAX;interval=1;}
+    if(!strcmp(mode,"nondivisible"))++sync;
+    if(!strcmp(mode,"zero_sync"))sync=0;
+    if(!strcmp(mode,"zero_interval"))interval=0;
+    if(!strcmp(mode,"zero_high"))high=0;
+    if(!strcmp(mode,"zero_marker"))marker=0;
+    if(!strcmp(mode,"zero_tick"))tick=0;
+    if(!strcmp(mode,"run"))stopped=false;
+    if(!strcmp(mode,"race_before"))race=1;
+    if(!strcmp(mode,"race_after"))race=2;
+    if(!strcmp(mode,"resource"))resource_ok=false;
+    if(!strcmp(mode,"core1"))core=1;
+    if(!strcmp(mode,"fixed_busy") || !strcmp(mode,"subdiv_busy")) {
+        const bool fixed=!strcmp(mode,"fixed_busy");
+        assert(fixed ? vdc_dpll_manager_fixed_output_start(1000000,1000,9,4,&request)
+            : vdc_dpll_manager_subdivision_output_start(10000,1000,8,2001,4,&request));
+        assert(!vdc_dpll_manager_subdivision_window_start(sync,interval,high,marker,tick,&request));
+        assert(!vdc_dpll_manager_subdivision_window_stop());
+        vdc_dpll_manager_subdivision_output_status_t s,copy;
+        memset(&s,0xa5,sizeof(s));copy=s;
+        assert(!vdc_dpll_manager_get_subdivision_window(&s) && !memcmp(&s,&copy,sizeof(s)));
+        assert(arm_calls==1 && !abort_calls && hardware.pulse.running);
+        assert(fixed ? vdc_dpll_manager_fixed_output_stop() : vdc_dpll_manager_subdivision_output_stop());
+        return;
+    }
+    const bool accepted=vdc_dpll_manager_subdivision_window_start(sync,interval,high,marker,tick,&request);
+    const bool invalid_count=!interval || sync%interval || sync/interval<3 || sync/interval>2048;
+    if(invalid_count || !stopped || core) {
+        assert(!accepted && request==0xabcdef && !arm_calls && !abort_calls);return;
+    }
+    if(!high || !marker || !tick || race || !resource_ok) {
+        assert(!accepted && request==0xabcdef && !leases);
+        assert(abort_calls==(race==2 ? 1u:0u));
+        vdc_dpll_manager_subdivision_output_status_t s;
+        assert(vdc_dpll_manager_get_subdivision_window(&s));
+        assert(s.mode==2 && s.batch.state==VDC_FIXED_OUTPUT_FAILED);
+        assert(s.marker_high_ticks==(race==2 ? 50u:0u));return;
+    }
+    const uint32_t count=sync/interval;
+    assert(accepted && request==1 && hardware.request.pulse_count==count);
+    assert(hardware.request.period_ns==interval && admitted_marker==marker);
+    vdc_dpll_manager_subdivision_output_status_t s,copy;
+    memset(&s,0xa5,sizeof(s));copy=s;
+    assert(!vdc_dpll_manager_get_subdivision_output(&s) && !memcmp(&s,&copy,sizeof(s)));
+    assert(!vdc_dpll_manager_subdivision_output_stop() && !vdc_dpll_manager_fixed_output_stop());
+    assert(!abort_calls && vdc_dpll_manager_get_subdivision_window(&s));
+    assert(s.mode==2 && s.subdivision_count==count-2 && s.batch.pulse_count==count);
+    assert(s.batch.period_ns*s.batch.pulse_count==sync && s.marker_high_ticks==50);
+    if(!strcmp(mode,"busy")) {
+        assert(!vdc_dpll_manager_fixed_output_start(1000000,1000,9,4,&request));
+        assert(!vdc_dpll_manager_subdivision_output_start(10000,1000,8,2001,4,&request));
+        assert(!vdc_dpll_manager_subdivision_window_start(sync,interval,high,marker,tick,&request));
+        assert(arm_calls==1 && !abort_calls && hardware.pulse.running);
+    } else if(!strcmp(mode,"changed")) {
+        ++current.token;vdc_fixed_output_service_core0();
+        assert(s_fixed_output.state==VDC_FIXED_OUTPUT_CANCELLED && abort_calls==1);
+    } else if(!strcmp(mode,"complete")) {
+        hardware.pulse.running=false;hardware.pulse.completed_pulses=count;
+        hardware.pulse.pio_enabled=false;hardware.pulse.dma_busy=false;leases=0;
+        vdc_fixed_output_service_core0();
+        assert(s_fixed_output.state==VDC_FIXED_OUTPUT_COMPLETE);
+        assert(vdc_dpll_manager_subdivision_window_stop() && !abort_calls);
+        assert(vdc_dpll_manager_subdivision_output_start(10000,1000,8,2001,4,&request));
+        assert(request==2 && !vdc_dpll_manager_get_subdivision_window(&s));
+        assert(!vdc_dpll_manager_subdivision_window_stop() && !abort_calls);
+        assert(vdc_dpll_manager_subdivision_output_stop() && abort_calls==1);return;
+    }
+    assert(vdc_dpll_manager_subdivision_window_stop() && abort_calls==1 && !leases);
+    assert(vdc_dpll_manager_subdivision_window_stop() && abort_calls==1);
+}
 int main(int argc,char **argv)
 {
+    if(argc==3 && !strcmp(argv[1],"window")){window_probe(argv[2]);return 0;}
+    if(argc==3 && !strcmp(argv[1],"subdivision")){subdivision_probe(argv[2]);return 0;}
     if(argc==4 && !strcmp(argv[1],"probe")){probe((unsigned)atoi(argv[2]),argv[3]);return 0;}
     assert(argc==2);const char *mode=argv[1];
     current=(vdc_dpll_manager_committed_model_t){.token=2,.session=100,
@@ -305,6 +485,27 @@ def test_fixed_owner(fixed_owner, case):
     assert run.returncode == 0, run.stdout + run.stderr
 
 
+@pytest.mark.parametrize('case', [
+    'accepted', 'zero_count', 'overflow_count', 'oversize_count', 'max_count',
+    'zero_tick', 'bad_marker', 'run', 'race_before', 'race_after', 'resource',
+    'core1', 'fixed_busy', 'busy', 'changed', 'start_tdma', 'complete',
+])
+def test_subdivision_owner(fixed_owner, case):
+    run = subprocess.run([str(fixed_owner), 'subdivision', case], capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
+@pytest.mark.parametrize('case', [
+    'accepted', 'min_count', 'max_count', 'small_count', 'oversize_count',
+    'overflow_count', 'nondivisible', 'zero_sync', 'zero_interval', 'zero_high',
+    'zero_marker', 'zero_tick', 'run', 'core1', 'race_before', 'race_after',
+    'resource', 'fixed_busy', 'subdiv_busy', 'busy', 'changed', 'complete',
+])
+def test_subdivision_window_owner(fixed_owner, case):
+    run = subprocess.run([str(fixed_owner), 'window', case], capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
 @pytest.mark.parametrize('stage', [0, 1, 2], ids=['initial', 'pre_enable', 'post_arm'])
 @pytest.mark.parametrize('case', [
     'ring_transient', 'model_transient', 'both_transient', 'ring_persistent', 'model_persistent',
@@ -329,7 +530,7 @@ def test_fixed_stop_scpi_ack(tmp_path):
     source = (ROOT / 'middleware/scpi_port/src/scpi_system_snapshot_commands.c').read_text(encoding='utf-8')
     handler = source.split('scpi_result_t scpi_cmd_vdc_fixed_output_stop(', 1)[1]
     handler = 'scpi_result_t scpi_cmd_vdc_fixed_output_stop(' + handler.split(
-        'scpi_result_t scpi_cmd_vdc_fixed_output_q(', 1)[0]
+        'static scpi_result_t scpi_vdc_output_status(', 1)[0]
     harness = r'''
 #include <assert.h>
 #include <stdbool.h>
@@ -357,5 +558,132 @@ int main(void) {
 }
 '''
     exe = compile_executable(tmp_path, 'fixed_stop_ack', harness)
+    result = subprocess.run([str(exe)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_subdivision_scpi_wire_format_and_errors(tmp_path):
+    """Exercise production handlers: exact schema, parameter order and ACKs."""
+    source = (ROOT / 'middleware/scpi_port/src/scpi_system_snapshot_commands.c').read_text(encoding='utf-8')
+    handlers = 'scpi_result_t scpi_cmd_vdc_fixed_output(' + source.split(
+        'scpi_result_t scpi_cmd_vdc_fixed_output(', 1)[1].split(
+        'scpi_result_t scpi_cmd_vdc_feedback_match_q(', 1)[0]
+    harness = r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <string.h>
+#include "vdc_dpll_manager.h"
+typedef int scpi_result_t;
+typedef struct {
+    uint32_t args[5], arg_count, cursor, count, errors, acks;
+    int64_t values[40];
+} scpi_t;
+#define SCPI_RES_OK 1
+#define SCPI_RES_ERR -1
+static bool ready;
+static unsigned starts;
+static bool scpi_port_read_u32(scpi_t *c,uint32_t *v) {
+    if(c->cursor==c->arg_count)return false;
+    *v=c->args[c->cursor++];return true;
+}
+static void scpi_port_push_exec_error(scpi_t *c,const char *e) {
+    assert(e && *e);++c->errors;
+}
+static scpi_result_t scpi_port_result_ok(scpi_t *c) { ++c->acks;return SCPI_RES_OK; }
+static void SCPI_ResultUInt32(scpi_t *c,uint32_t v) { c->values[c->count++]=v; }
+static void SCPI_ResultInt32(scpi_t *c,int32_t v) { c->values[c->count++]=v; }
+static void SCPI_ResultUInt64(scpi_t *c,uint64_t v) { c->values[c->count++]=(int64_t)v; }
+bool vdc_dpll_manager_fixed_output_start(uint32_t a,uint32_t b,uint32_t d,uint32_t e,uint32_t *id)
+{(void)a;(void)b;(void)d;(void)e;(void)id;return false;}
+bool vdc_dpll_manager_subdivision_output_start(uint32_t a,uint32_t b,uint32_t d,
+    uint32_t e,uint32_t f,uint32_t *id) {
+    ++starts;assert(a==10000 && b==1000 && d==8 && e==2001 && f==4);
+    *id=77;return ready;
+}
+bool vdc_dpll_manager_subdivision_window_start(uint32_t a,uint32_t b,uint32_t d,
+    uint32_t e,uint32_t f,uint32_t *id) {
+    ++starts;assert(a==1000000 && b==1000 && d==100 && e==200 && f==4);
+    *id=78;return ready;
+}
+bool vdc_dpll_manager_fixed_output_stop(void) { return ready; }
+bool vdc_dpll_manager_subdivision_output_stop(void) { return ready; }
+bool vdc_dpll_manager_subdivision_window_stop(void) { return ready; }
+bool vdc_dpll_manager_get_fixed_output(vdc_dpll_manager_fixed_output_status_t *s) {
+    if(!ready)return false;
+    memset(s,0,sizeof(*s));s->schema=1;s->request_id=77;s->state=2;
+    s->model.dco.period_adjust_ppb=-1000;s->period_ns=10000;s->high_ns=1000;
+    s->pulse_count=9;s->tick_period_ns=4;s->completed_pulses=9;
+    s->first_edge_ticks=2501;s->last_edge_ticks=22523;s->total_ticks=22773;
+    s->model_unchanged=1;return true;
+}
+bool vdc_dpll_manager_get_subdivision_output(vdc_dpll_manager_subdivision_output_status_t *s) {
+    if(!vdc_dpll_manager_get_fixed_output(&s->batch))return false;
+    s->mode=1;s->marker_high_ns=2001;s->marker_high_ticks=501;s->subdivision_count=8;
+    return true;
+}
+bool vdc_dpll_manager_get_subdivision_window(vdc_dpll_manager_subdivision_output_status_t *s) {
+    if(!vdc_dpll_manager_get_fixed_output(&s->batch))return false;
+    s->mode=2;s->marker_high_ns=200;s->marker_high_ticks=50;s->subdivision_count=998;
+    s->batch.request_id=78;s->batch.period_ns=1000;s->batch.high_ns=100;
+    s->batch.pulse_count=1000;s->batch.completed_pulses=1000;return true;
+}
+''' + handlers + r'''
+int main(void) {
+    for(unsigned n=0;n<5;++n) {
+        scpi_t c={.args={10000,1000,8,2001,4},.arg_count=n};
+        assert(scpi_cmd_vdc_subdivision_output(&c)==SCPI_RES_ERR);
+        assert(c.errors==1 && !c.count && !starts);
+    }
+    scpi_t c={.args={10000,1000,8,2001,4},.arg_count=5};
+    assert(scpi_cmd_vdc_subdivision_output(&c)==SCPI_RES_ERR);
+    assert(c.errors==1 && !c.count && starts==1);
+    c=(scpi_t){0};assert(scpi_cmd_vdc_subdivision_output_q(&c)==SCPI_RES_ERR);
+    assert(c.errors==1 && !c.count);
+    c=(scpi_t){0};assert(scpi_cmd_vdc_subdivision_output_stop(&c)==SCPI_RES_ERR);
+    assert(c.errors==1 && !c.acks);
+    ready=true;
+    c=(scpi_t){.args={10000,1000,8,2001,4},.arg_count=5};
+    assert(scpi_cmd_vdc_subdivision_output(&c)==SCPI_RES_OK);
+    assert(!c.errors && c.count==1 && c.values[0]==77 && starts==2);
+    c=(scpi_t){0};assert(scpi_cmd_vdc_subdivision_output_stop(&c)==SCPI_RES_OK);
+    assert(!c.errors && c.acks==1);
+    c=(scpi_t){0};assert(scpi_cmd_vdc_subdivision_output_q(&c)==SCPI_RES_OK);
+    assert(c.count==37 && !c.errors);
+    assert(c.values[0]==1 && c.values[1]==1 && c.values[2]==2001 &&
+        c.values[3]==501 && c.values[4]==8);
+    scpi_t fixed={0};assert(scpi_cmd_vdc_fixed_output_q(&fixed)==SCPI_RES_OK);
+    assert(fixed.count==32 && !fixed.errors);
+    assert(!memcmp(c.values+5,fixed.values,32*sizeof(int64_t)));
+    assert(fixed.values[12]==-1000 && fixed.values[15]==10000 &&
+        fixed.values[16]==1000 && fixed.values[17]==9 && fixed.values[18]==4);
+    assert(fixed.values[24]==2501 && fixed.values[25]==22523 &&
+        fixed.values[26]==22773 && fixed.values[27]==9 && fixed.values[31]==1);
+    for(unsigned n=0;n<5;++n) {
+        c=(scpi_t){.args={1000000,1000,100,200,4},.arg_count=n};
+        assert(scpi_cmd_vdc_subdivision_window(&c)==SCPI_RES_ERR);
+        assert(c.errors==1 && !c.count && starts==2);
+    }
+    ready=false;c=(scpi_t){.args={1000000,1000,100,200,4},.arg_count=5};
+    assert(scpi_cmd_vdc_subdivision_window(&c)==SCPI_RES_ERR);
+    assert(c.errors==1 && !c.count && starts==3);
+    c=(scpi_t){0};assert(scpi_cmd_vdc_subdivision_window_q(&c)==SCPI_RES_ERR);
+    assert(c.errors==1 && !c.count);
+    c=(scpi_t){0};assert(scpi_cmd_vdc_subdivision_window_stop(&c)==SCPI_RES_ERR);
+    assert(c.errors==1 && !c.acks);
+    ready=true;c=(scpi_t){.args={1000000,1000,100,200,4},.arg_count=5};
+    assert(scpi_cmd_vdc_subdivision_window(&c)==SCPI_RES_OK);
+    assert(c.count==1 && c.values[0]==78 && starts==4);
+    c=(scpi_t){0};assert(scpi_cmd_vdc_subdivision_window_q(&c)==SCPI_RES_OK);
+    assert(c.count==37 && !c.errors);
+    assert(c.values[0]==1 && c.values[1]==2 && c.values[2]==200 &&
+        c.values[3]==50 && c.values[4]==998);
+    assert(c.values[5]==1 && c.values[6]==78 && c.values[20]==1000 &&
+        c.values[21]==100 && c.values[22]==1000 && c.values[23]==4);
+    c=(scpi_t){0};assert(scpi_cmd_vdc_subdivision_window_stop(&c)==SCPI_RES_OK);
+    assert(c.acks==1 && !c.errors);
+    return 0;
+}
+'''
+    exe = compile_executable(tmp_path, 'subdivision_scpi', harness)
     result = subprocess.run([str(exe)], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr

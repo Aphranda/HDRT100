@@ -65,6 +65,7 @@ CASES=['gates','prepare_reserve','prepare_workspace','prepare_claim','prepare_lo
        'count_invalid_last_prepared','count_invalid_last_running','count_async_stop']
 CASES += ['continuous_600', 'continuous_rollback', 'continuous_submit_rollback',
           'continuous_dma', 'continuous_clock', 'continuous_saturation']
+CASES += ['preload_later_sample', 'preload_cancel', 'preload_deadline']
 
 
 @pytest.mark.parametrize('name',CASES)
@@ -115,6 +116,15 @@ def test_counted_blocks_execute_contiguous_edges_on_real_pio(executable,name):
     assert machine.edges==expected
     for _ in range(50):machine.step()
     assert machine.pin==0 and len(machine.edges)==34 and not machine.pending_dma
+
+
+@pytest.mark.parametrize('name', ['later_sample', 'cancel', 'deadline'])
+def test_uniform_preload_boundary(executable, name):
+    result=subprocess.run([str(executable),'uniform_base:preload_'+name],
+                          capture_output=True,text=True,timeout=15)
+    (executable.parent/('uniform_preload_'+name+'.log')).write_text(
+        result.stdout+result.stderr,encoding='utf-8')
+    assert result.returncode==0,result.stdout+result.stderr
 
 
 def test_acquire_and_state_rejection_precede_runtime_generation_access():
@@ -205,6 +215,8 @@ static uint32_t pin_latch=UINT32_MAX;
 static unsigned io_calls,enable_calls;
 static uint mock_pc=13;
 static bool deny_start,cancel_at_start;
+static uint32_t preload_advance_ticks;
+static bool cancel_at_preload;
 static uint64_t raw_after_enable;
 static uint64_t raw_at_pc;
 static bool probe_active, probe_after_pc, pause_observed, pause_after;
@@ -315,8 +327,15 @@ static inline void dma_channel_configure(uint ch,const dma_channel_config *c,voi
 static inline void dma_channel_set_read_addr(uint ch,const void *p,bool trigger) {
     assert(ch==2&&!mock_busy&&!hw_dma.ch[ch].transfer_count&&!trigger);
     dma_read=(uint32_t *)p;last_source=p;++io_calls;
+    if(!(hw_pio.ctrl&(1u<<1))) {
+        raw((((uint64_t)hw_timer.timerawh<<32)|hw_timer.timerawl)+preload_advance_ticks);
+        if(cancel_at_preload)sync_io_run_output_cancel();
+    }
 }
 static inline void dma_channel_set_trans_count(uint ch,uint n,bool trigger) {
+    if(!(hw_pio.ctrl&(1u<<1))) {
+        assert(fifo_count==(use_uniform?1u:2u));
+    }
     assert(ch==2&&!mock_busy&&trigger&&n>0);hw_dma.ch[ch].transfer_count=n;mock_busy=true;hw_dma.ch[ch].al1_ctrl|=1u;++io_calls;
 }
 static inline void dma_drain_to_fifo(void) {
@@ -606,6 +625,28 @@ static void enable_boundary(const char *name)
     hw_dma.abort=0;mock_busy=false;sync_io_run_output_service_core1();
     assert(snap().state==SYNC_IO_RUN_OUTPUT_RETIRED);
     mock_core=0;assert(sync_io_run_output_release(g));
+}
+static void preload_boundary(const char *name)
+{
+    uint32_t g=prepare();sync_io_run_output_edge_t e[4];make_edges(e,1100000,0,7);mock_core=1;
+    preload_advance_ticks=!strcmp(name,"deadline")?100000u:37u;
+    cancel_at_preload=!strcmp(name,"cancel");
+    const bool accepted=!strcmp(name,"later_sample");
+    assert(sync_io_run_output_submit_core1(g,e)==accepted);
+    if(accepted) {
+        assert(snap().anchor_before==1000037u);
+        assert(fifo[use_uniform?0u:1u]==1100000u-1000037u-
+            (use_uniform?SYNC_PULSE_UNIFORM_FIRST_LOW_OVERHEAD:SYNC_PULSE_STREAM_FIRST_LOW_OVERHEAD));
+        assert(enable_calls==1u && mock_busy);
+        assert(snap().expires_tick==1000037u+BOARD_SYS_CLOCK_HZ);
+    } else {
+        assert(!enable_calls && !mock_busy && !hw_dma.ch[2].transfer_count);
+        assert(snap().state==SYNC_IO_RUN_OUTPUT_RETIRING && !snap().blocks);
+        assert(fifo_count==(use_uniform?0u:1u));
+        assert(workspace_token && core_token && hw_dma.abort==(1u<<2));
+    }
+    probe_active=false;
+    complete_stop(g);
 }
 static void diagnostics(void)
 {
@@ -967,6 +1008,7 @@ int main(int argc,char **argv)
     else if(!strcmp(argv[1],"diagnostics_saturation"))diagnostics_saturation();
     else if(!strncmp(argv[1],"fault_",6))fault(argv[1]+6);
     else if(!strncmp(argv[1],"enable_",7))enable_boundary(argv[1]+7);
+    else if(!strncmp(argv[1],"preload_",8))preload_boundary(argv[1]+8);
     else if(!strcmp(argv[1],"inactive_submit"))inactive_submit();
     else if(!strcmp(argv[1],"inactive_release"))inactive_release();
     else if(!strncmp(argv[1],"invalid_",8))invalid_edges(argv[1]+8);
