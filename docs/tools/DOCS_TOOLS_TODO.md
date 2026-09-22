@@ -4,7 +4,7 @@ Status: Active
 Domain: Tools
 Canonical: `docs/tools/DOCS_TOOLS_TODO.md`
 Related: `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`, `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-21
+Last updated: 2026-09-22
 
 ## 文档接口与状态规则
 
@@ -54,7 +54,7 @@ Last updated: 2026-09-21
 
 ## 接续顺序与交付规则
 
-四板 internal-seal 从 scope/outer 到 base 的 executable out 依赖已经清零，完整历史 lineage 与输入仍固定留证。TOOLS-HANDOFF-001 已完成。顶层布局基线已阻止遗留目录继续增长，已分类项以目标段和 registry 为准；下一步选择调用关系已核清的下一批，同时继续 TOOLS-CHECK-001 的配置/输出接口与证明内容检查。当前内部精度改进验收必须联合已枚举示波器；scope-off 只保留诊断证据，不关闭外部对比 gate。V3 已闭合无扰的十秒 bin 时间关联，但 `numeric_error_qualified` 仍为 false；后续精度提升须继续缩小主机/TIMER1 锚点不确定区间或建立同事件标识，不能直接相减内外数值。OTA 实现保持现有边界。
+四板 internal-seal 的 executable out 依赖已经清零，历史 lineage 与输入固定留证，TOOLS-HANDOFF-001 已完成。工具治理按 ROI 选择尚未评估且调用关系可核清的下一批，不继续细化已足够使用的流程。内部精度主线见进度 `TOOLS-PROGRESS-20260922-030`：回收一秒窗口实验，保留高分辨率主机证据和十秒窗口，并修正 scope 写入期间触发及 RAW 负时间的关联下界。按用户 2026-09-22 确认，现有模型监控改善作为本批交付（VDC-OBS-008），实际 GPIO 内部观测另列 VDC-OBS-009 PENDING，不作为当前工具治理前置。当前验收必须联合已枚举示波器；scope-off 仅作诊断，`numeric_error_qualified` 仍为 false，不能直接相减内外数值。OTA 实现保持现有边界。
 
 文档和实现分离提交；实现切片按现行 P3 规则验收。特等席资源变更必须先由用户审核，工具治理本身不授予新增实时资源。
 

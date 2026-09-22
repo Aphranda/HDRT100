@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-09-21
+Last updated: 2026-09-22
 
 ## 文档接口与状态规则
 
@@ -107,9 +107,14 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 
 当前采用四板 SRAM 内部探针与 HDO 外部对比；本轮精度改进只有 scope-on 联合证据可以关闭验收，scope-off 仅作诊断。NO5、分段 SD 和多角色观测属于后续扩展，其依赖只约束相应扩展完成，不要求当前四板等待额外节点。
 
+用户于 2026-09-22 明确选择先交付现有模型监控改善，实际 GPIO 观测单列后续任务。
+本批交付落在 `VDC-OBS-008`；它不关闭父级长期观测、正式物理精度或产品 RUN 任务。
+
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
 | `VDC-OBS-007` | 内部长期探针及外部对比 | IN PROGRESS | summary/GUARD、长窗与离线计量见进度 025/036；内部稳态 extrema 与分页/身份/endpoint 复算见进度 038；scope-on 对比及 V3 双 STOP 仿射 bin 关联见进度 039/040。继续质量发布、恢复对账和关联精度提升。完整覆盖、服务/成功最大间隔、拒绝/缺口及计数完整性分别判定；启动 bin 保留但不进入稳态分级，空段非零残差，零调频非故障。当前精度 gate 必须有外部 RAW；现有关联只到唯一十秒 bin，`exact_event_correlation_qualified` 与 `numeric_error_qualified` 仍为 false，内部 residual 与 GPIO 相差不逐事件相减。 |
+| `VDC-OBS-008` | 本批四板模型监控改善交付 | DONE | 保留实际 TIMER1 原始端点的区间缩窄、输出起点不确定区间优化、统一主机时钟及保守 RAW/bin 关联、正负相差对称分级；定向回归、独立复核、同指纹四板 scope-on P3、原件复算与 STOP/ARM 恢复证据齐全。用户确认本批范围及交付审计见 `VDC-PROGRESS-20260922-047`；不包含新的实际 GPIO 内部观测能力。 |
+| `VDC-OBS-009` | 实际 GPIO 内部观测后续任务 | PENDING | 后续单独开展，当前仅有 out 离线原型。先定义参考/输出事件身份和合法配对窗口，再验证既有 analyzer 资源、统一 owner、独立存储租约、停止/导出/恢复、DMA/WCET 无扰边界；最终用外部 RAW 和受控延迟注入验证。不得用模型残差、计划边沿或合成计数替代 pad 实测；席位扩容遵循 EXE-SEAT-01。原型与缺口见进度 044–046。 |
 | `VDC-OBS-001` | EDGE_TIMESTAMP 与 bounded drain | IN PROGRESS | 依赖 `SYNC-LA-003/005`；active/shadow ownership、wrap、重臂、STOP、overrun/drop 和批次交接可审计，TDMA 短帧无扰动。 |
 | `VDC-OBS-002` | StorageAO 分段 SD 与恢复 | PENDING | 依赖 `VDC-OBS-001`；段号/时间基/CRC、落盘 ACK、背压、缺口、断电恢复齐全。写入不进入 Core1，背压不阻塞实时环路。 |
 | `VDC-OBS-003` | 分段解码、缺口审计与 SVG | PENDING | 依赖 `VDC-OBS-002`、`SYNC-LA-006`；完整段可重放，坏段可定位，图例绑定节点/通道/边沿/时基，缺失不插值伪装。 |

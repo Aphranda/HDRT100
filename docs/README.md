@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-09-20
+Last updated: 2026-09-22
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -279,6 +279,9 @@ docs/
 | `sync/SYNC_IO_TODO.md` | SYNC_IO / realtime IO 待办，覆盖 PIO 预约输出、真实 transport、AUX 语义通道和 mode self-test。 |
 | `trigger/TRIGGER_SYNC_TODO.md` | 触发系统生产化待办。 |
 | `trigger/TRIGGER_FOUR_BOARD_DISTRIBUTED_PLAN.md` | RP2350B 四板分布式触发方案。 |
+| `trigger/t2/TRIGGER_T2_ARCHITECTURE.md` | T2 实施架构草案：多板槽位部署、预约身份、READY/fence、VDC 映射与实际回读边界。 |
+| `trigger/t2/TRIGGER_T2_TODO.md` | 多板实际槽位部署后开展 T2 预约触发的任务、依赖与验收。 |
+| `trigger/t2/TRIGGER_T2_TASK_PROGRESS.md` | T2 分支参考、切片实现、验证、失败与交接记录。 |
 | `trigger/TRIGGER_SEQ_STEP_DESIGN.md` | 序列步进触发模式设计。 |
 | `trigger/TRIGGER_ENC_COUNT_DESIGN.md` | 编码器计数触发模式设计。 |
 | `trigger/TRIGGER_PULSE_COUNT_ANALYSIS.md` | 脉冲计数分析。 |

@@ -4,13 +4,32 @@ Status: Active
 Domain: Tools
 Canonical: `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`
 Related: `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`, `docs/tools/DOCS_TOOLS_TODO.md`, `docs/check/DOCS_REGRESSION_PLAN.md`
-Last updated: 2026-09-21
+Last updated: 2026-09-22
 
 ## 文档接口
 
 本文只记录实施与验证事实，任务状态以 TODO 为准，治理语义以 Architecture 为准。每条记录引用稳定任务 ID，使用唯一 `TOOLS-PROGRESS-YYYYMMDD-NNN`，最新记录在上；轮转遵循文档自回归 C14/C15，历史失败和原始证据不得丢失。
 
 ## 当前 checkpoint
+
+### TOOLS-PROGRESS-20260922-031：修复外部相差负向超限漏报
+
+- TODO task ID：TOOLS-P3-DPLL-SHORT-001、TOOLS-CHECK-001；本批未提交。外部精度与输出起点核心实验见 `VDC-PROGRESS-20260922-042`，工具域只记录其暴露的分级缺陷，不将内部区间当作 GPIO 相差。
+- 真实反例：`out/HardwareAcceptance/20260922/p3-run-origin-preload-r1/joint-repeat/` 的 RAW 重算负向极值为 -35.864985 ns、正向极值为 +8.218561 ns（快照）。旧 `phase_max_abs_ns` 使用带符号 max，错误选取后者；在负向超限时可能漏 WARN/ERROR。现在 `summarize_joint` 对每个值取绝对值后求最大，内部已取绝对值的稳态包络保持原义；缺样本继续独立阻断。
+- 验证：正负 ±100/101/1000/1001 ns 边界及全负窗口八例，按 `PHASE_WARN_NS`/`PHASE_ERROR_NS` 对称分级；最终定向 P3 DPLL/alarm 测试 170 passed，`out/pytest/phase-symmetric-r2/results.xml` 留证。首轮负值误用于内部区间 fixture 的测试失败保留；修正 fixture，不放宽生产断言。独立审核 PASS，真实 RAW/分页/原生 trace 复算通过，见 `out/precision-budget-20260922/run-preload-repeat-absolute-summary.json`，原先偏小摘要未覆盖。
+- 当前源码验收已闭合：现有 host-only `resume` 复用 build `20260921184756` 的 package/OTA，在线四板 build 核对后完成 `out/HardwareAcceptance/20260922/p3-phase-absolute-r1/`，source fingerprint `77aa8fe516bf0c218d580ad21c6777ae6523eb2e4bf27f087e1e75abbd1324fa`，`check-staged` 通过。quick P3 为 PASS_WITH_WARNINGS（快照：INFO/WARN/ERROR/FATAL 为 31/22/0/0）；外部绝对相差最大 34.335 ns、INFO，三从各十个稳态唯一关联，RUN 查询零，outer 清理/恢复无错误。对称告警修复改变的是证据真实性，不声明硬件精度提高。
+- 下一 gate：停止本批硬件运行和重复确认；内部 MATCH 区间、物理路径资格与未采样区间仍未验证，按 VDC 主线选择能改变精度结论的下一个实验。
+
+### TOOLS-PROGRESS-20260922-030：回收一秒窗口实验并修正示波器关联下界
+
+- TODO task ID：TOOLS-P3-DPLL-SHORT-001、TOOLS-CHECK-001；本批未提交。V4 保留统一 `perf_counter_ns()` 时钟身份，恢复 `INTERNAL_SUMMARY_INTERVAL_MS` 的十秒默认及原 GUARD 接口，撤回未证明收益的可选 GUARD interval API。恢复后定向测试 230 passed；不再重复完整 Python 回归（本条数字均为实验快照，非事实源）。
+- 失败实验保留：`out/HardwareAcceptance/20260922/p3-one-second-correlation-v4-r4/` 完成一分钟 scope-on 采样，但一秒 bin 的唯一关联不足，`time_correlation.evidence_valid=false`。更短 bin 没有提高 MATCH 的算术精度；V3 r3 与 V4 r4 末次 MATCH 均为远端宽度 120 ns 加本地 52 ns。复算脚本、原件哈希及 ROI 决策见 `out/precision-budget-20260922/`；路径暂定标量的物理不确定度仍未知，不能把区间宽度当物理误差。
+- 当前构建 `20260921180908` 已完成四板 OTA。`out/HardwareAcceptance/20260922/p3-ten-second-qpc-v4-r1/` 在 DPLL 前失败：P3 自定义 receipt 路径未传入固定 workflow manifest，后者读取默认旧收据。失败原件及旧默认收据保留；只在 out 生成明确指向本轮 provisional receipt 的输入清单，从最近交接点运行 `dpll-recovery/`，未重跑构建、OTA、P0T 或训练。一分钟联合采样通过，outer 耗时 85.375 s，errors、cleanup_errors、restore_needed 均为空。
+- 独立复核发现既有时间关联下界不保守：解除触发命令返回后记录的 `trigger_admitted_ns` 可能晚于实际触发，RAW 又包含触发前样本。修复仅改离线 P3 关联，保留原始记录；从唯一成功解除触发命令的 start、已确认 WAIT/STOP 和四通道 RAW 时间轴复算完整区间，负偏移以有理数向外取整。新增反例证明旧区间会误判唯一 bin，新区间正确判歧义；定向 P3 DPLL/alarm 测试 162 passed，独立复核 PASS。
+- 对 `dpll-recovery/` 原始分页、native trace 和示波器 RAW 的修正版离线复算通过：外部最大绝对相差 41.899 ns，三个 follower 各十个稳态唯一关联，歧义零，末窗在 capture 后；RUN 板端查询零。内部稳态包络分别为 `[-217,+102]`、`[-121,+101]`、`[-215,+108]` ns，仍存在超 `PHASE_WARN_NS` 的内部偏离。复算文件明确 `acceptance_receipt=false`，不替代当前源码 P3，也不授予逐事件或数值误差资格。
+- 同指纹验收：`out/HardwareAcceptance/20260922/p3-ten-second-qpc-v4-r2/` 通过现有 `resume` 核对在线 build 后复用本轮 package/OTA，不重复构建或刷写。当前 source fingerprint 为 `f5b2d5cb15880a00c216aaafb8117cd446d19664edaf03e555ee9bad93663100`；quick P3 为 PASS_WITH_WARNINGS，INFO/WARN/ERROR/FATAL 分别为 32/22/0/0，`check-staged` 通过。修正后的关联仍为三从各十个稳态唯一窗口、零歧义、RUN 查询零，outer 恢复无错误。
+- r2 外部最大相差 172.231 ns，十二个稀疏窗均超过百纳秒，不是单个启动点；正确输出 WARN，未超过 `PHASE_ERROR_NS`。内部稳态包络为 `[-149,+107]`、`[-149,+104]`、`[-142,+104]` ns。这与 r1 定向恢复的外部 41.899 ns 不同，不能只选较好轮次交付；两轮原件均保留，关联通过不意味着物理精度或可重复性完成。
+- 下一 gate：本批硬件运行已停止；继续比较两轮最近的配置、原始 enable 时间区间和路径/输出读回，解释跨次偏差后才选择核心精度实验，不因相差 WARN 从 P0T 重跑整链。工具整理仍按 ROI 广度优先，不追加低收益治理。
 
 ### TOOLS-PROGRESS-20260921-029：无扰内外时间关联与 P0T 随机帧对齐解耦
 

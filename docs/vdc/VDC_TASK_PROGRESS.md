@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-21
+Last updated: 2026-09-22
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -21,6 +21,70 @@ Last updated: 2026-09-21
 | 下一 gate | 必须指向一个 TODO Task ID 或明确外部阻塞。 |
 
 ## 当前 checkpoint
+
+### VDC-PROGRESS-20260922-047：用户确认模型监控批次交付范围
+
+- TODO task ID：`VDC-OBS-008` DONE，实际 GPIO 内部观测另列 `VDC-OBS-009` PENDING。用户明确选择“先交付现有模型监控改善，GPIO 观测另开后续任务”；本批到此停止扩展，不再把新 pad 观测的 PIO/SRAM 并发开发作为本批前置。父级长期/正式物理精度任务保持原状态。
+- 交付事实：原始本地 MATCH 区间从 52 ns 到 40 ns、总区间从 172 ns 到 160 ns；输出起点区间及同配置 STOP/ARM 复采、QPC/保守 RAW 关联、正负 WARN/ERROR 修复均有独立复核和原件。以上为本批快照，详细实现、失败与边界分别见 041–044，不把模型区间宽度当作 GPIO 绝对误差。
+- 当前同指纹四板 scope-on P3 为 `p3-anchor-shared-high-r1/`，build `20260922002449`，源码指纹 `36113f1f02eaba45060132d5288ff01c975bf28a46127669ae82e5149b3c4dea`；外部最大绝对相差 48.367 ns，quick 为 PASS_WITH_WARNINGS。工作树/暂存源码指纹一致，收据摘要/原生 trace/分页/外部 RAW 复算通过；最后一次硬件试验 044 已恢复四板 RAM 配置，未留下清理错误。
+- 交付审计：`out/precision-budget-20260922/delivery_audit.py` / `delivery-audit.json` 逐项核对当前凭证、区间变化、定向测试 XML 和最后恢复事实。实现与收据留在暂存区、文档独立保留，未提交或推送；未删除历史失败或原型。本批交付不要求完成 GPIO 原型部署、forward-CS/bias 正式校准、逐事件数值资格或长期物理稳定性；这些缺口继续在对应后续任务中保留。
+
+### VDC-PROGRESS-20260922-046：有限 pad 间隔的超窗拒绝与声明边界
+
+- TODO task ID：`VDC-OBS-007`、`VDC-PRECISION-001` IN PROGRESS；仅 out 离线原型，无固件/工具/测试、资源或设备变更，沿用 043 的当前源码 P3。本条数值为合成模型快照，不授予物理测量资格。
+- `pad_phase_bounded.pio` 保持十条只读指令，由未来 STOP owner 预装 OSR 最大轮询数与 Y 记录数，每个参考边沿重置 X，输出原始剩余 X。窗口用尽的 `UINT32_MAX` 单独记 TIMEOUT；零轮询结果记重叠/过近，不伪装精确零相差；合法正值只称 LOCAL_NEXT_EDGE，不称远端帧或计划输出的同事件配对。
+- 真实 pioasm opcode 仿真覆盖十二个边界位置（含最后允许采样与首次超时）、三个 +200 ns 增量、首个输出缺失产生 TIMEOUT、持续缺输出产生指定数量超时记录后停止，以及缺参考无记录。此前无界原型及跨周期误配证据原位保留，最终结果与源码 SHA 见 `out/precision-budget-20260922/pad-phase-bounded-feasibility.json`；规则与剩余问题见 `pad-pair-admission.txt`。
+- 上述改动仅解决有界等待和超窗结果表达。永久高 OUT/缺参考仍需 owner deadline/STOP；FIFO 阻塞使覆盖失效；窗口内无关边沿无法仅凭计数识别。后续接入必须携带真实参考身份、校准和生命周期证据，否则只能发布本地诊断，不能把目标缩成“计数器可运行”就关闭四板精度任务。下一 gate 是确定身份获取及资源/owner 接入的最小切片，不继续无限扩展离线验证器。
+
+### VDC-PROGRESS-20260922-045：实际 pad 观测的资源与有限计数可行性
+
+- TODO task ID：`VDC-OBS-007`、`VDC-PRECISION-001` IN PROGRESS；本轮只读生产代码并在 out 做离线原型，不改固件、工具、测试或资源分配，不运行硬件。源绑定 P3 仍沿用 043，以下容量/时序为当前代码与合成模型快照，不授予物理精度。
+- 编译生产 persona 表和真实 board 配置的 host 检查确认 RUN/analyzer 冲突为 workspace（mask 512），SM、DMA、GPIO writer 无冲突；原独占 arena 在 RUN token 持有时拒绝第二 owner，释放后接受。还存在 RUN_RESERVED blanket gate、独立 analyzer manager 与共享 PIO0 runtime 的仲裁差异、runtime 不转发 analyzer start/stop 等边界；不能只拆 SRAM 或删拒绝条件就启用并发。原件为 `out/precision-budget-20260922/pad_resources.c`、`pad-resources.json`。
+- 普通 RAW/EDGE 的记录时间在 Core1 drain 时取得，EDGE 默认采样周期与 snapshot 的单位/分辨率声明不能当作硬件 pad 时间；有限 burst 则使用采样索引，但固定观察 TDMA 六线，不含 OUT1。若扩为 GPIO16..29 十四位采样，现有整块容量在名义八纳秒步长下仅约 65.536 µs；已有计划/MATCH 相对位置约 142..560 µs（不同事件，仅为窗口可行性估计），不能假设两个目标边沿总能同窗。停止这条简单扩掩码路线的实施投入。
+- 备选 `pad_phase_candidate.pio` 为十条只读指令的有限单向边沿计数，实际 pioasm 生成 opcode 后由 `check_pad_phase.py` 执行。十二个理想正向间隔、三个 +200 ns 增量、有限停止、持续缺边无结果、重叠零值歧义及八字 FIFO 阻塞检查通过；结果为 `pad-phase-feasibility.json`，显式 `hardware_tested=false`、`firmware_integrated=false`。独立审查发现初稿 GPIO28 是 RX CLK 而非帧 SYNC，已改 GPIO27；同时补证漏脉冲会形成跨周期非零误配，计数非零不证明事件身份。
+- 下一 gate：先定义本地参考与 OUT1 的周期/身份及合法窗口，再评估复用 analyzer 既有 SM/DMA、独立记录存储和 service 的有限计数后端；不新增逐边沿 Core1 工作或 wire 席位。候选指令数超过现有 analyzer 描述，静态总和能容纳不等于实际装载、DMA 总线和 WCET 已合格；若需要新增席位或提高服务预算，回到 EXE-SEAT-01 审核。完整决策见 `pad-observer-decision.txt`。本地两 pad 间隔不直接等于四板 GPIO 相差，参考传播校准与物理输入偏差仍须独立闭合。
+
+### VDC-PROGRESS-20260922-044：输出延迟注入区分内部模型与物理观测
+
+- TODO task ID：`VDC-OBS-007`、`VDC-PRECISION-001`、`VDC-VERIFY-001` IN PROGRESS。本批不改固件、工具或测试；按 ROI 选择一次既有 RAM 参数实验，预计约九十秒、价值 4/5，实际 outer 92.063 s。以下数值为单次对照快照，不是校准精度或事实源。
+- 使用现有 joint CLI 的 `--output-delays 0 -28 -88 84`，相对基线仅 NO4 从 -116 ns 改为 +84 ns，增量 +200 ns；DPLL PI、固件和校准保持。基线为 `p3-anchor-shared-high-r1/dpll-four-board-short/`，试验为 `out/HardwareAcceptance/20260922/internal-sensitivity-no4-plus200-r1/`；固定范围和一次尝试条件见该目录 `experiment-scope.json`。这是输出侧有意延迟，不是接线故障或正式校准，不写 Flash。
+- 同 build `20260922002449`，NO4 的 MATCH path CRC 和 delay 均与基线相同；四板 RUN enable 区间均为 512 ns。NO4 外部相差中位数从 +5.888 ns 到 +199.699 ns，试验范围 +180.121..+210.054 ns，绝对最大值按现行 `PHASE_WARN_NS` 输出 WARN；采集成功不表示相差小于百纳秒。内部末次 MATCH 从 `[-81,+79]` 到 `[-76,+84]` ns，宽度均为 160 ns，稳态包络为 `[-111,+104]` ns，没有相应的输出侧整体平移。
+- 原始分页/native trace 与 scope RAW 经既有 `summarize_joint`/`validate_summary` 离线复算，三从各十个稳态唯一关联、RUN 查询零。outer errors/cleanup_errors/restore_needed 为空，四板原始 RAM delay 均为零且最终读回恢复零。派生报告 `out/precision-budget-20260922/no4-delay-sensitivity-summary.json` 明确不是 P3 凭证；比较报告保留原件哈希，既有同指纹 P3 收据不替换为注入实验。
+- 解释：MATCH 的输入是参考事件、本地接收事件的模型投影及路径标量，独立 output delay 只在后续 RUN 规划消费。实验验证两个观测域不同，不宣称 DPLL 控制错误，也不把两个独立启动的中位数差当作精确增益或同事件测量误差。模型残差通过不能替代实际 GPIO 输出相差通过。
+- ROI 回收：停止为了让内部数值接近示波器而继续微调四十/一百二十纳秒区间；上游观测变精不能补足下游观测缺失。下一 gate 先核清既有 owner/资源能否提供实际 GPIO 观测及事件关联，再选择校准/测量核心改动；不得直接将 RUN 计划/enable snapshot 当作 pad 实测，也不自动增设实时席位。forward-CS/bias 的物理资格仍未完成，不填零偏差。
+
+### VDC-PROGRESS-20260922-043：本地 TIMER1 共享高字锚点候选
+
+- TODO task ID：`VDC-OBS-007`、`VDC-PRECISION-001`、`VDC-VERIFY-001` IN PROGRESS；本批未提交。选择直接影响本地 MATCH 原始区间的最小改动，不新增观测、IRQ 屏蔽、PIO/DMA 资源或实时席位。硬件数值仍以最终原件为准，以下构建/测试数字为快照。
+- 语义：`tdma_event_enable_anchor.h` 将 H1/H3/L1/enable/L2/H2/H4 的双重高字检查化简为 H1/L1/enable/L2/H2。在既有 TIMER1 单调且无 reset/改钟/debug stop 前提下，高字相等足以证明两次低字在同一高字周期；低字原端点不变，回绕/逆序/相等仍拒绝，四个 fence、前后时钟核对、失败不写输出及单次 enable 均保留。外围回绕拒绝窗口可能缩小，但不会准入撕裂端点；不宣称检测完整计数周期 ABA。
+- 准入实验的停止条件是实际 L1→L2 机器码变短，而非源码更短。Release A/B 相比上一 build，采样区间内去掉 enable 掩码准备和栈写，所有屏障保留；主控检查反汇编后才进入一轮实测。构建为 `out/build/anchor-shared-high-r1/`，决策及反汇编为 `out/precision-budget-20260922/shared-high-decision.txt`、`shared-high-disassembly.txt`。
+- 四读 harness 执行真实生产 header，覆盖三个读边界的普通及全 64 位顶端回绕、时钟失效、空/别名指针、完整原始端点、相等/逆序及随机区间。anchor/live/exact/MATCH/TIMER1 coordinate 定向回归 300 passed，原件 `out/pytest/anchor-shared-high-r2/results.xml`；独立源码/测试复核 PASS，未由 reviewer 运行硬件。
+- 实测兑现：`out/HardwareAcceptance/20260922/p3-anchor-shared-high-r1/` 使用 build `20260922002449`、source fingerprint `36113f1f02eaba45060132d5288ff01c975bf28a46127669ae82e5149b3c4dea`，quick P3 为 PASS_WITH_WARNINGS（INFO/WARN/ERROR/FATAL 为 33/19/0/0）。三从末次 MATCH 的 local 原始区间均由先前十三 tick/52 ns 缩至十 tick/40 ns，remote 均为 120 ns，总 residual 区间从 172 ns 缩至 160 ns；没有扣常数或改写端点。外部最大绝对相差 48.367 ns、INFO，三从各十个稳态唯一关联，RUN 查询零；outer 耗时 86.031 s，errors/cleanup_errors/restore_needed 为空。
+- 内部稳态 extrema 为 `[-120,+97]`、`[-112,+95]`、`[-172,+99]` ns，依然存在超百纳秒观测；单次残差区间缩窄不能消除模型随时间变化或路径偏差。逐板原始 MATCH、输出锚、外部窗及报告哈希见 `out/precision-budget-20260922/run-comparison.json`。
+- ROI 退出：保留这个直接降低本地观测不确定区间的简化，本批停止硬件运行及同一路径微优化。下一 gate 聚焦占剩余区间主要部分的远端参考及物理路径资格；不把这轮算术区间改善冒充完整 GPIO 误差界、逐事件内外关联或长期复现性。
+
+### VDC-PROGRESS-20260922-042：缩短输出起点软件区间的核心实验
+
+- TODO task ID：`VDC-OBS-007`、`VDC-PRECISION-001`、`VDC-VERIFY-001` IN PROGRESS；本批未提交，改动仅在 SYNC_IO 既有 RUN owner 内，不增加 PIO/DMA、IRQ 屏蔽、实时席位或板端观测查询。以下数字为实验快照。
+- 最近边界定位：前两轮 build、PI、output timing 和 output delay 读回一致；外部偏移集中在 NO4，中位数从 -8.022 ns 到 +149.934 ns。NO4 RUN enable 包围区间从 960 ns 到 2004 ns，其中 before→observed 为 796/1336 ns，observed→after 为 160/664 ns；路径标量差异只有数纳秒。它们是相关证据，不把区间增宽直接换算成真实输出延迟。逐板对比及原件哈希见 `out/precision-budget-20260922/run-comparison.json`。
+- 核心改动：`sync_io_run_output.c` 在最终 raw 采样前完成非触发 DMA 地址配置、FDEBUG 清理和 paired 高段预装；first-low 仍按最终 sample 重编码，然后触发剩余 DMA、enable SM。取消、时钟、溢出和 deadline 失败继续异步退休，FIFO/workspace 不提前释放；单脉冲不触发零长度 DMA，后续 refill 和完整 observed→PC→after 原始证据保持不变。
+- 第一版只把 duration 局部计算写到 raw 采样前，实际 Release 仍把 `__aeabi_uldivmod` 下沉进计时区间，未部署。最终改为 Core0 STOP prepare 计算不可变 `s_duration_ticks`，随既有 PREPARED release/acquire 交接，Core1 只读取。A/B 实际反汇编均确认最终 before read 到 enable 之间无 duration 除法调用；反汇编及决策记录位于上述 out 目录，不用 C 源行序冒充执行时序。
+- 最终 host 定向回归 334 passed，命令为 `python -X utf8 -m pytest tests/python/test_sync_io_run_output.py tests/python/test_sync_pulse_uniform.py tests/python/test_vdc_run_output.py -p no:cacheprovider --basetemp out/pytest/run-origin-preload-r4 --junitxml out/pytest/run-origin-preload-r4/results.xml`。覆盖 paired/uniform 预装耗时后重编码、预装取消/deadline 无触发、FIFO 前缀、单/多脉冲、读数反向/回绕、连续与有限租期。r1/r2 测试编写错误原件保留；独立代码及所有权复核 PASS，Release 构建通过。
+- 同指纹 P3：`out/HardwareAcceptance/20260922/p3-run-origin-preload-r1/` 使用 build `20260921184756`，source fingerprint `b528ab86ad4671fc681792b2d0583fd714b532a41918f637bb707ad524aa857c`；quick P3 为 PASS_WITH_WARNINGS（INFO/WARN/ERROR/FATAL 为 33/18/0/0），`check-staged` 通过。四板输出起点区间为 516/536/520/516 ns，对比此前通常约 960 ns 确实收窄；外部最大相差 49.958 ns、INFO，三从各十个稳态唯一关联，RUN 查询零，三从末次 MATCH 宽度仍为 172 ns。内部稳态包络为 `[-210,+100]`、`[-199,+100]`、`[-118,+105]` ns，保留其超百纳秒现象，不用外部较小值覆盖。
+- 按 ROI 保留已兑现的输出起点改动。同固件/校准/补偿的一次 STOP/ARM 联合复采已通过，`joint-repeat/report.json` 耗时 89.219 s，errors/cleanup_errors/restore_needed 均为空；未重复 P3 构建、OTA、拓扑或训练。四板输出起点区间均为 512 ns，外部原始相差绝对值最大 35.865 ns，三从各十个稳态唯一关联，原生 trace/分页与 RAW 离线复算通过，末次 MATCH 区间仍为 172 ns。两次改动后窗口均兑现区间缩短，不据两个有限采样窗宣布长期复现性或物理精度完成；复算原件见 `run-preload-repeat-absolute-summary.json`，对比见 `run-comparison.json`。
+- 复采暴露独立 P3 host 缺陷：`phase_max_abs_ns` 原实现取带符号最大值，把此轮负向极值 -35.865 ns 摘要成 +8.219 ns，可能漏报负向超限。修正为全部值先取 abs 再求 max，保留旧摘要，不修改波形。八个正负边界用例覆盖 ±100/101/1000/1001 ns 和全负窗口，最终 P3 DPLL/alarm 定向回归 170 passed，独立复核 PASS。本次两种数值都为 INFO，但这是数值摘要修复，不用“告警没变”掩盖错误。
+- host 告警修复的同指纹验收已完成：`out/HardwareAcceptance/20260922/p3-phase-absolute-r1/` 复用上述 package/OTA 并核对四板在线 build，source fingerprint `77aa8fe516bf0c218d580ad21c6777ae6523eb2e4bf27f087e1e75abbd1324fa`，quick P3 PASS_WITH_WARNINGS、`check-staged` 通过。外部最大绝对相差 34.335 ns、INFO；内部包络为 `[-124,+101]`、`[-130,+109]`、`[-123,+106]` ns，三从各十个稳态唯一关联，RUN 查询零。outer 耗时 86.515 s，清理与恢复无错误；没有重复构建或 OTA。
+- 下一 gate：停止本批硬件运行，保留已兑现输出起点优化及对称告警修复；内部 TX/MATCH residual 区间尚未缩小，物理路径不确定度及逐事件数值资格仍未闭合。继续原始参考/本地观测的误差预算与校准方案，不改阈值、不拟合输出补偿来冒充监控精度。
+
+### VDC-PROGRESS-20260922-041：内部误差预算定位与保守窗口关联修复
+
+- TODO task ID：`VDC-OBS-007`、`VDC-PRECISION-001`、`VDC-VERIFY-001` IN PROGRESS；本批未提交，不改固件、Core1 探针、实时席位或物理精度契约。以下数值为实验快照。
+- 离线分解 `p3-nonintrusive-correlation-v3-r3` 与 `p3-one-second-correlation-v4-r4`：三个 follower 的末次 MATCH 宽度均为 172 ns，其中远端编码区间 120 ns、本地投影 52 ns；本地原始十三个 250 MHz tick 同为 52 ns，没有几十纳秒的坐标舍入膨胀。r4 稳态 bin 最大宽度分布为 176..208 ns。路径 delay 只是暂定 reverse-DATA 转置标量，平移区间而不传播独立物理路径不确定度；后者未知，不是零。原件哈希与可复算脚本见 `out/precision-budget-20260922/width-budget.json`。
+- 按 ROI 回收一秒 summary/GUARD 实验，保留 QPC 时钟证据及十秒窗口。独立审核确认现有 DMA/CPU enable anchor 已把高字读取移出低字包围区间，没有可安全直接删掉的读数；未做扣固定延迟、以中点替代端点或扩大 DMA/PIO 资源的伪收窄。下一核心候选是 NO1 原始 DMA enable 区间，但仍须先证明描述符与硬件排序方案，不以源码猜测承诺收益。
+- 当前 build `20260921180908` 的四板 OTA、校准与 TDMA 证据位于 `out/HardwareAcceptance/20260922/p3-ten-second-qpc-v4-r1/`。DPLL 首次因自定义收据路径未传入 manifest 而在采样前失败，后从交接点单独恢复六十秒 scope-on，不重新递归 P0T。`dpll-recovery/report.json` 通过，清理/恢复错误为空。
+- 独立审核进一步发现旧 scope 关联用写入返回时刻作触发下界，遗漏写入期间触发及 RAW 负时间段。仅在 host 离线复算改用命令 start 加 RAW 最早负偏移，终点取其后首次 STOP 回复结束；原始命令、旧采样字段和 RAW 全保留。修复后 162 项定向测试通过，独立复核 PASS。真实 RAW 复算外部最大相差 41.899 ns、三从各十个稳态唯一 bin、零歧义、RUN 查询零；内部包络仍分别为 `[-217,+102]`、`[-121,+101]`、`[-215,+108]` ns。外部 INFO 与内部超百纳秒现象分别保留，不相互覆盖。
+- `corrected-scope-summary.json` 明确是旧采集的离线再分析、不是当前源码 P3 收据。随后 `p3-ten-second-qpc-v4-r2/` 通过复用同固件 package/OTA 的 `resume` 完成当前 host 源码 P3，source fingerprint 为 `f5b2d5cb15880a00c216aaafb8117cd446d19664edaf03e555ee9bad93663100`，结果 PASS_WITH_WARNINGS，`check-staged` 通过。三从仍各十个稳态唯一关联，RUN 查询零；外部最大相差升至 172.231 ns，十二窗均超百纳秒并告 WARN，内部包络为 `[-149,+107]`、`[-149,+104]`、`[-142,+104]` ns。两轮差异保留，不用较好轮次覆盖当前偏差。
+- `exact_event_correlation_qualified`、`numeric_error_qualified` 均为 false；本批证明关联下界更可信，未证明 GPIO 物理精度或跨次复现性达标。下一 gate：停止重复硬件回归，先比较 r1 定向恢复与 r2 的配置、原始 enable 区间和路径/输出读回，再选择最小核心精度实验；无需因 WARN 向 P0T 递归。
 
 ### VDC-PROGRESS-20260921-040：双 STOP 仿射锚建立无扰 bin 关联
 
