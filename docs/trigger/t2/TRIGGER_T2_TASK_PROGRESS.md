@@ -12,6 +12,14 @@ Last updated: 2026-09-22
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260922-007：DPLL 60 s 联合示波器复核与 grid anchor 边界
+
+- TODO task ID：T2-CLOCK-001、T2-EXEC-001。按用户要求重新执行当前 build 的四板 DPLL 60 s 联合示波器复核；证据目录 `out/dpll-sync-rerun-20260922/`，12 个 5–60 s 检查窗口均有 CH1–CH4 RAW，scope checkpoint 无失败，四板状态和资源恢复无异常。
+- 结果：外部 sampled/steady 均通过，最大外部相对相差绝对值 `31.984400 ns`（范围 `[-31.984400,+13.959133] ns`），按 ±100 ns WARN、±1 us ERROR 分级，本轮无 WARN/ERROR。报告 `physical_continuous_lock_qualified=false`、`exact_event_correlation_qualified=false`，所以只证明当前 DPLL 外部采样相位质量，不证明同步脉冲已成为 T2 grid anchor 或具体事件 latch。
+- 误用边界：先前 500 ns 四板有限窗口联合采集 `out/out1-window-500ns-sync-20260922/run1/` 不是同步结论；四板 host dispatch spread 约 1.698 ms，单次窗口 `[-200,+1799.998] us`，NO3/NO4 波形被截断、NO2 未捕获有效边沿。该失败原件保留，不能解释为 DPLL 失同步。
+- 代码复核结论：当前 `SUBDIVISION:WINDOW` 起始点由本地 PIO enable/维护 owner 产生，`trigger_time_grid_t.anchor_vdc_ns` 还是配置标签，没有共同 event id、raw latch 或跨板 fence。要继续 T2-EXEC-001，必须增加“同一 VDC 同步事件/A_vdc + event identity → 各板 TIMER1 deadline → 实际 latch”的入口；WINDOW 继续仅作为局部间隔工具。
+- 投入回收：本次硬件复核约 95.063 s，价值 4/5，明确排除了“先继续调局部窗口即可证明 anchor”的错误路径；保留 DPLL 60 s 证据，停止额外波形矩阵。下一项是同步事件身份和本地 deadline 执行切片，不重复跑 DPLL，除非源码、模型或 scope 连接变化。
+
 ### T2-PROGRESS-20260922-006：四槽部署抽象、SWITCH 复用与动态映射事务
 
 - TODO task ID：T2-DEPLOY-001、T2-DEPLOY-002。用户明确当前接线：NO1 COUNTER=IN1；NO2 SP8T=OUT1–OUT3；NO3 VNA=OUT4 TRIG、IN1 READY；NO4 SP2T/HV=OUT1。NO2/NO4 归一为 SWITCH 类型，设备名只描述 profile；不同板卡的 OUT1 是各自本地命名空间。
