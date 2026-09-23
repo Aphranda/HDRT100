@@ -88,6 +88,31 @@ def test_training_preparation_stages_topology_without_flight_arm(
             if row["command"] == "BOARD_NO_READBACK"] == [1, 2, 3, 4]
 
 
+@pytest.mark.parametrize('owner_reply', ['9,9,1,2,0', '9,9,2,2,0', '9,9,1,3,0'])
+def test_marker_topology_waits_for_matching_owner_opcode(monkeypatch, owner_reply):
+    calls = []
+    def command(_board, text, _args):
+        calls.append(text)
+        if text == 'SYSTem:ERR?':
+            return '0,"No error"'
+        if text.endswith('OWNer?'):
+            return owner_reply
+        return '"QUEUED",2,0,0,9'
+    monkeypatch.setattr(marker_train, 'board_command', command)
+    actions = []
+    invoke = lambda: marker_train.preparation_action(
+        Board('COM3', '1', '', '257'), 'TOPOLOGY', 'SYSTem:TDMA:RING:TOPology 2,0,0',
+        argparse.Namespace(arm_wait=1.), actions, [2, 0, 0])
+    if owner_reply == '9,9,1,2,0':
+        invoke()
+        assert actions[0]['passed']
+    else:
+        with pytest.raises(RuntimeError):
+            invoke()
+        assert not actions[0]['passed']
+    assert actions[0]['owner_observations'][0]['response'] == owner_reply
+
+
 @pytest.mark.parametrize("failure", [None, "opmode", "rejected", "timeout", "wrong_tuple", "stop_pending", "late_stop"])
 def test_preparation_waits_for_owner_and_retains_failures(monkeypatch, failure):
     board = Board("COM3", "board-0", "idn", "build")
@@ -127,7 +152,7 @@ def test_preparation_waits_for_owner_and_retains_failures(monkeypatch, failure):
             assert applied == requested
             topology_sent[0] = True
             requested[0] += 1
-            return {"timeout": "<timeout>", "wrong_tuple": "4,2,0"}.get(failure, "1,0,0")
+            return {"timeout": "<timeout>", "wrong_tuple": "4,2,0"}.get(failure, "2,0,0")
         if text == "SYSTem:BOARD:NO?":
             assert applied == requested
             return "1"
@@ -255,6 +280,126 @@ def marker_row(node: int, count: int = 4, *, sequence: int = 11,
         "dma_capture_count": 1,
     })
     return ",".join(str(values[field]) for field in MARKER_FIELDS)
+
+
+@pytest.mark.parametrize('failure', [None, 'prepared_uid', 'completed_uid',
+    'epoch', 'build', 'crc', 'pio_stall', 'missing_return',
+    'prepared_link_base_delay_ns', 'prepared_offset_sample_count',
+    'prepared_diagnostic_fault_flags', 'prepared_tick_resolution_ns',
+    'completed_link_base_delay_ns', 'completed_offset_sample_count',
+    'completed_diagnostic_fault_flags', 'completed_tick_resolution_ns',
+    'completed_topology_generation', 'completed_topology_crc32',
+    'completed_profile_crc32', 'completed_schedule_crc32', 'completed_marker_crc32'])
+def test_single_board_marker_uses_one_real_origin_snapshot(monkeypatch, failure):
+    monkeypatch.setattr(marker_train.sys, 'argv', [
+        'marker', '--board-id', '0000000000000001', '--link-delay-ns', '52',
+        '--epoch', '11', '--codebook', '1', '--generation', '4', '--skip-capture',
+        '--node-offset-samples', '-1'])
+    args = marker_train.parse_args()
+    board = Board('COM3', '0000000000000001', '', '257')
+    args.discovered_boards = {board.address: board}
+    monkeypatch.setattr(marker_train, 'order_boards_by_board_no', lambda *_: [board])
+    monkeypatch.setattr(marker_train, 'prepare_ring', lambda *_: [])
+    monkeypatch.setattr(marker_train, 'board_command', lambda *_: 'active')
+    record = parse_marker_status(marker_row(0, count=2))
+    record.update(train_epoch=11, marker_id=11, link_base_delay_ns=26,
+                  offset_sample_count=-1)
+    armed = {**record, 'state': marker_train.STATE_PREPARED}
+    if failure == 'prepared_uid':
+        armed['board_unique_id'] = 2
+    if failure == 'completed_uid':
+        record['board_unique_id'] = 2
+    if failure == 'epoch':
+        record['train_epoch'] = 10
+    if failure == 'build':
+        record['build_id'] = 258
+    if failure == 'crc':
+        record['observed_crc32'] ^= 1
+    if failure == 'pio_stall':
+        record['pio_stall_count'] = 1
+    if failure == 'missing_return':
+        record['marker_return_tick'] = 0
+    if failure and failure.startswith('prepared_') and failure != 'prepared_uid':
+        armed[failure.removeprefix('prepared_')] += 1
+    if failure and failure.startswith('completed_') and failure != 'completed_uid':
+        record[failure.removeprefix('completed_')] += 1
+        if failure == 'completed_marker_crc32':
+            record['observed_crc32'] = record['marker_crc32']
+    calls = []
+    monkeypatch.setattr(marker_train, 'arm_marker', lambda actual, *_: calls.append(('arm', actual)) or 'OK')
+    monkeypatch.setattr(marker_train, 'wait_marker_armed', lambda *_: [armed])
+    monkeypatch.setattr(marker_train, 'wait_marker', lambda *_: [record])
+    monkeypatch.setattr(marker_train, 'inject_marker', lambda actual, *_: calls.append(('inject', actual)) or 'OK')
+    monkeypatch.setattr(marker_train, 'stop_marker', lambda boards, *_: calls.append(('stop', boards[0])) or [])
+    result = marker_train.run_hil(args)
+    assert result['passed'] is (failure is None), result['errors']
+    assert result['measurement_scope'] == 'SINGLE_BOARD_MARKER_CORRELATION_DIAGNOSTIC'
+    assert not result['latency_certified']
+    assert not result['follower_residence_measured']
+    assert result['calibration_topology']['logical_slot_count'] == 2
+    assert len(result['records']) == 1
+    assert result['records'][0]['forward_residence_ticks'] == 0
+    assert [name for name, _ in calls] == (
+        ['arm', 'stop'] if failure and failure.startswith('prepared_')
+        else ['arm', 'inject', 'stop'])
+    assert all(actual is board for _, actual in calls)
+
+
+def test_default_ring_validator_does_not_promote_singleton_to_multiboard():
+    record = parse_marker_status(marker_row(0, count=2))
+    assert validate_ring([record])['errors'] == ['board_count']
+    result = validate_ring([record], single_board_origin_return=True)
+    assert result['passed'] and not result['latency_certified']
+
+
+@pytest.mark.parametrize('failure', [None, 'accepted', 'input_edge', 'uid', 'no_timeout',
+                                    'topology_generation', 'schedule_crc32', 'marker_crc32',
+                                    'link_base_delay_ns', 'offset_sample_count'])
+def test_single_board_idle_high_requires_true_timeout_no_edge_and_identity(monkeypatch, failure):
+    monkeypatch.setattr(marker_train.sys, 'argv', [
+        'marker', '--board-id', '0000000000000001', '--link-delay-ns', '52',
+        '--epoch', '11', '--codebook', '1', '--generation', '4', '--fault-idle-high'])
+    args = marker_train.parse_args()
+    board = Board('COM3', '0000000000000001', '', '257')
+    args.discovered_boards = {board.address: board}
+    monkeypatch.setattr(marker_train, 'order_boards_by_board_no', lambda *_: [board])
+    monkeypatch.setattr(marker_train, 'prepare_ring', lambda *_: [])
+    monkeypatch.setattr(marker_train, 'board_command', lambda *_: 'active')
+    record = parse_marker_status(marker_row(0, count=2))
+    record.update(train_epoch=11, marker_id=11, link_base_delay_ns=26,
+                  diagnostic_fault_flags=marker_train.FAULT_IDLE_HIGH)
+    armed = {**record, 'state': marker_train.STATE_PREPARED}
+    record.update(state=marker_train.STATE_REJECTED, reject_reason=11,
+                  timeout_count=1, diagnostic_fault_flags=marker_train.FAULT_IDLE_HIGH,
+                  marker_capture_tick=0)
+    if failure == 'accepted':
+        record['state'] = marker_train.STATE_ACCEPTED
+    if failure == 'input_edge':
+        record['marker_capture_tick'] = 1
+    if failure == 'uid':
+        record['board_unique_id'] = 2
+    if failure == 'no_timeout':
+        record['timeout_count'] = 0
+    if failure in ('topology_generation', 'schedule_crc32', 'marker_crc32',
+                   'link_base_delay_ns', 'offset_sample_count'):
+        record[failure] += 1
+    monkeypatch.setattr(marker_train, 'arm_marker', lambda *_: 'OK')
+    monkeypatch.setattr(marker_train, 'wait_marker_armed', lambda *_: [armed])
+    monkeypatch.setattr(marker_train, 'wait_marker_timeout', lambda *_: [record])
+    monkeypatch.setattr(marker_train, 'inject_marker', lambda *_: 'OK')
+    monkeypatch.setattr(marker_train, 'stop_marker', lambda *_: [])
+    result = marker_train.run_hil(args)
+    assert result['passed'] is (failure is None), result['errors']
+    assert not result['accepted'] and not result['active_candidate_allowed']
+    assert not result['latency_certified']
+    assert 'board_count' in validate_idle_high_timeout([record], 0)['errors']
+
+
+def test_single_board_residence_fails_closed_without_fabricated_follower():
+    result = marker_train.run_residence_matrix(argparse.Namespace(board_id=['1']))
+    assert not result['passed'] and result['trials'] == []
+    assert result['errors'] == ['single_board_follower_residence_unavailable']
+    assert 'dual-endpoint firmware is required' in result['error']
 
 
 def test_parse_marker_status_field_contract() -> None:

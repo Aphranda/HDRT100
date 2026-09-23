@@ -53,6 +53,8 @@ from calibration_ring_validate.calibration_storage_job import (  # noqa: E402
 )
 from tdma_field_parse import RUNTIME_FIELDS  # noqa: E402
 from calibration_ring_validate.trn03_stage import error_is_clear  # noqa: E402
+from calibration_ring_validate.calibration_clk_train import calibration_topology  # noqa: E402
+from scpi_common.vdc_owner_state import queued_sequence, wait_owner_applied  # noqa: E402
 
 
 MARKER_FIELDS = (
@@ -228,9 +230,10 @@ def parse_marker_status(raw: str) -> dict[str, int | str]:
     return result
 
 
-def validate_ring(records: list[dict[str, int | str]]) -> dict[str, object]:
+def validate_ring(records: list[dict[str, int | str]], *,
+                  single_board_origin_return: bool = False) -> dict[str, object]:
     errors: list[str] = []
-    if not 2 <= len(records) <= 8:
+    if not (len(records) == 1 if single_board_origin_return else 2 <= len(records) <= 8):
         errors.append("board_count")
     nodes = [int(record["local_node"]) for record in records]
     if sorted(nodes) != list(range(len(records))):
@@ -306,6 +309,9 @@ def validate_ring(records: list[dict[str, int | str]]) -> dict[str, object]:
         "phase": "TRN-00",
         "passed": not errors,
         "diagnostic_only": diagnostic_only,
+        "measurement_scope": ("SINGLE_BOARD_MARKER_CORRELATION_DIAGNOSTIC"
+                              if single_board_origin_return else "MULTI_BOARD_MARKER_RING"),
+        "latency_certified": False,
         "board_count": len(records),
         "train_epoch": int(records[0]["train_epoch"]) if records else None,
         "train_sequence": int(records[0]["train_sequence"]) if records else None,
@@ -540,7 +546,18 @@ def preparation_action(board: Board, label: str, command: str,
     if (not error_is_clear(error) or response == "<timeout>" or
             response.startswith("OK(no payload") or not response):
         raise RuntimeError(f"{board.address}: {label} unconfirmed or rejected")
-    if expected is not None or profile_level is not None:
+    row = next(csv.reader([response]), [])
+    if label == "TOPOLOGY" and row and row[0].strip().upper() == "QUEUED":
+        if len(row) != 5 or [int(value.strip(), 0) for value in row[1:4]] != expected:
+            raise RuntimeError(f"{board.address}: {label} queued identity mismatch")
+        evidence["owner_observations"] = []
+        owner = wait_owner_applied(
+            lambda query: board_command(board, query, args), queued_sequence(response),
+            args.arm_wait, evidence["owner_observations"])
+        evidence["owner_applied"] = owner
+        if owner["opcode"] != 1:
+            raise RuntimeError(f"{board.address}: topology owner opcode mismatch")
+    elif expected is not None or profile_level is not None:
         actual = [int(value.strip().strip('"'), 0)
                   for value in next(csv.reader([response]), [])]
         evidence["expected_result"] = expected
@@ -555,7 +572,8 @@ def preparation_action(board: Board, label: str, command: str,
 
 
 def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[str, object]]:
-    node_count = len(ordered)
+    topology = calibration_topology(ordered, args.reference_node)
+    node_count = int(topology["logical_slot_count"])
 
     def prepare_board(item):
         node, board = item
@@ -593,7 +611,7 @@ def prepare_ring(ordered: list[Board], args: argparse.Namespace) -> list[dict[st
         return actions
 
     actions: list[dict[str, object]] = []
-    with ThreadPoolExecutor(max_workers=node_count) as executor:
+    with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
         for result in executor.map(prepare_board, enumerate(ordered)):
             actions.extend(result)
     if any(row["command"] == "PREPARATION_FAILED" for row in actions):
@@ -663,14 +681,15 @@ def prepared_identity_errors(records: list[dict[str, int | str]],
         values = {int(record[field]) for record in records}
         if len(values) != 1 or 0 in values:
             errors.append(field)
+    logical_count = max(2, len(records))
     for node, record in enumerate(records):
         expected = {
             "state": STATE_PREPARED, "local_node": node,
             # The MARK record names the injection origin as reference_node;
             # the fixed TDMA reference is bound into the topology CRC instead.
             "reference_node": args.origin_node,
-            "predecessor_node": (node - 1) % len(records),
-            "successor_node": (node + 1) % len(records),
+            "predecessor_node": (node - 1) % logical_count,
+            "successor_node": (node + 1) % logical_count,
             "train_epoch": args.epoch, "train_sequence": args.epoch,
             "marker_id": args.epoch, "marker_codebook_id": args.codebook,
             "calibration_generation": args.generation,
@@ -678,6 +697,37 @@ def prepared_identity_errors(records: list[dict[str, int | str]],
         for field, value in expected.items():
             if int(record[field]) != value:
                 errors.append(f"node_{node}_{field}")
+    return errors
+
+
+def singleton_identity_errors(records, board, args, *, prepared=None) -> list[str]:
+    """Bind the one real snapshot to this board and requested acquisition."""
+    if len(records) != 1:
+        return ["single_board_record_count"]
+    expected = {
+        "board_unique_id": int(board.address, 16),
+        "build_id": int(board.build),
+        "local_node": 0, "reference_node": 0,
+        "predecessor_node": 1, "successor_node": 1,
+        "role": ROLE_ORIGINATOR,
+        "train_epoch": args.epoch, "train_sequence": args.epoch,
+        "marker_id": args.epoch, "marker_codebook_id": args.codebook,
+        "calibration_generation": args.generation,
+        "link_base_delay_ns": args.link_base_delay_ns[0],
+        "offset_sample_count": (args.node_offset_samples or [0])[0],
+        "diagnostic_fault_flags": FAULT_IDLE_HIGH if args.fault_idle_high else 0,
+        "tick_resolution_ns": SAMPLE_PERIOD_NS,
+    }
+    errors = [f"node_0_{field}" for field, value in expected.items()
+              if int(records[0][field]) != value]
+    if prepared is not None:
+        if len(prepared) != 1:
+            errors.append("single_board_prepared_record_count")
+        else:
+            for field in ("topology_generation", "topology_crc32", "profile_crc32",
+                          "schedule_crc32", "marker_crc32"):
+                if int(records[0][field]) != int(prepared[0][field]):
+                    errors.append(f"node_0_{field}_changed_after_arm")
     return errors
 
 
@@ -724,10 +774,11 @@ def wait_marker_timeout(ordered: list[Board], args: argparse.Namespace
 
 
 def validate_idle_high_timeout(
-        records: list[dict[str, int | str]], origin_node: int
+        records: list[dict[str, int | str]], origin_node: int, *,
+        single_board_origin_return: bool = False,
         ) -> dict[str, object]:
     errors: list[str] = []
-    if not 2 <= len(records) <= 8:
+    if not (len(records) == 1 if single_board_origin_return else 2 <= len(records) <= 8):
         errors.append("board_count")
     for node, record in enumerate(records):
         expected_fault = FAULT_IDLE_HIGH if node == origin_node else 0
@@ -797,8 +848,8 @@ def save_marker_capture(board: Board, args: argparse.Namespace) -> dict[str, obj
 
 def run_hil(args: argparse.Namespace) -> dict[str, object]:
     board_ids = list(args.board_id or [])
-    if len(board_ids) < 2 or len(board_ids) > 8 or len(set(board_ids)) != len(board_ids):
-        raise SystemExit("board IDs must contain 2..8 unique entries")
+    if len(board_ids) < 1 or len(board_ids) > 8 or len(set(board_ids)) != len(board_ids):
+        raise SystemExit("board IDs must contain 1..8 unique entries")
     if not 0 <= args.reference_node < len(board_ids):
         raise SystemExit("reference-node outside board order")
     if args.origin_node is None:
@@ -855,6 +906,11 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
         if wrong:
             raise SystemExit(f"build mismatch: {wrong}")
     plan: dict[str, object] = {
+        "calibration_topology": calibration_topology(ordered, args.reference_node),
+        "measurement_scope": ("SINGLE_BOARD_MARKER_CORRELATION_DIAGNOSTIC" if len(ordered) == 1
+                              else "MULTI_BOARD_MARKER_RING"),
+        "follower_residence_measured": len(ordered) > 1,
+        "latency_certified": False,
         "measurement_domain": "calibration",
         "phase": "TRN-00",
         "diagnostic_only": True,
@@ -876,13 +932,19 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
             args, "path_delay_baseline_divisor", 2),
         "pio_forward_phase_delay_cycles": [1 for _ in offsets],
         "pio_capture_phase_delay_cycles": capture_delays,
-        "unified_phase_training": build_phase_training_contract(
+        "unified_phase_training": ({
+            "available": False,
+            "reason": "single_board_origin_return_only_no_follower_residence",
+            "signal": "MARK", "sample_period_ns": SAMPLE_PERIOD_NS,
+            "link_delay_ns_by_link": link_delays,
+            "node_offset_samples": offsets,
+        } if len(ordered) == 1 else build_phase_training_contract(
             signal="MARK", link_delay_ns_by_link=link_delays,
             node_offset_samples=offsets,
             sample_period_ns=SAMPLE_PERIOD_NS,
             capture_origin="rx_csn_pio_edge",
             path_delay_baseline_divisor=getattr(
-                args, "path_delay_baseline_divisor", 2)),
+                args, "path_delay_baseline_divisor", 2))),
         "physical_timing_budget": timing_budget,
         "boards": {board.address: asdict(board) for board in ordered},
     }
@@ -917,8 +979,9 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
                     "link_base_delay_ns": link_bases[incoming_link],
                     "offset_sample_count": offsets[node],
                     "response": response}
-        with ThreadPoolExecutor(max_workers=len(followers)) as executor:
-            arms.extend(executor.map(arm_follower, followers))
+        if followers:
+            with ThreadPoolExecutor(max_workers=len(followers)) as executor:
+                arms.extend(executor.map(arm_follower, followers))
         origin_incoming_link = (args.origin_node - 1) % len(ordered)
         arms.append({"board": originator.address,
                      "incoming_link": origin_incoming_link,
@@ -931,6 +994,8 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
                          FAULT_IDLE_HIGH if args.fault_idle_high else 0)})
         armed = wait_marker_armed(ordered, args)
         identity_errors = prepared_identity_errors(armed, args)
+        if len(ordered) == 1:
+            identity_errors.extend(singleton_identity_errors(armed, originator, args))
         injection = None
         if identity_errors:
             validation = {"passed": False, "errors": identity_errors,
@@ -943,13 +1008,20 @@ def run_hil(args: argparse.Namespace) -> dict[str, object]:
             }
             if args.fault_idle_high:
                 records = wait_marker_timeout(ordered, args)
-                validation = validate_idle_high_timeout(records, args.origin_node)
+                validation = validate_idle_high_timeout(
+                    records, args.origin_node,
+                    single_board_origin_return=len(ordered) == 1)
                 capture_files = []
             else:
                 records = wait_marker(ordered, args)
-                validation = validate_ring(records)
+                validation = validate_ring(
+                    records, single_board_origin_return=len(ordered) == 1)
                 capture_files = [] if args.skip_capture else [
                     save_marker_capture(board, args) for board in ordered]
+            if len(ordered) == 1:
+                validation["errors"].extend(singleton_identity_errors(
+                    records, originator, args, prepared=armed))
+                validation["passed"] = bool(validation["passed"]) and not validation["errors"]
     finally:
         idle = stop_marker(ordered, args)
     with ThreadPoolExecutor(max_workers=len(ordered)) as executor:
@@ -1360,6 +1432,15 @@ def summarize_residence_matrix(
 def run_residence_matrix(args: argparse.Namespace) -> dict[str, object]:
     board_ids = list(args.board_id or [])
     node_count = len(board_ids)
+    if node_count == 1:
+        return {
+            "measurement_domain": "calibration", "phase": "TRN-00_RESIDENCE_MATRIX",
+            "diagnostic_only": True, "passed": False,
+            "node_ids_in_loop_order": board_ids, "trials": [], "trial_count": 0,
+            "errors": ["single_board_follower_residence_unavailable"],
+            "error": ("single-board origin/return capture does not measure a separate "
+                      "follower RX-to-forward-TX residence; dual-endpoint firmware is required"),
+        }
     if not 2 <= node_count <= 8 or len(set(board_ids)) != node_count:
         raise SystemExit("board IDs must contain 2..8 unique entries")
     if args.epoch + node_count - 1 > 255:
