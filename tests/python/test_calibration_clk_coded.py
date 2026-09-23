@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from argparse import Namespace
 
 import pytest
+from tools.calibration_ring_validate import calibration_clk_coded as coded
+from tools.tdma_ring_monitor.tdma_start_ring import Board
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL_DIR = ROOT / "tools" / "calibration_ring_validate"
@@ -64,6 +67,12 @@ def make_trial(sequence: int, lag: int, distance: int, margin: int,
             "capture_origin_lo": 1,
             "capture_origin_hi": 0,
             "train_sequence": sequence,
+            "train_epoch": sequence & 0xFF,
+            "calibration_generation": sequence,
+            "topology_generation": 1,
+            "topology_crc32": 2,
+            "profile_crc32": 3,
+            "schedule_crc32": 4,
             "best_lag_sample": lag,
             "best_distance": distance,
             "second_distance": distance + margin,
@@ -183,3 +192,104 @@ def test_unselected_integrity_failure_does_not_fail_phase_matrix() -> None:
     assert "integrity" in result["phase_candidates"]["8"]["gate_failures"]
     assert result["selected_probe_phase_cycles"] == 9
     assert result["passed"] is True
+
+
+@pytest.mark.parametrize('field,value,category', [
+    ('train_epoch', 11, 'epoch_identity'),
+    ('calibration_generation', 9, 'calibration_generation'),
+    ('topology_generation', 0, 'topology_generation'),
+    ('marker_flags', 0, 'marker_flags'),
+    ('local_node', 1, 'local_node_identity'),
+])
+def test_single_board_keeps_epoch_identity_and_edge_gates(field, value, category):
+    trial = make_trial(10, 13, 20, 300)
+    trial['snapshot'][field] = value
+    assert trial_integrity_category(trial) == category
+    assert not summarize_trials([trial], 0.0, None)['passed']
+
+
+def test_single_board_coded_runs_reference_once_and_stops(monkeypatch):
+    board = Board('COM3', '0010071E65B5CB38', '', '20260901021308')
+    calls = []
+    monkeypatch.setattr(coded, 'coded_status', lambda *_: {'train_sequence': 9})
+    monkeypatch.setattr(coded, 'start_coded', lambda actual, _: calls.append(actual) or 'OK')
+    def wait(actual, _args, *, previous_sequence):
+        assert actual is board and previous_sequence == 9
+        return make_trial(10, 13, 20, 300)['snapshot']
+    monkeypatch.setattr(coded, 'wait_reference_node', wait)
+    stopped = []
+    monkeypatch.setattr(coded, 'stop_coded', lambda boards, _: stopped.extend(boards))
+    result = coded.run_reference_node([board], 0, 1, False, Namespace(probe_phase_cycles=10))
+    assert calls == [board] and stopped == [board]
+    assert result['calibration_topology']['mode'] == 'SINGLE_BOARD_DUAL_SLOT'
+    assert result['accepted'] and trial_integrity_category(result) == 'complete'
+    assert len(result['started']) == 1
+
+
+def test_single_board_prepare_failure_keeps_actions_and_cleans_up(monkeypatch):
+    board = Board('COM3', '0010071E65B5CB38', '', '20260901021308')
+    def prepare(_boards, _node, _args, actions):
+        actions.append({'command': 'TOPOLOGY', 'response': 'bad'})
+        raise RuntimeError('owner rejected topology')
+    monkeypatch.setattr(coded, 'prepare_ring', prepare)
+    stopped = []
+    monkeypatch.setattr(coded, 'stop_coded', lambda boards, _: stopped.extend(boards))
+    monkeypatch.setattr(coded.coarse, 'wait_ring_stopped', lambda *_: {})
+    cleanup = []
+    monkeypatch.setattr(coded.coarse, '_control_command',
+                        lambda _b, command, *_a, **_k: cleanup.append(command))
+    result = coded.run_reference_node([board], 0, 1, True, Namespace(probe_phase_cycles=10))
+    assert not result['accepted'] and 'owner rejected topology' in result['error']
+    assert result['actions'][0]['response'] == 'bad'
+    assert stopped == [board]
+    assert cleanup == ['SYSTem:TDMA:RING:STOP', 'CALibration:TOPology:PROBe 0']
+
+
+def test_wait_coded_ignores_stale_terminal_sequence(monkeypatch):
+    responses = iter([{'state': 3, 'train_sequence': 9},
+                      {'state': 3, 'train_sequence': 10}])
+    monkeypatch.setattr(coded, 'coded_status', lambda *_: next(responses))
+    monkeypatch.setattr(coded.time, 'sleep', lambda _: None)
+    result = coded.wait_reference_node(Board('P', 'A', '', ''),
+        Namespace(coded_timeout=1., poll_interval=.02), previous_sequence=9)
+    assert result['train_sequence'] == 10
+
+
+def test_coded_start_timeout_cannot_reuse_old_matching_snapshot(monkeypatch):
+    snapshot = {'state': 3, 'codebook_id': 1, 'coarse_min_sample': 0,
+                'coarse_max_sample': 255, 'train_sequence': 9}
+    monkeypatch.setattr(coded, 'coded_status', lambda *_: snapshot)
+    commands = []
+    def command(_board, text, _args):
+        commands.append(text)
+        return '0,"No error"' if text == 'SYSTem:ERR?' else '<timeout>'
+    monkeypatch.setattr(coded, 'board_command', command)
+    args = Namespace(timeout=1., action_timeout=.1, settle=0., codebook=1,
+                     min_lag=0, max_lag=255, max_distance=512, min_margin=0,
+                     coded_timeout=.01, poll_interval=.001, gap=0.)
+    with pytest.raises(RuntimeError, match='START rejected after 3 attempts'):
+        coded.start_coded(Board('P', 'A', '', ''), args)
+    assert sum('CODEd:STARt' in text for text in commands) == 3
+
+
+@pytest.mark.parametrize('field,value,category', [
+    ('build_id_lo', 0, 'build_identity'),
+    ('train_sequence', 0, 'stale_sequence'),
+])
+def test_coded_rejects_missing_generation_or_wrong_build(field, value, category):
+    trial = make_trial(10, 13, 20, 300)
+    trial['snapshot'][field] = value
+    assert trial_integrity_category(trial) == category
+
+
+@pytest.mark.parametrize('board_ids,minimum,maximum,expected,source', [
+    (['A'], None, None, (0, 255), 'single_board_bounded_search'),
+    (['A', 'B'], None, None, (80, 120), 'multi_board_default'),
+    (['A'], 4, 31, (4, 31), 'explicit_cli'),
+    (['A'], None, 31, (0, 31), 'explicit_cli'),
+])
+def test_lag_window_is_bounded_and_respects_explicit_arguments(
+        board_ids, minimum, maximum, expected, source):
+    args = Namespace(board_id=board_ids, min_lag=minimum, max_lag=maximum)
+    assert coded.resolve_lag_window(args) == source
+    assert (args.min_lag, args.max_lag) == expected

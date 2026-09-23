@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the Calibration P2 coded-marker HIL on a 2..8 board ring.
+"""Run Calibration P2 coded-marker HIL on a 1..8 physical board ring.
 
 Board identity is always the exact ``*IDN?`` unique address.  COM ports are
 only transient transport handles.  This tool performs maintenance-state
@@ -32,12 +32,11 @@ from tdma_start_ring import (  # noqa: E402
     Board,
     board_command,
     discover,
-    status as ring_status,
-    wait_started,
 )
 from calibration_ring_validate.calibration_load_guard import (  # noqa: E402
     CalibrationLoadGuard,
 )
+from calibration_ring_validate import calibration_clk_train as coarse  # noqa: E402
 from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
     DEFAULT_ACTION_TIMEOUT_S,
     DEFAULT_PHASE_GAP_S,
@@ -97,8 +96,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--level", type=int, default=7)
     parser.add_argument("--codebook", type=int, default=1,
                         help="candidate codebook: 0=20ns, 1=40ns, 2=24ns, 3=32ns")
-    parser.add_argument("--min-lag", type=int, default=80)
-    parser.add_argument("--max-lag", type=int, default=120)
+    parser.add_argument("--min-lag", type=int,
+                        help="search lower bound; default 0 single-board, 80 multi-board")
+    parser.add_argument("--max-lag", type=int,
+                        help="search upper bound; default 255 single-board, 120 multi-board")
     parser.add_argument("--max-distance", type=int, default=512,
                         help="diagnostic scan gate; tighten only from repeats")
     parser.add_argument("--min-margin", type=int, default=0,
@@ -133,6 +134,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--short-open", action="store_true",
                         help="open/close CDC for every command (diagnostic fallback)")
     return parser.parse_args()
+
+
+def resolve_lag_window(args: argparse.Namespace) -> str:
+    single = len(args.board_id) == 1
+    supplied = args.min_lag is not None or args.max_lag is not None
+    if args.min_lag is None:
+        args.min_lag = 0 if single else 80
+    if args.max_lag is None:
+        args.max_lag = 255 if single else 120
+    return ("explicit_cli" if supplied else
+            "single_board_bounded_search" if single else "multi_board_default")
 
 
 def parse_csv_u32(raw: str, expected: int) -> dict[str, int]:
@@ -228,6 +240,16 @@ def trial_integrity_category(trial: dict[str, object]) -> str:
             int(snapshot.get("build_id_lo", -1)))
         if actual_build != int(str(expected_build)):
             return "build_identity"
+    sequence = int(snapshot.get("train_sequence", 0))
+    if sequence == 0 or sequence == int(trial.get("previous_train_sequence", -1)):
+        return "stale_sequence"
+    if int(snapshot.get("train_epoch", -1)) != (sequence & 0xFF):
+        return "epoch_identity"
+    if int(snapshot.get("calibration_generation", -1)) != sequence:
+        return "calibration_generation"
+    if any(int(snapshot.get(field, 0)) == 0 for field in (
+            "topology_generation", "topology_crc32", "profile_crc32", "schedule_crc32")):
+        return "topology_generation"
     reason = int(snapshot.get("reject_reason", -1))
     if state == STATE_REJECTED and reason < 0x100:
         return "control_reject:" + reject_reason_name(reason)
@@ -399,15 +421,7 @@ def coded_action_args(args: argparse.Namespace) -> argparse.Namespace:
 
 def wait_ring_stopped(board: Board,
                       args: argparse.Namespace) -> dict[str, int]:
-    deadline = time.monotonic() + args.arm_wait
-    last: dict[str, int] = {}
-    while time.monotonic() < deadline:
-        last = ring_status(board, args)
-        if (last["ring_enabled"] == 0 and
-                last["ring_adapter_started"] == 0):
-            return last
-        time.sleep(args.poll_interval)
-    raise RuntimeError(f"{board.address}: STOP apply timeout: {last}")
+    return coarse.wait_ring_stopped(board, args)
 
 
 def start_coded(board: Board, args: argparse.Namespace) -> str:
@@ -419,6 +433,7 @@ def start_coded(board: Board, args: argparse.Namespace) -> str:
         f"{args.codebook},{args.min_lag},{args.max_lag},"
         f"{args.max_distance},{args.min_margin}")
     response = ""
+    previous_sequence = int(coded_status(board, args)["train_sequence"])
     attempt_errors: list[list[str]] = []
     for attempt in range(1, 4):
         response = board_command(board, command, action_args)
@@ -443,7 +458,7 @@ def start_coded(board: Board, args: argparse.Namespace) -> str:
                 snapshot["codebook_id"] == args.codebook and
                 snapshot["coarse_min_sample"] == args.min_lag and
                 snapshot["coarse_max_sample"] == args.max_lag and
-                snapshot["train_sequence"] != 0):
+                snapshot["train_sequence"] not in (0, previous_sequence)):
             return f"{response}; accepted_by_snapshot_attempt={attempt}"
         # A prior STOP intent may still be crossing the Core0/Core1 mailbox.
         # Drain the explicit rejection before one bounded retry.
@@ -461,71 +476,37 @@ def start_coded(board: Board, args: argparse.Namespace) -> str:
 
 
 def prepare_ring(ordered: list[Board], reference_node: int,
-                 args: argparse.Namespace) -> list[dict[str, object]]:
-    actions: list[dict[str, object]] = []
+                 args: argparse.Namespace, actions=None) -> list[dict[str, object]]:
+    if actions is None:
+        actions = []
+    coarse.calibration_topology(ordered, reference_node)
     node_count = len(ordered)
-    reference = ordered[reference_node]
-    start_order = [board for node, board in enumerate(ordered)
-                   if node != reference_node] + [reference]
+
     def prepare_board(board: Board):
-        stop = board_command(board, "SYSTem:TDMA:RING:STOP", args)
-        clear = board_command(board, "CALibration:TRAINing:STAGe:CLEar", args)
-        probe = board_command(
-            board, f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}", args)
-        stage = board_command(board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)
-        apply = board_command(board, "SYSTem:TDMA:OPMode:APPLy", args)
-        return (
-            {"board": board.address, "command": "STOP", "response": stop},
-            {"board": board.address, "command": "CLEAR_TRAINING_STAGE", "response": clear},
-            {"board": board.address, "command": "TOPOLOGY_PROBE_ENABLE", "response": probe},
-            {"board": board.address, "command": "OPMODE", "response": stage},
-            {"board": board.address, "command": "OPMODE_APPLY", "response": apply},
-        )
+        coarse._control_command(board, "SYSTem:TDMA:RING:STOP", args, actions, ack=True)
+        coarse.wait_ring_stopped(board, args)
+        coarse._control_command(board, "CALibration:TRAINing:STAGe:CLEar", args, actions, ack=True)
+        coarse._control_command(
+            board, f"CALibration:TOPology:PROBe 1,{args.probe_phase_cycles}",
+            args, actions, expected=(1, args.probe_phase_cycles))
+        stage = coarse._control_command(
+            board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args, actions, fields=6)
+        if stage[0] != args.level:
+            raise RuntimeError(f"{board.address}: staged profile mismatch: {stage}")
+        coarse._control_command(board, "SYSTem:TDMA:OPMode:APPLy", args,
+                                actions, expected=stage)
 
     with ThreadPoolExecutor(max_workers=node_count) as executor:
-        for result in executor.map(prepare_board, ordered):
-            actions.extend(result)
+        list(executor.map(prepare_board, ordered))
 
-    def set_topology(item):
-        node, board = item
-        command = (f"SYSTem:TDMA:RING:TOPology "
-                   f"{node_count},{node},{reference_node}")
-        return {"board": board.address, "command": command,
-                "response": board_command(board, command, args)}
-
-    with ThreadPoolExecutor(max_workers=node_count) as executor:
-        actions.extend(executor.map(set_topology, enumerate(ordered)))
-
-    def arm_one(board: Board):
-        response = board_command(board, "SYSTem:TDMA:RING:ARM", args)
-        arm_result = int(board_command(
-            board, "SYSTem:TDMA:RING:ARM:STATus?", args
-        ).strip().strip('"'), 0)
-        if arm_result != 1:
-            raise RuntimeError(
-                f"{board.address}: ARM rejected with result={arm_result}")
-        return board, response, arm_result
-
-    with ThreadPoolExecutor(max_workers=len(start_order) - 1) as executor:
-        armed = list(executor.map(arm_one, start_order[:-1]))
-    armed.append(arm_one(start_order[-1]))
-    for board, response, arm_result in armed:
-        actions.append({"board": board.address, "command": "ARM_SUBMIT",
-                        "response": response, "arm_result": arm_result})
-
-    with ThreadPoolExecutor(max_workers=node_count) as executor:
-        started = list(executor.map(
-            lambda board: (board, wait_started(board, args)), ordered))
-    for board, readback in started:
-        arm = next(item for item in armed if item[0] is board)
-        actions.append({"board": board.address, "command": "ARM_STARTED",
-                        "response": arm[1], "arm_result": arm[2],
-                        "status": readback})
+    # The reference owns simultaneous TX and external-return RX on a singleton;
+    # no duplicate Board or concurrent CDC session stands in for logical slot 1.
+    coarse.arm_training_persona(ordered, reference_node, args, actions, forward=False)
 
     with ThreadPoolExecutor(max_workers=node_count) as executor:
         stopped = list(executor.map(
-            lambda board: (board, board_command(
-                board, "SYSTem:TDMA:RING:STOP", args)), ordered))
+            lambda board: (board, coarse._control_command(
+                board, "SYSTem:TDMA:RING:STOP", args, actions, ack=True)), ordered))
     for board, response in stopped:
         actions.append({"board": board.address, "command": "STOP_AFTER_ARM",
                         "response": response})
@@ -537,8 +518,9 @@ def prepare_ring(ordered: list[Board], reference_node: int,
                         "status": status})
     with ThreadPoolExecutor(max_workers=node_count) as executor:
         disabled = list(executor.map(
-            lambda board: (board, board_command(
-                board, "CALibration:TOPology:PROBe 0", args)), ordered))
+            lambda board: (board, coarse._control_command(
+                board, "CALibration:TOPology:PROBe 0", args, actions,
+                expected=(0, 0))), ordered))
     for board, response in disabled:
         actions.append({"board": board.address,
                         "command": "TOPOLOGY_PROBE_DISABLE",
@@ -548,11 +530,14 @@ def prepare_ring(ordered: list[Board], reference_node: int,
 
 
 def wait_reference_node(board: Board,
-                        args: argparse.Namespace) -> dict[str, int]:
+                        args: argparse.Namespace, *,
+                        previous_sequence: int | None = None) -> dict[str, int]:
     deadline = time.monotonic() + args.coded_timeout
     last = coded_status(board, args)
     while time.monotonic() < deadline:
-        if last["state"] in (STATE_ACCEPTED, STATE_REJECTED):
+        if (last["state"] in (STATE_ACCEPTED, STATE_REJECTED) and
+                (previous_sequence is None or
+                 last["train_sequence"] not in (0, previous_sequence))):
             return last
         time.sleep(args.poll_interval)
         last = coded_status(board, args)
@@ -579,45 +564,69 @@ def stop_coded(ordered: list[Board], args: argparse.Namespace) -> None:
 def run_reference_node(ordered: list[Board], reference_node: int,
                        repeat_index: int, prepare: bool,
                        args: argparse.Namespace) -> dict[str, object]:
-    actions = prepare_ring(ordered, reference_node, args) if prepare else []
+    actions = []
+    topology = coarse.calibration_topology(ordered, reference_node)
     reference = ordered[reference_node]
     followers = [board for node, board in enumerate(ordered)
                  if node != reference_node]
     started: list[dict[str, object]] = []
+    result = {
+        "reference_node": reference_node,
+        "reference_node_no": reference_node + 1,
+        "reference_node_id": reference.address,
+        "reference_build_id": reference.build,
+        "repeat_index": repeat_index,
+        "probe_phase_cycles": args.probe_phase_cycles,
+        "calibration_topology": topology,
+        "snapshot": {}, "started": started, "actions": actions,
+        "ring_prepared": not prepare,
+    }
     try:
+        if prepare:
+            prepare_ring(ordered, reference_node, args, actions)
+            result["ring_prepared"] = True
         def start_follower(board: Board):
             response = start_coded(board, args)
             return board, response, coded_status(board, args)
 
-        with ThreadPoolExecutor(max_workers=len(followers)) as executor:
-            follower_results = list(executor.map(start_follower, followers))
+        follower_results = []
+        if followers:
+            with ThreadPoolExecutor(max_workers=len(followers)) as executor:
+                follower_results = list(executor.map(start_follower, followers))
         for board, response, follower_snapshot in follower_results:
             print(json.dumps({"coded_start": {"board": board.address,
                   "role": "follower", "response": response}}), flush=True)
             started.append({"board": board.address, "role": "follower",
                             "response": response,
                             "snapshot": follower_snapshot})
+        previous_sequence = int(coded_status(reference, args)["train_sequence"])
+        result["previous_train_sequence"] = previous_sequence
         response = start_coded(reference, args)
         print(json.dumps({"coded_start": {"board": reference.address,
               "role": "reference", "response": response}}), flush=True)
         started.append({"board": reference.address, "role": "reference",
                         "response": response})
-        reference_snapshot = wait_reference_node(reference, args)
-        result = {
-            "reference_node": reference_node,
-            "reference_node_no": reference_node + 1,
-            "reference_node_id": reference.address,
-            "reference_build_id": reference.build,
-            "repeat_index": repeat_index,
-            "probe_phase_cycles": args.probe_phase_cycles,
-            "snapshot": reference_snapshot,
-            "started": started,
-            "actions": actions,
-        }
-        result["reject_category"] = trial_reject_category(result)
-        result["accepted"] = result["reject_category"] == "accepted"
+        reference_snapshot = wait_reference_node(
+            reference, args, previous_sequence=previous_sequence)
+        result["snapshot"] = reference_snapshot
+    except Exception as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
     finally:
-        stop_coded(ordered, args)
+        try:
+            stop_coded(ordered, args)
+        except Exception as exc:
+            result["stop_error"] = f"{type(exc).__name__}: {exc}"
+            result["error"] = str(result.get("error", "")) + f"; STOP: {exc}"
+        if not result["ring_prepared"]:
+            for board in ordered:
+                try:
+                    coarse._control_command(board, "SYSTem:TDMA:RING:STOP", args, actions, ack=True)
+                    coarse.wait_ring_stopped(board, args)
+                    coarse._control_command(board, "CALibration:TOPology:PROBe 0", args, actions, expected=(0, 0))
+                except Exception as exc:
+                    result.setdefault("cleanup_errors", []).append(f"{board.address}: {exc}")
+    result["reject_category"] = trial_reject_category(result)
+    result["accepted"] = result["reject_category"] == "accepted"
     return result
 
 
@@ -648,10 +657,11 @@ def write_csv(path: Path, trials: list[dict[str, object]]) -> None:
 def main() -> int:
     args = parse_args()
     args.keep_open = not args.short_open
-    if len(args.board_id) < 2 or len(args.board_id) > 8:
-        raise SystemExit("board count must be in [2, 8]")
+    if len(args.board_id) < 1 or len(args.board_id) > 8:
+        raise SystemExit("board count must be in [1, 8]")
     if len(set(args.board_id)) != len(args.board_id):
         raise SystemExit("board IDs must be unique")
+    lag_window_source = resolve_lag_window(args)
     if (args.min_lag < 0 or args.min_lag >= args.max_lag or
             args.max_lag - args.min_lag + 1 > 256):
         raise SystemExit("invalid bounded coded lag window")
@@ -682,6 +692,7 @@ def main() -> int:
         if wrong:
             raise SystemExit(f"build mismatch: {wrong}")
     plan = {
+        "calibration_topology": coarse.calibration_topology(ordered),
         "measurement_domain": "calibration",
         "phase": "coded_marker_correlated_rtt",
         "diagnostic_only": True,
@@ -690,6 +701,7 @@ def main() -> int:
         "half_chip_ns": CODEBOOK_HALF_CHIP_NS[args.codebook],
         "min_lag": args.min_lag,
         "max_lag": args.max_lag,
+        "lag_window_source": lag_window_source,
         "max_distance": args.max_distance,
         "min_margin": args.min_margin,
         "repeats": args.repeats,
@@ -732,7 +744,7 @@ def main() -> int:
                         result = run_reference_node(
                             ordered, reference_node, repeat_index,
                             prepare=not phase_prepared, args=phase_args)
-                        phase_prepared = True
+                        phase_prepared = bool(result["ring_prepared"])
                     except Exception as exc:  # noqa: BLE001 - retain all repeat evidence
                         error = f"{type(exc).__name__}: {exc}"
                         result = {
