@@ -12,6 +12,42 @@ Last updated: 2026-09-23
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260923-008：转台起止边界与精确位置输出语义
+
+- TODO task ID：T2-TURNTABLE-001、T2-TURNTABLE-004、T2-TURNTABLE-009。用户补充转台从起始位置前 5°开始运行，在终止位置后 5°停止；前置区用于起始预测，后置区用于终止校验。5°/5°是当前调试配置快照，后续由外部 profile 配置，不作为产品额定数字。
+- 语义冻结输入：预运行区建立 count epoch、方向、周期/速度估计和首个预测版本；零位和终止位置各自绑定确定的 target count、position ID、prediction version 和 coarse/fine 时间片。动作必须在零位/终止位置的计数边界执行，不能用区间中心、主机到达时间或 READY 电平代替实际边沿。
+- 终止位置之后的校验区只确认最后位置动作已到达，检查迟到、重复、缺失和越过终点的额外动作；停止事件不得回写或重排已经执行的终止位置动作。
+- 本条只更新 Architecture/TODO/Progress 语义，未宣称当前 COUNTER 快照已经具备边沿 latch、精确零位/终止位置输出或示波器证据；实现后需按 position_id 绑定输入边沿、动作边沿和恢复证据。
+- 文档门禁：`docs_check.py --strict-names`、`doc_regression_check.py --progress` 和文档 pytest 38 项通过；全库既有进度轮转债务仅保留 WARN。
+- Git Bash 运行 `.githooks/pre-commit` 通过，检测到仅文档范围变更，P3 固件门禁按规则跳过。
+
+### T2-PROGRESS-20260923-009：起始角度和终止角度纳入预测边界
+
+- TODO task ID：T2-TURNTABLE-001、T2-TURNTABLE-003、T2-TURNTABLE-009。用户进一步明确：起始角度和终止角度本身也是预测目标；前置 5°用于建立起始预测，后置 5°用于继续校验终止预测。
+- 语义修正：起始角度、零位、终止角度分别生成 position_id、预测目标计数、prediction version 和 coarse/fine 时间片；动作绑定的是确定的预测目标索引，实际到位仍需用输入/动作边沿验证，不能把边界角度当作已知硬件 latch。
+- 本条只更新文档语义，未宣称当前 COUNTER 已实现起止角度预测、实际边沿 latch 或终止校验区证据。
+
+### T2-PROGRESS-20260923-007：按审核语义重构 T2 Architecture/TODO
+
+- TODO task ID：T2-DOC-001、T2-CLOCK-001、T2-TURNTABLE-002/003/004、T2-EXEC-001、T2-READY-001。基于 `out/t2-architecture-review-20260923/corrected-frozen-semantics.md` 重构三件套，保留历史实现和失败证据，不把当前源码能力升级为完整 T2。
+- 语义纠偏：细分脉冲只做能力验证；运行时由 1 kHz VDC 基准同步推进本地 pulse index/fine cursor。NO1 每次同步更新预测，阈值跨越时通过 TDMA 广播一次位置索引；从板使用本地 VDC/grid/model 解算，不接收主站逐板 TIMER1 deadline。
+- 执行模型：动作模板、PIO、IO 和循环表在 TDMA START 前静态装载；动作表拆为静态循环模板和运行时位置实例；动作互相解耦，到达自身时间片即执行，不再使用“更新下一动作”的串行语义。
+- 反馈模型：SWITCH settle、GATEWAY TRIG、READY 检查窗口使用可配置相对 offset；READY 只校验上一动作实际响应与相邻时间片是否重叠，不作为当前动作执行许可或 fence。
+- 交付边界：现有 STOP action install/一次性 ARM 后端仍标记为迁移材料；本次文档重构没有声称 1 kHz cursor、位置描述符、从板解算、静态启动装载或实际 T2 latch 已实现。
+- 证据位置：语义审核快照为 `out/t2-architecture-review-20260923/corrected-frozen-semantics.md`；本条只记录文档重构，后续代码实现必须分别经过相应 host/Release/P3/示波器证据。
+
+### T2-PROGRESS-20260923-006：共享时间片动作表安装
+
+- TODO task ID：T2-ACTION-INSTALL-001。用户要求试安装时间片动作。本轮按安装与读回切片推进，不使用现有维护 APPLY 假冒本地按 q 执行。当前没有可直接复用的 VDC marker→PIO 动作 ARM 通道：RUN OUT1 程序不发 PIO IRQ，转台 IN1 与同步源不同；细分末格空白也意味着不能直接把物理脉冲序号当绝对 q。
+- 安装内容：完整表包含动作表代际、部署 generation/CRC、grid epoch/generation/A/P/N 与有限动作行，规范小端 CRC 不含结构体 padding；每行独立 action ID、业务角色、动作类型/参数、绝对 q、计划占用格数。全局严格 q 顺序与半开区间不重叠，保留格只禁起点；参数按已部署 IO mask 验证。IO/时基/执行资源不由表内容自授予。
+- 事务：`trigger_action_service` 只在 TDMA STOP metadata 内校验并发布 SRAM，不操作 GPIO/FIFO。全表四板一致，本地行位图随角色绑定。INSTALLED_CONFIG 的执行授权、ARM、deadline valid、anchor authenticated 为零；部署变更保留旧表但报告 binding_current=0，ROW 返回 CHANGED。CLEAR 保留高水位，旧代不得复活。
+- 诊断样本计划：沿独立 500 ns 网格安装 SWITCH_A、SWITCH_B、GATEWAY 三行，分别 q=2010/2012/2014、各占两格；该数字为本轮测试快照，A=0 是未认证安装标签，数学目标不是已装载 deadline，也不宣称满足真实器件 settle/READY。原 `out/t2-multi-sync-plan-500ns-20260922` 业务预算保持不变。
+- 纯内核 49 项通过（含独立 Python struct/zlib CRC 对照），owner/实际 SCPI 75 项通过，Release 与 flash link 检查通过（数量为本轮快照，非产品事实源）。独立代码复核确认 STOP 锁、完整绑定、旧代隔离、输出保持和未授予执行权限。
+- 当前源码 P3：`out/HardwareAcceptance/20260923/p3-action-install-r1/`，build=`20260923102554`，quick `PASS_WITH_WARNINGS`（INFO 32 / WARN 21 / ERROR 0 / FATAL 0）。当前源码指纹、包、四板身份、TDMA 和示波器同步观察均保留，严格质量告警不改写为全绿。
+- 四板安装实测：`out/action-install-20260923/run-r1/action-install-evidence.json` 完整通过，四板同表 CRC 和三行原始读回正确；NO1/NO2/NO3/NO4 本地行位图分别 0/1/4/2，对应 SWITCH_A、SWITCH_B、GATEWAY 的数学目标为 1005000/1006000/1007000 ns（A=0 的安装样本，不是未来 deadline）。同代原样重装幂等，保留格、跨度重叠、同 q、重复 ID、错部署 CRC、旧代、同代重解释、错误表 CRC 八类负测均保留原表。
+- 换代与恢复实测：新部署代使旧表 installed 仍保留而 binding_current=0，ROW 返回 CHANGED；CLEAR 后旧动作表代仍被拒绝，新表代重新安装通过。阶段前后 COUNTER/GATEWAY/SWITCH 读回、未装载状态、执行计数与输出事实保持，没有输出命令；READY 电平允许随外部信号变化，不把它当成完成。最终四板动作表、临时部署清空并确认 STOP，清理均通过。
+- 本轮关闭诊断动作清单安装，不关闭时间片实际执行。共同 anchor 认证、指定 marker/格计数与硬件执行的绑定、实时模型/lead/租约和 READY/fence 仍需下一执行片；安装不发布执行授权或 ARM。
+
 ### T2-PROGRESS-20260923-005：SWITCH 本地编码与动态部署
 
 - TODO task ID：T2-SLOT-LINK-001、T2-SLOT-SWITCH-001。用户要求继续 SWITCH 开发部署，随后要求先按指纹提交推送。已先完成 `87235913` 代码与 `ee3d24ed` 文档提交，实际推送 `origin/wip/tdma-real-flight-processing` 并核对远端 SHA；其后才开始本 SWITCH 切片。此前本地无关 skill/评审文件不纳入槽位交付。

@@ -8,73 +8,88 @@ Last updated: 2026-09-23
 
 ## 文档接口与状态规则
 
-本文是 T2 实施任务状态唯一落点；[Architecture](TRIGGER_T2_ARCHITECTURE.md) 维护语义，[Task Progress](TRIGGER_T2_TASK_PROGRESS.md) 维护执行证据。状态仅用 PENDING、IN PROGRESS、BLOCKED、DONE；DONE 只关闭对应任务，不自动提升父任务、物理精度或产品资格。
+本文是 T2 任务状态唯一落点；[Architecture](TRIGGER_T2_ARCHITECTURE.md) 维护稳定语义，[Task Progress](TRIGGER_T2_TASK_PROGRESS.md) 维护执行证据。状态仅用 `PENDING`、`IN PROGRESS`、`BLOCKED`、`DONE`；DONE 只关闭对应任务，不自动提升父任务、物理精度或产品资格。
+
+之前完成的槽位、动作表和一次性 action ARM 是动作基础，不是当前主线。当前主线是同步 VDC 与 1 kHz 时间片构成准确时间系统：细分脉冲只验证能力，NO1 广播位置索引，从板本地解算，动作按时间片执行，READY 只做上一动作重叠校验。
 
 ## 已有基线与当前主线
 
-已具备四板 TDMA/DPLL、TIMER1 映射、诊断输出和示波器联合观测基线；这些不证明预约部署、fence 或 T2 actual 已实现。用户确认借鉴 node-sequence 的单节点多槽能力，当前顺序是：**先多板实际槽位部署，再开发 T2 预约触发。**
+已具备四板 deployment、COUNTER、SWITCH、GATEWAY 动态加载切片、STOP 网格规划、共享动作表安装和示波器细分诊断。这些不证明 TDMA RUN 中的 1 kHz cursor、位置描述符、从板解算或实际 T2 完成。
 
-参考分支有槽位/角色校验、序列运行以及预约配置/时钟/规划模块；跨板预约运输、fence、硬件 deadline 和 completion 仍需本分支实现验收。来源 commit、实际存在文件和单板证据范围见进度，不整分支合并治理、USB、OTA、GUI 或单板门禁。
+启动期资源主线是 deployment、PIO/SM/FIFO/GPIO、静态循环动作模板、grid/profile 一次性装载并读回；TDMA START 后只接收位置索引、标记本地时间片并执行。
 
 ## 里程碑
 
-首轮部署由用户确认（部署目标，非硬件事实源）：NO1=COUNTER、NO2=SP8T、NO3=VNA 网分网关、NO4=SP2T/HV。板卡身份可动态切换，不能把角色编译绑定在板号中；实际 UID、TDMA slot、输出和反馈引脚仍须现场读回及接线确认。
+首轮部署由用户确认（非硬件事实源）：NO1=COUNTER、NO2=SP8T、NO3=VNA 网分网关、NO4=SP2T/HV。板卡身份可动态切换，不能编译绑定板号。
 
-网关必须同时处理 TRIG 与 REDY；每个 T2 节点都有本地反馈配置、等待/超时/恢复和结果回传。REDY 的电平/边沿语义及其他角色的物理反馈能力待确认，不默认填成完成。
-
-OUT1 外部周期保持，周期内部按可配置细分格建立 T2 时间基准；各板共享 VDC anchor/周期/细分身份，T2 目标和反馈窗口引用绝对细分序号。内部细分不要求输出更多脉冲；细分数、最小支持间隔和量化界待实现验证，不把格间隔当物理精度。
-
-| 阶段 | 可交付结果 | 进入下一阶段的依据 |
+| 阶段 | 可交付结果 | 进入下一阶段依据 |
 |---|---|---|
-| M0 多板部署 | 逻辑槽位绑定真实板卡，各板仅执行本板角色，身份可切换，命令与回执跨板闭合 | 当前 build 的配置读回、路由、实际动作、角色互换和停止恢复通过 |
-| M1 本地预约 | 指定未来 VDC 目标可转换并提前装载，在本板硬件执行 | 身份/模型/lead/资源负测和物理输出证据通过 |
-| M2 多板预约 | PREPARE/READY/fence 驱动目标板按共同未来时刻执行 | 同预约多板输出和异常不误触发证据通过 |
-| M3 T2 结果闭合 | 输出或设备完成实际 latch 经绑定模型映射并回传 | 实际回读、completion、超时/失效和明确质量范围通过 |
+| M0 静态部署 | 四板 deployment、PIO/IO、模板和 profile 在 TDMA START 前读回一致 | 配置、资源、模板、安全电平和恢复通过 |
+| M1 1 kHz 时间片 | 每次 VDC 基准同步推进 pulse index/fine cursor | 四板 cursor、丢同步、epoch 换代和参考证据通过 |
+| M2 预测位置 | NO1 每次同步更新预测，阈值跨越广播一次位置索引 | count epoch、prediction version、描述符证据通过 |
+| M3 从板执行 | 从板解析索引、本地展开模板、按 cursor 执行动作 | 不依赖 host-at-deadline，四板不同 q 边沿顺序通过 |
+| M4 READY 校验 | READY 关联上一动作并检查时间重叠 | 早到/迟到/缺失/重复/重叠及恢复通过 |
+| M5 T2 闭环 | 实际动作、READY、转台位置和共同时间证据闭合 | position_id 级实际 latch/completion 和范围声明通过 |
 
 ## 分阶段任务
 
 | ID | 任务 | 状态 | 完成或退出门禁 |
 |---|---|---|---|
-| T2-DOC-001 | 建立三件套与导航 | DONE | 分离设计/任务/事实；总索引、独立复核和文档门禁通过，见 T2-PROGRESS-20260922-001；不表示 T2 功能完成 |
-| T2-DEPLOY-001 | 确认活动槽位与多板映射 | DONE | 用户确认当前映射：NO1 COUNTER/IN1；NO2 SWITCH_A/SP8T/OUT1–3；NO3 GATEWAY/VNA OUT4+READY IN1；NO4 SWITCH_B/SP2T/HV OUT1。NO2/NO4 抽象为同一 SWITCH 类型，设备差异由 mask/profile 表达；READY 极性仍待设备协议确认，见 T2-PROGRESS-20260922-006 |
-| T2-DEPLOY-002 | 迁入最小部署模型及配置事务 | DONE | 完整表 canonical CRC、STOP STAGE/读回/ACTIVATE、UID/TDMA slot/IO/反馈路由及代际高水位已实现；四板原映射、两 SWITCH 身份交换、恢复及错误CRC/错目标/旧代负测通过，见 T2-PROGRESS-20260922-006。active 仅为路由映射，不授予 IO claim/ARM |
-| T2-DEPLOY-003 | 多板槽位业务闭环 | IN PROGRESS | 已接入普通 RefMem mailbox 的诊断 RAM SET_VALUE 请求与具身份回执，正在验证当前源码四板运输及两 SWITCH 角色互换，证据见 T2-PROGRESS-20260923-002；物理角色动作、设备反馈与重启隔离仍待验收，本地回环/注入 ACK 不能替代跨板证据 |
-| T2-SLOT-COUNTER-001 | 脉冲计数槽位与跨板动态加载 | DONE | COUNTER/IN1 的 PIO0 热加载在四板轮换通过，NO1 及移接信号后的 NO2 真实计数/频率通过；停止冻结、清零代际、START 保累计、错角色、部署占用与卸载恢复完成，当前源码 quick P3 与证据见 T2-PROGRESS-20260923-003。仅关闭 STOP 维护计数片，不等于任意其他槽位、边沿 latch 或预约格执行完成 |
-| T2-SLOT-GATEWAY-001 | VNA 网关槽位 | IN PROGRESS | 已进入动态加载切片，IO 可独立选择；加载/释放、本地预约格计数驱动、输出与同预约 READY 分别验收，动态加载不替代后续执行闭环 |
-| T2-SLOT-IO-001 | 网关动态加载与任意 IO 选择 | DONE | 四板网关换装、NO3 全部 IN/OUT 组合、NO1 COUNTER 任意 IN 的实际 PIO 路由/租约读回与新 build 1 kHz 复测通过，当前源码 quick P3、SM/FIFO/grant 与资源卸载证据见 T2-PROGRESS-20260923-004。只关闭 STOP 加载切片，没有网关 FIRE/ARM；READY 执行与预约格资格仍待后续 |
-| T2-SLOT-LINK-001 | 链路控制槽位 | IN PROGRESS | SWITCH_A/B 本地编码与动态部署切片已验收，见 T2-SLOT-SWITCH-001；各自预约格执行和物理反馈仍待后续，不编译绑定板号 |
-| T2-SLOT-SWITCH-001 | SWITCH 本地编码与动态部署 | DONE | SWITCH_A 四板与 SWITCH_B NO4/NO2 迁移、NO2 全部非零 OUT mask/合法编码实测通过；STAGE 无输出、APPLY 全组 PIO 回显/实际 GPIO 码、未选 OUT 离散保持、负测/取消/卸载清理和当前源码 quick P3 完成，见 T2-PROGRESS-20260923-005。仅关闭 STOP 维护片，不等于预约 q、连续瞬态或外部 settle/READY |
-| T2-DEPLOY-004 | 同固件动态身份切换 | PENDING | 在板卡间交换角色并恢复；停止新预约、处理在飞动作、输出/反馈捕获退休、旧资源释放、新配置读回及部署代发布可追溯；旧 READY/REDY/completion 不授权新角色；切换失败不留下部分活动部署 |
-| T2-CLOCK-PROBE-001 | OUT1 有限细分脉冲间隔实测 | DONE | STOP 下宽标记和可配置窄脉冲完成四板指定档位实测；请求/模型/编码/示波器 RAW、完整边沿、间隔/累计误差、恢复、host/Release/P3 闭合，见 T2-PROGRESS-20260922-003。仅关闭有限局部间隔实验，共同 anchor、持续同步 RUN 和 T2-CLOCK-001 仍未完成 |
-| T2-CLOCK-PROBE-002 | 两标记之间铺满细分与尾格留空 | DONE | 四板指定档位的完整边沿、两端标记、尾格留空、双格间隔/低电平余量及配置恢复实测通过；host/Release/当前源码 quick P3 证据见 T2-PROGRESS-20260922-004，原严格质量告警保留；不授权 live RUN 或共同 anchor |
-| T2-CLOCK-GRID-001 | 共享时间格暂存与四板无输出规划 | DONE | 四板同配置/三个指定 q 返回同一 VDC 目标及各自可复算的 TIMER1 deadline；每板七类负测、CLEAR/代际上界、会话与负载恢复、相关 host/Release/当前源码 quick P3 通过，原严格失败保留，见 T2-PROGRESS-20260922-005；不 ARM、不证明共同参考身份认证 |
-| T2-CLOCK-001 | OUT1 内部细分网格与预约 deadline | IN PROGRESS | 数学/STOP 配置先按 T2-CLOCK-GRID-001 验证，活动部署与运行接入仍依赖 M0；绑定共同 anchor/周期/细分数/grid generation，以绝对格序号生成 VDC 目标并适配当前 VDC/TIMER1；整数/有理数计算不累积截断漂移，周期进位、非整除、量化、相邻格可区分、溢出/horizon/late 和网格/模型换代均验证。OUT1 不升频，诊断与正式准入分开 |
-| T2-EXEC-001 | 本地硬件预约最小切片 | PENDING | 依赖 T2-CLOCK-001；沿 TriggerAO 消费意图，SYNC_IO 租约及冻结 deadline、一次输出、late 拒绝、STOP/取消事实通过；示波器验证实际输出，不能用 CPU 时间冒充 latch |
-| T2-TRANSPORT-001 | 部署感知的 PREPARE/READY/fence | PENDING | M0 后；复用已测运输，确定 wire/完整性/去重/目标聚合/期限预算；旧代、错目标、缺 READY、迟到 fence 不 ARM；需新增席位时先完成 EXE-SEAT-01 审核，再冻结/登记相应跨域契约 |
-| T2-MULTIBOARD-001 | 多板未来时刻输出 | PENDING | 依赖 T2-EXEC-001、T2-TRANSPORT-001、T2-FEEDBACK-001；同业务采样各角色目标时刻/偏移及各自 settle 明确，两开关切换/必要反馈/稳定后才发 VNA TRIG；反馈时刻不可预测时分阶段预约，未稳定/超时/迟到不触发。保留所有必需槽位的准备/装载/实际输出，host 不逐板发即时触发；缺节点和分区如实报告 |
-| T2-FEEDBACK-001 | 每节点反馈与 VNA TRIG/REDY | PENDING | 在 T2-EXEC-001 接入时同步实现：各节点独立 feedback profile/状态，TRIG 和反馈分字段，前置许可/后置完成按协议配置；反馈窗口引用内部细分格，实际时间不吸附到格，跨格/跨窗不确定区间报告歧义。常高/常低、早到/迟到/重复/缺失、超时恢复、网格/角色换代隔离均验证；无物理反馈只保留相应证据等级 |
-| T2-COMPLETE-001 | 实际 T2 latch 与完成回传 | PENDING | 依赖 T2-FEEDBACK-001；明确每角色 T2 选定边沿，保留 TRIG 与实际反馈的硬件来源、事件/模型身份、不确定度及 timeout；单线无标签反馈须有一次在飞与基线恢复策略；全部必需节点结果可追溯，缺失不填计划值 |
-| T2-ACCEPT-001 | 当前切片验收与交付 | PENDING | 按固定本批范围完成相关 host/Release/TDMA 短帧/P3 与 T2 专项；UID/build/配置/原件/恢复可复算，独立审核，代码文档分离提交；只关闭实测配置，不宣布全部角色/长期/产品资格完成 |
+| T2-DOC-001 | 三件套重构与语义导航 | IN PROGRESS | 三件套与审核版语义一致，历史证据未改写，文档门禁通过 |
+| T2-DEPLOY-001 | 活动槽位与多板映射 | DONE | NO1 COUNTER、NO2 SWITCH_A、NO3 GATEWAY、NO4 SWITCH_B 已确认；UID/slot/IO 仍须现场读回 |
+| T2-DEPLOY-002 | 启动前静态部署事务 | IN PROGRESS | deployment、PIO/SM/FIFO/GPIO、模板/profile 在 TDMA START 前统一装载、CRC/generation 读回；RUN 中禁止热加载 |
+| T2-DEPLOY-003 | 多板槽位业务闭环 | IN PROGRESS | 四板真实运输和角色互换闭合；诊断 ACK 不冒充位置描述符或实际动作证据 |
+| T2-SLOT-COUNTER-001 | COUNTER 输入计数 | DONE | 四板 PIO0 计数、任意 IN、停止/清零/卸载和身份恢复通过；不等于位置预测或边沿 latch |
+| T2-SLOT-GATEWAY-001 | GATEWAY 常驻 TRIG/READY 槽位 | IN PROGRESS | 模板启动前装载，TRIG/READY 同代读回，RUN 按本地时间片执行 |
+| T2-SLOT-SWITCH-001 | SWITCH 常驻模板输出 | DONE | 本地编码和身份部署通过；维护 APPLY 不等于 T2 时间片动作 |
+| T2-ACTION-TEMPLATE-001 | 静态循环动作模板 | PENDING | 模板字段、循环跨度、role/IO、offset、settle/window、CRC 和启动期读回通过 |
+| T2-CLOCK-PROBE-001 | 细分脉冲能力验证 | DONE | 细分边沿、尾格空白、示波器 RAW 和恢复通过；不授予 live cursor |
+| T2-CLOCK-001 | 1 kHz VDC 时间片 cursor | IN PROGRESS | 每个基准同步推进 pulse index/fine cursor；细分物理输出与 cursor 分离；epoch/丢同步/回绕通过 |
+| T2-TURNTABLE-001 | NO1 计数 epoch 和位置观测 | PENDING | 任意 IN、起始/零位/终止位置预测、预运行区与终止校验区、脉冲/位置配置、预测目标计数、方向/回绕和采样区间通过；当前 5°/5° 是调试快照，非产品额定值 |
+| T2-TURNTABLE-002 | 每次同步预测与阈值提示 | PENDING | 每次 VDC 更新刷新预测；阈值外部配置、滞回和一次跨越提示通过；不触发热加载 |
+| T2-TURNTABLE-003 | coarse/fine 位置描述符 | PENDING | NO1 发布位置索引和身份元数据；从板拒绝旧代、错目标和过期描述符 |
+| T2-TRANSPORT-001 | 位置描述符 TDMA 运输 | PENDING | 来源、CRC、去重、乱序、期限和优先级预算通过；不使用诊断 ACK 代替 |
+| T2-TURNTABLE-004 | 从板本地位置解算 | PENDING | 各板用自己的 VDC model/grid 将索引解算为时间片，不接收主站 deadline；零位和终止位置必须生成确定的 target count、position ID 和时间片 |
+| T2-EXEC-001 | 本地 cursor 时间片执行 | PENDING | 位置实例展开、各动作独立执行、不同 q 顺序、PIO 回执和示波器边沿通过 |
+| T2-OFFSET-001 | SWITCH/GATEWAY/READY offset | PENDING | offset/window 可配置、读回、代际绑定；调试默认值不作为产品事实 |
+| T2-READY-001 | READY 上一级重叠校验 | PENDING | READY 按 position/instance 关联上一动作，早到/迟到/缺失/重复/重叠通过；不作当前许可 |
+| T2-TURNTABLE-005 | 阈值提示后的跨板位置确认 | PENDING | 目标板确认同一 position/version/grid/deployment 并建立本地实例；不形成 PREPARE/fence 执行门 |
+| T2-TURNTABLE-006 | 多板本地动作顺序 | PENDING | 各板按不同 q/offset 自主执行，host 不逐板发即时命令，输出与 READY 分字段保存 |
+| T2-TURNTABLE-007 | 预测更新、异常与恢复 | PENDING | 每次同步更新、阈值重复/跳过、速度变化、停止、回绕、方向、旧版本、分区和换代有明确事实 |
+| T2-TURNTABLE-008 | 计数、同步和动作共存 | PENDING | TDMA RUN 中 COUNTER/VDC/template/executor 共存，不 STOP/START 打断或重置位置 |
+| T2-TURNTABLE-009 | 起始/零位/终止预测与边界校验 | PENDING | 起始角度、零位和终止角度均生成 position_id、预测目标计数和时间片；预运行区建立起始预测，终止后校验区验证终止预测和实际边沿，不新增或重排已执行动作 |
+| T2-COMPLETE-001 | 实际动作/READY 证据闭合 | PENDING | 实际边沿、READY、模型和 position_id 绑定；缺 latch 只报告未确定 |
+| T2-ACCEPT-001 | 当前切片交付 | PENDING | host/Release/P3/TDMA 短帧/示波器/恢复证据闭合，不宣布产品资格 |
 
-T2-COMPLETE-001 的接口需求在本地执行设计时同步考虑，避免后补身份；实际硬件 latch 尚未就绪时，可验收输出切片，但必须保留“实际回读未完成”。
+## 实施顺序与停止条件
 
-## 当前待定项与依赖
+先完成 M0/M1，再完成 NO1 位置观测、每次同步预测和位置描述符运输；随后接入从板解算、模板展开和本地 cursor 执行。READY 重叠校验与异常恢复贯穿 M2–M5。细分脉冲实验不再作为运行时动作路径前置。
+
+达到一个真实 position_id 的四板位置广播、从板解算、不同 q 动作边沿和 READY 重叠结果后，停止无关矩阵，保留原始证据并进入独立复核。
+
+## 当前依赖
 
 | 项目 | 当前处置 | 阻塞范围 |
 |---|---|---|
-| 首轮板卡绑定与反馈接线 | 角色映射已确认，UID/物理环序/IO 须读回；动态切换是必验范围，REDY/其他反馈语义不能猜测 | 真实配置装载和硬件动作；不阻塞纯模型核对 |
-| 本地多槽到多板执行差异 | 参考角色 resolver 对 local_board_id 有限制，跨板需区分全局部署与本地执行授权 | T2-DEPLOY-002/003 |
-| 预约运输布局与 lead time | 尚未冻结，以当前 TDMA/RefMem 容量和实测延迟选择，不能沿用分支普通 LINK 作为完整预约 | T2-TRANSPORT-001/M2 |
-| 内部细分配置 | 共同原点/周期/细分数与最大 horizon 的 STOP 暂存及无输出规划正在实现；共同参考身份认证、活动部署、RUN接入仍待完成，不把实验 epoch 标签当资格 | T2-CLOCK-001，不阻塞 M0 部署 |
-| 正式 VDC/校准资格 | 按 VDC-CAL-001、VDC-EVID-001、VDC-RUN-001 现状保留；不把 quick P3 视为正式资格 | 正式预约放行，不阻塞明示诊断切片 |
-| 实际 T2 输入及测量能力 | 确认设备/输出边沿类型与接线、现有捕获资源、身份和有效性 | T2-COMPLETE-001；不把新通用 GPIO 观测器自动变成 M0 前置 |
-
-## 投入与停止条件
-
-T2-DEPLOY-001/002 已完成映射与配置事务；下一项是 T2-DEPLOY-003 的真实跨板运输和本地动作，随后才由预约执行消费已有 grid/deployment 计划。不继续扩展只读 preview、细分极限或 DPLL 工具。每片只围绕一个真实业务结果；通过后停止重复确认。异常从本地配置/路由/动作最近边界回溯，只有证据指向线序才调用 P0T。强制验收继续遵守仓库规则，允许复用的有效前置不重复制造。
-
-GUI、自动分配、无停顿热迁移、长期压力及 RF 通路列为后续扩展；已要求的受控动态身份切换和每节点反馈属于本主线，不因简化首轮而省略。
+| 静态启动装载 | 现有槽位可在 STOP 下动态加载，统一启动事务未实现 | M0/M1 |
+| 1 kHz cursor | VDC model 和细分诊断存在，动作 cursor 订阅未实现 | M1/M3 |
+| 位置描述符 | wire 和 TDMA owner 未实现 | M2/M3 |
+| 从板解算 | 需要本地 model/grid 绑定和索引映射 | M3 |
+| READY 重叠 | GATEWAY READY 仍是 raw level | M4 |
+| 实际 latch | 需要硬件时间戳和 position_id 绑定 | M5 |
 
 ## 统一完成定义
 
-T2 主线只有在所选实际多板部署上完成“未来目标→真实运输→同代 READY/fence→硬件执行→各节点反馈处理/实际 T2→完成回传”，并证明身份切换、异常结果和恢复事实后才整体完成。配置可读、ACK、DMA 完成、示波器单窗以及原型仿真分别只能证明自己的范围。
+```text
+TDMA START 前静态装载
+→ 1 kHz VDC cursor
+→ NO1 每次同步预测
+→ 阈值位置提示
+→ TDMA 位置索引运输
+→ 从板本地解算和时间片标记
+→ 各动作按自己的时间片执行
+→ READY 对上一动作做重叠校验
+→ position_id 级实际证据和恢复闭合
+```
+
+配置读回、动作表 CRC、PIO receipt、READY 电平、单窗示波器或模型仿真只能证明各自范围，不能单独关闭完整 T2。
