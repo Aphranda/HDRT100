@@ -85,9 +85,13 @@ SCK_ARM_HEADERS = {
 # Share their shape with callers selecting the response (rather than ACK)
 # deadline so a valid result cannot be discarded as an ordinary write reply.
 TDMA_CONTROL_RESULT_FIELDS = {
+    "CAL:P3:STAR": 6, "CAL:P3:START": 6,
+    "CALIBRATION:P3:STAR": 6, "CALIBRATION:P3:START": 6,
     "SYST:TDMA:OPMODE:STAGE": 6, "SYSTEM:TDMA:OPMODE:STAGE": 6,
     "SYST:TDMA:OPMODE:APPLY": 6, "SYSTEM:TDMA:OPMODE:APPLY": 6,
     "CAL:TOP:PROB": 2, "CALIBRATION:TOPOLOGY:PROBE": 2,
+    "CAL:MARK:LOOP:STAR": 4, "CAL:MARK:LOOP:START": 4,
+    "CALIBRATION:MARKER:LOOP:START": 4,
 }
 QUEUED_OWNER_RESULT_FIELDS = {
     "SYST:TDMA:RING:TOP": 4, "SYSTEM:TDMA:RING:TOP": 4,
@@ -102,12 +106,37 @@ QUEUED_OWNER_RESULT_FIELDS = {
     "SYST:SYNC:VDC:DPLL:PROV": 2,
     "SYSTEM:SYNC:VDC:DPLL:PROVISIONAL": 2,
 }
+SCK_LOOP_START_HEADERS = {
+    "CAL:SCK:LOOP:STAR", "CAL:SCK:LOOP:START",
+    "CALIBRATION:SCK:LOOP:START", "CALIBRATION:SCK:LOOPBACK:START",
+}
+SCK_RXPHASE_START_HEADERS = {
+    f"{root}:SCK:{phase}:{start}"
+    for root in ("CAL", "CALIBRATION")
+    for phase in ("RXPH", "RXPHASE")
+    for start in ("STAR", "START")
+}
+MARK_RXPHASE_START_HEADERS = {
+    f"{root}:{signal}:{phase}:{start}"
+    for root in ("CAL", "CALIBRATION")
+    for signal in ("MARK", "MARKER")
+    for phase in ("RXPH", "RXPHASE")
+    for start in ("STAR", "START")
+}
+DATA_LOOP_START_HEADERS = {
+    f"{root}:DATA:{loop}:{start}"
+    for root in ("CAL", "CALIBRATION")
+    for loop in ("LOOP", "LOOPBACK")
+    for start in ("STAR", "START")
+}
 OWNER_STATUS_QUERY_HEADERS = {
     "SYST:SYNC:VDC:DPLL:OWN?",
     "SYSTEM:SYNC:VDC:DPLL:OWNER?",
 }
 STRUCTURED_WRITE_HEADERS = (
-    set(TDMA_CONTROL_RESULT_FIELDS) | set(QUEUED_OWNER_RESULT_FIELDS))
+    set(TDMA_CONTROL_RESULT_FIELDS) | set(QUEUED_OWNER_RESULT_FIELDS) |
+    SCK_LOOP_START_HEADERS | SCK_RXPHASE_START_HEADERS | MARK_RXPHASE_START_HEADERS |
+    DATA_LOOP_START_HEADERS)
 
 SERIAL_LIFECYCLE_COMMAND = "command"
 SERIAL_LIFECYCLE_PHASE = "phase"
@@ -324,6 +353,12 @@ def scpi_response_matches_command(command: str, line: str) -> bool:
         return _csv_uints_match(text, 8)
     if header in TDMA_CONTROL_RESULT_FIELDS:
         return _csv_uints_match(text, TDMA_CONTROL_RESULT_FIELDS[header])
+    if header in SCK_LOOP_START_HEADERS:
+        return re.fullmatch(r"\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*-?\d+\s*,\s*\d+\s*", text) is not None
+    if header in SCK_RXPHASE_START_HEADERS | MARK_RXPHASE_START_HEADERS:
+        return re.fullmatch(r"\s*\d+\s*(?:,\s*\d+\s*){3},\s*-?\d+\s*(?:,\s*\d+\s*){2}", text) is not None
+    if header in DATA_LOOP_START_HEADERS:
+        return re.fullmatch(r"\s*\d+\s*(?:,\s*\d+\s*){2}(?:,\s*-?\d+\s*){2}(?:,\s*\d+\s*){2}", text) is not None
     if header in QUEUED_OWNER_RESULT_FIELDS:
         return _queued_uints_match(text, QUEUED_OWNER_RESULT_FIELDS[header])
     if header in OWNER_STATUS_QUERY_HEADERS:

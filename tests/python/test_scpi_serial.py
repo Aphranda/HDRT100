@@ -3,6 +3,66 @@ import pytest
 from tools.scpi_common import scpi_serial
 
 
+@pytest.mark.parametrize("header", sorted(scpi_serial.SCK_LOOP_START_HEADERS))
+def test_sck_loop_signed_start_echo(header):
+    command = header + " 1,7,2048,-10,0"
+    assert header in scpi_serial.STRUCTURED_WRITE_HEADERS
+    assert scpi_serial.scpi_response_matches_command(command, "1,7,2048,-10,0")
+    for invalid in ("1,7,2048,-10", "1,7,2048,-10,0,1", "1,7,-2048,0,0"):
+        assert not scpi_serial.scpi_response_matches_command(command, invalid)
+
+
+@pytest.mark.parametrize("header", sorted(scpi_serial.SCK_RXPHASE_START_HEADERS |
+                                          scpi_serial.MARK_RXPHASE_START_HEADERS))
+def test_rxphase_start_preserves_signed_seven_field_echo(monkeypatch, header):
+    command = header + " 1,7,256,26,-1,0,0"
+    echo = "1,7,256,26,-1,0,0"
+    assert header in scpi_serial.STRUCTURED_WRITE_HEADERS
+    assert scpi_serial.scpi_response_matches_command(command, echo)
+    for invalid in ("1,7,256,26,-1,0", echo + ",0", "1,7,256,-26,-1,0,0"):
+        assert not scpi_serial.scpi_response_matches_command(command, invalid)
+    replies = iter(("OK", echo))
+    monkeypatch.setattr(scpi_serial, "read_serial_line_idle", lambda *_: next(replies))
+    assert scpi_serial.read_scpi_response(None, command, 1., require_match=True) == echo
+
+
+@pytest.mark.parametrize("header", sorted(scpi_serial.DATA_LOOP_START_HEADERS))
+def test_data_loop_start_binds_both_signed_offsets(monkeypatch, header):
+    echo = "1,7,26,-1,-2,1000,0"
+    command = header + " " + echo
+    assert header in scpi_serial.STRUCTURED_WRITE_HEADERS
+    assert scpi_serial.scpi_response_matches_command(command, echo)
+    for invalid in ("OK", "1,7,26,-1,-2,1000", echo + ",0", "1,7,-26,-1,-2,1000,0",
+                    "1,7,26,-1,-2,-1000,0"):
+        assert not scpi_serial.scpi_response_matches_command(command, invalid)
+    responses = iter(("OK", echo))
+    monkeypatch.setattr(scpi_serial, "read_serial_line_idle", lambda *_: next(responses))
+    assert scpi_serial.read_scpi_response(None, command, 1., require_match=True) == echo
+
+
+def test_p3_start_requires_complete_six_field_ack(monkeypatch):
+    command = "CAL:P3:START 3,10000000,32,256,11,0"
+    echo = "3,10000000,32,256,11,0"
+    assert "CAL:P3:START" in scpi_serial.STRUCTURED_WRITE_HEADERS
+    assert not scpi_serial.scpi_response_matches_command(command, "ERROR")
+    replies = iter(("OK", echo))
+    monkeypatch.setattr(scpi_serial, "read_serial_line_idle", lambda *_: next(replies))
+    assert scpi_serial.read_scpi_response(None, command, 1., require_match=True) == echo
+
+
+@pytest.mark.parametrize("header", ["CAL:MARK:LOOP:STAR", "CAL:MARK:LOOP:START",
+                                   "CALibration:MARKer:LOOP:STARt"])
+def test_marker_loop_start_preserves_numeric_echo(monkeypatch, header):
+    command = header + " 1,61,256,0"
+    assert header.upper() in scpi_serial.STRUCTURED_WRITE_HEADERS
+    assert scpi_serial.scpi_response_matches_command(command, "1,61,256,0")
+    assert not scpi_serial.scpi_response_matches_command(command, "1")
+    assert not scpi_serial.scpi_response_matches_command(command, "1,61,256")
+    replies = iter(("OK", "1,61,256,0"))
+    monkeypatch.setattr(scpi_serial, "read_serial_line_idle", lambda *_args: next(replies))
+    assert scpi_serial.read_scpi_response(None, command, 1.0, require_match=True) == "1,61,256,0"
+
+
 def test_open_serial_port_ignores_disconnect_during_cleanup(monkeypatch):
     class DisconnectedSerial:
         def __init__(self, *args, **kwargs):
