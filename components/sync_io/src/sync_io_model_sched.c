@@ -61,19 +61,21 @@ typedef enum {
     SYNC_IO_SCHEDULE_RUN_RESERVED,
     SYNC_IO_SCHEDULE_COUNTER_RESERVED,
     SYNC_IO_SCHEDULE_GATEWAY_RESERVED,
+    SYNC_IO_SCHEDULE_SWITCH_RESERVED,
 } sync_io_schedule_phase_t;
 static uint32_t s_schedule_phase;
 static uintptr_t s_run_output_token;
 static uintptr_t s_reference_token;
 static uintptr_t s_counter_token;
 static uintptr_t s_gateway_token;
+static uintptr_t s_switch_token;
 static bool s_fixed_rate_cancel_requested;
 
 static bool sync_io_schedule_reserve(uint32_t expected, uint32_t desired)
 {
     const bool excludes_reference=expected==SYNC_IO_SCHEDULE_IDLE &&
         desired!=SYNC_IO_SCHEDULE_RUN_RESERVED && desired!=SYNC_IO_SCHEDULE_COUNTER_RESERVED &&
-        desired!=SYNC_IO_SCHEDULE_GATEWAY_RESERVED;
+        desired!=SYNC_IO_SCHEDULE_GATEWAY_RESERVED && desired!=SYNC_IO_SCHEDULE_SWITCH_RESERVED;
     if(excludes_reference && __atomic_load_n(&s_reference_token,__ATOMIC_ACQUIRE))
         return false;
     if(!__atomic_compare_exchange_n(&s_schedule_phase,&expected,desired,
@@ -477,7 +479,8 @@ bool sync_io_core_reference_reserve(const void *token)
             false,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)) return false;
     const uint32_t phase=__atomic_load_n(&s_schedule_phase,__ATOMIC_ACQUIRE);
     if ((phase!=SYNC_IO_SCHEDULE_IDLE && phase!=SYNC_IO_SCHEDULE_RUN_RESERVED &&
-         phase!=SYNC_IO_SCHEDULE_COUNTER_RESERVED && phase!=SYNC_IO_SCHEDULE_GATEWAY_RESERVED) ||
+         phase!=SYNC_IO_SCHEDULE_COUNTER_RESERVED && phase!=SYNC_IO_SCHEDULE_GATEWAY_RESERVED &&
+         phase!=SYNC_IO_SCHEDULE_SWITCH_RESERVED) ||
         s_model_pulse.running || s_wave_output_manager_active ||
         sync_io_core_capture_is_running() || sync_io_seq_step_is_running() ||
         sync_io_enc_count_is_running() || sync_io_core_sma_frequency_output_active()) {
@@ -537,6 +540,29 @@ bool sync_io_core_gateway_release(const void *token)
         __atomic_load_n(&s_schedule_phase,__ATOMIC_ACQUIRE)!=SYNC_IO_SCHEDULE_GATEWAY_RESERVED ||
         __atomic_load_n(&s_gateway_token,__ATOMIC_ACQUIRE)!=(uintptr_t)token) return false;
     __atomic_store_n(&s_gateway_token,0u,__ATOMIC_RELEASE);
+    sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);return true;
+}
+
+bool sync_io_core_switch_reserve(const void *token)
+{
+    if (get_core_num()!=0u || !token ||
+        !sync_io_schedule_reserve(SYNC_IO_SCHEDULE_IDLE,SYNC_IO_SCHEDULE_SWITCH_RESERVED))
+        return false;
+    if (!sync_io_core_initialized() || s_model_pulse.running ||
+        s_wave_output_manager_active || s_wave_output_sm_claimed ||
+        s_wave_output_dma_claimed || s_wave_output_program_loaded ||
+        sync_io_core_capture_is_running() || sync_io_seq_step_is_running() ||
+        sync_io_enc_count_is_running() || sync_io_core_sma_frequency_output_active()) {
+        sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);return false;
+    }
+    __atomic_store_n(&s_switch_token,(uintptr_t)token,__ATOMIC_RELEASE);return true;
+}
+bool sync_io_core_switch_release(const void *token)
+{
+    if (get_core_num()!=0u || !token ||
+        __atomic_load_n(&s_schedule_phase,__ATOMIC_ACQUIRE)!=SYNC_IO_SCHEDULE_SWITCH_RESERVED ||
+        __atomic_load_n(&s_switch_token,__ATOMIC_ACQUIRE)!=(uintptr_t)token) return false;
+    __atomic_store_n(&s_switch_token,0u,__ATOMIC_RELEASE);
     sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);return true;
 }
 

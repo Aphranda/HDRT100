@@ -392,9 +392,11 @@ bool sync_io_persona_manager_claim_io(sync_io_persona_manager_t *manager,
     const bool output_valid=gpio_write_mask && !(gpio_write_mask&(gpio_write_mask-1u)) &&
         !(gpio_write_mask&~outputs);
     const sync_io_persona_descriptor_t *base=sync_io_persona_descriptor(id);
-    if(!base || !input_valid ||
-        (id==SYNC_IO_PERSONA_ID_PULSE_COUNTER ? gpio_write_mask!=0u :
-         id==SYNC_IO_PERSONA_ID_GATEWAY ? !output_valid : true)) {
+    const bool switch_valid=id==SYNC_IO_PERSONA_ID_SWITCH && !gpio_read_mask &&
+        gpio_write_mask && !(gpio_write_mask&~outputs);
+    if(!base || !(switch_valid || (input_valid &&
+        (id==SYNC_IO_PERSONA_ID_PULSE_COUNTER ? gpio_write_mask==0u :
+         id==SYNC_IO_PERSONA_ID_GATEWAY ? output_valid : false)))) {
         sync_io_persona_manager_clear_handle(handle);
         if(manager) sync_io_persona_manager_set_error(manager,
             SYNC_IO_PERSONA_MANAGER_ERROR_INVALID_DESCRIPTOR,SYNC_IO_PERSONA_CONFLICT_INVALID_DESCRIPTOR);

@@ -1,0 +1,10 @@
+; One finite local code transaction. OUT_BASE/OUT_COUNT select ONE contiguous
+; group; MOV must never be configured across unselected output pads.
+; Both group SMs share this program and start in sync from a preloaded FIFO.
+.program sync_switch
+.wrap_target
+    pull block
+    mov pins, osr
+    mov isr, osr
+    push block
+.wrap

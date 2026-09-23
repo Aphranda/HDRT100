@@ -85,6 +85,8 @@ bool sync_io_core_pulse_counter_reserve(const void *token);
 bool sync_io_core_pulse_counter_release(const void *token);
 bool sync_io_core_gateway_reserve(const void *token);
 bool sync_io_core_gateway_release(const void *token);
+bool sync_io_core_switch_reserve(const void *token);
+bool sync_io_core_switch_release(const void *token);
 /* Legacy gate only: services completed legacy schedule just as is_running. */
 bool sync_io_core_model_output_active(void);
 bool sync_io_core_sma_frequency_output_active(void);

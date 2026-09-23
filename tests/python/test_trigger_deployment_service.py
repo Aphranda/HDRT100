@@ -35,6 +35,7 @@ def owner(tmp_path_factory):
     'swap_0', 'swap_1', 'swap_2', 'swap_3', 'switch_configs',
     'counter_activate', 'counter_clear',
     'gateway_activate', 'gateway_clear',
+    'switch_activate', 'switch_clear',
 ])
 def test_owner(owner, case):
     result = subprocess.run([str(owner), case], capture_output=True, text=True, timeout=5)
@@ -55,6 +56,8 @@ static bool counter_loaded;
 bool trigger_counter_is_loaded(void) {return counter_loaded;}
 static bool gateway_loaded;
 bool trigger_gateway_is_loaded(void) {return gateway_loaded;}
+static bool switch_loaded;
+bool trigger_switch_is_loaded(void) {return switch_loaded;}
 static uint32_t trigger_state;
 static const char *serial="0000000000000001", *race="";
 static tdma_ring_clock_snapshot_t ring={.config_seq=3,.applied_config_seq=3};
@@ -154,19 +157,21 @@ int main(int argc,char **argv)
         assert(!snapshot().active.valid && snapshot().staged_valid);return 0;
     }
     if(!strcmp(kind,"stage_then_new_runtime")){++ring.config_seq;++ring.applied_config_seq;}
-    if(!strcmp(kind,"counter_activate") || !strcmp(kind,"gateway_activate")) {
-        counter_loaded=!strcmp(kind,"counter_activate");gateway_loaded=!counter_loaded;
+    if(!strcmp(kind,"counter_activate") || !strcmp(kind,"gateway_activate") || !strcmp(kind,"switch_activate")) {
+        counter_loaded=!strcmp(kind,"counter_activate");gateway_loaded=!strcmp(kind,"gateway_activate");
+        switch_loaded=!strcmp(kind,"switch_activate");
         assert(trigger_deployment_activate(10,crc)==TRIGGER_DEPLOYMENT_SERVICE_BUSY);
         assert(!snapshot().active.valid && snapshot().staged_valid);
-        counter_loaded=gateway_loaded=false;assert(!trigger_deployment_activate(10,crc));return 0;
+        counter_loaded=gateway_loaded=switch_loaded=false;assert(!trigger_deployment_activate(10,crc));return 0;
     }
     assert(!trigger_deployment_activate(10,crc));s=snapshot();
     assert(s.active.valid && !s.staged_valid && s.active.crc==crc && s.active.local_role==0);
-    if(!strcmp(kind,"counter_clear") || !strcmp(kind,"gateway_clear")) {
-        counter_loaded=!strcmp(kind,"counter_clear");gateway_loaded=!counter_loaded;
+    if(!strcmp(kind,"counter_clear") || !strcmp(kind,"gateway_clear") || !strcmp(kind,"switch_clear")) {
+        counter_loaded=!strcmp(kind,"counter_clear");gateway_loaded=!strcmp(kind,"gateway_clear");
+        switch_loaded=!strcmp(kind,"switch_clear");
         assert(trigger_deployment_clear()==TRIGGER_DEPLOYMENT_SERVICE_BUSY);
         assert(snapshot().active.valid && snapshot().active.crc==crc);
-        counter_loaded=gateway_loaded=false;assert(!trigger_deployment_clear());return 0;
+        counter_loaded=gateway_loaded=switch_loaded=false;assert(!trigger_deployment_clear());return 0;
     }
     if(!strcmp(kind,"stage_then_new_runtime")){
         assert(s.active.ring_config==4);return 0;

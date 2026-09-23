@@ -158,6 +158,12 @@ scpi_result_t scpi_cmd_trigger_gateway_load(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_gateway_stop(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_gateway_unload(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_gateway_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_switch_load(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_switch_stage(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_switch_apply(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_switch_stop(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_switch_unload(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_switch_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
@@ -403,6 +409,12 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:REServation:GATEway:STOP", .callback = scpi_cmd_trigger_gateway_stop}, \
     {.pattern = "TRIGger:REServation:GATEway:UNLoad", .callback = scpi_cmd_trigger_gateway_unload}, \
     {.pattern = "TRIGger:REServation:GATEway?", .callback = scpi_cmd_trigger_gateway_q}, \
+    {.pattern = "TRIGger:REServation:SWITch:LOAD", .callback = scpi_cmd_trigger_switch_load}, \
+    {.pattern = "TRIGger:REServation:SWITch:STAGe", .callback = scpi_cmd_trigger_switch_stage}, \
+    {.pattern = "TRIGger:REServation:SWITch:APPLy", .callback = scpi_cmd_trigger_switch_apply}, \
+    {.pattern = "TRIGger:REServation:SWITch:STOP", .callback = scpi_cmd_trigger_switch_stop}, \
+    {.pattern = "TRIGger:REServation:SWITch:UNLoad", .callback = scpi_cmd_trigger_switch_unload}, \
+    {.pattern = "TRIGger:REServation:SWITch?", .callback = scpi_cmd_trigger_switch_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BRIDge?", .callback = scpi_cmd_vdc_feedback_bridge_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MATCh?", .callback = scpi_cmd_vdc_feedback_match_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \

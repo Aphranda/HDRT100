@@ -129,7 +129,7 @@ bool sync_io_persona_manager_claim(
     sync_io_persona_id_t id,
     sync_io_persona_manager_handle_t *handle,
     sync_io_persona_compatibility_t *compatibility);
-/* Only COUNTER/GATEWAY may select one public input/output pad. Overrides
+/* COUNTER/GATEWAY select one public input/output; SWITCH an output subset. Overrides
  * cannot change SM/program/IRQ/DMA/workspace resources or capability flags. */
 bool sync_io_persona_manager_claim_io(sync_io_persona_manager_t *manager,
     sync_io_persona_id_t id,uint32_t gpio_read_mask,uint32_t gpio_write_mask,

@@ -304,6 +304,7 @@ def test_real_owner_stop_and_final_falling_edge(tmp_path):
     # This fixture extracts the fixed-output owner, not the separately tested counter owner.
     declarations = declarations.replace("static uintptr_t s_counter_token;", "")
     declarations = declarations.replace("static uintptr_t s_gateway_token;", "")
+    declarations = declarations.replace("static uintptr_t s_switch_token;", "")
     harness = r'''
 #include <assert.h>
 #include <string.h>
