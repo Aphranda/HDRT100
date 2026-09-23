@@ -12,6 +12,20 @@ Last updated: 2026-09-23
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260923-005：SWITCH 本地编码与动态部署
+
+- TODO task ID：T2-SLOT-LINK-001、T2-SLOT-SWITCH-001。用户要求继续 SWITCH 开发部署，随后要求先按指纹提交推送。已先完成 `87235913` 代码与 `ee3d24ed` 文档提交，实际推送 `origin/wip/tdma-real-flight-processing` 并核对远端 SHA；其后才开始本 SWITCH 切片。此前本地无关 skill/评审文件不纳入槽位交付。
+- 实现范围：活动 SWITCH_A/B 共用 owner，UID/role/slot/dep generation/CRC/output mask 在 LOAD、STAGE、APPLY 前复核；PIO0 按所选输出拆连续组，预装编码后同步启动，真实回显全组完成才发布 COMPLETE。STOP 取消不伪造完成，卸载恢复所选 GPIO/PIO 状态。当前 APPLY 只允许 STOP maintenance，用于本地输出验证，不是预约 q、fence 或外部开关稳定资格。
+- 证据纠偏：最初 backend harness 在 enable 时直接生成回执且编码循环提前退出，原先“全部合法编码和 PIO 已验证”的声明过大；其通过结果只证明受控桩下 C 状态推进。该缺口由独立 reviewer 指出，原日志保留，不据其放行硬件。后继要求解释真实 pioasm 指令、遍历全组合并核对实际选中码、未选 GPIO 与恢复。
+- 软件状态：owner 与实际 libscpi 测试 204 项、相邻资源/输出/部署回归 336 项通过，Release 编译成功；计数是本轮快照，非产品事实源。后继真实 pioasm 指令解释器 20 项通过，C 显式断言全部 15 个 mask、80 个合法编码；验证 PULL 尚不输出、MOV PINS 两组同 tick 写码、PUSH 产生回执，未选 GPIO 保留且卸载恢复。真实 manager/runtime/phase 资源测试 2 项通过，覆盖全部 mask 与 reference 双顺序共存、counter/gateway/RUN/legacy 互斥及释放账目。独立复核关闭原覆盖缺口；当前源码硬件证据见下。
+
+- 当前源码 P3：`out/HardwareAcceptance/20260923/p3-switch-r1/`，build=`20260923090341`，quick `PASS_WITH_WARNINGS`（INFO 32 / WARN 21 / ERROR 0 / FATAL 0），包含四板 OTA、当前链路/TDMA 与示波器同步观察；原严格质量告警保留。
+- 跨板角色实测：`out/switch-slot-20260923/matrix-r1/` 的 SWITCH_A/NO1–NO4、SWITCH_B/NO4 与 NO2 六轮通过，每轮两次 LOAD/STOP/UNLOAD、三次编码事务；活动 UID、role、slot、完整部署表与 CRC 均读回。两 SWITCH 角色共用实现，非 SWITCH 的 LOAD 拒绝，已加载期间 DEP ACTIVATE/CLEAR 拒绝；每轮四板资源/部署清理和 STOP 确认完成。
+- 编码矩阵：`out/switch-slot-20260923/masks-r2/no2-switch-a-masks/switch-evidence.json` 完整通过，在 NO2 遍历全部非零输出 mask 及其合法编码。逐事务核验 STAGE 全部 OUT 不变、所选 PIO group 路由/TX 单字、APPLY 后全组真实回显与完成序号、所选 GPIO 码及未选 OUT 的离散读回保持；重复 APPLY 和越 mask 编码拒绝，STOP 取消队列且不增加完成计数，最终卸载和四板清理通过。全部 80 个编码均为实测，不用离线脚本结果替代。
+- 首轮矩阵失败保留：`matrix-r1/no2-switch-a-masks/` 的 DEP CLEAR 返回 `1,33`，先导致 mask3 事务未安装，后于 mask9 清理阶段触发 abort；已执行的编码无输出失败，最终清理四板通过。旧脚本 `switch_slot_hil_v2_r1.py` 保留原 SHA。后继仅对 DEP 的显式 BUSY/NOT_IDLE 拒绝加入 STOP 新鲜读回后有限重试，未知超时或 SWITCH APPLY 不重试；不改变固件和输出判据。新完整矩阵单独留证，旧失败不覆盖。
+- 独立证据复核：`out/switch-slot-20260923/independent-review.json` 重算七份合格报告、2637 条原始命令、27 次加载与 116 次编码事务；包含六轮迁移的 36 次写码和独立矩阵的 80 次写码。每个快照回溯 SCPI 原文、JSONL、源文件与当前 P3 指纹，均通过。
+- 验收边界：当前关闭的是 STOP 维护态的本地 SWITCH 编码和跨板部署；离散 GPIO 读回不是外部 RF 通路稳定、连续无毛刺或示波器边沿对齐证据。两组同 tick 来自 PIO 指令解释与同步使能语义，尚无专项物理时差量测。没有预约 q、READY/fence 或跨板时间片执行放行。最后状态为停止、租约卸载、临时部署清空，未留下运行中的输出任务。
+
 ### T2-PROGRESS-20260923-004：VNA 网关动态加载与槽位任意 IO
 
 - TODO task ID：T2-SLOT-GATEWAY-001、T2-SLOT-IO-001。用户要求继续 VNA 网关动态加载，并明确各槽位可选任意输入/输出，COUNTER 也可选任意 IN；指定参考 node-sequence 的 `tools/sequence_trigger_debug_ui`。本片只交付加载、停止、卸载及 IO 路由，不以即时主机触发替代本地预约格执行。

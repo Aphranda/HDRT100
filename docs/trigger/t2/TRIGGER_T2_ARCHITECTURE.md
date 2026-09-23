@@ -154,6 +154,14 @@ PIO0 热加载累计上升沿计数程序。运行观察不会暂停计数；FIF
 
 本片只交付动态装载生命周期：两个 SM 保持禁止，FIFO 不装入触发字，STOP 保留安全低和租约，UNLOAD 恢复并释放。没有即时 FIRE/ARM 接口；查询的 READY 电平不等于新边沿或本次预约完成。参考分支的 IRQ 授权握手可继续用于本地预约执行，但其即时 fire 不含目标 q，不能直接当成共同时间轴上的预约执行。
 
+### SWITCH 槽位的本地编码控制
+
+SWITCH_A 和 SWITCH_B 复用 `trigger_switch_service`，按活动部署的 UID、角色、slot、generation/CRC 与非零 output mask 授权，板号不决定控制能力。掩码允许任意公开 OUT 子集，编码按原输出位编号表示，未选位必须为零；例如只选择 OUT2/OUT4 时，编码的对应位仍是逻辑位 1/3，不压缩为连续编号。
+
+`sync_io_switch` 将所选输出拆成连续组，按组配置 PIO0 OUT_BASE/OUT_COUNT，共用有限程序并同步启用，避免一次写入覆盖未选输出。STAGE 预装不可变编码但不改变输出，APPLY 在 STOP maintenance 下启动有限硬件事务并立即返回；查询有界消费实际 PIO 回显，全部组匹配后标记 COMPLETE。该完成只证明 PIO 写码，不代表外部开关已稳定、READY、物理 RF 通路或预约格到达。
+
+`TRIGger:REServation:SWITch` 提供 LOAD、STAGE、APPLY、STOP、UNLOAD 和查询。LOAD/STAGE/APPLY 重新核验部署；旧代、错角色、越 mask、在飞重写与未重新 STAGE 的重复 APPLY 均不得误执行。STOP 取消未完成项并令所选输出低，不伪造完成；UNLOAD 恢复所选 GPIO/PIO 原状态并释放资源。所有公开 OUT 的电平只读用于对比未选位，未选位不取得写权限。正式按预约 q 的执行仍需独立准入入口，不使用本维护 APPLY 替代。
+
 ### T2-GRID-PROBE：细分间隔的物理预验证
 
 可在 STOP 维护态独占 OUT1，输出一个较宽的起始标记，随后输出有限个窄细分脉冲。间隔定义为相邻上升沿之差，包含标记上升沿到首个细分上升沿；标记高宽不额外叠加到间隔中。间隔、细分数量、高宽和硬件 tick 显式配置，经当前冻结模型的 rate 换算后一次预装有限 DMA，不通过软件逐个发脉冲。
