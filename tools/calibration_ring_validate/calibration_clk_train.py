@@ -35,6 +35,7 @@ from calibration_ring_validate.calibration_timeout_config import (  # noqa: E402
     DEFAULT_PHASE_GAP_S,
     DEFAULT_SERIAL_SETTLE_S,
 )
+from scpi_common.vdc_owner_state import queued_sequence, wait_owner_applied  # noqa: E402
 
 
 TRAIN_FIELDS = (
@@ -63,6 +64,34 @@ LOOPBACK_FIELDS = (
     "t1_ns", "t2_ns", "t3_ns", "t4_ns", "result_valid", "residence_ns",
     "raw_path_sum_ns", "delay_estimate_ns", "active_eligible",
 )
+
+
+def calibration_topology(ordered, reference_node: int = 0) -> dict[str, object]:
+    """Describe physical identities separately from concurrent logical endpoints."""
+    if not 1 <= len(ordered) <= 8 or not 0 <= reference_node < len(ordered):
+        raise ValueError("require 1..8 physical boards and an active reference")
+    if len({board.address for board in ordered}) != len(ordered):
+        raise ValueError("board IDs must be unique")
+    if len({board.port for board in ordered}) != len(ordered):
+        raise ValueError("physical boards must use distinct serial ports")
+    single = len(ordered) == 1
+    return {
+        "mode": "SINGLE_BOARD_DUAL_SLOT" if single else "MULTI_BOARD_RING",
+        "physical_board_count": len(ordered),
+        "logical_slot_count": 2 if single else len(ordered),
+        "reference_slot": reference_node,
+        "logical_slots": ([
+            {"slot": 0, "board_id": ordered[0].address, "role": "reference_tx",
+             "firmware_local_slot": 0},
+            {"slot": 1, "board_id": ordered[0].address, "role": "external_return_rx",
+             "firmware_local_slot": 0},
+        ] if single else [
+            {"slot": node, "board_id": board.address,
+             "role": "reference" if node == reference_node else "forwarder"}
+            for node, board in enumerate(ordered)]),
+        "independent_board_clocks": not single,
+        "scope": "diagnostic_loopback" if single else "physical_ring",
+    }
 
 
 def _parse_snapshot(raw: str, fields: tuple[str, ...]) -> dict[str, int]:
@@ -97,13 +126,13 @@ def wait_calibration_idle(board, args: argparse.Namespace) -> dict[str, int]:
         }
         if loopback["armed"] == 0 and physical["program_persona"] != 15:
             return last
-        time.sleep(args.idle_poll_interval)
+        time.sleep(getattr(args, "idle_poll_interval", .02))
     raise RuntimeError(
         f"{board.address}: calibration persona did not become idle: {last}")
 
 
 def _control_command(board, command, args, actions, *, expected=None,
-                     fields=None, ack=False):
+                     fields=None, ack=False, topology=None):
     """Keep partial preparation evidence before any later action can fail."""
     started = time.monotonic()
     record = {"board": board.address, "command": command,
@@ -112,6 +141,23 @@ def _control_command(board, command, args, actions, *, expected=None,
     try:
         raw = board_command(board, command, args)
         record["response"] = raw
+        if topology is not None:
+            row = next(csv.reader([raw]), [])
+            if len(row) == 5 and row[0].strip().upper() == "QUEUED":
+                identity = tuple(int(value.strip(), 0) for value in row[1:4])
+                if identity != tuple(topology):
+                    raise ValueError(f"expected topology {tuple(topology)}")
+                sequence = queued_sequence(raw)
+                record["owner_observations"] = []
+                owner = wait_owner_applied(
+                    lambda query: board_command(board, query, args), sequence,
+                    args.arm_wait, record["owner_observations"])
+                record["owner_applied"] = owner
+                if owner["opcode"] != 1:
+                    raise RuntimeError(f"topology owner opcode mismatch: {owner}")
+                return raw
+            # Older firmware used a synchronous topology identity response.
+            expected = topology
         if ack and raw.strip().strip('"') not in {"OK", "1"}:
             raise RuntimeError(f"{board.address}: {command} ACK missing: {raw!r}")
         if fields is not None or expected is not None:
@@ -158,7 +204,8 @@ def _wait_ring_state(board, args, *, started, topology=None):
         if (applied and matched and last["ring_enabled"] == int(started) and
                 last["ring_adapter_started"] == int(started)):
             return last
-        time.sleep(min(args.idle_poll_interval, max(0., deadline-time.monotonic())))
+        time.sleep(min(getattr(args, "idle_poll_interval", .02),
+                       max(0., deadline-time.monotonic())))
     raise RuntimeError(
         f"{board.address}: ring state deadline started={started} topology={topology}, "
         f"last={last}, last_error={last_error}")
@@ -256,10 +303,14 @@ def wait_train(board, previous_seq: int, terminal_states: set[int],
 
 
 def arm_training_persona(ordered, reference_node: int,
-                         args: argparse.Namespace, actions=None) -> list[dict[str, object]]:
+                         args: argparse.Namespace, actions=None, *,
+                         forward=True) -> list[dict[str, object]]:
     if actions is None:
         actions = []
-    node_count = len(ordered)
+    topology = calibration_topology(ordered, reference_node)
+    node_count = int(topology["logical_slot_count"])
+    physical_count = len(ordered)
+    actions.append({"command": "CALIBRATION_TOPOLOGY", **topology})
 
     def stop_and_drain(board):
         # The per-board order is mandatory; boards are independent here.
@@ -276,7 +327,7 @@ def arm_training_persona(ordered, reference_node: int,
             {"board": board.address, "command": "STOP_APPLIED", "readback": stopped},
         )
 
-    with ThreadPoolExecutor(max_workers=node_count) as executor:
+    with ThreadPoolExecutor(max_workers=physical_count) as executor:
         for result in executor.map(stop_and_drain, ordered):
             actions.extend(result)
     time.sleep(args.gap)
@@ -288,9 +339,9 @@ def arm_training_persona(ordered, reference_node: int,
             f"{node_count},{node},{reference_node}")
         return {"board": board.address, "command": command,
                 "response": _control_command(board, command, args, actions,
-                    expected=(node_count, node, reference_node))}
+                    topology=(node_count, node, reference_node))}
 
-    with ThreadPoolExecutor(max_workers=node_count) as executor:
+    with ThreadPoolExecutor(max_workers=physical_count) as executor:
         actions.extend(executor.map(set_topology, enumerate(ordered)))
 
     followers = [board for node, board in enumerate(ordered)
@@ -310,8 +361,10 @@ def arm_training_persona(ordered, reference_node: int,
 
     # Followers can be armed together; reference remains last to release the
     # ring start handshake, preserving the established protocol ordering.
-    with ThreadPoolExecutor(max_workers=len(followers)) as executor:
-        armed = list(executor.map(arm_one, followers))
+    armed = []
+    if followers:
+        with ThreadPoolExecutor(max_workers=len(followers)) as executor:
+            armed = list(executor.map(arm_one, followers))
     armed.append(arm_one(reference))
     for board, node, response, arm_result in armed:
         actions.append({"board": board.address, "command": "ARM_SUBMIT",
@@ -329,7 +382,7 @@ def arm_training_persona(ordered, reference_node: int,
             raise RuntimeError(f"topology readback mismatch: {readback}")
         return board, readback
 
-    with ThreadPoolExecutor(max_workers=node_count) as executor:
+    with ThreadPoolExecutor(max_workers=physical_count) as executor:
         started = list(executor.map(await_started, followers + [reference]))
     for board, readback in started:
         arm = next(item for item in armed if item[0] is board)
@@ -349,8 +402,9 @@ def arm_training_persona(ordered, reference_node: int,
         return {"board": board.address, "command": "TRAIN_FORWARD",
                 "response": response, "snapshot": after}
 
-    with ThreadPoolExecutor(max_workers=len(followers)) as executor:
-        actions.extend(executor.map(arm_forward, followers))
+    if forward and followers:
+        with ThreadPoolExecutor(max_workers=len(followers)) as executor:
+            actions.extend(executor.map(arm_forward, followers))
     return actions
 
 
@@ -502,8 +556,8 @@ def main() -> int:
     args = parse_args()
     args.keep_open = not args.short_open
     board_ids = list(args.board_id)
-    if len(board_ids) < 2 or len(board_ids) > 8:
-        raise SystemExit("board count must be in [2, 8]")
+    if len(board_ids) < 1 or len(board_ids) > 8:
+        raise SystemExit("board count must be in [1, 8]")
     if len(set(board_ids)) != len(board_ids):
         raise SystemExit("board IDs must be unique")
     if (args.pulse_start < 1 or args.pulse_start > args.pulse_limit or
@@ -527,6 +581,7 @@ def main() -> int:
             raise SystemExit(f"build mismatch: {wrong}")
 
     plan = {
+        "calibration_topology": calibration_topology(ordered),
         "board_ids_in_physical_order": board_ids,
         "level": args.level,
         "pulse_start": args.pulse_start,

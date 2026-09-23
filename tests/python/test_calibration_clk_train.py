@@ -126,3 +126,81 @@ def test_failed_error_readback_does_not_hide_original_control_failure(monkeypatc
         coarse._control_command(Board('P','A','',''), 'SYSTem:TDMA:RING:STOP', options(), actions, ack=True)
     assert actions[0]['response'] == '<timeout>'
     assert actions[0]['error_readback_failure'] == 'OSError: disconnected'
+
+
+def test_single_board_arms_two_logical_slots_through_one_serial_owner(monkeypatch):
+    board = Board('COM3', '839E1AE79EA20F31', '', '20260920123625')
+    calls = []
+    enabled = [0]
+    owner = deque(['9,9,1,2,1', '9,9,1,2,0'])
+
+    def command(actual, text, _args):
+        assert actual is board
+        calls.append(text)
+        if text == 'SYSTem:TDMA:RING:TOPology 2,0,0':
+            return '"QUEUED",2,0,0,9'
+        if text == 'SYSTem:SYNC:VDC:DPLL:OWNer?':
+            return owner.popleft()
+        if text == 'SYSTem:TDMA:RING:ARM':
+            assert not owner
+            enabled[0] = 1
+        if text == 'SYSTem:TDMA:RING:ARM:STATus?':
+            return '1'
+        if text == 'SYSTem:TDMA:RING:STATus?':
+            return runtime(started=enabled[0])
+        return 'OK'
+
+    monkeypatch.setattr(coarse, 'board_command', command)
+    monkeypatch.setattr(coarse, 'wait_calibration_idle', lambda *_: {})
+    monkeypatch.setattr(coarse.time, 'sleep', lambda _: None)
+    actions = coarse.arm_training_persona([board], 0, options())
+    assert calls.count('SYSTem:TDMA:RING:ARM') == 1
+    assert not any('RING:TRAIN' in text for text in calls)
+    assert actions[0]['mode'] == 'SINGLE_BOARD_DUAL_SLOT'
+    assert actions[0]['physical_board_count'] == 1
+    assert actions[0]['logical_slot_count'] == 2
+    assert [slot['firmware_local_slot'] for slot in actions[0]['logical_slots']] == [0, 0]
+    assert any(action.get('owner_applied', {}).get('sequence') == 9 for action in actions)
+
+
+@pytest.mark.parametrize('reply', [
+    '"QUEUED",2,1,0,9', '"QUEUED",2,0,0,0',
+    '"QUEUED",2,0,0,9,10', '<timeout>',
+])
+def test_topology_rejects_bad_queued_ack(monkeypatch, reply):
+    monkeypatch.setattr(coarse, 'board_command', lambda *_: reply)
+    actions = []
+    with pytest.raises(RuntimeError):
+        coarse._control_command(Board('P', 'A', '', ''),
+            'SYSTem:TDMA:RING:TOPology 2,0,0', options(), actions, topology=(2, 0, 0))
+    assert actions[0]['response'] == reply
+    assert 'error' in actions[0]
+
+
+@pytest.mark.parametrize('owner_reply', ['9,9,1,3,0', '10,10,1,2,0', '9,9,2,2,0'])
+def test_topology_rejects_wrong_or_rejected_owner(monkeypatch, owner_reply):
+    def command(_board, text, _args):
+        return owner_reply if text.endswith('OWNer?') else '"QUEUED",2,0,0,9'
+    monkeypatch.setattr(coarse, 'board_command', command)
+    with pytest.raises(RuntimeError):
+        coarse._control_command(Board('P', 'A', '', ''),
+            'SYSTem:TDMA:RING:TOPology 2,0,0', options(), [], topology=(2, 0, 0))
+
+
+@pytest.mark.parametrize('boards', [
+    [Board('P', 'A', '', ''), Board('Q', 'A', '', '')],
+    [Board('P', 'A', '', ''), Board('P', 'B', '', '')],
+])
+def test_logical_topology_never_duplicates_physical_serial_sessions(boards):
+    with pytest.raises(ValueError):
+        coarse.calibration_topology(boards)
+
+
+def test_single_board_missing_return_cannot_pass_coarse(monkeypatch):
+    board = Board('P', 'A', '', '')
+    monkeypatch.setattr(coarse, 'arm_training_persona', lambda *_: [])
+    monkeypatch.setattr(coarse, 'measure_burst', lambda *_: {
+        'classification': 'ALL_NON_OVERLAP', 'cycles': 1})
+    args = Namespace(**vars(options()), pulse_start=1, pulse_limit=1, growth_factor=10)
+    with pytest.raises(RuntimeError, match='no overlap'):
+        coarse.acquire_reference_node([board], 0, args)
