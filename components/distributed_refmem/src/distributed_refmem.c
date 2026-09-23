@@ -609,6 +609,7 @@ bool distributed_refmem_get_vdc_flight_rx(
 }
 
 #include "distributed_refmem_vdc_feedback.inc"
+#include "distributed_action_probe.inc"
 
 #if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
 static bool distributed_refmem_tdma_prepare_vdc_command_record(
@@ -901,6 +902,7 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
     mailbox[TDMA_PROCESS_IMAGE_CONTROL_SEQ8_OFFSET] = 0u;
     mailbox[TDMA_PROCESS_IMAGE_OPTIONAL_DIAGNOSTIC_OFFSET] =
         (uint8_t)(s_tdma_flight_sync.last_error & 0xFFu);
+    action_patch_mailbox(mailbox);
     distributed_refmem_put_le16(
         &mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET],
         tdma_process_image_crc16_ccitt(mailbox,
@@ -1328,6 +1330,7 @@ static void distributed_refmem_tdma_flight_sync_publish(
             distributed_refmem_flight_publish_mask_for_slot(
                 ring->local_slot_id))) {
         s_tdma_flight_sync.tx_publish_count++;
+        action_mailbox_published(frame);
         s_tdma_flight_sync.next_seq32 = seq32 == UINT32_MAX ? 1u : seq32 + 1u;
         distributed_refmem_feedback_published(feedback > 0, seq32);
 #if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
@@ -1403,9 +1406,11 @@ static void distributed_refmem_tdma_flight_sync_receive(
                     continue;
                 }
 #endif
-                distributed_refmem_tdma_flight_parse_mailbox(
-                    mailbox,
-                    DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE);
+                if (!action_receive_mailbox(slot, mailbox)) {
+                    distributed_refmem_tdma_flight_parse_mailbox(
+                        mailbox,
+                        DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE);
+                }
                 distributed_refmem_feedback_receive(owner, slot, mailbox, &view);
                 distributed_refmem_vdc_flight_rx_accept(slot, mailbox, &view);
             }
@@ -1427,15 +1432,14 @@ static void distributed_refmem_tdma_flight_sync_service(void)
      * still belong to this service invocation. No RX lease is held while busy. */
     const bool ordinary_binding_known = distributed_refmem_vdc_flight_rx_refresh(owner);
     const bool feedback_binding_known = distributed_refmem_feedback_refresh(owner);
-    if (owner == NULL ||
-        __atomic_load_n(&owner->ring_runtime.enabled, __ATOMIC_ACQUIRE) == 0u) {
-        return;
-    }
+    if (owner == NULL) return;
     tdma_ring_runtime_snapshot_t ring;
     if (!tdma_ring_runtime_get_snapshot(&owner->ring_runtime, &ring)) {
         s_tdma_flight_sync.last_error = 1u;
         return;
     }
+    action_observe(&ring);
+    if (ring.enabled == 0u) return;
     distributed_refmem_tdma_flight_sync_update_ring(&ring);
 #if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
     vdc_dpll_manager_refmem_snapshot_t refmem_snapshot;
@@ -4567,6 +4571,7 @@ bool distributed_refmem_tdma_ring_start(void)
 
 bool distributed_refmem_tdma_ring_stop(void)
 {
+    action_stop_requested();
     tdma_service_service_t *owner = tdma_runtime_owner_get();
     return s_initialized && owner != NULL && tdma_service_ring_stop(owner);
 }

@@ -87,6 +87,9 @@ static uint32_t s_vdc_command_context_epoch_id, s_vdc_command_context_run_id;
 static uint32_t s_vdc_command_context_schedule_epoch;
 static tdma_service_service_t s_owner;
 static bool owner_available = true;
+/* The separately tested opt-in action diagnostic is disabled here. */
+static bool action_receive_mailbox(uint32_t source,const uint8_t *mailbox)
+{ (void)source;(void)mailbox;return false; }
 /* Ordinary 0x10 telemetry has its own tested retention and never changes
  * this experimental 0x11 command admission harness. */
 static void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,

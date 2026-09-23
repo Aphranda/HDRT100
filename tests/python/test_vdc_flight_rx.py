@@ -38,6 +38,9 @@ static tdma_ring_clock_snapshot_t clock_ring;
 static vdc_dpll_manager_refmem_snapshot_t profile;
 static bool clock_available = true, profile_available = true;
 static uint32_t ordinary_parse_count, copy_mode;
+/* Diagnostic action is disabled in this ordinary-VDC regression suite. */
+static bool action_receive_mailbox(uint32_t source,const uint8_t *mailbox)
+{ (void)source;(void)mailbox;return false; }
 static bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out)
 { *out = clock_ring; return clock_available; }
 bool vdc_dpll_manager_get_refmem_snapshot(vdc_dpll_manager_refmem_snapshot_t *out)

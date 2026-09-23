@@ -1,6 +1,7 @@
 #include "sync_io_persona_manager.h"
 
 #include <string.h>
+#include "board_config.h"
 
 #include "resource_arbiter.h"
 
@@ -272,9 +273,9 @@ bool sync_io_persona_manager_deinit(sync_io_persona_manager_t *manager)
     return true;
 }
 
-bool sync_io_persona_manager_claim(
+static bool sync_io_persona_manager_claim_descriptor(
     sync_io_persona_manager_t *manager,
-    sync_io_persona_id_t id,
+    const sync_io_persona_descriptor_t *descriptor,
     sync_io_persona_manager_handle_t *handle,
     sync_io_persona_compatibility_t *compatibility)
 {
@@ -292,8 +293,6 @@ bool sync_io_persona_manager_claim(
         return false;
     }
 
-    const sync_io_persona_descriptor_t *descriptor =
-        sync_io_persona_descriptor(id);
     if (!sync_io_persona_descriptor_valid(descriptor)) {
         sync_io_persona_manager_set_error(
             manager, SYNC_IO_PERSONA_MANAGER_ERROR_INVALID_DESCRIPTOR,
@@ -352,7 +351,8 @@ bool sync_io_persona_manager_claim(
     }
 
     manager->leases[slot_index].active = true;
-    manager->leases[slot_index].descriptor = descriptor;
+    manager->leases[slot_index].descriptor_value = *descriptor;
+    manager->leases[slot_index].descriptor = &manager->leases[slot_index].descriptor_value;
     manager->leases[slot_index].state =
         SYNC_IO_PERSONA_MANAGER_STATE_CLAIMED;
     manager->generation++;
@@ -371,6 +371,44 @@ bool sync_io_persona_manager_claim(
         handle->generation = manager->generation;
     }
     return true;
+}
+
+bool sync_io_persona_manager_claim(sync_io_persona_manager_t *manager,
+    sync_io_persona_id_t id,sync_io_persona_manager_handle_t *handle,
+    sync_io_persona_compatibility_t *compatibility)
+{
+    return sync_io_persona_manager_claim_descriptor(manager,
+        sync_io_persona_descriptor(id),handle,compatibility);
+}
+
+bool sync_io_persona_manager_claim_io(sync_io_persona_manager_t *manager,
+    sync_io_persona_id_t id,uint32_t gpio_read_mask,uint32_t gpio_write_mask,
+    sync_io_persona_manager_handle_t *handle,sync_io_persona_compatibility_t *compatibility)
+{
+    const uint32_t inputs=((1u<<BOARD_SYNC_INPUT_PIN_COUNT)-1u)<<BOARD_SYNC_INPUT_BASE_PIN;
+    const uint32_t outputs=((1u<<BOARD_SYNC_OUTPUT_PIN_COUNT)-1u)<<BOARD_SYNC_OUTPUT_BASE_PIN;
+    const bool input_valid=gpio_read_mask && !(gpio_read_mask&(gpio_read_mask-1u)) &&
+        !(gpio_read_mask&~inputs);
+    const bool output_valid=gpio_write_mask && !(gpio_write_mask&(gpio_write_mask-1u)) &&
+        !(gpio_write_mask&~outputs);
+    const sync_io_persona_descriptor_t *base=sync_io_persona_descriptor(id);
+    if(!base || !input_valid ||
+        (id==SYNC_IO_PERSONA_ID_PULSE_COUNTER ? gpio_write_mask!=0u :
+         id==SYNC_IO_PERSONA_ID_GATEWAY ? !output_valid : true)) {
+        sync_io_persona_manager_clear_handle(handle);
+        if(manager) sync_io_persona_manager_set_error(manager,
+            SYNC_IO_PERSONA_MANAGER_ERROR_INVALID_DESCRIPTOR,SYNC_IO_PERSONA_CONFLICT_INVALID_DESCRIPTOR);
+        if(compatibility) {
+            memset(compatibility,0,sizeof(*compatibility));
+            compatibility->conflict_mask=SYNC_IO_PERSONA_CONFLICT_INVALID_DESCRIPTOR;
+        }
+        return false;
+    }
+    sync_io_persona_descriptor_t descriptor=*base;
+    descriptor.gpio_read_mask=gpio_read_mask;descriptor.gpio_write_mask=gpio_write_mask;
+    descriptor.safe_low_gpio_mask=base->safe_low_gpio_mask ? gpio_write_mask : 0u;
+    descriptor.restore_gpio_mask=base->restore_gpio_mask ? gpio_write_mask : 0u;
+    return sync_io_persona_manager_claim_descriptor(manager,&descriptor,handle,compatibility);
 }
 
 bool sync_io_persona_manager_load(

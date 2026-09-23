@@ -107,6 +107,9 @@ typedef struct {
         bool active;
         uint8_t reserved[3];
         const sync_io_persona_descriptor_t *descriptor;
+        /* Lease-owned copy: dynamic GPIO routes never retain caller stack
+         * storage. All non-GPIO resources still come from the catalog. */
+        sync_io_persona_descriptor_t descriptor_value;
         sync_io_persona_manager_state_t state;
         uint32_t generation;
         uint32_t dma_channel_mask;
@@ -126,6 +129,11 @@ bool sync_io_persona_manager_claim(
     sync_io_persona_id_t id,
     sync_io_persona_manager_handle_t *handle,
     sync_io_persona_compatibility_t *compatibility);
+/* Only COUNTER/GATEWAY may select one public input/output pad. Overrides
+ * cannot change SM/program/IRQ/DMA/workspace resources or capability flags. */
+bool sync_io_persona_manager_claim_io(sync_io_persona_manager_t *manager,
+    sync_io_persona_id_t id,uint32_t gpio_read_mask,uint32_t gpio_write_mask,
+    sync_io_persona_manager_handle_t *handle,sync_io_persona_compatibility_t *compatibility);
 bool sync_io_persona_manager_load(
     sync_io_persona_manager_t *manager,
     sync_io_persona_manager_handle_t *handle);

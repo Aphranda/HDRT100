@@ -57,6 +57,8 @@ typedef enum {
     SYNC_IO_PERSONA_ID_SMA_MAINTENANCE,
     SYNC_IO_PERSONA_ID_SMA_CALIBRATION,
     SYNC_IO_PERSONA_ID_REFERENCE_MONITOR,
+    SYNC_IO_PERSONA_ID_PULSE_COUNTER,
+    SYNC_IO_PERSONA_ID_GATEWAY,
     SYNC_IO_PERSONA_ID_COUNT,
 } sync_io_persona_id_t;
 
@@ -80,6 +82,8 @@ typedef enum {
     SYNC_IO_PERSONA_IRQ_DMA_1 = 1u << 1,
     SYNC_IO_PERSONA_IRQ_PIO_0 = 1u << 2,
     SYNC_IO_PERSONA_IRQ_PIO_1 = 1u << 3,
+    /* Resource identity for a PIO-internal handshake flag, not a CPU IRQ. */
+    SYNC_IO_PERSONA_IRQ_INTERNAL_6 = 1u << 10,
 } sync_io_persona_irq_t;
 
 typedef enum {

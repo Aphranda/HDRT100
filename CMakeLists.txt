@@ -523,11 +523,15 @@ set(PROJECT_APP_SOURCES
         components/sync_trigger/src/trigger_resource_map.c
         components/sync_trigger/src/trigger_grid_preview.c
         components/sync_trigger/src/trigger_deployment_service.c
+        components/sync_trigger/src/trigger_counter_service.c
+        components/sync_trigger/src/trigger_gateway_service.c
         components/sync_io/src/sync_io.c
         components/sync_io/src/sync_io_logic_analyzer.c
         components/sync_io/src/sync_io_analyzer_burst.c
         components/sync_io/src/sync_io_model_sched.c
         components/sync_io/src/sync_io_run_output.c
+        components/sync_io/src/sync_io_pulse_counter.c
+        components/sync_io/src/sync_io_gateway.c
         components/sync_io/src/sync_io_reference.c
         components/sync_io/src/sync_io_pio0_runtime.c
         components/sync_io/src/sync_io_mode.c
@@ -685,6 +689,8 @@ function(project_configure_app_target target_name app_name linker_script)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_pulse_stream_out1.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_pulse_uniform_out1.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_pulse_sliced_out1.pio)
+    pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_pulse_counter.pio)
+    pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/sync_gateway.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/seq_step.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/enc_count.pio)
     pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/components/sync_io/src/biss_tap_rx.pio)

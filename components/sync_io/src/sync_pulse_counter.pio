@@ -1,0 +1,19 @@
+; Cumulative rising-edge counter. X starts at ~0; ~X is count modulo 2^32.
+; Unlike WAIT-based counters, both input states keep publishing snapshots.
+; A full FIFO drops a snapshot, never stalls the counter or loses its total.
+; No forced instruction is injected while running and no CPU/DMA services
+; individual pulses. Input must remain low/high long enough for these loops.
+.program sync_pulse_counter
+.wrap_target
+wait_low:
+    mov isr, ~x
+    push noblock
+    jmp pin wait_low
+wait_high:
+    mov isr, ~x
+    push noblock
+    jmp pin counted
+    jmp wait_high
+counted:
+    jmp x-- wait_low
+.wrap

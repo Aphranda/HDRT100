@@ -3,6 +3,8 @@
 #include <string.h>
 
 #include "board_config.h"
+#include "sync_io_pulse_counter.h"
+#include "sync_io_gateway.h"
 
 static uintptr_t s_workspace_owner;
 
@@ -192,6 +194,35 @@ static const sync_io_persona_descriptor_t s_sync_io_personas[] = {
         .rx_fifo_sm_mask = SYNC_IO_SM_BIT(2u),
         .dma_channel_mask = SYNC_IO_REFERENCE_DMA_MASK,
         .rx_dreq_sm_mask = SYNC_IO_SM_BIT(2u),
+    },
+    {
+        .id = SYNC_IO_PERSONA_ID_PULSE_COUNTER,
+        .name = "pulse_counter",
+        .program_name = "sync_pulse_counter",
+        .implementation = SYNC_IO_PERSONA_IMPLEMENTATION_CURRENT,
+        .flags = SYNC_IO_PERSONA_FLAG_READ_ONLY_PAD,
+        .pio_block_id = BOARD_TDMA_SMA_PIO_BLOCK_ID,
+        .instruction_words = SYNC_IO_PULSE_COUNTER_INSTRUCTION_WORDS,
+        .sm_mask = SYNC_IO_SM_BIT(SYNC_IO_PULSE_COUNTER_SM),
+        .gpio_read_mask = SYNC_IO_GPIO_BIT(BOARD_SYNC_TRIG_IN_PIN),
+        .rx_fifo_sm_mask = SYNC_IO_SM_BIT(SYNC_IO_PULSE_COUNTER_SM),
+    },
+    {
+        .id = SYNC_IO_PERSONA_ID_GATEWAY,
+        .name = "gateway",
+        .program_name = "sync_gateway_output_and_ready",
+        .implementation = SYNC_IO_PERSONA_IMPLEMENTATION_CURRENT,
+        .flags = SYNC_IO_PERSONA_FLAG_RESTORE_GPIO,
+        .pio_block_id = BOARD_TDMA_SMA_PIO_BLOCK_ID,
+        .instruction_words = SYNC_IO_GATEWAY_INSTRUCTION_WORDS,
+        .sm_mask = SYNC_IO_SM_BIT(SYNC_IO_GATEWAY_OUTPUT_SM) | SYNC_IO_SM_BIT(SYNC_IO_GATEWAY_READY_SM),
+        .gpio_read_mask = SYNC_IO_GPIO_BIT(BOARD_SYNC_TRIG_IN_PIN),
+        .gpio_write_mask = SYNC_IO_GPIO_BIT(BOARD_SYNC_OUTPUT_BASE_PIN + 3u),
+        .rx_fifo_sm_mask = SYNC_IO_SM_BIT(SYNC_IO_GATEWAY_OUTPUT_SM) | SYNC_IO_SM_BIT(SYNC_IO_GATEWAY_READY_SM),
+        .tx_fifo_sm_mask = SYNC_IO_SM_BIT(SYNC_IO_GATEWAY_OUTPUT_SM),
+        .irq_mask = SYNC_IO_PERSONA_IRQ_INTERNAL_6,
+        .safe_low_gpio_mask = SYNC_IO_GPIO_BIT(BOARD_SYNC_OUTPUT_BASE_PIN + 3u),
+        .restore_gpio_mask = SYNC_IO_GPIO_BIT(BOARD_SYNC_OUTPUT_BASE_PIN + 3u),
     },
 };
 

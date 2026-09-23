@@ -67,6 +67,15 @@ static bool binding_available=true, live_available=true, tap_available=true;
 static uint32_t session;
 static bool auto_mode;
 static bool reference_mode, origin_available=true;
+/* This suite exercises VDC with the opt-in action diagnostic disabled.
+ * Real action transport and shared-region preservation run in the dedicated
+ * test_distributed_action_probe C harness. */
+static void action_patch_mailbox(uint8_t *mailbox) { (void)mailbox; }
+static void action_mailbox_published(const uint8_t *mailbox) { (void)mailbox; }
+static bool action_receive_mailbox(uint32_t source,const uint8_t *mailbox)
+{ (void)source;(void)mailbox;return false; }
+static inline void action_observe(const tdma_ring_runtime_snapshot_t *snapshot)
+{ (void)snapshot; }
 static tdma_origin_raw_reference_t origin_reference;
 static bool mode_available=true;
 bool vdc_dpll_manager_try_boundary_auto_enabled(bool *out)

@@ -1,4 +1,6 @@
 #include "trigger_deployment_service.h"
+#include "trigger_counter_service.h"
+#include "trigger_gateway_service.h"
 
 #include <string.h>
 #include "board_identity.h"
@@ -132,6 +134,10 @@ uint32_t trigger_deployment_stage(const trigger_deployment_t *table, uint32_t ex
 static bool activate_stopped(void *context)
 {
     deployment_request_t *request = context;
+    if (trigger_counter_is_loaded() || trigger_gateway_is_loaded()) {
+        request->result = TRIGGER_DEPLOYMENT_SERVICE_BUSY;
+        return false;
+    }
     tdma_ring_clock_snapshot_t ring;
     tdma_service_ring_runtime_config_t staged;
     if (!deployment_idle(&ring, &staged)) return false;
@@ -165,25 +171,31 @@ uint32_t trigger_deployment_activate(uint32_t generation, uint32_t expected_crc)
     return request.result;
 }
 
-static bool clear_stopped(void *unused)
+static bool clear_stopped(void *context)
 {
-    (void)unused;
+    uint32_t *result = context;
+    if (trigger_counter_is_loaded() || trigger_gateway_is_loaded()) {
+        *result = TRIGGER_DEPLOYMENT_SERVICE_BUSY;
+        return false;
+    }
     tdma_ring_clock_snapshot_t ring;
     tdma_service_ring_runtime_config_t staged;
     if (!deployment_idle(&ring, &staged)) return false;
     const uint32_t last = s_deployment.last_generation;
     memset(&s_deployment, 0, sizeof(s_deployment));
     s_deployment.last_generation = last;
+    *result = TRIGGER_DEPLOYMENT_OK;
     return true;
 }
 
 uint32_t trigger_deployment_clear(void)
 {
     if (!deployment_enter()) return TRIGGER_DEPLOYMENT_SERVICE_BUSY;
-    const bool result = tdma_service_update_stopped_metadata(
-        tdma_runtime_owner_get(), clear_stopped, NULL);
+    uint32_t result = TRIGGER_DEPLOYMENT_SERVICE_NOT_IDLE;
+    (void)tdma_service_update_stopped_metadata(
+        tdma_runtime_owner_get(), clear_stopped, &result);
     deployment_leave();
-    return result ? TRIGGER_DEPLOYMENT_OK : TRIGGER_DEPLOYMENT_SERVICE_NOT_IDLE;
+    return result;
 }
 
 uint32_t trigger_deployment_snapshot(trigger_deployment_snapshot_t *out)

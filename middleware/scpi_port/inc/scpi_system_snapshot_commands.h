@@ -144,6 +144,20 @@ scpi_result_t scpi_cmd_vdc_subdivision_after_sync(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_subdivision_after_sync_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_subdivision_after_sync_configure(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_subdivision_after_sync_run_q(scpi_t *context);
+scpi_result_t scpi_cmd_action_probe_configure(scpi_t *context);
+scpi_result_t scpi_cmd_action_probe_send(scpi_t *context);
+scpi_result_t scpi_cmd_action_probe_clear(scpi_t *context);
+scpi_result_t scpi_cmd_action_probe_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_counter_load(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_counter_start(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_counter_stop(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_counter_clear(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_counter_unload(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_counter_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_gateway_load(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_gateway_stop(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_gateway_unload(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_gateway_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
@@ -375,6 +389,20 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:AFTER:ENABle", .callback = scpi_cmd_vdc_subdivision_after_sync}, \
     {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:AFTER:CONFigure", .callback = scpi_cmd_vdc_subdivision_after_sync_configure}, \
     {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:AFTER:RUN?", .callback = scpi_cmd_vdc_subdivision_after_sync_run_q}, \
+    {.pattern = "TRIGger:REServation:PROBe:CONFigure", .callback = scpi_cmd_action_probe_configure}, \
+    {.pattern = "TRIGger:REServation:PROBe:SEND", .callback = scpi_cmd_action_probe_send}, \
+    {.pattern = "TRIGger:REServation:PROBe:CLEar", .callback = scpi_cmd_action_probe_clear}, \
+    {.pattern = "TRIGger:REServation:PROBe?", .callback = scpi_cmd_action_probe_q}, \
+    {.pattern = "TRIGger:REServation:COUNter:LOAD", .callback = scpi_cmd_trigger_counter_load}, \
+    {.pattern = "TRIGger:REServation:COUNter:STARt", .callback = scpi_cmd_trigger_counter_start}, \
+    {.pattern = "TRIGger:REServation:COUNter:STOP", .callback = scpi_cmd_trigger_counter_stop}, \
+    {.pattern = "TRIGger:REServation:COUNter:CLEar", .callback = scpi_cmd_trigger_counter_clear}, \
+    {.pattern = "TRIGger:REServation:COUNter:UNLoad", .callback = scpi_cmd_trigger_counter_unload}, \
+    {.pattern = "TRIGger:REServation:COUNter?", .callback = scpi_cmd_trigger_counter_q}, \
+    {.pattern = "TRIGger:REServation:GATEway:LOAD", .callback = scpi_cmd_trigger_gateway_load}, \
+    {.pattern = "TRIGger:REServation:GATEway:STOP", .callback = scpi_cmd_trigger_gateway_stop}, \
+    {.pattern = "TRIGger:REServation:GATEway:UNLoad", .callback = scpi_cmd_trigger_gateway_unload}, \
+    {.pattern = "TRIGger:REServation:GATEway?", .callback = scpi_cmd_trigger_gateway_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BRIDge?", .callback = scpi_cmd_vdc_feedback_bridge_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MATCh?", .callback = scpi_cmd_vdc_feedback_match_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \

@@ -1,0 +1,25 @@
+; Prepared-only VNA gateway. LOAD never enables these SMs or queues a pulse.
+; Future deadline owner must admit a pulse before using this IRQ6 handshake.
+.program sync_gateway_output
+.wrap_target
+    pull block
+    mov x, osr
+    irq wait 6 [2]
+    set pins, 1
+high:
+    jmp x-- high
+    set pins, 0
+    push block
+.wrap
+
+; A grant accepts one NEW low->high READY transition. Initial high is not READY.
+.program sync_gateway_ready
+.wrap_target
+    wait 1 irq 6
+    wait 0 pin 0
+    wait 1 pin 0
+    jmp x-- counted
+counted:
+    mov isr, ~x
+    push block
+.wrap
