@@ -725,6 +725,35 @@ def test_direct_feedback_loop_completes_ten_rounds(programs, pulse_us):
           f"first_rise_to_last_fall_us={(machine.falls[-1] - machine.rises[0]) / TICKS_PER_US:g}")
 
 
+@pytest.mark.parametrize("settle_us,pulse_us", [(10, 10), (10, 1000), (3000, 10)])
+def test_vna_450us_feedback_latency_budget(programs, settle_us, pulse_us):
+    # User-measured OUT rise -> READY rise is 450 us. Model only that edge;
+    # this does not assert when the real VNA rearms, or model AHB contention.
+    machine = Sequence(programs, [0, 1, 2], settle=settle_us, pulse=pulse_us,
+                       startup=True, max_steps=2, feedback=True)
+    for step in range(2):
+        machine.tick_until(lambda: len(machine.rises) > step,
+                           limit=us(settle_us + pulse_us + 10))
+        machine.tick_until(lambda: machine.time >= machine.rises[step] + us(450),
+                           limit=us(451))
+        ready_at = machine.time
+        machine.input = True
+        machine.tick(us(10))
+        machine.input = False
+        machine.tick_until(lambda: len(machine.rises) > step + 1,
+                           limit=us(settle_us + pulse_us + 10))
+        code_at = machine.writes[step + 1][0]
+        trigger_at = machine.rises[step + 1]
+        assert trigger_at - code_at == us(settle_us)
+        residual_pulse = max(0, pulse_us - 450)
+        assert us(residual_pulse) <= code_at - ready_at < us(residual_pulse + 1)
+        print(f"settle_us={settle_us} pulse_us={pulse_us} step={step + 1} "
+              f"ready_to_code_us={(code_at - ready_at) / TICKS_PER_US:g} "
+              f"ready_to_trigger_us={(trigger_at - ready_at) / TICKS_PER_US:g} "
+              f"trigger_period_us={(trigger_at - machine.rises[step]) / TICKS_PER_US:g}")
+    assert [word & 15 for _, word in machine.writes] == [0, 1, 2]
+
+
 @pytest.mark.parametrize("values", [[0, 1, 2], list(range(8))])
 @pytest.mark.parametrize("falling", [False, True])
 def test_full_plan_runs_without_cpu_steps(programs, values, falling):

@@ -1,7 +1,7 @@
-"""Execute the actual Core1 release loop with a deterministic SDK clock.
+"""Execute the actual Core1 release loop with a deterministic cycle clock.
 
 This checks release semantics, not measured hardware jitter or phase WCET.
-No alarm-pool/sleep mock is provided: restoring sleep_until must fail to build.
+No microsecond/alarm-pool mock is provided: losing cycle precision fails to build.
 """
 import os
 from pathlib import Path
@@ -22,28 +22,33 @@ HARNESS = r'''
 #include <stdint.h>
 #include <stdio.h>
 #include "project_config.h"
-typedef struct { uint64_t us; } absolute_time_t;
-static uint64_t now_us;
+static uint64_t now_cycles;
 static unsigned ready_spins, limit, iteration;
-static bool initialized;
+static bool initialized, just_ran;
+static uint32_t active_cycles;
 static uint32_t period_cycles[16];
 static uint64_t poll_cost[16], apply_cost[16], service_cost[16];
 static jmp_buf finished;
 static void event(const char *name, uint64_t value) {
-    printf("%s,%" PRIu64 ",%" PRIu64 "\n", name, now_us, value);
+    printf("%s,%" PRIu64 ",%" PRIu64 "\n", name, now_cycles, value);
 }
 static bool app_is_ready(void) {
     event("ready", ready_spins == 0);
     return ready_spins == 0;
 }
 static void tight_loop_contents(void) {
-    event("spin", 0);
     if (!initialized) {
+        event("spin", 0);
         assert(ready_spins > 0);
         --ready_spins;
-        now_us += 100;
-    } else if (iteration == limit) {
-        longjmp(finished, 1);
+        now_cycles += 100 * (BOARD_SYS_CLOCK_HZ / 1000000u);
+    } else if (just_ran) {
+        just_ran = false;
+        event("spin", 0);
+        if (iteration == limit) longjmp(finished, 1);
+    } else {
+        /* One simulated hardware cycle per polling spin. No per-cycle log. */
+        ++now_cycles;
     }
 }
 static void app_realtime_cycle_counter_init(void) {
@@ -51,43 +56,37 @@ static void app_realtime_cycle_counter_init(void) {
     initialized = true;
     event("init", 0);
 }
-static absolute_time_t get_absolute_time(void) {
-    event("now", now_us);
-    return (absolute_time_t){now_us};
-}
-static uint64_t to_us_since_boot(absolute_time_t time) { return time.us; }
-static absolute_time_t from_us_since_boot(uint64_t us) {
-    return (absolute_time_t){us};
-}
-static void busy_wait_until(absolute_time_t deadline) {
-    assert(initialized && iteration < limit);
-    event("wait", deadline.us);
-    if (now_us < deadline.us) now_us = deadline.us;
+static uint64_t vdc_timestamp_clock_read_ticks64(void) {
+    assert(initialized);
+    return now_cycles;
 }
 static void drv_flash_core1_lockout_poll(void) {
     event("poll", 0);
-    now_us += poll_cost[iteration];
+    now_cycles += poll_cost[iteration];
 }
 static bool app_realtime_apply_pending_profile_core1(void) {
     event("apply", period_cycles[iteration] != 0);
-    now_us += apply_cost[iteration];
+    now_cycles += apply_cost[iteration];
+    if (period_cycles[iteration]) active_cycles = period_cycles[iteration];
     return period_cycles[iteration] != 0;
 }
 static uint32_t app_realtime_cycle_cycles_core1(void) {
-    assert(period_cycles[iteration] != 0);
-    event("profile", period_cycles[iteration]);
-    return period_cycles[iteration];
+    assert(active_cycles != 0);
+    event("profile", active_cycles);
+    return active_cycles;
 }
 static void app_realtime_run_once(void) {
     event("run", iteration);
-    now_us += service_cost[iteration];
+    now_cycles += service_cost[iteration];
     ++iteration;
+    just_ran = true;
 }
 '''
 
 MAIN = r'''
 int main(void) {
-    assert(scanf("%" SCNu64 " %u %u", &now_us, &ready_spins, &limit) == 3);
+    assert(scanf("%" SCNu64 " %u %u %" SCNu32,
+        &now_cycles, &ready_spins, &limit, &active_cycles) == 4);
     assert(limit > 0 && limit <= 16);
     for (unsigned i = 0; i < limit; ++i) {
         assert(scanf("%" SCNu32 " %" SCNu64 " %" SCNu64 " %" SCNu64,
@@ -121,15 +120,15 @@ def release_executable(tmp_path_factory):
         HARNESS + source[start:end] + MAIN, encoding="utf-8")
     executable = directory / ("release.exe" if os.name == "nt" else "release")
     result = subprocess.run(
-        [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+        [compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
          "-I" + str(ROOT / "config"), str(test_source), "-o", str(executable)],
         capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
     return executable
 
 
-# Inputs model SDK time and owner decisions. Expected deadlines and service
-# instants are explicit scenario outcomes, not a second scheduler algorithm.
+# These existing scenarios use microseconds for readability and are converted
+# to cycles before execution. Fractional-period cases below use raw cycles.
 CASES = [
     pytest.param(
         100, 0,
@@ -181,9 +180,22 @@ CASES = [
     "initial,ready_spins,steps,deadlines,service_times,wait_entries", CASES)
 def test_core1_release_loop(release_executable, initial, ready_spins, steps,
                             deadlines, service_times, wait_entries):
-    data = f"{initial} {ready_spins} {len(steps)}\n" + "\n".join(
+    cycles_per_us = 250
+    initial *= cycles_per_us
+    steps = [(period, poll * cycles_per_us, apply * cycles_per_us,
+              service * cycles_per_us) for period, poll, apply, service in steps]
+    deadlines = [value * cycles_per_us for value in deadlines]
+    service_times = [value * cycles_per_us for value in service_times]
+    wait_entries = [value * cycles_per_us for value in wait_entries]
+    _assert_release(release_executable, initial, ready_spins, 375000, steps,
+                    deadlines, service_times, wait_entries)
+
+
+def _assert_release(executable, initial, ready_spins, boot_cycles, steps,
+                    deadlines, service_times, wait_entries):
+    data = f"{initial} {ready_spins} {len(steps)} {boot_cycles}\n" + "\n".join(
         " ".join(map(str, step)) for step in steps) + "\n"
-    result = subprocess.run([str(release_executable)], input=data,
+    result = subprocess.run([str(executable)], input=data,
                             capture_output=True, text=True, timeout=3)
     assert result.returncode == 0, result.stdout + result.stderr
     events = [(name, int(time), int(value)) for name, time, value in
@@ -191,32 +203,53 @@ def test_core1_release_loop(release_executable, initial, ready_spins, steps,
     names = []
     for _ in range(ready_spins):
         names += ["ready", "spin"]
-    names += ["ready", "init", "now"]
+    names += ["ready", "profile", "init"]
     for period, _, _, _ in steps:
-        names += ["wait", "poll", "apply"]
+        names += ["poll", "apply"]
         if period:
-            names += ["profile", "now"]
+            names += ["profile"]
         names += ["run", "spin"]
     assert [event[0] for event in events] == names
 
     def selected(name):
         return [(time, value) for kind, time, value in events if kind == name]
 
-    assert selected("wait") == list(zip(wait_entries, deadlines))
     assert selected("run") == list(zip(service_times, range(len(steps))))
-    assert selected("init") == [(initial + ready_spins * 100, 0)]
+    assert selected("init") == [(initial + ready_spins * 25000, 0)]
     assert selected("ready") == [
-        (initial + i * 100, int(i == ready_spins))
+        (initial + i * 25000, int(i == ready_spins))
         for i in range(ready_spins + 1)]
     assert selected("profile") == [
+        (initial + ready_spins * 25000, boot_cycles)] + [
         (service_times[i], step[0]) for i, step in enumerate(steps) if step[0]]
-    assert selected("now") == [
-        (initial + ready_spins * 100, initial + ready_spins * 100)] + [
-        (service_times[i], service_times[i])
-        for i, step in enumerate(steps) if step[0]]
+    # The first action after each polling release sees either its exact
+    # deadline, or the current time if the previous service was already late.
+    assert selected("poll") == [
+        (max(entry, deadline), 0)
+        for entry, deadline in zip(wait_entries, deadlines)]
     assert selected("poll") == [
         (service_times[i] - step[1] - step[2], 0)
         for i, step in enumerate(steps)]
     assert selected("apply") == [
         (service_times[i] - step[2], int(step[0] != 0))
         for i, step in enumerate(steps)]
+
+
+@pytest.mark.parametrize("boot_cycles,steps,deadlines,service_times,wait_entries", [
+    pytest.param(
+        500000, [(0, 0, 0, 17), (0, 0, 0, 0), (0, 0, 0, 0)],
+        [500000, 1000000, 1500000], [500000, 1000000, 1500000],
+        [0, 500017, 1000000], id="flash-restored-cycle-controls-first-release"),
+    pytest.param(
+        375001, [(0, 0, 0, 17), (0, 0, 0, 0), (0, 0, 0, 0)],
+        [375001, 750002, 1125003], [375001, 750002, 1125003],
+        [0, 375018, 750002], id="fractional-us-boot-profile-never-truncated"),
+    pytest.param(
+        375000, [(375001, 3, 5, 7), (0, 0, 0, 0), (0, 0, 0, 0)],
+        [375000, 750009, 1125010], [375008, 750009, 1125010],
+        [0, 375015, 750009], id="fractional-us-handoff-never-truncated"),
+])
+def test_cycle_precision_and_boot_restore(release_executable, boot_cycles, steps,
+                                          deadlines, service_times, wait_entries):
+    _assert_release(release_executable, 0, 0, boot_cycles, steps,
+                    deadlines, service_times, wait_entries)

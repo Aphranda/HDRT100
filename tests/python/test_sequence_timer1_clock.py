@@ -40,12 +40,186 @@ uint32_t clock_get_hz(int clock)
 }
 #endif
 
+/* Injected kernel-tick audit model. The audit itself has no hardware
+ * dependency, so the same cases run for both clock implementations. */
+static uint32_t audit_clk_hz = 250000000u;
+static uint32_t audit_rate_hz = 1000u;
+static uint32_t audit_reload = 249999u;
+static uint32_t audit_control = 0x5u;
+static uint32_t audit_tick_ms;
+static uint64_t audit_time_ns;
+static bool audit_time_ok = true;
+static uint32_t audit_samples_seen;
+
+static uint32_t audit_port_clk(void) { return audit_clk_hz; }
+static uint32_t audit_port_rate(void) { return audit_rate_hz; }
+static uint32_t audit_port_tick_ms(void) { return audit_tick_ms; }
+static uint32_t audit_port_reload(void) { return audit_reload; }
+static uint32_t audit_port_control(void) { return audit_control; }
+
+static bool audit_port_time(uint64_t *out)
+{
+    ++audit_samples_seen;
+    if (!audit_time_ok || out == NULL) {
+        return false;
+    }
+    *out = audit_time_ns;
+    return true;
+}
+
+static const vdc_tick_audit_port_t audit_port = {
+    .clk_sys_hz = audit_port_clk,
+    .tick_rate_hz = audit_port_rate,
+    .tick_ms = audit_port_tick_ms,
+    .systick_reload = audit_port_reload,
+    .systick_control = audit_port_control,
+    .time_ns = audit_port_time,
+};
+
+static void audit_reset(void)
+{
+    audit_clk_hz = 250000000u;
+    audit_rate_hz = 1000u;
+    audit_reload = 249999u;
+    audit_control = 0x5u;
+    audit_tick_ms = 0u;
+    audit_time_ns = 0u;
+    audit_time_ok = true;
+    audit_samples_seen = 0u;
+}
+
+static int run_tick_audit_case(const char *mode)
+{
+    vdc_tick_audit_t audit;
+    audit_reset();
+
+    if (strcmp(mode, "audit_before_sample") == 0) {
+        /* Missing data must never read as a passing audit. */
+        assert(!vdc_tick_audit_get(&audit));
+        assert(audit.version == VDC_TICK_AUDIT_VERSION);
+        assert(audit.samples == 0u && audit.static_flags == 0u);
+        assert(audit.dynamic_flags == 0u && audit.ratio_ppm == 0);
+        return 0;
+    }
+    if (strcmp(mode, "audit_incomplete_port") == 0) {
+        vdc_tick_audit_port_t incomplete = audit_port;
+        incomplete.time_ns = NULL;
+        assert(!vdc_tick_audit_sample(&incomplete));
+        incomplete = audit_port;
+        incomplete.clk_sys_hz = NULL;
+        assert(!vdc_tick_audit_sample(&incomplete));
+        incomplete = audit_port;
+        incomplete.tick_ms = NULL;
+        assert(!vdc_tick_audit_sample(&incomplete));
+        assert(!vdc_tick_audit_sample(NULL));
+        assert(!vdc_tick_audit_get(&audit) && audit.samples == 0u);
+        assert(audit_samples_seen == 0u);
+        return 0;
+    }
+    if (strcmp(mode, "audit_bad_clock") == 0) {
+        audit_clk_hz = 250000001u;
+        assert(!vdc_tick_audit_sample(&audit_port));
+        audit_clk_hz = 0u;
+        assert(!vdc_tick_audit_sample(&audit_port));
+        audit_clk_hz = 250000000u;
+        audit_rate_hz = 0u;
+        assert(!vdc_tick_audit_sample(&audit_port));
+        assert(!vdc_tick_audit_get(&audit) && audit.samples == 0u);
+        return 0;
+    }
+
+    const bool stale = strcmp(mode, "audit_stale_reload") == 0;
+    const bool slow = strcmp(mode, "audit_slow_tick") == 0;
+    const bool unarmed = strcmp(mode, "audit_unarmed") == 0;
+    const bool clksource_off = strcmp(mode, "audit_clksource_off") == 0;
+    const bool untimed = strcmp(mode, "audit_untimed") == 0;
+    const bool rolls = strcmp(mode, "audit_window_rolls") == 0;
+    assert(stale || slow || unarmed || clksource_off || untimed || rolls);
+
+    if (stale) audit_reload = 149999u;            /* Installed at the 150 MHz boot clock. */
+    if (unarmed) audit_control = 0x4u;
+    if (clksource_off) audit_control = 0x1u;
+
+    uint32_t expected_static = VDC_TICK_AUDIT_STATIC_OK;
+    if (stale) expected_static &= ~VDC_TICK_AUDIT_STATIC_RELOAD;
+    if (unarmed) expected_static &= ~VDC_TICK_AUDIT_STATIC_ARMED;
+    if (clksource_off) expected_static &= ~VDC_TICK_AUDIT_STATIC_CLKSOURCE;
+
+    /* The first sample only opens the window. */
+    assert(vdc_tick_audit_sample(&audit_port));
+    assert(vdc_tick_audit_get(&audit) && audit.samples == 1u);
+    assert(audit.clk_sys_hz == 250000000u && audit.tick_rate_hz == 1000u);
+    assert(audit.expected_reload == 249999u && audit.actual_reload == audit_reload);
+    assert(audit.static_flags == expected_static);
+    assert(audit.dynamic_flags == 0u && audit.window_nominal_ms == 0u);
+    assert(audit.ratio_ppm == 0);
+
+    if (untimed) {
+        audit_time_ok = false;
+        audit_tick_ms = 10000u;
+        assert(vdc_tick_audit_sample(&audit_port));
+        assert(vdc_tick_audit_get(&audit) && audit.samples == 2u);
+        assert(audit.dynamic_flags == VDC_TICK_AUDIT_DYNAMIC_NO_TIMEBASE);
+        assert(audit.window_nominal_ms == 0u && audit.window_real_ms == 0u);
+        assert(audit.ratio_ppm == 0);
+        /* The untimed sample must not leave the old origin in place. */
+        audit_time_ok = true;
+        audit_time_ns = 40000000000u;
+        assert(vdc_tick_audit_sample(&audit_port));
+        assert(vdc_tick_audit_get(&audit) && audit.dynamic_flags == 0u);
+        audit_tick_ms = 14000u;
+        audit_time_ns = 44000000000u;
+        assert(vdc_tick_audit_sample(&audit_port));
+        assert(vdc_tick_audit_get(&audit));
+        assert(audit.window_nominal_ms == 4000u && audit.window_real_ms == 4000u);
+        assert(audit.ratio_ppm == 0);
+        /* A later untimed sample clears the published window. */
+        audit_time_ok = false;
+        audit_tick_ms = 20000u;
+        assert(vdc_tick_audit_sample(&audit_port));
+        assert(vdc_tick_audit_get(&audit) && audit.samples == 5u);
+        assert(audit.dynamic_flags == VDC_TICK_AUDIT_DYNAMIC_NO_TIMEBASE);
+        assert(audit.window_nominal_ms == 0u && audit.window_real_ms == 0u);
+        assert(audit.ratio_ppm == 0);
+        assert(audit.static_flags == VDC_TICK_AUDIT_STATIC_OK);
+        return 0;
+    }
+
+    /* Close one full nominal window. */
+    const uint64_t real_ns = stale ? UINT64_C(2400000000) :
+                             (slow ? UINT64_C(5000000000) : UINT64_C(4000000000));
+    const uint32_t expected_real_ms = stale ? 2400u : (slow ? 5000u : 4000u);
+    const int32_t expected_ppm = stale ? 666666 : (slow ? -200000 : 0);
+    audit_tick_ms = 4000u;
+    audit_time_ns = real_ns;
+    assert(vdc_tick_audit_sample(&audit_port));
+    assert(vdc_tick_audit_get(&audit) && audit.samples == 2u);
+    assert(audit.static_flags == expected_static);
+    assert(audit.dynamic_flags == VDC_TICK_AUDIT_DYNAMIC_VALID);
+    assert(audit.window_nominal_ms == 4000u && audit.window_real_ms == expected_real_ms);
+    assert(audit.ratio_ppm == expected_ppm);
+    assert(audit.samples == 2u);
+
+    if (rolls) {
+        audit_tick_ms = 8000u;
+        audit_time_ns = 8000000000u;
+        assert(vdc_tick_audit_sample(&audit_port));
+        assert(vdc_tick_audit_get(&audit) && audit.samples == 3u);
+        assert(audit.window_nominal_ms == 4000u && audit.window_real_ms == 4000u);
+        assert(audit.ratio_ppm == 0 && audit.static_flags == VDC_TICK_AUDIT_STATIC_OK);
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
     const char *mode = argv[1];
     const uint64_t sentinel = UINT64_C(0xfeedbeefdeadbeef);
     uint64_t result = sentinel;
+    if (strncmp(mode, "audit_", 6u) == 0) {
+        return run_tick_audit_case(mode);
+    }
 #if PICO_ON_DEVICE
     test_timer.source = 99u;
     test_timer.pause = 9u;
@@ -150,10 +324,18 @@ def timer1_executable(request, tmp_path_factory):
     "uninitialized", "zero_init_rate", "null", "zero_expected", "wrong_expected",
     "wrong_rate", "paused", "wrong_source", "rollover", "source_change",
     "pause_change", "rate_change", "success", "host",
+    "audit_before_sample", "audit_incomplete_port", "audit_bad_clock",
+    "audit_stale_reload", "audit_slow_tick", "audit_unarmed",
+    "audit_clksource_off", "audit_untimed", "audit_window_rolls",
 ])
 def test_checked_timer1_read(timer1_executable, case):
     executable, device = timer1_executable
-    if device == (case == "host"):
+    # The audit is port-injected with no hardware dependency, so its cases run
+    # against both clock implementations; the read cases stay implementation
+    # specific.
+    if case.startswith("audit_"):
+        pass
+    elif device == (case == "host"):
         pytest.skip("case targets the other clock implementation")
     result = subprocess.run([str(executable), case], capture_output=True,
                             text=True, timeout=10)
