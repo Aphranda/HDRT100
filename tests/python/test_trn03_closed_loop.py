@@ -1446,7 +1446,8 @@ def test_p3_responder_returns_and_measures_complete_data_burst() -> None:
         "static bool tdma_pio_spi_phys_p3_decode_step", 1
     )[1].split("bool tdma_pio_spi_phys_p3_start", 1)[0]
     assert "p3_decode_data_high_sum +=" in decode
-    assert "phys->p3.data_pulse_count = phys->p3_decode_data_high_count" in decode
+    assert "TDMA_PIO_SPI_P3_ROLE_RESPONDER ? &phys->p3_responder : &phys->p3" in decode
+    assert "raw->data_pulse_count = phys->p3_decode_data_high_count" in decode
     assert "p3_decode_data_high_count / 2u" in decode
 
 
