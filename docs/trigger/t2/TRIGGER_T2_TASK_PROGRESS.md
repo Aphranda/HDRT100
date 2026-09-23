@@ -4,13 +4,99 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-22
+Last updated: 2026-09-23
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20260923-004：VNA 网关动态加载与槽位任意 IO
+
+- TODO task ID：T2-SLOT-GATEWAY-001、T2-SLOT-IO-001。用户要求继续 VNA 网关动态加载，并明确各槽位可选任意输入/输出，COUNTER 也可选任意 IN；指定参考 node-sequence 的 `tools/sequence_trigger_debug_ui`。本片只交付加载、停止、卸载及 IO 路由，不以即时主机触发替代本地预约格执行。
+- 本条测试数量、build 和矩阵计数均为本轮快照，非产品事实源；资源预算以 `sync_io_gateway.h`、`sync_gateway.pio` 与 persona 描述符为准。
+- 参考来源：本地远端跟踪引用 `origin/feature/node-sequence-reservation-trigger@0c913e83f241fa8b40c059792141ae6051a85139`。UI 的 READY input、trigger output、counter input 是独立配置，输出按逻辑 mask 分配；本片沿用该语义，以当前 deployment 表为唯一 IO 来源，不迁移整套 GUI 或该分支单板门禁。
+- 实现：新 GATEWAY owner 通过活动角色/UID/slot/代际和 CRC 授权；网关选择单 IN、单 OUT，COUNTER 选择单 IN。PIO0 两段程序经 persona manager 热加载，状态机禁止且不排触发字；STOP 清私有 FIFO/grant 并安全低，UNLOAD 恢复输出配置、释放程序和 SM。没有 FIRE/ARM 入口，READY 只读电平不构成完成。
+- 动态资源：lease 保存 descriptor 副本，只改实际 GPIO 路由，其他资源预算保持声明和仲裁；避免对临时栈 descriptor 的引用。网关加载态实读 PINCTRL 输入/输出选择，COUNTER 实读 EXECCTRL JMP 输入，查询真实 SM enable/FIFO/grant。输出恢复包含 SDK 实际改写的 CTRL/PAD、SIO latch/direction，以及旧 PIO0 latch/OE；在仍持有 SM 时隔离 PAD 恢复，只动所选引脚。
+- 软件与复核：gateway owner/实际 libscpi 95 项、扩展 COUNTER owner/解析 87 项、相邻 reference/workspace/RUN/部署 334 项通过；backend counter/gateway/reference/workspace 111 项及动态租约隔离用例通过，追加旧 PIO0 mux 恢复后的 gateway 回归 43 项通过（集合有重叠，不相加）。Release 与 flash link 检查通过。独立 reviewer 核对 IO 生命周期、descriptor 所有权和部署占用保护，发现的 GPIO 完整恢复与 FIFO 观测缺口已补齐。
+- 当前源码 P3：build=`20260923081422`，`p3-gateway-load-r2` 在 MARK 准备时遇到 NO1 TOPOLOGY 超时/`-200`，未进入 MARK 采样；同包 `p3-gateway-load-r2-resume` 完成 quick `PASS_WITH_WARNINGS`（INFO 31 / WARN 28 / ERROR 0 / FATAL 0）。原失败保留；更早 `r1` 的拓扑复用申请被当前工具限定的 profile 拒绝，未操作硬件，随后按完整范围运行，没有缩减必验阶段。
+- 网关硬件矩阵：`out/gateway-load-20260923/matrix-r1/migration-summary.json` 全部通过。NO3→NO2→NO4→NO1 各两次 LOAD/STOP/UNLOAD，再在 NO3 遍历全部 IN/OUT 组合；原始记录共 1377 条 SCPI，所有查询可回溯实际字段。加载/STOP 样本确认实际 PIO 输入/输出映射、程序驻留与 SM 申请、状态机禁止、私有 grant 为零、四 FIFO 为空、所选输出低。错角色 LOAD、已加载期间 DEP ACTIVATE/CLEAR 的拒绝与后续资源/配置清理均通过。当前工作树指纹与凭证及各轮一致。
+- COUNTER 任意输入：`out/gateway-load-20260923/counter-inputs-r1/counter-evidence.json` 通过，在 NO1 分别选择 IN1–IN4，核验 PIO EXECCTRL 实际输入引脚及 LOAD/STOP/UNLOAD。此项没有 START，不将无信号端口声明为频率或事件采集通过。
+- 最新信号在 NO1 IN1：`out/gateway-load-20260923/no1-frequency-r1/counter-evidence.json` 在新 build 复测通过。三窗计数差为 1662/1531/1524，TIMER1 观察频率为 1000.014368/999.445413/999.985197 Hz，含采样区间与 ±1 count 的频率全界均落入预定 990–1010 Hz；停止冻结、累计恢复、清零重启与四板清理通过。NO2 IN1 是否恢复回环未确认，网关矩阵未要求固定 READY 电平。
+- 证据边界：本轮只有加载与资源生命周期，没有 FIRE/ARM/START 网关执行，不能证明脉宽、READY 握手、边沿 latch 或预约 q。reference 在这些硬件轮次未启用，只有配置保持证据，不宣称硬件并行共存。GPIO CTRL/PAD/SIO/PIO 状态恢复经真实 C host 与 SDK 语义复核；HIL 校验资源和程序释放，但未逐寄存器重读完整 GPIO 恢复状态。
+- 源码交付：用户要求先按指纹提交推送。代码与验收凭证已提交为 `87235913`，提交钩子核验当前 staged 全源码指纹与上述 P3 一致；文档按仓库约定独立提交。SWITCH 尚未开始实现，不包含在本次已验收的能力声明内。
+
+### T2-PROGRESS-20260923-003：NO1 IN1 脉冲计数槽位与 PIO0 热加载
+
+- TODO task ID：T2-SLOT-COUNTER-001。用户明确先完成 NO1 脉冲计数槽位，再逐步实现 NO3 VNA 网关与链路控制；本地以捕获的时间片计数执行，各板加载的槽位决定 PIO 程序，SMA 统一 PIO0 热加载。本片先实现外部转台脉冲累计，不把位置脉冲数解释成预约格号。
+- 参考：只读本地 `origin/feature/node-sequence-reservation-trigger` 的 `0c913e83f241fa8b40c059792141ae6051a85139`，参考 `refmem_slot_claim` / `refmem_sequence_roles` 的身份、代际与资源职责，以及 `sync_io_sequence` 累积计数、非阻塞快照思路；不复制该分支的本地 board_id 假设、整套治理或单板验收凭证。
+- 实现：`sync_io_pulse_counter` 通过 PIO0 persona 热加载，只读取公开 IN1，PIO X 累计上升沿，FIFO 满仅丢快照不丢累计；不驱动输出，不使用逐脉冲 CPU IRQ、DMA 或共享 arena。资源数量、SM 和指令数以头文件、PIO 与 persona 描述符为事实源。可与 reference persona 共存；当前维护入口仍要求 TDMA STOP，不宣称与持续 RUN 输出共存。
+- 生命周期：`trigger_counter_service` 用活动 deployment 的 UID、COUNTER 角色、generation/CRC、slot/schedule 和输入路由授权，LOAD 与 START 都重新核验；硬件操作进入 `tdma_service_run_stopped_maintenance`，不塞进仅供 SRAM 发布的 metadata 回调。已加载租约阻止 DEP ACTIVATE/CLEAR，先停止、卸载再换角色。`TRIGger:REServation:COUNter` 提供 LOAD、START、STOP、CLEAR、UNLOAD 与查询；新接口不复用旧 REAL:PCNT 的 TriggerVector 统计。
+- 计数与时间：硬件 count32 按模数累计，STOP 冻结、START 保留累计、停止态 CLEAR 更新清零代际，UNLOAD 保留最后事实供读回。运行快照不暂停 PIO；排除 FIFO 与待 PUSH 的旧观察后，给出 TIMER1 采样区间。该区间包围计数观察，不是 IN1 边沿 latch；计数代际或清零代际变化时不能跨界差分。
+- 软件验证：actual owner 与实际 libscpi 83 项、部署/owner 联动 112 项、counter/reference/workspace 65 项、相邻 RUN gate/output/rate schedule 215 项通过（部分集合重叠，不相加）。Release 编译与三份 flash link 检查通过；初次 rate schedule 提取 fixture 因独立 counter token 未使用触发编译警告，已隔离该不属于 fixture 的声明，原输出行为断言未放宽。原始日志在 `out/no1-counter-*.log` 与对应 `out/pytest/` 目录。
+- 当前源码 P3：build=`20260923072308`，首轮 `p3-no1-counter-r1` 在 NO3 校准档位准备中断，未开始线序采集。确认 `run` 固定 quick 配置、忽略传入的配置路径；`resume` 才使用指定配置。`p3-no1-counter-r1-resume` 同包续跑完成 quick `PASS_WITH_WARNINGS`（INFO 33 / WARN 18 / ERROR 0 / FATAL 0），保留严格质量告警，不使用旧 build 的凭证。本段数字是该次验收快照，非产品事实源。
+- NO1 实测：`out/no1-counter-20260923/run-r2/counter-evidence.json` 完成并通过，清理四板均通过。三段累计增量分别为 1638/1524/1520，按 TIMER1 实际观察区间得到 999.814618/999.998583/1000.538437 Hz；包含计数相位量化后的频率区间均在事先声明的 990–1010 Hz 内（本轮 1 kHz 台架快照，非校准精度契约）。STOP 后间隔读回不增长、START 保累计、运行中 CLEAR 拒绝且代际不变、停止后 CLEAR 清零并增加清零代际、重启后继续增长均通过。
+- 身份和恢复：NO2/NO3/NO4 非 COUNTER 的 LOAD 返回 WRONG_ROLE 且 backend 未取得租约；COUNTER 已加载时 DEP ACTIVATE/CLEAR 返回 BUSY，原绑定保留；最终 STOP/UNLOAD、四板 DEP CLEAR、STOP 与 UID/build 读回通过，reference 配置保持。只读计数采样不作为输入边沿 latch；本片没有预约 q 执行、输出脉冲或设备 READY。
+- 跨板动态加载：用户要求先让 NO2 搭载计数槽位，确认其他板卡能否加载不同槽位。`migration-summary.json` 与 `migration-no2-r1` / `migration-no3-r1` / `migration-no4-r1` / `migration-no1-r1` 四轮全部通过：仅交换 COUNTER 和对应业务角色的 UID/TDMA slot，保留各角色 IO 语义；逐目标两次 PIO0 LOAD/START/STOP/CLEAR/UNLOAD，lease generation 更新，非 COUNTER 板 LOAD 拒绝，每轮配置清理成功。同一固件无需编译绑定 NO1，证明当前已实现的 COUNTER 可在四块板动态加载；不据此宣布尚未实现的任意槽位均可运行。
+- NO2 实际信号：用户将 1 kHz 源移至 NO2 IN1 后，`no2-frequency-r1/counter-evidence.json` 完整通过。活动身份为 NO2 UID、TDMA slot=1、COUNTER role=0；三段增量 1518/1527/1530，TIMER1 观察频率为 1000.002901/1000.140216/1000.245302 Hz，含 ±1 count 与采样区间的全界均在预定 990–1010 Hz 内。热加载、冻结、清零、卸载与四板清理通过。其余板在轮换时仅验证加载生命周期，输入零计数不作为频率或 READY 证明；信号接线变更不由主机推断为其他板仍有外部源。
+- 失败保留：首个 `run-r1` 的 HIL 脚本错误地从完整 TDMA 统计查询读取只存在于独立 ring 查询的 applied config 字段，产生 KeyError，尚未 LOAD。旧脚本 `no1_counter_hil_r1.py` 与原始响应保留；改用 `SYST:TDMA:RING:STAT?` 的 `RUNTIME_FIELDS` 后重跑，未修改固件或放宽硬件判据。
+- 后续顺序：COUNTER 当前切片关闭，NO3 VNA 网关与链路控制继续按用户顺序推进。参考分支的 gateway/READY IRQ 授权握手可借鉴，但原 fire 只提交脉宽、没有目标 q；LINK 是本地开关编码输出而非 TDMA 物理链路控制。当前分支仍须补预约格驱动和同预约反馈/实际时间戳，不能把源分支的计数或软件到达时刻当成完成证据。
+
+### T2-PROGRESS-20260923-002：真实跨板诊断动作、回执与角色路由
+
+- TODO task ID：T2-DEPLOY-003。用户要求跨板动作验证。本片由 NO1 向目标角色发送诊断 RAM `SET_VALUE`，目标本地执行并由真实普通 RefMem mailbox 返回完整身份回执；主机只做 STOP 下部署/排队及运行后的取证，不代转请求或生成回执。物理 GPIO、设备 READY、SYNC 时间戳对应关系、预约 deadline、fence 和实际 T2 latch 不由本片证明。以下运行参数与计数为台架快照，非产品事实源。
+- 协作复核：独立 reviewer 发现并闭合动作 RX 截断 VDC/feedback 消费、广播 target mask 被收窄及 STOP 轮询漏采三个问题；STOP pending 在 owner 忙时保留，旧 session 不复活。实际 owner 与 protocol C 编译测试验证单源三目标、广播非目标不执行、错误身份/CRC、丢片重发和 STOP。
+- 首轮当前源码 quick P3：`out/HardwareAcceptance/20260923/p3-cross-board-action-r1/`，build=`20260923055715`，`PASS_WITH_WARNINGS`，INFO 32 / WARN 21 / ERROR 0 / FATAL 0；原严格 TDMA 质量失败保持在阶段原件内。前序 `p3-action-loop-resume-r1` 只属于此前 build，不能验证本次新增诊断实现。
+- 首轮专项失败保留：`out/t2-cross-board-action-20260923/original-run/capture/action-evidence.json`。NO1 queued=3/completed=1/mask=2，NO2 applied=1/value=123，NO3/NO4 applied=0；全部 STOP/CLEAR/外层恢复成功。旧状态只含混合 cancelled，不能判定 STOP、超时或运行失效；旧 sent 也只是准备次数，不能当成功发布数。旧脚本 `joint_action_r1.py` 的 SHA256 与原件一致，不覆盖首轮失败。
+- 确定性修复：准备分片不再推进游标，只有 `tdma_service_publish_flight_tx` 成功后 `action_mailbox_published` 才推进并计 sent；发布失败保持原片。状态 schema 增加首个有效撤销原因、会话耗时、最后完成耗时及接收结果，后续 STOP/CLEAR 不覆盖已有失败原因。诊断期限引用 `DISTRIBUTED_ACTION_PROBE_TIMEOUT_MS`；下一轮运行窗口短于期限，明确要求 STOP 原因撤销，不能用扩大期限解释或抹去首轮失败。
+- 第二轮当前源码 P3：build=`20260923061212`，`p3-cross-board-action-r2` 在 TDMA 启动未取得完整 board record，四板 STOP 成功，DPLL 因交接节点集合不完整拒绝；同包、不重刷的 `p3-cross-board-action-r2-resume` 完成 quick `PASS_WITH_WARNINGS`（INFO 33 / WARN 15 / ERROR 0 / FATAL 0）。原失败与恢复目录分别保留。
+- 第二轮专项：`original-run-r2` 和 `swapped-run-r2` 都只完成首个 request=10，source completed=1/mask=2，运行至约 63 s 由 STOP 原因撤销；首个回执耗时分别 951/889 ms，不能解释成预约延迟或物理输出时间。原映射 NO2 applied=1/value=123，交换后只有承载 SWITCH_A 的 NO4 applied=1/value=123，证明首目标随业务角色变化；余下两目标未执行，整体仍 FAIL，不能据首目标路由成功关闭三目标聚合。各轮 CLEAR 与外层恢复均完成。
+- 后继共载修复：原 action 只接受 `TDMA_PROCESS_IMAGE_MESSAGE_CLASS`，遗漏既有 VDC feedback/boundary 类同样保留的独立 RefMem 与 CONTROL 区域。三个 action 入口改为 `tdma_process_image_transport_class_valid`，使用原有区域与 CRC，不增加席位、不改变 VDC 分片内容；完整 body 的 priority SYNC 仍排除。相邻 service 共用同一 ring snapshot，避免新增一次完整读取。该限制可由代码确认；它是否解释全部台架失败，以第三轮结果为准。
+- 软件证据：实际 action owner/kernel 42 项通过（`out/pytest/distributed-action-carriers-r7-20260923`），覆盖成功发布后推进、连续失败不跳片、STOP 迟到确认、全部 feedback/boundary/混合载体和 priority/旧命令拒绝。相邻 VDC 运输、reference spacing、owner、preacquire、ingress 等 235 项通过（`out/t2-cross-board-action-20260923/ingress-tests-r2.log`）。初次相邻测试因提取 harness 未提供新诊断 OFF 接口桩而编译失败，保留日志；补桩未放宽原 VDC 断言。第三轮源码已冻结，P3 与动作专项正在执行。
+- 用户最新接线与语义：NO1 IN1 外部 1 kHz 模拟转台，NO2/NO3/NO4 各 OUT4 回接 IN1 模拟 READY；共同时间轴、不同目标 q、各板本地提前装载与执行。`passive-input-readback-r1/passive-inputs.json` 校验四板 UID/build/STOP，NO1 IN1 观察到高/低，其他回环板仅静态读回；该查询不证明频率、READY 或实际事件时间戳。独立代码复核确认当前 OUT4 仅相对延迟接口，绝对 deadline RUN 固定 OUT1，IN1 capture 与 RUN 共用 arena；本片仍不能验收指定 q 的 OUT4→IN1 顺序闭环。
+- 最终该版证据：build=`20260923063812`，`p3-cross-board-action-r3` 在 NO1 RUN prepare 超时，`r3-resume` 在 NO2 TOPOLOGY 超时/`-200` 导致 MARK 未开始；失败均保留。`r3-resume2` 使用显式主机观察/交接预算后完成 quick `PASS_WITH_WARNINGS`（INFO 32 / WARN 21 / ERROR 0 / FATAL 0），原必验范围未缩减。`original-run-r3` 与重复轮只 completed=2/mask=6，末回执为 310/313 ms；`swapped-run-r3` completed=3/mask=14、三目标各 applied=1、末回执为 398 ms，STOP/CLEAR 与外层恢复通过（以上是该版台架快照，非实时期限保证）。交换轮成功不能覆盖原映射不稳定。
+- 根因复核：NO1 priority generation 启用后，`tdma_pio_spi_ring_origin_publish_priority` 的 READY 和 EMPTY 均声明 handled，取消普通 offer 并阻止普通 FIFO 消费；后续 Core0 在 `tx_ready_count` 背压处停止新动作发布。完整 body 的 priority SYNC 不能再塞入 action。共载修复消除了不必要的 class 限制，但没有解决 source priority/ordinary 仲裁；保留该缺口，按用户顺序先转入本地 COUNTER 槽位，不把启动窗口内偶然全部完成当成稳定运输资格。
+- PIO0 纠偏：当前常驻组合的指令总数仅限制同时驻留，不能否定热加载能力。应按实际 persona/lease 的退休与换装流程核算；现有 RUN cancel 会截断而非自然排空，后续预约状态机必须提前准备并保留共同格身份。
+
+### T2-PROGRESS-20260923-001：同步 RUN 时间片开关与四通道逐格测量
+
+- TODO task ID：T2-CLOCK-001、T2-ACCEPT-001。用户要求同步期间在同步脉冲后输出可选时间片，增加 SCPI 开关并用外部示波器同步采样。本轮只接入诊断 RUN 输出；预约 wire、READY/fence、实际业务 T2 latch 不由本片关闭。以下数值与命令均为本轮实现/台架快照，非通用产品精度契约。
+- 实现：`vdc_run_output_slices_t` 为 STOP 下 RAM 配置，默认关闭，PREPARE 锁存；`SYST:VDC:OUTP:SUBD:AFTER:ENAB`、`CONF`、`STAT?`、`RUN?` 提供开关、几何、请求及运行实例读回。开启时复用既有 RUN lease、SM/DMA/arena，PIO 有限循环输出时间片，每同步周期只提交一个 FIFO 字；关闭后再次 RUN 恢复原同步输出。独立维护 `SUBD:WINdow` 保持原语义。
+- 参数快照：同步周期 1 ms、细分 500 ns、窄脉冲 100 ns、同步标记 200 ns；q1…1998 为窄脉冲、q1999 留空、q2000 为下一同步标记。marker 沿绝对 DCO deadline，周期内使用固定整数 tick；不宣称任意 rate 下都有固定精度。PIO 20 词、现有固定 persona 空间按实际资源校验，不增加 Core1 席位。实际尾部为末细分下降沿，参与 refill/commit 预算。
+- 纠偏与失败保留：此前维护窗口开关不满足 live RUN 要求，已撤去该误接线。查询值 1 超时由主机通用串口工具丢弃未登记 scalar-one 回复导致，`out/HardwareAcceptance/20260923/scpi-query-raw/readback.json` 保存真实 `1\r\n`；最终配置查询返回完整元组。曾误改既有 REFERENCE ACK 导致 `p3-092018` 失败，已恢复且后继 P3 通过。
+- ON 首轮 `run-slices-on-r1` 在 NO4 RUN prepare 超时，r2/r3 在 START 确认超时；均保留原命令与恢复。r4 将诊断 action ACK 观察预算显式设为 1 s 后进入 TRIAL，但四板最终 FIFO 耗尽，NO1 首批 16 marker 后 6 次编码拒绝。删除新增的 12 tick 周期质量拒绝，保留真正重叠/低段不足/溢出检查；未放宽外部测量判据。原 P3/r1–r4 文件不覆盖。
+- 软件证据：backend/真实 PIO 指令解释器 162 项通过，VDC client/真实 libscpi 197 项通过，时间线/配置相邻回归 123 项通过；更早集成 284 项覆盖 grid owner，不将重叠数量相加。日志 `out/run-slices-final-client.log`、`out/run-slices-timeline-r1.log`；后端由协作 worker 验证，独立 reviewer 复核实际 tail、完整几何校验及运行锁存读回后放行硬件。observer.sample_period_ns 恢复为采样分辨率语义，不再误要求等于同步周期。
+- 当前源码 P3：`out/HardwareAcceptance/20260923/p3-105208/` 完整执行，build=`20260923025220`，quick `PASS_WITH_WARNINGS`，INFO 31 / WARN 23 / ERROR 0 / FATAL 0；原始严格质量失败仍由 diagnostic/alarms 保留，不能据此宣称严格全绿。
+- ON 外部专项：`out/HardwareAcceptance/20260923/run-slices-on-r5/` 成功；60 s 内部 guard/输出退休、六个同步四通道 RAW 窗口和恢复全部通过，无 errors/cleanup_errors。每窗用宽 marker 配对相同周期，再逐一比较相同细分序号，不以 nearest 500 ns 脉冲配对；每通道每完整周期含 2000 个上升沿（首marker、1998窄脉冲、末marker），尾格留空。全部对应边沿相对 CH1 的最大绝对偏差 24.085151 ns；CH2/CH3/CH4 相对CH1最大绝对差分别 21.833878/24.085151/19.857155 ns；独立复算任意两通道对应边沿最大差 36.000000 ns，均在本次 ±50 ns 判据内。四通道 TCAL 读回均为零；采样、阈值插值、线缆/未独立校准时基的界仍保留。
+- 原件和图：`channel-slice-summary.json`、`channel-slice-skew.png`、各 `window-*/scope.json` 与四份 RAW block；`AFTER:RUN?` 绑定 request 与锁存参数。示波器结果仅证明所采窗口内对应时间片同步，不证明未观测区间连续资格或绝对业务 reservation ID。四槽预算模型仍是下一业务加载输入。
+- OFF 恢复专项：`out/HardwareAcceptance/20260923/run-slices-off-r1/` 在 ON 后恢复关闭并重新 RUN，十二个外部同步窗口、内部 guard 和 STOP/恢复全部通过，errors/cleanup_errors 为空。每窗每通道仅两个周期同步上升沿，证明关闭后不再插入时间片；不使用只读开关值替代物理 OFF 证据。
+- 文档门禁通过，检查器测试 38 项通过；pre-commit/check-staged 因暂存源码与本次工作树不同而拒绝，日志在 `out/run-slices-hook-final.log` / `out/run-slices-staged-final.log`。本轮未提交，保留用户原暂存区；本次硬件结论绑定工作树构建及包，不能表述成 staged 提交已放行。
+
+### T2-PROGRESS-20260922-010：P0T 线序重测通过，magic_info 不参与判定
+
+- 用户要求重新运行 P0T；当前 build=`20260922132053`，四板有界拓扑探测原件为 `out/p0t-anchor-r2/summary.json`。
+- P0T `passed=true`，唯一环序为 `0010071E65B5CB38 → FB276192BEF9CCE1 → 2BD5090FE009FA2A → A1E549202D18ED6A → 0010071E65B5CB38`。四个真实相邻方向均检测到原始 words，十二个非相邻方向均无活动，板卡 NO assignment/cleanup 完成。
+- 各真实相邻方向的 `magic_info` 分别为 76、95、71、73；该字段仅保留接收扫描诊断，不参与 `detected`、线序推导或 P0T 通过判定。P0T 目标已完成：唯一线序成立。
+- 结论：P0T 不再是当前 TDMA 启动的阻塞项；下一步可在本次线序/NO assignment 已恢复的前提下，单独执行 `RING:ARM → RING:START → session/ring readback`。本条不宣称 TDMA 或 VDC grid 已运行。
+
+### T2-PROGRESS-20260922-009：VDC 时间网格同步验证前置阻塞
+
+- TODO task ID：T2-CLOCK-001、T2-EXEC-001。对当前四板固件执行 observer → grid 配置 → anchor 前置验证；不 ARM 业务输出，不把本地细分窗口当共同 anchor。
+- 四板 `vdc_observer_validate` 通过，build=`20260922132053`，四板 schedule CRC 均为 `124464440`，dictionary CRC 均为 `1099444114`，原件在 `out/vdc-grid-sync-20260922/observer-validate/summary.json`。这只证明 observer 配置/读回路径，不证明共同事件。
+- 四板初始均 STOP，`SYST:VDC:FEED:SESS?` 均为 0，`SYST:SYNC:VDC:DCO?` 均为无效 model；发送 `TRIG:RES:GRID:CONF 20260922,1,0,1000000,1000` 四板均返回 `1,35`（MODEL），没有写入 grid。有限 VDC RUN 尝试超时/执行错误；TDMA ARM 读回 1 但 session 仍为 0，TDMA START 四板均执行错误。
+- 清理：四板 `RING:STOP` 成功，`GRID?` 回到未配置，`OBServer?` 全零，`SYST:ERR?` 为 `0,"No error"`。完整原件见 `out/vdc-grid-sync-20260922/summary.json`。
+- 结论：`grid_sync_qualified=false`、`same_anchor_occurrence=false`。尚未执行 `GRID:ANCHor` 或 `ANCHor:PLAN?`，不输出四板 deadline/首沿同步结论。恢复条件是 TDMA/VDC session 与有效 committed DCO model 可用；恢复后先重跑四板 `OBServer:TDMA`，仅当四板 `expected_window_start` 和 schedule CRC 完全一致时才绑定 anchor。
+- 投入回收：本轮验证价值 4/5，已确定阻塞在时钟/TDMA 前置而非网格算术或 SCPI parser；停止继续发送 RUN/START 重试，保留原始拒绝与清理读回。
+
+### T2-PROGRESS-20260922-008：共同 anchor 接线修复与当前指纹实测阻塞
+
+- TODO task ID：T2-CLOCK-001、T2-EXEC-001。独立复核发现新增 anchor API 尚未接入真实部署规划，且 anchor 可跨 generation/样本身份复用；本片只修复这条证据链，不扩展输出执行器。
+- 实现：`trigger_deployment_plan()` 现在调用 `trigger_grid_preview_plan_anchored()`；anchor 绑定要求当前 grid 的 `anchor_vdc_ns`、event、observer sample、schedule CRC、DPLL-eligible 硬件时间戳和不超过 100 ns 分辨率全部匹配。anchor 保存 generation；新 generation/CLEAR 清除旧 anchor。规划前后复核 sample、event、A、schedule、source、resolution、flags、model token/session，任何变化返回 anchor reject。
+- 接口：新增 `TRIG:RES:GRID:ANCHor event_id,anchor_vdc_ns`、`GRID:ANCHor?`、`GRID:ANCHor:PLAN?`；仍是 STOP-only preview/plan，不授予 output、READY、ARM 或 RUN 权限。实现落点为 `trigger_grid_preview.h/.c` 与 `scpi_trigger_grid_commands.inc`。
+- 软件证据：当前源码 owner/parser/deployment 回归 `154 passed`，数学网格回归 `6 passed`；覆盖无 anchor、错误 event、诊断时间戳、A 不一致、规划期间 sample 变化和 generation 清除。Release `pico2-release` 编译及链接成功，P3 构建目录 `out/build/p3-acceptance-20260922-212046/` 产生四板固件。
+- 当前指纹 P3 实测：首轮 `out/HardwareAcceptance/20260922/p3-211255/` 在 HDO `:TIM:SCAL 0.0002` 查询超时退出 2，四板串口/校准/恢复阶段完成；第二轮 `out/HardwareAcceptance/20260922/p3-212046/` 在 P0T 拓扑阶段失败，NO1→NO2、NO2→NO3 有原始 words，`magic_info` 仅作为接收扫描诊断信息，不参与线序判定；当前仍因完整环序未形成、NO2 ARM 状态读回无 payload 而不能签发 P3。窄范围复测 `out/p0t-anchor-r1/` 保持同类结果，不能将失败归因于 anchor 运行路径。
+- 投入回收：代码修复价值 5/5，软件验证已达到停止点；硬件重复完整 P3 的边际收益降为低，保留两轮失败原件，暂停重复验收。恢复条件是 P0T 帧识别/ARM 读回恢复，或示波器采集链恢复；恢复后只重跑 P3 必需阶段，不重做已通过的 host owner 回归。
 
 ### T2-PROGRESS-20260922-007：DPLL 60 s 联合示波器复核与 grid anchor 边界
 

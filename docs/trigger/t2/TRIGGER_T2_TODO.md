@@ -4,7 +4,7 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TODO.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-09-22
+Last updated: 2026-09-23
 
 ## 文档接口与状态规则
 
@@ -38,7 +38,11 @@ OUT1 外部周期保持，周期内部按可配置细分格建立 T2 时间基�
 | T2-DOC-001 | 建立三件套与导航 | DONE | 分离设计/任务/事实；总索引、独立复核和文档门禁通过，见 T2-PROGRESS-20260922-001；不表示 T2 功能完成 |
 | T2-DEPLOY-001 | 确认活动槽位与多板映射 | DONE | 用户确认当前映射：NO1 COUNTER/IN1；NO2 SWITCH_A/SP8T/OUT1–3；NO3 GATEWAY/VNA OUT4+READY IN1；NO4 SWITCH_B/SP2T/HV OUT1。NO2/NO4 抽象为同一 SWITCH 类型，设备差异由 mask/profile 表达；READY 极性仍待设备协议确认，见 T2-PROGRESS-20260922-006 |
 | T2-DEPLOY-002 | 迁入最小部署模型及配置事务 | DONE | 完整表 canonical CRC、STOP STAGE/读回/ACTIVATE、UID/TDMA slot/IO/反馈路由及代际高水位已实现；四板原映射、两 SWITCH 身份交换、恢复及错误CRC/错目标/旧代负测通过，见 T2-PROGRESS-20260922-006。active 仅为路由映射，不授予 IO claim/ARM |
-| T2-DEPLOY-003 | 多板槽位业务闭环 | PENDING | 依赖 T2-DEPLOY-002；真实 TDMA 分发、来源与目标映射、各板动作、具身份回执、STOP 与重启后的旧消息隔离；本地回环/注入 ACK 不能替代跨板证据 |
+| T2-DEPLOY-003 | 多板槽位业务闭环 | IN PROGRESS | 已接入普通 RefMem mailbox 的诊断 RAM SET_VALUE 请求与具身份回执，正在验证当前源码四板运输及两 SWITCH 角色互换，证据见 T2-PROGRESS-20260923-002；物理角色动作、设备反馈与重启隔离仍待验收，本地回环/注入 ACK 不能替代跨板证据 |
+| T2-SLOT-COUNTER-001 | 脉冲计数槽位与跨板动态加载 | DONE | COUNTER/IN1 的 PIO0 热加载在四板轮换通过，NO1 及移接信号后的 NO2 真实计数/频率通过；停止冻结、清零代际、START 保累计、错角色、部署占用与卸载恢复完成，当前源码 quick P3 与证据见 T2-PROGRESS-20260923-003。仅关闭 STOP 维护计数片，不等于任意其他槽位、边沿 latch 或预约格执行完成 |
+| T2-SLOT-GATEWAY-001 | VNA 网关槽位 | IN PROGRESS | 已进入动态加载切片，IO 可独立选择；加载/释放、本地预约格计数驱动、输出与同预约 READY 分别验收，动态加载不替代后续执行闭环 |
+| T2-SLOT-IO-001 | 网关动态加载与任意 IO 选择 | DONE | 四板网关换装、NO3 全部 IN/OUT 组合、NO1 COUNTER 任意 IN 的实际 PIO 路由/租约读回与新 build 1 kHz 复测通过，当前源码 quick P3、SM/FIFO/grant 与资源卸载证据见 T2-PROGRESS-20260923-004。只关闭 STOP 加载切片，没有网关 FIRE/ARM；READY 执行与预约格资格仍待后续 |
+| T2-SLOT-LINK-001 | 链路控制槽位 | PENDING | COUNTER、VNA 网关后逐步迁入参考分支的链路输出语义；按当前活动槽位的 output mask 控制本地链路，不编译绑定板号，各自预约格与反馈结果可追溯 |
 | T2-DEPLOY-004 | 同固件动态身份切换 | PENDING | 在板卡间交换角色并恢复；停止新预约、处理在飞动作、输出/反馈捕获退休、旧资源释放、新配置读回及部署代发布可追溯；旧 READY/REDY/completion 不授权新角色；切换失败不留下部分活动部署 |
 | T2-CLOCK-PROBE-001 | OUT1 有限细分脉冲间隔实测 | DONE | STOP 下宽标记和可配置窄脉冲完成四板指定档位实测；请求/模型/编码/示波器 RAW、完整边沿、间隔/累计误差、恢复、host/Release/P3 闭合，见 T2-PROGRESS-20260922-003。仅关闭有限局部间隔实验，共同 anchor、持续同步 RUN 和 T2-CLOCK-001 仍未完成 |
 | T2-CLOCK-PROBE-002 | 两标记之间铺满细分与尾格留空 | DONE | 四板指定档位的完整边沿、两端标记、尾格留空、双格间隔/低电平余量及配置恢复实测通过；host/Release/当前源码 quick P3 证据见 T2-PROGRESS-20260922-004，原严格质量告警保留；不授权 live RUN 或共同 anchor |

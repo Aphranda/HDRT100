@@ -4,7 +4,7 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
 Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-09-22
+Last updated: 2026-09-23
 
 ## 文档接口与范围
 
@@ -23,6 +23,12 @@ Last updated: 2026-09-22
 GATEWAY 的 READY 使用边沿型必要反馈配置；当前部署只声明路由，不冻结电气极性，也不把初始有效电平或配置 ACK 当成本次采样完成。COUNTER 与两个 SWITCH 的 `NONE_UNOBSERVED` 表示本片尚无物理反馈配置，绝不等价于完成。后续每节点反馈接口仍需允许 SWITCH profile 接入实际反馈而不改变角色类型。
 
 网分网关同时具有 TRIG 输出和 REDY 输入；本文将设备反馈统称 READY，设备原始名称 REDY 在接口/证据中保留。所有承载 T2 的节点均具备反馈处理生命周期，具体输入、极性、语义和 deadline 由角色配置决定，不只在网关实现一个中央反馈处理器。
+
+用户确认的当前台架接线（2026-09-23 快照）：NO1 的 IN1 接外部 1 kHz 信号源模拟转台；NO2、NO3、NO4 各自 OUT4 回接本板 IN1 模拟 READY。该回环是诊断接线，不改写实际 SWITCH 的 OUT1–OUT3/OUT1 路由。源频率是用户给定条件，USB 电平查询不构成频率或边沿时间戳测量。
+
+各板共享同一时间轴，但按分配的不同绝对时间片在本地执行，形成时间轴上的动作顺序。本板捕获同步基准与细分事件、维护本地格计数，提前装载预约与槽位程序，到目标格号时由本地硬件执行；VDC/TIMER1 映射用于时间规划和时间戳核对，不以主机或源板到点逐板发送即时命令代替。READY 在本地捕获并绑定本次预约，SYNC 分发 READY 与时间戳的对应关系，进行时间片重叠检查。现有 `out/t2-multi-sync-plan-500ns-20260922` 预算快照把两个 SWITCH 放在同一 q，不能直接作为本次不同时间片顺序执行的验收输入；需明确分配各角色 q 后再加载，不能只按消息到达先后排序。
+
+SMA 使用 PIO0 热加载；各板已加载的业务槽位决定使用的 PIO 程序、输入输出和资源声明。当前同时常驻程序的指令总数不等于可热加载能力的总上限。换装必须按 persona/lease 的退休、卸载、申请、加载和武装生命周期执行，准备时间纳入预约 lead 预算，不能到目标格才软件加载。保持共同时间轴与持续输出诊断时间片是两个独立要求，热加载不能静默改变 anchor/格号身份。
 
 交付分为两个可独立验证的闭环：
 
@@ -122,6 +128,32 @@ Core0 在 STOP 下先 STAGE 完整表，逐板读回同一 generation/CRC，随�
 
 本地规划先验证“请求槽身份确实部署在本机”，再消费共享 grid 的指定 q 规划，返回角色类型、IO 路由、共同目标和本地 deadline。返回前再次核对 UID/slot/ring configuration/schedule；错目标板不得取得其他角色计划。该动作仍不申请 IO、ARM 或发布 READY。动态身份切换用新 generation STAGE/ACTIVATE，旧部署计划立刻失效；CLEAR 保留代际高水位，防止旧配置复活。
 
+### 跨板诊断动作运输切片
+
+当前诊断入口 `TRIGger:REServation:PROBe` 在活动部署表上验证真实跨板运输。STOP 下配置新 session、向源板排入指定业务角色的 `SET_VALUE` 请求；RUN 后通过既有普通 RefMem mailbox 发送，目标 Core0 更新诊断 RAM 值并由真实返程链路返回具身份回执。主机不转发请求或生成回执。接口、布局与容量以 `distributed_action_probe.h`、`distributed_action_probe.inc`、`refmem_action_probe.h` 和 `scpi_action_probe.inc` 为实现事实源；本节记录诊断实现，不冻结预约 wire 契约。
+
+请求绑定 session、deployment generation/CRC、来源与目标 UID/TDMA slot、业务角色和 request ID；完整记录校验后才能执行。相同请求重复到达只重发回执，变更载荷或旧请求不能重复执行。STOP 请求直接锁存撤销，即使 service 没采到停止状态，旧 session 也不能复活。普通 mailbox 的广播范围、VDC 和 ACK 字段保持，诊断记录按完整目标身份筛选；仅跳过被诊断载荷占用的普通 RefMem delta 解析，继续原 VDC/feedback 消费。该诊断占用普通载荷，不能据此推断原 RefMem delta 刷新率保持。
+
+当前验收限定单源依次向各目标发送；多源相互发送时的回执公平性尚未实现。RAM 动作不申请物理 IO、不消费同步格 deadline，也不接收设备 READY。设备 READY 仍由本地接收，后续由 SYNC 分发 READY 与时间戳的对应关系并检查时间片重叠；诊断动作回执不能充当 READY、fence、物理执行或实际 T2 latch。
+
+### COUNTER 槽位的首个硬件切片
+
+`trigger_counter_service` 按活动部署的 COUNTER 角色、本机 UID、输入路由和代际申请 `sync_io_pulse_counter`，不按板号授予硬件访问。`TRIGger:REServation:COUNter:LOAD` 接收 deployment generation/CRC，START 前再次核对绑定。LOAD、START、STOP、CLEAR、UNLOAD 经 TDMA 的 STOP maintenance 门进入 Core0 硬件 owner；持有租约期间不能 ACTIVATE/CLEAR 部署。输入可在公开 IN1–IN4 中选择，使用部署表的单输入 mask；实际 GPIO 映射以 backend 与 board profile 为准，加载态查询读取实际 SM 的输入选择寄存器。
+
+PIO0 热加载累计上升沿计数程序。运行观察不会暂停计数；FIFO 满可丢快照，累计值继续保留。STOP 冻结，START 保留累计，停止态 CLEAR 改变计数 epoch，UNLOAD 释放资源并保留最后读回事实。查询同时给出输入、状态、lease/clear generation、计数和 TIMER1 观察区间；区间标记一次计数快照的观察时间，不是输入边沿 latch。计算频率必须使用同计数代际的硬件时差与计数差，保留相位量化和区间宽度。
+
+该输入只读 persona 与 reference 资源兼容，不使用共享 DMA arena 或逐脉冲 CPU 中断；其他运行 persona 的共存仍由实际资源和 admission 门判定。已验收的是停止态维护入口下的单槽计数，不授权在线热换、预约格动作或完整四板业务闭环。
+
+### GATEWAY 动态加载与可配置 IO
+
+参考 `node-sequence` 分支 `tools/sequence_trigger_debug_ui` 的槽位/端口选择语义：网关 READY 输入与触发输出独立选择，计数输入独立配置。当前分支以活动部署表为唯一 IO 配置来源，GATEWAY 的单输入 mask 和单输出 mask 分别选择公开 IN1–IN4、OUT1–OUT4；LOAD 不另存一份可能漂移的端口配置。
+
+`trigger_gateway_service` 在 STOP maintenance 下核对活动 GATEWAY 角色、UID、slot、generation/CRC 和 schedule，随后由 `sync_io_gateway` 热加载输出与 READY 程序。`TRIGger:REServation:GATEway` 提供 LOAD、STOP、UNLOAD、查询；LOAD 参数为 deployment generation/CRC 与脉宽。已加载的 COUNTER 或 GATEWAY 租约阻止部署 ACTIVATE/CLEAR，换装先退休与释放。
+
+`sync_io_persona_manager_claim_io` 只允许已定义的 COUNTER/GATEWAY 改写其 GPIO 路由，程序、SM、IRQ、DMA 和 workspace 预算仍来自原 descriptor；副本由 lease 持有，避免栈地址失效。加载态读回实际 PIO 引脚选择、SM enable、FIFO 深度与私有 grant。网关保存所选输出的 GPIO CTRL/PAD、SIO 以及 PIO0 输出/OE，安全低和隔离 PAD 后恢复，其他引脚不被修改。
+
+本片只交付动态装载生命周期：两个 SM 保持禁止，FIFO 不装入触发字，STOP 保留安全低和租约，UNLOAD 恢复并释放。没有即时 FIRE/ARM 接口；查询的 READY 电平不等于新边沿或本次预约完成。参考分支的 IRQ 授权握手可继续用于本地预约执行，但其即时 fire 不含目标 q，不能直接当成共同时间轴上的预约执行。
+
 ### T2-GRID-PROBE：细分间隔的物理预验证
 
 可在 STOP 维护态独占 OUT1，输出一个较宽的起始标记，随后输出有限个窄细分脉冲。间隔定义为相邻上升沿之差，包含标记上升沿到首个细分上升沿；标记高宽不额外叠加到间隔中。间隔、细分数量、高宽和硬件 tick 显式配置，经当前冻结模型的 rate 换算后一次预装有限 DMA，不通过软件逐个发脉冲。
@@ -133,6 +165,37 @@ Core0 在 STOP 下先 STAGE 完整表，逐板读回同一 generation/CRC，随�
 有限窗口模式可在两端都输出宽标记，中间铺满细分格，并省略下一标记前的最后一格。令同步周期 `P=N*Δ`（本模式要求整除），输出相对格位置 `q=0,1,…,N−2,N`；`q=0,N` 为宽标记，其余为窄脉冲，`q=N−1` 保持低电平。最后窄脉冲与末标记的上升沿相隔两个格，实际低电平余量还须扣除末次窄脉冲高宽并计入量化。
 
 首尾标记和内部细分共用一份预装硬件字流，按绝对位置经冻结 rate 换算；不能由主机分别发送两个标记或在末尾临时软件停止。实际脉冲数量为 `N`，容量依据 `SYNC_IO_RATE_SCHEDULE_MAX_PULSES`，不为实验隐式扩容。末标记的真实下降沿也必须纳入完成/退休证明。本模式仍是本地维护窗口，不声明两端标记已绑定持续同步 RUN 的共同 anchor。
+
+### 同步 RUN 的可选物理时间片输出
+
+`vdc_run_output` 增加 RAM 配置 `vdc_run_output_slices_t`，由 Core0 在 STOP 且无在飞
+RUN request 时修改，下一次 `SYST:VDC:OUTP:RUN` 锁存。默认关闭：仍输出原周期同步脉冲；
+开启后在同一 OUT1 同步标记之后输出窄时间片脉冲，并保留末格空白。此开关不控制
+`SUBD:WINdow` 的独立维护实验，不发布预约 READY/fence 或业务 completion。
+
+接口如下，参数均为整数，时间单位为纳秒；命令实现与字段顺序以
+`middleware/scpi_port/src/scpi_vdc_output_slices.inc` 为准：
+
+| 命令 | 作用 |
+|---|---|
+| `SYST:VDC:OUTP:SUBD:AFTER:ENAB <enabled>` | 关闭或开启下一次 RUN 的时间片输出；同步标记继续输出 |
+| `SYST:VDC:OUTP:SUBD:AFTER:CONF <interval_ns>,<high_ns>,<marker_ns>` | 配置时间片间隔、窄脉冲高宽、同步标记高宽；完整编码校验通过后整体更新 |
+| `SYST:VDC:OUTP:SUBD:AFTER:STAT?` | 读取请求配置，依次返回 enabled、interval、high、marker |
+| `SYST:VDC:OUTP:SUBD:AFTER:RUN?` | STOP 后读取 schema、request、锁存配置、周期、时钟、终态/reason、末同步上升沿及末时间片下降沿的计划 tick |
+
+物理输出复用现有 RUN 的 SYNC_IO lease、SM、DMA 与 arena，由
+`sync_pulse_sliced_out1.pio` 在每个同步 descriptor 内完成有限重复；不为每格增加
+Core1 调用或 TDMA 席位。PIO 实际指令占用经资源表及运行时空闲空间验证。
+同步标记沿原绝对 DCO deadline 规划；周期内细分采用固定整数 tick，支持几何与
+首尾开销以 `sync_pulse_sliced_configure()` / `sync_pulse_sliced_encode()` 为准。
+DPLL 模型修正后的可编码周期变化保留为诊断观测，不新增质量拒绝；脉冲重叠、
+倒退、溢出和不可编码字流仍不得装载。实际跨板偏差必须用示波器逐对应时间片测量。
+默认参数只代表当前诊断档位，不承诺任意分辨率、时钟或调参范围均可编码。
+
+硬件尾部定义为最后细分脉冲下降沿；FIFO 源退休与物理边沿退休分开。STOP 后才能
+切换几何或模式；开关关闭后重新 RUN 回到同步脉冲模式。运行锁存配置由独立读回
+绑定 request，不能用后续修改过的请求配置代替运行证据。四通道同窗验收按宽标记
+分段、对应格序号比对并检查末格空白；普通同步标记相位通过不代表细分时间片通过。
 
 ## T2-FLOW：运输、READY 与执行
 
