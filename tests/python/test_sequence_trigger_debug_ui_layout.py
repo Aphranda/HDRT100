@@ -6,8 +6,20 @@ from tkinter import ttk
 import pytest
 
 from tools.sequence_trigger_debug_ui.sequence_trigger_debug_ui import (
-    MODE_INDEPENDENT, MODE_RJ45, MODE_TURNTABLE, ROLE_GATEWAY, ROLE_SEQUENCE, SequenceUi,
+    MODE_INDEPENDENT, MODE_RJ45, MODE_TURNTABLE, OPERATING_CATALOG_QUERY,
+    OPERATING_PROFILE_QUERY, ROLE_GATEWAY, ROLE_SEQUENCE, SequenceUi,
 )
+
+
+def operating_catalog_response(*entries):
+    rows = []
+    for level, baud, cycle in entries:
+        rows += [level, baud, cycle, 4096, 0, 0]
+    return f"{len(entries)}," + ",".join(str(value) for value in rows)
+
+
+LADDER = ((0, 10000000, 2000000), (7, 10000000, 1000000),
+          (20, 10000000, 500000), (21, 10000000, 250000))
 from tools.sequence_trigger_debug_ui import settings
 
 
@@ -82,6 +94,7 @@ def test_settings_restore_drafts_across_windows_without_restoring_device_state(u
     first.out_enabled[3].set(False)
     first.auto_scroll.set(False)
     first.loopback_durations[MODE_TURNTABLE].set("19")
+    first.operating_level.set("10MHz / 1ms")
     select(first, first.turntable_page)
     first._configured_mode = MODE_TURNTABLE
     first._device_mode = MODE_TURNTABLE
@@ -105,6 +118,7 @@ def test_settings_restore_drafts_across_windows_without_restoring_device_state(u
     assert second.gateway_out_roles[2].get() == ROLE_GATEWAY
     assert not second.out_enabled[3].get() and not second.auto_scroll.get()
     assert second.loopback_durations[MODE_TURNTABLE].get() == "19"
+    assert second.operating_level.get() == "10MHz / 1ms"
     assert second.sequence_state.get() == "UNKNOWN"
     assert second._configured_mode is None and second._device_mode is None
     assert second.manual_command.get() == second.ota_file.get() == ""
@@ -671,3 +685,178 @@ def test_reset_blocks_late_configuration_completion(ui):
     assert ui._configured_mode is None
     ui.command("TRIG:START")
     assert ui._operations.empty()
+
+
+def test_both_combined_pages_share_one_tdma_operating_level_control(ui):
+    assert len(ui.operating_level_boxes) == len(ui.operating_level_label_widgets) == 2
+    # Nothing is preselected: an empty draft keeps the ring's own profile and no
+    # bare level number is shown before the device names its ladder.
+    assert ui.operating_level.get() == ""
+    assert all("档位表未读取" in label.cget("text")
+               for label in ui.operating_level_label_widgets)
+    select(ui, ui.loopback_page)
+    assert ui.operating_level_boxes[0].winfo_ismapped()
+    assert not ui.operating_level_boxes[1].winfo_ismapped()
+    ui.operating_level.set("10MHz / 1ms")
+    assert ui.operating_level_boxes[0].get() == ui.operating_level_boxes[1].get() == "10MHz / 1ms"
+    select(ui, ui.turntable_page)
+    assert ui.operating_level_boxes[1].winfo_ismapped()
+
+
+@pytest.mark.parametrize("stored", ["5", "21", " 7 "])
+def test_stored_level_number_is_dropped_in_favour_of_the_catalog_name(
+        ui_factory, tmp_path, stored):
+    path = tmp_path / "settings.json"
+    settings.save(path, {"operating_level": stored})
+    window = ui_factory(path)
+    assert window.operating_level.get() == ""
+    assert "旧档位草稿" in window.output.get("1.0", "end")
+
+
+def test_a_stored_catalog_label_survives_the_reload(ui_factory, tmp_path):
+    path = tmp_path / "settings.json"
+    settings.save(path, {"operating_level": "10MHz / 1ms"})
+    window = ui_factory(path)
+    assert window.operating_level.get() == "10MHz / 1ms"
+
+
+def test_touching_the_profile_control_reads_the_device_ladder_once(ui):
+    select(ui, ui.loopback_page)
+    # Without a scanned resource the control must not queue anything.
+    ui.port.set("")
+    ui.operating_level_boxes[0].event_generate("<FocusIn>")
+    assert ui._operations.empty()
+    ui.port.set("TEST_PORT_A")
+    ui.operating_level_boxes[0].event_generate("<FocusIn>")
+    kind, payload = ui._operations.get_nowait()
+    assert kind == "commands" and payload[2] == [OPERATING_CATALOG_QUERY]
+    # A second touch while the first read is outstanding stays silent.
+    ui.operating_level_boxes[1].event_generate("<FocusIn>")
+    assert ui._operations.empty()
+    ui.update_io(OPERATING_CATALOG_QUERY, operating_catalog_response(*LADDER))
+    ui.operating_level_boxes[0].event_generate("<FocusIn>")
+    assert ui._operations.empty()
+
+
+def test_combined_configuration_stages_the_level_and_reads_it_back(ui):
+    select(ui, ui.loopback_page)
+    commands = complete_configuration(ui, MODE_RJ45)
+    # No draft yet: the ring keeps its profile, but the readbacks still run.
+    assert not any("OPMODE:STAGE" in command for command in commands)
+    assert commands.count(OPERATING_CATALOG_QUERY) == 1
+    assert commands.count(OPERATING_PROFILE_QUERY) == 1
+    assert commands.index(OPERATING_CATALOG_QUERY) < commands.index(OPERATING_PROFILE_QUERY)
+
+    ui.update_io(OPERATING_CATALOG_QUERY, operating_catalog_response(*LADDER))
+    ui.operating_level.set("20")
+    commands = complete_configuration(ui, MODE_RJ45)
+    assert "SYST:TDMA:OPMODE:STAGE 20" in commands
+    assert commands.index("SYST:TDMA:OPMODE:STAGE 20") < \
+        commands.index("SYST:TDMA:OPMODE:APPLY")
+
+    ui.update_io(OPERATING_PROFILE_QUERY,
+                 "15,40000000,100000,4096,1,456,15,40000000,100000,4096,1,456,5,5,1,3")
+    assert "当前 40MHz / 100µs" in ui.operating_status.get()
+    assert "挡号 15" in ui.operating_status.get()
+    assert "已 HIL 验证" in ui.operating_status.get()
+    assert "当前 40MHz / 100µs" in ui.output.get("1.0", "end")
+    ui.update_io(OPERATING_PROFILE_QUERY, "1,2,3")
+    assert "读回失败" in ui.operating_status.get()
+    assert "读回失败" in ui.output.get("1.0", "end")
+
+
+def test_catalog_readback_names_the_choices_and_bounds_the_draft(ui):
+    select(ui, ui.loopback_page)
+    ui.update_io(OPERATING_CATALOG_QUERY, operating_catalog_response(*LADDER))
+    choices = tuple(ui.operating_level_boxes[0].cget("values"))
+    assert choices == ("10MHz / 2ms", "10MHz / 1ms", "10MHz / 500µs", "10MHz / 250µs")
+    assert all("4 档" in label.cget("text")
+               for label in ui.operating_level_label_widgets)
+    assert "4 档" in ui.output.get("1.0", "end")
+    assert "10MHz / 250µs" in ui.output.get("1.0", "end")
+
+    # The live profile names the field once the device reports it.
+    assert ui.operating_level.get() == ""
+    ui.update_io(OPERATING_PROFILE_QUERY,
+                 "7,10000000,1000000,4096,0,0,7,10000000,1000000,4096,0,0,0,0,0,0")
+    assert ui.operating_level.get() == "10MHz / 1ms"
+
+    # The choice carries meaning, and stages the level the device named.
+    ui.operating_level.set("10MHz / 250µs")
+    commands = complete_configuration(ui, MODE_RJ45)
+    assert "SYST:TDMA:OPMODE:STAGE 21" in commands
+
+    # A name the catalog does not offer is refused before any SCPI is queued.
+    ui.operating_level.set("35MHz / 1ms")
+    ui.configure_mode(MODE_RJ45)
+    assert ui._operations.empty()
+    ui.update()
+    assert "配置错误" in ui.output.get("1.0", "end")
+
+    # A rejected catalog readback keeps the previous names instead of guessing.
+    ui.update_io(OPERATING_CATALOG_QUERY, "2,0,10000000")
+    assert ui._operating_labels
+    assert "读回失败" in ui.output.get("1.0", "end")
+
+
+def test_operating_level_draft_is_bounded_and_does_not_gate_independent_mode(ui):
+    select(ui, ui.loopback_page)
+    ui.update_io(OPERATING_CATALOG_QUERY, operating_catalog_response(*LADDER))
+    ui.operating_level.set("22")
+    ui.configure_mode(MODE_RJ45)
+    assert ui._operations.empty()
+    ui.update()
+    assert "配置错误" in ui.output.get("1.0", "end")
+    # The ring-level draft must not block a mode that owns no TDMA ring.
+    ui.operating_level.set("bogus")
+    commands = complete_configuration(ui, MODE_INDEPENDENT)
+    assert not any("OPMODE" in command for command in commands)
+
+
+def test_profile_choices_only_show_10_to_30_mhz_and_reset_on_connection_change(ui):
+    select(ui, ui.loopback_page)
+    ui.operating_level.set("40MHz / 100µs")
+    ui.update_io(OPERATING_CATALOG_QUERY, operating_catalog_response(
+        (0, 5_000_000, 2000000), (7, 10_000_000, 1000000),
+        (12, 30_000_000, 500000), (15, 40_000_000, 100000)))
+    assert tuple(ui.operating_level_boxes[0].cget("values")) == ("10MHz / 1ms", "30MHz / 500µs")
+    assert ui.operating_level.get() == ""
+    ui.operating_level.set("15")
+    ui.configure_mode(MODE_RJ45)
+    assert ui._operations.empty()
+    ui.operating_level.set("30MHz / 500µs")
+    commands = complete_configuration(ui, MODE_RJ45)
+    assert "SYST:TDMA:OPMODE:STAGE 12" in commands
+    ui.port.set("TEST_PORT_B")
+    assert not ui._operating_labels
+    assert not ui.operating_level_boxes[0].cget("values")
+    ui.configure_mode(MODE_RJ45)
+    assert ui._operations.empty()
+
+
+def test_stored_profile_outside_gui_baud_range_is_not_displayed(ui_factory, tmp_path):
+    path = tmp_path / "outside-range.json"
+    settings.save(path, {"operating_level": "40MHz / 100µs"})
+    window = ui_factory(path)
+    assert window.operating_level.get() == ""
+
+
+def test_budget_result_is_bound_to_resource_and_editor_generation(ui):
+    class Editor:
+        def __init__(self):
+            self.results = []
+        def winfo_exists(self):
+            return True
+        def receive_result(self, *args):
+            self.results.append(args)
+        def receive_error(self, message):
+            self.results.append(message)
+    editor = Editor()
+    ui._budget_editor = editor
+    generation = ui._budget_generation
+    ui._budget_finished(("Serial", "OTHER"), generation, "read", {}, None)
+    ui._budget_finished(ui._resource_key(), generation - 1, "read", {}, None)
+    assert editor.results == []
+    ui._budget_finished(ui._resource_key(), generation, "read", {"ok": True}, None)
+    assert editor.results == [("read", {"ok": True})]
+    ui._budget_editor = None

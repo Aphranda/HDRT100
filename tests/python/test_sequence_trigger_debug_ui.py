@@ -9,6 +9,8 @@ from tools.sequence_trigger_debug_ui.sequence_trigger_debug_ui import (
     MODE_INDEPENDENT,
     MODE_RJ45,
     MODE_TURNTABLE,
+    OPERATING_CATALOG_QUERY,
+    OPERATING_PROFILE_QUERY,
     RING_STATUS_QUERY,
     SequenceUi,
     build_configuration_commands,
@@ -18,6 +20,13 @@ from tools.sequence_trigger_debug_ui.sequence_trigger_debug_ui import (
     format_link_status,
     format_counter_status,
     format_counter_history,
+    format_operating_catalog,
+    format_operating_status,
+    operating_catalog_labels,
+    operating_level_label,
+    parse_operating_catalog,
+    parse_operating_level,
+    resolve_operating_level,
     build_ota_command,
     discover_serial_ports,
     discover_visa_resources,
@@ -424,6 +433,25 @@ def test_combined_uses_explicit_out_attributes_for_encoding_and_vna_trigger():
     assert "CONF:SEQ:LINK LOOPBACK,2,3,MANUAL,OUT3,30,5000,RIS" in commands
 
 
+def test_combined_configuration_can_leave_the_ring_profile_alone():
+    args = dict(mode=MODE_RJ45, plan="SP8T", codes=list(range(8)), source="MANUAL",
+        edge="RIS", settle_us=10, pulse_us=10, sequence_mask=7, status_mask=0,
+        status_mode="NONE", gateway_output="OUT4")
+    commands = build_mode_configuration(**args)
+    assert "SYST:TDMA:OPMODE:STAGE 7" in commands
+    assert commands.index("SYST:TDMA:OPMODE:APPLY") < commands.index("SYST:TDMA:RING:TOPOLOGY 2,0,0")
+
+    untouched = build_mode_configuration(**(args | {"operating_level": None}))
+    assert not any("OPMODE" in command for command in untouched)
+    # Everything else still frames the ring, so a profile change stays optional.
+    assert "SYST:TDMA:RING:TOPOLOGY 2,0,0" in untouched
+    assert "CAL:TOPOLOGY:PROBE 1,10" in untouched
+    assert "SYST:TDMA:FLIGHT:MODE 1" in untouched
+    for bad in (True, -1, 0x100000000, "7", 1.5):
+        with pytest.raises(ValueError):
+            build_mode_configuration(**(args | {"operating_level": bad}))
+
+
 def test_maximum_eight_state_repeat_count_is_accepted():
     commands = build_mode_configuration(MODE_INDEPENDENT, "SP8T", list(range(8)),
         "IN1", "RIS", 10, 10, 7, 8, "PULSE", repeat_count=536870911)
@@ -623,3 +651,110 @@ def test_topology_owner_completion_gates_dependent_configuration(final_state):
     else:
         execute_command_batch(commands, exchange, lambda *_: None, sleep=lambda _: None)
         assert calls.index(commands[1]) == 5
+
+
+def test_operating_labels_describe_the_wire_instead_of_the_level_index():
+    assert operating_level_label(10000000, 1000000) == "10MHz / 1ms"
+    assert operating_level_label(10000000, 500000) == "10MHz / 500µs"
+    assert operating_level_label(50000000, 100000) == "50MHz / 100µs"
+    assert OPERATING_PROFILE_QUERY == "SYST:TDMA:OPMODE?"
+    assert OPERATING_CATALOG_QUERY == "SYST:TDMA:OPMODE:CATALOG?"
+
+
+def _catalog_rows(*entries):
+    rows = []
+    for level, baud, cycle in entries:
+        rows += [level, baud, cycle, 4096, 0, 0x11223344]
+    return f"{len(entries)}," + ",".join(str(value) for value in rows)
+
+
+@pytest.mark.parametrize("value,expected", [("0", 0), ("7", 7), ("255", 255), (" 21 ", 21)])
+def test_operating_level_accepts_a_numeric_draft_without_a_catalog(value, expected):
+    assert parse_operating_level(value) == expected
+
+
+@pytest.mark.parametrize("value", ["", "no", "-1", "256", "1.5", "7x", "０", "1\n2"])
+def test_operating_level_rejects_malformed_drafts(value):
+    with pytest.raises(ValueError):
+        parse_operating_level(value)
+
+
+def test_operating_level_numeric_bound_follows_the_device_catalog():
+    assert parse_operating_level("21", 21) == 21
+    with pytest.raises(ValueError):
+        parse_operating_level("22", 21)
+
+
+def test_operating_catalog_parses_every_advertised_level():
+    entries = parse_operating_catalog(_catalog_rows(
+        (0, 10000000, 2000000), (7, 10000000, 1000000),
+        (20, 10000000, 500000), (21, 10000000, 250000)))
+    assert entries == [(0, 10000000, 2000000), (7, 10000000, 1000000),
+                       (20, 10000000, 500000), (21, 10000000, 250000)]
+    labels = operating_catalog_labels(entries)
+    assert labels == {"10MHz / 2ms": 0, "10MHz / 1ms": 7,
+                      "10MHz / 500µs": 20, "10MHz / 250µs": 21}
+    text = format_operating_catalog(entries)
+    assert "4 档" in text and "10MHz / 500µs" in text and "0:" not in text
+
+
+def test_operating_catalog_labels_keep_repeated_profiles_distinct():
+    labels = operating_catalog_labels([(3, 10000000, 1000000), (8, 10000000, 1000000)])
+    assert labels == {"10MHz / 1ms (#3)": 3, "10MHz / 1ms (#8)": 8}
+
+
+def test_resolve_operating_level_accepts_labels_and_catalog_levels():
+    labels = {"10MHz / 1ms": 7, "10MHz / 500µs": 20}
+    assert resolve_operating_level("10MHz / 500µs", labels) == 20
+    # A stored number still works while the catalog advertises that level.
+    assert resolve_operating_level("20", labels) == 20
+    with pytest.raises(ValueError, match="10–30 MHz"):
+        resolve_operating_level("21", labels)
+    with pytest.raises(ValueError, match="设备档位表"):
+        resolve_operating_level("35MHz / 1ms", labels)
+    # A numeric draft cannot bypass the baud filter before catalog readback.
+    with pytest.raises(ValueError, match="先读取"):
+        resolve_operating_level("21", {})
+    with pytest.raises(ValueError, match="先读取"):
+        resolve_operating_level("7")
+
+
+def test_operating_catalog_filters_inclusively_without_renumbering():
+    entries = [(0, 5_000_000, 2000000), (3, 10_000_000, 1000000),
+               (8, 20_000_000, 500000), (12, 30_000_000, 250000),
+               (16, 35_000_000, 100000), (21, 10_000_000, 250000)]
+    labels = operating_catalog_labels(entries)
+    assert list(labels.values()) == [3, 8, 12, 21]
+    assert resolve_operating_level("30MHz / 250µs", labels) == 12
+    for draft in ("0", "16", "35MHz / 100µs"):
+        with pytest.raises(ValueError):
+            resolve_operating_level(draft, labels)
+    assert operating_catalog_labels([(0, 50_000_000, 100000)]) == {}
+
+
+@pytest.mark.parametrize("response", [
+    "", "0", "1,0,10000000,1000000,4096,0", "1,0,10000000",
+    "1,0,10000000,1000000,4096,-1", "1,0,10000000,1000000,4096,4294967296",
+    "2,0,10000000,1000000,4096,0", "2,7,10000000,1000000,4096,0,7,10000000,1000000,4096,0",
+])
+def test_operating_catalog_rejects_malformed_readback(response):
+    with pytest.raises(ValueError):
+        parse_operating_catalog(response)
+
+
+def test_operating_status_names_the_tier_hil_state_and_transactions():
+    fast = format_operating_status(
+        "15,40000000,100000,4096,1,456,15,40000000,100000,4096,0,456,5,5,1,3")
+    assert "当前 40MHz / 100µs" in fast and "挡号 15" in fast
+    assert "已 HIL 验证" in fast and "暂存 40MHz / 100µs" in fast
+    slow = format_operating_status(
+        "7,10000000,1000000,4096,0,123,9,25000000,1000000,4096,0,321,3,2,1,0")
+    assert "当前 10MHz / 1ms" in slow and "未 HIL 验证" in slow
+    assert "暂存 25MHz / 1ms" in slow and "reject 1" in slow
+
+
+@pytest.mark.parametrize("response", ["1,2,3", "", "not,numbers"] +
+                         ["1,2,3,4,5,-1,7,8,9,10,11,12,13,14,15,16"])
+def test_operating_status_rejects_malformed_readback(response):
+    with pytest.raises(ValueError):
+        format_operating_status(response)

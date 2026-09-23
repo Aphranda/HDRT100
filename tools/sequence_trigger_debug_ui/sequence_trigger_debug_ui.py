@@ -37,6 +37,7 @@ from tools.scpi_query.scpi_query import send_command
 from tools.tdma_ring_monitor.tdma_field_parse import RUNTIME_FIELDS
 from tools.hardware_acceptance.sequence_trigger_acceptance import parse_status
 from tools.sequence_trigger_debug_ui import settings as gui_settings
+from tools.sequence_trigger_debug_ui.realtime_budget import BudgetEditor, run_budget_operation
 
 
 MAX_LOG_LINES = 3000
@@ -50,6 +51,15 @@ MODE_INDEPENDENT = "独立 SP8T 序列"
 MODE_RJ45 = "RJ45 物理回环 · SP8T + VNA 网关"
 MODE_TURNTABLE = "转台计数 · RJ45 · SP8T + VNA 网关"
 RING_STATUS_QUERY = "SYST:TDMA:RING:STAT?"
+# SYSTem:TDMA:OPMode:* (tdma_operating_profile.{h,c}) owns the profile catalog;
+# this tool never mirrors the table, it reads it and shows what each level means
+# on the wire. READ:SEQuence:TIMing? owns the PIO tick.
+OPERATING_PROFILE_QUERY = "SYST:TDMA:OPMODE?"
+OPERATING_CATALOG_QUERY = "SYST:TDMA:OPMODE:CATALOG?"
+OPERATING_CATALOG_FIELDS = 6
+OPERATING_PROFILE_HIL_VALIDATED = 0x1
+OPERATING_GUI_MIN_BAUD_HZ = 10_000_000
+OPERATING_GUI_MAX_BAUD_HZ = 30_000_000
 RING_ACK_ONLY = {"SYST:TDMA:RING:STOP", "SYST:TDMA:RING:ARM", "SYST:TDMA:RING:START"}
 LINK_PHASES = {0: "未启用", 1: "等待启动", 2: "等待链路通知回环", 3: "等待 READY",
                4: "等待 READY 回环", 5: "等待序列切换", 6: "暂停", 7: "异常", 8: "已完成",
@@ -63,7 +73,7 @@ SETTINGS_TEXT_FIELDS = (
     "turntable_ready_input", "turntable_timeout", "turntable_counter_slot", "turntable_dut_slot",
     "turntable_vna_slot", "turntable_input", "turntable_threshold", "turntable_rate_kind",
     "turntable_rate_value", "turntable_angle_start", "turntable_angle_stop", "turntable_angle_step",
-    "turntable_angle_speed", "turntable_angle_ppd", "independent_switch")
+    "turntable_angle_speed", "turntable_angle_ppd", "independent_switch", "operating_level")
 SETTINGS_BOOL_FIELDS = ("turntable_angle_enabled", "auto_scroll")
 SETTINGS_ARRAY_FIELDS = ("out_enabled", "out_roles", "gateway_out_enabled", "gateway_out_roles",
                          "turntable_out_enabled", "turntable_out_roles")
@@ -166,11 +176,15 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
                              dut_slot: int = 2, vna_slot: int = 3,
                              counter_input: str = "IN1", counter_threshold: int = 1000,
                              angle_scan: AngleScan | None = None,
-                             operating_level: int = 7) -> list[str]:
+                             operating_level: int | None = 7) -> list[str]:
     if mode not in {MODE_INDEPENDENT, MODE_RJ45, MODE_TURNTABLE}:
         raise ValueError("请选择运行模式")
-    if not isinstance(operating_level, int) or not 0 <= operating_level <= 0xffffffff:
-        raise ValueError("TDMA operating level must be uint32")
+    # None keeps whatever profile the ring already runs: a combined batch without
+    # an explicit choice must not stage a level the operator never picked.
+    if operating_level is not None and (not isinstance(operating_level, int) or
+                                        isinstance(operating_level, bool) or
+                                        not 0 <= operating_level <= 0xffffffff):
+        raise ValueError("TDMA operating level must be uint32 or None")
     if angle_scan is not None:
         if mode != MODE_TURNTABLE:
             raise ValueError("角度扫描仅适用于转台计数模式")
@@ -211,9 +225,10 @@ def build_mode_configuration(mode: str, plan: str, codes: list[int], source: str
         else:
             dut_slot, vna_slot = 2, 3
         commands += [f"CONF:SEQ:NODE:ROLE {dut_slot},5,DUT", f"CONF:SEQ:NODE:ROLE {vna_slot},7,VNA",
-                     "CONF:SEQ:NODE:ACT",
-                     f"SYST:TDMA:OPMODE:STAGE {operating_level}", "SYST:TDMA:OPMODE:APPLY",
-                     "SYST:TDMA:RING:TOPOLOGY 2,0,0", "CAL:TOPOLOGY:PROBE 1,10",
+                     "CONF:SEQ:NODE:ACT"]
+        if operating_level is not None:
+            commands += [f"SYST:TDMA:OPMODE:STAGE {operating_level}", "SYST:TDMA:OPMODE:APPLY"]
+        commands += ["SYST:TDMA:RING:TOPOLOGY 2,0,0", "CAL:TOPOLOGY:PROBE 1,10",
                      "SYST:TDMA:FLIGHT:MODE 1"]
         prefix = (f"POSITION,{counter_slot},{dut_slot},{vna_slot},{counter_input},{counter_threshold}"
                   if position else "LOOPBACK,2,3")
@@ -362,6 +377,101 @@ def format_counter_history(response: str) -> str:
             f"阈值脉冲数 {threshold} · 请求时计数快照 {observed}\n"
             f"结果：{' / '.join(outcomes) or '无完成标记'}（flags={flags}）\n"
             "计数快照是发送切换请求时的软件读数，不是实际开关输出的物理边沿测量。")
+
+
+def parse_operating_level(value: str, maximum: int | None = None) -> int:
+    """Validate a numeric TDMA operating profile draft.
+
+    ``maximum`` is the last level the device advertised. Before the catalog has
+    been read the bound stays unknown, so the syntax and one-byte range are
+    checked here and the device owns the final rejection."""
+    text = value.strip()
+    limit = 0xff if maximum is None else maximum
+    if not text.isascii() or not text.isdecimal() or len(text) > 3:
+        raise ValueError(f"TDMA 挡位须为 0–{limit} 的整数")
+    level = int(text)
+    if level < 0 or level > limit:
+        raise ValueError(f"TDMA 挡位须为 0–{limit} 的整数")
+    return level
+
+
+def operating_level_label(baud_hz: int, cycle_period_ns: int) -> str:
+    """Semantic profile name: what the level means on the wire, not its index."""
+    period_us = cycle_period_ns / 1000
+    period = (f"{period_us / 1000:g}ms" if period_us >= 1000 and period_us % 1000 == 0
+              else f"{period_us:g}µs")
+    return f"{baud_hz / 1e6:g}MHz / {period}"
+
+
+def resolve_operating_level(draft: str, labels: dict[str, int] | None = None) -> int:
+    """Resolve only a level advertised in the GUI's filtered device catalog."""
+    text = draft.strip()
+    if not labels:
+        raise ValueError("请先读取设备档位表，再选择 10–30 MHz 挡位")
+    if labels and text in labels:
+        return labels[text]
+    known = set(labels.values())
+    if text.isascii() and text.isdecimal():
+        if int(text) not in known:
+            raise ValueError(f"第 {int(text)} 挡不在可选的 10–30 MHz 档位表中")
+        return parse_operating_level(text, max(known))
+    raise ValueError("请从设备档位表中选择一个已读回的档位")
+
+
+def parse_operating_catalog(response: str) -> list[tuple[int, int, int]]:
+    """Return (level, baud_hz, cycle_period_ns) for every advertised level."""
+    values = [int(field) for field in next(csv.reader([response], strict=True))]
+    if not values or values[0] <= 0 or len(values) != 1 + values[0] * OPERATING_CATALOG_FIELDS:
+        raise ValueError("TDMA 档位表读回字段不匹配")
+    entries = []
+    previous = -1
+    for index in range(values[0]):
+        entry = values[1 + index * OPERATING_CATALOG_FIELDS:
+                       1 + (index + 1) * OPERATING_CATALOG_FIELDS]
+        # Ascending unique levels catch a shifted or truncated response without
+        # assuming the device fills every index.
+        if (any(field < 0 or field > 0xffffffff for field in entry) or
+                entry[0] <= previous):
+            raise ValueError("TDMA 档位表条目不匹配")
+        previous = entry[0]
+        entries.append((entry[0], entry[1], entry[2]))
+    return entries
+
+
+def operating_catalog_labels(entries: list[tuple[int, int, int]]) -> dict[str, int]:
+    """Keep device IDs while restricting GUI choices to the supported baud band."""
+    entries = [entry for entry in entries
+               if OPERATING_GUI_MIN_BAUD_HZ <= entry[1] <= OPERATING_GUI_MAX_BAUD_HZ]
+    names = [operating_level_label(baud, cycle) for _, baud, cycle in entries]
+    labels: dict[str, int] = {}
+    for (level, _, _), label in zip(entries, names, strict=True):
+        # Only a repeated baud/period pair keeps its index visible, so two
+        # entries can never collapse into one choice.
+        label = f"{label} (#{level})" if names.count(label) > 1 else label
+        labels[label] = level
+    return labels
+
+
+def format_operating_catalog(entries: list[tuple[int, int, int]]) -> str:
+    """Describe the device ladder in wire terms instead of level indices."""
+    ladder = " · ".join(operating_level_label(baud, cycle)
+                        for _, baud, cycle in entries)
+    return f"TDMA 档位表：{len(entries)} 档 —— {ladder}"
+
+
+def format_operating_status(response: str) -> str:
+    """Format SYST:TDMA:OPMODE? (active, staged, then stage/apply/reject counts)."""
+    values = [int(field) for field in next(csv.reader([response], strict=True))]
+    if len(values) != 16 or any(value < 0 or value > 0xffffffff for value in values):
+        raise ValueError("TDMA 挡位读回字段不匹配")
+    active, staged = values[:6], values[6:12]
+    stage_count, apply_count, reject_count, last_result = values[12:]
+    hil = "已 HIL 验证" if active[4] & OPERATING_PROFILE_HIL_VALIDATED else "未 HIL 验证"
+    return (f"TDMA 挡位：当前 {operating_level_label(active[1], active[2])}"
+            f"（挡号 {active[0]} · {hil}） · 暂存 {operating_level_label(staged[1], staged[2])}"
+            f"（挡号 {staged[0]}）\n"
+            f"配置事务：stage {stage_count} · apply {apply_count} · reject {reject_count}"
+            f" · last_result {last_result}")
 
 
 def validate_angle_configuration_readback(scan, source, sweep_response, input_response):
@@ -654,6 +764,16 @@ class SequenceUi(tk.Tk):
             tk.StringVar(value=ROLE_GATEWAY)]
         self.gateway_ready_input = self.ready_input
         self.gateway_timeout = self.ready_timeout
+        # The TDMA operating profile is a ring-level setting shared by both
+        # combined modes, so one draft feeds either page. The draft holds a
+        # device catalog label ("10MHz / 1ms"). Applying requires a live catalog
+        # filtered to the GUI's allowed baud range.
+        self.operating_level = tk.StringVar(value="")
+        self.operating_status = tk.StringVar(value="TDMA 挡位：未读取")
+        self._operating_labels: dict[str, int] = {}
+        self._operating_catalog_pending = False
+        self._budget_editor = None
+        self._budget_generation = 0
         self.turntable_plan = tk.StringVar(value="SP8T")
         self.turntable_codes = tk.StringVar(value="0,1,2,3,4,5,6,7")
         self.turntable_settle = tk.StringVar(value="10")
@@ -714,6 +834,8 @@ class SequenceUi(tk.Tk):
         self.gateway_out_role_boxes: list[ttk.Combobox] = []
         self.status_mode_box: ttk.Combobox | None = None
         self.source_box: ttk.Combobox | None = None
+        self.operating_level_boxes: list[ttk.Combobox] = []
+        self.operating_level_label_widgets: list[ttk.Label] = []
         self.ota_progress: ttk.Progressbar | None = None
         self._ota_running = False
         self._transport_switching = False
@@ -762,6 +884,18 @@ class SequenceUi(tk.Tk):
                     getattr(self, name).set(values[name])
                 else:
                     invalid.append(name)
+        # A stored level number predates the catalog labels; the live profile
+        # readback names the field instead of leaving a bare index on screen.
+        draft = self.operating_level.get().strip()
+        if draft.isascii() and draft.isdecimal():
+            self.operating_level.set("")
+            self.log("旧档位草稿（纯档号）已忽略；挡位将按设备档位表名称显示。")
+        elif draft:
+            frequency = re.match(r"^(\d+(?:\.\d+)?)MHz / ", draft)
+            if (frequency is None or not OPERATING_GUI_MIN_BAUD_HZ <=
+                    Decimal(frequency[1]) * 1_000_000 <= OPERATING_GUI_MAX_BAUD_HZ):
+                self.operating_level.set("")
+                self.log("范围外档位草稿已忽略；GUI 仅提供 10–30 MHz 挡位。")
         for name in SETTINGS_ARRAY_FIELDS:
             if name not in values:
                 continue
@@ -884,6 +1018,9 @@ class SequenceUi(tk.Tk):
         self.port_box = ttk.Combobox(self.connection_panel, textvariable=self.port, width=44)
         self.port_box.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(self.connection_panel, text="扫描设备", command=self.refresh_ports).pack(side="left")
+        self.budget_button = ttk.Button(self.connection_panel, text="TDMA / VDC 预算",
+                                       command=self.open_budget_editor)
+        self.budget_button.pack(side="left", padx=(8, 0))
         ttk.Label(self.connection_panel, textvariable=self.status, style="Status.TLabel",
                   width=24, anchor="e").pack(side="right", padx=(14, 0))
 
@@ -981,6 +1118,38 @@ class SequenceUi(tk.Tk):
                 box.bind("<<ComboboxSelected>>", on_select)
             role_boxes.append(box)
 
+    def _add_operating_field(self, group, column):
+        """TDMA operating profile next to the gateway fields it paces.
+
+        The profile is a ring-level setting shared by both combined modes, so one
+        draft feeds either page. Choices carry what the level means on the wire
+        (baud and cycle) and come from the device catalog, never from a table
+        copied into this tool. Touching the control asks for that catalog once, so
+        the names appear without a configuration round trip. The field label
+        doubles as the readback state line: the layout gate keeps the log pane
+        usable at the minimum window size, so no extra row is available."""
+        label = ttk.Label(group, text="TDMA 挡位（档位表未读取）")
+        label.grid(row=0, column=column, sticky="w", padx=(0, 10), pady=(0, 4))
+        box = ttk.Combobox(group, textvariable=self.operating_level,
+                           values=tuple(self._operating_labels), state="readonly",
+                           width=15)
+        box.grid(row=1, column=column, sticky="ew", padx=(0, 10))
+        group.columnconfigure(column, weight=1, uniform="fields")
+        box.bind("<FocusIn>", lambda _event: self._read_operating_catalog_once())
+        self.operating_level_label_widgets.append(label)
+        self.operating_level_boxes.append(box)
+        return box
+
+    def _read_operating_catalog_once(self):
+        """First user touch of the profile control asks the device for its ladder."""
+        if self._operating_labels or self._operating_catalog_pending:
+            return
+        if not self.port.get().strip():
+            return
+        self._operating_catalog_pending = True
+        if not self.enqueue_commands([OPERATING_CATALOG_QUERY]):
+            self._operating_catalog_pending = False
+
     def _build_sequence_page(self, page, mode):
         combined = mode == MODE_RJ45
         plan, codes, settle, repeat = ((self.gateway_plan, self.gateway_codes, self.gateway_settle,
@@ -1010,6 +1179,7 @@ class SequenceUi(tk.Tk):
             self._field(self.gateway_group, 1, "READY 边沿", self.gateway_edge, values=["RIS", "FALL"], width=9)
             self._field(self.gateway_group, 2, "触发脉宽 µs", self.gateway_pulse, width=12)
             self._field(self.gateway_group, 3, "READY 超时 ms", self.gateway_timeout, width=12)
+            self._add_operating_field(self.gateway_group, 4)
             ttk.Label(page, text="流程：首编码 → RJ45 TDMA → VNA 触发 → READY → RJ45 TDMA → 下一编码。").pack(anchor="w", pady=(0, 5))
         else:
             self.independent_output_group = ttk.LabelFrame(page, text="OUT 属性", padding=8)
@@ -1097,6 +1267,7 @@ class SequenceUi(tk.Tk):
         self._field(gateway, 1, "共同边沿", self.turntable_edge, values=["RIS", "FALL"])
         self._field(gateway, 2, "触发脉宽 µs", self.turntable_pulse)
         self._field(gateway, 3, "READY 超时 ms", self.turntable_timeout)
+        self._add_operating_field(gateway, 4)
         controls = ttk.Frame(page)
         controls.pack(fill="x", pady=(0, 5))
         ttk.Button(controls, text="配置此模式", style="Primary.TButton",
@@ -1416,7 +1587,23 @@ class SequenceUi(tk.Tk):
         self._configuration_generation += 1
         self._device_mode, self._device_plan_count = self._device_configurations.get(self._resource_key(), (None, 0))
         self._clear_device_readback()
+        self._clear_operating_catalog()
+        self._invalidate_budget_editor()
         self.status.set("资源已改变，请配置此模式")
+
+    def _clear_operating_catalog(self):
+        self._operating_labels = {}
+        self._operating_catalog_pending = False
+        self.operating_status.set("TDMA 挡位：未读取")
+        for box in self.operating_level_boxes:
+            box.configure(values=())
+        for label in self.operating_level_label_widgets:
+            label.configure(text="TDMA 挡位（档位表未读取）")
+
+    def _invalidate_budget_editor(self):
+        self._budget_generation += 1
+        if self._budget_editor is not None and self._budget_editor.winfo_exists():
+            self._budget_editor.invalidate()
 
     def _clear_device_readback(self):
         self.sequence_state.set("UNKNOWN")
@@ -1447,6 +1634,8 @@ class SequenceUi(tk.Tk):
         self._device_configurations[resource_key] = (None, 0)
         self._device_mode, self._device_plan_count = None, 0
         self._clear_device_readback()
+        self._clear_operating_catalog()
+        self._invalidate_budget_editor()
         self.status.set("设备配置未知，请重新配置此模式")
 
     def _configuration_finished(self, mode, count, generation, resource_key):
@@ -1582,6 +1771,38 @@ class SequenceUi(tk.Tk):
             (self.backend.get(), self.port.get().strip(), list(commands))))
         return True
 
+    def open_budget_editor(self):
+        if self._budget_editor is not None and self._budget_editor.winfo_exists():
+            self._budget_editor.lift()
+            return
+        self._budget_generation += 1
+        self._budget_editor = BudgetEditor(self, self._submit_budget)
+        self._budget_editor.request("read")
+
+    def _submit_budget(self, action, payload):
+        if self._ota_running or self._transport_switching or self._loopback_running:
+            self._budget_editor.receive_error("请先结束设备维护或回环观察，再调节预算。")
+            return
+        backend, resource = self._resource_key()
+        if not resource:
+            self._budget_editor.receive_error("请先选择设备连接。")
+            return
+        if action in {"apply", "save"}:
+            self._configured_mode = None
+            self._configured_resource = None
+            self._configuration_generation += 1
+        self._operations.put(("budget", (backend, resource, action, payload,
+                                           self._budget_generation)))
+
+    def _budget_finished(self, resource_key, generation, action, result, error):
+        if (resource_key != self._resource_key() or generation != self._budget_generation or
+                self._budget_editor is None or not self._budget_editor.winfo_exists()):
+            return
+        if error:
+            self._budget_editor.receive_error(error)
+        else:
+            self._budget_editor.receive_result(action, result)
+
     def _operation_loop(self) -> None:
         while True:
             operation = self._operations.get()
@@ -1591,6 +1812,9 @@ class SequenceUi(tk.Tk):
             if kind == "commands":
                 backend, resource, commands = payload
                 self.run_commands(backend, resource, commands)
+            elif kind == "budget":
+                backend, resource, action, draft, generation = payload
+                self.run_commands(backend, resource, [], budget_operation=(action, draft, generation))
             elif kind == "configuration":
                 backend, resource, commands, mode, count, generation = payload
                 passed = self.run_commands(backend, resource, commands)
@@ -1621,6 +1845,8 @@ class SequenceUi(tk.Tk):
                 self.status.set(*args)
             elif kind == "configured":
                 self._configuration_finished(*args)
+            elif kind == "budget-finish":
+                self._budget_finished(*args)
             elif kind == "loopback-result":
                 mode, resource_key, result = args
                 if resource_key == self._resource_key():
@@ -1756,13 +1982,20 @@ class SequenceUi(tk.Tk):
         return sequence_mask, f"OUT{gateway_mask.bit_length()}"
 
     def run_commands(self, backend: str, resource: str,
-                     commands: list[str], *, observe_mode=None, observe_duration=10) -> bool:
+                     commands: list[str], *, observe_mode=None, observe_duration=10,
+                     budget_operation=None) -> bool:
         transcript = []
         def emit(command, response):
             transcript.append({"at": datetime.now().isoformat(), "command": command, "response": response})
             self._ui_events.put(("exchange", (command, response, (backend, resource))))
         def execute(exchange):
-            if observe_mode is None:
+            if budget_operation is not None:
+                action, draft, generation = budget_operation
+                result = run_budget_operation(action, draft, exchange, emit,
+                    lambda: execute_command_batch(["TRIG:STOP", "SYST:TDMA:RING:STOP"], exchange, emit))
+                self._ui_events.put(("budget-finish", ((backend, resource), generation,
+                                                       action, result, None)))
+            elif observe_mode is None:
                 execute_command_batch(commands, exchange, emit)
             else:
                 result = observe_loopback(observe_mode, exchange, emit,
@@ -1805,6 +2038,10 @@ class SequenceUi(tk.Tk):
                     execute(lambda command: send_command(ser, command, 2))
             return True
         except Exception as exc:
+            if budget_operation is not None:
+                action, _draft, generation = budget_operation
+                self._ui_events.put(("budget-finish", ((backend, resource), generation,
+                                                       action, None, str(exc))))
             if observe_mode is not None:
                 self._ui_events.put(("loopback-result", (observe_mode, (backend, resource), f"观察失败：{exc}")))
             self._ui_events.put(("log", (f"命令执行失败：{exc}", "ERROR")))
@@ -1982,6 +2219,50 @@ class SequenceUi(tk.Tk):
                 self._invalidate_device_configuration()
 
     def update_io(self, command: str, response: str) -> None:
+        if command.upper().startswith("SYST:TDMA:OPMODE:CATALOG?"):
+            self._operating_catalog_pending = False
+            try:
+                entries = parse_operating_catalog(response)
+                labels = operating_catalog_labels(entries)
+            except (ValueError, csv.Error):
+                self.log("TDMA 档位表读回失败，档位草稿保持原值。", "WARN")
+                return
+            self._operating_labels = labels
+            for box in self.operating_level_boxes:
+                box.configure(values=tuple(labels))
+            for label in self.operating_level_label_widgets:
+                label.configure(text=f"TDMA 挡位（10–30 MHz，{len(labels)} 档）")
+            # Replace a bare level number with the device's own name for it.
+            draft = self.operating_level.get().strip()
+            if draft.isascii() and draft.isdecimal():
+                match = next((label for label, level in labels.items()
+                              if level == int(draft)), None)
+                if match is not None:
+                    self.operating_level.set(match)
+                else:
+                    self.operating_level.set("")
+            elif draft and draft not in labels:
+                self.operating_level.set("")
+            self.log(format_operating_catalog([entry for entry in entries
+                if OPERATING_GUI_MIN_BAUD_HZ <= entry[1] <= OPERATING_GUI_MAX_BAUD_HZ]))
+            return
+        if command.upper().startswith("SYST:TDMA:OPMODE?"):
+            try:
+                text = format_operating_status(response)
+            except (ValueError, csv.Error):
+                text = "TDMA 挡位读回失败，请检查固件版本和命令日志"
+            self.operating_status.set(text)
+            self.log(text, "INFO" if "失败" not in text else "WARN")
+            # An empty or bare-number draft adopts what the ring actually runs,
+            # so the field shows the live profile in wire terms by default.
+            draft = self.operating_level.get().strip()
+            if self._operating_labels and (not draft or draft.isdecimal()):
+                active = [int(field) for field in response.split(",")[:3]]
+                if len(active) == 3:
+                    label = operating_level_label(active[1], active[2])
+                    if label in self._operating_labels:
+                        self.operating_level.set(label)
+            return
         if command.upper().startswith("READ:SEQ:COUNTER:HIST?"):
             try:
                 self.counter_history.set(format_counter_history(response))
@@ -2102,6 +2383,13 @@ class SequenceUi(tk.Tk):
                 raise ValueError("请先扫描或输入通信资源")
             mode = self.run_mode.get()
             combined = mode in {MODE_RJ45, MODE_TURNTABLE}
+            # Only the combined modes carry a TDMA ring, so the ring-level
+            # operating profile is validated and sent for those alone, and only
+            # through the labels the device catalog advertised. An empty draft
+            # means "keep the profile the ring already runs".
+            draft = self.operating_level.get().strip()
+            operating_level = (resolve_operating_level(draft, self._operating_labels)
+                               if combined and draft else None)
             counter_options = {}
             if mode == MODE_TURNTABLE:
                 angle_scan = self._angle_draft() if self.turntable_angle_enabled.get() else None
@@ -2143,7 +2431,10 @@ class SequenceUi(tk.Tk):
             commands = build_mode_configuration(
                 mode, plan, codes, source, edge, settle, pulse,
                 sequence_mask, status_mask, status_mode, ready, timeout, repeat,
-                gateway_output, **counter_options)
+                gateway_output, **counter_options, operating_level=operating_level)
+            if combined:
+                commands.append(OPERATING_CATALOG_QUERY)
+                commands.append(OPERATING_PROFILE_QUERY)
         except ValueError as exc:
             self.log(f"配置错误: {exc}")
             return
@@ -2160,9 +2451,11 @@ class SequenceUi(tk.Tk):
                 f"{codes[0]}，编码稳定后等待响应时间 {settle} µs 再输出状态/通知网关；序列掩码 0x{sequence_mask:X}，"
                 f"状态掩码 0x{status_mask:X}（{status_mode}）。")
         if combined:
+            # The level ladder stays on the device: the readback line reports the
+            # applied baud and cycle period instead of a duplicated table here.
             self.log(
                 f"VNA 网关：{ready} {edge} READY，{gateway_output} 触发 "
-                f"{pulse} µs，等待超时 {timeout} ms。")
+                f"{pulse} µs，等待超时 {timeout} ms；TDMA 挡位 {operating_level}。")
         else:
             self.log(self.output_hint.get())
         if self._ota_running or self._transport_switching:
