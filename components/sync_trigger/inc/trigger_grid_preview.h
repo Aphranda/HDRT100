@@ -16,6 +16,7 @@ enum {
     TRIGGER_GRID_PREVIEW_CHANGED,
     TRIGGER_GRID_PREVIEW_GENERATION,
     TRIGGER_GRID_PREVIEW_CLOCK,
+    TRIGGER_GRID_PREVIEW_ANCHOR = 39u,
 };
 
 typedef struct {
@@ -33,6 +34,12 @@ typedef struct {
     uint32_t tick_hz;
 } trigger_grid_preview_plan_t;
 
+typedef struct {
+    uint32_t valid, event_id, sample_seq, model_token, session, generation;
+    uint64_t anchor_vdc_ns;
+    uint32_t schedule_crc, timestamp_source, resolution_ns, timestamp_flags;
+} trigger_grid_anchor_snapshot_t;
+
 /* A generation cannot be reinterpreted or resurrected after CLEAR. An exact
  * same-generation retry is idempotent only with the same local binding. */
 uint32_t trigger_grid_preview_configure(const trigger_time_grid_t *grid);
@@ -42,6 +49,15 @@ uint32_t trigger_grid_preview_snapshot(trigger_grid_preview_snapshot_t *out);
  * reserves an output, changes a model, publishes READY or issues a pulse.
  * All rejected calls preserve *out. A later executor must revalidate. */
 uint32_t trigger_grid_preview_plan(uint32_t epoch, uint32_t generation,
+    uint64_t ordinal, uint64_t minimum_lead_ns, uint64_t maximum_ahead_ns,
+    trigger_grid_preview_plan_t *out);
+/* Bind the configured grid's A to a real accepted sync observer event. The
+ * event identity and model/session are rechecked by anchored planning. */
+uint32_t trigger_grid_preview_bind_anchor(uint32_t event_id,
+    uint64_t anchor_vdc_ns);
+uint32_t trigger_grid_preview_anchor_snapshot(
+    trigger_grid_anchor_snapshot_t *out);
+uint32_t trigger_grid_preview_plan_anchored(uint32_t epoch, uint32_t generation,
     uint64_t ordinal, uint64_t minimum_lead_ns, uint64_t maximum_ahead_ns,
     trigger_grid_preview_plan_t *out);
 

@@ -10,6 +10,7 @@
  * different Core0 management callers; TDMA's metadata gate excludes ARM. */
 static uint32_t s_grid_busy;
 static trigger_grid_preview_snapshot_t s_grid;
+static trigger_grid_anchor_snapshot_t s_anchor;
 
 static bool preview_enter(void)
 {
@@ -56,6 +57,14 @@ static bool model_available(vdc_dpll_manager_committed_model_t *model)
         model->dco.lock_state <= VDC_DOMAIN_LOCK_FAULT;
 }
 
+static bool grid_matches_vdc_period(const trigger_time_grid_t *grid,
+    const vdc_dpll_manager_committed_model_t *model)
+{
+    return grid && model && grid->period_ns == VDC_DOMAIN_DEFAULT_PERIOD_NS &&
+        model->dco.nominal_period_ns == VDC_DOMAIN_DEFAULT_PERIOD_NS &&
+        grid->period_ns == model->dco.nominal_period_ns;
+}
+
 static bool binding_matches(const trigger_grid_preview_snapshot_t *bound,
     const tdma_ring_clock_snapshot_t *ring,
     const vdc_dpll_manager_committed_model_t *model)
@@ -75,6 +84,35 @@ static bool grid_equal(const trigger_time_grid_t *a, const trigger_time_grid_t *
         a->subdivisions == b->subdivisions;
 }
 
+static bool observer_anchor_valid(uint32_t event_id, uint64_t anchor_vdc_ns,
+    const vdc_dpll_manager_committed_model_t *model,
+    trigger_grid_anchor_snapshot_t *out)
+{
+    vdc_dpll_manager_sync_io_observer_status_t observer;
+    vdc_dpll_manager_get_sync_io_observer_status(&observer);
+    const uint32_t required = VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE;
+    if (!model || !model->token || observer.enabled == 0u ||
+        /* sample_period_ns is the sampler's resolution, not the output period. */
+        model->dco.nominal_period_ns != VDC_DOMAIN_DEFAULT_PERIOD_NS ||
+        observer.last_event_id != event_id || observer.last_sample_seq == 0u ||
+        observer.last_timestamp_source != VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK ||
+        observer.last_timestamp_resolution_ns == 0u ||
+        observer.last_timestamp_resolution_ns > 100u ||
+        (observer.last_timestamp_flags & required) != required ||
+        (observer.last_timestamp_flags & VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) != 0u ||
+        ((((uint64_t)observer.expected_window_start_hi << 32u) |
+          observer.expected_window_start_lo) != anchor_vdc_ns) ||
+        observer.schedule_crc32 != model->dco.tdma_schedule_crc32) return false;
+    if (out) *out = (trigger_grid_anchor_snapshot_t){
+        .valid=1u, .event_id=event_id, .sample_seq=observer.last_sample_seq,
+        .model_token=model->token, .session=model->session,
+        .anchor_vdc_ns=anchor_vdc_ns, .schedule_crc=observer.schedule_crc32,
+        .timestamp_source=observer.last_timestamp_source,
+        .resolution_ns=observer.last_timestamp_resolution_ns,
+        .timestamp_flags=observer.last_timestamp_flags};
+    return true;
+}
+
 typedef struct {
     const trigger_time_grid_t *grid;
     uint32_t result;
@@ -86,7 +124,8 @@ static bool configure_stopped(void *context)
     tdma_ring_clock_snapshot_t ring;
     vdc_dpll_manager_committed_model_t model;
     if (!ring_stopped(&ring)) return false;
-    if (!model_available(&model) || model.local_slot != ring.local_slot_id ||
+    if (!model_available(&model) || !grid_matches_vdc_period(request->grid, &model) ||
+        model.local_slot != ring.local_slot_id ||
         model.dco.tdma_schedule_crc32 != ring.schedule_crc32) {
         request->result = TRIGGER_GRID_PREVIEW_MODEL;
         return false;
@@ -110,6 +149,7 @@ static bool configure_stopped(void *context)
         request->result = TRIGGER_GRID_PREVIEW_CHANGED;
         return false;
     }
+    memset(&s_anchor, 0, sizeof(s_anchor));
     s_grid = candidate;
     request->result = TRIGGER_TIME_GRID_OK;
     return true;
@@ -130,8 +170,92 @@ static bool clear_stopped(void *unused)
     (void)unused;
     const uint32_t last_generation = s_grid.last_generation;
     memset(&s_grid, 0, sizeof(s_grid));
+    memset(&s_anchor, 0, sizeof(s_anchor));
     s_grid.last_generation = last_generation;
     return true;
+}
+
+uint32_t trigger_grid_preview_bind_anchor(uint32_t event_id,
+    uint64_t anchor_vdc_ns)
+{
+    if (!event_id || !preview_enter()) return event_id ? TRIGGER_GRID_PREVIEW_BUSY
+                                                       : TRIGGER_TIME_GRID_ARGUMENT;
+    uint32_t result = TRIGGER_GRID_PREVIEW_UNCONFIGURED;
+    tdma_ring_clock_snapshot_t ring;
+    vdc_dpll_manager_committed_model_t model;
+    trigger_grid_anchor_snapshot_t candidate;
+    if (!s_grid.configured || !ring_stopped(&ring) || !model_available(&model) ||
+        !grid_matches_vdc_period(&s_grid.grid, &model)) goto done;
+    result = TRIGGER_GRID_PREVIEW_ANCHOR;
+    if (anchor_vdc_ns != s_grid.grid.anchor_vdc_ns) goto done;
+    if (!observer_anchor_valid(event_id, anchor_vdc_ns, &model, &candidate)) goto done;
+    if (candidate.schedule_crc != ring.schedule_crc32 ||
+        model.local_slot != ring.local_slot_id ||
+        !binding_matches(&s_grid, &ring, &model)) goto done;
+    candidate.generation = s_grid.grid.generation;
+    s_anchor = candidate;
+    result = TRIGGER_TIME_GRID_OK;
+done:
+    preview_leave();
+    return result;
+}
+
+uint32_t trigger_grid_preview_anchor_snapshot(
+    trigger_grid_anchor_snapshot_t *out)
+{
+    if (!out) return TRIGGER_TIME_GRID_ARGUMENT;
+    if (!preview_enter()) return TRIGGER_GRID_PREVIEW_BUSY;
+    *out = s_anchor;
+    preview_leave();
+    return TRIGGER_TIME_GRID_OK;
+}
+
+uint32_t trigger_grid_preview_plan_anchored(uint32_t epoch, uint32_t generation,
+    uint64_t ordinal, uint64_t minimum_lead_ns, uint64_t maximum_ahead_ns,
+    trigger_grid_preview_plan_t *out)
+{
+    if (!out || !preview_enter()) return out ? TRIGGER_GRID_PREVIEW_BUSY
+                                              : TRIGGER_TIME_GRID_ARGUMENT;
+    const trigger_grid_anchor_snapshot_t anchor = s_anchor;
+    const trigger_time_grid_t grid = s_grid.grid;
+    vdc_dpll_manager_committed_model_t model;
+    vdc_dpll_manager_sync_io_observer_status_t observer;
+    const bool bound = s_grid.configured && anchor.valid &&
+        anchor.generation == s_grid.grid.generation &&
+        anchor.anchor_vdc_ns == grid.anchor_vdc_ns &&
+        model_available(&model);
+    vdc_dpll_manager_get_sync_io_observer_status(&observer);
+    if (!bound || observer.last_event_id != anchor.event_id ||
+        observer.last_sample_seq != anchor.sample_seq ||
+        model.token != anchor.model_token || model.session != anchor.session) {
+        preview_leave();
+        return TRIGGER_GRID_PREVIEW_ANCHOR;
+    }
+    preview_leave();
+    /* Existing exact-q planner owns the full STOP/model/lifetime validation.
+     * The anchor identity is checked before and after its call below. */
+    trigger_grid_preview_plan_t candidate;
+    const uint32_t result = trigger_grid_preview_plan(
+        epoch, generation, ordinal, minimum_lead_ns, maximum_ahead_ns, &candidate);
+    if (result != TRIGGER_TIME_GRID_OK) return result;
+    if (!preview_enter()) return TRIGGER_GRID_PREVIEW_BUSY;
+    vdc_dpll_manager_get_sync_io_observer_status(&observer);
+    vdc_dpll_manager_committed_model_t after;
+    const bool still_bound = observer.last_event_id == anchor.event_id &&
+        observer.last_sample_seq == anchor.sample_seq &&
+        observer.enabled != 0u &&
+        observer.last_timestamp_source == anchor.timestamp_source &&
+        observer.last_timestamp_resolution_ns == anchor.resolution_ns &&
+        observer.last_timestamp_flags == anchor.timestamp_flags &&
+        observer.schedule_crc32 == anchor.schedule_crc &&
+        ((((uint64_t)observer.expected_window_start_hi << 32u) |
+          observer.expected_window_start_lo) == anchor.anchor_vdc_ns) &&
+        vdc_dpll_manager_get_committed_model(&after) &&
+        after.token == anchor.model_token && after.session == anchor.session;
+    preview_leave();
+    if (!still_bound) return TRIGGER_GRID_PREVIEW_ANCHOR;
+    *out = candidate;
+    return TRIGGER_TIME_GRID_OK;
 }
 
 uint32_t trigger_grid_preview_clear(void)

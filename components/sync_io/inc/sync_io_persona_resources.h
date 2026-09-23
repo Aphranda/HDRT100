@@ -41,9 +41,10 @@ bool sync_io_workspace_held_by(const void *owner);
 bool sync_io_workspace_release(const void *owner);
 
 #define SYNC_IO_INPUT_CAPTURE_INSTRUCTION_WORDS 1u
-#define SYNC_IO_SCHEDULED_TRIGGER_INSTRUCTION_WORDS 8u
-#define SYNC_IO_WAVE_OUTPUT_INSTRUCTION_WORDS \
-    SYNC_IO_SCHEDULED_TRIGGER_INSTRUCTION_WORDS
+/* Maximum over scheduled variants: sliced RUN uses 20 words. Legacy
+ * wave-output still uses its independent eight-word program. */
+#define SYNC_IO_SCHEDULED_TRIGGER_INSTRUCTION_WORDS 20u
+#define SYNC_IO_WAVE_OUTPUT_INSTRUCTION_WORDS 8u
 #define SYNC_IO_LOGIC_ANALYZER_INSTRUCTION_WORDS 5u
 #define SYNC_IO_SMA_PERSONA_MAX_INSTRUCTION_WORDS 9u
 

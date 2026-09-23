@@ -30,7 +30,7 @@ def executable(tmp_path_factory):
     cc=os.environ.get('HOST_CC') or shutil.which('gcc') or 'D:/Microsoft/mingw64/bin/gcc.exe'
     asm=os.environ.get('PIOASM') or shutil.which('pioasm') or str(
         Path.home()/'.pico-sdk/tools/2.2.0/pioasm/pioasm.exe')
-    for program in ('sync_pulse_stream_out1','sync_pulse_uniform_out1'):
+    for program in ('sync_pulse_stream_out1','sync_pulse_uniform_out1','sync_pulse_sliced_out1'):
         assembled=d/(program+'.pio.h')
         built=subprocess.run([asm,'-o','c-sdk',str(ROOT/'components/sync_io/src'/(program+'.pio')),
                               str(assembled)],capture_output=True,text=True,timeout=30)
@@ -154,7 +154,7 @@ def test_first_low_reencode_uses_the_shared_pio_cycle_constant():
                               'sync_io_run_output_submit_count_core1').split())
     # Cover both range admission and final FIFO word. A repeated literal
     # silently drifts if PIO timing is revised while the encoder is updated.
-    assert 'first_low_overhead=uniform?SYNC_PULSE_UNIFORM_FIRST_LOW_OVERHEAD:SYNC_PULSE_STREAM_FIRST_LOW_OVERHEAD' in body
+    assert 'first_low_overhead=sliced?SYNC_PULSE_SLICED_FIRST_LOW_OVERHEAD:uniform?SYNC_PULSE_UNIFORM_FIRST_LOW_OVERHEAD:SYNC_PULSE_STREAM_FIRST_LOW_OVERHEAD' in body
     assert 'edges[0].rising_tick-before-first_low_overhead>UINT32_MAX' in body
     assert 'pio_sm_put(RUN_PIO,RUN_SM,(uint32_t)(edges[0].rising_tick-before-first_low_overhead))' in body
 
@@ -229,6 +229,7 @@ static sync_io_persona_manager_hooks_t saved_hooks;
 static void *saved_context;
 static bool manager_valid;
 static bool use_uniform;
+static uint16_t loaded_instructions[32];
 static uint32_t mock_isr, mock_osr;
 static uint loaded_length;
 static const sync_io_persona_descriptor_t descriptor={.id=SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER};
@@ -276,8 +277,8 @@ static inline void pio_gpio_init(PIO p,uint pin) {(void)p;(void)pin;++io_calls;}
 static inline bool pio_sm_is_claimed(PIO p,uint sm) {(void)p;(void)sm;return mock_sm_claim;}
 static inline void pio_sm_claim(PIO p,uint sm) {(void)p;(void)sm;assert(!mock_sm_claim);mock_sm_claim=true;++io_calls;}
 static inline void pio_sm_unclaim(PIO p,uint sm) {(void)p;(void)sm;assert(mock_sm_claim);mock_sm_claim=false;++unclaims;++io_calls;}
-static inline bool pio_can_add_program(PIO p,const struct pio_program *program) {(void)p;assert(program->length==7||program->length==8);return !deny_add;}
-static inline uint pio_add_program(PIO p,const struct pio_program *program) {(void)p;loaded_length=program->length;mock_loaded=true;++io_calls;return 12;}
+static inline bool pio_can_add_program(PIO p,const struct pio_program *program) {(void)p;assert(program->length==7||program->length==8||program->length==20);return !deny_add;}
+static inline uint pio_add_program(PIO p,const struct pio_program *program) {(void)p;loaded_length=program->length;memcpy(loaded_instructions,program->instructions,2u*program->length);mock_loaded=true;++io_calls;return 12;}
 static inline void pio_remove_program(PIO p,const struct pio_program *program,uint offset) {(void)p;assert(offset==12&&program->length==loaded_length);mock_loaded=false;++io_calls;}
 static inline uint pio_get_dreq(PIO p,uint sm,bool tx) {(void)p;assert(sm==1&&tx);return 9;}
 static inline void pio_sm_put(PIO p,uint sm,uint32_t value) {
@@ -290,7 +291,7 @@ enum { pio_isr=6u, pio_osr=7u };
 static inline uint pio_encode_pull(bool ifempty,bool block) {assert(!ifempty&&block);return 0x80a0u;}
 static inline uint pio_encode_mov(uint dest,uint src) {assert(dest==pio_isr&&src==pio_osr);return 0xa0c7u;}
 static inline void pio_sm_exec(PIO p,uint sm,uint instruction) {
-    assert(sm==1u&&!(p->ctrl&(1u<<sm))&&loaded_length==7u);++io_calls;
+    assert(sm==1u&&!(p->ctrl&(1u<<sm))&&(loaded_length==7u||loaded_length==20u));++io_calls;
     if(instruction==0x80a0u) {
         assert(fifo_count==1u);mock_osr=fifo[0];fifo_count=0;
     } else {assert(instruction==0xa0c7u&&!fifo_count);mock_isr=mock_osr;}
@@ -395,7 +396,7 @@ static uint32_t prepare(void)
     assert(!fifo_count&&!mock_busy&&enable_calls==enables_before);
     assert(snap().fifo_words_per_edge==(use_uniform?1u:2u));
     assert(snap().fixed_high_ticks==(use_uniform?1000u:0u));
-    if(use_uniform)assert(mock_isr==998u&&loaded_length==7u);
+    if(use_uniform)assert(mock_isr==998u&&(loaded_length==7u||loaded_length==20u));
     return g;
 }
 static void make_edges(sync_io_run_output_edge_t e[4],uint64_t first,uint64_t ordinal,uint32_t token)
@@ -853,6 +854,46 @@ static void counted_async_stop(void)
     mock_core=0;assert(sync_io_run_output_release(g));
     assert(!workspace_token&&!core_token&&!mock_dma_claim&&!mock_sm_claim);
 }
+static void sliced_stream(const char *name)
+{
+    use_uniform=true;mock_core=0;hw_timer.source=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS;raw(1000000);
+    uint32_t g=0u;
+    assert(!sync_io_run_output_prepare_sliced(BOARD_SYS_CLOCK_HZ,1000,250000u,125u,25u,25u,&g));
+    assert(sync_io_run_output_prepare_sliced(BOARD_SYS_CLOCK_HZ,0u,250000u,125u,25u,50u,&g));
+    assert(loaded_length==20u && mock_isr==s_sliced.geometry);
+    assert(loaded_instructions[16]==(0xe040u|22u));
+    assert(snap().fifo_words_per_edge==1u && snap().fixed_high_ticks==50u);
+    mock_core=1;
+    sync_io_run_output_edge_t e[4];
+    for(unsigned i=0;i<4u;++i)e[i]=(sync_io_run_output_edge_t){
+        .rising_tick=1100000u+i*250001u,.falling_tick=1100050u+i*250001u,.ordinal=i+1u,.model_token=7u};
+    if(!strcmp(name,"width")) {e[3].falling_tick++;assert(!sync_io_run_output_submit_count_core1(g,e,4));}
+    else if(!strcmp(name,"overlap")) {e[3].rising_tick-=300u;e[3].falling_tick-=300u;assert(!sync_io_run_output_submit_count_core1(g,e,4));}
+    else {
+        if(!strcmp(name,"rate")) {e[3].rising_tick+=10000u;e[3].falling_tick+=10000u;}
+        assert(sync_io_run_output_submit_count_core1(g,e,4));
+        assert(snap().state==SYNC_IO_RUN_OUTPUT_RUNNING && snap().edges==4u);
+        assert(snap().last_falling_tick==e[3].rising_tick+249775u);
+        dma_drain_to_fifo();assert(fifo_count==4u);
+        for(unsigned i=0;i<4u;++i)printf("%u ",fifo[i]);
+        fifo_consume(4);probe_active=false;hw_pio.fdebug=0u;
+        if(!strcmp(name,"refill")) {
+            raw(1200000u);
+            for(unsigned i=0;i<4u;++i) {e[i].rising_tick+=1000004u;e[i].falling_tick+=1000004u;e[i].ordinal+=4u;}
+            assert(sync_io_run_output_submit_count_core1(g,e,4));
+            assert(snap().last_falling_tick==e[3].rising_tick+249775u);
+            dma_drain_to_fifo();assert(fifo_count==4u);
+            for(unsigned i=0;i<4u;++i)printf("%u ",fifo[i]);
+            fifo_consume(4);
+        }
+        if(!strcmp(name,"starved")) {hw_pio.fdebug=1u<<(PIO_FDEBUG_TXSTALL_LSB+1);sync_io_run_output_service_core1();assert(snap().reason==SYNC_IO_RUN_OUTPUT_STARVED);}
+    }
+    complete_stop(g);
+    use_uniform=false;
+    uint32_t plain=prepare();assert(loaded_length==8u && snap().fifo_words_per_edge==2u);
+    complete_stop(plain);
+}
+
 static void uniform_stream(unsigned count)
 {
     const unsigned other=17u-count;
@@ -990,6 +1031,7 @@ static void continuous_stream(const char *name)
 int main(int argc,char **argv)
 {
     assert(argc==2);
+    if(!strncmp(argv[1],"sliced:",7)){sliced_stream(argv[1]+7);return 0;}
     if(!strncmp(argv[1],"uniform_base:",13)){use_uniform=true;argv[1]+=13;}
     if(!strcmp(argv[1],"uniform_stream_one")){uniform_stream(1u);return 0;}
     if(!strcmp(argv[1],"uniform_stream_four")){uniform_stream(4u);return 0;}
@@ -1020,3 +1062,9 @@ int main(int argc,char **argv)
     return 0;
 }
 '''
+
+
+@pytest.mark.parametrize('name', ['stream', 'width', 'rate', 'overlap', 'starved', 'refill'])
+def test_sliced_backend(executable, name):
+    result = subprocess.run([str(executable), 'sliced:' + name], capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr

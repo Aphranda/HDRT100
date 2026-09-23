@@ -122,9 +122,13 @@ def arm_pair_board(board, args: argparse.Namespace, actions=None) -> None:
         except ValueError as exc:
             raise RuntimeError(
                 f"{board.address}: invalid ARM status {raw!r}") from exc
-        if last_result == 1 and response.strip().strip('"') == "OK":
+        normalized_response = response.strip().strip('"')
+        acknowledged = normalized_response in {
+            "OK", "OK(no payload; verified by state readback)"
+        }
+        if last_result == 1 and acknowledged:
             return
-        if response.strip().strip('"') != "OK":
+        if not acknowledged:
             raise RuntimeError(f"{board.address}: ARM acknowledgment unknown: {record}")
         # Result 8 is the firmware's bounded transition rejection.  The
         # next attempt is safe after the explicit handoff gap; other results
@@ -393,7 +397,7 @@ def compact_pair_results(pair_results: list[dict[str, object]]) -> list[dict[str
             "rx_counter_regressed": item.get("rx_counter_regressed", False),
             "rx_words": item["rx_words_delta"],
             "rx_edges": item["rx_edges_delta"],
-            "magic_fail": item["magic_fail_delta"],
+            "magic_info": item["magic_info"],
             "bad_header": [
                 phys.get("last_bad_header0", 0),
                 phys.get("last_bad_header1", 0),
@@ -602,7 +606,7 @@ def main() -> int:
                 rx_edges_delta = counter_delta(
                     before["phys"]["rx_edge_count"],
                     after["phys"]["rx_edge_count"])
-                magic_fail_delta = counter_delta(
+                magic_info = counter_delta(
                     before["phys"]["rx_magic_fail_count"],
                     after["phys"]["rx_magic_fail_count"])
                 detected = (
@@ -621,7 +625,7 @@ def main() -> int:
                     "tx_delta": tx_delta,
                     "rx_words_delta": rx_words_delta,
                     "rx_edges_delta": rx_edges_delta,
-                    "magic_fail_delta": magic_fail_delta,
+                    "magic_info": magic_info,
                     "receiver_status": after["tdma"],
                     "receiver_phys": after["phys"],
                 })

@@ -121,6 +121,9 @@ scpi_result_t scpi_cmd_trigger_grid_configure(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_grid_clear(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_grid_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_grid_plan_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_grid_anchor(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_grid_anchor_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_grid_anchor_plan_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_deployment_stage(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_deployment_activate(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_deployment_clear(scpi_t *context);
@@ -137,6 +140,10 @@ scpi_result_t scpi_cmd_vdc_subdivision_output_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_subdivision_window(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_subdivision_window_stop(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_subdivision_window_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_subdivision_after_sync(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_subdivision_after_sync_q(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_subdivision_after_sync_configure(scpi_t *context);
+scpi_result_t scpi_cmd_vdc_subdivision_after_sync_run_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
@@ -349,6 +356,9 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:REServation:GRID:CLEar", .callback = scpi_cmd_trigger_grid_clear}, \
     {.pattern = "TRIGger:REServation:GRID?", .callback = scpi_cmd_trigger_grid_q}, \
     {.pattern = "TRIGger:REServation:GRID:PLAN?", .callback = scpi_cmd_trigger_grid_plan_q}, \
+    {.pattern = "TRIGger:REServation:GRID:ANCHor", .callback = scpi_cmd_trigger_grid_anchor}, \
+    {.pattern = "TRIGger:REServation:GRID:ANCHor?", .callback = scpi_cmd_trigger_grid_anchor_q}, \
+    {.pattern = "TRIGger:REServation:GRID:ANCHor:PLAN?", .callback = scpi_cmd_trigger_grid_anchor_plan_q}, \
     {.pattern = "SYSTem:VDC:OUTPut:FIXed", .callback = scpi_cmd_vdc_fixed_output}, \
     {.pattern = "SYSTem:VDC:OUTPut:RUN", .callback = scpi_cmd_vdc_run_output}, \
     {.pattern = "SYSTem:VDC:OUTPut:RUN:STOP", .callback = scpi_cmd_vdc_run_output_stop}, \
@@ -361,6 +371,10 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:WINdow", .callback = scpi_cmd_vdc_subdivision_window}, \
     {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:WINdow:STOP", .callback = scpi_cmd_vdc_subdivision_window_stop}, \
     {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:WINdow?", .callback = scpi_cmd_vdc_subdivision_window_q}, \
+    {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:AFTER:STATus?", .callback = scpi_cmd_vdc_subdivision_after_sync_q}, \
+    {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:AFTER:ENABle", .callback = scpi_cmd_vdc_subdivision_after_sync}, \
+    {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:AFTER:CONFigure", .callback = scpi_cmd_vdc_subdivision_after_sync_configure}, \
+    {.pattern = "SYSTem:VDC:OUTPut:SUBDivision:AFTER:RUN?", .callback = scpi_cmd_vdc_subdivision_after_sync_run_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BRIDge?", .callback = scpi_cmd_vdc_feedback_bridge_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MATCh?", .callback = scpi_cmd_vdc_feedback_match_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \

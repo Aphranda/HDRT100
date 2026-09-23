@@ -15,6 +15,8 @@
 #include "sync_pulse_stream_encode.h"
 #include "sync_pulse_uniform_out1.pio.h"
 #include "sync_pulse_uniform_encode.h"
+#include "sync_pulse_sliced_out1.pio.h"
+#include "sync_pulse_sliced_encode.h"
 
 #define RUN_PIO BOARD_SYNC_PIO_FAST
 #define RUN_SM BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM
@@ -35,7 +37,8 @@ static uint32_t s_offset;
 static uint64_t s_duration_ticks;
 static bool s_sm_claimed, s_dma_claimed, s_loaded, s_lease;
 static bool s_source_pending;
-enum { RUN_MODE_PAIRED, RUN_MODE_UNIFORM };
+enum { RUN_MODE_PAIRED, RUN_MODE_UNIFORM, RUN_MODE_SLICED };
+static sync_pulse_sliced_config_t s_sliced;
 static uint32_t s_mode, s_fixed_high_ticks;
 static sync_io_run_output_submit_failure_t s_last_submit_failure;
 
@@ -97,14 +100,24 @@ static bool load(void *context,const sync_io_persona_descriptor_t *d,uint32_t ma
 {
     (void)context;
     const struct pio_program *program=s_mode==RUN_MODE_UNIFORM ?
-        &sync_pulse_uniform_out1_program : &sync_pulse_stream_out1_program;
+        &sync_pulse_uniform_out1_program : s_mode==RUN_MODE_SLICED ?
+        &sync_pulse_sliced_out1_program : &sync_pulse_stream_out1_program;
     if (!d || d->id!=SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER ||
         mask!=(1u<<RUN_DMA) || pio_sm_is_claimed(RUN_PIO,RUN_SM) ||
         dma_channel_is_claimed(RUN_DMA) ||
         !pio_can_add_program(RUN_PIO,program)) return false;
     pio_sm_claim(RUN_PIO,RUN_SM); s_sm_claimed=true;
     dma_channel_claim(RUN_DMA); s_dma_claimed=true;
-    s_offset=pio_add_program(RUN_PIO,program); s_loaded=true;
+    if (s_mode==RUN_MODE_SLICED) {
+        uint16_t instructions[SYNC_PULSE_SLICED_INSTRUCTION_WORDS];
+        memcpy(instructions,program->instructions,sizeof(instructions));
+        /* SET Y immediate; only our stopped, exclusively leased program. */
+        instructions[SYNC_PULSE_SLICED_HIGH_INSTRUCTION]=(uint16_t)(0xe040u | (s_sliced.high_ticks-3u));
+        struct pio_program patched=*program;
+        patched.instructions=instructions;
+        s_offset=pio_add_program(RUN_PIO,&patched);
+    } else s_offset=pio_add_program(RUN_PIO,program);
+    s_loaded=true;
     return true;
 }
 
@@ -115,7 +128,10 @@ static bool arm(void *context,const sync_io_persona_descriptor_t *d,uint32_t mas
     pio_sm_set_enabled(RUN_PIO,RUN_SM,false);
     pio_sm_clear_fifos(RUN_PIO,RUN_SM);
     pio_sm_restart(RUN_PIO,RUN_SM);
-    if (s_mode==RUN_MODE_UNIFORM) {
+    if (s_mode==RUN_MODE_SLICED) {
+        if (!sync_pulse_sliced_out1_program_init(RUN_PIO,RUN_SM,s_offset,RUN_PIN,
+                s_sliced.geometry)) return false;
+    } else if (s_mode==RUN_MODE_UNIFORM) {
         if (!sync_pulse_uniform_out1_program_init(RUN_PIO,RUN_SM,s_offset,RUN_PIN,
                 s_fixed_high_ticks)) return false;
     } else if (!sync_pulse_stream_out1_program_init(RUN_PIO,RUN_SM,s_offset,RUN_PIN)) return false;
@@ -144,7 +160,8 @@ static void cleanup(void *context,const sync_io_persona_descriptor_t *d,uint32_t
     }
     if (s_loaded) {
         pio_remove_program(RUN_PIO,s_mode==RUN_MODE_UNIFORM ?
-            &sync_pulse_uniform_out1_program : &sync_pulse_stream_out1_program,s_offset);
+            &sync_pulse_uniform_out1_program : s_mode==RUN_MODE_SLICED ?
+            &sync_pulse_sliced_out1_program : &sync_pulse_stream_out1_program,s_offset);
         s_loaded=false;
     }
     if (s_dma_claimed) { dma_channel_unclaim(RUN_DMA); s_dma_claimed=false; }
@@ -156,7 +173,7 @@ static void cleanup(void *context,const sync_io_persona_descriptor_t *d,uint32_t
 }
 
 static bool prepare_mode(uint32_t hz,uint32_t duration_ms,uint32_t high_ticks,
-                         uint32_t mode,uint32_t *generation)
+                         uint32_t mode,const sync_pulse_sliced_config_t *sliced,uint32_t *generation)
 {
     if (get_core_num()!=0u || !generation || hz!=BOARD_SYS_CLOCK_HZ ||
         (mode==RUN_MODE_UNIFORM && high_ticks<SYNC_PULSE_UNIFORM_HIGH_OVERHEAD) ||
@@ -168,6 +185,7 @@ static bool prepare_mode(uint32_t hz,uint32_t duration_ms,uint32_t high_ticks,
         (void)sync_io_core_run_output_release(&s_run); return false;
     }
     s_mode=mode; s_fixed_high_ticks=high_ticks;
+    if (sliced) s_sliced=*sliced;
     const sync_io_persona_manager_hooks_t hooks={.load=load,.arm=arm,.cleanup=cleanup};
     if (!sync_io_pio0_runtime_prepare(SYNC_IO_PERSONA_ID_SCHEDULED_TRIGGER,&hooks,NULL,&s_handle)) {
         (void)sync_io_workspace_release(&s_run);
@@ -177,7 +195,7 @@ static bool prepare_mode(uint32_t hz,uint32_t duration_ms,uint32_t high_ticks,
     begin_write();
     memset(&s_run,0,sizeof(s_run));
     s_run.schema=SYNC_IO_RUN_OUTPUT_SCHEMA;
-    s_run.fifo_words_per_edge=mode==RUN_MODE_UNIFORM ? 1u : 2u;
+    s_run.fifo_words_per_edge=mode==RUN_MODE_PAIRED ? 2u : 1u;
     s_run.fixed_high_ticks=high_ticks;
     s_run.generation=++s_generation; s_run.tick_hz=hz;
     s_run.program_offset=s_offset;
@@ -193,13 +211,23 @@ static bool prepare_mode(uint32_t hz,uint32_t duration_ms,uint32_t high_ticks,
 
 bool sync_io_run_output_prepare(uint32_t hz,uint32_t duration_ms,uint32_t *generation)
 {
-    return prepare_mode(hz,duration_ms,0u,RUN_MODE_PAIRED,generation);
+    return prepare_mode(hz,duration_ms,0u,RUN_MODE_PAIRED,NULL,generation);
 }
 
 bool sync_io_run_output_prepare_uniform(uint32_t hz,uint32_t duration_ms,
                                       uint32_t high_ticks,uint32_t *generation)
 {
-    return prepare_mode(hz,duration_ms,high_ticks,RUN_MODE_UNIFORM,generation);
+    return prepare_mode(hz,duration_ms,high_ticks,RUN_MODE_UNIFORM,NULL,generation);
+}
+
+bool sync_io_run_output_prepare_sliced(uint32_t hz,uint32_t duration_ms,
+    uint32_t period_ticks,uint32_t interval_ticks,uint32_t high_ticks,
+    uint32_t marker_ticks,uint32_t *generation)
+{
+    sync_pulse_sliced_config_t configuration;
+    if (!sync_pulse_sliced_configure(hz,period_ticks,interval_ticks,high_ticks,
+            marker_ticks,&configuration)) return false;
+    return prepare_mode(hz,duration_ms,marker_ticks,RUN_MODE_SLICED,&configuration,generation);
 }
 
 void sync_io_run_output_cancel(void) { __atomic_store_n(&s_cancel,1u,__ATOMIC_RELEASE); }
@@ -290,10 +318,11 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
         s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_NOT_READY; return false;
     }
     const bool uniform=s_mode==RUN_MODE_UNIFORM;
-    const uint32_t words_per_edge=uniform ? 1u : 2u;
+    const bool sliced=s_mode==RUN_MODE_SLICED;
+    const uint32_t words_per_edge=(uniform || sliced) ? 1u : 2u;
     const uint32_t word_count=words_per_edge*count;
-    const uint32_t first_low_overhead=uniform ? SYNC_PULSE_UNIFORM_FIRST_LOW_OVERHEAD :
-                                               SYNC_PULSE_STREAM_FIRST_LOW_OVERHEAD;
+    const uint32_t first_low_overhead=sliced ? SYNC_PULSE_SLICED_FIRST_LOW_OVERHEAD :
+        uniform ? SYNC_PULSE_UNIFORM_FIRST_LOW_OVERHEAD : SYNC_PULSE_STREAM_FIRST_LOW_OVERHEAD;
     const bool first=s_run.state==SYNC_IO_RUN_OUTPUT_PREPARED;
     uint64_t submitted_at=0u;
     uint64_t now;
@@ -317,7 +346,13 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
             (!i && !first && edges[i].ordinal<=s_run.last_ordinal)) {
             s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_ENCODING; return false;
         }
-        if (uniform) {
+        if (sliced) {
+            const uint64_t previous_marker=i ? edges[i-1u].rising_tick : s_run.last_rising_tick;
+            if (!sync_pulse_sliced_encode(&s_sliced,first ? now : s_run.anchor_before,
+                    first && i==0u,previous_marker,edges[i].rising_tick,edges[i].falling_tick,&words[i])) {
+                s_last_submit_failure=SYNC_IO_RUN_OUTPUT_SUBMIT_FAILURE_ENCODING; return false;
+            }
+        } else if (uniform) {
             if (!sync_pulse_uniform_encode(first ? now : s_run.anchor_before,
                     first && i==0u,previous,edges[i].rising_tick,
                     edges[i].falling_tick,s_fixed_high_ticks,&words[i])) {
@@ -361,7 +396,7 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
         if (remaining_words)
             dma_channel_set_read_addr(RUN_DMA,sync_io_shared_workspace+words_per_edge,false);
         RUN_PIO->fdebug=1u<<(PIO_FDEBUG_TXSTALL_LSB+RUN_SM);
-        if (!uniform) pio_sm_put(RUN_PIO,RUN_SM,words[0]);
+        if (!uniform && !sliced) pio_sm_put(RUN_PIO,RUN_SM,words[0]);
         /* Re-encode the first low against the final raw sample. A rejection
          * after preload retires the leased FIFO; it cannot retry PREPARED. */
         uint64_t before,observed,after;
@@ -390,7 +425,7 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
         s_run.start_raw_after=after_valid ? after : 0u;
         const bool raw_valid=observed_valid && after_valid && after!=UINT64_MAX &&
             observed>=before && after>=observed;
-        const bool valid=raw_valid && pc>s_offset && pc<=s_offset+(uniform ? 3u : 4u);
+        const bool valid=raw_valid && pc>s_offset && pc<=s_offset+(sliced ? 2u : uniform ? 3u : 4u);
         s_run.anchor_before=before;
         submitted_at=before;
         s_run.anchor_after=raw_valid ? after+1u : UINT64_MAX;
@@ -444,7 +479,8 @@ bool sync_io_run_output_submit_count_core1(uint32_t generation,
     if (s_run.blocks!=UINT32_MAX) ++s_run.blocks;
     s_run.edges=count>UINT32_MAX-s_run.edges ? UINT32_MAX : s_run.edges+count;
     s_run.last_rising_tick=edges[count-1u].rising_tick;
-    s_run.last_falling_tick=edges[count-1u].falling_tick;
+    s_run.last_falling_tick=sliced ? edges[count-1u].rising_tick+s_sliced.tail_ticks :
+        edges[count-1u].falling_tick;
     s_run.last_ordinal=edges[count-1u].ordinal;
     end_write();
     return true;

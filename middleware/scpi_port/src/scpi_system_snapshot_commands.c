@@ -5174,3 +5174,5 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context)
     SCPI_ResultText(context, fault->name);
     return SCPI_RES_OK;
 }
+
+#include "scpi_vdc_output_slices.inc"

@@ -222,7 +222,7 @@ uint32_t trigger_deployment_plan(uint32_t generation, uint32_t role,
         current.local_slot, PROJECT_NODE_CAPACITY, &candidate.route);
     if (result) goto done;
     candidate.role = role;
-    result = trigger_grid_preview_plan(grid_epoch, grid_generation, ordinal,
+    result = trigger_grid_preview_plan_anchored(grid_epoch, grid_generation, ordinal,
         minimum_lead_ns, maximum_ahead_ns, &candidate.clock);
     if (result) { result += TRIGGER_DEPLOYMENT_SERVICE_GRID_BASE; goto done; }
     result = TRIGGER_DEPLOYMENT_SERVICE_CHANGED;

@@ -6,6 +6,16 @@
 #define VDC_RUN_OUTPUT_SCHEMA 12u
 #define VDC_RUN_OUTPUT_TIMEBASE_TIMER1_NS 1u
 
+/* Requested RAM configuration, latched by the next RUN preparation. No
+ * effect on the independent STOP-maintenance SUBDIVISION/WINDOW commands. */
+typedef struct {
+    uint32_t enabled, interval_ns, high_ns, marker_ns;
+} vdc_run_output_slices_t;
+bool vdc_run_output_set_slices_enabled(bool enabled);
+bool vdc_run_output_configure_slices(uint32_t interval_ns, uint32_t high_ns,
+    uint32_t marker_ns);
+bool vdc_run_output_get_slices(vdc_run_output_slices_t *out);
+
 enum { VDC_RUN_OUTPUT_PREPARED_PHASE, VDC_RUN_OUTPUT_RUNNING_PHASE,
        VDC_RUN_OUTPUT_PHASE_COUNT };
 typedef enum {
@@ -30,6 +40,7 @@ typedef struct {
     /* local is TIMER1-derived ns; the former bridge width stays zero. */
     uint64_t last_local_ns, last_target_vdc_ns, maximum_bridge_width_ticks;
     uint32_t request, session, period_ns, high_ns, duration_ms;
+    vdc_run_output_slices_t slices;
     uint32_t ring_config, role_generation, clock_epoch, clock_run;
     uint32_t prepared_config, arm_config;
     uint32_t blocks_planned, plan_rejects, binding_rejects;

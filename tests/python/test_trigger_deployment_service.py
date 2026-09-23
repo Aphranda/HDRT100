@@ -93,6 +93,9 @@ uint32_t trigger_grid_preview_plan(uint32_t epoch,uint32_t generation,uint64_t o
     if(!strcmp(race,"during_trigger"))trigger_state=1;
     return 0;
 }
+uint32_t trigger_grid_preview_plan_anchored(uint32_t epoch,uint32_t generation,uint64_t ordinal,
+    uint64_t minimum,uint64_t maximum,trigger_grid_preview_plan_t *out)
+{ return trigger_grid_preview_plan(epoch,generation,ordinal,minimum,maximum,out); }
 static trigger_deployment_t table(void)
 {
     return (trigger_deployment_t){.generation=10,.rows={
@@ -337,6 +340,13 @@ uint32_t trigger_grid_preview_clear(void){assert(0);return 1;}
 uint32_t trigger_grid_preview_snapshot(trigger_grid_preview_snapshot_t *out)
 {(void)out;assert(0);return 1;}
 uint32_t trigger_grid_preview_plan(uint32_t epoch,uint32_t generation,uint64_t ordinal,
+    uint64_t minimum,uint64_t maximum,trigger_grid_preview_plan_t *out)
+{(void)epoch;(void)generation;(void)ordinal;(void)minimum;(void)maximum;(void)out;assert(0);return 1;}
+uint32_t trigger_grid_preview_bind_anchor(uint32_t event_id,uint64_t anchor)
+{(void)event_id;(void)anchor;assert(0);return 1;}
+uint32_t trigger_grid_preview_anchor_snapshot(trigger_grid_anchor_snapshot_t *out)
+{(void)out;assert(0);return 1;}
+uint32_t trigger_grid_preview_plan_anchored(uint32_t epoch,uint32_t generation,uint64_t ordinal,
     uint64_t minimum,uint64_t maximum,trigger_grid_preview_plan_t *out)
 {(void)epoch;(void)generation;(void)ordinal;(void)minimum;(void)maximum;(void)out;assert(0);return 1;}
 #include "scpi_trigger_grid_commands.inc"

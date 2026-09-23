@@ -5,6 +5,7 @@ import pytest
 
 import tools.calibration_ring_validate.calibration_ring_topology as topology
 from tools.calibration_ring_validate.calibration_ring_topology import (
+    arm_pair_board,
     _stop_pair_board,
     compact_pair_results,
     counter_delta,
@@ -12,6 +13,13 @@ from tools.calibration_ring_validate.calibration_ring_topology import (
     render_ring_order,
     wait_started_with_transport_recovery,
 )
+
+
+def test_arm_accepts_readback_verified_no_payload_ack(monkeypatch):
+    board = SimpleNamespace(address="B")
+    replies = iter(["OK(no payload; verified by state readback)", "1"])
+    monkeypatch.setattr(topology, "board_command", lambda *args: next(replies))
+    arm_pair_board(board, argparse.Namespace(gap=0.0))
 
 
 @pytest.mark.parametrize("response", [
@@ -79,7 +87,7 @@ def test_compact_pair_results_keeps_physical_evidence_only():
         "rx_delta": 3,
         "rx_words_delta": 99,
         "rx_edges_delta": 2,
-        "magic_fail_delta": 1,
+        "magic_info": 1,
         "receiver_status": {"large": "omitted"},
         "receiver_phys": {
             "last_bad_header0": 0x54,
@@ -94,7 +102,7 @@ def test_compact_pair_results_keeps_physical_evidence_only():
         "rx_counter_regressed": False,
         "rx_words": 99,
         "rx_edges": 2,
-        "magic_fail": 1,
+        "magic_info": 1,
         "bad_header": [0x54, 0x44, 0, 0],
     }]
 

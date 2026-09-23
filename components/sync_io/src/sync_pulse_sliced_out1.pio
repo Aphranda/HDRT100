@@ -1,0 +1,57 @@
+; One FIFO word per synchronization marker. ISR holds immutable slice geometry.
+; Each finite descriptor emits a marker and N-2 narrow pulses; q=N-1 is silent.
+; All pulls occur low. The next marker's absolute deadline corrects phase each
+; cycle; slice spacing is a fixed integer tick diagnostic, not a rational DCO.
+.program sync_pulse_sliced_out1
+.wrap_target
+    pull block
+    out y, 32
+sync_delay:
+    jmp y-- sync_delay
+    mov osr, isr
+    out x, 11
+    out y, 6
+    set pins, 1
+marker_high:
+    jmp y-- marker_high
+    set pins, 0
+    out y, 8
+    jmp slice_delay
+repeat_slice:
+    mov osr, isr
+    out null, 25
+    out y, 7
+slice_delay:
+    jmp y-- slice_delay
+    set pins, 1
+    set y, 0 ; STOP loader patches this instruction to narrow_high_ticks - 3.
+slice_high:
+    jmp y-- slice_high
+    set pins, 0
+    jmp x-- repeat_slice
+.wrap
+
+% c-sdk {
+static inline bool sync_pulse_sliced_out1_program_init(PIO pio, uint sm,
+        uint offset, uint pin, uint32_t geometry)
+{
+    if (sm >= 4u || offset > 12u || pin >= 32u) return false;
+    pio_sm_set_enabled(pio, sm, false);
+    pio_sm_config c = sync_pulse_sliced_out1_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, pin, 1u);
+    sm_config_set_out_shift(&c, true, false, 32u);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv_int_frac(&c, 1u, 0u);
+    if (pio_sm_init(pio, sm, offset, &c) != 0) return false;
+    pio_sm_clear_fifos(pio, sm);
+    pio_sm_restart(pio, sm);
+    pio_sm_clkdiv_restart(pio, sm);
+    pio_sm_set_pins_with_mask(pio, sm, 0u, UINT32_C(1) << pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1u, true);
+    pio_gpio_init(pio, pin);
+    pio_sm_put(pio, sm, geometry);
+    pio_sm_exec(pio, sm, pio_encode_pull(false, true));
+    pio_sm_exec(pio, sm, pio_encode_mov(pio_isr, pio_osr));
+    return true;
+}
+%}

@@ -55,6 +55,30 @@ static void scpi_trigger_grid_configuration(scpi_t *context,
     SCPI_ResultUInt32(context, snapshot->schedule_crc);
 }
 
+static void scpi_trigger_grid_plan(scpi_t *context,
+    const trigger_grid_preview_plan_t *preview)
+{
+    scpi_trigger_grid_configuration(context, &preview->configuration);
+    SCPI_ResultUInt32(context, preview->model.token);
+    SCPI_ResultUInt32(context, preview->model.dco.dco_update_seq);
+    SCPI_ResultUInt32(context, preview->model.applied_command_seq);
+    SCPI_ResultInt32(context, preview->model.dco.period_adjust_ppb);
+    SCPI_ResultUInt64(context, preview->model.dco.base_local_tick64);
+    SCPI_ResultUInt64(context, preview->model.dco.base_vdc_time64_ns);
+    SCPI_ResultInt32(context, preview->model.dco.phase_offset_ns);
+    SCPI_ResultUInt64(context, preview->model.valid_from_raw);
+    SCPI_ResultUInt64(context, preview->plan.ordinal);
+    SCPI_ResultUInt64(context, preview->plan.target_vdc_ns);
+    SCPI_ResultUInt64(context, preview->plan.model_local_ns);
+    SCPI_ResultUInt64(context, preview->plan.deadline_ticks);
+    SCPI_ResultUInt64(context, preview->plan.projected_vdc_ns);
+    SCPI_ResultUInt64(context, preview->now_ticks);
+    SCPI_ResultUInt64(context, preview->checked_at_ticks);
+    SCPI_ResultUInt64(context, preview->minimum_lead_ticks);
+    SCPI_ResultUInt64(context, preview->maximum_ahead_ticks);
+    SCPI_ResultUInt32(context, preview->tick_hz);
+}
+
 scpi_result_t scpi_cmd_trigger_grid_configure(scpi_t *context)
 {
     uint64_t epoch, generation, anchor, period, subdivisions;
@@ -102,24 +126,57 @@ scpi_result_t scpi_cmd_trigger_grid_plan_q(scpi_t *context)
         ordinal, minimum_lead, maximum_ahead, &preview);
     scpi_trigger_grid_result(context, result);
     if (result != TRIGGER_TIME_GRID_OK) return SCPI_RES_OK;
-    scpi_trigger_grid_configuration(context, &preview.configuration);
-    SCPI_ResultUInt32(context, preview.model.token);
-    SCPI_ResultUInt32(context, preview.model.dco.dco_update_seq);
-    SCPI_ResultUInt32(context, preview.model.applied_command_seq);
-    SCPI_ResultInt32(context, preview.model.dco.period_adjust_ppb);
-    SCPI_ResultUInt64(context, preview.model.dco.base_local_tick64);
-    SCPI_ResultUInt64(context, preview.model.dco.base_vdc_time64_ns);
-    SCPI_ResultInt32(context, preview.model.dco.phase_offset_ns);
-    SCPI_ResultUInt64(context, preview.model.valid_from_raw);
-    SCPI_ResultUInt64(context, preview.plan.ordinal);
-    SCPI_ResultUInt64(context, preview.plan.target_vdc_ns);
-    SCPI_ResultUInt64(context, preview.plan.model_local_ns);
-    SCPI_ResultUInt64(context, preview.plan.deadline_ticks);
-    SCPI_ResultUInt64(context, preview.plan.projected_vdc_ns);
-    SCPI_ResultUInt64(context, preview.now_ticks);
-    SCPI_ResultUInt64(context, preview.checked_at_ticks);
-    SCPI_ResultUInt64(context, preview.minimum_lead_ticks);
-    SCPI_ResultUInt64(context, preview.maximum_ahead_ticks);
-    SCPI_ResultUInt32(context, preview.tick_hz);
+    scpi_trigger_grid_plan(context, &preview);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_trigger_grid_anchor(scpi_t *context)
+{
+    uint64_t event_id, anchor;
+    if (!scpi_trigger_grid_uint(context, UINT32_MAX, &event_id) ||
+        !scpi_trigger_grid_uint(context, UINT64_MAX, &anchor) ||
+        !scpi_trigger_grid_end(context))
+        return scpi_trigger_grid_result(context, TRIGGER_TIME_GRID_ARGUMENT);
+    return scpi_trigger_grid_result(context,
+        trigger_grid_preview_bind_anchor((uint32_t)event_id, anchor));
+}
+
+scpi_result_t scpi_cmd_trigger_grid_anchor_q(scpi_t *context)
+{
+    trigger_grid_anchor_snapshot_t anchor;
+    const uint32_t result = scpi_trigger_grid_end(context) ?
+        trigger_grid_preview_anchor_snapshot(&anchor) : TRIGGER_TIME_GRID_ARGUMENT;
+    scpi_trigger_grid_result(context, result);
+    if (result != TRIGGER_TIME_GRID_OK) return SCPI_RES_OK;
+    SCPI_ResultUInt32(context, anchor.valid);
+    SCPI_ResultUInt32(context, anchor.event_id);
+    SCPI_ResultUInt32(context, anchor.sample_seq);
+    SCPI_ResultUInt32(context, anchor.model_token);
+    SCPI_ResultUInt32(context, anchor.session);
+    SCPI_ResultUInt32(context, anchor.generation);
+    SCPI_ResultUInt64(context, anchor.anchor_vdc_ns);
+    SCPI_ResultUInt32(context, anchor.schedule_crc);
+    SCPI_ResultUInt32(context, anchor.timestamp_source);
+    SCPI_ResultUInt32(context, anchor.resolution_ns);
+    SCPI_ResultUInt32(context, anchor.timestamp_flags);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_trigger_grid_anchor_plan_q(scpi_t *context)
+{
+    uint64_t epoch, generation, ordinal, minimum_lead, maximum_ahead;
+    if (!scpi_trigger_grid_uint(context, UINT32_MAX, &epoch) ||
+        !scpi_trigger_grid_uint(context, UINT32_MAX, &generation) ||
+        !scpi_trigger_grid_uint(context, UINT64_MAX, &ordinal) ||
+        !scpi_trigger_grid_uint(context, UINT64_MAX, &minimum_lead) ||
+        !scpi_trigger_grid_uint(context, UINT64_MAX, &maximum_ahead) ||
+        !scpi_trigger_grid_end(context))
+        return scpi_trigger_grid_result(context, TRIGGER_TIME_GRID_ARGUMENT);
+    trigger_grid_preview_plan_t preview;
+    const uint32_t result = trigger_grid_preview_plan_anchored(
+        (uint32_t)epoch, (uint32_t)generation, ordinal,
+        minimum_lead, maximum_ahead, &preview);
+    scpi_trigger_grid_result(context, result);
+    if (result == TRIGGER_TIME_GRID_OK) scpi_trigger_grid_plan(context, &preview);
     return SCPI_RES_OK;
 }

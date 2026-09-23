@@ -48,6 +48,9 @@ typedef struct {
 } sync_io_run_output_edge_t;
 
 typedef struct {
+    /* In sliced mode last_rising_tick is the synchronization marker and
+     * last_falling_tick is the FINAL narrow pulse's fall in that cycle.
+     * The latter is the real committed hardware tail for refill/guard caps. */
     uint64_t anchor_before, anchor_after, last_rising_tick, last_falling_tick;
     uint64_t first_ordinal, last_ordinal, expires_tick;
     uint32_t schema, generation, state, reason, blocks, edges;
@@ -85,6 +88,17 @@ bool sync_io_run_output_prepare(uint32_t expected_hz, uint32_t duration_ms,
  * must have exactly this width. The paired prepare entry remains unchanged. */
 bool sync_io_run_output_prepare_uniform(uint32_t expected_hz, uint32_t duration_ms,
                                       uint32_t high_ticks, uint32_t *generation);
+/* Diagnostic RUN grid: marker plus N-2 narrow pulses, final cell silent.
+ * One FIFO word/marker and the same SM/DMA/arena. Geometry is immutable until
+ * STOP/release; default prepare returns to plain markers. Divider one only.
+ * Every cycle reanchors to its submitted marker. Phase/rate quality is
+ * reported and measured separately; it does not reject encodable intervals.
+ * Internal spacing is integer interval_ticks, not a general rational DCO grid.
+ * high is 3..34 ticks; marker is 2..65 and greater than high; period/interval
+ * is integral in 3..2050. Further low-section encoding bounds also apply. */
+bool sync_io_run_output_prepare_sliced(uint32_t expected_hz,uint32_t duration_ms,
+    uint32_t period_ticks,uint32_t interval_ticks,uint32_t high_ticks,
+    uint32_t marker_ticks,uint32_t *generation);
 /* Atomic cancellation intent; no hardware access. */
 void sync_io_run_output_cancel(void);
 /* Core1 mandatory service: bounded cancellation/fault/expiry and DMA abort

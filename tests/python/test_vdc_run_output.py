@@ -54,7 +54,7 @@ def client(tmp_path_factory):
     'first_session', 'first_role', 'first_epoch', 'first_run', 'first_slot',
     'first_schedule', 'first_invalid', 'model_tail', 'delay_latched',
     'stop_during_plan', 'session_during_plan', 'gate_busy', 'core_guard', 'no_request',
-    'timer0_ignored',
+    'timer0_ignored', 'slices_cycle', 'slices_bad_config',
 ])
 def test_production_client(client, scenario):
     result = subprocess.run([str(client), scenario], capture_output=True, text=True, timeout=5)
@@ -240,6 +240,16 @@ bool sync_io_run_output_prepare_uniform(uint32_t hz,uint32_t duration,uint32_t h
     assert(hz==BOARD_SYS_CLOCK_HZ && duration==1000u); ++prepare_calls;
     assert(high_ticks==250u);
     if(hook==2u)interleave();
+    memset(&hardware,0,sizeof(hardware)); hardware.state=SYNC_IO_RUN_OUTPUT_PREPARED;
+    hardware.generation=++generation; *request=generation; cancelled=false; return true;
+}
+static unsigned sliced_prepares;
+bool sync_io_run_output_prepare_sliced(uint32_t hz,uint32_t duration,uint32_t period,
+    uint32_t interval,uint32_t high,uint32_t marker,uint32_t *request)
+{
+    assert(hz==BOARD_SYS_CLOCK_HZ && duration==1000u && period==250000u);
+    assert(interval==125u && high==25u && marker==50u);
+    ++sliced_prepares;
     memset(&hardware,0,sizeof(hardware)); hardware.state=SYNC_IO_RUN_OUTPUT_PREPARED;
     hardware.generation=++generation; *request=generation; cancelled=false; return true;
 }
@@ -643,6 +653,35 @@ static void fast_case(const char *kind)
 int main(int argc,char **argv)
 {
     assert(argc==2); const char *test=argv[1]; initialize();
+    if(!strcmp(test,"slices_bad_config")) {
+        vdc_run_output_slices_t before,after;
+        assert(vdc_run_output_get_slices(&before) && !before.enabled);
+        assert(!vdc_run_output_configure_slices(0,100,200));
+        assert(!vdc_run_output_configure_slices(501,100,200));
+        assert(!vdc_run_output_configure_slices(500,200,100));
+        assert(!vdc_run_output_configure_slices(500,101,200));
+        assert(vdc_run_output_get_slices(&after) && !memcmp(&before,&after,sizeof(before)));
+        core=1;assert(!vdc_run_output_set_slices_enabled(true));core=0;
+        ring.enabled=1;assert(!vdc_run_output_set_slices_enabled(true));ring.enabled=0;
+        assert(!sliced_prepares && !prepare_calls);return 0;
+    }
+    if(!strcmp(test,"slices_cycle")) {
+        assert(vdc_run_output_configure_slices(500,100,200));
+        assert(vdc_run_output_set_slices_enabled(true));
+        uint32_t request=123;
+        assert(!vdc_run_output_prepare(2000000,1000,1000,&request) && request==123);
+        prepare();assert(sliced_prepares==1 && !prepare_calls && s_run_output.high_ns==200);
+        assert(!vdc_run_output_set_slices_enabled(false));
+        assert(!vdc_run_output_configure_slices(1000,100,200));
+        arm(true);vdc_run_output_service_core1();
+        for(unsigned i=0;i<admitted_count[0];++i)
+            assert(admitted[0][i].falling_tick-admitted[0][i].rising_tick==50u);
+        vdc_run_output_cancel();finish_cancel();
+        ring.enabled=ring.adapter_started=ring.data_enabled=0;
+        assert(vdc_run_output_set_slices_enabled(false));
+        prepare();assert(prepare_calls==1 && sliced_prepares==1 && s_run_output.high_ns==1000);
+        return 0;
+    }
     if(!strncmp(test,"diag_",5u)) { diagnostic(test+5u);return 0; }
     if(!strncmp(test,"prefetch_",9u)) { prefetch_case(test+9u);return 0; }
     if(!strncmp(test,"fast_",5u)) { fast_case(test+5u);return 0; }

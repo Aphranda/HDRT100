@@ -1,6 +1,7 @@
 /* VDC capability client; SYNC_IO alone touches output PIO/DMA/GPIO. */
 #include "vdc_output_edge_cursor.h"
 #include "vdc_timer1_coordinate.h"
+#include "sync_pulse_sliced_encode.h"
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define VDC_RUN_OUTPUT_HOT(name) __not_in_flash_func(name)
 #else
@@ -11,9 +12,65 @@ static vdc_run_output_status_t s_run_output;
  * invocation, including backend retirement. Backend RETIRED alone cannot
  * authorize overwriting client metadata while its wrapper still executes. */
 static uint32_t s_run_output_request, s_run_output_busy;
+static vdc_run_output_slices_t s_run_output_slices = {0u, 500u, 100u, 200u};
+
+static bool run_output_slices_stopped(void *context)
+{
+    if (__atomic_load_n(&s_run_output_request, __ATOMIC_ACQUIRE)) return false;
+    s_run_output_slices = *(const vdc_run_output_slices_t *)context;
+    return true;
+}
+
+static bool run_output_update_slices(bool change_enable, bool enabled,
+    uint32_t interval_ns, uint32_t high_ns, uint32_t marker_ns)
+{
+    uint32_t idle = 0u;
+    if (get_core_num() != 0u || !__atomic_compare_exchange_n(&s_run_output_busy,
+            &idle, 1u, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) return false;
+    vdc_run_output_slices_t next = s_run_output_slices;
+    if (change_enable) next.enabled = enabled ? 1u : 0u;
+    else { next.interval_ns = interval_ns; next.high_ns = high_ns; next.marker_ns = marker_ns; }
+    /* Nominal integer TIMER1 geometry. Every cycle's marker continues to
+     * follow the absolute DCO plan; quantization within that cycle is explicit. */
+    const uint64_t interval_ticks = (uint64_t)next.interval_ns * BOARD_SYS_CLOCK_HZ;
+    const uint64_t high_ticks = (uint64_t)next.high_ns * BOARD_SYS_CLOCK_HZ;
+    const uint64_t marker_ticks = (uint64_t)next.marker_ns * BOARD_SYS_CLOCK_HZ;
+    sync_pulse_sliced_config_t geometry;
+    const bool valid = next.interval_ns && VDC_DOMAIN_DEFAULT_PERIOD_NS % next.interval_ns == 0u &&
+        VDC_DOMAIN_DEFAULT_PERIOD_NS / next.interval_ns >= 3u &&
+        next.high_ns && next.high_ns < next.marker_ns && next.marker_ns < next.interval_ns &&
+        interval_ticks % UINT64_C(1000000000) == 0u &&
+        high_ticks % UINT64_C(1000000000) == 0u && marker_ticks % UINT64_C(1000000000) == 0u &&
+        sync_pulse_sliced_configure(BOARD_SYS_CLOCK_HZ,
+            (uint32_t)((uint64_t)VDC_DOMAIN_DEFAULT_PERIOD_NS * BOARD_SYS_CLOCK_HZ / UINT64_C(1000000000)),
+            (uint32_t)(interval_ticks / UINT64_C(1000000000)),
+            (uint32_t)(high_ticks / UINT64_C(1000000000)),
+            (uint32_t)(marker_ticks / UINT64_C(1000000000)), &geometry);
+    const bool ok = valid && tdma_service_run_stopped_maintenance(s_vdc_tdma_service,
+        run_output_slices_stopped, &next);
+    __atomic_store_n(&s_run_output_busy, 0u, __ATOMIC_RELEASE);
+    return ok;
+}
+
+bool vdc_run_output_set_slices_enabled(bool enabled)
+{ return run_output_update_slices(true, enabled, 0u, 0u, 0u); }
+
+bool vdc_run_output_configure_slices(uint32_t interval_ns, uint32_t high_ns, uint32_t marker_ns)
+{ return run_output_update_slices(false, false, interval_ns, high_ns, marker_ns); }
+
+bool vdc_run_output_get_slices(vdc_run_output_slices_t *out)
+{
+    uint32_t idle = 0u;
+    if (!out || get_core_num() != 0u || !__atomic_compare_exchange_n(&s_run_output_busy,
+            &idle, 1u, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) return false;
+    *out = s_run_output_slices;
+    __atomic_store_n(&s_run_output_busy, 0u, __ATOMIC_RELEASE);
+    return true;
+}
 static uint32_t s_run_output_service_sequence, s_run_output_current_service_sequence;
 static uint64_t s_run_output_current_service_tick;
 static uint64_t s_run_output_last_raw_tick;
+static uint64_t s_run_output_slice_tail_ticks;
 #define VDC_RUN_OUTPUT_PLAN_STEP_EDGES 4u
 static bool s_run_output_coordinate_valid;
 #define VDC_RUN_OUTPUT_MAX_COORDINATE_SECONDS 32u
@@ -89,8 +146,18 @@ static bool run_output_prepare_stopped(void *context)
     /* RUN fixes its pulse width at PREPARE. Keep that width in the PIO ISR
      * so each immutable edge consumes only one FIFO word. Match the planner's
      * ceiling conversion exactly; ordinary variable-width clients stay paired. */
-    const uint64_t high_ticks=((uint64_t)args[1]*BOARD_SYS_CLOCK_HZ+999999999u)/1000000000u;
-    if (high_ticks>UINT32_MAX || !sync_io_run_output_prepare_uniform(
+    const vdc_run_output_slices_t slices = s_run_output_slices;
+    const uint32_t high_ns = slices.enabled ? slices.marker_ns : args[1];
+    const uint64_t high_ticks=((uint64_t)high_ns*BOARD_SYS_CLOCK_HZ+999999999u)/1000000000u;
+    if (high_ticks > UINT32_MAX) return false;
+    if (slices.enabled) {
+        if (args[0] != VDC_DOMAIN_DEFAULT_PERIOD_NS ||
+            !sync_io_run_output_prepare_sliced(BOARD_SYS_CLOCK_HZ, args[2],
+                (uint32_t)((uint64_t)args[0] * BOARD_SYS_CLOCK_HZ / UINT64_C(1000000000)),
+                (uint32_t)((uint64_t)slices.interval_ns * BOARD_SYS_CLOCK_HZ / UINT64_C(1000000000)),
+                (uint32_t)((uint64_t)slices.high_ns * BOARD_SYS_CLOCK_HZ / UINT64_C(1000000000)),
+                (uint32_t)high_ticks, &generation)) return false;
+    } else if (!sync_io_run_output_prepare_uniform(
             BOARD_SYS_CLOCK_HZ,args[2],(uint32_t)high_ticks,&generation)) return false;
     memset(&s_run_output,0,sizeof(s_run_output));
     memset(&s_run_output_pending,0,sizeof(s_run_output_pending));
@@ -103,7 +170,12 @@ static bool run_output_prepare_stopped(void *context)
     s_run_output_last_raw_tick=0u;
     s_run_output.request=generation; s_run_output.session=session;
     s_run_output.prepared_config=ring.config_seq;
-    s_run_output.period_ns=args[0]; s_run_output.high_ns=args[1]; s_run_output.duration_ms=args[2];
+    s_run_output.period_ns=args[0]; s_run_output.high_ns=high_ns; s_run_output.duration_ms=args[2];
+    s_run_output.slices = slices;
+    s_run_output_slice_tail_ticks = slices.enabled ?
+        (uint64_t)(args[0] / slices.interval_ns - 2u) *
+            ((uint64_t)slices.interval_ns * BOARD_SYS_CLOCK_HZ / UINT64_C(1000000000)) +
+            ((uint64_t)slices.high_ns * BOARD_SYS_CLOCK_HZ / UINT64_C(1000000000)) : 0u;
     s_run_output.plan_ahead_us=timing.plan_ahead_us;
     s_run_output.commit_ahead_us=timing.commit_ahead_us;
     s_run_output.refill_low_us=timing.refill_low_us;
@@ -460,7 +532,12 @@ static __attribute__((noinline)) void VDC_RUN_OUTPUT_HOT(run_output_service_owne
         if (s_run_output.refill_waits!=UINT32_MAX) ++s_run_output.refill_waits;
         return;
     }
-    const uint64_t next_tail=s_run_output_pending.edges[s_run_output.block_edges-1u].falling_tick;
+    const sync_io_run_output_edge_t *last_edge = &s_run_output_pending.edges[s_run_output.block_edges-1u];
+    if (s_run_output.slices.enabled && last_edge->rising_tick > UINT64_MAX-s_run_output_slice_tail_ticks) {
+        run_output_note(phase,VDC_RUN_OUTPUT_PLAN_REJECTED);run_output_cancel_owned();return;
+    }
+    const uint64_t next_tail=s_run_output.slices.enabled ?
+        last_edge->rising_tick+s_run_output_slice_tail_ticks : last_edge->falling_tick;
     if (first && (next_tail<s_run_output_pending.edges[0].rising_tick ||
         next_tail-s_run_output_pending.edges[0].rising_tick>commit_ticks)) {
         s_run_output_pending.valid=false; s_run_output_pending.planned=0u;

@@ -58,10 +58,12 @@ def owner(tmp_path_factory):
     'token_between_calls', 'model_during_plan', 'session_during_plan',
     'ring_during_plan', 'clock', 'clock_second', 'clock_reverse', 'lead_expired',
     'model_not_yet_valid', 'configure_race', 'invalid_grid', 'invalid_lead',
-    'configure_schedule', 'ring_schedule', 'base_not_yet_valid',
+    'configure_schedule', 'wrong_period', 'ring_schedule', 'base_not_yet_valid',
     'runtime_retained', 'missing_staged', 'disabled_staged', 'configure_slot',
     'stage_slot_changed', 'stage_schedule_changed', 'stage_during_plan',
     'runtime_slot_conflict', 'runtime_schedule_conflict', 'stop_sequence_race',
+    'anchor_none', 'anchor_success', 'anchor_wrong_event', 'anchor_bad_quality',
+    'anchor_grid_mismatch', 'anchor_event_changed', 'anchor_new_generation',
 ])
 def test_owner_boundaries(owner, scenario):
     result = subprocess.run([str(owner), scenario], capture_output=True, text=True, timeout=5)
@@ -74,7 +76,7 @@ OWNER = r'''
 #include <string.h>
 #include "trigger_grid_preview.h"
 #include "tdma_runtime_owner.h"
-static unsigned core, model_reads, ring_reads, clock_reads, staged_reads;
+static unsigned core, model_reads, ring_reads, clock_reads, staged_reads, observer_reads;
 static bool model_ok=true, ring_ok=true, staged_ok=true;
 static uint32_t session=11;
 static uint64_t tick=250000;
@@ -82,6 +84,7 @@ static const char *race="";
 static tdma_ring_clock_snapshot_t ring;
 static tdma_service_ring_runtime_config_t staged;
 static vdc_dpll_manager_committed_model_t model;
+static vdc_dpll_manager_sync_io_observer_status_t observer;
 unsigned get_core_num(void) { return core; }
 tdma_service_service_t *tdma_runtime_owner_get(void) { return NULL; }
 bool tdma_service_update_stopped_metadata(tdma_service_service_t *service,
@@ -118,6 +121,13 @@ bool vdc_dpll_manager_get_committed_model(vdc_dpll_manager_committed_model_t *ou
     if(!model_ok) return false;
     *out=model; return true;
 }
+void vdc_dpll_manager_get_sync_io_observer_status(
+    vdc_dpll_manager_sync_io_observer_status_t *out)
+{
+    ++observer_reads;
+    if (observer_reads == 2 && !strcmp(race,"anchor_event_changed")) ++observer.last_sample_seq;
+    *out=observer;
+}
 bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz,uint64_t *out)
 {
     assert(hz==250000000u); ++clock_reads;
@@ -141,6 +151,12 @@ int main(int argc,char **argv)
         .clock_epoch_id=5,.clock_run_id=6,.local_slot=1,.applied_command_seq=13,
         .dco={.valid=1,.dco_update_seq=19,.nominal_period_ns=1000000,
               .tdma_schedule_crc32=123}};
+    observer=(vdc_dpll_manager_sync_io_observer_status_t){.enabled=1,.last_sample_seq=9,
+        .last_event_id=7,.expected_window_start_lo=2000000,.expected_window_start_hi=0,
+        .sample_period_ns=4,
+        .schedule_crc32=123,.last_timestamp_source=VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK,
+        .last_timestamp_resolution_ns=4,
+        .last_timestamp_flags=VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE};
     trigger_grid_preview_plan_t result,before;
     memset(&result,0xA5,sizeof(result));before=result;
     if(!strcmp(scenario,"unconfigured")) {
@@ -150,6 +166,10 @@ int main(int argc,char **argv)
     if(!strcmp(scenario,"invalid_grid")) {
         grid.subdivisions=1;
         assert(trigger_grid_preview_configure(&grid)==TRIGGER_TIME_GRID_ARGUMENT);return 0;
+    }
+    if(!strcmp(scenario,"wrong_period")) {
+        grid.period_ns=2000000;
+        assert(trigger_grid_preview_configure(&grid)==TRIGGER_GRID_PREVIEW_MODEL);return 0;
     }
     if(!strcmp(scenario,"configure_race")) {
         race=scenario;
@@ -184,6 +204,34 @@ int main(int argc,char **argv)
     assert(trigger_grid_preview_configure(&grid)==TRIGGER_TIME_GRID_OK);
     assert(!memcmp(&initial_ring,&ring,sizeof(ring)));
     assert(!memcmp(&initial_staged,&staged,sizeof(staged)));
+    if(!strcmp(scenario,"anchor_none")) {
+        assert(trigger_grid_preview_plan_anchored(7,10,1,100,2000000,&result)==TRIGGER_GRID_PREVIEW_ANCHOR);
+        assert(!memcmp(&result,&before,sizeof(result)));return 0;
+    }
+    if(!strcmp(scenario,"anchor_wrong_event") || !strcmp(scenario,"anchor_bad_quality") ||
+       !strcmp(scenario,"anchor_grid_mismatch") || !strcmp(scenario,"anchor_success") ||
+       !strcmp(scenario,"anchor_event_changed") || !strcmp(scenario,"anchor_new_generation")) {
+        if(!strcmp(scenario,"anchor_wrong_event")) observer.last_event_id=8;
+        if(!strcmp(scenario,"anchor_bad_quality")) observer.last_timestamp_flags=VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+        const uint64_t anchor = !strcmp(scenario,"anchor_grid_mismatch") ? 2000001u : 2000000u;
+        const uint32_t bind = trigger_grid_preview_bind_anchor(7,anchor);
+        if(!strcmp(scenario,"anchor_wrong_event") || !strcmp(scenario,"anchor_bad_quality") ||
+           !strcmp(scenario,"anchor_grid_mismatch")) {
+            assert(bind==TRIGGER_GRID_PREVIEW_ANCHOR);return 0;
+        }
+        assert(bind==TRIGGER_TIME_GRID_OK);
+        if(!strcmp(scenario,"anchor_new_generation")) {
+            ++grid.generation; assert(trigger_grid_preview_configure(&grid)==TRIGGER_TIME_GRID_OK);
+            assert(trigger_grid_preview_plan_anchored(7,11,1,100,2000000,&result)==TRIGGER_GRID_PREVIEW_ANCHOR);
+            return 0;
+        }
+        race=scenario; observer_reads=0;
+        const uint32_t anchored=trigger_grid_preview_plan_anchored(7,10,1,100,2000000,&result);
+        assert(anchored==(!strcmp(scenario,"anchor_event_changed") ? TRIGGER_GRID_PREVIEW_ANCHOR : TRIGGER_TIME_GRID_OK));
+        if(!strcmp(scenario,"anchor_event_changed"))
+            assert(!memcmp(&result,&before,sizeof(result)));
+        return 0;
+    }
     if(!strcmp(scenario,"old_generation") || !strcmp(scenario,"reinterpret")) {
         if(!strcmp(scenario,"old_generation")) --grid.generation;
         else ++grid.anchor_vdc_ns;
@@ -323,6 +371,13 @@ def test_parser_owner_rejection_is_two_fields(parser, command):
     assert parser_run(parser, command, 'owner_reject') == [1, 33]
 
 
+def test_parser_anchor_commands(parser):
+    assert parser_run(parser, 'TRIG:RES:GRID:ANCH 7,9007199254740993') == [1, 0]
+    assert parser_run(parser, 'TRIG:RES:GRID:ANCH?') == [1, 0, 1, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0]
+    plan = parser_run(parser, 'TRIG:RES:GRID:ANCH:PLAN? 7,10,18446744073709551615,100,2000000')
+    assert plan[0:2] == [1, 0] and len(plan) == 34
+
+
 PARSER = r'''
 #include <assert.h>
 #include <stdio.h>
@@ -374,12 +429,22 @@ uint32_t trigger_grid_preview_plan(uint32_t epoch,uint32_t generation,uint64_t o
         .now_ticks=250000,.checked_at_ticks=250001,.minimum_lead_ticks=25,
         .maximum_ahead_ticks=500000,.tick_hz=250000000};return 0;
 }
+uint32_t trigger_grid_preview_bind_anchor(uint32_t event_id,uint64_t anchor)
+{++calls;(void)event_id;(void)anchor;return owner_result;}
+uint32_t trigger_grid_preview_anchor_snapshot(trigger_grid_anchor_snapshot_t *out)
+{++calls;if(!owner_result)*out=(trigger_grid_anchor_snapshot_t){.valid=1,.generation=10};return owner_result;}
+uint32_t trigger_grid_preview_plan_anchored(uint32_t epoch,uint32_t generation,uint64_t ordinal,
+    uint64_t minimum,uint64_t maximum,trigger_grid_preview_plan_t *out)
+{return trigger_grid_preview_plan(epoch,generation,ordinal,minimum,maximum,out);}
 #include "scpi_trigger_grid_commands.inc"
 static const scpi_command_t commands[]={
     {.pattern="TRIGger:REServation:GRID:CONFigure",.callback=scpi_cmd_trigger_grid_configure},
     {.pattern="TRIGger:REServation:GRID:CLEar",.callback=scpi_cmd_trigger_grid_clear},
     {.pattern="TRIGger:REServation:GRID?",.callback=scpi_cmd_trigger_grid_q},
     {.pattern="TRIGger:REServation:GRID:PLAN?",.callback=scpi_cmd_trigger_grid_plan_q},
+    {.pattern="TRIGger:REServation:GRID:ANCHor",.callback=scpi_cmd_trigger_grid_anchor},
+    {.pattern="TRIGger:REServation:GRID:ANCHor?",.callback=scpi_cmd_trigger_grid_anchor_q},
+    {.pattern="TRIGger:REServation:GRID:ANCHor:PLAN?",.callback=scpi_cmd_trigger_grid_anchor_plan_q},
     SCPI_CMD_LIST_END
 };
 int main(int argc,char **argv)
