@@ -415,6 +415,56 @@ def test_p3_gate_requires_complete_repeated_matrix() -> None:
         validate_p3(summary, config)
 
 
+def _bench_p3_summary(config: dict, delay: float) -> dict:
+    count = (len(config['p3_board_ids_in_physical_order']) *
+             len(config['frequency_ladder_mhz']) * 2 * config['repeats'])
+    return {
+        'passed': True,
+        'frequency_policy': {
+            'stable_profiles_passed': True,
+            'highest_stable_frequency_mhz': config['stable_frequency_mhz'],
+        },
+        'trials': [_trial(delay) for _ in range(count)],
+    }
+
+
+def test_single_board_fixture_has_independent_endpoint_inclusive_range():
+    config_dir = ROOT / 'config/hardware_acceptance'
+    single = load_bench_config(config_dir / 'p3_bench_single.json')
+    base = load_bench_config(config_dir / 'p3_bench.json')
+    assert (single['minimum_link_delay_ns'], single['maximum_link_delay_ns']) == (44, 60)
+    assert (base['minimum_link_delay_ns'], base['maximum_link_delay_ns']) == (70, 90)
+    fixture = single['p3_fixture']
+    assert fixture['cable_length_m'] == 0.1
+    assert fixture['measurement_semantics'] == 'uncorrected_endpoint_inclusive_single_board_delay'
+    assert fixture['baseline_status'] == 'provisional_measured_diagnostic_baseline'
+    assert fixture['baseline_delay_ns'] == 52
+    assert fixture['tolerance_ns'] == (
+        fixture['capture_sample_period_ns'] * fixture['tolerance_capture_periods']) == 8
+    assert fixture['baseline_evidence'] == 'out/tdma-budget/coarse-coded-p3-latency-r1/summary.json'
+    assert 'p3_fixture' not in base
+    result = validate_p3(_bench_p3_summary(single, 52), single)
+    assert result['accepted_delay_range_ns'] == [44.0, 60.0]
+    assert result['fixture'] == fixture
+    with pytest.raises(AcceptanceError, match='44.0..60.0'):
+        validate_p3(_bench_p3_summary(single, 80), single)
+    with pytest.raises(AcceptanceError, match='70.0..90.0'):
+        validate_p3(_bench_p3_summary(base, 52), base)
+    result = validate_p3(_bench_p3_summary(base, 80), base)
+    assert result['accepted_delay_range_ns'] == [70.0, 90.0]
+    assert result['fixture'] == {}
+
+
+@pytest.mark.parametrize('endpoint', ['initiator', 'responder'])
+@pytest.mark.parametrize('fault', ['dma_overrun_count', 'pio_stall_count'])
+def test_single_board_fixture_does_not_relax_dma_or_pio_fault_gate(endpoint, fault):
+    config = load_bench_config(ROOT / 'config/hardware_acceptance/p3_bench_single.json')
+    summary = _bench_p3_summary(config, 52)
+    summary['trials'][0][endpoint][fault] = 1
+    with pytest.raises(AcceptanceError, match='DMA/PIO fault'):
+        validate_p3(summary, config)
+
+
 def test_receipt_uses_complete_calibration_to_dpll_schema() -> None:
     assert RECEIPT_SCHEMA == "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_V4"
     assert TDMA_RECEIPT_SCHEMA.endswith("TDMA_4NODE_V2")
@@ -1075,10 +1125,16 @@ def test_precalibration_tools_clear_stale_stage_and_gate_arm_result() -> None:
         source = (ROOT / "tools" / "calibration_ring_validate" /
                   tool).read_text(encoding="utf-8")
         assert "CALibration:TRAINing:STAGe:CLEar" in source
-        assert "SYSTem:TDMA:RING:ARM:STATus?" in source
-        assert "ARM rejected with result=" in source
-        assert "ARM_SUBMIT" in source
-        assert "ARM_STARTED" in source
+        if tool == "calibration_clk_coded.py":
+            assert "coarse.arm_training_persona(" in source
+            arm_source = (ROOT / "tools" / "calibration_ring_validate" /
+                          "calibration_clk_train.py").read_text(encoding="utf-8")
+        else:
+            arm_source = source
+        assert "SYSTem:TDMA:RING:ARM:STATus?" in arm_source
+        assert "ARM rejected with result=" in arm_source
+        assert "ARM_SUBMIT" in arm_source
+        assert "ARM_STARTED" in arm_source
         assert "CALibration:TOPology:PROBe 1," in source
         assert "CALibration:TOPology:PROBe 0" in source
     coded = (ROOT / "tools" / "calibration_ring_validate" /

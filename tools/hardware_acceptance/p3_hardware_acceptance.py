@@ -1673,12 +1673,13 @@ def validate_p3(summary: dict[str, Any], config: dict[str, Any]) -> dict[str, An
             policy.get("stable_profiles_passed") is not True or
             policy.get("highest_stable_frequency_mhz") !=
             config["stable_frequency_mhz"] or len(delays) != expected_trials):
-        raise AcceptanceError("four-board P3 matrix did not meet acceptance")
+        raise AcceptanceError("P3 endpoint matrix did not meet acceptance")
     minimum = float(config["minimum_link_delay_ns"])
     maximum = float(config["maximum_link_delay_ns"])
     if min(delays) < minimum or max(delays) > maximum:
         raise AcceptanceError(
-            f"P3 delay outside configured bench range: {min(delays)}..{max(delays)}")
+            f"P3 delay outside configured bench range {minimum}..{maximum} ns: "
+            f"observed {min(delays)}..{max(delays)} ns")
     for trial in trials:
         for endpoint in ("initiator", "responder"):
             snapshot = trial.get(endpoint, {})
@@ -1688,6 +1689,8 @@ def validate_p3(summary: dict[str, Any], config: dict[str, Any]) -> dict[str, An
         "trial_count": expected_trials,
         "delay_min_ns": min(delays),
         "delay_max_ns": max(delays),
+        "accepted_delay_range_ns": [minimum, maximum],
+        "fixture": config.get("p3_fixture", {}),
         "highest_stable_frequency_mhz":
             policy["highest_stable_frequency_mhz"],
     }
@@ -2251,8 +2254,9 @@ def run_acceptance(args: argparse.Namespace) -> None:
         diagnostic_continue=diagnostic_continue)
 
     schedule_before = read_schedules(board_ids, timing)
-    p3_dir = out_dir / "p3-four-board"
-    print("Hardware acceptance: Latency Cal four links x two groups x frequency ladder",
+    p3_dir = out_dir / ("p3-single-board" if len(board_ids) == 1 else "p3-four-board")
+    print(f"Hardware acceptance: Latency Cal {len(board_ids)} physical board(s) "
+          "x two groups x frequency ladder",
           flush=True)
     p3_command = [
         sys.executable,
