@@ -10,9 +10,14 @@ import sys
 
 
 USB_PATTERN = re.compile(r"SYST(?:em)?:USB:")
+# The module owns the SYST:USB namespace for code. The operator playbook is
+# prose that documents the flow and is the only non-code reference allowed:
+# the scan already skips docs/, and moving this file out of tools/ would only
+# hide the same text. Nothing here can implement a second owner.
 ALLOWED_FILES = {
     pathlib.Path("middleware/scpi_port/inc/scpi_usb_control.h"),
     pathlib.Path("middleware/scpi_port/src/scpi_usb_control.c"),
+    pathlib.Path("tools/build_flash/OTA_BUILD_FLASH_PLAYBOOK.md"),
 }
 SCAN_SUFFIXES = {
     ".c",
