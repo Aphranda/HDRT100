@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Latency Cal (P3) per-link bidirectional ranging on a 2..8 board ring.
+"""Run Latency Cal (P3) on a ring or a single-board dual-endpoint loopback.
 
 Board identity is always the exact ``*IDN?`` unique address. COM names are
 only transient transport endpoints. Each validation runs the complete
@@ -69,6 +69,7 @@ P3_STATE_COMPLETE = 2
 P3_STATE_ERROR = 3
 P3_ROLE_INITIATOR = 1
 P3_ROLE_RESPONDER = 2
+P3_ROLE_LOOPBACK = 3
 P3_FLAGS_REQUIRED = 0x0F
 P3_GROUP_CLK_DATA = 0
 P3_GROUP_CS_DATA = 1
@@ -134,7 +135,14 @@ def parse_p3_status(raw: str) -> dict[str, int]:
     return result
 
 
-def p3_status(board: Board, args: argparse.Namespace) -> dict[str, int]:
+def p3_status(board: Board, args: argparse.Namespace,
+              endpoint: int | None = None) -> dict[str, int]:
+    if endpoint is not None and endpoint not in (
+            P3_ROLE_INITIATOR, P3_ROLE_RESPONDER):
+        raise ValueError("P3 endpoint must be initiator or responder")
+    command = "READ:CALibration:P3?"
+    if endpoint is not None:
+        command += f" {endpoint}"
     # A status reply can be read misaligned: a fragment of a neighbouring
     # reply gets glued onto the front of the line, which shows up as an
     # unexpected field count with empty columns. That is a read-alignment
@@ -143,7 +151,7 @@ def p3_status(board: Board, args: argparse.Namespace) -> dict[str, int]:
     # unchanged: this only stops discarding a whole trial over a torn read.
     last_error: Exception | None = None
     for _attempt in range(3):
-        raw = board_command(board, "READ:CALibration:P3?", args)
+        raw = board_command(board, command, args)
         try:
             return parse_p3_status(raw)
         except RuntimeError as exc:
@@ -243,6 +251,7 @@ def start_p3(board: Board, role: int, frequency_hz: int, epoch: int,
         last = p3_status(board, args)
         if (last["epoch"] == epoch and last["role"] == role and
                 last["baud_hz"] == frequency_hz and
+                last["signal_group"] == signal_group and
                 last["state"] in (P3_STATE_ARMED, P3_STATE_COMPLETE,
                                   P3_STATE_ERROR)):
             last["start_response"] = responses[-1]
@@ -271,12 +280,22 @@ def wait_complete_pair(source: Board, destination: Board, epoch: int,
                                                            dict[str, int]]:
     """Poll both endpoints concurrently after the ordered START handshake."""
     if source.address == destination.address:
-        # A one-node ring is its own peer: the single board holds both roles, so
-        # one serial poll sequence yields the snapshot for both endpoints.
-        # Polling the same CDC port from two threads interleaves the replies and
-        # tears the field layout apart.
-        snapshot = wait_complete(source, epoch, args)
-        return snapshot, snapshot
+        # Hardware endpoints run concurrently, but share one CDC connection.
+        # Read their distinct snapshots serially, under one completion deadline.
+        deadline = time.monotonic() + args.capture_timeout
+        endpoints: tuple[dict[str, int], ...] = ()
+        while time.monotonic() < deadline:
+            endpoints = tuple(p3_status(source, args, role) for role in (
+                P3_ROLE_INITIATOR, P3_ROLE_RESPONDER))
+            if all(row["epoch"] == epoch and row["role"] == role and
+                   row["state"] in (P3_STATE_COMPLETE, P3_STATE_ERROR)
+                   for row, role in zip(endpoints, (
+                       P3_ROLE_INITIATOR, P3_ROLE_RESPONDER))):
+                return endpoints[0], endpoints[1]
+            time.sleep(0.03)
+        raise RuntimeError(
+            f"{source.address}: Latency Cal loopback completion timeout: "
+            f"endpoints={endpoints}")
     with ThreadPoolExecutor(max_workers=2) as executor:
         initiator, responder = executor.map(
             lambda board: wait_complete(board, epoch, args),
@@ -426,12 +445,18 @@ def run_trial(source: Board, destination: Board, frequency_hz: int,
               args: argparse.Namespace) -> dict[str, object]:
     stop_p3([source, destination], args)
     try:
-        responder_start = start_p3(
-            destination, P3_ROLE_RESPONDER, frequency_hz, epoch,
-            signal_group, args)
-        initiator_start = start_p3(
-            source, P3_ROLE_INITIATOR, frequency_hz, epoch,
-            signal_group, args)
+        loopback = source.address == destination.address
+        if loopback:
+            starts = {"loopback_start": start_p3(
+                source, P3_ROLE_LOOPBACK, frequency_hz, epoch,
+                signal_group, args)}
+        else:
+            starts = {"responder_start": start_p3(
+                destination, P3_ROLE_RESPONDER, frequency_hz, epoch,
+                signal_group, args)}
+            starts["initiator_start"] = start_p3(
+                source, P3_ROLE_INITIATOR, frequency_hz, epoch,
+                signal_group, args)
         initiator, responder = wait_complete_pair(source, destination, epoch,
                                                   args)
         evaluation = evaluate_pair(initiator, responder, frequency_hz, args,
@@ -443,8 +468,9 @@ def run_trial(source: Board, destination: Board, frequency_hz: int,
             "epoch": epoch,
             "repeat_index": repeat_index,
             "signal_group": signal_group,
-            "responder_start": responder_start,
-            "initiator_start": initiator_start,
+            "endpoint_mode": ("SINGLE_BOARD_DUAL_ENDPOINT" if loopback
+                              else "DISTINCT_BOARDS"),
+            **starts,
             "initiator": initiator,
             "responder": responder,
             **evaluation,
@@ -561,6 +587,7 @@ def replay_saved_summary(source: dict[str, object],
         "measurement_domain", "phase", "diagnostic_only",
         "board_ids_in_physical_order", "boards", "frequency_ladder_mhz",
         "repeats", "pulse_count", "capture_words", "signal_groups",
+        "endpoint_mode", "frequency_subset_diagnostic",
     )
     return {
         **{field: source[field] for field in plan_fields if field in source},
@@ -661,6 +688,8 @@ def main() -> int:
         "signal_groups": ([P3_GROUP_CLK_DATA, P3_GROUP_CS_DATA]
                           if args.signal_group == "BOTH"
                           else [P3_GROUP_NAMES[args.signal_group]]),
+        "endpoint_mode": ("SINGLE_BOARD_DUAL_ENDPOINT" if len(ordered) == 1
+                          else "DISTINCT_BOARDS"),
     }
     if args.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
