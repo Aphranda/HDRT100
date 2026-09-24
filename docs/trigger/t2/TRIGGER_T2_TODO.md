@@ -45,12 +45,12 @@ Last updated: 2026-09-23
 | T2-ACTION-TEMPLATE-001 | 静态循环动作模板 | PENDING | 模板字段、循环跨度、role/IO、offset、settle/window、CRC 和启动期读回通过 |
 | T2-CLOCK-PROBE-001 | 细分脉冲能力验证 | DONE | 细分边沿、尾格空白、示波器 RAW 和恢复通过；不授予 live cursor |
 | T2-CLOCK-001 | 1 kHz VDC 时间片 cursor | IN PROGRESS | 每个基准同步推进 pulse index/fine cursor；细分物理输出与 cursor 分离；epoch/丢同步/回绕通过 |
-| T2-TURNTABLE-001 | NO1 计数 epoch 和位置观测 | PENDING | 任意 IN、起始/零位/终止位置预测、预运行区与终止校验区、脉冲/位置配置、预测目标计数、方向/回绕和采样区间通过；当前 5°/5° 是调试快照，非产品额定值 |
-| T2-TURNTABLE-002 | 每次同步预测与阈值提示 | PENDING | 每次 VDC 更新刷新预测；阈值外部配置、滞回和一次跨越提示通过；不触发热加载 |
-| T2-TURNTABLE-003 | coarse/fine 位置描述符 | PENDING | NO1 发布位置索引和身份元数据；从板拒绝旧代、错目标和过期描述符 |
-| T2-TRANSPORT-001 | 位置描述符 TDMA 运输 | PENDING | 来源、CRC、去重、乱序、期限和优先级预算通过；不使用诊断 ACK 代替 |
-| T2-TURNTABLE-004 | 从板本地位置解算 | PENDING | 各板用自己的 VDC model/grid 将索引解算为时间片，不接收主站 deadline；零位和终止位置必须生成确定的 target count、position ID 和时间片 |
-| T2-EXEC-001 | 本地 cursor 时间片执行 | PENDING | 位置实例展开、各动作独立执行、不同 q 顺序、PIO 回执和示波器边沿通过 |
+| T2-TURNTABLE-001 | NO1 计数 epoch 和位置观测 | IN PROGRESS | 任意 IN、起始/零位/终止位置预测、预运行区与终止校验区、脉冲/位置配置、预测目标计数、方向/回绕和采样区间通过；当前 5°/5° 是调试快照，非产品额定值 |
+| T2-TURNTABLE-002 | 每次同步预测与阈值提示 | IN PROGRESS | 每次 VDC 更新刷新预测；阈值外部配置、滞回和一次跨越提示通过；不触发热加载 |
+| T2-TURNTABLE-003 | coarse/fine 位置描述符 | IN PROGRESS | NO1 发布位置索引和身份元数据；从板拒绝旧代、错目标和过期描述符 |
+| T2-TRANSPORT-001 | 位置描述符 TDMA 运输 | IN PROGRESS | 来源、CRC、去重、乱序、期限和优先级预算通过；不使用诊断 ACK 代替 |
+| T2-TURNTABLE-004 | 从板本地位置解算 | IN PROGRESS | 各板用自己的 VDC model/grid 将索引解算为时间片，不接收主站 deadline；零位和终止位置必须生成确定的 target count、position ID 和时间片 |
+| T2-EXEC-001 | 本地 cursor 时间片执行 | IN PROGRESS | 位置实例展开、各动作独立执行、不同 q 顺序、PIO 回执和示波器边沿通过 |
 | T2-OFFSET-001 | SWITCH/GATEWAY/READY offset | PENDING | offset/window 可配置、读回、代际绑定；调试默认值不作为产品事实 |
 | T2-READY-001 | READY 上一级重叠校验 | PENDING | READY 按 position/instance 关联上一动作，早到/迟到/缺失/重复/重叠通过；不作当前许可 |
 | T2-TURNTABLE-005 | 阈值提示后的跨板位置确认 | PENDING | 目标板确认同一 position/version/grid/deployment 并建立本地实例；不形成 PREPARE/fence 执行门 |

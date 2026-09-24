@@ -12,6 +12,14 @@ Last updated: 2026-09-24
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260924-005：cursor/predictor/position/runtime service 接线
+
+- TODO task ID：T2-CLOCK-001、T2-TURNTABLE-001/002/003/004、T2-TRANSPORT-001、T2-EXEC-001。新增 `trigger_t2_runtime` bounded realtime service，并在 `sync_trigger_service()` 中接入；runtime 每次新 VDC cursor sample 读取本板 COUNTER，按 count epoch 更新单样本 pulses-per-sync 估计，在起始/零位/终止阈值跨越后逐个占用 flight mailbox 发布位置描述符。
+- 从板路径：RefMem realtime RX 之后读取 source descriptor，校验 run/grid/deployment 身份和有效同步区间，调用本地 `trigger_action_runtime` 展开模板实例；cursor 到达动作 q 后生成带 `position_id` 的本地事件队列。新增 `TRIGger:REServation:T2:CONFigure/STARt/STOP/?`，配置读取当前 grid、活动 deployment 和静态 template store，阈值和起止角度由外部参数提供。
+- 细分语义：预测 q 使用当前 cursor 与 measured pulses-per-sync 解算 coarse/fine；计数仍是位置权威，速度估计只用于将目标计数映射到未来时间片。位置运输保持单描述符分片占用，flight owner 忙时不覆盖正在发送的 descriptor。
+- 主机验证：origin 阈值跨越发布起始/零位 descriptor、receiver 身份校验/本地 q 展开/事件输出共 2 个 runtime 场景，连同 cursor/predictor/descriptor/template/action/READY 相关回归共 47 项通过；Release app/app-B/boot、PIO、SCPI namespace、Flash map 和 link contract 通过。
+- 当前边界：runtime 已调用已装载 SWITCH/GATEWAY PIO 的 Core1 fire/service 接口，但尚未有当前指纹对应的四板实机边沿、READY 硬件 latch、实际 `position_id` 示波器证据或恢复闭环；本片不关闭 M3–M5 验收。
+
 ### T2-PROGRESS-20260924-004：位置描述符接入 flight mailbox owner
 
 - TODO task ID：T2-TRANSPORT-001、T2-TURNTABLE-003、T2-TURNTABLE-004。沿现有 `tdma_service_publish_flight_tx` 和 32 字节 flight mailbox 增加独立 T2 position message class；每个 mailbox 携带一个 4 字节 descriptor fragment，发送端保持 target mask/sequence，接收端按 source slot 重组。
