@@ -35,6 +35,8 @@ bool trigger_time_cursor_snapshot(trigger_time_cursor_snapshot_t *out)
 
 uint32_t trigger_counter_snapshot(trigger_counter_snapshot_t *out)
 { if (!out) return COUNTER_ARGUMENT; *out=counter; return COUNTER_OK; }
+uint32_t trigger_counter_snapshot_core1(trigger_counter_snapshot_t *out)
+{ if (!out) return COUNTER_ARGUMENT; *out=counter; return COUNTER_OK; }
 bool distributed_refmem_position_descriptor_pending(void) { return tx_pending; }
 bool distributed_refmem_stage_position_descriptor(
     const trigger_position_descriptor_t *d, uint32_t mask)

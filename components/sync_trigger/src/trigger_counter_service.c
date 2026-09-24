@@ -132,3 +132,13 @@ uint32_t trigger_counter_snapshot(trigger_counter_snapshot_t *out)
     if (ok) *out=next;
     counter_leave();return ok?COUNTER_OK:COUNTER_BUSY;
 }
+
+uint32_t trigger_counter_snapshot_core1(trigger_counter_snapshot_t *out)
+{
+    if (!out || get_core_num()!=1u || !trigger_counter_is_loaded())
+        return COUNTER_ARGUMENT;
+    trigger_counter_snapshot_t next={.binding=s_counter_binding,.loaded=1u};
+    if (!sync_io_pulse_counter_snapshot_core1(&next.io)) return COUNTER_BUSY;
+    *out=next;
+    return COUNTER_OK;
+}

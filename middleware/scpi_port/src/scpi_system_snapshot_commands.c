@@ -3712,6 +3712,25 @@ scpi_result_t scpi_cmd_system_tdma_ring_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_tdma_ring_config_q(scpi_t *context)
+{
+    tdma_service_ring_runtime_config_t config;
+    if (!tdma_runtime_owner_get_staged_ring_config(&config)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_CONFIG");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, config.enabled);
+    SCPI_ResultUInt32(context, config.node_count);
+    SCPI_ResultUInt32(context, config.local_slot_id);
+    SCPI_ResultUInt32(context, config.reference_slot_id);
+    SCPI_ResultUInt32(context, config.schedule_crc32);
+    SCPI_ResultUInt32(context, config.ring_profile_crc32);
+    SCPI_ResultUInt32(context, config.operating_profile_crc32);
+    SCPI_ResultUInt32(context, config.cycle_period_ns);
+    SCPI_ResultUInt32(context, config.owner_config_seq);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_ring_train(scpi_t *context)
 {
     uint32_t cycles = 0u;

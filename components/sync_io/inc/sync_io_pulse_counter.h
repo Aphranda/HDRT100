@@ -44,5 +44,9 @@ bool sync_io_pulse_counter_release(uint32_t generation);
  * with timestamp_valid=0. Bounded FIFO contention may return false and
  * preserves *out. IDLE readback never accesses released hardware. */
 bool sync_io_pulse_counter_snapshot(sync_io_pulse_counter_snapshot_t *out);
+/* Core1 realtime read while the already-loaded counter is RUNNING. It drains
+ * only the bounded fresh FIFO window and never changes the lease/lifecycle. */
+bool sync_io_pulse_counter_snapshot_core1(
+    sync_io_pulse_counter_snapshot_t *out);
 
 #endif

@@ -13,6 +13,7 @@
 #define COUNTER_PIO BOARD_SYNC_PIO_FAST
 #define COUNTER_SM SYNC_IO_PULSE_COUNTER_SM
 #define COUNTER_SNAPSHOT_POLLS 64u
+#define COUNTER_CORE1_SNAPSHOT_POLLS 8u
 /* Four resident FIFO words plus one ISR value captured before the first
  * TIMER1 sample may be stale. The sixth word MUST be a later PIO MOV. */
 #define COUNTER_FRESH_WORDS 6u
@@ -23,6 +24,7 @@ _Static_assert(sizeof(sync_pulse_counter_program_instructions)/sizeof(uint16_t)=
 static sync_io_pulse_counter_snapshot_t s_counter;
 static sync_io_persona_manager_handle_t s_handle;
 static uint32_t s_busy,s_generation,s_offset;
+static volatile uint32_t s_snapshot_guard;
 static bool s_sm_claimed,s_loaded,s_configured,s_lease;
 
 static bool enter(void)
@@ -44,10 +46,25 @@ static void record(uint32_t value,bool before_valid,uint64_t before)
 {
     uint64_t after=0u;
     const bool after_valid=now_raw(&after);
+    (void)__atomic_add_fetch(&s_snapshot_guard,1u,__ATOMIC_ACQ_REL);
     s_counter.count32=value;s_counter.valid=1u;
     s_counter.timestamp_valid=before_valid && after_valid && after>=before;
     s_counter.sample_before_tick=s_counter.timestamp_valid ? before : 0u;
     s_counter.sample_after_tick=s_counter.timestamp_valid ? after : 0u;
+    (void)__atomic_add_fetch(&s_snapshot_guard,1u,__ATOMIC_RELEASE);
+}
+
+static bool copy_snapshot(sync_io_pulse_counter_snapshot_t *out)
+{
+    if (!out) return false;
+    for (uint32_t attempt=0u;attempt<4u;++attempt) {
+        const uint32_t before=__atomic_load_n(&s_snapshot_guard,__ATOMIC_ACQUIRE);
+        if (before&1u) continue;
+        *out=s_counter;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (before==__atomic_load_n(&s_snapshot_guard,__ATOMIC_ACQUIRE)) return true;
+    }
+    return false;
 }
 static bool load(void *context,const sync_io_persona_descriptor_t *descriptor,uint32_t dma)
 {
@@ -183,8 +200,33 @@ bool sync_io_pulse_counter_snapshot(sync_io_pulse_counter_snapshot_t *out)
         if(read!=COUNTER_FRESH_WORDS) {leave();return false;}
         record(value,valid,before);
     }
-    *out=s_counter;out->schema=SYNC_IO_PULSE_COUNTER_SCHEMA;
+    const bool copied=copy_snapshot(out);
+    if (!copied) {leave();return false;}
+    out->schema=SYNC_IO_PULSE_COUNTER_SCHEMA;
     if(s_lease) out->input_pin=(COUNTER_PIO->sm[COUNTER_SM].execctrl&PIO_SM0_EXECCTRL_JMP_PIN_BITS)>>
         PIO_SM0_EXECCTRL_JMP_PIN_LSB;
     leave();return true;
+}
+
+bool sync_io_pulse_counter_snapshot_core1(
+    sync_io_pulse_counter_snapshot_t *out)
+{
+    if (!out || get_core_num()!=1u || !s_lease ||
+        s_counter.state!=SYNC_IO_PULSE_COUNTER_RUNNING) return false;
+    uint64_t before=0u;
+    const bool valid=now_raw(&before);
+    uint32_t read=0u,value=0u;
+    for (uint32_t i=0u;i<COUNTER_CORE1_SNAPSHOT_POLLS &&
+             read<COUNTER_FRESH_WORDS;++i) {
+        if (!pio_sm_is_rx_fifo_empty(COUNTER_PIO,COUNTER_SM)) {
+            value=pio_sm_get(COUNTER_PIO,COUNTER_SM);++read;
+        }
+    }
+    if (read!=COUNTER_FRESH_WORDS) return false;
+    record(value,valid,before);
+    if (!copy_snapshot(out)) return false;
+    out->schema=SYNC_IO_PULSE_COUNTER_SCHEMA;
+    out->input_pin=(COUNTER_PIO->sm[COUNTER_SM].execctrl&PIO_SM0_EXECCTRL_JMP_PIN_BITS)>>
+        PIO_SM0_EXECCTRL_JMP_PIN_LSB;
+    return true;
 }

@@ -164,13 +164,15 @@ static bool dispatch_event(uint32_t index)
 
 static void dispatch_pending_events(void)
 {
+    bool failed=false;
     sync_io_switch_realtime_service_core1();
     sync_io_gateway_realtime_service_core1();
     for (uint32_t i=0u;i<s_state.event_count;++i) {
         if (s_state.event_dispatched[i]) continue;
         if (dispatch_event(i)) s_state.event_dispatched[i]=1u;
-        else s_state.last_error=TRIGGER_T2_RUNTIME_ACTION;
+        else failed=true;
     }
+    if (failed) s_state.last_error=TRIGGER_T2_RUNTIME_ACTION;
 }
 
 bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
@@ -199,7 +201,6 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
     }
     s_state.configured = 1u;
     s_state.origin = config->origin ? 1u : 0u;
-    s_state.last_error = TRIGGER_T2_RUNTIME_OK;
     s_state.source_slot = config->source_slot;
     s_state.target_mask = config->target_mask;
     s_state.run_id = config->run_id;
@@ -266,7 +267,7 @@ trigger_t2_runtime_result_t trigger_t2_runtime_service(void)
 
     if (s_state.origin) {
         trigger_counter_snapshot_t counter;
-        if (trigger_counter_snapshot(&counter) != COUNTER_OK ||
+        if (trigger_counter_snapshot_core1(&counter) != COUNTER_OK ||
             !counter.loaded || !counter.io.valid) {
             s_state.last_error = TRIGGER_T2_RUNTIME_COUNTER;
             T2_RETURN(s_state.last_error);
@@ -287,7 +288,8 @@ trigger_t2_runtime_result_t trigger_t2_runtime_service(void)
         collect_events();
     }
     dispatch_pending_events();
-    s_state.last_error = TRIGGER_T2_RUNTIME_OK;
+    const trigger_t2_runtime_result_t completed=s_state.last_error;
+    if (completed != TRIGGER_T2_RUNTIME_OK) T2_RETURN(completed);
     T2_RETURN(TRIGGER_T2_RUNTIME_OK);
 #undef T2_RETURN
 }

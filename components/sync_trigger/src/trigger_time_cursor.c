@@ -38,6 +38,7 @@ void trigger_time_cursor_service(void)
 {
     trigger_time_cursor_snapshot_t next;
     vdc_dpll_manager_sync_io_observer_status_t observer;
+    vdc_dpll_manager_vdc_status_t vdc_status;
     vdc_dpll_manager_committed_model_t model;
     const uint32_t session = vdc_dpll_manager_feedback_session();
     uint32_t delta;
@@ -52,8 +53,9 @@ void trigger_time_cursor_service(void)
         publish(&next);
         return;
     }
+    vdc_dpll_manager_get_vdc_status(&vdc_status);
     vdc_dpll_manager_get_sync_io_observer_status(&observer);
-    if (!observer.enabled || !observer.last_sample_seq) {
+    if (!vdc_status.sync_seq) {
         next.valid = 0u;
         next.last_error = TRIGGER_TIME_CURSOR_NO_SYNC;
         publish(&next);
@@ -66,7 +68,7 @@ void trigger_time_cursor_service(void)
         next.action_cursor = 0u;
         next.valid = 0u;
     }
-    if (next.sample_seq == observer.last_sample_seq) {
+    if (next.sample_seq == vdc_status.sync_seq) {
         next.model_token = model.token;
         next.dco_update_seq = model.dco.dco_update_seq;
         publish(&next);
@@ -74,9 +76,9 @@ void trigger_time_cursor_service(void)
     }
     /* The first observation after configuration/session start establishes the
      * origin; its absolute sample sequence is not a detected gap. */
-    delta = next.sample_seq == 0u ? 1u : observer.last_sample_seq - next.sample_seq;
-    next.sample_seq = observer.last_sample_seq;
-    next.last_event_id = observer.last_event_id;
+    delta = next.sample_seq == 0u ? 1u : vdc_status.sync_seq - next.sample_seq;
+    next.sample_seq = vdc_status.sync_seq;
+    next.last_event_id = observer.enabled ? observer.last_event_id : 0u;
     next.model_token = model.token;
     next.dco_update_seq = model.dco.dco_update_seq;
     if (delta != 1u) {
