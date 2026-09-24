@@ -12,6 +12,13 @@ Last updated: 2026-09-24
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260924-004：位置描述符接入 flight mailbox owner
+
+- TODO task ID：T2-TRANSPORT-001、T2-TURNTABLE-003、T2-TURNTABLE-004。沿现有 `tdma_service_publish_flight_tx` 和 32 字节 flight mailbox 增加独立 T2 position message class；每个 mailbox 携带一个 4 字节 descriptor fragment，发送端保持 target mask/sequence，接收端按 source slot 重组。
+- 接口：NO1/业务 owner 通过 `distributed_refmem_stage_position_descriptor()` staging 最新 descriptor；发布成功后逐片推进，完整描述符在从板由 `distributed_refmem_get_position_descriptor()` 读回。旧 descriptor、乱序、换源和 CRC 失败不会形成有效位置。
+- 边界：该接入复用现有 flight FIFO 和 Core0 RefMem owner，不新增 Core1 实时席位；尚未连接实际 NO1 predictor 调用、目标板动作实例展开或 READY 校验。
+- 软件证据：新增 owner 接入后的完整 Release 构建和三份 flash link contract 通过；本片未执行新的 P3，待 position descriptor staging、四板接收读回和本地实例展开形成完整切片后再执行。
+
 ### T2-PROGRESS-20260924-003：转台起始/零位/终止预测模型
 
 - TODO task ID：T2-TURNTABLE-001、T2-TURNTABLE-002、T2-TURNTABLE-009。新增确定性 predictor 模型，使用计数 epoch、脉冲/度、起始/零位/终止角度、前后 5° 区间和外部阈值生成三类目标计数与阈值计数。
@@ -22,7 +29,8 @@ Last updated: 2026-09-24
 
 - TODO task ID：T2-TURNTABLE-003、T2-TURNTABLE-004、T2-TRANSPORT-001。新增 `trigger_position_descriptor_t`，明确 NO1 广播的业务字段为 `position_id`、`target_ms_index`、`target_fine_slice_index`，并绑定 run/sync、count epoch、prediction version、grid/deployment generation 和有效同步区间。
 - 接收端校验：schema、身份字段、细分范围、有效窗口和 canonical CRC；验证通过后才允许将 coarse/fine 索引转换为本地绝对 `q`，不传输主站 TIMER1 deadline，不使用消息到达时间作为动作时间。
-- 主机验证：位置描述符有效性、CRC 变更、细分越界、窗口倒置、schema 错误和 q 解算共 6 项通过。TDMA wire 运输、从板实时接收和动作展开尚未实现。
+- 运输基础：增加固定 4 字节顺序分片 codec，带 source/target mask、transport sequence、重复/乱序/换源拒绝和 descriptor CRC；它复用现有 RefMem/TDMA 分片边界，但尚未接入实际 TDMA owner。
+- 主机验证：位置描述符有效性、CRC 变更、细分越界、窗口倒置、schema 错误、q 解算、完整分片和乱序拒绝共 9 项通过。TDMA wire 发送、从板实时接收和动作展开尚未实现。
 
 ### T2-PROGRESS-20260924-001：1 kHz VDC 时间片 cursor 基础
 
