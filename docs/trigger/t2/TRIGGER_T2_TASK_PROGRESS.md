@@ -12,6 +12,13 @@ Last updated: 2026-09-24
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260924-008：VDC 优先与位置片低优先级快速发布
+
+- TODO task ID：T2-TRANSPORT-001、T2-CLOCK-001、T2-TURNTABLE-003。明确两条发布语义：VDC sync token 继续使用现有 priority/正常 flight owner；position descriptor 使用同一确定性 flight owner 的低优先级一等普通席位，带独立 message class 和 descriptor CRC/`valid_from_sync` 绑定。
+- 调度规则：当 VDC/feedback/boundary 正常帧到期时，先发布 VDC；position fragment 只占用未到普通 VDC cadence 的空闲 flight cycle，position 发送不推进 `last_publish_ms`，不会降低 VDC 发布频率，也不新增 priority 席位。位置预测提前完成，因此保留 descriptor 的代际、sync sequence、grid 和 deployment 校验优先级。
+- 代码证据：`distributed_refmem_tdma_flight_sync_publish()` 已按 `normal_due` 分离 VDC 与 position 发送；最终 P3 receipt 绑定当前 staged source，`PASS_WITH_WARNINGS`，ERROR/FATAL 为零。
+- 硬件边界：当前 HIL 已看到 NO1 origin 的 VDC sync sequence/counter 推进；从板 observation eligibility 尚未在同一轮形成有效 sync sequence，因此仍未关闭四板 position_id/实际动作边沿/READY 闭环。
+
 ### T2-PROGRESS-20260924-007：VDC sync_seq 与 Core1 COUNTER 运行期接线
 
 - TODO task ID：T2-CLOCK-001、T2-TURNTABLE-001/002、T2-EXEC-001、T2-ACCEPT-001。cursor 现在直接消费 VDC Domain `vdc_status.sync_seq`；诊断 observer 只保留可选 `last_event_id` provenance，不再作为运行中 1 kHz 时间片来源。NO1 COUNTER 增加 Core1 有界新鲜 FIFO 快照和 seqlock 发布，origin runtime 能在 TDMA RUN 中读取计数。
