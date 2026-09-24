@@ -17,6 +17,8 @@ Last updated: 2026-09-24
 - TODO task ID：T2-TRANSPORT-001、T2-TURNTABLE-003、T2-TURNTABLE-004。沿现有 `tdma_service_publish_flight_tx` 和 32 字节 flight mailbox 增加独立 T2 position message class；每个 mailbox 携带一个 4 字节 descriptor fragment，发送端保持 target mask/sequence，接收端按 source slot 重组。
 - 接口：NO1/业务 owner 通过 `distributed_refmem_stage_position_descriptor()` staging 最新 descriptor；发布成功后逐片推进，完整描述符在从板由 `distributed_refmem_get_position_descriptor()` 读回。旧 descriptor、乱序、换源和 CRC 失败不会形成有效位置。
 - 边界：该接入复用现有 flight FIFO 和 Core0 RefMem owner，不新增 Core1 实时席位；尚未连接实际 NO1 predictor 调用、目标板动作实例展开或 READY 校验。
+- NO1 连接准备：predictor 新增 descriptor builder，仅允许已跨阈值的 start/zero/terminal position 生成 descriptor，并绑定 count epoch、target count、prediction version、grid/deployment 身份和有效同步窗口；实际运行 service 仍待接线。
+- M3 接口准备：新增本地 position instance expansion，将 descriptor 的 coarse/fine 索引按 profile `delta_q` 解算为动作 q，拒绝下溢/上溢；尚未连接静态 SWITCH/GATEWAY 模板或 PIO 执行。
 - 软件证据：新增 owner 接入后的完整 Release 构建和三份 flash link contract 通过；本片未执行新的 P3，待 position descriptor staging、四板接收读回和本地实例展开形成完整切片后再执行。
 
 ### T2-PROGRESS-20260924-003：转台起始/零位/终止预测模型
