@@ -12,6 +12,12 @@ Last updated: 2026-09-24
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260924-006：四板 T2 SCPI/HIL 配置探针
+
+- TODO task ID：T2-DEPLOY-002、T2-TURNTABLE-003、T2-TRANSPORT-001、T2-ACCEPT-001。使用当前 P3 build `20260924034302` 对 COM3–COM6 做受控配置探针：deployment 代际提升后四板 STAGE/ACTIVATE 读回通过；首次 template CRC 计算错误和后续修正均保留在 `out/t2-runtime-hil-20260924/scpi-evidence.jsonl`。
+- 结果：修正 CRC 后 NO1/NO3/NO4 template install 成功，NO2 在 STOP template install 返回 BUSY；四板 T2 grid configure 返回 `TRIGGER_GRID_PREVIEW_MODEL`，未进入 T2 START，也未产生位置动作或边沿证据。原因尚需在停止态保留有效 VDC/TDMA binding 后复核，不能把该探针当作 runtime 失败或通过。
+- 清理：四板 T2 STOP、TDMA RING STOP、template RELEASE/CLEAR、deployment CLEAR 全部返回成功；清理原始响应保存在 `out/t2-runtime-hil-20260924/cleanup.jsonl`。当前仍无实际 `position_id` 示波器证据。
+
 ### T2-PROGRESS-20260924-005：cursor/predictor/position/runtime service 接线
 
 - TODO task ID：T2-CLOCK-001、T2-TURNTABLE-001/002/003/004、T2-TRANSPORT-001、T2-EXEC-001。新增 `trigger_t2_runtime` bounded realtime service，并在 `sync_trigger_service()` 中接入；runtime 每次新 VDC cursor sample 读取本板 COUNTER，按 count epoch 更新单样本 pulses-per-sync 估计，在起始/零位/终止阈值跨越后逐个占用 flight mailbox 发布位置描述符。
