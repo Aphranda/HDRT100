@@ -24,6 +24,7 @@ Last updated: 2026-09-24
 - 静态模板 owner：新增 STOP-only template store，支持 deployment 校验、同代幂等、generation 高水位和 CLEAR；它只保存模板元数据，不申请 PIO/SM/GPIO，也不授予 RUN 执行权。
 - 资源装载边界：template store 新增显式 `activate_resources/release_resources`，按本板 deployment role 调用现有 COUNTER/SWITCH/GATEWAY LOAD/UNLOAD owner；静态模板元数据与 PIO lease 分离，仍需四板启动期读回验证。
 - 主机验证：template store 的 install、STOP busy、同代幂等、CLEAR 高水位和 SWITCH 资源 activate/release 共 5 项通过；尚未进行四板实际静态资源读回。
+- 本地执行准备：新增 bounded action runtime queue，接收 descriptor 展开后的模板实例，检查 q 区间冲突，在 cursor 到达时一次性生成带 position_id 的动作事件；重复 cursor 不重复发射，cursor 回退显式拒绝。尚未连接 PIO 写码。
 - 软件证据：新增 owner 接入后的完整 Release 构建和三份 flash link contract 通过；本片未执行新的 P3，待 position descriptor staging、四板接收读回和本地实例展开形成完整切片后再执行。
 
 ### T2-PROGRESS-20260924-003：转台起始/零位/终止预测模型
