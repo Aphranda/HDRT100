@@ -1337,7 +1337,9 @@ static void distributed_refmem_tdma_flight_sync_publish(
     if (ring_interval_ms > publish_interval_ms) {
         publish_interval_ms = ring_interval_ms;
     }
-    if (now_ms - s_tdma_flight_sync.last_publish_ms < publish_interval_ms) {
+    const bool normal_due =
+        now_ms - s_tdma_flight_sync.last_publish_ms >= publish_interval_ms;
+    if (!normal_due && !s_tdma_flight_sync.position_tx_active) {
         return;
     }
 
@@ -1353,7 +1355,8 @@ static void distributed_refmem_tdma_flight_sync_publish(
     }
     if (feedback == -2) feedback = distributed_refmem_feedback_prepare(owner);
     if (feedback < 0) return; /* Busy snapshot: do not splice an ordinary frame. */
-    s_tdma_flight_sync.last_publish_ms = now_ms;
+    /* A position-only idle-cycle publication must not move the VDC cadence;
+     * the next normal frame remains due at the original deadline. */
 
     uint8_t frame[DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE];
     size_t frame_size = 0u;
@@ -1375,8 +1378,8 @@ static void distributed_refmem_tdma_flight_sync_publish(
 #else
     const bool resident_master = false;
 #endif
-    const bool position_publication = s_tdma_flight_sync.position_tx_active &&
-        !resident_master && feedback <= 0;
+    const bool position_publication = !normal_due &&
+        s_tdma_flight_sync.position_tx_active && !resident_master && feedback <= 0;
     const uint8_t message_class = position_publication
         ? TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS
         : resident_master
@@ -1417,6 +1420,7 @@ static void distributed_refmem_tdma_flight_sync_publish(
             distributed_refmem_flight_publish_mask_for_slot(
                 ring->local_slot_id))) {
         s_tdma_flight_sync.tx_publish_count++;
+        if (!position_publication) s_tdma_flight_sync.last_publish_ms = now_ms;
         if (position_publication) {
             s_tdma_flight_sync.position_tx_publish_count++;
         } else {
