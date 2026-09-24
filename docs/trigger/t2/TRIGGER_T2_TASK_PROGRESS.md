@@ -12,6 +12,14 @@ Last updated: 2026-09-24
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260924-007：VDC sync_seq 与 Core1 COUNTER 运行期接线
+
+- TODO task ID：T2-CLOCK-001、T2-TURNTABLE-001/002、T2-EXEC-001、T2-ACCEPT-001。cursor 现在直接消费 VDC Domain `vdc_status.sync_seq`；诊断 observer 只保留可选 `last_event_id` provenance，不再作为运行中 1 kHz 时间片来源。NO1 COUNTER 增加 Core1 有界新鲜 FIFO 快照和 seqlock 发布，origin runtime 能在 TDMA RUN 中读取计数。
+- 四板短 HIL：在当前 build 上，COM5/NO1 origin 进入 T2 RUN 后 `last_sync_sequence` 与 counter count 持续增长（原始记录见 `out/t2-runtime-hil-20260924/vdc-seq-runtime-evidence.jsonl`）；位置阈值尚未跨越，因此 published mask 为零是预期结果。部分 follower 的 VDC `sync_seq` 未发布，仍报告 cursor 无同步，未形成四板 position descriptor/action 闭环。
+- 失败边界：曾试验用 TDMA `ring_seq` 作为 follower fallback；一块板出现 sequence 回退，已撤销该实现和测试，避免把 transport sequence 冒充 VDC sync。当前正式代码在 follower 缺少 VDC observation eligibility 时保持 fail closed。
+- 调度证据：早期运行片把 `SYNC_TRIGGER` phase 推入 quarantine，根因为 Core1 counter 快照使用过大的 FIFO 轮询；现已将实时路径轮询上限收紧为有界窗口，最终 P3 未出现 ERROR/FATAL。P3 receipt 仍为 `PASS_WITH_WARNINGS`，严格质量字段保持原值。
+- 清理：每轮 HIL 均在 TDMA STOP 后停止/卸载 COUNTER、释放 template、清理 deployment；scope 仍接四板 OUT1，未宣称实际 position_id 边沿或 READY 硬件 latch。
+
 ### T2-PROGRESS-20260924-006：四板 T2 SCPI/HIL 配置探针
 
 - TODO task ID：T2-DEPLOY-002、T2-TURNTABLE-003、T2-TRANSPORT-001、T2-ACCEPT-001。使用当前 P3 build `20260924034302` 对 COM3–COM6 做受控配置探针：deployment 代际提升后四板 STAGE/ACTIVATE 读回通过；首次 template CRC 计算错误和后续修正均保留在 `out/t2-runtime-hil-20260924/scpi-evidence.jsonl`。
