@@ -12,6 +12,7 @@
 #include "sync_io.h"
 #include "trigger_fb.h"
 #include "trigger_resource_map.h"
+#include "trigger_time_cursor.h"
 
 #define SYNC_TRIGGER_QUEUE_LENGTH  16u
 #define TRIG_TRACE_DOMAIN_TRIGGER  2u
@@ -549,6 +550,7 @@ static void ao_refresh_from_io(void)
 bool sync_trigger_init(void)
 {
     memset(&s_ao, 0, sizeof(s_ao));
+    trigger_time_cursor_clear();
     lock_init(&s_ao.queue.core, next_striped_spin_lock_num());
     s_ao.queue.data = (uint8_t *)s_ao.queue_storage;
     s_ao.queue.wptr = 0u;
@@ -604,6 +606,7 @@ bool sync_trigger_post(const trig_event_t *event)
 
 void sync_trigger_service(void)
 {
+    trigger_time_cursor_service();
     trig_event_t event;
     if (!queue_try_remove(&s_ao.queue, &event)) {
         const bool runtime_monitoring =

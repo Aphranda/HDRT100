@@ -124,6 +124,7 @@ scpi_result_t scpi_cmd_trigger_grid_plan_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_grid_anchor(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_grid_anchor_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_grid_anchor_plan_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_cursor_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_deployment_stage(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_deployment_activate(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_deployment_clear(scpi_t *context);
@@ -389,6 +390,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:REServation:GRID:ANCHor", .callback = scpi_cmd_trigger_grid_anchor}, \
     {.pattern = "TRIGger:REServation:GRID:ANCHor?", .callback = scpi_cmd_trigger_grid_anchor_q}, \
     {.pattern = "TRIGger:REServation:GRID:ANCHor:PLAN?", .callback = scpi_cmd_trigger_grid_anchor_plan_q}, \
+    {.pattern = "TRIGger:REServation:CURSor?", .callback = scpi_cmd_trigger_cursor_q}, \
     {.pattern = "SYSTem:VDC:OUTPut:FIXed", .callback = scpi_cmd_vdc_fixed_output}, \
     {.pattern = "SYSTem:VDC:OUTPut:RUN", .callback = scpi_cmd_vdc_run_output}, \
     {.pattern = "SYSTem:VDC:OUTPut:RUN:STOP", .callback = scpi_cmd_vdc_run_output_stop}, \

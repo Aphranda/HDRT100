@@ -46,8 +46,9 @@ def owner(tmp_path_factory):
     return compile_grid(directory, 'owner', OWNER, [
         ROOT / 'components/sync_trigger/src/trigger_grid_preview.c',
         ROOT / 'components/vdc_domain/src/vdc_domain.c',
-        ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
-        ROOT / 'components/tdma/src/tdma_profile.c'])
+            ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
+            ROOT / 'components/tdma/src/tdma_profile.c',
+            ROOT / 'components/sync_trigger/src/trigger_time_cursor.c'])
 
 
 @pytest.mark.parametrize('scenario', [

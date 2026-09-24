@@ -33,6 +33,7 @@
 #include "vdc_timestamp_clock.h"
 
 #include "scpi_trigger_grid_commands.inc"
+#include "scpi_trigger_cursor_commands.inc"
 #include "scpi_trigger_deployment_commands.inc"
 
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u

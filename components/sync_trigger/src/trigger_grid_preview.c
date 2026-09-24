@@ -5,6 +5,7 @@
 #include "pico/platform.h"
 #include "tdma_runtime_owner.h"
 #include "vdc_timestamp_clock.h"
+#include "trigger_time_cursor.h"
 
 /* No Core1 work or hardware output owner is introduced. The gate protects
  * different Core0 management callers; TDMA's metadata gate excludes ARM. */
@@ -151,6 +152,11 @@ static bool configure_stopped(void *context)
     }
     memset(&s_anchor, 0, sizeof(s_anchor));
     s_grid = candidate;
+    if (!trigger_time_cursor_configure(request->grid->epoch,
+            request->grid->generation, request->grid->subdivisions)) {
+        request->result = TRIGGER_GRID_PREVIEW_CHANGED;
+        return false;
+    }
     request->result = TRIGGER_TIME_GRID_OK;
     return true;
 }
@@ -171,6 +177,7 @@ static bool clear_stopped(void *unused)
     const uint32_t last_generation = s_grid.last_generation;
     memset(&s_grid, 0, sizeof(s_grid));
     memset(&s_anchor, 0, sizeof(s_anchor));
+    trigger_time_cursor_clear();
     s_grid.last_generation = last_generation;
     return true;
 }
