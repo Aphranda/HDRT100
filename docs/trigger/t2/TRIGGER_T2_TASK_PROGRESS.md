@@ -4,13 +4,20 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-23
+Last updated: 2026-09-24
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20260924-001：1 kHz VDC 时间片 cursor 基础
+
+- TODO task ID：T2-CLOCK-001、T2-DEPLOY-002。新增 `trigger_time_cursor`，消费现有 VDC sync observer 的 `last_sample_seq`，为每个新同步样本推进 `pulse_index`，派生 `fine_slice_index=0` 和 `action_cursor=pulse_index*subdivisions`，并记录 session、model token、DCO update sequence、event ID 和丢样本计数。
+- 语义边界：cursor 不输出 GPIO、不装载 PIO、不授予动作执行权；grid 配置成功时建立 cursor 配置，CLEAR 时清除。session 换代重新建立起点；样本序号跳跃标记 `SAMPLE_GAP` 并使 cursor 无效，不能静默执行旧位置。
+- 观测接口：新增 `TRIGger:REServation:CURSor?`，返回配置、有效性、grid、session/sample、模型代际、脉冲序号、action cursor、丢样本和错误码，供后续位置实例与示波器证据绑定。
+- 主机验证：cursor/grid/action 相关测试共 246 项通过；本片未宣称四板 live RUN、实际 VDC 1 kHz 边沿或 T2 动作执行完成。硬件证据仍需当前 staged 源码指纹对应的 P3 与后续示波器闭环。
 
 ### T2-PROGRESS-20260923-008：转台起止边界与精确位置输出语义
 
