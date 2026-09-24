@@ -16,6 +16,10 @@
 #define TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS 0x12u
 #define TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS 0x13u
 #define TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS 0x14u
+/* T2 position-index fragments. The six-byte VDC region carries one 4-byte
+ * descriptor fragment plus index/count; the payload is decoded by the T2
+ * owner and is not interpreted as a DCO command. */
+#define TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS 0x15u
 
 /* Typed VDC regions are interpreted only by their Core0 consumer.
  * The old absolute-time command prototype (0x11) remains disabled. */

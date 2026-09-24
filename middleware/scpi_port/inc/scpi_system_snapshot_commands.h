@@ -175,6 +175,11 @@ scpi_result_t scpi_cmd_trigger_action_stop(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_action_release(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_action_execute_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_action_now_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_template_install(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_template_clear(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_template_activate(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_template_release(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_template_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
@@ -437,6 +442,11 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:REServation:ACTion:EXECute:RELease", .callback = scpi_cmd_trigger_action_release}, \
     {.pattern = "TRIGger:REServation:ACTion:EXECute?", .callback = scpi_cmd_trigger_action_execute_q}, \
     {.pattern = "TRIGger:REServation:ACTion:EXECute:NOW?", .callback = scpi_cmd_trigger_action_now_q}, \
+    {.pattern = "TRIGger:REServation:TEMPLate:INSTall", .callback = scpi_cmd_trigger_template_install}, \
+    {.pattern = "TRIGger:REServation:TEMPLate:CLEar", .callback = scpi_cmd_trigger_template_clear}, \
+    {.pattern = "TRIGger:REServation:TEMPLate:ACTivate", .callback = scpi_cmd_trigger_template_activate}, \
+    {.pattern = "TRIGger:REServation:TEMPLate:RELease", .callback = scpi_cmd_trigger_template_release}, \
+    {.pattern = "TRIGger:REServation:TEMPLate?", .callback = scpi_cmd_trigger_template_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BRIDge?", .callback = scpi_cmd_vdc_feedback_bridge_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MATCh?", .callback = scpi_cmd_vdc_feedback_match_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \

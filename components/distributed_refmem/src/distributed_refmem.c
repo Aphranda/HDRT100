@@ -259,6 +259,14 @@ typedef struct {
     uint32_t vdc_command_record_active;
     uint8_t vdc_command_record_fragment_index;
     uint32_t vdc_command_record_source_update_seq;
+    uint32_t position_tx_active, position_tx_target_mask;
+    uint32_t position_tx_fragment_index, position_tx_sequence;
+    uint32_t position_tx_publish_count, position_tx_reject_count;
+    uint8_t position_tx_wire[TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE];
+    trigger_position_fragment_context_t position_rx_fragments[DISTRIBUTED_REFMEM_NODE_COUNT];
+    trigger_position_descriptor_t position_rx_descriptor[DISTRIBUTED_REFMEM_NODE_COUNT];
+    uint32_t position_rx_valid_mask, position_rx_complete_count,
+        position_rx_reject_count;
 #if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
     uint32_t next_command_seq;
     uint32_t vdc_command_frame_seq;
@@ -432,6 +440,11 @@ static void distributed_refmem_tdma_flight_sync_update_ring(
     memset(s_tdma_flight_sync.rx_last_seq_by_source,
            0,
            sizeof(s_tdma_flight_sync.rx_last_seq_by_source));
+    s_tdma_flight_sync.position_tx_active = 0u;
+    s_tdma_flight_sync.position_tx_fragment_index = 0u;
+    s_tdma_flight_sync.position_rx_valid_mask = 0u;
+    memset(s_tdma_flight_sync.position_rx_fragments, 0,
+           sizeof(s_tdma_flight_sync.position_rx_fragments));
     distributed_refmem_tdma_reset_resident_command_state();
     (void)refmem_sync_delta_init(&s_tdma_flight_sync.context,
                            (uint8_t)s_tdma_flight_sync.local_slot,
@@ -606,6 +619,30 @@ bool distributed_refmem_get_vdc_flight_rx(
         snapshot->source_slot == current.source_slot && snapshot->local_slot == current.local_slot;
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
     return guard == __atomic_load_n(&s_vdc_flight_rx_guard, __ATOMIC_ACQUIRE);
+}
+
+bool distributed_refmem_stage_position_descriptor(
+    const trigger_position_descriptor_t *descriptor, uint32_t target_mask)
+{
+    if (!descriptor || !target_mask || target_mask > 0xFFu ||
+        !trigger_position_descriptor_encode(
+            descriptor, s_tdma_flight_sync.position_tx_wire)) return false;
+    s_tdma_flight_sync.position_tx_target_mask = target_mask;
+    s_tdma_flight_sync.position_tx_fragment_index = 0u;
+    s_tdma_flight_sync.position_tx_sequence =
+        s_tdma_flight_sync.next_seq32 ? s_tdma_flight_sync.next_seq32 : 1u;
+    s_tdma_flight_sync.position_tx_active = 1u;
+    return true;
+}
+
+bool distributed_refmem_get_position_descriptor(
+    uint32_t source_slot, trigger_position_descriptor_t *descriptor)
+{
+    if (!descriptor || source_slot >= DISTRIBUTED_REFMEM_NODE_COUNT ||
+        (s_tdma_flight_sync.position_rx_valid_mask & (1u << source_slot)) == 0u)
+        return false;
+    *descriptor = s_tdma_flight_sync.position_rx_descriptor[source_slot];
+    return true;
 }
 
 #include "distributed_refmem_vdc_feedback.inc"
@@ -824,7 +861,20 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
     mailbox[5] = target_mask;
     distributed_refmem_put_le16(&mailbox[6], (uint16_t)(seq32 & 0xFFFFu));
 
-    if (message_class == TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS ||
+    if (message_class == TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS) {
+        const uint32_t offset = s_tdma_flight_sync.position_tx_fragment_index *
+            TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE;
+        if (!s_tdma_flight_sync.position_tx_active ||
+            offset + TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE >
+                sizeof(s_tdma_flight_sync.position_tx_wire)) return false;
+        mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET] =
+            (uint8_t)s_tdma_flight_sync.position_tx_fragment_index;
+        mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_COUNT_OFFSET] =
+            (uint8_t)TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT;
+        memcpy(&mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_OFFSET],
+               &s_tdma_flight_sync.position_tx_wire[offset],
+               TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE);
+    } else if (message_class == TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS ||
         message_class == TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS) {
         distributed_refmem_feedback_fragment(mailbox);
     } else
@@ -1110,6 +1160,30 @@ static void distributed_refmem_tdma_flight_parse_vdc_fragment(
 }
 #endif
 
+static void distributed_refmem_tdma_parse_position_fragment(
+    uint32_t source_slot, const uint8_t *mailbox)
+{
+    if (mailbox == NULL || source_slot >= DISTRIBUTED_REFMEM_NODE_COUNT) {
+        s_tdma_flight_sync.position_rx_reject_count++;
+        return;
+    }
+    const trigger_position_fragment_result_t result =
+        trigger_position_fragment_push(
+            &s_tdma_flight_sync.position_rx_fragments[source_slot],
+            (uint8_t)source_slot, mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET],
+            distributed_refmem_get_le16(&mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET]),
+            mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET],
+            mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_COUNT_OFFSET],
+            &mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_OFFSET],
+            &s_tdma_flight_sync.position_rx_descriptor[source_slot]);
+    if (result == TRIGGER_POSITION_FRAGMENT_COMPLETE) {
+        s_tdma_flight_sync.position_rx_valid_mask |= 1u << source_slot;
+        s_tdma_flight_sync.position_rx_complete_count++;
+    } else if (result == TRIGGER_POSITION_FRAGMENT_REJECTED) {
+        s_tdma_flight_sync.position_rx_reject_count++;
+    }
+}
+
 static void distributed_refmem_tdma_flight_parse_mailbox(
     const uint8_t *mailbox,
     size_t mailbox_size)
@@ -1294,12 +1368,18 @@ static void distributed_refmem_tdma_flight_sync_publish(
 #else
     const bool resident_master = false;
 #endif
-    const uint8_t message_class = resident_master
+    const bool position_publication = s_tdma_flight_sync.position_tx_active &&
+        !resident_master && feedback <= 0;
+    const uint8_t message_class = position_publication
+        ? TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS
+        : resident_master
         ? TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS
         : (feedback == 2 ? TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS
             : (feedback == 1 ? TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS
                              : TDMA_PROCESS_IMAGE_MESSAGE_CLASS));
-    const uint32_t target_mask = resident_master
+    const uint32_t target_mask = position_publication
+        ? s_tdma_flight_sync.position_tx_target_mask
+        : resident_master
         ? (s_tdma_flight_sync.active_mask &
            ~(1u << ring->local_slot_id))
         : s_tdma_flight_sync.active_mask;
@@ -1330,7 +1410,11 @@ static void distributed_refmem_tdma_flight_sync_publish(
             distributed_refmem_flight_publish_mask_for_slot(
                 ring->local_slot_id))) {
         s_tdma_flight_sync.tx_publish_count++;
-        action_mailbox_published(frame);
+        if (position_publication) {
+            s_tdma_flight_sync.position_tx_publish_count++;
+        } else {
+            action_mailbox_published(frame);
+        }
         s_tdma_flight_sync.next_seq32 = seq32 == UINT32_MAX ? 1u : seq32 + 1u;
         distributed_refmem_feedback_published(feedback > 0, seq32);
 #if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
@@ -1344,6 +1428,14 @@ static void distributed_refmem_tdma_flight_sync_publish(
             }
         }
 #endif
+        if (position_publication) {
+            s_tdma_flight_sync.position_tx_fragment_index++;
+            if (s_tdma_flight_sync.position_tx_fragment_index >=
+                TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT) {
+                s_tdma_flight_sync.position_tx_active = 0u;
+                s_tdma_flight_sync.position_tx_fragment_index = 0u;
+            }
+        }
     } else {
         s_tdma_flight_sync.tx_reject_count++;
         s_tdma_flight_sync.last_error = 5u;
@@ -1406,7 +1498,9 @@ static void distributed_refmem_tdma_flight_sync_receive(
                     continue;
                 }
 #endif
-                if (!action_receive_mailbox(slot, mailbox)) {
+                if (mailbox[3] == TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS) {
+                    distributed_refmem_tdma_parse_position_fragment(slot, mailbox);
+                } else if (!action_receive_mailbox(slot, mailbox)) {
                     distributed_refmem_tdma_flight_parse_mailbox(
                         mailbox,
                         DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE);

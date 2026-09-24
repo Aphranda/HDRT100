@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "trigger_position_descriptor.h"
 
 #define DISTRIBUTED_REFMEM_TABLE_SIZE       18432u
 #define DISTRIBUTED_REFMEM_LAYOUT_VERSION   2u
@@ -335,6 +336,13 @@ typedef struct {
  * Core1 consumer. A false result leaves the destination unspecified. */
 bool distributed_refmem_get_vdc_flight_rx(
     distributed_refmem_vdc_flight_rx_snapshot_t *snapshot);
+
+/* Core0 T2 source/consumer boundary. Staging is latest-value and bounded;
+ * the flight publisher emits one position fragment per accepted mailbox. */
+bool distributed_refmem_stage_position_descriptor(
+    const trigger_position_descriptor_t *descriptor, uint32_t target_mask);
+bool distributed_refmem_get_position_descriptor(
+    uint32_t source_slot, trigger_position_descriptor_t *descriptor);
 
 /* Typed transport history. Core0 RefMem publishes; readers take bounded
  * copies. record[0] is authoritative; reception is never an apply ACK. */

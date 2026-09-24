@@ -527,6 +527,7 @@ set(PROJECT_APP_SOURCES
         components/sync_trigger/src/trigger_gateway_service.c
         components/sync_trigger/src/trigger_switch_service.c
         components/sync_trigger/src/trigger_action_service.c
+        components/sync_trigger/src/trigger_action_template_store.c
         components/sync_trigger/src/trigger_time_cursor.c
         components/sync_io/src/sync_io.c
         components/sync_io/src/sync_io_logic_analyzer.c
