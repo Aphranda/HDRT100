@@ -12,6 +12,18 @@ Last updated: 2026-09-24
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260924-003：转台起始/零位/终止预测模型
+
+- TODO task ID：T2-TURNTABLE-001、T2-TURNTABLE-002、T2-TURNTABLE-009。新增确定性 predictor 模型，使用计数 epoch、脉冲/度、起始/零位/终止角度、前后 5° 区间和外部阈值生成三类目标计数与阈值计数。
+- 预测语义：每个位置只在计数跨过阈值时产生一次 position mask；终止后的 post-roll 只设置终止校验状态，不新增或重排终止动作；计数回退显式返回 BACKWARD。
+- 主机验证：目标计数、阈值边界、终止校验和回退处理共 4 项通过。该模型尚未连接真实 COUNTER、速度估计、TDMA 广播或硬件输入边沿。
+
+### T2-PROGRESS-20260924-002：位置描述符基础与本地 q 解算
+
+- TODO task ID：T2-TURNTABLE-003、T2-TURNTABLE-004、T2-TRANSPORT-001。新增 `trigger_position_descriptor_t`，明确 NO1 广播的业务字段为 `position_id`、`target_ms_index`、`target_fine_slice_index`，并绑定 run/sync、count epoch、prediction version、grid/deployment generation 和有效同步区间。
+- 接收端校验：schema、身份字段、细分范围、有效窗口和 canonical CRC；验证通过后才允许将 coarse/fine 索引转换为本地绝对 `q`，不传输主站 TIMER1 deadline，不使用消息到达时间作为动作时间。
+- 主机验证：位置描述符有效性、CRC 变更、细分越界、窗口倒置、schema 错误和 q 解算共 6 项通过。TDMA wire 运输、从板实时接收和动作展开尚未实现。
+
 ### T2-PROGRESS-20260924-001：1 kHz VDC 时间片 cursor 基础
 
 - TODO task ID：T2-CLOCK-001、T2-DEPLOY-002。新增 `trigger_time_cursor`，消费现有 VDC sync observer 的 `last_sample_seq`，为每个新同步样本推进 `pulse_index`，派生 `fine_slice_index=0` 和 `action_cursor=pulse_index*subdivisions`，并记录 session、model token、DCO update sequence、event ID 和丢样本计数。
