@@ -226,3 +226,31 @@ bool sync_io_switch_snapshot(sync_io_switch_snapshot_t *out)
     }
     *out=snapshot;leave();return true;
 }
+
+bool sync_io_switch_realtime_fire(uint32_t code)
+{
+    if(get_core_num()!=1u || !s_lease || !s_loaded || !s_pins_owned ||
+       (code&~s_switch.output_mask) || s_switch.state==SYNC_IO_SWITCH_PENDING ||
+       s_switch.state==SYNC_IO_SWITCH_FAULT || s_switch.stage_sequence==UINT32_MAX)
+        return false;
+    for(uint32_t i=0u;i<s_switch.group_count;++i) {
+        const sync_io_switch_group_t *g=&s_switch.groups[i];
+        pio_sm_set_enabled(SWITCH_PIO,g->sm,false);
+        pio_sm_clear_fifos(SWITCH_PIO,g->sm);
+        pio_sm_restart(SWITCH_PIO,g->sm);
+        pio_sm_exec(SWITCH_PIO,g->sm,pio_encode_jmp(s_offset));
+        const uint32_t mask=(1u<<g->output_count)-1u;
+        const uint32_t group_code=(code>>
+            (g->output_base_pin-BOARD_SYNC_OUTPUT_BASE_PIN))&mask;
+        pio_sm_put(SWITCH_PIO,g->sm,group_code);
+    }
+    s_switch.desired_code=code;s_switch.receipt_mask=0u;
+    ++s_switch.stage_sequence;s_switch.state=SYNC_IO_SWITCH_PENDING;
+    pio_enable_sm_mask_in_sync(SWITCH_PIO,s_active_sms);
+    return true;
+}
+
+void sync_io_switch_realtime_service_core1(void)
+{
+    if(get_core_num()==1u) poll();
+}

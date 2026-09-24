@@ -45,4 +45,8 @@ bool sync_io_switch_release(uint32_t generation);
  * settled/READY indication. Routing/FIFO/pad fields are actual hardware reads
  * while leased. IDLE never reads released SM state. */
 bool sync_io_switch_snapshot(sync_io_switch_snapshot_t *out);
+/* Core1 RUN owner: fire one already-loaded local code at the current cursor.
+ * This path never loads, changes routing, or waits for a receipt. */
+bool sync_io_switch_realtime_fire(uint32_t code);
+void sync_io_switch_realtime_service_core1(void);
 #endif

@@ -41,6 +41,25 @@ static inline trigger_action_runtime_result_t trigger_action_runtime_configure(
     return TRIGGER_ACTION_RUNTIME_OK;
 }
 
+/* Same validation as configure, retaining only templates for one local
+ * deployment role.  The wire table remains shared and immutable; a board
+ * never executes another board's role rows. */
+static inline trigger_action_runtime_result_t
+trigger_action_runtime_configure_for_role(
+    trigger_action_runtime_t *r, const trigger_action_template_table_t *t,
+    const trigger_deployment_t *deployment, uint32_t crc, uint32_t local_role)
+{
+    if(!r || local_role>=TRIGGER_DEPLOYMENT_ROLE_COUNT ||
+       trigger_action_template_table_validate(t,deployment,crc))
+        return TRIGGER_ACTION_RUNTIME_ARGUMENT;
+    if(r->active) return TRIGGER_ACTION_RUNTIME_BUSY;
+    trigger_action_template_table_t local={.generation=t->generation};
+    for(uint32_t i=0u;i<t->count;++i)
+        if(t->row[i].role==local_role) local.row[local.count++]=t->row[i];
+    r->templates=local;r->active=0u;r->instance_count=0u;r->emitted_mask=0u;
+    return TRIGGER_ACTION_RUNTIME_OK;
+}
+
 static inline trigger_action_runtime_result_t trigger_action_runtime_stage(
     trigger_action_runtime_t *r, const trigger_position_descriptor_t *d,
     uint32_t subdivisions)

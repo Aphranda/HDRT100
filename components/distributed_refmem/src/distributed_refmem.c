@@ -631,8 +631,15 @@ bool distributed_refmem_stage_position_descriptor(
     s_tdma_flight_sync.position_tx_fragment_index = 0u;
     s_tdma_flight_sync.position_tx_sequence =
         s_tdma_flight_sync.next_seq32 ? s_tdma_flight_sync.next_seq32 : 1u;
-    s_tdma_flight_sync.position_tx_active = 1u;
+    __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 1u,
+                     __ATOMIC_RELEASE);
     return true;
+}
+
+bool distributed_refmem_position_descriptor_pending(void)
+{
+    return __atomic_load_n(&s_tdma_flight_sync.position_tx_active,
+                           __ATOMIC_ACQUIRE) != 0u;
 }
 
 bool distributed_refmem_get_position_descriptor(
@@ -1432,7 +1439,8 @@ static void distributed_refmem_tdma_flight_sync_publish(
             s_tdma_flight_sync.position_tx_fragment_index++;
             if (s_tdma_flight_sync.position_tx_fragment_index >=
                 TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT) {
-                s_tdma_flight_sync.position_tx_active = 0u;
+                __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 0u,
+                                 __ATOMIC_RELEASE);
                 s_tdma_flight_sync.position_tx_fragment_index = 0u;
             }
         }

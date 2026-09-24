@@ -29,6 +29,7 @@ static uint32_t s_busy,s_generation,s_claimed,s_loaded,s_output_offset,s_ready_o
 static bool s_lease,s_pin_saved,s_pin_owned;
 static uint32_t s_saved_ctrl,s_saved_pad;
 static bool s_saved_direction,s_saved_latch,s_saved_pio_level,s_saved_pio_direction;
+static volatile uint32_t s_realtime_pending;
 
 static bool enter(void)
 {
@@ -198,4 +199,40 @@ bool sync_io_gateway_snapshot(sync_io_gateway_snapshot_t *out)
     snapshot.ready_tx_level=s_lease ? pio_sm_get_tx_fifo_level(GATEWAY_PIO,READY_SM) : 0u;
     snapshot.ready_rx_level=s_lease ? pio_sm_get_rx_fifo_level(GATEWAY_PIO,READY_SM) : 0u;
     *out=snapshot;leave();return true;
+}
+
+bool sync_io_gateway_realtime_fire(uint32_t pulse_ns)
+{
+    const uint64_t product=(uint64_t)pulse_ns*BOARD_SYS_CLOCK_HZ;
+    const uint32_t pulse_ticks=(uint32_t)(product/UINT64_C(1000000000));
+    if(get_core_num()!=1u || !s_lease || !s_loaded || !s_pin_owned ||
+       !pulse_ns || product%UINT64_C(1000000000) || pulse_ticks<2u ||
+       pulse_ticks==UINT32_MAX ||
+       __atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE)) return false;
+    pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
+    pio_sm_set_enabled(GATEWAY_PIO,READY_SM,false);
+    pio_sm_clear_fifos(GATEWAY_PIO,OUTPUT_SM);
+    pio_sm_clear_fifos(GATEWAY_PIO,READY_SM);
+    pio_sm_restart(GATEWAY_PIO,OUTPUT_SM);
+    pio_sm_restart(GATEWAY_PIO,READY_SM);
+    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,pulse_ticks-1u);
+    pio_enable_sm_mask_in_sync(GATEWAY_PIO,GATEWAY_SM_MASK);
+    GATEWAY_PIO->irq = 1u << SYNC_IO_GATEWAY_GRANT_IRQ;
+    __atomic_store_n(&s_realtime_pending,1u,__ATOMIC_RELEASE);
+    ++s_gateway.trigger_count;
+    return true;
+}
+
+void sync_io_gateway_realtime_service_core1(void)
+{
+    if(get_core_num()!=1u || !__atomic_load_n(&s_realtime_pending,
+                                                __ATOMIC_ACQUIRE)) return;
+    if(!pio_sm_is_rx_fifo_empty(GATEWAY_PIO,OUTPUT_SM)) {
+        (void)pio_sm_get(GATEWAY_PIO,OUTPUT_SM);
+        __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);
+    }
+    while(!pio_sm_is_rx_fifo_empty(GATEWAY_PIO,READY_SM)) {
+        (void)pio_sm_get(GATEWAY_PIO,READY_SM);
+        ++s_gateway.ready_count;
+    }
 }

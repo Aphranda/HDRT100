@@ -31,6 +31,11 @@ typedef struct {
     uint64_t origin_count, last_count;
     uint64_t target_count[3], threshold_count[3];
     uint32_t announced_mask, terminal_verified;
+    /* Runtime rate estimate is measured in counter pulses per VDC sync,
+     * represented as unsigned Q16.16.  It is prediction input only; the
+     * count itself remains the position authority. */
+    uint32_t rate_valid, last_observed_sync;
+    uint64_t last_observed_count, pulses_per_sync_q16;
     trigger_turntable_result_t last_error;
 } trigger_turntable_predictor_snapshot_t;
 
@@ -69,6 +74,8 @@ static inline bool trigger_turntable_predictor_begin(
     next.prediction_version = s->prediction_version + 1u;
     if (!next.prediction_version) next.prediction_version = 1u;
     next.announced_mask = 0u; next.terminal_verified = 0u;
+    next.rate_valid = 0u; next.last_observed_sync = 0u;
+    next.last_observed_count = origin_count; next.pulses_per_sync_q16 = 0u;
     for (uint32_t i=0u; i<3u; ++i) {
         const int64_t delta_mdeg = angles[i] - base_angle;
         if (delta_mdeg < 0 || (uint64_t)delta_mdeg >
@@ -118,6 +125,44 @@ static inline trigger_turntable_result_t trigger_turntable_predictor_observe(
     if (count >= s->target_count[2] + (post_product + 999u) / 1000u)
         s->terminal_verified = 1u;
     s->last_error=TRIGGER_TURNTABLE_OK; return s->last_error;
+}
+
+/* Observe one counter sample together with the VDC sync sequence.  The
+ * threshold/position decision remains count based; this bounded estimate only
+ * predicts how many future 1 kHz slices remain before the target count. */
+static inline trigger_turntable_result_t
+trigger_turntable_predictor_observe_at_sync(
+    trigger_turntable_predictor_snapshot_t *s,
+    const trigger_turntable_predictor_config_t *c,
+    uint32_t sync_sequence, uint64_t count, uint32_t *new_position_mask)
+{
+    const trigger_turntable_result_t result =
+        trigger_turntable_predictor_observe(s, c, count, new_position_mask);
+    if (result != TRIGGER_TURNTABLE_OK || !sync_sequence ||
+        sync_sequence <= s->last_observed_sync ||
+        count < s->last_observed_count) {
+        if (result == TRIGGER_TURNTABLE_OK && sync_sequence &&
+            sync_sequence > s->last_observed_sync) {
+            s->last_observed_sync = sync_sequence;
+            s->last_observed_count = count;
+        }
+        return result;
+    }
+    const uint32_t sync_delta = sync_sequence - s->last_observed_sync;
+    const uint64_t count_delta = count - s->last_observed_count;
+    s->last_observed_sync = sync_sequence;
+    s->last_observed_count = count;
+    if (count_delta && sync_delta &&
+        count_delta <= (UINT64_MAX >> 16u)) {
+        const uint64_t measured = (count_delta << 16u) / sync_delta;
+        if (measured) {
+            /* A single-sample estimate is deterministic and avoids adding an
+             * unbounded filter to the realtime path. */
+            s->pulses_per_sync_q16 = measured;
+            s->rate_valid = 1u;
+        }
+    }
+    return result;
 }
 
 static inline bool trigger_turntable_predictor_build_descriptor(

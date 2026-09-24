@@ -13,6 +13,7 @@
 #include "trigger_fb.h"
 #include "trigger_resource_map.h"
 #include "trigger_time_cursor.h"
+#include "trigger_t2_runtime.h"
 
 #define SYNC_TRIGGER_QUEUE_LENGTH  16u
 #define TRIG_TRACE_DOMAIN_TRIGGER  2u
@@ -606,7 +607,11 @@ bool sync_trigger_post(const trig_event_t *event)
 
 void sync_trigger_service(void)
 {
-    trigger_time_cursor_service();
+    const trigger_t2_runtime_result_t t2_result =
+        trigger_t2_runtime_service();
+    if (t2_result == TRIGGER_T2_RUNTIME_NOT_CONFIGURED ||
+        t2_result == TRIGGER_T2_RUNTIME_NOT_ACTIVE)
+        trigger_time_cursor_service();
     trig_event_t event;
     if (!queue_try_remove(&s_ao.queue, &event)) {
         const bool runtime_monitoring =

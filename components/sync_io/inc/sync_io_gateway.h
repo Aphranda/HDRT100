@@ -41,4 +41,8 @@ bool sync_io_gateway_load(uint32_t input_port,uint32_t output_port,
 bool sync_io_gateway_stop(uint32_t generation);
 bool sync_io_gateway_release(uint32_t generation);
 bool sync_io_gateway_snapshot(sync_io_gateway_snapshot_t *out);
+/* Core1 RUN owner: queue one pulse (nanoseconds) into the already-loaded
+ * output/READY PIO pair and return immediately. */
+bool sync_io_gateway_realtime_fire(uint32_t pulse_ns);
+void sync_io_gateway_realtime_service_core1(void);
 #endif

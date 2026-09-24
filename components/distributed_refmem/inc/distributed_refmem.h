@@ -341,6 +341,9 @@ bool distributed_refmem_get_vdc_flight_rx(
  * the flight publisher emits one position fragment per accepted mailbox. */
 bool distributed_refmem_stage_position_descriptor(
     const trigger_position_descriptor_t *descriptor, uint32_t target_mask);
+/* True while the realtime flight owner is draining descriptor fragments. A
+ * producer must wait instead of replacing an in-flight position. */
+bool distributed_refmem_position_descriptor_pending(void);
 bool distributed_refmem_get_position_descriptor(
     uint32_t source_slot, trigger_position_descriptor_t *descriptor);
 
