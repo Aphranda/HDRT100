@@ -5180,3 +5180,5 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context)
 #include "scpi_trigger_counter_commands.inc"
 #include "scpi_trigger_gateway_commands.inc"
 #include "scpi_trigger_switch_commands.inc"
+#include "scpi_trigger_action_commands.inc"
+#include "scpi_trigger_action_execute.inc"

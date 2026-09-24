@@ -49,7 +49,8 @@ static bool prepare(sync_io_persona_id_t id,bool dynamic_io,uint32_t read_mask,u
         id!=SYNC_IO_PERSONA_ID_REFERENCE_MONITOR &&
         id!=SYNC_IO_PERSONA_ID_PULSE_COUNTER &&
         id!=SYNC_IO_PERSONA_ID_GATEWAY &&
-        id!=SYNC_IO_PERSONA_ID_SWITCH) || !enter()) return false;
+        id!=SYNC_IO_PERSONA_ID_SWITCH &&
+        id!=SYNC_IO_PERSONA_ID_ACTION) || !enter()) return false;
     if(s_clients[id].occupied) { leave(); return false; }
     if(!s_runtime.initialized) {
         const sync_io_persona_manager_hooks_t dispatch={.load=load,.arm=arm,.cleanup=cleanup};

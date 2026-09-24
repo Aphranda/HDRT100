@@ -164,6 +164,16 @@ scpi_result_t scpi_cmd_trigger_switch_apply(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_switch_stop(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_switch_unload(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_switch_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_action_install(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_action_clear(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_action_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_action_row_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_action_prepare(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_action_arm(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_action_stop(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_action_release(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_action_execute_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_action_now_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
@@ -415,6 +425,16 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:REServation:SWITch:STOP", .callback = scpi_cmd_trigger_switch_stop}, \
     {.pattern = "TRIGger:REServation:SWITch:UNLoad", .callback = scpi_cmd_trigger_switch_unload}, \
     {.pattern = "TRIGger:REServation:SWITch?", .callback = scpi_cmd_trigger_switch_q}, \
+    {.pattern = "TRIGger:REServation:ACTion:INSTall", .callback = scpi_cmd_trigger_action_install}, \
+    {.pattern = "TRIGger:REServation:ACTion:CLEar", .callback = scpi_cmd_trigger_action_clear}, \
+    {.pattern = "TRIGger:REServation:ACTion?", .callback = scpi_cmd_trigger_action_q}, \
+    {.pattern = "TRIGger:REServation:ACTion:ROW?", .callback = scpi_cmd_trigger_action_row_q}, \
+    {.pattern = "TRIGger:REServation:ACTion:EXECute:PREPare", .callback = scpi_cmd_trigger_action_prepare}, \
+    {.pattern = "TRIGger:REServation:ACTion:EXECute:ARM", .callback = scpi_cmd_trigger_action_arm}, \
+    {.pattern = "TRIGger:REServation:ACTion:EXECute:STOP", .callback = scpi_cmd_trigger_action_stop}, \
+    {.pattern = "TRIGger:REServation:ACTion:EXECute:RELease", .callback = scpi_cmd_trigger_action_release}, \
+    {.pattern = "TRIGger:REServation:ACTion:EXECute?", .callback = scpi_cmd_trigger_action_execute_q}, \
+    {.pattern = "TRIGger:REServation:ACTion:EXECute:NOW?", .callback = scpi_cmd_trigger_action_now_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BRIDge?", .callback = scpi_cmd_vdc_feedback_bridge_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MATCh?", .callback = scpi_cmd_vdc_feedback_match_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \

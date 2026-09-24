@@ -1,0 +1,15 @@
+; Each preloaded pair is {delay_count, selected group code}.
+; First write = origin + count + 5; subsequent write = previous + count + 8.
+; Empty pull parks with the last level, never repeats a previous action.
+.program sync_action
+.wrap_target
+    pull block
+    out x, 32
+    pull block
+    mov y, osr
+delay:
+    jmp x-- delay
+    mov pins, y
+    mov isr, y
+    push block
+.wrap

@@ -6,6 +6,7 @@
 #include "sync_io_pulse_counter.h"
 #include "sync_io_gateway.h"
 #include "sync_io_switch.h"
+#include "sync_io_action.h"
 
 static uintptr_t s_workspace_owner;
 
@@ -237,6 +238,21 @@ static const sync_io_persona_descriptor_t s_sync_io_personas[] = {
         .gpio_write_mask = SYNC_IO_MAIN_OUTPUT_GPIO_MASK,
         .rx_fifo_sm_mask = SYNC_IO_SM_BIT(SYNC_IO_SWITCH_FIRST_SM) | SYNC_IO_SM_BIT(SYNC_IO_SWITCH_SECOND_SM),
         .tx_fifo_sm_mask = SYNC_IO_SM_BIT(SYNC_IO_SWITCH_FIRST_SM) | SYNC_IO_SM_BIT(SYNC_IO_SWITCH_SECOND_SM),
+        .safe_low_gpio_mask = SYNC_IO_MAIN_OUTPUT_GPIO_MASK,
+        .restore_gpio_mask = SYNC_IO_MAIN_OUTPUT_GPIO_MASK,
+    },
+    {
+        .id = SYNC_IO_PERSONA_ID_ACTION,
+        .name = "action",
+        .program_name = "sync_action",
+        .implementation = SYNC_IO_PERSONA_IMPLEMENTATION_CURRENT,
+        .flags = SYNC_IO_PERSONA_FLAG_RESTORE_GPIO,
+        .pio_block_id = BOARD_TDMA_SMA_PIO_BLOCK_ID,
+        .instruction_words = SYNC_IO_ACTION_INSTRUCTION_WORDS,
+        .sm_mask = (1u<<1u)|(1u<<3u),
+        .gpio_write_mask = SYNC_IO_MAIN_OUTPUT_GPIO_MASK,
+        .rx_fifo_sm_mask = (1u<<1u)|(1u<<3u),
+        .tx_fifo_sm_mask = (1u<<1u)|(1u<<3u),
         .safe_low_gpio_mask = SYNC_IO_MAIN_OUTPUT_GPIO_MASK,
         .restore_gpio_mask = SYNC_IO_MAIN_OUTPUT_GPIO_MASK,
     },

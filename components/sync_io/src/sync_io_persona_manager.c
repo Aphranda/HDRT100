@@ -394,7 +394,9 @@ bool sync_io_persona_manager_claim_io(sync_io_persona_manager_t *manager,
     const sync_io_persona_descriptor_t *base=sync_io_persona_descriptor(id);
     const bool switch_valid=id==SYNC_IO_PERSONA_ID_SWITCH && !gpio_read_mask &&
         gpio_write_mask && !(gpio_write_mask&~outputs);
-    if(!base || !(switch_valid || (input_valid &&
+    const bool action_valid=id==SYNC_IO_PERSONA_ID_ACTION && (!gpio_read_mask || input_valid) &&
+        gpio_write_mask && !(gpio_write_mask&~outputs);
+    if(!base || !(switch_valid || action_valid || (input_valid &&
         (id==SYNC_IO_PERSONA_ID_PULSE_COUNTER ? gpio_write_mask==0u :
          id==SYNC_IO_PERSONA_ID_GATEWAY ? output_valid : false)))) {
         sync_io_persona_manager_clear_handle(handle);

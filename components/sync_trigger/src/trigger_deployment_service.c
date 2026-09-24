@@ -2,6 +2,7 @@
 #include "trigger_counter_service.h"
 #include "trigger_gateway_service.h"
 #include "trigger_switch_service.h"
+#include "trigger_action_service.h"
 
 #include <string.h>
 #include "board_identity.h"
@@ -135,7 +136,8 @@ uint32_t trigger_deployment_stage(const trigger_deployment_t *table, uint32_t ex
 static bool activate_stopped(void *context)
 {
     deployment_request_t *request = context;
-    if (trigger_counter_is_loaded() || trigger_gateway_is_loaded() || trigger_switch_is_loaded()) {
+    if (trigger_counter_is_loaded() || trigger_gateway_is_loaded() || trigger_switch_is_loaded() ||
+        trigger_action_execution_is_loaded()) {
         request->result = TRIGGER_DEPLOYMENT_SERVICE_BUSY;
         return false;
     }
@@ -175,7 +177,8 @@ uint32_t trigger_deployment_activate(uint32_t generation, uint32_t expected_crc)
 static bool clear_stopped(void *context)
 {
     uint32_t *result = context;
-    if (trigger_counter_is_loaded() || trigger_gateway_is_loaded() || trigger_switch_is_loaded()) {
+    if (trigger_counter_is_loaded() || trigger_gateway_is_loaded() || trigger_switch_is_loaded() ||
+        trigger_action_execution_is_loaded()) {
         *result = TRIGGER_DEPLOYMENT_SERVICE_BUSY;
         return false;
     }
