@@ -170,8 +170,9 @@ deployment、PIO/SM/FIFO/GPIO persona、静态模板、grid 和 profile 完成�
 ## T2-OWNER：职责与边界
 
 T2 的 Core1 运行入口固定为 `APP_REALTIME_PHASE_SYNC_TRIGGER` / `sync_trigger_service()`。
-位置描述符运输属于 TDMA 现有 flight owner 的一等位置负载；它只能使用 VDC 正常
-发布未到期的空闲机会，不能调用或扩展 VDC/DPLL phase，也不能改变 VDC 的发布节拍。
+位置描述符运输属于 TDMA 现有 flight owner 的一等位置负载；普通帧继续按原
+节拍携带 VDC 状态，T2 片段使用该帧中较低优先级的 RefMem 区域。它不能调用
+或扩展 VDC/DPLL phase，也不能改变 typed SYNC 发布路径。
 通用挂载流程、四级 seat 和越界处理见
 [实时负载挂载约束](../../arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md)。
 
@@ -182,12 +183,15 @@ T2 的 Core1 运行入口固定为 `APP_REALTIME_PHASE_SYNC_TRIGGER` / `sync_tri
 | STOP 资源 | `trigger_action_template_activate_resources()`、T2 SCPI configure | 活动 deployment、模板 CRC 和本板资源装载读回；未装载拒绝配置 |
 | 共同时间 | `vdc_sync_ao_service()` → `trigger_time_cursor_service()` | T2 只读 `vdc_status.sync_seq` 与 committed model，要求本板 LOCKED；缺序号、缺锁或序号缺口不执行动作 |
 | NO1 预测 | `trigger_t2_runtime_service()` | COUNTER 新鲜计数与同次 cursor 更新，阈值跨越后形成位置索引 |
-| 一等运输 | `distributed_refmem_stage_position_descriptor()` → TDMA flight owner | VDC 到期先发；T2 fragment 只用空闲普通机会，独立 message class、CRC、来源和序号 |
+| 一等运输 | `distributed_refmem_stage_position_descriptor()` → TDMA flight owner | typed SYNC/专用 VDC 命令优先；普通 VDC 状态与 T2 fragment 同帧，T2 占用二等 RefMem 区域；独立 message class、CRC、来源和序号 |
 | 从板绑定 | `accept_remote_position()` | `run_id`、grid/sync epoch、count epoch、deployment generation/CRC、预测版本与有效同步区间全部匹配 |
 | 本地动作 | `trigger_action_runtime_stage()` / `advance()` | 先检查 action q 不早于本板 cursor，再提交静态模板实例；已发出位置不接受不同版本回写 |
 
 T2 的异步运输交接使用固定单槽：Core1 在 `SYNC_TRIGGER` phase 提交完整位置描述符
-到 TX mailbox；Core0 的 RefMem service 在自己的边界领取、编码和分片发布。RX 由
+到 TX mailbox；Core0 的 RefMem service 在自己的边界领取、编码和分片发布。普通
+VDC 状态保持原字段，T2 的 index/count/data 位于 `TDMA_PROCESS_IMAGE_T2_FRAGMENT_*`；
+每个 mailbox 仍须通过 CRC，普通帧允许插在相邻 T2 片段之间，同一 resident
+片段可重复观测而不重复推进。RX 由
 Core0 复验本板 target mask 并重组，完整描述符经每个 source slot 的单槽 mailbox
 交给 Core1。单槽忙时拒绝并计数，不覆盖旧请求。T2 STOP 只发布撤销意图，Core0
 下一次 service 退休尚未发送的请求和片段；已经进入 TDMA FIFO 的片段仍须由接收方
@@ -199,6 +203,11 @@ Core0 复验本板 target mask 并重组，完整描述符经每个 source slot 
 预约描述符与 coarse cursor 的软件绑定，不能宣称细分时间片精确动作。各板 `sync_seq`
 是否代表同一个跨板同步事件仍需通过来源身份、epoch 和外部硬件证据确认；不能仅因四板
 计数都增长，就认定相同序号对应相同物理时刻。
+
+当前 `trigger_time_cursor_service()` 从本板首次可用 `sync_seq` 起累计 `pulse_index`，
+尚未把该索引映射到 `trigger_time_grid_t.anchor_vdc_ns` 所定义的共同起点。因此不同板的
+本地 `sync_seq` 或 `pulse_index` 即使各自连续，也不能直接作为同一绝对 q；跨板动作
+必须等共同 anchor、同事件身份及本地模型到共同 q 的映射完成后才允许验收。
 
 | owner | 负责 | 边界 |
 |---|---|---|

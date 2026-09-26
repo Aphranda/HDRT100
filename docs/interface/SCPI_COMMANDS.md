@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-09-13
+Last updated: 2026-09-26
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -40,6 +40,7 @@ Last updated: 2026-09-13
 | `SYSTem:WATCHdog:LOG?` | 查询可读的上次复位日志：`reset_type,cause,stalled_task,raw_reason,evidence_valid,expected_mask,seen_mask,stale_mask,core0_loop_count,core1_loop_count,core0_progress,core1_progress`。`cause` 可区分 `CORE0_SUPERVISOR_STALL`、`CORE1_STALL`、`TASK_STALL` 和证据缺失。 |
 | `SYSTem:TDMA:FLIGHT:PROCess?` | 查询 EtherCAT-style 固定偏移处理证据：`version,configured,active,local_slot,map_crc32,map_generation,payload_size,local_segment_count,map_apply_count,input_bytes,output_bytes,tx_stale_reuse_count,map_reject_count,length_reject_count,tx_unavailable_count,rx_bitmap_scan_count,rx_bitmap_hit_count,rx_bitmap_duplicate_count`。只读；运行态不提供 map 写入口。位图 hit 仅在 RX descriptor 成功入 FIFO 后提交，FIFO 满导致的未交付候选允许同 seq16 重试。 |
 | `SYSTem:REFMEM:SYNC:FLIGHT?` | 查询 8-slot compact mailbox 的 core0 消费快照：`enabled,local_slot,node_count,active_mask,reference_slot,remote_slot,payload_size,mailbox_size,publish_interval_ms,next_seq32,tx_publish_count,tx_reject_count,rx_acquire_count,rx_empty_count,rx_accept_count,rx_reject_count,rx_duplicate_skip_count,rx_bad_mailbox_count,last_rx_result,last_frame_type,last_source_slot,last_seq32,last_value_u32,last_error`。`remote_slot` 仅为兼容诊断字段，调度与解析必须使用 active/segment mask。 |
+| `SYSTem:REFMEM:SYNC:FLIGHT:POSition?` | 查询 T2 位置片的 Core0 运输诊断：`tx_pending,tx_active,tx_fragment_index,tx_publish_count,tx_reject_count,tx_position_id,rx_complete_count,rx_reject_count,rx_pending_mask,rx_source_slot,rx_position_id,cancel_requested`。发布计数只证明软件提交，RX complete 只证明完整描述符重组，不代表线上逐帧送达或实际动作 latch。 |
 | `SYSTem:LOOP:STATus?` | 查询 `task_loop_engine` 的只读维护状态：是否 ready、service_count、first_service_ms、last_service_ms。 |
 | `READ:SYNC:QUALity?` | 查询 VDC 同步质量主视图：`state,last_offset_ns,rms_offset_ns,max_abs_offset_ns,freq_offset_ppb,jitter_pk_ns,last_sample_age_us,last_reject_code,accepted_sample_count,rejected_sample_count,last_timestamp_resolution_ns,health_state,lock_quality_tier,fine_lock_threshold_ns,debug_lock_threshold_ns,coarse_lock_threshold_ns,lock_acceptance_threshold_ns`。`lock_quality_tier=1/2/3` 分别对应 10 us / 1 us / 100 ns；默认 bring-up acceptance 为 1 us，产品 `HEALTHY/RUN` 仍以连续 100 ns fine tier 为准。 |
 | `SYSTem:SYNC:VDC:STATus?` | 查询 `task_vdc_sync` 的只读维护状态：是否 ready、lock_state、service_count、first_service_ms、last_service_ms、sync_seq。 |

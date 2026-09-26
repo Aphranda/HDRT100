@@ -12,6 +12,14 @@ Last updated: 2026-09-26
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260926-016：位置片普通帧同载与物理准入纠偏
+
+- TODO task ID：T2-TRANSPORT-001、T2-CLOCK-001。代码对账发现旧的“仅空闲 flight cycle 发送位置片”无法保证进展：Core0 RefMem 任务按 `app_tasks.c::task_refmem_sync()` 至少每轮延迟一次，普通 VDC 状态的间隔由 `DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_INTERVAL_MS` 定义；同时物理 origin/overlay 白名单未准入独立 T2 class。原片段重组还要求相邻 transport sequence 连续，与普通帧交错相冲突。
+- 当前实现将 T2 index/count/data 放入 `TDMA_PROCESS_IMAGE_T2_FRAGMENT_*` 指定的二等 RefMem 区域，普通 VDC 状态、ACK 和 mailbox CRC 保持原位置；正常到期帧携带 T2 片段时仍推进 `last_publish_ms`。typed SYNC、专用 VDC feedback/boundary 仍优先，T2 不改 VDC/DPLL phase 或特等邮箱。flight 准入独立识别 T2 class，普通 RefMem delta/parser 不把它当业务 delta。
+- 片段重组允许普通帧造成的 sequence 空隙、同一 resident 片段重复和 16 位 sequence 回绕；旧序号、乱序、错源/目标及坏 CRC 继续拒绝。物理 mailbox、优先 RX、发布节拍与位置 descriptor host 回归通过；真实四板 T2 class 送达、从板 `position_id` 和示波器动作仍待本轮固件 HIL 复核。
+- Release build=`20260926123251`，当前源码四板 quick P3 build=`20260926123557`，`PASS_WITH_WARNINGS`（INFO 33 / WARN 10 / ERROR 0 / FATAL 0），源码指纹=`532c63b6d653f7e797c25b278afe4fd86c4a6c577999e476b2aaad3b24722ad7`，证据目录 `out/HardwareAcceptance/20260926/p3-203549/`。外部 HDO 60 s PASS，最大采样相差 `39.669735326297236 ns`；该值为采样快照，`strict_gates_passed=false`，不授予 T2 实际动作精度。
+- P3 停机后只读读回（当前构建，COM5/COM4/COM3/COM6 对应 NO1/NO2/NO3/NO4）：本地 VDC `sync_seq` 分别为 560/255/263/226，follower `LOCK:READiness?` 仍为未就绪；位置运输快照全零。该读回证明各板本地序号不能直接当共同 q，且本轮未激活 T2 预约。下一步先完成 `T2-CLOCK-002` 的共同 anchor/同事件绑定，再进行实际 position_id 动作试装。
+
 ### T2-PROGRESS-20260926-015：异步位置描述符交接与 TDMA owner 分工
 
 - TODO task ID：T2-TRANSPORT-001、T2-TURNTABLE-003、T2-TURNTABLE-004。新增 `trigger_position_mailbox` 固定单槽状态交接：Core1 T2 phase 只提交完整 descriptor；Core0 RefMem service 领取后编码 wire、分片并在 VDC 未到期的普通机会发布。发送中或单槽忙时拒绝新请求，不覆盖在飞片段。

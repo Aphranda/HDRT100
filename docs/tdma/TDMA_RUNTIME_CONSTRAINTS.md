@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_RUNTIME_CONSTRAINTS.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-26
 
 ## 文档接口
 
@@ -145,7 +145,7 @@ Recovery 用 `TDMA_RECOVERY_*` 的独立缓冲、预算和每周期配额，Core
 
 Calibration 拥有线序、delay、residence、bias、matrix generation/freshness 及接受质量；TDMA 只提供训练 persona、窗口、资源、原始测量和失败原因。复用兼容且已确认的环序不要求重扫全部候选。正式校准门禁与可用诊断输入分别记录。
 
-T2 的 reservation、READY/NACK、fence 与 completion 是拟受控运输的 opaque segment；目标时间和业务状态归 Trigger/VDC，正式 map、配额与多板生命周期尚需集成。另一分支的单板 sequence 测试不是本分支 TDMA 多板预约验收。
+当前 T2 position descriptor 使用独立 `TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS`：正常帧保留 VDC 状态与 ACK，`TDMA_PROCESS_IMAGE_T2_FRAGMENT_*` 使用较低优先级的 RefMem 区域；物理 flight 白名单独立准入，普通 RefMem delta parser 仍拒绝该 class。已接通的 host/构建路径不等于四板实际送达或一等期限通过。T2 的 READY/NACK、fence 与 completion 仍待受控运输、资源配额和多板生命周期闭合。另一分支的单板 sequence 测试不是本分支 TDMA 多板预约验收。
 
 ## 观测与验收
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-26
 
 ## 文档接口与范围
 
@@ -106,7 +106,7 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 | 等级 | 内容 | 服务规则 |
 |---|---|---|
 | 特等 | DPLL/VDC 关键同步记录及 SYNC 确定性时间需求 | 固定编码、固定资源与有界入口；缺口、旧代和覆盖明确记录。逐圈无损仍须专项验收。 |
-| 一等 | 其余 VDC 状态与跟随数据 | 独立 freshness，允许按 owner 规则合并状态；命令不得靠状态覆盖语义重放。 |
+| 一等 | 其余 VDC 状态与跟随数据；T2 预测位置片为当前接线候选 | 独立 freshness，允许按 owner 规则合并状态；T2 class 在普通帧保留 VDC 字段、暂用二等 RefMem 区域，四板期限和隔离仍待 HIL；命令不得靠状态覆盖语义重放。 |
 | 二等 | RefMem 数据及 ACK/fence | dirty 编码、有界配额与背压；运输成功不自动提交事实。 |
 | 无座 | 普通控制、日志与维护数据 | 预定低优先级或 maintenance 预算；不得扩帧、借 guard 或阻塞前述路径。 |
 

@@ -23,8 +23,8 @@ Last updated: 2026-09-26
 phase 是 CPU 调度边界，seat 是服务目标和拥塞策略。一个功能只能绑定一个
 Core1 执行 phase，但它可以同时拥有一个实时执行 phase 和一个独立的 wire
 transport seat。例如 T2 在 `SYNC_TRIGGER` phase 执行预测与本地动作；T2
-position descriptor 在 TDMA 中使用独立的 T2 message class，并只在 VDC 正常
-发布未到期的空闲运输机会发送。不能把 T2 的 descriptor 代码塞入 VDC phase，
+position descriptor 在 TDMA 中使用独立的 T2 message class；普通帧的 VDC 状态
+保持原偏移，T2 片段占用较低优先级的 RefMem 区域。不能把 T2 的 descriptor 代码塞入 VDC phase，
 也不能用 T2 传输替换 VDC 同步发布。
 
 ## 2. 功能域、唯一 owner 与 phase 挂载
@@ -52,7 +52,7 @@ position descriptor 在 TDMA 中使用独立的 T2 message class，并只在 VDC
 | seat | 典型内容 | owner / 运输方式 | 准入规则 | 拥塞处理 |
 |---|---|---|---|---|
 | 特等 | DPLL/VDC 关键同步记录、确定性 SYNC 时间需求 | VDC/DPLL owner + TDMA priority typed mailbox + SYNC_IO PIO/DMA | 固定 codec、固定资源、独立 RX/TX 保全；新增或扩容必须先完成席位审核 | 缺口、旧代、覆盖、CRC 或 identity 失败必须显式记录；不能静默降级为普通镜像 |
-| 一等 | 其余 VDC 状态、跟随数据、T2 position descriptor | 各自 domain owner；T2 使用 `TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS` 和现有 flight owner | 有独立 generation、CRC、有效同步区间和 freshness；不得影响特等 cadence | VDC 到期时让路；T2 只用空闲普通 flight cycle，position 发布不推进 VDC `last_publish_ms` |
+| 一等 | 其余 VDC 状态、跟随数据、T2 position descriptor | 各自 domain owner；T2 使用 `TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS` 和现有 flight owner | 有独立 generation、CRC、有效同步区间和 freshness；不得影响特等 cadence | typed SYNC/专用 VDC 命令优先；T2 与普通 VDC 状态同帧，临时占用二等 RefMem 区域，正常到期帧照常推进 VDC `last_publish_ms` |
 | 二等 | RefMem delta、ACK/fence、可靠控制事实 | RefMem owner + 普通 process image / dirty queue | 固定段、dirty 标记、有界配额和背压；运输成功不自动提交业务事实 | 延后、重试或背压；不能借特等窗口或改写 active VDC 状态 |
 | 无座 | 普通控制、日志、维护、UI、SD、离线分析 | Core0 AO、维护 phase 或 STOP 后路径 | 不得要求 Core1 实时席位，不得持有 PIO/SM/DMA 实时资源 | 丢弃、延后或在维护态执行；不能阻塞前三级 |
 
@@ -130,7 +130,7 @@ gate 在 STOP/ARM 边界原子激活。激活失败保持旧 active 并发布原
 | host/source | phase 入口唯一、owner writer 唯一、seat class 与 codec 一致、没有跨域直接调用 |
 | build | 目标 profile 可编译，静态断言和预算工具通过，源码指纹可追溯 |
 | runtime | phase run/skip/overrun、generation、CRC、queue/FIFO、reject/backpressure 计数可读 |
-| HIL | 满载、VDC 到期、T2 空闲发送、STOP/ARM、旧代/错 CRC、资源冲突负测 |
+| HIL | 满载、VDC 到期时同帧 T2 片段、STOP/ARM、旧代/错 CRC、资源冲突负测 |
 | hardware | 需要硬件边沿时，用外部示波器验证各通道相位；VDC、T2、READY 分别出具证据 |
 
 涉及固件、PIO、构建、工具或测试实现的改动，必须按仓库规则运行软件回归、
@@ -146,7 +146,7 @@ VDC 1 kHz 基准
   -> SYNC_TRIGGER / trigger_t2_runtime
   -> NO1 COUNTER 预测 position_id、grid index、prediction version
   -> distributed_refmem_stage_position_descriptor()
-  -> TDMA flight owner 的一等 T2 position class（VDC 未到期的空闲机会）
+  -> TDMA flight owner 的一等 T2 position class（普通 VDC 状态同帧）
   -> 从板 descriptor CRC/代际/有效区间检查
   -> 本板 grid 解算与静态模板实例
   -> 本板 cursor 到片后执行 SWITCH/GATEWAY/其他动作
@@ -157,7 +157,8 @@ VDC 1 kHz 基准
 
 - VDC `sync_seq` 的产生、递增和发布节拍只由 VDC phase 负责；
 - DPLL phase 只消费 VDC evidence 并维护模型；
-- T2 descriptor 不携带可写 DCO 命令，也不修改 VDC 的 `last_publish_ms`；
+- T2 descriptor 不携带可写 DCO 命令；到期的普通帧继续发布 VDC 状态并推进
+  `last_publish_ms`，T2 只替换该帧的二等 RefMem 区域；
 - 位置描述符是预测索引（例如 ms index 与 fine-slice index），从板按本地
   VDC model/grid 解算，不接收主站在目标时刻下发的即时 deadline；
 - 模板和 PIO persona 在启动或 STOP/ARM 时预装，RUN 时只执行已激活实例；

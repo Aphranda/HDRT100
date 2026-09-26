@@ -45,10 +45,11 @@ Last updated: 2026-09-26
 | T2-ACTION-TEMPLATE-001 | 静态循环动作模板 | PENDING | 模板字段、循环跨度、role/IO、offset、settle/window、CRC 和启动期读回通过 |
 | T2-CLOCK-PROBE-001 | 细分脉冲能力验证 | DONE | 细分边沿、尾格空白、示波器 RAW 和恢复通过；不授予 live cursor |
 | T2-CLOCK-001 | 1 kHz VDC 时间片 cursor | IN PROGRESS | 每个基准同步推进 pulse index/fine cursor；细分物理输出与 cursor 分离；epoch/丢同步/回绕通过 |
+| T2-CLOCK-002 | 四板共同 q 与同事件绑定 | PENDING | 将每板 VDC 基准样本绑定到同一 grid anchor、事件身份和绝对 q；不同本地 `sync_seq` 不得直接相等比较；四板读回与示波器证明同一时间片 |
 | T2-TURNTABLE-001 | NO1 计数 epoch 和位置观测 | IN PROGRESS | 任意 IN、起始/零位/终止位置预测、预运行区与终止校验区、脉冲/位置配置、预测目标计数、方向/回绕和采样区间通过；当前 5°/5° 是调试快照，非产品额定值 |
 | T2-TURNTABLE-002 | 每次同步预测与阈值提示 | IN PROGRESS | 每次 VDC 更新刷新预测；阈值外部配置、滞回和一次跨越提示通过；不触发热加载 |
 | T2-TURNTABLE-003 | coarse/fine 位置描述符 | IN PROGRESS | NO1 发布位置索引和身份元数据；从板拒绝旧代、错目标和过期描述符 |
-| T2-TRANSPORT-001 | 位置描述符 TDMA 运输 | IN PROGRESS | Core1→Core0 TX 与 Core0→Core1 RX 固定单槽交接已接线；继续验证来源、CRC、去重、乱序、期限、STOP 撤销、满载优先级与四板实际送达；不使用诊断 ACK 代替 |
+| T2-TRANSPORT-001 | 位置描述符 TDMA 运输 | IN PROGRESS | Core1→Core0 TX 与 Core0→Core1 RX 固定单槽交接已接线；T2 class 使用正常帧的二等 RefMem 区域并保留 VDC 状态；继续验证来源、CRC、去重、乱序、期限、STOP 撤销、满载优先级与四板实际送达；不使用诊断 ACK 代替 |
 | T2-TURNTABLE-004 | 从板本地位置解算 | IN PROGRESS | 各板用自己的 VDC model/grid 将索引解算为时间片，不接收主站 deadline；零位和终止位置必须生成确定的 target count、position ID 和时间片 |
 | T2-EXEC-001 | 本地 cursor 时间片执行 | IN PROGRESS | 位置实例展开、各动作独立执行、不同 q 顺序、PIO 回执和示波器边沿通过 |
 | T2-OFFSET-001 | SWITCH/GATEWAY/READY offset | PENDING | offset/window 可配置、读回、代际绑定；调试默认值不作为产品事实 |
@@ -72,7 +73,7 @@ Last updated: 2026-09-26
 | 项目 | 当前处置 | 阻塞范围 |
 |---|---|---|
 | 静态启动装载 | 现有槽位可在 STOP 下动态加载，统一启动事务未实现 | M0/M1 |
-| 1 kHz cursor | 已消费 VDC `sync_seq` 并对缺口保持失效；同序号跨板事件身份与物理相位仍待证明 | M1/M3 |
+| 1 kHz cursor | 已消费 VDC `sync_seq` 并对缺口保持失效；共同 anchor→绝对 q、同事件身份与物理相位仍待证明 | M1/M3 |
 | 位置描述符 | 独立 T2 class/CRC/代际和低优先级 flight 已接线；四板满载期限及实际接收仍待证明 | M2/M3 |
 | 从板解算 | coarse cursor、grid/模板索引已接线；非零 fine q 的本地 deadline/硬件 latch 未实现 | M3 |
 | READY 重叠 | GATEWAY READY 仍是 raw level | M4 |
