@@ -4,7 +4,7 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TODO.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-09-23
+Last updated: 2026-09-26
 
 ## 文档接口与状态规则
 
@@ -72,9 +72,9 @@ Last updated: 2026-09-23
 | 项目 | 当前处置 | 阻塞范围 |
 |---|---|---|
 | 静态启动装载 | 现有槽位可在 STOP 下动态加载，统一启动事务未实现 | M0/M1 |
-| 1 kHz cursor | VDC model 和细分诊断存在，动作 cursor 订阅未实现 | M1/M3 |
-| 位置描述符 | wire 和 TDMA owner 未实现 | M2/M3 |
-| 从板解算 | 需要本地 model/grid 绑定和索引映射 | M3 |
+| 1 kHz cursor | 已消费 VDC `sync_seq` 并对缺口保持失效；同序号跨板事件身份与物理相位仍待证明 | M1/M3 |
+| 位置描述符 | 独立 T2 class/CRC/代际和低优先级 flight 已接线；四板满载期限及实际接收仍待证明 | M2/M3 |
+| 从板解算 | coarse cursor、grid/模板索引已接线；非零 fine q 的本地 deadline/硬件 latch 未实现 | M3 |
 | READY 重叠 | GATEWAY READY 仍是 raw level | M4 |
 | 实际 latch | 需要硬件时间戳和 position_id 绑定 | M5 |
 

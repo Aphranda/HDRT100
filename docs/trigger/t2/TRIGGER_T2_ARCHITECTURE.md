@@ -175,6 +175,24 @@ T2 的 Core1 运行入口固定为 `APP_REALTIME_PHASE_SYNC_TRIGGER` / `sync_tri
 通用挂载流程、四级 seat 和越界处理见
 [实时负载挂载约束](../../arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md)。
 
+当前代码的挂载和绑定按以下顺序执行：
+
+| 边界 | 当前入口 | 接受条件或结果 |
+|---|---|---|
+| STOP 资源 | `trigger_action_template_activate_resources()`、T2 SCPI configure | 活动 deployment、模板 CRC 和本板资源装载读回；未装载拒绝配置 |
+| 共同时间 | `vdc_sync_ao_service()` → `trigger_time_cursor_service()` | T2 只读 `vdc_status.sync_seq` 与 committed model，要求本板 LOCKED；缺序号、缺锁或序号缺口不执行动作 |
+| NO1 预测 | `trigger_t2_runtime_service()` | COUNTER 新鲜计数与同次 cursor 更新，阈值跨越后形成位置索引 |
+| 一等运输 | `distributed_refmem_stage_position_descriptor()` → TDMA flight owner | VDC 到期先发；T2 fragment 只用空闲普通机会，独立 message class、CRC、来源和序号 |
+| 从板绑定 | `accept_remote_position()` | `run_id`、grid/sync epoch、count epoch、deployment generation/CRC、预测版本与有效同步区间全部匹配 |
+| 本地动作 | `trigger_action_runtime_stage()` / `advance()` | 先检查 action q 不早于本板 cursor，再提交静态模板实例；已发出位置不接受不同版本回写 |
+
+目前 `trigger_time_cursor` 只在 VDC 基准同步更新时推进到 coarse q，`fine_slice_index`
+仍为零；非零 fine q 在本地 staging 时明确拒绝，不允许下一次 coarse service 迟到补发。
+非零 fine q 的运行中硬件 deadline 与实际 latch 尚未接通。因此当前实现证明的是
+预约描述符与 coarse cursor 的软件绑定，不能宣称细分时间片精确动作。各板 `sync_seq`
+是否代表同一个跨板同步事件仍需通过来源身份、epoch 和外部硬件证据确认；不能仅因四板
+计数都增长，就认定相同序号对应相同物理时刻。
+
 | owner | 负责 | 边界 |
 |---|---|---|
 | VDC | 1 kHz 同步事件、sync epoch、pulse index、共同时间解释 | 不解释业务动作，不直接写 PIO 动作寄存器 |

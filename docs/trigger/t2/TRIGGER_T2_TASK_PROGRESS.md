@@ -12,6 +12,16 @@ Last updated: 2026-09-26
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260926-014：按实时负载规范收紧 T2 描述符绑定
+
+- TODO task ID：T2-TRANSPORT-001、T2-TURNTABLE-003、T2-TURNTABLE-004、T2-EXEC-001。T2 继续只挂载 `APP_REALTIME_PHASE_SYNC_TRIGGER`；VDC/DPLL/TDMA phase 不调用 T2 runtime。
+- 描述符绑定修正：`sync_epoch` 使用本地 grid epoch，不再误用 feedback session；从板同时校验 `sync_epoch`、`count_epoch`、grid/deployment generation/CRC 和有效同步窗口。
+- 描述符有效期改为“目标同步位置 + 配置中的 grace window”，当前 SCPI 配置使用 `TRIGGER_T2_DESCRIPTOR_TARGET_GRACE_SYNC` 默认值；不再使用 `UINT32_MAX` 长期有效期。同一描述符重复到达幂等忽略；位置实例一旦发出，不接受该位置的不同版本回写。
+- 本地动作 staging 改为先在临时 runtime 中展开和冲突检查，确认所有 action q 仍在当前 cursor 之后且落在当前可服务的 coarse 边界后再提交；非零 fine q 明确拒绝，不能在下一次 coarse service 迟到补发。模板资源未在 STOP 阶段装载或绑定不当前时，T2 SCPI 配置拒绝进入运行态。
+- VDC `sync_seq` 缺口使 T2 cursor 在该会话内保持失效，直到新 session/grid 起点建立；不改变 VDC 的发布或 DPLL 控制状态。
+- 定向回归：T2 runtime、cursor、action runtime、descriptor 和 phase/owner 共 27 项通过。Release build=`20260926093111` 及最终增量 link contract 通过。最终当前源码四板 quick P3 build=`20260926100116`，`PASS_WITH_WARNINGS`（INFO 33 / WARN 10 / ERROR 0 / FATAL 0），源码指纹=`c68e852171292589f600ef4374dc3892d5e03222c7570f72ff6e031b1c191c92`，证据目录 `out/HardwareAcceptance/20260926/p3-180108/`。外部 HDO 60 s 结果 PASS，最大采样相差 `32.14992688125575 ns`；该值为本轮采样快照，不是连续精度契约。quick 凭证的 `strict_gates_passed=false`，不能宣称严格产品验收。
+- P3 是基础链路与 DPLL 验收，未装载并执行真实 T2 position_id；非零 fine q 的硬件 deadline、跨板同一同步事件身份、READY 与实际动作 latch 仍按 TODO 保持开放。
+
 ### T2-PROGRESS-20260926-013：实时负载挂载边界与 observer phase 分离
 
 - TODO task ID：T2-CLOCK-001、T2-TRANSPORT-001、T2-EXEC-001、T2-ACCEPT-001。新增 `ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md` 草案，区分 Core1 phase 与 TDMA seat，明确 TDMA、VDC、DPLL、SYNC_TRIGGER/T2 的唯一 owner、标准 staging→gate→STOP/ARM→RUN 流程和越界回滚规则。
