@@ -12,6 +12,14 @@ Last updated: 2026-09-26
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260926-015：异步位置描述符交接与 TDMA owner 分工
+
+- TODO task ID：T2-TRANSPORT-001、T2-TURNTABLE-003、T2-TURNTABLE-004。新增 `trigger_position_mailbox` 固定单槽状态交接：Core1 T2 phase 只提交完整 descriptor；Core0 RefMem service 领取后编码 wire、分片并在 VDC 未到期的普通机会发布。发送中或单槽忙时拒绝新请求，不覆盖在飞片段。
+- RX 在 Core0 验证本板 target mask、重组完整描述符后，经 source slot 专属单槽交给 Core1；Core1 一次性领取，避免直接复制 Core0 正在写的多字段结构。T2 STOP 以原子撤销意图交给 Core0 清除未发送请求/片段，已入 FIFO 的片段继续由 receiver 代际门禁约束。
+- host：mailbox、生产版提交/编码/撤销函数、T2 runtime 与 VDC reference spacing/publish 合计 78 项通过；补齐 VDC host harness 既有的 `sync_trigger/inc` include path。Release 增量构建与三个 link contract 通过。
+- 当前源码四板 quick P3 build=`20260926105323`，`PASS_WITH_WARNINGS`（INFO 33 / WARN 9 / ERROR 0 / FATAL 0），源码指纹=`dd026409bf31e0118d75e4abc0fd1562bb40eb8d535937941ee24a704e32f70b`，证据目录 `out/HardwareAcceptance/20260926/p3-185313/`。外部 HDO 60 s 结果 PASS，最大采样相差 `41.85197145025214 ns`；该值为采样快照，不是连续精度契约，quick 凭证的 `strict_gates_passed=false`。
+- 本轮 P3 只验证基础 TDMA/DPLL 与四板输出未明显退化，未在 TDMA RUN 中完成真实 T2 position_id 广播、从板动作边沿或 READY 证据；这些仍按 TODO 保持开放。
+
 ### T2-PROGRESS-20260926-014：按实时负载规范收紧 T2 描述符绑定
 
 - TODO task ID：T2-TRANSPORT-001、T2-TURNTABLE-003、T2-TURNTABLE-004、T2-EXEC-001。T2 继续只挂载 `APP_REALTIME_PHASE_SYNC_TRIGGER`；VDC/DPLL/TDMA phase 不调用 T2 runtime。

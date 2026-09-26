@@ -48,7 +48,7 @@ Last updated: 2026-09-26
 | T2-TURNTABLE-001 | NO1 计数 epoch 和位置观测 | IN PROGRESS | 任意 IN、起始/零位/终止位置预测、预运行区与终止校验区、脉冲/位置配置、预测目标计数、方向/回绕和采样区间通过；当前 5°/5° 是调试快照，非产品额定值 |
 | T2-TURNTABLE-002 | 每次同步预测与阈值提示 | IN PROGRESS | 每次 VDC 更新刷新预测；阈值外部配置、滞回和一次跨越提示通过；不触发热加载 |
 | T2-TURNTABLE-003 | coarse/fine 位置描述符 | IN PROGRESS | NO1 发布位置索引和身份元数据；从板拒绝旧代、错目标和过期描述符 |
-| T2-TRANSPORT-001 | 位置描述符 TDMA 运输 | IN PROGRESS | 来源、CRC、去重、乱序、期限和优先级预算通过；不使用诊断 ACK 代替 |
+| T2-TRANSPORT-001 | 位置描述符 TDMA 运输 | IN PROGRESS | Core1→Core0 TX 与 Core0→Core1 RX 固定单槽交接已接线；继续验证来源、CRC、去重、乱序、期限、STOP 撤销、满载优先级与四板实际送达；不使用诊断 ACK 代替 |
 | T2-TURNTABLE-004 | 从板本地位置解算 | IN PROGRESS | 各板用自己的 VDC model/grid 将索引解算为时间片，不接收主站 deadline；零位和终止位置必须生成确定的 target count、position ID 和时间片 |
 | T2-EXEC-001 | 本地 cursor 时间片执行 | IN PROGRESS | 位置实例展开、各动作独立执行、不同 q 顺序、PIO 回执和示波器边沿通过 |
 | T2-OFFSET-001 | SWITCH/GATEWAY/READY offset | PENDING | offset/window 可配置、读回、代际绑定；调试默认值不作为产品事实 |

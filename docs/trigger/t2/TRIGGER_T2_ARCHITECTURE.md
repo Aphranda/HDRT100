@@ -186,6 +186,13 @@ T2 的 Core1 运行入口固定为 `APP_REALTIME_PHASE_SYNC_TRIGGER` / `sync_tri
 | 从板绑定 | `accept_remote_position()` | `run_id`、grid/sync epoch、count epoch、deployment generation/CRC、预测版本与有效同步区间全部匹配 |
 | 本地动作 | `trigger_action_runtime_stage()` / `advance()` | 先检查 action q 不早于本板 cursor，再提交静态模板实例；已发出位置不接受不同版本回写 |
 
+T2 的异步运输交接使用固定单槽：Core1 在 `SYNC_TRIGGER` phase 提交完整位置描述符
+到 TX mailbox；Core0 的 RefMem service 在自己的边界领取、编码和分片发布。RX 由
+Core0 复验本板 target mask 并重组，完整描述符经每个 source slot 的单槽 mailbox
+交给 Core1。单槽忙时拒绝并计数，不覆盖旧请求。T2 STOP 只发布撤销意图，Core0
+下一次 service 退休尚未发送的请求和片段；已经进入 TDMA FIFO 的片段仍须由接收方
+通过 run/epoch/generation 门禁拒绝，STOP ACK 不能冒充物理送达或撤销证明。
+
 目前 `trigger_time_cursor` 只在 VDC 基准同步更新时推进到 coarse q，`fine_slice_index`
 仍为零；非零 fine q 在本地 staging 时明确拒绝，不允许下一次 coarse service 迟到补发。
 非零 fine q 的运行中硬件 deadline 与实际 latch 尚未接通。因此当前实现证明的是
