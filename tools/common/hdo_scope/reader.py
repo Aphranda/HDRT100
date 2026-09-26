@@ -102,6 +102,16 @@ class Scope:
         self.report["commands"].append(row)
         try:
             row["raw"] = self.scope.query(command).strip()
+            # Some HDO firmware revisions reject the abbreviated error query
+            # while accepting the SCPI long form.  The failed abbreviation
+            # itself is retained in the command log; immediately retry once
+            # with the long form so a stale parser error cannot make a valid
+            # scope session fail closed.
+            if command == ":SYST:ERR?" and row["raw"].startswith("-100,"):
+                fallback = ":SYST:ERRor?"
+                row["fallback_command"] = fallback
+                row["fallback_raw"] = self.scope.query(fallback).strip()
+                row["raw"] = row["fallback_raw"]
             return row["raw"]
         except Exception as exc:
             row["error"] = repr(exc)

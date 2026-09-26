@@ -82,6 +82,7 @@ def load_match(runtime_entrypoint: Path, *, runtime_module=None):
             parent.base.BACKEND.TDMA_CONTROL_RESULT_FIELDS[MATCH.upper()] = 1
             parent.scpi_serial.SCALAR_U32_QUERY_HEADERS.add(MATCH.upper() + "?")
             self.tap_baseline = None
+            self.tap_supported = None
             if options.tap_baseline:
                 self.tap_baseline = json.loads(
                     options.tap_baseline.read_text(encoding="utf-8"))
@@ -112,20 +113,39 @@ def load_match(runtime_entrypoint: Path, *, runtime_module=None):
                         self.save()
                 elif board.address == self.boards[0].address:
                     for follower in self.boards[1:]:
-                        if self.tap_baseline:
+                        if self.tap_baseline and self.tap_supported is not False:
                             row = self.report["boards"][follower.address]
-                            row["original_tap"] = direct.numbers(
-                                self.command(follower, "SYSTem:TDMA:EVENt:TAP?"), 12)
-                            request = self.tap_baseline["boards"][
-                                follower.address]["tap_request"]
-                            require(len(request) == 3 and request[0] == 1,
-                                    "TAP request is invalid")
-                            row["tap_installed"] = True
-                            row["tap_request"] = request
-                            self.save()
-                            super().control(
-                                follower, "SYSTem:TDMA:EVENt:TAP " +
-                                ",".join(map(str, request)))
+                            try:
+                                original = direct.numbers(
+                                    self.command(follower, "SYSTem:TDMA:EVENt:TAP?"), 12)
+                            except RuntimeError as exc:
+                                # The paired event observer is diagnostic-only
+                                # and may be compiled out of the production
+                                # follower persona. Its TAP query then returns
+                                # a scalar/unsupported response. Preserve that
+                                # fact and continue the core MATCH/DPLL path;
+                                # a TAP baseline is optional instrumentation.
+                                if "Field count" not in str(exc):
+                                    raise
+                                self.tap_supported = False
+                                row["tap_supported"] = False
+                                row["tap_skip_reason"] = str(exc)
+                                self.report["tap_baseline_skipped"] = (
+                                    "event observer/TAP unsupported by this firmware")
+                                self.save()
+                            else:
+                                self.tap_supported = True
+                                row["original_tap"] = original
+                                request = self.tap_baseline["boards"][
+                                    follower.address]["tap_request"]
+                                require(len(request) == 3 and request[0] == 1,
+                                        "TAP request is invalid")
+                                row["tap_installed"] = True
+                                row["tap_request"] = request
+                                self.save()
+                                super().control(
+                                    follower, "SYSTem:TDMA:EVENt:TAP " +
+                                    ",".join(map(str, request)))
                         self.composite(follower, parent.SESSION, generation)
                         super().control(
                             follower, f"{MATCH} {generation}", generation)
@@ -166,7 +186,7 @@ def load_match(runtime_entrypoint: Path, *, runtime_module=None):
                 row = self.report["boards"][board.address]
                 try:
                     match = row["match"] = parse_match(row["match_raw"])
-                    if self.tap_baseline:
+                    if row.get("tap_installed"):
                         tap = direct.numbers(row["tap_raw"], 12)
                         require(tap[:3] == tap[4:7] == row["tap_request"],
                                 "TAP active/request fields mismatch")

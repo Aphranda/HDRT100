@@ -59,7 +59,10 @@ set(PROJECT_USE_MULTICORE ON CACHE BOOL "Run realtime trigger service on RP2350 
 set(PROJECT_SYNC_IO_INPUT_BASE_PIN 20 CACHE STRING "Product SMA input GPIO base (physical order IN4..IN1)")
 set(PROJECT_SYNC_IO_OUTPUT_BASE_PIN 16 CACHE STRING "Product SMA output GPIO base (OUT1..OUT4)")
 set(PROJECT_TDMA_SPI_BAUD_HZ 10000000 CACHE STRING "Product TDMA PIO-SPI bit rate")
-option(PROJECT_TDMA_EVENT_OBSERVER "Follower paired PIO event diagnostic observer" ON)
+# The paired observer owns the follower forwarding PIO layout. Its exact
+# sequence bridge below supplies the local TX latch evidence; keeping it in the
+# normal build preserves the proven process-follower wire timing.
+option(PROJECT_TDMA_EVENT_OBSERVER "Follower paired PIO event observer" ON)
 file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/config/project_node_capacity.h"
     PROJECT_NODE_CAPACITY_DEFAULT_LINE REGEX "^#define PROJECT_NODE_CAPACITY_DEFAULT [0-9]+$")
 if(NOT PROJECT_NODE_CAPACITY_DEFAULT_LINE MATCHES "^#define PROJECT_NODE_CAPACITY_DEFAULT ([0-9]+)$")

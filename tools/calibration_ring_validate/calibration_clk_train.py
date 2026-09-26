@@ -115,7 +115,25 @@ def _control_command(board, command, args, actions, *, expected=None,
         raw = board_command(board, command, args)
         record["response"] = raw
         if ack and raw.strip().strip('"') not in {"OK", "1"}:
-            raise RuntimeError(f"{board.address}: {command} ACK missing: {raw!r}")
+            normalized = raw.strip().strip('"')
+            # USB CDC can lose the STOP payload while the firmware has
+            # already consumed the Core0->Core1 STOP intent.  A fresh
+            # stopped/applied state readback is the authoritative barrier;
+            # preserve the transport anomaly and promote only that exact
+            # STOP case to the existing auditable disposition.
+            if command.upper().endswith("TDMA:RING:STOP"):
+                try:
+                    stopped = wait_ring_stopped(board, args)
+                except Exception:
+                    stopped = None
+                if stopped is not None:
+                    record["ack_disposition"] = "OK(no payload; verified by state readback)"
+                    record["ack_readback"] = stopped
+                else:
+                    raise RuntimeError(
+                        f"{board.address}: {command} ACK missing: {raw!r}")
+            else:
+                raise RuntimeError(f"{board.address}: {command} ACK missing: {raw!r}")
         if fields is not None or expected is not None:
             values = tuple(int(v.strip().strip('"'), 0) for v in raw.split(','))
             count = len(expected) if expected is not None else fields

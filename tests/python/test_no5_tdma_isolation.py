@@ -25,6 +25,22 @@ def test_no5_core1_path_skips_tdma_owner_but_keeps_observer_phase() -> None:
     assert "sync_io_logic_analyzer_service_core1(8u);" in phase
 
 
+def test_tdma_observer_has_one_owner_phase_call() -> None:
+    source = (ROOT / "application/src/app.c").read_text(encoding="utf-8")
+    tdma = source.split("static void app_realtime_tdma_phase(void)", 1)[1].split(
+        "static void app_realtime_vdc_phase", 1)[0]
+    vdc = source.split("static void app_realtime_vdc_phase(void)", 1)[1].split(
+        "static void app_realtime_dpll_phase", 1)[0]
+    dpll = source.split("static void app_realtime_dpll_phase(void)", 1)[1].split(
+        "static void app_realtime_calibration_phase", 1)[0]
+    assert tdma.count("tdma_runtime_owner_service_observer();") == 1
+    assert vdc.count("tdma_runtime_owner_service_observer();") == 0
+    assert dpll.count("tdma_runtime_owner_service_observer();") == 0
+    assert tdma.index("tdma_component_core1_service();") < tdma.index(
+        "tdma_runtime_owner_service_observer();"
+    )
+
+
 def test_ota_4096_contract_remains_unchanged() -> None:
     for relative in (
         "middleware/scpi_port/src/scpi_port.c",

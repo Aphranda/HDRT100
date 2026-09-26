@@ -61,6 +61,18 @@ void trigger_time_cursor_service(void)
         publish(&next);
         return;
     }
+    /* sync_seq identifies a valid ring observation; it is deliberately
+     * separate from the DPLL lock state. T2 actions require the common clock
+     * to be phase-locked before a raw VDC sequence can become an executable
+     * time cursor. Keep the VDC publisher independent so diagnostics retain
+     * the acquisition sequence, while fail-closing T2 until LOCKED. */
+    if (!vdc_status.ready ||
+        vdc_status.lock_state != VDC_DOMAIN_LOCK_LOCKED) {
+        next.valid = 0u;
+        next.last_error = TRIGGER_TIME_CURSOR_NO_LOCK;
+        publish(&next);
+        return;
+    }
     if (next.session != session) {
         next.session = session;
         next.sample_seq = 0u;

@@ -164,6 +164,9 @@ int main(int argc,char **argv)
         assert(!vdc_dpll_manager_set_feedback_session(123));assert(vdc_dpll_manager_set_feedback_session(124));
         sync_dpll_fb_service();assert(vdc_dpll_manager_get_committed_model(&model));
         assert(model.session==124 && model.token==2);
+        assert(vdc_dpll_manager_set_feedback_session(UINT32_MAX));
+        assert(vdc_dpll_manager_feedback_session()==0);
+        assert(vdc_dpll_manager_set_feedback_session(125));
     } else if(!strcmp(mode,"epoch")) {
         s_vdc_domain.clock.run_id++;sync_dpll_fb_service();assert(!project(1000400,&event));
     } else if(!strcmp(mode,"role")) {

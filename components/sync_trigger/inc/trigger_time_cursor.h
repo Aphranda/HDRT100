@@ -11,6 +11,7 @@ typedef enum {
     TRIGGER_TIME_CURSOR_SESSION = 3u,
     TRIGGER_TIME_CURSOR_SAMPLE_GAP = 4u,
     TRIGGER_TIME_CURSOR_OVERFLOW = 5u,
+    TRIGGER_TIME_CURSOR_NO_LOCK = 6u,
 } trigger_time_cursor_error_t;
 
 typedef struct {

@@ -68,6 +68,14 @@ static bool model_feedback_set_stopped(void *context)
 {
     const uint32_t session = *(const uint32_t *)context;
     const uint32_t current = vdc_dpll_manager_feedback_session();
+    /* UINT32_MAX is the established SCPI/HIL clear-session sentinel. It
+     * retires the active binding but must not poison the monotonic admission
+     * watermark, otherwise every later nonzero session is rejected until a
+     * reboot. */
+    if (session == UINT32_MAX) {
+        __atomic_store_n(&s_model_feedback_session, 0u, __ATOMIC_RELEASE);
+        return true;
+    }
     if (session && session != current && session <= s_model_feedback_last_session) return false;
     if (session) s_model_feedback_last_session = session;
     __atomic_store_n(&s_model_feedback_session, session, __ATOMIC_RELEASE);

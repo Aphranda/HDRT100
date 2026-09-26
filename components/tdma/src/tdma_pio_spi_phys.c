@@ -997,6 +997,64 @@ bool tdma_pio_spi_phys_take_local_tx_edge(void *context,
         phys, tx_timestamp_ns);
 }
 
+/* The paired event observer replaces the legacy follower TX-latch SM in the
+ * process-follower persona. Convert its exact, sequence-bound PIO counter into
+ * the same TIMER1 nanosecond domain used by the ordinary latch. The event
+ * record remains diagnostic on its own; only this physical owner bridge can
+ * attach it to the already CRC-validated transport sequence. */
+static bool tdma_pio_spi_phys_take_event_tx_edge_ex(
+    tdma_pio_spi_phys_t *phys,
+    uint32_t expected_sequence,
+    uint32_t expected_identity_crc32,
+    tdma_ring_local_tx_edge_evidence_t *evidence)
+{
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    tdma_pio_spi_event_live_snapshot_t live;
+    tdma_pio_spi_event_exact_t exact;
+    if (phys == NULL || evidence == NULL || expected_sequence == 0u ||
+        expected_identity_crc32 == 0u ||
+        !tdma_pio_spi_phys_event_get_live_snapshot(phys, &live) ||
+        (live.flags & (TDMA_EVENT_LIVE_ACTIVE |
+                       TDMA_EVENT_LIVE_ANCHOR_VALID)) !=
+            (TDMA_EVENT_LIVE_ACTIVE | TDMA_EVENT_LIVE_ANCHOR_VALID) ||
+        live.arm_epoch == 0u || live.record.epoch == 0u || live.tick_hz == 0u ||
+        !vdc_timestamp_clock_is_current(live.tick_hz)) {
+        return false;
+    }
+    const tdma_event_exact_result_t exact_result =
+        tdma_pio_spi_phys_event_copy_history_exact(
+            phys, live.arm_epoch, live.record.epoch, expected_sequence,
+            &exact);
+    if (exact_result != TDMA_EVENT_EXACT_OK ||
+        exact.record.sequence != expected_sequence ||
+        exact.record.tx_elapsed_cycles == 0u ||
+        UINT64_MAX - live.timer1_enable_after < exact.record.tx_elapsed_cycles) {
+        return false;
+    }
+    const uint64_t tx_ticks = live.timer1_enable_after +
+        exact.record.tx_elapsed_cycles;
+    const uint64_t tx_ns = vdc_timestamp_clock_ticks_to_ns(tx_ticks);
+    if (tx_ns == 0u) {
+        return false;
+    }
+    phys->flight_tx_edge_capture_generation++;
+    evidence->timestamp_ns = tx_ns;
+    evidence->sequence = expected_sequence;
+    evidence->identity_crc32 = expected_identity_crc32;
+    evidence->capture_generation = phys->flight_tx_edge_capture_generation;
+    evidence->flags = TDMA_RING_LOCAL_TX_EDGE_FLAG_TIMESTAMP_VALID |
+                      TDMA_RING_LOCAL_TX_EDGE_FLAG_SEQUENCE_BOUND |
+                      TDMA_RING_LOCAL_TX_EDGE_FLAG_IDENTITY_BOUND;
+    return true;
+#else
+    (void)phys;
+    (void)expected_sequence;
+    (void)expected_identity_crc32;
+    (void)evidence;
+    return false;
+#endif
+}
+
 bool tdma_pio_spi_phys_take_local_tx_edge_ex(
     void *context,
     uint32_t expected_sequence,
@@ -1006,6 +1064,11 @@ bool tdma_pio_spi_phys_take_local_tx_edge_ex(
     tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
     if (evidence != NULL) {
         memset(evidence, 0, sizeof(*evidence));
+    }
+    if (phys != NULL && evidence != NULL &&
+        tdma_pio_spi_phys_event_selected(phys)) {
+        return tdma_pio_spi_phys_take_event_tx_edge_ex(
+            phys, expected_sequence, expected_identity_crc32, evidence);
     }
     if (phys == NULL || evidence == NULL ||
         !tdma_pio_spi_phys_take_local_tx_edge(phys,

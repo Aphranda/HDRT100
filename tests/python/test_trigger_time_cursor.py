@@ -28,11 +28,12 @@ void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *out){*out=vd
 
 static void setup(void){memset(&observer,0,sizeof(observer));memset(&model,0,sizeof(model));
     model.session=session;model.token=11;model.dco.valid=1;model.dco.dco_update_seq=3;
-    vdc_status.ready=false;vdc_status.sync_seq=0;}
+    vdc_status.ready=false;vdc_status.lock_state=VDC_DOMAIN_LOCK_OFF;vdc_status.sync_seq=0;}
 static trigger_time_cursor_snapshot_t snap(void){trigger_time_cursor_snapshot_t s;assert(trigger_time_cursor_snapshot(&s));return s;}
 int main(int argc,char **argv){assert(argc==2);setup();assert(trigger_time_cursor_configure(2,4,1000));
     if(!strcmp(argv[1],"no_sync")){trigger_time_cursor_service();assert(snap().valid==0&&snap().last_error==TRIGGER_TIME_CURSOR_NO_SYNC);return 0;}
-    vdc_status.ready=true;vdc_status.sync_seq=10;observer.enabled=true;observer.last_sample_seq=10;observer.last_event_id=41;trigger_time_cursor_service();
+    if(!strcmp(argv[1],"no_lock")){vdc_status.ready=true;vdc_status.lock_state=VDC_DOMAIN_LOCK_CHECKING;vdc_status.sync_seq=10;trigger_time_cursor_service();assert(snap().valid==0&&snap().last_error==TRIGGER_TIME_CURSOR_NO_LOCK);return 0;}
+    vdc_status.ready=true;vdc_status.lock_state=VDC_DOMAIN_LOCK_LOCKED;vdc_status.sync_seq=10;observer.enabled=true;observer.last_sample_seq=10;observer.last_event_id=41;trigger_time_cursor_service();
     {trigger_time_cursor_snapshot_t s=snap();assert(s.valid&&s.session==7&&s.pulse_index==1&&s.action_cursor==0&&s.sample_seq==10);}
     if(!strcmp(argv[1],"step")){vdc_status.sync_seq=11;observer.last_event_id=42;trigger_time_cursor_service();
         trigger_time_cursor_snapshot_t s=snap();assert(s.valid&&s.pulse_index==2&&s.action_cursor==1000&&s.sample_seq==11);return 0;}
@@ -53,7 +54,7 @@ def cursor(tmp_path_factory):
         [ROOT / "components/sync_trigger/src/trigger_time_cursor.c"])
 
 
-@pytest.mark.parametrize("case", ["no_sync", "step", "gap", "session"])
+@pytest.mark.parametrize("case", ["no_sync", "no_lock", "step", "gap", "session"])
 def test_cursor(cursor, case):
     result = subprocess.run([str(cursor), case], capture_output=True,
         text=True, timeout=5)

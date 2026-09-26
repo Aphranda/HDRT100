@@ -1115,6 +1115,9 @@ static void app_realtime_tdma_phase(void)
      * NO1..NO4 state-machine ring is running independently. */
     if (board_identity_get_no() != 5u) {
         tdma_component_core1_service();
+        /* TDMA owns the physical observer.  Harvest it once per TDMA phase
+         * before VDC/DPLL consume the resulting clock/evidence snapshot. */
+        tdma_runtime_owner_service_observer();
     }
     vdc_run_output_service_core1();
     /* Reference intent/retirement must progress even when the optional SYNC
@@ -1140,14 +1143,12 @@ static void app_realtime_tdma_phase(void)
 
 static void app_realtime_vdc_phase(void)
 {
-    tdma_runtime_owner_service_observer();
     vdc_sync_ao_service();
     drv_watchdog_mark_progress(1u, 0x0111u);
 }
 
 static void app_realtime_dpll_phase(void)
 {
-    tdma_runtime_owner_service_observer();
     drv_watchdog_mark_progress(1u, 0x0102u);
     sync_dpll_fb_service();
     drv_watchdog_mark_progress(1u, 0x0112u);
