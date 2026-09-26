@@ -57,13 +57,24 @@ static bool build_position(uint32_t index, uint64_t count,
 {
     uint64_t target_ms;
     uint32_t target_fine;
+    uint32_t expiry_sync;
     if (!local_target_q(index, count, &target_ms, &target_fine)) return false;
+    if (!s_config.descriptor_window_sync ||
+        target_ms < s_state.cursor.pulse_index ||
+        target_ms - s_state.cursor.pulse_index >
+            UINT32_MAX - s_state.cursor.sample_seq ||
+        UINT32_MAX - s_state.cursor.sample_seq -
+            (uint32_t)(target_ms - s_state.cursor.pulse_index) <
+            s_config.descriptor_window_sync) return false;
+    expiry_sync = s_state.cursor.sample_seq +
+        (uint32_t)(target_ms - s_state.cursor.pulse_index) +
+        s_config.descriptor_window_sync;
     return trigger_turntable_predictor_build_descriptor(
-        &s_state.predictor, s_config.run_id, s_state.cursor.session,
+        &s_state.predictor, s_config.run_id, s_state.cursor.grid_epoch,
         index + 1u, target_ms, target_fine, s_config.grid.generation,
         s_config.deployment.generation,
-        trigger_deployment_crc(&s_config.deployment),
-        s_state.cursor.sample_seq, UINT32_MAX, out);
+        trigger_deployment_crc(&s_config.deployment), s_state.cursor.sample_seq,
+        expiry_sync, out);
 }
 
 static bool stage_one_position(uint64_t count)
@@ -99,6 +110,8 @@ static bool accept_remote_position(uint32_t sync_sequence)
     if (!distributed_refmem_get_position_descriptor(
             s_config.source_slot, &descriptor)) return true;
     if (descriptor.run_id != s_config.run_id ||
+        descriptor.sync_epoch != s_state.cursor.grid_epoch ||
+        descriptor.count_epoch != s_state.predictor.count_epoch ||
         descriptor.grid_generation != s_config.grid.generation ||
         descriptor.deployment_generation != s_config.deployment.generation ||
         descriptor.deployment_crc != trigger_deployment_crc(&s_config.deployment) ||
@@ -111,6 +124,13 @@ static bool accept_remote_position(uint32_t sync_sequence)
         return false;
     }
     const uint32_t index = descriptor.position_id - 1u;
+    if (s_state.emitted_position_mask & (1u << index)) {
+        if (s_state.descriptors[index].descriptor_crc32 ==
+            descriptor.descriptor_crc32) return true;
+        s_state.descriptor_reject_count++;
+        s_state.last_error = TRIGGER_T2_RUNTIME_ACTION;
+        return false;
+    }
     if (s_state.received_mask & (1u << index) &&
         s_state.descriptors[index].prediction_version >=
             descriptor.prediction_version) return true;
@@ -119,13 +139,23 @@ static bool accept_remote_position(uint32_t sync_sequence)
         s_state.received_mask |= 1u << index;
         return true;
     }
-    if (trigger_action_runtime_stage(&s_actions, &descriptor,
+    trigger_action_runtime_t staged = s_actions;
+    if (trigger_action_runtime_stage(&staged, &descriptor,
                                      s_config.grid.subdivisions) !=
         TRIGGER_ACTION_RUNTIME_OK) {
         s_state.descriptor_reject_count++;
         s_state.last_error = TRIGGER_T2_RUNTIME_ACTION;
         return false;
     }
+    for (uint32_t i = 0u; i < staged.instance_count; ++i) {
+        if (staged.instance[i].position.action_q < s_state.cursor.action_cursor ||
+            staged.instance[i].position.action_q % s_config.grid.subdivisions != 0u) {
+            s_state.descriptor_reject_count++;
+            s_state.last_error = TRIGGER_T2_RUNTIME_ACTION;
+            return false;
+        }
+    }
+    s_actions = staged;
     s_state.descriptors[index] = descriptor;
     s_state.received_mask |= 1u << index;
     return true;
@@ -143,6 +173,9 @@ static void collect_events(void)
         return;
     }
     for (uint32_t i = 0u; i < count; ++i) {
+        const uint32_t position_index = next[i].position_id - 1u;
+        if (position_index < TRIGGER_T2_RUNTIME_POSITION_COUNT)
+            s_state.emitted_position_mask |= 1u << position_index;
         if (s_state.event_count >= TRIGGER_T2_RUNTIME_EVENT_CAPACITY) {
             s_state.event_dropped_count++;
             continue;
@@ -182,7 +215,7 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
         trigger_deployment_validate(&config->deployment, UINT32_MAX) !=
             TRIGGER_DEPLOYMENT_OK || !config->run_id ||
         config->source_slot >= TRIGGER_POSITION_DESCRIPTOR_NODE_COUNT ||
-        !config->target_mask ||
+        !config->target_mask || !config->descriptor_window_sync ||
         trigger_action_template_table_validate(
             &config->templates, &config->deployment, config->template_crc) !=
             TRIGGER_ACTION_TEMPLATE_TABLE_OK) return false;
@@ -259,6 +292,7 @@ trigger_t2_runtime_result_t trigger_t2_runtime_service(void)
         T2_RETURN(s_state.last_error);
     }
     s_state.cursor = cursor;
+    s_state.last_error = TRIGGER_T2_RUNTIME_OK;
     if (cursor.sample_seq == s_state.last_sync_sequence) {
         dispatch_pending_events();
         T2_RETURN(TRIGGER_T2_RUNTIME_OK);

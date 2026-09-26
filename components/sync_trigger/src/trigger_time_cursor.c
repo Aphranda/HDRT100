@@ -79,6 +79,12 @@ void trigger_time_cursor_service(void)
         next.pulse_index = 0u;
         next.action_cursor = 0u;
         next.valid = 0u;
+        next.last_error = TRIGGER_TIME_CURSOR_OK;
+    }
+    if (next.last_error == TRIGGER_TIME_CURSOR_SAMPLE_GAP) {
+        next.valid = 0u;
+        publish(&next);
+        return;
     }
     if (next.sample_seq == vdc_status.sync_seq) {
         next.model_token = model.token;

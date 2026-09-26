@@ -11,6 +11,7 @@
 
 #define TRIGGER_T2_RUNTIME_POSITION_COUNT 3u
 #define TRIGGER_T2_RUNTIME_EVENT_CAPACITY TRIGGER_ACTION_RUNTIME_CAPACITY
+#define TRIGGER_T2_DESCRIPTOR_TARGET_GRACE_SYNC 2u
 
 typedef enum {
     TRIGGER_T2_RUNTIME_OK = 0u,
@@ -35,13 +36,15 @@ typedef struct {
     uint32_t local_role;
     uint32_t source_slot;
     uint32_t target_mask;
+    /* Sync-sequence allowance after the predicted target, configured at STOP. */
+    uint32_t descriptor_window_sync;
     uint32_t origin;
 } trigger_t2_runtime_config_t;
 
 typedef struct {
     uint32_t configured, active, origin;
     uint32_t source_slot, target_mask, run_id;
-    uint32_t last_sync_sequence, published_mask, received_mask;
+    uint32_t last_sync_sequence, published_mask, received_mask, emitted_position_mask;
     uint32_t descriptor_reject_count, transport_reject_count;
     uint32_t event_count, event_dropped_count;
     uint8_t event_dispatched[TRIGGER_T2_RUNTIME_EVENT_CAPACITY];

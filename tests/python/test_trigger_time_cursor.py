@@ -38,7 +38,11 @@ int main(int argc,char **argv){assert(argc==2);setup();assert(trigger_time_curso
     if(!strcmp(argv[1],"step")){vdc_status.sync_seq=11;observer.last_event_id=42;trigger_time_cursor_service();
         trigger_time_cursor_snapshot_t s=snap();assert(s.valid&&s.pulse_index==2&&s.action_cursor==1000&&s.sample_seq==11);return 0;}
     if(!strcmp(argv[1],"gap")){vdc_status.sync_seq=13;trigger_time_cursor_service();
-        trigger_time_cursor_snapshot_t s=snap();assert(!s.valid&&s.missed_sync_count==2&&s.last_error==TRIGGER_TIME_CURSOR_SAMPLE_GAP);return 0;}
+        trigger_time_cursor_snapshot_t s=snap();assert(!s.valid&&s.missed_sync_count==2&&s.last_error==TRIGGER_TIME_CURSOR_SAMPLE_GAP);
+        vdc_status.sync_seq=14;trigger_time_cursor_service();s=snap();
+        assert(!s.valid&&s.pulse_index==1&&s.last_error==TRIGGER_TIME_CURSOR_SAMPLE_GAP);
+        session=8;model.session=8;vdc_status.sync_seq=1;trigger_time_cursor_service();
+        s=snap();assert(s.valid&&s.session==8&&s.pulse_index==1);return 0;}
     if(!strcmp(argv[1],"session")){session=8;model.session=8;vdc_status.sync_seq=1;trigger_time_cursor_service();
         trigger_time_cursor_snapshot_t s=snap();assert(s.valid&&s.session==8&&s.pulse_index==1&&s.sample_seq==1);return 0;}
     return 2;}

@@ -30,7 +30,8 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
     trigger_action_template_store_snapshot_t templates;
     if (trigger_grid_preview_snapshot(&grid) || !grid.configured ||
         trigger_deployment_snapshot(&deployment) || !deployment.active.valid ||
-        trigger_action_template_snapshot(&templates) || !templates.installed)
+        trigger_action_template_snapshot(&templates) || !templates.installed ||
+        !templates.resources_loaded || !templates.binding_current)
         return scpi_trigger_t2_fail(context);
 
     trigger_t2_runtime_config_t config={0};
@@ -50,6 +51,7 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
     config.local_role=deployment.active.local_role;
     config.source_slot=(uint32_t)source_slot;
     config.target_mask=(uint32_t)target_mask;
+    config.descriptor_window_sync=TRIGGER_T2_DESCRIPTOR_TARGET_GRACE_SYNC;
     config.origin=(uint32_t)origin;
     return scpi_trigger_grid_result(context,
         trigger_t2_runtime_configure(&config) ? TRIGGER_T2_RUNTIME_OK :

@@ -41,6 +41,22 @@ def test_tdma_observer_has_one_owner_phase_call() -> None:
     )
 
 
+def test_t2_runtime_is_mounted_only_in_sync_trigger_phase() -> None:
+    source = (ROOT / "application/src/app.c").read_text(encoding="utf-8")
+    trigger = source.split("static void app_realtime_sync_trigger_phase(void)", 1)[1].split(
+        "static void app_realtime_trigger_measure_phase", 1
+    )[0]
+    assert trigger.count("sync_trigger_service();") == 1
+    for marker, end in (
+        ("static void app_realtime_tdma_phase(void)", "static void app_realtime_vdc_phase"),
+        ("static void app_realtime_vdc_phase(void)", "static void app_realtime_dpll_phase"),
+        ("static void app_realtime_dpll_phase(void)", "static void app_realtime_calibration_phase"),
+    ):
+        phase = source.split(marker, 1)[1].split(end, 1)[0]
+        assert "trigger_t2_runtime" not in phase
+        assert "sync_trigger_service();" not in phase
+
+
 def test_ota_4096_contract_remains_unchanged() -> None:
     for relative in (
         "middleware/scpi_port/src/scpi_port.c",

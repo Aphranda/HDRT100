@@ -64,7 +64,9 @@ static trigger_t2_runtime_config_t config(bool origin)
         .template_id=7,.generation=4,.role=1,.kind=TRIGGER_ACTION_TEMPLATE_SWITCH,
         .argument=1,.span_slices=1,.delta_q=0}}};
     c.template_crc=trigger_action_template_table_crc(&c.templates);
-    c.run_id=9; c.local_role=origin?0u:1u; c.source_slot=0; c.target_mask=0x0fu; c.origin=origin?1u:0u;
+    c.run_id=9; c.local_role=origin?0u:1u; c.source_slot=0; c.target_mask=0x0fu;
+    c.descriptor_window_sync=TRIGGER_T2_DESCRIPTOR_TARGET_GRACE_SYNC;
+    c.origin=origin?1u:0u;
     return c;
 }
 
@@ -81,7 +83,10 @@ int main(int argc,char **argv)
         counter.io.count32=4750; tx_pending=false;
         assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
         assert(transmitted_count==1 && transmitted[0].position_id==1 &&
-            transmitted[0].target_count==5000 && transmitted[0].prediction_version);
+            transmitted[0].target_count==5000 && transmitted[0].prediction_version &&
+            transmitted[0].sync_epoch==c.grid.epoch &&
+            transmitted[0].expiry_sync>=transmitted[0].valid_from_sync &&
+            transmitted[0].expiry_sync!=UINT32_MAX);
         tx_pending=false; counter.io.count32=5000;
         assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
         assert(transmitted_count==2 && transmitted[1].position_id==2);
@@ -103,6 +108,72 @@ int main(int argc,char **argv)
         trigger_action_runtime_event_t event;
         assert(trigger_t2_runtime_take_event(&event));
         assert(event.position_id==1 && event.template_id==7 && event.action_q==4);
+        remote_descriptor.prediction_version=2;
+        remote_descriptor.descriptor_crc32=trigger_position_descriptor_crc(&remote_descriptor);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_ACTION);
+        assert(!trigger_t2_runtime_take_event(&event));
+        remote_descriptor.position_id=2; remote_descriptor.prediction_version=2;
+        remote_descriptor.target_ms_index=3;
+        remote_descriptor.descriptor_crc32=trigger_position_descriptor_crc(&remote_descriptor);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(trigger_t2_runtime_take_event(&event) && event.position_id==2 &&
+            event.action_q==12);
+        return 0;
+    }
+    if(!strcmp(argv[1],"wrong_epoch")){
+        trigger_t2_runtime_config_t c=config(false);
+        assert(trigger_t2_runtime_configure(&c));
+        assert(trigger_t2_runtime_start(11,0));
+        remote_descriptor=(trigger_position_descriptor_t){.schema=1,.run_id=9,
+            .sync_epoch=2,.position_id=1,.count_epoch=11,.target_count=5000,
+            .prediction_version=1,.target_ms_index=1,.target_fine_slice_index=0,
+            .grid_generation=2,.deployment_generation=3,
+            .deployment_crc=trigger_deployment_crc(&c.deployment),
+            .valid_from_sync=1,.expiry_sync=10};
+        remote_descriptor.descriptor_crc32=trigger_position_descriptor_crc(&remote_descriptor);
+        remote_valid=true;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_DESCRIPTOR);
+        assert(!trigger_t2_runtime_take_event(&(trigger_action_runtime_event_t){0}));
+        remote_descriptor.sync_epoch=1; remote_descriptor.count_epoch=12;
+        remote_descriptor.descriptor_crc32=trigger_position_descriptor_crc(&remote_descriptor);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_DESCRIPTOR);
+        return 0;
+    }
+    if(!strcmp(argv[1],"expired")){
+        trigger_t2_runtime_config_t c=config(false);
+        assert(trigger_t2_runtime_configure(&c));
+        assert(trigger_t2_runtime_start(11,0));
+        remote_descriptor=(trigger_position_descriptor_t){.schema=1,.run_id=9,
+            .sync_epoch=1,.position_id=1,.count_epoch=11,.target_count=5000,
+            .prediction_version=1,.target_ms_index=1,.target_fine_slice_index=0,
+            .grid_generation=2,.deployment_generation=3,
+            .deployment_crc=trigger_deployment_crc(&c.deployment),
+            .valid_from_sync=1,.expiry_sync=1};
+        remote_descriptor.descriptor_crc32=trigger_position_descriptor_crc(&remote_descriptor);
+        remote_valid=true;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(trigger_t2_runtime_take_event(&(trigger_action_runtime_event_t){0}));
+        remote_descriptor.position_id=2; remote_descriptor.prediction_version=2;
+        remote_descriptor.target_ms_index=2;
+        remote_descriptor.descriptor_crc32=trigger_position_descriptor_crc(&remote_descriptor);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_DESCRIPTOR);
+        return 0;
+    }
+    if(!strcmp(argv[1],"fine_unsupported")){
+        trigger_t2_runtime_config_t c=config(false);
+        assert(trigger_t2_runtime_configure(&c));
+        assert(trigger_t2_runtime_start(11,0));
+        remote_descriptor=(trigger_position_descriptor_t){.schema=1,.run_id=9,
+            .sync_epoch=1,.position_id=1,.count_epoch=11,.target_count=5000,
+            .prediction_version=1,.target_ms_index=3,.target_fine_slice_index=1,
+            .grid_generation=2,.deployment_generation=3,
+            .deployment_crc=trigger_deployment_crc(&c.deployment),
+            .valid_from_sync=1,.expiry_sync=10};
+        remote_descriptor.descriptor_crc32=trigger_position_descriptor_crc(&remote_descriptor);
+        remote_valid=true;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_ACTION);
+        assert(!trigger_t2_runtime_take_event(&(trigger_action_runtime_event_t){0}));
         return 0;
     }
     return 2;
@@ -118,7 +189,8 @@ def runtime(tmp_path_factory):
     )
 
 
-@pytest.mark.parametrize("case", ["origin", "receiver"])
+@pytest.mark.parametrize("case", ["origin", "receiver", "wrong_epoch", "expired",
+                                  "fine_unsupported"])
 def test_t2_runtime(runtime, case):
     result = subprocess.run([str(runtime), case], capture_output=True,
                             text=True, timeout=5)
