@@ -337,13 +337,15 @@ typedef struct {
 bool distributed_refmem_get_vdc_flight_rx(
     distributed_refmem_vdc_flight_rx_snapshot_t *snapshot);
 
-/* Core0 T2 source/consumer boundary. Staging is latest-value and bounded;
- * the flight publisher emits one position fragment per accepted mailbox. */
+/* Core1 submits one immutable T2 request; Core0 accepts and encodes it at
+ * the RefMem service boundary, then emits one fragment per flight mailbox. */
 bool distributed_refmem_stage_position_descriptor(
     const trigger_position_descriptor_t *descriptor, uint32_t target_mask);
-/* True while the realtime flight owner is draining descriptor fragments. A
- * producer must wait instead of replacing an in-flight position. */
+/* True while a request or its encoded fragments are pending. */
 bool distributed_refmem_position_descriptor_pending(void);
+/* STOP intent; Core0 retires queued and active fragments on its next service. */
+void distributed_refmem_request_position_cancel(void);
+/* Core1 consumes one complete Core0-published descriptor. */
 bool distributed_refmem_get_position_descriptor(
     uint32_t source_slot, trigger_position_descriptor_t *descriptor);
 

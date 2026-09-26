@@ -131,6 +131,11 @@ uint32_t ota_crc32_update(uint32_t c,const uint8_t *p,size_t n)
 { for(size_t i=0;i<n;i++){ c^=p[i]; for(unsigned j=0;j<8;j++) c=(c>>1)^((c&1)?0xedb88320u:0); } return c; }
 static void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,const uint8_t *m,const tdma_flight_rx_view_t *v)
 { (void)slot; (void)m; (void)v; }
+/* T2 owns separate asynchronous mailboxes; these VDC transport cases do not
+ * submit or receive T2 position descriptors. */
+static void distributed_refmem_position_tx_prepare(void) {}
+static void distributed_refmem_tdma_parse_position_fragment(uint32_t slot,const uint8_t *m)
+{ (void)slot; (void)m; }
 ''' + state.group(0) + "\nstatic distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;\n"
     harness += ordinary_binding.group(0) + r'''
 static volatile uint32_t s_vdc_flight_rx_guard;

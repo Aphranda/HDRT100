@@ -271,6 +271,7 @@ void trigger_t2_runtime_stop(void)
     publish_begin();
     s_state.active = 0u;
     s_pending_mask = 0u;
+    distributed_refmem_request_position_cancel();
     trigger_time_cursor_clear();
     publish_end();
 }
