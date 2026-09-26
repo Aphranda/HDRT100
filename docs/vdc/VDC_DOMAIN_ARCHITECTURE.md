@@ -4,11 +4,16 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_RUNTIME_CONSTRAINTS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-26
 
 ## 文档接口与范围
 
 VDC 维护本地时间到输出时间的映射、DPLL 控制及其发布视图。当前实时主线是 **主板发布事件时间戳，从板在 Core1 匹配对应事件并自行校正 DCO，SYNC_IO 用 PIO/DMA 执行输出**。VDC 不拥有 TDMA 运输、Calibration 测量、底层 IO 资源或 Trigger 业务预约。
+
+VDC phase 在接受 TDMA ring clock observation 后，同时发布只读
+`vdc_dpll_manager_sync_event_t`：本地 `sync_seq`、carrier sequence、frame identity、
+ring/schedule 身份和本板硬件 RX 时间戳。下游 T2 可按当前模型投影共同 grid；
+该快照不计算 T2 位置、不装载动作，也不使 follower 自动获得 LOCKED 资格。
 
 | 文件 | 职责 |
 |---|---|

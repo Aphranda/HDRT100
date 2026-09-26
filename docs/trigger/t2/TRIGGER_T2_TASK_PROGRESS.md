@@ -4,13 +4,21 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-26
+Last updated: 2026-09-27
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20260927-017：异步窗口预测与本地最新镜像回退
+
+- TODO task ID：T2-TURNTABLE-002/003、T2-TRANSPORT-001、T2-ACCEPT-001。NO1 Core1 只取得每个 VDC 基准同步的计数观察；Core0 在 `app_refmem_service()` 边界按最近完成的计数窗口异步计算预约位置时间片。距离阈值越近，窗口和计算间隔缩短；没有新结果时复用上一次完整预览。
+- 阈值跨越现在提交 `TRIGGER_POSITION_STAGE_FREEZE`，TDMA 普通 T2 帧只发送 `position_id` 和 `prediction_version` index；完整预览仍沿现有 T2 descriptor 分片发送，不改变 VDC cadence 或 DPLL/SYNC owner。每个板本地保留最新预览和两份旧预览，CRC 覆盖窗口字段。
+- 从板收到冻结 index 后不在临界路径重新计算：有匹配镜像则采用匹配版本；缺失或版本不一致时使用本地最新有效镜像，并在 T2 snapshot/SCPI 查询中记录远端版本、本地版本、本地镜像年龄、fallback 和 missing 计数。
+- host 验证：`test_trigger_t2_runtime.py` 已改为积累完成窗口、验证预览后冻结及版本不一致回退；T2 descriptor/mailbox/flight 合计 `23 passed`。Release 增量构建、三个 link contract、docs_check 和 doc_regression 均通过；进展日志 WARN 为仓库既有轮转债务。
+- 当前硬件证据：当前源码指纹 P3 build=`20260926171324` 最终 `PASS_WITH_WARNINGS`（INFO 31 / WARN 15 / ERROR 0 / FATAL 0），证据在 `out/HardwareAcceptance/20260927/p3-011317/`，四板 DPLL 60 秒和 TDMA process-image/FIFO 阶段完成。P3 结束后重新启动 T2 专用 ring 时 NO4 ARM 超时，当前仍没有共同 VDC observation/session，不能宣称真实 `position_id`、READY 或示波器动作闭环；失败原件保留在 `out/t2-ring-p3-20260927/`。
 
 ### T2-PROGRESS-20260926-016：位置片普通帧同载与物理准入纠偏
 
