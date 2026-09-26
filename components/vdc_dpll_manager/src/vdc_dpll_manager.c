@@ -112,6 +112,9 @@ _Static_assert(sizeof(vdc_dpll_manager_dpll_capture_record_t) == 100u,
                "DPLL capture record ABI changed");
 
 static vdc_dpll_manager_vdc_status_t s_vdc_status;
+static vdc_dpll_manager_sync_event_t s_vdc_sync_event_candidate;
+static vdc_dpll_manager_sync_event_t s_published_vdc_sync_event;
+static volatile uint32_t s_published_vdc_sync_event_guard;
 static vdc_dpll_manager_dpll_status_t s_dpll_status;
 static vdc_dpll_manager_sync_io_observer_config_t s_sync_io_observer_config;
 static vdc_dpll_manager_sync_io_observer_status_t s_sync_io_observer_status;
@@ -637,6 +640,18 @@ static bool VDC_DPLL_MANAGER_TIME_CRITICAL(
         s_vdc_ring_pending_evidence = evidence;
         s_vdc_ring_pending_config_seq = ring.config_seq;
         s_vdc_ring_evidence_pending = true;
+        s_vdc_sync_event_candidate = (vdc_dpll_manager_sync_event_t){
+            .valid = 1u,
+            .ring_config_seq = ring.config_seq,
+            .carrier_sequence = clock->correlated_sequence,
+            .identity_crc32 = clock->frame_crc32,
+            .schedule_crc32 = clock->schedule_crc32,
+            .timestamp_flags = clock->timestamp_flags,
+            .clock_epoch_id = s_vdc_domain.clock.epoch_id,
+            .clock_run_id = s_vdc_domain.clock.run_id,
+            .local_slot = ring.local_slot_id,
+            .local_rx_timestamp_ns = clock->local_rx_timestamp_ns,
+        };
         status.last_result =
             VDC_DPLL_MANAGER_RING_OBSERVER_EVIDENCE_PENDING;
     } else {
@@ -1698,6 +1713,9 @@ bool vdc_dpll_manager_init(void)
     const uint32_t now_ms = board_uptime_ms();
 
     memset(&s_vdc_status, 0, sizeof(s_vdc_status));
+    memset(&s_vdc_sync_event_candidate, 0, sizeof(s_vdc_sync_event_candidate));
+    memset(&s_published_vdc_sync_event, 0, sizeof(s_published_vdc_sync_event));
+    __atomic_store_n(&s_published_vdc_sync_event_guard, 0u, __ATOMIC_RELEASE);
     memset(&s_dpll_status, 0, sizeof(s_dpll_status));
     memset(&s_sync_io_observer_config, 0, sizeof(s_sync_io_observer_config));
     memset(&s_sync_io_observer_status, 0, sizeof(s_sync_io_observer_status));
@@ -2334,6 +2352,13 @@ void VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_sync_ao_service)(void)
     uint32_t lock_state = VDC_DOMAIN_LOCK_OFF;
 
     if (!vdc_dpll_manager_ring_observer_service(&lock_state)) {
+        if (s_published_vdc_sync_event.valid) {
+            (void)__atomic_add_fetch(&s_published_vdc_sync_event_guard, 1u,
+                                     __ATOMIC_ACQ_REL);
+            s_published_vdc_sync_event.valid = 0u;
+            (void)__atomic_add_fetch(&s_published_vdc_sync_event_guard, 1u,
+                                     __ATOMIC_RELEASE);
+        }
         return;
     }
     if (s_vdc_status.service_count == 0u) {
@@ -2345,6 +2370,12 @@ void VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_sync_ao_service)(void)
     s_vdc_status.lock_state = lock_state;
     s_vdc_status.sync_seq++;
     s_published_vdc_status = s_vdc_status;
+    s_vdc_sync_event_candidate.sync_seq = s_vdc_status.sync_seq;
+    (void)__atomic_add_fetch(&s_published_vdc_sync_event_guard, 1u,
+                             __ATOMIC_ACQ_REL);
+    s_published_vdc_sync_event = s_vdc_sync_event_candidate;
+    (void)__atomic_add_fetch(&s_published_vdc_sync_event_guard, 1u,
+                             __ATOMIC_RELEASE);
 }
 
 void vdc_dpll_manager_vdc_service(void)
@@ -3290,6 +3321,21 @@ void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *status)
     osal_critical_enter();
     *status = s_published_vdc_status;
     osal_critical_exit();
+}
+
+bool vdc_dpll_manager_get_sync_event(vdc_dpll_manager_sync_event_t *event)
+{
+    if (!event) return false;
+    for (uint32_t attempt = 0u; attempt < 4u; ++attempt) {
+        const uint32_t before = __atomic_load_n(
+            &s_published_vdc_sync_event_guard, __ATOMIC_ACQUIRE);
+        if (before & 1u) continue;
+        *event = s_published_vdc_sync_event;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (before == __atomic_load_n(&s_published_vdc_sync_event_guard,
+                                       __ATOMIC_ACQUIRE)) return true;
+    }
+    return false;
 }
 
 void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status)

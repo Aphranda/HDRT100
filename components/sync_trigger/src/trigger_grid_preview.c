@@ -152,8 +152,7 @@ static bool configure_stopped(void *context)
     }
     memset(&s_anchor, 0, sizeof(s_anchor));
     s_grid = candidate;
-    if (!trigger_time_cursor_configure(request->grid->epoch,
-            request->grid->generation, request->grid->subdivisions)) {
+    if (!trigger_time_cursor_configure(request->grid)) {
         request->result = TRIGGER_GRID_PREVIEW_CHANGED;
         return false;
     }

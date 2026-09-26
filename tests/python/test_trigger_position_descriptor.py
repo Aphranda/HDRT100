@@ -31,7 +31,7 @@ int main(int argc,char **argv){
     if(!strcmp(argv[1],"replay")){uint8_t w[TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE];trigger_position_descriptor_t x;trigger_position_fragment_context_t c={0};assert(trigger_position_descriptor_encode(&d,w));assert(trigger_position_fragment_push(&c,1u,2u,100u,0u,TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT,w,&x)==TRIGGER_POSITION_FRAGMENT_PROGRESS);assert(trigger_position_fragment_push(&c,1u,2u,103u,1u,TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT,w+4u,&x)==TRIGGER_POSITION_FRAGMENT_PROGRESS);assert(trigger_position_fragment_push(&c,1u,2u,101u,2u,TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT,w+8u,&x)==TRIGGER_POSITION_FRAGMENT_REJECTED);return 0;}
     if(!strcmp(argv[1],"fine")){d.target_fine_slice_index=4;assert(!trigger_position_descriptor_valid(&d,4));return 0;}
     if(!strcmp(argv[1],"window")){d.valid_from_sync=21;assert(!trigger_position_descriptor_valid(&d,4));return 0;}
-    if(!strcmp(argv[1],"crc")){uint32_t a=trigger_position_descriptor_crc(&d);d.position_id++;assert(a!=trigger_position_descriptor_crc(&d));return 0;}
+    if(!strcmp(argv[1],"crc")){uint32_t a=trigger_position_descriptor_crc(&d);d.position_id++;assert(a!=trigger_position_descriptor_crc(&d));d.position_id--;d.window_pulses=1;assert(a!=trigger_position_descriptor_crc(&d));return 0;}
     if(!strcmp(argv[1],"schema")){d.schema++;assert(!trigger_position_descriptor_valid(&d,4));return 0;}
     return 2;
 }

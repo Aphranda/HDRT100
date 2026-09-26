@@ -983,15 +983,19 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
         &mailbox[TDMA_PROCESS_IMAGE_REFMEM_VALUE_OFFSET], value);
 
     if (message_class == TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS) {
-        const uint32_t offset = s_tdma_flight_sync.position_tx_fragment_index *
+        const uint32_t offset = s_tdma_flight_sync.position_tx_fragment_index ==
+            UINT32_MAX ? 0u : s_tdma_flight_sync.position_tx_fragment_index *
             TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE;
         if (!s_tdma_flight_sync.position_tx_active ||
             offset + TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE >
                 sizeof(s_tdma_flight_sync.position_tx_wire)) return false;
         mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_INDEX_OFFSET] =
-            (uint8_t)s_tdma_flight_sync.position_tx_fragment_index;
+            (uint8_t)(s_tdma_flight_sync.position_tx_fragment_index == UINT32_MAX
+                ? (uint8_t)(0xF0u | (s_tdma_flight_sync.position_tx_position_id & 0x0Fu))
+                : s_tdma_flight_sync.position_tx_fragment_index);
         mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_COUNT_OFFSET] =
-            (uint8_t)TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT;
+            (uint8_t)(s_tdma_flight_sync.position_tx_fragment_index == UINT32_MAX
+                ? 1u : TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT);
         memcpy(&mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_OFFSET],
                &s_tdma_flight_sync.position_tx_wire[offset],
                TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE);
@@ -1256,6 +1260,31 @@ static void distributed_refmem_tdma_parse_position_fragment(
         mailbox[TDMA_PROCESS_IMAGE_VDC_LOCK_OFFSET];
     s_tdma_flight_sync.last_vdc_quality =
         mailbox[TDMA_PROCESS_IMAGE_VDC_QUALITY_OFFSET];
+    if ((mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_INDEX_OFFSET] & 0xF0u) == 0xF0u &&
+        mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_COUNT_OFFSET] == 1u) {
+        const uint32_t position_id =
+            mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_INDEX_OFFSET] & 0x0Fu;
+        const uint32_t version =
+            (uint32_t)mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_OFFSET] |
+            (uint32_t)mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_OFFSET + 1u] << 8u |
+            (uint32_t)mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_OFFSET + 2u] << 16u |
+            (uint32_t)mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_OFFSET + 3u] << 24u;
+        const trigger_position_descriptor_t freeze = {
+            .schema = TRIGGER_POSITION_DESCRIPTOR_SCHEMA,
+            .stage = TRIGGER_POSITION_STAGE_FREEZE,
+            .position_id = position_id,
+            .prediction_version = version,
+        };
+        if (trigger_position_mailbox_stage(
+                &s_position_rx_mailboxes[source_slot], &freeze, target_mask)) {
+            s_tdma_flight_sync.position_rx_complete_count++;
+            s_tdma_flight_sync.position_rx_source_slot = source_slot;
+            s_tdma_flight_sync.position_rx_position_id = position_id;
+        } else {
+            s_tdma_flight_sync.position_rx_reject_count++;
+        }
+        return;
+    }
     const trigger_position_fragment_result_t result =
         trigger_position_fragment_push(
             &s_tdma_flight_sync.position_rx_fragments[source_slot],
@@ -1288,14 +1317,26 @@ static void distributed_refmem_position_tx_prepare(void)
     uint32_t target_mask;
     if (!trigger_position_mailbox_take(&s_position_tx_mailbox,
                                        &descriptor, &target_mask)) return;
-    if (!trigger_position_descriptor_encode(
+    if (descriptor.stage == TRIGGER_POSITION_STAGE_FREEZE) {
+        s_tdma_flight_sync.position_tx_wire[0] =
+            (uint8_t)descriptor.prediction_version;
+        s_tdma_flight_sync.position_tx_wire[1] =
+            (uint8_t)(descriptor.prediction_version >> 8u);
+        s_tdma_flight_sync.position_tx_wire[2] =
+            (uint8_t)(descriptor.prediction_version >> 16u);
+        s_tdma_flight_sync.position_tx_wire[3] =
+            (uint8_t)(descriptor.prediction_version >> 24u);
+        s_tdma_flight_sync.position_tx_fragment_index = UINT32_MAX;
+    } else if (trigger_position_descriptor_encode(
             &descriptor, s_tdma_flight_sync.position_tx_wire)) {
+    } else {
         s_tdma_flight_sync.position_tx_reject_count++;
         return;
     }
     s_tdma_flight_sync.position_tx_target_mask = target_mask;
     s_tdma_flight_sync.position_tx_position_id = descriptor.position_id;
-    s_tdma_flight_sync.position_tx_fragment_index = 0u;
+    if (descriptor.stage != TRIGGER_POSITION_STAGE_FREEZE)
+        s_tdma_flight_sync.position_tx_fragment_index = 0u;
     s_tdma_flight_sync.position_tx_sequence =
         s_tdma_flight_sync.next_seq32 ? s_tdma_flight_sync.next_seq32 : 1u;
     __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 1u,
@@ -1552,9 +1593,18 @@ static void distributed_refmem_tdma_flight_sync_publish(
         }
 #endif
         if (position_publication) {
-            s_tdma_flight_sync.position_tx_fragment_index++;
-            if (s_tdma_flight_sync.position_tx_fragment_index >=
-                TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT) {
+            const bool freeze_publication =
+                s_tdma_flight_sync.position_tx_fragment_index == UINT32_MAX;
+            if (freeze_publication) {
+                __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 0u,
+                                 __ATOMIC_RELEASE);
+                s_tdma_flight_sync.position_tx_fragment_index = 0u;
+            } else {
+                s_tdma_flight_sync.position_tx_fragment_index++;
+            }
+            if (!freeze_publication &&
+                s_tdma_flight_sync.position_tx_fragment_index >=
+                    TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT) {
                 __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 0u,
                                  __ATOMIC_RELEASE);
                 s_tdma_flight_sync.position_tx_fragment_index = 0u;

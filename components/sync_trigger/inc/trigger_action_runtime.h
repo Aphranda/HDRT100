@@ -65,7 +65,8 @@ static inline trigger_action_runtime_result_t trigger_action_runtime_stage(
     uint32_t subdivisions)
 {
     if(!r || !d || !r->templates.count ||
-       (r->active && r->emitted_mask != (1u << r->instance_count) - 1u))
+       (r->active && r->emitted_mask != (1u << r->instance_count) - 1u &&
+        (r->descriptor.position_id != d->position_id || r->emitted_mask != 0u)))
         return TRIGGER_ACTION_RUNTIME_ARGUMENT;
     trigger_action_runtime_t next=*r; next.descriptor=*d;next.instance_count=0u;
     next.emitted_mask=0u;next.last_cursor=0u;

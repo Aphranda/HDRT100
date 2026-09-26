@@ -19,12 +19,13 @@ static trigger_counter_snapshot_t counter;
 static trigger_position_descriptor_t remote_descriptor;
 static bool remote_valid;
 static bool tx_pending;
-static trigger_position_descriptor_t transmitted[3];
+static trigger_position_descriptor_t transmitted[32];
 static unsigned transmitted_count;
 
-bool trigger_time_cursor_configure(uint32_t e, uint32_t g, uint32_t sub)
-{ cursor=(trigger_time_cursor_snapshot_t){.configured=1,.grid_epoch=e,
-    .grid_generation=g,.subdivisions=sub,.session=1}; return true; }
+bool trigger_time_cursor_configure(const trigger_time_grid_t *grid)
+{ cursor=(trigger_time_cursor_snapshot_t){.configured=1,.grid_epoch=grid->epoch,
+    .grid_generation=grid->generation,.anchor_vdc_ns=grid->anchor_vdc_ns,
+    .period_ns=grid->period_ns,.subdivisions=grid->subdivisions,.session=1}; return true; }
 void trigger_time_cursor_clear(void) { memset(&cursor,0,sizeof(cursor)); }
 void trigger_time_cursor_service(void)
 { if (!cursor.configured) return; ++cursor.sample_seq; ++cursor.pulse_index;
@@ -74,30 +75,41 @@ static trigger_t2_runtime_config_t config(bool origin)
 int main(int argc,char **argv)
 {
     assert(argc==2); memset(&counter,0,sizeof(counter)); counter.loaded=1;
-    counter.io.valid=1; counter.io.count32=4500;
+    counter.io.valid=1; counter.io.count32=0;
     if(!strcmp(argv[1],"origin")){
         trigger_t2_runtime_config_t c=config(true);
         assert(trigger_t2_runtime_configure(&c));
         assert(trigger_t2_runtime_start(11,0));
-        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
-        assert(transmitted_count==0);
-        counter.io.count32=4750; tx_pending=false;
-        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
-        assert(transmitted_count==1 && transmitted[0].position_id==1 &&
-            transmitted[0].target_count==5000 && transmitted[0].prediction_version &&
-            transmitted[0].sync_epoch==c.grid.epoch &&
-            transmitted[0].expiry_sync>=transmitted[0].valid_from_sync &&
-            transmitted[0].expiry_sync!=UINT32_MAX);
-        tx_pending=false; counter.io.count32=5000;
-        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
-        assert(transmitted_count==2 && transmitted[1].position_id==2);
+        bool saw_preview=false, saw_freeze=false;
+        for (unsigned i=0u; i<16u; ++i) {
+            counter.io.count32=(i+1u)*300u;
+            tx_pending=false;
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+            trigger_t2_runtime_prepare_core0();
+            tx_pending=false;
+        }
+        for (unsigned i=0u; i<transmitted_count; ++i) {
+            if (transmitted[i].position_id != 1u) continue;
+            if (transmitted[i].stage == TRIGGER_POSITION_STAGE_PREVIEW) {
+                saw_preview=true;
+                assert(transmitted[i].target_count==5000u &&
+                    transmitted[i].prediction_version &&
+                    transmitted[i].window_pulses && transmitted[i].window_syncs);
+            }
+            if (transmitted[i].stage == TRIGGER_POSITION_STAGE_FREEZE) {
+                saw_freeze=true;
+                assert(transmitted[i].prediction_version);
+            }
+        }
+        assert(saw_preview && saw_freeze);
         return 0;
     }
-    if(!strcmp(argv[1],"receiver")){
+    if(!strcmp(argv[1],"receiver") || !strcmp(argv[1],"different_local_seq")){
         trigger_t2_runtime_config_t c=config(false);
         assert(trigger_t2_runtime_configure(&c));
         assert(trigger_t2_runtime_start(11,0));
-        remote_descriptor=(trigger_position_descriptor_t){.schema=1,.run_id=9,
+        if(!strcmp(argv[1],"different_local_seq")) cursor.sample_seq=80u;
+        remote_descriptor=(trigger_position_descriptor_t){.schema=TRIGGER_POSITION_DESCRIPTOR_SCHEMA,.run_id=9,
             .sync_epoch=1,.position_id=1,.count_epoch=11,.target_count=5000,
             .prediction_version=1,.target_ms_index=1,.target_fine_slice_index=0,
             .grid_generation=2,.deployment_generation=3,
@@ -109,10 +121,17 @@ int main(int argc,char **argv)
         trigger_action_runtime_event_t event;
         assert(trigger_t2_runtime_take_event(&event));
         assert(event.position_id==1 && event.template_id==7 && event.action_q==4);
+        remote_descriptor.stage=TRIGGER_POSITION_STAGE_FREEZE;
         remote_descriptor.prediction_version=2;
         remote_descriptor.descriptor_crc32=trigger_position_descriptor_crc(&remote_descriptor);
-        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_ACTION);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        trigger_t2_runtime_snapshot_t receiver_snapshot;
+        assert(trigger_t2_runtime_snapshot(&receiver_snapshot));
+        assert(receiver_snapshot.freeze_fallback_count==1u &&
+            receiver_snapshot.freeze_local_version[0]==1u &&
+            receiver_snapshot.freeze_version[0]==2u);
         assert(!trigger_t2_runtime_take_event(&event));
+        remote_descriptor.stage=TRIGGER_POSITION_STAGE_PREVIEW;
         remote_descriptor.position_id=2; remote_descriptor.prediction_version=2;
         remote_descriptor.target_ms_index=3;
         remote_descriptor.descriptor_crc32=trigger_position_descriptor_crc(&remote_descriptor);
@@ -126,7 +145,7 @@ int main(int argc,char **argv)
         trigger_t2_runtime_config_t c=config(false);
         assert(trigger_t2_runtime_configure(&c));
         assert(trigger_t2_runtime_start(11,0));
-        remote_descriptor=(trigger_position_descriptor_t){.schema=1,.run_id=9,
+        remote_descriptor=(trigger_position_descriptor_t){.schema=TRIGGER_POSITION_DESCRIPTOR_SCHEMA,.run_id=9,
             .sync_epoch=2,.position_id=1,.count_epoch=11,.target_count=5000,
             .prediction_version=1,.target_ms_index=1,.target_fine_slice_index=0,
             .grid_generation=2,.deployment_generation=3,
@@ -145,7 +164,7 @@ int main(int argc,char **argv)
         trigger_t2_runtime_config_t c=config(false);
         assert(trigger_t2_runtime_configure(&c));
         assert(trigger_t2_runtime_start(11,0));
-        remote_descriptor=(trigger_position_descriptor_t){.schema=1,.run_id=9,
+        remote_descriptor=(trigger_position_descriptor_t){.schema=TRIGGER_POSITION_DESCRIPTOR_SCHEMA,.run_id=9,
             .sync_epoch=1,.position_id=1,.count_epoch=11,.target_count=5000,
             .prediction_version=1,.target_ms_index=1,.target_fine_slice_index=0,
             .grid_generation=2,.deployment_generation=3,
@@ -165,7 +184,7 @@ int main(int argc,char **argv)
         trigger_t2_runtime_config_t c=config(false);
         assert(trigger_t2_runtime_configure(&c));
         assert(trigger_t2_runtime_start(11,0));
-        remote_descriptor=(trigger_position_descriptor_t){.schema=1,.run_id=9,
+        remote_descriptor=(trigger_position_descriptor_t){.schema=TRIGGER_POSITION_DESCRIPTOR_SCHEMA,.run_id=9,
             .sync_epoch=1,.position_id=1,.count_epoch=11,.target_count=5000,
             .prediction_version=1,.target_ms_index=3,.target_fine_slice_index=1,
             .grid_generation=2,.deployment_generation=3,
@@ -190,7 +209,8 @@ def runtime(tmp_path_factory):
     )
 
 
-@pytest.mark.parametrize("case", ["origin", "receiver", "wrong_epoch", "expired",
+@pytest.mark.parametrize("case", ["origin", "receiver", "different_local_seq",
+                                  "wrong_epoch", "expired",
                                   "fine_unsupported"])
 def test_t2_runtime(runtime, case):
     result = subprocess.run([str(runtime), case], capture_output=True,

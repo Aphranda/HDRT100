@@ -260,6 +260,15 @@ typedef struct {
     uint32_t sync_seq;
 } vdc_dpll_manager_vdc_status_t;
 
+/* One accepted VDC sync observation with its exact TDMA frame identity and
+ * local hardware latch. Local sequence numbers are not shared grid ordinals. */
+typedef struct {
+    uint32_t valid, sync_seq, ring_config_seq, carrier_sequence;
+    uint32_t identity_crc32, schedule_crc32, timestamp_flags;
+    uint32_t clock_epoch_id, clock_run_id, local_slot;
+    uint64_t local_rx_timestamp_ns;
+} vdc_dpll_manager_sync_event_t;
+
 typedef struct {
     bool ready;
     uint32_t state;
@@ -595,6 +604,7 @@ void vdc_dpll_manager_vdc_service(void);
 void vdc_dpll_manager_dpll_service(void);
 void vdc_dpll_manager_tdma_core1_service(void);
 void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *status);
+bool vdc_dpll_manager_get_sync_event(vdc_dpll_manager_sync_event_t *event);
 void vdc_dpll_manager_get_dpll_status(vdc_dpll_manager_dpll_status_t *status);
 void vdc_dpll_manager_get_dco_consumer_status(
     vdc_dpll_manager_dco_consumer_status_t *status);

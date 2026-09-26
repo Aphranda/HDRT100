@@ -122,6 +122,13 @@ static void gates(void) {
     dco.nominal_period_ns=1000000;dco.lock_state=VDC_DOMAIN_LOCK_FAULT+1u;
     assert(trigger_time_grid_prepare(&grid,10,&dco,250000000,0,1,UINT64_MAX,&out)==TRIGGER_TIME_GRID_MAPPING);
     assert(memcmp(&out,&saved,sizeof(out))==0);
+    grid.anchor_vdc_ns=10000000u;
+    uint64_t index=UINT64_MAX;
+    assert(trigger_time_grid_sync_index(&grid,10000100u,&index)&&index==0u);
+    assert(trigger_time_grid_sync_index(&grid,9999800u,&index)&&index==0u);
+    assert(trigger_time_grid_sync_index(&grid,10999800u,&index)&&index==1u);
+    assert(!trigger_time_grid_sync_index(&grid,11001000u,&index)&&index==1u);
+    assert(!trigger_time_grid_sync_index(&grid,9999000u,&index)&&index==1u);
 }
 int main(void) {
     gates();

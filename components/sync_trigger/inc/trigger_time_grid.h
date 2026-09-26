@@ -33,6 +33,29 @@ static inline bool trigger_time_grid_valid(const trigger_time_grid_t *grid)
         grid->period_ns >= grid->subdivisions;
 }
 
+/* Attribute one hardware sync event to its nearest shared coarse boundary.
+ * Half a fine slice is the largest unambiguous attribution error. */
+static inline bool trigger_time_grid_sync_index(
+    const trigger_time_grid_t *grid, uint64_t event_vdc_ns, uint64_t *index)
+{
+    if (!index || !trigger_time_grid_valid(grid)) return false;
+    const uint64_t tolerance =
+        (grid->period_ns / grid->subdivisions) / 2u;
+    if (event_vdc_ns < grid->anchor_vdc_ns) {
+        if (grid->anchor_vdc_ns - event_vdc_ns > tolerance) return false;
+        *index = 0u;
+        return true;
+    }
+    const uint64_t delta = event_vdc_ns - grid->anchor_vdc_ns;
+    uint64_t nearest = delta / grid->period_ns;
+    const uint64_t remainder = delta % grid->period_ns;
+    const bool round_up = remainder > grid->period_ns / 2u;
+    const uint64_t error = round_up ? grid->period_ns - remainder : remainder;
+    if (error > tolerance || (round_up && nearest == UINT64_MAX)) return false;
+    *index = nearest + (round_up ? 1u : 0u);
+    return true;
+}
+
 /* Arithmetic only: the reserved position is still a real mathematical grid
  * boundary, needed to prove resolution of its immediate predecessor. */
 static inline trigger_time_grid_result_t trigger_time_grid_boundary(

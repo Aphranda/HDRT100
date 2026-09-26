@@ -184,6 +184,7 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_start(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_stop(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_t2_cursor_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
@@ -457,6 +458,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:REServation:T2:STARt", .callback = scpi_cmd_trigger_t2_start}, \
     {.pattern = "TRIGger:REServation:T2:STOP", .callback = scpi_cmd_trigger_t2_stop}, \
     {.pattern = "TRIGger:REServation:T2?", .callback = scpi_cmd_trigger_t2_q}, \
+    {.pattern = "TRIGger:REServation:T2:CURSor?", .callback = scpi_cmd_trigger_t2_cursor_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BRIDge?", .callback = scpi_cmd_vdc_feedback_bridge_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MATCh?", .callback = scpi_cmd_vdc_feedback_match_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \

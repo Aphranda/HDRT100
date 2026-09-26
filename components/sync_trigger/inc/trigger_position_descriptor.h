@@ -7,9 +7,11 @@
 
 #include "trigger_deployment.h"
 
-#define TRIGGER_POSITION_DESCRIPTOR_SCHEMA 1u
+#define TRIGGER_POSITION_DESCRIPTOR_SCHEMA 2u
+#define TRIGGER_POSITION_STAGE_PREVIEW 1u
+#define TRIGGER_POSITION_STAGE_FREEZE 2u
 #define TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE 4u
-#define TRIGGER_POSITION_DESCRIPTOR_WIRE_WORDS 17u
+#define TRIGGER_POSITION_DESCRIPTOR_WIRE_WORDS 22u
 #define TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE \
     (TRIGGER_POSITION_DESCRIPTOR_WIRE_WORDS * TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE)
 #define TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT \
@@ -26,7 +28,11 @@ typedef struct {
     uint32_t target_fine_slice_index;
     uint32_t grid_generation;
     uint32_t deployment_generation, deployment_crc;
+    /* Shared grid coarse ordinals, never a board-local VDC sync_seq. */
     uint32_t valid_from_sync, expiry_sync;
+    uint32_t stage;
+    uint64_t observed_count;
+    uint32_t window_pulses, window_syncs;
     uint32_t descriptor_crc32;
 } trigger_position_descriptor_t;
 
@@ -43,7 +49,9 @@ static inline uint32_t trigger_position_descriptor_crc(
         d->prediction_version, (uint32_t)d->target_ms_index,
         (uint32_t)(d->target_ms_index >> 32u), d->target_fine_slice_index,
         d->grid_generation, d->deployment_generation, d->deployment_crc,
-        d->valid_from_sync, d->expiry_sync,
+        d->valid_from_sync, d->expiry_sync, d->stage,
+        (uint32_t)d->observed_count, (uint32_t)(d->observed_count >> 32u),
+        d->window_pulses, d->window_syncs,
     };
     uint32_t crc = UINT32_MAX;
     for (uint32_t i = 0u; i < sizeof(words) / sizeof(words[0]); ++i)
@@ -66,7 +74,8 @@ static inline bool trigger_position_descriptor_encode(
     const trigger_position_descriptor_t *d,
     uint8_t wire[TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE])
 {
-    if (!wire || !trigger_position_descriptor_valid(d, UINT32_MAX)) return false;
+    if (!wire || !trigger_position_descriptor_valid(d, UINT32_MAX) ||
+        (d->stage != 0u && d->stage != TRIGGER_POSITION_STAGE_PREVIEW)) return false;
     trigger_position_descriptor_t next=*d;
     next.descriptor_crc32=trigger_position_descriptor_crc(d);
     const uint32_t words[]={next.schema,next.run_id,next.sync_epoch,next.position_id,
@@ -74,7 +83,9 @@ static inline bool trigger_position_descriptor_encode(
         next.prediction_version,(uint32_t)next.target_ms_index,
         (uint32_t)(next.target_ms_index>>32u),next.target_fine_slice_index,
         next.grid_generation,next.deployment_generation,next.deployment_crc,
-        next.valid_from_sync,next.expiry_sync,next.descriptor_crc32};
+        next.valid_from_sync,next.expiry_sync,next.stage,
+        (uint32_t)next.observed_count,(uint32_t)(next.observed_count>>32u),
+        next.window_pulses,next.window_syncs,next.descriptor_crc32};
     for(uint32_t i=0u;i<TRIGGER_POSITION_DESCRIPTOR_WIRE_WORDS;++i)
         trigger_position_descriptor_put32(wire+i*4u,words[i]);
     return true;
@@ -102,7 +113,12 @@ static inline bool trigger_position_descriptor_decode(
         .deployment_crc=trigger_position_descriptor_get32(wire+52u),
         .valid_from_sync=trigger_position_descriptor_get32(wire+56u),
         .expiry_sync=trigger_position_descriptor_get32(wire+60u),
-        .descriptor_crc32=trigger_position_descriptor_get32(wire+64u)};
+        .stage=trigger_position_descriptor_get32(wire+64u),
+        .observed_count=(uint64_t)trigger_position_descriptor_get32(wire+68u)|
+            (uint64_t)trigger_position_descriptor_get32(wire+72u)<<32u,
+        .window_pulses=trigger_position_descriptor_get32(wire+76u),
+        .window_syncs=trigger_position_descriptor_get32(wire+80u),
+        .descriptor_crc32=trigger_position_descriptor_get32(wire+84u)};
     if (!trigger_position_descriptor_valid(&d, UINT32_MAX) ||
         d.descriptor_crc32 != trigger_position_descriptor_crc(&d)) return false;
     *out=d; return true;
@@ -171,12 +187,40 @@ static inline trigger_position_fragment_result_t trigger_position_fragment_push(
 static inline bool trigger_position_descriptor_valid(
     const trigger_position_descriptor_t *d, uint32_t subdivisions)
 {
+    if (d && d->schema == TRIGGER_POSITION_DESCRIPTOR_SCHEMA &&
+        d->stage == TRIGGER_POSITION_STAGE_FREEZE)
+        return d->position_id >= 1u && d->position_id <= 3u &&
+            d->prediction_version != 0u;
     return d && d->schema == TRIGGER_POSITION_DESCRIPTOR_SCHEMA &&
         d->run_id && d->sync_epoch && d->position_id && d->count_epoch &&
         d->prediction_version && d->grid_generation &&
         d->deployment_generation && d->deployment_crc && subdivisions >= 2u &&
         d->target_fine_slice_index < subdivisions &&
-        d->valid_from_sync <= d->expiry_sync;
+        d->valid_from_sync <= d->expiry_sync &&
+        (d->stage == 0u || d->stage == TRIGGER_POSITION_STAGE_PREVIEW ||
+         d->stage == TRIGGER_POSITION_STAGE_FREEZE);
+}
+
+/* NO1 solves from its latest completed count window. The wire carries only
+ * the resulting position slice; followers bind it to their local grid. */
+static inline bool trigger_position_descriptor_solve_q(
+    const trigger_position_descriptor_t *d, uint32_t subdivisions,
+    uint64_t *out_q)
+{
+    if (!out_q || !trigger_position_descriptor_valid(d, subdivisions) ||
+        (d->stage != 0u && d->stage != TRIGGER_POSITION_STAGE_PREVIEW) ||
+        !d->window_pulses || !d->window_syncs ||
+        d->observed_count > d->target_count) return false;
+    const uint64_t remaining = d->target_count - d->observed_count;
+    if (remaining > UINT64_MAX / subdivisions ||
+        remaining * subdivisions > UINT64_MAX / d->window_syncs) return false;
+    const uint64_t numerator = remaining * subdivisions * d->window_syncs;
+    const uint64_t advance = numerator / d->window_pulses +
+        (numerator % d->window_pulses != 0u);
+    const uint64_t base = ((uint64_t)d->valid_from_sync + 1u) * subdivisions;
+    if (base > UINT64_MAX - advance) return false;
+    *out_q = base + advance;
+    return true;
 }
 
 /* Position wire fields become a local absolute grid ordinal only after the

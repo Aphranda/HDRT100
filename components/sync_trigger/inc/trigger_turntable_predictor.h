@@ -175,7 +175,6 @@ static inline bool trigger_turntable_predictor_build_descriptor(
 {
     if (!s || !out || position_id < TRIGGER_TURNTABLE_POSITION_START ||
         position_id > TRIGGER_TURNTABLE_POSITION_TERMINAL || !s->active ||
-        !(s->announced_mask & (1u << (position_id - 1u))) ||
         !run_id || !sync_epoch || !grid_generation ||
         !deployment_generation || !deployment_crc ||
         valid_from_sync > expiry_sync) return false;
@@ -191,6 +190,7 @@ static inline bool trigger_turntable_predictor_build_descriptor(
         .deployment_generation = deployment_generation,
         .deployment_crc = deployment_crc,
         .valid_from_sync = valid_from_sync, .expiry_sync = expiry_sync,
+        .stage = TRIGGER_POSITION_STAGE_PREVIEW,
     };
     return true;
 }

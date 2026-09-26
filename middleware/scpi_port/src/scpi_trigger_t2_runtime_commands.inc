@@ -95,9 +95,43 @@ scpi_result_t scpi_cmd_trigger_t2_q(scpi_t *context)
     SCPI_ResultUInt32(context,s.transport_reject_count);
     SCPI_ResultUInt32(context,s.event_count);
     SCPI_ResultUInt32(context,s.event_dropped_count);
+    SCPI_ResultUInt32(context,s.frozen_mask);
+    SCPI_ResultUInt32(context,s.freeze_mismatch_count);
+    SCPI_ResultUInt32(context,s.freeze_fallback_count);
+    SCPI_ResultUInt32(context,s.freeze_missing_local_count);
+    for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++i) {
+        SCPI_ResultUInt32(context,s.freeze_version[i]);
+        SCPI_ResultUInt32(context,s.freeze_local_version[i]);
+        SCPI_ResultUInt32(context,s.freeze_local_age[i]);
+    }
     SCPI_ResultUInt64(context,s.last_counter_count);
     SCPI_ResultUInt32(context,s.cursor.pulse_index > UINT32_MAX ?
         UINT32_MAX : (uint32_t)s.cursor.pulse_index);
     SCPI_ResultUInt32(context,s.cursor.fine_slice_index);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_trigger_t2_cursor_q(scpi_t *context)
+{
+    if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    trigger_time_cursor_snapshot_t cursor;
+    if (!trigger_time_cursor_snapshot(&cursor)) return scpi_trigger_t2_fail(context);
+    scpi_trigger_grid_result(context, cursor.last_error);
+    SCPI_ResultUInt32(context, cursor.configured);
+    SCPI_ResultUInt32(context, cursor.valid);
+    SCPI_ResultUInt32(context, cursor.grid_epoch);
+    SCPI_ResultUInt32(context, cursor.grid_generation);
+    SCPI_ResultUInt32(context, cursor.session);
+    SCPI_ResultUInt32(context, cursor.sample_seq);
+    SCPI_ResultUInt32(context, cursor.carrier_sequence);
+    SCPI_ResultUInt32(context, cursor.identity_crc32);
+    SCPI_ResultUInt32(context, cursor.ring_config_seq);
+    SCPI_ResultUInt32(context, cursor.model_token);
+    SCPI_ResultUInt32(context, cursor.dco_update_seq);
+    SCPI_ResultUInt64(context, cursor.event_local_ns);
+    SCPI_ResultUInt64(context, cursor.event_vdc_ns);
+    SCPI_ResultUInt64(context, cursor.action_cursor);
+    SCPI_ResultUInt64(context, cursor.pulse_index);
+    SCPI_ResultUInt32(context, cursor.missed_sync_count);
     return SCPI_RES_OK;
 }

@@ -45,6 +45,11 @@ typedef struct {
     uint32_t configured, active, origin;
     uint32_t source_slot, target_mask, run_id;
     uint32_t last_sync_sequence, published_mask, received_mask, emitted_position_mask;
+    uint32_t frozen_mask, freeze_mismatch_count;
+    uint32_t freeze_version[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+    uint32_t freeze_local_version[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+    uint8_t freeze_local_age[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+    uint32_t freeze_fallback_count, freeze_missing_local_count;
     uint32_t descriptor_reject_count, transport_reject_count;
     uint32_t event_count, event_dropped_count;
     uint8_t event_dispatched[TRIGGER_T2_RUNTIME_EVENT_CAPACITY];
@@ -62,6 +67,10 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config);
 bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count);
 void trigger_t2_runtime_stop(void);
 trigger_t2_runtime_result_t trigger_t2_runtime_service(void);
+/* Core0 prediction preparation; called independently of the VDC phase. */
+void trigger_t2_runtime_prepare_core0(void);
+bool trigger_t2_runtime_preview_history(uint32_t position_id, uint32_t age,
+                                        trigger_position_descriptor_t *out);
 bool trigger_t2_runtime_take_event(trigger_action_runtime_event_t *out);
 bool trigger_t2_runtime_snapshot(trigger_t2_runtime_snapshot_t *out);
 

@@ -2,9 +2,11 @@
 
 #include <string.h>
 
+#include "board_config.h"
 #include "vdc_dpll_manager.h"
 
 static trigger_time_cursor_snapshot_t s_cursor;
+static vdc_dpll_manager_committed_model_t s_previous_model;
 static volatile uint32_t s_guard;
 
 static void publish(const trigger_time_cursor_snapshot_t *next)
@@ -14,16 +16,18 @@ static void publish(const trigger_time_cursor_snapshot_t *next)
     (void)__atomic_add_fetch(&s_guard, 1u, __ATOMIC_RELEASE);
 }
 
-bool trigger_time_cursor_configure(uint32_t grid_epoch, uint32_t grid_generation,
-    uint32_t subdivisions)
+bool trigger_time_cursor_configure(const trigger_time_grid_t *grid)
 {
-    if (!grid_epoch || !grid_generation || subdivisions < 2u) return false;
+    if (!trigger_time_grid_valid(grid)) return false;
     trigger_time_cursor_snapshot_t next = {0};
     next.configured = 1u;
-    next.grid_epoch = grid_epoch;
-    next.grid_generation = grid_generation;
-    next.subdivisions = subdivisions;
+    next.grid_epoch = grid->epoch;
+    next.grid_generation = grid->generation;
+    next.anchor_vdc_ns = grid->anchor_vdc_ns;
+    next.period_ns = grid->period_ns;
+    next.subdivisions = grid->subdivisions;
     next.last_error = TRIGGER_TIME_CURSOR_NO_SYNC;
+    memset(&s_previous_model, 0, sizeof(s_previous_model));
     publish(&next);
     return true;
 }
@@ -31,14 +35,26 @@ bool trigger_time_cursor_configure(uint32_t grid_epoch, uint32_t grid_generation
 void trigger_time_cursor_clear(void)
 {
     trigger_time_cursor_snapshot_t next = {0};
+    memset(&s_previous_model, 0, sizeof(s_previous_model));
     publish(&next);
+}
+
+static bool cursor_model_matches_event(
+    const vdc_dpll_manager_committed_model_t *model,
+    const vdc_dpll_manager_sync_event_t *event, uint32_t session)
+{
+    return model->token && model->session == session && model->dco.valid &&
+        model->clock_epoch_id == event->clock_epoch_id &&
+        model->clock_run_id == event->clock_run_id &&
+        model->local_slot == event->local_slot &&
+        model->dco.tdma_schedule_crc32 == event->schedule_crc32;
 }
 
 void trigger_time_cursor_service(void)
 {
     trigger_time_cursor_snapshot_t next;
-    vdc_dpll_manager_sync_io_observer_status_t observer;
     vdc_dpll_manager_vdc_status_t vdc_status;
+    vdc_dpll_manager_sync_event_t event;
     vdc_dpll_manager_committed_model_t model;
     const uint32_t session = vdc_dpll_manager_feedback_session();
     uint32_t delta;
@@ -54,8 +70,8 @@ void trigger_time_cursor_service(void)
         return;
     }
     vdc_dpll_manager_get_vdc_status(&vdc_status);
-    vdc_dpll_manager_get_sync_io_observer_status(&observer);
-    if (!vdc_status.sync_seq) {
+    if (!vdc_status.sync_seq || !vdc_dpll_manager_get_sync_event(&event) ||
+        !event.valid) {
         next.valid = 0u;
         next.last_error = TRIGGER_TIME_CURSOR_NO_SYNC;
         publish(&next);
@@ -74,11 +90,19 @@ void trigger_time_cursor_service(void)
         return;
     }
     if (next.session != session) {
+        memset(&s_previous_model, 0, sizeof(s_previous_model));
         next.session = session;
         next.sample_seq = 0u;
         next.pulse_index = 0u;
         next.action_cursor = 0u;
         next.valid = 0u;
+        next.carrier_sequence = 0u;
+        next.identity_crc32 = 0u;
+        next.ring_config_seq = 0u;
+        next.model_token = 0u;
+        next.dco_update_seq = 0u;
+        next.event_local_ns = 0u;
+        next.event_vdc_ns = 0u;
         next.last_error = TRIGGER_TIME_CURSOR_OK;
     }
     if (next.last_error == TRIGGER_TIME_CURSOR_SAMPLE_GAP) {
@@ -86,19 +110,32 @@ void trigger_time_cursor_service(void)
         publish(&next);
         return;
     }
-    if (next.sample_seq == vdc_status.sync_seq) {
-        next.model_token = model.token;
-        next.dco_update_seq = model.dco.dco_update_seq;
+    if (event.sync_seq != vdc_status.sync_seq || !event.ring_config_seq ||
+        !event.carrier_sequence || !event.identity_crc32 ||
+        !event.local_rx_timestamp_ns ||
+        (event.timestamp_flags & TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED) == 0u ||
+        !cursor_model_matches_event(&model, &event, session)) {
+        next.valid = 0u;
+        next.last_error = TRIGGER_TIME_CURSOR_IDENTITY;
         publish(&next);
         return;
     }
-    /* The first observation after configuration/session start establishes the
-     * origin; its absolute sample sequence is not a detected gap. */
+    if (next.sample_seq == vdc_status.sync_seq) {
+        if (next.valid && (next.carrier_sequence != event.carrier_sequence ||
+                           next.identity_crc32 != event.identity_crc32 ||
+                           next.ring_config_seq != event.ring_config_seq)) {
+            next.valid = 0u;
+            next.last_error = TRIGGER_TIME_CURSOR_IDENTITY;
+            publish(&next);
+            return;
+        }
+        s_previous_model = model;
+        publish(&next);
+        return;
+    }
+    /* Local sync_seq checks continuity only. The hardware event projected
+     * through this board's model determines the shared grid ordinal. */
     delta = next.sample_seq == 0u ? 1u : vdc_status.sync_seq - next.sample_seq;
-    next.sample_seq = vdc_status.sync_seq;
-    next.last_event_id = observer.enabled ? observer.last_event_id : 0u;
-    next.model_token = model.token;
-    next.dco_update_seq = model.dco.dco_update_seq;
     if (delta != 1u) {
         if (delta > 1u) {
             const uint32_t missed = delta - 1u;
@@ -110,16 +147,69 @@ void trigger_time_cursor_service(void)
         publish(&next);
         return;
     }
-    if (next.pulse_index == UINT64_MAX ||
-        next.pulse_index > UINT64_MAX / next.subdivisions) {
+    uint64_t event_raw;
+    if (!vdc_timer1_ns_to_ticks(BOARD_SYS_CLOCK_HZ,
+            event.local_rx_timestamp_ns, true, &event_raw)) {
+        next.valid = 0u;
+        next.last_error = TRIGGER_TIME_CURSOR_MODEL_TIME;
+        publish(&next);
+        return;
+    }
+    const vdc_dpll_manager_committed_model_t previous = s_previous_model;
+    s_previous_model = model;
+    const vdc_dpll_manager_committed_model_t *event_model = &model;
+    if (event_raw < model.valid_from_raw) {
+        if (!cursor_model_matches_event(&previous, &event, session) ||
+            event_raw < previous.valid_from_raw) {
+            next.valid = 0u;
+            next.last_error = TRIGGER_TIME_CURSOR_MODEL_TIME;
+            publish(&next);
+            return;
+        }
+        event_model = &previous;
+    }
+    uint64_t event_vdc_ns, sync_index;
+    const trigger_time_grid_t grid = {
+        .anchor_vdc_ns = next.anchor_vdc_ns,
+        .epoch = next.grid_epoch,
+        .generation = next.grid_generation,
+        .period_ns = next.period_ns,
+        .subdivisions = next.subdivisions,
+    };
+    if (!vdc_domain_dco_local_to_output_ns(&event_model->dco,
+            event.local_rx_timestamp_ns, &event_vdc_ns) ||
+        !trigger_time_grid_sync_index(&grid, event_vdc_ns, &sync_index)) {
+        next.valid = 0u;
+        next.last_error = TRIGGER_TIME_CURSOR_GRID_PHASE;
+        publish(&next);
+        return;
+    }
+    if (sync_index == UINT64_MAX ||
+        sync_index > UINT64_MAX / next.subdivisions) {
         next.valid = 0u;
         next.last_error = TRIGGER_TIME_CURSOR_OVERFLOW;
         publish(&next);
         return;
     }
+    if (next.sample_seq != 0u &&
+        (next.pulse_index == 0u || sync_index != next.pulse_index)) {
+        next.valid = 0u;
+        next.last_error = TRIGGER_TIME_CURSOR_SAMPLE_GAP;
+        publish(&next);
+        return;
+    }
+    next.sample_seq = vdc_status.sync_seq;
+    next.last_event_id = event.carrier_sequence;
+    next.carrier_sequence = event.carrier_sequence;
+    next.identity_crc32 = event.identity_crc32;
+    next.ring_config_seq = event.ring_config_seq;
+    next.model_token = event_model->token;
+    next.dco_update_seq = event_model->dco.dco_update_seq;
+    next.event_local_ns = event.local_rx_timestamp_ns;
+    next.event_vdc_ns = event_vdc_ns;
     next.fine_slice_index = 0u;
-    next.action_cursor = next.pulse_index * next.subdivisions;
-    next.pulse_index++;
+    next.action_cursor = sync_index * next.subdivisions;
+    next.pulse_index = sync_index + 1u;
     next.valid = 1u;
     next.last_error = TRIGGER_TIME_CURSOR_OK;
     publish(&next);

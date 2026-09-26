@@ -26,6 +26,7 @@
 #include "storage_manager.h"
 #include "system_manager.h"
 #include "sync_trigger.h"
+#include "trigger_t2_runtime.h"
 #include "tdma_runtime_owner.h"
 #include "tdma_service_timing.h"
 #include "sync_io.h"
@@ -486,6 +487,7 @@ void app_scpi_service(void)
 void app_refmem_service(void)
 {
     distributed_refmem_service();
+    trigger_t2_runtime_prepare_core0();
 }
 
 void app_config_gate_service(void)
