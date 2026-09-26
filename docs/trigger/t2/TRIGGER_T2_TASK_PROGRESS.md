@@ -3,14 +3,47 @@
 Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
-Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-24
+Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
+Last updated: 2026-09-26
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20260926-013：实时负载挂载边界与 observer phase 分离
+
+- TODO task ID：T2-CLOCK-001、T2-TRANSPORT-001、T2-EXEC-001、T2-ACCEPT-001。新增 `ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md` 草案，区分 Core1 phase 与 TDMA seat，明确 TDMA、VDC、DPLL、SYNC_TRIGGER/T2 的唯一 owner、标准 staging→gate→STOP/ARM→RUN 流程和越界回滚规则。
+- T2 固定挂在 `APP_REALTIME_PHASE_SYNC_TRIGGER`；position descriptor 使用 `TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS` 的一等普通运输机会，VDC 到期时让路，不能改变 VDC cadence 或 `last_publish_ms`。
+- 修正 `application/src/app.c`：`tdma_runtime_owner_service_observer()` 只在 TDMA phase、`tdma_component_core1_service()` 之后调用一次，从 VDC/DPLL phase 移除；源码回归与相关 31 项 pytest 通过。
+- Release build=`20260926082128`；当前源码四板 quick P3 build=`20260926082353`，结果 `PASS_WITH_WARNINGS`（ERROR/FATAL=0），receipt source tree sha256=`20f543dbc984d86100e931cfaf7951daa0ab2d584ca2f5bb0269407c1a2d14e6`，证据目录 `out/HardwareAcceptance/20260926/p3-162345/`。本轮 P3 的既有 TDMA diagnostic warning 保留，不宣称 T2 position_id/READY 硬件闭环已完成。
+
+### T2-PROGRESS-20260925-012：修复 feedback session 哨兵并完成当前源码 P3
+
+- TODO task ID：T2-CLOCK-001、T2-ACCEPT-001。修复 `model_feedback_set_stopped()` 对 `UINT32_MAX` 清 session 哨兵的处理：清除活动 session，但不再写入 monotonic admission watermark，避免后续所有非零 session 被永久拒绝。新增 owner 回归覆盖“哨兵清除后重新建立非零 session”。
+- 当前源码 P3：build=`20260924161306`，四板 quick P3 为 `PASS_WITH_WARNINGS`（INFO 33 / WARN 16 / ERROR 0 / FATAL 0）。外部 HDO 5..60 s 共 12 个窗口全部有效，`HAOFV_P3_DPLL_SHORT_V4` 为 `PASS`，最大相对相差绝对值 `49.818003747704054 ns`；证据目录 `out/HardwareAcceptance/20260925/p3-001255/`。数值为本轮采样快照，不是连续全区间精度契约。
+- 现场复核确认：旧的 `UINT32_MAX` session 清理流程会使新的 session 命令进入拒绝路径；修复后主机 owner/SCPI 回归通过。四板真实 `position_id` 闭环仍未关闭，后续需在新 session 下重新建立连续 follower observation，再进入 T2 动作验证。
+
+### T2-PROGRESS-20260924-011：当前源码指纹下 DPLL 60 s 外部复测
+
+- TODO task ID：T2-CLOCK-001、T2-ACCEPT-001。由于 TDMA event bridge/CMake 在上一张凭证之后发生过实现变更，先以当前源码重新执行四板 P3；build=`20260924142804`，结果为 `PASS_WITH_WARNINGS`（INFO 33 / WARN 19 / ERROR 0 / FATAL 0），当前凭证已绑定源码指纹。
+- 外部 HDO 按 5 s 间隔采集 5..60 s 共 12 个四通道 RAW 窗口，全部 `capture_complete=true` 且无 overrun/missed；`HAOFV_P3_DPLL_SHORT_V4` 校验通过，60 s checkpoint 无窗口失败。证据目录 `out/HardwareAcceptance/20260924/p3-222755/`。
+- 12 个窗口的最大四通道相对相差绝对值为 `35.893592718926406 ns`（sample-0005）；该数值是本轮采样快照，不是连续全区间精度契约。此次结果确认当前固件改动未破坏 DPLL/VDC 外部发布相位，但不提升 follower observation eligibility，也不关闭 position_id/READY 闭环。
+
+### T2-PROGRESS-20260924-010：follower latch 恢复与 event bridge 边界确认
+
+- TODO task ID：T2-CLOCK-001、T2-EXEC-001、T2-ACCEPT-001。将 `PROJECT_TDMA_EVENT_OBSERVER` 保持在正常固件路径，并在 process-follower 的 `local_tx_edge_ex` 接入 exact event bridge：只有 observer epoch/ARM anchor、单调事件记录、TIMER1 时钟和 transport sequence/identity 全部匹配时才生成本地 TX latch；不匹配继续拒绝。
+- 当前指纹 P3：build=`20260924125233`，四板 quick P3 为 `PASS_WITH_WARNINGS`（33 INFO / 19 WARN / 0 ERROR / 0 FATAL）。外部 HDO 5..60 s 共 12 个窗口全部有效，`HAOFV_P3_DPLL_SHORT_V4` 为 `PASS`，最大相对相差 `37.941900686 ns`；证据目录 `out/HardwareAcceptance/20260924/p3-event-bridge/`。这确认 event observer 仍不干扰已稳定的 DPLL 输出相位。
+- live ring probe 显示四板 hardware latch `resolution=8 ns`、clock observation valid/correlated；NO1 VDC/DPLL 正常。NO2–NO4 的 ring observation 也已产生，但 follower Domain 仍明确走 local-evidence bypass，quality accepted/LOCKED 不提升。event TAP 的 `prefix=98/128` 试验记录仍与 transport sequence 不一致（仅得到 event sequence 1/45），exact bridge 因此保持 fail-closed，不能把诊断记录冒充 DPLL eligibility。
+- 后续 prefix 扫描原件 `out/t2-event-tap-prefix-scan-20260924/` 不具备判定力：候选窗口的 `VDC:OUTPut:RUN`/`RING:START` 出现超时，读取到的是同一条历史 LIVE 记录且 `ring_down_rx_sequence=0`；所有 TAP 请求已恢复为 STOP/disabled，不把该轮当作序列映射证据。
+- 结论：`sync_seq` 的从板发布已能在 legacy-latch 构建中推进，但要让 RUN cursor 获得正式 `LOCKED` 门和位置动作资格，还需冻结 process-image transport sequence 的硬件采样字段或建立可信的 wire identity 关联；本轮不关闭 M1/M3，也不开始实际 position_id 动作矩阵。
+
+### T2-PROGRESS-20260924-009：当前指纹 DPLL 60 s 外部复测完成
+
+- TODO task ID：T2-CLOCK-001、T2-ACCEPT-001。当前源码经定向回归、Release build 和四板 quick P3 后，使用外部 HDO 按 5 s 间隔完成 5..60 s 共 12 个四通道 RAW 窗口；证据目录 `out/HardwareAcceptance/20260924/p3-dpll-rerun3/`，build=`20260924113926`，P3 为 `PASS_WITH_WARNINGS`（INFO 33 / WARN 19 / ERROR 0 / FATAL 0）。
+- 外部结果：`HAOFV_P3_DPLL_SHORT_V4` 为 `PASS`，12/12 窗口完整，最大四通道相对相差绝对值 `56.416580 ns`，按本轮 ±1 us 判据无窗口失败；scope setup 首条缩写 `:SYST:ERR?` 在当前 HDO 返回 `-100`，公共 reader 已记录并回退到 `:SYST:ERRor?`，本轮错误队列正常清空。上述数值均为本次采样快照，不是连续全区间精度契约。
+- 停机后只读状态：NO1 `SYST:SYNC:VDC:STATus?` 的 `sync_seq=533`、readiness `locked=1`；NO2–NO4 的 `sync_seq=0`、readiness `reason=2`。这表明外部 DPLL 输出相位稳定，但从板没有形成有效 VDC observation/sync_seq；不能用 `ring_down_rx_sequence` 或其他 transport 计数替代 VDC 序列。下一步保持 DPLL/VDC 发布路径不变，定位从板 hardware-latched observation eligibility 与本地发布闭环。
 
 ### T2-PROGRESS-20260924-008：VDC 优先与位置片低优先级快速发布
 

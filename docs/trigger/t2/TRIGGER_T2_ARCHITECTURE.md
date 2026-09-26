@@ -3,8 +3,8 @@
 Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
-Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-09-23
+Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`
+Last updated: 2026-09-26
 
 ## 文档接口与范围
 
@@ -168,6 +168,12 @@ deployment、PIO/SM/FIFO/GPIO persona、静态模板、grid 和 profile 完成�
 - 不在目标时间片由主机发送即时命令。
 
 ## T2-OWNER：职责与边界
+
+T2 的 Core1 运行入口固定为 `APP_REALTIME_PHASE_SYNC_TRIGGER` / `sync_trigger_service()`。
+位置描述符运输属于 TDMA 现有 flight owner 的一等位置负载；它只能使用 VDC 正常
+发布未到期的空闲机会，不能调用或扩展 VDC/DPLL phase，也不能改变 VDC 的发布节拍。
+通用挂载流程、四级 seat 和越界处理见
+[实时负载挂载约束](../../arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md)。
 
 | owner | 负责 | 边界 |
 |---|---|---|
