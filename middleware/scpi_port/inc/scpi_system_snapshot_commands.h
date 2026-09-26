@@ -188,6 +188,7 @@ scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_flight_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_sync_flight_position_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_fifo_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_priority_rx_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_priority_rx_budget_q(scpi_t *context);
@@ -460,6 +461,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:VDC:FEEDback:MATCh?", .callback = scpi_cmd_vdc_feedback_match_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \
     {.pattern = "SYSTem:REFMEM:SYNC:FLIGHT?", .callback = scpi_cmd_refmem_sync_flight_q}, \
+    {.pattern = "SYSTem:REFMEM:SYNC:FLIGHT:POSition?", .callback = scpi_cmd_refmem_sync_flight_position_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:FIFO?", .callback = scpi_cmd_system_tdma_flight_fifo_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:PRIORity?", .callback = scpi_cmd_system_tdma_priority_rx_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:PRIORity:BUDGet?", .callback = scpi_cmd_system_tdma_priority_rx_budget_q}, \

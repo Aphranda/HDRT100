@@ -87,7 +87,7 @@ def test_production_position_submit_prepare_and_cancel(tmp_path):
 typedef struct {
     uint32_t position_tx_active, position_tx_target_mask;
     uint32_t position_tx_fragment_index, position_tx_sequence;
-    uint32_t position_tx_reject_count, next_seq32;
+    uint32_t position_tx_reject_count, position_tx_position_id, next_seq32;
     uint8_t position_tx_wire[TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE];
 } tx_owner_t;
 static tx_owner_t s_tdma_flight_sync;
@@ -107,7 +107,8 @@ int main(void) {
     distributed_refmem_position_tx_prepare();
     assert(s_tdma_flight_sync.position_tx_active &&
         s_tdma_flight_sync.position_tx_target_mask==3 &&
-        s_tdma_flight_sync.position_tx_sequence==42);
+        s_tdma_flight_sync.position_tx_sequence==42 &&
+        s_tdma_flight_sync.position_tx_position_id==3);
     trigger_position_descriptor_t decoded;
     assert(trigger_position_descriptor_decode(s_tdma_flight_sync.position_tx_wire,&decoded));
     assert(decoded.position_id==3 && decoded.descriptor_crc32);

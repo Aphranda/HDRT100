@@ -651,6 +651,11 @@ int main(void) {
     assert(!tdma_process_image_transport_class_valid(record.mailbox[3]));
     assert(tdma_process_image_typed_sync_class_valid(record.mailbox[3]));
     assert(tdma_priority_rx_validate(&binding,&record)==TDMA_PRIORITY_RX_OK);
+    record.mailbox[3]=TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS;
+    put16(record.mailbox+30u,tdma_process_image_crc16_ccitt(record.mailbox,30u));
+    assert(!tdma_process_image_transport_class_valid(record.mailbox[3]));
+    assert(tdma_process_image_flight_class_valid(record.mailbox[3]));
+    assert(tdma_priority_rx_validate(&binding,&record)==TDMA_PRIORITY_RX_OK);
     record.mailbox[3]=TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS;
     put16(record.mailbox+30u,tdma_process_image_crc16_ccitt(record.mailbox,30u));
     record.header[24]^=1u; uint32_t crc; assert(tdma_transport_frame_calculate_transport_crc32(record.header,32u,&crc)); put32(record.header+28u,crc);

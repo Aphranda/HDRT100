@@ -349,6 +349,17 @@ void distributed_refmem_request_position_cancel(void);
 bool distributed_refmem_get_position_descriptor(
     uint32_t source_slot, trigger_position_descriptor_t *descriptor);
 
+/* Core0 diagnostic snapshot. Counts represent software handoffs, not wire
+ * delivery or hardware action completion. */
+typedef struct {
+    uint32_t tx_pending, tx_active, tx_fragment_index;
+    uint32_t tx_publish_count, tx_reject_count, tx_position_id;
+    uint32_t rx_complete_count, rx_reject_count, rx_pending_mask;
+    uint32_t rx_source_slot, rx_position_id, cancel_requested;
+} distributed_refmem_position_transport_snapshot_t;
+bool distributed_refmem_get_position_transport(
+    distributed_refmem_position_transport_snapshot_t *snapshot);
+
 /* Typed transport history. Core0 RefMem publishes; readers take bounded
  * copies. record[0] is authoritative; reception is never an apply ACK. */
 typedef struct {

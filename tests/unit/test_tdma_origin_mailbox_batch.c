@@ -32,7 +32,7 @@ int main(void)
 {
     assert(tdma_process_image_crc16_ccitt((const uint8_t *)"123456789", 9) == 0x29b1u);
     for (uint32_t nodes = 2; nodes <= PROJECT_NODE_CAPACITY; ++nodes) {
-      for (uint32_t kind = 0; kind < 5; ++kind) {
+      for (uint32_t kind = 0; kind < 6; ++kind) {
         const size_t size = TDMA_TRANSPORT_FRAME_HEADER_SIZE +
             nodes * TDMA_FLIGHT_SHORT_SLOT_SIZE + TDMA_FLIGHT_DPLL_OBSERVATION_SIZE;
         uint8_t *seed = malloc(size), *saved = malloc(size);
@@ -45,6 +45,7 @@ int main(void)
             if (kind == 2 || (kind == 1 && slot != 0)) p[3] = TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS;
             if (kind == 3) p[3] = TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS;
             if (kind == 4 && slot == 0) p[3] = TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS;
+            if (kind == 5 && slot == 0) p[3] = TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS;
             crc(p);
         }
         memcpy(saved, seed, size);
@@ -73,7 +74,7 @@ int main(void)
          * batch cannot be consumed early, and its cursor never passes the bad slot. */
         for (uint32_t slot = 0; slot < nodes; ++slot) {
             uint8_t *p = seed + TDMA_TRANSPORT_FRAME_HEADER_SIZE + slot * TDMA_FLIGHT_SHORT_SLOT_SIZE;
-            const uint8_t forbidden[] = {TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS, 0x15u, 0xffu};
+            const uint8_t forbidden[] = {TDMA_PROCESS_IMAGE_VDC_COMMAND_MESSAGE_CLASS, 0xffu};
             for (uint32_t i = 0; i < sizeof(forbidden); ++i) {
                 memcpy(seed, saved, size); p[3] = forbidden[i]; crc(p); cursor = slot;
                 assert(!tdma_pio_spi_phys_origin_mailbox_batch(seed, size, nodes, &cursor));

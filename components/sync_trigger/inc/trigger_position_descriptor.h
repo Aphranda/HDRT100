@@ -116,7 +116,7 @@ typedef enum {
 
 typedef struct {
     uint8_t active, source_slot, target_mask, next_fragment;
-    uint16_t first_transport_seq16;
+    uint16_t first_transport_seq16, last_transport_seq16;
     uint8_t wire[TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE];
     uint32_t accepted_fragment_count, completed_count, rejected_count;
 } trigger_position_fragment_context_t;
@@ -140,9 +140,29 @@ static inline trigger_position_fragment_result_t trigger_position_fragment_push(
     if(!c || !data || source_slot>=TRIGGER_POSITION_DESCRIPTOR_NODE_COUNT ||
        !target_mask || fragment_count!=TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT ||
        fragment_index>=fragment_count){if(c){c->rejected_count++;trigger_position_fragment_reset(c);}return TRIGGER_POSITION_FRAGMENT_REJECTED;}
-    if(fragment_index==0u){if(c->active){c->rejected_count++;trigger_position_fragment_reset(c);return TRIGGER_POSITION_FRAGMENT_REJECTED;}trigger_position_fragment_reset(c);c->active=1u;c->source_slot=source_slot;c->target_mask=target_mask;c->next_fragment=0u;c->first_transport_seq16=transport_seq16;}
-    else if(!c->active||c->source_slot!=source_slot||c->target_mask!=target_mask||c->next_fragment!=fragment_index||(uint16_t)(c->first_transport_seq16+fragment_index)!=transport_seq16){c->rejected_count++;trigger_position_fragment_reset(c);return TRIGGER_POSITION_FRAGMENT_REJECTED;}
+    if(c->active && c->source_slot==source_slot && c->target_mask==target_mask &&
+       fragment_index+1u==c->next_fragment &&
+       transport_seq16==c->last_transport_seq16 &&
+       memcmp(c->wire+(size_t)fragment_index*TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE,
+              data,TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE)==0)
+        return TRIGGER_POSITION_FRAGMENT_PROGRESS;
+    if(fragment_index==0u){
+        if(c->active)c->rejected_count++;
+        trigger_position_fragment_reset(c);
+        c->active=1u;c->source_slot=source_slot;c->target_mask=target_mask;
+        c->next_fragment=0u;c->first_transport_seq16=transport_seq16;
+    } else {
+        const uint16_t advance=(uint16_t)(transport_seq16-c->last_transport_seq16);
+        /* Ordinary VDC frames may occupy intervening transport sequences.
+         * Half-range ordering rejects old/replayed frames across wrap. */
+        if(!c->active||c->source_slot!=source_slot||c->target_mask!=target_mask||
+           c->next_fragment!=fragment_index||advance==0u||advance>=0x8000u){
+            c->rejected_count++;trigger_position_fragment_reset(c);
+            return TRIGGER_POSITION_FRAGMENT_REJECTED;
+        }
+    }
     memcpy(c->wire+(size_t)fragment_index*TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE,data,TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE);c->accepted_fragment_count++;c->next_fragment=(uint8_t)(fragment_index+1u);
+    c->last_transport_seq16=transport_seq16;
     if(c->next_fragment<fragment_count)return TRIGGER_POSITION_FRAGMENT_PROGRESS;
     c->active=0u;c->next_fragment=0u;c->completed_count++;
     return trigger_position_descriptor_decode(c->wire,out)?TRIGGER_POSITION_FRAGMENT_COMPLETE:TRIGGER_POSITION_FRAGMENT_REJECTED;

@@ -262,11 +262,13 @@ typedef struct {
     uint32_t vdc_command_record_source_update_seq;
     uint32_t position_tx_active, position_tx_target_mask;
     uint32_t position_tx_fragment_index, position_tx_sequence;
-    uint32_t position_tx_publish_count, position_tx_reject_count;
+    uint32_t position_tx_publish_count, position_tx_reject_count,
+        position_tx_position_id;
     uint8_t position_tx_wire[TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE];
     trigger_position_fragment_context_t position_rx_fragments[DISTRIBUTED_REFMEM_NODE_COUNT];
     uint32_t position_rx_valid_mask, position_rx_complete_count,
-        position_rx_reject_count;
+        position_rx_reject_count, position_rx_source_slot,
+        position_rx_position_id;
 #if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
     uint32_t next_command_seq;
     uint32_t vdc_command_frame_seq;
@@ -685,6 +687,31 @@ bool distributed_refmem_get_position_descriptor(
                                       descriptor, &target_mask);
 }
 
+bool distributed_refmem_get_position_transport(
+    distributed_refmem_position_transport_snapshot_t *snapshot)
+{
+    if (!snapshot) return false;
+    *snapshot = (distributed_refmem_position_transport_snapshot_t){
+        .tx_pending = trigger_position_mailbox_pending(&s_position_tx_mailbox),
+        .tx_active = __atomic_load_n(&s_tdma_flight_sync.position_tx_active,
+                                     __ATOMIC_ACQUIRE),
+        .tx_fragment_index = s_tdma_flight_sync.position_tx_fragment_index,
+        .tx_publish_count = s_tdma_flight_sync.position_tx_publish_count,
+        .tx_reject_count = s_tdma_flight_sync.position_tx_reject_count,
+        .tx_position_id = s_tdma_flight_sync.position_tx_position_id,
+        .rx_complete_count = s_tdma_flight_sync.position_rx_complete_count,
+        .rx_reject_count = s_tdma_flight_sync.position_rx_reject_count,
+        .rx_source_slot = s_tdma_flight_sync.position_rx_source_slot,
+        .rx_position_id = s_tdma_flight_sync.position_rx_position_id,
+        .cancel_requested = __atomic_load_n(&s_position_cancel_requested,
+                                            __ATOMIC_ACQUIRE),
+    };
+    for (uint32_t slot = 0u; slot < DISTRIBUTED_REFMEM_NODE_COUNT; ++slot)
+        if (trigger_position_mailbox_pending(&s_position_rx_mailboxes[slot]))
+            snapshot->rx_pending_mask |= 1u << slot;
+    return true;
+}
+
 #include "distributed_refmem_vdc_feedback.inc"
 #include "distributed_action_probe.inc"
 
@@ -901,20 +928,7 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
     mailbox[5] = target_mask;
     distributed_refmem_put_le16(&mailbox[6], (uint16_t)(seq32 & 0xFFFFu));
 
-    if (message_class == TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS) {
-        const uint32_t offset = s_tdma_flight_sync.position_tx_fragment_index *
-            TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE;
-        if (!s_tdma_flight_sync.position_tx_active ||
-            offset + TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE >
-                sizeof(s_tdma_flight_sync.position_tx_wire)) return false;
-        mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET] =
-            (uint8_t)s_tdma_flight_sync.position_tx_fragment_index;
-        mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_COUNT_OFFSET] =
-            (uint8_t)TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT;
-        memcpy(&mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_OFFSET],
-               &s_tdma_flight_sync.position_tx_wire[offset],
-               TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE);
-    } else if (message_class == TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS ||
+    if (message_class == TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS ||
         message_class == TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS) {
         distributed_refmem_feedback_fragment(mailbox);
     } else
@@ -967,6 +981,21 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
         TDMA_PROCESS_IMAGE_REFMEM_BASELINE_FIELD_ID);
     distributed_refmem_put_le32(
         &mailbox[TDMA_PROCESS_IMAGE_REFMEM_VALUE_OFFSET], value);
+
+    if (message_class == TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS) {
+        const uint32_t offset = s_tdma_flight_sync.position_tx_fragment_index *
+            TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE;
+        if (!s_tdma_flight_sync.position_tx_active ||
+            offset + TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE >
+                sizeof(s_tdma_flight_sync.position_tx_wire)) return false;
+        mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_INDEX_OFFSET] =
+            (uint8_t)s_tdma_flight_sync.position_tx_fragment_index;
+        mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_COUNT_OFFSET] =
+            (uint8_t)TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT;
+        memcpy(&mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_OFFSET],
+               &s_tdma_flight_sync.position_tx_wire[offset],
+               TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE);
+    }
 
     uint8_t ack_flags = 0u;
     uint16_t ack_seq16 = 0u;
@@ -1212,14 +1241,29 @@ static void distributed_refmem_tdma_parse_position_fragment(
         mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET];
     if (s_tdma_flight_sync.local_slot >= 8u ||
         (target_mask & (1u << s_tdma_flight_sync.local_slot)) == 0u) return;
+    if (distributed_refmem_get_le16(&mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET]) !=
+        tdma_process_image_crc16_ccitt(mailbox, TDMA_PROCESS_IMAGE_CRC_OFFSET)) {
+        s_tdma_flight_sync.position_rx_reject_count++;
+        return;
+    }
+    s_tdma_flight_sync.last_vdc_phase_offset_ns = tdma_process_image_expand_i16(
+        distributed_refmem_get_i16(&mailbox[TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET]),
+        TDMA_PROCESS_IMAGE_VDC_PHASE_QUANTUM_NS);
+    s_tdma_flight_sync.last_vdc_rate_adjust_ppb = tdma_process_image_expand_i16(
+        distributed_refmem_get_i16(&mailbox[TDMA_PROCESS_IMAGE_VDC_RATE_OFFSET]),
+        TDMA_PROCESS_IMAGE_VDC_RATE_QUANTUM_PPB);
+    s_tdma_flight_sync.last_vdc_lock_state =
+        mailbox[TDMA_PROCESS_IMAGE_VDC_LOCK_OFFSET];
+    s_tdma_flight_sync.last_vdc_quality =
+        mailbox[TDMA_PROCESS_IMAGE_VDC_QUALITY_OFFSET];
     const trigger_position_fragment_result_t result =
         trigger_position_fragment_push(
             &s_tdma_flight_sync.position_rx_fragments[source_slot],
             (uint8_t)source_slot, (uint8_t)target_mask,
             distributed_refmem_get_le16(&mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET]),
-            mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_INDEX_OFFSET],
-            mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_COUNT_OFFSET],
-            &mailbox[TDMA_PROCESS_IMAGE_VDC_FRAGMENT_DATA_OFFSET],
+            mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_INDEX_OFFSET],
+            mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_COUNT_OFFSET],
+            &mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_OFFSET],
             &descriptor);
     if (result == TRIGGER_POSITION_FRAGMENT_COMPLETE) {
         if (trigger_position_mailbox_stage(
@@ -1227,6 +1271,8 @@ static void distributed_refmem_tdma_parse_position_fragment(
                 target_mask)) {
             s_tdma_flight_sync.position_rx_valid_mask |= 1u << source_slot;
             s_tdma_flight_sync.position_rx_complete_count++;
+            s_tdma_flight_sync.position_rx_source_slot = source_slot;
+            s_tdma_flight_sync.position_rx_position_id = descriptor.position_id;
         } else {
             s_tdma_flight_sync.position_rx_reject_count++;
         }
@@ -1248,6 +1294,7 @@ static void distributed_refmem_position_tx_prepare(void)
         return;
     }
     s_tdma_flight_sync.position_tx_target_mask = target_mask;
+    s_tdma_flight_sync.position_tx_position_id = descriptor.position_id;
     s_tdma_flight_sync.position_tx_fragment_index = 0u;
     s_tdma_flight_sync.position_tx_sequence =
         s_tdma_flight_sync.next_seq32 ? s_tdma_flight_sync.next_seq32 : 1u;
@@ -1443,7 +1490,7 @@ static void distributed_refmem_tdma_flight_sync_publish(
 #else
     const bool resident_master = false;
 #endif
-    const bool position_publication = !normal_due &&
+    const bool position_publication =
         s_tdma_flight_sync.position_tx_active && !resident_master && feedback <= 0;
     const uint8_t message_class = position_publication
         ? TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS
@@ -1485,7 +1532,7 @@ static void distributed_refmem_tdma_flight_sync_publish(
             distributed_refmem_flight_publish_mask_for_slot(
                 ring->local_slot_id))) {
         s_tdma_flight_sync.tx_publish_count++;
-        if (!position_publication) s_tdma_flight_sync.last_publish_ms = now_ms;
+        if (normal_due) s_tdma_flight_sync.last_publish_ms = now_ms;
         if (position_publication) {
             s_tdma_flight_sync.position_tx_publish_count++;
         } else {

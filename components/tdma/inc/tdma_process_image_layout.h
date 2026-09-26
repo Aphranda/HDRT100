@@ -16,9 +16,8 @@
 #define TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS 0x12u
 #define TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS 0x13u
 #define TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS 0x14u
-/* T2 position-index fragments. The six-byte VDC region carries one 4-byte
- * descriptor fragment plus index/count; the payload is decoded by the T2
- * owner and is not interpreted as a DCO command. */
+/* A T2 position fragment occupies the RefMem region of a normal-status
+ * mailbox. VDC status and ACK retain their ordinary offsets and cadence. */
 #define TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS 0x15u
 
 /* Typed VDC regions are interpreted only by their Core0 consumer.
@@ -38,6 +37,17 @@ static inline bool tdma_process_image_typed_sync_class_valid(uint8_t message_cla
 {
     return message_class == TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS;
 }
+
+static inline bool tdma_process_image_flight_class_valid(uint8_t message_class)
+{
+    return tdma_process_image_transport_class_valid(message_class) ||
+        message_class == TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS;
+}
+
+#define TDMA_PROCESS_IMAGE_T2_FRAGMENT_INDEX_OFFSET 14u
+#define TDMA_PROCESS_IMAGE_T2_FRAGMENT_COUNT_OFFSET 15u
+#define TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_OFFSET 16u
+#define TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_SIZE 4u
 
 #define TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_OFFSET 8u
 #define TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_SIZE 22u
@@ -65,6 +75,13 @@ static inline bool tdma_process_image_typed_sync_class_valid(uint8_t message_cla
 #define TDMA_PROCESS_IMAGE_REFMEM_FIELD_ID_OFFSET 18u
 #define TDMA_PROCESS_IMAGE_REFMEM_VALUE_OFFSET 20u
 #define TDMA_PROCESS_IMAGE_REFMEM_BASELINE_FIELD_ID 0u
+
+_Static_assert(TDMA_PROCESS_IMAGE_T2_FRAGMENT_INDEX_OFFSET ==
+                   TDMA_PROCESS_IMAGE_REFMEM_OFFSET &&
+               TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_OFFSET +
+                   TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_SIZE <=
+                   TDMA_PROCESS_IMAGE_REFMEM_OFFSET + TDMA_PROCESS_IMAGE_REFMEM_SIZE,
+               "T2 fragment may replace only the lower-priority RefMem region");
 
 #define TDMA_PROCESS_IMAGE_ACK_QUALITY_OFFSET 24u
 #define TDMA_PROCESS_IMAGE_ACK_QUALITY_SIZE 3u

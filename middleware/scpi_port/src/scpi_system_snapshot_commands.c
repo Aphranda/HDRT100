@@ -3046,6 +3046,25 @@ scpi_result_t scpi_cmd_refmem_sync_flight_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_sync_flight_position_q(scpi_t *context)
+{
+    distributed_refmem_position_transport_snapshot_t snapshot;
+    if (!distributed_refmem_get_position_transport(&snapshot)) return SCPI_RES_ERR;
+    SCPI_ResultUInt32(context, snapshot.tx_pending);
+    SCPI_ResultUInt32(context, snapshot.tx_active);
+    SCPI_ResultUInt32(context, snapshot.tx_fragment_index);
+    SCPI_ResultUInt32(context, snapshot.tx_publish_count);
+    SCPI_ResultUInt32(context, snapshot.tx_reject_count);
+    SCPI_ResultUInt32(context, snapshot.tx_position_id);
+    SCPI_ResultUInt32(context, snapshot.rx_complete_count);
+    SCPI_ResultUInt32(context, snapshot.rx_reject_count);
+    SCPI_ResultUInt32(context, snapshot.rx_pending_mask);
+    SCPI_ResultUInt32(context, snapshot.rx_source_slot);
+    SCPI_ResultUInt32(context, snapshot.rx_position_id);
+    SCPI_ResultUInt32(context, snapshot.cancel_requested);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_flight_fifo_q(scpi_t *context)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();

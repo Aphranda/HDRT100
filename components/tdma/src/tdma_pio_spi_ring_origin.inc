@@ -9,7 +9,7 @@ static bool tdma_pio_spi_ring_origin_mailbox_valid(const uint8_t *mailbox,
     return mailbox != NULL &&
         ((uint32_t)mailbox[0] | ((uint32_t)mailbox[1] << 8u)) == TDMA_FLIGHT_MAILBOX_MAGIC &&
         mailbox[TDMA_FLIGHT_MAILBOX_VERSION_OFFSET] == TDMA_FLIGHT_MAILBOX_VERSION &&
-        (tdma_process_image_transport_class_valid(mailbox[3]) ||
+        (tdma_process_image_flight_class_valid(mailbox[3]) ||
          tdma_process_image_typed_sync_class_valid(mailbox[3])) &&
         mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] == slot &&
         (mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] & ~mask) == 0u &&
@@ -363,7 +363,7 @@ static bool tdma_pio_spi_ring_origin_publish(tdma_pio_spi_ring_adapter_t *adapte
         if (tx.data_size < offset + TDMA_FLIGHT_SHORT_SLOT_SIZE) return false;
         mailbox += offset;
     }
-    if (!tdma_process_image_transport_class_valid(mailbox[3]) ||
+    if (!tdma_process_image_flight_class_valid(mailbox[3]) ||
         !tdma_pio_spi_ring_origin_mailbox_valid(mailbox, adapter->config.local_slot_id,
             (1u << adapter->config.node_count) - 1u)) return false;
     const tdma_flight_engine_apply_t applied = {
