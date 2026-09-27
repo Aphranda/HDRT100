@@ -125,6 +125,11 @@ typedef struct {
     uint32_t cycle_capacity_bytes;
     uint32_t guard_band_bytes;
     uint32_t usable_cycle_bytes;
+    /* Profile admission is TX-side only. RX capacity/consumption is reported
+     * by the flight FIFO snapshot and must not be inferred from these fields. */
+    uint32_t tx_reserved_bytes_per_cycle;
+    uint32_t tx_remaining_bytes_in_cycle;
+    uint32_t rx_budget_defined;
     uint32_t short_frame_capacity;
     uint32_t long_frame_capacity;
     uint32_t cycle_bytes;
@@ -205,6 +210,7 @@ typedef struct {
     uint32_t cycle_capacity_bytes;
     uint32_t guard_band_bytes;
     uint32_t usable_cycle_bytes;
+    uint32_t tx_reserved_bytes_per_cycle;
     uint32_t short_frame_capacity;
     uint32_t long_frame_capacity;
     uint32_t cycle_bytes;

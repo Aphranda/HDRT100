@@ -423,6 +423,14 @@ static int test_budget_and_deadline(void)
         &scheduler, slots, TDMA_TRAFFIC_SCHEDULER_SLOT_COUNT);
     (void)tdma_traffic_scheduler_configure(&scheduler, &profile);
 
+    (void)tdma_traffic_scheduler_get_snapshot(&scheduler, &snapshot);
+    failed += expect_u32("tx reserved profile bytes",
+                         snapshot.tx_reserved_bytes_per_cycle, 840u);
+    failed += expect_u32("tx remaining profile bytes",
+                         snapshot.tx_remaining_bytes_in_cycle, 896u);
+    failed += expect_u32("rx budget is not inferred",
+                         snapshot.rx_budget_defined, 0u);
+
     tdma_traffic_request_t vdc1 =
         make_request(TDMA_PAYLOAD_CLASS_VDC_SYNC_SAMPLE, 8u, now_ns);
     tdma_traffic_request_t vdc2 =

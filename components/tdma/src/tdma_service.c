@@ -1900,6 +1900,20 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
             scheduler_snapshot.last_result;
         snapshot->traffic_scheduler_last_class =
             scheduler_snapshot.last_traffic_class;
+        snapshot->traffic_scheduler_cycle_period_ns =
+            scheduler_snapshot.cycle_period_ns;
+        snapshot->traffic_scheduler_cycle_capacity_bytes =
+            scheduler_snapshot.cycle_capacity_bytes;
+        snapshot->traffic_scheduler_guard_band_bytes =
+            scheduler_snapshot.guard_band_bytes;
+        snapshot->traffic_scheduler_usable_cycle_bytes =
+            scheduler_snapshot.usable_cycle_bytes;
+        snapshot->traffic_scheduler_tx_reserved_bytes_per_cycle =
+            scheduler_snapshot.tx_reserved_bytes_per_cycle;
+        snapshot->traffic_scheduler_tx_remaining_bytes_in_cycle =
+            scheduler_snapshot.tx_remaining_bytes_in_cycle;
+        snapshot->traffic_scheduler_rx_budget_defined =
+            scheduler_snapshot.rx_budget_defined;
         snapshot->recovery_reserved_bytes_per_cycle =
             scheduler_snapshot.recovery_reserved_bytes_per_cycle;
         snapshot->recovery_buffer_count =

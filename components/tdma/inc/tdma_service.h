@@ -291,6 +291,13 @@ typedef struct {
     uint32_t traffic_scheduler_fault_latched;
     uint32_t traffic_scheduler_last_result;
     uint32_t traffic_scheduler_last_class;
+    uint32_t traffic_scheduler_cycle_period_ns;
+    uint32_t traffic_scheduler_cycle_capacity_bytes;
+    uint32_t traffic_scheduler_guard_band_bytes;
+    uint32_t traffic_scheduler_usable_cycle_bytes;
+    uint32_t traffic_scheduler_tx_reserved_bytes_per_cycle;
+    uint32_t traffic_scheduler_tx_remaining_bytes_in_cycle;
+    uint32_t traffic_scheduler_rx_budget_defined;
     uint32_t traffic_scheduler_completed_seq[TDMA_TRAFFIC_CLASS_COUNT];
     uint32_t recovery_reserved_bytes_per_cycle;
     uint32_t recovery_buffer_count;

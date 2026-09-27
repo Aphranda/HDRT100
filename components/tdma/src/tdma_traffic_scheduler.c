@@ -403,6 +403,11 @@ static bool tdma_traffic_scheduler_configure_admission(
     scheduler->usable_cycle_bytes =
         profile->resource.cycle_capacity_bytes -
         profile->resource.guard_band_bytes;
+    scheduler->tx_reserved_bytes_per_cycle =
+        TDMA_RECOVERY_RESERVED_BYTES_PER_CYCLE;
+    for (uint32_t i = 0u; i < TDMA_TRAFFIC_CLASS_COUNT; ++i)
+        scheduler->tx_reserved_bytes_per_cycle +=
+            profile->resource.traffic[i].reserved_bytes_per_cycle;
     scheduler->short_frame_capacity =
         profile->resource.short_frame_capacity;
     scheduler->long_frame_capacity =
@@ -1067,6 +1072,12 @@ bool tdma_traffic_scheduler_get_snapshot(
     snapshot->cycle_capacity_bytes = scheduler->cycle_capacity_bytes;
     snapshot->guard_band_bytes = scheduler->guard_band_bytes;
     snapshot->usable_cycle_bytes = scheduler->usable_cycle_bytes;
+    snapshot->tx_reserved_bytes_per_cycle =
+        scheduler->tx_reserved_bytes_per_cycle;
+    snapshot->tx_remaining_bytes_in_cycle =
+        scheduler->cycle_bytes < scheduler->usable_cycle_bytes
+            ? scheduler->usable_cycle_bytes - scheduler->cycle_bytes : 0u;
+    snapshot->rx_budget_defined = 0u;
     snapshot->short_frame_capacity = scheduler->short_frame_capacity;
     snapshot->long_frame_capacity = scheduler->long_frame_capacity;
     snapshot->cycle_bytes = scheduler->cycle_bytes;
