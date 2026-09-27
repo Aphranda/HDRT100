@@ -1574,7 +1574,11 @@ static void distributed_refmem_tdma_flight_sync_publish(
         }
         return;
     }
-    if (fifo.tx_ready_count != 0u) {
+    /* One ready slot may contain the higher-priority VDC image. The second
+     * slot is the bounded FIFO handoff for a lower-priority T2 image; FIFO
+     * order keeps VDC ahead without starving T2. Only a full two-slot queue
+     * is resource backpressure. */
+    if (fifo.tx_ready_count >= TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT) {
         if (s_tdma_flight_sync.position_tx_active) {
             s_tdma_flight_sync.position_tx_phase =
                 DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_RESOURCE;
