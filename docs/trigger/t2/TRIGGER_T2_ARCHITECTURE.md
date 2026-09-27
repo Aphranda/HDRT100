@@ -33,16 +33,25 @@ T2 将转台位置预测映射到共享 VDC 时间轴。NO1 使用 COUNTER 观�
 | 状态 | 含义 | 来源 |
 |---|---|---|
 | `run_id / sync_epoch` | 当前运行代和计数时间域 | TDMA/VDC 运行身份 |
-| `pulse_index` | 下一共同 grid coarse 周期的绝对索引 | 同次硬件同步事件投影到共同 anchor 后派生 |
+| `pulse_index` | 下一共同 grid coarse 周期的绝对索引 | 当前 TIMER1 经本板 committed DCO 投影到共同 anchor 后派生 |
 | `fine_slice_index` | 当前基准周期内的逻辑细分位置 | 本板 grid/model 解算 |
 | `action_cursor` | 本板当前检查的动作模板位置 | 由上述状态派生 |
 
-`action_cursor` 是本地状态，不是主站逐动作命令。VDC 只读同步事件快照把本地
-`sync_seq` 与同帧 `carrier_sequence`、frame identity CRC、ring/config 身份和本板
-硬件 `local_rx_timestamp_ns` 一起发布。T2 用事件时有效的 committed DCO 把该硬件
-时刻投影到 VDC 输出时间，再相对共同 `anchor_vdc_ns` 归入 coarse q；本地 `sync_seq`
-只检查连续性，不作为跨板绝对编号。归格偏差超过半个逻辑 fine slice、身份不匹配、
-模型在事件时尚未生效或 q 跳格时，本板动作保持失效。动作到达自己的时间片才执行。
+`action_cursor` 是本地状态，不是主站逐动作命令。从板接收 VDC 同步信息后，
+沿用既有 committed DCO 与 TIMER1 在本地产生连续时间轴；T2 读取同一模型，
+将当前本地时间投影到共同 VDC 坐标，再相对 `anchor_vdc_ns` 计算 coarse/fine q。
+接收观察的 `vdc_status.sync_seq` 与每个本地毫秒格不是同一种序号；接收观察
+未更新时，本地网格仍推进。T2 不逐格占用 TDMA，也不要求物理细分诊断输出开启。
+
+本地 `sample_seq` 只标记 coarse 位置推进，跨板不能直接比较。软件 service 可以
+跨过多个本地格；这不等于 VDC 同步丢失。session、ring、slot、schedule、role 或
+clock 身份失配，以及本地时间回退必须显式失效，不能补发越过的动作或重复执行。
+当前 TIMER1 必须处于所用模型的有效期内，不把旧接收时间戳套进较新的模型。
+
+本地网格分辨率由 grid 几何决定；已有细分能力覆盖本轮 500 ns 调试配置（测量快照
+见 Task Progress 的细分验证条目）。T2 提前按位置索引解算本板硬件 deadline，
+由预装 PIO 执行动作；软件轮询频率不决定硬件细分分辨率。映射有效仅表示本地
+坐标与身份有效，完整动作精度仍由位置实例、硬件执行和外部同步采样共同验证。
 
 ### 位置索引、q 和相对偏移
 
@@ -186,11 +195,11 @@ T2 的 Core1 运行入口固定为 `APP_REALTIME_PHASE_SYNC_TRIGGER` / `sync_tri
 | 边界 | 当前入口 | 接受条件或结果 |
 |---|---|---|
 | STOP 资源 | `trigger_grid_preview_configure()`、`trigger_action_template_activate_resources()`、T2 SCPI configure | grid 几何和 staged ring 身份、活动 deployment、模板 CRC、本板资源装载读回；无 RUN model 时只保存未绑定几何，精确规划仍拒绝 |
-| 共同时间 | `vdc_sync_ao_service()` → `trigger_time_cursor_service()` | T2 只读 `vdc_status.sync_seq`、同次硬件事件和 committed model，要求本板 LOCKED；共同 anchor 解算绝对 q，缺序号、缺锁、错身份或跳格不执行动作 |
+| 共同时间 | 既有 VDC committed DCO / TIMER1 → `trigger_time_cursor_service()` | T2 本地计算 coarse/fine q；复用会话、ring、slot、schedule、role/clock 身份和模型有效期，不以本地 PI LOCKED 或接收观察频次代替本地网格；不修改 VDC 服务 |
 | NO1 预测 | `trigger_t2_runtime_service()` + `trigger_t2_runtime_prepare_core0()` | Core1 取得 COUNTER 观察并处理阈值；Core0 按最新完成窗口异步更新位置索引，阈值跨越后只冻结版本 index |
 | 一等运输 | `distributed_refmem_stage_position_descriptor()` → TDMA flight owner | typed SYNC/专用 VDC 命令优先；普通 VDC 状态与 T2 fragment 同帧，T2 占用二等 RefMem 区域；独立 message class、CRC、来源和序号 |
 | 从板绑定 | `accept_remote_position()` | `run_id`、grid/sync epoch、count epoch、deployment generation/CRC、预测版本与有效同步区间全部匹配 |
-| 本地动作 | `trigger_action_runtime_stage()` / `advance()` | 先检查 action q 不早于本板 cursor，再提交静态模板实例；已发出位置不接受不同版本回写 |
+| 本地动作 | `prepare_deadlines_core0()` / `service_deadlines()` | Core0 提前解算本板 deadline，Core1 阈值冻结后采用最新完成版本并装填预装硬件；匹配执行回执后才报告完成，已发出位置不接受不同版本回写 |
 
 T2 的异步运输交接使用固定单槽：Core1 在 `SYNC_TRIGGER` phase 提交完整位置描述符
 到 TX mailbox；Core0 的 RefMem service 在自己的边界领取、编码和分片发布。普通
@@ -202,17 +211,22 @@ Core0 复验本板 target mask 并重组，完整描述符经每个 source slot 
 下一次 service 退休尚未发送的请求和片段；已经进入 TDMA FIFO 的片段仍须由接收方
 通过 run/epoch/generation 门禁拒绝，STOP ACK 不能冒充物理送达或撤销证明。
 
-目前 `trigger_time_cursor` 只在 VDC 基准同步更新时推进到绝对 coarse q，`fine_slice_index`
-仍为零；非零 fine q 在本地 staging 时明确拒绝，不允许下一次 coarse service 迟到补发。
-非零 fine q 的运行中硬件 deadline 与实际 latch 尚未接通。因此当前实现证明的是
-预约描述符与 coarse cursor 的软件绑定，不能宣称细分时间片精确动作。各板 `sync_seq`
-是否代表同一个跨板同步事件仍需通过来源身份、epoch 和外部硬件证据确认；不能仅因四板
-计数都增长，就认定相同序号对应相同物理时刻。
+T2 的游标观察与动作硬件执行分别验证。游标从当前模型时间派生完整 coarse/fine
+位置，硬件执行必须提前接收本地 deadline；立即调用 SWITCH/GATEWAY 的软件路径
+和旧 STOP 单次 ARM 均不能替代运行期细分动作。尚未接通的硬件能力与退出条件
+在 TODO 跟踪，不因已有细分波形或软件游标通过而自动关闭。
 
-当前源码已用共同 anchor 和事件硬件时间戳计算绝对 q，但四板相同物理事件的
-`carrier_sequence`、身份 CRC、每板 DCO 投影和实际边沿尚未在同一运行窗口验收。
-不同板的本地 `sync_seq` 仍不得相互比较；只有同一事件身份与 q 的四板读回、
-外部波形和后续 position_id 动作证据相互吻合，才能关闭共同时间绑定。
+从板的 deadline 准备使用 Core0 单 writer 的本地原子镜像。阈值到达后采用最新
+已完成解算版本；刚收到但尚未解算的较新 PREVIEW 不引发临界期计算。已冻结实例
+保留本次模型和 deadline，正常 DCO 版本更新不改写已提交硬件前缀；运行身份变化、
+迟到或无法确认执行结果须显式记录，不以即时补发伪装原预约位置。
+
+调试转台源在 STOP 预装本板 OUT4 的独立 PWM，RUN 只切换已装载波形使能。
+源与 COUNTER 输入可共存，不由 Core1 定时发脉冲，不占用 VDC/TDMA 运行服务。
+它提供名义转台输入，不授予输入边沿时间戳或位置到位精度。
+
+四板绑定比较同一 grid 身份、共同位置及实际边沿，不比较各板本地观察计数是否相等。
+T2 只读 VDC 模型与本地 TIMER1；游标、解算、预算优化和动作执行不新增 TDMA 载荷。
 
 | owner | 负责 | 边界 |
 |---|---|---|

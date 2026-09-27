@@ -4,7 +4,7 @@ Status: Draft
 Domain: ARCH
 Canonical: `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/ARCH_ACTIVATION_LOAD_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `application/inc/app_realtime_schedule.h`
-Last updated: 2026-09-26
+Last updated: 2026-09-27
 
 本文是跨域实时负载的挂载实施规范草案。它整理当前代码中的 phase、owner、TDMA
 服务等级和 T2 接线边界，供后续组件提交挂载申请时使用。本文不新增运行 owner，
@@ -36,13 +36,15 @@ position descriptor 在 TDMA 中使用独立的 T2 message class；普通帧的 
 | DPLL | `vdc_dpll_manager` 的 DPLL service | `DPLL`；`sync_dpll_fb_service()` | 消费 VDC evidence，运行 DPLL/model feedback 和质量老化 | 再次运行 TDMA observer、发布 T2 位置、借用 VDC 或 GUARD 预算 |
 | SYNC capture | `vdc_dpll_manager` / `sync_io` capture owner | `SYNC_CAPTURE` | 受控的同步输入捕获和快照 | 改写 VDC/DPLL owner 状态、执行动作模板 |
 | RefMem | `distributed_refmem` | `REFMEM`；`distributed_refmem_realtime_run_once()` | 固定向量、命令槽、ACK/fence 和低频镜像交接 | 拥有 TDMA PIO、改变 VDC sync cadence、执行 T2 动作 |
-| T2 reservation | `sync_trigger` / `trigger_t2_runtime` | `SYNC_TRIGGER`；`sync_trigger_service()` | 消费 `vdc_status.sync_seq`，预测 position，stage descriptor，解析本地时间片并执行模板 | 写 VDC/DPLL 状态、在目标时刻等待主站命令、运行中热加载 PIO/IO route |
+| T2 reservation | `sync_trigger` / `trigger_t2_runtime` | `SYNC_TRIGGER`；`sync_trigger_service()` | 只读 committed DCO 与本地 TIMER1 推进 cursor，交接异步预测结果、stage descriptor、解析本地时间片并执行模板 | 写 VDC/DPLL 状态、在目标时刻等待主站命令、运行中热加载 PIO/IO route |
 | Model / turntable | `model_turntable` | `MODEL` | 转台模型和低频预测输入准备 | 直接发布 VDC、占用 TDMA fast path |
 | Diagnostics / measure | 各自 Core0 owner | `TRIGGER_MEASURE` 或 Core0 维护路径 | 读取快照、记录证据、导出波形和报告 | 进入 Core1 特等席、阻塞实时 phase、把诊断计数当正式 sync_seq |
 
-`SYNC_TRIGGER` 是 T2 的预留挂载点。T2 的 VDC 输入是只读事实：VDC 每个基准
-同步周期发布一次 `sync_seq`，T2 从该快照推进自己的 cursor。T2 不向 VDC
-反向写入同步状态，也不通过增加 VDC service 工作来实现位置预测。
+`SYNC_TRIGGER` 是 T2 的预留挂载点。T2 的 VDC 输入是只读事实：从板接收同步
+信息并更新本地模型，T2 复用 committed DCO 与 TIMER1 派生本地 coarse/fine cursor。
+接收观察的 `vdc_status.sync_seq` 不代表每个本地毫秒格；其未更新时本地时间仍推进。
+游标、时间绑定与动作执行不增加 TDMA 载荷。T2 不向 VDC 反向写入同步状态，
+也不通过增加 VDC service 工作来实现位置预测。
 
 ## 3. 四级 seat 与负载归属
 
@@ -142,7 +144,7 @@ T2 按下列固定路径接入，不增加 VDC 负载：
 
 ```text
 VDC 1 kHz 基准
-  -> vdc_status.sync_seq（只读快照）
+  -> 既有本地 committed DCO / TIMER1 网格（只读）
   -> SYNC_TRIGGER / trigger_t2_runtime
   -> NO1 COUNTER 预测 position_id、grid index、prediction version
   -> distributed_refmem_stage_position_descriptor()
@@ -155,7 +157,7 @@ VDC 1 kHz 基准
 
 其中：
 
-- VDC `sync_seq` 的产生、递增和发布节拍只由 VDC phase 负责；
+- VDC 同步信息及模型的发布只由原 owner 负责，T2 本地游标不反向驱动发布；
 - DPLL phase 只消费 VDC evidence 并维护模型；
 - T2 descriptor 不携带可写 DCO 命令；到期的普通帧继续发布 VDC 状态并推进
   `last_publish_ms`，T2 只替换该帧的二等 RefMem 区域；

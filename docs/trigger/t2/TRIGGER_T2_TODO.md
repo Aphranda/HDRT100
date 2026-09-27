@@ -44,8 +44,8 @@ Last updated: 2026-09-27
 | T2-SLOT-SWITCH-001 | SWITCH 常驻模板输出 | DONE | 本地编码和身份部署通过；维护 APPLY 不等于 T2 时间片动作 |
 | T2-ACTION-TEMPLATE-001 | 静态循环动作模板 | PENDING | 模板字段、循环跨度、role/IO、offset、settle/window、CRC 和启动期读回通过 |
 | T2-CLOCK-PROBE-001 | 细分脉冲能力验证 | DONE | 细分边沿、尾格空白、示波器 RAW 和恢复通过；不授予 live cursor |
-| T2-CLOCK-001 | 1 kHz VDC 时间片 cursor | IN PROGRESS | 建立与逐个 1 kHz VDC 输出脉冲对应的时间片节拍；当前稀疏 ring observation `sync_seq` 不能冒充每个脉冲；细分物理输出与 cursor 分离，epoch/丢同步/回绕通过 |
-| T2-CLOCK-002 | 四板共同 q 与同事件绑定 | IN PROGRESS | VDC 同次事件快照和本地 DCO→共同 anchor 候选已接线；从板本地相位须取得代际绑定的共同时间映射，正式准入后再以四板同事件身份/q、示波器相位与换代恢复关闭 |
+| T2-CLOCK-001 | 1 kHz VDC 时间片 cursor | IN PROGRESS | 复用已验证本地 VDC/DCO/TIMER1 网格，修正 T2 消费入口；接收观察不更新时仍推进 coarse/fine q，轮询跨格不误判丢同步；身份/回退/回绕及硬件读回通过 |
+| T2-CLOCK-002 | 四板共同 q 与同事件绑定 | IN PROGRESS | 沿用既有 typed SYNC/MATCH/FOLLOW/PHASE 配置和 committed DCO；四板共同 q 的本地解算、示波器相位与换代恢复通过，不以从板本地 PI LOCKED 代替实际模型，不新增 TDMA 预算 |
 | T2-TURNTABLE-001 | NO1 计数 epoch 和位置观测 | IN PROGRESS | 任意 IN、起始/零位/终止位置预测、预运行区与终止校验区、脉冲/位置配置、预测目标计数、方向/回绕和采样区间通过；当前 5°/5° 是调试快照，非产品额定值 |
 | T2-TURNTABLE-002 | 异步窗口预测与阈值提示 | IN PROGRESS | Core0 按最新完成计数窗口更新同一个预约位置时间片；接近阈值缩短计算间隔；阈值只广播 prediction version/index；从板使用本地最新有效镜像回退并记录差异；不触发热加载 |
 | T2-TURNTABLE-003 | coarse/fine 位置描述符 | IN PROGRESS | NO1 发布位置索引和身份元数据；阈值只发布版本 index；从板拒绝旧代、错目标和过期描述符，并读回本地回退年龄 |
@@ -53,11 +53,11 @@ Last updated: 2026-09-27
 | T2-TURNTABLE-004 | 从板本地位置解算 | IN PROGRESS | 各板用自己的 VDC model/grid 将索引解算为时间片，不接收主站 deadline；零位和终止位置必须生成确定的 target count、position ID 和时间片 |
 | T2-EXEC-001 | 本地 cursor 时间片执行 | IN PROGRESS | 位置实例展开、各动作独立执行、不同 q 顺序、PIO 回执和示波器边沿通过 |
 | T2-OFFSET-001 | SWITCH/GATEWAY/READY offset | PENDING | offset/window 可配置、读回、代际绑定；调试默认值不作为产品事实 |
-| T2-READY-001 | READY 上一级重叠校验 | PENDING | READY 按 position/instance 关联上一动作，早到/迟到/缺失/重复/重叠通过；不作当前许可 |
+| T2-READY-001 | READY 上一级重叠校验 | IN PROGRESS | READY 按 position/instance 关联上一动作，早到/迟到/缺失/重复/重叠通过；不作当前许可 |
 | T2-TURNTABLE-005 | 阈值提示后的跨板位置确认 | PENDING | 目标板确认同一 position/version/grid/deployment 并建立本地实例；不形成 PREPARE/fence 执行门 |
 | T2-TURNTABLE-006 | 多板本地动作顺序 | PENDING | 各板按不同 q/offset 自主执行，host 不逐板发即时命令，输出与 READY 分字段保存 |
 | T2-TURNTABLE-007 | 预测更新、异常与恢复 | PENDING | 每次同步更新、阈值重复/跳过、速度变化、停止、回绕、方向、旧版本、分区和换代有明确事实 |
-| T2-TURNTABLE-008 | 计数、同步和动作共存 | PENDING | TDMA RUN 中 COUNTER/VDC/template/executor 共存，不 STOP/START 打断或重置位置 |
+| T2-TURNTABLE-008 | 计数、同步和动作共存 | IN PROGRESS | TDMA RUN 中 COUNTER/VDC/template/executor 共存，隔离 OUT4 模拟源不占用实时域服务，不 STOP/START 打断或重置位置 |
 | T2-TURNTABLE-009 | 起始/零位/终止预测与边界校验 | PENDING | 起始角度、零位和终止角度均生成 position_id、预测目标计数和时间片；预运行区建立起始预测，终止后校验区验证终止预测和实际边沿，不新增或重排已执行动作 |
 | T2-COMPLETE-001 | 实际动作/READY 证据闭合 | PENDING | 实际边沿、READY、模型和 position_id 绑定；缺 latch 只报告未确定 |
 | T2-ACCEPT-001 | 当前切片交付 | PENDING | host/Release/P3/TDMA 短帧/示波器/恢复证据闭合，不宣布产品资格 |
@@ -73,10 +73,10 @@ Last updated: 2026-09-27
 | 项目 | 当前处置 | 阻塞范围 |
 |---|---|---|
 | 静态启动装载 | 现有槽位可在 STOP 下动态加载，统一启动事务未实现 | M0/M1 |
-| 1 kHz cursor | 静态 grid 已在四板 STOP 下装载；当前 `sync_seq` 稀疏、`SYNC_TRIGGER` 超预算后隔离，且 follower 相位仍为本地原始域；须建立逐脉冲节拍、相位映射和非隔离预算 | M1/M3 |
+| 1 kHz cursor | 复用已有本地网格，修正 T2 接收观察入口；恢复完整 typed FOLLOW/PHASE 调试配置，定向验证本地 cursor 与 SYNC_TRIGGER 预算；见 T2-PROGRESS-20260927-019 | M1/M3 |
 | 位置描述符 | 独立 T2 class/CRC/代际和低优先级 flight 已接线；四板满载期限及实际接收仍待证明 | M2/M3 |
-| 从板解算 | coarse cursor、grid/模板索引已接线；非零 fine q 的本地 deadline/硬件 latch 未实现 | M3 |
-| READY 重叠 | GATEWAY READY 仍是 raw level | M4 |
+| 从板解算 | Core0 fine q→deadline 与 Core1 预装 PIO 提交已接线；当前每板本地模板容量见 `TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY`，三位置独立，真实回执、预算和可见通道示波器待验 | M3 |
+| READY 重叠 | GATEWAY 已有独立上升沿计数且脉冲完成后继续采集；缺少按 position 关联的物理时间戳和重叠窗口结论，计数不替代验收 | M4 |
 | 实际 latch | 需要硬件时间戳和 position_id 绑定 | M5 |
 
 ## 统一完成定义
