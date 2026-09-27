@@ -160,7 +160,7 @@ READY 不作为当前动作执行许可，不形成当前动作 fence，不替�
 
 ### TDMA START 前
 
-deployment、PIO/SM/FIFO/GPIO persona、静态模板、grid 和 profile 完成装载、CRC/generation 读回，并建立 VDC sync、local cursor 和预测状态。
+deployment、PIO/SM/FIFO/GPIO persona、静态模板、grid 几何和 profile 完成装载、CRC/generation 读回，并设置新的 VDC session。STOP 配置不能要求只有 RUN 后才产生的同步事件或锁定模型；本地 cursor 和预测状态在 RUN 中按真实事件建立，不能由静态配置读回授予动作资格。
 
 ### TDMA RUN 中
 
@@ -185,7 +185,7 @@ T2 的 Core1 运行入口固定为 `APP_REALTIME_PHASE_SYNC_TRIGGER` / `sync_tri
 
 | 边界 | 当前入口 | 接受条件或结果 |
 |---|---|---|
-| STOP 资源 | `trigger_action_template_activate_resources()`、T2 SCPI configure | 活动 deployment、模板 CRC 和本板资源装载读回；未装载拒绝配置 |
+| STOP 资源 | `trigger_grid_preview_configure()`、`trigger_action_template_activate_resources()`、T2 SCPI configure | grid 几何和 staged ring 身份、活动 deployment、模板 CRC、本板资源装载读回；无 RUN model 时只保存未绑定几何，精确规划仍拒绝 |
 | 共同时间 | `vdc_sync_ao_service()` → `trigger_time_cursor_service()` | T2 只读 `vdc_status.sync_seq`、同次硬件事件和 committed model，要求本板 LOCKED；共同 anchor 解算绝对 q，缺序号、缺锁、错身份或跳格不执行动作 |
 | NO1 预测 | `trigger_t2_runtime_service()` + `trigger_t2_runtime_prepare_core0()` | Core1 取得 COUNTER 观察并处理阈值；Core0 按最新完成窗口异步更新位置索引，阈值跨越后只冻结版本 index |
 | 一等运输 | `distributed_refmem_stage_position_descriptor()` → TDMA flight owner | typed SYNC/专用 VDC 命令优先；普通 VDC 状态与 T2 fragment 同帧，T2 占用二等 RefMem 区域；独立 message class、CRC、来源和序号 |

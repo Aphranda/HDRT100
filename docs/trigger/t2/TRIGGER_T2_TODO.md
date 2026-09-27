@@ -44,8 +44,8 @@ Last updated: 2026-09-27
 | T2-SLOT-SWITCH-001 | SWITCH 常驻模板输出 | DONE | 本地编码和身份部署通过；维护 APPLY 不等于 T2 时间片动作 |
 | T2-ACTION-TEMPLATE-001 | 静态循环动作模板 | PENDING | 模板字段、循环跨度、role/IO、offset、settle/window、CRC 和启动期读回通过 |
 | T2-CLOCK-PROBE-001 | 细分脉冲能力验证 | DONE | 细分边沿、尾格空白、示波器 RAW 和恢复通过；不授予 live cursor |
-| T2-CLOCK-001 | 1 kHz VDC 时间片 cursor | IN PROGRESS | 每个基准同步推进 pulse index/fine cursor；细分物理输出与 cursor 分离；epoch/丢同步/回绕通过 |
-| T2-CLOCK-002 | 四板共同 q 与同事件绑定 | IN PROGRESS | VDC 同次事件快照和本地 DCO→共同 anchor 绝对 q 已接线；不同本地 `sync_seq` 不得直接相等比较；仍需四板同事件身份/q 读回、示波器相位与换代恢复通过 |
+| T2-CLOCK-001 | 1 kHz VDC 时间片 cursor | IN PROGRESS | 建立与逐个 1 kHz VDC 输出脉冲对应的时间片节拍；当前稀疏 ring observation `sync_seq` 不能冒充每个脉冲；细分物理输出与 cursor 分离，epoch/丢同步/回绕通过 |
+| T2-CLOCK-002 | 四板共同 q 与同事件绑定 | IN PROGRESS | VDC 同次事件快照和本地 DCO→共同 anchor 候选已接线；从板本地相位须取得代际绑定的共同时间映射，正式准入后再以四板同事件身份/q、示波器相位与换代恢复关闭 |
 | T2-TURNTABLE-001 | NO1 计数 epoch 和位置观测 | IN PROGRESS | 任意 IN、起始/零位/终止位置预测、预运行区与终止校验区、脉冲/位置配置、预测目标计数、方向/回绕和采样区间通过；当前 5°/5° 是调试快照，非产品额定值 |
 | T2-TURNTABLE-002 | 异步窗口预测与阈值提示 | IN PROGRESS | Core0 按最新完成计数窗口更新同一个预约位置时间片；接近阈值缩短计算间隔；阈值只广播 prediction version/index；从板使用本地最新有效镜像回退并记录差异；不触发热加载 |
 | T2-TURNTABLE-003 | coarse/fine 位置描述符 | IN PROGRESS | NO1 发布位置索引和身份元数据；阈值只发布版本 index；从板拒绝旧代、错目标和过期描述符，并读回本地回退年龄 |
@@ -73,7 +73,7 @@ Last updated: 2026-09-27
 | 项目 | 当前处置 | 阻塞范围 |
 |---|---|---|
 | 静态启动装载 | 现有槽位可在 STOP 下动态加载，统一启动事务未实现 | M0/M1 |
-| 1 kHz cursor | 已消费 VDC 同次硬件事件并由共同 anchor 计算绝对 q；同事件身份、四板一致性和物理相位仍待证明 | M1/M3 |
+| 1 kHz cursor | 静态 grid 已在四板 STOP 下装载；当前 `sync_seq` 稀疏、`SYNC_TRIGGER` 超预算后隔离，且 follower 相位仍为本地原始域；须建立逐脉冲节拍、相位映射和非隔离预算 | M1/M3 |
 | 位置描述符 | 独立 T2 class/CRC/代际和低优先级 flight 已接线；四板满载期限及实际接收仍待证明 | M2/M3 |
 | 从板解算 | coarse cursor、grid/模板索引已接线；非零 fine q 的本地 deadline/硬件 latch 未实现 | M3 |
 | READY 重叠 | GATEWAY READY 仍是 raw level | M4 |

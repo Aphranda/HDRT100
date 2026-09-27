@@ -12,6 +12,14 @@ Last updated: 2026-09-27
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20260927-018：静态装载跑通与运行时间基阻塞定位
+
+- TODO task ID：T2-DEPLOY-002、T2-CLOCK-001/002、T2-EXEC-001。修复 STOP grid 配置对 RUN committed model 的循环依赖：无锁定模型时只保存共同 grid 几何与 staged ring 身份，精确规划仍需原模型门禁。四板 STOP 实测 grid、deployment、模板资源和 T2 配置依次返回成功；NO1 COUNTER 在 ARM 前 START 成功。TRN-03 复跑的旧 recorder `FROZEN` 需先 SAVE 到 `SAVED` 才能 ARM，新工具前置读回/保存已通过 124 项 host 回归。
+- 本切片最终源码四板 P3 build=`20260927024513` 为 `PASS_WITH_WARNINGS`（INFO 32 / WARN 12 / ERROR 0 / FATAL 0），原件在 `out/HardwareAcceptance/20260927/p3-104507/`。先前 `p3-094807/` 的 NO3 TDMA 第 7 个记录缺失失败及 `p3-100619/`、`p3-103123/` 的中间通过均保留，不互相改写。相关静态 grid、T2、事件镜像、模板恢复和 TRN-03 回归共 237 项通过，Release build 及链接门禁通过。
+- RUN 探针：四板新 session、静态装载、COUNTER START、ring ARM/START 均读回成功，但 `SYSTem:TDMA:SCHEDule?` 的 quarantine mask 为 72，其中 bit 6 是 `SYNC_TRIGGER`；显式关闭再启用该负载后，四板各再次出现一次超过 `PROJECT_CORE1_PHASE_SYNC_TRIGGER_WCET_CYCLES` 的调用并重新隔离。NO1 cursor 曾从 `NO_SYNC` 前进到 `MODEL_TIME`，NO2–NO4 前进到 `NO_LOCK`，但均未得到有效共同 q。
+- 同一 ring 的 VDC `sync_seq` 是稀疏 observation 序列，不能证明每个 1 kHz 输出脉冲都推进一次 cursor。NO2–NO4 在原 FOLLOWER 模式下只保留本地观察诊断且 DCO 没有共同锚；临时切为 MASTER 的有限对照仍因 `VDC_DOMAIN_GATE_LOCAL_PHASE_UNALIGNED` 拒绝正式锁定。T2 cursor 的未锁定分支已提前返回，不再复制模型或处理事件；该预算优化不授予从板时间资格。没有共同相位映射前不得放宽 T2 的锁定门或用 TDMA 计数代替 VDC 时间片。
+- STOP 恢复：四板 ring/T2 STOP，NO1 COUNTER STOP 后模板、deployment、grid 全部释放读回成功。代码已把模板释放顺序固定为 COUNTER STOP→UNLOAD，避免运行中的 counter 令模板/部署清理卡住。`node-sequence` 分支可参考静态槽位与 IO 管理，但没有现成的共享 VDC q 硬件 deadline 执行器。当前尚无真实位置动作、READY 或示波器 `position_id` 证据；下一项先建立逐脉冲时间源和从板共同相位映射，再预算化本地动作执行。
+
 ### T2-PROGRESS-20260927-017：异步窗口预测与本地最新镜像回退
 
 - TODO task ID：T2-TURNTABLE-002/003、T2-TRANSPORT-001、T2-ACCEPT-001。NO1 Core1 只取得每个 VDC 基准同步的计数观察；Core0 在 `app_refmem_service()` 边界按最近完成的计数窗口异步计算预约位置时间片。距离阈值越近，窗口和计算间隔缩短；没有新结果时复用上一次完整预览。
