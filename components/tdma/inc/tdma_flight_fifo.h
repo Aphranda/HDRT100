@@ -145,6 +145,16 @@ bool tdma_flight_fifo_core0_publish_tx(tdma_flight_fifo_t *fifo,
                                        uint32_t generation,
                                        uint32_t sequence,
                                        uint32_t segment_mask);
+/* Core0 may patch a queued latest-value image before Core1 acquires it. The
+ * guard byte prevents replacing a higher-priority typed image; no queue or
+ * active slot is changed when the guard does not match. */
+bool tdma_flight_fifo_core0_patch_tx_ready(
+    tdma_flight_fifo_t *fifo,
+    uint32_t offset,
+    const uint8_t *data,
+    size_t data_size,
+    uint32_t guard_offset,
+    uint8_t guard_value);
 bool tdma_flight_fifo_core1_acquire_tx(tdma_flight_fifo_t *fifo,
                                        tdma_flight_tx_view_t *view);
 /* Core1 only: account one ordinary reuse without constructing a view, iff

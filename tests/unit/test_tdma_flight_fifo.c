@@ -122,13 +122,23 @@ int main(void)
                                                             100u,
                                                             0x1u),
                           true);
+    {
+        const uint8_t patch[] = {9u, 8u};
+        failed += expect_bool("patch queued tx0", tdma_flight_fifo_core0_patch_tx_ready(
+            &fifo, 1u, patch, sizeof(patch), 0u, 1u), true);
+        failed += expect_bool("guard blocks typed replacement",
+            tdma_flight_fifo_core0_patch_tx_ready(&fifo, 1u, patch, sizeof(patch), 0u, 7u), false);
+    }
     failed += expect_bool("acquire tx0",
                           tdma_flight_fifo_core1_acquire_tx(&fifo, &tx_view),
                           true);
     failed += expect_u32("tx0 generation", tx_view.generation, 1u);
     failed += expect_u32("tx0 sequence", tx_view.sequence, 100u);
     failed += expect_bool("tx0 not reused", tx_view.reused_previous, false);
-    failed += expect_mem("tx0 payload", tx_view.data, tx0, sizeof(tx0));
+    {
+        const uint8_t patched[] = {1u, 9u, 8u, 4u};
+        failed += expect_mem("tx0 payload", tx_view.data, patched, sizeof(patched));
+    }
 
     failed += expect_bool("reuse tx0",
                           tdma_flight_fifo_core1_acquire_tx(&fifo, &tx_view),

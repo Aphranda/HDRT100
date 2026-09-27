@@ -2057,6 +2057,19 @@ bool tdma_service_publish_flight_tx(tdma_service_service_t *service,
                                              segment_mask);
 }
 
+bool tdma_service_patch_flight_tx_ready(
+    tdma_service_service_t *service,
+    uint32_t offset,
+    const uint8_t *data,
+    size_t data_size,
+    uint32_t guard_offset,
+    uint8_t guard_value)
+{
+    return service != NULL && tdma_flight_fifo_core0_patch_tx_ready(
+        &service->flight_fifo, offset, data, data_size,
+        guard_offset, guard_value);
+}
+
 uint32_t tdma_service_core0_advance_flight_rx_admission_epoch(
     tdma_service_service_t *service)
 {

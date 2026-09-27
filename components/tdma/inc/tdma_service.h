@@ -606,6 +606,13 @@ bool tdma_service_publish_flight_tx(tdma_service_service_t *service,
                                     uint32_t generation,
                                     uint32_t sequence,
                                     uint32_t segment_mask);
+bool tdma_service_patch_flight_tx_ready(
+    tdma_service_service_t *service,
+    uint32_t offset,
+    const uint8_t *data,
+    size_t data_size,
+    uint32_t guard_offset,
+    uint8_t guard_value);
 /* Core0 RX consumer task only; see the FIFO admission boundary contract. */
 uint32_t tdma_service_core0_advance_flight_rx_admission_epoch(
     tdma_service_service_t *service);

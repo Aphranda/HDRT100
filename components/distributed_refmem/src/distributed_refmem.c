@@ -1648,6 +1648,66 @@ static void distributed_refmem_tdma_flight_sync_publish(
         ? (s_tdma_flight_sync.active_mask &
            ~(1u << ring->local_slot_id))
         : s_tdma_flight_sync.active_mask;
+
+    /* If the next VDC image is already queued, patch only its lower-priority
+     * RefMem mailbox. The guard admits ordinary status images and rejects a
+     * resident VDC command/feedback image, preserving VDC ordering and
+     * cadence while avoiding a second TX slot. */
+    if (position_publication && fifo.tx_ready_count != 0u) {
+        uint8_t position_frame[DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE];
+        if (!distributed_refmem_tdma_flight_build_compact_mailbox(
+                (uint8_t)ring->local_slot_id,
+                (uint8_t)target_mask,
+                s_tdma_flight_sync.position_tx_sequence,
+                s_service_count,
+                message_class,
+                position_frame,
+                sizeof(position_frame))) {
+            s_tdma_flight_sync.position_tx_reject_count++;
+            s_tdma_flight_sync.position_tx_phase =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILED;
+            s_tdma_flight_sync.position_tx_wait_reason =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_BAD_DESCRIPTOR;
+            return;
+        }
+        const uint32_t offset =
+            distributed_refmem_flight_input_offset_for_slot(ring->local_slot_id);
+        if (tdma_flight_fifo_core0_patch_tx_ready(
+                &owner->flight_fifo, offset, position_frame,
+                sizeof(position_frame), offset + 3u,
+                TDMA_PROCESS_IMAGE_MESSAGE_CLASS)) {
+            s_tdma_flight_sync.position_tx_publish_count++;
+            s_tdma_flight_sync.position_tx_phase =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_SUBMITTED;
+            s_tdma_flight_sync.position_tx_submitted_sequence =
+                s_tdma_flight_sync.position_tx_sequence;
+            s_tdma_flight_sync.position_tx_wait_reason =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
+            const bool freeze_publication =
+                s_tdma_flight_sync.position_tx_fragment_index == UINT32_MAX;
+            if (freeze_publication) {
+                __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 0u,
+                                 __ATOMIC_RELEASE);
+                s_tdma_flight_sync.position_tx_fragment_index = 0u;
+            } else {
+                s_tdma_flight_sync.position_tx_fragment_index++;
+            }
+            if (!freeze_publication &&
+                s_tdma_flight_sync.position_tx_fragment_index >=
+                    TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT) {
+                __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 0u,
+                                 __ATOMIC_RELEASE);
+                s_tdma_flight_sync.position_tx_fragment_index = 0u;
+            }
+        } else {
+            s_tdma_flight_sync.position_tx_phase =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_RESOURCE;
+            s_tdma_flight_sync.position_tx_wait_reason =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FIFO_READY;
+            s_tdma_flight_sync.position_tx_wait_count++;
+        }
+        return;
+    }
     if (!distributed_refmem_tdma_flight_build_compact_mailbox(
             (uint8_t)ring->local_slot_id,
             (uint8_t)target_mask,
