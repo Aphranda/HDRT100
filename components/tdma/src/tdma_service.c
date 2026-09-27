@@ -1768,6 +1768,28 @@ bool tdma_service_get_snapshot(const tdma_service_service_t *service,
     snapshot->payload_registry_last_payload_class =
         registry_snapshot.last_payload_class;
 
+    tdma_flight_fifo_snapshot_t flight_fifo_snapshot;
+    if (!tdma_flight_fifo_get_snapshot(&service->flight_fifo,
+                                       &flight_fifo_snapshot)) {
+        return false;
+    }
+    snapshot->flight_fifo_rx_publish_count =
+        flight_fifo_snapshot.rx_publish_count;
+    snapshot->flight_fifo_rx_publish_drop_count =
+        flight_fifo_snapshot.rx_publish_drop_count;
+    snapshot->flight_fifo_rx_acquire_count =
+        flight_fifo_snapshot.rx_acquire_count;
+    snapshot->flight_fifo_rx_release_count =
+        flight_fifo_snapshot.rx_release_count;
+    snapshot->flight_fifo_rx_queued_count =
+        flight_fifo_snapshot.rx_queued_count;
+    snapshot->flight_fifo_rx_capacity_slots =
+        flight_fifo_snapshot.rx_capacity_slots;
+    snapshot->flight_fifo_rx_available_slots =
+        flight_fifo_snapshot.rx_available_slots;
+    snapshot->flight_fifo_rx_parse_count =
+        flight_fifo_snapshot.rx_parse_count;
+
     tdma_ring_runtime_snapshot_t ring_snapshot;
     if (!tdma_ring_runtime_get_snapshot(&service->ring_runtime, &ring_snapshot)) {
         return false;

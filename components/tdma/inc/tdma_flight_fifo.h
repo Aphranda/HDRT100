@@ -65,6 +65,9 @@ typedef struct {
     uint32_t rx_publish_drop_count;
     uint32_t rx_acquire_count;
     uint32_t rx_release_count;
+    /* Fixed FIFO facts; these are not a per-cycle wire budget. */
+    uint32_t rx_capacity_slots;
+    uint32_t rx_available_slots;
     uint32_t rx_queued_count;
     uint32_t rx_parse_count;
 } tdma_flight_fifo_snapshot_t;

@@ -230,6 +230,12 @@ int main(void)
     failed += expect_u32("rx publish count", snapshot.rx_publish_count, 2u);
     failed += expect_u32("rx release count", snapshot.rx_release_count, 2u);
     failed += expect_u32("rx queued empty", snapshot.rx_queued_count, 0u);
+    failed += expect_u32("rx capacity slots",
+                         snapshot.rx_capacity_slots,
+                         TDMA_FLIGHT_RX_FRAME_SLOT_COUNT);
+    failed += expect_u32("rx available slots",
+                         snapshot.rx_available_slots,
+                         TDMA_FLIGHT_RX_FRAME_SLOT_COUNT);
 
     failed += expect_bool("publish tx corrupt candidate",
                           tdma_flight_fifo_core0_publish_tx(&fifo,

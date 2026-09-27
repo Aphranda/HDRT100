@@ -542,6 +542,10 @@ bool tdma_flight_fifo_get_snapshot(const tdma_flight_fifo_t *fifo,
     const uint32_t rx_head = tdma_flight_load_u32(&fifo->rx_head);
     const uint32_t rx_tail = tdma_flight_load_u32(&fifo->rx_tail);
     snapshot->rx_queued_count = rx_head - rx_tail;
+    snapshot->rx_capacity_slots = TDMA_FLIGHT_RX_FRAME_SLOT_COUNT;
+    snapshot->rx_available_slots =
+        snapshot->rx_queued_count < snapshot->rx_capacity_slots
+            ? snapshot->rx_capacity_slots - snapshot->rx_queued_count : 0u;
     for (uint32_t i = 0u; i < TDMA_FLIGHT_RX_FRAME_SLOT_COUNT; i++) {
         if (tdma_flight_load_u32(&fifo->rx_slots[i].owner) ==
             TDMA_FLIGHT_RX_OWNER_CORE0_PARSE) {

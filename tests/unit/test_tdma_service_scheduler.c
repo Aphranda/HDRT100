@@ -439,6 +439,15 @@ int main(void)
     failed += expect_u32("flight fifo version",
                          flight_snapshot.version,
                          TDMA_FLIGHT_FIFO_VERSION);
+    failed += expect_u32("service rx fifo capacity",
+                         snapshot.flight_fifo_rx_capacity_slots,
+                         TDMA_FLIGHT_RX_FRAME_SLOT_COUNT);
+    failed += expect_u32("service rx fifo available",
+                         snapshot.flight_fifo_rx_available_slots,
+                         TDMA_FLIGHT_RX_FRAME_SLOT_COUNT);
+    failed += expect_u32("service rx budget remains undefined",
+                         snapshot.traffic_scheduler_rx_budget_defined,
+                         0u);
     failed += expect_u32("queue drained",
                          snapshot.traffic_scheduler_queued_count,
                          0u);

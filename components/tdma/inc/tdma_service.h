@@ -298,6 +298,15 @@ typedef struct {
     uint32_t traffic_scheduler_tx_reserved_bytes_per_cycle;
     uint32_t traffic_scheduler_tx_remaining_bytes_in_cycle;
     uint32_t traffic_scheduler_rx_budget_defined;
+    /* FIFO occupancy/capacity facts remain separate from scheduler RX budget. */
+    uint32_t flight_fifo_rx_publish_count;
+    uint32_t flight_fifo_rx_publish_drop_count;
+    uint32_t flight_fifo_rx_acquire_count;
+    uint32_t flight_fifo_rx_release_count;
+    uint32_t flight_fifo_rx_queued_count;
+    uint32_t flight_fifo_rx_capacity_slots;
+    uint32_t flight_fifo_rx_available_slots;
+    uint32_t flight_fifo_rx_parse_count;
     uint32_t traffic_scheduler_completed_seq[TDMA_TRAFFIC_CLASS_COUNT];
     uint32_t recovery_reserved_bytes_per_cycle;
     uint32_t recovery_buffer_count;
