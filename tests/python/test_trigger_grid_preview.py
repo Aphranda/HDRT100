@@ -58,7 +58,8 @@ def owner(tmp_path_factory):
     'late', 'session', 'role', 'epoch', 'run', 'slot', 'schedule', 'ring_config',
     'token_between_calls', 'model_during_plan', 'session_during_plan',
     'ring_during_plan', 'clock', 'clock_second', 'clock_reverse', 'lead_expired',
-    'model_not_yet_valid', 'configure_race', 'invalid_grid', 'invalid_lead',
+    'model_not_yet_valid', 'configure_race', 'invalid_grid', 'static_no_model',
+    'static_unlocked_model', 'invalid_lead',
     'configure_schedule', 'wrong_period', 'ring_schedule', 'base_not_yet_valid',
     'runtime_retained', 'missing_staged', 'disabled_staged', 'configure_slot',
     'stage_slot_changed', 'stage_schedule_changed', 'stage_during_plan',
@@ -113,6 +114,10 @@ bool tdma_runtime_owner_get_staged_ring_config(tdma_service_ring_runtime_config_
     *out=staged; return out->enabled != 0u;
 }
 uint32_t vdc_dpll_manager_feedback_session(void) { return session; }
+void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *out)
+{ memset(out, 0, sizeof(*out)); }
+bool vdc_dpll_manager_get_sync_event(vdc_dpll_manager_sync_event_t *out)
+{ (void)out; return false; }
 bool vdc_dpll_manager_get_committed_model(vdc_dpll_manager_committed_model_t *out)
 {
     ++model_reads;
@@ -151,7 +156,7 @@ int main(int argc,char **argv)
     model=(vdc_dpll_manager_committed_model_t){.token=17,.session=11,.role_generation=4,
         .clock_epoch_id=5,.clock_run_id=6,.local_slot=1,.applied_command_seq=13,
         .dco={.valid=1,.dco_update_seq=19,.nominal_period_ns=1000000,
-              .tdma_schedule_crc32=123}};
+              .tdma_schedule_crc32=123,.lock_state=VDC_DOMAIN_LOCK_LOCKED}};
     observer=(vdc_dpll_manager_sync_io_observer_status_t){.enabled=1,.last_sample_seq=9,
         .last_event_id=7,.expected_window_start_lo=2000000,.expected_window_start_hi=0,
         .sample_period_ns=4,
@@ -167,6 +172,27 @@ int main(int argc,char **argv)
     if(!strcmp(scenario,"invalid_grid")) {
         grid.subdivisions=1;
         assert(trigger_grid_preview_configure(&grid)==TRIGGER_TIME_GRID_ARGUMENT);return 0;
+    }
+    if(!strcmp(scenario,"static_no_model")) {
+        session=0; model_ok=false;
+        assert(trigger_grid_preview_configure(&grid)==TRIGGER_TIME_GRID_OK);
+        assert(trigger_grid_preview_configure(&grid)==TRIGGER_TIME_GRID_OK);
+        trigger_grid_preview_snapshot_t configured;
+        assert(trigger_grid_preview_snapshot(&configured)==TRIGGER_TIME_GRID_OK);
+        assert(configured.configured && configured.session==0 &&
+            configured.local_slot==staged.local_slot_id &&
+            configured.schedule_crc==staged.schedule_crc32);
+        assert(trigger_grid_preview_plan(7,10,1,100,2000000,&result)==
+            TRIGGER_GRID_PREVIEW_MODEL);
+        return 0;
+    }
+    if(!strcmp(scenario,"static_unlocked_model")) {
+        model.dco.lock_state=VDC_DOMAIN_LOCK_CHECKING;
+        assert(trigger_grid_preview_configure(&grid)==TRIGGER_TIME_GRID_OK);
+        trigger_grid_preview_snapshot_t configured;
+        assert(trigger_grid_preview_snapshot(&configured)==TRIGGER_TIME_GRID_OK);
+        assert(configured.configured && configured.session==0);
+        return 0;
     }
     if(!strcmp(scenario,"wrong_period")) {
         grid.period_ns=2000000;

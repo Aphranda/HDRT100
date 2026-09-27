@@ -15,13 +15,14 @@ HARNESS = r'''
 #include "vdc_dpll_manager.h"
 
 static uint32_t session=7;
+static uint32_t model_reads;
 static vdc_dpll_manager_committed_model_t model;
 static vdc_dpll_manager_vdc_status_t vdc_status;
 static vdc_dpll_manager_sync_event_t event;
 static uint64_t model_offset;
 uint32_t vdc_dpll_manager_feedback_session(void){return session;}
 bool vdc_dpll_manager_get_committed_model(vdc_dpll_manager_committed_model_t *out){
-    *out=model;return true;
+    ++model_reads;*out=model;return true;
 }
 void vdc_dpll_manager_get_vdc_status(vdc_dpll_manager_vdc_status_t *out){*out=vdc_status;}
 bool vdc_dpll_manager_get_sync_event(vdc_dpll_manager_sync_event_t *out){*out=event;return true;}
@@ -45,7 +46,7 @@ int main(int argc,char **argv){assert(argc==2);setup();
         .generation=4,.period_ns=1000000,.subdivisions=1000};
     assert(trigger_time_cursor_configure(&grid));
     if(!strcmp(argv[1],"no_sync")){trigger_time_cursor_service();assert(snap().valid==0&&snap().last_error==TRIGGER_TIME_CURSOR_NO_SYNC);return 0;}
-    if(!strcmp(argv[1],"no_lock")){vdc_status.ready=true;vdc_status.lock_state=VDC_DOMAIN_LOCK_CHECKING;observed(10,41,10000000);trigger_time_cursor_service();assert(snap().valid==0&&snap().last_error==TRIGGER_TIME_CURSOR_NO_LOCK);return 0;}
+    if(!strcmp(argv[1],"no_lock")){vdc_status.ready=true;vdc_status.lock_state=VDC_DOMAIN_LOCK_CHECKING;observed(10,41,10000000);trigger_time_cursor_service();assert(snap().valid==0&&snap().last_error==TRIGGER_TIME_CURSOR_NO_LOCK&&model_reads==0);return 0;}
     vdc_status.ready=true;vdc_status.lock_state=VDC_DOMAIN_LOCK_LOCKED;
     observed(!strcmp(argv[1],"different_local_seq")?91u:10u,41u,10000000u);
     if(!strcmp(argv[1],"model_late"))model.valid_from_raw=2500001u;

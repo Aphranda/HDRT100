@@ -61,17 +61,14 @@ void trigger_time_cursor_service(void)
 
     if (!__atomic_load_n(&s_cursor.configured, __ATOMIC_ACQUIRE)) return;
     if (!trigger_time_cursor_snapshot(&next)) return;
-    if (!session || !vdc_dpll_manager_get_committed_model(&model) ||
-        model.session != session || !model.token || !model.dco.valid ||
-        !model.dco.dco_update_seq) {
+    if (!session) {
         next.valid = 0u;
         next.last_error = TRIGGER_TIME_CURSOR_NO_SYNC;
         publish(&next);
         return;
     }
     vdc_dpll_manager_get_vdc_status(&vdc_status);
-    if (!vdc_status.sync_seq || !vdc_dpll_manager_get_sync_event(&event) ||
-        !event.valid) {
+    if (!vdc_status.sync_seq) {
         next.valid = 0u;
         next.last_error = TRIGGER_TIME_CURSOR_NO_SYNC;
         publish(&next);
@@ -86,6 +83,15 @@ void trigger_time_cursor_service(void)
         vdc_status.lock_state != VDC_DOMAIN_LOCK_LOCKED) {
         next.valid = 0u;
         next.last_error = TRIGGER_TIME_CURSOR_NO_LOCK;
+        publish(&next);
+        return;
+    }
+    if (!vdc_dpll_manager_get_committed_model(&model) ||
+        model.session != session || !model.token || !model.dco.valid ||
+        !model.dco.dco_update_seq ||
+        !vdc_dpll_manager_get_sync_event(&event) || !event.valid) {
+        next.valid = 0u;
+        next.last_error = TRIGGER_TIME_CURSOR_NO_SYNC;
         publish(&next);
         return;
     }

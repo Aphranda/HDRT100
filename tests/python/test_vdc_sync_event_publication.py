@@ -21,6 +21,7 @@ static vdc_dpll_manager_vdc_status_t s_vdc_status,s_published_vdc_status;
 static vdc_dpll_manager_sync_event_t s_vdc_sync_event_candidate;
 static vdc_dpll_manager_sync_event_t s_published_vdc_sync_event;
 static volatile uint32_t s_published_vdc_sync_event_guard;
+static vdc_dpll_manager_ring_observer_status_t s_ring_observer_status;
 static bool s_vdc_ready=true, observation_ready;
 static uint32_t board_uptime_ms(void){return 100u;}
 static bool vdc_dpll_manager_ring_observer_service(uint32_t *lock_state){
@@ -56,8 +57,12 @@ int main(void){
     assert(vdc_dpll_manager_get_sync_event(&event)&&event.sync_seq==2&&
         event.carrier_sequence==42);
     observation_ready=false;
+    s_ring_observer_status.last_result=VDC_DPLL_MANAGER_RING_OBSERVER_DUPLICATE;
     vdc_sync_ao_service();
     assert(s_published_vdc_status.sync_seq==2);
+    assert(vdc_dpll_manager_get_sync_event(&event)&&event.valid&&event.sync_seq==2);
+    s_ring_observer_status.last_result=VDC_DPLL_MANAGER_RING_OBSERVER_INACTIVE;
+    vdc_sync_ao_service();
     assert(vdc_dpll_manager_get_sync_event(&event)&&!event.valid);
     assert(!(s_published_vdc_sync_event_guard&1u));
     return 0;

@@ -126,7 +126,9 @@ uint32_t trigger_action_template_release_resources(void)
     uint32_t result=TRIGGER_ACTION_TEMPLATE_STORE_CHANGED;
     switch (deployment.active.local_role) {
     case TRIGGER_DEPLOYMENT_SLOT_COUNTER:
-        result=trigger_counter_unload(); break;
+        result=trigger_counter_stop();
+        if (!result) result=trigger_counter_unload();
+        break;
     case TRIGGER_DEPLOYMENT_SLOT_SWITCH_A:
     case TRIGGER_DEPLOYMENT_SLOT_SWITCH_B:
         result=trigger_switch_unload(); break;

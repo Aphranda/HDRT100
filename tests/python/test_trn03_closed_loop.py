@@ -1889,14 +1889,17 @@ def test_board_acquisition_sends_no_query_in_collection_window(monkeypatch, tmp_
     monkeypatch.setattr(trn03.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
     def command(board, text, args):
         calls.append((clock[0], text))
-        return "3,123,250000,8,0,0,0,1600,0" if text.endswith("STATus?") else '"OK"'
+        if text.endswith("STATus?"):
+            state = 3 if any("RECord:ARM" in value for _, value in calls) else 0
+            return f"{state},123,250000,8,0,0,0,1600,0"
+        return '"OK"'
     monkeypatch.setattr(trn03, "board_command", command)
     monkeypatch.setattr(trn03, "export_frozen", lambda *a, **kw: {"exported_at": clock[0]})
     args = SimpleNamespace(sample_interval_s=0.25, startup_timeout_s=0.5, window_s=0.5, arm_wait=1)
     boards = [SimpleNamespace(address="node0")]
     progress = SimpleNamespace(emit=lambda *a, **kw: None)
     result = trn03.acquire_board_records(boards, boards, args, [], progress, tmp_path)
-    assert len(calls) == 4  # ARM, control acknowledgement, START, STOP.
+    assert len(calls) == 5  # Prior status, ARM, acknowledgement, START, STOP.
     assert calls[-1][1] == "SYSTem:TDMA:RING:STOP"
     assert result["node0"]["exported_at"] >= 12.0
 
@@ -1916,7 +1919,11 @@ def test_finite_acquisition_stops_all_boards_before_export(monkeypatch, tmp_path
                 (failure == "start" and text.endswith(":START")) or
                 (failure == "stop" and text.endswith(":STOP"))):
             raise RuntimeError("injected " + failure)
-        return "3,123,250000,8,0,0,0,1600,0" if text.endswith("STATus?") else '"OK"'
+        if text.endswith("STATus?"):
+            state = 3 if any(node == board.address and "RECord:ARM" in value
+                             for node, value in calls) else 0
+            return f"{state},123,250000,8,0,0,0,1600,0"
+        return '"OK"'
     def export(board, *unused, **kwargs):
         assert sum(text.endswith(":STOP") for _, text in calls) == len(boards)
         assert failure is None
@@ -1936,6 +1943,35 @@ def test_finite_acquisition_stops_all_boards_before_export(monkeypatch, tmp_path
     stops = [row for row in actions if row["action"] == "STOP_BEFORE_EXPORT"]
     assert [row["node"] for row in stops] == [board.address for board in boards]
     assert sum("error" in row for row in stops) == (failure == "stop")
+
+
+def test_board_acquisition_saves_previous_frozen_record(monkeypatch, tmp_path):
+    clock, calls = [10.0], []
+    monkeypatch.setattr(trn03.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(trn03.time, "time", lambda: 123)
+    monkeypatch.setattr(trn03.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
+    def command(board, text, args):
+        calls.append(text)
+        if text.endswith("STATus?"):
+            if not any(item.endswith(":SAVE") for item in calls):
+                return "5,122,250000,8,8,0,0,1600,0"
+            if not any(item.startswith("SYSTem:TDMA:RECord:ARM ") for item in calls):
+                return "8,122,250000,8,8,0,0,1600,1"
+            return "3,123,250000,8,0,0,0,1600,0"
+        return '"OK"'
+    monkeypatch.setattr(trn03, "board_command", command)
+    monkeypatch.setattr(trn03, "export_frozen", lambda *a, **kw: {"exported": True})
+    board = SimpleNamespace(address="node0")
+    args = SimpleNamespace(sample_interval_s=0.25, startup_timeout_s=0.5,
+                           window_s=0.5, arm_wait=1, leave_running=False)
+    actions = []
+    trn03.acquire_board_records([board], [board], args, actions,
+                                SimpleNamespace(emit=lambda *a, **kw: None), tmp_path)
+    assert calls[:4] == ["SYSTem:TDMA:RECord:STATus?",
+                         "SYSTem:TDMA:RECord:SAVE",
+                         "SYSTem:TDMA:RECord:STATus?",
+                         "SYSTem:TDMA:RECord:ARM 123,250000,6"]
+    assert actions[0]["action"] == "SAVE_PREVIOUS_RECORD"
 
 
 def test_closed_loop_diagnostic_mode_preserves_failed_gate_and_continues() -> None:

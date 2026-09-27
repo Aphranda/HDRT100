@@ -1140,6 +1140,29 @@ def acquire_board_records(ordered, start_order, args, actions, progress, out_dir
     period_us = round(args.sample_interval_s * 1e6)
     count = math.ceil((args.startup_timeout_s + args.window_s) * 1e6 / period_us) + 2
     for board in ordered:
+        previous = record_status(board_command(
+            board, "SYSTem:TDMA:RECord:STATus?", args))
+        if previous is None:
+            raise RuntimeError(f"{board.address}: recorder status unavailable before ARM")
+        if previous["state"] == 5:
+            response = board_command(board, "SYSTem:TDMA:RECord:SAVE", args)
+            actions.append(dict(node=board.address, action="SAVE_PREVIOUS_RECORD",
+                                epoch=previous["epoch"], response=response))
+            if response.strip().strip('"') != "OK":
+                raise RuntimeError(f"{board.address}: previous recorder SAVE rejected")
+            deadline = time.monotonic() + args.arm_wait
+            while time.monotonic() < deadline:
+                previous = record_status(board_command(
+                    board, "SYSTem:TDMA:RECord:STATus?", args))
+                if previous is not None and previous["state"] in (8, 9):
+                    break
+                time.sleep(0.05)
+            if previous is None or previous["state"] != 8:
+                raise RuntimeError(
+                    f"{board.address}: previous recorder SAVE did not complete: {previous}")
+        elif previous["state"] not in (0, 8, 9):
+            raise RuntimeError(
+                f"{board.address}: recorder is not reusable: {previous}")
         actions.append(dict(node=board.address, action="RECORD_ARM", epoch=epoch,
             response=board_command(board, f"SYSTem:TDMA:RECord:ARM {epoch},{period_us},{count}", args)))
         deadline = time.monotonic() + args.arm_wait

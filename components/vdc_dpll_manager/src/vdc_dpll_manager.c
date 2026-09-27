@@ -2352,7 +2352,9 @@ void VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_sync_ao_service)(void)
     uint32_t lock_state = VDC_DOMAIN_LOCK_OFF;
 
     if (!vdc_dpll_manager_ring_observer_service(&lock_state)) {
-        if (s_published_vdc_sync_event.valid) {
+        if (s_ring_observer_status.last_result !=
+                VDC_DPLL_MANAGER_RING_OBSERVER_DUPLICATE &&
+            s_published_vdc_sync_event.valid) {
             (void)__atomic_add_fetch(&s_published_vdc_sync_event_guard, 1u,
                                      __ATOMIC_ACQ_REL);
             s_published_vdc_sync_event.valid = 0u;

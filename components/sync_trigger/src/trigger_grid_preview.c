@@ -123,30 +123,43 @@ static bool configure_stopped(void *context)
 {
     preview_configuration_t *request = context;
     tdma_ring_clock_snapshot_t ring;
-    vdc_dpll_manager_committed_model_t model;
+    vdc_dpll_manager_committed_model_t model = {0};
     if (!ring_stopped(&ring)) return false;
-    if (!model_available(&model) || !grid_matches_vdc_period(request->grid, &model) ||
-        model.local_slot != ring.local_slot_id ||
-        model.dco.tdma_schedule_crc32 != ring.schedule_crc32) {
+    const bool has_model = model_available(&model) &&
+        model.dco.lock_state == VDC_DOMAIN_LOCK_LOCKED;
+    if (request->grid->period_ns != VDC_DOMAIN_DEFAULT_PERIOD_NS ||
+        (has_model && (!grid_matches_vdc_period(request->grid, &model) ||
+                       model.local_slot != ring.local_slot_id ||
+                       model.dco.tdma_schedule_crc32 != ring.schedule_crc32))) {
         request->result = TRIGGER_GRID_PREVIEW_MODEL;
         return false;
     }
     if (request->grid->generation <= s_grid.last_generation) {
         const bool same = s_grid.configured && grid_equal(request->grid, &s_grid.grid) &&
-            binding_matches(&s_grid, &ring, &model);
+            (has_model ? binding_matches(&s_grid, &ring, &model) :
+                s_grid.session == 0u && s_grid.ring_config == ring.config_seq &&
+                s_grid.local_slot == ring.local_slot_id &&
+                s_grid.schedule_crc == ring.schedule_crc32);
         request->result = same ? TRIGGER_TIME_GRID_OK : TRIGGER_GRID_PREVIEW_GENERATION;
         return same;
     }
     const trigger_grid_preview_snapshot_t candidate = {
         .grid = *request->grid, .configured = 1u,
         .last_generation = request->grid->generation,
-        .session = model.session, .ring_config = ring.config_seq,
-        .role_generation = model.role_generation, .clock_epoch = model.clock_epoch_id,
-        .clock_run = model.clock_run_id, .local_slot = model.local_slot,
-        .schedule_crc = model.dco.tdma_schedule_crc32,
+        .session = has_model ? model.session : 0u, .ring_config = ring.config_seq,
+        .role_generation = has_model ? model.role_generation : 0u,
+        .clock_epoch = has_model ? model.clock_epoch_id : 0u,
+        .clock_run = has_model ? model.clock_run_id : 0u,
+        .local_slot = ring.local_slot_id,
+        .schedule_crc = ring.schedule_crc32,
     };
-    vdc_dpll_manager_committed_model_t after;
-    if (!model_available(&after) || memcmp(&model, &after, sizeof(model))) {
+    vdc_dpll_manager_committed_model_t after = {0};
+    tdma_ring_clock_snapshot_t ring_after;
+    if (!ring_stopped(&ring_after) || ring_after.config_seq != ring.config_seq ||
+        ring_after.local_slot_id != ring.local_slot_id ||
+        ring_after.schedule_crc32 != ring.schedule_crc32 ||
+        (has_model && (!model_available(&after) ||
+                       memcmp(&model, &after, sizeof(model))))) {
         request->result = TRIGGER_GRID_PREVIEW_CHANGED;
         return false;
     }
