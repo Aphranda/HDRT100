@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-27
 
 ## 文档接口与状态规则
 
@@ -26,7 +26,7 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 
 ## 当前主线
 
-优先收敛 **实时预算与飞行处理**，保留已工作的特等席。预算以当前 `PROJECT_CORE1_*`、`app_realtime_profile_*` 和实际 profile generation 为准；历史 380/500/850 us 仅是对应轮次的门限，不作为现行统一判据。
+优先收敛 **TDMA Foundation 的席位预算、双向准入与分段流式调度**，保留已工作的特等席。TDMA 的下一级抽象是 seat；T2、OTA、CONFIG、DIAGNOSTIC 都是挂载在 seat 上的 load instance。预算以当前 `PROJECT_CORE1_*`、`app_realtime_profile_*`、`tdma_profile_set_traffic()` 默认配置和实际 profile generation 为准；历史周期门限不作为现行统一判据。
 
 新增或扩容特等席须先提交席位、字节、频率、Core1/IRQ 最坏耗时及 SYNC 余量清单，由用户审核后实施，见 `EXE-SEAT-01`。健康镜像与统计走 Core0 异步诊断，不占特等席或新增 Core1 发布配额。
 
@@ -36,6 +36,21 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 | 2 | 异步准备与自主运行 | no-update 复用、selection 退休、迟到更新、STOP 取消及主从 blackout；同圈 overlay 不破坏节拍。 |
 | 3 | 特等席期限与负载隔离 | 事件生成到实际送达/采用的身份、最长间隔、覆盖/缺口及饱和负测；不依赖普通解析。 |
 | 4 | 产品化扩展 | 资源/WCET、全拓扑、长档运行、recovery/fence 和多板 T2 分别验收。 |
+
+### Foundation 席位预算与 load instance 顺序
+
+```text
+统一周期口径
+  -> 特等席 TX/RX 与 close guard
+  -> 一等席准入
+  -> 一等席 load instance（当前为 T2 position_q）
+  -> OTA/CONFIG/诊断分段 load instance
+  -> RX FIFO/CRC/重组/Core0 消费
+  -> ACK/诊断反向预算
+  -> 周期 guard 与恢复预算
+```
+
+发送预算、接收预算和业务应用预算必须分别闭合。不能因为 TX 发送快或主机观察到等待时间，就推断 RX 有余量；必须测量 RX FIFO 最坏积压、Core0 消费峰值、重组耗时和反向流量。
 
 首帧唯一身份、首次发车及首窗口诊断继续作为 TDMA 精细优化，不是 DPLL 使用后续稳态有效样本的前置。只有具体 TDMA 缺陷已破坏有效输入时，才把对应修复调回当前切片；不重开全部历史校准与启动证明。
 
@@ -61,6 +76,9 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 | TDMA-FLIGHT-002D | 非阻塞 overlay 与同圈装卸 | PENDING | 就绪采用、迟到顺延、逐 hop owner/CRC 与节拍不变的独立证据。 |
 | TDMA-FLIGHT-002E | byte/cycle 飞行声明与契约收敛 | PENDING | F1–F5 完成后独立 C11、registry 及顶层刷新；现有 pending 不自动提升。 |
 | TDMA-FLIGHT-002F | TX/RX 异步候车平台 | IN PROGRESS | 已有后台准备；补完整预算、峰值归因、拥塞、迟到复用、selection 退休与 STOP 取消。 |
+| TDMA-FLIGHT-002J | 席位双向预算 | IN PROGRESS | 绑定同一 profile generation，分别测 TX 准入、RX FIFO 峰值、Core0 消费、CRC/重组、ACK/诊断反向流和 guard；发送快但接收满必须进入背压证据。 |
+| TDMA-FLIGHT-002K | 席位准入状态机 | PENDING | 增加 `PRIORITY_SELECTED`、`PRIORITY_TX_COMMITTED`、`FIRST_CLASS_WINDOW_GRANTED`、`LOAD_TX_COMMITTED` 状态；VDC 新事件或窗口不足时撤销低等级 seat 准入。 |
+| TDMA-FLIGHT-002L | load instance 分段调度 | PENDING | OTA/CONFIG/诊断按 segment、每周期帧数、队列深度、deadline 和 overflow policy 运行；TX/RX/重组/反向流均有快照。 |
 | TDMA-FLIGHT-003 | 发车节拍下界与准入 | PENDING | 依据物理计划与 Calibration 输入给出可达下界；过快配置拒绝及只读证据齐全。 |
 | TDMA-DET-004 | prepare/preload/launch/wire/feedback 分解 | PENDING | 普通与自主路径分别定义子阶段、硬件边界与拍级合同。 |
 | TDMA-DET-005 | topology/baud/tail 动态容量门禁 | PENDING | 激活前完整 wire 与资源预算复核，超预算 fail closed。 |
@@ -105,6 +123,8 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 | TDMA-REL-001 | ACK/fence/retry 策略 | PENDING | 原始错误率、可靠交付、背压和明确失败分开验收。 |
 | TDMA-REL-002 | 原 Node recovery 双 buffer | IN PROGRESS | 固定 offset/预算已有；补 ACK、retry exhaustion、背压和多拓扑故障 HIL。 |
 | TDMA-T2-001 | T2 最小载荷预算 | PENDING | 固定 SHORT/body 与 phase 不超限；主线四板预约集成另验，单板分支结果不代替。 |
+| TDMA-T2-002 | T2 一等席 load instance | PENDING | 一等席窗口只提交不可变单 `position_q`；不等待特等席回环，不覆盖 VDC image；真实 selection、送达、应用和冻结证据闭合。 |
+| TDMA-T2-003 | T2 冻结诊断 load instance | PENDING | 正常一帧、异常追加一帧诊断，纳入 RX/TX 反向容量和队列背压，不占 typed SYNC body。 |
 | TDMA-QUALITY-001 | 逐流质量与背压 | PENDING | per-class、超预算及质量发布闭合。 |
 | TDMA-MAP-001 | 正式 System Pack map | PENDING | owner/generation、active/shadow 在明确 cycle 边界切换。 |
 | TDMA-ADAPTER-001 | PIO SPI 两级 flight gate | PENDING | byte/cycle 分级证据、完整性、FIFO 和 map apply 全范围验证。 |

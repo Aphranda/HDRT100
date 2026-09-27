@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-26
+Last updated: 2026-09-27
 
 ## 文档接口与范围
 
@@ -145,6 +145,49 @@ IRQ 固定配额、关闭预留、前台 service 和输出规划共同计入实�
 ### TDMA-DET-03：基础载荷优先的静态装配
 
 布局和配额在构建/配置准入阶段确定，RUN 不根据临时余量扩展。普通 mandatory body、typed body 和全局 trailer 各按自己的 codec 校验；维护流不能夺取实时短帧、其他 owner 段或 guard。资源、wire 最长时间和 phase 邻接检查由 `app_runtime.c` 及 layout 静态断言执行。
+
+### TDMA-DET-04：分层周期预算与席位准入
+
+TDMA 的下一级抽象是 seat，而不是某个具体功能。具体功能以 load instance 挂载到 seat 上：
+
+```text
+TDMA Foundation
+  -> seat 服务等级与周期预算
+      -> load instance 准入、排队、分段和背压
+          -> T2 / OTA / CONFIG / DIAGNOSTIC 等具体功能
+```
+
+TDMA Foundation 对每个运行周期同时预算 TX、RX、Core1/IRQ、Core0 消费、反向 ACK/诊断和 guard。发送速度快但 RX FIFO 或 Core0 消费跟不上时，业务仍然失败；因此每周期发送字节预留不能单独代表可交付能力。
+
+周期日历按以下顺序解释，具体边界由当前 profile、`APP_REALTIME_PHASE_TABLE` 和硬件读回决定：
+
+```text
+特等席 VDC/DPLL/SYNC 提交
+  -> 特等席硬件 selection/DMA 交接与 close guard
+  -> 一等席准入判断
+  -> 一等席 load instance（当前挂载 T2 position_q）
+  -> OTA/配置/诊断分段流
+  -> RX FIFO 消费、CRC、重组和业务交接
+  -> ACK/诊断反向发送
+  -> 周期 guard
+```
+
+`PROJECT_CORE1_PROFILE_1500US_CYCLES` 是当前 Core1 的候选整表周期；`TDMA_PROFILE_DEFAULT_CYCLE_PERIOD_NS` 是 TDMA Foundation 默认 wire profile 周期。两者不是同一个事实源，必须在 STOP/ARM 后通过 profile generation 和周期读回统一，不能将二者直接相减作为业务余量。
+
+每个 traffic class 必须同时提供 TX 和 RX 预算：
+
+```text
+tx_admission <= tx_service_capacity
+rx_arrival <= rx_fifo_capacity + rx_consume_capacity
+ack_and_diagnostic_tx <= reverse_tx_capacity
+core0_consume_peak <= fixed_core0_phase_budget
+```
+
+seat 上挂载的 load instance 至少包括 traffic class、seat、owner、deadline、TX/RX 每周期字节和帧上限、segment size、TX/RX queue depth、overflow policy、CRC/reassembly 成本以及停止时的退休规则。T2 的 `position_q` 是当前挂载在一等席上的单帧负载；OTA、CONFIG 和诊断是挂载在较低席位的有界分段负载。不同 load instance 可以共用 FIFO 基础设施，但不能共用完成语义。
+
+priority provider 返回 `READY` 或 `EMPTY` 只代表特等席 offer/保留，不能代表物理发送已完成。只有记录 `PRIORITY_SELECTED`、`PRIORITY_TX_COMMITTED` 后，TDMA 才能计算 `FIRST_CLASS_WINDOW_GRANTED`；VDC 新事件、绑定变化、故障或窗口不足时立即撤销一等席准入。任何准入都不能修改已被 Core1 或 DMA 引用的 VDC image。
+
+预算完成事实必须分开记录：`queued`、`admitted`、`selected`、`tx_committed`、`rx_queued`、`rx_consumed`、`reassembled`、`applied`。软件发布计数、FIFO 入队和 priority offer 都不能冒充物理发送、对端接收或业务应用。
 
 ## 跨域契约入口
 
