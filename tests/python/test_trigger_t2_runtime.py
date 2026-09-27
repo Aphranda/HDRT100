@@ -146,7 +146,8 @@ int main(int argc,char **argv)
 {
     assert(argc==2); counter.loaded=1; counter.io.valid=1;
     const char *test=argv[1];
-    trigger_t2_runtime_config_t c=config(!strcmp(test,"origin"));
+    trigger_t2_runtime_config_t c=config(!strcmp(test,"origin") ||
+        !strcmp(test,"origin_pending"));
     if (!strcmp(test,"capacity")) {
         c.templates.count=2; c.templates.row[1]=c.templates.row[0];
         c.templates.row[1].template_id=8; c.templates.row[1].delta_q=10;
@@ -162,16 +163,25 @@ int main(int argc,char **argv)
     assert(trigger_t2_runtime_configure(&c));
     assert(trigger_t2_runtime_start(11,0));
     if (!strcmp(test,"different_local_seq")) sample_offset=80;
-    if(!strcmp(test,"origin")) {
+    if(!strcmp(test,"origin") || !strcmp(test,"origin_pending")) {
         bool saw_preview=false, saw_freeze=false;
         for (unsigned i=0u; i<16u; ++i) {
             now_ns=(i+1u)*1000000u; counter.io.count32=(i+1u)*300u; tx_pending=false;
+            // Threshold FREEZE must be offered even while a prior PREVIEW
+            // waits in transport; the transport owner arbitrates replacement.
+            if (!strcmp(test,"origin_pending") && i==15u) tx_pending=true;
             assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
             trigger_t2_runtime_prepare_core0(); tx_pending=false;
+        }
+        for (unsigned i=0u; i<3u; ++i) {
+            now_ns+=1000000u; counter.io.count32+=100u; tx_pending=false;
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+            trigger_t2_runtime_prepare_core0();
         }
         for (unsigned i=0u; i<transmitted_count; ++i) {
             if (transmitted[i].position_id != 1u) continue;
             if (transmitted[i].stage == TRIGGER_POSITION_STAGE_PREVIEW) {
+                assert(!saw_freeze); // no PREVIEW after this position's threshold
                 saw_preview=true; assert(transmitted[i].prediction_version &&
                     transmitted[i].window_pulses && transmitted[i].window_syncs);
             }
@@ -192,6 +202,17 @@ int main(int argc,char **argv)
         remote_descriptor.descriptor_crc32=trigger_position_descriptor_crc(&remote_descriptor);
         assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_DESCRIPTOR);
         assert(!take() && !schedule_calls); return 0;
+    }
+    if (!strcmp(test,"version_overflow")) {
+        remote_descriptor.prediction_version = UINT16_MAX + 1u;
+        remote_descriptor.descriptor_crc32 = trigger_position_descriptor_crc(&remote_descriptor);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_DESCRIPTOR);
+        assert(snapshot().descriptor_reject_count==1 && !schedule_calls && !take());
+        return 0;
+    }
+    if (!strcmp(test,"version_limit")) {
+        remote_descriptor.prediction_version=UINT16_MAX;
+        remote_descriptor.descriptor_crc32=trigger_position_descriptor_crc(&remote_descriptor);
     }
     assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
     assert(!take() && !schedule_calls && !inverse_calls);
@@ -223,7 +244,8 @@ int main(int argc,char **argv)
     }
     if (!strcmp(test,"reject_no_retry")) accept_schedule=false;
     if (!strcmp(test,"reject_uncertain")) rejected_uncertain=true;
-    freeze(1,!strcmp(test,"fallback") || !strcmp(test,"freeze_stops_solve")?2:1);
+    freeze(1,!strcmp(test,"version_limit")?UINT16_MAX:
+        !strcmp(test,"fallback") || !strcmp(test,"freeze_stops_solve")?2:1);
     const unsigned frozen_solves=inverse_calls;
     const int result=trigger_t2_runtime_service();
     if (!strcmp(test,"reject_uncertain")) {
@@ -339,10 +361,10 @@ def runtime(tmp_path_factory):
         [ROOT / "components/sync_trigger/src/trigger_t2_runtime.c"])
 
 
-@pytest.mark.parametrize("case", ["origin", "receiver", "fallback", "wrong_epoch",
+@pytest.mark.parametrize("case", ["origin", "origin_pending", "receiver", "fallback", "wrong_epoch",
     "expired", "freeze_missing", "freeze_stops_solve", "capacity", "gateway",
     "independent_positions", "reject_no_retry", "stop", "restart", "identity",
-    "wrong_receipt", "reject_uncertain", "conflict", "different_local_seq", "all_events_retained", "zero_pulse_index"])
+    "wrong_receipt", "reject_uncertain", "conflict", "different_local_seq", "all_events_retained", "zero_pulse_index", "version_overflow", "version_limit"])
 def test_t2_runtime(runtime, case):
     result = subprocess.run([str(runtime), case], capture_output=True,
                             text=True, timeout=5)

@@ -16,6 +16,8 @@
 #define TRIGGER_T2_RUNTIME_EVENT_CAPACITY \
     (TRIGGER_T2_RUNTIME_POSITION_COUNT * TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY)
 #define TRIGGER_T2_DESCRIPTOR_TARGET_GRACE_SYNC 2u
+/* Compact wire revision is never truncated or wrapped within a run. */
+#define TRIGGER_T2_PREDICTION_VERSION_MAX UINT16_MAX
 
 typedef enum {
     TRIGGER_T2_RUNTIME_OK = 0u,
@@ -65,6 +67,7 @@ typedef struct {
     uint32_t action_origin_width_ticks[TRIGGER_T2_RUNTIME_POSITION_COUNT];
     uint64_t action_deadline_tick[TRIGGER_T2_RUNTIME_POSITION_COUNT];
     uint32_t core0_prepare_calls, core0_preview_saved, core0_prepare_last_reason;
+    uint32_t prediction_version_exhausted_mask;
     uint8_t event_dispatched[TRIGGER_T2_RUNTIME_EVENT_CAPACITY];
     uint64_t last_counter_count;
     trigger_time_cursor_snapshot_t cursor;

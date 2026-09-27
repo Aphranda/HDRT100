@@ -84,12 +84,19 @@ def test_production_position_submit_prepare_and_cancel(tmp_path):
 #include <stdint.h>
 #include <string.h>
 #include "trigger_position_mailbox.h"
-typedef struct {
-    uint32_t position_tx_active, position_tx_target_mask;
-    uint32_t position_tx_fragment_index, position_tx_sequence;
-    uint32_t position_tx_reject_count, position_tx_position_id, next_seq32;
-    uint8_t position_tx_wire[TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE];
-} tx_owner_t;
+    typedef struct {
+        uint32_t position_tx_active, position_tx_target_mask;
+        uint32_t position_tx_fragment_index, position_tx_sequence;
+        uint32_t position_tx_reject_count, position_tx_position_id, next_seq32;
+        uint32_t position_tx_phase, position_tx_wait_reason;
+        uint8_t position_tx_wire[TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE];
+    } tx_owner_t;
+    enum {
+        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_STAGED = 1u,
+        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILED = 8u,
+        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE = 0u,
+        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_BAD_DESCRIPTOR = 1u,
+    };
 static tx_owner_t s_tdma_flight_sync;
 static trigger_position_mailbox_t s_position_tx_mailbox;
 static volatile uint32_t s_position_cancel_requested;

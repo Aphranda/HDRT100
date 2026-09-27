@@ -47,6 +47,11 @@ static t2_deadline_mailbox_t s_deadline_mailbox[TRIGGER_T2_RUNTIME_POSITION_COUN
 static t2_deadline_plan_t s_deadline[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 static uint32_t s_deadline_seen[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 static uint32_t s_frozen_public;
+/* Core1 publishes the threshold before attempting the FREEZE handoff; Core0
+ * abandons in-progress predictions for that position. Transport additionally
+ * serializes PREVIEW/FREEZE acceptance to close the final check/stage race. */
+static uint32_t s_threshold_public;
+static uint32_t s_version_exhausted;
 static uint32_t s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
 static uint32_t s_pending_mask;
 static uint32_t s_core0_prepare_calls, s_core0_preview_saved, s_core0_prepare_last_reason;
@@ -112,6 +117,9 @@ static void publish_end(void)
 
 static bool stage_one_freeze(void)
 {
+    /* The legacy descriptor mailbox remains single-depth until compact-q
+     * transport admission is installed. Do not overtake an in-flight PREVIEW
+     * and reorder it behind FREEZE. */
     if (!s_pending_mask || distributed_refmem_position_descriptor_pending())
         return true;
     for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT;
@@ -186,7 +194,9 @@ static T2_BOUNDED bool accept_remote_position(uint64_t current_ms)
     if (!distributed_refmem_get_position_descriptor(
             s_config.source_slot, &descriptor)) return true;
     if (descriptor.position_id < 1u ||
-        descriptor.position_id > TRIGGER_T2_RUNTIME_POSITION_COUNT) goto reject;
+        descriptor.position_id > TRIGGER_T2_RUNTIME_POSITION_COUNT ||
+        descriptor.prediction_version > TRIGGER_T2_PREDICTION_VERSION_MAX)
+        goto reject;
     const uint32_t index = descriptor.position_id - 1u;
     const uint32_t bit = 1u << index;
     if (s_state.frozen_mask & bit) return true;
@@ -519,6 +529,9 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
     memset(s_deadline_mailbox, 0, sizeof(s_deadline_mailbox));
     memset(s_deadline_seen, 0, sizeof(s_deadline_seen));
     __atomic_store_n(&s_frozen_public, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_threshold_public, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_version_exhausted, 0u, __ATOMIC_RELEASE);
+    s_core0_prepare_calls = s_core0_preview_saved = s_core0_prepare_last_reason = 0u;
     s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
     s_count_head = s_count_size = s_count_last_seq = 0u;
     memset(s_count_history, 0, sizeof(s_count_history));
@@ -573,6 +586,8 @@ static T2_BOUNDED bool service_origin(void)
         return false;
     }
     s_pending_mask |= mask;
+    __atomic_store_n(&s_threshold_public, s_state.predictor.announced_mask,
+                     __ATOMIC_RELEASE);
     return stage_one_freeze();
 }
 
@@ -645,6 +660,8 @@ bool trigger_t2_runtime_snapshot(trigger_t2_runtime_snapshot_t *out)
             out->core0_prepare_calls=s_core0_prepare_calls;
             out->core0_preview_saved=s_core0_preview_saved;
             out->core0_prepare_last_reason=s_core0_prepare_last_reason;
+            out->prediction_version_exhausted_mask =
+                __atomic_load_n(&s_version_exhausted, __ATOMIC_ACQUIRE);
             return true;
         }
     }
@@ -733,7 +750,8 @@ void trigger_t2_runtime_prepare_core0(void)
     for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT;
          ++index) {
         const uint32_t bit = 1u << index;
-        if (snapshot.predictor.announced_mask & bit ||
+        if (__atomic_load_n(&s_threshold_public, __ATOMIC_ACQUIRE) & bit ||
+            snapshot.predictor.announced_mask & bit ||
             snapshot.last_counter_count >= snapshot.predictor.threshold_count[index] ||
             snapshot.last_counter_count >= snapshot.predictor.target_count[index])
             continue;
@@ -785,7 +803,6 @@ void trigger_t2_runtime_prepare_core0(void)
             .window_pulses = (uint32_t)(snapshot.last_counter_count - old.count),
             .window_syncs = (uint32_t)(coarse - old.coarse),
         };
-        if (!next.prediction_version) next.prediction_version = 1u;
         uint64_t target_q;
         if (!trigger_position_descriptor_solve_q(
                 &next, s_config.grid.subdivisions, &target_q)) { s_core0_prepare_last_reason=6u; continue; }
@@ -802,8 +819,17 @@ void trigger_t2_runtime_prepare_core0(void)
             previous.target_ms_index == next.target_ms_index &&
             previous.target_fine_slice_index == next.target_fine_slice_index)
             continue;
+        if (previous.prediction_version >= TRIGGER_T2_PREDICTION_VERSION_MAX) {
+            /* Preserve the last valid local version for FREEZE fallback.
+             * A new run is needed before the compact revision can restart. */
+            __atomic_fetch_or(&s_version_exhausted, bit, __ATOMIC_RELEASE);
+            s_core0_prepare_last_reason = 10u;
+            continue;
+        }
         next.descriptor_crc32 = trigger_position_descriptor_crc(&next);
         if (session != __atomic_load_n(&s_session, __ATOMIC_ACQUIRE)) return;
+        if (__atomic_load_n(&s_threshold_public, __ATOMIC_ACQUIRE) & bit)
+            continue;
         if (distributed_refmem_stage_position_descriptor(
                 &next, s_config.target_mask)) {
             preview_save(index, &next); ++s_core0_preview_saved; s_core0_prepare_last_reason=8u;
