@@ -23,7 +23,7 @@ int main(void){
     const sync_io_persona_descriptor_t *r=sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_REFERENCE_MONITOR);
     const sync_io_persona_descriptor_t *c=sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_PULSE_COUNTER);
     const sync_io_persona_descriptor_t *g=sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_GATEWAY);
-    assert(s->sm_mask==10 && s->instruction_words==4 && !s->gpio_read_mask);
+    assert(s->sm_mask==10 && s->instruction_words==SYNC_IO_SWITCH_INSTRUCTION_WORDS && !s->gpio_read_mask);
     assert(!s->dma_channel_mask && !s->workspace_mask && !s->irq_mask);
     const sync_io_persona_manager_hooks_t hooks={.load=load_hook};
     sync_io_persona_manager_handle_t a,b,conflict;
@@ -40,7 +40,7 @@ int main(void){
         assert(!sync_io_pio0_runtime_prepare(c->id,&hooks,NULL,&conflict));
         assert(!sync_io_pio0_runtime_prepare(g->id,&hooks,NULL,&conflict));
         assert(!sync_io_pio0_runtime_prepare_io(s->id,0,mask<<16,&hooks,NULL,&conflict));
-        assert(s_runtime.active_count==2 && s_runtime.instruction_words_total==15);
+        assert(s_runtime.active_count==2 && s_runtime.instruction_words_total==SYNC_IO_SWITCH_INSTRUCTION_WORDS+r->instruction_words);
         assert(s_runtime.used_gpio_write_mask==(mask<<16));
         assert(s_runtime.leases[a.slot].descriptor==actual && actual->gpio_write_mask==(mask<<16));
         assert(s_runtime.leases[b.slot].descriptor!=actual && s->gpio_write_mask==(15u<<16));
@@ -79,7 +79,7 @@ static bool initialized=true,capture,sequence,encoder,pwm;
 static struct {bool running;} s_model_pulse;
 static bool s_wave_output_manager_active,s_wave_output_sm_claimed,s_wave_output_dma_claimed,s_wave_output_program_loaded;
 static uint32_t s_schedule_phase;
-static uintptr_t s_run_output_token,s_reference_token,s_counter_token,s_gateway_token,s_switch_token;
+static uintptr_t s_turntable_source_token,s_run_output_token,s_reference_token,s_counter_token,s_gateway_token,s_switch_token;
 #define get_core_num() core
 #define sync_io_core_initialized() initialized
 #define sync_io_core_capture_is_running() capture

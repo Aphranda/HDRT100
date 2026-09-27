@@ -50,17 +50,31 @@ static mock_pio pio; static struct {uint32_t gpio_out;} sio; static struct {stru
 #define io_bank0_hw (&io_bank)
 #define pads_bank0_hw (&pads)
 static uint claimed,loaded,core,allowed_mask;
-static bool gate,deny_load;
+static bool gate,deny_load,ring_running;
+static void *tdma_runtime_owner_get(void){return NULL;}
+static bool tdma_service_run_stopped_maintenance(void *owner,bool (*fn)(void *),void *ctx){(void)owner;return !ring_running&&fn(ctx);}
 static uint fail_init;
 static bool dir[30];
 static uint16_t instruction_memory[32];
 static struct {
     uint pc,wrap_bottom,wrap_top,tx_count,rx_count;
-    uint32_t osr,isr,tx[4],rx[4];
+    uint32_t osr,isr,x,y,tx[4],rx[4];
     uint writes;
     uint64_t last_write_tick;
 } machine[4];
 static uint64_t tick_count;
+static uint32_t raw_reads,origin_cost=8,late_after;
+static struct {uint32_t pause,source,raw_hi_dummy,raw_lo_dummy;} timer;
+static void advance(uint cycles);
+static uint32_t raw_lo(void){++raw_reads;advance(late_after&&raw_reads==2?40000:origin_cost);return (uint32_t)tick_count;}
+#define timer1_hw (&timer)
+#define timerawh raw_hi_dummy
+#define timerawl raw_lo_dummy + raw_lo()
+#define TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS 0u
+#define clk_sys 0u
+static uint clock_get_hz(uint c){(void)c;return BOARD_SYS_CLOCK_HZ;}
+enum {pio_y=2,pio_osr=7};
+
 static uint sync_enables,last_enable_mask;
 static void check_sm(PIO p,uint s){assert(p==&pio&&(s==1u||s==3u));}
 static void check_owned(PIO p,uint s){check_sm(p,s);assert(claimed&(1u<<s));}
@@ -89,7 +103,8 @@ static void advance(uint cycles){
                     machine[s].isr=0u;
                 }
             }else if(op==5u){
-                assert((ins&7u)==7u&&((ins>>3)&3u)==0u); /* source OSR, no transform */
+                assert(((ins&7u)==7u||(ins&7u)==2u)&&((ins>>3)&3u)==0u);
+                const uint32_t value=(ins&7u)==2u?machine[s].y:machine[s].osr;
                 const uint dest=(ins>>5)&7u;
                 if(dest==0u){
                     const uint route=pio.sm[s].pinctrl;
@@ -98,10 +113,12 @@ static void advance(uint cycles){
                     assert(n&&n<=4&&base>=16&&base+n<=20);
                     const uint32_t mask=((1u<<n)-1u)<<base;
                     assert(!(mask&~(allowed_mask<<16)));
-                    pio.dbg_padout=(pio.dbg_padout&~mask)|((machine[s].osr<<base)&mask);
+                    pio.dbg_padout=(pio.dbg_padout&~mask)|((value<<base)&mask);
                     machine[s].last_write_tick=tick_count;++machine[s].writes;
-                }else{assert(dest==6u);machine[s].isr=machine[s].osr;}
-            }else {assert(!"unexpected assembled instruction");}
+                }else{assert(dest==6u);machine[s].isr=value;}
+            }else if(op==3u){assert(((ins>>5)&7u)==1u);machine[s].x=machine[s].osr;}
+            else if(op==0u){assert(((ins>>5)&7u)==2u);if(machine[s].x-- != 0u)next=ins&31u;}
+            else {assert(!"unexpected assembled instruction");}
             machine[s].pc=next;
         }
     }
@@ -110,8 +127,8 @@ static unsigned get_core_num(void){return core;}
 static bool pio_sm_is_claimed(PIO p,uint s){check_sm(p,s);return (claimed&(1u<<s))!=0;}
 static void pio_sm_claim(PIO p,uint s){check_sm(p,s);assert(!(claimed&(1u<<s)));claimed|=1u<<s;}
 static void pio_sm_unclaim(PIO p,uint s){check_owned(p,s);assert(!(pio.ctrl&(1u<<s)));claimed&=~(1u<<s);}
-static bool pio_can_add_program(PIO p,const struct pio_program *g){assert(p==&pio);return !deny_load&&g->length==4;}
-static uint pio_add_program(PIO p,const struct pio_program *g){assert(p==&pio&&!loaded&&g->length==4);memcpy(instruction_memory+9,g->instructions,g->length*sizeof(uint16_t));loaded=1;return 9;}
+static bool pio_can_add_program(PIO p,const struct pio_program *g){assert(p==&pio);return !deny_load&&g->length==6;}
+static uint pio_add_program(PIO p,const struct pio_program *g){assert(p==&pio&&!loaded&&g->length==6);memcpy(instruction_memory+9,g->instructions,g->length*sizeof(uint16_t));instruction_memory[11]=(instruction_memory[11]&~31u)|11u;loaded=1;return 9;}
 static void pio_remove_program(PIO p,const struct pio_program *g,uint o){assert(p==&pio&&o==9&&loaded);loaded=0;}
 static pio_sm_config pio_get_default_sm_config(void){return (pio_sm_config){0};}
 static void sm_config_set_wrap(pio_sm_config*c,uint a,uint b){c->wrap_bottom=a;c->wrap_top=b;}
@@ -123,7 +140,13 @@ static void pio_sm_set_enabled(PIO p,uint s,bool e){check_owned(p,s);assert(!e);
 static void pio_sm_clear_fifos(PIO p,uint s){check_owned(p,s);machine[s].tx_count=0;machine[s].rx_count=0;}
 static void pio_sm_restart(PIO p,uint s){check_owned(p,s);machine[s].isr=0;}
 static uint pio_encode_jmp(uint x){return x;}
-static void pio_sm_exec(PIO p,uint s,uint x){check_owned(p,s);assert(!(pio.ctrl&(1u<<s))&&x==9);machine[s].pc=x;}
+static uint pio_encode_pull(bool c,bool b){assert(!c&&b);return 0x80a0;}
+static uint pio_encode_mov(uint d,uint r){return 0xa000|(d<<5)|r;}
+static void pio_sm_exec(PIO p,uint s,uint x){check_owned(p,s);assert(!(pio.ctrl&(1u<<s)));
+    if(x==9)machine[s].pc=x;
+    else if(x==0x80a0)machine[s].osr=pop(machine[s].tx,&machine[s].tx_count);
+    else {assert(x==pio_encode_mov(pio_y,pio_osr));machine[s].y=machine[s].osr;}}
+
 static void pio_sm_set_pins_with_mask(PIO p,uint s,uint v,uint m){check_owned(p,s);assert(!(m&~(allowed_mask<<16))&&!(v&~m));p->dbg_padout=(p->dbg_padout&~m)|v;}
 static void pio_sm_set_pindirs_with_mask(PIO p,uint s,uint v,uint m){check_owned(p,s);assert(!(m&~(allowed_mask<<16))&&!(v&~m));p->dbg_padoe=(p->dbg_padoe&~m)|v;}
 static void pio_sm_put(PIO p,uint s,uint v){check_owned(p,s);assert(!(pio.ctrl&(1u<<s))&&machine[s].tx_count<4);machine[s].tx[machine[s].tx_count++]=v;}
@@ -203,7 +226,7 @@ static void route_check(sync_io_switch_snapshot_t s,uint mask){
         assert(!(bits&~mask)&&!(covered&bits));covered|=bits;active|=1u<<g.sm;
         assert(!g.rx_level&&!g.tx_level);
     }
-    assert(covered==mask&&s.sm_claimed_mask==10&&s.instruction_words==4&&!s.sm_enabled_mask);
+    assert(covered==mask&&s.sm_claimed_mask==10&&s.instruction_words==6&&!s.sm_enabled_mask);
     assert(active==(expected_groups==2?10u:2u));
 }
 static void execute(uint generation,uint mask,uint code){
@@ -222,7 +245,7 @@ static void execute(uint generation,uint mask,uint code){
     assert(!sync_io_switch_release(generation));
     advance(1); /* actual PULL consumes TX but still no GPIO write or receipt */
     assert(pads_output()==original_pad&&get().state==SYNC_IO_SWITCH_PENDING);
-    advance(1); /* actual MOV PINS, independently masked for each group */
+    advance(3); /* OUT X, JMP, actual MOV PINS, independently masked for each group */
     assert((pads_output()&mask)==code);
     assert((pads_output()&(~mask&15u))==(original_pad&(~mask&15u)));
     assert(get().state==SYNC_IO_SWITCH_PENDING);
@@ -267,7 +290,7 @@ static void lifecycle(void){
     assert(sync_io_switch_stop(g));uint cancel=get().cancelled_sequence;
     advance(100);assert(get().completed_sequence==done&&get().cancelled_sequence==cancel&&!get().applied_valid);
     assert(!(get().actual_output_mask&5u));
-    assert(sync_io_switch_stage(g,4));assert(sync_io_switch_apply(g));advance(2); /* output happened, no receipt yet */
+    assert(sync_io_switch_stage(g,4));assert(sync_io_switch_apply(g));advance(4); /* output happened, no receipt yet */
     assert((get().actual_output_mask&5u)==4u&&get().state==SYNC_IO_SWITCH_PENDING);
     assert(sync_io_switch_stop(g));advance(100);
     assert(get().completed_sequence==done&&!get().applied_valid&&!(get().actual_output_mask&5u));
@@ -277,9 +300,9 @@ static void partial_and_bad_receipt(void){
     uint32_t g;initialize(5u,0u);assert(sync_io_switch_load(5u,&g));
     assert(sync_io_switch_stage(g,5));assert(sync_io_switch_apply(g));
     pio.ctrl&=~8u; /* injected stalled second group: first receipt is insufficient */
-    advance(4);assert(get().state==SYNC_IO_SWITCH_PENDING&&get().receipt_mask==1u);
-    pio.ctrl|=8u;advance(4);assert(get().state==SYNC_IO_SWITCH_COMPLETE&&get().applied_code==5u);
-    assert(sync_io_switch_stage(g,0));assert(sync_io_switch_apply(g));advance(4);
+    advance(6);assert(get().state==SYNC_IO_SWITCH_PENDING&&get().receipt_mask==1u);
+    pio.ctrl|=8u;advance(6);assert(get().state==SYNC_IO_SWITCH_COMPLETE&&get().applied_code==5u);
+    assert(sync_io_switch_stage(g,0));assert(sync_io_switch_apply(g));advance(6);
     machine[3].rx[0]^=1u;
     assert(get().state==SYNC_IO_SWITCH_FAULT&&get().fault&&!get().applied_valid);
     assert(get().completed_sequence==1u&&!(get().actual_output_mask&5u));
@@ -297,9 +320,50 @@ static void failures(void){
     assert(sync_io_switch_release(g));restored();uint32_t newgen;assert(sync_io_switch_load(5,&newgen)&&newgen>g);
     assert(!sync_io_switch_stage(g,0));assert(sync_io_switch_release(newgen));restored();
 }
+static void deadline_case(const char *name){
+    uint32_t g;initialize(5u,0u);assert(sync_io_switch_load(5u,&g));core=1;
+    uint64_t target=tick_count+30000;
+    if(!strcmp(name,"deadline_late"))target=tick_count+10;
+    if(!strcmp(name,"deadline_origin"))origin_cost=80;
+    if(!strcmp(name,"deadline_uncertain"))late_after=1;
+    const bool ok=sync_io_switch_realtime_schedule_at(5u,target);
+    sync_io_switch_deadline_status_t d;assert(sync_io_switch_realtime_status(&d));
+    if(!strcmp(name,"deadline_late")||!strcmp(name,"deadline_origin")||!strcmp(name,"deadline_uncertain")){
+        assert(!ok&&!(pio.ctrl&10u));
+        assert(d.state==SYNC_IO_SWITCH_DEADLINE_CANCELLED||d.state==SYNC_IO_SWITCH_DEADLINE_UNCERTAIN);
+        if(!strcmp(name,"deadline_origin"))assert(d.state==SYNC_IO_SWITCH_DEADLINE_CANCELLED);
+        if(!strcmp(name,"deadline_uncertain"))assert(d.state==SYNC_IO_SWITCH_DEADLINE_UNCERTAIN);
+    }else{
+        assert(ok&&d.state==SYNC_IO_SWITCH_DEADLINE_ARMED&&d.sequence==1);
+        assert(d.origin_after_tick-d.origin_before_tick<=64);
+        assert(!sync_io_switch_realtime_schedule_at(0u,target+40000));
+        if(!strcmp(name,"deadline_cancel")){
+            assert(sync_io_switch_realtime_cancel());advance(40000);
+            assert(sync_io_switch_realtime_status(&d)&&d.state==SYNC_IO_SWITCH_DEADLINE_CANCELLED);
+            assert(!(pio.dbg_padout&(5u<<16))&&!machine[1].writes&&!machine[3].writes);
+            core=0;assert(sync_io_switch_stop(g));assert(sync_io_switch_release(g));restored();return;
+        }
+        advance((uint)(target-tick_count-1));assert(!(pio.dbg_padout&(5u<<16)));
+        advance(4);assert((pio.dbg_padout&(5u<<16))==(5u<<16));
+        assert(machine[1].last_write_tick==machine[3].last_write_tick);
+        assert(machine[1].last_write_tick>=target&&machine[1].last_write_tick<=target+64);
+        advance(3);
+        /* RUN Core0 query must not consume either hardware receipt. */
+        ring_running=true;core=0;
+        assert(get().state==SYNC_IO_SWITCH_PENDING&&machine[1].rx_count==1&&machine[3].rx_count==1);
+        core=1;sync_io_switch_realtime_service_core1();ring_running=false;
+        assert(sync_io_switch_realtime_status(&d)&&d.state==SYNC_IO_SWITCH_DEADLINE_COMPLETE&&d.receipt_mask==3);
+        target=tick_count+30000;assert(sync_io_switch_realtime_schedule_at(0,target));
+        advance(30010);sync_io_switch_realtime_service_core1();
+        assert(sync_io_switch_realtime_status(&d)&&d.state==SYNC_IO_SWITCH_DEADLINE_COMPLETE&&d.sequence==2);
+        assert(!(pio.dbg_padout&(5u<<16)));
+    }
+    core=0;assert(sync_io_switch_stop(g));assert(sync_io_switch_release(g));restored();
+}
 int main(int argc,char **argv){
     assert(argc==2);
-    if(!strcmp(argv[1],"all")){
+    if(!strncmp(argv[1],"deadline",8)){deadline_case(argv[1]);}
+    else if(!strcmp(argv[1],"all")){
         for(uint mask=1;mask<16;mask++)all_codes(mask);
         assert(mask_count==15&&transactions==80);printf("masks=%u transactions=%u\n",mask_count,transactions);
     }else if(!strcmp(argv[1],"lifecycle"))lifecycle();
@@ -318,7 +382,7 @@ int main(int argc,char **argv){
 @pytest.fixture(scope="module")
 def executable(tmp_path_factory):
     d=tmp_path_factory.mktemp("switch"); (d/"switch_mock.h").write_text(MOCK,encoding="utf-8")
-    for n in ("board_config.h","hardware/pio.h","hardware/gpio.h","hardware/structs/sio.h","hardware/structs/io_bank0.h","hardware/structs/pads_bank0.h","hardware/regs/pads_bank0.h","hardware/regs/pio.h","pico/platform.h"):
+    for n in ("board_config.h","tdma_runtime_owner.h","hardware/pio.h","hardware/gpio.h","hardware/clocks.h","hardware/timer.h","hardware/structs/sio.h","hardware/structs/io_bank0.h","hardware/structs/pads_bank0.h","hardware/regs/pads_bank0.h","hardware/regs/pio.h","pico/platform.h"):
         p=d/n;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('#include "switch_mock.h"\n',encoding="utf-8")
     asm=os.environ.get("PIOASM") or shutil.which("pioasm") or str(Path.home()/".pico-sdk/tools/2.2.0/pioasm/pioasm.exe")
     r=subprocess.run([asm,"-o","c-sdk",str(SRC/"sync_switch.pio"),str(d/"sync_switch.pio.h")],capture_output=True,text=True); assert r.returncode==0,r.stderr
@@ -326,9 +390,30 @@ def executable(tmp_path_factory):
     r=subprocess.run([shutil.which("gcc"),"-std=c11","-O2","-Wall","-Wextra","-Werror","-I"+str(d),"-I"+str(ROOT/"components/sync_io/inc"),"-DSWITCH_SOURCE=\""+str(SRC/"sync_io_switch.c").replace('\\','/')+"\"",str(d/"switch.c"),"-o",str(exe)],capture_output=True,text=True); assert r.returncode==0,r.stderr
     return exe
 
-@pytest.mark.parametrize("case", ["all", "lifecycle", "receipts", "failures", "restore"] + [str(i) for i in range(1,16)])
+@pytest.mark.parametrize("case", ["all", "lifecycle", "receipts", "failures", "restore", "deadline", "deadline_late", "deadline_origin", "deadline_uncertain", "deadline_cancel"] + [str(i) for i in range(1,16)])
 def test_switch_masks_codes_and_lifecycle(executable,case):
     r=subprocess.run([str(executable),case],capture_output=True,text=True,timeout=10)
     assert r.returncode==0,r.stdout+r.stderr
     if case=="all":
         assert r.stdout.strip()=="masks=15 transactions=80"
+
+
+def test_switch_reference_resource_budget(tmp_path):
+    from test_sync_io_workspace import compile_run
+    code = r"""
+#include <assert.h>
+#include "sync_io_persona_resources.h"
+#include "sync_io_switch.h"
+int main(void){
+    assert(sync_io_persona_catalog_valid());
+    const sync_io_persona_descriptor_t *s=sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_SWITCH);
+    const sync_io_persona_descriptor_t *r=sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_REFERENCE_MONITOR);
+    sync_io_persona_compatibility_t c;
+    assert(s->instruction_words==6 && s->sm_mask==10);
+    assert(!s->dma_channel_mask && !s->irq_mask && !s->workspace_mask);
+    assert(sync_io_persona_compatible(s,r,&c));
+    assert(c.instruction_words_total==17);
+    return 0;
+}
+"""
+    compile_run(tmp_path, code)

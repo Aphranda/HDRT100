@@ -345,17 +345,51 @@ bool distributed_refmem_stage_position_descriptor(
 bool distributed_refmem_position_descriptor_pending(void);
 /* STOP intent; Core0 retires queued and active fragments on its next service. */
 void distributed_refmem_request_position_cancel(void);
+/* Core0 caller MUST hold the TDMA STOP-maintenance owner gate (Core1 parked).
+ * First retire shared TX with the existing stopped FLIGHT:FIFO:RESET: this
+ * API refuses any resident/queued shared TX and does not revoke wire frames.
+ * Drain at most the fixed RX FIFO capacity, parsing ordinary payloads as usual
+ * while discarding T2, then reset only private position mailboxes/fragments.
+ * No nested owner lock and no shared RX admission-epoch change. */
+bool distributed_refmem_reset_position_stopped(void);
 /* Core1 consumes one complete Core0-published descriptor. */
 bool distributed_refmem_get_position_descriptor(
     uint32_t source_slot, trigger_position_descriptor_t *descriptor);
 
 /* Core0 diagnostic snapshot. Counts represent software handoffs, not wire
- * delivery or hardware action completion. */
+ * delivery or hardware action completion. The phase fields distinguish a
+ * staged descriptor, resource/priority waits, a submitted TX image, and a
+ * completed RX descriptor. */
+typedef enum {
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_IDLE = 0u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_STAGED = 1u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_VDC = 2u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_RESOURCE = 3u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_FEEDBACK = 4u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_SUBMITTED = 5u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_RECEIVED = 6u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_COMPLETE = 7u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILED = 8u,
+} distributed_refmem_position_transport_phase_t;
+
+typedef enum {
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE = 0u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_BAD_DESCRIPTOR = 1u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FIFO_SNAPSHOT = 2u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FIFO_READY = 3u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FEEDBACK = 4u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_PUBLISH = 5u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_CRC = 6u,
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FRAGMENT = 7u,
+} distributed_refmem_position_transport_failure_t;
+
 typedef struct {
     uint32_t tx_pending, tx_active, tx_fragment_index;
     uint32_t tx_publish_count, tx_reject_count, tx_position_id;
+    uint32_t tx_phase, tx_wait_reason, tx_wait_count, tx_submitted_sequence;
     uint32_t rx_complete_count, rx_reject_count, rx_pending_mask;
     uint32_t rx_source_slot, rx_position_id, cancel_requested;
+    uint32_t rx_phase, rx_last_failure;
 } distributed_refmem_position_transport_snapshot_t;
 bool distributed_refmem_get_position_transport(
     distributed_refmem_position_transport_snapshot_t *snapshot);

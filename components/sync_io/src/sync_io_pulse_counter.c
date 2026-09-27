@@ -9,6 +9,7 @@
 #include "sync_io_core_internal.h"
 #include "sync_io_pio0_runtime.h"
 #include "sync_pulse_counter.pio.h"
+#include "tdma_runtime_owner.h"
 
 #define COUNTER_PIO BOARD_SYNC_PIO_FAST
 #define COUNTER_SM SYNC_IO_PULSE_COUNTER_SM
@@ -17,6 +18,11 @@
 /* Four resident FIFO words plus one ISR value captured before the first
  * TIMER1 sample may be stale. The sixth word MUST be a later PIO MOV. */
 #define COUNTER_FRESH_WORDS 6u
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#define COUNTER_READ_HOT(name) __not_in_flash_func(name)
+#else
+#define COUNTER_READ_HOT(name) name
+#endif
 
 _Static_assert(sizeof(sync_pulse_counter_program_instructions)/sizeof(uint16_t)==
     SYNC_IO_PULSE_COUNTER_INSTRUCTION_WORDS,"counter instruction accounting");
@@ -42,7 +48,7 @@ static bool now_raw(uint64_t *out)
     if(hi!=timer1_hw->timerawh) return false;
     *out=((uint64_t)hi<<32u)|lo;return true;
 }
-static void record(uint32_t value,bool before_valid,uint64_t before)
+static __attribute__((noinline)) void COUNTER_READ_HOT(record)(uint32_t value,bool before_valid,uint64_t before)
 {
     uint64_t after=0u;
     const bool after_valid=now_raw(&after);
@@ -186,9 +192,10 @@ bool sync_io_pulse_counter_release(uint32_t generation)
     const bool released=sync_io_core_pulse_counter_release(&s_counter);
     s_counter.state=SYNC_IO_PULSE_COUNTER_IDLE;leave();return released;
 }
-bool sync_io_pulse_counter_snapshot(sync_io_pulse_counter_snapshot_t *out)
+static bool snapshot_refresh_stopped(void *context)
 {
-    if(!out || !enter()) return false;
+    bool *attempted = context;
+    *attempted = true;
     if(s_counter.state==SYNC_IO_PULSE_COUNTER_RUNNING) {
         uint64_t before=0u;const bool valid=now_raw(&before);
         uint32_t read=0u,value=0u;
@@ -197,9 +204,22 @@ bool sync_io_pulse_counter_snapshot(sync_io_pulse_counter_snapshot_t *out)
                 value=pio_sm_get(COUNTER_PIO,COUNTER_SM);++read;
             }
         }
-        if(read!=COUNTER_FRESH_WORDS) {leave();return false;}
+        if(read!=COUNTER_FRESH_WORDS) return false;
         record(value,valid,before);
     }
+    return true;
+}
+
+bool sync_io_pulse_counter_snapshot(sync_io_pulse_counter_snapshot_t *out)
+{
+    if(!out || !enter()) return false;
+    /* Only the real STOP owner excludes Core1 FIFO consumption/publication.
+     * During TDMA RUN this query copies Core1's latest record, without
+     * popping FIFO words or becoming a second writer of the counter. */
+    bool attempted = false;
+    const bool refreshed = tdma_service_run_stopped_maintenance(
+        tdma_runtime_owner_get(), snapshot_refresh_stopped, &attempted);
+    if (attempted && !refreshed) {leave();return false;}
     const bool copied=copy_snapshot(out);
     if (!copied) {leave();return false;}
     out->schema=SYNC_IO_PULSE_COUNTER_SCHEMA;
@@ -208,10 +228,9 @@ bool sync_io_pulse_counter_snapshot(sync_io_pulse_counter_snapshot_t *out)
     leave();return true;
 }
 
-bool sync_io_pulse_counter_snapshot_core1(
-    sync_io_pulse_counter_snapshot_t *out)
+bool COUNTER_READ_HOT(sync_io_pulse_counter_read_core1)(uint32_t *count)
 {
-    if (!out || get_core_num()!=1u || !s_lease ||
+    if (!count || get_core_num()!=1u || !s_lease ||
         s_counter.state!=SYNC_IO_PULSE_COUNTER_RUNNING) return false;
     uint64_t before=0u;
     const bool valid=now_raw(&before);
@@ -224,6 +243,15 @@ bool sync_io_pulse_counter_snapshot_core1(
     }
     if (read!=COUNTER_FRESH_WORDS) return false;
     record(value,valid,before);
+    *count = value;
+    return true;
+}
+
+bool sync_io_pulse_counter_snapshot_core1(
+    sync_io_pulse_counter_snapshot_t *out)
+{
+    uint32_t count;
+    if (!out || !sync_io_pulse_counter_read_core1(&count)) return false;
     if (!copy_snapshot(out)) return false;
     out->schema=SYNC_IO_PULSE_COUNTER_SCHEMA;
     out->input_pin=(COUNTER_PIO->sm[COUNTER_SM].execctrl&PIO_SM0_EXECCTRL_JMP_PIN_BITS)>>

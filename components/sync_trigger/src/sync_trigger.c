@@ -14,6 +14,13 @@
 #include "trigger_resource_map.h"
 #include "trigger_time_cursor.h"
 #include "trigger_t2_runtime.h"
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#include "hardware/structs/systick.h"
+#include "hardware/regs/m33.h"
+#define TRIGGER_DISPATCH_HOT __attribute__((section(".time_critical.trigger_dispatch")))
+#else
+#define TRIGGER_DISPATCH_HOT
+#endif
 
 #define SYNC_TRIGGER_QUEUE_LENGTH  16u
 #define TRIG_TRACE_DOMAIN_TRIGGER  2u
@@ -78,6 +85,45 @@ static volatile uint32_t s_sync_debug_event_type;
 static volatile uint32_t s_sync_debug_state;
 static volatile uint32_t s_sync_debug_error_code;
 static uint32_t s_runtime_sample_last_ms;
+static uint32_t s_timing_guard, s_timing_words[7];
+
+static inline uint32_t timing_now(void)
+{
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    return (M33_SYST_RVR_RELOAD_BITS - systick_hw->cvr) & M33_SYST_RVR_RELOAD_BITS;
+#else
+    return 0u;
+#endif
+}
+
+bool sync_trigger_get_timing(sync_trigger_timing_t *out)
+{
+    if (!out) return false;
+    const uint32_t before=__atomic_load_n(&s_timing_guard,__ATOMIC_ACQUIRE);
+    if (before & 1u) return false;
+    for (uint32_t i=0u;i<7u;++i) {
+        const uint32_t word=__atomic_load_n(&s_timing_words[i],__ATOMIC_RELAXED);
+        memcpy((uint8_t *)out+i*4u,&word,4u);
+    }
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    return before==__atomic_load_n(&s_timing_guard,__ATOMIC_ACQUIRE);
+}
+
+static __attribute__((noinline,optimize("Os"))) TRIGGER_DISPATCH_HOT void timing_publish(uint32_t runtime, uint32_t cursor, uint32_t queue)
+{
+    const uint32_t values[3]={runtime,cursor,queue};
+    (void)__atomic_add_fetch(&s_timing_guard,1u,__ATOMIC_ACQ_REL);
+    uint32_t calls=__atomic_load_n(&s_timing_words[0],__ATOMIC_RELAXED);
+    if (calls!=UINT32_MAX) ++calls;
+    __atomic_store_n(&s_timing_words[0],calls,__ATOMIC_RELAXED);
+    for(uint32_t i=0u;i<3u;++i) {
+        const uint32_t value=values[i]&0x00ffffffu;
+        __atomic_store_n(&s_timing_words[1u+2u*i],value,__ATOMIC_RELAXED);
+        if(value>__atomic_load_n(&s_timing_words[2u+2u*i],__ATOMIC_RELAXED))
+            __atomic_store_n(&s_timing_words[2u+2u*i],value,__ATOMIC_RELAXED);
+    }
+    (void)__atomic_add_fetch(&s_timing_guard,1u,__ATOMIC_RELEASE);
+}
 
 #if !PROJECT_USE_MULTICORE
 static uint32_t ao_trace_pack_u16(uint32_t high, uint32_t low)
@@ -605,15 +651,9 @@ bool sync_trigger_post(const trig_event_t *event)
     return ao_enqueue(event);
 }
 
-void sync_trigger_service(void)
+static __attribute__((noinline)) void sync_trigger_legacy_service(trig_event_t *event, bool have_event)
 {
-    const trigger_t2_runtime_result_t t2_result =
-        trigger_t2_runtime_service();
-    if (t2_result == TRIGGER_T2_RUNTIME_NOT_CONFIGURED ||
-        t2_result == TRIGGER_T2_RUNTIME_NOT_ACTIVE)
-        trigger_time_cursor_service();
-    trig_event_t event;
-    if (!queue_try_remove(&s_ao.queue, &event)) {
+    if (!have_event) {
         const bool runtime_monitoring =
             s_ao.vector.state == TRIG_STATE_SEQ_ARMED ||
             s_ao.vector.state == TRIG_STATE_ENC_ARMED ||
@@ -659,11 +699,67 @@ void sync_trigger_service(void)
     }
 
 #if PROJECT_USE_MULTICORE
-    ao_execute_realtime(&event);
+    ao_execute_realtime(event);
 #else
-    ao_execute_traced(&event);
+    ao_execute_traced(event);
 #endif
     ao_refresh_from_io();
+}
+
+/* This is the AO queue's sole consumer. SDK queue_try_remove() still uses
+ * spin_lock_blocking(), which can wait on Core0 or another striped-lock
+ * client. One failed acquisition leaves the event for the next service.
+ * The private queue has only nonblocking producers and this poll consumer;
+ * no pointer escapes and no RTOS queue waiter exists. Notify with SEV after
+ * unlocking, avoiding the SDK adapter's cross-core blocking notify lock. */
+static __attribute__((noinline,optimize("Os"))) TRIGGER_DISPATCH_HOT bool ao_queue_try_remove(
+    queue_t *queue, trig_event_t *event)
+{
+#if PROJECT_USE_MULTICORE
+    const uint32_t saved = save_and_disable_interrupts();
+    if (!spin_try_lock_unsafe(queue->core.spin_lock)) {
+        restore_interrupts(saved);
+        return false;
+    }
+    __mem_fence_acquire();
+    const uint level = queue_get_level_unsafe(queue);
+    if (!level) {
+        spin_unlock(queue->core.spin_lock, saved);
+        return false;
+    }
+    memcpy(event, queue->data + queue->rptr * queue->element_size, sizeof(*event));
+#if PICO_QUEUE_MAX_LEVEL
+    if (level > queue->max_level) queue->max_level = (uint16_t)level;
+#endif
+    uint16_t next = queue->rptr + 1u;
+    if (next > queue->element_count) next = 0u;
+    queue->rptr = next;
+    spin_unlock(queue->core.spin_lock, saved);
+    __sev();
+    return true;
+#else
+    return queue_try_remove(queue, event);
+#endif
+}
+
+__attribute__((optimize("Os"))) TRIGGER_DISPATCH_HOT void sync_trigger_service(void)
+{
+    const uint32_t started=timing_now();
+    const trigger_t2_runtime_result_t t2_result =
+        trigger_t2_runtime_service();
+    const uint32_t runtime_done=timing_now();
+    if (t2_result == TRIGGER_T2_RUNTIME_NOT_CONFIGURED ||
+        t2_result == TRIGGER_T2_RUNTIME_NOT_ACTIVE)
+        trigger_time_cursor_service();
+    const uint32_t cursor_done=timing_now();
+    trig_event_t event;
+    const bool have_event=ao_queue_try_remove(&s_ao.queue, &event);
+    const uint32_t queue_done=timing_now();
+    timing_publish(runtime_done-started,cursor_done-runtime_done,queue_done-cursor_done);
+    if (!have_event && s_ao.vector.state != TRIG_STATE_SEQ_ARMED &&
+        s_ao.vector.state != TRIG_STATE_ENC_ARMED &&
+        s_ao.vector.state != TRIG_STATE_BISS_ARMED) return;
+    sync_trigger_legacy_service(&event,have_event);
 }
 
 void sync_trigger_get_summary(sync_trigger_summary_t *summary)

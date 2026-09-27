@@ -19,7 +19,7 @@ def backend(tmp_path_factory):
     d = tmp_path_factory.mktemp('pulse-counter')
     (d / 'counter_mock.h').write_text(MOCK, encoding='utf-8')
     for name in ('board_config.h', 'hardware/clocks.h', 'hardware/pio.h',
-                 'hardware/timer.h', 'pico/platform.h'):
+                 'hardware/timer.h', 'pico/platform.h', 'tdma_runtime_owner.h'):
         p = d / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text('#include "counter_mock.h"\n', encoding='utf-8')
@@ -41,7 +41,9 @@ def backend(tmp_path_factory):
 @pytest.mark.parametrize('case', ['cycle', 'idle', 'pin', 'core', 'generation', 'clear',
                                  'stale', 'overflow', 'fifo_full', 'fifo_missing', 'clock',
                                  'load_fail', 'arm_fail', 'gate_fail', 'stop_busy', 'reload',
-                                 'route1','route2','route3','route4','route_readback'])
+                                 'route1','route2','route3','route4','route_readback',
+                                 'run_readonly','run_fifo_empty','stop_refresh',
+                                 'read_core1','read_core1_missing','read_core1_clock'])
 def test_hardware_count_and_lifecycle(backend, case):
     r = subprocess.run([str(backend), case], capture_output=True, text=True, timeout=10)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -84,6 +86,15 @@ static uint32_t x,isr,fifo[4];
 static uint16_t code[8];
 static uint64_t sampled_at[4],last_popped_at,mov_at;
 static bool enabled,claimed,loaded,pin,gate,deny_load,deny_arm,deny_gate,deny_stop,freeze;
+static bool tdma_stopped=true,maintenance_owned;
+static unsigned fifo_pops;
+typedef void tdma_service_service_t;
+static tdma_service_service_t *tdma_runtime_owner_get(void){return (void *)1;}
+static bool tdma_service_run_stopped_maintenance(tdma_service_service_t *s,bool (*f)(void *),void *p){
+    assert(s&&core==0&&!maintenance_owned);
+    if(!tdma_stopped)return false;
+    maintenance_owned=true;bool ok=f(p);maintenance_owned=false;return ok;
+}
 static uint64_t ticks;
 static void tick(void) {
     ++ticks;timer.timerawl=(uint32_t)ticks;timer.timerawh=(uint32_t)(ticks>>32);
@@ -137,7 +148,7 @@ static void pio_sm_exec(PIO p,uint sm,unsigned ins){
     else {assert(ins==0);pc=0;}
 }
 static bool pio_sm_is_rx_fifo_empty(PIO p,uint sm){access(p,sm);return depth==0;}
-static unsigned pio_sm_get(PIO p,uint sm){access(p,sm);assert(depth);uint32_t v=fifo[0];last_popped_at=sampled_at[0];--depth;memmove(fifo,fifo+1,depth*sizeof(fifo[0]));memmove(sampled_at,sampled_at+1,depth*sizeof(sampled_at[0]));return v;}
+static unsigned pio_sm_get(PIO p,uint sm){access(p,sm);assert(depth);++fifo_pops;uint32_t v=fifo[0];last_popped_at=sampled_at[0];--depth;memmove(fifo,fifo+1,depth*sizeof(fifo[0]));memmove(sampled_at,sampled_at+1,depth*sizeof(sampled_at[0]));return v;}
 bool sync_io_core_pulse_counter_reserve(const void *p){assert(p);if(gate||deny_gate)return false;gate=true;return true;}
 bool sync_io_core_pulse_counter_release(const void *p){assert(p&&gate);gate=false;return true;}
 static sync_io_persona_manager_hooks_t hooks;
@@ -176,6 +187,44 @@ int main(int argc,char **argv){
     assert(!sync_io_pulse_counter_start(g)&&!sync_io_pulse_counter_clear(g)&&!sync_io_pulse_counter_release(g));
     for(unsigned i=0;i<71;i++)pulse();
     assert(snapshot().count32==71);
+    if(!strncmp(c,"read_core1",10)){
+        uint32_t count=0xa5a5u;
+        assert(!sync_io_pulse_counter_read_core1(&count)&&count==0xa5a5u);
+        core=1;assert(!sync_io_pulse_counter_read_core1(NULL));
+        for(unsigned i=0;i<9;i++)pulse();
+        const uint32_t before_guard=s_snapshot_guard;
+        if(!strcmp(c,"read_core1_missing")){
+            freeze=true;depth=4;
+            assert(!sync_io_pulse_counter_read_core1(&count)&&count==0xa5a5u&&s_snapshot_guard==before_guard);
+            freeze=false;
+        }
+        if(!strcmp(c,"read_core1_clock"))timer.pause=1;
+        assert(sync_io_pulse_counter_read_core1(&count)&&count==80&&s_counter.valid);
+        assert(s_counter.count32==count&&s_counter.generation==g&&s_counter.clear_generation==0);
+        assert(s_counter.timestamp_valid==(!timer.pause));
+        if(s_counter.timestamp_valid)assert(s_counter.sample_before_tick<=last_popped_at&&last_popped_at<=s_counter.sample_after_tick);
+        core=0;tdma_stopped=false;const unsigned pops=fifo_pops;
+        assert(snapshot().count32==count&&fifo_pops==pops);
+        return 0;
+    }
+    if(!strcmp(c,"run_readonly")||!strcmp(c,"run_fifo_empty")||!strcmp(c,"stop_refresh")){
+        tdma_stopped=false;core=1;
+        sync_io_pulse_counter_snapshot_t last;
+        assert(sync_io_pulse_counter_snapshot_core1(&last)&&last.count32==71);
+        core=0;for(unsigned i=0;i<9;i++)pulse();
+        if(!strcmp(c,"run_fifo_empty")){freeze=true;depth=0;}
+        const unsigned before_pops=fifo_pops;
+        const uint32_t before_guard=s_snapshot_guard;
+        const uint64_t before_ticks=ticks;
+        sync_io_pulse_counter_snapshot_t observed=snapshot();
+        assert(!memcmp(&last,&observed,sizeof(last))&&fifo_pops==before_pops&&s_snapshot_guard==before_guard&&ticks==before_ticks);
+        /* Transition to real STOP grants Core0 the FIFO and preserves the
+         * previous fresh-drain behavior, including failure with no words. */
+        tdma_stopped=true;
+        if(freeze){assert(!sync_io_pulse_counter_snapshot(&observed));freeze=false;}
+        observed=snapshot();assert(observed.count32==80&&fifo_pops>before_pops);
+        assert(observed.generation==last.generation&&observed.clear_generation==last.clear_generation);
+    }
     if(!strcmp(c,"stale") || !strcmp(c,"fifo_full")){
         advance(20);assert(depth==4);for(unsigned i=0;i<113;i++)pulse();assert(depth==4);
         sync_io_pulse_counter_snapshot_t s=snapshot();assert(s.count32==184);
@@ -257,7 +306,7 @@ static bool initialized=true,capture,sequence,encoder,pwm;
 static struct {bool running;} s_model_pulse;
 static bool s_wave_output_manager_active,s_wave_output_sm_claimed,s_wave_output_dma_claimed,s_wave_output_program_loaded;
 static uint32_t s_schedule_phase;
-static uintptr_t s_run_output_token,s_reference_token,s_counter_token;
+static uintptr_t s_turntable_source_token,s_run_output_token,s_reference_token,s_counter_token;
 #define get_core_num() core
 #define sync_io_core_initialized() initialized
 #define sync_io_core_capture_is_running() capture

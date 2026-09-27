@@ -1,10 +1,12 @@
-; One finite local code transaction. OUT_BASE/OUT_COUNT select ONE contiguous
-; group; MOV must never be configured across unselected output pads.
-; Both group SMs share this program and start in sync from a preloaded FIFO.
+; Y is preloaded with the selected group code while disabled. TX supplies
+; one delay. First write = SM origin + delay + 3 clocks. Empty PULL parks.
 .program sync_switch
 .wrap_target
     pull block
-    mov pins, osr
-    mov isr, osr
+    out x, 32
+delay:
+    jmp x-- delay
+    mov pins, y
+    mov isr, y
     push block
 .wrap

@@ -127,10 +127,10 @@ uint64_t vdc_timestamp_clock_now_ns(void)
     return vdc_timestamp_clock_ticks_to_ns(vdc_timestamp_clock_read_ticks64());
 }
 
-/* Configuration checks follow the ordinary owner service's XIP placement.
- * Keep the counter sampling helper below in RAM; placing this standalone
- * check there too can push the aligned TDMA workspace into another page. */
-bool vdc_timestamp_clock_is_current(uint32_t expected_hz)
+/* The bounded sampler calls this twice. Keep both checks resident without
+ * changing the clock owner, initialization, or supported configuration. */
+__attribute__((optimize("Os")))
+bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_is_current)(uint32_t expected_hz)
 {
     if (!__atomic_load_n(&s_vdc_timestamp_clock_ready, __ATOMIC_ACQUIRE) ||
         expected_hz == 0u || s_vdc_timestamp_clock_tick_hz != expected_hz) return false;

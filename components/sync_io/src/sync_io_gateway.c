@@ -4,6 +4,7 @@
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
 #include "hardware/pio.h"
+#include "hardware/timer.h"
 #include "hardware/structs/sio.h"
 #include "hardware/structs/io_bank0.h"
 #include "hardware/structs/pads_bank0.h"
@@ -30,6 +31,40 @@ static bool s_lease,s_pin_saved,s_pin_owned;
 static uint32_t s_saved_ctrl,s_saved_pad;
 static bool s_saved_direction,s_saved_latch,s_saved_pio_level,s_saved_pio_direction;
 static volatile uint32_t s_realtime_pending;
+static bool s_ready_active;
+static sync_io_gateway_deadline_status_t s_deadline;
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#define GATEWAY_HOT(name) __scratch_y("t2_gateway_deadline") name
+#else
+#define GATEWAY_HOT(name) name
+#endif
+static inline __attribute__((always_inline)) bool raw_tick(uint64_t *out)
+{
+    const uint32_t hi=timer1_hw->timerawh,lo=timer1_hw->timerawl;
+    if(hi!=timer1_hw->timerawh)return false;
+    *out=((uint64_t)hi<<32u)|lo;return true;
+}
+static __attribute__((noinline)) bool GATEWAY_HOT(start_deadline)(uint64_t deadline)
+{
+    uint64_t before,after;
+    const uint64_t guard=(uint64_t)BOARD_SYS_CLOCK_HZ/1000000u*SYNC_IO_GATEWAY_DEADLINE_GUARD_US;
+    if(!raw_tick(&before) || deadline<before || deadline-before<guard ||
+        deadline-before-4u>UINT32_MAX)return false;
+    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)(deadline-before-4u));
+    pio_enable_sm_mask_in_sync(GATEWAY_PIO,GATEWAY_SM_MASK);
+    const bool read=raw_tick(&after);
+    s_deadline.origin_before_tick=before;
+    s_deadline.origin_after_tick=read && after!=UINT64_MAX ? after+1u : UINT64_MAX;
+    if(read && after>=before && after!=UINT64_MAX &&
+        after+1u-before <= (uint64_t)BOARD_SYS_CLOCK_HZ*SYNC_IO_GATEWAY_ORIGIN_MAX_NS/1000000000u)
+        return true;
+    pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
+    pio_sm_set_enabled(GATEWAY_PIO,READY_SM,false);
+    uint64_t stopped;
+    s_deadline.state=raw_tick(&stopped) && stopped<deadline ?
+        SYNC_IO_GATEWAY_DEADLINE_CANCELLED:SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
+    return false;
+}
 
 static bool enter(void)
 {
@@ -91,6 +126,8 @@ static bool arm(void *context,const sync_io_persona_descriptor_t *d,uint32_t dma
 }
 static void safe_stop(void)
 {
+    __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);
+    s_ready_active=false;
     if(s_claimed&(1u<<OUTPUT_SM)) {
         pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
         if(s_pin_owned) pio_sm_set_pins_with_mask(GATEWAY_PIO,OUTPUT_SM,0u,1u<<s_gateway.output_pin);
@@ -157,13 +194,21 @@ bool sync_io_gateway_load(uint32_t input_port,uint32_t output_port,uint32_t puls
         (void)sync_io_core_gateway_release(&s_gateway);s_gateway=previous;leave();return false;
     }
     s_lease=true;s_gateway.generation=++s_generation;s_gateway.state=SYNC_IO_GATEWAY_LOADED;
+    memset(&s_deadline,0,sizeof(s_deadline));
+    __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);s_ready_active=false;
     *generation=s_gateway.generation;leave();return true;
 }
 bool sync_io_gateway_stop(uint32_t generation)
 {
     if(!enter()) return false;
     if(!matching(generation)) {leave();return false;}
-    safe_stop();s_gateway.state=SYNC_IO_GATEWAY_STOPPED;leave();return true;
+    safe_stop();s_gateway.state=SYNC_IO_GATEWAY_STOPPED;
+    if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_ARMED) {
+        uint64_t stopped;
+        s_deadline.state=raw_tick(&stopped) && stopped<s_deadline.deadline_tick ?
+            SYNC_IO_GATEWAY_DEADLINE_CANCELLED:SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
+    }
+    leave();return true;
 }
 bool sync_io_gateway_release(uint32_t generation)
 {
@@ -201,38 +246,109 @@ bool sync_io_gateway_snapshot(sync_io_gateway_snapshot_t *out)
     *out=snapshot;leave();return true;
 }
 
-bool sync_io_gateway_realtime_fire(uint32_t pulse_ns)
+static bool prepare_realtime(uint32_t pulse_ns)
 {
     const uint64_t product=(uint64_t)pulse_ns*BOARD_SYS_CLOCK_HZ;
-    const uint32_t pulse_ticks=(uint32_t)(product/UINT64_C(1000000000));
-    if(get_core_num()!=1u || !s_lease || !s_loaded || !s_pin_owned ||
+    const uint64_t pulse_ticks=product/UINT64_C(1000000000);
+    if(get_core_num()!=1u || !s_lease || s_loaded!=3u || !s_pin_owned ||
        !pulse_ns || product%UINT64_C(1000000000) || pulse_ticks<2u ||
-       pulse_ticks==UINT32_MAX ||
+       pulse_ticks>UINT32_MAX || s_gateway.trigger_count==UINT32_MAX ||
        __atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE)) return false;
+    /* Drain an already captured late READY before beginning the next local
+     * diagnostic window. An absent READY never blocks a new action. */
+    sync_io_gateway_realtime_service_core1();
     pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
     pio_sm_set_enabled(GATEWAY_PIO,READY_SM,false);
     pio_sm_clear_fifos(GATEWAY_PIO,OUTPUT_SM);
     pio_sm_clear_fifos(GATEWAY_PIO,READY_SM);
     pio_sm_restart(GATEWAY_PIO,OUTPUT_SM);
     pio_sm_restart(GATEWAY_PIO,READY_SM);
-    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,pulse_ticks-1u);
+    pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_jmp(s_output_offset));
+    pio_sm_exec(GATEWAY_PIO,READY_SM,pio_encode_jmp(s_ready_offset));
+    pio_sm_exec(GATEWAY_PIO,READY_SM,pio_encode_mov_not(pio_x,pio_null));
+    pio_interrupt_clear(GATEWAY_PIO,SYNC_IO_GATEWAY_GRANT_IRQ);
+    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)pulse_ticks-2u);
+    pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_pull(false,true));
+    pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_mov(pio_y,pio_osr));
+    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,s_gateway.trigger_count+1u);
+    pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_pull(false,true));
+    pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_mov(pio_isr,pio_osr));
+    s_ready_active=false;
+    return true;
+}
+
+bool sync_io_gateway_realtime_fire(uint32_t pulse_ns)
+{
+    if(!prepare_realtime(pulse_ns))return false;
+    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,0u);
     pio_enable_sm_mask_in_sync(GATEWAY_PIO,GATEWAY_SM_MASK);
-    GATEWAY_PIO->irq = 1u << SYNC_IO_GATEWAY_GRANT_IRQ;
     __atomic_store_n(&s_realtime_pending,1u,__ATOMIC_RELEASE);
-    ++s_gateway.trigger_count;
+    ++s_gateway.trigger_count;s_ready_active=true;
+    s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_IDLE;
     return true;
 }
 
 void sync_io_gateway_realtime_service_core1(void)
 {
-    if(get_core_num()!=1u || !__atomic_load_n(&s_realtime_pending,
-                                                __ATOMIC_ACQUIRE)) return;
-    if(!pio_sm_is_rx_fifo_empty(GATEWAY_PIO,OUTPUT_SM)) {
-        (void)pio_sm_get(GATEWAY_PIO,OUTPUT_SM);
+    if(get_core_num()!=1u || !s_lease)return;
+    if(__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE) &&
+       !pio_sm_is_rx_fifo_empty(GATEWAY_PIO,OUTPUT_SM)) {
+        const uint32_t receipt=pio_sm_get(GATEWAY_PIO,OUTPUT_SM);
         __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);
+        pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
+        if(receipt!=s_gateway.trigger_count) {
+            safe_stop();s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
+            return;
+        }
+        s_deadline.completed_sequence=receipt;
+        if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_ARMED)
+            s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_COMPLETE;
     }
-    while(!pio_sm_is_rx_fifo_empty(GATEWAY_PIO,READY_SM)) {
+    /* One READY per transaction; continue after the pulse completion. */
+    if(s_ready_active && !pio_sm_is_rx_fifo_empty(GATEWAY_PIO,READY_SM)) {
         (void)pio_sm_get(GATEWAY_PIO,READY_SM);
-        ++s_gateway.ready_count;
+        if(s_gateway.ready_count!=UINT32_MAX)++s_gateway.ready_count;
+        s_ready_active=false;pio_sm_set_enabled(GATEWAY_PIO,READY_SM,false);
     }
+}
+
+bool sync_io_gateway_realtime_schedule_at(uint32_t pulse_ns,uint64_t deadline_tick)
+{
+    if(get_core_num()!=1u || clock_get_hz(clk_sys)!=BOARD_SYS_CLOCK_HZ ||
+       timer1_hw->pause || timer1_hw->source!=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS ||
+       !prepare_realtime(pulse_ns))return false;
+    s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_CANCELLED;
+    s_deadline.deadline_tick=deadline_tick;s_deadline.sequence=s_gateway.trigger_count+1u;
+    s_deadline.origin_before_tick=s_deadline.origin_after_tick=0u;
+    if(!start_deadline(deadline_tick)) {
+        if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN)safe_stop();
+        pio_sm_clear_fifos(GATEWAY_PIO,OUTPUT_SM);
+        pio_sm_clear_fifos(GATEWAY_PIO,READY_SM);
+        return false;
+    }
+    ++s_gateway.trigger_count;s_ready_active=true;
+    __atomic_store_n(&s_realtime_pending,1u,__ATOMIC_RELEASE);
+    s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_ARMED;
+    return true;
+}
+
+bool sync_io_gateway_realtime_status(sync_io_gateway_deadline_status_t *out)
+{
+    if(get_core_num()!=1u || !out)return false;
+    *out=s_deadline;out->ready_count=s_gateway.ready_count;
+    out->pending=__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE);
+    return true;
+}
+
+bool sync_io_gateway_realtime_cancel(void)
+{
+    if(get_core_num()!=1u || !s_lease)return false;
+    safe_stop();
+    if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_ARMED) {
+        uint64_t stopped;
+        s_deadline.state=raw_tick(&stopped) && stopped<s_deadline.deadline_tick ?
+            SYNC_IO_GATEWAY_DEADLINE_CANCELLED:SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
+    }
+    s_gateway.state=SYNC_IO_GATEWAY_STOPPED;
+    return true;
 }

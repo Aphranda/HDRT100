@@ -25,5 +25,9 @@ uint32_t trigger_counter_clear(void);
 uint32_t trigger_counter_unload(void);
 uint32_t trigger_counter_snapshot(trigger_counter_snapshot_t *out);
 uint32_t trigger_counter_snapshot_core1(trigger_counter_snapshot_t *out);
+/* Lightweight Core1 count read for T2. Successful reads retain the backend
+ * timestamp/diagnostic publication without copying deployment or IO state.
+ * Failure preserves *count. */
+uint32_t trigger_counter_read_core1(uint32_t *count);
 bool trigger_counter_is_loaded(void);
 #endif

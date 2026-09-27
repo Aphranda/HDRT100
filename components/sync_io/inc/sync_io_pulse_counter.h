@@ -48,5 +48,7 @@ bool sync_io_pulse_counter_snapshot(sync_io_pulse_counter_snapshot_t *out);
  * only the bounded fresh FIFO window and never changes the lease/lifecycle. */
 bool sync_io_pulse_counter_snapshot_core1(
     sync_io_pulse_counter_snapshot_t *out);
-
+/* Same fresh FIFO window and timestamp publication, returning only count.
+ * Core1/RUNNING owner checks are identical; failure preserves *count. */
+bool sync_io_pulse_counter_read_core1(uint32_t *count);
 #endif

@@ -43,6 +43,7 @@ def owner(tmp_path_factory):
     'start_changed_ring', 'start_changed_input', 'clear_running',
     'counter_on_other_board', 'snapshot_preserves_timestamp_validity',
     'input_port_1', 'input_port_2', 'input_port_3', 'input_port_4',
+    'read_core1', 'read_core1_busy', 'read_core1_arguments',
 ])
 def test_actual_counter_owner(owner, case):
     result = subprocess.run([str(owner), case], capture_output=True, text=True, timeout=5)
@@ -142,6 +143,10 @@ bool sync_io_pulse_counter_release(uint32_t generation)
 }
 bool sync_io_pulse_counter_snapshot(sync_io_pulse_counter_snapshot_t *out)
 {if(!snapshot_ok)return false;*out=hw;return true;}
+bool sync_io_pulse_counter_snapshot_core1(sync_io_pulse_counter_snapshot_t *out)
+{return sync_io_pulse_counter_snapshot(out);}
+bool sync_io_pulse_counter_read_core1(uint32_t *out)
+{if(!snapshot_ok)return false;*out=hw.count32;return true;}
 
 static void setup(void)
 {
@@ -164,6 +169,17 @@ static void check_result(const char *name,uint32_t actual,uint32_t expected)
 int main(int argc,char **argv)
 {
     assert(argc==2);const char *name=argv[1];setup();
+    if(!strncmp(name,"read_core1",10)) {
+        uint32_t count=0xa5a5u;
+        core=1;assert(trigger_counter_read_core1(&count)==ARGUMENT&&count==0xa5a5u);
+        core=0;load();assert(trigger_counter_start()==OK);hw.count32=12345;
+        assert(trigger_counter_read_core1(&count)==ARGUMENT&&count==0xa5a5u);
+        core=1;assert(trigger_counter_read_core1(NULL)==ARGUMENT);
+        if(!strcmp(name,"read_core1_busy")) {
+            snapshot_ok=false;assert(trigger_counter_read_core1(&count)==BUSY&&count==0xa5a5u);
+        } else {assert(trigger_counter_read_core1(&count)==OK&&count==12345);}
+        return 0;
+    }
     if(!strcmp(name,"null_snapshot")) {assert(trigger_counter_snapshot(NULL)==ARGUMENT);return 0;}
     if(!strcmp(name,"unconfigured")) {
         assert(!trigger_counter_is_loaded());

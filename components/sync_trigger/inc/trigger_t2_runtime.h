@@ -10,7 +10,11 @@
 #include "trigger_turntable_predictor.h"
 
 #define TRIGGER_T2_RUNTIME_POSITION_COUNT 3u
-#define TRIGGER_T2_RUNTIME_EVENT_CAPACITY TRIGGER_ACTION_RUNTIME_CAPACITY
+#define TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY 1u
+/* One terminal receipt per position/local template; preserve every admitted
+ * event without carrying the larger shared-table capacity on each board. */
+#define TRIGGER_T2_RUNTIME_EVENT_CAPACITY \
+    (TRIGGER_T2_RUNTIME_POSITION_COUNT * TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY)
 #define TRIGGER_T2_DESCRIPTOR_TARGET_GRACE_SYNC 2u
 
 typedef enum {
@@ -52,6 +56,15 @@ typedef struct {
     uint32_t freeze_fallback_count, freeze_missing_local_count;
     uint32_t descriptor_reject_count, transport_reject_count;
     uint32_t event_count, event_dropped_count;
+    /* ARMED is admission only. COMPLETE/emitted require the matching PIO receipt. */
+    uint32_t action_armed_mask, action_completed_mask, action_failed_mask;
+    uint32_t action_uncertain_mask;
+    uint32_t action_sequence[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+    /* Last observed backend state and origin bracket width; unknown = UINT32_MAX. */
+    uint32_t action_backend_state[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+    uint32_t action_origin_width_ticks[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+    uint64_t action_deadline_tick[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+    uint32_t core0_prepare_calls, core0_preview_saved, core0_prepare_last_reason;
     uint8_t event_dispatched[TRIGGER_T2_RUNTIME_EVENT_CAPACITY];
     uint64_t last_counter_count;
     trigger_time_cursor_snapshot_t cursor;
@@ -67,7 +80,7 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config);
 bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count);
 void trigger_t2_runtime_stop(void);
 trigger_t2_runtime_result_t trigger_t2_runtime_service(void);
-/* Core0 prediction preparation; called independently of the VDC phase. */
+/* Core0 prediction and follower deadline preparation, outside the VDC phase. */
 void trigger_t2_runtime_prepare_core0(void);
 bool trigger_t2_runtime_preview_history(uint32_t position_id, uint32_t age,
                                         trigger_position_descriptor_t *out);

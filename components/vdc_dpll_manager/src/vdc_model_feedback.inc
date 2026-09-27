@@ -97,7 +97,17 @@ __attribute__((noinline)) bool VDC_COMMITTED_MODEL_HOT(vdc_dpll_manager_get_comm
     model_feedback_load(&model);
     __atomic_thread_fence(__ATOMIC_ACQ_REL);
     if (guard != __atomic_load_n(&s_committed_model_guard, __ATOMIC_ACQUIRE)) return false;
-    *out = model;
+    /* Keep this bounded reader in SRAM through the final copy. A normal
+     * structure assignment can call the shared XIP memcpy under cache load.
+     * The compiler-only fence prevents folding these word copies back into
+     * that call; the already-validated private snapshot preserves failure
+     * semantics and never extends the publication's writer interval. */
+    for (size_t i = 0u; i < sizeof(model) / sizeof(uint32_t); ++i) {
+        uint32_t word;
+        memcpy(&word, (const uint8_t *)&model + i * sizeof(word), sizeof(word));
+        __atomic_signal_fence(__ATOMIC_ACQ_REL);
+        memcpy((uint8_t *)out + i * sizeof(word), &word, sizeof(word));
+    }
     return true;
 }
 

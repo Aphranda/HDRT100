@@ -262,8 +262,12 @@ typedef struct {
     uint32_t vdc_command_record_source_update_seq;
     uint32_t position_tx_active, position_tx_target_mask;
     uint32_t position_tx_fragment_index, position_tx_sequence;
+    uint32_t position_retiring;
     uint32_t position_tx_publish_count, position_tx_reject_count,
         position_tx_position_id;
+    uint32_t position_tx_phase, position_tx_wait_reason,
+        position_tx_wait_count, position_tx_submitted_sequence;
+    uint32_t position_rx_phase, position_rx_last_failure;
     uint8_t position_tx_wire[TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE];
     trigger_position_fragment_context_t position_rx_fragments[DISTRIBUTED_REFMEM_NODE_COUNT];
     uint32_t position_rx_valid_mask, position_rx_complete_count,
@@ -452,6 +456,10 @@ static void distributed_refmem_tdma_flight_sync_update_ring(
     __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 0u,
                      __ATOMIC_RELEASE);
     s_tdma_flight_sync.position_tx_fragment_index = 0u;
+    s_tdma_flight_sync.position_tx_phase =
+        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_IDLE;
+    s_tdma_flight_sync.position_tx_wait_reason =
+        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
     __atomic_store_n(&s_position_tx_mailbox.state,
                      TRIGGER_POSITION_MAILBOX_EMPTY, __ATOMIC_RELEASE);
     for (uint32_t slot = 0u; slot < DISTRIBUTED_REFMEM_NODE_COUNT; ++slot)
@@ -699,12 +707,18 @@ bool distributed_refmem_get_position_transport(
         .tx_publish_count = s_tdma_flight_sync.position_tx_publish_count,
         .tx_reject_count = s_tdma_flight_sync.position_tx_reject_count,
         .tx_position_id = s_tdma_flight_sync.position_tx_position_id,
+        .tx_phase = s_tdma_flight_sync.position_tx_phase,
+        .tx_wait_reason = s_tdma_flight_sync.position_tx_wait_reason,
+        .tx_wait_count = s_tdma_flight_sync.position_tx_wait_count,
+        .tx_submitted_sequence = s_tdma_flight_sync.position_tx_submitted_sequence,
         .rx_complete_count = s_tdma_flight_sync.position_rx_complete_count,
         .rx_reject_count = s_tdma_flight_sync.position_rx_reject_count,
         .rx_source_slot = s_tdma_flight_sync.position_rx_source_slot,
         .rx_position_id = s_tdma_flight_sync.position_rx_position_id,
         .cancel_requested = __atomic_load_n(&s_position_cancel_requested,
                                             __ATOMIC_ACQUIRE),
+        .rx_phase = s_tdma_flight_sync.position_rx_phase,
+        .rx_last_failure = s_tdma_flight_sync.position_rx_last_failure,
     };
     for (uint32_t slot = 0u; slot < DISTRIBUTED_REFMEM_NODE_COUNT; ++slot)
         if (trigger_position_mailbox_pending(&s_position_rx_mailboxes[slot]))
@@ -1238,6 +1252,10 @@ static void distributed_refmem_tdma_parse_position_fragment(
 {
     if (mailbox == NULL || source_slot >= DISTRIBUTED_REFMEM_NODE_COUNT) {
         s_tdma_flight_sync.position_rx_reject_count++;
+        s_tdma_flight_sync.position_rx_phase =
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILED;
+        s_tdma_flight_sync.position_rx_last_failure =
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FRAGMENT;
         return;
     }
     trigger_position_descriptor_t descriptor;
@@ -1248,6 +1266,10 @@ static void distributed_refmem_tdma_parse_position_fragment(
     if (distributed_refmem_get_le16(&mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET]) !=
         tdma_process_image_crc16_ccitt(mailbox, TDMA_PROCESS_IMAGE_CRC_OFFSET)) {
         s_tdma_flight_sync.position_rx_reject_count++;
+        s_tdma_flight_sync.position_rx_phase =
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILED;
+        s_tdma_flight_sync.position_rx_last_failure =
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_CRC;
         return;
     }
     s_tdma_flight_sync.last_vdc_phase_offset_ns = tdma_process_image_expand_i16(
@@ -1278,10 +1300,18 @@ static void distributed_refmem_tdma_parse_position_fragment(
         if (trigger_position_mailbox_stage(
                 &s_position_rx_mailboxes[source_slot], &freeze, target_mask)) {
             s_tdma_flight_sync.position_rx_complete_count++;
+            s_tdma_flight_sync.position_rx_phase =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_COMPLETE;
+            s_tdma_flight_sync.position_rx_last_failure =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
             s_tdma_flight_sync.position_rx_source_slot = source_slot;
             s_tdma_flight_sync.position_rx_position_id = position_id;
         } else {
             s_tdma_flight_sync.position_rx_reject_count++;
+            s_tdma_flight_sync.position_rx_phase =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILED;
+            s_tdma_flight_sync.position_rx_last_failure =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FRAGMENT;
         }
         return;
     }
@@ -1300,13 +1330,28 @@ static void distributed_refmem_tdma_parse_position_fragment(
                 target_mask)) {
             s_tdma_flight_sync.position_rx_valid_mask |= 1u << source_slot;
             s_tdma_flight_sync.position_rx_complete_count++;
+            s_tdma_flight_sync.position_rx_phase =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_COMPLETE;
+            s_tdma_flight_sync.position_rx_last_failure =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
             s_tdma_flight_sync.position_rx_source_slot = source_slot;
             s_tdma_flight_sync.position_rx_position_id = descriptor.position_id;
         } else {
             s_tdma_flight_sync.position_rx_reject_count++;
+            s_tdma_flight_sync.position_rx_phase =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILED;
+            s_tdma_flight_sync.position_rx_last_failure =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FRAGMENT;
         }
     } else if (result == TRIGGER_POSITION_FRAGMENT_REJECTED) {
         s_tdma_flight_sync.position_rx_reject_count++;
+        s_tdma_flight_sync.position_rx_phase =
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILED;
+        s_tdma_flight_sync.position_rx_last_failure =
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FRAGMENT;
+    } else {
+        s_tdma_flight_sync.position_rx_phase =
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_RECEIVED;
     }
 }
 
@@ -1331,6 +1376,10 @@ static void distributed_refmem_position_tx_prepare(void)
             &descriptor, s_tdma_flight_sync.position_tx_wire)) {
     } else {
         s_tdma_flight_sync.position_tx_reject_count++;
+        s_tdma_flight_sync.position_tx_phase =
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILED;
+        s_tdma_flight_sync.position_tx_wait_reason =
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_BAD_DESCRIPTOR;
         return;
     }
     s_tdma_flight_sync.position_tx_target_mask = target_mask;
@@ -1341,6 +1390,10 @@ static void distributed_refmem_position_tx_prepare(void)
         s_tdma_flight_sync.next_seq32 ? s_tdma_flight_sync.next_seq32 : 1u;
     __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 1u,
                      __ATOMIC_RELEASE);
+    s_tdma_flight_sync.position_tx_phase =
+        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_STAGED;
+    s_tdma_flight_sync.position_tx_wait_reason =
+        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
 }
 
 static void distributed_refmem_tdma_flight_parse_mailbox(
@@ -1479,7 +1532,16 @@ static void distributed_refmem_tdma_flight_sync_publish(
          * return; do not freeze a new event until publication is due. */
         if (s_feedback_tx_active) {
             feedback = distributed_refmem_feedback_prepare(owner);
-            if (feedback < 0) return;
+            if (feedback < 0) {
+                if (s_tdma_flight_sync.position_tx_active) {
+                    s_tdma_flight_sync.position_tx_phase =
+                        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_FEEDBACK;
+                    s_tdma_flight_sync.position_tx_wait_reason =
+                        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FEEDBACK;
+                    s_tdma_flight_sync.position_tx_wait_count++;
+                }
+                return;
+            }
         }
         if (publish_interval_ms < DISTRIBUTED_REFMEM_REFERENCE_PUBLISH_INTERVAL_MS)
             publish_interval_ms = DISTRIBUTED_REFMEM_REFERENCE_PUBLISH_INTERVAL_MS;
@@ -1502,12 +1564,37 @@ static void distributed_refmem_tdma_flight_sync_publish(
      * state turns normal bounded backpressure into a reject counter and can
      * also create artificial sequence gaps. */
     tdma_flight_fifo_snapshot_t fifo;
-    if (!tdma_service_get_flight_fifo_snapshot(owner, &fifo) ||
-        fifo.tx_ready_count != 0u) {
+    if (!tdma_service_get_flight_fifo_snapshot(owner, &fifo)) {
+        if (s_tdma_flight_sync.position_tx_active) {
+            s_tdma_flight_sync.position_tx_phase =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_RESOURCE;
+            s_tdma_flight_sync.position_tx_wait_reason =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FIFO_SNAPSHOT;
+            s_tdma_flight_sync.position_tx_wait_count++;
+        }
+        return;
+    }
+    if (fifo.tx_ready_count != 0u) {
+        if (s_tdma_flight_sync.position_tx_active) {
+            s_tdma_flight_sync.position_tx_phase =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_RESOURCE;
+            s_tdma_flight_sync.position_tx_wait_reason =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FIFO_READY;
+            s_tdma_flight_sync.position_tx_wait_count++;
+        }
         return;
     }
     if (feedback == -2) feedback = distributed_refmem_feedback_prepare(owner);
-    if (feedback < 0) return; /* Busy snapshot: do not splice an ordinary frame. */
+    if (feedback < 0) {
+        if (s_tdma_flight_sync.position_tx_active) {
+            s_tdma_flight_sync.position_tx_phase =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_FEEDBACK;
+            s_tdma_flight_sync.position_tx_wait_reason =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FEEDBACK;
+            s_tdma_flight_sync.position_tx_wait_count++;
+        }
+        return; /* Busy snapshot: do not splice an ordinary frame. */
+    }
     /* A position-only idle-cycle publication must not move the VDC cadence;
      * the next normal frame remains due at the original deadline. */
 
@@ -1531,8 +1618,19 @@ static void distributed_refmem_tdma_flight_sync_publish(
 #else
     const bool resident_master = false;
 #endif
+    /* VDC command/feedback owns the frame. T2 is admitted only when the
+     * higher-priority VDC path has no pending record. */
     const bool position_publication =
         s_tdma_flight_sync.position_tx_active && !resident_master && feedback <= 0;
+    if (s_tdma_flight_sync.position_tx_active && !position_publication) {
+        s_tdma_flight_sync.position_tx_phase =
+            resident_master || feedback > 0
+                ? DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_VDC
+                : DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_FEEDBACK;
+        s_tdma_flight_sync.position_tx_wait_reason =
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FEEDBACK;
+        s_tdma_flight_sync.position_tx_wait_count++;
+    }
     const uint8_t message_class = position_publication
         ? TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS
         : resident_master
@@ -1576,6 +1674,11 @@ static void distributed_refmem_tdma_flight_sync_publish(
         if (normal_due) s_tdma_flight_sync.last_publish_ms = now_ms;
         if (position_publication) {
             s_tdma_flight_sync.position_tx_publish_count++;
+            s_tdma_flight_sync.position_tx_phase =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_SUBMITTED;
+            s_tdma_flight_sync.position_tx_submitted_sequence = seq32;
+            s_tdma_flight_sync.position_tx_wait_reason =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
         } else {
             action_mailbox_published(frame);
         }
@@ -1613,6 +1716,12 @@ static void distributed_refmem_tdma_flight_sync_publish(
     } else {
         s_tdma_flight_sync.tx_reject_count++;
         s_tdma_flight_sync.last_error = 5u;
+        if (position_publication) {
+            s_tdma_flight_sync.position_tx_phase =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILED;
+            s_tdma_flight_sync.position_tx_wait_reason =
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_PUBLISH;
+        }
     }
 }
 
@@ -1626,7 +1735,9 @@ static void distributed_refmem_tdma_flight_sync_receive(
         return;
     }
 
-    for (;;) {
+    for (uint32_t retired = 0u;; ++retired) {
+        if (s_tdma_flight_sync.position_retiring &&
+            retired >= TDMA_FLIGHT_RX_FRAME_SLOT_COUNT) break;
         tdma_flight_rx_view_t view;
         if (!tdma_service_acquire_flight_rx(owner, &view)) {
             break;
@@ -1673,7 +1784,8 @@ static void distributed_refmem_tdma_flight_sync_receive(
                 }
 #endif
                 if (mailbox[3] == TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS) {
-                    distributed_refmem_tdma_parse_position_fragment(slot, mailbox);
+                    if (!s_tdma_flight_sync.position_retiring)
+                        distributed_refmem_tdma_parse_position_fragment(slot, mailbox);
                 } else if (!action_receive_mailbox(slot, mailbox)) {
                     distributed_refmem_tdma_flight_parse_mailbox(
                         mailbox,
@@ -1688,6 +1800,80 @@ static void distributed_refmem_tdma_flight_sync_receive(
         }
         (void)tdma_service_release_flight_rx(owner, view.slot_index);
     }
+}
+
+bool distributed_refmem_reset_position_stopped(void)
+{
+    tdma_service_service_t *owner=tdma_runtime_owner_get();
+    tdma_ring_runtime_snapshot_t stopped;
+    tdma_flight_fifo_snapshot_t fifo;
+    if (!owner || !tdma_ring_runtime_get_snapshot(&owner->ring_runtime,&stopped) ||
+        stopped.enabled || stopped.adapter_started ||
+        stopped.config_seq!=stopped.applied_config_seq ||
+        !tdma_service_get_flight_fifo_snapshot(owner,&fifo) ||
+        fifo.tx_ready_count || fifo.tx_active_generation ||
+        fifo.rx_queued_count>TDMA_FLIGHT_RX_FRAME_SLOT_COUNT ||
+        fifo.rx_parse_count!=fifo.rx_queued_count) return false;
+    /* No consumer may hold a private mailbox across this stopped boundary. */
+    const uint32_t tx=__atomic_load_n(&s_position_tx_mailbox.state,__ATOMIC_ACQUIRE);
+    if (tx==TRIGGER_POSITION_MAILBOX_WRITING || tx==TRIGGER_POSITION_MAILBOX_READING)
+        return false;
+    for (uint32_t slot=0u;slot<DISTRIBUTED_REFMEM_NODE_COUNT;++slot) {
+        const uint32_t state=__atomic_load_n(&s_position_rx_mailboxes[slot].state,__ATOMIC_ACQUIRE);
+        if (state==TRIGGER_POSITION_MAILBOX_WRITING || state==TRIGGER_POSITION_MAILBOX_READING)
+            return false;
+    }
+    if (fifo.rx_queued_count) {
+        /* STOP may clear the public topology. Queued data retains the last
+         * RefMem topology; never reinterpret it using the next RUN geometry. */
+        if (!s_tdma_flight_sync.node_count ||
+            s_tdma_flight_sync.node_count>DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT ||
+            s_tdma_flight_sync.local_slot>=s_tdma_flight_sync.node_count)return false;
+        stopped.node_count=s_tdma_flight_sync.node_count;
+        stopped.local_slot_id=s_tdma_flight_sync.local_slot;
+        s_tdma_flight_sync.position_retiring=1u;
+        distributed_refmem_tdma_flight_sync_receive(owner,&stopped);
+        s_tdma_flight_sync.position_retiring=0u;
+        if (!tdma_service_get_flight_fifo_snapshot(owner,&fifo) ||
+            fifo.rx_queued_count || fifo.rx_parse_count)return false;
+    }
+    __atomic_store_n(&s_position_tx_mailbox.state,TRIGGER_POSITION_MAILBOX_EMPTY,__ATOMIC_RELEASE);
+    __atomic_store_n(&s_tdma_flight_sync.position_tx_active,0u,__ATOMIC_RELEASE);
+    s_tdma_flight_sync.position_tx_fragment_index=0u;
+    s_tdma_flight_sync.position_tx_phase =
+        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_IDLE;
+    s_tdma_flight_sync.position_tx_wait_reason =
+        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
+    s_tdma_flight_sync.position_tx_wait_count = 0u;
+    s_tdma_flight_sync.position_tx_submitted_sequence = 0u;
+    s_tdma_flight_sync.position_tx_target_mask=0u;
+    s_tdma_flight_sync.position_tx_position_id=0u;
+    s_tdma_flight_sync.position_tx_sequence=0u;
+    memset(s_tdma_flight_sync.position_tx_wire,0,sizeof(s_tdma_flight_sync.position_tx_wire));
+    for (uint32_t slot=0u;slot<DISTRIBUTED_REFMEM_NODE_COUNT;++slot) {
+        __atomic_store_n(&s_position_rx_mailboxes[slot].state,TRIGGER_POSITION_MAILBOX_EMPTY,__ATOMIC_RELEASE);
+        trigger_position_fragment_reset(&s_tdma_flight_sync.position_rx_fragments[slot]);
+    }
+    s_tdma_flight_sync.position_rx_valid_mask=0u;
+    s_tdma_flight_sync.position_rx_phase =
+        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_IDLE;
+    s_tdma_flight_sync.position_rx_last_failure =
+        DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
+    /* Retained private images must not publish the old FREEZE again. Keep all
+     * co-carried VDC bytes intact; a zero-count T2 record has no action meaning. */
+    for (size_t offset=0u;offset+TDMA_FLIGHT_SHORT_SLOT_SIZE<=sizeof(s_tdma_flight_sync.tx_image);
+         offset+=TDMA_FLIGHT_SHORT_SLOT_SIZE) {
+        uint8_t *mailbox=s_tdma_flight_sync.tx_image+offset;
+        if (distributed_refmem_get_le16(mailbox)!=DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_MAGIC ||
+            mailbox[3]!=TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS)continue;
+        mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_INDEX_OFFSET]=0u;
+        mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_COUNT_OFFSET]=0u;
+        memset(mailbox+TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_OFFSET,0,TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_SIZE);
+        distributed_refmem_put_le16(mailbox+TDMA_PROCESS_IMAGE_CRC_OFFSET,
+            tdma_process_image_crc16_ccitt(mailbox,TDMA_PROCESS_IMAGE_CRC_OFFSET));
+    }
+    __atomic_store_n(&s_position_cancel_requested,0u,__ATOMIC_RELEASE);
+    return true;
 }
 
 static void distributed_refmem_tdma_flight_sync_service(void)

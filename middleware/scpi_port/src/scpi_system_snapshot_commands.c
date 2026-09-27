@@ -3056,12 +3056,18 @@ scpi_result_t scpi_cmd_refmem_sync_flight_position_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.tx_publish_count);
     SCPI_ResultUInt32(context, snapshot.tx_reject_count);
     SCPI_ResultUInt32(context, snapshot.tx_position_id);
+    SCPI_ResultUInt32(context, snapshot.tx_phase);
+    SCPI_ResultUInt32(context, snapshot.tx_wait_reason);
+    SCPI_ResultUInt32(context, snapshot.tx_wait_count);
+    SCPI_ResultUInt32(context, snapshot.tx_submitted_sequence);
     SCPI_ResultUInt32(context, snapshot.rx_complete_count);
     SCPI_ResultUInt32(context, snapshot.rx_reject_count);
     SCPI_ResultUInt32(context, snapshot.rx_pending_mask);
     SCPI_ResultUInt32(context, snapshot.rx_source_slot);
     SCPI_ResultUInt32(context, snapshot.rx_position_id);
     SCPI_ResultUInt32(context, snapshot.cancel_requested);
+    SCPI_ResultUInt32(context, snapshot.rx_phase);
+    SCPI_ResultUInt32(context, snapshot.rx_last_failure);
     return SCPI_RES_OK;
 }
 

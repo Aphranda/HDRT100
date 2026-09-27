@@ -81,6 +81,11 @@ bool sync_io_core_run_output_held(const void *token);
 bool sync_io_core_run_output_release(const void *token);
 bool sync_io_core_reference_reserve(const void *token);
 bool sync_io_core_reference_release(const void *token);
+/* Independent OUT4/PWM reservation. Only input-only COUNTER/REFERENCE and
+ * fixed OUT1 RUN output may coexist; legacy and arbitrary-output personas
+ * must not acquire/reconfigure GPIO or the PWM slice while this is held. */
+bool sync_io_core_turntable_source_reserve(const void *token);
+bool sync_io_core_turntable_source_release(const void *token);
 bool sync_io_core_pulse_counter_reserve(const void *token);
 bool sync_io_core_pulse_counter_release(const void *token);
 bool sync_io_core_gateway_reserve(const void *token);

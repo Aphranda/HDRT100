@@ -67,6 +67,16 @@ bool sync_trigger_post(const trig_event_t *event);
 
 void sync_trigger_service(void);
 
+/* Local phase diagnostics, cycles including interrupt preemption. Segment
+ * maxima are independent observations, not additive WCET measurements. */
+typedef struct {
+    uint32_t calls;
+    uint32_t runtime_last, runtime_max;
+    uint32_t cursor_last, cursor_max;
+    uint32_t queue_last, queue_max;
+} sync_trigger_timing_t;
+bool sync_trigger_get_timing(sync_trigger_timing_t *out);
+
 /* 快照查询 */
 void sync_trigger_get_summary(sync_trigger_summary_t *summary);
 void sync_trigger_get_status(sync_trigger_status_t *status);

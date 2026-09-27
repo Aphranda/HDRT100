@@ -48,7 +48,8 @@ def owner(tmp_path_factory):
         ROOT / 'components/vdc_domain/src/vdc_domain.c',
             ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
             ROOT / 'components/tdma/src/tdma_profile.c',
-            ROOT / 'components/sync_trigger/src/trigger_time_cursor.c'])
+            ROOT / 'components/sync_trigger/src/trigger_time_cursor.c',
+            ROOT / 'components/sync_trigger/src/trigger_time_projection.c'])
 
 
 @pytest.mark.parametrize('scenario', [

@@ -125,6 +125,12 @@ scpi_result_t scpi_cmd_trigger_grid_anchor(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_grid_anchor_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_grid_anchor_plan_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_cursor_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_timing_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sim_source_configure(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sim_source_start(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sim_source_stop(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sim_source_release(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sim_source_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_deployment_stage(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_deployment_activate(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_deployment_clear(scpi_t *context);
@@ -185,6 +191,7 @@ scpi_result_t scpi_cmd_trigger_t2_start(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_stop(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_cursor_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
@@ -403,6 +410,12 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:REServation:GRID:ANCHor?", .callback = scpi_cmd_trigger_grid_anchor_q}, \
     {.pattern = "TRIGger:REServation:GRID:ANCHor:PLAN?", .callback = scpi_cmd_trigger_grid_anchor_plan_q}, \
     {.pattern = "TRIGger:REServation:CURSor?", .callback = scpi_cmd_trigger_cursor_q}, \
+    {.pattern = "TRIGger:REServation:TIMing?", .callback = scpi_cmd_trigger_timing_q}, \
+    {.pattern = "TRIGger:REServation:SOURce:CONFigure", .callback = scpi_cmd_trigger_sim_source_configure}, \
+    {.pattern = "TRIGger:REServation:SOURce:STARt", .callback = scpi_cmd_trigger_sim_source_start}, \
+    {.pattern = "TRIGger:REServation:SOURce:STOP", .callback = scpi_cmd_trigger_sim_source_stop}, \
+    {.pattern = "TRIGger:REServation:SOURce:RELease", .callback = scpi_cmd_trigger_sim_source_release}, \
+    {.pattern = "TRIGger:REServation:SOURce?", .callback = scpi_cmd_trigger_sim_source_q}, \
     {.pattern = "SYSTem:VDC:OUTPut:FIXed", .callback = scpi_cmd_vdc_fixed_output}, \
     {.pattern = "SYSTem:VDC:OUTPut:RUN", .callback = scpi_cmd_vdc_run_output}, \
     {.pattern = "SYSTem:VDC:OUTPut:RUN:STOP", .callback = scpi_cmd_vdc_run_output_stop}, \
@@ -459,6 +472,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:REServation:T2:STOP", .callback = scpi_cmd_trigger_t2_stop}, \
     {.pattern = "TRIGger:REServation:T2?", .callback = scpi_cmd_trigger_t2_q}, \
     {.pattern = "TRIGger:REServation:T2:CURSor?", .callback = scpi_cmd_trigger_t2_cursor_q}, \
+    {.pattern = "TRIGger:REServation:T2:ACTion?", .callback = scpi_cmd_trigger_t2_action_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BRIDge?", .callback = scpi_cmd_vdc_feedback_bridge_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MATCh?", .callback = scpi_cmd_vdc_feedback_match_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \

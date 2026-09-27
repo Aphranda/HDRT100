@@ -6,8 +6,21 @@
 #define SYNC_IO_SWITCH_SCHEMA 1u
 #define SYNC_IO_SWITCH_FIRST_SM 1u
 #define SYNC_IO_SWITCH_SECOND_SM 3u
-#define SYNC_IO_SWITCH_INSTRUCTION_WORDS 4u
+#define SYNC_IO_SWITCH_INSTRUCTION_WORDS 6u
 #define SYNC_IO_SWITCH_MAX_GROUPS 2u
+#define SYNC_IO_SWITCH_DEADLINE_GUARD_US 100u
+#define SYNC_IO_SWITCH_ORIGIN_MAX_NS 256u
+
+/* Owner-only Core1 status; COMPLETE means matching PIO receipts, not settle.
+ * A rejected origin is CANCELLED if stopped before deadline; otherwise
+ * UNCERTAIN explicitly records that an edge may already have happened. */
+enum { SYNC_IO_SWITCH_DEADLINE_IDLE, SYNC_IO_SWITCH_DEADLINE_ARMED,
+    SYNC_IO_SWITCH_DEADLINE_COMPLETE, SYNC_IO_SWITCH_DEADLINE_CANCELLED,
+    SYNC_IO_SWITCH_DEADLINE_UNCERTAIN };
+typedef struct {
+    uint32_t state, sequence, receipt_mask;
+    uint64_t deadline_tick, origin_before_tick, origin_after_tick;
+} sync_io_switch_deadline_status_t;
 
 typedef enum { SYNC_IO_SWITCH_IDLE, SYNC_IO_SWITCH_LOADED,
     SYNC_IO_SWITCH_STAGED, SYNC_IO_SWITCH_PENDING, SYNC_IO_SWITCH_COMPLETE,
@@ -29,7 +42,7 @@ typedef struct {
  * OUT1..OUT4 subset. Unselected output/input pads are not modified. LOAD
  * hotloads one shared PIO0 program, initializes up to two contiguous groups,
  * holds selected outputs low, and leaves both SMs disabled. No DMA/IRQ/arena.
- * STAGE queues one immutable local code per group, APPLY starts them together
+ * STAGE preloads one immutable local code per group, APPLY starts them together
  * and returns immediately. This is maintenance validation, NOT an absolute-q
  * reservation executor or a READY/fence. Duplicate APPLY requires new STAGE;
  * STAGE cannot replace a pending transaction. A repeated code is an explicit
@@ -49,4 +62,11 @@ bool sync_io_switch_snapshot(sync_io_switch_snapshot_t *out);
  * This path never loads, changes routing, or waits for a receipt. */
 bool sync_io_switch_realtime_fire(uint32_t code);
 void sync_io_switch_realtime_service_core1(void);
+/* Preloaded resources only. No IRQ masking or wait. The initial PIO origin
+ * adds a nonnegative error bounded by origin_after-before (<500ns).
+ * Guard is setup margin, not accuracy or a mandatory 100ms prediction lead.
+ * Caller owns the frozen model, generation and absolute TIMER1 deadline. */
+bool sync_io_switch_realtime_schedule_at(uint32_t code,uint64_t deadline_tick);
+bool sync_io_switch_realtime_status(sync_io_switch_deadline_status_t *out);
+bool sync_io_switch_realtime_cancel(void);
 #endif

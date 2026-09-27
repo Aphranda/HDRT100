@@ -533,12 +533,14 @@ set(PROJECT_APP_SOURCES
         components/sync_trigger/src/trigger_action_template_store.c
         components/sync_trigger/src/trigger_t2_runtime.c
         components/sync_trigger/src/trigger_time_cursor.c
+        components/sync_trigger/src/trigger_time_projection.c
         components/sync_io/src/sync_io.c
         components/sync_io/src/sync_io_logic_analyzer.c
         components/sync_io/src/sync_io_analyzer_burst.c
         components/sync_io/src/sync_io_model_sched.c
         components/sync_io/src/sync_io_run_output.c
         components/sync_io/src/sync_io_pulse_counter.c
+        components/sync_io/src/sync_io_turntable_source.c
         components/sync_io/src/sync_io_gateway.c
         components/sync_io/src/sync_io_switch.c
         components/sync_io/src/sync_io_action.c

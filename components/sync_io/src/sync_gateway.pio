@@ -1,13 +1,16 @@
-; Prepared-only VNA gateway. LOAD never enables these SMs or queues a pulse.
-; Future deadline owner must admit a pulse before using this IRQ6 handshake.
+; Y is preloaded with pulse_ticks-2 while disabled. TX supplies delay.
+; Rising edge = SM origin + delay + 4 clocks. IRQ6 informs READY but NEVER
+; waits for it. Pulse completion pushes preloaded ISR transaction sequence.
 .program sync_gateway_output
 .wrap_target
     pull block
-    mov x, osr
-    irq wait 6 [2]
+    out x, 32
+delay:
+    jmp x-- delay
+    irq 6
     set pins, 1
 high:
-    jmp x-- high
+    jmp y-- high
     set pins, 0
     push block
 .wrap

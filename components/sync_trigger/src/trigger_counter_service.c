@@ -142,3 +142,10 @@ uint32_t trigger_counter_snapshot_core1(trigger_counter_snapshot_t *out)
     *out=next;
     return COUNTER_OK;
 }
+
+uint32_t trigger_counter_read_core1(uint32_t *count)
+{
+    if (!count || get_core_num()!=1u || !trigger_counter_is_loaded())
+        return COUNTER_ARGUMENT;
+    return sync_io_pulse_counter_read_core1(count) ? COUNTER_OK : COUNTER_BUSY;
+}
