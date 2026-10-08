@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_RUNTIME_CONSTRAINTS.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-09-28
+Last updated: 2026-10-08
 
 ## 文档接口
 
@@ -112,6 +112,16 @@ MODEL、TRIGGER_MEASURE、GUARD 无此 IRQ 配额。长档增加 TDMA phase WCET
 TDMA 相位宽度额外包含关窗预留和入口余量；上述默认配置中分别为 14 us 与 20 us（同一代码快照）。`PROJECT_CORE1_PRIORITY_RX_IRQ_CYCLES` 仍标为 candidate，必须以实际完整 ISR（含尾部）及相位墙钟验证，不能把配置预算当作已证明上界。
 
 `app_realtime_run_phase()` 在进入时要求完整 service WCET 能放入本相位关闭点前的剩余区间；不满足则记录 skip，而不是借用后续相位。TDMA 被跳过时，可按独立候选预算依次尝试 RUN 输出规划或缓存交接；它们只占原 TDMA 区间，保留各自超时记录，不能算作完整 TDMA service 已执行。
+
+### TDMA 相位体与环回往返是两个量
+
+`phase_last_runtime_cycles` / `phase_max_runtime_cycles` 量的是**整个 TDMA 相位体**：`app_realtime_run_phase()` 在 `service()` 前取 `start_counter`、返回后取 `end_counter`，而该 `service()` 是 `app_realtime_tdma_phase()`，除 TDMA 传输外还执行 RX observer 收割、`vdc_run_output_service_core1()`、`sync_io_reference_service_core1()`、`sync_io_logic_analyzer_service_core1()` 以及诊断/看门狗记账。因此该数字既不是 TDMA 服务耗时，也不能直接当作任一域的 WCET。
+
+环形**往返**不在这个数字里：TX 提交即返回、不等线上完成；帧尾忙等上限约 18 us（`tdma_pio_spi_phys_frame_tail_us()`）；DMA 停止与 TX put 的自旋分别以 `TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US`、`TDMA_PIO_SPI_TX_PUT_TIMEOUT_US` 为硬上限。按 DET-02，线上飞行时间与 CPU 工作可重叠，两者不得相加或相减，也不能用相位体墙钟反推环回时长。
+
+归因必须读逐阶段会计，不能只引用合计数：`SYSTem:TDMA:PROFile?`、`:PEAK?`（单个完整相位，非跨相位取最大）、`:RUN?`、`:OTHer?`、`:RX?` 导出 `total_ticks`、`full_phase_ticks` 与各阶段 `elapsed_ticks`/`calls`。各阶段区间是包含关系（父项含子项），先减子项再与兄弟项相加；`total_ticks` 与未单独记账的项之差即为相位体内其余服务。四板 TDMA 阶段采集该分解作为只读证据，不新增门禁。
+
+相位体至少分三类，量级不同，必须分类评价：**稳态周期相位**（收发处理走异步路径，只有准入、发布与记账）、**自治 origin 相位**（发射与接收处理在同一次调用内完成，`adapter` 及其 `origin_*`/`rx_*` 子项占主导）、**STOP/ARM/配置过渡相位**（`ring_runtime` 内的 stop/start adapter 路径，`adapter` 阶段不发生作用）。`phase_max_runtime_cycles` 是跨相位的粘性最大值，会把三类混成一个数；`peak`、`autonomous_peak`（`RUN?`）、`other_peak`（`OTHer?`）与 `last` 就是为分类评价提供的。不得用粘性最大值对标稳态 WCET，也不得把过渡或自治相位的耗时记作周期服务超预算。
 
 | 观测量 | 用途 | 易混淆项 |
 |---|---|---|
