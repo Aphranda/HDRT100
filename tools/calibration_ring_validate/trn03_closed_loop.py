@@ -311,6 +311,22 @@ def parse_args() -> argparse.Namespace:
         help=("leave the matrix-backed ring running only after every closed-"
               "loop gate and a final runtime readback pass; diagnostic mode "
               "records handoff failures without stopping the ring"))
+    parser.add_argument(
+        "--origin-trial", action="store_true",
+        help=("drive the TDMA origin trial entry inside the leave-running "
+              "window (TDMA-FLIGHT-002B1): burst 0, trial on the reference "
+              "node, release, then read-only observation of the adapter FSM"))
+    parser.add_argument("--origin-reference",
+                        help="origin reference node serial (default: first board)")
+    parser.add_argument("--origin-trial-id", type=int, default=9101)
+    parser.add_argument("--origin-rearm-ticks", type=int, default=4096)
+    parser.add_argument("--origin-polls", type=int, default=256)
+    parser.add_argument(
+        "--origin-duration-ticks", type=int, default=15000000000,
+        help="trial window in ticks, not ns (250 MHz => 60 s at 1.5e10); the "
+             "window must outlast the preparation stage machine")
+    parser.add_argument("--origin-observe-seconds", type=float, default=60.0)
+    parser.add_argument("--origin-sample-interval-s", type=float, default=0.2)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--out-dir", type=Path)
     return parser.parse_args()
@@ -369,6 +385,186 @@ def running_handoff_errors(snapshot: dict[str, int], node_index: int,
     }
     return [name for name, value in expected.items()
             if snapshot.get(name) != value]
+
+
+ORIGIN_COMM_STATES = {
+    0: "STOPPED", 1: "ARMED", 2: "RUNNING", 3: "CYCLE_BOUNDARY",
+    4: "FAULT", 5: "AUTONOMOUS", 6: "RESIDENT_PREPARING",
+}
+ORIGIN_AUTONOMOUS_STATE = 5
+
+# Tagged SCPI pages put their tag in values[0], so field N lives at
+# values[N + 1]. Name the fields once and parse through these tuples: raw
+# indices already caused a release to carry the version constant and two
+# mis-labelled counters.
+ORIGIN_RUNTIME_FIELDS = (
+    "active", "comm_fsm_state", "last_error", "observed_return_count",
+    "unobserved_cycle_count", "rejected_observation_count",
+    "published_generation", "published_owner_generation",
+    "matched_owner_generation", "returned_sequence", "returned_identity",
+    "returned_local_generation", "boundary_sequence", "boundary_identity",
+    "boundary_local_generation", "boundary_output_remaining",
+    "timestamp_flags",
+)
+ORIGIN_TRIAL_FIELDS = ("version", "epoch", "enabled", "trial_id",
+                       "config_seq")
+ORIGIN_BOUNDARY_FIELDS = ("boundary_sequence", "boundary_identity",
+                         "boundary_local_generation",
+                         "boundary_output_remaining")
+
+
+def origin_page(fields: tuple[str, ...], values: list[str]) -> dict[str, str]:
+    """Map a tagged SCPI page to named fields (the tag is values[0])."""
+    return dict(zip(fields, (value.strip().strip(chr(34)) for value in values[1:])))
+
+
+def origin_trial_probe(ordered: list[Board], args: argparse.Namespace,
+                       out_dir: Path) -> dict[str, Any]:
+    """Drive the origin trial entry on the reference node and observe the FSM.
+
+    The entry contract (TDMA-FLIGHT-002B1) admits the trial only while the ring
+    runs in process-image forwarding with the diagnostic-continue flag set and a
+    zero burst limit; the preparation stage machine then advances on ring cycles
+    up to RESIDENT_INSTALLED, which is what moves the adapter to AUTONOMOUS.
+    ``--origin-duration-ticks`` is a tick count (250 MHz), and the window must
+    outlast that machine, because an expired trial revokes authorization
+    mid-preparation. Every read is observational, and the trial is always
+    revoked so no foundation state is left behind.
+    """
+    reference = getattr(args, "origin_reference", None) or ordered[0].address
+    board = next((item for item in ordered if item.address == reference), None)
+    if board is None:
+        return {"passed": False,
+                "error": f"origin reference board not on the bench: {reference}"}
+    steps: list[dict[str, Any]] = []
+
+    def send(command: str) -> str:
+        try:
+            response = board_command(board, command, args)
+        except Exception as exc:  # noqa: BLE001 - a missing reply is evidence
+            response = f"<{type(exc).__name__}>"
+        steps.append({"command": command, "response": response})
+        return response
+
+    send("SYSTem:TDMA:RING:BURSt 0")
+    burst = send("SYSTem:TDMA:RING:BURSt?")
+
+    def drain_errors() -> None:
+        """Drain the SCPI error queue so a queued reply cannot merge into the
+        next read (see the merged-reply hazard in tdma_start_ring.py)."""
+        for _ in range(8):
+            raw = send("SYSTem:ERR?")
+            if raw.startswith("0,") or '"No error"' in raw or raw.startswith("<"):
+                break
+
+    # The licence freezes the staged ring config, so wait until that config is
+    # applied: licensing against a pending config makes the trial stale.
+    applied_deadline = time.monotonic() + 10.0
+    config_was_applied = False
+    while time.monotonic() < applied_deadline:
+        opmode = send("SYSTem:TDMA:OPMode?")
+        values = [value.strip() for value in opmode.split(",")]
+        if len(values) > 13 and values[12] == values[13]:
+            config_was_applied = True
+            break
+        time.sleep(0.2)
+    drain_errors()
+    trial = ("CALibration:ORIGin:TRIAL:READY {}, {}, {}, {}".replace(", ", ",")
+             .format(getattr(args, "origin_trial_id", 9101),
+                     getattr(args, "origin_rearm_ticks", 4096),
+                     getattr(args, "origin_polls", 256),
+                     getattr(args, "origin_duration_ticks", 15000000000)))
+    send(trial)
+    page = send("READ:CALibration:ORIGin?")
+    fields = [value.strip().strip('"') for value in page.split(",")]
+    # scpi_calibration_commands.c:305-310 -> tag, version, epoch, enabled,
+    # trial_id, config_seq, ... (epoch and config_seq are NOT fields 1 and 4).
+    epoch = fields[2] if len(fields) > 5 else "0"
+    config_seq = fields[5] if len(fields) > 5 else "0"
+    # No live readback exposes the preparation stage: every origin diagnostic
+    # page (handoff / release / build probe) requires a stopped ring
+    # (tdma_runtime_origin.inc:411-413, 422-424, 437-439). Waiting on those
+    # pages while the ring runs can never succeed, so the release is issued
+    # with a bounded retry and the trial page is recorded after each attempt.
+    release_ready = False
+    release_response = "<not-sent>"
+    release_attempts: list[dict[str, Any]] = []
+    for attempt in range(5):
+        drain_errors()
+        release_response = send(
+            f"CALibration:ORIGin:RELease {epoch},{config_seq}")
+        after = send("READ:CALibration:ORIGin?")
+        release_attempts.append({"attempt": attempt,
+                                 "release_response": release_response,
+                                 "trial_page": after})
+        if not release_response.startswith("<"):
+            release_ready = True
+            break
+        time.sleep(0.5)
+
+    states: dict[str, int] = {}
+    runtime_states: dict[str, int] = {}
+    max_observed_returns = 0
+    max_rejected = 0
+    max_published_generation = 0
+    boundary_seen = False
+    last_runtime = ""
+    deadline = time.monotonic() + float(getattr(args, "origin_observe_seconds", 60.0))
+    interval = float(getattr(args, "origin_sample_interval_s", 0.2))
+    while time.monotonic() < deadline:
+        runtime = send("READ:CALibration:ORIGin:RUNTIme?")
+        if runtime.startswith('"ORIGINRUNTIME"'):
+            values = runtime.split(",")
+            code = values[2].strip() if len(values) > 2 else "?"
+            name = ORIGIN_COMM_STATES.get(int(code), code) if code.isdigit() else code
+            states[name] = states.get(name, 0) + 1
+            key = f"active={values[1].strip()},fsm={name}"
+            runtime_states[key] = runtime_states.get(key, 0) + 1
+            last_runtime = runtime
+            # The SCPI page tag occupies values[0], so field N lives at
+            # values[N + 1]; reading raw indices is what made an earlier release
+            # carry the version constant instead of the epoch.
+            page = origin_page(ORIGIN_RUNTIME_FIELDS, values)
+            observed = page.get("observed_return_count", "0")
+            if observed.isdigit():
+                max_observed_returns = max(max_observed_returns, int(observed))
+            rejected = page.get("rejected_observation_count", "0")
+            if rejected.isdigit():
+                max_rejected = max(max_rejected, int(rejected))
+            published = page.get("published_generation", "0")
+            if published.isdigit():
+                max_published_generation = max(max_published_generation,
+                                               int(published))
+            if any(page.get(name, "0") not in ("0", "")
+                   for name in ORIGIN_BOUNDARY_FIELDS):
+                boundary_seen = True
+        time.sleep(interval)
+    handoff = send("READ:CALibration:ORIGin:HANDoff?")
+    record = send("READ:CALibration:ORIGin:RECord? 0")
+    send("CALibration:ORIGin:REVOkE")
+    return {
+        "passed": states.get("AUTONOMOUS", 0) > 0,
+        "reference": reference,
+        "burst_readback": burst,
+        "trial_epoch": epoch,
+        "trial_config_seq": config_seq,
+        "config_was_applied": config_was_applied,
+        "release_ready": release_ready,
+        "release_response": release_response,
+        "release_attempts": release_attempts,
+        "observed_states": states,
+        "runtime_states": runtime_states,
+        "autonomous_reached": states.get("AUTONOMOUS", 0) > 0,
+        "max_observed_return_count": max_observed_returns,
+        "max_rejected_observation_count": max_rejected,
+        "max_published_generation": max_published_generation,
+        "boundary_seen": boundary_seen,
+        "last_runtime": last_runtime,
+        "handoff": handoff,
+        "record": record,
+        "steps": steps,
+        "out_dir": str(out_dir),
+    }
 
 
 def running_handoff_allows_leave_running(
@@ -2392,7 +2588,14 @@ def main() -> int:
             if not strict_handoff_passed and not args.diagnostic_continue:
                 error = merge_error(
                     error, "leave-running final runtime readback failed")
+        # The origin entry (TDMA-FLIGHT-002B1) may only be licensed while the
+        # ring is running: the preparation stage machine advances on ring
+        # cycles, not on host polling. Bind the result before the branch so the
+        # summary can report it even when the trial was not requested.
+        origin_trial: dict[str, Any] = {}
         if leave_running:
+            if args.origin_trial:
+                origin_trial = origin_trial_probe(ordered, args, out_dir)
             for board in ordered:
                 stopped[board.address] = {
                     "passed": 1,
@@ -2455,6 +2658,7 @@ def main() -> int:
         "capture_load_masks": capture_load_masks,
         "running_handoff": running_handoff,
         "left_running": leave_running,
+        "origin_trial": origin_trial,
         "stopped": stopped,
         "actions": actions,
     }

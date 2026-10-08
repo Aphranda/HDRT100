@@ -81,14 +81,60 @@ class BoardConnection:
     def command(self, text: str) -> str:
         self.open()
         assert self.session is not None and self.session.ser is not None
+        # Drop any residue from the previous exchange before writing. A late
+        # error-queue reply (`0,"No error"`) otherwise merges with this
+        # command's own header echo, and the acceptance staging path then reads
+        # the joined text as a rejected command instead of a valid reply. The
+        # short-open path already flushes for the same reason.
+        try:
+            self.session.ser.reset_input_buffer()
+        except Exception:  # noqa: BLE001 - a flush must never mask the command
+            pass
         response = _board_command_on_serial(
             self.board, text, self.args, self.session.ser)
+        # A single SCPI exchange can be answered in more than one message, and
+        # the remainder may arrive after the terminator was consumed. Left in
+        # the buffer it prefixes the next reply (observed as an error-queue
+        # answer read as `2,10,"No error"`, which fails the "first field is 0"
+        # check). Quiesce the line before returning so each command owns a
+        # clean input buffer.
+        self._quiesce()
         # A software reset invalidates the CDC session.  Release it here so
         # the next command performs a fresh discovery/open handshake.
         action = text.strip().split(maxsplit=1)[0].upper()
         if action in {"SYSTEM:BOOT:RESET", "SYST:BOOT:RESET"}:
             self.close()
         return response
+
+    def _quiesce(self) -> None:
+        """Discard bytes that arrive after a response's own terminator.
+
+        A late remainder can land after the terminator was consumed and even
+        after a first empty check, so this exits only after a quiet window: any
+        byte seen resets the window. A transport without ``in_waiting`` (host
+        fakes) pays nothing.
+        """
+        assert self.session is not None and self.session.ser is not None
+        ser = self.session.ser
+        if not hasattr(ser, "in_waiting"):
+            return
+        quiet_s = 0.02
+        deadline = time.monotonic() + quiet_s
+        while True:
+            if time.monotonic() >= deadline:
+                return
+            try:
+                waiting = int(ser.in_waiting)
+            except Exception:  # noqa: BLE001 - transport without a depth read
+                return
+            if waiting <= 0:
+                time.sleep(0.005)
+                continue
+            try:
+                ser.read(waiting)
+            except Exception:  # noqa: BLE001 - never mask the command result
+                return
+            deadline = time.monotonic() + quiet_s
 
 
 _PERSISTENT_CONNECTIONS: dict[str, BoardConnection] = {}

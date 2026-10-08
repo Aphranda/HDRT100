@@ -113,7 +113,10 @@ def main() -> int:
         print(f"configure=skip cache matches current root build_dir={build_dir}", flush=True)
 
     if not args.no_build:
-        run(["cmake", "--build", str(build_dir)], root)
+        # Parallel by default: Ninja already parallelizes, but an explicit
+        # --parallel also covers Make generators and keeps the host's cores
+        # busy. Linking stays serial.
+        run(["cmake", "--build", str(build_dir), "--parallel"], root)
 
     return 0
 

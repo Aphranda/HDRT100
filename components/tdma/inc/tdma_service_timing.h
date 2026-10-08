@@ -164,6 +164,11 @@ typedef struct {
     uint32_t total_ticks;
     uint32_t invalid_count;
     uint32_t full_phase_ticks;
+    /* Time inside the phase body that is hardware waiting/spinning rather than
+     * Core1 work (frame tail, DMA stop, TX put, capture deadlines). L0 service
+     * work = total_ticks - wait_ticks - elapsed_ticks[TDMA_TIMING_PHASE_WAIT],
+     * which is the only quantity a Core1 WCET contract may be compared with. */
+    uint32_t wait_ticks;
     tdma_service_timing_context_t entry;
     tdma_service_timing_context_t exit;
     uint32_t elapsed_ticks[TDMA_TIMING_STAGE_COUNT];
@@ -229,6 +234,10 @@ void tdma_service_timing_context(tdma_service_timing_context_t context, bool ent
  * interval includes begin/end instrumentation; this bookkeeping is outside it. */
 void tdma_service_timing_scheduler_end(uint32_t elapsed_cycles);
 uint64_t tdma_service_timing_now(void);
+/* Mark a hardware waiting/spinning interval inside the phase body. Nesting is
+ * counted once, so a wait that contains another wait is not double charged. */
+void tdma_service_timing_wait_begin(void);
+void tdma_service_timing_wait_end(void);
 void tdma_service_timing_record(tdma_service_timing_stage_t stage, uint64_t start);
 /* Core0 read attempts once. RESET is consumed at the next Core1 phase. */
 bool tdma_service_timing_try_snapshot(tdma_service_timing_snapshot_t *snapshot);

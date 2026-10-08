@@ -2557,3 +2557,30 @@ def test_soak_timeline_retains_per_node_sampling_failure() -> None:
         "sample_transport:TimeoutError: query timeout"]
     assert [interval["errors"] for interval in node["intervals"]] == [
         ["sample_missing"], ["sample_missing"]]
+
+
+def test_origin_page_maps_tagged_fields() -> None:
+    """Tagged SCPI pages put the tag first: field N must be values[N + 1].
+
+    Raw index reads already produced a release carrying the version constant
+    and two mis-labelled counters, so the mapping is pinned here.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "trn03_closed_loop_origin_page",
+        ROOT / "tools" / "calibration_ring_validate" / "trn03_closed_loop.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    runtime = module.origin_page(module.ORIGIN_RUNTIME_FIELDS, (
+        '"ORIGINRUNTIME",1,5,0,8088,17067,0,6291,9796,9795,28662,'
+        '1538071477,6290,28663,3797336157,6290,0,1').split(","))
+    assert runtime["active"] == "1"
+    assert runtime["comm_fsm_state"] == "5"
+    assert runtime["observed_return_count"] == "8088"
+    assert runtime["rejected_observation_count"] == "0"
+    assert runtime["published_generation"] == "6291"
+    assert runtime["boundary_sequence"] == "28663"
+    trial = module.origin_page(module.ORIGIN_TRIAL_FIELDS, (
+        '"ORIGINTRIAL",3,14,1,9101,4,1791433733').split(","))
+    assert trial["epoch"] == "14"
+    assert trial["config_seq"] == "4"

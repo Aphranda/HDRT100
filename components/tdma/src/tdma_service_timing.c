@@ -18,6 +18,10 @@ static volatile uint32_t s_guard;
 static volatile uint32_t s_reset_request;
 static bool s_active;
 static bool s_scheduler_pending;
+/* Hardware waiting inside the phase body is measured separately from Core1
+ * work: see `wait_ticks` in the record. One nesting level is charged once. */
+static uint64_t s_wait_start;
+static uint32_t s_wait_depth;
 static tdma_rx_timing_snapshot_t s_rx_work, s_rx_snapshot;
 static tdma_service_timing_context_t s_rx_context;
 static uint64_t s_rx_initial_ticks;
@@ -57,6 +61,8 @@ void tdma_service_timing_phase_begin(void)
         (void)__atomic_add_fetch(&s_guard, 1u, __ATOMIC_RELEASE);
     }
     memset(&s_work, 0, sizeof(s_work));
+    s_wait_depth = 0u;
+    s_wait_start = 0u;
     s_work.sequence = s_snapshot.phase_count + 1u;
     s_work.start_ticks = tdma_service_timing_now();
     s_active = true;
@@ -180,6 +186,35 @@ void TDMA_TIMING_TIME_CRITICAL(tdma_service_timing_record)(
     } else {
         s_work.calls[stage]++;
     }
+}
+
+/* Hardware waiting inside the body is measured separately from Core1 work: a
+ * WCET contract describes work, while the phase wall clock also contains the
+ * ring's return, frame tails and DMA stops. */
+void tdma_service_timing_wait_begin(void)
+{
+    if (!s_active) return;
+    if (s_wait_depth == 0u) s_wait_start = tdma_service_timing_now();
+    if (s_wait_depth != UINT32_MAX) s_wait_depth++;
+}
+
+void tdma_service_timing_wait_end(void)
+{
+    if (!s_active || s_wait_depth == 0u) return;
+    s_wait_depth--;
+    if (s_wait_depth != 0u) return;
+    const uint64_t now = tdma_service_timing_now();
+    if (now < s_wait_start || now < s_work.start_ticks) {
+        s_work.invalid_count++;
+        return;
+    }
+    const uint32_t ticks = tdma_service_timing_elapsed(s_wait_start, now);
+    if (ticks > UINT32_MAX - s_work.wait_ticks) {
+        s_work.invalid_count++;
+        s_work.wait_ticks = UINT32_MAX;
+        return;
+    }
+    s_work.wait_ticks += ticks;
 }
 
 void tdma_service_timing_phase_end(void)

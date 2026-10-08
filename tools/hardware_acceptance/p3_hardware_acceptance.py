@@ -3498,6 +3498,50 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         f"Latency_Cal_trials={p3_metrics['trial_count']} receipt={receipt_path}")
 
 
+def flash_with_picotool(root: Path, out_dir: Path, board_ids: list[str],
+                        artifact: Path) -> dict[str, Any]:
+    """Flash every board from one UF2 through the picotool component.
+
+    This is the inner-loop flashing route: the secure OTA path stays the one
+    that produces a committable receipt. Each board is flashed through the
+    existing closed-loop picotool helper, and the transcript plus the artifact
+    hash are kept as evidence.
+    """
+    if not artifact.is_file():
+        raise AcceptanceError(f"UF2 artifact missing: {artifact}")
+    helper = root / "tools/picotool_flash/picotool_flash.py"
+    flash_dir = out_dir / "flash-picotool"
+    flash_dir.mkdir(parents=True, exist_ok=True)
+    # P3 owns no flashing mechanics: the picotool component performs the
+    # 1200-baud touch, BOOTSEL polling, load and application wait, one board at
+    # a time. This call is the whole integration surface.
+    helper = root / "tools/picotool_flash/picotool_flash.py"
+    rows: list[dict[str, Any]] = []
+    for board_id in board_ids:
+        transcript = flash_dir / f"{board_id}.txt"
+        started = time.perf_counter()
+        completed = subprocess.run(
+            [sys.executable, str(helper), str(artifact),
+             "--serial-number", board_id, "--retries", "3", "--settle", "2.0",
+             "--out", str(transcript)],
+            cwd=root, text=True, capture_output=True)
+        elapsed = round(time.perf_counter() - started, 3)
+        rows.append({"serial_number": board_id,
+                     "returncode": completed.returncode, "elapsed_s": elapsed,
+                     "transcript": evidence_entry(root, transcript)})
+        print(f"DPLL-60 acceptance: picotool {board_id[:8]} "
+              f"rc={completed.returncode} {elapsed:.1f}s", flush=True)
+    summary = {"schema": "HAOFV_PICOTOOL_FLASH_EVIDENCE_V1",
+               "artifact": evidence_entry(root, artifact), "boards": rows,
+               "failed_count": sum(1 for row in rows if row["returncode"] != 0)}
+    summary["passed"] = summary["failed_count"] == 0
+    (flash_dir / "summary.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if not summary["passed"]:
+        raise AcceptanceError("picotool flashing failed; see per-board transcripts")
+    return summary
+
+
 def run_dpll_short_acceptance(args: argparse.Namespace) -> None:
     """Write the routine DPLL-60 credential for the current source fingerprint.
 
@@ -3528,7 +3572,11 @@ def run_dpll_short_acceptance(args: argparse.Namespace) -> None:
                      board_ids, build_id)
         print(f"DPLL-60 acceptance: reuse package build={build_id}", flush=True)
     else:
-        build_dir = root / f"out/build/dpll60-{stamp}"
+        # One stable build directory: a per-run directory forced a full
+        # recompile every iteration (~100 s), while reusing it only recompiles
+        # what changed.
+        build_dir = root / "out/build/dpll60-latest"
+        flash_method = getattr(args, "flash", "ota")
         _run_step([sys.executable,
                    str(root / "tools/cmake_build_auto/cmake_build_auto.py"),
                    "--root", str(root), "--build-dir", str(build_dir)],
@@ -3537,18 +3585,34 @@ def run_dpll_short_acceptance(args: argparse.Namespace) -> None:
         if not package.is_file():
             raise AcceptanceError(f"firmware package missing: {package}")
         build_id = _read_package_build_id(package)
-        ota_dir = out_dir / "ota-four-board"
-        ota_command = [sys.executable,
-                       str(root / "tools/ota_multi_update/ota_multi_update.py"),
-                       str(package), "--expected-board-count", str(len(board_ids)),
-                       "--expected-build", build_id, "--out-dir", str(ota_dir),
-                       "--block-size", "4096"]
-        for board_id in board_ids:
-            ota_command.extend(["--serial-number", board_id])
-        _run_step(ota_command, root, out_dir / "ota.log")
-        ota_summary_path = ota_dir / "summary.json"
-        validate_ota(json.loads(ota_summary_path.read_text(encoding="utf-8")),
-                     board_ids, build_id)
+        if flash_method == "picotool":
+            # Fast path: one UF2 per board through the closed-loop picotool
+            # helper, in parallel. Until the receipt validator accepts this
+            # evidence type, run --flash ota when a committable credential is
+            # required.
+            print("DPLL-60 acceptance: flashing 4 boards with picotool",
+                  flush=True)
+            flash_with_picotool(root, out_dir, board_ids,
+                                build_dir / "DHRT100_FACTORY.uf2")
+            print("DPLL-60 acceptance: picotool flash complete; continuing with "
+                  "TDMA short-frame and DPLL 60 s", flush=True)
+            # Evidence substitution only: the OTA step below is skipped, so the
+            # receipt path must still resolve a file. The fast path returns
+            # before receipt validation.
+            ota_summary_path = out_dir / "flash-picotool" / "summary.json"
+        if flash_method != "picotool":
+            ota_dir = out_dir / "ota-four-board"
+            ota_command = [sys.executable,
+                           str(root / "tools/ota_multi_update/ota_multi_update.py"),
+                           str(package), "--expected-board-count", str(len(board_ids)),
+                           "--expected-build", build_id, "--out-dir", str(ota_dir),
+                           "--block-size", "4096"]
+            for board_id in board_ids:
+                ota_command.extend(["--serial-number", board_id])
+            _run_step(ota_command, root, out_dir / "ota.log")
+            ota_summary_path = ota_dir / "summary.json"
+            validate_ota(json.loads(ota_summary_path.read_text(encoding="utf-8")),
+                         board_ids, build_id)
 
     matrix_path = (root / args.matrix).resolve() if args.matrix is not None else \
         _latest_trn03_matrix(root)
@@ -3678,6 +3742,14 @@ def run_dpll_short_acceptance(args: argparse.Namespace) -> None:
         "restore_full_condition": (
             "a staged change under " + ", ".join(DPLL_SHORT_UNCOVERED_PREFIXES)),
     }
+    if args.package is None and getattr(args, "flash", "ota") == "picotool":
+        # Fast iteration: the bench was updated through picotool, so no OTA
+        # capability evidence exists for this round. The TDMA/DPLL evidence
+        # above is still written to out_dir; run --flash ota when a
+        # committable credential is required.
+        print(f"PASS DPLL-60 fast iteration build={build_id} out={out_dir} "
+              f"(no receipt: picotool flash)", flush=True)
+        return
     _validate_dpll_short_receipt(root, receipt)
     validate_alarm_report(root, receipt)
     payload = json.dumps(receipt, ensure_ascii=False, indent=2) + "\n"
@@ -3758,6 +3830,11 @@ def parse_args() -> argparse.Namespace:
                         help="reuse an existing DHRT100_UPDATE.pkg instead of building")
     dpll60.add_argument("--ota-summary", type=Path,
                         help="existing OTA summary for the reused package")
+    dpll60.add_argument("--flash", choices=("ota", "picotool"), default="ota",
+                        help="how to update the boards: the secure OTA path "
+                             "(default, produces the committable credential) or "
+                             "the faster picotool UF2 path (fast iteration; "
+                             "needs a bench whose boards all expose BOOTSEL)")
     dpll60.add_argument("--matrix", type=Path,
                         help="staged trn03 matrix; defaults to the newest existing one")
     dpll60.add_argument("--scope", choices=("auto", "internal"), default="auto",
