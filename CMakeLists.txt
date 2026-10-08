@@ -584,6 +584,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_priority_rx.c
         components/tdma/src/tdma_ring_runtime.c
         components/tdma/src/tdma_traffic_scheduler.c
+        components/tdma/src/tdma_seat_admission.c
         components/tdma/src/tdma_runtime_owner.c
         components/tdma/src/tdma_transport_frame.c
         components/ui_manager/src/status_ui.c
