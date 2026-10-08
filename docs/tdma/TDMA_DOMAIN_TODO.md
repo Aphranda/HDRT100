@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-09-28
+Last updated: 2026-10-08
 
 ## 文档接口与状态规则
 
@@ -72,6 +72,7 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 | TDMA-FLIGHT-002 | 真飞行处理总目标 | IN PROGRESS | F1–F5、owner/resource/snapshot、完整 CPU/RAM 和物理周期映射；契约激活须 C11。 |
 | TDMA-FLIGHT-001 | 常驻映像与同圈多 Node overlay | IN PROGRESS | 一次初始化、持续 cycle、授权装卸、无更新透传和受控退出。 |
 | TDMA-FLIGHT-002B | 自主发车与硬件进展 | IN PROGRESS | 已有 origin 有限 blackout；补主从全窗口、物理节拍、切换/故障及最坏预算。 |
+| TDMA-FLIGHT-002B1 | 自激发车入口契约收敛 | PENDING | 入口按五层定序并写入架构：许可 `CALibration:ORIGin:TRIAL[:READY]` → 构建（`origin_build_job` 分步，主机只读轮询 `READ:CALibration:ORIGin:LIVE?/:HANDoff?`）→ 释放 `CALibration:ORIGin:RELease` → 物理准入 `tdma_pio_spi_phys_origin_begin()` 前置表 → 环边界硬件事件；前置表逐条入文档，含"必须无 `DIAGNOSTIC_CONTINUE`、必须无 burst 限制、必须已有回环返回帧"；出口强制收敛：`CALibration:ORIGin:REVOkE` 后校准阶段与 ring 配置不得残留（否则阻塞后续常规运行）；判定一律用只读回读，变更命令缺失终止符不得当作拒绝。 |
 | TDMA-FLIGHT-002C | 双缓冲与无更新稳态 | PENDING | 原子选择、旧槽退休与复用波形一致；无更新不靠 Core1 改写线行为。 |
 | TDMA-FLIGHT-002D | 非阻塞 overlay 与同圈装卸 | PENDING | 就绪采用、迟到顺延、逐 hop owner/CRC 与节拍不变的独立证据。 |
 | TDMA-FLIGHT-002E | byte/cycle 飞行声明与契约收敛 | PENDING | F1–F5 完成后独立 C11、registry 及顶层刷新；现有 pending 不自动提升。 |
