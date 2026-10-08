@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-09-28
+Last updated: 2026-10-08
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
@@ -14,6 +14,18 @@ Last updated: 2026-09-28
 历史记录中的预算、节点及门禁描述只代表当时快照，当前口径以最新条目和主域文档为准。
 
 ## 当前 checkpoint
+
+### TDMA-PROGRESS-20261008-001：席位准入模型提交与同源码四板 quick P3 复跑
+
+- TODO task ID：`TDMA-FLIGHT-002K`、`TDMA-FLIGHT-002K1`、`TDMA-FLIGHT-002J`、`TDMA-HIL-001`；日期：2026-10-08。
+- 提交：模型切片 `f1170dd9`（`CMakeLists.txt`、`tdma_seat_admission.h/.c`、host/单元测试及硬件收据），文档切片 `2bf03c50`（按代码/文档分离约定单独提交）；均推送至 `wip/tdma-real-flight-processing` 并与远端同步。
+- 同源码硬件复跑：四板 quick P3 目录 `out/HardwareAcceptance/20261008/p3-tdma-seat-admission-02/`；收据 `build_id=20261008034144`、源码指纹 `6659300fadf5ccbcb1023a6d18e7a73c3ba5588ccfa81fd1c428dedb3e532164`、1543 文件（本轮快照，非事实源，以 `config/hardware_acceptance/p3_acceptance_receipt.json` 为准）。分级 `PASS_WITH_WARNINGS`、`ERROR=0/FATAL=0`；P0–P3、T0–T3 与 DPLL 阶段通过，TDMA 阶段 `PASS_WITH_WARNINGS`。
+- 与 9-28 轮的差异：`coded marker calibration level 7`、`TRN-01 SCK`、`TRN-03 SCK replay row selection` 三项本轮通过，收据内仅保留 `four-Node TDMA closed loop` 一项原始诊断失败。该差异只说明本轮训练、校准与运输流程完成，不能宣布严格 TDMA、锁相、零缺帧或 resident 全窗口通过，也不重判 9-28 轮原始失败。
+- 相位墙钟快照（口径为 `app.c` 的 `runtime_cycles = app_realtime_elapsed_cycles(start,end)`、`overrun = runtime_cycles > contract->wcet_cycles`，即整相位墙钟超过 WCET）：同轮内 TDMA 相位 `max_runtime_cycles` 四板分别达 343230 / 369169 / 339004 / 349448 拍（按 250 MHz 约 1372.9 / 1476.7 / 1356.0 / 1397.8 µs），而该相位 `wcet_cycles` 为 158000 拍；`overrun_count` 随样本单调增长（NO4 由 339 增至 1685），`schedule_miss_count` 占 `cycle_count` 的 30%–52%。相位墙钟是否含环回等待须按 `app_realtime_run_phase()` 与 priority RX 窗口口径复核，本轮只作 `TDMA-HIL-001` 待收敛证据，不作 WCET 结论。
+- RX/TX 事实（同轮末样本，逐节点区间）：RX 副本 `rx_publish_count` 647–699、`rx_acquire_count` 646–699，而 `rx_parse_count` 为 0/1/1/0、`rx_queued_count` 0–1；TX 侧 `tx_publish_reject_count` 825–1777 高于 `tx_publish_count` 935–1016，`tx_reuse_count` 0–4。这与 `TDMA-FLIGHT-002J` 要求的 RX 到达峰值、FIFO 高水位和 Core0 消费峰值一致：现有计数不足以证明接收侧闭合。
+- 已推送但此前无独立条目的预算事实切片：`3d8045f6` 暴露方向性周期预算快照（`tx_reserved_bytes_per_cycle`、`tx_remaining_bytes_in_cycle`、`rx_budget_defined`）；`99a4f052` 暴露 RX FIFO 容量与可用槽位及发布/丢弃/获得/释放/排队/解析计数，并明确其为固定 FIFO 事实、不等同每周期 RX wire budget。`traffic_scheduler_rx_budget_defined` 仍由代码置 0。
+- 失败原件：同日首轮因四板串口未枚举在 OTA 入口失败（`candidate_ports` 为空、`alarms.json` 为 `BLOCKED`），原件保留在 `out/HardwareAcceptance/20261008/p3-tdma-seat-admission-01/`，未生成或改写任何凭证。
+- 下一 gate：`TDMA-FLIGHT-002K2` 物理 selection/提交边界、VDC 新事件即时撤销与跨板无扰动；随后按同代绑定实测 TX/RX/CPU/反向预算。父任务 `002K` 保留 IN PROGRESS，不因纯模型测试与 quick P3 关闭物理窗口接线。
 
 ### TDMA-PROGRESS-20260928-001：席位准入软件模型与物理接线边界
 

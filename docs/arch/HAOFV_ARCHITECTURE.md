@@ -4,8 +4,8 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-26
-Version: 5
+Last updated: 2026-10-08
+Version: 6
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
 
@@ -151,7 +151,7 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | 跨核共享事实 | core0/core1 共享字段必须有唯一 writer，快照必须使用 seqlock、双缓冲或等价 sequence/version 机制，并使用 `__atomic` 或 DMB 屏障。 |
 | 分布式共同事实 | 不引入完整 IEC 61499 分布式运行时；多节点状态、命令、ACK/NACK、版本、质量和证据统一由 Distributed RefMem / RefMem Sync 内部主域承接。 |
 | 分布式共同时间 | VDC Domain 是共同时间唯一 owner；SYNC DPLL 维护 VDC offset/rate，Angle DPLL 只生成扫描预测时间，不能写 VDC offset/rate。 |
-| 分布式确定性通讯 | TDMA Foundation 是上行/下行 TDMA runtime、payload registry、adapter 和环路 completion evidence 的唯一 owner；`clk_sys` 拍数是 Core1 schedule 唯一时间事实源；产品 SHORT process image 按 mandatory-first 静态装配 Node mailbox 与固定 DPLL observation trailer，并作为启动时一次注入、运行中持续循环的 resident process image；每个 Node 只在自己的固定 segment 执行 UNLOAD/LOAD，无更新时透传，物理 frame completion 回到下一 cycle，只有 STOP、复位、故障或重新配置才退出。DPLL 启用不得改变帧型、长度、序列、PIO 节拍，也不得临时使用余量、guard 或第二帧。错误恢复由 Core0 准备、Core1 在固定窗口装载、PIO 发送，双 recovery buffer 交替且每周期最多一帧，使用独立静态预算并复用原 Node segment offset。VDC、RefMem、Trigger、OTA 只能通过注册 payload、提交 intent 或读取 snapshot 使用它。 |
+| 分布式确定性通讯 | TDMA Foundation 是上行/下行 TDMA runtime、payload registry、adapter 和环路 completion evidence 的唯一 owner；`clk_sys` 拍数是 Core1 schedule 唯一时间事实源；产品 SHORT process image 按 mandatory-first 静态装配 Node mailbox 与固定 DPLL observation trailer，并作为启动时一次注入、运行中持续循环的 resident process image；每个 Node 只在自己的固定 segment 执行 UNLOAD/LOAD，无更新时透传，物理 frame completion 回到下一 cycle，只有 STOP、复位、故障或重新配置才退出。DPLL 启用不得改变帧型、长度、序列、PIO 节拍，也不得临时使用余量、guard 或第二帧。错误恢复由 Core0 准备、Core1 在固定窗口装载、PIO 发送，双 recovery buffer 交替且每周期最多一帧，使用独立静态预算并复用原 Node segment offset。VDC、RefMem、Trigger、OTA 只能通过注册 payload、提交 intent 或读取 snapshot 使用它。该基础件的服务分级以 seat（特等/一等/二等/无座）为抽象、具体功能作为 load instance 挂载，准入按同代身份、每周期预算与时间窗逐周期判定；席位模型当前未接入 provider/PIO/IRQ/generic scheduler，物理窗口未开放，见 [TDMA 主域架构](../tdma/TDMA_DOMAIN_ARCHITECTURE.md)。 |
 | Vector 字段契约 | 每个 Vector 字段或字段块必须定义 writer、value domain、lifecycle、snapshot-needed；不得把 Vector 当作全局变量自由读写。 |
 | 时间回绕 | `uint32_t timestamp_ms` 只能用于短时间差；时间差必须使用回绕安全写法 `int32_t diff = (int32_t)(t1 - t0)`，长时间事实需要 epoch 扩展。 |
 | Metadata failsafe | Bootloader 必须定义 metadata 双副本无效的强制恢复路径，禁止继续启动未知镜像。 |

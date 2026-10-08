@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-28
+Last updated: 2026-10-08
 
 ## 文档接口与范围
 
@@ -184,6 +184,8 @@ core0_consume_peak <= fixed_core0_phase_budget
 ```
 
 seat 上挂载的 load instance 至少包括 traffic class、seat、owner、deadline、TX/RX 每周期字节和帧上限、segment size、TX/RX queue depth、overflow policy、CRC/reassembly 成本以及停止时的退休规则。T2 的 `position_q` 是当前挂载在一等席上的单帧负载；OTA、CONFIG 和诊断是挂载在较低席位的有界分段负载。不同 load instance 可以共用 FIFO 基础设施，但不能共用完成语义。
+
+上述分层可概括为一条准入无关性：挂在任一 seat 上的 load instance 能否准入，只取决于它自己的同代身份（epoch、cycle、config/profile/binding generation、priority sequence）、本席预算、时间窗与共享资源当前状态；物理环回、其他席位的发送完成或对端接收都不构成它的准入前置。各实例共用 FIFO/DMA/PIO 基础设施但不共用完成语义，任一实例的完成、迟到或失败都不推进、不回滚其他实例的状态。该段整理本文既有约束，不新增承诺，也未登记为契约；若要作为冻结条款，须先完成域间核验并按 C11 登记。
 
 priority provider 返回 `READY` 或 `EMPTY` 只代表特等席 offer/保留，不能代表物理发送已完成。只有记录 `PRIORITY_SELECTED`、`PRIORITY_TX_COMMITTED` 后，TDMA 才能计算 `FIRST_CLASS_WINDOW_GRANTED`；VDC 新事件、绑定变化、故障或窗口不足时立即撤销一等席准入。任何准入都不能修改已被 Core1 或 DMA 引用的 VDC image。
 
