@@ -48,6 +48,8 @@ def diagnostic_exe(tmp_path_factory):
     assert compiler, "A host C compiler is required"
     executable = build / ("origin_diagnostic.exe" if os.name == "nt" else "origin_diagnostic")
     includes = ["components/tdma/inc", "components/distributed_refmem/inc",
+                # distributed_refmem.h includes trigger_position_descriptor.h
+                "components/sync_trigger/inc",
                 "components/calibration_manager/inc", "components/ota_manager/inc",
                 "third_party/portable_ota/include", "config"]
     command = [compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic"]

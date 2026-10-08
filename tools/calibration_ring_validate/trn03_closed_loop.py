@@ -276,6 +276,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
     parser.add_argument(
+        "--cancel-unsaved-record", action="store_true",
+        help=("when a frozen record cannot be saved (no storage job left to "
+              "persist it), discard it and re-arm instead of failing the round; "
+              "the discard is recorded as an action"))
+    parser.add_argument(
         "--short-open", action="store_true",
         help="open/close CDC for every command instead of one session per board")
     parser.add_argument(
@@ -604,19 +609,19 @@ def flight_snapshot(board: Board, args: argparse.Namespace) -> dict[str, Any]:
     return {"process": process, "fifo": fifo}
 
 
-def service_timing_snapshot(board: Board,
-                            args: argparse.Namespace) -> dict[str, Any]:
+def service_timing_snapshot(board: Board, args: argparse.Namespace,
+                            cycle_ticks: int | None = None) -> dict[str, Any]:
     """Attribute the TDMA phase wall clock to its recorded stages.
 
     The app-level phase counter reports the whole phase body (transport,
     observer, VDC run output, SYNC_IO reference, analyzer and accounting) as
     one number, so it cannot say which service consumed the window.  Every
-    record is captured because one sticky maximum mixes steady-state cycles
-    with autonomous origin phases and ARM/STOP transitions: PEAK is the
-    largest complete phase, RUN/OTHer separate autonomous from other phases,
-    and the LAST record is the final phase.  Every nested stage interval is
-    inclusive: subtract recorded children before adding siblings.  This
-    remains read-only evidence; it adds no gate.
+    record is captured: STEADY is the largest phase that ran no STOP/ARM/config
+    transition, PEAK the largest complete phase, RUN/OTHer separate autonomous
+    from other phases, and LAST is the final phase.  Every nested stage
+    interval is inclusive: subtract recorded children before adding siblings.
+    With ``cycle_ticks`` each record also reports how much of the TDMA period
+    is waiting (period minus TX minus RX).  Read-only evidence; it adds no gate.
     """
     result: dict[str, Any] = {}
     errors: dict[str, str] = {}
@@ -625,14 +630,17 @@ def service_timing_snapshot(board: Board,
             ("peak", "SYSTem:TDMA:PROFile:PEAK?", parse_service_timing),
             ("run", "SYSTem:TDMA:PROFile:RUN?", parse_service_timing),
             ("other", "SYSTem:TDMA:PROFile:OTHer?", parse_service_timing),
+            ("steady", "SYSTem:TDMA:PROFile:STEady?", parse_service_timing),
             ("rx", "SYSTem:TDMA:PROFile:RX?", parse_rx_timing)):
         try:
             raw = board_command(board, text, args)
             result[f"{key}_raw"] = raw
-            result[key] = parser(raw)
+            result[key] = (parser(raw, cycle_ticks=cycle_ticks)
+                           if parser is parse_service_timing else parser(raw))
         except Exception as exc:  # noqa: BLE001 - retain partial evidence
             result[key] = None
             errors[key] = f"{type(exc).__name__}: {exc}"
+    result["cycle_ticks"] = cycle_ticks
     result["errors"] = errors
     return result
 
@@ -819,7 +827,6 @@ def sample_node(board: Board, args: argparse.Namespace,
         "crc_diagnostic": crc_diagnostic_snapshot(board, args),
         "service_timing": service_timing_snapshot(board, args),
     }
-
 
 def sample_all(ordered: list[Board], args: argparse.Namespace
                ) -> dict[str, dict[str, Any]]:
@@ -1196,8 +1203,27 @@ def acquire_board_records(ordered, start_order, args, actions, progress, out_dir
                     break
                 time.sleep(0.05)
             if previous is None or previous["state"] != 8:
-                raise RuntimeError(
-                    f"{board.address}: previous recorder SAVE did not complete: {previous}")
+                if not getattr(args, "cancel_unsaved_record", False):
+                    raise RuntimeError(
+                        f"{board.address}: previous recorder SAVE did not complete: {previous}")
+                # The frozen record belongs to the run that produced it and its
+                # storage job is gone, so it can never be written now. Discard it
+                # explicitly instead of failing every following round.
+                actions.append(dict(
+                    node=board.address, action="RECORD_CANCEL_UNSAVED",
+                    epoch=previous["epoch"] if previous is not None else 0,
+                    response=board_command(
+                        board, "SYSTem:TDMA:RECord:CANCel", args)))
+                deadline = time.monotonic() + args.arm_wait
+                while time.monotonic() < deadline:
+                    previous = record_status(board_command(
+                        board, "SYSTem:TDMA:RECord:STATus?", args))
+                    if previous is not None and previous["state"] in (0, 8, 9):
+                        break
+                    time.sleep(0.05)
+                if previous is None or previous["state"] not in (0, 8, 9):
+                    raise RuntimeError(
+                        f"{board.address}: recorder cancel did not complete: {previous}")
         elif previous["state"] not in (0, 8, 9):
             raise RuntimeError(
                 f"{board.address}: recorder is not reusable: {previous}")
@@ -2268,7 +2294,11 @@ def main() -> int:
                     before[board.address]["crc_diagnostic"],
                 "crc_diagnostic_after":
                     after[board.address]["crc_diagnostic"],
-                "service_timing": service_timing_snapshot(board, args),
+                "service_timing": service_timing_snapshot(
+                    board, args,
+                    cycle_ticks=int(
+                        (after[board.address].get("schedule") or {}).get(
+                            "cycle_cycles", 0) or 0) or None),
             }
         if getattr(args, "capture_waveforms", False):
             capture_attempted = True

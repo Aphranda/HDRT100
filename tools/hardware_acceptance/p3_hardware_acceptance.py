@@ -49,6 +49,39 @@ QUICK_DIAGNOSTIC_RECEIPT_SCHEMA = (
 QUICK_GRADED_RECEIPT_SCHEMA = (
     "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_QUICK_GRADED_V1")
 LIMITED_RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_10MHZ_LIMITED_V1"
+# Routine credential: one build, the staged calibration matrix applied by one
+# finite TDMA stage, then the four-board 60 s DPLL joint observation. A DPLL
+# lock cannot be established without a working build, OTA, ring ARM/STOP
+# handoff, applied calibration and the VDC feedback path, so this binds the
+# transport/lock chain to the source fingerprint at a fraction of a full run.
+DPLL_SHORT_RECEIPT_SCHEMA = "HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_DPLL60_V1"
+DPLL_SHORT_SCOPE = "DPLL60_JOINT"
+DPLL_SHORT_OBSERVATION = "FOUR_BOARD_SHORT_60S"
+# A DPLL lock proves the chain it rides on, not the subsystems it never
+# exercises. A staged change under one of these paths must still carry the
+# full receipt: this tuple is the recorded restore-to-FULL condition.
+DPLL_SHORT_UNCOVERED_PREFIXES = (
+    "components/calibration_manager/",
+    "components/flash_transaction/",
+    "components/led_manager/",
+    "components/ota_manager/",
+    "components/storage_manager/",
+    "components/sync_io/",
+    "drivers/mcu/flash/",
+    "middleware/fatfs_port/",
+    "third_party/portable_ota/",
+    "tools/ota_send/",
+    "tools/ota_multi_update/",
+)
+DPLL_SHORT_UNVERIFIED_SCOPE = (
+    "P0T topology determination",
+    "P1-P3 latency trials and their strict quality gates",
+    "CLK/DATA training determination (application is exercised, measurement is not)",
+    "storage and SD paths",
+    "sync I/O trigger paths",
+    "flash/OTA robustness beyond one successful write",
+    "external scope measurement path",
+)
 REQUIRED_OTA_BLOCK_SIZE = 4096
 SOURCE_ROOTS = {
     ".githooks", "application", "boards", "bootloader", "cmake",
@@ -1546,6 +1579,43 @@ def _validate_limited_10mhz_evidence(root: Path,
     validate_ota(ota, list(record["ota_board_ids"]), str(record["build_id"]))
 
 
+def _validate_dpll_short_receipt(root: Path, record: dict[str, Any]) -> None:
+    """Bind a DPLL-60 credential to one build and its original raw records."""
+    for field in ("firmware_package", "ota_summary", "trn03_matrix",
+                  "tdma_summary", "tdma_stopped_handoff", "dpll_summary"):
+        if field not in record:
+            raise AcceptanceError(f"DPLL-60 receipt is missing {field}")
+    board_ids = [str(value) for value in (record.get("tdma_board_ids") or [])]
+    if not board_ids or record.get("ota_board_ids") != record.get("tdma_board_ids"):
+        raise AcceptanceError("DPLL-60 receipt board sets differ")
+    package = _validate_evidence_file(
+        root, record["firmware_package"], "firmware_package")
+    if _read_package_build_id(package) != record.get("build_id"):
+        raise AcceptanceError("DPLL-60 package build differs")
+    ota_path = _validate_evidence_file(root, record["ota_summary"], "ota_summary")
+    validate_ota(json.loads(ota_path.read_text(encoding="utf-8")), board_ids,
+                 str(record.get("build_id")))
+    matrix_path = _validate_evidence_file(root, record["trn03_matrix"], "trn03_matrix")
+    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+    tdma_path = _validate_evidence_file(root, record["tdma_summary"], "tdma_summary")
+    tdma = json.loads(tdma_path.read_text(encoding="utf-8"))
+    if record.get("calibration_generation") != matrix.get("calibration_generation"):
+        raise AcceptanceError("DPLL-60 calibration generation differs")
+    if not training_inputs_read_back(matrix, tdma, board_ids):
+        raise AcceptanceError("DPLL-60 TRN-03/TDMA readback is invalid")
+    handoff_path = _validate_evidence_file(
+        root, record["tdma_stopped_handoff"], "tdma_stopped_handoff")
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    if (handoff.get("passed") is not True or
+            handoff != validate_tdma_stopped_handoff(
+                root, tdma, board_ids, str(record.get("build_id")))):
+        raise AcceptanceError("DPLL-60 stopped handoff differs from raw records")
+    dpll_path = _validate_evidence_file(root, record["dpll_summary"], "dpll_summary")
+    dpll = json.loads(dpll_path.read_text(encoding="utf-8"))
+    if dpll.get("passed") is not True:
+        raise AcceptanceError("DPLL-60 joint observation did not pass")
+
+
 def check_staged(root: Path, receipt_path: Path) -> None:
     changed = changed_staged_sources(root)
     if not changed:
@@ -1562,6 +1632,7 @@ def check_staged(root: Path, receipt_path: Path) -> None:
                       TDMA_DIAGNOSTIC_RECEIPT_SCHEMA,
                       QUICK_DIAGNOSTIC_RECEIPT_SCHEMA,
                       QUICK_GRADED_RECEIPT_SCHEMA,
+                      DPLL_SHORT_RECEIPT_SCHEMA,
                       LIMITED_RECEIPT_SCHEMA) or \
             receipt.get("passed") is not True:
         raise AcceptanceError("staged hardware acceptance receipt is not PASS")
@@ -1576,6 +1647,17 @@ def check_staged(root: Path, receipt_path: Path) -> None:
         if receipt.get("acceptance_scope") != "10MHZ_LIMITED_P3":
             raise AcceptanceError("limited receipt has invalid acceptance scope")
         _validate_limited_10mhz_evidence(root, receipt)
+    elif schema == DPLL_SHORT_RECEIPT_SCHEMA:
+        if receipt.get("acceptance_scope") != DPLL_SHORT_SCOPE:
+            raise AcceptanceError("DPLL-60 receipt has invalid acceptance scope")
+        uncovered = [path for path in changed
+                     if path.startswith(DPLL_SHORT_UNCOVERED_PREFIXES)]
+        if uncovered:
+            raise AcceptanceError(
+                "staged change is outside the DPLL-60 scope: " +
+                ", ".join(uncovered[:6]) +
+                "; run python tools/hardware_acceptance/p3_hardware_acceptance.py run")
+        _validate_dpll_short_receipt(root, receipt)
     elif schema in (TDMA_RECEIPT_SCHEMA, TDMA_DIAGNOSTIC_RECEIPT_SCHEMA):
         expected_scope = (
             "FOUR_NODE_TDMA_DIAGNOSTIC"
@@ -3416,6 +3498,207 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         f"Latency_Cal_trials={p3_metrics['trial_count']} receipt={receipt_path}")
 
 
+def run_dpll_short_acceptance(args: argparse.Namespace) -> None:
+    """Write the routine DPLL-60 credential for the current source fingerprint.
+
+    Either build and OTA a fresh image, or reuse an existing successful
+    package/OTA pair (the first acceptance of a firmware still has to flash it).
+    Then apply the staged calibration matrix through one finite TDMA stage,
+    prove the four-board STOP handoff from raw records, and run the 60 s joint
+    observation. The receipt records the scope this credential cannot see.
+    """
+    root = args.root.resolve()
+    config_path = (root / args.config).resolve()
+    config = load_bench_config(config_path)
+    receipt_path = (root / args.receipt).resolve()
+    board_ids = [str(value) for value in config["p3_board_ids_in_physical_order"]]
+    timing = acceptance_timing(config)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    out_dir = ((root / args.out_dir).resolve() if args.out_dir is not None else
+               root / "out" / "HardwareAcceptance" / stamp.split("-", 1)[0] /
+               f"dpll60-{stamp.split('-', 1)[1]}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    fingerprint_before, source_count = working_source_fingerprint(root)
+
+    if args.package is not None:
+        package = (root / args.package).resolve()
+        ota_summary_path = (root / args.ota_summary).resolve()
+        build_id = _read_package_build_id(package)
+        validate_ota(json.loads(ota_summary_path.read_text(encoding="utf-8")),
+                     board_ids, build_id)
+        print(f"DPLL-60 acceptance: reuse package build={build_id}", flush=True)
+    else:
+        build_dir = root / f"out/build/dpll60-{stamp}"
+        _run_step([sys.executable,
+                   str(root / "tools/cmake_build_auto/cmake_build_auto.py"),
+                   "--root", str(root), "--build-dir", str(build_dir)],
+                  root, out_dir / "build.log")
+        package = build_dir / "DHRT100_UPDATE.pkg"
+        if not package.is_file():
+            raise AcceptanceError(f"firmware package missing: {package}")
+        build_id = _read_package_build_id(package)
+        ota_dir = out_dir / "ota-four-board"
+        ota_command = [sys.executable,
+                       str(root / "tools/ota_multi_update/ota_multi_update.py"),
+                       str(package), "--expected-board-count", str(len(board_ids)),
+                       "--expected-build", build_id, "--out-dir", str(ota_dir),
+                       "--block-size", "4096"]
+        for board_id in board_ids:
+            ota_command.extend(["--serial-number", board_id])
+        _run_step(ota_command, root, out_dir / "ota.log")
+        ota_summary_path = ota_dir / "summary.json"
+        validate_ota(json.loads(ota_summary_path.read_text(encoding="utf-8")),
+                     board_ids, build_id)
+
+    matrix_path = (root / args.matrix).resolve() if args.matrix is not None else \
+        _latest_trn03_matrix(root)
+    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+    calibration_generation = int(matrix["calibration_generation"])
+
+    # A routine round reuses a bench that still holds the previous round's
+    # recorder RAM state, which no SAVE can persist and no CANCel is consumed
+    # for while the ring is stopped. The production reset boundary clears it and
+    # re-verifies that every board boots the build this credential binds.
+    print(f"DPLL-60 acceptance: software reset {len(board_ids)} boards", flush=True)
+    reset_evidence = reset_acceptance_boards(board_ids, build_id, timing)
+    reset_path = out_dir / "initialization-reset.json"
+    reset_path.write_text(
+        json.dumps(reset_evidence, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+
+    tdma_dir = out_dir / "tdma-process-image"
+    tdma_command = [sys.executable,
+                    str(root / "tools/calibration_ring_validate/trn03_closed_loop.py")]
+    for board_id in board_ids:
+        tdma_command.extend(["--board-id", board_id])
+    tdma_command += [
+        "--config", str(matrix_path), "--expected-build", build_id,
+        "--level", str(config["tdma_profile_level"]),
+        "--cycles", str(config.get("tdma_cycles", 4096)),
+        "--stage", "process-image", "--dpll-provisional",
+        "--clock-evidence", "enabled",
+        "--window-s", str(config["tdma_window_s"]),
+        "--sample-interval-s", str(config["tdma_sample_interval_s"]),
+        "--startup-timeout-s", str(config["tdma_startup_timeout_s"]),
+        "--startup-stable-samples", str(config["tdma_startup_stable_samples"]),
+        "--startup-poll-interval-s", str(timing["status_poll_interval_s"]),
+        "--arm-wait", "20.0",
+        # Each routine round reuses the bench without a re-flash, so it must be
+        # able to discard a frozen record whose storage job is gone.
+        "--cancel-unsaved-record",
+        "--out-dir", str(tdma_dir),
+    ]
+    add_serial_timing(tdma_command, timing, action=True)
+    # The quick profile always retains diagnostics; the TDMA stage needs that to
+    # export its original board records after a quality gate, and the raw STOP
+    # handoff is what this credential actually gates on.
+    diagnostic_continue = str(config.get("acceptance_profile", "")) == "QUICK_DIAGNOSTIC"
+    if diagnostic_continue or args.diagnostic_continue:
+        tdma_command.append("--diagnostic-continue")
+        diagnostic_continue = True
+    # The ring-quality verdict of the TDMA stage is recorded, not gated here:
+    # this credential gates on the raw STOP handoff and the DPLL observation.
+    _run_step(tdma_command, root, out_dir / "tdma.log",
+              allow_failure=diagnostic_continue)
+    tdma_summary_path = tdma_dir / "summary.json"
+    if not tdma_summary_path.is_file():
+        raise AcceptanceError("TDMA stage wrote no summary")
+    tdma_summary = json.loads(tdma_summary_path.read_text(encoding="utf-8"))
+    handoff_path = out_dir / "tdma-stopped-handoff.json"
+    handoff = validate_tdma_stopped_handoff(root, tdma_summary, board_ids, build_id)
+    if handoff.get("passed") is not True:
+        raise AcceptanceError("four-board STOP handoff did not pass")
+    handoff_path.write_text(json.dumps(handoff, indent=2) + "\n", encoding="utf-8")
+
+    if args.scope == "internal":
+        discover_optional_scope = globals()["discover_optional_scope"]
+
+        def internal_only(resource: str, serial: str) -> dict[str, Any]:
+            return {"present": False, "resource": resource, "serial": serial,
+                    "detail": "internal evidence pinned by the caller"}
+        globals()["discover_optional_scope"] = internal_only
+    else:
+        discover_optional_scope = None
+    # The joint capture validates the receipt named by its manifest, so point a
+    # copy at this run's provisional receipt instead of the committed one.
+    manifest = json.loads(
+        (root / config["dpll_short_workflow_inputs"]).read_text(encoding="utf-8"))
+    provisional_path = out_dir / "provisional-receipt.json"
+    manifest["files"]["receipt"]["path"] = provisional_path.relative_to(root).as_posix()
+    manifest_copy = out_dir / "workflow-inputs.json"
+    manifest_copy.write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n",
+                             encoding="utf-8")
+    config["dpll_short_workflow_inputs"] = manifest_copy.relative_to(root).as_posix()
+    try:
+        dpll_summary_path, dpll_summary, dpll_discovery_path = \
+            run_four_board_dpll_short(
+                root, config, provisional_path, out_dir, build_id=build_id,
+                board_ids=board_ids, source_fingerprint=fingerprint_before,
+                source_count=source_count, package=package,
+                ota_summary_path=ota_summary_path,
+                trn03_matrix_path=matrix_path,
+                tdma_summary_path=tdma_summary_path,
+                stopped_handoff_path=handoff_path,
+                calibration_generation=calibration_generation)
+    finally:
+        if discover_optional_scope is not None:
+            globals()["discover_optional_scope"] = discover_optional_scope
+
+    fingerprint_after, count_after = working_source_fingerprint(root)
+    if (fingerprint_after, count_after) != (fingerprint_before, source_count):
+        raise AcceptanceError("source changed during acceptance")
+    receipt: dict[str, Any] = {
+        "schema": DPLL_SHORT_RECEIPT_SCHEMA,
+        "acceptance_scope": DPLL_SHORT_SCOPE,
+        "acceptance_profile": str(config.get("acceptance_profile", "FULL")),
+        "dpll_observation": DPLL_SHORT_OBSERVATION,
+        "passed": True,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "source_tree_sha256": fingerprint_after,
+        "source_file_count": count_after,
+        "bench_config_path": config_path.relative_to(root).as_posix(),
+        "bench_config_sha256": sha256_file(config_path),
+        "build_id": build_id,
+        "firmware_package": evidence_entry(root, package),
+        "ota_summary": evidence_entry(root, ota_summary_path),
+        "initialization_reset": evidence_entry(root, reset_path),
+        "trn03_matrix": evidence_entry(root, matrix_path),
+        "tdma_summary": evidence_entry(root, tdma_summary_path),
+        "tdma_stopped_handoff": evidence_entry(root, handoff_path),
+        "dpll_summary": evidence_entry(root, dpll_summary_path),
+        "dpll_scope_discovery": evidence_entry(root, dpll_discovery_path),
+        "ota_board_ids": board_ids,
+        "tdma_board_ids": board_ids,
+        "calibration_generation": calibration_generation,
+        "reused_package_ota": args.package is not None,
+        "tdma_stage_passed": bool(tdma_summary.get("passed")),
+        "dpll_passed": bool(dpll_summary.get("passed")),
+        "hardware_acceptance_timing": timing,
+        "unverified_scope": list(DPLL_SHORT_UNVERIFIED_SCOPE),
+        "restore_full_condition": (
+            "a staged change under " + ", ".join(DPLL_SHORT_UNCOVERED_PREFIXES)),
+    }
+    _validate_dpll_short_receipt(root, receipt)
+    validate_alarm_report(root, receipt)
+    payload = json.dumps(receipt, ensure_ascii=False, indent=2) + "\n"
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(payload, encoding="utf-8")
+    (out_dir / "acceptance.json").write_text(payload, encoding="utf-8")
+    print(f"PASS DPLL-60 hardware acceptance build={build_id} "
+          f"receipt={receipt_path} out={out_dir}", flush=True)
+
+
+def _latest_trn03_matrix(root: Path) -> Path:
+    """Reuse the most recent staged calibration matrix when none is named."""
+    candidates = sorted(
+        (root / "out/HardwareAcceptance").glob("*/p3-*/trn03-matrix.json"),
+        key=lambda path: path.stat().st_mtime)
+    if not candidates:
+        raise AcceptanceError(
+            "no staged trn03 matrix found; pass --matrix or run a full acceptance once")
+    return candidates[-1].resolve()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -3464,6 +3747,24 @@ def parse_args() -> argparse.Namespace:
         "--diagnostic-continue", action="store_true",
         help=("retain quality failures and continue bounded diagnostics; "
               "required objectives and evidence integrity still gate acceptance"))
+    dpll60 = subparsers.add_parser(
+        "dpll60",
+        help=("routine credential: build+OTA (or reuse), staged matrix through "
+              "one finite TDMA stage, then the four-board DPLL 60 s observation"))
+    dpll60.add_argument("--root", type=Path, default=ROOT)
+    dpll60.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    dpll60.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
+    dpll60.add_argument("--package", type=Path,
+                        help="reuse an existing DHRT100_UPDATE.pkg instead of building")
+    dpll60.add_argument("--ota-summary", type=Path,
+                        help="existing OTA summary for the reused package")
+    dpll60.add_argument("--matrix", type=Path,
+                        help="staged trn03 matrix; defaults to the newest existing one")
+    dpll60.add_argument("--scope", choices=("auto", "internal"), default="auto",
+                        help="follow scope discovery, or pin internal evidence")
+    dpll60.add_argument("--out-dir", type=Path)
+    dpll60.add_argument("--diagnostic-continue", action="store_true",
+                        help="keep TDMA quality failures as diagnostics instead of stopping")
     check = subparsers.add_parser(
         "check-staged", help="gate staged code against the indexed receipt")
     check.add_argument("--root", type=Path, default=ROOT)
@@ -3485,6 +3786,8 @@ def main() -> int:
     try:
         if args.command in ("run", "resume"):
             run_acceptance(args)
+        elif args.command == "dpll60":
+            run_dpll_short_acceptance(args)
         elif args.command == "check-staged":
             check_staged(args.root.resolve(), args.receipt)
         else:

@@ -29,7 +29,11 @@ def production_gate(source):
         r"(?:if \(!tdma_geometry_arm_bound\(phys\)\)\s*\{\s*"
         r"\(void\)tdma_pio_spi_phys_disarm\(phys\);\s*"
         r"return tdma_pio_spi_phys_arm_reject\(phys,\s*TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY\);\s*\}\s*)?"
-        r"tdma_pio_spi_phys_enable_sm_pair\(phys\);\s*phys->armed = true;",
+        r"(?:const uint64_t arm_sm_enable_start = tdma_service_timing_now\(\);\s*)?"
+        r"tdma_pio_spi_phys_enable_sm_pair\(phys\);\s*"
+        r"(?:tdma_service_timing_record\(TDMA_TIMING_ARM_SM_ENABLE,\s*"
+        r"arm_sm_enable_start\);\s*)?"
+        r"phys->armed = true;",
         arm,
     )
     assert match is not None, "initial CS wait must be the final capture instruction before enable"

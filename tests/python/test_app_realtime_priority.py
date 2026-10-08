@@ -69,6 +69,11 @@ static void tight_loop_contents(void) { advance(1u); }
 static void app_realtime_schedule_write_begin(void) { advance(accounting_cost); }
 static void app_realtime_schedule_write_end(void) { advance(accounting_cost); }
 static void tdma_service_timing_scheduler_end(uint32_t cycles) { (void)cycles; ++scheduler_ends; }
+/* The dispatcher records the deliberate close-point wait in clk_sys ticks. */
+#define TDMA_TIMING_PHASE_WAIT 0u
+static uint64_t tdma_service_timing_now(void) { return now; }
+static void tdma_service_timing_record(uint32_t stage, uint64_t start) { (void)stage; (void)start; }
+static void tdma_service_timing_phase_end(void) { }
 static uint32_t vdc_run_output_service_cached_core1(void) {
     assert(!enabled); /* Fallback never inherits the priority IRQ lease. */
     assert(!planned_calls);

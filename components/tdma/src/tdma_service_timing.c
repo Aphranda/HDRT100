@@ -202,6 +202,23 @@ void tdma_service_timing_phase_end(void)
     (void)__atomic_add_fetch(&s_guard, 1u, __ATOMIC_RELEASE);
 }
 
+/* A transition phase stopped, started, trained or disarmed the adapter. The
+ * configuration read runs every phase and therefore does not classify. */
+static bool tdma_service_timing_is_transition(
+    const tdma_service_timing_record_t *record)
+{
+    return record->calls[TDMA_TIMING_RING_START_ADAPTER] != 0u ||
+        record->calls[TDMA_TIMING_RING_STOP_ADAPTER] != 0u ||
+        record->calls[TDMA_TIMING_RING_TRAIN] != 0u ||
+        record->calls[TDMA_TIMING_ADAPTER_STOP] != 0u ||
+        record->calls[TDMA_TIMING_ADAPTER_DISARM] != 0u ||
+        record->calls[TDMA_TIMING_ARM_REQUEST] != 0u ||
+        record->calls[TDMA_TIMING_ARM_SELECT_PERSONA] != 0u ||
+        record->calls[TDMA_TIMING_ARM_CONFIGURE] != 0u ||
+        record->calls[TDMA_TIMING_ARM_PRELAUNCH] != 0u ||
+        record->calls[TDMA_TIMING_ARM_PRIORITY] != 0u;
+}
+
 void tdma_service_timing_scheduler_end(uint32_t elapsed_cycles)
 {
     if (!s_scheduler_pending || s_active) return;
@@ -210,8 +227,11 @@ void tdma_service_timing_scheduler_end(uint32_t elapsed_cycles)
     tdma_service_timing_record_t *last = &s_snapshot.last;
     last->full_phase_ticks = elapsed_cycles;
     /* Timer1 and the outer SysTick interval both use clk_sys. A smaller
-     * outer interval cannot be presented as a valid complete phase. */
-    if (elapsed_cycles < last->total_ticks) last->invalid_count++;
+     * outer interval cannot be presented as a valid complete phase. The
+     * record now includes the deliberate phase wait, so compare the outer
+     * service interval plus that wait against the recorded total. */
+    const uint32_t wait_ticks = last->elapsed_ticks[TDMA_TIMING_PHASE_WAIT];
+    if (elapsed_cycles + wait_ticks < last->total_ticks) last->invalid_count++;
     if (s_snapshot.peak.sequence == last->sequence) s_snapshot.peak = *last;
     const bool autonomous = (last->entry.state & 0xffu) == TDMA_TIMING_STATE_AUTONOMOUS &&
         last->entry.state == last->exit.state &&
@@ -222,6 +242,17 @@ void tdma_service_timing_scheduler_end(uint32_t elapsed_cycles)
     tdma_service_timing_record_t *peak = autonomous ? &s_snapshot.autonomous_peak : &s_snapshot.other_peak;
     if (last->invalid_count == 0u && (peak->sequence == 0u || elapsed_cycles > peak->full_phase_ticks))
         *peak = *last;
+    /* A phase that stopped, started, trained or disarmed the adapter is a
+     * one-off transition, not a running cycle: keep it out of the steady
+     * record so an ARM can never masquerade as the per-cycle worst case. */
+    if (tdma_service_timing_is_transition(last)) {
+        if (s_snapshot.transition_phase_count != UINT32_MAX)
+            ++s_snapshot.transition_phase_count;
+    } else if (last->invalid_count == 0u &&
+               (s_snapshot.steady_peak.sequence == 0u ||
+                elapsed_cycles > s_snapshot.steady_peak.full_phase_ticks)) {
+        s_snapshot.steady_peak = *last;
+    }
     (void)__atomic_add_fetch(&s_guard, 1u, __ATOMIC_RELEASE);
 }
 

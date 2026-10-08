@@ -206,7 +206,7 @@ def test_real_foundation_read_is_bounded_and_independent(tmp_path: Path) -> None
                "-ffunction-sections", "-fdata-sections", "-Wl,--gc-sections",
                "-I" + str(ROOT / "components/tdma/inc"), "-I" + str(ROOT / "config"), str(unit)]
     command += [str(ROOT / "components/tdma/src" / name) for name in
-                ("tdma_payload_registry.c", "tdma_ring_runtime.c", "tdma_traffic_scheduler.c", "tdma_profile.c")]
+                ("tdma_payload_registry.c", "tdma_ring_runtime.c", "tdma_traffic_scheduler.c", "tdma_profile.c", "tdma_flight_fifo.c")]
     command += ["-o", str(executable)]
     for stage, call in (("compile", command), ("run", [str(executable)])):
         result = subprocess.run(call, capture_output=True, text=True, timeout=60)

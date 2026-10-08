@@ -43,7 +43,7 @@ static uint64_t tdma_ring_runtime_now_ns(void)
 #endif
 }
 
-static bool tdma_ring_runtime_stop_adapter(tdma_ring_runtime_t *runtime)
+static bool tdma_ring_runtime_stop_adapter_locked(tdma_ring_runtime_t *runtime)
 {
     if (runtime->adapter_started != 0u) {
         if (runtime->adapter_ops != NULL &&
@@ -59,6 +59,14 @@ static bool tdma_ring_runtime_stop_adapter(tdma_ring_runtime_t *runtime)
         runtime->adapter_stop_count++;
     }
     return true;
+}
+
+static bool tdma_ring_runtime_stop_adapter(tdma_ring_runtime_t *runtime)
+{
+    const uint64_t started = tdma_service_timing_now();
+    const bool stopped = tdma_ring_runtime_stop_adapter_locked(runtime);
+    tdma_service_timing_record(TDMA_TIMING_RING_STOP_ADAPTER, started);
+    return stopped;
 }
 
 static bool tdma_ring_runtime_feedback_correlated(
@@ -615,8 +623,11 @@ void tdma_ring_runtime_service_with_stop_gate(tdma_ring_runtime_t *runtime,
 
     tdma_ring_runtime_config_t service_config;
     uint32_t service_config_seq = 0u;
-    if (!tdma_ring_runtime_read_config(runtime, &service_config,
-                                       &service_config_seq)) {
+    const uint64_t config_start = tdma_service_timing_now();
+    const bool config_ok = tdma_ring_runtime_read_config(runtime, &service_config,
+                                        &service_config_seq);
+    tdma_service_timing_record(TDMA_TIMING_RING_CONFIG, config_start);
+    if (!config_ok) {
         return;
     }
     const uint32_t enabled = service_config.enabled;
@@ -675,8 +686,11 @@ void tdma_ring_runtime_service_with_stop_gate(tdma_ring_runtime_t *runtime,
                 goto publish;
             }
             train_owner_sequence = service_train_sequence;
-            if (runtime->adapter_ops->start(runtime->adapter_context,
-                                            &service_config)) {
+            const uint64_t start_adapter_start = tdma_service_timing_now();
+            const bool adapter_started_now = runtime->adapter_ops->start(
+                runtime->adapter_context, &service_config);
+            tdma_service_timing_record(TDMA_TIMING_RING_START_ADAPTER, start_adapter_start);
+            if (adapter_started_now) {
                 runtime->adapter_started = 1u;
                 runtime->adapter_config_seq = service_config_seq;
                 runtime->adapter_start_count++;
@@ -723,11 +737,16 @@ void tdma_ring_runtime_service_with_stop_gate(tdma_ring_runtime_t *runtime,
                 train_request_cycles = cycles;
                 train_accepted_seq = command_seq;
                 train_owner_sequence = command_seq;
+                bool train_ok = false;
                 if (tdma_ring_diagnostic_burst_limit(flags) == 0u &&
                     runtime->adapter_ops->train_clock != NULL &&
-                    runtime->adapter_ops->train_clock_service != NULL &&
-                    runtime->adapter_ops->train_clock(runtime->adapter_context,
-                                                      cycles)) {
+                    runtime->adapter_ops->train_clock_service != NULL) {
+                    const uint64_t train_start = tdma_service_timing_now();
+                    train_ok = runtime->adapter_ops->train_clock(
+                        runtime->adapter_context, cycles);
+                    tdma_service_timing_record(TDMA_TIMING_RING_TRAIN, train_start);
+                }
+                if (train_ok) {
                     train_start_count++;
                     training_dirty = 1u;
                 } else {
@@ -736,8 +755,10 @@ void tdma_ring_runtime_service_with_stop_gate(tdma_ring_runtime_t *runtime,
             }
             if (training_dirty != 0u &&
                 runtime->adapter_ops->train_clock_service != NULL) {
+                const uint64_t train_service_start = tdma_service_timing_now();
                 runtime->adapter_ops->train_clock_service(
                     runtime->adapter_context, now_ns);
+                tdma_service_timing_record(TDMA_TIMING_RING_TRAIN, train_service_start);
             }
         } else if (runtime->adapter_started != 0u &&
                    data_enabled != 0u && training_dirty != 0u) {

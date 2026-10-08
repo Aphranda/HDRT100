@@ -2416,7 +2416,10 @@ bool tdma_pio_spi_phys_arm(void *context,
                 phys, TDMA_PIO_SPI_PHYS_ERROR_OVERLAY_PREPARE);
         }
     }
-    if (!tdma_geometry_arm_begin(phys, config, flight_persona))
+    const uint64_t arm_geometry_start = tdma_service_timing_now();
+    const bool arm_geometry_ok = tdma_geometry_arm_begin(phys, config, flight_persona);
+    tdma_service_timing_record(TDMA_TIMING_ARM_GEOMETRY, arm_geometry_start);
+    if (!arm_geometry_ok)
         return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
     tdma_pio_spi_phys_origin_record_invalidate(phys);
     phys->flight_alignment_byte_shift = 0u;
@@ -2450,16 +2453,27 @@ bool tdma_pio_spi_phys_arm(void *context,
     phys->flight_normal_capture_rx_start = 0u;
     phys->flight_normal_capture_rx_count = 0u;
     phys->flight_normal_capture_rx_cursor = 0u;
-    if (!tdma_pio_spi_phys_select_program_persona(phys, flight_persona)) {
+    const uint64_t arm_persona_start = tdma_service_timing_now();
+    const bool arm_persona_ok =
+        tdma_pio_spi_phys_select_program_persona(phys, flight_persona);
+    tdma_service_timing_record(TDMA_TIMING_ARM_SELECT_PERSONA, arm_persona_start);
+    if (!arm_persona_ok) {
         return false;
     }
-    if (!tdma_pio_spi_phys_configure_flight(phys, config)) {
+    const uint64_t arm_configure_start = tdma_service_timing_now();
+    const bool arm_configure_ok =
+        tdma_pio_spi_phys_configure_flight(phys, config);
+    tdma_service_timing_record(TDMA_TIMING_ARM_CONFIGURE, arm_configure_start);
+    if (!arm_configure_ok) {
         tdma_pio_spi_phys_release_flight_resources(phys);
         return tdma_pio_spi_phys_arm_reject(
             phys, TDMA_PIO_SPI_PHYS_ERROR_FLIGHT_CONFIG);
     }
     tdma_pio_spi_phys_set_line_drivers(true);
-    if (!tdma_pio_spi_phys_rx_arm(phys)) {
+    const uint64_t arm_rx_start = tdma_service_timing_now();
+    const bool arm_rx_ok = tdma_pio_spi_phys_rx_arm(phys);
+    tdma_service_timing_record(TDMA_TIMING_ARM_RX, arm_rx_start);
+    if (!arm_rx_ok) {
         tdma_pio_spi_phys_set_line_drivers(false);
         tdma_pio_spi_phys_release_flight_resources(phys);
         return tdma_pio_spi_phys_arm_reject(
@@ -2467,9 +2481,14 @@ bool tdma_pio_spi_phys_arm(void *context,
     }
     /* rx_arm clears both FIFOs of the capture/forward SM. Prime the process
      * command DMA only after that reset so its initial PASS script survives. */
+    bool arm_overlay_ok = true;
     if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
-        phys->process_image_enabled &&
-        !tdma_pio_spi_phys_prepare_pass_overlay(phys)) {
+        phys->process_image_enabled) {
+        const uint64_t arm_overlay_start = tdma_service_timing_now();
+        arm_overlay_ok = tdma_pio_spi_phys_prepare_pass_overlay(phys);
+        tdma_service_timing_record(TDMA_TIMING_ARM_OVERLAY, arm_overlay_start);
+    }
+    if (!arm_overlay_ok) {
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
         tdma_pio_spi_phys_set_line_drivers(false);
         tdma_pio_spi_phys_release_flight_resources(phys);
@@ -2507,15 +2526,23 @@ bool tdma_pio_spi_phys_arm(void *context,
                     pio_encode_pull(false, true));
     }
     pio_interrupt_clear(tdma_pio_spi_phys_data_pio(phys), 3u);
-    if (!tdma_pio_spi_phys_clock_latch_rearm(phys)) {
+    const uint64_t arm_latch_start = tdma_service_timing_now();
+    const bool arm_latch_ok = tdma_pio_spi_phys_clock_latch_rearm(phys);
+    tdma_service_timing_record(TDMA_TIMING_ARM_LATCH, arm_latch_start);
+    if (!arm_latch_ok) {
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
         tdma_pio_spi_phys_set_line_drivers(false);
         tdma_pio_spi_phys_release_flight_resources(phys);
         return tdma_pio_spi_phys_arm_reject(
             phys, TDMA_PIO_SPI_PHYS_ERROR_CLOCK_LATCH);
     }
-    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
-        !tdma_pio_spi_phys_tx_clock_latch_rearm(phys)) {
+    bool arm_tx_latch_ok = true;
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
+        const uint64_t arm_tx_latch_start = tdma_service_timing_now();
+        arm_tx_latch_ok = tdma_pio_spi_phys_tx_clock_latch_rearm(phys);
+        tdma_service_timing_record(TDMA_TIMING_ARM_LATCH, arm_tx_latch_start);
+    }
+    if (!arm_tx_latch_ok) {
         dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
         tdma_pio_spi_phys_set_line_drivers(false);
         tdma_pio_spi_phys_release_flight_resources(phys);
@@ -2538,7 +2565,9 @@ bool tdma_pio_spi_phys_arm(void *context,
         (void)tdma_pio_spi_phys_disarm(phys);
         return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
     }
+    const uint64_t arm_sm_enable_start = tdma_service_timing_now();
     tdma_pio_spi_phys_enable_sm_pair(phys);
+    tdma_service_timing_record(TDMA_TIMING_ARM_SM_ENABLE, arm_sm_enable_start);
 
     phys->armed = true;
     phys->snapshot.tx_count = 0u;
@@ -2617,11 +2646,22 @@ bool tdma_pio_spi_phys_arm(void *context,
     tdma_pio_spi_phys_clk_train_reset(phys);
     /* Selected geometry must finish its one-shot observer launch inside this
      * ARM. A later service may never turn a rejected first prefix into READY. */
-    if (!tdma_pio_spi_phys_event_prelaunch(phys, config)) {
+    const uint64_t arm_prelaunch_start = tdma_service_timing_now();
+    const bool arm_prelaunch_ok = tdma_pio_spi_phys_event_prelaunch(phys, config);
+    tdma_service_timing_record(TDMA_TIMING_ARM_PRELAUNCH, arm_prelaunch_start);
+    if (!arm_prelaunch_ok) {
         (void)tdma_pio_spi_phys_disarm(phys);
         return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
     }
-    if (process_follower && !tdma_priority_start(phys, config)) {
+    /* Keep the single literal `if (process_follower) {` block earlier in this
+     * function unique: the production-slice harness anchors its arm tail on
+     * that exact text. */
+    const uint64_t arm_priority_start = tdma_service_timing_now();
+    const bool arm_priority_ok =
+        !process_follower || tdma_priority_start(phys, config);
+    if (process_follower)
+        tdma_service_timing_record(TDMA_TIMING_ARM_PRIORITY, arm_priority_start);
+    if (!arm_priority_ok) {
         (void)tdma_pio_spi_phys_disarm(phys);
         return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT);
     }
@@ -2635,10 +2675,12 @@ bool tdma_pio_spi_phys_disarm(void *context)
     if (phys == NULL) {
         return false;
     }
+    const uint64_t disarm_event_start = tdma_service_timing_now();
     tdma_priority_stop();
     /* Record the observer's normal STOP while its selected binding is still
      * current. Geometry capture below does not need the observer SMs alive. */
     tdma_pio_spi_phys_event_stop(phys);
+    tdma_service_timing_record(TDMA_TIMING_PHYS_DISARM_EVENT, disarm_event_start);
 #if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
     if (s_tdma_event_dma_active) {
         tdma_pio_spi_phys_set_line_drivers(false);
@@ -2654,14 +2696,19 @@ bool tdma_pio_spi_phys_disarm(void *context)
      * below adds STOPPED only after DMA and both workers have retired. */
     tdma_rx_first_window_retire(TDMA_RX_FIRST_STOP_BEFORE_COMPLETE, false);
     s_tdma_pio_spi_rx_arm_valid = false;
+    const uint64_t disarm_cancel_start = tdma_service_timing_now();
     const bool worker_retired = tdma_overlay_prepare_cancel(phys->overlay_preparation);
     const bool scanner_retired = tdma_pio_spi_phys_rx_scan_cancel(phys);
+    tdma_service_timing_record(TDMA_TIMING_PHYS_DISARM_CANCEL, disarm_cancel_start);
     /* Process-image followers keep the overlay TX DMA blocked on the PIO TX
      * FIFO between frames.  A failed ARM can also leave a DMA or SM active
      * before phys->armed is published.  STOP is the common idempotent
      * rollback for both states, so hardware cleanup must not be conditional
      * on the software armed flag. */
-    if (!tdma_pio_spi_phys_stop_command_dma(phys)) return false;
+    const uint64_t disarm_dma_start = tdma_service_timing_now();
+    const bool command_dma_stopped = tdma_pio_spi_phys_stop_command_dma(phys);
+    tdma_service_timing_record(TDMA_TIMING_PHYS_DISARM_DMA, disarm_dma_start);
+    if (!command_dma_stopped) return false;
     /* stop_command_dma also retires legacy children without a loader. Do not
      * re-enter the SDK's unbounded abort after that common deadline. */
     if (phys->flight_sck_waveform_capture_state ==
@@ -2717,7 +2764,9 @@ bool tdma_pio_spi_phys_disarm(void *context)
     phys->flight_tx_deadline_ns = 0ull;
     tdma_pio_spi_phys_clk_train_reset(phys);
     tdma_pio_spi_phys_fill_static_snapshot(phys);
+    const uint64_t release_start = tdma_service_timing_now();
     tdma_pio_spi_phys_release_flight_resources(phys);
+    tdma_service_timing_record(TDMA_TIMING_PHYS_RELEASE, release_start);
     if (phys->flight_resource_claimed || phys->flight_origin_resource_claimed) return false;
     /* Also cancel preparation before persona claim, when no command DMA
      * exists and stop_command_dma has no active graph to retire. */

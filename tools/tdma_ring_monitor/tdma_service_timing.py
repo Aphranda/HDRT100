@@ -32,6 +32,50 @@ STAGES_BY_VERSION[11] = STAGES_BY_VERSION[10] + (
     "event_entry", "event_harvest", "event_convert", "event_feed", "event_final_check",
     "event_start_cut", "event_retain", "event_publish", "reference_tx", "reference_submit",
 )
+# Version 12 attributes the STOP/ARM/config transition phase, which previously
+# showed ring_runtime as one unattributable interval: configured read, adapter
+# stop/start, training, and the physical disarm children.
+STAGES_BY_VERSION[12] = STAGES_BY_VERSION[11] + (
+    "ring_config", "ring_stop_adapter", "ring_start_adapter", "ring_train",
+    "adapter_stop", "adapter_disarm", "phys_disarm_event", "phys_disarm_cancel",
+    "phys_disarm_dma", "phys_release",
+)
+# Version 13 counts the deliberate wait that keeps the phase window open until
+# its close point, so the record covers the whole TDMA cycle occupancy.
+STAGES_BY_VERSION[13] = STAGES_BY_VERSION[12] + ("phase_wait",)
+# Version 14 splits the one-off ARM: persona load, SM/DMA configuration, the
+# follower PASS seed, clock-latch rearm, geometry binding, the one-shot
+# observer launch and the priority lane install.
+STAGES_BY_VERSION[14] = STAGES_BY_VERSION[13] + (
+    "arm_request", "arm_geometry", "arm_select_persona", "arm_configure",
+    "arm_rx", "arm_overlay", "arm_latch", "arm_sm_enable", "arm_prelaunch",
+    "arm_priority",
+)
+
+# Direction grouping over the recorded operations. These are derived sums, not
+# new measurements. Only mutually disjoint roots are summed: the record marks
+# nested intervals as inclusive (RX_HANDOFF wraps rx_once including capture and
+# parse), so adding a parent and its child would count the same ticks twice.
+# TX covers what the node puts on the wire; RX covers what it takes off the
+# wire plus the Core1 harvest of received boundaries. Everything else stays
+# unattributed, so an account that does not add up remains visible.
+TX_ROOTS = ("reference_tx", "origin_publish", "origin_admit", "origin_begin",
+            "overlay_prepare", "overlay_boundary")
+RX_ROOTS = (
+    "origin_observe", "rx_handoff", "rx_request", "rx_local_tx_edge",
+    "rx_request_publish", "event_entry", "event_harvest", "event_convert",
+    "event_feed", "event_final_check", "event_start_cut", "event_retain",
+    "event_publish",
+)
+# The autonomous origin may bypass RX_HANDOFF, and the legacy capture path may
+# run without a handoff at all; only then are the capture/parse roots read.
+RX_FALLBACK_ROOTS = ("rx_capture", "rx_parse")
+# Top-level phase-body children. A stage that is nested inside another must not
+# be added twice, so the remainder is measured against these roots only.
+TOP_LEVEL_STAGES = (
+    "phys_service", "owner_service", "refmem_publish", "training_gate",
+    "analyzer", "accounting", "phase_wait",
+)
 FIELDS = (
     "version", "clock_hz", "reset_generation", "phase_count", "stage_count",
     "peak", "sequence", "start_ticks", "total_ticks", "invalid_count",
@@ -43,8 +87,14 @@ FIELDS_V6 = FIELDS + (
 )
 
 
-def parse_service_timing(raw: str) -> dict | None:
-    """Reject unknown schemas instead of silently assigning the wrong labels."""
+def parse_service_timing(raw: str, *,
+                         cycle_ticks: int | None = None) -> dict | None:
+    """Reject unknown schemas instead of silently assigning the wrong labels.
+
+    ``cycle_ticks`` is the Core1 table period in clk_sys ticks. When it is
+    given, the record also reports how much of that period is waiting:
+    ``cycle_wait_ticks = cycle_ticks - tx_ticks - rx_ticks``.
+    """
     if raw.strip().strip('"') == "UNAVAILABLE":
         return None
     values = list(map(int, next(csv.reader([raw]))))
@@ -61,7 +111,40 @@ def parse_service_timing(raw: str) -> dict | None:
         name: {"ticks": values[len(fields) + 2*i], "calls": values[len(fields) + 2*i + 1]}
         for i, name in enumerate(stages)
     }
+    result["direction"] = direction_totals(result, cycle_ticks)
     return result
+
+
+def direction_totals(record: dict, cycle_ticks: int | None = None) -> dict:
+    """Sum the recorded operations per direction and keep the rest explicit.
+
+    TX and RX are derived sums over stages that were measured independently;
+    they are not new measurements. ``other_owner_ticks`` is the remainder of
+    the top-level phase body, so an account that does not add up stays visible.
+    With ``cycle_ticks`` the same record also reports the waiting share of the
+    whole TDMA period: the period minus what the two directions spend.
+    """
+    stages = record.get("stages", {})
+
+    def total(names):
+        return sum(stages[name]["ticks"] for name in names if name in stages)
+
+    tx = total(TX_ROOTS)
+    rx = total(RX_ROOTS)
+    if not stages.get("rx_handoff", {}).get("ticks"):
+        rx += total(RX_FALLBACK_ROOTS)
+    body = total(TOP_LEVEL_STAGES)
+    totals = {
+        "tx_ticks": tx,
+        "rx_ticks": rx,
+        "attributed_ticks": tx + rx,
+        "top_level_ticks": body,
+        "other_owner_ticks": max(0, body - tx - rx),
+    }
+    if cycle_ticks:
+        totals["cycle_ticks"] = cycle_ticks
+        totals["cycle_wait_ticks"] = max(0, cycle_ticks - tx - rx)
+    return totals
 
 
 RX_FIELDS = (

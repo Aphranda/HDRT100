@@ -21,6 +21,8 @@ def admission_exe(tmp_path_factory):
     assert compiler
     exe = build / ("admission.exe" if os.name == "nt" else "admission")
     includes = ["components/tdma/inc", "components/distributed_refmem/inc",
+                # distributed_refmem.h includes trigger_position_descriptor.h
+                "components/sync_trigger/inc",
                 "components/calibration_manager/inc", "components/ota_manager/inc", "third_party/portable_ota/include", "config"]
     command = [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror"]
     command += ["-I" + str(ROOT / path) for path in includes]

@@ -797,14 +797,19 @@ static bool tdma_pio_spi_ring_adapter_start(
     tdma_pio_spi_ring_adapter_snapshot_write_begin(adapter);
     /* Consume geometry before any new-ARM early exit. Runtime failure
      * cleanup retires the pending request through the physical STOP. */
-    if (adapter->phys_arm_request != NULL &&
-        !adapter->phys_arm_request(adapter->phys_ctrl_context, config)) {
-        const uint32_t error = adapter->phys_last_error != NULL
-            ? adapter->phys_last_error(adapter->phys_ctrl_context) : 0u;
-        tdma_pio_spi_ring_adapter_set_error(adapter,
-            TDMA_PIO_SPI_RING_ADAPTER_PHYS_ARM_ERROR(error));
-        tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
-        return false;
+    if (adapter->phys_arm_request != NULL) {
+        const uint64_t arm_request_start = tdma_service_timing_now();
+        const bool arm_request_ok = adapter->phys_arm_request(
+            adapter->phys_ctrl_context, config);
+        tdma_service_timing_record(TDMA_TIMING_ARM_REQUEST, arm_request_start);
+        if (!arm_request_ok) {
+            const uint32_t error = adapter->phys_last_error != NULL
+                ? adapter->phys_last_error(adapter->phys_ctrl_context) : 0u;
+            tdma_pio_spi_ring_adapter_set_error(adapter,
+                TDMA_PIO_SPI_RING_ADAPTER_PHYS_ARM_ERROR(error));
+            tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
+            return false;
+        }
     }
     if ((adapter->started != 0u &&
          tdma_ring_diagnostic_burst_limit(adapter->config.flags) != 0u) ||
@@ -1056,7 +1061,7 @@ static bool tdma_pio_spi_ring_adapter_start(
     return true;
 }
 
-static bool tdma_pio_spi_ring_adapter_stop(void *context)
+static bool tdma_pio_spi_ring_adapter_stop_locked(void *context)
 {
     tdma_pio_spi_ring_adapter_t *adapter =
         (tdma_pio_spi_ring_adapter_t *)context;
@@ -1067,8 +1072,11 @@ static bool tdma_pio_spi_ring_adapter_stop(void *context)
     const bool rx_retired = tdma_rx_prepare_cancel(adapter->rx_preparation);
     if (adapter->origin.active && adapter->priority_tx_provider != NULL)
         (void)adapter->priority_tx_provider(NULL, NULL);
-    if (adapter->phys_disarm != NULL &&
-        !adapter->phys_disarm(adapter->phys_ctrl_context)) {
+    const uint64_t disarm_start = tdma_service_timing_now();
+    const bool disarmed = adapter->phys_disarm == NULL ||
+        adapter->phys_disarm(adapter->phys_ctrl_context);
+    tdma_service_timing_record(TDMA_TIMING_ADAPTER_DISARM, disarm_start);
+    if (!disarmed) {
         const uint32_t error = adapter->phys_last_error != NULL
             ? adapter->phys_last_error(adapter->phys_ctrl_context) : 0u;
         tdma_pio_spi_ring_adapter_set_error(adapter,
@@ -1164,6 +1172,16 @@ static bool tdma_pio_spi_ring_adapter_stop(void *context)
         adapter->phys_stopped(adapter->phys_ctrl_context);
     tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
     return true;
+}
+
+static bool tdma_pio_spi_ring_adapter_stop(void *context)
+{
+    /* STOP is the ARM rollback path too, so attribute it: a transition phase
+     * otherwise reports only the surrounding ring_runtime interval. */
+    const uint64_t started = tdma_service_timing_now();
+    const bool stopped = tdma_pio_spi_ring_adapter_stop_locked(context);
+    tdma_service_timing_record(TDMA_TIMING_ADAPTER_STOP, started);
+    return stopped;
 }
 
 static bool tdma_pio_spi_ring_adapter_resident_process_image(

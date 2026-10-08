@@ -13,6 +13,20 @@ import subprocess
 
 import pytest
 
+HOST_TIMING_PROLOGUE = """/* Host slice of a production body that records a timing seam. */
+#include <stdint.h>
+#define TDMA_TIMING_PHYS_DISARM_EVENT 0u
+#define TDMA_TIMING_PHYS_DISARM_CANCEL 0u
+#define TDMA_TIMING_PHYS_DISARM_DMA 0u
+#define TDMA_TIMING_PHYS_RELEASE 0u
+static inline uint64_t tdma_service_timing_now(void) { return 0u; }
+static inline void tdma_service_timing_record(uint32_t stage, uint64_t start)
+{
+    (void)stage;
+    (void)start;
+}
+"""
+
 from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,7 +70,13 @@ def launch_exe(tmp_path_factory):
         ("tdma_pio_spi_phys_disarm", "bool", "void *context"),
     ):
         bodies[name] = f"{result} {name}({args}) {{\n" + c_definition_body(physical, name) + "\n}\n"
-    (build / "origin_launch_impl.inc").write_text("\n".join(bodies.values()), encoding="utf-8")
+    text = "\n".join(bodies.values())
+    # The production disarm path records its own timing seam. These slices are
+    # compiled without the timing module, so the seam becomes a no-op
+    # observation point instead of the production statements being dropped.
+    if "TDMA_TIMING_" in text:
+        text = HOST_TIMING_PROLOGUE + text
+    (build / "origin_launch_impl.inc").write_text(text, encoding="utf-8")
     hardware = build / "hardware"
     hardware.mkdir()
     (hardware / "pio.h").write_text(PIO_HEADER, encoding="utf-8")

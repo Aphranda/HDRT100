@@ -26,7 +26,9 @@ def prelaunch_source(tmp_path):
     disarm = c_definition_body(phys, "tdma_pio_spi_phys_disarm")
     stop_begin = disarm.index("    tdma_pio_spi_phys_event_stop(phys);")
     stop_end = disarm.index("    const bool worker_retired")
-    stop_prefix = disarm[stop_begin:stop_end]
+    stop_prefix = "".join(
+        line for line in disarm[stop_begin:stop_end].splitlines(keepends=True)
+        if "tdma_service_timing" not in line)
     assert stop_prefix.index("tdma_pio_spi_phys_event_stop") < stop_prefix.index("tdma_geometry_stop_begin")
     assert arm.index("tdma_pio_spi_phys_rx_arm(phys)") < begin
     assert tail.index("pio_encode_wait_gpio") < tail.index("tdma_geometry_arm_bound")

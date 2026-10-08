@@ -12,6 +12,20 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 
+HOST_TIMING_PROLOGUE = """/* Host slice of a production body that records a timing seam. */
+#include <stdint.h>
+#define TDMA_TIMING_PHYS_DISARM_EVENT 0u
+#define TDMA_TIMING_PHYS_DISARM_CANCEL 0u
+#define TDMA_TIMING_PHYS_DISARM_DMA 0u
+#define TDMA_TIMING_PHYS_RELEASE 0u
+static inline uint64_t tdma_service_timing_now(void) { return 0u; }
+static inline void tdma_service_timing_record(uint32_t stage, uint64_t start)
+{
+    (void)stage;
+    (void)start;
+}
+"""
+
 
 @pytest.fixture(scope="module")
 def geometry_exe(tmp_path_factory):
@@ -29,6 +43,11 @@ def geometry_exe(tmp_path_factory):
          "geometry_arm_reject.inc"),
     ):
         text = signature + " {\n" + c_definition_body(source, name) + "\n}\n"
+        # The production disarm path records its own timing seam. The slice is
+        # compiled without the timing module, so provide the seam as a no-op
+        # observation point instead of dropping the production statements.
+        if "TDMA_TIMING_" in text:
+            text = HOST_TIMING_PROLOGUE + text
         (build / filename).write_text(text, encoding="utf-8")
         extracted[filename] = hashlib.sha256(text.encode("utf-8")).hexdigest()
     compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or shutil.which("clang")

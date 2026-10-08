@@ -78,6 +78,82 @@ def test_profile_unavailable():
     assert parse_service_timing('"UNAVAILABLE"') is None
 
 
+def _record(version: int, ticks: dict[str, int]) -> dict:
+    """Build one profile stream so stage indices come from the parser itself."""
+    from tools.tdma_ring_monitor.tdma_service_timing import STAGES_BY_VERSION
+    stages = STAGES_BY_VERSION[version]
+    fields = [version, 250000000, 2, 90, len(stages), 0, 42, 2**40, 1000, 0,
+              1000, 2, 4, 6, 80, 2, 4, 6, 81, 60, 30]
+    for name in stages:
+        fields += [ticks.get(name, 0), 1 if ticks.get(name) else 0]
+    return parse_service_timing(",".join(map(str, fields)))
+
+
+def test_wait_and_transition_stages_are_versioned():
+    result = _record(13, {"ring_start_adapter": 900, "adapter_stop": 40,
+                          "phys_release": 20, "phase_wait": 550})
+    assert result["stages"]["ring_start_adapter"]["ticks"] == 900
+    assert result["stages"]["phase_wait"]["ticks"] == 550
+    assert "phase_wait" not in _record(12, {"phase_wait": 550})["stages"]
+
+
+def test_direction_totals_do_not_double_count_nested_stages():
+    """Nested intervals are inclusive: a parent and its child are not both summed."""
+    result = _record(13, {
+        "owner_service": 1000, "adapter": 800, "ring_runtime": 850,
+        "rx_handoff": 300, "rx_parse": 100, "rx_capture": 50,
+        "origin_publish": 200, "reference_tx": 0, "phase_wait": 400,
+    })
+    direction = result["direction"]
+    assert direction["tx_ticks"] == 200
+    assert direction["rx_ticks"] == 300
+    assert direction["top_level_ticks"] == 1400
+    assert direction["other_owner_ticks"] == 900
+
+
+def test_direction_totals_read_capture_roots_without_a_handoff():
+    result = _record(13, {"owner_service": 500, "rx_capture": 120, "rx_parse": 80})
+    direction = result["direction"]
+    assert direction["rx_ticks"] == 200
+    assert direction["other_owner_ticks"] == 300
+
+
+def test_follower_transmit_side_stages_count_as_tx():
+    """The follower publishes its next image through the overlay stages."""
+    result = _record(14, {"owner_service": 900, "adapter": 800,
+                          "overlay_prepare": 150, "overlay_boundary": 60,
+                          "rx_handoff": 400})
+    direction = result["direction"]
+    assert direction["tx_ticks"] == 210
+    assert direction["rx_ticks"] == 400
+    assert direction["other_owner_ticks"] == 290
+
+
+def test_cycle_wait_is_the_cycle_remainder_of_both_directions():
+    """The TDMA period is TX + RX + waiting, all in clk_sys ticks."""
+    from tools.tdma_ring_monitor.tdma_service_timing import parse_service_timing
+    ticks = {"owner_service": 1000, "adapter": 900,
+             "origin_publish": 200, "rx_handoff": 300}
+    without = _record(14, ticks)
+    assert "cycle_wait_ticks" not in without["direction"]
+
+    with_cycle = parse_service_timing(_stream(14, ticks), cycle_ticks=375000)
+    assert with_cycle["direction"]["tx_ticks"] == 200
+    assert with_cycle["direction"]["rx_ticks"] == 300
+    assert with_cycle["direction"]["cycle_ticks"] == 375000
+    assert with_cycle["direction"]["cycle_wait_ticks"] == 374500
+
+
+def _stream(version: int, ticks: dict[str, int]) -> str:
+    from tools.tdma_ring_monitor.tdma_service_timing import STAGES_BY_VERSION
+    stages = STAGES_BY_VERSION[version]
+    fields = [version, 250000000, 2, 90, len(stages), 0, 42, 2**40, 1000, 0,
+              1000, 2, 4, 6, 80, 2, 4, 6, 81, 60, 30]
+    for name in stages:
+        fields += [ticks.get(name, 0), 1 if ticks.get(name) else 0]
+    return ",".join(map(str, fields))
+
+
 @pytest.mark.parametrize('version,count', [(6, 31), (7, 44), (8, 49), (9, 51), (10, 54), (11, 64)])
 def test_state_profile_schema_preserves_full_interval_and_generations(version, count):
     fields = [version, 250000000, 2, 90, count, 2, 42, 2**40, 1000, 0,

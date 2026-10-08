@@ -974,8 +974,6 @@ static bool app_realtime_run_phase(
             PROJECT_CORE1_RUN_OUTPUT_PLAN_WCET_CYCLES);
     const uint32_t phase_end = app_realtime_elapsed_cycles(
         cycle_epoch, end_counter);
-    if (work->run_service && phase_id == APP_REALTIME_PHASE_TDMA)
-        tdma_service_timing_scheduler_end(work->runtime_cycles);
     work->overrun = work->runtime_cycles > (work->run_planned ?
         PROJECT_CORE1_RUN_OUTPUT_PLAN_WCET_CYCLES : work->run_cached ?
         PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES : contract->wcet_cycles);
@@ -1017,7 +1015,12 @@ static bool app_realtime_run_phase(
         const uint32_t now = app_realtime_elapsed_cycles(cycle_epoch, app_realtime_cycle_now());
         if (work->clock_ok && remaining != 0u && now < work->priority.close_cycle)
             tdma_runtime_owner_priority_rx_window_core1(true, remaining, work->deadline_low);
+        /* The window stays open until the phase close point so a late priority
+         * RX interrupt is still charged here. That deliberate wait is TDMA
+         * cycle occupancy and is recorded in clk_sys ticks. */
+        const uint64_t wait_start = tdma_service_timing_now();
         app_realtime_wait_until(cycle_epoch, work->priority.close_cycle);
+        tdma_service_timing_record(TDMA_TIMING_PHASE_WAIT, wait_start);
         tdma_runtime_owner_priority_rx_window_core1(false, 0u, 0u);
         const uint32_t closed = app_realtime_elapsed_cycles(cycle_epoch, app_realtime_cycle_now());
         /* Entry may begin just before cutoff and consume its complete C.
@@ -1033,6 +1036,13 @@ static bool app_realtime_run_phase(
             app_priority_delta(&work->after_service, &work->after_wait,
                 &work->wait_irq_cycles, &work->wait_irq_count, &work->irq_max);
         if (!work->sampled) work->sample_failed = true;
+    }
+    if (work->run_service && phase_id == APP_REALTIME_PHASE_TDMA) {
+        /* Close the TDMA phase record only after the deliberate wait so the
+         * record covers the whole cycle occupancy, waiting included. A skipped
+         * or handed-off phase never opened a record; both calls no-op then. */
+        tdma_service_timing_phase_end();
+        tdma_service_timing_scheduler_end(work->runtime_cycles);
     }
     /* Body-only IRQ measurements are attribution, not permission to weaken
      * the wall gate. Unmeasured entry/finish/return remain charged to the
@@ -1140,7 +1150,6 @@ static void app_realtime_tdma_phase(void)
     drv_watchdog_mark_progress(1u, 0x0103u);
     tdma_service_timing_record(TDMA_TIMING_ACCOUNTING, timing_start);
     tdma_service_timing_context(tdma_runtime_owner_timing_context(), false);
-    tdma_service_timing_phase_end();
 }
 
 static void app_realtime_vdc_phase(void)

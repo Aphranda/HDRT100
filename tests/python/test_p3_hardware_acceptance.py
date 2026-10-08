@@ -125,6 +125,87 @@ def test_check_staged_rejects_joint_provisional_receipt(
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _dpll60_receipt() -> dict[str, object]:
+    return {
+        "schema": p3_acceptance.DPLL_SHORT_RECEIPT_SCHEMA,
+        "acceptance_scope": p3_acceptance.DPLL_SHORT_SCOPE,
+        "passed": True, "source_tree_sha256": "fingerprint",
+        "source_file_count": 1,
+    }
+
+
+def test_check_staged_accepts_a_dpll60_receipt_for_a_covered_change(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    receipt = _dpll60_receipt()
+    validated: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        p3_acceptance, "changed_staged_sources",
+        lambda root: ["components/tdma/src/tdma_service_timing.c"])
+    monkeypatch.setattr(p3_acceptance, "unstaged_sources", lambda root: [])
+    monkeypatch.setattr(p3_acceptance, "read_index_json", lambda root, path: receipt)
+    monkeypatch.setattr(p3_acceptance, "staged_source_fingerprint",
+                        lambda root: ("fingerprint", 1))
+    monkeypatch.setattr(p3_acceptance, "validate_alarm_report",
+                        lambda root, value: None)
+    monkeypatch.setattr(p3_acceptance, "_validate_dpll_short_receipt",
+                        lambda root, value: validated.append(value))
+
+    p3_acceptance.check_staged(tmp_path, Path("receipt.json"))
+
+    assert validated == [receipt]
+
+
+@pytest.mark.parametrize("path", [
+    "components/sync_io/src/sync_io_gateway.c",
+    "components/calibration_manager/src/calibration_manager.c",
+    "components/flash_transaction/src/flash_transaction_ao.c",
+    "components/ota_manager/src/ota_fb.c",
+    "components/storage_manager/src/storage_manager.c",
+    "drivers/mcu/flash/src/drv_flash.c",
+    "tools/ota_send/ota_send.py",
+    "tools/ota_multi_update/ota_multi_update.py",
+])
+def test_check_staged_restores_full_acceptance_outside_the_dpll60_scope(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, path: str) -> None:
+    """The recorded restore-to-FULL condition of the routine credential."""
+    receipt = _dpll60_receipt()
+    monkeypatch.setattr(p3_acceptance, "changed_staged_sources", lambda root: [path])
+    monkeypatch.setattr(p3_acceptance, "unstaged_sources", lambda root: [])
+    monkeypatch.setattr(p3_acceptance, "read_index_json", lambda root, value: receipt)
+    monkeypatch.setattr(p3_acceptance, "staged_source_fingerprint",
+                        lambda root: ("fingerprint", 1))
+
+    with pytest.raises(AcceptanceError, match="outside the DPLL-60 scope"):
+        p3_acceptance.check_staged(tmp_path, Path("receipt.json"))
+
+
+def test_dpll60_receipt_requires_every_evidence_field(tmp_path: Path) -> None:
+    receipt = {
+        "firmware_package": {}, "ota_summary": {}, "trn03_matrix": {},
+        "tdma_summary": {}, "tdma_stopped_handoff": {},
+        "tdma_board_ids": ["board"], "ota_board_ids": ["board"],
+    }
+    with pytest.raises(AcceptanceError, match="missing dpll_summary"):
+        p3_acceptance._validate_dpll_short_receipt(tmp_path, receipt)
+
+
+def test_dpll60_receipt_rejects_differing_board_sets(tmp_path: Path) -> None:
+    receipt = {
+        "firmware_package": {}, "ota_summary": {}, "trn03_matrix": {},
+        "tdma_summary": {}, "tdma_stopped_handoff": {}, "dpll_summary": {},
+        "tdma_board_ids": ["board-a"], "ota_board_ids": ["board-b"],
+    }
+    with pytest.raises(AcceptanceError, match="board sets differ"):
+        p3_acceptance._validate_dpll_short_receipt(tmp_path, receipt)
+
+
+def test_dpll60_receipt_declares_its_unverified_scope() -> None:
+    """A reduced-scope credential must state what it cannot prove."""
+    assert "P1-P3 latency trials and their strict quality gates" in \
+        p3_acceptance.DPLL_SHORT_UNVERIFIED_SCOPE
+    assert "components/sync_io/" in p3_acceptance.DPLL_SHORT_UNCOVERED_PREFIXES
+
+
 def test_direct_script_help_loads_repository_dependencies():
     result = subprocess.run(
         [sys.executable,

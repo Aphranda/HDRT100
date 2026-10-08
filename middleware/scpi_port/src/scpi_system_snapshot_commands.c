@@ -3290,7 +3290,8 @@ static scpi_result_t scpi_tdma_profile_result(scpi_t *context, uint32_t selectio
         return SCPI_RES_OK;
     }
     const tdma_service_timing_record_t *record = selection == 2u ? &snapshot.autonomous_peak :
-        selection == 3u ? &snapshot.other_peak : selection == 1u ? &snapshot.peak : &snapshot.last;
+        selection == 3u ? &snapshot.other_peak : selection == 4u ? &snapshot.steady_peak :
+        selection == 1u ? &snapshot.peak : &snapshot.last;
     SCPI_ResultUInt32(context, snapshot.version);
     SCPI_ResultUInt32(context, snapshot.clock_hz);
     SCPI_ResultUInt32(context, snapshot.reset_generation);
@@ -3337,6 +3338,13 @@ scpi_result_t scpi_cmd_system_tdma_profile_run_q(scpi_t *context)
 scpi_result_t scpi_cmd_system_tdma_profile_other_q(scpi_t *context)
 {
     return scpi_tdma_profile_result(context, 3u);
+}
+
+/* The steady record excludes STOP/ARM/config transitions, so a per-cycle
+ * WCET budget is compared against a running cycle instead of the one-off ARM. */
+scpi_result_t scpi_cmd_system_tdma_profile_steady_q(scpi_t *context)
+{
+    return scpi_tdma_profile_result(context, 4u);
 }
 
 scpi_result_t scpi_cmd_system_tdma_profile_reset(scpi_t *context)

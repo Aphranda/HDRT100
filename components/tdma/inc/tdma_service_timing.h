@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TDMA_SERVICE_TIMING_VERSION 11u
+#define TDMA_SERVICE_TIMING_VERSION 14u
 #ifndef TDMA_SERVICE_TIMING_ENABLED
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define TDMA_SERVICE_TIMING_ENABLED 1
@@ -111,6 +111,40 @@ typedef enum {
      * SUBMIT is only the nested physical callback, including backpressure. */
     TDMA_TIMING_REFERENCE_TX,
     TDMA_TIMING_REFERENCE_SUBMIT,
+    /* STOP/ARM/config transitions: RING_RUNTIME covers stop, start and the
+     * configuration read, so without these children a transition phase shows
+     * one unattributable interval. STOP_ADAPTER wraps the single helper that
+     * both ARM and STOP funnel through; the phys children split the physical
+     * disarm into observer stop, worker cancel, DMA stop and pool release. */
+    TDMA_TIMING_RING_CONFIG,
+    TDMA_TIMING_RING_STOP_ADAPTER,
+    TDMA_TIMING_RING_START_ADAPTER,
+    TDMA_TIMING_RING_TRAIN,
+    TDMA_TIMING_ADAPTER_STOP,
+    TDMA_TIMING_ADAPTER_DISARM,
+    TDMA_TIMING_PHYS_DISARM_EVENT,
+    TDMA_TIMING_PHYS_DISARM_CANCEL,
+    TDMA_TIMING_PHYS_DISARM_DMA,
+    TDMA_TIMING_PHYS_RELEASE,
+    /* Whole-phase waiting, in clk_sys ticks. The owner holds the phase window
+     * open until its close point after the service returns so a late priority
+     * RX interrupt is still charged to this phase; that deliberate wait is
+     * real occupancy of the TDMA cycle and must be counted, not dropped. */
+    TDMA_TIMING_PHASE_WAIT,
+    /* One-off ARM inside the transition phase. The physical arm loads a PIO
+     * persona, configures SM/DMA, primes the follower PASS script, rearms the
+     * clock latch, binds geometry, launches the one-shot observer and installs
+     * the priority lane; without these children the whole arm is one number. */
+    TDMA_TIMING_ARM_REQUEST,
+    TDMA_TIMING_ARM_GEOMETRY,
+    TDMA_TIMING_ARM_SELECT_PERSONA,
+    TDMA_TIMING_ARM_CONFIGURE,
+    TDMA_TIMING_ARM_RX,
+    TDMA_TIMING_ARM_OVERLAY,
+    TDMA_TIMING_ARM_LATCH,
+    TDMA_TIMING_ARM_SM_ENABLE,
+    TDMA_TIMING_ARM_PRELAUNCH,
+    TDMA_TIMING_ARM_PRIORITY,
     TDMA_TIMING_STAGE_COUNT,
 } tdma_service_timing_stage_t;
 
@@ -150,8 +184,14 @@ typedef struct {
      * retained separately, never discarded to make RUN look faster. */
     tdma_service_timing_record_t autonomous_peak;
     tdma_service_timing_record_t other_peak;
+    /* Largest complete phase that ran no STOP/ARM/config transition stage:
+     * the steady running cycle. A per-cycle WCET budget is compared against
+     * this record, while the one-off ARM stays visible in peak/other_peak. */
+    tdma_service_timing_record_t steady_peak;
     uint32_t autonomous_phase_count;
     uint32_t other_phase_count;
+    /* Counted but not exported: the SCPI payload layout stays unchanged. */
+    uint32_t transition_phase_count;
 } tdma_service_timing_snapshot_t;
 
 /* Aggregate diagnostics for the same RESET/phase lifecycle. Ages use the

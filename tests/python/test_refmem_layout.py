@@ -25,6 +25,8 @@ def _compile(directory, name, sources, node_capacity, short_enums):
     gcc = os.environ.get("HOST_CC") or shutil.which("gcc") or shutil.which("clang")
     assert gcc, "host C compiler required"
     includes = [ROOT / "components/distributed_refmem/inc", ROOT / "components/tdma/inc",
+                # distributed_refmem.h includes trigger_position_descriptor.h
+                ROOT / "components/sync_trigger/inc",
                 ROOT / "components/ota_manager/inc"]
     exe = directory / (name + (".exe" if os.name == "nt" else ""))
     command = [gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",

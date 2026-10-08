@@ -618,7 +618,7 @@ def test_process_follower_disarm_releases_overlay_tx_dma() -> None:
     phys = _read_phys_source()
     disarm = phys.split("bool tdma_pio_spi_phys_disarm", 1)[1].split(
         "static bool tdma_pio_spi_phys_tx_put", 1)[0]
-    common_stop = disarm.index("if (!tdma_pio_spi_phys_stop_command_dma(phys)) return false;")
+    common_stop = disarm.index("tdma_pio_spi_phys_stop_command_dma(phys)")
     disable = disarm.index("pio_sm_set_enabled")
     assert common_stop < disable
     assert "dma_channel_abort(" not in disarm
