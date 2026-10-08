@@ -33,6 +33,10 @@ from flight_bitmap_validate import (  # noqa: E402
     PROCESS_FIELDS,
 )
 from tdma_field_parse import PHYS_FIELDS, RUNTIME_FIELDS  # noqa: E402
+from tdma_service_timing import (  # noqa: E402
+    parse_rx_timing,
+    parse_service_timing,
+)
 from trn03_stage import (  # noqa: E402
     checked_action,
     drain_errors,
@@ -600,6 +604,39 @@ def flight_snapshot(board: Board, args: argparse.Namespace) -> dict[str, Any]:
     return {"process": process, "fifo": fifo}
 
 
+def service_timing_snapshot(board: Board,
+                            args: argparse.Namespace) -> dict[str, Any]:
+    """Attribute the TDMA phase wall clock to its recorded stages.
+
+    The app-level phase counter reports the whole phase body (transport,
+    observer, VDC run output, SYNC_IO reference, analyzer and accounting) as
+    one number, so it cannot say which service consumed the window.  Every
+    record is captured because one sticky maximum mixes steady-state cycles
+    with autonomous origin phases and ARM/STOP transitions: PEAK is the
+    largest complete phase, RUN/OTHer separate autonomous from other phases,
+    and the LAST record is the final phase.  Every nested stage interval is
+    inclusive: subtract recorded children before adding siblings.  This
+    remains read-only evidence; it adds no gate.
+    """
+    result: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    for key, text, parser in (
+            ("last", "SYSTem:TDMA:PROFile?", parse_service_timing),
+            ("peak", "SYSTem:TDMA:PROFile:PEAK?", parse_service_timing),
+            ("run", "SYSTem:TDMA:PROFile:RUN?", parse_service_timing),
+            ("other", "SYSTem:TDMA:PROFile:OTHer?", parse_service_timing),
+            ("rx", "SYSTem:TDMA:PROFile:RX?", parse_rx_timing)):
+        try:
+            raw = board_command(board, text, args)
+            result[f"{key}_raw"] = raw
+            result[key] = parser(raw)
+        except Exception as exc:  # noqa: BLE001 - retain partial evidence
+            result[key] = None
+            errors[key] = f"{type(exc).__name__}: {exc}"
+    result["errors"] = errors
+    return result
+
+
 def activate_dpll_provisional(board: Board, args: argparse.Namespace,
                               config: dict[str, Any]) -> dict[str, Any]:
     action = checked_action(
@@ -780,6 +817,7 @@ def sample_node(board: Board, args: argparse.Namespace,
         "flight": flight_snapshot(board, args),
         "physical": physical_snapshot(board, args),
         "crc_diagnostic": crc_diagnostic_snapshot(board, args),
+        "service_timing": service_timing_snapshot(board, args),
     }
 
 
@@ -2230,6 +2268,7 @@ def main() -> int:
                     before[board.address]["crc_diagnostic"],
                 "crc_diagnostic_after":
                     after[board.address]["crc_diagnostic"],
+                "service_timing": service_timing_snapshot(board, args),
             }
         if getattr(args, "capture_waveforms", False):
             capture_attempted = True
