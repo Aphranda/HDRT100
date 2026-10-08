@@ -15,6 +15,35 @@ Last updated: 2026-10-08
 
 ## 当前 checkpoint
 
+### TDMA-PROGRESS-20261008-003：自激发车（origin）入口五层链路与运行期可达性
+
+- 契约：TDMA-FLIGHT-002B1（docs/tdma/TDMA_DOMAIN_TODO.md）当天修正为 **可达路径 = process-image**，
+  依据 `tdma_pio_spi_ring_adapter.c:1187-1196`（role=REFERENCE + FORWARDING_PHYSICAL_PROCESS_IMAGE + flight engine active）。
+- 入口五层与实测：
+  1) 许可 `CAL:ORIG:TRIAL[:READY] <trial>,<rearm>,<polls>,<duration_ticks>`：仅**参考节点**受理，
+     成功返回固件内部 epoch；要求 `DIAGNOSTIC_CONTINUE` 置位（`calibration_origin_timing.inc:115-116`）。
+  2) 授权 `tdma_runtime_owner_origin_authorized()`（`tdma_runtime_origin.inc:145-163`）：要求 burst_limit==0
+     （`SYSTem:TDMA:RING:BURSt 0`，读回 0 确认）、config_seq 与 ring_runtime 一致、epoch 等于当前 epoch 等 15 条。
+  3) 释放 `CAL:ORIG:RELease <epoch>,<config_seq>`；许可后不得再装载/应用配置（否则 config_seq 变更即失效）。
+  4) 准入 `tdma_runtime_owner_origin_begin`（`tdma_runtime_origin.inc:218-248`）：需回环帧匹配
+     （transport_sequence==up_sequence、identity_crc32==up_tx_frame_crc32，`components/tdma/src/tdma_pio_spi_ring_origin.inc:117-120`），
+     成功后写 release=PREPARING 并 `tdma_origin_handoff_begin`。实测 `origin.active=1`、`returned.sequence/identity` 已记录、
+     `READ:…:HANDoff?` 由 UNAVAILABLE 变为可见且 `result=0`。
+  5) 准备→AUTONOMOUS：准备阶段机由**环周期**驱动（`components/tdma/src/tdma_pio_spi_ring_origin.inc:164` → `components/tdma/src/tdma_runtime_origin.inc:281`，每周期最多 4 步），
+     需 `RESIDENT_INSTALLED`（`tdma_adapter_comm_fsm.c:239-244`）才转 state 5；只有 state==5 时才进入
+     `tdma_pio_spi_ring_origin_service()` 的 rx_once→observe(boundary)→publish（`components/tdma/src/tdma_pio_spi_ring_origin.inc:383-405`）。
+     实测 `comm_fsm_state` 恒为 **6 (RESIDENT_PREPARING)**，从未到 5；`boundary.*`、`observed_return_count` 恒 0。
+- 关键实测约束（快照，非事实源）：
+  - `duration` 单位是 **ticks**（250 MHz）：2.5e9→约 10 s、1.5e10→60 s；`elapsed_ticks` 曾饱和 UINT32_MAX。
+  - 60 s 窗口下 `active=1` 可持续约 34 s，但 `invalid_count` 达 56348（每周期被判无效，来源待审查确认）。
+  - 环启动前必须**生产软复位**（否则 recorder state=5 拒绝 CANCEL，阶段中止在前置处）。
+  - 阶段（诊断模式 + --leave-running）在 realtime gate 失败时可能以 STOP 收尾（`trn03_closed_loop.py:374-382`：
+    handoff 记录为空则不允许 leave-running）⇒ 随后的许可必然被拒（实测 trial-page 回到 `0,2,0,…`、FSM=STOPPED）。
+- 工具治理：自激发车会话编排已固化为 `tools/bench/tdma_origin_session.py`（stable 根，登记 TOOL-BENCH 的
+  entrypoints 与 files 两处）；TRN03 保持纯环验证（复位不进入 TRN03）。
+- 未决（已开三条只读审查 + 后续独立 cross-reviewer）：RESIDENT_PREPARING→AUTONOMOUS 不可达是固件缺陷、
+  还是"许可/释放必须发生在环运行期"的操作条件缺口。
+
 ### TDMA-PROGRESS-20261008-002：稳态/过渡分列与常规 DPLL-60 验收凭证
 
 - TODO task ID：`TDMA-FLIGHT-002J`、`TDMA-FLIGHT-002K`、`TDMA-HIL-001`；日期：2026-10-08。
