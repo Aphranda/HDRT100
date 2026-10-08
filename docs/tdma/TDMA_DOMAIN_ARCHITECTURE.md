@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-27
+Last updated: 2026-09-28
 
 ## 文档接口与范围
 
@@ -188,6 +188,10 @@ seat 上挂载的 load instance 至少包括 traffic class、seat、owner、dead
 priority provider 返回 `READY` 或 `EMPTY` 只代表特等席 offer/保留，不能代表物理发送已完成。只有记录 `PRIORITY_SELECTED`、`PRIORITY_TX_COMMITTED` 后，TDMA 才能计算 `FIRST_CLASS_WINDOW_GRANTED`；VDC 新事件、绑定变化、故障或窗口不足时立即撤销一等席准入。任何准入都不能修改已被 Core1 或 DMA 引用的 VDC image。
 
 预算完成事实必须分开记录：`queued`、`admitted`、`selected`、`tx_committed`、`rx_queued`、`rx_consumed`、`reassembled`、`applied`。软件发布计数、FIFO 入队和 priority offer 都不能冒充物理发送、对端接收或业务应用。
+
+`tdma_seat_admission` 是 Foundation 内独立的 owner 串行软件模型：按同一 epoch、cycle、config/profile/binding generation 和 priority sequence 关联选择、提交、预算及窗口。预算量纲由 `tdma_seat_resource_t` 分开定义；全部显式定义后才可计算软件授权。load 选择消费本轮授权，后端确认提交另记；STOP、换代、新特等事件、故障或时间不足撤销授权。旧回调不能推进新轮状态，晚交接事实与时间窗失败同时保留。跨核读取仍须使用 owner 的 guarded handoff，不能直接共享此模型结构。
+
+该模型当前未接入 provider、generic scheduler 或物理 origin，因此软件测试不代表一等席已经获得硬件发送窗口。真实接线由 `TDMA-FLIGHT-002K` 继续跟踪：补齐物理 selection/提交边界及同代实测预算后才能授予发送；不能用现有 `phys_origin.publish/commit_tx` 的备用映像交接冒充物理进展。
 
 ## 跨域契约入口
 

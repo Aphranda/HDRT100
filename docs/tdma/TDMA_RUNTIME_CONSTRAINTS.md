@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_RUNTIME_CONSTRAINTS.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-09-26
+Last updated: 2026-09-28
 
 ## 文档接口
 
@@ -138,6 +138,18 @@ TDMA 相位宽度额外包含关窗预留和入口余量；上述默认配置中
 | persona 资源 | `tdma_state_machine_resources.h`、`tdma_pio_spi_phys_programs.c` | PIO 指令占用、SM/DMA/FIFO owner、共享 workspace 生命周期。 |
 
 不能用运行时减少节点证明 RAM 释放；静态 RAM 以目标 map、栈水位及共享池占用核算。校准持久化格式、导入 CRC 和 wire 长度是不同兼容性维度，裁剪数组不等于旧数据包自动兼容。
+
+## 席位准入软件模型
+
+`tdma_seat_admission.h/.c` 是 TDMA owner 串行调用的纯模型，当前没有 provider、PIO、IRQ 或 generic scheduler 运行调用，不新增特等席工作，也不修改现有 mailbox/回环路径。结构不是跨核原子快照；后续接线必须由唯一 owner 维护并用已有 guard 发布副本。
+
+- `begin` 使用跨 STOP/换代不复用的递增 epoch，关联 cycle 与 config/profile/binding generation、priority sequence；新轮验证失败也撤销旧授权，耗尽不能回绕。
+- `priority_selected` 和 `priority_committed` 必须来自同一 token 的物理事实；`READY/EMPTY`、FIFO 发布、普通 scheduler dispatch、备用 shadow 发布都不满足这些前置。
+- `grant` 检查 `TDMA_SEAT_BUDGET_ALL` 的各量纲预算，以及 `[start_ns, end_ns - close_guard_ns)` 窗口。预算由 owner 在同代预先准入并扣除高等级预留；FIFO 空位不能代替 RX wire/消费预算。
+- `select_load` 在临交接前复验本轮预算和剩余 duration，消费一次本地授权；`commit_load` 仅记选中 load 的后端实际交接确认，不等于 SENT、RX 或 APPLIED。后端失败撤销 FAULT；已发生的晚交接保留 `load_committed` 事实，同时报窗口过期，不重新授予本轮额度。
+- 时间来自同一个 owner 单调时基。commit 的时间为实际交接时间，不是延迟回调/查询时间；owner 在推进模型时钟前报告交接。`expire` 须在决策边界调用；存储状态不是自动推进的实时时钟。STOP、新特等事件、绑定变化和故障由 owner 显式撤销。
+
+本模块验证的是软件状态语义。真实发送接线、最坏资源预算和跨板共存属于 `TDMA-FLIGHT-002K2`，未经这些证据不能据 `FIRST_CLASS_WINDOW_GRANTED` 的软件用例宣布物理一等席可用。
 
 ## Recovery、训练与业务扩展
 

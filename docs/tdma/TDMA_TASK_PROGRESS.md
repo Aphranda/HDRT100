@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-28
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
@@ -14,6 +14,15 @@ Last updated: 2026-09-19
 历史记录中的预算、节点及门禁描述只代表当时快照，当前口径以最新条目和主域文档为准。
 
 ## 当前 checkpoint
+
+### TDMA-PROGRESS-20260928-001：席位准入软件模型与物理接线边界
+
+- TODO task ID：`TDMA-FLIGHT-002K`、`TDMA-FLIGHT-002K1`、`TDMA-FLIGHT-002K2`；日期：2026-09-28。
+- 变更：新增 `tdma_seat_admission.h/.c` 并加入构建；同 epoch/cycle/config/profile/binding/priority 身份贯穿特等选择、提交、一等窗口与 load 选择/提交。TX/RX、保留槽、Core1/IRQ、Core0 消费及反向流量独立校验，一次性扣费；未接真实硬件窗口，不修改 VDC provider 或 PIO。
+- 独立复核：`/root/tdma_seat_review` 只读审查发现成功 begin 的输入别名被清零，以及后端晚交接的剩余 duration 未复验；主控修复并补用例，复核确认无剩余阻断项。真实晚交接事实保留但撤窗，不能写成正常发送。
+- 软件证据：`python -m pytest tests/python/test_tdma_seat_admission.py -q -p no:cacheprovider --basetemp out/pytest/tdma-seat-admission-r2-20260928` 通过；生产 C 的五组用例覆盖顺序/重复、各维度缺项与不足、旧身份/撤销、时间/整数边界和后端失败（本轮快照）。既有 scheduler/FIFO/service host runner 均通过，目录为 `out/pytest/tdma-seat-existing-*`。
+- 构建与硬件：当前 P3 在 `out/HardwareAcceptance/20260928/p3-tdma-seat-admission-02/` 执行；结束后按原始分级、staged 指纹和 STOP 交接补齐结论。此前请求复用环序在入口被当前 scope 拒绝，未进入硬件；已使用正常 quick 入口，未修改门禁。
+- 下一 gate：完成当前源码 quick P3、指纹提交推送及文档门禁；随后独立收敛物理 selection/commit 证据和同代实测预算。父任务保留 IN PROGRESS，不因纯模型测试关闭物理窗口接线。
 
 ### TDMA-PROGRESS-20260919-001：主域文档按当前实现收敛与历史轮转
 

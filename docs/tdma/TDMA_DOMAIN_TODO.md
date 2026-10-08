@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-09-27
+Last updated: 2026-09-28
 
 ## 文档接口与状态规则
 
@@ -77,7 +77,9 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 | TDMA-FLIGHT-002E | byte/cycle 飞行声明与契约收敛 | PENDING | F1–F5 完成后独立 C11、registry 及顶层刷新；现有 pending 不自动提升。 |
 | TDMA-FLIGHT-002F | TX/RX 异步候车平台 | IN PROGRESS | 已有后台准备；补完整预算、峰值归因、拥塞、迟到复用、selection 退休与 STOP 取消。 |
 | TDMA-FLIGHT-002J | 席位双向预算 | IN PROGRESS | 绑定同一 profile generation，分别测 TX 准入、RX FIFO 峰值、Core0 消费、CRC/重组、ACK/诊断反向流和 guard；发送快但接收满必须进入背压证据。 |
-| TDMA-FLIGHT-002K | 席位准入状态机 | PENDING | 增加 `PRIORITY_SELECTED`、`PRIORITY_TX_COMMITTED`、`FIRST_CLASS_WINDOW_GRANTED`、`LOAD_TX_COMMITTED` 状态；VDC 新事件或窗口不足时撤销低等级 seat 准入。 |
+| TDMA-FLIGHT-002K | 席位准入状态机 | IN PROGRESS | 软件模型按同代身份、完整预算及限时授权推进，load 选择与后端确认提交分开；物理 selection/commit 接线、VDC 新事件即时撤销及跨板无扰动专项仍须完成。 |
+| TDMA-FLIGHT-002K1 | 席位准入软件模型 | IN PROGRESS | `tdma_seat_admission` 的身份、预算各维度、一次性消费、STOP/换代撤销、别名输入、晚交接与整数边界验证；同源码构建/P3 和独立复核完成后关闭，不等于物理窗口开放。 |
+| TDMA-FLIGHT-002K2 | 物理边界与席位准入接线 | PENDING | 物理 selection、已提交发送及独立窗口时间证据先闭合，再绑定 owner 同代实测 TX/RX/CPU/反向预算；缺预算保持关闭；T2 经一等席验证，不能覆盖或暂停 VDC。 |
 | TDMA-FLIGHT-002L | load instance 分段调度 | PENDING | OTA/CONFIG/诊断按 segment、每周期帧数、队列深度、deadline 和 overflow policy 运行；TX/RX/重组/反向流均有快照。 |
 | TDMA-FLIGHT-003 | 发车节拍下界与准入 | PENDING | 依据物理计划与 Calibration 输入给出可达下界；过快配置拒绝及只读证据齐全。 |
 | TDMA-DET-004 | prepare/preload/launch/wire/feedback 分解 | PENDING | 普通与自主路径分别定义子阶段、硬件边界与拍级合同。 |
