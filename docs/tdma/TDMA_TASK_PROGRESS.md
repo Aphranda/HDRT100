@@ -15,6 +15,15 @@ Last updated: 2026-10-08
 
 ## 当前 checkpoint
 
+### TDMA-PROGRESS-20261008-002：稳态/过渡分列与常规 DPLL-60 验收凭证
+
+- TODO task ID：`TDMA-FLIGHT-002J`、`TDMA-FLIGHT-002K`、`TDMA-HIL-001`；日期：2026-10-08。
+- 仪表化（未提交）：`SYSTem:TDMA:PROFile:STEady?` 新增**稳态记录**——相位若调用 `ring_start/stop_adapter`、`ring_train`、`adapter_stop/disarm` 或任一 `arm_*` 即判为过渡，不进入稳态峰值；follower 的发送侧（`overlay_prepare`/`overlay_boundary`）纳入 TX 分组；解析器支持按整表周期派生 `cycle_wait_ticks = cycle − TX − RX`，`service_timing_snapshot()` 用板端 `schedule.cycle_cycles` 直接落进证据。
+- 实测快照（build `20261008074530`，数值为本轮快照、非事实源）：**稳态 `steady_peak`** 四板 1154.8–1209.6 µs，对 850 µs 压缩后设计预算超 36–42%；TX/RX/周期等待分别为参考板 442.0/326.3/731.7 µs、follower TX 135.2–168.0、RX 749.1–839.1、等待 492.8–615.7 µs（`phase_wait` 仅 0.3 µs，优先通道未激活）。**ARM 过渡** `peak` 1227.3–1678.1 µs，其中 `ring_start_adapter` 1033–1361 µs（`arm_select_persona` 282–313、`arm_configure` 239–264 µs），每会话一次。
+- 更正上一条目口径：先前记的稳态 95–111 µs 取自 `PROFile?` 的 `last`，那是 STOP 后的安静拍；环运行窗口内的稳态最坏相位就是一次完整收发服务拍，因此"超预算"不是 ARM 造成的假象。
+- 常规硬件验收凭证：新增 `p3_hardware_acceptance.py dpll60`（收据 schema `HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_DPLL60_V1`、scope `DPLL60_JOINT`），复用已成功 package/OTA，经一次有限 TDMA 阶段应用冻结矩阵并产出四板 STOP 原始交接，再跑四板 DPLL 60 s。本轮复用路径 114.5 s（对照完整 quick P3 480.9 s）；`check-staged` 接受该收据；staged 改动命中 `DPLL_SHORT_UNCOVERED_PREFIXES`（校准/flash/存储/sync IO/OTA 工具/示波器路径）时门禁拒绝并要求完整验收，范围声明同步写入 `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` 的 EXE-CHANGE-01。
+- 顺带修复的既有测试缺陷（与本轮改动无关）：三处 harness 缺 `components/sync_trigger/inc` 包含路径（`distributed_refmem.h` 引入该头）、两处切片 harness 需要 timing 空实现前导、一处 ARM 尾部锚点因计时包装需放宽。
+
 ### TDMA-PROGRESS-20261008-001：席位准入模型提交与同源码四板 quick P3 复跑
 
 - TODO task ID：`TDMA-FLIGHT-002K`、`TDMA-FLIGHT-002K1`、`TDMA-FLIGHT-002J`、`TDMA-HIL-001`；日期：2026-10-08。
