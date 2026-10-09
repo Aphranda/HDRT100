@@ -18,7 +18,8 @@ GOLDEN = (ROOT / "tools/archive/vdc/vdc_joint_capture/lineage_v1/"
 UIDS = ("uid-0", "uid-1", "uid-2", "uid-3")
 
 
-def encode_match(slot, delay, *, generation=77, event_sequence=101):
+def encode_match(slot, delay, *, generation=77, event_sequence=101,
+                 first_reject_reason=0):
     scalars = dict.fromkeys(tracked_match.SCALARS, 0)
     scalars.update(
         schema=1, generation=generation, retired=1, have_match=1,
@@ -42,6 +43,8 @@ def encode_match(slot, delay, *, generation=77, event_sequence=101):
     for name in tracked_match.WIDE:
         value = wide[name] & ((1 << 64) - 1)
         words.extend((value & 0xFFFFFFFF, value >> 32))
+    words.extend(first_reject_reason if name == "first_reject_reason" else 0
+                 for name in tracked_match.TRAILER)
     return ",".join(map(str, words))
 
 
@@ -180,10 +183,22 @@ def test_parser_and_forward_delay_match_frozen_hardware():
     report = json.loads(GOLDEN.read_text(encoding="utf-8"))
     followers = list(report["boards"].values())[1:]
     for slot, row in enumerate(followers, 1):
-        assert new.parse_match(row["match_raw"]) == row["match"]
+        parsed = new.parse_match(row["match_raw"])
+        # The frozen lineage-v1 reply predates the appended trailer and must
+        # still parse; only the appended field is absent from its record.
+        assert {name: parsed[name] for name in row["match"]} == row["match"]
+        assert parsed["first_reject_reason"] == 0
         links = row["stage_reuse"]["links"]
         assert new.forward_delay(links, 0, slot) == \
             row["independent_forward_delay_ns"]
+
+
+def test_parser_reads_appended_first_reject_reason_trailer():
+    new = tracked_match.load_match(None)
+    parsed = new.parse_match(encode_match(1, 80, first_reject_reason=6))
+    assert parsed["first_reject_reason"] == 6
+    assert parsed["local_slot"] == 1 and parsed["delay_ns"] == 80
+    assert parsed["residual_lo"] == -15 and parsed["residual_hi"] == 15
 
 
 @pytest.mark.parametrize("fault", ["duplicate", "cycle", "invalid", "negative"])

@@ -532,6 +532,8 @@ bool tdma_service_set_loop_delay_ns(tdma_service_service_t *service,
                                     uint32_t tolerance_ns);
 bool tdma_service_set_ring_diagnostic_mode(tdma_service_service_t *service,
                                            bool enabled);
+bool tdma_service_set_origin_cadence(tdma_service_service_t *service,
+                                           bool enabled);
 /* Core0, STOP/applied only. Zero disables the diagnostic launch bound;
  * one/two limit ordinary reference launches in the next ARM session. */
 bool tdma_service_set_ring_diagnostic_burst(tdma_service_service_t *service,

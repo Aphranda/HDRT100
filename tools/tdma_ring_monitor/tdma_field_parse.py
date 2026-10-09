@@ -86,6 +86,14 @@ RUNTIME_FIELDS = (
     "ring_adapter_last_bad_header_observed_byte",
     "ring_config_seq",
     "ring_applied_config_seq",
+    # Appended loop/beat measurement of the reference's own revolution.
+    "ring_loop_time_flags",
+    "ring_loop_time_resolution_ns",
+    "ring_loop_time_last_ns",
+    "ring_loop_time_min_ns",
+    "ring_loop_time_max_ns",
+    "ring_loop_time_mean_ns",
+    "ring_loop_time_count",
 )
 
 

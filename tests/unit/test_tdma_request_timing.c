@@ -7,6 +7,9 @@
 static uint64_t timing_ticks;
 uint64_t vdc_timestamp_clock_read_ticks64(void) { return ++timing_ticks; }
 uint32_t vdc_timestamp_clock_tick_hz(void) { return 250000000u; }
+/* 250 MHz divides one second exactly, so the adapter's loop-time scaling uses
+ * the same four-nanosecond tick as the real timestamp clock. */
+uint64_t vdc_timestamp_clock_ticks_to_ns(uint64_t ticks) { return ticks * 4u; }
 #include "../../components/tdma/src/tdma_service_timing.c"
 
 static bool timed_observe_available;

@@ -5,7 +5,105 @@
 #include "tdma_process_image_layout.h"
 #include "tdma_service_timing.h"
 
+#if TDMA_SERVICE_TIMING_ENABLED
+/* Only the device build owns a real timebase (see tdma_service_timing.h). */
+#include "vdc_timestamp_clock.h"
+#endif
+
 #define TDMA_PIO_SPI_RING_RESIDENT_BOOTSTRAP_RETRY_MAX 1u
+
+/* On-board TDMA ring loop/beat period: the interval between successive
+ * arrivals of the reference's own frame at the reference (rx->rx).  The
+ * resident-origin cadence emits the next frame from a return, so one accepted
+ * return is exactly one revolution of the ring as seen by the reference.
+ *
+ * Both endpoints are the same observation point, so the systematic core1
+ * acceptance latency cancels in the difference and no absolute per-edge latch
+ * is claimed.  The residual uncertainty is the run-to-run variation of that
+ * latency; min/max publish it and it is never replaced by the sampling
+ * quantum alone.
+ *
+ * The dedicated tdma_origin_rtt latch is deliberately NOT the source: on the
+ * recorded hardware it reports a fixed 62-count (496 ns) local CS->CS deskew
+ * of the reference's own transmission, which is not a ring revolution. */
+static uint32_t tdma_pio_spi_ring_adapter_loop_tick_hz(void)
+{
+#if TDMA_SERVICE_TIMING_ENABLED
+    return vdc_timestamp_clock_tick_hz();
+#else
+    /* Host component tests own no TIMER1 and stub the timing module to zero. */
+    return 0u;
+#endif
+}
+
+/* Raw TIMER1 ticks -> ns through the timestamp clock owner, so the loop
+ * measurement uses the same timebase and conversion as every other TDMA
+ * timestamp.  A build without that owner has no timebase at all. */
+static uint64_t tdma_pio_spi_ring_adapter_loop_ns(uint64_t ticks)
+{
+#if TDMA_SERVICE_TIMING_ENABLED
+    return vdc_timestamp_clock_ticks_to_ns(ticks);
+#else
+    (void)ticks;
+    return 0ull;
+#endif
+}
+
+static void tdma_pio_spi_ring_adapter_note_origin_return(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    const uint32_t tick_hz = tdma_pio_spi_ring_adapter_loop_tick_hz();
+    /* Raw 64-bit TIMER1 ticks, the same counter the owner's phases record. */
+    const uint64_t ticks = tdma_service_timing_now();
+    if (tick_hz == 0u || ticks == 0ull) {
+        return;
+    }
+    tdma_ring_loop_time_t *loop = &adapter->loop_time;
+    /* Same rounding rule as vdc_timestamp_clock_resolution_ns(). */
+    loop->resolution_ns = (1000000000u + tick_hz - 1u) / tick_hz;
+    const uint64_t previous = adapter->loop_time_last_rx_ticks;
+    adapter->loop_time_last_rx_ticks = ticks;
+    if (previous == 0ull || ticks <= previous) {
+        /* First return of this session, or a counter that did not advance.
+         * Neither is turned into an interval. */
+        if (previous != 0ull) {
+            loop->flags |= TDMA_RING_LOOP_TIME_FLAG_STALE;
+        }
+        return;
+    }
+    const uint64_t period_ns =
+        tdma_pio_spi_ring_adapter_loop_ns(ticks - previous);
+    if (period_ns == 0ull || period_ns > UINT32_MAX ||
+        UINT64_MAX - adapter->loop_time_sum_ns < period_ns) {
+        /* Not representable: dropped and marked, never truncated. */
+        loop->flags |= TDMA_RING_LOOP_TIME_FLAG_SATURATED;
+        return;
+    }
+    loop->last_period_ns = (uint32_t)period_ns;
+    if (loop->sample_count == 0u || period_ns < loop->min_period_ns) {
+        loop->min_period_ns = (uint32_t)period_ns;
+    }
+    if (loop->sample_count == 0u || period_ns > loop->max_period_ns) {
+        loop->max_period_ns = (uint32_t)period_ns;
+    }
+    adapter->loop_time_sum_ns += period_ns;
+    loop->sample_count++;
+    loop->mean_period_ns =
+        (uint32_t)(adapter->loop_time_sum_ns / loop->sample_count);
+    /* A dropped interval stays visible: the mean/min/max omit it for the rest
+     * of the session.  STALE is not sticky, because this return was measured. */
+    loop->flags = TDMA_RING_LOOP_TIME_FLAG_VALID |
+        (loop->flags & TDMA_RING_LOOP_TIME_FLAG_SATURATED) |
+        (loop->sample_count == 1u ? TDMA_RING_LOOP_TIME_FLAG_FIRST_SAMPLE : 0u);
+}
+
+static void tdma_pio_spi_ring_adapter_reset_loop_time(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    adapter->loop_time = (tdma_ring_loop_time_t){0};
+    adapter->loop_time_sum_ns = 0ull;
+    adapter->loop_time_last_rx_ticks = 0ull;
+}
 
 static bool tdma_pio_spi_ring_adapter_burst_exhausted(
     const tdma_pio_spi_ring_adapter_t *adapter)
@@ -985,6 +1083,10 @@ static bool tdma_pio_spi_ring_adapter_start(
     adapter->last_bad_profile_crc32 = 0u;
     tdma_pio_spi_ring_adapter_reset_bad_packet_diagnostic(adapter);
     adapter->rx_drop_count = 0u;
+    /* A loop/beat measurement belongs to one armed session; a re-arm must
+     * never let the previous session's revolution look current. */
+    tdma_pio_spi_ring_adapter_reset_loop_time(adapter);
+    memset(&adapter->origin_feedback_tx, 0, sizeof(adapter->origin_feedback_tx));
     adapter->up_sequence = 0u;
     adapter->down_rx_sequence = 0u;
     adapter->up_tx_frame_crc32 = 0u;
@@ -1167,6 +1269,7 @@ static bool tdma_pio_spi_ring_adapter_stop_locked(void *context)
     memset(adapter->local_tx_edge_evidence,
            0,
            sizeof(adapter->local_tx_edge_evidence));
+    memset(&adapter->origin_feedback_tx, 0, sizeof(adapter->origin_feedback_tx));
     memset(&adapter->clock_observation, 0, sizeof(adapter->clock_observation));
     if (adapter->phys_stopped != NULL)
         adapter->phys_stopped(adapter->phys_ctrl_context);
@@ -1934,6 +2037,9 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
             return false;
         }
         tdma_pio_spi_ring_origin_accept(adapter, origin_observation);
+        /* One accepted own-frame return is exactly one ring revolution: the
+         * origin emits its next frame from this return. */
+        tdma_pio_spi_ring_adapter_note_origin_return(adapter);
         if (prepared != NULL) {
             adapter->origin.matched_owner_generation = prepared->origin_owner_generation;
             adapter->origin.matched_owner_sequence = prepared->origin_owner_sequence;
@@ -2111,6 +2217,15 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
              * fail closed. */
         }
     }
+    /* The autonomous origin owns its own pair: it has no phys_tx/phys_rx
+     * latch, so the reference block above deliberately leaves it empty.  The
+     * accepted own-frame return just handled supplies both endpoints from the
+     * shared timestamp clock; an unpaired or non-advancing return publishes
+     * nothing and the runtime keeps reporting TIMESTAMP_MISSING. */
+    if (adapter->origin.active != 0u && origin_observation != NULL) {
+        tdma_pio_spi_ring_origin_correlate_feedback(adapter, &view,
+            origin_observation->local_generation);
+    }
     if (dpll_correlation_pending &&
         !tdma_pio_spi_ring_adapter_correlate_dpll_observation(adapter, &view)) {
         adapter->clock_observation_reject_count++;
@@ -2130,6 +2245,16 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
          adapter->flight_engine == NULL ||
          !tdma_flight_engine_is_active(adapter->flight_engine))) {
         uint32_t input_mask = inspected_new_mask;
+    /* On-cadence publish policy: when the reference is actively emitting and
+     * the received frame carried no new segment, publish what the frame DOES
+     * carry (present/output mask) so the consumer can see it.  Committing mask
+     * 0 would be a no-op for both the refmem consumer and rx_commit. */
+    const uint32_t cadence_mask =
+        (input_mask == 0u && adapter->config.origin_cadence_enabled != 0u &&
+         adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE &&
+         adapter->comm_fsm.state == TDMA_ADAPTER_COMM_STATE_AUTONOMOUS)
+            ? inspected_present_mask : 0u;
+    const uint32_t publish_mask = input_mask != 0u ? input_mask : cadence_mask;
         if (adapter->receive_health.configured == 0u &&
             adapter->flight_engine != NULL &&
             tdma_flight_engine_is_active(adapter->flight_engine)) {
@@ -2141,7 +2266,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
         if ((!receive_health_rejected ||
              adapter->receive_health.configured == 0u ||
              resident_feedback) &&
-            (input_mask != 0u ||
+            (publish_mask != 0u ||
              adapter->flight_engine == NULL ||
              !tdma_flight_engine_is_active(adapter->flight_engine))) {
             const uint32_t rx_generation =
@@ -2160,7 +2285,7 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
                 view.payload_size,
                 rx_generation,
                 view.transport_sequence,
-                input_mask,
+                publish_mask,
                 rx_timestamp_ns,
                 rx_quality);
             tdma_service_timing_record(TDMA_TIMING_RX_FIFO_PUBLISH, rx_publish_start);
@@ -2287,6 +2412,10 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
                 (adapter->receive_health.configured == 0u ||
                  adapter->last_rx_gate_accepted) &&
                  adapter->last_rx_new_segment_mask != 0u) {
+    /* NOTE: the on-cadence publish policy must be decided inside the
+     * reference-node branch (the origin service path); this forwarding path is
+     * only reached when the origin is inactive and role != REFERENCE, so a
+     * cadence exemption here would be dead code. */
                 const uint32_t rx_generation =
                     adapter->receive_health.configured != 0u
                         ? adapter->receive_health.config.map_generation
@@ -2819,6 +2948,7 @@ static void tdma_pio_spi_ring_adapter_publish_status(
         adapter->feedback_reference_frame_crc32;
     status->reference_tx_timestamp_ns = adapter->reference_tx_timestamp_ns;
     status->feedback_rx_timestamp_ns = adapter->feedback_rx_timestamp_ns;
+    status->loop_time = adapter->loop_time;
     status->clock_observation = adapter->clock_observation;
     tdma_service_timing_record(TDMA_TIMING_ADAPTER_STATUS, started);
 }

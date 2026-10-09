@@ -660,8 +660,20 @@ static int test_origin_adapter(void)
             failed += expect_u32("origin no synthetic windows", adapter.comm_fsm.completed_window_count, completed);
             failed += expect_u32("origin local shadow publication", p.publications, 1u);
             failed += expect_u32("origin full owner generation", adapter.origin.published_owner_generation, 0x10001u);
-            failed += expect_u64("origin no absolute RX", status.feedback_rx_timestamp_ns, 0ull);
-            failed += expect_u32("origin no DPLL reference", status.feedback_reference_sequence, 0u);
+            /* The origin feedback pair is published only from the shared
+             * timestamp clock, only for two consecutive accepted returns of the
+             * reference's own frame (one emission), and only as a complete set:
+             * sequence, frame identity, TX sample, RX sample and eligibility
+             * flags move together.  This host build has no such clock
+             * (TDMA_SERVICE_TIMING_ENABLED == 0), so the accepted return above
+             * must advance the RX sequence while publishing no pair at all -
+             * a half-filled or zero-filled pair would be fabricated evidence. */
+            failed += expect_u32("origin accepted return advances RX sequence", status.down_rx_sequence, 9u);
+            failed += expect_bool("origin pair requires a timebase",
+                status.feedback_reference_sequence == 0u &&
+                status.feedback_reference_frame_crc32 == 0u &&
+                status.reference_tx_timestamp_ns == 0ull &&
+                status.feedback_rx_timestamp_ns == 0ull, true);
             fill_test_process_mailbox(mailbox, 0u, 2u, 0x32u);
             failed += expect_bool("origin queue next owner", tdma_flight_fifo_core0_publish_tx(&fifo, mailbox,
                 sizeof(mailbox), 0x20001u, 2u, 1u), true);

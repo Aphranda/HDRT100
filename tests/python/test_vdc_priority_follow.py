@@ -308,7 +308,10 @@ def test_quality_baseline_does_not_survive_owner_change(follow_executable, chang
 
 def test_quality_private_storage_and_public_abi(follow_executable):
     sizes = tuple(map(int, run_case(follow_executable, "sizes").split()))
-    assert sizes == (784, 216, 408)
+    # The appended MATCH `first_reject_reason` word adds one 4 B field plus its
+    # alignment pad to each private struct holding a match snapshot (+16 B
+    # realtime static in total); the public follow snapshot stays 216 B.
+    assert sizes == (792, 216, 416)
 
 
 EXTERNAL_INPUTS = r'''

@@ -150,10 +150,28 @@ def test_schema_preserves_the_complete_historical_health_field_sets():
     sys.path[:0] = [str(ROOT / "tools/calibration_ring_validate"), str(ROOT / "tools/tdma_ring_monitor"), str(ROOT / "tools")]
     from trn03_closed_loop import RUNTIME_FIELDS, PROCESS_FIELDS, FIFO_FIELDS, PHYS_FIELDS, CRC_DIAGNOSTIC_FIELDS
     schema = decoder.field_schema()
+    # The live SCPI page stays append-only while the sealed board record is
+    # frozen, so the record's group must remain an exact prefix of the page
+    # list. Only an explicitly named appended block may follow it: no
+    # historical field may move, be renamed or vanish.
+    appended_runtime = (
+        "ring_loop_time_flags",
+        "ring_loop_time_resolution_ns",
+        "ring_loop_time_last_ns",
+        "ring_loop_time_min_ns",
+        "ring_loop_time_max_ns",
+        "ring_loop_time_mean_ns",
+        "ring_loop_time_count",
+    )
     for group, expected in (("runtime", RUNTIME_FIELDS), ("process", PROCESS_FIELDS),
                             ("fifo", FIFO_FIELDS), ("physical", PHYS_FIELDS),
                             ("crc_diagnostic", CRC_DIAGNOSTIC_FIELDS)):
-        assert [name for _, actual, name in schema if actual == group] == list(expected)
+        frozen = [name for _, field_group, name in schema if field_group == group]
+        page = list(expected)
+        if group == "runtime":
+            assert tuple(page[-len(appended_runtime):]) == appended_runtime
+            page = page[:-len(appended_runtime)]
+        assert frozen == page
 
 
 @pytest.mark.parametrize("version,words,digest", [

@@ -1726,6 +1726,15 @@ static void distributed_refmem_tdma_flight_sync_publish(
                                                       frame,
                                                       frame_size);
 
+    /* Same cadence rule the position path applies above: never attempt a
+     * second TX image while one is already prepared and not yet retired.
+     * The futile attempt is rejected as no_slot and consumes a pacing turn,
+     * and the soak gate rejects a growing TX reject counter outright, which
+     * is exactly what this guard removes. */
+    if (fifo.tx_ready_count != 0u) {
+        return;
+    }
+
     if (tdma_service_publish_flight_tx(
             owner,
             s_tdma_flight_sync.tx_image,

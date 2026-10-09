@@ -53,6 +53,11 @@ typedef struct {
     uint32_t version;
     uint32_t tx_publish_count;
     uint32_t tx_publish_reject_count;
+    /* Attribution of tx_publish_reject_count. The aggregate above remains the
+     * total of these three, so existing consumers keep their meaning. */
+    uint32_t tx_reject_bad_payload_count;
+    uint32_t tx_reject_ring_full_count;
+    uint32_t tx_reject_no_slot_count;
     uint32_t tx_acquire_count;
     uint32_t tx_image_stale_count;
     uint32_t tx_reuse_count;
@@ -117,6 +122,11 @@ typedef struct {
     volatile uint32_t tx_active_generation;
     volatile uint32_t tx_publish_count;
     volatile uint32_t tx_publish_reject_count;
+    /* Per-path attribution of tx_publish_reject_count; incremented together
+     * with the aggregate, never instead of it. */
+    volatile uint32_t tx_reject_bad_payload_count;
+    volatile uint32_t tx_reject_ring_full_count;
+    volatile uint32_t tx_reject_no_slot_count;
     volatile uint32_t tx_acquire_count;
     volatile uint32_t tx_image_stale_count;
     volatile uint32_t tx_reuse_count;

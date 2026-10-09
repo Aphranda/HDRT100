@@ -87,10 +87,69 @@ static void tdma_pio_spi_ring_origin_invalidate_time(tdma_pio_spi_ring_adapter_t
     adapter->rx_ready_timestamp_ns = 0ull;
     adapter->local_tx_edge_timestamp_ns = 0ull;
     adapter->local_tx_edge_flags = 0u;
+    /* The handoff clears timestamp eligibility; a loop/beat measurement taken
+     * before it cannot describe this origin session either. */
+    tdma_pio_spi_ring_adapter_reset_loop_time(adapter);
+    memset(&adapter->origin_feedback_tx, 0, sizeof(adapter->origin_feedback_tx));
     memset(adapter->reference_tx_evidence, 0, sizeof(adapter->reference_tx_evidence));
     memset(adapter->local_rx_evidence, 0, sizeof(adapter->local_rx_evidence));
     memset(adapter->local_tx_edge_evidence, 0, sizeof(adapter->local_tx_edge_evidence));
     memset(&adapter->clock_observation, 0, sizeof(adapter->clock_observation));
+}
+
+/* The autonomous origin has no per-edge CPU latch: its cadence emits the frame
+ * that follows an accepted return from that same return, so one accepted
+ * own-frame return is exactly one emission (see tdma_ring_loop_time_t).  The
+ * feedback pair is therefore taken from two consecutive accepted returns of
+ * the reference's own frame: the previous return's raw TIMER1 sample is the
+ * transmission boundary of the frame accepted now and the current sample is its
+ * return.  The frame identity is the hardware-checked own-frame return
+ * (tdma_pio_spi_ring_origin_pair_valid) whose selected local generation and
+ * transport sequence advanced, so the pair brackets one transmitted frame and
+ * not two adjacent ones.  Both endpoints are the same observation point, so the
+ * systematic core1 acceptance latency cancels in the difference and no absolute
+ * per-edge latch is claimed.  Only the shared timestamp clock is used: without
+ * it, or without a single-revolution interval, nothing is published. */
+static void tdma_pio_spi_ring_origin_correlate_feedback(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    const tdma_transport_frame_view_t *view,
+    uint32_t returned_generation)
+{
+    if (adapter == NULL || view == NULL) return;
+    const uint64_t rx_ticks = adapter->loop_time_last_rx_ticks;
+    const uint64_t tx_ticks = adapter->origin_feedback_tx.ticks;
+    const uint32_t tick_hz = tdma_pio_spi_ring_adapter_loop_tick_hz();
+    const bool one_emission =
+        tick_hz != 0u &&
+        view->transport_sequence != 0u && view->identity_crc32 != 0u &&
+        returned_generation != 0u &&
+        adapter->origin_feedback_tx.sequence != 0u &&
+        adapter->origin_feedback_tx.generation != 0u &&
+        adapter->origin_feedback_tx.sequence != view->transport_sequence &&
+        adapter->origin_feedback_tx.generation != returned_generation &&
+        tx_ticks != 0ull && rx_ticks > tx_ticks;
+    /* The anchor follows the newest accepted return even when this pair is
+     * ineligible: a stale anchor would pair two different frames. */
+    adapter->origin_feedback_tx.ticks = rx_ticks;
+    adapter->origin_feedback_tx.sequence = view->transport_sequence;
+    adapter->origin_feedback_tx.generation = returned_generation;
+    if (!one_emission) return;
+    const uint64_t tx_ns = tdma_pio_spi_ring_adapter_loop_ns(tx_ticks);
+    const uint64_t rx_ns = tdma_pio_spi_ring_adapter_loop_ns(rx_ticks);
+    if (tx_ns == 0ull || rx_ns <= tx_ns ||
+        rx_ns - tx_ns > (uint64_t)adapter->config.feedback_timeout_ns) {
+        /* Wider than one nominal revolution: a return was not observed in
+         * between, so the previous anchor is not this frame's transmission. */
+        return;
+    }
+    adapter->feedback_reference_sequence = view->transport_sequence;
+    adapter->feedback_reference_frame_crc32 = view->identity_crc32;
+    /* Same rounding rule as vdc_timestamp_clock_resolution_ns(). */
+    adapter->feedback_timestamp_resolution_ns =
+        (1000000000u + tick_hz - 1u) / tick_hz;
+    adapter->feedback_timestamp_flags = TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED;
+    adapter->reference_tx_timestamp_ns = tx_ns;
+    adapter->feedback_rx_timestamp_ns = rx_ns;
 }
 
 /* Caller already owns the sole snapshot writer guard. */

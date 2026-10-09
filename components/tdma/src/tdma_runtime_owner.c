@@ -653,6 +653,13 @@ bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled)
                &s_tdma_runtime_owner, enabled);
 }
 
+
+bool tdma_runtime_owner_set_origin_cadence(bool enabled)
+{
+    return s_tdma_runtime_owner_initialized &&
+           tdma_service_set_origin_cadence(
+               &s_tdma_runtime_owner, enabled);
+}
 typedef struct {
     uint32_t enabled;
     uint32_t prefix_bits;

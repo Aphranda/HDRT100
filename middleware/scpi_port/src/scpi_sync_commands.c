@@ -1493,6 +1493,8 @@ scpi_result_t scpi_cmd_vdc_priority_match_status_q(scpi_t *context)
     scpi_sync_result_u64_parts(context, s.expected_hi);
     scpi_sync_result_u64_parts(context, (uint64_t)s.residual_lo);
     scpi_sync_result_u64_parts(context, (uint64_t)s.residual_hi);
+    /* Appended trailer: keeps every existing field index stable. */
+    SCPI_ResultUInt32(context, s.first_reject_reason);
     return SCPI_RES_OK;
 }
 

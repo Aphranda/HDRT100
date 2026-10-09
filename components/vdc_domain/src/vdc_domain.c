@@ -1525,6 +1525,9 @@ bool vdc_domain_set_schedule_ring_topology(vdc_domain_context_t *context,
     return true;
 }
 
+static bool vdc_domain_active_schedule_validate(
+    const vdc_tdma_schedule_profile_t *profile);
+
 bool vdc_domain_build_tdma_runtime_schedule(
     const vdc_tdma_schedule_profile_t *base,
     const vdc_tdma_runtime_binding_t *binding,
@@ -1546,8 +1549,23 @@ bool vdc_domain_build_tdma_runtime_schedule(
     updated.operating_profile_crc32 = 0u;
     updated.local_slot_id = binding->local_slot_id;
     updated.reference_slot_id = binding->reference_slot_id;
-    if (updated.period_ns != binding->cycle_period_ns ||
-        !tdma_ring_profile_default(&updated.ring_binding,
+    /* Run the VDC/DPLL chain at the ring's own slot period (500/750 us).  The
+     * authored windows are absolute nanoseconds laid out for the 1 ms default,
+     * so they are re-derived proportionally whenever the period is adopted; the
+     * ring's effective schedule CRC is adopted as authoritative and checked by
+     * the period-agnostic active validator (the self-hashing one folds
+     * period_ns into the CRC and can never accept an adopted period). */
+    if (binding->cycle_period_ns != VDC_DOMAIN_DEFAULT_PERIOD_NS) {
+        const uint32_t period_ns = binding->cycle_period_ns;
+        updated.observation_window_offset_ns = 0u;
+        updated.observation_window_width_ns = period_ns / 100u;
+        updated.refmem_data_window_offset_ns = period_ns * 2u / 100u;
+        updated.refmem_data_window_width_ns = period_ns * 80u / 100u;
+        updated.idle_beacon_window_offset_ns = period_ns * 90u / 100u;
+        updated.idle_beacon_window_width_ns = period_ns * 5u / 100u;
+    }
+    updated.period_ns = binding->cycle_period_ns;
+    if (!tdma_ring_profile_default(&updated.ring_binding,
                                    binding->local_slot_id,
                                    binding->reference_slot_id,
                                    binding->node_count) ||
@@ -1555,9 +1573,27 @@ bool vdc_domain_build_tdma_runtime_schedule(
         return false;
     }
     updated.operating_profile_crc32 = binding->operating_profile_crc32;
-    updated.schedule_crc32 = vdc_domain_schedule_crc32(&updated);
-    if (updated.schedule_crc32 != binding->effective_schedule_crc32 ||
-        !vdc_domain_schedule_validate(&updated)) {
+    /* Restore the effective-CRC cross-check: the ring derives its effective
+     * schedule CRC by composing its authored base identity with the operating
+     * profile CRC, so a tampered binding must still be rejected (the adopted
+     * period cannot be validated by the self-hash below). */
+    vdc_tdma_schedule_profile_t identity = *base;
+    if (identity.operating_profile_crc32 != 0u &&
+        !vdc_domain_default_schedule_for_topology(&identity,
+                                                  binding->local_slot_id,
+                                                  binding->reference_slot_id,
+                                                  binding->node_count)) {
+        return false;
+    }
+    identity.operating_profile_crc32 = 0u;
+    if (tdma_operating_profile_compose_schedule_crc32(
+            vdc_domain_schedule_crc32(&identity),
+            binding->operating_profile_crc32) !=
+        binding->effective_schedule_crc32) {
+        return false;
+    }
+    updated.schedule_crc32 = binding->effective_schedule_crc32;
+    if (!vdc_domain_active_schedule_validate(&updated)) {
         return false;
     }
     *runtime_schedule = updated;
@@ -1772,6 +1808,13 @@ bool vdc_domain_schedule_validate(const vdc_tdma_schedule_profile_t *profile)
                                   profile->idle_beacon_window_offset_ns,
                                   profile->idle_beacon_window_width_ns)) {
         return false;
+    }
+    if (profile->operating_profile_crc32 != 0u) {
+        /* A run-time schedule carries the ring-authoritative effective CRC
+         * (composed from the authored 1 ms identity), so the self-hash below
+         * cannot apply; the period-aware active validator covers it and every
+         * other runtime consumer reaches this same function. */
+        return vdc_domain_active_schedule_validate(profile);
     }
     return profile->schedule_crc32 == vdc_domain_schedule_crc32(profile);
 }

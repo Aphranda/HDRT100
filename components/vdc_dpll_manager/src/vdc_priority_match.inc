@@ -79,7 +79,15 @@ static void priority_match_skip(uint32_t reason, bool retire)
     if (reason == VDC_PRIORITY_MATCH_BUSY) s->busy = priority_match_inc(s->busy);
     else if (reason == VDC_PRIORITY_MATCH_PENDING) s->pending = priority_match_inc(s->pending);
     else if (reason == VDC_PRIORITY_MATCH_EVICTED) s->history_miss = priority_match_inc(s->history_miss);
-    else s->rejected = priority_match_inc(s->rejected);
+    else {
+        s->rejected = priority_match_inc(s->rejected);
+        /* The lumped rejection counter cannot name its cause: latch the first
+         * one that is not arming/teardown and happened while no observation
+         * had ever bound. Sticky until a fresh request resets it. */
+        if (!s->first_reject_reason && !s_priority_match_work.bound &&
+            reason != VDC_PRIORITY_MATCH_DISABLED && reason != VDC_PRIORITY_MATCH_STOP)
+            s->first_reject_reason = reason;
+    }
     if (retire) {
         s->active = 0u; s->retired = 1u;
     }
@@ -169,6 +177,9 @@ void __attribute__((noinline)) vdc_priority_match_core1(void)
     }
     if (request != s->generation) {
         memset(w, 0, sizeof(*w)); s->schema = 1u; s->generation = request;
+        /* A fresh capture starts with no latched rejection; keep the reset
+         * explicit next to the other per-request status fields. */
+        s->first_reject_reason = 0u;
         s->session = __atomic_load_n(&s_priority_match_request_session, __ATOMIC_ACQUIRE);
     }
     if (s->retired) return;
@@ -206,8 +217,9 @@ void __attribute__((noinline)) vdc_priority_match_core1(void)
         return priority_match_skip(VDC_PRIORITY_MATCH_MODEL, false);
     if (!tdma_runtime_owner_get_event_live_snapshot(&w->live))
         return priority_match_skip(VDC_PRIORITY_MATCH_BUSY, false);
-    if (!priority_match_live_valid(&w->live))
+    if (!priority_match_live_valid(&w->live)) {
         return priority_match_skip(VDC_PRIORITY_MATCH_SOURCE, w->bound != 0u);
+    }
     if (w->bound && (s->arm_epoch != w->live.arm_epoch ||
         s->observer_epoch != w->live.record.epoch || s->tick_hz != w->live.tick_hz))
         return priority_match_skip(VDC_PRIORITY_MATCH_BINDING, true);

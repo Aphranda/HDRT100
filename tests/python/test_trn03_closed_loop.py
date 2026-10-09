@@ -2145,7 +2145,10 @@ def test_runtime_status_exposes_bad_frame_classification() -> None:
         "ring_config_seq",
         "ring_applied_config_seq",
     )
-    assert trn03.RUNTIME_FIELDS[-len(expected):] == expected
+    # Seven loop-time fields are appended after this block (append-only
+    # SYSTem:TDMA:RING:STATus? page), so the classification block is the tail
+    # that immediately precedes the appended block.
+    assert trn03.RUNTIME_FIELDS[-len(expected) - 7:-7] == expected
     source = (ROOT / "middleware" / "scpi_port" / "src" /
               "scpi_system_snapshot_commands.c").read_text(encoding="utf-8")
     status = source.split(

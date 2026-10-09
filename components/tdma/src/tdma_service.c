@@ -690,6 +690,30 @@ bool tdma_service_set_ring_diagnostic_mode(tdma_service_service_t *service,
     return true;
 }
 
+/* Gate policy switch for the reference node's self-excited emission.  This is
+ * NOT the physical emission cadence budget (tdma_origin_cadence_t /
+ * tdma_origin_cadence_calculate): it only relaxes the on-change publish gate so
+ * the reference may publish the current process image on a ring return even
+ * when the received frame carried no new segment. */
+bool tdma_service_set_origin_cadence(tdma_service_service_t *service,
+                                     bool enabled)
+{
+    tdma_ring_runtime_snapshot_t snapshot;
+    if (service == NULL || !tdma_service_ring_control_lock(service)) return false;
+    if (__atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) != 0u ||
+        !tdma_service_ring_retire_stopped(service) ||
+        !tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) ||
+        snapshot.enabled != 0u || snapshot.adapter_started != 0u ||
+        snapshot.config_seq != snapshot.applied_config_seq ||
+        service->ring_staged_config.enabled == 0u) {
+        tdma_service_ring_control_unlock(service);
+        return false;
+    }
+    service->ring_staged_config.origin_cadence_enabled = enabled ? 1u : 0u;
+    tdma_service_ring_control_unlock(service);
+    return true;
+}
+
 bool tdma_service_set_ring_diagnostic_burst(tdma_service_service_t *service,
                                             uint32_t limit)
 {

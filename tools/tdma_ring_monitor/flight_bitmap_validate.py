@@ -83,6 +83,8 @@ FIFO_FIELDS = (
     "tx_active_generation", "rx_publish_count", "rx_mirror_drop_count",
     "rx_publish_drop_count", "rx_acquire_count", "rx_release_count",
     "rx_queued_count", "rx_parse_count",
+    "tx_reject_bad_payload_count", "tx_reject_ring_full_count",
+    "tx_reject_no_slot_count",
 )
 
 REFMEM_FIELDS = (

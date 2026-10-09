@@ -37,6 +37,12 @@ typedef struct {
     uint64_t arm_epoch, valid_from_raw, raw_lo, raw_hi;
     uint64_t local_lo, local_hi, remote_lo, remote_hi, expected_lo, expected_hi;
     int64_t residual_lo, residual_hi;
+    /* Sticky first non-lifecycle rejection of this request: the observation
+     * never reached `bound`, and `rejected` alone cannot say why. Zero means
+     * nothing latched; DISABLED/STOP are never latched because they describe
+     * arming/teardown, not an observation failure. Appended last so every
+     * existing snapshot and SCPI field index is unchanged. */
+    uint32_t first_reject_reason;
 } vdc_priority_match_snapshot_t;
 
 /* Core0, stopped metadata gate; nonzero requires an existing feedback session

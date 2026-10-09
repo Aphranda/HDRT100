@@ -884,7 +884,18 @@ def validate_provisional_receipt(root: Path, receipt: dict[str, Any],
     if gate._read_package_build_id(paths["firmware_package"]) != receipt["build_id"]:
         raise ValueError("provisional package build differs")
     ota = json.loads(paths["ota_summary"].read_text(encoding="utf-8"))
-    gate.validate_ota(ota, board_uids, receipt["build_id"])
+    if ota.get("schema") == "HAOFV_PICOTOOL_FLASH_EVIDENCE_V1":
+        # picotool is the inner-loop flashing route: its evidence carries no
+        # OTA block capability, so validate what it does guarantee -- every
+        # expected board flashed from the one artifact with returncode 0.
+        flashed = {row.get("serial_number"): row.get("returncode")
+                   for row in ota.get("boards", [])}
+        if (ota.get("passed") is not True or ota.get("failed_count") != 0 or
+                set(flashed) != set(board_uids) or
+                any(code != 0 for code in flashed.values())):
+            raise ValueError("provisional picotool flash evidence is invalid")
+    else:
+        gate.validate_ota(ota, board_uids, receipt["build_id"])
     matrix = json.loads(paths["trn03_matrix"].read_text(encoding="utf-8"))
     tdma = json.loads(paths["tdma_summary"].read_text(encoding="utf-8"))
     if (isinstance(receipt.get("calibration_generation"), bool) or

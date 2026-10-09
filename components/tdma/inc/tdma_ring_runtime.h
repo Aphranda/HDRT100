@@ -22,6 +22,46 @@
      TDMA_RING_CALIBRATION_FLAG_FORWARD_RESIDENCE_VALID)
 #define TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY 0x00000001u
 #define TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED 0x00000002u
+
+/* On-board TDMA ring loop/beat period: the interval between successive
+ * arrivals of the reference's own frame at the reference (rx->rx).  The
+ * resident-origin cadence emits the next frame from a return, so one accepted
+ * return is exactly one revolution of the ring as seen by the reference.  Both
+ * endpoints are the same observation point, so the systematic core1
+ * acceptance latency cancels in the difference and no absolute per-edge latch
+ * is claimed.  The dedicated tdma_origin_rtt latch is not this signal: on the
+ * recorded hardware it reports a fixed 62-count (496 ns) local CS->CS deskew
+ * of the reference's own transmission. */
+/* last_period_ns describes a completed revolution. */
+#define TDMA_RING_LOOP_TIME_FLAG_VALID (1u << 0u)
+/* sample_count == 1; min/max/mean are that single sample. */
+#define TDMA_RING_LOOP_TIME_FLAG_FIRST_SAMPLE (1u << 1u)
+/* The newest accepted return produced no usable interval (the counter did not
+ * advance), so last_period_ns predates it.  Not sticky: it clears on the next
+ * measured return.  The value is never extrapolated. */
+#define TDMA_RING_LOOP_TIME_FLAG_STALE (1u << 2u)
+/* A measured interval was not representable (wider than 32 bits of ns or the
+ * mean accumulator is full) and was dropped, never truncated.  Sticky for the
+ * rest of the armed session: the statistics below omit that revolution. */
+#define TDMA_RING_LOOP_TIME_FLAG_SATURATED (1u << 3u)
+
+typedef struct {
+    /* Sampling quantum of the interval endpoints in ns (the raw TIMER1 tick:
+     * 4 ns at 250 MHz).  Zero means the hardware timebase has no known scale
+     * and every other field is then meaningless.  The published interval is
+     * not accurate to this quantum: see the adapter's note. */
+    uint32_t resolution_ns;
+    /* Newest/minimum/maximum completed revolution. */
+    uint32_t last_period_ns;
+    uint32_t min_period_ns;
+    uint32_t max_period_ns;
+    /* mean = sum / sample_count, rounded down. */
+    uint32_t mean_period_ns;
+    /* Accepted returns that produced a measured interval. */
+    uint32_t sample_count;
+    uint32_t flags;
+} tdma_ring_loop_time_t;
+
 /* A DPLL process-image trailer transports an origin TX position within a
  * frozen TDMA cycle.  It is deliberately not an absolute timestamp: every
  * board has an independently booted hardware counter. */
@@ -156,6 +196,10 @@ typedef struct {
     uint32_t enabled;
     uint32_t node_count;
     uint32_t local_slot_id;
+    /* 0 = disabled: historic on-change publish gate.  Non-zero lets the
+     * ring reference publish the current process image when the frame
+     * carried no new segment, so emission follows ring returns. */
+    uint32_t origin_cadence_enabled;
     uint32_t reference_slot_id;
     uint32_t up_group_id;
     uint32_t down_group_id;
@@ -219,8 +263,12 @@ typedef struct {
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
     tdma_ring_clock_observation_t clock_observation;
+    /* Loop/beat period of the reference's own returned revolution.  Kept
+     * separate from reference_tx/feedback_rx_timestamp_ns: the origin path has
+     * no absolute per-edge latch, and reporting one would claim a provenance
+     * the resident-origin hardware does not publish. */
+    tdma_ring_loop_time_t loop_time;
 } tdma_ring_adapter_status_t;
-
 typedef struct {
     bool (*start)(void *context, const tdma_ring_runtime_config_t *config);
     uint32_t (*last_error)(const void *context);
@@ -302,6 +350,7 @@ typedef struct {
     uint64_t reference_tx_timestamp_ns;
     uint64_t feedback_rx_timestamp_ns;
     tdma_ring_clock_observation_t clock_observation;
+    tdma_ring_loop_time_t loop_time;
 } tdma_ring_runtime_snapshot_t;
 
 /* Minimal cross-domain evidence consumed by the core1 VDC phase.  The full
@@ -344,6 +393,7 @@ typedef struct {
     volatile uint32_t loop_delay_ns;
     volatile uint32_t loop_delay_tolerance_ns;
     volatile uint32_t feedback_timeout_ns;
+    uint32_t origin_cadence_enabled;
     volatile uint32_t tx_dma_channel_id;
     volatile uint32_t rx_dma_channel_id;
     volatile uint32_t geometry_generation;
@@ -400,6 +450,7 @@ typedef struct {
     volatile uint32_t training_dirty;
     volatile uint64_t reference_tx_timestamp_ns;
     volatile uint64_t feedback_rx_timestamp_ns;
+    tdma_ring_loop_time_t loop_time;
     tdma_ring_clock_observation_t clock_observation;
     /* A correlated hardware-latched feedback sample remains valid between
      * frame arrivals for one configured feedback timeout.  This prevents the

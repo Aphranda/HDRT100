@@ -60,6 +60,12 @@ PROFILE_FACTS = {
     7: {"baud_hz": 10_000_000, "cycle_period_ns": 1_000_000},
     8: {"baud_hz": 25_000_000, "cycle_period_ns": 1_000_000},
     9: {"baud_hz": 30_000_000, "cycle_period_ns": 1_000_000},
+    # Levels 20/21: short-slot profiles added so a four-node ring
+    # revolution equals the 1.5 ms table period (375 us) or 2 ms (500 us).
+    20: {"baud_hz": 10_000_000, "cycle_period_ns": 375_000},
+    21: {"baud_hz": 10_000_000, "cycle_period_ns": 500_000},
+    # Level 22: 750 us slot; a two-node ring is then exactly 1.5 ms.
+    22: {"baud_hz": 10_000_000, "cycle_period_ns": 750_000},
 }
 
 
@@ -1019,13 +1025,78 @@ def build_matrix(level: int, data: dict[str, Any],
     return result
 
 
+def derive_matrix_for_level(source_path: Path, level: int, out_path: Path,
+                            *, source_level: int | None = None) -> dict:
+    """Reuse measured physical rows for another operating level.
+
+    Calibration belongs to the wire, not to the slot: rows measured at one
+    level stay valid at another level that shares the baud and the raw-sample
+    grid, because link base delays, node offsets and phase delays are wire and
+    sampler properties. Only the level-stamped fields and the profile CRC
+    change, and the substitution is recorded so it stays auditable.
+    """
+    source = json.loads(Path(source_path).read_text(encoding="utf-8"))
+    stamped = int(source_level if source_level is not None
+                  else source.get("level", -1))
+    src_facts = PROFILE_FACTS.get(stamped)
+    dst_facts = PROFILE_FACTS.get(level)
+    if src_facts is None or dst_facts is None:
+        raise ValueError(f"unsupported operating level: {stamped} -> {level}")
+    if src_facts["baud_hz"] != dst_facts["baud_hz"]:
+        raise ValueError(
+            "deriving across a baud change needs fresh measurements: "
+            f"{stamped} is {src_facts['baud_hz']} Hz, {level} is "
+            f"{dst_facts['baud_hz']} Hz")
+    derived = json.loads(json.dumps(source))
+    derived["level"] = level
+    derived["cycle_period_ns"] = dst_facts["cycle_period_ns"]
+    derived["profile_crc32"] = profile_crc32(level)
+
+    def restamp(node):
+        """Rewrite every level-stamped field, including the frozen config."""
+        if isinstance(node, dict):
+            for key, value in list(node.items()):
+                if key == "profile_level":
+                    node[key] = level
+                elif key == "cycle_period_ns":
+                    node[key] = dst_facts["cycle_period_ns"]
+                elif key == "profile_crc32":
+                    node[key] = profile_crc32(level)
+                else:
+                    restamp(value)
+        elif isinstance(node, list):
+            for item in node:
+                restamp(item)
+
+    restamp(derived)
+    derived["derived_from"] = {
+        "level": stamped,
+        "source": str(source_path),
+        "baud_hz": src_facts["baud_hz"],
+        "physical_measurements_reused": True,
+    }
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(out_path).write_text(
+        json.dumps(derived, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    return derived
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--level", type=int, required=True)
-    parser.add_argument("--data", type=Path, required=True,
+    parser.add_argument("--data", type=Path,
                         help="TRN-02D repeat-matrix summary")
-    parser.add_argument("--residence", type=Path, required=True,
+    parser.add_argument("--residence", type=Path,
                         help="same-identity TRN-00 residence-matrix summary")
+    parser.add_argument(
+        "--derive-from", type=Path,
+        help=("reuse the physical rows of an existing matrix at another "
+              "operating level that shares its baud and sample grid; only the "
+              "level-stamped fields and the profile CRC change, and the "
+              "substitution is recorded as provenance"))
+    parser.add_argument("--source-level", type=int,
+                        help="level stamped in --derive-from (default: its own)")
     parser.add_argument("--sck", type=Path,
                         help="same-identity independently trained SCK matrix summary")
     parser.add_argument(
@@ -1039,6 +1110,21 @@ def main() -> int:
               "flight re-arm gate; write a non-passing diagnostic matrix"))
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    if args.derive_from is not None:
+        derived = derive_matrix_for_level(
+            args.derive_from, args.level, args.out,
+            source_level=args.source_level)
+        print(json.dumps({
+            "derived_from_level": derived["derived_from"]["level"],
+            "level": derived["level"],
+            "baud_hz": derived["baud_hz"],
+            "cycle_period_ns": derived["cycle_period_ns"],
+            "profile_crc32": derived["profile_crc32"],
+            "out": str(args.out),
+        }, ensure_ascii=False))
+        return 0
+    if args.data is None or args.residence is None:
+        parser.error("--data and --residence are required unless --derive-from is used")
     data = load_summary(args.data)
     residence = load_summary(args.residence)
     sck = load_summary(args.sck) if args.sck is not None else None

@@ -149,6 +149,7 @@ static bool tdma_flight_fifo_core0_publish_tx_locked(tdma_flight_fifo_t *fifo,
         generation == 0u) {
         if (fifo != NULL) {
             tdma_flight_counter_inc(&fifo->tx_publish_reject_count);
+            tdma_flight_counter_inc(&fifo->tx_reject_bad_payload_count);
         }
         return false;
     }
@@ -159,12 +160,14 @@ static bool tdma_flight_fifo_core0_publish_tx_locked(tdma_flight_fifo_t *fifo,
                               tail,
                               TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT)) {
         tdma_flight_counter_inc(&fifo->tx_publish_reject_count);
+        tdma_flight_counter_inc(&fifo->tx_reject_ring_full_count);
         return false;
     }
 
     const int32_t slot_index = tdma_flight_find_tx_inactive_slot(fifo);
     if (slot_index < 0) {
         tdma_flight_counter_inc(&fifo->tx_publish_reject_count);
+        tdma_flight_counter_inc(&fifo->tx_reject_no_slot_count);
         return false;
     }
 
@@ -521,6 +524,12 @@ bool tdma_flight_fifo_get_snapshot(const tdma_flight_fifo_t *fifo,
     snapshot->tx_publish_count = tdma_flight_load_u32(&fifo->tx_publish_count);
     snapshot->tx_publish_reject_count =
         tdma_flight_load_u32(&fifo->tx_publish_reject_count);
+    snapshot->tx_reject_bad_payload_count =
+        tdma_flight_load_u32(&fifo->tx_reject_bad_payload_count);
+    snapshot->tx_reject_ring_full_count =
+        tdma_flight_load_u32(&fifo->tx_reject_ring_full_count);
+    snapshot->tx_reject_no_slot_count =
+        tdma_flight_load_u32(&fifo->tx_reject_no_slot_count);
     snapshot->tx_acquire_count = tdma_flight_load_u32(&fifo->tx_acquire_count);
     snapshot->tx_image_stale_count =
         tdma_flight_load_u32(&fifo->tx_image_stale_count);

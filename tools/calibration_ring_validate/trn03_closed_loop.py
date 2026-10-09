@@ -329,6 +329,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--origin-sample-interval-s", type=float, default=0.2)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--out-dir", type=Path)
+    parser.add_argument("--origin-cadence", action="store_true",
+                        help=("send the optional on-cadence gate argument "
+                              "to SYSTem:TDMA:RING:DIAGnostic"))
     return parser.parse_args()
 
 
@@ -504,6 +507,13 @@ def origin_trial_probe(ordered: list[Board], args: argparse.Namespace,
 
     states: dict[str, int] = {}
     runtime_states: dict[str, int] = {}
+    # Emission timing: first/last sampled counters with their wall-clock stamps
+    # give the self-excited rate and the boundary cadence.
+    timing_samples: list[tuple[float, int, int, int, int]] = []
+    # Raw READ:CALibration:ORIGin:LIVE? replies; no stopped-ring precondition, so
+    # this is the only live witness of the hardware return interval
+    # (rtt_remaining / arm_after / sequence_end) during AUTONOMOUS.
+    live_raw: list[tuple[float, str]] = []
     max_observed_returns = 0
     max_rejected = 0
     max_published_generation = 0
@@ -513,6 +523,9 @@ def origin_trial_probe(ordered: list[Board], args: argparse.Namespace,
     interval = float(getattr(args, "origin_sample_interval_s", 0.2))
     while time.monotonic() < deadline:
         runtime = send("READ:CALibration:ORIGin:RUNTIme?")
+        live = send("READ:CALibration:ORIGin:LIVE?")
+        if live:
+            live_raw.append((time.monotonic(), live.strip()))
         if runtime.startswith('"ORIGINRUNTIME"'):
             values = runtime.split(",")
             code = values[2].strip() if len(values) > 2 else "?"
@@ -538,6 +551,15 @@ def origin_trial_probe(ordered: list[Board], args: argparse.Namespace,
             if any(page.get(name, "0") not in ("0", "")
                    for name in ORIGIN_BOUNDARY_FIELDS):
                 boundary_seen = True
+            observed_now = page.get("observed_return_count", "0")
+            boundary_now = page.get("boundary_sequence", "0")
+            published_now = page.get("published_generation", "0")
+            returned_now = page.get("returned_sequence", "0")
+            if (observed_now.isdigit() and boundary_now.isdigit() and
+                    published_now.isdigit() and returned_now.isdigit()):
+                timing_samples.append((time.monotonic(), int(observed_now),
+                                       int(boundary_now), int(published_now),
+                                       int(returned_now)))
         time.sleep(interval)
     handoff = send("READ:CALibration:ORIGin:HANDoff?")
     record = send("READ:CALibration:ORIGin:RECord? 0")
@@ -559,6 +581,39 @@ def origin_trial_probe(ordered: list[Board], args: argparse.Namespace,
         "max_rejected_observation_count": max_rejected,
         "max_published_generation": max_published_generation,
         "boundary_seen": boundary_seen,
+        "origin_live_count": len(live_raw),
+        "origin_live_first": [raw for _, raw in live_raw[:3]],
+        "origin_live_last": [raw for _, raw in live_raw[-3:]],
+        "emission_first_sample": timing_samples[0] if timing_samples else None,
+        "emission_last_sample": timing_samples[-1] if timing_samples else None,
+        "emission_observed_delta": (
+            timing_samples[-1][1] - timing_samples[0][1]
+            if len(timing_samples) > 1 else 0),
+        "emission_boundary_delta": (
+            timing_samples[-1][2] - timing_samples[0][2]
+            if len(timing_samples) > 1 else 0),
+        # Coarse discriminator for the emission interval: the 1.5 ms and
+        # 4 ms hypotheses differ by 2.67x in rate, so a counted delta over
+        # the observation window is enough to tell them apart without any
+        # sub-millisecond timestamping.
+        "emission_interval_ms": (
+            round(1000.0 * timing_samples[-1][0] - 1000.0 * timing_samples[0][0], 3)
+            / max(1, timing_samples[-1][1] - timing_samples[0][1])
+            if len(timing_samples) > 1 else 0.0),
+        "emission_interval_class": (
+            "no-emission" if len(timing_samples) < 2 or
+            timing_samples[-1][1] <= timing_samples[0][1] else
+            f"{round(1000.0 * (timing_samples[-1][0] - timing_samples[0][0]) / (timing_samples[-1][1] - timing_samples[0][1]), 2)} ms")
+        ,
+        "emission_elapsed_s": (
+            round(timing_samples[-1][0] - timing_samples[0][0], 3)
+            if len(timing_samples) > 1 else 0.0),
+        "emission_published_delta": (
+            timing_samples[-1][3] - timing_samples[0][3]
+            if len(timing_samples) > 1 else 0),
+        "emission_returned_sequence_delta": (
+            timing_samples[-1][4] - timing_samples[0][4]
+            if len(timing_samples) > 1 else 0),
         "last_runtime": last_runtime,
         "handoff": handoff,
         "record": record,
@@ -2367,10 +2422,17 @@ def main() -> int:
                     "ring_applied_config_seq"],
             })
         diagnostic_mode = 1 if args.diagnostic_continue else 0
+        # Optional second argument selects the reference node's on-cadence
+        # publish gate (gate policy only, not the physical emission cadence
+        # budget).  Omitted by default so existing callers keep sending the
+        # historic single-argument form unchanged.
+        diagnostic_command = f"SYSTem:TDMA:RING:DIAGnostic {diagnostic_mode}"
+        if getattr(args, "origin_cadence", False):
+            diagnostic_command += ",1"
         for node_index, board in enumerate(ordered):
             actions.append(checked_stopped_ring_action(
                 board, "DIAGNOSTIC_MODE",
-                f"SYSTem:TDMA:RING:DIAGnostic {diagnostic_mode}",
+                diagnostic_command,
                 args, node_index))
             diagnostic_readback = board_command(
                 board, "SYSTem:TDMA:RING:DIAGnostic?", args).strip().strip('"')

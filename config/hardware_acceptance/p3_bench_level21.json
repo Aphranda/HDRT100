@@ -1,0 +1,64 @@
+{
+  "extends": "p3_bench.json",
+  "acceptance_profile": "QUICK_DIAGNOSTIC",
+  "acceptance_time_budget": {
+    "warning_s": 390.0,
+    "error_s": 450.0
+  },
+  "topology_probe_cycles": 64,
+  "topology_probe_phase_cycles": 2,
+  "topology_pair_wait_s": 0.05,
+  "calibration_probe_phase_cycles_by_level": {
+    "7": 2,
+    "21": 2
+  },
+  "calibration_coded_probe_phase_cycles_by_level": {
+    "7": [
+      2
+    ],
+    "21": [
+      2
+    ]
+  },
+  "calibration_coded_repeats": 1,
+  "path_delay_baseline_divisor": 2,
+  "previous_path_delay_baseline_divisor": 2,
+  "training_marker_repeats": 1,
+  "training_sck_repeats": 8,
+  "training_sck_min_repeats": 3,
+  "training_sck_min_follower_candidates": 2,
+  "training_sck_offsets_by_node": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "training_data_repeats": 3,
+  "trn00_capture_waveforms": false,
+  "trn01_capture_waveforms": false,
+  "trn02_capture_waveforms": false,
+  "trn03_capture_waveforms": false,
+  "tdma_cycles": 512,
+  "tdma_window_s": 1.0,
+  "tdma_sample_interval_s": 0.25,
+  "tdma_startup_timeout_s": 2.0,
+  "tdma_startup_stable_samples": 2,
+  "tdma_capture_waveforms": false,
+  "repeats": 1,
+  "pulse_count": 32,
+  "capture_words": 256,
+  "hardware_acceptance_timing": {
+    "serial_settle_s": 0.02,
+    "action_timeout_s": 0.05,
+    "p3_capture_timeout_s": 20.0,
+    "phase_gap_s": 0.05,
+    "input_settle_s": 0.02,
+    "output_handoff_s": 0.05
+  },
+  "topology_profile_level": 21,
+  "training_profile_level": 21,
+  "tdma_profile_level": 21,
+  "calibration_profile_levels": [
+    21
+  ]
+}

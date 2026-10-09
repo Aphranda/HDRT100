@@ -24,6 +24,9 @@ WIDE = (
     "arm_epoch valid_from_raw raw_lo raw_hi local_lo local_hi remote_lo remote_hi "
     "expected_lo expected_hi residual_lo residual_hi"
 ).split()
+# Appended page trailer. Frozen lineage-v1 captures predate it, so a shorter
+# reply is the legacy layout, not a malformed page.
+TRAILER = ("first_reject_reason",)
 
 
 def require(condition, message):
@@ -42,7 +45,14 @@ def load_match(runtime_entrypoint: Path, *, runtime_module=None):
     source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
 
     def parse_match(raw):
-        numbers = direct.numbers(raw, len(SCALARS) + 2 * len(WIDE))
+        size = len(SCALARS) + 2 * len(WIDE) + len(TRAILER)
+        try:
+            numbers = direct.numbers(raw, size)
+        except Exception as exc:
+            if "Field count" not in str(exc):
+                raise
+            numbers = direct.numbers(raw, size - len(TRAILER))
+            numbers = numbers + [0] * len(TRAILER)
         result = dict(zip(SCALARS, numbers))
         for index, name in enumerate(WIDE):
             position = len(SCALARS) + 2 * index
@@ -50,6 +60,8 @@ def load_match(runtime_entrypoint: Path, *, runtime_module=None):
             if name.startswith("residual") and value & (1 << 63):
                 value -= 1 << 64
             result[name] = value
+        for index, name in enumerate(TRAILER):
+            result[name] = numbers[len(SCALARS) + 2 * len(WIDE) + index]
         return result
 
     def forward_delay(links, source_node, target_node):
@@ -272,6 +284,7 @@ def load_match(runtime_entrypoint: Path, *, runtime_module=None):
         STATUS=STATUS,
         SCALARS=SCALARS,
         WIDE=WIDE,
+        TRAILER=TRAILER,
         parse_match=parse_match,
         forward_delay=forward_delay,
         source_path=source,

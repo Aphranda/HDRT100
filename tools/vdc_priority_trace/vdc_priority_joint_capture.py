@@ -71,7 +71,12 @@ def verify_startup(probe):
             if query('SYSTem:FW:BUILD?').strip('"') != str(probe.receipt['build_id']):
                 raise ValueError(f'{board.address}: firmware build mismatch')
             ring = list(map(int, query('SYSTem:TDMA:RING:STATus?').split(',')))
-            if (len(ring) != 40 or ring[0] != 0
+            # The page is append-only: newer firmware appends fields after the
+            # original 40 (e.g. the ring loop-time block), so require at least
+            # the historical prefix and keep validating those indices, which
+            # retain their meaning. An exact-length check here made every
+            # capture fail fast with "STOP/config ACK not ready".
+            if (len(ring) < 40 or ring[0] != 0
                     or ring[4] or ring[5] or ring[8] or ring[38] != ring[39]):
                 raise ValueError(f'{board.address}: STOP/config ACK not ready')
             if query('SYSTem:TDMA:FLIGHT:MODE?').strip('"') != '2':

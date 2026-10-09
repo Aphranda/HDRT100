@@ -561,6 +561,24 @@ typedef struct {
     };
     uint32_t rx_queue_head;
     uint32_t rx_queue_count;
+    /* Reference-origin loop/beat period (see tdma_ring_loop_time_t).  The
+     * accumulator shares the adapter's single core1 writer and is read only
+     * through the status snapshot, so the published statistic is always the
+     * quotient of the guarded sample_count. */
+    tdma_ring_loop_time_t loop_time;
+    uint64_t loop_time_sum_ns;
+    /* Raw TIMER1 ticks of the previous accepted own-frame return. */
+    uint64_t loop_time_last_rx_ticks;
+    /* Anchor of the previous accepted own-frame return for the autonomous
+     * origin's feedback correlation.  The cadence emits the frame that follows
+     * a return from that return, so this anchor is the transmission boundary of
+     * the frame that returns next: see tdma_pio_spi_ring_origin.inc.  The
+     * identity words prove the pair spans one emission and not two. */
+    struct {
+        uint64_t ticks;
+        uint32_t sequence;
+        uint32_t generation;
+    } origin_feedback_tx;
 } tdma_pio_spi_ring_adapter_t;
 
 bool tdma_pio_spi_ring_adapter_init(tdma_pio_spi_ring_adapter_t *adapter);

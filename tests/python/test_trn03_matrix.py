@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import json
 from pathlib import Path
 
 import pytest
@@ -9,8 +10,10 @@ from tools.calibration_ring_validate.trn03_matrix import (
     BOARD_SYS_CLOCK_HZ,
     NORMAL_PIO_BIT_CYCLES,
     NORMAL_PIO_PERSONA,
+    PROFILE_FACTS,
     build_matrix,
     derive_data_refinement_candidates,
+    derive_matrix_for_level,
     profile_crc32,
 )
 from tools.calibration_ring_validate.trn03_stage import (
@@ -556,6 +559,64 @@ def test_derive_data_refinement_candidates_rejects_failed_summary() -> None:
     with pytest.raises(ValueError, match="not accepted"):
         derive_data_refinement_candidates(
             data, [("refinement.json", refinement)])
+
+
+def test_derive_matrix_for_level_restamps_level_and_records_provenance(
+        tmp_path: Path) -> None:
+    data, residence = evidence(7)
+    source = build_matrix(7, data, residence)
+    # A committed matrix carries its frozen level stamp more than once: the
+    # TRN-03A staging plan embeds the load_config() view under "config"
+    # (tools/calibration_ring_validate/trn03_stage.py:762).  Mirror that shape
+    # from the matrix's own stamped fields so the deep re-stamp of every
+    # occurrence is covered instead of only the top-level one.
+    source["config"] = {
+        field: source[field]
+        for field in ("profile_level", "cycle_period_ns", "profile_crc32")}
+    source_path = tmp_path / "trn03-matrix-level7.json"
+    source_path.write_text(json.dumps(source), encoding="utf-8")
+    source_bytes = source_path.read_bytes()
+
+    out_path = tmp_path / "derived" / "trn03-matrix-level20.json"
+    derived = derive_matrix_for_level(source_path, 20, out_path, source_level=7)
+
+    assert derived["level"] == 20
+    assert derived["profile_level"] == 20
+    assert derived["config"]["profile_level"] == 20
+    assert derived["cycle_period_ns"] == PROFILE_FACTS[20]["cycle_period_ns"]
+    assert derived["config"]["cycle_period_ns"] == \
+        PROFILE_FACTS[20]["cycle_period_ns"]
+    assert derived["profile_crc32"] == profile_crc32(20)
+    assert derived["config"]["profile_crc32"] == profile_crc32(20)
+    assert derived["cycle_period_ns"] != source["cycle_period_ns"]
+    assert derived["profile_crc32"] != source["profile_crc32"]
+    assert derived["baud_hz"] == source["baud_hz"] == 10_000_000
+
+    assert derived["derived_from"] == {
+        "level": 7,
+        "source": str(source_path),
+        "baud_hz": 10_000_000,
+        "physical_measurements_reused": True,
+    }
+    assert json.loads(out_path.read_text(encoding="utf-8")) == derived
+    assert load_config(out_path)["profile_level"] == 20
+
+    # A derived product stamps its own "level", so a later re-stamp reads the
+    # source level from the file instead of an explicit --source-level.
+    chained = derive_matrix_for_level(out_path, 21, tmp_path / "level21.json")
+    assert chained["level"] == 21
+    assert chained["cycle_period_ns"] == PROFILE_FACTS[21]["cycle_period_ns"]
+    assert chained["derived_from"]["level"] == 20
+
+    # 25 MHz (level 8) is a different wire configuration: no reuse allowed.
+    with pytest.raises(ValueError, match="deriving across a baud change"):
+        derive_matrix_for_level(
+            source_path, 8, tmp_path / "level8.json", source_level=7)
+    assert not (tmp_path / "level8.json").exists()
+    assert source_path.read_bytes() == source_bytes
+    reloaded = json.loads(source_path.read_text(encoding="utf-8"))
+    assert reloaded["profile_level"] == 7
+    assert reloaded["config"]["profile_level"] == 7
 
 
 def test_sck_rearm_boundary_uses_raw_sample_grid() -> None:

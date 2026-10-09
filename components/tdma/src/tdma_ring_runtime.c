@@ -210,6 +210,7 @@ static bool tdma_ring_runtime_read_config(
             tdma_ring_runtime_load(&runtime->loop_delay_tolerance_ns);
         config->feedback_timeout_ns =
             tdma_ring_runtime_load(&runtime->feedback_timeout_ns);
+        config->origin_cadence_enabled = tdma_ring_runtime_load(&runtime->origin_cadence_enabled);
         config->tx_dma_channel_id =
             tdma_ring_runtime_load(&runtime->tx_dma_channel_id);
         config->rx_dma_channel_id =
@@ -440,6 +441,7 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
         runtime->tx_dma_channel_id = TDMA_RESOURCE_ID_UNUSED;
         runtime->rx_dma_channel_id = TDMA_RESOURCE_ID_UNUSED;
         runtime->geometry_generation = 0u;
+    runtime->origin_cadence_enabled = 0u;
     } else {
         runtime->enabled = 1u;
         runtime->node_count = config->node_count;
@@ -456,6 +458,7 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
         runtime->loop_delay_ns = config->loop_delay_ns;
         runtime->loop_delay_tolerance_ns = config->loop_delay_tolerance_ns;
         runtime->feedback_timeout_ns = config->feedback_timeout_ns;
+        runtime->origin_cadence_enabled = config->origin_cadence_enabled;
         runtime->tx_dma_channel_id = config->tx_dma_channel_id;
         runtime->rx_dma_channel_id = config->rx_dma_channel_id;
         runtime->geometry_generation = config->geometry_generation;
@@ -480,6 +483,7 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime,
     runtime->feedback_round_trip_ns = 0u;
     runtime->reference_tx_timestamp_ns = 0ull;
     runtime->feedback_rx_timestamp_ns = 0ull;
+    memset(&runtime->loop_time, 0, sizeof(runtime->loop_time));
     memset(&runtime->clock_observation, 0, sizeof(runtime->clock_observation));
     runtime->feedback_evidence_valid = 0u;
     runtime->feedback_evidence_service_ns = 0ull;
@@ -621,7 +625,7 @@ void tdma_ring_runtime_service_with_stop_gate(tdma_ring_runtime_t *runtime,
         return;
     }
 
-    tdma_ring_runtime_config_t service_config;
+    tdma_ring_runtime_config_t service_config = {0};
     uint32_t service_config_seq = 0u;
     const uint64_t config_start = tdma_service_timing_now();
     const bool config_ok = tdma_ring_runtime_read_config(runtime, &service_config,
@@ -906,6 +910,12 @@ publish:
         adapter_status.reference_tx_timestamp_ns;
     runtime->feedback_rx_timestamp_ns =
         adapter_status.feedback_rx_timestamp_ns;
+    /* Only a completed adapter service may replace the published revolution:
+     * a failed service returns a zeroed status and must not erase the last
+     * measured loop/beat period. */
+    if (adapter_service_ok) {
+        runtime->loop_time = adapter_status.loop_time;
+    }
     runtime->clock_observation = adapter_status.clock_observation;
     tdma_ring_runtime_write_guard(&runtime->result_guard);
     tdma_service_timing_record(TDMA_TIMING_RING_PUBLISH, publish_start);
@@ -1027,6 +1037,7 @@ bool tdma_ring_runtime_get_snapshot(const tdma_ring_runtime_t *runtime,
             runtime->reference_tx_timestamp_ns;
         snapshot->feedback_rx_timestamp_ns =
             runtime->feedback_rx_timestamp_ns;
+        snapshot->loop_time = runtime->loop_time;
         snapshot->clock_observation = runtime->clock_observation;
         const uint32_t guard_end =
             tdma_ring_runtime_load(&runtime->result_guard);

@@ -372,7 +372,22 @@ def load_adapter(runtime_entrypoint: Path, *, board_uids=None, runtime_module=No
                         ("origin_handoff", "READ:CALibration:ORIGin:HANDoff?"),
                         ("origin_runtime", "READ:CALibration:ORIGin:RUNTIme?"),
                         ("priority_tx", follow.parent.TX),
-                        ("match", "SYSTem:VDC:PRIORity:MATCH:STATus?")):
+                        ("match", "SYSTem:VDC:PRIORity:MATCH:STATus?"),
+                        # In-run geometry/observer snapshot: the observer fields
+                        # are cleared once the ring stops, so this must be read
+                        # before the STOP below (see TDMA progress 2026-10-09).
+                        ("geometry", "SYSTem:TDMA:RING:GEOMetry?"),
+                        # In-run observer state: LIVE flags (RETAINED|ACTIVE|ANCHOR_VALID)
+                        # and SNAPSHOT joined/published decide why the priority match
+                        # rejects with SOURCE at short slots; both are cleared/stopped
+                        # once the ring stops, so they must be read before the STOP.
+                        ("event_live", "SYSTem:TDMA:EVENt:LIVE?"),
+                        ("event_snapshot", "SYSTem:TDMA:EVENt:SNAPshot?"),
+                        # Service budget evidence: the observer/ring recovery
+                        # counters (attempt/enable/failure and service_max_us)
+                        # quantify whether a shortened slot still fits the
+                        # per-node relay+observe work.
+                        ("event_recovery", "SYSTem:TDMA:EVENt:RECovery?")):
                     row[key] = self.command(board, command)
             for board in self.boards:
                 row = self.report["boards"][board.address]

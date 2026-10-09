@@ -3097,6 +3097,11 @@ scpi_result_t scpi_cmd_system_tdma_flight_fifo_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.rx_release_count);
     SCPI_ResultUInt32(context, snapshot.rx_queued_count);
     SCPI_ResultUInt32(context, snapshot.rx_parse_count);
+    /* Appended attribution of tx_publish_reject_count; the 17 primary fields
+     * above keep their existing order and index. */
+    SCPI_ResultUInt32(context, snapshot.tx_reject_bad_payload_count);
+    SCPI_ResultUInt32(context, snapshot.tx_reject_ring_full_count);
+    SCPI_ResultUInt32(context, snapshot.tx_reject_no_slot_count);
     return SCPI_RES_OK;
 }
 
@@ -3742,6 +3747,16 @@ scpi_result_t scpi_cmd_system_tdma_ring_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.adapter_last_bad_header_observed_byte);
     SCPI_ResultUInt32(context, snapshot.config_seq);
     SCPI_ResultUInt32(context, snapshot.applied_config_seq);
+    /* Appended loop/beat measurement: the interval between successive arrivals
+     * of the reference's own frame at the reference (one ring revolution).
+     * Existing positions are unchanged. */
+    SCPI_ResultUInt32(context, snapshot.loop_time.flags);
+    SCPI_ResultUInt32(context, snapshot.loop_time.resolution_ns);
+    SCPI_ResultUInt32(context, snapshot.loop_time.last_period_ns);
+    SCPI_ResultUInt32(context, snapshot.loop_time.min_period_ns);
+    SCPI_ResultUInt32(context, snapshot.loop_time.max_period_ns);
+    SCPI_ResultUInt32(context, snapshot.loop_time.mean_period_ns);
+    SCPI_ResultUInt32(context, snapshot.loop_time.sample_count);
     return SCPI_RES_OK;
 }
 
@@ -3808,11 +3823,47 @@ scpi_result_t scpi_cmd_system_tdma_ring_loop_delay_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* Read-only witness for the on-cadence gate policy.  Reports the staged copy
+ * (the value ARM will hand to the adapter), so a host can prove the policy it
+ * requested is the policy in force.  Not part of the DIAGnostic command on
+ * purpose: that command's response arity must stay unchanged. */
+scpi_result_t scpi_cmd_system_tdma_ring_origin_cadence_q(scpi_t *context)
+{
+    tdma_service_ring_runtime_config_t config;
+    if (!tdma_runtime_owner_get_staged_ring_config(&config)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_ORIGIN_CADENCE_QUERY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, config.origin_cadence_enabled);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_ring_diagnostic(scpi_t *context)
 {
     uint32_t enabled = 0u;
-    if (!scpi_port_read_u32(context, &enabled) || enabled > 1u ||
-        !tdma_runtime_owner_set_ring_diagnostic_mode(enabled != 0u)) {
+    /* Optional second parameter: the gate policy switch only, not the physical
+     * emission cadence budget (tdma_origin_cadence_t).  Presence is decided by
+     * the reader's return value so an omitted argument leaves the current
+     * policy untouched instead of being mistaken for an explicit 0. */
+    uint32_t origin_cadence = 0u;
+    if (!scpi_port_read_u32(context, &enabled) || enabled > 1u) {
+        scpi_port_push_exec_error(context, "TDMA_RING_DIAGNOSTIC");
+        return SCPI_RES_ERR;
+    }
+    /* FALSE = optional: the mandatory variant would push
+     * SCPI_ERROR_MISSING_PARAMETER for the legacy single-argument form. */
+    const bool has_origin_cadence =
+        SCPI_ParamUInt32(context, &origin_cadence, FALSE);
+    if (has_origin_cadence && origin_cadence > 1u) {
+        scpi_port_push_exec_error(context, "TDMA_RING_DIAGNOSTIC");
+        return SCPI_RES_ERR;
+    }
+    if (!tdma_runtime_owner_set_ring_diagnostic_mode(enabled != 0u)) {
+        scpi_port_push_exec_error(context, "TDMA_RING_DIAGNOSTIC");
+        return SCPI_RES_ERR;
+    }
+    if (has_origin_cadence &&
+        !tdma_runtime_owner_set_origin_cadence(origin_cadence != 0u)) {
         scpi_port_push_exec_error(context, "TDMA_RING_DIAGNOSTIC");
         return SCPI_RES_ERR;
     }

@@ -41,6 +41,16 @@ static const tdma_operating_profile_entry_t
          * preserves all existing level numbers while providing maximum wire
          * timing margin for multi-board path-delay characterization. */
         {1000000u, 2000000u, 4096u, 0u},
+        /* Levels 20/21: shorter per-node slots so a four-node ring
+         * revolution matches the 1.5 ms table period (375 us) or sits at
+         * a 2 ms revolution (500 us).  The reference emits once per
+         * revolution, so the emission interval equals the revolution. */
+        {10000000u, 375000u, 4096u, 0u},
+        {10000000u, 500000u, 4096u, 0u},
+        /* Level 22: 750 us slot, so a two-node ring completes one
+         * revolution in 1.5 ms while the slot stays wide enough for
+         * the Core1 TDMA phase service budget. */
+        {10000000u, 750000u, 4096u, 0u},
     };
 
 static uint32_t tdma_operating_profile_hash_u32(uint32_t hash,

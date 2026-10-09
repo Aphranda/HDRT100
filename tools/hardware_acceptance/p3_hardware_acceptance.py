@@ -1892,7 +1892,15 @@ def reset_acceptance_boards(board_ids: list[str], build_id: str,
         keep_open=False,
         short_open=True,
     )
+    # A freshly flashed board re-enumerates for a moment (picotool leaves the
+    # board in its bootloader until the application starts), so poll for the
+    # exact bench set instead of failing on the first probe.
+    deadline = time.monotonic() + 60.0
     boards = discover(reset_args)
+    while set(boards) != set(board_ids) and time.monotonic() < deadline:
+        close_persistent_connections()
+        time.sleep(1.0)
+        boards = discover(reset_args)
     before_builds = {
         board_id: board.build for board_id, board in boards.items()}
     validate_online_builds(before_builds, board_ids, build_id)
@@ -2321,6 +2329,12 @@ def validate_runtime_schedules(
 
 def acceptance_config_path(args: argparse.Namespace, root: Path) -> Path:
     if getattr(args, "command", "") == "run":
+        # An explicitly requested config wins: the run subcommand advertises
+        # --config, so ignoring it silently ran every stage at the default
+        # (quick/full) profile level instead of the requested one.
+        explicit = getattr(args, "config", None)
+        if explicit is not None and Path(explicit) != DEFAULT_CONFIG:
+            return root / explicit
         return root / (
             "config/hardware_acceptance/p3_bench.json"
             if getattr(args, "full", False)
@@ -3656,7 +3670,11 @@ def run_dpll_short_acceptance(args: argparse.Namespace) -> None:
     # The quick profile always retains diagnostics; the TDMA stage needs that to
     # export its original board records after a quality gate, and the raw STOP
     # handoff is what this credential actually gates on.
-    diagnostic_continue = str(config.get("acceptance_profile", "")) == "QUICK_DIAGNOSTIC"
+    # The ring-quality verdict of the TDMA stage is recorded, not gated: this
+    # credential gates on the raw STOP handoff and the DPLL observation, so a
+    # warning-level stage verdict must not stop the run. The full `run`
+    # acceptance keeps its own stricter policy.
+    diagnostic_continue = True
     if diagnostic_continue or args.diagnostic_continue:
         tdma_command.append("--diagnostic-continue")
         diagnostic_continue = True

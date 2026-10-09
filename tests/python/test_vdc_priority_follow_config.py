@@ -93,7 +93,9 @@ def test_unchanged_default_control_lifecycle(executable, case):
 
 def test_public_ABI_and_private_sizes(executable):
     sizes = tuple(map(int,existing.run_case(executable,"sizes").split()))
-    assert sizes == (784,216,408)
+    # Appended MATCH `first_reject_reason` word: +8 B per private struct that
+    # embeds a match snapshot; the public follow snapshot stays 216 B.
+    assert sizes == (792,216,416)
 
 
 STUBS = r'''

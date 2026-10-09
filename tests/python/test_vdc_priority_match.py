@@ -25,7 +25,8 @@ CASES = ["match", "signed", "duplicate", "next", "full_sequence", "out_of_order"
     "path_wrong_direction", "path_missing", "binding_config", "binding_profile", "binding_session",
     "binding_role", "binding_clock", "binding_rx_epoch", "binding_arm", "binding_observer",
     "binding_tick", "binding_path", "guard", "saturation", "request_session", "unserviced_stop_arm",
-    "remote_generation_race", "remote_source_race", "remote_target_race", "event_applied_race"]
+    "remote_generation_race", "remote_source_race", "remote_target_race", "event_applied_race",
+    "first_reject", "first_reject_lifecycle"]
 
 
 @pytest.fixture(scope="module", params=[(6, False), (6, True), (8, False), (8, True)])
@@ -364,6 +365,26 @@ int main(int argc,char **argv)
         out=sample();s_priority_match_work.status.matched=UINT32_MAX;s_priority_match_work.status.calls=UINT32_MAX;
         s_priority_match_work.status.repeated=UINT32_MAX;out=sample();assert(out.repeated==UINT32_MAX);
         next();out=sample();assert(out.matched==UINT32_MAX && out.calls==UINT32_MAX);
+    } else if(!strcmp(mode,"first_reject")) {
+        /* The lumped rejection counter cannot name its cause: the first real
+         * rejection is latched and survives success, STOP and retirement. */
+        rx.source_slot=2u;out=sample();
+        assert(out.last_reason==VDC_PRIORITY_MATCH_RX && !out.matched && !out.retired);
+        assert(out.rejected==1u && out.first_reject_reason==VDC_PRIORITY_MATCH_RX);
+        rx.source_slot=0u;out=sample();
+        assert(out.matched==1u && out.first_reject_reason==VDC_PRIORITY_MATCH_RX);
+        ring.enabled=0u;out=sample();
+        assert(out.last_reason==VDC_PRIORITY_MATCH_STOP && out.first_reject_reason==VDC_PRIORITY_MATCH_RX);
+        assert(request(102u));rx.typed_record.binding_generation=102u;ring.enabled=1u;out=sample();
+        assert(out.generation==102u && out.matched==1u && !out.first_reject_reason && !out.rejected);
+    } else if(!strcmp(mode,"first_reject_lifecycle")) {
+        /* Arming/teardown reasons are never latched, so a capture that only
+         * ever stopped cannot masquerade as an observation failure. */
+        ring.enabled=0u;out=sample();
+        assert(out.last_reason==VDC_PRIORITY_MATCH_STOP && !out.first_reject_reason);
+        ring.enabled=1u;out=sample();assert(out.matched==1u && !out.first_reject_reason);
+        assert(request(0u));out=sample();
+        assert(out.last_reason==VDC_PRIORITY_MATCH_DISABLED && !out.first_reject_reason);
     } else assert(!"unknown case");
     printf("snapshot=%zu workspace=%zu totalstatic=%zu match passed\n",sizeof(out),sizeof(s_priority_match_work),
         sizeof(s_priority_match_work)+sizeof(s_priority_match_words)+16u);

@@ -46,6 +46,7 @@ bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *s)
 bool vdc_dpll_manager_get_priority_match(vdc_priority_match_snapshot_t *s)
 { ++gets;memset(s,0,sizeof(*s));s->schema=1;s->generation=42;s->active=1;
   s->arm_epoch=UINT64_C(0x123456789abcdef0);s->residual_lo=INT64_MIN;s->residual_hi=-1;
+  s->first_reject_reason=6;
   return snapshot_ok; }
 static void SCPI_ResultUInt32(scpi_t *c,uint32_t v) { (void)c;assert(results<64);fields[results++]=v; }
 static void scpi_sync_result_u64_parts(scpi_t *c,uint64_t v)
@@ -72,10 +73,11 @@ int main(void)
     ring.adapter_started=0;snapshot_ok=false;
     assert(scpi_cmd_vdc_priority_match_status_q(&c)==SCPI_RES_ERR && results==0 && gets==1);
     snapshot_ok=true;
-    assert(scpi_cmd_vdc_priority_match_status_q(&c)==SCPI_RES_OK && results==62 && gets==2);
+    assert(scpi_cmd_vdc_priority_match_status_q(&c)==SCPI_RES_OK && results==63 && gets==2);
     assert(fields[0]==1 && fields[1]==42 && fields[2]==1);
     assert(fields[38]==0x9abcdef0 && fields[39]==0x12345678);
     assert(fields[58]==0 && fields[59]==0x80000000 && fields[60]==UINT32_MAX && fields[61]==UINT32_MAX);
+    assert(fields[62]==6);
     results=0;parameter=0;
     assert(scpi_cmd_vdc_priority_match(&c)==SCPI_RES_OK && fields[0]==0 && generation==0);
     return 0;

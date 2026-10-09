@@ -429,9 +429,15 @@ def train(board: Board, args: argparse.Namespace) -> dict[str, object]:
                 f"{board.address}: invalid pre-TRAIN status {before_raw!r}")
         previous_request_seq = int(before[5].strip().strip('"'), 0)
         response = ""
+        # A whole training chunk can take longer than the generic read timeout
+        # (a 4096-cycle chunk returning "<timeout>" was observed at both 1 ms
+        # and 750 us slots, so the timeout - not the slot - was the suspect).
+        train_args = argparse.Namespace(**vars(args))
+        train_args.timeout = max(
+            float(getattr(args, "timeout", 2.0) or 2.0), 20.0)
         for _ in range(3):
             response = board_command(
-                board, f"SYSTem:TDMA:RING:TRAIN {current}", args)
+                board, f"SYSTem:TDMA:RING:TRAIN {current}", train_args)
             responses.append(response)
             if response.strip().strip('"') == str(current):
                 break
@@ -519,8 +525,9 @@ def main() -> int:
         "sequence": [
             "STOP all",
             f"TOPOLOGY node_count={node_count} slots=0..{node_count - 1} reference=0",
-            "ARM all", f"TRAIN all={args.cycles}",
+            f"TRAIN all={args.cycles} (while STOPPED)", "ARM all",
             "START forward slots", "START reference",
+            "wait for adapter_started (after START)",
         ],
     }
     print(json.dumps(result, indent=2))
@@ -535,9 +542,20 @@ def main() -> int:
         for board in ordered:
             acknowledgements.append({board.address: board_command(
                 board, f"SYSTem:TDMA:OPMode:STAGe {args.level}", args)})
-            acknowledgements.append({board.address: board_command(
-                board, "SYSTem:TDMA:OPMode:APPLy", args)})
+            # The first APPLy right after STAGe is often rejected while the
+            # previous configuration is still retiring, so retry before
+            # concluding that the level cannot be activated.
             active = board_command(board, "SYSTem:TDMA:OPMode?", args)
+            for _ in range(4):
+                applied = board_command(
+                    board, "SYSTem:TDMA:OPMode:APPLy", args)
+                active = board_command(board, "SYSTem:TDMA:OPMode?", args)
+                active_values = [int(value.strip().strip('"'), 0)
+                                 for value in active.split(",")]
+                if active_values and active_values[0] == args.level:
+                    break
+                time.sleep(0.5)
+            acknowledgements.append({board.address: applied})
             active_values = [int(value.strip().strip('"'), 0)
                              for value in active.split(",")]
             if not active_values or active_values[0] != args.level:
@@ -549,18 +567,25 @@ def main() -> int:
             f"SYSTem:TDMA:RING:TOPology {node_count},{slot},0",
             args)})
 
+    # Clock training drives a single in-board trial and the documented flow
+    # trains while the ring is STOPPED (stage/apply + topology, then TRAIN),
+    # so the train pass must precede ARM/START.  Issuing TRAIN after ARM left
+    # the command unanswered at every slot length.
+    for board in start_order:
+        acknowledgements.append({board.address: train(board, args)})
+
     for board in start_order:
         acknowledgements.append({board.address: board_command(
             board, "SYSTem:TDMA:RING:ARM", args)})
-    armed = {board.address: wait_started(board, args)
-             for board in start_order}
-
-    for board in start_order:
-        acknowledgements.append({board.address: train(board, args)})
     before_start = {board.address: status(board, args) for board in ordered}
     for board in start_order:
         acknowledgements.append({board.address: board_command(
             board, "SYSTem:TDMA:RING:START", args)})
+    # The adapter only starts once TRAIN and START have been issued, so the
+    # start barrier has to be awaited here.  Waiting straight after ARM can
+    # never succeed and made every call report a spurious "ARM timeout".
+    armed = {board.address: wait_started(board, args)
+             for board in start_order}
 
     time.sleep(args.start_wait)
     final = {board.address: status(board, args)

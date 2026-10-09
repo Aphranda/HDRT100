@@ -61,8 +61,11 @@ static bool model_available(vdc_dpll_manager_committed_model_t *model)
 static bool grid_matches_vdc_period(const trigger_time_grid_t *grid,
     const vdc_dpll_manager_committed_model_t *model)
 {
-    return grid && model && grid->period_ns == VDC_DOMAIN_DEFAULT_PERIOD_NS &&
-        model->dco.nominal_period_ns == VDC_DOMAIN_DEFAULT_PERIOD_NS &&
+    /* Accept the configured operating period instead of pinning both the grid
+     * and the DCO to the 1 ms default: a 500/750 us ring profile must be able
+     * to bind its grid to the matching DCO period.  Non-zero mutual equality is
+     * the real invariant. */
+    return grid && model && grid->period_ns != 0u &&
         grid->period_ns == model->dco.nominal_period_ns;
 }
 
