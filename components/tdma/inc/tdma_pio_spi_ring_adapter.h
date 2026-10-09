@@ -679,4 +679,14 @@ bool tdma_pio_spi_ring_adapter_read_accepted_image(
     uint64_t now_ns,
     tdma_receive_image_t *image);
 
+/* Latched streaming-schedule evidence. These are monotonic totals kept outside
+ * the per-handoff origin state, so a post-run read still shows whether the
+ * window gate allowed or blocked priority emissions. */
+typedef struct {
+    uint32_t allow_total;
+    uint32_t block_total;
+} tdma_origin_schedule_evidence_t;
+
+void tdma_pio_spi_ring_adapter_schedule_evidence(tdma_origin_schedule_evidence_t *out);
+
 #endif

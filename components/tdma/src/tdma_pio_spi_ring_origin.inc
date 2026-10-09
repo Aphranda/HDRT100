@@ -342,10 +342,31 @@ static bool tdma_pio_spi_ring_origin_publish_async(tdma_pio_spi_ring_adapter_t *
 
 /* Separate frame keeps the provider/projection stack out of the ordinary
  * FIFO builder's frame. Both branches still have the same sole Core1 owner. */
+/* Streaming-schedule evidence lives outside adapter->origin: that struct is
+ * memset on every handoff and reset, which would erase latched totals. */
+static uint32_t s_origin_schedule_allow_total;
+static uint32_t s_origin_schedule_block_total;
+
 static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
     tdma_pio_spi_ring_adapter_t *adapter, bool *handled)
 {
     uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+#if TDMA_LOOP_SCHEDULE_ENABLED
+    /* Streaming schedule: the priority seat may publish only inside the window
+     * the loop plan gives it. Outside it this slot returns to the ordinary
+     * path untouched, which is also the switch-off behaviour. */
+    tdma_loop_plan_request_t plan_request;
+    tdma_loop_plan_t plan;
+    tdma_loop_plan_default_request(&plan_request, true, true, false);
+    (void)tdma_loop_plan(&plan_request, &plan);
+    if (tdma_loop_plan_slot_for_index(&plan, adapter->origin.boundary.sequence,
+            adapter->config.cycle_period_ns) != TDMA_LOOP_SLOT_PRIORITY) {
+        s_origin_schedule_block_total++;
+        *handled = false;
+        return true;
+    }
+    s_origin_schedule_allow_total++;
+#endif
     const tdma_priority_tx_result_t offered =
         adapter->priority_tx_provider(&adapter->config, mailbox);
     *handled = offered != TDMA_PRIORITY_TX_DISABLED;
@@ -462,4 +483,11 @@ static bool tdma_pio_spi_ring_origin_service(tdma_pio_spi_ring_adapter_t *adapte
         /* Invalid/late software publication keeps the old hardware shadow. */
     }
     return true;
+}
+
+void tdma_pio_spi_ring_adapter_schedule_evidence(tdma_origin_schedule_evidence_t *out)
+{
+    if (out == NULL) return;
+    out->allow_total = s_origin_schedule_allow_total;
+    out->block_total = s_origin_schedule_block_total;
 }

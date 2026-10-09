@@ -371,6 +371,25 @@ static void test_loop_plan_two_emissions_per_loop(void)
         assert(tdma_loop_plan_slot_for_time(&plan,t)==TDMA_LOOP_SLOT_NONE);
 }
 
+/* Slot-index gating: with a 1 ms slot period the loop's two emissions appear at
+ * slots 0/1 (priority) and 2 (first class); the loop wraps after 4 slots. */
+static void test_loop_plan_slot_for_index(void)
+{
+    tdma_loop_plan_t plan;
+    tdma_loop_plan_request_t r;
+    tdma_loop_plan_default_request(&r,true,true,true);
+    assert(tdma_loop_plan(&r,&plan)==TDMA_SEAT_OK && plan.loop_period_ns==4000000u);
+    assert(tdma_loop_plan_slot_for_index(&plan,0u,1000000u)==TDMA_LOOP_SLOT_PRIORITY);
+    assert(tdma_loop_plan_slot_for_index(&plan,1u,1000000u)==TDMA_LOOP_SLOT_PRIORITY);
+    assert(tdma_loop_plan_slot_for_index(&plan,2u,1000000u)==TDMA_LOOP_SLOT_FIRST_CLASS);
+    assert(tdma_loop_plan_slot_for_index(&plan,3u,1000000u)==TDMA_LOOP_SLOT_NONE);
+    assert(tdma_loop_plan_slot_for_index(&plan,4u,1000000u)==TDMA_LOOP_SLOT_PRIORITY);
+    assert(tdma_loop_plan_slot_for_index(&plan,6u,1000000u)==TDMA_LOOP_SLOT_FIRST_CLASS);
+    assert(tdma_loop_plan_slot_for_index(&plan,7u,1000000u)==TDMA_LOOP_SLOT_NONE);
+    assert(tdma_loop_plan_slot_for_index(&plan,1u,0u)==TDMA_LOOP_SLOT_NONE);
+    assert(tdma_loop_plan_slot_for_index(NULL,1u,1000000u)==TDMA_LOOP_SLOT_NONE);
+}
+
 int main(void)
 {
     test_fact_order_and_one_shot();
@@ -386,6 +405,7 @@ int main(void)
     test_loop_plan_compressed_forward();
     test_loop_plan_slot_for_time();
     test_loop_plan_two_emissions_per_loop();
-    puts("tdma_seat_admission: 13 case groups passed");
+    test_loop_plan_slot_for_index();
+    puts("tdma_seat_admission: 14 case groups passed");
     return 0;
 }

@@ -1,4 +1,4 @@
-#ifndef TDMA_SEAT_ADMISSION_H
+﻿#ifndef TDMA_SEAT_ADMISSION_H
 #define TDMA_SEAT_ADMISSION_H
 
 #include <stdbool.h>
@@ -171,6 +171,9 @@ typedef struct {
 typedef struct {
     uint32_t count;
     tdma_loop_slot_t slots[3];
+    /* Echoed from the request so callers can reduce an absolute slot index
+     * into the loop without carrying the period themselves. */
+    uint64_t loop_period_ns;
 } tdma_loop_plan_t;
 
 tdma_seat_result_t tdma_loop_plan(const tdma_loop_plan_request_t *request,
@@ -187,6 +190,13 @@ tdma_seat_result_t tdma_loop_plan(const tdma_loop_plan_request_t *request,
 #define TDMA_LOOP_PLAN_CLOSE_GUARD_NS 30000u
 #define TDMA_LOOP_PLAN_LOAD_ENABLED 0
 
+/* Streaming emission gate at the ring origin. 0 keeps the origin byte-for-byte
+ * as before (no window decision is taken); 1 lets the priority/first-class
+ * providers publish only inside their planned windows. */
+#ifndef TDMA_LOOP_SCHEDULE_ENABLED
+#define TDMA_LOOP_SCHEDULE_ENABLED 0
+#endif
+
 /* Fill the request from the production defaults above. load_pending is honoured
  * only while TDMA_LOOP_PLAN_LOAD_ENABLED is nonzero. */
 void tdma_loop_plan_default_request(tdma_loop_plan_request_t *out,
@@ -197,5 +207,11 @@ void tdma_loop_plan_default_request(tdma_loop_plan_request_t *out,
  * interval and everything outside every window answer TDMA_LOOP_SLOT_NONE. */
 tdma_loop_slot_class_t tdma_loop_plan_slot_for_time(const tdma_loop_plan_t *plan,
     uint64_t now_ns);
+
+/* Slot-index form for the origin's emission cadence: the slot at absolute
+ * index slot_index owns now_ns = (slot_index * slot_period_ns) reduced into the
+ * loop period. slot_period_ns == 0 answers TDMA_LOOP_SLOT_NONE. */
+tdma_loop_slot_class_t tdma_loop_plan_slot_for_index(const tdma_loop_plan_t *plan,
+    uint64_t slot_index, uint64_t slot_period_ns);
 
 #endif

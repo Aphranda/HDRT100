@@ -236,6 +236,7 @@ tdma_seat_result_t tdma_loop_plan(const tdma_loop_plan_request_t *request,
         request->emission_period_ns > request->loop_period_ns)
         return TDMA_SEAT_BAD_ARGUMENT;
     out->count = 0u;
+    out->loop_period_ns = request->loop_period_ns;
     for (uint32_t index = 0u; index < 3u; ++index) {
         out->slots[index].cls = TDMA_LOOP_SLOT_NONE;
         out->slots[index].window.start_ns = 0u;
@@ -286,4 +287,13 @@ tdma_loop_slot_class_t tdma_loop_plan_slot_for_time(const tdma_loop_plan_t *plan
         if (now_ns >= slot->window.start_ns && now_ns < close_ns) return slot->cls;
     }
     return TDMA_LOOP_SLOT_NONE;
+}
+
+tdma_loop_slot_class_t tdma_loop_plan_slot_for_index(const tdma_loop_plan_t *plan,
+    uint64_t slot_index, uint64_t slot_period_ns)
+{
+    if (plan == NULL || slot_period_ns == 0u || plan->loop_period_ns == 0u)
+        return TDMA_LOOP_SLOT_NONE;
+    const uint64_t now_ns = (slot_index * slot_period_ns) % plan->loop_period_ns;
+    return tdma_loop_plan_slot_for_time(plan, now_ns);
 }

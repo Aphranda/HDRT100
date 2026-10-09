@@ -97,6 +97,10 @@ scpi_result_t scpi_calibration_origin_runtime_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.origin.boundary.identity);
     SCPI_ResultUInt32(context, snapshot.origin.boundary.local_generation);
     SCPI_ResultUInt32(context, snapshot.origin.boundary.output_remaining);
+    tdma_origin_schedule_evidence_t schedule_evidence;
+    tdma_pio_spi_ring_adapter_schedule_evidence(&schedule_evidence);
+    SCPI_ResultUInt32(context, schedule_evidence.allow_total);
+    SCPI_ResultUInt32(context, schedule_evidence.block_total);
     SCPI_ResultUInt32(context, snapshot.timestamp_flags);
     return SCPI_RES_OK;
 }

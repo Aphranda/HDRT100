@@ -1,3 +1,4 @@
+#include "tdma_seat_admission.h"
 #include "tdma_pio_spi_ring_adapter.h"
 
 #include <string.h>
