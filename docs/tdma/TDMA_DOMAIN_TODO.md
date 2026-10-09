@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-10-08
+Last updated: 2026-10-09
 
 ## 文档接口与状态规则
 
@@ -176,6 +176,39 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 | 特等席确定性交付 | 实际逐圈/最长更新间隔、覆盖上界、最坏 IRQ/前台与普通流隔离。 | 不能由固定 FIFO 或单次锁相直接推出无损期限。 |
 | 正式 VDC/可靠业务发布 | calibration/quality、ACK/fence、正式 map 与 T2 集成。 | 按所属域任务推进，不重建 NO5 或首帧前置。 |
 | 架构偏差关闭 | `TDMA-RESIDENT-01` C11 与 `HAOFV-879` 全写者/读者审核。 | 保留 registry 状态；局部 guard 实现不自动关闭条款。 |
+
+## 交接状态：席位挂载与 T2 使能链（2026-10-09）
+
+本节记录一次跨域收口的即时状态，便于接手；证据原件见 [Task Progress](TDMA_TASK_PROGRESS.md)
+（`TDMA-PROGRESS-20261009-012`）与 [T2 进展](../trigger/t2/TRIGGER_T2_TASK_PROGRESS.md)
+（`T2-PROGRESS-20261009-021`），代码与工具已随提交 `7ff68367` 入库。
+
+**已实现并经硬件验证**
+
+| 能力 | 状态 | 说明与证据入口 |
+|---|---|---|
+| 席位挂载表全链 | DONE | SCPI 配置（含 CRC 校验）→ flash 持久化 → 开机载入 → 运行时"按负载所挂席位"判定发布窗口；负载与席位分离，只做席位对席位比较。 |
+| 持久化载体与耐久 | DONE | 记录写入专用 `SEAT_MOUNT` 分区（`FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_*`），四板在经历烧录与完整运行后仍 `loaded=1`；此前借用暂存区会丢失。 |
+| 平台闸门（4 处） | DONE | 原始 flash 调用登记、构建源登记、flash 事务 AO 来源白名单、事务层"来源×分区×范围×长度"规则；缺任一项写入以策略/权限错误静默失败。 |
+| T2 使能链前置 | DONE（逐环验证） | 网格（`subdivisions >= 2`）→ 部署 STAGe/ACTivate（CRC 经设备接受）→ 动作表（**必须逐板按本板 `binding.local_role`**）→ 模板库（`TEMPLate:INSTall/ACTivate`，自带 CRC）→ 停机维护窗口 → `T2:CONFigure` 成功（三块执行板 `configured=1`）。 |
+| T2 启动闸门 | DONE | `T2:STARt` 前置 `distributed_refmem_reset_position_stopped()` 要求飞行 FIFO 排空；解药为 `SYSTem:TDMA:FLIGHT:FIFO:RESet`（`SYSTem:TDMA:FLIGHT:FIFO?` 可读四计数）。 |
+| 源侧（转台脉冲） | DONE | `CONFigure:MODEl:TURNtable:{LOAD,MOTion,TRIGger}` + `MODEl:TURNtable:STARt`；台架为每板 OUT4↔IN1 自环，**NO1 部署行必须允许 OUT4（掩码 0x8）**。 |
+| VDC 输出运行 | DONE | 反馈会话号必须**单调递增**（`vdc_model_feedback.inc` 的 `s_model_feedback_last_session`，`UINT32_MAX` 为清除哨兵）；参数界 `period_ns∈[1ms,100ms]`、`high_ns∈[100ns, period/2]`、`duration_ms<=20000`；须在停机态准备。 |
+| 台架工具 | DONE | `p3_hardware_acceptance.py t2`（逐板使能 + 采样 + 报告）与 `tools/sync_trigger/t2_enable.py --full`（顺序：清理 → 逐板配置+T2 → VDC 会话/运行 → 转台 → 环 → 采样）。 |
+
+**当前唯一阻塞（下一手直接从这里接）**
+
+| 阻塞项 | 现象与已排除项 | 下一步 |
+|---|---|---|
+| 部署 `DEPloyment:STAGe` 准入被拒 | `DEPloyment?` 在 STAGe/ACTivate 后仍全 0，随之 `T2:CONFigure` 返回诊断码 `92`（部署未激活）。已排除：VDC 反馈会话在位（清会话前后一致）、RefMem 暂存包（`LOAD:STATus?` 无待提交包、`LOAD:ACTivate` 后仍为 0）。 | 给 `stage_stopped()` / `deployment_idle()` 逐条插码（沿用现有"基线 + 首个触发者优先"通道），或先 `SYSTem:BOOT:RESet` 软复位四板再走链；随后复现 staged/active/configured/active 全 1。 |
+
+**遗留与债务**
+
+| 项 | 说明 |
+|---|---|
+| 临时台架诊断插桩 | 本会话为定位在 flash 事务、TDMA 服务、SCPI 命令、T2 运行时与 VDC 准备等处插入的诊断码（复用 `TRIGger:REServation:SEAT:MOUNT?` 的 last_reject 通道），已在提交信息中注明，需清理或规范化为正式诊断。 |
+| 发布判据未达成 | `TRIGger:REServation:T2?` 的 `last_error` 仍为 `CURSOR(5)`、`event_count`/`published_mask` 为 0，`SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 计数为 0；即"位置帧发布"尚未观测到。 |
+| 文档门禁既有告警 | REFMEM 进展日志轮转、若干进展日志日期序为已登记债务，与本次改动无关。 |
 
 ## 统一完成定义
 
