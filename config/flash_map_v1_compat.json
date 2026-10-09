@@ -24,7 +24,20 @@
       "executable": true,
       "store_type": "image",
       "update_policy": "factory_only",
-      "permissions": {"boot": ["read", "execute"], "app": ["read"], "factory": ["read", "write", "execute"]}
+      "permissions": {
+        "boot": [
+          "read",
+          "execute"
+        ],
+        "app": [
+          "read"
+        ],
+        "factory": [
+          "read",
+          "write",
+          "execute"
+        ]
+      }
     },
     {
       "id": "APP_A",
@@ -34,7 +47,22 @@
       "executable": true,
       "store_type": "image",
       "update_policy": "inactive_slot_only",
-      "permissions": {"boot": ["read", "execute"], "app": ["read", "write", "execute"], "factory": ["read", "write", "execute"]}
+      "permissions": {
+        "boot": [
+          "read",
+          "execute"
+        ],
+        "app": [
+          "read",
+          "write",
+          "execute"
+        ],
+        "factory": [
+          "read",
+          "write",
+          "execute"
+        ]
+      }
     },
     {
       "id": "APP_B",
@@ -44,7 +72,22 @@
       "executable": true,
       "store_type": "image",
       "update_policy": "inactive_slot_only",
-      "permissions": {"boot": ["read", "execute"], "app": ["read", "write", "execute"], "factory": ["read", "write", "execute"]}
+      "permissions": {
+        "boot": [
+          "read",
+          "execute"
+        ],
+        "app": [
+          "read",
+          "write",
+          "execute"
+        ],
+        "factory": [
+          "read",
+          "write",
+          "execute"
+        ]
+      }
     },
     {
       "id": "BOOT_CONTROL",
@@ -54,7 +97,20 @@
       "executable": false,
       "store_type": "boot_control",
       "update_policy": "legacy_redundant_metadata",
-      "permissions": {"boot": ["read", "write"], "app": ["read", "write"], "factory": ["read", "write"]}
+      "permissions": {
+        "boot": [
+          "read",
+          "write"
+        ],
+        "app": [
+          "read",
+          "write"
+        ],
+        "factory": [
+          "read",
+          "write"
+        ]
+      }
     },
     {
       "id": "PRODUCT_NVS",
@@ -64,7 +120,17 @@
       "executable": false,
       "store_type": "nvs",
       "update_policy": "legacy_single_sector_rewrite",
-      "permissions": {"boot": [], "app": ["read", "write"], "factory": ["read", "write"]}
+      "permissions": {
+        "boot": [],
+        "app": [
+          "read",
+          "write"
+        ],
+        "factory": [
+          "read",
+          "write"
+        ]
+      }
     },
     {
       "id": "SCRATCH",
@@ -74,17 +140,54 @@
       "executable": false,
       "store_type": "scratch",
       "update_policy": "legacy_copy_to_active",
-      "permissions": {"boot": ["read", "write"], "app": ["read", "write"], "factory": ["read", "write"]}
+      "permissions": {
+        "boot": [
+          "read",
+          "write"
+        ],
+        "app": [
+          "read",
+          "write"
+        ],
+        "factory": [
+          "read",
+          "write"
+        ]
+      }
+    },
+    {
+      "id": "SEAT_MOUNT",
+      "offset": "0x400000",
+      "size": "0x2000",
+      "alignment": "0x001000",
+      "executable": false,
+      "store_type": "nvs",
+      "update_policy": "legacy_single_sector_rewrite",
+      "permissions": {
+        "boot": [],
+        "app": [
+          "read",
+          "write"
+        ],
+        "factory": [
+          "read",
+          "write"
+        ]
+      }
     },
     {
       "id": "FUTURE_POOL",
-      "offset": "0x400000",
-      "size": "0xC00000",
+      "offset": "0x402000",
+      "size": "0xbfe000",
       "alignment": "0x001000",
       "executable": false,
       "store_type": "reserved",
       "update_policy": "v2_factory_migration_only",
-      "permissions": {"boot": [], "app": [], "factory": []}
+      "permissions": {
+        "boot": [],
+        "app": [],
+        "factory": []
+      }
     }
   ]
 }

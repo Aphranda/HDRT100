@@ -2,6 +2,7 @@
 #include "vdc_output_edge_cursor.h"
 #include "vdc_timer1_coordinate.h"
 #include "sync_pulse_sliced_encode.h"
+#include "tdma_seat_mount_store.h"
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define VDC_RUN_OUTPUT_HOT(name) __not_in_flash_func(name)
 #else
@@ -190,13 +191,25 @@ bool vdc_run_output_prepare(uint32_t period_ns,uint32_t high_ns,
                             uint32_t duration_ms,uint32_t *request)
 {
     uint32_t idle=0u;
-    if (get_core_num()!=0u || !request || period_ns<1000000u || period_ns>100000000u ||
-        high_ns<100u || high_ns>period_ns/2u || duration_ms>20000u ||
-        !__atomic_compare_exchange_n(&s_run_output_busy,&idle,1u,false,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED))
-        return false;
+    /* Split so a bench readout names the rejected precondition (temporary). */
+    if (get_core_num()!=0u) { tdma_seat_mount_store_note_reject(171u); return false; }
+    if (!request) { tdma_seat_mount_store_note_reject(172u); return false; }
+    if (period_ns<1000000u || period_ns>100000000u || high_ns<100u ||
+        high_ns>period_ns/2u || duration_ms>20000u) {
+        tdma_seat_mount_store_note_reject(173u); return false;
+    }
+    if (!__atomic_compare_exchange_n(&s_run_output_busy,&idle,1u,false,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED)) {
+        tdma_seat_mount_store_note_reject(174u); return false;
+    }
     const uint32_t args[]={period_ns,high_ns,duration_ms};
     const bool ok=tdma_service_run_stopped_maintenance(s_vdc_tdma_service,
         run_output_prepare_stopped,(void *)args);
+    if (!ok) {
+        /* Only claim the channel when the maintenance gate left no reason of its own. */
+        uint32_t seen=0u, seen_gen=0u;
+        tdma_seat_mount_store_status(&seen,&seen_gen);
+        if (seen==0u) tdma_seat_mount_store_note_reject(175u);
+    }
     if (ok) *request=s_run_output.request;
     __atomic_store_n(&s_run_output_busy,0u,__ATOMIC_RELEASE);
     return ok;

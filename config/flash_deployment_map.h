@@ -53,6 +53,23 @@
 #define FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_RELATIVE_OFFSET 0u
 #define FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_SIZE \
     (2u * FLASH_GEOMETRY_ERASE_SIZE_BYTES)
+
+/* Seat mount store: the load->seat mounting table lives in the calibration NVS
+ * partition, right after the calibration training sub-region. */
+#define FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_PARTITION_ID \
+    FLASH_MAP_CALIBRATION_NVS_ID
+#define FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_OFFSET \
+    FLASH_MAP_CALIBRATION_NVS_OFFSET
+#define FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_RELATIVE_OFFSET \
+    (2u * FLASH_GEOMETRY_ERASE_SIZE_BYTES)
+/* Two erase sectors mirror the proven store pattern: alternate sectors with
+ * generation selection, so a power loss during program cannot lose the table. */
+#define FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_SIZE \
+    (2u * FLASH_GEOMETRY_ERASE_SIZE_BYTES)
+_Static_assert(FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_RELATIVE_OFFSET + \
+                   FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_SIZE <= \
+               FLASH_MAP_CALIBRATION_NVS_SIZE,
+               "Seat mount store must fit the calibration NVS partition");
 #define FLASH_DEPLOYMENT_MAP_SCRATCH_ID FLASH_MAP_SCRATCH_ID
 #define FLASH_DEPLOYMENT_MAP_SCRATCH_OFFSET FLASH_MAP_SCRATCH_OFFSET
 #define FLASH_DEPLOYMENT_MAP_SCRATCH_SIZE FLASH_MAP_SCRATCH_SIZE
@@ -112,6 +129,25 @@
      FLASH_DEPLOYMENT_MAP_PRODUCT_CONFIG_STORE_SIZE)
 #define FLASH_DEPLOYMENT_MAP_CALIBRATION_STORE_RELATIVE_OFFSET \
     FLASH_DEPLOYMENT_MAP_PRODUCT_CONFIG_STORE_SIZE
+
+/* Seat mount store (compatibility map): PRODUCT_NVS is fully allocated and the
+ * future pool grants no permissions by design, so the store takes the last two
+ * erase sectors of the scratch partition, which the application may write. */
+#define FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_PARTITION_ID \
+    FLASH_COMPAT_MAP_SEAT_MOUNT_ID
+#define FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_OFFSET \
+    FLASH_COMPAT_MAP_SEAT_MOUNT_OFFSET
+#define FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_RELATIVE_OFFSET 0u
+/* Two erase sectors, as in the calibration store: alternate + generation select. */
+#define FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_SIZE \
+    (2u * FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES)
+_Static_assert(FLASH_COMPAT_MAP_FUTURE_POOL_OFFSET % \
+                   FLASH_COMPAT_GEOMETRY_ERASE_SIZE_BYTES == 0u,
+               "Seat mount store must start erase-aligned");
+_Static_assert(FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_RELATIVE_OFFSET + \
+                   FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_SIZE <= \
+               FLASH_COMPAT_MAP_SEAT_MOUNT_SIZE,
+               "Seat mount store must fit its own partition");
 #define FLASH_DEPLOYMENT_MAP_SCRATCH_ID FLASH_COMPAT_MAP_SCRATCH_ID
 #define FLASH_DEPLOYMENT_MAP_SCRATCH_OFFSET FLASH_COMPAT_MAP_SCRATCH_OFFSET
 #define FLASH_DEPLOYMENT_MAP_SCRATCH_SIZE FLASH_COMPAT_MAP_SCRATCH_SIZE

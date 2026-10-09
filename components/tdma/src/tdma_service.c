@@ -5,6 +5,7 @@
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico/time.h"
+#include "tdma_seat_mount_store.h"
 #endif
 
 #define tdma_service_OWNER_CORE1 1u
@@ -1010,14 +1011,31 @@ bool tdma_service_update_event_tap(tdma_service_service_t *service,
     if (service == NULL || publish == NULL ||
         !tdma_service_ring_control_lock(service)) return false;
     tdma_ring_runtime_snapshot_t snapshot;
-    const bool stopped =
-        __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) == 0u &&
-        tdma_service_ring_retire_stopped(service) &&
-        service->ring_control_pending == TDMA_RING_CONTROL_NONE &&
-        tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) &&
-        snapshot.enabled == 0u && snapshot.adapter_started == 0u &&
-        snapshot.config_seq == snapshot.applied_config_seq &&
-        service->ring_staged_config.geometry_generation == 0u;
+    /* Split so a bench readout names the blocking condition (temporary). */
+    bool stopped = true;
+    do {
+        if (__atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) != 0u) {
+            tdma_seat_mount_store_note_reject(111u); stopped = false; break;
+        }
+        if (!tdma_service_ring_retire_stopped(service)) {
+            tdma_seat_mount_store_note_reject(112u); stopped = false; break;
+        }
+        if (service->ring_control_pending != TDMA_RING_CONTROL_NONE) {
+            tdma_seat_mount_store_note_reject(113u); stopped = false; break;
+        }
+        if (!tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot)) {
+            tdma_seat_mount_store_note_reject(114u); stopped = false; break;
+        }
+        if (snapshot.enabled != 0u || snapshot.adapter_started != 0u) {
+            tdma_seat_mount_store_note_reject(115u); stopped = false; break;
+        }
+        if (snapshot.config_seq != snapshot.applied_config_seq) {
+            tdma_seat_mount_store_note_reject(116u); stopped = false; break;
+        }
+        if (service->ring_staged_config.geometry_generation != 0u) {
+            tdma_seat_mount_store_note_reject(117u); stopped = false; break;
+        }
+    } while (0);
     /* Publication is SRAM-only and bounded. Holding the control guard makes
      * the stopped proof indivisible from ARM/configure/STOP on Core0. */
     const bool ok = stopped && publish(context);
@@ -1034,17 +1052,36 @@ bool tdma_service_update_stopped_metadata(tdma_service_service_t *service,
 bool tdma_service_run_stopped_maintenance(tdma_service_service_t *service,
     bool (*maintain)(void *context), void *context)
 {
-    if (service == NULL || maintain == NULL ||
-        !tdma_service_ring_control_lock(service)) return false;
+    if (service == NULL) { tdma_seat_mount_store_note_reject(123u); return false; }
+    if (maintain == NULL) { tdma_seat_mount_store_note_reject(124u); return false; }
+    if (!tdma_service_ring_control_lock(service)) {
+        tdma_seat_mount_store_note_reject(125u); return false;
+    }
     tdma_ring_runtime_snapshot_t snapshot;
-    const bool stopped =
-        __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) == 0u &&
-        tdma_service_ring_retire_stopped(service) &&
-        service->ring_control_pending == TDMA_RING_CONTROL_NONE &&
-        tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) &&
-        snapshot.enabled == 0u && snapshot.adapter_started == 0u &&
-        snapshot.config_seq == snapshot.applied_config_seq &&
-        service->ring_staged_config.geometry_generation == 0u;
+    bool stopped = true;
+    do {
+        if (__atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE) != 0u) {
+            tdma_seat_mount_store_note_reject(131u); stopped = false; break;
+        }
+        if (!tdma_service_ring_retire_stopped(service)) {
+            tdma_seat_mount_store_note_reject(132u); stopped = false; break;
+        }
+        if (service->ring_control_pending != TDMA_RING_CONTROL_NONE) {
+            tdma_seat_mount_store_note_reject(133u); stopped = false; break;
+        }
+        if (!tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot)) {
+            tdma_seat_mount_store_note_reject(134u); stopped = false; break;
+        }
+        if (snapshot.enabled != 0u || snapshot.adapter_started != 0u) {
+            tdma_seat_mount_store_note_reject(135u); stopped = false; break;
+        }
+        if (snapshot.config_seq != snapshot.applied_config_seq) {
+            tdma_seat_mount_store_note_reject(136u); stopped = false; break;
+        }
+        if (service->ring_staged_config.geometry_generation != 0u) {
+            tdma_seat_mount_store_note_reject(137u); stopped = false; break;
+        }
+    } while (0);
     /* Separate from SRAM-only metadata publication: this non-realtime
      * Core0 operation can block on its existing FlashTransaction owner.
      * Core1's flash park acknowledgement never takes ring_control_guard. */

@@ -26,8 +26,15 @@ scpi_result_t scpi_cmd_trigger_action_install(scpi_t *context)
             !scpi_trigger_deployment_u32(context,&r->span_slices))
             return scpi_trigger_grid_result(context,TRIGGER_ACTION_TABLE_ARGUMENT);
     }
-    return scpi_trigger_grid_result(context,scpi_trigger_grid_end(context)?
-        trigger_action_install(&t,crc):TRIGGER_ACTION_TABLE_ARGUMENT);
+    if (!scpi_trigger_grid_end(context)) {
+        tdma_seat_mount_store_note_reject(20u);
+        return scpi_trigger_grid_result(context, TRIGGER_ACTION_TABLE_ARGUMENT);
+    }
+    /* Surface the install verdict on the seat mount status channel so a bench
+     * readout can name the failing check without a new page. */
+    const uint32_t install_result = trigger_action_install(&t, crc);
+    tdma_seat_mount_store_note_reject(20u + install_result);
+    return scpi_trigger_grid_result(context, install_result);
 }
 scpi_result_t scpi_cmd_trigger_action_clear(scpi_t *context)
 {

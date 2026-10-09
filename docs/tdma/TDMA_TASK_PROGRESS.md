@@ -14,6 +14,37 @@ Last updated: 2026-10-09
 历史记录中的预算、节点及门禁描述只代表当时快照，当前口径以最新条目和主域文档为准。
 
 ## 当前 checkpoint
+### TDMA-PROGRESS-20261009-012：席位挂载表全链落地（专用持久化分区 + 运行时窗口判定）
+
+**已实现并硬件验证**：席位作为"容量"、负载挂载于席位的语义以**挂载表**承载
+（`components/tdma/inc/tdma_seat_mount_store.h`：`tdma_seat_mount_table_t`、
+`tdma_seat_mount_crc()`、`_encode`/`_decode`/`_lookup`/`_seat_valid`），
+数据模型与 CRC 已与主机参照实现交叉验证；发布路径只做"**席位 vs 席位**"比较
+（窗口不匹配即让出视图重试），不再表达"负载 = 席位"。
+
+- **持久化载体**：记录经 `flash_store_nvs_plan_append`/两段提交（正文 + 提交页）写入
+  `FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_*` 指向的**专用 `SEAT_MOUNT` 分区**
+  （`config/flash_map_v1_compat.json`、`config/flash_map_v2.json` 新增；
+  `tools/flash_map/flash_map.py` 重新生成）。迁移原因：此前借用 `SCRATCH` 尾部时，
+  记录会在平台/OTA 暂存活动后被擦除（四板实测 `loaded` 由 1 回落为 0）。
+  迁移需同步 OTA 布局断言（`components/ota_manager/inc/ota_partition.h`：
+  OTA 部署布局改为"止于席位挂载分区"）。
+- **耐久性已验证**：四板写入后 `loaded=1`、表项正确；经历一次完整 picotool 烧录 + 验收运行后
+  再次读回仍为 `loaded=1`（开机载入路径 `tdma_seat_mount_store_init()` 位于 TDMA owner 初始化链、
+  ARM 之前）。
+- **配置入口**：`TRIGger:REServation:SEAT:MOUNT <gen>,<crc>,<count>,…`、`:MOUNT?`、`:CLEar`
+  （`middleware/scpi_port/src/scpi_trigger_seat_commands.inc`，含 CRC 校验与参数校验）。
+- **配套修复（使能链阻塞项，均属平台闸门）**：
+  ① `config/flash_raw_call_allowlist.json` 登记新的原始 flash 读取者；
+  ② 构建源码登记（`CMakeLists.txt` 显式列源）；
+  ③ flash 事务 AO 的**来源白名单**（`flash_transaction_ao.c`）需加入席位挂载来源；
+  ④ 事务层按来源的"分区 × 范围 × 长度"规则（`flash_transaction_fb.c`）需为新来源补分支——
+     缺 ③④ 时写入会以 `ERROR_POLICY`/`ERROR_PERMISSION` 静默失败。
+- **可观测性**：为本链路与后续使能链建立了"诊断通道"（复用 `SEAT:MOUNT?` 的 last_reject，
+  基线 + 首个触发者优先），使每一步拒绝原因可一次读出；相关临时插桩需在目标达成后清理或规范化。
+- 备注：本次改动触及 flash 映射与事务层，提交前需按仓库约束跑 P3 硬件验收与文档门禁；
+  进展条目与代码分离提交。
+
 ### TDMA-PROGRESS-20261009-011：分段流式调度**规划层**（已单测，未接物理路径）
 
 **已实现（纯逻辑，主机单测 13 组全过；固件构建 exit 0）**：

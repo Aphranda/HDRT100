@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/README.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-19
+Last updated: 2026-10-09
 
 `docs/tdma/` 维护 TDMA 基础件主域。TDMA 在 HAOFV 中不是 VDC 的内部组件，而是底层确定性通讯与环路反馈基础件。
 
@@ -21,6 +21,7 @@ TDMA 负责 profile/拓扑、固定映像、资源准入、runtime、adapter、�
 | `CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`（校准域） | 多板 SPI CLK 训练、双向测量和校准门禁；TDMA 仅负责 transport/resource integration。 |
 | [TDMA_DOMAIN_TODO.md](TDMA_DOMAIN_TODO.md) | 当前主线、未完成、已完成与退出门禁；保留原 task ID。 |
 | [TDMA_TASK_PROGRESS.md](TDMA_TASK_PROGRESS.md) | 近期原始记录及历史归档索引，失败与回退保留。 |
+| [TDMA_TIMING_REVIEW.md](TDMA_TIMING_REVIEW.md) | 飞行处理与 PIO 时序冗余评审快照；采纳项转入 TODO，不作为契约或实测证据。 |
 | [历史架构](../legacy/tdma/LEGACY_TDMA_DOMAIN_ARCHITECTURE.md) / [历史 TODO](../legacy/tdma/LEGACY_TDMA_DOMAIN_TODO.md) | 重构前快照，不作为当前能力或任务状态。 |
 
 预算和节点数引用当前代码符号；实测以相应源码指纹、profile 和原件为准。基础 quick P3、严格调度、逐圈特等席与 DPLL 精度各自验收，不互相替代。

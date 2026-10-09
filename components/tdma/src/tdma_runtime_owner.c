@@ -56,6 +56,7 @@ static bool s_tdma_runtime_owner_initialized;
 static uint32_t s_tdma_topology_probe_phase_delay_cycles;
 
 #include "tdma_runtime_origin.inc"
+#include "tdma_seat_mount_store.h"
 
 TDMA_ORIGIN_OWNER_RAM
 void tdma_runtime_owner_service_observer(void)
@@ -312,6 +313,9 @@ bool tdma_runtime_owner_init(void)
         tdma_service_bind_traffic_scheduler(&s_tdma_runtime_owner,
                                             &s_tdma_traffic_scheduler) &&
         tdma_pio_spi_ring_adapter_init(&s_tdma_pio_spi_ring_adapter) &&
+        /* Load the persisted load->seat mounting table before the ring can be
+         * armed; an unreadable or absent record leaves every load unmounted. */
+        tdma_seat_mount_store_init() &&
         tdma_pio_spi_ring_adapter_set_forwarding_mode(
             &s_tdma_pio_spi_ring_adapter,
             TDMA_PIO_SPI_RING_FORWARDING_PHYSICAL_FLIGHT) &&

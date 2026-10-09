@@ -5,6 +5,7 @@
 #include "pico.h"
 #include "tdma_runtime_owner.h"
 #include "vdc_timestamp_clock.h"
+#include "tdma_seat_mount_store.h"
 
 static uint32_t s_action_busy;
 static trigger_action_snapshot_t s_action;
@@ -58,19 +59,27 @@ static bool current_binding(trigger_deployment_binding_t *out)
 {
     trigger_deployment_snapshot_t dep;tdma_ring_clock_snapshot_t ring;
     tdma_service_ring_runtime_config_t staged;uint64_t uid;
-    if(trigger_deployment_snapshot(&dep) || !dep.active.valid || !local_uid(&uid) ||
-        !tdma_runtime_owner_get_ring_clock_snapshot(&ring) ||
-        !tdma_runtime_owner_get_staged_ring_config(&staged))return false;
+    /* Split so a bench readout names the failing precondition (temporary). */
+    if(trigger_deployment_snapshot(&dep)){tdma_seat_mount_store_note_reject(61u);return false;}
+    if(!dep.active.valid){tdma_seat_mount_store_note_reject(62u);return false;}
+    if(!local_uid(&uid)){tdma_seat_mount_store_note_reject(63u);return false;}
+    if(!tdma_runtime_owner_get_ring_clock_snapshot(&ring)){tdma_seat_mount_store_note_reject(64u);return false;}
+    if(!tdma_runtime_owner_get_staged_ring_config(&staged)){tdma_seat_mount_store_note_reject(65u);return false;}
     const trigger_deployment_binding_t *b=&dep.active;
-    if(ring.enabled || ring.adapter_started || ring.config_seq!=ring.applied_config_seq ||
-        !staged.enabled || ring.config_seq!=b->ring_config || uid!=b->local_uid ||
-        staged.local_slot_id!=b->local_slot || staged.schedule_crc32!=b->schedule_crc ||
-        trigger_deployment_crc(&b->table)!=b->crc ||
-        (ring.schedule_crc32 && (ring.schedule_crc32!=staged.schedule_crc32 ||
-            ring.local_slot_id!=staged.local_slot_id)))return false;
+    /* Split so a bench readout can name the failing condition (temporary). */
+    if(ring.enabled || ring.adapter_started){tdma_seat_mount_store_note_reject(41u);return false;}
+    if(ring.config_seq!=ring.applied_config_seq){tdma_seat_mount_store_note_reject(42u);return false;}
+    if(!staged.enabled){tdma_seat_mount_store_note_reject(43u);return false;}
+    if(ring.config_seq!=b->ring_config){tdma_seat_mount_store_note_reject(44u);return false;}
+    if(uid!=b->local_uid){tdma_seat_mount_store_note_reject(45u);return false;}
+    if(staged.local_slot_id!=b->local_slot){tdma_seat_mount_store_note_reject(46u);return false;}
+    if(staged.schedule_crc32!=b->schedule_crc){tdma_seat_mount_store_note_reject(47u);return false;}
+    if(trigger_deployment_crc(&b->table)!=b->crc){tdma_seat_mount_store_note_reject(48u);return false;}
+    if(ring.schedule_crc32 && (ring.schedule_crc32!=staged.schedule_crc32 ||
+        ring.local_slot_id!=staged.local_slot_id)){tdma_seat_mount_store_note_reject(49u);return false;}
     trigger_deployment_row_t row;
     if(trigger_deployment_resolve(&b->table,b->local_role,uid,staged.local_slot_id,
-            PROJECT_NODE_CAPACITY,&row))return false;
+            PROJECT_NODE_CAPACITY,&row)){tdma_seat_mount_store_note_reject(50u);return false;}
     *out=*b;return true;
 }
 typedef struct {

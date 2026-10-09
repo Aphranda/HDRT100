@@ -11,11 +11,22 @@
     {
       "file": "bootloader/src/bootloader_main.c",
       "owner": "Bootloader",
-      "contexts": ["boot"],
+      "contexts": [
+        "boot"
+      ],
       "core": "boot_context",
-      "modes": ["boot", "recovery"],
-      "partitions": ["v1_slot_a", "v1_slot_b"],
-      "operations": ["read", "xip_ptr"],
+      "modes": [
+        "boot",
+        "recovery"
+      ],
+      "partitions": [
+        "v1_slot_a",
+        "v1_slot_b"
+      ],
+      "operations": [
+        "read",
+        "xip_ptr"
+      ],
       "write_frequency": "firmware_update_or_recovery",
       "power_cut_semantics": "metadata_selects_only_verified_complete_image",
       "target_api": "BootFlashService"
@@ -23,11 +34,24 @@
     {
       "file": "components/flash_transaction/src/flash_transaction_ao.c",
       "owner": "FlashTransactionAO",
-      "contexts": ["app"],
+      "contexts": [
+        "app"
+      ],
       "core": "core0",
-      "modes": ["idle", "maintenance"],
-      "partitions": ["active_inactive_slot", "active_product_config", "v2_ota_journal"],
-      "operations": ["erase", "program", "xip_ptr"],
+      "modes": [
+        "idle",
+        "maintenance"
+      ],
+      "partitions": [
+        "active_inactive_slot",
+        "active_product_config",
+        "v2_ota_journal"
+      ],
+      "operations": [
+        "erase",
+        "program",
+        "xip_ptr"
+      ],
       "write_frequency": "firmware_update_or_operator_configuration_change",
       "power_cut_semantics": "requester_specific_commit_after_readback_verify",
       "target_api": "FlashTransactionAO"
@@ -35,11 +59,23 @@
     {
       "file": "middleware/portable_ota_port/src/portable_ota_image_port.c",
       "owner": "OtaImageVerifier",
-      "contexts": ["app", "boot"],
+      "contexts": [
+        "app",
+        "boot"
+      ],
       "core": "core0_or_boot_context",
-      "modes": ["boot", "idle", "maintenance"],
-      "partitions": ["v1_slot_a", "v1_slot_b"],
-      "operations": ["read"],
+      "modes": [
+        "boot",
+        "idle",
+        "maintenance"
+      ],
+      "partitions": [
+        "v1_slot_a",
+        "v1_slot_b"
+      ],
+      "operations": [
+        "read"
+      ],
       "write_frequency": "read_only",
       "power_cut_semantics": "read_only",
       "target_api": "FlashMapReadView"
@@ -47,11 +83,20 @@
     {
       "file": "middleware/portable_ota_port/src/portable_ota_core_port.c",
       "owner": "OtaStreamReadView",
-      "contexts": ["app"],
+      "contexts": [
+        "app"
+      ],
       "core": "core0",
-      "modes": ["idle", "maintenance"],
-      "partitions": ["v1_inactive_slot"],
-      "operations": ["read"],
+      "modes": [
+        "idle",
+        "maintenance"
+      ],
+      "partitions": [
+        "v1_inactive_slot"
+      ],
+      "operations": [
+        "read"
+      ],
       "write_frequency": "read_only",
       "power_cut_semantics": "readback_verifies_programmed_chunk",
       "target_api": "FlashMapReadView"
@@ -59,11 +104,24 @@
     {
       "file": "bootloader/src/boot_flash_service.c",
       "owner": "BootFlashService",
-      "contexts": ["boot"],
+      "contexts": [
+        "boot"
+      ],
       "core": "core0_or_boot_context",
-      "modes": ["boot", "idle", "maintenance"],
-      "partitions": ["v1_slot_a", "v1_slot_b", "v1_ota_metadata"],
-      "operations": ["erase", "program"],
+      "modes": [
+        "boot",
+        "idle",
+        "maintenance"
+      ],
+      "partitions": [
+        "v1_slot_a",
+        "v1_slot_b",
+        "v1_ota_metadata"
+      ],
+      "operations": [
+        "erase",
+        "program"
+      ],
       "write_frequency": "boot_state_transition_or_firmware_update",
       "power_cut_semantics": "redundant_copy_sequence_crc_then_newest_valid",
       "target_api": "BootFlashService"
@@ -71,11 +129,20 @@
     {
       "file": "components/ota_manager/src/ota_journal.c",
       "owner": "OtaJournalReadView",
-      "contexts": ["app"],
+      "contexts": [
+        "app"
+      ],
       "core": "core0",
-      "modes": ["idle", "maintenance"],
-      "partitions": ["v2_ota_journal"],
-      "operations": ["read"],
+      "modes": [
+        "idle",
+        "maintenance"
+      ],
+      "partitions": [
+        "v2_ota_journal"
+      ],
+      "operations": [
+        "read"
+      ],
       "write_frequency": "read_only",
       "power_cut_semantics": "select_latest_crc_and_commit_valid_checkpoint",
       "target_api": "FlashMapReadView"
@@ -83,11 +150,22 @@
     {
       "file": "components/ota_manager/src/ota_metadata_flash_read.c",
       "owner": "OtaMetadataReadView",
-      "contexts": ["app", "boot"],
+      "contexts": [
+        "app",
+        "boot"
+      ],
       "core": "core0_or_boot_context",
-      "modes": ["boot", "idle", "maintenance"],
-      "partitions": ["v1_ota_metadata"],
-      "operations": ["read"],
+      "modes": [
+        "boot",
+        "idle",
+        "maintenance"
+      ],
+      "partitions": [
+        "v1_ota_metadata"
+      ],
+      "operations": [
+        "read"
+      ],
       "write_frequency": "read_only",
       "power_cut_semantics": "read_only",
       "target_api": "FlashMapReadView"
@@ -95,11 +173,20 @@
     {
       "file": "components/product_config/src/product_config.c",
       "owner": "ProductConfigReadView",
-      "contexts": ["app"],
+      "contexts": [
+        "app"
+      ],
       "core": "core0",
-      "modes": ["idle", "maintenance"],
-      "partitions": ["v1_product_config"],
-      "operations": ["read"],
+      "modes": [
+        "idle",
+        "maintenance"
+      ],
+      "partitions": [
+        "v1_product_config"
+      ],
+      "operations": [
+        "read"
+      ],
       "write_frequency": "read_only",
       "power_cut_semantics": "read_only",
       "target_api": "FlashMapReadView"
@@ -107,11 +194,21 @@
     {
       "file": "components/calibration_manager/src/calibration_training_store.c",
       "owner": "CalibrationStoreReadView",
-      "contexts": ["app"],
+      "contexts": [
+        "app"
+      ],
       "core": "core0",
-      "modes": ["idle", "maintenance"],
-      "partitions": ["v1_product_nvs_calibration_compat", "v2_calibration_nvs"],
-      "operations": ["xip_ptr"],
+      "modes": [
+        "idle",
+        "maintenance"
+      ],
+      "partitions": [
+        "v1_product_nvs_calibration_compat",
+        "v2_calibration_nvs"
+      ],
+      "operations": [
+        "xip_ptr"
+      ],
       "write_frequency": "read_only",
       "power_cut_semantics": "select_latest_version_crc_and_commit_valid_matrix",
       "target_api": "FlashMapReadView"
@@ -119,21 +216,93 @@
     {
       "file": "middleware/scpi_port/src/scpi_system_diagnostics_commands.c",
       "owner": "FlashValidationService",
-      "contexts": ["app"],
+      "contexts": [
+        "app"
+      ],
       "core": "core0",
-      "modes": ["maintenance"],
-      "partitions": ["scratch"],
-      "operations": ["xip_ptr"],
+      "modes": [
+        "maintenance"
+      ],
+      "partitions": [
+        "scratch"
+      ],
+      "operations": [
+        "xip_ptr"
+      ],
       "write_frequency": "operator_validation_only",
       "power_cut_semantics": "validation_must_restore_scratch_before_success",
       "target_api": "FlashTransactionAO"
+    },
+    {
+      "file": "components/tdma/src/tdma_seat_mount_store.c",
+      "owner": "TdmaSeatMountStoreReadView",
+      "contexts": [
+        "app"
+      ],
+      "core": "core0",
+      "modes": [
+        "idle",
+        "maintenance"
+      ],
+      "partitions": [
+        "v1_product_nvs_calibration_compat",
+        "v2_calibration_nvs"
+      ],
+      "operations": [
+        "xip_ptr"
+      ],
+      "write_frequency": "read_only",
+      "power_cut_semantics": "select_latest_version_crc_and_commit_valid_matrix",
+      "target_api": "FlashMapReadView"
     }
   ],
   "legacy_address_dependencies": [
-    {"file": "components/ota_manager/inc/ota_partition.h", "expected": ["flash_deployment_map.h", "FLASH_DEPLOYMENT_MAP_APP_A_OFFSET", "FLASH_DEPLOYMENT_MAP_APP_B_OFFSET", "FLASH_DEPLOYMENT_MAP_BOOT_CONTROL_OFFSET"]},
-    {"file": "linker/rp2350_bootloader.ld", "expected": ["INCLUDE flash_map_active.ldinc", "FLASH_ACTIVE_MAP_BOOTLOADER_ORIGIN", "FLASH_ACTIVE_MAP_BOOTLOADER_LENGTH", "FLASH_IMAGE_ORIGIN", "FLASH_IMAGE_LENGTH"]},
-    {"file": "linker/rp2350_app_slot_a.ld", "expected": ["INCLUDE flash_map_active.ldinc", "FLASH_ACTIVE_MAP_APP_A_ORIGIN", "FLASH_ACTIVE_MAP_APP_A_LENGTH"]},
-    {"file": "linker/rp2350_app_slot_b.ld", "expected": ["INCLUDE flash_map_active.ldinc", "FLASH_ACTIVE_MAP_APP_B_ORIGIN", "FLASH_ACTIVE_MAP_APP_B_LENGTH"]},
-    {"file": "CMakeLists.txt", "expected": ["PROJECT_FLASH_DEPLOYMENT_MAP v1_compat", "PROJECT_FACTORY_MIGRATION_BUILD", "PROJECT_ACTIVE_BOOTLOADER_XIP", "PROJECT_ACTIVE_APP_A_XIP", "PROJECT_ACTIVE_BOOT_CONTROL_XIP", "PROJECT_ACTIVE_RECOVERY_XIP", "--map-manifest"]}
+    {
+      "file": "components/ota_manager/inc/ota_partition.h",
+      "expected": [
+        "flash_deployment_map.h",
+        "FLASH_DEPLOYMENT_MAP_APP_A_OFFSET",
+        "FLASH_DEPLOYMENT_MAP_APP_B_OFFSET",
+        "FLASH_DEPLOYMENT_MAP_BOOT_CONTROL_OFFSET"
+      ]
+    },
+    {
+      "file": "linker/rp2350_bootloader.ld",
+      "expected": [
+        "INCLUDE flash_map_active.ldinc",
+        "FLASH_ACTIVE_MAP_BOOTLOADER_ORIGIN",
+        "FLASH_ACTIVE_MAP_BOOTLOADER_LENGTH",
+        "FLASH_IMAGE_ORIGIN",
+        "FLASH_IMAGE_LENGTH"
+      ]
+    },
+    {
+      "file": "linker/rp2350_app_slot_a.ld",
+      "expected": [
+        "INCLUDE flash_map_active.ldinc",
+        "FLASH_ACTIVE_MAP_APP_A_ORIGIN",
+        "FLASH_ACTIVE_MAP_APP_A_LENGTH"
+      ]
+    },
+    {
+      "file": "linker/rp2350_app_slot_b.ld",
+      "expected": [
+        "INCLUDE flash_map_active.ldinc",
+        "FLASH_ACTIVE_MAP_APP_B_ORIGIN",
+        "FLASH_ACTIVE_MAP_APP_B_LENGTH"
+      ]
+    },
+    {
+      "file": "CMakeLists.txt",
+      "expected": [
+        "PROJECT_FLASH_DEPLOYMENT_MAP v1_compat",
+        "PROJECT_FACTORY_MIGRATION_BUILD",
+        "PROJECT_ACTIVE_BOOTLOADER_XIP",
+        "PROJECT_ACTIVE_APP_A_XIP",
+        "PROJECT_ACTIVE_BOOT_CONTROL_XIP",
+        "PROJECT_ACTIVE_RECOVERY_XIP",
+        "--map-manifest"
+      ]
+    }
   ]
 }

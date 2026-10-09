@@ -311,14 +311,34 @@
     {
       "alignment": 4096,
       "executable": false,
-      "id": "FUTURE_POOL",
+      "id": "SEAT_MOUNT",
       "offset": 12845056,
+      "permissions": {
+        "app": [
+          "read",
+          "write"
+        ],
+        "boot": [],
+        "factory": [
+          "read",
+          "write"
+        ]
+      },
+      "size": 8192,
+      "store_type": "nvs",
+      "update_policy": "legacy_single_sector_rewrite"
+    },
+    {
+      "alignment": 4096,
+      "executable": false,
+      "id": "FUTURE_POOL",
+      "offset": 12853248,
       "permissions": {
         "app": [],
         "boot": [],
         "factory": []
       },
-      "size": 3932160,
+      "size": 3923968,
       "store_type": "reserved",
       "update_policy": "map_revision_only"
     }

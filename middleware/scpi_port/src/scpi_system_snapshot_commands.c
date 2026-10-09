@@ -37,6 +37,8 @@
 #include "scpi_trigger_deployment_commands.inc"
 #include "scpi_trigger_template_commands.inc"
 #include "scpi_trigger_t2_runtime_commands.inc"
+#include "tdma_seat_mount_store.h"
+#include "scpi_trigger_seat_commands.inc"
 
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u
 #define SCPI_TDMA_FIFO_RESET_WAIT_LOOPS 100u

@@ -347,6 +347,24 @@ static bool tdma_pio_spi_ring_origin_publish_async(tdma_pio_spi_ring_adapter_t *
 static uint32_t s_origin_schedule_allow_total;
 static uint32_t s_origin_schedule_block_total;
 
+
+#if TDMA_LOOP_SCHEDULE_ENABLED
+#include "tdma_seat_mount_store.h"
+
+/* A load rides a seat: the seat is the capacity, the load is what is mounted on
+ * it. This map names the mounting, so the publisher compares seat against seat
+ * and never equates a load with a seat. An unmounted load takes no seat and is
+ * left unconstrained here. */
+static tdma_loop_slot_class_t tdma_pio_spi_ring_origin_load_seat(uint8_t message_class)
+{
+    /* The mounting comes from the persisted seat mount table, never from a
+     * hard-coded class list: an unloaded or unmounted load takes no seat. */
+    tdma_seat_mount_table_t table;
+    if (!tdma_seat_mount_store_get(&table)) return TDMA_LOOP_SLOT_NONE;
+    return tdma_seat_mount_lookup(&table, message_class);
+}
+#endif
+
 static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
     tdma_pio_spi_ring_adapter_t *adapter, bool *handled)
 {
@@ -446,6 +464,25 @@ static bool tdma_pio_spi_ring_origin_publish(tdma_pio_spi_ring_adapter_t *adapte
     if (!tdma_process_image_flight_class_valid(mailbox[3]) ||
         !tdma_pio_spi_ring_origin_mailbox_valid(mailbox, adapter->config.local_slot_id,
             (1u << adapter->config.node_count) - 1u)) return false;
+
+#if TDMA_LOOP_SCHEDULE_ENABLED
+    /* Publish only in the window of the seat this load is mounted on; otherwise
+     * return true to defer (the acquired view stays valid for retry). */
+    {
+        const tdma_loop_slot_class_t load_seat =
+            tdma_pio_spi_ring_origin_load_seat(mailbox[3]);
+        if (load_seat != TDMA_LOOP_SLOT_NONE) {
+            tdma_loop_plan_request_t plan_request;
+            tdma_loop_plan_t plan;
+            tdma_loop_plan_default_request(&plan_request, true, true, false);
+            (void)tdma_loop_plan(&plan_request, &plan);
+            if (tdma_loop_plan_slot_for_index(&plan, adapter->origin.boundary.sequence,
+                    adapter->config.cycle_period_ns) != load_seat)
+                return true;
+        }
+    }
+#endif
+
     const tdma_flight_engine_apply_t applied = {
         .output_segment_mask = layout.output_segment_mask,
         .output_bytes = TDMA_FLIGHT_SHORT_SLOT_SIZE,

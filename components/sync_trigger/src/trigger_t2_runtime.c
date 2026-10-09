@@ -12,6 +12,7 @@
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico/platform.h"
+#include "tdma_seat_mount_store.h"
 #define T2_HOT(name) __not_in_flash_func(name)
 #else
 #define T2_HOT(name) name
@@ -454,15 +455,31 @@ static T2_BOUNDED void service_deadlines(bool cursor_valid)
 
 bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
 {
-    if (!config || !trigger_time_grid_valid(&config->grid) ||
-        !trigger_turntable_predictor_config_valid(&config->predictor) ||
-        trigger_deployment_validate(&config->deployment, UINT32_MAX) !=
-            TRIGGER_DEPLOYMENT_OK || !config->run_id ||
-        config->source_slot >= TRIGGER_POSITION_DESCRIPTOR_NODE_COUNT ||
-        !config->target_mask || !config->descriptor_window_sync ||
-        trigger_action_template_table_validate(
+    /* Split so a bench readout names the rejected condition (temporary). */
+    if (!config) { tdma_seat_mount_store_note_reject(140u); return false; }
+    if (!trigger_time_grid_valid(&config->grid)) {
+        tdma_seat_mount_store_note_reject(141u); return false;
+    }
+    if (!trigger_turntable_predictor_config_valid(&config->predictor)) {
+        tdma_seat_mount_store_note_reject(142u); return false;
+    }
+    if (trigger_deployment_validate(&config->deployment, UINT32_MAX) !=
+        TRIGGER_DEPLOYMENT_OK) {
+        tdma_seat_mount_store_note_reject(143u); return false;
+    }
+    if (!config->run_id) { tdma_seat_mount_store_note_reject(144u); return false; }
+    if (config->source_slot >= TRIGGER_POSITION_DESCRIPTOR_NODE_COUNT) {
+        tdma_seat_mount_store_note_reject(145u); return false;
+    }
+    if (!config->target_mask) { tdma_seat_mount_store_note_reject(146u); return false; }
+    if (!config->descriptor_window_sync) {
+        tdma_seat_mount_store_note_reject(147u); return false;
+    }
+    if (trigger_action_template_table_validate(
             &config->templates, &config->deployment, config->template_crc) !=
-            TRIGGER_ACTION_TEMPLATE_TABLE_OK) return false;
+        TRIGGER_ACTION_TEMPLATE_TABLE_OK) {
+        tdma_seat_mount_store_note_reject(148u); return false;
+    }
     if (s_state.active) return false;
     uint32_t local_count = 0u;
     trigger_action_template_t local = {0};

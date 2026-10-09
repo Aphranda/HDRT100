@@ -1,4 +1,5 @@
 #include "trigger_action_template_store.h"
+#include "tdma_seat_mount_store.h"
 
 static void scpi_trigger_template_row(scpi_t *context,
     const trigger_action_template_t *r)
@@ -35,8 +36,10 @@ scpi_result_t scpi_cmd_trigger_template_install(scpi_t *context)
     }
     if(!scpi_trigger_grid_end(context))
         return scpi_trigger_grid_result(context,TRIGGER_ACTION_TEMPLATE_STORE_CHANGED);
-    return scpi_trigger_grid_result(context,
-        trigger_action_template_install(&t,crc));
+    const uint32_t template_result = trigger_action_template_install(&t, crc);
+    /* Surface the verdict on the seat mount status channel for bench readout. */
+    tdma_seat_mount_store_note_reject(70u + template_result);
+    return scpi_trigger_grid_result(context, template_result);
 }
 
 scpi_result_t scpi_cmd_trigger_template_clear(scpi_t *context)
@@ -47,8 +50,10 @@ scpi_result_t scpi_cmd_trigger_template_clear(scpi_t *context)
 
 scpi_result_t scpi_cmd_trigger_template_activate(scpi_t *context)
 {
-    return scpi_trigger_grid_result(context,scpi_trigger_grid_end(context)?
-        trigger_action_template_activate_resources():TRIGGER_ACTION_TEMPLATE_STORE_CHANGED);
+    const uint32_t activate_result = scpi_trigger_grid_end(context)?
+        trigger_action_template_activate_resources():TRIGGER_ACTION_TEMPLATE_STORE_CHANGED;
+    tdma_seat_mount_store_note_reject(80u + activate_result);
+    return scpi_trigger_grid_result(context, activate_result);
 }
 
 scpi_result_t scpi_cmd_trigger_template_release(scpi_t *context)

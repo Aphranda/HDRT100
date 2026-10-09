@@ -4,13 +4,60 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-09-27
+Last updated: 2026-10-09
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20261009-021：使能链逐环打通至 `T2:CONFigure` 成功（发布仍受飞行 FIFO 静止条件阻塞）
+
+- TODO task ID：T2-DEPLOY-002、T2-EXEC-001、T2-SLOT-GATEWAY-001、T2-ACCEPT-001。
+- 本轮定位并逐环打通了"从加载到 T2 运行"的完整前置链，全部以硬件读回为证据（不再依赖推断）：
+
+**1. 网格**：`GRID:CONFigure` 被拒的根因是 `subdivisions` 必须 ≥ 2
+（`trigger_time_grid_valid()` 要求 `epoch && generation && subdivisions >= 2 && period_ns >= subdivisions`）。
+修正后 `GRID?` 显示 configured=1、period=1 ms、subdivisions=2。
+
+**2. 部署**：`DEPloyment:STAGe`/`:ACTivate` 的 CRC 由 `trigger_deployment_crc()` 生成，主机实现与设备一致
+（设备直接接受并在 `DEPloyment?` 回显该 CRC）⇒ 部署 staged+active 成立。
+
+**3. 动作表**：安装校验包含两道独立闸门，二者都需满足
+（`flash_transaction` 层与动作层）：`trigger_action_table_validate()` 要求
+**动作行 `role` 等于本板 `binding.local_role`**，因此必须**逐板、按本板角色**构造动作表；
+且 COUNTER 板（NO1）无对应 `kind`（`SWITCH_CODE`/`GATEWAY_PULSE`），其动作安装被 ROLE 拒绝，符合"COUNTER 只观察"。
+
+**4. 模板库（此前完全缺失的一环）**：`T2:CONFigure` 的前置不是动作运行时，而是**独立的动作模板库**
+`trigger_action_template_store`（命令族 `TRIGger:REServation:TEMPLate:{INSTall,CLEar,ACTivate,RELease,?}`）。
+`TEMPLate:INSTall` 的 CRC 由 `trigger_action_template_table_crc()` 生成（header 两字 + 每行
+`template_id,generation,role,kind,argument,span_slices,delta_q` 两个 32 位字），主机实现经设备验证为 OK；
+随后 `TEMPLate:ACTivate` 置 `resources_loaded`/`binding_current`。
+
+**5. 停机维护窗口**：`T2:CONFigure` 经 `tdma_service_run_stopped_maintenance()` 落地；
+该函数要求"环未使能、适配器未启动、配置已应用、无挂起停机元数据更新/环控制、且
+`ring_staged_config.geometry_generation == 0`"。注意与第 3/4 步**存在时序张力**：
+绑定成立需要 staged 环配置，而维护窗口要求 staged 几何已消费 ⇒ 需在同一停机窗口内按序完成。
+
+**6. 预测器取值规则**：`trigger_turntable_predictor_config_valid()` 要求
+`pulses_per_degree`、**`pre_roll_mdeg` 与 `post_roll_mdeg` 均非零**、
+`start_angle_mdeg <= zero_angle_mdeg <= terminal_angle_mdeg`、`0 < threshold_per_mille < 1000`。
+此前 `T2:CONFigure` 一直失败的直接原因即 roll 为 0。
+
+**7. 结果**：修正预测器参数后，三块执行板（NO2 SWITCH_A / NO3 GATEWAY / NO4 SWITCH_B）
+`T2:CONFigure` **成功**，`T2?` 的 `configured = 1`（NO1 因 COUNTER 无模板未配置，符合预期）。
+
+**8. 当前唯一阻塞**：`T2:STARt` 的准入第二条 `distributed_refmem_reset_position_stopped()` 返回 false
+（`scpi_t2_update_stopped()` operation=1 路径）——该函数要求环未使能/适配器未启动/配置已应用、
+飞行 FIFO `tx_ready_count == 0 && tx_active_generation == 0 && rx_parse_count == rx_queued_count`、
+且本地与各节点位置邮箱不处于 WRITING/READING。实测在"复位后未启环"的静止态下仍不满足
+⇒ **位置帧发布（`SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 的计数推进）尚未观测到**，为下一步唯一待办。
+
+- 证据与可复现手段：本轮为使能链每一环建立了"诊断通道"（复用席位挂载状态查询
+  `TRIGger:REServation:SEAT:MOUNT?` 的 last_reject 字段，采用"基线 + 首个触发者优先"语义），
+  可一次读出拒绝原因；相关临时插桩需在目标达成后清理或规范化为正式诊断。
+- 台架：四板在线；硬件验收跑（含 1 ms DPLL 60 s）多次 PASS，构建 `flash_link_contract=OK`。
 
 ### T2-PROGRESS-20260927-020：本地提前动作后端与隔离模拟源接线
 

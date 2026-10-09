@@ -2,6 +2,7 @@
 #include "trigger_deployment_service.h"
 #include "trigger_grid_preview.h"
 #include "trigger_t2_runtime.h"
+#include "tdma_seat_mount_store.h"
 
 typedef struct {
     const trigger_t2_runtime_config_t *config;
@@ -12,12 +13,24 @@ typedef struct {
 static bool scpi_t2_update_stopped(void *context)
 {
     const scpi_t2_stopped_request_t *r=context;
-    if (r->operation==0u) return trigger_t2_runtime_configure(r->config);
+    if (r->operation==0u) {
+        const bool ok = trigger_t2_runtime_configure(r->config);
+        uint32_t cur = 0u, cur_gen = 0u;
+        tdma_seat_mount_store_status(&cur, &cur_gen);
+        if (cur == 90u) tdma_seat_mount_store_note_reject(ok ? 100u : 101u);
+        return ok;
+    }
     if (r->operation==1u) {
         trigger_t2_runtime_snapshot_t state;
-        if (!trigger_t2_runtime_snapshot(&state) || !state.configured || state.active ||
-            !distributed_refmem_reset_position_stopped()) return false;
-        return trigger_t2_runtime_start(r->count_epoch,r->origin_count);
+        if (!trigger_t2_runtime_snapshot(&state) || !state.configured || state.active) {
+            tdma_seat_mount_store_note_reject(151u); return false;
+        }
+        if (!distributed_refmem_reset_position_stopped()) {
+            tdma_seat_mount_store_note_reject(152u); return false;
+        }
+        const bool started = trigger_t2_runtime_start(r->count_epoch,r->origin_count);
+        if (!started) tdma_seat_mount_store_note_reject(153u);
+        return started;
     }
     trigger_t2_runtime_stop();
     return true;
@@ -25,8 +38,12 @@ static bool scpi_t2_update_stopped(void *context)
 
 static bool scpi_t2_stopped(scpi_t2_stopped_request_t *request)
 {
-    return tdma_service_run_stopped_maintenance(tdma_runtime_owner_get(),
+    const bool ran = tdma_service_run_stopped_maintenance(tdma_runtime_owner_get(),
         scpi_t2_update_stopped,request);
+    uint32_t seen = 0u, seen_gen = 0u;
+    tdma_seat_mount_store_status(&seen, &seen_gen);
+    if (!ran && seen == 90u) tdma_seat_mount_store_note_reject(102u);
+    return ran;
 }
 
 static scpi_result_t scpi_trigger_t2_fail(scpi_t *context)
@@ -36,6 +53,9 @@ static scpi_result_t scpi_trigger_t2_fail(scpi_t *context)
 
 scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
 {
+    /* Arm the diagnostic channel: the first code written after this baseline
+     * is the real cause; later writes (e.g. the generic 102) must not mask it. */
+    tdma_seat_mount_store_note_reject(90u);
     uint64_t run_id, source_slot, target_mask, origin;
     uint64_t pre_roll, post_roll, threshold;
     int32_t start_angle, zero_angle, terminal_angle;
@@ -54,11 +74,19 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
     trigger_grid_preview_snapshot_t grid;
     trigger_deployment_snapshot_t deployment;
     trigger_action_template_store_snapshot_t templates;
-    if (trigger_grid_preview_snapshot(&grid) || !grid.configured ||
-        trigger_deployment_snapshot(&deployment) || !deployment.active.valid ||
-        trigger_action_template_snapshot(&templates) || !templates.installed ||
-        !templates.resources_loaded || !templates.binding_current)
+    if (trigger_grid_preview_snapshot(&grid) || !grid.configured) {
+        tdma_seat_mount_store_note_reject(91u);
         return scpi_trigger_t2_fail(context);
+    }
+    if (trigger_deployment_snapshot(&deployment) || !deployment.active.valid) {
+        tdma_seat_mount_store_note_reject(92u);
+        return scpi_trigger_t2_fail(context);
+    }
+    if (trigger_action_template_snapshot(&templates) || !templates.installed ||
+        !templates.resources_loaded || !templates.binding_current) {
+        tdma_seat_mount_store_note_reject(93u);
+        return scpi_trigger_t2_fail(context);
+    }
 
     trigger_t2_runtime_config_t config={0};
     config.grid=grid.grid;
@@ -87,6 +115,7 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
 
 scpi_result_t scpi_cmd_trigger_t2_start(scpi_t *context)
 {
+    tdma_seat_mount_store_note_reject(90u);
     uint64_t count_epoch, origin_count;
     if (!scpi_trigger_grid_uint(context, UINT32_MAX, &count_epoch) ||
         !scpi_trigger_grid_uint(context, UINT64_MAX, &origin_count) ||

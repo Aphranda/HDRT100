@@ -9,6 +9,7 @@
 #include "pico.h"
 #include "sync_trigger.h"
 #include "tdma_runtime_owner.h"
+#include "tdma_seat_mount_store.h"
 
 static uint32_t s_deployment_busy;
 static trigger_deployment_snapshot_t s_deployment;
@@ -50,13 +51,18 @@ static bool deployment_idle(tdma_ring_clock_snapshot_t *ring,
     tdma_ring_clock_snapshot_t after;
     sync_trigger_status_t trigger;
     sync_trigger_get_status(&trigger);
-    return trigger.state == TRIG_STATE_IDLE &&
-        tdma_runtime_owner_get_ring_clock_snapshot(ring) && !ring->enabled &&
-        !ring->adapter_started && ring->config_seq == ring->applied_config_seq &&
-        tdma_runtime_owner_get_staged_ring_config(staged) && staged->enabled &&
-        tdma_runtime_owner_get_ring_clock_snapshot(&after) && !after.enabled &&
-        !after.adapter_started && after.config_seq == after.applied_config_seq &&
-        after.config_seq == ring->config_seq;
+    /* Split so a bench readout names the failing idle condition (temporary). */
+    if (trigger.state != TRIG_STATE_IDLE) { tdma_seat_mount_store_note_reject(51u); return false; }
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(ring)) { tdma_seat_mount_store_note_reject(52u); return false; }
+    if (ring->enabled) { tdma_seat_mount_store_note_reject(53u); return false; }
+    if (ring->adapter_started) { tdma_seat_mount_store_note_reject(54u); return false; }
+    if (ring->config_seq != ring->applied_config_seq) { tdma_seat_mount_store_note_reject(55u); return false; }
+    if (!tdma_runtime_owner_get_staged_ring_config(staged)) { tdma_seat_mount_store_note_reject(56u); return false; }
+    if (!staged->enabled) { tdma_seat_mount_store_note_reject(57u); return false; }
+    if (!tdma_runtime_owner_get_ring_clock_snapshot(&after) || after.enabled ||
+        after.adapter_started || after.config_seq != after.applied_config_seq ||
+        after.config_seq != ring->config_seq) { tdma_seat_mount_store_note_reject(58u); return false; }
+    return true;
 }
 
 static bool tables_equal(const trigger_deployment_t *a, const trigger_deployment_t *b)

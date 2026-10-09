@@ -30,8 +30,9 @@
      (slot == OTA_SLOT_A ? 4u : 2u) * OTA_SLOT_MANIFEST_LANE_SIZE)
 #define OTA_SLOT_MANIFEST_LANE_BYTES     (2u * OTA_SLOT_MANIFEST_LANE_SIZE)
 
-_Static_assert((OTA_SCRATCH_OFFSET + OTA_SCRATCH_SIZE) == OTA_DEPLOYMENT_LAYOUT_SIZE,
-               "OTA deployment layout must end at Future Pool");
+_Static_assert((OTA_SCRATCH_OFFSET + OTA_SCRATCH_SIZE) ==
+                   FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_OFFSET,
+               "OTA deployment layout must end at the seat mount store");
 _Static_assert(OTA_DEPLOYMENT_LAYOUT_SIZE <= OTA_FLASH_SIZE_BYTES,
                "OTA layout exceeds physical flash");
 

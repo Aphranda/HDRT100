@@ -2098,6 +2098,10 @@ def run_four_board_dpll_short(
     scope_enabled = discovery["present"] is True
     seconds = int(config["dpll_short_seconds"])
     joint_dir = out_dir / "dpll-four-board-short"
+    pre_capture = os.environ.get("HAOFV_PRE_CAPTURE_COMMAND", "").strip()
+    if pre_capture:
+        print(f"Hardware acceptance: pre-capture hook: {pre_capture}", flush=True)
+        subprocess.run(pre_capture, shell=True, cwd=str(root), check=False)
     command = [
         sys.executable,
         str(root / "tools/vdc_priority_trace/vdc_priority_joint_capture.py"),
@@ -3789,6 +3793,35 @@ def _latest_trn03_matrix(root: Path) -> Path:
     return candidates[-1].resolve()
 
 
+def run_t2_acceptance(args: argparse.Namespace) -> None:
+    """T2 publication acceptance.
+
+    Enables the T2 runtime on the bench ring (grid -> deployment -> action table
+    (per board role) -> template store -> flight fifo reset -> source counter ->
+    T2 configure/start) and samples the publication counters. The criterion is
+    the position publication count advancing, not the DPLL cleanliness metrics.
+    """
+    import subprocess as _subprocess
+    import time as _time
+    import json as _json
+    root = Path(__file__).resolve().parents[2]
+    stamp = _time.strftime("%Y%m%d-%H%M%S")
+    out_dir = root / "out" / "HardwareAcceptance" / _time.strftime("%Y%m%d") / f"t2-{stamp}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    log_path = out_dir / "t2-enable.log"
+    command = [sys.executable, str(root / "tools/sync_trigger/t2_enable.py"), "--full"]
+    print(f"T2 acceptance: enablement -> {log_path}", flush=True)
+    with log_path.open("w", encoding="utf-8") as handle:
+        _subprocess.run(command, cwd=str(root), stdout=handle, stderr=_subprocess.STDOUT,
+                        check=False)
+    lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    report = dict(schema="HAOFV_T2_ACCEPTANCE_V1", stamp=stamp, enablement=lines[-16:])
+    (out_dir / "report.json").write_text(_json.dumps(report, indent=2), encoding="utf-8")
+    for line in lines[-16:]:
+        print(f"T2 acceptance: {line}", flush=True)
+    print(f"T2 acceptance: report -> {out_dir / 'report.json'}", flush=True)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -3873,11 +3906,20 @@ def parse_args() -> argparse.Namespace:
     limited.add_argument("--package", required=True, type=Path)
     limited.add_argument("--ota-summary", required=True, type=Path)
     limited.add_argument("--p3-summary", required=True, type=Path)
+    t2_parser = subparsers.add_parser(
+        "t2", help="T2 publication acceptance (enable T2 and sample publication)")
+    t2_parser.add_argument("--flash", choices=("ota", "picotool"), default="picotool")
+    t2_parser.set_defaults(func=run_t2_acceptance)
     return parser.parse_args()
+
+
 
 
 def main() -> int:
     args = parse_args()
+    if getattr(args, "command", "") == "t2":
+        run_t2_acceptance(args)
+        return 0
     try:
         if args.command in ("run", "resume"):
             run_acceptance(args)
