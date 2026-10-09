@@ -139,4 +139,63 @@ bool tdma_seat_admission_revoke(tdma_seat_admission_t *seat,
 tdma_seat_result_t tdma_seat_admission_expire(tdma_seat_admission_t *seat,
     uint64_t now_ns);
 
+/* Streaming loop plan: one ring loop may carry several emission windows.
+ * Slot 1 is the priority seat, slot 2 the first-class seat; a LOAD slot is
+ * appended only when a complete window (including the close guard) still fits
+ * inside the loop period. Pure arithmetic: it never touches hardware, budgets
+ * or the single-seat state machine above. */
+typedef enum {
+    TDMA_LOOP_SLOT_NONE = 0,
+    TDMA_LOOP_SLOT_PRIORITY,
+    TDMA_LOOP_SLOT_FIRST_CLASS,
+    TDMA_LOOP_SLOT_LOAD,
+} tdma_loop_slot_class_t;
+
+typedef struct {
+    uint64_t loop_period_ns;
+    uint64_t emission_period_ns;
+    uint32_t close_guard_ns;
+    bool priority_pending;
+    bool first_class_pending;
+    bool load_pending;
+    /* Windows may be compressed forward inside the loop when a later need
+     * appears; 0 keeps the plan anchored at the loop start. */
+    uint64_t start_offset_ns;
+} tdma_loop_plan_request_t;
+
+typedef struct {
+    tdma_loop_slot_class_t cls;
+    tdma_seat_window_t window;
+} tdma_loop_slot_t;
+
+typedef struct {
+    uint32_t count;
+    tdma_loop_slot_t slots[3];
+} tdma_loop_plan_t;
+
+tdma_seat_result_t tdma_loop_plan(const tdma_loop_plan_request_t *request,
+    tdma_loop_plan_t *out);
+
+/* Production wiring defaults for the streaming loop plan. The loop period and
+ * the emission period are the measured ring numbers; the flexible LOAD seat is
+ * supported but deliberately disabled today, so a single switch turns the
+ * third emission on when the owner starts requesting the load seat. */
+#define TDMA_LOOP_PLAN_LOOP_PERIOD_NS 4000000u
+#define TDMA_LOOP_PLAN_EMISSION_PERIOD_NS 1500000u
+/* The seat contract rejects a zero close guard, so the planner must publish a
+ * real one; 30 us is the current placeholder pending the owner's confirmation. */
+#define TDMA_LOOP_PLAN_CLOSE_GUARD_NS 30000u
+#define TDMA_LOOP_PLAN_LOAD_ENABLED 0
+
+/* Fill the request from the production defaults above. load_pending is honoured
+ * only while TDMA_LOOP_PLAN_LOAD_ENABLED is nonzero. */
+void tdma_loop_plan_default_request(tdma_loop_plan_request_t *out,
+    bool priority_pending, bool first_class_pending, bool load_pending);
+
+/* Which seat class may emit at now_ns according to the plan. now_ns is relative
+ * to the loop start; a window closes close_guard_ns before its end, so the guard
+ * interval and everything outside every window answer TDMA_LOOP_SLOT_NONE. */
+tdma_loop_slot_class_t tdma_loop_plan_slot_for_time(const tdma_loop_plan_t *plan,
+    uint64_t now_ns);
+
 #endif

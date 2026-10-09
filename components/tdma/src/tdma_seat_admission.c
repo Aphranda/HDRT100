@@ -227,3 +227,63 @@ tdma_seat_result_t tdma_seat_admission_commit_load(tdma_seat_admission_t *seat,
     seat->state = TDMA_SEAT_LOAD_TX_COMMITTED;
     return result(seat, TDMA_SEAT_OK);
 }
+
+tdma_seat_result_t tdma_loop_plan(const tdma_loop_plan_request_t *request,
+    tdma_loop_plan_t *out)
+{
+    if (request == NULL || out == NULL || request->loop_period_ns == 0u ||
+        request->emission_period_ns == 0u ||
+        request->emission_period_ns > request->loop_period_ns)
+        return TDMA_SEAT_BAD_ARGUMENT;
+    out->count = 0u;
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        out->slots[index].cls = TDMA_LOOP_SLOT_NONE;
+        out->slots[index].window.start_ns = 0u;
+        out->slots[index].window.end_ns = 0u;
+        out->slots[index].window.close_guard_ns = 0u;
+    }
+    const tdma_loop_slot_class_t classes[3] = {TDMA_LOOP_SLOT_PRIORITY,
+        TDMA_LOOP_SLOT_FIRST_CLASS, TDMA_LOOP_SLOT_LOAD};
+    const bool pending[3] = {request->priority_pending,
+        request->first_class_pending, request->load_pending};
+    const uint64_t guard = (uint64_t)request->close_guard_ns;
+    uint64_t cursor_ns = request->start_offset_ns;
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (!pending[index]) continue;
+        const uint64_t width_ns = request->emission_period_ns;
+        if (cursor_ns + width_ns + guard > request->loop_period_ns) break;
+        tdma_loop_slot_t *slot = &out->slots[out->count];
+        slot->cls = classes[index];
+        slot->window.start_ns = cursor_ns;
+        slot->window.end_ns = cursor_ns + width_ns;
+        slot->window.close_guard_ns = request->close_guard_ns;
+        cursor_ns += width_ns;
+        out->count++;
+    }
+    return TDMA_SEAT_OK;
+}
+
+void tdma_loop_plan_default_request(tdma_loop_plan_request_t *out,
+    bool priority_pending, bool first_class_pending, bool load_pending)
+{
+    if (out == NULL) return;
+    out->loop_period_ns = (uint64_t)TDMA_LOOP_PLAN_LOOP_PERIOD_NS;
+    out->emission_period_ns = (uint64_t)TDMA_LOOP_PLAN_EMISSION_PERIOD_NS;
+    out->close_guard_ns = TDMA_LOOP_PLAN_CLOSE_GUARD_NS;
+    out->priority_pending = priority_pending;
+    out->first_class_pending = first_class_pending;
+    out->load_pending = TDMA_LOOP_PLAN_LOAD_ENABLED != 0 ? load_pending : false;
+    out->start_offset_ns = 0u;
+}
+
+tdma_loop_slot_class_t tdma_loop_plan_slot_for_time(const tdma_loop_plan_t *plan,
+    uint64_t now_ns)
+{
+    if (plan == NULL) return TDMA_LOOP_SLOT_NONE;
+    for (uint32_t index = 0u; index < plan->count && index < 3u; ++index) {
+        const tdma_loop_slot_t *slot = &plan->slots[index];
+        const uint64_t close_ns = slot->window.end_ns - slot->window.close_guard_ns;
+        if (now_ns >= slot->window.start_ns && now_ns < close_ns) return slot->cls;
+    }
+    return TDMA_LOOP_SLOT_NONE;
+}
