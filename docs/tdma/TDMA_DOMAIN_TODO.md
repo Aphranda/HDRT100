@@ -179,6 +179,10 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 
 ## 交接状态：席位挂载与 T2 使能链（2026-10-09）
 
+| ID | 任务 | 状态 | 完成定义 |
+|---|---|---|---|
+| **TDMA-HANDOFF-001** | **会话交接：席位挂载与 T2 使能链** | IN PROGRESS | ① 本节「当前唯一阻塞」可被下一手直接复现（`DEPloyment:STAGe` 被拒、`T2:CONFigure` 返回码 92）；② 配套原件齐全且相互一致（`TDMA-PROGRESS-20261009-012`、`T2-PROGRESS-20261009-021`、提交 `7ff68367` 与 `df09747c`、P3 凭证 `PASS_WITH_WARNINGS`）；③ 本轮为定位插入的临时台架诊断插桩已清理或规范化为正式诊断；④ 接手方在 Task Progress 记一条"接手确认"。 |
+
 本节记录一次跨域收口的即时状态，便于接手；证据原件见 [Task Progress](TDMA_TASK_PROGRESS.md)
 （`TDMA-PROGRESS-20261009-012`）与 [T2 进展](../trigger/t2/TRIGGER_T2_TASK_PROGRESS.md)
 （`T2-PROGRESS-20261009-021`），代码与工具已随提交 `7ff68367` 入库。
