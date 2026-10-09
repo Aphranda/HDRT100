@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-10-08
+Last updated: 2026-10-09
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
@@ -14,6 +14,353 @@ Last updated: 2026-10-08
 历史记录中的预算、节点及门禁描述只代表当时快照，当前口径以最新条目和主域文档为准。
 
 ## 当前 checkpoint
+
+### TDMA-PROGRESS-20261009-010：VDC/DPLL 周期感知修复（实机确认）与 DPLL60 剩余阻塞＝板端 trace 记录为 0
+
+**已实现并经实机确认的修复（VDC/DPLL 运行在环的 slot period）**：
+`vdc_domain_build_tdma_runtime_schedule` 采用 `binding->cycle_period_ns`；当周期不等于
+`VDC_DOMAIN_DEFAULT_PERIOD_NS` 时**按同比例重排作者态窗口**（作者态为绝对 ns：refmem `[20 µs,820 µs]`、
+idle beacon 起点 `900 µs`，见 `components/vdc_domain/inc/vdc_domain.h:13-29`）；采用
+`binding->effective_schedule_crc32` 并用 `tdma_operating_profile_compose_schedule_crc32`
+对**规范重建的 identity** 做交叉校验；校验改用 period 无关的 `vdc_domain_active_schedule_validate`，
+同时 `vdc_domain_schedule_validate` 在 `operating_profile_crc32 != 0` 时委派给该 active 校验器
+（该函数被激活、包络、紧凑观测、窗口/环计划等所有运行期消费者共用，故一处生效）。
+**实机证据**（level 22/750 µs）：`SYSTem:SYNC:VDC:DCO?` 的周期为 `750000` 且 `tdma_schedule_crc32`
+等于环侧 `SYSTem:TDMA:RING:CONFig?` 的 schedule CRC；`tdma-stopped-handoff.json passed=True`
+（provisional 门通过）；`vdc_domain` 主机单测全绿。
+
+**DPLL60 的剩余阻塞（本轮定位到唯一布尔项）**：`dpll-four-board-short/capture/input-probe.json` 中
+`decoded.records` 长度 = **0**，而 `tools/workflows/vdc_joint_capture/internal_seal.py:148-175` 的
+`native` 项要求 `bool(records) && tick_hz > 0` ⇒ `input-probe.passed=False` ⇒ `internal_health_passed=false`；
+外部示波器在 60 s 内每个采样窗均 `missed`。同批数据中 `guard{schema:3,target_s:60,state:4}`、
+`internal_assessment{crc_verified,schema_ok,interval_ok,terminal:True,freeze_reason:1}`、
+`trace_arm_ack.status{sample_interval_ms:10000}`、`trace_stop_ack.status{state:3,command:2,reason:1}`、
+`trace_release_ack.status{state:0,command:3,reason:6}` 均与工具期望一致 ⇒ **工具侧"仍按 1 ms 比对"的假设被排除**，
+剩余解释是**板端未产出样本**（与全档位环健康症状一致：`fifo_tx_reject_grew`、从机
+`tx_publish_reject_count` ≈96–98k、RX 观测率 33–44/s）。
+
+**同批保留的其它改动**：`components/sync_trigger/src/trigger_grid_preview.c` 的
+`grid_matches_vdc_period()` 由"必须等于 1 ms 默认值"放宽为非零互等；`SYSTem:TDMA:FLIGHT:FIFO?`
+追加 TX 发布拒绝分因计数（`tx_reject_bad_payload_count`/`_ring_full_count`/`_no_slot_count`，页面 20 字段，
+`tools/tdma_ring_monitor/flight_bitmap_validate.py` 同步）。
+
+**DPLL60 短槽根因（量化，2026-10-09/10 实测对照）**：同一台架、同一流程下，
+1 ms 档**全程 PASS**（`PASS_WITH_WARNINGS`，ERROR=0，含 four-board DPLL 60 s 采集），
+而 750/500 µs 档失败。用**现成**的恢复页 `SYSTem:TDMA:EVENT:Recovery?`
+（handler `middleware/scpi_port/src/scpi_tdma_commands.c:54`，字段序 pending, failure_count,
+attempt_count, enable_count, deferral_count, cancel_count, cancel_reason, service_max_us,
+last_failure_epoch, last_failure_reason）对照从机读数：
+| 项 | 1 ms（通过）| 750 µs（失败）|
+|---|---|---|
+| attempt / enable / failure | **1 / 1 / 1** | **133 / 122 / 122** |
+| deferral / cancel | 0 / 0 | 11 / 0 |
+| service_max_us | **190** | **357** |
+| `MATCH:STATus?` matched | **9340 / 9403** | **0** |
+| `last_failure_reason` | 9 | 9 |
+其中 9 = `TDMA_GEOMETRY_OBSERVER_FAULT`（`components/tdma/inc/tdma_frozen_geometry.h:25-35`），
+其条件为 `s_tdma_rx_start_cut.flags & TDMA_RX_START_CUT_RETIRED`
+（`components/tdma/src/tdma_pio_spi_phys_event.inc:1899-1901`）。
+⇒ 结论：1 ms 下观察者**只武装一次并保持活跃**；750/500 µs 下被恢复状态机**反复重武装上百次**，
+每次都迅速以 FAULT 结束，从未留下稳定 live ⇒ `priority_match_live_valid` 失败 ⇒
+从机 match 全被 `SOURCE(9)` 拒 ⇒ DPLL 无相位 ⇒ 采集 60 s 全 missed。
+`service_max_us` 190→357 µs（占 750 µs 周期的 48%、500 µs 周期的 71%）是量化依据：
+观察者的武装/服务/退役生命周期按 1 ms 量级设计，无法在短周期内完成并保持。
+**FAULT 的直接条件（2026-10-10，代码级）**：`TDMA_GEOMETRY_OBSERVER_FAULT`
+（`components/tdma/src/tdma_pio_spi_phys_event.inc:1899-1901`，条件为
+`s_tdma_rx_start_cut.flags & TDMA_RX_START_CUT_RETIRED`）之所以在短槽下反复出现，是因为
+start-cut 以 **epoch 不匹配**被退役：同文件 `:1087-1091` 中
+`s_tdma_pio_spi_rx_arm_epoch != cut->arm_epoch` ⇒ `TDMA_RX_START_CUT_ARM`、
+`s_tdma_pio_spi_rx_sequence.observation_epoch != cut->observation_epoch_after` ⇒
+`TDMA_RX_START_CUT_OBSERVATION_EPOCH`；另有 `:1080-1086` 的角色/persona 不符时以
+`TDMA_RX_START_CUT_GEOMETRY` 退役（从机 persona=13 时通常不触发）。
+⇒ 短槽下 arm/observation epoch 推进快于 cut 捕获值 ⇒ 每次检查都不匹配 ⇒ 退役 ⇒ 观察者 FAULT ⇒
+恢复状态机重启（churn 133 次）⇒ 无稳定 live ⇒ match 全 SOURCE(9) 拒；1 ms 下 epoch 与 cut 同步
+（attempt=1）⇒ 稳定 ⇒ PASS。修法 ① 的具体形态：让 observer 窗口以 **cut 捕获的 epoch** 为准
+（或仅在 epoch 回退/非法跳变时退役），而不是任何不等即退役。
+
+修法方向：① 让 live 跨多个环周期保持（start-cut 退役与周期解耦）；② 压缩/分片观察者服务耗时（WCET）；
+③ 放宽恢复状态机在短周期下的重启条件。验证判据：attempt/enable 回到个位、`last_failure_reason ≠ 9`、
+`MATCH matched > 0`、bin `success_count > 0`、采集出现触发。
+
+**DPLL60 首因插桩结果与根因链（2026-10-09 晚，实测）**：为 `SYSTem:VDC:PRIORity:MATCH:STATus?`
+追加"首个真实拒绝原因"（`vdc_priority_match.h` 增字段、`vdc_priority_match.inc` 在 `!bound` 时锁存、
+页面 append-only 暴露；工具 `tools/workflows/vdc_joint_capture/match.py` 的 `TRAILER` 同步），
+在 level 22 静止树的运行（`out/HardwareAcceptance/20261009/p3-014827`）读得：
+**三块从机 `first_reject_reason = 9`（`VDC_PRIORITY_MATCH_SOURCE`），参考板为 0**。
+据此逐跳定位（均为 `file:line` 实证）：
+`vdc_priority_match.inc:220-221`（`!priority_match_live_valid()` ⇒ SOURCE）
+→ `:108-113`（`required = TDMA_EVENT_LIVE_RETAINED|ACTIVE|ANCHOR_VALID`，且 arm_epoch/record.epoch/tick_hz 非零、
+   `timer1_enable_after >= before`）
+→ `tdma_pio_spi_phys_event.inc:505-522`（`tdma_event_live_retire()` 会清 ANCHOR_VALID 与 ACTIVE）
+→ `:524-537`（monitor 触发 retire 的四条件：`rx_arm_valid` 假、`arm_epoch` 不匹配、`anchor.epoch != observer.epoch`、
+   或时间戳时钟非"当前"）
+→ `tdma_pio_spi_phys_event.inc:543-553`（`flags = sampled && after >= before ? ANCHOR_VALID : ANCHOR_UNAVAILABLE`，
+   并可能被 `TDMA_EVENT_LIVE_CLOCK`/`INVALID` 覆盖）
+→ `components/tdma/inc/tdma_event_enable_anchor.h:33-56`（`sampled=false` 的全部条件：clock_before/after、
+   高位翻转、`upper <= lower`）
+→ `components/vdc_domain/src/vdc_timestamp_clock.c:133-143`（时钟判据**无周期依赖**，已排除其为本因）。
+**当前嫌疑**：`s_tdma_event_observer.state == TDMA_EVENT_ACTIVE` 与武装/观察者世代对齐
+（下一处读取：`components/tdma/src/tdma_pio_spi_phys_event.inc` 内 observer 状态与 `rx_arm_epoch` 的置位点）。
+**观察者不启动的具体门（2026-10-09 深夜，代码级 + 运行中实测）**：运行中几何采样（`input-probe.json`
+的 `geometry` 字段，由本次新增的 per-board 运行中查询得到）显示，三块从机为
+`persona=13`（= `TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER`，`components/tdma/inc/tdma_pio_spi_phys.h:224`）、
+`training_samples=2`（= `TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES`），即
+`tdma_pio_spi_phys_event_selected()` 与对齐两项门槛**均已满足**；但 `observer_epoch/state/reason/prefix`
+**全为 0**（运行中亦为 0，且 reason=0 ⇒ 未走到 CS 失败分支）。追至
+`tdma_event_tap_freeze()`（`components/tdma/src/tdma_pio_spi_phys_event.inc:225-241`）：
+使能 tap 的有效性要求
+`selected && **config->geometry_generation == 0u** && phys->baud_hz != 0 &&
+prefix_bits + 32 <= physical_bytes * 8`（未使能 tap 则直接有效）。
+⇒ 若冻结 tap 时几何世代已非 0，则 `tap_valid=false` ⇒ `s_tdma_event_waiting=false`
+（观察者 ARM 路径 `:1613`）⇒ 观察者永不启动 ⇒ 无 live ⇒ `priority_match_live_valid` 失败 ⇒
+**`first_reject_reason = 9 (SOURCE)`** ⇒ matched=0 ⇒ DPLL60 未完成。
+修法方向：**A** 流程侧把"应用事件 tap"提前到几何世代为 0 时；**B** 固件侧放宽该门
+（使能 tap 不应以几何世代为 0 为前提，或按已应用几何坐标校验）。
+另记：观察者 ARM 路径已把环周期纳入（`s_tdma_event_period_ns = config->cycle_period_ns`，`:1610`），
+故"观察者不懂短周期"这一可能已被排除。
+
+**观察者/几何诊断页与"运行中采样"方案（2026-10-09 夜）**：`SYSTem:TDMA:RING:GEOMetry?`
+（handler `middleware/scpi_port/src/scpi_system_snapshot_commands.c:3902`，共 36 字段，末四为
+`observer_epoch/observer_state/observer_reason/observer_prefix_bits`）可读，但**停环后观察者字段清零**
+（实测从机末四 = 0,0,0,0；身份项 schedule/profile CRC 正确，如 1283010877 / 2743669232）。
+因此判定 `tdma_event_start()`（`components/tdma/src/tdma_pio_spi_phys_event.inc:1621-1631`）的失败 clause，
+必须在**运行窗口内**取值：在 `tools/workflows/vdc_joint_capture/**` 或
+`tools/vdc_priority_trace/vdc_priority_joint_capture.py` 的 preflight（ARM 之前）与 STOP 之后各查一次该页，
+把 36 字段存入 per-board 行（新键 `geometry_pre`/`geometry_post`）；或在固件侧于 STOP 时锁存 observer 状态
+并以 append-only 方式暴露。任一方式落地后，即可在 `waiting / tap_applied_valid / CS pad+GPIO（会写
+observer_reason = TDMA_GEOMETRY_OBSERVER_CS） / 对齐` 四 clause 中指名。
+（该工具在 acquisition 期间禁止查询，故必须"ARM 前 + STOP 后"两次采样或固件锁存。）
+
+另注：运行期间**树必须静止**——该验收会校验收据源码指纹，运行中改动文件会导致
+`provisional receipt source fingerprint differs`（`p3_dpll_short.py:879`）而失败。
+
+**更正（2026-10-09，两个只读诊断代理的实证）**：
+① 前文"板端 trace 记录为 0（`decoded.records=0`）⇒ `native` 项失败"**不成立**：`record_count=0` 取自
+`trace_arm_ack.status`（ARM 时刻快照，早于任何 bin 提交），而各板 `capture/NO*/decoded.json` 为
+`record_count=6`、`tick_hz=250000000`，且 `guard_checks[*].checks.native` 全为 true；
+`input-probe.json` 中并无 `records` 键。真实失败的检查项是 `verdict` 与 `health`。
+② 前文"域周期已随环（实机确认）"所依据的运行 **并不含周期修复**：以
+`out/build/p3-acceptance-20261009-005437/DHRT100.elf.map` 的
+`.text.vdc_domain_build_tdma_runtime_schedule` = 0x11c（284 B，旧版）与修复后
+`p3-acceptance-20261009-011432` 的 0x234（564 B）对照为证（`vdc_domain.c` mtime 晚于该构建）。
+③ 真实故障链（同一批工件）：环观测按**环周期**构造（`tdma_pio_spi_ring_adapter.c:236-244`），却在
+`vdc_ring_observer.c:107-111` 按 **域 schedule.period_ns** 做同余准入 ⇒ 旧版固件（域固定 1 ms）下
+全部观测被拒 ⇒ 从机 `SYSTem:VDC:PRIORity:MATCH:STATus?` 呈 `calls=28810, matched=0, rejected=calls`、
+各 bin `NO_SUCCESS|UNBOUND` ⇒ `priority_summary_success` 从不递增 ⇒ `internal_health_passed=false`。
+参考板的 26697 成功来自 TX encode（`PRIORITY:TX? encoded` 相同），不经 match。
+④ `servo.update_period_us=1000`（`vdc_domain.c` 内 `vdc_domain_default_servo`）在两批运行中**都存在**
+（硬件读回 `SYSTem:SYNC:VDC:DPLL:COEFficient?` 的 `pi` 字段），故其**不是**本故障原因；
+其唯一影响是伺服时间常数与 `servo_profile_crc32`。
+⑤ 仍存在的 1 ms 硬钉：`components/sync_trigger/src/trigger_grid_preview.c` 的另外两处（除已放宽的
+`grid_matches_vdc_period()` 之外），以及 `vdc_run_output.inc` 的 RUN 周期约束。
+⇒ 因此**最小修复仍是让 VDC 域采用环周期**（已写入的 `vdc_domain` 改动），
+并把该固件**真正烧入后**重跑验收（本轮 `p3-005437` 之后的运行尚未在 DPLL 阶段取得有效证据；
+`p3-acceptance-20261009-011432` 那次在执行到 TRN-00 MARK 时因台架瞬态失败）。
+
+**DPLL60 根因（本轮定论，证据链已闭合）**：采集的 trace 属 **priority trace guard**
+（`components/vdc_dpll_manager/src/vdc_priority_trace.inc`，ARM 入口
+`middleware/scpi_port/src/scpi_sync_commands.c:959`）。其 ARM 在
+`origin_invalid || interval_invalid` 时直接判 `REJECTED`（`guard.state=4` / `reason=1`=BINDING，`:256-262`），
+而 `origin_invalid` 的判据是 `vdc_priority_tx_origin_trace_eligible_core1()`
+（`components/vdc_dpll_manager/src/vdc_priority_tx.inc:44`）要求 ARM 携带的 generation/session 与
+当前 `priority_sync_generation` / `feedback_session` 匹配（`session` 由**参考纪律**建立）。
+实测两批对照：level 7 通过侧 `guard.state=3`/`stop.reason=8`/`freeze_reason=8`，
+level 21/22 失败侧 `4`/`1`/`1`（其余字段与 arm 参数 `schema=10, interval_ms=10000` **完全相同**），
+且 `freeze_reason=1` 等价于纪律 profile 以 `enabled=0` 施加（`vdc_domain.c:2032-2034`）。
+**决定性证据**：`tools/hardware_acceptance/**`、`tools/workflows/vdc_joint_capture/**` 与
+`config/tool_workflows/**` 中**均无** `SYST:VDC:REF:DISC`（参考纪律启用命令）的发送；固件侧
+`vdc_dpll_manager_set_reference_discipline()` 也**只有** SCPI handler 一个调用者
+（`middleware/scpi_port/src/scpi_reference_commands.c:88`，无自动启用路径；其前置要求参考后端已停，
+见 `vdc_reference_config.inc:57-69`）。⇒ **验收流程从未启用参考纪律 ⇒ 无 feedback session ⇒
+trace ARM 资格失败 ⇒ 无记录/无标记 ⇒ 示波器 60 s 全 missed ⇒ DPLL60 未完成**。
+最小改法：在 DPLL 采集前按顺序补"停参考后端 → （可选）`REF:DISC:CONF` → `REF:DISC 1` → 复核读回"
+（注意 `vdc_reference_config.inc:107-108` 的"请求待决时拒绝配置"互锁），落点
+`tools/hardware_acceptance/p3_dpll_short.py` 的 preflight。
+
+**待查（下一步）**：板端 trace 记录的产出条件与 `reason=1`/`reason=6` 的枚举含义；
+`vdc_domain_default_servo` 的 `update_period_us = 1000u`（`components/vdc_domain/src/vdc_domain.c:1597`，
+哈希进 `servo_profile_crc32`）是否必须随 slot period；以及激活后再做档位扫描会被
+`components/distributed_refmem/src/distributed_refmem.c` 的计划周期一致性校验拒绝的潜在陷阱。
+
+
+### TDMA-PROGRESS-20261009-009：DPLL60 在 500/750 µs 的阻塞根因（VDC 域周期固定 1 ms）与两次失败尝试
+
+**实测根因（直接证据）**：环与 VDC 域的周期不一致——
+`SYSTem:TDMA:RING:CONFig?` 的周期字段为 **750000**（level 22），而
+`SYSTem:SYNC:VDC:TDMA:STATus?` 仍报 **1000**（µs，即 VDC 域自有的 1 ms 周期，
+常量 `VDC_DOMAIN_DEFAULT_PERIOD_NS`，`components/vdc_domain/inc/vdc_domain.h:13`，于 `vdc_domain.c:1468` 写入）。
+⇒ 500/750 µs 下 DPLL/VDC 标记与观测窗口无法对齐 ⇒ 示波器 60 s 内每个采样窗均 `missed`、
+`internal_health_passed=false` ⇒ 采集 `Capture exited 2`。1 ms（level 7）下 `dpll60` 曾 PASS，正因周期恰好相等。
+
+**已达成且保留的改动**：① provisional 门修复（去掉 `vdc_domain_build_tdma_runtime_schedule` 中
+"域 CRC == 绑定 effective CRC"的等式，并保持域自有周期）——经实机验证：500/750 µs 可跑完 TDMA 阶段
+（`tdma-stopped-handoff.json passed=True`）并进入 DPLL60 阶段；② `sync_trigger` 的
+`grid_matches_vdc_period()` 由"必须等于 1 ms 默认值"放宽为"非零互等"；
+③ TX 发布拒绝的**分因计数**（bad_payload/ring_full/no_slot，页面 `SYSTem:TDMA:FLIGHT:FIFO?` 追加至 20 字段，
+工具 `flight_bitmap_validate.py` 同步扩展）。
+
+**两次失败尝试（均已回滚，构建绿）**：
+- A2：让域采用环周期（`updated.period_ns = binding->cycle_period_ns`）+ 采用环侧 CRC +
+  改用 period 无关的 `vdc_domain_active_schedule_validate()`；自哈希校验 `:1781`
+  （`schedule_crc32 == vdc_domain_schedule_crc32(profile)`，含 period）是其不可通过的根。
+- A2′：在 A2 基础上按同比例重排作者态窗口——因为作者态窗口是**绝对 ns 且按 1 ms 排布**：
+  refmem `[20 µs, 820 µs]`、idle beacon 起点 `900 µs`、guard 1 µs（`vdc_domain.h:14-29`）。
+- 两次在实机上**同点回归**：`TDMA stopped handoff incomplete: board_records board set mismatch`
+  （TDMA 阶段中止）⇒ 说明除窗口区间外还有未识别的前置条件（下游消费者或激活路径中的 CRC 自洽要求）。
+
+**结论与交接**：让 VDC/DPLL 运行在非 1 ms 周期属**语义级改动**（域调度 + period-hashed CRC 定义 + 可能
+ring 侧 CRC 口径），需先用**离线探针**（编译生产源码、直接调用生产 API，不占台架）指名"A2 路径第一个
+return false 的 file:line"，再一次性实施；避免继续硬件盲试。
+
+
+### TDMA-PROGRESS-20261008-008：短槽"起不来"的证据链被否证（起环工具时序缺陷）+ 配置解析缺陷
+
+**结论先行**：此前关于"375/500 µs 槽起不来"的全部证据**无效**——它们出自
+`tools/tdma_ring_monitor/tdma_start_ring.py`，而该工具在两处缺陷下**任何档位都起不来**。
+
+- **缺陷一（时序，已修）**：工具原序列为 `… → ARM → wait_started(等 adapter_started) → TRAIN → START`，
+  而适配器只有 `TRAIN + START` 之后才会启动 ⇒ 该等待**永不满足**，每次都以
+  `ARM timeout / ring_adapter_started=0 / tx_count=rx_count=0` 结束。
+  **对照实验**：在已知可用的 **level 7（1 ms、四板）** 上用同一工具，得到**逐字段相同**的失败
+  ⇒ 该失败签名是工具性质，与槽长无关。
+- **缺陷二（APPLy 首次被拒，已加重试）**：`OPMode:APPLy` 紧随 `STAGe` 发出时首轮常被拒
+  （`apply_count=0, reject_count=1, last_result=1`），第二次即成功；工具已改为重试 4 次。
+- 修复后序列可推进到 **TRAIN**，并在从机给出具体失败
+  `TRAIN chunk 4096 failed after 0/4096 cycles, response='<timeout>'`；
+  同条件在 **level 7 两块板**上**完全相同**，且在块大小 4096 与 64、读取超时 3 s 与 20 s、
+  TRAIN 置于 ARM 前或后等组合下**均为超时无回包** ⇒ 与槽长无关。
+  文档确证根因（`docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md:181-186`）：训练流程要求
+  **先 ARM 所有 follower，再 ARM master**，follower 进入 `FORWARDING/FORWARD_ARMED` 且 master
+  保持 RX capture armed 后才接受训练请求；而起环工具按 `start_order` 统一 ARM 并对**全部节点**
+  发 TRAIN 指令，顺序与角色均不符 ⇒ 板端不回包。该工具因此只适合装载与 ARM 级别操作，
+  训练须由专用编排器 `tools/calibration_ring_validate/calibration_clk_train.py` 承担。
+
+**另一处缺陷（配置解析，已修）**：`tools/hardware_acceptance/p3_hardware_acceptance.py` 的
+`acceptance_config_path()` 对 `run` 命令**忽略 `--config`**（`run` 恒取 `p3_bench.json`（`--full`）
+或 `p3_bench_quick.json`）⇒ 以 `--config p3_bench_level22.json` 启动的链路**实际按 level 7 运行**
+（产物名 `*-level7*`、`summary.json: level=7`）。已修为"显式 `--config` 优先，默认行为不变"，
+并以模块级调用验证三种输入的解析结果。
+
+**本轮新增档位**：`level 22 = {10 MHz, 750 000 ns, 4096}`（四文件同前例：档位表 + COUNT 22→23 +
+`PROFILE_FACTS[22]`），并派生出 `trn03-matrix-level22.json`（`profile_crc32 = 2743669232`，
+与板端 `STAGe 22` 回读一致）。配套验收配置：`p3_bench_level{21,22}.json`。
+
+**仍未判定**：短槽（375/500/750 µs）究竟能否起环——需要**有效路径**（trn03 全链）在目标档位下取证；
+该档位的校准阶段凭据必须由板端在装载时生成（派生矩阵无法通过 `CAL:TRAINing:STAGe:BEGin`）。
+
+
+### TDMA-PROGRESS-20261008-007：on-cadence 开关实测生效（RX 侧计数器），但发射节拍仍由 origin/TX 侧决定
+
+**更正 -006 的度量口径**：`READ:CALibration:ORIGin:RUNTIme?` 的 `published_generation` 属 **origin/TX** 路径
+（由 `tdma_pio_spi_ring_origin.inc` 的 TX 映像 acquire 与 `phys_origin` 发布推进）；本轮改动的闸门位于
+`tdma_pio_spi_ring_adapter.c` 的 **RX 镜像**发布点，其计数器是 flight FIFO 的 `rx_publish_count`
+（`SYSTem:TDMA:FLIGHT:FIFO?`）。两者不相交，故 -006 用 `published_generation` 比较**看不见**被改的路径。
+
+**用正确计数器复算（两臂均为既有工件，trn03 已解析）**：
+- 基线（on-change，`out/HardwareAcceptance/20261008/origin-baseline-l7-01`）：参考节点
+  `rx_publish_count` 872 → 1527，Δ655 / 19.75 s ≈ 33.2 /s，`rx_publish_drop_count` 0。
+- on-cadence 臂（`out/HardwareAcceptance/20261008/origin-oncadence-l7-02`）：869 → 1739，Δ870 / 19.89 s ≈ 43.7 /s，
+  `rx_publish_drop_count` 0。
+⇒ **开关确定生效（+33%）**，即 D1 字段贯通与 site A 落点均为活路径。
+
+**但两条限制仍然成立**：
+- RX 发布速率（33–44 /s）比环边界（1.000 ms ⇒ 1000 /s）低约 30×，说明 RX 发布路径另受更强条件约束
+  （候选：`tdma_flight_engine_rx_unload()` 的 `inspected`、`tdma_receive_health_evaluate()` 的接受条件、
+  或收帧到达率；均待代码追溯）。
+- 同一两臂中 origin 侧 `published_generation` 均约 4 ms（250 /s）且未变 ⇒ 发射节拍不由 RX 闸门决定，
+  4:1 量化的杠杆在 **origin/TX 侧的"每环回一次发布机会"**。
+
+**待办**：① 追溯 RX 发布的决定性限制条件；② 追溯 origin/TX 每环回机会的设置点，判断是否可让参考节点
+每 1.5 ms 获得一次发布机会（表/调度层），或是否必须缩短环回（375 µs 槽在当前帧长/线速下已实测起不来）。
+
+
+### TDMA-PROGRESS-20261008-006：on-cadence A/B 实测为负 + 独立复核纠正三项实现缺陷
+
+**实测结论（同条件、两臂均达 AUTONOMOUS）**：开启 on-cadence 闸门**未改变**发射节拍。
+- 基线（on-change，`out/HardwareAcceptance/20261008/origin-baseline-l7-01`）：`published_generation` 3.9996 ms、
+  `boundary_sequence` 0.9998 ms、AUTONOMOUS 68/68、`rejected_observation_count` 0。
+- on-cadence 臂（`out/HardwareAcceptance/20261008/origin-oncadence-l7-02`，工具发
+  `SYSTem:TDMA:RING:DIAGnostic 1,1`）：`published_generation` **4.0014 ms**、`boundary_sequence` 1.0005 ms、
+  AUTONOMOUS 71/71。
+⇒ "RX 新段（on-change）闸门是发射节拍限制器"这一假设**未被实测支持**；`published/boundary` 比值恰为 4.000，
+更符合"参考节点每环回只有一次发布机会"的量化。旁证：D 类实测每 1 s 区间 `input_bytes` 增量为 0 而
+publish/acquire 仍以 ~217–220/s 推进；失败面在 TX 侧（`fifo_tx_reject_grew`，从机
+`tx_publish_reject_count` 约 92% vs 参考约 20%，`tx_image_stale_count == tx_reuse_count`）。
+
+**独立复核（只读）纠正了三项实现缺陷，均已修正并构建通过**：
+- D1 字段未贯通：`origin_cadence_enabled` 在 `tdma_ring_runtime_configure`/`read_config` 往返中丢失，
+  且 `service_config` 未初始化 ⇒ 已加运行期状态成员、两分支读写与零初始化。
+- D2 可选参数判定错误：`scpi_port_read_u32()` 是**必选**变体，缺参时 libscpi 推入
+  `SCPI_ERROR_MISSING_PARAMETER` ⇒ 既有单参数调用方会读非空错误队列；已改用
+  `SCPI_ParamUInt32(..., FALSE)`。
+- 落点错误：原先放宽的发布闸门位于**转发路径**（参考节点在该路径恒不可达）⇒ 判定为死代码并已回退；
+  正确落点为参考侧收帧发布点（`process_rx_impl` 内的 FIFO 发布），以 **present/output 掩码**放行
+  （new 掩码为空时不得发"空包"：`segment_mask == 0` 会被 refmem 消费者与 `rx_commit` 跳过），
+  并以 `comm_fsm.state == AUTONOMOUS` 为守卫。
+
+**待办（交接）**：① 复核方四问的答复（TRN-03 在 setter 之后是否重建/清零 staged 配置、ARM 是否经
+`read_config`、site A 是否同一 `adapter->config` 实例）以判定负结果有效性；② 若判"证据不足"则新增只读回读
+（新命令，不改既有元数）后重做 A/B；③ 若判"有效"则改追环回/槽的发布机会与 TX 侧压力；
+④ `--flash picotool` 后 p3 报 `online board set mismatch`（四板实际均在线）导致该路径拿不到凭证，需在烧录后
+重新发现在线集合；⑤ 收口需聚焦测试 + P3 凭证 + 代码/文档分离提交。
+
+
+### TDMA-PROGRESS-20261008-005：自激发射节拍闸门（on-change→on-cadence）与六类协作方式
+
+- TODO task ID：`TDMA-FLIGHT-002B1`、`TDMA-FLIGHT-002B`、`TDMA-EMISSIONCLOCK-01`；日期：2026-10-08。
+- 本条是**独立记录**，不覆盖 `TDMA-PROGRESS-20261008-004`：004 负责闸门位置归因与"1.5 ms 需策略+调度两件事"，本条记录本轮新增的固件开关、档位与工具入口，并按两层重述语义边界。002B1 的 TODO 单元已按同一口径改写并自洽（见 `docs/tdma/TDMA_DOMAIN_TODO.md` 的 `TDMA-FLIGHT-002B1` 行）。
+- **自激语义层（reference-only）**：
+  - 发射权只属参考节点：`tdma_pio_spi_ring_adapter_resident_process_image()` 要求 `role == TDMA_PIO_SPI_RING_ROLE_REFERENCE` + `FORWARDING_PHYSICAL_PROCESS_IMAGE` + flight engine active；许可侧 `calibration_manager/src/calibration_origin_timing.inc:117-118` 要求 `local_slot_id == reference_slot_id`。本轮台架只有 NO1 受理 `TRIAL:READY`。
+  - 主机只做四件事：许可（`CAL:ORIG:TRIAL[:READY]`）、授权/释放（`RELease`，授权要求 `burst_limit == 0` 且 `config_seq` 不变）、只读回读、`REVOkE` 回收。主机**不参与逐拍发射**。
+  - 发射由**环返回**触发：许可 → `RELease` → AUTONOMOUS，之后每周期 `rx_once → observe(boundary) → publish`（`components/tdma/src/tdma_pio_spi_ring_origin.inc` 的 `tdma_pio_spi_ring_origin_service`）。
+- **当前真实闸门 = on-change（快照，非事实源）**：
+  - `components/tdma/src/tdma_pio_spi_ring_adapter.c:1893-1921`：只对 `TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE` 且 `receive_health.configured != 0` 的帧调用 `tdma_flight_engine_rx_unload()`，把 `unloaded.new_segment_mask` 存入 `adapter->last_rx_new_segment_mask`。
+  - `components/tdma/src/tdma_pio_spi_ring_adapter.c:2286-2300`：仅当该掩码非零（或下述 cadence 开关放行）才 `tdma_flight_fifo_core1_publish_rx()` 发布进 flight FIFO。
+  - 发射侧去重：`tdma_pio_spi_ring_origin.inc:234-282` 按 `(generation, sequence)` 去重，并要求 `flight_engine->map_generation == job->layout.map_generation`。
+  - 实测后果（level 7，1 ms 槽、四节点）：`returned.sequence` 每 1.0001 ms 前进、`observed_return_count` 每 3.111 ms、`published_generation` 每 3.9996 ms——即发射按变更（≈每环回一次新段）而非按节奏。
+- **新增 opt-in 开关（本轮固件切片）**：`tdma_ring_runtime_config_t.origin_cadence_enabled`（`components/tdma/inc/tdma_ring_runtime.h:162`）；`tdma_pio_spi_ring_adapter.c:2290（该处放行经独立复核判定为**死代码**并已回退；on-cadence 的实际放行实现尚待落到参考节点/origin 服务路径，且发布须用 present/output 掩码而非 new 掩码）` 在其非零且 `config.local_slot_id == config.reference_slot_id` 时无新段也放行发布。默认 0 = 保持历史 on-change 行为。on-change ↔ on-cadence 属**闸门策略**选择。
+- **环前提层（工程约束，不是发射语义）**：全环节点共享同一 profile 与 schedule，**每槽工作量必须装进槽长**，否则环起不来；`TDMA-EMISSIONCLOCK-01` 要求低于可达下界的 profile fail closed。最小发射间隔由环物理（槽长 × 节点数 + 每槽工作量）界定，属可调参数，不写进发射语义。
+- **档位 20/21 与 375 µs 档的反证（快照，非事实源）**：`tdma_operating_profile.c` 新增 20 = {10 MHz, 375000 ns, 4096}、21 = {10 MHz, 500000 ns, 4096}。板端接受 `SYSTem:TDMA:OPMode:STAGe 20` 并返回 `20,10000000,375000,4096,0,111157511`（与工具 `profile_crc32(20)` 一致），但 `tools/tdma_ring_monitor/tdma_start_ring.py --level 20` 报 `ARM timeout`、`ring_adapter_started=0`、`tx_count=rx_count=0`（失败点 follower slot 1），`SYSTem:ERR?` 为干净无错误、无显式拒绝码。结论：375 µs 档在当前帧长/波特率下每槽工作量装不进槽 ⇒ **缩短环回不是解法**，需表级调度/窗口算术另行设计。
+- **工具与换档约束**：`tools/calibration_ring_validate/trn03_matrix.py` 新增 `--derive-from/--source-level`，用已测物理行给另一档位重打戳（拒绝同时改波特率）。阶段记录 `calibration_crc32` 由**板端对结构体计算**（`tdma_origin_calibration_crc.c`、`calibration_origin_timing.inc`、`tdma_runtime_origin.inc`），主机无法重打戳：**换档位必须由板端重新生成阶段凭据，不是线侧重校准**。
+- **环前提层的接线约束（每板开关不得改 ring CRC）**：发射 cadence 开关**不能**放进 `tdma_ring_profile_t.flags`——该 `flags` 被 `tdma_ring_profile_crc32()`（`tdma_profile.c:94`）哈希进 `config.ring_profile_crc32`，随后序列化进 wire 帧（`tdma_transport_frame.c:177,290`）并在 RX 侧校验（`tdma_pio_spi_ring_adapter.c:1764`、`tdma_pio_spi_ring_origin.inc:30`）。若参考节点带一个每板位而转发节点不带，两边的 ring profile CRC 不再相等，帧会被直接拒绝。故本开关设计为**每板 staged runtime 字段** `tdma_service_ring_runtime_config_t.origin_cadence_enabled`，经与 `tdma_service_set_loop_delay_ns()` / `tdma_service_set_ring_diagnostic_mode()` 同族的 **STOP-only setter** 写入（`tdma_service.c:647,667`）；环配置字面量 `tdma_service.c:533-552` 有意省略该字段，因此默认 0、保持历史行为（这也是 `tdma_ring_runtime.h` 而非 profile 头承载该字段的原因）。
+- **主机面（快照，实现中，冻结契约前须复核拼写）**：设计为**既有命令的可选第二参数** `SYSTem:TDMA:RING:DIAGnostic <diag_continue>[,<origin_cadence>]`，SCPI 入口 `middleware/scpi_port/src/scpi_system_snapshot_commands.c:3811-3821`（当前 `tdma_ring_diagnostic` 与 `tdma_ring_diagnostic_q` 仍为单参数/单响应元数），保持响应与 `RING:DIAGnostic?` 元数不变以免影响既有主机；退路是更窄的 `SYSTem:TDMA:RING:ORIGin:CADEence <0|1>` 一对。固件实现进行中。
+- **Agent 协作方式（自本轮起）**：六类任务分工，每类一个常驻 agent，新工作用消息派发——**A 固件实现** / **B 主机工具与验收链** / **C 文档与契约**（本条作者）/ **D 台架实验** / **E 审查复核** / **F 构建烧录凭证**。类别边界用于派发与复核归属，不改变各任务的 C11 交叉审核要求。
+- **术语消歧（防混淆，登记切片须沿用）**：本轮 cadence 指**闸门 cadence**（on-change ↔ on-cadence 的发布闸门策略），与既有**物理 cadence** 是两个概念：后者是 `tdma_origin_cadence_t` / `tdma_origin_cadence_calculate()`（`components/tdma/inc/tdma_origin_plan.h`，其头注释明确 "describes the physical cadence only"，字段为分频、guard 与每帧周期上下界，`tdma_origin_plan.c` 计算）。因此 `origin_cadence_enabled` 在契约文本中必须显式限定为闸门侧；若 A 在实现中改名以避开 `tdma_origin_cadence_t`，登记时同步记录该命名决定，两概念在任何条款里不得混用。
+- 未决/下一 gate：`origin_cadence_enabled` 的实板 on-cadence 验证（含参考节点独占性与从机无扰）；可达下界与 fail-closed 门禁的代码化；002B1 仍为 PENDING，待语义层与环前提层分别取证后收敛。
+
+### TDMA-PROGRESS-20261008-004：自激发车发射节拍的真实闸门与解耦结论
+
+**结论**：发射节拍既不等于槽长、也不等于环回，而是**由过程映像"是否出现新段"决定**（on-change），
+在静态台架上≈每环回一次，因此实测表现为 `published_generation` 250 Hz（3.9996 ms）。
+
+- 闸门链（`components/tdma/src/tdma_pio_spi_ring_adapter.c`）：
+  `:1893-1921` 仅对 `TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE` 且 `receive_health.configured != 0`
+  的帧调用 `tdma_flight_engine_rx_unload()`，把 `unloaded.new_segment_mask` 写入
+  `adapter->last_rx_new_segment_mask`；`:2286-2300` 的 `tdma_flight_fifo_core1_publish_rx()`
+  准入即 `last_rx_new_segment_mask != 0`。
+- 发射链（`tdma_pio_spi_ring_origin.inc:234-282`）：`core1_acquire_tx()` 按
+  `(generation, sequence)` 去重 → `grant_tx()` → 异步 overlay 准备 → `commit_tx()` 后
+  `published_generation` 递增；READY 分支还要求 `flight_engine.map_generation == job->layout.map`。
+- 同轮实测三计数不同拍：`returned.sequence` 1.0001 ms（1 kHz）、`observed_return_count`
+  3.111 ms（321 Hz）、`published_generation` 3.9996 ms（250 Hz）——与 on-change 闸门一致。
+- 由此，"达到 1.5 ms 发射间隔"需要两件独立的事（均与线速/槽长无关）：
+  ① **策略**：把发射由 on-change 改为 on-cadence（按节奏发当前映像），闸门点即
+  `last_rx_new_segment_mask` 与 publish 的去重条件；② **调度**：为参考节点提供每 1.5 ms
+  一个不与从机冲突的发射窗口（表级设计，需要重做 `schedule_crc32` 与调度器窗口算术）。
+- 反证（同轮硬件）：375 µs 槽档（level 20）**profile 可用但环起不来**——
+  板端接受 `SYSTem:TDMA:OPMode:STAGe 20` 返回 `20,10000000,375000,4096,0,111157511`
+  （与工具派生 `profile_crc32(20)` 一致），但 `tdma_start_ring.py --level 20` 在
+  7 s 与 45 s 两种等待下均报 `ARM timeout`，`ring_adapter_started=0`、`tx_count=rx_count=0`，
+  失败点为从机 slot 1（`FB276192BEF9CCE1`）；`ERR?` 为 `0,"No error"`，即无显式拒绝码。
+  因此**缩短环回不是本问题的解法**。
+- 工具：`tools/calibration_ring_validate/trn03_matrix.py` 新增 `--derive-from/--source-level`
+  重打戳入口（深遍历替换 `profile_level`/`cycle_period_ns`/`profile_crc32`，写入
+  `derived_from{level,source,physical_measurements_reused:true}`）；派生产物
+  `out/HardwareAcceptance/20261008/trn03-matrix-level20.json`（`config.profile_level=20`）。
+  注意：阶段记录的 `calibration_crc32` **由板端对结构体计算**（`tdma_origin_calibration_crc.c`
+  + `calibration_origin_timing.inc:152` + `tdma_runtime_origin.inc:168,195`），主机无法重打戳，
+  故换档位必须由板端重新生成阶段凭据。
+
 
 ### TDMA-PROGRESS-20261008-003：自激发车（origin）入口五层链路与运行期可达性
 
