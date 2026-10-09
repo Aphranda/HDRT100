@@ -14,6 +14,20 @@ Last updated: 2026-10-09
 历史记录中的预算、节点及门禁描述只代表当时快照，当前口径以最新条目和主域文档为准。
 
 ## 当前 checkpoint
+### TDMA-PROGRESS-20261009-011：分段流式调度**规划层**（已单测，未接物理路径）
+
+**已实现（纯逻辑，主机单测 13 组全过；固件构建 exit 0）**：
+`tdma_loop_plan()` 在环路内按 **特等席 PRIORITY → 一等席 FIRST_CLASS → 灵活/诊断 LOAD** 顺序排布发射窗口，
+仅当剩余仍含完整窗口（含 close guard）时才追加 LOAD；`tdma_loop_plan_slot_for_time()` 提供
+"某时刻允许哪一档发射"的判定；`tdma_loop_plan_default_request()` 给出生产默认值
+（环路 4 ms、发射周期 1.5 ms、guard 占位 30 µs、**第三次关闭**）；`start_offset_ns` 支持窗口前移压缩。
+
+**关键约束（实测契约）**：席位层 `tdma_seat_admission_begin()` 要求窗口 `close_guard_ns` 非零，
+且窗口在其结束前 guard 即关闭 ⇒ **可用发射段 = [start, end − guard)**，声明 1.5 ms 时可用 1.47 ms。
+
+**尚未完成（对应 TDMA-FLIGHT-002K2）**：`tdma_seat_admission` / `_owner` 目前**无任何固件调用点**
+（全量检索确认），物理路径接线待做；候选接缝为 origin 的 priority/first-class **provider 门条件**。
+第三次发射的启用须先按 `EXE-SEAT-01` 提交预算清单（含 guard 实测值）并经用户审核。
 
 ### TDMA-PROGRESS-20261009-010：VDC/DPLL 周期感知修复（实机确认）与 DPLL60 剩余阻塞＝板端 trace 记录为 0
 
