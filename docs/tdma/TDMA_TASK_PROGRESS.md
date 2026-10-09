@@ -25,8 +25,12 @@ Last updated: 2026-10-09
 **关键约束（实测契约）**：席位层 `tdma_seat_admission_begin()` 要求窗口 `close_guard_ns` 非零，
 且窗口在其结束前 guard 即关闭 ⇒ **可用发射段 = [start, end − guard)**，声明 1.5 ms 时可用 1.47 ms。
 
-**尚未完成（对应 TDMA-FLIGHT-002K2）**：`tdma_seat_admission` / `_owner` 目前**无任何固件调用点**
-（全量检索确认），物理路径接线待做；候选接缝为 origin 的 priority/first-class **provider 门条件**。
+**接线与实测（对应 TDMA-FLIGHT-002K2）**：已在 origin 特等席发布路径加入窗口门条件
+（`tdma_pio_spi_ring_origin.inc`，编译期开关 `TDMA_LOOP_SCHEDULE_ENABLED`，**默认 0**），
+并在 `ORIGin:RUNTIme?` 追加锁存计数 allow/block（静态累计 + 只读 getter，**不受 origin 结构 memset 影响**）。
+同档 A/B（1 ms、同配置，实测快照）：开关 ON 时参考板 allow/block ≈ 15084/15611（≈49%/51%），
+matched 合计 23352、23467（两次）；OFF 时 matched 合计 23977 ⇒ **ON 相对 OFF ≈ −2%**；
+当前**无第二类发射者**（一等席/LOAD 未挂载）⇒ 判定**保持默认关闭（冻结，待消费者）**。
 第三次发射的启用须先按 `EXE-SEAT-01` 提交预算清单（含 guard 实测值）并经用户审核。
 
 ### TDMA-PROGRESS-20261009-010：VDC/DPLL 周期感知修复（实机确认）与 DPLL60 剩余阻塞＝板端 trace 记录为 0
