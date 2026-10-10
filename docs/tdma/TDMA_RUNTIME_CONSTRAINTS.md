@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_RUNTIME_CONSTRAINTS.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-10-08
+Last updated: 2026-10-10
 
 ## 文档接口
 
@@ -48,7 +48,7 @@ TX 无更新时复用先前有效版本，不等待 Core0。普通 RX FIFO 满�
 
 `tdma_runtime_owner_set_priority_tx_provider()` 在停态注册 VDC provider。`tdma_pio_spi_ring_origin.inc` 的自主服务在 provider 返回 typed offer 后走物理双缓冲发布；普通 mailbox 准备仍有独立路径。
 
-`TDMA_PRIORITY_TX_READY` 只表示 offer 就绪。发布可能因 DMA selection 未退休或版本变化延后；提供者确认、物理发布、实际送达和 ACK 分开记录。已编码事件保持原生成时模型和身份，不按后来的 DCO 模型重算历史时间戳。
+`TDMA_PRIORITY_TX_READY` 只表示 offer 就绪。现行 `EMPTY` 也保留座位；TDMA-SEAT-01（语义待审核，见[架构](TDMA_DOMAIN_ARCHITECTURE.md)）改为 `EMPTY` 不占座，并与一等按发布机会轮换。发布可能因 DMA selection 未退休或版本变化延后；提供者确认、物理发布、实际送达和 ACK 分开记录。已编码事件保持原生成时模型和身份，不按后来的 DCO 模型重算历史时间戳。
 
 ### RX：固定提取与有界交接
 
@@ -159,7 +159,7 @@ TDMA 相位宽度额外包含关窗预留和入口余量；上述默认配置中
 - `select_load` 在临交接前复验本轮预算和剩余 duration，消费一次本地授权；`commit_load` 仅记选中 load 的后端实际交接确认，不等于 SENT、RX 或 APPLIED。后端失败撤销 FAULT；已发生的晚交接保留 `load_committed` 事实，同时报窗口过期，不重新授予本轮额度。
 - 时间来自同一个 owner 单调时基。commit 的时间为实际交接时间，不是延迟回调/查询时间；owner 在推进模型时钟前报告交接。`expire` 须在决策边界调用；存储状态不是自动推进的实时时钟。STOP、新特等事件、绑定变化和故障由 owner 显式撤销。
 
-本模块验证的是软件状态语义。真实发送接线、最坏资源预算和跨板共存属于 `TDMA-FLIGHT-002K2`，未经这些证据不能据 `FIRST_CLASS_WINDOW_GRANTED` 的软件用例宣布物理一等席可用。
+本模块验证的是软件状态语义；TDMA-SEAT-01（语义待审核）不再以其时间窗授权作为一等上车前置。真实发送接线、最坏资源预算和跨板共存属于 `TDMA-FLIGHT-002K2`，未经这些证据不能据 `FIRST_CLASS_WINDOW_GRANTED` 的软件用例宣布物理一等席可用。
 
 ## Recovery、训练与业务扩展
 

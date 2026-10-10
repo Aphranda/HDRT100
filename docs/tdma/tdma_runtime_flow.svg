@@ -1,0 +1,270 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="1470" viewBox="0 0 1300 1470" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a5568"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2b6cb0"/>
+    </marker>
+    <marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c05621"/>
+    </marker>
+    <style>
+      .title { font-size: 20px; font-weight: 700; fill: #1a202c; }
+      .sub { font-size: 12px; fill: #4a5568; }
+      .lane { font-size: 14px; font-weight: 700; fill: #2d3748; }
+      .box { stroke-width: 1.2; }
+      .core0 { fill: #ebf8ff; stroke: #3182ce; }
+      .core1 { fill: #f0fff4; stroke: #38a169; }
+      .xchg { fill: #fffaf0; stroke: #dd6b20; }
+      .dma { fill: #faf5ff; stroke: #805ad5; }
+      .ring { fill: #f7fafc; stroke: #4a5568; }
+      .vdc { fill: #fefcbf; stroke: #b7791f; }
+      .draft { fill: #ebf4ff; stroke: #2b6cb0; stroke-width: 1.6; stroke-dasharray: 6 3; }
+      .later { fill: #f7fafc; stroke: #a0aec0; stroke-dasharray: 4 3; }
+      .t { font-size: 12.5px; fill: #1a202c; }
+      .tb { font-size: 12.5px; font-weight: 700; fill: #1a202c; }
+      .ts { font-size: 11px; fill: #4a5568; }
+      .tbl { font-size: 12px; fill: #2b6cb0; }
+      .edge { stroke: #4a5568; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .edge-dash { stroke: #4a5568; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; marker-end: url(#arrow); }
+      .edge-blue { stroke: #2b6cb0; stroke-width: 1.6; fill: none; marker-end: url(#arrow-blue); }
+      .edge-orange { stroke: #c05621; stroke-width: 1.6; fill: none; marker-end: url(#arrow-orange); }
+      .axis { stroke: #2d3748; stroke-width: 1.2; }
+      .grid { stroke: #cbd5e0; stroke-width: 1; stroke-dasharray: 3 3; }
+      .pri { fill: #fbd38d; stroke: #c05621; }
+      .fst { fill: #90cdf4; stroke: #2b6cb0; }
+      .none { fill: #e2e8f0; stroke: #a0aec0; }
+      .phase { fill: #c6f6d5; stroke: #2f855a; }
+    </style>
+  </defs>
+
+  <text x="30" y="34" class="title">TDMA 运行流程：特等/一等共用快速路径，DPLL/VDC 发布闭环（1 ms profile，四节点）</text>
+  <text x="30" y="54" class="sub">蓝色虚框 = 目标设计（一等席沿用特等席发射 FIFO），尚未实现、语义待审核；其余为现行代码。时间为实测快照（TDMA-PROGRESS-20261008-006 / 20261009-011 / 本轮 NO1 计数），非事实源。</text>
+
+  <!-- ===================== Part A ===================== -->
+  <text x="30" y="80" class="lane">A. NO1（参考/origin）发射：特等与一等共用一条快速路径</text>
+  <text x="40" y="114" class="lane" fill="#b7791f">VDC / DPLL（Core1）</text>
+  <text x="330" y="114" class="lane">Core1 TDMA 相位（每 1.5 ms）</text>
+  <text x="690" y="114" class="lane">快速路径 = origin exchange</text>
+  <text x="960" y="114" class="lane">DMA 图（每 1 ms 发车边界）</text>
+
+  <!-- special provider -->
+  <rect x="30" y="128" width="260" height="78" rx="6" class="box vdc"/>
+  <text x="42" y="150" class="tb">特等 provider vdc_priority_tx_core1</text>
+  <text x="42" y="169" class="t">回程原始记录 → 投影为 VDC 时间</text>
+  <text x="42" y="187" class="t">编码 typed sync（class 0x14，22 B body）</text>
+
+  <!-- first class mailbox -->
+  <rect x="30" y="232" width="260" height="96" rx="6" class="box draft"/>
+  <text x="42" y="254" class="tb" fill="#2b6cb0">一等邮箱（目标）</text>
+  <text x="42" y="273" class="tbl">Core0 RefMem 预组完整 32 B mailbox：</text>
+  <text x="42" y="291" class="tbl">class 0x15 + VDC 核心字段 + ACK</text>
+  <text x="42" y="309" class="tbl">+ 10 B T2 紧缩单帧记录 + CRC</text>
+
+  <rect x="30" y="352" width="260" height="96" rx="6" class="box core0"/>
+  <text x="42" y="374" class="tb">T2 预测（Core0）</text>
+  <text x="42" y="393" class="t">按完成计数窗口算 position_q</text>
+  <text x="42" y="411" class="t">PREVIEW 新版本 / 阈值后 FREEZE</text>
+  <text x="42" y="429" class="t">每条记录一帧坐完，不分片</text>
+  <path d="M160,352 L160,328" class="edge-blue"/>
+
+  <!-- arbitration -->
+  <rect x="320" y="128" width="340" height="60" rx="6" class="box core1"/>
+  <text x="332" y="150" class="tb">origin_service → publish</text>
+  <text x="332" y="170" class="t">rx_once 收割回程 · observe 边界 · 发布一次尝试</text>
+
+  <polygon points="490,212 640,262 490,312 340,262" fill="#fefcbf" stroke="#b7791f" stroke-width="1.3"/>
+  <text x="490" y="256" class="tb" text-anchor="middle">特等有新事件？</text>
+  <text x="490" y="274" class="ts" text-anchor="middle">轮到特等为主时；与特等自己上次发布比较</text>
+
+  <rect x="320" y="340" width="160" height="64" rx="6" class="box core1"/>
+  <text x="330" y="362" class="tb">是：特等上车</text>
+  <text x="330" y="381" class="t">typed sync 进快速路径</text>
+  <text x="330" y="398" class="ts">（现行行为）</text>
+
+  <rect x="500" y="340" width="160" height="64" rx="6" class="box draft"/>
+  <text x="510" y="362" class="tb" fill="#2b6cb0">否：一等上车（目标）</text>
+  <text x="510" y="381" class="tbl">取一等邮箱进快速路径</text>
+  <text x="510" y="398" class="tbl">都没有：保持上一份</text>
+
+  <rect x="320" y="426" width="340" height="66" rx="6" class="box draft"/>
+  <text x="332" y="448" class="tb" fill="#2b6cb0">按发布机会轮换（TDMA-SEAT-01）</text>
+  <text x="332" y="467" class="tbl">按机会 M:N（默认 1:1）轮换主等级，主等级空则让座</text>
+  <text x="332" y="485" class="tbl">实测：特等新事件约 96%；快速路径约 2.13 ms 一次机会</text>
+
+  <path d="M160,206 L160,220 L305,220 L305,262 L340,262" class="edge-orange"/>
+  <path d="M290,280 L320,280 L340,262" class="edge-blue"/>
+  <path d="M490,188 L490,212" class="edge"/>
+  <path d="M430,296 L400,340" class="edge"/>
+  <path d="M550,296 L580,340" class="edge-blue"/>
+  <path d="M490,404 L490,426" class="edge-dash"/>
+
+  <!-- exchange -->
+  <rect x="690" y="128" width="240" height="210" rx="6" class="box xchg"/>
+  <text x="702" y="150" class="tb">双 shadow bank A / B</text>
+  <text x="702" y="172" class="t">publish：写空闲 bank</text>
+  <text x="702" y="190" class="t">→ local_next_address</text>
+  <text x="702" y="208" class="t">→ pending</text>
+  <text x="702" y="232" class="t">ready：DMA 写回 selected</text>
+  <text x="702" y="250" class="t">generation 后退休</text>
+  <text x="702" y="276" class="tb">同时只允许 1 个 pending</text>
+  <text x="702" y="296" class="ts">特等与一等共用这一条；</text>
+  <text x="702" y="313" class="ts">普通 flight FIFO 不再参与 origin</text>
+  <path d="M400,404 L400,418 L670,418 L670,240 L690,240" class="edge-orange"/>
+  <path d="M580,404 L580,412 L680,412 L680,260 L690,260" class="edge-blue"/>
+
+  <!-- DMA graph -->
+  <rect x="960" y="128" width="300" height="40" rx="6" class="box dma"/>
+  <text x="972" y="153" class="t"><tspan class="tb">ACCEPT</tspan> 回程 → capture bank → good_bank</text>
+  <rect x="960" y="180" width="300" height="40" rx="6" class="box dma"/>
+  <text x="972" y="205" class="t"><tspan class="tb">RECORD</tspan> records[8] 原始记录（特等事件源）</text>
+  <rect x="960" y="232" width="300" height="40" rx="6" class="box dma"/>
+  <text x="972" y="257" class="t"><tspan class="tb">PREPARE / HEADER</tspan> 透传他人槽 · seq+1 · CRC</text>
+  <rect x="960" y="284" width="300" height="54" rx="6" class="box dma"/>
+  <text x="972" y="305" class="t"><tspan class="tb">LOCAL</tspan> 选中 shadow → 本节点槽</text>
+  <text x="972" y="324" class="ts">每帧重读：硬件上限 1 个新内容 / 帧</text>
+  <rect x="960" y="350" width="300" height="40" rx="6" class="box dma"/>
+  <text x="972" y="375" class="t"><tspan class="tb">STAGE</tspan> 装车 → PIO TX 发车（1 ms）</text>
+  <path d="M1110,168 L1110,180" class="edge"/>
+  <path d="M1110,220 L1110,232" class="edge"/>
+  <path d="M1110,272 L1110,284" class="edge"/>
+  <path d="M1110,338 L1110,350" class="edge"/>
+  <path d="M930,290 L960,310" class="edge"/>
+  <path d="M960,200 L945,200 L945,96 L20,96 L20,167 L30,167" class="edge-dash"/>
+  <text x="620" y="92" class="ts">records 驱动特等新事件（每帧推进）</text>
+
+  <rect x="960" y="410" width="300" height="82" rx="6" class="box ring"/>
+  <text x="972" y="432" class="tb">环：NO1 → NO2 → NO3 → NO4 → NO1</text>
+  <text x="972" y="451" class="t">每块板只覆写自己的槽（单座位）</text>
+  <text x="972" y="469" class="t">同一帧回到 NO1 = 下一次 ACCEPT</text>
+  <text x="972" y="486" class="ts">线上约 140 µs（四节点估算）</text>
+  <path d="M1110,390 L1110,410" class="edge"/>
+  <path d="M1260,451 L1285,451 L1285,148 L1260,148" class="edge"/>
+
+  <!-- ===================== Part B ===================== -->
+  <text x="30" y="530" class="lane">B. 从板 NO2–NO4 接收：按座位 class 分流，DPLL/VDC 发布闭环</text>
+
+  <rect x="30" y="548" width="250" height="78" rx="6" class="box core1"/>
+  <text x="42" y="570" class="tb">RX IRQ 特等快速提取</text>
+  <text x="42" y="589" class="t">tdma_priority_rx：header/身份/CRC</text>
+  <text x="42" y="607" class="t">按帧序号登记（0x15 不产生缺口）</text>
+
+  <polygon points="420,548 540,587 420,626 300,587" fill="#fefcbf" stroke="#b7791f" stroke-width="1.3"/>
+  <text x="420" y="584" class="tb" text-anchor="middle">座位 class？</text>
+  <text x="420" y="601" class="ts" text-anchor="middle">NO1 槽 mailbox[3]</text>
+  <path d="M280,587 L300,587" class="edge"/>
+
+  <!-- VDC branch -->
+  <rect x="570" y="548" width="240" height="78" rx="6" class="box vdc"/>
+  <text x="582" y="570" class="tb">0x14 → VDC sink</text>
+  <text x="582" y="589" class="t">vdc_priority_rx_core1：typed 解码</text>
+  <text x="582" y="607" class="ts">非 0x14 仅记 OTHER_CLASS，不拒绝</text>
+  <path d="M540,587 L570,587" class="edge-orange"/>
+  <text x="545" y="579" class="ts">0x14</text>
+
+  <!-- T2 branch -->
+  <rect x="300" y="660" width="240" height="78" rx="6" class="box core0"/>
+  <text x="312" y="682" class="tb">0x15 → RefMem RX（Core0）</text>
+  <text x="312" y="701" class="t">解码 10 B 紧缩记录 → 位置邮箱</text>
+  <text x="312" y="719" class="t">T2 owner 补全身份 → 本地解算</text>
+  <path d="M420,626 L420,660" class="edge-blue"/>
+  <text x="426" y="648" class="ts">0x15</text>
+
+  <rect x="30" y="660" width="240" height="78" rx="6" class="box core1"/>
+  <text x="42" y="682" class="tb">T2 执行（Core1）</text>
+  <text x="42" y="701" class="t">本板 DCO 反算 deadline</text>
+  <text x="42" y="719" class="t">预装 PIO 到点输出 · READY 校验</text>
+  <path d="M300,699 L270,699" class="edge-blue"/>
+
+  <!-- DPLL / VDC pipeline (Core1 phases) -->
+  <text x="850" y="566" class="lane" fill="#b7791f">Core1 VDC / DPLL 相位（每 1.5 ms，TDMA 之后）</text>
+  <rect x="850" y="578" width="410" height="44" rx="6" class="box vdc"/>
+  <text x="862" y="605" class="t"><tspan class="tb">MATCH</tspan> vdc_priority_match_core1：同事件配对本地原始时间</text>
+  <rect x="850" y="634" width="410" height="44" rx="6" class="box vdc"/>
+  <text x="862" y="661" class="t"><tspan class="tb">FOLLOW 准备</tspan> 误差区间 · 新鲜度 ≤ FOLLOW_MAX_AGE_MS</text>
+  <rect x="850" y="690" width="410" height="58" rx="6" class="box vdc"/>
+  <text x="862" y="712" class="t"><tspan class="tb">DCO 修正</tspan> 相位：最短间隔 PHASE_MIN_INTERVAL_MS</text>
+  <text x="862" y="731" class="t">频率：按 FOLLOW_*_INTERVAL_NS 分级评估（秒级）</text>
+  <rect x="850" y="760" width="410" height="58" rx="6" class="box vdc"/>
+  <text x="862" y="782" class="t"><tspan class="tb">发布</tspan> committed model（guarded snapshot）</text>
+  <text x="862" y="801" class="t">供 T2 deadline、SYNC_IO 输出与特等 provider 投影</text>
+  <path d="M810,600 L850,600" class="edge-orange"/>
+  <path d="M1055,622 L1055,634" class="edge"/>
+  <path d="M1055,678 L1055,690" class="edge"/>
+  <path d="M1055,748 L1055,760" class="edge"/>
+  <path d="M850,789 L180,789 L180,738" class="edge-dash"/>
+  <text x="560" y="783" class="ts">committed model → T2 本地解算 deadline</text>
+
+  <rect x="30" y="826" width="1230" height="48" rx="6" class="box ring"/>
+  <text x="42" y="846" class="t"><tspan class="tb">三个频率不要混用：</tspan>快速路径发布实测约 2.13 ms 一次（每 4 ms 约 1.9 次）；从板 MATCH 每个事件一次；DCO 相位修正 ≥ 100 ms、频率修正为秒级。</text>
+  <text x="42" y="865" class="t">一等占用某次发布机会时，该次没有特等事件，减少的是 MATCH 样本，不直接降低 DCO 更新节拍；样本减少对锁定质量的影响由 DPLL60 量化。</text>
+
+  <!-- ===================== Part C ===================== -->
+  <text x="30" y="912" class="lane">C. 单片快速路径与多包 / 长帧路径分离</text>
+  <rect x="30" y="928" width="590" height="132" rx="6" class="box xchg"/>
+  <text x="42" y="950" class="tb">实时单片：特等 / 一等</text>
+  <text x="42" y="970" class="t">· 每条记录一个座位装下，不分片、不重组</text>
+  <text x="42" y="989" class="t">· 走快速路径（origin exchange），按优先级上车</text>
+  <text x="42" y="1008" class="t">· 特等：VDC/DPLL typed sync；一等：T2 位置记录等</text>
+  <text x="42" y="1027" class="t">· 帧型固定 SHORT，帧长与 1 ms 节拍不变</text>
+  <text x="42" y="1046" class="ts">实时性来自“一帧坐完 + 不经 Core0 队列”</text>
+
+  <rect x="650" y="928" width="610" height="132" rx="6" class="box later"/>
+  <text x="662" y="950" class="tb">多包 / 长帧：流式 OTA、配置、可靠控制等（后续）</text>
+  <text x="662" y="970" class="t">· 保留 tdma_flight_fifo 双槽 publish/acquire/release 与分片重组</text>
+  <text x="662" y="989" class="t">· 需要独立的发车机会与预算，不占用特等/一等的快速路径</text>
+  <text x="662" y="1008" class="t">· 是否使用 LONG 帧或专用会话，按 TDMA-OPMODE-01 与资源准入另行设计</text>
+  <text x="662" y="1027" class="t">· 现状：origin 启用特等 provider 时，普通 FIFO 不被 Core1 消费</text>
+  <text x="662" y="1046" class="ts">→ 多包路径的出线方式须单独决策，本图不定义</text>
+
+  <!-- ===================== Part D: timeline ===================== -->
+  <text x="30" y="1100" class="lane">D. 一个 4 ms 环回内的时间线（横轴单位 ms）</text>
+  <line x1="230" y1="1410" x2="1240" y2="1410" class="axis"/>
+  <g class="ts">
+    <line x1="230" y1="1118" x2="230" y2="1410" class="grid"/><text x="226" y="1428">0</text>
+    <line x1="480" y1="1118" x2="480" y2="1410" class="grid"/><text x="476" y="1428">1</text>
+    <line x1="730" y1="1118" x2="730" y2="1410" class="grid"/><text x="726" y="1428">2</text>
+    <line x1="980" y1="1118" x2="980" y2="1410" class="grid"/><text x="976" y="1428">3</text>
+    <line x1="1230" y1="1118" x2="1230" y2="1410" class="grid"/><text x="1226" y="1428">4</text>
+    <text x="1244" y="1428">ms</text>
+  </g>
+
+  <text x="30" y="1145" class="t">线上发车 1 ms</text>
+  <rect x="230" y="1128" width="35" height="24" rx="3" class="box dma"/><text x="236" y="1145" class="ts">F0</text>
+  <rect x="480" y="1128" width="35" height="24" rx="3" class="box dma"/><text x="486" y="1145" class="ts">F1</text>
+  <rect x="730" y="1128" width="35" height="24" rx="3" class="box dma"/><text x="736" y="1145" class="ts">F2</text>
+  <rect x="980" y="1128" width="35" height="24" rx="3" class="box dma"/><text x="986" y="1145" class="ts">F3</text>
+
+  <text x="30" y="1193" class="t">Core1 TDMA 相位 1.5 ms</text>
+  <rect x="230" y="1176" width="166" height="24" rx="4" class="phase"/><text x="236" y="1193" class="ts">publish 尝试</text>
+  <rect x="605" y="1176" width="166" height="24" rx="4" class="phase"/><text x="611" y="1193" class="ts">publish 尝试</text>
+  <rect x="980" y="1176" width="166" height="24" rx="4" class="phase"/><text x="986" y="1193" class="ts">publish 尝试</text>
+
+  <text x="30" y="1241" class="t">Core1 VDC/DPLL 相位</text>
+  <rect x="396" y="1224" width="95" height="24" rx="4" class="vdc"/><text x="400" y="1241" class="ts">MATCH/FOLLOW</text>
+  <rect x="771" y="1224" width="95" height="24" rx="4" class="vdc"/><text x="775" y="1241" class="ts">MATCH/FOLLOW</text>
+  <rect x="1146" y="1224" width="84" height="24" rx="4" class="vdc"/><text x="1150" y="1241" class="ts">MATCH…</text>
+
+  <text x="30" y="1289" class="t">普通 FIFO 发布</text>
+  <circle cx="230" cy="1284" r="8" fill="#dd6b20"/>
+  <circle cx="1230" cy="1284" r="8" fill="#dd6b20"/>
+  <text x="250" y="1289" class="ts">-006：Core0 节流每环回 1 次（3.9996 ms）；快速路径实测 2.13 ms 一次 —— 按发布机会编号轮换</text>
+
+  <text x="30" y="1337" class="t">目标：按优先级上车</text>
+  <text x="30" y="1353" class="ts">示意（规则待选）</text>
+  <rect x="230" y="1322" width="60" height="26" class="pri"/><text x="236" y="1340" class="tb">特等</text>
+  <rect x="605" y="1322" width="60" height="26" class="fst"/><text x="611" y="1340" class="tb">一等</text>
+  <rect x="980" y="1322" width="60" height="26" class="pri"/><text x="986" y="1340" class="tb">特等</text>
+  <text x="680" y="1340" class="ts">按机会 1:1 轮换主等级；主等级无新内容时让给另一等级</text>
+
+  <text x="30" y="1385" class="t">现行流式调度（关）</text>
+  <rect x="230" y="1370" width="367.5" height="22" class="pri"/>
+  <rect x="605" y="1370" width="367.5" height="22" class="fst"/>
+  <rect x="980" y="1370" width="250" height="22" class="none"/>
+  <text x="240" y="1386" class="ts">特等窗 [0, 1.47)</text>
+  <text x="615" y="1386" class="ts">一等窗 [1.5, 2.97)</text>
+  <text x="990" y="1386" class="ts">LOAD 放不下</text>
+
+  <text x="30" y="1460" class="sub">图例：橙 = 特等（VDC typed sync 0x14），蓝 = 一等（T2 0x15），黄 = VDC/DPLL，绿 = Core1 TDMA，紫 = DMA 图；蓝色虚框 = 目标设计（未实现），灰色虚框 = 后续多包路径。</text>
+</svg>

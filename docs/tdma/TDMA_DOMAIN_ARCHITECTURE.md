@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-10-08
+Last updated: 2026-10-10
 
 ## 文档接口与范围
 
@@ -106,11 +106,79 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 | 等级 | 内容 | 服务规则 |
 |---|---|---|
 | 特等 | DPLL/VDC 关键同步记录及 SYNC 确定性时间需求 | 固定编码、固定资源与有界入口；缺口、旧代和覆盖明确记录。逐圈无损仍须专项验收。 |
-| 一等 | 其余 VDC 状态与跟随数据；T2 预测位置片为当前接线候选 | 独立 freshness，允许按 owner 规则合并状态；T2 class 在普通帧保留 VDC 字段、暂用二等 RefMem 区域，四板期限和隔离仍待 HIL；命令不得靠状态覆盖语义重放。 |
+| 一等 | T2 位置记录（0x15）等实时单片负载；其余 VDC 状态与跟随数据 | 与特等共用 origin 快速路径，按发布机会轮换优先级，见 TDMA-SEAT-01（待语义审核）；座位内保留 VDC 核心字段与 ACK；命令不得靠状态覆盖语义重放。 |
 | 二等 | RefMem 数据及 ACK/fence | dirty 编码、有界配额与背压；运输成功不自动提交事实。 |
 | 无座 | 普通控制、日志与维护数据 | 预定低优先级或 maintenance 预算；不得扩帧、借 guard 或阻塞前述路径。 |
 
 上述是服务目标及 owner 分层，不表示所有等级已完成统一调度、共存与饱和验收。
+
+### TDMA-SEAT-01（架构已确认，语义待审核）：快速路径按发布机会轮换的流式调度
+
+> 状态：2026-10-10 用户确认架构方向，本节语义待审核；**代码尚未按本节修改**，现状见本节末尾。本节不登记为契约。运行流程图见 [tdma_runtime_flow.svg](tdma_runtime_flow.svg)。
+
+**目标。** 流式调度在一个环回周期内充分利用 origin 的每一次发射机会；特等先上先发，特等没有新内容时把机会让给一等，任何一次机会都不空过。
+
+**列车与座位。** 线上每次发车都是同一种帧：固定 SHORT 帧、固定长度、固定 1 ms 节拍（`TDMA-PROCESSIMAGE-01`、`TDMA-EMISSIONCLOCK-01`），本节不改变帧型、长度和节拍。每块板在每帧只有一个座位，即本节点 mailbox 段（`TDMA_FLIGHT_SHORT_SLOT_SIZE`）。特等和一等都是**实时单片**：一条记录在一个座位里装完，不分片、不重组。
+
+**发布机会。** origin 快速路径（`tdma_origin_exchange`，双 shadow bank）同一时刻只允许一份 pending；DMA 图在 1 ms 发车边界的 LOCAL 步骤选中它后才退休。Core1 TDMA 相位每整表周期尝试一次发布。一次**发布机会**定义为：Core1 TDMA 相位调用发布时，快速路径没有 pending（`tdma_origin_exchange_ready()` 为真）。机会由 origin 计数，从运行开始单调编号。
+
+三个周期分开解释（四板台架，1 ms profile，四节点，实测快照，非事实源）：
+
+| 量 | 实测 | 来源 |
+|---|---|---|
+| 线上发车间隔 | 0.9998 ms | `READ:CALibration:ORIGin:RUNTIme?` 的 `boundary_sequence` |
+| 快速路径发布间隔 | 约 2.13 ms（每 4 ms 约 1.9 次） | 同一查询的 `published_generation`（`t2-bench-probe-164300`） |
+| 普通 FIFO 路径 | 约 4 ms | Core0 RefMem 按 `cycle_period_ns × node_count` 节流，每个环回最多交一份（`TDMA-PROGRESS-20261008-006`） |
+| Core1 整表周期 | 1.5 ms | `PROJECT_CORE1_PROFILE_1500US_CYCLES` |
+
+**按机会编号轮换优先级。** 第 k 次发布机会按轮换比例 M:N 指定本次的**主等级**（默认 M:N = 1:1，即特等、一等交替）。每次机会：
+
+```text
+主等级有新内容          -> 主等级上车
+否则 另一等级有新内容   -> 另一等级上车（机会不空过）
+否则                    -> 不发布，座位保持上一份已发布内容
+```
+
+两个等级都有内容时，每类至少每 M+N 次机会各上车 M、N 次；一等空闲时，特等使用全部机会。默认 1:1 下，特等与一等在一个约 4 ms 的环回内各得到约一次机会。
+
+**新内容的定义。**
+- 特等：provider 返回 `TDMA_PRIORITY_TX_READY`，且事件序号不同于**特等自己上一次上车的记录**。比较对象是特等自己的上一次发布，而不是座位上一次发出的内容；否则一等上车后，特等会把同一旧事件当作新事件重发。`EMPTY` 表示特等本次没有新内容，**不再保留座位**。
+- 一等：一等邮箱中有尚未上车的完整记录。
+
+**一等邮箱。** Core0 RefMem 预先组好完整 32 B mailbox：message class 0x15、VDC 核心字段与 ACK 保留、RefMem 区装 10 B T2 紧缩记录（`TRIGGER_POSITION_SLICE_WIRE_SIZE`）、CRC 已算好。邮箱单深度、单写者，Core0 写完后原子发布；Core1 在上车前复验 class、CRC、source slot 与 target mask，然后经快速路径发布。被一等上车取走后邮箱才可写下一条；一等记录在邮箱中等待时不丢弃，新记录不得覆盖等待中的旧记录。
+
+**让座的代价。** 一等占用某次机会时，这次机会没有特等事件；provider 只提供最新事件，被让出的旧事件不补发。从板减少的是 MATCH 样本，不直接降低 DCO 更新节拍：相位修正最短间隔 `VDC_PRIORITY_PHASE_MIN_INTERVAL_MS`，频率跟随按 `VDC_PRIORITY_FOLLOW_*_INTERVAL_NS` 分级评估，跟随新鲜度按事件原始时间计算（`VDC_PRIORITY_FOLLOW_MAX_AGE_MS`）。T2 每个位置只有少量 PREVIEW 与 1 条 FREEZE，一等占用稀疏；样本减少对锁定质量的影响由 DPLL60 量化。
+
+**路径分离。**
+- origin 启用特等 provider 时，特等与一等都只走快速路径；普通 flight FIFO 不参与 origin 的座位发布。改写已排队 VDC image 的补丁路径（`tdma_flight_fifo_core0_patch_tx_ready`）作废删除。
+- 多包与长帧（流式 OTA、配置、可靠控制等）保留 `tdma_flight_fifo` 双槽 publish/acquire/release 与分片重组，使用独立的发车机会与预算，不占用本节的快速路径；其出线方式另行设计。
+- 从板接收不变：特等 RX IRQ 按帧序号登记，0x15 不产生序号缺口；VDC sink 对非 0x14 只记 `OTHER_CLASS`；RefMem RX 按 class 解析 T2 记录。
+
+**与既有模型的关系。**
+- `tdma_loop_plan` 的环内时间窗与 `TDMA_LOOP_SCHEDULE_ENABLED` 不再作为座位仲裁；开关保持 0，时间窗按 1 ms 帧号映射与 2.13 ms 的实际机会不对齐。
+- 席位挂载表（`tdma_seat_mount_store`）声明 message class 属于哪个等级；ARM 时解析为本次运行的固定映射，运行期发布路径不读挂载表。
+- `tdma_seat_admission` 的时间窗授权（`FIRST_CLASS_WINDOW_GRANTED`）不再是一等上车前置；其中事实分级、STOP/换代撤销、晚交接保留的规则继续适用。
+- 事实分级不变：上车（本次机会归属）、物理发布、对端接收、业务应用分别记录；上车不等于送达。
+
+**EXE-SEAT-01 预算清单。**
+
+| 项 | 特等 | 一等 |
+|---|---|---|
+| 字节 | 完整 typed body（`TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_SIZE`），不变 | 32 B 座位，其中 RefMem 区 10 B 为 T2 记录；wire 帧长不变 |
+| 频率 | 一等空闲时全部机会；一等有内容时不少于 M/(M+N) | 不超过 N/(M+N)，仅在有记录时占用 |
+| Core1 新增 | 每次机会一次事件序号比较 | 每次机会一次邮箱状态读取；上车时复验 CRC 并复制 32 B（最坏耗时按同源码实测计入 TDMA 相位） |
+| IRQ | 不新增 | 不新增 |
+| 对 SYNC 的影响 | 一等占用期间特等事件间隔最多从 1 次机会变为 (M+N)/M 次 | — |
+
+**验收。**
+1. 主机测试：特等有新事件且轮到特等时一等不上车；轮到一等且一等有记录时一等上车；轮到一等但一等为空时特等上车；一等上车后特等不重发旧事件；EMPTY 不占座；STOP 退休一等邮箱。
+2. DPLL60 不退化；新增计数：每等级上车次数、特等让座次数、一等记录等待机会数。
+3. 四板 T2：NO1 位置记录上车数、从板 `rx_complete_count` 增长、一等等待不超过 M+N 次机会。
+
+**现状（待实现）。**
+- `tdma_pio_spi_ring_origin.inc` 中 provider 返回 READY 或 EMPTY 都视为占座，普通路径永不执行，T2 记录停在 flight FIFO。
+- 特等去重比较的是座位上一次发布的 shadow。
+- T2 记录经 flight FIFO 与补丁路径提交，未进入快速路径。
 
 席位余量须分开核对 wire 与 CPU：当前 typed 同步 body 由 `TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_SIZE` 完整占用，不能再塞入健康状态或把普通 class 的 optional 空间重复记作 typed 可用余量。SYNC 的后续需求须列出独立资源及最坏耗时，未完成准入/实测的空间不算已承诺余量。新增或扩容特等席须先经用户审核（`EXE-SEAT-01`）。VDC 健康镜像、统计及查询是 Core0 异步诊断，不占特等邮箱，也不新增 Core1 发布工作。
 
@@ -147,6 +215,8 @@ IRQ 固定配额、关闭预留、前台 service 和输出规划共同计入实�
 布局和配额在构建/配置准入阶段确定，RUN 不根据临时余量扩展。普通 mandatory body、typed body 和全局 trailer 各按自己的 codec 校验；维护流不能夺取实时短帧、其他 owner 段或 guard。资源、wire 最长时间和 phase 邻接检查由 `app_runtime.c` 及 layout 静态断言执行。
 
 ### TDMA-DET-04：分层周期预算与席位准入
+
+> TDMA-SEAT-01（语义待审核）改为按发布机会轮换优先级。审核通过后，本节以环内时间窗划分席位、以 `FIRST_CLASS_WINDOW_GRANTED` 作为一等上车前置的表述由 TDMA-SEAT-01 取代；预算量纲、事实分级和撤销规则继续有效。
 
 TDMA 的下一级抽象是 seat，而不是某个具体功能。具体功能以 load instance 挂载到 seat 上：
 
