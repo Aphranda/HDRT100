@@ -10,13 +10,18 @@
       "operation": "OFFLINE",
       "entrypoints": [],
       "files": [
-        {"path": "tools/common/host_evidence_clock.py", "role": "module"}
+        {
+          "path": "tools/common/host_evidence_clock.py",
+          "role": "module"
+        }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "COMPLETE",
       "aliases": [],
-      "validation": ["tests/python/test_host_evidence_clock.py"],
+      "validation": [
+        "tests/python/test_host_evidence_clock.py"
+      ],
       "handoff_evidence": "docs/tools/DOCS_TOOLS_TASK_PROGRESS.md",
       "notes": "Pure standard-library capability using perf_counter/QPC identity. Consumers bind schema, implementation, monotonicity, adjustability and declared resolution; it does not synchronize clocks or qualify physical event timing."
     },
@@ -29,52 +34,196 @@
       "operation": "DEVICE_CONFIGURE",
       "entrypoints": [],
       "files": [
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/.gitattributes", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/README.md", "role": "documentation"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/base_probe.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/direct_rx.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/exact_match.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/external_monitor.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/golden_native_report.json", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/golden_phase_report.json", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_seal.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_summary.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/late_scope_adapter.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/legacy_scope_reader.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/local_follow.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/longwindow.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/native_trace.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/observer_snapshot.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/outer_hil.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/outer_trial.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/parallel_startup.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/phase_timer1.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/probe_support.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/quiet_startup.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/run_output.py", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/stopped_baseline.json", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/tap_baseline.json", "role": "resource"},
-        {"path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/typed_tx.py", "role": "resource"},
-        {"path": "tools/workflows/vdc_joint_capture/base.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/internal_seal.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/lifecycle.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/direct.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/follow.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/longwindow.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/match.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/observer.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/phase.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/run_output.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/runtime_base.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/trace.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/typed.py", "role": "module"},
-        {"path": "tools/workflows/vdc_joint_capture/README.md", "role": "documentation"}
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/.gitattributes",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/README.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/base_probe.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/direct_rx.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/exact_match.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/external_monitor.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/golden_native_report.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/golden_phase_report.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_seal.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_summary.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/late_scope_adapter.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/legacy_scope_reader.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/local_follow.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/longwindow.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/native_trace.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/observer_snapshot.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/outer_hil.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/outer_trial.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/parallel_startup.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/phase_timer1.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/probe_support.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/quiet_startup.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/run_output.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/stopped_baseline.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/tap_baseline.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/typed_tx.py",
+          "role": "resource"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/base.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/internal_seal.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/lifecycle.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/direct.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/follow.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/longwindow.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/match.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/observer.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/phase.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/run_output.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/runtime_base.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/trace.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/typed.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/workflows/vdc_joint_capture/README.md",
+          "role": "documentation"
+        }
       ],
-      "depends_on": ["TOOL-DPLL-OBSERVATION-DECODE", "TOOL-HOST-EVIDENCE-CLOCK", "TOOL-SCPI-COMMON", "TOOL-TDMA-RING-MONITOR", "TOOL-VDC-PROBE-SUPPORT"],
-      "external_dependencies": ["pyserial for four-board hardware runs"],
+      "depends_on": [
+        "TOOL-DPLL-OBSERVATION-DECODE",
+        "TOOL-HOST-EVIDENCE-CLOCK",
+        "TOOL-SCPI-COMMON",
+        "TOOL-TDMA-RING-MONITOR",
+        "TOOL-VDC-PROBE-SUPPORT"
+      ],
+      "external_dependencies": [
+        "pyserial for four-board hardware runs"
+      ],
       "dependency_review": "COMPLETE",
       "aliases": [],
-      "validation": ["tests/python/test_vdc_priority_joint_capture.py", "tests/python/test_vdc_joint_lifecycle.py", "tests/python/test_vdc_internal_seal.py", "tests/python/test_vdc_joint_runtime_base.py", "tests/python/test_vdc_joint_run_output.py", "tests/python/test_vdc_joint_phase.py", "tests/python/test_vdc_joint_longwindow.py", "tests/python/test_vdc_joint_trace.py", "tests/python/test_vdc_joint_follow.py", "tests/python/test_vdc_joint_observer.py", "tests/python/test_vdc_joint_match.py", "tests/python/test_vdc_joint_direct.py", "tests/python/test_vdc_joint_typed.py", "tests/python/test_vdc_joint_base.py", "tests/python/test_vdc_probe_support.py"],
+      "validation": [
+        "tests/python/test_vdc_priority_joint_capture.py",
+        "tests/python/test_vdc_joint_lifecycle.py",
+        "tests/python/test_vdc_internal_seal.py",
+        "tests/python/test_vdc_joint_runtime_base.py",
+        "tests/python/test_vdc_joint_run_output.py",
+        "tests/python/test_vdc_joint_phase.py",
+        "tests/python/test_vdc_joint_longwindow.py",
+        "tests/python/test_vdc_joint_trace.py",
+        "tests/python/test_vdc_joint_follow.py",
+        "tests/python/test_vdc_joint_observer.py",
+        "tests/python/test_vdc_joint_match.py",
+        "tests/python/test_vdc_joint_direct.py",
+        "tests/python/test_vdc_joint_typed.py",
+        "tests/python/test_vdc_joint_base.py",
+        "tests/python/test_vdc_probe_support.py"
+      ],
       "handoff_evidence": "docs/tools/DOCS_TOOLS_TASK_PROGRESS.md",
       "notes": "Validates config/tool_workflows/vdc_joint_capture_internal_seal.json before import; tracked code owns the complete internal-seal runtime from outer STOP/RAM/child/restore through base command/export state. Archived lineage stays pinned as evidence with a zero-file executable closure. Detached-worktree offline recomputation and hardware rerun handoff are recorded in DOCS_TOOLS_TASK_PROGRESS. No Flash writes; vector/reference-injection scenarios remain separate."
     },
@@ -87,14 +236,22 @@
       "operation": "OFFLINE",
       "entrypoints": [],
       "files": [
-        {"path": "tools/domains/vdc/priority_trace/probe_support.py", "role": "module"},
-        {"path": "tools/domains/vdc/priority_trace/README.md", "role": "documentation"}
+        {
+          "path": "tools/domains/vdc/priority_trace/probe_support.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/vdc/priority_trace/README.md",
+          "role": "documentation"
+        }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "COMPLETE",
       "aliases": [],
-      "validation": ["tests/python/test_vdc_probe_support.py"],
+      "validation": [
+        "tests/python/test_vdc_probe_support.py"
+      ],
       "handoff_evidence": null,
       "notes": "Pure host leaf shared by the joint workflow and priority-trace tools. Import has no device side effects; the archived source remains pinned as migrated lineage."
     },
@@ -107,14 +264,26 @@
       "operation": "DEVICE_CONFIGURE",
       "entrypoints": [],
       "files": [
-        {"path": "tools/common/hdo_scope/reader.py", "role": "module"},
-        {"path": "tools/common/hdo_scope/README.md", "role": "documentation"}
+        {
+          "path": "tools/common/hdo_scope/reader.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/common/hdo_scope/README.md",
+          "role": "documentation"
+        }
       ],
-      "depends_on": ["TOOL-HOST-EVIDENCE-CLOCK"],
-      "external_dependencies": ["PyVISA and VISA/USB backend for hardware; Python standard library for decoding"],
+      "depends_on": [
+        "TOOL-HOST-EVIDENCE-CLOCK"
+      ],
+      "external_dependencies": [
+        "PyVISA and VISA/USB backend for hardware; Python standard library for decoding"
+      ],
       "dependency_review": "COMPLETE",
       "aliases": [],
-      "validation": ["tests/python/test_hdo_scope_migration.py"],
+      "validation": [
+        "tests/python/test_hdo_scope_migration.py"
+      ],
       "handoff_evidence": null,
       "notes": "Extracted from frozen four-channel RAW reader; no out imports or board access. Explicit resource/identity, injected instrument for tests. Destination hardware acceptance and full handoff remain separately qualified."
     },
@@ -127,15 +296,31 @@
       "operation": "DEVICE_CONFIGURE",
       "entrypoints": [],
       "files": [
-        {"path": "tools/domains/vdc/scope_capture/sparse.py", "role": "module"},
-        {"path": "tools/domains/vdc/scope_capture/migration.json", "role": "resource"},
-        {"path": "tools/domains/vdc/scope_capture/README.md", "role": "documentation"}
+        {
+          "path": "tools/domains/vdc/scope_capture/sparse.py",
+          "role": "module"
+        },
+        {
+          "path": "tools/domains/vdc/scope_capture/migration.json",
+          "role": "resource"
+        },
+        {
+          "path": "tools/domains/vdc/scope_capture/README.md",
+          "role": "documentation"
+        }
       ],
-      "depends_on": ["TOOL-HDO-RAW-READER", "TOOL-HOST-EVIDENCE-CLOCK"],
+      "depends_on": [
+        "TOOL-HDO-RAW-READER",
+        "TOOL-HOST-EVIDENCE-CLOCK"
+      ],
       "external_dependencies": [],
       "dependency_review": "COMPLETE",
       "aliases": [],
-      "validation": ["tests/python/test_hdo_scope_migration.py", "tests/python/test_vdc_priority_joint_capture.py", "tests/python/test_vdc_scope_evidence.py"],
+      "validation": [
+        "tests/python/test_hdo_scope_migration.py",
+        "tests/python/test_vdc_priority_joint_capture.py",
+        "tests/python/test_vdc_scope_evidence.py"
+      ],
       "handoff_evidence": null,
       "notes": "Explicit setup replaces historical scope inheritance/monkey patches for joint capture. Does not qualify the remaining board adapter chain or unsampled phase."
     },
@@ -153,6 +338,18 @@
         {
           "path": "tools/sync/analyzer_burst/analyzer_burst.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/analyzer_burst/analyzer_burst.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_burst/__pycache__/analyzer_burst.cpython-310.pyc",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_burst/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -162,7 +359,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/analyzer_burst/analyzer_burst.py",
+          "target": "tools/sync/analyzer_burst/analyzer_burst.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -185,12 +387,37 @@
         {
           "path": "tools/sync/analyzer_no5_correlator/analyzer_no5_correlator.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/analyzer_no5_correlator/__init__.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_no5_correlator/analyzer_no5_correlator.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_no5_correlator/__pycache__/__init__.cpython-310.pyc",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_no5_correlator/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/analyzer_no5_correlator/__init__.py",
+          "target": "tools/sync/analyzer_no5_correlator/__init__.py"
+        },
+        {
+          "path": "tools/analyzer_no5_correlator/analyzer_no5_correlator.py",
+          "target": "tools/sync/analyzer_no5_correlator/analyzer_no5_correlator.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -209,12 +436,29 @@
         {
           "path": "tools/tdma/analyzer_tdma_hil/analyzer_tdma_hil.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/analyzer_tdma_hil/analyzer_tdma_hil.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_tdma_hil/__pycache__/analyzer_tdma_hil.cpython-310.pyc",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_tdma_hil/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/analyzer_tdma_hil/analyzer_tdma_hil.py",
+          "target": "tools/tdma/analyzer_tdma_hil/analyzer_tdma_hil.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -237,6 +481,22 @@
         {
           "path": "tools/sync/analyzer_trace_batch_index/analyzer_trace_batch_index.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/analyzer_trace_batch_index/__init__.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_trace_batch_index/analyzer_trace_batch_index.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_trace_batch_index/__pycache__/__init__.cpython-310.pyc",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_trace_batch_index/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -244,7 +504,16 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/analyzer_trace_batch_index/__init__.py",
+          "target": "tools/sync/analyzer_trace_batch_index/__init__.py"
+        },
+        {
+          "path": "tools/analyzer_trace_batch_index/analyzer_trace_batch_index.py",
+          "target": "tools/sync/analyzer_trace_batch_index/analyzer_trace_batch_index.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -263,12 +532,29 @@
         {
           "path": "tools/sync/analyzer_trace_decode/analyzer_trace_decode.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/analyzer_trace_decode/analyzer_trace_decode.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_trace_decode/__pycache__/analyzer_trace_decode.cpython-310.pyc",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_trace_decode/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/analyzer_trace_decode/analyzer_trace_decode.py",
+          "target": "tools/sync/analyzer_trace_decode/analyzer_trace_decode.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -291,6 +577,22 @@
         {
           "path": "tools/sync/analyzer_trace_export/analyzer_trace_export.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/analyzer_trace_export/__init__.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_trace_export/analyzer_trace_export.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_trace_export/__pycache__/__init__.cpython-310.pyc",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/analyzer_trace_export/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -300,7 +602,16 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/analyzer_trace_export/__init__.py",
+          "target": "tools/sync/analyzer_trace_export/__init__.py"
+        },
+        {
+          "path": "tools/analyzer_trace_export/analyzer_trace_export.py",
+          "target": "tools/sync/analyzer_trace_export/analyzer_trace_export.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -323,12 +634,33 @@
         {
           "path": "tools/project/artifact_checksum/artifact_checksum.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/artifact_checksum/__init__.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/artifact_checksum/artifact_checksum.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/artifact_checksum/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/artifact_checksum/__init__.py",
+          "target": "tools/project/artifact_checksum/__init__.py"
+        },
+        {
+          "path": "tools/artifact_checksum/artifact_checksum.py",
+          "target": "tools/project/artifact_checksum/artifact_checksum.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -352,6 +684,10 @@
         {
           "path": "tools/project/rp2350_tk_toolbox.py",
           "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/rp2350_tk_toolbox.py",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
@@ -361,6 +697,10 @@
         {
           "path": "tools/project/rp2350_tk_toolbox.py",
           "target": "tools/bench/rp2350_tk_toolbox.py"
+        },
+        {
+          "path": "tools/rp2350_tk_toolbox.py",
+          "target": "tools/project/rp2350_tk_toolbox.py"
         }
       ],
       "validation": [],
@@ -381,6 +721,14 @@
         {
           "path": "tools/communication/biss_board_validate/biss_board_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/biss_board_validate/biss_board_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/biss_board_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -389,7 +737,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/biss_board_validate/biss_board_validate.py",
+          "target": "tools/communication/biss_board_validate/biss_board_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -418,12 +771,41 @@
         {
           "path": "tools/communication/biss_wavegen/biss_wavegen.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/biss_wavegen/biss_wave_plot.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/biss_wavegen/biss_wave_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/biss_wavegen/biss_wavegen.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/biss_wavegen/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/biss_wavegen/biss_wave_plot.py",
+          "target": "tools/communication/biss_wavegen/biss_wave_plot.py"
+        },
+        {
+          "path": "tools/biss_wavegen/biss_wave_validate.py",
+          "target": "tools/communication/biss_wavegen/biss_wave_validate.py"
+        },
+        {
+          "path": "tools/biss_wavegen/biss_wavegen.py",
+          "target": "tools/communication/biss_wavegen/biss_wavegen.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -442,12 +824,25 @@
         {
           "path": "tools/project/build_info/gen_build_info.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/build_info/gen_build_info.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/build_info/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/build_info/gen_build_info.py",
+          "target": "tools/project/build_info/gen_build_info.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -470,6 +865,18 @@
         {
           "path": "tools/calibration/calibration_loopback_validate/calibration_loopback_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/calibration_loopback_validate/__init__.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/calibration_loopback_validate/calibration_loopback_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/calibration_loopback_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -477,7 +884,16 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/calibration_loopback_validate/__init__.py",
+          "target": "tools/calibration/calibration_loopback_validate/__init__.py"
+        },
+        {
+          "path": "tools/calibration_loopback_validate/calibration_loopback_validate.py",
+          "target": "tools/calibration/calibration_loopback_validate/calibration_loopback_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -715,6 +1131,10 @@
         {
           "path": "tools/checks/check_source_lengths.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/check_scpi_usb_namespace.py",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
@@ -724,6 +1144,10 @@
         {
           "path": "tools/project/check_scpi_usb_namespace.py",
           "target": "tools/checks/check_scpi_usb_namespace.py"
+        },
+        {
+          "path": "tools/check_scpi_usb_namespace.py",
+          "target": "tools/project/check_scpi_usb_namespace.py"
         }
       ],
       "validation": [],
@@ -800,6 +1224,10 @@
         {
           "path": "tools/project/codex_watchdog/state.json",
           "role": "resource"
+        },
+        {
+          "path": "tools/codex_watchdog/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
@@ -824,12 +1252,25 @@
         {
           "path": "tools/sync/debug_model_overlay_validate/debug_model_overlay_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/debug_model_overlay_validate/debug_model_overlay_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/debug_model_overlay_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/debug_model_overlay_validate/debug_model_overlay_validate.py",
+          "target": "tools/sync/debug_model_overlay_validate/debug_model_overlay_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -852,12 +1293,33 @@
         {
           "path": "tools/communication/distributed_loopback_validate/distributed_loopback_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/distributed_loopback_validate/__init__.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/distributed_loopback_validate/distributed_loopback_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/distributed_loopback_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/distributed_loopback_validate/__init__.py",
+          "target": "tools/communication/distributed_loopback_validate/__init__.py"
+        },
+        {
+          "path": "tools/distributed_loopback_validate/distributed_loopback_validate.py",
+          "target": "tools/communication/distributed_loopback_validate/distributed_loopback_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -924,6 +1386,18 @@
         {
           "path": "tools/vdc/dpll_observation_capture/dpll_observation_capture.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/dpll_observation_capture/dpll_observation_capture.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/dpll_observation_capture/__pycache__/dpll_observation_capture.cpython-310.pyc",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/dpll_observation_capture/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -932,7 +1406,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/dpll_observation_capture/dpll_observation_capture.py",
+          "target": "tools/vdc/dpll_observation_capture/dpll_observation_capture.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -962,6 +1441,14 @@
         },
         {
           "path": "tools/vdc/dpll_observation_decode/dpll_observation_decode.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/dpll_observation_decode/dpll_observation_decode.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/dpll_observation_decode/README.md",
           "role": "compatibility_wrapper"
         }
       ],
@@ -1010,6 +1497,14 @@
         {
           "path": "tools/vdc/dpll_residual_analyze/dpll_residual_analyze.py",
           "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/dpll_residual_analyze/dpll_residual_analyze.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/dpll_residual_analyze/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
@@ -1046,6 +1541,14 @@
         {
           "path": "tools/vdc/dpll_servo_tune/dpll_servo_tune.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/dpll_servo_tune/dpll_servo_tune.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/dpll_servo_tune/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1054,7 +1557,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/dpll_servo_tune/dpll_servo_tune.py",
+          "target": "tools/vdc/dpll_servo_tune/dpll_servo_tune.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1073,6 +1581,14 @@
         {
           "path": "tools/vdc/dpll_vdc_monitor/dpll_vdc_monitor.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/dpll_vdc_monitor/dpll_vdc_monitor.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/dpll_vdc_monitor/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1082,7 +1598,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/dpll_vdc_monitor/dpll_vdc_monitor.py",
+          "target": "tools/vdc/dpll_vdc_monitor/dpll_vdc_monitor.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1101,12 +1622,25 @@
         {
           "path": "tools/vdc/dpll_waveform_capture/dpll_waveform_capture.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/dpll_waveform_capture/dpll_waveform_capture.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/dpll_waveform_capture/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/dpll_waveform_capture/dpll_waveform_capture.py",
+          "target": "tools/vdc/dpll_waveform_capture/dpll_waveform_capture.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1129,6 +1663,18 @@
         {
           "path": "tools/ota/factory_package/factory_package.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/factory_package/__init__.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/factory_package/factory_package.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/factory_package/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1136,7 +1682,16 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/factory_package/__init__.py",
+          "target": "tools/ota/factory_package/__init__.py"
+        },
+        {
+          "path": "tools/factory_package/factory_package.py",
+          "target": "tools/ota/factory_package/factory_package.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1159,6 +1714,18 @@
         {
           "path": "tools/ota/factory_restore/factory_restore.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/factory_restore/__init__.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/factory_restore/factory_restore.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/factory_restore/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1167,7 +1734,16 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/factory_restore/__init__.py",
+          "target": "tools/ota/factory_restore/__init__.py"
+        },
+        {
+          "path": "tools/factory_restore/factory_restore.py",
+          "target": "tools/ota/factory_restore/factory_restore.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1186,12 +1762,25 @@
         {
           "path": "tools/flash/flash_lockout_hil_validate/flash_lockout_hil_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/flash_lockout_hil_validate/flash_lockout_hil_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/flash_lockout_hil_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/flash_lockout_hil_validate/flash_lockout_hil_validate.py",
+          "target": "tools/flash/flash_lockout_hil_validate/flash_lockout_hil_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1282,6 +1871,14 @@
         {
           "path": "tools/flash/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/flash_park_timeout_hil_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1289,7 +1886,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py",
+          "target": "tools/flash/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1308,12 +1910,25 @@
         {
           "path": "tools/flash/flash_scratch_validate/flash_scratch_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/flash_scratch_validate/flash_scratch_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/flash_scratch_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/flash_scratch_validate/flash_scratch_validate.py",
+          "target": "tools/flash/flash_scratch_validate/flash_scratch_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1392,12 +2007,25 @@
         {
           "path": "tools/trigger/model_turntable_load_validate/model_turntable_load_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/model_turntable_load_validate/model_turntable_load_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/model_turntable_load_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/model_turntable_load_validate/model_turntable_load_validate.py",
+          "target": "tools/trigger/model_turntable_load_validate/model_turntable_load_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1420,6 +2048,18 @@
         {
           "path": "tools/rtos/multicore_board_validate/multicore_board_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/multicore_board_validate/__init__.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/multicore_board_validate/multicore_board_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/multicore_board_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1427,7 +2067,16 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/multicore_board_validate/__init__.py",
+          "target": "tools/rtos/multicore_board_validate/__init__.py"
+        },
+        {
+          "path": "tools/multicore_board_validate/multicore_board_validate.py",
+          "target": "tools/rtos/multicore_board_validate/multicore_board_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1446,12 +2095,25 @@
         {
           "path": "tools/ota/ota_bin_info/ota_bin_info.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota_bin_info/ota_bin_info.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_bin_info/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/ota_bin_info/ota_bin_info.py",
+          "target": "tools/ota/ota_bin_info/ota_bin_info.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1470,12 +2132,25 @@
         {
           "path": "tools/ota/ota_board_validate/ota_board_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota_board_validate/ota_board_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_board_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/ota_board_validate/ota_board_validate.py",
+          "target": "tools/ota/ota_board_validate/ota_board_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1494,6 +2169,14 @@
         {
           "path": "tools/ota/ota_boot_commit/ota_boot_commit.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota_boot_commit/ota_boot_commit.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_boot_commit/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1501,7 +2184,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/ota_boot_commit/ota_boot_commit.py",
+          "target": "tools/ota/ota_boot_commit/ota_boot_commit.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1520,12 +2208,25 @@
         {
           "path": "tools/ota/ota_haofv_gate/ota_haofv_gate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota_haofv_gate/ota_haofv_gate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_haofv_gate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/ota_haofv_gate/ota_haofv_gate.py",
+          "target": "tools/ota/ota_haofv_gate/ota_haofv_gate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1559,12 +2260,49 @@
         {
           "path": "tools/ota/ota_keys/verify_ota_signature.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota_keys/gen_ota_key_registry.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_keys/generate_ota_key.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_keys/sign_ota_signature.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_keys/verify_ota_signature.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_keys/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/ota_keys/gen_ota_key_registry.py",
+          "target": "tools/ota/ota_keys/gen_ota_key_registry.py"
+        },
+        {
+          "path": "tools/ota_keys/generate_ota_key.py",
+          "target": "tools/ota/ota_keys/generate_ota_key.py"
+        },
+        {
+          "path": "tools/ota_keys/sign_ota_signature.py",
+          "target": "tools/ota/ota_keys/sign_ota_signature.py"
+        },
+        {
+          "path": "tools/ota_keys/verify_ota_signature.py",
+          "target": "tools/ota/ota_keys/verify_ota_signature.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1583,6 +2321,14 @@
         {
           "path": "tools/ota/ota_multi_update/ota_multi_update.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota_multi_update/ota_multi_update.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_multi_update/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1590,7 +2336,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/ota_multi_update/ota_multi_update.py",
+          "target": "tools/ota/ota_multi_update/ota_multi_update.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1609,12 +2360,25 @@
         {
           "path": "tools/ota/ota_packager/ota_packager.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota_packager/ota_packager.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_packager/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/ota_packager/ota_packager.py",
+          "target": "tools/ota/ota_packager/ota_packager.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1633,6 +2397,14 @@
         {
           "path": "tools/ota/ota_send/ota_send.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota_send/ota_send.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_send/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1640,7 +2412,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/ota_send/ota_send.py",
+          "target": "tools/ota/ota_send/ota_send.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1659,6 +2436,14 @@
         {
           "path": "tools/ota/ota_stream_send/ota_stream_send.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota_stream_send/ota_stream_send.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ota_stream_send/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1666,7 +2451,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/ota_stream_send/ota_stream_send.py",
+          "target": "tools/ota/ota_stream_send/ota_stream_send.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1685,12 +2475,25 @@
         {
           "path": "tools/project/pdf_text_extract/pdf_text_extract.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/pdf_text_extract/pdf_text_extract.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/pdf_text_extract/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/pdf_text_extract/pdf_text_extract.py",
+          "target": "tools/project/pdf_text_extract/pdf_text_extract.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1737,12 +2540,33 @@
         {
           "path": "tools/ota/picotool_reboot/picotool_reboot.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/picotool_reboot/__init__.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/picotool_reboot/picotool_reboot.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/picotool_reboot/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/picotool_reboot/__init__.py",
+          "target": "tools/ota/picotool_reboot/__init__.py"
+        },
+        {
+          "path": "tools/picotool_reboot/picotool_reboot.py",
+          "target": "tools/ota/picotool_reboot/picotool_reboot.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1761,12 +2585,25 @@
         {
           "path": "tools/interface/product_scpi_validate/product_scpi_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/product_scpi_validate/product_scpi_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/product_scpi_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/product_scpi_validate/product_scpi_validate.py",
+          "target": "tools/interface/product_scpi_validate/product_scpi_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1785,12 +2622,25 @@
         {
           "path": "tools/project/ram_budget_check/ram_budget_check.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/ram_budget_check/ram_budget_check.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/ram_budget_check/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/ram_budget_check/ram_budget_check.py",
+          "target": "tools/project/ram_budget_check/ram_budget_check.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1809,12 +2659,25 @@
         {
           "path": "tools/validation/realtime_scpi_validate/realtime_scpi_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/realtime_scpi_validate/realtime_scpi_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/realtime_scpi_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/realtime_scpi_validate/realtime_scpi_validate.py",
+          "target": "tools/validation/realtime_scpi_validate/realtime_scpi_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1833,12 +2696,25 @@
         {
           "path": "tools/refmem/refmem_network_validate/refmem_network_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem_network_validate/refmem_network_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/refmem_network_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/refmem_network_validate/refmem_network_validate.py",
+          "target": "tools/refmem/refmem_network_validate/refmem_network_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1857,12 +2733,25 @@
         {
           "path": "tools/refmem/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/refmem_node_load_auto_hil_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py",
+          "target": "tools/refmem/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1881,6 +2770,14 @@
         {
           "path": "tools/refmem/refmem_pack_build/refmem_pack_build.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem_pack_build/refmem_pack_build.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/refmem_pack_build/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1888,7 +2785,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/refmem_pack_build/refmem_pack_build.py",
+          "target": "tools/refmem/refmem_pack_build/refmem_pack_build.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1907,6 +2809,14 @@
         {
           "path": "tools/refmem/refmem_pack_write/refmem_pack_write.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem_pack_write/refmem_pack_write.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/refmem_pack_write/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1914,7 +2824,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/refmem_pack_write/refmem_pack_write.py",
+          "target": "tools/refmem/refmem_pack_write/refmem_pack_write.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1933,12 +2848,25 @@
         {
           "path": "tools/refmem/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/refmem_quality_gate_hil_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py",
+          "target": "tools/refmem/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1957,6 +2885,14 @@
         {
           "path": "tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/refmem_scpi_load_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -1964,7 +2900,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py",
+          "target": "tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -1983,12 +2924,25 @@
         {
           "path": "tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/refmem_spi_hil_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py",
+          "target": "tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2007,12 +2961,25 @@
         {
           "path": "tools/refmem/refmem_spi_line_activity/refmem_spi_line_activity.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem_spi_line_activity/refmem_spi_line_activity.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/refmem_spi_line_activity/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/refmem_spi_line_activity/refmem_spi_line_activity.py",
+          "target": "tools/refmem/refmem_spi_line_activity/refmem_spi_line_activity.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2031,12 +2998,25 @@
         {
           "path": "tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/refmem_sync_hil_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py",
+          "target": "tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2057,12 +3037,33 @@
         {
           "path": "tools/refmem/refmem_table_image/refmem_table_image.py",
           "role": "module"
+        },
+        {
+          "path": "tools/refmem_table_image/__init__.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/refmem_table_image/refmem_table_image.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/refmem_table_image/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/refmem_table_image/__init__.py",
+          "target": "tools/refmem/refmem_table_image/__init__.py"
+        },
+        {
+          "path": "tools/refmem_table_image/refmem_table_image.py",
+          "target": "tools/refmem/refmem_table_image/refmem_table_image.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2081,6 +3082,14 @@
         {
           "path": "tools/refmem/refmem_table_registry_validate/refmem_table_registry_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/refmem_table_registry_validate/refmem_table_registry_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/refmem_table_registry_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -2089,7 +3098,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/refmem_table_registry_validate/refmem_table_registry_validate.py",
+          "target": "tools/refmem/refmem_table_registry_validate/refmem_table_registry_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2108,6 +3122,14 @@
         {
           "path": "tools/project/release_check/release_check.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/release_check/release_check.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/release_check/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -2115,7 +3137,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/release_check/release_check.py",
+          "target": "tools/project/release_check/release_check.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2134,12 +3161,25 @@
         {
           "path": "tools/communication/rs485_modbus_validate/rs485_modbus_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/rs485_modbus_validate/rs485_modbus_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/rs485_modbus_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/rs485_modbus_validate/rs485_modbus_validate.py",
+          "target": "tools/communication/rs485_modbus_validate/rs485_modbus_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2158,6 +3198,14 @@
         {
           "path": "tools/rtos/rtos_watermark_capture/rtos_watermark_capture.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/rtos_watermark_capture/rtos_watermark_capture.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/rtos_watermark_capture/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -2165,7 +3213,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/rtos_watermark_capture/rtos_watermark_capture.py",
+          "target": "tools/rtos/rtos_watermark_capture/rtos_watermark_capture.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2184,12 +3237,25 @@
         {
           "path": "tools/vdc/scope_dpll_capture/scope_dpll_capture.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/scope_dpll_capture/scope_dpll_capture.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/scope_dpll_capture/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/scope_dpll_capture/scope_dpll_capture.py",
+          "target": "tools/vdc/scope_dpll_capture/scope_dpll_capture.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2250,6 +3316,26 @@
         {
           "path": "tools/interface/scpi_common/scpi_serial.py",
           "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/scpi_common/__init__.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/scpi_common/board_identity.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/scpi_common/ota_timing.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/scpi_common/scpi_serial.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/scpi_common/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
@@ -2293,12 +3379,25 @@
         {
           "path": "tools/interface/scpi_legacy_validate/scpi_legacy_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/scpi_legacy_validate/scpi_legacy_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/scpi_legacy_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/scpi_legacy_validate/scpi_legacy_validate.py",
+          "target": "tools/interface/scpi_legacy_validate/scpi_legacy_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2389,6 +3488,14 @@
         {
           "path": "tools/interface/scpi_query/vdc_readback_probe.scpi",
           "role": "resource"
+        },
+        {
+          "path": "tools/scpi_query/scpi_query.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/scpi_query/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -2422,6 +3529,14 @@
         {
           "path": "tools/storage/sd_board_validate/sd_board_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/sd_board_validate/sd_board_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sd_board_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -2430,7 +3545,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/sd_board_validate/sd_board_validate.py",
+          "target": "tools/storage/sd_board_validate/sd_board_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2449,6 +3569,14 @@
         {
           "path": "tools/storage/sd_fs_build/sd_fs_build.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/sd_fs_build/sd_fs_build.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sd_fs_build/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -2456,7 +3584,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/sd_fs_build/sd_fs_build.py",
+          "target": "tools/storage/sd_fs_build/sd_fs_build.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2475,12 +3608,25 @@
         {
           "path": "tools/storage/sd_mkfs/sd_mkfs.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/sd_mkfs/sd_mkfs.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sd_mkfs/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/sd_mkfs/sd_mkfs.py",
+          "target": "tools/storage/sd_mkfs/sd_mkfs.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2499,12 +3645,25 @@
         {
           "path": "tools/storage/sd_raw_clear/sd_raw_clear.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/sd_raw_clear/sd_raw_clear.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sd_raw_clear/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/sd_raw_clear/sd_raw_clear.py",
+          "target": "tools/storage/sd_raw_clear/sd_raw_clear.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2530,6 +3689,14 @@
         },
         {
           "path": "tools/storage/sd_trace_decode/sd_trace_decode.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sd_trace_decode/sd_trace_decode.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sd_trace_decode/README.md",
           "role": "compatibility_wrapper"
         }
       ],
@@ -2587,12 +3754,65 @@
         {
           "path": "tools/calibration/sma_cable_delay_validate/sma_cable_wire_order.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_appointment_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_delay_analyze.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_delay_sweep.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_five_board_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_symmetric_rtt.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_wire_order.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_appointment_validate.py",
+          "target": "tools/calibration/sma_cable_delay_validate/sma_cable_appointment_validate.py"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_delay_analyze.py",
+          "target": "tools/calibration/sma_cable_delay_validate/sma_cable_delay_analyze.py"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_delay_sweep.py",
+          "target": "tools/calibration/sma_cable_delay_validate/sma_cable_delay_sweep.py"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_five_board_validate.py",
+          "target": "tools/calibration/sma_cable_delay_validate/sma_cable_five_board_validate.py"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_symmetric_rtt.py",
+          "target": "tools/calibration/sma_cable_delay_validate/sma_cable_symmetric_rtt.py"
+        },
+        {
+          "path": "tools/sma_cable_delay_validate/sma_cable_wire_order.py",
+          "target": "tools/calibration/sma_cable_delay_validate/sma_cable_wire_order.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2626,12 +3846,49 @@
         {
           "path": "tools/calibration/sma_loopback_validate/sma_two_board_matrix.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/sma_loopback_validate/sma_single_board_loopback.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sma_loopback_validate/sma_two_board_frequency_sweep.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sma_loopback_validate/sma_two_board_in1_out1.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sma_loopback_validate/sma_two_board_matrix.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/sma_loopback_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/sma_loopback_validate/sma_single_board_loopback.py",
+          "target": "tools/calibration/sma_loopback_validate/sma_single_board_loopback.py"
+        },
+        {
+          "path": "tools/sma_loopback_validate/sma_two_board_frequency_sweep.py",
+          "target": "tools/calibration/sma_loopback_validate/sma_two_board_frequency_sweep.py"
+        },
+        {
+          "path": "tools/sma_loopback_validate/sma_two_board_in1_out1.py",
+          "target": "tools/calibration/sma_loopback_validate/sma_two_board_in1_out1.py"
+        },
+        {
+          "path": "tools/sma_loopback_validate/sma_two_board_matrix.py",
+          "target": "tools/calibration/sma_loopback_validate/sma_two_board_matrix.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2650,12 +3907,25 @@
         {
           "path": "tools/state_machine/state_machine_resource_check/state_machine_resource_check.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/state_machine_resource_check/state_machine_resource_check.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/state_machine_resource_check/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/state_machine_resource_check/state_machine_resource_check.py",
+          "target": "tools/state_machine/state_machine_resource_check/state_machine_resource_check.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2674,6 +3944,14 @@
         {
           "path": "tools/storage/storage_file_upload/storage_file_upload.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/storage_file_upload/storage_file_upload.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/storage_file_upload/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -2681,7 +3959,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/storage_file_upload/storage_file_upload.py",
+          "target": "tools/storage/storage_file_upload/storage_file_upload.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -2700,6 +3983,14 @@
         {
           "path": "tools/storage/storage_scpi_validate/storage_scpi_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/storage_scpi_validate/storage_scpi_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/storage_scpi_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [
@@ -2707,7 +3998,12 @@
       ],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/storage_scpi_validate/storage_scpi_validate.py",
+          "target": "tools/storage/storage_scpi_validate/storage_scpi_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3089,6 +4385,18 @@
         {
           "path": "tools/tests/run_vdc_time_mapping_tests.ps1",
           "role": "test_runner"
+        },
+        {
+          "path": "tools/run_biss_protocol_tests.ps1",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/run_portable_log_tests.ps1",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/run_portable_ota_tests.ps1",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
@@ -3106,6 +4414,18 @@
         {
           "path": "tools/validation/run_portable_ota_tests.ps1",
           "target": "tools/tests/run_portable_ota_tests.ps1"
+        },
+        {
+          "path": "tools/run_biss_protocol_tests.ps1",
+          "target": "tools/validation/run_biss_protocol_tests.ps1"
+        },
+        {
+          "path": "tools/run_portable_log_tests.ps1",
+          "target": "tools/project/run_portable_log_tests.ps1"
+        },
+        {
+          "path": "tools/run_portable_ota_tests.ps1",
+          "target": "tools/validation/run_portable_ota_tests.ps1"
         }
       ],
       "validation": [],
@@ -3186,12 +4506,41 @@
         {
           "path": "tools/trigger/trigger_meas/trigger_meas.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/trigger_meas/debug_trigger.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/trigger_meas/loopback_test.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/trigger_meas/trigger_meas.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/trigger_meas/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/trigger_meas/debug_trigger.py",
+          "target": "tools/trigger/trigger_meas/debug_trigger.py"
+        },
+        {
+          "path": "tools/trigger_meas/loopback_test.py",
+          "target": "tools/trigger/trigger_meas/loopback_test.py"
+        },
+        {
+          "path": "tools/trigger_meas/trigger_meas.py",
+          "target": "tools/trigger/trigger_meas/trigger_meas.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3210,12 +4559,25 @@
         {
           "path": "tools/trigger/trigger_timing_test/trigger_timing_test.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/trigger_timing_test/trigger_timing_test.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/trigger_timing_test/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/trigger_timing_test/trigger_timing_test.py",
+          "target": "tools/trigger/trigger_timing_test/trigger_timing_test.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3238,12 +4600,25 @@
         {
           "path": "tools/sync/two_board_io_validate/two_board_io_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/two_board_io_validate/README.md",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/two_board_io_validate/two_board_io_validate.py",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/two_board_io_validate/two_board_io_validate.py",
+          "target": "tools/sync/two_board_io_validate/two_board_io_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3262,12 +4637,25 @@
         {
           "path": "tools/project/uart_log_monitor/uart_log_monitor.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/uart_log_monitor/uart_log_monitor.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/uart_log_monitor/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/uart_log_monitor/uart_log_monitor.py",
+          "target": "tools/project/uart_log_monitor/uart_log_monitor.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3291,12 +4679,33 @@
         {
           "path": "tools/ota/uf2_join/uf2_join.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/uf2_join/make_fill_bin.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/uf2_join/uf2_join.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/uf2_join/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/uf2_join/make_fill_bin.py",
+          "target": "tools/ota/uf2_join/make_fill_bin.py"
+        },
+        {
+          "path": "tools/uf2_join/uf2_join.py",
+          "target": "tools/ota/uf2_join/uf2_join.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3339,6 +4748,14 @@
         {
           "path": "tools/vdc/vdc_dpll_replay/vdc_dpll_replay_runner.c",
           "role": "resource"
+        },
+        {
+          "path": "tools/vdc_dpll_replay/vdc_dpll_replay.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/vdc_dpll_replay/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
@@ -3374,12 +4791,25 @@
         {
           "path": "tools/vdc/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/vdc_gpio_lock_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py",
+          "target": "tools/vdc/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3398,12 +4828,25 @@
         {
           "path": "tools/vdc/vdc_latch_validate/vdc_latch_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_latch_validate/vdc_latch_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/vdc_latch_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/vdc_latch_validate/vdc_latch_validate.py",
+          "target": "tools/vdc/vdc_latch_validate/vdc_latch_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3422,12 +4865,25 @@
         {
           "path": "tools/vdc/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/vdc_lock_readiness_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py",
+          "target": "tools/vdc/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3446,12 +4902,25 @@
         {
           "path": "tools/vdc/vdc_long_monitor/vdc_long_monitor.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_long_monitor/vdc_long_monitor.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/vdc_long_monitor/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/vdc_long_monitor/vdc_long_monitor.py",
+          "target": "tools/vdc/vdc_long_monitor/vdc_long_monitor.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3470,12 +4939,25 @@
         {
           "path": "tools/vdc/vdc_observer_validate/vdc_observer_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_observer_validate/vdc_observer_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/vdc_observer_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/vdc_observer_validate/vdc_observer_validate.py",
+          "target": "tools/vdc/vdc_observer_validate/vdc_observer_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3544,6 +5026,14 @@
         {
           "path": "tools/vdc/vdc_sync_metrology/vdc_sync_metrology.py",
           "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/vdc_sync_metrology/vdc_sync_metrology.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/vdc_sync_metrology/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
@@ -3575,12 +5065,25 @@
         {
           "path": "tools/vdc/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/vdc_tdma_selftest_validate/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py",
+          "target": "tools/vdc/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3599,12 +5102,25 @@
         {
           "path": "tools/ota/visa_ota_send/visa_ota_send.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/visa_ota_send/visa_ota_send.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/visa_ota_send/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/visa_ota_send/visa_ota_send.py",
+          "target": "tools/ota/visa_ota_send/visa_ota_send.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
@@ -3623,12 +5139,25 @@
         {
           "path": "tools/watchdog/watchdog_monitor/watchdog_reset_probe.py",
           "role": "entrypoint"
+        },
+        {
+          "path": "tools/watchdog_monitor/watchdog_reset_probe.py",
+          "role": "compatibility_wrapper"
+        },
+        {
+          "path": "tools/watchdog_monitor/README.md",
+          "role": "compatibility_wrapper"
         }
       ],
       "depends_on": [],
       "external_dependencies": [],
       "dependency_review": "PENDING",
-      "aliases": [],
+      "aliases": [
+        {
+          "path": "tools/watchdog_monitor/watchdog_reset_probe.py",
+          "target": "tools/watchdog/watchdog_monitor/watchdog_reset_probe.py"
+        }
+      ],
       "validation": [],
       "handoff_evidence": null,
       "notes": "Legacy inventory only; entrypoints and owners are routing, not support qualification. Dynamic/runtime dependencies and operating conditions need review."
