@@ -198,5 +198,21 @@
  {
   "old": "tools/dpll_waveform_capture",
   "new": "tools/vdc/dpll_waveform_capture"
+ },
+ {
+  "old": "tools/multicore_board_validate",
+  "new": "tools/rtos/multicore_board_validate"
+ },
+ {
+  "old": "tools/refmem_pack_build",
+  "new": "tools/refmem/refmem_pack_build"
+ },
+ {
+  "old": "tools/refmem_table_image",
+  "new": "tools/refmem/refmem_table_image"
+ },
+ {
+  "old": "tools/scope_dpll_capture",
+  "new": "tools/vdc/scope_dpll_capture"
  }
 ]

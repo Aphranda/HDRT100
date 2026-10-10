@@ -1,1 +1,1 @@
-["tools/analyzer_trace_batch_index", "tools/analyzer_trace_decode", "tools/codex_watchdog", "tools/dpll_waveform_capture", "tools/ota", "tools/ota_haofv_gate", "tools/project", "tools/release_check", "tools/sync", "tools/vdc"]
+["tools/multicore_board_validate", "tools/refmem", "tools/refmem_pack_build", "tools/refmem_table_image", "tools/rtos", "tools/scope_dpll_capture", "tools/vdc"]

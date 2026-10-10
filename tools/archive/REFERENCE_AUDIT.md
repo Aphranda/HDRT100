@@ -95,3 +95,13 @@
   - `tools/dpll_waveform_capture` → `tools/vdc/dpll_waveform_capture`
 - 兼容层：旧路径 wrapper
 - 验证：文档门禁
+
+### batch 2026-09-13…2026-09-20（2026-10-10）
+
+- 范围：4 项
+  - `tools/multicore_board_validate` → `tools/rtos/multicore_board_validate`
+  - `tools/refmem_pack_build` → `tools/refmem/refmem_pack_build`
+  - `tools/refmem_table_image` → `tools/refmem/refmem_table_image`
+  - `tools/scope_dpll_capture` → `tools/vdc/scope_dpll_capture`
+- 兼容层：旧路径 wrapper
+- 验证：文档门禁
