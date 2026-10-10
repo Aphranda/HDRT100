@@ -105,3 +105,23 @@
   - `tools/scope_dpll_capture` → `tools/vdc/scope_dpll_capture`
 - 兼容层：旧路径 wrapper
 - 验证：文档门禁
+
+### batch 2026-09-21…2026-09-23（2026-10-10）
+
+- 范围：14 项
+  - `tools/analyzer_burst` → `tools/sync/analyzer_burst`
+  - `tools/analyzer_tdma_hil` → `tools/tdma/analyzer_tdma_hil`
+  - `tools/analyzer_trace_export` → `tools/sync/analyzer_trace_export`
+  - `tools/biss_board_validate` → `tools/communication/biss_board_validate`
+  - `tools/calibration_loopback_validate` → `tools/calibration/calibration_loopback_validate`
+  - `tools/dpll_observation_capture` → `tools/vdc/dpll_observation_capture`
+  - `tools/dpll_observation_decode` → `tools/vdc/dpll_observation_decode`
+  - `tools/dpll_residual_analyze` → `tools/vdc/dpll_residual_analyze`
+  - `tools/dpll_servo_tune` → `tools/vdc/dpll_servo_tune`
+  - `tools/dpll_vdc_monitor` → `tools/vdc/dpll_vdc_monitor`
+  - `tools/ota_boot_commit` → `tools/ota/ota_boot_commit`
+  - `tools/ota_multi_update` → `tools/ota/ota_multi_update`
+  - `tools/ota_send` → `tools/ota/ota_send`
+  - `tools/ota_stream_send` → `tools/ota/ota_stream_send`
+- 兼容层：旧路径 wrapper
+- 验证：文档门禁

@@ -214,5 +214,61 @@
  {
   "old": "tools/scope_dpll_capture",
   "new": "tools/vdc/scope_dpll_capture"
+ },
+ {
+  "old": "tools/analyzer_burst",
+  "new": "tools/sync/analyzer_burst"
+ },
+ {
+  "old": "tools/analyzer_tdma_hil",
+  "new": "tools/tdma/analyzer_tdma_hil"
+ },
+ {
+  "old": "tools/analyzer_trace_export",
+  "new": "tools/sync/analyzer_trace_export"
+ },
+ {
+  "old": "tools/biss_board_validate",
+  "new": "tools/communication/biss_board_validate"
+ },
+ {
+  "old": "tools/calibration_loopback_validate",
+  "new": "tools/calibration/calibration_loopback_validate"
+ },
+ {
+  "old": "tools/dpll_observation_capture",
+  "new": "tools/vdc/dpll_observation_capture"
+ },
+ {
+  "old": "tools/dpll_observation_decode",
+  "new": "tools/vdc/dpll_observation_decode"
+ },
+ {
+  "old": "tools/dpll_residual_analyze",
+  "new": "tools/vdc/dpll_residual_analyze"
+ },
+ {
+  "old": "tools/dpll_servo_tune",
+  "new": "tools/vdc/dpll_servo_tune"
+ },
+ {
+  "old": "tools/dpll_vdc_monitor",
+  "new": "tools/vdc/dpll_vdc_monitor"
+ },
+ {
+  "old": "tools/ota_boot_commit",
+  "new": "tools/ota/ota_boot_commit"
+ },
+ {
+  "old": "tools/ota_multi_update",
+  "new": "tools/ota/ota_multi_update"
+ },
+ {
+  "old": "tools/ota_send",
+  "new": "tools/ota/ota_send"
+ },
+ {
+  "old": "tools/ota_stream_send",
+  "new": "tools/ota/ota_stream_send"
  }
 ]

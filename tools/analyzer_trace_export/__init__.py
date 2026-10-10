@@ -1,19 +1,6 @@
-"""Stopped-state SYNC_IO analyzer trace export helpers."""
-
-from .analyzer_trace_export import (
-    Board,
-    discover_analyzer_segments,
-    download_file,
-    parse_board,
-    parse_catalog_page,
-    parse_runtime_status,
-)
-
-__all__ = [
-    "Board",
-    "discover_analyzer_segments",
-    "download_file",
-    "parse_board",
-    "parse_catalog_page",
-    "parse_runtime_status",
-]
+#!/usr/bin/env python3
+"""兼容转发（迁移期保留）。"""
+import pathlib, runpy, sys
+_T = pathlib.Path(__file__).resolve().parents[1] / "sync" / "analyzer_trace_export" / "__init__.py"
+sys.argv[0] = str(_T)
+runpy.run_path(str(_T), run_name="__main__")
