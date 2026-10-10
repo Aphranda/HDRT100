@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-10-09
+Last updated: 2026-10-10
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
@@ -14,6 +14,17 @@ Last updated: 2026-10-09
 历史记录中的预算、节点及门禁描述只代表当时快照，当前口径以最新条目和主域文档为准。
 
 ## 当前 checkpoint
+### TDMA-PROGRESS-20261010-001：TDMA-SEAT-01 快速路径按发布机会轮换落地，T2 位置记录跨环送达
+
+- TODO task ID：`TDMA-FLIGHT-002K2`、`TDMA-T2-002`；提交：语义 `2109963d`（用户已审核）、实现 `8bd547b2`。
+- **根因（实测 + 读码）**：origin 启用特等 provider 时，READY 与 EMPTY 均视为占座（`tdma_pio_spi_ring_origin.inc`），普通 flight FIFO 永不被 Core1 消费，T2 记录停在 `FIFO_READY`。此前“每 4 ms 只有一次发射机会”是 Core0 RefMem 对普通路径的节流：发布间隔取 `cycle_period_ns × node_count`（`distributed_refmem.c` 的 `ring_interval_ms`），不是快速路径容量。
+- **快速路径容量实测（快照，非事实源）**：`READ:CALibration:ORIGin:RUNTIme?` 的 `published_generation` 对比 `boundary_sequence`，四板 1 ms profile：发车 0.9998 ms，快速路径发布约 2.13 ms（实现后约 1.9 ms），即每 4 ms 约两次机会（`t2-bench-probe-164300`、`t2-bench-probe-183247`）。采样已固化到 `tools/sync_trigger/t2_bench_probe.py`（`origin_cadence_summary`）。
+- **实现**：`tdma_first_class.h` 一等邮箱（单深度、单写者、CAS 发布，STOP 退休）；`publish_priority` 按机会 1:1 轮换主等级、主等级无新内容即让座、EMPTY 不占座、特等去重比较自身上次上车；删除 `tdma_flight_fifo_core0_patch_tx_ready` 与 `tdma_service_patch_flight_tx_ready`。新增计数 `seat_opportunity/priority/first_class/priority_yield/first_class_reject/first_class_wait_max`（位于 origin 状态，尚未接 SCPI）。
+- **验证**：主机 `test_tdma_seat_rotation`（EMPTY 不占座、单独特等全占、1:1 交替、不重发旧事件、等待记录不被覆盖、延后重试、坏记录退休、STOP 退休）与相邻 459 项通过；FIFO C 单测通过；DPLL60 PASS（`dpll60-102638`），特等未退化。
+- **四板 T2（单轮 12 s，快照）**：NO1 位置记录经快速路径上车；三从板 `rx_complete_count` 6/1/1，SYNC_TRIGGER 零隔离。
+- **过程中暴露并修正**：`19bb91dd` 在从板接收路径加入 Core1 逐位 CRC32（21 字），从 XIP 执行使从板 SYNC_TRIGGER 最大 77643 拍（预算 26800）而被隔离；改为仅按 prediction version 去重，并把 `accept_remote_position`/`deadline_receive` 放入 SRAM，最大降至约 1.5–1.8 万拍。RAM 余量由调试波形探针瘦身释放（`VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS` 400→360，3360 B），链接余量 4464 B。
+- **更正 `TDMA-PROGRESS-20261009-010` 的根因读数**：该条把 `SYSTem:TDMA:EVENT:Recovery?` 的 `last_failure_reason=9` 解读为 `TDMA_GEOMETRY_OBSERVER_FAULT`；该字段来自 `o->reason`（`tdma_pio_spi_phys_event.inc` 的 `tdma_event_recovery_record_failure`），类型为 `tdma_event_reason_t`，9 即 `TDMA_EVENT_SEQUENCE`，且恢复只在 SEQUENCE 时拉起。短槽反复恢复的直接原因是观察者帧序号跳号（`tdma_event_observer.c` 要求逐帧加一），start-cut 退役不是已证实根因。原条目保留不改写。
+- 未决：从板收到位置但尚未冻结/执行动作；NO3/NO4 少量 RX 拒绝（FRAGMENT，推测为接收邮箱未及取走）；seat 计数接 SCPI 只读页。
 ### TDMA-PROGRESS-20261009-012：席位挂载表全链落地（专用持久化分区 + 运行时窗口判定）
 
 **已实现并硬件验证**：席位作为"容量"、负载挂载于席位的语义以**挂载表**承载

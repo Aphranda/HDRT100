@@ -106,15 +106,15 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 | 等级 | 内容 | 服务规则 |
 |---|---|---|
 | 特等 | DPLL/VDC 关键同步记录及 SYNC 确定性时间需求 | 固定编码、固定资源与有界入口；缺口、旧代和覆盖明确记录。逐圈无损仍须专项验收。 |
-| 一等 | T2 位置记录（0x15）等实时单片负载；其余 VDC 状态与跟随数据 | 与特等共用 origin 快速路径，按发布机会轮换优先级，见 TDMA-SEAT-01（待语义审核）；座位内保留 VDC 核心字段与 ACK；命令不得靠状态覆盖语义重放。 |
+| 一等 | T2 位置记录（0x15）等实时单片负载；其余 VDC 状态与跟随数据 | 与特等共用 origin 快速路径，按发布机会轮换优先级，见 TDMA-SEAT-01；座位内保留 VDC 核心字段与 ACK；命令不得靠状态覆盖语义重放。 |
 | 二等 | RefMem 数据及 ACK/fence | dirty 编码、有界配额与背压；运输成功不自动提交事实。 |
 | 无座 | 普通控制、日志与维护数据 | 预定低优先级或 maintenance 预算；不得扩帧、借 guard 或阻塞前述路径。 |
 
 上述是服务目标及 owner 分层，不表示所有等级已完成统一调度、共存与饱和验收。
 
-### TDMA-SEAT-01（架构已确认，语义待审核）：快速路径按发布机会轮换的流式调度
+### TDMA-SEAT-01（用户已审核，已实现）：快速路径按发布机会轮换的流式调度
 
-> 状态：2026-10-10 用户确认架构方向，本节语义待审核；**代码尚未按本节修改**，现状见本节末尾。本节不登记为契约。运行流程图见 [tdma_runtime_flow.svg](tdma_runtime_flow.svg)。
+> 状态：2026-10-10 语义经用户审核（`2109963d`），实现 `8bd547b2`，DPLL60 通过；实测见 `TDMA-PROGRESS-20261010-001`。本节不登记为契约。运行流程图见 [tdma_runtime_flow.svg](tdma_runtime_flow.svg)。
 
 **目标。** 流式调度在一个环回周期内充分利用 origin 的每一次发射机会；特等先上先发，特等没有新内容时把机会让给一等，任何一次机会都不空过。
 
@@ -175,10 +175,7 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 2. DPLL60 不退化；新增计数：每等级上车次数、特等让座次数、一等记录等待机会数。
 3. 四板 T2：NO1 位置记录上车数、从板 `rx_complete_count` 增长、一等等待不超过 M+N 次机会。
 
-**现状（待实现）。**
-- `tdma_pio_spi_ring_origin.inc` 中 provider 返回 READY 或 EMPTY 都视为占座，普通路径永不执行，T2 记录停在 flight FIFO。
-- 特等去重比较的是座位上一次发布的 shadow。
-- T2 记录经 flight FIFO 与补丁路径提交，未进入快速路径。
+**实现状态。** 一等邮箱 `tdma_first_class.h`；仲裁在 `tdma_pio_spi_ring_origin.inc` 的 `publish_priority`，轮换比例为 `TDMA_SEAT_ROTATION_*_SHARE`；补丁路径已删除。未完成：seat 计数接 SCPI 只读页；四板验收第 3 项中 T2 动作执行未闭合。
 
 席位余量须分开核对 wire 与 CPU：当前 typed 同步 body 由 `TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_SIZE` 完整占用，不能再塞入健康状态或把普通 class 的 optional 空间重复记作 typed 可用余量。SYNC 的后续需求须列出独立资源及最坏耗时，未完成准入/实测的空间不算已承诺余量。新增或扩容特等席须先经用户审核（`EXE-SEAT-01`）。VDC 健康镜像、统计及查询是 Core0 异步诊断，不占特等邮箱，也不新增 Core1 发布工作。
 
@@ -216,7 +213,7 @@ IRQ 固定配额、关闭预留、前台 service 和输出规划共同计入实�
 
 ### TDMA-DET-04：分层周期预算与席位准入
 
-> TDMA-SEAT-01（语义待审核）改为按发布机会轮换优先级。审核通过后，本节以环内时间窗划分席位、以 `FIRST_CLASS_WINDOW_GRANTED` 作为一等上车前置的表述由 TDMA-SEAT-01 取代；预算量纲、事实分级和撤销规则继续有效。
+> TDMA-SEAT-01（已审核并实现）改为按发布机会轮换优先级。本节以环内时间窗划分席位、以 `FIRST_CLASS_WINDOW_GRANTED` 作为一等上车前置的表述由 TDMA-SEAT-01 取代；预算量纲、事实分级和撤销规则继续有效。
 
 TDMA 的下一级抽象是 seat，而不是某个具体功能。具体功能以 load instance 挂载到 seat 上：
 

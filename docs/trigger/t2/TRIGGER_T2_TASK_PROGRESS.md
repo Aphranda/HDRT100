@@ -4,13 +4,23 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-10-09
+Last updated: 2026-10-10
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20261010-022：紧缩单帧记录经一等席快速路径跨环送达，动作执行未闭合
+
+- TODO task ID：`T2-TRANSPORT-002`、`T2-TURNTABLE-003`、`T2-EXEC-001`；提交 `19bb91dd`（紧缩单帧）、`71ed3e5f`（NO1 去隔离、台架链）、`8bd547b2`（TDMA-SEAT-01）。
+- **台架链更正**：`tools/sync_trigger/t2_enable.py` 的 COUNTER 行输出掩码改为 0（`trigger_deployment_validate()` 要求 COUNTER 无输出，原 0x8 使整表被拒、`T2:CONFigure` 返回 92）；部署 generation 每次单调递增（`DEPloyment:CLEar` 保留 `last_generation`）；仅 NO1 为 origin、全板 source_slot=0。`T2-PROGRESS-20261009-021` 的“唯一阻塞”与“NO1 不配置符合预期”两项结论据此更正，原条目保留。已跑通的 09-27 台架链固化为 `tools/sync_trigger/t2_bench_probe.py`。
+- **NO1 SYNC_TRIGGER 去隔离**：origin 热路径（`service_origin`、`preview_copy`、`publish_begin/end`、COUNTER 读取）放入 SRAM，运行时最大 27460→约 9600 拍（预算 26800，快照）。
+- **载荷**：位置记录改为 10 B 紧缩单帧（tag、version16、target_ms_index32、fine24），恰占 mailbox RefMem 区，一帧发完；线上不携带运行身份，从板以启动期配置补全后校验。
+- **运输**：TDMA-SEAT-01 后 T2 记录写入一等邮箱，经 origin 快速路径与特等按发布机会 1:1 轮换上车；不再改写已排队 VDC image。
+- **实测（四板，单轮 12 s，快照，`t2-bench-probe-183247`）**：NO1 记录上车；三从板 `rx_complete_count` 6/1/1、`received_mask` 含位置 3、SYNC_TRIGGER 零隔离；DPLL60 PASS（`dpll60-102638`）。
+- **未闭合**：三从板 `T2:ACTion?` 全零，尚无冻结与执行；需逐环检查 PREVIEW 版本推进、阈值 FREEZE 送达、从板本地 deadline 解算与 PIO 装填。NO3/NO4 各 5 次 RX 拒绝（FRAGMENT），待查。
 
 ### T2-PROGRESS-20261009-021：使能链逐环打通至 `T2:CONFigure` 成功（发布仍受飞行 FIFO 静止条件阻塞）
 
