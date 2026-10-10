@@ -33,3 +33,21 @@
 - 回滚：`git mv` 反向 + 删除 wrapper
 - 审计结果：旧路径引用仍存在（由 wrapper 承接）；DoD §3 在文档批完成后达成
 
+### N1-batch2（2026-10-10）
+
+- 范围：12 项（N1 中引用 4–8 的最旧条目）
+  - `tools/artifact_checksum` → `tools/project/artifact_checksum`
+  - `tools/biss_wavegen` → `tools/communication/biss_wavegen`
+  - `tools/factory_package` → `tools/ota/factory_package`
+  - `tools/factory_restore` → `tools/ota/factory_restore`
+  - `tools/flash_lockout_hil_validate` → `tools/flash/flash_lockout_hil_validate`
+  - `tools/ota_bin_info` → `tools/ota/ota_bin_info`
+  - `tools/ota_keys` → `tools/ota/ota_keys`
+  - `tools/refmem_scpi_load_validate` → `tools/refmem/refmem_scpi_load_validate`
+  - `tools/uf2_join` → `tools/ota/uf2_join`
+  - `tools/debug_model_overlay_validate` → `tools/sync/debug_model_overlay_validate`
+  - `tools/flash_scratch_validate` → `tools/flash/flash_scratch_validate`
+  - `tools/picotool_reboot` → `tools/ota/picotool_reboot`
+- 兼容层：旧路径 wrapper 同批建立
+- 验证：文档门禁
+- 回滚：`git mv` 反向 + 删除 wrapper

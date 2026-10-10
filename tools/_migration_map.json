@@ -46,5 +46,53 @@
  {
   "old": "tools/run_portable_log_tests.ps1",
   "new": "tools/project/run_portable_log_tests.ps1"
+ },
+ {
+  "old": "tools/artifact_checksum",
+  "new": "tools/project/artifact_checksum"
+ },
+ {
+  "old": "tools/biss_wavegen",
+  "new": "tools/communication/biss_wavegen"
+ },
+ {
+  "old": "tools/factory_package",
+  "new": "tools/ota/factory_package"
+ },
+ {
+  "old": "tools/factory_restore",
+  "new": "tools/ota/factory_restore"
+ },
+ {
+  "old": "tools/flash_lockout_hil_validate",
+  "new": "tools/flash/flash_lockout_hil_validate"
+ },
+ {
+  "old": "tools/ota_bin_info",
+  "new": "tools/ota/ota_bin_info"
+ },
+ {
+  "old": "tools/ota_keys",
+  "new": "tools/ota/ota_keys"
+ },
+ {
+  "old": "tools/refmem_scpi_load_validate",
+  "new": "tools/refmem/refmem_scpi_load_validate"
+ },
+ {
+  "old": "tools/uf2_join",
+  "new": "tools/ota/uf2_join"
+ },
+ {
+  "old": "tools/debug_model_overlay_validate",
+  "new": "tools/sync/debug_model_overlay_validate"
+ },
+ {
+  "old": "tools/flash_scratch_validate",
+  "new": "tools/flash/flash_scratch_validate"
+ },
+ {
+  "old": "tools/picotool_reboot",
+  "new": "tools/ota/picotool_reboot"
  }
 ]
