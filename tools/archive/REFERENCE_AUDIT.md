@@ -51,3 +51,21 @@
 - 兼容层：旧路径 wrapper 同批建立
 - 验证：文档门禁
 - 回滚：`git mv` 反向 + 删除 wrapper
+
+### N1-batch3（2026-10-10）
+
+- 范围：12 项
+  - `tools/build_info` → `tools/project/build_info`
+  - `tools/check_scpi_usb_namespace.py` → `tools/project/check_scpi_usb_namespace.py`
+  - `tools/distributed_loopback_validate` → `tools/communication/distributed_loopback_validate`
+  - `tools/ota_board_validate` → `tools/ota/ota_board_validate`
+  - `tools/ota_packager` → `tools/ota/ota_packager`
+  - `tools/product_scpi_validate` → `tools/interface/product_scpi_validate`
+  - `tools/realtime_scpi_validate` → `tools/validation/realtime_scpi_validate`
+  - `tools/refmem_network_validate` → `tools/refmem/refmem_network_validate`
+  - `tools/refmem_node_load_auto_hil_validate` → `tools/refmem/refmem_node_load_auto_hil_validate`
+  - `tools/refmem_quality_gate_hil_validate` → `tools/refmem/refmem_quality_gate_hil_validate`
+  - `tools/refmem_spi_hil_validate` → `tools/refmem/refmem_spi_hil_validate`
+  - `tools/refmem_sync_hil_validate` → `tools/refmem/refmem_sync_hil_validate`
+- 兼容层：旧路径 wrapper（按扩展名转发）
+- 验证：文档门禁

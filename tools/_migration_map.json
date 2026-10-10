@@ -94,5 +94,53 @@
  {
   "old": "tools/picotool_reboot",
   "new": "tools/ota/picotool_reboot"
+ },
+ {
+  "old": "tools/build_info",
+  "new": "tools/project/build_info"
+ },
+ {
+  "old": "tools/check_scpi_usb_namespace.py",
+  "new": "tools/project/check_scpi_usb_namespace.py"
+ },
+ {
+  "old": "tools/distributed_loopback_validate",
+  "new": "tools/communication/distributed_loopback_validate"
+ },
+ {
+  "old": "tools/ota_board_validate",
+  "new": "tools/ota/ota_board_validate"
+ },
+ {
+  "old": "tools/ota_packager",
+  "new": "tools/ota/ota_packager"
+ },
+ {
+  "old": "tools/product_scpi_validate",
+  "new": "tools/interface/product_scpi_validate"
+ },
+ {
+  "old": "tools/realtime_scpi_validate",
+  "new": "tools/validation/realtime_scpi_validate"
+ },
+ {
+  "old": "tools/refmem_network_validate",
+  "new": "tools/refmem/refmem_network_validate"
+ },
+ {
+  "old": "tools/refmem_node_load_auto_hil_validate",
+  "new": "tools/refmem/refmem_node_load_auto_hil_validate"
+ },
+ {
+  "old": "tools/refmem_quality_gate_hil_validate",
+  "new": "tools/refmem/refmem_quality_gate_hil_validate"
+ },
+ {
+  "old": "tools/refmem_spi_hil_validate",
+  "new": "tools/refmem/refmem_spi_hil_validate"
+ },
+ {
+  "old": "tools/refmem_sync_hil_validate",
+  "new": "tools/refmem/refmem_sync_hil_validate"
  }
 ]
