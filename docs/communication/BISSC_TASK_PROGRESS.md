@@ -4,7 +4,7 @@ Status: Active
 Domain: BISSC
 Canonical: `docs/communication/BISSC_TASK_PROGRESS.md`
 Related: `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
-Last updated: 2026-07-07
+Last updated: 2026-10-10
 
 本文档用于记录 RP2350_TRIG 工程中 `TRIG_PROTOCOL_BISS_C` / BiSS-C TAP bridge
 功能的正式实现进度。每完成一个阶段，都应追加任务记录，说明目标、完成内容、
@@ -201,9 +201,9 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 在没有外部仪器的情况下，先用 Python 对 CSV 做边沿级离线解码，确认 frame、position、CRC 和 crossing 逻辑正确。
   - 增加 SVG 绘图能力，便于人工检查 CLK/DATA 时序、frame 区间和 bit 采样位置。
 - 完成内容：
-  - 增强 `tools/biss_wavegen/biss_wavegen.py`，支持 CRC profile 参数并生成真实 CRC 字段。
-  - 新增 `tools/biss_wavegen/biss_wave_validate.py`，按 CLK active edge 重组 frame，校验 anchor、position、CRC、status gate 和 crossing。
-  - 新增 `tools/biss_wavegen/biss_wave_plot.py`，输出自包含 SVG 阶梯波图，显示 CLK、DATA、frame 分区和 bit index。
+  - 增强 `tools/communication/biss_wavegen/biss_wavegen.py`，支持 CRC profile 参数并生成真实 CRC 字段。
+  - 新增 `tools/communication/biss_wavegen/biss_wave_validate.py`，按 CLK active edge 重组 frame，校验 anchor、position、CRC、status gate 和 crossing。
+  - 新增 `tools/communication/biss_wavegen/biss_wave_plot.py`，输出自包含 SVG 阶梯波图，显示 CLK、DATA、frame 分区和 bit index。
   - 生成默认 48-bit profile 与带 CRC6 的 40-bit profile 两组 1 MHz CSV、summary、validate report 和 SVG。
 - 验证结果：
   - `python tools\biss_wavegen\biss_wavegen.py --out build\biss_wavegen\biss_1mhz.csv` 通过。
@@ -221,9 +221,9 @@ P0 固定 profile TAP bridge 的协议层、SCPI 配置层、TriggerVector/ECC �
   - 当前只完成 CSV 离线验证，尚未用真实 PIO simulator 或逻辑发生器驱动板端 AUX0/AUX1。
   - 需要将离线报告中的 frame/position/crossing 与板端 `STAT:BISS?` 实测统计对齐。
 - 关联文件：
-  - `tools/biss_wavegen/biss_wavegen.py`
-  - `tools/biss_wavegen/biss_wave_validate.py`
-  - `tools/biss_wavegen/biss_wave_plot.py`
+  - `tools/communication/biss_wavegen/biss_wavegen.py`
+  - `tools/communication/biss_wavegen/biss_wave_validate.py`
+  - `tools/communication/biss_wavegen/biss_wave_plot.py`
   - `build\biss_wavegen\biss_1mhz.csv`
   - `build\biss_wavegen\biss_1mhz_validate.json`
   - `build\biss_wavegen\biss_1mhz.svg`

@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md`
 Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-08-24
+Last updated: 2026-10-10
 
 本文记录 Flash v2 迁移已经发生的实现、验证、提交和剩余 gate。架构语义以
 `HAOFV_FLASH_ARCHITECTURE.md` 为准，未完成项和依赖关系以 `HAOFV_FLASH_TODO.md` 为准；
@@ -127,7 +127,7 @@ Last updated: 2026-08-24
 - 状态：早期 unsigned candidate 仅用于定位并保留为失败证据；最终 V2 debug factory 已改为
   专用 P-256 debug key 签名，`PROJECT_DEBUG_ALLOW_UNSIGNED_FACTORY=OFF`，Boot 可重验后启动。
   V1 继续只作为恢复/回退基线，主线转 V2。
-- 构建：新增 `tools/ota_keys/generate_ota_key.py` 固化 debug key 生成，`v2_debug` profile
+- 构建：新增 `tools/ota/ota_keys/generate_ota_key.py` 固化 debug key 生成，`v2_debug` profile
   只允许 `dev` 角色；candidate preset 默认由 CMake 自动生成并验证 signature，不依赖后续手工补签。
   signed slot manifest header 写入 OTA_STAGE 末尾 lane，保留 map JSON 和双 lane geometry。
 - 工件：最终 V2 debug factory UF2 checksum 清单为
@@ -150,7 +150,7 @@ Last updated: 2026-08-24
 - 状态：M0-05 migration/rollback 包完成；至少一块 DHRT100 已取得 BOOTSEL/full erase/factory
   UF2 恢复证据。M0 其它 parser/fuzz 和第二事实源门禁仍按 TODO 保持未完成。
 - 工件：`out/build/pico2-release/DHRT100_FACTORY.uf2` 通过 release、FlashMap consumer、
-  migration policy gate；固化 `tools/artifact_checksum/artifact_checksum.py` 生成并验证清单，
+  migration policy gate；固化 `tools/project/artifact_checksum/artifact_checksum.py` 生成并验证清单，
   `size=1051648`，SHA-256=`71aaba8decace3c5d3bce3ca0e87ecb1335f6060b38fa1e27e32afdb965c4313`，
   `source_commit=315dc6f`，报告为 `out/flash_hil/dhrt100_v1_factory_checksum_20260823.json`。
 - 板端前置：DHRT100 `839E1AE79EA20F31` 恢复前 `*IDN?` 正常、build=`20260823115246`、
@@ -220,7 +220,7 @@ Last updated: 2026-08-24
 ### FLASH-TASK-20260823-074 - DHRT100 read-only progress and sensor snapshot
 
 - 状态：DHRT100 兼容固件只读回归通过；不作为 v2 deployment、M1/M3/M4 物理完成证据。
-- 证据：固化 `tools/scpi_query/scpi_query.py` 单次串口生命周期读取 `*IDN?`、
+- 证据：固化 `tools/interface/scpi_query/scpi_query.py` 单次串口生命周期读取 `*IDN?`、
   `SYSTem:DIAGnostic:SENSors?`、`SYSTem:OTA:MODE?`、`SYSTem:OTA:STATus?` 和
   `SYSTem:OTA:TXN?`，原始记录为 `out/flash_hil/dhrt100_progress_readonly.txt`。身份为 DHRT100；
   OTA 模式仍为 `DIRECT_AB`，事务 Vector 全零；状态中的 `IMAGE_TOO_LARGE` 是此前负向 PBEGIN
@@ -307,7 +307,7 @@ Last updated: 2026-08-24
 
 - 状态：本轮代码变更后的 v1 compatibility 固件只读/负向回归通过；不作为 v2 deployment、
   stream resume、Recovery 或真实断电证据。
-- 证据：使用固化 `tools/scpi_query/scpi_query.py` 打开一次 USB CDC 生命周期，DHRT100
+- 证据：使用固化 `tools/interface/scpi_query/scpi_query.py` 打开一次 USB CDC 生命周期，DHRT100
   `GTS,DHRT100,839E1AE79EA20F31,0.1.0` 返回正常，`SYST:OTA:MODE?` 为 `DIRECT_AB,1`，基线
   `SYST:OTA:STAT?` 为 `IDLE`、`SYST:OTA:TXN?` 全零、错误队列为空；随后发送
   `SYST:OTA:PBEGIN 0,0`，设备保持无 Flash transaction 并返回 `FAILED/IMAGE_TOO_LARGE`。
@@ -383,20 +383,20 @@ Last updated: 2026-08-24
   `SYST:OTA:TXN?=0,0,0,0,0,0,0`，`SYST:OTA:JOUR?=0,2,0,0,0,0,0,0,0,0,0,0,0`，
   `SYST:WATCH:LOG?` 为 `SOFTWARE_REBOOT`，`SYST:ERRor?=0,"No error"`。
   原始记录：`build-v2-debug-ninja3/dhrt100_v2_ota_revalidation.txt`。
-- 签名：transcript 由固化 `tools/ota_keys/sign_ota_signature.py` 使用调试 key 7 重新签名；
+- 签名：transcript 由固化 `tools/ota/ota_keys/sign_ota_signature.py` 使用调试 key 7 重新签名；
   未执行真实断电或 BOOTSEL full erase。
 
 ### FLASH-TASK-20260823-064 - 负向签名错误映射与软件重启恢复
 
 - 状态：M3-03 仅完成一项非断电负向样本；其余 header/slot/CRC/vector 矩阵、真实断电、
   Recovery runtime 和 C11 独立审核仍未完成。
-- HIL：使用固化 `tools/ota_send/ota_send.py` 的 `--package-negative header-size` 发送变异包；
+- HIL：使用固化 `tools/ota/ota_send/ota_send.py` 的 `--package-negative header-size` 发送变异包；
   固件拒绝变异 transcript 并返回 `FAILED/ SIGNATURE_INVALID`，不再显示 `UNKNOWN`。
   由于该变异破坏签名，工具非零退出属于预期负向结果，原始输出见
   `build-v2-debug-ninja3/dhrt100_v2_negative_header_size.txt`。
 - 安全读回：失败后 `SYST:OTA:RES?` 保持 `APPLIED` 的上一份有效镜像，
   `SYST:OTA:TXN?` 全零、journal 无未完成项、错误队列为空。随后使用固化
-  `tools/picotool_reboot/picotool_reboot.py`（不进入 BOOTSEL、不擦除 Flash）建立软件启动边界，
+  `tools/ota/picotool_reboot/picotool_reboot.py`（不进入 BOOTSEL、不擦除 Flash）建立软件启动边界，
   板端恢复为 `SYST:OTA:STAT?="IDLE",1,"NONE",0`；完整记录见
   `build-v2-debug-ninja3/dhrt100_v2_negative_post_reboot.txt` 和
   `dhrt100_v2_negative_reboot.txt`。
@@ -437,9 +437,9 @@ Last updated: 2026-08-24
   OTA journal owner、validation 和 portable OTA host tests 全部通过；v1 `build` 与 v2
   `build-v2-debug-ninja3` 的 FlashMap、persistence、migration、wire、link gate 均通过。
 - 签名/构建：修复导致旧调试签名 transcript 失效，使用固化
-  `tools/ota_keys/sign_ota_signature.py` 和调试 key 7 重新签名；生成最新
+  `tools/ota/ota_keys/sign_ota_signature.py` 和调试 key 7 重新签名；生成最新
   `DHRT100_V2_CANDIDATE_UPDATE.pkg`，build id `20260823180734`，包大小 954872 B。
-- DHRT100 闭环：使用固化 `tools/ota_send/ota_send.py` 完成
+- DHRT100 闭环：使用固化 `tools/ota/ota_send/ota_send.py` 完成
   `RECEIVING → READY_TO_REBOOT → BOOT → COMM → COMMITTED`；最终
   `committed_status="COMMITTED",1,"NONE",5`，原始记录见
   `build-v2-debug-ninja3/dhrt100_ota_replay_fix_closed_loop.txt`。随后 SCPI 查询确认
@@ -475,7 +475,7 @@ Last updated: 2026-08-24
 
 - 状态：M3-05 的 host restore gate 完成；Recovery 运行时 USB/SD restore、空片
   full-erase/reflash、Recovery/Boot fault HIL 和独立 C11 审核仍未完成，M3-05/M3/M4 保持未完成。
-- 实现：新增 `tools/factory_restore/factory_restore.py`。默认只读验证 signed factory package
+- 实现：新增 `tools/ota/factory_restore/factory_restore.py`。默认只读验证 signed factory package
   与 UF2 target address 集合、map version、key id、region 数量和 full-erase policy；只有显式
   `--execute` 才调用固化 `tools/picotool_flash/picotool_flash.py --full-erase`，并保留命令与输出
   报告，避免未验证工件触发破坏性写入。
@@ -488,7 +488,7 @@ Last updated: 2026-08-24
 
 - 状态：M3-05 的工件验证代码切片完成；Recovery 运行时 USB/SD restore、空片 full-erase/reflash、
   Recovery/Boot fault HIL 和独立 C11 审核仍未完成，M3-05/M3/M4 继续保持未完成。
-- 实现：新增 `tools/factory_package/factory_package.py`，将 factory baseline report 的
+- 实现：新增 `tools/ota/factory_package/factory_package.py`，将 factory baseline report 的
   BOOTLOADER、APP_A、RECOVERY、BOOT_CONTROL、OTA_STAGE region 以确定性 descriptor/payload
   封装；header 固定 map version、key id、CRC、region offset/size/hash 和
   `full_erase_required`，签名只接受外部 low-S P-256 raw `r || s`，私钥不由工具读取或保存。
@@ -509,7 +509,7 @@ Last updated: 2026-08-24
 - 修复：在已有 owner/park 会话内执行有界 journal physical step；`ACCEPTED` 仅发布 RAM Vector；
   terminal append 提前到 release 前；释放异常追加 corrective `FAILED` record 并重试 core1 release。
   临时 `E001/E002/E003` 诊断标记已移除。
-- 验证：`tools/tests/run_flash_transaction_tests.ps1`、`tools/run_portable_ota_tests.ps1`、
+- 验证：`tools/tests/run_flash_transaction_tests.ps1`、`tools/validation/run_portable_ota_tests.ps1`、
   `cmake --build build-v2-debug-ninja3` 全部通过；DHRT100 使用固化 picotool/OTA 工具完成
   `READY_TO_REBOOT → BOOT → COMM → COMMITTED`，原始记录为
   `build-v2-debug-ninja3/picotool_flash_ota_fix_final.txt` 与
@@ -519,7 +519,7 @@ Last updated: 2026-08-24
 
 - 状态：M4-01/M4-03 的 USB CDC 正向路径取得 DHRT100 证据；USBTMC/UART/RS485/SD、resume、
   revert/Recovery 仍未完成，不能关闭 M4。
-- 验证：固化 `tools/ota_board_validate/ota_board_validate.py` 在现有 v2 DHRT100 上完成
+- 验证：固化 `tools/ota/ota_board_validate/ota_board_validate.py` 在现有 v2 DHRT100 上完成
   baseline、正向 OTA、BOOT/COMMIT 和最终安全状态，报告为
   `build-v2-debug-ninja3/ota_board_validate_m4_positive_latest/summary.json`，结果
   `passed=true`；只读 FlashMap 板端检查为 14/14 分区、260 项权限检查通过，报告目录为
@@ -531,8 +531,8 @@ Last updated: 2026-08-24
 
 - 状态：M3-03 的 DHRT100 no-confirm、attempt increment、attempt-exhausted rollback 已取得
   可复核原始记录；slot-specific/hash/signature 全 fault matrix 和 Recovery 仍未完成。
-- 工具：`tools/ota_boot_commit/ota_boot_commit.py --no-commit` 固化只 BOOT 不确认路径；新增
-  `tools/picotool_reboot/picotool_reboot.py`，只执行一次应用 reset，并轮询 USB 重枚举，禁止
+- 工具：`tools/ota/ota_boot_commit/ota_boot_commit.py --no-commit` 固化只 BOOT 不确认路径；新增
+  `tools/ota/picotool_reboot/picotool_reboot.py`，只执行一次应用 reset，并轮询 USB 重枚举，禁止
   验证工具因暂时不可见重复 reset。工具提交 `7954070`、重枚举修复 `21d6ab2` 已推送。
 - 证据：`ota_m3_no_confirm_boot_clean.txt` 读回 `2,0,1,1,1`；随后三次独立
   `picotool_reboot_no_confirm_clean_{1,2,3}.txt` 后，状态依次为
@@ -551,7 +551,7 @@ Last updated: 2026-08-24
   `WatchdogSupervisorAO` 的健康门控制；END 的 manifest/BCB step 继续每次只推进一个有界
   FlashTransaction 子步骤，Supervisor stall 不再被 owner 路径重配置掩盖。
 - 验证：V2 `cmake --build build-v2-debug-ninja3` 通过（含 FlashMap/schema/wire/inventory、
-  App A/B、Boot/Recovery link gate）；`tools/run_portable_ota_tests.ps1` 的 stream、ingress、
+  App A/B、Boot/Recovery link gate）；`tools/validation/run_portable_ota_tests.ps1` 的 stream、ingress、
   checkpoint、BCB 和 portable core 测试全部通过。构建后使用固化签名工具重新生成 key 7
   debug signature，candidate package 生成成功。
 - 边界：当前没有可用的 DHRT100/COM9 枚举，未执行本轮烧录、UART 原始日志或闭环；不得把
@@ -652,7 +652,7 @@ Last updated: 2026-08-24
   所有 Flash 写入仍经平台 owner/FlashTransaction callback。
 - 调度贯通：stream 新增 `ENDING` 状态；CLOSE ACK 只表示 END 请求已接受，AO tick 继续 service，
   达到 `READY_TO_REBOOT` 后才释放 ingress lease。legacy OTA AO 同样在 VERIFYING/MARK_PENDING
-  tick 中推进；`tools/ota_send/ota_send.py` 已等待明确 READY，而不是把 END 后一次回读/CDC
+  tick 中推进；`tools/ota/ota_send/ota_send.py` 已等待明确 READY，而不是把 END 后一次回读/CDC
   断开当作成功。
 - 验证：V2 debug 主工程 App A/B、Boot、Recovery、link contract 构建通过；portable OTA host
   runner（含 core/stream/ingress）通过；新 package 由 key 7 离线签名并通过 public-only verifier，
@@ -684,7 +684,7 @@ Last updated: 2026-08-24
   仍触发硬件 watchdog 复位，未达到 `READY_TO_REBOOT`，因此不得宣称 OTA/BOOT/COMM 完成。
 - 证据：V2 debug build `20260823033844` 由 `tools/picotool_flash/picotool_flash.py` 写入
   DHRT100，picotool Flash verify 全部通过；key 7 签名与 package 生成通过，package 大小为
-  943232 B。`tools/ota_send/ota_send.py` 收包达到 `943232/943232` 后 CDC 重置；重枚举
+  943232 B。`tools/ota/ota_send/ota_send.py` 收包达到 `943232/943232` 后 CDC 重置；重枚举
   `SYSTem:WATCH:LOG?` 为 `WATCHDOG_TIMEOUT,CORE0_SUPERVISOR_STALL`，slot/BCB 未变化。
 - 根因分析：FlashTransaction 合法停驻 core1 时，诊断 supervisor 需要识别受控 lockout；同时
   OTA END 的同步 metadata/manifest owner 路径仍可能让高优先级控制任务长时间占用。已加入
@@ -981,7 +981,7 @@ Last updated: 2026-08-24
 - 验证：`tools/tests/run_host_unit_tests.ps1` 30/30；
   `cmake --build --preset pico2-release --parallel 4` 完整生成 DHRT100 App A/App B/Boot、
   factory UF2 和 update package；FlashMap/inventory/wire/link gates 及
-  `python tools/release_check/release_check.py --root . --build-dir build` 均通过。
+  `python tools/project/release_check/release_check.py --root . --build-dir build` 均通过。
 - 边界与回退：本切片未改变 deployed v1 map、未执行 DHRT100 烧录/掉电/回退 HIL；满槽时
   保留最新已提交记录并返回失败，后续 M2-02 负责 rotation/GC/recovery。M1-05-G/H/I/J/L、
   M3/M4 真实 journal/Recovery/ingress/HIL 仍未完成。
@@ -1055,7 +1055,7 @@ Last updated: 2026-08-24
   `pota_metadata_t` 的 const view，不拥有 Flash 或镜像 IO。
 - 验证：`run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m3-direct-ab-boot`
   通过；`run_host_unit_tests.ps1` 通过；`cmake --build --preset pico2-release --parallel 4`
-  和 `python tools/release_check/release_check.py --root . --build-dir build` 均通过；App A、
+  和 `python tools/project/release_check/release_check.py --root . --build-dir build` 均通过；App A、
   App B、Boot link gate 通过。
 - 提交与推送：代码提交 `33d441f feat(boot): route direct ab decision through portable facade`
   已推送 `origin/feature/rtos-multicore-haofv`；本文档只记录证据，不改变 registry status。
@@ -1085,7 +1085,7 @@ Last updated: 2026-08-24
 ### FLASH-TASK-20260823-034 - Local stream 独立发送工具
 
 - 状态：新增 USB CDC stream sender，作为 M4-03 host/tool 证据；未替代五类 transport HIL。
-- 工具：`tools/ota_stream_send/ota_stream_send.py` 先用 `*IDN?` 确认 DHRT100，再查询 inactive
+- 工具：`tools/ota/ota_stream_send/ota_stream_send.py` 先用 `*IDN?` 确认 DHRT100，再查询 inactive
   target，选择 slot-specific image，构造固定 little-endian OPEN 描述符，按 chunk CRC 发送并
   查询 durable offset；可执行 stream BOOT、等待 USB 重枚举后 COMMIT。串口名称只作为连接
   路径，不作为板卡身份。
@@ -1235,7 +1235,7 @@ Last updated: 2026-08-24
 - 测试：`tools/tests/run_portable_ota_tests.ps1 -BuildDir build-portable-ota-tests-m4-02` 通过，
   覆盖顺序推进、复位恢复、满槽、撕裂 body、撕裂 commit marker、旧 offset 和 CRC 损坏回读。
 - 构建：`build-flash-m1-05h-20260823-release` App A/App B/Boot、FlashMap/inventory/link gate
-  和 `tools/release_check/release_check.py` 均通过；产物为本地 release 快照，尚未烧录 DHRT100。
+  和 `tools/project/release_check/release_check.py` 均通过；产物为本地 release 快照，尚未烧录 DHRT100。
 - 边界：当前固件仍部署 v1 compatibility map；该 portable primitive 不访问 v2 高地址
   `OTA_JOURNAL`，不得据此宣称 durable resume、Recovery 或 M4 退出门禁完成。
 
@@ -1303,7 +1303,7 @@ Last updated: 2026-08-24
   长度和分区边界检查；v2 target map 未部署地址仍被拒绝。
 - Host/build 验证：`tests/python/test_flash_link_check.py` 8/8；
   `build-flash-m1-05h-20260823-release` 通过 FlashMap/inventory/wire/schema/migration、App A/B
-  与 Boot link contract；`tools/release_check/release_check.py` 输出 `release_check=OK`。
+  与 Boot link contract；`tools/project/release_check/release_check.py` 输出 `release_check=OK`。
 - 证据边界：raw inventory 现在登记 `bootloader/src/boot_flash_service.c` 为唯一 Boot 写 owner，
   link gate 只允许 `boot_flash_service_erase/program` 作为 raw caller。该切片没有接入 portable
   BCB primitive、没有实现 wear counter/Recovery，也没有进行 BOOTSEL、掉电或 v2 高地址 HIL；
@@ -1529,7 +1529,7 @@ Last updated: 2026-08-24
   仍未宣称 durable journal、v2 部署或整体 Flash 迁移完成。
 - 代码提交：`5a71bdf feat(ota): add staged boot commit validation`，已推送。
 - 工具变更：
-  - `tools/ota_send/ota_send.py` 新增 `--boot-and-commit`；仅在传输状态为
+  - `tools/ota/ota_send/ota_send.py` 新增 `--boot-and-commit`；仅在传输状态为
     `READY_TO_REBOOT` 时执行 BOOT，等待 DHRT100 USB CDC 重枚举并确认 `IDLE`，再发送 COMM。
   - `--expect-final-state COMMITTED` 现在可验证完整 OTA 闭环，不再把 transport 阶段的
     `READY_TO_REBOOT` 误判为失败。
@@ -1578,7 +1578,7 @@ Last updated: 2026-08-24
 
 - 状态：M1-05-J 继续进行；本条只记录构建与主机证据，不涉及串口或板端擦写。
 - 验证结果：
-  - `tools/release_check/release_check.py --preset pico2-release --build-dir build` 返回
+  - `tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 返回
     `release_check=OK`，DHRT100 factory/update/Boot 工件齐全，release binary 未包含 validation
     destructive command 字符串。
   - FlashTransaction host/journal runner 通过；Flash 定向 Python 回归 31/31 通过。
@@ -1708,7 +1708,7 @@ Last updated: 2026-08-24
   - `tests/unit/test_flash_transaction.c` 新增
     `FLASH_TRANSACTION_ERROR_CALIBRATION_ACTIVE` 和
     `FLASH_TRANSACTION_ERROR_TDMA_TRAINING_ACTIVE` 负向断言，确认 raw erase/program 计数为零。
-  - `tools/ota_send/ota_send.py` 在 `--package-negative` 前查询 `SYST:OTA:TARG?`，只修改
+  - `tools/ota/ota_send/ota_send.py` 在 `--package-negative` 前查询 `SYST:OTA:TARG?`，只修改
     当前目标槽的 package image entry；修复活动槽轮换后 image-crc 负向用例误改 Slot A 的问题。
   - 代码提交：`0af810d feat(flash): close admission gate host fixtures`，已推送
     `origin/feature/rtos-multicore-haofv`。
@@ -1932,7 +1932,7 @@ Last updated: 2026-08-24
 - 日期：2026-08-22
 - 工件与构建：
   - 构建目录：`build-flash-m1-05-20260822/`；`pico2-release` 配置/构建和
-    `tools/release_check/release_check.py` 均通过。
+    `tools/project/release_check/release_check.py` 均通过。
   - 工件：`RP2350_TRIG_FACTORY.uf2`、`RP2350_TRIG_UPDATE.pkg`；构建脚本通过 inventory、map、
     persistence、migration、wire 和 RAM/link closure gates。
 - 板卡与报告：

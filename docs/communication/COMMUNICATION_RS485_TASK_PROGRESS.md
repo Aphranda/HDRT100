@@ -4,7 +4,7 @@ Status: Active
 Domain: Communication / RS485
 Canonical: `docs/communication/COMMUNICATION_RS485_TASK_PROGRESS.md`
 Related: `docs/communication/COMMUNICATION_RS485_ARCHITECTURE.md`, `docs/communication/COMMUNICATION_RS485_TODO.md`, `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md`
-Last updated: 2026-08-25
+Last updated: 2026-10-10
 
 本文只追加 RS485 的提交、构建、host/HIL 原始证据、失败、回退和阻塞记录；不在此冻结新契约，
 也不替代 Architecture/TODO 的事实边界。
@@ -13,7 +13,7 @@ Last updated: 2026-08-25
 
 - 状态：文档三件套建立；RS485 固件 producer、COM11 实际收发和 DHRT100 OTA 尚未宣称完成。
 - 当前输入：`pota_stream_ingress` 已包含 `POTA_STREAM_INGRESS_RS485` source，现有
-  `tools/ota_stream_send/ota_stream_send.py` 的 stream wire/SCPI 控制面仍固定为 USB CDC，
+  `tools/ota/ota_stream_send/ota_stream_send.py` 的 stream wire/SCPI 控制面仍固定为 USB CDC，
   因此本任务下一步是增加 transport profile，而不是复制一套 OTA session。
 - 协议决策：RS485 当前优先 Modbus RTU；SCPI 通过 USB 配置 `COMMunication:SERial:UART#:MODE`
   在 `SCPI`/`MODBUS` 间选择。默认保持 SCPI 兼容，Modbus adapter 接入前状态仍为
@@ -145,9 +145,9 @@ Last updated: 2026-08-25
 
 | 证据 | 状态 | 说明 |
 |---|---|---|
-| `tools/ota_stream_send/ota_stream_send.py` | 基线 | 现有 USB CDC stream sender，待增加 RS485 profile |
+| `tools/ota/ota_stream_send/ota_stream_send.py` | 基线 | 现有 USB CDC stream sender，待增加 RS485 profile |
 | `third_party/portable_ota/include/pota_stream_ingress.h` | 基线 | 已定义 RS485 ingress source enum |
-| `tools/scpi_query/rs485_mode_probe.scpi` | 已固化 | 通过 USB SCPI 选择/查询 UART1 的 SCPI 模式并读取 backend 状态 |
+| `tools/interface/scpi_query/rs485_mode_probe.scpi` | 已固化 | 通过 USB SCPI 选择/查询 UART1 的 SCPI 模式并读取 backend 状态 |
 | `out/flash_hil/dhrt100_power_change_rs485_probe_echo_fix_success_20260824.txt` | 通过 | DHRT100 COM11 SCPI 回环、DMA、错误队列和 echo guard 闭环 |
 | DHRT100 V2 RS485 OTA | 未开始 | 必须在 host/build gate 后执行 |
 

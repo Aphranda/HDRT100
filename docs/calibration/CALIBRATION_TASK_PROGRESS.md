@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-09-13
+Last updated: 2026-10-10
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
@@ -60,7 +60,7 @@ Last updated: 2026-09-13
 - 构建：`out/build/phy-timing-module-20260831/`，`build_id=20260831042513`；
   715/715 目标、PIO 头、App/A/B、Boot、Flash link contract 和统一 OTA package
   均通过。
-- OTA：执行 `tools/ota_multi_update/ota_multi_update.py`，五板均已枚举并完成逐板
+- OTA：执行 `tools/ota/ota_multi_update/ota_multi_update.py`，五板均已枚举并完成逐板
   OTA。NO1--NO4 的物理环路板按唯一地址复查；NO5 为
   `839E1AE79EA20F31`，当前 USB CDC 端口为 `COM10`。五块板的逐板
   `ota_boot_commit/summary.json` 均为 `passed=true` 且读回目标 build。验收逻辑仍按
@@ -120,7 +120,7 @@ Last updated: 2026-09-13
 - 对应 TODO：`P3-HIL-CODE-GATE`、`TRN-03D-HEALTH-04`。
 - 状态：完成（流程约束）。
 - 规则：运行态卡死、quarantine、ARM/状态机未清理等问题只允许使用
-  `tools/picotool_reboot/picotool_reboot.py` 做应用软件重启；重启后必须重新通过
+  `tools/ota/picotool_reboot/picotool_reboot.py` 做应用软件重启；重启后必须重新通过
   topology/profile/calibration identity、矩阵读回和 ARM gate。不得通过再次 OTA 来“解决”
   运行态复位问题。
 - OTA 触发条件：仅当设备端固件源码、PIO 原语、构建输入或设备端配置发生变化并重新构建时，
@@ -134,7 +134,7 @@ Last updated: 2026-09-13
 
 - 对应 TODO：`P1`、`P3-HIL-CODE-GATE`。
 - 状态：阻塞（运行态配置门禁），未触发 OTA。
-- 处置：按复位边界仅使用 `tools/picotool_reboot/picotool_reboot.py` 对 NO1–NO5
+- 处置：按复位边界仅使用 `tools/ota/picotool_reboot/picotool_reboot.py` 对 NO1–NO5
   做应用软件重启；复用固件 build `20260830193828`，没有重新构建或刷写。
 - 结果：重启后 NO1/NO2 的 level8 粗 CLK 可取得 bracket；随后 NO3/NO4 在不同轮次
   出现 `ARM rejected with result=8`
@@ -879,7 +879,7 @@ Last updated: 2026-09-13
   `0010071E65B5CB38`、`FB276192BEF9CCE1`、`2BD5090FE009FA2A`、`A1E549202D18ED6A`。
   COM3/COM5/COM6/COM4 仅是本轮临时传输端点。
 - 验证命令与证据：使用既有
-  `tools/calibration_loopback_validate/calibration_loopback_validate.py`，每板 64 words、
+  `tools/calibration/calibration_loopback_validate/calibration_loopback_validate.py`，每板 64 words、
   1 次短窗口；证据目录为
   `build-dhrt100-p3-dpll-20260822/reference_loopback_recheck/<unique-id>`。
 - 结果：四板均为 `runs_passed=0`；固件快照没有有效四边沿，`result_valid=0`，residence、
@@ -1315,10 +1315,10 @@ Last updated: 2026-09-13
   - `python tools/tdma_ring_monitor/tdma_single_board_loopback.py COM8 --duration-s 15
     --poll-interval-s 0.5 --out-dir build-rtos-multicore-smoke/tdma_single_loopback_current`
     完成物理回环预检；原始摘要见该目录 `summary.json`。
-  - `python tools/calibration_loopback_validate/calibration_loopback_validate.py COM8
+  - `python tools/calibration/calibration_loopback_validate/calibration_loopback_validate.py COM8
     --out-dir build-rtos-multicore-smoke/calibration_loopback_com8_final` 通过；raw SCPI 和
     snapshot 见该目录 `summary.json`。
-  - `python tools/calibration_loopback_validate/calibration_loopback_validate.py COM8 --runs 10
+  - `python tools/calibration/calibration_loopback_validate/calibration_loopback_validate.py COM8 --runs 10
     --out-dir build-rtos-multicore-smoke/calibration_loopback_com8_repeat10` 通过 10/10 轮；
     每轮 snapshot、epoch 和诊断范围见该目录 `summary.json`。
   - 传感器集成后的同 build 复验目录为
@@ -1337,7 +1337,7 @@ Last updated: 2026-09-13
   - `tests/unit/test_calibration_bidirectional.c`
   - `tools/tests/run_calibration_bidirectional_tests.ps1`
   - `tools/tdma_ring_monitor/tdma_single_board_loopback.py`
-  - `tools/calibration_loopback_validate/calibration_loopback_validate.py`
+  - `tools/calibration/calibration_loopback_validate/calibration_loopback_validate.py`
   - `build-rtos-multicore-smoke/tdma_single_loopback_current/summary.json`
   - `build-rtos-multicore-smoke/calibration_loopback_com8_final/summary.json`
   - `build-rtos-multicore-smoke/calibration_loopback_com8_repeat10/summary.json`

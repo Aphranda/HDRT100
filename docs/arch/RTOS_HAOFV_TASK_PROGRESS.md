@@ -4,7 +4,7 @@ Status: Active
 Domain: RTOS
 Canonical: `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-09-05
+Last updated: 2026-10-10
 
 本文档用于记录 Distributed Hard Real-Time Trigger System 工程中基于 HAOFV 的 RTOS + 双核 AMP、
 分布式触发、模拟反射内存、任务拆分和板端烧录验证进度。每完成一个阶段，
@@ -74,9 +74,9 @@ Last updated: 2026-09-05
   - `app_runtime_start_realtime_core()` 在启动 core1 前初始化 lockout gate，避免 core1 poll 入口触碰 XIP 初始化路径。
   - RuntimeProtectionTable 的 `park_state` 改为发布 lockout 状态机枚举，而不是简单 ACK 布尔。
   - RuntimeProtectionTable 追加 `last_result`、`last_elapsed_us`、`request_seq`、`ack_seq`、`release_seq`、`timeout_count` 和 `release_timeout_count`，作为 HIL 证据字段。
-  - 新增 `tools/flash_lockout_hil_validate/flash_lockout_hil_validate.py`，固化真实 OTA flash 写入前后 lockout 证据校验。
-  - 修复 `tools/ota_board_validate/ota_board_validate.py` 的 USB reset 容错，`SYSTem:OTA:BOOT` 导致串口复位时记录 `<serial-reset:...>` 后继续重连验证。
-  - `tools/multicore_board_validate/multicore_board_validate.py` 支持新版 RuntimeProtectionTable 字段，并在 smoke detail 中输出 lockout sequence/result。
+  - 新增 `tools/flash/flash_lockout_hil_validate/flash_lockout_hil_validate.py`，固化真实 OTA flash 写入前后 lockout 证据校验。
+  - 修复 `tools/ota/ota_board_validate/ota_board_validate.py` 的 USB reset 容错，`SYSTem:OTA:BOOT` 导致串口复位时记录 `<serial-reset:...>` 后继续重连验证。
+  - `tools/rtos/multicore_board_validate/multicore_board_validate.py` 支持新版 RuntimeProtectionTable 字段，并在 smoke detail 中输出 lockout sequence/result。
   - 新增 `test_drv_flash_lockout.c` 和 `tools/tests/run_drv_flash_lockout_tests.ps1`，并纳入 `run_host_unit_tests.ps1`。
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_drv_flash_lockout_tests.ps1` host 执行通过。
@@ -105,7 +105,7 @@ Last updated: 2026-09-05
   - `components/distributed_refmem/src/distributed_refmem.c`
   - `tests/unit/test_drv_flash_lockout.c`
   - `tools/tests/run_drv_flash_lockout_tests.ps1`
-  - `tools/flash_lockout_hil_validate/flash_lockout_hil_validate.py`
+  - `tools/flash/flash_lockout_hil_validate/flash_lockout_hil_validate.py`
 - 下一步：
   - 完成 no-ACK 受控 HIL 故障注入后，进入真实最小 physical transport；暂不继续扩展 RefMem 静态表模型。
 
@@ -121,7 +121,7 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 - 状态：完成；当前开发阶段采用 debug 门限，短差只记录并有界继续，产品/release profile 保持严格拒绝。
 - 日期：2026-09-05
 - 完成内容：
-  - `tools/ram_budget_check/ram_budget_check.py` 区分 release/debug profile；debug 目标由 `DEFAULT_DEBUG_MIN_FREE_BYTES` 定义，低于目标时输出原始 map、最大 BSS、差额和 `forced_continue=true`，不终止状态机迁移。
+  - `tools/project/ram_budget_check/ram_budget_check.py` 区分 release/debug profile；debug 目标由 `DEFAULT_DEBUG_MIN_FREE_BYTES` 定义，低于目标时输出原始 map、最大 BSS、差额和 `forced_continue=true`，不终止状态机迁移。
   - `configTOTAL_HEAP_SIZE` 收敛到当前代码值；analyzer 活动/影子捕获由 `SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS` 有界，waveform 分段由 `VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS` 有界。RefMem 三份事务镜像和 TDMA realtime owner 未压缩。
   - map 快照（非事实源）：`out/build/ram116-ota4096/DHRT100.elf.map` 的 `link_free_bytes=18288 B`，相对 debug 目标短差 `14480 B`，结果为 `PASS_WITH_DIAGNOSTIC`。
 - 验证：A/B/Boot、Factory/Update 和 `flash_link_contract` 构建通过；debug map gate 完成并保留最大 BSS 列表。
@@ -161,8 +161,8 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
   - `out/ota/dpll-long-p0-send-20260828/`
   - `out/ota/dpll-long-p0-resend-com3-20260828/`
   - `out/ota/dpll-long-p0-baseline-20260828/`
-  - `tools/ota_multi_update/ota_multi_update.py`
-  - `tools/ota_boot_commit/ota_boot_commit.py`
+  - `tools/ota/ota_multi_update/ota_multi_update.py`
+  - `tools/ota/ota_boot_commit/ota_boot_commit.py`
 - 下一步：以单板受控方式分析回滚原因，修复后重新 build/pytest，再从 P0 OTA gate 开始。
 
 ### RTOS-DIST-TASK-20260828-003 - 发布 DPLL 基础件到闭环长期任务并完成 P0 静态门禁
@@ -178,7 +178,7 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
   - 因板端 96 KiB heap 启动稳定性仍待确认，当前 `configTOTAL_HEAP_SIZE` 保持 128 KiB；静态链接余量门禁独立按 map 检查。
 - 验证结果：
   - `tools/cmake_build_auto/cmake_build_auto.py` 构建目录：`out/build/dpll-p0-shared-sync-workspace-20260828/`；A/B/Boot 与 flash link contract 通过。
-  - `tools/ram_budget_check/ram_budget_check.py`：`link_free_bytes=98348 B`，达到 `98304 B` 发布阈值。
+  - `tools/project/ram_budget_check/ram_budget_check.py`：`link_free_bytes=98348 B`，达到 `98304 B` 发布阈值。
   - 全量 pytest：`out/pytest/dpll-p0-shared-sync-workspace-20260828/junit.xml`，`506 passed, 1 skipped`。
   - 代码提交 `ddb03fe fix(ram): share sync io maintenance workspace` 已推送；文档契约与代码提交保持分离。
 - 还需完成：
@@ -208,7 +208,7 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
 - 验证结果：
   - 使用 `tools/cmake_build_auto/cmake_build_auto.py` 构建到
     `out/build/dpll-p0-cal-workspace-20260828/`；A/B/Boot 和 flash link contract 通过。
-  - `tools/ram_budget_check/ram_budget_check.py`：`link_free_bytes=98356 B`，超过
+  - `tools/project/ram_budget_check/ram_budget_check.py`：`link_free_bytes=98356 B`，超过
     `RTOS_HAOFV_TODO.md` 定义的 `98304 B` 门禁 52 B。
   - 全量 pytest 输出到 `out/pytest/dpll-p0-cal-workspace-20260828/junit.xml`，结果为
     `506 passed, 1 skipped`；跳过项仅为未提供 COM 端口的显式 HIL 测试。
@@ -243,7 +243,7 @@ CAL/SYNC staging + ACK/NACK、RJ45_SYNC_RING 和 `FIRE_LOAD/T2` 闭环。
     `out/build/dpll-p0-staging-pool-20260828/`，A/B/Boot 与 flash link contract 通过。
   - `python -m pytest -p no:cacheprovider --junitxml=out/pytest/dpll-p0-staging-pool-20260828/junit.xml`
     结果为 `506 passed, 1 skipped`。
-  - `tools/ram_budget_check/ram_budget_check.py` 报告 `link_free_bytes=65640`，仍低于发布门禁
+  - `tools/project/ram_budget_check/ram_budget_check.py` 报告 `link_free_bytes=65640`，仍低于发布门禁
     `RTOS_HAOFV_TODO.md` 定义的 96 KB；因此保持 fail-closed，未执行异步 OTA、四板 TDMA HIL
     或 DPLL lock 验收。
 - 剩余工作：继续处理 Storage write buffer、OTA/package staging 的事务持有与复用，并获取板端

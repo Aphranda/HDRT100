@@ -4,7 +4,7 @@ Status: Frozen
 Domain: VDC
 Canonical: `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-09-06
+Last updated: 2026-10-10
 
 本文档记录 Virtual Distributed Clock / VDC Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `VDC_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
@@ -277,7 +277,7 @@ VdcSyncAO
   - 将 VDC 设置为自动运行采样，长时间观察 COM5/COM6 两板锁相稳定性。
   - 保持 HAOFV 边界：维护侧只 arm observer/self-test 并读取 `VdcVector`/DCO/quality 镜像，不直接写 offset、rate、lock 或 accepted counter。
 - 完成内容：
-  - 新增 `tools/vdc_long_monitor/vdc_long_monitor.py`。
+  - 新增 `tools/vdc/vdc_long_monitor/vdc_long_monitor.py`。
   - 工具支持 COM5/COM6 双向交替运行；每个窗口自动执行 RX/TX `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest`，周期采集 `READ:SYNC:QUALity?`、`SYSTem:SYNC:VDC:LOCK:READiness?`、`SYSTem:SYNC:VDC:OBServer?`、`SYSTem:SYNC:VDC:DCO?`、`SYSTem:SYNC:VDC:PATH:DELay?`、`REALtime:IO:MODel:PULSe:SCHEDule?` 和 `REALtime:IO:SAMPle:WINDow?`。
   - 输出 `samples.csv`、`events.jsonl` 和 `summary.json`，用于复盘 accepted/rejected、gate、timestamp source/resolution/flags、offset/rate、DCO phase/rate 和 path delay 镜像。
 - 验证结果：
@@ -291,7 +291,7 @@ VdcSyncAO
   - 将自动运行从 host 周期重装收敛为固件内部连续 observation/idle beacon 或 core1 TDMA scheduler 续窗，避免释放/重装边界把最后 evidence 留在 `WINDOW_BOUND`。
   - 结合低频维护 log 分析 offset 跳变来源：window base、phase unwrap、path delay、DCO slew 或 overlay 边沿相位。
 - 关联文件：
-  - `tools/vdc_long_monitor/vdc_long_monitor.py`
+  - `tools/vdc/vdc_long_monitor/vdc_long_monitor.py`
   - `docs/vdc/VDC_DOMAIN_TODO.md`
   - `docs/vdc/VDC_TASK_PROGRESS.md`
 - 下一步：
@@ -379,7 +379,7 @@ VdcSyncAO
   - 根因是 `sync_io_capture_dma_produced_words()` 在 `transfer_produced == produced_seq == 0` 时直接采用 transfer counter，导致无限 DMA 模式下永远不走 ring write-index delta。
 - 完成内容：
   - 将 `transfer_produced >= capture_dma_produced_seq` 改为严格 `>`；只有 transfer counter 真正前进时才采用它，否则继续用 write index delta 推导 produced words。
-  - 固化 `tools/scpi_query/model_gpio_probe.scpi`、`model_gpio_drive_g6.scpi` 和 `sample_capture_debug_probe.scpi`，用于后续低频/SCPI 断点复查。
+  - 固化 `tools/interface/scpi_query/model_gpio_probe.scpi`、`model_gpio_drive_g6.scpi` 和 `sample_capture_debug_probe.scpi`，用于后续低频/SCPI 断点复查。
   - `vdc_gpio_lock_validate.py` 增加 `--accepted-only` 分层验收：只验证本轮 observer accepted 增长、VDC quality accepted 非零、gate/source/resolution/flags 为硬件 DPLL eligible；完整模式仍要求 `LOCKED + HEALTHY + FINE_100NS`。
 - 验证结果：
   - Host 单元：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过 18/18。
@@ -395,9 +395,9 @@ VdcSyncAO
   - `components/sync_io/src/sync_io.c`
   - `docs/vdc/VDC_DOMAIN_TODO.md`
   - `docs/vdc/VDC_TASK_PROGRESS.md`
-  - `tools/scpi_query/model_gpio_probe.scpi`
-  - `tools/scpi_query/model_gpio_drive_g6.scpi`
-  - `tools/scpi_query/sample_capture_debug_probe.scpi`
+  - `tools/interface/scpi_query/model_gpio_probe.scpi`
+  - `tools/interface/scpi_query/model_gpio_drive_g6.scpi`
+  - `tools/interface/scpi_query/sample_capture_debug_probe.scpi`
 - 下一步：
   - 进入 P0.5 DPLL/DC 锁相优化；本轮不再扩大 SCPI 或脚本旁路。
 
@@ -567,7 +567,7 @@ VdcSyncAO
   - `vdc_domain` 增加 acquisition admission：未锁定/重锁阶段允许整帧相位差进入 DPLL，锁定后用 DCO phase offset 平移 admission window；质量/锁定使用 DCO 校正后的 residual phase，不把初始大相位差冒充 fine lock。
   - `sync_io` capture latch 在 timestamp window armed 时进行边沿压缩，只向上层发布有观测边沿的 word；DMA 覆盖后重新同步边沿前态，不再永久清掉 capture timebase。
   - 新增只读维护查询 `REALtime:IO:MODel:PULSe:SCHEDule?` 和 `REALtime:IO:SAMPle:WINDow?`，用于 HIL 定位 PIO/DMA scheduler、timestamp window 和 capture timebase。
-  - `tools/vdc_gpio_lock_validate.py` 固化 100 ns 验证、TX scheduler 状态和 RX timestamp window 证据输出。
+  - `tools/vdc/vdc_gpio_lock_validate.py` 固化 100 ns 验证、TX scheduler 状态和 RX timestamp window 证据输出。
 - 验证结果：
   - `python -m py_compile tools\vdc_gpio_lock_validate\vdc_gpio_lock_validate.py` 通过。
   - `tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
@@ -589,7 +589,7 @@ VdcSyncAO
   - `middleware/scpi_port/inc/scpi_realtime_io_commands.h`
   - `middleware/scpi_port/src/scpi_realtime_io_commands.c`
   - `tests/unit/test_vdc_domain.c`
-  - `tools/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py`
+  - `tools/vdc/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py`
 - 下一步：
   - 把相同 acquisition/residual/DCO 机制迁移到公共 TDMA payload timestamp，逐步减少 GPIO4-7 overlay 对锁相验证的依赖。
 
@@ -665,7 +665,7 @@ VdcSyncAO
   - `components/vdc_domain/src/vdc_domain.c`
   - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
   - `middleware/scpi_port/src/scpi_sync_commands.c`
-  - `tools/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py`
+  - `tools/vdc/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py`
 - 下一步：
   - 先保持 GPIO4-7 bring-up 证据作为最小硬件闭环，再推进 TDMA 通讯 timestamp evidence、DCO snapshot core1 消费和 100 ns fine tier 收敛。
 
@@ -752,7 +752,7 @@ VdcSyncAO
   - `components/vdc_domain/inc/vdc_domain.h`
   - `components/vdc_domain/src/vdc_domain.c`
   - `middleware/scpi_port/src/scpi_sync_commands.c`
-  - `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`
+  - `tools/vdc/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`
 - 下一步：
   - 运行 VDC 单元测试、主机构建、固件构建和 COM5/COM6 HIL，验证字段兼容和 self-test gate 语义。
 
@@ -766,7 +766,7 @@ VdcSyncAO
 - 完成内容：
   - `vdc_dpll_manager` 保存 self-test 生成的 `VdcTDMATimestampEvidence`，在公共 TDMA service 完成对应 intent 后提交给 `vdc_domain_submit_tdma_evidence()`。
   - VDC gate 按 `TIMESTAMP_NOT_ELIGIBLE` 拒绝该 diagnostic evidence，并更新 quality/rejected 计数。
-  - `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py` 增加 `READ:SYNC:QUALity?` 验证，要求 rejected sample 增长、`last_reject_code=9`、timestamp resolution 为 1000 ns。
+  - `tools/vdc/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py` 增加 `READ:SYNC:QUALity?` 验证，要求 rejected sample 增长、`last_reject_code=9`、timestamp resolution 为 1000 ns。
 - 验证结果：
   - `python -m py_compile tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
@@ -778,7 +778,7 @@ VdcSyncAO
   - 将 TDMA service 的硬件 timestamp source 从软件诊断升级为 observation window 内的 `HARDWARE_TICK / <=100 ns / DPLL_ELIGIBLE`。
 - 关联文件：
   - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
-  - `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`
+  - `tools/vdc/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`
 - 下一步：
   - 继续 P0.2：把 TDMA observation window 的真实 edge latch 接入 `VdcTDMATimestampEvidence`，使 gate 能从拒绝 diagnostic evidence 推进到接受硬件样本。
 
@@ -794,7 +794,7 @@ VdcSyncAO
   - `vdc_dpll_manager` 将内部 `tdma_service` 绑定为 VDC self-test transport，并在 core1 realtime loop 中服务。
   - `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest role=1` 改为构造 `VDC_SYNC_SAMPLE` short frame 并提交到公共 TDMA service；`role=2/3` 仍可同时配置 RX observer/capture。
   - self-test TX evidence 固定为 `SOFTWARE_US / 1000 ns / DIAGNOSTIC_ONLY`，可通过 `SYSTem:SYNC:VDC:TDMA:STATus?` 验证 intent 完成、payload class 和 timestamp flags，但不能让 DPLL gate 通过。
-  - `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py` 不再探测或驱动 `REALtime:IO:OUTPut` 主输出线，改为验证每块板的 VDC TDMA self-test intent。
+  - `tools/vdc/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py` 不再探测或驱动 `REALtime:IO:OUTPut` 主输出线，改为验证每块板的 VDC TDMA self-test intent。
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_vdc_domain_tests.ps1` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，18/18。
@@ -808,7 +808,7 @@ VdcSyncAO
   - `application/src/app.c`
   - `components/vdc_dpll_manager/inc/vdc_dpll_manager.h`
   - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
-  - `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`
+  - `tools/vdc/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`
 - 下一步：
   - 运行 VDC host tests、全量 host unit tests、固件构建和 COM5/COM6 self-test 回归；通过后进入 edge latch / DPLL eligible evidence。
 
@@ -912,7 +912,7 @@ VdcSyncAO
   - `sync_io_model_sched` 的 PIO/DMA scheduled pulse primitive 增加主输出组入口 `sync_io_output_pulse_schedule_arm()`；旧 debug model 入口保留。
   - `vdc_dpll_manager` 新增 observation self-test API，支持 RX 侧启动周期性 TDMA observer + capture，TX 侧用主输出组发 PIO pulse train。
   - 新增 `SYSTem:SYNC:VDC:OBServer:TDMA:SELFtest` / `SELFtest?` 维护命令；该命令不写 lock/offset/rate，只启动 bring-up 事务和读取状态。
-  - 新增 `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`，自动检测两板线序，并分别验证 X->Y、Y->X 的 RX accepted sample、gate pass 和 `DPLL_ELIGIBLE` timestamp metadata。
+  - 新增 `tools/vdc/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`，自动检测两板线序，并分别验证 X->Y、Y->X 的 RX accepted sample、gate pass 和 `DPLL_ELIGIBLE` timestamp metadata。
 - 验证结果：
   - `python -m py_compile tools\vdc_tdma_selftest_validate\vdc_tdma_selftest_validate.py` 通过。
   - `python tools\product_scpi_validate\product_scpi_validate.py --dry-run` 通过，generated=132，包含 self-test 命令。
@@ -929,7 +929,7 @@ VdcSyncAO
   - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
   - `middleware/scpi_port/inc/scpi_sync_commands.h`
   - `middleware/scpi_port/src/scpi_sync_commands.c`
-  - `tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`
+  - `tools/vdc/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py`
 - 下一步：
   - COM5/COM6 OTA 后执行两板 HIL；通过后再推进 `SyncDpllFB` servo/outlier 和 core1 DCO snapshot 消费。
 
@@ -1002,7 +1002,7 @@ VdcSyncAO
   - `components/vdc_dpll_manager/src/vdc_dpll_manager.c`
   - `middleware/scpi_port/inc/scpi_sync_commands.h`
   - `middleware/scpi_port/src/scpi_sync_commands.c`
-  - `tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py`
+  - `tools/vdc/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py`
   - `docs/vdc/VDC_DOMAIN_TODO.md`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/interface/SCPI_COMMAND_PLAN.md`
@@ -1020,7 +1020,7 @@ VdcSyncAO
 - 完成内容：
   - `VDC_DOMAIN_TODO.md` 增加 DPLL 锁定 / VDC 同步最快闭环优先级，定义 P0.0-P0.4：readiness、PIO edge latch、eligible sample admission、DPLL 环路滤波器、DCO snapshot。
   - 新增 `SYSTem:SYNC:VDC:LOCK:READiness?`，返回 `input_ready` 与 `locked` 两个独立布尔值，并输出 reason、DPLL/quality 状态、observer 计数、timestamp eligibility、dictionary/profile CRC 和最近 payload/source/reference。
-  - 新增 `tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py`，用 COM5/COM6 验证 observer 启用、采样启动、forced edge、VDC gate 拒绝和 readiness reason。
+  - 新增 `tools/vdc/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py`，用 COM5/COM6 验证 observer 启用、采样启动、forced edge、VDC gate 拒绝和 readiness reason。
   - 同步 `SCPI_COMMANDS.md`、`SCPI_COMMAND_PLAN.md`、中文 SCPI 指令表、`VDC_DOMAIN_ARCHITECTURE.md` 和 `tools/README.md`。
 - 验证结果：
   - `python -m py_compile tools\vdc_lock_readiness_validate\vdc_lock_readiness_validate.py tools\vdc_latch_validate\vdc_latch_validate.py tools\vdc_observer_validate\vdc_observer_validate.py tools\product_scpi_validate\product_scpi_validate.py` 通过。
@@ -1041,7 +1041,7 @@ VdcSyncAO
 - 关联文件：
   - `middleware/scpi_port/inc/scpi_sync_commands.h`
   - `middleware/scpi_port/src/scpi_sync_commands.c`
-  - `tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py`
+  - `tools/vdc/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py`
   - `docs/vdc/VDC_DOMAIN_TODO.md`
   - `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
   - `docs/interface/SCPI_COMMANDS.md`
@@ -1199,7 +1199,7 @@ VdcSyncAO
 
 - 状态：完成脚本固化和 COM5/COM6 验证。
 - 完成：
-  - 新增 `tools/vdc_observer_validate/vdc_observer_validate.py`，统一串口生命周期、关闭态检查、启用态配置、40 字段解析、schedule/dictionary CRC 校验、最终关闭和错误队列检查。
+  - 新增 `tools/vdc/vdc_observer_validate/vdc_observer_validate.py`，统一串口生命周期、关闭态检查、启用态配置、40 字段解析、schedule/dictionary CRC 校验、最终关闭和错误队列检查。
   - 更新 `tools/README.md`，把该脚本列入闭环验证工具。
 - 验证：
   - `python tools\vdc_observer_validate\vdc_observer_validate.py COM5 COM6 --expected-build 20260816031400` 通过。
@@ -1494,7 +1494,7 @@ VdcSyncAO
   - core1/PIO TDMA 必须按 active VDC schedule 等待 data/observation window，并增加硬件 timestamp latch；当前诊断 gate 通过或窗口拒绝都不得作为 100 ns DPLL lock evidence。
 - 关联文件：
   - `components/distributed_refmem/src/refmem_vdc_bridge.c`
-  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+  - `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
   - `docs/vdc/VDC_DOMAIN_TODO.md`
 - 下一步：
   - 实现 core1/PIO 按 `VdcTdmaScheduleProfile` 等待 `REFMEM_DATA_WINDOW` / `VDC_OBSERVATION_WINDOW` 的执行路径，再接硬件 timestamp latch。
@@ -1507,7 +1507,7 @@ VdcSyncAO
   - 将 `SYSTem:REFMEM:SYNC:TDMA:VDC?` 纳入两板 RefMem PIO TDMA HIL 验收。
   - 对 `DELTA/ACK_NACK/FENCE/QUALITY` 交换记录 VDC bridge/gate/CRC/timestamp evidence，作为后续硬件 timestamp latch 的对照基线。
 - 完成内容：
-  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 的 `ExchangeResult` 增加 `vdc_response/vdc_passed/vdc_reason`。
+  - `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 的 `ExchangeResult` 增加 `vdc_response/vdc_passed/vdc_reason`。
   - `tdma_exchange()` 在 RX frame 处理后查询接收板 `SYSTem:REFMEM:SYNC:TDMA:VDC? <receiver_local_slot>,<reference_slot>`。
   - 对支持的 RefMem data evidence frame 要求 VDC bridge `ACCEPTED`、gate pass、window class 为 `REFMEM_DATA`、timestamp 为 `SOFTWARE_US/1000 ns/DIAGNOSTIC_ONLY`。
   - `HELLO/EPOCH` 仍只记录为非 data evidence，不作为 VDC bridge 通过条件。
@@ -1521,7 +1521,7 @@ VdcSyncAO
   - 烧录包含 `SYSTem:REFMEM:SYNC:TDMA:VDC?` 的固件到 COM5/COM6。
   - 运行 `python tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py --port-a COM5 --port-b COM6`，保存 report。
 - 关联文件：
-  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+  - `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
 - 下一步：
   - 跑全量 host/build 验证，通过后提交推送，再进入烧录和 COM5/COM6 HIL。
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-09-17
+Last updated: 2026-10-10
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
@@ -125,7 +125,7 @@ Last updated: 2026-09-17
   - COM5/COM6 OTA send、boot 和 commit 到 build `20260816095934` 通过，两板 `SYSTem:FW:BUILD?` 均返回 `"20260816095934"`，错误队列均为 `0,"No error"`。
   - 执行 `python tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py --port-a COM5 --port-b COM6 --out-dir build-rtos-multicore-smoke\refmem_node_load_auto_hil_COM5_COM6_20260816095934_tdma_component` 通过。
   - HIL 证据：A->B 只对 COM5 下发两条 `LOAD:NODE` 后，COM6 `applied_rx_count` 增长到 2，`last_frame_type=3`，NodeLoad TableRegistry CRC 与 COM5 一致；B->A 只对 COM6 下发两条 `LOAD:NODE` 后，COM5 `applied_rx_count` 增长到 2，`last_frame_type=3`，NodeLoad TableRegistry CRC 与 COM6 一致。
-  - 增强版 AUTO 维护验证通过：`tools/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py` 在 IO preflight 前先关闭残留 AUTO 并释放 `REALtime:IO`；同步完成后继续观察两板自动 RX 维护，确认 `pending_count=0`、`last_error=0`、`submitted_rx_count` 和 TDMA `service_count/completed_seq` 继续增长。记录位于 `build-rtos-multicore-smoke\refmem_node_load_auto_hil_COM5_COM6_20260816095934_auto_maintenance\records.json`。
+  - 增强版 AUTO 维护验证通过：`tools/refmem/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py` 在 IO preflight 前先关闭残留 AUTO 并释放 `REALtime:IO`；同步完成后继续观察两板自动 RX 维护，确认 `pending_count=0`、`last_error=0`、`submitted_rx_count` 和 TDMA `service_count/completed_seq` 继续增长。记录位于 `build-rtos-multicore-smoke\refmem_node_load_auto_hil_COM5_COM6_20260816095934_auto_maintenance\records.json`。
   - 两方向 `SYSTem:REFMEM:CLAIM? 5` 返回一致的 SlotClaimMap 摘要，最终两板 `SYSTem:ERRor?` 均为 `0,"No error"`。
 - 后续动作：
   - 继续把 VDC observation sample、idle beacon 和 long frame payload 从文档契约落到 `components/tdma` 的 producer/consumer 注册机制。
@@ -162,7 +162,7 @@ Last updated: 2026-09-17
   - NodeLoad AUTO RX window 使用 uplink adapter，语义为接收上一个板卡的数据；pending NodeLoad DELTA TX 使用 downlink adapter，语义为下发到下一个板卡。
   - `SYSTem:REFMEM:SYNC:AUTO` 改为配置 `enable,local_slot,target_mask,baud,deadline,uplink_mode,uplink_rx,uplink_sck,uplink_tx,downlink_mode,downlink_rx,downlink_sck,downlink_tx`；`AUTO?` 返回同序 snapshot 和计数/evidence。
   - `refmem_spi_physical_adapter` 支持 `csn_pin=REFMEM_SPI_PHYSICAL_PIN_UNUSED` 的无 CS 模式：master 不驱动 CS，slave PIO 不等待 CS，仍由 RM packet magic、length、CRC 和 RX stable 判断帧边界。
-  - `tools/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py` 固化两板 B3 验收，自动运行 IO preflight 后推导 A/B 的 uplink/downlink adapter，并只向源板发送 `LOAD:NODE`。
+  - `tools/refmem/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py` 固化两板 B3 验收，自动运行 IO preflight 后推导 A/B 的 uplink/downlink adapter，并只向源板发送 `LOAD:NODE`。
 - 验证结果：
   - `python -m py_compile tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，15/15 host test scripts passed。
@@ -192,7 +192,7 @@ Last updated: 2026-09-17
   - `SYSTem:REFMEM:LOAD:NODE` 改为使用 RefMemAO 判定；`SYSTem:REFMEM:LOAD:SD` / `LOAD:BOARD` 仍保持 realtime idle 门禁。
   - 修复 RMTP inline package CRC 生成端：ApplicationModel 不再依赖 `ota_crc32_update()` 的隐含初值语义，改为本地 CRC32 算法，与 TableRegistry validator 的 package/payload/table CRC 完全一致。该问题此前导致板端 `LOAD:NODE` / `LOAD:BOARD` 返回 `PACKAGE_INVALID`，host stub 未暴露。
   - inline package 构建失败时保留 package validator 的失败表证据：若 validation 已给出 `first_bad_table`，则通过该表的 registry entry 暴露 `FAILED + last_result=package_error`，避免所有失败都折叠成 `BAD_TABLE_VERSION`。
-  - 新增 `tools/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py`：COM5/COM6 分别开启 `SYSTem:REFMEM:SYNC:AUTO`，只对源板下发两条 `LOAD:NODE`，目标板只查询 `AUTO?`、`LOAD:STATus?`、`TABle? 3` 和 `CLAIM?` 证据；随后反向执行。
+  - 新增 `tools/refmem/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py`：COM5/COM6 分别开启 `SYSTem:REFMEM:SYNC:AUTO`，只对源板下发两条 `LOAD:NODE`，目标板只查询 `AUTO?`、`LOAD:STATus?`、`TABle? 3` 和 `CLAIM?` 证据；随后反向执行。
 - 验证结果：
   - `python -m py_compile tools\refmem_node_load_auto_hil_validate\refmem_node_load_auto_hil_validate.py` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，15/15 host test scripts passed。
@@ -410,13 +410,13 @@ Last updated: 2026-09-17
   - `distributed_refmem_activate_staging()` 在调用 `refmem_table_registry_activate_staging()` 前先执行 staging view 预解析；预解析失败时记录 `STAGING_VIEW_INVALID`，并通过 command slot NACK。
   - 新增 `REFMEM_TABLE_ACTIVATE_ERR_STAGING_VIEW_INVALID` 和 `REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED`，并同步 `SYSTem:COMMand:NACK?` reason table。
   - `test_refmem_table_registry.c` 增加 prepare/commit 断言：prepare 不改变 active getter，commit 后才切到 package runtime snapshot，pending 只能提交一次。
-  - `tools/refmem_table_registry_validate/refmem_table_registry_validate.py` 增加 preflight error queue drain，避免 Storage/OTA 历史错误污染本轮验证；summary 只将 `FAIL` 计入失败。
-  - `tools/storage_file_upload/storage_file_upload.py` 增加 StorageAO job idle 等待和 active write transaction abort preflight，避免目录/删除/写入 job 交错。
-  - `tools/scpi_query/scpi_query.py` 修正 `INFO? "path"` 这类带参数查询识别，并新增 `tools/scpi_query/refmem_storage_info_probe.scpi` 作为 RefMem HIL SD 依赖探测命令集。
+  - `tools/refmem/refmem_table_registry_validate/refmem_table_registry_validate.py` 增加 preflight error queue drain，避免 Storage/OTA 历史错误污染本轮验证；summary 只将 `FAIL` 计入失败。
+  - `tools/storage/storage_file_upload/storage_file_upload.py` 增加 StorageAO job idle 等待和 active write transaction abort preflight，避免目录/删除/写入 job 交错。
+  - `tools/interface/scpi_query/scpi_query.py` 修正 `INFO? "path"` 这类带参数查询识别，并新增 `tools/interface/scpi_query/refmem_storage_info_probe.scpi` 作为 RefMem HIL SD 依赖探测命令集。
   - `BoardCapabilityTable` 当前产品 wire contract 固定为 8 条 A0-A7 能力记录；`CLAIM_CANDIDATE_MAX = 16` 只保留给 SlotClaim proposal / overflow evidence，不复用为 BoardCapability 表容量。
   - `scpi_refmem_read_package()` 先通过 StorageAO file info 获取真实文件大小，再按剩余长度分块读取，避免最后一块 512 字节越过文件尾导致 `LOAD:SD` 读包失败。
-  - `tools/sd_fs_build/sd_fs_build.py` 固化生成 `manifest_refmem_hil.idx`，用于 RefMem HIL，只要求 profile、mission、cal 和 RefMem `.rmtp` 四个小文件。
-  - 新增 `tools/scpi_query/refmem_file_read_probe.scpi`，用于通过 Storage `FILE:READ?` 探测 `/refmem/app_model.rmtp` 头尾读取。
+  - `tools/storage/sd_fs_build/sd_fs_build.py` 固化生成 `manifest_refmem_hil.idx`，用于 RefMem HIL，只要求 profile、mission、cal 和 RefMem `.rmtp` 四个小文件。
+  - 新增 `tools/interface/scpi_query/refmem_file_read_probe.scpi`，用于通过 Storage `FILE:READ?` 探测 `/refmem/app_model.rmtp` 头尾读取。
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_host_unit_tests.ps1 -HostGccDir D:\Embedded\GCC\mingw64\bin` 通过，14/14 host test scripts passed。
@@ -478,7 +478,7 @@ Last updated: 2026-09-17
   - 新增 `refmem_table_registry_access_table(role, table_id, view)` / `refmem_table_registry_release_table(view)`，通过 RMTP directory 和 table CRC 定位 payload。
   - 增加 reader guard：active/staging/rollbackable 任一 image 存在未 release view 时，activation 返回 `IMAGE_BUSY`，避免表指针悬挂。
   - 新增 `SYSTem:REFMEM:TABle:VIEW? [role],[table_id]`，通过 access/release 读取 view 摘要：`version,role,table_id,table_seq,package_crc32,table_crc32,image_offset,image_size,first_u32`。
-  - `tools/refmem_table_registry_validate.py --activate` 增加 active table 0 和 table 3 view 摘要断言。
+  - `tools/refmem/refmem_table_registry_validate.py --activate` 增加 active table 0 和 table 3 view 摘要断言。
 - 当前验证：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过，覆盖 active view access/release、double release reject、unreleased view 阻断 activation。
   - `python -m py_compile tools\refmem_table_registry_validate\refmem_table_registry_validate.py` 通过。
@@ -506,7 +506,7 @@ Last updated: 2026-09-17
   - 新增 `distributed_refmem_activate_staging(realtime_idle)`：本地 owner take 后组装 activation gate，检查 RefMem idle、realtime idle、runtime protection、CRC/owner、SlotClaim、quality/DeploymentGate 和 local command take，再调用 `refmem_table_registry_activate_staging()`。
   - 新增 `SYSTem:REFMEM:LOAD:ACTivate`，返回 `ACTIVE/REJECTED`、registry snapshot，以及 active/staging/rollbackable 三个 image descriptor。
   - 新增 `SYSTem:REFMEM:TABle:IMAGe? [role]`，读取 active/staging/rollbackable descriptor：`version,role,state,table_mask,package_crc32,table_seq,path_hash,last_result,evidence_index`。
-  - `tools/refmem_table_registry_validate/refmem_table_registry_validate.py` 增加 `--activate`，固化 `LOAD:SD -> LOAD:ACTivate -> command ACK -> image descriptor -> TABle? 0..8` 验证。
+  - `tools/refmem/refmem_table_registry_validate/refmem_table_registry_validate.py` 增加 `--activate`，固化 `LOAD:SD -> LOAD:ACTivate -> command ACK -> image descriptor -> TABle? 0..8` 验证。
 - 验证结果：
   - `python -m py_compile tools\refmem_table_registry_validate\refmem_table_registry_validate.py` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_table_registry_tests.ps1` 通过。
@@ -559,7 +559,7 @@ Last updated: 2026-09-17
   - `LOAD:NODE` 现在按候选 `NodeLoadTable` 调用 `refmem_application_contract_validate_node_load_table()`，并计算整表 staging CRC。
   - 成功路径只更新 `RefMemTableRegistry` table 3 `NodeLoadTable` 的 staging CRC、`OWNER_OK` 状态和 flags；不再通过整包 staging refresh 把 9 张表都标成 staging。
   - 非法 node/instance 仍返回 `REJECTED` / command NACK，并把 table 3 标成 `FAILED`，不污染 active 表。
-  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 同步断言：合法 `LOAD:NODE` 必须有非零 NodeLoadTable staging CRC，`SYSTem:REFMEM:TABle? 3` 的 staging mask 至少包含 bit3。
+  - `tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 同步断言：合法 `LOAD:NODE` 必须有非零 NodeLoadTable staging CRC，`SYSTem:REFMEM:TABle? 3` 的 staging mask 至少包含 bit3。
 - 验证结果：
   - `python -m py_compile tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py tools\refmem_table_registry_validate\refmem_table_registry_validate.py` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_application_contract_tests.ps1` 通过。
@@ -589,7 +589,7 @@ Last updated: 2026-09-17
   - 根因是 `DistributedRefMemAO` 将 package parser summary 交给 `RefMemTableRegistry` 时漏填 `validation.table_mask`，导致 `refmem_table_registry_stage_package_validation()` 拒绝 per-table validation summary，并退回旧的整包 CRC staging refresh。
 - 完成内容：
   - `distributed_refmem_stage_sd_system_pack()` 补齐 `validation.table_mask = 0x1FF`，让 RefMemAO 向 TableRegistry 提交完整 9 表 package validation 事实。
-  - 新增 `tools/refmem_table_registry_validate/refmem_table_registry_validate.py`，读取本地 RMTP header/directory，校验 package/payload/table CRC，然后通过单次串口生命周期查询：
+  - 新增 `tools/refmem/refmem_table_registry_validate/refmem_table_registry_validate.py`，读取本地 RMTP header/directory，校验 package/payload/table CRC，然后通过单次串口生命周期查询：
     - `SYSTem:REFMEM:LOAD:SD`
     - `SYSTem:COMMand:ACK?`
     - `SYSTem:REFMEM:LOAD:STATus?`
@@ -664,10 +664,10 @@ Last updated: 2026-09-17
   - `ui_manager_service()` 在 StorageAO job 处于 `QUEUED/RUNNING` 时跳过本轮刷新，让 SD 文件操作优先完成。
   - `StatusUI` 对 `SPI0|LCD` 使用 owner 标记 `StatusUI`，后续 ResourceArbiter 快照可直接看到冲突 holder。
   - `fatfs_port_write_text_file_atomic()` 与 `fatfs_port_write_binary_file_atomic()` 收敛到公共 bytes 写入 helper；临时文件 rename 失败后增加直写目标文件兜底，避免 FatFs 覆盖式 rename 或旧文件残留导致 StorageAO 卡死。
-  - `SCPI_STORAGE_JOB_WAIT_LOOPS` 从 2000 增加到 10000；`tools/refmem_pack_write/refmem_pack_write.py` 默认 timeout 从 3 s 增加到 10 s，防止设备端仍在合法写入时 PC 侧先超时。
-  - `SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS` 从 200 增加到 10000；`tools/refmem_pack_write/refmem_pack_write.py` 增加 `--load-timeout`，默认 60 s，专门覆盖 `LOAD:SD` 的长耗时 staged 路径。
-  - 新增 `tools/scpi_common/scpi_serial.py`，固化 USB CDC 串口打开、settle、输入/输出缓冲清理、idle-gap 读行和 finally close 生命周期管理；`scpi_query`、`storage_scpi_validate`、`refmem_pack_write` 已接入。
-  - 新增 `tools/storage_file_upload/storage_file_upload.py`，作为通用 Storage SCPI 文件上传工具，支持多文件、自动建目录、分片写入、写后 `FILE:INFO?` 校验。
+  - `SCPI_STORAGE_JOB_WAIT_LOOPS` 从 2000 增加到 10000；`tools/refmem/refmem_pack_write/refmem_pack_write.py` 默认 timeout 从 3 s 增加到 10 s，防止设备端仍在合法写入时 PC 侧先超时。
+  - `SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS` 从 200 增加到 10000；`tools/refmem/refmem_pack_write/refmem_pack_write.py` 增加 `--load-timeout`，默认 60 s，专门覆盖 `LOAD:SD` 的长耗时 staged 路径。
+  - 新增 `tools/interface/scpi_common/scpi_serial.py`，固化 USB CDC 串口打开、settle、输入/输出缓冲清理、idle-gap 读行和 finally close 生命周期管理；`scpi_query`、`storage_scpi_validate`、`refmem_pack_write` 已接入。
+  - 新增 `tools/storage/storage_file_upload/storage_file_upload.py`，作为通用 Storage SCPI 文件上传工具，支持多文件、自动建目录、分片写入、写后 `FILE:INFO?` 校验。
 - 验证结果：
   - `python -m py_compile tools\scpi_common\scpi_serial.py tools\storage_file_upload\storage_file_upload.py tools\refmem_pack_write\refmem_pack_write.py tools\scpi_query\scpi_query.py tools\storage_scpi_validate\storage_scpi_validate.py` 通过。
   - `python -m pytest tests\python\test_refmem_pack_build.py -q` 通过，2 passed；pytest cache 写入 `.pytest_cache` 因权限被拒绝，只产生 warning。
@@ -691,9 +691,9 @@ Last updated: 2026-09-17
   - `middleware/fatfs_port/src/fatfs_port.c`
   - `middleware/scpi_port/src/scpi_storage_commands.c`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/scpi_common/scpi_serial.py`
-  - `tools/refmem_pack_write/refmem_pack_write.py`
-  - `tools/storage_file_upload/storage_file_upload.py`
+  - `tools/interface/scpi_common/scpi_serial.py`
+  - `tools/refmem/refmem_pack_write/refmem_pack_write.py`
+  - `tools/storage/storage_file_upload/storage_file_upload.py`
 
 ### REFMEM-TASK-20260815-026 - Complete RMTP canonical table payloads
 
@@ -703,7 +703,7 @@ Last updated: 2026-09-17
   - 将 `.rmtp` 中剩余 5 张 canonical 表从 64 字节占位 payload 升级为真实固定 u32 wire payload。
   - 让 `RefMemTableRegistry` 对全 9 张表执行 owner validation，同时保持 active image 切换阻断，不伪激活。
 - 完成内容：
-  - `tools/refmem_table_image/refmem_table_image.py` 新增 `FbInstance`、`EventLink`、`DataLink`、`DeploymentGate`、`ConnectionQuality` payload 生成。
+  - `tools/refmem/refmem_table_image/refmem_table_image.py` 新增 `FbInstance`、`EventLink`、`DataLink`、`DeploymentGate`、`ConnectionQuality` payload 生成。
   - `FbInstance` 的 `instance_name` 和 `DataLink` 的 `slot_path` 不写入 C 指针，`.rmtp` 使用 `name_hash` / `slot_path_hash` 作为稳定 wire 字段；可读说明仍放在 idx/json。
   - `refmem_table_registry.c` 的 table image size 改为 wire size，避免把 C struct pointer size 当作 package layout。
   - `RefMemTableRegistry` 增加 4-8 号表 parser 和字段级 owner validation，成功 package 的 `owner_validated_table_mask` 覆盖 `REFMEM_APP_TABLE_MASK_ALL`。
@@ -717,8 +717,8 @@ Last updated: 2026-09-17
   - 继续运行完整 host/unit/docs/build/HIL 验证；通过后再进入真实 staging/active/rollbackable image buffer。
 - 关联文件：
   - `components/distributed_refmem/src/refmem_table_registry.c`
-  - `tools/refmem_table_image/refmem_table_image.py`
-  - `tools/refmem_pack_build/refmem_pack_build.py`
+  - `tools/refmem/refmem_table_image/refmem_table_image.py`
+  - `tools/refmem/refmem_pack_build/refmem_pack_build.py`
   - `tests/unit/test_refmem_table_registry.c`
   - `tests/python/test_refmem_pack_build.py`
 
@@ -759,7 +759,7 @@ Last updated: 2026-09-17
   - 新增 `REFMEM_COMMAND_TYPE_TABLE_PACKAGE_STAGE` 和 `distributed_refmem_stage_sd_system_pack()`。
   - `SYSTem:REFMEM:LOAD:SD` 改为先通过 StorageManager 获取 manifest/package validation 摘要，再调用 RefMem intent API；SCPI 不再直接调用 `refmem_application_model_stage_sd_system_pack()` 或 `refmem_table_registry_stage_package_validation()`。
   - Storage 前置 job busy/incomplete 也转换为 `REJECTED` load snapshot 和 command NACK，避免写命令无 completion。
-  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 增加 `LOAD:SD` 后的 `SYSTem:COMMand:ACK?` 验证，确认 command type 为 `TABLE_PACKAGE_STAGE`。
+  - `tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 增加 `LOAD:SD` 后的 `SYSTem:COMMand:ACK?` 验证，确认 command type 为 `TABLE_PACKAGE_STAGE`。
 - 验证结果：
   - `python -m py_compile tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py` 通过。
   - `python tools\checks\check_scpi_usb_namespace.py --root .` 通过。
@@ -778,7 +778,7 @@ Last updated: 2026-09-17
   - `components/distributed_refmem/inc/distributed_refmem.h`
   - `components/distributed_refmem/src/distributed_refmem.c`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
+  - `tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
 
 ### REFMEM-TASK-20260815-023 - LOAD:BOARD via RefMem command slot
 
@@ -790,7 +790,7 @@ Last updated: 2026-09-17
 - 完成内容：
   - 新增 `REFMEM_COMMAND_TYPE_BOARD_CAPABILITY_STAGE` 和 `distributed_refmem_stage_board_capability()`。
   - `SYSTem:REFMEM:LOAD:BOARD` 改为调用 RefMem intent API；`DistributedRefMemAO` 原子清理已完成 command、post `BOARD_CAPABILITY_STAGE`、由本地 RefMem owner take、调用 `refmem_application_model_stage_scpi_board_capability()`，随后 ACK/NACK。
-  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 增加 BoardCapability 正向/负向验证：有效 board 候选应 ACK，非法 `board_id=16` 应 NACK。
+  - `tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 增加 BoardCapability 正向/负向验证：有效 board 候选应 ACK，非法 `board_id=16` 应 NACK。
   - 修正验证脚本参数格式：当前 SCPI 数字解析不接受 `0x...`，脚本改为十进制参数，避免把 parser `-101 Invalid character` 误判为 RefMem 卡死。
 - 验证结果：
   - `python -m py_compile tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py` 通过。
@@ -809,7 +809,7 @@ Last updated: 2026-09-17
   - `components/distributed_refmem/inc/distributed_refmem.h`
   - `components/distributed_refmem/src/distributed_refmem.c`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
+  - `tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
 
 ### REFMEM-TASK-20260815-022 - LOAD:NODE via RefMem command slot
 
@@ -822,7 +822,7 @@ Last updated: 2026-09-17
   - 新增 `distributed_refmem_stage_node_load()`，由 RefMemAO 原子清理已完成 command、post `NODE_LOAD_STAGE`、take target slot、调用 `refmem_application_model_stage_scpi_node_config()`，随后 ACK/NACK。
   - 修复 command slot 抢占竞态：`clear completed command -> allocate seq -> post new command` 现在在 RefMemAO 内部同一个 critical section 完成，避免 `system_manager` 在间隙重新发布 `CONFIG_ACTIVATE`。
   - `SYSTem:REFMEM:LOAD:NODE` 改为调用 RefMem intent API；返回字段保持原 `STAGED/REJECTED + LOAD:STATus` 格式。
-  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 增加 `SYSTem:COMMand:ACK?` 校验，并把 table count / active mask 更新为当前 9 张表 / `0x1FF`。
+  - `tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 增加 `SYSTem:COMMand:ACK?` 校验，并把 table count / active mask 更新为当前 9 张表 / `0x1FF`。
 - 验证结果：
   - `python -m py_compile tools\refmem_scpi_load_validate\refmem_scpi_load_validate.py` 通过。
   - `python tools\checks\check_scpi_usb_namespace.py --root .` 通过。
@@ -840,7 +840,7 @@ Last updated: 2026-09-17
   - `components/distributed_refmem/inc/distributed_refmem.h`
   - `components/distributed_refmem/src/distributed_refmem.c`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
+  - `tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
 
 ### REFMEM-TASK-20260815-021 - Generic command ACK/NACK SCPI view
 
@@ -853,7 +853,7 @@ Last updated: 2026-09-17
   - 新增 `SYSTem:COMMand:ACK?`，返回 schema version、state、command seq、source/target、command type/class、payload 摘要、taken/ACK/NACK/busy/timeout flags、last reason、evidence、clear seq 和 last completed seq。
   - 新增 `SYSTem:COMMand:NACK? [reason_id]`，默认读取当前 command snapshot 的 `last_reason`，也可按 reason id 查询 RefMem command reason 表。
   - `SYSTem:CONFigure:ACK? / NACK?` 继续只作为 `CONFIG_ACTIVATE` 的配置门禁兼容视图。
-  - `tools/model_turntable_load_validate/model_turntable_load_validate.py` 增加 `SYSTem:COMMand:ACK?` 和 `SYSTem:COMMand:NACK?` 检查，验证 `NODE_LOAD_STAGE` command 的 ACK 事实。
+  - `tools/trigger/model_turntable_load_validate/model_turntable_load_validate.py` 增加 `SYSTem:COMMand:ACK?` 和 `SYSTem:COMMand:NACK?` 检查，验证 `NODE_LOAD_STAGE` command 的 ACK 事实。
 - 验证结果：
   - `python -m py_compile tools\model_turntable_load_validate\model_turntable_load_validate.py` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_command_tests.ps1` 通过。
@@ -868,7 +868,7 @@ Last updated: 2026-09-17
 - 关联文件：
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/model_turntable_load_validate/model_turntable_load_validate.py`
+  - `tools/trigger/model_turntable_load_validate/model_turntable_load_validate.py`
 
 ### REFMEM-TASK-20260815-020 - ModelTurntable LOAD via RefMem command slot
 
@@ -882,7 +882,7 @@ Last updated: 2026-09-17
   - `ModelTurntableAO` 在初始化时注册 `Template.ModelTurntableAO` 的 NodeLoad owner，owner 回调内部执行 `model_turntable_load()`。
   - `CONFigure:MODEl:TURNtable:LOAD` 改为调用 `distributed_refmem_stage_model_turntable_load()`；该入口 post `NODE_LOAD_STAGE` command、写入 NodeLoad staging snapshot、由 owner 执行加载，并 ACK/NACK command slot。
   - `system_manager` 的 `SYSTem:CONFigure:ACK?` 兼容视图只读取 `CONFIG_ACTIVATE` command，避免模型 LOAD command 污染配置门禁 ACK。
-  - 新增 `tools/model_turntable_load_validate/model_turntable_load_validate.py`，固化 build id、默认未加载、LOAD、staging snapshot、配置 ACK 兼容视图和错误队列检查。
+  - 新增 `tools/trigger/model_turntable_load_validate/model_turntable_load_validate.py`，固化 build id、默认未加载、LOAD、staging snapshot、配置 ACK 兼容视图和错误队列检查。
 - 验证结果：
   - `python -m py_compile tools\model_turntable_load_validate\model_turntable_load_validate.py` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_command_tests.ps1` 通过。
@@ -900,7 +900,7 @@ Last updated: 2026-09-17
   - `components/model_turntable/src/model_turntable.c`
   - `components/system_manager/src/system_manager.c`
   - `middleware/scpi_port/src/scpi_model_commands.c`
-  - `tools/model_turntable_load_validate/model_turntable_load_validate.py`
+  - `tools/trigger/model_turntable_load_validate/model_turntable_load_validate.py`
 
 ### REFMEM-TASK-20260815-019 - SystemManager config ACK maps to RefMem command slot
 
@@ -913,7 +913,7 @@ Last updated: 2026-09-17
   - `DistributedRefMemAO` 增加 command slot owner API：reason table CRC、post、ACK、NACK、timeout、clear 和 snapshot。
   - `system_manager` 在配置 RUN gate 初始化和 service 中发布 `CONFIG_ACTIVATE` command snapshot，并按 gate 结果写入 ACK 或 NACK。
   - 修正 quality gate 变坏时 ACK/NACK flags 可能仍停留在旧全 ACK 的问题；现在 reject 时 `SYSTem:CONFigure:ACK?` 返回 `ack=0,nack=target`。
-  - `tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py` 增加 config ACK 正向、负向和恢复后的全 ACK 检查。
+  - `tools/refmem/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py` 增加 config ACK 正向、负向和恢复后的全 ACK 检查。
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_command_tests.ps1` 通过 host GCC 断言执行。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 build id `20260815061144`，package CRC `0xAB77E7E3`。
@@ -930,7 +930,7 @@ Last updated: 2026-09-17
   - `components/distributed_refmem/inc/refmem_command.h`
   - `components/distributed_refmem/src/refmem_command.c`
   - `components/system_manager/src/system_manager.c`
-  - `tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`
+  - `tools/refmem/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`
 
 ### REFMEM-TASK-20260815-018 - Command slot foundation
 
@@ -966,7 +966,7 @@ Last updated: 2026-09-17
   - 将 `TDMA timeout -> RefMem quality gate reject -> SystemManager config gate reject -> OTA restore` 固化成可重复 HIL 脚本。
   - 避免后续用手工 SCPI 命令制造 TDMA timeout 后忘记恢复板卡运行态。
 - 完成内容：
-  - 新增 `tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`。
+  - 新增 `tools/refmem/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`。
   - 脚本读取初始 `SYSTem:CONFigure:STAT?` 和 `SYSTem:REFMEM:SYNC:TDMA:STATus?`，确认初始 config gate ready。
   - 脚本发送短窗口 `SYSTem:REFMEM:SYNC:TDMA:RX` 且不发 TX，轮询 TDMA timeout，并确认 `SYSTem:CONFigure:STAT?` 进入 `ready=0, gate_state=2`。
   - 支持 `--restore-package` 和 `--expected-build`，在负向验证后调用 OTA send + boot/commit 恢复板卡，并再次确认 config gate ready。
@@ -976,7 +976,7 @@ Last updated: 2026-09-17
   - COM5 执行 `python tools\refmem_quality_gate_hil_validate\refmem_quality_gate_hil_validate.py COM5 --expected-build 20260815053147 --restore-package build-rtos-multicore-smoke\RP2350_TRIG_UPDATE.pkg --out-dir build-rtos-multicore-smoke\refmem_quality_gate_COM5_20260815053147_scripted_r3` 通过。
   - 报告路径：`build-rtos-multicore-smoke\refmem_quality_gate_COM5_20260815053147_scripted_r3\summary.json`。
 - 关联文件：
-  - `tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`
+  - `tools/refmem/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`
 
 ### REFMEM-TASK-20260815-016 - Quality gate RUN gate integration
 
@@ -1063,7 +1063,7 @@ Last updated: 2026-09-17
 - 完成内容：
   - 从 SCPI 命令表删除 `SYSTem:REFMEM:SYNC:SPI:RX?`、`SPI:HELLo`、`SPI:EPOCh`、`SPI:DELTa`、`SPI:ACK`、`SPI:FENCe`、`SPI:QUALity:FRAMe`。
   - 删除上述命令实现和 `scpi_refmem_sync_spi_send_result()`，消除 core0 直发 RefMem frame 的维护路径。
-  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 改为 TDMA-only frame transport；RAW 仍作为线序/物理链路诊断。
+  - `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 改为 TDMA-only frame transport；RAW 仍作为线序/物理链路诊断。
   - HIL frame plan 改为直接使用 `SYSTem:REFMEM:SYNC:HELLo?/EPOCh?/DELTa?/ACK?/FENCe?/QUALity:FRAMe?` 生成 frame，再通过 `TDMA:TX/RX/FRAMe?` 完成两板交换。
 - 验证结果：
   - `python -m py_compile tools\refmem_spi_hil_validate\refmem_spi_hil_validate.py` 通过。
@@ -1079,7 +1079,7 @@ Last updated: 2026-09-17
 - 关联文件：
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+  - `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
 
 ### REFMEM-TASK-20260815-012 - P4.5 COM5/COM6 core1 TDMA HIL 闭环
 
@@ -1113,7 +1113,7 @@ Last updated: 2026-09-17
   - `components/distributed_refmem/src/refmem_realtime_tdma.c`
   - `components/distributed_refmem/src/refmem_spi_physical_adapter.c`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+  - `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
 - 下一步：
   - 收敛 `SYSTem:REFMEM:SYNC:SPI:*` 帧级阻塞命令，并把 TDMA 质量计数并入 RefMem quality/evidence。
 
@@ -1133,7 +1133,7 @@ Last updated: 2026-09-17
   - `distributed_refmem_init()` 初始化 TDMA service，`app_realtime_run_once()` 通过 `distributed_refmem_realtime_run_once()` 在 core1 循环中推进。
   - 新增维护查询 `SYSTem:REFMEM:SYNC:TDMA:STATus?`，只读取 snapshot，不直接驱动硬件动作。
   - 新增维护入口 `SYSTem:REFMEM:SYNC:TDMA:TX/RX/FRAMe?/ABORt`：`TX/RX` 只 post intent，`FRAMe?` 读取 core1 result frame 并交给 RefMem Sync receive state machine。
-  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 增加 `--transport tdma`，在现有线序 remap 和 frame plan 基础上改走 TDMA intent 路径；RAW 仍保留为 SPI line diagnostic。
+  - `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 增加 `--transport tdma`，在现有线序 remap 和 frame plan 基础上改走 TDMA intent 路径；RAW 仍保留为 SPI line diagnostic。
   - 新增 `tests/unit/test_refmem_realtime_tdma.c` 和 `tools/tests/run_refmem_realtime_tdma_tests.ps1`。
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_realtime_tdma_tests.ps1` 通过 host gcc 断言执行。
@@ -1155,9 +1155,9 @@ Last updated: 2026-09-17
   - 新增 `components/distributed_refmem/src/refmem_spi_physical.pio`，提供 PIO TX byte 和 PIO RX byte state machine。
   - `refmem_spi_physical_adapter.c` 从内置 `spi0`/SIO bitbang 纠偏为 PIO TX、PIO RX 和 DMA RX 缓冲；CPU 不再逐 bit 或逐字节搬运 RX FIFO。
   - `board_config.h` 增加 RefMem PIO transport 的 PIO/SM 资源定义，默认 baud 改为 25 MHz。
-  - `tools/two_board_io_validate/two_board_io_validate.py` 支持 auto/detect 模式，并把 observed remap 写入报告。
-  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 默认使用 auto remap 和 25 MHz，根据实测 OUT->IN map 推导双向 PIO SPI pin plan。
-  - 新增 `tools/refmem_spi_line_activity/refmem_spi_line_activity.py`，用于慢速长 RAW:TX 时观察对端输入 mask，证明 PIO TX 已在真实线束上活动。
+  - `tools/sync/two_board_io_validate/two_board_io_validate.py` 支持 auto/detect 模式，并把 observed remap 写入报告。
+  - `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 默认使用 auto remap 和 25 MHz，根据实测 OUT->IN map 推导双向 PIO SPI pin plan。
+  - 新增 `tools/refmem/refmem_spi_line_activity/refmem_spi_line_activity.py`，用于慢速长 RAW:TX 时观察对端输入 mask，证明 PIO TX 已在真实线束上活动。
 - 验证结果：
   - `cmake --build build-rtos-multicore-smoke` 通过，build `20260815031915`，package CRC `0xD5A25528`。
   - COM5/COM6 均 OTA 写入、boot 并 commit 到 build `20260815031915`。
@@ -1173,9 +1173,9 @@ Last updated: 2026-09-17
   - `components/distributed_refmem/src/refmem_spi_physical_adapter.c`
   - `components/distributed_refmem/inc/refmem_spi_physical_adapter.h`
   - `boards/rp2350_trig/inc/board_config.h`
-  - `tools/two_board_io_validate/two_board_io_validate.py`
-  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
-  - `tools/refmem_spi_line_activity/refmem_spi_line_activity.py`
+  - `tools/sync/two_board_io_validate/two_board_io_validate.py`
+  - `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+  - `tools/refmem/refmem_spi_line_activity/refmem_spi_line_activity.py`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
 
@@ -1190,7 +1190,7 @@ Last updated: 2026-09-17
 - 完成内容：
   - 新增 `refmem_spi_physical_adapter.h/.c`，使用 `spi0` 的 debug bring-up profile：RX16、CS17、SCK18、TX19，默认 500 kHz。
   - `SYSTem:REFMEM:SYNC:SPI:*` 增加 ARM/DISarm/STATus、frame TX/RX、raw byte TX/RX 和 line release/drive/status 维护入口。
-  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 固化三层验证：先扫线，再 raw byte，再 RefMem frame；PC 只触发 TX/RX，不搬运 frame hex。
+  - `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 固化三层验证：先扫线，再 raw byte，再 RefMem frame；PC 只触发 TX/RX，不搬运 frame hex。
   - build `20260815022459` 已通过 OTA 写入并在 COM5/COM6 上 commit，双板 `SYSTem:FW:BUILD?` 均返回该 build。
 - 验证结果：
   - `cmake --build build-rtos-multicore-smoke` 通过，package CRC `0xAE0FFEB2`。
@@ -1206,7 +1206,7 @@ Last updated: 2026-09-17
   - `components/distributed_refmem/src/refmem_spi_physical_adapter.c`
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
+  - `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py`
   - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
 
@@ -1253,7 +1253,7 @@ Last updated: 2026-09-17
   - 继续 P0 逐表真实化，将 `.rmtp` table 3 `NodeLoadTable` 从占位 payload 升级为固定 u32 表镜像。
   - 让 NodeLoad 的基础字段合法性由公共 application contract 校验，为后续 `LOAD:NODE` staging image 和动态实例装载做准备。
 - 完成内容：
-  - `tools/refmem_table_image/refmem_table_image.py` 新增 `build_node_load_payload()`，按当前 11 条默认 NodeLoad 模板输出固定 u32 payload。
+  - `tools/refmem/refmem_table_image/refmem_table_image.py` 新增 `build_node_load_payload()`，按当前 11 条默认 NodeLoad 模板输出固定 u32 payload。
   - `refmem_application_contract.h/.c` 新增 `refmem_application_contract_validate_node_load_table()`，校验 version、load count、load id、application/profile、node 范围、instance 范围、fail policy、enabled/required 和 target node mask。
   - `refmem_application_model.c` 的静态 NodeLoad linter 复用公共 contract，并保留对当前内置 FB instance 表的实例存在性、重复 enabled instance 和 required enabled instance 覆盖检查。
   - `refmem_table_registry.c` 新增 NodeLoad parser，并在 `.rmtp` package owner validation 中把 table 3 纳入 owner-validated mask。
@@ -1270,8 +1270,8 @@ Last updated: 2026-09-17
   - 继续将 FbInstance、EventLink、DataLink、DeploymentGate 和 ConnectionQuality 五张表升级为真实表镜像。
   - `SYSTem:REFMEM:LOAD:NODE` 仍需从单条候选 snapshot 升级为真正的 NodeLoad staging image；本轮只是让 RMTP package 中的完整 NodeLoad 表具备 canonical payload 和 contract。
 - 关联文件：
-  - `tools/refmem_table_image/refmem_table_image.py`
-  - `tools/refmem_pack_build/refmem_pack_build.py`
+  - `tools/refmem/refmem_table_image/refmem_table_image.py`
+  - `tools/refmem/refmem_pack_build/refmem_pack_build.py`
   - `components/distributed_refmem/inc/refmem_application_contract.h`
   - `components/distributed_refmem/src/refmem_application_contract.c`
   - `components/distributed_refmem/src/refmem_application_model.c`
@@ -1288,7 +1288,7 @@ Last updated: 2026-09-17
   - 按 P0 “逐表替换占位 payload”推进 `.rmtp` table 0 `ApplicationMap`。
   - 将 ApplicationMap 校验从 application model 内部静态 linter 提升为可被 SD/System Pack parser 复用的公共 table contract。
 - 完成内容：
-  - `tools/refmem_table_image/refmem_table_image.py` 新增 `build_application_map_payload()`，table 0 从 64 字节占位改为 6 个 u32 的真实 `ApplicationMap` payload。
+  - `tools/refmem/refmem_table_image/refmem_table_image.py` 新增 `build_application_map_payload()`，table 0 从 64 字节占位改为 6 个 u32 的真实 `ApplicationMap` payload。
   - `refmem_application_contract.h/.c` 新增 `refmem_application_contract_validate_application_map()`，校验 version、application/profile id、layout version 和 target node mask。
   - `refmem_application_model.c` 的静态 linter 复用公共 ApplicationMap contract，避免内置模型与 `.rmtp` parser 分叉。
   - `refmem_table_registry.c` 新增 ApplicationMap parser，并在 package owner validation 中把 table 0 纳入 owner-validated mask。
@@ -1305,7 +1305,7 @@ Last updated: 2026-09-17
   - 继续将 NodeLoad、FbInstance、EventLink、DataLink、DeploymentGate 和 ConnectionQuality 六张表升级为真实表镜像。
   - 对包含字符串语义的 FB/Data 表先确定 binary canonical 表达方式，例如固定 hash/id 字段，而不是把 C 指针或可变文本写入 `.rmtp`。
 - 关联文件：
-  - `tools/refmem_table_image/refmem_table_image.py`
+  - `tools/refmem/refmem_table_image/refmem_table_image.py`
   - `components/distributed_refmem/inc/refmem_application_contract.h`
   - `components/distributed_refmem/src/refmem_application_contract.c`
   - `components/distributed_refmem/src/refmem_application_model.c`
@@ -1346,12 +1346,12 @@ Last updated: 2026-09-17
 - 状态：完成
 - 日期：2026-08-15
 - 任务目标：
-  - 消除 `tools/refmem_pack_build/refmem_pack_build.py` 与 `tools/sd_fs_build/sd_fs_build.py` 中重复维护的 RMTP 表格式、表名、CRC、BoardCapability 和 GenericNode payload 生成逻辑。
+  - 消除 `tools/refmem/refmem_pack_build/refmem_pack_build.py` 与 `tools/storage/sd_fs_build/sd_fs_build.py` 中重复维护的 RMTP 表格式、表名、CRC、BoardCapability 和 GenericNode payload 生成逻辑。
   - 保证独立 RefMem package 工具和 SD System Pack staging 输出同一份 `.rmtp` 二进制表镜像，避免后续表格式演进时出现双源分叉。
 - 完成内容：
-  - 新增 `tools/refmem_table_image/refmem_table_image.py`，作为 canonical RMTP table image builder，统一 `RMTP` header、directory、package CRC、9 张表顺序、默认 BoardCapabilityTable 和 GenericNodeTable payload。
-  - `tools/refmem_pack_build/refmem_pack_build.py` 改为复用共享 builder，只保留独立输出目录、manifest 和 idx 生成职责。
-  - `tools/sd_fs_build/sd_fs_build.py` 删除私有 `build_refmem_table_package()`、`build_refmem_board_capability_payload()`、`build_refmem_generic_node_payload()` 等重复实现，SD staging 直接调用共享 builder。
+  - 新增 `tools/refmem/refmem_table_image/refmem_table_image.py`，作为 canonical RMTP table image builder，统一 `RMTP` header、directory、package CRC、9 张表顺序、默认 BoardCapabilityTable 和 GenericNodeTable payload。
+  - `tools/refmem/refmem_pack_build/refmem_pack_build.py` 改为复用共享 builder，只保留独立输出目录、manifest 和 idx 生成职责。
+  - `tools/storage/sd_fs_build/sd_fs_build.py` 删除私有 `build_refmem_table_package()`、`build_refmem_board_capability_payload()`、`build_refmem_generic_node_payload()` 等重复实现，SD staging 直接调用共享 builder。
   - 两个脚本都补齐直接脚本运行时的 repo root import path，避免 `python tools\...\*.py` 因 `tools` 包不可见失败。
   - `REFMEM_DOMAIN_TODO.md` 与架构文档同步当前状态：BoardCapability/GenericNode 已是 `.rmtp` 真实表镜像，其余表仍按 P0 逐表替换。
 - 验证结果：
@@ -1366,10 +1366,10 @@ Last updated: 2026-09-17
   - 将其余七张 `.rmtp` 表升级为真实表镜像，并继续接入各自 owner validation。
   - 后续可把 manifest/idx 的公共描述逻辑继续收敛，但二进制 table image 已经只有一个生成源。
 - 关联文件：
-  - `tools/refmem_table_image/refmem_table_image.py`
-  - `tools/refmem_table_image/__init__.py`
-  - `tools/refmem_pack_build/refmem_pack_build.py`
-  - `tools/sd_fs_build/sd_fs_build.py`
+  - `tools/refmem/refmem_table_image/refmem_table_image.py`
+  - `tools/refmem/refmem_table_image/__init__.py`
+  - `tools/refmem/refmem_pack_build/refmem_pack_build.py`
+  - `tools/storage/sd_fs_build/sd_fs_build.py`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 
@@ -1381,7 +1381,7 @@ Last updated: 2026-09-17
   - 推进 P0 `.rmtp` 从纯 CRC parser 走向真实表镜像 owner validation。
   - 先闭环固定 u32 布局的 `BoardCapabilityTable` 和 `GenericNodeTable`，避免继续把 64 字节 placeholder 当成可验证表。
 - 完成内容：
-  - `tools/refmem_pack_build/refmem_pack_build.py` 和 `tools/sd_fs_build/sd_fs_build.py` 生成真实 `BoardCapabilityTable` / `GenericNodeTable` payload；其他表暂时仍是 placeholder，后续逐表替换。
+  - `tools/refmem/refmem_pack_build/refmem_pack_build.py` 和 `tools/storage/sd_fs_build/sd_fs_build.py` 生成真实 `BoardCapabilityTable` / `GenericNodeTable` payload；其他表暂时仍是 placeholder，后续逐表替换。
   - `RefMemTableRegistry` 在 `.rmtp` header、directory、payload、package 和单表 CRC 通过后，解析 table 1/2，并调用 `refmem_application_contract_validate_slot_substrate()` 做 owner validation。
   - `refmem_table_package_error_t` 增加 `REFMEM_TABLE_PACKAGE_ERR_OWNER_VALIDATION`，旧 placeholder package 会被拒绝，`first_bad_table` 指向 table 1。
   - `tests/unit/test_refmem_table_registry.c` 增加旧 placeholder package 拒绝和 contract table package 接受两条回归。
@@ -1403,8 +1403,8 @@ Last updated: 2026-09-17
 - 关联文件：
   - `components/distributed_refmem/inc/refmem_table_registry.h`
   - `components/distributed_refmem/src/refmem_table_registry.c`
-  - `tools/refmem_pack_build/refmem_pack_build.py`
-  - `tools/sd_fs_build/sd_fs_build.py`
+  - `tools/refmem/refmem_pack_build/refmem_pack_build.py`
+  - `tools/storage/sd_fs_build/sd_fs_build.py`
   - `tests/unit/test_refmem_table_registry.c`
   - `tests/python/test_refmem_pack_build.py`
 
@@ -1482,7 +1482,7 @@ Last updated: 2026-09-17
   - `refmem_slot_claim_gate_evaluate()` 重新计算 map CRC 和每个 assignment CRC，发现篡改或不一致时拒绝 gate。
   - `refmem_slot_claim_gate_evaluate()` 将显式 `STALE` 状态或 assignment epoch 与 map epoch 不一致视为 stale claim，拒绝进入 ready。
   - `tests/unit/test_refmem_slot_claim.c` 覆盖 duplicate、缺失 UUID、任意 slot claim、candidate overflow、stale、claim CRC 和 map CRC。
-  - `tools/multicore_board_validate.py` 不再把 A0/A2/A7 解释成固定功能位置，只验证 generic SlotClaimMap gate、required/optional 和 config RUN gate 一致性。
+  - `tools/rtos/multicore_board_validate.py` 不再把 A0/A2/A7 解释成固定功能位置，只验证 generic SlotClaimMap gate、required/optional 和 config RUN gate 一致性。
   - `REFMEM_DOMAIN_TODO.md` 将 P1 SlotClaim 完整性检查项标记完成。
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_slot_claim_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
@@ -1499,7 +1499,7 @@ Last updated: 2026-09-17
   - `components/distributed_refmem/inc/refmem_slot_claim.h`
   - `components/distributed_refmem/src/refmem_slot_claim.c`
   - `tests/unit/test_refmem_slot_claim.c`
-  - `tools/multicore_board_validate/multicore_board_validate.py`
+  - `tools/rtos/multicore_board_validate/multicore_board_validate.py`
   - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
 - 下一步：
@@ -1518,7 +1518,7 @@ Last updated: 2026-09-17
   - 本地 adapter 条目映射 sync CRC/stale/drop 计数和 adapter bad/drop/timeout/last error/latency class。
   - remote 条目映射 `REFMEM_QUALITY` 的 source/target、seq、CRC/stale/drop/late/timeout、last error、p99/p999 和 evidence。
   - 新增维护查询 `SYSTem:REFMEM:QUALity? [index]`，读取 runtime derived quality snapshot，不修改 active RefMem fact。
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 增加 runtime quality 查询校验，确认远端 QUALITY frame 接收后进入派生质量视图。
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 增加 runtime quality 查询校验，确认远端 QUALITY frame 接收后进入派生质量视图。
   - `REFMEM_DOMAIN_TODO.md` 将 P4.5 quality 映射项和 P5 `refmem_quality.h/.c` 标记完成。
 - 验证结果：
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_quality_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
@@ -1539,7 +1539,7 @@ Last updated: 2026-09-17
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
   - `tests/unit/test_refmem_quality.c`
   - `tools/tests/run_refmem_quality_tests.ps1`
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
 - 下一步：
@@ -1553,8 +1553,8 @@ Last updated: 2026-09-17
   - 补齐 P4.5 阶段 0 的线序与串口生命周期检查，把 `REALtime:IO:PROFile?`、输出 release、逐线 remap 和退出清理纳入 RefMem Sync HIL 前置流程。
   - 扩展 RefMem Sync HIL 报告，记录 package CRC、双向线序 remap 和 IO preflight 结果，避免后续依赖手写日志。
 - 完成内容：
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 新增 `--package-crc`、`--line-remap-a-to-b`、`--line-remap-b-to-a` 和 `--preflight-io`。
-  - `--preflight-io` 会在主协议交换前调用 `tools/two_board_io_validate/two_board_io_validate.py`，该工具完成双板 profile 查询、输出 release、逐线 remap 验证和退出释放。
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 新增 `--package-crc`、`--line-remap-a-to-b`、`--line-remap-b-to-a` 和 `--preflight-io`。
+  - `--preflight-io` 会在主协议交换前调用 `tools/sync/two_board_io_validate/two_board_io_validate.py`，该工具完成双板 profile 查询、输出 release、逐线 remap 验证和退出释放。
   - `summary.json` 与 `transcript.txt` 写入 package CRC、line remap 和 `io_preflight` 摘要；preflight 结果保存到同一报告目录下的 `io_preflight/`。
   - `REFMEM_DOMAIN_TODO.md` 将阶段 0 与 HIL 报告扩展项标记完成。
 - 验证结果：
@@ -1566,7 +1566,7 @@ Last updated: 2026-09-17
   - 真实 PIO SPI physical adapter service 接入，替换当前 PC/SCPI frame 搬运。
   - 将 remote quality snapshot 映射到 `DistributedConnectionQualityTable`。
 - 关联文件：
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
   - `tools/README.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
@@ -1586,7 +1586,7 @@ Last updated: 2026-09-17
   - 新增 `refmem_sync_get_remote_quality()`。
   - 新增 `SYSTem:REFMEM:SYNC:QUALity:FRAMe?`，从本地 receive quality counter 和指定 peer seq 摘要生成 QUALITY frame。
   - 新增 `SYSTem:REFMEM:SYNC:QUALity:STATus?`，查询指定 source slot 最近一次 remote QUALITY snapshot。
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 扩展为 HELLO/EPOCH/DELTA/MIRROR/ACK_NACK/FENCE/QUALITY 全流程，记录 61 条 HIL 结果。
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 扩展为 HELLO/EPOCH/DELTA/MIRROR/ACK_NACK/FENCE/QUALITY 全流程，记录 61 条 HIL 结果。
 - 验证结果：
   - `python -m py_compile tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
@@ -1604,7 +1604,7 @@ Last updated: 2026-09-17
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
   - `tests/unit/test_refmem_sync.c`
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
   - `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
@@ -1624,7 +1624,7 @@ Last updated: 2026-09-17
   - 新增 `refmem_sync_get_fence()`。
   - 新增 `SYSTem:REFMEM:SYNC:FENCe?`，生成最小 FENCE frame，携带 fence seq、scope、required mask、min table seq、CRC bundle 和 deadline。
   - 新增 `SYSTem:REFMEM:SYNC:FENCe:STATus?`，查询指定 source slot 最近一次 FENCE snapshot。
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 扩展为 HELLO/EPOCH/DELTA/MIRROR/ACK_NACK/FENCE 全流程，增加双向 FENCE pass 和 min seq 不满足的 fail/timeout 场景。
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 扩展为 HELLO/EPOCH/DELTA/MIRROR/ACK_NACK/FENCE 全流程，增加双向 FENCE pass 和 min seq 不满足的 fail/timeout 场景。
 - 验证结果：
   - `python -m py_compile tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
@@ -1642,7 +1642,7 @@ Last updated: 2026-09-17
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
   - `tests/unit/test_refmem_sync.c`
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
   - `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
@@ -1663,7 +1663,7 @@ Last updated: 2026-09-17
   - 新增 `refmem_sync_get_ack()`。
   - 新增 `SYSTem:REFMEM:SYNC:ACK?`，基于本板最近一次 RX snapshot 生成 ACK_NACK frame。
   - 新增 `SYSTem:REFMEM:SYNC:ACK:STATus?`，查询指定 source slot 最近一次 ACK/NACK snapshot。
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 扩展为 HELLO/EPOCH/DELTA/MIRROR/ACK_NACK 全流程，正向 ACK 双向生成后再互相注入，避免 ACK frame 覆盖 DELTA `last_rx`。
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 扩展为 HELLO/EPOCH/DELTA/MIRROR/ACK_NACK 全流程，正向 ACK 双向生成后再互相注入，避免 ACK frame 覆盖 DELTA `last_rx`。
 - 验证结果：
   - `python -m py_compile tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
@@ -1681,7 +1681,7 @@ Last updated: 2026-09-17
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
   - `tests/unit/test_refmem_sync.c`
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
   - `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
@@ -1701,7 +1701,7 @@ Last updated: 2026-09-17
   - 新增 `refmem_sync_get_mirror()`。
   - `SYSTem:REFMEM:SYNC:DELTa?` 可生成带 ACK request flag 的最小 u32 DELTA frame。
   - `SYSTem:REFMEM:SYNC:MIRRor?` 可查询指定 source slot 的 mirror snapshot。
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 从 HELLO/EPOCH 扩展为 HELLO/EPOCH/DELTA/MIRROR，并增加 build id、SlotClaimMap CRC 和 adapter snapshot 预检。
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py` 从 HELLO/EPOCH 扩展为 HELLO/EPOCH/DELTA/MIRROR，并增加 build id、SlotClaimMap CRC 和 adapter snapshot 预检。
 - 验证结果：
   - `python -m py_compile tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py` 通过。
   - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\run_refmem_sync_tests.ps1` 通过 ARM GCC 编译检查；当前环境无 host C 编译器，未执行 host exe。
@@ -1719,7 +1719,7 @@ Last updated: 2026-09-17
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
   - `tests/unit/test_refmem_sync.c`
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
 - 下一步：
@@ -1737,7 +1737,7 @@ Last updated: 2026-09-17
   - `HELLo?` 从 BoardCapabilityTable、ApplicationModel snapshot、adapter caps 和 build id 摘要生成 HELLO frame。
   - `EPOCh?` 从 TableRegistry/ApplicationModel snapshot 生成首版 EPOCH frame。
   - `RX` 执行 `hex -> PIO SPI adapter RX staging -> poll -> refmem_sync_receive_frame()`，只更新 sync context 的 peer/quality 状态。
-  - 新增 `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`，固化两板 HELLO/EPOCH 搬运验证，支持 COM 口和 USBTMC VISA resource。
+  - 新增 `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py`，固化两板 HELLO/EPOCH 搬运验证，支持 COM 口和 USBTMC VISA resource。
   - `REFMEM_SYNC_ARCHITECTURE.md` 增加维护面 SCPI bridge 边界，明确该入口不是裸 RefMem 域，也不是 active fact 写入口。
   - `REFMEM_MIN_SYSTEM_PLAYBOOK.md` 增加两板 HELLO/EPOCH 验证命令、脚本和通过条件。
 - 验证结果：
@@ -1753,7 +1753,7 @@ Last updated: 2026-09-17
 - 关联文件：
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
+  - `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py`
   - `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`
   - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
@@ -1868,7 +1868,7 @@ Last updated: 2026-09-17
   - `scpi_realtime_io_commands.c/h` 增加 `REALtime:IO:MODel:PROFile?`、`REALtime:IO:MODel:INPut:LEVel?`、`REALtime:IO:MODel:OUTPut:MASK`、`REALtime:IO:MODel:OUTPut:MASK?` 和 `REALtime:IO:MODel:OUTPut:RELease`。
   - `REALtime:IO:MODel:PROFile?` 返回 `base_pin,pin_count,uart_conflict_mask,uart_enabled`，当前期望为 `4,4,3,0`。
   - `REALtime:IO:MODel:OUTPut:MASK <enable_mask>,<value_mask>` 显式区分输出 owner 和输出电平；未 enable 的线恢复输入下拉。
-  - 新增 `tools/debug_model_overlay_validate/debug_model_overlay_validate.py`，默认验证 X->Y GPIO4/GPIO5/GPIO7 和 Y->X GPIO6，运行前后 release 双方 GPIO4..7。
+  - 新增 `tools/sync/debug_model_overlay_validate/debug_model_overlay_validate.py`，默认验证 X->Y GPIO4/GPIO5/GPIO7 和 Y->X GPIO6，运行前后 release 双方 GPIO4..7。
   - `tools/README.md`、`REFMEM_MIN_SYSTEM_PLAYBOOK.md` 和 `REFMEM_DOMAIN_TODO.md` 同步新增工具入口和待办状态。
 - 验证结果：
   - `python -m py_compile tools\debug_model_overlay_validate\debug_model_overlay_validate.py` 通过。
@@ -1891,7 +1891,7 @@ Last updated: 2026-09-17
   - `components/sync_io/src/sync_io.c`
   - `middleware/scpi_port/inc/scpi_realtime_io_commands.h`
   - `middleware/scpi_port/src/scpi_realtime_io_commands.c`
-  - `tools/debug_model_overlay_validate/debug_model_overlay_validate.py`
+  - `tools/sync/debug_model_overlay_validate/debug_model_overlay_validate.py`
   - `tools/README.md`
   - `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
@@ -2205,7 +2205,7 @@ RefMemTableRegistry
   - `trigger_fb` 默认触发源改为从 active profile 读取，不再硬编码 `GPIO16`。
   - `HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md` 记录双板交叉接线表和 `GPIO12..15` 避让规则。
   - 增加 `REALtime:IO:PROFile?`、`REALtime:IO:INPut:LEVel?`、`REALtime:IO:OUTPut:MASK`、`REALtime:IO:OUTPut:MASK?` 和 `REALtime:IO:OUTPut:RELease` 维护接口。
-  - 新增 `tools/two_board_io_validate/two_board_io_validate.py`，逐位静态驱动两块板的 active output group 并读取对端 input mask，自动识别漏接、错位和短接。
+  - 新增 `tools/sync/two_board_io_validate/two_board_io_validate.py`，逐位静态驱动两块板的 active output group 并读取对端 input mask，自动识别漏接、错位和短接。
   - `REFMEM_DOMAIN_TODO.md` 将双板 PIO 预检待办标记完成，后续真实两板 HIL 验证仍保留。
 - 验证结果：
   - `python -m py_compile tools\two_board_io_validate\two_board_io_validate.py tools\realtime_scpi_validate\realtime_scpi_validate.py` 通过。
@@ -2326,7 +2326,7 @@ RefMemTableRegistry
   - 为后续两块最小系统板组网验证建立专用工具入口。
   - 当前只验证基础 SCPI snapshot，不假设 RJ45 `CLAIM_*` 协调协议已完成。
 - 完成内容：
-  - 新增 `tools/refmem_network_validate/refmem_network_validate.py`。
+  - 新增 `tools/refmem/refmem_network_validate/refmem_network_validate.py`。
   - 工具显式管理两个串口生命周期：分别 open、settle、清输入/输出、查询、flush、close。
   - 单板 baseline 覆盖 `*IDN?`、`SYST:FW:BUILD?`、`SYST:CORE?`、`SYST:SYNC:VDC:STAT?`、`SYST:SYNC:VDC:DPLL:STAT?`、`SYST:CONFigure:STAT?`、`SYST:REFMEM:CLAIM? 0` 和 `SYST:REFMEM:CLAIM:EVIDence? 0`。
   - 双板比较默认要求 build id 和 SlotClaimMap CRC 一致，可通过 `--allow-build-mismatch` 或 `--allow-map-mismatch` 放宽。
@@ -2338,7 +2338,7 @@ RefMemTableRegistry
 - 还需完成：
   - 接入真实 RJ45 `CLAIM_*` 协调后，扩展重复 slot claim、缺失 UUID、stale、overflow、owner validation 拒绝和 commit 后 CRC 一致性验证。
 - 关联文件：
-  - `tools/refmem_network_validate/refmem_network_validate.py`
+  - `tools/refmem/refmem_network_validate/refmem_network_validate.py`
   - `tools/README.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
 - 下一步：
@@ -2413,7 +2413,7 @@ RefMemTableRegistry
   - 把 SlotClaim 本地 RUN gate 的正向板端验证固化到标准工具和 pytest HIL。
   - 继续保持串口生命周期集中管理，pytest 默认不打开串口。
 - 完成内容：
-  - `tools/multicore_board_validate/multicore_board_validate.py` 增加 `test_refmem_slot_claim_gate()`。
+  - `tools/rtos/multicore_board_validate/multicore_board_validate.py` 增加 `test_refmem_slot_claim_gate()`。
   - 验证内容覆盖 `SYSTem:CONFigure:STAT?` ready/ACK/NACK、`SYSTem:REFMEM:CLAIM? 0/2/7` 的 map header、gate_ready、error counters、assignment、claim_state、online_required 和 claim_crc。
   - `ALL_TESTS` 加入 `refmem_slot_claim_gate`，CLI 全量验证会自动覆盖该项。
   - `tests/hil/test_multicore_board_validate.py` 将 `refmem_slot_claim_gate` 加入共享 `hil_serial` fixture 的只读 smoke；默认 pytest 仍跳过 HIL，不会自行打开串口。
@@ -2424,10 +2424,10 @@ RefMemTableRegistry
   - `python -m pytest` 通过，18 passed、1 skipped；HIL 串口测试未启用。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`，package CRC `0xB77FAB04`。
 - 还需完成：
-  - 板端实际运行 `python -m pytest -m hil --run-hil --hil-port COMx` 或 `python tools/multicore_board_validate/multicore_board_validate.py COMx --tests refmem_slot_claim_gate`。
+  - 板端实际运行 `python -m pytest -m hil --run-hil --hil-port COMx` 或 `python tools/rtos/multicore_board_validate/multicore_board_validate.py COMx --tests refmem_slot_claim_gate`。
   - 增加负向 SlotClaim 矩阵：重复 claim、缺失 UUID、stale、9-16 候选 overflow、超过 16 候选 rejected。
 - 关联文件：
-  - `tools/multicore_board_validate/multicore_board_validate.py`
+  - `tools/rtos/multicore_board_validate/multicore_board_validate.py`
   - `tests/hil/test_multicore_board_validate.py`
   - `tools/README.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
@@ -2606,17 +2606,17 @@ RefMemTableRegistry
   - `SYSTem:STORage:DIRectory:*` 增加 create、delete、rename、catalog。
   - StorageManager 增加 `FILE_DELETE`、`FILE_RENAME`、`DIRECTORY_CREATE`、`DIRECTORY_DELETE`、`DIRECTORY_RENAME` job，并通过 StorageAO service 和资源仲裁访问 SD。
   - FatFs port 增加 delete 和 rename 封装；文件写入仍使用 tmp + sync + rename 原子替换。
-  - `tools/refmem_pack_write/refmem_pack_write.py` 改为通过 `SYSTem:STORage:FILE:WRITe:*` 写入 `/refmem/app_model.rmtp`，再执行 `SYSTem:REFMEM:LOAD:SD`。
-  - 新增 `tools/storage_scpi_validate/storage_scpi_validate.py`，固化通用 Storage 文件/目录 CRUD 验证流程。
+  - `tools/refmem/refmem_pack_write/refmem_pack_write.py` 改为通过 `SYSTem:STORage:FILE:WRITe:*` 写入 `/refmem/app_model.rmtp`，再执行 `SYSTem:REFMEM:LOAD:SD`。
+  - 新增 `tools/storage/storage_scpi_validate/storage_scpi_validate.py`，固化通用 Storage 文件/目录 CRUD 验证流程。
   - `SCPI_COMMANDS.md` 和 RefMem 架构/TODO 同步为通用 Storage 文件管理接口，删除文档中的 RefMem package 专用入口。
 - 验证结果：
-  - `python -m py_compile tools/refmem_pack_write/refmem_pack_write.py tools/storage_scpi_validate/storage_scpi_validate.py` 通过。
+  - `python -m py_compile tools/refmem/refmem_pack_write/refmem_pack_write.py tools/storage/storage_scpi_validate/storage_scpi_validate.py` 通过。
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
   - `cmake --build build-rtos-multicore-smoke` 通过，最终生成 build id `20260813163405`，package CRC `0x22C703CC`。
-  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
-  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813163405 --out-dir build-rtos-multicore-smoke/ota_boot_commit_storage_rename_retry` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813163405`，并完成 `SYSTem:OTA:COMMit`。
-  - `python tools/storage_scpi_validate/storage_scpi_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_storage_file_mgmt_tmp_path` 通过，覆盖目录 create/catalog/rename/delete 和文件 write/info/read/rename/delete。
-  - 初次写 `/refmem/app_model.rmtp` 失败定位为 FatFs 原子 rename 阶段错误；修复后 `python tools/refmem_pack_write/refmem_pack_write.py COM6 --package build-rtos-multicore-smoke/sdcard_refmem_parser/refmem/app_model.rmtp --timeout 8 --out-dir build-rtos-multicore-smoke/validation_refmem_pack_write_storage_file_rename_retry` 通过，`FILE:INFO?` 返回 704 字节，`FILE:READ?` 读回 `RMTP` header，`SYSTem:REFMEM:LOAD:SD` 返回 `STAGED`。
+  - `python tools/ota/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python tools/ota/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813163405 --out-dir build-rtos-multicore-smoke/ota_boot_commit_storage_rename_retry` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813163405`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/storage/storage_scpi_validate/storage_scpi_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_storage_file_mgmt_tmp_path` 通过，覆盖目录 create/catalog/rename/delete 和文件 write/info/read/rename/delete。
+  - 初次写 `/refmem/app_model.rmtp` 失败定位为 FatFs 原子 rename 阶段错误；修复后 `python tools/refmem/refmem_pack_write/refmem_pack_write.py COM6 --package build-rtos-multicore-smoke/sdcard_refmem_parser/refmem/app_model.rmtp --timeout 8 --out-dir build-rtos-multicore-smoke/validation_refmem_pack_write_storage_file_rename_retry` 通过，`FILE:INFO?` 返回 704 字节，`FILE:READ?` 读回 `RMTP` header，`SYSTem:REFMEM:LOAD:SD` 返回 `STAGED`。
 - 还需完成：
   - 将 StorageAO 写事务从当前 4096 字节 RAM buffer 升级为分片落盘或后端流式事务，用于更大的 System Pack/RefMem table image。
   - 继续实现 staging/active/rollbackable table image 切换与 owner validation callback。
@@ -2628,8 +2628,8 @@ RefMemTableRegistry
   - `middleware/scpi_port/inc/scpi_storage_commands.h`
   - `middleware/scpi_port/src/scpi_storage_commands.c`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/refmem_pack_write/refmem_pack_write.py`
-  - `tools/storage_scpi_validate/storage_scpi_validate.py`
+  - `tools/refmem/refmem_pack_write/refmem_pack_write.py`
+  - `tools/storage/storage_scpi_validate/storage_scpi_validate.py`
 - 下一步：
   - 完成板端 CRUD 和 RefMem load 正向闭环后，继续实现 staging/active/rollbackable table image 切换与 owner validation callback。
 
@@ -2645,7 +2645,7 @@ RefMemTableRegistry
   - 首个对象为 `REFMEM_PACKAGE`，固定映射 `/refmem/app_model.rmtp`，支持 create/update/read/delete/info；该专用入口已在 20260814-023 中迁移为通用 `SYSTem:STORage:FILE:*` 路径接口。
   - FatFs port 增加 `fatfs_port_delete()`；原子写入支持替换已有目标文件。
   - 原 `SYSTem:REFMEM:PACKage:*` 接入 StorageAO 对象事务：`BEGIN/DATA/END/ABORt/STATus?/INFO?/READ?/DELete`；该命令树已删除，不再作为正式接口。
-  - 新增 `tools/refmem_pack_write/refmem_pack_write.py`，固化分块上传、读回和 `LOAD:SD` 验证流程。
+  - 新增 `tools/refmem/refmem_pack_write/refmem_pack_write.py`，固化分块上传、读回和 `LOAD:SD` 验证流程。
 - 验证结果：
   - `cmake --build build-rtos-multicore-smoke` 已通过，生成 build id `20260813154434`，package CRC `0x8E5DC49A`。
 - 还需完成：
@@ -2658,7 +2658,7 @@ RefMemTableRegistry
   - `middleware/fatfs_port/src/fatfs_port.c`
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/refmem_pack_write/refmem_pack_write.py`
+  - `tools/refmem/refmem_pack_write/refmem_pack_write.py`
 - 下一步：
   - 完成板端闭环后，将该对象事务抽象继续推广到 profile/calibration 等受控存储对象。
 
@@ -2673,17 +2673,17 @@ RefMemTableRegistry
   - `refmem_table_registry.h/.c` 增加 `.rmtp` package validation API，校验 magic、format version、header size、total size、table count、payload CRC、package CRC 和每表 CRC。
   - `refmem_application_model_stage_sd_system_pack()` 增加 package CRC、package valid 和 package error 入参。
   - `SYSTem:REFMEM:LOAD:SD [path]` 默认读取 `/refmem/app_model.rmtp`，可用可选 path 覆盖；读取仍通过 StorageAO `FILE_READ` job，不直接调用 FatFs。
-  - `tools/refmem_scpi_load_validate.py` 允许旧 SD 卡上缺少 `/refmem/app_model.rmtp` 时返回 `REJECTED`，并在 STAGED 时检查 package CRC 和路径。
+  - `tools/refmem/refmem_scpi_load_validate.py` 允许旧 SD 卡上缺少 `/refmem/app_model.rmtp` 时返回 `REJECTED`，并在 STAGED 时检查 package CRC 和路径。
   - `SCPI_COMMANDS.md`、`REFMEM_DOMAIN_ARCHITECTURE.md` 和 `REFMEM_DOMAIN_TODO.md` 同步 LOAD:SD parser 状态。
 - 验证结果：
-  - `python -m py_compile tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 通过。
+  - `python -m py_compile tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 通过。
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813152145`，package CRC `0xD5C9018D`。
-  - `python tools/sd_fs_build/sd_fs_build.py --build-dir build-rtos-multicore-smoke --output-dir build-rtos-multicore-smoke/sdcard_refmem_parser --clean --no-zip --no-reports` 通过，生成新版 SD staging。
-  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
-  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813152145 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_rmtp_parser` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813152145`，并完成 `SYSTem:OTA:COMMit`。
-  - `python tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_rmtp_parser` 通过；当前板上 SD 卡仍是旧 System Pack，`LOAD:SD` 返回 `REJECTED`、last_error `7`、path `/refmem/app_model.rmtp`，符合缺少/无效 table image 的预期拒绝路径。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_rmtp_parser_multicore` 通过，16/16 passed。
+  - `python tools/storage/sd_fs_build/sd_fs_build.py --build-dir build-rtos-multicore-smoke --output-dir build-rtos-multicore-smoke/sdcard_refmem_parser --clean --no-zip --no-reports` 通过，生成新版 SD staging。
+  - `python tools/ota/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python tools/ota/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813152145 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_rmtp_parser` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813152145`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_rmtp_parser` 通过；当前板上 SD 卡仍是旧 System Pack，`LOAD:SD` 返回 `REJECTED`、last_error `7`、path `/refmem/app_model.rmtp`，符合缺少/无效 table image 的预期拒绝路径。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_rmtp_parser_multicore` 通过，16/16 passed。
 - 还需完成：
   - 将新版 SD staging 写入实际 SD 卡后，复测 `LOAD:SD` 的 STAGED 正向路径。
   - parser 通过后仍需实现真实 table image staging buffer、owner validation callback 和 activation/rollback。
@@ -2693,7 +2693,7 @@ RefMemTableRegistry
   - `components/distributed_refmem/inc/refmem_application_model.h`
   - `components/distributed_refmem/src/refmem_application_model.c`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
+  - `tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
@@ -2705,7 +2705,7 @@ RefMemTableRegistry
 - 状态：完成
 - 日期：2026-08-13
 - 任务目标：
-  - 让 `tools/sd_fs_build/sd_fs_build.py` 默认生成 RefMem table image 文件。
+  - 让 `tools/storage/sd_fs_build/sd_fs_build.py` 默认生成 RefMem table image 文件。
   - 在根 `/manifest.idx` 中引用 RefMem table image，为后续 `LOAD:SD` parser 提供稳定输入。
 - 完成内容：
   - `sd_fs_build.py` 固化 `/refmem` 目录，生成 `/refmem/app_model.rmtp`、`/refmem/app_model.idx` 和 `/refmem/app_model.json`。
@@ -2714,15 +2714,15 @@ RefMemTableRegistry
   - `SD_TODO.md` 同步 System Pack 示例、文件格式表和固定目录说明。
   - `REFMEM_DOMAIN_TODO.md` 标记 SD 工具集成完成。
 - 验证结果：
-  - `python -m py_compile tools/sd_fs_build/sd_fs_build.py tools/refmem_pack_build/refmem_pack_build.py` 通过。
+  - `python -m py_compile tools/storage/sd_fs_build/sd_fs_build.py tools/refmem/refmem_pack_build/refmem_pack_build.py` 通过。
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
-  - `python tools/sd_fs_build/sd_fs_build.py --build-dir build-rtos-multicore-smoke --output-dir build-rtos-multicore-smoke/sdcard_refmem_pack --clean --no-zip --no-reports` 通过。
+  - `python tools/storage/sd_fs_build/sd_fs_build.py --build-dir build-rtos-multicore-smoke --output-dir build-rtos-multicore-smoke/sdcard_refmem_pack --clean --no-zip --no-reports` 通过。
   - 生成的根 `manifest.idx` 包含 `default.refmem=/refmem/app_model.rmtp` 和 `required=/refmem/app_model.rmtp,type=refmem_table_image,size=704,crc32=9474FC98`。
   - 生成的 `/refmem/app_model.idx` 包含 8 张表的 offset/size/crc32。
 - 还需完成：
   - 板端 `LOAD:SD` 仍未解析 `.rmtp`，当前只利用 StorageAO manifest scan 结果写 staging snapshot。
 - 关联文件：
-  - `tools/sd_fs_build/sd_fs_build.py`
+  - `tools/storage/sd_fs_build/sd_fs_build.py`
   - `docs/storage/SD_TODO.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/refmem/REFMEM_TASK_PROGRESS.md`
@@ -2739,12 +2739,12 @@ RefMemTableRegistry
 - 完成内容：
   - `REFMEM_DOMAIN_ARCHITECTURE.md` 增加 `RefMem Table Image 格式`，定义 `/refmem/app_model.rmtp`、`app_model.idx`、`app_model.json` 三个文件的职责。
   - 定义 `.rmtp` header、table directory、payload CRC、package CRC 和 parser/owner validation 约束。
-  - 新增 `tools/refmem_pack_build/refmem_pack_build.py`，生成最小 8 表 placeholder package、索引和 JSON 说明。
+  - 新增 `tools/refmem/refmem_pack_build/refmem_pack_build.py`，生成最小 8 表 placeholder package、索引和 JSON 说明。
   - `tools/README.md` 增加新工具说明。
   - `REFMEM_DOMAIN_TODO.md` 标记格式定义完成；真实 `LOAD:SD` parser 仍保留待办。
 - 验证结果：
-  - `python -m py_compile tools/refmem_pack_build/refmem_pack_build.py` 通过。
-  - `python tools/refmem_pack_build/refmem_pack_build.py --output-dir build-rtos-multicore-smoke/refmem_pack_format` 通过，生成 `refmem/app_model.rmtp`、`refmem/app_model.idx` 和 `refmem/app_model.json`。
+  - `python -m py_compile tools/refmem/refmem_pack_build/refmem_pack_build.py` 通过。
+  - `python tools/refmem/refmem_pack_build/refmem_pack_build.py --output-dir build-rtos-multicore-smoke/refmem_pack_format` 通过，生成 `refmem/app_model.rmtp`、`refmem/app_model.idx` 和 `refmem/app_model.json`。
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
 - 还需完成：
   - 将 `sd_fs_build.py` 集成 RefMem package。
@@ -2753,7 +2753,7 @@ RefMemTableRegistry
   - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/refmem/REFMEM_TASK_PROGRESS.md`
-  - `tools/refmem_pack_build/refmem_pack_build.py`
+  - `tools/refmem/refmem_pack_build/refmem_pack_build.py`
   - `tools/README.md`
 - 下一步：
   - 提交推送本轮格式固化；随后评估是否把 `sd_fs_build.py` 集成 RefMem package。
@@ -2771,15 +2771,15 @@ RefMemTableRegistry
   - `refmem_table_registry_refresh_snapshot()` 改为 active/staging mask 分离，staging 状态不再覆盖 active 表存在性。
   - 新增 `refmem_table_registry_validate_staging()`，首版基于 staging snapshot 的 package CRC、lint error 和 last error 设置 owner-ok 可观测状态。
   - `SYSTem:REFMEM:TABle?` 返回字段增加 `image_offset,image_size`。
-  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 同步 18 字段返回格式。
+  - `tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 同步 18 字段返回格式。
 - 验证结果：
-  - `python -m py_compile tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 通过。
+  - `python -m py_compile tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 通过。
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813150257`，package CRC `0x5248DF3C`。
-  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
-  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813150257 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_table_lifecycle` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813150257`，并完成 `SYSTem:OTA:COMMit`。
-  - `python tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_table_lifecycle` 通过，覆盖 `SYSTem:REFMEM:TABle?` 18 字段、active/staging mask 分离和 staging owner-ok flags。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_table_lifecycle_multicore` 通过，16/16 passed。
+  - `python tools/ota/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python tools/ota/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813150257 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_table_lifecycle` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813150257`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_table_lifecycle` 通过，覆盖 `SYSTem:REFMEM:TABle?` 18 字段、active/staging mask 分离和 staging owner-ok flags。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_table_lifecycle_multicore` 通过，16/16 passed。
 - 还需完成：
   - 接入真实 TLV/System Pack table image。
   - 实现 owner validation callback table 和 active/rollbackable 切换。
@@ -2788,7 +2788,7 @@ RefMemTableRegistry
   - `components/distributed_refmem/src/refmem_table_registry.c`
   - `components/distributed_refmem/src/refmem_application_model.c`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
+  - `tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
 - 下一步：
@@ -2808,13 +2808,13 @@ RefMemTableRegistry
   - 根 `CMakeLists.txt` 纳入 `refmem_table_registry.c`。
   - `SCPI_COMMANDS.md` 和 `REFMEM_DOMAIN_TODO.md` 同步新命令与完成状态。
 - 验证结果：
-  - `python -m py_compile tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 通过。
+  - `python -m py_compile tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py` 通过。
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813145717`，package CRC `0xFF8303A3`。
-  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
-  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813145717 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_table_registry_fix` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813145717`，并完成 `SYSTem:OTA:COMMit`。
-  - `python tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_table_registry_fix` 通过，覆盖 `SYSTem:REFMEM:TABle?` 初始 active mask、NodeLoad staging 后 active/staging mask 共存、非法 NodeLoad rejected 和 SD staging。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_table_registry_multicore` 通过，16/16 passed。
+  - `python tools/ota/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过。
+  - `python tools/ota/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813145717 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_table_registry_fix` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813145717`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_table_registry_fix` 通过，覆盖 `SYSTem:REFMEM:TABle?` 初始 active mask、NodeLoad staging 后 active/staging mask 共存、非法 NodeLoad rejected 和 SD staging。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_table_registry_multicore` 通过，16/16 passed。
 - 还需完成：
   - `RefMemTableRegistry` 后续接入真实 active/staging table image、owner validation callback 和 rollbackable 状态。
 - 关联文件：
@@ -2869,17 +2869,17 @@ RefMemTableRegistry
   - `SYSTem:REFMEM:LOAD:SD [path]` 接入 StorageAO `MANIFEST_SCAN` job，只在 RefMem load mode 为 `IDLE` 且底层实时触发状态 `TRIG_STATE_IDLE` 时允许。
   - `SYSTem:REFMEM:LOAD:NODE <node_id>,<instance_id>,<role_mask>,<persona_mask>[,<enabled>,<required>,<load_order>]` 接入 SCPI 节点候选 staging。
   - `SYSTem:REFMEM:LOAD:STATus?` 固定返回 load snapshot，覆盖 load_seq、source、mode、staging_state、manifest、active/staging CRC、lint/error 和候选节点字段。
-  - 新增 `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`，固化 CDC/USBTMC RefMem load 命令验证。
+  - 新增 `tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py`，固化 CDC/USBTMC RefMem load 命令验证。
   - `REFMEM_DOMAIN_ARCHITECTURE.md` 和 `SCPI_COMMANDS.md` 同步 RefMem load 状态机与 SCPI 命令说明。
 - 验证结果：
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813143521`，package CRC `0xE86659C5`。
-  - `python tools/product_scpi_validate/product_scpi_validate.py --dry-run --skip-mode` 通过，生成 119 条产品 SCPI 固定响应用例；该脚本不覆盖 `scpi_system_snapshot_commands.h`，RefMem load 使用新增专用脚本验证。
+  - `python tools/interface/product_scpi_validate/product_scpi_validate.py --dry-run --skip-mode` 通过，生成 119 条产品 SCPI 固定响应用例；该脚本不覆盖 `scpi_system_snapshot_commands.h`，RefMem load 使用新增专用脚本验证。
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
-  - `python -m py_compile tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py tools/product_scpi_validate/product_scpi_validate.py` 通过。
-  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
-  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813143521 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_scpi_load` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813143521`，并完成 `SYSTem:OTA:COMMit`。
-  - `python tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_scpi_load` 通过：`LOAD:STATus?` 初始 `mode=0`；合法 `LOAD:NODE 5,9,32,32,1,0,0` 返回 `STAGED`；非法 `LOAD:NODE 8,9,32,32,1,0,0` 返回 `REJECTED` 且 `last_error=4`；`LOAD:SD` 返回 `STAGED`，manifest build id `20260812074528`。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_scpi_load_multicore` 通过，16/16 passed。
+  - `python -m py_compile tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py tools/interface/product_scpi_validate/product_scpi_validate.py` 通过。
+  - `python tools/ota/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813143521 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_scpi_load` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813143521`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_scpi_load` 通过：`LOAD:STATus?` 初始 `mode=0`；合法 `LOAD:NODE 5,9,32,32,1,0,0` 返回 `STAGED`；非法 `LOAD:NODE 8,9,32,32,1,0,0` 返回 `REJECTED` 且 `last_error=4`；`LOAD:SD` 返回 `STAGED`，manifest build id `20260812074528`。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_scpi_load_multicore` 通过，16/16 passed。
 - 还需完成：
   - 将 SD manifest 占位导入升级为真实 TLV/System Pack parser。
   - 将 SCPI inline 单条 NodeLoad 候选升级为 staging NodeLoadTable image，支持多条候选、CRC、owner validation 和 activation。
@@ -2889,7 +2889,7 @@ RefMemTableRegistry
   - `components/distributed_refmem/src/refmem_application_model.c`
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
   - `middleware/scpi_port/src/scpi_system_snapshot_commands.c`
-  - `tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
+  - `tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py`
   - `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
   - `docs/refmem/REFMEM_DOMAIN_TODO.md`
   - `docs/interface/SCPI_COMMANDS.md`
@@ -2916,9 +2916,9 @@ RefMemTableRegistry
 - 验证结果：
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813141942`，package CRC `0x0978A193`。
-  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
-  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813141942 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_slot_claim16` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813141942`，并完成 `SYSTem:OTA:COMMit`。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_slot_claim16` 通过，16/16 passed。
+  - `python tools/ota/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813141942 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_slot_claim16` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813141942`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_slot_claim16` 通过，16/16 passed。
   - 板端维护查询通过：`SYSTem:REFMEM:STATus? => 65536,1,107645,0,8,107644,107644,7`，其中 flags `7` 表示 directory valid、directory CRC valid 和 application model valid 均置位；`SYSTem:REFMEM:NODE? => 0,1,107650,107651,112568,0,0,0,0`；`SYSTem:CORE:VECTOR? => 1,107656,2,0,1,15,3840,2,7,2,24714159,0,7`；`SYSTem:PROTection:STATus? => 1,107661,1,1,1,0,0,0,2,11,2,177242018,0,7`。
 - 还需完成：
   - 在 `DistributedRefMemAO` 中实现运行态 `SlotClaimMap` 聚合、重复 claim 检测、迁移计划和 claim epoch commit。
@@ -2957,9 +2957,9 @@ RefMemTableRegistry
 - 验证结果：
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813140220`，package CRC `0xC6404998`。
-  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
-  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813140220 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_slot_contract` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813140220`，并完成 `SYSTem:OTA:COMMit`。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_slot_contract` 通过，16/16 passed。
+  - `python tools/ota/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813140220 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_slot_contract` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813140220`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_slot_contract` 通过，16/16 passed。
   - 板端维护查询通过：`SYSTem:REFMEM:STATus? => 65536,1,89430,0,8,89429,89429,7`，其中 flags `7` 表示 directory valid、directory CRC valid 和 application model valid 均置位；`SYSTem:REFMEM:NODE? => 0,1,89434,89435,94354,0,0,0,0`；`SYSTem:CORE:VECTOR? => 1,89440,2,0,1,15,3840,2,7,2,4138206416,0,7`；`SYSTem:PROTection:STATus? => 1,89445,1,1,1,0,0,0,2,11,2,2207849873,0,7`。
 - 还需完成：
   - 把 GenericNode capability 暴露到后续 table registry / System Pack / DeploymentGate evidence。
@@ -2994,9 +2994,9 @@ RefMemTableRegistry
 - 验证结果：
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813133647`，package CRC `0xD148A39A`。
-  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
-  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813133647 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_node_load` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813133647`，并完成 `SYSTem:OTA:COMMit`。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_node_load` 通过，16/16 passed。
+  - `python tools/ota/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813133647 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_node_load` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813133647`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_node_load` 通过，16/16 passed。
   - 板端维护查询通过：`SYSTem:REFMEM:STATus? => 65536,1,128516,0,8,128515,128515,7`，其中 flags `7` 表示 directory valid、directory CRC valid 和 application model valid 均置位；`SYSTem:REFMEM:NODE? => 0,1,128521,128522,133442,0,0,0,0`；`SYSTem:CORE:VECTOR? => 1,128527,2,0,1,15,3840,2,7,2,405916318,0,7`；`SYSTem:PROTection:STATus? => 1,128532,1,1,1,0,0,0,2,11,2,2731132301,0,7`。
 - 还需完成：
   - 定义 binary/TLV 存储格式、版本兼容和 System Pack 导入策略。
@@ -3028,9 +3028,9 @@ RefMemTableRegistry
 - 验证结果：
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813130200`，package CRC `0xA3A4BDE6`。
-  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
-  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813130200 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_app_linter` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813130200`，并完成 `SYSTem:OTA:COMMit`。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_app_linter` 通过，16/16 passed。
+  - `python tools/ota/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813130200 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_app_linter` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813130200`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_app_linter` 通过，16/16 passed。
   - 板端维护查询通过：`SYSTem:REFMEM:STATus? => 65536,1,96185,0,8,96184,96184,7`，其中 flags `7` 表示 directory valid、directory CRC valid 和 application model valid 均置位；`SYSTem:REFMEM:NODE? => 0,1,96189,96190,101105,0,0,0,0`；`SYSTem:CORE:VECTOR? => 1,96196,2,0,1,15,3840,2,7,2,2463022334,0,7`；`SYSTem:PROTection:STATus? => 1,96202,1,1,1,0,0,0,2,11,2,737992584,0,7`。
 - 还需完成：
   - 把 `lint_error_count/first_lint_error` 暴露到后续维护查询或 RUN gate evidence。
@@ -3061,9 +3061,9 @@ RefMemTableRegistry
 - 验证结果：
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813125333`，package CRC `0x7E02FB60`。
-  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
-  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813125333 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_app_model` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813125333`，并完成 `SYSTem:OTA:COMMit`。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_app_model` 通过，16/16 passed。
+  - `python tools/ota/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813125333 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_app_model` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813125333`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_app_model` 通过，16/16 passed。
   - 板端维护查询通过：`SYSTem:REFMEM:STATus? => 65536,1,99552,0,8,99551,99551,7`，其中 flags `7` 表示 directory valid、directory CRC valid 和 application model valid 均置位；`SYSTem:REFMEM:NODE? => 0,1,99557,99558,104473,0,0,0,0`；`SYSTem:CORE:VECTOR? => 1,99562,2,0,1,15,3840,2,7,2,3508053401,0,7`；`SYSTem:PROTection:STATus? => 1,99567,1,1,1,0,0,0,2,11,2,1780001644,0,7`。
 - 还需完成：
   - 定义静态模型表 binary/TLV 存储格式、CRC、版本兼容和 System Pack 导入策略。
@@ -3096,9 +3096,9 @@ RefMemTableRegistry
 - 验证结果：
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813123640`，package CRC `0xC037DE57`。
-  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
-  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813123640 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_directory_crc` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813123640`，并完成 `SYSTem:OTA:COMMit`。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_directory_crc` 通过，16/16 passed。
+  - `python tools/ota/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813123640 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_directory_crc` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813123640`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_directory_crc` 通过，16/16 passed。
   - 板端维护查询通过：`SYSTem:REFMEM:STATus? => 65536,1,123715,0,8,123714,123714,3`，其中 flags `3` 表示 directory valid 与 directory CRC valid 均置位；`SYSTem:REFMEM:NODE? => 0,1,123720,123721,128635,0,0,0,0`；`SYSTem:CORE:VECTOR? => 1,123726,2,0,1,15,3840,2,3,2,2158064260,0,3`；`SYSTem:PROTection:STATus? => 1,123732,1,1,1,0,0,0,2,11,2,1346783678,0,3`。
 - 还需完成：
   - 为全部 slot 增加统一 guard 或等价兼容结构。
@@ -3129,9 +3129,9 @@ RefMemTableRegistry
   - `python tools/docs_check/docs_check.py` 通过，warnings=0。
   - 旧布局内部符号清理检查通过：`DISTRIBUTED_REFMEM_MAGIC`、`DISTRIBUTED_REFMEM_SLOT_COUNT`、`distributed_vector_table_t`、`distributed_refmem_*_slot_t`、`distributed_refmem_fast_crc32` 在 `components/distributed_refmem/` 中无残留。
   - `cmake --build build-rtos-multicore-smoke` 通过，生成 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg`，build id `20260813122753`，package CRC `0x614E2152`。
-  - `python tools/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
-  - `python tools/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813122753 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_vector_split` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813122753`，并完成 `SYSTem:OTA:COMMit`。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_vector_split` 通过，16/16 passed。
+  - `python tools/ota/ota_send/ota_send.py COM6 build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg --expect-final-state READY_TO_REBOOT` 通过，OTA 进入 `READY_TO_REBOOT`。
+  - `python tools/ota/ota_boot_commit/ota_boot_commit.py COM6 --expected-build 20260813122753 --out-dir build-rtos-multicore-smoke/ota_boot_commit_refmem_vector_split` 通过，启动后 `SYSTem:FW:BUILD?` 返回 `20260813122753`，并完成 `SYSTem:OTA:COMMit`。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM6 --out-dir build-rtos-multicore-smoke/validation_refmem_vector_split` 通过，16/16 passed。
   - 板端维护查询通过：`SYSTem:REFMEM:STATus? => 65536,1,116625,0,8,116624,116624,0`；`SYSTem:REFMEM:NODE? => 0,1,116629,116630,121542,0,0,0,0`；`SYSTem:CORE:VECTOR? => 1,116634,2,0,1,15,3840,2,0,2,619701535,0,0`；`SYSTem:PROTection:STATus? => 1,116639,1,1,1,0,0,0,2,11,2,3143599354,0,0`。
   - 默认 `build` 目录不适用于当前分支：该分支要求 `PROJECT_USE_FREERTOS=ON` 和 `PROJECT_USE_MULTICORE=ON`。
 - 还需完成：

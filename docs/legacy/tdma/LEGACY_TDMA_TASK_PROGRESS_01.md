@@ -4,7 +4,7 @@ Status: Frozen
 Domain: TDMA
 Canonical: `docs/legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_01.md`
 Related: `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-09-19
+Last updated: 2026-10-10
 
 > 本文件为历史证据归档，保留当时状态、失败及未编号旧 checkpoint；当前任务以主域 TODO 为准。
 
@@ -371,7 +371,7 @@ Last updated: 2026-09-19
 
 - TODO task ID：`TDMA-DPLL-008`、`TDMA-PAYLOAD-006`。
 - 变更：提交 `66039fa` 增加固定 SRAM residual capture。Core1 只在 DPLL snapshot 发布边界追加固定记录；STOP 后由 Core0 调用 StorageAO 写入 `/traces/run/`，禁止 SD/FatFs 进入 TDMA/DPLL 热路径。
-- 接口：`SYSTem:SYNC:VDC:DPLL:TRACe:ARM`、`STOP`、`STATus?`、`SAVE`；SD 二进制下载后由 `tools/dpll_observation_decode/dpll_observation_decode.py` 转为 `samples.json`，继续复用 `tools/dpll_residual_analyze/dpll_residual_analyze.py` 生成 SVG。
+- 接口：`SYSTem:SYNC:VDC:DPLL:TRACe:ARM`、`STOP`、`STATus?`、`SAVE`；SD 二进制下载后由 `tools/vdc/dpll_observation_decode/dpll_observation_decode.py` 转为 `samples.json`，继续复用 `tools/vdc/dpll_residual_analyze/dpll_residual_analyze.py` 生成 SVG。
 - 构建：`out/build/dpll-sd-capture-20260829/` 的 A/B/Boot、package 和 flash-link contract 通过；RAM 链接余量 `81772 B`、临时许可证下限 `80000 B`（均为快照，非事实源），FreeRTOS heap 未压缩，仍为 `128 KiB`。
 - pytest：全量 `527 passed`；新增 decoder 正/反 CRC 测试通过。尚未执行本提交镜像的多板 OTA/HIL，因此 `TDMA-DPLL-008` 保持 `IN PROGRESS`。
 - 下一步：对 NO1–NO4/NO5 执行异步 OTA；ARM→运行→STOP→SAVE→FILE:READ 下载，检查记录数、payload CRC、DPLL update sequence 连续性，再生成 residual SVG，并确认 TDMA schedule/WCET/error 无新增。
@@ -380,7 +380,7 @@ Last updated: 2026-09-19
 
 - TODO task ID：`TDMA-DPLL-008`、`TDMA-PAYLOAD-006`。
 - 变更：提交 `eb9d852` 仅修改维护态主机工具和 SCPI 响应过滤；新增
-  `tools/dpll_observation_capture/dpll_observation_capture.py`，并将 DPLL
+  `tools/vdc/dpll_observation_capture/dpll_observation_capture.py`，并将 DPLL
   `TRACE:ARM/STOP/SAVE` 的复合响应登记到共享解析器。该提交不修改固件、TDMA
   SHORT wire、Core1/PIO/DMA phase 或任何实时预算。
 - 工具边界：ARM 后只等待固定观测时间；STOP 后才由 Core0/StorageAO 写 SD，主机再
@@ -490,7 +490,7 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
 - pytest：全量首轮 `505 passed, 1 failed`，唯一失败为 flash inventory 测试对合法 caller 数量的历史断言；
   已同步到当前 allowlist 并在 `6463823` 修复，定向测试 `7 passed`；最终全量复跑
   `506 passed`，证据目录为 `out/pytest/dpll-p0-20260828-final/`。
-- SRAM 门禁：`tools/ram_budget_check/ram_budget_check.py` 报告当前链接余量
+- SRAM 门禁：`tools/project/ram_budget_check/ram_budget_check.py` 报告当前链接余量
   `24680 B`，低于 `docs/arch/RTOS_HAOFV_TODO.md` P0-RAM 的 `96 KB` 发布阈值；上一份
   `recovery-20260828` 构建同样未达到该阈值，说明这是既有发布阻塞，不应归因于 DPLL 负载。
 - OTA/HIL：因 SRAM 发布门禁失败，本轮未对五板 OTA，也未启动 NO1–NO4 环路；保持 fail-closed。
@@ -535,9 +535,9 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
 - 日期：2026-08-28。
 - 任务目标：使用 P0 package 对 NO1–NO5 完成发送、重启、提交和逐板启动状态验证，确认新镜像稳定后再启动四节点 TDMA 基线。
 - 执行动作：
-  - 通过 `tools/ota_multi_update/ota_multi_update.py --send-only` 对 COM3/COM4/COM5/COM6/COM25 发送统一 package；所有写入产物保存在 `out/ota/`。
+  - 通过 `tools/ota/ota_multi_update/ota_multi_update.py --send-only` 对 COM3/COM4/COM5/COM6/COM25 发送统一 package；所有写入产物保存在 `out/ota/`。
   - 按工具既有的 boot/reconnect/commit 流程复核 COM3；新 build 曾短暂读到 `20260828125440`，随后回滚。
-  - 通过 `tools/multicore_board_validate/multicore_board_validate.py` 对当前旧 build 做只读基线快照，确认五板 core1 heartbeat 增长；VDC/DPLL skeleton service count 在部分旧固件上停滞，不作为 P1 TDMA 通过条件。
+  - 通过 `tools/rtos/multicore_board_validate/multicore_board_validate.py` 对当前旧 build 做只读基线快照，确认五板 core1 heartbeat 增长；VDC/DPLL skeleton service count 在部分旧固件上停滞，不作为 P1 TDMA 通过条件。
 - 验证结果：
   - `out/ota/dpll-long-p0-send-20260828/summary.json`：COM3/4/5/6 发送成功并达到 `READY_TO_REBOOT`；COM25 发送前返回 `FAILED,2,"INVALID_STATE",4`。该 summary 的 `failed_count=1` 仅表示 COM25，不能把其它四板发送误判为失败。
   - COM3 新镜像启动后读取到 `SYST:FW:BUILD? = 20260828125440`，但提交/后续复核后恢复到 `20260828072954`，`SYST:OTA:RES?` 为 `MAX_ATTEMPTS`；证据位于 `out/ota/dpll-long-p0-resend-com3-20260828/`。
@@ -549,8 +549,8 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
 - 关联文件：
   - `out/ota/dpll-long-p0-send-20260828/summary.json`
   - `out/ota/dpll-long-p0-baseline-20260828/`
-  - `tools/ota_multi_update/ota_multi_update.py`
-  - `tools/ota_boot_commit/ota_boot_commit.py`
+  - `tools/ota/ota_multi_update/ota_multi_update.py`
+  - `tools/ota/ota_boot_commit/ota_boot_commit.py`
 - 下一步：暂停 P1 TDMA 训练，先解决 OTA 启动保持门禁；修复后重新 build/pytest 并从 P0 重跑。
 
 ### TDMA-PROGRESS-20260828-010 - 发布 DPLL 基础件到闭环长期主线并完成 P0 静态复核
@@ -563,7 +563,7 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
   - SyncIO capture DMA ring 与维护态 model pulse schedule 复用同一 workspace，并以互斥运行态保护两类 persona；未改变 TDMA SHORT wire、PIO 原语、Core1 phase 或 recovery 预算。
 - 验证结果：
   - 使用 `tools/cmake_build_auto/cmake_build_auto.py` 构建到 `out/build/dpll-p0-shared-sync-workspace-20260828/`；A/B/Boot 与 flash link contract 通过，package/build 产物均在 `out/`。
-  - `tools/ram_budget_check/ram_budget_check.py`：`link_free_bytes=98348 B`，达到 `RTOS_HAOFV_TODO.md` 的 `98304 B` 发布门禁。
+  - `tools/project/ram_budget_check/ram_budget_check.py`：`link_free_bytes=98348 B`，达到 `RTOS_HAOFV_TODO.md` 的 `98304 B` 发布门禁。
   - 全量 pytest 输出到 `out/pytest/dpll-p0-shared-sync-workspace-20260828/junit.xml`，结果为 `506 passed, 1 skipped`。
   - 本轮尚未执行五板 OTA、板端 heap/stack 水位、NO1–NO4 TDMA 长稳或 NO5 观测，因此不宣称 P1 及后续阶段完成。
 - 还需完成：
@@ -585,7 +585,7 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
   SHORT wire、PIO 原语、Core1 phase、recovery budget 或 calibration matrix。
 - 构建：`tools/cmake_build_auto/cmake_build_auto.py` 输出到
   `out/build/dpll-p0-cal-workspace-20260828/`；A/B/Boot 和 flash link contract 通过。
-- RAM：`tools/ram_budget_check/ram_budget_check.py` 报告 `link_free_bytes=98356 B`，相对
+- RAM：`tools/project/ram_budget_check/ram_budget_check.py` 报告 `link_free_bytes=98356 B`，相对
   `98304 B` 门禁余量 52 B，P0 静态 gate PASS。
 - pytest：`out/pytest/dpll-p0-cal-workspace-20260828/junit.xml`，全量结果
   `506 passed, 1 skipped`；跳过项为未提供 COM 端口的 HIL。
@@ -642,8 +642,8 @@ NO5 观测仍未完成，因此 DPLL 尚不能进入 active matrix/eligible/serv
   - ring adapter 增加 TX completion callback，把延迟硬件 timestamp 绑定回原 sequence/identity CRC；DPLL/VDC 只消费该硬件证据。
   - `dpll_vdc_monitor` 固化 NO1..NO8/NO5 只读采样、触发间隔、同时反馈、DPLL/VDC vector 和 CSV/JSON/SVG 输出，并修复 standalone 入口。
 - 构建/测试：`cmake --build out/build/dpll-vdc-20260828 --parallel 4` 通过，生成 `DHRT100_FACTORY.uf2` 和 `DHRT100_UPDATE.pkg`；定向 pytest `75 passed`；全量 pytest `488 passed, 1 skipped`，保留既有 `test_flash_inventory` raw caller 数量失败（10 对历史期望 9）。
-- OTA/HIL：使用 `tools/ota_multi_update/ota_multi_update.py` 对发现的五板异步 OTA，全部提交并重启到 build `20260827203326`。随后用 `tools/tdma_ring_monitor/tdma_start_ring.py` 启动 NO1..NO4（BOARD:NO 顺序为 COM3/COM4/COM6/COM5），4096 个训练周期完成；最终四板 `up_running=1`、`down_running=1`、`rx_bad=0`，参考节点 `simultaneous_feedback_loop_evidence=1`。
-- DPLL/VDC 结果：`tools/dpll_vdc_monitor` 采集 NO1..NO5 报告 `out/dpll-vdc-monitor/post-ring-20260828/summary.json` 和 `summary.svg`。TDMA 环路稳定，但所有节点 `timestamp_eligible=false`、DPLL `CHECKING`；当前启动会话尚未加载有效 active Calibration `PATH_DELAY`，因此不能宣称 DPLL lock 或 VDC 正式发布。
+- OTA/HIL：使用 `tools/ota/ota_multi_update/ota_multi_update.py` 对发现的五板异步 OTA，全部提交并重启到 build `20260827203326`。随后用 `tools/tdma_ring_monitor/tdma_start_ring.py` 启动 NO1..NO4（BOARD:NO 顺序为 COM3/COM4/COM6/COM5），4096 个训练周期完成；最终四板 `up_running=1`、`down_running=1`、`rx_bad=0`，参考节点 `simultaneous_feedback_loop_evidence=1`。
+- DPLL/VDC 结果：`tools/vdc/dpll_vdc_monitor` 采集 NO1..NO5 报告 `out/dpll-vdc-monitor/post-ring-20260828/summary.json` 和 `summary.svg`。TDMA 环路稳定，但所有节点 `timestamp_eligible=false`、DPLL `CHECKING`；当前启动会话尚未加载有效 active Calibration `PATH_DELAY`，因此不能宣称 DPLL lock 或 VDC 正式发布。
 - 下一步：加载并校验 Calibration active path-delay/topology/generation，确认每个同圈 sequence 的 TX/RX latch 能进入 eligible sample；再以 NO5 只读观测验证触发间隔、同时触发和 VDC vector 发布，最后执行 SD 原始波形分析与五板长稳。
 
 ### TDMA-PROGRESS-20260828-001 - 拍级 schedule 与基础载荷预算
@@ -1535,7 +1535,7 @@ VDC 消费 observation evidence，RefMem 消费 data/completion evidence，二�
   - `components/distributed_refmem/inc/refmem_application_model.h`
   - `components/distributed_refmem/src/refmem_application_model.c`
   - `components/distributed_refmem/src/refmem_table_registry.c`
-  - `tools/refmem_table_image/refmem_table_image.py`
+  - `tools/refmem/refmem_table_image/refmem_table_image.py`
 - 下一步：
   - profile activation hook 已闭环；继续逐类固定队列与 time-aware gate。
 

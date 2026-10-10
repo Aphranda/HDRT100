@@ -4,7 +4,7 @@ Status: Frozen
 Domain: VDC
 Canonical: `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_10.md`
 Related: `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-09-19
+Last updated: 2026-10-10
 
 > 按 C14 从主日志迁出的最旧连续记录；正文及同日顺序逐字保留。此处状态和数字为当时证据快照，当前任务以主域 TODO 为准。
 
@@ -580,7 +580,7 @@ Last updated: 2026-09-19
 ### VDC-PROGRESS-20260918-011：四板运行态与外部示波器复核
 
 - TODO task ID：`VDC-FAST-003`、`VDC-OUTPUT-001` IN PROGRESS。四板 P3 收尾后，使用
-  `tools/scope_dpll_capture/scope_dpll_capture.py` 对
+  `tools/vdc/scope_dpll_capture/scope_dpll_capture.py` 对
   `USB0::0x1AB1::0x0610::HDO4A244301137::INSTR` 做只读单次采样，CH1--CH4 对应
   NO1--NO4、CH1 为触发通道。证据根为
   `out/HardwareAcceptance/20260918/scope-dpll-validity-fix/`；仪器识别成功，但触发

@@ -4,7 +4,7 @@ Status: Frozen
 Domain: VDC
 Canonical: `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_01.md`
 Related: `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/check/DOCS_REGRESSION_PLAN.md`
-Last updated: 2026-09-17
+Last updated: 2026-10-10
 
 > 本文件是 `docs/vdc/VDC_TASK_PROGRESS.md` 依 C14（环5）轮转迁出的历史证据段，
 > 覆盖 `VDC-PROGRESS-20260916-043` .. `VDC-PROGRESS-20260906-002`（按新鲜度倒排，最新在前），共 146 条。
@@ -5115,7 +5115,7 @@ Last updated: 2026-09-17
   的正式统计只使用 corrected-eligible 且窗口完整的样本。SVG 同时显示 raw-only 灰色点、
   incomplete window 标记和 corrected 曲线，并写出质量 flags，避免把观测缺口误读为
   节点 jitter 或锁相失败。
-- 软件验证：`python -m py_compile tools/dpll_waveform_capture/dpll_waveform_capture.py`
+- 软件验证：`python -m py_compile tools/vdc/dpll_waveform_capture/dpll_waveform_capture.py`
   通过；DPLL waveform/observation decode/residual analyzer 回归为 `44 passed`。
   新增 schema 4 quality 保留、置信度兼容和 SVG 分层覆盖。
 - 边界：尚未完成 C 端与 NO5 的同窗 sequence/capture-generation 关联，也没有新的
@@ -5192,7 +5192,7 @@ Last updated: 2026-09-17
 - 目标：统一 NO1--NO4 内部 DPLL 与 NO5 外部观测的 residual 语义，明确有向路径、
   固定 bias、真实 jitter、控制命令应用和观测缺口的边界。MASTER/FOLLOWER 共用观测
   计算；FOLLOWER 仅旁路 PI/DCO/本地 lock promotion。
-- 已完成：`tools/dpll_residual_analyze/dpll_residual_analyze.py` 现在只在 path/delay
+- 已完成：`tools/vdc/dpll_residual_analyze/dpll_residual_analyze.py` 现在只在 path/delay
   元数据完整且方向一致时生成 transport-corrected residual；缺失、负值或方向不匹配
   时保留 raw residual，并输出 `delay_correction_available`、修正样本数和拒绝原因。
   path bias 不再把缺失字段静默归入 `0 -> 0`。
@@ -5442,7 +5442,7 @@ Last updated: 2026-09-17
 - 变更：补齐 `loop_filter_integrator_ppb` 和 anti-windup；保留 FLL
   `last_frequency_error_ppb` 与 PI 积分状态的可观测分离。新增 debug SCPI
   `DPLL:TUNE`/`COEFficient`/`FILTer?`/`DEFAult`，通过 Core0 mailbox、Core1 service
-  boundary 和 requested/applied generation 生效；新增 `tools/dpll_servo_tune/`
+  boundary 和 requested/applied generation 生效；新增 `tools/vdc/dpll_servo_tune/`
   对 NO1–NO4 逐步试探、评分、接受/回退并写入 JSON 原始响应。
 - 调试语义：异常可解析参数不因产品范围被拒绝；实时路径对中间值做饱和保护，
   参数变更清空旧 acquisition/integrator history，不能自动提升 formal lock。

@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TASK_PROGRESS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`, `docs/storage/LOG_SYSTEM_TODO.md`
-Last updated: 2026-09-18
+Last updated: 2026-10-10
 
 ### SYNC-PROGRESS-20260918-005 — 固定脉宽单字 FIFO（待四板专项）
 
@@ -312,7 +312,7 @@ Last updated: 2026-09-18
 ### SYNC-PROGRESS-20260905-008 - analyzer 多段 SD 导出索引与丢样本区间
 
 - TODO task ID：`SYNC-LA-006`。
-- 变更：新增 `tools/analyzer_trace_batch_index/analyzer_trace_batch_index.py`，对多个
+- 变更：新增 `tools/sync/analyzer_trace_batch_index/analyzer_trace_batch_index.py`，对多个
   `SLAY` analyzer segment 执行离线 decoder 校验，按 session 建立导出索引，保留 payload/file
   CRC，并将单文件 record sequence gap、跨 segment gap 及 header dropped count 展开为显式
   `drop_intervals`；同时提供有界 CSV 索引输出。工具不访问实时固件，不推断 NO5/SMA 外部链路
@@ -409,7 +409,7 @@ Last updated: 2026-09-18
 ### SYNC-PROGRESS-20260905-007 - 本机 analyzer 与 NO5 外部波形离线关联器
 
 - TODO task ID：`SYNC-LA-008`。
-- 变更：新增 `tools/analyzer_no5_correlator/analyzer_no5_correlator.py`，读取
+- 变更：新增 `tools/sync/analyzer_no5_correlator/analyzer_no5_correlator.py`，读取
   `analyzer_trace_decode` 的本机 SLAY JSON 与 `dpll_waveform_capture` 的 NO5 分析 JSON，
   在记录具备绝对硬件时间时以最近邻和可选有界容差生成配对；输出共同时间基、时间窗重叠、
   中位时间偏移、记录配对及独立 sequence/session 元数据。可选 sequence-anchor JSON 只
@@ -460,7 +460,7 @@ Last updated: 2026-09-18
 ### SYNC-PROGRESS-20260905-002 - analyzer segment 离线 decoder 首段
 
 - TODO task ID：`SYNC-LA-006`。
-- 变更：新增 `tools/analyzer_trace_decode/analyzer_trace_decode.py`，解析 `SLAY` schema 1
+- 变更：新增 `tools/sync/analyzer_trace_decode/analyzer_trace_decode.py`，解析 `SLAY` schema 1
   segment，验证文件大小、magic/schema、payload CRC，并可比对 StorageAO 返回的 file CRC；
   输出 record sequence gap/discontinuity、flags、level/edge mask 和可选 hardware tick
   timebase（JSON 或 CSV）。
@@ -477,7 +477,7 @@ Last updated: 2026-09-18
 ### SYNC-PROGRESS-20260905-003 - analyzer segment SVG 波形输出
 
 - TODO task ID：`SYNC-LA-006`。
-- 变更：`tools/analyzer_trace_decode/analyzer_trace_decode.py` 增加确定性 SVG 输出；按出现的
+- 变更：`tools/sync/analyzer_trace_decode/analyzer_trace_decode.py` 增加确定性 SVG 输出；按出现的
   GPIO level/edge mask 生成有界 lane，level 用阶梯线、edge 用标记点表达，空数据也输出
   合法占位 lane；`--csv` 与 `--svg` 互斥，保持离线工具不触碰实时固件路径。
 - 软件验证：decoder 单测 3 项通过，包含 GPIO lane、edge marker 和 SVG 文件结构断言；
@@ -531,7 +531,7 @@ Last updated: 2026-09-18
 ### SYNC-PROGRESS-20260905-006 - analyzer 启停前后 TDMA 无扰动 HIL
 
 - TODO task ID：`SYNC-LA-007`。
-- 变更：新增 `tools/analyzer_tdma_hil/analyzer_tdma_hil.py`，在单板运行 TDMA ring 上采集
+- 变更：新增 `tools/tdma/analyzer_tdma_hil/analyzer_tdma_hil.py`，在单板运行 TDMA ring 上采集
   baseline 窗口，再执行 analyzer ARM/STOP，比较 ring adapter RX、up/down sequence、bad/
   transport/schedule/profile/error 计数；baseline 校准用于区分既有链路噪声和 analyzer 诱发
   回归，所有原始 status 响应写入结果 JSON。
@@ -959,7 +959,7 @@ Last updated: 2026-09-18
 - TODO task ID：`SYNC-VDC-001`。
 
 - 状态：完成并通过 COM5/COM6。
-- 完成：新增 `tools/vdc_observer_validate/vdc_observer_validate.py`，固化 observer disable/enable/query/disable/error 验证流程，避免后续继续手写串口命令。
+- 完成：新增 `tools/vdc/vdc_observer_validate/vdc_observer_validate.py`，固化 observer disable/enable/query/disable/error 验证流程，避免后续继续手写串口命令。
 - 验证：`python tools\vdc_observer_validate\vdc_observer_validate.py COM5 COM6 --expected-build 20260816031400` 通过，两板均确认 `schedule_crc32=974530568`、`dictionary_crc32=1814735745`。
 - 风险：当前仍依赖显式配置的 `next_base_time_l32_ns`、`sample_period_ns`、event id 和 frame CRC；真实 PIO/DMA timestamp latch 和 COM5/COM6 HIL 证据待后续补齐。
 - 后续：补 HIL，把 dictionary CRC、edge index、timestamp source/resolution、profile CRC 和 VDC gate result 写入报告。
@@ -1006,7 +1006,7 @@ Last updated: 2026-09-18
 - 完成：新增 `fb_reset_all()`，统一停止 clock/capture、释放 SEQ/ENC/BISS owner、回到 `TRIG_STATE_IDLE`、清理 `error_code` 和 `active_mode`；所有 ECC 表中的 `TRIG_EVENT_RESET` 均改为 `fb_reset_all()`。
 - 完成：`TRIG_EVENT_CLEAR_FAULT` 保持复用 `fb_release_running_io()`，并补齐 `active_mode` 归零；`TRIG_EVENT_FAULT` 继续复用同一释放 helper 后进入 `TRIG_STATE_FAULT`。
 - 完成：TriggerAO 新增 `trigger.resource_release` trace，字段为 `trigger_event`、`before_state`、释放前 `active_resources` 和 `released_resources`；离线解码器已同步解析事件 45。
-- 完成：`tools/sd_board_validate/sd_board_validate.py` 增加 `--validate-trigger-release`，按板端路径执行 SEQ_STEP ARM 后 `*RST`、再次 ARM 后 `TRIG:FAULT`，并要求 fault trace 中同时出现 RESET/FAULT 的资源释放记录。
+- 完成：`tools/storage/sd_board_validate/sd_board_validate.py` 增加 `--validate-trigger-release`，按板端路径执行 SEQ_STEP ARM 后 `*RST`、再次 ARM 后 `TRIG:FAULT`，并要求 fault trace 中同时出现 RESET/FAULT 的资源释放记录。
 - 验证：`cmake --build build-codex-sync-refactor` 通过，生成 `RP2350_TRIG_FACTORY.uf2` 和 `RP2350_TRIG_UPDATE.pkg`。
 - 验证：`python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py` 通过。
 - 验证：`picotool load -f -v -x build-codex-sync-refactor\RP2350_TRIG_FACTORY.uf2` 烧录和 Flash verify 通过，设备重启后 COM5 `*IDN?` 正常返回。
@@ -1016,7 +1016,7 @@ Last updated: 2026-09-18
 - 验证：`decoded_fault_trace.json` 中 trace header/size/CRC/idx 全部通过；`trigger.resource_release` 记录显示 RESET 和 FAULT 均从 `SEQ_ARMED` 释放 `PIO1`、`DMA`。
 - 风险：P0-00 已完成 SEQ_STEP 板端释放闭环；ENC/BISS 的 RESET/FAULT 路径共用同一 `fb_reset_all()` 和 `fb_release_running_io()`，后续在 P0-01/P0-03 做 BiSS 专项板端验证时继续覆盖。
 - 后续：进入 P0-01 BiSS runtime timeout/sample scan 闭环，将 sample scan 步进从 helper 静默 re-arm 收敛到 TriggerFB 管理面 action。
-- 涉及文件：`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/sd_trace_decode/sd_trace_decode.py`，`tools/sd_board_validate/sd_board_validate.py`，`docs/sync/SYNC_IO_TODO.md`。
+- 涉及文件：`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/storage/sd_trace_decode/sd_trace_decode.py`，`tools/storage/sd_board_validate/sd_board_validate.py`，`docs/sync/SYNC_IO_TODO.md`。
 
 ### SYNC-PROGRESS-20260707-002 - BiSS timeout/sample scan 闭环
 
@@ -1027,7 +1027,7 @@ Last updated: 2026-09-18
 - 完成：TriggerFB 在 `BISS_ARMED` 的 runtime action 中处理 `BISS_NODE_IO_POLL_SCAN_STEP`，通过 mode ops 执行 BiSS TAP re-arm；失败时进入 `TRIG_STATE_FAULT` 并设置 `TRIG_ERROR_IO_ARM_FAILED`。
 - 完成：scan re-arm 成功后由 TriggerFB 回写 `biss_node_io_sample_scan_rearm_succeeded()`，解除 timeout latch 并更新时间戳；非 scan 模式保持单次 timeout latch。
 - 完成：TriggerAO 新增 `trigger.biss_timeout` 和 `trigger.biss_scan_step` trace；`sd_trace_decode.py` 已解码 timeout count、sample delay 前后值、scan index 和 wrap count。
-- 完成：`tools/biss_board_validate/biss_board_validate.py` 增加 `--scan-wait-s`、`--expect-scan-steps` 和 `--capture-trace`，可等待 scan 推进、触发 fault evidence、回读 trace 并断言 BiSS timeout/scan-step 事件。
+- 完成：`tools/communication/biss_board_validate/biss_board_validate.py` 增加 `--scan-wait-s`、`--expect-scan-steps` 和 `--capture-trace`，可等待 scan 推进、触发 fault evidence、回读 trace 并断言 BiSS timeout/scan-step 事件。
 - 验证：`cmake --build build-codex-sync-refactor` 通过，生成 build id `20260707155208` 的 factory/update 产物。
 - 验证：`picotool load -f -v -x build-codex-sync-refactor\RP2350_TRIG_FACTORY.uf2` 烧录和 Flash verify 通过，COM5 `SYST:FW:BUILD?` 返回 `"20260707155208"`。
 - 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --enable-scan --skip-inject --timeout-us 1000 --sample-delay 4 --scan-start 4 --scan-end 12 --scan-step 2 --scan-wait-s 5 --expect-scan-steps 2 --capture-trace --out-dir build-codex-sync-refactor\biss_validation_p0_01_scan` 通过。
@@ -1035,7 +1035,7 @@ Last updated: 2026-09-18
 - 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --out-dir build-codex-sync-refactor\biss_validation_p0_01_default` 通过，确认普通 BiSS TAP 配置、ARM、软件 frame crossing、DISARM 未被 sample-scan 改动破坏。
 - 风险：P0-01 已覆盖无帧 timeout scan 的板端路径；re-arm 失败路径通过代码路径和 trace/error 逻辑闭合，后续 P0-03 拆物理 arm 边界时应补一个故意非法 mode config 的 fault 注入验证。
 - 后续：进入 P0-02 resource owner 边界，避免后续移动 mode arm 时引入重复 acquire。
-- 涉及文件：`components/sync_trigger/inc/biss_node_io.h`，`components/sync_trigger/src/biss_node_io.c`，`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/sd_trace_decode/sd_trace_decode.py`，`tools/biss_board_validate/biss_board_validate.py`，`docs/sync/SYNC_IO_TODO.md`。
+- 涉及文件：`components/sync_trigger/inc/biss_node_io.h`，`components/sync_trigger/src/biss_node_io.c`，`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/storage/sd_trace_decode/sd_trace_decode.py`，`tools/communication/biss_board_validate/biss_board_validate.py`，`docs/sync/SYNC_IO_TODO.md`。
 
 ### SYNC-PROGRESS-20260707-003 - Resource owner 边界收口
 
@@ -1045,7 +1045,7 @@ Last updated: 2026-09-18
 - 完成：新增 `trigger_resource_map` 适配层，在 Trigger 域内将 `sync_io_mode_ops_t.resources` 映射到 `resource_arbiter_resource_t`，避免 `sync_io` core 反向依赖系统仲裁器。
 - 完成：TriggerFB 的 SEQ/ENC/BISS acquire/release 全部改为从 mode ops 表驱动获取资源；裸 `sync_io_*_arm()` 仍不直接 acquire，避免多层重复持有。
 - 完成：TriggerAO 的 resource snapshot trace 改用同一映射入口；资源冲突仍由 FB action 设置 `TRIG_ERROR_RESOURCE_CONFLICT` 并触发既有 `trigger.resource_snapshot`。
-- 完成：`tools/sd_board_validate/sd_board_validate.py` 增加 `--validate-resource-owner`，按板端路径验证 SEQ、ENC、BISS arm 后 `SYST:RES?` 包含预期资源，disarm 后资源释放。
+- 完成：`tools/storage/sd_board_validate/sd_board_validate.py` 增加 `--validate-resource-owner`，按板端路径验证 SEQ、ENC、BISS arm 后 `SYST:RES?` 包含预期资源，disarm 后资源释放。
 - 验证：`python -m py_compile tools\sd_board_validate\sd_board_validate.py tools\sd_trace_decode\sd_trace_decode.py tools\biss_board_validate\biss_board_validate.py` 通过。
 - 验证：`cmake --build build-codex-sync-refactor` 通过，生成 build id `20260707160600` 的 factory/update 产物。
 - 验证：`picotool load -f build-codex-sync-refactor\RP2350_TRIG_FACTORY.uf2` 烧录通过；`picotool verify -f build-codex-sync-refactor\RP2350_TRIG_FACTORY.uf2` Flash verify 通过。
@@ -1053,7 +1053,7 @@ Last updated: 2026-09-18
 - 验证：`python tools\biss_board_validate\biss_board_validate.py COM5 --out-dir build-codex-sync-refactor\biss_validation_p0_02_default` 通过，确认 BiSS TAP 配置、ARM、软件 frame crossing、DISARM 未被资源映射收口破坏。
 - 风险：ENC_COUNT 现在按 mode table 映射为 `PIO1|DMA`，比旧手写 mask 多仲裁 DMA；这与 ENC 物理实现实际使用 DMA 的事实一致，但会改变未来与其他 DMA mode 的冲突判定。
 - 后续：进入 P0-03 BiSS TAP 物理 ARM 边界，继续保持 TriggerFB owner 和 mode driver 物理实现边界清晰。
-- 涉及文件：`components/sync_trigger/inc/trigger_resource_map.h`，`components/sync_trigger/src/trigger_resource_map.c`，`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/sd_board_validate/sd_board_validate.py`，`docs/sync/SYNC_IO_TODO.md`。
+- 涉及文件：`components/sync_trigger/inc/trigger_resource_map.h`，`components/sync_trigger/src/trigger_resource_map.c`，`components/sync_trigger/src/trigger_fb.c`，`components/sync_trigger/src/sync_trigger.c`，`tools/storage/sd_board_validate/sd_board_validate.py`，`docs/sync/SYNC_IO_TODO.md`。
 
 ### SYNC-PROGRESS-20260708-004 - BiSS TAP 物理 ARM 边界收口
 

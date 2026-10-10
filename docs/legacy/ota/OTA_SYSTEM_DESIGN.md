@@ -4,7 +4,7 @@ Status: Deprecated
 Domain: OTA
 Canonical: `docs/legacy/ota/OTA_SYSTEM_DESIGN.md`
 Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/legacy/ota/OTA_PORTABLE_ARCHITECTURE.md`
-Last updated: 2026-09-06
+Last updated: 2026-10-10
 
 本文档汇总当前硬件条件，并给出 RP2350_TRIG 的 OTA 工程方案。目标是让固件升级从“手动烧录”升级为“可回滚、可校验、可维护”的产品化流程。
 
@@ -74,7 +74,7 @@ build/RP2350_TRIG_FACTORY.uf2
 OTA 发送标准 raw firmware `.bin`：
 
 ```powershell
-python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin
+python tools/ota/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin
 ```
 
 发送过程：
@@ -424,17 +424,17 @@ drivers/mcu/flash/
   inc/drv_flash.h
   src/drv_flash.c
 
-tools/ota_bin_info/
+tools/ota/ota_bin_info/
   ota_bin_info.py
 
-tools/ota_send/
+tools/ota/ota_send/
   ota_send.py
 ```
 
 标准 `.bin` 信息查询示例：
 
 ```powershell
-python tools/ota_bin_info/ota_bin_info.py build/RP2350_TRIG.bin
+python tools/ota/ota_bin_info/ota_bin_info.py build/RP2350_TRIG.bin
 ```
 
 `SYST:OTA:BEGIN <size>,<crc32>` 中的 `size` 和 `crc32` 对应标准 raw firmware `.bin` 文件本身。设备端 `END` 阶段会校验整包 CRC 和 App 向量表。
@@ -442,13 +442,13 @@ python tools/ota_bin_info/ota_bin_info.py build/RP2350_TRIG.bin
 在线发送示例：
 
 ```powershell
-python tools/ota_send/ota_send.py COM7 build/RP2350_TRIG.bin --block-size 512
+python tools/ota/ota_send/ota_send.py COM7 build/RP2350_TRIG.bin --block-size 512
 ```
 
 无硬件时可先验证发送计划：
 
 ```powershell
-python tools/ota_send/ota_send.py COM7 build/RP2350_TRIG.bin --dry-run
+python tools/ota/ota_send/ota_send.py COM7 build/RP2350_TRIG.bin --dry-run
 ```
 
 Bootloader 阶段新增：
@@ -806,8 +806,8 @@ components/storage_manager/
 drivers/mcu/flash/
 drivers/external/sd_card/
 middleware/fatfs_port/
-tools/ota_bin_info/
-tools/ota_send/
+tools/ota/ota_bin_info/
+tools/ota/ota_send/
 ```
 
 职责：
@@ -819,8 +819,8 @@ tools/ota_send/
 - `drivers/external/sd_card/`：SD 卡 SPI 模式底层驱动。
 - `middleware/fatfs_port/`：FatFs 或等价文件系统适配。
 - `middleware/scpi_port/`：增加 OTA 命令，只负责传输和命令入口。
-- `tools/ota_bin_info/`：输出标准 `.bin` 的 size 和 CRC32。
-- `tools/ota_send/`：通过 USB CDC SCPI 发送标准 `.bin`。
+- `tools/ota/ota_bin_info/`：输出标准 `.bin` 的 size 和 CRC32。
+- `tools/ota/ota_send/`：通过 USB CDC SCPI 发送标准 `.bin`。
 
 ## Flash 写入注意事项
 

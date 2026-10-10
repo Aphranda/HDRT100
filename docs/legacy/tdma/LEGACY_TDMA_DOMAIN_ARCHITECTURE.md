@@ -4,7 +4,7 @@ Status: Frozen
 Domain: TDMA
 Canonical: `docs/legacy/tdma/LEGACY_TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-09-19
+Last updated: 2026-10-10
 
 > 历史快照：保留重构前正文及其中的候选方案、旧部署与单次实测。不作为当前实现或契约事实源；当前入口为 `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`，任务状态见对应 TODO。
 
@@ -880,8 +880,8 @@ DPLL 时间残差曲线属于离线观测证据，不属于 TDMA 短帧、recove
 SD、FatFs、SCPI、格式化或动态分配。`vdc_dpll_manager_dpll_capture_stop()` 冻结记录后，
 Core0 通过 `vdc_dpll_manager_dpll_capture_save()` 将带 CRC 的原始记录提交给 StorageAO，
 写入 `/traces/run/`；主机再使用 `SYSTem:STORage:FILE:READ?` 下载，并由
-`tools/dpll_observation_decode/dpll_observation_decode.py` 转换为
-`tools/dpll_residual_analyze/dpll_residual_analyze.py` 的输入生成 SVG。
+`tools/vdc/dpll_observation_decode/dpll_observation_decode.py` 转换为
+`tools/vdc/dpll_residual_analyze/dpll_residual_analyze.py` 的输入生成 SVG。
 
 采集缓冲达到 `VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES` 时自动完成并停止；满缓冲、
 StorageAO 忙或 CRC 失败只影响证据文件，不改变 SHORT 帧型、phase、sequence、PIO 节拍、
@@ -1351,7 +1351,7 @@ RUN/OTHER；同固件重复窗口中的低值不能覆盖已保留高值。有�
 
 新旧固件的耗时对照还须绑定板卡、实际启动来源槽与包内 image。实现锚点为
 `scpi_cmd_ota_slot_q()`、`scpi_cmd_ota_result_q()` 与
-`tools/ota_packager/ota_packager.py::put_image()`：SLOT 查询提供 metadata，RES
+`tools/ota/ota_packager/ota_packager.py::put_image()`：SLOT 查询提供 metadata，RES
 提供启动来源槽、镜像大小和 CRC，须与包内描述符交叉核验；不能把 confirmed slot
 查询当作 COMMIT 已同步完成的保证。同一个包包含不同运行地址的 A/B image，
 只核对 build ID 或包哈希不足以固定可执行布局。先前同时变化的源码与槽位不能

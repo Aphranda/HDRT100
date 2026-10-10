@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_TASK_PROGRESS.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
-Last updated: 2026-08-16
+Last updated: 2026-10-10
 
 本文档用于记录 Distributed Hard Real-Time Trigger System 中 SCPI 指令模块拆分、产品命令树收敛、
 板端烧录验证和工具闭环进度。每完成一个阶段，都应追加任务记录，说明目标、完成内容、
@@ -179,7 +179,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 ### SCPI-TASK-20260816-039 - VDC observer validation script
 
 - 状态：完成。
-- 完成：新增 `tools/vdc_observer_validate/vdc_observer_validate.py`，把 `SYSTem:SYNC:VDC:OBServer` / `OBServer?` 的启停、40 字段和 CRC 证据验证固化为脚本。
+- 完成：新增 `tools/vdc/vdc_observer_validate/vdc_observer_validate.py`，把 `SYSTem:SYNC:VDC:OBServer` / `OBServer?` 的启停、40 字段和 CRC 证据验证固化为脚本。
 - 验证：COM5/COM6 运行通过，build 均为 `20260816031400`。
 - 关联文件：
   - `middleware/scpi_port/inc/scpi_sync_commands.h`
@@ -203,11 +203,11 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
     `COMMunication:SERial:UART#:BAUD/FORMat/STATe/STATus?/TX:TEST/RX:COUNt?/ERRor?`。
   - `scpi_port.c` 命令表加入 `SCPI_COMMUNICATION_UART_COMMANDS`。
   - `CMakeLists.txt` 加入 UART SCPI 源文件。
-  - `tools/product_scpi_validate/product_scpi_validate.py` 加入 UART 通信命令头文件和源文件。
+  - `tools/interface/product_scpi_validate/product_scpi_validate.py` 加入 UART 通信命令头文件和源文件。
   - 同步 `docs/interface/SCPI_COMMAND_PLAN.md`、`docs/interface/SCPI_COMMANDS.md` 和
     `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md/html`。
 - 验证结果：
-  - `python tools/product_scpi_validate/product_scpi_validate.py --dry-run`
+  - `python tools/interface/product_scpi_validate/product_scpi_validate.py --dry-run`
     通过，生成 `125` 条产品命令。
   - `python -m py_compile` 覆盖 product/legacy/BiSS/multicore/distributed-loopback
     验证脚本，通过。
@@ -223,7 +223,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `middleware/scpi_port/inc/scpi_communication_uart_commands.h`
   - `middleware/scpi_port/src/scpi_communication_uart_commands.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `tools/product_scpi_validate/product_scpi_validate.py`
+  - `tools/interface/product_scpi_validate/product_scpi_validate.py`
   - `docs/interface/SCPI_COMMAND_PLAN.md`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
@@ -245,16 +245,16 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - 产品运行控制补齐 `TRIGger:ABORt`。
   - BiSS-C 配置参数改为 `FRAMe:BITS`、`POSition:OFFSet`、`POSition:BITS`、
     `POSition:MODulo`。
-  - `tools/biss_board_validate.py`、`tools/multicore_board_validate.py` 和
-    `tools/distributed_loopback_validate.py` 切到 canonical 命令。
+  - `tools/communication/biss_board_validate.py`、`tools/rtos/multicore_board_validate.py` 和
+    `tools/communication/distributed_loopback_validate.py` 切到 canonical 命令。
   - 同步 `docs/interface/SCPI_COMMANDS.md`、`docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
     和 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md` 的当前接口描述。
 - 验证结果：
-  - `python tools/product_scpi_validate/product_scpi_validate.py --dry-run`
+  - `python tools/interface/product_scpi_validate/product_scpi_validate.py --dry-run`
     通过，生成 `114` 条产品命令。
-  - `python tools/realtime_scpi_validate/realtime_scpi_validate.py --dry-run`
+  - `python tools/validation/realtime_scpi_validate/realtime_scpi_validate.py --dry-run`
     通过，生成 `57` 条 `REALtime:*` 维护命令。
-  - `python tools/scpi_legacy_validate/scpi_legacy_validate.py --dry-run`
+  - `python tools/interface/scpi_legacy_validate/scpi_legacy_validate.py --dry-run`
     通过，生成 `78` 条旧入口删除验证命令。
   - `python -m py_compile` 覆盖 product/realtime/legacy/BiSS/multicore/distributed-loopback
     验证脚本，通过。
@@ -277,9 +277,9 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `middleware/scpi_port/inc/scpi_system_diagnostics_commands.h`
   - `middleware/scpi_port/inc/scpi_trigger_commands.h`
   - `middleware/scpi_port/inc/scpi_communication_biss_commands.h`
-  - `tools/biss_board_validate/biss_board_validate.py`
-  - `tools/multicore_board_validate/multicore_board_validate.py`
-  - `tools/distributed_loopback_validate/distributed_loopback_validate.py`
+  - `tools/communication/biss_board_validate/biss_board_validate.py`
+  - `tools/rtos/multicore_board_validate/multicore_board_validate.py`
+  - `tools/communication/distributed_loopback_validate/distributed_loopback_validate.py`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`
   - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
@@ -345,8 +345,8 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `docs/interface/SCPI_TASK_PROGRESS.md`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/interface/SCPI_COMMAND_PLAN.md`
-  - `tools/scpi_legacy_validate/scpi_legacy_validate.py`
-  - `tools/ota_boot_commit/ota_boot_commit.py`
+  - `tools/interface/scpi_legacy_validate/scpi_legacy_validate.py`
+  - `tools/ota/ota_boot_commit/ota_boot_commit.py`
   - `tools/README.md`
 
 ### SCPI-TASK-20260813-032 - 删除系统维护短旧入口
@@ -403,8 +403,8 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - P1 剩余项只保留“裸 `STATus:*` 不进入产品主树”的后续标准状态寄存器规划，不再有当前固件旧入口删除项。
 - 关联文件：
   - `middleware/scpi_port/inc/scpi_system_snapshot_commands.h`
-  - `tools/multicore_board_validate/multicore_board_validate.py`
-  - `tools/distributed_loopback_validate/distributed_loopback_validate.py`
+  - `tools/rtos/multicore_board_validate/multicore_board_validate.py`
+  - `tools/communication/distributed_loopback_validate/distributed_loopback_validate.py`
   - `docs/interface/SCPI_TASK_PROGRESS.md`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/interface/SCPI_COMMAND_PLAN.md`
@@ -683,7 +683,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 - 完成内容：
   - `REALtime:IO:TRIGger:WIDTh/WIDTh?/IMMediate` 改为
     `REALtime:IO:OUTPut:WIDTh/WIDTh?/IMMediate`。
-  - `tools/realtime_scpi_validate/realtime_scpi_validate.py` 同步使用新的
+  - `tools/validation/realtime_scpi_validate/realtime_scpi_validate.py` 同步使用新的
     `REALtime:IO:OUTPut:*` 验证入口。
   - `docs/interface/SCPI_COMMAND_PLAN.md` 增加 `REALtime` 主域定位小节，写明
     `REALtime:PCNT/ENC/SEQ/IO/STATus` 的职责、权限边界和 legacy alias 策略。
@@ -713,7 +713,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
 - 关联文件：
   - `docs/interface/SCPI_COMMAND_PLAN.md`
   - `middleware/scpi_port/inc/scpi_realtime_io_commands.h`
-  - `tools/realtime_scpi_validate/realtime_scpi_validate.py`
+  - `tools/validation/realtime_scpi_validate/realtime_scpi_validate.py`
 
 ### SCPI-TASK-20260812-024 - REALtime 维护域规范化
 
@@ -729,7 +729,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
     `REALtime:SOURce/EDGE/GATE/SAFE`、`REALtime:ARM/DISarm/DISAble/FAULT`、
     `REALtime:IO:*` 和 `REALtime:STATus?` 命令 pattern。
   - 旧底层实时入口继续注册，作为兼容 alias，不再作为产品主流程扩展入口。
-  - 新增 `tools/realtime_scpi_validate/realtime_scpi_validate.py`，从 realtime 头文件
+  - 新增 `tools/validation/realtime_scpi_validate/realtime_scpi_validate.py`，从 realtime 头文件
     生成 `REALtime:*` 验证用例。
   - realtime 验证脚本按维护域语义处理写命令：写命令验证可发送并 drain ACK，查询命令验证字段数。
   - 文档补充 `REALtime:*` 作为实质 realtime 维护域，产品 `TRIGger:*` 保持运行控制语义。
@@ -762,7 +762,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `middleware/scpi_port/inc/scpi_realtime_sequence_commands.h`
   - `middleware/scpi_port/inc/scpi_realtime_io_commands.h`
   - `middleware/scpi_port/inc/scpi_realtime_status_commands.h`
-  - `tools/realtime_scpi_validate/realtime_scpi_validate.py`
+  - `tools/validation/realtime_scpi_validate/realtime_scpi_validate.py`
 
 ### SCPI-TASK-20260812-023 - Realtime STATUS 命令细分
 
@@ -958,7 +958,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
     `BISS_CONFIGURED`；运行边界仍由 `TRIGger:ARM/DISarm` 控制。
   - `COMMunication:BISS:FRAMe/PULSe/CRC:ERRor/TIMEout:INJect` 作为调试注入事件，
     允许在 `BISS_ARMED` 中执行；profile 参数类命令仍禁止运行中修改。
-  - `tools/biss_board_validate/biss_board_validate.py` 切到
+  - `tools/communication/biss_board_validate/biss_board_validate.py` 切到
     `COMMunication:BISS:*` 主路径，并加强串口日志/ACK 交织处理。
 - 验证结果：
   - build id：`20260812104309`。
@@ -980,7 +980,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `middleware/scpi_port/inc/scpi_communication_biss_commands.h`
   - `middleware/scpi_port/src/scpi_communication_biss_commands.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `tools/biss_board_validate/biss_board_validate.py`
+  - `tools/communication/biss_board_validate/biss_board_validate.py`
 - 下一步：
   - 继续拆分 `ENC/PCNT` 或 `SEQ_STEP/ARM/FAULT` 底层验证命令，保持产品主线和
     bench validation 主线分层。
@@ -1012,9 +1012,9 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - 烧录命令通过：
     `picotool load -f -v -x build-rtos-multicore-smoke\RP2350_TRIG_FACTORY.uf2`。
   - build id：`20260812100217`。
-  - `python tools/product_scpi_validate/product_scpi_validate.py COM4 --root . --out-dir build-rtos-multicore-smoke\validation_scpi_system_access_rename_product_cls`
+  - `python tools/interface/product_scpi_validate/product_scpi_validate.py COM4 --root . --out-dir build-rtos-multicore-smoke\validation_scpi_system_access_rename_product_cls`
     通过，108/108 PASS。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM4 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke\validation_scpi_system_access_rename_full_cls`
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM4 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke\validation_scpi_system_access_rename_full_cls`
     通过，16/16 PASS。
   - 曾在旧 product validation 脚本下失败一次，原因是脚本仍硬编码
     `scpi_product_commands.c`；升级为多 SCPI 域文件扫描后通过。
@@ -1028,7 +1028,7 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - `middleware/scpi_port/src/scpi_system_access_commands.c`
   - `middleware/scpi_port/inc/scpi_port_internal.h`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `tools/product_scpi_validate/product_scpi_validate.py`
+  - `tools/interface/product_scpi_validate/product_scpi_validate.py`
   - `CMakeLists.txt`
 - 下一步：
   - 进入 `BiSS-C`、`ENC/PCNT`、`SEQ_STEP/ARM/FAULT` 和 `sync_io` pulse validation
@@ -1073,8 +1073,8 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
     `MEASure:PERiod? -> "NO_REPORT",0`，
     `MEASure:LINK:DELay? A0,OUT1,A1,IN1 -> "A0","OUT1","A1","IN1",0,0,0,"PENDING_BACKEND"`，
     `SYSTem:ERRor:COUNt? -> 0`。
-  - `python tools/product_scpi_validate/product_scpi_validate.py COM4 --root . --out-dir build-rtos-multicore-smoke\validation_scpi_diag_measure_split_product` 通过。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM4 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke\validation_scpi_diag_measure_split_full` 通过，`16/16 PASS`。
+  - `python tools/interface/product_scpi_validate/product_scpi_validate.py COM4 --root . --out-dir build-rtos-multicore-smoke\validation_scpi_diag_measure_split_product` 通过。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM4 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke\validation_scpi_diag_measure_split_full` 通过，`16/16 PASS`。
   - 曾并行启动 product validation 与 full smoke，product validation 因 COM4 被占用失败；随后串行重跑通过。
 - 还需完成：
   - `MEASure:LINK:DELay?` 后续接入真实 link delay backend。
@@ -1113,8 +1113,8 @@ dry-run、文档检查、RTOS + multicore smoke，并在可用 COM 口上执行�
   - runtime 快测通过：`*IDN?`、`SYSTem:FW:BUILD?`、`*TST?`、
     `SYSTem:BOOT:CAPability?`、`SYSTem:LOG:LEVel?`、`SYSTem:LOG:STATus?`、
     `SYSTem:CORE?`、`SYSTem:RTOS:STATus?`。
-  - `python tools/product_scpi_validate/product_scpi_validate.py COM4 --root . --out-dir build-rtos-multicore-smoke\validation_scpi_system_runtime_split_step1` 通过。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM4 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke\validation_scpi_system_runtime_split_full` 通过，`16/16 PASS`。
+  - `python tools/interface/product_scpi_validate/product_scpi_validate.py COM4 --root . --out-dir build-rtos-multicore-smoke\validation_scpi_system_runtime_split_step1` 通过。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM4 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke\validation_scpi_system_runtime_split_full` 通过，`16/16 PASS`。
   - `SYSTem:ERRor:COUNt? -> 0`，`SYSTem:ERRor? -> 0,"No error"`。
   - 曾并行启动一条 COM4 查询，因 product validation 正在占用端口失败；随后串行重跑通过。
 - 还需完成：

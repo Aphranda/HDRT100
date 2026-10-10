@@ -4,7 +4,7 @@ Status: Deprecated
 Domain: OTA
 Canonical: `docs/legacy/ota/OTA_AB_SWITCH_DESIGN.md`
 Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/legacy/ota/OTA_COPY_TRANSACTION_DESIGN.md`
-Last updated: 2026-09-06
+Last updated: 2026-10-10
 
 本文档定义 RP2350_TRIG 从当前 `copy-to-active` OTA 逐步演进到真正 A/B 直接启动的路线。目标是在不破坏当前可用 OTA 的前提下，先建立双 slot 镜像构建能力，再逐步切换 Bootloader、metadata、SCPI 和上位机工具。
 
@@ -175,10 +175,10 @@ target A -> RP2350_TRIG_A.bin
 target B -> RP2350_TRIG_B.bin
 ```
 
-当前 `tools/ota_send/ota_send.py` 已支持：
+当前 `tools/ota/ota_send/ota_send.py` 已支持：
 
 ```powershell
-python tools/ota_send/ota_send.py COM4 --auto-target `
+python tools/ota/ota_send/ota_send.py COM4 --auto-target `
   --image-a build-validation/RP2350_TRIG.bin `
   --image-b build-validation/RP2350_TRIG_B.bin
 ```

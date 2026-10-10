@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-09-22
+Last updated: 2026-10-10
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -132,7 +132,7 @@ Last updated: 2026-09-22
 ### VDC-PROGRESS-20260920-036：离线同步计量工具与未观测区间有界化
 
 - TODO task ID：`VDC-OBS-007`、`VDC-PRECISION-001`、`VDC-VERIFY-001` IN PROGRESS；以下数字为本轮快照，非产品资格。
-- 目的：把"未观测区间有界化"从定性说法变成可复核证据，并给发布验收提供不依赖台架的离线计量。新工具 `tools/vdc_sync_metrology/vdc_sync_metrology.py` 只读冻结联合捕获证据（`capture/input-probe.json`；不连板卡、不连示波器、不引用固件符号），计算采样相位序列、窗内重复性、重叠 Allan 偏差、最小二乘频偏（1σ/2σ）与 `(|offset|+2σ)×最大空档`；收据绑定输入摘要（sha256/字节数）并记录工具自身哈希。
+- 目的：把"未观测区间有界化"从定性说法变成可复核证据，并给发布验收提供不依赖台架的离线计量。新工具 `tools/vdc/vdc_sync_metrology/vdc_sync_metrology.py` 只读冻结联合捕获证据（`capture/input-probe.json`；不连板卡、不连示波器、不引用固件符号），计算采样相位序列、窗内重复性、重叠 Allan 偏差、最小二乘频偏（1σ/2σ）与 `(|offset|+2σ)×最大空档`；收据绑定输入摘要（sha256/字节数）并记录工具自身哈希。
 - fail-closed：缺时间戳或相位序列、捕获不完整、overrun、`large_phase_ambiguity`、窗口数不足、无任何平均因子达到最小差分、节拍抖动 >5% 均拒绝出收据（`--allow-incomplete`/`--allow-nonuniform` 才继续并在收据标注）；`continuous_lock_claimed` 恒为 false，`measurement_noise_floor_qualified` 恒为 false。host 测试 13 项通过：频偏回算、界=乘积、白相位噪声 ADEV 定律与 τ 标度、差分不足记录、缺时间戳/相位歧义/不完整/非均匀拒绝、输入摘要随内容变化、永不宣称连续锁相，以及真实 600 s 证据回归。
 - 实测（600 s / 120 窗，`dpll-delay-center-r2/plus20-batched-600s`）：三通道频偏 +0.000124 / −0.002599 / +0.003526 ppb，2σ 0.0040 / 0.0044 / 0.0041 ppb，与既有"≤0.004 ppb（2σ）"口径一致；重叠 ADEV 在 τ=5/10/20/40/80/160 s 为 1.30/0.59/0.34/0.14/0.08/0.04 ppb（NO2，NO3/NO4 同量级），呈 ∝1/τ 的白相位噪声行为；反推白相位 σ 3.755/3.922/3.746 ns，与文档"约 3.8 ns rms、来源未定位"独立一致；τ=320 s 差分不足 8，工具拒绝外推。
 - 未观测区间（新口径）：单窗可证观测约 1 ms（示波器记录 2 ms 内的边沿跨度），最大连续未观测空档 **5.046 s**、占空比 0.02%、p95 5.031 s、窗间无重叠；界 =（|offset|+2σ）× 5.046 s = **0.038 ns**，远低于 class A/B 阈值。60 s 轮（035 切片 `quality-clock-failclosed-r1/joint-gap-60s-r1`）为 −0.326/−0.403/−0.412 ppb（2σ 0.354–0.408 ppb，窗口长度不足以定 ppb 级绝对值），界 4.11 ns。
