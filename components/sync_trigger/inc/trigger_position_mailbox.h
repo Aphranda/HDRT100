@@ -32,8 +32,14 @@ static inline bool trigger_position_mailbox_stage(
     trigger_position_mailbox_t *mailbox,
     const trigger_position_descriptor_t *descriptor, uint32_t target_mask)
 {
-    if (!mailbox || !target_mask || !trigger_position_descriptor_valid(
-            descriptor, UINT32_MAX)) return false;
+    /* The RX side stages a record decoded from the compact single-frame wire,
+     * which carries no run identity; the T2 owner completes and fully
+     * validates it against its own start-up configuration on take. */
+    if (!mailbox || !target_mask || !descriptor ||
+        descriptor->schema != TRIGGER_POSITION_DESCRIPTOR_SCHEMA ||
+        !descriptor->position_id || !descriptor->prediction_version ||
+        (descriptor->stage != 0u && descriptor->stage != TRIGGER_POSITION_STAGE_PREVIEW &&
+         descriptor->stage != TRIGGER_POSITION_STAGE_FREEZE)) return false;
     uint32_t expected = TRIGGER_POSITION_MAILBOX_EMPTY;
     if (!__atomic_compare_exchange_n(&mailbox->state, &expected,
             TRIGGER_POSITION_MAILBOX_WRITING, false, __ATOMIC_ACQ_REL,

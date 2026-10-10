@@ -11,18 +11,28 @@ def test_position_slice_round_trip(tmp_path):
 #include <assert.h>
 #include "trigger_position_slice.h"
 int main(void) {
-    trigger_position_slice_t in = { .position_q = 0x1020304050607080ULL,
-        .prediction_version = 0x1234u, .position_id = 2u,
-        .stage = TRIGGER_POSITION_SLICE_PREVIEW };
+    trigger_position_slice_t in = { .target_ms_index = 0x10203040u,
+        .target_fine_slice_index = 0x0507A1u, .prediction_version = 0x1234u,
+        .position_id = 2u, .stage = TRIGGER_POSITION_SLICE_PREVIEW };
     uint8_t wire[TRIGGER_POSITION_SLICE_WIRE_SIZE];
     trigger_position_slice_t out;
-    assert(trigger_position_slice_encode(&in, 2000u, wire));
-    assert(trigger_position_slice_decode(wire, 2u,
-        TRIGGER_POSITION_SLICE_PREVIEW, 2000u, &out));
-    assert(out.position_q == in.position_q);
+    assert(trigger_position_slice_encode(&in, wire));
+    assert(wire[0] == (TRIGGER_POSITION_SLICE_TAG_PREVIEW | 2u));
+    assert(trigger_position_slice_decode(wire, &out));
+    assert(out.target_ms_index == in.target_ms_index);
+    assert(out.target_fine_slice_index == in.target_fine_slice_index);
     assert(out.prediction_version == in.prediction_version);
-    assert(!trigger_position_slice_decode(wire, 4u,
-        TRIGGER_POSITION_SLICE_PREVIEW, 1u, &out));
+    assert(out.position_id == 2u && out.stage == TRIGGER_POSITION_SLICE_PREVIEW);
+    in.stage = TRIGGER_POSITION_SLICE_FREEZE;
+    assert(trigger_position_slice_encode(&in, wire) &&
+           trigger_position_slice_decode(wire, &out) &&
+           out.stage == TRIGGER_POSITION_SLICE_FREEZE);
+    wire[0] = 3u;  /* a legacy fragment index is never a compact tag */
+    assert(!trigger_position_slice_decode(wire, &out));
+    in.prediction_version = 0u;
+    assert(!trigger_position_slice_encode(&in, wire));
+    in.prediction_version = 1u; in.target_fine_slice_index = 0x1000000u;
+    assert(!trigger_position_slice_encode(&in, wire));
     return 0;
 }
 ''', encoding="utf-8")

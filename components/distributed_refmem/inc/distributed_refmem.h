@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "trigger_position_descriptor.h"
+#include "trigger_position_slice.h"
 
 #define DISTRIBUTED_REFMEM_TABLE_SIZE       18432u
 #define DISTRIBUTED_REFMEM_LAYOUT_VERSION   2u

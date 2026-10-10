@@ -16,8 +16,8 @@
 #define TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS 0x12u
 #define TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS 0x13u
 #define TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS 0x14u
-/* A T2 position fragment occupies the RefMem region of a normal-status
- * mailbox. VDC status and ACK retain their ordinary offsets and cadence. */
+/* A T2 position record occupies the whole RefMem region of a normal-status
+ * mailbox, one record per frame. VDC status and ACK keep their offsets. */
 #define TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS 0x15u
 
 /* Typed VDC regions are interpreted only by their Core0 consumer.

@@ -1,4 +1,4 @@
-"""Exercise T2 fragments on the production RefMem flight publisher."""
+"""Exercise the single-frame T2 position record on the production RefMem publisher."""
 import subprocess
 
 from test_vdc_command_owner import compile_executable
@@ -10,43 +10,32 @@ int main(void)
 {
     setup(0u);
     s_tdma_flight_sync.publish_interval_ms=1u;
-    trigger_position_descriptor_t descriptor={
-        .schema=TRIGGER_POSITION_DESCRIPTOR_SCHEMA,.run_id=1u,.sync_epoch=2u,
-        .position_id=3u,.count_epoch=4u,.prediction_version=5u,
-        .target_ms_index=20u,.grid_generation=6u,.deployment_generation=7u,
-        .deployment_crc=8u,.valid_from_sync=9u,.expiry_sync=30u};
-    assert(trigger_position_descriptor_encode(&descriptor,
-        s_tdma_flight_sync.position_tx_wire));
+    const trigger_position_slice_t slice={.target_ms_index=20u,.target_fine_slice_index=7u,
+        .prediction_version=5u,.position_id=3u,.stage=TRIGGER_POSITION_SLICE_PREVIEW};
+    assert(trigger_position_slice_encode(&slice,s_tdma_flight_sync.position_tx_wire));
+    s_tdma_flight_sync.position_tx_fragment_index=UINT32_MAX;
     s_tdma_flight_sync.position_tx_active=1u;
     s_tdma_flight_sync.position_tx_target_mask=0x0eu;
-    uint8_t wire[TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE]={0};
     uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
-    for(uint32_t index=0u;index<TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT;++index){
-        now_ms++;
-        distributed_refmem_tdma_flight_sync_publish(&owner,&ring);
-        consume(mailbox);
-        assert(mailbox[3]==TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS);
-        assert(tdma_process_image_flight_class_valid(mailbox[3]));
-        assert(!tdma_process_image_transport_class_valid(mailbox[3]));
-        assert(mailbox[5]==0x0eu);
-        assert(distributed_refmem_get_i16(mailbox+TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET)==20);
-        assert(distributed_refmem_get_i16(mailbox+TDMA_PROCESS_IMAGE_VDC_RATE_OFFSET)==-20);
-        assert(mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_INDEX_OFFSET]==index);
-        assert(mailbox[TDMA_PROCESS_IMAGE_T2_FRAGMENT_COUNT_OFFSET]==
-            TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT);
-        assert(tdma_process_image_crc16_ccitt(mailbox,TDMA_PROCESS_IMAGE_CRC_OFFSET)==
-            distributed_refmem_get_le16(mailbox+TDMA_PROCESS_IMAGE_CRC_OFFSET));
-        memcpy(wire+index*TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE,
-            mailbox+TDMA_PROCESS_IMAGE_T2_FRAGMENT_DATA_OFFSET,
-            TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_SIZE);
-        assert(s_tdma_flight_sync.last_publish_ms==now_ms);
-    }
-    trigger_position_descriptor_t received;
-    assert(trigger_position_descriptor_decode(wire,&received));
-    assert(received.position_id==descriptor.position_id);
+    now_ms++;
+    distributed_refmem_tdma_flight_sync_publish(&owner,&ring);
+    consume(mailbox);
+    assert(mailbox[3]==TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS);
+    assert(tdma_process_image_flight_class_valid(mailbox[3]));
+    assert(!tdma_process_image_transport_class_valid(mailbox[3]));
+    assert(mailbox[5]==0x0eu);
+    assert(distributed_refmem_get_i16(mailbox+TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET)==20);
+    assert(distributed_refmem_get_i16(mailbox+TDMA_PROCESS_IMAGE_VDC_RATE_OFFSET)==-20);
+    assert(tdma_process_image_crc16_ccitt(mailbox,TDMA_PROCESS_IMAGE_CRC_OFFSET)==
+        distributed_refmem_get_le16(mailbox+TDMA_PROCESS_IMAGE_CRC_OFFSET));
+    assert(s_tdma_flight_sync.last_publish_ms==now_ms);
+    trigger_position_slice_t received;
+    assert(trigger_position_slice_decode(mailbox+TDMA_PROCESS_IMAGE_REFMEM_OFFSET,&received));
+    assert(received.position_id==3u && received.target_ms_index==20u &&
+        received.target_fine_slice_index==7u && received.prediction_version==5u);
+    /* One frame carries the whole record: the transport is idle again. */
     assert(!s_tdma_flight_sync.position_tx_active);
-    assert(s_tdma_flight_sync.position_tx_publish_count==
-        TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT);
+    assert(s_tdma_flight_sync.position_tx_publish_count==1u);
     now_ms++;
     distributed_refmem_tdma_flight_sync_publish(&owner,&ring);
     consume(mailbox);
@@ -56,7 +45,7 @@ int main(void)
 '''
 
 
-def test_position_fragments_preserve_vdc_cadence(tmp_path):
+def test_position_record_is_one_frame_and_preserves_vdc_cadence(tmp_path):
     harness = make_feedback_harness().replace(
         "int main(int argc,char **argv)", "int feedback_existing_main(int argc,char **argv)")
     executable = compile_executable(tmp_path, "t2-position-flight", harness + CASES,
@@ -68,25 +57,27 @@ def test_position_fragments_preserve_vdc_cadence(tmp_path):
 
 RESET_CASES = r"""
 static void position_frame(uint8_t image[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE],uint32_t seq,
-    uint32_t index,uint32_t count,const uint8_t *body)
+    const trigger_position_slice_t *slice)
 {
     memset(image,0,TDMA_FLIGHT_SHORT_PAYLOAD_SIZE);uint8_t *m=image+32;
     distributed_refmem_put_le16(m,TDMA_FLIGHT_MAILBOX_MAGIC);
     m[2]=TDMA_FLIGHT_MAILBOX_VERSION;m[3]=TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS;
     m[4]=1;m[5]=1;distributed_refmem_put_le16(m+6,(uint16_t)seq);
     m[8]=0x45;m[9]=0x12;m[10]=0x89;m[11]=0x67;m[12]=4;m[13]=3;
-    m[14]=(uint8_t)index;m[15]=(uint8_t)count;memcpy(m+16,body,4);crc(m);
+    assert(trigger_position_slice_encode(slice,m+TDMA_PROCESS_IMAGE_REFMEM_OFFSET));crc(m);
 }
-static void queue_position(uint32_t seq,uint32_t index,uint32_t count,const uint8_t *body)
+static void queue_position(uint32_t seq,const trigger_position_slice_t *slice)
 {
-    uint8_t image[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE];position_frame(image,seq,index,count,body);
+    uint8_t image[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE];position_frame(image,seq,slice);
     assert(tdma_flight_fifo_core1_publish_rx(&owner.flight_fifo,image,
         tdma_flight_payload_size(6),seq,seq,2,123,0));
 }
 int main(void)
 {
     setup(0);const uint32_t admission=owner.flight_fifo.rx_admission_epoch;
-    uint8_t freeze[4]={9,0,0,0},image[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE];
+    const trigger_position_slice_t freeze={.position_id=1,.prediction_version=9,
+        .stage=TRIGGER_POSITION_SLICE_FREEZE};
+    uint8_t image[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE];
     trigger_position_descriptor_t old={.schema=TRIGGER_POSITION_DESCRIPTOR_SCHEMA,
         .stage=TRIGGER_POSITION_STAGE_FREEZE,.position_id=1,.prediction_version=9};
     assert(trigger_position_mailbox_stage(&s_position_rx_mailboxes[1],&old,1));
@@ -96,9 +87,9 @@ int main(void)
     s_tdma_flight_sync.position_rx_fragments[1].accepted_fragment_count=55;
     s_tdma_flight_sync.position_tx_active=1;
     s_position_cancel_requested=1;
-    position_frame(image,8,0xf1,1,freeze);
+    position_frame(image,8,&freeze);
     memcpy(s_tdma_flight_sync.tx_image,image,sizeof(image));
-    for(unsigned i=0;i<4;i++)queue_position(10+i,0xf1,1,freeze);
+    for(unsigned i=0;i<4;i++)queue_position(10+i,&freeze);
     assert(!distributed_refmem_reset_position_stopped()); /* RUN is never resettable */
     ring.enabled=ring.adapter_started=0;ring.node_count=0;
     assert(tdma_service_publish_flight_tx(&owner,image,sizeof(image),1,1,2));
@@ -108,7 +99,7 @@ int main(void)
     tdma_flight_fifo_core1_release_tx(&owner.flight_fifo);
     assert(tdma_flight_fifo_reset_stopped(&owner.flight_fifo));
     /* Requeue old RX to prove reset's T2 filtering, separately from shared TX retirement. */
-    for(unsigned i=0;i<4;i++)queue_position(20+i,0xf1,1,freeze);
+    for(unsigned i=0;i<4;i++)queue_position(20+i,&freeze);
     const unsigned before=ordinary_accepts;
     assert(distributed_refmem_reset_position_stopped());
     assert(ordinary_accepts==before+4); /* co-carried VDC is never skipped */
@@ -119,26 +110,23 @@ int main(void)
     assert(s_tdma_flight_sync.position_rx_fragments[1].accepted_fragment_count==55);
     assert(owner.flight_fifo.rx_admission_epoch==admission); /* no VDC admission change */
     assert(!memcmp(s_tdma_flight_sync.tx_image+32+8,image+32+8,6));
-    assert(!s_tdma_flight_sync.tx_image[32+15]);
+    assert(!s_tdma_flight_sync.tx_image[32+TDMA_PROCESS_IMAGE_REFMEM_OFFSET]);
     assert(tdma_process_image_crc16_ccitt(s_tdma_flight_sync.tx_image+32,30)==
         distributed_refmem_get_le16(s_tdma_flight_sync.tx_image+32+30));
     tdma_flight_fifo_snapshot_t f;assert(tdma_service_get_flight_fifo_snapshot(&owner,&f));
     assert(!f.rx_queued_count&&!f.rx_parse_count);
     ring.enabled=ring.adapter_started=1;ring.node_count=6;
-    trigger_position_descriptor_t preview={.schema=TRIGGER_POSITION_DESCRIPTOR_SCHEMA,
-        .stage=TRIGGER_POSITION_STAGE_PREVIEW,.run_id=2,.sync_epoch=2,.position_id=1,
-        .count_epoch=5,.prediction_version=1,.target_ms_index=30,.grid_generation=6,
-        .deployment_generation=7,.deployment_crc=8,.valid_from_sync=9,.expiry_sync=40};
-    uint8_t wire[TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE];assert(trigger_position_descriptor_encode(&preview,wire));
-    for(uint32_t i=0;i<TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT;i++){
-        queue_position(100+i,i,TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT,wire+4*i);
-        receive();
-    }
+    const trigger_position_slice_t preview={.target_ms_index=30,.target_fine_slice_index=1,
+        .prediction_version=1,.position_id=1,.stage=TRIGGER_POSITION_SLICE_PREVIEW};
+    queue_position(100,&preview);receive();
     trigger_position_descriptor_t received;
     assert(distributed_refmem_get_position_descriptor(1,&received));
-    assert(received.stage==TRIGGER_POSITION_STAGE_PREVIEW&&received.run_id==2&&received.count_epoch==5);
+    assert(received.stage==TRIGGER_POSITION_STAGE_PREVIEW&&received.target_ms_index==30&&
+        received.target_fine_slice_index==1&&received.prediction_version==1);
     assert(!distributed_refmem_get_position_descriptor(1,&received));
-    uint8_t current_freeze[4]={2,0,0,0};queue_position(150,0xf1,1,current_freeze);receive();
+    const trigger_position_slice_t current_freeze={.position_id=1,.prediction_version=2,
+        .stage=TRIGGER_POSITION_SLICE_FREEZE};
+    queue_position(150,&current_freeze);receive();
     assert(distributed_refmem_get_position_descriptor(1,&received));
     assert(received.stage==TRIGGER_POSITION_STAGE_FREEZE&&received.prediction_version==2);
     return 0;

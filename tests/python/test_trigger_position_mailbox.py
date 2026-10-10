@@ -57,7 +57,8 @@ def test_refmem_owner_uses_mailboxes_on_both_boundaries():
     prepare = source.split("static void distributed_refmem_position_tx_prepare(void)", 1)[1].split(
         "static void distributed_refmem_tdma_flight_sync_publish", 1)[0]
     assert "trigger_position_mailbox_take(&s_position_tx_mailbox" in prepare
-    assert "trigger_position_descriptor_encode" in prepare
+    assert "trigger_position_slice_encode" in prepare
+    assert "trigger_position_descriptor_encode" not in prepare
     receive = source.split("static void distributed_refmem_tdma_parse_position_fragment(", 1)[1].split(
         "static void distributed_refmem_tdma_flight_parse_mailbox", 1)[0]
     assert "trigger_position_mailbox_stage(" in receive
@@ -84,12 +85,13 @@ def test_production_position_submit_prepare_and_cancel(tmp_path):
 #include <stdint.h>
 #include <string.h>
 #include "trigger_position_mailbox.h"
+#include "trigger_position_slice.h"
     typedef struct {
         uint32_t position_tx_active, position_tx_target_mask;
         uint32_t position_tx_fragment_index, position_tx_sequence;
         uint32_t position_tx_reject_count, position_tx_position_id, next_seq32;
         uint32_t position_tx_phase, position_tx_wait_reason;
-        uint8_t position_tx_wire[TRIGGER_POSITION_DESCRIPTOR_WIRE_SIZE];
+        uint8_t position_tx_wire[TRIGGER_POSITION_SLICE_WIRE_SIZE];
     } tx_owner_t;
     enum {
         DISTRIBUTED_REFMEM_POSITION_TRANSPORT_STAGED = 1u,
@@ -106,7 +108,8 @@ int main(void) {
         .schema=TRIGGER_POSITION_DESCRIPTOR_SCHEMA,.run_id=1,.sync_epoch=2,
         .position_id=3,.count_epoch=4,.prediction_version=5,
         .grid_generation=6,.deployment_generation=7,.deployment_crc=8,
-        .valid_from_sync=9,.expiry_sync=10};
+        .valid_from_sync=9,.expiry_sync=10,.target_ms_index=0x01020304u,
+        .target_fine_slice_index=7};
     s_tdma_flight_sync.next_seq32=42;
     assert(distributed_refmem_stage_position_descriptor(&value,3));
     assert(distributed_refmem_position_descriptor_pending());
@@ -116,9 +119,12 @@ int main(void) {
         s_tdma_flight_sync.position_tx_target_mask==3 &&
         s_tdma_flight_sync.position_tx_sequence==42 &&
         s_tdma_flight_sync.position_tx_position_id==3);
-    trigger_position_descriptor_t decoded;
-    assert(trigger_position_descriptor_decode(s_tdma_flight_sync.position_tx_wire,&decoded));
-    assert(decoded.position_id==3 && decoded.descriptor_crc32);
+    trigger_position_slice_t decoded;
+    assert(trigger_position_slice_decode(s_tdma_flight_sync.position_tx_wire,&decoded));
+    assert(decoded.position_id==3 && decoded.prediction_version==5 &&
+        decoded.target_ms_index==0x01020304u && decoded.target_fine_slice_index==7 &&
+        decoded.stage==TRIGGER_POSITION_SLICE_PREVIEW &&
+        s_tdma_flight_sync.position_tx_fragment_index==UINT32_MAX);
     assert(!distributed_refmem_stage_position_descriptor(&value,5));
     distributed_refmem_request_position_cancel();
     assert(!distributed_refmem_stage_position_descriptor(&value,5));

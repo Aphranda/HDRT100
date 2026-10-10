@@ -196,10 +196,15 @@ int main(int argc,char **argv)
         assert(!snapshot().cursor.valid && !snapshot().received_mask &&
             !schedule_calls && !take()); return 0;
     }
-    if(!strcmp(test,"wrong_epoch") || !strcmp(test,"expired")) {
-        if (!strcmp(test,"wrong_epoch")) remote_descriptor.sync_epoch=2;
-        else remote_descriptor.expiry_sync=0;
-        remote_descriptor.descriptor_crc32=trigger_position_descriptor_crc(&remote_descriptor);
+    if (!strcmp(test,"wire_identity_ignored")) {
+        /* The compact wire carries no run identity: the follower binds its own. */
+        remote_descriptor.sync_epoch=2; remote_descriptor.run_id=77;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().received_mask==1u); return 0;
+    }
+    if (!strcmp(test,"expired")) {
+        /* Expiry derives from the target slice; an unrepresentable one expires. */
+        remote_descriptor.target_ms_index=UINT32_MAX;
         assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_DESCRIPTOR);
         assert(!take() && !schedule_calls); return 0;
     }
@@ -361,7 +366,7 @@ def runtime(tmp_path_factory):
         [ROOT / "components/sync_trigger/src/trigger_t2_runtime.c"])
 
 
-@pytest.mark.parametrize("case", ["origin", "origin_pending", "receiver", "fallback", "wrong_epoch",
+@pytest.mark.parametrize("case", ["origin", "origin_pending", "receiver", "fallback", "wire_identity_ignored",
     "expired", "freeze_missing", "freeze_stops_solve", "capacity", "gateway",
     "independent_positions", "reject_no_retry", "stop", "restart", "identity",
     "wrong_receipt", "reject_uncertain", "conflict", "different_local_seq", "all_events_retained", "zero_pulse_index", "version_overflow", "version_limit"])

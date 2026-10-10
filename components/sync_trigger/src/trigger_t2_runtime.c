@@ -253,6 +253,19 @@ static T2_BOUNDED bool accept_remote_position(uint64_t current_ms)
         }
         return true;
     }
+    /* The compact wire carries only the slice; bind it to this run's start-up
+     * identity and grid before validation, then fingerprint it locally. */
+    descriptor.run_id = s_config.run_id;
+    descriptor.sync_epoch = s_state.cursor.grid_epoch;
+    descriptor.count_epoch = s_state.predictor.count_epoch;
+    descriptor.grid_generation = s_config.grid.generation;
+    descriptor.deployment_generation = s_config.deployment_generation;
+    descriptor.deployment_crc = s_deployment_crc;
+    descriptor.valid_from_sync = 0u;
+    descriptor.expiry_sync = descriptor.target_ms_index >
+        UINT32_MAX - s_config.descriptor_window_sync ? 0u :
+        (uint32_t)descriptor.target_ms_index + s_config.descriptor_window_sync;
+    descriptor.descriptor_crc32 = trigger_position_descriptor_crc(&descriptor);
     /* Transport owns wire CRC. Validate each new version here once, not the
      * same deployment/table CRC on every realtime polling call. */
     if (s_state.received_mask & bit &&
