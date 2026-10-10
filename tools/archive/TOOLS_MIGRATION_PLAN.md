@@ -17,18 +17,36 @@ Last updated: 2026-10-10
    `common/`、`domains/`、`workflows/`、`tests/`、`bench/`、`archive/`、`scratch/`、`README.md`。
 4. 每批次独立提交；文档改动与工具改动按仓库约定**分提交**，并跑文档门禁。
 
-## 1. 目标分类法（顶层新增 5 个域目录）
+## 1. 目标分类法（**领域优先**，与 `docs/<域>`、`components/<域>` 对齐）
 
-| 目标目录 | 收纳内容 | 预计项数 |
+一级按**子系统域**（可发现性最好：找"校准/Flash/DPLL"直接进对应域），二级用**工具种类后缀**；
+种类同时写入 `tool_registry.json` 的 `kind` 字段（validator/analyzer/monitor/capture/packager/infra）。
+
+| 目标目录 | 收纳（按现名） | 预计项数 |
 |---|---|---|
-| `tools/validators/` | 各域 HIL 校验器（`*_validate`、`*_board_validate`、`*_check`） | ~70 |
-| `tools/analyzers/` | 波形/轨迹/残差分析（`analyzer_*`、`dpll_*_analyze`、`dpll_*_decode`、`sd_trace_decode`、`rtos_watermark_capture`） | ~12 |
-| `tools/monitors/` | 长时间监视与探针（`*_monitor`、`scope_*`、`vdc_long_monitor`、`sma_cable_delay_validate` 类现场测量） | ~10 |
-| `tools/ota/` | OTA 与打包（`ota_*`、`visa_ota_send`、`factory_*`、`uf2_join`、`picotool_*`、`artifact_checksum`、`release_check`） | ~18 |
-| `tools/project/` | 工程与仓库工具（`cmake_build_auto`、`build_info`、`ram_budget_check`、`scpi_query`、`scpi_common`、`pdf_text_extract`、`run_*.ps1`、`rp2350_tk_toolbox.py`、`check_scpi_usb_namespace.py`） | ~10 |
+| `tools/calibration/` | `calibration_ring_validate`、`calibration_loopback_validate`、`sma_loopback_validate`、`sma_cable_delay_validate`、`trigger_meas`、`trigger_timing_test` | ~6 |
+| `tools/flash/` | `flash_scratch_validate`、`flash_park_timeout_hil_validate`、`flash_lockout_hil_validate`、`picotool_flash`、`picotool_reboot`、`artifact_checksum`、`build_info`（`flash_map/` **禁止移动**：构建期生成映射，CMake 直接调用） | ~7 |
+| `tools/dpll/` | `dpll_observation_capture`、`dpll_observation_decode`、`dpll_residual_analyze`、`dpll_servo_tune`、`dpll_waveform_capture`、`dpll_vdc_monitor`、`scope_dpll_capture` | ~7 |
+| `tools/vdc/` | `vdc_tdma_selftest_validate`、`vdc_observer_validate`、`vdc_long_monitor`、`vdc_lock_readiness_validate`、`vdc_latch_validate`、`vdc_gpio_lock_validate`、`vdc_sync_metrology`、`vdc_dpll_replay`、`vdc_priority_trace` | ~9 |
+| `tools/refmem/` | `refmem_table_registry_validate`、`refmem_sync_hil_validate`、`refmem_spi_line_activity`、`refmem_spi_hil_validate`、`refmem_scpi_load_validate`、`refmem_quality_gate_hil_validate`、`refmem_pack_write`、`refmem_node_load_auto_hil_validate`、`refmem_network_validate`、`refmem_table_image`、`refmem_pack_build` | ~11 |
+| `tools/tdma/` | `tdma_ring_monitor`、`ram_budget_check`（TDMA 预算）、`tdma-*` 类脚本 | ~3 |
+| `tools/trigger/` | `sync_trigger`、`model_turntable_load_validate`、`debug_model_overlay_validate`、`state_machine_resource_check` | ~4 |
+| `tools/sync_io/` | `two_board_io_validate`、`distributed_loopback_validate`、`multicore_board_validate`、`biss_board_validate`、`biss_wavegen`、`rs485_modbus_validate`、`rtos_watermark_capture` | ~7 |
+| `tools/storage/` | `sd_trace_decode`、`sd_raw_clear`、`sd_mkfs`、`sd_fs_build`、`sd_board_validate`、`storage_scpi_validate`、`storage_file_upload` | ~7 |
+| `tools/scpi/` | `scpi_query`、`scpi_common`、`scpi_legacy_validate`、`realtime_scpi_validate`、`product_scpi_validate`、`check_scpi_usb_namespace.py` | ~6 |
+| `tools/ota/` | `ota_send`、`ota_stream_send`、`ota_multi_update`、`ota_board_validate`、`ota_haofv_gate`、`ota_keys`、`ota_bin_info`、`ota_boot_commit`、`ota_packager`、`visa_ota_send`、`factory_package`、`factory_restore`、`uf2_join`、`release_check` | ~14 |
+| `tools/analyzers/` | `analyzer_burst`、`analyzer_trace_export`、`analyzer_trace_batch_index`、`analyzer_no5_correlator`、`analyzer_tdma_hil`、`analyzer_trace_decode` | ~6 |
+| `tools/monitors/` | `uart_log_monitor`、`watchdog_monitor`、`codex_watchdog` | ~3 |
+| `tools/project/` | `cmake_build_auto`、`pdf_text_extract`、`run_biss_protocol_tests.ps1`、`run_portable_ota_tests.ps1`、`run_portable_log_tests.ps1`、`rp2350_tk_toolbox.py` | ~6 |
 
-> 说明：原 `tools/` 下已有 `common/`、`domains/`、`workflows/` 三个"架构性"目录（属禁止移动集），
-> 新分类**不与其重叠**：`validators|analyzers|monitors|ota|project` 只收纳"可独立调用的工具目录"。
+**禁止移动集（补充）**：除原列外，新增 `flash_map/`（构建期映射生成，CMake 调用）、
+`docs_check/`、`doc_regression_check.py`、`checks/`、`hardware_acceptance/`、`tool_governance/`、
+`common/`、`domains/`、`workflows/`、`tests/`、`bench/`、`archive/`、`scratch/`、`tool_registry*.json`、
+`tool_layout.json`、`README.md`。
+
+**分类原则**：① 先问"它属于哪个子系统"（域）→ 进该域目录；② 域内再按种类命名（`*_validate`/`*_monitor`/
+`*_analyze`/`*_capture`/`*_pack`）；③ 跨域工具（如 `artifact_checksum`、`build_info`）归"首个主要消费者"所在域，
+并在 registry 的 `kind=infra` 标注；④ `tools/scratch/` 只放草稿，不进域目录。
 
 ## 2. 兼容层策略（保证旧路径仍可用）
 
