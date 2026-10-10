@@ -4,6 +4,10 @@
 #include "pico.h"
 #include "tdma_runtime_owner.h"
 
+#ifndef __not_in_flash_func
+#define __not_in_flash_func(name) name
+#endif
+
 static uint32_t s_counter_busy, s_counter_loaded, s_counter_generation;
 static trigger_deployment_binding_t s_counter_binding;
 
@@ -15,7 +19,7 @@ static bool counter_enter(void)
 }
 static void counter_leave(void)
 { __atomic_store_n(&s_counter_busy,0u,__ATOMIC_RELEASE); }
-bool trigger_counter_is_loaded(void)
+bool __not_in_flash_func(trigger_counter_is_loaded)(void)
 { return __atomic_load_n(&s_counter_loaded,__ATOMIC_ACQUIRE)!=0u; }
 
 static bool counter_uid(uint64_t *out)
@@ -143,7 +147,7 @@ uint32_t trigger_counter_snapshot_core1(trigger_counter_snapshot_t *out)
     return COUNTER_OK;
 }
 
-uint32_t trigger_counter_read_core1(uint32_t *count)
+uint32_t __not_in_flash_func(trigger_counter_read_core1)(uint32_t *count)
 {
     if (!count || get_core_num()!=1u || !trigger_counter_is_loaded())
         return COUNTER_ARGUMENT;

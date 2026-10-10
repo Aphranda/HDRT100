@@ -194,7 +194,7 @@ tdma_seat_result_t tdma_loop_plan(const tdma_loop_plan_request_t *request,
  * as before (no window decision is taken); 1 lets the priority/first-class
  * providers publish only inside their planned windows. */
 #ifndef TDMA_LOOP_SCHEDULE_ENABLED
-#define TDMA_LOOP_SCHEDULE_ENABLED 1
+#define TDMA_LOOP_SCHEDULE_ENABLED 0
 #endif
 
 /* Fill the request from the production defaults above. load_pending is honoured

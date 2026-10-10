@@ -155,12 +155,15 @@ SECTIONS
     . = ALIGN(4);
 
     .sync_io_dma_ring (NOLOAD): {
-        /* The input object supplies the alignment required by its DMA ring. */
-        KEEP(*(.sync_io_dma_ring))
+        /* The input object supplies the alignment required by its DMA ring.
+         * Largest alignment first, so no ring pads in front of another. */
+        KEEP(*(SORT_BY_ALIGNMENT(.sync_io_dma_ring)))
         . = ALIGN(4);
     } > RAM
 
-    .ram_vector_table (NOLOAD): {
+    /* VTOR needs a naturally aligned table; the SDK array carries no alignment
+     * of its own, so do not rely on the DMA ring section ending on one. */
+    .ram_vector_table (NOLOAD): ALIGN(512) {
         *(.ram_vector_table)
     } > RAM
 

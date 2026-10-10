@@ -276,6 +276,7 @@ bool tdma_runtime_owner_init(void)
     if (s_tdma_runtime_owner_initialized) {
         return true;
     }
+    tdma_pio_spi_phys_workspace_reset();
     s_tdma_pio_spi_phys.coded.version =
         TDMA_PIO_SPI_CODED_SNAPSHOT_VERSION;
     s_tdma_pio_spi_phys.coded.state = TDMA_PIO_SPI_CODED_IDLE;

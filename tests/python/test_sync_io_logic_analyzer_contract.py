@@ -240,7 +240,7 @@ def test_capture_sequence_is_shared_by_records_and_snapshot() -> None:
 
 
 def test_edge_hil_arms_explicit_edge_command_and_checks_mode() -> None:
-    source = Path("tools/analyzer_tdma_hil/analyzer_tdma_hil.py").read_text(
+    source = Path("tools/tdma/analyzer_tdma_hil/analyzer_tdma_hil.py").read_text(
         encoding="utf-8")
     assert "REALtime:IO:ANALyzer:EDGE:ARM" in source
     assert "REALtime:IO:ANALyzer:TRIGger:ARM" in source

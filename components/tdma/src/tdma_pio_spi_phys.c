@@ -185,7 +185,11 @@ static tdma_pio_spi_program_manager_t s_tdma_pio_spi_program_manager = {
     .command_dma_channel = &s_tdma_pio_spi_command_dma_channel,
     .executor_dma_channel = &s_tdma_pio_spi_executor_dma_channel,
 };
+/* The ring needs 4 KiB alignment for DMA wrap; inside .bss that alignment
+ * padded up to 4 KiB whenever .data grew. The DMA ring section is NOLOAD, so
+ * tdma_pio_spi_phys_workspace_reset() restores the zeroed boot state. */
 static tdma_pio_spi_workspace_t s_tdma_pio_spi_workspace
+    __attribute__((section(".sync_io_dma_ring")))
     __attribute__((aligned(TDMA_PIO_SPI_RX_RING_WORDS * sizeof(uint32_t))));
 /* The cancellation handshake must outlive every persona in the union. */
 static tdma_origin_build_job_t s_tdma_origin_build_job;
@@ -417,6 +421,11 @@ static void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *config)
 static void tdma_rx_first_window_arm_failed(void);
 #include "tdma_pio_spi_phys_geometry.inc"
 #include "tdma_pio_spi_phys_event.inc"
+
+void tdma_pio_spi_phys_workspace_reset(void)
+{
+    memset(&s_tdma_pio_spi_workspace, 0, sizeof(s_tdma_pio_spi_workspace));
+}
 
 void tdma_pio_spi_phys_service_observer(tdma_pio_spi_phys_t *phys)
 {

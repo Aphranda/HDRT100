@@ -15,7 +15,7 @@ COMMUNICATION_HEADER = MODBUS_COMPONENT / "inc/rs485_communication.h"
 COMMUNICATION_SOURCE = MODBUS_COMPONENT / "src/rs485_communication.c"
 COMMANDS = ROOT / "docs/interface/SCPI_COMMANDS.md"
 PROBE = ROOT / "tools/domains/interface/scpi_query/rs485_scpi_loopback_probe.scpi"
-VALIDATOR = ROOT / "tools/rs485_modbus_validate/rs485_modbus_validate.py"
+VALIDATOR = ROOT / "tools/communication/rs485_modbus_validate/rs485_modbus_validate.py"
 
 
 def test_scpi_query_legacy_import_forwards_to_classified_implementation():

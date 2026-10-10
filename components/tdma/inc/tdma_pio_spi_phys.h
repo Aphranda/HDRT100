@@ -1256,6 +1256,8 @@ bool tdma_pio_spi_phys_commit_overlay(void *context, tdma_overlay_prepare_t *job
  * account the hardware launch and completion in distinct bounded passes.
  * A zero timestamp reports an aborted/recovered burst and is not evidence. */
 void tdma_pio_spi_phys_service_tx(void *context, uint64_t now_ns);
+/* Boot-only: zero the NOLOAD persona workspace before any persona uses it. */
+void tdma_pio_spi_phys_workspace_reset(void);
 void tdma_pio_spi_phys_service_observer(tdma_pio_spi_phys_t *phys);
 bool tdma_pio_spi_phys_get_event_snapshot(
     const tdma_pio_spi_phys_t *phys, tdma_pio_spi_event_snapshot_t *snapshot);

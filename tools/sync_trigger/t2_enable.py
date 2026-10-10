@@ -21,7 +21,9 @@ ROLE_SLOT = (0, 1, 2, 3)
 # Bench mapping from the T2 architecture: NO1 COUNTER (IN1), NO2 SWITCH_A (OUT1-3),
 # NO3 GATEWAY (OUT4 + IN1 READY), NO4 SWITCH_B (OUT1). Masks are 4-line local.
 ROWS = (
-    (0x0010071E65B5CB38, 0, 0x1, 0x8, 0),  # OUT4 drives IN1 (self loopback)
+    # COUNTER rows may not declare outputs (trigger_deployment_validate); the OUT4
+    # turntable source loops into IN1 outside the deployment table.
+    (0x0010071E65B5CB38, 0, 0x1, 0x0, 0),
     (0xFB276192BEF9CCE1, 1, 0x0, 0x7, 0),
     (0x2BD5090FE009FA2A, 2, 0x1, 0x8, 1),
     (0xA1E549202D18ED6A, 3, 0x0, 0x1, 0),
@@ -143,7 +145,9 @@ def run_full(board_ids) -> int:
     boards = discover(ctx)
     print("discovered:", sorted(boards.keys()))
     src = boards.get("0010071E65B5CB38")
-    dep_crc = deployment_crc(1, ROWS)
+    # DEPloyment:CLEar keeps last_generation, so every run stages a newer one.
+    dep_gen = int(time.time()) & 0xFFFFFFFF
+    dep_crc = deployment_crc(dep_gen, ROWS)
     payload = ",".join(f"{uid},{slot},{imask},{omask},{fb}"
                        for uid, slot, imask, omask, fb in ROWS)
     kinds = {0: 0, 1: 1, 2: 2, 3: 1}
@@ -169,17 +173,17 @@ def run_full(board_ids) -> int:
         send(board, "TRIGger:REServation:COUNter:UNLoad")
         send(board, "TRIGger:REServation:DEPloyment:CLEar")
         send(board, "TRIGger:REServation:GRID:CONFigure 1,1,0,1000000,2")
-        send(board, f"TRIGger:REServation:DEPloyment:STAGe 1,{dep_crc},{payload}")
-        send(board, f"TRIGger:REServation:DEPloyment:ACTivate 1,{dep_crc}")
+        send(board, f"TRIGger:REServation:DEPloyment:STAGe {dep_gen},{dep_crc},{payload}")
+        send(board, f"TRIGger:REServation:DEPloyment:ACTivate {dep_gen},{dep_crc}")
         _dep = send(board, "TRIGger:REServation:DEPloyment?").split(",")
         print(f"  deploy after activate: {_dep[2:7]}"
-              " (gen, staged?, active?, crc, crc)")
+              " (active?, last_gen, staged?, staged_crc, active_crc)")
         kind = kinds[slot]
         arg = pulses.get(slot, 0)
         if slot:
-            acrc = action_table_crc(1, 1, dep_crc, 1, 1, 0, 1000000, 2,
+            acrc = action_table_crc(1, dep_gen, dep_crc, 1, 1, 0, 1000000, 2,
                                     [(1, slot, kind, arg, 0, 1)])
-            send(board, f"TRIGger:REServation:ACTion:INSTall 1,{acrc},1,{dep_crc},1,1,0,"
+            send(board, f"TRIGger:REServation:ACTion:INSTall 1,{acrc},{dep_gen},{dep_crc},1,1,0,"
                         f"1000000,2,1,1,{slot},{kind},{arg},0,1")
         rows = [(1, 1, slot, kind, arg, 1, 0)]
         tcrc = template_crc(1, rows)
@@ -187,12 +191,12 @@ def run_full(board_ids) -> int:
                     + ",".join(str(v) for row in rows for v in row))
         send(board, "TRIGger:REServation:TEMPLate:ACTivate")
         send(board, "SYSTem:TDMA:FLIGHT:FIFO:RESet")
-        if slot:
-            send(board, f"TRIGger:REServation:T2:CONFigure 1,{slot},15,1,10,10,2,0,0,180000")
-            diag = send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
-            print(f"  configure diag {diag[4] if len(diag) > 4 else '?'}"
-                  " (91/92/93 prereq, 100/101 inner, 140-148 validate, 111-137 stopped)")
-            send(board, "TRIGger:REServation:T2:STARt 1,0")
+        # NO1 (slot 0) is the only position source; every board names source slot 0.
+        send(board, f"TRIGger:REServation:T2:CONFigure 1,0,14,{int(slot == 0)},10,10,2,0,0,180000")
+        diag = send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
+        print(f"  configure diag {diag[4] if len(diag) > 4 else '?'}"
+              " (91/92/93 prereq, 100/101 inner, 140-148 validate, 111-137 stopped)")
+        send(board, "TRIGger:REServation:T2:STARt 1,0")
         state = send(board, "TRIGger:REServation:T2?").split(",")
         print(f"{uid:016X} slot {slot} | T2 configured {state[2] if len(state) > 2 else '?'}"
               f" active {state[3] if len(state) > 3 else '?'}"

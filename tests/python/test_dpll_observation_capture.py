@@ -244,7 +244,7 @@ def test_follower_observation_requires_ordered_local_evidence_records() -> None:
 
 def test_capture_tool_is_explicitly_off_realtime_path() -> None:
     source = Path(
-        "tools/dpll_observation_capture/dpll_observation_capture.py"
+        "tools/vdc/dpll_observation_capture/dpll_observation_capture.py"
     ).read_text(encoding="utf-8")
     assert "realtime_path_untouched" in source
     assert "StorageAO" in source

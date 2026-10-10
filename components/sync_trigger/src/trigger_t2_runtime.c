@@ -16,6 +16,8 @@
 #define T2_HOT(name) __not_in_flash_func(name)
 #else
 #define T2_HOT(name) name
+/* The bench diagnostic sink lives in the TDMA owner; host builds drop it. */
+static inline void tdma_seat_mount_store_note_reject(uint32_t code) { (void)code; }
 #endif
 #define T2_BOUNDED __attribute__((noinline, optimize("Os")))
 
@@ -70,7 +72,7 @@ static uint32_t s_preview_history[TRIGGER_T2_RUNTIME_POSITION_COUNT][3]
 static volatile uint32_t s_preview_guard;
 static volatile uint32_t s_session;
 
-static bool preview_copy(uint32_t index, uint32_t age,
+static bool T2_HOT(preview_copy)(uint32_t index, uint32_t age,
                          trigger_position_descriptor_t *out)
 {
     if (index >= TRIGGER_T2_RUNTIME_POSITION_COUNT || age >= 3u || !out)
@@ -106,12 +108,12 @@ static void preview_save(uint32_t index,
     (void)__atomic_add_fetch(&s_preview_guard, 1u, __ATOMIC_RELEASE);
 }
 
-static void publish_begin(void)
+static void T2_HOT(publish_begin)(void)
 {
     (void)__atomic_add_fetch(&s_guard, 1u, __ATOMIC_ACQ_REL);
 }
 
-static void publish_end(void)
+static void T2_HOT(publish_end)(void)
 {
     (void)__atomic_add_fetch(&s_guard, 1u, __ATOMIC_RELEASE);
 }
@@ -588,7 +590,8 @@ static inline bool deadlines_need_service(void)
          (s_local_template.kind == TRIGGER_ACTION_TEMPLATE_GATEWAY && s_state.action_armed_mask));
 }
 
-static T2_BOUNDED bool service_origin(void)
+/* NO1 origin path runs every coarse slice; from XIP it overran SYNC_TRIGGER. */
+static T2_BOUNDED bool T2_HOT(service_origin)(void)
 {
     uint32_t count;
     if (trigger_counter_read_core1(&count) != COUNTER_OK) {
