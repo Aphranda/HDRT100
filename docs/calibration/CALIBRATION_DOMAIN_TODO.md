@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-09-13
+Last updated: 2026-10-10
 
 本文档把 [`CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`](CALIBRATION_TDMA_CLK_TRAINING_PLAN.md) 和
 [`CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`](CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md)
@@ -54,7 +54,7 @@ TX 固定的 RX 相位反例、接收有效窗口及保守余量、原始波形/
   复核完整 UID 集和 build，并保存 `initialization-reset.json`；不得按 COM 号或
   `node_index` 认板。
 - 运行中的节点出现卡死、状态机未清理、quarantine 或其他可恢复状态时，只执行
-  `tools/picotool_reboot/picotool_reboot.py` 的应用软件重启；重启后重新通过
+  `tools/ota/picotool_reboot/picotool_reboot.py` 的应用软件重启；重启后重新通过
   topology/profile/calibration identity、矩阵读回和 ARM gate，再继续受影响的验收。
 - 只有设备端固件源码、PIO 原语、构建输入或设备端配置发生变化并重新构建时，才执行
   多板异步 OTA。OTA 不能作为“重置问题”的替代手段，也不能用来掩盖运行态复位缺陷。

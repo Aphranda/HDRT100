@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-10-09
+Last updated: 2026-10-10
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -352,8 +352,8 @@ docs/
 
 | 工具 | 定位 |
 |---|---|
-| `tools/multicore_board_validate/multicore_board_validate.py` | 单板 RTOS + multicore + 表查询 smoke。 |
-| `tools/distributed_loopback_validate/distributed_loopback_validate.py` | BiSS 组网 HIL preflight：A3 是唯一外部 COM 入口，其他板作为内部 peer 通过 BiSSC 组网。 |
+| `tools/rtos/multicore_board_validate/multicore_board_validate.py` | 单板 RTOS + multicore + 表查询 smoke。 |
+| `tools/communication/distributed_loopback_validate/distributed_loopback_validate.py` | BiSS 组网 HIL preflight：A3 是唯一外部 COM 入口，其他板作为内部 peer 通过 BiSSC 组网。 |
 
 ## 09 历史方案与外部资料迁入
 

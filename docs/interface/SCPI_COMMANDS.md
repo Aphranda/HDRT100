@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
-Last updated: 2026-09-26
+Last updated: 2026-10-10
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -360,11 +360,11 @@ OTA 命令遵循 `docs/ota/OTA_HAOFV_ARCHITECTURE.md` 中的 `OtaAO + OtaFB + Ot
 | `SYSTem:OTA:TARG?` | 查询下一次 OTA 写入目标 slot；V2 的 legacy/unsupported mode 返回 `OTA_SLOT_NONE`。 |
 | `SYSTem:OTA:CAP?` | v1 返回兼容能力位；V2 只报告 `DIRECT_AB`，不报告 `COPY_TO_ACTIVE`。 |
 
-统一 OTA package 由 `tools/ota_packager/ota_packager.py` 生成，`tools/ota_send/ota_send.py` 会自动识别包头并发送 `SYSTem:OTA:PBEGIN`。package 首部固定 512 B，包含产品型号、硬件版本、App 版本、build id、payload SHA-256、最小 Bootloader 版本、每个镜像的 slot/offset/size/CRC32/run offset。payload 中 Slot A/Slot B 镜像按 512 B 对齐，保证流式写入时满足 Flash page 编程约束。设备在擦除目标 slot 前会拒绝产品型号、硬件版本和最小 Bootloader 版本不匹配的 package。
+统一 OTA package 由 `tools/ota/ota_packager/ota_packager.py` 生成，`tools/ota/ota_send/ota_send.py` 会自动识别包头并发送 `SYSTem:OTA:PBEGIN`。package 首部固定 512 B，包含产品型号、硬件版本、App 版本、build id、payload SHA-256、最小 Bootloader 版本、每个镜像的 slot/offset/size/CRC32/run offset。payload 中 Slot A/Slot B 镜像按 512 B 对齐，保证流式写入时满足 Flash page 编程约束。设备在擦除目标 slot 前会拒绝产品型号、硬件版本和最小 Bootloader 版本不匹配的 package。
 
 第一阶段建议 `SYSTem:OTA:DATA` 单块 256 B 或 512 B。OTA 期间应暂停周期日志，避免日志与 SCPI binary block 混用同一 USBTMC 通道。
 
-`tools/ota_send/ota_send.py` 支持统一 package 负向验证参数：
+`tools/ota/ota_send/ota_send.py` 支持统一 package 负向验证参数：
 
 | 参数 | 说明 | 期望错误 |
 |---|---|---|

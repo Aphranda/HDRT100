@@ -4,7 +4,7 @@ Status: Active
 Domain: SD
 Canonical: `docs/storage/SD_TODO.md`
 Related: `docs/storage/SD_TASK_PROGRESS.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-06
+Last updated: 2026-10-10
 
 本文档定义 RP2350_TRIG 的 SD 卡系统。SD 卡不是简单 OTA 介质，而是 App 侧 **System Pack 介质 + 持久化观测层**，用于任务配置、校准补偿、Pack/Ref 版本管理、Vector/反射内存快照、脉冲异常 trace、运行报告、产测结果和离线 OTA。
 
@@ -425,7 +425,7 @@ P0 trace 已实现事件来源：
 - Storage domain：boot snapshot due。
 - Trigger domain：SCPI ARM/FAULT 维护事件、TriggerAO queue post/full/null、TriggerFB execute、state change、error change、DMA rollover 进展、ENC Z pulse、资源申请快照、无状态变化的 ignored event。
 - SyncIO domain：init、capture start/stop/drop/fail、pulse FIFO full/invalid、clock start/stop/fail、SEQ/ENC arm/disarm/fail、PIO instruction space failure、SEQ gate invalid、SEQ/ENC ARM 成功后的管理面 runtime 采样。
-- P0 解码工具：`tools/sd_trace_decode/sd_trace_decode.py`，可校验 `.bin` 头、事件区 CRC 和可选 `.idx`，输出 JSON/CSV。
+- P0 解码工具：`tools/storage/sd_trace_decode/sd_trace_decode.py`，可校验 `.bin` 头、事件区 CRC 和可选 `.idx`，输出 JSON/CSV。
 
 Runtime 观测约束：
 
@@ -844,11 +844,11 @@ PC 工具负责重活：
 建议工具：
 
 ```text
-tools/sd_fs_build/
+tools/storage/sd_fs_build/
 tools/sd_pack_build/
 tools/sd_pack_check/
 tools/sd_pack_diff/
-tools/sd_trace_decode/
+tools/storage/sd_trace_decode/
 tools/bench/rp2350_tk_toolbox.py
 ```
 
@@ -908,7 +908,7 @@ tools/bench/rp2350_tk_toolbox.py
 - [x] DISARM/FAULT 后写 `/traces/*/*.bin` 和 `.idx`。
 - [x] 生成 `/reports/fault/pulse_fault_XXXXXX.json`。
 - [x] 增加查询：`SYST:TRAC:LAST?`、`SYST:FAULT:LAST?`。
-- [x] 增加离线 trace 解码工具：`tools/sd_trace_decode/sd_trace_decode.py`。
+- [x] 增加离线 trace 解码工具：`tools/storage/sd_trace_decode/sd_trace_decode.py`。
 - [x] SD 板端验证工具通过 `MMEM:READ?` 读回最新 fault trace `.bin/.idx`，并调用解码器校验 header、CRC、idx 和事件数量。
 - [x] `TRIG:FAULT` 的 fault snapshot/trace/report 后处理迁移为 StorageAO `FAULT_EVIDENCE` job，SCPI 回调不直接执行 FatFs 写入。
 
@@ -971,7 +971,7 @@ tools/bench/rp2350_tk_toolbox.py
 - [x] 新增存储管理组件：`components/storage_manager/`。
 - [x] App 初始化和周期服务接入 `storage_manager_init()` / `storage_manager_service()`。
 - [x] SCPI 查询接入：`SYST:SD:STAT?`、`SYST:SD:INFO?`、`SYST:STOR:STAT?`、`MMEM:CAT?`、`MMEM:CAT? "/update"`。
-- [x] SD 卡文件系统 staging 工具接入：`tools/sd_fs_build/sd_fs_build.py`。
+- [x] SD 卡文件系统 staging 工具接入：`tools/storage/sd_fs_build/sd_fs_build.py`。
 - [x] SD 独立 LCD 页面接入，UI 只读取 `storage_manager_vector_t` 快照。
 - [x] SD UI 显示 manifest/System Pack、默认 OTA、StorageAO job、snapshot/fault evidence 和错误摘要。
 - [x] LCD 顶部 tab 改为 3 槽滚动式 tabview，KEY2/GPIO2 可切到 SD 页面。
@@ -1049,7 +1049,7 @@ tools/bench/rp2350_tk_toolbox.py
 
 ## 23. 关联文件
 
-- `tools/sd_fs_build/sd_fs_build.py`
+- `tools/storage/sd_fs_build/sd_fs_build.py`
 - `drivers/external/sd_card/inc/sd_card.h`
 - `drivers/external/sd_card/src/sd_card.c`
 - `middleware/fatfs_port/inc/fatfs_port.h`

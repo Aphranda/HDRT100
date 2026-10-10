@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/TRIGGER_SYNC_TODO.md`
 Related: `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_TODO.md`
-Last updated: 2026-08-20
+Last updated: 2026-10-10
 
 本文档用于跟踪同步触发系统从当前 PIO IO 驱动，完善到工业产品级触发子系统所需的剩余工作。
 
@@ -294,7 +294,7 @@ Last updated: 2026-08-20
   10=ENC target 为 0、11=非法编码器引脚。
 
 - [x] 增加输出引脚硬件自检，预留可回环测试方案。 (2026-06-26)
-  GPIO22 (SYNC_CLK_OUT) → GPIO16 (TRIG_IN) 回环已验证，`tools/trigger_meas/loopback_test.py`。
+  GPIO22 (SYNC_CLK_OUT) → GPIO16 (TRIG_IN) 回环已验证，`tools/trigger/trigger_meas/loopback_test.py`。
 
 - [x] 增加忙状态卡死超时检测。 (2026-06-25，基础版)
   `fb_seq_armed_service()` 检测 `sync_io_seq_step_is_running()` 返回 false 时切换 FAULT。

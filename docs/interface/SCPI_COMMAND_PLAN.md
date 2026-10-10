@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMAND_PLAN.md`
 Related: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-08-16
+Last updated: 2026-10-10
 
 本文档记录 Distributed Hard Real-Time Trigger System 当前 SCPI 固件架构、命令域边界、owner 归属和后续收敛待办。`DHRT100` 暂作为当前设备型号和 `*IDN?` 字段保留。它不是历史流水账，也不是上位机最终指令手册：
 
@@ -753,10 +753,10 @@ REALtime
 本文档对应的当前离线验证基线：
 
 ```text
-python tools/product_scpi_validate/product_scpi_validate.py --dry-run
+python tools/interface/product_scpi_validate/product_scpi_validate.py --dry-run
   generated=125
 
-python tools/realtime_scpi_validate/realtime_scpi_validate.py --dry-run
+python tools/validation/realtime_scpi_validate/realtime_scpi_validate.py --dry-run
   generated=57
 ```
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: Communication / RS485
 Canonical: `docs/communication/COMMUNICATION_RS485_TODO.md`
 Related: `docs/communication/COMMUNICATION_RS485_ARCHITECTURE.md`, `docs/communication/COMMUNICATION_RS485_TASK_PROGRESS.md`, `docs/arch/HAOFV_FLASH_TODO.md`
-Last updated: 2026-08-25
+Last updated: 2026-10-10
 
 本文只跟踪 RS485 的实现状态、进入条件和退出门禁。稳定语义以
 `COMMUNICATION_RS485_ARCHITECTURE.md` 为准，构建号、日志和板端证据只写入
@@ -27,7 +27,7 @@ Last updated: 2026-08-25
 
 ### R485-01 Host 联调入口
 
-- [~] 在现有 `tools/ota_stream_send` 基础上固化 RS485 transport profile，不复制 session/wire
+- [~] 在现有 `tools/ota/ota_stream_send` 基础上固化 RS485 transport profile，不复制 session/wire
   编码；COM11 仅作为显式端口参数和 transcript 标签。
 - [ ] 增加 serial open/close、输入清空、发送 drain、超时和异常关闭测试。
 - [ ] 增加短帧、CRC 错误、重复、乱序、truncate、超长和 abort/restart 负向回归。

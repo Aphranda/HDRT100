@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_ARCHITECTURE.md`
 Related: `docs/sync/SYNC_IO_TODO.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`
-Last updated: 2026-09-18
+Last updated: 2026-10-10
 
 本文档定义本机 realtime IO capability、PIO persona、逻辑分析仪、SMA 维护能力和
 PIO/DMA/IRQ 执行资源之间的稳定边界。它不定义产品 Trigger 状态机、TDMA 协议、
@@ -280,7 +280,7 @@ PIO/DMA 错误和实际保留量；Core0 按 `SYNC_IO_ANALYZER_BURST_COPY_WORDS`
 `capture_tag` 是主机提供的关联标识，`profile_identity` 是 board 引脚映射，均不是 VDC
 时间或 active TDMA profile generation。外部验收报告另行绑定 build、板卡、active matrix
 与运行状态。RXSTALL、DMA 错误、时钟变化或不完整采集不具备有效时序声明。
-该 backend 与 `tools/analyzer_burst/analyzer_burst.py` 的诊断 schema 不构成新的冻结 wire
+该 backend 与 `tools/sync/analyzer_burst/analyzer_burst.py` 的诊断 schema 不构成新的冻结 wire
 契约，也不提供 DPLL eligibility 或 cycle-level flight 验收结论。
 
 ## 语义 IO 与 Board Profile

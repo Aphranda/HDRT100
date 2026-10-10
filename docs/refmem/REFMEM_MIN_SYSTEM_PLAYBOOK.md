@@ -3,8 +3,8 @@
 Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md`
-Related: `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `tools/two_board_io_validate/README.md`
-Last updated: 2026-08-14
+Related: `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `tools/sync/two_board_io_validate/README.md`
+Last updated: 2026-10-10
 
 本文档记录当前两块最小系统板上的 RefMem / VDC / PIO transport bring-up 操作。它不是架构约束，也不是产品板 pin map；架构定义以 `REFMEM_DOMAIN_ARCHITECTURE.md` 和 `REFMEM_SYNC_ARCHITECTURE.md` 为准。
 
@@ -224,7 +224,7 @@ python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --visa-a USB::
 
 ## Physical PIO SPI Adapter HIL
 
-真实 PIO/SPI 物理链路验证使用 `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py`。该脚本不再由 PC 搬运 RefMem frame hex；PC 只负责在接收侧启动 RX，在发送侧触发 TX，frame 必须经过板间 PIO+DMA 物理链路。
+真实 PIO/SPI 物理链路验证使用 `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py`。该脚本不再由 PC 搬运 RefMem frame hex；PC 只负责在接收侧启动 RX，在发送侧触发 TX，frame 必须经过板间 PIO+DMA 物理链路。
 
 当前 debug bring-up profile 使用四根输出线到对端四根输入线，线序必须由 `two_board_io_validate.py` 实测，不假设固定直通：
 
@@ -324,7 +324,7 @@ A PEER?(B), B PEER?(A), A/B QUALITY?
 - 当前 logical remap 记录为 B0->B1: `1,2,0,3`，B1->B0: `2,1,0,3`。
 - 后续进入 P4.5 阶段 1：PIO SPI adapter skeleton。
 - 新增 `GPIO4..7` 最小模型系统 overlay 规划：X 板承载 `A1/A2/A3`，Y 板承载 `A4/A5`；其中 Y 板槽位已整体向后挪，避免与 X 板 `A3` 链路控制冲突。
-- 新增 `REALtime:IO:MODel:*` 维护接口和 `tools/debug_model_overlay_validate` 方向安全预检工具。
+- 新增 `REALtime:IO:MODel:*` 维护接口和 `tools/sync/debug_model_overlay_validate` 方向安全预检工具。
 - COM3/COM4 均更新到 build `20260814104920`，package CRC `0x2DF62B6E`。
 - `python tools\debug_model_overlay_validate\debug_model_overlay_validate.py --port-x COM3 --port-y COM4 --out-dir build-rtos-multicore-smoke\debug_model_overlay_COM3_COM4` 通过。
 - overlay HIL 已验证：`GPIO4` X->Y 位置脉冲、`GPIO5` X->Y READY、`GPIO6` Y->X TRIG、`GPIO7` X->Y LINK_SWITCH。
@@ -333,7 +333,7 @@ A PEER?(B), B PEER?(A), A/B QUALITY?
 - COM3 验证未加载启动被拒绝：直接 `MODEl:TURNtable:STARt` 后，`SYSTem:ERRor?` 返回 `-200,"Execution error"`。
 - COM3 验证临时加载到 slot 1/output 0：`CONFigure:MODEl:TURNtable:LOAD 1,0` 后 `READ:MODEl:TURNtable:LOAD?` 返回 `1,1,0`，配置触发和运动参数后 `STARt/STOP` 均返回 `"OK"`。
 - 新增 `SYSTem:REFMEM:SYNC:*` 维护入口，可在两板之间通过 SCPI 搬运 HELLO/EPOCH hex frame；该入口只操作 sync context、adapter skeleton 和 peer/quality snapshot，不直接改 active RefMem 表。
-- 新增 `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`，固化两板 HELLO/EPOCH 搬运验证流程，支持 USB CDC COM 口和 USBTMC VISA resource。
+- 新增 `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py`，固化两板 HELLO/EPOCH 搬运验证流程，支持 USB CDC COM 口和 USBTMC VISA resource。
 - COM5/COM6 均 OTA 并 commit 到 build `20260814133439`，package CRC `0x1926CA52`。
 - `python tools\refmem_sync_hil_validate\refmem_sync_hil_validate.py --port-a COM5 --port-b COM6 --slot-a 0 --slot-b 1 --epoch 1 --run 1 --out-dir build-rtos-multicore-smoke\refmem_sync_hil_COM5_COM6_20260814133439` 通过。
 - HIL 结果：两板 HELLO/EPOCH `RX` 均返回 `ACCEPTED`；A peer slot 1 与 B peer slot 0 均 `hello_seen=1, epoch_seen=1, frame_count=2`；两板 quality `accepted_count=2`，`bad_frame_count/crc_error_count/target_mismatch_count/epoch_mismatch_count=0`。

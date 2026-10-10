@@ -4,7 +4,7 @@ Status: Active
 Domain: BISSC
 Canonical: `docs/communication/BISSC_IMPLEMENTATION_TODO.md`
 Related: `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md`, `docs/communication/BISSC_TASK_PROGRESS.md`, `docs/sync/SYNC_IO_TODO.md`
-Last updated: 2026-07-07
+Last updated: 2026-10-10
 
 本文档跟踪 `docs/communication/BISSC_TAP_BRIDGE_DESIGN.md` 之后的 `TRIG_PROTOCOL_BISS_C`
 实现步骤。P0 有意收敛为固定 profile 的串联 TAP bridge：原样透传 BiSS-C
@@ -91,7 +91,7 @@ position crossing 决策。2026-07-07 闭环验证中修复了 PIO `PIO_FIFO_JOI
 - [x] Host 单元测试：CRC6、profile validation、bit extraction、crossing 和 modulo wrap。
 - [x] 固件 smoke test：配置 TAP profile、ARM、软件帧 crossing、DISARM、查询统计；2026-07-07 使用 COM4 烧录 `build-biss-integration\RP2350_TRIG.elf` 后通过，结果归档在 `build\biss_validation_flash_loop_5`。
 - [x] 单核 factory 闭环验证：2026-07-07 烧录 `build-biss-integration\RP2350_TRIG_FACTORY.uf2`，build id `20260707081355`；`SYST:CORE?` 返回 `0,9908,0,16184,0`，确认 core1 关闭；SEQ_STEP `TRIG:MODE 1 -> TRIG:ARM -> TRIG:DISA` 通过且 `SYST:ERR? -> 0,"No error"`；BiSS board smoke `python tools\biss_board_validate\biss_board_validate.py COM4 --out-dir build-biss-integration\biss_validation_singlecore` 通过，结果归档在 `build-biss-integration\biss_validation_singlecore`。
-- [x] 增加 1 MHz CLK/DATA CSV 离线验证闭环：`tools/biss_wavegen/biss_wavegen.py` 生成 bench 向量，`tools/biss_wavegen/biss_wave_validate.py` 按 PIO 采样边沿重组 frame，校验 anchor、position、CRC 和 crossing。2026-07-07 默认 48-bit profile 与带 CRC6 的 40-bit profile 均通过，结果归档在 `build\biss_wavegen\biss_1mhz_validate.json` 和 `build\biss_wavegen\biss_crc_1mhz_validate.json`。
+- [x] 增加 1 MHz CLK/DATA CSV 离线验证闭环：`tools/communication/biss_wavegen/biss_wavegen.py` 生成 bench 向量，`tools/communication/biss_wavegen/biss_wave_validate.py` 按 PIO 采样边沿重组 frame，校验 anchor、position、CRC 和 crossing。2026-07-07 默认 48-bit profile 与带 CRC6 的 40-bit profile 均通过，结果归档在 `build\biss_wavegen\biss_1mhz_validate.json` 和 `build\biss_wavegen\biss_crc_1mhz_validate.json`。
 - [ ] 使用真实 PIO simulator 或逻辑发生器回放 1 MHz CLK/DATA CSV，确认板端 `STAT:BISS?` 的 rx frame、position 和 trigger count 与离线报告一致。
 - [ ] 使用示波器在 5 MHz 下验证 sample window 和 `TRIG_OUT` latency。
 - [ ] TAP 透明性测试：确认 `CLK_IN -> CLK_OUT`、`DATA_IN -> DATA_OUT` 原样透传，

@@ -4,7 +4,7 @@ Status: Draft
 Domain: Tools
 Canonical: `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`
 Related: `docs/tools/DOCS_TOOLS_TODO.md`, `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`, `tools/README.md`
-Last updated: 2026-09-22
+Last updated: 2026-10-10
 
 ## 文档接口与范围
 
@@ -58,16 +58,16 @@ Last updated: 2026-09-22
 | 当前入口或来源 | 目标决策 | 迁移约束 |
 |---|---|---|
 | `tools/vdc_priority_trace/` 的联合采集入口及 internal-seal 基础 out 链 | 编排归 `tools/workflows/vdc_joint_capture/`；域内解码/探针归 `tools/domains/vdc/priority_trace/` | 先消除 out 可执行依赖；原入口兼容，参考中断注入单独显式选项。 |
-| `tools/scpi_query/` | `tools/domains/interface/scpi_query/` | 已迁移实现与命令资源；旧 Python 入口兼容转发，旧资源暂留，迁移前实现按原字节归档。 |
-| `tools/sd_trace_decode/` | `tools/domains/storage/sd_trace_decode/` | 已迁移唯一离线实现并更新两个调用者；旧入口兼容转发，迁移前实现按原字节归档。 |
-| `tools/vdc_sync_metrology/` | `tools/domains/vdc/sync_metrology/` | 已迁移唯一离线实现并更新 receipt provenance；旧入口兼容转发，保持输入 schema，不混入设备采集。 |
-| `tools/vdc_dpll_replay/` | `tools/domains/vdc/dpll_replay/` | 已迁移离线 Python 实现与同目录 C runner；旧 Python 入口兼容转发，迁移前 Python/C 原字节归档。仅允许隔离主机进程内 diagnostic replay，不授予 calibration、firmware lock 或硬件验收资格。 |
-| `tools/dpll_observation_decode/` | `tools/domains/vdc/dpll_observation_decode/` | 已迁移离线 binary/CRC/schema decoder；旧入口兼容转发，迁移前源码原字节归档。输出保持 analyzer 消费的 samples JSON 形状，不连接板卡或修改 TDMA。 |
-| `tools/dpll_residual_analyze/` | `tools/domains/vdc/dpll_residual_analyze/` | 已迁移离线 residual/convergence/anomaly analyzer；旧入口兼容转发，迁移前源码原字节归档。必须保留 decimation、坐标域与 metadata 限制，不把 monitor snapshot 上提为 full-rate trace 或物理锁相。 |
-| `tools/scope_dpll_capture/` | DPLL 分析归 `tools/domains/vdc/scope_capture/`；确认复用的 RAW/SCPI 设备接口才抽入 common | 不把现有 NORM 采集冒充联合采集的冻结 RAW 实现。 |
+| `tools/interface/scpi_query/` | `tools/domains/interface/scpi_query/` | 已迁移实现与命令资源；旧 Python 入口兼容转发，旧资源暂留，迁移前实现按原字节归档。 |
+| `tools/storage/sd_trace_decode/` | `tools/domains/storage/sd_trace_decode/` | 已迁移唯一离线实现并更新两个调用者；旧入口兼容转发，迁移前实现按原字节归档。 |
+| `tools/vdc/vdc_sync_metrology/` | `tools/domains/vdc/sync_metrology/` | 已迁移唯一离线实现并更新 receipt provenance；旧入口兼容转发，保持输入 schema，不混入设备采集。 |
+| `tools/vdc/vdc_dpll_replay/` | `tools/domains/vdc/dpll_replay/` | 已迁移离线 Python 实现与同目录 C runner；旧 Python 入口兼容转发，迁移前 Python/C 原字节归档。仅允许隔离主机进程内 diagnostic replay，不授予 calibration、firmware lock 或硬件验收资格。 |
+| `tools/vdc/dpll_observation_decode/` | `tools/domains/vdc/dpll_observation_decode/` | 已迁移离线 binary/CRC/schema decoder；旧入口兼容转发，迁移前源码原字节归档。输出保持 analyzer 消费的 samples JSON 形状，不连接板卡或修改 TDMA。 |
+| `tools/vdc/dpll_residual_analyze/` | `tools/domains/vdc/dpll_residual_analyze/` | 已迁移离线 residual/convergence/anomaly analyzer；旧入口兼容转发，迁移前源码原字节归档。必须保留 decimation、坐标域与 metadata 限制，不把 monitor snapshot 上提为 full-rate trace 或物理锁相。 |
+| `tools/vdc/scope_dpll_capture/` | DPLL 分析归 `tools/domains/vdc/scope_capture/`；确认复用的 RAW/SCPI 设备接口才抽入 common | 不把现有 NORM 采集冒充联合采集的冻结 RAW 实现。 |
 | `tools/tdma_ring_monitor/`、`tools/calibration_ring_validate/` | 分别归 domains/tdma 和 domains/calibration 的工具目录 | 先复核动态加载、相对路径和 P3 调用；不整组盲搬。 |
-| `tools/scpi_common/` | `tools/common/scpi/` | 已迁移 serial lifecycle、board identity 与 OTA timing 唯一实现；全部仓内调用者改用 canonical import，旧 qualified/bare 包名保持 package/child 对象身份，迁移前实现按原字节归档。 |
-| `tools/cmake_build_auto/`、`tools/codex_watchdog/` | 分别归 build 和 host | 构建定位、运行状态与恢复方式须回归。 |
+| `tools/interface/scpi_common/` | `tools/common/scpi/` | 已迁移 serial lifecycle、board identity 与 OTA timing 唯一实现；全部仓内调用者改用 canonical import，旧 qualified/bare 包名保持 package/child 对象身份，迁移前实现按原字节归档。 |
+| `tools/cmake_build_auto/`、`tools/project/codex_watchdog/` | 分别归 build 和 host | 构建定位、运行状态与恢复方式须回归。 |
 | OTA、Flash 工具及全部稳定验收/门禁入口 | 仅登记分类，当前原位保留 | OTA 本轮不改；路径调整不得借机改变刷写行为。 |
 
 完整旧路径→目标路径→调用者→兼容方式→验证→回滚映射由逐批迁移任务维护；上表不是已执行搬迁清单。迁移优先级为主线工作流依赖闭合、公共叶模块、对应域入口，最后评估低收益的纯路径整理。单批同时更新登记、生成导航、调用方与测试，执行同指纹 P3；通过前不推进下一批。旧入口保持可用，退役仅作归档，不因标记 ARCHIVED 自动搬动历史文件。

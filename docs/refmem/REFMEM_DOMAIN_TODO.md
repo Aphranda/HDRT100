@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_TODO.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Last updated: 2026-09-16
+Last updated: 2026-10-10
 
 本文档维护 Distributed Vector Blackboard / RefMem Sync Domain 的当前可执行待办。这里不记录普通开发流水账，只记录会影响分布式共同事实、RefMemAO、A0-A7 通用逻辑插槽、节点装载、SlotClaim 协调、表镜像、slot owner、命令 ACK/NACK、部署门禁、连接质量和 RefMem Sync 的架构与实现事项。
 
@@ -38,7 +38,7 @@ Last updated: 2026-09-16
 
 - 生产：`components/distributed_refmem/inc/distributed_refmem.h`、`inc/refmem_vector_table.h`、
   `src/refmem_vector_table.c`、`src/refmem_application_model.c`、表 registry 的 owner 验证。
-- 必须同步审查 `tools/refmem_table_image/refmem_table_image.py` 的 `LAYOUT_VERSION`
+- 必须同步审查 `tools/refmem/refmem_table_image/refmem_table_image.py` 的 `LAYOUT_VERSION`
   和 `tests/python/test_refmem_pack_build.py`；仅改固件会使原工具生成的包与新固件不匹配。
 - 现有测试：`tests/unit/test_node_capacity.c`、`tests/unit/test_refmem_table_registry.c`
   的产包/stage/activate/rollback 用例、`tests/python/test_refmem_vector_projection.py`
@@ -146,7 +146,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] owner validation callback 结果必须写入 TableRegistry：table id、owner id、validator id、result、reason、evidence index 和失败阶段。
 - [x] 将 `SYSTem:REFMEM:LOAD:SD` 从 manifest 占位升级为 `.rmtp` table image parser 首版，校验 header、table directory、payload CRC、package CRC 和每表 CRC；当前只写 staging，active 替换必须通过 `SYSTem:REFMEM:LOAD:ACTivate` intent。
 - [x] 将 `.rmtp` 中的 `ApplicationMap`、`BoardCapabilityTable`、`GenericNodeTable` 和 `NodeLoadTable` 从 64 字节占位 payload 升级为固定 u32 表镜像；`RefMemTableRegistry` 在 package CRC 通过后解析这四张表并调用 application contract 做 owner validation。
-- [x] 将 RMTP table image 二进制生成逻辑收敛为共享基础件 `tools/refmem_table_image/refmem_table_image.py`，独立 package 工具和 SD System Pack staging 复用同一份 header、directory、表顺序、CRC 和默认表 payload。
+- [x] 将 RMTP table image 二进制生成逻辑收敛为共享基础件 `tools/refmem/refmem_table_image/refmem_table_image.py`，独立 package 工具和 SD System Pack staging 复用同一份 header、directory、表顺序、CRC 和默认表 payload。
 - [x] 将 `.rmtp` package validation summary 写入 `RefMemTableRegistry` per-table staging entry：descriptor 保留 package CRC，entry 使用 table directory CRC；全 9 张 canonical 表 owner validation 通过后 staging descriptor 进入 `OWNER_OK`，但真实 active image buffer 未落地前仍不得激活。
 - [x] 将 `.rmtp` 其余表从占位 payload 升级为真实表镜像，并接入各自 owner validation：FbInstance、EventLink、DataLink、DeploymentGate、ConnectionQuality。
 - [x] 将 `sd_fs_build.py` 集成 RefMem table image 生成，默认输出 `/refmem/app_model.rmtp`、`/refmem/app_model.idx`、`/refmem/app_model.json`，并在根 `/manifest.idx` 中作为 `required=...,type=refmem_table_image` 引用。
@@ -267,7 +267,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 阶段 2 前置：增加 PIO SPI adapter 单帧 RX staging / loopback 注入能力，先验证 HELLO frame 可被 adapter 接收、缓存、poll 和计数。
 - [x] 阶段 2 前置：增加 `REFMEM_HELLO` payload/frame helper，将 board capability、adapter caps、layout/application/config CRC 组合为标准 HELLO frame。
 - [x] 阶段 2 前置：增加 `SYSTem:REFMEM:SYNC:*` 维护入口，支持 `INITialize`、`HELLo?`、`EPOCh?`、`RX`、`PEER?`、`QUALity?`、`ADAPter?`；该入口只搬运协议帧和查询 sync snapshot，不写 active fact。
-- [x] 阶段 2 前置：固化 `tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py`，通过 SCPI 在两板之间搬运 HELLO/EPOCH hex frame，验证接收状态机、peer 和 quality。
+- [x] 阶段 2 前置：固化 `tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py`，通过 SCPI 在两板之间搬运 HELLO/EPOCH hex frame，验证接收状态机、peer 和 quality。
 - [x] 阶段 2：在两块最小系统板上通过 SCPI 搬运执行 `REFMEM_HELLO` 双向发送与接收，交换 layout version、application CRC、capability mask、adapter caps 和 max payload，并将结果写入 HIL 报告。
 - [x] 阶段 2：在两块最小系统板上通过 SCPI 搬运执行 `REFMEM_EPOCH` 对齐，epoch/run/table seq 或 CRC bundle 不匹配时拒绝进入 delta active，并将结果写入 HIL 报告。
 - [x] 阶段 2：将当前 SCPI 搬运通路切到真实 PIO SPI 物理 adapter service，保留相同 frame/peer/quality 语义。当前 `SYSTem:REFMEM:SYNC:SPI:*` 只触发帧级 TX/RX；RefMem frame 已在 COM5/COM6 的真实 PIO+DMA 物理链路上以 25 MHz 完成 `RAW/HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 双向闭环。
@@ -282,13 +282,13 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - [x] 将 TDMA service 接入 `DistributedRefMemAO` 初始化、core1 realtime loop 和维护查询 `SYSTem:REFMEM:SYNC:TDMA:STATus?`。
   - [x] 为 TDMA service 增加 physical ops 边界，并在 `DistributedRefMemAO` 中绑定 PIO+DMA physical adapter wrapper；core1 service 已可通过 intent 执行真实 `transmit/receive`。
   - [x] 增加维护入口 `SYSTem:REFMEM:SYNC:TDMA:TX/RX/FRAMe?/ABORt`，支持 post TDMA intent、读取 TDMA result frame 并进入 RefMem Sync decode。
-  - [x] `tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 增加 `--transport tdma`，复用现有 frame builder 和 pin remap，以 TDMA intent 路径跑 HELLO/EPOCH/DELTA/ACK/FENCE/QUALITY。
+  - [x] `tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py` 增加 `--transport tdma`，复用现有 frame builder 和 pin remap，以 TDMA intent 路径跑 HELLO/EPOCH/DELTA/ACK/FENCE/QUALITY。
   - [x] 用 COM5/COM6 实板执行 `--transport tdma` HIL，确认不再依赖 `SYSTem:REFMEM:SYNC:SPI:*` 帧级阻塞命令。
   - [x] 在 TDMA HIL 通过后，将 `SYSTem:REFMEM:SYNC:SPI:*` 帧级阻塞命令降级为 legacy/diagnostic 或删除，仅保留 line/raw bring-up 必要入口。
   - [x] 增加 TDMA window timeout、DMA overrun、missed window 和 physical adapter error 到 `DistributedConnectionQualityTable` 的正式映射。
   - [x] 增加 `refmem_quality_evaluate_deployment_gate()`，把 runtime quality table 转换为 `DeploymentGate.QUALITY` 的 pass/reject/evidence 结果。
   - [x] 将 quality gate evaluator 接入 `system_manager` config RUN gate，使 TDMA timeout、late、drop 或 physical last_error 能拒绝 RUN 或 latch fault。
-- [x] 固化 `tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`，脚本化 TDMA timeout -> config RUN gate reject -> config ACK/NACK reject -> OTA restore 闭环。
+- [x] 固化 `tools/refmem/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py`，脚本化 TDMA timeout -> config RUN gate reject -> config ACK/NACK reject -> OTA restore 闭环。
 - [x] 阶段 3：实现最小 `REFMEM_DELTA` test field，通过 SCPI 搬运从 A 板发布到 B 板 mirror、B 板发布到 A 板 mirror，并切换到 sync mirror snapshot visible。
 - [x] 阶段 3：实现 `REFMEM_ACK_NACK` 回传，覆盖 ACK、payload CRC mismatch、duplicate seq 和 target mismatch；当前通过 SCPI bridge 基于最近一次 RX snapshot 生成 ACK/NACK frame，并由对端记录 ack snapshot。
 - [x] 阶段 4：实现最小 `REFMEM_FENCE`，验证 required 节点 visible 后 fence passed，min seq 不满足且 deadline 为 0 时进入 timeout evidence snapshot；当前仍是 SCPI bridge 验证，不代表真实 RUN gate 已接入。
@@ -371,10 +371,10 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 增加 table image activation 验证：COM5/COM6 build `20260815121205` 已通过 `LOAD:SD -> LOAD:ACTivate -> TABle:IMAGe? -> TABle? 0..8`，确认 active CRC bundle、table seq、staging 清零和 `ACTIVE` 状态按预期变化；首轮没有旧 active package bytes，因此 rollbackable descriptor 为空，后续需增加二次 activation 回滚验证。
 - [ ] 增加 activation 失败回滚验证：owner validation 失败、SlotClaim 冲突、DeploymentGate 拒绝和 ACK timeout 都不得污染旧 active image。
 - [x] 增加 TableRegistry 纯 C 单元测试入口：`tools/tests/run_refmem_table_registry_tests.ps1`，覆盖 active descriptor、staging activation、gate 失败保持 active 不变、rollbackable descriptor 和无有效 staging 拒绝。
-- [x] 增加 SlotClaim gate 正向验证入口：`tools/multicore_board_validate` 和 pytest HIL 查询 `SYSTem:REFMEM:CLAIM?` 与 `SYSTem:CONFigure:STAT?`，确认默认 profile gate ready 一致。
+- [x] 增加 SlotClaim gate 正向验证入口：`tools/rtos/multicore_board_validate` 和 pytest HIL 查询 `SYSTem:REFMEM:CLAIM?` 与 `SYSTem:CONFigure:STAT?`，确认默认 profile gate ready 一致。
 - [ ] 增加 SlotClaim 验证：重复 claim、缺失 UUID、stale、9-16 候选 overflow、超过 16 候选 rejected。
 - [x] 增加 SlotClaim 纯 C 单元测试入口：`tools/tests/run_refmem_slot_claim_tests.ps1`，覆盖默认 assignment、重复 claim、UUID mismatch 和第 9 个候选 overflow；无 host C 编译器时退化为 ARM GCC 编译检查。
-- [x] 增加两块最小系统板组网 baseline 验证工具骨架：`tools/refmem_network_validate/refmem_network_validate.py` 管理两个串口生命周期，确认 `REFMEM + VDC + TDMA` baseline、SlotClaim gate ready、默认 evidence 为空，并可比较 build id 与 SlotClaimMap CRC。
+- [x] 增加两块最小系统板组网 baseline 验证工具骨架：`tools/refmem/refmem_network_validate/refmem_network_validate.py` 管理两个串口生命周期，确认 `REFMEM + VDC + TDMA` baseline、SlotClaim gate ready、默认 evidence 为空，并可比较 build id 与 SlotClaimMap CRC。
 - [x] 增加两块最小系统板 `debug_min_two_board_link` PIO 预检：读取或记录 active profile 的输入/输出 base pin，确认双方按 profile 交叉连接，且 `GPIO12..15` 未被双板链路占用。
 - [x] 增加两块最小系统板 PIO SPI adapter HIL 验证：按 P4.5 完成 `HELLO/EPOCH/DELTA/ACK_NACK/FENCE/QUALITY` 闭环；build `20260815031915` 在 COM5/COM6 上通过 25 MHz PIO+DMA physical adapter HIL，同一验证不依赖 BISS-C。
 - [x] 增加 core1 TDMA service HIL 验证：不通过 SCPI 在每帧前后阻塞等待，改为 core0 配置窗口、core1/realtime service 驱动 PIO+DMA 环路，报告 frame-ready、missed window、DMA overrun 和 quality evidence。

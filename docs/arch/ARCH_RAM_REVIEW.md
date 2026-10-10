@@ -4,13 +4,13 @@ Status: Draft
 Domain: ARCH
 Canonical: `docs/arch/ARCH_RAM_REVIEW.md`
 Related: `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/release/RELEASE_CHECKLIST.md`
-Last updated: 2026-09-17
+Last updated: 2026-10-10
 
 **目标**：为 DPLL/VDC 调试维持可用 SRAM 余量。DPLL/VDC 仍是主任务，RAM 只是它的使能条件；
 release RAM 门禁不作为本阶段验收条件。
 
 本文档记录当前余量状态、占用构成与消耗归因，并给出建议条目。**文中全部容量、余量与增量
-均为指定构建产物的快照，非事实源**；判据以 `tools/ram_budget_check/ram_budget_check.py`
+均为指定构建产物的快照，非事实源**；判据以 `tools/project/ram_budget_check/ram_budget_check.py`
 在**当前**构建上的实跑输出为准。建议条目由 `RAM-NN` 编号，供各域 owner 认领；未认领并
 登记前不构成待办或契约。
 
@@ -148,8 +148,8 @@ release RAM 门禁不作为本阶段验收条件。
 ## 7. 复核命令
 
 ```powershell
-python tools/ram_budget_check/ram_budget_check.py out/build/dpll-fragment-spacing-r1/DHRT100.elf.map --profile release
-python tools/ram_budget_check/ram_budget_check.py out/build/dpll-fragment-spacing-r1/DHRT100_B.elf.map --profile release
+python tools/project/ram_budget_check/ram_budget_check.py out/build/dpll-fragment-spacing-r1/DHRT100.elf.map --profile release
+python tools/project/ram_budget_check/ram_budget_check.py out/build/dpll-fragment-spacing-r1/DHRT100_B.elf.map --profile release
 ```
 
 净余量 = 输出的 `link_free_bytes` 减去 2,048 B。该值接近 0 时，下一个 DPLL/VDC 切片就可能

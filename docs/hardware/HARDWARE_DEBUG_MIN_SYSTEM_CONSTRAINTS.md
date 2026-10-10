@@ -4,7 +4,7 @@ Status: Draft
 Domain: HARDWARE
 Canonical: `docs/hardware/HARDWARE_DEBUG_MIN_SYSTEM_CONSTRAINTS.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/hardware/HARDWARE_PRODUCT_BOARD_CONSTRAINTS.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-08-13
+Last updated: 2026-10-10
 
 本文档定义当前正在运行和调试的最小系统板 / DEMO 板硬件约束。该板用于验证 HAOFV、RTOS、双核、SCPI、OTA、SD、基础触发和工具链闭环，不作为产品板 pin map 或隔离策略冻结依据。
 
@@ -103,7 +103,7 @@ Last updated: 2026-08-13
 - `GPIO12..15` 与 SD/SPI 调试资源存在冲突；双板直连验证时不得把它们作为主链路。
 - 输出线建议串 `47R~100R` 调试电阻；在方向 ownership 未明确前，禁止把两块板的
   输出脚同名直连。
-- 自动线序检测以 `tools/two_board_io_validate/two_board_io_validate.py` 为准；该工具
+- 自动线序检测以 `tools/sync/two_board_io_validate/two_board_io_validate.py` 为准；该工具
   支持方向性 logical remap，避免把临时线束顺序硬编码进产品 pin map。
 - 产品板最终 PIO/SMA/RJ45/BiSS pin map 仍以产品板硬件约束和网表为准。
 

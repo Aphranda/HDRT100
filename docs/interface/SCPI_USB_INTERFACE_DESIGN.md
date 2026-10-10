@@ -4,7 +4,7 @@ Status: Active
 Domain: USB
 Canonical: `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`
 Related: `docs/interface/SCPI_COMMANDS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-06
+Last updated: 2026-10-10
 
 本文档记录 RP2350_TRIG 当前 USB 接口形态、USBTMC/USB488 接入策略和后续产品化注意事项。
 
@@ -152,7 +152,7 @@ SYST:ERR:COUN? -> 0
 
 ### 2026-07-22 USBTMC OTA package
 
-- 通过 `tools/visa_ota_send/visa_ota_send.py` 使用 USBTMC/VISA 发送 `build-codex-usbtmc/RP2350_TRIG_UPDATE.pkg`。
+- 通过 `tools/ota/visa_ota_send/visa_ota_send.py` 使用 USBTMC/VISA 发送 `build-codex-usbtmc/RP2350_TRIG_UPDATE.pkg`。
 - package 大小 `333188` B，CRC32 `0x24C0ED9C`。
 - 发送过程确认状态序列：`RECEIVING -> ERASE_SLOT -> RECEIVING -> READY_TO_REBOOT`。
 - OTA 后发送 `SYST:OTA:BOOT`，设备重新枚举为 USBTMC。

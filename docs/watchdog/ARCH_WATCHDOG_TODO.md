@@ -4,7 +4,7 @@ Status: Draft
 Domain: WATCHDOG
 Canonical: `docs/watchdog/ARCH_WATCHDOG_TODO.md`
 Related: `docs/watchdog/README.md`, `docs/watchdog/ARCH_WATCHDOG_ARCHITECTURE.md`, `docs/watchdog/ARCH_WATCHDOG_TASK_PROGRESS.md`, `docs/ota/OTA_TODO.md`, `docs/arch/RTOS_HAOFV_TODO.md`
-Last updated: 2026-09-06
+Last updated: 2026-10-10
 
 本文只维护 Watchdog 子域任务状态；稳定语义见 `ARCH_WATCHDOG_ARCHITECTURE.md`，板端和失败证据见 `ARCH_WATCHDOG_TASK_PROGRESS.md`。
 
@@ -18,7 +18,7 @@ Last updated: 2026-09-06
 drivers/mcu/watchdog/                 # 硬件 adapter，保留最小 API
 components/watchdog_supervisor/       # 目标：唯一 feed owner、health gate、fault record
 components/diagnostics/               # 只读投影、兼容 SCPI/status 接口
-tools/watchdog_monitor/               # 复位后采样、五板探针、证据打包
+tools/watchdog/watchdog_monitor/               # 复位后采样、五板探针、证据打包
 tests/unit/test_watchdog_*.c          # supervisor/record/故障注入
 tests/python/test_watchdog_*.py       # 工具、解析和证据 schema
 docs/watchdog/                        # 本子域三件套

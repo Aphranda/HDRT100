@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-09-19
+Last updated: 2026-10-10
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面。
 
@@ -1413,7 +1413,7 @@ SD 根 `/manifest.idx` 只作为 System Pack 总索引；它负责告诉固件�
 /refmem/app_model.json
 ```
 
-其中 `.rmtp` 是固件后续解析的二进制 table image，`.idx` 是轻量索引，`.json` 是 PC 工具和人工审查用说明。RMTP 二进制生成由 `tools/refmem_table_image/refmem_table_image.py` 统一维护；`tools/refmem_pack_build/refmem_pack_build.py` 和 `tools/sd_fs_build/sd_fs_build.py` 只负责各自输出目录、manifest 和 idx。当前 table 0 `ApplicationMap`、table 1 `BoardCapability`、table 2 `GenericNode`、table 3 `NodeLoad`、table 4 `FbInstance`、table 5 `EventLink`、table 6 `DataLink`、table 7 `DeploymentGate` 与 table 8 `ConnectionQuality` 均已是固定 u32 真实表镜像；带名字或路径语义的表项在 `.rmtp` 中使用 `name_hash` / `region_path_hash`，人类可读文本留在 `.idx` / `.json` 等调试说明中。SD System Pack 在根 `/manifest.idx` 中加入：
+其中 `.rmtp` 是固件后续解析的二进制 table image，`.idx` 是轻量索引，`.json` 是 PC 工具和人工审查用说明。RMTP 二进制生成由 `tools/refmem/refmem_table_image/refmem_table_image.py` 统一维护；`tools/refmem/refmem_pack_build/refmem_pack_build.py` 和 `tools/storage/sd_fs_build/sd_fs_build.py` 只负责各自输出目录、manifest 和 idx。当前 table 0 `ApplicationMap`、table 1 `BoardCapability`、table 2 `GenericNode`、table 3 `NodeLoad`、table 4 `FbInstance`、table 5 `EventLink`、table 6 `DataLink`、table 7 `DeploymentGate` 与 table 8 `ConnectionQuality` 均已是固定 u32 真实表镜像；带名字或路径语义的表项在 `.rmtp` 中使用 `name_hash` / `region_path_hash`，人类可读文本留在 `.idx` / `.json` 等调试说明中。SD System Pack 在根 `/manifest.idx` 中加入：
 
 ```text
 required=/refmem/app_model.rmtp,type=refmem_table_image,size=<bytes>,crc32=<crc32>

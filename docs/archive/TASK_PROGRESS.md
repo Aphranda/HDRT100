@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/archive/TASK_PROGRESS.md`
 Related: `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/communication/BISSC_TASK_PROGRESS.md`, `docs/storage/SD_TASK_PROGRESS.md`
-Last updated: 2026-09-06
+Last updated: 2026-10-10
 
 本文档用于记录 RP2350_TRIG 工程的正式任务进度。每完成一个正式任务后，都应追加一条记录，说明任务目标、完成内容、验证结果、剩余工作和下一步计划，便于后续回溯设计决策和工程状态。
 
@@ -92,20 +92,20 @@ Last updated: 2026-09-06
   - 其余板按内部 BiSSC 组网的逻辑角色声明，不再写成 5 个外部串口。
   - 让脚本和文档都能直接反映 A3 控制面 + 内部 peer 的真实拓扑。
 - 完成内容：
-  - 重构 `tools/distributed_loopback_validate/distributed_loopback_validate.py` 的命令行入口，改成 `--a3-port` + `--peer` + `--sim-role`。
+  - 重构 `tools/communication/distributed_loopback_validate/distributed_loopback_validate.py` 的命令行入口，改成 `--a3-port` + `--peer` + `--sim-role`。
   - 将 A4 作为 bench-side simulator role 保留在拓扑层，不再要求它占用外部 COM 口。
   - 新增 `docs/communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`，存档本轮 BiSS 组网处理流程。
   - 更新 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`、`docs/README.md` 和 `.gitignore`，把“5 串口”旧口径收回。
 - 验证结果：
-  - `python -m py_compile tools/distributed_loopback_validate/distributed_loopback_validate.py` 通过。
+  - `python -m py_compile tools/communication/distributed_loopback_validate/distributed_loopback_validate.py` 通过。
   - `python tools/docs_check/docs_check.py` 通过，仍有 6 个历史命名 warning。
-  - `python tools/distributed_loopback_validate/distributed_loopback_validate.py --a3-port COM5 --peer A0 --peer A1 --peer A2 --peer A4 --sim-role A4 --dry-run --out-dir build-biss-network\dryrun_check` 通过。
+  - `python tools/communication/distributed_loopback_validate/distributed_loopback_validate.py --a3-port COM5 --peer A0 --peer A1 --peer A2 --peer A4 --sim-role A4 --dry-run --out-dir build-biss-network\dryrun_check` 通过。
   - 当前尚未执行真实 A3 串口 preflight。
 - 还需完成：
   - 视现场硬件情况执行 A3 串口 preflight。
   - 如果后续固件开放内部 BiSSC 帧闭环，再把脚本扩展成真实网络闭环。
 - 关联文件：
-  - `tools/distributed_loopback_validate/distributed_loopback_validate.py`
+  - `tools/communication/distributed_loopback_validate/distributed_loopback_validate.py`
   - `docs/communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`
   - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
   - `docs/README.md`
@@ -126,16 +126,16 @@ Last updated: 2026-09-06
   - 新增 SCPI 查询 `SYST:MODE:TAB?`、`SYST:RESource:TAB?`、`SYST:FAULT:TAB?`。
   - `ResourceArbiterTable` 接入当前 `resource_arbiter` mode、active_resources、last_conflict 和资源 owner。
   - `FaultCodeTable` 汇总诊断、Trigger、OTA、Storage 的产品常见故障域。
-  - `tools/multicore_board_validate` 新增 `system_resource_fault_tables` 用例。
+  - `tools/rtos/multicore_board_validate` 新增 `system_resource_fault_tables` 用例。
   - `docs/interface/SCPI_COMMANDS.md` 与 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md` 已同步更新。
 - 验证结果：
   - `cmake --build --preset pico2-rtos-multicore-smoke` 通过，build id `20260810155455`。
   - `cmake --preset pico2-release` 通过。
   - `cmake --build --preset pico2-release` 通过，build id `20260810155518`。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
   - `python tools/docs_check/docs_check.py` 通过，仍有 6 个历史命名 warning。
   - 已 OTA 烧录 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg` 到 COM5，并执行 `SYST:OTA:COMM`。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM5 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke/multicore_validation_system_tables_rerun` 通过，`15/15 PASS`。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM5 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke/multicore_validation_system_tables_rerun` 通过，`15/15 PASS`。
 - 还需完成：
   - 完整 `task_system` 模式切换 AO 和恢复动作表。
   - 为共享表项补齐统一 `table_seq / owner / crc / stale / flags` 语义。
@@ -144,7 +144,7 @@ Last updated: 2026-09-06
   - `application/inc/app.h`
   - `application/src/app.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `tools/multicore_board_validate/multicore_board_validate.py`
+  - `tools/rtos/multicore_board_validate/multicore_board_validate.py`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 - 下一步：
@@ -163,16 +163,16 @@ Last updated: 2026-09-06
   - `application` 新增 ACK 快照查询，暴露 command seq、ack/nack/busy/timeout 和 reason table CRC。
   - `middleware/scpi_port` 新增 `SYST:CFG:ACK?`、`SYST:CFG:NACK?`、`SYST:SCPI:RUN:ALLOW?`。
   - 触发、采样、时钟、BiSS、PCNT、Storage 和 OTA 的关键写入口接入统一 RUN 态拒绝码。
-  - `tools/multicore_board_validate` 新增 ACK reason / RUN policy 验证。
+  - `tools/rtos/multicore_board_validate` 新增 ACK reason / RUN policy 验证。
   - `docs/interface/SCPI_COMMANDS.md` 与 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md` 已同步更新。
 - 验证结果：
   - `cmake --build --preset pico2-rtos-multicore-smoke` 通过，build id `20260810153737`。
   - `cmake --preset pico2-release` 通过。
   - `cmake --build --preset pico2-release` 通过，build id `20260810153757`。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
   - `python tools/docs_check/docs_check.py` 通过，仍有 6 个历史命名 warning。
   - 已 OTA 烧录 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg` 到 COM5，并执行 `SYST:OTA:COMM`。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM5 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke/multicore_validation_ack_run_policy` 通过，`14/14 PASS`。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM5 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke/multicore_validation_ack_run_policy` 通过，`14/14 PASS`。
 - 还需完成：
   - 真实跨板 RJ45 ACK delta 位图同步。
   - SystemMode / ResourceArbiter 的完整查询表。
@@ -183,7 +183,7 @@ Last updated: 2026-09-06
   - `application/inc/app.h`
   - `application/src/app.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `tools/multicore_board_validate/multicore_board_validate.py`
+  - `tools/rtos/multicore_board_validate/multicore_board_validate.py`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 - 下一步：
@@ -202,17 +202,17 @@ Last updated: 2026-09-06
   - 新增 `distributed_refmem_get_core_vector()` 和 `distributed_refmem_get_runtime_protection()` 快照 API。
   - `drv_flash` 增加 `drv_flash_get_lockout_status()`，暴露 core1 lockout online/request/ack 状态。
   - 新增 SCPI 查询 `SYST:CORE:VECT?` 和 `SYST:PROT:STAT?`。
-  - `tools/multicore_board_validate` 增加 `runtime_protection_tables` 用例。
+  - `tools/rtos/multicore_board_validate` 增加 `runtime_protection_tables` 用例。
 - 验证结果：
   - `cmake --build --preset pico2-rtos-multicore-smoke` 通过，生成 build id `20260810151918`。
   - `cmake --preset pico2-release` 通过。
   - `cmake --build --preset pico2-release` 通过，生成 build id `20260810151953`。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过，`release_check=OK`。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过，`release_check=OK`。
   - `python tools/docs_check/docs_check.py` 通过，剩余 6 个历史命名 warning。
   - 已通过 OTA 烧录 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg` 到 COM5，`SYST:OTA:COMM` 后 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`。
   - `SYST:CORE:VECT?` 返回 core_count=2、core1 owner=1、core1_irq_mask=3840、guard CRC 非 0。
   - `SYST:PROT:STAT?` 返回 ram_resident_required=1、flash_lockout_supported=1、flash_lockout_online=1、entry_table_owner=2。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM5 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke/multicore_validation_core_vector_tables` 通过，`13/13 PASS`。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM5 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke/multicore_validation_core_vector_tables` 通过，`13/13 PASS`。
 - 还需完成：
   - 继续实现分布式命令 ACK/NACK reason、RUN 态命令白名单和 SystemMode/ResourceArbiter 查询表。
   - 后续将 core1 关键入口、lockout poll 和实时快路径迁移到显式 RAM-resident section，并增加 linker map 断言。
@@ -222,7 +222,7 @@ Last updated: 2026-09-06
   - `drivers/mcu/flash/inc/drv_flash.h`
   - `drivers/mcu/flash/src/drv_flash.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `tools/multicore_board_validate/multicore_board_validate.py`
+  - `tools/rtos/multicore_board_validate/multicore_board_validate.py`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
 - 下一步：
@@ -247,7 +247,7 @@ Last updated: 2026-09-06
   - `cmake --preset pico2-rtos-multicore-smoke` 通过。
   - `cmake --build build-rtos-multicore-smoke -j 8` 通过。
   - 已通过 OTA 烧录 `build-rtos-multicore-smoke/RP2350_TRIG_UPDATE.pkg` 到 COM5 板卡。
-  - `python tools/multicore_board_validate/multicore_board_validate.py COM5 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke/multicore_validation_distributed_config` 通过，`11/11 PASS`。
+  - `python tools/rtos/multicore_board_validate/multicore_board_validate.py COM5 --timeout 8 --settle 2 --out-dir build-rtos-multicore-smoke/multicore_validation_distributed_config` 通过，`11/11 PASS`。
   - 重新烧录后的 build id 为 `20260810134805`，`SYST:CFG:STAT?` 返回完整 config gate 快照。
   - `SYST:CFG:ROLE?`、`SYST:CFG:LOOP?`、`SYST:CFG:ACT?`、`SYST:CFG:CAL?` 已在板端 smoke 中通过。
   - `SYST:OTA:COMM` 已完成最终确认；阻塞根因已定位并修复为 flash 写 metadata 时 core1 未进入 lockout，修复后 `COMM` 后 `SYST:OTA:STAT?` 正常返回 `"COMMITTED",1,"NONE",5`，core1 loop 计数继续增长。
@@ -393,7 +393,7 @@ Last updated: 2026-09-06
 - 验证结果：
   - 本任务只重构规划文档，未修改固件代码，未执行构建或烧录。
 - 还需完成：
-  - 后续 P0A 从 `tools/sd_fs_build/sd_fs_build.py` 开始，实现固定目录、`manifest.json` 和 `manifest.idx`。
+  - 后续 P0A 从 `tools/storage/sd_fs_build/sd_fs_build.py` 开始，实现固定目录、`manifest.json` 和 `manifest.idx`。
   - 后续再在 `storage_manager` 中引入 `StorageAO/StorageFB` 最小 job 框架。
 - 关联文件：
   - `docs/storage/SD_TODO.md`
@@ -478,7 +478,7 @@ Last updated: 2026-09-06
 - 验证结果：
   - 本任务只重构文档，未修改固件代码，未执行构建或烧录。
 - 还需完成：
-  - 按新结构更新 `tools/sd_fs_build/sd_fs_build.py`，生成完整目录、`manifest.json` 和 `manifest.idx`。
+  - 按新结构更新 `tools/storage/sd_fs_build/sd_fs_build.py`，生成完整目录、`manifest.json` 和 `manifest.idx`。
   - 在 `storage_manager` 中实现 P0A：manifest scan、路径白名单、文件信息查询和 required 文件检查。
 - 关联文件：
   - `docs/storage/SD_TODO.md`
@@ -512,7 +512,7 @@ Last updated: 2026-09-06
 - 验证结果：
   - 本任务只更新规划文档，未修改固件代码，未执行构建或烧录。
 - 还需完成：
-  - 将该设计落地到 `tools/sd_fs_build/sd_fs_build.py`。
+  - 将该设计落地到 `tools/storage/sd_fs_build/sd_fs_build.py`。
   - 在 `storage_manager` 中实现路径规范化、manifest scan、required 文件检查和 StorageVector 扩展。
   - 实现 snapshot 原子写入和 trace `.bin/.idx` 成对落盘。
 - 关联文件：
@@ -549,7 +549,7 @@ Last updated: 2026-09-06
 - 验证结果：
   - 本任务只更新规划文档，未修改固件代码，未执行构建或烧录。
 - 还需完成：
-  - 更新 `tools/sd_fs_build/sd_fs_build.py`，按该文件架构生成 SD staging tree、manifest 和默认目录。
+  - 更新 `tools/storage/sd_fs_build/sd_fs_build.py`，按该文件架构生成 SD staging tree、manifest 和默认目录。
   - 在 `storage_manager` 中实现 manifest scan、路径规范化和默认文件存在性检查。
   - 后续实现 snapshot JSON 写入和 trace binary 落盘。
 - 关联文件：
@@ -684,8 +684,8 @@ Last updated: 2026-09-06
   - `components/sync_config_ui/src/sync_config_ui.c`
   - `components/sync_config_ui/inc/sync_config_ui.h`
   - `application/src/app.c`
-  - `tools/release_check/release_check.py`
-  - `tools/ota_board_validate/ota_board_validate.py`
+  - `tools/project/release_check/release_check.py`
+  - `tools/ota/ota_board_validate/ota_board_validate.py`
   - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 回到 SD 卡系统闭环：准备带 `/update/RP2350_TRIG_UPDATE.pkg` 的 SD 卡，复测 `MMEM:CAT? "/update"`，再实现 App 侧 `SYST:OTA:FILE "<path>"` 离线 OTA 数据流。
@@ -699,7 +699,7 @@ Last updated: 2026-09-06
   - 建立 SD 卡文件系统 staging 工具、板端 SD/FatFs 最小访问链路、SCPI 查询/目录枚举和独立 LCD 页面。
   - 记录 SD 卡后续工作清单，为离线 OTA、日志、配置、资源和采样文件管理继续推进。
 - 完成内容：
-  - 新增 `tools/sd_fs_build/sd_fs_build.py`，生成 `build/sdcard/` 和 `build/RP2350_TRIG_SDCARD.zip`，默认离线 OTA 包路径规划为 `/update/RP2350_TRIG_UPDATE.pkg`。
+  - 新增 `tools/storage/sd_fs_build/sd_fs_build.py`，生成 `build/sdcard/` 和 `build/RP2350_TRIG_SDCARD.zip`，默认离线 OTA 包路径规划为 `/update/RP2350_TRIG_UPDATE.pkg`。
   - 新增 `drivers/external/sd_card/`，实现 SD SPI 模式最小驱动，支持卡初始化、类型识别、容量信息和 block 访问。
   - 新增 `middleware/fatfs_port/`，接入 Pico SDK bundled FatFs source，并通过 `fatfs_diskio.c` 连接 SD block driver。
   - 新增 `components/storage_manager/`，封装 SD 探测、FatFs mount、目录枚举和 `storage_manager_vector_t` 快照。
@@ -733,7 +733,7 @@ Last updated: 2026-09-06
   - Bootloader 仍不读取 SD/FatFs，符合当前架构约束；离线 OTA 第一版应由 App 读取 SD 包，再走现有 `OtaAO/OtaFB/OtaVector` 流程。
   - LCD 与 SD 共享 SPI0，当前 UI 刷新和 SD 访问已具备 Resource Arbiter 边界，但后续大文件读取仍需要更严格的分片、超时和让步策略。
 - SD 卡后续 TODO：
-  - 将 `tools/sd_fs_build/sd_fs_build.py` 生成的 `build/sdcard/` 实际写入 SD 卡，补齐 `/update/RP2350_TRIG_UPDATE.pkg`，复测 `MMEM:CAT? "/update"`。
+  - 将 `tools/storage/sd_fs_build/sd_fs_build.py` 生成的 `build/sdcard/` 实际写入 SD 卡，补齐 `/update/RP2350_TRIG_UPDATE.pkg`，复测 `MMEM:CAT? "/update"`。
   - 增加离线 OTA 命令，例如 `SYST:OTA:FILE "<path>"`：从 FatFs 分块读取 `.pkg`，转换为现有 OTA begin/data/end 事件；SCPI/UI/SD 入口不得直接改 OTA 状态。
   - 增加文件筛选和校验：只接受统一 `.pkg` 作为默认 release OTA 包，raw `.bin` 保留兼容/台架路径；读取前检查 magic、size、CRC/header。
   - 增强 `storage_manager`：路径规范化、根目录和 `/update` 快速状态、文件大小查询、目录项数量限制、错误码压缩、热插拔重探测。
@@ -744,7 +744,7 @@ Last updated: 2026-09-06
   - 更新 `docs/interface/SCPI_COMMANDS.md`、`README.md` 和 `docs/legacy/ota/OTA_SYSTEM_DESIGN.md`，把已实现命令和后续 `SYST:OTA:FILE` 流程写清楚。
   - 在 `tools/bench/rp2350_tk_toolbox.py` 中继续扩展 SD 操作区：构建 SD 文件系统、打开 staging 目录、查询 SD 状态、列目录、触发离线 OTA。
 - 关联文件：
-  - `tools/sd_fs_build/sd_fs_build.py`
+  - `tools/storage/sd_fs_build/sd_fs_build.py`
   - `drivers/external/sd_card/inc/sd_card.h`
   - `drivers/external/sd_card/src/sd_card.c`
   - `middleware/fatfs_port/inc/fatfs_port.h`
@@ -921,7 +921,7 @@ Last updated: 2026-09-06
   - `cmake -S . -B build-codex-trigger-enc -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF -DPROJECT_USE_FREERTOS=OFF` 通过。
   - `cmake --build build-codex-trigger-enc` 通过。
   - build id：`20260626040831`，package CRC32：`0xB575E2A0`。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build-codex-trigger-enc` 通过，`release_check=OK`。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build-codex-trigger-enc` 通过，`release_check=OK`。
   - 已烧录 `build-codex-trigger-enc/RP2350_TRIG_FACTORY.uf2` 到板端；picotool 自动请求设备进入 BOOTSEL，烧录完成后自动回到 application mode。
   - 板端 COM4 SCPI smoke 通过：
     - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
@@ -1174,7 +1174,7 @@ Last updated: 2026-09-06
   - `application/src/app.c` 拆分 `app_comm_service()`、`app_ota_service()`、`app_ui_service()` 和 `app_diag_service()`，让业务服务面与任务容器边界一一对应。
   - `components/ota_manager/src/ota_ao.c` 为内部事件环形队列补充 `osal_critical_enter/exit()` 保护，允许 `task_comm` 投递 OTA 事件、`task_ota` 独立消费。
   - `boards/rp2350_trig/src/board.c` 在 RTOS smoke 下临时关闭硬件 watchdog enable/feed，避免早期 RTOS 故障被反复复位掩盖。
-  - `tools/release_check/release_check.py` 增加检查：当前 `pico2-release` 必须保持 `PROJECT_USE_FREERTOS=OFF`，直到 RTOS release 等价验证完成。
+  - `tools/project/release_check/release_check.py` 增加检查：当前 `pico2-release` 必须保持 `PROJECT_USE_FREERTOS=OFF`，直到 RTOS release 等价验证完成。
   - 修正 `README.md` 中 RTOS 方案文件名引用为 `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`。
 - 验证结果：
   - `cmake -S . -B build-rtos-step1 -G Ninja -DPICO_BOARD=pico2 -DPROJECT_WARNINGS_AS_ERRORS=ON -DPROJECT_ENABLE_OTA_FAULT_INJECTION=OFF -DPROJECT_USE_FREERTOS=OFF` 通过。
@@ -1202,7 +1202,7 @@ Last updated: 2026-09-06
   - `osal/port/baremetal/osal_baremetal.c`
   - `osal/port/freertos/osal_freertos.c`
   - `config/freertos/FreeRTOSConfig.h`
-  - `tools/release_check/release_check.py`
+  - `tools/project/release_check/release_check.py`
   - `README.md`
   - `third_party/freertos/FreeRTOS-Kernel/`
 - 下一步：
@@ -1262,7 +1262,7 @@ Last updated: 2026-09-06
   - 增加 portable OTA flash page/sector 几何参数防护，避免非 2 的幂配置导致对齐计算静默错误。
   - 明确 `portable_ota_core_port.c` 在 Bootloader/App 两种编译模式下的职责边界。
 - 完成内容：
-  - `tools/ota_board_validate/ota_board_validate.py` 的 `run_command()` 捕获 `subprocess.TimeoutExpired`，写入已有 stdout/stderr、`timeout=true`、`timeout_s` 和 `exit_code=124`，保证验证失败时仍保留 step log 并进入 `summary.json` 汇总。
+  - `tools/ota/ota_board_validate/ota_board_validate.py` 的 `run_command()` 捕获 `subprocess.TimeoutExpired`，写入已有 stdout/stderr、`timeout=true`、`timeout_s` 和 `exit_code=124`，保证验证失败时仍保留 step log 并进入 `summary.json` 汇总。
   - `third_party/portable_ota/src/pota_core.c` 新增 flash geometry 校验：`flash_page_size` 和 `flash_sector_size` 必须为 2 的幂，且 page size 不超过 `POTA_MAX_FLASH_PAGE_SIZE`。
   - `tests/unit/test_portable_ota_core.c` 增加非法 page/sector 几何参数拒绝测试，确认无 erase/program/mark_pending 副作用。
   - `middleware/portable_ota_port/src/portable_ota_core_port.c` 增加 `PORTABLE_OTA_PORT_ENABLE_SESSION` 编译模式说明。
@@ -1285,7 +1285,7 @@ Last updated: 2026-09-06
 - 还需完成：
   - Bootloader copy transaction 当前仍是可靠失败/重试模型，不是按 `copy_written` 断点续拷；是否升级为真正续拷另行评估。
 - 关联文件：
-  - `tools/ota_board_validate/ota_board_validate.py`
+  - `tools/ota/ota_board_validate/ota_board_validate.py`
   - `third_party/portable_ota/src/pota_core.c`
   - `tests/unit/test_portable_ota_core.c`
   - `middleware/portable_ota_port/src/portable_ota_core_port.c`
@@ -1305,7 +1305,7 @@ Last updated: 2026-09-06
   - 删除 `middleware/portable_ota_port/src/portable_ota_crc_port.c` 和 `middleware/portable_ota_port/src/portable_ota_strings_port.c`。
   - 在 `portable_ota_core_port.c` 中增加 `PORTABLE_OTA_PORT_ENABLE_SESSION` 条件编译：App target 启用 session/core OTA 接收路径，Bootloader 只编译 CRC/字符串等基础适配，避免 Bootloader 链入 App OTA session 依赖。
   - 更新 `CMakeLists.txt`，共享 adapter 源列表统一使用 `portable_ota_core_port.c`，App target 定义 `PORTABLE_OTA_PORT_ENABLE_SESSION=1`。
-  - 新增 `tools/ota_board_validate/ota_board_validate.py`，自动执行 release check、factory 烧录、baseline 查询、正向 OTA、Bootloader apply、App commit、负向矩阵和最终安全状态查询。
+  - 新增 `tools/ota/ota_board_validate/ota_board_validate.py`，自动执行 release check、factory 烧录、baseline 查询、正向 OTA、Bootloader apply、App commit、负向矩阵和最终安全状态查询。
   - 更新 `tools/README.md`，记录一键验证脚本用法和输出目录。
 - 验证结果：
   - `python -m py_compile tools\ota_board_validate\ota_board_validate.py` 通过。
@@ -1337,7 +1337,7 @@ Last updated: 2026-09-06
 - 关联文件：
   - `CMakeLists.txt`
   - `middleware/portable_ota_port/src/portable_ota_core_port.c`
-  - `tools/ota_board_validate/ota_board_validate.py`
+  - `tools/ota/ota_board_validate/ota_board_validate.py`
   - `tools/README.md`
 - 下一步：
   - 继续评估 `portable_ota_metadata_port.c` 的布局断言和 wrapper 是否需要宏化；不建议为了减少行数破坏产品 API 边界。
@@ -1724,8 +1724,8 @@ Last updated: 2026-09-06
   - 新增 `ota_package` 包头格式和解析逻辑，固定 512 B header，记录 package size、镜像 slot、payload offset、image size、CRC32 和 run offset。
   - 新增 `SYST:OTA:PBEGIN <size>,<crc32>`，用于明确启动统一 package OTA；原 `SYST:OTA:BEGIN` 仍用于 raw `.bin`。
   - OTA 接收状态机支持 package 流式解析：首块解析 header，选择目标镜像，复用现有分步擦除，再只写入被选中的内部镜像。
-  - `tools/ota_packager/ota_packager.py` 生成统一包，包内 A/B payload 按 512 B 对齐，避免镜像从非 Flash page 边界开始。
-  - `tools/ota_send/ota_send.py` 自动识别统一包魔数并使用 `PBEGIN`，raw `.bin` 仍使用 `BEGIN`。
+  - `tools/ota/ota_packager/ota_packager.py` 生成统一包，包内 A/B payload 按 512 B 对齐，避免镜像从非 Flash page 边界开始。
+  - `tools/ota/ota_send/ota_send.py` 自动识别统一包魔数并使用 `PBEGIN`，raw `.bin` 仍使用 `BEGIN`。
   - 修复 package 在 `COPY_TO_ACTIVE` 模式下的镜像选择：staging 目标仍是 Slot B，但应写入 Slot A 链接镜像，供 Bootloader copy-to-active。
   - 更新 README、SCPI 命令文档和 OTA 待办。
 - 验证结果：
@@ -1747,8 +1747,8 @@ Last updated: 2026-09-06
   - `components/ota_manager/src/ota_package.c`
   - `components/ota_manager/src/ota_fb.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `tools/ota_packager/ota_packager.py`
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_packager/ota_packager.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `README.md`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/ota/OTA_TODO.md`
@@ -1774,7 +1774,7 @@ Last updated: 2026-09-06
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
   - release/validation Slot A/B reset handler 离线检查均通过。
   - validation 初始状态：
     - `SYST:OTA:MODE? -> "COPY_TO_ACTIVE",0`
@@ -1817,7 +1817,7 @@ Last updated: 2026-09-06
 - 关联文件：
   - `docs/ota/OTA_TODO.md`
   - `docs/legacy/ota/OTA_AB_SWITCH_DESIGN.md`
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `bootloader/src/bootloader_main.c`
 - 下一步：
   - 处理 metadata 写入中掉电的双副本选择验证，或先补 OTA validation report/manifest 兼容性约束。
@@ -1842,7 +1842,7 @@ Last updated: 2026-09-06
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
   - release/validation Slot A/B reset handler 离线检查均通过。
   - 已多次提前告知烧录对象、原因和预期影响，并烧录 `build-validation\RP2350_TRIG_FACTORY.uf2` 验证 Bootloader 更新。
   - 初次验证发现 `SYST:OTA:BOOT` 在非 `READY_TO_REBOOT` 状态只会使 App OTA 状态进入 `FAILED/INVALID_STATE`，不能作为复位测试工具；随后新增 `SYST:BOOT:RES`。
@@ -1893,14 +1893,14 @@ Last updated: 2026-09-06
 - 完成内容：
   - 新增 `ota_metadata_set_boot_mode()`，可切换 `COPY_TO_ACTIVE` / `DIRECT_AB`，切换时清理 pending 和 copy transaction。
   - validation 构建新增 `SYST:OTA:MODE <0|1>` 写命令；release 构建仅保留 `SYST:OTA:MODE?` 查询。
-  - `tools/ota_send/ota_send.py` 新增 `--auto-target --image-a --image-b`，可查询 `SYST:OTA:TARG?` 后自动选择 Slot A/B 镜像。
+  - `tools/ota/ota_send/ota_send.py` 新增 `--auto-target --image-a --image-b`，可查询 `SYST:OTA:TARG?` 后自动选择 Slot A/B 镜像。
   - 更新 README、`docs/interface/SCPI_COMMANDS.md`、`docs/legacy/ota/OTA_AB_SWITCH_DESIGN.md`、`docs/ota/OTA_TODO.md`。
 - 验证结果：
   - `python -m py_compile tools\ota_send\ota_send.py` 通过。
   - `python tools\ota_send\ota_send.py COM4 build\RP2350_TRIG.bin --dry-run` 通过。
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
   - 离线向量表检查通过：
     - release Slot A/B reset handler 均在对应 slot 范围。
     - validation Slot A/B reset handler 均在对应 slot 范围。
@@ -1937,7 +1937,7 @@ Last updated: 2026-09-06
   - `components/ota_manager/inc/ota_metadata.h`
   - `components/ota_manager/src/ota_metadata.c`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `README.md`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/legacy/ota/OTA_AB_SWITCH_DESIGN.md`
@@ -1960,7 +1960,7 @@ Last updated: 2026-09-06
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
   - 离线向量表检查通过，Slot A/B reset handler 均位于对应 slot 范围。
   - 已提前告知烧录对象、原因和预期影响，并烧录 `build/RP2350_TRIG_FACTORY.uf2`。
   - 板端 COM4 基础查询通过：
@@ -1974,7 +1974,7 @@ Last updated: 2026-09-06
     - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
     - `SYST:OTA:INJ:COPY? -> <timeout>`。
   - 执行正常 copy-to-active OTA 回归：
-    - `tools/ota_send/ota_send.py COM4 build\RP2350_TRIG.bin` 传输完成，最终 `READY_TO_REBOOT`。
+    - `tools/ota/ota_send/ota_send.py COM4 build\RP2350_TRIG.bin` 传输完成，最终 `READY_TO_REBOOT`。
     - `SYST:OTA:BOOT` 后重启，`SYST:OTA:RES? -> 0,"NONE","APPLIED",2,71976,456434118`。
     - `SYST:OTA:COMM -> "OK"`。
     - 最终 `SYST:OTA:STAT? -> "COMMITTED",2,"NONE",5`，`SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`。
@@ -2006,7 +2006,7 @@ Last updated: 2026-09-06
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
   - 离线向量表检查通过：
     - `build/RP2350_TRIG.bin` reset handler 位于 Slot A 范围。
     - `build/RP2350_TRIG_B.bin` reset handler 位于 Slot B 范围。
@@ -2047,7 +2047,7 @@ Last updated: 2026-09-06
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
   - 离线向量表检查通过：
     - `build/RP2350_TRIG.bin` reset handler 位于 `0x10040000..0x101BFFFF`。
     - `build/RP2350_TRIG_B.bin` reset handler 位于 `0x101C0000..0x1033FFFF`。
@@ -2093,7 +2093,7 @@ Last updated: 2026-09-06
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
   - release 构建生成：
     - `build\RP2350_TRIG.bin`
     - `build\RP2350_TRIG_B.bin`
@@ -2160,7 +2160,7 @@ Last updated: 2026-09-06
 - 完成内容：
   - 为 validation 构建增加 Bootloader copy 页间延时：`BOOTLOADER_VALIDATION_COPY_DELAY_MS = 50 ms`，仅在 `PROJECT_ENABLE_OTA_FAULT_INJECTION=ON` 时生效，便于人工真实断电命中 copy 窗口。
   - 提前告知并烧录 `build-validation\RP2350_TRIG_FACTORY.uf2`，用于断电验证。
-  - 使用 `tools/ota_send/ota_send.py` 下发 `build-validation\RP2350_TRIG.bin` 到 Slot B。
+  - 使用 `tools/ota/ota_send/ota_send.py` 下发 `build-validation\RP2350_TRIG.bin` 到 Slot B。
   - 进入 `READY_TO_REBOOT` 后发送 `SYST:OTA:BOOT`，提示用户真实断电并重新上电。
   - 上电后查询 metadata、Bootloader result 和 transaction。
   - 执行 `SYST:OTA:COMM` 完成确认。
@@ -2175,7 +2175,7 @@ Last updated: 2026-09-06
     - `SYST:OTA:SLOT? -> 1,0,1,0,0`
     - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
     - `SYST:OTA:INJ:COPY? -> 0`
-  - `python tools/ota_send/ota_send.py COM4 build-validation\RP2350_TRIG.bin --block-size 512 --expect-final-state READY_TO_REBOOT` 执行通过。
+  - `python tools/ota/ota_send/ota_send.py COM4 build-validation\RP2350_TRIG.bin --block-size 512 --expect-final-state READY_TO_REBOOT` 执行通过。
   - 用户在 Bootloader copy 期间真实断电并重新上电后查询：
     - `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`
     - `SYST:FW:BUILD? -> "20260622154138"`
@@ -2190,7 +2190,7 @@ Last updated: 2026-09-06
     - `SYST:OTA:RES? -> 5,"NONE","APPLIED",1,72040,2276820728`
     - `SYST:OTA:TXN? -> 0,0,0,0,0,0,0,0`
   - `cmake --build --preset pico2-release` 通过。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过，release 固件仍不包含 OTA 注入命令。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过，release 固件仍不包含 OTA 注入命令。
 - 还需完成：
   - 验证 OTA metadata 写入过程中掉电，重启后从双副本选择有效副本。
   - 继续评估真正 A/B 启动或 active 备份/scratch 恢复机制。
@@ -2244,7 +2244,7 @@ Last updated: 2026-09-06
 - 任务目标：
   - 验证 Bootloader 已完成 copy-to-active 并记录 `APPLIED` 后、App 执行 `SYST:OTA:COMM` 前发生断电时，重启后状态是否可审计且允许继续确认。
 - 完成内容：
-  - 通过 `tools/ota_send/ota_send.py` 将 `build\RP2350_TRIG.bin` 写入 Slot B，并进入 `READY_TO_REBOOT`。
+  - 通过 `tools/ota/ota_send/ota_send.py` 将 `build\RP2350_TRIG.bin` 写入 Slot B，并进入 `READY_TO_REBOOT`。
   - 发送 `SYST:OTA:BOOT`，Bootloader 完成 Slot B -> Slot A 复制。
   - 在未执行 `SYST:OTA:COMM` 前，由用户手动断电并重新上电。
   - 上电后查询 metadata 和 transaction 状态。
@@ -2284,7 +2284,7 @@ Last updated: 2026-09-06
 - 任务目标：
   - 在 Bootloader copy transaction 接入后，验证一次完整正常 OTA 流程，确认 Slot B staging、Bootloader copy-to-active、`APPLIED`、`COMM` 和 transaction 清零均正常。
 - 完成内容：
-  - 使用 `tools/ota_send/ota_send.py` 通过 `COM4` 下发 `build\RP2350_TRIG.bin`。
+  - 使用 `tools/ota/ota_send/ota_send.py` 通过 `COM4` 下发 `build\RP2350_TRIG.bin`。
   - OTA payload 写入 Slot B 后进入 `READY_TO_REBOOT`。
   - 发送 `SYST:OTA:BOOT`，触发 Bootloader 从 Slot B 复制到 Slot A。
   - Bootloader 重启后 App 正常枚举为 `COM4`。
@@ -2292,7 +2292,7 @@ Last updated: 2026-09-06
   - 执行 `SYST:OTA:COMM`，确认当前固件。
   - 更新 `docs/ota/OTA_TODO.md`，标记正常 OTA 闭环验证完成。
 - 验证结果：
-  - `python tools/ota_send/ota_send.py COM4 build\RP2350_TRIG.bin --block-size 512 --expect-final-state READY_TO_REBOOT` 执行通过。
+  - `python tools/ota/ota_send/ota_send.py COM4 build\RP2350_TRIG.bin --block-size 512 --expect-final-state READY_TO_REBOOT` 执行通过。
   - `READY_TO_REBOOT` 前查询：
     - `SYST:OTA:STAT? -> "READY_TO_REBOOT",2,"NONE",2`
     - `SYST:OTA:SLOT? -> 1,2,1,0,0`
@@ -2314,7 +2314,7 @@ Last updated: 2026-09-06
   - 继续执行手动断电验证：copy 前、active 擦除后、programming 中、verifying 中、`COMM` 前。
   - 验证异常路径下 pending 保留和 transaction 失败状态是否符合预期。
 - 关联文件：
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `docs/ota/OTA_TODO.md`
   - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
@@ -2342,7 +2342,7 @@ Last updated: 2026-09-06
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过。
   - `picotool load -f -v -x build\RP2350_TRIG_FACTORY.uf2` 烧录和 Flash verify 通过；后续修复后再次重复烧录也通过。
   - 烧录后 USB CDC 枚举为 `COM4`。
   - 板端 SCPI 基础查询通过：
@@ -2374,7 +2374,7 @@ Last updated: 2026-09-06
   - 修复手动烧录 factory 固件后，旧 OTA metadata 保留导致 Bootloader 校验新 Slot A 失败、设备不跳转 App 的问题。
 - 完成内容：
   - 定位问题：factory UF2 只写 Bootloader 和 Slot A，不覆盖 `0x10340000` 对应的 OTA metadata 分区；旧 metadata 中保存的 Slot A size/CRC 与新烧录 App 不一致，Bootloader 校验失败后停留在 Bootloader，表现为 LCD 黑屏、USB CDC 不枚举。
-  - 新增 `tools/uf2_join/make_fill_bin.py`，用于生成指定大小和填充值的二进制块。
+  - 新增 `tools/ota/uf2_join/make_fill_bin.py`，用于生成指定大小和填充值的二进制块。
   - 修改 factory UF2 生成流程，额外加入 `ota_metadata_clear.bin@0x10340000`，大小 64 KB，内容为 `0xFF`，用于 factory 烧录时清理 OTA metadata 分区。
   - 重新生成并烧录 `build/RP2350_TRIG_FACTORY.uf2`。
 - 验证结果：
@@ -2393,7 +2393,7 @@ Last updated: 2026-09-06
   - 后续 Bootloader copy transaction 接入后，继续验证旧 metadata/新 factory/OTA 三种路径的兼容性。
 - 关联文件：
   - `CMakeLists.txt`
-  - `tools/uf2_join/make_fill_bin.py`
+  - `tools/ota/uf2_join/make_fill_bin.py`
   - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 继续处理 P0：Bootloader copy-to-active 流程接入 transaction 状态机。
@@ -2422,7 +2422,7 @@ Last updated: 2026-09-06
 - 验证结果：
   - `cmake --build --preset pico2-release` 通过。
   - `cmake --build --preset pico2-validation` 通过。
-  - `python tools/release_check/release_check.py --preset pico2-release --build-dir build` 通过，release 固件仍未包含 OTA 故障注入命令。
+  - `python tools/project/release_check/release_check.py --preset pico2-release --build-dir build` 通过，release 固件仍未包含 OTA 故障注入命令。
 - 还需完成：
   - 将 Bootloader Slot B -> Slot A copy 流程接入 transaction API，按阶段写入 `STARTED/ERASED_ACTIVE/PROGRAMMING/VERIFYING/DONE/FAILED`。
   - copy-to-active 失败时保留 pending 和可恢复信息，不再在 Slot A 可能损坏时直接清 pending。
@@ -2488,7 +2488,7 @@ Last updated: 2026-09-06
 - 任务目标：
   - 处理 `docs/ota/OTA_TODO.md` 中 P0 发布构建隔离待办，增加自动化 release 检查，避免异常注入或调试日志进入量产固件。
 - 完成内容：
-  - 新增 `tools/release_check/release_check.py`。
+  - 新增 `tools/project/release_check/release_check.py`。
   - 检查 `pico2-release` preset 必须关闭 `PROJECT_ENABLE_OTA_FAULT_INJECTION`。
   - 检查 `pico2-release` preset 必须关闭 UART stdio。
   - 检查 `PROJECT_ENABLE_HEALTH_LOG` 默认值为 `0`。
@@ -2515,7 +2515,7 @@ Last updated: 2026-09-06
 - 还需完成：
   - 后续发布流程可进一步增加 CRC/SHA 归档和 release report 生成。
 - 关联文件：
-  - `tools/release_check/release_check.py`
+  - `tools/project/release_check/release_check.py`
   - `README.md`
   - `docs/release/RELEASE_CHECKLIST.md`
   - `docs/ota/OTA_TODO.md`
@@ -2696,7 +2696,7 @@ Last updated: 2026-09-06
 - 任务目标：
   - 验证 OTA 传输过程中主动中止时，不会写入 pending metadata，也不会改变当前运行固件。
 - 完成内容：
-  - `tools/ota_send/ota_send.py` 新增 `--abort-after-blocks <N>`。
+  - `tools/ota/ota_send/ota_send.py` 新增 `--abort-after-blocks <N>`。
   - 工具在发送指定数量数据块后自动发送 `SYST:OTA:ABOR`，并查询最终状态。
   - README 增加传输中止测试命令示例。
   - 执行 `python tools\ota_send\ota_send.py COM4 build\RP2350_TRIG.bin --abort-after-blocks 8 --expect-final-state ABORTED`。
@@ -2719,7 +2719,7 @@ Last updated: 2026-09-06
   - Bootloader copy 过程中断电需要硬件电源控制或人工断电台架。
   - copy 失败路径需要故障注入机制，例如调试版 Bootloader 强制失败开关。
 - 关联文件：
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `README.md`
   - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
@@ -2732,7 +2732,7 @@ Last updated: 2026-09-06
 - 任务目标：
   - 构造 CRC 正确但 App 向量表错误的 OTA payload，验证设备能在向量表校验阶段拒绝镜像。
 - 完成内容：
-  - `tools/ota_send/ota_send.py` 新增 `--corrupt-vector`。
+  - `tools/ota/ota_send/ota_send.py` 新增 `--corrupt-vector`。
   - `--corrupt-vector` 仅在内存中将 reset handler 向量清零，不修改磁盘上的 `.bin` 文件。
   - CRC 按破坏后的 payload 重新计算，因此设备端 CRC 校验可以通过，错误应落在 `VECTOR` 校验阶段。
   - dry-run 可显示 `corrupt_vector=reset_handler_zero`。
@@ -2748,7 +2748,7 @@ Last updated: 2026-09-06
   - 增加 metadata 双副本损坏测试。
   - 增加 Bootloader copy 失败和断电恢复测试。
 - 关联文件：
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `README.md`
   - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
@@ -2761,7 +2761,7 @@ Last updated: 2026-09-06
 - 任务目标：
   - 增加 OTA 发送工具的失败路径测试能力，并验证 CRC 错误镜像不会进入 pending 或触发升级。
 - 完成内容：
-  - `tools/ota_send/ota_send.py` 新增 `--corrupt-crc`，可故意发送错误 CRC32。
+  - `tools/ota/ota_send/ota_send.py` 新增 `--corrupt-crc`，可故意发送错误 CRC32。
   - 新增 `--expect-final-state`，用于断言最终 OTA 状态并返回正确退出码。
   - 新增最终状态解析，默认期望 `READY_TO_REBOOT`。
   - dry-run 支持显示真实 CRC 和故意发送的错误 CRC。
@@ -2781,7 +2781,7 @@ Last updated: 2026-09-06
   - 增加向量表错误测试。
   - 增加 metadata 双副本损坏和 Bootloader copy 失败测试。
 - 关联文件：
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `components/ota_manager/src/ota_fb.c`
   - `README.md`
   - `docs/archive/TASK_PROGRESS.md`
@@ -2814,7 +2814,7 @@ Last updated: 2026-09-06
   - 进入失败路径测试：CRC 错误、向量表错误、metadata 双副本损坏、copy 过程中断电。
 - 关联文件：
   - `CMakeLists.txt`
-  - `tools/build_info/gen_build_info.py`
+  - `tools/project/build_info/gen_build_info.py`
   - `config/project_config.h`
   - `middleware/scpi_port/src/scpi_port.c`
   - `docs/archive/TASK_PROGRESS.md`
@@ -2828,7 +2828,7 @@ Last updated: 2026-09-06
 - 任务目标：
   - 解决 `SYST:FW:BUILD?` 仅在 CMake configure 阶段刷新的问题，使每次生成 OTA payload 时都有新的 build id。
 - 完成内容：
-  - 新增 `tools/build_info/gen_build_info.py`。
+  - 新增 `tools/project/build_info/gen_build_info.py`。
   - 构建脚本每次生成 `build/generated/project_build_info.h` 和 `build/generated/project_build_info.c`。
   - `project_build_info.c` 定义 `g_project_build_id`，由 App 编译链接进固件。
   - `SYST:FW:BUILD?` 改为返回 `g_project_build_id`。
@@ -2844,7 +2844,7 @@ Last updated: 2026-09-06
   - 再跑一次 OTA，确认升级前后 build id 可以作为镜像变化依据。
   - 后续发布流程可增加 git commit hash、dirty 标志和 release channel 字段。
 - 关联文件：
-  - `tools/build_info/gen_build_info.py`
+  - `tools/project/build_info/gen_build_info.py`
   - `CMakeLists.txt`
   - `config/project_config.h`
   - `middleware/scpi_port/src/scpi_port.c`
@@ -2887,7 +2887,7 @@ Last updated: 2026-09-06
 - 关联文件：
   - `config/project_config.h`
   - `components/diagnostics/src/diagnostics.c`
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 实现 build id 每次构建刷新，并开始 OTA 失败路径和掉电恢复测试。
@@ -2903,7 +2903,7 @@ Last updated: 2026-09-06
   - 查询 `SYST:FW:BUILD? -> "20260621153554"`。
   - 执行 `python tools\ota_send\ota_send.py COM4 build\RP2350_TRIG.bin`，OTA 传输成功。
   - 发现 `BEGIN/END` 的 `"OK"` ACK 可能与紧随其后的查询响应粘连为同一行，例如 `"OK""CHECK_PERMISSION"...`。
-  - 修改 `tools/ota_send/ota_send.py`，在读取响应时剥离行首连续 `"OK"` ACK。
+  - 修改 `tools/ota/ota_send/ota_send.py`，在读取响应时剥离行首连续 `"OK"` ACK。
   - `SYST:OTA:BOOT` 实机触发 USB CDC 断开并重新枚举。
   - 重启后查询 `SYST:OTA:RES? -> 0,"NONE","APPLIED",2,71312,1983630478`。
   - 执行 `SYST:OTA:COMM` 后状态进入 `"COMMITTED",1,"NONE",5`。
@@ -2920,7 +2920,7 @@ Last updated: 2026-09-06
   - 再跑一次 OTA，确认脚本不再打印粘连 ACK。
   - 后续让 build id 在每次 build 时刷新，避免只有 CMake configure 时刷新。
 - 关联文件：
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `config/project_config.h`
   - `components/diagnostics/src/diagnostics.c`
   - `docs/archive/TASK_PROGRESS.md`
@@ -2940,7 +2940,7 @@ Last updated: 2026-09-06
   - 新增 SCPI `SYST:FW:BUILD?`，返回当前固件 build id。
   - `SYST:OTA:BEGIN`、`END`、`ABOR`、`BOOT`、`COMM` 接受事件后返回 `"OK"`。
   - `SYST:OTA:DATA` 保持不逐块 ACK，避免降低 OTA 传输效率和干扰 binary block。
-  - 更新 `tools/ota_send/ota_send.py`，查询响应过滤 `"OK"` ACK，兼容新的写命令确认。
+  - 更新 `tools/ota/ota_send/ota_send.py`，查询响应过滤 `"OK"` ACK，兼容新的写命令确认。
   - 更新 README 和 SCPI 文档。
 - 验证结果：
   - 首次编译发现旧的无 ACK helper 已无调用，在 `-Werror` 下触发 unused-function，已删除。
@@ -2956,7 +2956,7 @@ Last updated: 2026-09-06
   - `config/project_config.h`
   - `CMakeLists.txt`
   - `middleware/scpi_port/src/scpi_port.c`
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `docs/interface/SCPI_COMMANDS.md`
   - `README.md`
   - `docs/archive/TASK_PROGRESS.md`
@@ -2975,7 +2975,7 @@ Last updated: 2026-09-06
     - `SYST:OTA:STAT? -> "IDLE",1,"NONE",0`
     - `SYST:OTA:SLOT? -> 1,0,1,0,0`
     - `SYST:OTA:RES? -> 0,"NONE","NONE",0,0,0`
-  - 执行 `python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
+  - 执行 `python tools/ota/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
   - OTA payload 大小为 `71112` 字节，CRC32 为 `0x1A029087`。
   - OTA 完成后进入 `"READY_TO_REBOOT",2,"NONE",2`。
   - 重启前审计查询：
@@ -3051,7 +3051,7 @@ Last updated: 2026-09-06
   - 重新首烧最新 `build/RP2350_TRIG_FACTORY.uf2` 后，通过 `COM4` 确认设备在线。
   - 初始查询结果为 `*IDN? -> RP2350_TRIG,SYNC_TRIGGER,0,RP2350_TRIG`。
   - 初始 OTA 状态为 `"IDLE",2,"NONE",0`。
-  - 执行 `python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
+  - 执行 `python tools/ota/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
   - OTA payload 大小为 `69448` 字节，CRC32 为 `0x261061CB`。
   - OTA 状态正常经过 `CHECK_PERMISSION`、`ERASE_SLOT`、`RECEIVING`，最终进入 `"READY_TO_REBOOT",2,"NONE",2`。
   - 发送 `SYST:OTA:BOOT` 后，USB CDC 立即断开，PC 端读串口返回设备错误，说明复位动作已经触发。
@@ -3085,7 +3085,7 @@ Last updated: 2026-09-06
 - 完成内容：
   - 首烧后通过 `COM4` 确认 `*IDN?` 正常返回。
   - 确认 OTA 初始状态为 `"IDLE",2,"NONE",0`。
-  - 执行 `python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
+  - 执行 `python tools/ota/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
   - OTA 镜像大小为 `69440` 字节，CRC32 为 `0x52A3DF79`。
   - 设备从 `CHECK_PERMISSION`、`ERASE_SLOT` 正常进入 `RECEIVING`。
   - 传输结束后状态进入 `"READY_TO_REBOOT",2,"NONE",2`。
@@ -3104,7 +3104,7 @@ Last updated: 2026-09-06
   - 重启后查询 `*IDN?`、`SYST:OTA:STAT?`、`SYST:OTA:SLOT?`、`SYST:OTA:RES?`。
 - 关联文件：
   - `drivers/mcu/watchdog/src/drv_watchdog.c`
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `components/ota_manager/src/ota_fb.c`
   - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
@@ -3118,11 +3118,11 @@ Last updated: 2026-09-06
   - 解决 OTA `BEGIN` 后长期停留在 `ERASE_SLOT`，导致 PC 端发送脚本超时退出的问题。
 - 完成内容：
   - 实机确认 LCD 界面已正常显示，说明 factory 镜像显示链路已可运行。
-  - 使用 `COM4` 执行 `python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
+  - 使用 `COM4` 执行 `python tools/ota/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
   - 发现板端长时间返回 `"ERASE_SLOT",2,"NONE",1`，脚本默认 15 s 超时退出。
   - 定位原因为 App 侧 OTA 每次擦除完整 Slot B，而不是按本次 `.bin` 镜像大小擦除。
   - 修改 `components/ota_manager/src/ota_fb.c`，将擦除范围改为 `BEGIN` 镜像大小按 4 KB sector 向上对齐。
-  - 修改 `tools/ota_send/ota_send.py`，将默认 `BEGIN` 等待时间从 15 s 提高到 60 s。
+  - 修改 `tools/ota/ota_send/ota_send.py`，将默认 `BEGIN` 等待时间从 15 s 提高到 60 s。
   - 对当前板端发送 `SYST:OTA:ABOR`，将上一次未完成 OTA 从 `RECEIVING` 恢复到 `ABORTED`。
 - 验证结果：
   - `cmake --build --preset pico2-release` 编译通过。
@@ -3131,11 +3131,11 @@ Last updated: 2026-09-06
   - 由于板端尚未重新烧录新 factory 镜像，本次快速擦除优化还未完成硬件闭环验证。
 - 还需完成：
   - 重新传统烧录 `build/RP2350_TRIG_FACTORY.uf2`。
-  - 再次运行 `python tools/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
+  - 再次运行 `python tools/ota/ota_send/ota_send.py COM4 build/RP2350_TRIG.bin`。
   - 发送 `SYST:OTA:BOOT`，验证 USB 重新枚举、Bootloader 复制 Slot B 到 Slot A、App 正常重启。
 - 关联文件：
   - `components/ota_manager/src/ota_fb.c`
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `docs/archive/TASK_PROGRESS.md`
 - 下一步：
   - 首烧更新后的 factory 镜像后，复测完整 OTA 升级闭环。
@@ -3149,7 +3149,7 @@ Last updated: 2026-09-06
 - 完成内容：
   - 构建确认 `build/RP2350_TRIG.bin`。
   - 通过 `COM4` 查询板端在线，初始 OTA 状态为 `"IDLE",2,"NONE",0`。
-  - 使用 `tools/ota_send/ota_send.py` 发送 `build/RP2350_TRIG.bin`。
+  - 使用 `tools/ota/ota_send/ota_send.py` 发送 `build/RP2350_TRIG.bin`。
   - OTA 传输完成，最终状态进入 `"READY_TO_REBOOT",2,"NONE",2`。
   - 向量表校验已通过，上一轮 `VECTOR` 失败问题已解决。
 - 验证结果：
@@ -3161,7 +3161,7 @@ Last updated: 2026-09-06
   - 再次通过 OTA 发送 `build/RP2350_TRIG.bin`。
   - 再发送 `SYST:OTA:BOOT`，验证 Bootloader 从 Slot B 复制到 Slot A 并启动。
 - 关联文件：
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `components/ota_manager/src/ota_fb.c`
   - `bootloader/src/bootloader_main.c`
   - `build/RP2350_TRIG_FACTORY.uf2`
@@ -3177,7 +3177,7 @@ Last updated: 2026-09-06
   - 在 README 中说明当前工程使用 Python 脚本参与构建和 OTA 的正确操作方式。
 - 完成内容：
   - 明确固件构建入口仍然是 CMake，Python 脚本不是替代构建入口。
-  - 补充 CMake 自动调用 `tools/uf2_join/uf2_join.py` 生成 factory UF2 的过程。
+  - 补充 CMake 自动调用 `tools/ota/uf2_join/uf2_join.py` 生成 factory UF2 的过程。
   - 补充手动复现 `uf2_join.py` 的命令。
   - 补充 `ota_bin_info.py`、`ota_send.py`、`ota_packager.py` 的使用场景说明。
   - 明确首次烧录使用 `RP2350_TRIG_FACTORY.uf2`，后续 OTA 使用 `RP2350_TRIG.bin`。
@@ -3187,9 +3187,9 @@ Last updated: 2026-09-06
   - 后续 OTA 发送工具支持自动发送 `SYST:OTA:BOOT` 后，再同步更新 README。
 - 关联文件：
   - `README.md`
-  - `tools/uf2_join/uf2_join.py`
-  - `tools/ota_bin_info/ota_bin_info.py`
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/uf2_join/uf2_join.py`
+  - `tools/ota/ota_bin_info/ota_bin_info.py`
+  - `tools/ota/ota_send/ota_send.py`
 - 下一步：
   - 进行 factory 首烧和完整 OTA 实机验证。
 
@@ -3207,7 +3207,7 @@ Last updated: 2026-09-06
   - 新增 factory 首烧包 `build/RP2350_TRIG_FACTORY.uf2`，包含 Bootloader 和 Slot A App。
   - OTA App 继续输出标准 raw `.bin`，用于 SCPI OTA 发送。
   - `SYST:OTA:BOOT` 现在会触发 watchdog reboot，进入 Bootloader 执行 pending 升级。
-  - 新增 `tools/uf2_join/uf2_join.py` 生成多地址 UF2 factory image。
+  - 新增 `tools/ota/uf2_join/uf2_join.py` 生成多地址 UF2 factory image。
 - 验证结果：
   - `cmake --build --preset pico2-release` 编译通过。
   - `build/RP2350_TRIG.elf.map` 确认 App `__vectors = 0x10040000`。
@@ -3223,7 +3223,7 @@ Last updated: 2026-09-06
   - `bootloader/`
   - `linker/rp2350_bootloader.ld`
   - `linker/rp2350_app_slot_a.ld`
-  - `tools/uf2_join/uf2_join.py`
+  - `tools/ota/uf2_join/uf2_join.py`
   - `CMakeLists.txt`
   - `components/ota_manager/src/ota_fb.c`
   - `drivers/mcu/watchdog/`
@@ -3237,10 +3237,10 @@ Last updated: 2026-09-06
 - 任务目标：
   - 使用 `COM4` 验证当前 OTA USB CDC/SCPI 传输、分块写入、进度查询和结束校验链路。
 - 完成内容：
-  - 修正 `tools/ota_send/ota_send.py`，将 `SYST:OTA:BEGIN` 的 CRC 参数改为十进制，避免当前 SCPI 参数解析拒绝 `0x...`。
+  - 修正 `tools/ota/ota_send/ota_send.py`，将 `SYST:OTA:BEGIN` 的 CRC 参数改为十进制，避免当前 SCPI 参数解析拒绝 `0x...`。
   - 增加 BEGIN 后等待 `RECEIVING` 状态的逻辑，避免目标槽擦除期间提前发送数据。
   - 增加日志行过滤，降低健康日志与 SCPI 响应共用 USB CDC 时的干扰。
-  - 同步修正 `tools/ota_bin_info/ota_bin_info.py` 输出的 `scpi_begin` 示例。
+  - 同步修正 `tools/ota/ota_bin_info/ota_bin_info.py` 输出的 `scpi_begin` 示例。
   - 通过 `COM4` 实测发送 `build/RP2350_TRIG.bin`，大小 `69400` 字节，CRC32 `0x77CEA7A5`。
 - 验证结果：
   - 板端进入 `RECEIVING` 状态。
@@ -3252,8 +3252,8 @@ Last updated: 2026-09-06
   - 将 App 链接到 OTA Slot 运行地址，或明确实现 Bootloader copy-to-active 方案。
   - 完成 pending/boot/commit/rollback 闭环后再验证 `READY_TO_REBOOT`。
 - 关联文件：
-  - `tools/ota_send/ota_send.py`
-  - `tools/ota_bin_info/ota_bin_info.py`
+  - `tools/ota/ota_send/ota_send.py`
+  - `tools/ota/ota_bin_info/ota_bin_info.py`
   - `components/ota_manager/src/ota_fb.c`
   - `components/ota_manager/src/ota_image.c`
   - `components/ota_manager/inc/ota_partition.h`
@@ -3291,14 +3291,14 @@ Last updated: 2026-09-06
 - 任务目标：
   - 增加 PC 端 OTA 发送工具，直接通过 SCPI USB CDC 发送标准 raw firmware `.bin`。
 - 完成内容：
-  - 新增 `tools/ota_send/ota_send.py`。
+  - 新增 `tools/ota/ota_send/ota_send.py`。
   - 工具自动计算 `.bin` size 和 CRC32。
   - 自动发送 `SYST:OTA:BEGIN`、`SYST:OTA:DATA #<block>`、`SYST:OTA:END`。
   - 支持 `--block-size`，当前限制为 256 或 512。
   - 支持 `--dry-run`，无硬件时可验证发送计划。
   - OTA 文档增加在线发送示例。
 - 验证结果：
-  - `python tools/ota_send/ota_send.py COM_TEST build/RP2350_TRIG.bin --dry-run` 执行通过。
+  - `python tools/ota/ota_send/ota_send.py COM_TEST build/RP2350_TRIG.bin --dry-run` 执行通过。
   - `cmake --build --preset pico2-release` 编译通过。
   - 当前仍未做板端 USB CDC 实传验证。
 - 还需完成：
@@ -3306,7 +3306,7 @@ Last updated: 2026-09-06
   - 根据实测处理 SCPI 响应、超时、错误恢复和进度显示。
   - 增加发送完成后的状态判定和失败退出码。
 - 关联文件：
-  - `tools/ota_send/ota_send.py`
+  - `tools/ota/ota_send/ota_send.py`
   - `docs/legacy/ota/OTA_SYSTEM_DESIGN.md`
 - 下一步：
   - 执行 dry-run，并在硬件连接后做实传验证。
@@ -3321,12 +3321,12 @@ Last updated: 2026-09-06
   - 设备端 `OtaFB END` 阶段改为校验 `.bin` 整包 CRC、App 向量表和 pending metadata。
   - `BEGIN <size>,<crc32>` 的参数改为对应 `.bin` 文件本身。
   - 简化 `ota_image` 模块，仅保留 App 向量表校验。
-  - 删除 `tools/ota_packager/ota_packager.py`。
-  - 新增 `tools/ota_bin_info/ota_bin_info.py`，输出 `.bin` 的 size、CRC32 和 `SYST:OTA:BEGIN` 参数。
+  - 删除 `tools/ota/ota_packager/ota_packager.py`。
+  - 新增 `tools/ota/ota_bin_info/ota_bin_info.py`，输出 `.bin` 的 size、CRC32 和 `SYST:OTA:BEGIN` 参数。
   - 同步更新 OTA、SCPI、架构文档中的 `.ota/header` 表述。
 - 验证结果：
   - `cmake --build --preset pico2-release` 编译通过。
-  - `python tools/ota_bin_info/ota_bin_info.py build/RP2350_TRIG.bin` 执行通过。
+  - `python tools/ota/ota_bin_info/ota_bin_info.py build/RP2350_TRIG.bin` 执行通过。
   - 当前未做板端 SCPI 实传验证。
 - 还需完成：
   - 增加 `ota_send.py`，直接发送标准 `.bin`。
@@ -3336,7 +3336,7 @@ Last updated: 2026-09-06
   - `components/ota_manager/inc/ota_image.h`
   - `components/ota_manager/src/ota_image.c`
   - `components/ota_manager/src/ota_fb.c`
-  - `tools/ota_bin_info/ota_bin_info.py`
+  - `tools/ota/ota_bin_info/ota_bin_info.py`
   - `docs/legacy/ota/OTA_SYSTEM_DESIGN.md`
   - `docs/interface/SCPI_COMMANDS.md`
   - `docs/arch/HAOFV_ARCHITECTURE.md`
@@ -3355,10 +3355,10 @@ Last updated: 2026-09-06
   - 新增 App 向量表校验，检查初始 SP、Reset Handler、Thumb bit 和运行地址范围。
   - 新增 `ota_metadata`，实现 metadata 双副本加载、sequence 选择、CRC 校验和 pending 写入。
   - `OtaFB END` 阶段增加 raw `.bin` CRC 校验、向量表校验和 pending metadata 写入。
-  - 新增 `tools/ota_bin_info/ota_bin_info.py`，可输出 `.bin` 的 size、CRC32 和 `SYST:OTA:BEGIN` 参数。
+  - 新增 `tools/ota/ota_bin_info/ota_bin_info.py`，可输出 `.bin` 的 size、CRC32 和 `SYST:OTA:BEGIN` 参数。
 - 验证结果：
   - `cmake --build --preset pico2-release` 编译通过。
-  - `python tools/ota_bin_info/ota_bin_info.py build/RP2350_TRIG.bin` 可输出 OTA 传输参数。
+  - `python tools/ota/ota_bin_info/ota_bin_info.py build/RP2350_TRIG.bin` 可输出 OTA 传输参数。
   - 当前仅完成编译和工具信息验证，未做板端 SCPI OTA 实传验证。
 - 还需完成：
   - 拆出 Bootloader 工程。
@@ -3372,7 +3372,7 @@ Last updated: 2026-09-06
   - `components/ota_manager/src/ota_image.c`
   - `components/ota_manager/src/ota_metadata.c`
   - `components/ota_manager/src/ota_fb.c`
-  - `tools/ota_bin_info/ota_bin_info.py`
+  - `tools/ota/ota_bin_info/ota_bin_info.py`
   - `docs/legacy/ota/OTA_SYSTEM_DESIGN.md`
 - 下一步：
   - 实现 Bootloader 最小启动链路和 metadata 回滚策略。
@@ -3525,7 +3525,7 @@ Last updated: 2026-09-06
 - 关联文件：
   - `components/sync_io/src/sync_io.c` — DMA 手动 reset、清理逻辑
   - `components/sync_trigger/inc/trigger_vector.h` — `seq_table` 1024 字节对齐
-  - `tools/trigger_meas/trigger_meas.py` — SCPI 超时/延迟优化
+  - `tools/trigger/trigger_meas/trigger_meas.py` — SCPI 超时/延迟优化
   - `docs/archive/TASK_PROGRESS.md` — 本记录
 - 关键经验：
   - RP2350 DMA ring buffer 对地址对齐有硬性要求，若缓冲区不在软件控制范围内（如 struct 成员），不要依赖 ring buffer。

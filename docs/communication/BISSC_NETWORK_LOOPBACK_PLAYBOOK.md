@@ -4,7 +4,7 @@ Status: Active
 Domain: Verification
 Canonical: `docs/communication/BISSC_NETWORK_LOOPBACK_PLAYBOOK.md`
 Related: `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/archive/TASK_PROGRESS.md`, `docs/README.md`
-Last updated: 2026-08-11
+Last updated: 2026-10-10
 
 本文档记录 2026-08-11 这轮 BiSS 组网处理流程，便于在其他电脑继续工作。
 
@@ -39,8 +39,8 @@ git push origin main
 
 新增工具：
 
-- `tools/distributed_loopback_validate/__init__.py`
-- `tools/distributed_loopback_validate/distributed_loopback_validate.py`
+- `tools/communication/distributed_loopback_validate/__init__.py`
+- `tools/communication/distributed_loopback_validate/distributed_loopback_validate.py`
 
 文档更新：
 
@@ -57,7 +57,7 @@ git push origin main
 脚本路径：
 
 ```powershell
-python tools/distributed_loopback_validate/distributed_loopback_validate.py --help
+python tools/communication/distributed_loopback_validate/distributed_loopback_validate.py --help
 ```
 
 当前能力：

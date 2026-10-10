@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV / Flash / OTA / Storage
 Canonical: `docs/arch/HAOFV_FLASH_TODO.md`
 Related: `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/storage/SD_TODO.md`
-Last updated: 2026-09-06
+Last updated: 2026-10-10
 
 本文只跟踪 Flash v2 的实现、迁移和验证。架构语义以 `HAOFV_FLASH_ARCHITECTURE.md` 为准；
 v1 OTA 历史设计已迁入 `docs/legacy/ota/`；当前 OTA 域状态与证据分别由
@@ -179,7 +179,7 @@ erase/reflash、回退和 v2 deployment 证据统一在 DHRT100 单板闭环后�
 - [x] 定义 identity/Product Config/OTA metadata/Calibration/report index 的备份、转换和丢弃策略。
 - [x] 定义 blank/v1/unknown/v2 map 的 Boot 行为和用户可见恢复信号。
 - [x] 明确样板只走 factory full erase/reflash，不实现 App 在线原地搬迁。
-- [x] 通过固化 `tools/artifact_checksum/artifact_checksum.py` 生成并核对 v1 factory UF2 清单；
+- [x] 通过固化 `tools/project/artifact_checksum/artifact_checksum.py` 生成并核对 v1 factory UF2 清单；
   `size=1051648`、SHA-256=`71aaba8d...5c4313`，完整值与报告见
   `out/flash_hil/dhrt100_v1_factory_checksum_20260823.json`。
 - [x] DHRT100 已完成 BOOTSEL/full erase/factory UF2 load/verify；恢复后 `*IDN?`、build、
@@ -550,8 +550,8 @@ TODO 只保留可独立验收的状态项和证据索引。
 #### 已完成部分
 
 - [x] Recovery 已具备只读 map/BCB health 诊断和显式 ROM BOOTSEL handoff；新增
-  `tools/factory_package/factory_package.py` 对 signed factory baseline 做确定性 region/hash/
-  full-erase/key-profile fail-closed 验证，并由 `tools/factory_restore/factory_restore.py` 在
+  `tools/ota/factory_package/factory_package.py` 对 signed factory baseline 做确定性 region/hash/
+  full-erase/key-profile fail-closed 验证，并由 `tools/ota/factory_restore/factory_restore.py` 在
   显式执行前校验 UF2 地址集合，证据见 `FLASH-TASK-20260823-058`、`059`；只读 Recovery
   边界证据见 `FLASH-TASK-20260823-038`。
 - [x] Recovery 分区在 v2 map 中保持 factory-only 写权限，Recovery 镜像本身不链接 raw Flash writer；

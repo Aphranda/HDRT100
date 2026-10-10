@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation
 Canonical: `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-20
+Last updated: 2026-10-10
 
 本文档定义 `docs/` 后续按产品主域整理的目标结构、迁移规则和文档归属。当前阶段不直接移动大批文件，先冻结目录规划、迁移 gate 和索引规则，后续按域小批量迁移。
 
@@ -147,8 +147,8 @@ docs/
 - 更新被移动文档顶部 `Canonical` / `Related`。
 - 更新所有 Markdown 内部引用、工具脚本引用和报告导出引用。
 - 运行 `python tools/docs_check/docs_check.py`。
-- 对 SCPI 相关迁移，还要运行 `python tools/product_scpi_validate/product_scpi_validate.py --dry-run`。
-- 对实时/validation 相关迁移，还要运行 `python tools/realtime_scpi_validate/realtime_scpi_validate.py --dry-run`。
+- 对 SCPI 相关迁移，还要运行 `python tools/interface/product_scpi_validate/product_scpi_validate.py --dry-run`。
+- 对实时/validation 相关迁移，还要运行 `python tools/validation/realtime_scpi_validate/realtime_scpi_validate.py --dry-run`。
 - 使用 `git diff --check` 检查空白和换行问题。
 - 大批 Markdown 迁移完成后提交；HTML 迁移按既有规则先积极暂存，确认无写空风险后再决定是否提交。
 

@@ -4,7 +4,7 @@ Status: Draft
 Domain: ARCH
 Canonical: `docs/arch/ARCH_FUTURE_APPLICATION_PLAN.md`
 Related: `docs/arch/ARCH_PRODUCT_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-09-20
+Last updated: 2026-10-10
 
 本文档记录 Distributed Hard Real-Time Trigger System 在当前产品完成后的平台化应用规划。它不是当前固件必须立即实现的功能清单，也不替代 `ARCH_PRODUCT_ARCHITECTURE.md`、`RTOS_HAOFV_TODO.md` 或各功能域待办。当前近期目标仍然是完成 DHRT100 / RP2350 平台上的分布式触发产品闭环；本文面向后续产品线、产业应用和开源生态扩展。
 
@@ -54,7 +54,7 @@ VDC / DPLL 已经具备可复核的四板相位锁定证据。以下数值是**�
 | 未观测空档 | 采样间隔 5 s；单窗可证观测仅约 1 ms（示波器记录 2 ms 内的边沿跨度），最大连续空档 **5.046 s**、占空比 0.02%、p95 5.031 s | 已按 SC-T5 有界化：`(|offset|+2σ) × 最大空档 = 0.038 ns` |
 
 未观测区间的口径以可证观测为准：`out/HardwareAcceptance/20260919/dpll-delay-center-r2/plus20-batched-600s/metrology.json`
-由 `tools/vdc_sync_metrology/vdc_sync_metrology.py` 从冻结证据离线重算，输入摘要绑定在收据内。
+由 `tools/vdc/vdc_sync_metrology/vdc_sync_metrology.py` 从冻结证据离线重算，输入摘要绑定在收据内。
 此前记录的"单次捕获中位约 3.36 s、最大空档约 1.8 s"把捕获的**墙钟时间**当作观测时间；墙钟
 时间主要是主机读取与搬运开销，示波器实际数字化记录为 2 ms（1e6 样本 / 500 MS/s）。以可证观测
 计，最大连续未观测空档是 5.046 s。同一轮 120 窗的重叠 Allan 偏差在 τ=5 s 处给出 1.30–1.36 ppb，

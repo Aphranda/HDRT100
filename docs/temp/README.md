@@ -3,8 +3,8 @@
 Status: Active
 Domain: Documentation
 Canonical: `docs/temp/README.md`
-Related: `docs/vdc/VDC_TASK_PROGRESS.md`, `tools/vdc_long_monitor/vdc_long_monitor.py`
-Last updated: 2026-08-17
+Related: `docs/vdc/VDC_TASK_PROGRESS.md`, `tools/vdc/vdc_long_monitor/vdc_long_monitor.py`
+Last updated: 2026-10-10
 
 本目录用于保存阶段性调试、验证和绘图结果。
 
