@@ -395,6 +395,9 @@ bool tdma_runtime_owner_init(void)
         tdma_pio_spi_ring_adapter_set_flight_fifo(
             &s_tdma_pio_spi_ring_adapter,
             &s_tdma_runtime_owner.flight_fifo);
+        tdma_pio_spi_ring_adapter_set_first_class(
+            &s_tdma_pio_spi_ring_adapter,
+            &s_tdma_runtime_owner.first_class);
         tdma_pio_spi_ring_adapter_set_flight_engine(
             &s_tdma_pio_spi_ring_adapter,
             &s_tdma_runtime_owner.flight_engine);

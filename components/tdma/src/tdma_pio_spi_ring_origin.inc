@@ -365,54 +365,12 @@ static tdma_loop_slot_class_t tdma_pio_spi_ring_origin_load_seat(uint8_t message
 }
 #endif
 
-static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
-    tdma_pio_spi_ring_adapter_t *adapter, bool *handled)
+/* TDMA-SEAT-01: board one complete local mailbox on the shared fast path.
+ * False is a fault; a deferred hardware publish leaves the caller retrying. */
+static bool tdma_pio_spi_ring_origin_board(tdma_pio_spi_ring_adapter_t *adapter,
+    const uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE], bool *boarded)
 {
-    uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
-#if TDMA_LOOP_SCHEDULE_ENABLED
-    /* Streaming schedule: the priority seat may publish only inside the window
-     * the loop plan gives it. Outside it this slot returns to the ordinary
-     * path untouched, which is also the switch-off behaviour. */
-    tdma_loop_plan_request_t plan_request;
-    tdma_loop_plan_t plan;
-    tdma_loop_plan_default_request(&plan_request, true, true, false);
-    (void)tdma_loop_plan(&plan_request, &plan);
-    if (tdma_loop_plan_slot_for_index(&plan, adapter->origin.boundary.sequence,
-            adapter->config.cycle_period_ns) != TDMA_LOOP_SLOT_PRIORITY) {
-        s_origin_schedule_block_total++;
-        *handled = false;
-        return true;
-    }
-    s_origin_schedule_allow_total++;
-#endif
-    const tdma_priority_tx_result_t offered =
-        adapter->priority_tx_provider(&adapter->config, mailbox);
-    *handled = offered != TDMA_PRIORITY_TX_DISABLED;
-    if (!*handled) return true;
-    /* A worker may finish a previously granted ordinary offer. Cancel its
-     * lease before direct publication; never select it after priority owns
-     * this slot, and never wait for Core0 to acknowledge cancellation. */
-    const uint32_t station_state = tdma_overlay_prepare_state(adapter->overlay_preparation);
-    if (station_state != TDMA_OVERLAY_PREPARE_IDLE) {
-        if (adapter->overlay_preparation->kind != TDMA_OVERLAY_PREPARE_ORIGIN ||
-            adapter->overlay_preparation->plan != NULL) return false;
-        if (station_state != TDMA_OVERLAY_PREPARE_CANCELLED)
-            (void)tdma_overlay_prepare_cancel(adapter->overlay_preparation);
-        /* Origin's worker owns only private SRAM, not an exchange/DMA bank.
-         * Leave its cancelled station untouched until ACK; direct publication
-         * uses separate owner shadows and has no Core0 completion dependency. */
-    }
-    if (offered == TDMA_PRIORITY_TX_EMPTY) return true;
-    if (offered != TDMA_PRIORITY_TX_READY ||
-        !tdma_process_image_typed_sync_class_valid(mailbox[3]) ||
-        !tdma_pio_spi_ring_origin_mailbox_valid(mailbox, adapter->config.local_slot_id,
-            (1u << adapter->config.node_count) - 1u)) return false;
-    for (uint32_t i = 0u; i < TDMA_ORIGIN_PLAN_BANK_COUNT; ++i) {
-        if (adapter->origin_shadow[i].generation == adapter->origin.published_generation &&
-            memcmp(adapter->origin_shadow[i].mailbox, mailbox, sizeof(mailbox)) == 0)
-            return true;
-    }
-    if (!adapter->phys_origin.ready(adapter->phys_ctrl_context)) return true;
+    *boarded = false;
     tdma_flight_tx_layout_t layout;
     if (!tdma_flight_engine_copy_tx_layout(adapter->flight_engine, &layout) ||
         layout.local_slot_id != adapter->config.local_slot_id ||
@@ -428,6 +386,97 @@ static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
     /* Not a Core0 FIFO offer: do not credit its generation or SENT/ACK. */
     const tdma_flight_tx_view_t tx = {0};
     tdma_pio_spi_ring_origin_commit_owner(adapter, &tx, mailbox, generation);
+    *boarded = true;
+    return true;
+}
+
+static bool tdma_pio_spi_ring_origin_first_class_valid(
+    const tdma_pio_spi_ring_adapter_t *adapter, const uint8_t *mailbox)
+{
+    return tdma_process_image_flight_class_valid(mailbox[3]) &&
+        tdma_pio_spi_ring_origin_mailbox_valid(mailbox, adapter->config.local_slot_id,
+            (1u << adapter->config.node_count) - 1u);
+}
+
+static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
+    tdma_pio_spi_ring_adapter_t *adapter, bool *handled)
+{
+    uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+    const tdma_priority_tx_result_t offered =
+        adapter->priority_tx_provider(&adapter->config, mailbox);
+    *handled = offered != TDMA_PRIORITY_TX_DISABLED;
+    if (!*handled) return true;
+    /* While the priority provider is enabled this fast path is the only route
+     * for local mailboxes; the first-class seat rides it (TDMA-SEAT-01). */
+    if (adapter->first_class != NULL && !tdma_first_class_route(adapter->first_class))
+        tdma_first_class_retire(adapter->first_class, true);
+    /* A worker may finish a previously granted ordinary offer. Cancel its
+     * lease before direct publication; never select it after priority owns
+     * this slot, and never wait for Core0 to acknowledge cancellation. */
+    const uint32_t station_state = tdma_overlay_prepare_state(adapter->overlay_preparation);
+    if (station_state != TDMA_OVERLAY_PREPARE_IDLE) {
+        if (adapter->overlay_preparation->kind != TDMA_OVERLAY_PREPARE_ORIGIN ||
+            adapter->overlay_preparation->plan != NULL) return false;
+        if (station_state != TDMA_OVERLAY_PREPARE_CANCELLED)
+            (void)tdma_overlay_prepare_cancel(adapter->overlay_preparation);
+        /* Origin's worker owns only private SRAM, not an exchange/DMA bank.
+         * Leave its cancelled station untouched until ACK; direct publication
+         * uses separate owner shadows and has no Core0 completion dependency. */
+    }
+    bool priority_new = false;
+    if (offered == TDMA_PRIORITY_TX_READY) {
+        if (!tdma_process_image_typed_sync_class_valid(mailbox[3]) ||
+            !tdma_pio_spi_ring_origin_mailbox_valid(mailbox, adapter->config.local_slot_id,
+                (1u << adapter->config.node_count) - 1u)) return false;
+        /* New means new against the priority seat's own last boarding, not the
+         * seat's last publication: a first-class boarding must not make an old
+         * priority event look new. */
+        priority_new = !adapter->origin.priority_boarded ||
+            memcmp(adapter->origin.last_priority, mailbox, sizeof(mailbox)) != 0;
+    } else if (offered != TDMA_PRIORITY_TX_EMPTY) {
+        return false;
+    }
+    /* EMPTY reserves nothing: an idle priority seat yields the opportunity. */
+    const bool first_pending = tdma_first_class_pending(adapter->first_class);
+    if ((!priority_new && !first_pending) ||
+        !adapter->phys_origin.ready(adapter->phys_ctrl_context)) return true;
+
+    /* One publication opportunity: the exchange is free and someone has news.
+     * Rotate the leading class per opportunity (M:N), never wasting it. */
+    const uint32_t cycle = TDMA_SEAT_ROTATION_PRIORITY_SHARE + TDMA_SEAT_ROTATION_FIRST_CLASS_SHARE;
+    const bool priority_leads =
+        adapter->origin.seat_opportunity_count % cycle < TDMA_SEAT_ROTATION_PRIORITY_SHARE;
+    adapter->origin.seat_opportunity_count++;
+    const bool board_first = first_pending && (!priority_new || !priority_leads);
+    bool boarded = false;
+    if (board_first) {
+        uint8_t first[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+        if (!tdma_first_class_take(adapter->first_class, first)) return true;
+        if (!tdma_pio_spi_ring_origin_first_class_valid(adapter, first)) {
+            /* A malformed record is retired, never retried or allowed to block. */
+            tdma_first_class_finish(adapter->first_class, true);
+            adapter->origin.seat_first_class_reject_count++;
+            return true;
+        }
+        const bool ok = tdma_pio_spi_ring_origin_board(adapter, first, &boarded);
+        tdma_first_class_finish(adapter->first_class, boarded);
+        if (!ok) return false;
+        if (boarded) {
+            adapter->origin.seat_first_class_count++;
+            if (priority_new) adapter->origin.seat_priority_yield_count++;
+            if (adapter->origin.seat_first_class_wait > adapter->origin.seat_first_class_wait_max)
+                adapter->origin.seat_first_class_wait_max = adapter->origin.seat_first_class_wait;
+            adapter->origin.seat_first_class_wait = 0u;
+        }
+        return true;
+    }
+    if (!tdma_pio_spi_ring_origin_board(adapter, mailbox, &boarded)) return false;
+    if (boarded) {
+        memcpy(adapter->origin.last_priority, mailbox, sizeof(mailbox));
+        adapter->origin.priority_boarded = 1u;
+        adapter->origin.seat_priority_count++;
+        if (first_pending) adapter->origin.seat_first_class_wait++;
+    }
     return true;
 }
 

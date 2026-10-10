@@ -785,6 +785,16 @@ void tdma_pio_spi_ring_adapter_set_flight_fifo(
     adapter->flight_fifo = fifo;
 }
 
+void tdma_pio_spi_ring_adapter_set_first_class(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_first_class_t *first_class)
+{
+    if (adapter == NULL) {
+        return;
+    }
+    adapter->first_class = first_class;
+}
+
 void tdma_pio_spi_ring_adapter_set_flight_engine(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_flight_engine_t *engine)
@@ -1176,6 +1186,7 @@ static bool tdma_pio_spi_ring_adapter_stop_locked(void *context)
     const bool rx_retired = tdma_rx_prepare_cancel(adapter->rx_preparation);
     if (adapter->origin.active && adapter->priority_tx_provider != NULL)
         (void)adapter->priority_tx_provider(NULL, NULL);
+    tdma_first_class_retire(adapter->first_class, false);
     const uint64_t disarm_start = tdma_service_timing_now();
     const bool disarmed = adapter->phys_disarm == NULL ||
         adapter->phys_disarm(adapter->phys_ctrl_context);

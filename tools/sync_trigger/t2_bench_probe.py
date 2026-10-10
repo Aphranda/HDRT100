@@ -177,7 +177,23 @@ try:
             if schedule[5]&64:
                 report['errors'].append(f'{p}: SYNC_TRIGGER quarantined; phase={schedule[85:96]}')
         samples.append(sample)
+        # Origin emission cadence on the reference: published_generation vs
+        # boundary_sequence over wall time separates the 1.5 ms (Core1 phase)
+        # and 4 ms (ring throttle) hypotheses for publication opportunities.
+        runtime=cmd(PAIRS[0][0],'READ:CALibration:ORIGin:RUNTIme?').split(',')
+        if len(runtime)>13 and runtime[0].strip('"')=='ORIGINRUNTIME':
+            report.setdefault('origin_cadence',[]).append({'host':time.monotonic(),
+                'published_generation':int(runtime[7]),'boundary_sequence':int(runtime[13])})
     report['samples']=samples
+    cadence=report.get('origin_cadence',[])
+    if len(cadence)>1:
+        a,b=cadence[0],cadence[-1]; seconds=b['host']-a['host']
+        published=b['published_generation']-a['published_generation']
+        boundaries=b['boundary_sequence']-a['boundary_sequence']
+        report['origin_cadence_summary']={'seconds':round(seconds,3),
+            'published_delta':published,'boundary_delta':boundaries,
+            'publish_interval_ms':round(1000*seconds/published,4) if published else None,
+            'boundary_interval_ms':round(1000*seconds/boundaries,4) if boundaries else None}
     if actions_mode:
         report['actions']={p:cmd(p,'TRIGger:REServation:T2:ACTion?') for p,uid in PAIRS}
         cmd(PAIRS[0][0],'TRIGger:REServation:COUNter?')

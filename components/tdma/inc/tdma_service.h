@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "tdma_payload_registry.h"
+#include "tdma_first_class.h"
 #include "tdma_flight_fifo.h"
 #include "tdma_flight_engine.h"
 #include "tdma_operating_profile.h"
@@ -451,6 +452,7 @@ typedef struct {
     void *ops_context;
     tdma_payload_registry_t payload_registry;
     tdma_flight_fifo_t flight_fifo;
+    tdma_first_class_t first_class;
     tdma_flight_engine_t flight_engine;
     tdma_ring_runtime_t ring_runtime;
     tdma_service_ring_runtime_config_t ring_staged_config;
@@ -624,13 +626,12 @@ bool tdma_service_publish_flight_tx(tdma_service_service_t *service,
                                     uint32_t generation,
                                     uint32_t sequence,
                                     uint32_t segment_mask);
-bool tdma_service_patch_flight_tx_ready(
-    tdma_service_service_t *service,
-    uint32_t offset,
-    const uint8_t *data,
-    size_t data_size,
-    uint32_t guard_offset,
-    uint8_t guard_value);
+/* TDMA-SEAT-01: Core0 stages one complete first-class local mailbox for the
+ * origin fast path. route() is true only while that path is the sole route. */
+bool tdma_service_first_class_route(const tdma_service_service_t *service);
+bool tdma_service_first_class_pending(const tdma_service_service_t *service);
+bool tdma_service_stage_first_class(tdma_service_service_t *service,
+    const uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE]);
 /* Core0 RX consumer task only; see the FIFO admission boundary contract. */
 uint32_t tdma_service_core0_advance_flight_rx_admission_epoch(
     tdma_service_service_t *service);

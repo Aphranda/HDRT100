@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "tdma_adapter_comm_fsm.h"
+#include "tdma_first_class.h"
 #include "tdma_flight_fifo.h"
 #include "tdma_flight_engine.h"
 #include "tdma_overlay_prepare.h"
@@ -250,7 +251,21 @@ typedef struct {
     uint32_t matched_owner_sequence;
     tdma_origin_observation_t returned;
     tdma_origin_observation_t boundary; /* independent, may be newer than RX */
+    /* TDMA-SEAT-01: fast-path opportunities and seat boarding on this origin. */
+    uint32_t seat_opportunity_count;
+    uint32_t seat_priority_count;
+    uint32_t seat_first_class_count;
+    uint32_t seat_priority_yield_count; /* priority new, first class boarded */
+    uint32_t seat_first_class_reject_count;
+    uint32_t seat_first_class_wait_max; /* opportunities a record waited */
+    uint32_t seat_first_class_wait;
+    uint32_t priority_boarded; /* last_priority holds the last priority boarding */
+    uint8_t last_priority[TDMA_FLIGHT_SHORT_SLOT_SIZE];
 } tdma_pio_spi_ring_origin_status_t;
+
+/* TDMA-SEAT-01 rotation M:N (priority:first-class) per publication opportunity. */
+#define TDMA_SEAT_ROTATION_PRIORITY_SHARE 1u
+#define TDMA_SEAT_ROTATION_FIRST_CLASS_SHARE 1u
 
 typedef struct {
     uint32_t version;
@@ -416,6 +431,7 @@ typedef struct {
     } origin_shadow[TDMA_ORIGIN_PLAN_BANK_COUNT];
     void *phys_ctrl_context;
     tdma_flight_fifo_t *flight_fifo;
+    tdma_first_class_t *first_class;
     tdma_flight_engine_t *flight_engine;
     tdma_receive_health_t receive_health;
     tdma_pio_spi_ring_topology_t topology;
@@ -653,6 +669,9 @@ void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
 void tdma_pio_spi_ring_adapter_set_flight_fifo(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_flight_fifo_t *fifo);
+void tdma_pio_spi_ring_adapter_set_first_class(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_first_class_t *first_class);
 void tdma_pio_spi_ring_adapter_set_flight_engine(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_flight_engine_t *engine);

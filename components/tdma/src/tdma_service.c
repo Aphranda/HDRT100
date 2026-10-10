@@ -2154,17 +2154,21 @@ bool tdma_service_publish_flight_tx(tdma_service_service_t *service,
                                              segment_mask);
 }
 
-bool tdma_service_patch_flight_tx_ready(
-    tdma_service_service_t *service,
-    uint32_t offset,
-    const uint8_t *data,
-    size_t data_size,
-    uint32_t guard_offset,
-    uint8_t guard_value)
+bool tdma_service_first_class_route(const tdma_service_service_t *service)
 {
-    return service != NULL && tdma_flight_fifo_core0_patch_tx_ready(
-        &service->flight_fifo, offset, data, data_size,
-        guard_offset, guard_value);
+    return service != NULL && tdma_first_class_route(&service->first_class);
+}
+
+bool tdma_service_first_class_pending(const tdma_service_service_t *service)
+{
+    return service != NULL && tdma_first_class_pending(&service->first_class);
+}
+
+bool tdma_service_stage_first_class(tdma_service_service_t *service,
+    const uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE])
+{
+    return service != NULL && tdma_first_class_route(&service->first_class) &&
+        tdma_first_class_stage(&service->first_class, mailbox);
 }
 
 uint32_t tdma_service_core0_advance_flight_rx_admission_epoch(

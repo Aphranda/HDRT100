@@ -207,42 +207,6 @@ bool tdma_flight_fifo_core0_publish_tx(tdma_flight_fifo_t *fifo,
     return published;
 }
 
-bool tdma_flight_fifo_core0_patch_tx_ready(
-    tdma_flight_fifo_t *fifo,
-    uint32_t offset,
-    const uint8_t *data,
-    size_t data_size,
-    uint32_t guard_offset,
-    uint8_t guard_value)
-{
-    if (fifo == NULL || data == NULL || data_size == 0u ||
-        offset > TDMA_FLIGHT_PAYLOAD_CAPACITY ||
-        data_size > TDMA_FLIGHT_PAYLOAD_CAPACITY - offset ||
-        guard_offset >= TDMA_FLIGHT_PAYLOAD_CAPACITY ||
-        !tdma_flight_core0_lock(fifo)) return false;
-    const uint32_t head = tdma_flight_load_u32(&fifo->tx_head);
-    const uint32_t tail = tdma_flight_load_u32(&fifo->tx_tail);
-    if (tdma_flight_ring_empty(head, tail)) {
-        tdma_flight_core0_unlock(fifo);
-        return false;
-    }
-    const uint32_t ring_index = tail % TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT;
-    const uint32_t slot_index =
-        tdma_flight_load_u32(&fifo->tx_ring[ring_index].slot_index);
-    if (slot_index >= TDMA_FLIGHT_TX_IMAGE_SLOT_COUNT ||
-        tdma_flight_load_u32(&fifo->tx_slots[slot_index].owner) !=
-            TDMA_FLIGHT_TX_OWNER_CORE0_READY ||
-        guard_offset >= tdma_flight_load_u32(&fifo->tx_slots[slot_index].data_size) ||
-        fifo->tx_slots[slot_index].data[guard_offset] != guard_value ||
-        offset + data_size > tdma_flight_load_u32(&fifo->tx_slots[slot_index].data_size)) {
-        tdma_flight_core0_unlock(fifo);
-        return false;
-    }
-    memcpy(fifo->tx_slots[slot_index].data + offset, data, data_size);
-    tdma_flight_core0_unlock(fifo);
-    return true;
-}
-
 void tdma_flight_fifo_core1_release_tx(tdma_flight_fifo_t *fifo)
 {
     if (fifo == NULL) {

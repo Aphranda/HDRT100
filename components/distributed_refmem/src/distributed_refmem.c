@@ -1637,11 +1637,11 @@ static void distributed_refmem_tdma_flight_sync_publish(
            ~(1u << ring->local_slot_id))
         : s_tdma_flight_sync.active_mask;
 
-    /* If the next VDC image is already queued, patch only its lower-priority
-     * RefMem mailbox. The guard admits ordinary status images and rejects a
-     * resident VDC command/feedback image, preserving VDC ordering and
-     * cadence while avoiding a second TX slot. */
-    if (position_publication && fifo.tx_ready_count != 0u) {
+    /* TDMA-SEAT-01: while the origin fast path is the only route for local
+     * mailboxes, a T2 record is a first-class seat: stage one complete mailbox
+     * for the Core1 origin and never touch a queued VDC image. Elsewhere the
+     * record rides an ordinary flight FIFO image below. */
+    if (position_publication && tdma_service_first_class_route(owner)) {
         uint8_t position_frame[DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE];
         if (!distributed_refmem_tdma_flight_build_compact_mailbox(
                 (uint8_t)ring->local_slot_id,
@@ -1658,12 +1658,7 @@ static void distributed_refmem_tdma_flight_sync_publish(
                 DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_BAD_DESCRIPTOR;
             return;
         }
-        const uint32_t offset =
-            distributed_refmem_flight_input_offset_for_slot(ring->local_slot_id);
-        if (tdma_flight_fifo_core0_patch_tx_ready(
-                &owner->flight_fifo, offset, position_frame,
-                sizeof(position_frame), offset + 3u,
-                TDMA_PROCESS_IMAGE_MESSAGE_CLASS)) {
+        if (tdma_service_stage_first_class(owner, position_frame)) {
             s_tdma_flight_sync.position_tx_publish_count++;
             s_tdma_flight_sync.position_tx_phase =
                 DISTRIBUTED_REFMEM_POSITION_TRANSPORT_SUBMITTED;
@@ -1671,23 +1666,12 @@ static void distributed_refmem_tdma_flight_sync_publish(
                 s_tdma_flight_sync.position_tx_sequence;
             s_tdma_flight_sync.position_tx_wait_reason =
                 DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
-            const bool freeze_publication =
-                s_tdma_flight_sync.position_tx_fragment_index == UINT32_MAX;
-            if (freeze_publication) {
-                __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 0u,
-                                 __ATOMIC_RELEASE);
-                s_tdma_flight_sync.position_tx_fragment_index = 0u;
-            } else {
-                s_tdma_flight_sync.position_tx_fragment_index++;
-            }
-            if (!freeze_publication &&
-                s_tdma_flight_sync.position_tx_fragment_index >=
-                    TRIGGER_POSITION_DESCRIPTOR_FRAGMENT_COUNT) {
-                __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 0u,
-                                 __ATOMIC_RELEASE);
-                s_tdma_flight_sync.position_tx_fragment_index = 0u;
-            }
+            /* One record, one seat: the transport is idle again. */
+            __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 0u,
+                             __ATOMIC_RELEASE);
+            s_tdma_flight_sync.position_tx_fragment_index = 0u;
         } else {
+            /* The previous record still waits for its opportunity. */
             s_tdma_flight_sync.position_tx_phase =
                 DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_RESOURCE;
             s_tdma_flight_sync.position_tx_wait_reason =

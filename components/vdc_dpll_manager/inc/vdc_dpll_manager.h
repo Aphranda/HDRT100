@@ -225,11 +225,12 @@ void vdc_dpll_manager_feedback_prepare_core0(void);
  * TDMA/RefMem objects are untouched and queue exhaustion remains observable
  * through dropped_count. */
 /* Schema v4 records carry explicit sequence and quality provenance.  Keep
- * three 400-record buffers: the v4 record grew by two provenance words, and
- * this releases 1,344 bytes versus the previous 416-record geometry so both
- * A/B images fit the RP2350 application RAM.  SD segmentation and
- * dropped-count accounting preserve long-run continuity. */
-#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 400u
+ * three 360-record buffers: the debug waveform probe was slimmed once the
+ * TDMA/DPLL loop was established, releasing 3,360 bytes versus the earlier
+ * 400-record geometry for realtime code in SRAM.  The segment size is
+ * reported to the host, and SD segmentation plus dropped-count accounting
+ * preserve long-run continuity. */
+#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 360u
 
 /* Per-record provenance for the external waveform evidence.  These bits are
  * diagnostic facts; only CORRECTED_ELIGIBLE records may enter corrected phase

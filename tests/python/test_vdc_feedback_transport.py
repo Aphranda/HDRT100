@@ -145,7 +145,8 @@ static bool s_vdc_flight_rx_admission_ready;
     harness = harness.replace('#include "tdma_event_observer.h"', '#include "tdma_event_observer.h"\n' + "\n".join(event_types) + "\n" + flags.group(0))
     harness += "\n".join(ingress_definition(service, name) for name in (
         "tdma_service_core0_advance_flight_rx_admission_epoch", "tdma_service_acquire_flight_rx",
-        "tdma_service_release_flight_rx", "tdma_service_publish_flight_tx", "tdma_service_get_flight_fifo_snapshot"))
+        "tdma_service_release_flight_rx", "tdma_service_publish_flight_tx", "tdma_service_get_flight_fifo_snapshot",
+        "tdma_service_first_class_route", "tdma_service_stage_first_class"))
     harness += "\n" + "\n".join(ingress_definition(source, name) for name in (
         "distributed_refmem_put_le16", "distributed_refmem_put_i16", "distributed_refmem_put_le32",
         "distributed_refmem_get_le16", "distributed_refmem_get_i16", "distributed_refmem_get_le32",

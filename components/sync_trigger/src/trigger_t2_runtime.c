@@ -164,7 +164,8 @@ static void deadline_publish(uint32_t index, const t2_deadline_plan_t *plan)
     (void)__atomic_add_fetch(&mail->guard, 1u, __ATOMIC_RELEASE);
 }
 
-static T2_BOUNDED void deadline_receive(void)
+/* Follower path runs every coarse slice; from XIP it overran SYNC_TRIGGER. */
+static T2_BOUNDED void T2_HOT(deadline_receive)(void)
 {
     for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++index) {
         if (s_state.frozen_mask & (1u << index)) continue;
@@ -191,7 +192,7 @@ static void action_fail(uint32_t index)
     s_state.last_error = TRIGGER_T2_RUNTIME_ACTION;
 }
 
-static T2_BOUNDED bool accept_remote_position(uint64_t current_ms)
+static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
 {
     trigger_position_descriptor_t descriptor;
     if (!distributed_refmem_get_position_descriptor(
@@ -254,7 +255,9 @@ static T2_BOUNDED bool accept_remote_position(uint64_t current_ms)
         return true;
     }
     /* The compact wire carries only the slice; bind it to this run's start-up
-     * identity and grid before validation, then fingerprint it locally. */
+     * identity and grid before validation. No local CRC on Core1: a compact
+     * record is identified by its version, and a bitwise CRC here overran the
+     * SYNC_TRIGGER phase on followers. */
     descriptor.run_id = s_config.run_id;
     descriptor.sync_epoch = s_state.cursor.grid_epoch;
     descriptor.count_epoch = s_state.predictor.count_epoch;
@@ -265,12 +268,11 @@ static T2_BOUNDED bool accept_remote_position(uint64_t current_ms)
     descriptor.expiry_sync = descriptor.target_ms_index >
         UINT32_MAX - s_config.descriptor_window_sync ? 0u :
         (uint32_t)descriptor.target_ms_index + s_config.descriptor_window_sync;
-    descriptor.descriptor_crc32 = trigger_position_descriptor_crc(&descriptor);
+    descriptor.descriptor_crc32 = 0u;
     /* Transport owns wire CRC. Validate each new version here once, not the
      * same deployment/table CRC on every realtime polling call. */
     if (s_state.received_mask & bit &&
-        s_state.descriptors[index].prediction_version == descriptor.prediction_version &&
-        s_state.descriptors[index].descriptor_crc32 == descriptor.descriptor_crc32)
+        s_state.descriptors[index].prediction_version == descriptor.prediction_version)
         return true;
     if (!trigger_position_descriptor_valid(&descriptor, s_config.grid.subdivisions) ||
         descriptor.run_id != s_config.run_id ||
