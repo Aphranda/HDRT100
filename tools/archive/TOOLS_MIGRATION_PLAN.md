@@ -122,3 +122,34 @@ runpy.run_path(str(pathlib.Path(__file__).resolve().parents[1] / "<category>/<ol
 **B0**：① 给 `tool_registry.json` 增加 `category` 字段并登记现有全部工具；② 生成 `tools/INDEX.md`；
 ③ 把本计划（评审稿）随提交入库。B0 不移动任何目录、零风险，但立刻让 `tools/` 可发现、可审计，
 并为后续 5 个批次提供分类依据。
+
+## 10. 按新鲜度分批（2026-10-10 修订；**不干扰主线**）
+
+背景：并行会话（Claude）正在做主线任务 ⇒ 迁移**只动最不新鲜的条目**，最近改动一律不碰。
+
+**保护规则（强制）**
+
+1. **不动近 7 天内有修改的条目**（当前即 2026-10-04 之后的 `sync_trigger/`、`vdc_priority_trace/`、
+   `hardware_acceptance/`、`tdma_ring_monitor/`、`calibration_ring_validate/`、`scratch/`、`INDEX.md` 等）。
+2. **不动禁止移动集**（见 `TOOLS_DIRECTORY_STANDARD.md` §5）。
+3. 每批只覆盖一个新鲜度区间；**每批独立提交**；失败即停并记入审计。
+4. 每次执行前重算新鲜度（`tools/_freshness.json`）；若目标条目在 **24h 内被修改** ⇒ 跳过并延后。
+5. wrapper 保证旧路径继续可用 ⇒ 主线按旧路径调用不受影响。
+6. 迁移期间**不批量改写 `tool_registry.json`**（避免与主线冲突），只在必要时追加条目。
+
+**新鲜度批次（可移动条目共 95 项：2026-09 有 89、2026-10 有 6）**
+
+| 批次 | 新鲜度区间 | 项数（约） | 目标域目录 | 风险 |
+|---|---|---|---|---|
+| **N1** | ≤ 2026-09-05 | **44** | ota/ flash/ refmem/ sd(→storage)/ scpi/ interface/ communication/ project/ */_validate 分类 | 低（最旧） |
+| N2 | 2026-09-06 … 09-12 | ~12 | dpll/ vdc/ monitors/ | 低 |
+| N3 | 2026-09-13 … 09-20 | ~10 | vdc/ interface/ project/ | 中 |
+| N4 | 2026-09-21 … 09-27 | ~15 | vdc/ dpll/ refmem/ tdma/ trigger/ | 中 |
+| N5 | 2026-09-28 … 10-03 | ~5 | tdma/ vdc/ | 中 |
+| **N6（暂缓）** | ≥ 2026-10-04 | **6** | — | 高（主线在用）⇒ **等主线空闲再做** |
+
+**每批流程**：① 出候选清单（含引用审计摘要）→ ② 用户过目 → ③ `git mv` + 旧路径 wrapper →
+④ 同批更新引用 → ⑤ 跑文档门禁（涉固件/Ota 批次加 P3）→ ⑥ 更新 `REFERENCE_AUDIT.md`（含旧→新映射）
+→ ⑦ 独立提交。
+
+**N1 候选清单**：见 `tools/archive/MIGRATION_BATCH_N1_CANDIDATES.md`（44 项，含每项建议目标域）。
