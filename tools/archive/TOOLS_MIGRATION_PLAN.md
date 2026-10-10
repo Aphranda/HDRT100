@@ -153,3 +153,22 @@ runpy.run_path(str(pathlib.Path(__file__).resolve().parents[1] / "<category>/<ol
 → ⑦ 独立提交。
 
 **N1 候选清单**：见 `tools/archive/MIGRATION_BATCH_N1_CANDIDATES.md`（44 项，含每项建议目标域）。
+
+## 11. 执行状态（2026-10-10 回写）
+
+| 项 | 状态 |
+|---|---|
+| 已迁移 | **89 项**（N1 44 + N2 6 + N3 4 + N4 三批 35）|
+| 域目录 | 16 个：calibration · communication · flash · interface · ota · project · refmem · rtos · storage · sync · tdma · trigger · validation · vdc · watchdog · state_machine |
+| 兼容层 | 209 个 wrapper 文件 + 123 个 alias，已按仓库机制登记（`role=compatibility_wrapper`）；治理校验通过 |
+| registry/layout | 路径按域归位（252 + 136 处），352 条 tools 路径 100% 存在 |
+| README catalog | `tools/README.md` 收录 registry catalog 块（校验器要求） |
+| 引用归零 | docs/** 与 config/components/application/middleware/linker/.githooks 中旧路径引用 = **0** |
+| 未迁移（延后） | **6 项**：`sync_trigger`、`tdma_ring_monitor`、`vdc_priority_trace`、`calibration_ring_validate`（主线在用/7 天保护期）、`cmake_build_auto`、`picotool_flash`（近期构建链工具） |
+
+**延后触发条件**：主线空闲且最近修改超过 7 天后，用 `tools/archive/migration-ledger/migrate_batch.py`
+按同流程迁移（该脚本已随台账入库，含 wrapper 生成与审计追加）。
+
+**兼容层保留决策**：wrapper **保留**为受治理兼容层，不归档。理由：① 已合法登记并通过治理校验；
+② 主线可能仍按旧路径调用（用户明确要求"不干扰主线"）；③ 归档会使旧路径失效。
+触发归档的条件：主线确认不再使用任何旧路径后，按 `TOOLS_ARCHIVE_STANDARD.md` 移入 `tools/archive/`。

@@ -158,3 +158,19 @@
   - `tools/watchdog_monitor` → `tools/watchdog/watchdog_monitor`
 - 兼容层：旧路径 wrapper
 - 验证：文档门禁
+
+## 终审：2026-10-10
+
+- **迁移规模**：89 项完成；未迁移 6 项（主线保护，延后）。
+- **引用归零证据**：
+  - `docs/**`（含 legacy 与进展日志）：旧路径文件数 0 / 出现次数 0
+  - `config|components|application|middleware|linker|.githooks`：0
+  - `tools/tool_registry.json`：旧路径条目 0（252 处已改写）；352 条 tools 路径全部存在
+  - `tools/tool_layout.json`：136 处已改写；`legacy_files` 覆盖全部旧路径 wrapper
+- **兼容层明细**：209 个 wrapper 文件登记为 `compatibility_wrapper`，其中 123 个带 `aliases{path,target}`
+  （仅 entrypoint/module 目标建 alias，符合校验器约束）。
+- **治理校验**：`tool_governance.py check` 仅剩 2 条错误，均为并行会话在建文件
+  （`tools/sync_trigger/t2_bench_probe.py`、`tools/sync_trigger/t2_enable.py`），非本次迁移产物。
+- **回滚**：逐批 `git mv` 反向（映射见 `tools/archive/migration-ledger/_migration_map.json`）；
+  registry/layout/docs 均已随批提交，可按提交回退。
+- **旧→新映射索引**：`tools/archive/migration-ledger/_migration_map.json`（89 条）。
