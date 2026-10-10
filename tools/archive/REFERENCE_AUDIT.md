@@ -145,3 +145,16 @@
   - `tools/vdc_gpio_lock_validate` → `tools/vdc/vdc_gpio_lock_validate`
 - 兼容层：旧路径 wrapper
 - 验证：文档门禁
+
+### batch 2026-09-01…2026-10-03（2026-10-10）
+
+- 范围：7 项
+  - `tools/vdc_latch_validate` → `tools/vdc/vdc_latch_validate`
+  - `tools/vdc_lock_readiness_validate` → `tools/vdc/vdc_lock_readiness_validate`
+  - `tools/vdc_long_monitor` → `tools/vdc/vdc_long_monitor`
+  - `tools/vdc_observer_validate` → `tools/vdc/vdc_observer_validate`
+  - `tools/vdc_sync_metrology` → `tools/vdc/vdc_sync_metrology`
+  - `tools/vdc_tdma_selftest_validate` → `tools/vdc/vdc_tdma_selftest_validate`
+  - `tools/watchdog_monitor` → `tools/watchdog/watchdog_monitor`
+- 兼容层：旧路径 wrapper
+- 验证：文档门禁

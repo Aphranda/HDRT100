@@ -326,5 +326,33 @@
  {
   "old": "tools/vdc_gpio_lock_validate",
   "new": "tools/vdc/vdc_gpio_lock_validate"
+ },
+ {
+  "old": "tools/vdc_latch_validate",
+  "new": "tools/vdc/vdc_latch_validate"
+ },
+ {
+  "old": "tools/vdc_lock_readiness_validate",
+  "new": "tools/vdc/vdc_lock_readiness_validate"
+ },
+ {
+  "old": "tools/vdc_long_monitor",
+  "new": "tools/vdc/vdc_long_monitor"
+ },
+ {
+  "old": "tools/vdc_observer_validate",
+  "new": "tools/vdc/vdc_observer_validate"
+ },
+ {
+  "old": "tools/vdc_sync_metrology",
+  "new": "tools/vdc/vdc_sync_metrology"
+ },
+ {
+  "old": "tools/vdc_tdma_selftest_validate",
+  "new": "tools/vdc/vdc_tdma_selftest_validate"
+ },
+ {
+  "old": "tools/watchdog_monitor",
+  "new": "tools/watchdog/watchdog_monitor"
  }
 ]
