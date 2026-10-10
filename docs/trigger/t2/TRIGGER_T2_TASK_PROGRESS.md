@@ -12,6 +12,16 @@ Last updated: 2026-10-10
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261010-024：一等席经优先级通道接收、FREEZE 闭环确认，三从板动作全部完成
+
+- TODO task ID：`T2-EXEC-001`、`T2-TRANSPORT-002`；提交 `3ddeb258`。
+- **丢帧根因（TX/RX 预算实测，`t2-bench-probe-201442`，快照）**：从板普通 flight 路径每次捕获跳过积压、只取最新一帧，平均约 4 ms 一次（最长 12–14 ms），而一等记录在线上只停留约一个发布机会；另一缺陷是一等席上车不推进 `next_seq32`（实测增量 0），连续采到的两条 T2 记录 seq16 相同而被按段去重。送达率 33%/24%/2.5%；同期优先级通道 IRQ 覆盖约 99.7% 帧。
+- **修复**：从板改由优先级通道接收一等记录（每帧捕获、线上重复帧视为同一记录、未入箱者由下一份重复帧重试）；每条一等记录独占 seq16；从板接收路径残余 XIP 调用入 RAM。
+- **FREEZE 语义（用户确认）**：FREEZE 为开始冻结；从板冻结后经每个镜像的 control 字节回报冻结掩码，一次环回到 NO1；NO1 重发未完成位置直至全部目标确认，置冻结完成。
+- **实测（四板，`t2-bench-probe-213024`，快照）**：三从板三个位置 frozen=7、ACT armed=done=7、fail=0；NO1 `freeze_complete_mask=7`、`abandoned=0`、重发 15 次；四板零隔离，从板 receive 段峰值 ≤8.5k 拍。
+- **DPLL60**：首次 `dpll60-132430` 因主机调度停顿约 3.9 s 触发 25 s 窗口 `acquisition_overrun`（示波器采集 1.89 s 正常、相位最大约 34 ns、内部健康通过）；重跑 `dpll60-135802` PASS，作为本批凭证。
+- **未闭合**：A-13（源早于预览越阈时 FREEZE 阻塞）仍以 `--late-source` 绕过；STEP/16 组/滑动窗口（T2-STEP-001、T2-SEQ-001、T2-EXEC-002）与 VDC LOCKED 门控（T2-GATE-001）未开始。
+
 ### T2-PROGRESS-20261010-023：从板首次完成 T2 动作闭环，剩余缺失定位为一等席传输丢帧
 
 - TODO task ID：`T2-EXEC-001`、`T2-TRANSPORT-002`；提交 `914a854d`。

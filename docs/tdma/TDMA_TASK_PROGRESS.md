@@ -14,6 +14,13 @@ Last updated: 2026-10-10
 历史记录中的预算、节点及门禁描述只代表当时快照，当前口径以最新条目和主域文档为准。
 
 ## 当前 checkpoint
+### TDMA-PROGRESS-20261010-002：一等席接收改走优先级通道，修复一等记录 seq16 冻结
+
+- TODO task ID：`TDMA-FLIGHT-002K2`、`TDMA-T2-002`；提交 `3ddeb258`；用户确认直接实施，语义写入 TDMA-SEAT-01"路径分离"。
+- **实测预算（`t2-bench-probe-201442`，21.6 s，快照）**：从板普通 RX 站捕获周期约 4 ms（`PROFile:RX?`，每次捕获均有 CLAMP 跳过），一等记录线上停留约一个发布机会（约 1.9 ms）；origin `next_seq32` 增量 0。优先级通道 38031 次 IRQ、序号缺口 108。
+- **改动**：优先级 IRQ 同一记录交给第二接收端（一等，0x15）；一等上车推进 `next_seq32`；`SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 末尾新增通道 accept/duplicate/reject/owned。
+- **结果**：T2 三从板全部动作完成（见 `T2-PROGRESS-20261010-024`）；DPLL60 `dpll60-135802` PASS。
+
 ### TDMA-PROGRESS-20261010-001：TDMA-SEAT-01 快速路径按发布机会轮换落地，T2 位置记录跨环送达
 
 - TODO task ID：`TDMA-FLIGHT-002K2`、`TDMA-T2-002`；提交：语义 `2109963d`（用户已审核）、实现 `8bd547b2`。

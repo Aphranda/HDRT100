@@ -152,7 +152,8 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 **路径分离。**
 - origin 启用特等 provider 时，特等与一等都只走快速路径；普通 flight FIFO 不参与 origin 的座位发布。改写已排队 VDC image 的补丁路径（`tdma_flight_fifo_core0_patch_tx_ready`）作废删除。
 - 多包与长帧（流式 OTA、配置、可靠控制等）保留 `tdma_flight_fifo` 双槽 publish/acquire/release 与分片重组，使用独立的发车机会与预算，不占用本节的快速路径；其出线方式另行设计。
-- 从板接收不变：特等 RX IRQ 按帧序号登记，0x15 不产生序号缺口；VDC sink 对非 0x14 只记 `OTHER_CLASS`；RefMem RX 按 class 解析 T2 记录。
+- 从板接收（2026-10-10 修订，用户确认直接实施，`3ddeb258`）：特等与一等都由优先级通道接收。特等 RX IRQ 每帧捕获 origin 槽并按传输序号登记，同一记录再交给两个接收端：VDC sink 只取 0x14；一等接收端（`tdma_runtime_owner_set_priority_first_class_rx_sink`）只取 0x15，交给 T2 位置邮箱/FREEZE 锁存。普通 flight 路径每次捕获只取最新一帧、约 4 ms 一次（`SYSTem:TDMA:PROFile:RX?` 实测，快照，非事实源），而一等记录只在线上停留约一个发布机会，因此不再作为一等接收路径；一等接收端首次接受记录后，Core0 普通路径停止解析 0x15。
+- 一等记录在线上可能连续出现在多帧（下一次机会到来前座位保持上一份内容）：接收端把线上字节相同的重复帧视为同一记录；邮箱忙而未入箱的记录不记忆，下一份重复帧重试。一等记录各自占用独立的 mailbox seq16（`next_seq32` 随每次一等上车推进），避免普通路径按段序号去重时把新记录误判为重复。
 
 **与既有模型的关系。**
 - `tdma_loop_plan` 的环内时间窗与 `TDMA_LOOP_SCHEDULE_ENABLED` 不再作为座位仲裁；开关保持 0，时间窗按 1 ms 帧号映射与 2.13 ms 的实际机会不对齐。

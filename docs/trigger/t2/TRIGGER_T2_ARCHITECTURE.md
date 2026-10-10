@@ -59,7 +59,12 @@ position_q = target_ms_index * subdivisions + target_fine_slice_index
 
 一个位置记录必须**在一帧内完整送达**（K-5），不分片、不跨帧重组。完整 `trigger_position_descriptor_t` 只保留在 NO1 和从板本地预测/诊断镜像中，不作为线上载荷。位置身份必须由显式 T2 message subtype 或紧凑状态字段携带，不能依靠 q 数值或传输顺序推断。外层 source/target、transport sequence、generation 和 admission epoch 只负责路由、去重和运行代隔离。
 
-达到外部阈值后，NO1 发送一次 FREEZE/版本索引，停止新的 `position_q` 发送。从板停止对该位置的**位置预测**更新，选择本地最新有效版本并准备已激活动作模板。FREEZE 不冻结 DCO 时间映射（K-2）；FREEZE 记录与 PREVIEW 使用同一套运行代身份校验。
+达到外部阈值后，NO1 发出该位置的 FREEZE/版本索引，停止新的 `position_q` 发送。从板停止对该位置的**位置预测**更新，选择本地最新有效版本并准备已激活动作模板。FREEZE 不冻结 DCO 时间映射（K-2）；FREEZE 记录与 PREVIEW 使用同一套运行代身份校验。
+
+**FREEZE 是开始冻结，全部目标收到后才是冻结完成**（2026-10-10 用户确认，`3ddeb258`）：
+- 从板收到某位置的 FREEZE 即完成本板冻结，并把"run_id 低 4 位 + 已冻结位置掩码"作为状态写入其每个镜像的 control 字节（`TDMA_PROCESS_IMAGE_CONTROL_OPCODE_T2_FROZEN`）；一次环回即可把状态带回 NO1。
+- NO1 对未完成位置按间隔重发同版本 FREEZE（`T2_FREEZE_RESEND_SLICES`），直到 `target_mask` 内全部从板报告该位置已冻结，置 `freeze_complete_mask`；位置窗口过期仍未完成则置 `freeze_abandoned_mask` 并停止重发。从板对重复 FREEZE 只接受第一次。
+- 诊断：`TRIGger:REServation:T2?` 末尾的 `freeze_complete_mask`、`freeze_abandoned_mask`、`freeze_resend_count`。
 
 ### 冻结后的诊断回传
 
