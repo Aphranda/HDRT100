@@ -1,0 +1,1 @@
+["tools/analyzer_trace_batch_index", "tools/analyzer_trace_decode", "tools/codex_watchdog", "tools/dpll_waveform_capture", "tools/ota", "tools/ota_haofv_gate", "tools/project", "tools/release_check", "tools/sync", "tools/vdc"]

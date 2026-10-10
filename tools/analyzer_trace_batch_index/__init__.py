@@ -1,5 +1,6 @@
-"""Batch indexing for persisted SYNC_IO analyzer segments."""
-
-from .analyzer_trace_batch_index import build_index
-
-__all__ = ["build_index"]
+#!/usr/bin/env python3
+"""兼容转发（迁移期保留）。"""
+import pathlib, runpy, sys
+_T = pathlib.Path(__file__).resolve().parents[1] / "sync" / "analyzer_trace_batch_index" / "__init__.py"
+sys.argv[0] = str(_T)
+runpy.run_path(str(_T), run_name="__main__")

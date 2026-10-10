@@ -174,5 +174,29 @@
  {
   "old": "tools/ram_budget_check",
   "new": "tools/project/ram_budget_check"
+ },
+ {
+  "old": "tools/ota_haofv_gate",
+  "new": "tools/ota/ota_haofv_gate"
+ },
+ {
+  "old": "tools/release_check",
+  "new": "tools/project/release_check"
+ },
+ {
+  "old": "tools/analyzer_trace_batch_index",
+  "new": "tools/sync/analyzer_trace_batch_index"
+ },
+ {
+  "old": "tools/analyzer_trace_decode",
+  "new": "tools/sync/analyzer_trace_decode"
+ },
+ {
+  "old": "tools/codex_watchdog",
+  "new": "tools/project/codex_watchdog"
+ },
+ {
+  "old": "tools/dpll_waveform_capture",
+  "new": "tools/vdc/dpll_waveform_capture"
  }
 ]

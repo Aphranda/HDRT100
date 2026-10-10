@@ -83,3 +83,15 @@
   - `tools/ram_budget_check` → `tools/project/ram_budget_check`
 - 兼容层：旧路径 wrapper
 - 验证：文档门禁
+
+### N2（2026-10-10）
+
+- 范围：6 项（2026-09-06…09-12）
+  - `tools/ota_haofv_gate` → `tools/ota/ota_haofv_gate`
+  - `tools/release_check` → `tools/project/release_check`
+  - `tools/analyzer_trace_batch_index` → `tools/sync/analyzer_trace_batch_index`
+  - `tools/analyzer_trace_decode` → `tools/sync/analyzer_trace_decode`
+  - `tools/codex_watchdog` → `tools/project/codex_watchdog`
+  - `tools/dpll_waveform_capture` → `tools/vdc/dpll_waveform_capture`
+- 兼容层：旧路径 wrapper
+- 验证：文档门禁
