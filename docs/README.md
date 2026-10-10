@@ -284,6 +284,7 @@ docs/
 | `trigger/t2/TRIGGER_T2_ARCHITECTURE.md` | T2 实施架构草案：多板槽位部署、预约身份、READY/fence、VDC 映射与实际回读边界。 |
 | `trigger/t2/TRIGGER_T2_TODO.md` | 多板实际槽位部署后开展 T2 预约触发的任务、依赖与验收。 |
 | `trigger/t2/TRIGGER_T2_TASK_PROGRESS.md` | T2 分支参考、切片实现、验证、失败与交接记录。 |
+| `trigger/t2/TRIGGER_T2_REVIEW.md` | 2026-10-09 T2 代码与架构语义评审快照：偏离项、实际状态对账、文档漂移与建议顺序；非契约。 |
 | `trigger/TRIGGER_SEQ_STEP_DESIGN.md` | 序列步进触发模式设计。 |
 | `trigger/TRIGGER_ENC_COUNT_DESIGN.md` | 编码器计数触发模式设计。 |
 | `trigger/TRIGGER_PULSE_COUNT_ANALYSIS.md` | 脉冲计数分析。 |

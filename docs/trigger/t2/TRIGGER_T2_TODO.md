@@ -3,8 +3,8 @@
 Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TODO.md`
-Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-09-27
+Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
+Last updated: 2026-10-10
 
 ## 文档接口与状态规则
 
@@ -20,15 +20,18 @@ Last updated: 2026-09-27
 
 ## P0 最新载荷方案
 
-以下方案优先级高于旧的完整位置描述符分片闭环。它仍保持 T2、VDC、DPLL 和 TDMA Foundation owner 分离；具体 wire subtype 和紧凑状态位在实现与独立复核后再登记为契约。
+以下方案优先级高于旧的完整位置描述符分片闭环。它仍保持 T2、VDC、DPLL 和 TDMA Foundation owner 分离；具体 wire subtype 和紧凑状态位在实现与独立复核后再登记为契约。上位语义口径 K-1～K-6 见 [架构 T2-SEMANTICS](TRIGGER_T2_ARCHITECTURE.md#t2-semantics已确认的语义口径2026-10-10)，与本节冲突时以该节为准。
 
 1. **启动前配置**：VDC 启动前通过 `CONFIG_CONTROL` / `NODE_LOAD_STAGE` 完成一次 `BEGIN → DATA → ACK → COMMIT` 事务。事务可跨多个物理帧，但必须在 STOP→ARM 后才启动 VDC。配置包括 run/grid/count epoch、deployment/template/PIO/IO 绑定、位置到动作映射、source/target、阈值、有效窗口、nonce 和回退策略。
-2. **运行时位置**：NO1 根据最新完成的计数窗口异步解算本地完整预测记录；TDMA 只发布一个 `position_q`，即共享网格中的绝对位置时间片。完整预测依据、窗口和历史镜像留在本地，不进入 T2 实时载荷。
-3. **阈值冻结**：达到可配置阈值后只发布 `position_id + prediction_version/FREEZE`，停止新的 `position_q` 发送。从板停止临界阶段解算，采用本地最新有效版本并准备预装动作。
+2. **运行时位置**：NO1 根据最新完成的计数窗口异步解算本地完整预测记录；TDMA 只发布一个 `position_q`，即共享网格中的绝对位置时间片。一个位置记录作为一等席负载**一帧发完**；一等席保留 VDC 核心字段、压缩其余 VDC 字段给 T2（K-5）。完整预测依据、窗口和历史镜像留在本地，不进入 T2 实时载荷。
+3. **阈值冻结**：达到可配置阈值后只发布 `position_id + prediction_version/FREEZE`，停止新的 `position_q` 发送。从板停止该位置的位置预测更新，采用本地最新有效版本并准备预装动作。FREEZE **只冻结位置预测，不冻结 DCO**：尚未装填的动作仍按最新 DCO 重新解算（K-2）。
 4. **诊断回传**：冻结后用低优先级 T2 diagnostic class 回传一帧摘要；仅在版本缺失、旧代、CRC、q 冲突或 READY 异常时追加第二帧。诊断不覆盖 VDC、ACK 或已排队 VDC image。
 5. **通用 FIFO 保留**：现有 `tdma_flight_fifo` 双槽 publish/acquire/release 保留给 TDMA 流式 OTA、配置数据和可靠控制。T2 不通过修改已排队 VDC image 来插入位置数据；旧完整描述符分片仅作为迁移材料和历史失败证据保留。
 
-当前状态：方案为 `P0 / IN PROGRESS`，尚未冻结 compact-q wire subtype；完成定义是四板真实单 `position_q` 送达、阈值冻结、从板本地准备、1～2 帧诊断回传，且 VDC cadence 和外部同步相位不变。
+6. **角度扫描与多组序列**（2026-10-10 确认）：扫描由起始、终止和 STEP 定义，单位为度、分辨率 0.001°，每个 STEP 位置都执行完整触发（K-4）；每个位置运行多组序列与采样（当前 16 组），16 组预装，执行端按包含两组的滑动窗口装填，DCO 更新放在网分采样期间（K-6）。多板模式下 READY 只做异步踩踏校验（K-1）。
+7. **输出门禁**：VDC 进入 LOCKED 并发布后 T2 才有输出（K-3）。
+
+当前状态：方案为 `P0 / IN PROGRESS`，尚未冻结 compact-q wire subtype；完成定义是四板真实单 `position_q` 一帧送达、阈值冻结、从板本地准备、1～2 帧诊断回传，且 VDC cadence 和外部同步相位不变。现行代码与上述口径的偏差逐项见 [T2 评审](TRIGGER_T2_REVIEW.md)。
 
 ## 里程碑
 
@@ -39,8 +42,8 @@ Last updated: 2026-09-27
 | M0 静态部署 | 四板 deployment、PIO/IO、模板和 profile 在 TDMA START 前读回一致 | 配置、资源、模板、安全电平和恢复通过 |
 | M1 1 kHz 时间片 | 每次 VDC 基准同步推进 pulse index/fine cursor | 四板 cursor、丢同步、epoch 换代和参考证据通过 |
 | M2 预测位置 | NO1 按最新完成计数窗口异步更新预测，阈值跨越广播一次位置索引 | count epoch、prediction version、描述符和本地回退证据通过 |
-| M3 从板执行 | 从板解析索引、本地展开模板、按 cursor 执行动作 | 不依赖 host-at-deadline，四板不同 q 边沿顺序通过 |
-| M4 READY 校验 | READY 关联上一动作并检查时间重叠 | 早到/迟到/缺失/重复/重叠及恢复通过 |
+| M3 从板执行 | 从板解析索引、本地展开每位置多组序列模板、按两组滑动窗口装填并执行 | 不依赖 host-at-deadline，四板不同 q 边沿顺序与位置内多组顺序通过 |
+| M4 READY 校验 | READY 按组关联上一动作并检查时间重叠（多板只做异步踩踏校验） | 早到/迟到/缺失/重复/重叠及恢复通过 |
 | M5 T2 闭环 | 实际动作、READY、转台位置和共同时间证据闭合 | position_id 级实际 latch/completion 和范围声明通过 |
 
 ## 分阶段任务
@@ -77,10 +80,16 @@ Last updated: 2026-09-27
 | T2-TURNTABLE-009 | 起始/零位/终止预测与边界校验 | PENDING | 起始角度、零位和终止角度均生成 position_id、预测目标计数和时间片；预运行区建立起始预测，终止后校验区验证终止预测和实际边沿，不新增或重排已执行动作 |
 | T2-COMPLETE-001 | 实际动作/READY 证据闭合 | PENDING | 实际边沿、READY、模型和 position_id 绑定；缺 latch 只报告未确定 |
 | T2-ACCEPT-001 | 当前切片交付 | PENDING | host/Release/P3/TDMA 短帧/示波器/恢复证据闭合，不宣布产品资格 |
+| T2-STEP-001 | 角度扫描与 STEP 位置 | PENDING | 起始/终止/STEP 以整数毫度配置（分辨率 0.001°），整除与 `step_pulses` 整数性、溢出在 STOP 校验；位置数由扫描派生，在途位置状态有界滚动，position 序号防回绕；按声明转速校验 STEP 时间下限大于位置内序列跨度；零位与 STEP 网格的关系先确认；可复用 `feature/node-sequence-reservation-trigger` 的 `CONFigure:ANGLe:*` 入口（评审 A-14） |
+| T2-SEQ-001 | 每位置多组序列预装 | PENDING | 每位置 16 组（切换编码、相对 `q_P` 偏移、网分脉宽、READY 窗口）在位置开始前预装并读回；组间隔按网分最坏响应时间加 settle 与余量；组间不由 READY 推进；各板只展开本角色的步（评审 A-16） |
+| T2-EXEC-002 | 两组滑动窗口执行端 | PENDING | SWITCH/GATEWAY 执行端支持深度 2 的绝对 deadline 队列，每组独立序号、回执与取消结果；一组完成即推入下一组；STOP 取消队列内全部未执行组并记录硬件取消结果；属 SYNC_IO 接口变更，需该域确认（评审 A-16） |
+| T2-DCO-001 | FREEZE 后 deadline 随 DCO 更新 | PENDING | FREEZE 只锁定位置；Core0 在模型 token 变化时为未装填组重新解算，更新放在网分采样期间；Core1 装填前比较 token；已被硬件接受的组不追改；依赖 VDC 证明模型切换无相位跳变（评审 A-06、E-01） |
+| T2-GATE-001 | VDC LOCKED 发布输出门禁 | BLOCKED | T2 只在 VDC 进入 LOCKED 并发布后生成和装填 deadline，消费 VDC 提供的发布状态而不自行判定锁态；补全部非发布锁态的主机负测；阻塞于 `VDC-LOCK-001`、`VDC-RUN-001`，台架期间只允许显式诊断开关且结果不计验收（评审 A-02） |
+| T2-TRANSPORT-002 | 一等席单帧位置记录 | PENDING | 位置记录（身份、`position_q`、版本/FREEZE、运行代身份）一帧发完；VDC 域给出须保留的核心字段清单，TDMA 核定一等席布局与预算并按 `EXE-SEAT-01` 提交用户审核；完成后删除改写已排队 VDC image 的 patch 路径（评审 A-01、A-03、A-15；依赖 `TDMA-T2-001/002`） |
 
 ## 实施顺序与停止条件
 
-先完成 P0 配置事务和 compact-q 运输，再完成阈值冻结、从板本地准备和 1～2 帧诊断回传；随后闭合模板展开、cursor 执行和 READY 重叠校验。通用 FIFO/流式 OTA 保留为独立后续负载，不作为 T2 单 q 的前置条件。
+先完成 P0 配置事务和一等席单帧位置运输（T2-TRANSPORT-002），再完成阈值冻结、从板本地准备和 1～2 帧诊断回传；随后闭合 STEP 扫描（T2-STEP-001）、每位置多组序列与两组滑动窗口执行（T2-SEQ-001、T2-EXEC-002、T2-DCO-001）和 READY 重叠校验。正式输出受 T2-GATE-001 约束。通用 FIFO/流式 OTA 保留为独立后续负载，不作为 T2 单 q 的前置条件。
 
 达到一个真实 position_id 的四板位置广播、从板解算、不同 q 动作边沿和 READY 重叠结果后，停止无关矩阵，保留原始证据并进入独立复核。
 
@@ -92,7 +101,10 @@ Last updated: 2026-09-27
 | 1 kHz cursor | 复用已有本地网格，修正 T2 接收观察入口；恢复完整 typed FOLLOW/PHASE 调试配置，定向验证本地 cursor 与 SYNC_TRIGGER 预算；见 T2-PROGRESS-20260927-019 | M1/M3 |
 | T2 载荷 | 当前完整 descriptor 分片仍是迁移实现；目标为启动期配置 + 单 `position_q` + 冻结诊断，compact-q subtype 和四板接收仍待实现 | P0 |
 | 通用 FIFO/OTA | 双槽 flight FIFO 已具备基础 publish/acquire/release；保留给后续流式 OTA，不与 T2 单 q 共用业务语义 | 后续 OTA |
-| 从板解算 | Core0 fine q→deadline 与 Core1 预装 PIO 提交已接线；当前每板本地模板容量见 `TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY`，三位置独立，真实回执、预算和可见通道示波器待验 | M3 |
+| 从板解算 | Core0 fine q→deadline 与 Core1 预装 PIO 提交已接线；当前每板本地模板容量见 `TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY`（每位置一组），三位置独立，FREEZE 后不再随 DCO 重算；需扩展为每位置多组、两组滑动窗口和随 DCO 重算 | M3 |
+| 执行端队列 | `sync_io_switch/gateway_realtime_schedule_at()` 为单槽，PENDING 时拒绝新 deadline；两组滑动窗口需 SYNC_IO 提供深度 2 队列 | M3 |
+| VDC 发布 | T2 输出以 VDC LOCKED 并发布为前提；`VDC-LOCK-001`、`VDC-RUN-001` 为 PENDING | M3 及之后的正式输出 |
+| 一等席布局 | T2 单帧记录需要 VDC 核心字段清单与 TDMA 一等席布局/预算，并经 `EXE-SEAT-01` 用户审核 | P0 运输 |
 | READY 重叠 | GATEWAY 已有独立上升沿计数且脉冲完成后继续采集；缺少按 position 关联的物理时间戳和重叠窗口结论，计数不替代验收 | M4 |
 | 实际 latch | 需要硬件时间戳和 position_id 绑定 | M5 |
 
@@ -102,12 +114,14 @@ Last updated: 2026-09-27
 TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 → 1 kHz VDC cursor
 → NO1 按完成计数窗口异步预测
-→ TDMA 单 position_q 运输
-→ 阈值 FREEZE，停止位置发送
-→ 从板采用最新有效版本并准备动作
+→ VDC LOCKED 并发布
+→ 按起始/终止/STEP 逐位置预测
+→ TDMA 一等席单帧 position_q 运输
+→ 阈值 FREEZE，只冻结位置预测，停止位置发送
+→ 从板采用最新有效版本，展开该位置全部组序列
 → 1～2 帧压缩诊断回传
-→ 各动作按自己的时间片执行
-→ READY 对上一动作做重叠校验
+→ 两组滑动窗口装填，未装填组随 DCO 更新，各动作按自己的时间片执行
+→ READY 逐组对上一动作做异步踩踏校验
 → position_id 级实际证据和恢复闭合
 ```
 

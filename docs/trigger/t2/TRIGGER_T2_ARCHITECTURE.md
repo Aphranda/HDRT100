@@ -3,8 +3,8 @@
 Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
-Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`
-Last updated: 2026-09-27
+Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`
+Last updated: 2026-10-10
 
 ## 文档接口与范围
 
@@ -13,6 +13,19 @@ Last updated: 2026-09-27
 之前完成的 COUNTER、SWITCH、GATEWAY、动作表安装和一次性 action ARM 只是动作基础。当前主线是同步 VDC 与 1 kHz 时间片构成的准确时间系统：VDC 基准推进共同时间，NO1 发布预测位置，从板按本地时间片执行动作。本文不把旧的 STOP 诊断执行切片描述成完整 T2。
 
 本文仍是实施草案。位置描述符 wire、资源配额、同步质量门限和产品时限尚未冻结；跨域契约待实现和独立复核后登记。
+
+## T2-SEMANTICS：已确认的语义口径（2026-10-10）
+
+以下六条由用户在 [T2 评审](TRIGGER_T2_REVIEW.md) 中确认，是本文其余章节的上位口径；章节内容与之冲突时以本节为准。它们是设计口径，尚未实现的部分见 TODO，不登记为契约。
+
+| # | 口径 |
+|---|---|
+| K-1 | 转台到达位置后，**先切换通道（SWITCH），再触发网分测试（GATEWAY TRIG）**。多板模式下，网分 READY 只做异步的时间片踩踏校验，不是许可门；单板模式可另行规定。 |
+| K-2 | **DCO 是底层时间源，无法冻结，始终正常更新**。FREEZE 只冻结位置预测（`position_q` 与 prediction version）。单个动作的 deadline 被硬件接受后不再追改；尚未装填的动作在装填前按最新 DCO 重新解算，解算放在网分采样期间。 |
+| K-3 | **VDC 进入 LOCKED 并发布之后，T2 才有输出**。未发布时 cursor 可以推进用于诊断，但不得生成或装填动作 deadline。 |
+| K-4 | 扫描由起始、终止和 **STEP** 定义，**角度单位为度，分辨率 0.001°**（实现使用整数毫度）；**每个 STEP 位置都执行完整触发**。 |
+| K-5 | **T2 位置一帧发完，不分片**，作为一等席负载。一等席的主要功能不是 VDC：保留 VDC 核心能力，压缩部分 VDC 字段，把空间让给 T2 等一等席功能；DPLL/VDC 同步发布走特等席。 |
+| K-6 | **每个位置运行多组序列与采样**（当前为 16 组）。16 组在位置开始前全部预装；执行端使用**包含两组的滑动窗口**：一组执行完，即用最新 DCO 解算并推入下一组，始终两组在途。 |
 
 ## T2-SCOPE：主线和边界
 
@@ -36,7 +49,7 @@ VDC 启动前通过现有 `CONFIG_CONTROL` / `NODE_LOAD_STAGE` 控制通道完�
 
 ### 运行期实时载荷
 
-运行期使用 `TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE` 的 node mailbox。VDC 字段、ACK、control 和 CRC 继续由原 owner 管理；T2 只使用 `TDMA_PROCESS_IMAGE_REFMEM_OFFSET` 对应的 RefMem 区域。
+运行期使用 `TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE` 的 node mailbox，T2 位置作为**一等席负载**（K-5）。一等席帧内保留 VDC 核心字段，压缩其余 VDC 字段的占位，腾出的空间给 T2 位置记录；ACK、control 和 CRC 继续由原 owner 管理。保留哪些 VDC 核心字段由 VDC 域给出清单，与 TDMA 一等席布局一起核定（`TDMA-T2-001`、`EXE-SEAT-01`）。
 
 T2 的业务载荷只有一个 `position_q`：
 
@@ -44,9 +57,9 @@ T2 的业务载荷只有一个 `position_q`：
 position_q = target_ms_index * subdivisions + target_fine_slice_index
 ```
 
-完整 `trigger_position_descriptor_t` 只保留在 NO1 和从板本地预测/诊断镜像中，不再作为 TDMA 分片载荷。位置身份必须由显式 T2 message subtype 或紧凑状态字段携带，不能依靠 q 数值或传输顺序推断。外层 source/target、transport sequence、generation 和 admission epoch 只负责路由、去重和运行代隔离。
+一个位置记录必须**在一帧内完整送达**（K-5），不分片、不跨帧重组。完整 `trigger_position_descriptor_t` 只保留在 NO1 和从板本地预测/诊断镜像中，不作为线上载荷。位置身份必须由显式 T2 message subtype 或紧凑状态字段携带，不能依靠 q 数值或传输顺序推断。外层 source/target、transport sequence、generation 和 admission epoch 只负责路由、去重和运行代隔离。
 
-达到外部阈值后，NO1 发送一次 FREEZE/版本索引，停止新的 `position_q` 发送。从板停止临界阶段解算，选择本地最新有效版本并准备已激活动作模板。
+达到外部阈值后，NO1 发送一次 FREEZE/版本索引，停止新的 `position_q` 发送。从板停止对该位置的**位置预测**更新，选择本地最新有效版本并准备已激活动作模板。FREEZE 不冻结 DCO 时间映射（K-2）；FREEZE 记录与 PREVIEW 使用同一套运行代身份校验。
 
 ### 冻结后的诊断回传
 
@@ -117,6 +130,26 @@ NO1 的预测计算不在 VDC 发布路径内。Core1 在每个 VDC 基准同步
 
 预测结果不会因为没有新窗口而伪造新版本；没有新结果时继续使用上一份完整结果。阈值广播只标记应采用的 prediction version，不发送完整预测镜像，也不触发槽位热加载。各板本地保留最新有效镜像和两份旧镜像用于诊断对比。
 
+### 角度扫描与 STEP 位置
+
+扫描按 K-4 由起始角度、终止角度和 STEP 定义，单位为度，分辨率 0.001°。实现中角度一律使用整数毫度：
+
+```text
+position_angle_mdeg(k) = start_mdeg + k × step_mdeg,  k = 0 … N−1
+N = (terminal_mdeg − start_mdeg) / step_mdeg + 1
+step_pulses = |step_mdeg| × pulses_per_degree / 1000
+```
+
+配置时以整数运算校验：`(terminal − start)` 能被 STEP 整除；`step_pulses` 为正整数；累计计数不溢出。不满足时在 STOP 配置阶段拒绝，不在运行期取整。每个 STEP 位置都是独立的预测目标，各有 position 序号、预测目标计数和 prediction version，并执行完整触发（K-1、K-6）。
+
+位置数由扫描参数决定，不再固定为起始/零位/终止三个。运行期只为有限个在途位置保留状态（例如当前与下一位置），其余按序号滚动生成；position 序号须能表示完整扫描并防回绕。
+
+STEP 的下限由时间推出：相邻位置的时间间隔（`step_mdeg / 转速`）必须大于一个位置内全部序列的跨度（见 T2-ACTION）加余量，否则下一位置会踩到上一位置。该下限在配置时按声明转速校验，运行中仍由 READY 踩踏校验和位置忙故障兜底。
+
+参考实现：`feature/node-sequence-reservation-trigger` 分支已有 `CONFigure:ANGLe:SWEEp start,stop,step,speed`、`CONFigure:ANGLe:INPut INn,pulses_per_degree` 及读回命令，可作为配置入口复用；其 Core0 浮点判整须改为整数毫度运算。
+
+零位与 STEP 网格的关系（零位是否必须落在 STEP 网格上，或作为独立的预测目标）尚未确认，见 TODO `T2-STEP-001`。
+
 ### 起始热身区、精确零位和终止校验区
 
 转台运行配置必须显式包含 `start_position`、`zero_position`、`terminal_position`、`pre_roll_angle` 和 `post_roll_angle`。当前台架配置将预运行区和终止校验区都设为 5°（调试快照，非产品额定值）：转台从 `start_position - pre_roll_angle` 开始，在 `terminal_position + post_roll_angle` 停止。
@@ -156,21 +189,40 @@ TDMA START 前装载并冻结：
 - target coarse/fine index；
 - count epoch/target count；
 - template ID 和 instance generation；
-- 本板按模板展开后的动作时间片标记。
+- 本板按模板展开后的各组动作时间片标记。
 
 位置实例只标记本次动作在哪个时间片执行，不修改 PIO 程序和业务槽位。
 
-### 动作解耦
+### 位置内多组序列
 
-动作不使用“下一动作”串行提交模型。每个动作只负责自己的时间片、输出和执行证据：
+按 K-6，每个位置运行多组序列与采样（当前为 16 组）。每组依次为“切换通道 → 触发网分 → READY 窗口”（K-1）。所有组都锚定在同一个位置 `q_P` 加模板偏移上：
 
 ```text
-SWITCH_A(q_A)
-  -> SWITCH_B(q_B)
-  -> GATEWAY_TRIG(q_C)
+位置 P（q_P）:
+  组 1: SWITCH(code_1) @ q_P + d_s1 -> TRIG_1 @ q_P + d_t1 -> READY 窗口_1
+  组 2: SWITCH(code_2) @ q_P + d_s2 -> TRIG_2 @ q_P + d_t2 -> READY 窗口_2
+  ...
+  组 n: SWITCH(code_n) @ q_P + d_sn -> TRIG_n @ q_P + d_tn -> READY 窗口_n
 ```
 
-顺序由模板中的相对 offset 和 settle 预算预先确定。动作到达自身时间片即执行；上一级时间分析通过静态 profile 约束下一级位置，不变成运行时等待或临界期软件补救。
+- 多板模式下，组与组之间**不由 READY 推进**（K-1），只按模板中预先排好的偏移执行；因此网分响应时间的波动不会逐组累积。
+- 组间隔按网分**最坏**响应时间加切换 settle 和余量排布；READY 窗口用于发现踩踏，不用于推迟下一组。
+- 各板分工：SWITCH 板只执行各组的切换步，GATEWAY 板执行各组的触发与 READY 采集；各板共享同一个 `q_P`，偏移来自各自的模板。
+- 一个位置的跨度约为 `n × 组间隔`，它决定 STEP 的时间下限（见 T2-PREDICT）。
+
+### 预装与两组滑动窗口
+
+- **预装**：一个位置的全部 n 组序列内容（通道编码、相对 `q_P` 的偏移、网分脉宽等）在位置开始前全部就位，属于静态模板或位置实例，RUN 中不热加载。
+- **滑动窗口**：执行端同一时刻只持有两组已解算的绝对 deadline。第 k 组执行完后，网分进入测量；在这段测量时间内，Core0 用最新 DCO 解算第 k+2 组，Core1 在其到期前装填，窗口前移一格。装填前比较模型 token，不一致时使用新解算，赶不上则判为迟到并记录，不立即补发。
+- **不追改**：某组 deadline 一旦被硬件接受，不再因 DCO 更新而修改（K-2）；DCO 继续正常更新，供窗口内尚未装填的组使用。
+- **前提**：DCO 模型切换必须连续，不得在模型块边界产生相位跳变，否则同一位置内相邻两组之间会出现等于跳变量的间隔误差。连续性由 VDC 域证明。
+- 执行端需要深度为 2 的 deadline 队列，每组保留独立的序号、回执与取消结果。
+
+DCO 新鲜度评估见 [T2 评审](TRIGGER_T2_REVIEW.md) E-01：VDC LOCKED 时，即使整个位置沿用同一模型，偏移也只有 ns 量级；滑动窗口使每组模型年龄不超过约一个 Core1 整表周期。
+
+### 动作解耦
+
+动作不使用“下一动作”串行提交模型。每个动作只负责自己的时间片、输出和执行证据。顺序由模板中的相对 offset 和 settle 预算预先确定；动作到达自身时间片即执行；上一级时间分析通过静态 profile 约束下一级位置，不变成运行时等待或临界期软件补救。
 
 ## T2-OFFSET：相对位置和调试默认值
 
@@ -181,11 +233,11 @@ SWITCH_A(q_A)
 - `ready_check_offset_q`
 - `ready_window_q`
 
-调试默认值采用审核快照：SWITCH 在预测到位位置前两个逻辑时间片执行；GATEWAY TRIG 使用预测到位位置；READY 从上一级动作后一个逻辑时间片开始，在两个逻辑时间片窗口内检查。以上数值是调试快照、不是产品事实源；实现必须符号化、带 generation/profile CRC，并用示波器和设备响应时间校准。
+按 K-1，到位后先切换、再触发：SWITCH 在预测到位位置或其后执行（`switch_settle_offset_q ≥ 0`），GATEWAY TRIG 在 SWITCH 加 settle 之后，READY 窗口在 TRIG 之后。多组序列下每组各有一套偏移。具体默认值待按网分最坏响应时间和开关 settle 重新标定。以上数值是调试快照、不是产品事实源；实现必须符号化、带 generation/profile CRC，并用示波器和设备响应时间校准。
 
 ## T2-READY：上一动作重叠校验
 
-READY 只校验上一级动作的实际响应是否与计划时间片重叠：
+多板模式下（K-1），READY 只做异步的时间片踩踏校验：校验上一级动作的实际响应是否与计划时间片重叠。多组序列下，每组 READY 与该组的 TRIG 关联，踩踏判定逐组进行：
 
 1. 记录上一级动作实例身份和计划窗口；
 2. 在 profile 指定窗口内采集 READY；
@@ -199,14 +251,14 @@ READY 不作为当前动作执行许可，不形成当前动作 fence，不替�
 
 ### TDMA START 前
 
-deployment、PIO/SM/FIFO/GPIO persona、静态模板、grid 几何和 profile 完成装载、CRC/generation 读回，并设置新的 VDC session。STOP 配置不能要求只有 RUN 后才产生的同步事件或锁定模型；本地 cursor 和预测状态在 RUN 中按真实事件建立，不能由静态配置读回授予动作资格。
+deployment、PIO/SM/FIFO/GPIO persona、静态模板（含每位置全部组序列）、角度扫描参数（起始、终止、STEP）、grid 几何和 profile 完成装载、CRC/generation 读回，并设置新的 VDC session。STOP 配置不能要求只有 RUN 后才产生的同步事件或锁定模型；本地 cursor 和预测状态在 RUN 中按真实事件建立，不能由静态配置读回授予动作资格。
 
 ### TDMA RUN 中
 
-- VDC 每个 1 kHz 基准同步更新一次 local cursor；
-- NO1 在每次同步取得计数观察，Core0 按完成窗口异步更新预测；阈值跨越时通过 TDMA 广播一次位置提示；
-- 从板解析描述符并标记本地动作时间片；
-- 本地硬件到达时间片后执行动作；
+- VDC 每个 1 kHz 基准同步更新一次 local cursor；VDC 未 LOCKED 并发布时，T2 不生成也不装填 deadline（K-3）；
+- NO1 在每次同步取得计数观察，Core0 按完成窗口异步更新预测；阈值跨越时通过 TDMA 一等席单帧广播一次位置提示；
+- 从板解析位置记录并标记本地各组动作时间片；
+- 执行端按两组滑动窗口装填，本地硬件到达时间片后执行动作；DCO 更新在网分采样期间作用于尚未装填的组；
 - READY 只做上一动作的重叠校验；
 - 不通过 STOP/START 重新加载槽位或改变 IO route；
 - 不在目标时间片由主机发送即时命令。
@@ -214,8 +266,8 @@ deployment、PIO/SM/FIFO/GPIO persona、静态模板、grid 几何和 profile �
 ## T2-OWNER：职责与边界
 
 T2 的 Core1 运行入口固定为 `APP_REALTIME_PHASE_SYNC_TRIGGER` / `sync_trigger_service()`。
-位置描述符运输属于 TDMA 现有 flight owner 的一等位置负载；普通帧继续按原
-节拍携带 VDC 状态，T2 片段使用该帧中较低优先级的 RefMem 区域。它不能调用
+位置记录运输属于 TDMA 现有 flight owner 的一等席负载；按 K-5，一等席帧内保留
+VDC 核心字段、压缩其余 VDC 字段，T2 位置记录一帧发完。它不能调用
 或扩展 VDC/DPLL phase，也不能改变 typed SYNC 发布路径。
 通用挂载流程、四级 seat 和越界处理见
 [实时负载挂载约束](../../arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md)。
@@ -225,13 +277,13 @@ T2 的 Core1 运行入口固定为 `APP_REALTIME_PHASE_SYNC_TRIGGER` / `sync_tri
 | 边界 | 当前入口 | 接受条件或结果 |
 |---|---|---|
 | STOP 资源 | `trigger_grid_preview_configure()`、`trigger_action_template_activate_resources()`、T2 SCPI configure | grid 几何和 staged ring 身份、活动 deployment、模板 CRC、本板资源装载读回；无 RUN model 时只保存未绑定几何，精确规划仍拒绝 |
-| 共同时间 | 既有 VDC committed DCO / TIMER1 → `trigger_time_cursor_service()` | T2 本地计算 coarse/fine q；复用会话、ring、slot、schedule、role/clock 身份和模型有效期，不以本地 PI LOCKED 或接收观察频次代替本地网格；不修改 VDC 服务 |
+| 共同时间 | 既有 VDC committed DCO / TIMER1 → `trigger_time_cursor_service()` | T2 本地计算 coarse/fine q；复用会话、ring、slot、schedule、role/clock 身份和模型有效期，不以接收观察频次代替本地网格；不修改 VDC 服务。动作输出以 VDC 进入 LOCKED 并发布为前提（K-3），发布判据由 VDC 提供（`VDC-RUN-001`） |
 | NO1 预测 | `trigger_t2_runtime_service()` + `trigger_t2_runtime_prepare_core0()` | Core1 取得 COUNTER 观察并处理阈值；Core0 按最新完成窗口异步更新位置索引，阈值跨越后只冻结版本 index |
-| 一等运输 | `distributed_refmem_stage_position_descriptor()` → TDMA flight owner | typed SYNC/专用 VDC 命令优先；T2 单 `position_q` 使用 RefMem 区域；独立 message subtype、CRC、来源和序号 |
+| 一等运输 | `distributed_refmem_stage_position_descriptor()` → TDMA flight owner | typed SYNC/专用 VDC 命令优先；T2 单 `position_q` 记录作为一等席负载一帧发完；独立 message subtype、CRC、来源和序号。当前实现仍为完整描述符分片并改写已排队 VDC image，属偏离（评审 A-01、A-15） |
 | 从板绑定 | `accept_remote_position()` | 启动期 run/grid/deployment 上下文匹配，position subtype、q 范围、版本状态和有效同步区间通过 |
-| 本地动作 | `prepare_deadlines_core0()` / `service_deadlines()` | Core0 提前解算本板 deadline，Core1 阈值冻结后采用最新完成版本并装填预装硬件；匹配执行回执后才报告完成，已发出位置不接受不同版本回写 |
+| 本地动作 | `prepare_deadlines_core0()` / `service_deadlines()` | Core0 按最新 DCO 解算本板各组 deadline（FREEZE 后仍随 DCO 更新），Core1 按两组滑动窗口装填预装硬件；匹配执行回执后才报告完成，已发出位置不接受不同版本回写。当前实现每位置一组、FREEZE 后停止重算，属偏离（评审 A-06、A-16） |
 
-T2 的异步运输交接使用固定单槽：Core1 在 `SYNC_TRIGGER` phase 提交单个 `position_q` 到 TX mailbox；Core0 的 RefMem service 在自己的边界领取并一次性组装完整 T2 image。普通 VDC 状态保持原字段，T2 不再使用完整描述符的 index/count/data 分片重组。每个 mailbox 仍须通过 CRC，RX 由 Core0 复验 target mask、启动期上下文和 q 状态后交给 Core1。单槽忙时拒绝并计数，不覆盖旧请求。冻结后停止新的位置发送；已经进入 TDMA FIFO 的 image 仍须由接收方通过 run/generation/admission 门禁处理，诊断回传不能冒充物理送达或动作完成。
+T2 的异步运输交接使用固定单槽：Core1 在 `SYNC_TRIGGER` phase 提交单个 `position_q` 到 TX mailbox；Core0 的 RefMem service 在自己的边界领取并一次性组装完整 T2 image。一等席帧内保留 VDC 核心字段（K-5），T2 不使用完整描述符的 index/count/data 分片重组（目标态；当前实现尚为分片，见评审 A-15）。每个 mailbox 仍须通过 CRC，RX 由 Core0 复验 target mask、启动期上下文和 q 状态后交给 Core1。单槽忙时拒绝并计数，不覆盖旧请求。冻结后停止新的位置发送；已经进入 TDMA FIFO 的 image 仍须由接收方通过 run/generation/admission 门禁处理，诊断回传不能冒充物理送达或动作完成。
 
 T2 的游标观察与动作硬件执行分别验证。游标从当前模型时间派生完整 coarse/fine
 位置，硬件执行必须提前接收本地 deadline；立即调用 SWITCH/GATEWAY 的软件路径
@@ -239,9 +291,10 @@ T2 的游标观察与动作硬件执行分别验证。游标从当前模型时�
 在 TODO 跟踪，不因已有细分波形或软件游标通过而自动关闭。
 
 从板的 deadline 准备使用 Core0 单 writer 的本地原子镜像。阈值到达后采用最新
-已完成解算版本；刚收到但尚未解算的较新 PREVIEW 不引发临界期计算。已冻结实例
-保留本次模型和 deadline，正常 DCO 版本更新不改写已提交硬件前缀；运行身份变化、
-迟到或无法确认执行结果须显式记录，不以即时补发伪装原预约位置。
+已完成解算的**位置版本**；刚收到但尚未解算的较新 PREVIEW 不引发临界期计算。
+冻结只锁定位置，不锁定时间映射（K-2）：尚未装填的组在 DCO 更新后重新解算；
+已被硬件接受的 deadline 不再改写。运行身份变化、迟到或无法确认执行结果须显式
+记录，不以即时补发伪装原预约位置。
 
 调试转台源在 STOP 预装本板 OUT4 的独立 PWM，RUN 只切换已装载波形使能。
 源与 COUNTER 输入可共存，不由 Core1 定时发脉冲，不占用 VDC/TDMA 运行服务。
