@@ -556,3 +556,19 @@ python tools\ota_send\ota_send.py COM4 build-portable-migration\RP2350_TRIG_UPDA
 python tools\ota_send\ota_send.py COM4 build-portable-migration\RP2350_TRIG_UPDATE.pkg `
   --package-negative run-offset --expect-final-state FAILED --expect-error IMAGE_TOO_LARGE
 ```
+
+## 目录治理规则（2026-10-10 增补）
+
+**脚本的唯一归属地是 `tools/`**（`out/` 只管构建产物与验收证据，不存脚本）。
+
+1. **扁平布局是有意的，不要按功能大搬家**：引用审计（2026-10-10）显示 `tools/` 顶层
+   113 项中 **111 项**被 `docs/**`、`config/**`、`components/**`、门禁与 `tool_registry.json`
+   等引用；移动目录会打断这些引用。若要重组，必须作为**独立迁移**（同步更新全部引用 + 门禁复核）。
+2. **新增工具**：放 `tools/<tool_name>/`（单个脚本亦须有同名目录，内部含入口与 README），
+   并在 `tool_registry.json` 登记（名称/用途/入口/域），否则视为未登记工具。
+3. **临时/探测脚本**：放 `tools/scratch/`（见其 README），有复用价值后迁入 `tools/<域>/` 并登记。
+4. **归档**：不再维护但需保留的工具移入 `tools/archive/`；判定为可清除的（缓存、未引用的一次性目录）
+   移入 `tools/archive/deletable-candidates/`。
+5. **不删除**：agent 不得删除 `tools/` 下内容；删除由用户确认后执行。
+6. **审计要求**：任何移动前先做引用审计（`docs/**`、`config/**`、`components/**`、`tool_registry.json`、
+   `.githooks/**`、`CMakeLists.txt`），并把审计结果记录到 `tools/archive/REFERENCE_AUDIT.md`。
