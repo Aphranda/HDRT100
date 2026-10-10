@@ -147,11 +147,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/analyzer_burst/analyzer_burst.py"
+        "tools/sync/analyzer_burst/analyzer_burst.py"
       ],
       "files": [
         {
-          "path": "tools/analyzer_burst/analyzer_burst.py",
+          "path": "tools/sync/analyzer_burst/analyzer_burst.py",
           "role": "entrypoint"
         }
       ],
@@ -175,15 +175,15 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/analyzer_no5_correlator/analyzer_no5_correlator.py"
+        "tools/sync/analyzer_no5_correlator/analyzer_no5_correlator.py"
       ],
       "files": [
         {
-          "path": "tools/analyzer_no5_correlator/__init__.py",
+          "path": "tools/sync/analyzer_no5_correlator/__init__.py",
           "role": "module"
         },
         {
-          "path": "tools/analyzer_no5_correlator/analyzer_no5_correlator.py",
+          "path": "tools/sync/analyzer_no5_correlator/analyzer_no5_correlator.py",
           "role": "entrypoint"
         }
       ],
@@ -203,11 +203,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/analyzer_tdma_hil/analyzer_tdma_hil.py"
+        "tools/tdma/analyzer_tdma_hil/analyzer_tdma_hil.py"
       ],
       "files": [
         {
-          "path": "tools/analyzer_tdma_hil/analyzer_tdma_hil.py",
+          "path": "tools/tdma/analyzer_tdma_hil/analyzer_tdma_hil.py",
           "role": "entrypoint"
         }
       ],
@@ -227,15 +227,15 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/analyzer_trace_batch_index/analyzer_trace_batch_index.py"
+        "tools/sync/analyzer_trace_batch_index/analyzer_trace_batch_index.py"
       ],
       "files": [
         {
-          "path": "tools/analyzer_trace_batch_index/__init__.py",
+          "path": "tools/sync/analyzer_trace_batch_index/__init__.py",
           "role": "module"
         },
         {
-          "path": "tools/analyzer_trace_batch_index/analyzer_trace_batch_index.py",
+          "path": "tools/sync/analyzer_trace_batch_index/analyzer_trace_batch_index.py",
           "role": "entrypoint"
         }
       ],
@@ -257,11 +257,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/analyzer_trace_decode/analyzer_trace_decode.py"
+        "tools/sync/analyzer_trace_decode/analyzer_trace_decode.py"
       ],
       "files": [
         {
-          "path": "tools/analyzer_trace_decode/analyzer_trace_decode.py",
+          "path": "tools/sync/analyzer_trace_decode/analyzer_trace_decode.py",
           "role": "entrypoint"
         }
       ],
@@ -281,15 +281,15 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/analyzer_trace_export/analyzer_trace_export.py"
+        "tools/sync/analyzer_trace_export/analyzer_trace_export.py"
       ],
       "files": [
         {
-          "path": "tools/analyzer_trace_export/__init__.py",
+          "path": "tools/sync/analyzer_trace_export/__init__.py",
           "role": "module"
         },
         {
-          "path": "tools/analyzer_trace_export/analyzer_trace_export.py",
+          "path": "tools/sync/analyzer_trace_export/analyzer_trace_export.py",
           "role": "entrypoint"
         }
       ],
@@ -313,15 +313,15 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/artifact_checksum/artifact_checksum.py"
+        "tools/project/artifact_checksum/artifact_checksum.py"
       ],
       "files": [
         {
-          "path": "tools/artifact_checksum/__init__.py",
+          "path": "tools/project/artifact_checksum/__init__.py",
           "role": "module"
         },
         {
-          "path": "tools/artifact_checksum/artifact_checksum.py",
+          "path": "tools/project/artifact_checksum/artifact_checksum.py",
           "role": "entrypoint"
         }
       ],
@@ -342,7 +342,7 @@
       "operation": "UNASSESSED",
       "entrypoints": [
         "tools/bench/rp2350_tk_toolbox.py",
-        "tools/rp2350_tk_toolbox.py"
+        "tools/project/rp2350_tk_toolbox.py"
       ],
       "files": [
         {
@@ -350,7 +350,7 @@
           "role": "entrypoint"
         },
         {
-          "path": "tools/rp2350_tk_toolbox.py",
+          "path": "tools/project/rp2350_tk_toolbox.py",
           "role": "compatibility_wrapper"
         }
       ],
@@ -359,7 +359,7 @@
       "dependency_review": "PENDING",
       "aliases": [
         {
-          "path": "tools/rp2350_tk_toolbox.py",
+          "path": "tools/project/rp2350_tk_toolbox.py",
           "target": "tools/bench/rp2350_tk_toolbox.py"
         }
       ],
@@ -375,11 +375,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/biss_board_validate/biss_board_validate.py"
+        "tools/communication/biss_board_validate/biss_board_validate.py"
       ],
       "files": [
         {
-          "path": "tools/biss_board_validate/biss_board_validate.py",
+          "path": "tools/communication/biss_board_validate/biss_board_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -402,21 +402,21 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/biss_wavegen/biss_wave_plot.py",
-        "tools/biss_wavegen/biss_wave_validate.py",
-        "tools/biss_wavegen/biss_wavegen.py"
+        "tools/communication/biss_wavegen/biss_wave_plot.py",
+        "tools/communication/biss_wavegen/biss_wave_validate.py",
+        "tools/communication/biss_wavegen/biss_wavegen.py"
       ],
       "files": [
         {
-          "path": "tools/biss_wavegen/biss_wave_plot.py",
+          "path": "tools/communication/biss_wavegen/biss_wave_plot.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/biss_wavegen/biss_wave_validate.py",
+          "path": "tools/communication/biss_wavegen/biss_wave_validate.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/biss_wavegen/biss_wavegen.py",
+          "path": "tools/communication/biss_wavegen/biss_wavegen.py",
           "role": "entrypoint"
         }
       ],
@@ -436,11 +436,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/build_info/gen_build_info.py"
+        "tools/project/build_info/gen_build_info.py"
       ],
       "files": [
         {
-          "path": "tools/build_info/gen_build_info.py",
+          "path": "tools/project/build_info/gen_build_info.py",
           "role": "entrypoint"
         }
       ],
@@ -460,15 +460,15 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/calibration_loopback_validate/calibration_loopback_validate.py"
+        "tools/calibration/calibration_loopback_validate/calibration_loopback_validate.py"
       ],
       "files": [
         {
-          "path": "tools/calibration_loopback_validate/__init__.py",
+          "path": "tools/calibration/calibration_loopback_validate/__init__.py",
           "role": "module"
         },
         {
-          "path": "tools/calibration_loopback_validate/calibration_loopback_validate.py",
+          "path": "tools/calibration/calibration_loopback_validate/calibration_loopback_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -699,13 +699,13 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/check_scpi_usb_namespace.py",
+        "tools/project/check_scpi_usb_namespace.py",
         "tools/checks/check_scpi_usb_namespace.py",
         "tools/checks/check_source_lengths.py"
       ],
       "files": [
         {
-          "path": "tools/check_scpi_usb_namespace.py",
+          "path": "tools/project/check_scpi_usb_namespace.py",
           "role": "compatibility_wrapper"
         },
         {
@@ -722,7 +722,7 @@
       "dependency_review": "PENDING",
       "aliases": [
         {
-          "path": "tools/check_scpi_usb_namespace.py",
+          "path": "tools/project/check_scpi_usb_namespace.py",
           "target": "tools/checks/check_scpi_usb_namespace.py"
         }
       ],
@@ -762,43 +762,43 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/codex_watchdog/codex_supervisor.ps1",
-        "tools/codex_watchdog/codex_watchdog.ps1",
-        "tools/codex_watchdog/heartbeat.ps1",
-        "tools/codex_watchdog/run_hourly.ps1",
-        "tools/codex_watchdog/start_heartbeat.cmd"
+        "tools/project/codex_watchdog/codex_supervisor.ps1",
+        "tools/project/codex_watchdog/codex_watchdog.ps1",
+        "tools/project/codex_watchdog/heartbeat.ps1",
+        "tools/project/codex_watchdog/run_hourly.ps1",
+        "tools/project/codex_watchdog/start_heartbeat.cmd"
       ],
       "files": [
         {
-          "path": "tools/codex_watchdog/codex_supervisor.ps1",
+          "path": "tools/project/codex_watchdog/codex_supervisor.ps1",
           "role": "entrypoint"
         },
         {
-          "path": "tools/codex_watchdog/codex_watchdog.ps1",
+          "path": "tools/project/codex_watchdog/codex_watchdog.ps1",
           "role": "entrypoint"
         },
         {
-          "path": "tools/codex_watchdog/dpll_task_prompt.md",
+          "path": "tools/project/codex_watchdog/dpll_task_prompt.md",
           "role": "documentation"
         },
         {
-          "path": "tools/codex_watchdog/heartbeat.ps1",
+          "path": "tools/project/codex_watchdog/heartbeat.ps1",
           "role": "entrypoint"
         },
         {
-          "path": "tools/codex_watchdog/heartbeat_state.json",
+          "path": "tools/project/codex_watchdog/heartbeat_state.json",
           "role": "resource"
         },
         {
-          "path": "tools/codex_watchdog/run_hourly.ps1",
+          "path": "tools/project/codex_watchdog/run_hourly.ps1",
           "role": "entrypoint"
         },
         {
-          "path": "tools/codex_watchdog/start_heartbeat.cmd",
+          "path": "tools/project/codex_watchdog/start_heartbeat.cmd",
           "role": "entrypoint"
         },
         {
-          "path": "tools/codex_watchdog/state.json",
+          "path": "tools/project/codex_watchdog/state.json",
           "role": "resource"
         }
       ],
@@ -818,11 +818,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/debug_model_overlay_validate/debug_model_overlay_validate.py"
+        "tools/sync/debug_model_overlay_validate/debug_model_overlay_validate.py"
       ],
       "files": [
         {
-          "path": "tools/debug_model_overlay_validate/debug_model_overlay_validate.py",
+          "path": "tools/sync/debug_model_overlay_validate/debug_model_overlay_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -842,15 +842,15 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/distributed_loopback_validate/distributed_loopback_validate.py"
+        "tools/communication/distributed_loopback_validate/distributed_loopback_validate.py"
       ],
       "files": [
         {
-          "path": "tools/distributed_loopback_validate/__init__.py",
+          "path": "tools/communication/distributed_loopback_validate/__init__.py",
           "role": "module"
         },
         {
-          "path": "tools/distributed_loopback_validate/distributed_loopback_validate.py",
+          "path": "tools/communication/distributed_loopback_validate/distributed_loopback_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -918,11 +918,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/dpll_observation_capture/dpll_observation_capture.py"
+        "tools/vdc/dpll_observation_capture/dpll_observation_capture.py"
       ],
       "files": [
         {
-          "path": "tools/dpll_observation_capture/dpll_observation_capture.py",
+          "path": "tools/vdc/dpll_observation_capture/dpll_observation_capture.py",
           "role": "entrypoint"
         }
       ],
@@ -961,7 +961,7 @@
           "role": "entrypoint"
         },
         {
-          "path": "tools/dpll_observation_decode/dpll_observation_decode.py",
+          "path": "tools/vdc/dpll_observation_decode/dpll_observation_decode.py",
           "role": "compatibility_wrapper"
         }
       ],
@@ -972,7 +972,7 @@
       "dependency_review": "COMPLETE",
       "aliases": [
         {
-          "path": "tools/dpll_observation_decode/dpll_observation_decode.py",
+          "path": "tools/vdc/dpll_observation_decode/dpll_observation_decode.py",
           "target": "tools/domains/vdc/dpll_observation_decode/dpll_observation_decode.py"
         }
       ],
@@ -1008,7 +1008,7 @@
           "role": "entrypoint"
         },
         {
-          "path": "tools/dpll_residual_analyze/dpll_residual_analyze.py",
+          "path": "tools/vdc/dpll_residual_analyze/dpll_residual_analyze.py",
           "role": "compatibility_wrapper"
         }
       ],
@@ -1020,7 +1020,7 @@
       "dependency_review": "COMPLETE",
       "aliases": [
         {
-          "path": "tools/dpll_residual_analyze/dpll_residual_analyze.py",
+          "path": "tools/vdc/dpll_residual_analyze/dpll_residual_analyze.py",
           "target": "tools/domains/vdc/dpll_residual_analyze/dpll_residual_analyze.py"
         }
       ],
@@ -1040,11 +1040,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/dpll_servo_tune/dpll_servo_tune.py"
+        "tools/vdc/dpll_servo_tune/dpll_servo_tune.py"
       ],
       "files": [
         {
-          "path": "tools/dpll_servo_tune/dpll_servo_tune.py",
+          "path": "tools/vdc/dpll_servo_tune/dpll_servo_tune.py",
           "role": "entrypoint"
         }
       ],
@@ -1067,11 +1067,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/dpll_vdc_monitor/dpll_vdc_monitor.py"
+        "tools/vdc/dpll_vdc_monitor/dpll_vdc_monitor.py"
       ],
       "files": [
         {
-          "path": "tools/dpll_vdc_monitor/dpll_vdc_monitor.py",
+          "path": "tools/vdc/dpll_vdc_monitor/dpll_vdc_monitor.py",
           "role": "entrypoint"
         }
       ],
@@ -1095,11 +1095,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/dpll_waveform_capture/dpll_waveform_capture.py"
+        "tools/vdc/dpll_waveform_capture/dpll_waveform_capture.py"
       ],
       "files": [
         {
-          "path": "tools/dpll_waveform_capture/dpll_waveform_capture.py",
+          "path": "tools/vdc/dpll_waveform_capture/dpll_waveform_capture.py",
           "role": "entrypoint"
         }
       ],
@@ -1119,15 +1119,15 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/factory_package/factory_package.py"
+        "tools/ota/factory_package/factory_package.py"
       ],
       "files": [
         {
-          "path": "tools/factory_package/__init__.py",
+          "path": "tools/ota/factory_package/__init__.py",
           "role": "module"
         },
         {
-          "path": "tools/factory_package/factory_package.py",
+          "path": "tools/ota/factory_package/factory_package.py",
           "role": "entrypoint"
         }
       ],
@@ -1149,15 +1149,15 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/factory_restore/factory_restore.py"
+        "tools/ota/factory_restore/factory_restore.py"
       ],
       "files": [
         {
-          "path": "tools/factory_restore/__init__.py",
+          "path": "tools/ota/factory_restore/__init__.py",
           "role": "module"
         },
         {
-          "path": "tools/factory_restore/factory_restore.py",
+          "path": "tools/ota/factory_restore/factory_restore.py",
           "role": "entrypoint"
         }
       ],
@@ -1180,11 +1180,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/flash_lockout_hil_validate/flash_lockout_hil_validate.py"
+        "tools/flash/flash_lockout_hil_validate/flash_lockout_hil_validate.py"
       ],
       "files": [
         {
-          "path": "tools/flash_lockout_hil_validate/flash_lockout_hil_validate.py",
+          "path": "tools/flash/flash_lockout_hil_validate/flash_lockout_hil_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -1276,11 +1276,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py"
+        "tools/flash/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py"
       ],
       "files": [
         {
-          "path": "tools/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py",
+          "path": "tools/flash/flash_park_timeout_hil_validate/flash_park_timeout_hil_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -1302,11 +1302,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/flash_scratch_validate/flash_scratch_validate.py"
+        "tools/flash/flash_scratch_validate/flash_scratch_validate.py"
       ],
       "files": [
         {
-          "path": "tools/flash_scratch_validate/flash_scratch_validate.py",
+          "path": "tools/flash/flash_scratch_validate/flash_scratch_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -1386,11 +1386,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/model_turntable_load_validate/model_turntable_load_validate.py"
+        "tools/trigger/model_turntable_load_validate/model_turntable_load_validate.py"
       ],
       "files": [
         {
-          "path": "tools/model_turntable_load_validate/model_turntable_load_validate.py",
+          "path": "tools/trigger/model_turntable_load_validate/model_turntable_load_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -1410,15 +1410,15 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/multicore_board_validate/multicore_board_validate.py"
+        "tools/rtos/multicore_board_validate/multicore_board_validate.py"
       ],
       "files": [
         {
-          "path": "tools/multicore_board_validate/__init__.py",
+          "path": "tools/rtos/multicore_board_validate/__init__.py",
           "role": "module"
         },
         {
-          "path": "tools/multicore_board_validate/multicore_board_validate.py",
+          "path": "tools/rtos/multicore_board_validate/multicore_board_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -1440,11 +1440,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/ota_bin_info/ota_bin_info.py"
+        "tools/ota/ota_bin_info/ota_bin_info.py"
       ],
       "files": [
         {
-          "path": "tools/ota_bin_info/ota_bin_info.py",
+          "path": "tools/ota/ota_bin_info/ota_bin_info.py",
           "role": "entrypoint"
         }
       ],
@@ -1464,11 +1464,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/ota_board_validate/ota_board_validate.py"
+        "tools/ota/ota_board_validate/ota_board_validate.py"
       ],
       "files": [
         {
-          "path": "tools/ota_board_validate/ota_board_validate.py",
+          "path": "tools/ota/ota_board_validate/ota_board_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -1488,11 +1488,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/ota_boot_commit/ota_boot_commit.py"
+        "tools/ota/ota_boot_commit/ota_boot_commit.py"
       ],
       "files": [
         {
-          "path": "tools/ota_boot_commit/ota_boot_commit.py",
+          "path": "tools/ota/ota_boot_commit/ota_boot_commit.py",
           "role": "entrypoint"
         }
       ],
@@ -1514,11 +1514,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/ota_haofv_gate/ota_haofv_gate.py"
+        "tools/ota/ota_haofv_gate/ota_haofv_gate.py"
       ],
       "files": [
         {
-          "path": "tools/ota_haofv_gate/ota_haofv_gate.py",
+          "path": "tools/ota/ota_haofv_gate/ota_haofv_gate.py",
           "role": "entrypoint"
         }
       ],
@@ -1538,26 +1538,26 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/ota_keys/gen_ota_key_registry.py",
-        "tools/ota_keys/generate_ota_key.py",
-        "tools/ota_keys/sign_ota_signature.py",
-        "tools/ota_keys/verify_ota_signature.py"
+        "tools/ota/ota_keys/gen_ota_key_registry.py",
+        "tools/ota/ota_keys/generate_ota_key.py",
+        "tools/ota/ota_keys/sign_ota_signature.py",
+        "tools/ota/ota_keys/verify_ota_signature.py"
       ],
       "files": [
         {
-          "path": "tools/ota_keys/gen_ota_key_registry.py",
+          "path": "tools/ota/ota_keys/gen_ota_key_registry.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/ota_keys/generate_ota_key.py",
+          "path": "tools/ota/ota_keys/generate_ota_key.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/ota_keys/sign_ota_signature.py",
+          "path": "tools/ota/ota_keys/sign_ota_signature.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/ota_keys/verify_ota_signature.py",
+          "path": "tools/ota/ota_keys/verify_ota_signature.py",
           "role": "entrypoint"
         }
       ],
@@ -1577,11 +1577,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/ota_multi_update/ota_multi_update.py"
+        "tools/ota/ota_multi_update/ota_multi_update.py"
       ],
       "files": [
         {
-          "path": "tools/ota_multi_update/ota_multi_update.py",
+          "path": "tools/ota/ota_multi_update/ota_multi_update.py",
           "role": "entrypoint"
         }
       ],
@@ -1603,11 +1603,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/ota_packager/ota_packager.py"
+        "tools/ota/ota_packager/ota_packager.py"
       ],
       "files": [
         {
-          "path": "tools/ota_packager/ota_packager.py",
+          "path": "tools/ota/ota_packager/ota_packager.py",
           "role": "entrypoint"
         }
       ],
@@ -1627,11 +1627,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/ota_send/ota_send.py"
+        "tools/ota/ota_send/ota_send.py"
       ],
       "files": [
         {
-          "path": "tools/ota_send/ota_send.py",
+          "path": "tools/ota/ota_send/ota_send.py",
           "role": "entrypoint"
         }
       ],
@@ -1653,11 +1653,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/ota_stream_send/ota_stream_send.py"
+        "tools/ota/ota_stream_send/ota_stream_send.py"
       ],
       "files": [
         {
-          "path": "tools/ota_stream_send/ota_stream_send.py",
+          "path": "tools/ota/ota_stream_send/ota_stream_send.py",
           "role": "entrypoint"
         }
       ],
@@ -1679,11 +1679,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/pdf_text_extract/pdf_text_extract.py"
+        "tools/project/pdf_text_extract/pdf_text_extract.py"
       ],
       "files": [
         {
-          "path": "tools/pdf_text_extract/pdf_text_extract.py",
+          "path": "tools/project/pdf_text_extract/pdf_text_extract.py",
           "role": "entrypoint"
         }
       ],
@@ -1727,15 +1727,15 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/picotool_reboot/picotool_reboot.py"
+        "tools/ota/picotool_reboot/picotool_reboot.py"
       ],
       "files": [
         {
-          "path": "tools/picotool_reboot/__init__.py",
+          "path": "tools/ota/picotool_reboot/__init__.py",
           "role": "module"
         },
         {
-          "path": "tools/picotool_reboot/picotool_reboot.py",
+          "path": "tools/ota/picotool_reboot/picotool_reboot.py",
           "role": "entrypoint"
         }
       ],
@@ -1755,11 +1755,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/product_scpi_validate/product_scpi_validate.py"
+        "tools/interface/product_scpi_validate/product_scpi_validate.py"
       ],
       "files": [
         {
-          "path": "tools/product_scpi_validate/product_scpi_validate.py",
+          "path": "tools/interface/product_scpi_validate/product_scpi_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -1779,11 +1779,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/ram_budget_check/ram_budget_check.py"
+        "tools/project/ram_budget_check/ram_budget_check.py"
       ],
       "files": [
         {
-          "path": "tools/ram_budget_check/ram_budget_check.py",
+          "path": "tools/project/ram_budget_check/ram_budget_check.py",
           "role": "entrypoint"
         }
       ],
@@ -1803,11 +1803,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/realtime_scpi_validate/realtime_scpi_validate.py"
+        "tools/validation/realtime_scpi_validate/realtime_scpi_validate.py"
       ],
       "files": [
         {
-          "path": "tools/realtime_scpi_validate/realtime_scpi_validate.py",
+          "path": "tools/validation/realtime_scpi_validate/realtime_scpi_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -1827,11 +1827,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/refmem_network_validate/refmem_network_validate.py"
+        "tools/refmem/refmem_network_validate/refmem_network_validate.py"
       ],
       "files": [
         {
-          "path": "tools/refmem_network_validate/refmem_network_validate.py",
+          "path": "tools/refmem/refmem_network_validate/refmem_network_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -1851,11 +1851,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py"
+        "tools/refmem/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py"
       ],
       "files": [
         {
-          "path": "tools/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py",
+          "path": "tools/refmem/refmem_node_load_auto_hil_validate/refmem_node_load_auto_hil_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -1875,11 +1875,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/refmem_pack_build/refmem_pack_build.py"
+        "tools/refmem/refmem_pack_build/refmem_pack_build.py"
       ],
       "files": [
         {
-          "path": "tools/refmem_pack_build/refmem_pack_build.py",
+          "path": "tools/refmem/refmem_pack_build/refmem_pack_build.py",
           "role": "entrypoint"
         }
       ],
@@ -1901,11 +1901,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/refmem_pack_write/refmem_pack_write.py"
+        "tools/refmem/refmem_pack_write/refmem_pack_write.py"
       ],
       "files": [
         {
-          "path": "tools/refmem_pack_write/refmem_pack_write.py",
+          "path": "tools/refmem/refmem_pack_write/refmem_pack_write.py",
           "role": "entrypoint"
         }
       ],
@@ -1927,11 +1927,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py"
+        "tools/refmem/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py"
       ],
       "files": [
         {
-          "path": "tools/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py",
+          "path": "tools/refmem/refmem_quality_gate_hil_validate/refmem_quality_gate_hil_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -1951,11 +1951,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py"
+        "tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py"
       ],
       "files": [
         {
-          "path": "tools/refmem_scpi_load_validate/refmem_scpi_load_validate.py",
+          "path": "tools/refmem/refmem_scpi_load_validate/refmem_scpi_load_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -1977,11 +1977,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py"
+        "tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py"
       ],
       "files": [
         {
-          "path": "tools/refmem_spi_hil_validate/refmem_spi_hil_validate.py",
+          "path": "tools/refmem/refmem_spi_hil_validate/refmem_spi_hil_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -2001,11 +2001,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/refmem_spi_line_activity/refmem_spi_line_activity.py"
+        "tools/refmem/refmem_spi_line_activity/refmem_spi_line_activity.py"
       ],
       "files": [
         {
-          "path": "tools/refmem_spi_line_activity/refmem_spi_line_activity.py",
+          "path": "tools/refmem/refmem_spi_line_activity/refmem_spi_line_activity.py",
           "role": "entrypoint"
         }
       ],
@@ -2025,11 +2025,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py"
+        "tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py"
       ],
       "files": [
         {
-          "path": "tools/refmem_sync_hil_validate/refmem_sync_hil_validate.py",
+          "path": "tools/refmem/refmem_sync_hil_validate/refmem_sync_hil_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -2051,11 +2051,11 @@
       "entrypoints": [],
       "files": [
         {
-          "path": "tools/refmem_table_image/__init__.py",
+          "path": "tools/refmem/refmem_table_image/__init__.py",
           "role": "module"
         },
         {
-          "path": "tools/refmem_table_image/refmem_table_image.py",
+          "path": "tools/refmem/refmem_table_image/refmem_table_image.py",
           "role": "module"
         }
       ],
@@ -2075,11 +2075,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/refmem_table_registry_validate/refmem_table_registry_validate.py"
+        "tools/refmem/refmem_table_registry_validate/refmem_table_registry_validate.py"
       ],
       "files": [
         {
-          "path": "tools/refmem_table_registry_validate/refmem_table_registry_validate.py",
+          "path": "tools/refmem/refmem_table_registry_validate/refmem_table_registry_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -2102,11 +2102,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/release_check/release_check.py"
+        "tools/project/release_check/release_check.py"
       ],
       "files": [
         {
-          "path": "tools/release_check/release_check.py",
+          "path": "tools/project/release_check/release_check.py",
           "role": "entrypoint"
         }
       ],
@@ -2128,11 +2128,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/rs485_modbus_validate/rs485_modbus_validate.py"
+        "tools/communication/rs485_modbus_validate/rs485_modbus_validate.py"
       ],
       "files": [
         {
-          "path": "tools/rs485_modbus_validate/rs485_modbus_validate.py",
+          "path": "tools/communication/rs485_modbus_validate/rs485_modbus_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -2152,11 +2152,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/rtos_watermark_capture/rtos_watermark_capture.py"
+        "tools/rtos/rtos_watermark_capture/rtos_watermark_capture.py"
       ],
       "files": [
         {
-          "path": "tools/rtos_watermark_capture/rtos_watermark_capture.py",
+          "path": "tools/rtos/rtos_watermark_capture/rtos_watermark_capture.py",
           "role": "entrypoint"
         }
       ],
@@ -2178,11 +2178,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/scope_dpll_capture/scope_dpll_capture.py"
+        "tools/vdc/scope_dpll_capture/scope_dpll_capture.py"
       ],
       "files": [
         {
-          "path": "tools/scope_dpll_capture/scope_dpll_capture.py",
+          "path": "tools/vdc/scope_dpll_capture/scope_dpll_capture.py",
           "role": "entrypoint"
         }
       ],
@@ -2236,19 +2236,19 @@
           "role": "module"
         },
         {
-          "path": "tools/scpi_common/__init__.py",
+          "path": "tools/interface/scpi_common/__init__.py",
           "role": "compatibility_wrapper"
         },
         {
-          "path": "tools/scpi_common/board_identity.py",
+          "path": "tools/interface/scpi_common/board_identity.py",
           "role": "compatibility_wrapper"
         },
         {
-          "path": "tools/scpi_common/ota_timing.py",
+          "path": "tools/interface/scpi_common/ota_timing.py",
           "role": "compatibility_wrapper"
         },
         {
-          "path": "tools/scpi_common/scpi_serial.py",
+          "path": "tools/interface/scpi_common/scpi_serial.py",
           "role": "compatibility_wrapper"
         }
       ],
@@ -2257,19 +2257,19 @@
       "dependency_review": "PENDING",
       "aliases": [
         {
-          "path": "tools/scpi_common/__init__.py",
+          "path": "tools/interface/scpi_common/__init__.py",
           "target": "tools/common/scpi/__init__.py"
         },
         {
-          "path": "tools/scpi_common/board_identity.py",
+          "path": "tools/interface/scpi_common/board_identity.py",
           "target": "tools/common/scpi/board_identity.py"
         },
         {
-          "path": "tools/scpi_common/ota_timing.py",
+          "path": "tools/interface/scpi_common/ota_timing.py",
           "target": "tools/common/scpi/ota_timing.py"
         },
         {
-          "path": "tools/scpi_common/scpi_serial.py",
+          "path": "tools/interface/scpi_common/scpi_serial.py",
           "target": "tools/common/scpi/scpi_serial.py"
         }
       ],
@@ -2287,11 +2287,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/scpi_legacy_validate/scpi_legacy_validate.py"
+        "tools/interface/scpi_legacy_validate/scpi_legacy_validate.py"
       ],
       "files": [
         {
-          "path": "tools/scpi_legacy_validate/scpi_legacy_validate.py",
+          "path": "tools/interface/scpi_legacy_validate/scpi_legacy_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -2355,39 +2355,39 @@
           "role": "resource"
         },
         {
-          "path": "tools/scpi_query/model_gpio_drive_g6.scpi",
+          "path": "tools/interface/scpi_query/model_gpio_drive_g6.scpi",
           "role": "resource"
         },
         {
-          "path": "tools/scpi_query/model_gpio_probe.scpi",
+          "path": "tools/interface/scpi_query/model_gpio_probe.scpi",
           "role": "resource"
         },
         {
-          "path": "tools/scpi_query/refmem_file_read_probe.scpi",
+          "path": "tools/interface/scpi_query/refmem_file_read_probe.scpi",
           "role": "resource"
         },
         {
-          "path": "tools/scpi_query/refmem_storage_info_probe.scpi",
+          "path": "tools/interface/scpi_query/refmem_storage_info_probe.scpi",
           "role": "resource"
         },
         {
-          "path": "tools/scpi_query/rs485_mode_probe.scpi",
+          "path": "tools/interface/scpi_query/rs485_mode_probe.scpi",
           "role": "resource"
         },
         {
-          "path": "tools/scpi_query/rs485_scpi_loopback_probe.scpi",
+          "path": "tools/interface/scpi_query/rs485_scpi_loopback_probe.scpi",
           "role": "resource"
         },
         {
-          "path": "tools/scpi_query/sample_capture_debug_probe.scpi",
+          "path": "tools/interface/scpi_query/sample_capture_debug_probe.scpi",
           "role": "resource"
         },
         {
-          "path": "tools/scpi_query/scpi_query.py",
+          "path": "tools/interface/scpi_query/scpi_query.py",
           "role": "compatibility_wrapper"
         },
         {
-          "path": "tools/scpi_query/vdc_readback_probe.scpi",
+          "path": "tools/interface/scpi_query/vdc_readback_probe.scpi",
           "role": "resource"
         }
       ],
@@ -2398,7 +2398,7 @@
       "dependency_review": "PENDING",
       "aliases": [
         {
-          "path": "tools/scpi_query/scpi_query.py",
+          "path": "tools/interface/scpi_query/scpi_query.py",
           "target": "tools/domains/interface/scpi_query/scpi_query.py"
         }
       ],
@@ -2416,11 +2416,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/sd_board_validate/sd_board_validate.py"
+        "tools/storage/sd_board_validate/sd_board_validate.py"
       ],
       "files": [
         {
-          "path": "tools/sd_board_validate/sd_board_validate.py",
+          "path": "tools/storage/sd_board_validate/sd_board_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -2443,11 +2443,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/sd_fs_build/sd_fs_build.py"
+        "tools/storage/sd_fs_build/sd_fs_build.py"
       ],
       "files": [
         {
-          "path": "tools/sd_fs_build/sd_fs_build.py",
+          "path": "tools/storage/sd_fs_build/sd_fs_build.py",
           "role": "entrypoint"
         }
       ],
@@ -2469,11 +2469,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/sd_mkfs/sd_mkfs.py"
+        "tools/storage/sd_mkfs/sd_mkfs.py"
       ],
       "files": [
         {
-          "path": "tools/sd_mkfs/sd_mkfs.py",
+          "path": "tools/storage/sd_mkfs/sd_mkfs.py",
           "role": "entrypoint"
         }
       ],
@@ -2493,11 +2493,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/sd_raw_clear/sd_raw_clear.py"
+        "tools/storage/sd_raw_clear/sd_raw_clear.py"
       ],
       "files": [
         {
-          "path": "tools/sd_raw_clear/sd_raw_clear.py",
+          "path": "tools/storage/sd_raw_clear/sd_raw_clear.py",
           "role": "entrypoint"
         }
       ],
@@ -2529,7 +2529,7 @@
           "role": "entrypoint"
         },
         {
-          "path": "tools/sd_trace_decode/sd_trace_decode.py",
+          "path": "tools/storage/sd_trace_decode/sd_trace_decode.py",
           "role": "compatibility_wrapper"
         }
       ],
@@ -2538,7 +2538,7 @@
       "dependency_review": "PENDING",
       "aliases": [
         {
-          "path": "tools/sd_trace_decode/sd_trace_decode.py",
+          "path": "tools/storage/sd_trace_decode/sd_trace_decode.py",
           "target": "tools/domains/storage/sd_trace_decode/sd_trace_decode.py"
         }
       ],
@@ -2556,36 +2556,36 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/sma_cable_delay_validate/sma_cable_appointment_validate.py",
-        "tools/sma_cable_delay_validate/sma_cable_delay_analyze.py",
-        "tools/sma_cable_delay_validate/sma_cable_delay_sweep.py",
-        "tools/sma_cable_delay_validate/sma_cable_five_board_validate.py",
-        "tools/sma_cable_delay_validate/sma_cable_symmetric_rtt.py",
-        "tools/sma_cable_delay_validate/sma_cable_wire_order.py"
+        "tools/calibration/sma_cable_delay_validate/sma_cable_appointment_validate.py",
+        "tools/calibration/sma_cable_delay_validate/sma_cable_delay_analyze.py",
+        "tools/calibration/sma_cable_delay_validate/sma_cable_delay_sweep.py",
+        "tools/calibration/sma_cable_delay_validate/sma_cable_five_board_validate.py",
+        "tools/calibration/sma_cable_delay_validate/sma_cable_symmetric_rtt.py",
+        "tools/calibration/sma_cable_delay_validate/sma_cable_wire_order.py"
       ],
       "files": [
         {
-          "path": "tools/sma_cable_delay_validate/sma_cable_appointment_validate.py",
+          "path": "tools/calibration/sma_cable_delay_validate/sma_cable_appointment_validate.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/sma_cable_delay_validate/sma_cable_delay_analyze.py",
+          "path": "tools/calibration/sma_cable_delay_validate/sma_cable_delay_analyze.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/sma_cable_delay_validate/sma_cable_delay_sweep.py",
+          "path": "tools/calibration/sma_cable_delay_validate/sma_cable_delay_sweep.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/sma_cable_delay_validate/sma_cable_five_board_validate.py",
+          "path": "tools/calibration/sma_cable_delay_validate/sma_cable_five_board_validate.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/sma_cable_delay_validate/sma_cable_symmetric_rtt.py",
+          "path": "tools/calibration/sma_cable_delay_validate/sma_cable_symmetric_rtt.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/sma_cable_delay_validate/sma_cable_wire_order.py",
+          "path": "tools/calibration/sma_cable_delay_validate/sma_cable_wire_order.py",
           "role": "entrypoint"
         }
       ],
@@ -2605,26 +2605,26 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/sma_loopback_validate/sma_single_board_loopback.py",
-        "tools/sma_loopback_validate/sma_two_board_frequency_sweep.py",
-        "tools/sma_loopback_validate/sma_two_board_in1_out1.py",
-        "tools/sma_loopback_validate/sma_two_board_matrix.py"
+        "tools/calibration/sma_loopback_validate/sma_single_board_loopback.py",
+        "tools/calibration/sma_loopback_validate/sma_two_board_frequency_sweep.py",
+        "tools/calibration/sma_loopback_validate/sma_two_board_in1_out1.py",
+        "tools/calibration/sma_loopback_validate/sma_two_board_matrix.py"
       ],
       "files": [
         {
-          "path": "tools/sma_loopback_validate/sma_single_board_loopback.py",
+          "path": "tools/calibration/sma_loopback_validate/sma_single_board_loopback.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/sma_loopback_validate/sma_two_board_frequency_sweep.py",
+          "path": "tools/calibration/sma_loopback_validate/sma_two_board_frequency_sweep.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/sma_loopback_validate/sma_two_board_in1_out1.py",
+          "path": "tools/calibration/sma_loopback_validate/sma_two_board_in1_out1.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/sma_loopback_validate/sma_two_board_matrix.py",
+          "path": "tools/calibration/sma_loopback_validate/sma_two_board_matrix.py",
           "role": "entrypoint"
         }
       ],
@@ -2644,11 +2644,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/state_machine_resource_check/state_machine_resource_check.py"
+        "tools/state_machine/state_machine_resource_check/state_machine_resource_check.py"
       ],
       "files": [
         {
-          "path": "tools/state_machine_resource_check/state_machine_resource_check.py",
+          "path": "tools/state_machine/state_machine_resource_check/state_machine_resource_check.py",
           "role": "entrypoint"
         }
       ],
@@ -2668,11 +2668,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/storage_file_upload/storage_file_upload.py"
+        "tools/storage/storage_file_upload/storage_file_upload.py"
       ],
       "files": [
         {
-          "path": "tools/storage_file_upload/storage_file_upload.py",
+          "path": "tools/storage/storage_file_upload/storage_file_upload.py",
           "role": "entrypoint"
         }
       ],
@@ -2694,11 +2694,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/storage_scpi_validate/storage_scpi_validate.py"
+        "tools/storage/storage_scpi_validate/storage_scpi_validate.py"
       ],
       "files": [
         {
-          "path": "tools/storage_scpi_validate/storage_scpi_validate.py",
+          "path": "tools/storage/storage_scpi_validate/storage_scpi_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -2808,9 +2808,9 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/run_biss_protocol_tests.ps1",
-        "tools/run_portable_log_tests.ps1",
-        "tools/run_portable_ota_tests.ps1",
+        "tools/validation/run_biss_protocol_tests.ps1",
+        "tools/project/run_portable_log_tests.ps1",
+        "tools/validation/run_portable_ota_tests.ps1",
         "tools/tests/run_biss_protocol_tests.ps1",
         "tools/tests/run_calibration_bias_tests.ps1",
         "tools/tests/run_calibration_bidirectional_tests.ps1",
@@ -2867,15 +2867,15 @@
       ],
       "files": [
         {
-          "path": "tools/run_biss_protocol_tests.ps1",
+          "path": "tools/validation/run_biss_protocol_tests.ps1",
           "role": "compatibility_wrapper"
         },
         {
-          "path": "tools/run_portable_log_tests.ps1",
+          "path": "tools/project/run_portable_log_tests.ps1",
           "role": "compatibility_wrapper"
         },
         {
-          "path": "tools/run_portable_ota_tests.ps1",
+          "path": "tools/validation/run_portable_ota_tests.ps1",
           "role": "compatibility_wrapper"
         },
         {
@@ -3096,15 +3096,15 @@
       "dependency_review": "PENDING",
       "aliases": [
         {
-          "path": "tools/run_biss_protocol_tests.ps1",
+          "path": "tools/validation/run_biss_protocol_tests.ps1",
           "target": "tools/tests/run_biss_protocol_tests.ps1"
         },
         {
-          "path": "tools/run_portable_log_tests.ps1",
+          "path": "tools/project/run_portable_log_tests.ps1",
           "target": "tools/tests/run_portable_log_tests.ps1"
         },
         {
-          "path": "tools/run_portable_ota_tests.ps1",
+          "path": "tools/validation/run_portable_ota_tests.ps1",
           "target": "tools/tests/run_portable_ota_tests.ps1"
         }
       ],
@@ -3170,21 +3170,21 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/trigger_meas/debug_trigger.py",
-        "tools/trigger_meas/loopback_test.py",
-        "tools/trigger_meas/trigger_meas.py"
+        "tools/trigger/trigger_meas/debug_trigger.py",
+        "tools/trigger/trigger_meas/loopback_test.py",
+        "tools/trigger/trigger_meas/trigger_meas.py"
       ],
       "files": [
         {
-          "path": "tools/trigger_meas/debug_trigger.py",
+          "path": "tools/trigger/trigger_meas/debug_trigger.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/trigger_meas/loopback_test.py",
+          "path": "tools/trigger/trigger_meas/loopback_test.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/trigger_meas/trigger_meas.py",
+          "path": "tools/trigger/trigger_meas/trigger_meas.py",
           "role": "entrypoint"
         }
       ],
@@ -3204,11 +3204,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/trigger_timing_test/trigger_timing_test.py"
+        "tools/trigger/trigger_timing_test/trigger_timing_test.py"
       ],
       "files": [
         {
-          "path": "tools/trigger_timing_test/trigger_timing_test.py",
+          "path": "tools/trigger/trigger_timing_test/trigger_timing_test.py",
           "role": "entrypoint"
         }
       ],
@@ -3228,15 +3228,15 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/two_board_io_validate/two_board_io_validate.py"
+        "tools/sync/two_board_io_validate/two_board_io_validate.py"
       ],
       "files": [
         {
-          "path": "tools/two_board_io_validate/README.md",
+          "path": "tools/sync/two_board_io_validate/README.md",
           "role": "documentation"
         },
         {
-          "path": "tools/two_board_io_validate/two_board_io_validate.py",
+          "path": "tools/sync/two_board_io_validate/two_board_io_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -3256,11 +3256,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/uart_log_monitor/uart_log_monitor.py"
+        "tools/project/uart_log_monitor/uart_log_monitor.py"
       ],
       "files": [
         {
-          "path": "tools/uart_log_monitor/uart_log_monitor.py",
+          "path": "tools/project/uart_log_monitor/uart_log_monitor.py",
           "role": "entrypoint"
         }
       ],
@@ -3280,16 +3280,16 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/uf2_join/make_fill_bin.py",
-        "tools/uf2_join/uf2_join.py"
+        "tools/ota/uf2_join/make_fill_bin.py",
+        "tools/ota/uf2_join/uf2_join.py"
       ],
       "files": [
         {
-          "path": "tools/uf2_join/make_fill_bin.py",
+          "path": "tools/ota/uf2_join/make_fill_bin.py",
           "role": "entrypoint"
         },
         {
-          "path": "tools/uf2_join/uf2_join.py",
+          "path": "tools/ota/uf2_join/uf2_join.py",
           "role": "entrypoint"
         }
       ],
@@ -3333,11 +3333,11 @@
           "role": "resource"
         },
         {
-          "path": "tools/vdc_dpll_replay/vdc_dpll_replay.py",
+          "path": "tools/vdc/vdc_dpll_replay/vdc_dpll_replay.py",
           "role": "compatibility_wrapper"
         },
         {
-          "path": "tools/vdc_dpll_replay/vdc_dpll_replay_runner.c",
+          "path": "tools/vdc/vdc_dpll_replay/vdc_dpll_replay_runner.c",
           "role": "resource"
         }
       ],
@@ -3350,7 +3350,7 @@
       "dependency_review": "COMPLETE",
       "aliases": [
         {
-          "path": "tools/vdc_dpll_replay/vdc_dpll_replay.py",
+          "path": "tools/vdc/vdc_dpll_replay/vdc_dpll_replay.py",
           "target": "tools/domains/vdc/dpll_replay/vdc_dpll_replay.py"
         }
       ],
@@ -3368,11 +3368,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py"
+        "tools/vdc/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py"
       ],
       "files": [
         {
-          "path": "tools/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py",
+          "path": "tools/vdc/vdc_gpio_lock_validate/vdc_gpio_lock_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -3392,11 +3392,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/vdc_latch_validate/vdc_latch_validate.py"
+        "tools/vdc/vdc_latch_validate/vdc_latch_validate.py"
       ],
       "files": [
         {
-          "path": "tools/vdc_latch_validate/vdc_latch_validate.py",
+          "path": "tools/vdc/vdc_latch_validate/vdc_latch_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -3416,11 +3416,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py"
+        "tools/vdc/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py"
       ],
       "files": [
         {
-          "path": "tools/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py",
+          "path": "tools/vdc/vdc_lock_readiness_validate/vdc_lock_readiness_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -3440,11 +3440,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/vdc_long_monitor/vdc_long_monitor.py"
+        "tools/vdc/vdc_long_monitor/vdc_long_monitor.py"
       ],
       "files": [
         {
-          "path": "tools/vdc_long_monitor/vdc_long_monitor.py",
+          "path": "tools/vdc/vdc_long_monitor/vdc_long_monitor.py",
           "role": "entrypoint"
         }
       ],
@@ -3464,11 +3464,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/vdc_observer_validate/vdc_observer_validate.py"
+        "tools/vdc/vdc_observer_validate/vdc_observer_validate.py"
       ],
       "files": [
         {
-          "path": "tools/vdc_observer_validate/vdc_observer_validate.py",
+          "path": "tools/vdc/vdc_observer_validate/vdc_observer_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -3542,7 +3542,7 @@
           "role": "entrypoint"
         },
         {
-          "path": "tools/vdc_sync_metrology/vdc_sync_metrology.py",
+          "path": "tools/vdc/vdc_sync_metrology/vdc_sync_metrology.py",
           "role": "compatibility_wrapper"
         }
       ],
@@ -3551,7 +3551,7 @@
       "dependency_review": "PENDING",
       "aliases": [
         {
-          "path": "tools/vdc_sync_metrology/vdc_sync_metrology.py",
+          "path": "tools/vdc/vdc_sync_metrology/vdc_sync_metrology.py",
           "target": "tools/domains/vdc/sync_metrology/vdc_sync_metrology.py"
         }
       ],
@@ -3569,11 +3569,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py"
+        "tools/vdc/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py"
       ],
       "files": [
         {
-          "path": "tools/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py",
+          "path": "tools/vdc/vdc_tdma_selftest_validate/vdc_tdma_selftest_validate.py",
           "role": "entrypoint"
         }
       ],
@@ -3593,11 +3593,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/visa_ota_send/visa_ota_send.py"
+        "tools/ota/visa_ota_send/visa_ota_send.py"
       ],
       "files": [
         {
-          "path": "tools/visa_ota_send/visa_ota_send.py",
+          "path": "tools/ota/visa_ota_send/visa_ota_send.py",
           "role": "entrypoint"
         }
       ],
@@ -3617,11 +3617,11 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/watchdog_monitor/watchdog_reset_probe.py"
+        "tools/watchdog/watchdog_monitor/watchdog_reset_probe.py"
       ],
       "files": [
         {
-          "path": "tools/watchdog_monitor/watchdog_reset_probe.py",
+          "path": "tools/watchdog/watchdog_monitor/watchdog_reset_probe.py",
           "role": "entrypoint"
         }
       ],

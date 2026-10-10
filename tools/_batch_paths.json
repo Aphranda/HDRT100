@@ -1,1 +1,0 @@
-["tools/vdc", "tools/vdc_latch_validate", "tools/vdc_lock_readiness_validate", "tools/vdc_long_monitor", "tools/vdc_observer_validate", "tools/vdc_sync_metrology", "tools/vdc_tdma_selftest_validate", "tools/watchdog", "tools/watchdog_monitor"]
