@@ -230,7 +230,7 @@ void vdc_dpll_manager_feedback_prepare_core0(void);
  * 400-record geometry for realtime code in SRAM.  The segment size is
  * reported to the host, and SD segmentation plus dropped-count accounting
  * preserve long-run continuity. */
-#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 360u
+#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 352u
 
 /* Per-record provenance for the external waveform evidence.  These bits are
  * diagnostic facts; only CORRECTED_ELIGIBLE records may enter corrected phase

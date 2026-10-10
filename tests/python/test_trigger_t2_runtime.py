@@ -55,6 +55,12 @@ uint32_t trigger_counter_read_core1(uint32_t *out)
 { if (!out || !counter.loaded || !counter.io.valid) return COUNTER_ARGUMENT;
   *out=counter.io.count32; return COUNTER_OK; }
 bool distributed_refmem_position_descriptor_pending(void) { return tx_pending; }
+static uint32_t noted_frozen=UINT32_MAX, freeze_acked;
+static bool noted_active;
+void distributed_refmem_note_position_frozen(uint32_t run, bool active, uint32_t mask)
+{ (void)run; noted_active=active; noted_frozen=mask; }
+uint32_t distributed_refmem_position_freeze_acked(uint32_t run, uint32_t targets)
+{ (void)run; (void)targets; return freeze_acked; }
 void distributed_refmem_request_position_cancel(void) { tx_pending=false; }
 bool distributed_refmem_stage_position_descriptor(
     const trigger_position_descriptor_t *d, uint32_t mask)
@@ -146,7 +152,7 @@ int main(int argc,char **argv)
 {
     assert(argc==2); counter.loaded=1; counter.io.valid=1;
     const char *test=argv[1];
-    trigger_t2_runtime_config_t c=config(!strcmp(test,"origin") ||
+    trigger_t2_runtime_config_t c=config(!strcmp(test,"origin") || !strcmp(test,"origin_resend") ||
         !strcmp(test,"origin_pending"));
     if (!strcmp(test,"capacity")) {
         c.templates.count=2; c.templates.row[1]=c.templates.row[0];
@@ -160,9 +166,54 @@ int main(int argc,char **argv)
         c.templates.row[0].argument=1000;
         c.template_crc=trigger_action_template_table_crc(&c.templates);
     }
+    /* Keep the position window open while the resend cadence is observed. */
+    if (!strcmp(test,"origin_resend")) c.descriptor_window_sync=200u;
     assert(trigger_t2_runtime_configure(&c));
     assert(trigger_t2_runtime_start(11,0));
     if (!strcmp(test,"different_local_seq")) sample_offset=80;
+    if(!strcmp(test,"origin_resend")) {
+        /* FREEZE only starts freezing: resend, spaced, until every target
+         * reports the position frozen; then the position is complete. */
+        assert(noted_frozen==0u && !noted_active); /* the origin reports nothing */
+        unsigned first=UINT32_MAX;
+        for (unsigned i=0u; i<40u && first==UINT32_MAX; ++i) {
+            now_ns=(i+1u)*1000000u; counter.io.count32=(i+1u)*300u; tx_pending=false;
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+            trigger_t2_runtime_prepare_core0(); tx_pending=false;
+            for (unsigned k=0u; k<transmitted_count; ++k)
+                if (transmitted[k].stage==TRIGGER_POSITION_STAGE_FREEZE) { first=k; break; }
+        }
+        assert(first!=UINT32_MAX);
+        const uint32_t position=transmitted[first].position_id, version=transmitted[first].prediction_version;
+        unsigned resent=0u, before=transmitted_count;
+        const uint32_t counted=snapshot().freeze_resend_count;
+        for (unsigned i=0u; i<40u; ++i) {
+            now_ns+=1000000u; tx_pending=false;
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK); tx_pending=false;
+        }
+        for (unsigned k=before; k<transmitted_count; ++k)
+            if (transmitted[k].stage==TRIGGER_POSITION_STAGE_FREEZE &&
+                transmitted[k].position_id==position) {
+                assert(transmitted[k].prediction_version==version); ++resent;
+            }
+        /* Open positions share one resend every T2_FREEZE_RESEND_SLICES. */
+        const uint32_t shared=snapshot().freeze_resend_count-counted;
+        assert(!snapshot().freeze_abandoned_mask && resent>=2u);
+        assert(shared>=resent && shared<=40u/4u+1u);
+        freeze_acked=1u<<(position-1u);
+        now_ns+=1000000u; tx_pending=false;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().freeze_complete_mask & freeze_acked);
+        before=transmitted_count;
+        for (unsigned i=0u; i<12u; ++i) {
+            now_ns+=1000000u; tx_pending=false;
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK); tx_pending=false;
+        }
+        for (unsigned k=before; k<transmitted_count; ++k)
+            assert(!(transmitted[k].stage==TRIGGER_POSITION_STAGE_FREEZE &&
+                     transmitted[k].position_id==position));
+        return 0;
+    }
     if(!strcmp(test,"origin") || !strcmp(test,"origin_pending")) {
         bool saw_preview=false, saw_freeze=false;
         for (unsigned i=0u; i<16u; ++i) {
@@ -226,6 +277,8 @@ int main(int argc,char **argv)
         freeze(1,1); assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_ACTION);
         trigger_t2_runtime_prepare_core0();
         assert(snapshot().freeze_missing_local_count==1 && !inverse_calls && !schedule_calls);
+        /* Received is frozen: the follower reports completion regardless. */
+        assert(noted_active && noted_frozen==1u);
         return 0;
     }
     local_offset_ns=2000u;
@@ -366,7 +419,7 @@ def runtime(tmp_path_factory):
         [ROOT / "components/sync_trigger/src/trigger_t2_runtime.c"])
 
 
-@pytest.mark.parametrize("case", ["origin", "origin_pending", "receiver", "fallback", "wire_identity_ignored",
+@pytest.mark.parametrize("case", ["origin", "origin_pending", "origin_resend", "receiver", "fallback", "wire_identity_ignored",
     "expired", "freeze_missing", "freeze_stops_solve", "capacity", "gateway",
     "independent_positions", "reject_no_retry", "stop", "restart", "identity",
     "wrong_receipt", "reject_uncertain", "conflict", "different_local_seq", "all_events_retained", "zero_pulse_index", "version_overflow", "version_limit"])

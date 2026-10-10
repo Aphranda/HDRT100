@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "trigger_position_descriptor.h"
 #include "trigger_position_slice.h"
+#include "tdma_priority_rx.h"
 
 #define DISTRIBUTED_REFMEM_TABLE_SIZE       18432u
 #define DISTRIBUTED_REFMEM_LAYOUT_VERSION   2u
@@ -356,6 +357,14 @@ bool distributed_refmem_reset_position_stopped(void);
 /* Core1 consumes one complete Core0-published descriptor. */
 bool distributed_refmem_get_position_descriptor(
     uint32_t source_slot, trigger_position_descriptor_t *descriptor);
+/* T2 freeze completion (TDMA-SEAT-01 first class). A follower T2 publishes
+ * its frozen positions; every image it sends then carries that state. The
+ * origin reads which positions every target has reported frozen for run_id. */
+void distributed_refmem_note_position_frozen(uint32_t run_id, bool active,
+                                             uint32_t frozen_mask);
+uint32_t distributed_refmem_position_freeze_acked(uint32_t run_id, uint32_t target_mask);
+/* Core1 priority-lane receiver of origin first-class T2 records. */
+void distributed_refmem_position_priority_rx(const tdma_priority_rx_record_t *record);
 
 /* Core0 diagnostic snapshot. Counts represent software handoffs, not wire
  * delivery or hardware action completion. The phase fields distinguish a
@@ -391,6 +400,8 @@ typedef struct {
     uint32_t rx_complete_count, rx_reject_count, rx_pending_mask;
     uint32_t rx_source_slot, rx_position_id, cancel_requested;
     uint32_t rx_phase, rx_last_failure;
+    /* Priority-lane receiver: accepted, repeated wire and unstaged records. */
+    uint32_t lane_accept_count, lane_duplicate_count, lane_reject_count, lane_owned;
 } distributed_refmem_position_transport_snapshot_t;
 bool distributed_refmem_get_position_transport(
     distributed_refmem_position_transport_snapshot_t *snapshot);

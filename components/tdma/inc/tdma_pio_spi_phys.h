@@ -24,6 +24,8 @@
 bool tdma_pio_spi_phys_get_priority_rx_snapshot(tdma_priority_rx_snapshot_t *out);
 /* Metadata only; runtime owner must hold the STOP configuration gate. */
 bool tdma_pio_spi_phys_set_priority_rx_sink(tdma_priority_rx_sink_t sink);
+/* Second receiver of the same accepted record (TDMA-SEAT-01 first class). */
+bool tdma_pio_spi_phys_set_priority_first_class_rx_sink(tdma_priority_rx_sink_t sink);
 bool tdma_pio_spi_phys_copy_priority_rx(uint32_t epoch, uint32_t sequence,
     tdma_priority_rx_record_t *out);
 /* Same exact copy with active required under the record guard; no consumption.

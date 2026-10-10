@@ -180,6 +180,9 @@ scpi_result_t scpi_cmd_trigger_t2_q(scpi_t *context)
     SCPI_ResultUInt32(context,s.core0_prepare_last_reason);
     for (uint32_t i=0u;i<TRIGGER_T2_RUNTIME_SEGMENT_COUNT;++i)
         SCPI_ResultUInt32(context,s.segment_max_cycles[i]);
+    SCPI_ResultUInt32(context,s.freeze_complete_mask);
+    SCPI_ResultUInt32(context,s.freeze_abandoned_mask);
+    SCPI_ResultUInt32(context,s.freeze_resend_count);
     return SCPI_RES_OK;
 }
 

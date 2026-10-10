@@ -36,7 +36,8 @@ typedef struct {
     uint32_t descriptor_crc32;
 } trigger_position_descriptor_t;
 
-static inline bool trigger_position_descriptor_valid(
+/* Always inlined so an SRAM caller never reaches an XIP copy. */
+static inline __attribute__((always_inline)) bool trigger_position_descriptor_valid(
     const trigger_position_descriptor_t *d, uint32_t subdivisions);
 
 static inline uint32_t trigger_position_descriptor_crc(
@@ -184,7 +185,7 @@ static inline trigger_position_fragment_result_t trigger_position_fragment_push(
     return trigger_position_descriptor_decode(c->wire,out)?TRIGGER_POSITION_FRAGMENT_COMPLETE:TRIGGER_POSITION_FRAGMENT_REJECTED;
 }
 
-static inline bool trigger_position_descriptor_valid(
+static inline __attribute__((always_inline)) bool trigger_position_descriptor_valid(
     const trigger_position_descriptor_t *d, uint32_t subdivisions)
 {
     if (d && d->schema == TRIGGER_POSITION_DESCRIPTOR_SCHEMA &&

@@ -36,8 +36,10 @@ _Static_assert(TRIGGER_POSITION_SLICE_WIRE_SIZE == TDMA_PROCESS_IMAGE_REFMEM_SIZ
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
 #define DISTRIBUTED_REFMEM_TIME_CRITICAL(name) __not_in_flash_func(name)
+#define DISTRIBUTED_REFMEM_RAM_TEXT __attribute__((section(".time_critical.refmem_position")))
 #else
 #define DISTRIBUTED_REFMEM_TIME_CRITICAL(name) name
+#define DISTRIBUTED_REFMEM_RAM_TEXT
 #endif
 
 #define DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT 16u
@@ -520,6 +522,8 @@ static uint32_t distributed_refmem_get_le32(const uint8_t *src)
            ((uint32_t)src[3] << 24u);
 }
 
+#include "distributed_refmem_position_ack.inc"
+
 static bool distributed_refmem_vdc_flight_rx_read_binding(
     distributed_refmem_vdc_flight_rx_binding_t *out)
 {
@@ -694,6 +698,8 @@ bool distributed_refmem_position_descriptor_pending(void)
         trigger_position_mailbox_pending(&s_position_tx_mailbox);
 }
 
+/* Core1 T2 polls this every slice; keep it out of XIP. */
+DISTRIBUTED_REFMEM_RAM_TEXT
 bool distributed_refmem_get_position_descriptor(
     uint32_t source_slot, trigger_position_descriptor_t *descriptor)
 {
@@ -730,6 +736,10 @@ bool distributed_refmem_get_position_transport(
                                             __ATOMIC_ACQUIRE),
         .rx_phase = s_tdma_flight_sync.position_rx_phase,
         .rx_last_failure = s_tdma_flight_sync.position_rx_last_failure,
+        .lane_accept_count = __atomic_load_n(&s_position_priority_accept_count, __ATOMIC_RELAXED),
+        .lane_duplicate_count = __atomic_load_n(&s_position_priority_duplicate_count, __ATOMIC_RELAXED),
+        .lane_reject_count = __atomic_load_n(&s_position_priority_reject_count, __ATOMIC_RELAXED),
+        .lane_owned = distributed_refmem_position_priority_owned(),
     };
     for (uint32_t slot = 0u; slot < DISTRIBUTED_REFMEM_NODE_COUNT; ++slot)
         if (trigger_position_mailbox_pending(&s_position_rx_mailboxes[slot]) ||
@@ -1039,6 +1049,7 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
     mailbox[TDMA_PROCESS_IMAGE_CONTROL_SEQ8_OFFSET] = 0u;
     mailbox[TDMA_PROCESS_IMAGE_OPTIONAL_DIAGNOSTIC_OFFSET] =
         (uint8_t)(s_tdma_flight_sync.last_error & 0xFFu);
+    distributed_refmem_position_ack_patch(mailbox);
     action_patch_mailbox(mailbox);
     distributed_refmem_put_le16(
         &mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET],
@@ -1679,6 +1690,11 @@ static void distributed_refmem_tdma_flight_sync_publish(
                 s_tdma_flight_sync.position_tx_sequence;
             s_tdma_flight_sync.position_tx_wait_reason =
                 DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
+            /* Each record owns its sequence: followers deduplicate a slot by
+             * seq16, so a repeated sequence would hide the next record. */
+            s_tdma_flight_sync.next_seq32 =
+                s_tdma_flight_sync.position_tx_sequence == UINT32_MAX ? 1u :
+                s_tdma_flight_sync.position_tx_sequence + 1u;
             /* One record, one seat: the transport is idle again. */
             __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 0u,
                              __ATOMIC_RELEASE);
@@ -1841,8 +1857,10 @@ static void distributed_refmem_tdma_flight_sync_receive(
                     continue;
                 }
 #endif
+                distributed_refmem_position_ack_receive(slot, mailbox);
                 if (mailbox[3] == TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS) {
-                    if (!s_tdma_flight_sync.position_retiring)
+                    if (!s_tdma_flight_sync.position_retiring &&
+                        !distributed_refmem_position_priority_owned())
                         distributed_refmem_tdma_parse_position_fragment(slot, mailbox);
                 } else if (!action_receive_mailbox(slot, mailbox)) {
                     distributed_refmem_tdma_flight_parse_mailbox(
@@ -1914,6 +1932,7 @@ bool distributed_refmem_reset_position_stopped(void)
         trigger_position_fragment_reset(&s_tdma_flight_sync.position_rx_fragments[slot]);
     }
     s_tdma_flight_sync.position_rx_valid_mask=0u;
+    distributed_refmem_position_ack_reset();
     s_tdma_flight_sync.position_rx_phase =
         DISTRIBUTED_REFMEM_POSITION_TRANSPORT_IDLE;
     s_tdma_flight_sync.position_rx_last_failure =
@@ -3301,6 +3320,9 @@ bool distributed_refmem_init(void)
     memset(&s_vdc_follower_rx, 0, sizeof(s_vdc_follower_rx));
     s_vdc_follower_rx.next_window_seq = 1u;
     distributed_refmem_tdma_flight_sync_init();
+    /* Non-fatal: without the lane receiver Core0 keeps parsing T2 records. */
+    (void)tdma_runtime_owner_set_priority_first_class_rx_sink(
+        distributed_refmem_position_priority_rx);
     static const refmem_realtime_tdma_ops_t tdma_ops = {
         .transmit = distributed_refmem_tdma_transmit,
         .receive = distributed_refmem_tdma_receive,

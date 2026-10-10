@@ -25,6 +25,9 @@ static uint32_t s_tdma_priority_stride, s_tdma_priority_byte_shift, s_tdma_prior
 static uint32_t s_tdma_priority_boundaries_seen;
 static bool s_tdma_priority_geometry, s_tdma_priority_installed;
 static tdma_priority_rx_sink_t s_tdma_priority_sink;
+/* TDMA-SEAT-01 first-class receiver: sees the same accepted origin record and
+ * owns its own business class; TDMA keeps the mailbox opaque. */
+static tdma_priority_rx_sink_t s_tdma_priority_first_class_sink;
 static bool s_tdma_priority_window;
 static uint32_t s_tdma_priority_quota, s_tdma_priority_deadline;
 
@@ -35,11 +38,21 @@ bool tdma_pio_spi_phys_set_priority_rx_sink(tdma_priority_rx_sink_t sink)
     return true;
 }
 
+bool tdma_pio_spi_phys_set_priority_first_class_rx_sink(tdma_priority_rx_sink_t sink)
+{
+    if (s_tdma_priority_installed || s_tdma_priority_rx.status.active) return false;
+    __atomic_store_n(&s_tdma_priority_first_class_sink, sink, __ATOMIC_RELEASE);
+    return true;
+}
+
 static TDMA_PRIORITY_IRQ_HOT void tdma_priority_deliver(const tdma_priority_rx_record_t *record)
 {
     const tdma_priority_rx_sink_t sink =
         __atomic_load_n(&s_tdma_priority_sink, __ATOMIC_ACQUIRE);
     if (sink) sink(record);
+    const tdma_priority_rx_sink_t first =
+        __atomic_load_n(&s_tdma_priority_first_class_sink, __ATOMIC_ACQUIRE);
+    if (first) first(record);
 }
 /* Bounded STOP-time diagnostics in main RAM, not the IRQ working/stack bank.
  * Core1 owns every write. Atomic words plus one guard avoid a second copy. */

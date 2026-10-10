@@ -76,6 +76,9 @@ typedef struct {
     uint32_t prediction_version_exhausted_mask;
     /* Core1 service peak cycles: cursor, receive (origin or follower), deadlines. */
     uint32_t segment_max_cycles[TRIGGER_T2_RUNTIME_SEGMENT_COUNT];
+    /* Origin FREEZE: complete once every target reports it frozen; resent
+     * until then, abandoned after the position window expires. */
+    uint32_t freeze_complete_mask, freeze_abandoned_mask, freeze_resend_count;
     uint8_t event_dispatched[TRIGGER_T2_RUNTIME_EVENT_CAPACITY];
     uint64_t last_counter_count;
     trigger_time_cursor_snapshot_t cursor;

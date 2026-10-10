@@ -76,6 +76,13 @@ static bool action_receive_mailbox(uint32_t source,const uint8_t *mailbox)
 { (void)source;(void)mailbox;return false; }
 static inline void action_observe(const tdma_ring_runtime_snapshot_t *snapshot)
 { (void)snapshot; }
+/* T2 freeze-completion state and the priority-lane owner are exercised by
+ * test_t2_freeze_completion; this VDC suite runs with the lane absent. */
+static inline void distributed_refmem_position_ack_patch(uint8_t *mailbox) { (void)mailbox; }
+static inline void distributed_refmem_position_ack_receive(uint32_t slot,const uint8_t *mailbox)
+{ (void)slot;(void)mailbox; }
+static inline bool distributed_refmem_position_priority_owned(void) { return false; }
+static inline void distributed_refmem_position_ack_reset(void) {}
 static tdma_origin_raw_reference_t origin_reference;
 static bool mode_available=true;
 bool vdc_dpll_manager_try_boundary_auto_enabled(bool *out)

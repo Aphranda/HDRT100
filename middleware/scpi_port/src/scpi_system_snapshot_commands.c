@@ -3070,6 +3070,10 @@ scpi_result_t scpi_cmd_refmem_sync_flight_position_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.cancel_requested);
     SCPI_ResultUInt32(context, snapshot.rx_phase);
     SCPI_ResultUInt32(context, snapshot.rx_last_failure);
+    SCPI_ResultUInt32(context, snapshot.lane_accept_count);
+    SCPI_ResultUInt32(context, snapshot.lane_duplicate_count);
+    SCPI_ResultUInt32(context, snapshot.lane_reject_count);
+    SCPI_ResultUInt32(context, snapshot.lane_owned);
     return SCPI_RES_OK;
 }
 

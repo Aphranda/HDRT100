@@ -31,7 +31,8 @@ T2_FIELDS = (['ok', 'last_error', 'configured', 'active', 'origin', 'source_slot
              [f'{n}{i}' for i in range(3) for n in ('target_count', 'threshold_count')] +
              ['predictor_error', 'core0_prepare_calls', 'core0_preview_saved',
               'core0_prepare_last_reason', 'segment_cursor_max', 'segment_receive_max',
-              'segment_deadlines_max'])
+              'segment_deadlines_max', 'freeze_complete_mask', 'freeze_abandoned_mask',
+              'freeze_resend_count'])
 
 
 def t2_page(raw):
@@ -39,6 +40,46 @@ def t2_page(raw):
     values = raw.strip().strip('"').lstrip(',').split(',')
     return {name: int(value) if value.lstrip('-').isdigit() else value
             for name, value in zip(T2_FIELDS, values)}
+
+# TX/RX budget evidence (actions mode): flight-sync, follower RX station and
+# flight FIFO counters per sample; STOP-only priority lanes after the run.
+BUDGET_QUERIES = ('SYSTem:REFMEM:SYNC:FLIGHT?', 'SYSTem:TDMA:PROFile:RX?',
+                  'SYSTem:TDMA:FLIGHT:FIFO?', 'SYSTem:REFMEM:SYNC:FLIGHT:POSition?')
+STOPPED_QUERIES = ('SYSTem:VDC:PRIORity:RX?', 'SYSTem:TDMA:FLIGHT:PRIORity?')
+RX_STATION_STATES = ('idle', 'requested', 'building', 'ready', 'cancelled')
+
+
+def ints(raw):
+    out = []
+    for value in raw.strip().strip('"').lstrip(',').split(','):
+        try: out.append(int(value))
+        except ValueError: out.append(None)
+    return out
+
+
+def budget(first, last, seconds):
+    """Per-board deltas over the sampling window (field order: SCPI handlers)."""
+    flight0, flight1 = ints(first[0]), ints(last[0])
+    rx0, rx1 = ints(first[1]), ints(last[1])
+    fifo0, fifo1 = ints(first[2]), ints(last[2])
+    pos0, pos1 = ints(first[3]), ints(last[3])
+    d = lambda a, b, i: b[i] - a[i] if i < len(a) and i < len(b) and None not in (a[i], b[i]) else None
+    row = {'next_seq32_delta': d(flight0, flight1, 9),
+           'position_tx_staged_delta': d(pos0, pos1, 3),
+           'position_rx_complete_delta': d(pos0, pos1, 10),
+           'position_rx_reject_delta': d(pos0, pos1, 11),
+           'fifo_rx_publish_delta': d(fifo0, fifo1, 10),
+           'fifo_rx_publish_drop_delta': d(fifo0, fifo1, 12)}
+    if len(rx1) > 21 and rx1[0] is not None:
+        captures = d(rx0, rx1, 7)
+        row['rx_captures_delta'] = captures
+        row['rx_capture_period_ms'] = round(1000 * seconds / captures, 3) if captures else None
+        row['rx_capture_gap_max_ms'] = round(1000 * rx1[9] / rx1[1], 3) if rx1[1] else None
+        row['rx_station_polls_delta'] = {n: d(rx0, rx1, 12 + 2 * i) for i, n in enumerate(RX_STATION_STATES)}
+        row['rx_station_age_max_ms'] = {n: round(rx1[13 + 2 * i] / 1e6, 3)
+                                        for i, n in enumerate(RX_STATION_STATES) if i}
+        row['rx_drop_delta'] = [d(rx0, rx1, i) for i in range(22, len(rx1))]
+    return row
 
 OUT = (Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else
        ROOT / 'out' / 'HardwareAcceptance' / time.strftime('%Y%m%d') / time.strftime('t2-bench-probe-%H%M%S'))
@@ -194,7 +235,8 @@ try:
             if actions_mode:
                 sample.setdefault('t2', {})[p] = t2_page(cmd(p,'TRIGger:REServation:T2?'))
                 cmd(p,'TRIGger:REServation:T2:ACTion?')
-                cmd(p,'SYSTem:REFMEM:SYNC:FLIGHT:POSition?')
+                sample.setdefault('budget', {})[p] = [cmd(p, q) for q in BUDGET_QUERIES]
+                sample['budget_host'] = time.monotonic()
             schedule=[int(v) for v in cmd(p,'SYSTem:TDMA:SCHEDule?').split(',')]
             if schedule[5]&64:
                 report['errors'].append(f'{p}: SYNC_TRIGGER quarantined; phase={schedule[85:96]}')
@@ -216,6 +258,10 @@ try:
             'published_delta':published,'boundary_delta':boundaries,
             'publish_interval_ms':round(1000*seconds/published,4) if published else None,
             'boundary_interval_ms':round(1000*seconds/boundaries,4) if boundaries else None}
+    if actions_mode and len(samples) > 1:
+        seconds = samples[-1]['budget_host'] - samples[0]['budget_host']
+        report['tx_rx_budget'] = {'seconds': round(seconds, 3), **{
+            p: budget(samples[0]['budget'][p], samples[-1]['budget'][p], seconds) for p, _ in PAIRS}}
     if actions_mode:
         report['actions']={p:cmd(p,'TRIGger:REServation:T2:ACTion?') for p,uid in PAIRS}
         cmd(PAIRS[0][0],'TRIGger:REServation:COUNter?')
@@ -259,6 +305,10 @@ finally:
                 report['stopped_counter']=cmd(PAIRS[0][0],'TRIGger:REServation:COUNter?')
                 report['stopped_source']=cmd(PAIRS[0][0],'TRIGger:REServation:SOURce?')
             except Exception as exc: report['errors'].append('SOURCE READBACK '+repr(exc))
+        for p in sessions:
+            for q in STOPPED_QUERIES:
+                try: report.setdefault('stopped_lanes', {}).setdefault(p, {})[q] = cmd(p, q)
+                except Exception as exc: report['errors'].append('LANES '+p+': '+repr(exc))
         for p in sessions:
             try:
                 cmd(p,'TRIGger:REServation:T2:STOP')

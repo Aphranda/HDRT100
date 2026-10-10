@@ -103,7 +103,8 @@ static bool T2_HOT(preview_copy)(uint32_t index, uint32_t age,
     return false;
 }
 
-static void preview_save(uint32_t index,
+/* Follower PREVIEW accept runs on the Core1 receive path. */
+static void T2_HOT(preview_save)(uint32_t index,
                          const trigger_position_descriptor_t *descriptor)
 {
     (void)__atomic_add_fetch(&s_preview_guard, 1u, __ATOMIC_ACQ_REL);
@@ -129,13 +130,57 @@ static void T2_HOT(publish_end)(void)
     (void)__atomic_add_fetch(&s_guard, 1u, __ATOMIC_RELEASE);
 }
 
+/* FREEZE starts freezing; it completes when every target reports the position
+ * frozen. Until then the origin resends it, spaced so PREVIEWs still board. */
+#define T2_FREEZE_RESEND_SLICES 4u
+static uint64_t s_freeze_last_slice;
+static uint32_t s_freeze_resend_next;
+
+static bool resend_one_freeze(void)
+{
+    uint32_t open = s_state.published_mask &
+        ~(s_state.freeze_complete_mask | s_state.freeze_abandoned_mask);
+    if (!open) return true;
+    s_state.freeze_complete_mask |= open &
+        distributed_refmem_position_freeze_acked(s_config.run_id, s_config.target_mask);
+    open &= ~s_state.freeze_complete_mask;
+    const uint64_t now = s_state.cursor.pulse_index;
+    if (!open || now - s_freeze_last_slice < T2_FREEZE_RESEND_SLICES) return true;
+    for (uint32_t step = 0u; step < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++step) {
+        const uint32_t index = (s_freeze_resend_next + step) % TRIGGER_T2_RUNTIME_POSITION_COUNT;
+        const uint32_t bit = 1u << index;
+        if (!(open & bit)) continue;
+        const uint32_t expiry = s_state.descriptors[index].expiry_sync;
+        if (expiry && now > (uint64_t)expiry + 1u) {
+            s_state.freeze_abandoned_mask |= bit;
+            continue;
+        }
+        const trigger_position_descriptor_t freeze = {
+            .schema = TRIGGER_POSITION_DESCRIPTOR_SCHEMA,
+            .stage = TRIGGER_POSITION_STAGE_FREEZE,
+            .position_id = index + 1u,
+            .prediction_version = s_state.freeze_version[index],
+        };
+        if (!distributed_refmem_stage_position_descriptor(&freeze, s_config.target_mask)) {
+            s_state.transport_reject_count++;
+            s_state.last_error = TRIGGER_T2_RUNTIME_TRANSPORT;
+            return false;
+        }
+        s_state.freeze_resend_count++;
+        s_freeze_last_slice = now;
+        s_freeze_resend_next = index + 1u;
+        return true;
+    }
+    return true;
+}
+
 static bool stage_one_freeze(void)
 {
     /* The legacy descriptor mailbox remains single-depth until compact-q
      * transport admission is installed. Do not overtake an in-flight PREVIEW
      * and reorder it behind FREEZE. */
-    if (!s_pending_mask || distributed_refmem_position_descriptor_pending())
-        return true;
+    if (distributed_refmem_position_descriptor_pending()) return true;
+    if (!s_pending_mask) return resend_one_freeze();
     for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT;
          ++index) {
         if ((s_pending_mask & (1u << index)) == 0u) continue;
@@ -158,6 +203,7 @@ static bool stage_one_freeze(void)
         s_state.frozen_mask |= 1u << index;
         s_state.published_mask |= 1u << index;
         s_pending_mask &= ~(1u << index);
+        s_freeze_last_slice = s_state.cursor.pulse_index;
         return true;
     }
     return true;
@@ -208,6 +254,12 @@ static inline __attribute__((always_inline)) void segment_end(uint32_t segment,
     *mark = now;
 }
 
+/* One SRAM copy of the validator for the follower receive path. */
+static T2_BOUNDED bool T2_HOT(descriptor_valid)(const trigger_position_descriptor_t *descriptor)
+{
+    return trigger_position_descriptor_valid(descriptor, s_config.grid.subdivisions);
+}
+
 static void action_fail(uint32_t index)
 {
     s_state.action_failed_mask |= 1u << index;
@@ -227,10 +279,12 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
     const uint32_t bit = 1u << index;
     if (s_state.frozen_mask & bit) return true;
     if (descriptor.stage == TRIGGER_POSITION_STAGE_FREEZE) {
-        if (!trigger_position_descriptor_valid(&descriptor, s_config.grid.subdivisions))
+        if (!descriptor_valid(&descriptor))
             goto reject;
         s_state.frozen_mask |= bit;
         __atomic_store_n(&s_frozen_public, s_state.frozen_mask, __ATOMIC_RELEASE);
+        /* Freeze complete for this follower: report it on every image. */
+        distributed_refmem_note_position_frozen(s_config.run_id, true, s_state.frozen_mask);
         s_state.freeze_version[index] = descriptor.prediction_version;
         const t2_deadline_plan_t *plan = &s_deadline[index];
         s_state.freeze_local_age[index] = 0xFFu;
@@ -296,7 +350,7 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
     if (s_state.received_mask & bit &&
         s_state.descriptors[index].prediction_version == descriptor.prediction_version)
         return true;
-    if (!trigger_position_descriptor_valid(&descriptor, s_config.grid.subdivisions) ||
+    if (!descriptor_valid(&descriptor) ||
         descriptor.run_id != s_config.run_id ||
         descriptor.sync_epoch != s_state.cursor.grid_epoch ||
         descriptor.count_epoch != s_state.predictor.count_epoch ||
@@ -587,6 +641,9 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
     memset(s_deadline_mailbox, 0, sizeof(s_deadline_mailbox));
     memset(s_deadline_seen, 0, sizeof(s_deadline_seen));
     __atomic_store_n(&s_frozen_public, 0u, __ATOMIC_RELEASE);
+    distributed_refmem_note_position_frozen(s_config.run_id, !s_config.origin, 0u);
+    s_freeze_last_slice = 0u;
+    s_freeze_resend_next = 0u;
     __atomic_store_n(&s_threshold_public, 0u, __ATOMIC_RELEASE);
     __atomic_store_n(&s_version_exhausted, 0u, __ATOMIC_RELEASE);
     s_core0_prepare_calls = s_core0_preview_saved = s_core0_prepare_last_reason = 0u;
@@ -615,6 +672,7 @@ void trigger_t2_runtime_stop(void)
     s_state.action_failed_mask |= s_state.frozen_mask & ~s_state.action_completed_mask;
     s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
     distributed_refmem_request_position_cancel();
+    distributed_refmem_note_position_frozen(0u, false, 0u);
     trigger_time_cursor_clear();
     publish_end();
 }
