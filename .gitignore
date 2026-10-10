@@ -1,4 +1,4 @@
-# Build directories
+﻿# Build directories
 build/
 build-*/
 cmake-build-*/
@@ -184,7 +184,13 @@ third_party/freertos/**
 !third_party/**/README*
 !third_party/**/LICENSE*
 
-# 临时脚本草稿区（规则见 out/README.md 与 tools/scratch/README.md）
+# 涓存椂鑴氭湰鑽夌鍖猴紙瑙勫垯瑙?out/README.md 涓?tools/scratch/README.md锛?
 tools/scratch/*
 !tools/scratch/README.md
 !tools/scratch/.gitkeep
+
+# OUT 侧标准文档需入库（out/* 默认忽略）
+out/standards/
+!out/standards/
+!out/standards/**
+!out/*.md

@@ -1,5 +1,7 @@
 # out/ 目录管理规则（README 规则）
 
+> 本域标准：`standards/OUT_DIRECTORY_STANDARD.md`（布局与命名）、`standards/OUT_ARCHIVE_STANDARD.md`（归档流程）。**TOOLS 侧规则不在此处**，见 `tools/README.md`。
+
 Last updated: 2026-10-10
 
 本文件规定 `out/`（构建产物与验收证据的工作区）的整理规则。**范围仅限 `out/` 及其归档区**，
