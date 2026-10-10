@@ -1,12 +1,6 @@
-"""Compatibility module for :mod:`tools.common.scpi.scpi_serial`."""
-
-from importlib import import_module
-from pathlib import Path
-import sys
-
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-_impl = import_module("tools.common.scpi.scpi_serial")
-sys.modules[__name__] = _impl
+#!/usr/bin/env python3
+"""兼容转发（迁移期保留）。"""
+import pathlib, runpy, sys
+_T = pathlib.Path(__file__).resolve().parents[1] / "interface" / "scpi_common" / "scpi_serial.py"
+sys.argv[0] = str(_T)
+runpy.run_path(str(_T), run_name="__main__")

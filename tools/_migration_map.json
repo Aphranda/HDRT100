@@ -270,5 +270,61 @@
  {
   "old": "tools/ota_stream_send",
   "new": "tools/ota/ota_stream_send"
+ },
+ {
+  "old": "tools/refmem_pack_write",
+  "new": "tools/refmem/refmem_pack_write"
+ },
+ {
+  "old": "tools/refmem_table_registry_validate",
+  "new": "tools/refmem/refmem_table_registry_validate"
+ },
+ {
+  "old": "tools/rtos_watermark_capture",
+  "new": "tools/rtos/rtos_watermark_capture"
+ },
+ {
+  "old": "tools/scpi_common",
+  "new": "tools/interface/scpi_common"
+ },
+ {
+  "old": "tools/scpi_query",
+  "new": "tools/interface/scpi_query"
+ },
+ {
+  "old": "tools/sd_board_validate",
+  "new": "tools/storage/sd_board_validate"
+ },
+ {
+  "old": "tools/sd_trace_decode",
+  "new": "tools/storage/sd_trace_decode"
+ },
+ {
+  "old": "tools/sma_cable_delay_validate",
+  "new": "tools/calibration/sma_cable_delay_validate"
+ },
+ {
+  "old": "tools/sma_loopback_validate",
+  "new": "tools/calibration/sma_loopback_validate"
+ },
+ {
+  "old": "tools/state_machine_resource_check",
+  "new": "tools/state_machine/state_machine_resource_check"
+ },
+ {
+  "old": "tools/storage_file_upload",
+  "new": "tools/storage/storage_file_upload"
+ },
+ {
+  "old": "tools/storage_scpi_validate",
+  "new": "tools/storage/storage_scpi_validate"
+ },
+ {
+  "old": "tools/vdc_dpll_replay",
+  "new": "tools/vdc/vdc_dpll_replay"
+ },
+ {
+  "old": "tools/vdc_gpio_lock_validate",
+  "new": "tools/vdc/vdc_gpio_lock_validate"
  }
 ]

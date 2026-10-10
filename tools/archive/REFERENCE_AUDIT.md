@@ -125,3 +125,23 @@
   - `tools/ota_stream_send` → `tools/ota/ota_stream_send`
 - 兼容层：旧路径 wrapper
 - 验证：文档门禁
+
+### batch 2026-09-06…2026-10-03（2026-10-10）
+
+- 范围：14 项
+  - `tools/refmem_pack_write` → `tools/refmem/refmem_pack_write`
+  - `tools/refmem_table_registry_validate` → `tools/refmem/refmem_table_registry_validate`
+  - `tools/rtos_watermark_capture` → `tools/rtos/rtos_watermark_capture`
+  - `tools/scpi_common` → `tools/interface/scpi_common`
+  - `tools/scpi_query` → `tools/interface/scpi_query`
+  - `tools/sd_board_validate` → `tools/storage/sd_board_validate`
+  - `tools/sd_trace_decode` → `tools/storage/sd_trace_decode`
+  - `tools/sma_cable_delay_validate` → `tools/calibration/sma_cable_delay_validate`
+  - `tools/sma_loopback_validate` → `tools/calibration/sma_loopback_validate`
+  - `tools/state_machine_resource_check` → `tools/state_machine/state_machine_resource_check`
+  - `tools/storage_file_upload` → `tools/storage/storage_file_upload`
+  - `tools/storage_scpi_validate` → `tools/storage/storage_scpi_validate`
+  - `tools/vdc_dpll_replay` → `tools/vdc/vdc_dpll_replay`
+  - `tools/vdc_gpio_lock_validate` → `tools/vdc/vdc_gpio_lock_validate`
+- 兼容层：旧路径 wrapper
+- 验证：文档门禁
