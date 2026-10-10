@@ -9,13 +9,24 @@
 #include "sync_io_gateway.h"
 #include "sync_io_switch.h"
 #include "trigger_counter_service.h"
+#include "trigger_position_mailbox.h"
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico/platform.h"
+#include "hardware/structs/systick.h"
+#include "hardware/regs/m33.h"
 #include "tdma_seat_mount_store.h"
 #define T2_HOT(name) __not_in_flash_func(name)
+/* Core1 SysTick, the same clock as the SYNC_TRIGGER phase receipt. */
+#define T2_TICK_MASK M33_SYST_RVR_RELOAD_BITS
+static inline uint32_t t2_now(void)
+{
+    return (M33_SYST_RVR_RELOAD_BITS - systick_hw->cvr) & M33_SYST_RVR_RELOAD_BITS;
+}
 #else
 #define T2_HOT(name) name
+#define T2_TICK_MASK 0x00FFFFFFu
+static inline uint32_t t2_now(void) { return 0u; }
 /* The bench diagnostic sink lives in the TDMA owner; host builds drop it. */
 static inline void tdma_seat_mount_store_note_reject(uint32_t code) { (void)code; }
 #endif
@@ -186,6 +197,17 @@ static T2_BOUNDED void T2_HOT(deadline_receive)(void)
     }
 }
 
+/* Peak cycles of one service segment; locates a phase overrun without a probe. */
+static inline __attribute__((always_inline)) void segment_end(uint32_t segment,
+                                                              uint32_t *mark)
+{
+    const uint32_t now = t2_now();
+    const uint32_t cycles = (now - *mark) & T2_TICK_MASK;
+    if (cycles > s_state.segment_max_cycles[segment])
+        s_state.segment_max_cycles[segment] = cycles;
+    *mark = now;
+}
+
 static void action_fail(uint32_t index)
 {
     s_state.action_failed_mask |= 1u << index;
@@ -313,7 +335,7 @@ static void complete_action(uint32_t index)
     s_state.event_dispatched[event_index] = 1u;
 }
 
-static void note_backend(uint32_t index, uint32_t state, uint64_t before, uint64_t after)
+static void T2_HOT(note_backend)(uint32_t index, uint32_t state, uint64_t before, uint64_t after)
 {
     if (index >= TRIGGER_T2_RUNTIME_POSITION_COUNT) return;
     s_state.action_backend_state[index] = state;
@@ -358,7 +380,8 @@ static void stop_backend_core0(void)
     if (!stopped) s_state.action_uncertain_mask |= 1u << s_armed_index;
 }
 
-static T2_BOUNDED void service_deadlines(bool cursor_valid)
+/* Armed-deadline polling runs every slice; from XIP it overran followers. */
+static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
 {
     if (!s_local_template_count) return;
     bool complete = false, terminal = false, uncertain = false;
@@ -533,10 +556,11 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
 {
     if (!s_state.configured || s_state.active || !count_epoch) return false;
     /* START runs inside STOP maintenance, with the RX producer parked. The
-     * transport mailbox is single-depth; consume a previous run's untagged
-     * FREEZE before establishing this run's local mirrors. */
+     * transport keeps one PREVIEW and one latched FREEZE per position; consume
+     * a previous run's untagged records before establishing local mirrors. */
     trigger_position_descriptor_t discarded;
-    (void)distributed_refmem_get_position_descriptor(s_config.source_slot, &discarded);
+    for (uint32_t i = 0u; i <= TRIGGER_POSITION_FREEZE_LATCH_IDS &&
+         distributed_refmem_get_position_descriptor(s_config.source_slot, &discarded); ++i) {}
     publish_begin();
     memset(&s_state, 0, sizeof(s_state));
     s_state.configured = 1u;
@@ -631,7 +655,8 @@ T2_BOUNDED trigger_t2_runtime_result_t T2_HOT(trigger_t2_runtime_service)(void)
     if (!s_state.configured) return TRIGGER_T2_RUNTIME_NOT_CONFIGURED;
     if (!s_state.active) return TRIGGER_T2_RUNTIME_NOT_ACTIVE;
     publish_begin();
-#define T2_RETURN(value) do { publish_end(); return (value); } while (0)
+    uint32_t mark = t2_now(), segment = TRIGGER_T2_RUNTIME_SEGMENT_CURSOR;
+#define T2_RETURN(value) do { segment_end(segment, &mark); publish_end(); return (value); } while (0)
     trigger_time_cursor_service();
     /* Core1 is the sole RUN writer and publication is guarded: read directly
      * into its snapshot instead of copying the complete cursor twice. */
@@ -648,6 +673,8 @@ T2_BOUNDED trigger_t2_runtime_result_t T2_HOT(trigger_t2_runtime_service)(void)
         s_state.last_error = TRIGGER_T2_RUNTIME_CURSOR;
         T2_RETURN(s_state.last_error);
     }
+    segment_end(segment, &mark);
+    segment = TRIGGER_T2_RUNTIME_SEGMENT_RECEIVE;
     s_state.last_error = TRIGGER_T2_RUNTIME_OK;
     const bool new_coarse = cursor->sample_seq != s_state.last_sync_sequence;
     s_state.last_sync_sequence = cursor->sample_seq;
@@ -659,6 +686,8 @@ T2_BOUNDED trigger_t2_runtime_result_t T2_HOT(trigger_t2_runtime_service)(void)
         /* The validated cursor already supplies coarse ordinal + 1. */
         (void)accept_remote_position(cursor->pulse_index - 1u);
     }
+    segment_end(segment, &mark);
+    segment = TRIGGER_T2_RUNTIME_SEGMENT_DEADLINES;
     if (deadlines_need_service()) service_deadlines(true);
     const trigger_t2_runtime_result_t completed=s_state.last_error;
     if (completed != TRIGGER_T2_RUNTIME_OK) T2_RETURN(completed);

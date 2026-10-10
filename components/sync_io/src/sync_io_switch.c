@@ -11,6 +11,10 @@
 #include "hardware/regs/pads_bank0.h"
 #include "hardware/regs/pio.h"
 #include "pico/platform.h"
+#ifndef __not_in_flash_func
+#define __not_in_flash_func(name) name
+#endif
+#include "pico/platform.h"
 #include "sync_io_core_internal.h"
 #include "sync_io_pio0_runtime.h"
 #include "tdma_runtime_owner.h"
@@ -324,7 +328,8 @@ bool sync_io_switch_realtime_fire(uint32_t code)
     return true;
 }
 
-void sync_io_switch_realtime_service_core1(void)
+/* Polled every T2 slice while a deadline is armed: keep it out of XIP. */
+void __not_in_flash_func(sync_io_switch_realtime_service_core1)(void)
 {
     if(get_core_num()==1u) poll();
 }
@@ -361,7 +366,7 @@ bool sync_io_switch_realtime_schedule_at(uint32_t code,uint64_t deadline_tick)
     return true;
 }
 
-bool sync_io_switch_realtime_status(sync_io_switch_deadline_status_t *out)
+bool __not_in_flash_func(sync_io_switch_realtime_status)(sync_io_switch_deadline_status_t *out)
 {
     if(get_core_num()!=1u || !out)return false;
     *out=s_deadline;

@@ -10,6 +10,9 @@
 #include "hardware/structs/pads_bank0.h"
 #include "hardware/regs/pads_bank0.h"
 #include "pico/platform.h"
+#ifndef __not_in_flash_func
+#define __not_in_flash_func(name) name
+#endif
 #include "sync_io_core_internal.h"
 #include "sync_io_pio0_runtime.h"
 #include "sync_gateway.pio.h"
@@ -288,7 +291,8 @@ bool sync_io_gateway_realtime_fire(uint32_t pulse_ns)
     return true;
 }
 
-void sync_io_gateway_realtime_service_core1(void)
+/* Polled every T2 slice while a deadline is armed: keep it out of XIP. */
+void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
 {
     if(get_core_num()!=1u || !s_lease)return;
     if(__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE) &&
@@ -332,7 +336,7 @@ bool sync_io_gateway_realtime_schedule_at(uint32_t pulse_ns,uint64_t deadline_ti
     return true;
 }
 
-bool sync_io_gateway_realtime_status(sync_io_gateway_deadline_status_t *out)
+bool __not_in_flash_func(sync_io_gateway_realtime_status)(sync_io_gateway_deadline_status_t *out)
 {
     if(get_core_num()!=1u || !out)return false;
     *out=s_deadline;out->ready_count=s_gateway.ready_count;

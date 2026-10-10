@@ -18,6 +18,28 @@ from tools.common.scpi.scpi_serial import SerialSession
 
 PAIRS = [('COM5', '0010071E65B5CB38'), ('COM4', 'FB276192BEF9CCE1'),
          ('COM3', '2BD5090FE009FA2A'), ('COM6', 'A1E549202D18ED6A')]
+
+# Field order of TRIGger:REServation:T2? (scpi_cmd_trigger_t2_q); each u64 is one field.
+T2_FIELDS = (['ok', 'last_error', 'configured', 'active', 'origin', 'source_slot',
+              'target_mask', 'run_id', 'last_sync_sequence', 'published_mask',
+              'received_mask', 'descriptor_reject_count', 'transport_reject_count',
+              'event_count', 'event_dropped_count', 'frozen_mask',
+              'freeze_mismatch_count', 'freeze_fallback_count', 'freeze_missing_local_count'] +
+             [f'{n}{i}' for i in range(3) for n in ('freeze_version', 'freeze_local_version',
+                                                     'freeze_local_age')] +
+             ['last_counter_count', 'pulse_index', 'fine_slice_index', 'announced_mask'] +
+             [f'{n}{i}' for i in range(3) for n in ('target_count', 'threshold_count')] +
+             ['predictor_error', 'core0_prepare_calls', 'core0_preview_saved',
+              'core0_prepare_last_reason', 'segment_cursor_max', 'segment_receive_max',
+              'segment_deadlines_max'])
+
+
+def t2_page(raw):
+    """Name the TRIGger:REServation:T2? reply; integers where possible."""
+    values = raw.strip().strip('"').lstrip(',').split(',')
+    return {name: int(value) if value.lstrip('-').isdigit() else value
+            for name, value in zip(T2_FIELDS, values)}
+
 OUT = (Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else
        ROOT / 'out' / 'HardwareAcceptance' / time.strftime('%Y%m%d') / time.strftime('t2-bench-probe-%H%M%S'))
 OUT.mkdir(parents=True, exist_ok=False)
@@ -170,7 +192,7 @@ try:
             sample[p]=cmd(p,'TRIGger:REServation:T2:CURSor?')
             cmd(p,'TRIGger:REServation:TIMing?')
             if actions_mode:
-                cmd(p,'TRIGger:REServation:T2?')
+                sample.setdefault('t2', {})[p] = t2_page(cmd(p,'TRIGger:REServation:T2?'))
                 cmd(p,'TRIGger:REServation:T2:ACTion?')
                 cmd(p,'SYSTem:REFMEM:SYNC:FLIGHT:POSition?')
             schedule=[int(v) for v in cmd(p,'SYSTem:TDMA:SCHEDule?').split(',')]

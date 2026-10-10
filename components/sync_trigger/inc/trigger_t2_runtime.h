@@ -10,6 +10,12 @@
 #include "trigger_turntable_predictor.h"
 
 #define TRIGGER_T2_RUNTIME_POSITION_COUNT 3u
+enum {
+    TRIGGER_T2_RUNTIME_SEGMENT_CURSOR = 0u,
+    TRIGGER_T2_RUNTIME_SEGMENT_RECEIVE,
+    TRIGGER_T2_RUNTIME_SEGMENT_DEADLINES,
+    TRIGGER_T2_RUNTIME_SEGMENT_COUNT,
+};
 #define TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY 1u
 /* One terminal receipt per position/local template; preserve every admitted
  * event without carrying the larger shared-table capacity on each board. */
@@ -68,6 +74,8 @@ typedef struct {
     uint64_t action_deadline_tick[TRIGGER_T2_RUNTIME_POSITION_COUNT];
     uint32_t core0_prepare_calls, core0_preview_saved, core0_prepare_last_reason;
     uint32_t prediction_version_exhausted_mask;
+    /* Core1 service peak cycles: cursor, receive (origin or follower), deadlines. */
+    uint32_t segment_max_cycles[TRIGGER_T2_RUNTIME_SEGMENT_COUNT];
     uint8_t event_dispatched[TRIGGER_T2_RUNTIME_EVENT_CAPACITY];
     uint64_t last_counter_count;
     trigger_time_cursor_snapshot_t cursor;

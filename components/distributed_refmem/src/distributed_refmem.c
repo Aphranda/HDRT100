@@ -299,6 +299,8 @@ static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;
 static trigger_position_mailbox_t s_position_tx_mailbox;
 static trigger_position_mailbox_t
     s_position_rx_mailboxes[DISTRIBUTED_REFMEM_NODE_COUNT];
+static trigger_position_freeze_latch_t
+    s_position_freeze_latches[DISTRIBUTED_REFMEM_NODE_COUNT];
 static volatile uint32_t s_position_cancel_requested;
 typedef struct {
     uint32_t active, source_slot, local_slot, control_generation;
@@ -412,6 +414,7 @@ static void distributed_refmem_tdma_flight_sync_init(void)
     memset(&s_tdma_flight_sync, 0, sizeof(s_tdma_flight_sync));
     memset(&s_position_tx_mailbox, 0, sizeof(s_position_tx_mailbox));
     memset(s_position_rx_mailboxes, 0, sizeof(s_position_rx_mailboxes));
+    memset(s_position_freeze_latches, 0, sizeof(s_position_freeze_latches));
     __atomic_store_n(&s_position_cancel_requested, 0u, __ATOMIC_RELEASE);
     s_tdma_flight_sync.enabled = 1u;
     s_tdma_flight_sync.local_slot = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
@@ -465,9 +468,11 @@ static void distributed_refmem_tdma_flight_sync_update_ring(
         DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
     __atomic_store_n(&s_position_tx_mailbox.state,
                      TRIGGER_POSITION_MAILBOX_EMPTY, __ATOMIC_RELEASE);
-    for (uint32_t slot = 0u; slot < DISTRIBUTED_REFMEM_NODE_COUNT; ++slot)
+    for (uint32_t slot = 0u; slot < DISTRIBUTED_REFMEM_NODE_COUNT; ++slot) {
         __atomic_store_n(&s_position_rx_mailboxes[slot].state,
                          TRIGGER_POSITION_MAILBOX_EMPTY, __ATOMIC_RELEASE);
+        __atomic_store_n(&s_position_freeze_latches[slot].mask, 0u, __ATOMIC_RELEASE);
+    }
     s_tdma_flight_sync.position_rx_valid_mask = 0u;
     memset(s_tdma_flight_sync.position_rx_fragments, 0,
            sizeof(s_tdma_flight_sync.position_rx_fragments));
@@ -693,9 +698,12 @@ bool distributed_refmem_get_position_descriptor(
     uint32_t source_slot, trigger_position_descriptor_t *descriptor)
 {
     uint32_t target_mask;
+    /* A latched FREEZE is final; it overtakes any PREVIEW still waiting. */
     return source_slot < DISTRIBUTED_REFMEM_NODE_COUNT &&
-        trigger_position_mailbox_take(&s_position_rx_mailboxes[source_slot],
-                                      descriptor, &target_mask);
+        (trigger_position_freeze_latch_take(&s_position_freeze_latches[source_slot],
+                                            descriptor) ||
+         trigger_position_mailbox_take(&s_position_rx_mailboxes[source_slot],
+                                       descriptor, &target_mask));
 }
 
 bool distributed_refmem_get_position_transport(
@@ -724,7 +732,8 @@ bool distributed_refmem_get_position_transport(
         .rx_last_failure = s_tdma_flight_sync.position_rx_last_failure,
     };
     for (uint32_t slot = 0u; slot < DISTRIBUTED_REFMEM_NODE_COUNT; ++slot)
-        if (trigger_position_mailbox_pending(&s_position_rx_mailboxes[slot]))
+        if (trigger_position_mailbox_pending(&s_position_rx_mailboxes[slot]) ||
+            __atomic_load_n(&s_position_freeze_latches[slot].mask, __ATOMIC_ACQUIRE))
             snapshot->rx_pending_mask |= 1u << slot;
     return true;
 }
@@ -1287,8 +1296,12 @@ static void distributed_refmem_tdma_parse_position_fragment(
             .target_ms_index = slice.target_ms_index,
             .target_fine_slice_index = slice.target_fine_slice_index,
         };
-        if (trigger_position_mailbox_stage(
-                &s_position_rx_mailboxes[source_slot], &received, target_mask)) {
+        const bool staged = received.stage == TRIGGER_POSITION_STAGE_FREEZE
+            ? trigger_position_freeze_latch_put(&s_position_freeze_latches[source_slot],
+                                                position_id, received.prediction_version)
+            : trigger_position_mailbox_stage(
+                &s_position_rx_mailboxes[source_slot], &received, target_mask);
+        if (staged) {
             s_tdma_flight_sync.position_rx_complete_count++;
             s_tdma_flight_sync.position_rx_phase =
                 DISTRIBUTED_REFMEM_POSITION_TRANSPORT_COMPLETE;
@@ -1897,6 +1910,7 @@ bool distributed_refmem_reset_position_stopped(void)
     memset(s_tdma_flight_sync.position_tx_wire,0,sizeof(s_tdma_flight_sync.position_tx_wire));
     for (uint32_t slot=0u;slot<DISTRIBUTED_REFMEM_NODE_COUNT;++slot) {
         __atomic_store_n(&s_position_rx_mailboxes[slot].state,TRIGGER_POSITION_MAILBOX_EMPTY,__ATOMIC_RELEASE);
+        __atomic_store_n(&s_position_freeze_latches[slot].mask,0u,__ATOMIC_RELEASE);
         trigger_position_fragment_reset(&s_tdma_flight_sync.position_rx_fragments[slot]);
     }
     s_tdma_flight_sync.position_rx_valid_mask=0u;

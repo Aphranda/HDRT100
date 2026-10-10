@@ -129,6 +129,20 @@ int main(void)
     queue_position(150,&current_freeze);receive();
     assert(distributed_refmem_get_position_descriptor(1,&received));
     assert(received.stage==TRIGGER_POSITION_STAGE_FREEZE&&received.prediction_version==2);
+    /* A PREVIEW still waiting for T2 never drops a FREEZE; FREEZE overtakes it. */
+    const trigger_position_slice_t waiting={.target_ms_index=40,.prediction_version=3,
+        .position_id=2,.stage=TRIGGER_POSITION_SLICE_PREVIEW};
+    const trigger_position_slice_t final3={.position_id=3,.prediction_version=4,
+        .stage=TRIGGER_POSITION_SLICE_FREEZE};
+    const unsigned rejects=s_tdma_flight_sync.position_rx_reject_count;
+    queue_position(160,&waiting);queue_position(161,&final3);queue_position(162,&final3);receive();
+    assert(s_tdma_flight_sync.position_rx_reject_count==rejects);
+    assert(distributed_refmem_get_position_descriptor(1,&received));
+    assert(received.stage==TRIGGER_POSITION_STAGE_FREEZE&&received.position_id==3&&
+        received.prediction_version==4);
+    assert(distributed_refmem_get_position_descriptor(1,&received));
+    assert(received.stage==TRIGGER_POSITION_STAGE_PREVIEW&&received.position_id==2);
+    assert(!distributed_refmem_get_position_descriptor(1,&received));
     return 0;
 }
 """
@@ -144,6 +158,7 @@ def test_stopped_reset_retires_queued_freeze_without_dropping_vdc(tmp_path):
     harness = harness.replace('static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;',
         'static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;\n'
         'static trigger_position_mailbox_t s_position_tx_mailbox,s_position_rx_mailboxes[DISTRIBUTED_REFMEM_NODE_COUNT];\n'
+        'static trigger_position_freeze_latch_t s_position_freeze_latches[DISTRIBUTED_REFMEM_NODE_COUNT];\n'
         'static volatile uint32_t s_position_cancel_requested;')
     harness = harness.replace('static void distributed_refmem_tdma_parse_position_fragment(uint32_t slot,const uint8_t *m)\n{ (void)slot; (void)m; }',
         'static void distributed_refmem_tdma_parse_position_fragment(uint32_t slot,const uint8_t *m);')

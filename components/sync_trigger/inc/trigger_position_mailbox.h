@@ -67,4 +67,46 @@ static inline bool trigger_position_mailbox_take(
     return true;
 }
 
+/* FREEZE is final and published once per position. RX latches it per position
+ * beside the single-depth PREVIEW mailbox, so a PREVIEW still waiting for its
+ * consumer can never drop it. One producer, one consumer; a version is written
+ * only while its bit is clear and read only while it is set. */
+#define TRIGGER_POSITION_FREEZE_LATCH_IDS 15u
+typedef struct {
+    volatile uint32_t mask; /* bit position_id - 1 */
+    uint32_t version[TRIGGER_POSITION_FREEZE_LATCH_IDS];
+} trigger_position_freeze_latch_t;
+
+/* Producer. A position already latched keeps its first FREEZE. */
+static inline bool trigger_position_freeze_latch_put(
+    trigger_position_freeze_latch_t *latch, uint32_t position_id, uint32_t version)
+{
+    if (!latch || position_id < 1u || position_id > TRIGGER_POSITION_FREEZE_LATCH_IDS ||
+        !version) return false;
+    const uint32_t bit = 1u << (position_id - 1u);
+    if (__atomic_load_n(&latch->mask, __ATOMIC_ACQUIRE) & bit) return true;
+    __atomic_store_n(&latch->version[position_id - 1u], version, __ATOMIC_RELAXED);
+    (void)__atomic_fetch_or(&latch->mask, bit, __ATOMIC_RELEASE);
+    return true;
+}
+
+/* Consumer: the lowest latched position first, as a FREEZE descriptor. */
+static inline bool trigger_position_freeze_latch_take(
+    trigger_position_freeze_latch_t *latch, trigger_position_descriptor_t *descriptor)
+{
+    if (!latch || !descriptor) return false;
+    const uint32_t mask = __atomic_load_n(&latch->mask, __ATOMIC_ACQUIRE);
+    if (!mask) return false;
+    const uint32_t index = (uint32_t)__builtin_ctz(mask);
+    const uint32_t version = __atomic_load_n(&latch->version[index], __ATOMIC_RELAXED);
+    (void)__atomic_fetch_and(&latch->mask, ~(1u << index), __ATOMIC_ACQ_REL);
+    *descriptor = (trigger_position_descriptor_t){
+        .schema = TRIGGER_POSITION_DESCRIPTOR_SCHEMA,
+        .stage = TRIGGER_POSITION_STAGE_FREEZE,
+        .position_id = index + 1u,
+        .prediction_version = version,
+    };
+    return true;
+}
+
 #endif
