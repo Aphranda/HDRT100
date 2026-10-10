@@ -174,3 +174,14 @@
 - **回滚**：逐批 `git mv` 反向（映射见 `tools/archive/migration-ledger/_migration_map.json`）；
   registry/layout/docs 均已随批提交，可按提交回退。
 - **旧→新映射索引**：`tools/archive/migration-ledger/_migration_map.json`（89 条）。
+
+## 既有状态说明：TOOL-CATALOG 告警（非本次迁移引入）
+
+`tool_governance.py check --check-catalog` 报两条与 `TOOL-CATALOG` 相关的错误：
+`unassessed legacy tool family` 与 `dependency review pending`。成因是该登记的
+`lifecycle=UNASSESSED`、`dependency_review=PENDING` —— 属**登记数据既有属性**；
+本次迁移只向该工具追加了 `role=documentation` 的文件条目（21 条），**未改动**上述字段。
+
+处置建议：该工具现拥有 `tools/README.md`（registry catalog）与本次治理文档，已具备被评估的条件；
+建议由主控按其流程把 `lifecycle`/`dependency_review` 评估到位（涉及登记状态变更，需交叉审核，
+agent 不自审自批）。在此之前，普通 `check` 的 `passed` 仅受并行会话 2 个未登记文件影响。
