@@ -1,5 +1,6 @@
-"""Offline local-analyzer/NO5 evidence correlation."""
-
-from .analyzer_no5_correlator import correlate
-
-__all__ = ["correlate"]
+#!/usr/bin/env python3
+"""兼容转发（迁移期保留）。"""
+import pathlib, runpy, sys
+_T = pathlib.Path(__file__).resolve().parents[1] / "sync" / "analyzer_no5_correlator" / "__init__.py"
+sys.argv[0] = str(_T)
+runpy.run_path(str(_T), run_name="__main__")

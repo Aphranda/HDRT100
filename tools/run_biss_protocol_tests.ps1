@@ -1,7 +1,2 @@
-param(
-    [string]$BuildDir = "build-biss-protocol-tests",
-    [string]$ArmGcc = ""
-)
-
-& "$PSScriptRoot\tests\run_biss_protocol_tests.ps1" -BuildDir $BuildDir -ArmGcc $ArmGcc
-exit $LASTEXITCODE
+# 兼容转发到 tools/validation/run_biss_protocol_tests.ps1
+& "$PSScriptRoot\validation\run_biss_protocol_tests.ps1" @args

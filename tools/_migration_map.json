@@ -142,5 +142,37 @@
  {
   "old": "tools/refmem_sync_hil_validate",
   "new": "tools/refmem/refmem_sync_hil_validate"
+ },
+ {
+  "old": "tools/rp2350_tk_toolbox.py",
+  "new": "tools/project/rp2350_tk_toolbox.py"
+ },
+ {
+  "old": "tools/run_biss_protocol_tests.ps1",
+  "new": "tools/validation/run_biss_protocol_tests.ps1"
+ },
+ {
+  "old": "tools/run_portable_ota_tests.ps1",
+  "new": "tools/validation/run_portable_ota_tests.ps1"
+ },
+ {
+  "old": "tools/sd_fs_build",
+  "new": "tools/storage/sd_fs_build"
+ },
+ {
+  "old": "tools/trigger_meas",
+  "new": "tools/trigger/trigger_meas"
+ },
+ {
+  "old": "tools/two_board_io_validate",
+  "new": "tools/sync/two_board_io_validate"
+ },
+ {
+  "old": "tools/analyzer_no5_correlator",
+  "new": "tools/sync/analyzer_no5_correlator"
+ },
+ {
+  "old": "tools/ram_budget_check",
+  "new": "tools/project/ram_budget_check"
  }
 ]

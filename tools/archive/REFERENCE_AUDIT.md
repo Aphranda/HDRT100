@@ -69,3 +69,17 @@
   - `tools/refmem_sync_hil_validate` → `tools/refmem/refmem_sync_hil_validate`
 - 兼容层：旧路径 wrapper（按扩展名转发）
 - 验证：文档门禁
+
+### N1-final（2026-10-10）
+
+- 范围：8 项（N1 收官）
+  - `tools/rp2350_tk_toolbox.py` → `tools/project/rp2350_tk_toolbox.py`
+  - `tools/run_biss_protocol_tests.ps1` → `tools/validation/run_biss_protocol_tests.ps1`
+  - `tools/run_portable_ota_tests.ps1` → `tools/validation/run_portable_ota_tests.ps1`
+  - `tools/sd_fs_build` → `tools/storage/sd_fs_build`
+  - `tools/trigger_meas` → `tools/trigger/trigger_meas`
+  - `tools/two_board_io_validate` → `tools/sync/two_board_io_validate`
+  - `tools/analyzer_no5_correlator` → `tools/sync/analyzer_no5_correlator`
+  - `tools/ram_budget_check` → `tools/project/ram_budget_check`
+- 兼容层：旧路径 wrapper
+- 验证：文档门禁
