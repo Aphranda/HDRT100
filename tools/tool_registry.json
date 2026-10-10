@@ -39,10 +39,6 @@
           "role": "resource"
         },
         {
-          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/README.md",
-          "role": "documentation"
-        },
-        {
           "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/base_probe.py",
           "role": "resource"
         },
@@ -344,10 +340,6 @@
           "role": "compatibility_wrapper"
         },
         {
-          "path": "tools/analyzer_burst/__pycache__/analyzer_burst.cpython-310.pyc",
-          "role": "compatibility_wrapper"
-        },
-        {
           "path": "tools/analyzer_burst/README.md",
           "role": "compatibility_wrapper"
         }
@@ -397,10 +389,6 @@
           "role": "compatibility_wrapper"
         },
         {
-          "path": "tools/analyzer_no5_correlator/__pycache__/__init__.cpython-310.pyc",
-          "role": "compatibility_wrapper"
-        },
-        {
           "path": "tools/analyzer_no5_correlator/README.md",
           "role": "compatibility_wrapper"
         }
@@ -439,10 +427,6 @@
         },
         {
           "path": "tools/analyzer_tdma_hil/analyzer_tdma_hil.py",
-          "role": "compatibility_wrapper"
-        },
-        {
-          "path": "tools/analyzer_tdma_hil/__pycache__/analyzer_tdma_hil.cpython-310.pyc",
           "role": "compatibility_wrapper"
         },
         {
@@ -491,10 +475,6 @@
           "role": "compatibility_wrapper"
         },
         {
-          "path": "tools/analyzer_trace_batch_index/__pycache__/__init__.cpython-310.pyc",
-          "role": "compatibility_wrapper"
-        },
-        {
           "path": "tools/analyzer_trace_batch_index/README.md",
           "role": "compatibility_wrapper"
         }
@@ -535,10 +515,6 @@
         },
         {
           "path": "tools/analyzer_trace_decode/analyzer_trace_decode.py",
-          "role": "compatibility_wrapper"
-        },
-        {
-          "path": "tools/analyzer_trace_decode/__pycache__/analyzer_trace_decode.cpython-310.pyc",
           "role": "compatibility_wrapper"
         },
         {
@@ -584,10 +560,6 @@
         },
         {
           "path": "tools/analyzer_trace_export/analyzer_trace_export.py",
-          "role": "compatibility_wrapper"
-        },
-        {
-          "path": "tools/analyzer_trace_export/__pycache__/__init__.cpython-310.pyc",
           "role": "compatibility_wrapper"
         },
         {
@@ -1097,6 +1069,86 @@
         {
           "path": "tools/README.md",
           "role": "documentation"
+        },
+        {
+          "path": "tools/archive/vdc/vdc_joint_capture/lineage_v1/README.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/MIGRATION_BATCH_N1_CANDIDATES.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/REFERENCE_AUDIT.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/STANDARD_REFERENCE_AUDIT.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/TOOLS_ARCHIVE_STANDARD.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/TOOLS_DIRECTORY_STANDARD.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/TOOLS_MIGRATION_PLAN.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/deletable-candidates/t2_deploy_action_probe/t2_deploy_action_probe.py",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/migration-ledger/TOOLS_INDEX.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/migration-ledger/_batch_paths.json",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/migration-ledger/_freshness.json",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/migration-ledger/_migration_map.json",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/migration-ledger/_n1_paths.json",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/migration-ledger/_ref_audit.json",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/migration-ledger/migrate_batch.py",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/pending-deletion/superseded-mixed-docs/STANDARD_ARCHIVE_PROCESS.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/pending-deletion/superseded-mixed-docs/STANDARD_DIRECTORY_LAYOUT.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/archive/pending-deletion/superseded-mixed-docs/WORKSPACE_HYGIENE_PLAN.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/scratch/README.md",
+          "role": "documentation"
+        },
+        {
+          "path": "tools/scratch/.gitkeep",
+          "role": "documentation"
         }
       ],
       "depends_on": [],
@@ -1389,10 +1441,6 @@
         },
         {
           "path": "tools/dpll_observation_capture/dpll_observation_capture.py",
-          "role": "compatibility_wrapper"
-        },
-        {
-          "path": "tools/dpll_observation_capture/__pycache__/dpll_observation_capture.cpython-310.pyc",
           "role": "compatibility_wrapper"
         },
         {
