@@ -12,6 +12,16 @@ Last updated: 2026-10-10
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261010-023：从板首次完成 T2 动作闭环，剩余缺失定位为一等席传输丢帧
+
+- TODO task ID：`T2-EXEC-001`、`T2-TRANSPORT-002`；提交 `914a854d`。
+- **源起动时序（A-13）**：探针在 T2 START 前即启动模拟源时，NO1 在任何 PREVIEW 保存前越过全部阈值（`announced_mask=7`），`stage_one_freeze()` 遇首个无预览位置即返回，后续位置不再检查，FREEZE 永不发出。以既有 `--late-source` 绕过后 NO1 冻结三个位置；固件侧"无预览位置判失败并继续"属 T2 语义变更，待单独评审，未改。
+- **从板隔离**：动作武装后从板 SYNC_TRIGGER 升至 27–36k 拍（预算 26800，快照）被隔离，原因是已武装 deadline 的逐片轮询（`service_deadlines`、sync_io switch/gateway `realtime_service_core1`/`realtime_status`）从 XIP 执行；放入 RAM 后四板零隔离。
+- **FREEZE 丢失（接收侧）**：FREEZE 每位置只发一次，而从板 RX 邮箱单深度，前一 PREVIEW 未被取走时 FREEZE 以 FRAGMENT 拒收（NO2 达 77 次，CRC 拒收 0）。按用户选定方案 a 增加接收侧按位置 FREEZE 锁存，取用时 FREEZE 优先；拒收降至 3–7 次。
+- **分段计时**：T2 Core1 服务新增 cursor/receive/deadlines 三段峰值，附于 `TRIGger:REServation:T2?` 末尾。从板峰值约 11.4k/17.7k/10.1k 拍（快照，`t2-bench-probe-194914`）。
+- **实测（四板，`t2-bench-probe-194914`，快照）**：NO2 三个位置 received/frozen/armed/done 全为 7，为首次从板端到端动作闭环；NO3 frozen=2、NO4 frozen=6，已冻结者全部完成。P3 `p3-195851` PASS_WITH_WARNINGS（DPLL PASS；新增 T1/T3 SCK 训练诊断告警，TDMA deadline miss 告警与前次相同）。
+- **未闭合**：NO1 一等席记录 137 次上车，三从板 `rx_complete_count` 均为 43，同帧共同丢失、无 CRC 错误，指向 origin 或从板对背靠背快速路径帧的公共处理。用户判断为特等与一等发射间隔过近、从板尚未处理完特等帧；先以 TX/RX 时间戳精确预算，再决定是否在 TDMA-SEAT-01 中引入最小间隔（底层语义变更，须先评审）。
+
 ### T2-PROGRESS-20261010-022：紧缩单帧记录经一等席快速路径跨环送达，动作执行未闭合
 
 - TODO task ID：`T2-TRANSPORT-002`、`T2-TURNTABLE-003`、`T2-EXEC-001`；提交 `19bb91dd`（紧缩单帧）、`71ed3e5f`（NO1 去隔离、台架链）、`8bd547b2`（TDMA-SEAT-01）。
