@@ -5,6 +5,18 @@
 约定: 只移动不删除；跳过已迁移/禁止移动集/7 天内修改项；域取自 tool_registry.json 的 domain。
 """
 import json, pathlib, subprocess, sys, datetime
+# Shim tail: run the target as a script when executed; when imported, execute
+# the target inside the shim's own module so both `import tools.old.old` and
+# spec_from_file_location(old path) loaders get the target's attributes.
+SHIM_TAIL = (
+    'if __name__ == "__main__":\n'
+    '    sys.argv[0] = str(_T)\n'
+    '    runpy.run_path(str(_T), run_name="__main__")\n'
+    'else:  # imported: run the target inside this module so every loader sees it\n'
+    '    __file__ = str(_T)\n'
+    '    if _T.name == "__init__.py":\n'
+    '        __path__ = [str(_T.parent)]\n'
+    '    exec(compile(_T.read_text(encoding="utf-8"), str(_T), "exec"))\n')
 
 TOOLS = pathlib.Path("tools")
 FORB = {"docs_check","doc_regression_check.py","checks","hardware_acceptance","tool_governance","common",
@@ -74,13 +86,13 @@ def main() -> int:
                 (w / f.name).write_text(
                     '#!/usr/bin/env python3\n"""兼容转发（迁移期保留）。"""\nimport pathlib, runpy, sys\n'
                     f'_T = pathlib.Path(__file__).resolve().parents[1] / "{dom}" / "{name}" / "{f.name}"\n'
-                    'sys.argv[0] = str(_T)\nrunpy.run_path(str(_T), run_name="__main__")\n',
+                    + SHIM_TAIL,
                     encoding="utf-8")
         elif pathlib.Path(name).suffix == ".py":
             (TOOLS / name).write_text(
                 '#!/usr/bin/env python3\n"""兼容转发（迁移期保留）。"""\nimport pathlib, runpy, sys\n'
                 f'_T = pathlib.Path(__file__).resolve().parent / "{dom}" / "{name}"\n'
-                'sys.argv[0] = str(_T)\nrunpy.run_path(str(_T), run_name="__main__")\n', encoding="utf-8")
+                + SHIM_TAIL, encoding="utf-8")
         else:
             (TOOLS / name).write_text(
                 f'# 兼容转发到 tools/{dom}/{name}\n& "$PSScriptRoot\\{dom}\\{name}" @args\n',

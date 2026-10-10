@@ -15,7 +15,7 @@ except ImportError as exc:  # pragma: no cover - bench dependency
     raise SystemExit("pyserial is required: python -m pip install pyserial") from exc
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 EXPECTED_UNDEFINED = '-113,"Undefined header"'
 
 COMMAND_GROUPS: dict[str, tuple[str, ...]] = {

@@ -12,7 +12,7 @@ from pathlib import Path
 
 # Keep direct ``python tools/release_check/release_check.py`` invocation
 # equivalent to module execution from the repository root.
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 

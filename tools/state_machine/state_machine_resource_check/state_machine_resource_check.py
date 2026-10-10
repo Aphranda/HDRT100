@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RESOURCES = ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
 DEFAULT_PHYS = ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
 DEFAULT_FLIGHT_IO = ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.inc"

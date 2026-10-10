@@ -24,7 +24,7 @@ except ImportError as exc:
     raise SystemExit("pyserial is required: python -m pip install pyserial") from exc
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 AUTO_FIELD_COUNT = 26
 LOAD_STATUS_FIELD_COUNT = 24

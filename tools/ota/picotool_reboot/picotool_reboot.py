@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_PICOTOOL = (
     Path(os.environ.get("USERPROFILE", "")) /
     ".pico-sdk" / "picotool" / "2.2.0-a4" / "picotool" / "picotool.exe"

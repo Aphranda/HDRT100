@@ -24,7 +24,7 @@ except ImportError as exc:  # pragma: no cover - bench dependency
 
 
 BOARD = "DHRT100"
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 USB_VID = 0x2E8A
 USB_PID = 0x0009
 CONFIRM_TOKEN = 0x53435254

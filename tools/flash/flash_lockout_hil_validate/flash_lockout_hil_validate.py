@@ -18,7 +18,7 @@ except ImportError as exc:  # pragma: no cover - bench dependency
     raise SystemExit("pyserial is required: python -m pip install pyserial") from exc
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 LOCKOUT_RESULT_ACKED = 1
 FLASH_TRANSACTION_STATE_COMPLETE = 9
 FLASH_TRANSACTION_REQUESTER_OTA_IMAGE = 1

@@ -32,7 +32,7 @@ try:
 except ImportError:
     raise SystemExit("pyserial required: python -m pip install pyserial")
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 # ── CLI ──
 

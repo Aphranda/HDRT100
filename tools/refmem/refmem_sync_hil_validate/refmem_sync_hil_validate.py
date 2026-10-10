@@ -23,7 +23,7 @@ else:
     SERIAL_IMPORT_ERROR = None
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 HELLO_TYPE = 1
 EPOCH_TYPE = 2

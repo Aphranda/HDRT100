@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 # Support both ``python -m tools.dpll_observation_capture...`` and the
 # documented direct ``python tools/...py`` invocation on Windows.
 for path in (ROOT, ROOT / "tools", ROOT / "tools" / "calibration_ring_validate"):
