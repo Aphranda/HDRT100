@@ -183,3 +183,8 @@ third_party/freertos/**
 !tools/
 !third_party/**/README*
 !third_party/**/LICENSE*
+
+# 临时脚本草稿区（规则见 out/README.md 与 tools/scratch/README.md）
+tools/scratch/*
+!tools/scratch/README.md
+!tools/scratch/.gitkeep

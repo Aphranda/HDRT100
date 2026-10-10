@@ -30,8 +30,9 @@ Last updated: 2026-10-10
 |---|---|---|
 | 一次性构建树（实验/回归） | `out/build/<topic>-<yyyymmdd>[-rN]/` | 取自变更主题，便于按名追溯 |
 | 硬件验收运行 | `out/HardwareAcceptance/<yyyymmdd>/<tool>-<hhmmss>/`（由工具自动生成） | 不要手工改名 |
-| 临时脚本（探测/分析） | 直接放入 `out/archive/loose-scripts/` | 用 `probe_*.py` / `check_*.py` 之类前缀 |
+| 临时脚本（探测/分析） | **放 `tools/scratch/`**（不要放 `out/`） | `<主题>_<yyyymmdd>.py` |
 | 临时日志 | 放入 `out/archive/loose-logs/` | `*.log` |
+| 临时脚本 | **`tools/scratch/`**（见其 README） | `<主题>_<yyyymmdd>.py` |
 | 主题实验产物（多文件） | 结束后移入 `out/archive/cold/<类别>/` | 沿用第 3 节类别 |
 
 原则：`out/` 的**顶层只保留第 1 节的保留项**；其余一律归档，避免再次"肆意生长"。
@@ -51,7 +52,7 @@ Last updated: 2026-10-10
 | `out/archive/cold/docs-audit/` | 文档审计产物 |
 | `out/archive/cold/reviews/` | 评审材料 |
 | `out/archive/cold/misc/` | 工具、OTA、其它杂项 |
-| `out/archive/loose-scripts/`、`loose-logs/` | 根目录散件的归集地（脚本 / 日志） |
+| `out/archive/loose-logs/` | 根目录散落日志的归集地（脚本已按规则改放 `tools/scratch/`） |
 | `out/archive/deletable-candidates/` | **可删除候选**（见第 4 节） |
 | `out/archive/pending-deletion/` | 仓库既有待删区（沿用旧约定） |
 
@@ -79,3 +80,4 @@ Last updated: 2026-10-10
 4. 用脚本批量匹配（如 `Get-ChildItem out/build -Directory | Remove-Item`）执行破坏性动作；
    任何移动前必须**打印将被移动的对象清单**并获得确认（或至少落盘记录）。
 5. 让 `out/` 顶层重新堆积临时目录与散件——新产物按第 2 节直接落到归档区。
+6. 把临时脚本放进 `out/`（含 `out/archive/loose-scripts/`）——一律放 `tools/scratch/`。
