@@ -48,6 +48,15 @@ Last updated: 2026-10-10
 `*_analyze`/`*_capture`/`*_pack`）；③ 跨域工具（如 `artifact_checksum`、`build_info`）归"首个主要消费者"所在域，
 并在 registry 的 `kind=infra` 标注；④ `tools/scratch/` 只放草稿，不进域目录。
 
+
+> **B0 实测修订（2026-10-10）**：`tools/tool_registry.json` 已含权威 `domain` 字段（103 个工具）：
+> VDC 19、OTA 15、TOOLS 14、REFMEM 11、SYNC 7、STORAGE 7、COMMUNICATION 5、CALIBRATION 4、
+> FLASH 4、INTERFACE 4、TRIGGER 3、DOCS 2、RTOS 2、TDMA 2、VALIDATION 2、STATE_MACHINE 1、WATCHDOG 1。
+> ⇒ **B1+ 的域目录名以 registry `domain` 为准**（小写化：`vdc/ ota/ refmem/ sync/ storage/ calibration/
+> flash/ interface/ trigger/ docs_tools/ rtos/ tdma/ communication/ validation/ state_machine/ watchdog/
+> project(TOOLS 中非域工具)`），不再另造 `analyzers/monitors` 等新域；种类信息用 registry 的
+> `lifecycle`/`operation` 表达。索引见 `tools/INDEX.md`（由 registry 自动生成）。
+
 ## 2. 兼容层策略（保证旧路径仍可用）
 
 对每个被移动的工具目录，在**旧路径**留一个**转发入口**（薄 wrapper），内容形如：
