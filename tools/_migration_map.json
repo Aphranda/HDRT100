@@ -1,0 +1,50 @@
+[
+ {
+  "old": "tools/flash_park_timeout_hil_validate",
+  "new": "tools/flash/flash_park_timeout_hil_validate"
+ },
+ {
+  "old": "tools/pdf_text_extract",
+  "new": "tools/project/pdf_text_extract"
+ },
+ {
+  "old": "tools/trigger_timing_test",
+  "new": "tools/trigger/trigger_timing_test"
+ },
+ {
+  "old": "tools/uart_log_monitor",
+  "new": "tools/project/uart_log_monitor"
+ },
+ {
+  "old": "tools/model_turntable_load_validate",
+  "new": "tools/trigger/model_turntable_load_validate"
+ },
+ {
+  "old": "tools/refmem_spi_line_activity",
+  "new": "tools/refmem/refmem_spi_line_activity"
+ },
+ {
+  "old": "tools/rs485_modbus_validate",
+  "new": "tools/communication/rs485_modbus_validate"
+ },
+ {
+  "old": "tools/scpi_legacy_validate",
+  "new": "tools/interface/scpi_legacy_validate"
+ },
+ {
+  "old": "tools/sd_mkfs",
+  "new": "tools/storage/sd_mkfs"
+ },
+ {
+  "old": "tools/sd_raw_clear",
+  "new": "tools/storage/sd_raw_clear"
+ },
+ {
+  "old": "tools/visa_ota_send",
+  "new": "tools/ota/visa_ota_send"
+ },
+ {
+  "old": "tools/run_portable_log_tests.ps1",
+  "new": "tools/project/run_portable_log_tests.ps1"
+ }
+]

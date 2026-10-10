@@ -1,7 +1,2 @@
-param(
-    [string]$BuildDir = "build-portable-log-tests",
-    [string]$ArmGcc = ""
-)
-
-& "$PSScriptRoot\tests\run_portable_log_tests.ps1" -BuildDir $BuildDir -ArmGcc $ArmGcc
-exit $LASTEXITCODE
+# 兼容转发到 tools/project/run_portable_log_tests.ps1（迁移期保留）
+& "$PSScriptRoot\project\run_portable_log_tests.ps1" @args
