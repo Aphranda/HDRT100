@@ -704,12 +704,18 @@ bool distributed_refmem_get_position_descriptor(
     uint32_t source_slot, trigger_position_descriptor_t *descriptor)
 {
     uint32_t target_mask;
+    if (source_slot >= DISTRIBUTED_REFMEM_NODE_COUNT) return false;
     /* A latched FREEZE is final; it overtakes any PREVIEW still waiting. */
-    return source_slot < DISTRIBUTED_REFMEM_NODE_COUNT &&
-        (trigger_position_freeze_latch_take(&s_position_freeze_latches[source_slot],
-                                            descriptor) ||
-         trigger_position_mailbox_take(&s_position_rx_mailboxes[source_slot],
-                                       descriptor, &target_mask));
+    if (trigger_position_freeze_latch_take(&s_position_freeze_latches[source_slot],
+                                           descriptor)) return true;
+    if (trigger_position_mailbox_take(&s_position_rx_mailboxes[source_slot],
+                                      descriptor, &target_mask)) return true;
+    /* Nothing staged: retry one held first-class record, then hand it to this
+     * slice. This is the bounded recovery that no longer depends on the origin
+     * repeating a refused record on the wire (TDMA-SEAT-03). */
+    return distributed_refmem_position_priority_drain(source_slot) &&
+        trigger_position_mailbox_take(&s_position_rx_mailboxes[source_slot],
+                                      descriptor, &target_mask);
 }
 
 bool distributed_refmem_get_position_transport(
@@ -739,6 +745,22 @@ bool distributed_refmem_get_position_transport(
         .lane_accept_count = __atomic_load_n(&s_position_priority_accept_count, __ATOMIC_RELAXED),
         .lane_duplicate_count = __atomic_load_n(&s_position_priority_duplicate_count, __ATOMIC_RELAXED),
         .lane_reject_count = __atomic_load_n(&s_position_priority_reject_count, __ATOMIC_RELAXED),
+        .lane_hold_count = __atomic_load_n(&s_position_priority_hold_count, __ATOMIC_RELAXED),
+        .lane_drain_count = __atomic_load_n(&s_position_priority_drain_count, __ATOMIC_RELAXED),
+        .lane_drain_fail_count = __atomic_load_n(&s_position_priority_drain_fail_count,
+                                                 __ATOMIC_RELAXED),
+        .lane_hold_expired_count = __atomic_load_n(&s_position_priority_hold_expired_count,
+                                                   __ATOMIC_RELAXED),
+        .lane_hold_dropped_count = __atomic_load_n(&s_position_priority_hold_dropped_count,
+                                                   __ATOMIC_RELAXED),
+        .lane_ack_override_count = __atomic_load_n(&s_position_ack_override_count,
+                                                   __ATOMIC_RELAXED),
+        .lane_diag_refused_count = __atomic_load_n(&s_position_diag_refused_count,
+                                                   __ATOMIC_RELAXED),
+        .lane_decode_reject_count = __atomic_load_n(&s_position_priority_decode_reject_count,
+                                                    __ATOMIC_RELAXED),
+        .lane_hold_delivered_count = __atomic_load_n(
+            &s_position_priority_hold_delivered_count, __ATOMIC_RELAXED),
         .lane_owned = distributed_refmem_position_priority_owned(),
     };
     for (uint32_t slot = 0u; slot < DISTRIBUTED_REFMEM_NODE_COUNT; ++slot)
@@ -1049,8 +1071,15 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
     mailbox[TDMA_PROCESS_IMAGE_CONTROL_SEQ8_OFFSET] = 0u;
     mailbox[TDMA_PROCESS_IMAGE_OPTIONAL_DIAGNOSTIC_OFFSET] =
         (uint8_t)(s_tdma_flight_sync.last_error & 0xFFu);
+    /* Arbitration: while a first-class freeze-completion fact must ride this
+     * image, the shared control bytes are reserved for it and the diagnostic is
+     * refused up front (counted); otherwise the diagnostic claims them first and
+     * the delivery-critical first-class fact is still written last, counting any
+     * override. Either way a diagnostic yield is visible rather than silently
+     * losing the delivery fact. */
+    action_patch_mailbox(mailbox,
+        distributed_refmem_position_ack_control_available(mailbox[3]));
     distributed_refmem_position_ack_patch(mailbox);
-    action_patch_mailbox(mailbox);
     distributed_refmem_put_le16(
         &mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET],
         tdma_process_image_crc16_ccitt(mailbox,

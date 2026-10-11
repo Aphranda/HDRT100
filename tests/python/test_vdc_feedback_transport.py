@@ -70,7 +70,8 @@ static bool reference_mode, origin_available=true;
 /* This suite exercises VDC with the opt-in action diagnostic disabled.
  * Real action transport and shared-region preservation run in the dedicated
  * test_distributed_action_probe C harness. */
-static void action_patch_mailbox(uint8_t *mailbox) { (void)mailbox; }
+static void action_patch_mailbox(uint8_t *mailbox, bool control_allowed)
+{ (void)mailbox; (void)control_allowed; }
 static void action_mailbox_published(const uint8_t *mailbox) { (void)mailbox; }
 static bool action_receive_mailbox(uint32_t source,const uint8_t *mailbox)
 { (void)source;(void)mailbox;return false; }
@@ -79,6 +80,10 @@ static inline void action_observe(const tdma_ring_runtime_snapshot_t *snapshot)
 /* T2 freeze-completion state and the priority-lane owner are exercised by
  * test_t2_freeze_completion; this VDC suite runs with the lane absent. */
 static inline void distributed_refmem_position_ack_patch(uint8_t *mailbox) { (void)mailbox; }
+/* This suite runs with no first-class frozen state, so the shared control bytes
+ * are always available to the diagnostic. */
+static inline bool distributed_refmem_position_ack_control_available(uint8_t mailbox_class)
+{ (void)mailbox_class; return true; }
 static inline void distributed_refmem_position_ack_receive(uint32_t slot,const uint8_t *mailbox)
 { (void)slot;(void)mailbox; }
 static inline bool distributed_refmem_position_priority_owned(void) { return false; }

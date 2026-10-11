@@ -160,6 +160,12 @@ def test_stopped_reset_retires_queued_freeze_without_dropping_vdc(tmp_path):
         'static trigger_position_mailbox_t s_position_tx_mailbox,s_position_rx_mailboxes[DISTRIBUTED_REFMEM_NODE_COUNT];\n'
         'static trigger_position_freeze_latch_t s_position_freeze_latches[DISTRIBUTED_REFMEM_NODE_COUNT];\n'
         'static volatile uint32_t s_position_cancel_requested;')
+    # The hold/drain receiver lives in the lane .inc, which this harness does not
+    # compile: stub it so the extracted get path links (held records are absent
+    # here, matching "nothing staged" for this scenario).
+    harness = harness.replace('static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;',
+        'static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;\n'
+        'bool distributed_refmem_position_priority_drain(uint32_t source_slot) { (void)source_slot; return false; }')
     harness = harness.replace('static void distributed_refmem_tdma_parse_position_fragment(uint32_t slot,const uint8_t *m)\n{ (void)slot; (void)m; }',
         'static void distributed_refmem_tdma_parse_position_fragment(uint32_t slot,const uint8_t *m);')
     harness = harness.replace('static void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,const uint8_t *m,const tdma_flight_rx_view_t *v)\n{ (void)slot; (void)m; (void)v; }',

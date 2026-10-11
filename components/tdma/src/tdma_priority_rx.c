@@ -20,6 +20,17 @@ _Static_assert(sizeof(tdma_priority_rx_record_t) % 4u == 0u &&
 static uint32_t u16(const uint8_t *p) { return p[0] | ((uint32_t)p[1] << 8u); }
 static uint32_t u32(const uint8_t *p) { return u16(p) | (u16(p + 2) << 16u); }
 static void increment(uint32_t *p) { if (*p != UINT32_MAX) ++*p; }
+
+/* Ordinary-RAM reject attribution, cleared with the lane at start. Kept out of
+ * the scratch-resident lane status: SCRATCH_X/Y both carry only a tens-of-bytes
+ * design margin and the lane stores two copies of its status (live + published),
+ * so attribution there would cost twice its size in scarce scratch RAM. */
+static tdma_priority_rx_attribution_t s_priority_rx_attribution;
+
+tdma_priority_rx_attribution_t *tdma_priority_rx_attribution(void)
+{
+    return &s_priority_rx_attribution;
+}
 static void store_words(uint32_t *dst, const void *src, uint32_t bytes)
 {
     for (uint32_t i = 0u; i < bytes / 4u; ++i) {
@@ -73,6 +84,7 @@ bool tdma_priority_rx_start(tdma_priority_rx_t *lane)
     if (!lane || lane->status.epoch == UINT32_MAX || !begin(lane)) return false;
     const uint32_t epoch = lane->status.epoch + 1u;
     memset(&lane->status, 0, sizeof(lane->status));
+    memset(tdma_priority_rx_attribution(), 0, sizeof(s_priority_rx_attribution));
     lane->status.schema = 1u;
     lane->status.active = 1u;
     lane->status.epoch = epoch;
@@ -95,11 +107,34 @@ void tdma_priority_rx_stop(tdma_priority_rx_t *lane)
     lane->status.active = 0u;
     end(lane);
 }
-TDMA_PRIORITY_HOT void tdma_priority_rx_reject(tdma_priority_rx_t *lane, uint32_t reason)
+TDMA_PRIORITY_HOT void tdma_priority_rx_reject_class(tdma_priority_rx_t *lane,
+    uint32_t reason, uint32_t mailbox_class, bool class_known)
 {
+    if (!lane) return;
     increment(&lane->status.reject_count);
     lane->status.last_reject = reason;
+    /* Attribution lives in ordinary RAM: the lane's live and published status
+     * copies are scratch-resident and carry only a tens-of-bytes margin. */
+    tdma_priority_rx_attribution_t *const attribution = tdma_priority_rx_attribution();
+    if (!class_known) {
+        ++attribution->unknown_class_reject_count;
+        attribution->last_reject_class = TDMA_PRIORITY_RX_CLASS_UNKNOWN;
+        return;
+    }
+    attribution->last_reject_class = mailbox_class;
+    if (mailbox_class == TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS)
+        ++attribution->first_class_reject_count;
+    else
+        ++attribution->other_class_reject_count;
 }
+
+TDMA_PRIORITY_HOT void tdma_priority_rx_reject(tdma_priority_rx_t *lane, uint32_t reason)
+{
+    tdma_priority_rx_reject_class(lane, reason, TDMA_PRIORITY_RX_CLASS_UNKNOWN, false);
+}
+
+/* Ordinary-RAM reject attribution, cleared with the lane at start (defined at
+ * the top of this file, before its first user). */
 TDMA_PRIORITY_HOT void tdma_priority_rx_finish_irq(tdma_priority_rx_t *lane, uint64_t ticks, uint32_t cycles)
 {
     if (!lane || !begin(lane)) return;
@@ -176,13 +211,15 @@ TDMA_PRIORITY_HOT bool tdma_priority_rx_publish(tdma_priority_rx_t *lane, const 
         if (advance == 0u &&
             same_transport(lane->record[index], r))
             increment(&lane->status.duplicate_count);
-        else tdma_priority_rx_reject(lane, TDMA_PRIORITY_RX_SEQUENCE);
+        else tdma_priority_rx_reject_class(lane, TDMA_PRIORITY_RX_SEQUENCE,
+                                           r->mailbox[3], true);
         return false;
     }
     if (!begin(lane)) return false;
     if (retained && r->sequence < lane->status.latest_sequence) {
         if (lane->status.epoch == UINT32_MAX) {
-            tdma_priority_rx_reject(lane, TDMA_PRIORITY_RX_EXHAUSTED);
+            tdma_priority_rx_reject_class(lane, TDMA_PRIORITY_RX_EXHAUSTED,
+                                          r->mailbox[3], true);
             lane->status.active = 0u;
             end(lane);
             return false; /* A reboot is required rather than reusing IDs. */
@@ -216,11 +253,37 @@ bool tdma_priority_rx_snapshot(const tdma_priority_rx_t *lane, tdma_priority_rx_
     if (!lane || !out) return false;
     const uint32_t before = __atomic_load_n(&lane->guard, __ATOMIC_ACQUIRE);
     if (before & 1u) return false;
-    tdma_priority_rx_snapshot_t value;
+    tdma_priority_rx_status_t value;
     load_words(&value, lane->published, sizeof(value));
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
     if (before != __atomic_load_n(&lane->guard, __ATOMIC_ACQUIRE)) return false;
-    *out = value;
+    /* Assemble field-wise: the reader snapshot appends the ordinary-RAM
+     * attribution, and explicit copies keep the two types independent of any
+     * padding difference between them. */
+    out->schema = value.schema;
+    out->active = value.active;
+    out->epoch = value.epoch;
+    out->irq_count = value.irq_count;
+    out->publish_count = value.publish_count;
+    out->overwrite_count = value.overwrite_count;
+    out->duplicate_count = value.duplicate_count;
+    out->sequence_gap_count = value.sequence_gap_count;
+    out->reject_count = value.reject_count;
+    out->last_reject = value.last_reject;
+    out->latest_sequence = value.latest_sequence;
+    out->latest_mailbox_seq16 = value.latest_mailbox_seq16;
+    out->irq_last_cycles = value.irq_last_cycles;
+    out->irq_max_cycles = value.irq_max_cycles;
+    out->irq_total_cycles = value.irq_total_cycles;
+    out->last_entry_ticks = value.last_entry_ticks;
+    out->retained_mask = value.retained_mask;
+    for (uint32_t i = 0u; i < TDMA_PRIORITY_RX_CAPACITY; ++i)
+        out->sequence[i] = value.sequence[i];
+    const tdma_priority_rx_attribution_t *const attribution = tdma_priority_rx_attribution();
+    out->first_class_reject_count = attribution->first_class_reject_count;
+    out->other_class_reject_count = attribution->other_class_reject_count;
+    out->unknown_class_reject_count = attribution->unknown_class_reject_count;
+    out->last_reject_class = attribution->last_reject_class;
     return true;
 }
 static bool copy_record(const tdma_priority_rx_t *lane, uint32_t epoch,

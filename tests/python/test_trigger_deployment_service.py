@@ -20,7 +20,8 @@ def owner(tmp_path_factory):
         'bool tdma_runtime_owner_get_staged_ring_config(tdma_service_ring_runtime_config_t *out);\n',
         encoding='utf-8')
     return compile_grid(directory, 'owner', OWNER,
-        [ROOT / 'components/sync_trigger/src/trigger_deployment_service.c'])
+        [ROOT / 'components/sync_trigger/src/trigger_deployment_service.c',
+         ROOT / 'tests/unit/host_stubs/tdma_seat_mount_store_stub.c'])
 
 
 @pytest.mark.parametrize('case', [
@@ -58,6 +59,10 @@ static bool gateway_loaded;
 bool trigger_gateway_is_loaded(void) {return gateway_loaded;}
 static bool switch_loaded;
 bool trigger_switch_is_loaded(void) {return switch_loaded;}
+/* The seat-instrumented deployment path also consults the action execution
+ * loader; this harness keeps it unloaded so the deployment gate is the only
+ * thing under test. */
+bool trigger_action_execution_is_loaded(void) {return false;}
 static uint32_t trigger_state;
 static const char *serial="0000000000000001", *race="";
 static tdma_ring_clock_snapshot_t ring={.config_seq=3,.applied_config_seq=3};
@@ -304,6 +309,9 @@ PARSER = r'''
 #include <string.h>
 #include "scpi/scpi.h"
 #include "trigger_deployment_service.h"
+/* The SCPI command implementations record seat-mount reject diagnostics
+ * (TDMA-SEAT-01); the parser harness compiles those .inc files directly. */
+#include "tdma_seat_mount_store.h"
 static unsigned calls;
 static uint32_t result;
 static char response[4096];static size_t response_size;

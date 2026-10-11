@@ -773,6 +773,74 @@ int main(void)
     int failed = test_origin_adapter() + test_overlay_prepare_cases() +
         test_rx_prepare_cases() + test_rx_prepare_origin() + test_rx_queue_storage_lifetime() + test_diagnostic_burst();
 
+    /* TDMA-SEAT-03 seat health verdict: only real degradations raise a reason
+     * bit, and every bit is independent of the others. */
+    {
+        tdma_seat_health_facts_t facts = {0};
+        failed += expect_u32("seat health healthy verdict",
+                             tdma_seat_health_reason(&facts), 0u);
+        failed += expect_u32("seat health rejects no facts",
+                             tdma_seat_health_reason(NULL),
+                             TDMA_SEAT_HEALTH_REASON_MASK_ALL);
+        facts.lane_hold_dropped_count = 1u;
+        failed += expect_u32("seat health hold dropped",
+                             tdma_seat_health_reason(&facts),
+                             TDMA_SEAT_HEALTH_REASON_HOLD_DROPPED);
+        facts.lane_hold_dropped_count = 0u;
+        facts.lane_hold_expired_count = 2u;
+        failed += expect_u32("seat health hold expired",
+                             tdma_seat_health_reason(&facts),
+                             TDMA_SEAT_HEALTH_REASON_HOLD_EXPIRED);
+        facts.lane_hold_expired_count = 0u;
+        facts.lane_ack_override_count = 3u;
+        failed += expect_u32("seat health ack override",
+                             tdma_seat_health_reason(&facts),
+                             TDMA_SEAT_HEALTH_REASON_ACK_OVERRIDE);
+        facts.lane_ack_override_count = 0u;
+        facts.wait_violation_count = 1u;
+        failed += expect_u32("seat health wait violation",
+                             tdma_seat_health_reason(&facts),
+                             TDMA_SEAT_HEALTH_REASON_WAIT_VIOLATION);
+        facts.wait_violation_count = 0u;
+        facts.lane_reject_first_class_count = 4u;
+        failed += expect_u32("seat health lane reject",
+                             tdma_seat_health_reason(&facts),
+                             TDMA_SEAT_HEALTH_REASON_LANE_REJECT);
+        facts.lane_reject_first_class_count = 0u;
+        facts.retired_waiting_count = 5u;
+        failed += expect_u32("seat health retired waiting",
+                             tdma_seat_health_reason(&facts),
+                             TDMA_SEAT_HEALTH_REASON_RETIRED_WAITING);
+        facts.retired_waiting_count = 0u;
+        facts.first_class_starved_count = 6u;
+        failed += expect_u32("seat health first-class starvation",
+                             tdma_seat_health_reason(&facts),
+                             TDMA_SEAT_HEALTH_REASON_FIRST_CLASS_STARVED);
+        facts.first_class_starved_count = 0u;
+        facts.lane_decode_reject_count = 7u;
+        failed += expect_u32("seat health decode reject",
+                             tdma_seat_health_reason(&facts),
+                             TDMA_SEAT_HEALTH_REASON_DECODE_REJECT);
+        facts.lane_decode_reject_count = 0u;
+        facts.first_class_missed_count = 8u;
+        failed += expect_u32("seat health first class missed",
+                             tdma_seat_health_reason(&facts),
+                             TDMA_SEAT_HEALTH_REASON_FIRST_CLASS_MISSED);
+        facts.first_class_missed_count = 0u;
+        failed += expect_u32("seat health all clear after bit 8",
+                             tdma_seat_health_reason(&facts), 0u);
+        facts.lane_hold_dropped_count = 1u;
+        facts.lane_ack_override_count = 1u;
+        facts.lane_reject_first_class_count = 1u;
+        facts.retired_waiting_count = 1u;
+        failed += expect_u32("seat health combined verdict",
+                             tdma_seat_health_reason(&facts),
+                             TDMA_SEAT_HEALTH_REASON_HOLD_DROPPED |
+                             TDMA_SEAT_HEALTH_REASON_ACK_OVERRIDE |
+                             TDMA_SEAT_HEALTH_REASON_LANE_REJECT |
+                             TDMA_SEAT_HEALTH_REASON_RETIRED_WAITING);
+    }
+
     /* Direct adapter callers must obey the same capacity gate as the owner. */
     {
         tdma_pio_spi_ring_adapter_t adapter;
@@ -790,6 +858,83 @@ int main(void)
             tdma_pio_spi_ring_adapter_ops()->start(&adapter, &config), false);
         failed += expect_bool("rejected reference not configured",
                               adapter.configured, false);
+    }
+
+    /* TDMA-SEAT-01 M:N rotation ratio: STOP-only, bounded, default 1:1. */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+        failed += expect_bool("seat rotation init",
+                              tdma_pio_spi_ring_adapter_init(&adapter), true);
+        failed += expect_bool("seat rotation snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot), true);
+        failed += expect_u32("seat rotation default priority",
+                             snapshot.seat_rotation_priority_share, 1u);
+        failed += expect_u32("seat rotation default first class",
+                             snapshot.seat_rotation_first_class_share, 1u);
+        failed += expect_bool("seat rotation accepts 2:1",
+                              tdma_pio_spi_ring_adapter_set_seat_rotation(
+                                  &adapter, 2u, 1u), true);
+        failed += expect_bool("seat rotation 2:1 snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot), true);
+        failed += expect_u32("seat rotation 2:1 priority",
+                             snapshot.seat_rotation_priority_share, 2u);
+        failed += expect_u32("seat rotation 2:1 first class",
+                             snapshot.seat_rotation_first_class_share, 1u);
+        failed += expect_bool("seat rotation rejects zero priority",
+                              tdma_pio_spi_ring_adapter_set_seat_rotation(
+                                  &adapter, 0u, 1u), false);
+        failed += expect_bool("seat rotation rejects zero first class",
+                              tdma_pio_spi_ring_adapter_set_seat_rotation(
+                                  &adapter, 1u, 0u), false);
+        failed += expect_bool("seat rotation rejects oversized share",
+                              tdma_pio_spi_ring_adapter_set_seat_rotation(
+                                  &adapter,
+                                  TDMA_SEAT_ROTATION_SHARE_MAX + 1u, 1u), false);
+        failed += expect_bool("seat rotation rejects oversized cycle",
+                              tdma_pio_spi_ring_adapter_set_seat_rotation(
+                                  &adapter, TDMA_SEAT_ROTATION_SHARE_MAX,
+                                  TDMA_SEAT_ROTATION_SHARE_MAX), false);
+        failed += expect_bool("seat rotation rejects null adapter",
+                              tdma_pio_spi_ring_adapter_set_seat_rotation(
+                                  NULL, 1u, 1u), false);
+        failed += expect_bool("seat rotation snapshot after rejects",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot), true);
+        failed += expect_u32("rejected values leave 2:1 in place",
+                             snapshot.seat_rotation_priority_share, 2u);
+        failed += expect_u32("rejected values leave 2:1 first class",
+                             snapshot.seat_rotation_first_class_share, 1u);
+        adapter.started = 1u;
+        failed += expect_bool("seat rotation rejected while started",
+                              tdma_pio_spi_ring_adapter_set_seat_rotation(
+                                  &adapter, 1u, 1u), false);
+        adapter.started = 0u;
+        failed += expect_bool("seat rotation returns to 1:1",
+                              tdma_pio_spi_ring_adapter_set_seat_rotation(
+                                  &adapter, 1u, 1u), true);
+
+        /* First-class seat service facts are readable through the snapshot. */
+        failed += expect_u32("first class facts without seat",
+                             snapshot.first_class_stage_refused_count, 0u);
+        tdma_first_class_t seat = {0};
+        uint8_t seat_mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE] = {0};
+        adapter.first_class = &seat;
+        failed += expect_bool("first class stage",
+                              tdma_first_class_stage(&seat, seat_mailbox), true);
+        failed += expect_bool("first class stage refused",
+                              tdma_first_class_stage(&seat, seat_mailbox), false);
+        tdma_first_class_retire(&seat, false);
+        failed += expect_bool("first class facts snapshot",
+                              tdma_pio_spi_ring_adapter_get_snapshot(
+                                  &adapter, &snapshot), true);
+        failed += expect_u32("first class stage refused counted",
+                             snapshot.first_class_stage_refused_count, 1u);
+        failed += expect_u32("first class retired waiting counted",
+                             snapshot.first_class_retired_waiting_count, 1u);
+        adapter.first_class = NULL;
     }
 
     /* --- Adapter without physical TX: honest EVIDENCE_MISSING. --- */

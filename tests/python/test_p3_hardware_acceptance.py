@@ -49,15 +49,23 @@ from tools.hardware_acceptance.p3_hardware_acceptance import (
     _record_timing_event,
     _start_timing_probe,
     acceptance_budget_status,
+    DEFAULT_CONFIG,
 )
 
 
 def test_run_full_selects_full_bench_config() -> None:
     root = Path("repo")
+    # Contract: `run` selects the quick/full profile only from its *default*
+    # config; an explicitly requested --config always wins, so a requested file
+    # is never silently replaced by a profile default.
     full = argparse.Namespace(
-        command="run", full=True, config=Path("ignored.json"))
+        command="run", full=True, config=DEFAULT_CONFIG)
     quick = argparse.Namespace(
-        command="run", full=False, config=Path("ignored.json"))
+        command="run", full=False, config=DEFAULT_CONFIG)
+    explicit_full = argparse.Namespace(
+        command="run", full=True, config=Path("requested.json"))
+    explicit_quick = argparse.Namespace(
+        command="run", full=False, config=Path("requested.json"))
     resume = argparse.Namespace(
         command="resume", config=Path("custom.json"))
 
@@ -65,6 +73,8 @@ def test_run_full_selects_full_bench_config() -> None:
         root / "config/hardware_acceptance/p3_bench.json")
     assert acceptance_config_path(quick, root) == (
         root / "config/hardware_acceptance/p3_bench_quick.json")
+    assert acceptance_config_path(explicit_full, root) == root / "requested.json"
+    assert acceptance_config_path(explicit_quick, root) == root / "requested.json"
     assert acceptance_config_path(resume, root) == root / "custom.json"
 
 

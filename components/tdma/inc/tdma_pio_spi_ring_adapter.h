@@ -259,13 +259,109 @@ typedef struct {
     uint32_t seat_first_class_reject_count;
     uint32_t seat_first_class_wait_max; /* opportunities a record waited */
     uint32_t seat_first_class_wait;
+    /* Bounded-service evidence: times a waiting first-class record reached the
+     * declared wait budget while the priority seat kept boarding. */
+    uint32_t seat_first_class_wait_violation_count;
+    /* Loop-plan starvation: publish attempts deferred because the requested seat
+     * has no window in the plan (every such attempt would otherwise defer
+     * silently forever). The first-class counter is the seat-specific subset. */
+    uint32_t seat_starved_count;
+    uint32_t seat_first_class_starved_count;
+    /* First-class boarding attempts whose hardware publish was deferred: the
+     * record stays leased, and each deferral is a waiting opportunity. */
+    uint32_t seat_first_class_deferred_count;
     uint32_t priority_boarded; /* last_priority holds the last priority boarding */
     uint8_t last_priority[TDMA_FLIGHT_SHORT_SLOT_SIZE];
 } tdma_pio_spi_ring_origin_status_t;
 
-/* TDMA-SEAT-01 rotation M:N (priority:first-class) per publication opportunity. */
-#define TDMA_SEAT_ROTATION_PRIORITY_SHARE 1u
-#define TDMA_SEAT_ROTATION_FIRST_CLASS_SHARE 1u
+/* TDMA-SEAT-01 rotation M:N (priority:first-class) per publication opportunity.
+ * The defaults apply when a node has no explicit STOP-time setting; the live
+ * ratio is carried by tdma_pio_spi_ring_adapter_t so each origin can configure
+ * it. A zero share always falls back to the compiled default. */
+#define TDMA_SEAT_ROTATION_DEFAULT_PRIORITY_SHARE 1u
+#define TDMA_SEAT_ROTATION_DEFAULT_FIRST_CLASS_SHARE 1u
+/* Both shares and the M+N cycle are bounded: the arbitration is integer-only
+ * and a waiting record must never wait an unbounded number of opportunities. */
+#define TDMA_SEAT_ROTATION_SHARE_MAX 8u
+#define TDMA_SEAT_ROTATION_CYCLE_MAX 12u
+/* Declared first-class service budget, in publication opportunities: a record
+ * that keeps waiting while the priority seat boards reaches this bound and is
+ * counted as a violation. One crossing is counted per wait episode, so the
+ * counter is an explicit bounded-service fact rather than a raw maximum. */
+#define TDMA_SEAT_FIRST_CLASS_WAIT_MAX_OPPORTUNITIES 8u
+
+/* TDMA-SEAT-03 seat health verdict: one read that answers "is the first-class
+ * seat behaving like the priority seat, and if not, why". Every bit is evidence
+ * of a *degradation*; by-design backpressure (a stage refusal while a record is
+ * already waiting) is reported as a counter, never as a reason bit. */
+#define TDMA_SEAT_HEALTH_REASON_HOLD_DROPPED (1u << 0u)   /* refused record dropped, queue full */
+#define TDMA_SEAT_HEALTH_REASON_HOLD_EXPIRED (1u << 1u)   /* record retired on retry budget */
+#define TDMA_SEAT_HEALTH_REASON_ACK_OVERRIDE (1u << 2u)   /* shared control bytes overridden */
+#define TDMA_SEAT_HEALTH_REASON_WAIT_VIOLATION (1u << 3u) /* service wait budget exceeded */
+#define TDMA_SEAT_HEALTH_REASON_LANE_REJECT (1u << 4u)    /* lane refused a first-class record */
+#define TDMA_SEAT_HEALTH_REASON_RETIRED_WAITING (1u << 5u) /* fact retired before boarding */
+#define TDMA_SEAT_HEALTH_REASON_FIRST_CLASS_STARVED (1u << 6u) /* no loop window */
+#define TDMA_SEAT_HEALTH_REASON_DECODE_REJECT (1u << 7u) /* slice did not decode */
+/* A first-class position was lost END TO END: either the origin gave up
+ * completing its freeze after the position window closed, or a follower was
+ * asked to freeze a position it never had. The lane counters above only prove
+ * what the seat did with the records it saw; without this bit a delivery that
+ * never arrived left ok=1. */
+#define TDMA_SEAT_HEALTH_REASON_FIRST_CLASS_MISSED (1u << 8u)
+#define TDMA_SEAT_HEALTH_REASON_MASK_ALL ((1u << 9u) - 1u)
+
+typedef struct {
+    uint32_t lane_hold_dropped_count;
+    uint32_t lane_hold_expired_count;
+    uint32_t lane_ack_override_count;
+    uint32_t wait_violation_count;
+    uint32_t lane_reject_first_class_count;
+    uint32_t retired_waiting_count;
+    uint32_t first_class_starved_count;
+    uint32_t lane_decode_reject_count;
+    /* Consumer-side loss: origin freeze abandonments plus follower FREEZEs for a
+     * position with no local plan. The page reports both raw counters. */
+    uint32_t first_class_missed_count;
+} tdma_seat_health_facts_t;
+
+/* Pure verdict: 0 means every seat invariant that must stay zero is zero. */
+static inline uint32_t tdma_seat_health_reason(const tdma_seat_health_facts_t *facts)
+{
+    if (facts == NULL) return TDMA_SEAT_HEALTH_REASON_MASK_ALL;
+    uint32_t mask = 0u;
+    if (facts->lane_hold_dropped_count) mask |= TDMA_SEAT_HEALTH_REASON_HOLD_DROPPED;
+    if (facts->lane_hold_expired_count) mask |= TDMA_SEAT_HEALTH_REASON_HOLD_EXPIRED;
+    if (facts->lane_ack_override_count) mask |= TDMA_SEAT_HEALTH_REASON_ACK_OVERRIDE;
+    if (facts->wait_violation_count) mask |= TDMA_SEAT_HEALTH_REASON_WAIT_VIOLATION;
+    if (facts->lane_reject_first_class_count) mask |= TDMA_SEAT_HEALTH_REASON_LANE_REJECT;
+    if (facts->retired_waiting_count) mask |= TDMA_SEAT_HEALTH_REASON_RETIRED_WAITING;
+    if (facts->first_class_starved_count) mask |= TDMA_SEAT_HEALTH_REASON_FIRST_CLASS_STARVED;
+    if (facts->lane_decode_reject_count) mask |= TDMA_SEAT_HEALTH_REASON_DECODE_REJECT;
+    if (facts->first_class_missed_count) mask |= TDMA_SEAT_HEALTH_REASON_FIRST_CLASS_MISSED;
+    return mask;
+}
+
+static inline bool tdma_seat_rotation_valid(uint32_t priority_share,
+    uint32_t first_class_share)
+{
+    return priority_share >= 1u && first_class_share >= 1u &&
+        priority_share <= TDMA_SEAT_ROTATION_SHARE_MAX &&
+        first_class_share <= TDMA_SEAT_ROTATION_SHARE_MAX &&
+        priority_share + first_class_share <= TDMA_SEAT_ROTATION_CYCLE_MAX;
+}
+
+/* Configured share, or the compiled default when nothing was set. */
+static inline uint32_t tdma_seat_rotation_priority(uint32_t configured)
+{
+    return configured != 0u ? configured :
+        TDMA_SEAT_ROTATION_DEFAULT_PRIORITY_SHARE;
+}
+
+static inline uint32_t tdma_seat_rotation_first_class(uint32_t configured)
+{
+    return configured != 0u ? configured :
+        TDMA_SEAT_ROTATION_DEFAULT_FIRST_CLASS_SHARE;
+}
 
 typedef struct {
     uint32_t version;
@@ -273,6 +369,14 @@ typedef struct {
     uint32_t service_count;
     uint32_t role;
     uint32_t forwarding_mode;
+    /* TDMA-SEAT-01 rotation ratio in effect (compiled default when unset). */
+    uint32_t seat_rotation_priority_share;
+    uint32_t seat_rotation_first_class_share;
+    /* First-class seat service facts (zero while no seat object is attached):
+     * stage attempts refused by the single-depth slot, and waiting records
+     * retired before boarding. */
+    uint32_t first_class_stage_refused_count;
+    uint32_t first_class_retired_waiting_count;
     uint32_t forward_count;
     uint32_t up_sequence;
     uint32_t down_rx_sequence;
@@ -439,6 +543,10 @@ typedef struct {
     volatile uint32_t snapshot_guard;
     tdma_pio_spi_ring_role_t role;
     tdma_pio_spi_ring_forwarding_mode_t forwarding_mode;
+    /* TDMA-SEAT-01 origin arbitration ratio (M:N). Zero means "not set" and the
+     * runtime falls back to the compiled default. Frozen while started. */
+    uint32_t seat_rotation_priority_share;
+    uint32_t seat_rotation_first_class_share;
     uint32_t started;
     uint32_t service_count;
     uint32_t forward_count;
@@ -680,6 +788,12 @@ bool tdma_pio_spi_ring_adapter_set_forwarding_mode(
     tdma_pio_spi_ring_forwarding_mode_t mode);
 bool tdma_pio_spi_ring_adapter_set_clock_evidence_enabled(
     tdma_pio_spi_ring_adapter_t *adapter, bool enabled);
+/* TDMA-SEAT-01: set the origin rotation ratio (M:N) before the adapter starts.
+ * Both shares must satisfy tdma_seat_rotation_valid(). Rejects a running
+ * adapter so the ratio cannot change under a live emission sequence. */
+bool tdma_pio_spi_ring_adapter_set_seat_rotation(
+    tdma_pio_spi_ring_adapter_t *adapter, uint32_t priority_share,
+    uint32_t first_class_share);
 bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
                                          const uint8_t *packet,
                                          size_t packet_size,

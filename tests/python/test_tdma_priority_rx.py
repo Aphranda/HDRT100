@@ -433,6 +433,28 @@ static void wrap_lifetime_tests(void) {
     tdma_priority_rx_finish_irq(&lane,124u,10u);
     assert(tdma_priority_rx_snapshot(&lane,&snapshot) && snapshot.last_reject==TDMA_PRIORITY_RX_SEQUENCE);
     assert(snapshot.latest_sequence==1u && snapshot.reject_count==3u && snapshot.duplicate_count==1u);
+    /* Publish-path rejects carry the validated mailbox class, so they are
+     * attributed instead of being lumped into one lane-level counter. */
+    assert(snapshot.reject_count==3u && snapshot.other_class_reject_count==3u &&
+        snapshot.first_class_reject_count==0u && snapshot.unknown_class_reject_count==0u);
+    assert(snapshot.last_reject_class==TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS);
+    /* A reject without a trustworthy class is attributed to the unknown bucket
+     * and never counted as a first-class loss. The lane publishes its status at
+     * the end of an IRQ window, so drive both rejects then finish the window. */
+    const uint32_t rejects=snapshot.reject_count;
+    const uint32_t unknowns=snapshot.unknown_class_reject_count;
+    tdma_priority_rx_reject(&lane,TDMA_PRIORITY_RX_HEADER);
+    tdma_priority_rx_reject_class(&lane,TDMA_PRIORITY_RX_MAILBOX,
+        TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS,true);
+    tdma_priority_rx_finish_irq(&lane,125u,11u);
+    assert(tdma_priority_rx_snapshot(&lane,&snapshot));
+    assert(snapshot.reject_count==rejects+2u);
+    assert(snapshot.unknown_class_reject_count==unknowns+1u);
+    assert(snapshot.first_class_reject_count==1u);
+    assert(snapshot.last_reject_class==TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS);
+    /* The three buckets always partition reject_count. */
+    assert(snapshot.first_class_reject_count+snapshot.other_class_reject_count+
+        snapshot.unknown_class_reject_count==snapshot.reject_count);
     lane.guard=UINT32_MAX-1u;
     tdma_priority_rx_stop(&lane);
     assert(lane.guard==0u && tdma_priority_rx_snapshot(&lane,&snapshot) && !snapshot.active);

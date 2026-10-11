@@ -140,9 +140,16 @@ static bool resend_one_freeze(void)
 {
     uint32_t open = s_state.published_mask &
         ~(s_state.freeze_complete_mask | s_state.freeze_abandoned_mask);
-    if (!open) return true;
+    if (!open) {
+        /* Nothing waits for completion, so nothing is pending. */
+        s_state.freeze_ack_stale_mask = 0u;
+        s_state.freeze_ack_incomplete_mask = 0u;
+        return true;
+    }
     s_state.freeze_complete_mask |= open &
         distributed_refmem_position_freeze_acked(s_config.run_id, s_config.target_mask);
+    distributed_refmem_position_ack_pending(s_config.run_id, s_config.target_mask,
+        &s_state.freeze_ack_stale_mask, &s_state.freeze_ack_incomplete_mask);
     open &= ~s_state.freeze_complete_mask;
     const uint64_t now = s_state.cursor.pulse_index;
     if (!open || now - s_freeze_last_slice < T2_FREEZE_RESEND_SLICES) return true;
@@ -153,6 +160,8 @@ static bool resend_one_freeze(void)
         const uint32_t expiry = s_state.descriptors[index].expiry_sync;
         if (expiry && now > (uint64_t)expiry + 1u) {
             s_state.freeze_abandoned_mask |= bit;
+            if (s_state.freeze_abandoned_count != UINT32_MAX)
+                ++s_state.freeze_abandoned_count;
             continue;
         }
         const trigger_position_descriptor_t freeze = {
@@ -356,9 +365,26 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
         descriptor.count_epoch != s_state.predictor.count_epoch ||
         descriptor.grid_generation != s_config.grid.generation ||
         descriptor.deployment_generation != s_config.deployment_generation ||
-        descriptor.deployment_crc != s_deployment_crc ||
-        current_ms < descriptor.valid_from_sync || current_ms > descriptor.expiry_sync)
+        descriptor.deployment_crc != s_deployment_crc) {
         goto reject;
+    }
+    /* Window admission, split so a LATE arrival is attributed instead of being
+     * folded into the aggregate descriptor reject (which mixes every rejection
+     * cause above too). The accept/reject decision is unchanged: an empty
+     * window (expiry_sync == 0, target overflow) is still rejected, it is just
+     * not counted as lateness because no window was ever promised.
+     * valid_from_sync is forced to 0 by this consumer, so only lateness is
+     * reachable here. */
+    if (current_ms < descriptor.valid_from_sync ||
+        current_ms > descriptor.expiry_sync) {
+        if (descriptor.expiry_sync != 0u && current_ms > descriptor.expiry_sync) {
+            ++s_state.late_arrival_count;
+            /* Magnitude for the page: how late, against which promise. */
+            s_state.late_last_current_ms = (uint32_t)current_ms;
+            s_state.late_last_expiry_sync = descriptor.expiry_sync;
+        }
+        goto reject;
+    }
     if (s_state.received_mask & bit &&
         s_state.descriptors[index].prediction_version >= descriptor.prediction_version)
         goto reject;

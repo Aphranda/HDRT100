@@ -26,10 +26,19 @@ def base_inventory():
 
 
 def test_repository_raw_flash_inventory_matches_source():
-    report = validate_inventory(ROOT, load_inventory(INVENTORY))
+    inventory = load_inventory(INVENTORY)
+    report = validate_inventory(ROOT, inventory)
     assert report["layout"]["active_map_version"] == 1
     assert report["layout"]["migration_state"] == "v2_target_not_deployed"
-    assert len(report["raw_callers"]) == 10
+    # The allowlist owns the raw-call set, so require agreement between source and
+    # allowlist instead of a frozen count: adding a caller still requires the
+    # explicit allowlist entry that this test then checks, and removing one is
+    # caught by the same comparison.
+    reported = {caller["file"] for caller in report["raw_callers"]}
+    assert reported == {caller["file"] for caller in inventory["raw_callers"]}
+    # The seat mount store is a registered raw caller (TDMA-SEAT-01): keep it
+    # visible here so the seat's flash access stays under this inventory.
+    assert "components/tdma/src/tdma_seat_mount_store.c" in reported
 
 
 def test_inventory_rejects_unregistered_raw_caller(tmp_path):

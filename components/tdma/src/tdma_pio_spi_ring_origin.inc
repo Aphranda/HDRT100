@@ -363,6 +363,31 @@ static tdma_loop_slot_class_t tdma_pio_spi_ring_origin_load_seat(uint8_t message
     if (!tdma_seat_mount_store_get(&table)) return TDMA_LOOP_SLOT_NONE;
     return tdma_seat_mount_lookup(&table, message_class);
 }
+
+/* Seat-window gate for one publish attempt. True means "publish now"; false
+ * means "defer and stay retryable". The plan is rebuilt per attempt, so the gate
+ * is a small unit that a host harness can extract and exercise directly. A seat
+ * the plan cannot serve at all (dropped for space, or never requested like the
+ * deliberately disabled LOAD seat) is counted as starvation rather than deferred
+ * silently forever. */
+static bool tdma_pio_spi_ring_origin_seat_gate(tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_loop_slot_class_t load_seat, uint64_t boundary_sequence)
+{
+    if (load_seat == TDMA_LOOP_SLOT_NONE) return true;   /* unmounted load: unconstrained */
+    tdma_loop_plan_request_t plan_request;
+    tdma_loop_plan_t plan;
+    tdma_loop_plan_default_request(&plan_request, true, true, false);
+    (void)tdma_loop_plan(&plan_request, &plan);
+    const tdma_loop_seat_service_t service = tdma_loop_plan_seat_service(&plan, load_seat,
+        boundary_sequence, adapter->config.cycle_period_ns);
+    if (service == TDMA_LOOP_SEAT_SERVICE_STARVED) {
+        adapter->origin.seat_starved_count++;
+        if (load_seat == TDMA_LOOP_SLOT_FIRST_CLASS)
+            adapter->origin.seat_first_class_starved_count++;
+        return false;
+    }
+    return service == TDMA_LOOP_SEAT_SERVICE_OK;
+}
 #endif
 
 /* TDMA-SEAT-01: board one complete local mailbox on the shared fast path.
@@ -398,6 +423,12 @@ static bool tdma_pio_spi_ring_origin_first_class_valid(
             (1u << adapter->config.node_count) - 1u);
 }
 
+/* One origin fast-path step. `*handled` reports ROUTE OWNERSHIP, not a spent
+ * opportunity: it is true whenever the priority provider is enabled, i.e. this
+ * path owns local mailbox publication for the slot, even when nobody has news
+ * and the call consumes no publication opportunity at all. Publication
+ * opportunities are counted separately in origin.seat_opportunity_count, and each
+ * one ends in exactly one seat, deferral or refusal. */
 static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
     tdma_pio_spi_ring_adapter_t *adapter, bool *handled)
 {
@@ -407,9 +438,17 @@ static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
     *handled = offered != TDMA_PRIORITY_TX_DISABLED;
     if (!*handled) return true;
     /* While the priority provider is enabled this fast path is the only route
-     * for local mailboxes; the first-class seat rides it (TDMA-SEAT-01). */
-    if (adapter->first_class != NULL && !tdma_first_class_route(adapter->first_class))
+     * for local mailboxes; the first-class seat rides it (TDMA-SEAT-01). A
+     * record waiting across route loss is retired, not boarded: publish its
+     * wait first so the seat backpressure fact is not lost. */
+    if (adapter->first_class != NULL && !tdma_first_class_route(adapter->first_class)) {
+        if (tdma_first_class_pending(adapter->first_class) &&
+            adapter->origin.seat_first_class_wait >
+                adapter->origin.seat_first_class_wait_max)
+            adapter->origin.seat_first_class_wait_max =
+                adapter->origin.seat_first_class_wait;
         tdma_first_class_retire(adapter->first_class, true);
+    }
     /* A worker may finish a previously granted ordinary offer. Cancel its
      * lease before direct publication; never select it after priority owns
      * this slot, and never wait for Core0 to acknowledge cancellation. */
@@ -442,10 +481,16 @@ static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
         !adapter->phys_origin.ready(adapter->phys_ctrl_context)) return true;
 
     /* One publication opportunity: the exchange is free and someone has news.
-     * Rotate the leading class per opportunity (M:N), never wasting it. */
-    const uint32_t cycle = TDMA_SEAT_ROTATION_PRIORITY_SHARE + TDMA_SEAT_ROTATION_FIRST_CLASS_SHARE;
+     * Rotate the leading class per opportunity (M:N), never wasting it. The
+     * ratio is a STOP-time setting with a compiled default, so a zero/unset
+     * field still yields the 1:1 default instead of a zero cycle. */
+    const uint32_t priority_share = tdma_seat_rotation_priority(
+        adapter->seat_rotation_priority_share);
+    const uint32_t first_class_share = tdma_seat_rotation_first_class(
+        adapter->seat_rotation_first_class_share);
+    const uint32_t cycle = priority_share + first_class_share;
     const bool priority_leads =
-        adapter->origin.seat_opportunity_count % cycle < TDMA_SEAT_ROTATION_PRIORITY_SHARE;
+        adapter->origin.seat_opportunity_count % cycle < priority_share;
     adapter->origin.seat_opportunity_count++;
     const bool board_first = first_pending && (!priority_new || !priority_leads);
     bool boarded = false;
@@ -461,6 +506,19 @@ static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
         const bool ok = tdma_pio_spi_ring_origin_board(adapter, first, &boarded);
         tdma_first_class_finish(adapter->first_class, boarded);
         if (!ok) return false;
+        if (!boarded) {
+            /* The record stayed leased for the next opportunity: a deferred
+             * hardware publish is also a waiting opportunity, so it advances the
+             * same declared service budget. Otherwise a record blocked by the
+             * publish side (rather than by priority contention) could wait
+             * without bound and without evidence. */
+            adapter->origin.seat_first_class_deferred_count++;
+            adapter->origin.seat_first_class_wait++;
+            if (adapter->origin.seat_first_class_wait ==
+                TDMA_SEAT_FIRST_CLASS_WAIT_MAX_OPPORTUNITIES)
+                adapter->origin.seat_first_class_wait_violation_count++;
+            return true;
+        }
         if (boarded) {
             adapter->origin.seat_first_class_count++;
             if (priority_new) adapter->origin.seat_priority_yield_count++;
@@ -475,7 +533,14 @@ static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
         memcpy(adapter->origin.last_priority, mailbox, sizeof(mailbox));
         adapter->origin.priority_boarded = 1u;
         adapter->origin.seat_priority_count++;
-        if (first_pending) adapter->origin.seat_first_class_wait++;
+        if (first_pending) {
+            adapter->origin.seat_first_class_wait++;
+            /* Bounded service: count the episode once when it reaches the
+             * declared budget instead of only reporting a raw maximum. */
+            if (adapter->origin.seat_first_class_wait ==
+                TDMA_SEAT_FIRST_CLASS_WAIT_MAX_OPPORTUNITIES)
+                adapter->origin.seat_first_class_wait_violation_count++;
+        }
     }
     return true;
 }
@@ -517,19 +582,9 @@ static bool tdma_pio_spi_ring_origin_publish(tdma_pio_spi_ring_adapter_t *adapte
 #if TDMA_LOOP_SCHEDULE_ENABLED
     /* Publish only in the window of the seat this load is mounted on; otherwise
      * return true to defer (the acquired view stays valid for retry). */
-    {
-        const tdma_loop_slot_class_t load_seat =
-            tdma_pio_spi_ring_origin_load_seat(mailbox[3]);
-        if (load_seat != TDMA_LOOP_SLOT_NONE) {
-            tdma_loop_plan_request_t plan_request;
-            tdma_loop_plan_t plan;
-            tdma_loop_plan_default_request(&plan_request, true, true, false);
-            (void)tdma_loop_plan(&plan_request, &plan);
-            if (tdma_loop_plan_slot_for_index(&plan, adapter->origin.boundary.sequence,
-                    adapter->config.cycle_period_ns) != load_seat)
-                return true;
-        }
-    }
+    if (!tdma_pio_spi_ring_origin_seat_gate(adapter,
+            tdma_pio_spi_ring_origin_load_seat(mailbox[3]),
+            adapter->origin.boundary.sequence)) return true;
 #endif
 
     const tdma_flight_engine_apply_t applied = {

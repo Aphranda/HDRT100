@@ -203,7 +203,7 @@ static void test_null_and_backend_failure(void)
 static void test_loop_plan(void)
 {
     tdma_loop_plan_t plan;
-    tdma_loop_plan_request_t r={4000000u,1500000u,0u,true,true,true};
+    tdma_loop_plan_request_t r={.loop_period_ns=4000000u,.emission_period_ns=1500000u,.close_guard_ns=0u,.priority_pending=true,.first_class_pending=true,.load_pending=true,.start_offset_ns=0u};
     assert(tdma_loop_plan(&r,&plan)==TDMA_SEAT_OK);
     assert(plan.count==2);
     assert(plan.slots[0].cls==TDMA_LOOP_SLOT_PRIORITY);
@@ -227,7 +227,7 @@ static void test_loop_plan(void)
     assert(plan.count==2 && plan.slots[1].cls==TDMA_LOOP_SLOT_LOAD);
     assert(tdma_loop_plan(NULL,&plan)==TDMA_SEAT_BAD_ARGUMENT);
     assert(tdma_loop_plan(&r,NULL)==TDMA_SEAT_BAD_ARGUMENT);
-    tdma_loop_plan_request_t bad={0u,1500000u,0u,true,true,true};
+    tdma_loop_plan_request_t bad={.loop_period_ns=0u,.emission_period_ns=1500000u,.close_guard_ns=0u,.priority_pending=true,.first_class_pending=true,.load_pending=true,.start_offset_ns=0u};
     assert(tdma_loop_plan(&bad,&plan)==TDMA_SEAT_BAD_ARGUMENT);
     bad.loop_period_ns=1000000u;
     assert(tdma_loop_plan(&bad,&plan)==TDMA_SEAT_BAD_ARGUMENT);
@@ -239,7 +239,7 @@ static void test_loop_plan(void)
 static void test_loop_plan_three_per_loop(void)
 {
     tdma_loop_plan_t plan;
-    tdma_loop_plan_request_t r={4000000u,1300000u,0u,true,true,true};
+    tdma_loop_plan_request_t r={.loop_period_ns=4000000u,.emission_period_ns=1300000u,.close_guard_ns=0u,.priority_pending=true,.first_class_pending=true,.load_pending=true,.start_offset_ns=0u};
     assert(tdma_loop_plan(&r,&plan)==TDMA_SEAT_OK);
     assert(plan.count==3);
     assert(plan.slots[0].cls==TDMA_LOOP_SLOT_PRIORITY && plan.slots[0].window.start_ns==0u);
@@ -250,6 +250,66 @@ static void test_loop_plan_three_per_loop(void)
     assert(tdma_loop_plan(&r,&plan)==TDMA_SEAT_OK && plan.count==3);
     r.close_guard_ns=0u; r.emission_period_ns=1340000u;   /* 3x1.34ms > 4ms */
     assert(tdma_loop_plan(&r,&plan)==TDMA_SEAT_OK && plan.count==2);
+    /* A seat that does not fit is reported, never silently omitted: with the
+     * third emission dropped the mask names exactly LOAD, and with an offset
+     * that leaves room for one window only the first class is reported. */
+    assert(plan.dropped_mask==TDMA_LOOP_PLAN_DROPPED_LOAD);
+    assert(!tdma_loop_plan_seat_dropped(&plan,TDMA_LOOP_SLOT_PRIORITY));
+    assert(!tdma_loop_plan_seat_dropped(&plan,TDMA_LOOP_SLOT_FIRST_CLASS));
+    assert(tdma_loop_plan_seat_dropped(&plan,TDMA_LOOP_SLOT_LOAD));
+    tdma_loop_plan_request_t starved={.loop_period_ns=4000000u,.emission_period_ns=1500000u,
+        .close_guard_ns=30000u,.priority_pending=true,.first_class_pending=true,
+        .load_pending=false,.start_offset_ns=1000000u};
+    assert(tdma_loop_plan(&starved,&plan)==TDMA_SEAT_OK);
+    assert(plan.count==1 && plan.slots[0].cls==TDMA_LOOP_SLOT_PRIORITY);
+    assert(plan.dropped_mask==TDMA_LOOP_PLAN_DROPPED_FIRST_CLASS);
+    assert(tdma_loop_plan_seat_dropped(&plan,TDMA_LOOP_SLOT_FIRST_CLASS));
+    assert(!tdma_loop_plan_seat_dropped(NULL,TDMA_LOOP_SLOT_FIRST_CLASS));
+    assert(!tdma_loop_plan_seat_dropped(&plan,TDMA_LOOP_SLOT_NONE));
+    /* An offset that leaves room for nothing reports every requested seat. */
+    starved.start_offset_ns=2500000u;
+    assert(tdma_loop_plan(&starved,&plan)==TDMA_SEAT_OK && plan.count==0);
+    assert(plan.dropped_mask==(TDMA_LOOP_PLAN_DROPPED_PRIORITY |
+                              TDMA_LOOP_PLAN_DROPPED_FIRST_CLASS));
+    /* Anchored at the loop start nothing is dropped. */
+    assert(tdma_loop_plan(&r,&plan)==TDMA_SEAT_OK);
+    r.emission_period_ns=1300000u;
+    assert(tdma_loop_plan(&r,&plan)==TDMA_SEAT_OK && plan.dropped_mask==0u);
+
+    /* Seat-window decision (the rule the origin publish gate uses): a seat the
+     * plan cannot serve at all is STARVED -- whether it was dropped for space or
+     * (like the deliberately disabled LOAD seat) never requested; the right seat
+     * on the wrong boundary is a plain DEFER. */
+    tdma_loop_plan_request_t two={.loop_period_ns=4000000u,.emission_period_ns=1300000u,
+        .close_guard_ns=0u,.priority_pending=true,.first_class_pending=true,
+        .load_pending=false,.start_offset_ns=0u};
+    assert(tdma_loop_plan(&two,&plan)==TDMA_SEAT_OK && plan.count==2);
+    assert(tdma_loop_plan_seat_present(&plan,TDMA_LOOP_SLOT_PRIORITY));
+    assert(tdma_loop_plan_seat_present(&plan,TDMA_LOOP_SLOT_FIRST_CLASS));
+    assert(!tdma_loop_plan_seat_present(&plan,TDMA_LOOP_SLOT_LOAD));
+    assert(!tdma_loop_plan_seat_present(&plan,TDMA_LOOP_SLOT_NONE));
+    assert(!tdma_loop_plan_seat_present(NULL,TDMA_LOOP_SLOT_PRIORITY));
+    assert(tdma_loop_plan_seat_service(&plan,TDMA_LOOP_SLOT_NONE,0u,1000000u)==
+           TDMA_LOOP_SEAT_SERVICE_OK);
+    assert(tdma_loop_plan_seat_service(&plan,TDMA_LOOP_SLOT_LOAD,0u,1000000u)==
+           TDMA_LOOP_SEAT_SERVICE_STARVED);   /* disabled seat never gets a window */
+    assert(tdma_loop_plan_seat_service(&plan,TDMA_LOOP_SLOT_PRIORITY,0u,1000000u)==
+           TDMA_LOOP_SEAT_SERVICE_OK);        /* first window, priority */
+    assert(tdma_loop_plan_seat_service(&plan,TDMA_LOOP_SLOT_FIRST_CLASS,0u,1000000u)==
+           TDMA_LOOP_SEAT_SERVICE_DEFER);
+    assert(tdma_loop_plan_seat_service(&plan,TDMA_LOOP_SLOT_FIRST_CLASS,1u,1000000u)==
+           TDMA_LOOP_SEAT_SERVICE_DEFER);     /* beyond the loop: no window */
+    assert(tdma_loop_plan_seat_service(NULL,TDMA_LOOP_SLOT_FIRST_CLASS,0u,1000000u)==
+           TDMA_LOOP_SEAT_SERVICE_STARVED);
+    /* A first-class seat dropped for space is starved on every boundary. */
+    tdma_loop_plan_request_t offset_request={.loop_period_ns=4000000u,
+        .emission_period_ns=1500000u,.close_guard_ns=30000u,.priority_pending=true,
+        .first_class_pending=true,.load_pending=false,.start_offset_ns=1000000u};
+    tdma_loop_plan_t dropped_plan;
+    assert(tdma_loop_plan(&offset_request,&dropped_plan)==TDMA_SEAT_OK);
+    assert(dropped_plan.dropped_mask==TDMA_LOOP_PLAN_DROPPED_FIRST_CLASS);
+    assert(tdma_loop_plan_seat_service(&dropped_plan,TDMA_LOOP_SLOT_FIRST_CLASS,0u,1000000u)==
+           TDMA_LOOP_SEAT_SERVICE_STARVED);
 }
 
 /* The third (flexible LOAD) emission is supported but deliberately NOT enabled
@@ -258,13 +318,13 @@ static void test_loop_plan_three_per_loop(void)
 static void test_loop_plan_third_disabled(void)
 {
     tdma_loop_plan_t plan;
-    tdma_loop_plan_request_t r={4000000u,1300000u,0u,true,true,false};
+    tdma_loop_plan_request_t r={.loop_period_ns=4000000u,.emission_period_ns=1300000u,.close_guard_ns=0u,.priority_pending=true,.first_class_pending=true,.load_pending=false,.start_offset_ns=0u};
     assert(tdma_loop_plan(&r,&plan)==TDMA_SEAT_OK);
     assert(plan.count==2);
     assert(plan.slots[0].cls==TDMA_LOOP_SLOT_PRIORITY);
     assert(plan.slots[1].cls==TDMA_LOOP_SLOT_FIRST_CLASS);
     assert(plan.slots[2].cls==TDMA_LOOP_SLOT_NONE);
-    tdma_loop_plan_request_t nominal={4000000u,1500000u,0u,true,true,false};
+    tdma_loop_plan_request_t nominal={.loop_period_ns=4000000u,.emission_period_ns=1500000u,.close_guard_ns=0u,.priority_pending=true,.first_class_pending=true,.load_pending=false,.start_offset_ns=0u};
     assert(tdma_loop_plan(&nominal,&plan)==TDMA_SEAT_OK && plan.count==2);
 }
 
@@ -309,7 +369,7 @@ static void test_loop_plan_drives_seat_windows(void)
 static void test_loop_plan_compressed_forward(void)
 {
     tdma_loop_plan_t plan;
-    tdma_loop_plan_request_t r={4000000u,1500000u,30000u,true,true,false,200000u};
+    tdma_loop_plan_request_t r={.loop_period_ns=4000000u,.emission_period_ns=1500000u,.close_guard_ns=30000u,.priority_pending=true,.first_class_pending=true,.load_pending=false,.start_offset_ns=200000u};
     assert(tdma_loop_plan(&r,&plan)==TDMA_SEAT_OK);
     assert(plan.count==2);
     assert(plan.slots[0].window.start_ns==200000u && plan.slots[0].window.end_ns==1700000u);
@@ -343,7 +403,7 @@ static void test_loop_plan_slot_for_time(void)
     assert(tdma_loop_plan_slot_for_time(&plan,3000000u)==TDMA_LOOP_SLOT_NONE);
     assert(tdma_loop_plan_slot_for_time(&plan,9999999u)==TDMA_LOOP_SLOT_NONE);
     assert(tdma_loop_plan_slot_for_time(NULL,0u)==TDMA_LOOP_SLOT_NONE);
-    tdma_loop_plan_t empty={0u,{{TDMA_LOOP_SLOT_NONE,{0u,0u,0u}}}};
+    tdma_loop_plan_t empty={.count=0u,.slots={{.cls=TDMA_LOOP_SLOT_NONE,.window={0u,0u,0u}}},.loop_period_ns=0u};
     assert(tdma_loop_plan_slot_for_time(&empty,10u)==TDMA_LOOP_SLOT_NONE);
 }
 

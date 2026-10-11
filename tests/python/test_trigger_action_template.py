@@ -9,7 +9,8 @@ HARNESS = r'''
 #include <string.h>
 #include "trigger_action_template.h"
 int main(int argc,char **argv){assert(argc==2);trigger_position_descriptor_t d={
- .schema=1,.run_id=1,.sync_epoch=2,.position_id=3,.count_epoch=4,
+ /* Reference the versioned schema symbol instead of a literal version. */
+ .schema=TRIGGER_POSITION_DESCRIPTOR_SCHEMA,.run_id=1,.sync_epoch=2,.position_id=3,.count_epoch=4,
  .target_count=5,.prediction_version=6,.target_ms_index=10,
  .target_fine_slice_index=2,.grid_generation=7,.deployment_generation=8,
  .deployment_crc=9,.valid_from_sync=1,.expiry_sync=2};

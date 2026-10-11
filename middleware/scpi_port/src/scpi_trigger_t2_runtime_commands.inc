@@ -183,6 +183,29 @@ scpi_result_t scpi_cmd_trigger_t2_q(scpi_t *context)
     SCPI_ResultUInt32(context,s.freeze_complete_mask);
     SCPI_ResultUInt32(context,s.freeze_abandoned_mask);
     SCPI_ResultUInt32(context,s.freeze_resend_count);
+    /* Appended: how often a FREEZE completion was abandoned, which the per-run
+     * mask above cannot answer. Positional readers keep their indices. */
+    SCPI_ResultUInt32(context,s.freeze_abandoned_count);
+    /* Appended: a well-formed position that arrived after its promised window.
+     * It is still inside descriptor_reject_count above; this field separates
+     * lateness from identity/grid/deployment causes. */
+    SCPI_ResultUInt32(context,s.late_arrival_count);
+    /* Appended: the magnitude of the most recent late arrival (arrival ordinal
+     * and the window it missed), so lateness is readable and not just counted. */
+    SCPI_ResultUInt32(context,s.late_last_current_ms);
+    SCPI_ResultUInt32(context,s.late_last_expiry_sync);
+    /* Appended: the PROMISE itself, per position - the target ordinal the origin
+     * asked for (low word: the consumer admits on the low word, exactly as the
+     * runtime casts it) and the last ordinal that can still serve it. A lateness
+     * counter without the promise it was measured against is not evidence. */
+    for (uint32_t i=0u;i<TRIGGER_T2_RUNTIME_POSITION_COUNT;++i) {
+        SCPI_ResultUInt32(context,(uint32_t)s.descriptors[i].target_ms_index);
+        SCPI_ResultUInt32(context,s.descriptors[i].expiry_sync);
+    }
+    /* Appended: WHY a FREEZE is still being resent - the targets that do not
+     * speak this run id, and the position bits nobody has frozen. */
+    SCPI_ResultUInt32(context,s.freeze_ack_stale_mask);
+    SCPI_ResultUInt32(context,s.freeze_ack_incomplete_mask);
     return SCPI_RES_OK;
 }
 

@@ -136,7 +136,7 @@ static void mailbox_prepare(uint8_t *m,bool published) {
     distributed_refmem_put_le32(m+TDMA_PROCESS_IMAGE_REFMEM_GENERATION_OFFSET,++sequences[selected]);
     distributed_refmem_put_le16(m+6u,(uint16_t)sequences[selected]);
     uint8_t before[32];memcpy(before,m,sizeof(before));
-    action_patch_mailbox(m);
+    action_patch_mailbox(m,true);
     /* Every request and receipt preserves the shared header/broadcast mask,
      * VDC observation, transport sequence, ACK, and optional diagnostic. */
     assert(memcmp(m,before,TDMA_PROCESS_IMAGE_REFMEM_FIELD_ID_OFFSET)==0);

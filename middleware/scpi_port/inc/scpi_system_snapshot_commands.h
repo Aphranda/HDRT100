@@ -209,6 +209,10 @@ scpi_result_t scpi_cmd_system_tdma_priority_rx_record_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_priority_rx_consumer_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_fifo_reset(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_mode(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_seat_rotation(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_seat_rotation_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_seat_counters_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_seat_health_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_mode_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_clock_evidence(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_flight_clock_evidence_q(scpi_t *context);
@@ -498,6 +502,10 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:FLIGHT:CLOCK:EVIDence?", .callback = scpi_cmd_system_tdma_flight_clock_evidence_q}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:CLOCK:EVIDence", .callback = scpi_cmd_system_tdma_flight_clock_evidence}, \
     {.pattern = "SYSTem:TDMA:FLIGHT:CLOCK:EVIDence:STATus?", .callback = scpi_cmd_system_tdma_flight_clock_evidence_status_q}, \
+    {.pattern = "SYSTem:TDMA:SEAT:ROTation", .callback = scpi_cmd_system_tdma_seat_rotation}, \
+    {.pattern = "SYSTem:TDMA:SEAT:ROTation?", .callback = scpi_cmd_system_tdma_seat_rotation_q}, \
+    {.pattern = "SYSTem:TDMA:SEAT:COUNters?", .callback = scpi_cmd_system_tdma_seat_counters_q}, \
+    {.pattern = "SYSTem:TDMA:SEAT:HEALth?", .callback = scpi_cmd_system_tdma_seat_health_q}, \
     {.pattern = "SYSTem:TDMA:LOAD:MASK?", .callback = scpi_cmd_system_tdma_load_mask_q}, \
     {.pattern = "SYSTem:TDMA:LOAD:MASK", .callback = scpi_cmd_system_tdma_load_mask}, \
     {.pattern = "SYSTem:TDMA:SCHEDule?", .callback = scpi_cmd_system_tdma_schedule_q}, \

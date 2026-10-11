@@ -14,7 +14,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 TOOL_DIR = ROOT / "tools" / "domains" / "vdc" / "dpll_replay"
 LEGACY_ENTRYPOINT = ROOT / "tools" / "vdc_dpll_replay" / "vdc_dpll_replay.py"
-LEGACY_RUNNER = ROOT / "tools" / "vdc_dpll_replay" / "vdc_dpll_replay_runner.c"
+# The tools migration keeps the runner's byte-identical compatibility copy under
+# tools/vdc/vdc_dpll_replay/ (registry role "resource"); the deepest legacy
+# directory only carries the Python wrapper and README.
+LEGACY_RUNNER = ROOT / "tools" / "vdc" / "vdc_dpll_replay" / "vdc_dpll_replay_runner.c"
 ARCHIVE_DIR = (ROOT / "tools" / "archive" / "vdc" / "dpll_replay" /
                "pre_domain_migration")
 if str(ROOT) not in sys.path:

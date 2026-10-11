@@ -99,6 +99,13 @@ static void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,
 static void distributed_refmem_feedback_receive(tdma_service_service_t *owner, uint32_t slot,
     const uint8_t *mailbox, const tdma_flight_rx_view_t *view)
 { (void)owner; (void)slot; (void)mailbox; (void)view; }
+/* The T2 position transport has its own harness; the extracted transport code
+ * only needs these seat facts to exist for this command-admission fixture. */
+static void distributed_refmem_position_ack_receive(uint32_t slot, const uint8_t *mailbox)
+{ (void)slot; (void)mailbox; }
+static bool distributed_refmem_position_priority_owned(void) { return false; }
+static void distributed_refmem_tdma_parse_position_fragment(uint32_t slot, const uint8_t *mailbox)
+{ (void)slot; (void)mailbox; }
 static tdma_service_service_t *tdma_runtime_owner_get(void)
 { return owner_available ? &s_owner : NULL; }
 static bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out)
@@ -336,7 +343,7 @@ int main(int argc, char **argv)
     assert compiler
     includes = [base / f"components/{component}/inc" for base in (production_root, ROOT)
                 for component in ("tdma", "vdc_domain", "vdc_dpll_manager", "distributed_refmem",
-                                  "calibration_manager", "ota_manager")]
+                                  "calibration_manager", "ota_manager", "sync_trigger")]
     includes.append(ROOT / "third_party/portable_ota/include")
     linked = [production(path) for path in (
         "components/tdma/src/tdma_flight_fifo.c",

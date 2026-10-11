@@ -540,7 +540,7 @@ int main(int argc, char **argv)
     assert compiler
     includes = [base / f"components/{component}/inc" for base in (production_root, ROOT)
                 for component in ("tdma", "vdc_domain", "vdc_dpll_manager", "distributed_refmem",
-                                  "calibration_manager", "ota_manager")]
+                                  "calibration_manager", "ota_manager", "sync_trigger")]
     includes.append(ROOT / "third_party/portable_ota/include")
     linked = [production(f"components/tdma/src/{name}.c") for name in (
         "tdma_service", "tdma_profile", "tdma_operating_profile", "tdma_payload_registry",

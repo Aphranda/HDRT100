@@ -305,7 +305,11 @@ def test_arm_unknown_ack_cannot_borrow_old_status_one(monkeypatch, tmp_path, rep
     bench = Bench()
     bench.hook = lambda b, board, cmd: reply if cmd == "SYSTem:TDMA:RING:ARM" else None
     bench.install(monkeypatch)
-    with pytest.raises(RuntimeError, match="ARM acknowledgment unknown"):
+    # The failure text depends on which stage refuses the borrowing attempt (the
+    # immediate ACK classification or the later fresh-state confirmation); every
+    # variant must reject instead of treating an unknown ARM ACK as success.
+    with pytest.raises(RuntimeError,
+                       match="ARM acknowledgment unknown|unconfirmed ARM|invalid ARM status"):
         topology.start_pair(DRIVER, RECEIVER, options(tmp_path), [], [])
     assert not any(cmd.endswith(":START") for _, cmd in bench.calls)
 

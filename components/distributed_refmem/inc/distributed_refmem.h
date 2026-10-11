@@ -402,9 +402,63 @@ typedef struct {
     uint32_t rx_phase, rx_last_failure;
     /* Priority-lane receiver: accepted, repeated wire and unstaged records. */
     uint32_t lane_accept_count, lane_duplicate_count, lane_reject_count, lane_owned;
+    /* Bounded receive preservation (TDMA-SEAT-03): records held for the next
+     * slice after a refusal, and the drain attempts that staged / failed. */
+    uint32_t lane_hold_count, lane_drain_count, lane_drain_fail_count;
+    /* Held records retired because the declared retry budget was exhausted, and
+     * refused records dropped because the bounded queue was full. */
+    uint32_t lane_hold_expired_count, lane_hold_dropped_count;
+    /* Delivery-critical control bytes that replaced a diagnostic patch. */
+    uint32_t lane_ack_override_count;
+    /* Diagnostic control writes refused up front because the first-class fact
+     * owned the shared control bytes for that image. */
+    uint32_t lane_diag_refused_count;
+    /* Frames the lane validated whose first-class slice did not decode: an
+     * unrecoverable first-class loss, kept apart from backpressure refusals. */
+    uint32_t lane_decode_reject_count;
+    /* Queued copies retired because the same record reached the consumer by the
+     * wire first: no data loss, but the queue exit that closes
+     * lane_hold_count == lane_drain_count + lane_hold_expired_count +
+     * lane_hold_delivered_count + still queued. */
+    uint32_t lane_hold_delivered_count;
 } distributed_refmem_position_transport_snapshot_t;
+
+/* Bounded receive preservation for the first-class seat (TDMA-SEAT-03). These
+ * are the DECLARED budgets that the queue counters above are evidence against,
+ * so they belong in the public header: the seat's SCPI page reports them, and a
+ * capture has to be readable without the firmware source. The receiver
+ * translation unit keeps a guarded fallback for host harnesses that compile it
+ * without this header; tests assert both agree. */
+#ifndef DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH
+#define DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH 4u
+#endif
+#ifndef DISTRIBUTED_REFMEM_POSITION_HOLD_MAX_ATTEMPTS
+#define DISTRIBUTED_REFMEM_POSITION_HOLD_MAX_ATTEMPTS 4u
+#endif
 bool distributed_refmem_get_position_transport(
     distributed_refmem_position_transport_snapshot_t *snapshot);
+
+/* Why a first-class FREEZE has not completed: `stale_mask` holds the target
+ * slots whose report does not carry this run id (another run, or a board that
+ * never reported), `incomplete_mask` the position bits no reporting board has
+ * frozen yet. Both are in target_mask coordinates; a call with both zero means
+ * every target has reported and nothing is missing. The origin's resend count
+ * alone cannot tell these apart, which is exactly how a resend storm is
+ * diagnosed. */
+void distributed_refmem_position_ack_pending(
+    uint32_t run_id, uint32_t target_mask, uint32_t *stale_mask,
+    uint32_t *incomplete_mask);
+
+/* Core1 T2 phase: retry one held first-class record through the source's
+ * receive mailbox. Called by distributed_refmem_get_position_descriptor() when
+ * nothing is staged, so a refused PREVIEW is delivered on the next slice
+ * instead of waiting for an origin wire repeat (TDMA-SEAT-03). Returns true
+ * when the record was staged; a false return keeps it queued. The queue depth is
+ * DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH and the per-entry retry budget is
+ * DISTRIBUTED_REFMEM_POSITION_HOLD_MAX_ATTEMPTS (both in
+ * distributed_refmem_position_ack.inc); a record that exhausts the budget is
+ * retired and counted, and a full queue drops the newest arrival explicitly. */
+bool distributed_refmem_position_priority_drain(uint32_t source_slot);
 
 /* Typed transport history. Core0 RefMem publishes; readers take bounded
  * copies. record[0] is authoritative; reception is never an apply ACK. */

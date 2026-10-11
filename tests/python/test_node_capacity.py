@@ -28,7 +28,8 @@ def binaries(tmp_path_factory):
     includes.append(ROOT / "third_party/portable_ota/include")
     includes += [ROOT / "components" / domain / "inc" for domain in (
         "board_identity", "tdma", "vdc_domain", "calibration_manager",
-        "distributed_refmem", "ota_manager", "flash_store", "flash_transaction")]
+        "distributed_refmem", "ota_manager", "flash_store", "flash_transaction",
+        "sync_trigger")]
     sources = [ROOT / "tests/unit/test_node_capacity.c"]
     sources += [ROOT / "components" / path for path in (
         "board_identity/src/board_identity.c", "tdma/src/tdma_profile.c",

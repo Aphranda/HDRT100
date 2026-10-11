@@ -27,8 +27,38 @@ def replace_function(source,name,body):
 MOCK=SWITCH_MOCK.replace('uint32_t osr,isr,tx[4],rx[4];','uint32_t osr,isr,x,y,tx[4],rx[4];')
 MOCK=replace_function(MOCK,'pio_sm_get_rx_fifo_level','')
 MOCK=replace_function(MOCK,'pio_sm_get_tx_fifo_level','')
-MOCK=MOCK.replace('g->length==4','g->length==8').replace('SYNC_IO_PERSONA_ID_SWITCH','SYNC_IO_PERSONA_ID_ACTION')
+# The shared mock hard-codes the SWITCH program length in pio_can_add_program and
+# pio_add_program; this harness loads the ACTION program, which is 8 words
+# (see sync_action.pio.h). Keep the anchor on the mock's real text and assert it
+# applied, so a future mock edit cannot silently disable this harness again.
+assert MOCK.count('g->length==6')>=2
+MOCK=MOCK.replace('g->length==6','g->length==8').replace('SYNC_IO_PERSONA_ID_SWITCH','SYNC_IO_PERSONA_ID_ACTION')
 MOCK=MOCK.replace('&&!r&&w==(allowed_mask<<16)','&&w==(allowed_mask<<16)')
+# This variant of the shared mock leaves several stub entry points unused (the
+# switch fixture calls them, this one does not); they are deliberate harness
+# stubs, so keep the diagnostics quiet for the mock only.
+MOCK=MOCK.replace('#pragma GCC diagnostic ignored "-Wunused-parameter"',
+    '#pragma GCC diagnostic ignored "-Wunused-parameter"\n'
+    '#pragma GCC diagnostic ignored "-Wunused-function"')
+# The shared mock owns a raw_lo()-driven timer model whose every clock read also
+# advances the clock. This harness drives the timer explicitly (its own advance()
+# below) and expects reads to be side-effect free, so the inherited model is
+# removed rather than shadowed: defining the same timer and clock_get_hz twice is
+# a hard error.
+SWITCH_TIMER_MODEL='''static struct {uint32_t pause,source,raw_hi_dummy,raw_lo_dummy;} timer;
+static void advance(uint cycles);
+static uint32_t raw_lo(void){++raw_reads;advance(late_after&&raw_reads==2?40000:origin_cost);return (uint32_t)tick_count;}
+#define timer1_hw (&timer)
+#define timerawh raw_hi_dummy
+#define timerawl raw_lo_dummy + raw_lo()
+#define TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS 0u
+#define clk_sys 0u
+static uint clock_get_hz(uint c){(void)c;return BOARD_SYS_CLOCK_HZ;}
+'''
+assert MOCK.count(SWITCH_TIMER_MODEL)==1
+MOCK=MOCK.replace(SWITCH_TIMER_MODEL,'static void advance(uint cycles);\n')
+MOCK=MOCK.replace('''static uint32_t raw_reads,origin_cost=8,late_after;
+''','')
 MOCK=MOCK.replace('#define BOARD_SYS_CLOCK_HZ 250000000u',r'''
 #define BOARD_SYS_CLOCK_HZ 250000000u
 #define BOARD_SYNC_INPUT_BASE_PIN 20u

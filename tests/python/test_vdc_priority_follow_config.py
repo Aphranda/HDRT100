@@ -62,7 +62,7 @@ def executable(tmp_path_factory):
     source.write_text(harness, encoding="utf-8")
     compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
     includes = [ROOT/f"components/{c}/inc" for c in ("tdma", "vdc_domain", "vdc_dpll_manager",
-        "distributed_refmem", "calibration_manager", "ota_manager")]
+        "distributed_refmem", "calibration_manager", "ota_manager", "sync_trigger")]
     sources = existing.domain_sources()+[manager/"vdc_feedback_match.c",
         ROOT/"components/distributed_refmem/src/refmem_sync_vdc_feedback.c"]
     exe = directory/"baseline_config.exe"

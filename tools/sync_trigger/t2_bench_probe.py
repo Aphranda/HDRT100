@@ -23,6 +23,11 @@ PAIRS = [('COM5', '0010071E65B5CB38'), ('COM4', 'FB276192BEF9CCE1'),
 T2_FIELDS = (['ok', 'last_error', 'configured', 'active', 'origin', 'source_slot',
               'target_mask', 'run_id', 'last_sync_sequence', 'published_mask',
               'received_mask', 'descriptor_reject_count', 'transport_reject_count',
+              'late_arrival_count',
+              'late_last_current_ms', 'late_last_expiry_sync',
+              'promise_target_ms_1', 'promise_expiry_1', 'promise_target_ms_2',
+              'promise_expiry_2', 'promise_target_ms_3', 'promise_expiry_3',
+              'ack_stale_mask', 'ack_incomplete_mask',
               'event_count', 'event_dropped_count', 'frozen_mask',
               'freeze_mismatch_count', 'freeze_fallback_count', 'freeze_missing_local_count'] +
              [f'{n}{i}' for i in range(3) for n in ('freeze_version', 'freeze_local_version',
@@ -32,7 +37,7 @@ T2_FIELDS = (['ok', 'last_error', 'configured', 'active', 'origin', 'source_slot
              ['predictor_error', 'core0_prepare_calls', 'core0_preview_saved',
               'core0_prepare_last_reason', 'segment_cursor_max', 'segment_receive_max',
               'segment_deadlines_max', 'freeze_complete_mask', 'freeze_abandoned_mask',
-              'freeze_resend_count'])
+              'freeze_resend_count', 'freeze_abandoned_count'])
 
 
 def t2_page(raw):
@@ -41,10 +46,12 @@ def t2_page(raw):
     return {name: int(value) if value.lstrip('-').isdigit() else value
             for name, value in zip(T2_FIELDS, values)}
 
-# TX/RX budget evidence (actions mode): flight-sync, follower RX station and
-# flight FIFO counters per sample; STOP-only priority lanes after the run.
+# TX/RX budget evidence (actions mode): flight-sync, follower RX station,
+# flight FIFO counters, T2 position transport and the origin seat evidence per
+# sample; STOP-only priority lanes after the run.
 BUDGET_QUERIES = ('SYSTem:REFMEM:SYNC:FLIGHT?', 'SYSTem:TDMA:PROFile:RX?',
-                  'SYSTem:TDMA:FLIGHT:FIFO?', 'SYSTem:REFMEM:SYNC:FLIGHT:POSition?')
+                  'SYSTem:TDMA:FLIGHT:FIFO?', 'SYSTem:REFMEM:SYNC:FLIGHT:POSition?',
+                  'SYSTem:TDMA:SEAT:COUNters?', 'SYSTem:TDMA:SEAT:HEALth?')
 STOPPED_QUERIES = ('SYSTem:VDC:PRIORity:RX?', 'SYSTem:TDMA:FLIGHT:PRIORity?')
 RX_STATION_STATES = ('idle', 'requested', 'building', 'ready', 'cancelled')
 
@@ -63,6 +70,9 @@ def budget(first, last, seconds):
     rx0, rx1 = ints(first[1]), ints(last[1])
     fifo0, fifo1 = ints(first[2]), ints(last[2])
     pos0, pos1 = ints(first[3]), ints(last[3])
+    seat0 = ints(first[4]) if len(first) > 4 and first[4] is not None else []
+    seat1 = ints(last[4]) if len(last) > 4 and last[4] is not None else []
+    health1 = ints(last[5]) if len(last) > 5 and last[5] is not None else []
     d = lambda a, b, i: b[i] - a[i] if i < len(a) and i < len(b) and None not in (a[i], b[i]) else None
     row = {'next_seq32_delta': d(flight0, flight1, 9),
            'position_tx_staged_delta': d(pos0, pos1, 3),
@@ -79,6 +89,57 @@ def budget(first, last, seconds):
         row['rx_station_age_max_ms'] = {n: round(rx1[13 + 2 * i] / 1e6, 3)
                                         for i, n in enumerate(RX_STATION_STATES) if i}
         row['rx_drop_delta'] = [d(rx0, rx1, i) for i in range(22, len(rx1))]
+    if len(pos1) > 15 and pos1[0] is not None:
+        # POSition? tail: first-class lane accept/duplicate/reject/owned plus the
+        # bounded receive-preservation counters (held, drained, drain failures).
+        # The legacy rx_complete_count no longer moves on this path.
+        row['position_lane_accept_delta'] = d(pos0, pos1, 12)
+        row['position_lane_duplicate_delta'] = d(pos0, pos1, 13)
+        row['position_lane_reject_delta'] = d(pos0, pos1, 14)
+        row['position_lane_owned_last'] = pos1[15]
+        row['position_lane_hold_delta'] = d(pos0, pos1, 16)
+        row['position_lane_drain_delta'] = d(pos0, pos1, 17)
+        row['position_lane_drain_fail_delta'] = d(pos0, pos1, 18)
+        row['position_lane_ack_override_delta'] = d(pos0, pos1, 19)
+        row['position_lane_hold_expired_delta'] = d(pos0, pos1, 20)
+        row['position_lane_hold_dropped_delta'] = d(pos0, pos1, 21)
+        row['position_lane_diag_refused_delta'] = d(pos0, pos1, 22)
+        row['position_lane_decode_reject_delta'] = d(pos0, pos1, 23)
+        # Appended after the fields above, so their indices stay stable: queued
+        # copies retired because the wire delivered the same record first.
+        row['position_lane_hold_delivered_delta'] = d(pos0, pos1, 24)
+    if len(health1) >= 2 and health1[0] is not None:
+        # SEAT:HEALth?: the seat verdict at the end of the window (ok, reason bits)
+        # followed by the raw evidence; a bench run is readable from these two.
+        row['seat_health_ok'] = health1[0]
+        row['seat_health_reason_mask'] = health1[1]
+        if len(health1) > 10:
+            row['seat_health_first_class_starved'] = health1[9]
+            row['seat_health_first_class_deferred'] = health1[10]
+        if len(health1) > 21:
+            row['seat_health_decode_reject'] = health1[21]
+        if len(health1) > 23:
+            # Reason bit 8 and the two consumer-side loss facts behind it: the
+            # origin abandoning a freeze, and a follower asked to freeze a
+            # position it never had. Bit 8 sets when either is non-zero.
+            row['seat_health_first_class_missed'] = 1 if (health1[1] or 0) & (1 << 8) else 0
+            row['seat_health_freeze_abandoned'] = health1[22]
+            row['seat_health_freeze_missing_local'] = health1[23]
+    if len(seat1) >= 9:
+        # SEAT:COUNters?: origin rotation and first-class seat service facts.
+        row['seat'] = {
+            'opportunity_delta': d(seat0, seat1, 0),
+            'priority_delta': d(seat0, seat1, 1),
+            'first_class_delta': d(seat0, seat1, 2),
+            'priority_yield_delta': d(seat0, seat1, 3),
+            'first_class_reject_delta': d(seat0, seat1, 4),
+            'first_class_wait_max': seat1[5],
+            'first_class_stage_refused_delta': d(seat0, seat1, 6),
+            'first_class_retired_waiting_delta': d(seat0, seat1, 7),
+            'first_class_wait_violation_delta': d(seat0, seat1, 8),
+            'seat_starved_delta': d(seat0, seat1, 9),
+            'first_class_starved_delta': d(seat0, seat1, 10),
+            'first_class_deferred_delta': d(seat0, seat1, 11)}
     return row
 
 OUT = (Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else

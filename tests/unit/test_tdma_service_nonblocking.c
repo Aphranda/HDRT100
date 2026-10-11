@@ -65,6 +65,11 @@ static void *interrupted_copy(void *destination, const void *source, size_t size
 #undef tdma_flight_fifo_reset_stopped
 #undef memcpy
 
+/* The seat-mount store itself is flash-backed and covered by its own suite; this
+ * test only needs its diagnostic entry point to exist so the compiled service
+ * implementation links. */
+void tdma_seat_mount_store_note_reject(uint32_t code) { (void)code; }
+
 static bool interrupted_fifo_reset(tdma_flight_fifo_t *fifo)
 {
     if (probe_fifo_reset) {

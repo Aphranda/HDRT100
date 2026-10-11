@@ -28,6 +28,10 @@ def compile_host(directory, name, text, sources=(), parser=False):
                     ROOT / 'middleware/scpi_port/inc']
         flags += ['-DSCPI_USER_CONFIG=1', '-Wno-error=attributes']
     executable = directory / (name + ('.exe' if os.name == 'nt' else ''))
+    # The seat-instrumented callers reference the flash-backed seat mount store;
+    # link the shared host stub so these harnesses exercise production code
+    # without the store implementation.
+    sources = [*sources, ROOT / 'tests/unit/host_stubs/tdma_seat_mount_store_stub.c']
     result = subprocess.run([compiler, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
         '-ffunction-sections', '-fdata-sections', *flags,
         *['-I' + str(p) for p in include], str(source), *map(str, sources),

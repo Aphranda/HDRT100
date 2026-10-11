@@ -4,6 +4,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+# Served by the import-safe compatibility wrapper at the original path; the
+# implementation itself lives in tools/archive/deletable-candidates/.
 from tools.t2_deploy_action_probe.t2_deploy_action_probe import (
     ActionBook, ActionError, ActionState, Completion, Fence, Intent, Ready,
     SyncReadyStamp,

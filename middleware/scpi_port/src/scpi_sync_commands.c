@@ -790,6 +790,12 @@ scpi_result_t scpi_cmd_system_tdma_priority_rx_q(scpi_t *context)
     SCPI_ResultUInt32(context, s.retained_mask);
     for (uint32_t i = 0u; i < TDMA_PRIORITY_RX_CAPACITY; ++i)
         SCPI_ResultUInt32(context, s.sequence[i]);
+    /* Reject attribution by mailbox class: the three buckets partition
+     * reject_count; last_reject_class is 0xFF when it could not be attributed. */
+    SCPI_ResultUInt32(context, s.first_class_reject_count);
+    SCPI_ResultUInt32(context, s.other_class_reject_count);
+    SCPI_ResultUInt32(context, s.unknown_class_reject_count);
+    SCPI_ResultUInt32(context, s.last_reject_class);
     return SCPI_RES_OK;
 }
 

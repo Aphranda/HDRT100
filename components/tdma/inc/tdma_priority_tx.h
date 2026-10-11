@@ -12,7 +12,10 @@ typedef enum {
 
 /* Registered while STOPPED. Invoked once by the Core1 origin owner, outside
  * the IRQ window. READY supplies an immutable complete local mailbox; EMPTY
- * reserves the slot without granting a new record. No ordinary FIFO or
+ * grants no new record and reserves nothing: the publication opportunity is
+ * yielded to the first-class seat. The arbitration code and its rotation test
+ * both assert that; an earlier revision of this comment claimed a reservation.
+ * No ordinary FIFO or
  * Core0 overlay work may replace an enabled priority slot. A NULL config is
  * STOP retirement (mailbox is NULL too), not a request to produce data.
  * A READY return is an offer, not proof of DMA selection or wire delivery. */

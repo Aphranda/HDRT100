@@ -55,6 +55,18 @@ uint32_t trigger_counter_read_core1(uint32_t *out)
 { if (!out || !counter.loaded || !counter.io.valid) return COUNTER_ARGUMENT;
   *out=counter.io.count32; return COUNTER_OK; }
 bool distributed_refmem_position_descriptor_pending(void) { return tx_pending; }
+
+/* The pending-ack diagnostic belongs to the refmem owner: this harness only
+ * needs the symbol, and reports "nothing pending" unless a case says otherwise. */
+static uint32_t s_pending_stale, s_pending_incomplete;
+void distributed_refmem_position_ack_pending(uint32_t run_id, uint32_t target_mask,
+                                             uint32_t *stale_mask,
+                                             uint32_t *incomplete_mask)
+{
+    (void)run_id; (void)target_mask;
+    if (stale_mask) *stale_mask = s_pending_stale;
+    if (incomplete_mask) *incomplete_mask = s_pending_incomplete;
+}
 static uint32_t noted_frozen=UINT32_MAX, freeze_acked;
 static bool noted_active;
 void distributed_refmem_note_position_frozen(uint32_t run, bool active, uint32_t mask)
@@ -153,7 +165,7 @@ int main(int argc,char **argv)
     assert(argc==2); counter.loaded=1; counter.io.valid=1;
     const char *test=argv[1];
     trigger_t2_runtime_config_t c=config(!strcmp(test,"origin") || !strcmp(test,"origin_resend") ||
-        !strcmp(test,"origin_pending"));
+        !strcmp(test,"origin_pending") || !strcmp(test,"origin_no_ack"));
     if (!strcmp(test,"capacity")) {
         c.templates.count=2; c.templates.row[1]=c.templates.row[0];
         c.templates.row[1].template_id=8; c.templates.row[1].delta_q=10;
@@ -167,7 +179,8 @@ int main(int argc,char **argv)
         c.template_crc=trigger_action_template_table_crc(&c.templates);
     }
     /* Keep the position window open while the resend cadence is observed. */
-    if (!strcmp(test,"origin_resend")) c.descriptor_window_sync=200u;
+    if (!strcmp(test,"origin_resend") || !strcmp(test,"origin_no_ack"))
+        c.descriptor_window_sync=200u;
     assert(trigger_t2_runtime_configure(&c));
     assert(trigger_t2_runtime_start(11,0));
     if (!strcmp(test,"different_local_seq")) sample_offset=80;
@@ -199,6 +212,7 @@ int main(int argc,char **argv)
         /* Open positions share one resend every T2_FREEZE_RESEND_SLICES. */
         const uint32_t shared=snapshot().freeze_resend_count-counted;
         assert(!snapshot().freeze_abandoned_mask && resent>=2u);
+        assert(snapshot().freeze_abandoned_count==0u);
         assert(shared>=resent && shared<=40u/4u+1u);
         freeze_acked=1u<<(position-1u);
         now_ns+=1000000u; tx_pending=false;
@@ -212,6 +226,28 @@ int main(int argc,char **argv)
         for (unsigned k=before; k<transmitted_count; ++k)
             assert(!(transmitted[k].stage==TRIGGER_POSITION_STAGE_FREEZE &&
                      transmitted[k].position_id==position));
+        return 0;
+    }
+    if(!strcmp(test,"origin_no_ack")) {
+        /* Nothing acknowledges these FREEZEs. In this driver the origin keeps
+         * re-solving, so the window of a position is continuously extended and
+         * the ABANDONMENT branch stays unreachable (recorded as gap G5); what is
+         * checkable, and what must hold whatever the runtime decides, is that the
+         * surviving counter and the per-position mask describe the same events
+         * and that no position is ever reported complete. */
+        for (unsigned i=0u; i<400u; ++i) {
+            now_ns=(i+1u)*1000000u; counter.io.count32=(i+1u)*300u; tx_pending=false;
+            /* A late position in this configuration reports a service error; the
+             * accounting invariant must hold regardless of the result. */
+            (void)trigger_t2_runtime_service();
+            trigger_t2_runtime_prepare_core0(); tx_pending=false;
+            const trigger_t2_runtime_snapshot_t live=snapshot();
+            unsigned abandoned=0u;
+            for (unsigned b=0u;b<32u;++b)
+                if (live.freeze_abandoned_mask&(1u<<b)) ++abandoned;
+            assert(abandoned==live.freeze_abandoned_count);
+        }
+        assert(snapshot().freeze_complete_mask==0u);
         return 0;
     }
     if(!strcmp(test,"origin") || !strcmp(test,"origin_pending")) {
@@ -253,11 +289,37 @@ int main(int argc,char **argv)
         assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
         assert(snapshot().received_mask==1u); return 0;
     }
+    if (!strcmp(test,"late_arrival")) {
+        /* A well-formed, correctly addressed preview whose promised window had
+         * already closed when it arrived. It stays a descriptor reject, but the
+         * lateness is now attributed on its own. */
+        for (unsigned i=0u; i<8u; ++i) {
+            now_ns=(i+1u)*10000000u; counter.io.count32=(i+1u)*3000u;
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        }
+        const uint32_t rejects=snapshot().descriptor_reject_count;
+        preview(&c,1,2,0,1);   /* a NEW version, so the duplicate short-circuit cannot apply */
+        const int late_rc=(int)trigger_t2_runtime_service();
+        assert(late_rc==TRIGGER_T2_RUNTIME_DESCRIPTOR);
+        assert(snapshot().late_arrival_count==1u);
+        assert(snapshot().descriptor_reject_count==rejects+1u);
+        /* Magnitude is readable: the promised window and the arrival ordinal,
+         * with the arrival strictly after the window. */
+        assert(snapshot().late_last_expiry_sync!=0u);
+        assert(snapshot().late_last_current_ms>snapshot().late_last_expiry_sync);
+        assert((snapshot().received_mask&1u) &&
+               snapshot().descriptors[0].prediction_version==1u);
+        return 0;
+    }
     if (!strcmp(test,"expired")) {
         /* Expiry derives from the target slice; an unrepresentable one expires. */
         remote_descriptor.target_ms_index=UINT32_MAX;
         assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_DESCRIPTOR);
-        assert(!take() && !schedule_calls); return 0;
+        assert(!take() && !schedule_calls);
+        /* No window was ever promised, so this is NOT counted as lateness: the
+         * counter must mean "missed the promised window", not "any expiry". */
+        assert(snapshot().late_arrival_count==0u);
+        return 0;
     }
     if (!strcmp(test,"version_overflow")) {
         remote_descriptor.prediction_version = UINT16_MAX + 1u;
@@ -419,7 +481,7 @@ def runtime(tmp_path_factory):
         [ROOT / "components/sync_trigger/src/trigger_t2_runtime.c"])
 
 
-@pytest.mark.parametrize("case", ["origin", "origin_pending", "origin_resend", "receiver", "fallback", "wire_identity_ignored",
+@pytest.mark.parametrize("case", ["origin", "origin_pending", "origin_resend", "origin_no_ack", "receiver", "fallback", "late_arrival", "wire_identity_ignored",
     "expired", "freeze_missing", "freeze_stops_solve", "capacity", "gateway",
     "independent_positions", "reject_no_retry", "stop", "restart", "identity",
     "wrong_receipt", "reject_uncertain", "conflict", "different_local_seq", "all_events_retained", "zero_pulse_index", "version_overflow", "version_limit"])

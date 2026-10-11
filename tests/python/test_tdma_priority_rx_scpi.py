@@ -126,7 +126,7 @@ int main(int argc, char **argv)
     int result = scpi_cmd_system_tdma_priority_rx_q(&context);
     bool rejected = (mode >= 1 && mode <= 3) || mode == 5;
     assert(result == (rejected ? SCPI_RES_ERR : SCPI_RES_OK));
-    assert(results == (rejected ? 0u : 23u));
+    assert(results == (rejected ? 0u : 27u));
     assert(error_count == (rejected ? 1u : 0u));
     assert(reads == 0);
     results = error_count = 0;

@@ -237,6 +237,7 @@ tdma_seat_result_t tdma_loop_plan(const tdma_loop_plan_request_t *request,
         return TDMA_SEAT_BAD_ARGUMENT;
     out->count = 0u;
     out->loop_period_ns = request->loop_period_ns;
+    out->dropped_mask = 0u;
     for (uint32_t index = 0u; index < 3u; ++index) {
         out->slots[index].cls = TDMA_LOOP_SLOT_NONE;
         out->slots[index].window.start_ns = 0u;
@@ -252,7 +253,15 @@ tdma_seat_result_t tdma_loop_plan(const tdma_loop_plan_request_t *request,
     for (uint32_t index = 0u; index < 3u; ++index) {
         if (!pending[index]) continue;
         const uint64_t width_ns = request->emission_period_ns;
-        if (cursor_ns + width_ns + guard > request->loop_period_ns) break;
+        if (cursor_ns + width_ns + guard > request->loop_period_ns) {
+            /* No room left: every remaining requested seat is dropped, not just
+             * the one that failed to fit. Report it so a caller never defers a
+             * mounted load forever without evidence. */
+            for (uint32_t rest = index; rest < 3u; ++rest)
+                if (pending[rest])
+                    out->dropped_mask |= tdma_loop_plan_seat_bit(classes[rest]);
+            break;
+        }
         tdma_loop_slot_t *slot = &out->slots[out->count];
         slot->cls = classes[index];
         slot->window.start_ns = cursor_ns;

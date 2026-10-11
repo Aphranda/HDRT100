@@ -134,7 +134,7 @@ static void action_observe(const tdma_ring_runtime_snapshot_t *ring)
     }
     action_leave();
 }
-static void action_patch_mailbox(uint8_t *mailbox)
+static void action_patch_mailbox(uint8_t *mailbox, bool control_allowed)
 {
     /* All ordinary transport classes retain the same RefMem/control regions.
      * VDC feedback fragments use only their separate six-byte VDC region.
@@ -151,8 +151,14 @@ static void action_patch_mailbox(uint8_t *mailbox)
                  * diagnostic record, not the shared header, selects its peer. */
                 distributed_refmem_put_le16(mailbox+TDMA_PROCESS_IMAGE_REFMEM_FIELD_ID_OFFSET,field);
                 distributed_refmem_put_le32(mailbox+TDMA_PROCESS_IMAGE_REFMEM_VALUE_OFFSET,value);
-                mailbox[TDMA_PROCESS_IMAGE_CONTROL_OPCODE_OFFSET]=request?REFMEM_ACTION_PROBE_REQUEST:REFMEM_ACTION_PROBE_RECEIPT;
-                mailbox[TDMA_PROCESS_IMAGE_CONTROL_SEQ8_OFFSET]=(uint8_t)*index;
+                /* The control bytes are shared with the first-class frozen fact.
+                 * When that fact owns them for this image the diagnostic keeps its
+                 * payload fragment but claims no control byte (counted once by the
+                 * admission query, not here). */
+                if (control_allowed) {
+                    mailbox[TDMA_PROCESS_IMAGE_CONTROL_OPCODE_OFFSET]=request?REFMEM_ACTION_PROBE_REQUEST:REFMEM_ACTION_PROBE_RECEIPT;
+                    mailbox[TDMA_PROCESS_IMAGE_CONTROL_SEQ8_OFFSET]=(uint8_t)*index;
+                }
             }
         }
     }

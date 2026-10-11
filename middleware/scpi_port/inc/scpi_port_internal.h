@@ -6,6 +6,11 @@
 
 #include "scpi/scpi.h"
 #include "sync_trigger.h"
+/* The SCPI command implementations record seat-mount reject diagnostics
+ * (TDMA-SEAT-01). Declare that dependency here instead of relying on the
+ * including translation unit's include order, so host harnesses that compile a
+ * single command .inc still see the declaration. */
+#include "tdma_seat_mount_store.h"
 
 bool scpi_port_read_u32(scpi_t *context, uint32_t *value);
 scpi_result_t scpi_port_result_ok(scpi_t *context);

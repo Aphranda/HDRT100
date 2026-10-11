@@ -37,6 +37,7 @@
 #include "scpi_trigger_deployment_commands.inc"
 #include "scpi_trigger_template_commands.inc"
 #include "scpi_trigger_t2_runtime_commands.inc"
+#include "tdma_seat_admission.h"
 #include "tdma_seat_mount_store.h"
 #include "scpi_trigger_seat_commands.inc"
 
@@ -3074,6 +3075,16 @@ scpi_result_t scpi_cmd_refmem_sync_flight_position_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.lane_duplicate_count);
     SCPI_ResultUInt32(context, snapshot.lane_reject_count);
     SCPI_ResultUInt32(context, snapshot.lane_owned);
+    SCPI_ResultUInt32(context, snapshot.lane_hold_count);
+    SCPI_ResultUInt32(context, snapshot.lane_drain_count);
+    SCPI_ResultUInt32(context, snapshot.lane_drain_fail_count);
+    SCPI_ResultUInt32(context, snapshot.lane_ack_override_count);
+    SCPI_ResultUInt32(context, snapshot.lane_hold_expired_count);
+    SCPI_ResultUInt32(context, snapshot.lane_hold_dropped_count);
+    SCPI_ResultUInt32(context, snapshot.lane_diag_refused_count);
+    SCPI_ResultUInt32(context, snapshot.lane_decode_reject_count);
+    /* Appended last: positional readers keep their existing indices. */
+    SCPI_ResultUInt32(context, snapshot.lane_hold_delivered_count);
     return SCPI_RES_OK;
 }
 
@@ -3131,6 +3142,155 @@ scpi_result_t scpi_cmd_system_tdma_flight_fifo_reset(scpi_t *context)
     }
     scpi_port_push_exec_error(context, "TDMA_FLIGHT_FIFO_RESET_BUSY");
     return SCPI_RES_ERR;
+}
+
+scpi_result_t scpi_cmd_system_tdma_seat_rotation(scpi_t *context)
+{
+    uint32_t priority_share = 0u, first_class_share = 0u;
+    if (!scpi_port_read_u32(context, &priority_share) ||
+        !scpi_port_read_u32(context, &first_class_share) ||
+        !tdma_seat_rotation_valid(priority_share, first_class_share) ||
+        !tdma_runtime_owner_set_seat_rotation(priority_share,
+                                              first_class_share)) {
+        scpi_port_push_exec_error(context, "TDMA_SEAT_ROTATION");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, priority_share);
+    SCPI_ResultUInt32(context, first_class_share);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_seat_rotation_q(scpi_t *context)
+{
+    tdma_pio_spi_ring_adapter_t *adapter =
+        tdma_runtime_owner_get_ring_adapter();
+    tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+    if (adapter == NULL ||
+        !tdma_pio_spi_ring_adapter_get_snapshot(adapter, &snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    /* Configured radio first, then the DECLARED limits it is bounded by. A
+     * capture has to be readable without the firmware source: the seat's
+     * counters are only evidence against the budget they were measured
+     * against, and the starvation counters stay zero unless the seat-window
+     * schedule is compiled in at all. */
+    SCPI_ResultUInt32(context, snapshot.seat_rotation_priority_share);
+    SCPI_ResultUInt32(context, snapshot.seat_rotation_first_class_share);
+    const uint32_t priority_share = tdma_seat_rotation_priority(
+        snapshot.seat_rotation_priority_share);
+    const uint32_t first_class_share = tdma_seat_rotation_first_class(
+        snapshot.seat_rotation_first_class_share);
+    SCPI_ResultUInt32(context, priority_share);
+    SCPI_ResultUInt32(context, first_class_share);
+    SCPI_ResultUInt32(context, priority_share + first_class_share);
+    SCPI_ResultUInt32(context, TDMA_SEAT_ROTATION_SHARE_MAX);
+    SCPI_ResultUInt32(context, TDMA_SEAT_ROTATION_CYCLE_MAX);
+    SCPI_ResultUInt32(context, TDMA_SEAT_FIRST_CLASS_WAIT_MAX_OPPORTUNITIES);
+    SCPI_ResultUInt32(context, DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH);
+    SCPI_ResultUInt32(context, DISTRIBUTED_REFMEM_POSITION_HOLD_MAX_ATTEMPTS);
+    SCPI_ResultUInt32(context, TDMA_LOOP_SCHEDULE_ENABLED);
+    return SCPI_RES_OK;
+}
+
+/* Origin fast-path seat evidence: opportunity/boarding counters that the M:N
+ * ratio is verified against. Read-only, valid while stopped as well. */
+scpi_result_t scpi_cmd_system_tdma_seat_counters_q(scpi_t *context)
+{
+    tdma_pio_spi_ring_adapter_t *adapter =
+        tdma_runtime_owner_get_ring_adapter();
+    tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+    if (adapter == NULL ||
+        !tdma_pio_spi_ring_adapter_get_snapshot(adapter, &snapshot)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.origin.seat_opportunity_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_priority_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_first_class_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_priority_yield_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_first_class_reject_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_first_class_wait_max);
+    SCPI_ResultUInt32(context, snapshot.first_class_stage_refused_count);
+    SCPI_ResultUInt32(context, snapshot.first_class_retired_waiting_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_first_class_wait_violation_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_starved_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_first_class_starved_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_first_class_deferred_count);
+    return SCPI_RES_OK;
+}
+
+/* TDMA-SEAT-03 seat health verdict. Folds the origin seat counters and the
+ * follower's first-class lane counters into `ok,reason_mask` followed by the raw
+ * evidence, so one read answers "is the first-class seat behaving like the
+ * priority seat, and if not, why". Read-only; valid while stopped. */
+scpi_result_t scpi_cmd_system_tdma_seat_health_q(scpi_t *context)
+{
+    tdma_pio_spi_ring_adapter_t *adapter =
+        tdma_runtime_owner_get_ring_adapter();
+    tdma_pio_spi_ring_adapter_snapshot_t snapshot;
+    distributed_refmem_position_transport_snapshot_t lane;
+    tdma_priority_rx_snapshot_t rx;
+    trigger_t2_runtime_snapshot_t consumer;
+    /* The per-class reject split lives in the priority-lane snapshot, not in the
+     * position transport snapshot; read each fact from its own owner. The lane
+     * snapshot is only readable while the adapter is started, so this page
+     * requires it: no data beats a zero that looks healthy. The consumer
+     * snapshot is what proves a first-class position was lost end to end, so a
+     * failed read must fail the page rather than report healthy. */
+    if (adapter == NULL ||
+        !tdma_pio_spi_ring_adapter_get_snapshot(adapter, &snapshot) ||
+        !tdma_runtime_owner_get_priority_rx_snapshot(&rx) ||
+        !distributed_refmem_get_position_transport(&lane) ||
+        !trigger_t2_runtime_snapshot(&consumer)) {
+        scpi_port_push_exec_error(context, "TDMA_SEAT_HEALTH_REQUIRES_STARTED_LANE");
+        return SCPI_RES_ERR;
+    }
+    /* Both are losses, not by-design backpressure: the origin gave up completing
+     * a position's freeze, or a follower was asked to freeze a position it never
+     * had. Saturating, like every other seat counter. */
+    uint32_t missed = consumer.freeze_abandoned_count;
+    if (UINT32_MAX - missed < consumer.freeze_missing_local_count)
+        missed = UINT32_MAX;
+    else
+        missed += consumer.freeze_missing_local_count;
+    const tdma_seat_health_facts_t facts = {
+        .lane_hold_dropped_count = lane.lane_hold_dropped_count,
+        .lane_hold_expired_count = lane.lane_hold_expired_count,
+        .lane_ack_override_count = lane.lane_ack_override_count,
+        .wait_violation_count = snapshot.origin.seat_first_class_wait_violation_count,
+        .lane_reject_first_class_count = rx.first_class_reject_count,
+        .retired_waiting_count = snapshot.first_class_retired_waiting_count,
+        .first_class_starved_count = snapshot.origin.seat_first_class_starved_count,
+        .lane_decode_reject_count = lane.lane_decode_reject_count,
+        .first_class_missed_count = missed,
+    };
+    const uint32_t reason = tdma_seat_health_reason(&facts);
+    SCPI_ResultUInt32(context, reason == 0u ? 1u : 0u);
+    SCPI_ResultUInt32(context, reason);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_opportunity_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_priority_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_first_class_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_first_class_wait_max);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_first_class_wait_violation_count);
+    SCPI_ResultUInt32(context, snapshot.first_class_stage_refused_count);
+    SCPI_ResultUInt32(context, snapshot.first_class_retired_waiting_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_first_class_starved_count);
+    SCPI_ResultUInt32(context, snapshot.origin.seat_first_class_deferred_count);
+    SCPI_ResultUInt32(context, rx.first_class_reject_count);
+    SCPI_ResultUInt32(context, rx.other_class_reject_count);
+    SCPI_ResultUInt32(context, rx.unknown_class_reject_count);
+    SCPI_ResultUInt32(context, lane.lane_hold_count);
+    SCPI_ResultUInt32(context, lane.lane_drain_count);
+    SCPI_ResultUInt32(context, lane.lane_drain_fail_count);
+    SCPI_ResultUInt32(context, lane.lane_hold_expired_count);
+    SCPI_ResultUInt32(context, lane.lane_hold_dropped_count);
+    SCPI_ResultUInt32(context, lane.lane_ack_override_count);
+    SCPI_ResultUInt32(context, lane.lane_diag_refused_count);
+    SCPI_ResultUInt32(context, lane.lane_decode_reject_count);
+    /* Appended: the two consumer-side loss facts behind reason bit 8. */
+    SCPI_ResultUInt32(context, consumer.freeze_abandoned_count);
+    SCPI_ResultUInt32(context, consumer.freeze_missing_local_count);
+    return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_cmd_system_tdma_flight_mode(scpi_t *context)

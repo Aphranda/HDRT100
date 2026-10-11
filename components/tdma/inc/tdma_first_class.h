@@ -25,6 +25,12 @@ typedef struct {
      * mailboxes (priority provider enabled); cleared at STOP. Core0 routes a
      * first-class record here only while this is set. */
     volatile uint32_t route;
+    /* Explicit first-class service facts, so a starved record is never silent:
+     * a stage attempt refused because one record was still waiting (bounded
+     * backpressure), and a waiting record retired by route loss/STOP before it
+     * ever boarded (loss before delivery). Both are monotonic across a run. */
+    volatile uint32_t stage_refused_count;
+    volatile uint32_t retired_waiting_count;
     uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
 } tdma_first_class_t;
 
@@ -38,14 +44,19 @@ static inline bool tdma_first_class_pending(const tdma_first_class_t *f)
     return f && __atomic_load_n(&f->state, __ATOMIC_ACQUIRE) == TDMA_FIRST_CLASS_READY;
 }
 
-/* Core0: publish one complete mailbox. False if a record is still waiting. */
+/* Core0: publish one complete mailbox. False if a record is still waiting.
+ * A refusal is a first-class backpressure fact, not an error: it is counted so
+ * a record starved by the single-depth slot is visible in the seat evidence. */
 static inline bool tdma_first_class_stage(tdma_first_class_t *f,
     const uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE])
 {
     uint32_t expected = TDMA_FIRST_CLASS_EMPTY;
     if (!f || !mailbox || !__atomic_compare_exchange_n(&f->state, &expected,
-            TDMA_FIRST_CLASS_WRITING, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            TDMA_FIRST_CLASS_WRITING, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        if (f) (void)__atomic_add_fetch(&f->stage_refused_count, 1u,
+                                        __ATOMIC_RELAXED);
         return false;
+    }
     memcpy(f->mailbox, mailbox, TDMA_FLIGHT_SHORT_SLOT_SIZE);
     __atomic_store_n(&f->state, TDMA_FIRST_CLASS_READY, __ATOMIC_RELEASE);
     return true;
@@ -71,14 +82,17 @@ static inline void tdma_first_class_finish(tdma_first_class_t *f, bool consumed)
 }
 
 /* Core1 owner at route start and STOP: retire a waiting record so it can never
- * board in a later session. A record still being written stays untouched. */
+ * board in a later session. A record still being written stays untouched. A
+ * READY record that never boarded is counted as loss before delivery. */
 static inline void tdma_first_class_retire(tdma_first_class_t *f, bool route)
 {
     if (!f) return;
     __atomic_store_n(&f->route, route ? 1u : 0u, __ATOMIC_RELEASE);
     uint32_t expected = TDMA_FIRST_CLASS_READY;
-    (void)__atomic_compare_exchange_n(&f->state, &expected, TDMA_FIRST_CLASS_EMPTY,
-        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+    if (__atomic_compare_exchange_n(&f->state, &expected, TDMA_FIRST_CLASS_EMPTY,
+            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        (void)__atomic_add_fetch(&f->retired_waiting_count, 1u,
+                                __ATOMIC_RELAXED);
 }
 
 #endif

@@ -1,7 +1,8 @@
-﻿#ifndef TDMA_SEAT_ADMISSION_H
+#ifndef TDMA_SEAT_ADMISSION_H
 #define TDMA_SEAT_ADMISSION_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /* Pure TDMA-owner model. No provider/PIO/FIFO/SCPI calls, locks or allocation.
@@ -174,7 +175,47 @@ typedef struct {
     /* Echoed from the request so callers can reduce an absolute slot index
      * into the loop without carrying the period themselves. */
     uint64_t loop_period_ns;
+    /* Seats that were requested but could not be placed in the loop. A load
+     * mounted on a dropped seat would be deferred on every boundary, so the
+     * starvation is reported here instead of being silently omitted
+     * (TDMA-SEAT-03). Bits are the TDMA_LOOP_PLAN_DROPPED_* mask. */
+    uint32_t dropped_mask;
 } tdma_loop_plan_t;
+
+/* Dropped-seat mask bits, ordered like the planner's class preference. */
+#define TDMA_LOOP_PLAN_DROPPED_PRIORITY (1u << 0u)
+#define TDMA_LOOP_PLAN_DROPPED_FIRST_CLASS (1u << 1u)
+#define TDMA_LOOP_PLAN_DROPPED_LOAD (1u << 2u)
+
+static inline uint32_t tdma_loop_plan_seat_bit(tdma_loop_slot_class_t cls)
+{
+    switch (cls) {
+    case TDMA_LOOP_SLOT_PRIORITY: return TDMA_LOOP_PLAN_DROPPED_PRIORITY;
+    case TDMA_LOOP_SLOT_FIRST_CLASS: return TDMA_LOOP_PLAN_DROPPED_FIRST_CLASS;
+    case TDMA_LOOP_SLOT_LOAD: return TDMA_LOOP_PLAN_DROPPED_LOAD;
+    default: return 0u;
+    }
+}
+
+/* True when `cls` was requested but has no window in this plan. */
+static inline bool tdma_loop_plan_seat_dropped(const tdma_loop_plan_t *plan,
+    tdma_loop_slot_class_t cls)
+{
+    const uint32_t bit = tdma_loop_plan_seat_bit(cls);
+    return plan != NULL && bit != 0u && (plan->dropped_mask & bit) != 0u;
+}
+
+/* True when the plan actually carries a window for `cls`. A seat that is not
+ * present cannot serve its load at any boundary, whether it was dropped for
+ * space (see dropped_mask) or never requested at all. */
+static inline bool tdma_loop_plan_seat_present(const tdma_loop_plan_t *plan,
+    tdma_loop_slot_class_t cls)
+{
+    if (plan == NULL || cls == TDMA_LOOP_SLOT_NONE) return false;
+    for (uint32_t index = 0u; index < plan->count && index < 3u; ++index)
+        if (plan->slots[index].cls == cls) return true;
+    return false;
+}
 
 tdma_seat_result_t tdma_loop_plan(const tdma_loop_plan_request_t *request,
     tdma_loop_plan_t *out);
@@ -213,5 +254,26 @@ tdma_loop_slot_class_t tdma_loop_plan_slot_for_time(const tdma_loop_plan_t *plan
  * loop period. slot_period_ns == 0 answers TDMA_LOOP_SLOT_NONE. */
 tdma_loop_slot_class_t tdma_loop_plan_slot_for_index(const tdma_loop_plan_t *plan,
     uint64_t slot_index, uint64_t slot_period_ns);
+
+/* Pure seat-window decision for one publish attempt, so the rule is testable
+ * without the publish path and stays identical for every seat class. Placed
+ * after slot_for_index(), which it reduces through. */
+typedef enum {
+    TDMA_LOOP_SEAT_SERVICE_OK = 0,       /* this boundary belongs to the seat */
+    TDMA_LOOP_SEAT_SERVICE_DEFER = 1,    /* correct seat, another boundary */
+    TDMA_LOOP_SEAT_SERVICE_STARVED = 2,  /* the plan cannot serve the seat at all */
+} tdma_loop_seat_service_t;
+
+static inline tdma_loop_seat_service_t tdma_loop_plan_seat_service(
+    const tdma_loop_plan_t *plan, tdma_loop_slot_class_t seat,
+    uint64_t boundary_sequence, uint64_t slot_period_ns)
+{
+    /* An unmounted load takes no seat and is left unconstrained here. */
+    if (seat == TDMA_LOOP_SLOT_NONE) return TDMA_LOOP_SEAT_SERVICE_OK;
+    if (!tdma_loop_plan_seat_present(plan, seat)) return TDMA_LOOP_SEAT_SERVICE_STARVED;
+    if (tdma_loop_plan_slot_for_index(plan, boundary_sequence, slot_period_ns) != seat)
+        return TDMA_LOOP_SEAT_SERVICE_DEFER;
+    return TDMA_LOOP_SEAT_SERVICE_OK;
+}
 
 #endif

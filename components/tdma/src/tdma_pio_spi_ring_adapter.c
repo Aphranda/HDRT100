@@ -540,6 +540,10 @@ bool tdma_pio_spi_ring_adapter_init(tdma_pio_spi_ring_adapter_t *adapter)
     }
     memset(adapter, 0, sizeof(*adapter));
     adapter->clock_evidence_enabled = 1u;
+    adapter->seat_rotation_priority_share =
+        TDMA_SEAT_ROTATION_DEFAULT_PRIORITY_SHARE;
+    adapter->seat_rotation_first_class_share =
+        TDMA_SEAT_ROTATION_DEFAULT_FIRST_CLASS_SHARE;
     tdma_adapter_comm_fsm_init(&adapter->comm_fsm);
     tdma_pio_spi_ring_adapter_reset_bad_packet_diagnostic(adapter);
     (void)tdma_receive_health_init(&adapter->receive_health);
@@ -824,6 +828,19 @@ bool tdma_pio_spi_ring_adapter_set_clock_evidence_enabled(
         return false;
     }
     adapter->clock_evidence_enabled = enabled ? 1u : 0u;
+    return true;
+}
+
+bool tdma_pio_spi_ring_adapter_set_seat_rotation(
+    tdma_pio_spi_ring_adapter_t *adapter, uint32_t priority_share,
+    uint32_t first_class_share)
+{
+    if (adapter == NULL || adapter->started != 0u ||
+        !tdma_seat_rotation_valid(priority_share, first_class_share)) {
+        return false;
+    }
+    adapter->seat_rotation_priority_share = priority_share;
+    adapter->seat_rotation_first_class_share = first_class_share;
     return true;
 }
 
@@ -3354,6 +3371,18 @@ bool tdma_pio_spi_ring_adapter_try_get_snapshot(
         snapshot->service_count = adapter->service_count;
         snapshot->role = (uint32_t)adapter->role;
         snapshot->forwarding_mode = (uint32_t)adapter->forwarding_mode;
+        snapshot->seat_rotation_priority_share = tdma_seat_rotation_priority(
+            adapter->seat_rotation_priority_share);
+        snapshot->seat_rotation_first_class_share =
+            tdma_seat_rotation_first_class(
+                adapter->seat_rotation_first_class_share);
+        snapshot->first_class_stage_refused_count = adapter->first_class != NULL
+            ? __atomic_load_n(&adapter->first_class->stage_refused_count,
+                              __ATOMIC_RELAXED) : 0u;
+        snapshot->first_class_retired_waiting_count =
+            adapter->first_class != NULL
+            ? __atomic_load_n(&adapter->first_class->retired_waiting_count,
+                              __ATOMIC_RELAXED) : 0u;
         snapshot->forward_count = adapter->forward_count;
         snapshot->up_sequence = adapter->up_sequence;
         snapshot->origin = adapter->origin;

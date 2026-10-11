@@ -163,6 +163,13 @@ def test_schema_preserves_the_complete_historical_health_field_sets():
         "ring_loop_time_mean_ns",
         "ring_loop_time_count",
     )
+    # The sealed fifo group likewise gained an explicitly named appended tail: the
+    # type-B transmit reject counters of the origin ring lane.
+    appended_fifo = (
+        "tx_reject_bad_payload_count",
+        "tx_reject_ring_full_count",
+        "tx_reject_no_slot_count",
+    )
     for group, expected in (("runtime", RUNTIME_FIELDS), ("process", PROCESS_FIELDS),
                             ("fifo", FIFO_FIELDS), ("physical", PHYS_FIELDS),
                             ("crc_diagnostic", CRC_DIAGNOSTIC_FIELDS)):
@@ -171,6 +178,9 @@ def test_schema_preserves_the_complete_historical_health_field_sets():
         if group == "runtime":
             assert tuple(page[-len(appended_runtime):]) == appended_runtime
             page = page[:-len(appended_runtime)]
+        elif group == "fifo":
+            assert tuple(page[-len(appended_fifo):]) == appended_fifo
+            page = page[:-len(appended_fifo)]
         assert frozen == page
 
 

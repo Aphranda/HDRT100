@@ -224,13 +224,20 @@ void vdc_dpll_manager_feedback_prepare_core0(void);
  * three-buffer queue absorbs asynchronous SD hand-off latency; realtime
  * TDMA/RefMem objects are untouched and queue exhaustion remains observable
  * through dropped_count. */
-/* Schema v4 records carry explicit sequence and quality provenance.  Keep
- * three 360-record buffers: the debug waveform probe was slimmed once the
- * TDMA/DPLL loop was established, releasing 3,360 bytes versus the earlier
- * 400-record geometry for realtime code in SRAM.  The segment size is
- * reported to the host, and SD segmentation plus dropped-count accounting
- * preserve long-run continuity. */
-#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 352u
+/* Schema v4 records carry explicit sequence and quality provenance.
+ * History of this segment size (28 B per record, three buffers):
+ *   400 -> 360  released 3,360 B once the TDMA/DPLL loop was established;
+ *   360 -> 352  earlier RAM trims;
+ *   352 -> 334  2026-10-11, TDMA-SEAT-03: the first-class seat's bounded
+ *               receive preservation made the two app slots overflow SRAM by
+ *               1436 B, and the project objective authorises shrinking this
+ *               waveform buffer when RAM is short. 334 records free 1512 B
+ *               (18 x 28 x 3) and restore both slots' link with 2108 B free.
+ * The segment size is reported to the host, and SD segmentation plus
+ * dropped-count accounting preserve long-run continuity. Do not shrink this
+ * again without an owner decision: the seat side has the cheaper remaining
+ * lever (DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH). */
+#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 334u
 
 /* Per-record provenance for the external waveform evidence.  These bits are
  * diagnostic facts; only CORRECTED_ELIGIBLE records may enter corrected phase

@@ -51,6 +51,13 @@ static void distributed_refmem_tdma_flight_parse_mailbox(const uint8_t *data, si
 static void distributed_refmem_feedback_receive(tdma_service_service_t *service, uint32_t slot,
     const uint8_t *mailbox, const tdma_flight_rx_view_t *view)
 { (void)service; (void)slot; (void)mailbox; (void)view; }
+/* T2 position transport and its seat facts have their own harness; the ordinary
+ * VDC flight-RX path only needs these symbols to exist. */
+static void distributed_refmem_position_ack_receive(uint32_t slot, const uint8_t *mailbox)
+{ (void)slot; (void)mailbox; }
+static bool distributed_refmem_position_priority_owned(void) { return false; }
+static void distributed_refmem_tdma_parse_position_fragment(uint32_t slot, const uint8_t *mailbox)
+{ (void)slot; (void)mailbox; }
 ''' + binding.group(0) + "\n" + state.group(0) + r'''
 static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;
 static volatile uint32_t s_vdc_flight_rx_guard;

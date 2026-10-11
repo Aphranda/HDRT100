@@ -19,7 +19,8 @@ def owner(tmp_path_factory):
         'bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out);\n'
         'bool tdma_runtime_owner_get_staged_ring_config(tdma_service_ring_runtime_config_t *out);\n', encoding='utf-8')
     return compile_grid(d, 'owner', HARNESS,
-                        [ROOT/'components/sync_trigger/src/trigger_action_service.c'])
+                        [ROOT/'components/sync_trigger/src/trigger_action_service.c',
+                         ROOT/'tests/unit/host_stubs/tdma_seat_mount_store_stub.c'])
 
 
 @pytest.mark.parametrize('case', [
@@ -227,7 +228,8 @@ INSTALL = 'TRIG:RES:ACT:INST ' + ','.join(map(str, [21, 1234, 10, 5678,
 @pytest.fixture(scope='module')
 def parser(tmp_path_factory):
     return compile_grid(tmp_path_factory.mktemp('action-parser'), 'parser', PARSER,
-        sorted((ROOT/'third_party/scpi-parser/libscpi/src').glob('*.c')), parser=True)
+        [*sorted((ROOT/'third_party/scpi-parser/libscpi/src').glob('*.c')),
+         ROOT/'tests/unit/host_stubs/tdma_seat_mount_store_stub.c'], parser=True)
 
 
 def parse_action(parser, command, mode='accept'):
@@ -280,7 +282,8 @@ def test_scpi_busy_is_two_fields(parser, command):
 @pytest.fixture(scope='module')
 def execute_parser(tmp_path_factory):
     return compile_grid(tmp_path_factory.mktemp('action-execute-parser'), 'parser', EXEC_PARSER,
-        sorted((ROOT/'third_party/scpi-parser/libscpi/src').glob('*.c')), parser=True)
+        [*sorted((ROOT/'third_party/scpi-parser/libscpi/src').glob('*.c')),
+         ROOT/'tests/unit/host_stubs/tdma_seat_mount_store_stub.c'], parser=True)
 
 
 def parse_execute(parser, command, mode='accept'):

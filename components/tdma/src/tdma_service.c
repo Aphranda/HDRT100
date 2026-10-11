@@ -6,6 +6,10 @@
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico/time.h"
 #include "tdma_seat_mount_store.h"
+#else
+/* Host builds have no seat-mount flash store. Keep the same diagnostic entry
+ * point as the device build so every call site stays unconditional. */
+static inline void tdma_seat_mount_store_note_reject(uint32_t code) { (void)code; }
 #endif
 
 #define tdma_service_OWNER_CORE1 1u

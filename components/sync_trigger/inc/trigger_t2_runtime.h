@@ -63,6 +63,21 @@ typedef struct {
     uint8_t freeze_local_age[TRIGGER_T2_RUNTIME_POSITION_COUNT];
     uint32_t freeze_fallback_count, freeze_missing_local_count;
     uint32_t descriptor_reject_count, transport_reject_count;
+    /* A well-formed first-class position that arrived AFTER its promised window:
+     * still a descriptor reject (that aggregate is unchanged), now attributed on
+     * its own instead of sharing a counter with identity/grid/deployment causes.
+     * An empty window (target overflow) is not lateness and is not counted. */
+    uint32_t late_arrival_count;
+    /* Magnitude of the most recent late arrival: the consumer's coarse ordinal
+     * when the record arrived and the window it had already missed, so
+     * (late_last_current_ms - late_last_expiry_sync) is how late it was. Only
+     * meaningful while late_arrival_count is non-zero. */
+    uint32_t late_last_current_ms, late_last_expiry_sync;
+    /* WHY a FREEZE is still outstanding, per target slot: who is not speaking
+     * this run id, and which position bits no reporting board has frozen. A
+     * large freeze_resend_count is otherwise indistinguishable between a
+     * forward delivery loss and a report that never matches this run. */
+    uint32_t freeze_ack_stale_mask, freeze_ack_incomplete_mask;
     uint32_t event_count, event_dropped_count;
     /* ARMED is admission only. COMPLETE/emitted require the matching PIO receipt. */
     uint32_t action_armed_mask, action_completed_mask, action_failed_mask;
@@ -79,6 +94,12 @@ typedef struct {
     /* Origin FREEZE: complete once every target reports it frozen; resent
      * until then, abandoned after the position window expires. */
     uint32_t freeze_complete_mask, freeze_abandoned_mask, freeze_resend_count;
+    /* Saturating count of positions whose FREEZE completion was abandoned after
+     * the position window closed. The mask is per position and is cleared by the
+     * next run, so it cannot answer "how often did this happen"; this counter
+     * can. A first-class position that never completed its freeze is exactly the
+     * loss the seat's own verdict must not report as healthy. */
+    uint32_t freeze_abandoned_count;
     uint8_t event_dispatched[TRIGGER_T2_RUNTIME_EVENT_CAPACITY];
     uint64_t last_counter_count;
     trigger_time_cursor_snapshot_t cursor;

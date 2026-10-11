@@ -21,7 +21,17 @@ def preacquire_executable(tmp_path_factory):
     harness = harness.replace("ses==session && role==9 && epoch==3",
         "ses==session && role==profile.control_profile.generation && epoch==3")
     harness = harness.replace("static tdma_service_service_t owner;",
-        FIFO_SEAM + "\nstatic tdma_service_service_t owner;")
+        FIFO_SEAM + "\n#include \"trigger_position_mailbox.h\"\n"
+        # The extracted service functions touch the position transport statics
+        # that live in distributed_refmem_position_ack.inc, which this harness
+        # does not compile. Inject the same objects and stub the cancel service.
+        "static trigger_position_mailbox_t s_position_tx_mailbox,"
+        "s_position_rx_mailboxes[DISTRIBUTED_REFMEM_NODE_COUNT];\n"
+        "static trigger_position_freeze_latch_t "
+        "s_position_freeze_latches[DISTRIBUTED_REFMEM_NODE_COUNT];\n"
+        "static volatile uint32_t s_position_cancel_requested;\n"
+        "static void distributed_refmem_position_cancel_service(void) { }\n"
+        "static tdma_service_service_t owner;")
     harness = harness.replace("tdma_flight_fifo_core0_publish_tx(&service->flight_fifo,",
         "boundary_test_fifo_publish(&service->flight_fifo,")
     harness = harness.replace("static bool mode_available=true;",

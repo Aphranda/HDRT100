@@ -54,6 +54,10 @@ tdma_service_service_t *tdma_runtime_owner_get(void);
 tdma_traffic_scheduler_t *tdma_runtime_owner_get_scheduler(void);
 tdma_pio_spi_ring_adapter_t *tdma_runtime_owner_get_ring_adapter(void);
 bool tdma_runtime_owner_set_flight_process_image_mode(bool enabled);
+/* TDMA-SEAT-01: STOP-only origin rotation ratio (M:N). Rejected while the ring
+ * is enabled or the adapter has started; the ratio is frozen for the session. */
+bool tdma_runtime_owner_set_seat_rotation(uint32_t priority_share,
+                                          uint32_t first_class_share);
 bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled);
 bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled);
 bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled);

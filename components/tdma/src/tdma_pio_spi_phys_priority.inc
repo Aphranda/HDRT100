@@ -6,9 +6,13 @@
 #else
 #define TDMA_PRIORITY_IRQ_HOT
 #endif
-/* Keep the fixed record table below Core1's reserved SCRATCH_X stack.
- * Both app linkers reject data/stack overlap. Startup initializes this
- * section through the SDK's existing scratch copy table. */
+/* The fixed record table lives below Core1's reserved SCRATCH_X stack, as
+ * before: both app linkers reject data/stack overlap. SCRATCH_X data totals
+ * 1000 B against the 3 KiB stack in a 4 KiB bank (24 B of design margin), so
+ * TDMA-SEAT-03's reject attribution does NOT live in this struct -- it is kept
+ * in ordinary RAM (tdma_priority_rx_attribution()) because the lane stores two
+ * copies of its status (live + published). Startup initializes this section
+ * through the SDK's existing scratch copy table. */
 _Static_assert(sizeof(tdma_priority_rx_t) + sizeof(tdma_priority_rx_record_t) <= 1024u,
     "priority records must fit within the scratch data budget");
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
@@ -231,7 +235,18 @@ static TDMA_PRIORITY_IRQ_HOT void tdma_priority_irq(void)
     pio_interrupt_clear(BOARD_TDMA_RX_PIO, 3u);
     drv_watchdog_mark_progress(1u, TDMA_PRIORITY_PROGRESS_ACK);
     const uint32_t reason = clock_valid ? tdma_priority_capture(entry, cuts, &accepted) : TDMA_PRIORITY_RX_DMA;
-    if (reason != TDMA_PRIORITY_RX_OK) tdma_priority_rx_reject(&s_tdma_priority_rx, reason);
+    if (reason != TDMA_PRIORITY_RX_OK) {
+        /* The mailbox class is only trustworthy once the transport header
+         * validated; earlier failures are attributed to the unknown bucket so a
+         * garbled copy can never be counted as a first-class loss. */
+        const bool class_known = reason == TDMA_PRIORITY_RX_MAILBOX ||
+            reason == TDMA_PRIORITY_RX_MAILBOX_CRC ||
+            reason == TDMA_PRIORITY_RX_SEQUENCE ||
+            reason == TDMA_PRIORITY_RX_EXHAUSTED ||
+            reason == TDMA_PRIORITY_RX_CADENCE;
+        tdma_priority_rx_reject_class(&s_tdma_priority_rx, reason,
+            class_known ? s_tdma_priority_work.mailbox[3] : 0u, class_known);
+    }
     const bool interval_valid = tdma_priority_ticks(&end) && end >= entry && end - entry <= UINT32_MAX;
     if (!interval_valid) end = entry + UINT32_MAX;
     /* Measured body includes capture, CRC and slot publication. The fixed
@@ -378,7 +393,7 @@ bool tdma_pio_spi_phys_priority_rx_counters_core1(tdma_priority_rx_counters_t *o
     /* The only writers are this core's masked IRQ and its serialized owner.
      * Neither can run concurrently here, including for the 64-bit total. */
     __dmb();
-    const tdma_priority_rx_snapshot_t *const status = &s_tdma_priority_rx.status;
+    const tdma_priority_rx_status_t *const status = &s_tdma_priority_rx.status;
     *out = (tdma_priority_rx_counters_t){
         .cycles = status->irq_total_cycles, .epoch = status->epoch,
         .count = status->irq_count, .maximum = status->irq_max_cycles,
