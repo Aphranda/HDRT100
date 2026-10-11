@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_RUNTIME_CONSTRAINTS.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 
 ## 文档接口
 
@@ -167,9 +167,78 @@ Recovery 用 `TDMA_RECOVERY_*` 的独立缓冲、预算和每周期配额，Core
 
 Calibration 拥有线序、delay、residence、bias、matrix generation/freshness 及接受质量；TDMA 只提供训练 persona、窗口、资源、原始测量和失败原因。复用兼容且已确认的环序不要求重扫全部候选。正式校准门禁与可用诊断输入分别记录。
 
-当前 T2 position descriptor 使用独立 `TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS`：正常帧保留 VDC 状态与 ACK，`TDMA_PROCESS_IMAGE_T2_FRAGMENT_*` 使用较低优先级的 RefMem 区域；物理 flight 白名单独立准入，普通 RefMem delta parser 仍拒绝该 class。已接通的 host/构建路径不等于四板实际送达或一等期限通过。T2 的 READY/NACK、fence 与 completion 仍待受控运输、资源配额和多板生命周期闭合。另一分支的单板 sequence 测试不是本分支 TDMA 多板预约验收。
+当前 T2 position descriptor 使用独立 `TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS`：运行期是紧缩单帧记录，经 origin 快速路径一等邮箱运输、与特等按发布机会轮换，从板由优先级通道第二接收端接收（`TDMA-PROGRESS-20261010-002`）；`TDMA_PROCESS_IMAGE_T2_FRAGMENT_*` 分片仅在旧固件/迁移回退时出现，不在运行期路径上，也不再借用二等 RefMem 区域。物理 flight 白名单独立准入，普通 RefMem delta parser 仍拒绝该 class。四板实际送达与从板冻结/动作已在台架闭合（`T2-PROGRESS-20261010-024`，实测快照），但真实物理 selection 证据、seat 计数/比例 SCPI 页和一等期限预算仍未闭合。另一分支的单板 sequence 测试不是本分支 TDMA 多板预约验收。
 
 ## 观测与验收
+
+**TDMA-SEAT-01 比例与计数的 SCPI 面（2026-10-11 落地）。** 轮换比例是 STOP-only 的每板设置，不写入 ring profile/geometry，因此不改变 wire CRC：
+
+| 命令 | 语义 |
+|---|---|
+| `SYSTem:TDMA:SEAT:ROTation <priority_share>,<first_class_share>` | 设置 origin 快速路径的 M:N 轮换比例。每个 share 取 1..`TDMA_SEAT_ROTATION_SHARE_MAX`，且 `M+N <= TDMA_SEAT_ROTATION_CYCLE_MAX`；越界、零值或环已使能/适配器已启动时拒绝，返回错误码 `TDMA_SEAT_ROTATION`。成功回 `OK,<M>,<N>`。 |
+| `SYSTem:TDMA:SEAT:ROTation?` | **配置 + 声明上限（11 字段，2026-10-11 扩展）**：`priority_share,first_class_share`（配置值，未设置回报 0，生效值见后两字段）、`priority_share_effective,first_class_share_effective,cycle`（由 `tdma_seat_rotation_priority/first_class` 解析后的生效比例与周期）、`share_max,cycle_max`（`TDMA_SEAT_ROTATION_SHARE_MAX`/`_CYCLE_MAX`）、`first_class_wait_max_opportunities`（`TDMA_SEAT_FIRST_CLASS_WAIT_MAX_OPPORTUNITIES`）、`hold_depth,hold_max_attempts`（`DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH`/`_MAX_ATTEMPTS`）、`loop_schedule_enabled`（`TDMA_LOOP_SCHEDULE_ENABLED`）。**为什么把上限放进页里**：计数只有与声明预算对照才是证据；且 `seat_starved_count`/`seat_first_class_starved_count` 只能在席位窗口门控内增长，而该门控在 `loop_schedule_enabled == 0` 时被编译掉——采集必须自解释，否则"饥饿为 0"会被误读成"验证过"，实际只是门控未启用（特等席侧同类可见性见 `SYSTem:TDMA:FLIGHT:PRIORity:BUDget?`）。 |
+| `SYSTem:TDMA:SEAT:COUNters?` | 读回 origin 席位与一等席服务事实：`seat_opportunity_count,seat_priority_count,seat_first_class_count,seat_priority_yield_count,seat_first_class_reject_count,seat_first_class_wait_max,first_class_stage_refused_count,first_class_retired_waiting_count,seat_first_class_wait_violation_count,seat_starved_count,seat_first_class_starved_count,seat_first_class_deferred_count`。计数为累计值，读取不改变链路。 |
+| `SYSTem:TDMA:SEAT:HEALth?` | **一等席稳定性判定**（24 字段）：`ok,reason_mask,seat_opportunity_count,seat_priority_count,seat_first_class_count,seat_first_class_wait_max,seat_first_class_wait_violation_count,first_class_stage_refused_count,first_class_retired_waiting_count,seat_first_class_starved_count,seat_first_class_deferred_count,lane_reject_first_class_count,lane_reject_other_class_count,lane_reject_unknown_class_count,lane_hold_count,lane_drain_count,lane_drain_fail_count,lane_hold_expired_count,lane_hold_dropped_count,lane_ack_override_count,lane_diag_refused_count,lane_decode_reject_count,freeze_abandoned_count,freeze_missing_local_count`（末尾两字段为 2026-10-11 追加的消费侧丢失原始事实，读者下标不变）。`ok=1` 当且仅当 `reason_mask==0`；判定只由**退化**事实构成（见下表），设计内的背压（`first_class_stage_refused_count`）与推迟计数只作为上下文证据出现、不进入 `reason_mask`。任一来源读不到时**返回错误而不报健康**：宁无数据，不给"看似健康的 0"。 |
+
+`reason_mask` 位定义（符号以 [tdma_pio_spi_ring_adapter.h](../../components/tdma/inc/tdma_pio_spi_ring_adapter.h) 的 `TDMA_SEAT_HEALTH_REASON_*` 为准）：
+
+| 位 | 符号 | 含义 |
+|---|---|---|
+| 0 | `TDMA_SEAT_HEALTH_REASON_HOLD_DROPPED` | 被拒的一等记录因**有界队列已满**被丢弃（`lane_hold_dropped_count`） |
+| 1 | `TDMA_SEAT_HEALTH_REASON_HOLD_EXPIRED` | 记录在**声明的重试预算**内无法补投而被退休（`lane_hold_expired_count`） |
+| 2 | `TDMA_SEAT_HEALTH_REASON_ACK_OVERRIDE` | 共享控制字节被一等确认**覆盖**（`lane_ack_override_count`）——准入生效后此位应恒为 0，是"独立通道是否建立"的判据 |
+| 3 | `TDMA_SEAT_HEALTH_REASON_WAIT_VIOLATION` | 一等记录等待**达到/超过**服务预算（`seat_first_class_wait_violation_count`） |
+| 4 | `TDMA_SEAT_HEALTH_REASON_LANE_REJECT` | 优先级 lane 拒收了一等 class 记录（`lane_reject_first_class_count`） |
+| 5 | `TDMA_SEAT_HEALTH_REASON_RETIRED_WAITING` | 已就绪但**未上车即被退休**的一等事实（`first_class_retired_waiting_count`） |
+| 6 | `TDMA_SEAT_HEALTH_REASON_FIRST_CLASS_STARVED` | **loop plan 排不下**一等席窗口（`seat_first_class_starved_count`）——挂在一等席上的负载将在每个边界被推迟，绝不允许静默发生 |
+| 7 | `TDMA_SEAT_HEALTH_REASON_DECODE_REJECT` | 帧已通过优先级通道校验（header/identity/mailbox CRC）但**紧缩切片无法解码**（`lane_decode_reject_count`）——不可恢复的一等事实丢失，因此与"可恢复背压"分开计数 |
+| 8 | `TDMA_SEAT_HEALTH_REASON_FIRST_CLASS_MISSED` | **端到端丢失**：原点在位置窗口关闭后放弃完成该位置的 FREEZE（`freeze_abandoned_count`），或从板被要求冻结一个自己从未拥有的位置（`freeze_missing_local_count`）。前 8 位只证明"席位对**看到过的**记录做了什么"；没有这一位，**从未到达**的一等交付会留下 `ok=1`（假健康），见 `TDMA-PROGRESS-20261011-029` |
+
+**sink 层两类拒绝的分离（2026-10-11 补）。** 从板一等 sink 原先只有一个拒绝计数，混合了两种语义完全不同的情况：① 解码失败（`trigger_position_slice_decode()` 为假）——帧合法但切片不可解，**记录丢失且不可恢复**；② 单深度 mailbox 仍被占用——**有界背压**，记录已进入每源 FIFO 等待后续时间片补投。现在 ② 仍是 `lane_reject_count`（与 `lane_hold/drain/drain_fail` 一起构成可恢复路径的证据），① 独立为 `lane_decode_reject_count` 并进入判定页 bit7。这样"一等席到底丢了多少"不再需要从混合计数里猜。
+
+**loop plan 席位饥饿（2026-10-11 补，2026-10-11 扩展）。** `tdma_loop_plan()` 按优先级顺序（PRIORITY → FIRST_CLASS → LOAD）在环内铺开各席位窗口；当剩余空间排不下时，此前只表现为"该席位没有窗口"，调用方（origin 发布门控）会**无限推迟**挂在该席位上的负载且不留证据。现在：
+
+- `tdma_loop_plan_t.dropped_mask` 显式报告**所有被丢弃的已请求席位**（`TDMA_LOOP_PLAN_DROPPED_*`，`tdma_loop_plan_seat_dropped()` 查询）；
+- 门控判定抽成**纯函数** `tdma_loop_plan_seat_service(plan, seat, boundary_sequence, slot_period_ns)`，三种结果：`OK`（本边界属于该席位）/ `DEFER`（席位正确但不是本边界）/ `STARVED`（**计划根本无法服务该席位**）；
+- `STARVED` 覆盖两种成因：为空间被丢弃（mask 有对应位）**以及从未被请求**——例如 `TDMA_LOOP_PLAN_LOAD_ENABLED == 0` 时 LOAD 席永远不会进计划，若有人把负载挂到 LOAD 席（挂载表允许并持久化该 seat），今天会**永久静默推迟**，现在计为饥饿；
+- origin 在 `STARVED` 时计入 `seat_starved_count`（一等席子集另计 `seat_first_class_starved_count`）并进入 `SEAT:HEALth?` bit6。该映射被抽成 `tdma_pio_spi_ring_origin_seat_gate()`（每次发布尝试重建计划、返回"现在可发/推迟"），因此可被主机 harness 直接抽取执行。
+
+**门控不是现行调度机制（2026-10-11 owner 定案）**：席位调度由 **M:N 轮换（`TDMA-SEAT-01`）**实现——快速通道只有一条，特等与一等分时复用；本节的 loop-plan 窗口门控**不在设计内**，`TDMA_LOOP_SCHEDULE_ENABLED` 保持 **0**。相关代码与饥饿计数保留为**休眠代码**并配构建守卫与行为用例，以免腐烂；不要再把它当作"待启用项"。
+
+**休眠门控的验证（重要）**：该门控位于 `#if TDMA_LOOP_SCHEDULE_ENABLED` 内，而该宏默认为 **0**（`tdma_seat_admission.h`），因此上述饥饿计数在真机上不会增长，上述饥饿计数目前不会增长（`seat_starved_count == 0` 是"未启用"的正常结果，不代表已验证过真机行为）。验证分三层，避免"默认关闭的代码烂掉"：
+
+1. 纯判定：`test_tdma_seat_admission.py` 覆盖 `OK`/`DEFER`/`STARVED`（含"空间不足被丢弃"与"从未被请求（LOAD）"两种 STARVED 成因）；
+2. 门控行为：`test_tdma_seat_rotation.py::test_seat_window_gate_counts_starvation_and_defers` 抽取 `tdma_pio_spi_ring_origin_seat_gate()` 实跑——未挂载=放行、PRIORITY 窗口=放行、FIRST_CLASS 非本边界=推迟且**不计数**、FIRST_CLASS 落入窗口=放行、LOAD 席任意边界=**计饥饿且不放行**；
+3. 构建守卫：同名文件以 `-DTDMA_LOOP_SCHEDULE_ENABLED=1` 语法编译真实适配器翻译单元必须通过。
+
+**一等席"推迟"也是等待机会（2026-10-11 补）。** 一等席记录被租用后，若硬件发布未完成（`phys_origin.publish()` 返回假），记录会留在席位队列等待下一次机会。此前这种**由发布侧造成的等待**既不推进等待预算也不计数：记录可以无界等待而判定页显示"健康"。现在每次推迟都计入 `seat_first_class_deferred_count`，并**推进同一条声明预算** `TDMA_SEAT_FIRST_CLASS_WAIT_MAX_OPPORTUNITIES`（达到即计一次 `seat_first_class_wait_violation_count`、进入 `SEAT:HEALth?` bit3），成功上车后等待归零、并把最大值写进 `seat_first_class_wait_max`。因此"被特等挤"与"被发布侧拖"两类等待共享同一条有界、可计数的服务口径。
+
+一等席服务事实的语义（2026-10-11 补）：
+
+- **两条声明预算 + 越界计数**（`TDMA-SEAT-03` B）：origin 侧 `TDMA_SEAT_FIRST_CLASS_WAIT_MAX_OPPORTUNITIES` 声明一条一等记录在特等持续上车时可以等待的发布机会数，等待**达到**该预算即把该次等待记一次 `seat_first_class_wait_violation_count`（每次等待只计一次，不是原始最大值）；从板侧 `DISTRIBUTED_REFMEM_POSITION_HOLD_MAX_ATTEMPTS` 声明保存记录的最大补投次数，超过即退休并计入 `lane_hold_expired_count`。两者都把"无限等待/无限重试"变成**有界且可计数**的事实。
+
+- `seat_first_class_wait_max`：等待中的一等记录**最终上车**时的最大等待机会数；记录在等待期间被 STOP/route 丢失时，其等待值先发布再退休（不再静默丢弃）。
+- `first_class_stage_refused_count`：因单深度邮箱仍有等待记录而**被拒绝的 stage 尝试**——即一等席的有界背压事实，不是错误。
+- `first_class_retired_waiting_count`：已 READY 但**未上车即被退休**（route 丢失/STOP）的记录数，即交付前损失。
+
+一等记录的完整性由**优先级通道**在交给任何 sink 之前统一校验：`tdma_priority_rx_validate()` 逐帧检查传输帧 magic/version/class/length/identity CRC/transport CRC 以及 mailbox magic/version/class/reference slot/target 位/mailbox CRC16；只有通过校验的记录才会 `publish` 并投递给 VDC 或一等 sink。因此从板侧"不做记录级 CRC 复验"只表示不复验 T2 紧缩切片本身，不表示整条链路缺少完整性门禁。
+
+**一等席接收保全（2026-10-11，`TDMA-SEAT-03` 缺口①/④-RX）。** 从板优先级通道接收端在单深度 mailbox 仍被占用而拒收一条 PREVIEW 时，不再把它丢掉，也不再只保留最新一条：按**每源有界 FIFO（深度 `DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH`，默认 4）**入队，由 T2 相位在**后续时间片按到达顺序**经常规 get 路径补投。队列是**只追加的 SPSC 环**（生产者＝捕获 IRQ，消费者＝T2 相位，同核），因此不会覆盖正在被读取的条目；**队列满时丢弃最新到达并显式计数**，而不是顶掉已有条目。补投成功即出队；同一条记录若先被线上重复帧成功投递，则队列中的副本标记为已消费（不再重复投递）。补投也有界：单条连续失败达到 `DISTRIBUTED_REFMEM_POSITION_HOLD_MAX_ATTEMPTS` 即退休并计数，然后继续尝试下一条。FREEZE 仍走 latch，不参与该队列。计数在 `SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 尾部：`lane_hold_count`（入队）、`lane_drain_count`（补投成功）、`lane_drain_fail_count`（补投失败）、`lane_hold_expired_count`（超重试预算退休）、`lane_hold_dropped_count`（队列满丢弃）、`lane_hold_delivered_count`（同一记录已由线上重复帧送达而退休的队列副本，2026-10-11 补）。
+
+**队列出口记账必须闭合（2026-10-11，随机化不变量测试发现）。** 出队路径原先只有两条被计数（补投成功、超预算退休），而"同一记录已由线上重复帧送达"这条路径只推进 `head` 而不计数：记录本身没丢，但**队列的账面无法对账**——`lane_hold_count` 减去已知出口会长期高估仍在排队的条目。现在入口与出口满足恒等式
+
+```
+lane_hold_count == lane_drain_count + lane_hold_expired_count
+                  + lane_hold_delivered_count + 仍在队列的条目数
+```
+
+其中"仍在队列"按每源 `tail - head` 求和（`POSition?` 只给逐条计数与 `lane_owned`，不给逐源深度）。该恒等式在**每次投递之后**与每个随机序列结束时都成立，由 `tests/python/test_tdma_seat_invariants.py` 的 24 种子 × 400 次随机投递驱动，以及 `test_t2_freeze_completion.py` 的线上重复用例共同见证。注意 `distributed_refmem_position_priority_drain()` 的返回值只表示**是否补投成功**：退休一个已送达副本会推进队列但返回 false，因此该出口只能由计数而不是返回值证明。
+
+**一等席 TX 侧的关键事实仲裁与准入（2026-10-11，`TDMA-SEAT-03` 缺口④；owner 定案：快速通道唯一、两席分时复用，故本机制是长期机制）。** 冻结完成状态搭在出站镜像的 `CONTROL_OPCODE`/`CONTROL_SEQ8` 两个控制字节上，而 action probe 诊断也会写同样两个字节。规则是**一等优先、诊断准入**：当本板有冻结事实要随本镜像发布时（`distributed_refmem_position_ack_control_available()` 为假），诊断**不得占用**这两个控制字节——它仍写自己的 RefMem 载荷片段，但控制字节被事先拒绝，拒绝次数计入 `lane_diag_refused_count`；镜像构建顺序固定为**先诊断、后一等确认**，因此即使在未预留的镜像里诊断先写了，交付关键的一等事实也会最后写入并覆盖它，每次覆盖计入 `lane_ack_override_count`（同一 opcode 重复写入不算覆盖）。两条计数合起来是完整事实：`lane_diag_refused_count` 表示准入生效，`lane_ack_override_count` 表示准入之外仍发生的覆盖——后者在独立通道建立后应恒为 0。特等席本就有专用 typed body，不存在这种共享。方案与剩余评审项见 [一等席独立 TX 通道方案评审](TDMA_SEAT_TX_CHANNEL_REVIEW.md)。
+
+**优先级通道拒绝的按 class 归因（2026-10-11，`TDMA-SEAT-03` 缺口⑤）。** lane 级拒绝不再只有一个合计值：`SYSTem:TDMA:FLIGHT:PRIORity?` 尾部追加四个字段——`first_class_reject_count`（被拒记录的 mailbox class 等于 T2 position class）、`other_class_reject_count`（已验证但属其他 class）、`unknown_class_reject_count`（传输头未通过校验、class 字节不可信）、`last_reject_class`（原始 class 字节，不可归因时为 `TDMA_PRIORITY_RX_CLASS_UNKNOWN`）。三者之和恒等于 `reject_count`，所以"一等席丢了多少"与"链路整体丢了多少"可以分开核对；被判为 unknown 的记录**不会**被算成一等损失。
+
+比例在 STOP 下配置、由 `ARM` 冻结；比例是**每板**设置：参考节点角色轮换后，由当时承担 origin 的板按本板保存的比例仲裁，因此多板实验必须把同一比例写到所有可能成为 origin 的板，并在实验记录中声明。一等席服务等级与特等席的差距另见 `TDMA-SEAT-03`。
 
 SCPI 负责配置、触发、停止及冻结后读取，不用查询续装实时链路。板端记录先进入有界 RAM，Core0/Storage 在允许的停态落盘；有限记录完成后保留运行和最终 STOP 的边界，不把 SAVE 成功当作采集全程无缺口。
 

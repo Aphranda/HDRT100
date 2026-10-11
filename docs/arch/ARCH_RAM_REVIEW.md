@@ -4,7 +4,7 @@ Status: Draft
 Domain: ARCH
 Canonical: `docs/arch/ARCH_RAM_REVIEW.md`
 Related: `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/release/RELEASE_CHECKLIST.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 
 **目标**：为 DPLL/VDC 调试维持可用 SRAM 余量。DPLL/VDC 仍是主任务，RAM 只是它的使能条件；
 release RAM 门禁不作为本阶段验收条件。
@@ -74,7 +74,7 @@ release RAM 门禁不作为本阶段验收条件。
 |---:|---|---|
 | 118,784 | `.bss` | `ucHeap`（`third_party/freertos/.../heap_4.c`） |
 | 65,536 | `.bss` | `s_distributed_refmem_table`（`distributed_refmem.c`） |
-| 33,600 | `.bss` | `s_waveform_buffers`（`vdc_dpll_manager.c`） |
+| 28,056 | `.bss` | `s_waveform_buffers`（`vdc_dpll_manager.c`；2026-10-11 由 33,600 缩容，见 §波形三缓冲行与 `TDMA-PROGRESS-20261011-025`） |
 | 21,200 | `.bss` | `s_control`（`sync_io_logic_analyzer.c`） |
 | 16,384 | `.sync_io_dma_ring` | `sync_io_shared_workspace`（`sync_io.c`） |
 | 16,384 | `.bss` | `s_write_buffer`（`storage_manager.c`） |
@@ -94,7 +94,7 @@ release RAM 门禁不作为本阶段验收条件。
 | 子系统 | 合计 | 主要构成 |
 |---|---:|---|
 | Distributed RefMem | 110,802 B | 向量表 65,536 + 三份事务镜像 24,576 + `s_pending_tables` 4,796 + `s_refmem_sync_context` 1,784 + `s_feedback_rx` 1,656（后两项在本次增量内） |
-| VDC/DPLL | 57,607 B | 波形三缓冲 33,600 + DPLL capture 7,600 + 反馈三项 `s_feedback_match_cache`/`s_feedback_matches`/`s_feedback_rx` 共 8,512 + `s_vdc_domain` 2,712 + `scratch_y` 快照 1,384 + SRAM 常驻代码 1,140 |
+| VDC/DPLL | 52,063 B | 波形三缓冲 28,056（2026-10-11 由 33,600 缩容，见下 §波形三缓冲行）+ DPLL capture 7,600 + 反馈三项 `s_feedback_match_cache`/`s_feedback_matches`/`s_feedback_rx` 共 8,512 + `s_vdc_domain` 2,712 + `scratch_y` 快照 1,384 + SRAM 常驻代码 1,140 |
 | TDMA | 55,250 B | runtime owner 12,168 + pio_spi workspace 8,120 + ring adapter 7,520 + event 常驻代码 3,296 + traffic scheduler 3,152 + `s_tdma_pio_spi_phys` 2,840 + cal tx 2,048 |
 | SYNC_IO | 44,877 B | 逻辑分析仪控制块 21,200 + arena 16,384 + `s_sync_io` 6,296 |
 | Calibration | 34,701 B | capture payload 8,192 + 四个 2,048 B 捕获环（ring tx/rx、marker raw/bit）+ 训练存储 1,280 + 扫描载荷 1,136 |
@@ -104,7 +104,7 @@ release RAM 门禁不作为本阶段验收条件。
 
 | 事实 | 影响 |
 |---|---|
-| arena 尺寸由硬件 DMA 回绕决定，必须是 2 的幂（现为 2^14 = 16 KiB） | 不能任意取 33,600 B 之类的中间值；下一档是 32 KiB，反向操作无收益 |
+| arena 尺寸由硬件 DMA 回绕决定，必须是 2 的幂（现为 2^14 = 16 KiB） | 不能任意取波形三缓冲尺寸之类的中间值；下一档是 32 KiB，反向操作无收益 |
 | 波形观测取数链路为 `PIO RX → capture DMA ring(=arena) → latch ring → 观测服务` | 波形采集期间 arena 必然在线，波形三缓冲不能与 arena 共用内存 |
 | `__HeapLimit` 与 `__StackLimit` 取值相同，显式 `ASSERT` 恒真 | 但静态越界仍由链接器自身的区域边界检查兜住（09-16 实证）；真正无保护的是运行期 `sbrk` 可增长到 `SCRATCH_X`（core1 栈）所在区 |
 
@@ -141,7 +141,7 @@ release RAM 门禁不作为本阶段验收条件。
 | 对象 | 结论 | 依据 |
 |---|---|---|
 | FreeRTOS 静态堆 `ucHeap` | 不以下调容量作为回收手段 | `docs/arch/RTOS_HAOFV_TODO.md` 的 P0-RAM 记录：更低 heap 候选曾导致启动风险，已明确不再只凭 map 数字下调 |
-| 波形三缓冲 `s_waveform_buffers` | 记录数与份数均已到界，不可再缩 | 三份是流水线最小配置（在采／在等／在写）；每段记录数受 RAM 而非 SD 写事务限制，且已按 A/B 双镜像约束压缩过一次 |
+| 波形三缓冲 `s_waveform_buffers` | **2026-10-11 已再缩一次，当前不可再缩** | 三份是流水线最小配置（在采／在等／在写）。每段记录数原为 352（历史 400→360→352）；TDMA-SEAT-03 的一等席保全使 app 链接溢出 SRAM 1436 B，按目标授权（"如果RAM不够，可以缩小波形buffer"）再缩到 **334**（−1512 B），随后 A/B 两槽重新链接通过。代价：单段记录数 −5.1%，长程连续性仍由 SD 分段与 `dropped_count` 记账保证。若还需余量，替代方案是缩小席位侧 `DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH`（当前 4，降到 2 可再省 320 B）而不是继续缩本缓冲；详见 `TDMA-PROGRESS-20261011-025` 与 `TDMA_SEAT_ACCEPTANCE_REVIEW.md` 待决事项 5 |
 | 波形三缓冲与 SYNC_IO arena 合并 | 不成立，勿再提案 | 见 §2.4：DMA 环形尺寸必须是 2 的幂；且波形采集期间 arena 必然在线 |
 | StorageAO 写事务缓冲 `s_write_buffer` | 已是多域复用的单份场地，无重复副本 | `STORAGE_MANAGER_WRITE_BUFFER_MAX_BYTES` 直接取自 `STORAGE_MANAGER_FILE_WRITE_MAX_BYTES`，波形分段等写入路径按序复用同一份 |
 

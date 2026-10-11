@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 
 ## 文档接口与范围
 
@@ -131,7 +131,7 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 | 普通 FIFO 路径 | 约 4 ms | Core0 RefMem 按 `cycle_period_ns × node_count` 节流，每个环回最多交一份（`TDMA-PROGRESS-20261008-006`） |
 | Core1 整表周期 | 1.5 ms | `PROJECT_CORE1_PROFILE_1500US_CYCLES` |
 
-**按机会编号轮换优先级。** 第 k 次发布机会按轮换比例 M:N 指定本次的**主等级**（默认 M:N = 1:1，即特等、一等交替）。每次机会：
+**按机会编号轮换优先级。** 第 k 次发布机会按轮换比例 M:N 指定本次的**主等级**。比例是 STOP-only 的每板设置（`SYSTem:TDMA:SEAT:ROTation <M>,<N>`，默认 `TDMA_SEAT_ROTATION_DEFAULT_*_SHARE` = 1:1，即特等、一等交替），每个 share 取 1..`TDMA_SEAT_ROTATION_SHARE_MAX` 且 `M+N <= TDMA_SEAT_ROTATION_CYCLE_MAX`；未设置或读到 0 时回落到编译默认，绝不产生零周期。每次机会：
 
 ```text
 主等级有新内容          -> 主等级上车
@@ -139,7 +139,7 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 否则                    -> 不发布，座位保持上一份已发布内容
 ```
 
-两个等级都有内容时，每类至少每 M+N 次机会各上车 M、N 次；一等空闲时，特等使用全部机会。默认 1:1 下，特等与一等在一个约 4 ms 的环回内各得到约一次机会。
+两个等级都有内容时，每类至少每 M+N 次机会各上车 M、N 次；一等空闲时，特等使用全部机会。默认 1:1 下，特等与一等在一个约 4 ms 的环回内各得到约一次机会；把比例调向特等（例如 2:1、3:1）会按比例缩短特等的等待上限、拉长一等的等待上限，因此在改比例前须先按席位预算核定一等的期限与背压（见 [TODO](TDMA_DOMAIN_TODO.md) 的 `TDMA-SEAT-02`）。
 
 **新内容的定义。**
 - 特等：provider 返回 `TDMA_PRIORITY_TX_READY`，且事件序号不同于**特等自己上一次上车的记录**。比较对象是特等自己的上一次发布，而不是座位上一次发出的内容；否则一等上车后，特等会把同一旧事件当作新事件重发。`EMPTY` 表示特等本次没有新内容，**不再保留座位**。
@@ -174,9 +174,9 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 **验收。**
 1. 主机测试：特等有新事件且轮到特等时一等不上车；轮到一等且一等有记录时一等上车；轮到一等但一等为空时特等上车；一等上车后特等不重发旧事件；EMPTY 不占座；STOP 退休一等邮箱。
 2. DPLL60 不退化；新增计数：每等级上车次数、特等让座次数、一等记录等待机会数。
-3. 四板 T2：NO1 位置记录上车数、从板 `rx_complete_count` 增长、一等等待不超过 M+N 次机会。
+3. 四板 T2：NO1 位置记录上车数、从板优先级通道 accept/duplicate/reject 计数、一等等待不超过 M+N 次机会。注意运行期一等记录由优先级通道接收，旧 `rx_complete_count` 在该路径上不再增长，不作为送达判据。
 
-**实现状态。** 一等邮箱 `tdma_first_class.h`；仲裁在 `tdma_pio_spi_ring_origin.inc` 的 `publish_priority`，轮换比例为 `TDMA_SEAT_ROTATION_*_SHARE`；补丁路径已删除。未完成：seat 计数接 SCPI 只读页；四板验收第 3 项中 T2 动作执行未闭合。
+**实现状态。** 一等邮箱 `tdma_first_class.h`；仲裁在 `tdma_pio_spi_ring_origin.inc` 的 `publish_priority`，轮换比例经 `tdma_pio_spi_ring_adapter_set_seat_rotation()` 在 STOP 下按板配置（默认 1:1，SCPI 入口 `SYSTem:TDMA:SEAT:ROTation`，计数页 `SYSTem:TDMA:SEAT:COUNters?`）；改写已排队 VDC image 的补丁路径已删除。从板侧一等记录由优先级通道第二接收端（`TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS`）承担，普通 flight 路径不再作为一等接收路径（`TDMA-PROGRESS-20261010-002`）。未完成：真实物理 selection 证据（`TDMA-FLIGHT-002K2`）、一等席服务等级与特等席对齐（`TDMA-SEAT-03`）、比例与一等扩容的 `EXE-SEAT-01` 审核和 C11 登记。
 
 席位余量须分开核对 wire 与 CPU：当前 typed 同步 body 由 `TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_SIZE` 完整占用，不能再塞入健康状态或把普通 class 的 optional 空间重复记作 typed 可用余量。SYNC 的后续需求须列出独立资源及最坏耗时，未完成准入/实测的空间不算已承诺余量。新增或扩容特等席须先经用户审核（`EXE-SEAT-01`）。VDC 健康镜像、统计及查询是 Core0 异步诊断，不占特等邮箱，也不新增 Core1 发布工作。
 

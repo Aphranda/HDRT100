@@ -4,13 +4,41 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20261011-027：M:N 轮换比例 SCPI 入口落地，一等席对齐特等列为下一目标
+
+- TODO task ID：`T2-TRANSPORT-001`、`T2-TRANSPORT-002`；TDMA 侧 `TDMA-SEAT-02`（IN PROGRESS）、新增 `TDMA-SEAT-03`（PENDING）。
+- **实现（TDMA 侧）**：轮换比例从编译期常量改为 STOP-only 的每板设置，`SYSTem:TDMA:SEAT:ROTation <M>,<N>` 写入（每 share 1..`TDMA_SEAT_ROTATION_SHARE_MAX`，`M+N <= TDMA_SEAT_ROTATION_CYCLE_MAX`，越界/零值/运行中拒绝），`SYSTem:TDMA:SEAT:ROTation?` 读回（未设置回报默认 1:1），`SYSTem:TDMA:SEAT:COUNters?` 读回 origin 六个席位计数；读到 0 时回落到编译默认，避免零周期。比例不进入 ring profile/geometry，wire CRC 不变。
+- **验证（主机，本次实测）**：适配器 host 单测通过；`tests/python/test_tdma_seat_rotation.py` 通过（含 2:1、1:2 领队序列与零值回落）；SCPI/TDMA 相邻 python 测试 50 项通过。
+- **对 T2 的含义**：比例现在可现场调，但调向特等会按比例拉长一等的等待上限；配置一等席前必须先有一等的期限/背压预算（见下条目标）。
+- **下一步（用户指示）**：把一等席的服务等级提升到特等席水平。已定义为 `TDMA-SEAT-03`，缺口清单：①无一等专属 RX/TX 保全与独立队列（现与特等共用 lane 后按 class 分流）；②失败原因未按 class 细分；③从板记录级完整性校验为保预算被移除，仅 version 去重；④一等无独立期限/背压预算；⑤单深度邮箱的"有等待记录即拒绝 stage"未作为显式背压上报。
+- **未闭合**：固件改动尚未取得 P3 硬件验收凭证（本机无四板台架），pre-commit 会按 staged 源码指纹拦截；比例与一等扩容须走 `EXE-SEAT-01` 与 C11 登记。
+
+### T2-PROGRESS-20261011-026：按当前代码回写一等席快速路径与轮换比例语义
+
+- TODO task ID：`T2-TRANSPORT-001`、`T2-TRANSPORT-002`、`T2-DOC-001`；关联新增 `TDMA-SEAT-02`。
+- **触发**：用户指出「一等席现在也走快速路径」「1:1 是默认值但可通过 SCPI 配置」；复核代码后按现状回写语义，不按未实现的能力写。
+- **代码事实（已核实）**：origin 快速路径的 1:1 轮换是**编译期常量** `TDMA_SEAT_ROTATION_PRIORITY_SHARE` / `TDMA_SEAT_ROTATION_FIRST_CLASS_SHARE`（`tdma_pio_spi_ring_adapter.h`），全库无写入者、无 SCPI 入口；SCPI 侧只有 `TRIGger:REServation:SEAT:MOUNT/MOUNT?/CLEar`（class→seat 挂载表），其唯一消费点位于默认关闭的窗口门（`TDMA_LOOP_SCHEDULE_ENABLED` 为 0）；origin 的 `seat_*` 计数未接 SCPI 只读页。从板侧一等记录已确认由优先级通道第二接收端承担，旧 `rx_complete_count` 不再增长。
+- **回写**：`docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`（轮换比例改为「编译期常量、当前 1:1、无配置入口」；验收读数改 priority 计数；实现状态补从板接收与已闭环项）、`docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`（一等席行改为快速路径一等邮箱 + 发布机会轮换，删除「与普通 VDC 状态同帧、临时占用二等 RefMem 区域」）、`docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`（分片仅为迁移/回退路径）、`docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`（一等运输行按现状；补 K-5 实现方式说明：当前为独占发布机会，非同帧字段压缩）。
+- **未闭合**：轮换比例的 SCPI 配置入口与 seat 计数只读页（新增 `TDMA-SEAT-02`，比例属席位预算须走 `EXE-SEAT-01`）；K-5 的「帧内压缩 VDC 字段」与当前「独占发布机会」两种资源模型须择一，待用户裁定。
+
+### T2-PROGRESS-20261011-025：2026-10-11 复核汇总与口径回写
+
+- TODO task ID：`T2-DOC-001`、`T2-STEP-001`、`T2-IDENT-001`、`T2-SOURCE-001`、`T2-FREEZE-002`、`T2-DOC-002`；产物 `docs/trigger/t2/TRIGGER_T2_STEP_REVIEW.md`（评审快照，非契约）。
+- **范围（基线 `2c338fe0`，工作区干净）**：复核 10-09 评审的每条偏离项在当前代码是否仍成立、核对两份外部审计（① predictor/runtime/wire 硬编码，② `feature/node-sequence-reservation-trigger` 角度前端复用），并评估「31 个位置 + STEP + 零位 + 模拟源」决定的落地影响。
+- **偏离项对账（已核实）**：A-01（改写已排队 VDC image）、A-15（22 片分片）、A-07（主机测试编译失败）已闭环；A-04 部分闭环（窗口门默认恢复关闭，SCPI 挂载路径仍在）；A-02、A-03、A-05、A-06、A-13、A-14、A-16、A-08、A-09 仍成立；`trigger_ready_overlap.h` 仍无固件调用方。
+- **新发现（已核实）**：① 从板改走优先级通道后 `position_rx_complete_count` 不再增长，活跃计数为 priority accept/duplicate/reject，任何按 `rx_complete_count` 判定的验收门都会读到 0；② 冻结确认写的 `CONTROL_OPCODE`/`CONTROL_SEQ8` 与 action probe 写同两个字节，同时活跃时后写覆盖前者。
+- **外部审计核对**：predictor/runtime/wire 审计逐条成立，仅「`prepare_core0` 无 horizon」需精确化为「每次调用从 index 0 起扫描、只 stage 一个」；分支角度前端审计的拓扑、命令表、`angle_derive` 校验、单位置在途与 link 角色校验成立，但验收凭证应为 500 Hz 源 × 60 位置（分支进展日志记录，1 kHz 记录属 PIO 输入捕获，且该日志声明不得据文件名宣称 1 kHz 验收），其引用的 `SCPI_COMMANDS.md` 行号属分支副本。
+- **实测尺寸（宿主 gcc，快照非事实源）**：`trigger_position_descriptor_t` = 104 B、`trigger_action_runtime_event_t` = 32 B、`trigger_t2_runtime_snapshot_t`（按当前 `TRIGGER_T2_RUNTIME_POSITION_COUNT`）= 880 B。据此按现布局线性放大到长扫描的 SRAM 代价不可接受，在途槽位必须有界。
+- **门禁（本次实测）**：`docs_check --strict-names` OK（176 文件）、`doc_regression_check` OK（仅既有已登记 WARN）、文档 pytest 38 passed、`test_trigger_t2_runtime.py` 24 passed、`p3 check-staged` OK、`--log-check` OK。
+- **未闭合**：身份/确认位宽与在途槽位数（`T2-IDENT-001`）、模拟源选型与脉宽/ppd 参数（`T2-SOURCE-001`）、A-13 修法（`T2-FREEZE-002`）、09-27 run33/34 证据补记（`T2-DOC-002`，凭证原件待定位，禁止据推断填数字）。
 
 ### T2-PROGRESS-20261010-024：一等席经优先级通道接收、FREEZE 闭环确认，三从板动作全部完成
 

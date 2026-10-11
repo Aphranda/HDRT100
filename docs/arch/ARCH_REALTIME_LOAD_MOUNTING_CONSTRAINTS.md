@@ -4,7 +4,7 @@ Status: Draft
 Domain: ARCH
 Canonical: `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/ARCH_ACTIVATION_LOAD_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `application/inc/app_realtime_schedule.h`
-Last updated: 2026-09-27
+Last updated: 2026-10-11
 
 本文是跨域实时负载的挂载实施规范草案。它整理当前代码中的 phase、owner、TDMA
 服务等级和 T2 接线边界，供后续组件提交挂载申请时使用。本文不新增运行 owner，
@@ -54,7 +54,7 @@ position descriptor 在 TDMA 中使用独立的 T2 message class；普通帧的 
 | seat | 典型内容 | owner / 运输方式 | 准入规则 | 拥塞处理 |
 |---|---|---|---|---|
 | 特等 | DPLL/VDC 关键同步记录、确定性 SYNC 时间需求 | VDC/DPLL owner + TDMA priority typed mailbox + SYNC_IO PIO/DMA | 固定 codec、固定资源、独立 RX/TX 保全；新增或扩容必须先完成席位审核 | 缺口、旧代、覆盖、CRC 或 identity 失败必须显式记录；不能静默降级为普通镜像 |
-| 一等 | 其余 VDC 状态、跟随数据、T2 position descriptor | 各自 domain owner；T2 使用 `TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS` 和现有 flight owner | 有独立 generation、CRC、有效同步区间和 freshness；不得影响特等 cadence | typed SYNC/专用 VDC 命令优先；T2 与普通 VDC 状态同帧，临时占用二等 RefMem 区域，正常到期帧照常推进 VDC `last_publish_ms` |
+| 一等 | 其余 VDC 状态、跟随数据、T2 position descriptor | 各自 domain owner；T2 使用 `TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS`（0x15）经 origin 快速路径的一等邮箱（`tdma_first_class.h`）运输，与特等按发布机会轮换（当前轮换比例为编译期常量 `TDMA_SEAT_ROTATION_*_SHARE`，取值 1:1） | 有独立 generation、CRC、有效同步区间和 freshness；不得影响特等 cadence | typed SYNC/专用 VDC 命令优先；特等无新内容时一等使用该机会、`EMPTY` 不占座；一等记录不再改写已排队 VDC image，也不再借用二等 RefMem 区域 |
 | 二等 | RefMem delta、ACK/fence、可靠控制事实 | RefMem owner + 普通 process image / dirty queue | 固定段、dirty 标记、有界配额和背压；运输成功不自动提交业务事实 | 延后、重试或背压；不能借特等窗口或改写 active VDC 状态 |
 | 无座 | 普通控制、日志、维护、UI、SD、离线分析 | Core0 AO、维护 phase 或 STOP 后路径 | 不得要求 Core1 实时席位，不得持有 PIO/SM/DMA 实时资源 | 丢弃、延后或在维护态执行；不能阻塞前三级 |
 

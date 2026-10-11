@@ -1,10 +1,19 @@
 # T2 预约与分布式时钟分发架构
 
-Status: Draft
+Status: Deprecated
 Domain: ARCH / T2 Reservation
 Canonical: `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/trigger/TRIGGER_FOUR_BOARD_DISTRIBUTED_PLAN.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-08-20
+Last updated: 2026-10-11
+
+> **取代说明（2026-10-11，评审 D-04）**：本文档 2026-08-20 版的部分设计已被 T2 域 canonical 取代，冲突处以 T2 域文档为准：
+>
+> - **PREPARE/READY/fence 执行门与 `TriggerReservationFB`**：以 `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md` 的 T2-SEMANTICS（K-1/K-2）为准——多板模式下 READY 只做异步踩踏校验，不是执行许可门；FREEZE 只冻结位置预测，不冻结 DCO。
+> - **主站下发 deadline**：以从板按本地 VDC model/grid 解算 `position_q` 为准；主站只发布位置身份与紧凑版本。
+> - **wire layout、窗口容量、时序阈值**：以 T2 域文档与 `docs/check/DOCS_REGISTRY.md` 的登记为准；本文不构成冻结契约。
+> - 复核依据与待裁定项见 `docs/trigger/t2/TRIGGER_T2_STEP_REVIEW.md`。
+>
+> 本文保留为历史跨域输入；域内实现细项均以各主域 canonical 为准。
 
 本文档是 HAOFV 下 T2 预约主线的跨域架构入口，描述多节点共同时间如何建立、未来动作如何预约分发、各节点如何在本地硬实时执行，以及实际 T2 如何被硬件锁存并回传。它不建立新的运行 owner，也不替代 Trigger、VDC、TDMA、RefMem 或 `sync_io` 的主域文档；精确 wire layout、窗口容量和时序阈值在实现和交叉审核完成前保持待冻结。
 

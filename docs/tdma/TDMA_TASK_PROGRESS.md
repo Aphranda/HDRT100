@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
@@ -14,6 +14,369 @@ Last updated: 2026-10-10
 历史记录中的预算、节点及门禁描述只代表当时快照，当前口径以最新条目和主域文档为准。
 
 ## 当前 checkpoint
+### TDMA-PROGRESS-20261011-036：DPLL60 真机验收 **PASS**（凭证与当前工作区指纹一致）
+
+- TODO task ID：`TDMA-SEAT-03`（条目 15 的真机路径打通第一步）；改动：仅文档（`docs/**` 不计入 P3 源码指纹）。
+- **结果**：`python tools/hardware_acceptance/p3_hardware_acceptance.py dpll60` → **PASS**（退出码 0）：
+  - `out/HardwareAcceptance/20261011/dpll60-014621/`（含 `build.log`、`ota-four-board`、`tdma.log`、`tdma-stopped-handoff.json`、`dpll-scope-discovery.json`、`dpll-short-summary.json`、`acceptance.json`、`provisional-receipt.json`）；
+  - `config/hardware_acceptance/p3_acceptance_receipt.json`：schema `HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_DPLL60_V1`、`passed=true`、`source_tree_sha256=2094b9da…`、`source_file_count=1786` —— **与当前工作区指纹逐字一致**；四板 UID 齐全（`0010071E65B5CB38`/`FB276192BEF9CCE1`/`2BD5090FE009FA2A`/`A1E54920…`）；`calibration_generation=1791682738`。
+  - `build.log` 显示本次**真实构建当前源码**（`cmake --build out/build/dpll60-latest`，142 目标）；`build_id=20261010050916` 是固件侧构建戳（非本机墙钟），凭证以指纹绑定为准。
+- **上一轮 `run` 失败的真因（已闭环）**：四板 DPLL 阶段报 `provisional receipt source fingerprint differs`，根因是**我在 P3 运行期间继续编辑工作区**——`working_source_fingerprint()` 取**工作区**中 acceptance 源文件的哈希，编辑即失效。**规则（本轮确立）：P3 运行期间冻结工作区**；`docs/**` 不参与指纹，可在运行前后自由编辑。
+- **本轮同时交付（代码，已在冻结前完成并验证）**：FREEZE 重发风暴的**可判别证据**——`distributed_refmem_position_ack_pending()` 输出 `freeze_ack_stale_mask`（报的 opcode 不是本 run：run id 不匹配或从未上报）与 `freeze_ack_incomplete_mask`（无人冻结的位置位），`T2?` 末位公开。判据：重发多且 `stale != 0` → 确认链（反向）问题；`stale == 0` 且 `incomplete != 0` → 正向送达问题；两者皆 0 仍重发 → 反向确认延迟（节奏 `T2_FREEZE_RESEND_SLICES` 短于确认回路）。
+- **本跑覆盖与未覆盖**：DPLL60 驱动的是**特等席/DPLL 路径 + 四板 TDMA 环**（含 `tdma.log` 与停止交接证据），并绑定当前源码；**一等席（T2 position）仍需要自己的 `p3_hardware_acceptance.py t2` 路径**，或一次"运行中只读采集"（`SEAT:HEALth?` 要求通道已启动）。
+- **验证**：`dpll60` PASS；`test_t2_freeze_completion`/`test_trigger_t2_freeze_abandon`/`test_trigger_t2_runtime`/`test_seat_acceptance_tool`/`test_tdma_seat_invariants` **58 passed**；设备语法守卫 8/8；设备构建两槽链接 + `flash_link_contract=OK`；文档门禁 OK。
+
+### TDMA-PROGRESS-20261011-035：FREEZE 重发风暴可诊断（谁在对不上 / 谁还没冻结）+ DPLL60 失败归因
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`distributed_refmem_position_ack.inc`（新增 `distributed_refmem_position_ack_pending()`）、`distributed_refmem.h`、`trigger_t2_runtime.h/.c`（两个快照字段 + 在 `resend_one_freeze` 内刷新）、`scpi_trigger_t2_runtime_commands.inc`（`T2?` 末位追加）、`tools/sync_trigger/t2_bench_probe.py`、`test_t2_freeze_completion.py`、`test_trigger_t2_freeze_abandon.py`、`test_trigger_t2_runtime.py`（补桩）。
+- **背景（owner 提问）**：FREEZE 之后从板经一次飞行本应回状态，异常时一次重发应足够；实测重发次数远超该量级。核对确认链后确认**结构性原因**：`distributed_refmem_position_freeze_acked()` 是**全有或全无**——`opcode = T2_FROZEN | (run_id & 0x0F)`，**任一目标板报的 opcode 不是本 run**（绑定别的 run、或从未上报）就 `return 0`，于是**所有位置都变"未确认"**，原点只能一直重发；再叠加"单深度描述符邮箱 → 每轮只发一个位置 + 4 片节奏 + 反向确认延迟"，每位置约需数轮。
+- **本轮交付（可判别证据）**：新增 `distributed_refmem_position_ack_pending()`，按目标槽位输出两组事实——`stale_mask`（**报的 opcode 不是本 run**：run id 不匹配或从未上报）与 `incomplete_mask`（**没人冻结的位置位**，仅在"所有目标都在本 run 上说话"时有定义）。二者写入 T2 快照并在 `TRIGger:RESERVation:T2?` 末位追加（`freeze_ack_stale_mask`/`freeze_ack_incomplete_mask`）。**判据**：若重发多而 `stale_mask != 0` → 问题在**确认链的 run id/上报**（反向）；若 `stale_mask == 0` 而 `incomplete_mask != 0` → 问题在**正向送达**（从板没收到/版本对不上）；二者皆 0 却仍在重发 → 只可能是**反向确认延迟**（节奏 4 片短于确认回路），调 `T2_FREEZE_RESEND_SLICES` 即可。
+- **测试**：refmem 侧断言重置后的三种状态（无人上报 → 全 stale、位置缺失集未知；某板报本 run 且冻结位 0x5 → stale=另一槽、incomplete=0xFA；另一槽报**别的 run** → 保持 stale 且完成判定为 0）；T2 侧抽取 harness 断言两个掩码被刷新进快照、空闲时归零。
+- **DPLL60 失败归因（重要，是我的操作错误）**：P3 `run` 在"四板 DPLL 60 s"阶段报 `provisional receipt source fingerprint differs`。根因：`config/hardware_acceptance/p3_acceptance_receipt.json`（schema `HAOFV_P3_JOINT_PROVISIONAL_V1`）是本次 P3 在 DPLL **之前**写下的，而**我在 P3 运行期间继续编辑工作区**，`working_source_fingerprint()` 取的是**工作区**中 acceptance 源文件的哈希（当前 `856dd93e…` vs 凭证 `c3d38317…`，同为 1786 文件）→ DPLL 阶段校验失败。**教训（写入本条目，避免重犯）：P3 运行期间必须冻结工作区，任何源码/工具编辑都会使凭证失效。** 处置：先把所有待改代码改完并验证 → 再跑 `p3_hardware_acceptance.py dpll60`（owner 指示直接跑 DPLL60）。
+- **验证**：`test_t2_freeze_completion`/`test_trigger_t2_freeze_abandon`/`test_trigger_t2_runtime`/`test_seat_acceptance_tool`/`test_tdma_seat_invariants` **58 passed**；设备语法守卫 8/8 PASS；设备构建两槽链接 + `flash_link_contract=OK`。
+- **未闭合**：DPLL60 重跑结果；P3 `run` 全量凭证；正/反向与节奏三项判据需真机采集判定。
+
+### TDMA-PROGRESS-20261011-034：owner 两条定案（通道唯一分时复用 / M:N 即席位调度）+ P3 已授权开跑
+
+- TODO task ID：`TDMA-SEAT-03`（关闭 A' 待决项）；改动：`TDMA_SEAT_TX_CHANNEL_REVIEW.md`（作废横幅）、`TDMA_SEAT_ACCEPTANCE_REVIEW.md`（条目 12/14/19、边界说明、待决 1/2）、`TDMA_RUNTIME_CONSTRAINTS.md`（门控段 + 准入段）、`TDMA_DOMAIN_TODO.md`、`docs/README.md`、`docs/interface/SCPI_COMMANDS.md`、`distributed_refmem_position_ack.inc`（注释）。
+- **定案一（通道唯一、两席分时复用）**：快速通道**只有一条**，特等席与一等席**分时复用**；**特等席同样没有独立 TX**。因此 A（一等专属通道）**不再是目标**，A″/B 方案作废，`TDMA_SEAT_TX_CHANNEL_REVIEW.md` 降级为决策过程记录；共用通道下**交付关键字节保护**（`distributed_refmem_position_ack_control_available()` 准入 + `lane_diag_refused_count`/`lane_ack_override_count`）是**长期机制**而非过渡——代码注释同步订正（两处 "A' transition"）。
+- **定案二（M:N 即席位调度）**：**M:N 轮换（`TDMA-SEAT-01`）就是席位调度**；`TDMA_LOOP_SCHEDULE_ENABLED` 的 loop-plan 窗口门控**不在设计内**，保持 **0**，其代码与饥饿计数保留为**休眠代码 + 构建守卫/行为用例**，不再列为"待启用"。验收矩阵条目 12 相应改写为"非设计机制"，条目 14 改写为"**共用快速通道的分时复用**（不存在通道独立要求）"，条目 19 明确为"**M:N 席位调度本身**"；待决事项 1/2 关闭。
+- **P3 已开跑（owner 授权）**：`p3_hardware_acceptance.py run`（默认 quick：构建 → OTA 四板 → P0–P3/TRN-03 → TDMA → 四板 DPLL 60 s）。四块板在位（COM3–COM6）。已观察到 **构建完成**（`out/build/p3-acceptance-20261011-093147`，即含本工作区的波形缩容 334）与 **OTA 四板 build=20261011013200**。
+- **真机席位证据的路径（重要）**：本次 `run` 驱动的是**特等席路径 + 通用环流量**；**一等席有独立 P3 路径 `p3_hardware_acceptance.py t2`**。故条目 15 需要 `run` + `t2` 两跑，再由只读判定工具 `seat_acceptance.py` 采 `SEAT:HEALth?`/`COUNters?`/`ROTation?` 得 `ok=1, reason_mask=0`。
+- **RAM**：owner 明确"buffer 可以继续缩小"。当前无需更多 RAM（两槽链接、余 2108 B），故**暂不再缩**；若后续改动需要余量，按此授权直接动波形缓冲，不再回问。
+- **未闭合**：P3 `run`/`t2` 结果与凭证；波形段最终容量是否回升（产品侧）。
+
+### TDMA-PROGRESS-20261011-033：G5 关闭——冻结放弃分支改用抽取式 harness 驱动（含负测）
+
+- TODO task ID：`TDMA-SEAT-03`；改动：新增 `tests/python/test_trigger_t2_freeze_abandon.py`、文档（矩阵 G5 行、T2 架构说明）。
+- **背景**：`-024` 新增的 `freeze_abandoned_count` 此前**没有任何测试产生过它**（G5）。三轮整机驱动均失败，原因已查明并记录：① 原点持续重解算会不断延长窗口，放弃分支永不进入；② 冻结采样流只推进时间会让运行时先报无关服务错误，FREEZE 根本发不出。
+- **本轮解法（换工具，不硬撞）**：该分支本身是一段**自持**的小判定（只看 `s_state`/`s_config`/两个节奏 static + 两个 extern）。按仓库既有的**抽取式 harness** 手法，把 `resend_one_freeze()` 本体抽出来，用同名自持 statics 与两个 extern 桩（冻结确认、暂存描述符）直接驱动，覆盖六种情形：
+  1. 无承诺 → 无动作、无计数；
+  2. 窗口已过且未被确认 → **掩码置位 + 计数 +1 且不再暂存**（即 G5 的正面证据）；
+  3. 计数**饱和**于 `UINT32_MAX` 不回绕；
+  4. 仍在窗口内 → **重发一次**（阶段/位置/版本、`freeze_resend_count`、节奏游标与 `freeze_last_slice` 均断言）；
+  5. **节奏门**：距上次重发不足 `T2_FREEZE_RESEND_SLICES` 时不再暂存；
+  6. 已确认 → 置 `freeze_complete_mask` 且**不**计放弃；暂存被拒 → 返回 false 且只记传输事实与 `last_error`。
+  宏值 `T2_FREEZE_RESEND_SLICES` 由**源码正则提取**后注入 harness，避免副本漂移。
+- **负测（证明断言有效）**：临时移除 `++s_state.freeze_abandoned_count` 后该用例**立即失败**（`freeze_abandoned_count == 1` 不成立），随后已恢复源码并复验（`freeze_abandoned_count != UINT32_MAX` 位于 `trigger_t2_runtime.c:156`）。
+- **验证**：新用例 + T2 运行时用例 **27 passed**；设备语法守卫 8/8；文档门禁 OK。
+- **消费侧现状**：G1/G2/G4/G5/G6/G7/G8 全部**关闭或已归因**，G3 属 T2 域自身待办（`descriptor_window_sync` 未运行时可配）。**无剩余自主可做的消费侧项**。
+- **仍未闭合（席位本体）**：A'（独立 TX 通道，验收条目 14）待评审；台架/P3（条目 15）待授权；波形段容量与"迟到是否要判定位"待确认。
+
+### TDMA-PROGRESS-20261011-032：承诺本身可读（G8 关闭）+ 自查确认控制字节仲裁已有字节级断言
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`scpi_trigger_t2_runtime_commands.inc`（`T2?` 逐位置追加承诺）、`tools/sync_trigger/t2_bench_probe.py`、`tests/python/test_seat_acceptance_tool.py`（末位追加绑定扩充）、文档。
+- **G8 关闭**：上一轮让"迟到量级"可读，本轮把**承诺本身**也公开——`T2?` 末尾逐位置追加 `descriptors[i].target_ms_index`（低字，消费侧正是按低字准入）与 `descriptors[i].expiry_sync`（3 个位置共 6 字段）。**没有承诺作参照，迟到计数不构成证据**；这与条目 20（席位声明预算可读）同一性质。末位追加的位置契约由 `test_t2_page_tail_is_append_only` 绑定。
+- **自查：本轮先审"我自己新增的每条事实是否都有人驱动"**，结论是仅 `freeze_abandoned_count`（G5）没有；其余都有生产者测试。顺带确认一条**安全关键**性质已有**字节级**断言（此前只从计数层面看过）：`test_t2_freeze_completion.py:192-231` 断言共享控制字节的**最终内容**必须是一等冻结事实（`0xE0 | run 低半字节` 与冻结掩码），覆盖两条路径——诊断先写后被覆盖（`lane_ack_override_count`）与准入事先拒绝诊断（`lane_diag_refused_count`）。即 A' 替代机制的"诊断不得污染交付关键字节"是被真字节证明的，而不只是计数一致。
+- **验证**：设备语法守卫 **8/8 PASS**；设备构建两槽链接 + `flash_link_contract=OK`；`test_seat_acceptance_tool.py` + T2 运行时用例 **53 passed**；文档门禁 OK。
+- **仍未闭合**：G5（冻结放弃路径三轮未攻克，`freeze_abandoned_count` 生产者未被测试驱动）；A'（独立 TX 通道）待评审；台架/P3 未执行；波形段容量与"迟到是否要判定位"待确认。
+
+### TDMA-PROGRESS-20261011-031：迟到量级可读（G8 部分关闭）+ 修正 `origin_no_ack` 误配为 follower + G5 第三次尝试仍失败
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`trigger_t2_runtime.h/.c`（`late_last_current_ms`/`late_last_expiry_sync`）、`scpi_trigger_t2_runtime_commands.inc`（`T2?` 再追加两字段）、`tools/sync_trigger/t2_bench_probe.py`、`tests/python/test_trigger_t2_runtime.py`、文档。
+- **交付（G8 部分关闭）**：迟到此前的只有计数，没有**量级**。现在到达路径记录最近一次迟到的两个端点——消费侧粗序号 `late_last_current_ms` 与被错过的承诺窗口 `late_last_expiry_sync`（二者之差即迟到量），并在 `TRIGger:RESERVation:T2?` **末位**追加。逐位置的承诺窗口仍未公开（矩阵已记明）。
+- **顺带修正一处真实缺陷（测试自身）**：`origin_no_ack` 用例从一开始就被 `config(...)` 的 case 名列表漏掉，实际以 **follower** 身份运行——所以该用例此前既不产生 FREEZE，也不曾覆盖它声称覆盖的路径。本轮把它加入 origin 列表后，用例才真正以原点身份跑 400 片（`freeze_complete_mask == 0` + 计数/掩码一致），强度高于此前。
+- **G5 第三次尝试（仍失败，如实记录）**：为驱动"冻结放弃"分支做了两种尝试——① 冻结采样流只推进时间：`trigger_t2_runtime_service()` 报服务错误（首个错误码 5），FREEZE 根本没发出；② 让原点保持重解算：窗口被持续延长，分支永不进入。故 `freeze_abandoned_count` 的**生产者路径仍未被测试驱动**（其存在性由代码审查与计数/掩码一致性间接支持）。矩阵 G5 行已更新为"三轮未攻克"。
+- **验证**：T2 运行时用例 **26 passed**（含迟到量级断言：`late_last_expiry_sync != 0` 且 `late_last_current_ms > late_last_expiry_sync`）；设备语法守卫 **8/8 PASS**；设备构建两槽链接 + `flash_link_contract=OK`；文档门禁 OK。
+- **未闭合（消费侧）**：G5（放弃路径未驱动）、G8 的逐位置承诺窗口。
+- **未闭合（席位本体）**：A'（独立 TX 通道）待评审；台架/P3 未执行；波形段容量待确认。
+
+### TDMA-PROGRESS-20261011-030：迟到到达独立归因（消费侧 G1 关闭）+ 明确 G2 已由既有事实覆盖
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`trigger_t2_runtime.c`（到达准入拆分出迟到归因）、`trigger_t2_runtime.h`（`late_arrival_count`）、`scpi_trigger_t2_runtime_commands.inc`（`T2?` 末位追加）、`tools/sync_trigger/t2_bench_probe.py`、`tests/python/test_trigger_t2_runtime.py`（新增 `late_arrival` 用例 + 扩 `expired` 用例）、文档。
+- **先纠正一条审计结论**：上轮审计把 G2 描述为"`s_pending_mask` 从不扫描窗口关闭未服务"。核对源码后，`s_pending_mask` 是**待发送 FREEZE 队列**，不是"期待到达集合"——消费侧"从未到达"实际由 `freeze_missing_local_count`（被要求冻结一个自己从未拥有的位置）覆盖，且已在 `-029` 并入判定页 bit8。**因此 G2 不是缺口**，本轮不再重复实现，避免制造第二个语义重叠的计数。
+- **本轮实现 G1（真实缺口）**：迟到/过期到达原先与 10 种无关原因共用 `descriptor_reject_count`，无法回答"一等席有多少次**迟到但送达**"。现在把到达准入按原因拆开：
+  - 身份/网格/部署类不符 → 仍只计 `descriptor_reject_count`；
+  - **记录合法、寻址正确，但抵达时承诺窗口已关** → 额外计 `late_arrival_count`（聚合计数**不变**，既有断言与语义不破坏）；
+  - **目标溢出（`expiry_sync == 0`，从未承诺窗口）明确不计入迟到**——"无窗口"与"错过窗口"必须分开（`expired` 用例新增断言把这条钉住）。
+  - `valid_from_sync` 在消费侧被强制为 0，故窗口的另一侧（过早）在构造上不可达，已在代码注释中说明。
+- **测试**：新增 `late_arrival` 用例（推进游标越窗后投递**新版本**记录：断言 `TRIGGER_T2_RUNTIME_DESCRIPTOR`、`late_arrival_count == 1`、聚合计数 +1、且**迟到记录没有覆盖已接收状态**）；`expired` 用例补"无窗口不计迟到"。T2 运行时用例 **26 passed**。
+  - 过程记录：首版用例在派发前已被 harness 投递过**同版本**记录，命中"同版本直接接受"短路，导致看似"迟到被接受"；改用新版本后定位并修正，非实现缺陷。
+- **验证**：设备语法守卫 **7/7 PASS**；设备构建两槽链接 + `flash_link_contract=OK`；T2 用例 26 passed；文档门禁 OK。
+- **仍未闭合（消费侧）**：G5（冻结放弃路径仍未被 harness 驱动）、G8（承诺期限字段 `target_ms_index`/`expiry_sync` 不可读，故迟到的**量级**不可见）。另新增一个**语义待决**：迟到是否需要自己的判定位（bit9），见[验收矩阵](TDMA_SEAT_ACCEPTANCE_REVIEW.md)待决事项 5。
+- **未闭合（席位本体）**：A'（独立 TX 通道）待评审；台架/P3 未执行；波形段容量待确认。
+
+### TDMA-PROGRESS-20261011-029：消灭判定页"假健康"——消费侧端到端丢失进入 bit8
+
+- TODO task ID：`TDMA-SEAT-03`（验收条目 21，关闭上轮缺口 G6）；改动：`tdma_pio_spi_ring_adapter.h`（新增 reason 位 8 + facts 字段 + `MASK_ALL` 扩为 9 位）、`scpi_system_snapshot_commands.c`（判定页读 T2 快照并把两个消费侧丢失事实折叠为 bit8，页尾追加两个原始计数）、`tools/sync_trigger/seat_acceptance.py`（位 8 + 证据改为**多计数**模型 + 期望字段 24）、`tests/python/test_seat_acceptance_tool.py`、`tests/unit/test_tdma_pio_spi_ring_adapter.c`、文档。
+- **问题（上轮独立审计确认）**：`SEAT:HEALth?` 的前 8 个位只证明"席位对**看到过的**记录做了什么"；一等位置片**从未到达**时消费侧没有任何事实，判定页仍会报 `ok=1`——**假健康**。
+- **修法**：新增 `TDMA_SEAT_HEALTH_REASON_FIRST_CLASS_MISSED (1u << 8)`，由两个**端到端**事实合成（饱和相加）：
+  1. `freeze_abandoned_count`——原点在位置窗口关闭后放弃完成该位置的 FREEZE（上一轮新增的计数）；
+  2. `freeze_missing_local_count`——从板被要求冻结一个自己从未拥有的位置（既有计数）。
+  判定页在**任一**事实非零时置位；两个原始计数按**末位追加**方式公开（读者下标不变，页 22 → 24 字段）。**读不到 T2 快照时返回错误而不是报健康**——沿用"宁无数据，不给看似健康的 0"。
+- **模型细化**：一位对应两个原始事实，验收工具原先"一位一计数"的接线检查改为**多计数**（任一非零即满足），并新增位 8 的自检/参数化用例；字段数仍由**固件源码反推**并与工具常量比对（本轮自动校验到 24）。
+- **验证**：适配器 host 单测（含 bit8 单置位与全清断言）通过；`test_seat_acceptance_tool.py` **26 passed**；设备语法守卫 **7/7 PASS**；设备构建两槽链接 + `flash_link_contract=OK`；`docs_check`（178 文件）/`doc_regression` OK。
+- **仍缺（消费侧）**：G1（迟到/过期与 11 种拒绝共用计数）、G2（从未到达的**独立**位置级计数）、G5（放弃路径仍未在 harness 中驱动）、G8（承诺期限字段不可读）。这些是 T2 域后续项，已列在[验收矩阵](TDMA_SEAT_ACCEPTANCE_REVIEW.md)「一之二」节。
+- **未闭合**：A'（独立 TX 通道）待评审；台架/P3 未执行；波形段容量待确认。
+
+### TDMA-PROGRESS-20261011-028：与特等席的机制对账（两份独立取证审计）+ 采集自解释 + 消费侧缺口清单
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`scpi_system_snapshot_commands.c`（`SEAT:ROTation?` 扩为 11 字段：配置 + 生效比例 + **声明上限** + 门控开关）、`tools/sync_trigger/seat_acceptance.py`（读该页并做"饥饿必须有窗口门控"一致性检查）、`tests/python/test_seat_acceptance_tool.py`、`trigger_t2_runtime.h/.c`（新增 `freeze_abandoned_count`）、`scpi_trigger_t2_runtime_commands.inc`（`T2?` 末位追加）、`tools/sync_trigger/t2_bench_probe.py`、`tests/python/test_trigger_t2_runtime.py`、`tdma_priority_tx.h`（陈旧契约注释）、`TDMA_SEAT_ACCEPTANCE_REVIEW.md`（字段数漂移）、文档。
+- **做法**：用两份**独立取证审计**回答"一等席是否达到特等席水平"——一份清点特等席的稳定性机制（TX 快路径、双缓冲发布原子性、4 槽接收环/seqlock/epoch、IRQ 准入与看门狗面包屑、SD 级预算、消费侧 VDC 证据链），一份审计**消费侧**（T2 运行时）对一等席丢失的可观测性。
+- **对账结论（一等席侧）**：准入/仲裁、完整性核对、有界接收保全、失败归因、两条声明预算 + 越界计数、判定页均**与特等席同级**；特等席更强的是（a）专属 typed body 与独立物理路径（= A'，仍未决）、（b）**多页诊断面**（`PRIORity?`/`:BUDget?`/`:TIMing?`/`:RECord?`/`:CONSumed?` + VDC 侧 `TX?`/`RX?`/`TRACE*`），（c）看门狗阶段面包屑（13 段）与 4 段时序自证。**本轮补上 (b) 中最关键的一条**：一等席此前只有计数、没有声明上限，采集无法自解释——现 `SEAT:ROTation?` 给出 M:N 生效值与上限、等待预算、队列深度/重试预算，以及 **`loop_schedule_enabled`**（否则"饥饿为 0"会被误读为已验证，实际只是门控未编译进来）。
+- **消费侧缺口（重要，未关闭）**：一等席记录"**从未到达**"在消费侧**没有任何可观测事实**——迟到/过期到达被并入 `descriptor_reject_count`（与 11 种无关拒绝共用），从未到达则完全无痕；`SEAT:HEALth?` 的 8 个 reason 位**没有**任何一位由 T2 侧事实驱动，因此一次丢失的一等交付可以仍报 `ok=1`（**假健康**）。本轮先补最小可计数事实：冻结完成"放弃"此前只有按位置位掩码（下一轮 run 会清掉）、无法回答"发生过多少次"，现新增饱和计数 `freeze_abandoned_count` 并在 `TRIGger:REServation:T2?` **末位**追加。
+- **诚实记录**：我试图在 T2 harness 里**驱动**放弃路径（默认窗口 + 400 片不 ack），未能进入该分支——原点的持续解算会刷新窗口；故该用例改为断言**计数与掩码一致**（`popcount(mask) == count`，每次 service 后校验；已确认场景再断言计数为 0），并把"放弃路径仍未被驱动"记为**已知缺口**，不假装覆盖。
+- **顺带修正的两处漂移**：① `TDMA_SEAT_ACCEPTANCE_REVIEW.md` 里旧字段数 `22/12/30` → `22/12/11/31`（我自己上一轮漏改）；② `tdma_priority_tx.h` 注释声称 `EMPTY` "reserves the slot"，而实现、旋转用例与运行约束文档都断言 `EMPTY` **不保留**（陈旧契约注释，已订正并注明）。
+- **提交他域的发现（仅报告，未改）**：`VDC_PRIORITY_TX_REJECT_MAPPING_CONTRADICTION` / `..._MAPPING_EXHAUSTED` 两个已声明拒绝原因在 `components/vdc_dpll_manager/src/**` 无生产者；特等席侧没有专属 `ok,reason_mask` 判定页；P3 本身不校验席位页（席位页由只读判定工具负责）。
+- **未闭合**：A'（独立 TX 通道）待评审；台架/P3 未执行；消费侧"从未到达"的计数与判定页 bit（G2/G6）仍需实现；波形段容量待确认。
+
+### TDMA-PROGRESS-20261011-027：随机化不变量测试（发现并补上一条未计数的队列出口）
+
+- TODO task ID：`TDMA-SEAT-03`（验收条目 18/19）；改动：`distributed_refmem_position_ack.inc`（新增 `s_position_priority_hold_delivered_count`）、`distributed_refmem.h`（快照字段 `lane_hold_delivered_count`）、`distributed_refmem.c`（快照填充）、`scpi_system_snapshot_commands.c`（`POSition?` 追加为**末位**字段，既有下标不变）、`tools/sync_trigger/seat_acceptance.py`（期望字段数 30→31）、`tests/python/test_tdma_seat_invariants.py`（新增）、`tests/python/test_t2_freeze_completion.py`、文档。
+- **动机**：此前席位用例都是**手挑场景**。本轮把"稳定性"写成**随机化不变量**：机会守恒、M:N 公平性、等待预算上界、队列出口记账闭合——由不变量而非例子来判定。
+- **发现（真问题）**：`distributed_refmem_position_priority_drain()` 里有**一条不计数的出队路径**——队列副本已由线上重复帧送达时只推进 `head` 不计数。记录本身没丢（已由重复帧送达），但**队列账面无法对账**：`lane_hold_count` 减已知出口会长期高估在队条目。修复：新增 `lane_hold_delivered_count`，并在 `POSition?` **末位**追加该字段（逐位读取者下标不变），恒等式变为
+  `lane_hold_count == lane_drain_count + lane_hold_expired_count + lane_hold_delivered_count + Σ(tail − head)`。
+- **同轮被我自己的模型纠正四处**（记录以示诚实，均为我的理解错误而非实现缺陷）：① `*handled` 是**路由归属**而不是"消耗了一次机会"；② `drain()` 返回值只表示**是否补投成功**，退休已送达副本会推进队列却返回 false；③ `drain()` 返回 false **不蕴含** `drain_fail_count` 增加（空队列/消费者忙都可能）；④ 随机驱动漏了新计数器的**按种子复位**（导致跨种子串账）。
+- **测试覆盖**：`tests/python/test_tdma_seat_invariants.py`——A 段 6 组 M:N × 32 种子 × 400 次机会（守恒、公平性偏差 ≤ 1 槽位、预算上界、违例计数与预算跨越次数一致）；A2 段 32 种子 × 300 次混合流量（路由归属恒真、机会守恒）；B 段 16 种子故障恢复**存活性**（发布侧拒绝期间记录被延迟但绝不丢失，故障解除后下一次机会即登板）；FIFO 段 24 种子 × 400 次随机投递（逐次投递后与序列结束时校验恒等式、丢满仅发生在队列已满、按类拒绝互不混淆）；确定性由两次构建的**摘要比对**保证。
+- **验证**：`test_tdma_seat_invariants.py` 3 passed；席位验收集 **88 passed**；设备语法守卫 7/7 PASS；设备构建两槽链接 + `flash_link_contract=OK`；`docs_check`（178 文件）/`doc_regression` OK。
+- **未闭合**：A'（独立 TX 通道）待评审；台架/P3 未执行；波形段容量待确认。
+
+### TDMA-PROGRESS-20261011-026：秒级设备语法守卫（把上轮的教训固化）+ 全量套件复跑
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`tools/sync_trigger/seat_acceptance.py`（新增 `--device-syntax` 模式）、`tests/python/test_seat_acceptance_tool.py`（+6 用例）、`vdc_dpll_manager.h`（容量历史注释订正）、`docs/arch/ARCH_RAM_REVIEW.md`（陈旧示例改为符号化表述）、`docs/tdma/TDMA_SEAT_ACCEPTANCE_REVIEW.md`。
+- **动机（来自 `-025` 的教训）**：上轮两处缺陷与一次 SRAM 溢出**只有目标构建能发现**，而完整构建要数分钟。本轮把"按目标参数语法编译席位相关 TU"做成**秒级守卫**，命令为 `python tools/sync_trigger/seat_acceptance.py --device-syntax`。
+- **实现要点**：① 从 `out/build/*/compile_commands.json`（取最新，可 `--build-dir` 指定）读取**真实编译参数**，对 7 个席位相关翻译单元做 `-fsyntax-only`；② `syntax_command()` 为纯函数，处理 CMake 命令串的两个坑——`-o/-MF/-MT/-MQ` 及其取值要剥离，Windows 路径不能被 POSIX 转义吃掉（`posix=False`），而宏值里的 `\"` 要还原成 `"`（shell 本会替我们做），整段带引号的路径要脱引号；③ 无编译数据库时**明确报错并提示先跑规范构建**，不静默通过；④ 编译器缺失/工作目录异常按 FAIL 记录而不是崩溃。
+- **负测（证明守卫真的有用）**：临时移除 `tdma_seat_admission.h` 的 `#include <stddef.h>` 后，守卫**秒级报出与上轮设备构建完全相同的两个 TU**（`tdma_pio_spi_ring_adapter.c`、`tdma_seat_admission.c`），并带上编译器自己的提示 `'NULL' is defined in header '<stddef.h>'; this is probably fixable by adding '#include <stddef.h>'`；恢复后 7 个 TU 全 PASS。首次负测因文件为 CRLF 而**未真正生效**，已改用行过滤重做（记录以防重蹈）。
+- **其他对账**：`vdc_dpll_manager.h` 的容量注释由陈旧的"three 360-record buffers"改为完整历史（400→360→352→334，含本轮缩容的理由与"下次应优先动席位侧 `HOLD_DEPTH`"的约束）；`ARCH_RAM_REVIEW.md` 中把"不能任意取 33,600 B 之类的中间值"改为符号化表述，避免引用已不存在的数值。
+- **验证**：守卫实跑 7/7 PASS；`test_seat_acceptance_tool.py` **22 passed**；**全量主机套件（21 分 46 秒）`1 failed, 8088 passed, 1 skipped`**——与上上轮基线一致（唯一失败仍是需 TOOLS owner 处理的治理项），通过数由 8070 增至 8088（新增工具与守卫用例）。
+- **未闭合**：A'（独立 TX 通道）待评审；台架/P3 未执行；波形段容量与"是否接受用席位 `HOLD_DEPTH` 换回记录数"待评审确认。
+
+### TDMA-PROGRESS-20261011-025：设备构建暴露两处主机看不到的缺陷 + SRAM 溢出（按目标授权缩波形 buffer）+ scratch 预算恢复
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`tdma_seat_admission.h`（补 `<stddef.h>`）、`scpi_system_snapshot_commands.c`（按 class 计数改从 lane 快照读）、`tdma_priority_rx.h/.c`（拒绝归因移出 scratch）、`tdma_pio_spi_phys_priority.inc`、`vdc_dpll_manager.h`（波形段 352→334）、`tests/python/test_tdma_priority_rx.py`、文档。
+- **本轮做法**：首次用**项目自身的发布构建**（`tools/cmake_build_auto/cmake_build_auto.py`，preset `pico2-release`，与 P3 同一路径）验证工作区。结果证明此前"主机测试全绿即视为无回归"的口径**不充分**：设备构建抓出两处主机看不到的编译缺陷与一次 SRAM 溢出。
+- **缺陷 1（编译）**：我在 `tdma_seat_admission.h` 新增的内联判定函数使用 `NULL`，而该头只包含 `stdbool/stdint`；主机翻译单元恰好先经其它头引入了 `NULL`，设备侧报 `'NULL' undeclared`。修复：头文件补 `#include <stddef.h>`。
+- **缺陷 2（编译）**：`SYSTem:TDMA:SEAT:HEALth?` 处理器读取 `lane.lane_reject_*_class_count`，而**这些字段不在位置运输快照里**（它们属 `tdma_priority_rx_snapshot_t`）。主机侧无任何用例真正编译该处理器，故一直未暴露。修复：按 class 拒绝计数改由 `tdma_runtime_owner_get_priority_rx_snapshot()` 读取，lane 快照不可用时返回错误（宁无数据，不报"看起来健康的 0"）。
+- **缺陷 3（链接）**：主 SRAM 溢出 **1436 B**（`region RAM overflowed`）；HEAD 基线同一构建可链接且余 **2404 B**。逐符号归因（`nm` 差分 HEAD↔工作区）显示我的静态新增共 **800 B**（席位 FIFO 640 + 头尾指针 64 + lane 状态 32 + 适配器 24 + runtime owner 8 + 计数 32）。**按目标授权（"如果RAM不够，可以缩小波形buffer"）缩波形缓冲**：`VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 352 → 334`（28 B/记录 × 3 缓冲 = 释放 **1512 B**；该缓冲历史上已为 RAM 缩过一次 400→360，注释一并订正）。**席位能力不退让**（FIFO 深度保持 4）。
+- **缺陷 4（链接，scratch 区）**：主 RAM 修好后 `SCRATCH_X` 仍溢出 **8 B**。实测该区数据 **1000 B + Core1 3 KiB 栈 = 4072/4096**（项目文档记录的余量正是 24 B），而我在 `tdma_priority_rx_t` 加的 4 个归因字段因 lane 保存**两份状态**（live + published）恰好占 **32 B**。Core1 栈是历史上依据实测扩到 3 KiB 的、不可缩；故把**拒绝归因移出 scratch**：新增内部状态类型（lane 使用）与扁平公开快照（读者字段名不变），归因改为普通 RAM 的 `tdma_priority_rx_attribution()`，由 `tdma_priority_rx_snapshot()` 逐字段合并（显式避免依赖两种类型间 padding 一致）。**SCRATCH_X 恢复 1000 B / 24 B 余量，SCRATCH_Y 保持 1992 B。**
+- **修复后实测**：`DHRT100.elf` / `DHRT100_B.elf` 均链接成功，`flash_link_contract=OK`（app×2 + boot）；`link_free_bytes=2108`、`bss_bytes=447428`、`.scratch_x`=0x3e8、`.scratch_y`=0x7c8。
+- **宿主验证**：lane/席位/位置/诊断/运输/board-record/服务时序 **125 passed**；`test_vdc_dpll_replay` + `test_dpll_observation_capture` **106 passed**；三套 host 单测全过。
+- **流程教训（已写入验收矩阵）**：凡改动固件（含头文件），**设备构建属于验证范围**，不能只跑主机套件；`compile_commands.json` 已生成，后续可据此对改动文件做快速的 ARM 侧语法守卫。
+- **未闭合**：A'（独立 TX 通道）仍待评审；台架/P3 仍未执行；波形段 334 记录属产品可见参数，需评审确认（若后续还需 RAM 余量，此处仍是既定 donor）。
+
+### TDMA-PROGRESS-20261011-024：一等席验收工具（只读、可离线复算）+ 真机剧本
+
+- TODO task ID：`TDMA-SEAT-03`（验收条目 15）；改动：新增 `tools/sync_trigger/seat_acceptance.py`、`tests/python/test_seat_acceptance_tool.py`、登记 `tools/tool_registry.json`（+ catalog 重生成）、`docs/tdma/TDMA_SEAT_ACCEPTANCE_REVIEW.md`（真机剧本）。
+- **动机**：剩余验收条目 15（真机证据）之前只有"读 `SEAT:HEALth?` 看 ok"的口头口径，既不可复现也容易**误触设备**（本目标早期就发生过一次探针误触发台架会话）。本轮把真机验收做成**只读、可复算、可审核**的工具与剧本。
+- **工具设计要点**：① **只发查询**（`SEAT:HEALth?`、`SEAT:COUNters?`、`REFMEM:SYNC:FLIGHT:POSition?`、`TDMA:SCHEDule?`），从不发 STOP/START/配置；② 三种模式 `--port` / `--from-json` / `--self-test` **互斥且必填**，无"参数写错就连端口"的退化路径（测试断言 `main([])` 抛 `SystemExit`）；③ 判定为**纯函数** `evaluate()`，可对保存的采集离线复算；④ 页长不符时**拒绝解释**（`reason_mask=None`）而不是按错位字段猜；⑤ 每个置位的 reason 位都必须在本页找到对应计数，反之亦然（判定位与证据不允许互相矛盾）。
+- **自检与守卫**：`--self-test` 覆盖健康板 + 8 个 reason 位各自置位 + 计数无位/位无计数 + 页长不符 + 饥饿证据，共 12 类；`tests/python/test_seat_acceptance_tool.py` **16 passed**，其中包含**从固件 SCPI 处理器源码反推字段数**与工具常量比对（22/12/30）——页长变更不会静默错位。
+- **登记**：新增 `TOOL-TDMA-SEAT-ACCEPTANCE`（`DEVICE_READ`），catalog 重生成；治理检查 `owned_files == visible_files == 577`、`catalog_errors == []`。
+- **真机剧本**：写入 [验收矩阵](TDMA_SEAT_ACCEPTANCE_REVIEW.md) 第四节——步骤 1 走既有 P3 流程构建烧录（不另立一套），步骤 2 只读采集并本机判定（证据落 `out/HardwareAcceptance/<date>/seat-acceptance-<time>/`），步骤 3 用 `--from-json` 交给评审者离线复算；并明确本工具**不**验证条目 14（通道独立），也不替代 P3。
+- **验证**：`pytest tests/python/test_seat_acceptance_tool.py` **16 passed**；`--self-test` 退出码 0 且 `passed=true`；`docs_check`/`doc_regression` 通过。
+- **未闭合**：待授权执行步骤 1/2；条目 14（A'）仍待评审。
+
+### TDMA-PROGRESS-20261011-023：席位验收矩阵 + 门控行为主机验证（休眠路径不再只靠"能编译"）
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`tdma_pio_spi_ring_origin.inc`、`tests/python/test_tdma_seat_rotation.py`、新增 [TDMA_SEAT_ACCEPTANCE_REVIEW.md](TDMA_SEAT_ACCEPTANCE_REVIEW.md)（+ `docs/README.md` 索引行）、`docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`。
+- **交付 1：验收矩阵**。新增非契约评审文档 `TDMA_SEAT_ACCEPTANCE_REVIEW.md`：把"一等席稳定性达到特等席水平"拆成 **16 条可核查条目**，逐条给出实现落点、证据（符号/命令/测试）与状态，并显式列出 4 项待决事项（席位窗口调度是否启用、A' 方案取舍、台架/P3 授权、TOOLS 治理项）与复核命令。文档声明"仅作索引、不定义语义"，避免与运行约束形成第二事实源（C12）。
+- **交付 2：门控行为验证**。把 origin 的席位窗口门控映射抽成 `tdma_pio_spi_ring_origin_seat_gate(adapter, load_seat, boundary_sequence)`（返回"现在可发/推迟"，STARVED 时计数），并用既有抽取模式新增 harness `test_seat_window_gate_counts_starvation_and_defers` **实跑**该函数：未挂载=放行、PRIORITY 窗口=放行、FIRST_CLASS 非本边界=推迟且**不计数**、FIRST_CLASS 落入窗口（boundary 2 → 2 ms ∈ [1.5,3.0)）=放行、FIRST_CLASS 落入 guard 区（boundary 3）=推迟不计数、**LOAD 席（`TDMA_LOOP_PLAN_LOAD_ENABLED == 0`，从未被请求）任意边界=计饥饿且不放行**（`seat_starved_count` 1→2，`seat_first_class_starved_count` 保持 0）。
+- **验证（主机，本次实测）**：`test_tdma_seat_rotation.py` **3 passed**（原用例 + 门控行为 + 构建守卫）；`test_tdma_seat_admission`/`_owner` 复跑通过；`docs_check`（178 文件）/`doc_regression` **OK**。
+- **覆盖论证（替代再一次全量跑）**：本轮改动的头/实现只被 2 个翻译单元包含（`tdma_pio_spi_ring_adapter.c`、`tdma_seat_admission.c`），二者均被上述用例覆盖；门控默认关闭，运行时路径未变，上轮全量基线 `1 failed / 8070 passed` 仍成立。
+- **未闭合**：验收矩阵条目 14（通道独立 A'）与 15（真机证据）仍待你决定/授权；条目 12 的运行时意义取决于是否启用 `TDMA_LOOP_SCHEDULE_ENABLED`。
+
+### TDMA-PROGRESS-20261011-022：席位门控判定抽成纯函数 + 补齐"未请求席位"饥饿 + 构建守卫
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`tdma_seat_admission.h`、`tdma_pio_spi_ring_origin.inc`、`tests/unit/test_tdma_seat_admission.c`、`tests/python/test_tdma_seat_rotation.py`、`docs/`。
+- **本轮发现（两点，均由读码确认）**：① 门控代码位于 `#if TDMA_LOOP_SCHEDULE_ENABLED` 内，而该宏**默认为 0**（席 位窗口调度未启用）→ 我在 `-019` 加的饥饿计数**当前不编译、也没有任何测试覆盖**；② `-019` 的检查只看 `dropped_mask`，而该掩码只为**已请求**席位置位——若把负载挂到**故意未启用**的 LOAD 席（挂载表允许并持久化该 seat，`tdma_seat_mount_seat_valid()` 接受它），计划里永远没有 LOAD 窗口、掩码里也没有 LOAD 位 → 仍会**永久静默推迟**，正是 `-019` 想根除的形态。
+- **修复**：把门控判定抽成**纯函数** `tdma_loop_plan_seat_service(plan, seat, boundary_sequence, slot_period_ns)`（三种结果 `OK`/`DEFER`/**`STARVED`**），并新增 `tdma_loop_plan_seat_present()`；`STARVED` 覆盖"为空间被丢弃"与"从未被请求"两种成因，origin 据此计入 `seat_starved_count` / `seat_first_class_starved_count`（判定页 bit6）。
+- **构建守卫（针对"默认关闭的代码会烂掉"）**：`tests/python/test_tdma_seat_rotation.py` 新增 `test_seat_window_gate_still_builds_when_enabled`——以 `-DTDMA_LOOP_SCHEDULE_ENABLED=1` 对**真实适配器翻译单元**做语法编译，必须通过。
+- **验证（主机，本次实测）**：席位准入单测新增门控判定用例——两窗口计划中 PRIORITY present、FIRST_CLASS present、LOAD **not present**；`seat_service(NONE)`=OK、`seat_service(LOAD)`=**STARVED**（未请求席位）、`seat_service(PRIORITY, seq 0)`=OK、`seat_service(FIRST_CLASS, seq 0/1)`=DEFER、`NULL` 计划=STARVED、空间不足计划中 FIRST_CLASS=STARVED。`test_tdma_seat_admission` 与 `test_tdma_seat_rotation`（含构建守卫）**全过**。
+- **文档口径修正**：运行约束明确写出"门控当前默认关闭，`seat_starved_count == 0` 是未启用的正常结果、不代表真机已验证"，避免把休眠状态误读为已验证行为。
+- **未闭合**：席位窗口调度是否启用（`TDMA_LOOP_SCHEDULE_ENABLED`）属策略决定，需与 A' 一并评审；台架与 P3 仍未做。
+
+### TDMA-PROGRESS-20261011-021：从板 sink 拒绝拆分（不可恢复的解码失败独立可见）
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`distributed_refmem_position_ack.inc`、`distributed_refmem.h/.c`、`tdma_pio_spi_ring_adapter.h`、`scpi_system_snapshot_commands.c`、`tests/python/test_t2_freeze_completion.py`、`tests/unit/test_tdma_pio_spi_ring_adapter.c`、`t2_bench_probe.py`、`docs/`。
+- **发现的缺口（读码确认）**：`SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 的 `lane_reject_count` 实际来自 sink 的 `s_position_priority_reject_count`，而该计数混合了两种语义完全不同的情况——①`trigger_position_slice_decode()` 为假（帧已通过通道校验，但紧缩切片不可解，**记录丢失且不可恢复**）；②单深度 mailbox 仍被占用（**有界背压**，记录已进入每源 FIFO 等待补投）。于是"一等席到底丢了多少"必须从混合计数里猜，且解码失败没有判定位。
+- **修复**：拆分——②保持为 `lane_reject_count`（与 `lane_hold/drain/drain_fail` 共同构成可恢复路径证据），①新增 `s_position_priority_decode_reject_count` → 快照 `lane_decode_reject_count` → `POSition?` 追加为第 30 字段；判定页新增 reason 位 **bit7 `DECODE_REJECT`** 并把它纳入 22 字段证据；探针新增 `position_lane_decode_reject_delta` 与 `seat_health_decode_reject`。
+- **验证（主机，本次实测）**：`test_t2_freeze_completion.py` 新增用例——把已构造记录的切片 tag 位清零（帧仍合法）后送入 sink：`s_position_priority_decode_reject_count` +1、**背压计数不变**、**入队计数不变**、**接受计数不变**、无描述符可取；适配器 host 单测判定断言扩到 **13 组**（含 bit7 独立置位）→ `tdma_pio_spi_ring_adapter tests passed`；席位验收集 **125 passed**，三套 host 单测全过。**因改动落在优先级 IRQ 的接收 sink 上，另跑一次串行全量套件（22 分 17 秒）：`1 failed, 8070 passed, 1 skipped`——与基线逐项一致，无回归**（唯一失败仍是需 TOOLS owner 决定的治理项）。字段数脚本核对 `POSition?`=30、`HEALth?`=22。
+- **RAM**：+4 B（一个计数）。
+- **未闭合**：A'（独立 TX 通道）仍待评审；台架与 P3 仍未做。
+
+### TDMA-PROGRESS-20261011-020：一等席"推迟"纳入同一条有界服务口径（发布侧等待不再不可见）
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`tdma_pio_spi_ring_origin.inc`、`tdma_pio_spi_ring_adapter.h`、`scpi_system_snapshot_commands.c`、`tests/python/test_tdma_seat_rotation.py`、`t2_bench_probe.py`、`docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`。
+- **发现的缺口（读码确认）**：一等席记录被 `tdma_first_class_take()` 租用后，若 `phys_origin.publish()` 未完成，`tdma_pio_spi_ring_origin_board()` 返回"推迟"、`tdma_first_class_finish(..., false)` 把记录放回队列（这是对的设计，不丢记录）；**但等待预算只在"特等席上了车"时才推进**（`if (first_pending) seat_first_class_wait++` 在 priority 分支内）。于是由**发布侧**（硬件忙/stall）造成的等待可以**无界**且**不可见**：`seat_first_class_wait` 恒为 0、`wait_max` 不更新、判定页显示"健康"。
+- **修复**：推迟分支显式记账——`seat_first_class_deferred_count++` 并把同一次机会**推进声明预算** `TDMA_SEAT_FIRST_CLASS_WAIT_MAX_OPPORTUNITIES`（达到即计一次 `seat_first_class_wait_violation_count` → 判定页 bit3），上车后等待归零、`wait_max` 记录峰值。这样"被特等挤掉"与"被发布侧拖住"两类等待共享同一条**有界、可计数**的口径；`SEAT:COUNters?` 增至 **12** 字段、`SEAT:HEALth?` 增至 **21** 字段（新增字段均为上下文证据，不新增 reason 位，避免把正常的偶发推迟误报为降级）。
+- **顺带审计（无改动，记录结论）**：① FREEZE latch 是"每 position_id 1..15 一位"的幂等锁存（`trigger_position_freeze_latch_put()` 对已锁存/有效 id 恒返回真），**不存在"满了丢 FREEZE"的状态**，其假返回只对应非法 id/version（线上由 1..15 的 nibble 与解码校验排除）；② 快路径轮换用 `tdma_first_class_pending()`（席位队列）判定，而 loop plan 窗口用**席位挂载表**判定，两者判据不同但职责不同（前者决定"谁带头"，后者决定"何时可发"），暂不作为缺陷，已记入评审待办。
+- **验证（主机，本次实测）**：`test_tdma_seat_rotation.py` 通过——新增断言：单次推迟 → `seat_first_class_deferred_count==1` 且记录仍 pending；连续推迟满预算 → `seat_first_class_wait==预算`、`wait_violation_count` +1、`deferred_count==1+预算`；随后成功上车 → 等待归零且 `wait_max==预算`。席位验收集 **125 passed**、三套 host 单测全过。**因改动触及 origin 发布路径，另跑一次串行全量套件（21 分 38 秒）：`1 failed, 8070 passed, 1 skipped`——与基线逐项一致，无回归**（唯一失败仍是需 TOOLS owner 决定的治理项）。字段数脚本核对 `COUNters?`=12、`HEALth?`=21。
+- **RAM**：origin +4 B（一个计数）。
+- **未闭合**：A'（独立 TX 通道）仍待评审；台架与 P3 仍未做。
+
+### TDMA-PROGRESS-20261011-019：loop plan 席位饥饿显式化（一等席不再可能静默永久推迟）
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`tdma_seat_admission.h/.c`、`tdma_pio_spi_ring_adapter.h`、`tdma_pio_spi_ring_origin.inc`、`scpi_system_snapshot_commands.c`、`tests/unit/test_tdma_seat_admission.c`、`tests/unit/test_tdma_pio_spi_ring_adapter.c`、`t2_bench_probe.py`、`docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`、`docs/tdma/TDMA_DOMAIN_TODO.md`。
+- **发现的缺口（读码确认，非推测）**：`tdma_loop_plan()` 按 PRIORITY → FIRST_CLASS → LOAD 顺序铺窗口，剩余空间不足时只是 `break`；origin 发布路径用 `tdma_loop_plan_slot_for_index()` 比对"本负载所在席位"，不匹配就 `return true`（推迟重试）。因此当窗口排不下时，挂在一等席上的负载会在**每个边界**被推迟且**没有任何计数或错误**——`(void)tdma_loop_plan(...)` 连返回值都不看。默认配置（环 4 ms / 发射 1.5 ms / guard 30 µs）能容纳两个窗口，但 `start_offset_ns`（可配置）或更小的环周期会让一等席先被挤掉：典型地 `start_offset=1 ms` 时 priority 占 [1.0,2.5)，first-class 需要 2.5+1.5+0.03>4 ms → **一等席无窗口**。
+- **修复**：① `tdma_loop_plan_t` 新增 `dropped_mask`（位 `TDMA_LOOP_PLAN_DROPPED_PRIORITY/FIRST_CLASS/LOAD`）与纯内联查询 `tdma_loop_plan_seat_dropped()`；planner 在 break 时把**所有**被丢弃的已请求席位记入掩码；② origin 发现"本负载席位被丢弃"时计入新的 `seat_starved_count` 与 `seat_first_class_starved_count`（`tdma_pio_spi_ring_origin_status_t`），仍按原语义推迟但不留静默；③ 判定页新增 reason 位 **bit6 `FIRST_CLASS_STARVED`** 并把 `seat_first_class_starved_count` 纳入 20 字段证据；`SEAT:COUNters?` 增加两个饥饿计数（11 字段）；④ 探针新增 `seat.seat_starved_delta` / `seat.first_class_starved_delta` 与 `seat_health_first_class_starved`。
+- **验证（主机，本次实测）**：席位准入单测新增饥饿用例——`emission=1.34 ms` 三窗口排不下 → `dropped_mask==LOAD`；`start_offset=1 ms` → 只放下 priority、`dropped_mask==FIRST_CLASS` 且 `seat_dropped(FIRST_CLASS)` 为真；`start_offset=2.5 ms` → `count==0` 且掩码为 PRIORITY|FIRST_CLASS；`NULL`/`NONE` 查询为假；锚定环首时掩码恒为 0。适配器 host 单测判定断言扩到 **11 组**（含 bit6 独立置位）→ `tdma_pio_spi_ring_adapter tests passed`。席位相关用例 **132 passed**，三套 host 单测全过。**因本次触及 origin 发布路径，另跑一次串行全量套件（22 分 17 秒）：`1 failed, 8070 passed, 1 skipped`——与上一轮基线逐项一致，无回归**（唯一失败仍是需 TOOLS owner 决定的治理项）。字段数：`COUNters?`=11、`HEALth?`=20（脚本核对与文档一致）。
+- **RAM**：origin +8 B（两个计数）；planner 结构 +4 B（掩码，非持久）。累计席位相关新增仍 <1.5 KB，未动用"缩波形 buffer"授权。
+- **未闭合**：A'（独立 TX 通道）仍待评审；台架与 P3 仍未做。
+
+### TDMA-PROGRESS-20261011-018：清既有失败 9 项（描述符 schema 漂移 6 项 + 迁移路径/契约口径 3 项）
+
+- 背景：`-015` 之后全量套件剩 10 个既有失败。本轮把其中 **9 个**修掉，只留下一个需要 TOOLS owner 决定的治理项。
+- **修复 ①（6 项，`test_trigger_position_instance` 2 + `test_trigger_action_template` 1 + `test_trigger_action_runtime` 3）**：`TRIGGER_POSITION_DESCRIPTOR_SCHEMA` 已升到 **2**，而这三处 harness 仍写死 `.schema=1` → `trigger_position_descriptor_valid()` 一律拒绝，`expand`/`stage` 断言随之失败。改为引用**符号** `TRIGGER_POSITION_DESCRIPTOR_SCHEMA`（并加注释），使 schema 再升版不会静默作废这些检查。**结果 9 passed。**
+- **修复 ②（1 项，`test_vdc_dpll_replay`）**：测试把 runner 的兼容副本指向 `tools/vdc_dpll_replay/…_runner.c`，而 tools 迁移按登记表把该副本放在 `tools/vdc/vdc_dpll_replay/`（registry role=`resource`，与归档字节完全相同：`sha256 8640d710…`，9528 B）；最深旧目录只保留 `.py` 包装与 README。按登记表修正路径，保留"归档 == 兼容副本、规范化后 == 分类目录"三段字节断言。**结果 88 passed。**
+- **修复 ③（1 项，`test_p3_hardware_acceptance`）**：P3 `run` 的口径**已变更**为"显式 `--config` 优先，仅在默认配置时才按 `--full` 选 p3_bench/quick"（工具内注释给出理由：原先会静默忽略调用方要求的配置）。测试仍写旧语义（字面量名为 `ignored.json`），按新契约重写并**加密**：默认配置 + full/quick 选对应 profile、显式配置在两种模式下都必须胜出、`resume` 仍用自定义配置。**注意：这是钉住工具既有行为，不修改 P3 工具本身**（提交门禁语义未变）。
+- **修复 ④（1 项，`test_calibration_topology_start`）**：ARM 未知 ACK 的拒绝路径现在可能由"ACK 分类"或"后续新鲜状态确认"两处触发，失败文本相应有 `ARM acknowledgment unknown` / `unconfirmed ARM` / `invalid ARM status` 三种；测试只认第一种。放宽正则覆盖三者，**保留核心断言**（未知 ARM ACK 不得借用旧 status=1、且不得发出 `:START`）。**结果 140 passed（两个文件合计）。**
+- **仍未修（1 项，需 TOOLS owner）**：`test_tool_governance.py::test_actual_registry_and_catalog_are_in_sync` 要求整份治理检查零 error，而现存 `unassessed legacy tool family`（103 族）、`dependency review pending` 与 `invalid allowed tool root file` 属**评估/所有权决定**，不是测试侧可改的口径（登记表 notes 明确"legacy inventory only，不代表支持资格"）。
+- **验证**：上述四组文件定点复跑 **9 + 88 + 140 passed**；串行全量套件（22 分 16 秒）**`1 failed, 8070 passed, 1 skipped, 0 errors`**——对比本轮开始时的 `10 failed, 8061 passed, 0 errors`：9 项既有失败清零、通过数 +9，唯一剩余项即上文需 TOOLS owner 决定的治理项。
+- **本目标累计（第 7→14 轮）**：全量套件由 `13 failed / 7607 passed / 451 errors` 收敛到 `1 failed / 8070 passed / 0 errors`。
+
+### TDMA-PROGRESS-20261011-017：A' 决策所需硬事实——32 B 短槽逐字节占用表（否证方案 A）
+
+- TODO task ID：`TDMA-SEAT-03` 缺口 A'；改动：[TDMA_SEAT_TX_CHANNEL_REVIEW.md](TDMA_SEAT_TX_CHANNEL_REVIEW.md)（附录 A + 推荐与问题集修正）。
+- **做法**：不写代码、不改布局，只把布局常量（`tdma_process_image_layout.h`、`tdma_flight_engine.h`）逐符号导出成 **32 B 短槽占用表**，回应评审问题 1。表内每个区间都标注了唯一的偏移/长度符号，属"符号导出的快照"，非实测值，也不手写硬数字（AGENTS.md 硬约束 2）。
+- **结论（推翻方案 A 的前提）**：偏移 0–31 **全部有主**，短槽没有空闲字节——方案 A 原文的"使用未用余量"不成立。独立化只剩三条路：**A″ 回收式专属**（显式把某字段所有权转给一等席并给出旧 owner 替代，候选是偏移 29 的 optional diagnostic，其读回 `last_optional_diagnostic` 需替代方案）、**B 专属帧**（不回收字节，代价是每圈多一帧 → 需重算 M:N 与 IRQ WCET）、**C 现状**（准入+仲裁，标注"未独立"）。
+- **补充事实**：opcode **命名空间已分离**（一等 `0xE0|run_id`、诊断 `0xD1`/`0xD2`），接收侧不存在混淆；真正的共享只是同一对字节的**写权**。因此若长期停留在 C，可把"命名空间分离 + 诊断准入 + `lane_ack_override_count` 恒为 0"作为显式验收条款（已列为评审问题 6）。
+- **验证**：`docs_check --strict-names` **OK**、`doc_regression` **OK**（文档门禁全绿）；表格内容逐项对照上述两个头文件符号。
+- **席位验收证据块（主机，本轮集中复跑）**：席位/位置/诊断/运输验收集 **243 passed**（`test_tdma_seat_rotation`、`test_tdma_seat_admission`、`test_tdma_priority_rx`、`test_tdma_priority_rx_scpi`、`test_t2_freeze_completion`、`test_t2_position_flight`、`test_trigger_position_mailbox`、`test_distributed_action_probe`、`test_refmem_action_probe`、`test_vdc_feedback_transport`、`test_vdc_feedback_preacquire`、`test_vdc_flight_rx`、`test_vdc_command_ingress`、`test_tdma_board_record`、`test_flash_inventory`）；三套 host 单测 `tdma_pio_spi_ring_adapter`（含 9 组席位判定断言）、`tdma_service_scheduler`、`tdma_ring_runtime` **全部 passed**。
+- **未闭合**：A'/A″/B/C 的取舍仍等你评审；台架与 P3 仍未做。
+
+### TDMA-PROGRESS-20261011-016：一等席稳定性判定页 `SYSTem:TDMA:SEAT:HEALth?`
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`tdma_pio_spi_ring_adapter.h`、`scpi_system_snapshot_commands.h/.c`、`tests/unit/test_tdma_pio_spi_ring_adapter.c`、`t2_bench_probe.py`、`docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`、`docs/tdma/TDMA_DOMAIN_TODO.md`。
+- **动机**：一等席的退化证据此前分散在三个页（`SEAT:COUNters?`、`FLIGHT:PRIORity?`、`REFMEM:SYNC:FLIGHT:POSition?`），一次台架运行后仍需人工比对才能回答"一等席是否达到特等席水平"。特等席的口径是可运维：一个读回即给结论与原因。
+- **实现**：纯函数 `tdma_seat_health_reason()`（`tdma_pio_spi_ring_adapter.h` 内联，输入 `tdma_seat_health_facts_t`）把六个**必须为零**的退化事实折成 `reason_mask`；SCPI 页 `SYSTem:TDMA:SEAT:HEALth?` 输出 `ok,reason_mask` + 19 字段原始证据（含 origin 席位计数与从板 lane 计数）。设计内的有界背压（`first_class_stage_refused_count`）只作上下文，**不**进入 `reason_mask`，避免把正常背压误报为降级；`reason_mask` 的 bit2（`ACK_OVERRIDE`）同时是"独立 TX 通道是否建立"的判据（准入生效后应恒为 0）。
+- **读出**：探针 `BUDGET_QUERIES` 新增该页，并把 `seat_health_ok` / `seat_health_reason_mask` 提到 delta 行顶层，使一次运行的结果可直接判读。
+- **验证**：适配器 host 单测新增 9 组断言（健康=0、`NULL`→全位、六个位各自独立置位、组合位为并集）→ `tdma_pio_spi_ring_adapter tests passed`；编译含快照 SCPI 的三个用例 **47 passed**；探针语法校验通过；字段数脚本核对 **19**。
+- **RAM**：无新增存储（纯函数 + 只读页）。
+- **未闭合**：A' 本体（独立 TX 通道）仍待评审；台架复测与 P3 凭证仍未做。
+
+### TDMA-PROGRESS-20261011-015：席位域既有失败三连修（admission / flash 清单 / board record）
+
+- 背景：`-014` 之后主机套件只剩 13 个既有失败（全部在 HEAD 验证过）。其中**三个属 TDMA/席位域**——席位工作自己把自己的门禁测试打红了，按目标口径（席位工程健康度即"达到特等席水平"的一部分）本轮一并修好。
+- **① `test_tdma_seat_admission`**：`tests/unit/test_tdma_seat_admission.c` 里 6 处 `tdma_loop_plan_request_t` 与 1 处 `tdma_loop_plan_t` 用**定位初始化器**，落后于结构体新增字段（`start_offset_ns`、`loop_period_ns`），触发 `-Werror=missing-field-initializers` → 全部改为**指定初始化器**（新增字段显式写 0 或原有 200000u 值，语义不变）；另把 Python 侧写死的 `"5 case groups passed"` 改为"正则取组数 ≥ 14"，避免 C 侧增加用例再次腐化。**结果：1 passed（C 侧 14 组全过）。**
+- **② `test_flash_inventory`**：断言写死原始 flash 调用点为 10 个，而 `components/tdma/src/tdma_seat_mount_store.c`（`TdmaSeatMountStoreReadView`，TDMA-SEAT-01 引入）是**第 11 个且已登记在 `config/flash_raw_call_allowlist.json`**。改为断言"源码发现集合 == allowlist 声明集合"，并显式要求席位挂载存储仍在集合内。**结果：7 passed。**
+- **③ `test_tdma_board_record`**：密封 board record 的 `fifo` 组是 live SCPI 页的**精确前缀**，而 live 页新增了三个类型 B 发送拒绝计数（`tx_reject_bad_payload_count/ring_full/no_slot`）；测试只给 `runtime` 组开了"显式命名追加块"白名单。按同一机制为 `fifo` 组补 `appended_fifo` 白名单（仍强制追加块必须**恰好**位于尾部、历史字段不得移动/改名/消失）。**结果：26 passed。**
+- **验证**：三者合并复跑 **34 passed**；串行全量套件（22 分 07 秒）**`10 failed, 8061 passed, 1 skipped, 0 errors`**——对比本轮开始时的 `13 failed, 8058 passed, 1 skipped, 0 errors`：席位域三个既有失败清零、通过数 +3、error 仍为 0。
+- **剩余 10 个既有失败（均非席位域，且已在 HEAD 上验证过）**：`test_trigger_action_runtime`(3)、`test_trigger_position_instance`(2)、`test_trigger_action_template`(1)、`test_calibration_topology_start`(1)、`test_p3_hardware_acceptance`(1)、`test_tool_governance`(1)、`test_vdc_dpll_replay`(1)。
+- **说明**：以上均为测试脚手架/断言口径修正，不改生产语义；`tests/` 属 §7 范围，提交需 P3 凭证。
+
+### TDMA-PROGRESS-20261011-014：根因④修复——主机套件既有 error 清零
+
+- 背景：`-010` 给出 451 errors 基线，`-011` 修掉其中 441 个，剩余 10 个全在 `tests/python/test_sync_io_action.py`。本轮把它修完。
+- **真凶（本轮用"打补丁的临时副本"实测定界，不靠猜）**：该用例派生自 `test_sync_io_switch.py` 的共享 mock，而 mock 把 PIO 程序长度**硬编码为 switch 程序的 6 字**（`pio_can_add_program`/`pio_add_program` 里的 `g->length==6`），派生 harness 里的改写锚点却是**陈旧的 `g->length==4`**——`str.replace` 静默匹配失败，于是 8 字的 action 程序永远 `pio_can_add_program()==false`，`sync_io_action_load()` 返回 false。探针输出：`LOAD d=1 id=11 dma=0 w=65536 s_mask=65536 c1=0 c3=0 cap=0`（`cap=0` 即 can_add 失败）。
+- **同时存在的第二处腐化**：共享 mock 后来拥有了 `raw_lo()` 驱动的计时器模型（每次读时钟都会推进 8 拍），派生 harness 又定义了一套纯字段计时器 → 同名 `timer`/`clock_get_hz` 重复定义（硬错误）；且派生 harness 的断言（`enable_before_tick==origin`）要求**读时钟无副作用**，即纯字段模型才是它期望的语义。
+- **修复**：① 锚点改为 mock 的真实文本 `g->length==6`→`g->length==8`，并加 `assert MOCK.count('g->length==6')>=2` 防止将来 mock 变更再次静默失效；② 派生 harness 删除继承的 `raw_lo` 计时器模型（保留 `advance()` 前置声明）与 `raw_reads/origin_cost/late_after`，保留自己的纯字段计时器；③ 为该变体 mock 增加 `#pragma GCC diagnostic ignored "-Wunused-function"`（共享 mock 里有本变体不调用的桩函数）。均为测试脚手架改动，不改生产语义。
+- **结果**：`test_sync_io_action.py` **10 passed**（此前 10 errors）；与本目标相关的 13 个既有失败**不受影响**（仍是在 HEAD 上验证过的那些）。
+- **说明**：`tests/python/` 属 §7 测试范围，提交需 P3 凭证。
+
+### TDMA-PROGRESS-20261011-013：一等席 TX 侧诊断准入（评审草案方案 C 落地，过渡项）
+
+- TODO task ID：`TDMA-SEAT-03`（缺口 A' 过渡）；改动：`distributed_refmem_position_ack.inc`、`distributed_action_probe.inc`、`distributed_refmem.h/.c`、`scpi_system_snapshot_commands.c`、`t2_bench_probe.py`、`tests/python/test_t2_freeze_completion.py`、`test_distributed_action_probe.py`、`test_vdc_feedback_transport.py`。
+- **问题**：`lane_ack_override_count` 只能事后统计"诊断被覆盖"；诊断仍然**先占用**共享控制字节，属于"事后仲裁"而不是"准入"。特等席的口径是有独立资源，一等席至少在共享资源上应当**事先**获得优先权。
+- **实现**：新增准入查询 `distributed_refmem_position_ack_control_available(mailbox_class)`——当本板有冻结事实要随本镜像发布（`s_position_local_frozen != 0`）且该 class 本来会承载该事实时，返回 false 并计入 `s_position_diag_refused_count`；`action_patch_mailbox(mailbox, bool control_allowed)` 相应改造：**载荷片段照旧写入**（不破坏诊断自身的 RefMem 广播语义与 peer 选择），但 `control_allowed` 为假时**不写** `CONTROL_OPCODE`/`CONTROL_SEQ8`。镜像构建顺序保持"先诊断、后一等确认"，因此未预留路径上的覆盖仍被计入 `lane_ack_override_count`。
+- **读出**：`SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 追加 `lane_diag_refused_count`（29 字段）；探针新增 `position_lane_diag_refused_delta`（index 22）。文档（[RUNTIME_CONSTRAINTS](TDMA_RUNTIME_CONSTRAINTS.md)、[SCPI_COMMANDS](../interface/SCPI_COMMANDS.md)、[TODO](TDMA_DOMAIN_TODO.md)、[方案评审](TDMA_SEAT_TX_CHANNEL_REVIEW.md)）同步。
+- **不变式（自证独立性的判据）**：准入生效后 `lane_ack_override_count` 应恒为 0——若仍增长，说明存在准入之外的共享写入，独立通道尚未建立。
+- **验证（主机，本次实测）**：`test_t2_freeze_completion.py` 通过（新增：冻结时准入拒绝且计数 +1、诊断不占控制字节、随后的一等 patch **不产生新覆盖**、无冻结时/T2 position class 上准入恒放行且不计数）；`test_distributed_action_probe.py`、`test_refmem_action_probe.py`、`test_vdc_feedback_transport.py`、`test_vdc_feedback_preacquire.py`、`test_t2_position_flight.py`、`test_trigger_position_mailbox.py` 共 **159 passed**。
+- **RAM**：新增 1 个计数（4 B）+ 1 个布尔参数。
+- **未闭合**：A' 本体（方案 A 载荷专属段 / B 专属帧）仍待评审；台架复测与 P3 凭证仍未做。
+
+### TDMA-PROGRESS-20261011-012：缺口 A' 方案评审草案 + 根因④诊断（`test_sync_io_action` 暂缓）
+
+- **交付**：新增 [TDMA_SEAT_TX_CHANNEL_REVIEW.md](TDMA_SEAT_TX_CHANNEL_REVIEW.md)（非契约评审草案，已在 `docs/README.md` 加索引行）——针对 `TDMA-SEAT-03` 唯一剩余功能缺口 A'（一等席独立 TX 通道）给出三个候选方案与逐项影响面/验收口径：**A 载荷内专属段**（推荐，改动最小，需先给 mailbox 32 B 的逐字节占用表证明有余量）、**B 专属出站镜像帧**（物理隔离最彻底，但要重算 origin 发布机会 M:N 与优先级 lane 的 IRQ WCET）、**C 共享加固**（零 wire 变更的过渡做法，明确不作为关闭条件）。列出的待评审问题包括：余量表、线格式版本兼容/混版本策略、方案 B 的开销数字、异主写入检测计数命名（拟 `lane_alien_write_count`，须与 `lane_ack_override_count` 去重）、以及是否必须含四板台架证据。**该缺口的实施仍等待评审，不自行改布局。**
+- **根因④诊断（`test_sync_io_action`，10 项，本轮暂缓并保持原状）**：该文件派生自 `test_sync_io_switch.py` 的共享 mock，而共享 mock 后来拥有了 `raw_lo()` 驱动的计时器模型（`timer`/`timer1_hw`/`timerawh`/`timerawl`/`clock_get_hz`/`TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS`），派生文件又**再定义一套同名计时器**，于是出现 `conflicting types for 'timer'` 等硬错误（这正是本目标两轮里 451 个既有 error 的一员，HEAD 同样失败）。本轮实测两条修复路线：
+  1. 保留派生（纯字段）计时器、删除继承模型 → 编译通过，但首个用例 `sync_io_action_load(&c,&g)` 返回 false；
+  2. 保留继承（raw_lo）模型、把派生 `advance` 改为写 `timer.raw_lo_dummy/raw_hi_dummy` → **同样**在该断言失败。
+  两条路线失败点一致 ⇒ 该失败**与计时器模型选择无关**，属 mock 与生产 `sync_io_action_load()` 的 ACTION persona 接口失效（`sync_io_pio0_runtime_prepare_io(SYNC_IO_PERSONA_ID_ACTION,...)` 内 `hooks.load/arm` 未满足生产校验）。为避免把全量基线数字搅浑（10 errors 会变成 10 failed），**已回退该文件改动**，保留上述诊断供后续单独处理。
+
+### TDMA-PROGRESS-20261011-011：清除席位插桩/T2 迁移遗留的主机脚手架腐化（约 640 项用例恢复）
+
+- 背景：`TDMA-PROGRESS-20261011-010` 已修 3 处并给出全量基线（`13 failed / 7607 passed / 451 errors`），并定位 451 个 error 的根因。本轮把其中**与席位插桩/位置运输直接相关的部分全部修掉**——理由是：席位插桩自身把主机套件打断 400+ 项，本身就是"席位工程不达特等席水平"的证据。
+- **修复 A：seat store 主机桩（根因①）**。新增 `tests/unit/host_stubs/tdma_seat_mount_store_stub.c`，提供 `tdma_seat_mount_store_note_reject()` 与 `tdma_seat_mount_store_status()`（席位插桩会无条件调用它们，但多数 harness 不链接 store 实现）。接入：
+  - `test_vdc_run_output.compile_host()` **一处接入，同时修好 `test_vdc_run_timeline`**（后者复用前者）→ **184 + 60 passed**（原 151+58 errors）；
+  - `test_trigger_action_service`（owner/parser/exec-parser 三处）→ **85 passed**（原 60 passed + 25 errors）；`test_trigger_action_execution` → **11 passed**；`test_trigger_deployment_service` → **74 passed**（并在 harness 内补 `trigger_action_execution_is_loaded()` 桩）。
+- **修复 B：生产侧 SCPI 依赖声明**。`middleware/scpi_port/inc/scpi_port_internal.h` 增加 `#include "tdma_seat_mount_store.h"`——SCPI 命令实现调用该 store 的诊断入口，原先只靠 `scpi_system_snapshot_commands.c` 的 include 顺序（第 40 行）才可见，单编译某个 `.inc` 的 harness 因此得到 implicit declaration。声明放在 SCPI 内部头里，依赖关系不再依赖包含顺序。
+- **修复 C：缺失的组件包含路径（根因②）**。`distributed_refmem.h` 会包含 `trigger_position_descriptor.h`（位于 `components/sync_trigger/inc`），但若干 fixture 的 include 列表没有 `sync_trigger`：给 `test_vdc_priority_follow_config`（**40 passed**）、`test_vdc_command_stop`（**15 passed**）、`test_node_capacity`（**17 passed**）、`test_vdc_command_ingress`（**11 passed**）补上。
+- **修复 D：抽取式 harness 缺位置运输桩（根因③）**。这些 harness 抽取 `distributed_refmem.c` 的函数体，却不编译 `distributed_refmem_position_ack.inc`，于是新调用点（`distributed_refmem_position_ack_receive`、`distributed_refmem_position_priority_owned`、`distributed_refmem_tdma_parse_position_fragment`）无声明：按 `test_vdc_feedback_transport.py` 既有做法补三个 `static` 桩 → `test_vdc_command_ingress` **11 passed**、`test_vdc_flight_rx` **20 passed**。
+- **累计恢复**：本目标两轮共修复 **13 个既有腐化文件、约 640 项用例**（93+23+8+184+60+11+74+40+15+17+11+20+85）。仍未修：`test_sync_io_action`（10 项，`action_mock.h` 与真实 pico 头冲突：`conflicting types for 'timer'`、`clock_get_hz` 重定义、`-Werror=unused-function`），属根因④（mock/头文件顺序），留待下一轮。
+- **验证**：逐个文件复跑确认（见上）。**串行全量套件新基线：`13 failed, 8048 passed, 1 skipped, 10 errors`（21 分 59 秒）**，对比 `-010` 记录的 `13 failed, 7607 passed, 1 skipped, 451 errors`：**441 个 error 清零、441 项转为通过，失败集合不变（仍是那 13 个已在 HEAD 上验证过的既有失败）**。剩余 10 个 error 全部集中在 `test_sync_io_action`（根因④）。`tests/unit/host_stubs/tdma_seat_mount_store_stub.c` 与各 harness 属 §7 测试范围，提交需 P3 凭证。
+
+### TDMA-PROGRESS-20261011-010：修复既有主机脚手架腐化（138 项用例恢复可运行）
+
+- 背景：`TDMA-PROGRESS-20261011-004/005` 记录的两处既有失败（均由 `8bd547b2` 的席位插桩/位置静态量引入，非本轮功能改动导致），此前只能靠 stash 对照实验证明"HEAD 同样失败"。本轮把它们修好，使这些用例重新成为可信的验证手段。
+- **修复 1：`tests/python/test_vdc_feedback_preacquire.py`（118 项 ERROR → 93 passed）**。该 harness 逐个抽取 `distributed_refmem.c` 的函数体，却没有注入 `distributed_refmem_position_ack.inc` 里的位置运输静态量，也没有 `distributed_refmem_position_cancel_service`。按 `test_t2_position_flight.py` 已有做法补注入：`s_position_tx_mailbox`、`s_position_rx_mailboxes[]`、`s_position_freeze_latches[]`、`s_position_cancel_requested` 与 cancel service 的桩，并显式包含 `trigger_position_mailbox.h`。
+- **修复 2：`tests/python/test_tdma_service_nonblocking.py`（17 项链接错误 → 23 passed）**。该单测以 `PICO_ON_DEVICE` 路径包含 `tdma_service.c`（因此走设备分支、包含 seat store 头），但从未链接 seat store 实现。在测试 TU 内补 `tdma_seat_mount_store_note_reject()` 的桩定义（seat store 本体由自己的套件覆盖）。
+- **验证**：`test_vdc_feedback_preacquire.py` **93 passed**、`test_tdma_service_nonblocking.py` **23 passed**；两处修复都不改变生产代码语义（纯测试脚手架）。
+- **修复 3：`tests/python/test_t2_deploy_action_probe.py` 收集失败 → 8 passed**。全量套件此前因该文件的收集错误整体中断：它导入 `tools.t2_deploy_action_probe.t2_deploy_action_probe`，而 tools 迁移把实现搬到了 `tools/archive/deletable-candidates/t2_deploy_action_probe/`（该目录名含连字符，**根本无法导入**），迁移的引用审计也漏掉了这个测试导入。按仓库既有的 import-safe wrapper 约定补 `tools/t2_deploy_action_probe/t2_deploy_action_probe.py`（用 `importlib` 按路径加载归档实现并注册 `sys.modules`，否则 dataclass 解析 `__module__` 失败），并把该 wrapper 登记进 `tools/tool_registry.json`。
+- **工具治理**：`tool_governance.py check` 现在报 `owned_files == visible_files == 576`（此前有 3 个未登记文件：新 wrapper、以及 T2 台架工具 `tools/sync_trigger/t2_bench_probe.py`、`t2_enable.py`）。顺带把后两者按 schema 登记为 `TOOL-T2-BENCH-PROBE`（`DEVICE_CONFIGURE`），并在 notes 中写明：`t2_bench_probe.py` 收到未知参数会**落到默认全量运行**，调用时必须显式给输出目录或模式（本目标早前正是这样误触发过一次台架会话）。`tools/README.md` 的 catalog 块已按 registry 重新生成（`catalog_errors == []`）。
+- **既有失败（stash 对照确认，非本次引入）**：`test_tool_governance.py::test_actual_registry_and_catalog_are_in_sync` 在 HEAD 上同样失败——它要求整份治理检查零 error，而当前存在既有的 `unassessed legacy tool family` / `dependency review pending` / `invalid allowed tool root file` 条目；本次改动只减少了"未登记文件"这一类 error。
+- **验证纪律**：本仓库的 `compile_grid`/`compile_executable` 使用 `out/pytest/runs`（`.gitignore` 忽略），**并发跑多个 pytest 进程会互相踩目录并报 `FileExistsError`**；判断全量套件状态必须**串行单次**运行（本轮清空该目录后复跑，确认 error 不是残留假象）。
+- **全量套件基线（串行单次，19 分 43 秒）**：`13 failed, 7607 passed, 1 skipped, 451 errors`。**13 个 failed 逐条比对后确认在 HEAD 上同样失败**（stash 全量对照，清单完全一致）：`test_calibration_topology_start`(1)、`test_flash_inventory`(1)、`test_p3_hardware_acceptance`(1)、`test_tdma_board_record`(1)、`test_tdma_seat_admission`(1)、`test_tool_governance`(1)、`test_trigger_action_runtime`(3)、`test_trigger_action_template`(1)、`test_trigger_position_instance`(2)、`test_vdc_dpll_replay`(1)。
+- **451 个 error 的三大根因（本轮抽样定位，尚未修）**：① 缺 seat store 符号（`tdma_seat_mount_store_note_reject`、`tdma_seat_mount_store_status`，另有 `trigger_action_execution_is_loaded` 未定义）——`test_vdc_run_output`、`test_trigger_action_service`、`test_vdc_run_timeline`、`test_trigger_deployment_service`、`test_trigger_action_execution` 等；② 头文件/包含路径漂移（`In file included from components/distributed_refmem/inc/refmem_application*`）——`test_vdc_priority_follow_config`、`test_vdc_command_stop`、`test_node_capacity`、`test_vdc_command_ingress`、`test_sync_io_action`；③ `test_vdc_flight_rx` 在 `distributed_refmem_*` 内的单点错误。三者都与本目标的功能改动无关，属 `8bd547b2`（席位插桩）与 tools 迁移之后的脚手架腐化。
+- **说明**：`tests/unit/test_tdma_service_nonblocking.c`、harness、`tools/` 与 registry 属 §7 的工具/测试范围，提交时同样需要 P3 凭证。
+
+### TDMA-PROGRESS-20261011-009：一等席有界接收队列（SEAT-03 缺口④-RX 完成）
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`distributed_refmem_position_ack.inc`、`distributed_refmem.h/.c`、`scpi_system_snapshot_commands.c`、`t2_bench_probe.py`、`tests/python/test_t2_freeze_completion.py`。
+- **动机**：R2 的"每源一槽、只保最新"在同一窗口内出现多条被拒记录时会丢掉较早的那条；且它用 generation 防半写来对抗"生产者覆盖单槽"，结构上不如只追加队列稳。
+- **实现**：改成**每源有界 FIFO**（`DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH` 默认 4）——只追加 SPSC 环，生产者＝捕获 IRQ、消费者＝T2 相位（同核）；补投按**到达顺序**逐片进行；**队列满丢最新并计入 `lane_hold_dropped_count`**（不覆盖活条目，因此不再需要 generation 防半写）；同一条记录若先由线上重复帧成功投递，队列副本**标记为已消费**（出队但不重复投递）；单条连续失败达 `DISTRIBUTED_REFMEM_POSITION_HOLD_MAX_ATTEMPTS` 即退休并计入 `lane_hold_expired_count`，随后继续尝试下一条。
+- **读出**：`SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 28 字段（新增 `lane_hold_dropped_count`）；探针新增 `position_lane_hold_dropped_delta`；文档字段表与语义同步。
+- **验证（主机，本次实测）**：`test_t2_freeze_completion.py` 通过——新增：两条被拒记录按到达顺序补投（v11 先于 v12，不再是"最新优先"）、线上重复投递后队列副本不再重复投递、**满队列丢弃最新且只计一次**、单条超重试预算退休后继续处理下一条、STOP/`ack_reset` 清空队列（且用例末尾把占用的 mailbox 释放，保证后续 STOP 断言独立）。
+- **RAM（宿主 gcc 度量口径）**：每源 `4 × (slice 12 B + target 4 B + attempts 4 B)` = 80 B × 8 源 = 640 B，加 head/tail（64 B）与 5 个计数 ≈ **724 B**。六轮累计席位相关新增 <1 KB，仍远小于授权范围，**未**缩波形 buffer。
+- **未闭合**：SEAT-03 剩余 A'. 一等专属**独立 TX 通道**（当前仅做了控制字节仲裁，物理/载荷通道仍与特等共用，需 wire/预算核定与 `EXE-SEAT-01`）；台架复测与 P3 凭证仍未做。
+
+### TDMA-PROGRESS-20261011-008：一等席两条声明预算与越界计数（SEAT-03 缺口 B）
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`tdma_pio_spi_ring_adapter.h`、`tdma_pio_spi_ring_origin.inc`、`distributed_refmem_position_ack.inc`、`distributed_refmem.h/.c`、`scpi_system_snapshot_commands.c`、`t2_bench_probe.py`、`tests/python/test_tdma_seat_rotation.py`、`tests/python/test_t2_freeze_completion.py`。
+- **问题**：一等席原先没有声明预算——origin 侧等待只有"最大值"没有越界事实；从板侧 R2 引入的保存副本会**无限重试**（消费者长时间不取走就一直重投），既无上界也不可观测。
+- **实现**：① origin 侧 `TDMA_SEAT_FIRST_CLASS_WAIT_MAX_OPPORTUNITIES`（发布机会数预算）——等待**达到**预算即记一次 `seat_first_class_wait_violation_count`（每次等待只记一次）；② 从板侧 `DISTRIBUTED_REFMEM_POSITION_HOLD_MAX_ATTEMPTS`（补投次数预算，定义在被编译的 `.inc` 内并加 `#ifndef` 保护，使主机 harness 与固件共用同一值）——连续补投失败达预算即退休副本并计入 `lane_hold_expired_count`，成功或新记录到达时归零。
+- **读出**：`SYSTem:TDMA:SEAT:COUNters?` 9 字段（新增等待越界）；`SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 27 字段（新增 `lane_hold_expired_count`）；探针新增 `seat.first_class_wait_violation_delta` 与 `position_lane_hold_expired_delta`。
+- **验证（主机，本次实测）**：`test_tdma_seat_rotation.py` 通过（新增 M=8:N=1 场景：一等记录等满 8 次机会时越界计数 +1、第 9 次机会归一等、上车后等待归零）；`test_t2_freeze_completion.py` 通过（新增：连续补投失败达预算 → 只退休一次并计数、之后不再重投、被占用的 mailbox 取走后不再有残留）；lane/seat/freeze 相邻 62 项通过。
+- **RAM**：origin +4 B（1 计数）；从板 +8×4 B（每源尝试数）+4 B（1 计数）= 40 B。四轮累计新增仍 <300 B，未触及"缩波形 buffer"手段。
+- **未闭合**：SEAT-03 剩余 A（一等专属独立接收队列 / 独立 TX 通道，需 wire/预算核定与 `EXE-SEAT-01`）；台架复测与 P3 凭证仍未做。
+
+### TDMA-PROGRESS-20261011-007：优先级通道拒绝按 class 归因（SEAT-03 缺口⑤）
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`tdma_priority_rx.h/.c`、`tdma_pio_spi_phys_priority.inc`、`scpi_sync_commands.c`、`tests/python/test_tdma_priority_rx.py`、`tests/python/test_tdma_priority_rx_scpi.py`。
+- **问题**：lane 级拒绝原先只有一个 `reject_count` 与 `last_reject`，无法回答"一等席被拒了几条、链路整体被拒了几条"，即无法把一等席的稳定性与其它 class 的链路噪声分开。
+- **实现**：新增 `tdma_priority_rx_reject_class(lane, reason, mailbox_class, class_known)`（旧 `tdma_priority_rx_reject()` 保留并等价于"class 不可信"）。快照新增 `first_class_reject_count`（class == `TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS`）、`other_class_reject_count`、`unknown_class_reject_count` 与 `last_reject_class`（不可归因记 `TDMA_PRIORITY_RX_CLASS_UNKNOWN`）；**三者之和恒等于 `reject_count`**。IRQ 捕获路径只在传输头已通过校验（MAILBOX/MAILBOX_CRC/SEQUENCE/EXHAUSTED/CADENCE）时才把 mailbox class 传为可信，更早的失败（DMA/GEOMETRY/INCOMPLETE/OVERWRITTEN/HEADER/HEADER_CRC）一律进 unknown 桶，避免把乱码算成一等损失；publish 路径（SEQUENCE/EXHAUSTED）携带已校验记录的 class。
+- **读出**：`SYSTem:TDMA:FLIGHT:PRIORity?` 尾部追加四字段（该页由 23 字段变为 27 字段），SCPI 单测同步更新。
+- **验证（主机，本次实测）**：`test_tdma_priority_rx.py` 通过（新增：publish 路径拒绝落入 other 桶且 `last_reject_class` 为该 class；无 class 的拒绝只增 unknown 桶并置 `CLASS_UNKNOWN`；T2 position class 拒绝单独计数；三桶之和等于 `reject_count`）；`test_tdma_priority_rx_scpi.py` 通过（字段数 27）；lane 相邻 python 用例 18 项通过。
+- **RAM**：新增四个计数（16 B）+ 一个 API 参数，无缓冲。
+- **未闭合**：SEAT-03 剩余 A（一等专属独立接收队列/独立 TX 通道，需 wire/预算核定）与 B（一等专属期限/背压预算）；台架复测与 P3 凭证仍未做。
+
+### TDMA-PROGRESS-20261011-006：一等席 TX 侧控制字节仲裁（SEAT-03 缺口④的 TX 一半）
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`distributed_refmem.c`、`distributed_refmem_position_ack.inc`、`distributed_refmem.h`、`scpi_system_snapshot_commands.c`、`t2_bench_probe.py`、`tests/python/test_t2_freeze_completion.py`。
+- **问题（读码，非推测）**：冻结完成状态搭在出站镜像的 `TDMA_PROCESS_IMAGE_CONTROL_OPCODE_OFFSET`/`CONTROL_SEQ8_OFFSET` 上，而 `action_patch_mailbox()` 诊断写同样两个字节；原先镜像构建顺序是"先一等确认、后诊断"，诊断一旦激活就会**静默覆盖**一等的冻结完成事实（特等席有专用 typed body，不存在这种共享），origin 因此看不到该从板的冻结掩码，只能靠 FREEZE 重发/超时兜底。
+- **修复**：镜像构建顺序改为**先 `action_patch_mailbox()`、后 `distributed_refmem_position_ack_patch()`**——交付关键的一等事实最后写入；`distributed_refmem_position_ack_patch()` 在覆盖前检查前一 opcode，若不是 `OPCODE_NONE` 也不是 T2 frozen 家族（即被诊断占用）就计入 `s_position_ack_override_count`，同一 opcode 重复写入不计。
+- **读出**：`lane_ack_override_count` 追加到 `SYSTem:REFMEM:SYNC:FLIGHT:POSition?`（现 26 字段），探针按名提取为 `position_lane_ack_override_delta`。
+- **验证（主机，本次实测）**：`test_t2_freeze_completion.py` 通过（新增：诊断占用 0xD1/SEQ8=7 时一等确认覆盖为 T2 frozen opcode 且覆盖计数 +1、重复写入不重复计数）；`test_distributed_action_probe.py`、`test_refmem_action_probe.py` 通过（诊断路径与重试语义未受影响）；refmem/T2 相邻 48 项通过。
+- **RAM**：本次仅新增一个计数器（4 B）。累计席位相关新增仍 <200 B，无需动用波形 buffer。
+- **未闭合**：SEAT-03 缺口④的剩余部分（一等专属**独立接收队列**与独立 TX 通道，需 wire/预算核定）、⑤（从板 lane 拒绝按 class 归因）、⑥（一等独立期限/背压预算）；台架复测与 P3 凭证仍未做。
+
+### TDMA-PROGRESS-20261011-005：一等席有界接收保全（SEAT-03 缺口①第一步）
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`distributed_refmem_position_ack.inc`、`distributed_refmem.c`、`distributed_refmem.h`、`scpi_system_snapshot_commands.c`、`t2_bench_probe.py`、`tests/python/test_t2_freeze_completion.py`、`tests/python/test_t2_position_flight.py`。
+- **动机（上轮实测症状）**：单深度接收 mailbox 被占用时，被拒的 PREVIEW 只能靠 origin 的线上重复重试；origin 一旦停止重复（例如该版本已上车/进入 FREEZE 阶段），该版本即永久丢失，从板只能用较旧本地解算冻结——上一批台架即出现 `freeze_mismatch_count = 3/2/0`。
+- **实现**：拒收的 PREVIEW 现在保存到**每源一槽**（最新到达优先，按源 generation 写奇/偶防半写），由 T2 相位在下一个时间片经 `distributed_refmem_get_position_descriptor()` 经常规 mailbox 补投；补投成功清除副本，同一记录若先被线上重复帧成功入箱则匹配副本作废（不重复投递）。FREEZE 仍走 latch。新增计数 `lane_hold_count/lane_drain_count/lane_drain_fail_count`，随 `SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 尾部读出（该命令字段表已补全为 25 字段），并在 `t2_bench_probe.py` 中按名提取为 `position_lane_hold/drain/drain_fail` 增量。
+- **RAM 实测（宿主 gcc 度量，快照非事实源）**：每源 `trigger_position_slice_t`(12 B) + generation(4 B) + target(4 B) = 20 B × 8 源 = **160 B**，加三个计数 ≈172 B；仍在"RAM 不够才缩波形 buffer"的授权范围内，**无需**动用波形 buffer。
+- **验证（主机，本次实测）**：`test_t2_freeze_completion.py` 通过（新增：拒收即保存、单槽最新优先、mailbox 满时补投失败并保留、补投成功投递、线上重复入箱使副本作废）；`test_t2_position_flight.py`、`test_trigger_position_mailbox.py`、`test_tdma_runtime_mailboxes.py` 通过（其中飞行用例的 harness 增加了对补投入口的显式桩）。
+- **发现（既有缺陷，非本次引入，均由 stash 对照实验在 HEAD 上确认）**：① `tests/python/test_vdc_feedback_preacquire.py` 的 118 项 parametrize 用例以 ERROR 失败——这些 harness 抽取 `distributed_refmem.c` 的单个函数时不再注入 `s_position_tx_mailbox/s_position_rx_mailboxes/s_position_freeze_latches` 与 `distributed_refmem_position_cancel_service`；② `tests/python/test_tdma_service_nonblocking.py` 的 17 项以链接错误失败——该 harness 以 `PICO_ON_DEVICE` 路径包含 seat store 头但未链接其实现（`tdma_seat_mount_store_note_reject` 未定义）。两者都与 `8bd547b2` 引入的席位插桩/位置静态量同源，属测试脚手架腐化，建议单列修复项。
+- **未闭合**：SEAT-03 缺口④（一等专属 TX 保全与独立接收队列）、⑤（从板 lane 拒绝按 class 归因）、⑥（一等独立期限/背压预算）；台架复测与 P3 凭证仍未做。
+
+### TDMA-PROGRESS-20261011-004：一等席服务事实落地 + 主机套件解阻（SEAT-03 第一步）
+
+- TODO task ID：`TDMA-SEAT-02`、`TDMA-SEAT-03`。源码改动：`tdma_first_class.h`、`tdma_pio_spi_ring_origin.inc`、`tdma_pio_spi_ring_adapter.h/.c`、`scpi_system_snapshot_commands.c`、`tdma_service.c`、`tools/sync_trigger/t2_bench_probe.py`。
+- **既有缺陷修复（先决条件）**：`tdma_service.c` 的 `tdma_seat_mount_store_note_reject` 只在 `PICO_ON_DEVICE` 下声明却在 17 处无条件调用，导致 `run_tdma_service_scheduler_tests.ps1` 主机编译失败（`8bd547b2` 引入，与已修复的 A-07 同类）。按 `trigger_t2_runtime.c` 的既有做法补主机侧空实现后，该套件恢复通过。
+- **一等席服务事实（补 SEAT-03 缺口②⑤）**：`tdma_first_class_t` 新增 `stage_refused_count`（单深度邮箱有等待记录而拒绝新 stage——有界背压事实）与 `retired_waiting_count`（READY 未上车即被 route 丢失/STOP 退休——交付前损失）；`publish_priority` 在 route 丢失退休等待记录前先把它的等待值并入 `seat_first_class_wait_max`，消除"等待被静默丢弃"的观测缺口；新增两个计数经适配器快照读出，`SYSTem:TDMA:SEAT:COUNters?` 由 6 字段扩为 8 字段。
+- **完整性核对（修正 SEAT-03 缺口③的原判）**：`tdma_priority_rx_validate()` 在投递给任何 sink 之前逐帧校验传输帧 magic/version/class/length/identity CRC/transport CRC 与 mailbox magic/version/class/reference slot/target 位/mailbox CRC16，只有通过者才 publish/投递。因此记录级完整性**已由通道提供**，"从板不复验"仅指不复验 T2 紧缩切片；该结论已写入 `TDMA_RUNTIME_CONSTRAINTS.md`。
+- **观测面（补 SEAT-02 剩余项）**：`t2_bench_probe.py` 新增按名提取 `SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 尾部的 lane accept/duplicate/reject/owned，并把 `SYSTem:TDMA:SEAT:COUNters?` 加入采样查询，输出 `position_lane_*` 与 `seat{...}` 增量（含 stage 拒绝与交付前损失），供下一次台架运行直接给出"一等席还剩多少丢"。
+- **验证（主机，本次实测）**：`run_tdma_pio_spi_ring_adapter_tests.ps1` 通过（新增 stage 拒绝/退休等待计数与快照读回断言）；`tests/python/test_tdma_seat_rotation.py` 通过（新增背压计数、route 丢失退休计数与"先发布等待再退休"断言）；`run_tdma_service_scheduler_tests.ps1` 由失败转为通过；`tests/python` 的 TDMA/SCPI 相邻 50 项通过。
+- **台架状态事实（须记录）**：本轮误用 `t2_bench_probe.py --help` 触发了一次真实探针会话（脚本不处理 `--help`），产物 `out/HardwareAcceptance/20261011/t2-bench-probe-005754`（`passed=false`，错误为 STATUS 读回形状断言）。该运行对四板执行了 `TRIGger:REServation:GRID:CLEar` 与结尾 `SYSTem:TDMA:RING:STOP`（四板均 OK），即**清空了台架上原有的 GRID/T2 配置但把环停稳**；COM3–COM6 四板在线。重跑任何台架步骤前须先恢复现场配置。
+- **RAM 实测（宿主 gcc 度量，快照非事实源）**：本轮与上一轮为席位能力新增的静态内存合计约 32 B/板——`tdma_first_class_t` 48 B（两个计数 +8 B）、适配器两个比例字段 +8 B、快照四个只读字段 +16 B。目标给出的"RAM 不够可缩小波形 buffer"本轮**无需动用**；后续若为一等席加有界接收深度，量级预计为每源约百字节（8 源 <1 KB），届时再与波形 buffer 一并核算。
+- **未闭合**：SEAT-03 缺口①（无一等专属 RX/TX 保全与独立队列）、③'（从板 lane 拒绝原因未按 class 归因）、⑤'（一等无独立期限/背压预算）；固件与工具改动尚未取得 P3 硬件验收凭证。
+
+### TDMA-PROGRESS-20261011-003：一等席 M:N 轮换比例的 SCPI 入口与 seat 计数页落地
+
+- TODO task ID：`TDMA-SEAT-02`；关联新增 `TDMA-SEAT-03`。源码改动：`tdma_pio_spi_ring_adapter.h/.c`、`tdma_pio_spi_ring_origin.inc`、`tdma_runtime_owner.h/.c`、`scpi_system_snapshot_commands.h/.c`。
+- **实现**：编译期常量改为带默认值的每板 STOP-only 设置——`TDMA_SEAT_ROTATION_DEFAULT_PRIORITY_SHARE`/`_FIRST_CLASS_SHARE`（1:1）、上界 `TDMA_SEAT_ROTATION_SHARE_MAX` 与 `TDMA_SEAT_ROTATION_CYCLE_MAX`，校验与回落 helpers 在头文件内联；适配器新增两个字段与 `tdma_pio_spi_ring_adapter_set_seat_rotation()`（`started` 非零即拒绝），仲裁按配置值计算 M:N，读到 0 回落默认以避免零周期；owner 侧 `tdma_runtime_owner_set_seat_rotation()` 与既有 flight-mode 同族，要求环未使能且适配器未启动。
+- **SCPI**：`SYSTem:TDMA:SEAT:ROTation <M>,<N>`（成功回 `OK,<M>,<N>`，失败 `TDMA_SEAT_ROTATION`）、`SYSTem:TDMA:SEAT:ROTation?`、`SYSTem:TDMA:SEAT:COUNters?`（origin 六个席位计数）。比例不写入 ring profile/geometry，故不影响 wire CRC。
+- **验证（主机）**：`run_tdma_pio_spi_ring_adapter_tests.ps1` 通过（新增默认值/2:1 读回、零值与越界拒绝、`started` 拒绝、拒绝后原值保持）；`tests/python/test_tdma_seat_rotation.py` 通过（新增 2:1 与 1:2 的领队序列、等待计数、零值回落 1:1、校验边界）；SCPI/TDMA 相邻 python 测试 50 项通过；`run_tdma_ring_runtime_tests`、`run_tdma_adapter_comm_fsm_tests`、`run_tdma_flight_overlay_tests` 通过。
+- **发现（既有缺陷，非本次引入）**：`run_tdma_service_scheduler_tests.ps1` 在主机编译报 `tdma_service.c:1018` 的 `tdma_seat_mount_store_note_reject` 隐含声明——该调用由 `8bd547b2` 引入且未做主机条件编译，与已修复的 A-07 同类；`git show HEAD` 同样存在，需按 A-07 方式修（本域诊断插桩的落地范围见 `TDMA-SEAT-03` 与评审 A-07）。
+- **未闭合**：从板一等 accept/duplicate/reject 并入可读面并在探针采集；`seat_first_class_wait_max` 不统计 STOP 退休记录；比例与一等扩容的 `EXE-SEAT-01` 审核 + C11 登记；**固件改动尚未取得 P3 硬件验收凭证**（本机无四板台架，pre-commit 会按 staged 源码指纹拦截）。
 ### TDMA-PROGRESS-20261010-002：一等席接收改走优先级通道，修复一等记录 seq16 冻结
 
 - TODO task ID：`TDMA-FLIGHT-002K2`、`TDMA-T2-002`；提交 `3ddeb258`；用户确认直接实施，语义写入 TDMA-SEAT-01"路径分离"。

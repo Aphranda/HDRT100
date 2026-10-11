@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -86,7 +86,7 @@ docs/
 | TOOLS | `tools/DOCS_TOOLS_ARCHITECTURE.md` | 工具域治理草案，定义工具、组件、工作流、证据及交接边界；自动化尚待实施。 |
 | ARCH/HAOFV | `arch/HAOFV_ARCHITECTURE.md` | 顶层 HAOFV 架构入口，定义组件约束、层次逻辑、Vector/Blackboard 和约束传递。 |
 | ARCH/FLASH | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 16 MiB 板载 Flash、Boot/Direct A/B、NVS/blob/FCB、统一 OTA stream 和 TDMA OTA 跨域 canonical。 |
-| ARCH/T2 | `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | T2 预约与分布式时钟分发跨域主线，定义训练、VDC 映射、flight 分发、fence、本地执行和 completion。 |
+| ARCH/T2 | `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | 已弃用（2026-10-11）：T2 预约与分布式时钟分发的历史跨域输入；冲突处以 `trigger/t2/TRIGGER_T2_ARCHITECTURE.md` 的 T2-SEMANTICS 为准。 |
 | VDC | `vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间事实、同步 DPLL、HOLDOVER、时间质量和预测分发时间基准。 |
 | ARCH/VDC-DPLL | `arch/HAOFV_VDC_DPLL_ARCHITECTURE.md` | 既有 HAOFV VDC/DPLL 融合架构输入；后续逐步迁入 VDC canonical。 |
 | ARCH/PRODUCT | `arch/ARCH_PRODUCT_ARCHITECTURE.md` | 面向 Distributed Hard Real-Time Trigger System 的产品系统架构特化，服从 HAOFV 顶层约束。 |
@@ -175,6 +175,8 @@ docs/
 | `tdma/TDMA_DOMAIN_TODO.md` | TDMA 未完成/已完成任务及退出门禁，优先实时预算、resident 飞行和确定性交付，保留原 ID。 |
 | `tdma/TDMA_TASK_PROGRESS.md` | TDMA 近期进展、失败及证据，历史从文末归档索引查找。 |
 | `tdma/TDMA_TIMING_REVIEW.md` | 2026-10-09 TDMA 飞行处理与 PIO 时序冗余评审快照：重复计算/复制、预留与 guard 叠加、短槽恢复原因码误读；非契约。 |
+| `tdma/TDMA_SEAT_TX_CHANNEL_REVIEW.md` | 2026-10-11 一等席独立 TX 通道方案评审（**已作废**：owner 定案快速通道唯一、两席分时复用；保留为决策过程记录与 32 B 逐字节表） |
+| `tdma/TDMA_SEAT_ACCEPTANCE_REVIEW.md` | 2026-10-11 一等席验收矩阵：把"稳定性达到特等席水平"拆成 16 条可核查条目（实现落点/证据/状态）与待决事项、复核命令；仅作索引，不定义语义；非契约。 |
 | `refmem/README.md` | 反射内存域 README。 |
 | `refmem/REFMEM_DOMAIN_ARCHITECTURE.md` | Distributed RefMem 内部主域架构，定义 RefMem Domain 的职责边界、静态分布式应用模型和目标代码形态。 |
 | `refmem/REFMEM_DOMAIN_TODO.md` | Distributed RefMem 内部主域待办，跟踪分布式应用模型、slot 契约、ACK/NACK、sync protocol 和组件化。 |
@@ -242,7 +244,7 @@ docs/
 | `arch/HAOFV_FLASH_ARCHITECTURE.md` | 板载 Flash v2 架构，定义 FlashMap、事务 owner、Boot/Direct A/B、NVS/blob/FCB 与 TDMA 流式 OTA。 |
 | `arch/HAOFV_FLASH_TODO.md` | Flash v2 M0-M6 实施工作板，按依赖组织 Map/owner、Stores、Boot、本地 OTA、TDMA OTA 和量产门禁。 |
 | `arch/HAOFV_FLASH_TASK_PROGRESS.md` | Flash v2 阶段任务进度、提交、验证缺口、板端部署状态和下一 gate。 |
-| `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | HAOFV 下 T2 预约与分布式时钟分发主线；各 owner 的实现细项分别落入 Trigger、VDC、TDMA、RefMem 和 SYNC_IO。 |
+| `arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` | 已弃用（2026-10-11）：HAOFV 下 T2 预约的历史跨域入口；现行口径见 `trigger/t2/TRIGGER_T2_ARCHITECTURE.md` 与 `trigger/t2/TRIGGER_T2_STEP_REVIEW.md`，实现细项分别落入 Trigger、VDC、TDMA、RefMem 和 SYNC_IO。 |
 | `arch/ARCH_ACTIVATION_LOAD_ARCHITECTURE.md` | Activation/Load 跨域主线：staging→校验→gate→激活→回滚的一致性装配，含三类加载术语与代码对账快照；非新 owner，细项下沉各域。 |
 | `arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md` | 实时负载 phase/owner/四级 seat 挂载规范；明确 T2 使用 `SYNC_TRIGGER` 与一等 T2 position transport，不进入 VDC/DPLL phase。 |
 | `arch/HAOFV_MAINTENANCE_TODO.md` | HAOFV 架构符合性维护待办，跟踪 owner、AO/FB/Vector、反射内存和硬实时边界偏差。 |
@@ -285,6 +287,7 @@ docs/
 | `trigger/t2/TRIGGER_T2_TODO.md` | 多板实际槽位部署后开展 T2 预约触发的任务、依赖与验收。 |
 | `trigger/t2/TRIGGER_T2_TASK_PROGRESS.md` | T2 分支参考、切片实现、验证、失败与交接记录。 |
 | `trigger/t2/TRIGGER_T2_REVIEW.md` | 2026-10-09 T2 代码与架构语义评审快照：偏离项、实际状态对账、文档漂移与建议顺序；非契约。 |
+| `trigger/t2/TRIGGER_T2_STEP_REVIEW.md` | 2026-10-11 T2 复核汇总：状态对账、predictor/runtime/wire 与分支角度前端两份审计的核对、31 位置/STEP/身份/模拟源影响与待裁定决定清单；非契约。 |
 | `trigger/TRIGGER_SEQ_STEP_DESIGN.md` | 序列步进触发模式设计。 |
 | `trigger/TRIGGER_ENC_COUNT_DESIGN.md` | 编码器计数触发模式设计。 |
 | `trigger/TRIGGER_PULSE_COUNT_ANALYSIS.md` | 脉冲计数分析。 |

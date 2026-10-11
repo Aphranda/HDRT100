@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-10-09
+Last updated: 2026-10-11
 
 ## 文档接口与状态规则
 
@@ -82,6 +82,8 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 | TDMA-FLIGHT-002K1 | 席位准入软件模型 | IN PROGRESS | `tdma_seat_admission` 的身份、预算各维度、一次性消费、STOP/换代撤销、别名输入、晚交接与整数边界验证；同源码构建/P3 和独立复核完成后关闭，不等于物理窗口开放。 |
 | TDMA-FLIGHT-002K2 | 物理边界与席位准入接线 | PENDING | 物理 selection、已提交发送及独立窗口时间证据先闭合，再绑定 owner 同代实测 TX/RX/CPU/反向预算；缺预算保持关闭；T2 经一等席验证，不能覆盖或暂停 VDC。 |
 | TDMA-FLIGHT-002L | load instance 分段调度 | PENDING | OTA/CONFIG/诊断按 segment、每周期帧数、队列深度、deadline 和 overflow policy 运行；TX/RX/重组/反向流均有快照。 |
+| TDMA-SEAT-02 | 席位比例与 seat 计数 SCPI 页 | IN PROGRESS | 比例已是 STOP-only 可配置（`SYSTem:TDMA:SEAT:ROTation`，默认 1:1，每个 share 取 1..`TDMA_SEAT_ROTATION_SHARE_MAX` 且 `M+N <= TDMA_SEAT_ROTATION_CYCLE_MAX`，越界/零值/运行中拒绝）；origin 席位与一等席服务事实已接只读页（`SYSTem:TDMA:SEAT:COUNters?`，8 字段，含 stage 拒绝与交付前损失），主机负测覆盖校验、拒绝、快照读回与等待发布。剩余：从板一等 accept/duplicate/reject 已在 `SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 尾部，需在台架探针中按名提取（已加入 `t2_bench_probe.py`，待一次硬件运行验证）；比例属席位预算，须经 `EXE-SEAT-01` 审核并在 `DOCS_REGISTRY.md` 登记（C11）。 |
+| TDMA-SEAT-03 | 一等席服务等级对齐特等席 | IN PROGRESS | 目标：一等席在准入、失败记录、完整性与期限上与特等席同级。**已完成**（逐条见进展日志 `TDMA-PROGRESS-20261011-004/005/006/007/008`）：服务事实（stage 被拒、交付前退休、等待值先发布再退休）；完整性核对（记录级 header/identity/transport/mailbox CRC 由优先级通道在投递前统一校验）；有界接收**队列**（被拒 PREVIEW 每源 FIFO 深度 4、只追加 SPSC、满则丢弃并计数，由 T2 后续时间片按到达顺序补投，计数 `lane_hold/drain/drain_fail/hold_expired/hold_dropped`）；TX 侧控制字节仲裁 + **诊断准入**（先诊断后一等确认；有一等事实要发布时控制字节事先不授予诊断并计入 `lane_diag_refused_count`，未预留时的覆盖计入 `lane_ack_override_count`）；lane 拒绝按 class 归因（`first_class/other/unknown_class_reject_count` 三者之和恒等于 `reject_count`）；两条声明预算 + 越界计数（origin `TDMA_SEAT_FIRST_CLASS_WAIT_MAX_OPPORTUNITIES` → `seat_first_class_wait_violation_count`；从板 `DISTRIBUTED_REFMEM_POSITION_HOLD_MAX_ATTEMPTS` → `lane_hold_expired_count`）；**稳定性判定页** `SYSTem:TDMA:SEAT:HEALth?`（`ok,reason_mask` + 20 字段原始证据，只由退化事实置位，见 [运行约束](TDMA_RUNTIME_CONSTRAINTS.md)）；**loop plan 席位饥饿显式化**（`tdma_loop_plan_t.dropped_mask` + `tdma_loop_plan_seat_service()` 纯判定；origin 计入 `seat_starved_count` / `seat_first_class_starved_count`，判定页 bit6）；**注意门控当前默认关闭**（`TDMA_LOOP_SCHEDULE_ENABLED == 0`，席位窗口调度未启用），构建守卫保证其可编译。**裁定（2026-10-11，owner）**：快速通道只有一条、特等与一等**分时复用**（**M:N 轮换即席位调度**）；不存在"独立 TX 通道"目标，A″/B 作废，loop-plan 窗口门控保持关闭；共用通道下的控制字节准入/覆盖保护为长期机制（`TDMA-PROGRESS-20261011-034`）。**剩余**：真机 P3 凭证与四板席位页证据（条目 15）。 |
 | TDMA-FLIGHT-003 | 发车节拍下界与准入 | PENDING | 依据物理计划与 Calibration 输入给出可达下界；过快配置拒绝及只读证据齐全。 |
 | TDMA-DET-004 | prepare/preload/launch/wire/feedback 分解 | PENDING | 普通与自主路径分别定义子阶段、硬件边界与拍级合同。 |
 | TDMA-DET-005 | topology/baud/tail 动态容量门禁 | PENDING | 激活前完整 wire 与资源预算复核，超预算 fail closed。 |
@@ -125,9 +127,9 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 |---|---|---|---|
 | TDMA-REL-001 | ACK/fence/retry 策略 | PENDING | 原始错误率、可靠交付、背压和明确失败分开验收。 |
 | TDMA-REL-002 | 原 Node recovery 双 buffer | IN PROGRESS | 固定 offset/预算已有；补 ACK、retry exhaustion、背压和多拓扑故障 HIL。 |
-| TDMA-T2-001 | T2 最小载荷预算 | PENDING | 固定 SHORT/body 与 phase 不超限；主线四板预约集成另验，单板分支结果不代替。 |
-| TDMA-T2-002 | T2 一等席 load instance | PENDING | 一等席窗口只提交不可变单 `position_q`；不等待特等席回环，不覆盖 VDC image；真实 selection、送达、应用和冻结证据闭合。 |
-| TDMA-T2-003 | T2 冻结诊断 load instance | PENDING | 正常一帧、异常追加一帧诊断，纳入 RX/TX 反向容量和队列背压，不占 typed SYNC body。 |
+| TDMA-T2-001 | T2 最小载荷预算 | IN PROGRESS | 固定 SHORT/body 与 phase 不超限；紧缩单帧（`TRIGGER_POSITION_SLICE_WIRE_SIZE`，恰填 RefMem 区）预算与快速路径发布节奏已有四板实测（`TDMA-PROGRESS-20261010-001/002`，快照）；剩余为 T2 身份/确认位宽定稿（`T2-IDENT-001`）后重新核定一等席布局与预算。 |
+| TDMA-T2-002 | T2 一等席 load instance | IN PROGRESS | 一等席窗口只提交不可变单 `position_q`；不等待特等席回环，不覆盖 VDC image；送达/应用/冻结证据已闭合（`TDMA-PROGRESS-20261010-002`、`T2-PROGRESS-20261010-024`）；剩余为真实物理 selection 证据与身份/确认位宽定稿。 |
+| TDMA-T2-003 | T2 冻结诊断 load instance | PENDING | 正常一帧、异常追加一帧诊断，纳入 RX/TX 反向容量和队列背压，不占 typed SYNC body；注意冻结完成本身当前经控制字节回报，不构成该诊断 class。 |
 | TDMA-QUALITY-001 | 逐流质量与背压 | PENDING | per-class、超预算及质量发布闭合。 |
 | TDMA-MAP-001 | 正式 System Pack map | PENDING | owner/generation、active/shadow 在明确 cycle 边界切换。 |
 | TDMA-ADAPTER-001 | PIO SPI 两级 flight gate | PENDING | byte/cycle 分级证据、完整性、FIFO 和 map apply 全范围验证。 |
