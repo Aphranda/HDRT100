@@ -72,7 +72,7 @@ K-4 的"逐 STEP 位置"在 0..360°@1°（361 位置）下的**落地口径**�
 | K-11 | **超出 2 个位置的预测一律视为不准确**（速率是单样本估计 `pulses_per_sync_q16`，误差随跨度增长）：窗口外不产生 target/threshold/FREEZE 任何对外事实；窗口内位置若速率不可用则 fail-closed 并计数（`window_rate_stale_count`）。 |
 | K-12 | **线格式不变**：10 B 单帧（tag+4 bit `position_id`、16 bit 版本、32 bit `target_ms_index`、24 bit fine slice）。绝对位置由 `target_ms_index` + 扫描参数确定，`position_id` 只作在途实例编号，因此 361 位置无需加宽 id、无需两级身份。 |
 
-窗口自身可读回的健全性事实：`window_entered_count` / `window_announced_count`（每个进入的位置是否恰好宣告一次）/ `window_overwrote_unannounced_count`（是否出现"未宣告即被覆盖"）/ `window_late_entry_count` / `window_recomputed_count`。
+窗口自身的健全性事实（**已在 `TRIGger:REServation:T2?` 末尾读回**，2026-10-12；台架判据 `announced == entered` 且 `overwrote_unannounced == 0`）：`window_entered_count` / `window_announced_count`（每个进入的位置是否恰好宣告一次）/ `window_overwrote_unannounced_count`（是否出现"未宣告即被覆盖"）/ `window_late_entry_count` / `window_recomputed_count`。
 
 ## T2-SCOPE：主线和边界
 
