@@ -359,6 +359,18 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 `p3_hardware_acceptance.py t2`（验证流程；**不刷写**，必须在 `run` 之后跑）→ 查看采样行的
 `window announced N/entered N overwrote_unannounced 0 … geometry Npos/Mpul`。
 
+### A.3.2b 同类隐患：工具里"T2? 以 X 结尾"的位置假设已过时（2026-10-13）
+
+`tools/sync_trigger/t2_workflow.py` 有一处 `freeze = [value.strip() for value in state[-4:]]`（约 2475 行），
+注释是"T2? ends with the origin FREEZE path maxima"。但 2026-10-24 的窗口改造把**窗口块追加到了页面末尾**，
+因此 `state[-4:]` 现在读到的是**窗口/几何字段**而不是 freeze 最大值——**输出被贴错标签**（不报错）。
+
+**修法**：不要再用"从末尾倒数 N 个"读任何较早追加的块。做法二选一：
+① 按窗口块**之后**的位置（即 `-4 - 9` 起的 4 个）取 freeze；
+② 更稳：在 `T2?` 页面为每个追加块加**长度前缀**或改由 `test_t2_page_field_order.py` 同时断言"各块的相对顺序与末尾位置"，让工具能按块偏移读取。
+
+**教训（与 A.3.2 同源）**：追加式页面里**任何"末尾 N 个"的假设都会随下一次追加失效**；守卫需要断言的是**块的相对顺序**，而不只是新块内部的顺序。
+
 ### A.3.2 待修：`window …` 采样尾巴加在了**另一处**打印块（2026-10-13 发现）
 
 `tools/sync_trigger/t2_workflow.py` 里有两处采样打印块，`t2` 流程实际走的是**后一处**（`rx {fields[12] …}` 附近，约 2471 行），而 2026-10-12 的改动只加到了**前一处**（约 846 行）。因此台架日志里**看不到**窗口健康事实（`window announced …/entered … overwrote_unannounced … geometry …pos/…pul`）——第三次 `t2` 运行日志中确认缺失。
