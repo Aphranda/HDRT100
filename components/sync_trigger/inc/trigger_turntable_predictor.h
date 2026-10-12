@@ -369,5 +369,71 @@ static inline bool trigger_turntable_window_time_ready(
     return s && s->rate_valid != 0u && s->pulses_per_sync_q16 != 0u;
 }
 
+/* Scan geometry validation and derivation (STOP time, fail-closed).
+ *
+ * The scan is start..terminal by step (millidegrees); a 360-degree scan at 1
+ * degree is 361 positions. Everything the runtime needs - the position count it
+ * must stay inside, the pulses per position and the span the per-position
+ * sequences need - is derived here so the SCPI front end only has to copy the
+ * numbers in, and an unusable scan is refused instead of being run. */
+typedef enum {
+    TRIGGER_TURNTABLE_SCAN_OK = 0u,
+    TRIGGER_TURNTABLE_SCAN_ARGUMENT = 1u,          /* missing/zero parameter */
+    TRIGGER_TURNTABLE_SCAN_BACKWARD = 2u,          /* terminal < start */
+    TRIGGER_TURNTABLE_SCAN_STEP_NOT_DIVISIBLE = 3u,/* step does not fit the span */
+    TRIGGER_TURNTABLE_SCAN_TOO_MANY_POSITIONS = 4u,
+    TRIGGER_TURNTABLE_SCAN_PULSES_NOT_INTEGER = 5u,/* step is not whole pulses */
+    TRIGGER_TURNTABLE_SCAN_SPAN_TOO_SHORT = 6u,    /* step cannot hold the groups */
+} trigger_turntable_scan_result_t;
+
+/* A 361-position scan is the product target; the limit only exists so a typo
+ * cannot ask the runtime to walk an unbounded grid. */
+#define TRIGGER_TURNTABLE_SCAN_POSITION_LIMIT 4096u
+
+typedef struct {
+    uint32_t positions;        /* inclusive: floor((terminal-start)/step) + 1 */
+    uint64_t step_pulses;      /* whole counter pulses per STEP (integer) */
+    uint64_t total_pulses;     /* pulses from start to terminal */
+} trigger_turntable_scan_geometry_t;
+
+/* sequence_span_pulses is the counter span one position's group sequence needs
+ * (16 groups as configured for the product); a STEP that cannot hold it would
+ * make the groups overlap the next position, so it is refused. Pass 0 when the
+ * caller has nothing to check yet. */
+static inline trigger_turntable_scan_result_t trigger_turntable_scan_validate(
+    const trigger_turntable_predictor_config_t *c, uint64_t sequence_span_pulses,
+    trigger_turntable_scan_geometry_t *out)
+{
+    if (out) *out = (trigger_turntable_scan_geometry_t){0};
+    if (!c || !c->pulses_per_degree || c->step_mdeg <= 0)
+        return TRIGGER_TURNTABLE_SCAN_ARGUMENT;
+    if (c->terminal_angle_mdeg < c->start_angle_mdeg)
+        return TRIGGER_TURNTABLE_SCAN_BACKWARD;
+    const int64_t span_mdeg =
+        (int64_t)c->terminal_angle_mdeg - c->start_angle_mdeg;
+    if (span_mdeg % c->step_mdeg != 0)
+        return TRIGGER_TURNTABLE_SCAN_STEP_NOT_DIVISIBLE;
+    const uint64_t positions = (uint64_t)(span_mdeg / c->step_mdeg) + 1u;
+    if (positions > TRIGGER_TURNTABLE_SCAN_POSITION_LIMIT)
+        return TRIGGER_TURNTABLE_SCAN_TOO_MANY_POSITIONS;
+    /* A STEP must be a whole number of counter pulses: a fractional one drifts
+     * the whole grid away from the angle it claims to be at. */
+    const uint64_t step_product = (uint64_t)c->step_mdeg * c->pulses_per_degree;
+    if (step_product % 1000u != 0u)
+        return TRIGGER_TURNTABLE_SCAN_PULSES_NOT_INTEGER;
+    const uint64_t step_pulses = step_product / 1000u;
+    if (!step_pulses || (sequence_span_pulses && step_pulses < sequence_span_pulses))
+        return TRIGGER_TURNTABLE_SCAN_SPAN_TOO_SHORT;
+    const uint64_t span_product = (uint64_t)span_mdeg * c->pulses_per_degree;
+    if (span_product > UINT64_MAX - 999u)
+        return TRIGGER_TURNTABLE_SCAN_TOO_MANY_POSITIONS;
+    if (out) {
+        out->positions = (uint32_t)positions;
+        out->step_pulses = step_pulses;
+        out->total_pulses = (span_product + 999u) / 1000u;
+    }
+    return TRIGGER_TURNTABLE_SCAN_OK;
+}
+
 
 #endif
