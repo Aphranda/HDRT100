@@ -17,16 +17,22 @@
 #include "hardware/regs/m33.h"
 #include "tdma_seat_mount_store.h"
 #define T2_HOT(name) __not_in_flash_func(name)
+/* Attribute form of T2_HOT, for definitions that tests extract by name. */
+#define T2_RAM __not_in_flash("t2")
 /* Core1 SysTick, the same clock as the SYNC_TRIGGER phase receipt. */
 #define T2_TICK_MASK M33_SYST_RVR_RELOAD_BITS
 static inline uint32_t t2_now(void)
 {
     return (M33_SYST_RVR_RELOAD_BITS - systick_hw->cvr) & M33_SYST_RVR_RELOAD_BITS;
 }
+/* Main SRAM has no slack left; this diagnostic lives in scratch Y. */
+#define T2_FREEZE_TIMING_SECTION __scratch_y("t2_freeze_timing")
 #else
 #define T2_HOT(name) name
+#define T2_RAM
 #define T2_TICK_MASK 0x00FFFFFFu
 static inline uint32_t t2_now(void) { return 0u; }
+#define T2_FREEZE_TIMING_SECTION
 /* The bench diagnostic sink lives in the TDMA owner; host builds drop it. */
 static inline void tdma_seat_mount_store_note_reject(uint32_t code) { (void)code; }
 #endif
@@ -136,7 +142,7 @@ static void T2_HOT(publish_end)(void)
 static uint64_t s_freeze_last_slice;
 static uint32_t s_freeze_resend_next;
 
-static bool resend_one_freeze(void)
+static T2_BOUNDED T2_RAM bool resend_one_freeze(void)
 {
     uint32_t open = s_state.published_mask &
         ~(s_state.freeze_complete_mask | s_state.freeze_abandoned_mask);
@@ -146,10 +152,24 @@ static bool resend_one_freeze(void)
         s_state.freeze_ack_incomplete_mask = 0u;
         return true;
     }
-    s_state.freeze_complete_mask |= open &
-        distributed_refmem_position_freeze_acked(s_config.run_id, s_config.target_mask);
-    distributed_refmem_position_ack_pending(s_config.run_id, s_config.target_mask,
-        &s_state.freeze_ack_stale_mask, &s_state.freeze_ack_incomplete_mask);
+    /* The acknowledgement path can only fill a slot from a RECEIVED image, so a
+     * mask that carries the position's own source slot can never complete: the
+     * origin would resend every position until its window closed. Wait on the
+     * peers only; a mask with no peer (single-board bench) is complete by
+     * construction. */
+    const uint32_t own = 1u << s_config.source_slot;
+    const uint32_t peers = (s_config.target_mask & ~own);
+    s_state.freeze_ack_own_in_mask = (s_config.target_mask & own) ? 1u : 0u;
+    s_state.freeze_complete_mask |= peers
+        ? (open & distributed_refmem_position_freeze_acked(s_config.run_id, peers))
+        : open;
+    if (peers)
+        distributed_refmem_position_ack_pending(s_config.run_id, peers,
+            &s_state.freeze_ack_stale_mask, &s_state.freeze_ack_incomplete_mask);
+    else {
+        s_state.freeze_ack_stale_mask = 0u;
+        s_state.freeze_ack_incomplete_mask = 0u;
+    }
     open &= ~s_state.freeze_complete_mask;
     const uint64_t now = s_state.cursor.pulse_index;
     if (!open || now - s_freeze_last_slice < T2_FREEZE_RESEND_SLICES) return true;
@@ -183,13 +203,57 @@ static bool resend_one_freeze(void)
     return true;
 }
 
-static bool stage_one_freeze(void)
+/* Max clk_sys cycles of the origin FREEZE path, per run: the pending check,
+ * the threshold stage, the resend/ack pass and the whole call. It runs from
+ * XIP every coarse slice; this splits the SYNC_TRIGGER RECEIVE segment. */
+static uint32_t T2_FREEZE_TIMING_SECTION
+    s_freeze_cycles[TRIGGER_T2_RUNTIME_FREEZE_TIMING_COUNT];
+
+static inline __attribute__((always_inline)) void freeze_timing_note(uint32_t index,
+    uint32_t start)
+{
+    const uint32_t cycles = (t2_now() - start) & T2_TICK_MASK;
+    if (cycles > s_freeze_cycles[index]) s_freeze_cycles[index] = cycles;
+}
+
+static bool stage_one_freeze_timed(void);
+static bool stage_pending_freeze(void);
+
+/* The origin calls this every coarse slice. While it ran from XIP, a
+ * threshold slice overran SYNC_TRIGGER (26871 > 26800 cycles) and
+ * quarantined the load (t2-20261012-100700), so the whole FREEZE path runs
+ * from SRAM like service_origin; s_freeze_cycles splits what remains. */
+static T2_BOUNDED bool T2_HOT(stage_one_freeze)(void)
+{
+    const uint32_t start = t2_now();
+    const bool ok = stage_one_freeze_timed();
+    freeze_timing_note(TRIGGER_T2_RUNTIME_FREEZE_TIMING_TOTAL, start);
+    return ok;
+}
+
+static T2_BOUNDED bool T2_HOT(stage_one_freeze_timed)(void)
 {
     /* The legacy descriptor mailbox remains single-depth until compact-q
      * transport admission is installed. Do not overtake an in-flight PREVIEW
      * and reorder it behind FREEZE. */
-    if (distributed_refmem_position_descriptor_pending()) return true;
-    if (!s_pending_mask) return resend_one_freeze();
+    uint32_t mark = t2_now();
+    const bool pending = distributed_refmem_position_descriptor_pending();
+    freeze_timing_note(TRIGGER_T2_RUNTIME_FREEZE_TIMING_PENDING, mark);
+    if (pending) return true;
+    if (!s_pending_mask) {
+        mark = t2_now();
+        const bool ok = resend_one_freeze();
+        freeze_timing_note(TRIGGER_T2_RUNTIME_FREEZE_TIMING_RESEND, mark);
+        return ok;
+    }
+    mark = t2_now();
+    const bool staged = stage_pending_freeze();
+    freeze_timing_note(TRIGGER_T2_RUNTIME_FREEZE_TIMING_STAGE, mark);
+    return staged;
+}
+
+static T2_BOUNDED bool T2_HOT(stage_pending_freeze)(void)
+{
     for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT;
          ++index) {
         if ((s_pending_mask & (1u << index)) == 0u) continue;
@@ -269,7 +333,7 @@ static T2_BOUNDED bool T2_HOT(descriptor_valid)(const trigger_position_descripto
     return trigger_position_descriptor_valid(descriptor, s_config.grid.subdivisions);
 }
 
-static void action_fail(uint32_t index)
+static T2_RAM void action_fail(uint32_t index)
 {
     s_state.action_failed_mask |= 1u << index;
     s_state.last_error = TRIGGER_T2_RUNTIME_ACTION;
@@ -423,7 +487,7 @@ static void T2_HOT(note_backend)(uint32_t index, uint32_t state, uint64_t before
         after - before > UINT32_MAX ? UINT32_MAX : (uint32_t)(after - before);
 }
 
-static bool cancel_backend(void)
+static T2_RAM bool cancel_backend(void)
 {
     if (s_local_template.kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
         sync_io_switch_deadline_status_t status;
@@ -592,6 +656,12 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
         tdma_seat_mount_store_note_reject(145u); return false;
     }
     if (!config->target_mask) { tdma_seat_mount_store_note_reject(146u); return false; }
+    /* An origin that lists its own source slot in the freeze target mask would
+     * wait for a report it can never receive (the ack path only fills slots from
+     * received images): the run is accepted, the own bit is ignored, and the
+     * misconfiguration is recorded instead of turning into a resend storm. */
+    if (config->origin && (config->target_mask & (1u << config->source_slot)))
+        tdma_seat_mount_store_note_reject(149u);
     if (!config->descriptor_window_sync) {
         tdma_seat_mount_store_note_reject(147u); return false;
     }
@@ -663,6 +733,7 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
     }
     s_state.active = 1u;
     s_pending_mask = 0u;
+    memset(s_freeze_cycles, 0, sizeof(s_freeze_cycles));
     memset(s_deadline, 0, sizeof(s_deadline));
     memset(s_deadline_mailbox, 0, sizeof(s_deadline_mailbox));
     memset(s_deadline_seen, 0, sizeof(s_deadline_seen));
@@ -703,7 +774,8 @@ void trigger_t2_runtime_stop(void)
     publish_end();
 }
 
-static inline bool deadlines_need_service(void)
+/* Called up to three times per slice; GCC outlines it, so pin it to SRAM. */
+static T2_RAM bool deadlines_need_service(void)
 {
     return s_local_template_count &&
         (s_armed_index < TRIGGER_T2_RUNTIME_POSITION_COUNT ||
@@ -777,6 +849,16 @@ T2_BOUNDED trigger_t2_runtime_result_t T2_HOT(trigger_t2_runtime_service)(void)
     if (completed != TRIGGER_T2_RUNTIME_OK) T2_RETURN(completed);
     T2_RETURN(TRIGGER_T2_RUNTIME_OK);
 #undef T2_RETURN
+}
+
+bool trigger_t2_runtime_freeze_timing(
+    uint32_t out[TRIGGER_T2_RUNTIME_FREEZE_TIMING_COUNT])
+{
+    if (!out) return false;
+    /* Diagnostic maxima: single Core1 writer, word-sized, no tearing. */
+    for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_FREEZE_TIMING_COUNT; ++i)
+        out[i] = __atomic_load_n(&s_freeze_cycles[i], __ATOMIC_RELAXED);
+    return true;
 }
 
 bool trigger_t2_runtime_take_event(trigger_action_runtime_event_t *out)

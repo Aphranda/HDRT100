@@ -59,7 +59,12 @@ static __attribute__((noinline)) void model_feedback_end_core1(uint32_t session)
     (void)__atomic_add_fetch(&s_committed_model_guard, 1u, __ATOMIC_RELEASE);
 }
 
-uint32_t vdc_dpll_manager_feedback_session(void)
+/* Read twice per T2 cursor slice on Core1. Host harnesses include this
+ * file without the manager's placement macro. */
+#ifndef VDC_DPLL_MANAGER_TIME_CRITICAL
+#define VDC_DPLL_MANAGER_TIME_CRITICAL(name) name
+#endif
+uint32_t VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_feedback_session)(void)
 {
     return __atomic_load_n(&s_model_feedback_session, __ATOMIC_ACQUIRE);
 }

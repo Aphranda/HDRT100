@@ -78,6 +78,11 @@ typedef struct {
      * large freeze_resend_count is otherwise indistinguishable between a
      * forward delivery loss and a report that never matches this run. */
     uint32_t freeze_ack_stale_mask, freeze_ack_incomplete_mask;
+    /* Set when the configured freeze target mask lists the position source
+     * slot itself: those bits can never be acknowledged (the ack path only
+     * fills slots from received images) and are ignored, so this flag is how
+     * a resend storm caused by that misconfiguration is recognised. */
+    uint32_t freeze_ack_own_in_mask;
     uint32_t event_count, event_dropped_count;
     /* ARMED is admission only. COMPLETE/emitted require the matching PIO receipt. */
     uint32_t action_armed_mask, action_completed_mask, action_failed_mask;
@@ -115,6 +120,16 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config);
 bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count);
 void trigger_t2_runtime_stop(void);
 trigger_t2_runtime_result_t trigger_t2_runtime_service(void);
+/* Per-run maxima (clk_sys cycles) of the origin FREEZE path. Diagnostic. */
+enum {
+    TRIGGER_T2_RUNTIME_FREEZE_TIMING_PENDING = 0u,
+    TRIGGER_T2_RUNTIME_FREEZE_TIMING_STAGE = 1u,
+    TRIGGER_T2_RUNTIME_FREEZE_TIMING_RESEND = 2u,
+    TRIGGER_T2_RUNTIME_FREEZE_TIMING_TOTAL = 3u,
+    TRIGGER_T2_RUNTIME_FREEZE_TIMING_COUNT = 4u,
+};
+bool trigger_t2_runtime_freeze_timing(
+    uint32_t out[TRIGGER_T2_RUNTIME_FREEZE_TIMING_COUNT]);
 /* Core0 prediction and follower deadline preparation, outside the VDC phase. */
 void trigger_t2_runtime_prepare_core0(void);
 bool trigger_t2_runtime_preview_history(uint32_t position_id, uint32_t age,

@@ -656,6 +656,8 @@ bool distributed_refmem_get_vdc_flight_rx(
     return guard == __atomic_load_n(&s_vdc_flight_rx_guard, __ATOMIC_ACQUIRE);
 }
 
+/* Both are on the origin's per-slice FREEZE path in SYNC_TRIGGER. */
+DISTRIBUTED_REFMEM_RAM_TEXT
 bool distributed_refmem_stage_position_descriptor(
     const trigger_position_descriptor_t *descriptor, uint32_t target_mask)
 {
@@ -691,6 +693,7 @@ static void distributed_refmem_position_cancel_service(void)
     __atomic_store_n(&s_position_cancel_requested, 0u, __ATOMIC_RELEASE);
 }
 
+DISTRIBUTED_REFMEM_RAM_TEXT
 bool distributed_refmem_position_descriptor_pending(void)
 {
     return __atomic_load_n(&s_tdma_flight_sync.position_tx_active,

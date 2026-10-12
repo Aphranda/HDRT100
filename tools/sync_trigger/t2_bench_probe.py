@@ -27,7 +27,7 @@ T2_FIELDS = (['ok', 'last_error', 'configured', 'active', 'origin', 'source_slot
               'late_last_current_ms', 'late_last_expiry_sync',
               'promise_target_ms_1', 'promise_expiry_1', 'promise_target_ms_2',
               'promise_expiry_2', 'promise_target_ms_3', 'promise_expiry_3',
-              'ack_stale_mask', 'ack_incomplete_mask',
+              'ack_stale_mask', 'ack_incomplete_mask', 'ack_own_in_mask',
               'event_count', 'event_dropped_count', 'frozen_mask',
               'freeze_mismatch_count', 'freeze_fallback_count', 'freeze_missing_local_count'] +
              [f'{n}{i}' for i in range(3) for n in ('freeze_version', 'freeze_local_version',

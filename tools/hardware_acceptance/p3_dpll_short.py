@@ -156,6 +156,25 @@ def _internal_trace_summary(
     expected_bins = math.ceil(seconds * 1000 / INTERNAL_SUMMARY_INTERVAL_MS)
     settling_bins = math.ceil(INTERNAL_SETTLING_SECONDS * 1000 /
                               INTERNAL_SUMMARY_INTERVAL_MS)
+    # Core1 closes the open bin at STOP as PARTIAL|TERMINAL
+    # (vdc_priority_trace_summary.inc priority_summary_commit). When STOP lands
+    # just after the last interval boundary, that boundary has already committed
+    # a full bin, so one extra terminal bin shorter than an interval follows
+    # (p3-132149: NO2 bin 6, ~1 ms). Accept exactly that shape; the full bins
+    # before it must still number expected_bins and none may be terminal.
+    boundary_tail = False
+    if (len(records) == expected_bins + 1 and isinstance(tick_hz, int) and
+            not isinstance(tick_hz, bool) and tick_hz > 0 and
+            all(isinstance(record, dict) for record in records)):
+        tail, full = records[-1], records[:-1]
+        interval_ticks = tick_hz * INTERNAL_SUMMARY_INTERVAL_MS // 1000
+        if ({"PARTIAL", "TERMINAL"} <= set(tail.get("flag_names", [])) and
+                tail["observed_end_raw"] - tail["observed_start_raw"] < interval_ticks and
+                not any("TERMINAL" in record.get("flag_names", []) for record in full) and
+                full[-1]["observed_end_raw"] - full[-1]["observed_start_raw"] >=
+                interval_ticks):
+            expected_bins += 1
+            boundary_tail = True
     if (not decoded.get("schema", "").startswith("VDC_SUMMARY_TRACE_DECODE_V") or
             status.get("capture_id") != capture_id or status.get("mode") != 4 or
             status.get("session") != endpoint["session"] or
@@ -192,9 +211,13 @@ def _internal_trace_summary(
     low = min(record["residual_min_ns"] for record in steady)
     high = max(record["residual_max_ns"] for record in steady)
     last = steady[-1]
+    # The endpoint is the envelope of the last estimation window, which spans
+    # many decisions; a boundary tail bin holds only the few after the last
+    # full interval, so the window is bounded by the last full bin plus it.
+    closing = steady[-2:] if boundary_tail and len(steady) >= 2 else [last]
     endpoint_consistent = (
-        last["residual_min_ns"] <= endpoint["residual_lo"] <=
-        endpoint["residual_hi"] <= last["residual_max_ns"])
+        min(record["residual_min_ns"] for record in closing) <= endpoint["residual_lo"] <=
+        endpoint["residual_hi"] <= max(record["residual_max_ns"] for record in closing))
     if not endpoint_consistent:
         raise ValueError("final endpoint is outside the last steady trace bin")
     observed_ticks = sum(

@@ -305,3 +305,35 @@ def test_origin_versioned_stop_download(schema):
     raw = origin_native(schema, 76)
     actual, pages = trace.download_capture(query_for(raw), 123, 128)
     assert actual == raw and len(pages) > 1
+
+
+def refusing_query(data, refuse):
+    """Firmware refuses a page with an empty reply plus one error-queue entry."""
+    page = query_for(data)
+    calls = []
+
+    def query(command):
+        calls.append(command)
+        if command == 'SYSTem:ERR?':
+            return '-200,"Execution error"'
+        offset = int(command.split(' ', 1)[1].split(',')[1])
+        if refuse.get(offset, 0):
+            refuse[offset] -= 1
+            return ''
+        return page(command)
+    return query, calls
+
+
+def test_download_retries_a_transiently_refused_page_and_drains_its_error():
+    raw = origin_native(3, 76)
+    query, calls = refusing_query(raw, {4: 1})  # the first page after the 4 B probe
+    actual, _ = trace.download_capture(query, 123, 128)
+    assert actual == raw
+    assert calls.count('SYSTem:ERR?') == 1
+
+
+def test_download_gives_up_on_a_persistently_refused_page():
+    query, calls = refusing_query(origin_native(3, 76), {0: trace.PAGE_READ_ATTEMPTS})
+    with pytest.raises(ValueError, match='Wrong RAM page field count at offset 0 after'):
+        trace.download_capture(query, 123, 128)
+    assert calls.count('SYSTem:ERR?') == trace.PAGE_READ_ATTEMPTS

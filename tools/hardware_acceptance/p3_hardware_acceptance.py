@@ -3809,17 +3809,50 @@ def run_t2_acceptance(args: argparse.Namespace) -> None:
     out_dir = root / "out" / "HardwareAcceptance" / _time.strftime("%Y%m%d") / f"t2-{stamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
     log_path = out_dir / "t2-enable.log"
-    command = [sys.executable, str(root / "tools/sync_trigger/t2_enable.py"), "--full"]
+    command = [sys.executable, str(root / "tools/sync_trigger/t2_workflow.py"), "--full"]
     print(f"T2 acceptance: enablement -> {log_path}", flush=True)
     with log_path.open("w", encoding="utf-8") as handle:
         _subprocess.run(command, cwd=str(root), stdout=handle, stderr=_subprocess.STDOUT,
                         check=False)
     lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
     report = dict(schema="HAOFV_T2_ACCEPTANCE_V1", stamp=stamp, enablement=lines[-16:])
+    # The criterion is the position publication advancing, so it has to be read
+    # from the run instead of assumed: a chain where the origin never configured
+    # (previously reported as a pass) leaves every POS page at zero.
+    configured = 0
+    publishing = 0
+    for line in lines:
+        if "T2 configured 1 active 1" in line:
+            configured += 1
+        if "POS " in line:
+            page = line.split("POS ", 1)[1]
+            fields = [int(v) for v in page.replace(",", " ").split() if v.isdigit()]
+            # 1,0,tx_pending,tx_active,tx_fragment,tx_publish_count,rx_complete_count,...
+            if len(fields) > 12 and (fields[5] > 0 or fields[12] > 0):
+                publishing += 1
+    # The workflow names every blocking condition as a failed step: a quarantined
+    # SYNC_TRIGGER load, a sticky cursor fault, or a reference that did not publish all
+    # positions. "publishing" alone counts sampled POS lines with a nonzero counter, so
+    # it passed runs that published one position and then quarantined a follower.
+    failed_steps = next((line.split("failed steps:", 1)[1].split("log:", 1)[0].strip()
+                         for line in reversed(lines) if "failed steps:" in line), "?")
+    report["boards_configured"] = configured
+    report["boards_publishing"] = publishing
+    report["workflow_failed_steps"] = failed_steps
+    report["passed"] = configured == 4 and publishing > 0 and failed_steps == "none"
     (out_dir / "report.json").write_text(_json.dumps(report, indent=2), encoding="utf-8")
     for line in lines[-16:]:
-        print(f"T2 acceptance: {line}", flush=True)
+        # The workflow log can carry replacement characters (the console is GBK here), and
+        # printing them raised UnicodeEncodeError - which turned a passing acceptance into
+        # exit code 1 after the report had already been written as passed=true.
+        safe = line.encode("ascii", "replace").decode("ascii")
+        print(f"T2 acceptance: {safe}", flush=True)
+    print(f"T2 acceptance: boards configured {configured}/4, publishing {publishing}, "
+          f"workflow failed steps {failed_steps}, passed={report['passed']}", flush=True)
     print(f"T2 acceptance: report -> {out_dir / 'report.json'}", flush=True)
+    if not report["passed"]:
+        raise SystemExit(f"T2 acceptance FAILED: configured {configured}/4, publishing"
+                         f" {publishing}, workflow failed steps {failed_steps}")
 
 
 def parse_args() -> argparse.Namespace:

@@ -127,7 +127,7 @@ static bool arm(void *context,const sync_io_persona_descriptor_t *d,uint32_t dma
     s_pin_owned=true;
     return true;
 }
-static void safe_stop(void)
+static void __not_in_flash_func(safe_stop)(void)
 {
     __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);
     s_ready_active=false;
@@ -316,7 +316,8 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
     }
 }
 
-bool sync_io_gateway_realtime_schedule_at(uint32_t pulse_ns,uint64_t deadline_tick)
+/* Runs on the T2 arming slice, the busiest one: keep it out of XIP. */
+bool __not_in_flash_func(sync_io_gateway_realtime_schedule_at)(uint32_t pulse_ns,uint64_t deadline_tick)
 {
     if(get_core_num()!=1u || clock_get_hz(clk_sys)!=BOARD_SYS_CLOCK_HZ ||
        timer1_hw->pause || timer1_hw->source!=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS ||
@@ -344,7 +345,7 @@ bool __not_in_flash_func(sync_io_gateway_realtime_status)(sync_io_gateway_deadli
     return true;
 }
 
-bool sync_io_gateway_realtime_cancel(void)
+bool __not_in_flash_func(sync_io_gateway_realtime_cancel)(void)
 {
     if(get_core_num()!=1u || !s_lease)return false;
     safe_stop();

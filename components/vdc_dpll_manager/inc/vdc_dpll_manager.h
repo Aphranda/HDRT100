@@ -233,11 +233,16 @@ void vdc_dpll_manager_feedback_prepare_core0(void);
  *               1436 B, and the project objective authorises shrinking this
  *               waveform buffer when RAM is short. 334 records free 1512 B
  *               (18 x 28 x 3) and restore both slots' link with 2108 B free.
+ *   334 -> 200  2026-10-12, owner decision: the T2 origin FREEZE path ran
+ *               from XIP and a threshold slice overran SYNC_TRIGGER
+ *               (quarantine). Moving it to SRAM left 12 B of main SRAM, so
+ *               the owner set 200 records, freeing 11256 B (134 x 28 x 3)
+ *               as standing headroom.
  * The segment size is reported to the host, and SD segmentation plus
  * dropped-count accounting preserve long-run continuity. Do not shrink this
  * again without an owner decision: the seat side has the cheaper remaining
  * lever (DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH). */
-#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 334u
+#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 200u
 
 /* Per-record provenance for the external waveform evidence.  These bits are
  * diagnostic facts; only CORRECTED_ELIGIBLE records may enter corrected phase

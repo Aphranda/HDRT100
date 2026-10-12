@@ -292,8 +292,9 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(distributed_refmem_position_priority_rx)(
  * slice. Runs outside the capture IRQ but on the same core; the ring is
  * append-only, so a live entry is never overwritten while being read. Consumed
  * entries are skipped; an entry whose bounded retry budget is exhausted is
- * retired and counted, so the seat never waits or retries without bound. */
-bool distributed_refmem_position_priority_drain(uint32_t source_slot)
+ * retired and counted, so the seat never waits or retries without bound.
+ * Followers reach it on every slice with nothing staged: keep it out of XIP. */
+bool DISTRIBUTED_REFMEM_TIME_CRITICAL(distributed_refmem_position_priority_drain)(uint32_t source_slot)
 {
     if (source_slot >= DISTRIBUTED_REFMEM_NODE_COUNT) return false;
     uint32_t head = __atomic_load_n(&s_position_priority_hold_head[source_slot],

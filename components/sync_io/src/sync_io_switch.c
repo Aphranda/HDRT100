@@ -152,7 +152,7 @@ static bool arm(void *context,const sync_io_persona_descriptor_t *d,uint32_t dma
     }
     s_pins_owned=true;return true;
 }
-static void safe_stop(void)
+static void __not_in_flash_func(safe_stop)(void)
 {
     for(uint sm=0u;sm<4u;++sm) if(s_claimed&(1u<<sm)) {
         pio_sm_set_enabled(SWITCH_PIO,sm,false);
@@ -246,7 +246,8 @@ bool sync_io_switch_release(uint32_t generation)
     s_lease=false;const bool ok=sync_io_core_switch_release(&s_switch);
     s_switch.state=SYNC_IO_SWITCH_IDLE;s_switch.applied_valid=0u;leave();return ok;
 }
-static void poll(void)
+/* noinline: a split poll.part.0 clone landed in XIP behind the RAM service. */
+static __attribute__((noinline)) void __not_in_flash_func(poll)(void)
 {
     if(s_switch.state!=SYNC_IO_SWITCH_PENDING) return;
     for(uint32_t i=0u;i<s_switch.group_count;++i) {
@@ -334,7 +335,8 @@ void __not_in_flash_func(sync_io_switch_realtime_service_core1)(void)
     if(get_core_num()==1u) poll();
 }
 
-bool sync_io_switch_realtime_schedule_at(uint32_t code,uint64_t deadline_tick)
+/* Runs on the T2 arming slice, the busiest one: keep it out of XIP. */
+bool __not_in_flash_func(sync_io_switch_realtime_schedule_at)(uint32_t code,uint64_t deadline_tick)
 {
     if(get_core_num()!=1u || !s_lease || !s_loaded || !s_pins_owned ||
        (code&~s_switch.output_mask) || s_switch.state==SYNC_IO_SWITCH_PENDING ||
@@ -374,7 +376,7 @@ bool __not_in_flash_func(sync_io_switch_realtime_status)(sync_io_switch_deadline
     return true;
 }
 
-bool sync_io_switch_realtime_cancel(void)
+bool __not_in_flash_func(sync_io_switch_realtime_cancel)(void)
 {
     if(get_core_num()!=1u || !s_lease)return false;
     safe_stop();

@@ -328,6 +328,66 @@ def test_internal_trace_requires_fixed_interval_terminal_and_success_gap(
                for error in summary["errors"])
 
 
+def boundary_tail(decoded, *, duration=250_000, flags=None, prior_terminal=False):
+    """STOP just after the last boundary: bin 5 is full, a short terminal bin 6 follows."""
+    records = decoded["records"]
+    last = records[-1]
+    last["flag_names"] = (["PARTIAL", "TERMINAL", "STEADY_SUCCESS_GAP"] if prior_terminal
+                          else ["STEADY_SUCCESS_GAP"])
+    tail = dict(last)
+    tail.update(bin_index=last["bin_index"] + 1,
+                observed_start_raw=last["observed_end_raw"],
+                observed_end_raw=last["observed_end_raw"] + duration,
+                success_count=1, first_success_offset_ticks=1,
+                last_success_offset_ticks=1, max_success_gap_ticks=1000,
+                residual_min_ns=last["residual_min_ns"] // 2,
+                residual_max_ns=last["residual_max_ns"] // 2,
+                flag_names=(["PARTIAL", "TERMINAL", "STEADY_SUCCESS_GAP"]
+                            if flags is None else flags))
+    records.append(tail)
+    decoded["status"]["record_count"] = len(records)
+
+
+def test_internal_trace_accepts_a_stop_boundary_tail_bin(tmp_path):
+    # p3-132149: STOP ~1 ms after the 60 s boundary committed a 7th bin, and the
+    # endpoint envelope spans the last full bin, not the one-decision tail.
+    joint, inner = reports(tmp_path, scope=False)
+    mutate_trace(inner, 2, boundary_tail)
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=False, seconds=60)
+    assert summary["passed"] is True, summary["errors"]
+    row = next(r for r in summary["internal_phase_traces"] if r["board_id"] == UIDS[1])
+    assert row["total_bins"] == 7 and row["endpoint_within_last_bin"]
+    short.validate_summary(tmp_path, summary)
+
+
+@pytest.mark.parametrize("variant", [
+    dict(duration=2_500_000_000),                        # tail is a whole interval
+    dict(flags=["STEADY_SUCCESS_GAP"]),                  # tail is not terminal
+    dict(flags=["TERMINAL", "STEADY_SUCCESS_GAP"]),      # terminal but not partial
+    dict(prior_terminal=True),                           # two terminal bins
+])
+def test_internal_trace_refuses_other_extra_bins(tmp_path, variant):
+    joint, inner = reports(tmp_path, scope=False)
+    mutate_trace(inner, 2, lambda decoded: boundary_tail(decoded, **variant))
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=False, seconds=60)
+    assert summary["passed"] is False
+
+
+def test_internal_trace_refuses_two_extra_bins(tmp_path):
+    joint, inner = reports(tmp_path, scope=False)
+    def twice(decoded):
+        boundary_tail(decoded)
+        decoded["records"][-1]["flag_names"] = ["STEADY_SUCCESS_GAP"]
+        boundary_tail(decoded)
+    mutate_trace(inner, 2, twice)
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=False, seconds=60)
+    assert summary["passed"] is False
+    assert any("bin count" in error for error in summary["errors"])
+
+
 def test_internal_trace_binds_endpoint_session_and_board_slot(tmp_path):
     joint, inner = reports(tmp_path, scope=False)
     mutate_trace(inner, 2, lambda decoded: decoded["status"].update(local_slot=2))

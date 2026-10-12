@@ -370,6 +370,10 @@ typedef struct {
     uint32_t ring_seq;
     uint32_t applied_config_seq;
     uint32_t data_enabled;
+    /* Nonzero while TRAIN's PIO persona is still loaded: the next service
+     * stops the adapter to restore DATA/CS and restarts it a cycle later, so
+     * a consumer must not bind its identity to the ring before it clears. */
+    uint32_t training_dirty;
     tdma_ring_clock_observation_t clock_observation;
 } tdma_ring_clock_snapshot_t;
 

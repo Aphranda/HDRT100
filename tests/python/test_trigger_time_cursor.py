@@ -63,6 +63,12 @@ static void setup(void){
 static trigger_time_cursor_snapshot_t snap(void){
     trigger_time_cursor_snapshot_t s;assert(trigger_time_cursor_snapshot(&s));return s;
 }
+static trigger_time_cursor_fault_t fault(void){
+    trigger_time_cursor_fault_t f;assert(trigger_time_cursor_fault_snapshot(&f));return f;
+}
+#define SITE(f) ((f).flags&0xfu)
+#define FERR(f) (((f).flags>>4)&0xfu)
+#define DIFF(f) ((f).flags>>16)
 static void at(uint64_t local_ns){assert(local_ns%4==0);now_raw=local_ns/4;trigger_time_cursor_service();}
 static void fresh_session(void){
     ++session;model.session=session;++model.token;now_raw=2500000;model.dco.phase_offset_ns=0;
@@ -73,6 +79,25 @@ int main(int argc,char **argv){assert(argc==2);setup();const char *c=argv[1];
     if(!strcmp(c,"no_model")){model_ok=false;trigger_time_cursor_service();assert(!snap().valid);model_ok=true;}
     if(!strcmp(c,"missing_ring")){ring_ok=false;trigger_time_cursor_service();assert(!snap().valid);ring_ok=true;}
     if(!strcmp(c,"pending_ring")){ring.applied_config_seq=4;trigger_time_cursor_service();assert(!snap().valid);ring.applied_config_seq=5;}
+    if(!strcmp(c,"train_persona")){
+        /* RING:START lands while TRAIN's persona is loaded; the next ring
+         * service stops the adapter for one cycle to restore DATA/CS. Neither
+         * may bind the cursor, so neither latches the sticky fault. */
+        ring.training_dirty=1;trigger_time_cursor_service();
+        assert(!snap().valid&&snap().last_error==TRIGGER_TIME_CURSOR_IDENTITY&&snap().sample_seq==0);
+        ring.training_dirty=0;ring.adapter_started=false;trigger_time_cursor_service();
+        assert(!snap().valid&&snap().sample_seq==0);
+        assert(SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_NONE);
+        ring.adapter_started=true;trigger_time_cursor_service();
+        assert(snap().valid&&snap().sample_seq==1);return 0;
+    }
+    if(!strcmp(c,"bound_retrain")){
+        /* Once bound, a retrained ring is a ring change. */
+        trigger_time_cursor_service();assert(snap().valid);
+        ring.training_dirty=1;at(11000000);
+        assert(!snap().valid&&SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_RING&&((fault().flags>>11)&1u));
+        ring.training_dirty=0;at(12000000);assert(!snap().valid);return 0;
+    }
     if(!strcmp(c,"model_late")){
         model.valid_from_raw=now_raw+1;trigger_time_cursor_service();
         assert(!snap().valid&&snap().last_error==TRIGGER_TIME_CURSOR_MODEL_TIME);
@@ -88,6 +113,7 @@ int main(int argc,char **argv){assert(argc==2);setup();const char *c=argv[1];
     trigger_time_cursor_service();
     assert(snap().valid&&snap().session==7&&snap().pulse_index==1&&snap().action_cursor==0);
     assert(snap().sample_seq==1&&snap().last_event_id==0&&snap().carrier_sequence==0&&snap().identity_crc32==0);
+    assert(SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_NONE);
     if(!strcmp(c,"same_token_command")) {
         ++model.applied_command_seq;
         at(11000000);assert(snap().valid&&snap().model_token==11&&snap().action_cursor==2000);
@@ -154,8 +180,10 @@ int main(int argc,char **argv){assert(argc==2);setup();const char *c=argv[1];
         if(!strcmp(c,"phase_backstep")){++model.token;model.dco.phase_offset_ns=-1000;at(11001000);}
         else at(11000496);
         assert(!snap().valid&&snap().last_error==TRIGGER_TIME_CURSOR_BACKWARD);
+        assert(SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_BACKWARD&&fault().sample_seq==2);
         at(13000000);assert(!snap().valid&&snap().last_error==TRIGGER_TIME_CURSOR_BACKWARD);
-        fresh_session();trigger_time_cursor_service();assert(snap().valid&&snap().action_cursor==0);return 0;
+        fresh_session();trigger_time_cursor_service();assert(snap().valid&&snap().action_cursor==0);
+        assert(SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_NONE);return 0;
     }
     /* Real committed publication mints a fresh token for each of these changes. */
     if(!strcmp(c,"role")){++model.role_generation;++model.token;}
@@ -172,15 +200,40 @@ int main(int argc,char **argv){assert(argc==2);setup();const char *c=argv[1];
         trigger_time_grid_t huge=grid;huge.period_ns=UINT32_MAX;huge.subdivisions=UINT32_MAX;
         huge.anchor_vdc_ns=0;model.dco.nominal_period_ns=UINT32_MAX;++model.token;
         assert(trigger_time_cursor_configure(&huge));at(0);at(UINT64_C(18446744073709551612));
-        assert(!snap().valid&&snap().last_error==TRIGGER_TIME_CURSOR_OVERFLOW);return 0;
+        assert(!snap().valid&&snap().last_error==TRIGGER_TIME_CURSOR_OVERFLOW);
+        assert(SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_OVERFLOW);return 0;
     }
     else return !strcmp(c,"no_model")||!strcmp(c,"missing_ring")||!strcmp(c,"pending_ring")?0:2;
     at(11000000);assert(!snap().valid&&snap().last_error==TRIGGER_TIME_CURSOR_IDENTITY);
+    /* The first sticky fault names its check, the bound identity and the live
+     * input that differed; later polls never overwrite it. */
+    const trigger_time_cursor_fault_t f=fault();
+    const uint32_t site=!strcmp(c,"ring_config")||!strcmp(c,"stop")?TRIGGER_TIME_CURSOR_FAULT_RING:
+        !strcmp(c,"ring_slot")||!strcmp(c,"ring_crc")?TRIGGER_TIME_CURSOR_FAULT_RING_MODEL:
+        TRIGGER_TIME_CURSOR_FAULT_MODEL;
+    const uint32_t diff=!strcmp(c,"role")?TRIGGER_TIME_CURSOR_DIFF_ROLE:
+        !strcmp(c,"epoch")?TRIGGER_TIME_CURSOR_DIFF_CLOCK_EPOCH:
+        !strcmp(c,"run")?TRIGGER_TIME_CURSOR_DIFF_CLOCK_RUN:
+        !strcmp(c,"slot")?TRIGGER_TIME_CURSOR_DIFF_SLOT:
+        !strcmp(c,"schedule")?TRIGGER_TIME_CURSOR_DIFF_SCHEDULE:
+        !strcmp(c,"period")?TRIGGER_TIME_CURSOR_DIFF_PERIOD:
+        !strcmp(c,"ring_config")?TRIGGER_TIME_CURSOR_DIFF_RING_CONFIG:
+        !strcmp(c,"ring_slot")?TRIGGER_TIME_CURSOR_DIFF_RING_SLOT:
+        !strcmp(c,"ring_crc")?TRIGGER_TIME_CURSOR_DIFF_RING_SCHEDULE:0u;
+    assert(SITE(f)==site&&FERR(f)==TRIGGER_TIME_CURSOR_IDENTITY&&f.sample_seq==1);
+    assert(DIFF(f)==diff);
+    assert(f.ring_config==ring.config_seq);
+    /* stop: the ring bits name the flag that dropped (enabled clear). */
+    assert(((f.flags>>8)&7u)==(ring.enabled?1u:0u)+2u+4u);
+    if(site!=TRIGGER_TIME_CURSOR_FAULT_RING)assert(f.model_token==model.token);
+    else assert(f.model_token==0);
     at(12000000);assert(!snap().valid);
+    assert(SITE(fault())==site&&fault().sample_seq==1);
     /* Reconfigure explicitly creates a new local binding, after STOP. */
     ring.enabled=true;model.dco.nominal_period_ns=grid.period_ns;++model.token;
     model.local_slot=ring.local_slot_id;model.dco.tdma_schedule_crc32=ring.schedule_crc32;
-    assert(trigger_time_cursor_configure(&grid));at(13000000);assert(snap().valid);
+    assert(trigger_time_cursor_configure(&grid));assert(SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_NONE);
+    at(13000000);assert(snap().valid);
     return 0;
 }
 '''
@@ -207,6 +260,7 @@ def cursor(tmp_path_factory):
     "schedule", "ring_config", "stop", "period", "overflow",
     "same_token_command", "bound_model_unavailable", "zero_token", "model_seq_missing",
     "model_period_missing", "rate_invalid", "state_invalid", "ring_slot", "ring_crc",
+    "train_persona", "bound_retrain",
 ])
 def test_cursor(cursor, case):
     result = subprocess.run([str(cursor), case], capture_output=True,

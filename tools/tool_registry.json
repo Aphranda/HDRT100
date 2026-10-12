@@ -1,7 +1,6 @@
 {
   "schema_version": 1,
   "tools": [
-
     {
       "id": "TOOL-TDMA-SEAT-ACCEPTANCE",
       "purpose": "Read-only first-class seat acceptance: judge SYSTem:TDMA:SEAT:HEALth? and its evidence pages, or re-evaluate a saved capture offline",
@@ -27,9 +26,7 @@
       "validation": [],
       "handoff_evidence": null,
       "notes": "Issues queries only: STOP/START/config commands are never sent, so it cannot disturb a bench session owned by another operator. Modes are mutually exclusive and required (--port / --from-json / --self-test), so there is no fallback that opens a port by accident. Field counts are cross-checked against the firmware SCPI handlers by tests/python/test_seat_acceptance_tool.py."
-    }
-,
-
+    },
     {
       "id": "TOOL-T2-BENCH-PROBE",
       "purpose": "T2 four-board bench chain: enable/verify the reservation runtime and collect prediction, action, seat and lane evidence",
@@ -39,7 +36,7 @@
       "operation": "DEVICE_CONFIGURE",
       "entrypoints": [
         "tools/sync_trigger/t2_bench_probe.py",
-        "tools/sync_trigger/t2_enable.py"
+        "tools/sync_trigger/t2_workflow.py"
       ],
       "files": [
         {
@@ -47,7 +44,7 @@
           "role": "entrypoint"
         },
         {
-          "path": "tools/sync_trigger/t2_enable.py",
+          "path": "tools/sync_trigger/t2_workflow.py",
           "role": "entrypoint"
         }
       ],
@@ -60,9 +57,7 @@
       "validation": [],
       "handoff_evidence": null,
       "notes": "Registered late: both scripts were added by the T2 bench work and were missing from this registry. t2_bench_probe drives a live four-board run (STOP-configure-ARM-START, sampling, STOP) and writes an evidence bundle under out/HardwareAcceptance; it must be invoked with an explicit output directory or an intended mode, because an unknown argument falls through to a full default run."
-    }
-,
-
+    },
     {
       "id": "TOOL-T2-DEPLOY-ACTION-PROBE",
       "purpose": "T2 deploy/action/fence host model: archived implementation plus an import-safe compatibility wrapper",
@@ -86,8 +81,7 @@
       "validation": [],
       "handoff_evidence": null,
       "notes": "Import-safe wrapper keeps tests/python/test_t2_deploy_action_probe.py runnable; the tools migration archived the implementation as a deletable candidate and its reference audit missed this test import (also not importable because the archive directory name contains a hyphen). Retire wrapper and test together once the TOOLS owner confirms the model is no longer wanted."
-    }
-,
+    },
     {
       "id": "TOOL-HOST-EVIDENCE-CLOCK",
       "purpose": "High-resolution monotonic host timestamp identity for auditable evidence",
@@ -2078,7 +2072,8 @@
       "entrypoints": [
         "tools/hardware_acceptance/p3_hardware_acceptance.py",
         "tools/hardware_acceptance/single_board_hardware_acceptance.py",
-        "tools/vdc_priority_trace/vdc_priority_joint_capture.py"
+        "tools/vdc_priority_trace/vdc_priority_joint_capture.py",
+        "tools/vdc_priority_trace/DPLL60_workflow.py"
       ],
       "files": [
         {
@@ -2104,6 +2099,10 @@
         {
           "path": "tools/workflows/vdc_joint_capture/inputs.py",
           "role": "module"
+        },
+        {
+          "path": "tools/vdc_priority_trace/DPLL60_workflow.py",
+          "role": "entrypoint"
         }
       ],
       "depends_on": [
@@ -2450,11 +2449,16 @@
       "lifecycle": "UNASSESSED",
       "operation": "UNASSESSED",
       "entrypoints": [
-        "tools/ota/ota_multi_update/ota_multi_update.py"
+        "tools/ota/ota_multi_update/ota_multi_update.py",
+        "tools/ota/OTA_workflow.py"
       ],
       "files": [
         {
           "path": "tools/ota/ota_multi_update/ota_multi_update.py",
+          "role": "entrypoint"
+        },
+        {
+          "path": "tools/ota/OTA_workflow.py",
           "role": "entrypoint"
         },
         {

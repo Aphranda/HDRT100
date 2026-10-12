@@ -12,6 +12,7 @@ import hashlib
 import json
 from pathlib import Path
 import struct
+import time
 from typing import Callable
 import zlib
 
@@ -46,6 +47,11 @@ ORIGIN_SCHEMA_CAPACITIES = {2: 8, 3: 64}
 RECORD_BYTES = 100
 MAX_RECORDS = 76
 READ_MAX_BYTES = 128
+# A frozen capture page read can be refused transiently: the firmware takes its
+# READ lease only if a one-shot seqlock copy of the trace status and a pool-owner
+# CAS both succeed (vdc_priority_trace.inc), so a Core1 status publication at that
+# instant answers "-200 Execution error" with no page. The read is idempotent.
+PAGE_READ_ATTEMPTS = 4
 STATUS_FIELDS = (
     'schema request_seq ack_seq command state reason capture_id session generation '
     'sample_interval_ms capacity record_count match_count decision_count skipped_count dropped_count '
@@ -467,8 +473,19 @@ def download_capture(query: Callable[[str], str], capture_id: int,
     offset, size, total, crc = 0, 4, None, None
     while True:
         command = f'{READ} {capture_id},{offset},{size}'
-        raw = query(command)
-        page_total, page_crc, payload = parse_page(raw, offset, size)
+        for attempt in range(PAGE_READ_ATTEMPTS):
+            raw = query(command)
+            try:
+                page_total, page_crc, payload = parse_page(raw or '', offset, size)
+                break
+            except ValueError as exc:
+                # Consume the refusal's error-queue entry, or the caller's next
+                # SYSTem:ERR? check fails a run whose capture downloaded fine.
+                query('SYSTem:ERR?')
+                if attempt == PAGE_READ_ATTEMPTS - 1:
+                    raise ValueError(f'{exc} at offset {offset} after {PAGE_READ_ATTEMPTS}'
+                                     f' attempts (last response {str(raw)[:80]!r})') from exc
+                time.sleep(0.01)
         require(HEADER_BYTES <= page_total <= ORIGIN_HEADER_BYTES + MAX_RECORDS * RECORD_BYTES, 'Invalid native total')
         if total is None:
             total, crc = page_total, page_crc

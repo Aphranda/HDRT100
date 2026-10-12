@@ -27,6 +27,24 @@ static struct {
     bool bound, fault;
 } s_binding;
 static volatile uint32_t s_guard;
+/* First sticky fault of the current binding. Core1 writes it once, at the
+ * transition into the fault; configure/clear/session reset zero it. */
+static trigger_time_cursor_fault_t s_fault;
+static volatile uint32_t s_fault_guard;
+
+static void fault_store(const trigger_time_cursor_fault_t *fault)
+{
+    const uint32_t guard = __atomic_load_n(&s_fault_guard, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_fault_guard, guard + 1u, __ATOMIC_SEQ_CST);
+    s_fault = *fault;
+    __atomic_store_n(&s_fault_guard, guard + 2u, __ATOMIC_RELEASE);
+}
+
+static void fault_reset(void)
+{
+    const trigger_time_cursor_fault_t none = {0};
+    fault_store(&none);
+}
 
 static __attribute__((noinline)) void TRIGGER_CURSOR_HOT(publish)(const trigger_time_cursor_snapshot_t *next)
 {
@@ -57,6 +75,7 @@ bool trigger_time_cursor_configure(const trigger_time_grid_t *grid)
     s_integral_slice_ns = grid->period_ns % grid->subdivisions == 0u ?
         grid->period_ns / grid->subdivisions : 0u;
     memset(&s_binding, 0, sizeof(s_binding));
+    fault_reset();
     publish(&next);
     return true;
 }
@@ -66,6 +85,7 @@ void trigger_time_cursor_clear(void)
     trigger_time_cursor_snapshot_t next = {0};
     s_integral_slice_ns = 0u;
     memset(&s_binding, 0, sizeof(s_binding));
+    fault_reset();
     publish(&next);
 }
 
@@ -76,6 +96,52 @@ static __attribute__((noinline)) void TRIGGER_CURSOR_HOT(invalidate)(trigger_tim
     next->last_error = error;
     s_binding.fault = s_binding.fault || sticky;
     publish(next);
+}
+
+/* Record which check is about to latch the sticky fault and which of its
+ * inputs differed. Called only on that transition, so it stays out of the
+ * realtime RAM image. */
+static __attribute__((noinline, optimize("Os"))) void cursor_note_fault(
+    const trigger_time_cursor_snapshot_t *next, trigger_time_cursor_fault_site_t site,
+    trigger_time_cursor_error_t error, const tdma_ring_clock_snapshot_t *ring,
+    const vdc_dpll_manager_committed_model_t *model)
+{
+    if (s_binding.fault) return;
+    uint32_t diff = 0u, flags = (uint32_t)site | ((uint32_t)error << 4u);
+    trigger_time_cursor_fault_t fault = {.sample_seq = next->sample_seq};
+    if (ring) {
+        flags |= (ring->enabled ? 1u << 8u : 0u) |
+            (ring->adapter_started ? 1u << 9u : 0u) |
+            (ring->data_enabled ? 1u << 10u : 0u) |
+            (ring->training_dirty ? 1u << 11u : 0u);
+        if (ring->config_seq != ring->applied_config_seq)
+            diff |= TRIGGER_TIME_CURSOR_DIFF_RING_PENDING;
+        if (ring->config_seq != next->ring_config_seq)
+            diff |= TRIGGER_TIME_CURSOR_DIFF_RING_CONFIG;
+        if (!ring->schedule_crc32) diff |= TRIGGER_TIME_CURSOR_DIFF_RING_SCHEDULE_ZERO;
+        fault.ring_config = ring->config_seq;
+    }
+    if (model) {
+        if (model->role_generation != s_binding.role_generation)
+            diff |= TRIGGER_TIME_CURSOR_DIFF_ROLE;
+        if (model->clock_epoch_id != s_binding.clock_epoch)
+            diff |= TRIGGER_TIME_CURSOR_DIFF_CLOCK_EPOCH;
+        if (model->clock_run_id != s_binding.clock_run)
+            diff |= TRIGGER_TIME_CURSOR_DIFF_CLOCK_RUN;
+        if (model->local_slot != s_binding.local_slot)
+            diff |= TRIGGER_TIME_CURSOR_DIFF_SLOT;
+        if (model->dco.tdma_schedule_crc32 != s_binding.schedule_crc)
+            diff |= TRIGGER_TIME_CURSOR_DIFF_SCHEDULE;
+        if (model->dco.nominal_period_ns != next->period_ns)
+            diff |= TRIGGER_TIME_CURSOR_DIFF_PERIOD;
+        if (ring && model->local_slot != ring->local_slot_id)
+            diff |= TRIGGER_TIME_CURSOR_DIFF_RING_SLOT;
+        if (ring && model->dco.tdma_schedule_crc32 != ring->schedule_crc32)
+            diff |= TRIGGER_TIME_CURSOR_DIFF_RING_SCHEDULE;
+        fault.model_token = model->token;
+    }
+    fault.flags = flags | (diff << 16u);
+    fault_store(&fault);
 }
 
 /* Keep the projection separate to prevent inlining from expanding SRAM
@@ -114,6 +180,8 @@ static __attribute__((noinline, optimize("Os"))) void TRIGGER_CURSOR_HOT(cursor_
     }
     if (s_binding.bound && (now_raw < s_binding.last_raw ||
                             output_ns < next->event_vdc_ns)) {
+        cursor_note_fault(next, TRIGGER_TIME_CURSOR_FAULT_BACKWARD,
+            TRIGGER_TIME_CURSOR_BACKWARD, NULL, model);
         invalidate(next, TRIGGER_TIME_CURSOR_BACKWARD, true);
         return;
     }
@@ -131,6 +199,8 @@ static __attribute__((noinline, optimize("Os"))) void TRIGGER_CURSOR_HOT(cursor_
      * is at most UINT64_MAX/2. Neither q nor coarse+1 can overflow. */
     const uint64_t delta = s_binding.bound ? coarse - (next->pulse_index - 1u) : 1u;
     if (delta > UINT32_MAX - next->sample_seq) {
+        cursor_note_fault(next, TRIGGER_TIME_CURSOR_FAULT_OVERFLOW,
+            TRIGGER_TIME_CURSOR_OVERFLOW, NULL, model);
         invalidate(next, TRIGGER_TIME_CURSOR_OVERFLOW, true);
         return;
     }
@@ -184,6 +254,7 @@ static __attribute__((noinline, optimize("Os"))) void cursor_reset_session(
     next->event_vdc_ns = 0u;
     next->missed_sync_count = 0u;
     next->last_error = TRIGGER_TIME_CURSOR_OK;
+    fault_reset();
 }
 
 /* The committed-model owner changes its nonzero token for every DCO byte,
@@ -192,7 +263,7 @@ static __attribute__((noinline, optimize("Os"))) void cursor_reset_session(
  * consume it. Cache this qualification only via a successfully projected
  * next.model_token, never by recording an unaccepted candidate here. */
 static __attribute__((noinline, optimize("Os"))) trigger_time_cursor_error_t
-cursor_qualify_model(const trigger_time_cursor_snapshot_t *next,
+TRIGGER_CURSOR_HOT(cursor_qualify_model)(const trigger_time_cursor_snapshot_t *next,
     const vdc_dpll_manager_committed_model_t *model)
 {
     if (!model->dco.valid || !model->dco.dco_update_seq ||
@@ -234,10 +305,20 @@ __attribute__((optimize("Os"))) void TRIGGER_CURSOR_HOT(trigger_time_cursor_serv
         invalidate(&next, TRIGGER_TIME_CURSOR_NO_SYNC, false);
         return;
     }
+    /* A ring still in TRAIN's persona is not ready to bind: right after
+     * RING:START the next service stops the adapter for one cycle to restore
+     * DATA/CS (tdma_ring_runtime.c), which would otherwise latch the sticky
+     * fault on an identity bound one poll earlier. Unbound, this stays a
+     * plain retry. TRAIN is serviced only with data disabled, which this check
+     * already treats as a ring change once bound. */
     if (!ring.enabled || !ring.adapter_started || !ring.data_enabled ||
+        ring.training_dirty ||
         !ring.config_seq || ring.config_seq != ring.applied_config_seq ||
         !ring.schedule_crc32 ||
         (s_binding.bound && next.ring_config_seq != ring.config_seq)) {
+        if (s_binding.bound)
+            cursor_note_fault(&next, TRIGGER_TIME_CURSOR_FAULT_RING,
+                TRIGGER_TIME_CURSOR_IDENTITY, &ring, NULL);
         invalidate(&next, TRIGGER_TIME_CURSOR_IDENTITY, s_binding.bound);
         return;
     }
@@ -253,6 +334,9 @@ __attribute__((optimize("Os"))) void TRIGGER_CURSOR_HOT(trigger_time_cursor_serv
     if (model.token != next.model_token) {
         const trigger_time_cursor_error_t error = cursor_qualify_model(&next, &model);
         if (error != TRIGGER_TIME_CURSOR_OK) {
+            if (error == TRIGGER_TIME_CURSOR_IDENTITY && s_binding.bound)
+                cursor_note_fault(&next, TRIGGER_TIME_CURSOR_FAULT_MODEL,
+                    error, &ring, &model);
             invalidate(&next, error,
                 error == TRIGGER_TIME_CURSOR_IDENTITY && s_binding.bound);
             return;
@@ -262,6 +346,9 @@ __attribute__((optimize("Os"))) void TRIGGER_CURSOR_HOT(trigger_time_cursor_serv
      * authorize a changed ring, route or schedule. */
     if (model.local_slot != ring.local_slot_id ||
         model.dco.tdma_schedule_crc32 != ring.schedule_crc32) {
+        if (s_binding.bound)
+            cursor_note_fault(&next, TRIGGER_TIME_CURSOR_FAULT_RING_MODEL,
+                TRIGGER_TIME_CURSOR_IDENTITY, &ring, &model);
         invalidate(&next, TRIGGER_TIME_CURSOR_IDENTITY, s_binding.bound);
         return;
     }
@@ -282,6 +369,19 @@ bool TRIGGER_CURSOR_HOT(trigger_time_cursor_snapshot)(trigger_time_cursor_snapsh
         __atomic_thread_fence(__ATOMIC_ACQ_REL);
         after = __atomic_load_n(&s_guard, __ATOMIC_ACQUIRE);
         if (before == after) return true;
+    }
+    return false;
+}
+
+bool trigger_time_cursor_fault_snapshot(trigger_time_cursor_fault_t *out)
+{
+    if (!out) return false;
+    for (uint32_t attempt = 0u; attempt < 4u; ++attempt) {
+        const uint32_t before = __atomic_load_n(&s_fault_guard, __ATOMIC_ACQUIRE);
+        if (before & 1u) continue;
+        *out = s_fault;
+        __atomic_thread_fence(__ATOMIC_ACQ_REL);
+        if (before == __atomic_load_n(&s_fault_guard, __ATOMIC_ACQUIRE)) return true;
     }
     return false;
 }

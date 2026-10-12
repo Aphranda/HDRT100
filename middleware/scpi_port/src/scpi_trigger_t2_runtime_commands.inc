@@ -206,6 +206,16 @@ scpi_result_t scpi_cmd_trigger_t2_q(scpi_t *context)
      * speak this run id, and the position bits nobody has frozen. */
     SCPI_ResultUInt32(context,s.freeze_ack_stale_mask);
     SCPI_ResultUInt32(context,s.freeze_ack_incomplete_mask);
+    /* Appended: 1 when the configured mask lists the source slot itself, whose
+     * bits can never be acknowledged and are therefore ignored. */
+    SCPI_ResultUInt32(context,s.freeze_ack_own_in_mask);
+    /* Appended: origin FREEZE path maxima in clk_sys cycles - pending check,
+     * threshold stage, resend/ack pass, whole call. */
+    uint32_t freeze_cycles[TRIGGER_T2_RUNTIME_FREEZE_TIMING_COUNT];
+    if (!trigger_t2_runtime_freeze_timing(freeze_cycles))
+        memset(freeze_cycles, 0, sizeof(freeze_cycles));
+    for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_FREEZE_TIMING_COUNT; ++i)
+        SCPI_ResultUInt32(context, freeze_cycles[i]);
     return SCPI_RES_OK;
 }
 
@@ -231,6 +241,18 @@ scpi_result_t scpi_cmd_trigger_t2_cursor_q(scpi_t *context)
     SCPI_ResultUInt64(context, cursor.action_cursor);
     SCPI_ResultUInt64(context, cursor.pulse_index);
     SCPI_ResultUInt32(context, cursor.missed_sync_count);
+    /* Appended: the first sticky binding fault - site (0 = none), error,
+     * ring enabled/adapter/data/training bits, differs mask, sample_seq, live ring
+     * config, live model token. Positional readers above keep their indices. */
+    trigger_time_cursor_fault_t fault;
+    if (!trigger_time_cursor_fault_snapshot(&fault)) memset(&fault, 0, sizeof(fault));
+    SCPI_ResultUInt32(context, fault.flags & 0xfu);
+    SCPI_ResultUInt32(context, (fault.flags >> 4u) & 0xfu);
+    SCPI_ResultUInt32(context, (fault.flags >> 8u) & 0xfu);
+    SCPI_ResultUInt32(context, fault.flags >> 16u);
+    SCPI_ResultUInt32(context, fault.sample_seq);
+    SCPI_ResultUInt32(context, fault.ring_config);
+    SCPI_ResultUInt32(context, fault.model_token);
     return SCPI_RES_OK;
 }
 

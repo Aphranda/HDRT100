@@ -34,9 +34,10 @@ static bool s_stage_ok = true;
 static uint32_t s_ack_calls, s_stage_calls;
 static trigger_position_descriptor_t s_staged[8];
 
+static uint32_t s_ack_mask;
 uint32_t distributed_refmem_position_freeze_acked(uint32_t run, uint32_t mask)
 {
-    (void)run; (void)mask; ++s_ack_calls; return s_acked;
+    (void)run; ++s_ack_calls; s_ack_mask = mask; return s_acked;
 }
 bool distributed_refmem_stage_position_descriptor(
     const trigger_position_descriptor_t *descriptor, uint32_t mask)
@@ -71,6 +72,7 @@ static void reset(void)
     s_freeze_last_slice = 0u;
     s_freeze_resend_next = 0u;
     s_acked = 0u;
+    s_ack_mask = 0u;
     s_stage_ok = true;
     s_ack_calls = 0u;
     s_stage_calls = 0u;
@@ -157,6 +159,55 @@ int main(void)
     assert(s_state.transport_reject_count == 1u);
     assert(s_state.last_error == TRIGGER_T2_RUNTIME_TRANSPORT);
     assert(s_state.freeze_abandoned_count == 0u);
+    return wait_on_peers_only();
+}
+
+/* A freeze target mask that carries the POSITION SOURCE SLOT can never be
+ * acknowledged: the acknowledgement path only ever fills a slot from a received
+ * image, so waiting for it means resending every position until its window
+ * closes. The origin must wait on its peers only. */
+static int wait_on_peers_only(void)
+{
+    reset();
+    s_config.source_slot = 1u;
+    s_config.target_mask = 0x6u;                 /* slots 1 and 2: 1 is ourselves */
+    s_state.published_mask = 1u;
+    s_state.descriptors[0].expiry_sync = 100u;
+    s_state.cursor.pulse_index = 30u;
+    s_acked = 0x1u;                              /* the peer has frozen it */
+    assert(resend_one_freeze());
+    assert(s_state.freeze_ack_own_in_mask == 1u);
+    assert(s_ack_mask == 0x4u);                  /* waited on the peer, not itself */
+    assert(s_state.freeze_complete_mask == 1u);
+    assert(s_state.freeze_resend_count == 0u);   /* no blind resend at all */
+    assert(s_state.freeze_abandoned_count == 0u);
+
+    /* A mask with no peer is complete by construction: a single-board bench must
+     * not turn into a resend storm either. */
+    reset();
+    s_config.source_slot = 1u;
+    s_config.target_mask = 0x2u;                 /* only ourselves */
+    s_state.published_mask = 1u;
+    s_state.descriptors[0].expiry_sync = 100u;
+    s_state.cursor.pulse_index = 30u;
+    assert(resend_one_freeze());
+    assert(s_state.freeze_ack_own_in_mask == 1u);
+    assert(!s_ack_calls);                        /* nothing to ask */
+    assert(s_state.freeze_complete_mask == 1u);
+    assert(s_state.freeze_resend_count == 0u);
+    assert(s_state.freeze_ack_stale_mask == 0u && s_state.freeze_ack_incomplete_mask == 0u);
+
+    /* The ordinary bench layout (mask excludes the source slot) is unchanged. */
+    reset();
+    s_config.source_slot = 0u;
+    s_config.target_mask = 0xEu;
+    s_state.published_mask = 1u;
+    s_state.descriptors[0].expiry_sync = 100u;
+    s_state.cursor.pulse_index = 30u;
+    s_acked = 0x1u;
+    assert(resend_one_freeze());
+    assert(s_state.freeze_ack_own_in_mask == 0u);
+    assert(s_ack_mask == 0xEu);
     return 0;
 }
 '''
@@ -169,7 +220,10 @@ def _build(tmp_path):
     body = c_definition_body(source, "resend_one_freeze")
     definition = ("#define T2_FREEZE_RESEND_SLICES " + resend.group(1) + "u\n"
                   "static bool resend_one_freeze(void) {" + body + "}\n")
-    return compile_grid(tmp_path, "t2-freeze-abandon", HARNESS + definition + MAIN)
+    # `main` calls the peer-only cases that are defined below it in MAIN.
+    prototype = "static int wait_on_peers_only(void);\n"
+    return compile_grid(tmp_path, "t2-freeze-abandon",
+                        HARNESS + definition + prototype + MAIN)
 
 
 def test_freeze_abandonment_is_driven_and_counted(tmp_path):

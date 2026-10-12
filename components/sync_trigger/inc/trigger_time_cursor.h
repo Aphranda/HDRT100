@@ -41,9 +41,48 @@ typedef struct {
     trigger_time_cursor_error_t last_error;
 } trigger_time_cursor_snapshot_t;
 
+/* Which check latched the sticky binding fault. Diagnostic only. */
+typedef enum {
+    TRIGGER_TIME_CURSOR_FAULT_NONE = 0u,
+    TRIGGER_TIME_CURSOR_FAULT_RING = 1u,        /* ring flags/config/schedule */
+    TRIGGER_TIME_CURSOR_FAULT_MODEL = 2u,       /* model identity on a new token */
+    TRIGGER_TIME_CURSOR_FAULT_RING_MODEL = 3u,  /* model slot/schedule vs ring */
+    TRIGGER_TIME_CURSOR_FAULT_BACKWARD = 4u,
+    TRIGGER_TIME_CURSOR_FAULT_OVERFLOW = 5u,
+} trigger_time_cursor_fault_site_t;
+
+/* Inputs of the latching check that differ from the bound identity (or are
+ * themselves invalid), computed by Core1 when the fault latches. */
+typedef enum {
+    TRIGGER_TIME_CURSOR_DIFF_RING_PENDING = 1u << 0,     /* config != applied */
+    TRIGGER_TIME_CURSOR_DIFF_RING_CONFIG = 1u << 1,      /* config != bound */
+    TRIGGER_TIME_CURSOR_DIFF_RING_SCHEDULE_ZERO = 1u << 2,
+    TRIGGER_TIME_CURSOR_DIFF_ROLE = 1u << 3,
+    TRIGGER_TIME_CURSOR_DIFF_CLOCK_EPOCH = 1u << 4,
+    TRIGGER_TIME_CURSOR_DIFF_CLOCK_RUN = 1u << 5,
+    TRIGGER_TIME_CURSOR_DIFF_SLOT = 1u << 6,
+    TRIGGER_TIME_CURSOR_DIFF_SCHEDULE = 1u << 7,
+    TRIGGER_TIME_CURSOR_DIFF_PERIOD = 1u << 8,           /* model vs grid */
+    TRIGGER_TIME_CURSOR_DIFF_RING_SLOT = 1u << 9,        /* model vs ring */
+    TRIGGER_TIME_CURSOR_DIFF_RING_SCHEDULE = 1u << 10,   /* model vs ring */
+} trigger_time_cursor_fault_diff_t;
+
+/* First sticky fault of the current binding, written once by Core1 when it
+ * latches; four words because the shared SRAM budget has no more slack.
+ * The bound ring config/model token are the cursor snapshot's own fields.
+ * flags: [3:0] site, [7:4] error, [8] ring enabled, [9] adapter started,
+ * [10] data enabled, [11] training dirty (ring bits only when the check
+ * read the ring),
+ * [31:16] trigger_time_cursor_fault_diff_t. ring_config/model_token are the
+ * live values of the failing poll (zero when not read by that check). */
+typedef struct {
+    uint32_t flags, sample_seq, ring_config, model_token;
+} trigger_time_cursor_fault_t;
+
 bool trigger_time_cursor_configure(const trigger_time_grid_t *grid);
 void trigger_time_cursor_clear(void);
 void trigger_time_cursor_service(void);
 bool trigger_time_cursor_snapshot(trigger_time_cursor_snapshot_t *out);
+bool trigger_time_cursor_fault_snapshot(trigger_time_cursor_fault_t *out);
 
 #endif

@@ -2825,7 +2825,8 @@ bool vdc_domain_dco_control_validate(const vdc_tdma_schedule_profile_t *schedule
     return true;
 }
 
-bool vdc_domain_dco_local_to_output_ns(const vdc_dco_control_t *dco,
+/* The T2 time cursor projects through this on every SYNC_TRIGGER slice. */
+bool VDC_DOMAIN_TIME_CRITICAL(vdc_domain_dco_local_to_output_ns)(const vdc_dco_control_t *dco,
                                        uint64_t local_ns,
                                        uint64_t *output_ns)
 {

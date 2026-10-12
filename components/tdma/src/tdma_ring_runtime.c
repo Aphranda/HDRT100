@@ -1084,6 +1084,7 @@ __attribute__((noinline)) bool TDMA_RING_CLOCK_HOT(tdma_ring_runtime_get_clock_s
         snapshot->ring_seq = runtime->ring_seq;
         snapshot->applied_config_seq = runtime->applied_config_seq;
         snapshot->data_enabled = tdma_ring_runtime_load(&runtime->data_enabled);
+        snapshot->training_dirty = runtime->training_dirty;
         snapshot->clock_observation = runtime->clock_observation;
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
         const uint32_t result_end =
