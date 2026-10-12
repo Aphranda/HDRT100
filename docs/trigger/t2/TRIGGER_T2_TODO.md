@@ -217,6 +217,16 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 1. **删错了对象**：`observe_at_sync` 不是"legacy 位置逻辑"的一部分，删掉它会让 `window_time_ready()` 永远为假 ⇒ 每个位置都被判"时间不可用"（`window_rate_stale_count` 飙升），故障表现为"能冻结但不发布"。
 2. **下标照搬**：`target_count[position_id − 1]` 这类写法在窗口下不成立（条目随滚动换位），必须走 `window_find()`。
 
+**顺序约束（2026-10-13 推演得出，务必遵守）**：**先迁移运行时，再把台架扫描切到 0..360°@1°（361 位置）**。理由：
+
+1. legacy 只有 **3 个槽**（`TRIGGER_T2_RUNTIME_POSITION_COUNT = 3`），无法表示 361 个位置；若先把扫描参数切到 361，legacy 仍为权威路径 ⇒ 台架会跑出无意义的对照结果（3 个槽去装 361 个位置）。
+2. **窗口的宣告掩码位是 slot（`1u << slot`，slot ∈ [0, 2)），不是位置序号**。当前 deadline/描述符路径用 `announced_mask & (1u << index)` 判断"该位置是否已宣告"，其中 `index` 是 legacy 的槽下标；迁移时**不能**把该表达式直接换成窗口掩码——必须改为"遍历窗口条目、按 `entry->absolute_index` 取用"（这正是 `trigger_turntable_window_find()` 与"掩码位语义"两处必须一起改的原因）。
+3. 因此迁移不止是"把数组换成查表"：**宣告 → 位置的映射要重做**（从"槽下标即位置"变为"slot 是容器、`absolute_index` 才是位置"）。
+
+建议的迁移顺序（每步单独跑一次台架、用并行对照读数验证）：
+① 用窗口条目重写"宣告 → 位置"的取用（读 `entry->announced` 与 `entry->absolute_index`），保持 legacy 数组仍存在但不再被读；
+② 删掉 legacy 数组与 `announce_mask` 的写入；③ 按 A.2 把 lead 改为一步比例（等价性测试随之收敛为只校验窗口侧）；④ 最后把台架扫描切到 361 位置并核对 `geometry 361pos/100pul`、`announced == entered`。
+
 **迁移后应删除**：`target_count[3]` / `threshold_count[3]` / `announced_mask` / `terminal_verified` 以及 `begin()` 的三槽初始化（`window_begin_scan` 取代）。等价性测试 `legacy_equivalence()` 届时收敛为只校验窗口侧。
 
 ### A.4 接线落点（SCPI，2026-10-12 勘察；**2026-10-12 更正**）
