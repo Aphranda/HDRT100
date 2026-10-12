@@ -26,8 +26,8 @@ static trigger_turntable_predictor_config_t scan(int32_t start, int32_t stop,
     c.pulses_per_degree = ppd;
     c.start_angle_mdeg = start;
     c.terminal_angle_mdeg = stop;
-    c.pre_roll_mdeg = 1000u;
-    c.post_roll_mdeg = 1000u;
+    c.pre_roll_mdeg = 5000u;      /* -5 degrees of run-up: predict position 0 */
+    c.post_roll_mdeg = 5000u;     /* +5 degrees of run-out: verify the terminal */
     c.threshold_per_mille = 50u;
     g_step = step;
     return c;
@@ -43,6 +43,31 @@ int main(void)
     assert(g.positions == 361u);
     assert(g.step_pulses == 100u);
     assert(g.total_pulses == 36000u);
+    /* The motion is the rolls plus the grid: -5..365 degrees, 37000 pulses. */
+    assert(g.pre_roll_pulses == 500u);
+    assert(g.post_roll_pulses == 500u);
+    assert(g.motion_pulses == 37000u);
+
+    /* Rolls are mandatory: without them position 0 is unpredictable and the
+     * terminal is unverifiable. */
+    trigger_turntable_predictor_config_t roll = scan(0, 360000, 1000, 100u);
+    roll.pre_roll_mdeg = 0u;
+    assert(trigger_turntable_scan_validate(&roll, g_step, 0u, &g) ==
+           TRIGGER_TURNTABLE_SCAN_ARGUMENT);
+    roll = scan(0, 360000, 1000, 100u);
+    roll.post_roll_mdeg = 0u;
+    assert(trigger_turntable_scan_validate(&roll, g_step, 0u, &g) ==
+           TRIGGER_TURNTABLE_SCAN_ARGUMENT);
+
+    /* A roll shorter than one STEP is not enough run-up/run-out. */
+    roll = scan(0, 360000, 1000, 100u);
+    roll.pre_roll_mdeg = 500u;                   /* 0.5 degree = 50 pulses */
+    assert(trigger_turntable_scan_validate(&roll, g_step, 0u, &g) ==
+           TRIGGER_TURNTABLE_SCAN_ROLL_TOO_SHORT);
+    roll = scan(0, 360000, 1000, 100u);
+    roll.post_roll_mdeg = 900u;                  /* 90 whole pulses < one STEP */
+    assert(trigger_turntable_scan_validate(&roll, g_step, 0u, &g) ==
+           TRIGGER_TURNTABLE_SCAN_ROLL_TOO_SHORT);
 
     /* Nothing to check yet is not a refusal. */
     assert(trigger_turntable_scan_validate(&c, g_step, 0u, &g) == TRIGGER_TURNTABLE_SCAN_OK);

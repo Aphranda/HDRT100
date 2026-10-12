@@ -115,6 +115,22 @@ int main(void)
     assert(trigger_turntable_window_advance(&s, &c, 1u, &mask) ==
            TRIGGER_TURNTABLE_BACKWARD);
 
+    /* Announcing a position without a usable rate loses its time prediction, and
+     * that loss is counted (the FREEZE itself still goes out). */
+    assert(s.window_rate_stale_count == 1u);
+    {
+        trigger_turntable_predictor_snapshot_t rated = {0};
+        rated.active = 1u;
+        rated.rate_valid = 1u;
+        rated.pulses_per_sync_q16 = 1u;
+        trigger_turntable_window_configure(&rated, step);
+        assert(trigger_turntable_window_begin(&rated, &c, 0u));
+        assert(trigger_turntable_window_advance(&rated, &c, 5u, &mask) ==
+               TRIGGER_TURNTABLE_OK);
+        assert(mask == 0x1u);
+        assert(rated.window_rate_stale_count == 0u);
+    }
+
     /* A rate makes the time prediction available again. */
     s.rate_valid = 1u;
     s.pulses_per_sync_q16 = 1u;

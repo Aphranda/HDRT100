@@ -51,6 +51,7 @@ typedef enum {
     TRIGGER_TURNTABLE_SCAN_TOO_MANY_POSITIONS = 4u,
     TRIGGER_TURNTABLE_SCAN_PULSES_NOT_INTEGER = 5u,/* step is not whole pulses */
     TRIGGER_TURNTABLE_SCAN_SPAN_TOO_SHORT = 6u,    /* step cannot hold the groups */
+    TRIGGER_TURNTABLE_SCAN_ROLL_TOO_SHORT = 7u,    /* pre/post roll < one STEP */
 } trigger_turntable_scan_result_t;
 
 /* A 361-position scan is the product target; the limit only exists so a typo
@@ -61,6 +62,11 @@ typedef struct {
     uint32_t positions;        /* inclusive: floor((terminal-start)/step) + 1 */
     uint64_t step_pulses;      /* whole counter pulses per STEP (integer) */
     uint64_t total_pulses;     /* pulses from start to terminal */
+    /* The turntable must already be moving before the first position (otherwise
+     * position 0 cannot be predicted at all) and must keep moving past the
+     * terminal (otherwise the last position cannot be verified). Both rolls are
+     * part of the motion, not part of the position grid. */
+    uint64_t pre_roll_pulses, post_roll_pulses, motion_pulses;
 } trigger_turntable_scan_geometry_t;
 
 typedef struct {
@@ -79,6 +85,9 @@ typedef struct {
      * ordinal of the LAST position entered, so at most
      * window_next_index + TRIGGER_TURNTABLE_WINDOW_MAX have ever been computed. */
     uint32_t window_next_index, window_entered_count, window_recomputed_count;
+    /* Announced positions for which no usable rate existed, so their time could
+     * not be predicted: the FREEZE still goes out (the count is the authority),
+     * but the loss of the time prediction is counted instead of being silent. */
     uint32_t window_rate_stale_count;
     /* Entries whose target count had already passed when they were entered (the
      * scan is behind the prediction): due immediately, and counted so the loss is
@@ -373,6 +382,11 @@ static inline bool trigger_turntable_window_begin(
     return s->window_entered_count != 0u;
 }
 
+/* Defined after window_advance, which counts the announced positions that had no
+ * usable rate. */
+static inline bool trigger_turntable_window_time_ready(
+    const trigger_turntable_predictor_snapshot_t *s);
+
 /* Observe one count sample: announce the window entries whose threshold was
  * crossed, and roll the window forward by recomputing the entries for the newly
  * entered positions from THIS count. At most one position is added per advance,
@@ -400,6 +414,8 @@ static inline trigger_turntable_result_t trigger_turntable_window_advance(
         }
     }
     if (new_position_mask) *new_position_mask = announced_now;
+    if (announced_now && !trigger_turntable_window_time_ready(s))
+        s->window_rate_stale_count++;
     /* Roll only when the oldest entry has been announced: the next position is
      * entered now, with the count as it is now. */
     while (s->window[0].valid && s->window[0].announced) {
@@ -452,6 +468,10 @@ static inline trigger_turntable_scan_result_t trigger_turntable_scan_validate(
     if (out) *out = (trigger_turntable_scan_geometry_t){0};
     if (!c || !c->pulses_per_degree || step_mdeg <= 0)
         return TRIGGER_TURNTABLE_SCAN_ARGUMENT;
+    /* Both rolls are required: -5 degrees of run-up to predict the first position
+     * and +5 degrees of run-out to verify the terminal one. */
+    if (!c->pre_roll_mdeg || !c->post_roll_mdeg)
+        return TRIGGER_TURNTABLE_SCAN_ARGUMENT;
     if (c->terminal_angle_mdeg < c->start_angle_mdeg)
         return TRIGGER_TURNTABLE_SCAN_BACKWARD;
     const int64_t span_mdeg =
@@ -469,6 +489,17 @@ static inline trigger_turntable_scan_result_t trigger_turntable_scan_validate(
     const uint64_t step_pulses = step_product / 1000u;
     if (!step_pulses || (sequence_span_pulses && step_pulses < sequence_span_pulses))
         return TRIGGER_TURNTABLE_SCAN_SPAN_TOO_SHORT;
+    /* A roll must also be a whole, non-zero number of pulses. */
+    const uint64_t pre_product = (uint64_t)c->pre_roll_mdeg * c->pulses_per_degree;
+    const uint64_t post_product = (uint64_t)c->post_roll_mdeg * c->pulses_per_degree;
+    if (pre_product % 1000u || post_product % 1000u)
+        return TRIGGER_TURNTABLE_SCAN_PULSES_NOT_INTEGER;
+    const uint64_t pre_pulses = pre_product / 1000u;
+    const uint64_t post_pulses = post_product / 1000u;
+    /* At least one STEP of run-up is what makes the first position predictable;
+     * at least one STEP of run-out is what makes the terminal verifiable. */
+    if (pre_pulses < step_pulses || post_pulses < step_pulses)
+        return TRIGGER_TURNTABLE_SCAN_ROLL_TOO_SHORT;
     const uint64_t span_product = (uint64_t)span_mdeg * c->pulses_per_degree;
     if (span_product > UINT64_MAX - 999u)
         return TRIGGER_TURNTABLE_SCAN_TOO_MANY_POSITIONS;
@@ -476,6 +507,9 @@ static inline trigger_turntable_scan_result_t trigger_turntable_scan_validate(
         out->positions = (uint32_t)positions;
         out->step_pulses = step_pulses;
         out->total_pulses = (span_product + 999u) / 1000u;
+        out->pre_roll_pulses = pre_pulses;
+        out->post_roll_pulses = post_pulses;
+        out->motion_pulses = pre_pulses + out->total_pulses + post_pulses;
     }
     return TRIGGER_TURNTABLE_SCAN_OK;
 }
