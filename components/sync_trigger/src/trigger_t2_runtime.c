@@ -122,16 +122,7 @@ static volatile uint32_t s_guard;
 typedef struct { uint32_t count, coarse; } t2_count_sample_t;
 static t2_count_sample_t s_count_history[T2_WINDOW_HISTORY_CAPACITY];
 static uint32_t s_count_head, s_count_size, s_count_last_seq;
-/* Prepare cadence, keyed by WINDOW SLOT (A.3.15e): the slot remembers which scan
- * ordinal it is throttling, so a slot that starts holding a different position resets
- * instead of inheriting another position's throttle. Keying by ordinal is impossible -
- * a full scan needs 361..4096 entries. */
-typedef struct {
-    uint32_t absolute_index;
-    uint32_t last_coarse;
-    uint32_t valid;
-} t2_cadence_t;
-static t2_cadence_t s_cadence[TRIGGER_TURNTABLE_WINDOW_MAX];
+static uint32_t s_last_calculated_coarse[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 _Static_assert(sizeof(trigger_position_descriptor_t) % sizeof(uint32_t) == 0u,
     "preview handoff uses whole atomic words");
 static uint32_t s_preview_history[TRIGGER_T2_RUNTIME_POSITION_COUNT][3]
@@ -848,7 +839,7 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
     s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
     s_count_head = s_count_size = s_count_last_seq = 0u;
     memset(s_count_history, 0, sizeof(s_count_history));
-    memset(s_cadence, 0, sizeof(s_cadence));
+    memset(s_last_calculated_coarse, 0, sizeof(s_last_calculated_coarse));
     (void)__atomic_add_fetch(&s_preview_guard, 1u, __ATOMIC_ACQ_REL);
     memset(s_preview_history, 0, sizeof(s_preview_history));
     (void)__atomic_add_fetch(&s_preview_guard, 1u, __ATOMIC_RELEASE);
@@ -1104,39 +1095,23 @@ void trigger_t2_runtime_prepare_core0(void)
     for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT;
          ++index) {
         const uint32_t bit = 1u << index;
-        /* Judgement inputs come from the rolling window when this position is in it, and
-         * from the legacy arrays otherwise - so a caller without a scan step behaves
-         * exactly as before (migration step 2, TRIGGER_T2_TODO.md A.3.15h). The loop
-         * index stays the legacy one: every other statement below still indexes the
-         * legacy per-position state. */
-        const trigger_turntable_window_entry_t *entry =
-            s_scan_step_mdeg
-                ? trigger_turntable_window_find(&snapshot.predictor, index) : NULL;
-        const uint32_t cadence_slot =
-            entry ? (uint32_t)(entry - snapshot.predictor.window) : 0u;
-        const bool announced = entry ? entry->announced != 0u
-                                     : (snapshot.predictor.announced_mask & bit) != 0u;
-        const uint64_t threshold = entry ? entry->threshold_count
-                                         : snapshot.predictor.threshold_count[index];
-        const uint64_t target = entry ? entry->target_count
-                                      : snapshot.predictor.target_count[index];
-        if (__atomic_load_n(&s_threshold_public, __ATOMIC_ACQUIRE) & bit || announced ||
-            snapshot.last_counter_count >= threshold ||
-            snapshot.last_counter_count >= target)
+        if (__atomic_load_n(&s_threshold_public, __ATOMIC_ACQUIRE) & bit ||
+            snapshot.predictor.announced_mask & bit ||
+            snapshot.last_counter_count >= snapshot.predictor.threshold_count[index] ||
+            snapshot.last_counter_count >= snapshot.predictor.target_count[index])
             continue;
 
-        const uint64_t to_threshold = threshold - snapshot.last_counter_count;
-        const uint64_t span = target - snapshot.predictor.origin_count;
+        const uint64_t to_threshold =
+            snapshot.predictor.threshold_count[index] - snapshot.last_counter_count;
+        const uint64_t span = snapshot.predictor.target_count[index] -
+                              snapshot.predictor.origin_count;
         const uint32_t window = to_threshold <= span / 20u ? 4u :
                                 to_threshold <= span / 5u ? 8u : 16u;
         const uint32_t interval = window == 4u ? 1u :
                                   window == 8u ? 2u : 8u;
-        if (s_cadence[cadence_slot].valid &&
-            s_cadence[cadence_slot].absolute_index == index &&
-            coarse - s_cadence[cadence_slot].last_coarse < interval) continue;
-        s_cadence[cadence_slot] = (t2_cadence_t){ .absolute_index = index,
-                                                  .last_coarse = (uint32_t)coarse,
-                                                  .valid = 1u };
+        if (s_last_calculated_coarse[index] &&
+            coarse - s_last_calculated_coarse[index] < interval) continue;
+        s_last_calculated_coarse[index] = (uint32_t)coarse;
 
         t2_count_sample_t old = {0};
         bool found = false;
