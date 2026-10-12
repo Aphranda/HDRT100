@@ -372,6 +372,30 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.12 迁移外部假设清单：还有哪些地方写死了"三个位置"（2026-10-13 审计）
+
+除 `trigger_t2_runtime.c` 的消费者路径外，全树审计（`tools/**` 与 `components/**`）得到下列**外部假设**，迁移与"切 361 位置扫描"时必须一并处理：
+
+**工具侧（`tools/sync_trigger/`）**
+
+| 位置 | 写死内容 | 影响 |
+|---|---|---|
+| `t2_workflow.py:520`、`:1718`、`t2_bench_probe.py:242` | `T2:CONFigure … ,0,14, …` 的 **target_mask = 14**（三位位置 bits 1..3） | 361 位置扫描下该掩码无意义；需随扫描规模/身份口径重新定义 |
+| `t2_workflow.py:955` | `ALL_POSITIONS_MASK = 7  # TRIGGER_T2_RUNTIME_POSITION_COUNT == 3` | 工具的"是否全部位置已发布"判据 |
+| `t2_workflow.py:2508-2510` | `if published != str(ALL_POSITIONS_MASK): … "expected 7: all three positions"` | 采样判定/失败信息均为 legacy 形状；迁移后须改为按**在途集合**判定 |
+
+**固件侧（`components/sync_trigger/inc/trigger_t2_runtime.h`）**
+
+`TRIGGER_T2_RUNTIME_POSITION_COUNT = 3u`（:12）直接决定 **9 个按位置的数组**：`freeze_version` / `freeze_local_version` / `freeze_local_age`（:61-63）、`action_sequence` / `action_backend_state` / `action_origin_width_ticks` / `action_deadline_tick`（:90-94）、`descriptors`（:119），以及模板容量乘积（:23）。
+
+⇒ 迁移步骤②不仅要改"读哪份数据"，还要就下列问题做**统一决策**（A.3.11 已列入结构差异）：
+
+1. 这些数组继续按**窗口 slot**（容量 = `WINDOW_MAX`）还是改按**位置序号**（需滚动/取模表达）？
+2. `descriptors[]` 是"每个在途位置的描述符" ⇒ 自然随 slot；
+3. `freeze_version/local_version/age` 是"每个位置的冻结状态" ⇒ 若按 slot，则位置滚动时须随之迁移/清零（并在诊断里可读）。
+
+**建议**：把上述决策与 `T2:SCAN?` 的读数一起固化——迁移后用 `T2:SCAN?`（`announced == entered`、`overwrote == 0`）+ `t2`（`published_mask`/`POS pub` 与基线同量级）双判据验收；工具侧的 `14` / `ALL_POSITIONS_MASK` 改动与"切 361"同一次提交。
+
 ### A.3.11 迁移步骤②的剩余差异：只剩**结构性**，语义风险已消除（2026-10-13）
 
 Round 81 统一 lead 口径后，逐项核对"legacy 数组"与"窗口"的差异：
