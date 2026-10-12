@@ -293,6 +293,31 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **同一步的配套**：`scan_validate` 的 fail-closed 校验也放在该 setter 内（或紧随其后），这样"非法扫描"在配置期就被拒，而不是等到 ARM 之后。
 
+#### A.4.0 已实现待重放的改动 + 当前阻塞（2026-10-13）
+
+**（一）加 STEP 的改动已写好并静态验证通过**（因凭证受阻而回退，可逐字重放）：
+
+1. `scpi_trigger_t2_runtime_commands.inc`：声明加 `step_mdeg`；在 `terminal_angle` 的解析行后追加
+   `SCPI_ParamInt32(context, &step_mdeg, TRUE) != TRUE ||`；在 `trigger_t2_runtime_config_t config={0};`
+   之前插入 `if (!trigger_t2_runtime_scan_step(step_mdeg)) return scpi_trigger_t2_fail(context);`
+2. 4 处调用点追加 `,5000`（其扫描为 5/10/15°）：`t2_workflow.py` 三处（`…999,0,0,0` 那处与两处 `…,15000`）、`t2_bench_probe.py` 一处；
+3. `tests/python/test_t2_configure_signature.py` 的 `EXPECTED_PARAMETERS` 末尾加 `"step_mdeg"`。
+
+静态验证：协调守卫 2 项 + T2 全套 95 项通过；验收 attempt 2 的失败点在 DPLL 步骤（见下），**说明该改动编译通过**。
+
+**（二）当前阻塞：验收在 `validate_tdma_stopped_handoff()` 处失败（`nodes board set mismatch`）**
+
+`p3_hardware_acceptance.py:1320-1322` 要求停机上交流程的 `stopped` / `boards` / `board_records` / `nodes`
+四个字典的**键集都等于验收期望的 `board_ids`**。实测同一摘要（`<run>/tdma-process-image/summary.json`）：
+
+| 字段 | 内容 |
+|---|---|
+| `stopped` / `boards` / `board_records` | **完整 4 板** ✓ |
+| `actions`（88 条 START/STOP） | 覆盖 4 板 ✓ |
+| **`nodes`** | **空** ✗ |
+
+⇒ **不是缺板**，是采集工具**没有填 `nodes`**：该字段由自主记录证据路径写入（`tools/calibration_ring_validate/tdma_autonomous_record.py` 的 `evidence["nodes"][uid] = …`），本次为空。下一步应查 `trn03_closed_loop.py` 组装摘要时 `nodes` 的来源，以及它在什么条件下会保持为空（超时/取消/异常路径）。**该阻塞挡在所有固件提交之前**，优先于 T2 自身实现。
+
 #### A.4.1 第 1 步（加 STEP）的确切改动面
 
 `scpi_cmd_trigger_t2_configure()` 现有参数（按解析顺序，`scpi_trigger_t2_runtime_commands.inc`）：
