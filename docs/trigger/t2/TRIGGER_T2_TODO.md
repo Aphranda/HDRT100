@@ -372,6 +372,20 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.15f item ② 的低风险切片形态：**保留 legacy 下标，只把判定取值改为窗口**（2026-10-13）
+
+A.3.0/A.3.15 曾设想"把循环改为遍历窗口条目"。核对 `:1095-1114` 之后的循环体发现：**后续语句大量按 legacy 下标索引**（`preview_copy(index,…)`、`s_deadline_mailbox[index]`、`deadline_publish(index,…)`、以及 **@1139 的 `target_count[index]`**）⇒ 若把循环变量换成 slot，这些调用会**隐含地把 slot 当位置用**（当前台架扫描下偶然成立，361 扫描下立刻错）——正是本会话反复栽过的"隐式位置假设" ✗。
+
+**改为低风险形态**：**循环仍按 legacy 下标**（`index = 0..POSITION_COUNT-1` ⇒ 三个具名位置），但：
+
+1. **判定取值改从窗口取**：用 `trigger_turntable_window_find()`（`trigger_turntable_predictor.h:472`）按 `absolute_index == index` 找到条目（同时得到其 **slot**）；
+   - 有窗口且找到条目 ⇒ 用 `entry->announced` / `entry->threshold_count` / `entry->target_count`；
+   - 无窗口（未配置步长）或未找到 ⇒ 回退到现有 legacy 取值（`announced_mask & bit` / `threshold_count[index]` / `target_count[index]`）——保证无扫描调用者行为不变 ✓；
+2. **节流表用 slot 键**（A.3.15e 的 `s_cadence[WINDOW_MAX]`，槽内存 `absolute_index`，不匹配即重置）；
+3. **其余语句一律不动**（`preview_copy` / mailbox / `deadline_publish` / **@1139 描述符构造**继续按 `index`）⇒ 本切片只改变"是否该准备"的**判定来源**，与 A.3.13 的等价性证据一致（数值已一致），且**不引入任何隐式位置假设** ✓。
+
+**动手前需读**：`trigger_turntable_window_find()` 的签名与返回语义（`:472` 起，本次未逐字读）；若它按位置而非按序号查找，改用遍历 `s->window[slot]` 比较 `absolute_index` 即可（仅 `WINDOW_MAX` 次比较）。
+
 ### A.3.15e 键决策修正：掩码按**序号**、节流表按 **slot 但存序号**（2026-10-13）
 
 读 item ② 的确切文本（`trigger_t2_runtime.c:1095-1114`）后发现一处**必须现在解决的设计张力**：
