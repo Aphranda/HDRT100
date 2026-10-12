@@ -1782,9 +1782,23 @@ def _run_step(command: list[str], root: Path, log_path: Path, *,
     })
     log_path.write_bytes(result.stdout)
     if result.returncode != 0 and not allow_failure:
-        tail = result.stdout.decode("utf-8", errors="replace").splitlines()[-20:]
-        raise AcceptanceError(
-            f"step failed ({' '.join(command)}):\n" + "\n".join(tail))
+        lines = result.stdout.decode("utf-8", errors="replace").splitlines()
+        # A compiler error (or ninja's FAILED target) is printed BEFORE the progress
+        # lines that follow it, so a 20-line tail can scroll past it entirely: three
+        # rounds were lost to a one-line build error that the tail had already left
+        # behind. Keep the tail, add every diagnostic line explicitly, and name the
+        # log file that holds the whole output.
+        diagnostics = [line for line in lines if (
+            "error:" in line or line.startswith("FAILED:")
+            or line.startswith("Error") or "Traceback" in line
+            or "CalledProcessError" in line)]
+        parts = [f"step failed ({' '.join(command)}):", f"full output: {log_path}"]
+        if diagnostics:
+            parts.append("diagnostics:")
+            parts.extend(diagnostics[:20])
+        parts.append("tail:")
+        parts.extend(lines[-20:])
+        raise AcceptanceError("\n".join(parts))
     return int(result.returncode)
 
 
