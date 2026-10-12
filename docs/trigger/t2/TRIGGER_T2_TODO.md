@@ -381,13 +381,14 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 | 1 | **发布掩码** → `s_threshold_public` | 1 处 store（经 `t2_published_mask()`） | 窗口条目 | ✅ **已迁移**（A.3.14，`9fe22404`） |
 | 2 | **冻结判定**（读 `s_threshold_public & bit`） | 消费掩码本身 | 由 1 决定 | ✅ 随切片 1 **自动**变为窗口驱动（判定源已是窗口宣告） |
 | 3 | **deadline 规划** | `trigger_t2_runtime.c:1024-1069`（约 45 行；循环体约 10 行） | legacy 下标（3 槽） | ❌ 待迁移：迭代 3 个 `index`，用 `preview_copy(index,…)`、`s_deadline_mailbox[index]`、`s_frozen_public` 位、`deadline_publish(index,…)` |
-| 4 | **准备循环** | `trigger_t2_runtime.c` 约 1000-1023（约 25 行） | legacy 下标 + `s_last_calculated_coarse[]` | ❌ 待迁移：读 `target_count[]` / `threshold_count[]` / `announced_mask`，写节流表 |
+| 4 | **准备循环** | `trigger_t2_runtime.c` **≈1085-1145**（2026-10-13 更正后的锚点） | legacy 下标 + `s_last_calculated_coarse[]` | ❌ 待迁移：`announced_mask & bit`@**1099**、`threshold_count[index]`@**1100/1105**、`target_count[index]`@**1101/1106**、节流表@**1112-1114**，并在 **@1139 构造描述符**（`.target_count = …`） |
 | 5 | **legacy 数组 + `begin()` 的槽语义** | `target_count[3]` / `threshold_count[3]` / `announced_mask` / `terminal_verified` | 3 槽 | ❌ 待删除（在 3、4 迁移之后）；**保留 `observe_at_sync`** |
 
 **建议分片顺序**（每片独立提交 + `run` + `t2` 验证）：
 
-1. **切片 2 = 第 4 项（准备循环）**：它只读计数、写节流表，**不碰描述符**，与切片 1 同类（数值等价已由 A.3.13 背书）⇒ 风险最低；
-2. **切片 3 = 第 3 项（deadline 规划）**：涉及描述符来源切换（`preview_copy` → 窗口条目），须先确认 `entry->descriptor` 的可用性（若窗口条目未持描述符，则需补一个按条目的取描述符路径）——**这是本清单里唯一的未知量**，动手前先读窗口条目结构确认；
+1. ~~切片 2 = 第 4 项（准备循环）：不碰描述符、风险最低~~ **（2026-10-13 更正）**：核对后发现准备循环**也构造描述符**（@1139 `.target_count = target_count[index]`）⇒ 第 3、4 项**都**涉及描述符来源切换，二者不是"低风险/高风险"之分；
+2. **先做的应是"纯节流/计数"部分**：即只把"是否该准备"的判定（@1099-1114 的掩码/阈值/目标/节流表）改为窗口条目驱动，**暂不动**描述符构造（@1139 起仍取 legacy `target_count[index]`）⇒ 这一步与切片 1 同类、可独立验证；
+3. **随后做描述符切换**（第 3、4 项共用问题）：须先确认**窗口条目是否持有描述符**（`entry->descriptor` 或等价物）。这是清单里**唯一未知量**——动手前先读 `trigger_turntable_predictor.h` 的条目结构确认；若不持有，则需补一条"按条目取描述符"的路径；
 3. **切片 4 = 第 5 项（删 legacy）**：仅在 2、3 验证通过后执行。
 
 **每片的验收判据**（沿用 A.3.13/A.3.14）：`t2` 的 `published_mask`/`announced`/`POS pub` 与基线同量级（基线 `published_mask 3→7`、`publishing 4–6`）**且** `T2:SCAN?` 的 `announced == entered`、`overwrote == 0`、`announce_mismatch == 0`。
