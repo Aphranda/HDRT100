@@ -321,6 +321,44 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **同一步的配套**：`scan_validate` 的 fail-closed 校验也放在该 setter 内（或紧随其后），这样"非法扫描"在配置期就被拒，而不是等到 ARM 之后。
 
+### A.3.0 NEXT ACTION（迁移第①步的可执行改法，2026-10-13 定）
+
+**目标**：把 `trigger_t2_runtime.c` 准备循环（`1020-1051` 区域）从"遍历 legacy 槽"改为"遍历窗口条目"，
+使宣告/阈值/目标全部来自窗口；legacy 数组此时**仍存在但不再被读**（下一步才删）。
+
+**改法（形状，非逐字）**：
+
+```c
+    /* 遍历窗口条目：slot 是容器，absolute_index 才是位置（A.3 的坑） */
+    for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot) {
+        const trigger_turntable_window_entry_t *entry =
+            &snapshot.predictor.window[slot];
+        if (!entry->valid) continue;
+        const uint32_t absolute_index = entry->absolute_index;
+        /* 公开阈值掩码按 SLOT 置位（决定①），下游一律经 window_find 取位置 */
+        const uint32_t bit = 1u << slot;
+        if (__atomic_load_n(&s_threshold_public, __ATOMIC_ACQUIRE) & bit ||
+            entry->announced ||
+            snapshot.last_counter_count >= entry->threshold_count ||
+            snapshot.last_counter_count >= entry->target_count)
+            continue;
+        const uint64_t to_threshold =
+            entry->threshold_count - snapshot.last_counter_count;
+        const uint64_t span = entry->target_count - snapshot.predictor.origin_count;
+        /* 节流表 s_last_calculated_coarse[] 改用同一 SLOT 键（决定②）；容量即 WINDOW_MAX */
+        ...（其余逻辑不变：window/interval 选择、历史查找、描述符构造）...
+    }
+```
+
+**两个决定（已建议，照此执行）**：① `s_threshold_public` 与下游一律以 **slot** 为位键，位置一律经
+`trigger_turntable_window_find()`/条目取得；② `s_last_calculated_coarse[]` 同样按 **slot** 索引，容量 `WINDOW_MAX`。
+
+**必须保留**：`observe_at_sync`（窗口时间就绪的唯一速率来源；删掉会导致"能冻结但不发布"）。
+
+**执行与验证顺序（实测有效）**：改源码 → `p3_hardware_acceptance.py run`（构建+刷写+凭证）→ 提交 →
+`p3_hardware_acceptance.py t2`（验证流程；**不刷写**，必须在 `run` 之后跑）→ 查看采样行的
+`window announced N/entered N overwrote_unannounced 0 … geometry Npos/Mpul`。
+
 ### A.3.1 测试环境坑：pytest basetemp 被卡住会伪装成"代码坏了"（2026-10-13 实测）
 
 一次 C harness 测试运行**超时挂起**（`subprocess.TimeoutExpired`）后，`out/pytest/runs` 目录被残留句柄锁住，
