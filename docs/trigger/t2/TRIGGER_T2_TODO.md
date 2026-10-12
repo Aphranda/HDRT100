@@ -372,6 +372,37 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.15d 新构造器的机械转写要点（2026-10-13 读全 legacy 构造器后）
+
+legacy `build_descriptor()` 的**完整字段表**（`trigger_turntable_predictor.h:264-277`）：
+
+```c
+*out = (trigger_position_descriptor_t){
+    .schema = TRIGGER_POSITION_DESCRIPTOR_SCHEMA,
+    .run_id = run_id, .sync_epoch = sync_epoch,
+    .position_id = position_id, .count_epoch = s->count_epoch,
+    .target_count = s->target_count[position_id - 1u],      /* ← 唯一需要换源的一项 */
+    .prediction_version = s->prediction_version,
+    .target_ms_index = target_ms_index,
+    .target_fine_slice_index = target_fine_slice_index,
+    .grid_generation = grid_generation,
+    .deployment_generation = deployment_generation,
+    .deployment_crc = deployment_crc,
+    .valid_from_sync = valid_from_sync, .expiry_sync = expiry_sync,
+    .stage = TRIGGER_POSITION_STAGE_PREVIEW,
+};
+return true;
+```
+
+⇒ **窗口感知版本 = 逐字段照搬，仅两处调整**：
+
+1. **数据源**：`.target_count` 改取 `entry->target_count`（其余 `s->…` 字段照旧，因为 `count_epoch` / `prediction_version` 都在快照上，与位置无关）；
+2. **前置校验**：删掉 `[POSITION_START, POSITION_TERMINAL]` 范围判断，改为 `entry && entry->valid`；位置身份由 `entry->absolute_index` 决定（若描述符要求 1 基 `position_id`，按既有约定 +1，需与 `preview_copy`/`position_id` 消费者口径核对一次）。
+
+**可用的现成辅助**（同文件，已存在）：`trigger_turntable_window_position_angle_mdeg()`（:291）、`trigger_turntable_window_position_count()`（:298）——后者给出扫描位置数，可用于需要范围校验的调用点。
+
+**同处还有一段窗口语义的设计注释**（:280-290）：begin 最多进入 `WINDOW_MAX` 个位置；目标/阈值在**进入时**按当时观测计数计算（绝不用 begin 时的 origin 外推到全扫描）；窗口外不产生任何事实；无可用速率时报"时间未就绪"而非按陈旧速率外推。新构造器应与之保持一致。
+
 ### A.3.15c 【更正】`build_descriptor()` **不能**直接用于窗口位置——它写死了 legacy 三位置（2026-10-13）
 
 A.3.15b 说"描述符切换无需新增路径"**是错的**。逐字读该函数（`trigger_turntable_predictor.h:251-274`）后：
