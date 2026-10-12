@@ -372,6 +372,20 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.15b 唯一未知量已解决：描述符可由预测器侧直接构造（2026-10-13）
+
+A.3.15 曾把"窗口条目是否持有描述符"列为描述符切换（第 3、4 项）的唯一未知量。核对 `trigger_turntable_predictor.h` 后**已解决**：
+
+| 事实 | 位置 |
+|---|---|
+| 条目结构 `trigger_turntable_window_entry_t` | `trigger_turntable_predictor.h:37-44`（含 `absolute_index`/`announced`/`target_count`/`threshold_count` 等） |
+| **`trigger_turntable_predictor_build_descriptor()`** 已存在，产出完整 `trigger_position_descriptor_t` | 同文件 **:251**（内部 `*out = (trigger_position_descriptor_t){ .schema = TRIGGER_POSITION_DESCRIPTOR_SCHEMA, … }` @:264-265） |
+| 该头文件已 `#include "trigger_position_descriptor.h"` | 同文件 :6 |
+
+⇒ **描述符切换无需新增路径**：迁移时的做法是用**窗口条目的位置**调用 `trigger_turntable_predictor_build_descriptor()`（在 @1139 处的 legacy `.target_count = target_count[index]` 构造改为该调用），而非沿用 legacy 数组下标。
+
+**动手前仍需读一次该函数的形参列表**（`:251-260`，本次未逐字读取），确认它需要的输入（预计是快照指针 + 位置序号/目标计数）；这是实现细节，不再构成未知量。
+
 ### A.3.15 剩余迁移已测量：消费者清单与分片顺序（2026-10-13）
 
 把"步骤②"拆成**可逐一验证的切片**，并标出规模（行号为 2026-10-13 快照）：
