@@ -752,10 +752,11 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
     s_state.run_id = s_config.run_id;
     for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++i)
         s_state.action_origin_width_ticks[i] = UINT32_MAX;
-    /* Enable the rolling window for this run when a scan step was configured.
-     * With no step the window stays inert and the legacy path runs unchanged. */
-    if (s_scan_step_mdeg)
-        trigger_turntable_window_configure(&s_state.predictor, s_scan_step_mdeg);
+    /* NOTE: do NOT configure the window here. trigger_turntable_predictor_configure()
+     * below assigns the whole snapshot (.configured/.last_error), which wipes a step set
+     * before it - measured on the bench as "geometry 0pos/0pul with no step visible" while
+     * the window looked enabled. window_begin_scan() configures the step itself, after
+     * that reset. */
     const bool started =
         trigger_time_cursor_configure(&s_config.grid) &&
         trigger_turntable_predictor_configure(
