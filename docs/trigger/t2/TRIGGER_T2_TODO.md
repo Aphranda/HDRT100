@@ -359,6 +359,19 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 `p3_hardware_acceptance.py t2`（验证流程；**不刷写**，必须在 `run` 之后跑）→ 查看采样行的
 `window announced N/entered N overwrote_unannounced 0 … geometry Npos/Mpul`。
 
+### A.3.6f 假设 C 的免费检验：**减弱**（configure 未见超时）（2026-10-13）
+
+`t2_workflow.send()` 会把耗时 ≥1 s 的命令打成 `slow <s>s <command> -> <reply>`（见其实现），因此若配置命令超时，日志里应能看到 `T2:CONFigure` 的 slow 行。实测最近一轮窗口未启用的运行（`steps-20261013-023618.log`）：
+
+| 检查 | 结果 |
+|---|---|
+| 该轮 `<timeout>` 行总数 | 29（均为其它命令，如 provisional/ACTion/TEMPlate） |
+| 含 `T2:CONFigure` 的行（含 slow 行） | **0** |
+
+⇒ **假设 C 减弱**：被执行的 configure 那一次**没有超时**，"setter 与被执行请求不同次"的可能性下降（未完全排除：工具只在 ≥1 s 时才打印，更短的重试仍不可见）。
+
+**剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
+
 ### A.3.6e 待检验的假设 C：命令超时与"停机态请求"时序（2026-10-13）
 
 台架日志中 T2 命令**经常出现 `<timeout>`**（例：`provisional reply <timeout>`、`ACTion:INSTall <timeout>`），而 firmware 侧 `T2:CONFigure`/`T2:STARt` 是通过**停机态 worker 请求**（`r->config` / `r->count_epoch`，见 `scpi_trigger_t2_runtime_commands.inc:17/31`）**延迟执行**的。由此产生一个此前未考虑的假设：
