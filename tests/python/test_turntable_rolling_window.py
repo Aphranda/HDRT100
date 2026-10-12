@@ -155,6 +155,38 @@ int main(void)
     assert(s.window_next_index == 361u);
     assert(!s.window[0].valid || s.window[0].absolute_index < 361u);
     assert(!s.window[1].valid || s.window[1].absolute_index < 361u);
+    /* Past the terminal the window is IDEMPOTENT: further samples must neither
+     * resurrect an entry nor keep retrying the refused ordinal. */
+    {
+        const uint32_t entered = s.window_entered_count;
+        const uint32_t next = s.window_next_index;
+        const uint32_t recomputed = s.window_recomputed_count;
+        for (uint32_t i = 0u; i < 50u; ++i) {
+            count += 100000u;
+            assert(trigger_turntable_window_advance(&s, &c, count, &mask) ==
+                   TRIGGER_TURNTABLE_OK);
+            assert(mask == 0u);
+        }
+        assert(s.window_entered_count == entered);
+        assert(s.window_next_index == next);
+        assert(s.window_recomputed_count == recomputed);
+        assert(!s.window[0].valid && !s.window[1].valid);
+    }
+
+    /* A new scan starts clean: the previous scan's counters must not leak into it
+     * (they are per-scan facts, and a consumer reading them would be misled). */
+    {
+        trigger_turntable_predictor_snapshot_t fresh = s;
+        assert(trigger_turntable_window_begin(&fresh, &c, 0u));
+        assert(fresh.window_entered_count == 2u);
+        assert(fresh.window_next_index == 2u);
+        assert(fresh.window_recomputed_count == 0u);
+        assert(fresh.window_late_entry_count == 0u);
+        assert(fresh.window_rate_stale_count == 0u);
+        assert(fresh.window[0].absolute_index == 0u);
+        assert(fresh.window[1].absolute_index == 1u);
+    }
+
     /* Entering past the scan end is refused outright. */
     assert(!trigger_turntable_window_enter(&s, &c, 0u, 361u, count));
     assert(!trigger_turntable_window_enter(&s, &c, 0u, 4000u, count));
