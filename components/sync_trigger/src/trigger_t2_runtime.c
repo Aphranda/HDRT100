@@ -258,7 +258,22 @@ static T2_BOUNDED bool T2_HOT(stage_pending_freeze)(void)
          ++index) {
         if ((s_pending_mask & (1u << index)) == 0u) continue;
         trigger_position_descriptor_t latest;
-        if (!preview_copy(index, 0u, &latest)) return true;
+        if (!preview_copy(index, 0u, &latest)) {
+            /* T2-FREEZE-002 (评审 A-13): a pending position with no saved PREVIEW
+             * used to end this whole pass (return true), so every later pending
+             * position was never even examined and the loss left no trace. Record
+             * the position once - the mask names it and the counter reports how
+             * many positions this run lost that way - then keep examining the
+             * remaining pending positions. The pending bit stays set so a preview
+             * that still arrives can be staged, and window expiry keeps the
+             * existing abandonment evidence. */
+            const uint32_t no_preview_bit = 1u << index;
+            if ((s_state.freeze_no_preview_mask & no_preview_bit) == 0u) {
+                s_state.freeze_no_preview_mask |= no_preview_bit;
+                s_state.freeze_no_preview_count++;
+            }
+            continue;
+        }
         const trigger_position_descriptor_t freeze = {
             .schema = TRIGGER_POSITION_DESCRIPTOR_SCHEMA,
             .stage = TRIGGER_POSITION_STAGE_FREEZE,

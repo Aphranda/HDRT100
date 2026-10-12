@@ -105,6 +105,12 @@ typedef struct {
      * can. A first-class position that never completed its freeze is exactly the
      * loss the seat's own verdict must not report as healthy. */
     uint32_t freeze_abandoned_count;
+    /* T2-FREEZE-002 (评审 A-13): positions whose PREVIEW was never saved, so their
+     * FREEZE could not be staged. The mask names them; the counter is how many
+     * positions this run lost that way (each position counted once). Staging keeps
+     * examining the remaining positions instead of ending the pass on the first
+     * one - the loss used to be silent and stopped every later position. */
+    uint32_t freeze_no_preview_mask, freeze_no_preview_count;
     uint8_t event_dispatched[TRIGGER_T2_RUNTIME_EVENT_CAPACITY];
     uint64_t last_counter_count;
     trigger_time_cursor_snapshot_t cursor;

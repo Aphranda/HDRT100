@@ -216,6 +216,11 @@ scpi_result_t scpi_cmd_trigger_t2_q(scpi_t *context)
         memset(freeze_cycles, 0, sizeof(freeze_cycles));
     for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_FREEZE_TIMING_COUNT; ++i)
         SCPI_ResultUInt32(context, freeze_cycles[i]);
+    /* Appended: positions whose PREVIEW was never saved, so their FREEZE could not
+     * be staged (T2-FREEZE-002 / A-13). The mask names them and the counter says how
+     * many positions this run lost that way. Positional readers keep their indices. */
+    SCPI_ResultUInt32(context, s.freeze_no_preview_mask);
+    SCPI_ResultUInt32(context, s.freeze_no_preview_count);
     return SCPI_RES_OK;
 }
 
