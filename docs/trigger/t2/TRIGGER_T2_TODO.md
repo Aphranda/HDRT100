@@ -372,6 +372,31 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.16 【回归·已回退】item ② 按 A.3.15h 实现后破坏准备路径（2026-10-13）
+
+**经过**：按 A.3.15h 实现 item ②（提交 `32808884`，build `20261012203914`；测试 107 项全绿 ✓、`run` 首次构建因 `-Wshadow` 拒绝局部名 `slot` 而失败，改名 `cadence_slot` 后 `run` 通过 ✓），但台架 `t2` **连续两次失败**：
+
+```
+t2: passed=False · configured=4 · publishing=0 · failed steps: none · error=None
+sampling: published_mask 0 · announced 0 · prep 92811/0 reason 1   （preview_saved = 0 ✗，此前 345）
+仪表   : 5000,2,0,5000,3,5000, 2,0,0, 0                            （announced=0 ✗，此前 3）
+```
+
+**回退并验证**：`git revert 32808884` + 重刷 ⇒ `t2 passed=True · configured=4 · publishing=5`，仪表恢复 `3,3,0,0` ✓ ⇒ **回归确由 item ② 引起**（同条件两次失败 vs 回退后立即通过）。
+
+**证据指向**：`preview_saved = 0` + `prepare_calls` 由约 65k 涨到 92k ⇒ **准备循环的选择/节流行为被改变，导致从未保存预览**。最可疑的两点（下次先查这两处）：
+
+1. **`cadence_slot` 的回退值为 0**：当 `entry == NULL`（位置不在窗口内，例如 index=2 或已滚出的位置）时 `cadence_slot = 0` ✗ ⇒ **多个 legacy 下标共用 slot 0 的节流状态**，相互覆盖/误判 ⇒ 节流失效（`prepare_calls` 暴涨）✓ 与观测吻合；
+2. **`announced` 的来源切换**：窗口的 `announced` 与 legacy `announced_mask` 的**更新时机不同**（窗口在 `window_advance` 中置位，而准备循环在 Core0 的另一条路径上读快照）⇒ 可能出现"窗口尚未宣告但 legacy 已宣告"或反之，导致准备被跳过或重复 ✗。
+
+**A.3.13 的 `announce_mismatch == 0` 并不保证此处安全**：该计数器比较的是**同一采样点**上两个集合的**元素是否一致**，而本处的失败模式是**节流状态被跨位置共享**（不在该计数器的覆盖范围内）✗ —— 这是一个重要的覆盖边界，记录下来。
+
+**下次实施建议（顺序）**：
+
+1. 先只改**判定取值来源**（1），**暂不动节流表**（保留 `s_last_calculated_coarse[index]`），单独验证；
+2. 节流表改造**另起一片**：回退值不能是 0，应改为"按 legacy 下标保留原语义"或"entry 为空时跳过窗口优化"（例如仅在 `entry != NULL` 时使用 slot 键）；
+3. 两片都通过后，再考虑合并。
+
 ### A.3.15h item ② 的最终调用形态（`window_find` 已确认，抄写级）（2026-10-13）
 
 `trigger_turntable_window_find()`（`trigger_turntable_predictor.h`，符号定位；本轮实读 :510-518）：
