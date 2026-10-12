@@ -89,6 +89,39 @@ int main(void)
            TRIGGER_TURNTABLE_SCAN_STEP_NOT_DIVISIBLE);
     assert(g.positions == 0u && g.step_pulses == 0u && g.total_pulses == 0u);
 
+    /* The single product entry point: a usable scan derives its geometry, records
+     * the result and enters the window. */
+    trigger_turntable_predictor_snapshot_t snap = {0};
+    snap.active = 1u;
+    snap.configured = 1u;
+    trigger_turntable_predictor_config_t good = scan(0, 360000, 1000, 100u);
+    assert(trigger_turntable_window_begin_scan(&snap, &good, g_step, 10u, 0u) ==
+           TRIGGER_TURNTABLE_SCAN_OK);
+    assert(snap.scan_result == (uint32_t)TRIGGER_TURNTABLE_SCAN_OK);
+    assert(snap.scan_geometry.positions == 361u);
+    assert(snap.scan_geometry.step_pulses == 100u);
+    assert(snap.window_step_mdeg == 1000 && snap.window_entered_count == 2u);
+
+    /* An unusable scan produces NO window at all: nothing can start on it. */
+    trigger_turntable_predictor_snapshot_t bad_snap = {0};
+    bad_snap.active = 1u;
+    trigger_turntable_predictor_config_t bad_scan = scan(0, 360000, 700, 100u);
+    assert(trigger_turntable_window_begin_scan(&bad_snap, &bad_scan, g_step, 10u, 0u) ==
+           TRIGGER_TURNTABLE_SCAN_STEP_NOT_DIVISIBLE);
+    assert(bad_snap.scan_result == (uint32_t)TRIGGER_TURNTABLE_SCAN_STEP_NOT_DIVISIBLE);
+    assert(bad_snap.window_entered_count == 0u && bad_snap.window_next_index == 0u);
+    assert(bad_snap.window_step_mdeg == 0);
+    assert(!bad_snap.window[0].valid && !bad_snap.window[1].valid);
+    assert(bad_snap.scan_geometry.positions == 0u);
+
+    /* A scan whose STEP cannot hold the groups is refused the same way. */
+    trigger_turntable_predictor_snapshot_t short_snap = {0};
+    short_snap.active = 1u;
+    trigger_turntable_predictor_config_t short_scan = scan(0, 360000, 1000, 100u);
+    assert(trigger_turntable_window_begin_scan(&short_snap, &short_scan, g_step, 101u, 0u) ==
+           TRIGGER_TURNTABLE_SCAN_SPAN_TOO_SHORT);
+    assert(short_snap.window_entered_count == 0u);
+
     /* Fractional start angles work as long as the arithmetic stays whole. */
     c = scan(-2500, 357500, 1000, 100u);             /* 361 positions from -2.5 deg */
     assert(trigger_turntable_scan_validate(&c, g_step, 10u, &g) == TRIGGER_TURNTABLE_SCAN_OK);

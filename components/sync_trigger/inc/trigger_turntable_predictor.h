@@ -43,6 +43,26 @@ typedef struct {
     uint32_t announced;        /* threshold crossed -> FREEZE for this position */
 } trigger_turntable_window_entry_t;
 
+typedef enum {
+    TRIGGER_TURNTABLE_SCAN_OK = 0u,
+    TRIGGER_TURNTABLE_SCAN_ARGUMENT = 1u,          /* missing/zero parameter */
+    TRIGGER_TURNTABLE_SCAN_BACKWARD = 2u,          /* terminal < start */
+    TRIGGER_TURNTABLE_SCAN_STEP_NOT_DIVISIBLE = 3u,/* step does not fit the span */
+    TRIGGER_TURNTABLE_SCAN_TOO_MANY_POSITIONS = 4u,
+    TRIGGER_TURNTABLE_SCAN_PULSES_NOT_INTEGER = 5u,/* step is not whole pulses */
+    TRIGGER_TURNTABLE_SCAN_SPAN_TOO_SHORT = 6u,    /* step cannot hold the groups */
+} trigger_turntable_scan_result_t;
+
+/* A 361-position scan is the product target; the limit only exists so a typo
+ * cannot ask the runtime to walk an unbounded grid. */
+#define TRIGGER_TURNTABLE_SCAN_POSITION_LIMIT 4096u
+
+typedef struct {
+    uint32_t positions;        /* inclusive: floor((terminal-start)/step) + 1 */
+    uint64_t step_pulses;      /* whole counter pulses per STEP (integer) */
+    uint64_t total_pulses;     /* pulses from start to terminal */
+} trigger_turntable_scan_geometry_t;
+
 typedef struct {
     uint32_t configured, active, count_epoch, prediction_version;
     uint64_t origin_count, last_count;
@@ -63,6 +83,10 @@ typedef struct {
     /* Scan step in millidegrees. Kept here, not in the config, because a new
      * config field breaks every partial initializer (-Werror -Wextra). */
     int32_t window_step_mdeg;
+    /* Derived scan geometry and the result of the last validation, so the product
+     * path can be read back instead of being re-derived by every reader. */
+    trigger_turntable_scan_geometry_t scan_geometry;
+    uint32_t scan_result;
     trigger_turntable_window_entry_t window[TRIGGER_TURNTABLE_WINDOW_MAX];
 } trigger_turntable_predictor_snapshot_t;
 
@@ -386,25 +410,7 @@ static inline bool trigger_turntable_window_time_ready(
  * must stay inside, the pulses per position and the span the per-position
  * sequences need - is derived here so the SCPI front end only has to copy the
  * numbers in, and an unusable scan is refused instead of being run. */
-typedef enum {
-    TRIGGER_TURNTABLE_SCAN_OK = 0u,
-    TRIGGER_TURNTABLE_SCAN_ARGUMENT = 1u,          /* missing/zero parameter */
-    TRIGGER_TURNTABLE_SCAN_BACKWARD = 2u,          /* terminal < start */
-    TRIGGER_TURNTABLE_SCAN_STEP_NOT_DIVISIBLE = 3u,/* step does not fit the span */
-    TRIGGER_TURNTABLE_SCAN_TOO_MANY_POSITIONS = 4u,
-    TRIGGER_TURNTABLE_SCAN_PULSES_NOT_INTEGER = 5u,/* step is not whole pulses */
-    TRIGGER_TURNTABLE_SCAN_SPAN_TOO_SHORT = 6u,    /* step cannot hold the groups */
-} trigger_turntable_scan_result_t;
 
-/* A 361-position scan is the product target; the limit only exists so a typo
- * cannot ask the runtime to walk an unbounded grid. */
-#define TRIGGER_TURNTABLE_SCAN_POSITION_LIMIT 4096u
-
-typedef struct {
-    uint32_t positions;        /* inclusive: floor((terminal-start)/step) + 1 */
-    uint64_t step_pulses;      /* whole counter pulses per STEP (integer) */
-    uint64_t total_pulses;     /* pulses from start to terminal */
-} trigger_turntable_scan_geometry_t;
 
 /* sequence_span_pulses is the counter span one position's group sequence needs
  * (16 groups as configured for the product); a STEP that cannot hold it would
@@ -445,5 +451,33 @@ static inline trigger_turntable_scan_result_t trigger_turntable_scan_validate(
     return TRIGGER_TURNTABLE_SCAN_OK;
 }
 
+
+/* Single product entry point: validate the scan (fail-closed), keep the derived
+ * geometry for readback, then enter the first window. An unusable scan leaves no
+ * window at all, so it can never start. */
+static inline trigger_turntable_scan_result_t trigger_turntable_window_begin_scan(
+    trigger_turntable_predictor_snapshot_t *s,
+    const trigger_turntable_predictor_config_t *c, int32_t step_mdeg,
+    uint64_t sequence_span_pulses, uint64_t observed_count)
+{
+    if (!s) return TRIGGER_TURNTABLE_SCAN_ARGUMENT;
+    const trigger_turntable_scan_result_t result = trigger_turntable_scan_validate(
+        c, step_mdeg, sequence_span_pulses, &s->scan_geometry);
+    s->scan_result = (uint32_t)result;
+    if (result != TRIGGER_TURNTABLE_SCAN_OK) {
+        trigger_turntable_window_configure(s, 0);
+        s->window_entered_count = 0u;
+        s->window_next_index = 0u;
+        for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot)
+            s->window[slot] = (trigger_turntable_window_entry_t){0};
+        return result;
+    }
+    trigger_turntable_window_configure(s, step_mdeg);
+    if (!trigger_turntable_window_begin(s, c, observed_count)) {
+        s->scan_result = (uint32_t)TRIGGER_TURNTABLE_SCAN_ARGUMENT;
+        return TRIGGER_TURNTABLE_SCAN_ARGUMENT;
+    }
+    return TRIGGER_TURNTABLE_SCAN_OK;
+}
 
 #endif
