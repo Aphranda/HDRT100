@@ -51,6 +51,8 @@ static trigger_t2_runtime_snapshot_t s_state;
 /* Scan STEP for the next run; 0 keeps the rolling window disabled (see the header).
  * Defined after s_state, which the STOP-only guard inspects. */
 static int32_t s_scan_step_mdeg;
+/* How many times start() actually took the window branch (A.3.6d). */
+static uint32_t s_window_branch_entered;
 
 bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 {
@@ -734,6 +736,18 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
     return true;
 }
 
+void trigger_t2_runtime_scan_diagnostics(uint32_t *step_mdeg, uint32_t *branch_entered,
+                                         uint32_t *scan_result, uint32_t *window_step_mdeg,
+                                         uint32_t *positions, uint32_t *step_pulses)
+{
+    if (step_mdeg) *step_mdeg = (uint32_t)s_scan_step_mdeg;
+    if (branch_entered) *branch_entered = s_window_branch_entered;
+    if (scan_result) *scan_result = s_state.predictor.scan_result;
+    if (window_step_mdeg) *window_step_mdeg = (uint32_t)s_state.predictor.window_step_mdeg;
+    if (positions) *positions = s_state.predictor.scan_geometry.positions;
+    if (step_pulses) *step_pulses = (uint32_t)s_state.predictor.scan_geometry.step_pulses;
+}
+
 bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
 {
     if (!s_state.configured || s_state.active || !count_epoch) return false;
@@ -774,9 +788,11 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
      * window's own entries, its health counters and the derived scan geometry readable
      * through T2?, which is the evidence the migration is judged on. A scan the window
      * refuses leaves the window disabled and the run proceeds on the legacy path. */
-    if (s_scan_step_mdeg)
+    if (s_scan_step_mdeg) {
+        s_window_branch_entered++;
         (void)trigger_turntable_window_begin_scan(&s_state.predictor,
             &s_config.predictor, s_scan_step_mdeg, 0u, origin_count);
+    }
     s_state.active = 1u;
     s_pending_mask = 0u;
     memset(s_freeze_cycles, 0, sizeof(s_freeze_cycles));

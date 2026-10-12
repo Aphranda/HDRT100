@@ -274,6 +274,25 @@ scpi_result_t scpi_cmd_trigger_t2_cursor_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* One-shot diagnostics for the parallel rolling window (TRIGGER_T2_TODO.md A.3.6d):
+ * the configured scan step, how often start() took the window branch, the window's own
+ * validation result and step, and the derived geometry. A dedicated query - not another
+ * field appended to T2? - so no reader's positional assumption can be invalidated. */
+scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context)
+{
+    uint32_t step_mdeg = 0u, branch_entered = 0u, scan_result = 0u;
+    uint32_t window_step_mdeg = 0u, positions = 0u, step_pulses = 0u;
+    trigger_t2_runtime_scan_diagnostics(&step_mdeg, &branch_entered, &scan_result,
+                                        &window_step_mdeg, &positions, &step_pulses);
+    SCPI_ResultUInt32(context, step_mdeg);
+    SCPI_ResultUInt32(context, branch_entered);
+    SCPI_ResultUInt32(context, scan_result);
+    SCPI_ResultUInt32(context, window_step_mdeg);
+    SCPI_ResultUInt32(context, positions);
+    SCPI_ResultUInt32(context, step_pulses);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context)
 {
     trigger_t2_runtime_snapshot_t s;

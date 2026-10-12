@@ -127,6 +127,12 @@ typedef struct {
  * the tree and a new field breaks those initialisers under -Wextra -Werror. Until a
  * caller sets a step the rolling window stays disabled and the run is unchanged. */
 bool trigger_t2_runtime_scan_step(int32_t step_mdeg);
+/* One-shot diagnostics for the parallel-window investigation (A.3.6d): the configured
+ * step, how often start() took the window branch, the window's own validation result and
+ * step, and the derived geometry. Any pointer may be NULL. */
+void trigger_t2_runtime_scan_diagnostics(uint32_t *step_mdeg, uint32_t *branch_entered,
+                                         uint32_t *scan_result, uint32_t *window_step_mdeg,
+                                         uint32_t *positions, uint32_t *step_pulses);
 bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config);
 bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count);
 void trigger_t2_runtime_stop(void);
