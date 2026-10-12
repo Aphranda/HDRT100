@@ -1095,16 +1095,26 @@ void trigger_t2_runtime_prepare_core0(void)
     for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT;
          ++index) {
         const uint32_t bit = 1u << index;
+        /* Only the threshold/target VALUES come from the rolling window here; the skip
+         * condition keeps the legacy announced_mask on purpose (A.3.16b): window_advance()
+         * runs EARLIER in the same origin service cycle, so entry->announced is already set
+         * by the time this loop reads the snapshot - using it as a skip condition made
+         * every preparation skip and starved the whole path (preview_saved == 0). */
+        const trigger_turntable_window_entry_t *entry =
+            s_scan_step_mdeg
+                ? trigger_turntable_window_find(&snapshot.predictor, index) : NULL;
+        const uint64_t window_threshold = entry ? entry->threshold_count
+                                                : snapshot.predictor.threshold_count[index];
+        const uint64_t window_target = entry ? entry->target_count
+                                             : snapshot.predictor.target_count[index];
         if (__atomic_load_n(&s_threshold_public, __ATOMIC_ACQUIRE) & bit ||
             snapshot.predictor.announced_mask & bit ||
-            snapshot.last_counter_count >= snapshot.predictor.threshold_count[index] ||
-            snapshot.last_counter_count >= snapshot.predictor.target_count[index])
+            snapshot.last_counter_count >= window_threshold ||
+            snapshot.last_counter_count >= window_target)
             continue;
 
-        const uint64_t to_threshold =
-            snapshot.predictor.threshold_count[index] - snapshot.last_counter_count;
-        const uint64_t span = snapshot.predictor.target_count[index] -
-                              snapshot.predictor.origin_count;
+        const uint64_t to_threshold = window_threshold - snapshot.last_counter_count;
+        const uint64_t span = window_target - snapshot.predictor.origin_count;
         const uint32_t window = to_threshold <= span / 20u ? 4u :
                                 to_threshold <= span / 5u ? 8u : 16u;
         const uint32_t interval = window == 4u ? 1u :
