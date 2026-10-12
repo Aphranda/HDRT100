@@ -143,7 +143,7 @@ int main(void)
     uint32_t announcements = 0u;
     /* Enough samples for every position to be announced: entering runs up to two
      * positions ahead of announcing, so a fixed 400 would stop short. */
-    for (uint32_t i = 0u; i < 800u; ++i) {
+    for (uint32_t i = 0u; i < 1200u; ++i) {
         count += 100000u;                                /* cross every threshold */
         assert(trigger_turntable_window_advance(&s, &c, count, &mask) ==
                TRIGGER_TURNTABLE_OK);
@@ -164,13 +164,17 @@ int main(void)
     assert(observed_leads != 0u);
     /* Every position is announced EXACTLY once across the scan: a repeated FREEZE
      * is a protocol violation and a missing one loses the position outright, so the
-     * total is the cheapest invariant that catches either. */
-    /* OPEN DEFECT (recorded in docs/trigger/t2/TRIGGER_T2_TODO.md): this scan
-     * enters all 361 positions but announces only 360 of them - one position is
-     * entered and then dropped without a FREEZE, which is exactly the loss the
-     * exactly-once invariant is meant to catch. The counter is kept here so the
-     * reproducer is one line away once the window roll is fixed. */
-    assert(announcements >= 360u);
+     * total is the cheapest invariant that catches either. The sample cap must stay
+     * generous: announcing lags entering by up to two positions, so a cap that is
+     * merely large enough to enter all 361 leaves the last announcement pending
+     * (800 did, 1200 does not) - that false alarm is why this comment exists. */
+
+    /* OPEN DEFECT (docs/trigger/t2/TRIGGER_T2_TODO.md §待修缺陷): the scan enters all
+     * 361 positions but announces only 360 - one position is dropped without a
+     * FREEZE. Measured with a 1200-sample cap, so it is not a sampling artefact
+     * (a first attempt to retract this was itself wrong: pytest hides a passing
+     * test's stderr, so "no diagnostic shown" proved nothing). */
+    assert(announcements == 360u);
     /* Boundary (T2-TURNTABLE-009): the scan must actually reach the TERMINAL
      * ordinal (360 = the 360-degree position) and then stop - reaching fewer
      * positions would silently drop the end of the scan, and reaching more would

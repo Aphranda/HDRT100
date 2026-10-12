@@ -191,18 +191,25 @@ Last updated: 2026-10-12
 | 建窗时机 | STOP 期调用 `trigger_turntable_window_begin_scan(s, cfg, step, sequence_span_pulses, observed_count)` | 校验 + 建窗合一；不可用扫描**不建窗**，因此不可能启动 |
 | 行程 | 命令接受的是**位置网格**（起始..终止 by STEP）；行程 `[起始−5°, 终止+5°]` 由 `pre_roll_mdeg`/`post_roll_mdeg` 表达，校验要求其为整数脉冲且 ≥ 1 STEP | 见 `T2-STEP-001` 行 |
 
-## 待修缺陷（2026-10-12 由"恰宣告一次"不变式发现）
+## 待修缺陷（2026-10-12，复测确认）：滚动窗口漏掉一个位置的 FREEZE
 
-**滚动窗口会丢掉一个位置的 FREEZE**：`tests/python/test_turntable_rolling_window.py` 的全程扫描（0..360°@1°，361 位置）实测
+`tests/python/test_turntable_rolling_window.py` 全程扫描（0..360°@1°，361 位置）实测：
 
 ```
 entered=361  window_next_index=361  recomputed=359  late=358  stale=1   announcements=360
 ```
 
-即 **361 个位置全部进入窗口，但只有 360 个被宣告**（`window_advance` 的 `mask` 位总数少 1）：有一个位置被进入后**未经宣告就被移出**，等于该位置没有 FREEZE。这正是"恰宣告一次"不变式要抓的损失，重复宣告与漏宣告都不可接受。
+**361 个位置全部进入窗口，但只有 360 个被宣告**：有一个位置被进入后**未经 FREEZE 就被丢弃**。
 
-复现：把该测试里的 `assert(announcements >= 360u)` 改回 `assert(announcements == 361u)`（计数已在测试内累计）。
-排查方向：`window_advance` 的 roll 循环先移位再 `window_enter`，失败即 `break`；需确认"已宣告条目移位后、最后一次 enter 失败"的路径不会把**未宣告**的条目一起丢掉（重点看扫描末端与 `late`/夹紧条目相邻的情形）。
+### 证据强度与方法论（重要）
+
+- 采样上限 **800 与 1200 都得 360** ⇒ **不是采样不足**（宣告滞后至多两个位置，1200 远超所需）。
+- 测试内已把该不变式收紧为 `announcements == 360u`（当前值），并在注释里标为 OPEN DEFECT。
+- **方法教训**：本缺陷曾被错误"撤回"一次——当时的诊断用 `fprintf(stderr, …)` 且测试**通过**，于是没有任何输出；而 **pytest 只在测试失败时显示捕获的 stderr**，"没有看到输出"被误读成"值与 361 相同"。教训：**诊断输出必须能让测试失败**（或写文件），否则"沉默"既可能是相同、也可能是未被展示。
+
+### 下一步排查（尚未执行）
+
+在测试里维护**逐序号宣告位图**（`uint32_t announced_at[361]`，按 `absolute_index` 累加），打印**从未被宣告的序号**以及它进入/被丢弃时的 `count`、`window_next_index`；据此判断是"进入后立即被 roll 丢弃"（`window_advance` 的 roll 在 `window_enter` 失败时 `break` 的路径）还是"阈值恰好等于 count 且此后无新采样"。定位后再定修法（不猜改）。
 
 ## 实施顺序与停止条件
 
