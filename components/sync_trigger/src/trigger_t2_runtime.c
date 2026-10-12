@@ -870,6 +870,16 @@ static T2_BOUNDED bool T2_HOT(service_origin)(void)
         return false;
     }
     s_pending_mask |= mask;
+    /* Feed the rolling window in parallel (migration step 1, TRIGGER_T2_TODO.md A.3.0 /
+     * A.3.8): the window announces on its own thresholds and rolls, while the legacy mask
+     * above still drives every consumer - so this changes no output yet and makes the
+     * window's health facts (announced == entered, overwrote == 0) meaningful and
+     * readable through TRIGger:REServation:T2:SCAN?. */
+    if (s_scan_step_mdeg) {
+        uint32_t window_mask = 0u;
+        (void)trigger_turntable_window_advance(&s_state.predictor,
+                                               &s_config.predictor, count, &window_mask);
+    }
     __atomic_store_n(&s_threshold_public, s_state.predictor.announced_mask,
                      __ATOMIC_RELEASE);
     return stage_one_freeze();
