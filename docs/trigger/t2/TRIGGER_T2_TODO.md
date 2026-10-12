@@ -378,8 +378,12 @@ TRIGger:REServation:T2:SCAN?
 | `window_step_mdeg` | `snapshot.predictor.window_step_mdeg` | 0 ⇒ `window_configure` 未生效 |
 | `positions`/`step_pulses` | `scan_geometry` | 期望 3 / 5000（当前台架扫描） |
 
-**实现落点（已核对注册机制）**：命令表与处理器同在 `middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc`
-（族名 `TRIGger:REServation:T2...`；参考既有 `...:T2:CURSor?`（:240）与 `...:T2:ACTion?`（:277）的写法）。
+**实现落点（已核对注册机制，2026-10-13 更正）**：**命令表在头文件**
+`middleware/scpi_port/inc/scpi_system_snapshot_commands.h`（第 482-487 行即 T2 族：
+`CONFigure / STARt / STOP / T2? / CURSor? / ACTion?`），**处理器实现**在
+`middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc`（参考 `scpi_cmd_trigger_t2_cursor_q`（:240）、
+`scpi_cmd_trigger_t2_action_q`（:277）的写法与返回风格）。
+⇒ 新增 `T2:SCAN?` 需**两处**改动：`.h` 里加表项 + `.inc` 里加处理器（并在 `.h` 声明原型）。
 **实现顺序**：加静态计数 → 加处理器 → 注册 → `run`（构建+刷写+凭证）→ 提交 → `t2` → 用工具读该查询（同时在工具里按**具名**方式解析，不依赖位置）。
 
 ### A.3.6c 零成本否证假设 B：镜像**确实含** Round 69 的修复（2026-10-13）
