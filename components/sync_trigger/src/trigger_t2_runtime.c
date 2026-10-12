@@ -738,7 +738,9 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
 
 void trigger_t2_runtime_scan_diagnostics(uint32_t *step_mdeg, uint32_t *branch_entered,
                                          uint32_t *scan_result, uint32_t *window_step_mdeg,
-                                         uint32_t *positions, uint32_t *step_pulses)
+                                         uint32_t *positions, uint32_t *step_pulses,
+                                         uint32_t *window_entered, uint32_t *window_announced,
+                                         uint32_t *window_overwrote)
 {
     if (step_mdeg) *step_mdeg = (uint32_t)s_scan_step_mdeg;
     if (branch_entered) *branch_entered = s_window_branch_entered;
@@ -746,6 +748,11 @@ void trigger_t2_runtime_scan_diagnostics(uint32_t *step_mdeg, uint32_t *branch_e
     if (window_step_mdeg) *window_step_mdeg = (uint32_t)s_state.predictor.window_step_mdeg;
     if (positions) *positions = s_state.predictor.scan_geometry.positions;
     if (step_pulses) *step_pulses = (uint32_t)s_state.predictor.scan_geometry.step_pulses;
+    /* The window's own health: every entered position announced exactly once, and no
+     * unannounced entry replaced (TRIGGER_T2_TODO.md A.3/A.3.7). */
+    if (window_entered) *window_entered = s_state.predictor.window_entered_count;
+    if (window_announced) *window_announced = s_state.predictor.window_announced_count;
+    if (window_overwrote) *window_overwrote = s_state.predictor.window_overwrote_unannounced_count;
 }
 
 bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
