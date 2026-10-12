@@ -359,6 +359,23 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 `p3_hardware_acceptance.py t2`（验证流程；**不刷写**，必须在 `run` 之后跑）→ 查看采样行的
 `window announced N/entered N overwrote_unannounced 0 … geometry Npos/Mpul`。
 
+### A.3.2c 结论：freeze 最大值**没有稳定下标**，只能靠页面自描述（2026-10-13）
+
+进一步查明 `tools/sync_trigger/t2_workflow.py` 的具名下标表（约 951 行）只覆盖到
+`preview_saved: 40`；而 `T2?` 页面里 freeze 路径最大值（4 个）位于更后面，且与页面末尾之间隔着
+`freeze_no_preview_mask/count`（2）与 **events 块（`2 × position_id/action_q`，条数运行期可变）** ⇒
+
+- `state[-4:]` ✗（现在读到窗口字段）
+- `state[-13:-9]` ✗（读到 events 的最后两对）
+- 任何"倒数 N 个"✗（events 长度可变）
+
+**安全选项（择一）**：
+1. **页面加字段计数前缀**：`T2?` 首字段给出"本回复字段总数"或各追加块的长度，工具据此定位；
+2. **扩展具名下标表**并把 freeze 最大值登记进去（需要它们在页面中的**固定位置**——即要求"events 之后、窗口之前"不得再插块，并由守卫断言块顺序）；
+3. **暂不显示**：把该 4 个值从采样行移除或改标为"tail diagnostics"，等 1 或 2 落地再恢复（避免**贴错标签的读数**被当成证据）。
+
+建议先做 3（一行删除，消除误导），再做 1（一次性给所有追加块自描述，根治此类问题）。
+
 ### A.3.2b 同类隐患：工具里"T2? 以 X 结尾"的位置假设已过时（2026-10-13）
 
 `tools/sync_trigger/t2_workflow.py` 有一处 `freeze = [value.strip() for value in state[-4:]]`（约 2475 行），
