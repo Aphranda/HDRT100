@@ -261,6 +261,29 @@ if (!trigger_t2_runtime_scan_step(step_mdeg)) return scpi_trigger_t2_fail(contex
 
 理由：① 不触碰任何被部分初始化的结构体（A.1）；② setter 天然要求 STOP 期调用（RUN 中改扫描几何必须被拒，与 `scpi_port_reject_if_run_forbidden` 的既有约定一致）；③ 迁移到 `window_begin_scan()` 时，运行时只需把已保存的 step 拿出来用，不需要新的配置管道。
 
+**已写好的切片（2026-10-12，因台架凭证未通过而回退，可逐字套用）**：
+
+```c
+/* trigger_t2_runtime.c —— 文件级静态 + setter（STOP 期） */
+static int32_t s_scan_step_mdeg;
+
+bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
+{
+    if (step_mdeg <= 0) return false;
+    if (s_state.active) return false;          /* 只允许 STOP 期：绝不重整运行中的扫描 */
+    s_scan_step_mdeg = step_mdeg;
+    return true;
+}
+
+/* 启动路径（在 trigger_time_cursor_configure 之前） */
+    if (s_scan_step_mdeg)
+        trigger_turntable_window_configure(&s_state.predictor, s_scan_step_mdeg);
+```
+
+要点：**只有 `s_scan_step_mdeg` 非零时才启用窗口** ⇒ 现有工具（尚未发送 STEP）下 `step=0`、窗口惰性、行为零变化。这是刻意的灰度：先把 API 落地，再让 SCPI 工具开始发送 STEP。
+
+（该切片已在本地形成并通过语法检查，但配套的台架凭证运行失败 ⇒ 按"不留未验证改动"的约定回退；重新实施时照抄上述代码并跑一次 `p3_hardware_acceptance.py run` 即可。）
+
 **同一步的配套**：`scan_validate` 的 fail-closed 校验也放在该 setter 内（或紧随其后），这样"非法扫描"在配置期就被拒，而不是等到 ARM 之后。
 
 #### A.4.1 第 1 步（加 STEP）的确切改动面
