@@ -58,6 +58,24 @@ static uint32_t s_window_branch_entered;
  * scan's positions coincide with the three legacy slots (the current bench scan). */
 static uint32_t s_announce_mismatch_count;
 
+/* Migration step 2, slice 1 (TRIGGER_T2_TODO.md A.3.13): the published threshold mask is
+ * derived from the rolling window's own announcements instead of the legacy array. The
+ * two sets were measured identical at every sample (announce_mismatch == 0), and this
+ * block runs after window_advance() and before the store, so the sets are aligned. A run
+ * without a configured scan step keeps the legacy source unchanged. */
+static uint32_t t2_published_mask(void)
+{
+    if (!s_scan_step_mdeg) return s_state.predictor.announced_mask;
+    uint32_t mask = 0u;
+    for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot) {
+        const trigger_turntable_window_entry_t *entry = &s_state.predictor.window[slot];
+        if (entry->valid && entry->announced &&
+            entry->absolute_index < TRIGGER_T2_RUNTIME_POSITION_COUNT)
+            mask |= 1u << entry->absolute_index;
+    }
+    return mask;
+}
+
 bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 {
     /* Only the value is validated here: the SCPI configure path already refuses to run
@@ -898,7 +916,7 @@ static T2_BOUNDED bool T2_HOT(service_origin)(void)
             if (legacy_announced != entry->announced) s_announce_mismatch_count++;
         }
     }
-    __atomic_store_n(&s_threshold_public, s_state.predictor.announced_mask,
+    __atomic_store_n(&s_threshold_public, t2_published_mask(),
                      __ATOMIC_RELEASE);
     return stage_one_freeze();
 }
