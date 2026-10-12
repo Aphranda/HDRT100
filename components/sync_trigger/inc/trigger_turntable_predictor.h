@@ -350,10 +350,11 @@ static inline bool trigger_turntable_window_enter(
         .angle_mdeg = trigger_turntable_window_position_angle_mdeg(
             c, s->window_step_mdeg, absolute_index),
         .target_count = target,
-        /* A position entered with the count already past its target is DUE NOW:
-         * clamping is what keeps a wrapped threshold from announcing nothing (or
-         * everything) at a random later count. */
-        .threshold_count = observed_count > target ? observed_count : threshold,
+        /* A position entered with the count already past its target is DUE NOW.
+         * Clamping to the TARGET (not to the observed count) keeps the invariant
+         * threshold <= target while still announcing on the next sample, so the
+         * lead stays a meaningful, checkable quantity. */
+        .threshold_count = observed_count > target ? target : threshold,
         .announced = 0u,
     };
     if (observed_count > target) s->window_late_entry_count++;

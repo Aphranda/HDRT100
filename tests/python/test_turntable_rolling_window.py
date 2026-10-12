@@ -102,7 +102,7 @@ int main(void)
     behind.window_step_mdeg = step;
     assert(trigger_turntable_window_enter(&behind, &c, 0u, 5u, 1000u));
     assert(behind.window[0].target_count == 600u);
-    assert(behind.window[0].threshold_count == 1000u);   /* due immediately */
+    assert(behind.window[0].threshold_count == 600u);    /* clamped to the target */
     assert(behind.window_late_entry_count == 1u);
 
     /* The mask is per window slot, and an already announced entry is not
@@ -139,14 +139,25 @@ int main(void)
     /* Walk the whole scan to the end: the window must never fabricate a position
      * past the terminal one (ordinal 360), and it must stop on its own. */
     uint64_t count = 6u;
+    uint64_t observed_leads = 0u;
     for (uint32_t i = 0u; i < 400u; ++i) {
         count += 100000u;                                /* cross every threshold */
         assert(trigger_turntable_window_advance(&s, &c, count, &mask) ==
                TRIGGER_TURNTABLE_OK);
-        for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot)
-            if (s.window[slot].valid)
-                assert(s.window[slot].absolute_index < 361u);
+        for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot) {
+            if (!s.window[slot].valid) continue;
+            assert(s.window[slot].absolute_index < 361u);
+            /* Contract: the FREEZE is due BEFORE the position, by the same margin
+             * everywhere - a scan whose later positions froze closer to (or after)
+             * their target would leave no time to prepare them. */
+            assert(s.window[slot].threshold_count <= s.window[slot].target_count);
+            const uint64_t margin =
+                s.window[slot].target_count - s.window[slot].threshold_count;
+            assert(margin == 95u || margin == 0u);   /* in-time lead, or due now */
+            observed_leads++;
+        }
     }
+    assert(observed_leads != 0u);
     /* Boundary (T2-TURNTABLE-009): the scan must actually reach the TERMINAL
      * ordinal (360 = the 360-degree position) and then stop - reaching fewer
      * positions would silently drop the end of the scan, and reaching more would
