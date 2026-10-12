@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>OTA 四板刷写 · 流程图 + 报告</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body { font-family:"Microsoft YaHei","DengXian",Arial,sans-serif; background:#d7d9df; color:#1f2328;
+         padding:18px; line-height:1.4; }
+  @page { size:A4 portrait; margin:0; }
+  .page { width:210mm; height:297mm; margin:0 auto 18px; background:#fff; overflow:hidden;
+          box-shadow:0 3px 14px rgba(0,0,0,.16); display:flex; flex-direction:column;
+          padding:11mm 13mm 9mm; break-after:page; page-break-after:always; }
+  h1 { font-size:19px; } h2 { font-size:15px; color:#26496b; margin:4px 0 6px; }
+  .sub { font-size:10.5px; color:#5a6472; margin-top:3px; }
+  .rule { height:3px; background:#d9e1ef; margin:8px 0 12px; }
+  .bars { display:flex; gap:9px; flex-wrap:wrap; font-size:11px; margin-bottom:10px; }
+  .bar { border:1px solid #d5dbe4; border-radius:4px; padding:4px 7px; background:#f7f9fc; }
+  .legend { display:flex; gap:13px; font-size:10.5px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+  .ok{background:#1f9d55}.fail{background:#c0392b}.pending{background:#d9822b}.notrun{background:#98a2b3}
+
+  /* ---- route lanes ---- */
+  .lanes { display:flex; gap:8px; margin-bottom:12px; }
+  .lane { flex:1; border:1px solid #ccd6e2; border-radius:7px; padding:7px 9px; background:#fafbfd; font-size:10px; }
+  .lane .name { font-size:12px; font-weight:700; color:#26496b; margin-bottom:3px; }
+  .lane .tool { font-family:Consolas,monospace; font-size:9px; color:#5a6472; word-break:break-all; }
+  .lane.active { border:2px solid #26496b; background:#f2f7ff; }
+  .lane.reserved { border-style:dashed; background:#f6f7f9; color:#6b7480; }
+  .lane .tag { display:inline-block; font-size:9px; border-radius:3px; padding:0 5px; margin-left:4px;
+               background:#26496b; color:#fff; vertical-align:middle; }
+  .lane.reserved .tag { background:#98a2b3; }
+
+  /* ---- page 1: flow chart ---- */
+  .flow { flex:1; display:flex; flex-direction:column; justify-content:center; gap:0; }
+  .node { position:relative; border:1px solid #ccd6e2; border-left:6px solid #98a2b3; border-radius:7px;
+          background:#fff; padding:8px 11px 8px 13px; display:flex; align-items:center; gap:12px; }
+  .node.ok { border-left-color:#1f9d55; background:#f6fbf8; }
+  .node.fail { border-left-color:#c0392b; background:#fdf6f6; }
+  .node.pending { border-left-color:#d9822b; background:#fffaf2; }
+  .node .id { width:26px; height:26px; border-radius:50%; background:#26496b; color:#fff; font-size:12px;
+              font-weight:700; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+  .node.ok .id { background:#1f9d55; } .node.fail .id { background:#c0392b; }
+  .node.pending .id { background:#d9822b; } .node.not-run .id { background:#98a2b3; }
+  .node .body { flex:1; }
+  .node .title { font-size:12.5px; font-weight:600; }
+  .node .meta { font-size:10px; color:#5a6472; margin-top:2px; }
+  .node .sec { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .node .sec.ok{color:#1f9d55} .node .sec.fail{color:#c0392b} .node .sec.pending{color:#d9822b}
+  .conn { height:13px; margin-left:31px; border-left:2px dashed #b9c4d2; }
+  .group { font-size:10px; color:#5a6472; margin:2px 0 1px 31px; letter-spacing:.3px; }
+
+  /* ---- page 2: report ---- */
+  table { width:100%; border-collapse:collapse; font-size:10.5px; }
+  th { background:#eef2f7; text-align:left; padding:5px 6px; border-bottom:1px solid #c8d3e0; }
+  td { padding:4px 6px; border-bottom:1px solid #edf0f4; vertical-align:top; }
+  tr.ok-row td:first-child{border-left:4px solid #1f9d55}
+  tr.fail-row td:first-child{border-left:4px solid #c0392b}
+  tr.pending-row td:first-child{border-left:4px solid #d9822b}
+  tr.notrun-row td:first-child{border-left:4px solid #98a2b3}
+  .id-col{width:34px;font-weight:700;color:#26496b}.sec-col{width:56px;text-align:right}.st-col{width:60px}
+  .mono{font-family:Consolas,monospace;font-size:9.5px}
+  .bad{color:#c0392b;font-weight:700}.good{color:#1f9d55}
+  .reason{color:#8c2f2f;font-size:10px}
+  .notes{margin-top:10px;font-size:10px;background:#f4f7fb;border:1px solid #d5e0ef;border-radius:5px;
+         padding:7px 9px;color:#3a4757}
+  .notes b{color:#26496b}
+  .concl{margin-top:9px;font-size:11px;border-left:4px solid #26496b;background:#f2f7ff;padding:7px 9px;border-radius:4px}
+  .missing{background:#fff4f4;border-color:#e6b8b8;color:#8c2f2f}
+  .warn-row td:first-child{border-left:4px solid #d9822b}
+  .node.warn{border-left-color:#d9822b;background:#fffaf2}
+  .node.warn .id{background:#d9822b}
+  .node .sec.warn{color:#9a6212}
+  .warnnote{color:#9a6212;display:block;margin-top:2px}
+  .attn{margin-top:8px;font-size:9.5px;background:#fffaf2;border:1px solid #f0d9b5;
+        border-radius:5px;padding:6px 8px;color:#7a5310}
+  .attn b{color:#9a6212}
+  footer{margin-top:auto;font-size:9.5px;color:#7a8494;display:flex;justify-content:space-between;
+         border-top:1px solid #e6eaf0;padding-top:5px}
+  .pagetag{font-size:9.5px;color:#8a94a4;text-align:right}
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1: ROUTES + FLOW ============ -->
+<div class="page">
+  <h1>OTA 四板刷写 · 流程图</h1>
+  <div class="sub" id="sub1">等待数据…</div>
+  <div class="rule"></div>
+  <h2>刷写方式</h2>
+  <div class="lanes" id="lanes"></div>
+  <div class="bars" id="bars1"></div>
+  <div class="legend">
+    <span><i class="dot ok"></i>通过</span><span><i class="dot fail"></i>失败</span>
+    <span><i class="dot pending"></i>备注 / 计划未运行</span><span><i class="dot notrun"></i>未运行</span>
+    <span>数据：out/HardwareAcceptance/ota_flow_data.js</span>
+  </div>
+  <div class="flow" id="flow"></div>
+  <footer><span>HDRT100 · OTA workflow · 流程</span><span class="pagetag">第 1 / 2 页</span></footer>
+</div>
+
+<!-- ============ PAGE 2: REPORT ============ -->
+<div class="page">
+  <h1>OTA 四板刷写 · 报告</h1>
+  <div class="sub" id="sub2">等待数据…</div>
+  <div class="rule"></div>
+  <h2>逐步结果</h2>
+  <table>
+    <thead><tr><th class="id-col">Step</th><th>阶段</th><th class="st-col">状态</th>
+      <th class="sec-col">耗时</th><th>失败原因 / 备注</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <h2 style="margin-top:12px">四板构建号与标定</h2>
+  <table>
+    <thead><tr><th>板</th><th>刷写前构建</th><th>刷写后构建</th><th>标定 CRC 前</th><th>标定 CRC 后</th></tr></thead>
+    <tbody id="boards"></tbody>
+  </table>
+  <div class="concl" id="concl"></div>
+  <div class="notes" id="notes">
+    <b>方式</b>：<code>--method ota</code>（默认）走 USB CDC 流式 OTA，4096 B 块、A/B 槽提交，保留已存标定，
+    是验收凭证依赖的路径；<code>--method picotool</code> 经 BOOTSEL 加载 <code>DHRT100_FACTORY.uf2</code>
+    （bootloader + 槽 A + boot control），需 <code>--allow-factory-image</code>，本台架曾因此丢失标定；
+    <code>--method tdma</code> 为 <b>TDMA 环上流式 OTA 预留位</b>，尚未实现，Step 3/4 会明确判为失败，绝不显示为刷写成功。<br/>
+    <b>构建号</b>：<code>PROJECT_BUILD_ID</code> 在 CMake configure 时缓存，增量构建不变，
+    所以刷写前后构建号相同不能证明新镜像已落盘（Step 2 会提示）；以包 SHA256 与修改时间辨识镜像。<br/>
+    <b>标定保持</b>：Step 6 比对 <code>READ:CALibration:TRAINing:STAGe:PERSistence?</code> 刷写前后的记录身份，
+    变化即失败，需重新标定后再跑 DPLL60 / T2。<br/>
+    <b>凭证</b>：本页只是工作流记录，不是验收凭证。<br/>
+    <b>运行</b>：<code>python tools/ota/OTA_workflow.py --full</code>，
+    或 <code>--steps 2,5,6</code> 只复验不刷写；<code>--refresh-html</code> 用最近一次数据重绘本页。
+  </div>
+  <footer><span id="foot2">HDRT100 · OTA workflow · 报告</span><span class="pagetag">第 2 / 2 页</span></footer>
+</div>
+
+<!-- OTA-DATA-START -->
+<script id="ota-flow-data" type="application/json">{"schema": "HDRT100_OTA_FLOW_V1", "generated": "2026-10-12 11:11:41", "method": "ota", "methods": [{"id": "ota", "label": "USB CDC 流式 OTA", "implemented": true, "tool": "tools/ota/ota_multi_update/ota_multi_update.py", "note": "4096 B 块、A/B 槽 + 提交；验收凭证所依赖的路径，保留标定"}, {"id": "picotool", "label": "picotool UF2（BOOTSEL）", "implemented": true, "tool": "tools/picotool_flash/picotool_flash.py", "note": "加载 FACTORY 镜像（bootloader + 槽 A + boot control），需 --allow-factory-image；本台架曾因此丢失已存标定"}, {"id": "tdma", "label": "TDMA 环上流式 OTA（预留）", "implemented": false, "tool": "", "note": "预留：单一上位机端口，经 TDMA 数据面向从板流式分发；尚未实现"}], "build_id": "20261010050916", "package_sha256": "6c40f3b3a4736880d16f9a9a3a22d3c21aa3ce54b241137e9490fd2f032776be", "selection": [0, 1, 2, 3, 4, 5, 6, 7], "failed": [], "warnings": ["Step 2 boards already report build 20261010050916: the build id is CMake-cached (not unique per image), so step 5 cannot distinguish old from new by id alone"], "log": "out/HardwareAcceptance/ota_steps-20261012-110818.log", "boards": [{"id": "0010071E65B5CB38", "before": "20261010050916", "after": "20261010050916", "calibration_before": 3539521614, "calibration_after": 3539521614}, {"id": "FB276192BEF9CCE1", "before": "20261010050916", "after": "20261010050916", "calibration_before": 3539521614, "calibration_after": 3539521614}, {"id": "2BD5090FE009FA2A", "before": "20261010050916", "after": "20261010050916", "calibration_before": 3335458303, "calibration_after": 3335458303}, {"id": "A1E549202D18ED6A", "before": "20261010050916", "after": "20261010050916", "calibration_before": 3335458303, "calibration_after": 3335458303}], "steps": [{"id": 0, "title": "构建（cmake_build_auto；--no-build / --package 时复用产物）", "planned": true, "status": "OK", "seconds": 3.2, "reason": "", "warning": ""}, {"id": 1, "title": "产物校验（OTA 包魔数 / 构建号 / UF2 / SHA256）", "planned": true, "status": "OK", "seconds": 0.0, "reason": "", "warning": ""}, {"id": 2, "title": "刷写前快照（四板身份 / 构建号 / 标定持久化）", "planned": true, "status": "warn", "seconds": 0.5, "reason": "", "warning": "Step 2 boards already report build 20261010050916: the build id is CMake-cached (not unique per image), so step 5 cannot distinguish old from new by id alone"}, {"id": 3, "title": "刷写方式前置（ota 4096 块 / picotool FACTORY 确认 / tdma 预留）", "planned": true, "status": "OK", "seconds": 0.0, "reason": "", "warning": ""}, {"id": 4, "title": "刷写（按 --method 执行）", "planned": true, "status": "OK", "seconds": 197.9, "reason": "", "warning": ""}, {"id": 5, "title": "刷写后复验（四板重枚举 + 构建号 + OTA 摘要门限）", "planned": true, "status": "OK", "seconds": 0.5, "reason": "", "warning": ""}, {"id": 6, "title": "标定保持校验（持久化记录与刷写前一致）", "planned": true, "status": "OK", "seconds": 0.0, "reason": "", "warning": ""}, {"id": 7, "title": "摘要与收据（ota-workflow-summary.json）", "planned": true, "status": "OK", "seconds": 0.0, "reason": "", "warning": ""}]}</script>
+<!-- OTA-DATA-END -->
+<script src="../../out/HardwareAcceptance/ota_flow_data.js"></script>
+<script>
+// Prefer the inline JSON the workflow injects between the DATA markers; the external
+// file is for tooling and may be refused as a file:// subresource.
+function readFlowData() {
+  const inline = document.getElementById('ota-flow-data');
+  if (inline && inline.textContent.trim()) {
+    try {
+      const parsed = JSON.parse(inline.textContent);
+      if (parsed && Array.isArray(parsed.steps) && parsed.steps.length) return parsed;
+    } catch (error) { /* fall through to the external file */ }
+  }
+  return window.OTA_FLOW || null;
+}
+(function () {
+  const data = readFlowData();
+  const label = { OK:'通过', warn:'备注', FAIL:'失败', pending:'未运行', 'not-run':'未运行' };
+  const isWarnStep = s => s.status === 'warn' || (s.status === 'OK' && !!s.warning);
+  const groups = [
+    { at: 0, name: '准备 · 构建 / 产物 / 刷写前快照' },
+    { at: 3, name: '刷写 · 方式前置 / 按方式执行' },
+    { at: 5, name: '复验 · 在线构建 / 标定保持 / 收据' }
+  ];
+  const fallbackMethods = [
+    { id:'ota', label:'USB CDC 流式 OTA', implemented:true, tool:'tools/ota/ota_multi_update/ota_multi_update.py' },
+    { id:'picotool', label:'picotool UF2（BOOTSEL）', implemented:true, tool:'tools/picotool_flash/picotool_flash.py' },
+    { id:'tdma', label:'TDMA 环上流式 OTA（预留）', implemented:false, tool:'' }
+  ];
+  const methods = (data && data.methods) || fallbackMethods;
+  document.getElementById('lanes').innerHTML = methods.map(m =>
+    '<div class="lane' + (data && data.method === m.id ? ' active' : '') +
+      (m.implemented ? '' : ' reserved') + '">' +
+    '<div class="name">' + m.label +
+      (data && data.method === m.id ? '<span class="tag">本次</span>' : '') +
+      (m.implemented ? '' : '<span class="tag">预留</span>') + '</div>' +
+    '<div>--method ' + m.id + '</div>' +
+    (m.note ? '<div>' + m.note + '</div>' : '') +
+    '<div class="tool">' + (m.tool || '未实现') + '</div></div>').join('');
+  if (!data || !Array.isArray(data.steps)) {
+    document.getElementById('sub1').textContent =
+      '未找到 out/HardwareAcceptance/ota_flow_data.js —— 先运行 tools/ota/OTA_workflow.py';
+    document.getElementById('notes').classList.add('missing');
+    document.getElementById('sub2').textContent = '无数据';
+    return;
+  }
+  const passed = data.steps.filter(s => s.status === 'OK').length;
+  const failed = data.steps.filter(s => s.status === 'FAIL').length;
+  const warned = data.steps.filter(isWarnStep).length;
+  const secs = data.steps.reduce((sum, s) => sum + (s.seconds || 0), 0);
+  const head = '生成 ' + data.generated + ' · 方式 ' + data.method +
+               ' · 构建 ' + (data.build_id || '?') +
+               ' · 包 SHA256 ' + (data.package_sha256 ? data.package_sha256.slice(0, 12) : '?') +
+               ' · 步骤选择 [' + (data.selection || []).join(', ') + ']';
+  document.getElementById('sub1').textContent = head;
+  document.getElementById('sub2').textContent = head;
+  document.getElementById('bars1').innerHTML =
+    '<span class="bar">通过 ' + passed + '</span>' +
+    '<span class="bar">失败 ' + failed +
+      (data.failed && data.failed.length ? '（' + data.failed.join(', ') + '）' : '') + '</span>' +
+    (warned ? '<span class="bar">备注（不阻断） ' + warned + '</span>' : '') +
+    '<span class="bar">累计 ' + secs.toFixed(1) + ' s</span>' +
+    '<span class="bar">' + (data.log || '') + '</span>';
+
+  const flow = document.getElementById('flow');
+  data.steps.forEach((s, index) => {
+    const group = groups.find(g => g.at === s.id);
+    if (group) {
+      const tag = document.createElement('div');
+      tag.className = 'group';
+      tag.textContent = '▸ ' + group.name;
+      flow.appendChild(tag);
+    }
+    if (index > 0) {
+      const conn = document.createElement('div');
+      conn.className = 'conn';
+      flow.appendChild(conn);
+    }
+    const node = document.createElement('div');
+    const isWarn = isWarnStep(s);
+    node.className = 'node ' + (isWarn ? 'warn' : s.status);
+    const note = s.reason ? ' — ' + s.reason : (s.warning ? ' — ' + s.warning : '');
+    node.innerHTML =
+      '<div class="id">' + s.id + '</div>' +
+      '<div class="body"><div class="title">' + s.title + '</div>' +
+      '<div class="meta">' + (isWarn ? label.warn : (label[s.status] || s.status)) + note +
+      '</div></div>' +
+      '<div class="sec ' + (isWarn ? 'warn' : s.status) + '">' +
+      (s.seconds == null ? '—' : s.seconds.toFixed(1) + 's') + '</div>';
+    flow.appendChild(node);
+  });
+
+  const tbody = document.getElementById('rows');
+  data.steps.forEach(s => {
+    const row = document.createElement('tr');
+    const isWarn = isWarnStep(s);
+    row.className = isWarn ? 'warn-row'
+                  : s.status === 'OK' ? 'ok-row' : s.status === 'FAIL' ? 'fail-row'
+                  : s.status === 'pending' ? 'pending-row' : 'notrun-row';
+    row.innerHTML = '<td class="id-col">' + s.id + '</td><td>' + s.title + '</td>' +
+      '<td>' + (isWarn ? label.warn : (label[s.status] || s.status)) + '</td>' +
+      '<td class="sec-col">' + (s.seconds == null ? '—' : s.seconds.toFixed(1) + 's') + '</td>' +
+      '<td class="reason">' + (s.reason || '') +
+      (s.warning ? '<span class="warnnote">备注（不阻断）：' + s.warning + '</span>' : '') +
+      '</td>';
+    tbody.appendChild(row);
+  });
+
+  const boards = document.getElementById('boards');
+  (data.boards || []).forEach(b => {
+    const row = document.createElement('tr');
+    const buildBad = b.after != null && data.build_id && b.after !== data.build_id;
+    const calBad = b.calibration_before != null && b.calibration_after != null &&
+                   b.calibration_before !== b.calibration_after;
+    row.innerHTML = '<td class="mono">' + b.id + '</td>' +
+      '<td class="mono">' + (b.before || '—') + '</td>' +
+      '<td class="mono' + (buildBad ? ' bad' : '') + '">' + (b.after || '—') + '</td>' +
+      '<td class="mono">' + (b.calibration_before == null ? '—' : b.calibration_before) + '</td>' +
+      '<td class="mono' + (calBad ? ' bad' : (b.calibration_after != null ? ' good' : '')) + '">' +
+      (b.calibration_after == null ? '—' : b.calibration_after) + '</td>';
+    boards.appendChild(row);
+  });
+
+  const notRun = data.steps.filter(s => s.status === 'not-run').length;
+  const warnSteps = data.steps.filter(isWarnStep);
+  document.getElementById('concl').innerHTML =
+    '<b>结论</b>：' + passed + ' 步通过、' + failed + ' 步失败、' + notRun + ' 步未运行，累计 ' +
+    secs.toFixed(1) + ' s。' + (failed ? '<br/><b>失败阶段</b>：' + data.failed.join(', ') +
+      '（见上表"失败原因"）' : '<br/>所选步骤没有失败阶段。') +
+    (warnSteps.length
+      ? '<div class="attn"><b>注意事项（备注，不阻断）</b>' + warnSteps.map(s =>
+          '<div>Step ' + s.id + '：' + s.warning + '</div>').join('') + '</div>'
+      : '');
+  document.getElementById('foot2').textContent =
+    'HDRT100 · OTA workflow · schema ' + (data.schema || '');
+})();
+</script>
+</body>
+</html>

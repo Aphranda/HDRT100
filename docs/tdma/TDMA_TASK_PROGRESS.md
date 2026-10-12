@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
@@ -14,6 +14,117 @@ Last updated: 2026-10-11
 历史记录中的预算、节点及门禁描述只代表当时快照，当前口径以最新条目和主域文档为准。
 
 ## 当前 checkpoint
+### TDMA-PROGRESS-20261012-043：T2 工作流改造为 22 步可步进流程；修正两处 SCPI 解析错误（推翻"FOLLow 阻塞链"）；台架标定阶段自愈，`--steps 0-6` 全绿
+
+- **工作流改造**：`tools/sync_trigger/t2_enable.py` → **`tools/sync_trigger/t2_workflow.py`**（`tools/tool_registry.json` 与 `tools/hardware_acceptance/p3_hardware_acceptance.py` 同步；治理计数 `owned_files == visible_files == 577`）。一条代码路径、**22 步（0–21）**，支持 `--list`（步骤表）、`--step N`（单步）、`--steps 1-6`/`3,7,12,16-19`（任意集合，按序）、`--full`（连续，验收脚本走此路径）、`--interactive`（步间回车）。每步输出**时间戳、耗时、状态（OK/FAIL）与具名失败原因**，并打印本步最贵的 3 条命令；整场 stdout tee 到 `out/tdma_t2/steps-<stamp>.log`，步骤内细节不再只留在终端。
+- **两处 SCPI 解析错误（旧阻塞链据此推错，已推翻）**：
+  1. `SYSTem:TDMA:SCHEDule?` = **8 头部字段 + 每相位 11 字段**，相位序按 `app.c:1256-1303`（0 TDMA/1 VDC/2 DPLL/3 CALIBRATION/4 SYNC_CAPTURE/5 REFMEM/6 MODEL/**7 SYNC_TRIGGER**/8 TRIGGER_MEASURE）。旧代码用 stride 9 且取相位 6，读到的是别的相位的静态字段（"run 计数不变"是误读）。实测相位 7：`wcet 26800`、窗口 `335000..365500`（宽 30500 > WCET，**放得下**）、`runs 90097`、`start_miss 5963/1.26M` ⇒ **优先级/FOLLow 不是阻塞**；旧引用的 `18764` 是 SYNC_CAPTURE 的 `deadline_miss`，`298500/332000` 是 REFMEM 的起止。
+  2. `TRIGger:REServation:T2?` 的 `segment_max_cycles` 在 **[42..44]**（旧代码读 `[47..49]` = `freeze_resend_count` 等，恒 0 → 假的 "SERVICE NEVER RAN"）；`announced_mask=[31]`、`core0_prepare_calls=[39]`、`core0_preview_saved=[40]`、`core0_prepare_last_reason=[41]`、三个位置的 `(target,threshold)` 在 **[32..37]**（实测 `(5000,4750)(10000,9500)(15000,14250)`）。停机实测 `segments 8057/0/0` ⇒ **服务在跑**。
+- **真正机制**：Core0 对 `last_counter_count` 已越过 `threshold_count` 的位置**永不生成 preview**（`trigger_t2_runtime.c:919-924`），无 preview 则 `stage_one_freeze()` 直接返回（`:210-211`）⇒ 确定性不发布。通过轮 t+2s 计数 ≈10315（阈值 4750/9500/14250 ⇒ `published_mask 3`）、t+6s ≈16184（⇒ `7`）；失败轮 t+2s 已 66–69 万且 `published_mask 0`。
+- **顺序与自愈（已落地）**：Step 11 只 `UNLoad/LOAD/CLEar`（不 `STARt`）；Step 14 转台/源**只配置不启动**；新增 Step 18 时基就绪判定（cursor `err 0/valid 1/epoch==本次会话` + 模型 token/session）；**Step 19 = 原点试运行 + 启动脉冲流**，带**阈值守门**（计数 ≥ 第一阈值即拒绝并给具名原因）；新增 **Step 0 标定阶段自检与回放**。
+- **台架修复（Step 0 的实际价值）**：NO.1/NO.2 的 `READ:CALibration:TRAINing:STAGe?` 返回 **`EMPTY`**（几乎肯定是此前误用 `CALibration:TRAINing:STAGe:CLEar` 所致），导致 `Provisional?=0` 且 NO.2 环 `ARM` 报 `reason 9`。按 `BEGin`/`LINK`/`COMMit` 从 slot 2 回放并落 NVS（`COMMit -> "TRN03NVS",210,1,3539521614`），四板阶段一致 `TRN03STG,1,4,31,1,210,3,3816963506,1383759744,2993488091,15` ⇒ `Provisional? = 1,50,4,2`。
+- **代价修复**：共享发送器对"普通写"本应用 `action_timeout`，但工具 namespace 未设 ⇒ 每条写等满 8 s 查询超时。补 `action_timeout=0.25`、对结果码冗余的写命令加 `fire()`（0.6 s）、`poll` 加墙钟预算。实测 Step 2 **195.3 s → 9.1 s**、Step 1 66.2→4.1 s、Step 4 30.4→1.4 s，**1–6 合计 326 s → 18.5 s**。
+- **验证**：`python tools/sync_trigger/t2_workflow.py --steps 0-6` → **`failed steps: none`，退出码 0**；Step 0 OK 0.5s / 1 4.1s / 2 9.3s / 3 1.4s / 4 1.2s / 5 0.6s / 6 1.9s（四板 `stage OK`）。日志 `out/tdma_t2/steps-20261012-004300.log`。
+- **尚未完成**：Step 7–21 的顺序改造已就位但**未整链验证**；T2 仍未跑通发布；未提交（AGENTS.md §7：工具改动提交前需一次 P3 凭证，当前树为脏树）。
+
+### TDMA-PROGRESS-20261011-042：T2 **端到端跑通过一次**（四板 configured、发布 3 个位置），但**尚不可重复**（1 通过 / 4 失败）
+
+- **修正声明（重要）**：本条最初只记录了那次通过，属于单次证据。此后相同判据、相同/近似源码的复跑**全部失败**，因此**不得**据此认为 T2 已稳定跑通。失败样本与产物路径：
+  | 运行 | 产物 | 结果 |
+  |---|---|---|
+  | 20261011-190909 | `out/HardwareAcceptance/20261011/t2-20261011-190909/report.json` | **PASS** `passed=true, configured=4, publishing=3` |
+  | 20261011-192606 | 同目录 `t2-20261011-192606/report.json` | FAIL `configured=4, publishing=0` |
+  | 20261011-194304 | `t2-20261011-194304/report.json` | FAIL `configured=4, publishing=0` |
+  | 20261011-200134 | `t2-20261011-200134/report.json` | FAIL `configured=4, publishing=0` |
+  | 20261011-（背靠背第二次） | 同上目录 | FAIL `configured=4, publishing=0` |
+- **失败特征（已定位到根因，2026-10-11 21:50 修正）**：失败轮的 `T2?` 分段周期恒为 **`segments 0/0/0`**，即 `trigger_t2_runtime_service()` 从未运行；游标在失败轮**同样健康**（`err 0 / valid 1 / sync_seq` 递增，走兜底路径）。**先前把 `LOAD:MASK` 当主因是错的**：运行中（预检）读回是 `mask 91`（bit6 已置位），之前的 "27" 是我自己的 teardown 在读取前写回 27 造成的**测量伪影**。
+- **真正根因（逐级实测）**：
+  1. `SYSTem:TDMA:SCHEDule?` 的阶段 6（SYNC_TRIGGER）run 计数**冻结**；其窗口 `18764..298500`（宽 279736）**小于**声明 WCET `332000` → 每周期被 `start_missed` 跳过（`app.c:930-931`）；只有"优先级源 active"给出 ingress 余量时才放得进去（`app.c:888/904-905`）。
+  2. 停机态读 `SYSTem:VDC:PRIORity:*`：NO.1 `SYNC?` 已接受 ✓；从板 `MATCH?` 已接受 ✓，但 **`FOLLow? = 0`（被拒）**、`FOLLow:PHASe?` 被拒 → **优先级通道从未 armed** → 阶段 6 永不运行 → 无发布。
+  3. `FOLLow 1` 的前置（`vdc_priority_follow.inc:60-71`）：需要活跃会话 + `priority_generation == priority_match_generation()` + **`s_priority_match_request_session == session`**，并要 `boundary_set_stopped()` 成功。唯一通过的那次紧跟在 `dpll60`（跑过整环、可能已对齐 MATCH 会话/boundary）之后 59 s；之后每次背靠背运行都在**尚无载波记录**时写 FOLLow → 被拒。
+- **代价改进（已落地）**：预检改为**致命**（相位 6 全板冻结即跳过采样），且 `SystemExit` 改为"仍走 teardown" —— 单次失败尝试从 ~18 分钟降到 **~1 分钟**，并顺带打印停机态优先级读数、把台架留在干净状态。
+- **下一步（判据先行）**：把 `FOLLow 1` / `FOLLow:PHASe 1` 放在**环已运行且 MATCH 会话一致**之后写入并**读回校验 `FOLLow? == 1`**；该判据通过前不看 `publishing`，避免再用最终计数当调试回路。
+
+- **另一处已发现的自伤**：链首"等待拓扑提交"的判据要求序号**推进**（`!= before_seq`），在**重复运行同一拓扑**时序号不变 → 等待必然超时（最新失败轮出现 `WARNING: ring config not committed: ['25','25']`）。应只要求 `config_seq == applied_config_seq`。
+- **仍成立的部分**：起链配方（会话/拓扑提交/PROBe+OPMode/清表/验证式激活/代递增装表/计数器 LOAD/T2 配置/优先级/Provisional/ARM→TRAIN→START/掩码 91/源启动/试运行）与 `out/tdma_t2/t2_calib_replay.json` 的复用路径；`dpll60` PASS（`dpll60-110200`）证明 DPLL 本体正常。
+- **提交策略**：可重复性解决前不提交（凭证也因 19:43 的工具编辑失效）；届时在冻结树上跑一次 P3 付凭证。
+
+
+- TODO task ID：`TDMA-SEAT-03`（条目 15 的台架路径打通）；改动：`tools/sync_trigger/t2_enable.py`、`tools/hardware_acceptance/p3_hardware_acceptance.py`。
+- **结果（真机证据）**：`p3_hardware_acceptance.py t2` → `out/HardwareAcceptance/20261011/t2-20261011-190909/report.json`：`passed=true, boards_configured=4, boards_publishing=3`，退出码 0。运行中采样：`T2?` `segments 315/3/0`、`sync_seq` 递增、`published_mask=7`、`announced=4750`、`pulse` 递增；`POSition?` `tx_publish_count=3`；`T2:CURSor?` `err 0/valid 1/session 绑定`；计数器 `loaded 1` 且递增。
+- **最后两块拼图（此前所有前序修复都在此之前完成）**：
+  1. **`SYSTem:TDMA:LOAD:MASK 91`**：位 6 = `APP_REALTIME_LOAD_SYNC_TRIGGER`（`app.h:19`）。掩码 27 **不含**位 6 时，`app_realtime_run_once()` 根本不调用 `app_realtime_sync_trigger_phase()`，于是 `sync_trigger_service()/trigger_t2_runtime_service()/trigger_time_cursor_service()` 从未运行 —— 表现为 T2 `configured+active` 但 `segments 0/0/0`、游标恒 `NO_SYNC/session 0`、无任何发布。探针正是先设 27、环启动后设 91。
+  2. **动作/模板"代"必须每轮递增**：`install_stopped()`（`trigger_action_service.c:100-104`）对 `generation <= last_generation` 只接受"同表同绑定"，而 `clear_stopped()` **刻意保留** `last_generation`；工具原先硬编码 `generation=1` → **首次能装、之后全部被拒**（`T2:CONFigure` 落回 `diag 93`）。改为使用每轮唯一的 `dep_gen` 后四板全部装上。
+- **完整起链配方（本次定型，T2 不再依赖 P3）**：见 `out/tdma_t2/t2_calib_replay.json` 的 `bringup.order` 与 `do_not`；要点：停机并关 VDC 会话 → `RING:DIAGnostic 1`（须在拓扑提交后）/`GEOMetry 0`/`TOPology 4,slot,0` 并等提交 → `PROBe 1,1` + `OPMode:STAGe 7`+`APPLy` → 清表 → GRID 配置 → **验证式部署激活** → 装表（代递增）→ 计数器 `UNLoad/LOAD/CLEar/STARt` → T2 配置/启动 → 源与优先级 `SYNC/MATCH/FOLLow` → `ProVisional 1` → **ARM（从板先、参考最后）→ TRAIN → START → `LOAD:MASK 91`** → 源启动 → 原点试运行。**禁止** `CALibration:TRAINing:STAGe:CLEar`（会毁掉标定阶段）。
+- **P3 使用策略（owner 裁决）**：物理链路与标定不变时，标定/训练参数以 JSON 复用，T2 迭代**不跑 P3**；仅在提交需要 staged 凭证时跑。本轮 `dpll60`（缩小范围）**PASS**（`dpll60-110200`），`run` 的 DPLL 联合采集阶段两次 `Capture exited 2` 失败（非 DPLL 本体问题）。
+- **未闭合**：`t2` 的 teardown 尚未做成"完整停机"（环 STOP 确认/VDC 运行 STOP/会话清零/计数器 UNLoad），连续跑可能从脏状态开始；凭证在工具再次改动后失效，提交前需重跑一次。
+
+### TDMA-PROGRESS-20261011-041：T2 已到"仅差同步样本"；判决字段索引纠正（含验收判据错误）
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`tools/sync_trigger/t2_enable.py`、`tools/hardware_acceptance/p3_hardware_acceptance.py`。
+- **本轮新增解锁与纠正**：
+  1. **计数器装载**：`TRIGger:REServation:COUNter:LOAD {generation},{crc}` 是必须的一步（我此前从未发送）→ 实测 `loaded 1 state 2 count` 递增。拒绝码解码：`COUNTER_OK=0, ARGUMENT=1, BUSY=2, NOT_IDLE=3, DEPLOYMENT=4, WRONG_ROLE=5, **CHANGED=6**, …, NOT_LOADED=8`；`counter_binding()`（`trigger_counter_service.c:43-61`）要求环**完全停止**、`ring.config_seq == binding.ring_config`、`staged.enabled`、slot/schedule_crc 一致 → 因此 **LOAD 必须紧贴"部署激活"之后**（放在 T2 配置之后会因序号推进而 `CHANGED`）；且每次先 `UNLoad`（上一轮残留的 loaded 会让 LOAD 返回 BUSY）。
+  2. **字段索引纠正（重要）**：`T2?` 页（原始切分）—— `2 configured, 3 active, 4 origin, 8 last_sync_sequence, 9 published_mask, 10 received_mask, 13 event_count, 15 frozen_mask, 28 last_counter_count(u64), 30 cursor.pulse_index, 33 announced_mask, 44/45 core0_prepare_calls/preview_saved`，其后为 freeze/ack 诊断字段。此前误把 idx8 当计数器。`POSition?` 页：**idx5 = tx_publish_count**、idx12 = rx_complete_count。
+  3. **验收判据本身有错**：`t2` 子命令原先读 `POSition?` 的 idx3（= `tx_active`，空闲恒 0）→ 已改为 idx5/idx12，"publishing 0" 不再可能是误判。
+  4. **网格 epoch 与会话**：`GRID:CONFigure` 的 epoch 必须与 `VDC:FEEDback:SESSion` 同值（探针同用一个 `generation`）；已把 session 对齐为 `dep_gen`。
+  5. **残留状态陷阱**：若上一轮把环留在 armed，则本轮的 `GRID:CONFigure`/部署配置会被拒 → 游标读到**旧网格 epoch**（实测 `epoch 1`）。**四板软件复位后**再跑，epoch 即等于本轮 dep_gen ✓。→ 工具的 **teardown 需要完整停机**（环 STOP 确认、VDC 运行 STOP、会话清零、计数器 UNLoad），否则下一轮从脏状态开始。
+- **当前唯一剩余阻塞**：`TRIGger:REServation:T2:CURSor?` 运行中读数为 **`err 2 = TRIGGER_TIME_CURSOR_NO_SYNC`**、`cfg 1`、`valid 0`、`session 0`、`pulse 0` → 网格已配置，但**没有同步样本进入游标**，于是 `service_origin()` 永不运行（`core0_prepare_calls=0`、`last_counter_count=0`），位置自然不发布。已排除项：四板 `configured/active` ✓、原点试运行获准（`reason=2 ACCEPTED`）✓、计数器已装载且在计数 ✓、网格 epoch 正确 ✓、`VDC:FEEDback:MODel?` 有模型 ✓。
+- **下一步**：追同步样本来源（`SYSTem:VDC:PRIORity:SYNC/MATCH/FOLLow` 与环运行状态的配合），使游标从 `NO_SYNC` 转为 `OK`（`pulse_index > 0`），随后 `core0_prepare` 才会产出位置描述符。
+
+### TDMA-PROGRESS-20261011-040：T2 起链推进到"四板 err 0 + 原点试运行获准"，仅余供源/发布计数
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`tools/sync_trigger/t2_enable.py`（把探针 `t2_bench_probe.py` 已验证的完整起链顺序并入）。
+- **本轮真机进展（逐级解锁，每级都有固件侧证据）**：
+  1. **四板全部 `T2 configured 1 active 1`**（含原点）——动作行语法 + 清表/激活顺序修复生效（TDMA-PROGRESS-039）。
+  2. **原点试运行获准**：`CALibration:ORIGin:TRIAL` 返回 grant（42/46/54），停机读 `READ:CALibration:ORIGin:DIAGnostic?` → `reason = 2 (ACCEPTED)`。**此前 reason = 9 `DIAGNOSTIC_REQUIRED`**。
+     - 根因：`tdma_service_set_ring_diagnostic()` 要求 **`ring_staged_config.enabled != 0`** 才允许置位，所以 `SYSTem:TDMA:RING:DIAGnostic 1` 必须在**拓扑提交之后**发送（此前发在拓扑之前 → 静默失败 → `RING:DIAGnostic? = 0`）。
+  3. **四板 `T2?` 的 `last_error` 全部为 0**（此前 4=COUNTER / 5=CURSOR）。
+     - `err 5 = CURSOR` 的根因是缺 **`SYSTem:SYNC:VDC:DPLL:PROVisional 1`**（临时路径延时训练）；`err 4 = COUNTER` 的根因是缺 **计数器源**（`TRIGger:REServation:SOURce:RELease/CONFigure/STARt` + `COUNter:CLEar/STARt`）。
+  4. **VDC 会话/运行的顺序**：`FEEDback:SESSion <id>` 只能在输出**停止**时设置（否则 `STOP_REQUIRED_OR_BUSY`），而 T2 游标需要输出运行在线 → 必须 **RUN:STOP → SESSion → RUN <params>** 并校验（工具原先顺序相反，导致会话与运行双双失败）。
+  5. **环启动的固件前置**：`tdma_ring_runtime_set_data_enabled()` 要求 `enabled && adapter_started && train_command_seq == train_accepted_seq` → 必须 **ARM（从板先、参考最后）→ 等 armed → TRAIN → 再 START**（与 `calibration_clk_train.py` 一致）；工具原先是 `TOPOLOGY→ARM→START` 连发。
+- **仍余一项**：位置发布计数仍为 0。停机测量显示计数器页 `loaded=0`、`io.count32=0`（计数未推进），T2 `counter_count`/`announced_mask`/`cursor_pulse` 均为 0 → **计数源未真正喂数**（转台模型/软件源到计数器这一段），以及"验收判据读的 `POSition?` 字段是否就是发布计数"需要复核（可能是读错字段）。
+- **台架与凭证**：本轮先做了**四板软件复位**（`SYSTem:BOOT:RESet`，复用 `reset_acceptance_boards`），随后 `p3_hardware_acceptance.py run` **PASS_WITH_WARNINGS（0 ERROR/0 FATAL）**并写出新凭证；但**之后我又改了 `tools/sync_trigger/t2_enable.py`**，所以该凭证已再次失效，提交前需重跑。
+- **未闭合**：计数器供数链路（模型/软件源 → 计数器）；发布计数判据复核；凭证重跑。
+
+### TDMA-PROGRESS-20261011-039：T2 起链打通（四板全部 configured/active，含原点）——6 处顺序/语法缺陷
+
+- TODO task ID：`TDMA-SEAT-03`；改动：`tools/sync_trigger/t2_enable.py`（起链顺序与行语法）、`tools/hardware_acceptance/p3_hardware_acceptance.py`（`t2` 真断言）。
+- **成果（真机证据）**：修复后 `t2_enable.py --full` 使**四块板全部 `T2 configured 1 active 1`**（此前原点永远 `configured 0`，诊断码 93）。
+- **逐条根因（都由固件自带诊断码/状态页证实）**：
+  1. 停机块缺 `T2:STOP`：残留 active 的 T2 使所有停止态配置命令**无应答**（被匹配器显示为超时）。
+  2. **VDC 反馈会话未关**：`vdc_dpll_manager_set_tdma_ring_topology()` 明确拒绝"会话活跃"时的拓扑设置（`if (vdc_dpll_manager_feedback_session()) return false;`）→ 先 `SYSTem:VDC:FEEDback:SESSion 0` 并校验归零。
+  3. 拓扑**提交是异步的**：`RING:TOPology`（停态）后必须等 `RING:STATus?` 的 `config_seq == applied_config_seq` 且已推进（校准流程的 `_wait_ring_state(after_config_seq=…)` 同义）。
+  4. `bind_local()` 在**激活时把 `ring.config_seq` 快照进部署绑定**，而**清表/配置类命令都会推进该序号** → 清表必须放在**激活之前**，否则 `current_binding()` 判据 44 失败 → `ACTion:INSTall` 返回 **35 `TRIGGER_ACTION_SERVICE_CHANGED`**。
+  5. 部署激活后**自校验** `binding.ring_config == 当前 config_seq`，不一致就重新等待并重试（本次实测 92/92、97/97、101/101 全部一致）。
+  6. **动作行必须符合固件语法**（`trigger_action_table.h:139-149`）：`kind` 只有 `SWITCH_CODE(1)`（限 SWITCH_A/SWITCH_B 角色）与 `GATEWAY_PULSE(2)`（限 GATEWAY 角色）；**COUNTER 角色（NO1 原点）没有自己的动作种类**，改为携带一条合法 GATEWAY 行。这是原点能过 `T2:CONFigure` 的关键（此前 `kind=0` → `TRIGGER_ACTION_TABLE_ROLE`）。
+- **仍未通（位置发布）**：源/时基侧。`RING:START`（数据使能）要求 `enabled && adapter_started && train_command_seq == train_accepted_seq`（`tdma_ring_runtime_set_data_enabled`），即必须先用 **`RING:TRAin {cycles}`**；且计数器源需要 `TRIGger:REServation:SOURce:RELease/CONFigure/STARt`、快速通道需要 `SYSTem:VDC:PRIORity:SYNC/MATCH/FOLLow`、转台需要 `CALibration:ORIGin:TRIAL`（需环在跑）。**已验证配方在 `tools/sync_trigger/t2_bench_probe.py`**（早前成功发布位置用的就是它）。
+- **台架遗留状态**：四板环已停；三块板 VDC 会话已清零；**NO.1 的 VDC 输出仍处于运行态（`RUN?` 状态 7，其余板为 6）**——来自我手工探测时的 `VDC:OUTPut:RUN`，会让 `FEEDback:SESSion <id>` 因 `STOP_REQUIRED_OR_BUSY` 被拒；需先彻底停掉（或按 `run`/`dpll60` 的做法先做四板软件复位）。
+- **未闭合**：把探针里已验证的"源+优先级同步+TRAin+START"序列并入 `t2_enable.py`，使 `p3_hardware_acceptance.py t2` 判据 `configured==4 && publishing>0` 通过；P3 凭证因本轮工具改动失效，提交前需重跑。
+
+### TDMA-PROGRESS-20261011-038：T2 真机链路排查——**原"PASS"是假通过**；4 处工具缺陷已修，剩余 1 处台架协议阻塞
+
+- TODO task ID：`TDMA-SEAT-03` / T2 冻结闭环真机验证；改动：`tools/sync_trigger/t2_enable.py`（补 `T2:STOP`+停机校验、原点也装动作表、清表后安装、打印安装应答、按 `--nodes` 推导同伴掩码）、`tools/hardware_acceptance/p3_hardware_acceptance.py`（`t2` 子命令改为**真断言**：`configured==4 && publishing>0`，否则退出 1）。
+- **结论先行**：`p3_hardware_acceptance.py t2` 此前**从不检验判据**，在"原点未配置、四板位置发布数全 0"的情况下也退出 0 —— 那是**假 PASS**。现在它会明确报 `boards configured 3/4, publishing 0, passed=False` 并退出 1。
+- **已修复的 4 处工具缺陷**（每处都有台架证据）：
+  1. `run_full` 初始停机块**没有 `T2:STOP`**：上一跑残留的 active T2 会让所有停止态配置命令被拒（表现为"无应答"）→ 已补 `T2:STOP` 并轮询 `T2?` 校验已停（否则打印 WARNING）。
+  2. **原点从不安装动作表**（`if slot:` 跳过 slot 0），而 `T2:CONFigure` 在**每块板**都要求 `templates.installed/resources_loaded/binding_current` → 原点被拒（诊断码 **93**）→ 已改为**所有板**都安装动作表（原点不执行自身位置，但同样要过这道门）。
+  3. 安装命令**报错被应答匹配器当成"无应答"**（显示 `<timeout>`），失败原因被吞掉 → 已打印 `ACTion/TEMPlate` 的安装/激活应答与安装后的状态页。
+  4. 安装**变更式**动作表会被按"代"拒绝（`install_stopped` 的 generation 规则）→ 已先 `TEMPLATE:RELease` + `ACTion:CLEar` + `TEMPLate:CLEar` 并校验服务为空。
+- **剩余阻塞（台架协议，非固件缺陷）**：`ACTion:INSTall` 返回 **35 = `TRIGGER_ACTION_SERVICE_CHANGED`**。查 `trigger_action_service.c:92-99`：该码在 **`current_binding()` 失败**时设置；而 `current_binding()`（`:58-77`）要求**本板已 staged 的环配置与 active 部署的 `ring_config` 一致、`schedule_crc`/`local_slot`/uid 一致、且环处于停止态**（其自带诊断码：41 环在跑、42 `config_seq != applied`、43 staged 未使能、**44 `ring_config` 不一致**、45 uid、46 local_slot、47 schedule_crc、48 crc）。`t2_enable.py` 每跑都**重新 stage 一份新部署 gen/crc，却不把环配置同步过去**，因此绑定不 current → 动作/模板链无法安装 → 原点无法 `T2:CONFigure` → 四板位置发布数始终为 0。
+- **台架当前状态（我留下的）**：四板动作/模板表**已被清空**（原先是旧会话留下的表），diag 分别为 135/135/114/135；需要一条**能成功安装**的链路才能恢复。
+- **已验证的固件侧修复（尚未烧录到板子）**：FREEZE 完成只等同伴（`peers = target_mask & ~(1u<<source_slot)`）+ `freeze_ack_own_in_mask` 标志 + `freeze_ack_stale/incomplete` 判据（`TDMA-PROGRESS-20261011-037`）；主机 `t2_enable.py` 的同伴掩码推导同样在此次改动内。**要真机验证必须重新构建烧录**（`dpll60` 或 `run`）。
+- **未闭合**：环配置 ↔ 部署绑定的台架同步（阻塞 T2 起链）；FREEZE 修复的真机验证；P3 凭证因本轮工具改动而失效，提交前需重跑。
+
+### TDMA-PROGRESS-20261011-037：**FREEZE 多次重发已定位并修复**（等待集合误含位置来源槽位自身）
+
+- TODO task ID：`TDMA-SEAT-03` / T2 冻结闭环；改动：`trigger_t2_runtime.c`（只等同伴 + 配置期计数 149）、`trigger_t2_runtime.h`（`freeze_ack_own_in_mask`）、`scpi_trigger_t2_runtime_commands.inc`（页末位追加）、`tools/sync_trigger/t2_enable.py`（按 `--nodes` 推导同伴掩码，原先下发 `0x0F` 含槽 0）、`tools/sync_trigger/t2_bench_probe.py`、`tests/python/test_trigger_t2_freeze_abandon.py`（新增 peer-only 用例）、文档。
+- **根因（机制性，不是链路丢失）**：冻结完成判定 `distributed_refmem_position_freeze_acked()` 是**全有或全无**——掩码内**任一**槽位上报的 `opcode != T2_FROZEN | (run_id & 0x0F)` 就整体返回 0；而确认槽位**只能由"收到的镜像"填充**。因此当 `target_mask` 含**位置来源槽位自身**（`source_slot`）时，该位**永远不可能被确认** → 每个位置始终保持"未完成" → 原点按 `T2_FREEZE_RESEND_SLICES`（4 片）**一直重发到位置窗口关闭**（此前只留下一个巨大的 `freeze_resend_count`，然后放弃/或继续下一轮）。
+- **配置侧证据**：主机两个工具下发不一致——`t2_bench_probe.py` 发 `…,0,14,…`（`0x0E`，不含槽 0）✅；`t2_enable.py` 发 `…,0,15,…`（`0x0F`，**含槽 0**）❌。用后者启用 T2 即命中该缺陷。
+- **修复**：原点**只等同伴** —— `peers = target_mask & ~(1u << source_slot)`；自身位被忽略并置 `freeze_ack_own_in_mask`（`T2?` 末位公开，作为"这类重发风暴"的识别标志）；**无同伴**（单板台架）按构造视为完成，不产生任何重发；配置期若发现掩码含自身槽位，记 `tdma_seat_mount_store_note_reject(149u)`（不静默、也不 fail-closed 破坏台架）。`t2_enable.py` 改为按 `--nodes` 推导同伴掩码（4 板 → `0x0E`，2 板 → `0x02`，单板 → 0 并打印说明）。
+- **测试（证明"一次飞行即完成"）**：抽取式 harness 新增三种情形——① 掩码含自身槽位：断言**只以同伴掩码 0x4 询问**、`freeze_ack_own_in_mask=1`、位置**当轮完成**且 `freeze_resend_count == 0`；② 无同伴：断言不问确认、直接完成、无重发、pending 掩码归零；③ 常规 `0x0E`：断言行为不变（`own=0`、询问掩码仍为 `0x0E`）。相关用例 **55 passed**；设备语法守卫 8/8；设备构建两槽链接 + `flash_link_contract=OK`。
+- **随之而来的必办项**：本次改动了 `components/tools/tests` → 现有 P3 凭证**已失效**，需在提交前重跑 P3；并在台架上用新字段确认重发数回落到"每位置 ≤1 次"。
+- **未闭合**：P3 重跑与真机确认（建议 `dpll60` + `t2` + 运行中只读采集）。
+
 ### TDMA-PROGRESS-20261011-036：DPLL60 真机验收 **PASS**（凭证与当前工作区指纹一致）
 
 - TODO task ID：`TDMA-SEAT-03`（条目 15 的真机路径打通第一步）；改动：仅文档（`docs/**` 不计入 P3 源码指纹）。

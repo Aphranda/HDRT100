@@ -4,13 +4,26 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20261012-001：T2 主线稳定性——三个根因定位与修复，判据收紧
+
+- TODO task ID：`T2-STEP-001`、`T2-SOURCE-001`、`T2-DOC-001`；涉及 TDMA/VDC/RefMem/SYNC_IO 的 Core1 驻留与 TDMA 环时钟快照。
+- **更正 2026-10-11 的阻塞链（已核实）**：「SYNC_TRIGGER 窗口 < WCET → 每周期 `start_missed` → 需优先级源 active 的 ingress 余量 → FOLLow 生效」不成立，来自两处解析错误：`SYSTem:TDMA:SCHEDule?` 每相位 11 字段（`SCHEDULE_PHASE_FIELDS`），SYNC_TRIGGER 是相位 7（`APP_REALTIME_PHASE_TABLE`）而非 6，原读数实为 REFMEM 的 `max_runtime`；`T2?` 的 `segment_max_cycles` 在 [42..44] 而非 [47..49]。`close_cycle` 为静态值（`app_realtime_phase_priority()`），与优先级源是否 active 无关。`T2:CURSor?` 的 [9] 是恒 0 的 legacy `identity_crc32`，绑定的 `ring_config_seq`/`model_token` 在 [10]/[11]。
+- **根因 A：计数在游标有效前越过阈值（工具，已修）**。计数器由 PWM 源驱动（停源即冻结；源启动后约 1 kHz，快照非事实源）。源原先在 Step 16 启动，游标有效前计数已越过全部阈值；Core0 对 `last_counter_count >= threshold_count` 的位置不再生成 preview，该轮不可能发布。`t2_workflow.py` 现在 Step 1/21 停源，Step 19 仅在参考游标有效且计数未达首阈值时 `SOURce:STARt`，越过首阈值即具名失败。
+- **根因 B：TRAIN 人格恢复期绑定游标后锁死（固件，已修）**。新增粘性故障现场记录（`trigger_time_cursor_fault_t`，`T2:CURSor?` 末尾追加 7 字段）实测：故障发生在首次绑定后下一拍（seq 1），`site RING`、`adapter_started=0`、config 未变。原因：`RING:START` 后环运行时为恢复 DATA/CS 人格停适配器一拍（`tdma_ring_runtime.c` 的 `training_dirty` 分支），若游标恰在此前一拍绑定即置粘性。修复：`tdma_ring_clock_snapshot_t` 增加 `training_dirty`，游标在其置位期间按未就绪重试、不绑定；绑定后再训练仍为粘性（单测 `train_persona` / `bound_retrain`）。
+- **根因 C：SYNC_TRIGGER 超 WCET 被隔离（固件，已修）**。阈值切片（origin）与布防切片（从板）在 XIP 冷取指下超出 `PROJECT_CORE1_PHASE_SYNC_TRIGGER_WCET_CYCLES` 并被隔离（掩码位 6），冻结计数与游标。按 ELF 调用图把 SYNC_TRIGGER 每片/布防片路径上的 XIP 函数移入 SRAM：origin FREEZE 路径（`stage_one_freeze`、`resend_one_freeze`、RefMem stage/pending）；所有板的游标投影（`vdc_domain_dco_local_to_output_ns`、`vdc_dpll_manager_feedback_session`、`cursor_qualify_model`）；从板 `distributed_refmem_position_priority_drain`、`deadlines_need_service`、`cancel_backend`、`action_fail`、SWITCH/GATEWAY 的 `schedule_at`/`cancel`/`safe_stop`，以及 GCC 分裂到 XIP 的 SWITCH `poll.part.0`（改 `noinline`）。调用图上剩余的 flash 函数只在 legacy 触发、故障或会话切换路径，另有共享 libc `memcpy`/`memset` 与 SDK `clock_get_hz` 未迁移。origin FREEZE 路径的分段最大耗时追加在 `T2?` 末尾（`trigger_t2_runtime_freeze_timing()`）。
+- **SRAM**：为驻留腾挪，用户决定把 `VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS` 缩为当前值（缩容史见该宏注释）；本轮链接后主 SRAM 余量见构建产物，快照非事实源。
+- **判据收紧（工具）**：原判据 `configured==4 && publishing>0` 统计采样行，曾把「只发布一个位置随后从板被隔离」判为通过。现在 `t2_workflow.py` Step 20 要求参考 `published_mask` 为全部位置（`ALL_POSITIONS_MASK`）并把 SYNC_TRIGGER 隔离记为失败；`p3_hardware_acceptance.py t2` 另要求 workflow `failed steps: none`。按新判据离线重评旧日志：隔离轮全部转为 FAIL，干净轮保持 PASS。
+- **台架（本次实测，快照非事实源）**：OTA（新增 `tools/ota/OTA_workflow.py` 首次实跑，标定保持）→ `DPLL60_workflow.py` 通过（Step 3/9 为非阻断备注）→ T2 连续 6 轮：前 3 轮全步骤通过；收紧判据后 3 轮中 2 轮通过、1 轮失败（根因见下条未闭合项）。修复后从板 SYNC_TRIGGER 最大耗时由超 WCET 降至约其 2/3，无 overrun、无隔离；参考板每轮发布全部 3 个位置。证据：`out/HardwareAcceptance/20261012/t2-20261012-1114*`、`t2-20261012-1117*`、`t2-20261012-1119*`、`t2-20261012-1125*`、`t2-20261012-1128*`、`t2-20261012-113046`。
+- **未闭合**：① `CALibration:ORIGin:TRIAL` 间歇停参考环（`enabled`/`adapter_started` 归 0、config 前进 1），已与 `SOURce:STARt` 拆开确认由 TRIAL 单独触发；游标按 `site RING` 正确记录。② 从板 SYNC_TRIGGER 仍有大量 `start_miss`（前序相位迟到继承，不隔离、游标按 `missed_sync_count` 计入），既有现象，未处理。③ 游标段在所有板仍占较大份额。④ 构建号 `PROJECT_BUILD_ID` 为 CMake 缓存值，增量构建不变，凭证/OTA 以构建号辨识镜像存在盲区。
+- **门禁（代码提交 `b2c527ed`）**：按用户决定取完整 P3 凭证。前两次 P3 均止于 DPLL 60 s 的主机侧判据，固件与采集本身通过：① RAM 页读取被瞬时拒绝即中止并残留 `-200` 污染复原（固件读租约需一次性 seqlock 复制与池所有者 CAS 同时成功）→ `vdc_priority_trace.py` 有界重试并清错误队列；② STOP 恰在 60 s 区间边界后产生单个 `PARTIAL|TERMINAL` 短尾 bin（固件设计内），判据要求恰好 6 个 bin → `p3_dpll_short.py` 只接受这一形状，端点按最后完整 bin + 尾 bin 包络判定。第三次 `p3_hardware_acceptance.py run`（quick）`PASS_WITH_WARNINGS`（ERROR/FATAL 为 0，WARN 类别与 2026-10-11 通过轮相同），`check-staged` OK；证据 `out/HardwareAcceptance/20261012/p3-133853`。
 
 ### T2-PROGRESS-20261011-027：M:N 轮换比例 SCPI 入口落地，一等席对齐特等列为下一目标
 

@@ -4,11 +4,43 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
 Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 
 ## 文档接口与范围
 
 本文件定义 T2 当前主线的时间模型、owner 边界、不变量和验证语义；[TODO](TRIGGER_T2_TODO.md) 是任务状态唯一落点；[Task Progress](TRIGGER_T2_TASK_PROGRESS.md) 记录实现与证据。
+
+## 台架起链流程图（节点 / 期望反馈）
+
+![T2 起链流程](T2_BRINGUP_FLOW.svg)
+
+上图的耗时与状态是绘制时快照；当前可执行流程与逐步实测由 `tools/sync_trigger/t2_workflow.py` 维护，并写入数据驱动视图 `T2_FLOW.html`。流程的判据自顶向下：**验收**（`p3_hardware_acceptance.py t2`：四板挂载、workflow 无失败步骤、参考板 `published_mask` 覆盖全部位置）← **发布**（`POSition?` 的 `tx_publish_count`）← **预览存在**（游标有效时计数尚未越过阈值；越过阈值的位置 Core0 不再生成预览）← **T2 服务被调用**（`T2?` 的 `segment_max_cycles`，[42..44]）← **SYNC_TRIGGER 相位运行且未隔离**（`SYSTem:TDMA:SCHEDule?` 中相位 7 的 run 计数增长、`quarantined_mask` 无位 6；超出 `PROJECT_CORE1_PHASE_SYNC_TRIGGER_WCET_CYCLES` 即被隔离）← **参考游标有效**（`T2:CURSor?`；粘性故障现场在其末尾 7 字段）← 各停机态前置。排查时按此顺序自下而上定位，**先验证下层反馈，再看上层计数**。
+
+**更正（2026-10-12，`T2-PROGRESS-20261012-001`）**：此前写的「相位 6 窗口小于 WCET、需优先级源 active 才能运行」来自 `SCHEDule?` 步长与相位号的误读，不成立；SYNC_TRIGGER 是相位 7，`close_cycle` 为静态值，与优先级源无关。
+
+## 静态配置 / 动态配置的分野与顺序规则
+
+起链必须严格分成两段；把"配置"混到"运行"之后会静默失败。**三个语义必须分清**：
+
+1. **配置**：写入参数或表（环剖面、标定重放、位置表、动作表、模板、计数器、路径延时交接）。全部是停机态写入。
+2. **挂载（arm）**：只把模块置为"已武装/可用"，本身不产生输出。包括 `T2:CONFigure` + `T2:STARt`（**名字里的 START 是历史命名，语义是挂载**）、`VDC:FEEDback:SESSion` + `VDC:OUTPut:RUN`（提交运行请求）、`PRIORity:SYNC/MATCH/FOLLow`（提交优先级类）、`SYNC:VDC:DPLL:ProVisional`（路径延时交接）。
+3. **启动（动态）**：真正让运行时开始产出的那次使能——`RING:START`（环数据使能）与 `LOAD:MASK` 位 6（`APP_REALTIME_LOAD_SYNC_TRIGGER`，同步触发相位使能 ⇒ T2 开始发布）。**"T2 的启动"只能用掩码位 6 表达**：环一旦 `enabled`/`adapter_started`，`T2:STARt`、`SESSion`、`OUTPut:RUN`、`PRIORity:*` 等停机态写入一律被拒（`tdma_service.c:1033-1035` 与 `1079-1081`，reject 115/135），因此挂载必须在起环前完成，而动态启动由不受该限制的掩码位承担。
+
+**静态配置（`RING:START` 之前，环必须停止）**：凡走停机态元数据路径（`tdma_service_run_stopped_maintenance` / `update_stopped_metadata`）的写入都属此类，它们**会推进环配置序号**，因此顺序由绑定新鲜度决定：
+
+- 环：`CALibration:TOPology:PROBe` + `TDMA:OPMode:STAGe/APPLy`、`RING:GEOMetry`、`RING:TOPology`、`RING:DIAGnostic 1`。
+- 位置表：`GRID:CONFigure` → `DEPloyment:STAGe/ACTivate` → `ACTion:INSTall` / `TEMPLate:INSTall` → `COUNter:LOAD`。
+- **T2 配置**：`T2:CONFigure` 的前置是 diag 91/92/93——网格已配置、部署 `active.valid`、动作表/模板 `installed && resources_loaded && binding_current`（`scpi_trigger_t2_runtime_commands.inc:74-89`）。`binding_current()` 要求环停止且配置序号未变，因此 **T2 配置必须早于**后续任何停机态写入（会话/`OUTPut:RUN`/优先级）。
+- VDC 时基：`OUTPut:TIMing`、`FEEDback:SESSion {generation}`、`OUTPut:RUN period,high,duration`（`duration=0` 表示连续运行；1..20000 是有限调试运行）。
+- 临时训练：`SYNC:VDC:DPLL:ProVisional 1` 要求环停止、staged 配置 enabled、标定阶段 complete 且 node_count/topology/profile/schedule CRC 与 staged 逐项相等，且**反馈会话必须已关闭**（`vdc_dpll_manager.c:4363`）——故它排在开会话之前。
+- 优先级类：`PRIORity:SYNC`/`MATCH`/`FOLLow`/`FOLLow:PHASe`。`FOLLow` 要求活跃会话、generation 匹配、`s_priority_match_request_session == session`，并要 boundary 请求计数为偶数；其查询页 `FOLLow?` 在通道 active 时拒答，**判据只能用 `FOLLow:STATus?`**。
+- 时基掩码：`LOAD:MASK 91`（位 6 = `APP_REALTIME_LOAD_SYNC_TRIGGER`）属静态配置，在起环前设置。
+
+**静态提交、动态生效**：`T2:STARt`、`VDC:OUTPut:RUN`、`PRIORity:* 1`、`LOAD:MASK 91`、`ProVisional 1` 只提交请求或使能；实际产出发生在运行期（VDC 输出服务的起环前 outcome 是 `RING_WAIT`/`MODEL_UNAVAILABLE`/`IDENTITY_WAIT`，属正常等待而非故障）。
+
+**动态动作（只能在运行期）**：`RING:START`（数据使能）、`SOURce:STARt`、`CALibration:ORIGin:TRIAL`、采样与验收判据、停机 teardown。**T2 的发布建立在这三者之上**：TDMA 环在跑（`enabled && adapter_started`，`ring_seq` 递增）+ VDC 输出在产块 + 计数器在走；`T2:STARt` 只是挂载，服务在同步触发相位里被调用，条件不满足即早退（`T2?` 的 `segment_max_cycles` 保持 0）。
+
+**计数时序约束**：参考游标必须在计数到达首个阈值之前有效。台架上推进计数的是 PWM 源（`TRIGger:REServation:SOURce:STARt`），因此源只能在游标有效之后启动；计数先于游标越过阈值的位置不会再有预览，该轮无法发布。转台模型仍须在环启动前武装（其脉冲调度在环接管调度器后会被拒，fault 3）。
 
 之前完成的 COUNTER、SWITCH、GATEWAY、动作表安装和一次性 action ARM 只是动作基础。当前主线是同步 VDC 与 1 kHz 时间片构成的准确时间系统：VDC 基准推进共同时间，NO1 发布预测位置，从板按本地时间片执行动作。本文不把旧的 STOP 诊断执行切片描述成完整 T2。
 
@@ -64,7 +96,9 @@ position_q = target_ms_index * subdivisions + target_fine_slice_index
 **FREEZE 是开始冻结，全部目标收到后才是冻结完成**（2026-10-10 用户确认，`3ddeb258`）：
 - 从板收到某位置的 FREEZE 即完成本板冻结，并把"run_id 低 4 位 + 已冻结位置掩码"作为状态写入其每个镜像的 control 字节（`TDMA_PROCESS_IMAGE_CONTROL_OPCODE_T2_FROZEN`）；一次环回即可把状态带回 NO1。
 - NO1 对未完成位置按间隔重发同版本 FREEZE（`T2_FREEZE_RESEND_SLICES`），直到 `target_mask` 内全部从板报告该位置已冻结，置 `freeze_complete_mask`；位置窗口过期仍未完成则置 `freeze_abandoned_mask` 并停止重发。从板对重复 FREEZE 只接受第一次。
-- 诊断：`TRIGger:REServation:T2?` 末尾的 `freeze_complete_mask`、`freeze_abandoned_mask`、`freeze_resend_count`，以及 2026-10-11 追加的 `freeze_abandoned_count`（放弃完成的次数）与 `late_arrival_count`（**迟到到达**：记录格式与寻址都对，但抵达时承诺窗口已关闭——它仍计入 `descriptor_reject_count`，只是不再与身份/网格/部署等 10 种原因混在一起；目标溢出导致的"无窗口"不算迟到），以及迟到的**量级** `late_last_current_ms`（到达时消费侧粗序号）与 `late_last_expiry_sync`（被错过的窗口），二者之差即迟到量；并**逐位置**公开承诺本身（`descriptors[i].target_ms_index` 低字与 `descriptors[i].expiry_sync`）——没有承诺作参照，迟到计数不构成证据。**注意**：整机驱动下原点持续重解算、窗口被不断延长，"放弃完成"分支在那里不可达；该分支改由 `tests/python/test_trigger_t2_freeze_abandon.py` 以**抽取式 harness** 直接驱动（放弃、饱和、重发、节奏、确认、暂存被拒六种情形，并有负测证明断言有效，见 `TDMA-PROGRESS-20261011-033`）。另附 `freeze_abandoned_count`（饱和计数）：位置窗口过期仍未完成会置位掩码，但掩码按位置保存、下一次 run 会清零，**只有计数能回答"发生过多少次"**。
+- 诊断：`TRIGger:REServation:T2?` 末尾的 `freeze_complete_mask`、`freeze_abandoned_mask`、`freeze_resend_count`，以及 2026-10-11 追加的 `freeze_abandoned_count`（放弃完成的次数）与 `late_arrival_count`（**迟到到达**：记录格式与寻址都对，但抵达时承诺窗口已关闭——它仍计入 `descriptor_reject_count`，只是不再与身份/网格/部署等 10 种原因混在一起；目标溢出导致的"无窗口"不算迟到），以及迟到的**量级** `late_last_current_ms`（到达时消费侧粗序号）与 `late_last_expiry_sync`（被错过的窗口），二者之差即迟到量；并**逐位置**公开承诺本身（`descriptors[i].target_ms_index` 低字与 `descriptors[i].expiry_sync`）——没有承诺作参照，迟到计数不构成证据。**注意**：整机驱动下原点持续重解算、窗口被不断延长，"放弃完成"分支在那里不可达；该分支改由 `tests/python/test_trigger_t2_freeze_abandon.py` 以**抽取式 harness** 直接驱动（放弃、饱和、重发、节奏、确认、暂存被拒六种情形，并有负测证明断言有效，见 `TDMA-PROGRESS-20261011-033`）。**FREEZE 完成必须只等"同伴"（2026-10-11 修复）。** 冻结确认 `distributed_refmem_position_freeze_acked()` 是**全有或全无**：`opcode = T2_FROZEN | (run_id & 0x0F)`，掩码内**任一**槽位报的 opcode 不是本 run 就整体返回 0。而确认路径**只能从"收到的镜像"填充槽位**，所以一旦 `target_mask` 含**位置来源槽位自身**（`source_slot`），该位永远不可能被确认 → 每个位置都保持"未完成" → 原点按 `T2_FREEZE_RESEND_SLICES` 一直重发到窗口关闭。现策略：原点**只等同伴**（`peers = target_mask & ~(1u << source_slot)`），自身位被忽略并置标志 `freeze_ack_own_in_mask`；**无同伴**（单板台架）视为按构造完成，不产生任何重发。主机侧 `tools/sync_trigger/t2_enable.py` 原先下发 `0x0F`（含槽 0）已改为按 `--nodes` 推导同伴掩码（4 板 → `0x0E`）。判据：一旦 `freeze_ack_own_in_mask == 1`，此前观察到的"重发很多"就是这条配置错误，而不是链路丢失。
+
+另附 `freeze_abandoned_count`（饱和计数）：位置窗口过期仍未完成会置位掩码，但掩码按位置保存、下一次 run 会清零，**只有计数能回答"发生过多少次"**。
 
 ### 冻结后的诊断回传
 

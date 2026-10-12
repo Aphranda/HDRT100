@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -288,6 +288,9 @@ docs/
 | `trigger/t2/TRIGGER_T2_TASK_PROGRESS.md` | T2 分支参考、切片实现、验证、失败与交接记录。 |
 | `trigger/t2/TRIGGER_T2_REVIEW.md` | 2026-10-09 T2 代码与架构语义评审快照：偏离项、实际状态对账、文档漂移与建议顺序；非契约。 |
 | `trigger/t2/TRIGGER_T2_STEP_REVIEW.md` | 2026-10-11 T2 复核汇总：状态对账、predictor/runtime/wire 与分支角度前端两份审计的核对、31 位置/STEP/身份/模拟源影响与待裁定决定清单；非契约。 |
+| `trigger/t2/T2_FLOW.html` | T2 起链工作流 A4 视图：由 `tools/sync_trigger/t2_workflow.py` 注入最近一次运行的逐步结果；数据快照，非事实源。 |
+| `trigger/t2/DPLL60_FLOW.html` | DPLL60 工作流 A4 视图：由 `tools/vdc_priority_trace/DPLL60_workflow.py` 注入最近一次运行的逐步结果；不是验收凭证。 |
+| `trigger/t2/T2_BRINGUP_FLOW.svg` | T2 起链工作流流程图（`t2_workflow.py` 的 22 步与配置/挂载/启动三分）；所注耗时与状态为绘制时快照，非事实源。 |
 | `trigger/TRIGGER_SEQ_STEP_DESIGN.md` | 序列步进触发模式设计。 |
 | `trigger/TRIGGER_ENC_COUNT_DESIGN.md` | 编码器计数触发模式设计。 |
 | `trigger/TRIGGER_PULSE_COUNT_ANALYSIS.md` | 脉冲计数分析。 |
@@ -315,6 +318,7 @@ docs/
 | `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA 域当前稳定架构。 |
 | `ota/OTA_TODO.md` | OTA 域当前任务状态与退出门禁。 |
 | `ota/OTA_TASK_PROGRESS.md` | OTA 域实现、验证、失败与回退证据。 |
+| `ota/OTA_FLOW.html` | 四板刷写工作流 A4 视图（OTA / picotool / TDMA 流式预留）：由 `tools/ota/OTA_workflow.py` 注入最近一次运行；不是验收凭证。 |
 | `legacy/ota/README.md` | OTA 历史文档索引。 |
 | `legacy/ota/OTA_SYSTEM_DESIGN.md` | v1 OTA 系统设计历史快照。 |
 | `legacy/ota/OTA_AB_SWITCH_DESIGN.md` | Direct A/B 迁移历史设计。 |

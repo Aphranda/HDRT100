@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 
 ## 文档接口与状态规则
 
@@ -197,10 +197,11 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 | 持久化载体与耐久 | DONE | 记录写入专用 `SEAT_MOUNT` 分区（`FLASH_DEPLOYMENT_MAP_SEAT_MOUNT_STORE_*`），四板在经历烧录与完整运行后仍 `loaded=1`；此前借用暂存区会丢失。 |
 | 平台闸门（4 处） | DONE | 原始 flash 调用登记、构建源登记、flash 事务 AO 来源白名单、事务层"来源×分区×范围×长度"规则；缺任一项写入以策略/权限错误静默失败。 |
 | T2 使能链前置 | DONE（逐环验证） | 网格（`subdivisions >= 2`）→ 部署 STAGe/ACTivate（CRC 经设备接受）→ 动作表（**必须逐板按本板 `binding.local_role`**）→ 模板库（`TEMPLate:INSTall/ACTivate`，自带 CRC）→ 停机维护窗口 → `T2:CONFigure` 成功（三块执行板 `configured=1`）。 |
+| DPLL60 步进化 | DONE | `tools/vdc_priority_trace/DPLL60_workflow.py`（步骤 0–9：初始化/前置检查/四板复位/TDMA 停机态交接证据/示波器发现/采集前置/60 s 联合采集/产物校验/摘要与门限/工作流收据），`--list/--step/--steps/--full/--interactive/--refresh-html`，数据驱动视图 `docs/trigger/t2/DPLL60_FLOW.html`。薄编排，采集与判据复用 `vdc_priority_joint_capture.py` 与 `p3_dpll_short`；工作流收据不是凭证，正式凭证仍由打包入口签发（代码提交 `b2c527ed`）。P3 全流程的同形工作流见 T2 `TRIGGER_T2_TODO.md` 后续项。 | 无 |
 | T2 启动闸门 | DONE | `T2:STARt` 前置 `distributed_refmem_reset_position_stopped()` 要求飞行 FIFO 排空；解药为 `SYSTem:TDMA:FLIGHT:FIFO:RESet`（`SYSTem:TDMA:FLIGHT:FIFO?` 可读四计数）。 |
 | 源侧（转台脉冲） | DONE | `CONFigure:MODEl:TURNtable:{LOAD,MOTion,TRIGger}` + `MODEl:TURNtable:STARt`；台架为每板 OUT4↔IN1 自环，**NO1 部署行必须允许 OUT4（掩码 0x8）**。 |
 | VDC 输出运行 | DONE | 反馈会话号必须**单调递增**（`vdc_model_feedback.inc` 的 `s_model_feedback_last_session`，`UINT32_MAX` 为清除哨兵）；参数界 `period_ns∈[1ms,100ms]`、`high_ns∈[100ns, period/2]`、`duration_ms<=20000`；须在停机态准备。 |
-| 台架工具 | DONE | `p3_hardware_acceptance.py t2`（逐板使能 + 采样 + 报告）与 `tools/sync_trigger/t2_enable.py --full`（顺序：清理 → 逐板配置+T2 → VDC 会话/运行 → 转台 → 环 → 采样）。 |
+| 台架工具 | DONE | `p3_hardware_acceptance.py t2`（调用 `t2_workflow.py --full`；通过要求四板 `T2 configured 1 active 1`、有发布，且 workflow 报告 `failed steps: none`——后者涵盖 SYNC_TRIGGER 隔离、游标粘性故障与参考板未发布全部位置）与 `tools/sync_trigger/t2_workflow.py`（22 步 0–21 的可步进工作流：`--list/--step N/--steps 1-6/--full/--interactive`；每步带时间戳、耗时、具名失败原因，整场 tee 到 `out/tdma_t2/steps-<stamp>.log`）。顺序：**标定阶段自检(0) → 停机态配置与挂载(1–13) → 转台/源只配置(14) → 优先级(15) → 起环(16) → 锁相+动态启动位6(17) → 时基就绪(18) → 试运行+启动脉冲流(19,阈值守门) → 采样(20) → 停机(21)**。 |
 
 **当前唯一阻塞（下一手直接从这里接）**
 

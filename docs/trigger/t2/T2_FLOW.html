@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>T2 起链工作流 · 流程图 + 报告</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body { font-family:"Microsoft YaHei","DengXian",Arial,sans-serif; background:#d7d9df; color:#1f2328;
+         padding:18px; line-height:1.35; }
+  @page { size:A4 portrait; margin:0; }
+  .page { width:210mm; height:297mm; margin:0 auto 18px; background:#fff; overflow:hidden;
+          box-shadow:0 3px 14px rgba(0,0,0,.16); display:flex; flex-direction:column;
+          padding:10mm 12mm 8mm; break-after:page; page-break-after:always; }
+  h1 { font-size:18px; } h2 { font-size:14px; color:#26496b; margin-bottom:5px; }
+  .sub { font-size:10px; color:#5a6472; margin-top:3px; }
+  .rule { height:3px; background:#d9e1ef; margin:7px 0 9px; }
+  .bars { display:flex; gap:8px; flex-wrap:wrap; font-size:10.5px; margin-bottom:7px; }
+  .bar { border:1px solid #d5dbe4; border-radius:4px; padding:3px 6px; background:#f7f9fc; }
+  .legend { display:flex; gap:11px; font-size:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+  .ok{background:#1f9d55}.fail{background:#c0392b}.pending{background:#d9822b}.notrun{background:#98a2b3}
+
+  /* page 1: flow chart (compact, 22 nodes) */
+  .flow { flex:1; display:flex; flex-direction:column; justify-content:center; }
+  .group { font-size:9.5px; color:#5a6472; letter-spacing:.3px; margin:3px 0 1px 27px; }
+  .group:first-child { margin-top:0; }
+  .node { position:relative; border:1px solid #ccd6e2; border-left:5px solid #98a2b3; border-radius:6px;
+          background:#fff; padding:3px 8px 3px 9px; display:flex; align-items:center; gap:9px; }
+  .node.ok { border-left-color:#1f9d55; background:#f6fbf8; }
+  .node.fail { border-left-color:#c0392b; background:#fdf6f6; }
+  .node.pending { border-left-color:#d9822b; background:#fffaf2; }
+  .node .id { width:20px; height:20px; border-radius:50%; background:#98a2b3; color:#fff;
+              font-size:10.5px; font-weight:700; display:flex; align-items:center;
+              justify-content:center; flex:0 0 auto; }
+  .node.ok .id{background:#1f9d55} .node.fail .id{background:#c0392b} .node.pending .id{background:#d9822b}
+  .node .body { flex:1; min-width:0; }
+  .node .title { font-size:10.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node .reason { font-size:9px; color:#8c2f2f; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node .sec { font-size:10.5px; font-weight:700; font-variant-numeric:tabular-nums; flex:0 0 auto; }
+  .node .sec.ok{color:#1f9d55}.node .sec.fail{color:#c0392b}.node .sec.pending{color:#d9822b}
+  .conn { height:5px; margin-left:25px; border-left:2px dashed #b9c4d2; }
+
+  /* page 2: report */
+  table { width:100%; border-collapse:collapse; font-size:10px; }
+  th { background:#eef2f7; text-align:left; padding:4px 5px; border-bottom:1px solid #c8d3e0; }
+  td { padding:3px 5px; border-bottom:1px solid #edf0f4; vertical-align:top; }
+  tr.ok-row td:first-child{border-left:4px solid #1f9d55}
+  tr.fail-row td:first-child{border-left:4px solid #c0392b}
+  tr.pending-row td:first-child{border-left:4px solid #d9822b}
+  tr.notrun-row td:first-child{border-left:4px solid #98a2b3}
+  .id-col{width:32px;font-weight:700;color:#26496b}.sec-col{width:52px;text-align:right}.st-col{width:54px}
+  .reason{color:#8c2f2f}
+  .notes{margin-top:8px;font-size:9.5px;background:#f4f7fb;border:1px solid #d5e0ef;border-radius:5px;
+         padding:6px 8px;color:#3a4757}
+  .notes b{color:#26496b}
+  .concl{margin-top:8px;font-size:10.5px;border-left:4px solid #26496b;background:#f2f7ff;
+         padding:6px 8px;border-radius:4px}
+  .missing{background:#fff4f4;border-color:#e6b8b8;color:#8c2f2f}
+  footer{margin-top:auto;font-size:9px;color:#7a8494;display:flex;justify-content:space-between;
+         border-top:1px solid #e6eaf0;padding-top:4px}
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1: FLOW ============ -->
+<div class="page">
+  <h1>T2 起链工作流 · 流程图（22 步 0–21）</h1>
+  <div class="sub" id="sub1">等待数据…</div>
+  <div class="rule"></div>
+  <div class="bars" id="bars1"></div>
+  <div class="legend">
+    <span><i class="dot ok"></i>实测通过</span><span><i class="dot fail"></i>失败（具名原因）</span>
+    <span><i class="dot pending"></i>本次未覆盖</span><span><i class="dot notrun"></i>未运行</span>
+    <span>语义：① 配置（停机态写入）② 挂载 ③ 启动（RING:START / LOAD:MASK 位6）</span>
+    <span>数据：out/tdma_t2/t2_flow_data.js</span>
+  </div>
+  <div class="flow" id="flow"></div>
+  <footer><span>HDRT100 · T2 workflow · 流程</span><span>第 1 / 2 页</span></footer>
+</div>
+
+<!-- ============ PAGE 2: REPORT ============ -->
+<div class="page">
+  <h1>T2 起链工作流 · 报告</h1>
+  <div class="sub" id="sub2">等待数据…</div>
+  <div class="rule"></div>
+  <h2>逐步结果</h2>
+  <table>
+    <thead><tr><th class="id-col">Step</th><th>阶段</th><th class="st-col">状态</th>
+      <th class="sec-col">耗时</th><th>失败原因 / 备注</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="concl" id="concl"></div>
+  <div class="notes" id="notes">
+    <b>判据链</b>：验收（<code>configured==4 且 publishing&gt;0</code>）← 发布（<code>POSition? tx_publish_count</code>）← T2 服务被调用
+    （<code>T2? segments[42..44]≠0</code>）← 同步触发相位运行（<code>SCHEDule?</code> 相位 7 的 run 计数增长）← 优先级通道 armed ← 停机态前置。<br/>
+    <b>顺序要点</b>：停机态配置与 T2 挂载(0–13) → 转台/源只配置(14) → 优先级(15) → 起环(16，含原点试运行) → 锁相检测+动态启动位6(17)
+    → 时基就绪(18) → 启动脉冲流(19，阈值守门) → 采样(20) → 停机(21)。<br/>
+    <b>复现</b>：<code>python tools/sync_trigger/t2_workflow.py --steps 0-17</code>（单步执行时建议带 <code>--dep-generation</code> 钉住身份）。
+  </div>
+  <footer><span id="foot2">HDRT100 · T2 workflow · 报告</span><span>第 2 / 2 页</span></footer>
+</div>
+
+<!-- T2-DATA-START -->
+<script id="t2-flow-data" type="application/json">{"schema": "HDRT100_T2_FLOW_V1", "generated": "2026-10-12 11:33:16", "generation": 1791775847, "selection": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21], "failed": [16, 18, 19, 20], "log": "out\\tdma_t2\\steps-20261012-113047.log", "steps": [{"id": 0, "title": "标定阶段自检与回放（EMPTY/不完整时从健康板恢复）", "scope": "boards", "planned": true, "status": "OK", "seconds": 0.3, "reason": ""}, {"id": 1, "title": "停机序列（RING:STOP 等 + 等待物理停止）", "scope": "boards", "planned": true, "status": "OK", "seconds": 4.3, "reason": ""}, {"id": 2, "title": "停机态配置块（TIMing / 优先级清 0 / SESSion 0 / mask 27 / FLIGHT:MODE）", "scope": "boards", "planned": true, "status": "OK", "seconds": 9.3, "reason": ""}, {"id": 3, "title": "标定参数重放（TOPology:PROBe + OPMode:STAGe 7 + APPLy）", "scope": "boards", "planned": true, "status": "OK", "seconds": 0.2, "reason": ""}, {"id": 4, "title": "拓扑暂存（GEOMetry + TOPology）并等待提交", "scope": "boards", "planned": true, "status": "OK", "seconds": 0.3, "reason": ""}, {"id": 5, "title": "诊断继续标志（RING:DIAGnostic 1）", "scope": "boards", "planned": true, "status": "OK", "seconds": 0.7, "reason": ""}, {"id": 6, "title": "路径延时交接（SYNC:VDC:DPLL:ProVisional 1）+ 前置判定", "scope": "boards", "planned": true, "status": "OK", "seconds": 1.8, "reason": ""}, {"id": 7, "title": "清表（COUNter/DEPloyment/TEMPLate/ACTion/TEMPlate CLEar）", "scope": "boards", "planned": true, "status": "OK", "seconds": 7.2, "reason": ""}, {"id": 8, "title": "网格（GRID:CLEar + GRID:CONFigure）", "scope": "boards", "planned": true, "status": "OK", "seconds": 2.2, "reason": ""}, {"id": 9, "title": "部署激活（验证式，最多 6 轮）", "scope": "boards", "planned": true, "status": "OK", "seconds": 2.7, "reason": ""}, {"id": 10, "title": "装动作表与模板（ACTion/TEMPlate INSTall + ACTivate）", "scope": "boards", "planned": true, "status": "OK", "seconds": 3.9, "reason": ""}, {"id": 11, "title": "计数器装载（仅 slot 0：再激活 + UNLoad/LOAD/CLEar）+ 残值守门", "scope": "boards", "planned": true, "status": "OK", "seconds": 1.5, "reason": ""}, {"id": 12, "title": "T2 配置 + 挂载（FIFO:RESet + CONFigure + STARt）", "scope": "boards", "planned": true, "status": "OK", "seconds": 3.1, "reason": ""}, {"id": 13, "title": "VDC 反馈会话 + OUTPut:RUN 请求", "scope": "boards", "planned": true, "status": "OK", "seconds": 6.0, "reason": ""}, {"id": 14, "title": "转台模型与源配置（只配置，不启动）", "scope": "once", "planned": true, "status": "OK", "seconds": 1.7, "reason": ""}, {"id": 15, "title": "优先级类（SYNC / MATCH / FOLLow / FOLLow:PHASe）", "scope": "once", "planned": true, "status": "OK", "seconds": 5.1, "reason": ""}, {"id": 16, "title": "TDMA 环启动（BURSt 0 → ARM → TRAIN → START）+ 原点试运行", "scope": "once", "planned": true, "status": "FAIL", "seconds": 35.8, "reason": "cursor sticky fault site RING at seq 2279: ring enabled=0, adapter started=0, data enabled=0, ring config!=bound, ring schedule_crc=0"}, {"id": 17, "title": "锁相检测（LOCK:READiness?）+ 动态启动（mask 位6）", "scope": "once", "planned": true, "status": "OK", "seconds": 2.3, "reason": ""}, {"id": 18, "title": "时基就绪判定（cursor valid / epoch / model + 相位7 预检）", "scope": "once", "planned": true, "status": "FAIL", "seconds": 36.2, "reason": "Step 18 reference cursor never became valid within 24 s (last err 7 valid 0 seq 2279); without a valid cursor Core0 saves no preview and nothing is published"}, {"id": 19, "title": "启动 PWM 源与转台（守门：游标有效且计数未越首阈值）+ 计数递增判据", "scope": "once", "planned": true, "status": "FAIL", "seconds": 1.7, "reason": "Step 19 reference cursor not valid (step 18): this run cannot publish; PWM source started for diagnosis only"}, {"id": 20, "title": "运行采样（segments[42..44] / published_mask / POSition 发布）", "scope": "once", "planned": true, "status": "FAIL", "seconds": 15.3, "reason": "Step 20 reference published_mask 0 at the end of sampling (expected 7: all three positions)"}, {"id": 21, "title": "停机 teardown（含停机态优先级读数）+ 阶段结论", "scope": "once", "planned": true, "status": "OK", "seconds": 7.7, "reason": ""}]}</script>
+<!-- T2-DATA-END -->
+<script src="../../../out/tdma_t2/t2_flow_data.js"></script>
+<script>
+// Inline-first for the same reason as the DPLL60 page: a file:// subresource can be
+// refused, which made the page claim the data was missing after a real run.
+function readFlowData() {
+  const inline = document.getElementById('t2-flow-data');
+  if (inline && inline.textContent.trim()) {
+    try {
+      const parsed = JSON.parse(inline.textContent);
+      if (parsed && Array.isArray(parsed.steps) && parsed.steps.length) return parsed;
+    } catch (error) { /* fall through to the external file */ }
+  }
+  return window.T2_FLOW || null;
+}
+(function () {
+  const data = readFlowData();
+  const label = { OK:'通过', FAIL:'失败', pending:'未覆盖', 'not-run':'未运行' };
+  const groups = [
+    { from: 0, name: '准备 · 标定阶段自检与停机' },
+    { from: 2, name: '静态配置 · 环标定 / 拓扑 / 路径延时交接' },
+    { from: 7, name: '位置表与 T2 挂载' },
+    { from: 14, name: '供源 · 优先级 · 起环 · 动态启动' },
+    { from: 20, name: '采样与停机' }
+  ];
+  if (!data || !Array.isArray(data.steps)) {
+    document.getElementById('sub1').textContent =
+      '未找到 out/tdma_t2/t2_flow_data.js —— 先运行 tools/sync_trigger/t2_workflow.py（任意 --steps 选择）';
+    document.getElementById('notes').classList.add('missing');
+    document.getElementById('sub2').textContent = '无数据';
+    return;
+  }
+  const passed = data.steps.filter(s => s.status === 'OK').length;
+  const failed = data.steps.filter(s => s.status === 'FAIL').length;
+  const notRun = data.steps.filter(s => s.status === 'not-run' || s.status === 'pending').length;
+  const secs = data.steps.reduce((sum, s) => sum + (s.seconds || 0), 0);
+  const head = '生成 ' + data.generated + ' · dep_generation ' + data.generation +
+               ' · 本次选择 [' + (data.selection || []).join(', ') + ']';
+  document.getElementById('sub1').textContent = head;
+  document.getElementById('sub2').textContent = head;
+  document.getElementById('bars1').innerHTML =
+    '<span class="bar">通过 ' + passed + '</span>' +
+    '<span class="bar">失败 ' + failed +
+      (data.failed && data.failed.length ? '（' + data.failed.join(', ') + '）' : '') + '</span>' +
+    '<span class="bar">未覆盖/未运行 ' + notRun + '</span>' +
+    '<span class="bar">累计 ' + secs.toFixed(1) + ' s</span>' +
+    '<span class="bar">' + (data.log || '') + '</span>';
+
+  // ---- page 1: flow chart ----
+  const flow = document.getElementById('flow');
+  data.steps.forEach((s, index) => {
+    const group = groups.find(g => g.from === s.id);
+    if (group) {
+      const tag = document.createElement('div');
+      tag.className = 'group';
+      tag.textContent = '▍' + group.name;
+      flow.appendChild(tag);
+    } else if (index > 0) {
+      const conn = document.createElement('div');
+      conn.className = 'conn';
+      flow.appendChild(conn);
+    }
+    const node = document.createElement('div');
+    node.className = 'node ' + s.status;
+    node.innerHTML =
+      '<div class="id">' + s.id + '</div>' +
+      '<div class="body"><div class="title">' + s.title + '</div>' +
+      (s.reason ? '<div class="reason">' + s.reason + '</div>' : '') + '</div>' +
+      '<div class="sec ' + s.status + '">' +
+      (s.seconds == null ? '—' : s.seconds.toFixed(1) + 's') + '</div>';
+    flow.appendChild(node);
+  });
+
+  // ---- page 2: report table + conclusion ----
+  const tbody = document.getElementById('rows');
+  data.steps.forEach(s => {
+    const row = document.createElement('tr');
+    row.className = s.status === 'OK' ? 'ok-row' : s.status === 'FAIL' ? 'fail-row'
+                  : s.status === 'pending' ? 'pending-row' : 'notrun-row';
+    row.innerHTML = '<td class="id-col">' + s.id + '</td><td>' + s.title + '</td>' +
+      '<td>' + (label[s.status] || s.status) + '</td>' +
+      '<td class="sec-col">' + (s.seconds == null ? '—' : s.seconds.toFixed(1) + 's') + '</td>' +
+      '<td class="reason">' + (s.reason || '') + '</td>';
+    tbody.appendChild(row);
+  });
+  const failing = data.steps.filter(s => s.status === 'FAIL')
+    .map(s => 'Step ' + s.id + (s.reason ? '（' + s.reason + '）' : ''));
+  document.getElementById('concl').innerHTML =
+    '<b>结论</b>：' + passed + ' 步通过、' + failed + ' 步失败、' + notRun + ' 步未覆盖/未运行；累计 ' +
+    secs.toFixed(1) + ' s。' +
+    (failing.length ? '<br/><b>失败</b>：' + failing.join('；')
+                    : '<br/>本次选择内没有失败步骤。');
+  document.getElementById('foot2').textContent =
+    'HDRT100 · T2 workflow · schema ' + (data.schema || '');
+})();
+</script>
+</body>
+</html>

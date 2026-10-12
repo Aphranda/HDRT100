@@ -4,7 +4,7 @@ Status: Active
 Domain: OTA
 Canonical: `docs/ota/OTA_TASK_PROGRESS.md`
 Related: `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/ota/OTA_TODO.md`, `docs/arch/HAOFV_FLASH_TASK_PROGRESS.md`
-Last updated: 2026-09-06
+Last updated: 2026-10-12
 
 本文只记录 OTA HAOFV 主线的代码、测试、构建、HIL、失败、回退和下一 gate。稳定语义见 Architecture，任务状态见 TODO。
 
@@ -21,6 +21,23 @@ Last updated: 2026-09-06
 - 当前任务：`OTA-HAOFV-010`。
 - 已确认：BCB CRC 深栈副本导致的 HardFault 已修复，COM7 Direct A/B 双向闭环通过。
 - 下一 gate：完成当前源码指纹的 P3 receipt、真实 power-cut 边界和 C11 复核；不得复用旧 receipt。
+
+### OTA-PROGRESS-20261012-001 - 四板刷写工作流（OTA / picotool / TDMA 流式预留）
+
+- 新增 `tools/ota/OTA_workflow.py` 与 A4 报告 `docs/ota/OTA_FLOW.html`，形态与 DPLL60/T2
+  工作流一致（`--list`/`--step`/`--steps`/`--full`/`--interactive`/`--refresh-html`）。
+  8 步：构建、产物校验、刷写前快照（身份/构建号/标定持久化）、方式前置、刷写、刷写后复验、
+  标定保持校验、收据。只做编排：传输复用 `ota_multi_update` 与 `picotool_flash`，OTA 门限
+  复用 `p3_hardware_acceptance.validate_ota`。
+- `--method ota`（默认，4096 B 块、保留标定）；`--method picotool` 加载 FACTORY UF2，须显式
+  `--allow-factory-image`；`--method tdma` 为 TDMA 环上流式 OTA 的预留位，Step 3/4 明确判为
+  失败且不刷写，不会被误读为成功。
+- 标定保持：Step 6 比对 `READ:CALibration:TRAINing:STAGe:PERSistence?` 的记录身份，
+  变化即失败。构建号 `PROJECT_BUILD_ID` 为 CMake 缓存值，Step 2 对「刷写前已是同号」给出
+  非阻断备注，报告以包 SHA256 辨识镜像。
+- 台架首次实跑（2026-10-12，快照非事实源）：`--method ota --full` 8 步全部通过（Step 2 为
+  上述备注），四板重枚举、OTA 门限通过、标定未变；证据 `out/HardwareAcceptance/20261012/ota-*`。
+  picotool 与 tdma 两条路径只做了离线防护验证，未在台架实刷。
 
 ### OTA-PROGRESS-20260906-010 - 当前切片 P3/TDMA 门禁阻塞
 

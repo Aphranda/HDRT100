@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DPLL60 联合验收 · 流程图 + 报告</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body { font-family:"Microsoft YaHei","DengXian",Arial,sans-serif; background:#d7d9df; color:#1f2328;
+         padding:18px; line-height:1.4; }
+  @page { size:A4 portrait; margin:0; }
+  .page { width:210mm; height:297mm; margin:0 auto 18px; background:#fff; overflow:hidden;
+          box-shadow:0 3px 14px rgba(0,0,0,.16); display:flex; flex-direction:column;
+          padding:11mm 13mm 9mm; break-after:page; page-break-after:always; }
+  h1 { font-size:19px; } h2 { font-size:15px; color:#26496b; margin-bottom:6px; }
+  .sub { font-size:10.5px; color:#5a6472; margin-top:3px; }
+  .rule { height:3px; background:#d9e1ef; margin:8px 0 12px; }
+  .bars { display:flex; gap:9px; flex-wrap:wrap; font-size:11px; margin-bottom:10px; }
+  .bar { border:1px solid #d5dbe4; border-radius:4px; padding:4px 7px; background:#f7f9fc; }
+  .legend { display:flex; gap:13px; font-size:10.5px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+  .ok{background:#1f9d55}.fail{background:#c0392b}.pending{background:#d9822b}.notrun{background:#98a2b3}
+
+  /* ---- page 1: flow chart ---- */
+  .flow { flex:1; display:flex; flex-direction:column; justify-content:center; gap:0; }
+  .node { position:relative; border:1px solid #ccd6e2; border-left:6px solid #98a2b3; border-radius:7px;
+          background:#fff; padding:8px 11px 8px 13px; display:flex; align-items:center; gap:12px; }
+  .node.ok { border-left-color:#1f9d55; background:#f6fbf8; }
+  .node.fail { border-left-color:#c0392b; background:#fdf6f6; }
+  .node.pending { border-left-color:#d9822b; background:#fffaf2; }
+  .node .id { width:26px; height:26px; border-radius:50%; background:#26496b; color:#fff; font-size:12px;
+              font-weight:700; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+  .node.ok .id { background:#1f9d55; } .node.fail .id { background:#c0392b; }
+  .node.pending .id { background:#d9822b; } .node.not-run .id { background:#98a2b3; }
+  .node .body { flex:1; }
+  .node .title { font-size:12.5px; font-weight:600; }
+  .node .meta { font-size:10px; color:#5a6472; margin-top:2px; }
+  .node .sec { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .node .sec.ok{color:#1f9d55} .node .sec.fail{color:#c0392b} .node .sec.pending{color:#d9822b}
+  .conn { height:13px; margin-left:31px; border-left:2px dashed #b9c4d2; }
+  .group { font-size:10px; color:#5a6472; margin:2px 0 1px 31px; letter-spacing:.3px; }
+
+  /* ---- page 2: report ---- */
+  table { width:100%; border-collapse:collapse; font-size:10.5px; }
+  th { background:#eef2f7; text-align:left; padding:5px 6px; border-bottom:1px solid #c8d3e0; }
+  td { padding:4px 6px; border-bottom:1px solid #edf0f4; vertical-align:top; }
+  tr.ok-row td:first-child{border-left:4px solid #1f9d55}
+  tr.fail-row td:first-child{border-left:4px solid #c0392b}
+  tr.pending-row td:first-child{border-left:4px solid #d9822b}
+  tr.notrun-row td:first-child{border-left:4px solid #98a2b3}
+  .id-col{width:34px;font-weight:700;color:#26496b}.sec-col{width:56px;text-align:right}.st-col{width:60px}
+  .reason{color:#8c2f2f;font-size:10px}
+  .notes{margin-top:10px;font-size:10px;background:#f4f7fb;border:1px solid #d5e0ef;border-radius:5px;
+         padding:7px 9px;color:#3a4757}
+  .notes b{color:#26496b}
+  .concl{margin-top:9px;font-size:11px;border-left:4px solid #26496b;background:#f2f7ff;padding:7px 9px;border-radius:4px}
+  .missing{background:#fff4f4;border-color:#e6b8b8;color:#8c2f2f}
+  .warn-row td:first-child{border-left:4px solid #d9822b}
+  .node.warn{border-left-color:#d9822b;background:#fffaf2}
+  .node.warn .id{background:#d9822b}
+  .node .sec.warn{color:#9a6212}
+  .warnnote{color:#9a6212;display:block;margin-top:2px}
+  .attn{margin-top:8px;font-size:9.5px;background:#fffaf2;border:1px solid #f0d9b5;
+        border-radius:5px;padding:6px 8px;color:#7a5310}
+  .attn b{color:#9a6212}
+  footer{margin-top:auto;font-size:9.5px;color:#7a8494;display:flex;justify-content:space-between;
+         border-top:1px solid #e6eaf0;padding-top:5px}
+  .pagetag{font-size:9.5px;color:#8a94a4;text-align:right}
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1: FLOW ============ -->
+<div class="page">
+  <h1>DPLL60 四板联合验收 · 流程图</h1>
+  <div class="sub" id="sub1">等待数据…</div>
+  <div class="rule"></div>
+  <div class="bars" id="bars1"></div>
+  <div class="legend">
+    <span><i class="dot ok"></i>通过</span><span><i class="dot fail"></i>失败</span>
+    <span><i class="dot pending"></i>本次未覆盖</span><span><i class="dot notrun"></i>未运行</span>
+    <span>数据：out/HardwareAcceptance/dpll60_flow_data.js</span>
+  </div>
+  <div class="flow" id="flow"></div>
+  <footer><span>HDRT100 · DPLL60 workflow · 流程</span><span class="pagetag">第 1 / 2 页</span></footer>
+</div>
+
+<!-- ============ PAGE 2: REPORT ============ -->
+<div class="page">
+  <h1>DPLL60 四板联合验收 · 报告</h1>
+  <div class="sub" id="sub2">等待数据…</div>
+  <div class="rule"></div>
+  <h2>逐步结果</h2>
+  <table>
+    <thead><tr><th class="id-col">Step</th><th>阶段</th><th class="st-col">状态</th>
+      <th class="sec-col">耗时</th><th>失败原因 / 备注</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="concl" id="concl"></div>
+  <div class="notes" id="notes">
+    <b>凭证语义</b>：本页只报告工作流结果；正式 <code>DPLL60_JOINT</code> 凭证由打包验收入口
+    <code>p3_hardware_acceptance.py dpll60</code> 签发（步进运行不会误发凭证）。<br/>
+    <b>跳过 build/OTA</b>：Step 0 用 <code>SYSTem:TDMA:RECord:SAVE</code> 清理残留 recorder（替代 OTA 重启的干净态），
+    Step 3 真执行 TDMA process-image 交接（<code>trn03_closed_loop --stage process-image</code>，纯 SCPI）；
+    该阶段未过只记为<b>非阻断告警</b>——与打包入口 <code>allow_failure=diagnostic_continue</code> 同语义，最终裁决由采集给出。<br/>
+    <b>示波器守卫</b>：Step 4 未发现配置的示波器时重试后报失败，Step 5 拒绝以 <code>--scope off</code> 采集
+    （scope-off 只会记录 <code>external_status=SKIPPED</code>）。Step 6 对物理锁相的非确定性做重试（第二次前
+    <code>BOOT:RESet</code> + recorder 收尾，并换新 <code>--out</code> 目录）。<br/>
+    <b>复现</b>：<code>python tools/vdc_priority_trace/DPLL60_workflow.py --steps 0-9</code>
+    （或 <code>--step 6</code> 只重跑采集）。
+  </div>
+  <footer><span id="foot2">HDRT100 · DPLL60 workflow · 报告</span><span class="pagetag">第 2 / 2 页</span></footer>
+</div>
+
+<!-- DPLL60-DATA-START -->
+<script id="dpll60-flow-data" type="application/json">{"schema": "HDRT100_DPLL60_FLOW_V1", "generated": "2026-10-12 12:42:31", "selection": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "failed": [], "warnings": ["Step 3 TRN-03 supporting evidence not passed (exit 1); the capture owns the verdict. realtime_gate=False closed_loop=False incomplete=none", "Step 9: workflow receipt written (not a credential - the packaged dpll60 entry certifies)"], "log": "out/HardwareAcceptance/dpll60_steps-20261012-123940.log", "seconds": 60, "steps": [{"id": 0, "title": "初始化：板级 recorder 清理 + 身份/配置复验（替代 OTA 重启的干净态）", "planned": true, "status": "OK", "seconds": 6.4, "reason": "", "warning": ""}, {"id": 1, "title": "前置检查（基准配置 / 构建产物 / 四板身份）", "planned": true, "status": "OK", "seconds": 0.0, "reason": "", "warning": ""}, {"id": 2, "title": "四板软件复位 + 身份复验", "planned": true, "status": "OK", "seconds": 3.9, "reason": "", "warning": ""}, {"id": 3, "title": "TDMA 停机态交接证据（trn03 matrix / tdma summary / stopped handoff）", "planned": true, "status": "warn", "seconds": 48.2, "reason": "", "warning": "Step 3 TRN-03 supporting evidence not passed (exit 1); the capture owns the verdict. realtime_gate=False closed_loop=False incomplete=none"}, {"id": 4, "title": "示波器发现（scope discovery）", "planned": true, "status": "OK", "seconds": 0.5, "reason": "", "warning": ""}, {"id": 5, "title": "采集前置（输入/适配器校验 + 输出目录 + 命令构造，含必填 --out）", "planned": true, "status": "OK", "seconds": 1.5, "reason": "", "warning": ""}, {"id": 6, "title": "联合采集运行（vdc_priority_joint_capture.py，默认 60 s，带进度）", "planned": true, "status": "OK", "seconds": 110.0, "reason": "", "warning": ""}, {"id": 7, "title": "采集产物校验（exit code / input-probe.json / 检查点与裁决文件）", "planned": true, "status": "OK", "seconds": 0.0, "reason": "", "warning": ""}, {"id": 8, "title": "摘要与门限校验（summarize_joint / validate_summary）", "planned": true, "status": "OK", "seconds": 0.2, "reason": "", "warning": ""}, {"id": 9, "title": "凭证收据（DPLL60_JOINT：工作流级，正式凭证由打包入口签发）", "planned": true, "status": "warn", "seconds": 0.0, "reason": "", "warning": "Step 9: workflow receipt written (not a credential - the packaged dpll60 entry certifies)"}]}</script>
+<!-- DPLL60-DATA-END -->
+<script src="../../../out/HardwareAcceptance/dpll60_flow_data.js"></script>
+<script>
+// Prefer the inline JSON the workflow injects between the DATA markers: the external
+// file next to it is for tooling, but browsers may refuse a file:// subresource (or a
+// sandboxed preview may block it), which used to leave this page showing the
+// "data missing" note even though the run had updated the data.
+function readFlowData() {
+  const inline = document.getElementById('dpll60-flow-data');
+  if (inline && inline.textContent.trim()) {
+    try {
+      const parsed = JSON.parse(inline.textContent);
+      if (parsed && Array.isArray(parsed.steps) && parsed.steps.length) return parsed;
+    } catch (error) { /* fall through to the external file */ }
+  }
+  return window.DPLL60_FLOW || null;
+}
+(function () {
+  const data = readFlowData();
+  const label = { OK:'通过', warn:'附注', FAIL:'失败', pending:'未覆盖', 'not-run':'未运行' };
+  // Three states: OK / warn (non-blocking caveat) / FAIL. The second form keeps data
+  // written before the warn state existed rendering the same way.
+  const isWarnStep = s => s.status === 'warn' || (s.status === 'OK' && !!s.warning);
+  const groups = [
+    { at: 0, name: '准备 · 初始化 / 检查 / 复位 / TDMA 交接' },
+    { at: 5, name: '采集 · 前置 / 运行（含示波器守卫与重试）/ 产物' },
+    { at: 8, name: '判据与凭证 · 摘要门限 / 工作流收据' }
+  ];
+  if (!data || !Array.isArray(data.steps)) {
+    document.getElementById('sub1').textContent =
+      '未找到 out/HardwareAcceptance/dpll60_flow_data.js —— 先运行 tools/vdc_priority_trace/DPLL60_workflow.py';
+    document.getElementById('notes').classList.add('missing');
+    document.getElementById('sub2').textContent = '无数据';
+    return;
+  }
+  const passed = data.steps.filter(s => s.status === 'OK').length;
+  const failed = data.steps.filter(s => s.status === 'FAIL').length;
+  const warned = data.steps.filter(isWarnStep).length;
+  const secs = data.steps.reduce((sum, s) => sum + (s.seconds || 0), 0);
+  const head = '生成 ' + data.generated + ' · 采集时长 ' + (data.seconds || '?') +
+               ' s · 本次选择 [' + (data.selection || []).join(', ') + ']';
+  document.getElementById('sub1').textContent = head;
+  document.getElementById('sub2').textContent = head;
+  const barsHtml =
+    '<span class="bar">通过 ' + passed + '</span>' +
+    '<span class="bar">失败 ' + failed +
+      (data.failed && data.failed.length ? '（' + data.failed.join(', ') + '）' : '') + '</span>' +
+    (warned ? '<span class="bar">附注（非阻断） ' + warned + '</span>' : '') +
+    '<span class="bar">累计 ' + secs.toFixed(1) + ' s</span>' +
+    '<span class="bar">' + (data.log || '') + '</span>';
+  document.getElementById('bars1').innerHTML = barsHtml;
+
+  // ---- page 1: flow chart from the same data ----
+  const flow = document.getElementById('flow');
+  data.steps.forEach((s, index) => {
+    const group = groups.find(g => g.at === s.id);
+    if (group) {
+      const tag = document.createElement('div');
+      tag.className = 'group';
+      tag.textContent = '▍' + group.name;
+      flow.appendChild(tag);
+    }
+    if (index > 0) {
+      const conn = document.createElement('div');
+      conn.className = 'conn';
+      flow.appendChild(conn);
+    }
+    const node = document.createElement('div');
+    const isWarn = isWarnStep(s);
+    node.className = 'node ' + (isWarn ? 'warn' : s.status);
+    const note = s.reason ? ' · ' + s.reason : '';
+    node.innerHTML =
+      '<div class="id">' + s.id + '</div>' +
+      '<div class="body"><div class="title">' + s.title + '</div>' +
+      '<div class="meta">' + (isWarn ? label.warn : (label[s.status] || s.status)) + note +
+      '</div></div>' +
+      '<div class="sec ' + (isWarn ? 'warn' : s.status) + '">' +
+      (s.seconds == null ? '—' : s.seconds.toFixed(1) + 's') + '</div>';
+    flow.appendChild(node);
+  });
+
+  // ---- page 2: report table ----
+  const tbody = document.getElementById('rows');
+  data.steps.forEach(s => {
+    const row = document.createElement('tr');
+    const isWarn = isWarnStep(s);
+    row.className = isWarn ? 'warn-row'
+                  : s.status === 'OK' ? 'ok-row' : s.status === 'FAIL' ? 'fail-row'
+                  : s.status === 'pending' ? 'pending-row' : 'notrun-row';
+    row.innerHTML = '<td class="id-col">' + s.id + '</td><td>' + s.title + '</td>' +
+      '<td>' + (isWarn ? label.warn : (label[s.status] || s.status)) + '</td>' +
+      '<td class="sec-col">' + (s.seconds == null ? '—' : s.seconds.toFixed(1) + 's') + '</td>' +
+      '<td class="reason">' + (s.reason || '') +
+      (s.warning ? '<span class="warnnote">附注（非阻断）：' + s.warning + '</span>' : '') +
+      '</td>';
+    tbody.appendChild(row);
+  });
+  const notRun = data.steps.filter(s => s.status === 'not-run').length;
+  const warnSteps = data.steps.filter(isWarnStep);
+  document.getElementById('concl').innerHTML =
+    '<b>结论</b>：' + passed + ' 步通过、' + failed + ' 步失败、' + notRun + ' 步未运行；累计 ' +
+    secs.toFixed(1) + ' s。' + (failed ? '<br/><b>失败阶段</b>：' + data.failed.join(', ') +
+      '（见上表"失败原因"）' : '<br/>本次选择内没有失败阶段。') +
+    (warnSteps.length
+      ? '<div class="attn"><b>注意事项（附注·非阻断）</b>' + warnSteps.map(s =>
+          '<div>Step ' + s.id + '：' + s.warning + '</div>').join('') + '</div>'
+      : '');
+  document.getElementById('foot2').textContent =
+    'HDRT100 · DPLL60 workflow · schema ' + (data.schema || '');
+})();
+</script>
+</body>
+</html>

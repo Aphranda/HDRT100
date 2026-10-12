@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_RUNTIME_CONSTRAINTS.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 
 ## 文档接口
 
@@ -192,6 +192,8 @@ Calibration 拥有线序、delay、residence、bias、matrix generation/freshnes
 | 5 | `TDMA_SEAT_HEALTH_REASON_RETIRED_WAITING` | 已就绪但**未上车即被退休**的一等事实（`first_class_retired_waiting_count`） |
 | 6 | `TDMA_SEAT_HEALTH_REASON_FIRST_CLASS_STARVED` | **loop plan 排不下**一等席窗口（`seat_first_class_starved_count`）——挂在一等席上的负载将在每个边界被推迟，绝不允许静默发生 |
 | 7 | `TDMA_SEAT_HEALTH_REASON_DECODE_REJECT` | 帧已通过优先级通道校验（header/identity/mailbox CRC）但**紧缩切片无法解码**（`lane_decode_reject_count`）——不可恢复的一等事实丢失，因此与"可恢复背压"分开计数 |
+**FREEZE 完成的等待集合（2026-10-11）。** 一等位置的冻结完成由**同伴**报告决定：原点等待 `target_mask` 中除**位置来源槽位自身**以外的槽位（自身位不可能从收到的镜像里得到确认），`TRIGger:RESERVation:T2?` 末尾的 `freeze_ack_own_in_mask` 为 1 时说明配置里误含了自身槽位（历史症状：重发次数极高且永不完成）。`freeze_ack_stale_mask` / `freeze_ack_incomplete_mask` 进一步区分"谁没在说本 run"与"哪个位置位还没人冻结"（见 T2 架构文档）。
+
 | 8 | `TDMA_SEAT_HEALTH_REASON_FIRST_CLASS_MISSED` | **端到端丢失**：原点在位置窗口关闭后放弃完成该位置的 FREEZE（`freeze_abandoned_count`），或从板被要求冻结一个自己从未拥有的位置（`freeze_missing_local_count`）。前 8 位只证明"席位对**看到过的**记录做了什么"；没有这一位，**从未到达**的一等交付会留下 `ok=1`（假健康），见 `TDMA-PROGRESS-20261011-029` |
 
 **sink 层两类拒绝的分离（2026-10-11 补）。** 从板一等 sink 原先只有一个拒绝计数，混合了两种语义完全不同的情况：① 解码失败（`trigger_position_slice_decode()` 为假）——帧合法但切片不可解，**记录丢失且不可恢复**；② 单深度 mailbox 仍被占用——**有界背压**，记录已进入每源 FIFO 等待后续时间片补投。现在 ② 仍是 `lane_reject_count`（与 `lane_hold/drain/drain_fail` 一起构成可恢复路径的证据），① 独立为 `lane_decode_reject_count` 并进入判定页 bit7。这样"一等席到底丢了多少"不再需要从混合计数里猜。

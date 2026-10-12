@@ -1,0 +1,251 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1220" height="2640" viewBox="0 0 1220 2640" font-family="Segoe UI, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 z" fill="#5a6472"/>
+    </marker>
+  </defs>
+  <rect width="1220" height="2640" fill="#f7f8fa"/>
+
+  <text x="34" y="46" font-size="25" font-weight="700" fill="#1c2430">T2 起链工作流（22 步 0–21 · 配置/挂载/启动三分 · 实测耗时与状态）</text>
+  <text x="34" y="70" font-size="13" fill="#4a5563">工具：<tspan font-family="Consolas, monospace">tools/sync_trigger/t2_workflow.py</tspan>（<tspan font-family="Consolas, monospace">--list / --step N / --steps 0-10 / --full / --interactive</tspan>）；每步打印时间戳·耗时·OK/FAIL·具名原因，整场落盘 <tspan font-family="Consolas, monospace">out/tdma_t2/steps-&lt;stamp&gt;.log</tspan>。</text>
+  <text x="34" y="88" font-size="13" fill="#8c2f2f">★ 已推翻的旧结论：此前"相位 6 窗口 &lt; WCET、缺 FOLLow 余量"是**两处 SCPI 下标读错**造成的——<tspan font-family="Consolas, monospace">SCHEDule?</tspan> 实为 8 头部 + 每相位 11 字段、SYNC_TRIGGER 是**相位 7**（run 下标 91，实测 wcet 26800、窗口 335000..365500 放得下、runs 90097）；<tspan font-family="Consolas, monospace">T2?</tspan> 的 segments 在 **[42..44]**（旧读 [47..49] 是 freeze 计数）。</text>
+  <text x="34" y="106" font-size="13" fill="#1f5f66">★ 真实失败机制：Core0 对"计数已越过阈值"的位置**永不生成 preview**（trigger_t2_runtime.c:919-924），无 preview 则 stage_one_freeze() 直接返回（:210-211）⇒ 确定性不发布。故脉冲流必须晚于"锁相+游标就绪"，且启动前要用阈值守门。</text>
+
+  <g font-size="13">
+    <circle cx="44" cy="132" r="9" fill="#1f9d55"/><text x="60" y="137" fill="#33404f">实测通过（本轮步进）</text>
+    <circle cx="262" cy="132" r="9" fill="#d9822b"/><text x="278" y="137" fill="#33404f">已就位，待步进验证</text>
+    <circle cx="500" cy="132" r="9" fill="#c0392b"/><text x="516" y="137" fill="#33404f">尚未验证 / 曾阻塞</text>
+    <text x="700" y="137" fill="#4a5563">语义：① 配置（停机态写入）· ② 挂载（置为已武装，无输出）· ③ 启动（动态：RING:START / LOAD:MASK 位6）</text>
+  </g>
+
+  <!-- ===== P0 ===== -->
+  <rect x="20" y="158" width="1180" height="196" rx="10" fill="#eef2f7" stroke="#c8d3e0"/>
+  <text x="34" y="182" font-size="14" font-weight="700" fill="#3a4757">P0 自检与停机</text>
+  <g>
+    <rect x="200" y="166" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="206" r="10" fill="#1f9d55"/>
+    <text x="252" y="192" font-size="14" font-weight="700" fill="#1c2430">Step 0 标定阶段自检与回放（自愈）</text>
+    <text x="252" y="214" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">READ:CALibration:TRAINing:STAGe? → EMPTY 时：BEGin + LINK i + COMMit（从健康板回放，落 NVS）</text>
+    <text x="252" y="234" font-size="12" fill="#4a5563">反馈：四板 TRN03STG,…,complete=1 …／Provisional?=1　★ 本轮修复 NO.1/NO.2 的 EMPTY（旧操作误用 STAGe:CLEar 所致）</text>
+    <text x="1148" y="206" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">0.5s</text>
+  </g>
+  <g>
+    <rect x="200" y="258" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="298" r="10" fill="#1f9d55"/>
+    <text x="252" y="284" font-size="14" font-weight="700" fill="#1c2430">Step 1 停机序列（① 配置前置）</text>
+    <text x="252" y="306" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">RING:STOP · VDC:OUTPUT:RUN:STOP · T2:STOP · TURNtable:STOP · COUNter:STOP</text>
+    <text x="252" y="326" font-size="12" fill="#4a5563">反馈：RING:STATus?[0]=0 且 [8]=0；T2?[3]=0</text>
+    <text x="1148" y="298" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">4.0s</text>
+  </g>
+  <line x1="660" y1="246" x2="660" y2="258" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===== P1 ===== -->
+  <rect x="20" y="366" width="1180" height="380" rx="10" fill="#eef7f0" stroke="#c2dcc8"/>
+  <text x="34" y="390" font-size="14" font-weight="700" fill="#2f5d3a">P1 停机态配置：标定重放 / 拓扑 / 诊断（① 全部停机态）</text>
+  <g>
+    <rect x="200" y="374" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="414" r="10" fill="#1f9d55"/>
+    <text x="252" y="400" font-size="14" font-weight="700" fill="#1c2430">Step 2 停机态配置块</text>
+    <text x="252" y="422" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">OUTPut:TIMing 24000,32000,16000 · PRIORity:{FOLLow:PHASe,FOLLow,SYNC,MATCH} 0 · SESSion 0 · FEEDback:REFerence/LOCALfollow 0 · LOAD:MASK 27 · FLIGHT:MODE 1</text>
+    <text x="252" y="442" font-size="12" fill="#4a5563">反馈：TIMing? 读回该剖面；mask=27（位6 关闭，动态启动留 Step 17）　★ 修前 195.3s（写命令等满 8s 超时），现 9.3s</text>
+    <text x="1148" y="414" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">9.3s</text>
+  </g>
+  <g>
+    <rect x="200" y="466" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="506" r="10" fill="#1f9d55"/>
+    <text x="252" y="492" font-size="14" font-weight="700" fill="#1c2430">Step 3 标定参数重放</text>
+    <text x="252" y="514" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">CALibration:TOPology:PROBe 1,1 · TDMA:OPMode:STAGe 7 · OPMode:APPLy</text>
+    <text x="252" y="534" font-size="12" fill="#4a5563">反馈：ARM 不再报 OWNER_TOPOLOGY_PHASE(18)；level 7 = SCK 10 MHz / 时隙 1 ms　**严禁 STAGe:CLEar**</text>
+    <text x="1148" y="506" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">0.1s</text>
+  </g>
+  <g>
+    <rect x="200" y="558" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="598" r="10" fill="#1f9d55"/>
+    <text x="252" y="584" font-size="14" font-weight="700" fill="#1c2430">Step 4 拓扑暂存 + 提交等待</text>
+    <text x="252" y="606" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">RING:GEOMetry 0 · RING:TOPology 4,{slot},0 → 等 STATus?[38]==[39]</text>
+    <text x="252" y="626" font-size="12" fill="#4a5563">反馈：RING:CONFig? -> 1,4,{slot},0,2993488091,3816963506,1383759744,1000000,0</text>
+    <text x="1148" y="598" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">0.3s</text>
+  </g>
+  <g>
+    <rect x="200" y="650" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="690" r="10" fill="#1f9d55"/>
+    <text x="252" y="676" font-size="14" font-weight="700" fill="#1c2430">Step 5 诊断继续标志</text>
+    <text x="252" y="698" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">RING:DIAGnostic 1（必须在拓扑提交之后，否则被拒）</text>
+    <text x="252" y="718" font-size="12" fill="#4a5563">反馈：DIAGnostic?=1（原点试运行的硬前置）</text>
+    <text x="1148" y="690" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">0.6s</text>
+  </g>
+  <line x1="660" y1="454" x2="660" y2="466" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="660" y1="546" x2="660" y2="558" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="660" y1="638" x2="660" y2="650" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===== P1b ===== -->
+  <rect x="20" y="758" width="1180" height="140" rx="10" fill="#f0f0fb" stroke="#c3c3e6"/>
+  <text x="34" y="782" font-size="14" font-weight="700" fill="#4a3a86">P1b 路径延时交接：环标定 → DPLL 域（② 挂载；必须在开会话之前）</text>
+  <g>
+    <rect x="200" y="790" width="990" height="100" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="840" r="10" fill="#1f9d55"/>
+    <text x="252" y="814" font-size="14" font-weight="700" fill="#1c2430">Step 6 临时（暂定）DPLL 训练 + 前置判定</text>
+    <text x="252" y="836" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">SYSTem:SYNC:VDC:DPLL:PROVisional 1</text>
+    <text x="252" y="856" font-size="12" fill="#4a5563">做什么：用环配置生成调度剖面 + 时戳字典，并用**标定阶段的路径延时表**构造 path_delay，交由 vdc_domain_activate_tdma_provisional_configuration() 接受</text>
+    <text x="252" y="876" font-size="12" fill="#4a5563">前置：环停止 · staged enabled · 标定阶段 complete 且 topology/profile/schedule CRC 与 staged 相等 · **反馈会话已关闭**（vdc_dpll_manager.c:4363）→ 本步会打印逐项判定</text>
+    <text x="1148" y="840" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">1.8s</text>
+  </g>
+  <line x1="660" y1="730" x2="660" y2="790" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===== P2 ===== -->
+  <rect x="20" y="910" width="1180" height="380" rx="10" fill="#fdf6ec" stroke="#e6cfae"/>
+  <text x="34" y="934" font-size="14" font-weight="700" fill="#7a5320">P2 位置表与座位表（① 顺序即"绑定新鲜度"）</text>
+  <g>
+    <rect x="200" y="918" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="958" r="10" fill="#1f9d55"/>
+    <text x="252" y="944" font-size="14" font-weight="700" fill="#1c2430">Step 7 清表（清表必须在激活之前）</text>
+    <text x="252" y="966" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">COUNter:CLEar/UNLoad · DEPloyment:CLEar · TEMPlate:RELease · ACTion:CLEar · TEMPlate:CLEar</text>
+    <text x="252" y="986" font-size="12" fill="#4a5563">反馈：ACTion?[2]=0（四板本步实测 1,0,0,0,0）</text>
+    <text x="1148" y="958" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">7.1s</text>
+  </g>
+  <g>
+    <rect x="200" y="1010" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="1050" r="10" fill="#1f9d55"/>
+    <text x="252" y="1036" font-size="14" font-weight="700" fill="#1c2430">Step 8 网格</text>
+    <text x="252" y="1058" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">GRID:CLEar · GRID:CONFigure {dep},{dep+1},0,1000000,2000</text>
+    <text x="252" y="1078" font-size="12" fill="#4a5563">反馈：T2:CURSor? epoch = dep（会话号必须与 grid epoch 相同）</text>
+    <text x="1148" y="1050" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">2.3s</text>
+  </g>
+  <g>
+    <rect x="200" y="1102" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="1142" r="10" fill="#1f9d55"/>
+    <text x="252" y="1128" font-size="14" font-weight="700" fill="#1c2430">Step 9 部署激活（验证式，最多 6 轮）</text>
+    <text x="252" y="1150" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">DEPloyment:STAGe {dep},{crc},{rows} · DEPloyment:ACTivate {dep},{crc} → 校验 active 与 ring_config</text>
+    <text x="252" y="1170" font-size="12" fill="#4a5563">反馈：DEPloyment?[2]=1 · [5]==[6] · [9]==config_seq（绑定新鲜）</text>
+    <text x="1148" y="1142" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">2.6s</text>
+  </g>
+  <g>
+    <rect x="200" y="1194" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="1234" r="10" fill="#1f9d55"/>
+    <text x="252" y="1220" font-size="14" font-weight="700" fill="#1c2430">Step 10 装动作表与模板（代 generation 必须每轮递增）</text>
+    <text x="252" y="1242" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">ACTion:INSTall {dep},… · TEMPlate:INSTall {dep},… · TEMPlate:ACTivate</text>
+    <text x="252" y="1262" font-size="12" fill="#4a5563">反馈：四板 ACTion? 1/1 · TEMPlate? 1/1/1 · diag 80 = 表与模板已装且绑定当前（否则 T2 配置落回 diag 93）</text>
+    <text x="1148" y="1234" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">3.9s</text>
+  </g>
+  <line x1="660" y1="998" x2="660" y2="1010" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="660" y1="1090" x2="660" y2="1102" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="660" y1="1182" x2="660" y2="1194" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===== P3 ===== -->
+  <rect x="20" y="1302" width="1180" height="196" rx="10" fill="#eef4fb" stroke="#c2d2e6"/>
+  <text x="34" y="1326" font-size="14" font-weight="700" fill="#2b4a72">P3 计数器与 T2 挂载（① 配置 + ② 挂载；必须先于转台）</text>
+  <g>
+    <rect x="200" y="1310" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="1350" r="10" fill="#d9822b"/>
+    <text x="252" y="1336" font-size="14" font-weight="700" fill="#1c2430">Step 11 计数器装载（仅 slot 0）——**不启动** + 残值守门</text>
+    <text x="252" y="1358" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">再激活 → COUNter:UNLoad · LOAD {dep},{crc} · CLEar（不 STARt）；LOAD 后校验 loaded，失败即"再激活+重试"</text>
+    <text x="252" y="1378" font-size="12" fill="#4a5563">反馈：COUNter?[2]=1 且打印绑定与 CLEar 后残值　★ 实测抓到的竞态：ACTivate 未落定时 LOAD 返回 CHANGED(6) → loaded 0（重试后 1）</text>
+    <text x="1148" y="1350" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">3.2s</text>
+  </g>
+  <g>
+    <rect x="200" y="1402" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="1442" r="10" fill="#d9822b"/>
+    <text x="252" y="1428" font-size="14" font-weight="700" fill="#1c2430">Step 12 T2 配置 + 挂载（命令名 T2:STARt，语义=挂载，不产出）</text>
+    <text x="252" y="1450" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">FLIGHT:FIFO:RESet · T2:CONFigure {dep},0,14,{origin},… · T2:STARt {dep},0</text>
+    <text x="252" y="1470" font-size="12" fill="#4a5563">前置：diag 91/92/93（网格/部署/模板 binding_current）· 反馈：T2 configured 1 active 1（diag 100/101 均为通过）· 必须先于 Step 14 转台</text>
+    <text x="1148" y="1442" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">3.1s</text>
+  </g>
+  <line x1="660" y1="1390" x2="660" y2="1402" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===== P3b ===== -->
+  <rect x="20" y="1510" width="1180" height="140" rx="10" fill="#e9f6f7" stroke="#a9d6da"/>
+  <text x="34" y="1534" font-size="14" font-weight="700" fill="#1f5f66">P3b VDC 时基请求（② 挂载：提交请求，效果在起环后显现）</text>
+  <g>
+    <rect x="200" y="1542" width="990" height="100" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="1592" r="10" fill="#1f9d55"/>
+    <text x="252" y="1566" font-size="14" font-weight="700" fill="#1c2430">Step 13 打开反馈会话 + 提交 VDC 输出运行请求</text>
+    <text x="252" y="1588" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">OUTPut:RUN:STOP · OUTPut:TIMing 24000,32000,16000 · FEEDback:SESSion {dep} · OUTPut:RUN 1000000,2000,0（duration=0 ⇒ 连续）</text>
+    <text x="252" y="1608" font-size="12" fill="#4a5563">反馈：SESSion? = dep；RUN? 起环前为 {schema=12,generation=0,state=0} —— **RING_WAIT/MODEL_UNAVAILABLE 属正常等待，不是故障**</text>
+    <text x="1148" y="1592" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">5.3s</text>
+  </g>
+  <line x1="660" y1="1482" x2="660" y2="1542" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===== P4 ===== -->
+  <rect x="20" y="1662" width="1180" height="564" rx="10" fill="#f4eefb" stroke="#d6c6ea"/>
+  <text x="34" y="1686" font-size="14" font-weight="700" fill="#5a3a86">P4 供源 → 优先级 → 起环 → 动态启动（③ 启动在最后）</text>
+  <g>
+    <rect x="200" y="1670" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="1710" r="10" fill="#1f9d55"/>
+    <text x="252" y="1696" font-size="14" font-weight="700" fill="#1c2430">Step 14 转台模型与源——**只配置，不启动**</text>
+    <text x="252" y="1718" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">MODEl:TURNtable:{LOAD 0,3 · MOTion 360,360 · TRIGger …} · SOURce:RELease · SOURce:CONFigure 1000</text>
+    <text x="252" y="1738" font-size="12" fill="#4a5563">反馈：STATe? 非空；SOURce?[1]=1 —— 启动交给 Step 19（避免计数跑在 T2 观测之前）</text>
+    <text x="1148" y="1710" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">1.1s</text>
+  </g>
+  <g>
+    <rect x="200" y="1762" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="1802" r="10" fill="#1f9d55"/>
+    <text x="252" y="1788" font-size="14" font-weight="700" fill="#1c2430">Step 15 优先级类（② 挂载）</text>
+    <text x="252" y="1810" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">原点 SYNC {dep} · 从板：重发 SESSion → MATCH（读回）→ FOLLow 1 ×3（读 FOLLow:STATus?）→ 交替 RUN → FOLLow:PHASe 1 ×3</text>
+    <text x="252" y="1830" font-size="12" fill="#4a5563">反馈：SYNC?/MATCH? = dep；FOLLow? 在通道 active 时拒答（**不可作判据**），只用 STATus?/HEALth?</text>
+    <text x="1148" y="1802" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">5.3s</text>
+  </g>
+  <g>
+    <rect x="200" y="1854" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="1894" r="10" fill="#d9822b"/>
+    <text x="252" y="1880" font-size="14" font-weight="700" fill="#1c2430">Step 16 TDMA 环启动（③ 动态：数据使能）</text>
+    <text x="252" y="1902" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">RING:BURSt 0 · RING:ARM（从板先、参考最后，重试至 ARM:STATus?=1）· RING:TRAIN 1 · RING:START</text>
+    <text x="252" y="1922" font-size="12" fill="#4a5563">反馈：STATus?[0]=1,[8]=1,reason=0；失败 reason=9 = 适配器启动失败（曾因标定阶段 EMPTY 阻塞 NO.2，Step 0 已修）</text>
+    <text x="1148" y="1894" font-size="13" font-weight="700" fill="#d9822b" text-anchor="end">—</text>
+  </g>
+  <g>
+    <rect x="200" y="1946" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="1986" r="10" fill="#d9822b"/>
+    <text x="252" y="1972" font-size="14" font-weight="700" fill="#1c2430">Step 17 锁相检测 + 动态启动 T2（③ 位 6）</text>
+    <text x="252" y="1994" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">5×3s 采样 SYSTem:SYNC:VDC:LOCK:READiness?（字段1 = locked ≡ dpll.state==LOCKED 且 input_ready）→ 全板 locked 后置位 LOAD:MASK 位6</text>
+    <text x="252" y="2014" font-size="12" fill="#4a5563">未锁定则**不置位**并具名记录（位6 = APP_REALTIME_LOAD_SYNC_TRIGGER，是"T2 启动"唯一合法开关）</text>
+    <text x="1148" y="1986" font-size="13" font-weight="700" fill="#d9822b" text-anchor="end">—</text>
+  </g>
+  <g>
+    <rect x="200" y="2038" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="2078" r="10" fill="#d9822b"/>
+    <text x="252" y="2064" font-size="14" font-weight="700" fill="#1c2430">Step 18 时基就绪判定（脉冲流的前置）</text>
+    <text x="252" y="2086" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">T2:CURSor? err 0 / valid 1 / epoch == 本次会话 + FEEDback:MODel? token/session + 相位7 预检（runs 增量 + segments[42..44]）</text>
+    <text x="252" y="2106" font-size="12" fill="#4a5563">只有 READY 才允许下一步启动脉冲流；否则给出具名原因（这是"必须先于阈值被观测"的落地判据）</text>
+    <text x="1148" y="2078" font-size="13" font-weight="700" fill="#d9822b" text-anchor="end">—</text>
+  </g>
+  <g>
+    <rect x="200" y="2130" width="990" height="80" rx="8" fill="#eef7ff" stroke="#5a8fbf"/>
+    <circle cx="228" cy="2170" r="10" fill="#d9822b"/>
+    <text x="252" y="2156" font-size="14" font-weight="700" fill="#1c2430">Step 19 原点试运行 + 启动脉冲流（阈值守门）</text>
+    <text x="252" y="2178" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">CALibration:ORIGin:TRIAL {dep},8192,256,0 → 守门（计数 &lt; 第一阈值）→ COUNter:STARt · MODEl:TURNtable:STARt · SOURce:STARt</text>
+    <text x="252" y="2198" font-size="12" fill="#4a5563">反馈：grant&gt;0；若计数已越过阈值则**拒绝启动**并具名说明（Core0 不会为已越阈位置生成 preview）</text>
+    <text x="1148" y="2170" font-size="13" font-weight="700" fill="#d9822b" text-anchor="end">—</text>
+  </g>
+  <line x1="660" y1="1750" x2="660" y2="1762" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="660" y1="1842" x2="660" y2="1854" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="660" y1="1934" x2="660" y2="1946" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="660" y1="2026" x2="660" y2="2038" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="660" y1="2118" x2="660" y2="2130" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===== P5 ===== -->
+  <rect x="20" y="2238" width="1180" height="196" rx="10" fill="#fdeeee" stroke="#e6b8b8"/>
+  <text x="34" y="2262" font-size="14" font-weight="700" fill="#8c2f2f">P5 采样、验收与停机</text>
+  <g>
+    <rect x="200" y="2246" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="2286" r="10" fill="#d9822b"/>
+    <text x="252" y="2272" font-size="14" font-weight="700" fill="#1c2430">Step 20 运行采样（5×2 s）</text>
+    <text x="252" y="2294" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">T2? segments[42..44] · published_mask[9] · announced[31] · (target,threshold)[32..37] · prep[39]/[40]/reason[41] · CURSor? · POSition?[5]/[12]</text>
+    <text x="252" y="2314" font-size="12" fill="#4a5563">验收判据（脚本）：4×"T2 configured 1 active 1" 且存在 POSition? tx_publish_count&gt;0 或 rx_complete_count&gt;0</text>
+    <text x="1148" y="2286" font-size="13" font-weight="700" fill="#d9822b" text-anchor="end">—</text>
+  </g>
+  <g>
+    <rect x="200" y="2338" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
+    <circle cx="228" cy="2378" r="10" fill="#1f9d55"/>
+    <text x="252" y="2364" font-size="14" font-weight="700" fill="#1c2430">Step 21 停机 teardown</text>
+    <text x="252" y="2386" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">TURNtable:STOP · RING:STOP · T2:STOP · RUN:STOP · SESSion 0 · COUNter:UNLoad · LOAD:MASK 27 · 停机态读 PRIORity:RX?/TX?</text>
+    <text x="252" y="2406" font-size="12" fill="#4a5563">反馈：四板回到停机态（环 enabled/started=0，mask=27），并打印停机态优先级读数供下一轮对比</text>
+    <text x="1148" y="2378" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">每轮</text>
+  </g>
+  <line x1="660" y1="2326" x2="660" y2="2338" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="660" y1="2222" x2="660" y2="2246" stroke="#5a6472" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="200" y="2452" width="990" height="76" rx="8" fill="#f2f7ff" stroke="#5a8fbf"/>
+  <text x="216" y="2474" font-size="13" font-weight="700" fill="#26496b">本轮实测（2026-10-12）：`--steps 0-12` → failed steps: none，exit 0，合计 36.1 s（Step 0–10 已通过；11/12 已通过并连跑两次）</text>
+  <text x="216" y="2496" font-size="13" fill="#26496b">Step 0 0.5s · 1 4.0s · 2 9.3s · 3 0.1s · 4 0.3s · 5 0.7s · 6 1.8s · 7 7.1s · 8 2.3s · 9 2.6s · 10 3.9s · 11 1.5s · 12 3.0s　（Step 2 修前 195.3s；日志 out/tdma_t2/steps-20261012-004914.log）</text>
+  <text x="216" y="2518" font-size="13" fill="#8c2f2f">尚未完成：Step 13–21 已就位但未验证；T2 发布仍未达成（下一判据 = Step 19 守门通过 + Step 20 的 published_mask/POSition 非零）。</text>
+</svg>
