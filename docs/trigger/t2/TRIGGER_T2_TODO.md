@@ -359,6 +359,24 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 `p3_hardware_acceptance.py t2`（验证流程；**不刷写**，必须在 `run` 之后跑）→ 查看采样行的
 `window announced N/entered N overwrote_unannounced 0 … geometry Npos/Mpul`。
 
+### A.3.2 待修：`window …` 采样尾巴加在了**另一处**打印块（2026-10-13 发现）
+
+`tools/sync_trigger/t2_workflow.py` 里有两处采样打印块，`t2` 流程实际走的是**后一处**（`rx {fields[12] …}` 附近，约 2471 行），而 2026-10-12 的改动只加到了**前一处**（约 846 行）。因此台架日志里**看不到**窗口健康事实（`window announced …/entered … overwrote_unannounced … geometry …pos/…pul`）——第三次 `t2` 运行日志中确认缺失。
+
+**修法**（简单直接，别用正则改写整块）：在后一处（约 2471 行）的 `f" rx {fields[12] …}"` 之后、`, flush=True)` **之前**插入同样的三行，使用内联切片而非变量：
+
+```python
+                      f" | window announced {state[-9:][1] if len(state) >= 9 else '?'}"
+                      f"/entered {state[-9:][0] if len(state) >= 9 else '?'}"
+                      f" overwrote_unannounced {state[-9:][2] if len(state) >= 9 else '?'}"
+                      f" step_mdeg {state[-9:][6] if len(state) >= 9 else '?'}"
+                      f" geometry {state[-9:][7] if len(state) >= 9 else '?'}pos"
+                      f"/{state[-9:][8] if len(state) >= 9 else '?'}pul",
+```
+
+**为什么用尾部切片**：窗口字段是 `T2?` 回复的**末尾**追加块（顺序由 `tests/python/test_t2_page_field_order.py` 守卫），取 `state[-9:]` 对页面中部的未来增长免疫。
+**注意**：第一次尝试用正则重写整块导致 Python 语法错误（把 `flush=True)` 切断），已回退——请用"插入若干 `f""` 相邻字符串行"的方式，不要动原有的括号结构。
+
 ### A.3.1 测试环境坑：pytest basetemp 被卡住会伪装成"代码坏了"（2026-10-13 实测）
 
 一次 C harness 测试运行**超时挂起**（`subprocess.TimeoutExpired`）后，`out/pytest/runs` 目录被残留句柄锁住，
