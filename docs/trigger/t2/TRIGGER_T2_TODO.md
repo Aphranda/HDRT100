@@ -372,6 +372,48 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.15h item ② 的最终调用形态（`window_find` 已确认，抄写级）（2026-10-13）
+
+`trigger_turntable_window_find()`（`trigger_turntable_predictor.h`，符号定位；本轮实读 :510-518）：
+
+```c
+static inline const trigger_turntable_window_entry_t *trigger_turntable_window_find(
+    const trigger_turntable_predictor_snapshot_t *s, uint32_t absolute_index);
+/* 按扫描序号在窗口槽中查找有效条目；找到返回条目指针，否则 NULL。仅 WINDOW_MAX 次比较。 */
+```
+
+⇒ item ②（判定取值改窗口）的**确切形态**（保留 legacy 下标 `index`，只换判定的取值来源）：
+
+```c
+        const uint32_t bit = 1u << index;
+        /* 判定取值：优先窗口条目；窗口未启用或该位置不在窗口内则回退 legacy（无扫描调用者行为不变） */
+        const trigger_turntable_window_entry_t *entry =
+            s_scan_step_mdeg
+                ? trigger_turntable_window_find(&snapshot.predictor, index) : NULL;
+        const uint32_t slot = entry ? (uint32_t)(entry - snapshot.predictor.window) : 0u;
+        const bool     announced = entry ? entry->announced != 0u
+                                         : (snapshot.predictor.announced_mask & bit) != 0u;
+        const uint64_t threshold = entry ? entry->threshold_count
+                                         : snapshot.predictor.threshold_count[index];
+        const uint64_t target    = entry ? entry->target_count
+                                         : snapshot.predictor.target_count[index];
+        if (__atomic_load_n(&s_threshold_public, __ATOMIC_ACQUIRE) & bit || announced ||
+            snapshot.last_counter_count >= threshold || snapshot.last_counter_count >= target)
+            continue;
+        const uint64_t to_threshold = threshold - snapshot.last_counter_count;
+        const uint64_t span = target - snapshot.predictor.origin_count;
+        …
+        /* 节流表改为按 slot 键、槽内存序号（A.3.15e）：序号不匹配即视为未节流 */
+        if (s_cadence[slot].valid && s_cadence[slot].absolute_index == index &&
+            coarse - s_cadence[slot].last_coarse < interval) continue;
+        s_cadence[slot] = (t2_cadence_t){ .valid = 1u, .absolute_index = index,
+                                          .last_coarse = (uint32_t)coarse };
+```
+
+**细节**：`window_find` 只返回条目指针（不返回 slot）⇒ slot 由 `entry - s->window` 指针差得到（同数组内合法）；无窗口时 `slot = 0` 且节流逻辑按 `valid=0` 走"未节流"（与旧行为等价：旧代码用 `s_last_calculated_coarse[index]` 判 0 表示未节流 ✓，但**语义差别**在于旧表按 index 记忆、新表按 slot 记忆——当前 3 位置扫描下 index==slot，故等价 ✓；361 扫描下由 `absolute_index` 匹配保证正确 ✓）。
+
+**其余语句一律不动**（`preview_copy(index,…)` / `s_deadline_mailbox[index]` / `deadline_publish(index,…)` / @1139 描述符构造）——描述符切换属第 3 项 ✓。
+
 ### A.3.15g 两处实施前必读的坑：**位口径混用**与**失效的行号锚点**（2026-10-13）
 
 **① 两套位口径并存（混用即错）**
