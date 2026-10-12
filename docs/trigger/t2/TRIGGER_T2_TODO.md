@@ -372,6 +372,27 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.11 迁移步骤②的剩余差异：只剩**结构性**，语义风险已消除（2026-10-13）
+
+Round 81 统一 lead 口径后，逐项核对"legacy 数组"与"窗口"的差异：
+
+| 维度 | 状态 |
+|---|---|
+| 目标计数 `target` | **一致**（两者都按扫描原点 + 角度派生，K-8） |
+| 阈值 `threshold` | **一致**（Round 81 后两者都用"一个 STEP 的比例"；A.2 的钉子 `25/925` 仍由 `step=0` 的遗留基准验证） |
+| `origin_count` / `count_epoch` | 共享字段，无差异 |
+| **索引语义** | ❌ **不一致**：legacy 数组按 `index ∈ [0, POSITION_COUNT)`（START/ZERO/TERMINAL 三个具名位置）寻址；窗口按 `slot ∈ [0, WINDOW_MAX)` 寻址、以 `entry->absolute_index` 表示位置，且条目随滚动换位 |
+| **在途集合** | ❌ **不一致**：legacy 固定 3 槽恒在；窗口只持有 ≤2 个在途位置，第 3 个（TERMINAL）要等滚动后才进入 |
+| 节流表 `s_last_calculated_coarse[]` | ❌ 仍按 legacy 下标索引；迁移后须按 slot 索引（容量 `WINDOW_MAX`） |
+
+**结论**：步骤②**不再有语义风险**（数值一致 ✓），剩余工作是**纯结构替换**：
+1. 循环改为遍历窗口条目（跳过 `!valid`），身份用 `entry->absolute_index`；
+2. 节流表按 slot 重键；
+3. 描述符/准备路径改读条目字段（`entry->target_count` / `entry->threshold_count` / `entry->announced`）；
+4. 处理"TERMINAL 尚未进入窗口"这一**正常瞬态**（legacy 下它恒在；窗口下它随滚动进入）——这是迁移后必须由 `advance` 驱动的新节奏，不要再按"三槽恒在"假设写代码。
+
+**验证方式**：迁移后读 `T2:SCAN?`（`announced == entered`、`overwrote == 0`）**并且**跑 `t2` 确认 `published_mask`/`POS pub` 与迁移前同量级（当前基线：`published_mask 3 → 7`、`publishing 4~6`）。
+
 ### A.3.10 A.2 的 lead 口径偏差已在"消费者实际使用的路径"上修正并台架验证（2026-10-13）
 
 **背景**：A.2 记录的口径分歧（legacy `begin()` 用"距 origin 的距离"、窗口用"一个 STEP"）此前只在新窗口侧生效，而**消费者读的仍是 legacy 数组** ⇒ 产品行为仍是不合规的那一支。
