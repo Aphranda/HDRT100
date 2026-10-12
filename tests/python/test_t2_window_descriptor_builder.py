@@ -69,6 +69,11 @@ def test_window_builder_drops_the_named_position_range_check() -> None:
     assert "entry->absolute_index" not in body or True  # identity is the caller's position_id
 
 
-def test_builder_is_declared_before_its_first_use() -> None:
+def test_builder_is_declared_after_the_types_it_uses() -> None:
+    """The builder needs both the entry type and the snapshot type to be complete first."""
     source = HEADER.read_text(encoding="utf-8")
-    assert source.index(WINDOW) < source.index("trigger_turntable_window_entry_t window[")
+    entry_type = source.index("} trigger_turntable_window_entry_t;")
+    snapshot_struct = source.index("trigger_turntable_window_entry_t window[")
+    builder = source.index(WINDOW)
+    assert entry_type < builder, "entry type must be defined first"
+    assert snapshot_struct < builder, "the snapshot that holds window[] must be defined first"
