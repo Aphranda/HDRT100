@@ -2468,7 +2468,21 @@ def step_20_sampling(ctx, slot, board, uid):
                       f"/{t2_field(state, 'preview_saved')}"
                       f" reason {t2_field(state, 'prepared_last_reason')}"
                       f" | POS pub {fields[5] if len(fields) > 5 else '?'}"
-                      f" rx {fields[12] if len(fields) > 12 else '?'}", flush=True)
+                      f" rx {fields[12] if len(fields) > 12 else '?'}"
+                      # The rolling window's health facts are the TAIL of T2? (the block
+                      # appended after the event log; its order is guarded by
+                      # tests/python/test_t2_page_field_order.py), so they are read by
+                      # slicing from the end. The earlier copy of this print pattern in a
+                      # different step does not run here - which is why the bench log had
+                      # no window fields at all until this block was updated.
+                      f" | window announced {state[-9:][1] if len(state) >= 9 else '?'}"
+                      f"/entered {state[-9:][0] if len(state) >= 9 else '?'}"
+                      f" overwrote_unannounced {state[-9:][2] if len(state) >= 9 else '?'}"
+                      f" late {state[-9:][3] if len(state) >= 9 else '?'}"
+                      f" step_mdeg {state[-9:][6] if len(state) >= 9 else '?'}"
+                      f" geometry {state[-9:][7] if len(state) >= 9 else '?'}pos"
+                      f"/{state[-9:][8] if len(state) >= 9 else '?'}pul",
+                      flush=True)
                 # T2? ends with the origin FREEZE path maxima (clk_sys cycles):
                 # pending check, threshold stage, resend/ack pass, whole call. They
                 # split segments[1] (RECEIVE) to show where a threshold slice spends.
