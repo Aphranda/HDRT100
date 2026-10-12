@@ -80,6 +80,10 @@ typedef struct {
      * window_next_index + TRIGGER_TURNTABLE_WINDOW_MAX have ever been computed. */
     uint32_t window_next_index, window_entered_count, window_recomputed_count;
     uint32_t window_rate_stale_count;
+    /* Entries whose target count had already passed when they were entered (the
+     * scan is behind the prediction): due immediately, and counted so the loss is
+     * visible instead of being hidden by a wrapped threshold. */
+    uint32_t window_late_entry_count;
     /* Scan step in millidegrees. Kept here, not in the config, because a new
      * config field breaks every partial initializer (-Werror -Wextra). */
     int32_t window_step_mdeg;
@@ -299,28 +303,51 @@ static inline bool trigger_turntable_window_enter(
     const int64_t delta_mdeg =
         (int64_t)trigger_turntable_window_position_angle_mdeg(
             c, s->window_step_mdeg, absolute_index) - base_angle;
+    /* The target is where the counter will be when the turntable reaches this
+     * angle, measured from the SCAN ORIGIN - not from whichever count happened to
+     * be current when the position entered the window. Re-basing it on the entry
+     * moment would push every later position further away by the distance already
+     * travelled, which is exactly the extrapolation this window exists to avoid. */
     if (delta_mdeg < 0 ||
-        (uint64_t)delta_mdeg > (UINT64_MAX - observed_count) / c->pulses_per_degree) {
+        (uint64_t)delta_mdeg > (UINT64_MAX - s->origin_count) / c->pulses_per_degree) {
         s->last_error = TRIGGER_TURNTABLE_OVERFLOW;
         return false;
     }
     const uint64_t product = (uint64_t)delta_mdeg * c->pulses_per_degree;
-    const uint64_t target = observed_count + (product + 999u) / 1000u;
-    const uint64_t remaining = target - observed_count;
+    const uint64_t target = s->origin_count + (product + 999u) / 1000u;
+    /* The threshold is an absolute count computed from the target. The target is
+     * always at or after observed_count by construction, so the lead never
+     * underflows; the guard stays because the arithmetic is unsigned. */
+    /* The lead is a fraction of ONE position period (the STEP), so every position
+     * in the scan is frozen equally early. Measuring it from the scan origin would
+     * make later positions freeze progressively earlier. */
     const uint64_t factor = 1000u - c->threshold_per_mille;
-    if (remaining > (UINT64_MAX - 999u) / factor) {
+    const uint64_t step_product =
+        (uint64_t)s->window_step_mdeg * c->pulses_per_degree;
+    if (step_product % 1000u != 0u) {
+        s->last_error = TRIGGER_TURNTABLE_ARGUMENT;
+        return false;
+    }
+    const uint64_t step_pulses = step_product / 1000u;
+    if (!step_pulses || step_pulses > (UINT64_MAX - 999u) / factor) {
         s->last_error = TRIGGER_TURNTABLE_OVERFLOW;
         return false;
     }
+    const uint64_t lead = (step_pulses * factor + 999u) / 1000u;
+    const uint64_t threshold = target > lead ? target - lead : 0u;
     s->window[slot] = (trigger_turntable_window_entry_t){
         .valid = 1u,
         .absolute_index = absolute_index,
         .angle_mdeg = trigger_turntable_window_position_angle_mdeg(
             c, s->window_step_mdeg, absolute_index),
         .target_count = target,
-        .threshold_count = target - (remaining * factor + 999u) / 1000u,
+        /* A position entered with the count already past its target is DUE NOW:
+         * clamping is what keeps a wrapped threshold from announcing nothing (or
+         * everything) at a random later count. */
+        .threshold_count = observed_count > target ? observed_count : threshold,
         .announced = 0u,
     };
+    if (observed_count > target) s->window_late_entry_count++;
     return true;
 }
 
@@ -331,6 +358,8 @@ static inline bool trigger_turntable_window_begin(
     const trigger_turntable_predictor_config_t *c, uint64_t observed_count)
 {
     if (!s || !c || !s->window_step_mdeg) return false;
+    s->origin_count = observed_count;      /* absolute targets are scan based */
+    s->window_late_entry_count = 0u;
     s->window_next_index = 0u;
     s->window_entered_count = 0u;
     s->window_rate_stale_count = 0u;

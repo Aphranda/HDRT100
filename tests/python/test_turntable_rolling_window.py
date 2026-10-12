@@ -55,15 +55,19 @@ int main(void)
     assert(s.window[0].valid && s.window[0].absolute_index == 0u);
     assert(s.window[1].valid && s.window[1].absolute_index == 1u);
     /* Targets are exact (no rate needed): base = start - pre_roll = -1 degree. */
+    /* lead = 95% of one 100-pulse STEP, so every position is frozen equally
+     * early regardless of where it sits in the scan. */
     assert(s.window[0].target_count == 100u && s.window[0].threshold_count == 5u);
-    assert(s.window[1].target_count == 200u && s.window[1].threshold_count == 10u);
+    assert(s.window[1].target_count == 200u && s.window[1].threshold_count == 105u);
 
     /* Not ready to time anything yet: no rate has been observed (fail-closed). */
     assert(!trigger_turntable_window_time_ready(&s));
 
-    /* Crossing the oldest entry's threshold announces it and rolls the window; the
-     * newly entered position is computed from the count observed NOW (5), so its
-     * target is 305, not the 300 a begin-time extrapolation would give. */
+    /* Crossing the oldest entry's threshold announces it and rolls the window. The
+     * newly entered position's target is ABSOLUTE (scan origin + angle delta), so
+     * it is 300 whatever count the window happened to roll at - a target re-based
+     * on the entry moment would have said 305 and been wrong by the distance
+     * already travelled. */
     uint32_t mask = 0u;
     assert(trigger_turntable_window_advance(&s, &c, 5u, &mask) == TRIGGER_TURNTABLE_OK);
     assert(mask == 0x1u);                                /* slot 0 announced */
@@ -71,8 +75,35 @@ int main(void)
     assert(s.window_next_index == 3u && s.window_entered_count == 3u);
     assert(s.window[0].absolute_index == 1u);            /* the old slot 1 */
     assert(s.window[1].absolute_index == 2u && s.window[1].valid);
-    assert(s.window[1].target_count == 305u);            /* 5 + (3 deg * 100) */
-    assert(s.window[1].threshold_count == 20u);          /* 305 - 285 */
+    assert(s.window[1].target_count == 300u);            /* scan origin + 3 deg */
+    assert(s.window[1].threshold_count == 205u);         /* 300 - 95 (one STEP) */
+    assert(s.origin_count == 0u);                        /* anchored at begin */
+    assert(s.window_late_entry_count == 0u);             /* entered in time */
+
+    /* The same position entered at a very different moment gets the SAME target:
+     * the scan decides it, not the entry moment. */
+    trigger_turntable_predictor_snapshot_t late = {0};
+    late.active = 1u;
+    trigger_turntable_window_configure(&late, step);
+    assert(trigger_turntable_window_begin(&late, &c, 0u));
+    assert(trigger_turntable_window_advance(&late, &c, 200u, &mask) ==
+           TRIGGER_TURNTABLE_OK);
+    /* Both early entries were already announced at count 200, so the window
+     * drained to ordinal 2 - whose target is still the absolute 300 (a target
+     * re-based on the entry moment would have said 500). */
+    assert(late.window[0].absolute_index == 2u);
+    assert(late.window[0].target_count == 300u);
+
+    /* A position whose target is already behind the counter is DUE NOW, not a
+     * wrapped threshold: entering index 5 (target 600) at count 1000 clamps. */
+    trigger_turntable_predictor_snapshot_t behind = {0};
+    behind.active = 1u;
+    behind.origin_count = 0u;
+    behind.window_step_mdeg = step;
+    assert(trigger_turntable_window_enter(&behind, &c, 0u, 5u, 1000u));
+    assert(behind.window[0].target_count == 600u);
+    assert(behind.window[0].threshold_count == 1000u);   /* due immediately */
+    assert(behind.window_late_entry_count == 1u);
 
     /* The mask is per window slot, and an already announced entry is not
      * re-announced while it is still the oldest. */
