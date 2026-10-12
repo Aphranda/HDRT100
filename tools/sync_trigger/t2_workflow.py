@@ -212,7 +212,7 @@ def main() -> int:
         if not target_mask:
             print("T2: note: single-node bench has no freeze peer to wait for")
         print("T2:CONFigure ->", q(f"TRIGger:REServation:T2:CONFigure 1,{source_slot},"
-                                   f"{target_mask},1,0,0,999,0,0,0")[:24])
+                                   f"{target_mask},1,0,0,999,0,0,0,5000")[:24])
         print("T2:STARt ->", q("TRIGger:REServation:T2:STARt")[:24])
         print("T2? ->", q("TRIGger:REServation:T2?")[:90])
     if args.observe:
@@ -518,7 +518,7 @@ def run_full(board_ids) -> int:
         send(board, "SYSTem:TDMA:FLIGHT:FIFO:RESet")
         # NO1 (slot 0) is the only position source; every board names source slot 0.
         send(board, f"TRIGger:REServation:T2:CONFigure {dep_gen},0,14,{int(slot == 0)},"
-                    f"5000,5000,950,5000,10000,15000")
+                    f"5000,5000,950,5000,10000,15000,5000")
         diag = send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
         print(f"  configure diag {diag[4] if len(diag) > 4 else '?'}"
               " (91/92/93 prereq, 100/101 inner, 140-148 validate, 111-137 stopped)")
@@ -1716,7 +1716,7 @@ def step_12_t2_mount(ctx, slot, board, uid):
     for attempt in range(4):
         ctx.send(board, "SYSTem:TDMA:FLIGHT:FIFO:RESet")
         ctx.send(board, f"TRIGger:REServation:T2:CONFigure {ctx.dep_gen},0,14,"
-                        f"{int(slot == 0)},5000,5000,950,5000,10000,15000")
+                        f"{int(slot == 0)},5000,5000,950,5000,10000,15000,5000")
         diag = ctx.send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
         ctx.send(board, f"TRIGger:REServation:T2:STARt {ctx.dep_gen},0")
         state = ctx.send(board, "TRIGger:REServation:T2?").split(",")

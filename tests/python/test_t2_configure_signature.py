@@ -31,6 +31,7 @@ EXPECTED_PARAMETERS = (
     "start_angle",
     "zero_angle",
     "terminal_angle",
+    "step_mdeg",
 )
 
 # Every place that sends TRIGger:REServation:T2:CONFigure, with the line it lives on.

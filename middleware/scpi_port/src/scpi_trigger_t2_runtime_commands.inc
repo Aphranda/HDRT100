@@ -58,7 +58,7 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
     tdma_seat_mount_store_note_reject(90u);
     uint64_t run_id, source_slot, target_mask, origin;
     uint64_t pre_roll, post_roll, threshold;
-    int32_t start_angle, zero_angle, terminal_angle;
+    int32_t start_angle, zero_angle, terminal_angle, step_mdeg;
     if (!scpi_trigger_grid_uint(context, UINT32_MAX, &run_id) ||
         !scpi_trigger_grid_uint(context, UINT32_MAX, &source_slot) ||
         !scpi_trigger_grid_uint(context, UINT32_MAX, &target_mask) ||
@@ -69,6 +69,7 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
         SCPI_ParamInt32(context, &start_angle, TRUE) != TRUE ||
         SCPI_ParamInt32(context, &zero_angle, TRUE) != TRUE ||
         SCPI_ParamInt32(context, &terminal_angle, TRUE) != TRUE ||
+        SCPI_ParamInt32(context, &step_mdeg, TRUE) != TRUE ||
         !scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
 
     trigger_grid_preview_snapshot_t grid;
@@ -87,6 +88,11 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
         tdma_seat_mount_store_note_reject(93u);
         return scpi_trigger_t2_fail(context);
     }
+
+    /* The scan STEP cannot ride in config: that struct is partially initialised across
+ * the tree and a new field breaks those initialisers under -Wextra -Werror. The
+ * setter is STOP-only and rejects a non-positive step. */
+    if (!trigger_t2_runtime_scan_step(step_mdeg)) return scpi_trigger_t2_fail(context);
 
     trigger_t2_runtime_config_t config={0};
     config.grid=grid.grid;
