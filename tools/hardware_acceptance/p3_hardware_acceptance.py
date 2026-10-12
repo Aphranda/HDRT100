@@ -1317,6 +1317,18 @@ def validate_tdma_stopped_handoff(
                 summary.get("left_running") is not False or
                 summary.get("leave_running_requested") is not False):
             raise ValueError("finite stopped handoff was not requested/completed")
+        # The capture writes its OWN failure into the summary, and it leaves `nodes`
+        # empty when it never got a complete board record. Checking the field sets
+        # first therefore reports a misleading "nodes board set mismatch" for what is
+        # really "the capture failed to start": surface the summary's own error first.
+        inner_error = str(summary.get("error") or "").strip()
+        if inner_error:
+            where = ", ".join(
+                f"{name}={summary.get(name)}" for name in ("stage", "phase")
+                if summary.get(name) is not None)
+            raise ValueError(
+                "the capture failed before a board handoff could be checked"
+                + (f" ({where})" if where else "") + f": {inner_error}")
         for field in ("stopped", "boards", "board_records", "nodes"):
             if not isinstance(summary.get(field), dict) or set(summary[field]) != set(board_ids):
                 raise ValueError(f"{field} board set mismatch")
