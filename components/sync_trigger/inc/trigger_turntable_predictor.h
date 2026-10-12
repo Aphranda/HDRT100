@@ -277,6 +277,44 @@ static inline bool trigger_turntable_predictor_build_descriptor(
     };
     return true;
 }
+/* Window-aware descriptor builder (migration step 2, TRIGGER_T2_TODO.md A.3.15c/A.3.15d):
+ * the legacy builder above validates the three named positions and reads
+ * target_count[position_id - 1u], so a scan of arbitrary length cannot use it. Every field
+ * is copied from that shape; exactly two things differ - the target count comes from the
+ * rolling-window entry (computed when the position ENTERED the window, never from a
+ * begin-time origin extrapolated over the whole scan) and the precondition is the entry's
+ * own validity instead of the START..TERMINAL range. Whether the position must already be
+ * announced is left to the caller. */
+static inline bool trigger_turntable_predictor_build_descriptor_window(
+    const trigger_turntable_predictor_snapshot_t *s,
+    const trigger_turntable_window_entry_t *entry,
+    uint32_t run_id, uint32_t sync_epoch, uint32_t position_id,
+    uint64_t target_ms_index, uint32_t target_fine_slice_index,
+    uint32_t grid_generation, uint32_t deployment_generation,
+    uint32_t deployment_crc, uint32_t valid_from_sync, uint32_t expiry_sync,
+    trigger_position_descriptor_t *out)
+{
+    if (!s || !entry || !out || !entry->valid || !s->active ||
+        !run_id || !sync_epoch || !grid_generation ||
+        !deployment_generation || !deployment_crc ||
+        valid_from_sync > expiry_sync) return false;
+    *out = (trigger_position_descriptor_t){
+        .schema = TRIGGER_POSITION_DESCRIPTOR_SCHEMA,
+        .run_id = run_id, .sync_epoch = sync_epoch,
+        .position_id = position_id, .count_epoch = s->count_epoch,
+        .target_count = entry->target_count,
+        .prediction_version = s->prediction_version,
+        .target_ms_index = target_ms_index,
+        .target_fine_slice_index = target_fine_slice_index,
+        .grid_generation = grid_generation,
+        .deployment_generation = deployment_generation,
+        .deployment_crc = deployment_crc,
+        .valid_from_sync = valid_from_sync, .expiry_sync = expiry_sync,
+        .stage = TRIGGER_POSITION_STAGE_PREVIEW,
+    };
+    return true;
+}
+
 /* Rolling prediction window: the legacy arrays (target_count[3]/
  * threshold_count[3], announced_mask) stay for the START/ZERO/TERMINAL bench path
  * and for the existing consumers; the window is the scan-capable path:
