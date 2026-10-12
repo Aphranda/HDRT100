@@ -11,7 +11,7 @@ HARNESS = r'''
 int main(int argc,char **argv){assert(argc==2);
  trigger_turntable_predictor_config_t c={1000u,0,0,10000,5000u,5000u,950u};
  trigger_turntable_predictor_snapshot_t s={0};assert(trigger_turntable_predictor_configure(&s,&c));
- assert(trigger_turntable_predictor_begin(&s,&c,7u,0u));
+ assert(trigger_turntable_predictor_begin(&s,&c,7u,0u,0));
  if(!strcmp(argv[1],"targets")){assert(s.target_count[0]==5000&&s.target_count[1]==5000&&s.target_count[2]==15000);assert(s.threshold_count[0]==4750&&s.threshold_count[2]==14250);return 0;}
  if(!strcmp(argv[1],"threshold")){uint32_t m=0;assert(!trigger_turntable_predictor_observe(&s,&c,4749,&m)&&!m);assert(!trigger_turntable_predictor_observe(&s,&c,4750,&m)&&(m&1u));return 0;}
  if(!strcmp(argv[1],"descriptor")){uint32_t m=0;trigger_position_descriptor_t d;assert(!trigger_turntable_predictor_observe(&s,&c,4750,&m));assert(trigger_turntable_predictor_build_descriptor(&s,2,3,1,10,4,5,6,7,8,9,&d));assert(d.position_id==1&&d.target_count==5000&&d.count_epoch==7);return 0;}

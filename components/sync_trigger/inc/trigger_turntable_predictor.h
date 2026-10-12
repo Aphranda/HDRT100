@@ -135,7 +135,7 @@ static inline bool trigger_turntable_predictor_configure(
 static inline bool trigger_turntable_predictor_begin(
     trigger_turntable_predictor_snapshot_t *s,
     const trigger_turntable_predictor_config_t *c, uint32_t epoch,
-    uint64_t origin_count)
+    uint64_t origin_count, int32_t step_mdeg)
 {
     if (!s || !trigger_turntable_predictor_config_valid(c) || !epoch) return false;
     const int64_t base_angle = (int64_t)c->start_angle_mdeg - c->pre_roll_mdeg;
@@ -169,7 +169,16 @@ static inline bool trigger_turntable_predictor_begin(
         if (remaining > (UINT64_MAX - 999u) / factor) {
             s->last_error = TRIGGER_TURNTABLE_OVERFLOW; return false;
         }
-        const uint64_t lead = (remaining * factor + 999u) / 1000u;
+        /* Lead basis (TRIGGER_T2_TODO.md A.2): with a scan step the lead is a fraction of
+         * ONE STEP, so every position is frozen equally early; the distance-from-origin
+         * rule inflates the lead for later positions (and is what the window no longer
+         * uses). step_mdeg == 0 keeps the legacy basis for callers without a scan. */
+        const uint64_t step_product =
+            step_mdeg > 0 ? (uint64_t)step_mdeg * c->pulses_per_degree : 0u;
+        const uint64_t lead = (step_product && step_product % 1000u == 0u &&
+                               step_product / 1000u <= (UINT64_MAX - 999u) / factor)
+            ? ((step_product / 1000u) * factor + 999u) / 1000u
+            : (remaining * factor + 999u) / 1000u;
         next.target_count[i] = target;
         next.threshold_count[i] = target - lead;
     }

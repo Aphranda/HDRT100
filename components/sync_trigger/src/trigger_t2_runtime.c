@@ -784,7 +784,7 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
             &s_state.predictor, &s_config.predictor) &&
         trigger_turntable_predictor_begin(
             &s_state.predictor, &s_config.predictor, count_epoch,
-            origin_count);
+            origin_count, s_scan_step_mdeg);
     if (!started) {
         publish_end();
         return false;

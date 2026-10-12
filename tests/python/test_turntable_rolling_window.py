@@ -51,7 +51,7 @@ static void legacy_equivalence(void)
     legacy.threshold_per_mille = 50u;
 
     trigger_turntable_predictor_snapshot_t old_path = {0};
-    assert(trigger_turntable_predictor_begin(&old_path, &legacy, 7u, 0u));
+    assert(trigger_turntable_predictor_begin(&old_path, &legacy, 7u, 0u, 0));
 
     trigger_turntable_predictor_snapshot_t new_path = {0};
     new_path.active = 1u;
