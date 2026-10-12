@@ -227,6 +227,24 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 ① 用窗口条目重写"宣告 → 位置"的取用（读 `entry->announced` 与 `entry->absolute_index`），保持 legacy 数组仍存在但不再被读；
 ② 删掉 legacy 数组与 `announce_mask` 的写入；③ 按 A.2 把 lead 改为一步比例（等价性测试随之收敛为只校验窗口侧）；④ 最后把台架扫描切到 361 位置并核对 `geometry 361pos/100pul`、`announced == entered`。
 
+**迁移代码图（2026-10-13 读源码所得，行号为当时快照）**：
+
+| 位置 | 现状 | 迁移形态 |
+|---|---|---|
+| `trigger_t2_runtime.c:1020-1051` 准备循环 | `for index < POSITION_COUNT`，用 `bit = 1u << index`、`threshold_count[index]`、`target_count[index]`、`s_last_calculated_coarse[index]` | 改为遍历窗口条目（`window[slot]`，跳过 `!valid`），用 `entry->absolute_index` 作身份、`entry->threshold_count/target_count` 作算术；**每槽的 `s_last_calculated_coarse` 需按新键重映射** |
+| `:1023` 公开阈值掩码 | `__atomic_load_n(&s_threshold_public) & bit`（bit = slot） | **需先决定键**（见下） |
+| `:1024` 宣告 | `snapshot.predictor.announced_mask & bit` | 改为 `entry->announced` |
+| `:1031-1032` 跨度 | `target_count[index] - origin_count` | `entry->target_count - snapshot.predictor.origin_count`（`origin_count` 不变） |
+| `:813-819` 采样路径 | `observe(...)` 取 mask + 发布 `announced_mask` | `window_advance(...)` 取 mask；对外发布语义不变 |
+| `:738+` 启动 | `begin()`（本轮已并行加 `window_begin_scan`） | 迁移完成后 `begin()` 退出 |
+
+**迁移前必须先定的两个设计决定**（否则会写出自相矛盾的映射）：
+
+1. **`s_threshold_public` 的位语义**：现在 bit = legacy 槽（0..2），下游按"位置"读它。窗口下候选键是 ① 窗口 slot（0..1，需下游改读 `window_find` 才知道是哪个位置）或 ② `absolute_index`（位置本体，但 361 位置需要模/窗口化表达）。建议 ①（slot 为容器），并让下游一律经 `window_find`/条目取位置——与 A.3 的"slot 是容器、`absolute_index` 才是位置"一致。
+2. **`s_last_calculated_coarse[]` 的键**：跟随 ①（按 slot），还是按序号滚动（仅保留在途条目）——建议跟 ①，容量即 `WINDOW_MAX`。
+
+**验证要求（两类，缺一不可）**：`p3_hardware_acceptance.py run` 提供 pre-commit 所需的 P3 凭证，但它**不执行 `t2` 子命令**（不覆盖 origin 的 `observe`/准备/描述符路径）；因此迁移提交还必须跑 `p3_hardware_acceptance.py t2`，确认 22 步 `failed steps: none`、游标 READY、`published_mask` 正常。
+
 **迁移后应删除**：`target_count[3]` / `threshold_count[3]` / `announced_mask` / `terminal_verified` 以及 `begin()` 的三槽初始化（`window_begin_scan` 取代）。等价性测试 `legacy_equivalence()` 届时收敛为只校验窗口侧。
 
 ### A.4 接线落点（SCPI，2026-10-12 勘察；**2026-10-12 更正**）
