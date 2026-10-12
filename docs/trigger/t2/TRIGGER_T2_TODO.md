@@ -359,6 +359,27 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 `p3_hardware_acceptance.py t2`（验证流程；**不刷写**，必须在 `run` 之后跑）→ 查看采样行的
 `window announced N/entered N overwrote_unannounced 0 … geometry Npos/Mpul`。
 
+### A.3.6b 零成本排除：`T2:STARt` **确实**走到 `trigger_t2_runtime_start()`（2026-10-13）
+
+调用链已核对：
+
+```
+scpi_trigger_t2_runtime_commands.inc:129  scpi_cmd_trigger_t2_start()
+   └─（停机态 worker 回调，:17 configure / :31 start）
+        scpi_trigger_t2_runtime_commands.inc:31  trigger_t2_runtime_start(r->count_epoch, r->origin_count)
+             └─ trigger_t2_runtime.c:737  trigger_t2_runtime_start()
+                  └─ :776-778  if (s_scan_step_mdeg) trigger_turntable_window_begin_scan(...)
+```
+
+⇒ "启动入口不同"这一假设**排除**。剩余假设只剩两条：
+
+| # | 假设 | 如何验证（都在 A.3.6 的仪表内） |
+|---|---|---|
+| A | **`s_scan_step_mdeg` 在 start 时为 0**：configure 处理器里的 setter 调用未生效（例如该 handler 与 worker 的请求构造路径不同，或 setter 的返回被忽略） | 把 `s_scan_step_mdeg` 写进偏移已知的快照字段，`T2?` 读回 |
+| B | **刷入镜像不含 Round 69 的修复** | 比对最近一次 `run` 的构建与提交（`c573abdc`，build `20261012181818`）；或在仪表里同时读回一个**只在修复后才会出现**的特征 |
+
+**注意**：无论 A 还是 B，都必须用**偏移已知**的读回（不要再用尾部/拼接切片），这也是 A.3.4/A.3.6 已确立的做法。
+
 ### A.3.6 完整原始回复已取得（决定性）：窗口在 A.3.3 修复后**仍未运行**（2026-10-13）
 
 按 A.3.4 的方式（`step_20_sampling` 内、`raw_state` 落盘）取得**完整回复**（字段数 67）：
