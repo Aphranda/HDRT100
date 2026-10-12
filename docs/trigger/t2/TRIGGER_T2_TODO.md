@@ -219,13 +219,30 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 
 **迁移后应删除**：`target_count[3]` / `threshold_count[3]` / `announced_mask` / `terminal_verified` 以及 `begin()` 的三槽初始化（`window_begin_scan` 取代）。等价性测试 `legacy_equivalence()` 届时收敛为只校验窗口侧。
 
-### A.4 接线落点（SCPI，2026-10-12 勘察）
+### A.4 接线落点（SCPI，2026-10-12 勘察；**2026-10-12 更正**）
 
-| 环节 | 落点 |
-|---|---|
-| 既有转台命令族 | `middleware/scpi_port/src/scpi_model_commands.c`：`CONFigure:MODEl:TURNtable:{LOAD,TRIGger,MOTion,STARt,STOP}` + `READ:...:{LOAD,TRIGger,MOTion,STATe}?`；转速已有入口 `MOTion <velocity>,<accel>` → `model_turntable_configure_motion()` |
-| 新增命令 | `CONFigure:MODEl:TURNtable:SCAN <start>,<stop>,<step>,<ppd>,<threshold_per_mille>,<pre_roll>,<post_roll>` + `READ:...:SCAN?`；处理器内调用 `trigger_turntable_scan_validate()`，**拒绝即返回 SCPI 错误**，派生几何存起来供读回 |
-| 建窗时机 | STOP 期调用 `trigger_turntable_window_begin_scan(...)`（不可用扫描不建窗 ⇒ 不可能启动） |
+**更正**：先前本节建议在转台模型族下新造 `CONFigure:MODEl:TURNtable:SCAN`。实测**不需要**——T2 自己的配置命令**已经承载扫描参数**，只是缺 STEP 且把 ppd 写死：
+
+```c
+/* middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc:91-100 */
+config.predictor=(trigger_turntable_predictor_config_t){
+    .pulses_per_degree=1000u,          /* ← 写死，须改为参数（TODO 依赖表已登记该偏差） */
+    .start_angle_mdeg=start_angle, .zero_angle_mdeg=zero_angle,
+    .terminal_angle_mdeg=terminal_angle,
+    .pre_roll_mdeg=(uint32_t)pre_roll, .post_roll_mdeg=(uint32_t)post_roll,
+    .threshold_per_mille=(uint32_t)threshold};
+```
+
+⇒ 接线只需在这条既有命令上做四件事：
+
+| # | 动作 | 备注 |
+|---|---|---|
+| 1 | 增加 **STEP 参数**（`step_mdeg`） | 与起始/终止一起构成 K-4 的扫描定义 |
+| 2 | `pulses_per_degree` **由写死改为参数** | 同时与模拟源共用同一个值（禁止两侧各自写死） |
+| 3 | 处理器内调用 `trigger_turntable_scan_validate()`，**拒绝即 SCPI 错误** | fail-closed；派生几何存起来供 `READ` 读回 |
+| 4 | 运行时启动路径把 `begin()` 换成 `window_configure(step)` + `window_begin_scan(...)` | 见 A.3 迁移清单；`observe_at_sync` 保留 |
+
+转台模型族（`CONFigure:MODEl:TURNtable:{LOAD,TRIGger,MOTion}`）仍是**转速等运动参数**的落点（`MOTion <velocity>,<accel>` → `model_turntable_configure_motion()`），不是扫描几何的落点——先前把两者混为一谈是错的。
 
 ### A.5 已结案：所谓"漏宣告 / mask 上报少一位"（2026-10-12）
 
