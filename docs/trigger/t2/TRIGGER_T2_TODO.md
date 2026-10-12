@@ -372,6 +372,37 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.17 item ② 修正版已落地并验证（跳过条件保持 legacy，仅换 threshold/target）（2026-10-13）
+
+按 A.3.16b 的修法实施（提交 `8cdf672a`，build `20261012214614`；测试 107 全绿 ✓、`run` 首跑通过 ✓）：
+
+```c
+        const trigger_turntable_window_entry_t *entry =
+            s_scan_step_mdeg
+                ? trigger_turntable_window_find(&snapshot.predictor, index) : NULL;
+        const uint64_t window_threshold = entry ? entry->threshold_count : snapshot.predictor.threshold_count[index];
+        const uint64_t window_target    = entry ? entry->target_count    : snapshot.predictor.target_count[index];
+        if (__atomic_load_n(&s_threshold_public, __ATOMIC_ACQUIRE) & bit ||
+            snapshot.predictor.announced_mask & bit ||          /* ← 保持 legacy：时序兼容 */
+            snapshot.last_counter_count >= window_threshold ||
+            snapshot.last_counter_count >= window_target)
+            continue;
+        const uint64_t to_threshold = window_threshold - snapshot.last_counter_count;
+        const uint64_t span = window_target - snapshot.predictor.origin_count;
+```
+
+**台架验证**：
+
+```
+t2: exit=0 · passed=True · configured=4 · publishing=5
+采样: published_mask 3 · announced 3 · thresholds ['4750','9750','1475…']   ← 准备路径正常（preview 恢复）
+仪表: 5000,1,0,5000,3,5000, 3,3,0,0                                       ← 窗口健康、announce_mismatch 0
+```
+
+⇒ 与失败版（`69dde42c`）的**唯一差别**就是跳过条件回到 legacy ⇒ **A.3.16b 的根因由构造方式得到确认** ✓（不是相关性，而是对照实验：只改这一处，结果由失败转通过）。
+
+**仍未做（独立切片，按 A.3.16）**：节流表 `s_last_calculated_coarse[index]` → `s_cadence[slot]`（回退值不得为 0；建议仅在 `entry != NULL` 时启用 slot 键）。
+
 ### A.3.16b 【根因已定位】`entry->announced` 不能用作准备循环的跳过条件（2026-10-13）
 
 **隔离实验**（按 A.3.16 的修正顺序）：只改判定取值来源、**节流表不动**（提交 `69dde42c`，build `20261012211756`；测试 107 全绿 ✓、`run` 通过 ✓）⇒ 台架 `t2` **仍然失败**，签名与 A.3.16 完全一致：
