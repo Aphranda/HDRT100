@@ -1146,13 +1146,7 @@ void trigger_t2_runtime_prepare_core0(void)
             .sync_epoch = snapshot.cursor.grid_epoch,
             .position_id = index + 1u,
             .count_epoch = snapshot.predictor.count_epoch,
-            /* Same source as the judgement above (migration item 3, A.3.19): the window
-             * entry's target when this position is in the window, the legacy array
-             * otherwise. The rest of this literal is runtime-specific (observed_count /
-             * window_pulses / window_syncs, and a prediction_version that increments per
-             * attempt) - which is why the descriptor is built here and NOT with
-             * trigger_turntable_predictor_build_descriptor_window(). */
-            .target_count = window_target,
+            .target_count = snapshot.predictor.target_count[index],
             .prediction_version = previous.prediction_version + 1u,
             .grid_generation = s_config.grid.generation,
             .deployment_generation = s_config.deployment_generation,
