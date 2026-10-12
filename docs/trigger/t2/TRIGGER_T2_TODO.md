@@ -321,6 +321,26 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **同一步的配套**：`scan_validate` 的 fail-closed 校验也放在该 setter 内（或紧随其后），这样"非法扫描"在配置期就被拒，而不是等到 ARM 之后。
 
+### A.3.1 测试环境坑：pytest basetemp 被卡住会伪装成"代码坏了"（2026-10-13 实测）
+
+一次 C harness 测试运行**超时挂起**（`subprocess.TimeoutExpired`）后，`out/pytest/runs` 目录被残留句柄锁住，
+pytest fixture 的 `rmtree` 随之失败，**之后所有同类测试都以 setup ERROR 立即失败**（0.5 s 内、无断言输出）。
+
+**症状与误判**：看起来像"回退后代码坏了"，实为**临时目录被卡死**。判定方法：用全新 basetemp 复跑——
+
+```powershell
+python -m pytest tests/python/test_turntable_rolling_window.py -p no:cacheprovider -q `
+  --basetemp="$env:TEMP\pytest-t2-<stamp>"
+```
+
+实测：换 basetemp 后立即 **95 passed**（T2 全套），证明工作树无恙。
+
+**处置**：出现 setup ERROR 或挂起时，先换 basetemp 判定真伪，再决定是否怀疑代码；被卡住的 `out/pytest/runs` 需另行清理（或保持使用 TEMP basetemp）。
+
+**另有一处未解**：本轮尝试为迁移加"按序号问宣告"的访问器 `trigger_turntable_window_is_announced()`（内部走 `window_find`）时，
+C harness 测试出现**挂起**而非编译错误；因无法在当轮定位已回退。该访问器**非必需**——迁移可直接调
+`window_find()` 后读 `entry->announced`，故不阻塞 A.3。留作待查项。
+
 #### A.4.0 已实现待重放的改动 + 当前阻塞（2026-10-13）
 
 **（一）加 STEP 的改动已写好并静态验证通过**（因凭证受阻而回退，可逐字重放）：
