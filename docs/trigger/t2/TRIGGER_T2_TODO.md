@@ -372,6 +372,26 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.15 剩余迁移已测量：消费者清单与分片顺序（2026-10-13）
+
+把"步骤②"拆成**可逐一验证的切片**，并标出规模（行号为 2026-10-13 快照）：
+
+| # | 消费者 | 规模/位置 | 键 | 状态 |
+|---|---|---|---|---|
+| 1 | **发布掩码** → `s_threshold_public` | 1 处 store（经 `t2_published_mask()`） | 窗口条目 | ✅ **已迁移**（A.3.14，`9fe22404`） |
+| 2 | **冻结判定**（读 `s_threshold_public & bit`） | 消费掩码本身 | 由 1 决定 | ✅ 随切片 1 **自动**变为窗口驱动（判定源已是窗口宣告） |
+| 3 | **deadline 规划** | `trigger_t2_runtime.c:1024-1069`（约 45 行；循环体约 10 行） | legacy 下标（3 槽） | ❌ 待迁移：迭代 3 个 `index`，用 `preview_copy(index,…)`、`s_deadline_mailbox[index]`、`s_frozen_public` 位、`deadline_publish(index,…)` |
+| 4 | **准备循环** | `trigger_t2_runtime.c` 约 1000-1023（约 25 行） | legacy 下标 + `s_last_calculated_coarse[]` | ❌ 待迁移：读 `target_count[]` / `threshold_count[]` / `announced_mask`，写节流表 |
+| 5 | **legacy 数组 + `begin()` 的槽语义** | `target_count[3]` / `threshold_count[3]` / `announced_mask` / `terminal_verified` | 3 槽 | ❌ 待删除（在 3、4 迁移之后）；**保留 `observe_at_sync`** |
+
+**建议分片顺序**（每片独立提交 + `run` + `t2` 验证）：
+
+1. **切片 2 = 第 4 项（准备循环）**：它只读计数、写节流表，**不碰描述符**，与切片 1 同类（数值等价已由 A.3.13 背书）⇒ 风险最低；
+2. **切片 3 = 第 3 项（deadline 规划）**：涉及描述符来源切换（`preview_copy` → 窗口条目），须先确认 `entry->descriptor` 的可用性（若窗口条目未持描述符，则需补一个按条目的取描述符路径）——**这是本清单里唯一的未知量**，动手前先读窗口条目结构确认；
+3. **切片 4 = 第 5 项（删 legacy）**：仅在 2、3 验证通过后执行。
+
+**每片的验收判据**（沿用 A.3.13/A.3.14）：`t2` 的 `published_mask`/`announced`/`POS pub` 与基线同量级（基线 `published_mask 3→7`、`publishing 4–6`）**且** `T2:SCAN?` 的 `announced == entered`、`overwrote == 0`、`announce_mismatch == 0`。
+
 ### A.3.14 迁移步骤② 切片 1 已落地并验证：发布掩码改读窗口（2026-10-13）
 
 **改动**（提交 `9fe22404`，build `20261012200521`）：发布掩码不再直接取 legacy 数组，而经 `t2_published_mask()`：
