@@ -827,6 +827,11 @@ def run_full(board_ids) -> int:
                 # (u64), 30 cursor.pulse_index, 33 announced_mask, 44/45 core0
                 # prepare/preview counters. POSition? index 5 is tx_publish_count.
                 fields = position.split(",")
+                # The rolling window's health facts are appended LAST on the T2 page
+                # (order guarded by tests/python/test_t2_page_field_order.py), so they
+                # are read from the tail and never by index: the migration acceptance
+                # is announced == entered with overwrote_unannounced == 0.
+                window_tail = state[-9:] if len(state) >= 9 else []
                 print(f"t+{2 * (tick + 1)}s counter loaded "
                       f"{counter[2] if len(counter) > 2 else '?'} count "
                       f"{counter[16] if len(counter) > 16 else '?'}"
@@ -837,7 +842,13 @@ def run_full(board_ids) -> int:
                       f" prep {state[44] if len(state) > 44 else '?'}"
                       f"/{state[45] if len(state) > 45 else '?'}"
                       f" | POS pub {fields[5] if len(fields) > 5 else '?'}"
-                      f" rx {fields[12] if len(fields) > 12 else '?'}", flush=True)
+                      f" rx {fields[12] if len(fields) > 12 else '?'}"
+                      f" | window announced {window_tail[1] if len(window_tail) > 1 else '?'}"
+                      f"/entered {window_tail[0] if len(window_tail) > 0 else '?'}"
+                      f" overwrote_unannounced {window_tail[2] if len(window_tail) > 2 else '?'}"
+                      f" late {window_tail[3] if len(window_tail) > 3 else '?'}"
+                      f" step_mdeg {window_tail[6] if len(window_tail) > 6 else '?'}",
+                      flush=True)
             err = state[1] if len(state) > 1 else "?"
             cfg = state[2] if len(state) > 2 else "?"
             act = state[3] if len(state) > 3 else "?"
