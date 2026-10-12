@@ -762,6 +762,15 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
         publish_end();
         return false;
     }
+    /* The rolling window runs BESIDE the legacy prediction path while the consumers are
+     * migrated (docs/trigger/t2/TRIGGER_T2_TODO.md A.3): begin() above still fills
+     * target_count[]/announced_mask, so this changes no output yet - it makes the
+     * window's own entries, its health counters and the derived scan geometry readable
+     * through T2?, which is the evidence the migration is judged on. A scan the window
+     * refuses leaves the window disabled and the run proceeds on the legacy path. */
+    if (s_scan_step_mdeg)
+        (void)trigger_turntable_window_begin_scan(&s_state.predictor,
+            &s_config.predictor, s_scan_step_mdeg, 0u, origin_count);
     s_state.active = 1u;
     s_pending_mask = 0u;
     memset(s_freeze_cycles, 0, sizeof(s_freeze_cycles));
