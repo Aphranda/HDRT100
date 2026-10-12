@@ -847,7 +847,9 @@ def run_full(board_ids) -> int:
                       f"/entered {window_tail[0] if len(window_tail) > 0 else '?'}"
                       f" overwrote_unannounced {window_tail[2] if len(window_tail) > 2 else '?'}"
                       f" late {window_tail[3] if len(window_tail) > 3 else '?'}"
-                      f" step_mdeg {window_tail[6] if len(window_tail) > 6 else '?'}",
+                      f" step_mdeg {window_tail[6] if len(window_tail) > 6 else '?'}"
+                      f" geometry {window_tail[7] if len(window_tail) > 7 else '?'}pos"
+                      f"/{window_tail[8] if len(window_tail) > 8 else '?'}pul",
                       flush=True)
             err = state[1] if len(state) > 1 else "?"
             cfg = state[2] if len(state) > 2 else "?"
