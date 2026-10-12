@@ -359,6 +359,16 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 `p3_hardware_acceptance.py t2`（验证流程；**不刷写**，必须在 `run` 之后跑）→ 查看采样行的
 `window announced N/entered N overwrote_unannounced 0 … geometry Npos/Mpul`。
 
+### A.3.6e 待检验的假设 C：命令超时与"停机态请求"时序（2026-10-13）
+
+台架日志中 T2 命令**经常出现 `<timeout>`**（例：`provisional reply <timeout>`、`ACTion:INSTall <timeout>`），而 firmware 侧 `T2:CONFigure`/`T2:STARt` 是通过**停机态 worker 请求**（`r->config` / `r->count_epoch`，见 `scpi_trigger_t2_runtime_commands.inc:17/31`）**延迟执行**的。由此产生一个此前未考虑的假设：
+
+> **C**：SCPI 处理器在**构造/提交请求**时超时或被重试，真正被 worker 执行的可能是**另一次尝试**的请求；若"设置步长"的那次调用与"被执行的请求"不是同一次，`s_scan_step_mdeg` 就可能为 0（表现为窗口未启用）。
+
+**为何要先写下来**：如果是 C，那么 A.3.6d 仪表里 `step_mdeg ≠ 5000` **不能直接**认定"setter 未生效"，而要看**该次成功的 configure 是否与 setter 同一次**。仪表因此应再增一个字段：**configure 成功次数 / 请求序号**（或把 `s_scan_step_mdeg` 的写入与 configure 的成功计数一起快照），用于判断二者是否配对。
+
+**与已排除项的关系**：A.3.6b 排除的是"启动入口不同"，A.3.6c 排除的是"镜像旧"；C 与两者都不冲突。
+
 ### A.3.6d 仪表最终设计：新增专用查询 `TRIGger:REServation:T2:SCAN?`（2026-10-13 定）
 
 不再往 `T2?` 追加字段（本会话反复被"位置化解析"所伤），改为**一个只返回诊断字段的查询**——与 A.3.5 提到的"只返回尾块的查询"一致：
