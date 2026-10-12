@@ -372,6 +372,27 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.10 A.2 的 lead 口径偏差已在"消费者实际使用的路径"上修正并台架验证（2026-10-13）
+
+**背景**：A.2 记录的口径分歧（legacy `begin()` 用"距 origin 的距离"、窗口用"一个 STEP"）此前只在新窗口侧生效，而**消费者读的仍是 legacy 数组** ⇒ 产品行为仍是不合规的那一支。
+
+**修法**（提交 `422655e8`，build `20261012193159`）：给 `trigger_turntable_predictor_begin()` 增加 `int32_t step_mdeg` 形参（**函数签名变更，不动结构体**，符合 A.1）：
+
+- `step_mdeg > 0` ⇒ `lead = 一个 STEP 的比例`（`step_pulses × factor / 1000`）；
+- `step_mdeg == 0` ⇒ 保留原"距 origin"基准（无扫描参数的调用者行为不变）。
+
+运行时以 `s_scan_step_mdeg` 调用；三处测试调用者同步传 `0` 以保留原基准（A.2 的等价性钉子 `25 / 925` 因此仍有效）。
+
+**验证**（同一提交刷写后）：
+
+```
+t2: passed=True · configured=4 · publishing=4
+origin : 5000,1,0,5000,3,5000, 3,3,0   ← 窗口健康保持（announced == entered == 3、overwrote == 0）
+从板   : 5000,1,0,5000,3,5000, 2,0,0   ← 符合"只跟随"设计
+```
+
+**意义**：A.2 从"已量化的分歧"变为"**已修正且经台架验证**"；同时证明本次行为变更（冻结时机）**未破坏 T2 流程**。
+
 ### A.3.9 【里程碑】迁移判据首次达成：origin `announced == entered` 且 `overwrote == 0`（2026-10-13）
 
 在 origin 采样路径接上 `window_advance()`（提交 `1c8fa0e8`，build `20261012191933`）后，同一轮 `t2` 的仪表实读：
