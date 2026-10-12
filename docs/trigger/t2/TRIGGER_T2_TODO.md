@@ -372,6 +372,39 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.19 【更正】item 3 是**一行**改动，**不要**改用 `build_descriptor_window()`（2026-10-13）
+
+实读 `trigger_t2_runtime.c:1141-1160`：准备循环里的描述符**不是**由 `build_descriptor()` 构造，而是**直接结构体字面量**：
+
+```c
+        trigger_position_descriptor_t next = {
+            .schema = TRIGGER_POSITION_DESCRIPTOR_SCHEMA,
+            .run_id = s_config.run_id,
+            .sync_epoch = snapshot.cursor.grid_epoch,
+            .position_id = index + 1u,
+            .count_epoch = snapshot.predictor.count_epoch,
+            .target_count = snapshot.predictor.target_count[index],   /* ← 唯一需要改的行 */
+            .prediction_version = previous.prediction_version + 1u,   /* 运行期自增，非快照值 */
+            .grid_generation = s_config.grid.generation,
+            .deployment_generation = s_config.deployment_generation,
+            .deployment_crc = s_deployment_crc,
+            .valid_from_sync = (uint32_t)coarse,
+            .expiry_sync = UINT32_MAX,
+            .stage = TRIGGER_POSITION_STAGE_PREVIEW,
+            .observed_count = snapshot.last_counter_count,            /* 构造器不设 ✗ */
+            .window_pulses = (uint32_t)(snapshot.last_counter_count - old.count),  /* ✗ */
+            .window_syncs  = (uint32_t)(coarse - old.coarse),          /* ✗ */
+        };
+```
+
+**因此**：
+
+1. A.3.15c/A.3.15d 的"@1139 改用 `build_descriptor_window()`"**是错的** ✗ —— 构造器**不设** `observed_count` / `window_pulses` / `window_syncs`，且 `prediction_version` 取自快照而非"上一版本 +1" ⇒ 照做会**同时丢掉采样窗口字段并改错版本号**（又一处静默故障）；
+2. **item 3 的正确形态是一行**：`.target_count = snapshot.predictor.target_count[index]` → `.target_count = window_target`——而 `window_target` **正是 A.3.17 切片已经算好的局部量** ✓（同一次循环迭代内可见 ✓）；无窗口时它自动等于 legacy 值 ✓，故行为与 A.3.17 的等价性一致 ✓；
+3. `build_descriptor_window()`（Round 95）**保留但此处不用**——它对"完全由窗口驱动的发布路径"仍可能有用，但**不是**这个准备循环的替代品。
+
+**方法论（第 4 例）**：**"该位置有一个同名/近名的构造器"≠"该处正在用它"** —— 必须先看**实际代码**（本节即：字面量 vs 构造器调用），否则会以"复用"之名删掉现场特有的字段。前 3 例：A.3.2 采样尾巴加错块、A.4.3 位置参数错位、A.3.15c 构造器写死三位置。
+
 ### A.3.18 【已回退】节流表改 slot 键亦破坏准备路径 ⇒ 该循环的节流行为**暂不要改**（2026-10-13）
 
 按 A.3.16 的第 2 步实施"仅当位置在窗口内时才用 slot 键、否则保留 legacy 表"（提交 `1fcb2627`，build `20261012220749`；107 测试全绿 ✓、`run` 第二次通过 ✓），台架 `t2` **仍失败**且签名与 A.3.16/A.3.16b 完全一致：
