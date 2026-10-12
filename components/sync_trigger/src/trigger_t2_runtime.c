@@ -54,8 +54,13 @@ static int32_t s_scan_step_mdeg;
 
 bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 {
+    /* Only the value is validated here: the SCPI configure path already refuses to run
+     * while the load is forbidden, and trigger_t2_runtime_configure() resets the state,
+     * so consulting s_state.active here would reject a legitimate re-configure (measured
+     * on the bench: the T2 acceptance came back with boards_configured=0 and all targets
+     * zero because the mount step's configure was refused while a previous run was still
+     * marked active). */
     if (step_mdeg <= 0) return false;
-    if (s_state.active) return false;          /* STOP only: never re-shape a running scan */
     s_scan_step_mdeg = step_mdeg;
     return true;
 }
