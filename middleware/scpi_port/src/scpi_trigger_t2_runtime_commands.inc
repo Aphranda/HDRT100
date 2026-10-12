@@ -57,7 +57,7 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
      * is the real cause; later writes (e.g. the generic 102) must not mask it. */
     tdma_seat_mount_store_note_reject(90u);
     uint64_t run_id, source_slot, target_mask, origin;
-    uint64_t pre_roll, post_roll, threshold;
+    uint64_t pre_roll, post_roll, threshold, pulses_per_degree;
     int32_t start_angle, zero_angle, terminal_angle, step_mdeg;
     if (!scpi_trigger_grid_uint(context, UINT32_MAX, &run_id) ||
         !scpi_trigger_grid_uint(context, UINT32_MAX, &source_slot) ||
@@ -66,6 +66,7 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
         !scpi_trigger_grid_uint(context, UINT32_MAX, &pre_roll) ||
         !scpi_trigger_grid_uint(context, UINT32_MAX, &post_roll) ||
         !scpi_trigger_grid_uint(context, 999u, &threshold) ||
+        !scpi_trigger_grid_uint(context, UINT32_MAX, &pulses_per_degree) ||
         SCPI_ParamInt32(context, &start_angle, TRUE) != TRUE ||
         SCPI_ParamInt32(context, &zero_angle, TRUE) != TRUE ||
         SCPI_ParamInt32(context, &terminal_angle, TRUE) != TRUE ||
@@ -97,7 +98,7 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
     trigger_t2_runtime_config_t config={0};
     config.grid=grid.grid;
     config.predictor=(trigger_turntable_predictor_config_t){
-        .pulses_per_degree=1000u,
+        .pulses_per_degree=(uint32_t)pulses_per_degree,
         .start_angle_mdeg=start_angle,
         .zero_angle_mdeg=zero_angle,
         .terminal_angle_mdeg=terminal_angle,

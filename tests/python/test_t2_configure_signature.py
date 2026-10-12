@@ -28,6 +28,7 @@ EXPECTED_PARAMETERS = (
     "pre_roll",
     "post_roll",
     "threshold",
+    "pulses_per_degree",
     "start_angle",
     "zero_angle",
     "terminal_angle",
