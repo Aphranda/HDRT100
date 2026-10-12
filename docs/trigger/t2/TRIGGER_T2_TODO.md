@@ -155,6 +155,18 @@ Last updated: 2026-10-12
 
 修正后的实现重点（取代上一条"派生动作"）：① `LOCAL_TEMPLATE_CAPACITY` 1 → 16、执行端深度 2 滑动窗口（`T2-SEQ-001`/`T2-EXEC-002`）；② 扫描参数（起始/终止/STEP/转速/`pulses_per_degree`/脉宽）参数化并做 STOP 校验（`T2-STEP-001`/`T2-SOURCE-001`）；③ 在途窗口内的身份与代次语义（`T2-IDENT-001`）按"1～2 个在途 + 绝对时间"定稿，**不动 10 B 线格式**。
 
+### 追加约束（2026-10-12：用户裁决）——预测必须随进度滚动，不得开头一次预测完
+
+**不得只走完扫描最前面的一小部分就把全部位置预测完**：预测窗口必须随实际计数/角度推进，进入窗口时才生成该位置的目标与阈值。
+
+代码现状（快照，非事实源；以符号为准）：`components/sync_trigger/inc/trigger_turntable_predictor.h`
+
+- 固定 3 槽：`target_count[3]` / `threshold_count[3]`，与 `trigger_turntable_position_id_t` 的 `START=1 / ZERO=2 / TERMINAL=3` 一一对应；
+- `trigger_turntable_predictor_begin()` 在起始即用 `origin_count + (angle − base_angle) × pulses_per_degree / 1000` **把全部 3 个目标计数与阈值一次算完**；
+- `trigger_turntable_predictor_observe()` 只在计数跨过 `threshold_count[i]` 时置 `announced_mask` 位。
+
+因此 0..360°@1°（361 位置）要落地的是：**把固定 3 槽改为滚动窗口（在途 1～2 个位置）**——每个位置的目标计数/阈值在**进入窗口时**由"当前计数 + 扫描参数"计算，跨阈值即按该位置 FREEZE 并推进窗口；`begin()` 只建立窗口首项，**不枚举整段扫描**。这条同时约束 `T2-TURNTABLE-002`（异步窗口预测）与 `T2-STEP-001`（扫描参数派生）的实现方式。
+
 ## 实施顺序与停止条件
 
 先定位置身份与在途容量（`T2-IDENT-001`）和 A-13 修法（`T2-FREEZE-002`）——长扫描的身份容量决定后面全部前端的工作量；再完成 P0 配置事务和一等席单帧位置运输（`T2-TRANSPORT-002`），随后阈值冻结、从板本地准备和 1～2 帧诊断回传；之后闭合 STEP 扫描（`T2-STEP-001`）、每位置多组序列与两组滑动窗口执行（`T2-SEQ-001`、`T2-EXEC-002`、`T2-DCO-001`）和 READY 重叠校验。正式输出受 `T2-GATE-001` 约束。通用 FIFO/流式 OTA 保留为独立后续负载，不作为 T2 单 q 的前置条件。
