@@ -282,5 +282,20 @@ scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context)
         SCPI_ResultUInt32(context,s.events[i].position_id);
         SCPI_ResultUInt64(context,s.events[i].action_q);
     }
+    /* Appended: the rolling prediction window's own health facts. A scan must
+     * announce every entered position exactly once (window_announced_count ==
+     * window_entered_count) and must never replace an unannounced entry
+     * (window_overwrote_unannounced_count == 0); late and rate-stale counts say how
+     * often a position was entered already due, or announced without a usable rate.
+     * Read-only; positional readers keep their indices. */
+    SCPI_ResultUInt32(context,s.predictor.window_entered_count);
+    SCPI_ResultUInt32(context,s.predictor.window_announced_count);
+    SCPI_ResultUInt32(context,s.predictor.window_overwrote_unannounced_count);
+    SCPI_ResultUInt32(context,s.predictor.window_late_entry_count);
+    SCPI_ResultUInt32(context,s.predictor.window_recomputed_count);
+    SCPI_ResultUInt32(context,s.predictor.window_rate_stale_count);
+    SCPI_ResultUInt32(context,s.predictor.window_step_mdeg);
+    SCPI_ResultUInt32(context,s.predictor.scan_geometry.positions);
+    SCPI_ResultUInt32(context,s.predictor.scan_geometry.step_pulses);
     return SCPI_RES_OK;
 }
