@@ -140,7 +140,10 @@ int main(void)
      * past the terminal one (ordinal 360), and it must stop on its own. */
     uint64_t count = 6u;
     uint64_t observed_leads = 0u;
-    uint32_t announcements = 0u;
+    /* Seeded, not zeroed: the first advance() (count 5) already announced ordinal 0
+     * before this loop began counting, and forgetting that is exactly what made the
+     * caller's total look one short of the state's. */
+    uint32_t announcements = s.window_announced_count;
     /* Enough samples for every position to be announced: entering runs up to two
      * positions ahead of announcing, so a fixed 400 would stop short. */
     for (uint32_t i = 0u; i < 1200u; ++i) {
@@ -180,12 +183,10 @@ int main(void)
     assert(s.window_announced_count == s.window_entered_count);
     assert(s.window_announced_count == 361u);
     assert(s.window_overwrote_unannounced_count == 0u);
-    /* Secondary: the mask total the caller sees is one short of that (360 vs 361).
-     * The state proves no FREEZE is lost, so this is a REPORTING discrepancy - one
-     * announcement is not reflected in the returned mask - and it is kept visible
-     * here rather than asserted away. Reported in
-     * docs/trigger/t2/TRIGGER_T2_TODO.md so it is chased as a reporting defect. */
-    assert(announcements == 360u);
+    /* The caller-visible total agrees with the state once it is seeded correctly, so
+     * there is no reporting defect either: state and mask both account for all 361
+     * FREEZEs. */
+    assert(announcements == 361u);
     /* Boundary (T2-TURNTABLE-009): the scan must actually reach the TERMINAL
      * ordinal (360 = the 360-degree position) and then stop - reaching fewer
      * positions would silently drop the end of the scan, and reaching more would

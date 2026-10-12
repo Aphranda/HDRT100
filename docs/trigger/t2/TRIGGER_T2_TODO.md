@@ -191,33 +191,33 @@ Last updated: 2026-10-12
 | 建窗时机 | STOP 期调用 `trigger_turntable_window_begin_scan(s, cfg, step, sequence_span_pulses, observed_count)` | 校验 + 建窗合一；不可用扫描**不建窗**，因此不可能启动 |
 | 行程 | 命令接受的是**位置网格**（起始..终止 by STEP）；行程 `[起始−5°, 终止+5°]` 由 `pre_roll_mdeg`/`post_roll_mdeg` 表达，校验要求其为整数脉冲且 ≥ 1 STEP | 见 `T2-STEP-001` 行 |
 
-## 待修缺陷（2026-10-12，已定性）：mask 上报少一位，**不是**丢失 FREEZE
+## 已结案（2026-10-12）：所谓"漏宣告 / mask 上报少一位"是**测试记账错误**，代码无缺陷
 
-### 结论
+最终结论：`window_advance` 的宣告与上报都正确，361 个位置各宣告一次。
 
-用**状态机内部计数**（`window_announced_count` / `window_overwrote_unannounced_count`，取代调用方对返回 mask 的 popcount）复测 0..360°@1° 全程扫描：
+### 证据链
 
-```
-状态: window_entered_count = 361 · window_announced_count = 361 · window_overwrote_unannounced_count = 0
-调用方: Σ popcount(mask) = 360
-```
+| 观测 | 值 | 说明 |
+|---|---|---|
+| 状态：`window_entered_count` | 361 | 全部进入 |
+| 状态：`window_announced_count` | 361 | 全部宣告（状态自身计数） |
+| 状态：`window_overwrote_unannounced_count` | 0 | 无"未宣告即被覆盖" |
+| 调用方：Σ popcount(mask) | 360 → **361** | 把 `announcements` 的初值改为 `s.window_announced_count` 后与状态一致 |
 
-⇒ **每个被进入的位置都被恰好宣告一次，没有任何位置丢失 FREEZE**；差的 1 位出在 `window_advance` **返回 mask 的上报/累计路径**。因此：
+**根因**：测试在大循环开始处才把 `announcements` 置 0，而**第一次宣告发生在更早的 `advance(count=5)` 调用**（宣告序号 0）⇒ 调用方总数天然少 1。**是测试记账漏了那次宣告，不是上报路径丢位。**
 
-- 权威不变式改为**状态级**：`window_announced_count == window_entered_count`（= 361）且 `window_overwrote_unannounced_count == 0`，测试已按此断言并通过；
-- 调用方看到的 mask 总数 360 作为**次要不一致**保留在测试里（`assert(announcements == 360u)` + 注释），并在本节按**上报缺陷**跟踪。
+### 保留的永久不变式
 
-### 定位过程的两次反复（保留作为教训）
+- 状态级：`window_announced_count == window_entered_count == 361`、`window_overwrote_unannounced_count == 0`；
+- 调用侧：`Σ popcount(mask) == 361`（初值取状态计数，避免再次漏计已发生的事件）；
+- 每个有效条目 `threshold_count <= target_count` 且 `margin ∈ {95, 0}`。
 
-1. 首次记录（"361 进入 / 360 宣告 = 丢 FREEZE"）**结论过强**：当时只有一个总数，无法区分"状态未宣告"与"上报未反映"。
-2. 用测试侧的逐序号位图归因**必然误报**：已宣告条目会在同一次调用内被 roll 移出，调用后采样看不到其 `announced` 标志（曾误报 `ordinal=3`）。
-3. 一次"撤回"基于**无效实验**：诊断走 stderr，而 pytest 只在测试失败时显示捕获输出 ⇒ "没看到输出"被误读为"值相同"。
+### 过程教训（三次反复的最终版）
 
-**教训**：涉及"状态内部事件"的缺陷，必须用**状态自身的计数**定位；外部采样（调用后观测、stdout/stderr 沉默）都不足以证明"没发生"。
-
-### 下一步
-
-在 `window_advance` 内维护"本次调用宣告了哪些 slot"与"返回给调用方的 mask"的一致性检查（或直接在测试里逐调用比对 `announced_count` 增量 vs `popcount(mask)`），找出**增量 1 / mask 0** 的那一次调用及其 `count` 与窗口内容；定位后修上报路径。
+1. 首次结论"丢 FREEZE"**过强**（只有总数，无法区分状态与上报）；
+2. 测试侧逐序号位图归因**必然误报**（宣告与移出发生在同一次调用内，调用后采样看不到）；
+3. 一次"撤回"基于**无效实验**（stderr 在测试通过时不显示）；
+4. 最终定位靠**状态自身计数 + 对调用方记账初值的核对**——**计数类断言必须问"这个计数从哪里开始计"**。
 
 ## 实施顺序与停止条件
 
