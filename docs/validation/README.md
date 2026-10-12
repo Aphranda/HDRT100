@@ -4,7 +4,7 @@ Status: Active
 Domain: VALIDATION
 Canonical: `docs/validation/README.md`
 Related: `docs/README.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-09-20
+Last updated: 2026-10-12
 
 本目录是 HIL、验证方法、任务进度及闭环验证记录的入口。工具身份、登记、依赖、生命周期与交接治理统一见 [工具域架构](../tools/DOCS_TOOLS_ARCHITECTURE.md)；具体工具操作说明仍与根目录 `tools/` 实现相邻，业务资格判据仍归原业务域。
 
@@ -17,6 +17,20 @@ Last updated: 2026-09-20
 | `../communication/BISSC_TASK_PROGRESS.md` | BiSS-C 任务进度和验证记录 |
 | `../storage/SD_TASK_PROGRESS.md` | SD 域任务进度和验证记录 |
 | `../sync/SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构任务进度 |
+| `P3_FLOW.html` | 硬件验收（P3）37 步工作流视图（`tools/hardware_acceptance/hardware_acceptance_workflow.py`） |
+
+## 2026-10-12 硬件验收步进工作流
+
+- `p3_hardware_acceptance.py` 的整体流程拆为 37 个步骤函数（`ACCEPTANCE_STEPS`）；`run`/`resume`
+  与 `hardware_acceptance_workflow.py --profile full` 执行同一组函数，代码提交 `6d0fc825`。
+- 运行目录持久化 `workflow-state.json`：每步产出的值、每步状态/序号/调用、每次调用的源码指纹。
+  缺输入按名失败并指出产出步骤；`--run <dir|latest>` 续跑，`--reuse-from` 沿用标定（目前只出记录）。
+- 凭证资格（`credential_ineligibility`）：所需步骤在同一运行目录、同一源码指纹下按序全部运行；
+  重跑上游使下游过期；否则只写 `workflow-record.json`，配置凭证按快照原样保留。
+- 首次凭证：`out/HardwareAcceptance/20261012/hawf-152301`，两次调用（NO.2 `OPMode:APPLy` 偶发超时
+  使步骤 8 失败，`--steps 7-36 --run` 续跑免去构建与 OTA），`PASS_WITH_WARNINGS`（ERROR/FATAL 为 0），
+  步骤 36 以 `check-staged` 校验器自检通过。
+- 后续：沿用标定的提交凭证（新凭证 schema + `check-staged` 支持，属门禁变更）。
 
 ## 边界
 

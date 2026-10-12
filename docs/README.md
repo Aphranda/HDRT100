@@ -318,6 +318,7 @@ docs/
 | `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA 域当前稳定架构。 |
 | `ota/OTA_TODO.md` | OTA 域当前任务状态与退出门禁。 |
 | `ota/OTA_TASK_PROGRESS.md` | OTA 域实现、验证、失败与回退证据。 |
+| `validation/P3_FLOW.html` | 硬件验收（P3）37 步工作流 A4 视图：由 `tools/hardware_acceptance/hardware_acceptance_workflow.py` 注入最近一次运行的逐步结果、调用与凭证资格；视图本身不是验收凭证。 |
 | `ota/OTA_FLOW.html` | 四板刷写工作流 A4 视图（OTA / picotool / TDMA 流式预留）：由 `tools/ota/OTA_workflow.py` 注入最近一次运行；不是验收凭证。 |
 | `legacy/ota/README.md` | OTA 历史文档索引。 |
 | `legacy/ota/OTA_SYSTEM_DESIGN.md` | v1 OTA 系统设计历史快照。 |

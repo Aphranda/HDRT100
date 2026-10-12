@@ -1,6 +1,6 @@
 # Agent 常设命令（Codex / Claude / AI 助手）
 
-Last updated: 2026-09-22
+Last updated: 2026-10-12
 
 本仓库采用「文档自回归体系」治理文档。**任何 AI 助手（Codex / Claude / DSH）在本仓库工作前，必须先阅读 §0 理解该体系，再动手改文档。** 违反体系约束会被 git pre-commit 门禁拦截。
 
@@ -39,8 +39,11 @@ Last updated: 2026-09-22
 5. 修改任何文档 → 必须更新 `Last updated`
 6. 临时内容（评审快照/草稿）**不得**登记为契约
 7. 修改任何固件、PIO、构建、工具、测试或 hook 实现后，提交前必须执行
-   `python tools/hardware_acceptance/p3_hardware_acceptance.py run`；pre-commit 按 staged
-   源码指纹核验 P3 硬件验收凭证，旧凭证、手工报告和 replay 不能放行
+   `python tools/hardware_acceptance/p3_hardware_acceptance.py run`，或等价的步进工作流
+   `python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full`（同一组
+   37 个步骤函数；可 `--run <dir>` 续跑，只有所需步骤在同一运行目录、同一源码指纹下按序
+   全部运行才写凭证）；pre-commit 按 staged 源码指纹核验 P3 硬件验收凭证，旧凭证、手工报告
+   和 replay 不能放行
 8. `*_TASK_PROGRESS.md` 单文件 ≤200KB（C14）；超标必须把**最旧**条目连续归档到
    `docs/legacy/<domain>/LEGACY_<DOMAIN>_TASK_PROGRESS_<NN>.md`，并在规范文件维护
    `## 归档索引`（ID 闭包、条目数相符）；归档只搬旧证据，禁止丢证据
