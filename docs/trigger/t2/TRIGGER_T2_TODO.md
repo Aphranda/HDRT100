@@ -179,6 +179,18 @@ Last updated: 2026-10-12
 2. **窗口外的位置不产生任何对外事实**：超过 2 个位置的 target/threshold/FREEZE 都不生成；线上在途记录数因此 ≤2（4 bit `position_id` 余量充足，10 B 单帧无需变更）。
 3. **速率过期即 withhold（fail-closed）**：窗口内位置若缺少足够新的 sync 观测（速率估计过期/`rate_valid=0`），应判定"该位置预测不可用"并按失败记录，而不是用旧速率外推补一个数。
 
+## T2-STEP-001 接线落点（2026-10-12 勘察）
+
+下一步（SCPI 接线）的确切落点，已核对代码：
+
+| 环节 | 落点 | 说明 |
+|---|---|---|
+| 现有转台命令面 | `middleware/scpi_port/src/scpi_model_commands.c`：`CONFigure:MODEl:TURNtable:{LOAD,TRIGger,MOTion,STARt,STOP}` 与 `READ:MODEl:TURNtable:{LOAD,TRIGger,MOTion,STATe}?`（声明见 `scpi_model_commands.h`） | 扫描参数应挂在这一族之下（转速已有入口：`MOTion <velocity_units_per_s>,<acceleration_units_per_s2>` → `model_turntable_configure_motion()`） |
+| 新增命令 | `CONFigure:MODEl:TURNtable:SCAN <start_mdeg>,<stop_mdeg>,<step_mdeg>,<pulses_per_degree>,<threshold_per_mille>,<pre_roll_mdeg>,<post_roll_mdeg>` + `READ:MODEl:TURNtable:SCAN?` 读回派生几何 | 处理器内构造 `trigger_turntable_predictor_config_t` + `step_mdeg`，调用 `trigger_turntable_scan_validate()`；**拒绝即返回 SCPI 错误**（fail-closed），并把 `scan_geometry` 存起来供读回 |
+| 配置存储 | 由 sync_trigger 域提供 setter/getter（模块静态或已有运行时状态），**不得往 `trigger_turntable_predictor_config_t` / `model_turntable_motion_config_t` 等被部分初始化的结构体加字段** | `-Wextra -Werror` 下 partial initializer 会直接把既有 harness 与调用方编译打断（本轮实测 31 个测试报错） |
+| 建窗时机 | STOP 期调用 `trigger_turntable_window_begin_scan(s, cfg, step, sequence_span_pulses, observed_count)` | 校验 + 建窗合一；不可用扫描**不建窗**，因此不可能启动 |
+| 行程 | 命令接受的是**位置网格**（起始..终止 by STEP）；行程 `[起始−5°, 终止+5°]` 由 `pre_roll_mdeg`/`post_roll_mdeg` 表达，校验要求其为整数脉冲且 ≥ 1 STEP | 见 `T2-STEP-001` 行 |
+
 ## 实施顺序与停止条件
 
 先定位置身份与在途容量（`T2-IDENT-001`）和 A-13 修法（`T2-FREEZE-002`）——长扫描的身份容量决定后面全部前端的工作量；再完成 P0 配置事务和一等席单帧位置运输（`T2-TRANSPORT-002`），随后阈值冻结、从板本地准备和 1～2 帧诊断回传；之后闭合 STEP 扫描（`T2-STEP-001`）、每位置多组序列与两组滑动窗口执行（`T2-SEQ-001`、`T2-EXEC-002`、`T2-DCO-001`）和 READY 重叠校验。正式输出受 `T2-GATE-001` 约束。通用 FIFO/流式 OTA 保留为独立后续负载，不作为 T2 单 q 的前置条件。
