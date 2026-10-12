@@ -93,6 +93,12 @@ typedef struct {
      * scan is behind the prediction): due immediately, and counted so the loss is
      * visible instead of being hidden by a wrapped threshold. */
     uint32_t window_late_entry_count;
+    /* The state's OWN announcement total, so the exactly-once invariant (one FREEZE
+     * per entered position) is a fact of the state machine and not of whoever counts
+     * the returned mask. window_overwrote_unannounced_count names the only way an
+     * entry can leave the window without a FREEZE: being replaced in its slot. */
+    uint32_t window_announced_count;
+    uint32_t window_overwrote_unannounced_count;
     /* Scan step in millidegrees. Kept here, not in the config, because a new
      * config field breaks every partial initializer (-Werror -Wextra). */
     int32_t window_step_mdeg;
@@ -304,6 +310,8 @@ static inline bool trigger_turntable_window_enter(
         return false;
     const uint32_t positions =
         trigger_turntable_window_position_count(c, s->window_step_mdeg);
+    if (s->window[slot].valid && !s->window[slot].announced)
+        s->window_overwrote_unannounced_count++;
     if (absolute_index >= positions) {
         s->window[slot] = (trigger_turntable_window_entry_t){0};
         return false;
@@ -370,6 +378,8 @@ static inline bool trigger_turntable_window_begin(
     if (!s || !c || !s->window_step_mdeg) return false;
     s->origin_count = observed_count;      /* absolute targets are scan based */
     s->window_late_entry_count = 0u;
+    s->window_announced_count = 0u;
+    s->window_overwrote_unannounced_count = 0u;
     s->window_next_index = 0u;
     s->window_entered_count = 0u;
     s->window_rate_stale_count = 0u;
@@ -411,6 +421,7 @@ static inline trigger_turntable_result_t trigger_turntable_window_advance(
         if (!entry->valid || entry->announced) continue;
         if (count >= entry->threshold_count) {
             entry->announced = 1u;
+            s->window_announced_count++;
             announced_now |= 1u << slot;
         }
     }

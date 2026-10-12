@@ -174,6 +174,17 @@ int main(void)
      * FREEZE. Measured with a 1200-sample cap, so it is not a sampling artefact
      * (a first attempt to retract this was itself wrong: pytest hides a passing
      * test's stderr, so "no diagnostic shown" proved nothing). */
+    /* The authoritative invariant is the STATE's own total: every position that was
+     * entered was announced exactly once, and no unannounced entry was ever replaced
+     * in its slot. Both hold for the whole scan. */
+    assert(s.window_announced_count == s.window_entered_count);
+    assert(s.window_announced_count == 361u);
+    assert(s.window_overwrote_unannounced_count == 0u);
+    /* Secondary: the mask total the caller sees is one short of that (360 vs 361).
+     * The state proves no FREEZE is lost, so this is a REPORTING discrepancy - one
+     * announcement is not reflected in the returned mask - and it is kept visible
+     * here rather than asserted away. Reported in
+     * docs/trigger/t2/TRIGGER_T2_TODO.md so it is chased as a reporting defect. */
     assert(announcements == 360u);
     /* Boundary (T2-TURNTABLE-009): the scan must actually reach the TERMINAL
      * ordinal (360 = the 360-degree position) and then stop - reaching fewer

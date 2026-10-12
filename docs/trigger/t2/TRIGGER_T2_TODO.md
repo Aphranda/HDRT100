@@ -191,33 +191,33 @@ Last updated: 2026-10-12
 | 建窗时机 | STOP 期调用 `trigger_turntable_window_begin_scan(s, cfg, step, sequence_span_pulses, observed_count)` | 校验 + 建窗合一；不可用扫描**不建窗**，因此不可能启动 |
 | 行程 | 命令接受的是**位置网格**（起始..终止 by STEP）；行程 `[起始−5°, 终止+5°]` 由 `pre_roll_mdeg`/`post_roll_mdeg` 表达，校验要求其为整数脉冲且 ≥ 1 STEP | 见 `T2-STEP-001` 行 |
 
-## 待修缺陷（2026-10-12，复测确认）：滚动窗口漏掉一个位置的 FREEZE
+## 待修缺陷（2026-10-12，已定性）：mask 上报少一位，**不是**丢失 FREEZE
 
-`tests/python/test_turntable_rolling_window.py` 全程扫描（0..360°@1°，361 位置）实测：
+### 结论
+
+用**状态机内部计数**（`window_announced_count` / `window_overwrote_unannounced_count`，取代调用方对返回 mask 的 popcount）复测 0..360°@1° 全程扫描：
 
 ```
-entered=361  window_next_index=361  recomputed=359  late=358  stale=1   announcements=360
+状态: window_entered_count = 361 · window_announced_count = 361 · window_overwrote_unannounced_count = 0
+调用方: Σ popcount(mask) = 360
 ```
 
-**361 个位置全部进入窗口，但只有 360 个被宣告**：有一个位置被进入后**未经 FREEZE 就被丢弃**。
+⇒ **每个被进入的位置都被恰好宣告一次，没有任何位置丢失 FREEZE**；差的 1 位出在 `window_advance` **返回 mask 的上报/累计路径**。因此：
 
-### 证据强度与方法论（重要）
+- 权威不变式改为**状态级**：`window_announced_count == window_entered_count`（= 361）且 `window_overwrote_unannounced_count == 0`，测试已按此断言并通过；
+- 调用方看到的 mask 总数 360 作为**次要不一致**保留在测试里（`assert(announcements == 360u)` + 注释），并在本节按**上报缺陷**跟踪。
 
-- 采样上限 **800 与 1200 都得 360** ⇒ **不是采样不足**（宣告滞后至多两个位置，1200 远超所需）。
-- 测试内已把该不变式收紧为 `announcements == 360u`（当前值），并在注释里标为 OPEN DEFECT。
-- **方法教训**：本缺陷曾被错误"撤回"一次——当时的诊断用 `fprintf(stderr, …)` 且测试**通过**，于是没有任何输出；而 **pytest 只在测试失败时显示捕获的 stderr**，"没有看到输出"被误读成"值与 361 相同"。教训：**诊断输出必须能让测试失败**（或写文件），否则"沉默"既可能是相同、也可能是未被展示。
+### 定位过程的两次反复（保留作为教训）
 
-### 已尝试的定位与为何无效（2026-10-12）
+1. 首次记录（"361 进入 / 360 宣告 = 丢 FREEZE"）**结论过强**：当时只有一个总数，无法区分"状态未宣告"与"上报未反映"。
+2. 用测试侧的逐序号位图归因**必然误报**：已宣告条目会在同一次调用内被 roll 移出，调用后采样看不到其 `announced` 标志（曾误报 `ordinal=3`）。
+3. 一次"撤回"基于**无效实验**：诊断走 stderr，而 pytest 只在测试失败时显示捕获输出 ⇒ "没看到输出"被误读为"值相同"。
 
-在测试里维护逐序号位图（"窗口内见过但从未见过已宣告"）会**必然误报**：已宣告的条目在**同一次调用内**就被 roll 移出窗口，而采样只能发生在调用**之后**，因此永远看不到它的 `announced` 标志（实测报出 `ordinal=3`，属假阳性）。
+**教训**：涉及"状态内部事件"的缺陷，必须用**状态自身的计数**定位；外部采样（调用后观测、stdout/stderr 沉默）都不足以证明"没发生"。
 
-可靠定位必须**在窗口内部打点**（调用之间观测不到的信息只能在状态机里记录）：
+### 下一步
 
-1. 在 roll 的移位处计数"**被丢弃的未宣告条目**"（若恒为 0，则丢弃路径不在这里）；
-2. 在 `window_enter` 成功/失败、宣告、移位四处维护**单调事件序号**并写入文件（不是 stderr，避免只看失败时输出），离线比对：361 次进入 vs 360 次宣告，找出**第 361 次进入之后没有对应宣告事件**的那个序号；
-3. 另一条正交怀疑：计数取自 `mask` 的 popcount，而**宣告发生在 roll 之前、同一调用内可能既宣告又移出**，需确认 `announced_now` 在该调用没有被后续分支覆盖（当前实现写入 `new_position_mask` 后不再改写，但需以事件日志证实）。
-
-定位后再定修法（不猜改）。
+在 `window_advance` 内维护"本次调用宣告了哪些 slot"与"返回给调用方的 mask"的一致性检查（或直接在测试里逐调用比对 `announced_count` 增量 vs `popcount(mask)`），找出**增量 1 / mask 0** 的那一次调用及其 `count` 与窗口内容；定位后修上报路径。
 
 ## 实施顺序与停止条件
 
