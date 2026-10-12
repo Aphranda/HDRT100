@@ -2469,19 +2469,16 @@ def step_20_sampling(ctx, slot, board, uid):
                       f" reason {t2_field(state, 'prepared_last_reason')}"
                       f" | POS pub {fields[5] if len(fields) > 5 else '?'}"
                       f" rx {fields[12] if len(fields) > 12 else '?'}"
-                      # The rolling window's health facts are the TAIL of T2? (the block
-                      # appended after the event log; its order is guarded by
-                      # tests/python/test_t2_page_field_order.py), so they are read by
-                      # slicing from the end. The earlier copy of this print pattern in a
-                      # different step does not run here - which is why the bench log had
-                      # no window fields at all until this block was updated.
-                      f" | window announced {state[-9:][1] if len(state) >= 9 else '?'}"
-                      f"/entered {state[-9:][0] if len(state) >= 9 else '?'}"
-                      f" overwrote_unannounced {state[-9:][2] if len(state) >= 9 else '?'}"
-                      f" late {state[-9:][3] if len(state) >= 9 else '?'}"
-                      f" step_mdeg {state[-9:][6] if len(state) >= 9 else '?'}"
-                      f" geometry {state[-9:][7] if len(state) >= 9 else '?'}pos"
-                      f"/{state[-9:][8] if len(state) >= 9 else '?'}pul",
+                      # The rolling window's health facts are appended to T2?, but a tail
+                      # slice is NOT a reliable way to read them: measured on the bench
+                      # (t2-20261013-020455) state[-9:] produced self-contradictory values
+                      # (entered 0 with late 18, step_mdeg 104 instead of 5000), so the page
+                      # does not end with exactly those nine fields. Print them as unknown
+                      # until the page describes its own block lengths or the fields get
+                      # named indices - see TRIGGER_T2_TODO.md A.3.2c. A mislabelled reading
+                      # is worse than no reading.
+                      f" | window announced {'?'}/entered {'?'} overwrote_unannounced {'?'}"
+                      f" late {'?'} step_mdeg {'?'} geometry {'?'}pos/{'?'}pul",
                       flush=True)
                 # The origin FREEZE path maxima (pending check, threshold stage,
                 # resend/ack pass, whole call) are NOT at the end of T2? any more: the
