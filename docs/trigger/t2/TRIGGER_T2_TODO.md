@@ -365,9 +365,8 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 注释是"T2? ends with the origin FREEZE path maxima"。但 2026-10-24 的窗口改造把**窗口块追加到了页面末尾**，
 因此 `state[-4:]` 现在读到的是**窗口/几何字段**而不是 freeze 最大值——**输出被贴错标签**（不报错）。
 
-**修法**：不要再用"从末尾倒数 N 个"读任何较早追加的块。做法二选一：
-① 按窗口块**之后**的位置（即 `-4 - 9` 起的 4 个）取 freeze；
-② 更稳：在 `T2?` 页面为每个追加块加**长度前缀**或改由 `test_t2_page_field_order.py` 同时断言"各块的相对顺序与末尾位置"，让工具能按块偏移读取。
+**修法（已更正）**：**不要**用尾部切片去猜 freeze 最大值的位置——按 `.inc` 的实际顺序，`freeze_cycles`（4 个）位于**很早**处（`scpi_trigger_t2_runtime_commands.inc` 227-231 行），其与页面末尾之间还隔着 `freeze_no_preview_mask/count` 与 **events 块**（条数运行期可变）⇒ `state[-13:-9]` 这类写法同样会读到 events 字段。
+正确做法：用工具里已有的**具名/下标访问**（`t2_field(state, …)` 或固定的索引常量）读 freeze 最大值，或在 `T2?` 页面为各追加块加**长度前缀**、并让 `test_t2_page_field_order.py` 断言**各块的相对顺序**。
 
 **教训（与 A.3.2 同源）**：追加式页面里**任何"末尾 N 个"的假设都会随下一次追加失效**；守卫需要断言的是**块的相对顺序**，而不只是新块内部的顺序。
 
