@@ -129,28 +129,11 @@ Last updated: 2026-10-12
 | 产品入口（校验 + 建窗合一；拒绝即不建窗、清空全部窗口事实） | `trigger_turntable_window_begin_scan` | 同上 |
 | 可读回健全性事实（**已接 `TRIGger:REServation:T2?` 末尾**，含 `window_step_mdeg` 与派生几何；台架判据 `announced == entered`、`overwrote_unannounced == 0`） | `window_entered_count` / `window_announced_count` / `window_overwrote_unannounced_count` / `window_late_entry_count` / `window_recomputed_count` / `window_rate_stale_count` | 滚动窗口测试 |
 
-**仍在待办**：① SCPI 接线（见下节）；② `trigger_t2_runtime.c` 消费者迁移（legacy 3 槽 → 窗口条目，并把上表计数读回）；③ 每位置 16 组与执行端窗口深度 2；④ 边界位置证据闭合。
+**仍在待办**：① SCPI 接线；② `trigger_t2_runtime.c` 消费者迁移（legacy 3 槽 → 窗口条目，并把附录 A 之外的健康计数读回）；③ 每位置 16 组与执行端窗口深度 2；④ 边界位置执行侧证据闭合。代码级落点、编译约束与结案复盘见 **附录 A**。
 
-### 5. 实施约束（实测教训）
+本节的代码级落点（SCPI 命令面）、实施约束（`-Werror` partial initializer）与结案复盘见文末**附录 A**。
 
-- **不得往 `trigger_turntable_predictor_config_t` 等被部分初始化的结构体加字段**：`-Wextra -Werror` 下 partial initializer 会打断既有 harness 与调用方（实测 31 个测试报错）。STEP 因此存在 snapshot（`window_step_mdeg`，由 `trigger_turntable_window_configure()` 设置），纯函数显式接收形参。
-
-### 接线落点（SCPI，2026-10-12 勘察）
-
-| 环节 | 落点 |
-|---|---|
-| 既有转台命令族 | `middleware/scpi_port/src/scpi_model_commands.c`：`CONFigure:MODEl:TURNtable:{LOAD,TRIGger,MOTion,STARt,STOP}` + `READ:...:{LOAD,TRIGger,MOTion,STATe}?`；转速已有入口 `MOTion <velocity>,<accel>` → `model_turntable_configure_motion()` |
-| 新增命令 | `CONFigure:MODEl:TURNtable:SCAN <start>,<stop>,<step>,<ppd>,<threshold_per_mille>,<pre_roll>,<post_roll>` + `READ:...:SCAN?`；处理器内调用 `trigger_turntable_scan_validate()`，**拒绝即返回 SCPI 错误**，派生几何存起来供读回 |
-| 建窗时机 | STOP 期调用 `trigger_turntable_window_begin_scan(...)`（不可用扫描不建窗 ⇒ 不可能启动） |
-
-### 已结案：所谓"漏宣告 / mask 上报少一位"（2026-10-12）
-
-**结论：代码无缺陷，是测试记账错误**。`window_advance` 的宣告与上报都正确：状态 `entered=361 / announced=361 / overwrote_unannounced=0`，调用侧把 `announcements` 初值改为 `s.window_announced_count` 后同为 361。根因是测试在大循环处才把该计数置 0，而**第一次宣告发生在更早的 `advance(count=5)`**。
-
-保留的永久不变式：状态级 `announced == entered == 361` 且 `overwrote_unannounced == 0`；调用侧 `Σ popcount(mask) == 361`；全程 `threshold ≤ target` 且 `margin ∈ {95, 0}`。
-
-留档教训（同一问题四次反复）：① 只有总数时不可下"丢失"结论（分不清"状态未宣告"与"上报未反映"）；② 状态内部事件不能用调用后的外部采样归因（宣告与移出在同一次调用内完成）；③ 诊断输出必须能让测试失败（pytest 只在失败时显示 stderr，"沉默"≠"相同"）；④ **计数类断言必须问"这个计数从哪里开始计"**。
-
+**仍在待办（原清单，保留引用）**：① SCPI 接线（见下节）；② `trigger_t2_runtime.c` 消费者迁移（legacy 3 槽 → 窗口条目，并把上表计数读回）；③ 每位置 16 组与执行端窗口深度 2；④ 边界位置证据闭合。
 
 ## 实施顺序与停止条件
 
@@ -197,3 +180,27 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 ```
 
 配置读回、动作表 CRC、PIO receipt、READY 电平、单窗示波器或模型仿真只能证明各自范围，不能单独关闭完整 T2。
+
+## 附录 A：实现注记（代码级，2026-10-12）
+
+本附录承载**代码级**内容（命令面落点、编译约束、缺陷复盘），与主体分层：主体只回答"要什么、做到哪、怎么算完成"，本附录回答"具体在哪个文件、踩过什么坑"。
+
+### A.1 实施约束（实测教训：`-Wextra -Werror` partial initializer）
+
+- **不得往 `trigger_turntable_predictor_config_t` 等被部分初始化的结构体加字段**：`-Wextra -Werror` 下 partial initializer 会打断既有 harness 与调用方（实测 31 个测试报错）。STEP 因此存在 snapshot（`window_step_mdeg`，由 `trigger_turntable_window_configure()` 设置），纯函数显式接收形参。
+
+### A.2 接线落点（SCPI，2026-10-12 勘察）
+
+| 环节 | 落点 |
+|---|---|
+| 既有转台命令族 | `middleware/scpi_port/src/scpi_model_commands.c`：`CONFigure:MODEl:TURNtable:{LOAD,TRIGger,MOTion,STARt,STOP}` + `READ:...:{LOAD,TRIGger,MOTion,STATe}?`；转速已有入口 `MOTion <velocity>,<accel>` → `model_turntable_configure_motion()` |
+| 新增命令 | `CONFigure:MODEl:TURNtable:SCAN <start>,<stop>,<step>,<ppd>,<threshold_per_mille>,<pre_roll>,<post_roll>` + `READ:...:SCAN?`；处理器内调用 `trigger_turntable_scan_validate()`，**拒绝即返回 SCPI 错误**，派生几何存起来供读回 |
+| 建窗时机 | STOP 期调用 `trigger_turntable_window_begin_scan(...)`（不可用扫描不建窗 ⇒ 不可能启动） |
+
+### A.3 已结案：所谓"漏宣告 / mask 上报少一位"（2026-10-12）
+
+**结论：代码无缺陷，是测试记账错误**。`window_advance` 的宣告与上报都正确：状态 `entered=361 / announced=361 / overwrote_unannounced=0`，调用侧把 `announcements` 初值改为 `s.window_announced_count` 后同为 361。根因是测试在大循环处才把该计数置 0，而**第一次宣告发生在更早的 `advance(count=5)`**。
+
+保留的永久不变式：状态级 `announced == entered == 361` 且 `overwrote_unannounced == 0`；调用侧 `Σ popcount(mask) == 361`；全程 `threshold ≤ target` 且 `margin ∈ {95, 0}`。
+
+留档教训（同一问题四次反复）：① 只有总数时不可下"丢失"结论（分不清"状态未宣告"与"上报未反映"）；② 状态内部事件不能用调用后的外部采样归因（宣告与移出在同一次调用内完成）；③ 诊断输出必须能让测试失败（pytest 只在失败时显示 stderr，"沉默"≠"相同"）；④ **计数类断言必须问"这个计数从哪里开始计"**。
