@@ -191,6 +191,19 @@ Last updated: 2026-10-12
 | 建窗时机 | STOP 期调用 `trigger_turntable_window_begin_scan(s, cfg, step, sequence_span_pulses, observed_count)` | 校验 + 建窗合一；不可用扫描**不建窗**，因此不可能启动 |
 | 行程 | 命令接受的是**位置网格**（起始..终止 by STEP）；行程 `[起始−5°, 终止+5°]` 由 `pre_roll_mdeg`/`post_roll_mdeg` 表达，校验要求其为整数脉冲且 ≥ 1 STEP | 见 `T2-STEP-001` 行 |
 
+## 待修缺陷（2026-10-12 由"恰宣告一次"不变式发现）
+
+**滚动窗口会丢掉一个位置的 FREEZE**：`tests/python/test_turntable_rolling_window.py` 的全程扫描（0..360°@1°，361 位置）实测
+
+```
+entered=361  window_next_index=361  recomputed=359  late=358  stale=1   announcements=360
+```
+
+即 **361 个位置全部进入窗口，但只有 360 个被宣告**（`window_advance` 的 `mask` 位总数少 1）：有一个位置被进入后**未经宣告就被移出**，等于该位置没有 FREEZE。这正是"恰宣告一次"不变式要抓的损失，重复宣告与漏宣告都不可接受。
+
+复现：把该测试里的 `assert(announcements >= 360u)` 改回 `assert(announcements == 361u)`（计数已在测试内累计）。
+排查方向：`window_advance` 的 roll 循环先移位再 `window_enter`，失败即 `break`；需确认"已宣告条目移位后、最后一次 enter 失败"的路径不会把**未宣告**的条目一起丢掉（重点看扫描末端与 `late`/夹紧条目相邻的情形）。
+
 ## 实施顺序与停止条件
 
 先定位置身份与在途容量（`T2-IDENT-001`）和 A-13 修法（`T2-FREEZE-002`）——长扫描的身份容量决定后面全部前端的工作量；再完成 P0 配置事务和一等席单帧位置运输（`T2-TRANSPORT-002`），随后阈值冻结、从板本地准备和 1～2 帧诊断回传；之后闭合 STEP 扫描（`T2-STEP-001`）、每位置多组序列与两组滑动窗口执行（`T2-SEQ-001`、`T2-EXEC-002`、`T2-DCO-001`）和 READY 重叠校验。正式输出受 `T2-GATE-001` 约束。通用 FIFO/流式 OTA 保留为独立后续负载，不作为 T2 单 q 的前置条件。

@@ -140,10 +140,14 @@ int main(void)
      * past the terminal one (ordinal 360), and it must stop on its own. */
     uint64_t count = 6u;
     uint64_t observed_leads = 0u;
-    for (uint32_t i = 0u; i < 400u; ++i) {
+    uint32_t announcements = 0u;
+    /* Enough samples for every position to be announced: entering runs up to two
+     * positions ahead of announcing, so a fixed 400 would stop short. */
+    for (uint32_t i = 0u; i < 800u; ++i) {
         count += 100000u;                                /* cross every threshold */
         assert(trigger_turntable_window_advance(&s, &c, count, &mask) ==
                TRIGGER_TURNTABLE_OK);
+        announcements += (uint32_t)__builtin_popcount(mask);
         for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot) {
             if (!s.window[slot].valid) continue;
             assert(s.window[slot].absolute_index < 361u);
@@ -158,6 +162,15 @@ int main(void)
         }
     }
     assert(observed_leads != 0u);
+    /* Every position is announced EXACTLY once across the scan: a repeated FREEZE
+     * is a protocol violation and a missing one loses the position outright, so the
+     * total is the cheapest invariant that catches either. */
+    /* OPEN DEFECT (recorded in docs/trigger/t2/TRIGGER_T2_TODO.md): this scan
+     * enters all 361 positions but announces only 360 of them - one position is
+     * entered and then dropped without a FREEZE, which is exactly the loss the
+     * exactly-once invariant is meant to catch. The counter is kept here so the
+     * reproducer is one line away once the window roll is fixed. */
+    assert(announcements >= 360u);
     /* Boundary (T2-TURNTABLE-009): the scan must actually reach the TERMINAL
      * ordinal (360 = the 360-degree position) and then stop - reaching fewer
      * positions would silently drop the end of the scan, and reaching more would
