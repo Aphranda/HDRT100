@@ -200,7 +200,26 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 
 ⇒ **legacy 路径不只是冗余，而是与已定稿口径不符**；消费者迁移时**必须**改为一步比例（不能"平移"旧值）。测试已把两侧数值同时钉住，删除 legacy 数组时该断言随之改为只校验窗口侧。
 
-### A.3 接线落点（SCPI，2026-10-12 勘察）
+### A.3 迁移清单：legacy 三槽在运行时的使用点 → 窗口对应物
+
+审计 `components/sync_trigger/src/trigger_t2_runtime.c`（2026-10-12，行号为当时快照）：
+
+| 使用点 | 现状 | 迁移后 |
+|---|---|---|
+| origin 每采样路径 | `trigger_turntable_predictor_observe(&s_state.predictor, …)` 取 `mask`，并把 `predictor.announced_mask` 存进 `s_threshold_public`（原子） | 调 `trigger_turntable_window_advance(…)` 取 `mask`；对外发布的仍是"本次宣告了哪些位置"，数值语义不变 |
+| deadline 准备路径 | `predictor.announced_mask & bit`、`predictor.threshold_count[index]`、`predictor.target_count[index]` 判断"是否已到期/还剩多少" | `trigger_turntable_window_find(&snapshot.predictor, ordinal)` 取条目的 `announced` / `threshold_count` / `target_count`；**不再用下标直接索引数组**（窗口只持有 ≤2 个在途条目，照搬下标必错） |
+| 描述符构造 | `target_count[index]`、`predictor.count_epoch` | 目标取自已找到的条目；`count_epoch` 不变（共享字段） |
+| 配置路径 | `s_config.predictor = config->predictor` + `begin/observe_at_sync` | 追加 `trigger_turntable_window_configure(s, step_mdeg)`（STEP 由扫描参数来，见 A.4 接线）；`begin` 换成 `window_begin_scan` |
+| 速率估计 | `trigger_turntable_predictor_observe_at_sync(…)` 维护 `pulses_per_sync_q16` / `rate_valid` | **必须保留**：它是 `window_time_ready()` 与时间预测的唯一速率来源。只把"位置/阈值"逻辑搬到窗口，速率路径不动 |
+
+**两个陷阱**（迁移时最容易出错的两点）：
+
+1. **删错了对象**：`observe_at_sync` 不是"legacy 位置逻辑"的一部分，删掉它会让 `window_time_ready()` 永远为假 ⇒ 每个位置都被判"时间不可用"（`window_rate_stale_count` 飙升），故障表现为"能冻结但不发布"。
+2. **下标照搬**：`target_count[position_id − 1]` 这类写法在窗口下不成立（条目随滚动换位），必须走 `window_find()`。
+
+**迁移后应删除**：`target_count[3]` / `threshold_count[3]` / `announced_mask` / `terminal_verified` 以及 `begin()` 的三槽初始化（`window_begin_scan` 取代）。等价性测试 `legacy_equivalence()` 届时收敛为只校验窗口侧。
+
+### A.4 接线落点（SCPI，2026-10-12 勘察）
 
 | 环节 | 落点 |
 |---|---|
@@ -208,7 +227,7 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 | 新增命令 | `CONFigure:MODEl:TURNtable:SCAN <start>,<stop>,<step>,<ppd>,<threshold_per_mille>,<pre_roll>,<post_roll>` + `READ:...:SCAN?`；处理器内调用 `trigger_turntable_scan_validate()`，**拒绝即返回 SCPI 错误**，派生几何存起来供读回 |
 | 建窗时机 | STOP 期调用 `trigger_turntable_window_begin_scan(...)`（不可用扫描不建窗 ⇒ 不可能启动） |
 
-### A.4 已结案：所谓"漏宣告 / mask 上报少一位"（2026-10-12）
+### A.5 已结案：所谓"漏宣告 / mask 上报少一位"（2026-10-12）
 
 **结论：代码无缺陷，是测试记账错误**。`window_advance` 的宣告与上报都正确：状态 `entered=361 / announced=361 / overwrote_unannounced=0`，调用侧把 `announcements` 初值改为 `s.window_announced_count` 后同为 361。根因是测试在大循环处才把该计数置 0，而**第一次宣告发生在更早的 `advance(count=5)`**。
 
