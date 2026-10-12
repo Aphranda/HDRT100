@@ -359,6 +359,26 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 `p3_hardware_acceptance.py t2`（验证流程；**不刷写**，必须在 `run` 之后跑）→ 查看采样行的
 `window announced N/entered N overwrote_unannounced 0 … geometry Npos/Mpul`。
 
+### A.3.3 决定性实测：**并行窗口在台架上并未运行**（2026-10-13，健康轮）
+
+在一次**健康**的 `t2` 运行（`passed=True`、`published_mask 3→7`）中，临时诊断打印了 `T2?` 回复长度与尾部 12 个字段：
+
+```
+diag len 67 tail ['1382340','0','0','0','0','0','19','3774','3239','3827','0','0']
+```
+
+两条结论：
+
+1. **窗口确实没跑**：尾部既无发送的 `step_mdeg=5000`，末尾两个几何字段也是 `0/0` ⇒ `window_step_mdeg`/`scan_geometry` 未被填充。因此此前所有"announced/entered"读数（含 0）以及"几何 0pos"都**不是**解析错位造成的，而是**窗口真的没被启用**。
+2. **`state[-9:]` 的偏移也确实不对**（尾部是别的内容），故采样行已恢复为诚实的 `?`（诊断打印已撤）。
+
+**已排除**：STEP setter 未被调用（命令被接受 ⇒ setter 返回 true ⇒ 静态已写入）；`configure()`/`start()` 会 memset `s_state` 但**不会**清 `s_scan_step_mdeg`（文件级静态），且调用点在 `start()` 的 memset **之后**。
+
+**下一步（按可能性）**：
+1. **确认刷入镜像真的含该调用**：读 `trigger_t2_runtime_start()` 中插入点前后（`s_state.active = 1u;` 之前）的**实际源码**，并核对最近一次 `run` 的构建指纹与提交是否包含 Round 50 的改动；
+2. 若源码与镜像都正确，则在 `start()` 里加**一次性诊断**（把 `s_scan_step_mdeg` 与 `window_begin_scan` 的返回值写入一个可读回字段/诊断页），用台架确认分支是否进入；
+3. 顺带把"窗口块在 `T2?` 中的真实偏移"用**健康轮**的完整回复核对（本轮已给出 `len=67` 与尾部样貌，可作为解析的基准数据）。
+
 ### A.3.2d 校正：窗口尾部读数的自相矛盾**可能来自短/超时回复**，不必然是偏移错（2026-10-13）
 
 A.3.2c/采样行的实测矛盾值（`entered 0` 与 `late 18` 并存、`step_mdeg 104`、`geometry 0pos`）出现在一次**失败的 `t2` 运行**中（同一轮 `publishing=0`、`reason 1`，且工具自身注释指出"超时回复只有一个字段"）。短回复会让**任何**尾部切片读到别处的字段 ⇒ 矛盾值既可能是"偏移算错"，也可能是"**回复本身不完整**"。
