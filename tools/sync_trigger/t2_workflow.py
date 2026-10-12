@@ -2483,11 +2483,15 @@ def step_20_sampling(ctx, slot, board, uid):
                       f" geometry {state[-9:][7] if len(state) >= 9 else '?'}pos"
                       f"/{state[-9:][8] if len(state) >= 9 else '?'}pul",
                       flush=True)
-                # T2? ends with the origin FREEZE path maxima (clk_sys cycles):
-                # pending check, threshold stage, resend/ack pass, whole call. They
-                # split segments[1] (RECEIVE) to show where a threshold slice spends.
-                freeze = [value.strip() for value in state[-4:]]
-                freeze += ["?"] * (4 - len(freeze))  # a <timeout> reply has one field
+                # The origin FREEZE path maxima (pending check, threshold stage,
+                # resend/ack pass, whole call) are NOT at the end of T2? any more: the
+                # rolling-window block was appended after them, and the event block
+                # (variable length) sits between, so no "count from the end" can find
+                # them - state[-4:] read window fields and printed them under this
+                # label. Until the page describes its own block lengths (or the maxima
+                # get a named index), report them as unavailable rather than mislabelled:
+                # see docs/trigger/t2/TRIGGER_T2_TODO.md A.3.2c.
+                freeze = ["?", "?", "?", "?"]
                 print(f"t+{2 * (tick + 1)}s freeze path max cycles: pending {freeze[0]}"
                       f" stage {freeze[1]} resend {freeze[2]} total {freeze[3]}"
                       f" | RECEIVE {state[T2_SEGMENTS[1]] if len(state) > T2_SEGMENTS[1] else '?'}",
