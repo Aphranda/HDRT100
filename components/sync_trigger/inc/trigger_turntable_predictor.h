@@ -67,6 +67,10 @@ typedef struct {
      * terminal (otherwise the last position cannot be verified). Both rolls are
      * part of the motion, not part of the position grid. */
     uint64_t pre_roll_pulses, post_roll_pulses, motion_pulses;
+    /* The travel the machine will actually perform: start-pre_roll .. terminal+post_roll.
+     * Read back so an operator can confirm the -5/+5 degree run-up and run-out rather
+     * than trusting the validation code. */
+    int32_t motion_start_mdeg, motion_stop_mdeg;
 } trigger_turntable_scan_geometry_t;
 
 typedef struct {
@@ -522,6 +526,8 @@ static inline trigger_turntable_scan_result_t trigger_turntable_scan_validate(
         out->pre_roll_pulses = pre_pulses;
         out->post_roll_pulses = post_pulses;
         out->motion_pulses = pre_pulses + out->total_pulses + post_pulses;
+        out->motion_start_mdeg = c->start_angle_mdeg - c->pre_roll_mdeg;
+        out->motion_stop_mdeg = c->terminal_angle_mdeg + c->post_roll_mdeg;
     }
     return TRIGGER_TURNTABLE_SCAN_OK;
 }

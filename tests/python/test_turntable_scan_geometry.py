@@ -44,6 +44,9 @@ int main(void)
     assert(g.step_pulses == 100u);
     assert(g.total_pulses == 36000u);
     /* The motion is the rolls plus the grid: -5..365 degrees, 37000 pulses. */
+    /* The travel itself is readable: -5 degrees to 365 degrees. */
+    assert(g.motion_start_mdeg == -5000);
+    assert(g.motion_stop_mdeg == 365000);
     assert(g.pre_roll_pulses == 500u);
     assert(g.post_roll_pulses == 500u);
     assert(g.motion_pulses == 37000u);
