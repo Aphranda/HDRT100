@@ -91,6 +91,39 @@ Last updated: 2026-10-12
 | T2-FREEZE-002 | 无预览位置判失败并继续 | PENDING | `stage_one_freeze` 遇无预览位置不再静默返回：该位置判失败并继续检查其余位置，失败原因可计数读回；属 T2 语义变更，须先评审（评审 A-13/D-11） |
 | T2-DOC-002 | 补记 09-27 run33/34 证据 | PENDING | 定位凭证原件后按事实补入进展日志；禁止据文件名、推断或转述填写数字（评审 D-02/D-14） |
 
+## T2-IDENT-001 容量测算（2026-10-12）
+
+代码事实（快照，非事实源；以符号为准）：
+
+| 维度 | 现值 | 来源 |
+|---|---|---|
+| 线上 `position_id` | **4 bit**，合法 `1..0x0F` ⇒ 一帧/一轮最多 **15 个位置** | `components/sync_trigger/inc/trigger_position_slice.h` 的 `TRIGGER_POSITION_SLICE_TAG_*` / `trigger_position_slice_valid()` |
+| 单帧记录 | 10 B（tag+id、版本 16 bit、`target_ms_index` 32 bit、fine slice 24 bit） | 同上 `TRIGGER_POSITION_SLICE_WIRE_SIZE` |
+| 运行时位置数组 | `TRIGGER_T2_RUNTIME_POSITION_COUNT` = **3** | `components/sync_trigger/inc/trigger_t2_runtime.h` |
+| 每位置模板组数 | `TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY` = **1**（目标 16 组） | 同上 |
+| 冻结确认位宽 | `freeze_ack_*_mask` / `freeze_complete_mask` / `freeze_abandoned_mask` = **uint32_t** | 同上 |
+
+扫描位置数与 4 bit 可容纳性（0..360°，位置数 = ⌊(stop−start)/STEP⌋+1）：
+
+| STEP | 位置数 | 需 id 位 | 4 bit 可容纳 |
+|---|---|---|---|
+| 1° | 361 | 9 | 否 |
+| 2° | 181 | 8 | 否 |
+| 5° | 73 | 7 | 否 |
+| 10° | 37 | 6 | 否 |
+| 15° | 25 | 5 | 否 |
+| 24° | 16 | 5 | 否 |
+| 25° | 15 | 4 | 是 |
+| 30° | 13 | 4 | 是 |
+| 45° | 9 | 4 | 是 |
+| 90° | 5 | 3 | 是 |
+
+结论与选项：
+
+1. **在 4 bit 线上 id 不变的前提下，0..360° 扫描的最小 STEP 是 25°**（15 个位置）；1° 扫描（361 位置）需要 ≥9 bit id，或改用两级身份（槽位 + 滚动代次）。
+2. 运行时数组与模板容量按扫描上限放大：STEP 5°（73 位置）需要位置数组 ≥73、模板 ≥73×16=1168（按两组滑动窗口则 ≥146）；STEP 10°（37 位置）对应 592 / 74。现状 3 个位置、3 份模板。
+3. 冻结确认掩码 32 位：位置数 ≤32 可直接用位掩码；超过 32 必须随 id 方案一起改为分级/滚动确认位宽。
+
 ## 实施顺序与停止条件
 
 先定位置身份与在途容量（`T2-IDENT-001`）和 A-13 修法（`T2-FREEZE-002`）——长扫描的身份容量决定后面全部前端的工作量；再完成 P0 配置事务和一等席单帧位置运输（`T2-TRANSPORT-002`），随后阈值冻结、从板本地准备和 1～2 帧诊断回传；之后闭合 STEP 扫描（`T2-STEP-001`）、每位置多组序列与两组滑动窗口执行（`T2-SEQ-001`、`T2-EXEC-002`、`T2-DCO-001`）和 READY 重叠校验。正式输出受 `T2-GATE-001` 约束。通用 FIFO/流式 OTA 保留为独立后续负载，不作为 T2 单 q 的前置条件。
