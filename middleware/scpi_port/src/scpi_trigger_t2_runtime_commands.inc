@@ -66,11 +66,11 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
         !scpi_trigger_grid_uint(context, UINT32_MAX, &pre_roll) ||
         !scpi_trigger_grid_uint(context, UINT32_MAX, &post_roll) ||
         !scpi_trigger_grid_uint(context, 999u, &threshold) ||
-        !scpi_trigger_grid_uint(context, UINT32_MAX, &pulses_per_degree) ||
         SCPI_ParamInt32(context, &start_angle, TRUE) != TRUE ||
         SCPI_ParamInt32(context, &zero_angle, TRUE) != TRUE ||
         SCPI_ParamInt32(context, &terminal_angle, TRUE) != TRUE ||
         SCPI_ParamInt32(context, &step_mdeg, TRUE) != TRUE ||
+        !scpi_trigger_grid_uint(context, UINT32_MAX, &pulses_per_degree) ||
         !scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
 
     trigger_grid_preview_snapshot_t grid;

@@ -28,11 +28,11 @@ EXPECTED_PARAMETERS = (
     "pre_roll",
     "post_roll",
     "threshold",
-    "pulses_per_degree",
     "start_angle",
     "zero_angle",
     "terminal_angle",
     "step_mdeg",
+    "pulses_per_degree",
 )
 
 # Every place that sends TRIGger:REServation:T2:CONFigure, with the line it lives on.
@@ -50,8 +50,15 @@ def _configure_handler(source):
 
 def test_t2_configure_parameter_list_is_pinned():
     body = _configure_handler(COMMANDS.read_text(encoding="utf-8"))
-    parsed = re.findall(r"scpi_trigger_grid_uint\(context,[^,]+,\s*&(\w+)\)", body)
-    parsed += re.findall(r"SCPI_ParamInt32\(context,\s*&(\w+)", body)
+    # ONE pass over both reads, in source order: the command is positional, so the order
+    # the handler reads arguments in IS the order callers must send them. Collecting the
+    # two kinds separately (as this test first did) hid an interleaving mistake - ppd was
+    # parsed before the angles while callers appended it last, and the bench caught it as
+    # a rejected configure instead of a red test.
+    parsed = re.findall(
+        r"scpi_trigger_grid_uint\(context,[^,]+,\s*&(\w+)\)|SCPI_ParamInt32\(context,\s*&(\w+)",
+        body)
+    parsed = [name for pair in parsed for name in pair if name]
     assert tuple(parsed) == EXPECTED_PARAMETERS, (
         "the T2 configure parameter list changed; every caller sends positional "
         f"arguments, so all of them must be updated with it. Expected "
