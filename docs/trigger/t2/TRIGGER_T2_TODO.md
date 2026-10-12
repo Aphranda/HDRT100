@@ -372,6 +372,41 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.15c 【更正】`build_descriptor()` **不能**直接用于窗口位置——它写死了 legacy 三位置（2026-10-13）
+
+A.3.15b 说"描述符切换无需新增路径"**是错的**。逐字读该函数（`trigger_turntable_predictor.h:251-274`）后：
+
+```c
+static inline bool trigger_turntable_predictor_build_descriptor(
+    const trigger_turntable_predictor_snapshot_t *s,
+    uint32_t run_id, uint32_t sync_epoch, uint32_t position_id,
+    uint64_t target_ms_index, uint32_t target_fine_slice_index,
+    uint32_t grid_generation, uint32_t deployment_generation,
+    uint32_t deployment_crc, uint32_t valid_from_sync, uint32_t expiry_sync,
+    trigger_position_descriptor_t *out)
+{
+    if (!s || !out || position_id < TRIGGER_TURNTABLE_POSITION_START ||
+        position_id > TRIGGER_TURNTABLE_POSITION_TERMINAL || !s->active || …) return false;
+    *out = (…){ …
+        .target_count = s->target_count[position_id - 1u],   /* ← legacy 三槽数组 */
+        … };
+```
+
+**两处 legacy 耦合**：
+
+1. **范围校验**只接受 `[TRIGGER_TURNTABLE_POSITION_START, TRIGGER_TURNTABLE_POSITION_TERMINAL]`（三个具名位置）⇒ 传入 361 位置扫描的序号会**直接 `return false`**；
+2. **目标计数取自 `s->target_count[position_id - 1u]`**（legacy 三槽数组）⇒ 即使放开范围校验，取到的也是错的数据。
+
+**后果（重要）**：若照 A.3.15b 直接调用，迁移后会**静默地不产生描述符** ⇒ 该位置不发布（表现为 `published_mask` 变小、无失败日志）——属于最难查的一类故障。
+
+**所需形态（三者择一，建议第 1 种）**：
+
+1. **新增窗口感知的构造器**（如 `…_build_descriptor_window(s, entry, …)`）：目标计数/版本取自**条目**（`entry->target_count` 等），位置身份用 `entry->absolute_index`，范围校验改为"扫描派生的位置数"；
+2. 泛化现有函数：把"取 `target_count[]`"改为由调用者传入目标计数，范围校验参数化；
+3. 让快照在窗口模式下把 `target_count[]` 的槽语义改为"当前在途条目"——**不建议**（与 A.3.11 的"slot vs 序号"决策冲突，且会让 legacy 读者读到错值）。
+
+**方法论（第 N 次生效）**：**"存在同名/近名函数"≠"可直接复用"**——必须在动手前逐字读它的**前置校验与数据来源**。本会话已有三例同类（A.3.2 采样尾巴加错块、A.4.3 位置参数错位、本节），每例都是"读一眼就避免一整轮错误"。
+
 ### A.3.15b 唯一未知量已解决：描述符可由预测器侧直接构造（2026-10-13）
 
 A.3.15 曾把"窗口条目是否持有描述符"列为描述符切换（第 3、4 项）的唯一未知量。核对 `trigger_turntable_predictor.h` 后**已解决**：
