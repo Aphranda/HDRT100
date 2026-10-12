@@ -372,6 +372,43 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.15e 键决策修正：掩码按**序号**、节流表按 **slot 但存序号**（2026-10-13）
+
+读 item ② 的确切文本（`trigger_t2_runtime.c:1095-1114`）后发现一处**必须现在解决的设计张力**：
+
+```c
+    for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++index) {
+        const uint32_t bit = 1u << index;
+        if (__atomic_load_n(&s_threshold_public, __ATOMIC_ACQUIRE) & bit ||
+            snapshot.predictor.announced_mask & bit ||
+            snapshot.last_counter_count >= snapshot.predictor.threshold_count[index] ||
+            snapshot.last_counter_count >= snapshot.predictor.target_count[index])
+            continue;
+        …
+        if (s_last_calculated_coarse[index] &&
+            coarse - s_last_calculated_coarse[index] < interval) continue;
+        s_last_calculated_coarse[index] = (uint32_t)coarse;
+```
+
+**张力**：A.3.0 早先建议"`s_threshold_public` 与节流表都按 **slot** 键"；但**切片 1 已把 `s_threshold_public` 做成按序号**（它语义上是"该**位置**是否已宣告"，必须与消费者的既有位口径一致）。若按 A.3.0 原建议实现，会产生"掩码按序号、判定按 slot"的**自相矛盾**。
+
+**决策（覆盖 A.3.0 的原建议）**：
+
+1. **`s_threshold_public` 按序号**（保持切片 1 的语义；当前台架扫描下序号 == legacy 下标，故与旧行为一致）；
+2. **节流表不能按序号**：容量将需覆盖全部扫描位置（361 甚至 4096）⇒ 不可接受的 RAM/静态占用；
+3. **节流表改为"按 slot 存储 + 槽内记录序号"**：
+
+```c
+    /* per window slot: which position it currently throttles, and that position's last
+     * calculation coarse. A slot that starts holding a different position resets. */
+    static struct { uint32_t absolute_index; uint32_t last_coarse; uint32_t valid; }
+        s_cadence[TRIGGER_TURNTABLE_WINDOW_MAX];
+```
+
+⇒ 容量恒为 `WINDOW_MAX`（与在途位置数一致）、滚动时自动重置、且不存在"按序号索引巨型数组"的问题。
+
+**memset 处同步**：`start()` 中的 `memset(s_last_calculated_coarse, 0, …)`（:842）改为 memset 上述结构（保留 `valid=0` 的重置语义，避免首个采样被旧序号误节流）。
+
 ### A.3.15d 新构造器的机械转写要点（2026-10-13 读全 legacy 构造器后）
 
 legacy `build_descriptor()` 的**完整字段表**（`trigger_turntable_predictor.h:264-277`）：
