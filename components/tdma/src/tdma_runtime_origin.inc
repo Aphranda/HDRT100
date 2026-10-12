@@ -2,6 +2,7 @@
  * This file never constructs a product timing grant. */
 #include "tdma_origin_calibration_crc.h"
 #include "tdma_origin_release.h"
+#include "tdma_origin_stop_cause.h"
 #include "project_config.h"
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
@@ -13,6 +14,10 @@
 static calibration_origin_timing_t s_origin_trial;
 static uint32_t s_origin_consumed_epoch;
 static bool s_origin_trial_fault;
+static uint32_t s_origin_fault_site;
+static uint32_t s_origin_begin_reject, s_origin_begin_observed, s_origin_begin_expected;
+static tdma_origin_stop_cause_t s_origin_stop_cause;
+static uint32_t s_origin_stop_guard;
 static tdma_origin_blackout_t s_origin_blackout;
 static tdma_origin_handoff_t s_origin_handoff;
 
@@ -140,6 +145,90 @@ bool tdma_runtime_owner_get_origin_capability(refmem_realtime_origin_capability_
     return true;
 }
 
+/* Latch the owner-private trial fault, remembering the first site. */
+static inline void tdma_runtime_owner_origin_fault(uint32_t site)
+{
+    if (!s_origin_trial_fault) s_origin_fault_site = site;
+    s_origin_trial_fault = true;
+}
+
+/* The same terms as tdma_runtime_owner_origin_authorized(), each as a bit. Only
+ * evaluated on the STOP transition, so it stays out of the realtime image. */
+static __attribute__((noinline)) uint32_t tdma_runtime_owner_origin_authorization_mask(void)
+{
+    const calibration_origin_timing_t *trial = &s_origin_trial;
+    const tdma_ring_calibration_stage_t *stage = &s_tdma_runtime_owner.calibration_stage;
+    uint32_t mask = 0u;
+    if (s_origin_trial_fault) mask |= TDMA_ORIGIN_AUTH_FAULT_LATCHED;
+    if (trial->epoch == 0u) mask |= TDMA_ORIGIN_AUTH_NO_EPOCH;
+    if (trial->enabled == 0u) mask |= TDMA_ORIGIN_AUTH_DISABLED;
+    if (tdma_ring_diagnostic_burst_limit(trial->config.flags) != 0u) mask |= TDMA_ORIGIN_AUTH_BURST_LIMIT;
+    if (trial->version != CALIBRATION_ORIGIN_TIMING_VERSION) mask |= TDMA_ORIGIN_AUTH_VERSION;
+    if (trial->epoch != calibration_manager_origin_epoch()) mask |= TDMA_ORIGIN_AUTH_EPOCH_SUPERSEDED;
+    if (trial->admission.model_epoch != refmem_realtime_contract_origin_model_epoch())
+        mask |= TDMA_ORIGIN_AUTH_MODEL_EPOCH;
+    if (trial->admission.diagnostic_valid != 1u || trial->admission.product_valid != 0u)
+        mask |= TDMA_ORIGIN_AUTH_ADMISSION_CLASS;
+    if (!tdma_runtime_owner_origin_capability_matches(&trial->admission.capability))
+        mask |= TDMA_ORIGIN_AUTH_CAPABILITY;
+    if (trial->config_seq != __atomic_load_n(&s_tdma_runtime_owner.ring_runtime.config_seq, __ATOMIC_ACQUIRE))
+        mask |= TDMA_ORIGIN_AUTH_CONFIG_SEQ;
+    if (s_tdma_runtime_owner.ring_runtime.enabled == 0u) mask |= TDMA_ORIGIN_AUTH_RING_DISABLED;
+    if (trial->admission.foundation_crc32 != s_tdma_runtime_owner.foundation_profile_crc32)
+        mask |= TDMA_ORIGIN_AUTH_FOUNDATION;
+    if (trial->calibration_generation != stage->calibration_generation ||
+        trial->topology_generation != stage->topology_generation ||
+        trial->topology_crc32 != stage->topology_crc32) mask |= TDMA_ORIGIN_AUTH_CALIBRATION;
+    if (trial->admission.capability.clk_sys_hz != clock_get_hz(clk_sys)) mask |= TDMA_ORIGIN_AUTH_CLOCK;
+    if (trial->expires_ticks && vdc_timestamp_clock_read_ticks64() >= trial->expires_ticks)
+        mask |= TDMA_ORIGIN_AUTH_EXPIRED;
+    return mask;
+}
+
+/* Record why the lifetime path is about to STOP the ring. The first STOP of a
+ * trial epoch is kept; later retries of the same epoch only count. */
+static __attribute__((noinline)) void tdma_runtime_owner_origin_note_stop(void)
+{
+    tdma_origin_stop_cause_t next = s_origin_stop_cause;
+    next.stop_count = next.stop_count == UINT32_MAX ? UINT32_MAX : next.stop_count + 1u;
+    if (next.stop_count == 1u || next.trial_epoch != s_origin_trial.epoch) {
+        const uint32_t auth = tdma_runtime_owner_origin_authorization_mask();
+        const bool comm_fault =
+            s_tdma_pio_spi_ring_adapter.comm_fsm.state == TDMA_ADAPTER_COMM_STATE_FAULT;
+        next.trial_epoch = s_origin_trial.epoch;
+        next.origin_epoch = calibration_manager_origin_epoch();
+        next.cause = (auth ? TDMA_ORIGIN_STOP_UNAUTHORIZED : 0u) |
+                     (comm_fault ? TDMA_ORIGIN_STOP_COMM_FAULT : 0u);
+        next.auth_mask = auth;
+        next.fault_site = s_origin_fault_site;
+        next.comm_state = s_tdma_pio_spi_ring_adapter.comm_fsm.state;
+        next.comm_last_error = s_tdma_pio_spi_ring_adapter.comm_fsm.last_error;
+        next.trial_config_seq = s_origin_trial.config_seq;
+        next.ring_config_seq = __atomic_load_n(&s_tdma_runtime_owner.ring_runtime.config_seq,
+                                               __ATOMIC_ACQUIRE);
+        next.release_state = s_origin_release_result.state;
+        next.begin_reject = s_origin_begin_reject;
+        next.begin_observed = s_origin_begin_observed;
+        next.begin_expected = s_origin_begin_expected;
+        next.stop_ticks = vdc_timestamp_clock_read_ticks64();
+    }
+    (void)__atomic_add_fetch(&s_origin_stop_guard, 1u, __ATOMIC_ACQ_REL);
+    s_origin_stop_cause = next;
+    (void)__atomic_add_fetch(&s_origin_stop_guard, 1u, __ATOMIC_RELEASE);
+}
+
+static bool tdma_runtime_owner_origin_stop_cause_copy(tdma_origin_stop_cause_t *out)
+{
+    for (uint32_t attempt = 0u; attempt < 4u; ++attempt) {
+        const uint32_t before = __atomic_load_n(&s_origin_stop_guard, __ATOMIC_ACQUIRE);
+        if (before & 1u) continue;
+        *out = s_origin_stop_cause;
+        __atomic_thread_fence(__ATOMIC_ACQ_REL);
+        if (before == __atomic_load_n(&s_origin_stop_guard, __ATOMIC_ACQUIRE)) return true;
+    }
+    return false;
+}
+
 /* Revalidate every existing boundary; only instruction residency changes. */
 TDMA_ORIGIN_OWNER_RAM
 static bool tdma_runtime_owner_origin_authorized(void)
@@ -187,13 +276,15 @@ static tdma_origin_admission_result_t tdma_runtime_owner_origin_admit_impl(
     trial.config.owner_config_seq = trial.config_seq;
     s_origin_trial = trial;
     s_origin_trial_fault = false;
+    s_origin_fault_site = TDMA_ORIGIN_FAULT_NONE;
+    s_origin_begin_reject = s_origin_begin_observed = s_origin_begin_expected = 0u;
     if (context != &s_tdma_pio_spi_phys || config == NULL ||
         rearm_budget_ticks == NULL || abort_poll_count == NULL ||
         !owner_sequence_matches || !tdma_runtime_owner_origin_authorized() ||
         memcmp(config, &trial.config, sizeof(*config)) != 0 ||
         s_tdma_pio_spi_phys.flight_physical_byte_count != trial.admission.capability.physical_bytes ||
         trial.calibration_crc32 != tdma_runtime_owner_origin_stage_crc()) {
-        s_origin_trial_fault = true;
+        tdma_runtime_owner_origin_fault(TDMA_ORIGIN_FAULT_ADMISSION);
         return TDMA_ORIGIN_ADMISSION_REJECTED;
     }
     *rearm_budget_ticks = trial.rearm_budget_ticks;
@@ -219,13 +310,34 @@ static bool tdma_runtime_owner_origin_begin_impl(void *context,
     const tdma_ring_runtime_config_t *config, const uint8_t *packet, size_t size,
     uint32_t rearm_budget_ticks, uint32_t abort_poll_count)
 {
-    const bool started = context == &s_tdma_pio_spi_phys && config != NULL &&
-        tdma_runtime_owner_origin_authorized() &&
-        rearm_budget_ticks == s_origin_trial.rearm_budget_ticks &&
-        abort_poll_count == s_origin_trial.abort_poll_count &&
-        memcmp(config, &s_origin_trial.config, sizeof(*config)) == 0 &&
+    uint32_t owner_detail = 0u, observed = 0u, expected = 0u;
+    if (context != &s_tdma_pio_spi_phys || config == NULL)
+        owner_detail = TDMA_ORIGIN_BEGIN_OWNER_CONTEXT;
+    else if (!tdma_runtime_owner_origin_authorized())
+        owner_detail = TDMA_ORIGIN_BEGIN_OWNER_UNAUTHORIZED;
+    else if (rearm_budget_ticks != s_origin_trial.rearm_budget_ticks) {
+        owner_detail = TDMA_ORIGIN_BEGIN_OWNER_REARM;
+        observed = rearm_budget_ticks; expected = s_origin_trial.rearm_budget_ticks;
+    } else if (abort_poll_count != s_origin_trial.abort_poll_count) {
+        owner_detail = TDMA_ORIGIN_BEGIN_OWNER_ABORT_POLL;
+        observed = abort_poll_count; expected = s_origin_trial.abort_poll_count;
+    } else if (memcmp(config, &s_origin_trial.config, sizeof(*config)) != 0)
+        owner_detail = TDMA_ORIGIN_BEGIN_OWNER_CONFIG;
+    const bool started = owner_detail == 0u &&
         tdma_pio_spi_phys_origin_begin(context, config, packet, size,
                                        rearm_budget_ticks, abort_poll_count);
+    if (!started && s_origin_begin_reject == 0u) {
+        /* First refusal of this trial; the physical one names its check. */
+        if (owner_detail != 0u) {
+            s_origin_begin_reject = TDMA_ORIGIN_REJECT_CODE(TDMA_ORIGIN_REJECT_BEGIN, owner_detail);
+            s_origin_begin_observed = observed;
+            s_origin_begin_expected = expected;
+        } else {
+            s_origin_begin_reject = s_tdma_pio_spi_phys.flight_origin_begin_reject;
+            s_origin_begin_observed = s_tdma_pio_spi_phys.flight_origin_begin_observed;
+            s_origin_begin_expected = s_tdma_pio_spi_phys.flight_origin_begin_expected;
+        }
+    }
     if (started) {
         (void)__atomic_exchange_n(&s_origin_release_terminal_epoch, 0u, __ATOMIC_ACQ_REL);
         __atomic_store_n(&s_origin_release_ready_epoch, 0u, __ATOMIC_RELEASE);
@@ -243,7 +355,7 @@ static bool tdma_runtime_owner_origin_begin_impl(void *context,
             s_origin_trial.diagnostic_flags == CALIBRATION_ORIGIN_DIAGNOSTIC_BUILD_CANCEL ?
                 s_origin_trial.epoch : 0u;
         s_tdma_pio_spi_phys.flight_origin_prepare.diagnostic_build_probe_config_seq = s_origin_trial.config_seq;
-    } else s_origin_trial_fault = true;
+    } else tdma_runtime_owner_origin_fault(TDMA_ORIGIN_FAULT_BEGIN);
     return started;
 }
 
@@ -323,7 +435,7 @@ static tdma_origin_build_result_t tdma_runtime_owner_origin_poll(void *context)
         const uint64_t ended = vdc_timestamp_clock_read_ticks64();
         tdma_origin_handoff_record(&s_origin_handoff, stage, started, ended, result);
         if (result == TDMA_ORIGIN_BUILD_FAILED) {
-            s_origin_trial_fault = true;
+            tdma_runtime_owner_origin_fault(TDMA_ORIGIN_FAULT_BUILD);
             if (__atomic_load_n(&s_origin_release_terminal_epoch, __ATOMIC_RELAXED) == 0u) {
                 s_origin_release_result.physical_reject = s_tdma_pio_spi_phys.flight_origin_prepare.reject_code;
                 s_origin_release_result.physical_observed = s_tdma_pio_spi_phys.flight_origin_prepare.reject_observed;
@@ -346,7 +458,7 @@ static bool tdma_runtime_owner_origin_healthy(const void *context)
 {
     const bool healthy = context == &s_tdma_pio_spi_phys &&
         tdma_runtime_owner_origin_authorized() && tdma_pio_spi_phys_origin_healthy(context);
-    if (!healthy) s_origin_trial_fault = true;
+    if (!healthy) tdma_runtime_owner_origin_fault(TDMA_ORIGIN_FAULT_UNHEALTHY);
     return healthy;
 }
 
@@ -365,6 +477,7 @@ static void tdma_runtime_owner_origin_lifetime_core1(void)
         s_tdma_runtime_owner.ring_runtime.enabled != 0u) {
         /* Revoke through the existing STOP lifecycle. The ring runtime keeps
          * retrying failed cleanup; never fall back to the legacy emitter. */
+        tdma_runtime_owner_origin_note_stop();
         (void)tdma_ring_runtime_configure(&s_tdma_runtime_owner.ring_runtime, NULL);
     }
 }
@@ -387,7 +500,7 @@ __attribute__((noinline)) static bool tdma_runtime_owner_origin_blackout_step(vo
     if (action == TDMA_ORIGIN_BLACKOUT_STOP) {
         /* Resume the ordinary service to run its existing lifetime STOP.
          * That path retries cleanup and freezes the complete DMA archive. */
-        s_origin_trial_fault = true;
+        tdma_runtime_owner_origin_fault(TDMA_ORIGIN_FAULT_BLACKOUT);
     }
     return action == TDMA_ORIGIN_BLACKOUT_SKIP;
 }

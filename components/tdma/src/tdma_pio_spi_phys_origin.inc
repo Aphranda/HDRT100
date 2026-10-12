@@ -466,72 +466,126 @@ failed:
     return false;
 }
 
+static bool tdma_pio_spi_phys_origin_begin_refuse(tdma_pio_spi_phys_t *phys,
+    uint32_t detail, uint64_t observed, uint64_t expected)
+{
+    phys->flight_origin_begin_observed = (uint32_t)observed;
+    phys->flight_origin_begin_expected = (uint32_t)expected;
+    phys->flight_origin_begin_reject = TDMA_ORIGIN_REJECT_CODE(TDMA_ORIGIN_REJECT_BEGIN, detail);
+    return false;
+}
+
 bool tdma_pio_spi_phys_origin_begin(
     void *context, const tdma_ring_runtime_config_t *config,
     const uint8_t *returned_packet, size_t packet_size,
     uint32_t rearm_budget_ticks, uint32_t abort_poll_count)
 {
     tdma_pio_spi_phys_t *phys = context;
-    if (phys == NULL || config == NULL || returned_packet == NULL ||
-        packet_size != TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size || !phys->armed ||
-        !phys->process_image_enabled || phys->role != TDMA_PIO_SPI_ROLE_MASTER ||
-        phys->flight_origin_workspace_owned ||
-        tdma_origin_build_job_state(&s_tdma_origin_build_job) != TDMA_ORIGIN_JOB_IDLE ||
-        tdma_overlay_prepare_state(phys->overlay_preparation) != TDMA_OVERLAY_PREPARE_IDLE ||
-        phys->flight_origin_prepare.stage != TDMA_ORIGIN_PREPARE_IDLE || phys->flight_tx_pending ||
-        phys->flight_tx_completion_pending ||
-        s_tdma_pio_spi_program_persona != TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
-        s_tdma_pio_spi_tx_dma_channel != TDMA_PIO_SPI_TX_DMA_CHANNEL ||
-        s_tdma_pio_spi_rx_dma_channel != TDMA_PIO_SPI_RX_DMA_CHANNEL ||
-        config->enabled == 0u ||
-        (config->flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) == 0u ||
-        tdma_ring_diagnostic_burst_limit(config->flags) != 0u ||
-        config->node_count < 2u || config->node_count > TDMA_FLIGHT_SHORT_SLOT_COUNT ||
-        config->node_count != phys->node_count || config->baud_hz != phys->baud_hz ||
-        config->local_slot_id != config->reference_slot_id ||
-        config->local_slot_id != phys->flight_local_slot_id ||
-        config->local_slot_id >= config->node_count ||
-        config->tx_dma_channel_id != TDMA_PIO_SPI_TX_DMA_CHANNEL ||
-        config->rx_dma_channel_id != TDMA_PIO_SPI_RX_DMA_CHANNEL ||
-        config->node_count > tdma_flight_payload_slots(phys->flight_payload_size) ||
-        phys->flight_overlay_alignment_samples < TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES ||
-        (phys->flight_normal_capture_copy_stage != 0u && phys->flight_normal_capture_copy_stage != 5u) ||
-        (phys->flight_sck_waveform_capture_state != TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE &&
-         phys->flight_sck_waveform_capture_state != TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED) ||
-        phys->flight_data_phase_delay_cycles == 0u || phys->flight_data_phase_delay_cycles > 32u ||
-        phys->flight_origin_capture_phase_delay_cycles == 0u ||
-        phys->flight_origin_capture_phase_delay_cycles > 31u ||
-        rearm_budget_ticks == 0u || abort_poll_count == 0u || abort_poll_count > UINT16_MAX)
-        return false;
+    if (phys == NULL) return false;
+    phys->flight_origin_begin_reject = TDMA_ORIGIN_REJECT_NONE;
+    /* Each refusal records its source-order number with the compared values. */
+#define TDMA_ORIGIN_BEGIN_REQUIRE(ok, detail, observed, expected) \
+    do { if (!(ok)) return tdma_pio_spi_phys_origin_begin_refuse( \
+        phys, (detail), (uint64_t)(observed), (uint64_t)(expected)); } while (0)
+    TDMA_ORIGIN_BEGIN_REQUIRE(config != NULL && returned_packet != NULL, 1u, 0u, 0u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(packet_size == TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size,
+        2u, packet_size, TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size);
+    TDMA_ORIGIN_BEGIN_REQUIRE(phys->armed, 3u, 0u, 1u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(phys->process_image_enabled, 4u, 0u, 1u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(phys->role == TDMA_PIO_SPI_ROLE_MASTER, 5u, phys->role, TDMA_PIO_SPI_ROLE_MASTER);
+    TDMA_ORIGIN_BEGIN_REQUIRE(!phys->flight_origin_workspace_owned, 6u, 1u, 0u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(tdma_origin_build_job_state(&s_tdma_origin_build_job) == TDMA_ORIGIN_JOB_IDLE,
+        7u, tdma_origin_build_job_state(&s_tdma_origin_build_job), TDMA_ORIGIN_JOB_IDLE);
+    TDMA_ORIGIN_BEGIN_REQUIRE(tdma_overlay_prepare_state(phys->overlay_preparation) == TDMA_OVERLAY_PREPARE_IDLE,
+        8u, tdma_overlay_prepare_state(phys->overlay_preparation), TDMA_OVERLAY_PREPARE_IDLE);
+    TDMA_ORIGIN_BEGIN_REQUIRE(phys->flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_IDLE,
+        9u, phys->flight_origin_prepare.stage, TDMA_ORIGIN_PREPARE_IDLE);
+    TDMA_ORIGIN_BEGIN_REQUIRE(!phys->flight_tx_pending, 10u, 1u, 0u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(!phys->flight_tx_completion_pending, 11u, 1u, 0u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(s_tdma_pio_spi_program_persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN,
+        12u, s_tdma_pio_spi_program_persona, TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN);
+    TDMA_ORIGIN_BEGIN_REQUIRE(s_tdma_pio_spi_tx_dma_channel == TDMA_PIO_SPI_TX_DMA_CHANNEL,
+        13u, s_tdma_pio_spi_tx_dma_channel, TDMA_PIO_SPI_TX_DMA_CHANNEL);
+    TDMA_ORIGIN_BEGIN_REQUIRE(s_tdma_pio_spi_rx_dma_channel == TDMA_PIO_SPI_RX_DMA_CHANNEL,
+        14u, s_tdma_pio_spi_rx_dma_channel, TDMA_PIO_SPI_RX_DMA_CHANNEL);
+    TDMA_ORIGIN_BEGIN_REQUIRE(config->enabled != 0u, 15u, config->enabled, 1u);
+    TDMA_ORIGIN_BEGIN_REQUIRE((config->flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) != 0u,
+        16u, config->flags, TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE);
+    TDMA_ORIGIN_BEGIN_REQUIRE(tdma_ring_diagnostic_burst_limit(config->flags) == 0u,
+        17u, tdma_ring_diagnostic_burst_limit(config->flags), 0u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(config->node_count >= 2u && config->node_count <= TDMA_FLIGHT_SHORT_SLOT_COUNT,
+        18u, config->node_count, TDMA_FLIGHT_SHORT_SLOT_COUNT);
+    TDMA_ORIGIN_BEGIN_REQUIRE(config->node_count == phys->node_count, 19u, config->node_count, phys->node_count);
+    TDMA_ORIGIN_BEGIN_REQUIRE(config->baud_hz == phys->baud_hz, 20u, config->baud_hz, phys->baud_hz);
+    TDMA_ORIGIN_BEGIN_REQUIRE(config->local_slot_id == config->reference_slot_id,
+        21u, config->local_slot_id, config->reference_slot_id);
+    TDMA_ORIGIN_BEGIN_REQUIRE(config->local_slot_id == phys->flight_local_slot_id,
+        22u, config->local_slot_id, phys->flight_local_slot_id);
+    TDMA_ORIGIN_BEGIN_REQUIRE(config->local_slot_id < config->node_count,
+        23u, config->local_slot_id, config->node_count);
+    TDMA_ORIGIN_BEGIN_REQUIRE(config->tx_dma_channel_id == TDMA_PIO_SPI_TX_DMA_CHANNEL,
+        24u, config->tx_dma_channel_id, TDMA_PIO_SPI_TX_DMA_CHANNEL);
+    TDMA_ORIGIN_BEGIN_REQUIRE(config->rx_dma_channel_id == TDMA_PIO_SPI_RX_DMA_CHANNEL,
+        25u, config->rx_dma_channel_id, TDMA_PIO_SPI_RX_DMA_CHANNEL);
+    TDMA_ORIGIN_BEGIN_REQUIRE(config->node_count <= tdma_flight_payload_slots(phys->flight_payload_size),
+        26u, config->node_count, tdma_flight_payload_slots(phys->flight_payload_size));
+    TDMA_ORIGIN_BEGIN_REQUIRE(phys->flight_overlay_alignment_samples >= TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES,
+        27u, phys->flight_overlay_alignment_samples, TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES);
+    TDMA_ORIGIN_BEGIN_REQUIRE(phys->flight_normal_capture_copy_stage == 0u ||
+                              phys->flight_normal_capture_copy_stage == 5u,
+        28u, phys->flight_normal_capture_copy_stage, 5u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(phys->flight_sck_waveform_capture_state == TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE ||
+                              phys->flight_sck_waveform_capture_state == TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED,
+        29u, phys->flight_sck_waveform_capture_state, TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE);
+    TDMA_ORIGIN_BEGIN_REQUIRE(phys->flight_data_phase_delay_cycles != 0u && phys->flight_data_phase_delay_cycles <= 32u,
+        30u, phys->flight_data_phase_delay_cycles, 32u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(phys->flight_origin_capture_phase_delay_cycles != 0u &&
+                              phys->flight_origin_capture_phase_delay_cycles <= 31u,
+        31u, phys->flight_origin_capture_phase_delay_cycles, 31u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(rearm_budget_ticks != 0u && abort_poll_count != 0u && abort_poll_count <= UINT16_MAX,
+        32u, rearm_budget_ticks, abort_poll_count);
 
     /* Asynchronous preparation must not retain a pointer to a live DMA ring
      * or to the union that it will replace. The adapter owns its frozen copy. */
     const uintptr_t workspace_begin = (uintptr_t)&s_tdma_pio_spi_workspace;
     const uintptr_t packet = (uintptr_t)returned_packet;
     const uintptr_t config_address = (uintptr_t)config;
-    if (packet > UINTPTR_MAX - packet_size || config_address > UINTPTR_MAX - sizeof(*config) ||
+    TDMA_ORIGIN_BEGIN_REQUIRE(!(packet > UINTPTR_MAX - packet_size || config_address > UINTPTR_MAX - sizeof(*config) ||
         (packet < workspace_begin + sizeof(s_tdma_pio_spi_workspace) && packet + packet_size > workspace_begin) ||
-        (config_address < workspace_begin + sizeof(s_tdma_pio_spi_workspace) && config_address + sizeof(*config) > workspace_begin))
-        return false;
+        (config_address < workspace_begin + sizeof(s_tdma_pio_spi_workspace) && config_address + sizeof(*config) > workspace_begin)),
+        33u, packet, workspace_begin);
     tdma_origin_cadence_t cadence;
-    if (!tdma_origin_cadence_calculate(clock_get_hz(clk_sys), phys->baud_hz,
-            phys->flight_physical_byte_count, config->cycle_period_ns, &cadence) ||
-        cadence.guard_floor_ticks <= rearm_budget_ticks) return false;
+    TDMA_ORIGIN_BEGIN_REQUIRE(tdma_origin_cadence_calculate(clock_get_hz(clk_sys), phys->baud_hz,
+            phys->flight_physical_byte_count, config->cycle_period_ns, &cadence),
+        34u, config->cycle_period_ns, phys->flight_physical_byte_count);
+    TDMA_ORIGIN_BEGIN_REQUIRE(cadence.guard_floor_ticks > rearm_budget_ticks,
+        35u, cadence.guard_floor_ticks, rearm_budget_ticks);
     const uint64_t prefix = ((uint64_t)phys->flight_alignment_byte_shift +
         TDMA_PIO_SPI_PACKET_HEADER_SIZE) * 8u + phys->flight_alignment_bit_shift;
-    if (phys->flight_alignment_bit_shift >= 8u ||
-        phys->flight_physical_byte_count <= TDMA_PIO_SPI_PACKET_HEADER_SIZE + packet_size ||
-        prefix > (phys->flight_physical_byte_count - packet_size) * 8u) return false;
+    TDMA_ORIGIN_BEGIN_REQUIRE(phys->flight_alignment_bit_shift < 8u, 36u, phys->flight_alignment_bit_shift, 8u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(phys->flight_physical_byte_count > TDMA_PIO_SPI_PACKET_HEADER_SIZE + packet_size,
+        37u, phys->flight_physical_byte_count, TDMA_PIO_SPI_PACKET_HEADER_SIZE + packet_size);
+    TDMA_ORIGIN_BEGIN_REQUIRE(prefix <= (phys->flight_physical_byte_count - packet_size) * 8u,
+        38u, prefix, (phys->flight_physical_byte_count - packet_size) * 8u);
     tdma_transport_frame_view_t view;
     tdma_transport_result_t result;
-    if (!tdma_transport_frame_decode(returned_packet, packet_size, &view, &result) ||
-        view.payload_class != TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE ||
-        view.payload_size != phys->flight_payload_size ||
-        view.origin_slot_id != config->local_slot_id || view.hop_count != config->node_count - 1u ||
-        view.hop_limit != view.hop_count || view.schedule_crc32 != config->schedule_crc32 ||
-        view.ring_profile_crc32 != config->ring_profile_crc32 ||
-        view.flags != (TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK | TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE))
-        return false;
+    TDMA_ORIGIN_BEGIN_REQUIRE(tdma_transport_frame_decode(returned_packet, packet_size, &view, &result),
+        39u, result, 0u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(view.payload_class == TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE,
+        40u, view.payload_class, TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE);
+    TDMA_ORIGIN_BEGIN_REQUIRE(view.payload_size == phys->flight_payload_size,
+        41u, view.payload_size, phys->flight_payload_size);
+    TDMA_ORIGIN_BEGIN_REQUIRE(view.origin_slot_id == config->local_slot_id,
+        42u, view.origin_slot_id, config->local_slot_id);
+    TDMA_ORIGIN_BEGIN_REQUIRE(view.hop_count == config->node_count - 1u, 43u, view.hop_count, config->node_count - 1u);
+    TDMA_ORIGIN_BEGIN_REQUIRE(view.hop_limit == view.hop_count, 44u, view.hop_limit, view.hop_count);
+    TDMA_ORIGIN_BEGIN_REQUIRE(view.schedule_crc32 == config->schedule_crc32,
+        45u, view.schedule_crc32, config->schedule_crc32);
+    TDMA_ORIGIN_BEGIN_REQUIRE(view.ring_profile_crc32 == config->ring_profile_crc32,
+        46u, view.ring_profile_crc32, config->ring_profile_crc32);
+    TDMA_ORIGIN_BEGIN_REQUIRE(view.flags == (TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK | TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE),
+        47u, view.flags, TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK | TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE);
+#undef TDMA_ORIGIN_BEGIN_REQUIRE
     /* This scanner owns only its private byte copy. Invalidate its hint now;
      * Core0 may finish cancellation while the owner switches the union. */
     (void)tdma_pio_spi_phys_rx_scan_cancel(phys);

@@ -61,7 +61,7 @@ def admission_exe(tmp_path_factory):
     'build-cancel', 'handoff', 'batch', 'batch-yield', 'batch-revoke', 'batch-failure',
     'blackout', 'blackout-cancel', 'blackout-deadline', 'blackout-invalid',
     'release', 'release-cancel', 'release-expiry', 'release-exhaustion', 'release-scpi', 'release-mixed',
-    'release-stop-race', 'release-physical-reject'])
+    'release-stop-race', 'release-physical-reject', 'begin-reject'])
 def test_origin_trial_lifecycle(admission_exe, case):
     result = subprocess.run([str(admission_exe), case], capture_output=True,
                             text=True, timeout=3)

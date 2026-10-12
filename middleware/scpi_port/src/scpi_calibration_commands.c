@@ -73,6 +73,35 @@ scpi_result_t scpi_calibration_origin_live_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* Why the origin lifetime path last stopped the ring (TDMA_ORIGIN_STOP_* cause,
+ * TDMA_ORIGIN_AUTH_* failed terms, TDMA_ORIGIN_FAULT_* first fault site,
+ * then the first BEGIN refusal code with its observed/expected values). */
+scpi_result_t scpi_calibration_origin_stop_q(scpi_t *context)
+{
+    tdma_origin_stop_cause_t s;
+    if (!tdma_runtime_owner_get_origin_stop_cause(&s)) {
+        SCPI_ResultText(context, "UNAVAILABLE");
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, "ORIGINSTOP");
+    SCPI_ResultUInt32(context, s.stop_count);
+    SCPI_ResultUInt32(context, s.trial_epoch);
+    SCPI_ResultUInt32(context, s.origin_epoch);
+    SCPI_ResultUInt32(context, s.cause);
+    SCPI_ResultUInt32(context, s.auth_mask);
+    SCPI_ResultUInt32(context, s.fault_site);
+    SCPI_ResultUInt32(context, s.comm_state);
+    SCPI_ResultUInt32(context, s.comm_last_error);
+    SCPI_ResultUInt32(context, s.trial_config_seq);
+    SCPI_ResultUInt32(context, s.ring_config_seq);
+    SCPI_ResultUInt32(context, s.release_state);
+    SCPI_ResultUInt64(context, s.stop_ticks);
+    SCPI_ResultUInt32(context, s.begin_reject);
+    SCPI_ResultUInt32(context, s.begin_observed);
+    SCPI_ResultUInt32(context, s.begin_expected);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_origin_runtime_q(scpi_t *context)
 {
     tdma_pio_spi_ring_adapter_snapshot_t snapshot;

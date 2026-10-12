@@ -905,7 +905,10 @@ typedef enum {
     TDMA_ORIGIN_REJECT_AUTHORITY = 27,
     TDMA_ORIGIN_REJECT_EXPIRY = 28,
     TDMA_ORIGIN_REJECT_RELEASE_CLOCK = 29,
-    TDMA_ORIGIN_REJECT_PREPARE_STAGE = 30
+    TDMA_ORIGIN_REJECT_PREPARE_STAGE = 30,
+    /* tdma_pio_spi_phys_origin_begin() precondition; detail numbers the
+     * check in source order. Kept apart from flight_origin_prepare. */
+    TDMA_ORIGIN_REJECT_BEGIN = 31
 } tdma_origin_reject_reason_t;
 #define TDMA_ORIGIN_REJECT_CODE(reason, detail) \
     (((uint32_t)(reason) << 16u) | ((uint32_t)(detail) & 0xffffu))
@@ -1029,6 +1032,8 @@ typedef struct {
     bool flight_origin_record_frozen;
     tdma_origin_cadence_t flight_origin_cadence;
     tdma_origin_prepare_t flight_origin_prepare;
+    /* Last BEGIN refusal (TDMA_ORIGIN_REJECT_BEGIN code); reset on each BEGIN. */
+    uint32_t flight_origin_begin_reject, flight_origin_begin_observed, flight_origin_begin_expected;
     tdma_pio_spi_phys_snapshot_t snapshot;
     bool rx_capture_active;
     size_t rx_capture_max_words;

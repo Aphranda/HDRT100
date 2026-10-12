@@ -27,6 +27,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -153,6 +154,69 @@ class Context:
         return completed.returncode, path
 
 
+def expected_build(ctx):
+    """The build the boards should be running, and where that expectation came from.
+
+    The bench config wins when it names one. Otherwise the newest passing
+    tools/ota/OTA_workflow.py record is used when it is newer than the receipt: that
+    record is what was just flashed and read back online, while the receipt still
+    names the build of the last acceptance (measured: OTA flashed 20261010050916 and
+    the receipt still said 20261012072310, so step 2 refused the reset and step 3 ran
+    TDMA against the wrong --expected-build). PROJECT_BUILD_ID is cached per build
+    directory, so different build directories carry different ids for one source.
+    """
+    configured = str(ctx.config.get("build_id") or "")
+    if configured:
+        return configured, "bench config"
+    receipt_build, receipt_mtime = "", 0.0
+    if RECEIPT.exists():
+        try:
+            receipt = json.loads(RECEIPT.read_text(encoding="utf-8"))
+            if receipt.get("schema") != "HAOFV_P3_JOINT_PROVISIONAL_V1":
+                receipt_build = str(receipt.get("build_id", ""))
+                # The record's own timestamp, not the file mtime: a checkout or a
+                # restore rewrites the file without changing what it certifies.
+                receipt_mtime = datetime.fromisoformat(
+                    str(receipt["generated_at_utc"])).timestamp()
+        except (OSError, ValueError, KeyError):
+            receipt_build = ""
+    flashes = []
+    for path in LOG_DIR.glob("*/ota-*/ota-workflow-summary.json"):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if record.get("passed") is True and record.get("build_id") and record.get("generated"):
+            flashed = time.mktime(time.strptime(record["generated"], "%Y-%m-%d %H:%M:%S"))
+            flashes.append((flashed, str(record["build_id"]), path))
+    if flashes:
+        mtime, build, path = max(flashes)
+        if mtime > receipt_mtime:
+            return build, f"OTA workflow {path.parent.relative_to(ROOT)}"
+    return receipt_build, "receipt"
+
+
+def flashed_evidence(ctx):
+    """firmware_package / ota_summary of the flash the expected build came from.
+
+    The provisional receipt binds the capture to one package: the capture checks
+    that the package's build equals the receipt's build_id. When expected_build()
+    took the build from a newer OTA workflow run, the package and transport summary
+    must come from that same run, not from the older receipt (measured:
+    "provisional package build differs" - receipt package 20261012072310, flashed
+    build 20261010050916). Empty when the expectation came from the receipt itself.
+    """
+    build, source = expected_build(ctx)
+    if not source.startswith("OTA workflow "):
+        return {}
+    run = ROOT / source[len("OTA workflow "):]
+    record = json.loads((run / "ota-workflow-summary.json").read_text(encoding="utf-8"))
+    package = ROOT / record["artifacts"]["package"]["path"]
+    if record.get("method") != "ota" or record.get("build_id") != build:
+        return {}
+    return {"firmware_package": package, "ota_summary": run / "ota-four-board" / "summary.json"}
+
+
 @step(0)
 def step_0_initialize(ctx):
     """Board-level initialization: settle a residual recorder, verify identity.
@@ -267,14 +331,8 @@ def step_2_reset(ctx):
         # before it resets them. Take that expectation from the bench config, else
         # from the last receipt (which records the build it accepted), and print both
         # sides so a real mismatch is diagnosable instead of looking like a tool bug.
-        expected = str(ctx.config.get("build_id") or "")
-        if not expected and RECEIPT.exists():
-            try:
-                expected = str(json.loads(RECEIPT.read_text(encoding="utf-8"))
-                               .get("build_id", ""))
-            except (OSError, ValueError):
-                expected = ""
-        ctx.log(f"  expected build: {expected or '(unknown)'}")
+        expected, source = expected_build(ctx)
+        ctx.log(f"  expected build: {expected or '(unknown)'} (from {source})")
         if not expected:
             ctx.failures.append("Step 2 no expected build id (bench config or receipt)")
             return
@@ -327,7 +385,7 @@ def step_3_tdma_process_image(ctx):
         str(ROOT / "tools/calibration_ring_validate/trn03_closed_loop.py"),
         *board_args,
         "--config", str(matrix_path),
-        "--expected-build", str(recorded.get("build_id") or ctx.config.get("build_id", "")),
+        "--expected-build", expected_build(ctx)[0],
         "--level", str(ctx.config.get("tdma_profile_level", 7)),
         "--cycles", str(ctx.config.get("tdma_cycles", 4096)),
         "--stage", "process-image",
@@ -372,6 +430,23 @@ def step_3_tdma_process_image(ctx):
     summary_path = tdma_dir / "summary.json"
     ctx.log(f"  trn03 exit {code} (log {log_path.name})"
             f" summary {'present' if summary_path.exists() else 'MISSING'}")
+    if summary_path.exists():
+        # The capture checks the stopped handoff against the build the boards run and
+        # against THIS stage's raw board records (p3_dpll_short
+        # .validate_provisional_receipt), so derive it here exactly as the acceptance
+        # does - an older run's handoff names another build.
+        try:
+            sys.path.insert(0, str(ROOT))
+            sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
+            import p3_hardware_acceptance as gate                          # noqa: PLC0415
+            proof = gate.validate_tdma_stopped_handoff(
+                ROOT, json.loads(summary_path.read_text(encoding="utf-8")),
+                list(BENCH_BOARDS), expected_build(ctx)[0])
+            (ctx.out_dir / "tdma-stopped-handoff.json").write_text(
+                json.dumps(proof, indent=2) + "\n", encoding="utf-8")
+            ctx.log(f"  stopped handoff passed={proof.get('passed')} -> tdma-stopped-handoff.json")
+        except Exception as exc:                                          # noqa: BLE001
+            ctx.warnings.append(f"Step 3 stopped handoff not derivable: {type(exc).__name__}: {exc}")
     if code != 0 or not summary_path.exists():
         # NOT a blocking failure: the packaged entry runs this phase with
         # allow_failure=diagnostic_continue (p3_hardware_acceptance.py:3221-3223) and
@@ -442,9 +517,15 @@ def step_4_scope(ctx):
             ctx.failures.append("Step 4 scope discovery failed (cannot distinguish "
                                 "absent hardware from VISA failure)")
         elif discovery.get("present") is not True:
-            ctx.failures.append(f"Step 4 configured scope {serial} not discovered after"
-                                f" {attempts} retries: the DPLL60 verdict needs external"
-                                f" evidence (check power/USB/VISA lock)")
+            if getattr(ctx, "require_scope", False):
+                ctx.failures.append(f"Step 4 configured scope {serial} not discovered after"
+                                    f" {attempts} retries and --require-scope is set"
+                                    f" (check power/USB/VISA lock)")
+            else:
+                # Same rule as the acceptance gate: an absent scope (present=False, not
+                # a VISA failure) runs the capture on internal lock evidence only.
+                ctx.warnings.append(f"Step 4 scope {serial} absent: the capture runs on"
+                                    f" internal lock evidence only (external_status SKIPPED)")
     except Exception as exc:                                              # noqa: BLE001
         ctx.failures.append(f"Step 4 scope discovery unavailable: {type(exc).__name__}")
         ctx.log(f"  discovery helper unavailable: {exc}")
@@ -463,14 +544,15 @@ def step_5_capture_prepare(ctx):
     for label, path in (("bench adapter", adapter), ("workflow inputs", inputs)):
         if not path.exists():
             ctx.failures.append(f"Step 5 {label} missing: {path}")
-    if ctx.scope_enabled is not True:
-        ctx.failures.append("Step 5 refusing to launch the capture without the scope:"
-                            " the DPLL60_JOINT verdict requires external windows and a"
-                            " scope-off run only records external_status=SKIPPED"
-                            " (run step 4 and fix the instrument first)")
-        ctx.log("  scope unavailable -> capture NOT started (no credential value in a"
-                " scope-absent run)")
+    if ctx.scope_enabled is None:
+        ctx.failures.append("Step 5 scope state unknown: run step 4 first")
         return
+    if ctx.scope_enabled is not True:
+        if getattr(ctx, "require_scope", False):
+            ctx.failures.append("Step 5 --require-scope is set and the scope is absent")
+            return
+        ctx.log("  scope absent -> internal lock evidence only (the summary judges the"
+                " steady internal residual envelope; external_status SKIPPED)")
     # Do NOT pre-create the capture directory: the capture creates it itself and
     # fails with FileExistsError (WinError 183) when it is already there (measured).
     ctx.out_dir.mkdir(parents=True, exist_ok=True)
@@ -527,10 +609,21 @@ def step_5_capture_prepare(ctx):
             except (OSError, ValueError):
                 previous = {}
         evidence = {}
+        flashed = flashed_evidence(ctx)
+        # The TDMA summary and stopped handoff are this run's own step 3 output when it
+        # produced them; the matrix is what step 3 replayed.
+        own_tdma = ctx.out_dir / "tdma-process-image" / "summary.json"
+        own_handoff = ctx.out_dir / "tdma-stopped-handoff.json"
         for key in ("firmware_package", "ota_summary", "trn03_matrix", "tdma_summary",
                     "tdma_stopped_handoff"):
             recorded = previous.get(key)
             path = ROOT / str(recorded.get("path", "")) if isinstance(recorded, dict) else None
+            if key in flashed:
+                path = flashed[key]
+            elif key == "tdma_summary" and own_tdma.is_file():
+                path = own_tdma
+            elif key == "tdma_stopped_handoff" and own_handoff.is_file():
+                path = own_handoff
             if path is not None and path.exists():
                 evidence[key] = gate.evidence_entry(ROOT, path)
                 ctx.log(f"  evidence {key} <- {evidence[key]['path']}"
@@ -543,7 +636,7 @@ def step_5_capture_prepare(ctx):
             "joint_capture_only": True,
             "passed": True,
             "strict_gates_passed": True,
-            "build_id": str(previous.get("build_id") or ctx.config.get("build_id", "")),
+            "build_id": expected_build(ctx)[0],
             "source_tree_sha256": fingerprint,
             "source_file_count": int(file_count),
             "tdma_board_ids": list(BENCH_BOARDS),
@@ -792,8 +885,12 @@ def parse_selection(text):
     return sorted(selection)
 
 
-def run_steps(selection, interactive=False):
+def run_steps(selection, interactive=False, require_scope=False):
     ctx = Context()
+    ctx.require_scope = require_scope
+    # Step 5 writes the capture's provisional receipt into the config path; this
+    # workflow never certifies, so the config receipt is restored when it ends.
+    receipt_snapshot = RECEIPT.read_bytes() if RECEIPT.exists() else None
     original = sys.stdout
     handle = ctx.log_path.open("a", encoding="utf-8")
     sys.stdout = _Tee(original, handle)
@@ -847,6 +944,9 @@ def run_steps(selection, interactive=False):
                 f"{[r['step'] for r in ctx.records if r['status'] == 'FAIL'] or 'none'}")
         emit_flow_data(ctx, selection)
     finally:
+        if receipt_snapshot is not None and RECEIPT.read_bytes() != receipt_snapshot:
+            RECEIPT.write_bytes(receipt_snapshot)
+            ctx.log("  config receipt restored (the provisional receipt was workflow-local)")
         sys.stdout = original
         handle.close()
     return 1 if any(r["status"] == "FAIL" for r in ctx.records) else 0
@@ -878,6 +978,9 @@ def main() -> int:
     parser.add_argument("--step", type=int, default=None, help="run exactly one step")
     parser.add_argument("--steps", default=None, help="step selection, e.g. '1-4' or '3,5,6-7'")
     parser.add_argument("--full", action="store_true", help="run every step in order")
+    parser.add_argument("--require-scope", action="store_true",
+                        help="fail steps 4/5 when the scope is absent instead of running"
+                             " the capture on internal lock evidence only")
     parser.add_argument("--interactive", action="store_true",
                         help="wait for Enter between steps")
     parser.add_argument("--refresh-html", action="store_true",
@@ -890,11 +993,14 @@ def main() -> int:
             print(f"{number:>3}  {STEP_TITLES[number]}")
         return 0
     if args.step is not None:
-        return run_steps([args.step], interactive=args.interactive)
+        return run_steps([args.step], interactive=args.interactive,
+                         require_scope=args.require_scope)
     if args.steps is not None:
-        return run_steps(parse_selection(args.steps), interactive=args.interactive)
+        return run_steps(parse_selection(args.steps), interactive=args.interactive,
+                         require_scope=args.require_scope)
     if args.full:
-        return run_steps(parse_selection("all"), interactive=args.interactive)
+        return run_steps(parse_selection("all"), interactive=args.interactive,
+                         require_scope=args.require_scope)
     parser.print_help()
     return 2
 

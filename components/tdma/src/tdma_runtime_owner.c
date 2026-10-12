@@ -523,6 +523,12 @@ bool tdma_runtime_owner_get_origin_live_snapshot(tdma_origin_live_snapshot_t *sn
         tdma_pio_spi_phys_origin_get_live_snapshot(&s_tdma_pio_spi_phys, snapshot);
 }
 
+bool tdma_runtime_owner_get_origin_stop_cause(tdma_origin_stop_cause_t *snapshot)
+{
+    return s_tdma_runtime_owner_initialized && snapshot != NULL &&
+        tdma_runtime_owner_origin_stop_cause_copy(snapshot);
+}
+
 bool tdma_runtime_owner_get_event_live_snapshot(tdma_pio_spi_event_live_snapshot_t *snapshot)
 {
     return s_tdma_runtime_owner_initialized && snapshot != NULL &&

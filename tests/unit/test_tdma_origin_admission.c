@@ -30,7 +30,10 @@ static struct {
         uint32_t diagnostic_build_probe_epoch, diagnostic_build_probe_config_seq;
         uint32_t stage, reject_code, reject_observed, reject_expected;
     } flight_origin_prepare;
+    uint32_t flight_origin_begin_reject, flight_origin_begin_observed, flight_origin_begin_expected;
 } s_tdma_pio_spi_phys;
+enum { TDMA_ORIGIN_REJECT_BEGIN = 31 };
+#define TDMA_ORIGIN_REJECT_CODE(reason, detail)     (((uint32_t)(reason) << 16u) | ((uint32_t)(detail) & 0xffffu))
 static uint32_t model_epoch = 2, clock_hz = 150000000, begins, polls, stops;
 static uint64_t ticks = 100;
 static bool complete = true, model_valid = true, resources_valid = true, begin_ok = true;
@@ -84,6 +87,9 @@ static bool tdma_pio_spi_phys_origin_begin(void *ctx, const tdma_ring_runtime_co
   s_tdma_pio_spi_phys.flight_origin_prepare.reject_code = 0u;
   s_tdma_pio_spi_phys.flight_origin_prepare.reject_observed = 0u;
   s_tdma_pio_spi_phys.flight_origin_prepare.reject_expected = 0u;
+  s_tdma_pio_spi_phys.flight_origin_begin_reject =
+      begin_ok ? 0u : TDMA_ORIGIN_REJECT_CODE(TDMA_ORIGIN_REJECT_BEGIN, 9u);
+  s_tdma_pio_spi_phys.flight_origin_begin_observed = begin_ok ? 0u : 4u;
   return begin_ok; }
 static tdma_origin_build_result_t tdma_pio_spi_phys_origin_poll(void *ctx)
 {
@@ -756,6 +762,29 @@ int main(int argc, char **argv)
         begin_ok = false;
         assert(!tdma_runtime_owner_origin_begin(&s_tdma_pio_spi_phys, &config, NULL, 0, 100, 8));
         tdma_runtime_owner_origin_lifetime_core1(); assert(stops == 2);
+    } else if (!strcmp(argv[1], "begin-reject")) {
+        /* The STOP names the first BEGIN refusal: physical check, then owner term. */
+        tdma_origin_stop_cause_t cause;
+        publish(); assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
+        s_tdma_pio_spi_ring_adapter.origin.active = 1;
+        begin_ok = false;
+        assert(!tdma_runtime_owner_origin_begin(&s_tdma_pio_spi_phys, &config, NULL, 0, 100, 8));
+        assert(!tdma_runtime_owner_origin_begin(&s_tdma_pio_spi_phys, &config, NULL, 0, 101, 8));
+        tdma_runtime_owner_origin_lifetime_core1(); assert(stops == 1);
+        assert(tdma_runtime_owner_origin_stop_cause_copy(&cause));
+        assert(cause.fault_site == TDMA_ORIGIN_FAULT_BEGIN);
+        assert(cause.begin_reject == TDMA_ORIGIN_REJECT_CODE(TDMA_ORIGIN_REJECT_BEGIN, 9u));
+        assert(cause.begin_observed == 4u);
+        setup(); begin_ok = true;
+        publish(); assert(admit() == TDMA_ORIGIN_ADMISSION_READY);
+        s_tdma_pio_spi_ring_adapter.origin.active = 1;
+        assert(!tdma_runtime_owner_origin_begin(&s_tdma_pio_spi_phys, &config, NULL, 0, 101, 8));
+        tdma_runtime_owner_origin_lifetime_core1(); assert(stops == 2);
+        assert(tdma_runtime_owner_origin_stop_cause_copy(&cause));
+        assert(cause.stop_count == 2u && cause.fault_site == TDMA_ORIGIN_FAULT_BEGIN);
+        assert(cause.begin_reject ==
+               TDMA_ORIGIN_REJECT_CODE(TDMA_ORIGIN_REJECT_BEGIN, TDMA_ORIGIN_BEGIN_OWNER_REARM));
+        assert(cause.begin_observed == 101u && cause.begin_expected == 100u);
     } else return 2;
     puts("origin admission lifecycle passed"); return 0;
 }

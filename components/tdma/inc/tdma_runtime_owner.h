@@ -11,6 +11,7 @@
 #include "tdma_service_timing.h"
 #include "tdma_origin_blackout.h"
 #include "tdma_origin_release.h"
+#include "tdma_origin_stop_cause.h"
 #include "tdma_rx_first_window.h"
 
 /* Core1 gate before all TDMA service work. Enabled only by an admitted finite
@@ -114,6 +115,8 @@ bool tdma_runtime_owner_get_origin_frozen_record(uint32_t age,
 /* Bounded copy of Core1-retained running observations; never reads live DMA.
  * STOP leaves diagnostic history available, with active cleared. */
 bool tdma_runtime_owner_get_origin_live_snapshot(tdma_origin_live_snapshot_t *snapshot);
+/* Seqlock copy of the last lifetime STOP cause (tdma_origin_stop_cause.h). */
+bool tdma_runtime_owner_get_origin_stop_cause(tdma_origin_stop_cause_t *snapshot);
 /* One guarded SRAM-only permission read, without TIMER/PIO/DMA access.
  * True with zero confirms inactive; false preserves output on contention or
  * unavailable/inconsistent owner state. A nonzero epoch is not time validity. */

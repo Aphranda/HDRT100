@@ -1097,6 +1097,99 @@ def cursor_probe(ctx, board, label):
                                 f" {CURSOR_FAULT_SITES.get(fault['site'], fault['site'])}"
                                 f" at seq {fault['sample_seq']}:"
                                 f" {', '.join(mismatches) if mismatches else 'see record'}")
+    if r["enabled"] == "0":
+        origin_stop_probe(ctx, board, label)
+
+
+# READ:CALibration:ORIGin:STOP? (scpi_calibration_origin_stop_q): why the origin
+# lifetime path last stopped the ring, latched by Core1 at the revoke
+# (tdma_runtime_origin.inc tdma_runtime_owner_origin_note_stop).
+ORIGIN_STOP_FIELDS = ("tag", "stop_count", "trial_epoch", "origin_epoch", "cause",
+                      "auth_mask", "fault_site", "comm_state", "comm_last_error",
+                      "trial_config_seq", "ring_config_seq", "release_state", "stop_ticks",
+                      "begin_reject", "begin_observed", "begin_expected")
+# TDMA_ORIGIN_REJECT_BEGIN details: tdma_pio_spi_phys_origin_begin() checks in
+# source order (1..47), then the owner terms TDMA_ORIGIN_BEGIN_OWNER_* (0x81..).
+ORIGIN_REJECT_BEGIN = 31
+ORIGIN_BEGIN_CHECKS = (
+    "null argument", "packet size", "not armed", "process image disabled", "role not master",
+    "workspace owned", "build job busy", "overlay prepare busy", "prepare stage not idle",
+    "tx pending", "tx completion pending", "persona not FLIGHT_ORIGIN", "tx dma channel",
+    "rx dma channel", "config disabled", "DIAGNOSTIC_CONTINUE missing", "burst limit set",
+    "node count range", "node count != phys", "baud != phys", "local != reference slot",
+    "local != phys slot", "local slot >= node count", "config tx dma", "config rx dma",
+    "payload slots", "overlay alignment unstable", "capture copy busy",
+    "waveform capture busy", "data phase delay", "capture phase delay", "rearm/abort budget",
+    "workspace overlap", "cadence", "guard floor <= rearm", "alignment bit shift",
+    "physical bytes", "prefix", "frame decode", "payload class", "payload size",
+    "origin slot", "hop count", "hop limit", "schedule crc", "ring profile crc", "frame flags")
+ORIGIN_BEGIN_OWNER = {0x81: "owner context", 0x82: "owner unauthorized", 0x83: "owner rearm",
+                      0x84: "owner abort poll", 0x85: "owner config changed"}
+ORIGIN_STOP_CAUSES = ((0, "UNAUTHORIZED"), (1, "COMM_FAULT"))
+# TDMA_ORIGIN_AUTH_* bit order (tdma_runtime_owner.h).
+ORIGIN_AUTH_TERMS = ("FAULT_LATCHED", "NO_EPOCH", "DISABLED", "BURST_LIMIT", "VERSION",
+                     "EPOCH_SUPERSEDED", "MODEL_EPOCH", "ADMISSION_CLASS", "CAPABILITY",
+                     "CONFIG_SEQ", "RING_DISABLED", "FOUNDATION", "CALIBRATION", "CLOCK",
+                     "EXPIRED")
+ORIGIN_FAULT_SITES = {"0": "none", "1": "ADMISSION", "2": "BEGIN", "3": "BUILD",
+                      "4": "UNHEALTHY", "5": "BLACKOUT"}
+
+
+def decode_origin_stop(raw):
+    """The stop-cause page as named fields; None when the firmware predates it."""
+    fields = [value.strip().strip('"') for value in raw.split(",")]
+    # Firmware before the BEGIN refusal fields stops at stop_ticks.
+    if len(fields) not in (len(ORIGIN_STOP_FIELDS), len(ORIGIN_STOP_FIELDS) - 3) or             fields[0] != "ORIGINSTOP":
+        return None
+    record = dict(zip(ORIGIN_STOP_FIELDS, fields))
+    record["begin_check"] = decode_begin_reject(record.get("begin_reject", ""))
+    cause = int(record["cause"]) if record["cause"].isdigit() else 0
+    auth = int(record["auth_mask"]) if record["auth_mask"].isdigit() else 0
+    record["cause_names"] = [name for bit, name in ORIGIN_STOP_CAUSES if cause >> bit & 1]
+    record["auth_terms"] = [name for bit, name in enumerate(ORIGIN_AUTH_TERMS) if auth >> bit & 1]
+    record["fault_site_name"] = ORIGIN_FAULT_SITES.get(record["fault_site"], record["fault_site"])
+    return record
+
+
+def decode_begin_reject(raw):
+    """Name a TDMA_ORIGIN_REJECT_BEGIN code; '' when absent or zero."""
+    if not raw.isdigit() or int(raw) == 0:
+        return ""
+    code = int(raw)
+    reason, detail = code >> 16, code & 0xFFFF
+    if reason != ORIGIN_REJECT_BEGIN:
+        return f"reason {reason} detail {detail}"
+    if 1 <= detail <= len(ORIGIN_BEGIN_CHECKS):
+        return f"#{detail} {ORIGIN_BEGIN_CHECKS[detail - 1]}"
+    return ORIGIN_BEGIN_OWNER.get(detail, f"detail {detail:#x}")
+
+
+def origin_stop_probe(ctx, board, label):
+    """When the reference ring is found stopped, name the revoke branch once."""
+    raw = ctx.send(board, "READ:CALibration:ORIGin:STOP?")
+    record = decode_origin_stop(raw)
+    if record is None:
+        print(f"    origin stop page unavailable [{label}]: {raw[:60]}", flush=True)
+        return
+    if record["stop_count"] == getattr(ctx, "origin_stop_seen", None):
+        return
+    ctx.origin_stop_seen = record["stop_count"]
+    runtime = ctx.send(board, "READ:CALibration:ORIGin:RUNTIme?")
+    release = ctx.send(board, "READ:CALibration:ORIGin:RELease?")
+    ctx.log(f"  ORIGIN STOP [{label}]: cause {'+'.join(record['cause_names']) or 'none'}"
+            f" | failed auth terms {', '.join(record['auth_terms']) or 'none'}"
+            f" | first fault site {record['fault_site_name']}"
+            f" | comm state {record['comm_state']} last_error {record['comm_last_error']}"
+            f" | epoch trial {record['trial_epoch']} now {record['origin_epoch']}"
+            f" | config trial {record['trial_config_seq']} ring {record['ring_config_seq']}"
+            f" | release state {record['release_state']} | stops {record['stop_count']}"
+            + (f" | begin refused {record['begin_check']} observed {record['begin_observed']}"
+               f" expected {record['begin_expected']}" if record["begin_check"] else ""))
+    print(f"    origin runtime: {runtime[:160]}", flush=True)
+    print(f"    origin release: {release[:160]}", flush=True)
+    samples = getattr(ctx, "origin_stop_samples", [])
+    samples.append({"label": label, **record, "runtime": runtime, "release": release})
+    ctx.origin_stop_samples = samples
 
 
 def step(number):
@@ -1346,15 +1439,39 @@ def step_2_stopped_block(ctx, slot, board, uid):
 @step(3)
 def step_3_replay(ctx, slot, board, uid):
     ctx.fire(board, "CALibration:TOPology:PROBe 1,1")
-    ctx.fire(board, "SYSTem:TDMA:OPMode:STAGe 7")
-    ctx.fire(board, "SYSTem:TDMA:OPMode:APPLy")
-    print(f"  slot {slot} opmode {ctx.send(board, 'SYSTem:TDMA:OPMode?')[:44]}", flush=True)
+    # The applied level is the context the NVS calibration record is bound to, so read
+    # it back: a fire()d APPLy can be lost (measured: all four boards stayed at the
+    # DPLL60 adapter's level 0 / 2 nodes and the record never loaded).
+    # STAGe/APPLy are sent on the persistent session with the full query timeout: on
+    # a short-open port (fire) the board's reply arrives after the 0.6 s budget and
+    # the APPLy is dropped on the followers (measured: NO.2-NO.4 stayed at level 0
+    # after three fire() rounds, while the same commands through one session applied).
+    for attempt in range(3):
+        ctx.send(board, "SYSTem:TDMA:OPMode:STAGe 7")
+        ctx.send(board, "SYSTem:TDMA:OPMode:APPLy")
+        opmode = ctx.send(board, "SYSTem:TDMA:OPMode?")
+        if opmode.split(",")[0].strip() == "7":
+            break
+        time.sleep(0.5)
+    else:
+        ctx.failures.append(f"slot {slot} Step 3 OPMode level 7 not applied ({opmode[:44]})")
+    print(f"  slot {slot} opmode {opmode[:44]}", flush=True)
 
 
 @step(4)
 def step_4_topology(ctx, slot, board, uid):
-    ctx.fire(board, "SYSTem:TDMA:RING:GEOMetry 0")
-    ctx.fire(board, f"SYSTem:TDMA:RING:TOPology {len(ROWS)},{slot},0")
+    # Same as step 3: the topology is part of the identity the NVS calibration record
+    # binds to, so write it on the persistent session and verify the node count.
+    for attempt in range(3):
+        ctx.send(board, "SYSTem:TDMA:RING:GEOMetry 0")
+        ctx.send(board, f"SYSTem:TDMA:RING:TOPology {len(ROWS)},{slot},0")
+        config = ctx.send(board, "SYSTem:TDMA:RING:CONFig?").split(",")
+        if len(config) > 2 and config[1].strip() == str(len(ROWS)) and config[2].strip() == str(slot):
+            break
+        time.sleep(0.5)
+    else:
+        ctx.failures.append(f"slot {slot} Step 4 topology {len(ROWS)},{slot} not applied"
+                            f" ({','.join(config[:4])})")
     if not ctx.poll(board, "SYSTem:TDMA:RING:STATus?", 39, None, tries=24):
         # equality-only wait: a repeated topology does not advance the sequence
         for _ in range(24):
@@ -1385,6 +1502,17 @@ def step_6_provisional(ctx, slot, board, uid):
     to the staged ring config.
     """
     stage_raw = ctx.send(board, "READ:CALibration:TRAINing:STAGe?").replace('"', "")
+    if slot in getattr(ctx, "restore_pending_slots", set()):
+        # Step 0 saw a valid NVS record waiting for its context; steps 3-5 restored the
+        # topology/schedule/profile, so the CalibrationManager service loads it within
+        # a few service periods. Wait for that instead of judging the stale page.
+        for _poll in range(20):
+            if stage_complete(stage_raw):
+                print(f"  slot {slot} NVS calibration record loaded: {stage_raw[:48]}",
+                      flush=True)
+                break
+            time.sleep(0.25)
+            stage_raw = ctx.send(board, "READ:CALibration:TRAINing:STAGe?").replace('"', "")
     config_raw = ctx.send(board, "SYSTem:TDMA:RING:CONFig?")
     session = ctx.send(board, "SYSTem:VDC:FEEDback:SESSion?")
     reply = ctx.send(board, "SYSTem:SYNC:VDC:DPLL:PROVisional 1")
@@ -2332,6 +2460,7 @@ def step_20_sampling(ctx, slot, board, uid):
                 # pending check, threshold stage, resend/ack pass, whole call. They
                 # split segments[1] (RECEIVE) to show where a threshold slice spends.
                 freeze = [value.strip() for value in state[-4:]]
+                freeze += ["?"] * (4 - len(freeze))  # a <timeout> reply has one field
                 print(f"t+{2 * (tick + 1)}s freeze path max cycles: pending {freeze[0]}"
                       f" stage {freeze[1]} resend {freeze[2]} total {freeze[3]}"
                       f" | RECEIVE {state[T2_SEGMENTS[1]] if len(state) > T2_SEGMENTS[1] else '?'}",
@@ -2531,6 +2660,20 @@ def step_0_stage_repair(ctx, slot, board, uid):
         if ctx.stage_donor is None:
             ctx.stage_donor = (page.split(",")[1:], read_stage_links(ctx, board))
         return
+    # Boot restore is context-bound (calibration_manager.c, calibration_manager_service):
+    # an intact NVS record stays unloaded until TDMA holds the topology/schedule/profile
+    # it was made for, so EMPTY is expected after another flow (e.g. the DPLL60 capture
+    # adapter's 2-node level-0 bring-up) left a different ring identity. Step 3 replays
+    # that context; the board then loads its own record. Nothing to repair here.
+    persistence = ctx.send(board, "READ:CALibration:TRAINing:STAGe:PERSistence?")
+    fields = [value.strip().strip('"') for value in persistence.split(",")]
+    if (len(fields) >= 4 and fields[0] == "TRN03NVS" and fields[1] == "1"
+            and fields[3] == "1"):
+        print(f"  slot {slot} stage EMPTY but the NVS record is valid and restore-pending"
+              f" (generation {fields[8] if len(fields) > 8 else '?'}): it loads once step 3"
+              f" restores its TDMA context", flush=True)
+        ctx.restore_pending_slots = getattr(ctx, "restore_pending_slots", set()) | {slot}
+        return
     print(f"  slot {slot} calibration stage INCOMPLETE ({page[:32]}) - replaying",
           flush=True)
     if ctx.stage_donor is None:
@@ -2633,7 +2776,15 @@ def emit_flow_data(ctx, selection):
                    if record["status"] == "FAIL"],
         "log": ctx.log_path,
         "steps": steps,
+        # Reference ring stops by the origin lifetime path, with their latched cause.
+        "origin_stops": getattr(ctx, "origin_stop_samples", []),
     }
+    if payload["origin_stops"]:
+        # One file per run, so stop samples accumulate across runs for comparison.
+        stops_path = os.path.join(ctx.log_dir, f"origin-stops-{ctx.dep_gen}.json")
+        with open(stops_path, "w", encoding="utf-8") as handle:
+            json.dump(payload["origin_stops"], handle, ensure_ascii=False, indent=2)
+        ctx.log(f"origin stop samples: {stops_path}")
     json_path = os.path.join(ctx.log_dir, "t2_flow.json")
     js_path = os.path.join(ctx.log_dir, "t2_flow_data.js")
     with open(json_path, "w", encoding="utf-8") as handle:
