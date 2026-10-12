@@ -372,6 +372,23 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.15g 两处实施前必读的坑：**位口径混用**与**失效的行号锚点**（2026-10-13）
+
+**① 两套位口径并存（混用即错）**
+
+| 产出者 | 位口径 | 依据 |
+|---|---|---|
+| `t2_published_mask()`（切片 1，A.3.14） | **按扫描序号**（`1u << entry->absolute_index`） | 语义＝"该**位置**是否已宣告"，与消费者既有位口径一致 |
+| `window_advance()` 的 `new_position_mask` | **按 slot**（`announced_now |= 1u << slot`） | `trigger_turntable_predictor.h` 内（本轮实读） |
+
+⇒ 任何将来把两者放在一起的代码（例如"用 advance 的返回值更新发布掩码"）**必须先做换算**：`slot → entry->absolute_index`。当前切片 1 **没有**用 `advance` 的返回值（它自行遍历条目 ✓），所以尚无不一致；但这是**下一步最容易踩的坑**。
+
+**② 行号锚点已因本轮改动失效——今后记符号，不记行号**
+
+Round 95 向 `trigger_turntable_predictor.h` 插入了新构造器（约 40 行）⇒ A.3.15b/A.3.15d 中该头文件的行号（`window_position_angle_mdeg:291`、`window_find:472`、`window_position_count:298`）**整体下移** ✗。`trigger_t2_runtime.c` 的锚点不受影响（本轮未改该文件）✓。
+
+**规则**：文档中引用**符号名 + 所在文件**（必要时附"当时行号，仅供参考"），实施时用符号搜索定位；行号只在"与该文件同一提交内"才可靠。本会话已有多次因插入/删除导致锚点漂移（A.3.11/A.3.15/A.3.15b）。
+
 ### A.3.15f item ② 的低风险切片形态：**保留 legacy 下标，只把判定取值改为窗口**（2026-10-13）
 
 A.3.0/A.3.15 曾设想"把循环改为遍历窗口条目"。核对 `:1095-1114` 之后的循环体发现：**后续语句大量按 legacy 下标索引**（`preview_copy(index,…)`、`s_deadline_mailbox[index]`、`deadline_publish(index,…)`、以及 **@1139 的 `target_count[index]`**）⇒ 若把循环变量换成 slot，这些调用会**隐含地把 slot 当位置用**（当前台架扫描下偶然成立，361 扫描下立刻错）——正是本会话反复栽过的"隐式位置假设" ✗。
