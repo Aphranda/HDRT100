@@ -122,6 +122,11 @@ typedef struct {
 
 /* Core0 STOP/configuration owner.  The runtime service itself is bounded and
  * called from the realtime trigger phase after RefMem RX has been serviced. */
+/* Scan STEP in millidegrees, set for the NEXT run (STOP time only). Kept out of
+ * trigger_t2_runtime_config_t on purpose: that struct is partially initialised all over
+ * the tree and a new field breaks those initialisers under -Wextra -Werror. Until a
+ * caller sets a step the rolling window stays disabled and the run is unchanged. */
+bool trigger_t2_runtime_scan_step(int32_t step_mdeg);
 bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config);
 bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count);
 void trigger_t2_runtime_stop(void);

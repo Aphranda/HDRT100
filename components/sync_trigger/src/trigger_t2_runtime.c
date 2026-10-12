@@ -47,6 +47,18 @@ static struct {
     uint32_t deployment_generation;
 } s_config;
 static trigger_t2_runtime_snapshot_t s_state;
+
+/* Scan STEP for the next run; 0 keeps the rolling window disabled (see the header).
+ * Defined after s_state, which the STOP-only guard inspects. */
+static int32_t s_scan_step_mdeg;
+
+bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
+{
+    if (step_mdeg <= 0) return false;
+    if (s_state.active) return false;          /* STOP only: never re-shape a running scan */
+    s_scan_step_mdeg = step_mdeg;
+    return true;
+}
 /* Static templates never change in RUN. The first hardware executor has one
  * local template per position and one pending hardware transaction per board. */
 static trigger_action_template_t s_local_template;
@@ -735,6 +747,10 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
     s_state.run_id = s_config.run_id;
     for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++i)
         s_state.action_origin_width_ticks[i] = UINT32_MAX;
+    /* Enable the rolling window for this run when a scan step was configured.
+     * With no step the window stays inert and the legacy path runs unchanged. */
+    if (s_scan_step_mdeg)
+        trigger_turntable_window_configure(&s_state.predictor, s_scan_step_mdeg);
     const bool started =
         trigger_time_cursor_configure(&s_config.grid) &&
         trigger_turntable_predictor_configure(
