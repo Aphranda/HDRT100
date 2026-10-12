@@ -284,6 +284,13 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 （该切片已在本地形成并通过语法检查，但配套的台架凭证运行失败 ⇒ 按"不留未验证改动"的约定回退；重新实施时照抄上述代码并跑一次 `p3_hardware_acceptance.py run` 即可。）
 
+**两次尝试均构建失败（2026-10-13 00:00–00:07）**：把上面的切片套用后，`p3_hardware_acceptance.py run` 连续两次在**第 2 步构建**失败（`ninja: build stopped: subcommand failed`），因此未取得凭证、改动已回退。两处可疑点，按可能性排序：
+
+1. **启动路径的插入位置**：切片用"回退到上一个空行"的方式把 `if (s_scan_step_mdeg) window_configure(...)` 插到启动语句之前——若该语句跨多行且中间无空行，插入会**切断表达式**。重新实施时应改为"插在 `const bool started =` 这一行之前"，并以显式锚点（含缩进的整行）匹配。
+2. **setter 的相对位置**：首次尝试插在 `s_state` 声明之前 ⇒ 编译期 `s_state` 未声明（已定位并修正为"放在 `s_state` 声明之后"），但第二次尝试仍失败 ⇒ 说明问题**不止**这一处。
+
+**工具缺口（值得单独修）**：验收只在日志里报 `FAIL … step failed (…\tools\cmake_build_auto …)` + `ninja: build stopped`，**不含编译器的 `error:` 行**（stderr 被 ErrorRecord 包装吞掉）。构建错误本应一眼可见，实际却让定位多花了两轮。建议让 `p3_hardware_acceptance.py` 在构建失败时把子进程 stderr 原样透出（属 `tools/**` 改动，不触发 P3 门禁）。
+
 **同一步的配套**：`scan_validate` 的 fail-closed 校验也放在该 setter 内（或紧随其后），这样"非法扫描"在配置期就被拒，而不是等到 ARM 之后。
 
 #### A.4.1 第 1 步（加 STEP）的确切改动面
