@@ -53,6 +53,10 @@ static trigger_t2_runtime_snapshot_t s_state;
 static int32_t s_scan_step_mdeg;
 /* How many times start() actually took the window branch (A.3.6d). */
 static uint32_t s_window_branch_entered;
+/* Migration equivalence evidence (A.3.11): samples where the window's announced set
+ * differs from the legacy announced_mask, compared per scan ordinal. Valid while the
+ * scan's positions coincide with the three legacy slots (the current bench scan). */
+static uint32_t s_announce_mismatch_count;
 
 bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 {
@@ -740,7 +744,7 @@ void trigger_t2_runtime_scan_diagnostics(uint32_t *step_mdeg, uint32_t *branch_e
                                          uint32_t *scan_result, uint32_t *window_step_mdeg,
                                          uint32_t *positions, uint32_t *step_pulses,
                                          uint32_t *window_entered, uint32_t *window_announced,
-                                         uint32_t *window_overwrote)
+                                         uint32_t *window_overwrote, uint32_t *announce_mismatch)
 {
     if (step_mdeg) *step_mdeg = (uint32_t)s_scan_step_mdeg;
     if (branch_entered) *branch_entered = s_window_branch_entered;
@@ -753,6 +757,7 @@ void trigger_t2_runtime_scan_diagnostics(uint32_t *step_mdeg, uint32_t *branch_e
     if (window_entered) *window_entered = s_state.predictor.window_entered_count;
     if (window_announced) *window_announced = s_state.predictor.window_announced_count;
     if (window_overwrote) *window_overwrote = s_state.predictor.window_overwrote_unannounced_count;
+    if (announce_mismatch) *announce_mismatch = s_announce_mismatch_count;
 }
 
 bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
@@ -879,6 +884,19 @@ static T2_BOUNDED bool T2_HOT(service_origin)(void)
         uint32_t window_mask = 0u;
         (void)trigger_turntable_window_advance(&s_state.predictor,
                                                &s_config.predictor, count, &window_mask);
+        /* Behaviour-neutral equivalence counter: would a consumer that read the window
+         * announce exactly what the legacy mask announced? Compared per scan ordinal,
+         * which is only the legacy bit index while the scan's positions coincide with the
+         * three legacy slots (true for the current bench scan). */
+        for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot) {
+            const trigger_turntable_window_entry_t *entry = &s_state.predictor.window[slot];
+            if (!entry->valid) continue;
+            const uint32_t ordinal = entry->absolute_index;
+            const bool legacy_announced =
+                ordinal < TRIGGER_T2_RUNTIME_POSITION_COUNT &&
+                (s_state.predictor.announced_mask & (1u << ordinal)) != 0u;
+            if (legacy_announced != entry->announced) s_announce_mismatch_count++;
+        }
     }
     __atomic_store_n(&s_threshold_public, s_state.predictor.announced_mask,
                      __ATOMIC_RELEASE);

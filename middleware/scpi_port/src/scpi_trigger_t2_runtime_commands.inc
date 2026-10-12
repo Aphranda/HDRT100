@@ -283,9 +283,11 @@ scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context)
     uint32_t step_mdeg = 0u, branch_entered = 0u, scan_result = 0u;
     uint32_t window_step_mdeg = 0u, positions = 0u, step_pulses = 0u;
     uint32_t window_entered = 0u, window_announced = 0u, window_overwrote = 0u;
+    uint32_t announce_mismatch = 0u;
     trigger_t2_runtime_scan_diagnostics(&step_mdeg, &branch_entered, &scan_result,
                                         &window_step_mdeg, &positions, &step_pulses,
-                                        &window_entered, &window_announced, &window_overwrote);
+                                        &window_entered, &window_announced, &window_overwrote,
+                                        &announce_mismatch);
     SCPI_ResultUInt32(context, step_mdeg);
     SCPI_ResultUInt32(context, branch_entered);
     SCPI_ResultUInt32(context, scan_result);
@@ -295,6 +297,7 @@ scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context)
     SCPI_ResultUInt32(context, window_entered);
     SCPI_ResultUInt32(context, window_announced);
     SCPI_ResultUInt32(context, window_overwrote);
+    SCPI_ResultUInt32(context, announce_mismatch);
     return SCPI_RES_OK;
 }
 

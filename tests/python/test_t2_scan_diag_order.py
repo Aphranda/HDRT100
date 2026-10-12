@@ -41,6 +41,7 @@ FIELDS = (
     "window_entered",
     "window_announced",
     "window_overwrote",
+    "announce_mismatch",
 )
 
 
