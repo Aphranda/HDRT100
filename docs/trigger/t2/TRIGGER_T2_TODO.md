@@ -242,6 +242,26 @@ config.predictor=(trigger_turntable_predictor_config_t){
 | 3 | 处理器内调用 `trigger_turntable_scan_validate()`，**拒绝即 SCPI 错误** | fail-closed；派生几何存起来供 `READ` 读回 |
 | 4 | 运行时启动路径把 `begin()` 换成 `window_configure(step)` + `window_begin_scan(...)` | 见 A.3 迁移清单；`observe_at_sync` 保留 |
 
+#### A.4.1 第 1 步（加 STEP）的确切改动面
+
+`scpi_cmd_trigger_t2_configure()` 现有参数（按解析顺序，`scpi_trigger_t2_runtime_commands.inc`）：
+
+```text
+run_id, source_slot, target_mask, origin, pre_roll, post_roll, threshold,
+start_angle_mdeg, zero_angle_mdeg, terminal_angle_mdeg        ← 10 个参数，无 STEP
+```
+
+台架工具侧共 **4 处**发送该命令，加参数必须同步（否则工具立即被拒）：
+
+| 文件 | 行 |
+|---|---|
+| `tools/sync_trigger/t2_workflow.py` | 214（配置打印）、520（T2 挂载）、1718（采样前配置） |
+| `tools/sync_trigger/t2_bench_probe.py` | 242 |
+
+现状（据此可核对改造前后差异）：台架发送 `…,0,14,{origin},5000,5000,950,5000,10000,15000`，即 **pre/post roll = 5000 毫度（5°）、阈值 950‰、位置 5°/10°/15°**，配合写死的 `pulses_per_degree=1000` ⇒ 三个位置对应 5000/10000/15000 脉冲——这正是台架日志里 `targets ['5000','10000','15000']` 的来源，也说明当前台架**只跑 3 个位置**（与 `TRIGGER_T2_RUNTIME_POSITION_COUNT = 3` 一致），而非 361。
+
+⇒ 第 1 步的验收：命令与 4 处工具同步后，`T2:CONFigure` 能带 STEP 下发，且 `READ` 侧读回 `scan_geometry.positions` 与扫描参数一致（0..360°@1° 时为 361）。
+
 转台模型族（`CONFigure:MODEl:TURNtable:{LOAD,TRIGger,MOTion}`）仍是**转速等运动参数**的落点（`MOTion <velocity>,<accel>` → `model_turntable_configure_motion()`），不是扫描几何的落点——先前把两者混为一谈是错的。
 
 ### A.5 已结案：所谓"漏宣告 / mask 上报少一位"（2026-10-12）
