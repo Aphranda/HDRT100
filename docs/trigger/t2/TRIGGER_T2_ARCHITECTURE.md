@@ -59,6 +59,21 @@ Last updated: 2026-10-12
 | K-5 | **T2 位置一帧发完，不分片**，作为一等席负载；DPLL/VDC 同步发布走特等席。**落地方式（2026-10-11 确认）**：T2 使用独立一等邮箱，与特等轮流占用 origin 快速路径的发布机会（当前比例 1:1，编译期常量）；一等邮箱是完整 process image，保留 VDC 核心字段与 ACK，既有 RefMem 区直接承载 T2 紧缩记录，**不再压缩同帧 VDC 字段占位来腾空间**。 |
 | K-6 | **每个位置运行多组序列与采样**（当前为 16 组）。16 组在位置开始前全部预装；执行端使用**包含两组的滑动窗口**：一组执行完，即用最新 DCO 解算并推入下一组，始终两组在途。 |
 
+### 2026-10-12 增补（长扫描口径）
+
+K-4 的"逐 STEP 位置"在 0..360°@1°（361 位置）下的**落地口径**，用户在 2026-10-12 确认；实现符号见 `components/sync_trigger/inc/trigger_turntable_predictor.h`，状态见 TODO：
+
+| # | 口径 |
+|---|---|
+| K-7 | **只预测下一到两个位置**（滚动窗口，`TRIGGER_TURNTABLE_WINDOW_MAX = 2`）。长扫描的 361 个位置**不进入常驻状态**，常驻的是 1～2 个在途位置。 |
+| K-8 | **位置目标是扫描绝对的**：目标计数由扫描原点 + 角度派生（`trigger_turntable_window_enter()` 用 `origin_count`），与"该位置何时进入窗口"无关。 |
+| K-9 | **行程 = [起始−5°, 终止+5°]**（`pre_roll_mdeg`/`post_roll_mdeg`）：预行程使**位置 0 可被预测**（此前无观测、无速率），后行程使**终止位置可验证**；两段 roll 必须是整数脉冲且 ≥ 1 个 STEP。位置网格仍为 起始..终止 by STEP。 |
+| K-10 | **冻结余量按位置周期均匀**：阈值 = 目标 − 一个 STEP 的 `threshold_per_mille`（当前 950/1000），因此扫描中每个位置被冻结的提前量一致。 |
+| K-11 | **超出 2 个位置的预测一律视为不准确**（速率是单样本估计 `pulses_per_sync_q16`，误差随跨度增长）：窗口外不产生 target/threshold/FREEZE 任何对外事实；窗口内位置若速率不可用则 fail-closed 并计数（`window_rate_stale_count`）。 |
+| K-12 | **线格式不变**：10 B 单帧（tag+4 bit `position_id`、16 bit 版本、32 bit `target_ms_index`、24 bit fine slice）。绝对位置由 `target_ms_index` + 扫描参数确定，`position_id` 只作在途实例编号，因此 361 位置无需加宽 id、无需两级身份。 |
+
+窗口自身可读回的健全性事实：`window_entered_count` / `window_announced_count`（每个进入的位置是否恰好宣告一次）/ `window_overwrote_unannounced_count`（是否出现"未宣告即被覆盖"）/ `window_late_entry_count` / `window_recomputed_count`。
+
 ## T2-SCOPE：主线和边界
 
 T2 将转台位置预测映射到共享 VDC 时间轴。NO1 使用 COUNTER 观察转台输入，其他板卡使用同一 VDC 基准在各自本地执行预先定义的动作。板卡角色由 deployment 绑定到 UID、TDMA slot 和本地 IO，不能由 NO 编号或编译期板号推断。

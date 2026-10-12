@@ -91,133 +91,66 @@ Last updated: 2026-10-12
 | T2-FREEZE-002 | 无预览位置判失败并继续 | IN PROGRESS | `stage_pending_freeze()` 遇 `preview_copy` 失败不再 `return true`：按位置记录一次（新增 `freeze_no_preview_mask` / `freeze_no_preview_count`，追加在 `T2?` 末尾可读回），并**继续检查其余 pending 位置**；pending 位保留，使迟到预览仍可冻结，窗口到期仍走既有 `freeze_abandoned_*` 证据。已实现 + 新增测试 `tests/python/test_t2_freeze_no_preview.py`（继续装填 / 全缺预览且每位置只计一次 / 健康基线不变 / 传输拒绝仍上报），与 `test_trigger_t2_freeze_abandon.py`、`test_t2_freeze_completion.py` 三件全通过；评审 A-13 的语义变更待独立复核确认后置 DONE |
 | T2-DOC-002 | 补记 09-27 run33/34 证据 | PENDING | 定位凭证原件后按事实补入进展日志；禁止据文件名、推断或转述填写数字（评审 D-02/D-14） |
 
-## T2-IDENT-001 容量测算（2026-10-12）
+## 2026-10-12 定稿（长扫描口径，用户裁决）
 
-代码事实（快照，非事实源；以符号为准）：
+本节取代此前零散追加的口径说明；与旧版"位置数与常驻容量同阶"的推导冲突时，以本节为准。架构侧对应 [T2-SEMANTICS K-7～K-12](TRIGGER_T2_ARCHITECTURE.md#2026-10-12-增补长扫描口径)。
 
-| 维度 | 现值 | 来源 |
+### 1. 目标扫描与行程
+
+- **目标扫描 = 0..360°，STEP = 1° ⇒ 361 个位置**（位置数 = ⌊(stop−start)/STEP⌋+1）。
+- **行程 = [起始−5°, 终止+5°]**：预行程使**位置 0 可被预测**，后行程使**终止位置可验证**（K-9）。0..360°@1°、100 pulses/° 时：网格 36000 脉冲、行程 37000 脉冲。
+
+### 2. 身份与容量（原 `T2-IDENT-001` 容量测算的结论）
+
+| 维度 | 结论 |
+|---|---|
+| 常驻位置 | **1～2 个在途位置**（`TRIGGER_T2_RUNTIME_POSITION_COUNT` = 3 继续作窗口用，**不放大到 361**） |
+| 线上身份 | **不加宽 4 bit `position_id`**：10 B 单帧已带 32 bit `target_ms_index`，配合扫描参数即可确定绝对位置；两级身份方案作废 |
+| 模板/组 | 每位置 **16 组** × 在途 1～2 ⇒ 常驻 16～32 组（现每位置 1 组 ⇒ `LOCAL_TEMPLATE_CAPACITY` 需 1 → 16） |
+| 冻结确认 | 32 bit 掩码足够（覆盖在途位置/槽位），无需 361 位分级确认 |
+| 361 的用处 | 仅用于**扫描派生与 STOP 期 fail-closed 校验** |
+
+（对照数据：4 bit id 只能表达 15 个位置，0..360° 在 4 bit 下的最小 STEP 是 25°；若将来要放弃 `target_ms_index` 绝对时间而改用纯 id 表达位置，则必须回到"加宽 id / 两级身份"方案。）
+
+### 3. 滚动窗口规则
+
+1. **只预测下一到两个位置**，窗口深度硬上限 **2**；`begin()` 不得枚举整段扫描。
+2. **位置目标/阈值在进入窗口时计算，且目标是扫描绝对的**（K-8）；阈值 = 目标 − 一个 STEP 的 950/1000（K-10）。
+3. **超出 2 个位置的预测不准确**：窗口外不产生任何对外事实。
+4. **速率过期即 fail-closed**（`window_time_ready()` 为假 ⇒ 判该位置时间不可用并计数），不得用旧速率外推补数。
+5. **迟到进入**（进入时计数已过目标）判定为**立即到期**（阈值夹紧到目标，保持 `threshold ≤ target`）并计数。
+
+### 4. 实现状态与判据
+
+| 能力 | 实现符号 | 测试 |
 |---|---|---|
-| 线上 `position_id` | **4 bit**，合法 `1..0x0F` ⇒ 一帧/一轮最多 **15 个位置** | `components/sync_trigger/inc/trigger_position_slice.h` 的 `TRIGGER_POSITION_SLICE_TAG_*` / `trigger_position_slice_valid()` |
-| 单帧记录 | 10 B（tag+id、版本 16 bit、`target_ms_index` 32 bit、fine slice 24 bit） | 同上 `TRIGGER_POSITION_SLICE_WIRE_SIZE` |
-| 运行时位置数组 | `TRIGGER_T2_RUNTIME_POSITION_COUNT` = **3** | `components/sync_trigger/inc/trigger_t2_runtime.h` |
-| 每位置模板组数 | `TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY` = **1**（目标 16 组） | 同上 |
-| 冻结确认位宽 | `freeze_ack_*_mask` / `freeze_complete_mask` / `freeze_abandoned_mask` = **uint32_t** | 同上 |
+| 滚动窗口（进窗、宣告、滚动、速率就绪） | `trigger_turntable_window_begin/enter/advance/time_ready/configure` | `tests/python/test_turntable_rolling_window.py` |
+| 扫描派生与 fail-closed 校验（六类拒绝 + rolls ≥ 1 STEP） | `trigger_turntable_scan_validate` | `tests/python/test_turntable_scan_geometry.py` |
+| 产品入口（校验 + 建窗合一；拒绝即不建窗、清空全部窗口事实） | `trigger_turntable_window_begin_scan` | 同上 |
+| 可读回健全性事实 | `window_entered_count` / `window_announced_count` / `window_overwrote_unannounced_count` / `window_late_entry_count` / `window_recomputed_count` / `window_rate_stale_count` | 滚动窗口测试 |
 
-扫描位置数与 4 bit 可容纳性（0..360°，位置数 = ⌊(stop−start)/STEP⌋+1）：
+**仍在待办**：① SCPI 接线（见下节）；② `trigger_t2_runtime.c` 消费者迁移（legacy 3 槽 → 窗口条目，并把上表计数读回）；③ 每位置 16 组与执行端窗口深度 2；④ 边界位置证据闭合。
 
-| STEP | 位置数 | 需 id 位 | 4 bit 可容纳 |
-|---|---|---|---|
-| 1° | 361 | 9 | 否 |
-| 2° | 181 | 8 | 否 |
-| 5° | 73 | 7 | 否 |
-| 10° | 37 | 6 | 否 |
-| 15° | 25 | 5 | 否 |
-| 24° | 16 | 5 | 否 |
-| 25° | 15 | 4 | 是 |
-| 30° | 13 | 4 | 是 |
-| 45° | 9 | 4 | 是 |
-| 90° | 5 | 3 | 是 |
+### 5. 实施约束（实测教训）
 
-结论与选项：
+- **不得往 `trigger_turntable_predictor_config_t` 等被部分初始化的结构体加字段**：`-Wextra -Werror` 下 partial initializer 会打断既有 harness 与调用方（实测 31 个测试报错）。STEP 因此存在 snapshot（`window_step_mdeg`，由 `trigger_turntable_window_configure()` 设置），纯函数显式接收形参。
 
-1. **在 4 bit 线上 id 不变的前提下，0..360° 扫描的最小 STEP 是 25°**（15 个位置）；1° 扫描（361 位置）需要 ≥9 bit id，或改用两级身份（槽位 + 滚动代次）。
-2. 运行时数组与模板容量按扫描上限放大：STEP 5°（73 位置）需要位置数组 ≥73、模板 ≥73×16=1168（按两组滑动窗口则 ≥146）；STEP 10°（37 位置）对应 592 / 74。现状 3 个位置、3 份模板。
-3. 冻结确认掩码 32 位：位置数 ≤32 可直接用位掩码；超过 32 必须随 id 方案一起改为分级/滚动确认位宽。
+### 接线落点（SCPI，2026-10-12 勘察）
 
-### 需求输入（2026-10-12：用户裁决）
+| 环节 | 落点 |
+|---|---|
+| 既有转台命令族 | `middleware/scpi_port/src/scpi_model_commands.c`：`CONFigure:MODEl:TURNtable:{LOAD,TRIGger,MOTion,STARt,STOP}` + `READ:...:{LOAD,TRIGger,MOTion,STATe}?`；转速已有入口 `MOTion <velocity>,<accel>` → `model_turntable_configure_motion()` |
+| 新增命令 | `CONFigure:MODEl:TURNtable:SCAN <start>,<stop>,<step>,<ppd>,<threshold_per_mille>,<pre_roll>,<post_roll>` + `READ:...:SCAN?`；处理器内调用 `trigger_turntable_scan_validate()`，**拒绝即返回 SCPI 错误**，派生几何存起来供读回 |
+| 建窗时机 | STOP 期调用 `trigger_turntable_window_begin_scan(...)`（不可用扫描不建窗 ⇒ 不可能启动） |
 
-**目标扫描 = 0..360°，STEP = 1° ⇒ 361 个位置**（含起止，位置数 = ⌊(360−0)/1⌋+1）。据此派生的定稿要求：
+### 已结案：所谓"漏宣告 / mask 上报少一位"（2026-10-12）
 
-| 维度 | 需求（361 位置） | 现值 | 结论 |
-|---|---|---|---|
-| 线上 `position_id` | ≥ **9 bit**（1..361） | 4 bit（≤15） | 4 bit 不可容纳 ⇒ 必须加宽，或改两级身份 |
-| **推荐方案：两级身份** | slot 位 + 滚动代次位，`2^(w+g) ≥ 361` | 无 | 最小组合 **slot 4 bit（16）+ 代次 5 bit（32）= 512** 覆盖 361；或 slot 5 + 代次 4（32×16=512） |
-| 常驻位置槽位 | **固定小窗口**（在途 = 当前位置 + 下一位置） | `TRIGGER_T2_RUNTIME_POSITION_COUNT` = 3 | 长扫描**不**应把 361 个位置全部常驻：改为固定 N 槽（建议 N=2..8）+ 绝对 id 单调校验 |
-| 模板/组常驻 | 每位置 16 组 × 滑动窗口 2 组 ⇒ **常驻 32 组** | 每位置 1 组（共 3） | `TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY` 需 16，且按窗口而非全扫描分配 |
-| 全程执行次数 | 361 × 16 = **5776** 组 | — | 设计目标是"滚动装填"，不是全量常驻 |
-| 冻结确认位宽 | 只需覆盖**在途槽位** | `freeze_ack_*_mask` / `freeze_complete_mask` 均 32 bit | 槽位方案下 32 bit 足够 ✓（无需 361 位分级确认） |
-| 位置周期 | 由转速 × `pulses_per_degree` 决定（`T2-SOURCE-001`） | `pulses_per_degree` 未接出、源无脉宽 | 1°/step 的时间预算必须与"每位置 16 组序列跨度"一起校验（`T2-STEP-001` 的 STEP 时间下限） |
+**结论：代码无缺陷，是测试记账错误**。`window_advance` 的宣告与上报都正确：状态 `entered=361 / announced=361 / overwrote_unannounced=0`，调用侧把 `announcements` 初值改为 `s.window_announced_count` 后同为 361。根因是测试在大循环处才把该计数置 0，而**第一次宣告发生在更早的 `advance(count=5)`**。
 
-派生动作（进入实现前需定稿）：① 定稿两级身份的位宽与线上编码（保持 10 B 单帧或显式扩帧）；② 把 `TRIGGER_T2_RUNTIME_POSITION_COUNT` 从"扫描位置数"改为"在途槽位数"；③ 由扫描参数派生位置数的计算进入 STOP 校验（fail-closed），并据此派生 FREEZE 确认与诊断的长度。
+保留的永久不变式：状态级 `announced == entered == 361` 且 `overwrote_unannounced == 0`；调用侧 `Σ popcount(mask) == 361`；全程 `threshold ≤ target` 且 `margin ∈ {95, 0}`。
 
-### 语义澄清（2026-10-12：用户裁决）——T2 只预测下一到两个位置
+留档教训（同一问题四次反复）：① 只有总数时不可下"丢失"结论（分不清"状态未宣告"与"上报未反映"）；② 状态内部事件不能用调用后的外部采样归因（宣告与移出在同一次调用内完成）；③ 诊断输出必须能让测试失败（pytest 只在失败时显示 stderr，"沉默"≠"相同"）；④ **计数类断言必须问"这个计数从哪里开始计"**。
 
-上表按"位置数与常驻容量同阶"推导，**该口径不成立**：T2 的运行语义是**只预测下一到两个位置**（滚动预测窗口），长扫描的 361 个位置不进入常驻状态。据此修正：
-
-| 维度 | 修正后的要求 | 说明 |
-|---|---|---|
-| 常驻位置 | **1～2 个在途位置**（现 `TRIGGER_T2_RUNTIME_POSITION_COUNT` = 3 可继续用作窗口，无需放大到 361） | 361 只是扫描全程的位置总数，不是常驻容量 |
-| 线上绝对身份 | **不需要加宽 4 bit id**：10 B 记录已带 32 bit `target_ms_index`（绝对目标计数）+ 16 bit `prediction_version` | 从板用本地扫描参数（起始/STEP/`pulses_per_degree`）+ `target_ms_index` 即可确定**绝对位置**；`position_id` 保持为**在途实例/槽位**编号即可 |
-| 线上编码 | **10 B 单帧格式不变** | 上表"推荐两级身份"是为"361 常驻"服务的，在此语义下**不需要** |
-| 模板常驻 | 每位置 **16 组** × 在途 1～2 个位置 ⇒ 常驻 **16～32 组** | 真正需要改的是 `LOCAL_TEMPLATE_CAPACITY`（1 → 16）与执行端滑动窗口深度 2 |
-| 冻结确认 | 32 bit 掩码足够（覆盖在途位置/槽位） | 不需要 361 位分级确认 |
-| 位置总数 361 的用处 | 仅用于**扫描参数派生与 STOP 期 fail-closed 校验**（STEP 网格、终止位置、`step_pulses` 整数性、序列时间跨度） | 对应 `T2-STEP-001` 与 `T2-TURNTABLE-009` |
-
-修正后的实现重点（取代上一条"派生动作"）：① `LOCAL_TEMPLATE_CAPACITY` 1 → 16、执行端深度 2 滑动窗口（`T2-SEQ-001`/`T2-EXEC-002`）；② 扫描参数（起始/终止/STEP/转速/`pulses_per_degree`/脉宽）参数化并做 STOP 校验（`T2-STEP-001`/`T2-SOURCE-001`）；③ 在途窗口内的身份与代次语义（`T2-IDENT-001`）按"1～2 个在途 + 绝对时间"定稿，**不动 10 B 线格式**。
-
-### 追加约束（2026-10-12：用户裁决）——预测必须随进度滚动，不得开头一次预测完
-
-**不得只走完扫描最前面的一小部分就把全部位置预测完**：预测窗口必须随实际计数/角度推进，进入窗口时才生成该位置的目标与阈值。
-
-代码现状（快照，非事实源；以符号为准）：`components/sync_trigger/inc/trigger_turntable_predictor.h`
-
-- 固定 3 槽：`target_count[3]` / `threshold_count[3]`，与 `trigger_turntable_position_id_t` 的 `START=1 / ZERO=2 / TERMINAL=3` 一一对应；
-- `trigger_turntable_predictor_begin()` 在起始即用 `origin_count + (angle − base_angle) × pulses_per_degree / 1000` **把全部 3 个目标计数与阈值一次算完**；
-- `trigger_turntable_predictor_observe()` 只在计数跨过 `threshold_count[i]` 时置 `announced_mask` 位。
-
-因此 0..360°@1°（361 位置）要落地的是：**把固定 3 槽改为滚动窗口（在途 1～2 个位置）**——每个位置的目标计数/阈值在**进入窗口时**由"当前计数 + 扫描参数"计算，跨阈值即按该位置 FREEZE 并推进窗口；`begin()` 只建立窗口首项，**不枚举整段扫描**。这条同时约束 `T2-TURNTABLE-002`（异步窗口预测）与 `T2-STEP-001`（扫描参数派生）的实现方式。
-
-### 精度边界（2026-10-12：用户裁决）——超出 2 个位置的预测一律视为不准确
-
-**窗口深度硬上限 = 2 个位置**；超出 2 个位置的预测不得作为依据（不得据此提前装填、宣告或下发）。
-
-依据（快照，非事实源）：`trigger_turntable_predictor_observe_at_sync()` 的速率估计是**单样本**估计——用相邻两次 VDC sync 之间的计数差一次性算出 `pulses_per_sync_q16`（源码注释亦明确"单样本、确定性、不引入无界滤波"），因此**外推误差随预测跨度线性增长**；跨度超过约两个 STEP 时间后，目标计数误差已不能支撑"阈值前冻结 + 从板按时间片执行"的要求。
-
-由此派生三条实现规则：
-
-1. **只在进入窗口时计算**：某位置的目标计数/阈值在它**进入滚动窗口**时用当时的 `last_count` + 最新速率重算；不得由 `begin()` 时的 origin 外推到整段扫描（现状 `begin()` 一次算完全部 3 槽，见上节）。
-2. **窗口外的位置不产生任何对外事实**：超过 2 个位置的 target/threshold/FREEZE 都不生成；线上在途记录数因此 ≤2（4 bit `position_id` 余量充足，10 B 单帧无需变更）。
-3. **速率过期即 withhold（fail-closed）**：窗口内位置若缺少足够新的 sync 观测（速率估计过期/`rate_valid=0`），应判定"该位置预测不可用"并按失败记录，而不是用旧速率外推补一个数。
-
-## T2-STEP-001 接线落点（2026-10-12 勘察）
-
-下一步（SCPI 接线）的确切落点，已核对代码：
-
-| 环节 | 落点 | 说明 |
-|---|---|---|
-| 现有转台命令面 | `middleware/scpi_port/src/scpi_model_commands.c`：`CONFigure:MODEl:TURNtable:{LOAD,TRIGger,MOTion,STARt,STOP}` 与 `READ:MODEl:TURNtable:{LOAD,TRIGger,MOTion,STATe}?`（声明见 `scpi_model_commands.h`） | 扫描参数应挂在这一族之下（转速已有入口：`MOTion <velocity_units_per_s>,<acceleration_units_per_s2>` → `model_turntable_configure_motion()`） |
-| 新增命令 | `CONFigure:MODEl:TURNtable:SCAN <start_mdeg>,<stop_mdeg>,<step_mdeg>,<pulses_per_degree>,<threshold_per_mille>,<pre_roll_mdeg>,<post_roll_mdeg>` + `READ:MODEl:TURNtable:SCAN?` 读回派生几何 | 处理器内构造 `trigger_turntable_predictor_config_t` + `step_mdeg`，调用 `trigger_turntable_scan_validate()`；**拒绝即返回 SCPI 错误**（fail-closed），并把 `scan_geometry` 存起来供读回 |
-| 配置存储 | 由 sync_trigger 域提供 setter/getter（模块静态或已有运行时状态），**不得往 `trigger_turntable_predictor_config_t` / `model_turntable_motion_config_t` 等被部分初始化的结构体加字段** | `-Wextra -Werror` 下 partial initializer 会直接把既有 harness 与调用方编译打断（本轮实测 31 个测试报错） |
-| 建窗时机 | STOP 期调用 `trigger_turntable_window_begin_scan(s, cfg, step, sequence_span_pulses, observed_count)` | 校验 + 建窗合一；不可用扫描**不建窗**，因此不可能启动 |
-| 行程 | 命令接受的是**位置网格**（起始..终止 by STEP）；行程 `[起始−5°, 终止+5°]` 由 `pre_roll_mdeg`/`post_roll_mdeg` 表达，校验要求其为整数脉冲且 ≥ 1 STEP | 见 `T2-STEP-001` 行 |
-
-## 已结案（2026-10-12）：所谓"漏宣告 / mask 上报少一位"是**测试记账错误**，代码无缺陷
-
-最终结论：`window_advance` 的宣告与上报都正确，361 个位置各宣告一次。
-
-### 证据链
-
-| 观测 | 值 | 说明 |
-|---|---|---|
-| 状态：`window_entered_count` | 361 | 全部进入 |
-| 状态：`window_announced_count` | 361 | 全部宣告（状态自身计数） |
-| 状态：`window_overwrote_unannounced_count` | 0 | 无"未宣告即被覆盖" |
-| 调用方：Σ popcount(mask) | 360 → **361** | 把 `announcements` 的初值改为 `s.window_announced_count` 后与状态一致 |
-
-**根因**：测试在大循环开始处才把 `announcements` 置 0，而**第一次宣告发生在更早的 `advance(count=5)` 调用**（宣告序号 0）⇒ 调用方总数天然少 1。**是测试记账漏了那次宣告，不是上报路径丢位。**
-
-### 保留的永久不变式
-
-- 状态级：`window_announced_count == window_entered_count == 361`、`window_overwrote_unannounced_count == 0`；
-- 调用侧：`Σ popcount(mask) == 361`（初值取状态计数，避免再次漏计已发生的事件）；
-- 每个有效条目 `threshold_count <= target_count` 且 `margin ∈ {95, 0}`。
-
-### 过程教训（三次反复的最终版）
-
-1. 首次结论"丢 FREEZE"**过强**（只有总数，无法区分状态与上报）；
-2. 测试侧逐序号位图归因**必然误报**（宣告与移出发生在同一次调用内，调用后采样看不到）；
-3. 一次"撤回"基于**无效实验**（stderr 在测试通过时不显示）；
-4. 最终定位靠**状态自身计数 + 对调用方记账初值的核对**——**计数类断言必须问"这个计数从哪里开始计"**。
 
 ## 实施顺序与停止条件
 
