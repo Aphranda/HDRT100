@@ -35,8 +35,63 @@ static trigger_turntable_predictor_config_t scan(void)
     return c;
 }
 
+/* Migration readiness: the rolling window must reproduce what the legacy
+ * START/ZERO/TERMINAL three-slot path computes for the same scan, otherwise
+ * deleting the legacy arrays would change behaviour. The comparison uses a scan
+ * whose STEP lands exactly on those three angles. */
+static void legacy_equivalence(void)
+{
+    trigger_turntable_predictor_config_t legacy = {0};
+    legacy.pulses_per_degree = 100u;
+    legacy.start_angle_mdeg = 0;
+    legacy.zero_angle_mdeg = 180000;
+    legacy.terminal_angle_mdeg = 360000;
+    legacy.pre_roll_mdeg = 5000u;
+    legacy.post_roll_mdeg = 5000u;
+    legacy.threshold_per_mille = 50u;
+
+    trigger_turntable_predictor_snapshot_t old_path = {0};
+    assert(trigger_turntable_predictor_begin(&old_path, &legacy, 7u, 0u));
+
+    trigger_turntable_predictor_snapshot_t new_path = {0};
+    new_path.active = 1u;
+    trigger_turntable_window_configure(&new_path, 180000);
+    assert(trigger_turntable_window_begin(&new_path, &legacy, 0u));
+    /* TARGETS are shared and must match exactly: both paths derive them from the
+     * scan origin (K-8). */
+    for (uint32_t k = 0u; k < TRIGGER_TURNTABLE_WINDOW_MAX; ++k) {
+        assert(new_path.window[k].absolute_index == k);
+        assert(new_path.window[k].target_count == old_path.target_count[k]);
+    }
+    /* THRESHOLDS deliberately do NOT match, and this test pins both sides so the
+     * migration is a decision rather than an accident:
+     *   - K-10 / architecture T2-PREDICT says the lead is a fraction of ONE STEP
+     *     (the rule that replaced the origin-distance rule on 2026-10-11), and the
+     *     window implements it: lead = 18000 * 950/1000 = 17100 pulses, which is
+     *     larger than the first target (500), so the position is due immediately;
+     *   - the legacy three-slot arrays still use the DISTANCE FROM ORIGIN
+     *     (lead = 475 on a 500-pulse target, leaving threshold 25).
+     * ⇒ the legacy path is not merely redundant, it is non-conformant, and deleting
+     *   it is a required part of the migration (docs/trigger/t2/TRIGGER_T2_TODO.md). */
+    /* First position: target 500, step lead 17100 => due immediately; the legacy
+     * origin lead is only 475, leaving threshold 25. */
+    assert(new_path.window[0].threshold_count == 0u);
+    assert(old_path.threshold_count[0] == 25u);
+    /* Second position: target 18500. The window freezes it at 18500-17100 = 1400;
+     * the legacy origin lead has grown to 17575, so it freezes EARLIER (925) - the
+     * distance-proportional behaviour K-10 replaced. */
+    assert(new_path.window[1].threshold_count == 1400u);
+    assert(old_path.threshold_count[1] == 925u);
+    assert(old_path.threshold_count[1] < new_path.window[1].threshold_count);
+    /* The terminal ordinal is entered later in a real scan; entering it directly
+     * must give the same TARGET the legacy array holds for it. */
+    assert(trigger_turntable_window_enter(&new_path, &legacy, 0u, 2u, 0u));
+    assert(new_path.window[0].target_count == old_path.target_count[2]);
+}
+
 int main(void)
 {
+    legacy_equivalence();
     const trigger_turntable_predictor_config_t c = scan();
     const int32_t step = 1000;                           /* 1 degree */
     assert(TRIGGER_TURNTABLE_WINDOW_MAX == 2u);          /* accuracy bound */

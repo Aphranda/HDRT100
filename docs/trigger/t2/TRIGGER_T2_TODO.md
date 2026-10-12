@@ -189,7 +189,18 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 
 - **不得往 `trigger_turntable_predictor_config_t` 等被部分初始化的结构体加字段**：`-Wextra -Werror` 下 partial initializer 会打断既有 harness 与调用方（实测 31 个测试报错）。STEP 因此存在 snapshot（`window_step_mdeg`，由 `trigger_turntable_window_configure()` 设置），纯函数显式接收形参。
 
-### A.2 接线落点（SCPI，2026-10-12 勘察）
+### A.2 迁移注意：legacy 三槽的 lead 已不符合 K-10
+
+等价性检查（`tests/python/test_turntable_rolling_window.py` 的 `legacy_equivalence()`）实测：同一扫描下**目标计数**两条路径一致，**阈值不一致**——
+
+| 路径 | lead 基准 | 结果（step=180°、ppd=100、500 脉冲的首目标） |
+|---|---|---|
+| 滚动窗口（符合 K-10 / `T2-PREDICT` 2026-10-11 口径） | **一个 STEP**（18000 脉冲 × 95% = 17100） | 阈值夹到 0（首位置立即到期）、1400（第二位置） |
+| legacy `begin()` 三槽 | **距 origin 的距离**（500 × 95% = 475；第二位置已膨胀到 18500 × 95% = 17575） | 阈值 25（首位置）、925（第二位置） |
+
+⇒ **legacy 路径不只是冗余，而是与已定稿口径不符**；消费者迁移时**必须**改为一步比例（不能"平移"旧值）。测试已把两侧数值同时钉住，删除 legacy 数组时该断言随之改为只校验窗口侧。
+
+### A.3 接线落点（SCPI，2026-10-12 勘察）
 
 | 环节 | 落点 |
 |---|---|
@@ -197,7 +208,7 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 | 新增命令 | `CONFigure:MODEl:TURNtable:SCAN <start>,<stop>,<step>,<ppd>,<threshold_per_mille>,<pre_roll>,<post_roll>` + `READ:...:SCAN?`；处理器内调用 `trigger_turntable_scan_validate()`，**拒绝即返回 SCPI 错误**，派生几何存起来供读回 |
 | 建窗时机 | STOP 期调用 `trigger_turntable_window_begin_scan(...)`（不可用扫描不建窗 ⇒ 不可能启动） |
 
-### A.3 已结案：所谓"漏宣告 / mask 上报少一位"（2026-10-12）
+### A.4 已结案：所谓"漏宣告 / mask 上报少一位"（2026-10-12）
 
 **结论：代码无缺陷，是测试记账错误**。`window_advance` 的宣告与上报都正确：状态 `entered=361 / announced=361 / overwrote_unannounced=0`，调用侧把 `announcements` 初值改为 `s.window_announced_count` 后同为 361。根因是测试在大循环处才把该计数置 0，而**第一次宣告发生在更早的 `advance(count=5)`**。
 
