@@ -455,6 +455,21 @@ static inline trigger_turntable_result_t trigger_turntable_window_advance(
     return s->last_error;
 }
 
+/* The entry for one position ordinal, or NULL when that ordinal is not in the
+ * window. Consumers work in ordinals (the scan's own numbering) and must not have
+ * to know which slot an entry currently occupies, so the slot layout stays private
+ * to this window and the migration off the legacy per-position arrays has one
+ * lookup instead of an index calculation per caller. */
+static inline const trigger_turntable_window_entry_t *trigger_turntable_window_find(
+    const trigger_turntable_predictor_snapshot_t *s, uint32_t absolute_index)
+{
+    if (!s) return NULL;
+    for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot)
+        if (s->window[slot].valid && s->window[slot].absolute_index == absolute_index)
+            return &s->window[slot];
+    return NULL;
+}
+
 /* The time prediction for a window entry needs a usable rate. Without one the
  * caller must treat the position's time as unknown instead of extrapolating:
  * beyond two positions the single-sample estimate is not accurate anyway. */

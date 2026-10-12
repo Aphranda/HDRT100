@@ -115,6 +115,13 @@ int main(void)
     assert(s.window[0].target_count == 100u && s.window[0].threshold_count == 5u);
     assert(s.window[1].target_count == 200u && s.window[1].threshold_count == 105u);
 
+    /* Ordinal lookup: consumers ask by the scan's own numbering and never need to
+     * know which slot holds the entry (nor that there are slots at all). */
+    assert(trigger_turntable_window_find(&s, 0u) == &s.window[0]);
+    assert(trigger_turntable_window_find(&s, 1u) == &s.window[1]);
+    assert(trigger_turntable_window_find(&s, 2u) == NULL);   /* not entered yet */
+    assert(trigger_turntable_window_find(&s, 4000u) == NULL);
+
     /* Not ready to time anything yet: no rate has been observed (fail-closed). */
     assert(!trigger_turntable_window_time_ready(&s));
 
