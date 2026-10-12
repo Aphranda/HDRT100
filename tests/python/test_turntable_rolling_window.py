@@ -29,7 +29,6 @@ static trigger_turntable_predictor_config_t scan(void)
     c.pulses_per_degree = 100u;
     c.start_angle_mdeg = 0;
     c.terminal_angle_mdeg = 360000;
-    c.step_mdeg = 1000;
     c.pre_roll_mdeg = 1000u;
     c.post_roll_mdeg = 1000u;
     c.threshold_per_mille = 50u;
@@ -39,14 +38,17 @@ static trigger_turntable_predictor_config_t scan(void)
 int main(void)
 {
     const trigger_turntable_predictor_config_t c = scan();
+    const int32_t step = 1000;                           /* 1 degree */
     assert(TRIGGER_TURNTABLE_WINDOW_MAX == 2u);          /* accuracy bound */
-    assert(trigger_turntable_window_position_count(&c) == 361u);
+    assert(trigger_turntable_window_position_count(&c, step) == 361u);
 
     /* begin() enters at most two positions out of 361: the rest of the scan is
      * NOT predicted up front. */
     trigger_turntable_predictor_snapshot_t s = {0};
     s.active = 1u;
     s.configured = 1u;
+    trigger_turntable_window_configure(&s, step);
+    assert(s.window_step_mdeg == 1000);
     assert(trigger_turntable_window_begin(&s, &c, 0u));
     assert(s.window_entered_count == 2u);
     assert(s.window_next_index == 2u);                   /* next ordinal to enter */

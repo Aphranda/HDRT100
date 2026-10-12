@@ -24,9 +24,6 @@ typedef struct {
     int32_t start_angle_mdeg, zero_angle_mdeg, terminal_angle_mdeg;
     uint32_t pre_roll_mdeg, post_roll_mdeg;
     uint32_t threshold_per_mille;
-    /* Scan step in millidegrees: required by the rolling window below, not by the
-     * legacy START/ZERO/TERMINAL path (so config_valid deliberately ignores it). */
-    int32_t step_mdeg;
 } trigger_turntable_predictor_config_t;
 
 /* Rolling prediction window (2026-10-12 decisions, see
@@ -63,6 +60,9 @@ typedef struct {
      * window_next_index + TRIGGER_TURNTABLE_WINDOW_MAX have ever been computed. */
     uint32_t window_next_index, window_entered_count, window_recomputed_count;
     uint32_t window_rate_stale_count;
+    /* Scan step in millidegrees. Kept here, not in the config, because a new
+     * config field breaks every partial initializer (-Werror -Wextra). */
+    int32_t window_step_mdeg;
     trigger_turntable_window_entry_t window[TRIGGER_TURNTABLE_WINDOW_MAX];
 } trigger_turntable_predictor_snapshot_t;
 
@@ -233,18 +233,26 @@ static inline bool trigger_turntable_predictor_build_descriptor(
  *     "time not ready" instead of extrapolating from a stale estimate.
  */
 static inline int32_t trigger_turntable_window_position_angle_mdeg(
-    const trigger_turntable_predictor_config_t *c, uint32_t absolute_index)
+    const trigger_turntable_predictor_config_t *c, int32_t step_mdeg,
+    uint32_t absolute_index)
 {
-    return c->start_angle_mdeg + (int32_t)absolute_index * c->step_mdeg;
+    return c->start_angle_mdeg + (int32_t)absolute_index * step_mdeg;
 }
 
 static inline uint32_t trigger_turntable_window_position_count(
-    const trigger_turntable_predictor_config_t *c)
+    const trigger_turntable_predictor_config_t *c, int32_t step_mdeg)
 {
-    if (!c || c->step_mdeg <= 0 || c->terminal_angle_mdeg < c->start_angle_mdeg)
+    if (!c || step_mdeg <= 0 || c->terminal_angle_mdeg < c->start_angle_mdeg)
         return 0u;
     return (uint32_t)((c->terminal_angle_mdeg - c->start_angle_mdeg) /
-                      c->step_mdeg) + 1u;
+                      step_mdeg) + 1u;
+}
+
+/* Set the scan step before beginning a window; 0 disables the window path. */
+static inline void trigger_turntable_window_configure(
+    trigger_turntable_predictor_snapshot_t *s, int32_t step_mdeg)
+{
+    if (s) s->window_step_mdeg = step_mdeg > 0 ? step_mdeg : 0;
 }
 
 /* Compute one window entry from the count observed NOW. Refuses (no fact) when
@@ -255,17 +263,18 @@ static inline bool trigger_turntable_window_enter(
     const trigger_turntable_predictor_config_t *c,
     uint32_t slot, uint32_t absolute_index, uint64_t observed_count)
 {
-    if (!s || !c || slot >= TRIGGER_TURNTABLE_WINDOW_MAX || !c->step_mdeg)
+    if (!s || !c || slot >= TRIGGER_TURNTABLE_WINDOW_MAX || !s->window_step_mdeg)
         return false;
-    const uint32_t positions = trigger_turntable_window_position_count(c);
+    const uint32_t positions =
+        trigger_turntable_window_position_count(c, s->window_step_mdeg);
     if (absolute_index >= positions) {
         s->window[slot] = (trigger_turntable_window_entry_t){0};
         return false;
     }
     const int64_t base_angle = (int64_t)c->start_angle_mdeg - c->pre_roll_mdeg;
     const int64_t delta_mdeg =
-        (int64_t)trigger_turntable_window_position_angle_mdeg(c, absolute_index) -
-        base_angle;
+        (int64_t)trigger_turntable_window_position_angle_mdeg(
+            c, s->window_step_mdeg, absolute_index) - base_angle;
     if (delta_mdeg < 0 ||
         (uint64_t)delta_mdeg > (UINT64_MAX - observed_count) / c->pulses_per_degree) {
         s->last_error = TRIGGER_TURNTABLE_OVERFLOW;
@@ -282,7 +291,8 @@ static inline bool trigger_turntable_window_enter(
     s->window[slot] = (trigger_turntable_window_entry_t){
         .valid = 1u,
         .absolute_index = absolute_index,
-        .angle_mdeg = trigger_turntable_window_position_angle_mdeg(c, absolute_index),
+        .angle_mdeg = trigger_turntable_window_position_angle_mdeg(
+            c, s->window_step_mdeg, absolute_index),
         .target_count = target,
         .threshold_count = target - (remaining * factor + 999u) / 1000u,
         .announced = 0u,
@@ -296,7 +306,7 @@ static inline bool trigger_turntable_window_begin(
     trigger_turntable_predictor_snapshot_t *s,
     const trigger_turntable_predictor_config_t *c, uint64_t observed_count)
 {
-    if (!s || !c || !c->step_mdeg) return false;
+    if (!s || !c || !s->window_step_mdeg) return false;
     s->window_next_index = 0u;
     s->window_entered_count = 0u;
     s->window_rate_stale_count = 0u;
@@ -320,7 +330,7 @@ static inline trigger_turntable_result_t trigger_turntable_window_advance(
     uint32_t *new_position_mask)
 {
     if (new_position_mask) *new_position_mask = 0u;
-    if (!s || !c || !s->active || !c->step_mdeg)
+    if (!s || !c || !s->active || !s->window_step_mdeg)
         return TRIGGER_TURNTABLE_NOT_ACTIVE;
     if (count < s->last_count) {
         s->last_error = TRIGGER_TURNTABLE_BACKWARD;
@@ -401,24 +411,24 @@ typedef struct {
  * make the groups overlap the next position, so it is refused. Pass 0 when the
  * caller has nothing to check yet. */
 static inline trigger_turntable_scan_result_t trigger_turntable_scan_validate(
-    const trigger_turntable_predictor_config_t *c, uint64_t sequence_span_pulses,
-    trigger_turntable_scan_geometry_t *out)
+    const trigger_turntable_predictor_config_t *c, int32_t step_mdeg,
+    uint64_t sequence_span_pulses, trigger_turntable_scan_geometry_t *out)
 {
     if (out) *out = (trigger_turntable_scan_geometry_t){0};
-    if (!c || !c->pulses_per_degree || c->step_mdeg <= 0)
+    if (!c || !c->pulses_per_degree || step_mdeg <= 0)
         return TRIGGER_TURNTABLE_SCAN_ARGUMENT;
     if (c->terminal_angle_mdeg < c->start_angle_mdeg)
         return TRIGGER_TURNTABLE_SCAN_BACKWARD;
     const int64_t span_mdeg =
         (int64_t)c->terminal_angle_mdeg - c->start_angle_mdeg;
-    if (span_mdeg % c->step_mdeg != 0)
+    if (span_mdeg % step_mdeg != 0)
         return TRIGGER_TURNTABLE_SCAN_STEP_NOT_DIVISIBLE;
-    const uint64_t positions = (uint64_t)(span_mdeg / c->step_mdeg) + 1u;
+    const uint64_t positions = (uint64_t)(span_mdeg / step_mdeg) + 1u;
     if (positions > TRIGGER_TURNTABLE_SCAN_POSITION_LIMIT)
         return TRIGGER_TURNTABLE_SCAN_TOO_MANY_POSITIONS;
     /* A STEP must be a whole number of counter pulses: a fractional one drifts
      * the whole grid away from the angle it claims to be at. */
-    const uint64_t step_product = (uint64_t)c->step_mdeg * c->pulses_per_degree;
+    const uint64_t step_product = (uint64_t)step_mdeg * c->pulses_per_degree;
     if (step_product % 1000u != 0u)
         return TRIGGER_TURNTABLE_SCAN_PULSES_NOT_INTEGER;
     const uint64_t step_pulses = step_product / 1000u;
