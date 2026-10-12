@@ -50,6 +50,19 @@ static const char g_project_build_id[] = "dev";
 #define PROJECT_CORE1_PHASE_TDMA_END_CYCLE 217500u
 #define PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES 212500u
 
+/* Lower bound for any TDMA window, including a run-time configured one: one
+ * maximum-length flight frame on the wire plus the software margin. A shorter
+ * window cannot carry the wire contract, so admission must reject it instead
+ * of silently truncating a frame. The byte count is the PIO header plus the
+ * short transport payload plus the flight tail; app_runtime.c statically
+ * asserts these two derived values against the real frame and clock symbols. */
+#define PROJECT_CORE1_TDMA_WIRE_MAX_BYTES 307u
+#define PROJECT_CORE1_TDMA_SPI_CYCLES_PER_BIT 25u
+#define PROJECT_CORE1_PHASE_TDMA_WCET_FLOOR_CYCLES \
+    (PROJECT_CORE1_TDMA_WIRE_MAX_BYTES * 8u * \
+         PROJECT_CORE1_TDMA_SPI_CYCLES_PER_BIT + \
+     PROJECT_CORE1_TDMA_SOFTWARE_MARGIN_CYCLES)
+
 #define PROJECT_CORE1_PHASE_VDC_START_CYCLE 217500u
 #define PROJECT_CORE1_PHASE_VDC_END_CYCLE 260500u
 #define PROJECT_CORE1_PHASE_VDC_WCET_CYCLES 42000u

@@ -400,6 +400,25 @@ int main(void)
     failed += expect_u32("feedback round trip remains readable",
                          snapshot.feedback_round_trip_ns,
                          500u);
+    /* A newer TX may complete while the last correlated RX is retained.
+     * Retention must publish the original pair and its timestamp provenance. */
+    adapter.status.reference_tx_timestamp_ns = 2000000ull;
+    adapter.status.timestamp_resolution_ns = 1000u;
+    adapter.status.timestamp_flags = TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    tdma_ring_runtime_service(&runtime);
+    (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
+    failed += expect_bool("retained hardware pair remains coherent",
+        snapshot.simultaneous_feedback_loop_evidence == 1u &&
+        snapshot.reference_tx_timestamp_ns == 1000000ull &&
+        snapshot.feedback_rx_timestamp_ns == 1000500ull &&
+        snapshot.feedback_rx_timestamp_ns - snapshot.reference_tx_timestamp_ns ==
+            snapshot.feedback_round_trip_ns &&
+        snapshot.timestamp_resolution_ns == 100u &&
+        snapshot.timestamp_flags == TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED,
+        true);
+    adapter.status.reference_tx_timestamp_ns = 1000000ull;
+    adapter.status.timestamp_resolution_ns = 100u;
+    adapter.status.timestamp_flags = TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED;
     for (uint32_t service = 0u; service < 11u; service++) {
         tdma_ring_runtime_service(&runtime);
     }
@@ -425,6 +444,25 @@ int main(void)
     failed += expect_u32("idle rx evidence",
                          snapshot.idle_beacon_rx_count,
                          2u);
+
+    /* A new RX invalidates retention immediately if its pair is bad. */
+    adapter.status.up_tx_sequence = adapter.status.down_rx_sequence = 20u;
+    adapter.status.feedback_reference_sequence = 20u;
+    tdma_ring_runtime_service(&runtime);
+    (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
+    failed += expect_u32("fresh valid pair accepted before bad RX",
+                         snapshot.simultaneous_feedback_loop_evidence, 1u);
+    adapter.status.down_rx_sequence = adapter.status.feedback_reference_sequence = 21u;
+    adapter.status.reference_tx_timestamp_ns = 2000000ull;
+    tdma_ring_runtime_service(&runtime);
+    (void)tdma_ring_runtime_get_snapshot(&runtime, &snapshot);
+    failed += expect_u32("new reversed pair cannot borrow old evidence",
+                         snapshot.simultaneous_feedback_loop_evidence, 0u);
+    failed += expect_u32("new reversed pair reason",
+                         snapshot.last_reason, TDMA_RING_RUNTIME_REASON_TIMESTAMP_MISSING);
+    failed += expect_u32("new reversed pair clears retained RTT",
+                         snapshot.feedback_round_trip_ns, 0u);
+    adapter.status.reference_tx_timestamp_ns = 1000000ull;
 
     adapter.status.feedback_rx_timestamp_ns = 1020000ull;
     adapter.status.up_tx_sequence = 9u;

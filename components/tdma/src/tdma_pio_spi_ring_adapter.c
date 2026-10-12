@@ -3031,10 +3031,10 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
                         completed_timestamp_ns;
                     adapter->reference_tx_evidence[evidence_index].valid =
                         completed_timestamp_ns != 0ull;
-                    if (completed_timestamp_ns != 0ull) {
-                        adapter->reference_tx_timestamp_ns =
-                            completed_timestamp_ns;
-                    }
+                    /* Public feedback timestamps belong to the last RX
+                     * sequence/CRC correlation. A later TX completion only
+                     * updates its own history; it cannot replace half of
+                     * that already published pair. */
                     tdma_pio_spi_ring_adapter_bind_reference_local_tx_edge(
                         adapter,
                         adapter->pending_tx_evidence_sequence,

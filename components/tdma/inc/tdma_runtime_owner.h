@@ -168,5 +168,27 @@ void tdma_runtime_owner_p3_stop_core1(void);
 void tdma_runtime_owner_p3_service_core1(void);
 bool tdma_runtime_owner_get_p3_snapshot(
     tdma_pio_spi_p3_snapshot_t *snapshot);
+bool tdma_runtime_owner_get_p3_endpoint_snapshot(
+    uint32_t endpoint, tdma_pio_spi_p3_snapshot_t *snapshot);
+bool tdma_runtime_owner_get_marker_loopback_snapshot(
+    tdma_pio_spi_marker_loopback_snapshot_t *snapshot);
+bool tdma_runtime_owner_copy_marker_loopback_capture(
+    uint32_t epoch, uint32_t offset, uint32_t count, uint32_t generation,
+    uint32_t *words, uint32_t *total);
+bool tdma_runtime_owner_get_sck_loopback_snapshot(tdma_pio_spi_marker_loopback_snapshot_t *snapshot);
+bool tdma_runtime_owner_get_rxphase_snapshot(tdma_pio_spi_rxphase_snapshot_t *snapshot);
+bool tdma_runtime_owner_get_data_loop_snapshot(tdma_pio_spi_data_loop_snapshot_t *snapshot);
+bool tdma_runtime_owner_copy_data_loop_capture(uint32_t epoch,uint32_t kind,uint32_t offset,
+    uint32_t count,uint32_t generation,uint32_t *words,uint32_t *total);
+bool tdma_runtime_owner_get_mark_rxphase_snapshot(tdma_pio_spi_rxphase_snapshot_t *snapshot);
+bool tdma_runtime_owner_copy_mark_rxphase_capture(
+    uint32_t epoch, uint32_t offset, uint32_t count, uint32_t generation,
+    uint32_t *words, uint32_t *total);
+bool tdma_runtime_owner_copy_rxphase_capture(
+    uint32_t epoch, uint32_t offset, uint32_t count, uint32_t generation,
+    uint32_t *words, uint32_t *total);
+bool tdma_runtime_owner_copy_sck_loopback_capture(
+    uint32_t epoch, uint32_t offset, uint32_t count, uint32_t generation,
+    uint32_t *words, uint32_t *total);
 
 #endif

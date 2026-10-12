@@ -41,6 +41,12 @@
 #define s_tdma_pio_spi_sck_train_trigger_offset (*manager->sck_train_trigger_offset)
 #define s_tdma_pio_spi_sck_train_source_offset (*manager->sck_train_source_offset)
 #define s_tdma_pio_spi_sck_train_sink_offset (*manager->sck_train_sink_offset)
+#define s_tdma_pio_spi_sck_loopback_origin_offset (*manager->sck_loopback_origin_offset)
+#define s_tdma_pio_spi_sck_loopback_forward_offset (*manager->sck_loopback_forward_offset)
+#define s_tdma_pio_spi_rxphase_origin_offset (*manager->rxphase_origin_offset)
+#define s_tdma_pio_spi_rxphase_sink_offset (*manager->rxphase_sink_offset)
+#define s_tdma_pio_spi_mark_rxphase_origin_offset (*manager->mark_rxphase_origin_offset)
+#define s_tdma_pio_spi_mark_rxphase_sink_offset (*manager->mark_rxphase_sink_offset)
 #define s_tdma_pio_spi_cal_tx_offset (*manager->cal_tx_offset)
 #define s_tdma_pio_spi_cal_capture_offset (*manager->cal_capture_offset)
 #define s_tdma_pio_spi_p3_initiator_offset (*manager->p3_initiator_offset)
@@ -367,6 +373,13 @@ void tdma_pio_spi_programs_release_resources(
 {
     if (manager == NULL || phys == NULL ||
         manager->maintenance_resources_claimed == NULL) {
+        return;
+    }
+    /* The four-DMA diagnostic retains its maintenance lease until its own
+     * bounded abort/unload sequence has published terminal state. */
+    if (phys->p3.role == TDMA_PIO_SPI_P3_ROLE_DATA_LOOPBACK &&
+        phys->p3_transition != TDMA_PIO_SPI_P3_TRANSITION_IDLE) {
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY;
         return;
     }
     if (tdma_pio_spi_programs_is_flight_persona(persona)) {
@@ -983,6 +996,13 @@ static bool tdma_pio_spi_phys_load_programs(
         return tdma_pio_spi_phys_load_coarse_programs(manager);
     case TDMA_PIO_SPI_PROGRAM_PERSONA_CAL_LOOPBACK:
         return tdma_pio_spi_phys_load_cal_loopback_programs(manager);
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_MARKER_LOOPBACK:
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_SCK_LOOPBACK:
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_SCK_RXPHASE:
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_MARK_RXPHASE:
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_DATA_LOOPBACK:
+        /* Only the bounded P3 owner loads this diagnostic persona. */
+        return false;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_P3_REFERENCE:
         return tdma_pio_spi_phys_load_p3_reference_programs(manager);
     case TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_CODED:
@@ -1018,6 +1038,29 @@ static void tdma_pio_spi_phys_unload_programs(
     tdma_pio_spi_program_manager_t *manager)
 {
     switch (s_tdma_pio_spi_program_persona) {
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_MARK_RXPHASE:
+        pio_remove_program(BOARD_TDMA_SPI_PIO, &tdma_pio_spi_mark_rxphase_sink_program,
+                           s_tdma_pio_spi_mark_rxphase_sink_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO, &tdma_pio_spi_mark_rxphase_origin_program,
+                           s_tdma_pio_spi_mark_rxphase_origin_offset);
+        break;
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_SCK_RXPHASE:
+        pio_remove_program(BOARD_TDMA_SPI_PIO, &tdma_pio_spi_sck_train_sink_program,
+                           s_tdma_pio_spi_rxphase_sink_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO, &tdma_pio_spi_sck_loopback_origin_program,
+                           s_tdma_pio_spi_rxphase_origin_offset);
+        break;
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_SCK_LOOPBACK:
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_cal_loopback_capture_program,
+                           s_tdma_pio_spi_p3_capture_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_sck_loopback_forward_program,
+                           s_tdma_pio_spi_sck_loopback_forward_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_sck_loopback_origin_program,
+                           s_tdma_pio_spi_sck_loopback_origin_offset);
+        break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL:
         pio_remove_program(BOARD_TDMA_SPI_PIO,
                            &tdma_pio_spi_rx_byte_program,
@@ -1044,6 +1087,17 @@ static void tdma_pio_spi_phys_unload_programs(
         pio_remove_program(BOARD_TDMA_SPI_PIO,
                            &tdma_pio_spi_cal_loopback_tx_program,
                            s_tdma_pio_spi_cal_tx_offset);
+        break;
+    case TDMA_PIO_SPI_PROGRAM_PERSONA_MARKER_LOOPBACK:
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_cal_loopback_capture_program,
+                           s_tdma_pio_spi_p3_capture_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_marker_forward_program,
+                           s_tdma_pio_spi_p3_responder_offset);
+        pio_remove_program(BOARD_TDMA_SPI_PIO,
+                           &tdma_pio_spi_marker_origin_program,
+                           s_tdma_pio_spi_p3_initiator_offset);
         break;
     case TDMA_PIO_SPI_PROGRAM_PERSONA_P3_REFERENCE:
         pio_remove_program(BOARD_TDMA_SPI_PIO,
@@ -1249,6 +1303,8 @@ static bool tdma_pio_spi_programs_current_persona_quiesced(
         manager->maintenance_resources_claimed == NULL) {
         return false;
     }
+    if (phys->p3.role == TDMA_PIO_SPI_P3_ROLE_DATA_LOOPBACK &&
+        phys->p3_transition != TDMA_PIO_SPI_P3_TRANSITION_IDLE) return false;
     const tdma_pio_spi_program_persona_t current =
         *manager->program_persona;
     if (tdma_pio_spi_programs_is_flight_persona(current) &&

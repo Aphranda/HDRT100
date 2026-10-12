@@ -74,6 +74,27 @@ scpi_result_t scpi_calibration_path_candidate_link_q(scpi_t *context);
 scpi_result_t scpi_calibration_path_active_q(scpi_t *context);
 scpi_result_t scpi_calibration_path_rollback_q(scpi_t *context);
 scpi_result_t scpi_calibration_p3_start(scpi_t *context);
+scpi_result_t scpi_calibration_marker_loopback_start(scpi_t *context);
+scpi_result_t scpi_calibration_marker_loopback_q(scpi_t *context);
+scpi_result_t scpi_calibration_marker_loopback_data_q(scpi_t *context);
+scpi_result_t scpi_calibration_marker_loopback_stop(scpi_t *context);
+scpi_result_t scpi_calibration_sck_loopback_start(scpi_t *context);
+scpi_result_t scpi_calibration_sck_loopback_q(scpi_t *context);
+scpi_result_t scpi_calibration_sck_loopback_data_q(scpi_t *context);
+scpi_result_t scpi_calibration_sck_loopback_stop(scpi_t *context);
+scpi_result_t scpi_calibration_rxphase_start(scpi_t *context);
+scpi_result_t scpi_calibration_rxphase_stop(scpi_t *context);
+scpi_result_t scpi_calibration_rxphase_q(scpi_t *context);
+scpi_result_t scpi_calibration_rxphase_data_q(scpi_t *context);
+scpi_result_t scpi_calibration_rxphase_config_q(scpi_t *context);
+scpi_result_t scpi_calibration_mark_rxphase_start(scpi_t *context);
+scpi_result_t scpi_calibration_mark_rxphase_stop(scpi_t *context);
+scpi_result_t scpi_calibration_mark_rxphase_q(scpi_t *context);
+scpi_result_t scpi_calibration_mark_rxphase_data_q(scpi_t *context);
+scpi_result_t scpi_calibration_data_loop_start(scpi_t *context);
+scpi_result_t scpi_calibration_data_loop_stop(scpi_t *context);
+scpi_result_t scpi_calibration_data_loop_q(scpi_t *context);
+scpi_result_t scpi_calibration_data_loop_data_q(scpi_t *context);
 scpi_result_t scpi_calibration_p3_stop(scpi_t *context);
 scpi_result_t scpi_calibration_p3_q(scpi_t *context);
 scpi_result_t scpi_calibration_sma_cable_phase_q(scpi_t *context);
@@ -148,6 +169,29 @@ scpi_result_t scpi_calibration_sma_cable_rtt_responder_q(scpi_t *context);
     {.pattern = "READ:CALibration:PATH:ACTive?", .callback = scpi_calibration_path_active_q}, \
     {.pattern = "READ:CALibration:PATH:ROLLback?", .callback = scpi_calibration_path_rollback_q}, \
     {.pattern = "CALibration:P3:STARt", .callback = scpi_calibration_p3_start}, \
+    {.pattern = "CALibration:MARKer:LOOPback:STARt", .callback = scpi_calibration_marker_loopback_start}, \
+    {.pattern = "CALibration:MARKer:LOOPback:STOP", .callback = scpi_calibration_marker_loopback_stop}, \
+    {.pattern = "READ:CALibration:MARKer:LOOPback?", .callback = scpi_calibration_marker_loopback_q}, \
+    {.pattern = "READ:CALibration:MARKer:LOOPback:DATA?", .callback = scpi_calibration_marker_loopback_data_q}, \
+    {.pattern = "CALibration:SCK:LOOPback:STARt", .callback = scpi_calibration_sck_loopback_start}, \
+    {.pattern = "CALibration:SCK:LOOPback:STOP", .callback = scpi_calibration_sck_loopback_stop}, \
+    {.pattern = "READ:CALibration:SCK:LOOPback?", .callback = scpi_calibration_sck_loopback_q}, \
+    {.pattern = "READ:CALibration:SCK:LOOPback:DATA?", .callback = scpi_calibration_sck_loopback_data_q}, \
+    {.pattern = "CALibration:SCK:RXPHASE:STARt", .callback = scpi_calibration_rxphase_start}, \
+    {.pattern = "CALibration:MARKer:RXPHASE:STARt", .callback = scpi_calibration_mark_rxphase_start}, \
+    {.pattern = "CALibration:DATA:LOOP:STARt", .callback = scpi_calibration_data_loop_start}, \
+    {.pattern = "CALibration:DATA:LOOP:STOP", .callback = scpi_calibration_data_loop_stop}, \
+    {.pattern = "READ:CALibration:DATA:LOOP?", .callback = scpi_calibration_data_loop_q}, \
+    {.pattern = "READ:CALibration:DATA:LOOP:DATA?", .callback = scpi_calibration_data_loop_data_q}, \
+    {.pattern = "READ:CALibration:DATA:LOOP:CONFig?", .callback = scpi_calibration_rxphase_config_q}, \
+    {.pattern = "CALibration:MARKer:RXPHASE:STOP", .callback = scpi_calibration_mark_rxphase_stop}, \
+    {.pattern = "READ:CALibration:MARKer:RXPHASE?", .callback = scpi_calibration_mark_rxphase_q}, \
+    {.pattern = "READ:CALibration:MARKer:RXPHASE:DATA?", .callback = scpi_calibration_mark_rxphase_data_q}, \
+    {.pattern = "READ:CALibration:MARKer:RXPHASE:CONFig?", .callback = scpi_calibration_rxphase_config_q}, \
+    {.pattern = "CALibration:SCK:RXPHASE:STOP", .callback = scpi_calibration_rxphase_stop}, \
+    {.pattern = "READ:CALibration:SCK:RXPHASE?", .callback = scpi_calibration_rxphase_q}, \
+    {.pattern = "READ:CALibration:SCK:RXPHASE:DATA?", .callback = scpi_calibration_rxphase_data_q}, \
+    {.pattern = "READ:CALibration:SCK:RXPHASE:CONFig?", .callback = scpi_calibration_rxphase_config_q}, \
     {.pattern = "CALibration:P3:STOP", .callback = scpi_calibration_p3_stop}, \
     {.pattern = "READ:CALibration:P3?", .callback = scpi_calibration_p3_q}, \
     {.pattern = "READ:CALibration:SMA:CABLe:PHASe?", .callback = scpi_calibration_sma_cable_phase_q}, \

@@ -79,6 +79,12 @@ static uint s_tdma_pio_spi_data_train_sink_offset;
 static uint s_tdma_pio_spi_sck_train_trigger_offset;
 static uint s_tdma_pio_spi_sck_train_source_offset;
 static uint s_tdma_pio_spi_sck_train_sink_offset;
+static uint s_tdma_pio_spi_sck_loopback_origin_offset;
+static uint s_tdma_pio_spi_sck_loopback_forward_offset;
+static uint s_tdma_pio_spi_rxphase_origin_offset;
+static uint s_tdma_pio_spi_rxphase_sink_offset;
+static uint s_tdma_pio_spi_mark_rxphase_origin_offset;
+static uint s_tdma_pio_spi_mark_rxphase_sink_offset;
 static uint s_tdma_pio_spi_cal_tx_offset;
 static uint s_tdma_pio_spi_cal_capture_offset;
 static uint s_tdma_pio_spi_p3_initiator_offset;
@@ -98,6 +104,8 @@ static uint s_tdma_event_counter_offset;
 static uint s_tdma_event_sequence_offset;
 static uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS]
     __attribute__((aligned(4)));
+static uint32_t s_tdma_pio_spi_marker_loopback_capture[
+    TDMA_PIO_SPI_MARKER_LOOPBACK_CAPTURE_MAX_WORDS] __attribute__((aligned(4)));
 /* Calibration personas are mutually exclusive: the TDMA owner restores the
  * normal DATA/CS persona before accepting another request.  Keep one maximum
  * sized TX/RX workspace per direction instead of reserving coded, marker and
@@ -108,6 +116,10 @@ typedef union {
     uint32_t coded[TDMA_PIO_SPI_CODED_BUFFER_WORDS];
     uint32_t marker[TDMA_PIO_SPI_MARKER_BUFFER_WORDS];
     uint32_t data_train[TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS];
+    struct {
+        uint32_t marker[TDMA_PIO_SPI_MARKER_BUFFER_WORDS];
+        uint32_t data[TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS];
+    } data_loop;
 } tdma_pio_spi_cal_tx_workspace_t;
 
 typedef union {
@@ -157,6 +169,12 @@ static tdma_pio_spi_program_manager_t s_tdma_pio_spi_program_manager = {
     .sck_train_trigger_offset = &s_tdma_pio_spi_sck_train_trigger_offset,
     .sck_train_source_offset = &s_tdma_pio_spi_sck_train_source_offset,
     .sck_train_sink_offset = &s_tdma_pio_spi_sck_train_sink_offset,
+    .sck_loopback_origin_offset = &s_tdma_pio_spi_sck_loopback_origin_offset,
+    .sck_loopback_forward_offset = &s_tdma_pio_spi_sck_loopback_forward_offset,
+    .rxphase_origin_offset = &s_tdma_pio_spi_rxphase_origin_offset,
+    .rxphase_sink_offset = &s_tdma_pio_spi_rxphase_sink_offset,
+    .mark_rxphase_origin_offset = &s_tdma_pio_spi_mark_rxphase_origin_offset,
+    .mark_rxphase_sink_offset = &s_tdma_pio_spi_mark_rxphase_sink_offset,
     .cal_tx_offset = &s_tdma_pio_spi_cal_tx_offset,
     .cal_capture_offset = &s_tdma_pio_spi_cal_capture_offset,
     .p3_initiator_offset = &s_tdma_pio_spi_p3_initiator_offset,
@@ -1786,9 +1804,11 @@ static void tdma_pio_spi_phys_cal_cleanup(tdma_pio_spi_phys_t *phys)
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM, false);
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, false);
     pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM, false);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM, false);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
     pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM);
     tdma_pio_spi_phys_set_line_drivers(false);
     const uint32_t pins[] = {
         BOARD_TDMA_SPI_UPLINK_RX_PIN,
@@ -2776,7 +2796,11 @@ static bool tdma_pio_spi_phys_leave_flight_for_maintenance(tdma_pio_spi_phys_t *
 #include "tdma_pio_spi_phys_coded.inc"
 #include "tdma_pio_spi_phys_marker_restored.inc"
 #include "tdma_pio_spi_phys_data_train_restored.inc"
+static bool tdma_pio_spi_phys_data_loop_start(tdma_pio_spi_phys_t *phys, const tdma_pio_spi_p3_request_t *request);
+static void tdma_pio_spi_phys_data_loop_stop(tdma_pio_spi_phys_t *phys);
+static void tdma_pio_spi_phys_data_loop_service(tdma_pio_spi_phys_t *phys);
 #include "tdma_pio_spi_phys_p3.inc"
+#include "tdma_pio_spi_phys_data_loop.inc"
 bool tdma_pio_spi_phys_clk_train_terminal_core1(
     const tdma_pio_spi_phys_t *phys)
 {

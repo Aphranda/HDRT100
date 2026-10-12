@@ -19,6 +19,7 @@ typedef enum {
 } board_led_t;
 
 bool board_init(void);
+bool board_clock_init(void);
 void board_service(void);
 void board_led_set(board_led_t led, bool on);
 void board_led_toggle(board_led_t led);

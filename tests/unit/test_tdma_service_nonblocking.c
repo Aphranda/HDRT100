@@ -180,6 +180,14 @@ static bool rejected_configuration(void *context)
     return false;
 }
 
+static bool prepared_update(void *context)
+{
+    uint32_t token = 0u, generation = 0u;
+    assert(!tdma_service_claim_stopped_update_core1(&service, &token, &generation));
+    assert(!tdma_service_ring_stop(&service));
+    return stopped_configuration(context);
+}
+
 static bool bound_action(void)
 {
     ++tx_calls;
@@ -349,6 +357,34 @@ int main(int argc, char **argv)
         return 0;
     }
     if (strcmp(test, "stopped_update") == 0) {
+        assert(tdma_service_init(&service));
+        uint32_t prepare_calls = 0u;
+        uint32_t prepared_generation = 77u;
+        service.ring_runtime.data_enabled = 1u;
+        assert(!tdma_service_prepare_stopped_update(&service, 375000u,
+            prepared_update, &prepare_calls, &prepared_generation));
+        assert(prepare_calls == 0u && prepared_generation == 77u);
+        service.ring_runtime.data_enabled = 0u;
+        assert(!tdma_service_prepare_stopped_update(&service, 375000u,
+            rejected_configuration, &prepare_calls, &prepared_generation));
+        assert(prepare_calls == 1u && prepared_generation == 77u);
+        assert(service.stopped_update == 0u && service.ring_control_guard == 0u);
+        assert(tdma_service_prepare_stopped_update(&service, 375000u,
+            prepared_update, &prepare_calls, &prepared_generation));
+        assert(prepare_calls == 2u && prepared_generation == 1u);
+        assert(!tdma_service_prepare_stopped_update(&service, 375000u,
+            prepared_update, &prepare_calls, NULL));
+        assert(prepare_calls == 2u);
+        /* An accepted durable write must reach Core1 even if STOP arrives
+         * before claim. It must continue excluding ARM until completion. */
+        assert(tdma_service_ring_stop(&service));
+        assert(!tdma_service_ring_arm(&service));
+        uint32_t prepared_token = 0u, claimed_generation = 0u;
+        assert(tdma_service_claim_stopped_update_core1(&service,
+            &prepared_token, &claimed_generation));
+        assert(prepared_token == 375000u && claimed_generation == prepared_generation);
+        assert(tdma_service_finish_stopped_update_core1(&service,
+            prepared_token, claimed_generation));
         assert(tdma_service_init(&service));
         uint32_t token = 99u, generation = 99u, requested = 0u;
         bool applying = true;

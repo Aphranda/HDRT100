@@ -30,6 +30,16 @@ static const bool s_led_active_high[BOARD_LED_COUNT] = {
     BOARD_LED_FAULT_ACTIVE_HIGH != 0,
 };
 
+bool board_clock_init(void)
+{
+    if (clock_get_hz(clk_sys) == BOARD_SYS_CLOCK_HZ) {
+        return true;
+    }
+
+    return set_sys_clock_hz(BOARD_SYS_CLOCK_HZ, true) &&
+           clock_get_hz(clk_sys) == BOARD_SYS_CLOCK_HZ;
+}
+
 static bool board_init_leds(void)
 {
     for (uint32_t led = 0u; led < BOARD_LED_COUNT; led++) {
@@ -198,8 +208,9 @@ void board_prepare_sd_spi(void)
 
 bool board_init(void)
 {
-    /* Overclock before any peripheral init (USB stays 48 MHz) */
-    set_sys_clock_hz(BOARD_SYS_CLOCK_HZ, true);
+    if (!board_clock_init()) {
+        return false;
+    }
 
     diagnostics_init();
 

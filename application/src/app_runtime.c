@@ -1,4 +1,6 @@
 #include "app.h"
+#include "app_realtime_profile.h"
+#include "vdc_timestamp_clock.h"
 #include "app_runtime.h"
 #include "app_tasks.h"
 #include "board.h"
@@ -68,6 +70,14 @@ _Static_assert(BOARD_SYS_CLOCK_HZ % BOARD_TDMA_SPI_BAUD_HZ == 0u,
                "TDMA SPI bit time must be an integer clk_sys cycle count");
 _Static_assert(PROJECT_CORE1_PROFILE_15MS_CYCLES <= M33_SYST_RVR_RELOAD_BITS,
                "one core1 cycle must fit in the core-local SysTick counter");
+/* The run-time phase-table admission limits must track the same facts the
+ * dispatcher relies on: the counter width it measures with, and the wire budget
+ * that a configurable TDMA window cannot go below. */
+_Static_assert(APP_REALTIME_PROFILE_CYCLE_MAX_CYCLES == M33_SYST_RVR_RELOAD_BITS,
+               "profile cycle limit must equal the core-local counter width");
+_Static_assert(APP_REALTIME_PROFILE_DPLL_HEADROOM_CYCLES ==
+                   PROJECT_CORE1_DPLL_ENTRY_MARGIN_CYCLES,
+               "profile DPLL headroom must match the compiled entry margin");
 
 #define APP_REALTIME_ASSERT_PHASE(name, start, end, wcet) \
     _Static_assert((start) < (end), #name " phase must be non-empty"); \
@@ -125,6 +135,17 @@ _Static_assert(PROJECT_CORE1_REFMEM_VECTOR_MIRROR_REQUIRED_CYCLES <=
 #undef APP_REFMEM_VECTOR_MIRROR_ESTIMATED_CYCLES
 #undef APP_REFMEM_VECTOR_PAYLOAD_BYTES
 
+_Static_assert(APP_REALTIME_WIRE_MAX_CYCLES ==
+                   PROJECT_CORE1_TDMA_WIRE_MAX_BYTES * 8u *
+                       PROJECT_CORE1_TDMA_SPI_CYCLES_PER_BIT,
+               "project wire budget must match the real frame and SPI clock");
+_Static_assert(APP_REALTIME_SPI_CYCLES_PER_BIT ==
+                   PROJECT_CORE1_TDMA_SPI_CYCLES_PER_BIT,
+               "project SPI bit time must match the board clock and baud");
+_Static_assert(APP_REALTIME_WIRE_MAX_CYCLES +
+                       PROJECT_CORE1_TDMA_SOFTWARE_MARGIN_CYCLES ==
+                   PROJECT_CORE1_PHASE_TDMA_WCET_FLOOR_CYCLES,
+               "configurable TDMA floor must be the wire budget plus margin");
 _Static_assert(APP_REALTIME_WIRE_MAX_CYCLES <=
                    PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES,
                "maximum flight wire time must fit the TDMA phase WCET");
@@ -180,30 +201,29 @@ static void core1_realtime_entry(void)
     /* HAOFV realtime core discipline: core1 uses a cycle count as its timing
      * source of truth. Every round executes at a deterministic phase so the
      * TDMA/VDC window schedule (vdc_domain_plan_tdma_window) stays
-     * predictable; microseconds below are only the pico-sdk timer API's
-     * derived representation. */
-    _Static_assert(BOARD_SYS_CLOCK_HZ % 1000000u == 0u,
-                   "clk_sys must convert to whole cycles per microsecond");
-    uint64_t tick_us = PROJECT_CORE1_CYCLE_CYCLES /
-        (BOARD_SYS_CLOCK_HZ / 1000000u);
+     * predictable. Timer1 is the VDC-owned clk_sys timestamp source, so even
+     * a configured non-integer-microsecond cycle retains its exact deadline.
+     * Read the installed schedule here: boot may have restored an override. */
+    uint32_t tick_cycles = app_realtime_cycle_cycles_core1();
     app_realtime_cycle_counter_init();
-    uint64_t next_tick_us = to_us_since_boot(get_absolute_time()) + tick_us;
+    uint64_t next_tick_cycles = vdc_timestamp_clock_read_ticks64() + tick_cycles;
     while (true) {
         /* This bare-metal core must release from its own hardware timer.
          * SDK sleep_until uses the shared alarm pool and a Core0 wake event;
          * its non-RTOS WFE path can defer an otherwise ready realtime cycle.
          * Polling only waits for the existing absolute release: it admits no
          * extra work in GUARD and a late release still catches up below. */
-        busy_wait_until(from_us_since_boot(next_tick_us));
+        while (vdc_timestamp_clock_read_ticks64() < next_tick_cycles) {
+            tight_loop_contents();
+        }
         drv_flash_core1_lockout_poll();
         if (app_realtime_apply_pending_profile_core1()) {
-            tick_us = app_realtime_cycle_cycles_core1() /
-                (BOARD_SYS_CLOCK_HZ / 1000000u);
+            tick_cycles = app_realtime_cycle_cycles_core1();
             /* Rebase once at the stopped handover; later cycles keep absolute
              * deadlines and never accumulate service-time drift. */
-            next_tick_us = to_us_since_boot(get_absolute_time());
+            next_tick_cycles = vdc_timestamp_clock_read_ticks64();
         }
-        next_tick_us += tick_us;
+        next_tick_cycles += tick_cycles;
         app_realtime_run_once();
         tight_loop_contents();
     }
@@ -223,6 +243,12 @@ void app_runtime_start_realtime_core(void)
 
 bool app_runtime_init(void)
 {
+    /* FreeRTOS snapshots clk_sys when it programs Core0 SysTick. Establish the
+     * board clock before the scheduler starts so one RTOS tick remains 1 ms. */
+    if (!board_clock_init()) {
+        return false;
+    }
+
     if (!osal_kernel_init()) {
         return false;
     }

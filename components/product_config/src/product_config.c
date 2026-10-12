@@ -1,6 +1,7 @@
 #include "product_config.h"
 
 #include <ctype.h>
+#include <stddef.h>
 #include <string.h>
 
 #include "drv_flash.h"
@@ -10,7 +11,11 @@
 #include "project_config.h"
 
 #define PRODUCT_CONFIG_MAGIC   0x47544346u
-#define PRODUCT_CONFIG_VERSION 2u
+#define PRODUCT_CONFIG_VERSION 3u
+/* Records written before the realtime phase table existed keep the deployed
+ * 64-byte prefix and the CRC domain they were sealed with.  They are still
+ * read, and promoted to PRODUCT_CONFIG_VERSION in RAM only. */
+#define PRODUCT_CONFIG_VERSION_V2     2u
 #define PRODUCT_CONFIG_VERSION_LEGACY 1u
 #define PRODUCT_CONFIG_MAX_BOARD_NO 8u
 #define PRODUCT_CONFIG_SLOT_SIZE DRV_FLASH_PAGE_SIZE
@@ -28,6 +33,60 @@ _Static_assert((FLASH_DEPLOYMENT_MAP_PRODUCT_CONFIG_STORE_SIZE %
                 PRODUCT_CONFIG_SECTOR_SIZE) == 0u,
                "Product Config store must contain whole erase sectors");
 
+/* reserved[] word map.  Words [0..9] are the version-2 prefix and keep their
+ * meaning; the core1 realtime phase table owns every word above them:
+ *
+ *   [0]      DPLL servo profile marker (PRODUCT_CONFIG_DPLL_PROFILE_VALID)
+ *   [1]      DPLL servo kp_q16
+ *   [2]      DPLL servo ki_q16
+ *   [3]      DPLL servo update_period_us
+ *   [4]      DPLL servo step_threshold_ns
+ *   [5]      DPLL servo sanity_freq_limit_ppb
+ *   [6]      DPLL control profile marker (PRODUCT_CONFIG_DPLL_CONTROL_PROFILE_VALID)
+ *   [7]      DPLL control mode
+ *   [8]      DPLL control follow_master_slot_id
+ *   [9]      DPLL control generation
+ *   [10]     realtime profile marker (0 = no table stored)
+ *   [11]     realtime cycle_cycles
+ *   [12]     realtime phase_count
+ *   [13..22] realtime start_cycle[0..9]
+ *   [23..32] realtime end_cycle[0..9]
+ *   [33..42] realtime wcet_cycles[0..9]
+ *
+ * Marker, cycle and phase_count plus the three window arrays are 33 words
+ * ([10..42]), so the last window word lands in reserved[42] and reserved[]
+ * holds 43 words: a 42-word array could not address wcet_cycles[9].  With the
+ * five identity words and the CRC the record is 196 bytes, still well inside
+ * one PRODUCT_CONFIG_SLOT_SIZE program page. */
+#define PRODUCT_CONFIG_REALTIME_PROFILE_MARKER_WORD      10u
+#define PRODUCT_CONFIG_REALTIME_PROFILE_CYCLE_WORD       11u
+#define PRODUCT_CONFIG_REALTIME_PROFILE_PHASE_COUNT_WORD 12u
+#define PRODUCT_CONFIG_REALTIME_PROFILE_START_WORD       13u
+#define PRODUCT_CONFIG_REALTIME_PROFILE_END_WORD                          \
+    (PRODUCT_CONFIG_REALTIME_PROFILE_START_WORD +                         \
+     PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES) /* 23 */
+#define PRODUCT_CONFIG_REALTIME_PROFILE_WCET_WORD                         \
+    (PRODUCT_CONFIG_REALTIME_PROFILE_END_WORD +                           \
+     PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES) /* 33 */
+#define PRODUCT_CONFIG_RESERVED_WORDS                                     \
+    (PRODUCT_CONFIG_REALTIME_PROFILE_WCET_WORD +                          \
+     PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES) /* 43 */
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t sequence;
+    uint32_t usb_mode;
+    uint32_t board_no;
+    uint32_t reserved[PRODUCT_CONFIG_RESERVED_WORDS];
+    uint32_t crc32;
+} product_config_record_t;
+
+/* Deployed record of versions 1 and 2: the same five identity words, ten
+ * reserved words, and a CRC that covers exactly these 64 bytes.  Its crc32 word
+ * occupies the offset that the current record uses for the realtime profile
+ * marker, so a slot image is decoded through this type and is never re-read as
+ * a current record. */
 typedef struct {
     uint32_t magic;
     uint32_t version;
@@ -36,11 +95,30 @@ typedef struct {
     uint32_t board_no;
     uint32_t reserved[10];
     uint32_t crc32;
-} product_config_record_t;
+} product_config_legacy_record_t;
+
+_Static_assert(sizeof(product_config_record_t) <= PRODUCT_CONFIG_SLOT_SIZE,
+               "Product Config record must fit one program-page slot");
+_Static_assert(PRODUCT_CONFIG_REALTIME_PROFILE_WCET_WORD +
+                       PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES ==
+                   sizeof(((product_config_record_t *)0)->reserved) /
+                       sizeof(uint32_t),
+               "reserved[] must address every realtime window word");
+_Static_assert(sizeof(product_config_legacy_record_t) == 64u,
+               "the legacy Product Config record is the deployed 64-byte layout");
+_Static_assert(offsetof(product_config_record_t, reserved) ==
+                   offsetof(product_config_legacy_record_t, reserved),
+               "the legacy prefix must overlay the current reserved[] words");
+_Static_assert(offsetof(product_config_record_t, reserved) +
+                       PRODUCT_CONFIG_REALTIME_PROFILE_MARKER_WORD *
+                           sizeof(uint32_t) ==
+                   offsetof(product_config_legacy_record_t, crc32),
+               "the legacy crc32 word overlays the realtime profile marker word");
 
 #define PRODUCT_CONFIG_DPLL_PROFILE_VALID 0x44504C4Cu /* DPLL */
 #define PRODUCT_CONFIG_DPLL_CONTROL_PROFILE_VALID 0x44524F4Cu /* DROL */
 #define PRODUCT_CONFIG_DPLL_MAX_SOURCE_SLOT 7u
+#define PRODUCT_CONFIG_REALTIME_PROFILE_VALID 0x52545046u /* RTPF */
 
 static product_config_record_t s_product_config;
 static uint32_t s_product_config_provider_generation;
@@ -137,12 +215,56 @@ static uint32_t product_config_crc32(const product_config_record_t *record)
     return ota_crc32_compute((const uint8_t *)&copy, sizeof(copy));
 }
 
+/* CRC of the deployed 64-byte prefix, taken over exactly those bytes with the
+ * legacy crc32 word zeroed. */
+static uint32_t product_config_legacy_crc32(const uint8_t *slot)
+{
+    product_config_legacy_record_t legacy;
+    memcpy(&legacy, slot, sizeof(legacy));
+    legacy.crc32 = 0u;
+    return ota_crc32_compute((const uint8_t *)&legacy, sizeof(legacy));
+}
+
+static bool product_config_legacy_record_is_valid(const uint8_t *slot)
+{
+    product_config_legacy_record_t legacy;
+    memcpy(&legacy, slot, sizeof(legacy));
+    if (legacy.magic != PRODUCT_CONFIG_MAGIC ||
+        (legacy.version != PRODUCT_CONFIG_VERSION_LEGACY &&
+         legacy.version != PRODUCT_CONFIG_VERSION_V2) ||
+        !product_config_usb_mode_is_valid(legacy.usb_mode) ||
+        !product_config_board_no_is_valid(legacy.board_no)) {
+        return false;
+    }
+
+    return product_config_legacy_crc32(slot) == legacy.crc32;
+}
+
+/* RAM-only promotion of a version 1/2 slot image: the identity words and the
+ * already-present DPLL markers and fields survive verbatim, while everything
+ * the old layout never carried (the realtime profile words) stays absent. */
+static void product_config_legacy_record_promote(
+    const uint8_t *slot, product_config_record_t *record)
+{
+    product_config_legacy_record_t legacy;
+    memcpy(&legacy, slot, sizeof(legacy));
+    memset(record, 0, sizeof(*record));
+    record->magic = PRODUCT_CONFIG_MAGIC;
+    record->version = PRODUCT_CONFIG_VERSION;
+    record->sequence = legacy.sequence;
+    record->usb_mode = legacy.usb_mode;
+    record->board_no = legacy.board_no;
+    memcpy(record->reserved, legacy.reserved, sizeof(legacy.reserved));
+    record->crc32 = product_config_crc32(record);
+}
+
+/* Validates exactly the current layout: a legacy prefix is accepted only by
+ * product_config_legacy_record_is_valid() and is promoted before use. */
 static bool product_config_record_is_valid(const product_config_record_t *record)
 {
     if (record == NULL ||
         record->magic != PRODUCT_CONFIG_MAGIC ||
-        (record->version != PRODUCT_CONFIG_VERSION &&
-         record->version != PRODUCT_CONFIG_VERSION_LEGACY) ||
+        record->version != PRODUCT_CONFIG_VERSION ||
         !product_config_usb_mode_is_valid(record->usb_mode) ||
         !product_config_board_no_is_valid(record->board_no)) {
         return false;
@@ -227,6 +349,80 @@ static bool product_config_dpll_profiles_equal(
            left->sanity_freq_limit_ppb == right->sanity_freq_limit_ppb;
 }
 
+static bool product_config_realtime_profile_is_valid(
+    const product_config_record_t *record)
+{
+    return record != NULL && record->version == PRODUCT_CONFIG_VERSION &&
+           record->reserved[PRODUCT_CONFIG_REALTIME_PROFILE_MARKER_WORD] ==
+               PRODUCT_CONFIG_REALTIME_PROFILE_VALID &&
+           record->reserved[PRODUCT_CONFIG_REALTIME_PROFILE_CYCLE_WORD] != 0u &&
+           record->reserved[PRODUCT_CONFIG_REALTIME_PROFILE_PHASE_COUNT_WORD] ==
+               PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES;
+}
+
+/* The record stores a whole table or nothing, and it never judges the phase
+ * arithmetic: admission is the caller's job.  A zero cycle is refused here
+ * because it is the absence value the marker cannot express. */
+static bool product_config_realtime_profile_is_storable(
+    const product_config_realtime_profile_t *profile)
+{
+    return profile != NULL &&
+           profile->phase_count == PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES &&
+           profile->cycle_cycles != 0u;
+}
+
+static void product_config_record_set_realtime_profile(
+    product_config_record_t *record,
+    const product_config_realtime_profile_t *profile)
+{
+    record->version = PRODUCT_CONFIG_VERSION;
+    record->reserved[PRODUCT_CONFIG_REALTIME_PROFILE_MARKER_WORD] =
+        PRODUCT_CONFIG_REALTIME_PROFILE_VALID;
+    record->reserved[PRODUCT_CONFIG_REALTIME_PROFILE_CYCLE_WORD] =
+        profile->cycle_cycles;
+    record->reserved[PRODUCT_CONFIG_REALTIME_PROFILE_PHASE_COUNT_WORD] =
+        profile->phase_count;
+    for (uint32_t phase = 0u;
+         phase < PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES; phase++) {
+        record->reserved[PRODUCT_CONFIG_REALTIME_PROFILE_START_WORD + phase] =
+            profile->start_cycle[phase];
+        record->reserved[PRODUCT_CONFIG_REALTIME_PROFILE_END_WORD + phase] =
+            profile->end_cycle[phase];
+        record->reserved[PRODUCT_CONFIG_REALTIME_PROFILE_WCET_WORD + phase] =
+            profile->wcet_cycles[phase];
+    }
+}
+
+/* The marker is cleared and nothing else: the window words keep their previous
+ * bytes so the stored layout stays deterministic and a stale table can never be
+ * mistaken for a live one. */
+static void product_config_record_clear_realtime_profile(
+    product_config_record_t *record)
+{
+    record->version = PRODUCT_CONFIG_VERSION;
+    record->reserved[PRODUCT_CONFIG_REALTIME_PROFILE_MARKER_WORD] = 0u;
+}
+
+static bool product_config_realtime_profiles_equal(
+    const product_config_realtime_profile_t *left,
+    const product_config_realtime_profile_t *right)
+{
+    if (left == NULL || right == NULL ||
+        left->cycle_cycles != right->cycle_cycles ||
+        left->phase_count != right->phase_count) {
+        return false;
+    }
+    for (uint32_t phase = 0u;
+         phase < PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES; phase++) {
+        if (left->start_cycle[phase] != right->start_cycle[phase] ||
+            left->end_cycle[phase] != right->end_cycle[phase] ||
+            left->wcet_cycles[phase] != right->wcet_cycles[phase]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void product_config_set_default(product_config_record_t *record)
 {
     const product_config_dpll_servo_profile_t default_profile =
@@ -279,7 +475,18 @@ static bool product_config_find_latest(product_config_record_t *latest,
             }
             continue;
         }
-        if (!product_config_record_is_valid(&candidate)) {
+        if (product_config_record_is_valid(&candidate)) {
+            /* Current layout, used as stored. */
+        } else if (product_config_legacy_record_is_valid(
+                       (const uint8_t *)&candidate)) {
+            /* Version 1/2 image: promote it in RAM so every reader above sees
+             * the current layout. The slot itself is left untouched; the
+             * migration reaches flash only through an explicit store command. */
+            product_config_record_t promoted;
+            product_config_legacy_record_promote((const uint8_t *)&candidate,
+                                                 &promoted);
+            candidate = promoted;
+        } else {
             continue;
         }
         if (!found || (int32_t)(candidate.sequence - latest->sequence) > 0) {
@@ -334,19 +541,20 @@ static bool product_config_store(const product_config_record_t *record)
     memset(page, 0xFF, sizeof(page));
     memcpy(page, record, sizeof(*record));
 
-    if (!product_config_flash_execute(FLASH_TRANSACTION_OPERATION_PROGRAM,
-                                      slot * PRODUCT_CONFIG_SLOT_SIZE,
-                                      page, sizeof(page),
-                                      record->sequence)) {
-        return false;
-    }
+    /* A completion/lockout-release error can occur after PROGRAM committed.
+     * Reconcile the actual durable bytes even on that path; otherwise callers
+     * retain the old RAM value while the next boot adopts the new record. */
+    (void)product_config_flash_execute(FLASH_TRANSACTION_OPERATION_PROGRAM,
+                                       slot * PRODUCT_CONFIG_SLOT_SIZE,
+                                       page, sizeof(page),
+                                       record->sequence);
 
     product_config_record_t readback;
     if (!drv_flash_read(OTA_PRODUCT_CONFIG_OFFSET +
                             slot * PRODUCT_CONFIG_SLOT_SIZE,
                         &readback, sizeof(readback)) ||
         !product_config_record_is_valid(&readback) ||
-        readback.sequence != record->sequence) {
+        memcmp(&readback, record, sizeof(readback)) != 0) {
         return false;
     }
 
@@ -374,10 +582,11 @@ bool product_config_init(void)
 
     /* Startup must remain read-only. FlashTransaction parks core1 before any
      * erase/program operation, but product_config_init() runs before the
-     * realtime core is launched. Persisting a v1-to-v2/default migration here
-     * would therefore fail the boot of a freshly installed OTA image. Keep
-     * the compatible identity fields and seed the missing DPLL profile only
-     * in RAM; the explicit DPLL:STORE command persists it after bring-up. */
+     * realtime core is launched. Persisting a v1/v2-to-v3/default migration
+     * here would therefore fail the boot of a freshly installed OTA image.
+     * Keep the compatible identity fields, the promoted DPLL markers and the
+     * absent realtime table, and seed only the missing DPLL profile in RAM;
+     * the explicit DPLL:STORE command persists it after bring-up. */
     const product_config_dpll_servo_profile_t default_profile =
         product_config_default_dpll_servo_profile();
     const product_config_dpll_control_profile_t default_control =
@@ -455,6 +664,72 @@ bool product_config_set_board_no(uint32_t board_no)
     record.crc32 = product_config_crc32(&record);
     return product_config_store(&record) &&
            s_product_config.board_no == board_no;
+}
+
+bool product_config_get_realtime_profile(
+    product_config_realtime_profile_t *profile)
+{
+    if (profile == NULL || !product_config_record_is_valid(&s_product_config) ||
+        !product_config_realtime_profile_is_valid(&s_product_config)) {
+        return false;
+    }
+
+    /* Decode into a local so a refused profile leaves the caller's value
+     * untouched. */
+    product_config_realtime_profile_t decoded;
+    decoded.cycle_cycles =
+        s_product_config.reserved[PRODUCT_CONFIG_REALTIME_PROFILE_CYCLE_WORD];
+    decoded.phase_count =
+        s_product_config
+            .reserved[PRODUCT_CONFIG_REALTIME_PROFILE_PHASE_COUNT_WORD];
+    for (uint32_t phase = 0u;
+         phase < PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES; phase++) {
+        const uint32_t start_word =
+            PRODUCT_CONFIG_REALTIME_PROFILE_START_WORD + phase;
+        const uint32_t end_word =
+            PRODUCT_CONFIG_REALTIME_PROFILE_END_WORD + phase;
+        const uint32_t wcet_word =
+            PRODUCT_CONFIG_REALTIME_PROFILE_WCET_WORD + phase;
+        decoded.start_cycle[phase] = s_product_config.reserved[start_word];
+        decoded.end_cycle[phase] = s_product_config.reserved[end_word];
+        decoded.wcet_cycles[phase] = s_product_config.reserved[wcet_word];
+    }
+    *profile = decoded;
+    return true;
+}
+
+bool product_config_set_realtime_profile(
+    const product_config_realtime_profile_t *profile)
+{
+    if (!product_config_realtime_profile_is_storable(profile)) {
+        return false;
+    }
+
+    product_config_record_t record = s_product_config;
+    if (!product_config_record_is_valid(&record)) {
+        product_config_set_default(&record);
+    }
+    product_config_record_set_realtime_profile(&record, profile);
+    record.sequence++;
+    record.crc32 = product_config_crc32(&record);
+    product_config_realtime_profile_t readback;
+    return product_config_store(&record) &&
+           product_config_get_realtime_profile(&readback) &&
+           product_config_realtime_profiles_equal(&readback, profile);
+}
+
+bool product_config_clear_realtime_profile(void)
+{
+    product_config_record_t record = s_product_config;
+    if (!product_config_record_is_valid(&record)) {
+        product_config_set_default(&record);
+    }
+    product_config_record_clear_realtime_profile(&record);
+    record.sequence++;
+    record.crc32 = product_config_crc32(&record);
+    product_config_realtime_profile_t readback;
+    return product_config_store(&record) &&
+           !product_config_get_realtime_profile(&readback);
 }
 
 bool product_config_get_dpll_servo_profile(

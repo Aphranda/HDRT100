@@ -73,6 +73,10 @@ bool app_is_control_plane_ready(void);
 void app_realtime_cycle_counter_init(void);
 void app_realtime_run_once(void);
 bool app_realtime_request_period_us(uint32_t period_us, uint32_t *generation);
+/* Cycle-level form of the same stopped-owner request. A configured table may
+ * describe a cycle that is not an integer number of microseconds, so the
+ * published period must not round-trip through us. */
+bool app_realtime_request_cycle_cycles(uint32_t cycles, uint32_t *generation);
 bool app_realtime_get_period_snapshot(app_realtime_period_snapshot_t *snapshot);
 /* Core1 only, before the next complete table starts. */
 bool app_realtime_apply_pending_profile_core1(void);
@@ -80,6 +84,41 @@ uint32_t app_realtime_cycle_cycles_core1(void);
 bool app_realtime_set_load_mask(uint32_t enabled_mask);
 bool app_realtime_get_schedule_snapshot(
     app_realtime_schedule_snapshot_t *snapshot);
+
+#define APP_REALTIME_PROFILE_STATUS_VERSION 1u
+
+/* Configured-table state as one snapshot: what is in force, what is durable,
+ * what is staged, and why the last attempt was refused. */
+typedef struct {
+    uint32_t version;
+    uint32_t default_cycles;
+    uint32_t active_cycles;
+    uint32_t applied_generation;
+    uint32_t configured;   /* 1 = a run-time configured table is in force */
+    uint32_t persisted;    /* 1 = settled running table matches known Flash copy */
+    uint32_t staged;       /* 1 = a staged edit is open */
+    uint32_t staged_dirty; /* 1 = the staged edit differs from what is in force */
+    uint32_t staged_valid; /* 1 = the staged table passes admission */
+    uint32_t reject_code;
+    uint32_t reject_phase;
+} app_realtime_profile_status_t;
+
+bool app_realtime_profile_status_get(app_realtime_profile_status_t *status);
+/* Validates and installs the staged table in RAM, then publishes its cycle to
+ * the stopped realtime owner. Never writes Flash. A rejected gate changes no
+ * configuration. The reason is returned through reject_code/reject_phase. */
+bool app_realtime_profile_apply(uint32_t *reject_code, uint32_t *reject_phase);
+/* Temporarily returns to the compiled default table; never writes Flash. */
+bool app_realtime_profile_reset(uint32_t *reject_code, uint32_t *reject_phase);
+/* Explicitly saves the validated, settled running table while stopped. Never
+ * saves a draft or changes the running table. A failed Flash readback can make
+ * durability unknown until successful SAVE or reboot. */
+bool app_realtime_profile_save(uint32_t *reject_code, uint32_t *reject_phase);
+/* Boot restore, called while the realtime core is still stopped. Returns false
+ * when a stored table exists but could not be put in force; the compiled
+ * default then stays in force and the reason remains readable in the status. */
+bool app_realtime_profile_restore(void);
+
 void app_usb_device_service(void);
 void app_scpi_service(void);
 void app_refmem_service(void);

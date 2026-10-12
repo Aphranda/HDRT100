@@ -1,5 +1,17 @@
 # Tools
 
+Status: Active
+Domain: Tools
+Canonical: `tools/README.md`
+Related: `docs/README.md`, `tools/build_flash/OTA_BUILD_FLASH_PLAYBOOK.md`
+Last updated: 2026-09-20
+
+## 编译与烧录入口
+
+[固件编译、USB 模式与烧录操作手册](build_flash/OTA_BUILD_FLASH_PLAYBOOK.md)：
+源码分支与全部 CMake preset、USBTMC/CDC 配置、产物选择、VISA/CDC OTA、
+BOOTSEL 恢复、重启/槽位确认、单板验收及常见失败处理。每一步提供 PowerShell 命令。
+
 Place build, flashing, release packaging, production test, and diagnostics
 tools in this directory.
 

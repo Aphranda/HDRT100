@@ -1858,16 +1858,311 @@ scpi_result_t scpi_calibration_p3_start(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_calibration_marker_loopback_start(scpi_t *context)
+{
+    uint32_t codebook, epoch, words, fault = 0u;
+    if (!SCPI_ParamUInt32(context, &codebook, TRUE) ||
+        !SCPI_ParamUInt32(context, &epoch, TRUE) ||
+        !SCPI_ParamUInt32(context, &words, TRUE) ||
+        (!SCPI_ParamUInt32(context, &fault, FALSE) && SCPI_ParamErrorOccurred(context)) ||
+        !calibration_manager_request_marker_loopback(codebook, epoch, words, fault)) {
+        scpi_port_push_exec_error(context, "MARK_LOOPBACK_START_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, codebook);
+    SCPI_ResultUInt32(context, epoch);
+    SCPI_ResultUInt32(context, words);
+    SCPI_ResultUInt32(context, fault);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_sck_loopback_start(scpi_t *context)
+{
+    uint32_t codebook, epoch, words, fault = 0u;
+    int32_t launch_offset;
+    if (!SCPI_ParamUInt32(context, &codebook, TRUE) ||
+        !SCPI_ParamUInt32(context, &epoch, TRUE) ||
+        !SCPI_ParamUInt32(context, &words, TRUE) ||
+        !SCPI_ParamInt32(context, &launch_offset, TRUE)) return SCPI_RES_ERR;
+    (void)SCPI_ParamUInt32(context, &fault, FALSE);
+    if (SCPI_ParamErrorOccurred(context) ||
+        !calibration_manager_request_sck_loopback(codebook, epoch, words, launch_offset, fault)) {
+        scpi_port_push_exec_error(context, "SCK_LOOPBACK_START_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, codebook);
+    SCPI_ResultUInt32(context, epoch);
+    SCPI_ResultUInt32(context, words);
+    SCPI_ResultInt32(context, launch_offset);
+    SCPI_ResultUInt32(context, fault);
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_calibration_codeword_loopback_q(scpi_t *context, bool sck)
+{
+    tdma_pio_spi_marker_loopback_snapshot_t snapshot;
+    const bool valid = sck ? tdma_runtime_owner_get_sck_loopback_snapshot(&snapshot) :
+                            tdma_runtime_owner_get_marker_loopback_snapshot(&snapshot);
+    if (!valid) {
+        scpi_port_push_exec_error(context, "CODEWORD_LOOPBACK_SNAPSHOT_UNAVAILABLE");
+        return SCPI_RES_ERR;
+    }
+    const tdma_pio_spi_p3_snapshot_t *raw = &snapshot.raw;
+    SCPI_ResultUInt32(context, sck ? 1u : 2u);
+    SCPI_ResultUInt32(context, raw->state);
+    SCPI_ResultUInt32(context, sck ? 2u : 1u);
+    SCPI_ResultUInt32(context, raw->flags);
+    SCPI_ResultUInt32(context, raw->reject_reason);
+    SCPI_ResultUInt32(context, raw->epoch);
+    SCPI_ResultUInt32(context, snapshot.codebook);
+    SCPI_ResultUInt32(context, raw->sample_period_ns);
+    SCPI_ResultUInt32(context, snapshot.marker_samples);
+    SCPI_ResultUInt32(context, snapshot.tx_words);
+    SCPI_ResultUInt32(context, snapshot.tx_dma_remaining);
+    SCPI_ResultUInt32(context, (raw->flags & TDMA_PIO_SPI_P3_FLAG_TX_DRAINED) != 0u);
+    SCPI_ResultUInt32(context, raw->requested_words);
+    SCPI_ResultUInt32(context, raw->produced_words);
+    SCPI_ResultUInt32(context, raw->edge_mask);
+    scpi_calibration_result_u64(context, raw->t1_clk_tx);
+    scpi_calibration_result_u64(context, raw->t2_clk_rx);
+    scpi_calibration_result_u64(context, raw->t3_data_tx);
+    scpi_calibration_result_u64(context, raw->t4_data_rx);
+    SCPI_ResultUInt32(context, snapshot.capture_generation);
+    if (sck) {
+        SCPI_ResultInt32(context, snapshot.sck_launch_offset_samples);
+        SCPI_ResultUInt32(context, TDMA_PIO_SPI_SCK_LOOPBACK_ORIGIN_LEAD_SAMPLES);
+        SCPI_ResultUInt32(context, TDMA_PIO_SPI_SCK_LOOPBACK_ORIGIN_HIGH_SAMPLES);
+        SCPI_ResultUInt32(context, TDMA_PIO_SPI_SCK_LOOPBACK_LAUNCH_GUARD_SAMPLES);
+    }
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_calibration_codeword_loopback_data_q(scpi_t *context, bool sck)
+{
+    uint32_t epoch, offset, count, total, words[32];
+    uint32_t generation = 0u;
+    if (!SCPI_ParamUInt32(context, &epoch, TRUE) ||
+        !SCPI_ParamUInt32(context, &offset, TRUE) ||
+        !SCPI_ParamUInt32(context, &count, TRUE)) return SCPI_RES_ERR;
+    const bool has_generation = SCPI_ParamUInt32(context, &generation, sck ? TRUE : FALSE);
+    if (SCPI_ParamErrorOccurred(context) || (has_generation && generation == 0u) ||
+        (sck && !has_generation) ||
+        !(sck ? calibration_manager_copy_sck_loopback_capture(epoch, offset, count, generation, words, &total) :
+                calibration_manager_copy_marker_loopback_capture(epoch, offset, count, generation, words, &total))) {
+        scpi_port_push_exec_error(context, "CODEWORD_LOOPBACK_DATA_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, epoch);
+    SCPI_ResultUInt32(context, total);
+    SCPI_ResultUInt32(context, offset);
+    SCPI_ResultUInt32(context, count);
+    for (uint32_t i = 0u; i < count; ++i) SCPI_ResultUInt32(context, words[i]);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_marker_loopback_q(scpi_t *context)
+{
+    return scpi_calibration_codeword_loopback_q(context, false);
+}
+scpi_result_t scpi_calibration_sck_loopback_q(scpi_t *context)
+{
+    return scpi_calibration_codeword_loopback_q(context, true);
+}
+scpi_result_t scpi_calibration_marker_loopback_data_q(scpi_t *context)
+{
+    return scpi_calibration_codeword_loopback_data_q(context, false);
+}
+scpi_result_t scpi_calibration_sck_loopback_data_q(scpi_t *context)
+{
+    return scpi_calibration_codeword_loopback_data_q(context, true);
+}
+
+static scpi_result_t scpi_calibration_codeword_loopback_stop(scpi_t *context, uint32_t role)
+{
+    if (!calibration_manager_stop_codeword_loopback(role)) {
+        scpi_port_push_exec_error(context, "CODEWORD_LOOPBACK_STOP_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+scpi_result_t scpi_calibration_marker_loopback_stop(scpi_t *context)
+{
+    return scpi_calibration_codeword_loopback_stop(context, TDMA_PIO_SPI_P3_ROLE_MARKER_LOOPBACK);
+}
+scpi_result_t scpi_calibration_sck_loopback_stop(scpi_t *context)
+{
+    return scpi_calibration_codeword_loopback_stop(context, TDMA_PIO_SPI_P3_ROLE_SCK_LOOPBACK);
+}
+
 scpi_result_t scpi_calibration_p3_stop(scpi_t *context)
 {
     calibration_manager_stop_p3();
     return scpi_port_result_ok(context);
 }
 
+static scpi_result_t scpi_calibration_rxphase_start_for_role(scpi_t *context, bool mark)
+{
+    uint32_t codebook, epoch, words, base, direction, fault = 0u;
+    int32_t offset;
+    if (!SCPI_ParamUInt32(context, &codebook, TRUE) || !SCPI_ParamUInt32(context, &epoch, TRUE) ||
+        !SCPI_ParamUInt32(context, &words, TRUE) || !SCPI_ParamUInt32(context, &base, TRUE) ||
+        !SCPI_ParamInt32(context, &offset, TRUE) || !SCPI_ParamUInt32(context, &direction, TRUE))
+        return SCPI_RES_ERR;
+    (void)SCPI_ParamUInt32(context, &fault, FALSE);
+    if (SCPI_ParamErrorOccurred(context) ||
+        !(mark ? calibration_manager_request_mark_rxphase(codebook, epoch, words, base, offset, direction, fault) :
+                 calibration_manager_request_rxphase(codebook, epoch, words, base, offset, direction, fault))) {
+        scpi_port_push_exec_error(context, "RXPHASE_START_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, codebook); SCPI_ResultUInt32(context, epoch);
+    SCPI_ResultUInt32(context, words); SCPI_ResultUInt32(context, base);
+    SCPI_ResultInt32(context, offset); SCPI_ResultUInt32(context, direction);
+    SCPI_ResultUInt32(context, fault);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_rxphase_start(scpi_t *context)
+{
+    return scpi_calibration_rxphase_start_for_role(context, false);
+}
+
+scpi_result_t scpi_calibration_mark_rxphase_start(scpi_t *context)
+{
+    return scpi_calibration_rxphase_start_for_role(context, true);
+}
+
+scpi_result_t scpi_calibration_mark_rxphase_stop(scpi_t *context)
+{
+    return scpi_calibration_codeword_loopback_stop(context, TDMA_PIO_SPI_P3_ROLE_MARK_RXPHASE);
+}
+
+scpi_result_t scpi_calibration_rxphase_stop(scpi_t *context)
+{
+    return scpi_calibration_codeword_loopback_stop(context, TDMA_PIO_SPI_P3_ROLE_SCK_RXPHASE);
+}
+
+static scpi_result_t scpi_calibration_rxphase_q_for_role(scpi_t *context, bool mark)
+{
+    tdma_pio_spi_rxphase_snapshot_t snapshot;
+    if (!(mark ? tdma_runtime_owner_get_mark_rxphase_snapshot(&snapshot) :
+                 tdma_runtime_owner_get_rxphase_snapshot(&snapshot))) {
+        scpi_port_push_exec_error(context, "RXPHASE_SNAPSHOT_UNAVAILABLE");
+        return SCPI_RES_ERR;
+    }
+    for (uint32_t i = 0u; i < TDMA_PIO_SPI_RXPHASE_SNAPSHOT_FIELDS; ++i) {
+        if (i == 13u) SCPI_ResultInt32(context, (int32_t)snapshot.fields[i]);
+        else SCPI_ResultUInt32(context, snapshot.fields[i]);
+    }
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_rxphase_q(scpi_t *context)
+{
+    return scpi_calibration_rxphase_q_for_role(context, false);
+}
+
+scpi_result_t scpi_calibration_mark_rxphase_q(scpi_t *context)
+{
+    return scpi_calibration_rxphase_q_for_role(context, true);
+}
+
+static scpi_result_t scpi_calibration_rxphase_data_q_for_role(scpi_t *context, bool mark)
+{
+    uint32_t epoch, offset, count, generation, total, words[32];
+    if (!SCPI_ParamUInt32(context, &epoch, TRUE) || !SCPI_ParamUInt32(context, &offset, TRUE) ||
+        !SCPI_ParamUInt32(context, &count, TRUE) || !SCPI_ParamUInt32(context, &generation, TRUE) ||
+        !(mark ? calibration_manager_copy_mark_rxphase_capture(epoch, offset, count, generation, words, &total) :
+                 calibration_manager_copy_rxphase_capture(epoch, offset, count, generation, words, &total))) {
+        scpi_port_push_exec_error(context, "RXPHASE_DATA_REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, epoch); SCPI_ResultUInt32(context, total);
+    SCPI_ResultUInt32(context, offset); SCPI_ResultUInt32(context, count);
+    for (uint32_t i = 0u; i < count; ++i) SCPI_ResultUInt32(context, words[i]);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_rxphase_data_q(scpi_t *context)
+{
+    return scpi_calibration_rxphase_data_q_for_role(context, false);
+}
+
+scpi_result_t scpi_calibration_mark_rxphase_data_q(scpi_t *context)
+{
+    return scpi_calibration_rxphase_data_q_for_role(context, true);
+}
+
+scpi_result_t scpi_calibration_rxphase_config_q(scpi_t *context)
+{
+    uint32_t fields[12];
+    if (!calibration_manager_get_rxphase_config(fields)) {
+        scpi_port_push_exec_error(context, "RXPHASE_CONFIG_UNAVAILABLE");
+        return SCPI_RES_ERR;
+    }
+    for (uint32_t i = 0u; i < 12u; ++i) SCPI_ResultUInt32(context, fields[i]);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_calibration_data_loop_start(scpi_t *context)
+{
+    uint32_t codebook,epoch,base,gap,fault;int32_t marker,data;
+    if(!SCPI_ParamUInt32(context,&codebook,TRUE)||!SCPI_ParamUInt32(context,&epoch,TRUE)||
+        !SCPI_ParamUInt32(context,&base,TRUE)||!SCPI_ParamInt32(context,&marker,TRUE)||
+        !SCPI_ParamInt32(context,&data,TRUE)||!SCPI_ParamUInt32(context,&gap,TRUE)||
+        !SCPI_ParamUInt32(context,&fault,TRUE))return SCPI_RES_ERR;
+    if(!calibration_manager_request_data_loop(codebook,epoch,base,marker,data,gap,fault)){
+        scpi_port_push_exec_error(context,"DATA_LOOP_START_REJECTED");return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context,codebook);SCPI_ResultUInt32(context,epoch);SCPI_ResultUInt32(context,base);
+    SCPI_ResultInt32(context,marker);SCPI_ResultInt32(context,data);SCPI_ResultUInt32(context,gap);SCPI_ResultUInt32(context,fault);
+    return SCPI_RES_OK;
+}
+scpi_result_t scpi_calibration_data_loop_stop(scpi_t *context)
+{
+    return scpi_calibration_codeword_loopback_stop(context,TDMA_PIO_SPI_P3_ROLE_DATA_LOOPBACK);
+}
+scpi_result_t scpi_calibration_data_loop_q(scpi_t *context)
+{
+    tdma_pio_spi_data_loop_snapshot_t snapshot;
+    if(!tdma_runtime_owner_get_data_loop_snapshot(&snapshot)){
+        scpi_port_push_exec_error(context,"DATA_LOOP_SNAPSHOT_UNAVAILABLE");return SCPI_RES_ERR;
+    }
+    for(uint32_t i=0;i<TDMA_PIO_SPI_DATA_LOOP_SNAPSHOT_FIELDS;++i){
+        if(i==12u||i==13u)SCPI_ResultInt32(context,(int32_t)snapshot.fields[i]);
+        else SCPI_ResultUInt32(context,snapshot.fields[i]);
+    }return SCPI_RES_OK;
+}
+scpi_result_t scpi_calibration_data_loop_data_q(scpi_t *context)
+{
+    uint32_t epoch,kind,offset,count,generation,total,words[32];
+    if(!SCPI_ParamUInt32(context,&epoch,TRUE)||!SCPI_ParamUInt32(context,&kind,TRUE)||
+        !SCPI_ParamUInt32(context,&offset,TRUE)||!SCPI_ParamUInt32(context,&count,TRUE)||
+        !SCPI_ParamUInt32(context,&generation,TRUE)||
+        !calibration_manager_copy_data_loop_capture(epoch,kind,offset,count,generation,words,&total)){
+        scpi_port_push_exec_error(context,"DATA_LOOP_DATA_REJECTED");return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context,epoch);SCPI_ResultUInt32(context,total);SCPI_ResultUInt32(context,offset);SCPI_ResultUInt32(context,count);
+    for (uint32_t i = 0u; i < count; ++i) {
+        SCPI_ResultUInt32(context, words[i]);
+    }
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_calibration_p3_q(scpi_t *context)
 {
     calibration_manager_p3_snapshot_t snapshot;
-    if (!calibration_manager_get_p3_snapshot(&snapshot)) return SCPI_RES_ERR;
+    uint32_t endpoint = 0u;
+    if (!SCPI_ParamUInt32(context, &endpoint, FALSE) &&
+        SCPI_ParamErrorOccurred(context)) {
+        return SCPI_RES_ERR;
+    }
+    if (endpoint == 0u) {
+        if (!calibration_manager_get_p3_snapshot(&snapshot)) return SCPI_RES_ERR;
+    } else if (!calibration_manager_get_p3_endpoint_snapshot(endpoint, &snapshot)) {
+        scpi_port_push_exec_error(context, "CAL_P3_ENDPOINT_REJECTED");
+        return SCPI_RES_ERR;
+    }
     const tdma_pio_spi_p3_snapshot_t *raw = &snapshot.raw;
     SCPI_ResultUInt32(context, raw->state);
     SCPI_ResultUInt32(context, raw->role);

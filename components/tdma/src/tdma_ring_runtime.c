@@ -731,6 +731,10 @@ publish:
     }
     uint32_t correlated_round_trip_ns = 0u;
     uint32_t round_trip_ns = runtime->feedback_round_trip_ns;
+    uint64_t reference_tx_timestamp_ns = adapter_status.reference_tx_timestamp_ns;
+    uint64_t feedback_rx_timestamp_ns = adapter_status.feedback_rx_timestamp_ns;
+    uint32_t timestamp_resolution_ns = adapter_status.timestamp_resolution_ns;
+    uint32_t timestamp_flags = adapter_status.timestamp_flags;
     const bool feedback_updated = adapter_service_ok &&
         adapter_status.down_rx_sequence != previous_down_rx_sequence;
     bool feedback_correlated = false;
@@ -758,6 +762,12 @@ publish:
         feedback_correlated = true;
         correlated_round_trip_ns = runtime->feedback_round_trip_ns;
         round_trip_ns = runtime->feedback_round_trip_ns;
+        /* Retain the pair and provenance that produced this RTT, not an
+         * unrelated adapter observation from a later service boundary. */
+        reference_tx_timestamp_ns = runtime->reference_tx_timestamp_ns;
+        feedback_rx_timestamp_ns = runtime->feedback_rx_timestamp_ns;
+        timestamp_resolution_ns = runtime->timestamp_resolution_ns;
+        timestamp_flags = runtime->timestamp_flags;
     } else {
         runtime->feedback_evidence_valid = 0u;
         runtime->feedback_evidence_service_ns = 0ull;
@@ -806,8 +816,8 @@ publish:
     runtime->down_rx_sequence = adapter_status.down_rx_sequence;
     runtime->up_tx_frame_crc32 = adapter_status.up_tx_frame_crc32;
     runtime->down_rx_frame_crc32 = adapter_status.down_rx_frame_crc32;
-    runtime->timestamp_resolution_ns = adapter_status.timestamp_resolution_ns;
-    runtime->timestamp_flags = adapter_status.timestamp_flags;
+    runtime->timestamp_resolution_ns = timestamp_resolution_ns;
+    runtime->timestamp_flags = timestamp_flags;
     runtime->adapter_last_error = adapter_status.last_error;
     runtime->idle_beacon_tx_count = adapter_status.idle_beacon_tx_count;
     runtime->idle_beacon_rx_count = adapter_status.idle_beacon_rx_count;
@@ -843,10 +853,8 @@ publish:
     runtime->train_start_count = train_start_count;
     runtime->train_reject_count = train_reject_count;
     runtime->training_dirty = training_dirty;
-    runtime->reference_tx_timestamp_ns =
-        adapter_status.reference_tx_timestamp_ns;
-    runtime->feedback_rx_timestamp_ns =
-        adapter_status.feedback_rx_timestamp_ns;
+    runtime->reference_tx_timestamp_ns = reference_tx_timestamp_ns;
+    runtime->feedback_rx_timestamp_ns = feedback_rx_timestamp_ns;
     runtime->clock_observation = adapter_status.clock_observation;
     tdma_ring_runtime_write_guard(&runtime->result_guard);
     tdma_service_timing_record(TDMA_TIMING_RING_PUBLISH, publish_start);

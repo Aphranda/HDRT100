@@ -41,6 +41,19 @@ static const tdma_operating_profile_entry_t
          * preserves all existing level numbers while providing maximum wire
          * timing margin for multi-board path-delay characterization. */
         {1000000u, 2000000u, 4096u, 0u},
+        /* Levels 20..21 append the same 10 MHz baud tier at a shorter cycle
+         * instead of raising the line rate. Bench observation (single board,
+         * 2026-09-20, GUI level experiments): the 25/35/45 MHz entries are
+         * refused at ARM with TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION while the
+         * 1/10 MHz entries arm, so the line rate is the binding constraint and
+         * not the cycle length. A frame carries 32*nodes+51 bytes and the
+         * origin cadence spends six control cycles per bit, which at 10 MHz
+         * occupies 92 us for 2 nodes and 246 us for 8 nodes before any guard,
+         * so 500 us keeps a wide guard for every topology while 250 us stays a
+         * small-ring candidate. Appending keeps every frozen level number, and
+         * find_baud(10 MHz) still resolves to the lowest level. */
+        {10000000u, 500000u, 4096u, 0u},
+        {10000000u, 250000u, 4096u, 0u},
     };
 
 static uint32_t tdma_operating_profile_hash_u32(uint32_t hash,

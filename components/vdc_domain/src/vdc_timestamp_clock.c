@@ -174,3 +174,112 @@ bool VDC_TIMESTAMP_TIME_CRITICAL(vdc_timestamp_clock_try_read_ns)(
     *out = seconds * UINT64_C(1000000000) + fraction;
     return true;
 }
+
+/* ── Core0 kernel tick audit ──
+ * The writer is the Core0 diagnostics service and the reader is the Core0 SCPI
+ * task, so each 32-bit field is published atomically without a lock. The
+ * dynamic window is only closed by a timed sample; an untimed sample keeps the
+ * window shut so the next one cannot compare against a foreign origin. */
+
+#define VDC_TICK_AUDIT_NS_PER_MS UINT64_C(1000000)
+
+static vdc_tick_audit_t s_vdc_tick_audit = {.version = VDC_TICK_AUDIT_VERSION};
+static uint32_t s_vdc_tick_audit_start_ms;
+static uint64_t s_vdc_tick_audit_start_ns;
+static bool s_vdc_tick_audit_window_open;
+
+static bool vdc_tick_audit_port_complete(const vdc_tick_audit_port_t *port)
+{
+    return port != NULL && port->clk_sys_hz != NULL && port->tick_rate_hz != NULL &&
+           port->tick_ms != NULL && port->systick_reload != NULL &&
+           port->systick_control != NULL && port->time_ns != NULL;
+}
+
+bool vdc_tick_audit_sample(const vdc_tick_audit_port_t *port)
+{
+    if (!vdc_tick_audit_port_complete(port)) {
+        return false;
+    }
+
+    const uint32_t clk_sys_hz = port->clk_sys_hz();
+    const uint32_t tick_rate_hz = port->tick_rate_hz();
+    if (clk_sys_hz == 0u || tick_rate_hz == 0u || clk_sys_hz % tick_rate_hz != 0u) {
+        return false;
+    }
+
+    const uint32_t control = port->systick_control();
+    const uint32_t reload = port->systick_reload();
+    const uint32_t expected_reload = clk_sys_hz / tick_rate_hz - 1u;
+    uint32_t static_flags = 0u;
+    if ((control & VDC_TICK_AUDIT_SYSTICK_ENABLE_BIT) != 0u) {
+        static_flags |= VDC_TICK_AUDIT_STATIC_ARMED;
+    }
+    if ((control & VDC_TICK_AUDIT_SYSTICK_CLKSOURCE_BIT) != 0u) {
+        static_flags |= VDC_TICK_AUDIT_STATIC_CLKSOURCE;
+    }
+    if (reload == expected_reload) {
+        static_flags |= VDC_TICK_AUDIT_STATIC_RELOAD;
+    }
+
+    const uint32_t tick_ms = port->tick_ms();
+    uint64_t now_ns = 0u;
+    const bool timed = port->time_ns(&now_ns);
+
+    s_vdc_tick_audit.clk_sys_hz = clk_sys_hz;
+    s_vdc_tick_audit.tick_rate_hz = tick_rate_hz;
+    s_vdc_tick_audit.expected_reload = expected_reload;
+    s_vdc_tick_audit.actual_reload = reload;
+    s_vdc_tick_audit.static_flags = static_flags;
+    ++s_vdc_tick_audit.samples;
+
+    if (!timed) {
+        /* Report the missing timebase explicitly and drop any earlier window
+         * instead of leaving stale numbers that could read as current. */
+        s_vdc_tick_audit_window_open = false;
+        s_vdc_tick_audit.dynamic_flags = VDC_TICK_AUDIT_DYNAMIC_NO_TIMEBASE;
+        s_vdc_tick_audit.window_nominal_ms = 0u;
+        s_vdc_tick_audit.window_real_ms = 0u;
+        s_vdc_tick_audit.ratio_ppm = 0;
+        return true;
+    }
+    if (!s_vdc_tick_audit_window_open) {
+        s_vdc_tick_audit.dynamic_flags = 0u;
+        s_vdc_tick_audit_start_ms = tick_ms;
+        s_vdc_tick_audit_start_ns = now_ns;
+        s_vdc_tick_audit_window_open = true;
+        return true;
+    }
+
+    /* Unsigned differences stay correct across both counter wraps. */
+    const uint32_t nominal_ms = tick_ms - s_vdc_tick_audit_start_ms;
+    if (nominal_ms < VDC_TICK_AUDIT_WINDOW_MS) {
+        return true;
+    }
+    const uint64_t nominal_ns = (uint64_t)nominal_ms * VDC_TICK_AUDIT_NS_PER_MS;
+    const uint64_t real_ns = now_ns - s_vdc_tick_audit_start_ns;
+    if (real_ns != 0u) {
+        const int64_t error_ns = (int64_t)nominal_ns - (int64_t)real_ns;
+        int64_t ppm = error_ns * (int64_t)VDC_TICK_AUDIT_NS_PER_MS / (int64_t)real_ns;
+        if (ppm > INT32_MAX) {
+            ppm = INT32_MAX;
+        } else if (ppm < INT32_MIN) {
+            ppm = INT32_MIN;
+        }
+        s_vdc_tick_audit.ratio_ppm = (int32_t)ppm;
+        s_vdc_tick_audit.window_nominal_ms = nominal_ms;
+        s_vdc_tick_audit.window_real_ms = (uint32_t)(real_ns / VDC_TICK_AUDIT_NS_PER_MS);
+        s_vdc_tick_audit.dynamic_flags = VDC_TICK_AUDIT_DYNAMIC_VALID;
+    }
+    s_vdc_tick_audit_start_ms = tick_ms;
+    s_vdc_tick_audit_start_ns = now_ns;
+    return true;
+}
+
+bool vdc_tick_audit_get(vdc_tick_audit_t *audit)
+{
+    if (audit == NULL) {
+        return false;
+    }
+    *audit = s_vdc_tick_audit;
+    return audit->samples != 0u;
+}

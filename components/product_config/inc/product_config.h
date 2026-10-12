@@ -31,11 +31,30 @@ typedef enum {
     PRODUCT_CONFIG_USB_MODE_USBTMC = 1,
 } product_config_usb_mode_t;
 
+/* Run-time core1 phase budget, persisted with the product identity so a
+ * configured table survives a power cycle. The record stores a whole table or
+ * nothing: a partial table is never admitted, and a record written before this
+ * field existed simply has no stored table and keeps the compiled default. */
+#define PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES 10u
+
+typedef struct {
+    uint32_t cycle_cycles;
+    uint32_t phase_count;
+    uint32_t start_cycle[PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES];
+    uint32_t end_cycle[PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES];
+    uint32_t wcet_cycles[PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES];
+} product_config_realtime_profile_t;
+
 bool product_config_init(void);
 bool product_config_get_usb_mode(product_config_usb_mode_t *mode);
 bool product_config_set_usb_mode(product_config_usb_mode_t mode);
 uint8_t product_config_get_board_no(void);
 bool product_config_set_board_no(uint32_t board_no);
+/* Returns false when no table is stored: the caller keeps its compiled
+ * default instead of treating "no record" as an all-zero table. */
+bool product_config_get_realtime_profile(product_config_realtime_profile_t *profile);
+bool product_config_set_realtime_profile(const product_config_realtime_profile_t *profile);
+bool product_config_clear_realtime_profile(void);
 bool product_config_get_dpll_servo_profile(product_config_dpll_servo_profile_t *profile);
 bool product_config_set_dpll_servo_profile(const product_config_dpll_servo_profile_t *profile);
 bool product_config_get_dpll_control_profile(product_config_dpll_control_profile_t *profile);

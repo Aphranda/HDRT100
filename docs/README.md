@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-09-19
+Last updated: 2026-09-21
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -147,6 +147,8 @@ docs/
 | `docs/check/DOCS_REGRESSION_REVIEW.md` | 文档自回归体系实施经验总结（问题清单 + 解法 + 维护建议）。 |
 | `docs/check/DOCS_PROJECT_STATUS_REVIEW_20260824.md` | 2026-08-24 项目状态审查快照：域进度、关键闭环、治理门禁和在制改动边界；不作为冻结契约或代码事实源。 |
 | `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` | 跨 worker/agent 的长期执行约束、证据闭环、Debug 门禁和主控复核规则（首版 Draft）。 |
+| `docs/check/DOCS_PROGRESS_ROTATION_PLAN.md` | 进展日志轮转（C14/C15、环5）操作规程与轮转/倒序债务基线唯一落点。 |
+| `validation/CALIBRATION_SINGLE_BOARD_HANDOFF_REVIEW.md` | 单板双槽位交接草稿、OPEN 风险及恢复计划；提交/推送尚未执行，先继续 P3。 |
 | `docs/check/submissions/README.md` | 核验提交单归档目录说明 + 模板（层间逐级核验，C11 交叉审核）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_01.md` | 首份核验提交单：HAOFV-879 seqlock 偏差（ACCEPT_WITH_DEVIATION，2026-08-19）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_02.md` | TDMA mandatory-first process image 的 HAOFV/VDC/RefMem 层间核验（pending，2026-08-28）。 |
@@ -164,6 +166,7 @@ docs/
 | `calibration/README.md` | 校准域 README。 |
 | `tdma/README.md` | TDMA 基础件主域 README。 |
 | `tdma/TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 基础件架构，定义上/下行 TDMA、payload registry、adapter、ring runtime 和 HAOFV 边界。 |
+| `tdma/TDMA_BUDGET_PLAYBOOK.md` | Core1 周期预算的候选 SCPI 配置、Flash 保存、恢复和验证边界。 |
 | `tdma/TDMA_RUNTIME_CONSTRAINTS.md` | real-flight重构后的TDMA运行细则：异步准备、特等席、时基、资源与证据边界；适用范围见本页同步说明。 |
 | `calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md` | 校准域维护多板 SPI CLK 训练、双向测量、residence/bias/path-delay 证据和 EtherCAT DC 风格门禁。 |
 | `calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` | 校准训练子域的 CS marker cut-through、DATA codeword 相关、单跳收敛和 TDMA 接入方案。 |
@@ -224,6 +227,7 @@ docs/
 | `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_01.md` | real-flight TDMA历史进度归档01，正文保留来源版本。 |
 | `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_02.md` | real-flight TDMA历史进度归档02，正文保留来源版本。 |
 | `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_03.md` | real-flight TDMA历史进度归档03，正文保留来源版本。 |
+| `legacy/trigger_sequence/LEGACY_TRIGGER_SEQUENCE_TASK_PROGRESS_01.md` | C14轮转迁出的节点序列触发历史进度归档01（2026-09-15..16 段），正文逐字保留。 |
 | `archive/README.md` | 归档域 README。 |
 
 ## 01 系统架构
@@ -341,6 +345,7 @@ docs/
 
 | 工具 | 定位 |
 |---|---|
+| [tools 编译烧录专项说明](../tools/build_flash/OTA_BUILD_FLASH_PLAYBOOK.md) | `tools/build_flash/OTA_BUILD_FLASH_PLAYBOOK.md`：源码分支、CMake preset、USBTMC/CDC、OTA/BOOTSEL、重启确认与验收逐步操作。 |
 | `tools/multicore_board_validate/multicore_board_validate.py` | 单板 RTOS + multicore + 表查询 smoke。 |
 | `tools/distributed_loopback_validate/distributed_loopback_validate.py` | BiSS 组网 HIL preflight：A3 是唯一外部 COM 入口，其他板作为内部 peer 通过 BiSSC 组网。 |
 

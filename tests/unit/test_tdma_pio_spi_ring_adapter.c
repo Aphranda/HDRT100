@@ -1672,6 +1672,54 @@ int main(void)
                              phys.busy_tx_calls, 0u);
     }
 
+    /* Completion of TX N+1 must not overwrite the already correlated pair
+     * for RX N. The completion still updates the sequence-bound TX history. */
+    {
+        tdma_pio_spi_ring_adapter_t adapter;
+        tdma_ring_adapter_status_t status;
+        async_phys_t phys = {0};
+        const tdma_ring_runtime_config_t config = make_valid_config();
+        uint8_t feedback[TDMA_TRANSPORT_SHORT_PACKET_MAX];
+        failed += expect_bool("paired async init", tdma_pio_spi_ring_adapter_init(&adapter), true);
+        tdma_pio_spi_ring_adapter_set_phys(&adapter, async_tx, NULL, &phys);
+        tdma_pio_spi_ring_adapter_set_phys_tx_complete(&adapter, async_tx_complete);
+        tdma_pio_spi_ring_adapter_set_timestamp_metadata(
+            &adapter, 8u, TDMA_RING_TIMESTAMP_FLAG_HARDWARE_LATCHED);
+        failed += expect_bool("paired async start",
+            tdma_pio_spi_ring_adapter_ops()->start(&adapter, &config), true);
+        failed += expect_bool("paired async phase",
+            tdma_pio_spi_ring_adapter_ops()->service(&adapter, 1ull, &status), true);
+        failed += expect_bool("paired async first launch",
+            tdma_pio_spi_ring_adapter_ops()->service(&adapter, 2ull, &status), true);
+        const size_t feedback_size = phys.last_tx_size;
+        memcpy(feedback, phys.last_tx, feedback_size);
+        phys.completion_ready = true;
+        phys.completion_timestamp_ns = 1000000ull;
+        failed += expect_bool("paired async first completion",
+            tdma_pio_spi_ring_adapter_ops()->service(&adapter, 4000ull, &status), true);
+        failed += expect_u32("paired async second in flight", phys.tx_calls, 2u);
+        failed += expect_bool("paired async inject first RX",
+            tdma_pio_spi_ring_adapter_inject_rx(&adapter, feedback, feedback_size, 1000500ull), true);
+        failed += expect_bool("paired async correlate first RX",
+            tdma_pio_spi_ring_adapter_ops()->service(&adapter, 4001ull, &status), true);
+        failed += expect_u32("paired async sequence one", status.feedback_reference_sequence, 1u);
+        failed += expect_u64("paired async TX one", status.reference_tx_timestamp_ns, 1000000ull);
+        failed += expect_u64("paired async RX one", status.feedback_rx_timestamp_ns, 1000500ull);
+        const uint32_t first_crc = status.feedback_reference_frame_crc32;
+        phys.completion_ready = true;
+        phys.completion_timestamp_ns = 2000000ull;
+        failed += expect_bool("paired async second completion",
+            tdma_pio_spi_ring_adapter_ops()->service(&adapter, 6000ull, &status), true);
+        failed += expect_u32("paired async retained sequence", status.feedback_reference_sequence, 1u);
+        failed += expect_u32("paired async retained CRC", status.feedback_reference_frame_crc32, first_crc);
+        failed += expect_u64("paired async completion preserves paired TX", status.reference_tx_timestamp_ns, 1000000ull);
+        failed += expect_u64("paired async completion preserves paired RX", status.feedback_rx_timestamp_ns, 1000500ull);
+        failed += expect_bool("paired async new completion recorded independently",
+            adapter.reference_tx_evidence[2u].valid &&
+            adapter.reference_tx_evidence[2u].sequence == 2u &&
+            adapter.reference_tx_evidence[2u].timestamp_ns == 2000000ull, true);
+    }
+
     /* --- A resident cycle may receive its feedback before asynchronous TX
      * completion. A zero timestamp is still a terminal completion token, but
      * it does not become valid clock evidence. --- */

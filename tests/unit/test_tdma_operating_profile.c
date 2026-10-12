@@ -55,6 +55,29 @@ int main(void)
     failed += expect_bool("reject arbitrary baud",
                           tdma_operating_profile_find_baud(33000000u, &profile), false);
 
+    /* Appended short-cycle levels keep the armable 10 MHz tier. */
+    failed += expect_bool("level 20", tdma_operating_profile_get(20u, &profile), true);
+    failed += expect_u32("short-cycle baud", profile.baud_hz, 10000000u);
+    failed += expect_u32("short-cycle period", profile.cycle_period_ns, 500000u);
+    failed += expect_u32("short-cycle candidate", profile.flags, 0u);
+    failed += expect_bool("short-cycle validates",
+                          tdma_operating_profile_validate(&profile, &result), true);
+    failed += expect_bool("level 21", tdma_operating_profile_get(21u, &profile), true);
+    failed += expect_u32("small-ring baud", profile.baud_hz, 10000000u);
+    failed += expect_u32("small-ring period", profile.cycle_period_ns, 250000u);
+    failed += expect_bool("level past the catalog rejected",
+                          tdma_operating_profile_get(22u, &profile), false);
+
+    /* Appending must not renumber the frozen levels or move the baud lookup
+     * that resolves the boot default. */
+    failed += expect_bool("level 7 preserved",
+                          tdma_operating_profile_get(7u, &profile), true);
+    failed += expect_u32("level 7 baud", profile.baud_hz, 10000000u);
+    failed += expect_u32("level 7 period", profile.cycle_period_ns, 1000000u);
+    failed += expect_bool("10 MHz resolves to the lowest level",
+                          tdma_operating_profile_find_baud(10000000u, &profile), true);
+    failed += expect_u32("10 MHz level", profile.level, 0u);
+
     failed += expect_bool("manager init",
                           tdma_operating_profile_manager_init(&manager, 0u), true);
     failed += expect_bool("stage level 4",

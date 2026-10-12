@@ -195,10 +195,15 @@ typedef enum {
     TDMA_PIO_SPI_PROGRAM_PERSONA_SCK_TRAIN = 14u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_P3_REFERENCE = 15u,
     TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN = 16u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_MARKER_LOOPBACK = 17u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_SCK_LOOPBACK = 18u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_SCK_RXPHASE = 19u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_MARK_RXPHASE = 20u,
+    TDMA_PIO_SPI_PROGRAM_PERSONA_DATA_LOOPBACK = 21u,
 } tdma_pio_spi_program_persona_t;
 
 #define TDMA_PIO_SPI_PROGRAM_PERSONA_MAX \
-    TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN
+    TDMA_PIO_SPI_PROGRAM_PERSONA_DATA_LOOPBACK
 
 /* Diagnostic snapshot published through its own versioned double buffer.
  * Neither raw cycles nor the first wire sequence confer timestamp identity. */
@@ -409,6 +414,7 @@ typedef enum {
     TDMA_PIO_SPI_P3_TRANSITION_PUBLISH,
     TDMA_PIO_SPI_P3_TRANSITION_STOP_FREEZE,
     TDMA_PIO_SPI_P3_TRANSITION_STOP_CLEANUP,
+    TDMA_PIO_SPI_P3_TRANSITION_START_CONFIGURE_RESPONDER,
 } tdma_pio_spi_p3_transition_t;
 
 typedef enum {
@@ -416,12 +422,21 @@ typedef enum {
     TDMA_PIO_SPI_P3_REJECT_EDGE_MISSING = 1u,
     TDMA_PIO_SPI_P3_REJECT_RESOURCE = 2u,
     TDMA_PIO_SPI_P3_REJECT_DMA = 3u,
+    TDMA_PIO_SPI_P3_REJECT_TIMEOUT = 4u,
+    TDMA_PIO_SPI_P3_REJECT_EDGE_ORDER = 5u,
+    TDMA_PIO_SPI_P3_REJECT_PREEDGE = 6u,
 } tdma_pio_spi_p3_reject_t;
 
 typedef enum {
     TDMA_PIO_SPI_P3_ROLE_NONE = 0u,
     TDMA_PIO_SPI_P3_ROLE_INITIATOR = 1u,
     TDMA_PIO_SPI_P3_ROLE_RESPONDER = 2u,
+    TDMA_PIO_SPI_P3_ROLE_LOOPBACK = 3u,
+    TDMA_PIO_SPI_P3_ROLE_MARKER_LOOPBACK = 4u,
+    TDMA_PIO_SPI_P3_ROLE_SCK_LOOPBACK = 5u,
+    TDMA_PIO_SPI_P3_ROLE_SCK_RXPHASE = 6u,
+    TDMA_PIO_SPI_P3_ROLE_MARK_RXPHASE = 7u,
+    TDMA_PIO_SPI_P3_ROLE_DATA_LOOPBACK = 8u,
 } tdma_pio_spi_p3_role_t;
 
 /* P3 measures a selected forward line against the DATA return line.  The
@@ -436,6 +451,19 @@ typedef enum {
 #define TDMA_PIO_SPI_P3_FLAG_HARDWARE_LATCHED (1u << 1u)
 #define TDMA_PIO_SPI_P3_FLAG_DMA_COMPLETE (1u << 2u)
 #define TDMA_PIO_SPI_P3_FLAG_SYNC_MATCH (1u << 3u)
+#define TDMA_PIO_SPI_P3_FLAG_MARKER_CODEWORD (1u << 4u)
+#define TDMA_PIO_SPI_P3_FLAG_TX_DRAINED (1u << 5u)
+#define TDMA_PIO_SPI_P3_FLAG_PREEDGE_HIGH (1u << 6u)
+#define TDMA_PIO_SPI_MARKER_LOOPBACK_LEAD_WORDS 8u
+#define TDMA_PIO_SPI_MARKER_LOOPBACK_TAIL_WORDS 2u
+#define TDMA_PIO_SPI_MARKER_LOOPBACK_CAPTURE_MAX_WORDS 2048u
+#define TDMA_PIO_SPI_MARKER_LOOPBACK_TIMEOUT_US 1000000u
+#define TDMA_PIO_SPI_SCK_LOOPBACK_ORIGIN_LEAD_SAMPLES 64u
+#define TDMA_PIO_SPI_SCK_LOOPBACK_ORIGIN_HIGH_SAMPLES 64u
+#define TDMA_PIO_SPI_SCK_LOOPBACK_LAUNCH_GUARD_SAMPLES 128u
+#define TDMA_PIO_SPI_SCK_LOOPBACK_TAIL_SAMPLES 64u
+#define TDMA_PIO_SPI_SCK_LOOPBACK_MIN_OFFSET (-10)
+#define TDMA_PIO_SPI_SCK_LOOPBACK_MAX_OFFSET 10
 
 typedef struct {
     uint32_t role;
@@ -444,6 +472,19 @@ typedef struct {
     uint32_t capture_words;
     uint32_t epoch;
     uint32_t signal_group;
+    const uint32_t *marker_words;
+    uint32_t marker_word_count;
+    uint32_t marker_sample_count;
+    uint32_t marker_codebook;
+    uint32_t marker_fault;
+    uint32_t marker_generation;
+    int32_t sck_launch_offset_samples;
+    uint32_t rxphase_base_ns;
+    uint32_t rxphase_direction;
+    uint32_t rxphase_destination_cycles;
+    const uint32_t *data_loop_words;
+    int32_t data_loop_mark_offset;
+    uint32_t data_loop_gap;
 } tdma_pio_spi_p3_request_t;
 
 typedef struct {
@@ -472,6 +513,26 @@ typedef struct {
     uint64_t t3_data_tx;
     uint64_t t4_data_rx;
 } tdma_pio_spi_p3_snapshot_t;
+
+typedef struct {
+    tdma_pio_spi_p3_snapshot_t raw;
+    uint32_t codebook;
+    uint32_t marker_samples;
+    uint32_t tx_words;
+    uint32_t tx_dma_remaining;
+    uint32_t capture_generation;
+    int32_t sck_launch_offset_samples;
+} tdma_pio_spi_marker_loopback_snapshot_t;
+
+#define TDMA_PIO_SPI_RXPHASE_SNAPSHOT_FIELDS 32u
+typedef struct {
+    uint32_t fields[TDMA_PIO_SPI_RXPHASE_SNAPSHOT_FIELDS];
+} tdma_pio_spi_rxphase_snapshot_t;
+
+#define TDMA_PIO_SPI_DATA_LOOP_SNAPSHOT_FIELDS 64u
+typedef struct {
+    uint32_t fields[TDMA_PIO_SPI_DATA_LOOP_SNAPSHOT_FIELDS];
+} tdma_pio_spi_data_loop_snapshot_t;
 
 typedef enum {
     TDMA_PIO_SPI_CODED_IDLE = 0u,
@@ -847,6 +908,24 @@ typedef struct {
     tdma_pio_spi_coded_snapshot_t coded;
     volatile uint32_t p3_guard;
     tdma_pio_spi_p3_snapshot_t p3;
+    tdma_pio_spi_p3_snapshot_t p3_responder;
+    uint32_t p3_decode_endpoint;
+    bool p3_stop_pending;
+    uint32_t p3_marker_codebook;
+    uint32_t p3_marker_generation;
+    int32_t p3_sck_launch_offset_samples;
+    uint32_t p3_rxphase_base_ns;
+    uint32_t p3_rxphase_direction;
+    uint32_t p3_rxphase_destination_cycles;
+    uint32_t p3_rxphase_instruction;
+    uint32_t p3_rxphase_remaining;
+    uint32_t p3_rxphase_fault;
+    bool p3_rxphase_capture_configured;
+    uint32_t p3_marker_samples;
+    uint32_t p3_marker_tx_words;
+    uint32_t p3_marker_tx_remaining;
+    uint64_t p3_marker_deadline_us;
+    bool p3_marker_drain_check;
     volatile uint32_t p3_transition;
     uint32_t p3_target_persona;
     uint32_t p3_program_step;
@@ -869,6 +948,16 @@ typedef struct {
     uint64_t p3_decode_data_rise;
     uint64_t p3_decode_data_high_sum;
     uint32_t p3_decode_data_high_count;
+    tdma_pio_spi_data_loop_snapshot_t data_loop;
+    uint32_t data_loop_program_offsets[4];
+    uint32_t data_loop_program_count;
+    uint32_t data_loop_dma_configured;
+    uint32_t data_loop_drain_pending;
+    uint32_t data_loop_decode_sample;
+    uint32_t data_loop_previous;
+    bool data_loop_stop_requested;
+    bool data_loop_abort_issued;
+    uint64_t data_loop_deadline;
     volatile uint32_t marker_guard;
     tdma_pio_spi_marker_snapshot_t marker;
     uint64_t marker_deadline_ns;
@@ -1072,6 +1161,35 @@ void tdma_pio_spi_phys_p3_stop(tdma_pio_spi_phys_t *phys);
 void tdma_pio_spi_phys_p3_service(tdma_pio_spi_phys_t *phys);
 bool tdma_pio_spi_phys_get_p3_snapshot(
     const tdma_pio_spi_phys_t *phys, tdma_pio_spi_p3_snapshot_t *snapshot);
+bool tdma_pio_spi_phys_get_p3_endpoint_snapshot(
+    const tdma_pio_spi_phys_t *phys, uint32_t endpoint,
+    tdma_pio_spi_p3_snapshot_t *snapshot);
+bool tdma_pio_spi_phys_get_marker_loopback_snapshot(
+    const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_marker_loopback_snapshot_t *snapshot);
+bool tdma_pio_spi_phys_copy_marker_loopback_capture(
+    const tdma_pio_spi_phys_t *phys, uint32_t epoch, uint32_t offset,
+    uint32_t count, uint32_t generation, uint32_t *words, uint32_t *total);
+bool tdma_pio_spi_phys_get_sck_loopback_snapshot(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_marker_loopback_snapshot_t *snapshot);
+bool tdma_pio_spi_phys_copy_sck_loopback_capture(
+    const tdma_pio_spi_phys_t *phys, uint32_t epoch, uint32_t offset,
+    uint32_t count, uint32_t generation, uint32_t *words, uint32_t *total);
+bool tdma_pio_spi_phys_get_rxphase_snapshot(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_rxphase_snapshot_t *snapshot);
+bool tdma_pio_spi_phys_get_data_loop_snapshot(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_data_loop_snapshot_t *snapshot);
+bool tdma_pio_spi_phys_copy_data_loop_capture(
+    const tdma_pio_spi_phys_t *phys, uint32_t epoch, uint32_t kind, uint32_t offset,
+    uint32_t count, uint32_t generation, uint32_t *words, uint32_t *total);
+bool tdma_pio_spi_phys_get_mark_rxphase_snapshot(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_rxphase_snapshot_t *snapshot);
+bool tdma_pio_spi_phys_copy_mark_rxphase_capture(
+    const tdma_pio_spi_phys_t *phys, uint32_t epoch, uint32_t offset,
+    uint32_t count, uint32_t generation, uint32_t *words, uint32_t *total);
+bool tdma_pio_spi_phys_copy_rxphase_capture(
+    const tdma_pio_spi_phys_t *phys, uint32_t epoch, uint32_t offset,
+    uint32_t count, uint32_t generation, uint32_t *words, uint32_t *total);
 /* Core1 TDMA-owner-only persona switch. The caller must first stop both SMs
  * and DMA. Programs are removed/loaded as a set; no core0/SCPI caller may
  * write PIO instruction memory directly. */

@@ -64,8 +64,21 @@ scpi_result_t scpi_cmd_system_tdma_flight_clock_evidence_status_q(
 scpi_result_t scpi_cmd_system_tdma_load_mask(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_load_mask_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_schedule_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_schedule_begin(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_schedule_phase(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_schedule_cycle(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_schedule_validate_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_schedule_apply(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_schedule_save(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_schedule_capabilities_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_schedule_discard(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_schedule_clear(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_schedule_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_schedule_table_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_schedule_draft_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_period(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_period_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_clock_tick_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_profile_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_profile_peak_q(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_profile_run_q(scpi_t *context);
@@ -189,6 +202,18 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:LOAD:MASK?", .callback = scpi_cmd_system_tdma_load_mask_q}, \
     {.pattern = "SYSTem:TDMA:LOAD:MASK", .callback = scpi_cmd_system_tdma_load_mask}, \
     {.pattern = "SYSTem:TDMA:SCHEDule?", .callback = scpi_cmd_system_tdma_schedule_q}, \
+    {.pattern = "SYSTem:TDMA:SCHEDule:BEGIN", .callback = scpi_cmd_system_tdma_schedule_begin}, \
+    {.pattern = "SYSTem:TDMA:SCHEDule:PHASe", .callback = scpi_cmd_system_tdma_schedule_phase}, \
+    {.pattern = "SYSTem:TDMA:SCHEDule:CYCLe", .callback = scpi_cmd_system_tdma_schedule_cycle}, \
+    {.pattern = "SYSTem:TDMA:SCHEDule:VALidate?", .callback = scpi_cmd_system_tdma_schedule_validate_q}, \
+    {.pattern = "SYSTem:TDMA:SCHEDule:APPLy", .callback = scpi_cmd_system_tdma_schedule_apply}, \
+    {.pattern = "SYSTem:TDMA:SCHEDule:SAVE", .callback = scpi_cmd_system_tdma_schedule_save}, \
+    {.pattern = "SYSTem:TDMA:SCHEDule:CAPabilities?", .callback = scpi_cmd_system_tdma_schedule_capabilities_q}, \
+    {.pattern = "SYSTem:TDMA:SCHEDule:DISCard", .callback = scpi_cmd_system_tdma_schedule_discard}, \
+    {.pattern = "SYSTem:TDMA:SCHEDule:CLEar", .callback = scpi_cmd_system_tdma_schedule_clear}, \
+    {.pattern = "SYSTem:TDMA:SCHEDule:STATus?", .callback = scpi_cmd_system_tdma_schedule_status_q}, \
+    {.pattern = "SYSTem:TDMA:SCHEDule:TABle?", .callback = scpi_cmd_system_tdma_schedule_table_q}, \
+    {.pattern = "SYSTem:TDMA:SCHEDule:DRAFt?", .callback = scpi_cmd_system_tdma_schedule_draft_q}, \
     {.pattern = "SYSTem:TDMA:PERiod", .callback = scpi_cmd_system_tdma_period}, \
     {.pattern = "SYSTem:TDMA:PERiod?", .callback = scpi_cmd_system_tdma_period_q}, \
     {.pattern = "SYSTem:TDMA:PROFile?", .callback = scpi_cmd_system_tdma_profile_q}, \
@@ -226,6 +251,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:RING:LOG?", .callback = scpi_cmd_system_tdma_ring_log_q}, \
     {.pattern = "SYSTem:TDMA:RING:LOG", .callback = scpi_cmd_system_tdma_ring_log}, \
     {.pattern = "SYSTem:CORE:VECTOR?", .callback = scpi_cmd_core_vector_q}, \
+    {.pattern = "SYSTem:CLOCk:TICk?", .callback = scpi_cmd_system_clock_tick_q}, \
     {.pattern = "SYSTem:REFMEM:VDC:VECtor?", .callback = scpi_cmd_refmem_vdc_vector_q}, \
     {.pattern = "SYSTem:REFMEM:DPLL:VECtor?", .callback = scpi_cmd_refmem_dpll_vector_q}, \
     {.pattern = "SYSTem:PROTection:STATus?", .callback = scpi_cmd_runtime_protection_q}, \

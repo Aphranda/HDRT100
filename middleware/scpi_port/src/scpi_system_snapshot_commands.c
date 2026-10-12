@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "app.h"
+#include "app_realtime_profile.h"
 #include "diagnostics_tdma_record.h"
 #include "pico/time.h"
 #include "board_config.h"
@@ -31,6 +32,7 @@
 #include "tdma_runtime_owner.h"
 #include "tdma_rx_start_cut.h"
 #include "tdma_service_timing.h"
+#include "vdc_timestamp_clock.h"
 
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u
 #define SCPI_REFMEM_PACKAGE_PATH "/refmem/app_model.rmtp"
@@ -2550,6 +2552,27 @@ scpi_result_t scpi_cmd_system_tdma_period_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_system_clock_tick_q(scpi_t *context)
+{
+    vdc_tick_audit_t audit;
+    /* A missing sample stays an observable state, not an SCPI failure or a
+     * queued execution error: the snapshot keeps its version and zero counters
+     * so missing data cannot read as a passing audit. */
+    (void)vdc_tick_audit_get(&audit);
+    SCPI_ResultUInt32(context, audit.version);
+    SCPI_ResultUInt32(context, audit.clk_sys_hz);
+    SCPI_ResultUInt32(context, audit.tick_rate_hz);
+    SCPI_ResultUInt32(context, audit.expected_reload);
+    SCPI_ResultUInt32(context, audit.actual_reload);
+    SCPI_ResultUInt32(context, audit.static_flags);
+    SCPI_ResultUInt32(context, audit.window_nominal_ms);
+    SCPI_ResultUInt32(context, audit.window_real_ms);
+    SCPI_ResultInt32(context, audit.ratio_ppm);
+    SCPI_ResultUInt32(context, audit.samples);
+    SCPI_ResultUInt32(context, audit.dynamic_flags);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_system_tdma_schedule_q(scpi_t *context)
 {
     app_realtime_schedule_snapshot_t snapshot;
@@ -2581,6 +2604,232 @@ scpi_result_t scpi_cmd_system_tdma_schedule_q(scpi_t *context)
         SCPI_ResultUInt32(context,
                           snapshot.phase_deadline_miss_count[phase]);
     }
+    return SCPI_RES_OK;
+}
+
+static scpi_result_t scpi_system_tdma_schedule_error(
+    scpi_t *context, app_realtime_profile_reject_t reject)
+{
+    char info[64];
+    (void)snprintf(info, sizeof(info), "TDMA_SCHEDULE_REJECT:%s",
+                   app_realtime_profile_reject_name(reject));
+    scpi_port_push_exec_error(context, info);
+    return SCPI_RES_ERR;
+}
+
+static bool scpi_system_tdma_schedule_begin_draft(void)
+{
+    app_realtime_schedule_snapshot_t schedule;
+    return app_realtime_get_schedule_snapshot(&schedule) &&
+        app_realtime_profile_stage_from_schedule(&schedule);
+}
+
+static bool scpi_system_tdma_schedule_ensure_draft(void)
+{
+    app_realtime_profile_table_t staged;
+    if (app_realtime_profile_stage_read(&staged)) return true;
+    /* An editor writes one phase at a time; the draft is opened from the table
+     * in force on the first write, so BEGIN is optional rather than required. */
+    return scpi_system_tdma_schedule_begin_draft();
+}
+
+static void scpi_system_tdma_schedule_result_table(
+    scpi_t *context, const app_realtime_profile_table_t *table)
+{
+    SCPI_ResultUInt32(context, table->version);
+    SCPI_ResultUInt32(context, table->cycle_cycles);
+    SCPI_ResultUInt32(context, (uint32_t)APP_REALTIME_PHASE_COUNT);
+    for (uint32_t phase = 0u; phase < (uint32_t)APP_REALTIME_PHASE_COUNT;
+         phase++) {
+        SCPI_ResultUInt32(context, table->phase[phase].start_cycle);
+        SCPI_ResultUInt32(context, table->phase[phase].end_cycle);
+        SCPI_ResultUInt32(context, table->phase[phase].wcet_cycles);
+    }
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_begin(scpi_t *context)
+{
+    if (!scpi_system_tdma_schedule_begin_draft()) {
+        return scpi_system_tdma_schedule_error(
+            context, APP_REALTIME_PROFILE_REJECT_NULL);
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_phase(scpi_t *context)
+{
+    uint32_t phase_id = 0u, start_cycle = 0u, end_cycle = 0u, wcet_cycles = 0u;
+    if (!scpi_port_read_u32(context, &phase_id) ||
+        !scpi_port_read_u32(context, &start_cycle) ||
+        !scpi_port_read_u32(context, &end_cycle) ||
+        !scpi_port_read_u32(context, &wcet_cycles) ||
+        phase_id >= (uint32_t)APP_REALTIME_PHASE_COUNT ||
+        !scpi_system_tdma_schedule_ensure_draft() ||
+        !app_realtime_profile_stage_phase(phase_id, start_cycle, end_cycle,
+                                          wcet_cycles)) {
+        scpi_port_push_exec_error(context, "TDMA_SCHEDULE_PHASE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, phase_id);
+    SCPI_ResultUInt32(context, start_cycle);
+    SCPI_ResultUInt32(context, end_cycle);
+    SCPI_ResultUInt32(context, wcet_cycles);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_cycle(scpi_t *context)
+{
+    uint32_t cycle_cycles = 0u;
+    if (!scpi_port_read_u32(context, &cycle_cycles) ||
+        !scpi_system_tdma_schedule_ensure_draft() ||
+        !app_realtime_profile_stage_cycle(cycle_cycles)) {
+        scpi_port_push_exec_error(context, "TDMA_SCHEDULE_CYCLE");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, cycle_cycles);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_validate_q(scpi_t *context)
+{
+    app_realtime_profile_table_t staged;
+    app_realtime_profile_rejection_t rejection = APP_REALTIME_PROFILE_REJECTION_INIT;
+    if (!app_realtime_profile_stage_read(&staged)) {
+        /* No draft is a state, not an error: it cannot be admitted, and saying
+         * so is more useful than failing the query. */
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultText(context, "NO_DRAFT");
+        SCPI_ResultUInt32(context, (uint32_t)APP_REALTIME_PHASE_COUNT);
+        SCPI_ResultUInt32(context, 0u);
+        return SCPI_RES_OK;
+    }
+    const bool valid = app_realtime_profile_table_validate(&staged, &rejection);
+    SCPI_ResultUInt32(context, valid ? 1u : 0u);
+    SCPI_ResultText(context, app_realtime_profile_reject_name(rejection.code));
+    SCPI_ResultUInt32(context, rejection.phase_id);
+    SCPI_ResultUInt32(context, staged.cycle_cycles);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_apply(scpi_t *context)
+{
+    uint32_t reject_code = 0u, reject_phase = 0u;
+    if (!app_realtime_profile_apply(&reject_code, &reject_phase)) {
+        char info[64];
+        (void)snprintf(info, sizeof(info), "TDMA_SCHEDULE_REJECT:%s:%lu",
+                       app_realtime_profile_reject_name(
+                           (app_realtime_profile_reject_t)reject_code),
+                       (unsigned long)reject_phase);
+        scpi_port_push_exec_error(context, info);
+        return SCPI_RES_ERR;
+    }
+    app_realtime_profile_table_t table;
+    (void)app_realtime_profile_table_effective(&table);
+    /* ACK names the temporary target. PERiod? exposes the asynchronous Core1
+     * generation; only an explicit SAVE writes the applied table to Flash. */
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, table.cycle_cycles);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_save(scpi_t *context)
+{
+    uint32_t reject_code = 0u, reject_phase = 0u;
+    if (!app_realtime_profile_save(&reject_code, &reject_phase)) {
+        char info[64];
+        (void)snprintf(info, sizeof(info), "TDMA_SCHEDULE_REJECT:%s:%lu",
+                       app_realtime_profile_reject_name(
+                           (app_realtime_profile_reject_t)reject_code),
+                       (unsigned long)reject_phase);
+        scpi_port_push_exec_error(context, info);
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_capabilities_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, 1u); /* capability schema */
+    SCPI_ResultUInt32(context, 1u); /* volatile APPLY/CLEAR + explicit SAVE */
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_discard(scpi_t *context)
+{
+    if (!app_realtime_profile_stage_discard()) {
+        scpi_port_push_exec_error(context, "TDMA_SCHEDULE_DISCARD");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_clear(scpi_t *context)
+{
+    uint32_t reject_code = 0u, reject_phase = 0u;
+    if (!app_realtime_profile_reset(&reject_code, &reject_phase)) {
+        char info[64];
+        (void)snprintf(info, sizeof(info), "TDMA_SCHEDULE_REJECT:%s",
+                       app_realtime_profile_reject_name(
+                           (app_realtime_profile_reject_t)reject_code));
+        scpi_port_push_exec_error(context, info);
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, PROJECT_CORE1_CYCLE_CYCLES);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_status_q(scpi_t *context)
+{
+    app_realtime_profile_status_t status;
+    if (!app_realtime_profile_status_get(&status)) return SCPI_RES_ERR;
+    SCPI_ResultUInt32(context, status.version);
+    SCPI_ResultUInt32(context, status.default_cycles);
+    SCPI_ResultUInt32(context, status.active_cycles);
+    SCPI_ResultUInt32(context, status.applied_generation);
+    SCPI_ResultUInt32(context, status.configured);
+    SCPI_ResultUInt32(context, status.persisted);
+    SCPI_ResultUInt32(context, status.staged);
+    SCPI_ResultUInt32(context, status.staged_dirty);
+    SCPI_ResultUInt32(context, status.staged_valid);
+    SCPI_ResultUInt32(context, status.reject_code);
+    SCPI_ResultText(context, app_realtime_profile_reject_name(
+        (app_realtime_profile_reject_t)status.reject_code));
+    SCPI_ResultUInt32(context, status.reject_phase);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_table_q(scpi_t *context)
+{
+    app_realtime_profile_table_t table;
+    if (!app_realtime_profile_table_effective(&table)) return SCPI_RES_ERR;
+    scpi_system_tdma_schedule_result_table(context, &table);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_schedule_draft_q(scpi_t *context)
+{
+    app_realtime_profile_table_t staged;
+    if (!app_realtime_profile_stage_read(&staged)) {
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, (uint32_t)APP_REALTIME_PHASE_COUNT);
+        for (uint32_t phase = 0u; phase < (uint32_t)APP_REALTIME_PHASE_COUNT;
+             phase++) {
+            SCPI_ResultUInt32(context, 0u);
+            SCPI_ResultUInt32(context, 0u);
+            SCPI_ResultUInt32(context, 0u);
+        }
+        SCPI_ResultUInt32(context, 0u);
+        return SCPI_RES_OK;
+    }
+    scpi_system_tdma_schedule_result_table(context, &staged);
+    SCPI_ResultUInt32(context, app_realtime_profile_stage_dirty() ? 1u : 0u);
     return SCPI_RES_OK;
 }
 

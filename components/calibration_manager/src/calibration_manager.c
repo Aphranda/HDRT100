@@ -89,6 +89,11 @@ static uint32_t s_clk_coded_capture[TDMA_PIO_SPI_CODED_BUFFER_WORDS];
 static volatile bool s_clk_coded_active;
 static uint32_t s_clk_coded_request_sequence;
 static calibration_manager_p3_snapshot_t s_p3_snapshot;
+static uint32_t s_marker_loopback_words[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
+_Static_assert(TDMA_PIO_SPI_MARKER_LOOPBACK_CAPTURE_MAX_WORDS * 4u >=
+    (CALIBRATION_CLK_MARKER_MAX_RAW_WORDS + TDMA_PIO_SPI_MARKER_LOOPBACK_LEAD_WORDS +
+     TDMA_PIO_SPI_MARKER_LOOPBACK_TAIL_WORDS) * 32u + CALIBRATION_CLK_CORRELATION_MAX_LAGS,
+    "MARK capture must include the complete longest codeword and return guard");
 static calibration_training_marker_store_t s_marker_store;
 static calibration_clk_coded_workspace_t s_marker_workspace;
 static uint32_t s_marker_tx_words[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
@@ -367,6 +372,7 @@ typedef struct {
 static calibration_p3_intent_t s_p3_intent;
 static uint32_t s_p3_intent_next_sequence;
 static volatile uint32_t s_p3_intent_consumed_sequence;
+static volatile uint32_t s_marker_loopback_accepted_sequence;
 static volatile bool s_p3_offline_session;
 static volatile bool s_p3_offline_seen_armed;
 static volatile bool s_p3_offline_stopping;
@@ -377,8 +383,16 @@ static void calibration_manager_p3_publish(
 {
     (void)__atomic_add_fetch(&s_p3_intent.guard, 1u, __ATOMIC_ACQ_REL);
     s_p3_intent.sequence = ++s_p3_intent_next_sequence;
+    if (s_p3_intent.sequence == 0u)
+        s_p3_intent.sequence = ++s_p3_intent_next_sequence;
     s_p3_intent.opcode = (uint32_t)opcode;
     if (request != NULL) s_p3_intent.request = *request;
+    if (request != NULL && (request->role == TDMA_PIO_SPI_P3_ROLE_MARKER_LOOPBACK ||
+                           request->role == TDMA_PIO_SPI_P3_ROLE_SCK_LOOPBACK ||
+                           request->role == TDMA_PIO_SPI_P3_ROLE_SCK_RXPHASE ||
+                           request->role == TDMA_PIO_SPI_P3_ROLE_MARK_RXPHASE ||
+                           request->role == TDMA_PIO_SPI_P3_ROLE_DATA_LOOPBACK))
+        s_p3_intent.request.marker_generation = s_p3_intent.sequence;
     (void)__atomic_add_fetch(&s_p3_intent.guard, 1u, __ATOMIC_RELEASE);
 }
 
@@ -390,6 +404,7 @@ static bool calibration_manager_p3_read(calibration_p3_intent_t *intent)
             __atomic_load_n(&s_p3_intent.guard, __ATOMIC_ACQUIRE);
         if ((begin & 1u) != 0u) continue;
         *intent = s_p3_intent;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
         const uint32_t end =
             __atomic_load_n(&s_p3_intent.guard, __ATOMIC_ACQUIRE);
         if (begin == end && (end & 1u) == 0u) return true;
@@ -608,6 +623,7 @@ bool calibration_manager_init(void)
     s_clk_coded_request_sequence = 0u;
     s_p3_intent_next_sequence = 0u;
     s_p3_intent_consumed_sequence = 0u;
+    s_marker_loopback_accepted_sequence = 0u;
     s_loopback_processed_epoch = 0u;
     s_bias_active = false;
     s_bias_next_epoch = 1u;
@@ -2147,6 +2163,7 @@ void calibration_manager_p3_service_core1(void)
     if (calibration_manager_p3_read(&intent) &&
         intent.sequence != __atomic_load_n(
             &s_p3_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        __atomic_store_n(&s_marker_loopback_accepted_sequence, 0u, __ATOMIC_RELEASE);
         if (intent.opcode == CALIBRATION_P3_INTENT_STOP) {
             __atomic_store_n(&s_p3_offline_session, true, __ATOMIC_RELEASE);
             __atomic_store_n(&s_p3_offline_stopping, true, __ATOMIC_RELEASE);
@@ -2157,7 +2174,15 @@ void calibration_manager_p3_service_core1(void)
                              __ATOMIC_RELEASE);
             __atomic_store_n(&s_p3_offline_stopping, false,
                              __ATOMIC_RELEASE);
-            (void)tdma_runtime_owner_p3_start_core1(&intent.request);
+            if (tdma_runtime_owner_p3_start_core1(&intent.request) &&
+                (intent.request.role == TDMA_PIO_SPI_P3_ROLE_MARKER_LOOPBACK ||
+                 intent.request.role == TDMA_PIO_SPI_P3_ROLE_SCK_LOOPBACK ||
+                 intent.request.role == TDMA_PIO_SPI_P3_ROLE_SCK_RXPHASE ||
+                 intent.request.role == TDMA_PIO_SPI_P3_ROLE_MARK_RXPHASE ||
+                 intent.request.role == TDMA_PIO_SPI_P3_ROLE_DATA_LOOPBACK)) {
+                __atomic_store_n(&s_marker_loopback_accepted_sequence,
+                                 intent.sequence, __ATOMIC_RELEASE);
+            }
         } else {
             __atomic_store_n(&s_p3_offline_session, false, __ATOMIC_RELEASE);
         }
@@ -3011,7 +3036,8 @@ bool calibration_manager_request_p3(
     calibration_p3_intent_t pending;
     tdma_pio_spi_p3_snapshot_t raw;
     if ((role != TDMA_PIO_SPI_P3_ROLE_INITIATOR &&
-         role != TDMA_PIO_SPI_P3_ROLE_RESPONDER) ||
+         role != TDMA_PIO_SPI_P3_ROLE_RESPONDER &&
+         role != TDMA_PIO_SPI_P3_ROLE_LOOPBACK) ||
         signal_group > TDMA_PIO_SPI_P3_GROUP_CS_DATA ||
         !calibration_manager_p3_read(&pending) ||
         pending.sequence != __atomic_load_n(
@@ -3052,6 +3078,267 @@ bool calibration_manager_get_p3_snapshot(
     osal_critical_exit();
 
     (void)tdma_runtime_owner_get_p3_snapshot(&snapshot->raw);
+    snapshot->result_valid =
+        snapshot->raw.state == TDMA_PIO_SPI_P3_COMPLETE ? 1u : 0u;
+    return true;
+}
+
+static uint32_t s_data_loopback_words[CALIBRATION_CLK_MARKER_MAX_RAW_WORDS];
+
+static bool calibration_manager_request_codeword_loopback(
+    uint32_t codebook, uint32_t epoch, uint32_t words, uint32_t fault,
+    uint32_t role, int32_t launch_offset, uint32_t base_ns, uint32_t direction,
+    int32_t mark_offset, uint32_t gap)
+{
+    uint32_t source_cycles = 0u, destination_cycles = 0u;
+    const bool data_loop = role == TDMA_PIO_SPI_P3_ROLE_DATA_LOOPBACK;
+    if (data_loop) {
+        const int64_t b=(int64_t)(((uint64_t)base_ns+2u)/4u);
+        const int64_t source=1+b+mark_offset, sink=source+2*b+launch_offset;
+        if(base_ns==0u||b>31||source<1||source>32||sink<1||sink>32||gap<256u||gap>1000u||
+            mark_offset < -10 || mark_offset > 10)return false;
+    }
+    if ((role == TDMA_PIO_SPI_P3_ROLE_SCK_RXPHASE || role == TDMA_PIO_SPI_P3_ROLE_MARK_RXPHASE) &&
+        (words > 256u || direction > 1u ||
+         (role == TDMA_PIO_SPI_P3_ROLE_MARK_RXPHASE && (words != 256u || direction != 0u)) ||
+         !calibration_training_sck_map_offset_to_phase_cycles(base_ns, 4u, launch_offset,
+             &source_cycles, &destination_cycles) || source_cycles != 1u ||
+         destination_cycles == 0u || destination_cycles > 32u)) return false;
+    calibration_p3_intent_t pending;
+    tdma_pio_spi_p3_snapshot_t raw;
+    if (codebook > CALIBRATION_CLK_CODEBOOK_M255_MANCHESTER_32 ||
+        epoch == 0u || epoch > UINT8_MAX || words < 16u ||
+        words > TDMA_PIO_SPI_MARKER_LOOPBACK_CAPTURE_MAX_WORDS || fault > (data_loop ? 2u : 1u) ||
+        launch_offset < TDMA_PIO_SPI_SCK_LOOPBACK_MIN_OFFSET ||
+        launch_offset > TDMA_PIO_SPI_SCK_LOOPBACK_MAX_OFFSET ||
+        !calibration_manager_p3_read(&pending) ||
+        pending.sequence != __atomic_load_n(&s_p3_intent_consumed_sequence, __ATOMIC_ACQUIRE) ||
+        !tdma_runtime_owner_get_p3_snapshot(&raw) || raw.state == TDMA_PIO_SPI_P3_ARMED ||
+        __atomic_load_n(&s_marker_active, __ATOMIC_ACQUIRE) ||
+        __atomic_load_n(&s_data_active, __ATOMIC_ACQUIRE) ||
+        __atomic_load_n(&s_sck_active, __ATOMIC_ACQUIRE) ||
+        __atomic_load_n(&s_clk_coded_active, __ATOMIC_ACQUIRE) ||
+        calibration_manager_intent_pending(&s_data_intent.guard, &s_data_intent.sequence,
+                                           &s_data_intent_consumed_sequence) ||
+        calibration_manager_intent_pending(&s_sck_intent.guard, &s_sck_intent.sequence,
+                                           &s_sck_intent_consumed_sequence) ||
+        calibration_manager_intent_pending(&s_marker_intent.guard, &s_marker_intent.sequence,
+                                           &s_marker_intent_consumed_sequence) ||
+        calibration_manager_intent_pending(&s_clk_coded_intent.guard, &s_clk_coded_intent.sequence,
+                                           &s_clk_coded_intent_consumed_sequence) ||
+        calibration_manager_intent_pending(&s_ring_capture_intent.guard, &s_ring_capture_intent.sequence,
+                                           &s_ring_capture_consumed_sequence)) return false;
+    calibration_clk_marker_descriptor_t descriptor;
+    const calibration_clk_marker_config_t config = {
+        .version = CALIBRATION_CLK_MARKER_CANDIDATE_VERSION,
+        .codebook_id = (uint8_t)codebook,
+        .epoch = (uint8_t)epoch,
+        .source_node = 0u,
+        .polarity = CALIBRATION_CLK_POLARITY_NORMAL,
+    };
+    if (!calibration_clk_marker_build(&config, s_marker_loopback_words,
+            CALIBRATION_CLK_MARKER_MAX_RAW_WORDS, &descriptor)) return false;
+    if(data_loop) {
+        calibration_clk_marker_config_t data_config=config;data_config.source_node=1u;
+        calibration_clk_marker_descriptor_t data_descriptor;
+        if(!calibration_clk_marker_build(&data_config,s_data_loopback_words,
+            CALIBRATION_CLK_MARKER_MAX_RAW_WORDS,&data_descriptor)||
+            descriptor.raw_samples!=data_descriptor.raw_samples)return false;
+        const uint64_t b=((uint64_t)base_ns+2u)/4u;
+        if(256ull+gap+4u*b+(uint64_t)(1+(int64_t)b+mark_offset)+descriptor.raw_samples+128u>8192u)return false;
+    }
+    const tdma_pio_spi_p3_request_t request = {
+        .role = role,
+        .capture_words = words,
+        .epoch = epoch,
+        .signal_group = role != TDMA_PIO_SPI_P3_ROLE_MARKER_LOOPBACK && role != TDMA_PIO_SPI_P3_ROLE_MARK_RXPHASE ?
+            TDMA_PIO_SPI_P3_GROUP_CLK_DATA : TDMA_PIO_SPI_P3_GROUP_CS_DATA,
+        .marker_words = s_marker_loopback_words,
+        .marker_word_count = descriptor.raw_words,
+        .marker_sample_count = descriptor.raw_samples,
+        .marker_codebook = codebook,
+        .marker_fault = fault,
+        .sck_launch_offset_samples = launch_offset,
+        .rxphase_base_ns = base_ns,
+        .rxphase_direction = direction,
+        .rxphase_destination_cycles = destination_cycles,
+        .data_loop_words = data_loop ? s_data_loopback_words : NULL,
+        .data_loop_mark_offset = mark_offset,
+        .data_loop_gap = gap,
+    };
+    calibration_manager_p3_publish(CALIBRATION_P3_INTENT_START, &request);
+    __atomic_store_n(&s_p3_offline_session, true, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_p3_offline_seen_armed, false, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_p3_offline_stopping, false, __ATOMIC_RELEASE);
+    calibration_manager_set_training_activity_core0(true);
+    return true;
+}
+
+bool calibration_manager_request_marker_loopback(
+    uint32_t codebook, uint32_t epoch, uint32_t words, uint32_t fault)
+{
+    return calibration_manager_request_codeword_loopback(codebook, epoch, words, fault,
+        TDMA_PIO_SPI_P3_ROLE_MARKER_LOOPBACK, 0, 0u, 0u, 0, 0u);
+}
+
+bool calibration_manager_request_sck_loopback(
+    uint32_t codebook, uint32_t epoch, uint32_t words, int32_t launch_offset, uint32_t fault)
+{
+    return calibration_manager_request_codeword_loopback(codebook, epoch, words, fault,
+        TDMA_PIO_SPI_P3_ROLE_SCK_LOOPBACK, launch_offset, 0u, 0u, 0, 0u);
+}
+
+bool calibration_manager_request_rxphase(
+    uint32_t codebook, uint32_t epoch, uint32_t words, uint32_t base_ns,
+    int32_t offset, uint32_t direction, uint32_t fault)
+{
+    return calibration_manager_request_codeword_loopback(codebook, epoch, words, fault,
+        TDMA_PIO_SPI_P3_ROLE_SCK_RXPHASE, offset, base_ns, direction, 0, 0u);
+}
+
+bool calibration_manager_request_mark_rxphase(
+    uint32_t codebook, uint32_t epoch, uint32_t words, uint32_t base_ns,
+    int32_t offset, uint32_t direction, uint32_t fault)
+{
+    return calibration_manager_request_codeword_loopback(codebook, epoch, words, fault,
+        TDMA_PIO_SPI_P3_ROLE_MARK_RXPHASE, offset, base_ns, direction, 0, 0u);
+}
+
+bool calibration_manager_request_data_loop(uint32_t codebook,uint32_t epoch,uint32_t base_ns,
+    int32_t mark_offset,int32_t data_offset,uint32_t gap,uint32_t fault)
+{
+    return calibration_manager_request_codeword_loopback(codebook,epoch,256u,fault,
+        TDMA_PIO_SPI_P3_ROLE_DATA_LOOPBACK,data_offset,base_ns,0u,mark_offset,gap);
+}
+
+bool calibration_manager_get_rxphase_config(uint32_t fields[12])
+{
+    if (fields == NULL) return false;
+    for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+        tdma_ring_runtime_snapshot_t before, after;
+        tdma_service_ring_runtime_config_t staged, verify;
+        tdma_ring_calibration_stage_t stage = {0};
+        bool complete = false;
+        if (!tdma_runtime_owner_get_ring_snapshot(&before) ||
+            !tdma_runtime_owner_get_staged_ring_config(&staged)) return false;
+        (void)tdma_runtime_owner_get_calibration_stage(&stage, &complete);
+        const uint32_t topology = calibration_manager_topology_generation(&staged);
+        if (topology == 0u || staged.local_slot_id >= staged.node_count ||
+            staged.reference_slot_id >= staged.node_count) return false;
+        if (!tdma_runtime_owner_get_ring_snapshot(&after)) return false;
+        if (before.config_seq != after.config_seq ||
+            before.applied_config_seq != after.applied_config_seq) continue;
+        if (!tdma_runtime_owner_get_staged_ring_config(&verify)) return false;
+        if (staged.node_count != verify.node_count || staged.local_slot_id != verify.local_slot_id ||
+            staged.reference_slot_id != verify.reference_slot_id ||
+            staged.ring_profile_crc32 != verify.ring_profile_crc32 ||
+            staged.operating_profile_crc32 != verify.operating_profile_crc32 ||
+            staged.schedule_crc32 != verify.schedule_crc32) continue;
+        fields[0] = 1u; fields[1] = staged.node_count;
+        fields[2] = staged.local_slot_id; fields[3] = staged.reference_slot_id;
+        fields[4] = topology; fields[5] = staged.ring_profile_crc32;
+        fields[6] = staged.operating_profile_crc32; fields[7] = staged.schedule_crc32;
+        fields[8] = after.config_seq; fields[9] = after.applied_config_seq;
+        fields[10] = stage.enabled != 0u ? stage.calibration_generation : 0u;
+        fields[11] = 4u;
+        return true;
+    }
+    return false;
+}
+
+bool calibration_manager_stop_codeword_loopback(uint32_t role)
+{
+    calibration_p3_intent_t pending;
+    tdma_pio_spi_p3_snapshot_t raw;
+    if ((role != TDMA_PIO_SPI_P3_ROLE_MARKER_LOOPBACK && role != TDMA_PIO_SPI_P3_ROLE_SCK_LOOPBACK &&
+         role != TDMA_PIO_SPI_P3_ROLE_SCK_RXPHASE && role != TDMA_PIO_SPI_P3_ROLE_MARK_RXPHASE &&
+         role != TDMA_PIO_SPI_P3_ROLE_DATA_LOOPBACK) ||
+        !calibration_manager_p3_read(&pending) || !tdma_runtime_owner_get_p3_snapshot(&raw)) return false;
+    if (pending.sequence != __atomic_load_n(&s_p3_intent_consumed_sequence, __ATOMIC_ACQUIRE)) {
+        if (pending.request.role != role) return false;
+    } else if (raw.state != TDMA_PIO_SPI_P3_IDLE && raw.role != role) return false;
+    calibration_manager_stop_p3();
+    return true;
+}
+
+static bool calibration_manager_copy_codeword_loopback_capture(
+    uint32_t epoch, uint32_t offset, uint32_t count, uint32_t generation,
+    uint32_t *words, uint32_t *total, uint32_t role)
+{
+    calibration_p3_intent_t before, after;
+    if (!calibration_manager_p3_read(&before) ||
+        before.opcode != CALIBRATION_P3_INTENT_START ||
+        before.request.role != role ||
+        before.sequence != __atomic_load_n(&s_p3_intent_consumed_sequence, __ATOMIC_ACQUIRE) ||
+        before.sequence != __atomic_load_n(&s_marker_loopback_accepted_sequence, __ATOMIC_ACQUIRE))
+        return false;
+    /* Core1 owns the buffer. Its snapshot guard protects the bounded copy;
+     * intent identity also rejects an acknowledged but not yet consumed START. */
+    const bool copied = role == TDMA_PIO_SPI_P3_ROLE_MARK_RXPHASE ?
+        tdma_runtime_owner_copy_mark_rxphase_capture(epoch, offset, count, generation, words, total) :
+        role == TDMA_PIO_SPI_P3_ROLE_SCK_RXPHASE ?
+        tdma_runtime_owner_copy_rxphase_capture(epoch, offset, count, generation, words, total) :
+        role == TDMA_PIO_SPI_P3_ROLE_SCK_LOOPBACK ?
+        tdma_runtime_owner_copy_sck_loopback_capture(epoch, offset, count, generation, words, total) :
+        tdma_runtime_owner_copy_marker_loopback_capture(epoch, offset, count, generation, words, total);
+    if (!copied) return false;
+    return calibration_manager_p3_read(&after) && before.guard == after.guard &&
+        before.sequence == after.sequence &&
+        after.sequence == __atomic_load_n(&s_p3_intent_consumed_sequence, __ATOMIC_ACQUIRE) &&
+        after.sequence == __atomic_load_n(&s_marker_loopback_accepted_sequence, __ATOMIC_ACQUIRE);
+}
+
+bool calibration_manager_copy_marker_loopback_capture(
+    uint32_t epoch, uint32_t offset, uint32_t count, uint32_t generation,
+    uint32_t *words, uint32_t *total)
+{
+    return calibration_manager_copy_codeword_loopback_capture(epoch, offset, count, generation,
+        words, total, TDMA_PIO_SPI_P3_ROLE_MARKER_LOOPBACK);
+}
+
+bool calibration_manager_copy_sck_loopback_capture(
+    uint32_t epoch, uint32_t offset, uint32_t count, uint32_t generation,
+    uint32_t *words, uint32_t *total)
+{
+    return calibration_manager_copy_codeword_loopback_capture(epoch, offset, count, generation,
+        words, total, TDMA_PIO_SPI_P3_ROLE_SCK_LOOPBACK);
+}
+
+bool calibration_manager_copy_rxphase_capture(
+    uint32_t epoch, uint32_t offset, uint32_t count, uint32_t generation,
+    uint32_t *words, uint32_t *total)
+{
+    return calibration_manager_copy_codeword_loopback_capture(epoch, offset, count, generation,
+        words, total, TDMA_PIO_SPI_P3_ROLE_SCK_RXPHASE);
+}
+
+bool calibration_manager_copy_mark_rxphase_capture(
+    uint32_t epoch, uint32_t offset, uint32_t count, uint32_t generation,
+    uint32_t *words, uint32_t *total)
+{
+    return calibration_manager_copy_codeword_loopback_capture(epoch, offset, count, generation,
+        words, total, TDMA_PIO_SPI_P3_ROLE_MARK_RXPHASE);
+}
+
+bool calibration_manager_copy_data_loop_capture(uint32_t epoch,uint32_t kind,uint32_t offset,
+    uint32_t count,uint32_t generation,uint32_t *words,uint32_t *total)
+{
+    calibration_p3_intent_t before,after;
+    if(!calibration_manager_p3_read(&before)||before.opcode!=CALIBRATION_P3_INTENT_START||
+        before.request.role!=TDMA_PIO_SPI_P3_ROLE_DATA_LOOPBACK||
+        before.sequence!=__atomic_load_n(&s_p3_intent_consumed_sequence,__ATOMIC_ACQUIRE)||
+        before.sequence!=__atomic_load_n(&s_marker_loopback_accepted_sequence,__ATOMIC_ACQUIRE)||
+        !tdma_runtime_owner_copy_data_loop_capture(epoch,kind,offset,count,generation,words,total))return false;
+    return calibration_manager_p3_read(&after)&&before.guard==after.guard&&before.sequence==after.sequence&&
+        after.sequence==__atomic_load_n(&s_p3_intent_consumed_sequence,__ATOMIC_ACQUIRE)&&
+        after.sequence==__atomic_load_n(&s_marker_loopback_accepted_sequence,__ATOMIC_ACQUIRE);
+}
+
+bool calibration_manager_get_p3_endpoint_snapshot(
+    uint32_t endpoint, calibration_manager_p3_snapshot_t *snapshot)
+{
+    if (snapshot == NULL || !tdma_runtime_owner_get_p3_endpoint_snapshot(
+            endpoint, &snapshot->raw)) return false;
     snapshot->result_valid =
         snapshot->raw.state == TDMA_PIO_SPI_P3_COMPLETE ? 1u : 0u;
     return true;

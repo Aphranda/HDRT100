@@ -327,6 +327,11 @@ static inline bool tdma_state_machine_rx_endpoint_contract_valid(
      RESOURCE_ARBITER_RESOURCE_TDMA_IRQ | \
      RESOURCE_ARBITER_RESOURCE_TDMA_DREQ)
 
+/* DATA diagnostic: two additional finite FIFO transfers, no descriptor graph
+ * and no sniffer. Acquired only while the maintenance persona owns the PIO. */
+#define TDMA_STATE_MACHINE_DATA_LOOP_ADDITIONAL_RESOURCE_MASK \
+    (RESOURCE_ARBITER_RESOURCE_TDMA_DMA_FORWARD | RESOURCE_ARBITER_RESOURCE_TDMA_DMA_EXECUTOR)
+
 /* The adapter-level normal window has one combined clock/sync producer and one
  * returned DATA consumer. The two activities share the logical TX PIO port,
  * but use independent SM/FIFO/DMA roles. This is deliberately a lower-layer

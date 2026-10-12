@@ -473,11 +473,21 @@ bool tdma_service_register_adapter_impl(tdma_service_service_t *service,
 bool tdma_service_configure_ring_runtime(
     tdma_service_service_t *service,
     const tdma_service_ring_runtime_config_t *config);
-/* Application validates token semantics. Zero and the upper two bits are
+/* Application validates token semantics. Zero and the upper three bits are
  * reserved. Pending/applying updates exclude all service ARM/config enables.
  * STOP cancels an unclaimed request; an already claimed update completes. */
 bool tdma_service_request_stopped_update(tdma_service_service_t *service,
     uint32_t token, uint32_t *generation);
+/* Core0 only. Run preparation under the stopped control exclusion before
+ * making the token claimable by Core1. A rejected gate never calls prepare;
+ * a failed prepare publishes nothing. The callback must not reenter service
+ * control APIs. Core1 remains free to acknowledge Flash lockout. A non-NULL
+ * prepare makes the request noncancellable: STOP cannot cancel it or release
+ * ARM exclusion before Core1 adopts the prepared configuration. This owner
+ * guarantee does not imply Flash persistence; prepare may update only RAM. */
+bool tdma_service_prepare_stopped_update(tdma_service_service_t *service,
+    uint32_t token, bool (*prepare)(void *context), void *context,
+    uint32_t *generation);
 bool tdma_service_get_stopped_update(tdma_service_service_t *service,
     uint32_t *token, uint32_t *generation, bool *applying);
 /* Core1: one CAS attempt, no control lock, callback, clock read or hardware. */

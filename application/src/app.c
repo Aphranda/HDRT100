@@ -37,6 +37,12 @@
 #include "trigger_measure.h"
 #include "ui_manager.h"
 #include "vdc_dpll_manager.h"
+#include "vdc_timestamp_clock.h"
+#if PROJECT_USE_FREERTOS
+#include "osal.h"
+#include "FreeRTOSConfig.h"
+#endif
+#include "hardware/clocks.h"
 #include "hardware/regs/m33.h"
 #include "hardware/structs/systick.h"
 #include "pico/stdlib.h"
@@ -46,6 +52,9 @@
 
 static bool s_app_ready;
 static bool s_app_control_plane_ready;
+static bool s_realtime_profile_persisted;
+static app_realtime_profile_rejection_t s_realtime_profile_reject =
+    APP_REALTIME_PROFILE_REJECTION_INIT;
 
 #define APP_ANALYZER_STORAGE_SEGMENT_RECORDS 128u
 #define APP_ANALYZER_STORAGE_MAGIC 0x59414C53u /* SLAY */
@@ -368,6 +377,9 @@ bool app_init(void)
         diagnostics_mark_fault("product_config", "product config initialization failed");
         return false;
     }
+    /* Restore before exposing SCPI: otherwise early queries can report the
+     * default/absent record while boot is still loading a durable profile. */
+    (void)app_realtime_profile_restore();
     const uint8_t persisted_board_no = product_config_get_board_no();
     if (persisted_board_no != 0u &&
         !board_identity_set_no(persisted_board_no)) {
@@ -448,6 +460,7 @@ bool app_init(void)
         diagnostics_mark_fault("ui", "sync config UI initialization failed");
         return false;
     }
+
     s_app_ready = true;
     loop_engine_set_ready(true);
     calibration_manager_set_ready(true);
@@ -497,11 +510,64 @@ void app_ota_service(void)
     ota_ao_service(500u);
 }
 
+#if PROJECT_USE_FREERTOS
+/* Bounded Core0 kernel-tick audit. The kernel port installs the SysTick reload
+ * from clk_sys when the scheduler starts and SysTick counts the processor clock,
+ * so the board overclock would otherwise scale every millisecond the kernel
+ * reports. The static part catches a stale reload; the dynamic part proves the
+ * rate against the TIMER1 origin that the sequence and VDC work already share. */
+static uint32_t app_tick_audit_clk_sys_hz(void)
+{
+    return clock_get_hz(clk_sys);
+}
+
+static uint32_t app_tick_audit_tick_rate_hz(void)
+{
+    return (uint32_t)configTICK_RATE_HZ;
+}
+
+static uint32_t app_tick_audit_systick_reload(void)
+{
+    return systick_hw->rvr & M33_SYST_RVR_RELOAD_BITS;
+}
+
+static uint32_t app_tick_audit_systick_control(void)
+{
+    return systick_hw->csr;
+}
+
+static bool app_tick_audit_time_ns(uint64_t *out)
+{
+    return vdc_timestamp_clock_try_read_ns(BOARD_SYS_CLOCK_HZ, out);
+}
+
+static const vdc_tick_audit_port_t s_app_tick_audit_port = {
+    .clk_sys_hz = app_tick_audit_clk_sys_hz,
+    .tick_rate_hz = app_tick_audit_tick_rate_hz,
+    .tick_ms = osal_tick_ms,
+    .systick_reload = app_tick_audit_systick_reload,
+    .systick_control = app_tick_audit_systick_control,
+    .time_ns = app_tick_audit_time_ns,
+};
+
+static void app_tick_audit_service(void)
+{
+    /* SysTick and the kernel tick are Core0-local. */
+    if (get_core_num() != 0u) {
+        return;
+    }
+    (void)vdc_tick_audit_sample(&s_app_tick_audit_port);
+}
+#endif
+
 void app_diag_service(void)
 {
     vdc_dpll_manager_core0_service();
     app_analyzer_storage_service();
     diagnostics_housekeeping_service();
+#if PROJECT_USE_FREERTOS
+    app_tick_audit_service();
+#endif
 }
 
 void app_storage_service(void)
@@ -623,12 +689,18 @@ bool app_realtime_get_schedule_snapshot(
     return false;
 }
 
+bool app_realtime_request_cycle_cycles(uint32_t cycles, uint32_t *generation)
+{
+    return app_is_ready() && app_realtime_profile_supported(cycles) &&
+        tdma_service_request_stopped_update(tdma_runtime_owner_get(), cycles,
+                                            generation);
+}
+
 bool app_realtime_request_period_us(uint32_t period_us, uint32_t *generation)
 {
     const uint64_t cycles = (uint64_t)period_us * (BOARD_SYS_CLOCK_HZ / 1000000u);
-    return app_is_ready() && cycles <= UINT32_MAX &&
-        app_realtime_profile_supported((uint32_t)cycles) &&
-        tdma_service_request_stopped_update(tdma_runtime_owner_get(), (uint32_t)cycles, generation);
+    return cycles <= UINT32_MAX &&
+        app_realtime_request_cycle_cycles((uint32_t)cycles, generation);
 }
 
 bool app_realtime_get_period_snapshot(app_realtime_period_snapshot_t *snapshot)
@@ -672,6 +744,285 @@ bool app_realtime_apply_pending_profile_core1(void)
     /* Publication completes before releasing the service ARM exclusion. A
      * rejected token leaves both the table and its applied generation intact. */
     (void)tdma_service_finish_stopped_update_core1(owner, cycles, generation);
+    return installed;
+}
+
+/* ---- run-time configurable core1 phase table ---------------------------- */
+
+_Static_assert(APP_REALTIME_PHASE_COUNT ==
+                   PRODUCT_CONFIG_REALTIME_PROFILE_MAX_PHASES,
+               "the persisted realtime profile must hold every core1 phase");
+
+/* The durable copy exists independently of the RAM override: the journal is
+ * what survives a power cycle, the override is what the dispatcher runs. */
+static void app_realtime_profile_record_rejection(
+    const app_realtime_profile_rejection_t *rejection,
+    uint32_t *reject_code,
+    uint32_t *reject_phase)
+{
+    if (rejection != NULL) {
+        s_realtime_profile_reject = *rejection;
+    }
+    if (reject_code != NULL) {
+        *reject_code = (uint32_t)s_realtime_profile_reject.code;
+    }
+    if (reject_phase != NULL) {
+        *reject_phase = s_realtime_profile_reject.phase_id;
+    }
+}
+
+static void app_realtime_profile_reject_with(
+    app_realtime_profile_reject_t code,
+    uint32_t *reject_code,
+    uint32_t *reject_phase)
+{
+    const app_realtime_profile_rejection_t rejection = {
+        code, (uint32_t)APP_REALTIME_PHASE_COUNT};
+    app_realtime_profile_record_rejection(&rejection, reject_code, reject_phase);
+}
+
+static bool app_realtime_profile_to_persisted(
+    const app_realtime_profile_table_t *table,
+    product_config_realtime_profile_t *stored)
+{
+    if (table == NULL || stored == NULL ||
+        table->cycle_cycles == 0u ||
+        table->version != APP_REALTIME_PROFILE_TABLE_VERSION) {
+        return false;
+    }
+    memset(stored, 0, sizeof(*stored));
+    stored->cycle_cycles = table->cycle_cycles;
+    stored->phase_count = (uint32_t)APP_REALTIME_PHASE_COUNT;
+    for (uint32_t i = 0u; i < (uint32_t)APP_REALTIME_PHASE_COUNT; ++i) {
+        stored->start_cycle[i] = table->phase[i].start_cycle;
+        stored->end_cycle[i] = table->phase[i].end_cycle;
+        stored->wcet_cycles[i] = table->phase[i].wcet_cycles;
+    }
+    return true;
+}
+
+static bool app_realtime_profile_from_persisted(
+    const product_config_realtime_profile_t *stored,
+    app_realtime_profile_table_t *table)
+{
+    if (stored == NULL || table == NULL ||
+        stored->phase_count != (uint32_t)APP_REALTIME_PHASE_COUNT ||
+        stored->cycle_cycles == 0u) {
+        return false;
+    }
+    memset(table, 0, sizeof(*table));
+    table->version = APP_REALTIME_PROFILE_TABLE_VERSION;
+    table->cycle_cycles = stored->cycle_cycles;
+    for (uint32_t i = 0u; i < (uint32_t)APP_REALTIME_PHASE_COUNT; ++i) {
+        table->phase[i].start_cycle = stored->start_cycle[i];
+        table->phase[i].end_cycle = stored->end_cycle[i];
+        table->phase[i].wcet_cycles = stored->wcet_cycles[i];
+    }
+    return true;
+}
+
+static bool app_realtime_profile_from_schedule(
+    const app_realtime_schedule_snapshot_t *schedule,
+    app_realtime_profile_table_t *table)
+{
+    if (schedule->phase_count != (uint32_t)APP_REALTIME_PHASE_COUNT) return false;
+    memset(table, 0, sizeof(*table));
+    table->version = APP_REALTIME_PROFILE_TABLE_VERSION;
+    table->cycle_cycles = schedule->cycle_cycles;
+    for (uint32_t i = 0u; i < (uint32_t)APP_REALTIME_PHASE_COUNT; ++i) {
+        table->phase[i].start_cycle = schedule->phase_start_cycle[i];
+        table->phase[i].end_cycle = schedule->phase_end_cycle[i];
+        table->phase[i].wcet_cycles = schedule->phase_wcet_cycles[i];
+    }
+    return true;
+}
+
+static bool app_realtime_profile_schedule_persisted(
+    const app_realtime_schedule_snapshot_t *schedule)
+{
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    app_realtime_profile_table_t running;
+    product_config_realtime_profile_t expected, stored;
+    /* A pending publication must not claim the new configured values are saved
+     * simply because the old running table still matches the journal. */
+    return s_realtime_profile_persisted && owner != NULL &&
+        __atomic_load_n(&owner->stopped_update, __ATOMIC_ACQUIRE) == 0u &&
+        app_realtime_profile_from_schedule(schedule, &running) &&
+        app_realtime_profile_to_persisted(&running, &expected) &&
+        product_config_get_realtime_profile(&stored) &&
+        memcmp(&expected, &stored, sizeof(stored)) == 0;
+}
+
+bool app_realtime_profile_status_get(app_realtime_profile_status_t *status)
+{
+    if (status == NULL) {
+        return false;
+    }
+    tdma_service_service_t *owner = tdma_runtime_owner_get();
+    /* Sample pending before the schedule too: Core1 may complete publication
+     * between the schedule snapshot and the persisted comparison below. */
+    const bool settled = owner != NULL &&
+        __atomic_load_n(&owner->stopped_update, __ATOMIC_ACQUIRE) == 0u;
+    app_realtime_schedule_snapshot_t schedule;
+    if (!app_realtime_get_schedule_snapshot(&schedule)) {
+        return false;
+    }
+    app_realtime_profile_table_t staged;
+    app_realtime_profile_rejection_t rejection = APP_REALTIME_PROFILE_REJECTION_INIT;
+    const bool have_staged = app_realtime_profile_stage_read(&staged);
+    const bool staged_valid = have_staged &&
+        app_realtime_profile_table_validate(&staged, &rejection);
+    memset(status, 0, sizeof(*status));
+    status->version = APP_REALTIME_PROFILE_STATUS_VERSION;
+    status->default_cycles = PROJECT_CORE1_CYCLE_CYCLES;
+    status->active_cycles = schedule.cycle_cycles;
+    status->applied_generation = schedule.profile_generation;
+    status->configured = app_realtime_profile_override_active() ? 1u : 0u;
+    status->persisted = settled &&
+        app_realtime_profile_schedule_persisted(&schedule) ? 1u : 0u;
+    status->staged = have_staged ? 1u : 0u;
+    status->staged_dirty = app_realtime_profile_stage_dirty() ? 1u : 0u;
+    status->staged_valid = staged_valid ? 1u : 0u;
+    /* A staged table that currently fails reports its own reason; otherwise the
+     * last refused operation stays visible until the next one. */
+    const app_realtime_profile_rejection_t *reported =
+        (have_staged && !staged_valid) ? &rejection : &s_realtime_profile_reject;
+    status->reject_code = (uint32_t)reported->code;
+    status->reject_phase = reported->phase_id;
+    return true;
+}
+
+typedef struct {
+    app_realtime_profile_table_t table;
+    app_realtime_profile_rejection_t rejection;
+} app_realtime_profile_commit_t;
+
+static bool app_realtime_profile_prepare(void *context)
+{
+    app_realtime_profile_commit_t *commit = context;
+    /* The control guard excludes previous reader tokens and further writers
+     * until publication. Core1 uses its own installed schedule meanwhile.
+     * Prepared RAM updates remain noncancellable until that table is adopted. */
+    return app_realtime_profile_override_install(&commit->table,
+                                                 &commit->rejection);
+}
+
+static bool app_realtime_profile_commit(app_realtime_profile_commit_t *commit,
+    uint32_t *reject_code, uint32_t *reject_phase)
+{
+    commit->rejection.code = APP_REALTIME_PROFILE_REJECT_PUBLISH;
+    commit->rejection.phase_id = APP_REALTIME_PHASE_COUNT;
+    uint32_t generation = 0u;
+    if (!app_is_ready() ||
+        !tdma_service_prepare_stopped_update(tdma_runtime_owner_get(),
+            commit->table.cycle_cycles, app_realtime_profile_prepare, commit,
+            &generation)) {
+        app_realtime_profile_record_rejection(&commit->rejection,
+                                              reject_code, reject_phase);
+        return false;
+    }
+    (void)app_realtime_profile_stage_discard();
+    app_realtime_profile_reject_with(APP_REALTIME_PROFILE_REJECT_OK,
+                                     reject_code, reject_phase);
+    return true;
+}
+
+bool app_realtime_profile_apply(uint32_t *reject_code, uint32_t *reject_phase)
+{
+    app_realtime_profile_commit_t commit = {0};
+    if (!app_realtime_profile_stage_read(&commit.table)) {
+        app_realtime_profile_reject_with(APP_REALTIME_PROFILE_REJECT_NULL,
+                                         reject_code, reject_phase);
+        return false;
+    }
+    if (!app_realtime_profile_table_validate(&commit.table, &commit.rejection)) {
+        app_realtime_profile_record_rejection(&commit.rejection,
+                                              reject_code, reject_phase);
+        return false;
+    }
+    return app_realtime_profile_commit(&commit, reject_code, reject_phase);
+}
+
+bool app_realtime_profile_reset(uint32_t *reject_code, uint32_t *reject_phase)
+{
+    app_realtime_profile_commit_t commit = {0};
+    (void)app_realtime_profile_table_default(&commit.table);
+    return app_realtime_profile_commit(&commit, reject_code, reject_phase);
+}
+
+static bool app_realtime_profile_save_stopped(void *context)
+{
+    app_realtime_profile_rejection_t *rejection = context;
+    app_realtime_schedule_snapshot_t schedule;
+    app_realtime_profile_table_t running;
+    product_config_realtime_profile_t stored;
+    if (!app_realtime_get_schedule_snapshot(&schedule) ||
+        !app_realtime_profile_from_schedule(&schedule, &running)) return false;
+    if (!app_realtime_profile_table_validate(&running, rejection)) return false;
+    if (!app_realtime_profile_to_persisted(&running, &stored) ||
+        !product_config_set_realtime_profile(&stored)) {
+        /* Failed Flash readback means the cache cannot prove durability. */
+        s_realtime_profile_persisted = false;
+        rejection->code = APP_REALTIME_PROFILE_REJECT_PERSIST;
+        return false;
+    }
+    s_realtime_profile_persisted = true;
+    return true;
+}
+
+bool app_realtime_profile_save(uint32_t *reject_code, uint32_t *reject_phase)
+{
+    app_realtime_profile_rejection_t rejection = {
+        APP_REALTIME_PROFILE_REJECT_PUBLISH, APP_REALTIME_PHASE_COUNT};
+    /* The owner exclusion prevents ARM/config writes while saving and rejects
+     * pending/applying updates. No token is published: saving leaves runtime,
+     * applied generation and the draft untouched. */
+    if (!app_is_ready() || !tdma_service_apply_stopped_configuration(
+            tdma_runtime_owner_get(), app_realtime_profile_save_stopped,
+            &rejection)) {
+        app_realtime_profile_record_rejection(&rejection, reject_code, reject_phase);
+        return false;
+    }
+    app_realtime_profile_reject_with(APP_REALTIME_PROFILE_REJECT_OK,
+                                     reject_code, reject_phase);
+    return true;
+}
+
+bool app_realtime_profile_restore(void)
+{
+    product_config_realtime_profile_t stored;
+    app_realtime_profile_table_t table;
+    app_realtime_profile_rejection_t rejection = APP_REALTIME_PROFILE_REJECTION_INIT;
+    (void)app_realtime_profile_override_clear();
+    app_realtime_profile_reject_with(APP_REALTIME_PROFILE_REJECT_OK, NULL, NULL);
+    if (!product_config_get_realtime_profile(&stored)) {
+        /* No stored table is a normal configuration, not a fault. */
+        s_realtime_profile_persisted = false;
+        return false;
+    }
+    s_realtime_profile_persisted = true;
+    if (!app_realtime_profile_from_persisted(&stored, &table)) {
+        app_realtime_profile_reject_with(APP_REALTIME_PROFILE_REJECT_VERSION,
+                                         NULL, NULL);
+        return false;
+    }
+    if (!app_realtime_profile_override_install(&table, &rejection)) {
+        /* A stored table that no longer passes admission must not be
+         * dispatched, and the compiled default must not be replaced by it. */
+        (void)app_realtime_profile_override_clear();
+        app_realtime_profile_record_rejection(&rejection, NULL, NULL);
+        return false;
+    }
+    /* The realtime core has not been launched yet, so this is exactly the
+     * stopped boundary the publication rule requires: no request token, no
+     * running phase, no armed ring. */
+    app_realtime_schedule_write_begin();
+    const bool installed = app_realtime_profile_install(&s_realtime_schedule,
+        table.cycle_cycles, 0u);
+    app_realtime_schedule_write_end();
+    if (!installed) {
+        (void)app_realtime_profile_override_clear();
+    }
     return installed;
 }
 

@@ -35,6 +35,12 @@ typedef struct {
     uint *sck_train_trigger_offset;
     uint *sck_train_source_offset;
     uint *sck_train_sink_offset;
+    uint *sck_loopback_origin_offset;
+    uint *sck_loopback_forward_offset;
+    uint *rxphase_origin_offset;
+    uint *rxphase_sink_offset;
+    uint *mark_rxphase_origin_offset;
+    uint *mark_rxphase_sink_offset;
     uint *cal_tx_offset;
     uint *cal_capture_offset;
     uint *p3_initiator_offset;

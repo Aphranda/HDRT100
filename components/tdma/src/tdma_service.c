@@ -18,7 +18,8 @@
 #define TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT 64u
 #define TDMA_STOPPED_UPDATE_REQUESTED (1u << 31u)
 #define TDMA_STOPPED_UPDATE_APPLYING (1u << 30u)
-#define TDMA_STOPPED_UPDATE_TOKEN_MASK (TDMA_STOPPED_UPDATE_APPLYING - 1u)
+#define TDMA_STOPPED_UPDATE_DURABLE (1u << 29u)
+#define TDMA_STOPPED_UPDATE_TOKEN_MASK (TDMA_STOPPED_UPDATE_DURABLE - 1u)
 
 enum {
     TDMA_RING_CONTROL_NONE = 0u,
@@ -441,7 +442,8 @@ static bool tdma_service_apply_profile_adapter(tdma_service_service_t *service,
 static void tdma_service_cancel_stopped_update(tdma_service_service_t *service)
 {
     uint32_t expected = __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE);
-    if ((expected & TDMA_STOPPED_UPDATE_REQUESTED) != 0u) {
+    if ((expected & TDMA_STOPPED_UPDATE_REQUESTED) != 0u &&
+        (expected & TDMA_STOPPED_UPDATE_DURABLE) == 0u) {
         (void)__atomic_compare_exchange_n(&service->stopped_update, &expected,
             0u, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
     }
@@ -975,6 +977,14 @@ tdma_stopped_config_result_t tdma_service_apply_stopped_configuration_checked(
 bool tdma_service_request_stopped_update(tdma_service_service_t *service,
     uint32_t token, uint32_t *generation)
 {
+    return tdma_service_prepare_stopped_update(service, token, NULL, NULL,
+                                              generation);
+}
+
+bool tdma_service_prepare_stopped_update(tdma_service_service_t *service,
+    uint32_t token, bool (*prepare)(void *context), void *context,
+    uint32_t *generation)
+{
     if (service == NULL || token == 0u ||
         (token & ~TDMA_STOPPED_UPDATE_TOKEN_MASK) != 0u ||
         !tdma_service_ring_control_lock(service)) return false;
@@ -984,12 +994,16 @@ bool tdma_service_request_stopped_update(tdma_service_service_t *service,
         service->ring_control_pending == TDMA_RING_CONTROL_NONE &&
         tdma_ring_runtime_get_snapshot(&service->ring_runtime, &snapshot) &&
         snapshot.enabled == 0u && snapshot.adapter_started == 0u &&
-        snapshot.config_seq == snapshot.applied_config_seq;
+        snapshot.data_enabled == 0u &&
+        snapshot.config_seq == snapshot.applied_config_seq &&
+        (prepare == NULL || prepare(context));
     if (ok) {
         const uint32_t next = __atomic_add_fetch(&service->stopped_update_generation, 1u, __ATOMIC_RELAXED);
         if (generation != NULL) *generation = next;
         __atomic_store_n(&service->stopped_update,
-            token | TDMA_STOPPED_UPDATE_REQUESTED, __ATOMIC_RELEASE);
+            token | TDMA_STOPPED_UPDATE_REQUESTED |
+                (prepare != NULL ? TDMA_STOPPED_UPDATE_DURABLE : 0u),
+            __ATOMIC_RELEASE);
     }
     tdma_service_ring_control_unlock(service);
     return ok;
@@ -1016,7 +1030,9 @@ bool tdma_service_claim_stopped_update_core1(tdma_service_service_t *service,
     if ((expected & TDMA_STOPPED_UPDATE_REQUESTED) == 0u) return false;
     const uint32_t value = expected & TDMA_STOPPED_UPDATE_TOKEN_MASK;
     if (!__atomic_compare_exchange_n(&service->stopped_update, &expected,
-            value | TDMA_STOPPED_UPDATE_APPLYING, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            value | TDMA_STOPPED_UPDATE_APPLYING |
+                (expected & TDMA_STOPPED_UPDATE_DURABLE),
+            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
         return false;
     *token = value;
     *generation = __atomic_load_n(&service->stopped_update_generation, __ATOMIC_ACQUIRE);
@@ -1028,7 +1044,9 @@ bool tdma_service_finish_stopped_update_core1(tdma_service_service_t *service,
 {
     if (service == NULL || token == 0u || (token & ~TDMA_STOPPED_UPDATE_TOKEN_MASK) != 0u ||
         generation != __atomic_load_n(&service->stopped_update_generation, __ATOMIC_ACQUIRE)) return false;
-    uint32_t expected = token | TDMA_STOPPED_UPDATE_APPLYING;
+    const uint32_t current = __atomic_load_n(&service->stopped_update, __ATOMIC_ACQUIRE);
+    uint32_t expected = token | TDMA_STOPPED_UPDATE_APPLYING |
+        (current & TDMA_STOPPED_UPDATE_DURABLE);
     return __atomic_compare_exchange_n(&service->stopped_update, &expected,
         0u, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED);
 }
