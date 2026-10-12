@@ -24,7 +24,27 @@ typedef struct {
     int32_t start_angle_mdeg, zero_angle_mdeg, terminal_angle_mdeg;
     uint32_t pre_roll_mdeg, post_roll_mdeg;
     uint32_t threshold_per_mille;
+    /* Scan step in millidegrees: required by the rolling window below, not by the
+     * legacy START/ZERO/TERMINAL path (so config_valid deliberately ignores it). */
+    int32_t step_mdeg;
 } trigger_turntable_predictor_config_t;
+
+/* Rolling prediction window (2026-10-12 decisions, see
+ * docs/trigger/t2/TRIGGER_T2_TODO.md): T2 predicts only the NEXT ONE OR TWO
+ * positions. A 360-degree/1-degree scan is 361 positions, none of them may be
+ * predicted while the scan has barely started, and a prediction more than two
+ * positions ahead is not accurate - the rate estimate is a single sample
+ * (pulses_per_sync_q16), so its error grows with the horizon. */
+#define TRIGGER_TURNTABLE_WINDOW_MAX 2u
+
+typedef struct {
+    uint32_t valid;            /* target/threshold computed at window entry */
+    uint32_t absolute_index;   /* 0-based position ordinal inside the scan */
+    int32_t angle_mdeg;        /* absolute angle of this position */
+    uint64_t target_count;
+    uint64_t threshold_count;
+    uint32_t announced;        /* threshold crossed -> FREEZE for this position */
+} trigger_turntable_window_entry_t;
 
 typedef struct {
     uint32_t configured, active, count_epoch, prediction_version;
@@ -37,6 +57,13 @@ typedef struct {
     uint32_t rate_valid, last_observed_sync;
     uint64_t last_observed_count, pulses_per_sync_q16;
     trigger_turntable_result_t last_error;
+    /* Rolling window state (appended: the legacy fields above keep their layout).
+     * window[0] is the oldest outstanding position; window_next_index is the
+     * ordinal of the LAST position entered, so at most
+     * window_next_index + TRIGGER_TURNTABLE_WINDOW_MAX have ever been computed. */
+    uint32_t window_next_index, window_entered_count, window_recomputed_count;
+    uint32_t window_rate_stale_count;
+    trigger_turntable_window_entry_t window[TRIGGER_TURNTABLE_WINDOW_MAX];
 } trigger_turntable_predictor_snapshot_t;
 
 static inline bool trigger_turntable_predictor_config_valid(
@@ -194,5 +221,153 @@ static inline bool trigger_turntable_predictor_build_descriptor(
     };
     return true;
 }
+/* Rolling prediction window: the legacy arrays (target_count[3]/
+ * threshold_count[3], announced_mask) stay for the START/ZERO/TERMINAL bench path
+ * and for the existing consumers; the window is the scan-capable path:
+ *   - begin_window() enters at most TRIGGER_TURNTABLE_WINDOW_MAX positions,
+ *   - each entry's target/threshold is computed when the position ENTERS the
+ *     window, from the count observed at that moment (never from a begin-time
+ *     origin extrapolated over the whole scan),
+ *   - no fact is produced for a position outside the window,
+ *   - a time prediction requires a usable rate: without one the entry reports
+ *     "time not ready" instead of extrapolating from a stale estimate.
+ */
+static inline int32_t trigger_turntable_window_position_angle_mdeg(
+    const trigger_turntable_predictor_config_t *c, uint32_t absolute_index)
+{
+    return c->start_angle_mdeg + (int32_t)absolute_index * c->step_mdeg;
+}
+
+static inline uint32_t trigger_turntable_window_position_count(
+    const trigger_turntable_predictor_config_t *c)
+{
+    if (!c || c->step_mdeg <= 0 || c->terminal_angle_mdeg < c->start_angle_mdeg)
+        return 0u;
+    return (uint32_t)((c->terminal_angle_mdeg - c->start_angle_mdeg) /
+                      c->step_mdeg) + 1u;
+}
+
+/* Compute one window entry from the count observed NOW. Refuses (no fact) when
+ * the ordinal is past the scan end, so the window can never walk into a position
+ * that does not exist. */
+static inline bool trigger_turntable_window_enter(
+    trigger_turntable_predictor_snapshot_t *s,
+    const trigger_turntable_predictor_config_t *c,
+    uint32_t slot, uint32_t absolute_index, uint64_t observed_count)
+{
+    if (!s || !c || slot >= TRIGGER_TURNTABLE_WINDOW_MAX || !c->step_mdeg)
+        return false;
+    const uint32_t positions = trigger_turntable_window_position_count(c);
+    if (absolute_index >= positions) {
+        s->window[slot] = (trigger_turntable_window_entry_t){0};
+        return false;
+    }
+    const int64_t base_angle = (int64_t)c->start_angle_mdeg - c->pre_roll_mdeg;
+    const int64_t delta_mdeg =
+        (int64_t)trigger_turntable_window_position_angle_mdeg(c, absolute_index) -
+        base_angle;
+    if (delta_mdeg < 0 ||
+        (uint64_t)delta_mdeg > (UINT64_MAX - observed_count) / c->pulses_per_degree) {
+        s->last_error = TRIGGER_TURNTABLE_OVERFLOW;
+        return false;
+    }
+    const uint64_t product = (uint64_t)delta_mdeg * c->pulses_per_degree;
+    const uint64_t target = observed_count + (product + 999u) / 1000u;
+    const uint64_t remaining = target - observed_count;
+    const uint64_t factor = 1000u - c->threshold_per_mille;
+    if (remaining > (UINT64_MAX - 999u) / factor) {
+        s->last_error = TRIGGER_TURNTABLE_OVERFLOW;
+        return false;
+    }
+    s->window[slot] = (trigger_turntable_window_entry_t){
+        .valid = 1u,
+        .absolute_index = absolute_index,
+        .angle_mdeg = trigger_turntable_window_position_angle_mdeg(c, absolute_index),
+        .target_count = target,
+        .threshold_count = target - (remaining * factor + 999u) / 1000u,
+        .announced = 0u,
+    };
+    return true;
+}
+
+/* Enter the first window: at most TRIGGER_TURNTABLE_WINDOW_MAX positions, and
+ * nothing at all for the rest of the scan. */
+static inline bool trigger_turntable_window_begin(
+    trigger_turntable_predictor_snapshot_t *s,
+    const trigger_turntable_predictor_config_t *c, uint64_t observed_count)
+{
+    if (!s || !c || !c->step_mdeg) return false;
+    s->window_next_index = 0u;
+    s->window_entered_count = 0u;
+    s->window_rate_stale_count = 0u;
+    s->window_recomputed_count = 0u;
+    for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot) {
+        if (!trigger_turntable_window_enter(s, c, slot, slot, observed_count))
+            break;
+        s->window_entered_count++;
+    }
+    s->window_next_index = s->window_entered_count;
+    return s->window_entered_count != 0u;
+}
+
+/* Observe one count sample: announce the window entries whose threshold was
+ * crossed, and roll the window forward by recomputing the entries for the newly
+ * entered positions from THIS count. At most one position is added per advance,
+ * so the window never grows past the accuracy bound. */
+static inline trigger_turntable_result_t trigger_turntable_window_advance(
+    trigger_turntable_predictor_snapshot_t *s,
+    const trigger_turntable_predictor_config_t *c, uint64_t count,
+    uint32_t *new_position_mask)
+{
+    if (new_position_mask) *new_position_mask = 0u;
+    if (!s || !c || !s->active || !c->step_mdeg)
+        return TRIGGER_TURNTABLE_NOT_ACTIVE;
+    if (count < s->last_count) {
+        s->last_error = TRIGGER_TURNTABLE_BACKWARD;
+        return s->last_error;
+    }
+    s->last_count = count;
+    uint32_t announced_now = 0u;
+    for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot) {
+        trigger_turntable_window_entry_t *entry = &s->window[slot];
+        if (!entry->valid || entry->announced) continue;
+        if (count >= entry->threshold_count) {
+            entry->announced = 1u;
+            announced_now |= 1u << slot;
+        }
+    }
+    if (new_position_mask) *new_position_mask = announced_now;
+    /* Roll only when the oldest entry has been announced: the next position is
+     * entered now, with the count as it is now. */
+    while (s->window[0].valid && s->window[0].announced) {
+        for (uint32_t slot = 0u; slot + 1u < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot)
+            s->window[slot] = s->window[slot + 1u];
+        s->window[TRIGGER_TURNTABLE_WINDOW_MAX - 1u] =
+            (trigger_turntable_window_entry_t){0};
+        /* The next ordinal to enter is window_next_index: entering it NOW, with
+         * the count as it is now, is what keeps the horizon at two positions. */
+        if (!trigger_turntable_window_enter(s, c, TRIGGER_TURNTABLE_WINDOW_MAX - 1u,
+                                            s->window_next_index, count)) {
+            /* Past the scan end (or not computable): the window simply has fewer
+             * valid entries - never a fabricated one. */
+            break;
+        }
+        s->window_next_index++;
+        s->window_entered_count++;
+        s->window_recomputed_count++;
+    }
+    s->last_error = TRIGGER_TURNTABLE_OK;
+    return s->last_error;
+}
+
+/* The time prediction for a window entry needs a usable rate. Without one the
+ * caller must treat the position's time as unknown instead of extrapolating:
+ * beyond two positions the single-sample estimate is not accurate anyway. */
+static inline bool trigger_turntable_window_time_ready(
+    const trigger_turntable_predictor_snapshot_t *s)
+{
+    return s && s->rate_valid != 0u && s->pulses_per_sync_q16 != 0u;
+}
+
 
 #endif
