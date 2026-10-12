@@ -372,6 +372,28 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.8 读数（9 字段）与对迁移步骤的修正（2026-10-13）
+
+仪表扩展后实读（同一轮 `t2` 之后，四板一致）：
+
+```
+5000, 1, 0, 5000, 3, 5000, 2, 0, 0
+ step_mdeg=5000 · branch_entered=1 · scan_result=0(OK) · window_step_mdeg=5000
+ positions=3 · step_pulses=5000 · window_entered=2 · window_announced=0 · window_overwrote=0
+```
+
+**判读**：
+
+| 读数 | 含义 |
+|---|---|
+| `branch_entered=1`、`scan_result=0`、`window_step_mdeg=5000`、几何 `3/5000` | 窗口**已配置并校验通过**；`begin` 进入了前 2 个在途位置（`entered=2` ✓ 与 `WINDOW_MAX=2` 一致） |
+| **`window_announced=0`** | **预期行为**：运行时目前只接了 `window_begin_scan`，**未调用 `window_advance()`**——而"跨阈值宣告 + 滚动窗口"全在 `advance` 里 ⇒ 迁移前 `announced` 必然为 0 |
+| `window_overwrote=0` | 无"未宣告即被覆盖"（该不变式在已进入的两个条目上成立） |
+
+**修正 A.3.7 的一个期望**：`announced == entered` **不能**作为"迁移前"的健康基线（那时 `advance` 未接线，`announced` 必为 0 ✗）；它只能在**迁移步骤①（消费者改走窗口 + 接上 `advance`）之后**作为判据 ✓。
+
+**对迁移步骤①的补充**：除了把取用改走 `window_find`，还必须在 origin 的每采样路径上**调用 `trigger_turntable_window_advance()`**（与 legacy 的 `observe` 并列或替代），否则窗口永远不宣告、也不滚动 ⇒ 迁移不完整。
+
 ### A.3.7 【结案·更正】窗口其实一直在正常运行——此前结论源于测量假象（2026-10-13）
 
 仪表 `TRIGger:REServation:T2:SCAN?` 实读（同一轮 `t2` 之后，四板一致）：
