@@ -242,6 +242,27 @@ config.predictor=(trigger_turntable_predictor_config_t){
 | 3 | 处理器内调用 `trigger_turntable_scan_validate()`，**拒绝即 SCPI 错误** | fail-closed；派生几何存起来供 `READ` 读回 |
 | 4 | 运行时启动路径把 `begin()` 换成 `window_configure(step)` + `window_begin_scan(...)` | 见 A.3 迁移清单；`observe_at_sync` 保留 |
 
+#### A.4.2 STEP 如何抵达运行时（定案：独立 setter，不动结构体）
+
+第 1 步落地时会立刻撞上一个约束：STEP **不能**随 `config.predictor` 一起下发——
+
+- `trigger_turntable_predictor_config_t` **没有** step 字段（窗口改造时刻意放在 snapshot 的 `window_step_mdeg`，见 A.1：该结构体被大量部分初始化，加字段会在 `-Wextra -Werror` 下打断既有 harness 与调用方）；
+- 因此 `scpi_cmd_trigger_t2_configure()` 即使解析出 STEP，也无处存放。
+
+**定案**：加一个**独立 setter**，而不是扩展结构体：
+
+```c
+/* trigger_t2_runtime.h */
+bool trigger_t2_runtime_scan_step(int32_t step_mdeg);   /* STOP 期调用；内部 window_configure */
+
+/* scpi_trigger_t2_runtime_commands.inc：解析 STEP 后、configure 之前 */
+if (!trigger_t2_runtime_scan_step(step_mdeg)) return scpi_trigger_t2_fail(context);
+```
+
+理由：① 不触碰任何被部分初始化的结构体（A.1）；② setter 天然要求 STOP 期调用（RUN 中改扫描几何必须被拒，与 `scpi_port_reject_if_run_forbidden` 的既有约定一致）；③ 迁移到 `window_begin_scan()` 时，运行时只需把已保存的 step 拿出来用，不需要新的配置管道。
+
+**同一步的配套**：`scan_validate` 的 fail-closed 校验也放在该 setter 内（或紧随其后），这样"非法扫描"在配置期就被拒，而不是等到 ARM 之后。
+
 #### A.4.1 第 1 步（加 STEP）的确切改动面
 
 `scpi_cmd_trigger_t2_configure()` 现有参数（按解析顺序，`scpi_trigger_t2_runtime_commands.inc`）：
