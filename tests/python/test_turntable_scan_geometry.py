@@ -127,14 +127,24 @@ int main(void)
     assert(snap.scan_geometry.step_pulses == 100u);
     assert(snap.window_step_mdeg == 1000 && snap.window_entered_count == 2u);
 
-    /* An unusable scan produces NO window at all: nothing can start on it. */
-    trigger_turntable_predictor_snapshot_t bad_snap = {0};
+    /* An unusable scan produces NO window at all: nothing can start on it - and that
+     * includes the counters a consumer reads back, even when a PREVIOUS scan on the
+     * same snapshot had already accumulated them. */
+    trigger_turntable_predictor_snapshot_t bad_snap = snap;
+    /* Pretend a previous scan had accumulated its totals on this snapshot: a refused
+     * scan must not leave them readable as if they belonged to the new one. */
+    bad_snap.window_announced_count = 361u;
+    bad_snap.window_recomputed_count = 359u;
+    bad_snap.window_late_entry_count = 358u;
     bad_snap.active = 1u;
     trigger_turntable_predictor_config_t bad_scan = scan(0, 360000, 700, 100u);
     assert(trigger_turntable_window_begin_scan(&bad_snap, &bad_scan, g_step, 10u, 0u) ==
            TRIGGER_TURNTABLE_SCAN_STEP_NOT_DIVISIBLE);
     assert(bad_snap.scan_result == (uint32_t)TRIGGER_TURNTABLE_SCAN_STEP_NOT_DIVISIBLE);
     assert(bad_snap.window_entered_count == 0u && bad_snap.window_next_index == 0u);
+    assert(bad_snap.window_announced_count == 0u);
+    assert(bad_snap.window_recomputed_count == 0u);
+    assert(bad_snap.window_late_entry_count == 0u);
     assert(bad_snap.window_step_mdeg == 0);
     assert(!bad_snap.window[0].valid && !bad_snap.window[1].valid);
     assert(bad_snap.scan_geometry.positions == 0u);

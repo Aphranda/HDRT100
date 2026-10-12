@@ -543,6 +543,13 @@ static inline trigger_turntable_scan_result_t trigger_turntable_window_begin_sca
         trigger_turntable_window_configure(s, 0);
         s->window_entered_count = 0u;
         s->window_next_index = 0u;
+        /* A refused scan must leave NO window facts at all, including the totals a
+         * consumer reads back: keeping the previous scan's announcement counters
+         * would report a scan that never started as if it had frozen 361 positions. */
+        s->window_recomputed_count = 0u;
+        s->window_late_entry_count = 0u;
+        s->window_announced_count = 0u;
+        s->window_overwrote_unannounced_count = 0u;
         for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot)
             s->window[slot] = (trigger_turntable_window_entry_t){0};
         return result;
