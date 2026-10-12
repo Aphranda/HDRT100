@@ -359,6 +359,25 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 `p3_hardware_acceptance.py t2`（验证流程；**不刷写**，必须在 `run` 之后跑）→ 查看采样行的
 `window announced N/entered N overwrote_unannounced 0 … geometry Npos/Mpul`。
 
+### A.3.6c 零成本否证假设 B：镜像**确实含** Round 69 的修复（2026-10-13）
+
+证据（时间线，均由运行目录/收据核对）：
+
+| 事件 | 时间 | 说明 |
+|---|---|---|
+| `run`（构建+刷写，构建号 `20261012181818`） | 02:19（`p3-021808`） | 该次 `run` 与提交 `c573abdc`（删掉抹掉步长的冗余预配置）同一次调用完成 ⇒ **镜像含修复** |
+| `t2` | 02:29 / 02:35 / 02:38 | 均在 02:19 之后 ⇒ 跑的是含修复的镜像 |
+
+⇒ **假设 B 排除**。结合 A.3.6b 已排除"启动入口不同"，当前只剩假设 A（`s_scan_step_mdeg` 在 start 时为 0）或**尚未考虑到的第三因**。
+
+**因此下一步不再做零成本推测**，直接上仪表（A.3.6）：在 `trigger_t2_runtime_start()` 里把下列三者写入**偏移已知**的读回位置，一次判定：
+
+1. `s_scan_step_mdeg`（读出 0 即 A 成立——需再查 setter 调用点为何未生效）；
+2. `trigger_turntable_window_begin_scan()` 的返回值（0=成功）；
+3. 该分支是否被进入（可用一个自增计数或哨兵值表示）。
+
+**仪表放置原则**：用**已有且下标已知**的字段（例如复用 `snapshot.predictor.scan_result` 并把它补进 `T2?` 的**具名下标表**，而不是追加到页面末尾）——追加到末尾会再次遇到本会话反复出现的"位置化解析"问题。
+
 ### A.3.6b 零成本排除：`T2:STARt` **确实**走到 `trigger_t2_runtime_start()`（2026-10-13）
 
 调用链已核对：
