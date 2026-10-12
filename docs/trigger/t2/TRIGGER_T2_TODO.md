@@ -366,6 +366,20 @@ C harness 测试出现**挂起**而非编译错误；因无法在当轮定位已
 
 ⇒ **不是缺板**，是采集工具**没有填 `nodes`**：该字段由自主记录证据路径写入（`tools/calibration_ring_validate/tdma_autonomous_record.py` 的 `evidence["nodes"][uid] = …`），本次为空。下一步应查 `trn03_closed_loop.py` 组装摘要时 `nodes` 的来源，以及它在什么条件下会保持为空（超时/取消/异常路径）。**该阻塞挡在所有固件提交之前**，优先于 T2 自身实现。
 
+#### A.4.3 两条来自实测的教训（2026-10-13）
+
+**① 位置参数式命令的参数顺序 = 处理器读取顺序；守卫必须按源码顺序校验。**
+`pulses_per_degree` 一度被解析在角度**之前**（为迁就守卫的分组收集），而调用点把它追加在**最后**（第 12 位）⇒ 位置参数错位、`T2:CONFigure` 被拒（台架表现为 `targets ['0','0','0']`、`boards_configured=0`、失败步骤 `[12,16,18,19,20]`）。
+教训：`test_t2_configure_signature.py` 原先**分两趟**收集（先 `scpi_trigger_grid_uint` 再 `SCPI_ParamInt32`），恰好掩盖了交错错误；已改为**单趟按源码顺序**收集。**分组校验会漏掉交错错误。**
+
+**② `run` 与 `t2` 的验证职责不同：改固件后必须先 `run` 再 `t2`。**
+- `p3_hardware_acceptance.py run`：**构建 + 刷写** + 提供 pre-commit 凭证；
+- `p3_hardware_acceptance.py t2`：只跑 T2 流程，**用的是板上已有镜像**（不构建、不刷写）。
+
+因此"改了源码→跑 `t2` 仍失败"极可能只是**旧镜像**在跑（本次连续三次误判即由此）。正确顺序：`run`（刷写+凭证）→ 提交 → `t2`（验证）。刷写后 `t2` 立即 `failed steps: none` ✓。
+
+**③ 相关：STEP setter 不应读 `s_state.active`。** `trigger_t2_runtime_configure()` 会 memset 状态，且 SCPI 配置路径本就有 RUN 期禁配检查 ⇒ 该守卫只会拒掉合法的重配置（实测把 step 16 也拖下水）。现仅校验 `step_mdeg > 0`。
+
 #### A.4.1 第 1 步（加 STEP）的确切改动面
 
 `scpi_cmd_trigger_t2_configure()` 现有参数（按解析顺序，`scpi_trigger_t2_runtime_commands.inc`）：
