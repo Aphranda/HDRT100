@@ -359,6 +359,29 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 `p3_hardware_acceptance.py t2`（验证流程；**不刷写**，必须在 `run` 之后跑）→ 查看采样行的
 `window announced N/entered N overwrote_unannounced 0 … geometry Npos/Mpul`。
 
+### A.3.6d 仪表最终设计：新增专用查询 `TRIGger:REServation:T2:SCAN?`（2026-10-13 定）
+
+不再往 `T2?` 追加字段（本会话反复被"位置化解析"所伤），改为**一个只返回诊断字段的查询**——与 A.3.5 提到的"只返回尾块的查询"一致：
+
+```text
+TRIGger:REServation:T2:SCAN?
+  -> step_mdeg, scan_result, window_step_mdeg, positions, step_pulses, branch_entered
+```
+
+字段含义与判定：
+
+| 字段 | 来源 | 判定 |
+|---|---|---|
+| `step_mdeg` | `s_scan_step_mdeg`（文件级静态） | ≠5000 ⇒ **假设 A 成立**（setter 未生效，继续查 configure 处理器的调用点） |
+| `branch_entered` | 新增静态，在 `start()` 的 `if (s_scan_step_mdeg)` 分支内自增 | =0 ⇒ 分支未进入（`started` 为假或未走到 776 行） |
+| `scan_result` | `snapshot.predictor.scan_result`（已有字段，`window_begin_scan` 写入） | 0=OK；其它值=校验拒绝原因（六类之一） |
+| `window_step_mdeg` | `snapshot.predictor.window_step_mdeg` | 0 ⇒ `window_configure` 未生效 |
+| `positions`/`step_pulses` | `scan_geometry` | 期望 3 / 5000（当前台架扫描） |
+
+**实现落点（已核对注册机制）**：命令表与处理器同在 `middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc`
+（族名 `TRIGger:REServation:T2...`；参考既有 `...:T2:CURSor?`（:240）与 `...:T2:ACTion?`（:277）的写法）。
+**实现顺序**：加静态计数 → 加处理器 → 注册 → `run`（构建+刷写+凭证）→ 提交 → `t2` → 用工具读该查询（同时在工具里按**具名**方式解析，不依赖位置）。
+
 ### A.3.6c 零成本否证假设 B：镜像**确实含** Round 69 的修复（2026-10-13）
 
 证据（时间线，均由运行目录/收据核对）：
