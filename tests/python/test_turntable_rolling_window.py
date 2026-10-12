@@ -147,7 +147,13 @@ int main(void)
             if (s.window[slot].valid)
                 assert(s.window[slot].absolute_index < 361u);
     }
-    assert(s.window_entered_count <= 361u);
+    /* Boundary (T2-TURNTABLE-009): the scan must actually reach the TERMINAL
+     * ordinal (360 = the 360-degree position) and then stop - reaching fewer
+     * positions would silently drop the end of the scan, and reaching more would
+     * invent one past the terminal. */
+    assert(s.window_entered_count == 361u);
+    assert(s.window_next_index == 361u);
+    assert(!s.window[0].valid || s.window[0].absolute_index < 361u);
     assert(!s.window[1].valid || s.window[1].absolute_index < 361u);
     /* Entering past the scan end is refused outright. */
     assert(!trigger_turntable_window_enter(&s, &c, 0u, 361u, count));
