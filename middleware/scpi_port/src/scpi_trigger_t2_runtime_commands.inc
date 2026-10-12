@@ -105,6 +105,12 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
         .pre_roll_mdeg=(uint32_t)pre_roll,
         .post_roll_mdeg=(uint32_t)post_roll,
         .threshold_per_mille=(uint32_t)threshold};
+    /* Fail-closed: a scan whose STEP/rolls/ppd cannot be run must be refused HERE, not
+     * discovered after ARM. The derived geometry (positions, whole step_pulses, travel)
+     * is read back through T2? once the runtime enters the window at start. */
+    if (trigger_turntable_scan_validate(&config.predictor, step_mdeg, 0u, NULL) !=
+        TRIGGER_TURNTABLE_SCAN_OK)
+        return scpi_trigger_t2_fail(context);
     config.templates=templates.table;
     config.deployment=deployment.active.table;
     config.template_crc=templates.crc;
