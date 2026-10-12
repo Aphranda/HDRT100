@@ -2073,9 +2073,14 @@
         "tools/hardware_acceptance/p3_hardware_acceptance.py",
         "tools/hardware_acceptance/single_board_hardware_acceptance.py",
         "tools/vdc_priority_trace/vdc_priority_joint_capture.py",
-        "tools/vdc_priority_trace/DPLL60_workflow.py"
+        "tools/vdc_priority_trace/DPLL60_workflow.py",
+        "tools/hardware_acceptance/hardware_acceptance_workflow.py"
       ],
       "files": [
+        {
+          "path": "tools/hardware_acceptance/hardware_acceptance_workflow.py",
+          "role": "entrypoint"
+        },
         {
           "path": "tools/hardware_acceptance/p3_alarm_policy.py",
           "role": "module"

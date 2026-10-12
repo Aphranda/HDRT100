@@ -18,6 +18,7 @@ import csv
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -1616,6 +1617,12 @@ def _validate_dpll_short_receipt(root: Path, record: dict[str, Any]) -> None:
         raise AcceptanceError("DPLL-60 joint observation did not pass")
 
 
+ACCEPTED_RECEIPT_SCHEMAS = (
+    RECEIPT_SCHEMA, TDMA_RECEIPT_SCHEMA, TDMA_DIAGNOSTIC_RECEIPT_SCHEMA,
+    QUICK_DIAGNOSTIC_RECEIPT_SCHEMA, QUICK_GRADED_RECEIPT_SCHEMA,
+    DPLL_SHORT_RECEIPT_SCHEMA, LIMITED_RECEIPT_SCHEMA)
+
+
 def check_staged(root: Path, receipt_path: Path) -> None:
     changed = changed_staged_sources(root)
     if not changed:
@@ -1628,12 +1635,7 @@ def check_staged(root: Path, receipt_path: Path) -> None:
             "after resolving: " + ", ".join(dirty[:8]))
     receipt = read_index_json(root, receipt_path)
     schema = receipt.get("schema")
-    if schema not in (RECEIPT_SCHEMA, TDMA_RECEIPT_SCHEMA,
-                      TDMA_DIAGNOSTIC_RECEIPT_SCHEMA,
-                      QUICK_DIAGNOSTIC_RECEIPT_SCHEMA,
-                      QUICK_GRADED_RECEIPT_SCHEMA,
-                      DPLL_SHORT_RECEIPT_SCHEMA,
-                      LIMITED_RECEIPT_SCHEMA) or \
+    if schema not in ACCEPTED_RECEIPT_SCHEMAS or \
             receipt.get("passed") is not True:
         raise AcceptanceError("staged hardware acceptance receipt is not PASS")
     fingerprint, file_count = staged_source_fingerprint(root)
@@ -1643,6 +1645,24 @@ def check_staged(root: Path, receipt_path: Path) -> None:
             "python tools/hardware_acceptance/p3_hardware_acceptance.py run")
     if receipt.get("source_file_count") != file_count:
         raise AcceptanceError("P3 acceptance source file count mismatch")
+    _validate_receipt_evidence(root, receipt, changed)
+    print(
+        f"OK   hardware acceptance: sources={file_count} "
+        f"build={receipt.get('build_id')} trials={receipt.get('trial_count')} "
+        f"scope={receipt.get('acceptance_scope', 'FULL')}")
+
+
+def validate_receipt_record(root: Path, receipt: dict[str, Any]) -> None:
+    """check-staged's schema and evidence validators, without the git index."""
+    if receipt.get("schema") not in ACCEPTED_RECEIPT_SCHEMAS or \
+            receipt.get("passed") is not True:
+        raise AcceptanceError("hardware acceptance receipt is not PASS")
+    _validate_receipt_evidence(root, receipt, [])
+
+
+def _validate_receipt_evidence(root: Path, receipt: dict[str, Any],
+                               changed: list[str]) -> None:
+    schema = receipt.get("schema")
     if schema == LIMITED_RECEIPT_SCHEMA:
         if receipt.get("acceptance_scope") != "10MHZ_LIMITED_P3":
             raise AcceptanceError("limited receipt has invalid acceptance scope")
@@ -1676,10 +1696,6 @@ def check_staged(root: Path, receipt_path: Path) -> None:
     else:
         _validate_evidence(root, receipt)
     validate_alarm_report(root, receipt)
-    print(
-        f"OK   hardware acceptance: sources={file_count} "
-        f"build={receipt.get('build_id')} trials={receipt.get('trial_count')} "
-        f"scope={receipt.get('acceptance_scope', 'FULL')}")
 
 
 def write_limited_receipt(args: argparse.Namespace) -> None:
@@ -1735,7 +1751,7 @@ def write_limited_receipt(args: argparse.Namespace) -> None:
 
 
 def _run_step(command: list[str], root: Path, log_path: Path, *,
-              allow_failure: bool = False) -> int:
+              allow_failure: bool = False, heartbeat_s: float | None = None) -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     environment = dict(os.environ)
     environment["PYTHONIOENCODING"] = "utf-8"
@@ -1748,9 +1764,12 @@ def _run_step(command: list[str], root: Path, log_path: Path, *,
     environment.setdefault("HAOFV_SERIAL_READ_TIMEOUT_S", "0.02")
     started = datetime.now(timezone.utc)
     monotonic_start = time.perf_counter()
-    result = subprocess.run(
-        command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        env=environment, check=False)
+    if heartbeat_s:
+        result = _run_with_heartbeat(command, root, environment, log_path, heartbeat_s)
+    else:
+        result = subprocess.run(
+            command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            env=environment, check=False)
     ended = datetime.now(timezone.utc)
     _record_timing_event({
         "action": Path(str(command[1])).stem if len(command) > 1 else str(command[0]),
@@ -1767,6 +1786,25 @@ def _run_step(command: list[str], root: Path, log_path: Path, *,
         raise AcceptanceError(
             f"step failed ({' '.join(command)}):\n" + "\n".join(tail))
     return int(result.returncode)
+
+
+def _run_with_heartbeat(command: list[str], root: Path, environment: dict[str, str],
+                        log_path: Path, period_s: float) -> subprocess.CompletedProcess:
+    """subprocess.run, but print elapsed time and the child's last line periodically."""
+    started = time.perf_counter()
+    with log_path.open("wb") as handle:
+        process = subprocess.Popen(command, cwd=root, stdout=handle,
+                                   stderr=subprocess.STDOUT, env=environment)
+        while process.poll() is None:
+            try:
+                process.wait(timeout=period_s)
+            except subprocess.TimeoutExpired:
+                tail = log_path.read_bytes().decode("utf-8", errors="replace").splitlines()
+                print(f"  {Path(str(command[1])).stem} running "
+                      f"{time.perf_counter() - started:.0f}s · last: "
+                      f"{tail[-1][:90] if tail else '(no output yet)'}", flush=True)
+    return subprocess.CompletedProcess(command, process.returncode,
+                                       stdout=log_path.read_bytes())
 
 
 def _read_package_build_id(path: Path) -> str:
@@ -2055,14 +2093,12 @@ def discover_optional_scope(resource: str, expected_serial: str) -> dict[str, An
     return result
 
 
-def run_four_board_dpll_short(
-        root: Path, config: dict[str, Any], receipt_path: Path, out_dir: Path,
-        *, build_id: str, board_ids: list[str], source_fingerprint: str,
-        source_count: int, package: Path, ota_summary_path: Path,
-        trn03_matrix_path: Path, tdma_summary_path: Path,
-        stopped_handoff_path: Path,
-        calibration_generation: int) -> tuple[Path, dict[str, Any], Path]:
-    """Run the four-board joint workflow under a non-committable receipt."""
+def dpll_short_write_provisional(
+        root: Path, receipt_path: Path, *, build_id: str, board_ids: list[str],
+        source_fingerprint: str, source_count: int, package: Path,
+        ota_summary_path: Path, trn03_matrix_path: Path, tdma_summary_path: Path,
+        stopped_handoff_path: Path, calibration_generation: int) -> None:
+    """Write the non-committable receipt the joint capture adapter reads."""
     provisional = {
         "schema": PROVISIONAL_SCHEMA,
         "joint_capture_only": True,
@@ -2085,9 +2121,17 @@ def run_four_board_dpll_short(
         json.dumps(provisional, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8")
 
+
+def dpll_short_discover_scope(config: dict[str, Any], out_dir: Path) -> tuple[Path, bool]:
     resource = str(config["dpll_short_scope_resource"])
     serial = str(config["dpll_short_scope_serial"])
     discovery = discover_optional_scope(resource, serial)
+    for _attempt in range(int(config.get("dpll_short_scope_discovery_retries", 3))):
+        if discovery["present"] is True:
+            break
+        # The instrument can be briefly held by another VISA session.
+        time.sleep(1.5)
+        discovery = discover_optional_scope(resource, serial)
     discovery_path = out_dir / "dpll-scope-discovery.json"
     discovery_path.write_text(
         json.dumps(discovery, ensure_ascii=False, indent=2) + "\n",
@@ -2095,9 +2139,20 @@ def run_four_board_dpll_short(
     if discovery["present"] is None:
         raise AcceptanceError(
             "scope discovery failed; cannot distinguish absent hardware from VISA failure")
-    scope_enabled = discovery["present"] is True
+    return discovery_path, discovery["present"] is True
+
+
+def dpll_short_run_capture(root: Path, config: dict[str, Any], out_dir: Path, *,
+                           scope_enabled: bool) -> Path:
+    resource = str(config["dpll_short_scope_resource"])
+    serial = str(config["dpll_short_scope_serial"])
     seconds = int(config["dpll_short_seconds"])
     joint_dir = out_dir / "dpll-four-board-short"
+    attempt = 1
+    while joint_dir.exists():
+        # The capture creates its own directory and refuses an existing one.
+        attempt += 1
+        joint_dir = out_dir / f"dpll-four-board-short-attempt{attempt}"
     pre_capture = os.environ.get("HAOFV_PRE_CAPTURE_COMMAND", "").strip()
     if pre_capture:
         print(f"Hardware acceptance: pre-capture hook: {pre_capture}", flush=True)
@@ -2122,14 +2177,23 @@ def run_four_board_dpll_short(
         "Hardware acceptance: four-board DPLL 60 s joint observation " +
         ("with HDO scope" if scope_enabled else "with internal evidence; scope absent"),
         flush=True)
-    _run_step(command, root, out_dir / "dpll-short.log")
+    _run_step(command, root, out_dir / (
+        "dpll-short.log" if attempt == 1 else f"dpll-short-attempt{attempt}.log"),
+        heartbeat_s=10.0)
+    return joint_dir
+
+
+def dpll_short_summarize(
+        root: Path, config: dict[str, Any], out_dir: Path, joint_dir: Path, *,
+        scope_enabled: bool, source_fingerprint: str, build_id: str,
+        board_ids: list[str]) -> tuple[Path, dict[str, Any]]:
     report_path = joint_dir / "report.json"
     input_path = joint_dir / "capture" / "input-probe.json"
     if not report_path.is_file() or not input_path.is_file():
         raise AcceptanceError("four-board DPLL short workflow did not write complete reports")
     summary = summarize_joint(
         root, report_path, input_path,
-        scope_enabled=scope_enabled, seconds=seconds)
+        scope_enabled=scope_enabled, seconds=int(config["dpll_short_seconds"]))
     summary_path = out_dir / "dpll-short-summary.json"
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
@@ -2142,6 +2206,29 @@ def run_four_board_dpll_short(
             expected_board_uids=board_ids)
     except ValueError as exc:
         raise AcceptanceError(str(exc)) from exc
+    return summary_path, summary
+
+
+def run_four_board_dpll_short(
+        root: Path, config: dict[str, Any], receipt_path: Path, out_dir: Path,
+        *, build_id: str, board_ids: list[str], source_fingerprint: str,
+        source_count: int, package: Path, ota_summary_path: Path,
+        trn03_matrix_path: Path, tdma_summary_path: Path,
+        stopped_handoff_path: Path,
+        calibration_generation: int) -> tuple[Path, dict[str, Any], Path]:
+    """Run the four-board joint workflow under a non-committable receipt."""
+    dpll_short_write_provisional(
+        root, receipt_path, build_id=build_id, board_ids=board_ids,
+        source_fingerprint=source_fingerprint, source_count=source_count,
+        package=package, ota_summary_path=ota_summary_path,
+        trn03_matrix_path=trn03_matrix_path, tdma_summary_path=tdma_summary_path,
+        stopped_handoff_path=stopped_handoff_path,
+        calibration_generation=calibration_generation)
+    discovery_path, scope_enabled = dpll_short_discover_scope(config, out_dir)
+    joint_dir = dpll_short_run_capture(root, config, out_dir, scope_enabled=scope_enabled)
+    summary_path, summary = dpll_short_summarize(
+        root, config, out_dir, joint_dir, scope_enabled=scope_enabled,
+        source_fingerprint=source_fingerprint, build_id=build_id, board_ids=board_ids)
     return summary_path, summary, discovery_path
 
 
@@ -2511,33 +2598,271 @@ def run_acceptance(args: argparse.Namespace) -> None:
         raise
 
 
-def _run_acceptance_impl(args: argparse.Namespace) -> None:
-    acceptance_started = time.perf_counter()
-    root = args.root.resolve()
-    config_path = acceptance_config_path(args, root)
-    receipt_path = root / args.receipt
-    config = load_bench_config(config_path)
-    capture_policy = {
-        stage: waveform_capture_enabled(config, stage)
-        for stage in ("trn00", "trn01", "trn02", "trn03", "tdma", "dpll")
-    }
-    baseline_divisor = resolve_path_delay_baseline_divisor(config)
-    previous_baseline_divisor = resolve_previous_path_delay_baseline_divisor(
-        config)
-    board_ids = list(config["p3_board_ids_in_physical_order"])
-    tdma_only = bool(getattr(args, "tdma_only", False))
-    diagnostic_continue = bool(getattr(args, "diagnostic_continue", False))
-    acceptance_profile = str(config.get("acceptance_profile", "FULL"))
-    quick_diagnostic = acceptance_profile == "QUICK_DIAGNOSTIC"
-    finite_tdma = True
-    # QUICK_DIAGNOSTIC is the default iteration path. It retains every
-    # rejection and never upgrades diagnostics to strict product PASS.
-    if quick_diagnostic:
-        diagnostic_continue = True
-    diagnostic_failures: list[dict[str, Any]] = []
+# ---------------------------------------------------------------------------
+# Step-addressable acceptance.
+#
+# `run`/`resume` and tools/hardware_acceptance/hardware_acceptance_workflow.py
+# execute the same numbered steps. A step reads its inputs from the run state
+# (persisted to <out_dir>/workflow-state.json after every step) and from files in
+# the run directory, never from another step's locals, so any step can be rerun
+# or continued in a later invocation, and every gate can be recomputed offline
+# from the evidence it names.
+# ---------------------------------------------------------------------------
+HAWF_STATE_SCHEMA = "HDRT100_HAWF_STATE_V1"
+HAWF_RECORD_SCHEMA = "HDRT100_HAWF_RECORD_V1"
+HAWF_STATE_FILE = "workflow-state.json"
+ACCEPTANCE_STEPS: dict[int, tuple[str, Any]] = {}
+# Steps that talk to the boards, the scope or the flash path; the rest only read
+# and write evidence in the run directory.
+ACCEPTANCE_BENCH_STEPS = frozenset(
+    {4, 6, 7, 8, 10, 11, 13, 14, 16, 17, 18, 19, 20, 24, 27, 29, 31})
+# Which step produces each state key, for named missing-prerequisite failures.
+ACCEPTANCE_STATE_PRODUCERS = {
+    "scope": 0, "scope_path": 0, "timing_probe_path": 0,
+    "topology_reuse_source": 0, "previous_receipt_path": 0,
+    "fingerprint_before": 1, "source_count": 1,
+    "build_dir": 2, "package": 3, "build_id": 3,
+    "ota_summary_path": 4, "ota_summary": 5, "online_builds": 6,
+    "reset_path": 7, "topology_summary_path": 8,
+    "coarse_paths": 10, "coded_paths": 11,
+    "coarse_summary_path": 12, "coded_summary_path": 12,
+    "schedule_before": 13, "p3_summary_path": 14,
+    "p3_metrics": 15, "link_delays": 15, "link_base_delays": 15,
+    "parameter_handoff": 15,
+    "generation": 17, "marker_summary_path": 17, "marker_offsets_by_node": 17,
+    "training_generation": 18, "residence_summary_path": 18,
+    "trn00_summary_path": 18,
+    "sck_summary_path": 19, "sck_offsets_by_node": 19, "trn01_summary_path": 19,
+    "training_data_offsets_by_node": 20, "data_summary_path": 20,
+    "trn03_matrix_path": 21, "matrix_returncode": 21, "matrix_log_path": 21,
+    "matrix_fallback_used": 22, "fallback_manifest_path": 22,
+    "trn03_data_offsets_by_node": 23, "parameter_handoff_path": 23,
+    "tdma_returncode": 24, "tdma_summary_path": 24, "tdma_dir": 24,
+    "stopped_handoff_path": 26,
+    "dpll_scope_discovery_path": 27, "dpll_scope_enabled": 27,
+    "dpll_joint_dir": 29, "dpll_summary_path": 30,
+    "final_schedules": 31, "fingerprint_after": 32, "budget": 33,
+    "alarm_sources": 34, "alarm_report": 34,
+}
 
-    def run_diagnostic_gate(command: list[str], log_path: Path,
+
+class MissingPrerequisite(AcceptanceError):
+    """A step input that no earlier step of this run directory produced."""
+
+
+def acceptance_step(number: int, title: str):
+    def register(function):
+        ACCEPTANCE_STEPS[number] = (title, function)
+        return function
+    return register
+
+
+def _state_encode(value: Any) -> Any:
+    if isinstance(value, Path):
+        return {"$path": str(value)}
+    if isinstance(value, dict):
+        return {str(key): _state_encode(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_state_encode(item) for item in value]
+    return value
+
+
+def _state_decode(value: Any) -> Any:
+    if isinstance(value, dict):
+        if set(value) == {"$path"}:
+            return Path(value["$path"])
+        return {key: _state_decode(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_state_decode(item) for item in value]
+    return value
+
+
+def acceptance_step_plan(args: argparse.Namespace) -> list[int]:
+    """The canonical step order of `run` (build+OTA) or `resume` (reuse firmware)."""
+    firmware = [3, 5, 6] if args.command == "resume" else [2, 3, 4, 5]
+    return [0, 1, *firmware, *range(7, 37)]
+
+
+def _resume_timing_probe(path: Path) -> None:
+    """Continue a run directory's timing probe instead of starting a new one."""
+    global _TIMING_PATH, _TIMING_EVENTS
+    _TIMING_PATH = path
+    _TIMING_EVENTS = []
+    if path.is_file():
+        _TIMING_EVENTS = list(json.loads(path.read_text(encoding="utf-8")).get("events", []))
+    _write_timing_probe()
+
+
+class AcceptanceRun:
+    """Context of one acceptance run plus the values its steps produced."""
+
+    def __init__(self, args: argparse.Namespace, out_dir: Path,
+                 state: dict[str, Any] | None = None) -> None:
+        self.args = args
+        self.root = args.root.resolve()
+        self.config_path = acceptance_config_path(args, self.root)
+        self.receipt_path = self.root / args.receipt
+        self.config = load_bench_config(self.config_path)
+        config = self.config
+        self.capture_policy = {
+            stage: waveform_capture_enabled(config, stage)
+            for stage in ("trn00", "trn01", "trn02", "trn03", "tdma", "dpll")
+        }
+        self.baseline_divisor = resolve_path_delay_baseline_divisor(config)
+        self.previous_baseline_divisor = resolve_previous_path_delay_baseline_divisor(
+            config)
+        self.board_ids = list(config["p3_board_ids_in_physical_order"])
+        self.tdma_only = bool(getattr(args, "tdma_only", False))
+        self.diagnostic_continue = bool(getattr(args, "diagnostic_continue", False))
+        self.acceptance_profile = str(config.get("acceptance_profile", "FULL"))
+        self.quick_diagnostic = self.acceptance_profile == "QUICK_DIAGNOSTIC"
+        self.finite_tdma = True
+        # QUICK_DIAGNOSTIC is the default iteration path. It retains every
+        # rejection and never upgrades diagnostics to strict product PASS.
+        if self.quick_diagnostic:
+            self.diagnostic_continue = True
+        self.ota_board_ids = list(config["ota_board_ids"])
+        if len(self.board_ids) != 4 or self.ota_board_ids != self.board_ids:
+            raise AcceptanceError(
+                "P3 acceptance requires the same four configured OTA and ring nodes")
+        self.timing = acceptance_timing(config)
+        # Imported calibration tools resolve the same read quantum through the
+        # process environment, even when their legacy CLI has no read-timeout
+        # option yet.
+        os.environ["HAOFV_SERIAL_READ_TIMEOUT_S"] = str(
+            self.timing["serial_read_timeout_s"])
+        self.common_boards: list[str] = []
+        for board_id in self.board_ids:
+            self.common_boards.extend(["--board-id", board_id])
+        self.out_dir = out_dir
+        self.state: dict[str, Any] = state if state is not None else {}
+        self.state.setdefault("diagnostic_failures", [])
+        self.state.setdefault("steps", {})
+        self.state.setdefault("invocations", [])
+        self.state.setdefault("sequence", 0)
+        self.invocation_started = time.perf_counter()
+        self.current_step: int | None = None
+        self.warnings: list[str] = []
+        self.alarm_context: dict[str, Any] | None = None
+        if "scope" in self.state:
+            self._bind_alarm_context(self.state["scope"])
+
+    # -- construction -------------------------------------------------------
+    @classmethod
+    def create(cls, args: argparse.Namespace) -> "AcceptanceRun":
+        root = args.root.resolve()
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        out_dir = acceptance_output_path(root, args.out_dir, stamp)
+        run = cls(args, out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        run.state.update(schema=HAWF_STATE_SCHEMA, stamp=stamp, out_dir=out_dir)
+        run._open_invocation()
+        return run
+
+    @classmethod
+    def load(cls, args: argparse.Namespace, out_dir: Path) -> "AcceptanceRun":
+        path = out_dir / HAWF_STATE_FILE
+        if not path.is_file():
+            raise AcceptanceError(f"no {HAWF_STATE_FILE} in {out_dir}")
+        state = _state_decode(json.loads(path.read_text(encoding="utf-8")))
+        if state.get("schema") != HAWF_STATE_SCHEMA:
+            raise AcceptanceError(f"{path} is not a {HAWF_STATE_SCHEMA} state")
+        run = cls(args, out_dir, state)
+        timing_path = state.get("timing_probe_path")
+        if timing_path is not None:
+            _resume_timing_probe(timing_path)
+        run._open_invocation()
+        return run
+
+    def _open_invocation(self) -> None:
+        fingerprint, count = working_source_fingerprint(self.root)
+        self.state["invocations"].append({
+            "started_at_utc": datetime.now(timezone.utc).isoformat(),
+            "source_tree_sha256": fingerprint, "source_file_count": count,
+            "elapsed_s": 0.0})
+
+    def _bind_alarm_context(self, scope: dict[str, Any]) -> None:
+        self.alarm_context = dict(scope=scope, stages={},
+                                  failures=self.diagnostic_failures,
+                                  out_dir=self.out_dir)
+        self.args._alarm_context = self.alarm_context
+
+    # -- state --------------------------------------------------------------
+    @property
+    def diagnostic_failures(self) -> list[dict[str, Any]]:
+        return self.state["diagnostic_failures"]
+
+    def get(self, key: str) -> Any:
+        if key not in self.state:
+            producer = ACCEPTANCE_STATE_PRODUCERS.get(key)
+            raise MissingPrerequisite(
+                f"{key} is missing: run step {producer} in this run directory first"
+                if producer is not None else f"{key} is missing from the run state")
+        return self.state[key]
+
+    def put(self, **values: Any) -> None:
+        self.state.update(values)
+
+    def elapsed_total(self) -> float:
+        self.state["invocations"][-1]["elapsed_s"] = (
+            time.perf_counter() - self.invocation_started)
+        return float(sum(row["elapsed_s"] for row in self.state["invocations"]))
+
+    def save(self) -> None:
+        self.elapsed_total()
+        path = self.out_dir / HAWF_STATE_FILE
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(_state_encode(self.state), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8")
+        os.replace(temporary, path)
+
+    def warn(self, message: str) -> None:
+        self.warnings.append(message)
+
+    def execute(self, number: int) -> dict[str, Any]:
+        """Run one step, record its outcome and persist the state."""
+        title, function = ACCEPTANCE_STEPS[number]
+        self.current_step = number
+        self.warnings = []
+        # A rerun replaces this step's own diagnostic failures; the list object is
+        # shared with the alarm context, so it is edited in place.
+        self.diagnostic_failures[:] = [
+            row for row in self.diagnostic_failures if row.get("step") != number]
+        failures_before = len(self.diagnostic_failures)
+        started = time.perf_counter()
+        self.state["sequence"] += 1
+        record = {"title": title, "sequence": self.state["sequence"],
+                  "invocation": len(self.state["invocations"]) - 1}
+        try:
+            function(self)
+        except Exception as exc:
+            for row in self.diagnostic_failures[failures_before:]:
+                row["step"] = number
+            record.update(status="FAIL", reason=f"{type(exc).__name__}: {exc}",
+                          seconds=round(time.perf_counter() - started, 3))
+            self.state["steps"][str(number)] = record
+            self.save()
+            raise
+        new_failures = self.diagnostic_failures[failures_before:]
+        for row in new_failures:
+            row["step"] = number
+        notes = [*self.warnings, *(
+            f"{row.get('phase')}: {row.get('error')}" for row in new_failures)]
+        record.update(status="warn" if notes else "OK", reason=notes[0] if notes else "",
+                      notes=notes, seconds=round(time.perf_counter() - started, 3))
+        self.state["steps"][str(number)] = record
+        self.save()
+        return record
+
+    # -- shared step helpers -------------------------------------------------
+    def rel(self, path: Path) -> str:
+        return path.resolve().relative_to(self.root).as_posix()
+
+    def run_diagnostic_gate(self, command: list[str], log_path: Path,
                             summary_path: Path, phase: str) -> dict[str, Any]:
+        root, diagnostic_continue = self.root, self.diagnostic_continue
+        diagnostic_failures = self.diagnostic_failures
         returncode = _run_step(
             command, root, log_path, allow_failure=diagnostic_continue)
         if not summary_path.is_file():
@@ -2578,51 +2903,233 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
             })
         return summary
 
-    ota_board_ids = list(config["ota_board_ids"])
-    if len(board_ids) != 4 or ota_board_ids != board_ids:
-        raise AcceptanceError(
-            "P3 acceptance requires the same four configured OTA and ring nodes")
-    timing = acceptance_timing(config)
-    # Imported calibration tools resolve the same read quantum through the
-    # process environment, even when their legacy CLI has no read-timeout
-    # option yet.
-    os.environ["HAOFV_SERIAL_READ_TIMEOUT_S"] = str(
-        timing["serial_read_timeout_s"])
-    fingerprint_before, source_count = working_source_fingerprint(root)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    out_dir = acceptance_output_path(root, args.out_dir, stamp)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    scope = acceptance_scope(acceptance_profile, tdma_only,
+    def record_parameter_handoff(
+            self, phase: str, summary_path: Path, summary: dict[str, Any], *,
+            loaded_from: str, selected: dict[str, Any] | None = None
+            ) -> dict[str, Any]:
+        root, board_ids = self.root, self.board_ids
+        link_delays = self.get("link_delays")
+        link_base_delays = self.get("link_base_delays")
+        baseline_divisor = self.baseline_divisor
+        parameter_handoff = self.get("parameter_handoff")
+        expected = {
+            "link_delay_ns_by_link": list(link_delays),
+            "link_base_delay_ns_by_link": list(link_base_delays),
+            "path_delay_baseline_divisor": baseline_divisor,
+            "sample_period_ns": 4,
+        }
+        if summary.get("debug_forced_continue") is True:
+            parameters = expected
+        else:
+            parameters = stage_training_parameters(
+                summary, phase, len(board_ids))
+        if parameters != expected:
+            raise AcceptanceError(
+                f"{phase} did not load the current P3 baseline from "
+                f"{loaded_from}")
+        # A rerun step replaces its own entry instead of appending a duplicate.
+        parameter_handoff["stages"] = [
+            row for row in parameter_handoff["stages"] if row.get("phase") != phase]
+        parameter_handoff["stages"].append({
+            "phase": phase,
+            "loaded_from": loaded_from,
+            "summary": {
+                "path": summary_path.resolve().relative_to(root).as_posix(),
+                "sha256": sha256_file(summary_path),
+            },
+            "loaded_parameters": parameters,
+            **({"selected_parameters": selected} if selected is not None else {}),
+            **({"debug_forced_continue": True}
+               if summary.get("debug_forced_continue") is True else {}),
+        })
+        return parameters
+
+    def link_delay_args(self) -> list[str]:
+        link_delay_args: list[str] = []
+        for link_delay in self.get("link_delays"):
+            link_delay_args.extend(["--link-delay-ns", str(link_delay)])
+        return link_delay_args
+
+    def load_json(self, key: str) -> dict[str, Any]:
+        return json.loads(self.get(key).read_text(encoding="utf-8"))
+
+    def alarm_stage(self, stage: str, value: dict[str, Any]) -> None:
+        if self.alarm_context is not None:
+            self.alarm_context["stages"][stage] = value
+
+
+# -- 准备 -------------------------------------------------------------------
+@acceptance_step(0, "准备：配置/范围冻结 + 运行状态 + 计时探针 + 原凭证快照")
+def phase_setup(run: AcceptanceRun) -> None:
+    args, root, out_dir, config = run.args, run.root, run.out_dir, run.config
+    board_ids = run.board_ids
+    scope = acceptance_scope(run.acceptance_profile, run.tdma_only,
                              getattr(args, "strict_stage", []) or [])
     scope_path = out_dir / "fixed-scope.json"
     scope_path.write_text(json.dumps(scope, indent=2) + "\n", encoding="utf-8")
-    alarm_context = dict(scope=scope, stages={}, failures=diagnostic_failures, out_dir=out_dir)
-    args._alarm_context = alarm_context
+    run._bind_alarm_context(scope)
     topology_reuse_source = None
     if getattr(args, "reuse_topology", None) is not None:
-        if not (tdma_only and quick_diagnostic):
+        if not (run.tdma_only and run.quick_diagnostic):
             raise AcceptanceError("known topology reuse requires four-board quick acceptance")
-        topology_reuse_source = freeze_known_topology(
-            root, args.reuse_topology, out_dir, board_ids,
-            str(config["topology_anchor_board_id"]))
+        frozen = out_dir / "known-topology-source.json"
+        if frozen.is_file() and frozen.read_bytes() == (root / args.reuse_topology).read_bytes():
+            topology_reuse_source = evidence_entry(root, frozen)  # step 0 rerun
+        else:
+            topology_reuse_source = freeze_known_topology(
+                root, args.reuse_topology, out_dir, board_ids,
+                str(config["topology_anchor_board_id"]))
     timing_probe_path = out_dir / "timing.json"
-    _start_timing_probe(timing_probe_path)
+    if "timing_probe_path" in run.state:
+        _resume_timing_probe(timing_probe_path)  # step 0 rerun keeps the events
+    else:
+        _start_timing_probe(timing_probe_path)
+    # The TRN-03 previous-matrix fallback reads the receipt as it was before this
+    # run; the DPLL step later overwrites that path with a provisional receipt.
+    # Snapshot it once per run directory, never after a provisional was written.
+    # An aborted run can leave the provisional receipt behind; never take that as
+    # the previous credential - fall back to the committed (index) receipt.
+    previous_receipt_path = run.state.get("previous_receipt_path")
+    if "previous_receipt_path" not in run.state and run.receipt_path.is_file():
+        previous_receipt_path = out_dir / "previous-receipt.json"
+        current = json.loads(run.receipt_path.read_text(encoding="utf-8"))
+        if current.get("schema") != PROVISIONAL_SCHEMA:
+            shutil.copyfile(run.receipt_path, previous_receipt_path)
+        else:
+            try:
+                committed = read_index_json(root, args.receipt)
+            except AcceptanceError:
+                previous_receipt_path = None
+            else:
+                previous_receipt_path.write_text(
+                    json.dumps(committed, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+    run.put(scope=scope, scope_path=scope_path,
+            topology_reuse_source=topology_reuse_source,
+            timing_probe_path=timing_probe_path,
+            previous_receipt_path=previous_receipt_path)
 
-    if args.command == "resume":
+
+@acceptance_step(1, "源码指纹（working_source_fingerprint）")
+def phase_source_fingerprint(run: AcceptanceRun) -> None:
+    fingerprint_before, source_count = working_source_fingerprint(run.root)
+    run.put(fingerprint_before=fingerprint_before, source_count=source_count)
+
+
+@acceptance_step(2, "构建（cmake_build_auto）")
+def phase_build(run: AcceptanceRun) -> None:
+    args, root, out_dir = run.args, run.root, run.out_dir
+    stamp = run.get("stamp")
+    build_dir = root / (
+        args.build_dir or Path(f"out/build/p3-acceptance-{stamp}"))
+    print(f"P3 acceptance: build -> {build_dir}", flush=True)
+    _run_step([
+        sys.executable,
+        str(root / "tools/cmake_build_auto/cmake_build_auto.py"),
+        "--root", str(root), "--build-dir", str(build_dir),
+    ], root, out_dir / "build.log")
+    run.put(build_dir=build_dir)
+
+
+@acceptance_step(3, "固件包校验（包存在 + 构建号）")
+def phase_package(run: AcceptanceRun) -> None:
+    args, root = run.args, run.root
+    if args.command == "resume" or getattr(args, "package", None) is not None:
         package = (root / args.package).resolve()
-        ota_summary_path = (root / args.ota_summary).resolve()
         if not package.is_file():
             raise AcceptanceError(f"reused firmware package missing: {package}")
+    else:
+        package = run.get("build_dir") / "DHRT100_UPDATE.pkg"
+        if not package.is_file():
+            raise AcceptanceError(f"firmware package missing: {package}")
+    build_id = _read_package_build_id(package)
+    run.put(package=package, build_id=build_id)
+
+
+@acceptance_step(4, "刷写（--method ota | picotool | tdma 预留）")
+def phase_flash(run: AcceptanceRun) -> None:
+    root, out_dir = run.root, run.out_dir
+    ota_board_ids, diagnostic_continue = run.ota_board_ids, run.diagnostic_continue
+    package, build_id = run.get("package"), run.get("build_id")
+    method = str(getattr(run.args, "flash_method", None) or "ota")
+    run.put(flash_method=method)
+    if method == "tdma":
+        raise AcceptanceError(
+            "flash method 'tdma' (streaming OTA over the TDMA ring) is reserved and "
+            "not implemented; nothing was flashed")
+    if method == "picotool":
+        # Loads DHRT100_FACTORY.uf2 through tools/ota/OTA_workflow.py; there is no
+        # OTA transport summary, so the run cannot be credential-eligible.
+        flash_dir = out_dir / "flash-picotool"
+        command = [sys.executable, str(root / "tools/ota/OTA_workflow.py"),
+                   "--method", "picotool", "--allow-factory-image", "--no-build",
+                   "--package", str(package), "--steps", "1-6"]
+        if run.state.get("build_dir") is not None:
+            command += ["--build-dir", str(run.state["build_dir"])]
+        _run_step(command, root, out_dir / "flash-picotool.log")
+        flash_dir.mkdir(parents=True, exist_ok=True)
+        run.put(ota_summary_path=None)
+        run.warn("picotool flash has no OTA transport summary; the run is record-only")
+        return
+    ota_dir = out_dir / "ota-four-board"
+    print(
+        f"P3 acceptance: asynchronous OTA {len(ota_board_ids)} boards "
+        f"build={build_id}",
+        flush=True)
+    ota_command = [
+        sys.executable,
+        str(root / "tools/ota_multi_update/ota_multi_update.py"),
+        str(package), "--expected-board-count",
+        str(len(ota_board_ids)),
+        "--expected-build", build_id, "--out-dir", str(ota_dir),
+        "--block-size", "4096",
+    ]
+    for board_id in ota_board_ids:
+        ota_command.extend(["--serial-number", board_id])
+    if diagnostic_continue:
+        ota_command.append("--diagnostic-continue")
+    _run_step(ota_command, root, out_dir / "ota.log")
+    run.put(ota_summary_path=ota_dir / "summary.json")
+
+
+@acceptance_step(5, "OTA 摘要门限（validate_ota，4096 B 块）")
+def phase_ota_gate(run: AcceptanceRun) -> None:
+    args, root = run.args, run.root
+    build_id = run.get("build_id")
+    if args.command == "resume" or getattr(args, "ota_summary", None) is not None:
+        ota_summary_path = (root / args.ota_summary).resolve()
         if not ota_summary_path.is_file():
             raise AcceptanceError(
                 f"reused OTA summary missing: {ota_summary_path}")
-        build_id = _read_package_build_id(package)
-        ota_summary = json.loads(
-            ota_summary_path.read_text(encoding="utf-8"))
-        validate_ota(ota_summary, ota_board_ids, build_id)
-        online_builds = read_online_builds(ota_board_ids, timing)
-        validate_online_builds(
-            online_builds, ota_board_ids, build_id)
+    else:
+        ota_summary_path = run.get("ota_summary_path")
+        if ota_summary_path is None:
+            run.warn("no OTA transport summary (non-OTA flash); gate not applicable")
+            return
+    ota_summary = json.loads(
+        ota_summary_path.read_text(encoding="utf-8"))
+    validate_ota(ota_summary, run.ota_board_ids, build_id)
+    run.put(ota_summary_path=ota_summary_path, ota_summary=ota_summary)
+
+
+@acceptance_step(6, "在线构建号回读（validate_online_builds）")
+def phase_online_builds(run: AcceptanceRun) -> None:
+    args, root, out_dir = run.args, run.root, run.out_dir
+    ota_board_ids = run.ota_board_ids
+    online_builds = read_online_builds(ota_board_ids, run.timing)
+    if "build_id" not in run.state:
+        # No package step in this run: adopt the build the boards report. The run
+        # then binds no package evidence and stays record-only.
+        observed = sorted(set(online_builds.values()))
+        if len(observed) != 1 or set(online_builds) != set(ota_board_ids):
+            raise AcceptanceError(f"boards do not report one common build: {online_builds}")
+        run.put(build_id=observed[0])
+        run.warn(f"build id {observed[0]} adopted from the boards (no package step)")
+    build_id = run.get("build_id")
+    validate_online_builds(
+        online_builds, ota_board_ids, build_id)
+    if args.command == "resume":
+        package, ota_summary_path = run.get("package"), run.get("ota_summary_path")
         reuse_record = {
             "schema": "HAOFV_HARDWARE_ACCEPTANCE_FIRMWARE_REUSE_V1",
             "firmware_changed": False,
@@ -2639,49 +3146,19 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         print(
             f"Hardware acceptance: reuse live build={build_id}; "
             "build and OTA skipped", flush=True)
-    else:
-        build_dir = root / (
-            args.build_dir or Path(f"out/build/p3-acceptance-{stamp}"))
-        print(f"P3 acceptance: build -> {build_dir}", flush=True)
-        _run_step([
-            sys.executable,
-            str(root / "tools/cmake_build_auto/cmake_build_auto.py"),
-            "--root", str(root), "--build-dir", str(build_dir),
-        ], root, out_dir / "build.log")
-        package = build_dir / "DHRT100_UPDATE.pkg"
-        if not package.is_file():
-            raise AcceptanceError(f"firmware package missing: {package}")
-        build_id = _read_package_build_id(package)
+    run.put(online_builds=online_builds)
 
-        ota_dir = out_dir / "ota-four-board"
-        print(
-            f"P3 acceptance: asynchronous OTA {len(ota_board_ids)} boards "
-            f"build={build_id}",
-            flush=True)
-        ota_command = [
-            sys.executable,
-            str(root / "tools/ota_multi_update/ota_multi_update.py"),
-            str(package), "--expected-board-count",
-            str(len(ota_board_ids)),
-            "--expected-build", build_id, "--out-dir", str(ota_dir),
-            "--block-size", "4096",
-        ]
-        for board_id in ota_board_ids:
-            ota_command.extend(["--serial-number", board_id])
-        if diagnostic_continue:
-            ota_command.append("--diagnostic-continue")
-        _run_step(ota_command, root, out_dir / "ota.log")
-        ota_summary_path = ota_dir / "summary.json"
-        ota_summary = json.loads(
-            ota_summary_path.read_text(encoding="utf-8"))
-        validate_ota(ota_summary, ota_board_ids, build_id)
 
+@acceptance_step(7, "初始化复位（reset_acceptance_boards）")
+def phase_reset(run: AcceptanceRun) -> None:
+    out_dir, ota_board_ids = run.out_dir, run.ota_board_ids
+    build_id = run.get("build_id")
     print(
         f"Hardware acceptance: initialize {len(ota_board_ids)} boards by "
         "software reset", flush=True)
     reset_started = datetime.now(timezone.utc)
     reset_evidence = reset_acceptance_boards(
-        ota_board_ids, build_id, timing)
+        ota_board_ids, build_id, run.timing)
     reset_path = out_dir / "initialization-reset.json"
     reset_path.write_text(
         json.dumps(reset_evidence, ensure_ascii=False, indent=2) + "\n",
@@ -2694,11 +3171,16 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         "returncode": 0,
         "status": "PASS",
     })
+    run.put(reset_path=reset_path)
 
-    common_boards: list[str] = []
-    for board_id in board_ids:
-        common_boards.extend(["--board-id", board_id])
 
+# -- 拓扑 -------------------------------------------------------------------
+@acceptance_step(8, "P0T 线序与 NO 分配（或已知拓扑回读）")
+def phase_topology(run: AcceptanceRun) -> None:
+    root, out_dir, config, timing = run.root, run.out_dir, run.config, run.timing
+    common_boards, board_ids = run.common_boards, run.board_ids
+    build_id = run.get("build_id")
+    topology_reuse_source = run.state.get("topology_reuse_source")
     topology_dir = out_dir / "p0t-topology"
     topology_command = [
         sys.executable,
@@ -2725,9 +3207,14 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         topology_dir.mkdir(parents=True, exist_ok=True)
         topology_summary_path.write_text(
             json.dumps(topology_summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    topology_summary = json.loads(
-        topology_summary_path.read_text(encoding="utf-8"))
-    alarm_context["stages"]["P0"] = topology_summary
+    run.put(topology_summary_path=topology_summary_path)
+
+
+@acceptance_step(9, "拓扑门限（环序 = NO.1..NO.4，分配全部通过）")
+def phase_topology_gate(run: AcceptanceRun) -> None:
+    board_ids = run.board_ids
+    topology_summary = run.load_json("topology_summary_path")
+    run.alarm_stage("P0", topology_summary)
     validate_pass_summary(topology_summary, "P0T topology")
     if topology_summary.get("ring_order") != board_ids:
         raise AcceptanceError(
@@ -2737,12 +3224,16 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
             any(row.get("passed") is not True for row in assignments)):
         raise AcceptanceError("P0T NO assignment/readback did not pass")
 
+
+# -- 标定 -------------------------------------------------------------------
+@acceptance_step(10, "P1 粗 CLK 标定（每个 calibration_profile_levels 等级）")
+def phase_p1_coarse(run: AcceptanceRun) -> None:
+    root, out_dir, config, timing = run.root, run.out_dir, run.config, run.timing
+    common_boards = run.common_boards
+    build_id = run.get("build_id")
     coarse_paths: list[Path] = []
-    coded_paths: list[Path] = []
     for level in config["calibration_profile_levels"]:
         probe_phase_cycles = calibration_probe_phase_cycles(config, level)
-        coded_probe_phase_cycles = calibration_coded_probe_phase_cycles(
-            config, level)
         coarse_dir = out_dir / f"coarse-clk-level{level}"
         print(f"Hardware acceptance: coarse CLK calibration level={level}",
               flush=True)
@@ -2757,11 +3248,22 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         ]
         add_serial_timing(coarse_command, timing, action=True, gap=True)
         coarse_summary = coarse_dir / "summary.json"
-        run_diagnostic_gate(
+        run.run_diagnostic_gate(
             coarse_command, out_dir / f"coarse-clk-level{level}.log",
             coarse_summary, f"coarse CLK calibration level {level}")
         coarse_paths.append(coarse_summary)
+    run.put(coarse_paths=coarse_paths)
 
+
+@acceptance_step(11, "P2 编码 MARK 标定（每个等级）")
+def phase_p2_coded(run: AcceptanceRun) -> None:
+    root, out_dir, config, timing = run.root, run.out_dir, run.config, run.timing
+    common_boards = run.common_boards
+    build_id = run.get("build_id")
+    coded_paths: list[Path] = []
+    for level in config["calibration_profile_levels"]:
+        coded_probe_phase_cycles = calibration_coded_probe_phase_cycles(
+            config, level)
         coded_dir = out_dir / f"coded-marker-level{level}"
         print(f"Hardware acceptance: coded marker calibration level={level}",
               flush=True)
@@ -2779,11 +3281,17 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
                 "--probe-phase-cycles", str(phase_cycles)])
         add_serial_timing(coded_command, timing, action=True, gap=True)
         coded_summary = coded_dir / "summary.json"
-        run_diagnostic_gate(
+        run.run_diagnostic_gate(
             coded_command, out_dir / f"coded-marker-level{level}.log",
             coded_summary, f"coded marker calibration level {level}")
         coded_paths.append(coded_summary)
+    run.put(coded_paths=coded_paths)
 
+
+@acceptance_step(12, "P1/P2 阶段摘要（write_phase_summary）")
+def phase_p1_p2_summaries(run: AcceptanceRun) -> None:
+    out_dir, diagnostic_continue = run.out_dir, run.diagnostic_continue
+    coarse_paths, coded_paths = run.get("coarse_paths"), run.get("coded_paths")
     coarse_summary_path = out_dir / "coarse-calibration-summary.json"
     coded_summary_path = out_dir / "coded-calibration-summary.json"
     write_phase_summary(
@@ -2794,11 +3302,25 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         diagnostic_continue=diagnostic_continue)
     for stage, paths in (("P1", coarse_paths), ("P2", coded_paths)):
         summaries = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
-        alarm_context["stages"][stage] = {
+        run.alarm_stage(stage, {
             "passed": all(row.get("passed") is True for row in summaries),
-            "summaries": summaries}
+            "summaries": summaries})
+    run.put(coarse_summary_path=coarse_summary_path,
+            coded_summary_path=coded_summary_path)
 
-    schedule_before = read_schedules(board_ids, timing)
+
+# -- 时延 -------------------------------------------------------------------
+@acceptance_step(13, "调度基线（read_schedules → schedule_before）")
+def phase_schedule_baseline(run: AcceptanceRun) -> None:
+    schedule_before = read_schedules(run.board_ids, run.timing)
+    run.put(schedule_before=schedule_before)
+
+
+@acceptance_step(14, "P3 时延测量（calibration_link_p3）")
+def phase_p3_measure(run: AcceptanceRun) -> None:
+    root, out_dir, config, timing = run.root, run.out_dir, run.config, run.timing
+    board_ids = run.board_ids
+    build_id = run.get("build_id")
     p3_dir = out_dir / "p3-four-board"
     print("Hardware acceptance: Latency Cal four links x two groups x frequency ladder",
           flush=True)
@@ -2825,9 +3347,14 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
     # diagnostic waveform.  Always provide its timeout to the measurement tool.
     add_serial_timing(p3_command, timing, action=True, capture=True, gap=True)
     _run_step(p3_command, root, out_dir / "p3.log")
-    p3_summary_path = p3_dir / "summary.json"
-    p3_summary = json.loads(p3_summary_path.read_text(encoding="utf-8"))
-    alarm_context["stages"]["P3"] = p3_summary
+    run.put(p3_summary_path=p3_dir / "summary.json")
+
+
+@acceptance_step(15, "P3 门限 + 链路时延（validate_p3 / p3_link_delays）")
+def phase_p3_gate(run: AcceptanceRun) -> None:
+    config, baseline_divisor = run.config, run.baseline_divisor
+    p3_summary = run.load_json("p3_summary_path")
+    run.alarm_stage("P3", p3_summary)
     p3_metrics = validate_p3(p3_summary, config)
     link_delays = p3_link_delays(p3_summary, config)
     link_base_delays = [
@@ -2844,49 +3371,32 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         },
         "stages": [],
     }
+    previous = run.state.get("parameter_handoff")
+    if previous is not None and previous.get("baseline") == parameter_handoff["baseline"]:
+        # Recomputing the same baseline (offline rerun) must not drop the
+        # entries the training steps already recorded against it.
+        parameter_handoff["stages"] = previous.get("stages", [])
+    run.put(p3_metrics=p3_metrics, link_delays=link_delays,
+            link_base_delays=link_base_delays, parameter_handoff=parameter_handoff)
 
-    def record_parameter_handoff(
-            phase: str, summary_path: Path, summary: dict[str, Any], *,
-            loaded_from: str, selected: dict[str, Any] | None = None
-            ) -> dict[str, Any]:
-        expected = {
-            "link_delay_ns_by_link": list(link_delays),
-            "link_base_delay_ns_by_link": list(link_base_delays),
-            "path_delay_baseline_divisor": baseline_divisor,
-            "sample_period_ns": 4,
-        }
-        if summary.get("debug_forced_continue") is True:
-            parameters = expected
-        else:
-            parameters = stage_training_parameters(
-                summary, phase, len(board_ids))
-        if parameters != expected:
-            raise AcceptanceError(
-                f"{phase} did not load the current P3 baseline from "
-                f"{loaded_from}")
-        parameter_handoff["stages"].append({
-            "phase": phase,
-            "loaded_from": loaded_from,
-            "summary": {
-                "path": summary_path.resolve().relative_to(root).as_posix(),
-                "sha256": sha256_file(summary_path),
-            },
-            "loaded_parameters": parameters,
-            **({"selected_parameters": selected} if selected is not None else {}),
-            **({"debug_forced_continue": True}
-               if summary.get("debug_forced_continue") is True else {}),
-        })
-        return parameters
 
-    schedule_after = read_schedules(board_ids, timing)
+@acceptance_step(16, "标定期调度隔离（validate_schedule_isolation）")
+def phase_schedule_isolation(run: AcceptanceRun) -> None:
+    schedule_before = run.get("schedule_before")
+    schedule_after = read_schedules(run.board_ids, run.timing)
     validate_schedule_isolation(
-        schedule_before, schedule_after, int(config["calibration_load_mask"]))
+        schedule_before, schedule_after, int(run.config["calibration_load_mask"]))
 
+
+# -- 训练 -------------------------------------------------------------------
+@acceptance_step(17, "TRN-00 MARK 接受行（+ 训练代号）")
+def phase_trn00_mark(run: AcceptanceRun) -> None:
+    root, out_dir, config, timing = run.root, run.out_dir, run.config, run.timing
+    common_boards, board_ids = run.common_boards, run.board_ids
+    diagnostic_continue, baseline_divisor = run.diagnostic_continue, run.baseline_divisor
+    build_id = run.get("build_id")
+    link_delay_args = run.link_delay_args()
     generation = int(time.time())
-    link_delay_args: list[str] = []
-    for link_delay in link_delays:
-        link_delay_args.extend(["--link-delay-ns", str(link_delay)])
-
     marker_dir = out_dir / "trn00-marker-accepted-row"
     marker_command = [
         sys.executable,
@@ -2911,7 +3421,7 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
     add_serial_timing(marker_command, timing, action=True, gap=True)
     print("Hardware acceptance: TRN-00 accepted MARK offset row", flush=True)
     marker_summary_path = marker_dir / "summary.json"
-    marker_summary = run_diagnostic_gate(
+    marker_summary = run.run_diagnostic_gate(
         marker_command, out_dir / "trn00-marker.log", marker_summary_path,
         "TRN-00 MARK offset row")
     marker_offsets_by_node = selected_node_offsets(
@@ -2920,12 +3430,24 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         diagnostic_fallback=(
             [int(value) for value in config["training_marker_offsets_by_node"]]
             if diagnostic_continue else None))
-    record_parameter_handoff(
+    run.record_parameter_handoff(
         "TRN-00 MARK", marker_summary_path, marker_summary,
         loaded_from="P3", selected={
             "marker_offset_sample_counts_by_node": marker_offsets_by_node,
         })
+    run.put(generation=generation, marker_summary_path=marker_summary_path,
+            marker_offsets_by_node=marker_offsets_by_node)
 
+
+@acceptance_step(18, "TRN-00 驻留矩阵（+ TRN-00 阶段摘要）")
+def phase_trn00_residence(run: AcceptanceRun) -> None:
+    root, out_dir, config, timing = run.root, run.out_dir, run.config, run.timing
+    common_boards, diagnostic_continue = run.common_boards, run.diagnostic_continue
+    baseline_divisor = run.baseline_divisor
+    build_id, generation = run.get("build_id"), run.get("generation")
+    marker_offsets_by_node = run.get("marker_offsets_by_node")
+    marker_summary_path = run.get("marker_summary_path")
+    link_delay_args = run.link_delay_args()
     # Residence, SCK and DATA form one portable training identity.  MARK row
     # repetitions above use separate generations only as fresh stability proof.
     training_generation = generation + int(config["training_marker_repeats"]) + 1
@@ -2948,10 +3470,10 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
     add_serial_timing(residence_command, timing, action=True, gap=True)
     print("Hardware acceptance: TRN-00 full residence matrix", flush=True)
     residence_summary_path = residence_dir / "summary.json"
-    residence_summary = run_diagnostic_gate(
+    residence_summary = run.run_diagnostic_gate(
         residence_command, out_dir / "trn00-residence.log",
         residence_summary_path, "TRN-00 residence matrix")
-    record_parameter_handoff(
+    run.record_parameter_handoff(
         "TRN-00 residence", residence_summary_path, residence_summary,
         loaded_from="TRN-00 MARK")
     trn00_summary_path = out_dir / "trn00-summary.json"
@@ -2959,10 +3481,24 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         trn00_summary_path, "TRN-00_MARK_AND_RESIDENCE",
         [marker_summary_path, residence_summary_path],
         diagnostic_continue=diagnostic_continue)
-    alarm_context["stages"]["T0"] = {
+    marker_summary = json.loads(marker_summary_path.read_text(encoding="utf-8"))
+    run.alarm_stage("T0", {
         "passed": marker_summary.get("passed") is True and residence_summary.get("passed") is True,
-        "summaries": [marker_summary, residence_summary]}
+        "summaries": [marker_summary, residence_summary]})
+    run.put(training_generation=training_generation,
+            residence_summary_path=residence_summary_path,
+            trn00_summary_path=trn00_summary_path)
 
+
+@acceptance_step(19, "TRN-01 SCK 偏移矩阵")
+def phase_trn01_sck(run: AcceptanceRun) -> None:
+    root, out_dir, config, timing = run.root, run.out_dir, run.config, run.timing
+    common_boards, board_ids = run.common_boards, run.board_ids
+    diagnostic_continue, baseline_divisor = run.diagnostic_continue, run.baseline_divisor
+    diagnostic_failures = run.diagnostic_failures
+    build_id = run.get("build_id")
+    training_generation = run.get("training_generation")
+    link_delay_args = run.link_delay_args()
     sck_dir = out_dir / "trn01-sck"
     sck_command = [
         sys.executable,
@@ -2990,10 +3526,10 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
     add_serial_timing(sck_command, timing, action=True, gap=True)
     print("Hardware acceptance: TRN-01 SCK offset matrix", flush=True)
     sck_summary_path = sck_dir / "summary.json"
-    sck_summary = run_diagnostic_gate(
+    sck_summary = run.run_diagnostic_gate(
         sck_command, out_dir / "trn01-sck.log", sck_summary_path,
         "TRN-01 SCK training")
-    alarm_context["stages"]["T1"] = sck_summary
+    run.alarm_stage("T1", sck_summary)
     sck_offsets_by_node = selected_sck_offsets(
         sck_summary, len(board_ids),
         diagnostic_fallback=(
@@ -3013,7 +3549,7 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
                 root).as_posix(),
             "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
         })
-    record_parameter_handoff(
+    run.record_parameter_handoff(
         "TRN-01 SCK", sck_summary_path, sck_summary,
         loaded_from="P3 baseline; TRN-00 topology identity", selected={
             "sck_offset_sample_counts_by_node": sck_offsets_by_node,
@@ -3022,7 +3558,22 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
     write_phase_summary(
         trn01_summary_path, "TRN-01_SCK_OFFSET_MATRIX",
         [sck_summary_path], diagnostic_continue=diagnostic_continue)
+    run.put(sck_summary_path=sck_summary_path,
+            sck_offsets_by_node=sck_offsets_by_node,
+            trn01_summary_path=trn01_summary_path)
 
+
+@acceptance_step(20, "TRN-02 DATA 重复矩阵")
+def phase_trn02_data(run: AcceptanceRun) -> None:
+    root, out_dir, config, timing = run.root, run.out_dir, run.config, run.timing
+    common_boards = run.common_boards
+    baseline_divisor = run.baseline_divisor
+    previous_baseline_divisor = run.previous_baseline_divisor
+    build_id = run.get("build_id")
+    training_generation = run.get("training_generation")
+    link_delays = run.get("link_delays")
+    marker_offsets_by_node = run.get("marker_offsets_by_node")
+    link_delay_args = run.link_delay_args()
     data_dir = out_dir / "trn02-data"
     training_data_offsets_by_node = rebase_node_offsets_for_path_delay(
         [int(value) for value in config["training_data_offsets_by_node"]],
@@ -3053,11 +3604,11 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
     add_serial_timing(data_command, timing, action=True, gap=True)
     print("Hardware acceptance: TRN-02 DATA repeat matrix", flush=True)
     data_summary_path = data_dir / "summary.json"
-    data_summary = run_diagnostic_gate(
+    data_summary = run.run_diagnostic_gate(
         data_command, out_dir / "trn02-data.log", data_summary_path,
         "TRN-02 DATA training")
-    alarm_context["stages"]["T2"] = data_summary
-    record_parameter_handoff(
+    run.alarm_stage("T2", data_summary)
+    run.record_parameter_handoff(
         "TRN-02 DATA", data_summary_path, data_summary,
         loaded_from="TRN-00 MARK + previous DATA calibration", selected={
             "data_offset_sample_counts_by_node":
@@ -3070,7 +3621,17 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
     if configured_marker_offsets != marker_offsets_by_node:
         raise AcceptanceError(
             "TRN-02 DATA did not load the selected TRN-00 MARK offsets")
+    run.put(training_data_offsets_by_node=training_data_offsets_by_node,
+            data_summary_path=data_summary_path)
 
+
+@acceptance_step(21, "TRN-03 回放矩阵推导（trn03_matrix）")
+def phase_trn03_matrix(run: AcceptanceRun) -> None:
+    root, out_dir, config = run.root, run.out_dir, run.config
+    diagnostic_continue = run.diagnostic_continue
+    data_summary_path = run.get("data_summary_path")
+    residence_summary_path = run.get("residence_summary_path")
+    sck_summary_path = run.get("sck_summary_path")
     trn03_matrix_path = out_dir / "trn03-matrix.json"
     print("Hardware acceptance: derive fresh TRN-03 replay matrix", flush=True)
     matrix_command = [
@@ -3087,11 +3648,29 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
     matrix_returncode = _run_step(
         matrix_command, root, matrix_log_path,
         allow_failure=diagnostic_continue)
+    run.put(trn03_matrix_path=trn03_matrix_path, matrix_returncode=matrix_returncode,
+            matrix_log_path=matrix_log_path)
+
+
+@acceptance_step(22, "TRN-03 诊断回退（同轮重试 / 上一凭证矩阵；21 通过时不动作）")
+def phase_trn03_fallback(run: AcceptanceRun) -> None:
+    root, out_dir, config = run.root, run.out_dir, run.config
+    diagnostic_continue, board_ids = run.diagnostic_continue, run.board_ids
+    baseline_divisor, diagnostic_failures = run.baseline_divisor, run.diagnostic_failures
+    trn03_matrix_path = run.get("trn03_matrix_path")
+    matrix_returncode = run.get("matrix_returncode")
+    matrix_log_path = run.get("matrix_log_path")
     matrix_fallback_used = False
     fallback_manifest_path: Path | None = None
     if matrix_returncode != 0 or not trn03_matrix_path.is_file():
         if not diagnostic_continue:
             raise AcceptanceError("fresh TRN-03 matrix generation failed")
+        build_id = run.get("build_id")
+        training_generation = run.get("training_generation")
+        data_summary_path = run.get("data_summary_path")
+        residence_summary_path = run.get("residence_summary_path")
+        sck_summary_path = run.get("sck_summary_path")
+        receipt_path = run.state.get("previous_receipt_path") or run.receipt_path
         fallback_manifest_path = (
             out_dir / "trn03-diagnostic-fallback" / "manifest.json")
         fallback_error = ""
@@ -3127,11 +3706,11 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
                 fallback_manifest_path, build_id=build_id,
                 board_ids=board_ids,
                 calibration_generation=training_generation,
-                link_delays=link_delays,
+                link_delays=run.get("link_delays"),
                 baseline_divisor=baseline_divisor,
-                marker_offsets=marker_offsets_by_node,
-                sck_offsets=sck_offsets_by_node,
-                data_offsets=training_data_offsets_by_node,
+                marker_offsets=run.get("marker_offsets_by_node"),
+                sck_offsets=run.get("sck_offsets_by_node"),
+                data_offsets=run.get("training_data_offsets_by_node"),
                 failure=fallback_error)
         diagnostic_failures.append({
             "phase": "TRN-03 replay matrix generation",
@@ -3145,8 +3724,21 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
             "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
         })
         matrix_fallback_used = True
+    run.put(matrix_fallback_used=matrix_fallback_used,
+            fallback_manifest_path=fallback_manifest_path)
+
+
+@acceptance_step(23, "参数交接 + 矩阵身份 + SCK 回放安全")
+def phase_trn03_handoff(run: AcceptanceRun) -> None:
+    root, out_dir, board_ids = run.root, run.out_dir, run.board_ids
+    diagnostic_continue, diagnostic_failures = run.diagnostic_continue, run.diagnostic_failures
+    trn03_matrix_path = run.get("trn03_matrix_path")
+    matrix_fallback_used = run.get("matrix_fallback_used")
+    fallback_manifest_path = run.get("fallback_manifest_path")
+    training_generation = run.get("training_generation")
+    sck_offsets_by_node = run.get("sck_offsets_by_node")
     trn03_matrix = json.loads(trn03_matrix_path.read_text(encoding="utf-8"))
-    alarm_context["stages"]["T3"] = trn03_matrix
+    run.alarm_stage("T3", trn03_matrix)
     if matrix_fallback_used:
         assert fallback_manifest_path is not None
         trn03_matrix.setdefault("derivation", {})[
@@ -3159,7 +3751,7 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
             encoding="utf-8")
     trn03_data_offsets_by_node = selected_data_offsets(
         trn03_matrix, len(board_ids))
-    record_parameter_handoff(
+    run.record_parameter_handoff(
         "TRN-03 replay matrix", trn03_matrix_path, trn03_matrix,
         loaded_from="TRN-00 residence + TRN-01 SCK + TRN-02 DATA", selected={
             "sck_offset_sample_counts_by_node": sck_offsets_by_node,
@@ -3169,6 +3761,7 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
             int(trn03_matrix.get("calibration_generation", 0)) !=
             training_generation):
         raise AcceptanceError("fresh TRN-03 matrix identity is inconsistent")
+    parameter_handoff = run.get("parameter_handoff")
     parameter_handoff_path = out_dir / "calibration-parameter-handoff.json"
     parameter_handoff_path.write_text(
         json.dumps(parameter_handoff, ensure_ascii=False, indent=2) + "\n",
@@ -3188,7 +3781,18 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
                 "selected_min_follower_margin_samples"),
             "matrix": trn03_matrix_path.resolve().relative_to(root).as_posix(),
         })
+    run.put(trn03_data_offsets_by_node=trn03_data_offsets_by_node,
+            parameter_handoff_path=parameter_handoff_path)
 
+
+# -- TDMA -------------------------------------------------------------------
+@acceptance_step(24, "TDMA 过程镜像/FIFO 闭环（trn03_closed_loop）")
+def phase_tdma(run: AcceptanceRun) -> None:
+    root, out_dir, config, timing = run.root, run.out_dir, run.config, run.timing
+    common_boards, capture_policy = run.common_boards, run.capture_policy
+    diagnostic_continue, finite_tdma = run.diagnostic_continue, run.finite_tdma
+    build_id = run.get("build_id")
+    trn03_matrix_path = run.get("trn03_matrix_path")
     tdma_dir = out_dir / "tdma-process-image"
     tdma_command = [
         sys.executable,
@@ -3210,6 +3814,10 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         str(timing["status_poll_interval_s"]),
         "--out-dir", str(tdma_dir),
     ]
+    if run.state.get("steps", {}).get("24") is not None:
+        # A rerun has no OTA reboot or reset in between: the previous attempt's
+        # recorder is frozen/unsaved and would refuse the new ARM.
+        tdma_command.append("--cancel-unsaved-record")
     add_serial_timing(
         tdma_command, timing, action=True,
         capture=capture_policy["tdma"])
@@ -3221,17 +3829,40 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
     tdma_returncode = _run_step(
         tdma_command, root, out_dir / "tdma.log",
         allow_failure=diagnostic_continue)
-    tdma_summary_path = tdma_dir / "summary.json"
-    tdma_summary = json.loads(tdma_summary_path.read_text(encoding="utf-8"))
-    alarm_context["stages"]["TDMA"] = tdma_summary
+    run.put(tdma_returncode=tdma_returncode, tdma_dir=tdma_dir,
+            tdma_summary_path=tdma_dir / "summary.json")
+
+
+@acceptance_step(25, "训练输入回读（training_inputs_read_back）")
+def phase_tdma_readback(run: AcceptanceRun) -> None:
+    board_ids = run.board_ids
+    training_generation = run.get("training_generation")
+    trn03_matrix = run.load_json("trn03_matrix_path")
+    tdma_summary = run.load_json("tdma_summary_path")
+    run.alarm_stage("TDMA", tdma_summary)
     inputs_validated = training_inputs_read_back(trn03_matrix, tdma_summary, board_ids)
-    for stage in ("P1", "P2", "T0", "T1", "T2", "T3"):
-        # This is selected-input usability, never a new successful measurement.
-        alarm_context["stages"][stage] = {
-            **alarm_context["stages"][stage], "_input_validated": inputs_validated,
-            "_input_validation": {"source": "TDMA stage_results", "board_ids": board_ids,
-                                  "calibration_generation": training_generation}}
-    alarm_context["stages"]["T3"]["_stage_readback"] = tdma_summary.get("stage_results", [])
+    if run.alarm_context is not None:
+        stages = run.alarm_context["stages"]
+        for stage in ("P1", "P2", "T0", "T1", "T2", "T3"):
+            # This is selected-input usability, never a new successful measurement.
+            stages[stage] = {
+                **stages.get(stage, {}), "_input_validated": inputs_validated,
+                "_input_validation": {"source": "TDMA stage_results", "board_ids": board_ids,
+                                      "calibration_generation": training_generation}}
+        stages["T3"]["_stage_readback"] = tdma_summary.get("stage_results", [])
+    if not inputs_validated:
+        run.warn("TDMA stage results do not read back the selected training inputs")
+
+
+@acceptance_step(26, "TDMA 门限 + 停机记录交接（validate_tdma_stopped_handoff）")
+def phase_tdma_handoff(run: AcceptanceRun) -> None:
+    root, out_dir, board_ids = run.root, run.out_dir, run.board_ids
+    diagnostic_continue, diagnostic_failures = run.diagnostic_continue, run.diagnostic_failures
+    finite_tdma = run.finite_tdma
+    build_id = run.get("build_id")
+    tdma_returncode = run.get("tdma_returncode")
+    tdma_summary_path = run.get("tdma_summary_path")
+    tdma_summary = json.loads(tdma_summary_path.read_text(encoding="utf-8"))
     if diagnostic_continue and tdma_returncode != 0:
         diagnostic_failures.append({
             "phase": "four-Node TDMA closed loop",
@@ -3265,41 +3896,234 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
             "error": "TDMA gate did not hand off a running loop",
             "summary": tdma_summary_path.resolve().relative_to(root).as_posix(),
         })
+    run.put(stopped_handoff_path=stopped_handoff_path)
 
-    dpll_summary_path: Path | None = None
-    dpll_scope_discovery_path: Path | None = None
-    if tdma_only:
+
+# -- DPLL -------------------------------------------------------------------
+@acceptance_step(27, "示波器发现（discover_optional_scope；--tdma-only 时跳过 DPLL）")
+def phase_dpll_scope(run: AcceptanceRun) -> None:
+    if run.tdma_only:
         print("Hardware acceptance: skip optional four-board DPLL short observation", flush=True)
-    else:
-        if stopped_handoff_path is None:
-            raise AcceptanceError("four-board DPLL short observation requires stopped TDMA evidence")
-        dpll_summary_path, dpll_summary, dpll_scope_discovery_path = \
-            run_four_board_dpll_short(
-                root, config, receipt_path, out_dir, build_id=build_id,
-                board_ids=board_ids, source_fingerprint=fingerprint_before,
-                source_count=source_count, package=package,
-                ota_summary_path=ota_summary_path,
-                trn03_matrix_path=trn03_matrix_path,
-                tdma_summary_path=tdma_summary_path,
-                stopped_handoff_path=stopped_handoff_path,
-                calibration_generation=training_generation)
-        alarm_context["stages"]["DPLL"] = dpll_summary
-    final_schedules = read_schedules(board_ids, timing)
+        run.put(dpll_summary_path=None, dpll_scope_discovery_path=None)
+        return
+    if run.get("stopped_handoff_path") is None:
+        raise AcceptanceError("four-board DPLL short observation requires stopped TDMA evidence")
+    discovery_path, scope_enabled = dpll_short_discover_scope(run.config, run.out_dir)
+    run.put(dpll_scope_discovery_path=discovery_path, dpll_scope_enabled=scope_enabled)
+
+
+@acceptance_step(28, "临时凭证（供采集适配器读取，不可提交）")
+def phase_dpll_provisional(run: AcceptanceRun) -> None:
+    if run.tdma_only:
+        return
+    dpll_short_write_provisional(
+        run.root, run.receipt_path, build_id=run.get("build_id"),
+        board_ids=run.board_ids, source_fingerprint=run.get("fingerprint_before"),
+        source_count=run.get("source_count"), package=run.get("package"),
+        ota_summary_path=run.get("ota_summary_path"),
+        trn03_matrix_path=run.get("trn03_matrix_path"),
+        tdma_summary_path=run.get("tdma_summary_path"),
+        stopped_handoff_path=run.get("stopped_handoff_path"),
+        calibration_generation=run.get("training_generation"))
+    run.put(provisional_receipt_written=True)
+
+
+@acceptance_step(29, "DPLL 60 s 联合采集（vdc_priority_joint_capture）")
+def phase_dpll_capture(run: AcceptanceRun) -> None:
+    if run.tdma_only:
+        return
+    joint_dir = dpll_short_run_capture(
+        run.root, run.config, run.out_dir, scope_enabled=run.get("dpll_scope_enabled"))
+    run.put(dpll_joint_dir=joint_dir)
+
+
+@acceptance_step(30, "DPLL 摘要门限（summarize_joint / validate_summary）")
+def phase_dpll_gate(run: AcceptanceRun) -> None:
+    if run.tdma_only:
+        return
+    dpll_summary_path, dpll_summary = dpll_short_summarize(
+        run.root, run.config, run.out_dir, run.get("dpll_joint_dir"),
+        scope_enabled=run.get("dpll_scope_enabled"),
+        source_fingerprint=run.get("fingerprint_before"),
+        build_id=run.get("build_id"), board_ids=run.board_ids)
+    run.alarm_stage("DPLL", dpll_summary)
+    run.put(dpll_summary_path=dpll_summary_path)
+
+
+# -- 收尾 -------------------------------------------------------------------
+@acceptance_step(31, "运行期调度复核（validate_runtime_schedules）")
+def phase_final_schedules(run: AcceptanceRun) -> None:
+    final_schedules = read_schedules(run.board_ids, run.timing)
     try:
         validate_runtime_schedules(
-            final_schedules, int(config["calibration_load_mask"]))
+            final_schedules, int(run.config["calibration_load_mask"]))
     except AcceptanceError as exc:
-        if not diagnostic_continue:
+        if not run.diagnostic_continue:
             raise
-        diagnostic_failures.append({
+        run.diagnostic_failures.append({
             "phase": "final TDMA realtime schedule",
             "returncode": 1,
             "error": str(exc),
         })
+    run.put(final_schedules=final_schedules)
 
-    fingerprint_after, count_after = working_source_fingerprint(root)
+
+@acceptance_step(32, "源码指纹复核（= 步骤 1，跨全部调用）")
+def phase_fingerprint_recheck(run: AcceptanceRun) -> None:
+    fingerprint_before = run.get("fingerprint_before")
+    source_count = run.get("source_count")
+    fingerprint_after, count_after = working_source_fingerprint(run.root)
     if (fingerprint_after, count_after) != (fingerprint_before, source_count):
         raise AcceptanceError("source changed while hardware acceptance was running")
+    run.put(fingerprint_after=fingerprint_after)
+
+
+@acceptance_step(33, "耗时预算（acceptance_budget_status，跨全部调用累计）")
+def phase_budget(run: AcceptanceRun) -> None:
+    budget = acceptance_budget_status(run.config, run.elapsed_total())
+    _record_timing_event({
+        "action": "acceptance.budget",
+        "started_at_utc": None,
+        "ended_at_utc": datetime.now(timezone.utc).isoformat(),
+        "duration_ms": budget["elapsed_s"] * 1000.0,
+        "returncode": 0 if budget["status"] != "ERROR" else 1,
+        "status": budget["status"],
+        "warning_s": budget["warning_s"],
+        "error_s": budget["error_s"],
+    })
+    if budget["status"] == "ERROR":
+        if not run.diagnostic_continue:
+            raise AcceptanceError(
+                f"acceptance exceeded error budget: {budget['elapsed_s']:.3f}s "
+                f"> {budget['error_s']:.3f}s")
+        run.diagnostic_failures.append({
+            "phase": "acceptance time budget",
+            "returncode": 1,
+            "error": (
+                f"elapsed {budget['elapsed_s']:.3f}s exceeds "
+                f"error budget {budget['error_s']:.3f}s"),
+            "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
+        })
+    run.put(budget=budget)
+
+
+@acceptance_step(34, "告警分级（load_alarm_stages / write_alarm_report）")
+def phase_alarm_grading(run: AcceptanceRun) -> None:
+    root, out_dir, board_ids = run.root, run.out_dir, run.board_ids
+    if run.alarm_context is None:
+        run._bind_alarm_context(run.get("scope"))
+    alarm_context = run.alarm_context
+    alarm_paths = dict(P0=run.get("topology_summary_path"), P1=run.get("coarse_summary_path"),
+                       P2=run.get("coded_summary_path"), P3=run.get("p3_summary_path"),
+                       T0=run.get("trn00_summary_path"), T1=run.get("trn01_summary_path"),
+                       T2=run.get("data_summary_path"), T3=run.get("trn03_matrix_path"),
+                       TDMA=run.get("tdma_summary_path"))
+    dpll_summary_path = run.state.get("dpll_summary_path")
+    if dpll_summary_path is not None:
+        alarm_paths["DPLL"] = dpll_summary_path
+    alarm_sources = {stage: evidence_entry(root, path) for stage, path in alarm_paths.items()}
+    alarm_context["stages"] = load_alarm_stages(root, alarm_sources, board_ids)
+    alarm_report = write_alarm_report(alarm_context)
+    print(f"P3 graded outcome: {alarm_report['outcome']}; "
+          f"counts={alarm_report['counts']}; report={out_dir / 'alarms.json'}", flush=True)
+    run.put(alarm_sources=alarm_sources,
+            alarm_report={"outcome": alarm_report["outcome"], "counts": alarm_report["counts"]})
+    if alarm_report["outcome"] == "BLOCKED":
+        raise AcceptanceError("required acceptance objectives failed; see alarms.json")
+
+
+def credential_required_steps(run: AcceptanceRun) -> list[int]:
+    """The steps a credential needs, in order, for the firmware path this run used."""
+    steps = run.state["steps"]
+    resumed = (run.args.command == "resume" or
+               ("2" not in steps and "4" not in steps and "6" in steps))
+    firmware = [3, 5, 6] if resumed else [2, 3, 4, 5]
+    return [0, 1, *firmware, *range(7, 35)]
+
+
+def credential_ineligibility(run: AcceptanceRun) -> list[str]:
+    """Why this run directory cannot produce a commit credential (empty = it can)."""
+    reasons: list[str] = []
+    steps = run.state["steps"]
+    previous = 0
+    for number in credential_required_steps(run):
+        record = steps.get(str(number))
+        if record is None:
+            reasons.append(f"step {number} was not run in this run directory")
+            continue
+        if record.get("status") not in ("OK", "warn"):
+            reasons.append(f"step {number} last status {record.get('status')}")
+        if record["sequence"] <= previous:
+            reasons.append(f"step {number} ran before an upstream step was rerun (stale)")
+        previous = max(previous, record["sequence"])
+    if run.state.get("flash_method", "ota") not in (None, "ota"):
+        reasons.append(f"flash method {run.state['flash_method']} has no OTA evidence")
+    baseline = run.state.get("fingerprint_before")
+    for index, row in enumerate(run.state["invocations"]):
+        if row["source_tree_sha256"] != baseline:
+            reasons.append(f"invocation {index} ran on a different source fingerprint")
+    return reasons
+
+
+def _restore_receipt_snapshot(run: AcceptanceRun) -> None:
+    """A record-only run leaves the config receipt as it found it."""
+    snapshot = run.state.get("previous_receipt_path")
+    if snapshot is not None and snapshot.is_file():
+        shutil.copyfile(snapshot, run.receipt_path)
+    elif run.state.get("provisional_receipt_written") and run.receipt_path.is_file():
+        run.receipt_path.unlink()
+
+
+@acceptance_step(35, "凭证资格 + 写凭证（或仅写 workflow-record.json）")
+def phase_receipt(run: AcceptanceRun) -> None:
+    root, out_dir, config, timing = run.root, run.out_dir, run.config, run.timing
+    receipt_path, config_path = run.receipt_path, run.config_path
+    acceptance_profile, tdma_only = run.acceptance_profile, run.tdma_only
+    quick_diagnostic, capture_policy = run.quick_diagnostic, run.capture_policy
+    board_ids, ota_board_ids = run.board_ids, run.ota_board_ids
+    baseline_divisor, diagnostic_failures = run.baseline_divisor, run.diagnostic_failures
+    reasons = credential_ineligibility(run)
+    if reasons:
+        record = {
+            "schema": HAWF_RECORD_SCHEMA, "credential": False,
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "reasons": reasons, "steps": run.state["steps"],
+            "build_id": run.state.get("build_id"),
+            "alarm_outcome": (run.state.get("alarm_report") or {}).get("outcome"),
+        }
+        (out_dir / "workflow-record.json").write_text(
+            json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        _restore_receipt_snapshot(run)
+        run.warn("record only (not a credential): " + "; ".join(reasons[:3]))
+        run.put(receipt_written=False)
+        return
+    fingerprint_after = run.get("fingerprint_after")
+    source_count = run.get("source_count")
+    build_id, package = run.get("build_id"), run.get("package")
+    ota_summary_path = run.get("ota_summary_path")
+    topology_summary_path = run.get("topology_summary_path")
+    coarse_summary_path = run.get("coarse_summary_path")
+    coded_summary_path = run.get("coded_summary_path")
+    reset_path, p3_summary_path = run.get("reset_path"), run.get("p3_summary_path")
+    trn00_summary_path = run.get("trn00_summary_path")
+    trn01_summary_path = run.get("trn01_summary_path")
+    data_summary_path = run.get("data_summary_path")
+    trn03_matrix_path = run.get("trn03_matrix_path")
+    parameter_handoff_path = run.get("parameter_handoff_path")
+    tdma_summary_path, tdma_dir = run.get("tdma_summary_path"), run.get("tdma_dir")
+    p3_metrics, link_delays = run.get("p3_metrics"), run.get("link_delays")
+    training_generation = run.get("training_generation")
+    schedule_before, final_schedules = run.get("schedule_before"), run.get("final_schedules")
+    timing_probe_path, scope_path = run.get("timing_probe_path"), run.get("scope_path")
+    alarm_sources, alarm_report = run.get("alarm_sources"), run.get("alarm_report")
+    dpll_summary_path = run.state.get("dpll_summary_path")
+    dpll_scope_discovery_path = run.state.get("dpll_scope_discovery_path")
+    topology_reuse_source = run.state.get("topology_reuse_source")
+    stopped_handoff_path = run.state.get("stopped_handoff_path")
+    tdma_summary = json.loads(tdma_summary_path.read_text(encoding="utf-8"))
+    trn03_matrix = json.loads(trn03_matrix_path.read_text(encoding="utf-8"))
+    dpll_summary = (json.loads(dpll_summary_path.read_text(encoding="utf-8"))
+                    if dpll_summary_path is not None else None)
 
     def make_receipt(schema: str, scope: str) -> dict[str, Any]:
         value = {
@@ -3373,44 +4197,7 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         receipt_path.write_text(payload, encoding="utf-8")
         (out_dir / "acceptance.json").write_text(payload, encoding="utf-8")
 
-    budget = acceptance_budget_status(
-        config, time.perf_counter() - acceptance_started)
-    _record_timing_event({
-        "action": "acceptance.budget",
-        "started_at_utc": None,
-        "ended_at_utc": datetime.now(timezone.utc).isoformat(),
-        "duration_ms": budget["elapsed_s"] * 1000.0,
-        "returncode": 0 if budget["status"] != "ERROR" else 1,
-        "status": budget["status"],
-        "warning_s": budget["warning_s"],
-        "error_s": budget["error_s"],
-    })
-    if budget["status"] == "ERROR":
-        if not diagnostic_continue:
-            raise AcceptanceError(
-                f"acceptance exceeded error budget: {budget['elapsed_s']:.3f}s "
-                f"> {budget['error_s']:.3f}s")
-        diagnostic_failures.append({
-            "phase": "acceptance time budget",
-            "returncode": 1,
-            "error": (
-                f"elapsed {budget['elapsed_s']:.3f}s exceeds "
-                f"error budget {budget['error_s']:.3f}s"),
-            "action": "DEBUG_BOUNDED_FORCE_CONTINUE",
-        })
-    alarm_paths = dict(P0=topology_summary_path, P1=coarse_summary_path,
-                       P2=coded_summary_path, P3=p3_summary_path, T0=trn00_summary_path,
-                       T1=trn01_summary_path, T2=data_summary_path, T3=trn03_matrix_path,
-                       TDMA=tdma_summary_path)
-    if dpll_summary_path is not None:
-        alarm_paths["DPLL"] = dpll_summary_path
-    alarm_sources = {stage: evidence_entry(root, path) for stage, path in alarm_paths.items()}
-    alarm_context["stages"] = load_alarm_stages(root, alarm_sources, board_ids)
-    alarm_report = write_alarm_report(alarm_context)
-    print(f"P3 graded outcome: {alarm_report['outcome']}; "
-          f"counts={alarm_report['counts']}; report={out_dir / 'alarms.json'}", flush=True)
-    if alarm_report["outcome"] == "BLOCKED":
-        raise AcceptanceError("required acceptance objectives failed; see alarms.json")
+    run.put(receipt_written=False)
     if diagnostic_failures or quick_diagnostic:
         diagnostic_result = {
             "schema": "HAOFV_HARDWARE_ACCEPTANCE_DIAGNOSTIC_V1",
@@ -3498,6 +4285,9 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
             f"{alarm_report['outcome']} hardware regression flow completed with {result_label}; "
             f"evidence={diagnostic_path}"
             f" receipt={receipt_path if diagnostic_receipt_written else 'none'}")
+        if not diagnostic_receipt_written:
+            _restore_receipt_snapshot(run)
+        run.put(receipt_written=diagnostic_receipt_written)
         return
     _record_timing_event({
         "action": "acceptance.complete",
@@ -3511,9 +4301,28 @@ def _run_acceptance_impl(args: argparse.Namespace) -> None:
         TDMA_RECEIPT_SCHEMA if tdma_only else RECEIPT_SCHEMA,
         "FOUR_NODE_TDMA" if tdma_only else "FULL")
     persist_receipt(receipt)
+    run.put(receipt_written=True)
     print(
         f"PASS calibration-to-DPLL hardware acceptance build={build_id} "
         f"Latency_Cal_trials={p3_metrics['trial_count']} receipt={receipt_path}")
+
+
+@acceptance_step(36, "凭证自检（以 check-staged 的校验器复核写出的凭证）")
+def phase_receipt_selfcheck(run: AcceptanceRun) -> None:
+    if not run.state.get("receipt_written"):
+        run.warn("no credential written; nothing to self-check")
+        return
+    receipt = json.loads(run.receipt_path.read_text(encoding="utf-8"))
+    fingerprint, count = working_source_fingerprint(run.root)
+    if (receipt.get("source_tree_sha256"), receipt.get("source_file_count")) != (fingerprint, count):
+        raise AcceptanceError("written receipt does not match the working source fingerprint")
+    validate_receipt_record(run.root, receipt)
+
+
+def _run_acceptance_impl(args: argparse.Namespace) -> None:
+    run = AcceptanceRun.create(args)
+    for number in acceptance_step_plan(args):
+        run.execute(number)
 
 
 def flash_with_picotool(root: Path, out_dir: Path, board_ids: list[str],
