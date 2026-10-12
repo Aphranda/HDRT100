@@ -68,7 +68,7 @@ Last updated: 2026-10-11
 | A-03 | FREEZE 不带运行代身份 | 仍存在 | FREEZE 只校验 id（≤3）+version；latch 只按 position_id；从板用自身 run_id 回填，run/epoch 校验仅在 PREVIEW 分支 |
 | A-05 | 一次 cursor 失效即全量作废 | 仍存在 | `service_deadlines` 瞬时失效仍 `cancel_backend()` 并把全部已冻结未完成位置标 fail |
 | A-06 | 冻结边界放错 | 仍存在 | `prepare_deadlines_core0` 冻结位直接 `continue`，`model_token` 比较只对未冻结位置生效 |
-| A-13 | 无预览则 FREEZE 永不发出 | 仍存在 | `stage_one_freeze` 遇首个无预览位置即 `return true`，无失败计数；台架仍靠 `--late-source` 绕过 |
+| A-13 | 无预览则 FREEZE 永不发出 | **已修（2026-10-12）** | **已修**：`stage_pending_freeze()` 遇 `preview_copy` 失败按位置记录一次（`freeze_no_preview_mask` / `freeze_no_preview_count`，追加在 `T2?` 末尾可读回）并继续检查其余 pending 位置；pending 位保留使迟到预览仍可冻结。回归测试 `tests/python/test_t2_freeze_no_preview.py`；台架不再需要 `--late-source` 绕过 |
 | A-14 | 无 STEP 参数 | 未动 | predictor 3 点定长模型 |
 | A-16 | 每位置仅 1 组模板 | 未动 | `TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY` 为 1 |
 | A-08 | 挂载 SAVE 不经 STOP 门 | 仍存在 | `scpi_trigger_seat_commands.inc` 直接进 store，无 `run_stopped_maintenance` |

@@ -222,7 +222,7 @@ STEP 的下限由时间推出：相邻位置的时间间隔（`step_mdeg / 转�
 - 紧凑记录的 position id 受 tag 字节位数限制（有效范围见 `trigger_position_slice.h` 的 `trigger_position_slice_valid()`），FREEZE latch 槽数见 `TRIGGER_POSITION_FREEZE_LATCH_IDS`，冻结完成确认只占控制字节里的 `TDMA_PROCESS_IMAGE_CONTROL_SEQ8_OFFSET` 一处；三者容量均远小于长扫描的位置数。
 - FREEZE 完成确认必须能覆盖全部在途目标，不允许只覆盖前几个序号。
 - descriptor 的 FREEZE 校验上限（`trigger_position_descriptor.h`）须与新的身份口径一致。
-- 运行期只为有界槽位保留状态。槽位数、id 表达方式（加宽线上 id，或「槽位 + 滚动代次」两级身份）和冻结确认位宽，须与 TDMA 一等席布局一起核定，并按 `EXE-SEAT-01` 提交用户审核；RAM 预算以实测尺寸为准，不得按「一位一槽」线性放大。
+- 运行期只为有界槽位保留状态。**2026-10-12 已定稿（K-7、K-12）**：本轮只预测下一到两个位置（窗口上限 2），位置数（0..360°@1° 为 361）**不进入常驻状态**；线上 `position_id` **保持 4 bit 作在途实例编号、不加宽**，绝对位置由 32 bit `target_ms_index` 与扫描参数确定，故「加宽 id / 槽位+滚动代次两级身份」方案**不再需要**；冻结完成确认沿用 32 bit 掩码（覆盖在途槽位即足够），**不需要** 361 位分级确认。RAM 预算以实测尺寸为准，不得按「一位一槽」线性放大。剩余未决项**只剩**与 TDMA 一等席布局的联审登记（见下条），口径细节见 TODO 的「2026-10-12 定稿」节。
 - 决定落地后，紧凑记录的跨域契约须在 `docs/check/DOCS_REGISTRY.md` 登记并经独立交叉审核（C11）；登记完成前，当前实现不得写成冻结契约。
 
 ### 模拟源与配置参数
