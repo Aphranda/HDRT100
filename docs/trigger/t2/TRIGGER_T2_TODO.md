@@ -372,6 +372,27 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.14 迁移步骤② 切片 1 已落地并验证：发布掩码改读窗口（2026-10-13）
+
+**改动**（提交 `9fe22404`，build `20261012200521`）：发布掩码不再直接取 legacy 数组，而经 `t2_published_mask()`：
+
+- 配置过扫描步长 ⇒ 由**窗口条目**（`valid && announced` + `absolute_index`）组掩码；
+- 无步长 ⇒ 保持 legacy 源不变（无扫描调用者行为不变）。
+
+**依据**（A.3.13 实测 `announce_mismatch == 0`）+ **时序对齐**（该块位于 `window_advance()` 之后、store 之前，两集合在同一采样点比较）。
+
+**验证**：
+
+```
+t2: exit=0 · passed=True · configured=4 · publishing=5 · error=None
+origin  : 5000,2,0,5000,3,5000, 3,3,0, 0     ← 窗口健康、announce_mismatch 仍为 0
+从板     : 5000,2,0,5000,3,5000, 2,0,0, 0
+```
+
+⇒ 发布行为与迁移前**同值**（`published_mask 3`、`announced 3`），窗口宣告集合与 legacy 集合仍逐位置一致 ✓ **这是迁移在真实产品路径上的第一片替换**。
+
+**过程记录（重要）**：本片首次 `t2` **失败**（`configured=3`，少一块）✗。判定为**已知间歇台架条件**而非改动所致，依据有三：① 同镜像复跑即 `passed=True/configured=4` ✓；② 失败轮的仪表显示 origin 配置与窗口均健康（`3,3,0,0`）✓；③ 失败点为**配置/启动阶段**（与发布掩码无关）✓。⇒ **"先复跑、再判定"**避免了把台架偶发误判为回归（本会话曾因此白走一轮）。
+
 ### A.3.13 【里程碑】迁移的**经验等价性**已确认：`announce_mismatch == 0`（2026-10-13）
 
 新增行为中立计数器 `announce_mismatch`（第 10 个仪表字段，提交 `7ccfc0da`，build `20261012195332`）：每个采样点按**扫描序号**比较"窗口宣告集合"与 legacy `announced_mask`，不一致则 +1。
