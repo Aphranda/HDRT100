@@ -372,6 +372,40 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.149 B1 补丁文本已固化（含块级锚点）；缺游标侧锚点故留待一次性落地（2026-10-13）
+
+**已逐字取得的锚点** ✓：
+
+```c
+/* :95-99 计划结构 —— 现**无** schedule_crc ✗ */
+typedef struct {
+    uint64_t action_q, deadline_tick;
+    uint32_t session, ring_config_seq, prediction_version, expiry_sync;
+    uint32_t model_token;
+} t2_deadline_plan_t;
+
+/* :1076-1080 填充点 ✓ */
+const t2_deadline_plan_t plan = {
+    .action_q = q, .deadline_tick = raw_tick,
+    .session = model.session, .ring_config_seq = snapshot->cursor.ring_config_seq,
+    .prediction_version = descriptor.prediction_version,
+    .expiry_sync = descriptor.expiry_sync, .model_token = model.token};
+
+/* 四处栅栏（前轮逐字 ✓）：:369-370 / :442-445 / :621-623 / :641-642 */
+```
+
+**待补的最后一处锚点** ✗：四处栅栏的右值是 `s_state.cursor.*` ✓ ⇒ **游标结构内也必须有 `schedule_crc`** ✗✓
+（该结构定义不在本轮打印范围内 ✗）⇒ 下一轮先取其定义 ✓，再一次落：
+
+1. 计划结构（`:95-99` ✓）+ 游标结构：各加 `uint32_t schedule_crc;` ✓；
+2. 填充点（`:1078` ✓）加 `.schedule_crc = **snapshot->cursor.schedule_crc**`（或模型 CRC ✓，与兄弟服务同源 ✓）；
+3. 四处栅栏（`:369-370` / `:442-445` / `:621-623` / `:641-642` ✓）各加
+   `plan.…schedule_crc == s_state.cursor.schedule_crc` ✓（照 `trigger_grid_preview.c:77-81` ✓）；
+4. `run` 取证 ✓ + **验收** ✓：故意改动 schedule CRC ⇒ T2 在 ②/④ **`action_fail`** ✓。
+
+**为何不在本轮落半补丁** ✓✓：只加字段/填充而**不加比对** ✗ 会让"栅栏已加"的假象成立 ✗✓
+（本会话已多次记录此类"半写"风险 ✗）；故按"**要么完整、要么不写**"纪律 ✓ 留待下一轮一次落地 ✓。
+
 ### A.3.148 B1 的完整改动面已定：四处栅栏 + **计划结构需新增 `schedule_crc` 字段**（2026-10-13）
 
 **四处栅栏（逐字 ✓ `trigger_t2_runtime.c` ✓）**——目前**只比 `session` + `ring_config_seq`** ✓：
