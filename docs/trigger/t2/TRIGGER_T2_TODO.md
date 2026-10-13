@@ -372,6 +372,30 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.73 【A.3.35 细化】legacy 三槽的**工具侧消费者清单**（删除前必须迁移）（2026-10-13）
+
+本轮实测：**工具仍在消费 legacy 字段** ✗ ⇒ A.3.35 不能"直接删" ✗，须按站点迁移 ✓。
+具体清单如下（可作为分批迁移的顺序 ✓）：
+
+| # | 位置 | 内容 | 迁移到 |
+|---|---|---|---|
+| 1 | `tools/sync_trigger/t2_workflow.py:940-959` | 页面**索引映射表**（`"announced_mask": 31`、`T2_TARGETS = (32,34,36)`、`T2_THRESHOLDS = (33,35,37)` ✓）+ `published_mask: 9` 等 ✓ | 改为**按 scan 视图命名**取数（`T2SCAN` 的 15 字段 ✓ + work 窗口诊断 ✓） |
+| 2 | 同文件 `:2561` | 打印 `announced {t2_field(state, 'announced_mask')}` ✓ | 用 **`T2:SCAN?` 的 `window_announced`**（第 8 字段 ✓ 语义等价 ✓） |
+| 3 | 同文件 `:1675` / `:2383` | **步 18/19/20** 的阈值判断（"counter 已越过 `threshold_count`"✓） | 用 scan 视图的 `positions/step_pulses` ✓ 或直接以**计数器与目标**比较 ✓（不读 legacy 数组 ✓） |
+| 4 | `tools/sync_trigger/t2_bench_probe.py:35-36` | 字段名清单 `announced_mask` + `target_count{i}`/`threshold_count{i}`（i=0..2 ✓） | 清单改为 scan 字段命名 ✓ |
+| 5 | `tests/python/test_t2_page_field_order.py` | 页面字段顺序守卫 ✓（钉住 legacy 字段位置 ✗） | 同步改为 scan 视图字段 ✓（或标注 legacy 字段已废弃 ✓） |
+| 6 | `components/sync_trigger/src/trigger_t2_runtime.c`（`t2_published_mask()` 的 fallback ✓、等价性计数 ✓） | 运行期 fallback 分支 ✓ | **上移**为"有 scan step 时永不读 legacy" ✓（A.3.35 第 2 步 ✓） |
+| 7 | `middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc:185/187/188` | 页面**发射** `announced_mask`/`target_count[i]`/`threshold_count[i]` ✗ | 最后删除 ✓（当 1–6 全部迁移后 ✓） |
+
+**建议的分批顺序（每批可独立验证 ✓）**：
+
+1. **批次 A（工具先行 ✓）**：站点 2 → 3 → 4 → 5（全部改为 scan 视图 ✓），每批跑 `t2` ✓；
+2. **批次 B（运行期收口 ✓）**：站点 6（去掉 fallback ✓，等价性诊断仅在需要时保留 ✓）；
+3. **批次 C（发射端删除 ✓）**：站点 7 + 站点 1 的索引表清理 ✓ + 全量回归（107 测试 + `t2` ✓）。
+
+**为什么这样分** ✓：站点 7（发射）一旦先删 ✗，站点 1–5 的读取会立刻失败 ✗ ⇒ **必须先迁移读取方** ✓，
+与 A.3.35 原定的四步一致 ✓，本清单只是把它**落到具体行号** ✓。
+
 ### A.3.72 扫描行程几何判据已落地（读全 15 字段 + 自洽不变量）（2026-10-13）
 
 **发现的缺口** ✓：`t2_workflow.py` 两处扫描页读取只保留**前 10 个字段** ✗
