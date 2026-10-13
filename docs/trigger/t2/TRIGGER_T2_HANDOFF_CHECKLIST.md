@@ -55,13 +55,7 @@ Last updated: 2026-10-13
 8. `*_TASK_PROGRESS.md` ≤200KB、条目**倒排**（最新在最上，新条目写在 `## 当前 checkpoint` 之后）；
    下沉长记录到 Task Progress 以维持**单一事实源**（C12）。
 
-## 5. 用户偏好（**不是文档规则** ✗，仅执行取向）
-
-- T2 的 ROI 审查**只谈 T2 域**事项；接口域及其它域的事在各自域里谈。
-- 需要用户决定的事项**必须单独、明确列出**（选项 / 建议 / 后果）。
-- 文档写完后再做 ROI 审查并判断下一步。
-
-## 6. 自审方法（新任务请据此**验证**，不要只读结论）
+## 5. 自审方法（新任务请据此**验证**，不要只读结论）
 
 ```powershell
 python tools/docs_check/docs_check.py --strict-names
@@ -73,7 +67,7 @@ git status --short
 - 逐条复核 §2 的"可核验处"（提交号 / 文件行号 / 契约行）；
 - 复核 §3.1 的 2 个未提交文件是否仍在树上；若已提交，核对提交信息与 C11 记录是否一致。
 
-## 7. 已知未做（诚实清单）
+## 6. 已知未做（诚实清单）
 
 - `IF-002` 的完整设计（(b) RefMem 控制意图 + delta）**只在会话讨论过，未落文档**；
 - RefMem 缺一条 `_Static_assert(sizeof(refmem_vector_table_t) == DISTRIBUTED_REFMEM_TABLE_SIZE)`；
