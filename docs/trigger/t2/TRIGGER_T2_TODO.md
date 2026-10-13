@@ -7,10 +7,6 @@ Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_
 Last updated: 2026-10-13
 
 ## 文档接口与状态规则
-**审查范围（2026-10-13，用户裁定）**：本待办的 **ROI 审查只覆盖 T2 域**（owner = TRIGGER，或落点在 `docs/trigger/t2/**` 与 `components/sync_trigger/**`）。
-**接口域及其它域的事项不得出现在 T2 的 ROI 审查中**；只在**各自归属域**审查（接口域见 `docs/interface/SCPI_HOST_TODO.md`）。
-本文件出现跨域内容时，**仅允许一行指针**（避免 C12 两处复制），且指针**不计为 T2 待办项**。
-
 
 本文是 T2 任务状态唯一落点；[Architecture](TRIGGER_T2_ARCHITECTURE.md) 维护稳定语义，[Task Progress](TRIGGER_T2_TASK_PROGRESS.md) 维护执行证据。状态仅用 `PENDING`、`IN PROGRESS`、`BLOCKED`、`DONE`；DONE 只关闭对应任务，不自动提升父任务、物理精度或产品资格。
 
