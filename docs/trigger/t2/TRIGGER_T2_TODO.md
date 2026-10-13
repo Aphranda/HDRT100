@@ -372,6 +372,37 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.105 【突破】调度页证实分块装订在**硬件上真跑**；`emitted=0` 的真因是需要 `service()`（2026-10-13）
+
+**可读页** ✓：`REALtime:IO:MODel:PULSe:SCHEDule?` ✓（处理器 `scpi_cmd_model_pulse_schedule_q` ✓，
+`scpi_realtime_io_commands.h:33/:84` ✓）。
+
+**实测** ✓（COM5 直连；`LOAD 0,3` ✓ → `GROups 16` ✓ → `START` → 连续读该页 ✓）：
+
+```
+[0] idle          : 0,0,0,1,0,0,0,0,0,0
+[1] loaded        : 0,0,0,1,0,0,0,0,0,0
+[2] START         : "OK" ✓
+[3.1] +0.8s       : **1,1,1**,0,1,**64,48,23**,3033162,0    ← 活动 ✓、块内 64 脉冲 ✓、ticks 递增 ✓
+[3.2] +1.6s       : 0,0,0,1,0,**64,64**,0,4351804,0         ← **首块 64 脉冲已完成** ✓✓
+[3.3] +2.4s       : 0,0,0,1,0,64,64,0,5676863,0             ← 第二块**未续装订** ✗
+[4] STATe?        : running=1 phase=1 total=176 emitted=**0** ✗ fault=0 ✓
+[6] after STOP    : 0,0,0,1,0,0,0,0,0,0 ✓
+```
+
+**结论一（硬件证实分块 ✓✓）**：`64,64` **正是 `MODEL_TURNTABLE_CHUNK_PULSES = 64`** ✓ ⇒
+**我实现的"按块装订"在真实硬件上确实运行并完成了首块** ✓✓（ticks 3.03M→4.35M→5.68M 持续递增 ✓）。
+
+**结论二（`emitted=0` 的真因 ✓✓）**：`emitted_pulses` 与"**续装订**"都发生在
+**`model_turntable_service()`** 内 ✓（它读 `get_runtime()` ✓ 并调用 `arm_chunk(next)` ✓）⇒
+**没有任何一方调用 `service()` 时**：`emitted` 恒为 0 ✗ 且**只跑首块** ✗✓ —— 我的**纯 SCPI 测试**
+正是这种情形 ✓⇒ **不是模型能力问题，也不是参数问题** ✓✓，而是"**需要固件服务循环驱动**" ✓。
+
+⇒ **因此"16 组接入真实扫描"的正确形态** ✓✓：由**流程/应用循环**周期性调用
+`model_turntable_service()` ✓ ⇒ `emitted` 递增 ✓、块自动续装订 ✓、`total=positions×groups` ✓
+（本机 `GROups=16` ⇒ 176 ✓）。**测试方法学结论** ✓：**模型类功能必须在服务循环在场时验证** ✓，
+纯 SCPI 直连只能验证"配置与首块" ✓✓（本轮正是如此 ✓）。
+
 ### A.3.104 找到 arm 的预约前置（并排除它）⇒ `emitted=0` 的缺口在更下游（2026-10-13）
 
 **逐字读到** ✓（`sync_io_model_sched.c:1030-1057` ✓）：
