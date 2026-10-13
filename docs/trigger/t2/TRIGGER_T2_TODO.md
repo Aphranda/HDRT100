@@ -372,6 +372,34 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.56 预算下发的**完整命令配方**（读自该分支，可直接脚本化）（2026-10-13）
+
+`PREFIX = "SYST:TDMA:SCHEDULE"`；一次完整的"改预算"事务如下（**apply = 易失**）：
+
+| 步骤 | 命令 | 判据/说明 |
+|---|---|---|
+| 1 | `SYST:TDMA:SCHEDULE:CAPABILITIES?` | 必须等于 `["1","1"]`；否则**不得**发任何 setter |
+| 2 | `SYST:TDMA:SCHEDULE?` | 读基线（118 字段，schema=3，布局见 A.3.54） |
+| 3 | `SYST:TDMA:SCHEDULE:BEGIN` | 开始编辑事务 |
+| 4 | `SYST:TDMA:SCHEDULE:PHASE <i>,<start>,<end>,<wcet>` | 每阶段一条（写入的是该阶段三元组；读回时每阶段 11 个值含统计） |
+| 5 | `SYST:TDMA:SCHEDULE:CYCLE <cycle>` | 总周期（cycles） |
+| 6 | `SYST:TDMA:SCHEDULE:VALIDATE?` | 必须 OK |
+| 7 | `SYST:TDMA:SCHEDULE:APPLY` | **易失生效**（RAM）；放弃用 `:DISCARD`；落 Flash 才用 `:SAVE` |
+| 8 | `SYST:TDMA:SCHEDULE?` | 读回核对实际表 |
+| 附 | 每条写命令后 | `SYST:ERR?` 首字段须为 `0` 且回显首字段为 `OK`（A.3.55 纪律 3） |
+
+**给"16 组/位置"的下一步实验（脚本即可）**：
+
+1. 读基线 ⇒ 在**不改其它阶段**的前提下，把 `SYNC_TRIGGER`（index **7**）的 `end` 加大
+   （从 `TDMA` 的约 34 µs 余量与 `GUARD` 的 30 µs 借），其后各阶段的 `start/end` **相应顺延**；
+2. `BEGIN` → 逐阶段 `PHASE` → `CYCLE`（保持 375000）→ `VALIDATE?` → `APPLY`；
+3. 读回并核对 `SYNC_TRIGGER` 的窗口/WCET 是否为预期值；
+4. 在加宽后的窗口下测量"**计划下发 + 校验**"的一次性成本（A.3.54 的可行性判据）；
+5. 结束时 `DISCARD` 或重新 `APPLY` 原基线表，恢复台架状态。
+
+**注意**：本机是 **schema=3**，而该分支的解析器只接受 `schema=2` ⇒ 移植解析器时把版本判断放宽为
+`values[0] in (2, 3)`；其余布局（`8 + 10×11`、每阶段 11 值、前三为 start/end/wcet）**相同**。
+
 ### A.3.55 预算下发协议（可借用于 T2 验收）——apply 易失、save 才落 Flash（2026-10-13）
 
 读 `run_budget_operation()` 得到**可安全调预算的完整纪律**（要点摘录，原文为 docstring）：
