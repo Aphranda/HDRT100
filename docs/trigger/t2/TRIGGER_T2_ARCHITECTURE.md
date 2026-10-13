@@ -443,6 +443,29 @@ T2 只读 VDC 模型与本地 TIMER1；游标、解算、预算优化和动作�
 
 运行中计数观察每次同步更新，但预测只由 Core0 按最新完成窗口异步计算；没有新结果时复用上一份完整镜像。已执行动作不能被新描述符回写；新版本只作用于尚未标记的位置实例。STOP、复位或代际换更使旧描述符、旧实例和旧 READY 失效。
 
+### 2026-10-13 完善：状态语义对齐与故障分级
+
+**（1）运行时状态 ↔ 预约状态机的映射**（两轴并存，不合并；预约态 canonical 见 `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` 的"预约状态机"）
+
+| 本文件运行时状态 | 预约状态机（canonical） | 说明 |
+|---|---|---|
+| `STOP_CONFIGURED` | `PREPARED` | 配置、资源与身份读回完成；尚未进入运输 |
+| `RUN_SYNCING` | `PREPARED`/`WAIT_FENCE` | 共同时间与 ring 身份就绪，等待 READY/fence 闭环 |
+| `PREDICTING` | `PREPARED` | NO1 本地预测推进，尚未产生可发布位置 |
+| `POSITION_BROADCAST` | `DISTRIBUTING`/`WAIT_FENCE` | 位置记录进入 TDMA 一等席运输与 fence |
+| `LOCAL_MARKED` | `ARMED` | 从板已标记本地动作；对应"本地 deadline 已冻结并装载" |
+| `FIRED` | `FIRED` | 输出已执行并获得输出 latch/回执 |
+| `FEEDBACK_CHECK` | `WAIT_T2` | 等待设备 READY/T2 latch |
+| `COMPLETED`/`UNDETERMINED` | `COMPLETED` | 完成事实与质量闭合；证据不足时保持未确定 |
+
+**预约态中本文件尚无对应项的 5 个状态**（属预约闭环实现范围，按顶层"最后开放预约执行"顺序推进）：`DRAFT`、`ARMED`（预约意义上的装载提交）、`REJECTED`、`CANCELLED`、`FAULT`。
+
+**（2）故障分级与错误码空间**（对齐 `docs/arch/HAOFV_ARCHITECTURE.md`）
+
+- 错误码空间：**Trigger 域 100–199**；示例语义 `1=非法参数`、`2=资源忙`、**`3=PIO/DMA 配置失败`**、`10=ENC target=0`、`11=非法编码器引脚`。模型状态页的 `fault_code` 使用该空间（实测 `fault_code = 3` 即 PIO/DMA 配置失败）。
+- 故障分级：**F0 可恢复**（记 `error_code` 后继续，可自动清除或 SCPI `*CLS`）；**F1 域级故障**（本域进入 FAULT，其他域正常，**须显式 CLEAR 事件**，`*CLS`/`*RST` 无效）；**F2 系统级**（`SYSTEM_MODE_FAULT`，停危险输出，需复位或维护模式）；**F3 致命**（Watchdog 复位）。
+- 多故障并发：`error_code` 记最严重，`fault_summary` 位掩码保留全部故障位（资源类用 `SYS_FAULT_RESOURCE_MASK`）。
+
 ## T2-VERIFY：验证映射
 
 | 验证对象 | 最小证据 |
@@ -462,3 +485,10 @@ T2 只读 VDC 模型与本地 TIMER1；游标、解算、预算优化和动作�
 ## 跨域契约与验证映射
 
 本文当前仍为 Draft。位置描述符 wire、调试 profile 默认值、资源配额和正式时限在实现与独立复核完成后登记；登记前不把本文数值快照当产品契约。
+
+### 2026-10-13 完善：验证顺序与证据分级
+
+**验证顺序**（对齐顶层"验证顺序"）：① 单板回环（raw latch 连续性、正反映射 round trip、预约状态机、late 拒绝、PIO 输出 latch 与 T2 completion）；② 两节点（TRAIN → LOCKED → PREPARE/READY/fence → ARMED → completion，host 只读监控）；③ 三节点（逐 hop generation、READY mask、fence 与 completion 聚合）；④ 五节点（lead-time 水位、window budget、故障注入）；⑤ 八节点（A0–A7 profile 只扩表不改算法，mask/process-image 容量与最坏环路时间）；⑥ 长期（lock/holdover、map generation、late/window miss、FIFO 水位、硬件 latch 缺失、T2 error 分布与 watchdog）。
+
+**证据分级**（低等级证据不得替代高等级结论）：软件模型测试 < 完整帧 store-and-forward HIL < 真正 cut-through HIL < 多节点时钟分发闭环。本文件各验证对象的最小证据须显式标注其等级。
+
