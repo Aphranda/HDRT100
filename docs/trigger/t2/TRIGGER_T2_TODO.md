@@ -372,6 +372,41 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.120 【强候选根因】`arm` 的第一道门是 **输出索引校验**：`LOAD 0,0` 成功 vs `LOAD 0,3` 失败（2026-10-13）
+
+**读到 `sync_io_output_pulse_schedule_arm()` 的开头** ✓（`sync_io_model_sched.c:1130` ✓）：
+
+```c
+bool sync_io_output_pulse_schedule_arm(uint32_t output_index,
+                                       const sync_io_model_pulse_entry_t *entries,
+                                       uint32_t entry_count,
+                                       bool rising_edge)
+{
+    if (!sync_io_main_output_index_valid(output_index)) {     /* ← 第一道门 ✓ */
+        …（返回 false ✓）
+```
+
+**对照两处我自己的实测** ✓✓（这是本条的钥匙 ✓）：
+
+| 实测 | `LOAD` 输出索引 | arm 结果 |
+|---|---|---|
+| **A.3.101**（直连） | `LOAD 0,**0**` ✓ | **成功** ✓✓ `fault 0` ✓、`running=1` ✓、调度页 `64,64` ✓ |
+| **A.3.103 / A.3.119** | `LOAD 0,**3**` ✓ | **失败** ✗ `fault 3` ✗（即使 counter/source 已停 ✓、租约已得 ✓） |
+
+⇒ **唯一差异就是 `output_index`（0 vs 3）** ✓✓ ⇒ 流程所用的 **3 很可能不在
+`sync_io_main_output_index_valid()` 的允许集内** ✗✓ ⇒ `arm` 立刻失败 ⇒ `fault 3` ✓✓
+—— 这同时解释了：为何"停 counter/source"无济于事 ✗✓、为何 `A.3.101` 的 `0,0` 能跑起来 ✓✓。
+
+**下一轮（两步 ✓）**：
+
+1. 读 `sync_io_main_output_index_valid()` ✓ 取**允许集** ✓（若为 `{0}` 或类似小集 ⇒ 结论成立 ✓）；
+2. 据此或**修流程的 `LOAD` 索引** ✓（工具侧 ⇒ 免凭证 ✓），或按注释确认其 **3 的意图** ✓
+   （若 3 是"物理引脚号"而函数要的是**主输出逻辑索引** ✗ ⇒ 属"同一编号两套命名空间" ✓，
+   与本会话"名字相近≠同一物"主题一致 ✓✓）。
+
+**预期验收** ✓：`LOAD` 用允许索引 ⇒ `START` 回 `"OK"` ✓、`STATe?` **`running=1`** ✓、
+**`fault=0`** ✓、调度页出现 `…,64,…` ✓、`emitted` 随服务循环递增 ✓。
+
 ### A.3.119 【收窄】16 组配置在硬件全部达标（total=2896=181×16 ✓）；arm 失败发生在**租约之后**（2026-10-13）
 
 **决定性实测** ✓✓（空闲状态下 `STOP SOURce` ✓ + `STOP COUNter` ✓ 后执行 ✓）：
