@@ -372,6 +372,28 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.35 删 legacy 三槽的读点清单 ⇒ **不能单独删除**，应与"切 361"同批（2026-10-13）
+
+grep 全树后，legacy 三槽（`target_count[]` / `threshold_count[]` / `announced_mask`；另有 `terminal_verified`）的真实读点只有 7 处：
+
+| 位置 | 用途 | 能否随删 |
+|---|---|---|
+| `trigger_t2_runtime.c:68` | `t2_published_mask()` 的**无扫描回退** | 不能（无扫描调用者需保留行为） |
+| `:915` | **等价性诊断**（比较 legacy 与窗口宣告集合） | 不能（诊断依赖它） |
+| `:1107` / `:1109` | 准备循环的 `threshold` / `target` **回退** | 不能（窗口无该条目时回退） |
+| `:1111` | 准备循环的**跳过条件**（按 A.3.16b 刻意保留） | 不能（时序要求） |
+| `trigger_turntable_predictor.h:80/150/209` | 字段声明 / 重置 / `terminal_verified` 置位 | 需与上述读点一并处理 |
+| **`scpi_trigger_t2_runtime_commands.inc:185/187/188`** | **`T2?` 仍在发布** legacy 的 `announced_mask` / `target_count[i]` / `threshold_count[i]` | **关键**：台架工具正在消费这些字段（采样行打印 `announced`/`targets`/`thresholds`） |
+
+**结论（改变删除顺序）**：**不要**单独删除 legacy 三槽 —— 它同时牵动**固件回退路径 + 等价性诊断 + `T2?` 页面 + 台架工具**（四类消费者）。
+
+**改为**：把"删 legacy"并入 **"切 0..360°@1°"** 那一批（A.3.12 的工具侧改动本来就要动 `target_mask=14` / `ALL_POSITIONS_MASK` / 采样判据，正好一并把页面与工具从"三位置"口径迁到"扫描位置"口径）。顺序：
+
+1. 先在**页面与工具**引入扫描口径（窗口的 announced/几何；`T2:SCAN?` 已就绪）；
+2. 再把准备循环与发布的**回退分支**改为"无扫描步长时走 legacy、有步长时完全不读 legacy"（此时回退可删）；
+3. **最后**删除数组与 `T2?` 中的三位置字段（工具已不再读）；
+4. 等价性诊断（`:915`）保留到迁移验证结束再删。
+
 ### A.3.34 item 3 落地（2/3 ≈ 基线）＋**台架作业必须独占**的硬规则（2026-10-13）
 
 **① item 3 已落地并验证**（提交 `26f94159`，build `20261013013544`；107 测试全绿 ✓、凭证首跑通过 ✓）：
