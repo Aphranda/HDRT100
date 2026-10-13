@@ -239,7 +239,7 @@ try:
             cmd(p,'TRIGger:REServation:TEMPLate:ACTivate','1,0')
             # Debug run keeps the first target beyond model startup while
             # retaining a five degree pre-roll and three independent positions.
-            cmd(p,f'TRIGger:REServation:T2:CONFigure {generation},0,14,{int(i==0)},5000,5000,950,5000,10000,15000,5000,1000','1,0')
+            cmd(p,f'TRIGger:REServation:T2:CONFigure {generation},0,14,{int(i==0)},5000,5000,950,0,0,360000,1000,1000','1,0')
             cmd(p,f'TRIGger:REServation:T2:STARt {generation},0','1,0')
         cmd(PAIRS[0][0],'TRIGger:REServation:COUNter:CLEar','1,0')
         cmd(PAIRS[0][0],'TRIGger:REServation:COUNter:STARt','1,0')

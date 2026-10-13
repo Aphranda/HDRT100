@@ -518,7 +518,7 @@ def run_full(board_ids) -> int:
         send(board, "SYSTem:TDMA:FLIGHT:FIFO:RESet")
         # NO1 (slot 0) is the only position source; every board names source slot 0.
         send(board, f"TRIGger:REServation:T2:CONFigure {dep_gen},0,14,{int(slot == 0)},"
-                    f"5000,5000,950,5000,10000,15000,5000,1000")
+                    f"5000,5000,950,0,0,360000,1000,1000")   # 0..360 deg @1 deg (T2-TURNTABLE-009)
         diag = send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
         print(f"  configure diag {diag[4] if len(diag) > 4 else '?'}"
               " (91/92/93 prereq, 100/101 inner, 140-148 validate, 111-137 stopped)")
@@ -1716,7 +1716,7 @@ def step_12_t2_mount(ctx, slot, board, uid):
     for attempt in range(4):
         ctx.send(board, "SYSTem:TDMA:FLIGHT:FIFO:RESet")
         ctx.send(board, f"TRIGger:REServation:T2:CONFigure {ctx.dep_gen},0,14,"
-                        f"{int(slot == 0)},5000,5000,950,5000,10000,15000,5000,1000")
+                        f"{int(slot == 0)},5000,5000,950,0,0,360000,1000,1000")   # 0..360 deg @1 deg
         diag = ctx.send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
         ctx.send(board, f"TRIGger:REServation:T2:STARt {ctx.dep_gen},0")
         state = ctx.send(board, "TRIGger:REServation:T2?").split(",")
