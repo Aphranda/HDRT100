@@ -1045,7 +1045,12 @@ static void prepare_deadlines_core0(uint32_t session,
         model.session != snapshot->cursor.session || !model.token || !model.dco.valid ||
         model.dco.nominal_period_ns != s_config.grid.period_ns) return;
     for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++index) {
-        if (__atomic_load_n(&s_frozen_public, __ATOMIC_ACQUIRE) & (1u << index)) continue;
+        /* K-2: FREEZE freezes position prediction only, not the DCO. Skip a position only
+         * once its deadline has been accepted by the hardware owner (armed/completed); a
+         * frozen-but-not-yet-loaded position must still be re-solved by the latest DCO.
+         * Core0 reads the snapshot, never Core1's runtime state. */
+        if ((snapshot->action_armed_mask | snapshot->action_completed_mask) & (1u << index))
+            continue;
         trigger_position_descriptor_t descriptor;
         if (!preview_copy(index, 0u, &descriptor)) continue;
         /* Mailbox has one RUN writer: Core0 can inspect its own old words. */
@@ -1079,8 +1084,7 @@ static void prepare_deadlines_core0(uint32_t session,
             .prediction_version = descriptor.prediction_version,
             .expiry_sync = descriptor.expiry_sync, .model_token = model.token};
         if (session != __atomic_load_n(&s_session, __ATOMIC_ACQUIRE)) return;
-        if (!(__atomic_load_n(&s_frozen_public, __ATOMIC_ACQUIRE) & (1u << index)))
-            deadline_publish(index, &plan);
+        deadline_publish(index, &plan);
     }
 }
 
