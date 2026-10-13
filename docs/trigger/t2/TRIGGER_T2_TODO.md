@@ -372,6 +372,48 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.124 【锁定】唯一剩余的门 = `entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES`（我的块可能太大）（2026-10-13）
+
+**逐字读到** ✓（`sync_io_model_sched.c:1130-1162` ✓）：
+
+```c
+bool sync_io_output_pulse_schedule_arm(uint32_t output_index, const sync_io_model_pulse_entry_t *entries,
+                                       uint32_t entry_count, bool rising_edge)
+{
+    if (!sync_io_main_output_index_valid(output_index)) {          /* ① 有 trace ✓ */
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL, SYNC_IO_TRACE_ERROR, entry_count, output_index);
+        return false;
+    }
+    if (entries == NULL ||
+        entry_count == 0u ||
+        **entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES**) {        /* ② **无 trace** ✓✗ */
+        return false;
+    }
+    return sync_io_pulse_schedule_arm_on_pin_common(                /* ③ 真装订 ✓ */
+        BOARD_SYNC_PIO_FAST, BOARD_SYNC_PIO0_WAVE_OUTPUT_SM,
+        DREQ_PIO0_TX0 + BOARD_SYNC_PIO0_WAVE_OUTPUT_SM,
+        BOARD_SYNC_OUTPUT_BASE_PIN + output_index, output_index,
+        entries, NULL, 0u, 0u, 0u, 0u, entry_count, rising_edge, 1000u);
+}
+```
+
+**排除法** ✓✓：
+* ① 索引：`PIN_COUNT = 4` ⇒ `3` **合法** ✓（A.3.122 ✓）且其 trace **未触发** ✓（A.3.123 ✓）；
+* ② 的 `entries == NULL` ✗ 否（表非空 ✓）；`entry_count == 0u` ✗ 否（**64** ✓）；
+* ⇒ **唯一剩下的是 `entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES`** ✓✓✓ —— 而 **64 正是我在 A.3.84
+  自选的块大小** ✓ ⇒ **若该上限 < 64 ⇒ 我的块太大** ✗✓✓，且该门**无 trace** ✓ 与实测**完全吻合** ✓✓
+  （这解释了为何"停 counter/source"、"索引"、trace 全都指向别处 ✗✓）。
+
+**下一轮（1 行修复 + 凭证 ✓）**：
+
+1. 取 `SYNC_IO_MODEL_PULSE_MAX_ENTRIES` 的值 ✓（本轮已 grep ✓）；若 **< 64** ✗ ⇒ 把
+   `MODEL_TURNTABLE_CHUNK_PULSES`（`model_turntable.c` ✓，**我加的** ✓）降到该上限之内 ✓（如 32/16 ✓），
+   并注意：块变小 ⇒ 块数变多 ✓（2896/32 = 91 块 ✓ 仍可 ✓，只影响续装订次数 ✓）；
+2. `run` 凭证 ✓（固件范围 ✓）⇒ 复测 `START` ✓ ⇒ 期望 **`running=1`** ✓、**`fault=0`** ✓、
+   调度页出现 `…,<chunk>,…` ✓、`emitted` 随服务循环递增 ✓✓。
+
+**注** ✓：若上限恰好 ≥ 64 ✓ 则本条不成立 ✗，需回到 ③（`arm_on_pin_common` ✓）继续读 ✓。
+
 ### A.3.123 trace 页可读但**为空** ⇒ 索引门的 trace 未触发 ⇒ 拒绝在**后续未打 trace 的门**（2026-10-13）
 
 **实测** ✓（触发一次已知会失败的 `START` 并读 trace ✓）：
