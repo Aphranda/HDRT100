@@ -762,7 +762,12 @@ void trigger_t2_runtime_scan_diagnostics(uint32_t *step_mdeg, uint32_t *branch_e
                                          uint32_t *scan_result, uint32_t *window_step_mdeg,
                                          uint32_t *positions, uint32_t *step_pulses,
                                          uint32_t *window_entered, uint32_t *window_announced,
-                                         uint32_t *window_overwrote, uint32_t *announce_mismatch)
+                                         uint32_t *window_overwrote, uint32_t *announce_mismatch,
+                                         int32_t *motion_start_mdeg,
+                                         int32_t *motion_stop_mdeg,
+                                         uint32_t *motion_pulses,
+                                         uint32_t *pre_roll_pulses,
+                                         uint32_t *post_roll_pulses)
 {
     if (step_mdeg) *step_mdeg = (uint32_t)s_scan_step_mdeg;
     if (branch_entered) *branch_entered = s_window_branch_entered;
@@ -776,6 +781,17 @@ void trigger_t2_runtime_scan_diagnostics(uint32_t *step_mdeg, uint32_t *branch_e
     if (window_announced) *window_announced = s_state.predictor.window_announced_count;
     if (window_overwrote) *window_overwrote = s_state.predictor.window_overwrote_unannounced_count;
     if (announce_mismatch) *announce_mismatch = s_announce_mismatch_count;
+    /* Motion geometry of the configured scan (A.3.46): travel is
+     * [start_angle - pre_roll, terminal_angle + post_roll], which a caller verifies per
+     * angle/step/speed setting ("predict position 0, so start 5 degrees early and stop 5
+     * degrees late"). The start may be negative, hence the signed parameters. */
+    if (motion_start_mdeg) *motion_start_mdeg = s_state.predictor.scan_geometry.motion_start_mdeg;
+    if (motion_stop_mdeg) *motion_stop_mdeg = s_state.predictor.scan_geometry.motion_stop_mdeg;
+    if (motion_pulses) *motion_pulses = (uint32_t)s_state.predictor.scan_geometry.motion_pulses;
+    if (pre_roll_pulses) *pre_roll_pulses =
+        (uint32_t)s_state.predictor.scan_geometry.pre_roll_pulses;
+    if (post_roll_pulses) *post_roll_pulses =
+        (uint32_t)s_state.predictor.scan_geometry.post_roll_pulses;
 }
 
 bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)

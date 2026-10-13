@@ -42,6 +42,11 @@ FIELDS = (
     "window_announced",
     "window_overwrote",
     "announce_mismatch",
+    "motion_start_mdeg",
+    "motion_stop_mdeg",
+    "motion_pulses",
+    "pre_roll_pulses",
+    "post_roll_pulses",
 )
 
 
@@ -63,7 +68,7 @@ def test_command_is_registered() -> None:
 
 
 def test_handler_emits_the_documented_fields_in_order() -> None:
-    emitted = re.findall(r"SCPI_ResultUInt32\(context,\s*([A-Za-z_][A-Za-z0-9_]*)\)", _handler_body())
+    emitted = re.findall(r"SCPI_Result(?:U?Int32)\(context,\s*([A-Za-z_][A-Za-z0-9_]*)\)", _handler_body())
     assert tuple(emitted) == FIELDS, (
         "T2:SCAN? field order drifted from the documented order; a reader would label "
         f"values wrongly. expected={FIELDS} emitted={tuple(emitted)}"
@@ -80,7 +85,7 @@ def test_handler_passes_the_same_order_to_the_getter() -> None:
     )
     # ... and each local is declared in the handler, so a rename cannot slip through.
     for name in FIELDS:
-        assert re.search(rf"uint32_t [^;]*\b{name}\b", body), f"{name} is not declared"
+        assert re.search(rf"(?:u?int32_t|uint32_t) [^;]*\b{name}\b", body), f"{name} is not declared"
 
 
 def test_getter_definition_and_prototype_agree() -> None:

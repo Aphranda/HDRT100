@@ -284,10 +284,14 @@ scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context)
     uint32_t window_step_mdeg = 0u, positions = 0u, step_pulses = 0u;
     uint32_t window_entered = 0u, window_announced = 0u, window_overwrote = 0u;
     uint32_t announce_mismatch = 0u;
+    int32_t motion_start_mdeg = 0, motion_stop_mdeg = 0;
+    uint32_t motion_pulses = 0u, pre_roll_pulses = 0u, post_roll_pulses = 0u;
     trigger_t2_runtime_scan_diagnostics(&step_mdeg, &branch_entered, &scan_result,
                                         &window_step_mdeg, &positions, &step_pulses,
                                         &window_entered, &window_announced, &window_overwrote,
-                                        &announce_mismatch);
+                                        &announce_mismatch, &motion_start_mdeg,
+                                        &motion_stop_mdeg, &motion_pulses,
+                                        &pre_roll_pulses, &post_roll_pulses);
     SCPI_ResultUInt32(context, step_mdeg);
     SCPI_ResultUInt32(context, branch_entered);
     SCPI_ResultUInt32(context, scan_result);
@@ -298,6 +302,13 @@ scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context)
     SCPI_ResultUInt32(context, window_announced);
     SCPI_ResultUInt32(context, window_overwrote);
     SCPI_ResultUInt32(context, announce_mismatch);
+    /* Motion geometry of the configured scan (A.3.46): travel
+     * [start - pre_roll, terminal + post_roll] in mdeg, plus its pulse budget. */
+    SCPI_ResultInt32(context, motion_start_mdeg);
+    SCPI_ResultInt32(context, motion_stop_mdeg);
+    SCPI_ResultUInt32(context, motion_pulses);
+    SCPI_ResultUInt32(context, pre_roll_pulses);
+    SCPI_ResultUInt32(context, post_roll_pulses);
     return SCPI_RES_OK;
 }
 

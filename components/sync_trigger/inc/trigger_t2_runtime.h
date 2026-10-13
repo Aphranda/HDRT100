@@ -134,7 +134,12 @@ void trigger_t2_runtime_scan_diagnostics(uint32_t *step_mdeg, uint32_t *branch_e
                                          uint32_t *scan_result, uint32_t *window_step_mdeg,
                                          uint32_t *positions, uint32_t *step_pulses,
                                          uint32_t *window_entered, uint32_t *window_announced,
-                                         uint32_t *window_overwrote, uint32_t *announce_mismatch);
+                                         uint32_t *window_overwrote, uint32_t *announce_mismatch,
+                                         int32_t *motion_start_mdeg,
+                                         int32_t *motion_stop_mdeg,
+                                         uint32_t *motion_pulses,
+                                         uint32_t *pre_roll_pulses,
+                                         uint32_t *post_roll_pulses);
 bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config);
 bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count);
 void trigger_t2_runtime_stop(void);
