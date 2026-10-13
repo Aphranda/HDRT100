@@ -372,6 +372,33 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.22 【台架层故障】基线树重刷在 `process-image / TRN-03B` 阶段连续两次失败（2026-10-13）
+
+按 A.3.21 的第一步重刷基线镜像（工作树 = 已验证基线，**未做任何代码改动**），`run` **连续两次**在同一阶段失败：
+
+```
+ValueError: the capture failed before a board handoff could be checked
+            (stage=process-image, phase=TRN-03B): explicit s…
+AcceptanceError: TDMA stopped handoff incomplete: the capture failed before a board handoff could be checked
+```
+
+⇒ **这是台架层故障，不是代码问题**（树与最后一次通过时的代码一致 ✓；两次失败点完全相同 ✓；非随机偶发 ✗）。
+
+**与先前现象的关系**：Round 100 起出现 `configured=4 / publishing=0` 的降级 ✗，Round 106 的基线组尚能 3/3 通过 ✓，随后实验组 1/3 ✗，本轮连**验收起步的停机交接**都无法完成 ✗ ⇒ 呈现**逐步恶化**的时间趋势 ✓，与 A.3.20 的解释②（台架降级状态窗）高度一致 ✓。
+
+**由此对先前结论的修正**：
+
+1. **A/B 实验中 item 3 的 2/3 失败不可信** ✗（同一时段台架正在恶化；基线组 3/3 通过只是碰上了较好的窗口 ✓）⇒ **item 3 的回退（`d0875fb0`）很可能是误判** ✗；
+2. 同理，A.3.16/A.3.18 的回退也可能部分是误判 ✗ —— **但这三次回退都把固件恢复到当时的"通过"状态 ✓**，故未造成损失 ✓；
+3. **在台架恢复之前，任何基于 `t2` 结果的迁移判定都不可靠** ✗。
+
+**下一轮必须先做的台架恢复步骤（按序）**：
+
+1. 读取停机交接的前置状态（`SYSTem:TDMA:RING:STATus?`、`TRIGger:REServation:SEAT:*`、`SYSTem:REFMEM:SYNC:FLIGHT?`）确认哪一环卡住；
+2. 按运行目录里的 `build.log` 与 `p3-*/` 产物确认是**采集侧**（process-image）还是**板侧**（TRN-03B）——错误消息指向"板交接未被检查"，故先查板是否处于停机可交接态；
+3. 必要时**断电重启台架/复位板卡**，再跑 `run`；恢复后先跑一次 `t2` 确认基线通过 ✓，然后才恢复迁移工作；
+4. 恢复后**按修订协议（每组 ≥5 次）**重新评估 item 3，而不是沿用本轮结论。
+
 ### A.3.21 A/B 判别实验结果：item 3 **与失败相关**，但**非确定性回归**（2026-10-13）
 
 按 A.3.20 的协议执行：
