@@ -372,6 +372,33 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.143 【架构审查·用户提出】PIO 本该**预定义+一次性装载**；模型调度路径**偏离**该约定（2026-10-13）
+
+**用户质疑** ✓（正确 ✓✓）："若符合 HAOFV 架构，就不该出现 PIO 耗尽；PIO 已经预先做了定义和规划" ✓。
+
+**核查证据** ✓✓：
+
+| 侧 | 证据 | 结论 |
+|---|---|---|
+| **架构约定** ✓ | `sync_io_persona_manager.h` 状态机 **STOPPED → CLAIMED → LOADED → ARMED → RUNNING** ✓ ⇒ "装载"是**独立且一次性**阶段 ✓✓；`sync_io.c:760-770/:804` **初始化时** `pio_can_add_program` ×5 + `pio_add_program` ✓（capture/clock/aux ✓）；`sma_cable_delay_pio.c:213/222/228` **成对 `pio_remove_program`** ✓（用完即还 ✓）；`refmem_spi_physical_adapter.c:158-165` 初始化装载 ✓ | **预定义 + 一次性（或成对释放）** ✓✓ |
+| **模型调度路径** ✗ | `sync_io_model_sched.c:985` 在 **arm 路径内** `pio_add_program(pulse_pio, program)` ✗✓，且该文件**无 `pio_remove_program`** ✗ | **每次 arm 都装载、从不释放** ✗✓ |
+
+⇒ **审查结论** ✓✓：**PIO 耗尽不是"测试用坏"而已** ✗✓，而是该路径**违反架构约定** ✗✓
+⇒ 本轮（重刷后 `running=1` / `fault=0` / `total=2896` ✓、调度页 `64,3,113…` 递增 ✓）**只证明"清空后可用"** ✓，
+**不等于**架构合规 ✓✓。
+
+**合规修法（下一轮 ✓）**：
+
+1. 让模型的 PIO 程序**在初始化/首次使用时装载一次** ✓，随后 arm **只复用 offset** ✓
+   （照 `sync_io.c:804` 的 `capture_offset` 模式 ✓✓——**同一 PIO、同一模式** ✓）；
+2. 或经 **persona manager 的 `LOADED` 阶段** ✓ 管理（CLAIM→LOAD 一次 ✓ →ARM/RUN 多次 ✓），
+   并在 `STOPPED` 时 `pio_remove_program` ✓（照 `sma_cable_delay` ✓）；
+3. 验收 ✓：**连续多次 `START`/`STOP` 循环**后程序槽位**不减少** ✓（`pio_can_add_program` 恒真 ✓）
+   —— 这是判断"是否合规"的直接判据 ✓✓（比单次成功更有力 ✓）。
+
+**与 T2 其余部分的关系** ✓：预测侧（窗口/361 档/边界 ✓）、组数与分块（2896=181×16 ✓）、
+`GROups` ✓、行程判据 ✓ **均符合架构** ✓；**唯一偏离点在执行端的 PIO 装载方式** ✗✓。
+
 ### A.3.142 【强根因】装订体收尾的硬件门：`pio_can_add_program()` ⇒ **PIO0 程序内存耗尽**（2026-10-13）
 
 **逐字读到** ✓（`sync_io_model_sched.c:958-1002` ✓）：
