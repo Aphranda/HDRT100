@@ -372,6 +372,37 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.82 B 的阻塞点已精确到命令级：缺工具的源前置，`STARt` 静默无效（2026-10-13）
+
+**逐条应答（本轮实测 ✓，COM5 / NO.1 origin）**：
+
+```
+cfg    -> "OK"            ✓   （CONFigure:MODEl:TURNtable:MOTion 被接受 ✓）
+echo   -> 10.0,20.0 / 20.0,20.0 ✓（设置已生效 ✓）
+cstart -> **1,6**          ✗   （TRIGger:REServation:COUNter:STARt 应答为两字段状态 ⇒ 未启动 ✓；
+                                与 Round 29 的 "loaded 1 state 1" 一致 ✓）
+start  -> **<empty>**      ✗✗  （MODEl:TURNtable:STARt 无应答 ⇒ 未启动 ✓）
+counts -> 32482 → 32482   Δ=0  ✗
+stop   -> "OK"            ✓
+```
+
+⇒ **结论** ✓：并非台架"不产生计数"，而是**我的直连序列缺少工具的前置设置** ✗✓
+（工具的顺序包含源设置与启动 ✓：`SOURce:CONFIGURE 1000`（`t2_workflow.py:589/:1827` ✓）→
+`SOURce:STARt`（`:2368` ✓）→ 计数器启动 ✓ → 模型启动 ✓）。**这正是"命令顺序即语义"** ✓
+（本会话已多次踩到：位置参数顺序 ✗✓、配置先于环 ✓✓）。
+
+**修正后的 B 步骤（下一轮，5–10 分钟 ✓，仍为比值法 ✓）**：
+
+1. **照抄工具顺序** ✓（不猜 ✓）：`SOURce:CONFIGURE 1000` → `SOURce:STARt` → `TRIGger:REServation:COUNter:STARt`
+   → `MODEl:TURNtable:STARt` ✓（每步**打印应答** ✓）；
+2. 每组 `MOTion` 值测 Δcounts/1 s ✓（`TRIGger:REServation:COUNter?` 的 `[16]` ✓）；
+3. 比值 ≈2.0 ⇒ **v1 是速度** ✓ / ≈1.0 ⇒ 非速度 ✓；
+4. 若仍 `STARt` 无应答 ✗ ⇒ 直接在**工具流程内**插入测量点 ✓（比外部分析更可靠 ✓，
+   这也印证 ROI：**用工具的既有路径**，而不是自建旁路 ✗）。
+
+**方法学** ✓：本轮的价值在于"**把'台架不产生计数'改判为'我的序列缺前置'**" ✗✓ ——
+又一次"先取应答再归因" ✓（第 3 次强化的规则立即见效 ✓✓）。
+
 ### A.3.81 【更正】Round 24/29/30 的红是**双重原因**：我的 Step 20 NameError + 台架瞬时不就绪；A 已通过（2026-10-13）
 
 **处置** ✓：按 ROI 回退低价值且阻塞的站点 2 改动 ✓（提交 `ac3c8e2d` ✓，**保留** Round 21 的行程几何判据 ✓）：
