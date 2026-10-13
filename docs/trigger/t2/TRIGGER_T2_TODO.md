@@ -372,6 +372,36 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.121 门的确切条件：`output_index < BOARD_SYNC_OUTPUT_PIN_COUNT`（下一步取其值即可定案）（2026-10-13）
+
+**逐字读到** ✓：
+
+```c
+static bool sync_io_main_output_index_valid(uint32_t output_index)   /* sync_io_model_sched.c:731 */
+{
+    return output_index < BOARD_SYNC_OUTPUT_PIN_COUNT;
+}
+/* 调用处 :1135 */
+if (!sync_io_main_output_index_valid(output_index)) {
+    sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL, SYNC_IO_ERROR, entry_count, output_index);
+    return false;                                  /* ← fault 3 的直接来源 ✓，且有 trace ✓ */
+}
+if (entries == NULL || entry_count == 0u || …      /* 其后还有若干门 ✓ */
+```
+
+⇒ **允许集 = `[0, BOARD_SYNC_OUTPUT_PIN_COUNT)`** ✓。结合两处实测 ✓（索引 **0** 成功 ✓ / 索引 **3** 失败 ✗）
+⇒ 若 `BOARD_SYNC_OUTPUT_PIN_COUNT ≤ 3` ✗ 则**流程的 `LOAD 0,3` 越界** ✓✓ ⇒ 第一道门即拒 ✓ ⇒ `fault 3` ✓✓。
+
+**下一轮（2 分钟定案 ✓）**：
+
+1. 取 `BOARD_SYNC_OUTPUT_PIN_COUNT` 的值 ✓（本轮已 grep ✓）；若 **≤ 3** ✗ ⇒ 结论成立 ✓；
+2. 修**流程的 `LOAD` 索引** ✓（`0,3` → 允许值 ✓，**工具侧 ⇒ 免凭证** ✓）；
+3. 复跑 `t2` ✓ ⇒ 期望 `START` 回 `"OK"` ✓、`STATe?` **`running=1`** ✓、**`fault=0`** ✓、
+   调度页 `…,64,…` ✓、`emitted` 随服务循环递增 ✓✓。
+
+**注** ✓：若 `PIN_COUNT > 3` ✓ 则本条假设不成立 ✗，失败点就落在**其后的门**（`entries/entry_count/…` ✓）
+——此时 `entry_count = 64` ✓ 非零 ✓ ⇒ 需继续读后续门 ✓（读代码定因 ✓，一贯做法 ✓）。
+
 ### A.3.120 【强候选根因】`arm` 的第一道门是 **输出索引校验**：`LOAD 0,0` 成功 vs `LOAD 0,3` 失败（2026-10-13）
 
 **读到 `sync_io_output_pulse_schedule_arm()` 的开头** ✓（`sync_io_model_sched.c:1130` ✓）：
