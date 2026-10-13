@@ -266,17 +266,9 @@ NO1 通过 TDMA 分发单个版本化 `position_q`。预览记录的完整业务
 
 从板收到 `position_q` 后校验启动期身份和紧凑状态，使用本板 VDC model、grid 和 local cursor 绑定目标时间片，再展开本地动作模板。阈值版本 index 到达而对应最新本地结果未到时，从板使用本地最新有效预约位置时间片执行，并记录版本不一致；不能用主机消息到达时间或主站逐板 TIMER1 deadline 代替本地时间轴。
 
-### 2026-10-13 审查结论（`T2-TIME` / `T2-PREDICT`，对照 HAOFV 顶层）
+### 审查/完善记录（已下沉）
 
-结论：**两块均与顶层强一致**，无内容性冲突；仅一项治理类待办。
-
-- **`T2-TIME` 时间坐标**：本地网格由 `TIMER1` 经本板 committed DCO 投影到共同 anchor 后派生；明确“接收观察的 `sync_seq` 与本地毫秒格不同种”、“观察未更新时本地网格仍推进”、“本地 `sample_seq` 不能跨板直接比较”。这与顶层的 `local_tick_raw` 自由运行、`system_tick` 只读派生一致。“身份失配或本地时间回退必须显式失效，不补发越过的动作、不重复执行”对应顶层 generation fencing。“软件轮询频率不决定硬件细分分辨率”与“映射有效 ≠ 完整动作精度”对应“不得用 CPU 时刻充当边沿证据”。
-- **`T2-TIME` 位置索引**：网络描述符的业务内容是**位置索引**，不是纳秒、本地 `TIMER1` tick 或主站算出的每板 deadline；身份字段只用于防旧版本复活。这是有意的分工（`T_fire_target_vdc` 属 Trigger 本地，线上只走位置索引），与顶层 T2 行不冲突。
-- **`T2-PREDICT`**：预测**不在 VDC 发布路径内**；Core1 仅取有界计数观察并记阈值事实，Core0 按最近**已完成**窗口异步解算；无新窗口不伪造新版本；阈值广播只标记应采用版本，**不发全量镜像、不触发槽位热加载**。与顶层“Angle DPLL 只生成扫描预测时间、不得写 VDC offset/rate”一致。
-- **`T2-PREDICT` 扫描与在途容量**：角度全用**整数毫度**；配置阶段 **STOP 阶段 fail-closed 校验**（整除、`step_pulses` 正整数、累计不溢出、STEP 时间下限），**运行期不取整、不兜底**；阈值/lead 改为**按一步比例**（避免远端 lead 线性膨胀导致数十个位置同时在途）；**K-7/K-12 已定稿**：只预测下一到两个位置、361 个位置不进常驻状态、`position_id` 保持 4 bit 作在途实例编号、绝对位置由 32 bit `target_ms_index` 确定。“按实测尺寸而非‘一位一槽’线性放大 RAM”对应顶层“不把 Vector 当全局变量”的容量纪律。
-
-**唯一待办（治理类）**：紧凑记录的**跨域契约尚未登记**（须在 `docs/check/DOCS_REGISTRY.md` 登记并经独立交叉审核 C11），
-且与 **TDMA 一等席布局的联审**仍为未决项；登记完成前不得写成冻结契约。
+本节的对照结论与改动记录已按三件套分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）；本文只保留稳定语义。
 
 ## T2-ACTION：静态模板与位置实例
 
@@ -338,20 +330,9 @@ DCO 新鲜度评估见 [T2 评审](TRIGGER_T2_REVIEW.md) E-01：VDC LOCKED 时�
 
 动作不使用“下一动作”串行提交模型。每个动作只负责自己的时间片、输出和执行证据。顺序由模板中的相对 offset 和 settle 预算预先确定；动作到达自身时间片即执行；上一级时间分析通过静态 profile 约束下一级位置，不变成运行时等待或临界期软件补救。
 
-### 2026-10-13 审查结论（`T2-ACTION` / `T2-OFFSET`，对照 HAOFV 顶层）
+### 审查/完善记录（已下沉）
 
-结论：**与顶层强一致**；另有一项**未冻结选型决策**待定。
-
-- **静态模板与不热加载**：模板在 **TDMA START 前**装载并冻结（template ID/generation/CRC、循环跨度、动作 kind/role/本地 IO route、相对偏移、占用与 settle 窗口、SWITCH 编码/GATEWAY 脉宽）；
-  运行期位置实例**只标记时间片，不修改 PIO 程序与业务槽位**。与本文 `T2-DEPLOY` 及顶层模式声明/DeploymentGate 一致。
-- **位置内多组（K-6，16 组）**：各组均锚定于同一 `q_P` 加模板偏移；**多板模式下组间不由 READY 推进**（K-1），READY 窗口只发现踩踏、不推迟下一组；组间隔按网分**最坏**响应 + settle + 余量排布。
-- **预装 + 两组滑动窗口**：执行端同时只持有**两组**已解算绝对 deadline；组 k 执行后在网分测量期内用最新 DCO 解算组 k+2；**装填前比较模型 token**，不一致用新解算，赶不上**判迟并记录、不立即补发**；某组 deadline 一旦被硬件接受**不再追改**（K-2）。与顶层“guard 后不得静默改写已装载 deadline”一致。
-- **前提与跨域接口**：DCO 模型切换**必须连续**（不得在模型块边界产生相位跳变），否则同一位置内相邻两组会出现等于跳变量的间隔误差；**连续性由 VDC 域证明**。
-- **动作解耦**：不用“下一动作”串行提交；每个动作只负责自己的时间片/输出/证据，顺序由静态 profile 预定，**不转为运行时等待或临界期软件补救**。与顶层“core0 拥堵不得停止 core1 或已装载 PIO deadline / FB 非阻塞”一致。
-
-**未冻结选型（待定，`T2-TURNTABLE-008` 相关）**：本节已记“现有两条源路径——`TRIGger:REServation:SOURce:*` 的 OUT4 硬件 PWM 源 与
-`CONFigure:MODEl:TURNtable:*` 的加减速模型源——**选型尚未冻结**，且选型会改变**隔离验收的证据口径**”。
-该决定属产品/验收口径，必须在实现前定稿；本次审查不提前预设结论。
+本节的对照结论与改动记录已按三件套分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）；本文只保留稳定语义。
 
 ## T2-OFFSET：相对位置和调试默认值
 
@@ -452,19 +433,9 @@ T2 只读 VDC 模型与本地 TIMER1；游标、解算、预算优化和动作�
 
 资源按同时驻留的业务角色、模板和诊断同步输出分别核算。细分诊断能力不等于业务动作资源；不能在运行中为动作腾出 GPIO 而静默停掉 VDC 同步。
 
-### 2026-10-13 审查结论（对照 HAOFV 顶层架构）
+### 审查/完善记录（已下沉）
 
-本文保留**语义级**结论；实施级规则（资源准入、越界判定、验证与证据分级）已按其职责移入约束文件。
-
-- **资源准入（PIO/SM/DMA/IO 与启动期资源）**：见 `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md` §4.3 与 §6。当前实现在 arm 路径内调用 `pio_add_program()`（即运行期热加载），与本节 `T2-DEPLOY` “所有 PIO 程序…属于启动期资源；TDMA RUN 中不做热加载”相冲；整改方向与判据见该文件。
-- **故障语义与错误码**：按 `docs/arch/HAOFV_ARCHITECTURE.md` 的 Trigger 域 100–199 与 F0–F3 分级执行（不在本文重述）；实测 `fault_code = 3` 即 PIO/DMA 配置失败。
-- **验证顺序与证据分级**：见 `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md` §4.5。
-- **证据**：A-06 / A-16 的硬件闭环（`total = 2896 = 181 × 16`、`fault = 0`）记录在 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`。
-
-**状态语义映射（架构级，保留于本文）**：运行时 8 态与预约状态机（canonical 见 `ARCH_T2_RESERVATION_ARCHITECTURE.md`）的对应关系为：
-`STOP_CONFIGURED`↔`PREPARED`、`RUN_SYNCING`↔`PREPARED`/`WAIT_FENCE`、`PREDICTING`↔`PREPARED`、`POSITION_BROADCAST`↔`DISTRIBUTING`/`WAIT_FENCE`、
-`LOCAL_MARKED`↔`ARMED`、`FIRED`↔`FIRED`、`FEEDBACK_CHECK`↔`WAIT_T2`、`COMPLETED`/`UNDETERMINED`↔`COMPLETED`；
-预约态中 **本文尚无对应的 5 态**：`DRAFT`、`ARMED`（预约意义的装载提交）、`REJECTED`、`CANCELLED`、`FAULT`，属预约闭环范围。
+本节的对照结论与改动记录已按三件套分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）；本文只保留稳定语义。
 
 ## T2-STATE：状态和失败恢复
 
@@ -481,28 +452,9 @@ T2 只读 VDC 模型与本地 TIMER1；游标、解算、预算优化和动作�
 
 运行中计数观察每次同步更新，但预测只由 Core0 按最新完成窗口异步计算；没有新结果时复用上一份完整镜像。已执行动作不能被新描述符回写；新版本只作用于尚未标记的位置实例。STOP、复位或代际换更使旧描述符、旧实例和旧 READY 失效。
 
-### 2026-10-13 完善：状态语义对齐与故障分级
+### 审查/完善记录（已下沉）
 
-**（1）运行时状态 ↔ 预约状态机的映射**（两轴并存，不合并；预约态 canonical 见 `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` 的"预约状态机"）
-
-| 本文件运行时状态 | 预约状态机（canonical） | 说明 |
-|---|---|---|
-| `STOP_CONFIGURED` | `PREPARED` | 配置、资源与身份读回完成；尚未进入运输 |
-| `RUN_SYNCING` | `PREPARED`/`WAIT_FENCE` | 共同时间与 ring 身份就绪，等待 READY/fence 闭环 |
-| `PREDICTING` | `PREPARED` | NO1 本地预测推进，尚未产生可发布位置 |
-| `POSITION_BROADCAST` | `DISTRIBUTING`/`WAIT_FENCE` | 位置记录进入 TDMA 一等席运输与 fence |
-| `LOCAL_MARKED` | `ARMED` | 从板已标记本地动作；对应"本地 deadline 已冻结并装载" |
-| `FIRED` | `FIRED` | 输出已执行并获得输出 latch/回执 |
-| `FEEDBACK_CHECK` | `WAIT_T2` | 等待设备 READY/T2 latch |
-| `COMPLETED`/`UNDETERMINED` | `COMPLETED` | 完成事实与质量闭合；证据不足时保持未确定 |
-
-**预约态中本文件尚无对应项的 5 个状态**（属预约闭环实现范围，按顶层"最后开放预约执行"顺序推进）：`DRAFT`、`ARMED`（预约意义上的装载提交）、`REJECTED`、`CANCELLED`、`FAULT`。
-
-**（2）故障分级与错误码空间**（对齐 `docs/arch/HAOFV_ARCHITECTURE.md`）
-
-- 错误码空间：**Trigger 域 100–199**；示例语义 `1=非法参数`、`2=资源忙`、**`3=PIO/DMA 配置失败`**、`10=ENC target=0`、`11=非法编码器引脚`。模型状态页的 `fault_code` 使用该空间（实测 `fault_code = 3` 即 PIO/DMA 配置失败）。
-- 故障分级：**F0 可恢复**（记 `error_code` 后继续，可自动清除或 SCPI `*CLS`）；**F1 域级故障**（本域进入 FAULT，其他域正常，**须显式 CLEAR 事件**，`*CLS`/`*RST` 无效）；**F2 系统级**（`SYSTEM_MODE_FAULT`，停危险输出，需复位或维护模式）；**F3 致命**（Watchdog 复位）。
-- 多故障并发：`error_code` 记最严重，`fault_summary` 位掩码保留全部故障位（资源类用 `SYS_FAULT_RESOURCE_MASK`）。
+本节的对照结论与改动记录已按三件套分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）；本文只保留稳定语义。
 
 ## T2-VERIFY：验证映射
 
@@ -520,22 +472,13 @@ T2 只读 VDC 模型与本地 TIMER1；游标、解算、预算优化和动作�
 
 当前源码的 STOP action install/一次性 deadline 执行是迁移材料；它不能关闭上述 RUN 语义。示波器细分验证只能关闭细分能力和测量方法，不能替代 1 kHz cursor、位置描述符、从板解算或实际 T2 完成证据。
 
-### 2026-10-13 审查结论（`T2-READY` / `T2-START`，对照 HAOFV 顶层）
+### 审查/完善记录（已下沉）
 
-- **`T2-READY`**：多板下只做**异步时间片踩踏校验**（逐组关联本组 TRIG）；五步（记录上一动作身份与计划窗口 → 窗口内采集 → 映射回共同坐标 → 检早到/迟到/缺失/重复/相邻重叠 → 生成诊断与业务证据）；
-  **READY 不作当前动作执行许可、不形成当前动作 fence、不替代 PIO 执行回执、不自动表示 VNA 完成**；无硬件时间戳时只报告状态观察或不确定区间。与本文 owner 表与顶层“不把 READY 当当前授权 / 不填缺失 latch”完全一致。
-- **`T2-START`**：启动前装载（deployment、PIO/SM/FIFO/GPIO persona、静态模板含每位置全部组、角度扫描参数、grid/profile）并校验 CRC/generation；
-  运行中：VDC 每 1 kHz 同步更新一次 local cursor，**未 LOCKED 并发布时 T2 不生成也不装填 deadline（K-3）**；NO1 取观察、Core0 异步更新预测、阈值跨越后一帧广播；从板解析并标记各组时间片；
-  两组滑动窗口装填，**DCO 更新只作用于尚未装填的组**；**不通过 STOP/START 重新加载槽位或改变 IO route**；**不在目标时间片由主机发送即时命令**。与顶层“SCPI 不能驱动硬实时边沿 / core0 拥堵不得停 core1 或已装载 deadline”一致。
-- **跨域契约与验证映射**：本文仍为 **Draft**；位置描述符 wire、调试 profile 默认值、资源配额与正式时限**在实现与独立复核后登记**，登记前不把数值快照当产品契约。
-  该声明与 AGENTS.md 的文档自回归纪律（契约登记 + C11 交叉审核 + 硬数字不手写）一致。
+本节的对照结论与改动记录已按三件套分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）；本文只保留稳定语义。
 
-### 审查收尾（2026-10-13，13/13 块完成）
+### 审查/完善记录（已下沉）
 
-对照 `docs/arch/HAOFV_ARCHITECTURE.md` 与 `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` 逐块审查完毕：
-**语义与 owner 边界层面无内容性冲突**；遗留项为：
-① 实现偏离“运行期 PIO 热加载”（整改方向见约束文件）；② “每位置一组”已由硬件闭环（A-06/A-16）；
-③ 紧凑记录跨域契约尚未登记与 TDMA 一等席布局联审；④ 转台源路径选型（T2-TURNTABLE-008 隔离验收口径）未冻结。
+本节的对照结论与改动记录已按三件套分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）；本文只保留稳定语义。
 
 ## 跨域契约与验证映射
 
