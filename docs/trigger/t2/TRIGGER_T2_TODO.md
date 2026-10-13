@@ -372,6 +372,26 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.37 `T2:SCAN?` 已接入工具并被台架读回（361 判据的使能步骤完成）（2026-10-13）
+
+按 A.3.36 第 1 步实施（提交 `b072f33d`，tools-only ⇒ 免凭证，107 测试全绿 ✓）：
+
+- 在采样步骤的两处 `T2?` 读取**之前**各插入一次窗口健康读取 ✓；
+- **按每一处锚点自身的缩进插入** ✓（Round 77 曾因统一缩进触发 `IndentationError` 并回退 ✗，此次脚本对每行单独取其前导空白 ✓）；
+- 脚本护栏：锚点未命中 / 语法错误 / 测试失败 ⇒ **不写入或不提交** ✓。
+
+**台架验证**（同一提交后的 `t2`）：`passed=True · configured=4 · publishing=5 · failed=none` ✓，日志首现：
+
+```
+T2SCAN 5000,4,0,5000,3,5000,2,0,0,0
+        step=5000 · branch_entered=4 · scan_result=0(OK) · window_step_mdeg=5000
+        geometry 3/5000 · entered=2 · announced=0 · overwrote=0 · mismatch=0
+```
+
+**判读**：该行打印于**首个采样点**（窗口刚 `begin` 进 2 个在途位置 ✓、尚未滚动 ⇒ `announced=0` ✓ 属预期 ✓）；整轮 `published_mask`/`publishing` 正常 ✓ ⇒ 读取接线**未影响既有行为** ✓。
+
+**意义**：361 切换所需的**新判据数据源已就位** ✓（`entered == announced`、`overwrote == 0`、`mismatch == 0`、`geometry` ✓）；下一步可直接用它替换无法表达的 legacy 掩码判据 ✓（A.3.36 第 2 步 ✓）。
+
 ### A.3.36 361 切换的工具侧改动：**判据必须从"掩码"换成"窗口自身健康"**（2026-10-13）
 
 取到待改点的确切文本：
