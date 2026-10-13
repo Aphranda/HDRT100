@@ -314,6 +314,35 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 **验收**：指令预算与 SM 冲突作为**负测**（静态断言 + 运行期冲突拒绝）；装载按既定切换序（停 SM → 停 DMA/IRQ → 清 FIFO → 卸载/装载 → 初始化执行位置 → **原子发布 generation**）；
 最终走 **workflow 前端**验收后提交。
 
+### T2-AUDIT-07：登记位置邮箱跨域契约（2026-10-13，状态 PENDING）
+
+**发现**：`components/sync_trigger/inc/trigger_position_mailbox.h` 被跨域共享（`components/distributed_refmem/src/distributed_refmem.c:30` 直接 include），
+但 `docs/check/DOCS_REGISTRY.md` 中**尚无**对应契约行。
+
+**待冻结的语义**（逐字取自代码）：单生产者/单消费者；payload **仅**在 `WRITING` 写、**仅**在 `READING` 读；
+`READY` 作为 release/acquire 交接（状态机 EMPTY/WRITING/READY/READING）；
+`TRIGGER_POSITION_FREEZE_LATCH_IDS = 15u` 与 `position_id ∈ [1, LATCH_IDS]` 的边界。
+
+**步骤**：起草筻约行（前缀需在 `ROW_RE` 白名单内，如 `ARCH-*`）⇒ C11 独立交取核验 ⇒ 登记；status 初始为 `pending`。
+
+### T2-AUDIT-08：单串口拓扑下的控制面契约（2026-10-13，状态 PENDING）
+
+**用户裁定**：后续**只有一个串口连接到 PC**，其余板卡都用 **RefMem 进行分布式控制**。
+
+**量化现状**（本轮实测）：
+- SCPI 命令表：`middleware/scpi_port/src/scpi_port.c:321`；全仓**仅 4 条**命令带节点作用域
+  （`scpi_cmd_refmem_node_q:218`、`scpi_cmd_refmem_load_node:531`、`scpi_cmd_config_role_q:5283`、`scpi_cmd_config_calibration_q:5349`）；
+  其余命令**仅作用于本板**。
+- 既有跨板机制：`distributed_refmem_stage_node_load`、`distributed_refmem_build_node_load_sync_frame`（`distributed_refmem.h:607`）、
+  `distributed_refmem_apply_node_load_sync_payload`（`:617`）；角色词汇：`reference / forward node`（`refmem_application_model.h:611`、`distributed_refmem.h:649-651`）。
+- **缺口**：未发现通用 SCPI 命令转发/代理构造；因此“任意命令指向别板”尚不成立。
+
+**两条可选路子**：**(a)** SCPI 层透明转发（需定义寻址/应答/超时/权限/幂等，偏离 SCPI 边界）；
+**(b)（推荐）** 保持命令本板作用域，由参考/转发节点写**控制意图**，经既有 node-load sync 帧机制分发，
+各板本地 apply（与 `load_node` 一致，复用 owner/准入/idle-only 规则）。
+
+**待确定**：控制意图表落位（TLV 区候选，3072 B）、幂等/应答/超时语义、与现有 4 条节点作用域命令的关系；登记前需 C11。
+
 ## 结论区（冻结，只增不改）
 
 本区收录**已确认/已证伪**的结论，每条一行：结论 + 依据 + 状态。过程性排查不再增长（原附录 A 保留为证据位置）。
