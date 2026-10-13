@@ -12,6 +12,21 @@ Last updated: 2026-10-12
 
 ## 当前 checkpoint
 
+### 2026-10-13 T2-AUDIT-03 决策单（五项冻结，可逐项批准）
+
+用法：每项给出「现状锚点 / 可选取值 / 影响」；你只需按编号选一个取值。
+
+| # | 项 | 现状锚点 | 可选取值 | 影响 |
+|---|---|---|---|---|
+| 1 | **wire 布局** | K-12 已定 10 B 单帧（tag + 4 bit `position_id` + 16 bit 版本 + 32 bit `target_ms_index` + 24 bit fine slice） | A：按此布局冻结并定义 RefMem 精确偏移/长度；B：改为可变长帧 | A 可直接登记；B 需重开 wire 设计与兼容性评估 |
+| 2 | **与 TDMA 一等席布局联审** | 一等邮箱位置、`SYSTem:TDMA:SEAT:ROTation`（默认 1:1）、两板 effective schedule CRC 一致性门 | A：按现状联审并冻结；B：先调整轮换比或邮箱位置 | A 可直接推进；B 会触及 TDMA 域契约与 CRC 门提価 |
+| 3 | **调试 profile 默认值** | 四个 offset/window 、`threshold_per_mille`（当前 950/1000）、`pre_roll_mdeg`/`post_roll_mdeg`（台架 5°，调试快照非产品额定值） | A：按台架快照冻结为**调试默认**；B：另行给出产品额定值 | A 可登记为调试契约；B 需额定依据与新台架验收 |
+| 4 | **资源配额** | `TRIGGER_T2_RUNTIME_POSITION_COUNT`、`TRIGGER_POSITION_FREEZE_LATCH_IDS`、控制字节偏移、RAM 按实测 | A：按当前实测值冻结；B：预留余量后冻结 | A 可登记；B 可降低后续调整风险 |
+| 5 | **正式时限** | STEP 下限（由转速与位置内序列跨度推出）、Core1 预算（顶层 `HIGH_PRIORITY` 500 µs）、`T2_FREEZE_RESEND_SLICES`、窗口到期判据 | A：按现状冻结；B：按高速扫描另计 | A 可登记；B 需重新取证时限 |
+
+注：本单不改变任何实现；你逐项选 A/B（或给出第三种）后，我起草契约行并送 C11 交叉审核。
+
+
 ### 2026-10-13 T2-AUDIT-04 参考实现取证：转台输入与测量脉冲的已定角色
 
 取证来源：分支 `origin/feature/node-sequence-reservation-trigger`（commit `19b9c5ff`）内的
