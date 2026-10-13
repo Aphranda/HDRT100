@@ -372,6 +372,43 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.100 【最后一环到手】`LOAD <slot_id>,<output_index>` 且**是 staged（启环前）语义**（2026-10-13）
+
+**逐字读到处理器** ✓：
+
+```c
+scpi_result_t scpi_cmd_model_turntable_load(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(context, DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG))
+        return SCPI_RES_ERR;
+    uint32_t slot_id;
+    uint32_t output_index;
+    if (!scpi_port_read_u32(context, &slot_id) ||
+        !scpi_port_read_u32(context, &output_index) ||
+        !distributed_refmem_stage_model_turntable_load(slot_id, output_index)) {   /* ← "stage" ✓ */
+        return SCPI_RES_ERR;
+    }
+    return scpi_port_result_ok(context);
+}
+```
+
+⇒ **命令形态** ✓：`CONFigure:MODEl:TURNtable:LOAD <slot_id>,<output_index>` ✓
+⇒ 且其实现走 **`distributed_refmem_stage_…`** ✓ ⇒ 与 A.3.96 的"**staged ring config**"同族 ✓✓
+—— 即模型装载本身就是**启环前定版**的一部分 ✓✓，**正好满足你的"启环前配置完成"** ✓✓（无需新机制 ✓）。
+`LOAD?` 发射三字段：`loaded(bool), slot_id, output_index` ✓（判读用 ✓）。
+
+**至此"16 组接入真实扫描"的全链路已完全指定** ✓✓（全部为**既有**命令 ✓，零新代码 ✗✓）：
+
+| 序 | 动作 | 期望 |
+|---|---|---|
+| 1 | `CONFigure:MODEl:TURNtable:LOAD <slot>,<output>` ✓（**启环前** ✓） | `LOAD?` ⇒ `1,<slot>,<output>` ✓ |
+| 2 | `CONFigure:MODEl:TURNtable:GROups 16` ✓ | `GROups?` ⇒ 16 ✓；`STATe?[7]` ⇒ **176** ✓（11 位置 ✓） |
+| 3 | `MODEl:TURNtable:STARt` ✓（且**不得**先让 T2 计数器占有脉冲路径 ✗✓） | `STATe?[2]=1` ✓、`[8] emitted` **随时间增长** ✓、`[16] fault=0` ✓ |
+| 4 | 验收读数 | `running=1` ✓、`emitted` 递增至 176 ✓、`fault=0` ✓ |
+
+⇒ **下一轮即可执行该全链路测试** ✓（3–5 分钟 ✓，无需刷写 ✓），随后把同一步骤**固化进流程** ✓
+（D 的实现 = 把"LOAD 模型 + 让出脉冲路径"写进 `t2` 的启环前阶段 ✓）。
+
 ### A.3.99 `LOAD` 必须带参数（裸调用 `-200`）；全链路的最后一块拼图（2026-10-13）
 
 **实测** ✓：`CONFigure:MODEl:TURNtable:LOAD`（**裸调用**）⇒ `SYSTem:ERR?` = **`-200,"Execution error"`** ✗
