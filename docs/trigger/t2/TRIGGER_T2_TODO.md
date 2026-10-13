@@ -372,6 +372,31 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.118 两次停用（counter+source）后模型仍 `fault 3`：需读状态页判定停止是否生效；占用者疑为 **T2 自身输出**（2026-10-13）
+
+**落地与结果** ✓✗（提交 `7c9da032` ✓，107 测试 ✓，`t2` **全绿** ✓ `publishing=5 · failed=none` ✓）：
+
+```
+counter stop before model arm -> <timeout>        （已发 ✓）
+source  stop before model arm -> <timeout>        （已发 ✓）
+turntable pre-session / started early : running 0 phase 5 emitted 0/181 **fault 3** ✗
+motion poll +1s : … fault 3 | count **2744**（仍在推进 ✗）
+```
+
+**推论一（判据不可用 ✗✓）**：`<timeout>` 应答**无法区分**"命令已生效"与"命令失败" ✗✓
+（本会话已知该 rig 上 `<timeout>` 常伴随成功 ✓，但**不能据此断言** ✗）⇒ **必须读状态页**：
+`TRIGger:REServation:SOURce?` / `:COUNter?` ✓ 在停止后应显示 **running=0** ✓；若仍为运行态 ✗ ⇒ 停止**未生效** ✓。
+
+**推论二（真正的占用者可能是 T2 自身输出 ✓✗）**：`fault_code = 3` 由**我的** `arm_chunk` 在
+`sync_io_model_pulse_schedule_arm()` **返回 false** 时置 ✓（A.3.84 ✓）⇒ 复核该 arm 的前置 ✓：除
+`IDLE→LEGACY` 预约 ✓（A.3.104 ✓）外，还有 **wave-output 认领标志**（`s_wave_output_manager_active /
+sm_claimed / dma_claimed / program_loaded` ✓，见 A.3.62 的单所有者清单 ✓）⇒ 占住它们的很可能是
+**T2 自己的脉冲输出** ✗✓（T2 与模型**都想驱动同一脉冲路径** ✓）⇒ 仅停"计数器/源"**不足以**让出 ✓✗。
+
+⇒ **方案 (a) 的完整含义再确认** ✓✓：**T2 侧必须完全不驱动脉冲路径** ✗✓（不只是停计数器/源 ✓），
+模型才能 `arm` 成功 ✓。**下一轮两步**：① 读 `SOURce?`/`COUNter?`/`READ:…:STATe?` ✓ 判定停止是否生效 ✓；
+② 若确认路径已被 T2 输出占用 ✗ ⇒ 在流程中**让 T2 输出让位** ✓（或改用"模型驱动、T2 仅观测"的接线 ✓）。
+
 ### A.3.117 方案 (a)#1 已落地（`t2` 全绿 ✓）但杠杆拉错：真正的所有者是 **PWM/运动源**（2026-10-13）
 
 **落地** ✓（提交 `4dbc458a` ✓，107 测试 ✓，`t2` **全绿** ✓ `publishing=5 · failed=none` ✓）：
