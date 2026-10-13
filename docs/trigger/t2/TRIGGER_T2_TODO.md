@@ -372,6 +372,32 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.111 【已修复并实测】`TRIGger` 写恢复：先读后改（含 4 空格缩进的教训）（2026-10-13）
+
+**落地** ✓（提交 `486071a2` ✓，`run` **第 1 次**通过 ✓，`ERROR 0 / FATAL 0` ✓）：
+
+```
+回读确认（插入位置正确 ✓）:
+  86:     model_turntable_trigger_config_t config;
+  87-89: /* Fields this command does not carry must keep their value … */
+  90:     **model_turntable_get_trigger_config(&config);**  ✓
+  91:     scpi_bool_t rising_edge;
+  92:     if (!scpi_port_read_u32(context, &config.dimension) || …
+
+实测（COM5，逐条应答 ✓）:
+  READ:…:TRIGger? (改前) -> 0,0.00000000000000,10.0000000000000,1.00000000000000,2000,1,-1
+  CONFigure:…:TRIGger 1,0,360,2,100,1,1000 -> **"OK"** ✓✓（修复前为空 ✗）
+  READ:…:TRIGger? (改后) -> **1,0.00000000000000,360.000000000000,2.00000000000000,100,1,100…** ✓✓
+  READ:…:GROups?         -> 1 ✓（**未被扰动** ✓ ⇒ 读-改-写机制生效 ✓✓）
+```
+
+⇒ **回归关闭** ✓✓：`TRIGger` 写恢复且**只改本命令携带的字段** ✓（`groups_per_position` 保持 ✓）；
+模型计划现在可设为流程所需的 **`1,0,360,2,100,1,1000`** ✓ ⇒ **181 位置** ✓（A.3.102 ✓）。
+
+**本补丁过程的方法学收获（4 条 ✓✓）**：① 多行锚点漏空行 ✗ → ② 8 vs **4 空格**缩进 ✗ →
+③ 窗口命中**相邻 `GROups` handler** ✗ → ④ **三元行号断言** ✓ 一次成功 ✓
+⇒ 结论：**打补丁用"行号 + 唯一上下文断言"，绝不用手拼文本** ✓✓（A.3.108–A.3.110 ✓）。
+
 ### A.3.110 守卫**误报"已应用"**：窗口命中了相邻 `GROups` handler 的同一行（本补丁过程第 3 次"相似文本≠同一处"）（2026-10-13）
 
 **经过** ✓：按行号补丁的守卫在 `window = lines[66..86]` 里发现
