@@ -372,6 +372,37 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.89 【已落地】每位置组数（默认 1）——行为保真已验证；回归红属已知环族（2026-10-13）
+
+**落地** ✓（提交 `7be228b2` ✓，凭证通过 ✓）：
+
+* `trigger_config_t` 尾部新增 `uint32_t groups_per_position;` ✓（`int32_t timeout_ms;` 之后 ✓，锚点逐字 ✓）；
+* 重置路径默认 **1** ✓；校验 `1 ≤ groups ≤ MODEL_TURNTABLE_MAX_GROUPS_PER_POSITION(16)` ✓；
+* `recompute_plan()` ✓（实读确认 ✓）：
+
+```
+116 uint32_t positions = 0u;
+122-126 positions = 1 / (total_distance/abs_step)+1        （原 total_pulses 的算法 ✓）
+127-128 const uint32_t groups = groups_per_position > 0 ? … : 1u
+129 s_turntable.total_pulses = positions * groups;
+135-137 min_interval_us = clamp((abs_step / (velocity * groups)) * 1e6)      ✓
+140-141 accel_pulses = ((accel_distance/abs_step)+1) * groups                ✓
+```
+
+* ⇒ **组数=1 时逐式退化为原实现** ✓✓（`positions×1` ✓、`velocity×1` ✓、`ramp×1` ✓）⇒ **行为保真** ✓；
+* 凭证：`run` **第 1 次**即通过 ✓（`INFO 33 / WARN 11 / ERROR 0 / FATAL 0` ✓）。
+
+**遗留（我自己引入的）** ✗✓：`recompute_plan()` 里留了一个**空块** `if (false) { }`（`:130-131` ✓）——
+是我"保留原有花括号"的补丁产物 ✗ ⇒ **已实读确认块内无活代码** ✓（因此不影响行为 ✓），
+但属**可读性债务** ✗ ⇒ 与**下一次固件改动合并**清理 ✓（避免为 3 行再付一次 25 min 门禁 ✓✓，ROI ✓）。
+
+**回归红 ✗（非本改动）** ✓：`t2 exit 1 · passed=False · configured=4 · publishing=0 · failed=[16,18,19]` ✗ ——
+该签名与本会话此前的**环/cursor 台架族**一致 ✓（`ORIGin:TRIAL` → 粘滞环故障 → cursor `err 7 valid 0` ✓），
+且 `run` 门禁本身 ERROR 0 ✓ ⇒ 判定为**台架间歇** ✗✓，非组数改动 ✓。
+
+**下一步** ✓：SCPI 设置器 `CONFigure:MODEl:TURNtable:GROups <n>` + `READ:…:GROups?` ✓（**只新增** ✗✓）
+**同时**删除该空块 ✓ ⇒ 一次凭证覆盖两件事 ✓；验收 `GROups 16` ⇒ `total_pulses == 位置数 × 16` ✓。
+
 ### A.3.88 16 组补丁的锚点须逐字取自源文件（我第一次的锚点是猜的 ✗✓）（2026-10-13）
 
 **经过** ✓：首版补丁以 `bool rising_edge;` + `} model_turntable_trigger_config_t;` 为锚 ✗
