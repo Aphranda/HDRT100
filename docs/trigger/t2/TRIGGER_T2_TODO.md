@@ -372,6 +372,30 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.103 `TRIGger` 写被拒（total 仍 11）；且 `emitted=0` **与参数无关**（2026-10-13）
+
+**实测**（按流程原样参数 ✓）：
+
+```
+CONFigure:…:LOAD 0,3            -> "OK" ✓      READ:…:LOAD? -> **1,0,3** ✓
+CONFigure:…:MOTion 360,360      -> "OK" ✓
+CONFigure:…:TRIGger 1,0,360,2,100,1,1000 -> **''** ✗（无 "OK" ⇒ 写被拒 ✓）
+READ:…:GROups?                  -> 1 ✓         MODEl:TURNtable:STARt -> "OK" ✓
+STATe? (0.5/1.0/1.5/2.0 s)      -> running=1 ✓ phase=1 ✓ **total=11** ✗ emitted=**0** ✗ fault=0 ✓
+```
+
+**结论一** ✗✓：**`TRIGger` 写被拒** ✓ ⇒ 计划仍是**旧配置**（`0..10 / step 1` ⇒ **11 位置** ✓，与
+`TRIGger?` 读到的一致 ✓）⇒ 我的"流程原样复现"**尚未忠实** ✗（`total` 应为 181 ✓ 而非 11 ✗）。
+待查：`TRIGger` 与 `LOAD`/`MOTion` 用**同一** `reject_if_run_forbidden` 防护类 ✓ 却只有它被拒 ✗
+⇒ 更可能是**参数校验**或**读参顺序**问题 ✓（7 参数顺序按流程为 `dimension,start,stop,step,pulse_width_us,
+rising_edge,timeout_ms` ✓）。
+
+**结论二（更重要 ✓✓）**：**`emitted = 0` 与参数无关** ✗ —— 在**有效计划**（11 脉冲 ✓）+ **`running=1`** ✓ +
+**`fault=0`** ✓ 的情况下，**计数器仍不推进** ✗ ⇒ 剩余缺口**不是**参数集 ✗，而是"**脉冲输出未被真正使能/归属**" ✓
+（流程注释点名 `sync_io_model_sched.c:1046-1049` 的 "**reserved from IDLE**" ✓ ⇒ 该处很可能就是
+"谁可以使用 PIO 输出"的租约检查 ✓）⇒ **下一步**：读 `sync_io_model_sched.c:1040-1060` ✓，
+确认模型启动所需的**所有者/租约前置** ✓，再复测 `emitted` 是否递增 ✓。
+
 ### A.3.102 【更正】流程早已 LOAD 并按正确顺序启动；我手动测试的偏差才是 `emitted=0` 的疑因（2026-10-13）
 
 **流程的真实动作**（`t2_workflow.py:1780-1797` ✓，逐字 ✓）：
