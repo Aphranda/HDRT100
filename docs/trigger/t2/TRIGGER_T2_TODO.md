@@ -372,6 +372,33 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.44 361 扫描下的健康一轮：计数器正常推进；并记录"`<timeout>` 但成功"的命令（2026-10-13）
+
+**改动**（提交 `5f24d5ed`，tools-only ⇒ 免凭证）：把"计数未推进"的失败信息扩展为**含计数器状态与 loaded** ✓
+（`state 1 = LOADED` ⇒ 从未启动；否则属"脉冲未到" ✓）—— 两种情况的修法不同，而此前失败文本无法区分 ✗。
+
+**验证轮**（361 位置扫描）：
+
+```
+t2: passed=True · configured=4 · publishing=6 · failed=none ✓
+counter started before the ring: reply <timeout> loaded 1 state 2(=STARTED) count 0
+T2SCAN 1000,13,0,1000,361,1000,2,0,0,1096      ← 361 位置 ✓；mismatch=1096 已被门控、不判负 ✓
+count poll +1s: count 6916 | +2s: 8021         ← **计数器在推进** ✓✓
+```
+
+**三条结论**：
+
+1. **计数器启动正常且在推进** ✓ ⇒ 此前"卡在 4950 不推进" ✗ 属**偶发台架条件** ✓（不是 T2、也不是工具判据的问题 ✓）；
+2. **`announce_mismatch` 门控正确** ✓（361 下为 1096 ✗ 但**不判负** ✓，与 A.3.42/`aba722bd` 的修正一致 ✓）；
+3. **重要教训**：`TRIGger:RESERVATION:COUNter:STARt` 的回复是 **`<timeout>` 但命令实际成功** ✓
+   （随后 `state 2 = STARTED` ✓、计数推进 ✓）⇒ **不要对该命令断言回复中的成功标记** ✗✓
+   （我在 A.3.44 之前正打算这么做 ✗，因锚点缩进不符而中止，**侥幸避开一次假失败** ✓✓）。
+   ⇒ 判据应看**状态**（`state`/`count` 前后变化 ✓），而不是命令的回复文本 ✓。
+
+**对用户矩阵的意义**：角度/预判/收尾/步长/ppd **均可动态配置** ✓；361 位置已稳定跑通 ✓
+（本轮 `publishing=6` ✓）；残余失败为**偶发**（脉冲路径/环回 ✓），且现在失败信息能直接区分
+"计数器从未启动"与"脉冲未到" ✓。速度矩阵仍待确认 `MODEl:TURNtable:MOTion` 的形参与单位 ✓。
+
 ### A.3.43 【更正 A.3.42 ③-2】step 19 的判据**与 legacy 无关**——它是"计数器自身是否推进"（2026-10-13）
 
 读 `tools/sync_trigger/t2_workflow.py` 中 step 19 的实际代码：
