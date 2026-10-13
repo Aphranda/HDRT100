@@ -372,6 +372,36 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.113 `t2` 恢复全绿（环族为瞬时）；模型侧剩余问题精确到"流程 LOAD 超时"（2026-10-13）
+
+**① T2 侧恢复全绿** ✓✓（清理后复跑 ✓）：
+
+```
+t2 exit 0 · passed=True · configured=4 · publishing=5 · **failed=none** ✓✓
+（上一轮的环族 `ring config != …` 未再现 ⇒ 判定为**瞬时**状态 ✓，与 A.3.44 家族一致 ✓）
+```
+
+**② 模型侧：流程自己的报错行给出确切缺口** ✓✓：
+
+```
+运行前（我读）    : loaded=1 running=0 phase=0 total=181 emitted=0 **fault=3**   ✗
+turnpre-session   : reply <timeout> running 0 phase 5 emitted 0/181 fault 3      ✗
+turntable before  : LOAD 1,0,3  MOTion 360.000000000000,360.000000000000         ✓
+**turntable not armed -> LOAD: <timeout>**                                       ✗✓✓
+turntable configured (not started): 1,1,0,5,0,3,1,181,0,90,0,90,5556,505596,100,15 ✓（total=181 ✓）
+```
+
+⇒ **精确缺口** ✓：流程发出的 `CONFigure:MODEl:TURNtable:LOAD 0,3` **无应答（`<timeout>`）** ✗ ⇒
+`loaded` 未刷新 / 未武装 ⇒ `fault 3` ✗。**疑因** ✓（可检验 ✓）：运行前模型**已被我先前的测试装载**
+（`loaded=1` ✗）⇒ **重复 LOAD 被拒或超时** ✓；也可能对**权限/所有者**敏感 ✓（与 A.3.97 同族 ✓）。
+
+**下一轮两步（小 ✓）**：
+
+1. 先**清干净**（`STOP` ✓ + 确认 `LOAD?` 为 **未装载** ✓ —— 若已装载需先卸载/复位 ✓），
+   再跑 `t2` ✓ ⇒ 期望 `turntable … running 1` ✓、`fault 0` ✓、`emitted` 随会话推进 ✓；
+2. 若仍 `<timeout>` ✗ ⇒ 读 `distributed_refmem_stage_model_turntable_load()` ✓
+   （A.3.100 ✓）确认其**前置条件**与拒绝原因 ✓（它决定了 LOAD 是否成功 ✓）。
+
 ### A.3.112 修复在流程中生效（模型计划 181 ✓）；整跑红为环族，且**首次看清原因**（2026-10-13）
 
 **① 模型域：`TRIGger` 修复在真实流程中生效** ✓✓（本轮 `t2` 日志 ✓）：
