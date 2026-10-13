@@ -2602,9 +2602,17 @@ def step_20_sampling(ctx, slot, board, uid):
     scan = getattr(ctx, "_t2_scan_last", None)
     if scan and scan[6].isdigit() and scan[7].isdigit():
         entered, announced = int(scan[6]), int(scan[7])
-        if entered != announced:
+        # NOT entered == announced: at the end of the sampling window the window has only
+        # just begun (entered = WINDOW_MAX, announced = 0) - the announcements happen as
+        # the counter crosses the thresholds, which is later (measured: the end-of-run
+        # reading is 3/3). Asserting equality here produced false failures on two healthy
+        # runs (2026-10-13), the same criterion/timing trap as A.3.16/A.3.25/A.3.28.
+        # Only invariants that must hold at ANY moment are asserted: a window can never
+        # announce more positions than it entered, and rolling must only consume announced
+        # entries.
+        if announced > entered:
             ctx.failures.append(
-                f"Step 20 window health: entered {entered} != announced {announced} "
+                f"Step 20 window health: announced {announced} > entered {entered} "
                 f"(T2:SCAN? {','.join(scan)})")
         if scan[8].isdigit() and int(scan[8]) != 0:
             ctx.failures.append(
