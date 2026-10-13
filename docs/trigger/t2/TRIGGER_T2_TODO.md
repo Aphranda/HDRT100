@@ -372,6 +372,45 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.75 【ROI 裁定·用户】停止"只改工具"，转入**实际功能实现**；"16 组/位置"落到转台模型（2026-10-13）
+
+用户明确："**只做工具改动，不去新加功能，ROI 投入产出很低**" ✓ ⇒ 立即转向功能实现 ✓。
+
+**真正的改动点（已定位）**：
+
+```
+components/model_turntable/src/model_turntable.c
+  :102-127 recompute_plan():  total_pulses = total_distance / abs_step + 1   ← 目前【每位置 1 个脉冲】✗
+  :161-186 build_schedule():  for (i < total_pulses) schedule[i].{delay_us, high_us}   ← 每脉冲一项 ✓
+  :42      sync_io_model_pulse_entry_t schedule[MODEL_TURNTABLE_MAX_SCHEDULE_PULSES]    ← 静态数组上限 ✗
+  :281     sync_io_model_pulse_schedule_arm(output_index, schedule, total_pulses, rising_edge)  ← 一次性装订 ✓
+```
+
+**功能目标（用户的"每位置 16 组"）**：把"每位置 1 个脉冲"改为"**每位置 16 个脉冲**" ✓。
+
+**量化判断（决定实现形态）** ✓：
+
+| 项 | 值 | 结论 |
+|---|---|---|
+| 361 位置 × 16 组 | **5776** 个脉冲 ✓ | 若一次性建表 ⇒ 需 `MAX_SCHEDULE_PULSES ≥ 5776` ✗（静态数组 ≈ 46 KB ✗，远超合理 RAM ✓）⇒ **必须分块** ✓✓ |
+| 每位置一块 | 16 项 ✓ | **分块 = 每位置一块** ✓（数组只需 16 项 ✓） |
+| 每组的 µs 分辨率 | 1 °/s ⇒ 62.5 ms/组 ✓；5 °/s ⇒ 12.5 ms/组 ✓ | **µs 足够** ✓ ⇒ **不必**改用 `arm_ns` ✓（沿用现成的 `arm(entries)` µs 表 ✓ 更简单 ✓） |
+
+**实现计划（3 步，均为真实功能 ✓）**：
+
+1. **配置项**：在 `model_turntable` 增加"**每位置组数**"（默认 1 ✓，T2 用 **16** ✓）与其间隔（= 步进间隔 ÷ 组数 ✓）；
+2. **分块调度**：`build_schedule()` 改为**只构建当前位置**的 16 项 ✓（首项作**标记**：`high_us` 加宽 ✓，其余 15 项常规 ✓）；
+3. **深度 2 续装订**：在 `model_turntable_service()` 里，当当前块完成（`sync_io_model_pulse_schedule_is_running()` 为假 ✓）
+   时装订**下一位置**的块 ✓，并保持"**在途 ≤ 2 块**" ✓；故障/超时路径**清空待装订队列** ✓（A.3.66 ✓）。
+
+**验收**（必须能观测 ✓）：
+
+* `status` 暴露"当前位置/已完成组数/待装订块数" ✓（可读的连续量 ✓，符合本会话"用连续量判定 ✓"）；
+* 工具侧新增只读判据：`组数 == 16 × 已完成位置数` ✓（自洽 ✓，不依赖外部假设 ✓）。
+
+**注**：本改动属**固件/组件**范围 ⇒ 提交前必须 `p3_hardware_acceptance.py run`（≈25 min，含刷写 ✓）✓；
+这正是"真实功能"的成本 ✓，与"只改工具（免凭证）"相比 ROI 更高 ✓（用户裁定 ✓）。
+
 ### A.3.74 【诊断】本轮红是**台架族**（跟随板 input_ready=0），站点 2 改动被排除（2026-10-13）
 
 现场证据（同一次运行 ✓）：
