@@ -1976,19 +1976,39 @@ def step_16_ring_start(ctx, slot, board, uid):
         # the rest of the run and only surfaces three steps later as "cursor never became
         # valid" (TRIGGER_T2_TODO.md A.3.28-A.3.31). Assert the recovery HERE, in the terms
         # of the real cause, with a short retry so a slow re-arm is not a false failure.
-        ring_now = ctx.send(src, "SYSTem:TDMA:RING:STATus?").split(",")
-        for _attempt in range(3):
-            ring_now = ctx.send(src, "SYSTem:TDMA:RING:STATus?").split(",")
-            if ring_now and ring_now[0].strip() == "1":
-                break
-            time.sleep(1.0)
+        def _ring_wait(attempts: int = 3) -> list:
+            """Poll RING:STATus? until enabled, so a slow re-arm is not a failure."""
+            now = ctx.send(src, "SYSTem:TDMA:RING:STATus?").split(",")
+            for _ in range(attempts):
+                if now and now[0].strip() == "1":
+                    return now
+                time.sleep(1.0)
+                now = ctx.send(src, "SYSTem:TDMA:RING:STATus?").split(",")
+            return now
+
+        ring_now = _ring_wait()
+        retried = False
+        if not ring_now or ring_now[0].strip() != "1":
+            # Recovery attempt (A.3.31 item 2): re-issue the trial once. The drift comes from
+            # a trial whose authorization failed, so a fresh grant is the cheapest recovery
+            # path to try before giving up; if it does not help, the reason below carries
+            # both readings for the next investigation.
+            retried = True
+            print(f"  ring down after trial ({','.join(ring_now[:6])}) - re-issuing the trial"
+                  f" once as recovery", flush=True)
+            grant_retry = ctx.send(src, f"CALibration:ORIGin:TRIAL {ctx.dep_gen},8192,256,0")
+            print(f"  recovery trial: {grant_retry[:40]}", flush=True)
+            ring_now = _ring_wait(4)
         if not ring_now or ring_now[0].strip() != "1":
             ctx.failures.append(
                 f"Step 16: reference ring did not recover after ORIGin:TRIAL "
-                f"(RING:STATus? {','.join(ring_now[:6])}) - an unauthorized trial "
+                f"(RING:STATus? {','.join(ring_now[:6])}"
+                f"{', after a recovery trial' if retried else ''}) - an unauthorized trial "
                 f"(UNAUTHORIZED+COMM_FAULT) bumps the ring config and leaves a sticky "
                 f"drift, so no cursor can become valid in this run")
-            print(f"  ring did NOT recover after trial: {','.join(ring_now[:8])}", flush=True)
+            print(f"  ring did NOT recover: {','.join(ring_now[:8])}", flush=True)
+        elif retried:
+            print(f"  ring recovered on the retry: {','.join(ring_now[:8])}", flush=True)
     # The DPLL lock path is independent of T2: the VDC domain only accepts input when
     # the sync-IO observer is enabled (SYSTem:SYNC:VDC:LOCK:READiness? field 8 =
     # ring_input || sync_io_input, and readiness field 2 = reason 2 on every board that
