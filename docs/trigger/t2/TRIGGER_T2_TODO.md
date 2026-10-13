@@ -372,6 +372,52 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.60 【结论】两项待办都有**本分支现成积木**，无需移植该分支子系统（2026-10-13）
+
+核对了三个本分支已有的头，得到"16 组/位置 + 执行端窗口深度 2"的**本土实现路线**：
+
+**① 定时脉冲串：`sync_io_rate_schedule.h`（可自行产生节奏 ⇒ 不依赖外部沿）**
+
+```
+MAX_PULSES 2048 / WORDS_PER_PULSE 2 / SECTION_TICKS 4
+request: { rate_ppb, period_ns, high_ns, pulse_count, tick_period_ns }
+```
+⇒ 由"周期 + 高电平 + 脉冲数"描述一段**精确定时的脉冲串** ✓ ⇒ **可产生"每位置 16 个脉冲/事件"** ✓✓
+（无需外部编码器沿 ✓）。
+⚠️ **量化约束**：单次调度上限 **2048 脉冲** ✗，而 361 位置 × 16 组 = **5776** ✗ ⇒ 必须
+**分批调度**（按位置/按若干位置一段 ✓）或提高上限 ✓ —— 这是移植前必须处理的第一件事 ✓。
+
+**② 自由运行源：`sync_io_turntable_source.h`（PWM）**
+
+`prepare(frequency_hz)` / `start/stop/release` / `status{ requested_hz, actual_hz, pwm_slice, pwm_top, pwm_div16 }`
+⇒ 就是工具当前用的 `SOURce:CONFIGURE 1000` 那一路 ✓（自由运行、无脉冲数上限 ✓）
+⇒ 适合作 **`seq_step` 的触发输入** ✓（`seq_step` 需要沿 ✓，且自身无数量限制 ✓）。
+
+**③ 执行端窗口/深度：`sync_io_gateway.h`（PIO 网关 + 期限跟踪）**
+
+```
+OUTPUT_SM 1 / READY_SM 3 / GRANT_IRQ 6 / OUTPUT_WORDS 8 / READY_WORDS 6
+DEADLINE_GUARD_US 100 / ORIGIN_MAX_NS 256
+state: DEADLINE_IDLE / ARMED / COMPLETE / CANCELLED / UNCERTAIN
+struct: { state, sequence, completed_sequence, ready_count, pending, … }
+```
+⇒ **ready/ack 握手 + 期限状态机** ✓✓ ⇒ **"执行端窗口深度 2"可直接建立在此之上** ✓
+（"深度"= `pending`/`ready_count` 的在途上限 ✓；"窗口"= ARMED→COMPLETE 的期限语义 ✓）
+⇒ **无需**移植该分支的 `trigger_sequence_service` / `refmem_sequence_roles` ✓（确认 A.3.58 的 P2 ✓）。
+
+**综合路线（两条，按场景选）**：
+
+| 场景 | 方案 | 依据 |
+|---|---|---|
+| 需要**精确内部节拍**（不依赖外部沿 ✓） | **`sync_io_rate_schedule`**（分批 ≤2048 脉冲 ✓）+ `sync_io_gateway` 做窗口/深度 ✓ | 本分支已有 ✓ |
+| 有**丰富外部沿**（编码器/转台 ✓） | **`seq_step`**（沿驱动、数量不限 ✓、可 GATE ✓）+ gateway ✓ | 本分支已有 ✓ |
+
+⇒ **两个待办都不再需要移植** ✓✓；该分支的价值集中在**调试 UI 与预算工具**（可选借鉴 ✓）以及
+"更一般的 `sync_io_sequence`"（仅在其定时能力超出 `rate_schedule` 时才考虑 ✓）。
+
+**下一步（最省力）**：确认 `sync_io_rate_schedule` 的**分批语义**（能否连续续批而不掉拍 ✓）⇒ 若可，
+则"每位置 16 组"直接落在本分支能力内 ✓，可开始写 T2 侧的**表/调度构建 + 校验**代码 ✓。
+
 ### A.3.59 【机制到指令级】`seq_step` 是**沿驱动 + 4 位编码输出**器 ⇒ "16 组"= 每位置 16 个触发沿（2026-10-13）
 
 读 `seq_step.pio` 后，机制完全清晰：
