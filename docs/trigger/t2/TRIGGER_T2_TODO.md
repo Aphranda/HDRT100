@@ -372,6 +372,34 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.101 【全链路打通】LOAD→GROups 16→START 成功、模型 running=1；余 `emitted` 不推进（2026-10-13）
+
+**实测（COM5 直连 ✓，逐条应答 ✓）**：
+
+```
+[1] CONFigure:MODEl:TURNtable:LOAD 0,0  -> "OK"        ✓✓（staged 装载成功 ✓）
+[3] READ:…:LOAD?                        -> **1,0,0**    ✓✓（loaded=1 ✓ slot 0 ✓ output 0 ✓）
+[4] CONFigure:…:GROups 16               -> （无回显 ✓）
+[5] MODEl:TURNtable:STARt               -> **"OK"**     ✓✓（本次被接受 ✓）
+[6] +0.4s  STATe? -> loaded=1 cfg=1 **running=1** phase=1 total=**176** emitted=0 fault=**0**  ✓✓
+[7] +1.4s         同样：running=1 phase=1 emitted=0 fault=0                                 ✓
+[8] +2.4s         同样                                                                       ✓
+[9] STOP -> "OK" ✓   [10][11] GROups 复原为 1 ✓   [12] LOAD? 末态 1,0,0 ✓
+```
+
+**结论一（D 的结构部分已验证 ✓✓）**：**`LOAD` → `GROups 16` → `START` 三步全部成功** ✓✓，
+模型进入 **`running=1`** ✓、**`total_pulses=176`** ✓（16 组 ✓）、**`fault=0`** ✓ ⇒
+A.3.100 指定的全链路**命令层面完全成立** ✓✓（且 `LOAD` 为 staged ✓ ⇒ 启环前 ✓）。
+
+**结论二（唯一剩余缺口 ✗）**：**`emitted` 在 2.4 s 内恒为 0** ✗ ⇒ 脉冲**未产生或未计数** ✓✗。
+我的直连序列**缺少流程中的使能环节** ✓（与本会话 Round 31 的 `STARt` 现象同族 ✗✓）⇒
+**下一步**：找出"使脉冲真正输出"的必要前置 ✓（候选：输出引脚/所有者使能 ✓、模型源 ✓、
+`OUTPut:RUN` 一类 ✓），并在该前置下复测 `emitted` 是否**随时间增长** ✓。
+
+**顺带的新规则（判据陷阱再一例 ✓✓）**：`LOAD` 回 `"OK"` ✓ 而 `SYSTem:ERR?` 仍报 `-200` ✗ ——
+因为错误队列里是**此前裸 `LOAD` 的陈旧项** ✓ ⇒ **判断"本次是否失败"必须先清空/排空错误队列** ✓
+（或用命令自身的 `"OK"` 回显 ✓），否则会把**历史错误**当成本次失败 ✗✓。
+
 ### A.3.100 【最后一环到手】`LOAD <slot_id>,<output_index>` 且**是 staged（启环前）语义**（2026-10-13）
 
 **逐字读到处理器** ✓：
