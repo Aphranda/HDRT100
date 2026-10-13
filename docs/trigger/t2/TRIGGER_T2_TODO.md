@@ -338,6 +338,25 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 2. 若选 B，是否同意先完成 **T2-AUDIT-01**（否则不具备声明合规的前提）？
 3. 是否允许两路并存（A 作台架驱动、B 作产品输出），还是只保留一条？
 
+### T2-AUDIT-03 前置：契约冻结清单（2026-10-13，免台架）
+
+依据：`TRIGGER_T2_ARCHITECTURE.md` 尾节“位置描述符 wire、调试 profile 默认值、资源配额和正式时限
+在实现与独立复核后登记”与 `T2-PREDICT`“紧凑记录的跨域契约须在 `docs/check/DOCS_REGISTRY.md` 登记并经独立交叉审核（C11）；
+**登记完成前，当前实现不得写成冻结契约**”。
+
+**必须先冻结的五项**（每项需明确到“可作为契约条款”的精度）：
+
+| # | 项 | 当前状态与待定义点 |
+|---|---|---|
+| 1 | **位置描述符 wire 布局** | K-12 已定：**10 B 单帧**（tag + 4 bit `position_id` + 16 bit 版本 + 32 bit `target_ms_index` + 24 bit fine slice）；待定义：它在既有 RefMem 区的**精确偏移/长度**（`TRIGGER_POSITION_SLICE_WIRE_SIZE` 恰填）、**message subtype/身份字段**、CRC 归属与版本化 |
+| 2 | **与 TDMA 一等席布局的联审** | 待定：一等邮箱在 process image 的位置、轮换比例（`SYSTem:TDMA:SEAT:ROTation`，默认 1:1）、与两板 **effective schedule CRC** 一致性门的关联（见 K-5 增补） |
+| 3 | **调试 profile 默认值** | `switch_settle_offset_q` / `gateway_trig_offset_q` / `ready_check_offset_q` / `ready_window_q`；`threshold_per_mille`（当前 950/1000）；`pre_roll_mdeg`/`post_roll_mdeg`（台架 5°，**调试快照非产品额定值**） |
+| 4 | **资源配额** | `TRIGGER_T2_RUNTIME_POSITION_COUNT`、`TRIGGER_POSITION_FREEZE_LATCH_IDS`、控制字节偏移、**RAM 按实测尺寸**（K-7/K-12）；以及 **T2-AUDIT-01 落地后**的 mode 声明与 PIO/SM/DMA/GPIO claims |
+| 5 | **正式时限** | STEP 时间下限（由位置内多组跨度推出）、Core1 服务预算（顶层 `HIGH_PRIORITY` 500 µs）、`T2_FREEZE_RESEND_SLICES` 节奏、窗口到期判据 |
+
+**流程（不可跳步）**：决定上表 → 起草契约行（`contract_id` 唯一、**锚点必须真实存在**）→ **C11 交叉审核**（禁自审自批）→ 登记 → 此后方可将实现描述为已冻结。
+**护栏**：登记前不得把任何**数值快照**写成产品契约（AGENTS.md 硬约束 2）。
+
 ## 结论区（冻结，只增不改）
 
 本区收录**已确认/已证伪**的结论，每条一行：结论 + 依据 + 状态。过程性排查不再增长（原附录 A 保留为证据位置）。
