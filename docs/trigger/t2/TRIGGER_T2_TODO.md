@@ -372,6 +372,31 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.29 修法重定向：缺的是**恢复**而非识别（工具早已知道该命令会让环停）（2026-10-13）
+
+定位 `ORIGin:TRIAL` 的调用处与既有判据后，事实比 A.3.28 的初判更细致：
+
+| 证据 | 位置 | 含义 |
+|---|---|---|
+| `grant = ctx.send(src, f"CALibration:ORIGin:TRIAL {dep_gen},8192,256,0")` | `t2_workflow.py:1967` | **step 16 有意发送**该诊断命令 ✓ |
+| 注释："read en 0 / adapter 0 / config 154 → 155 right after SOURce:STARt + ORIGin:TRIAL" | `:1965` | **工具自己知道**该命令会让环停且 config 递增 ✓✓ |
+| 紧跟 `cursor_probe(..., "after ORIGin:TRIAL (source still stopped)")` | `:1970` | 探测是**刻意**设计的 ✓ |
+| `CURSOR_FAULT_DIFF_BITS = (… (1, "ring config!=bound") …)` | `:1025` | 工具**已为漂移位命名** ✓ |
+| `ring_drift = c["ring_cfg"] not in ("0","?") and c["ring_cfg"] != r["config_seq"]` | `:1085` | **已有漂移检查** ✓ |
+
+**⇒ 因此 A.3.28 的修法方向 1（"不要发该命令"）是错的** ✗✓：该命令是**有意的诊断**，且工具早已知其后果 ✓。真正的缺口是：
+
+> **环在 `ORIGin:TRIAL` 之后没有恢复**（本次为 `bound 112` vs `ring 113` 的**粘滞**漂移 ✗，且 step 18/19 各等 24 s 也无济于事 ✗）。
+
+**修法（修正后）**：
+
+1. **加恢复路径**：在 trial 之后显式**重新绑定环配置**（重新下发环配置/重启适配器 ✓），或调用板侧提供的"清除粘滞故障"路径 ✓；
+2. **判据加强**：step 16 结束时**必须断言** `ring_cfg == bound` 且 `ring enabled/started/data` 为 1 ✓（现在只在 cursor 探测里作诊断 ✓，不构成"必须恢复"的判据 ✗）；
+3. **失败信息**：直接报"trial 后环未恢复（config N vs bound M）" ✓，而不是拖到 step 18 报"cursor 未就绪" ✗；
+4. **复测**：修好后 `t2` ×5 建新基线 ✓。
+
+**注意**：这是**工具/流程侧**（`tools/**`，免凭证 ✓）的问题域；固件侧是否需要配合（例如粘滞故障的自动清除 ✓）需另判 ✓。
+
 ### A.3.28 【真病根】`ORIGin:TRIAL` 诱发**粘滞环配置漂移**（`ring_config 113` ≠ 绑定 `112`）——修正 A.3.25（2026-10-13）
 
 读失败轮 `t2-enable.log` 全文后，失败链条清晰（摘录）：
