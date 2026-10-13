@@ -2434,7 +2434,16 @@ def step_19_trial_and_pulse_start(ctx, slot, board, uid):
               f" count {value}", flush=True)
     numeric = [int(value) for value in counts if value.isdigit()]
     if len(numeric) >= 2 and numeric[-1] == numeric[0]:
-        ctx.failures.append(f"Step 19 counter not advancing (count {counts}); pulses are"
+        # Name the state as well as the symptom (TRIGGER_T2_TODO.md A.3.43/A.3.44): the
+        # counter is started BEFORE the ring on purpose, because counter_binding() refuses
+        # COUNter:STARt once ring.enabled/adapter_started is set (COUNTER_CHANGED,
+        # trigger_counter_service.c:56-61). So state 1 (LOADED) here means it never started,
+        # which is a different repair than "the pulses do not arrive" - and the two were
+        # previously indistinguishable in the failure text.
+        _state = live[13].strip() if len(live) > 13 else "?"
+        _loaded = live[2].strip() if len(live) > 2 else "?"
+        ctx.failures.append(f"Step 19 counter not advancing (count {counts}, state {_state}"
+                            f" [1=LOADED = never started], loaded {_loaded}); pulses are"
                             f" not reaching the counter input, so no position can be"
                             f" observed or published (check the sync-out 3 -> sync-in 1"
                             f" loopback and the PWM source pin)")
