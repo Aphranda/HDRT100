@@ -372,6 +372,36 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.131 解锁 #2 仍未成功（三条释放都无效）⇒ 判为**累积卡死状态**，下一探针＝复位到干净态（2026-10-13）
+
+**实测** ✓✗：
+
+```
+REALtime:IO:OUTPut:RELease        -> ''      ✗（无应答）
+REALtime:IO:MODel:OUTPut:RELease  -> '"OK"'  ✓（确认执行 ✓）
+TRIGger:REServation:SOURce:RELease-> '1,0'   ✓
+MODEl:TURNtable:STARt             -> ''      ✗ ⇒ running=0 phase=5 total=2896 **fault=3** ✗
+REALtime:IO:MODel:PULSe:SCHEDule? -> **1,0,0,0,0,0,0,0,0,0** ✓ —— 跨**多轮**逐字节不变 ✓
+```
+
+**结论** ✓✓：三条释放命令（含新试的 `MODel:OUTPut:RELease` ✓）**都未能清除该状态** ✗ ⇒
+持相位者**既不是** run-output **也不是** source ✓ ⇒ 按 A.3.129 的剩余分支，只剩：
+
+1. **参考令牌** `s_reference_token` ✓（其持有者 `sync_io_reference.c` ✓；而 SCPI 列表中**没有**
+   `REFerence:RELease` ✗ ⇒ 必须走**参考路径的拆卸** ✓，很可能是停 **VDC/DPLL 会话** ✓）；
+2. **相位本身被锁存**在某个 `*_RESERVED` ✗ ⇒ 可能**只有复位/断电**才能清 ✓✓。
+
+**关键对照（很有说服力 ✓✓）**：**A.3.101** 的最早直连测试里模型**确实跑起来了** ✓
+（`fault 0` ✓、`running=1` ✓、调度页 `64,64` 首块完成 ✓）—— 那是在我**尚未累积状态之前** ✓
+⇒ 强烈提示当前 `fault 3` 是**我历轮实验累积的卡死状态** ✗✓，而非设计性占用 ✓。
+
+**下一探针（决定性、成本低 ✓）**：
+
+1. **把板子复位到干净态** ✓（`t2` 流程的完整拆卸 ✓ ⇒ 若不足则**断电/复位** ✓）；
+2. 在**干净态**下只做最小序列 ✓：`LOAD 0,3` → `GROups 16` → `START` ✓ ⇒ 读 `STATe?` ✓；
+3. **判据** ✓：`running=1`/`fault=0` ⇒ **卡死态假设成立** ✓✓（同时说明流程只需**正确的让位顺序** ✓）；
+   仍 `fault=3` ✗ ⇒ 参考令牌是设计性占用 ✓ ⇒ 转去查参考路径的拆卸 ✓。
+
 ### A.3.130 持有者与释放命令齐备：**未试的那条正是 `REALtime:IO:OUTPut:RELease`**（2026-10-13）
 
 **持有者（按令牌身份 ✓）**：
