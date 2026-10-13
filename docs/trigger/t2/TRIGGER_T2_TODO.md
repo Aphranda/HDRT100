@@ -372,6 +372,55 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.126 【根因查明】`sync_io_schedule_reserve(IDLE→LEGACY)` 的三道条件：**源令牌 / 参考令牌 / 相位=IDLE**（皆无 trace）（2026-10-13）
+
+**逐字读到** ✓（`sync_io_model_sched.c:75-96` ✓）：
+
+```c
+static bool sync_io_schedule_reserve(uint32_t expected, uint32_t desired)
+{
+    const bool excludes_source = desired != SYNC_IO_SCHEDULE_IDLE &&
+        desired != SYNC_IO_SCHEDULE_RUN_RESERVED && desired != SYNC_IO_SCHEDULE_COUNTER_RESERVED;
+    if (excludes_source && __atomic_load_n(&s_turntable_source_token, __ATOMIC_ACQUIRE))
+        return false;                                            /* ① **转台源令牌** ✓ */
+    const bool excludes_reference = expected == SYNC_IO_SCHEDULE_IDLE &&
+        desired != RUN_RESERVED && desired != COUNTER_RESERVED &&
+        desired != GATEWAY_RESERVED && desired != SWITCH_RESERVED;
+    if (excludes_reference && __atomic_load_n(&s_reference_token, __ATOMIC_ACQUIRE))
+        return false;                                            /* ② **参考令牌** ✓ */
+    if (!__atomic_compare_exchange_n(&s_schedule_phase, &expected, desired,
+        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return false;/* ③ 相位必须恰为 IDLE ✓ */
+    …
+}
+```
+
+**模型 arm 的调用** ✓：`sync_io_schedule_reserve(`**`SYNC_IO_SCHEDULE_IDLE`**, **`SYNC_IO_SCHEDULE_LEGACY_OPERATION`**`)`
+（`sync_io_model_sched.c:1046` ✓，A.3.104 ✓）⇒ 于是：
+
+| 条件 | 判据 | 若不满足 |
+|---|---|---|
+| ① **转台源令牌** `s_turntable_source_token` 必须为 0 | `excludes_source = true` ✓（`LEGACY_OPERATION` 不在豁免三项内 ✓） | `return false` ✗ |
+| ② **参考令牌** `s_reference_token` 必须为 0 | `excludes_reference = true` ✓ | `return false` ✗ |
+| ③ **`s_schedule_phase` 必须恰为 `IDLE`**（原子比较交换 ✓） | — | `return false` ✗ |
+
+**三者皆在打 trace 之前** ✓ ⇒ **与 A.3.123 的"trace 为空"完全吻合** ✓✓ ⇒ 这就是 `fault 3` 的机制 ✓✓。
+
+**关键推论** ✓✓：①② 两个令牌**正是 T2 流程自己持有的** ✓ ——
+* **转台源令牌** = 流程启动的 **PWM/运动源** ✓（A.3.117 ✓）；
+* **参考令牌** = **VDC/DPLL 参考**路径 ✓（流程 Step 13 起就在跑 ✓）。
+
+而我此前用的 SCPI `TRIGger:REServation:SOURce:STOP` ✓ **停的是"运行"，不是"令牌"** ✗✓
+⇒ 令牌仍被持有 ⇒ `arm` 失败 ✓✓ —— **完整解释了全部实测** ✓（停 counter/source 无效 ✗、
+索引合法 ✗、上限充裕 ✗、trace 为空 ✓、以及 A.3.101 早先 `LOAD 0,0` 能成功 ✓：那时这两个令牌尚未被持 ✓）。
+
+**因此方案 (a) 的正确做法** ✓✓：在**武装模型之前**，让**源与参考的所有者真正释放其令牌** ✓
+（即执行这些所有者的**完整让位/拆卸** ✓，而非仅 SCPI `STOP` ✗）⇒ 随后 `arm` 才有机会成功 ✓；
+这与 A.3.97/A.3.114 的结论一致 ✓，但**机制层面更精确** ✓✓（不是"路径被占"这一笼统说法，而是**两个具体令牌 + 相位** ✓）。
+
+**下一轮** ✓：定位这两个令牌的**获取/释放 API** ✓（`s_turntable_source_token` / `s_reference_token` ✓）
+⇒ 确认流程在哪一步获取 ✓、有无释放路径 ✓ ⇒ 在模型武装前插入**正确的让位** ✓ ⇒ 复测 `START` ✓
+⇒ 期望 **`running=1`** ✓、**`fault=0`** ✓、`emitted` 随服务循环递增 ✓。
+
 ### A.3.125 假设再否定：上限 = **2048**（64 ≪ 2048）⇒ 失败在 ③ 的**租约步**；`sched[0]=1` 应重解为"租约被持有/卡住"（2026-10-13）
 
 **逐字读到宏展开** ✓（`sync_io_persona_resources.h:27-34` ✓）：
