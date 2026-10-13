@@ -372,6 +372,48 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.148 B1 的完整改动面已定：四处栅栏 + **计划结构需新增 `schedule_crc` 字段**（2026-10-13）
+
+**四处栅栏（逐字 ✓ `trigger_t2_runtime.c` ✓）**——目前**只比 `session` + `ring_config_seq`** ✓：
+
+```c
+/* ① :369-370 邮箱接收入口 */
+if (plan.prediction_version && plan.session == s_state.cursor.session &&
+    plan.ring_config_seq == s_state.cursor.ring_config_seq)
+    s_deadline[index] = plan;
+
+/* ② :442-445 武装/发射门 */
+if (current_ms > plan->expiry_sync ||
+    plan->session != s_state.cursor.session ||
+    plan->ring_config_seq != s_state.cursor.ring_config_seq ||
+    plan->action_q <= s_state.cursor.action_cursor) { action_fail(index); return false; }
+
+/* ③ :621-623 完成/终止门 */
+} else if (terminal || !cursor_valid ||
+           s_deadline[index].session != s_state.cursor.session ||
+           s_deadline[index].ring_config_seq != s_state.cursor.ring_config_seq) { … action_fail(index); }
+
+/* ④ :641-642 选择门 */
+if (!plan->prediction_version || plan->session != s_state.cursor.session ||
+    plan->ring_config_seq != s_state.cursor.ring_config_seq || …) { action_fail(index); continue; }
+```
+
+**⚠️ 关键前置** ✗✓：计划结构（`:97` ✓）目前是
+
+```c
+struct { uint32_t session, ring_config_seq, prediction_version, expiry_sync; }   /* **无 schedule_crc** ✗ */
+```
+
+⇒ **B1 不能只改比对** ✗ —— 必须同时：
+
+1. 在**计划结构**（`:97` ✓）与游标快照中**新增 `schedule_crc`** ✓（架构允许：栅栏字段属"arm guard 前"信息 ✓）；
+2. 在**模型快照**处（`:1078` ✓ `.session/.ring_config_seq = …` ✓）**一并填充 CRC** ✓
+   （来源：模型/环的 `schedule_crc32` ✓，兄弟服务的比对也用同一来源 ✓）；
+3. 在**①②③④ 四处**各增一项 `… schedule_crc == …` ✓（照 `trigger_grid_preview.c:77-81` ✓）；
+4. **验收** ✓：故意改动 schedule CRC ⇒ T2 应在 ②/④ **拒绝**（`action_fail` ✓）而非继续 ✓✓。
+
+⇒ 该改动**只涉及 T2 运行时 + 其模型快照字段** ✓（不跨组件 ✗），规模**小–中** ✓，且**直接满足架构 `:527`** ✓。
+
 ### A.3.147 路径 B 项 1 的精确差距：T2 已栅栏 `ring_config_seq` ✓，但缺 `schedule_crc`（及 `role_generation`）✗（2026-10-13）
 
 **取证（`trigger_t2_runtime.c` ✓）**：
