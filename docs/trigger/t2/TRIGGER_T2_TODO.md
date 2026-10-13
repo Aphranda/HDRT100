@@ -372,6 +372,31 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.137 capture 候选亦被排除（采集/分析器均空闲）⇒ 失败在**工作区租约之后**（第 9 项排除）（2026-10-13）
+
+**实测** ✓✗（拼写逐字取自 A.3.136 ✓）：
+
+```
+[1] REALtime:IO:SAMPle:STATe?   -> **0** ✓                        （无采集在跑 ✓）
+[1] REALtime:IO:ANALyzer:STATe? -> 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 ✓（空闲 ✓）
+[1] REALtime:IO:SAMPle:RATE?    -> 1000000 ✓
+[2] REALtime:IO:ANALyzer:STOP   -> '1' ✓    SAMPle:STATe 0 -> '' ✓
+[2] ANALyzer:STATe?（STOP 后）  -> …,**1,1,2,1** ✓（状态确实随动 ✓，说明命令生效 ✓）
+[3] LOAD/MOTion/TRIGger("OK")/GROups 16 ✓ ; MODEl:TURNtable:STARt -> '' ✗
+[4] +0.8/1.6/2.4s : running=0 phase=5 total=2896 emitted=0 **fault=3** ✗ | sched 1,0,0,0,0,0,0,0,0,0 ✓
+```
+
+⇒ **capture / 工作区占用 两候选一并排除** ✗✓（两处状态读取均为空闲 ✓，且 STOP 生效可见 ✓）
+⇒ 失败点在**工作区租约（:844 ✓）之后** ✓ ⇒ 即 `:858+` 的**条目转换 / DMA 配置 / PIO 程序加载**段 ✓
+（我只读到 `:895` ✓：`entries_us[i].delay_us * 1000u` ✓ 处 ✓）。
+
+**已排除候选清单（9 项 ✓✓）**：counter ✗ · source 令牌 ✗ · run-output ✗ · reference 令牌 ✗ ·
+累积卡死（已证伪 ✗✓）· 索引越界（合法 ✓）· 表项超限（2048 ✓）· 索引门 trace（空 ✓）· **capture/工作区**（本轮 ✗✓）。
+
+**下一轮** ✓：读 `sync_io_model_sched.c:895-1010` ✓（条目转换收尾 + **DMA/SM 认领** ✓ + **PIO 程序加载** ✓）
+⇒ 其中 `s_wave_output_sm_claimed` / `s_wave_output_dma_claimed` / `s_wave_output_program_loaded` ✓
+（A.3.62 的单所有者清单 ✓）正是**尚未排除**的检查 ✓✓ ⇒ 逐条对照即可定案 ✓。
+
 ### A.3.136 采集/分析器模式串的取法已确认（风格 `REALtime:IO:<SUB>:<FIELD>`，查询带 `?`）（2026-10-13）
 
 **已取到** ✓（`scpi_realtime_io_commands.h:57-82` ✓，逐字 ✓）：`REALtime:IO:OUTPut:RELEase` ✓、
