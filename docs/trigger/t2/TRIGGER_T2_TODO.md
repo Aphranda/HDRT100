@@ -372,6 +372,38 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.61 【决定性】`sync_io_rate_schedule` 已含"窗口 + 标记 + 静默槽"原语 —— 两项待办可用本分支代码完整实现（2026-10-13）
+
+读全 `sync_io_rate_schedule.h`（237 行 ✓）后，其能力**超出预期** ✓：
+
+| API | 语义（来自源码注释/实现 ✓） | 对 T2 的用途 |
+|---|---|---|
+| `…_generate()` | 有限脉冲串 ✓：`period_ns` + `high_ns` + `pulse_count`（≤**2048**）+ `tick_period_ns`（**只能 4 或 100 ns** ✓）；`rate_ppb` 提供**亚 tick 速率增益** ✓（"differencing cumulative edges preserves sub-tick rate gain" ✓） | **DPLL 级精度的脉冲串** ✓ = "每位置 16 组"的节拍 ✓ |
+| `…_generate_marked()` | **首个脉冲为更宽的同步标记** ✓（其上升沿仍在同一累计网格上 ✓） | **位置分隔标记** ✓（每位置的窗口起点 ✓） |
+| `…_edge_ticks(request, index)` | 直接算任意**绝对网格沿** ✓（不放大数乘积 ✓，索引界 MAX_PULSES+1 ✓） | 边沿规划/校验 ✓ |
+| **`…_generate_window()`** | 源码注释原文：**"One finite window between two local markers. For N pulses, grid positions 0,1,…,N−2,N; position N−1 is deliberately silent. Both markers use marker_high_ns; the remaining N−2 pulses use high_ns."** ✓✓ | **这就是"执行端窗口"原语** ✓✓：**有限窗口 + 两端标记 + 刻意静默槽** ✓ |
+
+⇒ **三点结论**：
+
+1. **"执行端窗口深度 2"有原语** ✓✓ —— `generate_window()` 的"**有限窗口 + 标记框架 + 静默槽**"正是
+   窗口/深度的表达 ✓（"深度"= 同时在途的窗口数 ✓，由上层调度决定 ✓）；
+2. **"每位置 16 组"= 一个 N=16 的窗口** ✓（`pulse_count=16` ✓，可选 marked 版本给位置起点打标记 ✓）；
+3. **4 ns tick 在本分支就可用** ✓（`tick_period_ns ∈ {4, 100}` ✓）⇒ 该分支的 `sync_io_sequence`
+   **连"定时精度"理由也不需要** ✓✓ ⇒ **A.3.60 的"无需移植"结论进一步巩固** ✓。
+
+**唯一约束（已在 A.3.60 记录）**：单次 ≤ **2048** 脉冲 ✗ ⇒ 361 位置 × 16 组 = 5776 必须**分批** ✓；
+而 `generate_window()` 的"**每位置一个窗口**"用法天然就是分批 ✓✓（每位置 16 脉冲 × 361 = 361 次
+窗口生成/装订 ✓）——**但需确认续批不掉拍** ✓（下一件事 ✓）。
+
+**因此 T2 侧的实现形态已完全清晰**：
+
+| 步骤 | 内容 |
+|---|---|
+| 1 | 每位置构造一个 `request{ period_ns, high_ns, pulse_count=16, tick_period_ns=4, rate_ppb }` ✓ |
+| 2 | `…_generate_window()`（或 `_marked` ✓）⇒ PIO words ✓ |
+| 3 | 在窗口之间由 `sync_io_gateway` 做**预约/期限/ready 握手** ⇒ 即"深度"控制 ✓（A.3.60 ③ ✓） |
+| 4 | 逐位置续批；用 `encoding{}` 的 `first_edge_ticks/last_edge_ticks/total_ticks/min/max_period_ticks` ✓ 做**验收判据** ✓ |
+
 ### A.3.60 【结论】两项待办都有**本分支现成积木**，无需移植该分支子系统（2026-10-13）
 
 核对了三个本分支已有的头，得到"16 组/位置 + 执行端窗口深度 2"的**本土实现路线**：
