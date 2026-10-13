@@ -372,6 +372,39 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.104 找到 arm 的预约前置（并排除它）⇒ `emitted=0` 的缺口在更下游（2026-10-13）
+
+**逐字读到** ✓（`sync_io_model_sched.c:1030-1057` ✓）：
+
+```c
+static bool sync_io_pulse_schedule_arm_on_pin_common(…)
+{
+    if (!sync_io_schedule_reserve(SYNC_IO_SCHEDULE_IDLE,
+                                  SYNC_IO_SCHEDULE_LEGACY_OPERATION)) {
+        return false;                       /* ← arm 的前置：IDLE→LEGACY 预约 ✓ */
+    }
+    const bool armed = sync_io_pulse_schedule_arm_on_pin_common_owned(…);   /* 真正装订 ✓ */
+    sync_io_schedule_publish_phase(SYNC_IO_SCHEDULE_IDLE);
+    return armed;
+}
+```
+
+⇒ **该前置已满足** ✓✓：我的手动 `MODEl:TURNtable:STARt` 返回 **`"OK"`** ✓ 且 `STATe?` 显示
+**`fault = 0`** ✓ ⇒ `sync_io_schedule_reserve(IDLE, LEGACY_OPERATION)` **成功** ✓（否则 `arm` 会失败
+并置 `fault 3` ✓）⇒ **`emitted = 0` 与该预约无关** ✗✓。
+
+**因此结论收窄** ✓：缺口在**更下游**的"脉冲真正输出"路径 ✓ —— 候选（下一轮依次排除 ✓）：
+
+1. **PIO 程序是否已加载** ✓（单所有者清单里出现过 `s_wave_output_program_loaded` ✓ ⇒ 若程序未加载，
+   arm 可能仍成功 ✗ 但不产生脉冲 ✗✓）；
+2. **输出引脚/追踪索引** ✓（我用 `LOAD 0,**3**` ✓ 与流程一致 ✓，但该索引→引脚的映射未验证 ✗✓）；
+3. **观测窗口是否足够** ✓（旧配置 `min_interval_us = 100000`（0.1 s）× 11 脉冲 ≈ **1.1 s** ✓，我的
+   0.5 s 采样窗 × 4 ≈ 2 s ✓ 应当够 ✓ ⇒ 但仍可能因 `pulse_width_us = 2000` 与首个 `delay` 累积而偏后 ✗✓）；
+4. **`sync_io_schedule_*` 的相位/状态页** ✓（若可读 ✓ 可直接判"程序/引脚/相位"三态 ✓）。
+
+**另**：`TRIGger` 写被拒（`total` 仍 11 ✗，A.3.103 ✓）也需解决 ✓ —— 它阻止把模型计划设为 **181 位置** ✓；
+与"脉冲输出"是**两个独立**问题 ✓✓（前者是配置写入 ✓，后者是执行输出 ✓），不可混淆 ✗✓。
+
 ### A.3.103 `TRIGger` 写被拒（total 仍 11）；且 `emitted=0` **与参数无关**（2026-10-13）
 
 **实测**（按流程原样参数 ✓）：
