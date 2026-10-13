@@ -372,6 +372,46 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.43 【更正 A.3.42 ③-2】step 19 的判据**与 legacy 无关**——它是"计数器自身是否推进"（2026-10-13）
+
+读 `tools/sync_trigger/t2_workflow.py` 中 step 19 的实际代码：
+
+```python
+    counts = []
+    for poll in range(3):
+        time.sleep(1.0)
+        live = ctx.send(src, "TRIGger:REServation:COUNter?").split(",")
+        value = live[16].strip() if len(live) > 16 else "?"     # ← 计数器自身读数
+        counts.append(value)
+    numeric = [int(v) for v in counts if v.isdigit()]
+    if len(numeric) >= 2 and numeric[-1] == numeric[0]:
+        ctx.failures.append("Step 19 counter not advancing (count …); pulses are not
+                             reaching the counter input … (check the sync-out 3 -> sync-in 1
+                             loopback and the PWM source pin)")
+```
+
+⇒ 该判据比较**计数器在 3 次轮询间是否变化** ✓，**完全不读 legacy 三槽** ✗✓ ⇒ **A.3.42 ③-2 "step 19 仍读 legacy 阈值"是误判** ✗✓。
+
+**由此的正解**：日志里的 `count ['4950','4950','4950']` ✗ 是**计数器真的卡在 4950** ✓（三次轮询无变化 ✓），
+即**脉冲没有到达计数器输入** ✓ —— 正如该失败信息自己写的：查 **sync-out 3 → sync-in 1 环回**与 **PWM 源引脚** ✓。
+（`4950` 与 legacy 首阈值相同只是**巧合** ✓，不足以推断耦合 ✗。）
+
+**对用户矩阵的意义（阻塞点改变）**：
+
+| 之前的判断 | 更正后 |
+|---|---|
+| 多档测试前要"把 step 19 判据改成扫描口径" ✗ | **不需要** ✓（该判据本就与扫描长度无关 ✓） |
+| 331/361 等扫描的失败源于 legacy 模型 ✗ | 失败源于**计数器不推进**（PWM 源/环回）✗ —— **台架侧**问题 ✓ |
+
+**因此下一步（面向用户矩阵）**：
+
+1. 排查"计数器不推进"：确认 **step 19 是否真的启动了 PWM 源**（命令与返回值 ✓）、**sync-out 3 → sync-in 1 环回**是否通 ✓；
+2. 361 扫描下 PWM 源需要运行更久才能跨过更多阈值 ✓ ⇒ 检查源的**持续时间/触发条件**是否随扫描长度适配 ✓；
+3. 速度矩阵（1/2/2.5/5 °/s）与上述**同一域**（转台/运动 + PWM 源 ✓），建议一并确认 `MODEl:TURNtable:MOTion` 的形参与单位 ✓。
+
+**教训（第 7 次同类）**：**读判定代码本身，而不是从失败文本反推它的数据来源** ✗✓ —— 本轮仅凭
+`count ['4950','4950','4950']` 与 legacy 阈值"数值相同"就断言耦合 ✗，读了代码才发现判据完全自洽 ✓。
+
 ### A.3.42 扫描/角度参数的 SCPI 可配置性 + 361 下的两处 legacy 依赖（2026-10-13）
 
 **用户后续计划**：尝试 45/90/180/270/360° 等角度与 1 / 2 / 2.5 / 5 °/s 等速度。
