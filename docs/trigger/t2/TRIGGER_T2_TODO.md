@@ -372,6 +372,40 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.102 【更正】流程早已 LOAD 并按正确顺序启动；我手动测试的偏差才是 `emitted=0` 的疑因（2026-10-13）
+
+**流程的真实动作**（`t2_workflow.py:1780-1797` ✓，逐字 ✓）：
+
+```python
+# 注释（作者已记录，与 A.3.97 完全一致 ✓✓）：
+#   reserved from IDLE (sync_io_model_sched.c:1046-1049). Starting it in step 14 or 19
+#   - i.e. after this session's OUTPut:RUN - failed with fault_code 3 in both places
+#   (measured "running 0 phase 5 emitted 0/181 fault 3"). Configure and start it here,
+#   once, on the counter/position source board.
+if src is not None and slot == 0:
+    for command in ("CONFigure:MODEl:TURNtable:LOAD 0,3",                     # ← output = 3 ✓
+                    "CONFigure:MODEl:TURNtable:MOTion 360,360",                # ← 速度 ✓
+                    "CONFigure:MODEl:TURNtable:TRIGger 1,0,360,2,100,1,1000"): # ← 7 参数 ✓
+        ctx.send(src, command)
+    reply = ctx.send(src, "MODEl:TURNtable:STARt")            # ← 在 OUTPut:RUN 之前 ✓
+```
+
+⇒ **三点更正/确认** ✓✓：
+
+1. **流程本来就 LOAD** ✓（`LOAD 0,**3**` ✓）⇒ 我在 A.3.100/A.3.101 说"流程从不 LOAD"✗ **不成立** ✗✓
+   —— 那是**我手动测试**时漏了它 ✓；流程的顺序（**先启动模型，再 `OUTPut:RUN`** ✓）正是 A.3.97 的正确结论 ✓✓
+   （作者注释里"after OUTPut:RUN … fault_code 3" ✓ 与我的发现**互相印证** ✓✓）；
+2. **参数差异（我手动测试的偏差 ✗✓）**：我用 `LOAD 0,**0**` ✗（流程用 **3** ✓）、且残留
+   `TRIGger 0,0,10,1,2000,1,-1` ✓（流程用 `1,0,**360,2,100**,1,1000` ✓ ⇒ **181 位置** ✓）
+   ⇒ 我的 `emitted=0` ✗ 疑因正是"**驱动了错误的输出引脚**"✓ 与"用陈旧 trigger 配置"✓（而非模型能力 ✗）；
+3. **流程的目标扫描是 181 位置** ✓（`stop 360 / step 2` ✓，与注释的 `emitted 0/181` ✓ 一致 ✓）——
+   注意这**不是** T2 的 361 档 ✓（T2 扫描由 `T2:CONFigure` 的 `0..360000/1000` ✓ 决定 ✓），
+   两者是**不同域的两条扫描** ✓✓（模型域 181 ✓ vs T2 域 361 ✓）。
+
+**修正后的下一测** ✓（3 分钟 ✓）：用**流程的原样三连** ✓（`LOAD 0,3` → `MOTion 360,360` →
+`TRIGger 1,0,360,2,100,1,1000` ✓）→ `START` ✓ → 观察 `emitted` 是否**随时间增长** ✓
+（期望 `total=181` ✓、`fault=0` ✓、`emitted` 递增 ✓）。
+
 ### A.3.101 【全链路打通】LOAD→GROups 16→START 成功、模型 running=1；余 `emitted` 不推进（2026-10-13）
 
 **实测（COM5 直连 ✓，逐条应答 ✓）**：
