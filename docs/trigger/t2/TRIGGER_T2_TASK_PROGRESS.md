@@ -12,6 +12,16 @@ Last updated: 2026-10-13
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261013-002：TDMA 域一等席布局联审完成，`T2-AUDIT-03` 结案（有条件接受）
+
+- TODO task ID：`T2-AUDIT-03`；契约 `ARCH-TRIGGERSLICE-01`（status 保持 `pending`）。
+- **联审**：核验方为**独立 TDMA 域侧 subagent**（未参与 T2 或 TDMA 任一侧起草），方式为代码 + 登记表 + 文档只读交叉核验；结论 **有条件接受（`PASS_WITH_NOTE`）**；提交单 `docs/check/submissions/TRIGGER_CROSS_REVIEW_03.md`。
+- **被确认成立**：10 B 子区位于 slot 14..23（24 B core0 body 内），与 VDC 8..13／ACK 24..26／CONTROL 27..28／DIAG 29／CRC 30..31 **无重叠无空洞**；`_Static_assert(TRIGGER_POSITION_SLICE_WIRE_SIZE == TDMA_PROCESS_IMAGE_REFMEM_SIZE, ...)` **逐字存在**（`distributed_refmem.c:33-34`）；发布机会轮换、「特等 `EMPTY` 让位」「两级皆空不消耗机会」「一等记录等待中不被覆盖」均为**代码机制**而非意向；`SYNC_TRIGGER` 相位预算获**独立重算确认**（相位 7、WCET 26800、窗口 335000..365500、REFMEM 298500..332000、SCPI 8 头部 + 每相位 11 字段）。
+- **T2 侧据实修正登记行 4 处**：① `REPMEM-LAYOUT-01` → **`REFMEM-LAYOUT-01`**（原为**悬空引用**，真实 id 见 registry:22）；② 「前 8 B 为 **core1** 元数据」→ mailbox **fast header，由 Core0 镜像构建写入**（`distributed_refmem.c:984-990`），Core1 仅上车前复验；③ 「offset 14」→ **slot 绝对偏移 14**（24 B body 内相对偏移 6）；④ 版本耦合由「尺寸随布局版本耦合」收紧为**符号级**，并写明 `TDMA_PROCESS_IMAGE_LAYOUT_VERSION` 自引入未递增、混版本保护实际靠 **class 白名单拒帧**（普通 transport 白名单不含 0x15）。
+- **跨域未闭合条件（仅指针，不计为 T2 待办项）**：TDMA 侧 **C1**（`TDMA-SEAT-01` 一等席容器与预算条款缺失）、**C2**（`TDMA-PROCESSIMAGE-01` 待补 RefMem 子区按 class 复用与版本递增规则）、**C3**（`SHARE_MAX == WAIT_MAX == 8`：合规 8:1 按设计置位 `SEAT:HEALth?` bit3）、**C4**（TDMA 不声明时间期限）；arch 侧 **C5**（`ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md:57` 引用**已删除**符号 `TDMA_SEAT_ROTATION_*_SHARE` 且称「编译期常量」，违反硬约束 2；另有多处已作废模型描述）。
+- **零命中（治理缺口）**：`TDMA-SEAT-01/02/03` 在 `docs/check/DOCS_REGISTRY.md` 中**无任何登记行**；`EXE-SEAT-01` **全库无定义、无登记、无结论**，却被 T2 与 TDMA 共 5 处当作前置引用 ⇒ `T2-IDENT-001` 的「按 `EXE-SEAT-01` 登记」**目前无落点**。
+- **未核验**：本次为**静态只读核验**，不含编译、pytest 与四板 P3；所有实测数字（2.13 ms 快速路径间隔、四板送达/冻结等）均为**文档快照**，仅核其与编译期常量自洽。
+
 ### T2-PROGRESS-20261013-001：位置邮箱契约登记完成并经 C11 独立交叉审核（`T2-AUDIT-07`）
 
 - TODO task ID：`T2-AUDIT-07`；契约 `ARCH-TRIGGERMAILBOX-01`（status `pending`）。

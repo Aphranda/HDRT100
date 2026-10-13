@@ -143,7 +143,7 @@ Last updated: 2026-10-13
 达到一个真实 position_id 的四板位置广播、从板解算、不同 q 动作边沿和 READY 重叠结果后，停止无关矩阵，保留原始证据并进入独立复核。
 
 ## 当前依赖
-**更新（2026-10-13）**：T2 自身仅剩**一项** AUDIT 开放项——`T2-AUDIT-03`（登记 `ARCH-TRIGGERSLICE-01` ✓ 与 C11 ✓ 已完成，**仅欠 TDMA 域一等席布局联审结论**）。`T2-AUDIT-07`（位置邮箱契约 `ARCH-TRIGGERMAILBOX-01`）登记与 C11 均已完成、**状态 DONE**；其审核新产出（位置域三方口径不一致）另立 `T2-IDENT-002`。原 `T2-AUDIT-08`（单串口控制面）属接口域，已移出。
+**更新（2026-10-13）**：T2 自身**已无开放的 AUDIT 项**——`T2-AUDIT-03` 与 `T2-AUDIT-07` 均已 DONE（登记 ✓ + C11 ✓ + TDMA 域联审 ✓）。`T2-AUDIT-03` 的联审条件分属 TDMA/arch 域（C1–C5，见该项下方指针，T2 不代管）；`T2-AUDIT-07` 的审核新产出（位置域三方口径不一致）已另立 `T2-IDENT-002`。原 `T2-AUDIT-08`（单串口控制面）属接口域，已移出。
 
 
 | 项目 | 当前处置 | 阻塞范围 |
@@ -234,9 +234,24 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 仅当 `pulse_pio` 非 PIO0 或 SM 不属于上述两者时才会到达 `:980-1002` 的**非 PIO0 回退**（例如 `BOARD_SYNC_PIO_WAVE` 一路），该回退不在 T2 转台路径上。
 
 | T2-AUDIT-02 | 每位置一组 → **每位置 16 组 + 两组滑动窗口**（审查 A-06/A-16） | `DONE` | 硬件闭环：`total = 2896 = 181 × 16`、`fault = 0`；残余：FREEZE 后按最新 DCO **重算未装填组**（K-2）尚未实现；**行级定位已完成（2026-10-13，只读核实）**：“按最新 DCO 重算”的**机制已存在**（`trigger_t2_runtime.c:1054-1055`：`prediction_version` 与 `model_token` 均未变才 `continue`，否则用**当前 `model.dco`** 重算），但被 **FREEZE 门抑制**：`:1048` 对已冻结位置**整位 `continue`**（不再重算）、`:1082` 对已冻结位置**不发布**，因此架构原文的“FREEZE 后停止重算（A-06/A-16）”**属实**，与 K-2（FREEZE 只冻结位置预测、不冻结 DCO）**直接冲突**。**修正（2026-10-13，ROI 复核）**：上述“仅两行”属**过度简化**，实际改动面**更大**：① `:1048` 改为“仅停位置预测/新实例、仍对**未被硬件接受**的动作重算”，需区分**已接受 / 已装填 / 尚未装填**；② `:1082` 要“允许发布尚未接受的新解算、且**不改写已接受**”，而当前代码**并无**“已接受”状态信号（Core1 负责 `service_deadlines`/回执，Core0 只能看到邮箱旧字）⇒ 需新增**Core1→Core0 的“已装填/已接受”回信或等价判据**，否则无法同时满足 K-2 两半（未装填重算 ✓ + 已接受不追改 ✓）。**第二次修正（2026-10-13 只读核实，本轮）**：上述“需新增 Core1→Core0 已接受回信”属**过度复杂化**：快照已携带可判据的掩码——`action_armed_mask`（**仅准入**）、`action_completed_mask`（**需匹配 PIO 回执**）、`emitted_position_mask`、`action_deadline_tick[]`（见 `trigger_t2_runtime.h:87-94`，原注释：“ARMED is admission only. COMPLETE/emitted require the matching PIO receipt”），Core1 侧另有 `s_armed_index`（`:116/:677`）与 `s_deadline_seen`（`:109`）。因此 `:1048`/`:1082` 可**直接改用这些现有掩码判据**（仅跳过已被接受/已完成位），**无需新机制**；**判据已定义（2026-10-13）**：代码自述——`trigger_t2_runtime.c:677-680` 在记录 `action_armed_mask` 的**同一时刻**写入 `action_deadline_tick[selected]`，并注释“**Read the owner's accepted sequence; a later mismatch cannot complete us**”，随后 `:683-691` 读取 owner 的 accepted sequence；而 `:524-525` 表明**完成/发射**才置 `action_completed_mask`/`emitted_position_mask`（需匹配 PIO 回执）。因此：**“已被硬件接受” = `action_armed_mask`**；**“已完成” = `action_completed_mask`/`emitted_position_mask`**。据此 `:1048` 应改为 `if ((s_state.action_armed_mask | s_state.action_completed_mask) & (1u << index)) continue;`（即**仅跳过 deadline 已被接受的位**，**已冻结但尚未装填的位仍重算**）；`:1082` 同步去掉“已冻结即不发布”的朡断（由 `:1048` 保证已接受者不再进入）。原因：因此 ② 回到“**小改动 + P3**”估时，但时长估计需按“**小型设计 + 实现 + P3**”计（而非两行修改）。：① `:1048` 改为仅停“位置预测/新实例”、**仍对未被硬件接受的动作重算**；② `:1082` 改为**允许发布尚未被接受的新解算**，**已被硬件接受的 deadline 绝不改写**（需“已接受”标记）。**落点已查明（2026-10-13）**：`components/model_turntable/` 内无 `freeze`/`DCO`/`token` 符号，`model_turntable_recompute_plan()`（`model_turntable.c:111`）仅在**配置/启动**路径被调用（`:263/:297/:312/:323`），**运行期不重算**；因此 K-2 应在**上层装填路径**实现（`trigger_t2_runtime` 的 `prepare_deadlines_core0()` / `service_deadlines()`，即架构 `T2-OWNER` 所指入口），**不在模型层动刀**；判据：装填前比较模型 token，不一致则用新解算，**已被硬件接受的 deadline 不得追改**，赶不上则判迟并记录 |
-| T2-AUDIT-03 | 紧凑记录的**跨域契约登记**（`docs/check/DOCS_REGISTRY.md`）+ **C11 独立交叉审核** + 与 **TDMA 一等席布局联审** | `IN PROGRESS` | 阻塞条件：描述符 wire 布局、profile 默认值、资源配额与正式时限**尚未冻结**；按本文与架构文件规定，**登记前不得写成冻结契约**，因此不得提前登记 |
+| T2-AUDIT-03 | 紧凑记录的**跨域契约登记**（`docs/check/DOCS_REGISTRY.md`）+ **C11 独立交叉审核** + 与 **TDMA 一等席布局联审** | `DONE` | 原阻塞条件（登记前不得写成冻结契约）已由 2026-10-13 的三项完成解除；TDMA 域联审结论为**有条件接受**，其条件分属 TDMA/arch 域（见下方指针，不计为 T2 待办项），故 `ARCH-TRIGGERSLICE-01` 保持 `pending` |
 
-补充（2026-10-13）：跨域契约登记已完成（`ARCH-TRIGGERSLICE-01`，status `pending`）且 **C11 独立交叉审核已完成**（结论 APPROVE WITH NOTES，三处措辞/归属缺陷已修正；提交单 `docs/check/submissions/TRIGGER_CROSS_REVIEW_01.md`）；尚欠 **与 TDMA 一等席布局的 TDMA 域联审结论**（本次核验已澄清版本耦合归属 `TDMA-PROCESSIMAGE-01`，但不等同于 TDMA 域自己的联审结论）。
+补充（2026-10-13，**T2-AUDIT-03 结案**）：三项均已完成——
+
+1. **跨域契约登记**：`ARCH-TRIGGERSLICE-01`（status `pending`）；
+2. **C11 独立交叉审核**：结论 APPROVE WITH NOTES，三处措辞/归属缺陷已修正；提交单 `docs/check/submissions/TRIGGER_CROSS_REVIEW_01.md`；
+3. **TDMA 域一等席布局联审**（核验方为**独立 TDMA 域侧 subagent**，未参与任一侧起草）：结论 **有条件接受（`PASS_WITH_NOTE`）**——10 B 单帧的布局/越界/静态断言与轮换、「机会不空过」机制**均成立**，`SYNC_TRIGGER` 相位预算（相位 7、WCET 26800、窗口 335000..365500、每相位 11 字段）获**独立重算确认**；但须由 TDMA 侧补/改条款后方可作为冻结契约。提交单 `docs/check/submissions/TRIGGER_CROSS_REVIEW_03.md`。
+
+**本次联审的 T2 侧已办事项（据实修正本域登记行）**：
+
+1. 错别字兼**悬空引用**：`REPMEM-LAYOUT-01` → **`REFMEM-LAYOUT-01`**（原写法在登记表中不存在，所引域文档章节为 `REFMEM_DOMAIN_ARCHITECTURE.md:982`）；
+2. 归属错误：「前 8 B 为 **core1** 元数据」→ 实为 mailbox **fast header**，由 **Core0** 镜像构建写入（`distributed_refmem.c:984-990`），Core1 仅上车前复验；
+3. 偏移歧义：「offset 14」→ 明确为 **slot 绝对偏移 14**（24 B body 内相对偏移 6）；
+4. 版本耦合强度收紧：由「尺寸随布局版本耦合」改为**符号级**耦合，并写明 `TDMA_PROCESS_IMAGE_LAYOUT_VERSION` 自引入未递增、混版本保护实际靠 **class 白名单拒帧**（普通 transport 白名单不含 0x15）而非版本字段。
+
+**未闭合条件（跨域，仅指针，不计为 T2 待办项）**：TDMA 侧 **C1**（新登记 `TDMA-SEAT-01` 一等席容器与预算条款）、**C2**（`TDMA-PROCESSIMAGE-01` ver 1→2，补 RefMem 子区按 class 复用与版本递增规则）、**C3**（`SHARE_MAX == WAIT_MAX == 8` 使合规 8:1 按设计置位 `SEAT:HEALth?` bit3，须择一修正）、**C4**（TDMA 不声明时间期限，待 T2 冻结正式时限后复核）；arch 侧 **C5**（`ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md:57` 引用**已删除**的符号 `TDMA_SEAT_ROTATION_*_SHARE` 且称「编译期常量」，属硬约束 2 违规；另有 `:27`/`:135`/`:151`/`:163` 的已作废模型描述）。上述归各域 TODO，T2 不代管。
+
+**零命中（治理缺口，据实记录）**：`TDMA-SEAT-01/02/03` 在 `docs/check/DOCS_REGISTRY.md` 中**无任何登记行**；`EXE-SEAT-01` **全库无定义文档、无登记、无结论**，却被 T2 与 TDMA 共 5 处当作前置引用。故 `T2-IDENT-001` 中「按 `EXE-SEAT-01` 登记（C11）」这一步**目前无落点**，须先建立该 id 的载体或改指到 C1 登记的 `TDMA-SEAT-01`。
 | T2-AUDIT-04 | 转台**源路径选型**定稿（`TRIGger:REServation:SOURce:*` 硬件 PWM 源 vs `CONFigure:MODEl:TURNtable:*` 加减速模型源） | ✅ 口径已定（生产 IN1 / 台架 OUT4→IN1 回环模拟） | 阻塞条件：属**产品/验收口径决策**，选型会改变隔离验收（`T2-TURNTABLE-008`）的证据口径；待用户定稿，本任务不预设结论 |
 
 说明：`T2-AUDIT-03` 与 `T2-AUDIT-04` 的 `BLOCKED` 为**前置未满足**（契约未冻结、口径未定），非技术不可行；
