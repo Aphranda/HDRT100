@@ -4,13 +4,23 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-10-12
+Last updated: 2026-10-13
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20261013-001：位置邮箱契约登记完成并经 C11 独立交叉审核（`T2-AUDIT-07`）
+
+- TODO task ID：`T2-AUDIT-07`；契约 `ARCH-TRIGGERMAILBOX-01`（status `pending`）。
+- **登记**：`docs/check/DOCS_REGISTRY.md` 新增该行；clause 载体 `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`「位置邮箱交接契约」小节；code_anchor `components/sync_trigger/inc/trigger_position_mailbox.h`。
+- **C11 独立交叉审核**：核验方为**独立 subagent**（与起草方不同会话、未参与起草），方式为代码与文档**只读**交叉核验（未创建/修改/删除文件，未运行构建或硬件工具）；12 项断言逐条核验，结论 **`PASS_WITH_NOTE`**；提交单 `docs/check/submissions/TRIGGER_CROSS_REVIEW_02.md`。
+- **按结论修正 4 项**（均属措辞/归属，无实现缺失、无编造）：① `[1, LATCH_IDS]` 不再写作通用「有效 `position_id` 域」，改为 FREEZE latch **槽位域**并划分所有权（线上域归 `ARCH-TRIGGERSLICE-01`，本条不重复立法）；② 小节标题「冻结」→「登记，status `pending`」，并消除同文档原「本文当前仍为 Draft」的自相矛盾；③ 「载荷仅在 `WRITING` 写／`READING` 读」限定为**运行时（并发交接期）**，补记静默边界清空与 `WRITING`/`READING` 期拒绝复位；④ 显式声明 FREEZE latch 为同头文件内**独立于 mailbox** 的结构体（载荷规则「bit 清写／bit 置读」）。
+- **新产出：位置域三方口径不一致（另立 `T2-IDENT-002`）**：线上／latch 寻址域 `[1, 15]`（`trigger_position_slice.h:38` 的 `0x0Fu` 与 `trigger_position_mailbox.h:74` 的 `TRIGGER_POSITION_FREEZE_LATCH_IDS`，二者**无静态断言绑定**）；`trigger_position_descriptor_valid()` 的 FREEZE 分支硬编码 `position_id <= 3u`（`trigger_position_descriptor.h:193`，**未引用宏**）；T2 运行时消费域 `[1, TRIGGER_T2_RUNTIME_POSITION_COUNT]`（`= 3u`，`trigger_t2_runtime.h:12`；拒绝见 `trigger_t2_runtime.c:403-404`）。数值当前自洽，但改宏不会带动该字面量。
+- **本次核验未覆盖**：同源码构建、四板 P3、pytest 运行；内存序仅作形式配对核验，未做多核压力验证。
+- **附带更正**：`docs/README.md` 中 `TRIGGER_T2_HANDOFF_CHECKLIST.md` 的索引描述仍写「用户偏好」，而该小节已于 `488a0559` 移除（该提交只改清单、未同步索引），随本次一并更正。
 
 ### 2026-10-13 自 T2 待办下沉的长记录（避免 C12 跨文件复制）
 

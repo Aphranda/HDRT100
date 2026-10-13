@@ -87,6 +87,7 @@ Last updated: 2026-10-13
 | T2-GATE-001 | VDC LOCKED 发布输出门禁 | BLOCKED | T2 只在 VDC 进入 LOCKED 并发布后生成和装填 deadline，消费 VDC 提供的发布状态而不自行判定锁态；补全部非发布锁态的主机负测；阻塞于 `VDC-LOCK-001`、`VDC-RUN-001`，台架期间只允许显式诊断开关且结果不计验收（评审 A-02） |
 | T2-TRANSPORT-002 | 一等席单帧位置记录 | IN PROGRESS | 紧缩单帧已实现并经四板送达，改写已排队 VDC image 的 patch 路径已删除（`T2-PROGRESS-20261010-022/024`）；剩余为 VDC 核心字段清单、一等席布局/预算的独立登记（C11），以及按 `T2-IDENT-001` 新身份口径重新核定（评审 A-01、A-03、A-15） |
 | T2-IDENT-001 | 位置身份与在途容量 | IN PROGRESS | 由扫描参数派生的位置数（0..360°@1° ⇒ 361）与紧凑记录身份容量一致。**2026-10-12 定稿**：T2 只预测下一到两个位置，长扫描的 361 个位置**不进入常驻状态**；常驻 1~2 个在途位置即可（`TRIGGER_T2_RUNTIME_POSITION_COUNT` 继续作窗口用）；线上绝对身份**无需加宽 4 bit id**——10 B 单帧已带 32 bit `target_ms_index`，配合扫描参数即可确定绝对位置，`position_id` 作在途实例编号；**预测超过 2 个位置一律视为不准确**（速率是单样本估计），window 外不产生任何对外事实；冻结确认 32 bit 掩码足够。剩余：与 TDMA 一等席布局一起核定并按 `EXE-SEAT-01` 登记（C11） |
+| T2-IDENT-002 | 位置域三方口径收敛（`T2-AUDIT-07` 的 C11 审核新产出） | PENDING | 同一「位置」域在代码内存在三处**独立口径**：① 线上／FREEZE latch 寻址域 `[1, 15]`——`trigger_position_slice.h:38` 的 `0x0Fu` 与 `trigger_position_mailbox.h:74` 的 `TRIGGER_POSITION_FREEZE_LATCH_IDS`，两者**无静态断言绑定**；② `trigger_position_descriptor_valid()` 的 FREEZE 分支硬编码 `position_id <= 3u`（`trigger_position_descriptor.h:193`，**未引用宏**）；③ T2 运行时消费域 `[1, TRIGGER_T2_RUNTIME_POSITION_COUNT]`（`= 3u`，`trigger_t2_runtime.h:12`；拒绝见 `trigger_t2_runtime.c:403-404`）。数值当前自洽，但**改宏不会带动 ② 的字面量**。判据：三方以符号或静态断言绑定（并确认 `[1, 3]` 是设计意图还是缺陷）；若结论落到固件改动，按 AGENTS.md 硬约束 7 付一次 P3 硬件验收凭证。依据与未核验范围见 `docs/check/submissions/TRIGGER_CROSS_REVIEW_02.md` |
 | T2-SOURCE-001 | 模拟源转速/ppd 与脉宽 | PENDING | `pulses_per_degree` 进入 T2 配置并与模拟源共用；源以转速（mdeg/s）× ppd / 1000 换算频率并支持可配置脉宽；两条源路径选型定稿并给出隔离验收口径（评审 D-7/D-8/D-9） |
 | T2-FREEZE-002 | 无预览位置判失败并继续 | IN PROGRESS | `stage_pending_freeze()` 遇 `preview_copy` 失败不再 `return true`：按位置记录一次（新增 `freeze_no_preview_mask` / `freeze_no_preview_count`，追加在 `T2?` 末尾可读回），并**继续检查其余 pending 位置**；pending 位保留，使迟到预览仍可冻结，窗口到期仍走既有 `freeze_abandoned_*` 证据。已实现 + 新增测试 `tests/python/test_t2_freeze_no_preview.py`（继续装填 / 全缺预览且每位置只计一次 / 健康基线不变 / 传输拒绝仍上报），与 `test_trigger_t2_freeze_abandon.py`、`test_t2_freeze_completion.py` 三件全通过；评审 A-13 的语义变更待独立复核确认后置 DONE |
 | T2-DOC-002 | 补记 09-27 run33/34 证据 | PENDING | 定位凭证原件后按事实补入进展日志；禁止据文件名、推断或转述填写数字（评审 D-02/D-14） |
@@ -142,7 +143,7 @@ Last updated: 2026-10-13
 达到一个真实 position_id 的四板位置广播、从板解算、不同 q 动作边沿和 READY 重叠结果后，停止无关矩阵，保留原始证据并进入独立复核。
 
 ## 当前依赖
-**更新（2026-10-13）**：T2 自身仅剩**两项**开放项——`T2-AUDIT-03`（登记 `ARCH-TRIGGERSLICE-01` ✓ 与 C11 ✓ 已完成，**仅欠 TDMA 域一等席尃局联审结论**）与 `T2-AUDIT-07`（位置邮箱契约：登记行 `ARCH-TRIGGERMAILBOX-01` 已插入，待 C11）。原 `T2-AUDIT-08`（单串口控制面）属接口域，已移出。
+**更新（2026-10-13）**：T2 自身仅剩**一项** AUDIT 开放项——`T2-AUDIT-03`（登记 `ARCH-TRIGGERSLICE-01` ✓ 与 C11 ✓ 已完成，**仅欠 TDMA 域一等席布局联审结论**）。`T2-AUDIT-07`（位置邮箱契约 `ARCH-TRIGGERMAILBOX-01`）登记与 C11 均已完成、**状态 DONE**；其审核新产出（位置域三方口径不一致）另立 `T2-IDENT-002`。原 `T2-AUDIT-08`（单串口控制面）属接口域，已移出。
 
 
 | 项目 | 当前处置 | 阻塞范围 |
@@ -302,16 +303,29 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 **验收**：指令预算与 SM 冲突作为**负测**（静态断言 + 运行期冲突拒绝）；装载按既定切换序（停 SM → 停 DMA/IRQ → 清 FIFO → 卸载/装载 → 初始化执行位置 → **原子发布 generation**）；
 最终走 **workflow 前端**验收后提交。
 
-### T2-AUDIT-07：登记位置邮箱跨域契约（2026-10-13，状态 PENDING）
+### T2-AUDIT-07：登记位置邮箱跨域契约（2026-10-13，状态 DONE）
 
 **发现**：`components/sync_trigger/inc/trigger_position_mailbox.h` 被跨域共享（`components/distributed_refmem/src/distributed_refmem.c:30` 直接 include），
 但 `docs/check/DOCS_REGISTRY.md` 中**尚无**对应契约行。
 
-**待冻结的语义**（逐字取自代码）：单生产者/单消费者；payload **仅**在 `WRITING` 写、**仅**在 `READING` 读；
-`READY` 作为 release/acquire 交接（状态机 EMPTY/WRITING/READY/READING）；
-`TRIGGER_POSITION_FREEZE_LATCH_IDS = 15u` 与 `position_id ∈ [1, LATCH_IDS]` 的边界。
+**处置（2026-10-13 完成）**：起草登记行 `ARCH-TRIGGERMAILBOX-01`（前缀 `ARCH-*` 在 `ROW_RE` 白名单内，`status` 初值 `pending`）
+⇒ **C11 独立交叉审核**（核验方为**独立 subagent**：与起草方不同会话、未参与起草，只读核验）
+⇒ 结论 **`PASS_WITH_NOTE`** ⇒ 按其意见修正四项措辞/归属缺陷后登记。
+提交单 `docs/check/submissions/TRIGGER_CROSS_REVIEW_02.md`。
 
-**步骤**：起草筻约行（前缀需在 `ROW_RE` 白名单内，如 `ARCH-*`）⇒ C11 独立交取核验 ⇒ 登记；status 初始为 `pending`。
+**C11 修正四项（均属措辞/归属，无实现缺失、无编造）**：
+
+1. `[1, LATCH_IDS]` 不再写作通用「有效 `position_id` 域」，改为 FREEZE latch **槽位域**并显式划分所有权（线上域归 `ARCH-TRIGGERSLICE-01`，本条不重复立法）；
+2. 小节标题由「冻结」改为「登记，status `pending`」，并同步消除同文档原「本文当前仍为 Draft」的自相矛盾表述；
+3. 「载荷仅在 `WRITING` 写／`READING` 读」限定为**运行时（并发交接期）**，补记静默边界（init／STOP／环拓扑变更）清空载荷与 `WRITING`/`READING` 期拒绝复位；
+4. 显式声明 FREEZE latch 是同头文件内**独立于 mailbox** 的结构体，其载荷规则为「bit 清写／bit 置读」，不适用四态规则。
+
+**本次审核的新产出（不属本行缺陷，另立 `T2-IDENT-002`）**：同一「位置」域在代码内**三方口径不一致**——线上／latch 寻址域 `[1, 15]`
+（`trigger_position_slice.h:38` 的 `0x0Fu` 与 `trigger_position_mailbox.h:74` 的 `TRIGGER_POSITION_FREEZE_LATCH_IDS`，二者**无静态断言绑定**）、
+`trigger_position_descriptor_valid()` 的 FREEZE 分支硬编码 `position_id <= 3u`（`trigger_position_descriptor.h:193`，**未引用宏**）、
+T2 运行时消费域 `[1, TRIGGER_T2_RUNTIME_POSITION_COUNT]`（`= 3u`）。
+
+**未核验**：本次为**静态只读核验**，不含同源码构建、四板 P3 或 pytest 运行；内存序仅作形式配对核验，未做多核压力验证。
 
 ### T2-AUDIT-08（已移出：属接口域）
 

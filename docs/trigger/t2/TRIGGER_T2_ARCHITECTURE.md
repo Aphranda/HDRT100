@@ -482,4 +482,23 @@ T2 只读 VDC 模型与本地 TIMER1；游标、解算、预算优化和动作�
 
 ## 跨域契约与验证映射
 
-本文当前仍为 Draft。位置描述符 wire、调试 profile 默认值、资源配额和正式时限在实现与独立复核完成后登记；登记前不把本文数值快照当产品契约。
+本文的**语义主体**已随 `ARCH-TRIGGERSLICE-01` 与 `ARCH-TRIGGERMAILBOX-01` 两条跨域契约登记而具备条款效力（两条 status 均为 `pending`，表示实现与四板验收尚未完成，不代表可宣布产品资格）。**其余未冻结内容**——位置描述符分片与其迁移路径、调试 profile 默认值、资源配额、正式时限——仍在实现与独立复核完成后登记；登记前不把本文数值快照当产品契约。
+
+### 位置邮箱交接契约（2026-10-13 登记，status `pending`）
+
+`trigger_position_mailbox_t`（`components/sync_trigger/inc/trigger_position_mailbox.h`）是**单生产者/单消费者**邮箱：
+**运行时（并发交接期）**载荷 `trigger_position_descriptor_t` **仅**在 `WRITING` 写、**仅**在 `READING` 读，
+`READY` 作为 **release/acquire** 交接（四态 `EMPTY/WRITING/READY/READING`）。静默边界（init、STOP、环拓扑变更）
+由单核复位路径清空载荷，并在 `WRITING`/`READING` 期间拒绝复位——因此 `READY` 可在**未经** `READING` 时被丢弃。
+
+**FREEZE latch 不是 mailbox 的成员**：`trigger_position_freeze_latch_t` 是同头文件内的独立结构体，其载荷 `version`
+按「**bit 清写／bit 置读**」规则交接，**不适用**上述四态规则。其**槽位域**为
+`[1, TRIGGER_POSITION_FREEZE_LATCH_IDS]`（`= 15u`，即 `position_id - 1` 占 mask 的 bit0..14）。
+**线上** `position_id` 上限由 tag nibble 决定，归 `ARCH-TRIGGERSLICE-01`（本条不重复立法）；
+T2 运行时实际消费域为 `[1, TRIGGER_T2_RUNTIME_POSITION_COUNT]`（当前 `= 3u`），且
+`trigger_position_descriptor_valid()` 的 FREEZE 分支另限 `position_id <= 3u`（**字面量，未引用宏**）。
+三方口径的收敛另立 `T2-IDENT-002`；本条只据实记录现状，不预设裁决。
+
+该头文件被 **RefMem 跨域使用**（`components/distributed_refmem/src/distributed_refmem.c:30` 直接 include），故其交接语义属跨域契约，
+已登记为 `ARCH-TRIGGERMAILBOX-01`（status `pending`；C11 结论 `PASS_WITH_NOTE`，提交单
+`docs/check/submissions/TRIGGER_CROSS_REVIEW_02.md`）。
