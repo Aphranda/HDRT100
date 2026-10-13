@@ -372,6 +372,50 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.142 【强根因】装订体收尾的硬件门：`pio_can_add_program()` ⇒ **PIO0 程序内存耗尽**（2026-10-13）
+
+**逐字读到** ✓（`sync_io_model_sched.c:958-1002` ✓）：
+
+```c
+        LOG_INFO("sync_io", "wave output schedule armed: count=%lu pin=%lu", …);   /* :964 成功路径 ✓ */
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_ARM, SYNC_IO_TRACE_INFO, …);        /* :967 ✓ */
+        return true;                                                              /* :972 ✓ */
+    }
+    if (!**pio_can_add_program(pulse_pio, program)**) {                            /* ★★ :975 硬件门 ✓✓ */
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL, SYNC_IO_TRACE_ERROR,
+                           entry_count, **2u**);                                   /* :976-979 ✓ */
+        (void)sync_io_workspace_release(&s_model_pulse);
+        memset(&s_model_pulse, 0, sizeof(s_model_pulse));
+        return false;                                                             /* ★ **arm 失败** ✓ */
+    }
+    s_model_pulse.offset = (uint)**pio_add_program(pulse_pio, program)**;           /* :985 真正装载 ✓ */
+    pio_sm_set_enabled(…false); pio_sm_clear_fifos(…); pio_sm_restart(…);          /* :987-989 ✓ */
+    … dma_channel_abort(…); dma_channel_set_irq0_enabled(…false);                  /* :1000-1001 ✓ */
+```
+
+⇒ **强根因** ✓✓：`pio_can_add_program()` 要求 **PIO0 的指令内存**还剩得下该程序 ✓；
+而**程序装载后不会自动移除** ✗✓（需 `pio_remove_program` ✓）⇒ **我历轮实验反复 `arm`/`LOAD`/`START`**
+把 PIO0 的槽位**逐步占满** ✗ ⇒ 从此**每次 arm 都在 `:975` 失败** ✓✓。
+
+**这一条解释了全部现象** ✓✓✓：
+
+| 现象 | 解释 |
+|---|---|
+| **A.3.101 早期能成功** ✓（`fault 0` ✓、调度页 `64,64` ✓） | 那时 PIO0 **尚有空位** ✓ |
+| 此后**恒 `fault 3`** ✗（11 项候选全部排除 ✓） | PIO0 槽位**已被占满** ✗✓ |
+| 停 counter/source/run-output/reference/persona **均无效** ✗ | 与这些**无关** ✓（它们是逻辑门 ✗） |
+| `*RST`/`*CLS` 无效 ✗ | **不清 PIO 指令内存** ✗✓ |
+| trace 页为空 ✗（但 `:976` 会打 trace ✓） | trace 环形缓冲/槽位另有条件 ✓（或已满 ✓）—— 本会话已记"trace 不可过信" ✓ |
+
+**决定性验证（下一步 ✓）**：
+
+1. **复位 PIO 状态** ✓ —— 最快方式是**重刷固件**（`p3_hardware_acceptance.py run` 即 build+flash ✓，
+   顺带取得凭证 ✓）或**断电重启** ✓；
+2. 复位后**立刻**只做最小序列 ✓：`LOAD 0,3` → `GROups 16` → `START` ✓ ⇒ 读 `STATe?` ✓；
+3. **判据** ✓：`fault=0`/`running=1` ⇒ **根因确认为 PIO 程序耗尽** ✓✓ ⇒
+   **流程侧的正解** ✓：让模型的 PIO 程序**只装载一次并复用** ✓（或在使用后 `pio_remove_program` ✓），
+   而不是每次 `arm` 都尝试 `pio_add_program` ✗（这也是"为何早期一次成功、之后全败"的机制 ✓）。
+
 ### A.3.141 persona 候选亦排除（第 11 项）；并确认"无回显 ≠ 失败"（2026-10-13）
 
 **实测** ✓✗：
