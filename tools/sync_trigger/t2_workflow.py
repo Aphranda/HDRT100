@@ -1789,6 +1789,10 @@ def step_13_vdc_session(ctx, slot, board, uid):
         # Later steps restart the counter, which then only observes the model.
         print(f"  counter stop before model arm -> {ctx.send(src, 'TRIGger:REServation:COUNter:STOP')}",
               flush=True)
+        # The PWM/motion source is the pulse-path owner (A.3.117: count kept advancing
+        # after the counter stop), so stop it too before the model is loaded and armed.
+        print(f"  source stop before model arm -> {ctx.send(src, 'TRIGger:REServation:SOURce:STOP')}",
+              flush=True)
         for command in ("CONFigure:MODEl:TURNtable:LOAD 0,3",
                         "CONFigure:MODEl:TURNtable:MOTion 360,360",
                         "CONFigure:MODEl:TURNtable:TRIGger 1,0,360,2,100,1,1000"):
