@@ -372,6 +372,35 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.130 持有者与释放命令齐备：**未试的那条正是 `REALtime:IO:OUTPut:RELease`**（2026-10-13）
+
+**持有者（按令牌身份 ✓）**：
+
+```
+sync_io_pulse_counter.c:128/:192     sync_io_core_pulse_counter_reserve/release(&s_counter) ✓ → COUNTER_RESERVED ✓
+sync_io_reference.c:116/:127/:234    sync_io_core_reference_reserve/release(&s_ref)        ✓
+sync_io_run_output.c:183/:185        sync_io_core_run_output_reserve/release(&s_run)       ✓ → RUN_RESERVED ✓
+```
+
+**SCPI 释放命令（全量列出 ✓）**：
+
+| 命令 | 释放对象 | 是否已试 |
+|---|---|---|
+| `TRIGger:REServation:SOURce:RELease` ✓ | 转台源 ✓ | 已试 ✗ 无效 |
+| **`REALtime:IO:OUTPut:RELease`** ✓（`scpi_realtime_io_commands.h:74` ✓） | **run-output** ✓ | **未试** ✓✓ |
+| **`REALtime:IO:MODel:OUTPut:RELease`** ✓（`:83` ✓） | 模型输出 ✓ | **未试** ✓✓ |
+| ✗ **无** `COUNter:RELease` | counter ✓ | — ⇒ 其相位由**停止**释放 ✓（我已停过 ✓） |
+
+⇒ **推论** ✓✓：counter 我已停 ✓ 而无独立释放命令 ✗ ⇒ 最可能的**持相位者 = run-output** ✓
+⇒ 而 `REALtime:IO:OUTPut:RELease` **恰好是唯一未试的一条** ✓✓。
+
+**立即测试（3 分钟 ✓，免凭证 ✓）**：
+
+1. 发 `REALtime:IO:OUTPut:RELease` ✓ + `REALtime:IO:MODel:OUTPut:RELease` ✓（读应答 ✓）；
+2. `LOAD 0,3` → `GROups 16` → `START` ✓ ⇒ 读 `STATe?` ✓；
+3. **判据** ✓：`running=1` / `fault=0` ⇒ **持相位者确认 = run-output** ✓✓ ⇒ 固化"模型武装前释放 run-output"进流程 ✓；
+   仍 `fault=3` ✗ ⇒ 相位不在此二者 ✓ ⇒ 再回到 `s_reference_token`（A.3.129 ✓）继续 ✓。
+
 ### A.3.129 【定位持相位者】释放是"令牌身份"匹配；相位卡在某个 RESERVED ⇒ 持相位者应为 counter/run-output（2026-10-13）
 
 **公共 API（逐字 ✓ `sync_io_model_sched.c:480-535` ✓）**：
