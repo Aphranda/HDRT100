@@ -372,6 +372,29 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.27 【已定位】慢起步轮的失败步骤是 **16 / 18 / 19**（游标/epoch/model 与 PWM 源），非 T2 逻辑（2026-10-13）
+
+按 A.3.26 第 1 步查看失败运行目录（`out/HardwareAcceptance/**/t2-20261013-083954/`）：
+
+- 产物只有两项：`report.json`（3 KB）与 `t2-enable.log`（37 KB）✓（此前按 `steps-<stamp>.log` 找日志未命中，是因为该文件名只出现在 report 的**末行提示**里 ✓）；
+- `report.json` 顶层键：`schema/stamp/enablement/boards_configured/boards_publishing/`**`workflow_failed_steps`**`/passed` ✓；
+- **`workflow_failed_steps = [16, 18, 19]`** ✗，其中：
+  - **step 18**（36.7 s）⇒ "**cursor valid / epoch / model** + …" ✗
+  - **step 19**（1.8 s）⇒ "…**PWM 源**…" ✗
+  - step 16 ⇒ 同组起始步骤 ✗
+
+**结论**：
+
+1. 慢起步轮的失败**不在 T2 的发布/准备路径**，而在 **step 18/19 的游标—epoch—模型与 PWM 源检查** ✗ ⇒ 与本节早先记录的**已知间歇项**一致（`ORIGin:TRIAL` 会停环 ⇒ sticky cursor fault @ site RING ⇒ 之后没有任何发布 ✓）；
+2. 这**独立于迁移改动** ✓✓（也再次说明 A.3.24/A.3.25 对被回退切片的"洗清"成立 ✓）；
+3. **step 20 的判据修正仍有价值** ✓（它让"已发布但不足"不再误判 ✓），但**不能**使慢起步轮通过 ✗；要让整轮通过，必须先解决 **step 18/19 的游标/源获取** ✗。
+
+**下一步（明确且独立于迁移）**：
+
+1. 打开失败轮的 `t2-enable.log` 中 **step 18 段落**，读出它到底报了什么（cursor/epoch/model 三者中哪一个不合法 ✓）；
+2. 对照已知的 `ORIGin:TRIAL`→停环→游标失效链 ✓，判断是否需要在 step 16/18 之间**增加等待/重试**（等环与游标真正就绪 ✓），或改用 `RING:STATus?` 的字段判据 ✓；
+3. 解决后再跑 `t2` ×5 建立新的基线分布 ✓，然后才恢复迁移切片的验证 ✓。
+
 ### A.3.26 判据修正**不足**：慢起步轮仍失败，真正的闸门在更早的步骤（2026-10-13）
 
 按 A.3.25 处置 1 改完 step 20 的判据（提交 `b88b5c9f`，107 测试全绿 ✓）后，捕获到一次**慢起步**并观察：
