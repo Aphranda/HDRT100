@@ -372,6 +372,27 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.96 D 的机制**大部分已存在**：staged ring config + 角色代次绑定 + 期望值校验（2026-10-13）
+
+**三处原生机制（源码证据 ✓）**：
+
+| 机制 | 位置 | 作用 |
+|---|---|---|
+| **启环前静态钩子** ✓ | `tdma_runtime_owner_get_staged_ring_config(&staged)` ✓ —— 被 **7+ 服务**共用（`sync_trigger` 的 action / counter / deployment / gateway / grid_preview / switch ✓）与 `calibration_manager`（8 处 ✓） | **环配置在启环前"staged"定版** ✓，各服务读同一份 ✓ ⇒ 正是"启环前配置完成" ✓✓ |
+| **角色代次的运行期绑定** ✓ | `trigger_time_cursor.c:25` `uint32_t role_generation, clock_epoch, clock_run, local_slot, schedule_crc;` ✓；`:225` `s_binding.role_generation = model->role_generation;` ✓ | 每次运行持有**不可变绑定** ✓（正是 A.3.94 第 2 步所需 ✓） |
+| **期望值校验** ✓ | `trigger_grid_preview.c:77` `bound->role_generation == model->role_generation &&` ✓；`:153` `.role_generation = has_model ? model.role_generation : 0u,` ✓ | "**expected == actual**" ✓✓（代次漂移当场可见 ✓） |
+| 只读暴露 ✓ | `scpi_sync_commands.c:1562`（`session, role_generation, clock_epoch, clock_run, local_slot` ✓） | 可观测 ✓ |
+
+⇒ **结论（D 范围再次收敛 ✓）**：D **不是**"从零实现静态绑定" ✗✓，而是：
+
+1. **确认** T2 执行路径（模型/转台 ✓）已在 `get_staged_ring_config` 的**启环前定版**之内 ✓；
+2. **补齐** 其对 `role_generation` / `schedule_crc` 的**期望值比对** ✓（照 `trigger_grid_preview.c:77` 的既有写法 ✓）；
+3. **接入一次真实扫描** ✓：定版 → 启动模型（16 组 ✓）→ 观察 `T2:SCAN?` 与 `STATe?`（A.3.92/A.3.95 已逐量验证过的那组量 ✓）；
+4. **不引入**该分支的 refmem 角色基础设施 ✗（A.3.93 ✓）。
+
+⇒ 预估工作量由 90–150 min 收敛到 **约 30–60 min** ✓（因为三处机制已存在 ✓），且**零新页面** ✓
+（沿用既有只读暴露 ✓）。
+
 ### A.3.95 `READ:MODEl:TURNtable:STATe?` 的**显式字段映射**（18 字段；并反向佐证 A.3.92）（2026-10-13）
 
 **来源** ✓：`scpi_model_commands.c` 的 `scpi_cmd_model_turntable_state_q()` 发射顺序 ✓
