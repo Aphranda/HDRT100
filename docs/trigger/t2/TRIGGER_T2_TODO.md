@@ -372,6 +372,17 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.99 `LOAD` 必须带参数（裸调用 `-200`）；全链路的最后一块拼图（2026-10-13）
+
+**实测** ✓：`CONFigure:MODEl:TURNtable:LOAD`（**裸调用**）⇒ `SYSTem:ERR?` = **`-200,"Execution error"`** ✗
+⇒ `LOAD?` 仍为 `0,4294967295,0` ✗（未装载 ✓）⇒ `loaded=0` ✗ ⇒ `START` 依守卫返回 ✗
+（`running=0` ✓、`emitted` 恒 0 ✓ —— **完全符合 A.3.98 的判定** ✓✓，即"未运行的真正原因是未 LOAD" ✓）。
+
+⇒ **结论** ✓：`LOAD` 是**带参数**命令 ✓，其参数表即"把模型装载到 slot/输出"的信息 ✓
+（流程 Step 11 的"部署装载"是 **slot 侧**的部署 ✗，与模型自身的 `LOAD` **不是同一条命令** ✓✓ —— 又一次
+"名字相近≠同一物" ✓）。**下一轮**：按 `scpi_cmd_model_turntable_load()` 的参数表调用 ✓ ⇒
+`loaded=1` ✓ ⇒ `START` ⇒ 期望 `running=1` ✓ 且 `emitted` **随时间增长** ✓ ⇒ **全链路打通** ✓✓。
+
 ### A.3.98 【决定性】直接测试：arm 成功（fault 0）⇒ (a) 可行；但 `loaded=0` 使 `start()` 立即返回（真正原因）（2026-10-13）
 
 **实验**（COM5 直连，逐条应答 ✓）：`STOP` → `GROups 16` → `START` → 连读两次 `STATe?` → `STOP` → 复原：
