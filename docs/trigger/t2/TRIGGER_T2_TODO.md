@@ -372,6 +372,35 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.80 A 判定：跟随板 DPLL 输入未就绪（已复现两次）；并抓到一处"判据 OK 而状态坏"（2026-10-13）
+
+**A 的判据（工具自带行 ✓）**：
+
+```
+[ref] 0010071E65B5CB38 : SYNC:STATe LOCKED | readiness input_ready 1 locked 1 (dpll.state 5, reason 0) accepted 208 ✓
+[fol] FB276192BEF9CCE1 : SYNC:STATe LOCKED | readiness input_ready 0 locked 0 (dpll.state 1, reason 5) accepted 0 ✗
+[fol] 2BD5090FE009FA2A : 同上 ✗      [fol] A1E549202D18ED6A : 同上 ✗
+⇒ publishing = 0 ✗ ⇒ failed=[20] ✓（与 Round 24 **同一签名** ✓ ⇒ 已复现两次 ✓）
+```
+
+**同时解释了 B 的计数冻结** ✓：`slot 0 counter? loaded 1 **state 1**（LOADED，未启动）count 0` ✓
+且 `slot 1/2/3: not the count source, skipped` ✓ ⇒ **计数器从未 START** ✗ ⇒ Δcounts=0 ✓（A.3.44 族 ✓）。
+
+⚠️ **抓到一处判据陷阱** ✗✓：**Step 17 自身报 `OK`** ✓，而它打印的就绪状态是**坏的** ✗
+（`input_ready 0` ✗）⇒ 该步骤只校验"命令可用"✓，**不以就绪为判据** ✗；真正拦住的是 Step 20 的发布判据 ✓。
+⇒ 与本会话多次记录同族（**判据 vs 状态** ✗✓）：**"某步 OK"不等于"被观测的状态健康"** ✓。
+（诊断改进——若让 Step 17 以 `input_ready` 为门 —— 属**工具改动** ✗，按用户 ROI 裁定**暂不做** ✓，仅记录 ✓。）
+
+**A 的下一步（按 ROI 的"最多两次尝试"规则 ✓）**：
+
+1. 执行 A.3.44 的**恢复流程** ✓：停环 → 复位 → 检查环配置/`RING` 错误 → 确认四板 `input_ready 1` ✓；
+2. 重跑 `t2` 复核 ✓（第二次尝试 ✓）；
+3. 若仍为 `input_ready 0` ✗ ⇒ **报告受阻** ✓（同一条件在 Round 24、29 已出现 **2 次**；再出现 1 次即达
+   "连续 3 轮同一阻塞条件" ✓，届时按目标策略标记 blocked 并给出该具体条件 ✓）。
+
+**门禁含义** ✓：跟随板不就绪 ⇒ **任何固件改动都无法取得凭证** ✗ ⇒ C（16 组实现）**必须等 A 通过** ✓
+（与 ROI 顺序一致 ✓）。
+
 ### A.3.79 B 的读法已修好（`COUNter?` 的 `[16]` ✓），但台架不产生计数 ⇒ **B 确实被 A 阻塞**（2026-10-13）
 
 **已修好** ✓：改用工具拼写 `TRIGger:REServation:COUNter?` ✓ + `.split(",")` + **索引 16** ✓ ⇒ 读到活计数 ✓：
