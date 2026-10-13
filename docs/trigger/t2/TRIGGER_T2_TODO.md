@@ -372,6 +372,26 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.46 行程边界已按用户口径实现（−5° … +365°），并记为可读回小改动（2026-10-13）
+
+用户口径："由于需要预测 0 位置，所以从 **−5°** 开始，到 **STOP+5°** 停止"。核对库中由扫描派生的量
+（`trigger_turntable_predictor.h`）：
+
+| 字段 | 公式（行号） | 当前台架取值 |
+|---|---|---|
+| `motion_start_mdeg` | `start_angle_mdeg − pre_roll_mdeg`（`:591`） | `0 − 5000` = **−5000 mdeg = −5°** ✓ |
+| `motion_stop_mdeg` | `terminal_angle_mdeg + post_roll_mdeg`（`:592`） | `360000 + 5000` = **365000 mdeg = +365°** ✓ |
+| `pre_roll_pulses` / `post_roll_pulses` | 由 `ppd` 换算（`:588-589`） | 各 **5000 脉冲** ✓（5° × 1000） |
+| `motion_pulses` | `pre + total + post`（`:590`） | `5000 + 361000 + 5000` = **371,000 脉冲** ✓ |
+
+⇒ **行程恰为 −5° … +365°** ✓✓，即"起点前 5° 起、终点后 5° 停" ✓，与用户口径一致 ✓；且两段 roll
+均为整数脉冲且 ≥1 个 STEP（1000 ✓）⇒ 通过 `scan_validate` ✓。
+
+**待做的小改动（可读回）**：`T2:SCAN?` 目前只暴露 `positions`（`:338`）与 `step_pulses`（`:339`）✗，
+**未暴露** `motion_start_mdeg` / `motion_stop_mdeg` / `motion_pulses` / `pre_roll_pulses` / `post_roll_pulses` ✗
+⇒ 建议把这 5 个量并入该查询（firmware 小改动 + 契约测试同步 + `run` 凭证 ✓），使用户能在台架上**直接核对**
+不同角度/速度档下的行程边界 ✓（对上 A.3.45 的速度矩阵尤其有用 ✓）。
+
 ### A.3.45 速度配置定位：`CONFigure:MODEl:TURNtable:MOTion`（字段 `velocity_units_per_s`）（2026-10-13）
 
 用户的速度矩阵（1 / 2 / 2.5 / 5 °/s）需要**转台运动域**，命令已定位：
