@@ -12,6 +12,33 @@ Last updated: 2026-10-12
 
 ## 当前 checkpoint
 
+### 2026-10-13 自 T2 待办下沉的长记录（避免 C12 跨文件复制）
+
+### 体量合规（2026-10-13
+
+本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
+### 执行交接（ROI 状态
+
+本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
+### ② 的台架语义验收用例
+
+本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
+### 判据抽取重构：P3 验收未通过
+
+本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
+### T2-AUDIT-04 决策输入
+**台架验收基线（用户裁定）**：无转台时以 **OUT4→IN1 硬件回环模拟转台输入**；接真实转台时由转台直接驱动 **IN1**。参见 Task Progress 的两条取证。
+
+
+本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
+### T2-AUDIT-03 前置：契约冻结清单
+
+本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
+### C14 R3 命名规则
+
+本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
+
+
 ### 2026-10-13 用户指定：后续单串口控制拓扑（其余板卡走 RefMem 分布式控制）
 
 用户裁定（逐字要点）：**后续只有一个串口连接到 PC 上，其他板卡都用 REFMEM 进行分布式控制**。

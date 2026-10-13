@@ -212,9 +212,7 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 
 本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
 
-### 体量合规（2026-10-13
-
-本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
+> 本节长记录已按 C12 下沉至 `TRIGGER_T2_TASK_PROGRESS.md`（单一事实源）。
 
 ## 遗留待办（对照 HAOFV 逐级审查收尾，2026-10-13）
 
@@ -241,27 +239,15 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 说明：`T2-AUDIT-03` 与 `T2-AUDIT-04` 的 `BLOCKED` 为**前置未满足**（契约未冻结、口径未定），非技术不可行；
 前置满足后按 AGENTS.md 的契约登记流程（含 C11 交叉审核）推进。
 
-### 执行交接（ROI 状态
+> 本节长记录已按 C12 下沉至 `TRIGGER_T2_TASK_PROGRESS.md`（单一事实源）。
 
-本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
+> 本节长记录已按 C12 下沉至 `TRIGGER_T2_TASK_PROGRESS.md`（单一事实源）。
 
-### ② 的台架语义验收用例
+> 本节长记录已按 C12 下沉至 `TRIGGER_T2_TASK_PROGRESS.md`（单一事实源）。
 
-本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
+> 本节长记录已按 C12 下沉至 `TRIGGER_T2_TASK_PROGRESS.md`（单一事实源）。
 
-### 判据抽取重构：P3 验收未通过
-
-本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
-
-### T2-AUDIT-04 决策输入
-**台架验收基线（用户裁定）**：无转台时以 **OUT4→IN1 硬件回环模拟转台输入**；接真实转台时由转台直接驱动 **IN1**。参见 Task Progress 的两条取证。
-
-
-本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
-
-### T2-AUDIT-03 前置：契约冻结清单
-
-本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
+> 本节长记录已按 C12 下沉至 `TRIGGER_T2_TASK_PROGRESS.md`（单一事实源）。
 
 ### 进度日志轮转就绪（T2-AUDIT-05，2026-10-13）
 
@@ -278,7 +264,7 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 `doc_regression` 的 R3 检查**按字符串匹配**：正文中只要**字面出现**该章节标题（即使在反引号内）也会被当作章节并因“无数据行”而 FAIL；
 故提及该章节名时**不得带 `##`**，本条即按此约束编写。
 
-### T2-AUDIT-06：按参考实现移植 persona 资源与 WAVE_OUTPUT persona（2026-10-13）
+### T2-AUDIT-06：persona 资源与 WAVE_OUTPUT persona 核验（本仓已具备，无需移植）（2026-10-13）
 
 状态：**核验完成——本仓已具备，无需移植**。
 
@@ -374,9 +360,7 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 从而把已暂存的修改（包括不合规内容）“恢复”回来；正解是 `git restore --source=HEAD --staged --worktree -- <file>`（或 `git checkout HEAD -- <file>`）。
 本次即因此一度使 C14 R3 的 FAIL 持续，已用正解清除。
 
-### C14 R3 命名规则
-
-本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
+> 本节长记录已按 C12 下沉至 `TRIGGER_T2_TASK_PROGRESS.md`（单一事实源）。
 
 ## 附录 A（已归档）
 
