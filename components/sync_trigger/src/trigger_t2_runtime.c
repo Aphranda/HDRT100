@@ -1036,6 +1036,19 @@ bool trigger_t2_runtime_preview_history(uint32_t position_id, uint32_t age,
         preview_copy(position_id - 1u, age, out);
 }
 
+/* K-2 predicates, split out so a host harness can drive them directly
+ * (same extraction technique as tests/python/test_trigger_t2_freeze_abandon.py). */
+static bool t2_deadline_position_accepted(uint32_t accepted_mask, uint32_t index)
+{
+    return (accepted_mask & (1u << index)) != 0u;
+}
+
+static bool t2_deadline_plan_current(uint32_t previous_version, uint32_t previous_token,
+                                     uint32_t descriptor_version, uint32_t model_token)
+{
+    return previous_version == descriptor_version && previous_token == model_token;
+}
+
 static void prepare_deadlines_core0(uint32_t session,
     const trigger_t2_runtime_snapshot_t *snapshot)
 {
@@ -1049,15 +1062,16 @@ static void prepare_deadlines_core0(uint32_t session,
          * once its deadline has been accepted by the hardware owner (armed/completed); a
          * frozen-but-not-yet-loaded position must still be re-solved by the latest DCO.
          * Core0 reads the snapshot, never Core1's runtime state. */
-        if ((snapshot->action_armed_mask | snapshot->action_completed_mask) & (1u << index))
+        if (t2_deadline_position_accepted(
+                snapshot->action_armed_mask | snapshot->action_completed_mask, index))
             continue;
         trigger_position_descriptor_t descriptor;
         if (!preview_copy(index, 0u, &descriptor)) continue;
         /* Mailbox has one RUN writer: Core0 can inspect its own old words. */
         t2_deadline_plan_t previous;
         memcpy(&previous, s_deadline_mailbox[index].words, sizeof(previous));
-        if (previous.prediction_version == descriptor.prediction_version &&
-            previous.model_token == model.token) continue;
+        if (t2_deadline_plan_current(previous.prediction_version, previous.model_token,
+                                     descriptor.prediction_version, model.token)) continue;
         trigger_action_template_instance_t instance;
         if (!trigger_action_template_expand(&s_local_template, &descriptor,
                 s_config.grid.subdivisions, &instance)) continue;
