@@ -372,6 +372,28 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.110 守卫**误报"已应用"**：窗口命中了相邻 `GROups` handler 的同一行（本补丁过程第 3 次"相似文本≠同一处"）（2026-10-13）
+
+**经过** ✓：按行号补丁的守卫在 `window = lines[66..86]` 里发现
+`model_turntable_get_trigger_config(&config);` ✗ ⇒ 判定"已应用"并中止 ✗✓。
+**但**该行属于**相邻的 `GROups` handler** ✓（Round 37 我把它插在 trigger handler **之前** ✓，它内部同样
+调用 `get_trigger_config` ✓）⇒ **误报** ✓✓ ⇒ **本处修复仍未应用** ✗。
+
+⇒ 这是本补丁过程中**第 3 次**"**相似文本 ≠ 同一处**" ✗✓（多行锚点漏空行 ✗ → 8 vs 4 空格 ✗ →
+窗口命中邻居 ✗）⇒ 与本会话长期主题完全一致 ✓✓。
+
+**精确断言（下一轮一次即成 ✓）**：`scpi_bool_t rising_edge;` 的**上两行**是定值 ✓
+（读到的原文为：`model_turntable_trigger_config_t config;` → **空行** → `scpi_bool_t rising_edge;` ✓）：
+
+```python
+assert lines[i - 2].strip() == "model_turntable_trigger_config_t config;"   # 唯一上下文 ✓
+assert lines[i - 1].strip() == ""                                          # 空行 ✓
+assert "rising_edge" in lines[i]
+```
+
+⇒ 该三元组**唯一确定** trigger setter 中的那一处 ✓✓（`GROups` handler 中该声明之后**不是**空行+`rising_edge` ✓），
+从而彻底排除"邻居干扰" ✗✓。之后仍按行号插入 ✓、回读 ✓、凭证 ✓、实测 ✓。
+
 ### A.3.109 锚点失败的确切原因：该行缩进为 **4 空格**（我按 8 空格拼 ✗）（2026-10-13）
 
 **实测** ✓（`Select-String` 的 `-replace ' ','·'` 显示 ✓）：
