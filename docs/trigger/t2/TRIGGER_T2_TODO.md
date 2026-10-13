@@ -372,6 +372,35 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.58 移植子集清单（大幅缩小）：**我们已有 seq_step 引擎**，不必移植整套序列子系统（2026-10-13）
+
+对照两分支的实际文件，得出关键事实：
+
+| 资产 | 我们分支 | 该分支 |
+|---|---|---|
+| **`sync_io_mode_seq_step.h`** ✓ / **`seq_step.pio`** ✓ | **已有** ✓✓ | 有 ✓ |
+| `sync_io_gateway.h`、`sync_io_pulse_counter.h`、`sync_io_rate_schedule.h`、`sync_io_pio0_runtime.h`、`sync_io_persona_*` | **已有** ✓ | 有 ✓ |
+| `sync_io_sequence.{h,c,pio}` | ✗ 无 | 有 ✓ |
+| `trigger_sequence_{service,config}.h`、`refmem_sequence_roles.h` | ✗ 无 | 有 ✓ |
+| `tools/sequence_trigger_debug_ui/realtime_budget.py` | ✗ 无 | 有 ✓ |
+
+**结论（改变工作量判断）** ✓✓：我们分支**已具备"序列步进"的 PIO 引擎与配套件**（`seq_step` + gateway +
+pulse_counter + rate_schedule ✓）⇒ **"每位置 16 组"很可能只需"驱动已有 `seq_step`"** ✓，
+而不是移植该分支的整套序列子系统 ✗✓。
+
+**修订后的移植子集**：
+
+| 优先级 | 内容 | 说明 |
+|---|---|---|
+| **P0 先用** | `sync_io_mode_seq_step` / `seq_step.pio` / `sync_io_gateway` / `sync_io_pulse_counter` / `sync_io_rate_schedule` | **本分支已有** ✓ ⇒ 先读它们的接口，确认能否表达"每位置 16 步 + 步限" ✓ |
+| P1 按需移植 | `sync_io_sequence.{h,c,pio}` | 仅当 `seq_step` 无法表达"计划表式、跨位置连续编排"时才移植 ✓（该分支的它是**更一般的推广** ✓） |
+| P2 评估后可省 | `refmem_sequence_roles` / `trigger_sequence_service` | "执行端窗口深度 2"若已由 **gateway** 覆盖 ✓，则**无需**跨板预约服务 ✓ |
+| P3 工具可选 | `realtime_budget.py` 的**换算/校验函数**（去 UI） | 仅作**离线**预算校核 ✓（在线写入不可用 ✓，A.3.57） |
+
+**下一步（最省力路径）**：读 `sync_io_mode_seq_step.h` + `seq_step.pio` 的接口/参数 ✓ ⇒ 判断
+"每位置 16 步、步限、门控"是否原生支持 ✓；若支持，则 T2 侧只需**下发一次计划 + 校验** ✓（与 A.3.54
+的"逐周期余量不足 ⇒ 走计划表"结论完全一致 ✓✓）。
+
 ### A.3.57 预算写入的**预检在本固件不可用** —— 不能照搬该分支的写入路径（2026-10-13）
 
 按 A.3.56 先做**只读预检**，结果：
