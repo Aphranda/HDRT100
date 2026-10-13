@@ -372,6 +372,44 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.135 装订体第二道门：**共享工作区租约** `sync_io_workspace_claim()`（与 capture 同源）（2026-10-13）
+
+**逐字读到** ✓（`sync_io_model_sched.c:841-856` ✓）：
+
+```c
+    sync_io_model_pulse_schedule_disarm_owned();                       /* :841 先拆旧装订 ✓ */
+    if (!observer_capture_overlap &&
+        **!sync_io_workspace_claim(&s_model_pulse)**) {                /* ★★ :844 工作区租约 ✓✓ */
+        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL, SYNC_IO_TRACE_ERROR,
+                           entry_count, SYNC_IO_PERSONA_CONFLICT_WORKSPACE);
+        return false;                                                  /* ← 又一处 return false ✓ */
+    }
+    /* Batch schedules **share the capture DMA workspace**. A phase-only observer uses its
+     * bounded one-entry buffer when capture is active, so the two DMA clients cannot
+     * overwrite one another. */                                       /* :850-852 ✓ 与采集共用 ✓ */
+    s_model_pulse.words = sync_io_shared_workspace;
+    if (observer_capture_overlap) { s_model_pulse.words = s_phase_observer_words; }
+```
+
+**关键推论** ✓✓：**两个首要候选同源** ✓ ——
+
+| # | 门 | 触发条件 | 与 capture 的关系 |
+|---|---|---|---|
+| ① | `sync_io_core_capture_is_running()`（:827 ✓） | 采集在跑且非 `observer_capture_overlap` ✓（我们的 64 ≠ 1 ✓） | 直接 ✓ |
+| ② | **`sync_io_workspace_claim(&s_model_pulse)`**（:844 ✓） | 共享工作区**已被占** ✗ | 注释明说"**批调度与采集 DMA 共用工作区**" ✓✓ ⇒ 占用者很可能正是**采集** ✓ |
+
+⇒ 因此**一次测试可同时验证两条** ✓✓：**停采集/分析器** ✓ ⇒ 再 `LOAD`/`GROups 16`/`START` ✓
+⇒ 若成功 ⇒ **capture（或其工作区占用）即最终根因** ✓✓。
+
+**下一轮（先取拼写 ✓，再测 ✓）**：
+
+1. 取**确切 SCPI 拼写** ✓（`scpi_realtime_io_commands.h` 的 `{.pattern = …}` 行 ✓，
+   函数名已知：`scpi_cmd_analyzer_stop` ✓ / `scpi_cmd_analyzer_state_q` ✓ / `scpi_cmd_sample_state_q` ✓
+   —— 但**模式串**须逐字取 ✓，不得猜 ✗✓）；
+2. 发 `…:STOP` ✓ + 读状态页 ✓（确认采集已停 ✓）⇒ 复测最小序列 ✓；
+3. **判据** ✓：`fault=0` / `running=1` ⇒ 根因确认为采集/工作区占用 ✓✓ ⇒ 随后在流程中
+   **模型武装前停采集**（或让模型与采集互斥 ✓，正如注释所述的两客户端互斥 ✓）。
+
 ### A.3.134 读到装订体首道守卫（**它会打 trace**）⇒ 新候选 capture + "trace 为空"不可过信（2026-10-13）
 
 **逐字读到** ✓（`sync_io_model_sched.c:795-839` ✓，函数 `…_arm_on_pin_common_owned` ✓ 定义在**行 795** ✓）：
