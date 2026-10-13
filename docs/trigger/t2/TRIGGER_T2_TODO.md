@@ -372,6 +372,66 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.70 【可借鉴·静态绑定】`refmem_sequence_roles` 是**纯解析**式角色绑定（启环前定版、运行期只读）（2026-10-13）
+
+读该分支 `components/distributed_refmem/inc/refmem_sequence_roles.h`（71 行 ✓）—— 正是用户所述
+"**角色绑定时静态配置、启环之前配置完成**"的现成形态 ✓✓：
+
+```c
+#define REFMEM_SEQUENCE_ROLE_SLOT_NONE      UINT32_MAX
+#define REFMEM_SEQUENCE_ROLE_IO_MASK        0x0Fu          /* 4 条 IO */
+#define REFMEM_SEQUENCE_ROLE_BINDING_VERSION 2u
+
+/* 请求（配置期输入） */
+typedef struct {
+    uint32_t local_board_id;
+    uint32_t active_generation;       /* 活动模型代次 */
+    uint32_t claim_epoch;             /* 与 active/sequence 配置代次无关 */
+    uint32_t dut_slot;
+    uint32_t vna_slot;                /* SLOT_NONE = 仅 DUT；不自动分配 */
+    uint32_t dut_trigger_input_mask;  /* **为 0 时允许 MANUAL 软件步进** ✓ */
+    uint32_t dut_link_output_mask;
+    uint32_t vna_trigger_output_mask;
+    uint32_t vna_ready_input_mask;
+} refmem_sequence_role_request_t;
+
+/* 绑定（配置期输出，运行期只读） */
+typedef struct {
+    uint32_t version, generation, claim_epoch, local_board_id, dut_slot, vna_slot;
+    uint32_t dut_instance_id, vna_instance_id;                 /* 解析后的实例号 */
+    uint32_t dut_trigger_input_mask, dut_link_output_mask,
+             vna_trigger_output_mask, vna_ready_input_mask;
+} refmem_sequence_role_binding_t;
+
+refmem_sequence_role_error_t refmem_sequence_roles_resolve(
+    const refmem_node_load_table_t *, const refmem_fb_instance_table_t *,
+    const refmem_slot_claim_map_t *, const refmem_sequence_role_request_t *,
+    refmem_sequence_role_binding_t *binding);
+```
+
+**关键属性（判定其"可提前、不占线上时间"的依据）** ✓：
+
+| 属性 | 原文/含义 |
+|---|---|
+| **纯校验** | "**Core0-only pure validation** of a coherent, already validated active model and claim snapshot" ✓ |
+| **不取运行期租约** | "This does **not** acquire runtime resource leases or prove hardware readiness" ✓ ⇒ **可在启环前完成** ✓✓ |
+| **失败不改绑定** | "On failure binding is unchanged" ✓（原子性 ✓） |
+| **命名空间独立** | "IN and OUT masks are **separate namespaces**; roles cannot share an input or an output within the same namespace" ✓ |
+| **版本化** | `ROLE_BINDING_VERSION = 2` ✓ + `generation`/`claim_epoch` ⇒ **陈旧检测** ✓（错误码含 `STALE_GENERATION`/`STALE_CLAIM` ✓） |
+
+**错误码清单（13 项）本身就是"静态校验检查表"** ✓：`BAD_ARGUMENT` / `BAD_SLOT` / `SLOT_NOT_LOCAL` /
+`SLOT_NOT_CLAIMED` / **`STALE_GENERATION`** / `DUT_NOT_LOADED` / `VNA_NOT_LOADED` / **`DUPLICATE_ROLE`** /
+`IO_REQUIRED` / **`IO_CONFLICT`** / `RESOURCE_CONFLICT` / **`STALE_CLAIM`** / `CAPABILITY_MISMATCH` ✓
+⇒ **启环前的静态检查应覆盖这些类别** ✓（可作为我们的对齐清单 ✓）。
+
+**与 T2 的直接关联（重要）** ✓✓：`dut_trigger_input_mask` **为 0 时允许 "MANUAL 软件步进"** ✓
+—— 这正是用户裁决的"**本地 SYNC_IO 按预测执行**"所对应的模式 ✓（由预测驱动步进，而非硬件触发 ✓）
+⇒ 借鉴时应把该模式与"每位置 16 组表"（A.3.67 ✓）配对使用 ✓。
+
+**下一步**：读该分支 `refmem_sequence_roles.c` 的 `resolve()` 实现要点 ✓（校验顺序与冲突判定 ✓）⇒
+据此在本分支实现**启环前的静态绑定步骤** ✓（输入：活动模型 + 槽位占用 + 本地角色请求 ✓；
+输出：版本化、只读的绑定 ✓），并让运行期**只读**该绑定 ✓（不占线上时间 ✓）。
+
 ### A.3.69 【能力落地】扫描几何环境变量覆盖可用：角度矩阵与**边界运行**均无需改码（2026-10-13）
 
 **成果**（提交 `20ba5eb2` + 两处修复 `7ae09654` / `f7bdb59a` ✓）：
