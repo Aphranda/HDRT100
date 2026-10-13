@@ -372,6 +372,45 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.66 现有架构即"整段表 + 一次性装订"；深度 2 的钩子就是 `service()`（2026-10-13）
+
+读 `model_turntable.c:266-335` 得到现有形态：
+
+```c
+bool model_turntable_start(void) {
+    … model_turntable_recompute_plan();
+    if (!model_turntable_build_schedule()) return false;          /* ① 构建整段调度表 */
+    if (!sync_io_model_pulse_schedule_arm(s_turntable.output_index,
+                                          s_turntable.schedule,   /* ② 整表一次性装订 */
+                                          s_turntable.total_pulses,
+                                          s_turntable.trigger.rising_edge)) { … FAULT … }
+    running = true; phase = ACCEL; emitted_pulses = 0; current_position = trigger.start; …
+}
+void model_turntable_stop(void) { … sync_io_model_pulse_schedule_disarm(); }
+void model_turntable_service(void) {                              /* ③ 每次服务轮询 */
+    if (!running) return;
+    超时 → FAULT + disarm；
+    sync_io_model_pulse_schedule_get_runtime(&runtime);
+    runtime.fault_code != 0 → FAULT；
+    …
+}
+```
+
+**三条结论**：
+
+1. **"计划表 + 一次性装订"已经是本分支的既定架构** ✓✓（与 A.3.54 的"避开逐周期开销"取向完全一致 ✓）
+   ⇒ 我们要做的**不是**改造架构 ✗，而是**让表按位置切块**并**续装订** ✓；
+2. ⚠️ **2048 脉冲上限成为整段的硬约束** ✗：361 位置 × 16 组 = **5776 > 2048** ✗
+   ⇒ **必须分块**（每位置一块 ✓，或每若干位置一块 ✓）——这正是"深度 2"要解决的问题 ✓✓；
+3. **`service()` 是深度 2 的天然钩子** ✓：它每次被调用都会 `get_runtime()` 取运行态 ✓
+   ⇒ 在那里判断"当前块是否结束"并**装订下一块** ✓，即可维持"**在途 ≤ 2 块**" ✓
+   （单所有者纪律 ✓：`arm` 前须 `is_running()` 为假 ✓）；同时必须尊重既有的**故障/超时路径** ✓
+   （超时 ⇒ FAULT + disarm ✓；`runtime.fault_code` ⇒ FAULT ✓）⇒ 排队器在故障时**必须清空队列** ✓。
+
+**开放性确认（下一步，一次即可）**：当前的 `arm(output_index, schedule, total_pulses, rising_edge)`
+**不带** `marker_high_ns` / `closed_window` ✗ ⇒ "闭窗口（两标记 + 静默槽）"需用 **`arm_ns` 或
+`arm_periodic_ns`** ✓ —— 读 `sync_io.h:210-290` 的形参语义即可确定用哪一个 ✓（本轮已定位但未逐字读 ✓）。
+
 ### A.3.65 【对接点已定位】本地脉冲调度**已有公开 API 且已被转台模型调用**（2026-10-13）
 
 执行端不需要新建入口 ✓ —— 公开 API 与调用者都已存在：
