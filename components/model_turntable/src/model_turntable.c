@@ -18,6 +18,15 @@
 #define MODEL_TURNTABLE_DEFAULT_TIMEOUT_MS (-1)
 #define MODEL_TURNTABLE_MAX_SCHEDULE_PULSES 256u
 
+/* Blocks are armed one at a time and re-armed as each completes, so the static entry
+ * table only has to hold one block. The whole scan may be far longer than the table:
+ * a 0..360 deg scan at 1 deg steps is 361 pulses, and 16 groups per position would be
+ * 5776 - both exceed the table (see TRIGGER_T2_TODO.md A.3.84, chunking + depth 2). */
+#define MODEL_TURNTABLE_CHUNK_PULSES 64u
+
+static uint32_t s_chunk_base;   /* pulses completed before the armed block */
+static uint32_t s_chunk_pulses; /* pulses in the armed block (0 = none armed) */
+
 typedef struct {
     bool initialized;
     bool loaded;
@@ -158,18 +167,19 @@ static bool model_turntable_valid_motion_config(const model_turntable_motion_con
            config->acceleration_units_per_s2 > 0.0;
 }
 
-static bool model_turntable_build_schedule(void)
+static bool model_turntable_build_chunk(uint32_t base, uint32_t count)
 {
-    if (s_turntable.total_pulses == 0u ||
-        s_turntable.total_pulses > MODEL_TURNTABLE_MAX_SCHEDULE_PULSES) {
+    if (count == 0u || count > MODEL_TURNTABLE_MAX_SCHEDULE_PULSES ||
+        base >= s_turntable.total_pulses) {
         s_turntable.fault_code = 2u;
         return false;
     }
 
-    for (uint32_t i = 0u; i < s_turntable.total_pulses; i++) {
+    for (uint32_t i = 0u; i < count; i++) {
+        const uint32_t index = base + i;
         uint32_t delay_us = 0u;
-        if (i > 0u) {
-            const uint32_t start_interval_us = model_turntable_interval_for_next_pulse(i);
+        if (index > 0u) {
+            const uint32_t start_interval_us = model_turntable_interval_for_next_pulse(index);
             delay_us = start_interval_us > s_turntable.trigger.pulse_width_us
                 ? start_interval_us - s_turntable.trigger.pulse_width_us
                 : 0u;
@@ -179,6 +189,32 @@ static bool model_turntable_build_schedule(void)
         s_turntable.schedule[i].high_us = s_turntable.trigger.pulse_width_us;
     }
 
+    return true;
+}
+
+/* Build and arm the block that starts at pulse ``base``; one block is in flight at a
+ * time and the next is prepared as soon as it completes (in-flight <= 2: TRIGGER_T2_TODO
+ * A.3.66/A.3.84). */
+static bool model_turntable_arm_chunk(uint32_t base)
+{
+    const uint32_t remaining =
+        s_turntable.total_pulses > base ? s_turntable.total_pulses - base : 0u;
+    const uint32_t count =
+        remaining > MODEL_TURNTABLE_CHUNK_PULSES ? MODEL_TURNTABLE_CHUNK_PULSES : remaining;
+    if (count == 0u) {
+        s_chunk_pulses = 0u;
+        return true;
+    }
+    if (!model_turntable_build_chunk(base, count)) {
+        return false;
+    }
+    if (!sync_io_model_pulse_schedule_arm(s_turntable.output_index, s_turntable.schedule,
+                                          count, s_turntable.trigger.rising_edge)) {
+        s_turntable.fault_code = 3u;
+        return false;
+    }
+    s_chunk_base = base;
+    s_chunk_pulses = count;
     return true;
 }
 
@@ -274,15 +310,9 @@ bool model_turntable_start(void)
     }
 
     model_turntable_recompute_plan();
-    if (!model_turntable_build_schedule()) {
-        return false;
-    }
-
-    if (!sync_io_model_pulse_schedule_arm(s_turntable.output_index,
-                                          s_turntable.schedule,
-                                          s_turntable.total_pulses,
-                                          s_turntable.trigger.rising_edge)) {
-        s_turntable.fault_code = 3u;
+    s_chunk_base = 0u;
+    s_chunk_pulses = 0u;
+    if (!model_turntable_arm_chunk(0u)) {
         s_turntable.phase = MODEL_TURNTABLE_PHASE_FAULT;
         return false;
     }
@@ -305,6 +335,7 @@ void model_turntable_stop(void)
 
     s_turntable.running = false;
     s_turntable.phase = MODEL_TURNTABLE_PHASE_IDLE;
+    s_chunk_pulses = 0u;
     sync_io_model_pulse_schedule_disarm();
 }
 
@@ -321,6 +352,7 @@ void model_turntable_service(void)
         s_turntable.running = false;
         s_turntable.phase = MODEL_TURNTABLE_PHASE_FAULT;
         s_turntable.fault_code = 1u;
+        s_chunk_pulses = 0u;
         sync_io_model_pulse_schedule_disarm();
         return;
     }
@@ -334,7 +366,7 @@ void model_turntable_service(void)
         return;
     }
 
-    s_turntable.emitted_pulses = runtime.completed_pulses;
+    s_turntable.emitted_pulses = s_chunk_base + runtime.completed_pulses;
     if (s_turntable.emitted_pulses > 0u) {
         s_turntable.current_position =
             s_turntable.trigger.start +
@@ -344,8 +376,18 @@ void model_turntable_service(void)
     }
 
     model_turntable_update_phase_from_pulses(s_turntable.emitted_pulses);
-    if (s_turntable.phase == MODEL_TURNTABLE_PHASE_DONE && !runtime.running) {
-        s_turntable.running = false;
+    if (!runtime.running) {
+        const uint32_t next = s_chunk_base + s_chunk_pulses;
+        if (s_chunk_pulses > 0u && next < s_turntable.total_pulses &&
+            s_turntable.phase != MODEL_TURNTABLE_PHASE_DONE) {
+            if (!model_turntable_arm_chunk(next)) {
+                s_turntable.running = false;
+                s_turntable.phase = MODEL_TURNTABLE_PHASE_FAULT;
+            }
+        } else {
+            s_turntable.running = false;
+            s_chunk_pulses = 0u;
+        }
     }
 }
 
