@@ -372,6 +372,38 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.94 D 的实现形态：照抄本仓库既有的"**代次 + CRC + 期望值校验**"惯用法（2026-10-13）
+
+**证据** ✓（本仓库已普遍使用该惯用法 ✓，无需发明 ✗）：
+
+```
+components/calibration_manager/inc/calibration_path_snapshot.h:81/:98
+    uint32_t expected_schedule_crc32;                                   ← "期望值"模式 ✓
+components/calibration_manager/inc/*.h（clk_coded / training_data / training_marker / training_sck / store）
+    uint32_t schedule_crc32;   （多处 ✓）                                ← 代次/身份随记录携带 ✓
+components/calibration_manager/src/calibration_clk_coded.c:126
+    evidence->schedule_crc32 == coarse->schedule_crc32;                 ← 使用前一致性校验 ✓
+components/distributed_refmem/inc/distributed_refmem.h:467/:488/:498
+    uint32_t ring_config_seq, role_generation, schedule_crc32;          ← 本域已有三元组 ✓
+```
+
+**D 的实现形态（三步，全部沿用既有字段与惯用法 ✓）**：
+
+| 步 | 内容 | 依据 |
+|---|---|---|
+| 1 | **启环前静态定版** ✓：在 `run` 的配置阶段确定 `role_generation` / `ring_config_seq` / `schedule_crc32` ✓ 并校验（槽位归属本板 ✓、无重复角色 ✓、IO 归属不冲突 ✓）—— **纯校验、不取运行期租约** ✓（照该分支 `resolve()` 的形态 ✓，A.3.70/A.3.71 ✓） | `A.3.70`/`A.3.71` ✓ |
+| 2 | **期望值随运行携带** ✓：把定版值作为 `expected_*` 保存 ✓，运行期每次使用时比对（`actual == expected` ✓）⇒ 任何代次漂移**当场可见** ✓（而非事后猜测 ✓） | `calibration_path_snapshot.h` ✓ / `calibration_clk_coded.c:126` ✓ |
+| 3 | **启环后只读** ✓：运行期不再写任何配置 ✓（满足"不占线上时间" ✓） | 用户裁决 A.3.63/A.3.68 ✓ |
+
+**校验词汇** ✓ 借自该分支（作为清单 ✓，**不引入其基础设施** ✗）：`BAD_SLOT` / `SLOT_NOT_LOCAL` /
+`DUPLICATE_ROLE` / `IO_REQUIRED` / `IO_CONFLICT` / `STALE_GENERATION` / `STALE_CLAIM` ✓；
+⚠️ **不照抄** `single_input` 要求 ✓（A.3.71 的缺口 ✗✓）—— 我方**允许 0 = MANUAL 软件步进** ✓
+（与用户"本地 SYNC_IO 按预测执行"一致 ✓）。
+
+**与 16 组的衔接** ✓：静态定版完成后，把 **16 组的执行路径接入一次真实扫描** ✓
+（启动模型 ✓ → 由预测驱动 ✓ → 观察 `T2:SCAN?` 的 `entered/announced` 与状态页的
+`total_pulses`/`accel`/`min_interval` ✓，即 A.3.92 已逐量验证过的那组量 ✓）。
+
 ### A.3.93 D（静态角色绑定）应基于**本分支已有的绑定/角色概念**，而非移植该分支的 refmem 子系统（2026-10-13）
 
 **发现的对应物** ✓：`t2` 流程的 Step 7 读数里**已有**我们自己的绑定与角色信息 ✓✓：
