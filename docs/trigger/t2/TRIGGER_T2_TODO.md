@@ -372,6 +372,30 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.117 方案 (a)#1 已落地（`t2` 全绿 ✓）但杠杆拉错：真正的所有者是 **PWM/运动源**（2026-10-13）
+
+**落地** ✓（提交 `4dbc458a` ✓，107 测试 ✓，`t2` **全绿** ✓ `publishing=5 · failed=none` ✓）：
+
+```
+counter stop before model arm -> <timeout>            ✓（命令已发 ✓）
+turntable pre-session / started early : running 0 phase 5 emitted 0/181 **fault 3** ✗
+turntable not armed -> LOAD: <timeout>                ✗
+motion poll +1s/+2s : … fault 3 | count **2770 → 4141** ✓✓
+```
+
+**决定性推论** ✓✓：**停止 T2 计数器后，`count` 仍在推进** ✗ ⇒ 计数**不是**来自 T2 计数器 ✓，
+而是来自 **`sync_io_turntable_source`（PWM/运动源）** ✓✓ —— 它正是单所有者清单中的一项 ✓
+（`s_model_pulse.running / wave_output / seq_step / enc_count / PWM` ✓，A.3.62 ✓）
+⇒ **脉冲路径的真正所有者是 PWM 源** ✗✓ ⇒ 我在方案 (a)#1 里停的是**错误的杠杆** ✗✓。
+
+⇒ **方案 (a) 的正确第一步** ✓：在武装模型**之前**停 **PWM/运动源** ✓（工具中已有的源命令族 ✓：
+`SOURce:CONFIGURE …` / `SOURce:STARt` ✓ per A.3.44/A.3.45 ✓ ⇒ 对应存在 `SOURce:STOP`-类 ✓，
+**下一轮从工具逐字取该拼写** ✓，不得猜 ✗✓），再 `LOAD`/`GROups`/`STARt` 模型 ✓ ⇒ 期望 **`fault 0`** ✓、
+**`running 1`** ✓、**`emitted` 递增** ✓。
+
+**保留项** ✓：本轮加的"counter stop"**不必回退** ✗✓（它对路径无副作用 ✓，且"先停观测者"顺序合理 ✓），
+只需**再加源停止** ✓ 即可 ✓。
+
 ### A.3.116 三处上下文已定；并发现**历史证据**证明核心阻塞确曾挡住作者（fault 2 / 361）（2026-10-13）
 
 **三处 `LOAD 0,3` 的上下文** ✓（逐字 ✓）：
