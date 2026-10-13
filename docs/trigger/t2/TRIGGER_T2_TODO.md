@@ -372,6 +372,41 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.134 读到装订体首道守卫（**它会打 trace**）⇒ 新候选 capture + "trace 为空"不可过信（2026-10-13）
+
+**逐字读到** ✓（`sync_io_model_sched.c:795-839` ✓，函数 `…_arm_on_pin_common_owned` ✓ 定义在**行 795** ✓）：
+
+```c
+if (!sync_io_core_initialized() ||
+    (s_model_pulse.fixed_rate && s_model_pulse.running) ||
+    (**sync_io_core_capture_is_running()** && !observer_capture_overlap) ||      /* ★ 新候选 ✓ */
+    (!use_periodic_entries && entries_us == NULL && entries_ns == NULL) ||
+    entry_count == 0u ||
+    entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES ||
+    sanitized_tick_period_ns == 0u ||
+    (periodic_first_delay_ns != 0u && periodic_first_deadline_ns != 0u)) {
+    sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL, SYNC_IO_TRACE_ERROR,
+                       entry_count, trace_output_index);            /* ← **本守卫会打 trace** ✗ */
+    return false;
+}
+```
+
+**推论一（新候选 ✓）**：`sync_io_core_capture_is_running()` ✓ —— 若 **T2 的采集/分析器**正在运行 ✗
+而当前**不是** `observer_capture_overlap` 豁免情形 ✓（其要求 `pulse_sm == …SCHEDULED_TRIGGER_SM` ✓ 且
+`entry_count == 1u` ✓ ⇒ 我们的 64 ✓ **不**满足 ✓）⇒ **本守卫会拒绝** ✓✓（这可能正是 `fault 3` ✓）。
+
+**推论二（判据教训 ✓✓）**：**本守卫会打 trace** ✗ ⇒ 而我的 `SYSTem:TRACe:LAST?` 为**空** ✗✓ ⇒
+两种可能 ✓：(a) 失败在**更下方**（`:840+` ✓ 未读 ✓）；(b) **trace 功能未启用** ✗ ⇒ 页为空是必然 ✓✓。
+⇒ 因此**"trace 为空"不能再作为排除依据** ✗✓（此前 A.3.123 用它排除了索引门 ✓——该排除**仍成立** ✓，
+因为索引门的 trace 若启用也该出现 ✓；但"排除其他门"则**不成立** ✗✓）。
+
+**下一轮（两步 ✓）**：
+
+1. 读 `:840-900` ✓（本守卫**之后**的主体 ✓）⇒ 列出剩余失败分支 ✓（SM/DMA/程序加载/引脚认领 ✓）；
+2. **直接验证 capture 候选** ✓：发 `REALtime:IO:…:STOP`-类停止采集 ✓（或读采集状态页 ✓，
+   `scpi_realtime_io_commands.h` 有 `analyzer_*` / `sample_*` ✓）⇒ 再 `START` ✓ ⇒ 期望 `fault 0` ✓、
+   `running=1` ✓（若成立 ⇒ **capture 即最终根因** ✓✓，且这也与"T2 测量在跑"的现实吻合 ✓）。
+
 ### A.3.133 参考令牌亦被排除 ⇒ reserve 侧三条件**全部排除**；失败必在**装订体**（唯一未读代码）（2026-10-13）
 
 **实测** ✓✗：
