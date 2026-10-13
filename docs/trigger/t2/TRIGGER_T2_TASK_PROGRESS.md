@@ -12,6 +12,23 @@ Last updated: 2026-10-12
 
 ## 当前 checkpoint
 
+### 2026-10-13 T2-AUDIT-04 补充：“模型源”API 命名跨两条物理通道
+
+取证（逐字）：
+
+| 入口 | 实际转发到 | 物理通道 |
+|---|---|---|
+| `sync_io_model_pulse_schedule_arm` / `…_arm_ns` | `sync_io_output_pulse_schedule_arm[_ns]` | **波形输出**（PIO0/**SM2**，`BOARD_SYNC_PIO0_WAVE_OUTPUT_SM`） |
+| `sync_io_model_pulse_schedule_arm_periodic_ns` | `sync_io_sma_observer_pulse_schedule_arm_periodic_ns` | **证据脉冲**（PIO0/**SM1**；`sync_io.h` 原文“External DPLL evidence pulses use PIO0/SM1 and SMA OUT1”） |
+
+两条推论：
+1. T2-AUDIT-04（转台源路径选型）必须声明验收所需的是**波形输出（SM2）**还是**证据脉冲（SM1）**。
+2. T2-AUDIT-01 的模式声明只能声明 **SM2**（SM1 归证据通道），否则资源声明与物理不符（`ARCH-PIOPARTITION-01`）。
+
+地址取证：`sync_io.h:216-233`（API 签名）、`sync_io.h:234`（SM1 注释）、`settle`——`sync_io_model_sched.c:1120-1131`（periodic 转发）、
+`boards/rp2350_trig/inc/board_config.h:254/275`（`BOARD_SYNC_PIO_FAST=pio0`、`BOARD_SYNC_PIO0_WAVE_OUTPUT_SM=2u`）。
+
+
 ### T2-PROGRESS-20261012-001：T2 主线稳定性——三个根因定位与修复，判据收紧
 
 - TODO task ID：`T2-STEP-001`、`T2-SOURCE-001`、`T2-DOC-001`；涉及 TDMA/VDC/RefMem/SYNC_IO 的 Core1 驻留与 TDMA 环时钟快照。
