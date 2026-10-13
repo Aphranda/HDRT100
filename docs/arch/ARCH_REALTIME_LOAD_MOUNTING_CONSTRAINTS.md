@@ -4,7 +4,7 @@ Status: Draft
 Domain: ARCH
 Canonical: `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/ARCH_ACTIVATION_LOAD_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `application/inc/app_realtime_schedule.h`
-Last updated: 2026-10-11
+Last updated: 2026-10-13
 
 本文是跨域实时负载的挂载实施规范草案。它整理当前代码中的 phase、owner、TDMA
 服务等级和 T2 接线边界，供后续组件提交挂载申请时使用。本文不新增运行 owner，
@@ -206,3 +206,23 @@ VDC 1 kHz 基准
 3. 至少一次四板验证证明 T2 position 发布不会改变 VDC 发布 cadence、`sync_seq`
    推进或外部示波器相位；
 4. 将冻结条款登记到 `docs/check/DOCS_REGISTRY.md`，并刷新顶层架构引用。
+
+## 9. 资源准入补充：启动期 PIO 资源与运行期禁止热加载（2026-10-13）
+
+适用于 T2 及同类脉冲输出 persona。与 `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md` 的 `T2-DEPLOY` 、
+`docs/arch/HAOFV_ARCHITECTURE.md` 的 PIO 资源分配表、`ARCH-PIOCAT-01`、`ARCH-PIOPARTITION-01`、
+触发模式扩展表的 `sync_io_mode_ops_t.hw` 声明与资源冲突负测、以及 DeploymentGate 的
+PIO/SM/DMA/IO/IP claims 一致。
+
+- 所有 PIO 程序、IO route 和动作模板属**启动期资源**；装载与读回只能发生在 STOP/config ACK 阶段。
+- **TDMA RUN 中禁止** persona/lease 退休、申请、**热加载**、卸载或路由改写；运行期只允许切换**已装载使能**。
+- 变更角色或模板必须：停止运行 → 处理在飞实例 → 发布新 generation → **重新装载并读回**。
+- **越界判定**：若实现在运行期发生程序装载，即判为越界；T2 方面表现为模型状态页 `fault_code = 3`（Trigger 域错误码：PIO/DMA 配置失败）。
+- **验收判据**：连续 `START/STOP` 循环后**可用程序槽位不减少**，且 PIO 装载只发生在 STOP 阶段。
+
+## 10. 验证顺序与证据分级（2026-10-13）
+
+- **验证顺序**：① 单板回环（raw latch 连续性、正反映射 round trip、预约状态机、late 拒绝、PIO 输出 latch 与 T2 completion）；② 两节点（TRAIN → LOCKED → PREPARE/READY/fence → ARMED → completion）；③ 三节点（逐 hop generation、READY mask、fence 与 completion 聚合）；④ 五节点（lead-time 水位、window budget、故障注入）；⑤ 八节点（A0–A7 profile 只扩表不改算法）；⑥ 长期（lock/holdover、map generation、late/window miss、FIFO 水位、硬件 latch 缺失、T2 error 分布、watchdog）。
+- **证据分级**（低等级不得替代高等级结论）：软件模型测试 < 完整帧 store-and-forward HIL < 真正 cut-through HIL < 多节点时钟分发闭环。
+- 每个验证对象的最小证据必须标注其所属等级。
+

@@ -407,26 +407,17 @@ T2 只读 VDC 模型与本地 TIMER1；游标、解算、预算优化和动作�
 
 ### 2026-10-13 审查结论（对照 HAOFV 顶层架构）
 
-对照 `docs/arch/HAOFV_ARCHITECTURE.md` 与 `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` 逐块审查后，本节记录两处**实现偏离**与一处**已闭环项**；条款本身不变。
+本文保留**语义级**结论；实施级规则（资源准入、越界判定、验证与证据分级）已按其职责移入约束文件。
 
-**① 偏离（待整改）：运行期 PIO 资源热加载** ✗
+- **资源准入（PIO/SM/DMA/IO 与启动期资源）**：见 `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md` §4.3 与 §6。当前实现在 arm 路径内调用 `pio_add_program()`（即运行期热加载），与本节 `T2-DEPLOY` “所有 PIO 程序…属于启动期资源；TDMA RUN 中不做热加载”相冲；整改方向与判据见该文件。
+- **故障语义与错误码**：按 `docs/arch/HAOFV_ARCHITECTURE.md` 的 Trigger 域 100–199 与 F0–F3 分级执行（不在本文重述）；实测 `fault_code = 3` 即 PIO/DMA 配置失败。
+- **验证顺序与证据分级**：见 `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md` §4.5。
+- **证据**：A-06 / A-16 的硬件闭环（`total = 2896 = 181 × 16`、`fault = 0`）记录在 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`。
 
-- 现象：模型脉冲路径在 **arm 路径内**调用 `pio_add_program()`（`components/sync_io/src/sync_io_model_sched.c`），每次武装都尝试装载程序，且从不卸载；连续武装会把 PIO 指令内存占满，表现为 `READ:MODEl:TURNtable:STATe?` 的 `fault_code = 3`（Trigger 错误码 3 = PIO/DMA 配置失败）。
-- 与本文件冲突：本节 `T2-DEPLOY` 已规定"**所有 PIO 程序、IO route 和动作模板属于启动期资源**；TDMA RUN 中不做 persona/lease 退休、申请、热加载、卸载或路由改写"。
-- 与顶层冲突：`HAOFV_ARCHITECTURE.md` 的 PIO 资源分配表（`:1575`）、`ARCH-PIOCAT-01`（`:189`）、`ARCH-PIOPARTITION-01`（`:1236`）、触发模式扩展表的 `sync_io_mode_ops_t.hw` 声明与资源冲突负测（`:1520`）、DeploymentGate 的 PIO/SM/DMA/IO/IP claims（`:1724`）。
-- 整改方向：把该脉冲输出路径登记为**启动期资源**，经 mode descriptor 声明 PIO/SM/DMA/GPIO 并在 STOP/config ACK 阶段装载与读回；运行期只切换已装载使能。当前"**一次装载、复用 offset**"（提交 `310ff141`，连续 6 次 `START/STOP` 全部 `ARM OK`）为**过渡合规**，不是终态。
-- 判据：连续 `START/STOP` 循环后**可用程序槽位不减少**，且 PIO 装载只发生在 STOP 阶段。
-
-**② 偏离（已硬件闭环）：每位置一组 → 每位置多组** ✓
-
-- 本节 `T2-OWNER` 记载"当前实现每位置一组、FREEZE 后停止重算，属偏离（评审 A-06、A-16）"。
-- 2026-10-13 已在硬件上闭环 **A-06 / A-16** 的第一部分：`LOAD` + `TRIGger 1,0,360,2,100,1,1000` + `GROups 16` 下 `READ:MODEl:TURNtable:STATe?` 得到 **`total = 2896 = 181 × 16`**、`fault = 0`，并由分块续装订承载（首块 64，调度页 `1,1,1,0,1,64,3,113,…` 递增）。
-- 与本文件一致：`T2-ACTION` 的"位置内多组序列"与"预装与两组滑动窗口"。
-- 剩余：FREEZE 后仍随最新 DCO **重算未装填组**（K-2）尚未实现，继续在 TODO 跟踪。
-
-**③ 已确认一致（无需改动）** ✓
-
-`T2-OWNER` 的 Core1 入口（`APP_REALTIME_PHASE_SYNC_TRIGGER` / `sync_trigger_service()`）、位置记录一等席运输与"不改变 typed SYNC 发布路径"、六个 owner 边界表与 7 项 owner 表、"不以接收观察频次代替本地网格"、"不按串口到达时刻触发动作"等，均与顶层一致。
+**状态语义映射（架构级，保留于本文）**：运行时 8 态与预约状态机（canonical 见 `ARCH_T2_RESERVATION_ARCHITECTURE.md`）的对应关系为：
+`STOP_CONFIGURED`↔`PREPARED`、`RUN_SYNCING`↔`PREPARED`/`WAIT_FENCE`、`PREDICTING`↔`PREPARED`、`POSITION_BROADCAST`↔`DISTRIBUTING`/`WAIT_FENCE`、
+`LOCAL_MARKED`↔`ARMED`、`FIRED`↔`FIRED`、`FEEDBACK_CHECK`↔`WAIT_T2`、`COMPLETED`/`UNDETERMINED`↔`COMPLETED`；
+预约态中 **本文尚无对应的 5 态**：`DRAFT`、`ARMED`（预约意义的装载提交）、`REJECTED`、`CANCELLED`、`FAULT`，属预约闭环范围。
 
 ## T2-STATE：状态和失败恢复
 
@@ -485,10 +476,3 @@ T2 只读 VDC 模型与本地 TIMER1；游标、解算、预算优化和动作�
 ## 跨域契约与验证映射
 
 本文当前仍为 Draft。位置描述符 wire、调试 profile 默认值、资源配额和正式时限在实现与独立复核完成后登记；登记前不把本文数值快照当产品契约。
-
-### 2026-10-13 完善：验证顺序与证据分级
-
-**验证顺序**（对齐顶层"验证顺序"）：① 单板回环（raw latch 连续性、正反映射 round trip、预约状态机、late 拒绝、PIO 输出 latch 与 T2 completion）；② 两节点（TRAIN → LOCKED → PREPARE/READY/fence → ARMED → completion，host 只读监控）；③ 三节点（逐 hop generation、READY mask、fence 与 completion 聚合）；④ 五节点（lead-time 水位、window budget、故障注入）；⑤ 八节点（A0–A7 profile 只扩表不改算法，mask/process-image 容量与最坏环路时间）；⑥ 长期（lock/holdover、map generation、late/window miss、FIFO 水位、硬件 latch 缺失、T2 error 分布与 watchdog）。
-
-**证据分级**（低等级证据不得替代高等级结论）：软件模型测试 < 完整帧 store-and-forward HIL < 真正 cut-through HIL < 多节点时钟分发闭环。本文件各验证对象的最小证据须显式标注其等级。
-
