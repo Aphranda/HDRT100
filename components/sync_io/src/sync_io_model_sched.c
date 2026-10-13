@@ -139,6 +139,11 @@ static bool s_wave_output_manager_active;
 static bool s_wave_output_sm_claimed;
 static bool s_wave_output_dma_claimed;
 static bool s_wave_output_program_loaded;
+/* The model pulse program is loaded ONCE and then reused (A.3.143): adding it on every
+ * arm exhausted the PIO instruction memory, which the architecture pre-plans instead
+ * (see the persona manager LOADED stage and sync_io.c's init-time pio_add_program). */
+static const pio_program_t *s_model_pulse_program;
+static uint s_model_pulse_program_offset;
 /* A phase-only observer pulse may coexist with the normal input capture.
  * Keep its one-entry schedule out of the capture ring; larger schedules still
  * use the shared workspace and remain mutually exclusive with capture. */
@@ -972,17 +977,21 @@ static bool sync_io_pulse_schedule_arm_on_pin_common_owned(
         return true;
     }
 
-    if (!pio_can_add_program(pulse_pio, program)) {
-        sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
-                           SYNC_IO_TRACE_ERROR,
-                           entry_count,
-                           2u);
-        (void)sync_io_workspace_release(&s_model_pulse);
-        memset(&s_model_pulse, 0, sizeof(s_model_pulse));
-        return false;
+    if (s_model_pulse_program != program) {
+        if (!pio_can_add_program(pulse_pio, program)) {
+            sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL,
+                               SYNC_IO_TRACE_ERROR,
+                               entry_count,
+                               2u);
+            (void)sync_io_workspace_release(&s_model_pulse);
+            memset(&s_model_pulse, 0, sizeof(s_model_pulse));
+            return false;
+        }
+        s_model_pulse_program_offset = (uint)pio_add_program(pulse_pio, program);
+        s_model_pulse_program = program;
     }
 
-    s_model_pulse.offset = (uint)pio_add_program(pulse_pio, program);
+    s_model_pulse.offset = s_model_pulse_program_offset;
 
     pio_sm_set_enabled(pulse_pio, s_model_pulse.sm, false);
     pio_sm_clear_fifos(pulse_pio, s_model_pulse.sm);
