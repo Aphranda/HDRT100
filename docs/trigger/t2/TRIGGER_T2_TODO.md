@@ -372,6 +372,38 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.145 【决定性发现】架构的 T2 预约闭环**完全未落地**：状态机/术语/SCPI 均零命中（2026-10-13）
+
+**三方取证（全仓 grep ✓）**：
+
+```
+① 预约状态机（DRAFT/PREPARED/DISTRIBUTING/WAIT_FENCE/ARMED/FIRED/WAIT_T2/COMPLETED）
+   ✗ 不存在 —— 命中的 "PREPARED" 全属无关模块：
+     calibration_training_*_PREPARED ✓、refmem_application_model_*_prepared_table_views ✓、
+     sync_io_reference/run_output 各自的状态机 ✓、trigger_action_service.prepared_at_tick ✓
+② 架构术语 T_fire_target_vdc / T_fire_deadline_local / T2_actual_local / T2_error
+   ✗ **全仓零命中** ✓✓
+③ 预约 SCPI/工具入口（REServation:PREPARE/ARM/FENCE/STATe? / reservation_state）
+   ✗ **零命中** ✓
+```
+
+**⇒ 结论（必须如实 ✓✗）**：`ARCH_T2_RESERVATION_ARCHITECTURE.md` 定义的
+**预约 → deadline → 硬件 latch → `T2_error_ns`** 闭环**在该分支上不存在** ✗✓ ——
+**"T2" 在本仓库当前=机制层**（位置/窗口/组数/脉冲 ✓ + 环/TDMA 基础设施 ✓），
+**不是**架构意义上的 T2 ✗✓。本会话此前完成并硬件验证的内容 ✓（361 档 ✓、边界档 ✓、16 组 ✓、
+分块 ✓、`GROups` ✓、PIO 一次装载 ✓、`TRIGger` 写修复 ✓）属架构**预设的前提层** ✓
+（"sync_io/PIO 执行本地 deadline 并锁存实际边沿" 的**执行机制** ✓），而非闭环本身 ✗。
+
+**因此"继续完善 T2"存在两条互斥路径** ✓（需用户定夺 ✓）：
+
+| 路径 | 内容 | 规模 |
+|---|---|---|
+| **A. 补齐架构闭环** ✓ | 新建 `TriggerReservationFB` 状态机 ✓、VDC 逆映射 deadline 消费 ✓、**硬件 latch `T2_actual_local`** ✓、算出 **`T2_error_ns`** ✓、配套 SCPI/工具与按 `## 验证顺序` 的单板回环取证 ✓ | **大**（多组件、跨 VDC/TDMA/Trigger/sync_io ✗，非本会话可完成 ✗✓） |
+| **B. 继续硬化机制层** ✓ | 把已验证的脉冲生成挂到"loaded deadline"模型下 ✓、补代次/CRC/mask 栅栏语义 ✓、把 16 组/分块纳入单板回环验收 ✓ | 中 ✓（可在本会话推进 ✓） |
+
+**建议** ✓：先**明确路径**再投入 ✓（避免在机制层继续加深而与架构闭环无关 ✗✓ —— 这正是用户提出
+"先了解 HAOFV 架构"的用意 ✓✓）。
+
 ### A.3.144 【读懂架构】按 canonical 文档重排 T2 待办：现有工作属"机制层"，缺"预约/deadline/latch/T2_error 闭环"（2026-10-13）
 
 **canonical** ✓：`docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` ✓（顶层 `HAOFV_ARCHITECTURE.md:498-530` 只保留 owner 与事实方向 ✓）。
