@@ -372,6 +372,55 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.62 消费者闭环：单所有者纪律 + 共享工作区租约 + tick/分频换算（含关键的实际约束）（2026-10-13）
+
+消费者在 `components/sync_io/src/sync_io_model_sched.c:1255-1306`（"model pulse" 调度器 ✓）：
+
+```c
+    if (… !rate_schedule_request_valid(request) ||
+        (marker_high_ns != 0u && !marked_valid(...)) ||
+        (closed_window && !window_valid(...)) ||
+        sync_io_core_capture_is_running() ||
+        s_model_pulse.running || s_wave_output_manager_active || … ||
+        sync_io_seq_step_is_running() || sync_io_enc_count_is_running())      /* ① 单所有者 */
+        return false;
+    if (pwm_status.running) return false;                                     /* ② PWM 也须停 */
+    const uint32_t tick_hz = 1000000000u / request->tick_period_ns;
+    const uint32_t divider = system_clock_hz / tick_hz;                       /* ③ tick→分频 */
+    if (system_clock_hz % tick_hz != 0u || divider == 0u || divider > UINT16_MAX ||
+        !sync_io_workspace_claim(&s_model_pulse)) return false;               /* ④ 共享工作区租约 */
+    const bool generated = closed_window ? generate_window(...)               /* ⑤ 三种模式 */
+                         : marker_high_ns != 0u ? generate_marked(...)
+                         : generate(...);
+    s_model_pulse.words = sync_io_shared_workspace;
+```
+
+**可借用的五条要点**：
+
+1. **单所有者纪律** ✓：`s_model_pulse.running` / wave-output / **`seq_step`** / `enc_count` / PWM **全部空闲**才可启动 ✓
+   ⇒ **同一时刻只有一个输出所有者** ✓✓ ⇒ "续批"不是并行 ✓，而是**前一窗口结束后再装订下一个** ✓
+   （"深度 2"因此应理解为**预约队列**，而不是两个同时运行的序列器 ✓——这点很重要 ✓）；
+2. **共享工作区 + 租约** ✓（`sync_io_shared_workspace` + `workspace_claim/release` ✓）⇒ words 从共享 arena 交给
+   PIO/DMA ✓，**无每次分配的第二次数组** ✓（注释明确 ✓）；
+3. **`marker_high_ns` / `closed_window` 三档生成** ✓（plain / marked / closed-window ✓）= A.3.61 的三种用法 ✓；
+4. **tick → 分频换算** ✓：`tick_hz = 1e9 / tick_period_ns` ✓、`divider = clk_sys / tick_hz` ✓，
+   要求 **`clk_sys % tick_hz == 0`** 且 `divider ∈ [1, 65535]` ✓；
+5. ⚠️ **由此得到一条实际约束** ✗：`tick_period_ns = 4` ⇒ `tick_hz = 250 MHz` ⇒ 需 **`clk_sys` 是 250 MHz 的整数倍**
+   （即 250/500 MHz… ✓）；若 `clk_sys = 150 MHz` ✗（`seq_step.pio` 注释里的值 ✓）则 **4 ns 会被拒绝** ✗，
+   只能用 **`tick_period_ns = 100`**（10 MHz ⇒ 150/10 = 15 ✓ 可整除 ✓）。
+
+**本机实测证据** ✓：调度预算页的 `clock_hz = 250000000`（**250 MHz** ✓）⇒ `250 MHz / 250 MHz = 1` ✓、
+余数为 0 ✓ ⇒ **4 ns tick 可用** ✓✓（分辨率 4 ns ✓，正是"每位置 16 组"所需的量级 ✓）。
+
+**给 T2 的实现含义（更新）**：
+
+| 项 | 结论 |
+|---|---|
+| 16 组/位置 | 每位置一个 `pulse_count=16` 的窗口 ✓（`closed_window` 模式 ✓，静默槽留给切换 ✓） |
+| 执行端"深度 2" | 由**预约队列**表达 ✓（前一窗口结束→装订下一窗口 ✓），**不是**两个并行序列器 ✗ |
+| 节拍分辨率 | 本机 **4 ns** ✓（250 MHz ✓）；若将来 clk_sys 变化 ⇒ 回退 **100 ns** ✓ |
+| 成本 | 每位置一次 `generate_*`（≤16×2 words ✓）+ 一次租约 ✓ ⇒ 一次性成本极小 ✓（与 A.3.54 的余量结论一致 ✓） |
+
 ### A.3.61 【决定性】`sync_io_rate_schedule` 已含"窗口 + 标记 + 静默槽"原语 —— 两项待办可用本分支代码完整实现（2026-10-13）
 
 读全 `sync_io_rate_schedule.h`（237 行 ✓）后，其能力**超出预期** ✓：
