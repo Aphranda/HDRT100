@@ -372,6 +372,30 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.114 【定因】模型不运行的根因＝**脉冲路径已被 counter/源占用**（`t2` 再次全绿 ✓）（2026-10-13）
+
+**实测** ✓（同一运行内 ✓）：
+
+```
+t2 exit 0 · passed=True · configured=4 · **publishing=6** · failed=none ✓✓
+counter 在推进 ✓✓ : count 2735 → 4148 → 5420（≈1.4 k/s ✓）⇒ PWM/计数路径**正常** ✓
+模型状态          : loaded=1 ✓ cfg=1 ✓ **running=0 phase 5 emitted 0/181 fault 3** ✗
+流程行            : "turntable not armed -> LOAD: <timeout>" ✓（LOAD 无应答——但 `loaded=1` ✓
+                    ⇒ 静默生效 ✓，与会话已知的 `<timeout>` 但成功模式一致 ✓）
+```
+
+⇒ **定因** ✓✓：**脉冲路径已被 counter/运动源占有**（证据：`count` 正在推进 ✓）⇒ 模型
+`sync_io_model_pulse_schedule_arm()` **被拒** ✗ ⇒ `fault_code 3` ✗ ⇒ 模型永不运行 ✓✓。
+这与 **A.3.97** 的判定**完全一致** ✓✓（"单所有者纪律：模型无法在计数器运行时装订" ✓），
+也解释了流程注释里"started early … failed with fault_code 3" ✓✓（作者当时也撞到同一堵墙 ✓）。
+
+⇒ **因此"D 的最后一件事"就是落实方案 (a)** ✓✓（A.3.97 ✓）：**让模型成为脉冲路径所有者** ✓ ——
+流程须在**武装模型之前**释放/停止计数器与运动源 ✓（或让计数器仅**观测** ✓），
+随后再启动计数/观测 ✓；否则模型永远 `fault 3` ✗✓。
+
+**验收（可观测 ✓）**：`turntable … running 1` ✓、`fault 0` ✓、`emitted` **随会话推进** ✓
+（当前 `emitted 0/181` ✗ 恒为 0 ✓ 即为反例 ✓）。
+
 ### A.3.113 `t2` 恢复全绿（环族为瞬时）；模型侧剩余问题精确到"流程 LOAD 超时"（2026-10-13）
 
 **① T2 侧恢复全绿** ✓✓（清理后复跑 ✓）：
