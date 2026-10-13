@@ -372,6 +372,35 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.63 【架构裁决·用户】T2 只做预测，**本地 SYNC_IO 按预测执行，不占线上时间**（2026-10-13）
+
+用户明确："由于 T2 是预测位置，本地 SYNC_IO 根据预测位置执行就可以，**不用占用线上时间**。"
+
+**这改变了执行端的边界（收缩，不是扩张）** ✓：
+
+| 项 | 原设想 | 裁决后 |
+|---|---|---|
+| 执行端归属 | 可能借助线上预约/跨板序列服务（该分支的 `trigger_sequence_service` / `refmem_sequence_roles`） | **本地 SYNC_IO 域内完成** ✓（用本分支已有的 `sync_io_rate_schedule` / `seq_step` / `sync_io_gateway` ✓） |
+| 线上（TDMA/网络）时间 | 担心"16 组"会占用线上时隙 | **不占用** ✓ —— 预测结果**本地消费** ✓ |
+| "执行端窗口深度 2" | 跨板预约语义 | **本地预约队列** ✓（A.3.62 ⑤：单所有者 + 前窗口结束后装订下一窗口 ✓） |
+| `sync_io_rate_schedule` 的选择 | 需要权衡 | **明确为主路径** ✓ —— 它正是"本地按预测产生节拍"的载体 ✓（无需外部沿、无需线上交互 ✓） |
+
+**由此简化的实现方案（T2 侧 + 本地 SYNC_IO）**：
+
+1. **T2（预测侧）**：继续产出"下一到两个位置"的**目标计数/时基**（现有窗口机制 ✓ 已验证 ✓）；
+2. **本地 SYNC_IO（执行侧）**：
+   - 每位置构造一个 `request{ period_ns, high_ns, pulse_count=16, tick_period_ns, rate_ppb }` ✓；
+   - `sync_io_rate_schedule_generate_window()`（闭窗口：两标记 + 静默槽 ✓）⇒ PIO words ✓；
+   - 经 `sync_io_workspace_claim` **租约**后交给 PIO ✓（**单所有者**：PWM/wave/seq_step/enc_count 全停 ✓）；
+   - 前一窗口结束后（`s_model_pulse.running` 清）再装订下一窗口 ⇒ **深度 2 = 预约队列** ✓；
+3. **不引入**任何线上预约协议或跨板角色绑定 ✓（该分支相应部分**不需要** ✓——与 A.3.60/A.3.62 一致 ✓）。
+
+**对预算的推论** ✓：执行端只在**每位置一次**做 `generate_window`（≤32 words ✓）+ 租约 ✓ ⇒ 占用极小 ✓，
+与"Core1 逐周期余量仅 169 µs"（A.3.54 ✓）完全相容 ✓；**无需**再考虑在线调预算（A.3.57 已证不可用 ✓）。
+
+**待确认**：`BOARD_SYS_CLOCK_HZ` 的实际值 ⇒ 决定 `tick_period_ns` 取 **4 ns**（需 250 MHz 的整数倍 ✓，
+本机调度页 `clock_hz` 实测为 250 MHz ✓）还是回退 **100 ns** ✓。
+
 ### A.3.62 消费者闭环：单所有者纪律 + 共享工作区租约 + tick/分频换算（含关键的实际约束）（2026-10-13）
 
 消费者在 `components/sync_io/src/sync_io_model_sched.c:1255-1306`（"model pulse" 调度器 ✓）：
