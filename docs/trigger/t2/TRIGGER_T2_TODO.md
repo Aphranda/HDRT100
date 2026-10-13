@@ -372,6 +372,46 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.98 【决定性】直接测试：arm 成功（fault 0）⇒ (a) 可行；但 `loaded=0` 使 `start()` 立即返回（真正原因）（2026-10-13）
+
+**实验**（COM5 直连，逐条应答 ✓）：`STOP` → `GROups 16` → `START` → 连读两次 `STATe?` → `STOP` → 复原：
+
+```
+[1] counter page : 1,0,0,0,…                                    （计数器非运行态 ✓）
+[2] model state  : …,7=11, …,16=fault **0** ✓                   （直接测试时无故障 ✓）
+[4] GROups=16    ✓（无回显 ✓）
+[5] model START  : ''                                           （无应答 ✗）
+[6] model state  : …,7=**176** ✓✓, 9/10/11=48/79/48 ✓, 12=6250 ✓, 16=fault **0** ✓✓
+      loaded=**0** ✗  configured=1 ✓  running=0 ✗  phase=0  total=176  emitted=0  fault=0
+[7] +1s         : 完全不变 ⇒ emitted 仍为 0 ✗                   （未真正运行 ✓）
+[8][9][10]      : STOP ✓ / GROups=1 ✓ / 回读 1 ✓                （台架已复原 ✓）
+```
+
+**结论一** ✓✓：**arm 成功、`fault_code = 0`** ⇒ **方案 (a)（模型持有脉冲路径）在技术上是可行的** ✓✓
+（先前日志里的 `fault 3` 是**流程**在计数器占有路径时的 arm 失败 ✗✓，非模型能力问题 ✓）。**16 组配置下
+`total_pulses = 176`、ramp `48/79/48`、`min_interval = 6250`** ✓ ⇒ **与 A.3.92 完全一致** ✓✓（互为复现 ✓）。
+
+**结论二** ✗✓（**这才是未运行的真正原因** ✓）：`loaded = **0**` ✗ ⇒ 命中 `model_turntable_start()` 的
+前置守卫 ✓：
+
+```c
+if (!s_turntable.initialized || !s_turntable.loaded ||
+    !s_turntable.configured || PROJECT_ENABLE_UART_STDIO) {
+    return false;
+}
+```
+
+⇒ 流程 Step 14 只**配置**（其标签即"只配置，不启动"✓），**从未 LOAD 模型** ✗✓ ⇒ 模型永远无法启动 ✓。
+⇒ **要"把 16 组接入真实扫描"，必须先 `CONFigure:MODEl:TURNtable:LOAD`** ✓（该命令在表中已存在 ✓），
+再 `START` ✓；且此时**不应**让 T2 计数器先占有脉冲路径 ✓（否则 arm 失败 → `fault 3` ✓）。
+
+**因此 D 的实现清单最终确定** ✓（全部小改动 ✓）：
+
+1. 流程（或操作步骤）在**启环前**：`LOAD` 模型 ✓ → `CONFigure:…:GROups 16` ✓ → 保持"只配置不启动" ✓；
+2. 计数器**不再**作为脉冲路径的所有者 ✓（改为观测 ✓）⇒ 模型 `START` 后由预测驱动 ✓；
+3. 补 `role_generation` / `schedule_crc` 期望值比对 ✓（照 `trigger_grid_preview.c:77` ✓）；
+4. 验收：`STATe?` 的 `running=1` ✓、`emitted` **随时间增长** ✓、`total_pulses=176` ✓、`fault=0` ✓。
+
 ### A.3.97 【取证】模型配置确在启环之前 ✓；但模型 arm 被拒（`fault 3`）⇒ D 的真正议题是**脉冲路径所有权**（2026-10-13）
 
 **时间戳取证**（最近一次 `t2` 运行的日志 ✓）：
