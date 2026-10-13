@@ -2228,6 +2228,10 @@ def step_18_preflight_source_trial(ctx, slot, board, uid):
             ctx._t2_scan_diag_read = True
             print(f"T2SCAN {ctx.send(member, 'TRIGger:REServation:T2:SCAN?')}",
                   flush=True)
+            # Keep the reading for the end-of-sampling criterion (A.3.38).
+            _scan_fields = ctx.send(member, 'TRIGger:REServation:T2:SCAN?').split(",")
+            if len(_scan_fields) >= 10:
+                ctx._t2_scan_last = [f.strip() for f in _scan_fields[:10]]
         state = ctx.send(member, "TRIGger:REServation:T2?").split(",")
         ring = ctx.send(member, "SYSTem:TDMA:RING:STATus?").split(",")
         schedule = ctx.send(member, "SYSTem:TDMA:SCHEDule?").split(",")
@@ -2457,6 +2461,10 @@ def step_20_sampling(ctx, slot, board, uid):
                 ctx._t2_scan_diag_read = True
                 print(f"T2SCAN {ctx.send(member, 'TRIGger:REServation:T2:SCAN?')}",
                       flush=True)
+                # Keep the reading for the end-of-sampling criterion (A.3.38).
+                _scan_fields = ctx.send(member, 'TRIGger:REServation:T2:SCAN?').split(",")
+                if len(_scan_fields) >= 10:
+                    ctx._t2_scan_last = [f.strip() for f in _scan_fields[:10]]
             state = ctx.send(member, "TRIGger:REServation:T2?").split(",")
             position = ctx.send(member, "SYSTem:REFMEM:SYNC:FLIGHT:POSition?")
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
@@ -2584,6 +2592,28 @@ def step_20_sampling(ctx, slot, board, uid):
         ctx.failures.append(f"Step 20 reference published_mask {published} at the end of"
                             f" sampling (counter {final_count} had crossed {crossed} of"
                             f" {len(T2_THRESHOLDS)} thresholds)")
+
+    # Additive window-health criterion (TRIGGER_T2_TODO.md A.3.36/A.3.38), read from
+    # T2:SCAN?: the rolling window must announce every position it entered, never replace
+    # an unannounced entry, and (during the migration) never disagree with the legacy
+    # announced set. This is the criterion that a 361-position scan can also express,
+    # which the three-bit legacy mask cannot. Deliberately ADDITIVE: the legacy mask check
+    # above still runs, so this cannot weaken the current verdict.
+    scan = getattr(ctx, "_t2_scan_last", None)
+    if scan and scan[6].isdigit() and scan[7].isdigit():
+        entered, announced = int(scan[6]), int(scan[7])
+        if entered != announced:
+            ctx.failures.append(
+                f"Step 20 window health: entered {entered} != announced {announced} "
+                f"(T2:SCAN? {','.join(scan)})")
+        if scan[8].isdigit() and int(scan[8]) != 0:
+            ctx.failures.append(
+                f"Step 20 window health: overwrote_unannounced {scan[8]} != 0 "
+                f"(T2:SCAN? {','.join(scan)})")
+        if scan[9].isdigit() and int(scan[9]) != 0:
+            ctx.failures.append(
+                f"Step 20 window health: announce_mismatch {scan[9]} != 0 "
+                f"(T2:SCAN? {','.join(scan)})")
 
 
 @step(21)
