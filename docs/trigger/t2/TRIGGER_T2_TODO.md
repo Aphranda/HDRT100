@@ -372,6 +372,37 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.45 速度配置定位：`CONFigure:MODEl:TURNtable:MOTion`（字段 `velocity_units_per_s`）（2026-10-13）
+
+用户的速度矩阵（1 / 2 / 2.5 / 5 °/s）需要**转台运动域**，命令已定位：
+
+| 用途 | 命令 | 实现 |
+|---|---|---|
+| 设置运动 | `CONFigure:MODEl:TURNtable:MOTion <…>` | `scpi_model_commands.c:85` `scpi_cmd_model_turntable_motion` ✓ |
+| 回读运动 | `READ:MODEl:TURNtable:MOTion?` | 同文件 `:103` ✓ |
+| 启动/停止 | `MODEl:TURNtable:STARt` / `MODEl:TURNtable:STOP` | `scpi_model_commands.h:23-24` ✓ |
+| 状态 | `READ:MODEl:TURNtable:STATe?` | `:25` ✓ |
+| 负载/触发 | `CONFigure:MODEl:TURNtable:{LOAD|TRIGger}`（各带 `?` ✓） | `:17-20` ✓ |
+
+**核心量**：`components/model_turntable/src/model_turntable.c:115`
+`const double velocity = s_turntable.motion.velocity_units_per_s;` ✓
+⇒ 速度字段名是 **`velocity_units_per_s`** ✓（"units per second" ✓；本仓库转台几何以**度**为口径 ✓，
+故单位很可能就是 **°/s** ✓，但**需实证确认** ✗）。
+
+**单位实证法（用刚验证过的计数器 ✓，无需读更多代码）**：
+
+1. 设定一个已知速度（如 1 °/s ✓）并让转台运动 ✓；
+2. 用 `TRIGger:REServation:COUNter?` 的 `count`（字段 `[16]` ✓，本轮已验证它会推进 ✓）在 1 s 内取两次差值 ✓；
+3. 期望值 = `速度(°/s) × pulses_per_degree` ✓ ⇒ 1 °/s × ppd=1000 ⇒ **≈1000 counts/s** ✓；
+   - 若实测≈1000 ✓ ⇒ 单位是 **°/s** ✓；
+   - 若实测≈1000/360 或其它比例 ✗ ⇒ 单位是"圈/秒"或"steps/s" ✓，据此换算即可 ✓。
+
+**参数个数/顺序**：以 `READ:MODEl:TURNtable:MOTion?` 的**回读字段顺序**为准 ✓（set/get 通常同序 ✓）；
+需要精确形参列表时，读 `scpi_model_commands.c:85-102` 与 `model_turntable_configure_motion()` ✓（本轮未逐字读取 ✗）。
+
+**提示**：T2 侧无需配置速度 ✓（它测量并跟随速率 ✓，无可用速率时报"时间未就绪" ✓）；但**快速档**（5 °/s + 1° 步长）
+下每位置仅 0.2 s、lead ≈10 ms ✗ ⇒ 建议与"执行端窗口深度 2"一并评估 ✓。
+
 ### A.3.44 361 扫描下的健康一轮：计数器正常推进；并记录"`<timeout>` 但成功"的命令（2026-10-13）
 
 **改动**（提交 `5f24d5ed`，tools-only ⇒ 免凭证）：把"计数未推进"的失败信息扩展为**含计数器状态与 loaded** ✓
