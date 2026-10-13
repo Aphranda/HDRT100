@@ -276,6 +276,28 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 
 **重启条件**：获得执行许可且可安排一次四板 P3 验收窗口；建议两项**合并一批**（同源码指纹 ⇒ 一次 `run`）。
 
+### ② 的台架语义验收用例（K-2，2026-10-13 设计定稿）
+
+**现状**：已提交的 K-2 改动（`73dcd61a`）已过**回归**验收（P3 四板 PASS_WITH_WARNINGS，ERROR=0/FATAL=0），
+但**语义本身无测试覆盖**：`tests/**` 中 `action_armed_mask`/`action_completed_mask`/`prepare_deadlines` **零命中**，
+`tools/sync_trigger/**` 也**无 DCO 扰动工具**。
+
+**采用方式（照既有先例）**：`tests/python/test_trigger_t2_freeze_abandon.py` 已证明**抽取式 harness**
+可直接驱动 freeze 分支（无需硬件）。K-2 同理：把 `prepare_deadlines_core0()` 的判据行抽取为可测函数，
+在 host 侧直接驱动**谓词真值表**（无需真实 DCO 扰动）。
+
+| 用例 | 输入（snapshot 掩码） | 期望 |
+|---|---|---|
+| C1 已冻结且**未装填** | `frozen=1`, `armed=0`, `completed=0` | **不跳过** ⇒ 按最新 DCO 重算并发布（K-2 前半） |
+| C2 已冻结且**已接受** | `frozen=1`, `armed=1`, `completed=0` | **跳过** ⇒ 不追改（K-2 后半） |
+| C3 已完成 | `frozen=1`, `armed=1`, `completed=1` | **跳过** |
+| C4 未冻结 | `frozen=0`, `armed=0` | 重算（原行为不变） |
+| C5 token 未变 | `prediction_version` 与 `model_token` 均未变 | 跳过（原行为保留） |
+| C6 token 已变 | `model_token` 变 | 重算（原行为保留） |
+
+**判据**：C1 必须**重算/发布**（本次修正的直接目标）；C2/C3 必须**跳过**；C4–C6 保持原行为。
+该用例集**免硬件凭证**，属 host 测试，可纳入 `pytest` 常规门禁。
+
 ## 结论区（冻结，只增不改）
 
 本区收录**已确认/已证伪**的结论，每条一行：结论 + 依据 + 状态。过程性排查不再增长（原附录 A 保留为证据位置）。
