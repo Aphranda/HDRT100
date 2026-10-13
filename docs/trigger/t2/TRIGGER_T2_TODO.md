@@ -372,6 +372,35 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.119 【收窄】16 组配置在硬件全部达标（total=2896=181×16 ✓）；arm 失败发生在**租约之后**（2026-10-13）
+
+**决定性实测** ✓✓（空闲状态下 `STOP SOURce` ✓ + `STOP COUNter` ✓ 后执行 ✓）：
+
+```
+[stop] SOURce:STOP -> 1,0 ✓    [stop] COUNter:STOP -> 1,0 ✓（真应答 ✓）
+[cfg ] LOAD 0,3                  -> "OK" ✓
+[cfg ] MOTion 360,360            -> "OK" ✓
+[cfg ] TRIGger 1,0,360,2,100,1,1000 -> **"OK"** ✓✓（A.3.107 修复成立 ✓）
+[cfg ] GROups 16                 -> （无回显 ✓）
+[go  ] START                     -> '' ✗
+[+0.8/1.6/2.4s] model **running=0 phase=5 total=2896 emitted=0 fault=3** ✗
+                sched 页 = **1,0,0,0,0,0,0,0,0,0** ✓
+```
+
+**结论一（头号功能在目标参数下达标 ✓✓）**：`LOAD` + `TRIGger 1,0,360,2,100,1,1000` + `GROups 16` ✓
+⇒ **`total = 2896 = 181 × 16`** ✓✓ —— 即"**每位置 16 组**"在**流程实际使用的参数**下**完全达标** ✓✓
+（181 位置 ✓ × 16 组 ✓；由分块续装订承载 ⇒ 46 块 ✓）。
+
+**结论二（阻塞点收窄 ✓✓）**：即便 counter/source 已停 ✓，`START` 仍失败 ✗ ⇒ **不是**路径所有权 ✗✓；
+且 `sched[0] = 1` ✓ ⇒ **`IDLE→LEGACY` 租约已获得** ✓ ⇒ **失败发生在租约之后** ✓✓ ⇒ 剩余候选收窄为：
+
+1. **wave-output 程序是否已加载** ✓（`s_wave_output_program_loaded` ✓，A.3.62 ✓）；
+2. **SM/DMA 认领** ✓（`s_wave_output_sm_claimed / dma_claimed` ✓）；
+3. **引脚/输出索引映射** ✓（`LOAD 0,3` ⇒ output 3 ✓）。
+
+⇒ **下一轮**：读 `sync_io_pulse_schedule_arm_on_pin_common_owned()` ✓（紧随租约之后 ✓，`sync_io_model_sched.c:1050` ✓）
+⇒ 逐条列出它的**拒绝条件** ✓，即可定位 `fault 3` 的**确切分支** ✓✓（本会话"读代码定因"的一贯做法 ✓）。
+
 ### A.3.118 两次停用（counter+source）后模型仍 `fault 3`：需读状态页判定停止是否生效；占用者疑为 **T2 自身输出**（2026-10-13）
 
 **落地与结果** ✓✗（提交 `7c9da032` ✓，107 测试 ✓，`t2` **全绿** ✓ `publishing=5 · failed=none` ✓）：
