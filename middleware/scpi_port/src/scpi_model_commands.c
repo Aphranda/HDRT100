@@ -84,6 +84,10 @@ scpi_result_t scpi_cmd_model_turntable_trigger(scpi_t *context)
     }
 
     model_turntable_trigger_config_t config;
+    /* Fields this command does not carry must keep their value: the struct
+     * gained groups_per_position (A.3.87), so a bare local left it uninitialised
+     * and validation failed at random (TRIGGER_T2_TODO.md A.3.107). */
+    model_turntable_get_trigger_config(&config);
     scpi_bool_t rising_edge;
     if (!scpi_port_read_u32(context, &config.dimension) ||
         SCPI_ParamDouble(context, &config.start, TRUE) != TRUE ||
