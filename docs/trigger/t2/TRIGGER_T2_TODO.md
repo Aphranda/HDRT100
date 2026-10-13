@@ -372,6 +372,38 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.28 【真病根】`ORIGin:TRIAL` 诱发**粘滞环配置漂移**（`ring_config 113` ≠ 绑定 `112`）——修正 A.3.25（2026-10-13）
+
+读失败轮 `t2-enable.log` 全文后，失败链条清晰（摘录）：
+
+```
+[step 16] origin runtime / release 采样后：
+   ORIGIN STOP [after ORIGin:TRIAL (source still stopped)]:
+       cause UNAUTHORIZED+COMM_FAULT | failed auth terms FAULT_LATCHED | first fault site BEGIN
+   sticky fault record: site=1 error=7 ring_bits=0 diff=6 sample_seq=2105
+                        ring_config=113 model_token=0
+[step 16 END] FAIL: cursor sticky fault site RING at seq 2105:
+       ring enabled=0, adapter started=0, data enabled=0, ring config!=bound
+[step 17] OK（DPLL LOCKED）
+[step 18] cursor probe: err 7 valid 0 seq 2105 | bound ring_cfg 112 vs ring 113/113 **DRIFT**
+          FAIL: reference cursor never became valid within 24 s
+[step 19] FAIL: cursor not valid (step 18) ⇒ 本轮不可能发布
+[step 20] OK：`ring enabled 0 started 0`、counter 3780、published_mask 0
+```
+
+**结论（三条，其中一条修正我此前的判断）**：
+
+1. **真病根**：`ORIGin:TRIAL`（step 16 的诊断命令）导致一次 **UNAUTHORIZED + COMM_FAULT** 的停机 ✓，并留下**粘滞故障 @ site RING**：`ring_config` 从绑定的 **112** 漂移到 **113** ✗，此后一直 `112 vs 113/113 DRIFT` ✓（18/19 步都无法恢复 ✗）；
+2. **A.3.25 的"计数器起步速度"结论是错的** ✗✓：我当时看到的 `count 3780 < 4750` 是**症状**（环停 ⇒ T2 服务不跑 ⇒ 计数不前进 ✓），不是原因 ✗；那个 10/10 相关是**被混淆变量**造成的 ✓（环好则计数高且发布 ✓；环坏则两者皆无 ✓）。**A.3.25 的"改判据"因此不解决问题** ✗（A.3.26/A.3.27 的观察是对的 ✓）；
+3. **失败与 T2 逻辑无关** ✓✓（也再次印证 A.3.24 对被回退切片的洗清 ✓）。
+
+**修法方向（下一步，独立于迁移）**：
+
+1. **不要在 T2 流程里发 `ORIGin:TRIAL`**（或发之前/之后必须**修复环绑定** ✓）——它是本次漂移的触发者 ✓；
+2. step 16 的判据**加入 `ring_config` 与绑定值的一致性**（现在就只看 enabled/started ✗），使漂移**当场**以明确信息暴露 ✓（而不是拖到 step 18 报"cursor 未就绪" ✗）；
+3. 提供**恢复路径**：漂移发生后能重新绑定（重新下发环配置/重启适配器 ✓），否则整轮报废 ✓；
+4. 复测：解决后跑 `t2` ×5 建新基线分布 ✓（此前"慢起步 3/5"应随之消失 ✓）。
+
 ### A.3.27 【已定位】慢起步轮的失败步骤是 **16 / 18 / 19**（游标/epoch/model 与 PWM 源），非 T2 逻辑（2026-10-13）
 
 按 A.3.26 第 1 步查看失败运行目录（`out/HardwareAcceptance/**/t2-20261013-083954/`）：
