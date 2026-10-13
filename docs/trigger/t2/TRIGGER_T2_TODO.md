@@ -372,6 +372,40 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.87 "每位置 16 组"的落地路径（入口已定位；刻意避开既有页面 ✗✓）（2026-10-13）
+
+**已定位的入口** ✓：
+
+```
+scpi_model_commands.h:19  "CONFigure:MODEl:TURNtable:TRIGger" -> scpi_cmd_model_turntable_trigger   ✓
+                     :20  "READ:MODEl:TURNtable:TRIGger?"     -> …_trigger_q                        ✓
+model_turntable.c   :154  valid_trigger_config(): dimension<16 ✓ step≠0 ✓ pulse_width_us∈(0,1e6]   ✓
+                    :275  model_turntable_configure_trigger(config)                                  ✓
+                    :422  model_turntable_get_trigger_config(config)                                 ✓
+model_turntable.h    :16  trigger_config_t { dimension, start, stop, step, pulse_width_us, rising_edge }
+                     :31  status_t { … total_pulses, emitted_pulses, accel/cruise/decel_pulses, … }   ✓
+```
+
+**落地路径（6 步，刻意"只加不改页" ✗✓）**：
+
+| # | 位置 | 改动 | 风险控制 |
+|---|---|---|---|
+| 1 | `model_turntable.h` | `trigger_config_t` **新增** `uint32_t groups_per_position;` ✓ | 结构尾部追加 ✓ |
+| 2 | `model_turntable.c`（重置路径 :242 ✓） | 默认 `groups_per_position = 1` ✓ | **默认 1 ⇒ 行为与今天完全一致** ✓✓ |
+| 3 | `valid_trigger_config()`（:154 ✓） | 增加 `groups_per_position >= 1 && <= 16` ✓ | 与 dimension 校验同风格 ✓ |
+| 4 | `recompute_plan()`（:102 ✓） | 脉冲总数 = 位置数 × 组数 ✓；ramp（accel/cruise/decel）**按脉冲计并 × 组数** ✓；`min_interval_us = (步间隔/速度/组数)×1e6` ✓ | 组数=1 时诸式**退化为现状** ✓✓（逐式核对 ✓） |
+| 5 | **新增** SCPI：`CONFigure:MODEl:TURNtable:GROups <n>` + `READ:…:GROups?` ✓ | 只**新增**命令 ✓ | ⚠️ **不修改** `READ:MODEl:TURNtable:TRIGger?` 的字段顺序 ✗✓（该页面可能被工具解析 ✓ ⇒ 改页会破坏"页面=字段顺序" ✗✓，本会话已多次付出代价 ✓） |
+| 6 | `status_t` **尾部**追加 `groups_per_position` ✓ + `get_status()` 赋值 ✓ | 只读可见量 ✓ | 仅在**尾部**追加 ⇒ 不移动既有字段 ✓ |
+
+**验收（按用户方法：调源频率 → 看 T2 状态 ✓）**：
+
+1. **默认组数=1** ⇒ 回归 `t2` 应**逐项不变**（Step 17–21 全 OK ✓，`failed=none` ✓）✓ ⇒ 证明"零行为改变" ✓；
+2. 设 `GROups 16` ⇒ `status.total_pulses == 位置数 × 16` ✓（361 档 ⇒ 5776 ✓，由分块续装订承载 ✓ 91 块 ✓）；
+3. 调源频率（速度 ✓）并观察 `T2:SCAN?` 的 `entered/announced` 与 `T2?` 计数 ✓ 是否随组数成比例推进 ✓。
+
+**为何这样切** ✓：把"**页面/接口**"与"**内部算术**"分开 ✓ —— 先做**不破坏任何既有页面**的加法 ✓，
+再按需把组数接入 `t2` 流程 ✓；这与本会话"位置参数顺序"✗✓、"页面字段顺序"✗✓ 的教训一致 ✓。
+
 ### A.3.86 分块续装订已验证：`failed=[20]` 属间歇，非本改动（2026-10-13）
 
 **对照实测** ✓：
