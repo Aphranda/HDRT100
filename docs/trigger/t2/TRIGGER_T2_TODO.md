@@ -372,6 +372,30 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.109 锚点失败的确切原因：该行缩进为 **4 空格**（我按 8 空格拼 ✗）（2026-10-13）
+
+**实测** ✓（`Select-String` 的 `-replace ' ','·'` 显示 ✓）：
+
+```
+line 87  len=28  repr=····scpi_bool_t·rising_edge;
+         ↑ 4 个空格（= 4 + 24 字符 ⇒ len 28 ✓）
+```
+
+⇒ 我三次锚点用的是 **8 空格** ✗✓（`        scpi_bool_t rising_edge;` ✓）⇒ 必然 `count 0` ✓✓。
+**根因**：我按**阅读时的视觉缩进**拼锚点 ✗，而非按**实际字节** ✓ ⇒ 与 A.3.108 的"按行号打补丁"
+结论完全一致 ✓✓，并且现在有了**确切行号** ✓：`scpi_model_commands.c:87` ✓。
+
+**下一轮修法（1 行，按行号 ✓）**：
+
+```
+在 line 87 之前插入（4 空格缩进 ✓）：
+    model_turntable_get_trigger_config(&config);      /* 保留本命令未覆盖的字段 ✓ */
+```
+
+并保留"先断言、后写入、失败即中止" ✓；随后 `run` 凭证 ✓ + 实测
+`CONFigure:MODEl:TURNtable:TRIGger 1,0,360,2,100,1,1000` ⇒ 期望回 `"OK"` ✓ 且
+`READ:…:TRIGger?` 显示 `1,0,360,2,100,1,1000` ✓。
+
 ### A.3.108 修法已定，但**三次锚点均不匹配** ⇒ 改用"按行号打补丁"（方法纠正）（2026-10-13）
 
 **事实** ✓：A.3.107 的修法本身**只有 1 行** ✓（在 `trigger` handler 的局部 `config` 声明之后插入
