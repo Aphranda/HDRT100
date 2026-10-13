@@ -372,6 +372,34 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.127 【找到钥匙】正确的让位命令是 **`TRIGger:REServation:SOURce:RELease`**（不是 `STOP`）（2026-10-13）
+
+**逐字查到** ✓（`scpi_system_snapshot_commands.h:426-427` ✓）：
+
+```
+:426  TRIGger:REServation:SOURce:STOP     -> scpi_cmd_trigger_sim_source_stop      （停【运行】✗）
+:427  TRIGger:REServation:SOURce:**RELease** -> scpi_cmd_trigger_sim_source_re…    （释放【令牌】✓✓）
+```
+
+⇒ **A.3.126 的判定被直接证实** ✓✓：`SOURce:STOP` 停的是运行 ✓，而**令牌**由 **`:RELease`** 释放 ✓✓
+—— 这正是我一直缺的那一步 ✓。
+
+**两个令牌的获取/释放点** ✓（`sync_io_model_sched.c` ✓）：
+
+| 令牌 | 获取 | 失败回滚 | 释放 |
+|---|---|---|---|
+| **参考** `s_reference_token` | :487 ✓ | :496 ✓ | **:504** ✓ |
+| **源** `s_turntable_source_token` | :511 ✓ | :520 ✓ | **:530** ✓ |
+
+（其公共 API 名称下一轮从调用处逐字取 ✓，以确认 SCPI `RELease` 是否同时覆盖参考令牌 ✓。）
+
+**立即解锁测试（3 分钟 ✓，免凭证 ✓）**：
+
+1. 发 `TRIGger:REServation:SOURce:RELease` ✓（+ 读其应答 ✓，留意 `<timeout>` 歧义 ✓）；
+2. `LOAD 0,3` → `GROups 16` → `START` ✓ ⇒ 读 `STATe?` ✓；
+3. **判据** ✓：若 `running=1` / `fault=0` ⇒ **钥匙正确** ✓✓ ⇒ 随后把它**固化进流程**（模型武装之前 ✓）；
+   若仍 `fault=3` ✗ ⇒ **参考令牌**仍被持 ✓（其释放 API/命令需再找 ✓，很可能同样有 `REFerence:RELease`-类 ✓）。
+
 ### A.3.126 【根因查明】`sync_io_schedule_reserve(IDLE→LEGACY)` 的三道条件：**源令牌 / 参考令牌 / 相位=IDLE**（皆无 trace）（2026-10-13）
 
 **逐字读到** ✓（`sync_io_model_sched.c:75-96` ✓）：
