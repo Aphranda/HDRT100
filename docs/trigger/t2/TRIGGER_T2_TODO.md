@@ -372,6 +372,36 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.81 【更正】Round 24/29/30 的红是**双重原因**：我的 Step 20 NameError + 台架瞬时不就绪；A 已通过（2026-10-13）
+
+**处置** ✓：按 ROI 回退低价值且阻塞的站点 2 改动 ✓（提交 `ac3c8e2d` ✓，**保留** Round 21 的行程几何判据 ✓）：
+
+```
+107 passed ✓ · 站点2 残留 0 处 ✓ · 行程判据保留 ✓
+t2: exit 0 · passed=True · configured=4 · **publishing=4** · failed=none ✓✓
+    Step 20 END **OK** (23.9 s) ✓
+    travel: -5000/365000/370000/5000/5000 positions=361 step_pulses=1000 -> **OK** ✓
+```
+
+**更正** ✗✓（A.3.80 的判定**不完整** ✗）：`failed=[20]` 有**两个并行原因**：
+
+| 原因 | 归属 | 证据 |
+|---|---|---|
+| **Step 20 抛 `NameError: _scan_announced is not defined`** ✗ | **我的**（站点 2 的作用域放错函数 ✗✓，同族第 4 次 ✓） | 本轮 Step 20 的 reason ✓ |
+| 跟随板 `input_ready 0`（瞬时不就绪 ✗） | 台架 | Rounds 24/29 ✓；本轮已自行恢复 ✓（`publishing=4` ✓） |
+
+⇒ **A（台架就绪）实际已通过** ✓✓（`publishing=4` ✓）⇒ **不触发 blocked** ✓（同一条件未持续 3 轮 ✓，
+第 3 次运行即恢复 ✓）⇒ **B 与 C 均已解除阻塞** ✓✓（固件改动可取得凭证 ✓）。
+
+⚠️ **我为何漏判** ✗✓：我的 grep 模式（`input_ready|readiness`、`scan announced|travel:` 等 ✓）**始终没匹配到**
+`Step 20 END    FAIL … reason:` 这一行 ✗ ⇒ 于是把"我的 NameError"误并入"台架问题" ✗✓。
+⇒ **规则（第 3 次强化）** ✓：诊断脚本**必须**同时匹配 `FAIL` **与** `reason` 并打印整行 ✓；
+否则会把自己的 bug 归给环境 ✗✓（本会话最贵的误判类型 ✓）。
+
+**教训（站点 2 全过程）** ✓：一个 ROI 2 的清理项（迁 legacy `announced` 打印 ✗）竟**三次**引入作用域
+错误并**阻塞验收** ✗✓ ⇒ 实证了用户的判断（"只改工具 ROI 低"✗）与 ROI skill 的
+`DEFER_OR_RECOVER`（回退未证成的改动 ✓）✓✓。
+
 ### A.3.80 A 判定：跟随板 DPLL 输入未就绪（已复现两次）；并抓到一处"判据 OK 而状态坏"（2026-10-13）
 
 **A 的判据（工具自带行 ✓）**：
