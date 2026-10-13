@@ -4,7 +4,7 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TODO.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-10-12
+Last updated: 2026-10-13
 
 ## 文档接口与状态规则
 
@@ -180,6 +180,33 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 ```
 
 配置读回、动作表 CRC、PIO receipt、READY 电平、单窗示波器或模型仿真只能证明各自范围，不能单独关闭完整 T2。
+
+## 结论区（冻结，只增不改）
+
+本区收录**已确认/已证伪**的结论，每条一行：结论 + 依据 + 状态。过程性排查不再增长（原附录 A 保留为证据位置）。
+架构锚点以 `docs/arch/HAOFV_ARCHITECTURE.md` 与 `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` 为准。
+
+| # | 结论 | 依据 | 状态 |
+|---|---|---|---|
+| C1 | `fault_code = 3` 即 Trigger 域错误码 **3 = PIO/DMA 配置失败**；且属 **F1 域级故障**，`*CLS`/`*RST` 无效，需**显式 CLEAR** | `HAOFV_ARCHITECTURE.md:1033`（错误码空间）、`:1197`（F0–F3 分级）；实测 `*RST`/`*CLS` 后 `fault` 仍为 3 | 冻结 |
+| C2 | 模型 arm 失败根因：**在 arm 路径内反复 `pio_add_program` ⇒ PIO0 指令内存耗尽**（程序不自动移除） | `sync_io_model_sched.c:975/985`；重刷后立即最小序列 ⇒ `START "OK"`、`running=1 fault=0 total=2896` | 冻结 |
+| C3 | 架构正解：动态 PIO 须经 **mode descriptor（`sync_io_mode_ops_t.hw`）+ PIO 资源分配表 + Resource Arbiter + DeploymentGate 的 PIO/SM/DMA/IO/IP claims**；"一次装载"仅过渡合规 | `ARCH-PIOCAT-01`（`:189`）、`ARCH-PIOPARTITION-01`（`:1236`）、`:1520`、`:1724` | 冻结 |
+| C4 | **已证伪**：索引越界 ✗（`PIN_COUNT = 4` ⇒ `LOAD 0,3` 合法）、表项超限 ✗（`MAX_ENTRIES = 2048` ⇒ 64 合规）、累积卡死 ✗（`START` 前 `phase=0 fault=0`）、counter/source/run-output/reference/persona 占用 ✗（逐一停用/释放后仍失败） | A.3.122 / A.3.125 / A.3.132 / A.3.133 / A.3.137 / A.3.141 实测 | 冻结 |
+| C5 | 判据纪律：**"无回显 ≠ 失败"**（以状态页随动为准）；`<timeout>` 不构成失败判据 | A.3.141 实测（`WAVEform:STATus?` 随动而回显为空） | 冻结 |
+| C6 | 架构闭环**未实现**（仓库零命中）：`TriggerReservationFB`、`T_fire_target_vdc`、`T_fire_deadline_local`、`T2_actual_local`、`T2_error_ns`、预约 11 态状态机、预约 SCPI ⇒ 属收敛顺序**第 6–7 项，设计上最后开放** | A.3.145 取证；`HAOFV_ARCHITECTURE.md:1720-1723`、`:1707` | 冻结 |
+| C7 | 入口纪律：SCPI 只能**投递事件/写命令槽/读快照**；配置写入属 `MAINTENANCE`；`TRIGger` 是产品动作域，`REALtime` 只做底层维护与调试 | `HAOFV_ARCHITECTURE.md:120/605/1186/1349/1414` | 冻结 |
+
+## 已验证证据页（硬件实测）
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 361 档角度扫描 | `T2:SCAN?` 15 字段自洽（361 位置、窗口与行程一致） | 流程实测 |
+| 边界档 | `T2_SCAN_OVERRIDE_TERMINAL_MDEG=5000` ⇒ 6 位置，`entered=announced=6` | 流程实测 |
+| **每位置 16 组** | `total = 2896 = 181 × 16`，`fault = 0` | 直连实测 |
+| 分块续装订 | 调度页首块 `64` 完成后续装订（`1,1,1,0,1,64,3,113,…` 递增） | 直连实测 |
+| `GROups` 配置 | 读-改-写生效；越界拒绝（17 ⇒ 保持 16） | 直连实测 |
+| `TRIGger` 写修复 | 流程与直连均回 `"OK"`，`1,0,360,2,100,1,1000` 生效 | A.3.107 |
+| **PIO 一次装载** | 连续 6 次 `START/STOP` 全 **ARM OK**（`running=1 fault=0 total=2896`） | 提交 `310ff141`（P3 凭证 ✓） |
 
 ## 附录 A：实现注记（代码级，2026-10-12）
 
