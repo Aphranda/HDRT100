@@ -372,6 +372,37 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.129 【定位持相位者】释放是"令牌身份"匹配；相位卡在某个 RESERVED ⇒ 持相位者应为 counter/run-output（2026-10-13）
+
+**公共 API（逐字 ✓ `sync_io_model_sched.c:480-535` ✓）**：
+
+```c
+bool sync_io_core_reference_reserve(const void *token);      /* 相位 ∈ {IDLE,RUN,COUNTER,GATEWAY,SWITCH}_RESERVED ✓ */
+bool sync_io_core_reference_release(const void *token);      /* ← **按令牌身份**比较交换归还 ✓ */
+bool sync_io_core_turntable_source_reserve(const void *token);/* 相位 ∈ {IDLE,COUNTER,RUN}_RESERVED 且 !model.running ✓ */
+bool sync_io_core_turntable_source_release(const void *token);/* ← 同上，身份匹配 ✓ */
+bool sync_io_core_pulse_counter_reserve(const void *token);   /* 其内部即 reserve(IDLE→COUNTER_RESERVED) ✓ */
+/* 另有（早期符号表 ✓）: sync_io_core_pulse_counter_release / run_output_release / gateway_release / … ✓ */
+```
+
+**两条推论** ✓✓：
+
+1. **释放必须用"当初 reserve 的同一令牌"** ✓（`compare_exchange(expected=token, 0)` ✓）⇒ 若 SCPI `RELease`
+   持有的令牌与占用者**不是同一个对象** ✗ ⇒ 释放**静默无效** ✓✓ —— 与 A.3.128 的"回 `1,0` 但状态不变"
+   **完全吻合** ✓（又一次"同一名字 ≠ 同一对象" ✓）；
+2. **相位卡在某个 `*_RESERVED`** ✗ ✓：模型 arm 要求**恰为 IDLE** ✓（A.3.126 ✓），而
+   `reference/turntable_source` 的 reserve 都**允许** `RUN_RESERVED`/`COUNTER_RESERVED` ✓
+   ⇒ 说明这些相位是**合法且会被占用**的 ✓ ⇒ **持相位者应为 `COUNTER_RESERVED` 或 `RUN_RESERVED` 的所有者** ✓✓
+   ⇒ 即 **T2 计数器** 或 **run-output** ✓ ⇒ 对应释放入口：
+   `sync_io_core_pulse_counter_release()` / `sync_io_core_run_output_release()` ✓✓。
+
+**下一轮（两条并行 ✓）**：
+
+1. 查 SCPI 层是否有 `COUNter:RELease` / `OUTPut:RELease`-类 ✓（若无 ⇒ **流程必须在内部让位** ✓，
+   即通过既有 API 顺序 ✓ 或补一条让位步骤 ✓）；
+2. 读 `sync_io_core_pulse_counter_reserve/release` 的**调用者** ✓ ⇒ 确认"**谁**（哪一步）持有
+   `COUNTER_RESERVED`" ✓ ⇒ 在模型武装前**先释放它** ✓ ⇒ 复测 `START` ✓ ⇒ 期望 `running=1` / `fault=0` ✓。
+
 ### A.3.128 解锁测试未成功：`RELease` 回 `1,0` 但状态不变 ⇒ 阻挡者应为**参考令牌/相位卡住**（2026-10-13）
 
 **实测** ✓：
