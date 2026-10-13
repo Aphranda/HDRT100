@@ -2559,7 +2559,7 @@ def step_20_sampling(ctx, slot, board, uid):
                       f" | T2 counter {t2_field(state, 'last_counter_count')}"
                       f" published_mask {t2_field(state, 'published_mask')}"
                       f" announced {t2_field(state, 'announced_mask')} (legacy)"
-                      f" | scan announced {(_t2_scan_last[7] if getattr(ctx, '_t2_scan_last', None) and len(_t2_scan_last) > 7 else '?')}"
+                      f" | scan announced {_scan_announced}"
                       f" targets {[state[i] if len(state) > i else '?' for i in T2_TARGETS]}"
                       f" thresholds {[state[i] if len(state) > i else '?' for i in T2_THRESHOLDS]}"
                       f" prep {t2_field(state, 'prepare_calls')}"
