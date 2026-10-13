@@ -372,6 +372,29 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.31 【已定论】通过/失败轮对比：环必须在 trial 后**立即**健康；失败 = **恰好 +1 的配置漂移**（2026-10-13）
+
+按 A.3.30 的方法，对比 4 个运行在**同一位置**（`after ORIGin:TRIAL (source still stopped)` 探测）的取值：
+
+| 运行 | `t2` | trial 后立即探测 |
+|---|---|---|
+| `t2-20261013-084254` | ✓ | `err 0 valid 1` \| `bound ring_cfg **118 vs ring 118/118**` ✓ |
+| `t2-20261013-083954` | ✗ | `err 7 valid 0` \| `bound **112 vs ring 113/113 DRIFT**` ✗ + sticky fault ✗ + `ORIGIN STOP … UNAUTHORIZED+COMM_FAULT` ✗ |
+| `t2-20261013-083640` | ✓ | `err 0 valid 1` \| `bound **107 vs ring 107/107**` ✓ |
+| `t2-20261013-083151` | ✗ | `err 7 valid 0` \| `bound **101 vs ring 102/102 DRIFT**` ✗ |
+
+**两条定论**：
+
+1. **时序问题（A.3.30）有答案**：环必须在 trial 之后**立即**健康 ✓——通过轮在**同一位置**即为 `valid 1` 且 config **完全一致** ✓ ⇒ **断言放在 `:1970` 之后是正确的** ✓（**不需要**等到 `:1980` 使能 observer ✓✓）；
+2. **失效机制精确化**：失败轮的漂移**恰好是 +1**（112→113、101→102 ✗）⇒ trial 的**配置递增已生效**，但该次 trial 的**授权被拒**（`UNAUTHORIZED + COMM_FAULT`、`FAULT_LATCHED` ✓）⇒ 绑定值停在旧值，环则已前进一版 ⇒ **粘滞 DRIFT** ✗，此后 cursor 永为 `err 7 valid 0` ✗。
+
+**修法（现在可以精确落地，免凭证）**：
+
+1. **在 `:1970` 之后断言**：`err == 0 && valid == 1 && ring_cfg == ring config_seq` ✓；失败即报
+   **"trial 授权失败导致环配置 +1 漂移（bound N vs ring N+1）"** ✓（而不是拖到 step 18 报"cursor 未就绪" ✗）；
+2. **恢复路径**：把绑定**重新对齐**到观测到的 `config_seq`（接受 N+1 ✓）或**重发一次 trial/绑定** ✓，随后复探一次（1–2 s 轮询 ✓）；
+3. **失败时的诊断**：把 `ORIGIN STOP` 的 `cause`（`UNAUTHORIZED+COMM_FAULT` ✓）一并打印 ✓——它才是**根因**（trial 未被授权 ✓），漂移只是后果 ✓。
+
 ### A.3.30 插入点已定（`t2_workflow.py:1970` 之后），但需先答一个时序问题（2026-10-13）
 
 读 step 16 的该区域（`:1958-1987`）确认：
