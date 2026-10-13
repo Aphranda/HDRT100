@@ -244,6 +244,20 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 
 **搬移判别**：四级标题内**接线事实小节**与**日志条目**形状相同（同为两段编号）⇒ **禁止机械切分**；以"标题含 `20xx-xx-xx` 日期"为首要判据，并**先出清单、只改归属、可回滚**。
 
+## 遗留待办（对照 HAOFV 逐级审查收尾，2026-10-13）
+
+审查结论与证据见 [Task Progress](TRIGGER_T2_TASK_PROGRESS.md)；本节只记任务状态。状态用 `PENDING` / `IN PROGRESS` / `BLOCKED` / `DONE`。
+
+| ID | 任务 | 状态 | 前置与判据 |
+|---|---|---|---|
+| T2-AUDIT-01 | 模型脉冲路径的**运行期 PIO 热加载**整改：登记为启动期资源，经 mode descriptor 声明 PIO/SM/DMA/GPIO，STOP/config ACK 阶段装载并读回 | `PENDING` | 前置：模式声明位置与 `sync_io_mode_ops_t.hw` 字段定稿；判据：连续 `START/STOP` 后可用程序槽位不减少且装载只在 STOP 阶段；需 P3 硬件验收凭证 |
+| T2-AUDIT-02 | 每位置一组 → **每位置 16 组 + 两组滑动窗口**（审查 A-06/A-16） | `DONE` | 硬件闭环：`total = 2896 = 181 × 16`、`fault = 0`；残余：FREEZE 后按最新 DCO **重算未装填组**（K-2）仍待实现 |
+| T2-AUDIT-03 | 紧凑记录的**跨域契约登记**（`docs/check/DOCS_REGISTRY.md`）+ **C11 独立交叉审核** + 与 **TDMA 一等席布局联审** | `BLOCKED` | 阻塞条件：描述符 wire 布局、profile 默认值、资源配额与正式时限**尚未冻结**；按本文与架构文件规定，**登记前不得写成冻结契约**，因此不得提前登记 |
+| T2-AUDIT-04 | 转台**源路径选型**定稿（`TRIGger:REServation:SOURce:*` 硬件 PWM 源 vs `CONFigure:MODEl:TURNtable:*` 加减速模型源） | `BLOCKED` | 阻塞条件：属**产品/验收口径决策**，选型会改变隔离验收（`T2-TURNTABLE-008`）的证据口径；待用户定稿，本任务不预设结论 |
+
+说明：`T2-AUDIT-03` 与 `T2-AUDIT-04` 的 `BLOCKED` 为**前置未满足**（契约未冻结、口径未定），非技术不可行；
+前置满足后按 AGENTS.md 的契约登记流程（含 C11 交叉审核）推进。
+
 ## 结论区（冻结，只增不改）
 
 本区收录**已确认/已证伪**的结论，每条一行：结论 + 依据 + 状态。过程性排查不再增长（原附录 A 保留为证据位置）。
