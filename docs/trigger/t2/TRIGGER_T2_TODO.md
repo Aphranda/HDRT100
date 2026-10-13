@@ -372,6 +372,25 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.90 【已落地】`GROups` 命令（读-改-写，只改组数）+ 空块清理；编译失败一例（2026-10-13）
+
+**落地** ✓（提交 `4d3abc6c` ✓，凭证 ✓ `ERROR 0 / FATAL 0` ✓）：
+
+* `scpi_model_commands.h` ✓：新增原型 `scpi_cmd_model_turntable_groups{,_q}` ✓ **与**两条表行
+  `CONFigure:MODEl:TURNtable:GROups` / `READ:…:GROups?` ✓（插在**末行之前**，保持末行无续行符 ✓✓）；
+* `scpi_model_commands.c` ✓：两个处理器，风格与 `trigger` 一致 ✓（同一 `reject_if_run_forbidden`
+  防护类 ✓）；setter 用**读-改-写** ✓（`get_trigger_config` → 只改 `groups_per_position` →
+  `configure_trigger` ✓）⇒ **其它触发字段保持不变** ✓；
+* `model_turntable.h` ✓：上限宏 `MODEL_TURNTABLE_MAX_GROUPS_PER_POSITION 16u` **移入公共头** ✓，
+  `.c` 中删除重复定义 ✓；`recompute_plan()` 的**空块 `if (false) { }` 已删除** ✓（上轮债务偿还 ✓）。
+
+**编译失败一例（已修 ✓）** ✗✓：首版把上限宏写在 `model_turntable.c` → SCPI 处理器所在的**另一编译单元
+看不到** ✗ ⇒ `FAILED: scpi_model_commands.c.obj` ✗（两次 `run` 均在**编译步**失败 ✓）⇒
+**宏移入头文件** 即通过 ✓✓。**规则** ✓：**跨单元使用的常量必须定义在公共头** ✓。
+
+**遗留（下一轮 5 分钟 ✓）**：**实测新命令** ✓ —— `READ:…:GROups?` → `CONFigure:…:GROups 16` →
+再读 ✓，并确认 `READ:…:TRIGger?` 的 **7 字段页不变** ✓（本轮该实测因临时脚本未生成而未执行 ✗✓）。
+
 ### A.3.89 【已落地】每位置组数（默认 1）——行为保真已验证；回归红属已知环族（2026-10-13）
 
 **落地** ✓（提交 `7be228b2` ✓，凭证通过 ✓）：
