@@ -250,7 +250,7 @@ STEP 的下限由时间推出：相邻位置的时间间隔（`step_mdeg / 转�
 - `pulses_per_degree` 必须作为 T2 配置参数下发，并与模拟源共用同一个值，禁止两侧各自写死。
 - 模拟源以转速与 ppd 为输入换算频率：`frequency_hz = speed_mdeg_per_s × pulses_per_degree / 1000`；换算须为整数，或由配置期显式定义取整并读回实际频率（源的输出频率是量化后的实测值，不是声明值）。
 - 脉宽必须可配置，不使用固定占空比代替。
-- 现有两条源路径——`TRIGger:REServation:SOURce:*` 的 OUT4 硬件 PWM 源与 `CONFigure:MODEl:TURNtable:*` 的加减速模型源——选型尚未冻结；选型会改变隔离验收（`T2-TURNTABLE-008`）的证据口径，须在实现前定稿。
+- 口径已定（2026-10-13，用户裁定）：台架以 **OUT4→IN1 硬件回环模拟**转台输入（回环已接好），接实际转台时由转台直接驱动 **IN1**；两条源路径保留——`TRIGger:REServation:SOURce:*` 的 OUT4 硬件 PWM 源用于**隔离验收**，`CONFigure:MODEl:TURNtable:*` 的加减速模型源在需要**加减速真实性**时使用（参 `TRIGGER_T2_STEP_REVIEW` 的 D-7）；正式冻结仍待 T2-AUDIT-03 的五项契约登记。
 
 ### 起始热身区、零位格点与终止校验区
 
