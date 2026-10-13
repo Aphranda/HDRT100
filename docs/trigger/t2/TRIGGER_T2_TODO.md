@@ -372,6 +372,36 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.139 【解锁命令到手】persona 的停止 = `SYSTem:SYNC:VDC:OBServer:WAVEform:STOP`（2026-10-13）
+
+**两条关键证据** ✓✓：
+
+```
+【谁占 persona（wave_output_manager_start 的调用者）】
+  sync_io_model_sched.c:416   （定义 ✓）
+  sync_io_model_sched.c:955   （**模型 arm 内部** ✓）
+  sync_io_model_sched.c:**1326** ✓ ← **另一条路径**（观察者/periodic ✓）⇒ 最可能的占用者 ✓✓
+
+【SCPI 入口（逐字 ✓ scpi_sync_commands.h:98-101 ✓）】
+  :98   SYSTem:SYNC:VDC:OBServer:WAVEform:ARM        ← 武装 wave-output persona ✓
+  :99   **SYSTem:SYNC:VDC:OBServer:WAVEform:STOP**    ← ★ **停止 persona** ✓✓（解锁所需 ✓）
+  :100  SYSTem:SYNC:VDC:OBServer:WAVEform:STATus?     ← 可查询 ✓
+  :101  SYSTem:SYNC:VDC:OBServer:WAVEform:SAVE        ✓
+```
+
+⇒ **推断** ✓✓：该 **observer waveform persona** 很可能由**流程的 VDC 会话**（Step 13 ✓，
+`SYSTem:VDC:OUTPut:RUN` ✓）或我历轮实验武装 ✓ ⇒ 占住 **PIO0 输出 persona** ✗
+⇒ 模型的 `wave_output_manager_start()`（`:955` ✓）失败 ⇒ `fault 3` ✓✓ —— **与全部实测相容** ✓。
+
+**决定性测试（3 分钟 ✓，免凭证 ✓）**：
+
+1. 读 `SYSTem:SYNC:VDC:OBServer:WAVEform:STATus?` ✓（改前 ✓）；
+2. 发 **`SYSTem:SYNC:VDC:OBServer:WAVEform:STOP`** ✓ ⇒ 再读 `STATus?` ✓（确认已停 ✓）；
+3. `LOAD 0,3` → `GROups 16` → `START` ✓ ⇒ 读 `READ:MODEl:TURNtable:STATe?` ✓；
+4. **判据** ✓：`fault=0`/`running=1` ⇒ **根因确认 = observer waveform persona 占用 PIO0** ✓✓
+   ⇒ 随后在流程中"**模型武装前停 observer waveform**" ✓（与 A.3.62 单所有者纪律一致 ✓）；
+   仍 `fault=3` ✗ ⇒ 读 `:1326` 的调用上下文 ✓（确认那条路径是谁 ✓）并检查装订体 `:958-1010` ✓。
+
 ### A.3.138 装订体读到 `:958`：最后一道门 = **`sync_io_wave_output_manager_start()`**（第 10 项候选）（2026-10-13）
 
 **逐字读到** ✓（`sync_io_model_sched.c:895-958` ✓）：
