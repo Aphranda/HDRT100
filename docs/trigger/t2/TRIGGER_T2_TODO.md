@@ -372,6 +372,34 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.41 【里程碑】台架扫描已切到 **0..360°@1°（361 位置）** 并跑通（2026-10-13）
+
+**改动**（提交 `d35d2b1d`，tools-only ⇒ 免刷写免凭证 ✓）：三处 `T2:CONFigure` 的位置参数由
+`5000,10000,15000,5000`（start/zero/terminal/step）改为 `0,0,360000,1000`，其余
+（`pre_roll=5000`、`post_roll=5000`、`threshold=950`、`ppd=1000`）不变 ✓。
+
+**台架验证**（同一提交后一次 `t2`）：
+
+```
+t2: passed=True · configured=4 · publishing=5 · failed=none ✓
+T2SCAN 1000,9,0,1000,361,1000,2,0,0,0
+        step_mdeg=1000 ✓ · branch_entered=9 · scan_result=0(OK) ✓ · window_step_mdeg=1000 ✓
+        geometry positions=361 ✓✓ · step_pulses=1000 ✓（ppd=1000 ⇒ 每位置 1000 脉冲 ✓）
+        entered=2 · announced=0 · overwrote=0 · mismatch=0
+```
+
+⇒ **窗口接受了 361 位置的扫描并正确派生几何** ✓✓（`scan_result=0` ✓、`positions=361` ✓），
+且**验收通过** ✓（`publishing=5` ✓、无失败步骤 ✓）——这就是用户口径"360° 1°step"的**在硬件上的实现** ✓✓。
+
+**顺带验证了"附加式判据"的价值** ✓：同一轮的 legacy 三槽阈值读作
+`[('5000','4950'), ('5000','4950'), ('365000','364950')]` ✗（start=0 与 zero=0 使前两槽重合 ✓、
+terminal=365000 ✓）——legacy 掩码判据此时已**不再适用** ✗，但因为窗口健康判据是**附加**的 ✓、
+且掩码判据按"已跨阈值数"判定（该轮 count=0 ⇒ crossed=0 ⇒ 不失败 ✓），验收仍正确通过 ✓✓。
+
+**下一步（现在理由充分）**：legacy 三槽（`target_count[3]`/`threshold_count[3]`/`announced_mask`）
+在 361 位置下已明显"过时"✗（如上）⇒ 按 A.3.35 的四步顺序**删除**，并把 `T2?` 中的三位置字段与
+工具的读取一并迁到扫描口径 ✓。
+
 ### A.3.40 【更正】`target_mask` 是**板/对端掩码**，与扫描长度无关 ⇒ 361 切换**无需改动**它（2026-10-13）
 
 A.3.12/A.3.36 曾把工具里三处 `T2:CONFigure …,0,14, …` 的 `14` 当作"三位置掩码"，列为 361 切换的待改项 ✗。**这是误读** ✗✓，固件侧证据：
