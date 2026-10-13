@@ -372,6 +372,60 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.144 【读懂架构】按 canonical 文档重排 T2 待办：现有工作属"机制层"，缺"预约/deadline/latch/T2_error 闭环"（2026-10-13）
+
+**canonical** ✓：`docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md` ✓（顶层 `HAOFV_ARCHITECTURE.md:498-530` 只保留 owner 与事实方向 ✓）。
+
+**闭环（`:24-35` ✓）**：
+
+```text
+raw local clock + hardware edge latch
+  → TDMA clock-training observation → VDC DPLL offset/rate mapping
+  → **Trigger 在 VDC 时间做未来预约**（T_fire_target_vdc）
+  → TDMA flight distribution + READY/fence
+  → **VDC 目标→本地逆映射**（T_fire_deadline_local）
+  → **sync_io/PIO 执行本地 deadline**
+  → **硬件锁存实际边沿为 raw local tick**（T2_actual_local）
+  → VDC 把完成映射回共同时间（T2_actual_vdc / **T2_error_ns**）
+  → RefMem/TDMA 发布完成证据
+```
+
+**术语与禁止项（`:47-60` ✓）**：`local_tick_raw` 是硬件事实 ✓（DPLL 不回写 ✓）；`system_tick` 是**只读派生** ✓；
+`T_fire_target_vdc`（Trigger ✓）→ `T_fire_deadline_local`（VDC 算、**sync_io 消费** ✓）→
+`T2_actual_local`（**PIO/DMA 硬件 latch** ✓）→ `T2_actual_vdc` → **`T2_error_ns` = actual − target** ✓；
+明令：**不得用软件处理完成时刻填充 `T2_actual_local`** ✗✓。
+
+**预约状态机（`:171-187` ✓）**：`DRAFT → PREPARED → DISTRIBUTING → WAIT_FENCE → **ARMED**（本地 deadline 冻结并装载 ✓）
+→ FIRED（输出执行 + 输出 latch ✓）→ WAIT_T2（设备 READY/T2 latch ✓）→ COMPLETED` ✓；
+`REJECTED/CANCELLED/FAULT` ✓；**arm guard 之后取消默认 fail closed** ✓，**不得软件"尽量取消"已装载边沿** ✗✓。
+
+**故障与门禁（`:202-209` ✓）**：map generation 在 guard 前变化 ⇒ **重新 PREPARE + 重新 fence** ✓；
+guard 后变化**不得影响已冻结 deadline** ✓；TDMA late/window/CRC/fence timeout ⇒ **不 ARM + 可追溯 NACK** ✓；
+**PIO FIFO 欠载 / DMA overrun / 硬件 latch 缺失 ⇒ 该次 actual 证据无效，不得用 CPU 时间补齐** ✗✓；
+core0 拥塞/UI/LOG/SCPI 阻塞 ⇒ **不得停止 core1 flight 或已装载 PIO deadline** ✓。
+
+**验证顺序（`:211-220` ✓）**：① 单板回环（raw latch 连续性 ✓、正反映射 round-trip ✓、预约状态机 ✓、
+late 拒绝 ✓、**PIO 输出 latch 与 T2 completion** ✓）→ ② 两节点 → ③ 三节点 → ④ 五节点 → ⑤ 八节点 → ⑥ 长跑 ✓；
+并明确**证据分级**：软件模型测试 < 完整帧 store-and-forward HIL < 真正 cut-through HIL < 多节点时钟分发闭环 ✓✓。
+
+---
+
+**⇒ 差距分析（必须如实 ✓✗）**：
+
+| 项 | 现状 | 架构要求 |
+|---|---|---|
+| 预约状态机（PREPARED/WAIT_FENCE/ARMED/…) | **未接入 T2** ✗（我们用的是模型 `phase` ✗） | Trigger 拥有其状态机 ✓ |
+| `T_fire_target_vdc` / **VDC 逆映射 deadline** | **未使用** ✗ | sync_io 消费 deadline ✓ |
+| **硬件 latch `T2_actual_local`** | **未使用** ✗（我们读的是模型 `emitted`/位置 ✓） | PIO/DMA 硬件 latch ✓ |
+| **`T2_error_ns`** | **从未测量** ✗✓ | 架构的**核心指标** ✓✓ |
+| 16 组 / 分块 / `GROups` / 行程判据 | 已实现并硬件验证 ✓✓ | 属"**local deadline execution**"层内的**脉冲生成机制** ✓（非闭环本身 ✗） |
+| `TRIGger` 写修复 ✓、PIO 一次装载 ✓ | 已修复并六次循环验证 ✓✓ | 与"loaded deadline"模型一致 ✓ |
+
+⇒ **结论** ✓✓：我此前的工作是**机制层**（窗口/位置/组数/脉冲 ✓），**不是**架构的**预约→deadline→latch→误差**闭环 ✗；
+**下一步应按架构重排** ✓：把脉冲生成挂在 **TriggerReservationFB 的 ARMED 装载** 之下 ✓，
+消费 **`T_fire_deadline_local`** ✓，并以**硬件 latch 的 `T2_actual_local` 算出 `T2_error_ns`** ✓✓
+—— 这才是 T2 的验收物 ✓（也是本会话从未产出过的量 ✗✓）。
+
 ### A.3.143 【架构审查·用户提出】PIO 本该**预定义+一次性装载**；模型调度路径**偏离**该约定（2026-10-13）
 
 **用户质疑** ✓（正确 ✓✓）："若符合 HAOFV 架构，就不该出现 PIO 耗尽；PIO 已经预先做了定义和规划" ✓。
