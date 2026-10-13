@@ -12,6 +12,32 @@ Last updated: 2026-10-12
 
 ## 当前 checkpoint
 
+### 2026-10-13 T2-AUDIT-04 参考实现取证：转台输入与测量脉冲的已定角色
+
+取证来源：分支 `origin/feature/node-sequence-reservation-trigger`（commit `19b9c5ff`）内的
+《TRIGGER_SEQUENCE_ARCHITECTURE》第 **NSEQ-RSV-01** 节。
+
+该节的槽位职责表（逐字要点）：
+
+| 槽位职责 | 本地端 IO | 执行事实 |
+|---|---|---|
+| **COUNTER** | **IN1（转台）** | 累计计数达到位/阈值后才进入业务位 |
+| SP8T 通路控制 | OUT1、OUT2 | 记录所选状态 |
+| SP2T 极化控制 | OUT3（H/V） | 记录对应状态 |
+| **VNA_GATEWAY** | **OUT4（测量脉冲）、IN2（READY）** | 只对应本地预约 |
+
+两条推论：
+1. **转台侧的含义已定**：转台作为 **COUNTER 角色、输入 IN1**；测量脉冲在 **OUT4**。
+   后者与现有 `TRIGger:REServation:SOURce:*` 的 OUT4 硬件 PWM 路径**一致**。
+2. **模式化的做法已定**（A-04/A-06）：通过 **SYNC_IO owner/persona 机制**实施热加载，
+   常驻 SM 角色为 `TURNTABLE_SM`、`INGRESS_SM`、`EXECUTOR_SM`、`COUNTER_SM`；
+   资源以 `sync_io_persona_resources.c` 与 `SYNC_IO_PERSONA_ID_SEQUENCE_COUNTER` 为准；
+   切换顺序：停 SM → 停 DMA/IRQ → 清 FIFO → 卸载/装载 → 初始化执行位置 → **原子发布 generation**。
+
+本条与本仓库现状的差异：本仓 `components/sync_io` 尚无 `sync_io_sequence.*`，
+也尚无对应 persona；因此 T2-AUDIT-01 落地时应**按上述机制**实现，而非自制薄配置。
+
+
 ### 2026-10-13 T2-AUDIT-04 补充：“模型源”API 命名跨两条物理通道
 
 取证（逐字）：
