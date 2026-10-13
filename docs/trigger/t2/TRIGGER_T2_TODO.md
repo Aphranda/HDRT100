@@ -372,6 +372,45 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.107 【回归·我引入】`TRIGger` 写被拒的真因：新增字段使局部 config 未初始化（2026-10-13）
+
+**对照结果（逐字 ✓）**：处理器读取顺序 =
+
+```
+dimension(u32) → start(double) → stop(double) → step(double)
+→ pulse_width_us(u32) → rising_edge(bool) → timeout_ms(i32)
+```
+
+流程发送 `CONFigure:MODEl:TURNtable:TRIGger 1,0,360,2,100,1,1000` ✓（`t2_workflow.py:585/1788/1847` ✓）
+⇒ **顺序与参数完全一致** ✓ ⇒ **顺序不是原因** ✗✓。
+
+**真因（我引入的回归 ✗✓）**：handler 内是
+
+```c
+model_turntable_trigger_config_t config;      /* ← 局部变量，未整体初始化 ✗ */
+… 只填 7 个字段 …
+return model_turntable_configure_trigger(&config) ? … : SCPI_RES_ERR;
+```
+
+而我在 A.3.87 **给该结构新增了第 8 个字段 `groups_per_position`** ✗ ⇒ 该字段是**栈上未初始化值** ✗
+⇒ 我加的校验 `1 ≤ groups ≤ 16` ✗ ⇒ **随机失败** ✓✓ ⇒ 命令无 `"OK"` 回显 ✓（与 A.3.103 观察完全吻合 ✓✓）。
+
+⇒ **这是本会话"加字段必须同步所有构造点"的又一实例** ✗✓（与"位置参数顺序"✗✓、"页面字段顺序"✗✓、
+"跨编译单元常量"✗✓ 同族 ✓）。**修法（3 行 ✓）**：在 `trigger` handler 中**先读现有 config** ✓，
+把 `groups_per_position` **带入** ✓（与 `GROups` setter 同样的读-改-写 ✓），再 `configure_trigger` ✓：
+
+```c
+model_turntable_trigger_config_t config;
+model_turntable_get_trigger_config(&config);   /* ← 保留未在本命令中出现的字段 ✓ */
+… 覆盖 7 个字段 …
+```
+
+**同时排查** ✓：其它**构造** `model_turntable_trigger_config_t` 局部变量的地方 ✓（firmware 侧 ✓）
+也须同样处理 ✓，否则会留下同类隐患 ✗✓。
+
+**注** ✓：该回归只影响 **`TRIGger` 写命令** ✓（`LOAD`/`MOTion`/`GROups` 各自读-改-写或不受影响 ✓），
+因此**不阻塞** T2 主流程 ✓——但它阻止把模型计划设为流程所需的 **181 位置** ✓，故必须修 ✓。
+
 ### A.3.106 【闭环】服务循环确在调用 ⇒ 执行端在固件侧**功能完整**（2026-10-13）
 
 **证据** ✓（逐字 ✓）：`application/src/app.c:1188` → **`model_turntable_service();`** ✓
