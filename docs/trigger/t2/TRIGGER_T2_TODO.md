@@ -372,6 +372,21 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.136 采集/分析器模式串的取法已确认（风格 `REALtime:IO:<SUB>:<FIELD>`，查询带 `?`）（2026-10-13）
+
+**已取到** ✓（`scpi_realtime_io_commands.h:57-82` ✓，逐字 ✓）：`REALtime:IO:OUTPut:RELEase` ✓、
+`REALtime:IO:MODel:OUTPut:MASK` ✓、`REALtime:IO:SMA:FREQuency:TX/STOP` ✓ 等 ⇒
+**风格确认** ✓：`REALtime:IO:<SUB>:<FIELD>` ✓，**查询**加 `?` ✓（如 `…:WIDTh?` ✓）。
+
+⇒ 采集/分析器的串（对应函数 `scpi_cmd_analyzer_state_q` ✓ / `analyzer_stop` ✓ / `sample_state_q` ✓）
+位于该表**更下方**（本切片止于 `:82` ✗）⇒ **下一轮先打印 `:83` 起** ✓ 逐字取串 ✓，
+**然后**机械执行：
+
+1. `REALtime:IO:ANalyzer:…:STOP`（串待取 ✓）⇒ 读其状态页 ✓ 确认采集已停 ✓；
+2. `LOAD 0,3` → `GROups 16` → `START` ✓ ⇒ 读 `READ:MODEl:TURNtable:STATe?` ✓；
+3. **判据** ✓：`fault=0`/`running=1` ⇒ **根因确认 = 采集/工作区占用** ✓✓（A.3.135 的同源两候选 ✓）；
+   仍 `fault=3` ✗ ⇒ 两候选排除 ⇒ 读装订体 `:895-1000` 的剩余分支 ✓（`entries` 拷贝/DMA 配置/PIO 加载 ✓）。
+
 ### A.3.135 装订体第二道门：**共享工作区租约** `sync_io_workspace_claim()`（与 capture 同源）（2026-10-13）
 
 **逐字读到** ✓（`sync_io_model_sched.c:841-856` ✓）：
