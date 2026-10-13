@@ -38,7 +38,7 @@ EXPECTED_PARAMETERS = (
 # Every place that sends TRIGger:REServation:T2:CONFigure, with the line it lives on.
 EXPECTED_CALL_SITES = {
     "tools/sync_trigger/t2_bench_probe.py": (242,),
-    "tools/sync_trigger/t2_workflow.py": (214, 520, 1718),
+    "tools/sync_trigger/t2_workflow.py": (214, 520, 972, 1737,),
 }
 
 

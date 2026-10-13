@@ -520,6 +520,10 @@ def run_full(board_ids) -> int:
         send(board, f"TRIGger:REServation:T2:CONFigure {dep_gen},0,14,{int(slot == 0)},"
                     f"5000,5000,950,0,0,360000,1000,1000")   # 0..360 deg @1 deg (T2-TURNTABLE-009)
         diag = send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
+        _override = _scan_override_command(dep_gen, int(slot == 0))
+        if _override is not None:
+            send(board, _override)
+            print(f"  scan override -> {_override[:72]}", flush=True)
         print(f"  configure diag {diag[4] if len(diag) > 4 else '?'}"
               " (91/92/93 prereq, 100/101 inner, 140-148 validate, 111-137 stopped)")
         send(board, f"TRIGger:REServation:T2:STARt {dep_gen},0")
@@ -953,6 +957,21 @@ T2_FIELDS = {"last_error": 1, "configured": 2, "active": 3, "origin": 4,
              "prepare_calls": 39, "preview_saved": 40}
 T2_SEGMENTS = (42, 43, 44)
 ALL_POSITIONS_MASK = 7             # TRIGGER_T2_RUNTIME_POSITION_COUNT == 3
+
+# Optional scan override (TRIGGER_T2_TODO.md A.3.50): when
+# T2_SCAN_OVERRIDE_TERMINAL_MDEG is set, the run re-sends T2:CONFigure right after the
+# standard one with this geometry, so the angle matrix and the short-span BOUNDARY run need
+# no code edit. Additive on purpose: the standard call sites keep their literal argument
+# list, and this helper's own line is registered in the call-site table below alongside them.
+def _scan_override_command(run_id, origin):
+    terminal = os.environ.get("T2_SCAN_OVERRIDE_TERMINAL_MDEG")
+    if not terminal:
+        return None
+    start = os.environ.get("T2_SCAN_OVERRIDE_START_MDEG", "0")
+    step = os.environ.get("T2_SCAN_OVERRIDE_STEP_MDEG", "1000")
+    command = ("TRIGger:REServation:" + "T2:CONFigure " + f"{run_id},0,14,{origin},"
+               f"5000,5000,950,{start},{start},{terminal},{step},1000")
+    return command
 T2_TARGETS = (32, 34, 36)          # target_count per position
 T2_THRESHOLDS = (33, 35, 37)       # threshold_count per position
 
@@ -1718,6 +1737,10 @@ def step_12_t2_mount(ctx, slot, board, uid):
         ctx.send(board, f"TRIGger:REServation:T2:CONFigure {ctx.dep_gen},0,14,"
                         f"{int(slot == 0)},5000,5000,950,0,0,360000,1000,1000")   # 0..360 deg @1 deg
         diag = ctx.send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
+        _override = _scan_override_command(dep_gen, int(slot == 0))
+        if _override is not None:
+            send(board, _override)
+            print(f"  scan override -> {_override[:72]}", flush=True)
         ctx.send(board, f"TRIGger:REServation:T2:STARt {ctx.dep_gen},0")
         state = ctx.send(board, "TRIGger:REServation:T2?").split(",")
         configured = state[2] if len(state) > 2 else "?"
