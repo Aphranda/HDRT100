@@ -372,6 +372,48 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.65 【对接点已定位】本地脉冲调度**已有公开 API 且已被转台模型调用**（2026-10-13）
+
+执行端不需要新建入口 ✓ —— 公开 API 与调用者都已存在：
+
+**公开 API**（`components/sync_io/inc/sync_io.h`）：
+
+| 行 | 符号 |
+|---|---|
+| :216 | `bool sync_io_model_pulse_schedule_arm(uint32_t output_index, …)` |
+| :220 | `bool sync_io_model_pulse_schedule_arm_ns(…)` |
+| :226 | `bool sync_io_model_pulse_schedule_arm_periodic_ns(…)` |
+| :284 | `void sync_io_model_pulse_schedule_disarm(void)` |
+| :285 | `bool sync_io_model_pulse_schedule_is_running(void)` |
+| :286 | `void sync_io_model_pulse_schedule_get_runtime(sync_io_model_pulse_runtime_t *)` |
+
+**现有调用者**（关键 ✓）：`components/model_turntable/src/model_turntable.c`
+
+```
+:281  if (!sync_io_model_pulse_schedule_arm(s_turntable.output_index, …)) …
+:308 / :324  sync_io_model_pulse_schedule_disarm();
+:329  sync_io_model_pulse_schedule_get_runtime(&runtime);
+```
+
+**内部链** ✓：`arm*` → `sync_io_sma_observer_fixed_rate_arm_owned()`（`sync_io_model_sched.c:1253` ✓，
+即 A.3.62 读到的三档选择函数 ✓）→ `sync_io_rate_schedule_generate_window/marked/generate()` → PIO ✓。
+
+⇒ **结论（大幅降低实现成本）** ✓✓：**转台模型已经在驱动本地脉冲调度** ✓ ⇒ T2 的"16 组/位置 + 深度 2"
+**不是**新建执行栈 ✗，而是**在既有调用点喂正确的参数** ✓：
+
+| 待喂参数 | 取值来源 |
+|---|---|
+| `pulse_count` | **16**（每位置 16 组 ✓） |
+| `period_ns` / `high_ns` | 由速度档 + 编码器/转台几何决定 ✓（A.3.45/A.3.53 的速度矩阵 ✓） |
+| `marker_high_ns` / `closed_window` | 用**闭窗口**（`closed_window=true` ✓）⇒ 两标记 + 静默槽 ✓（A.3.61 ✓） |
+| `tick_period_ns` | **4** ✓（`clk_sys = 250 MHz` ✓，divider = 1 ✓；回退 100 ✓） |
+| `rate_ppb` | 由 T2 的**预测速率**给出 ✓（亚 tick 增益 ✓，正是"预测"落到执行端的量 ✓） |
+| 深度 2 | **调用点的排队**：`is_running()` 为假时装订下一位置 ✓（单所有者 ✓，A.3.62 ①） |
+
+**下一步（实现）**：读 `model_turntable.c:270-335` 与 `sync_io.h:210-290` 的**参数语义** ✓ ⇒
+确定"由谁、在何时"把每位置的 16 组参数交给该 arm 调用 ✓（很可能就在转台模型的运动推进处 ✓），
+并按"预约队列"补上"深度 2"的排队逻辑 ✓。
+
 ### A.3.64 `clk_sys = 250 MHz` 已确认 ⇒ **4 ns 节拍可用**（并纠正一处过时注释）（2026-10-13）
 
 ```
