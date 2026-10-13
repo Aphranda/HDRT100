@@ -372,6 +372,43 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.53 实时预算模型已取到 + "16 组/位置"的时间账（2026-10-13）
+
+`tools/sequence_trigger_debug_ui/realtime_budget.py`（278 行 ✓）是 **Core1 调度预算编辑器** ✓，
+其阶段清单**本就含 T2 的域** ✓：
+
+```python
+PREFIX = "SYST:TDMA:SCHEDULE"
+PHASES = ("TDMA","VDC","DPLL","CALIBRATION","SYNC_CAPTURE","REFMEM",
+          "MODEL", **"SYNC_TRIGGER"**, "TRIGGER_MEASURE", "GUARD")          ← SYNC_TRIGGER ∈ 预算 ✓
+```
+
+**可复用接口**：
+
+| 符号 | 作用 |
+|---|---|
+| `BudgetTable(cycle, phases)` / `BudgetSnapshot(clock_hz, table, quarantined_mask, schedule_misses)` | 预算表与快照（含**隔离掩码**与**调度丢失计数** ✓） |
+| `validate_table()` | 阶段数匹配 ✓、周期 ∈ (0, 0xffffff] ✓ |
+| `microseconds(cycles, clock_hz)` / `_cycles(value, clock_hz)` | 周期↔微秒换算 ✓ |
+| **`table_from_microseconds(clock_hz, cycle_us, windows_us, wcets_us)`** | **由 µs 构造预算表** ✓（每阶段的**窗口**与 **WCET** ✓） |
+| `parse_snapshot()` / `run_budget_operation(action, payload, exchange, emit, stop)` | 读取/下发 ✓ |
+
+**"16 组/位置"的时间账**（每位置 16 组 ⇒ 每组可用时间 = 位置停留时间 / 16 ✓）：
+
+| 速度 | 每位置停留（1° 步长） | 每组可用 | 说明 |
+|---|---|---|---|
+| 1 °/s | 1000 ms | **62.5 ms** | 宽松 ✓ |
+| 2 °/s | 500 ms | **31.25 ms** | 宽松 ✓ |
+| 2.5 °/s | 400 ms | **25 ms** | 可行 ✓ |
+| 5 °/s | 200 ms | **12.5 ms** | **紧** ✗ —— 需与"执行端窗口深度 2"及 `SYNC_TRIGGER` 的 WCET 一起核对 ✓ |
+
+⇒ 结论：**"16 组/位置"在中低速档有充足余量 ✓；5 °/s 档必须用该预算工具核对 `SYNC_TRIGGER` 阶段的
+窗口与 WCET** ✓（`schedule_misses`/`quarantined_mask` 可直接作为判据 ✓），否则会出现"调度丢失"
+而非 T2 逻辑错误 ✗✓（与本会话反复出现的"把调度/台架问题误判为逻辑问题"同族 ✓）。
+
+**下一步**：把 `realtime_budget.py` 的**换算与校验函数**（与 tkinter UI 解耦 ✓）移植为 T2 验收的一部分：
+读 `SYST:TDMA:SCHEDULE?` 快照 ⇒ 校验 `SYNC_TRIGGER` 窗口/WCET 是否满足上表 ✓；必要时按档下发预算 ✓。
+
 ### A.3.52 序列域接口梳理（关键参数已确认）——可直接支撑"每位置 16 组"（2026-10-13）
 
 按 A.3.51 第 1 步读三个头，得到**可移植的接口与关键参数**：
