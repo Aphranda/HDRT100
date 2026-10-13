@@ -372,6 +372,44 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.42 扫描/角度参数的 SCPI 可配置性 + 361 下的两处 legacy 依赖（2026-10-13）
+
+**用户后续计划**：尝试 45/90/180/270/360° 等角度与 1 / 2 / 2.5 / 5 °/s 等速度。
+
+**① 已可动态配置（无需改动固件）**：`TRIGger:REServation:T2:CONFigure` 的 12 个位置参数即涵盖：
+
+| 参数 | 位置 | 说明 |
+|---|---|---|
+| `pre_roll` | 第 5 个 | **预判角度**（当前 5000 mdeg = 5°）✓ |
+| `post_roll` | 第 6 个 | **收尾角度**（当前 5000 mdeg = 5°）✓ |
+| `start_angle` / `zero_angle` / `terminal_angle` | 第 8/9/10 个 | 扫描起止与参考角 ✓ |
+| `step_mdeg` | 第 11 个 | 角度步长（1° = 1000 mdeg）✓ |
+| `pulses_per_degree` | 第 12 个 | 脉冲/度（决定 `step_pulses` 与 roll 脉冲）✓ |
+
+配置期由 `trigger_turntable_scan_validate()` **fail-closed 校验** ✓：位置数 ≤ 4096、`(terminal-start) % step == 0`、
+roll 脉冲 ≥ 1 个 STEP、脉冲数为整数（`ROLL_TOO_SHORT` / `PULSES_NOT_INTEGER` / `STEP_NOT_DIVISIBLE` 等理由 ✓）。
+⇒ **start / step / stop / 预判角 / 收尾角 都可按用户计划动态给出** ✓（本轮 0..360°@1° 即由该命令切换并实测 ✓）。
+
+**② 速度不在 T2 配置内** ✗：12 个参数中**没有 speed/rate** ✓；转台运动域为
+`MODEl:TURNtable:{LOAD|MOTion|STARt|STATe?|STOP|TRIGger}` ✓，T2 只**测量并跟随**速率
+（无可用速率时窗口报"时间未就绪"而非按陈旧速率外推 ✓；"超过两个位置后单采样估计本就不准" ✓）。
+**风险提示**：5 °/s + 1° 步长 ⇒ 每位置仅 0.2 s，lead 仅 5%（0.05° ≈ 10 ms）✗ ⇒ 时间余量极小，
+需与执行端窗口深度 2 的确认一并进行 ✓。
+
+**③ 361 下暴露的两处 legacy 依赖（多档测试前必须处理）**：
+
+1. **已修**：`announce_mismatch` 断言（提交 `aba722bd`）——其前提是"扫描位置与三个具名位置重合"（A.3.13），
+   361 下必然不一致（实测 558 ✗）⇒ 现按 `positions == 3` **门控** ✓；验证：门控后 361 轮
+   `passed=True · configured=4 · publishing=6 · failed=none` ✓✓（此前 `[19,20]` 的 step 20 假失败即由此 ✗）；
+2. **待修**：**step 19 的"计数未前进"判据读的是 legacy 三槽阈值** ✗ —— 361 下它们退化为
+   `['4950','4950','4950']`（`start == zero` 使前两槽重合 ✓）⇒ 报
+   `Step 19 counter not advancing (count ['4950','4950','4950'])` ✗ 属**假负** ✓。
+   修法：改为按**扫描口径**判定 —— 用 `T2:SCAN?` 的 `window_step_mdeg`/`positions`，或直接用
+   "计数器是否在推进"（两次采样差 > 0 ✓），而不是 legacy 阈值 ✗。
+
+**结论**：用户的角度/速度矩阵所需的**配置能力已具备** ✓（角度 + 预判/收尾角 + 步长 + ppd ✓），
+速度经转台运动域设置 ✓；多档测试前需先处理 ③-2（step 19 的 legacy 依赖 ✓）与执行端窗口深度确认 ✓。
+
 ### A.3.41 【里程碑】台架扫描已切到 **0..360°@1°（361 位置）** 并跑通（2026-10-13）
 
 **改动**（提交 `d35d2b1d`，tools-only ⇒ 免刷写免凭证 ✓）：三处 `T2:CONFigure` 的位置参数由
