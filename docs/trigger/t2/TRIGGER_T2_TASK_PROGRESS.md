@@ -12,6 +12,21 @@ Last updated: 2026-10-12
 
 ## 当前 checkpoint
 
+### 2026-10-13 台架接线已确认：OUT4 ↔ IN1（模拟转台）
+
+用户确认：**OUT4 与 IN1 已接在一起**（先前一条提到的 "OUT5" 已更正为 OUT4）。
+
+核验（本仓现状）：
+- `boards/rp2350_trig/inc/board_config.h:314` ：`BOARD_SYNC_OUTPUT_PIN_COUNT = 4u`，即本地同步输出为 **OUT1..OUT4**；
+  `:316` `BOARD_SYNC_PULSE_OUT_PIN = BOARD_SYNC_OUTPUT_BASE_PIN + 1u`，`:317` `BOARD_SYNC_MODE_OUT2_PIN = +2u`。
+- 全仓对 **"OUT5" 零引用** （`git grep` 无命中），故 "OUT5" 不存在；用户已更正为 OUT4，与此一致。
+- 输入侧：`:300` `BOARD_SYNC_INPUT_BASE_PIN`；`:305` `BOARD_SYNC_GATE_IN_PIN = +0u`、`:304` `EXT_CLK_IN = +1u`、`:303` `ARM_IN = +2u`、`:302` `TRIG_IN = +3u`。
+
+**结论**：台架无转台时，由 **OUT4 发脉冲经硬件回环到 IN1**，作为转台输入的模拟；
+接实际转台时则由转台直接驱动 **IN1**。因此 `T2-TURNTABLE-008` 的台架验收基线为
+"**OUT4 → IN1 回环模拟**"，而非真实转台输入。此前关于接线方式的待确认项已闭合。
+
+
 ### 2026-10-13 T2-AUDIT-04 口径已定（用户裁定）：生产接 IN1、台架用 OUT4 模拟转台
 
 用户裁定（逐字要点）：**后续接实际转台时，输入 IN1；现在没有转台的情况下，用 OUT4 模拟转台**。
