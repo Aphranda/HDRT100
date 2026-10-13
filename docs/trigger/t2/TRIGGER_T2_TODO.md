@@ -265,6 +265,30 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 `doc_regression` 的 R3 检查**按字符串匹配**：正文中只要**字面出现**该章节标题（即使在反引号内）也会被当作章节并因“无数据行”而 FAIL；
 故提及该章节名时**不得带 `##`**，本条即按此约束编写。
 
+### T2-AUDIT-06：按参考实现移植 persona 资源与 WAVE_OUTPUT persona（2026-10-13）
+
+状态：**PENDING**（参考取证已完成，待实施）。参考实现：分支 `origin/feature/node-sequence-reservation-trigger`（`19b9c5ff`）。
+
+**已取证的对齐事实**（逐字）：
+- 该分支的 persona 枚举包含 **`SYNC_IO_PERSONA_ID_WAVE_OUTPUT`**（已有）；
+  其资源表项为：`sm_mask = SYNC_IO_SM_BIT(BOARD_SYNC_PIO0_WAVE_OUTPUT_SM)`、
+  `dma_channel_mask = SYNC_IO_DMA_BIT(SYNC_IO_MODEL_PULSE_DMA_CH)`、`gpio_write_mask = SYNC_IO_MAIN_OUTPUT_GPIO_MASK`、
+  `instruction_words = SYNC_IO_WAVE_OUTPUT_INSTRUCTION_WORDS`。
+- 该选择与本仓已实现的 `sync_io_mode_wave_output`（PIO0 / SM2）**一致**；差别仅在表达形式：应为 **persona 表项**，而非模式 ops 裸掩码。
+- 预算与冲突检查已有现成写法：`SYNC_IO_PERSONA_PIO_INSTRUCTION_CAPACITY = 32u`、`SYNC_IO_PERSONA_PIO_SM_COUNT = 4u`、
+  `SM_MASK = 0x0Fu`、`SYNC_IO_PERSONA_DMA_CHANNEL_COUNT = 16u`；并有静态断言（如
+  “sequence PIO instruction budget changed”、“sequence must preserve capture”）守住指令预算。
+- DMA 通道已分配：`SEQ_STEP=0`、`ENC_COUNT=1`、`MODEL_PULSE=2`、`CAPTURE=3`。
+
+**移植清单**（三类）：
+1. **直接搬**：`sync_io_persona_resources.h` / `.c`（预算常量 + 资源表 + 静态断言）、`sync_io_sequence.pio`（`sequence_ingress` / `sequence_finite_ingress` 等程序）。
+2. **需改写**：`sync_io_sequence.c/.h`（SM 角色 `TURNTABLE_SM=0` / `INGRESS_SM=1` / `EXECUTOR_SM=2` / `COUNTER_SM=3`、`sm_claimed` 与 `pio_add_program` 负责装载）；
+   以及本仓 `sync_io_mode_wave_output.*`、`sync_io_mode.c` 注册、`CMakeLists.txt` 清单。
+3. **暂不搬**：SEQUENCE 全域运行时（ingress/executor/counter/gateway）与 RefMem sequence roles；待 WAVE_OUTPUT persona 落地并验收后再议。
+
+**验收**：指令预算与 SM 冲突作为**负测**（静态断言 + 运行期冲突拒绝）；装载按既定切换序（停 SM → 停 DMA/IRQ → 清 FIFO → 卸载/装载 → 初始化执行位置 → **原子发布 generation**）；
+最终走 **workflow 前端**验收后提交。
+
 ## 结论区（冻结，只增不改）
 
 本区收录**已确认/已证伪**的结论，每条一行：结论 + 依据 + 状态。过程性排查不再增长（原附录 A 保留为证据位置）。
