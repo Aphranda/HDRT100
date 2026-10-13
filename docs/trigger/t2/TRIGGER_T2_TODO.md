@@ -372,6 +372,35 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.93 D（静态角色绑定）应基于**本分支已有的绑定/角色概念**，而非移植该分支的 refmem 子系统（2026-10-13）
+
+**发现的对应物** ✓：`t2` 流程的 Step 7 读数里**已有**我们自己的绑定与角色信息 ✓✓：
+
+```
+slot 0 counter? loaded 1 state 1 count 0 | **binding gen 1791865851 crc 1511098629 role 0 slot 0
+ring_config 149 schedule_crc 2993488091** | asked gen 1791865851 cr…
+```
+
+⇒ 本分支在**环/触发层**已经有：`binding generation` ✓、`binding crc` ✓、**`role`** ✓、`slot` ✓、
+`ring_config`（环配置代次 ✓）、`schedule_crc` ✓ —— 这正是用户所说"角色绑定时静态配置"的落点 ✓✓，
+**无需**移植该分支的 `refmem_slot_claim` / `refmem_node_load_table` 等整套 refmem 基础设施 ✗✓
+（那些在本分支不存在 ✗，且其 `resolve()` 依赖的输入（load/instance/claim 表）我们并没有 ✓）。
+
+**因此 D 的正确范围** ✓（小得多 ✓）：
+
+1. **沿用现有绑定** ✓：把"角色/槽位"从**运行期读取**变为**启环前静态定版** ✓
+   （即：在 `run` 的配置阶段确定并校验 `role`/`slot`/`ring_config` ✓，启环后**只读** ✓）；
+2. **借用该分支的"校验词汇"** ✓（A.3.70/A.3.71 ✓）：`BAD_SLOT`/`SLOT_NOT_LOCAL`/
+   `DUPLICATE_ROLE`/`IO_REQUIRED`/`IO_CONFLICT`/`STALE_GENERATION` 等 ✓ ⇒ 作为我们静态检查的**清单** ✓；
+3. **沿用其"纯校验、不取运行期租约"的形态** ✓（"does not acquire runtime resource leases" ✓）
+   ⇒ 满足"启环前完成、启环后不占线上时间" ✓✓；
+4. **注意 IO 要求的差异** ✓（A.3.71 的缺口 ✗✓）：该分支的 `resolve()` 要求 `single_input` ✗，
+   而我们倾向**允许 0 = MANUAL 软件步进** ✓（与用户"本地执行"裁决一致 ✓）⇒ 我们的校验**不照抄该条** ✓。
+
+**与"16 组"的关系** ✓：16 组的**执行侧能力已就绪并验收** ✓✓（A.3.92 ✓）；但**当前 T2 流程只"配置"模型、
+不启动它** ✗✓（Step 14 = 只配置 ✓）⇒ **把 16 组的执行路径接入一次真实扫描** ✓ 属 D 的同一批工作 ✓
+（静态定版角色 → 启动模型 → 由预测驱动 ✓）。
+
 ### A.3.92 【验收通过】"每位置 16 组"的算术在硬件上逐量验证（2026-10-13）
 
 **越界拒绝（补测 ✓）**：设 `GROups 17` ⇒ 读回仍为 **16** ✓✓（值未被改动 ⇒ **校验生效** ✓）。
