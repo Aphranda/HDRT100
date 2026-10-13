@@ -32,6 +32,8 @@ PACKAGE_HEADER_SIZE = 512
 PACKAGE_BUILD_ID_OFFSET = 112
 PACKAGE_BUILD_ID_SIZE = 32
 DEFAULT_IDN_FILTERS = ("DHRT100",)
+# Settle window for re-enumerating boards (see the poll in main()).
+DISCOVERY_SETTLE_S = 60.0
 MAX_BOARD_COUNT = 8
 MAX_STREAM_BLOCK_SIZE = 4096
 MAX_LEGACY_BLOCK_SIZE = 512
@@ -596,6 +598,26 @@ def write_summary(out_dir: Path,
     (out_dir / "summary.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def start_progress_heartbeat(interval_s: float = 10.0):
+    """Emit a periodic status line during the long flash window.
+
+    The multi-board OTA takes minutes and is I/O bound, so a silent run is
+    indistinguishable from a hung one (see the serial-lifecycle note above).
+    A daemon thread keeps printing elapsed time until the process exits.
+    """
+    import threading
+
+    started = time.monotonic()
+
+    def _beat() -> None:
+        while True:
+            time.sleep(interval_s)
+            console_print(
+                f"ota_progress elapsed_s={time.monotonic() - started:.1f}")
+
+    threading.Thread(target=_beat, name="ota-progress", daemon=True).start()
+
+
 def main() -> int:
     args = parse_args()
     try:
@@ -612,16 +634,30 @@ def main() -> int:
     )
     expected_build = args.expected_build or read_package_build_id(image)
     started = time.monotonic()
+    start_progress_heartbeat()
 
     discovery_timing: dict = {}
     boards = discover_boards(args, discovery_timing)
     transport = resolved_transport(args)
     wanted_serials = set(args.serial_number or [])
     if wanted_serials:
-        boards = [board for board in boards
-                  if board.serial_number in wanted_serials]
-        missing_serials = wanted_serials - {
-            board.serial_number for board in boards}
+        # Serial lifecycle: a board that was just rebooted/flashed (or a bench that was
+        # power-cycled) re-enumerates for a moment, so a single discovery pass can miss
+        # ports that are about to appear. Poll for the exact bench set before failing --
+        # the same discipline the acceptance workflow uses for its post-flash probe.
+        deadline = time.monotonic() + DISCOVERY_SETTLE_S
+        while True:
+            boards = [board for board in boards
+                      if board.serial_number in wanted_serials]
+            missing_serials = wanted_serials - {
+                board.serial_number for board in boards}
+            if not missing_serials or time.monotonic() >= deadline:
+                break
+            console_print(
+                "waiting_for_serial_numbers=" + ",".join(sorted(missing_serials)) +
+                f" remaining_s={max(0.0, deadline - time.monotonic()):.1f}")
+            time.sleep(1.0)
+            boards = discover_boards(args, discovery_timing)
         if missing_serials:
             console_print("missing_serial_numbers=" + ",".join(sorted(missing_serials)),
                           file=sys.stderr)
