@@ -372,6 +372,27 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.40 【更正】`target_mask` 是**板/对端掩码**，与扫描长度无关 ⇒ 361 切换**无需改动**它（2026-10-13）
+
+A.3.12/A.3.36 曾把工具里三处 `T2:CONFigure …,0,14, …` 的 `14` 当作"三位置掩码"，列为 361 切换的待改项 ✗。**这是误读** ✗✓，固件侧证据：
+
+| 证据 | 位置 | 含义 |
+|---|---|---|
+| `if (!config->target_mask) { tdma_seat_mount_store_note_reject(146u); return false; }` | `trigger_t2_runtime.c:714` | **`mask = 0` 会被直接拒绝**（reject 146）✗ |
+| `if (config->origin && (config->target_mask & (1u << config->source_slot)))` | `:719` | mask **不得包含 origin 自身位** ✓ |
+| `peers = (s_config.target_mask & ~own)`、`stage_position_descriptor(…, s_config.target_mask)` | `:202`、`:234` | mask 决定**哪些板是对端**（描述符广播目标）✓ |
+| `target_mask = ((1 << args.nodes) - 1) & ~(1 << source_slot)` | 工具 `t2_workflow.py:211` | 工具本就按"**除自己外的所有节点**"生成它 ✓ |
+
+⇒ `14` = bits 1/2/3 = **三块从板**（origin 在 slot 0 ✓），是**板拓扑**的表达 ✓，**与扫描位置数无关** ✓✓。
+
+**结论（缩小了 361 切换的范围）**：
+
+1. **三处 `…,0,14, …` 全部保持不动** ✓（改 0 会触发 reject 146 ✗）；
+2. 因此 361 切换的工具侧剩余工作只有：**扫描参数**（`start/terminal/step/ppd`）与**判据**（已完成：附加式窗口健康判据 ✓，A.3.39 ✓）；
+3. A.3.12 的清单据此更正：把"工具 4 处"缩减为"**判据 1 处（已完成）+ 扫描参数**" ✓。
+
+**教训（与 A.3.15c/A.3.19 同族）**：**字段名相似 ≠ 语义相同** —— `target_mask` 在 `T2:CONFigure` 里是**对端板掩码** ✓，而非"扫描位置掩码"✗；判断前必须看它在固件里**被谁使用、如何校验** ✓（本轮正是靠 `:714` 的拒绝分支避免了改错 ✗✓）。
+
 ### A.3.39 窗口健康判据已接入（附加式）；并再次踩中"判据与时机"陷阱后修正（2026-10-13）
 
 **实施**（提交 `538006fa`，tools-only ⇒ 免凭证；按 A.3.38 的"索引 + 显式区间跳过"重写脚本 ✓，两处采样点 ✓，锚点/语法/测试三重护栏 ✓）：
