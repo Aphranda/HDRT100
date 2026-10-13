@@ -4,6 +4,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* Upper bound of sub-pulses per position (A.3.87); 16 is the T2 requirement. */
+#define MODEL_TURNTABLE_MAX_GROUPS_PER_POSITION 16u
+
 typedef enum {
     MODEL_TURNTABLE_PHASE_IDLE = 0u,
     MODEL_TURNTABLE_PHASE_ACCEL = 1u,

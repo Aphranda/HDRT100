@@ -42,6 +42,39 @@ scpi_result_t scpi_cmd_model_turntable_load_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_model_turntable_groups(scpi_t *context)
+{
+    if (scpi_port_reject_if_run_forbidden(
+            context,
+            DISTRIBUTED_CONFIG_SCPI_CLASS_TRIGGER_CONFIG)) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t groups = 0u;
+    if (!scpi_port_read_u32(context, &groups) ||
+        groups == 0u || groups > MODEL_TURNTABLE_MAX_GROUPS_PER_POSITION) {
+        return SCPI_RES_ERR;
+    }
+
+    /* Read-modify-write the trigger config so only the sub-pulses per position change
+     * (TRIGGER_T2_TODO.md A.3.87). */
+    model_turntable_trigger_config_t config;
+    model_turntable_get_trigger_config(&config);
+    config.groups_per_position = groups;
+    if (!model_turntable_configure_trigger(&config)) {
+        return SCPI_RES_ERR;
+    }
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_model_turntable_groups_q(scpi_t *context)
+{
+    model_turntable_trigger_config_t config;
+    model_turntable_get_trigger_config(&config);
+    SCPI_ResultUInt32(context, config.groups_per_position);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_model_turntable_trigger(scpi_t *context)
 {
     if (scpi_port_reject_if_run_forbidden(

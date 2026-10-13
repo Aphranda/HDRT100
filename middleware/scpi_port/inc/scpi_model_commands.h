@@ -12,6 +12,8 @@ scpi_result_t scpi_cmd_model_turntable_motion_q(scpi_t *context);
 scpi_result_t scpi_cmd_model_turntable_start(scpi_t *context);
 scpi_result_t scpi_cmd_model_turntable_stop(scpi_t *context);
 scpi_result_t scpi_cmd_model_turntable_state_q(scpi_t *context);
+scpi_result_t scpi_cmd_model_turntable_groups(scpi_t *context);
+scpi_result_t scpi_cmd_model_turntable_groups_q(scpi_t *context);
 
 #define SCPI_MODEL_COMMANDS \
     {.pattern = "CONFigure:MODEl:TURNtable:LOAD", .callback = scpi_cmd_model_turntable_load}, \
@@ -22,6 +24,8 @@ scpi_result_t scpi_cmd_model_turntable_state_q(scpi_t *context);
     {.pattern = "READ:MODEl:TURNtable:MOTion?", .callback = scpi_cmd_model_turntable_motion_q}, \
     {.pattern = "MODEl:TURNtable:STARt", .callback = scpi_cmd_model_turntable_start}, \
     {.pattern = "MODEl:TURNtable:STOP", .callback = scpi_cmd_model_turntable_stop}, \
+    {.pattern = "CONFigure:MODEl:TURNtable:GROups", .callback = scpi_cmd_model_turntable_groups}, \
+    {.pattern = "READ:MODEl:TURNtable:GROups?", .callback = scpi_cmd_model_turntable_groups_q}, \
     {.pattern = "READ:MODEl:TURNtable:STATe?", .callback = scpi_cmd_model_turntable_state_q}
 
 #endif

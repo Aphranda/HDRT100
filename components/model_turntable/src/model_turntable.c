@@ -24,9 +24,6 @@
  * 5776 - both exceed the table (see TRIGGER_T2_TODO.md A.3.84, chunking + depth 2). */
 #define MODEL_TURNTABLE_CHUNK_PULSES 64u
 
-/* Upper bound of sub-pulses per position (A.3.87); 16 is the T2 requirement. */
-#define MODEL_TURNTABLE_MAX_GROUPS_PER_POSITION 16u
-
 static uint32_t s_chunk_base;   /* pulses completed before the armed block */
 static uint32_t s_chunk_pulses; /* pulses in the armed block (0 = none armed) */
 
