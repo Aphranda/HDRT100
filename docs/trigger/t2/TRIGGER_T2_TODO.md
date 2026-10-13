@@ -372,6 +372,36 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.146 路径 B 的"代次/CRC/mask 栅栏"**已实现**（架构 `:527` 已满足）；剩余为 T2 侧对齐（2026-10-13）
+
+**取证（sync_trigger 服务层 ✓）**：
+
+| 位置 | 比对内容 | 失败语义 |
+|---|---|---|
+| `trigger_action_service.c:53` ✓ | `ring_config` + `schedule_crc` 相等 ✓ | — |
+| `trigger_action_service.c:76` ✓ | `staged.schedule_crc32 != b->schedule_crc` ✓ | **`note_reject(47u)`** ✓（可追溯 ✓） |
+| `trigger_action_service.c:174` ✓ | `local_slot` + `dco.tdma_schedule_crc32` ✓ | 拒绝 ✓ |
+| `trigger_counter_service.c:60/:102` ✓ | `schedule_crc` + `local_slot` ✓ | 拒绝 ✓ |
+| `trigger_deployment_service.c:97/:241/:252/:257` ✓ | `ring_config` + `schedule_crc` 一致性 ✓ | 拒绝 ✓ |
+| `trigger_gateway_service.c:58-59` ✓ | `schedule_crc` + ring ✓ | 拒绝 ✓ |
+| **`trigger_grid_preview.c:77-81`** ✓✓ | **`role_generation` + `schedule_crc` + `ring.schedule_crc32` 三重相等** ✓ | `return false` ✓ |
+| `trigger_grid_preview.c:109/:136/:145` ✓ | 观察者/环一致性再校验 ✓ | `return false` ✓ |
+
+**stale 语义亦已存在** ✓：`trigger_action_service.h:32`（"stale table … `binding_current=0`" ✓）、
+`trigger_t2_runtime.h:80`（`freeze_ack_stale_mask` ✓）。
+
+⇒ **结论** ✓✓：架构硬约束"**guard 前代次/CRC/mask 变化 ⇒ 重新 PREPARE；guard 后不得静默改写已装载 deadline**" ✓
+在**同步触发服务层已实现** ✓（且用 `note_reject(N)` 给出**可追溯 NACK** ✓，正合架构 `:206` ✓）。
+
+**因此路径 B 的剩余项收敛为"对齐"而非"新建"** ✓：
+
+1. 让 **T2 预测/扫描路径**（`trigger_t2_runtime` / predictor ✓）复用**同一套** `role_generation` / `schedule_crc`
+   栅栏语义 ✓（照 `trigger_grid_preview.c:77-81` ✓）—— 即把 T2 的"冻结/绑定"检查接到这些既有比对上 ✓；
+2. 把 **16 组 / 分块 / `GROups`** 明确标注为"**loaded deadline 模型下的脉冲生成机制**" ✓，
+   并给出其与 `freeze_ack_stale_mask` 的对应关系 ✓（避免把机制当作闭环 ✗✓）；
+3. 单板回环验收（架构验证顺序 ① ✓）补齐 **PIO 输出 latch** 与 **完成证据** 的**现有可得**部分 ✓
+   （`T2_actual_local` 硬件 latch 属路径 A ✗，此处只做机制层可及的证据 ✓）。
+
 ### A.3.145 【决定性发现】架构的 T2 预约闭环**完全未落地**：状态机/术语/SCPI 均零命中（2026-10-13）
 
 **三方取证（全仓 grep ✓）**：
