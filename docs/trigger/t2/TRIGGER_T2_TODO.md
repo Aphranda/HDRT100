@@ -372,6 +372,32 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.72 扫描行程几何判据已落地（读全 15 字段 + 自洽不变量）（2026-10-13）
+
+**发现的缺口** ✓：`t2_workflow.py` 两处扫描页读取只保留**前 10 个字段** ✗
+（`ctx._t2_scan_last = [f.strip() for f in _scan_fields[:10]]` ✓），而 `T2:SCAN?` 已是 **15 字段** ✓
+⇒ A.3.46/A.3.47 新增的 5 个**行程量被读后丢弃** ✗（仪器有值、验收不用 ✓）。
+
+**改动**（提交 `a7af7333` ✓，tools-only ✓ 免凭证 ✓）：
+
+1. 两处读取改为 `[:15]` ✓；
+2. 在扫描判据处加入**自洽不变量**（只用页面自身的值 ✓，故对任意跨度成立 ✓）：
+
+```
+motion_pulses == pre_roll_pulses + (positions − 1) × step_pulses + post_roll_pulses
+motion_stop − motion_start == motion_pulses
+```
+
+**验证**（两档均 `passed=True configured=4 failed=none` ✓）：
+
+| 档位 | 读回 |
+|---|---|
+| 默认（361） | `start=-5000 stop=365000 pulses=370000 pre=5000 post=5000 positions=361 step_pulses=1000 -> **OK**` ✓ |
+| 边界（6，terminal=5000） | `start=-5000 stop=10000 pulses=15000 pre=5000 post=5000 positions=6 step_pulses=1000 -> **OK**` ✓ |
+
+⇒ 用户切换角度矩阵（45/90/180/270/360° ✓）时，**每档的行程几何都被自动核验** ✓；
+且判据不依赖环境变量或代码常量 ✓ ⇒ 不会像本会话多次那样因"外部假设"而误判 ✗✓。
+
 ### A.3.71 `resolve()` 的校验顺序（可照抄的清单）+ 一处需澄清的差异（2026-10-13）
 
 读该分支 `refmem_sequence_roles.c` 后，`resolve()` 的结构是**固定顺序的 fail-fast 清单** ✓，
