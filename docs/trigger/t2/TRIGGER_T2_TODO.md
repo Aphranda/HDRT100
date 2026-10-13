@@ -372,6 +372,38 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.133 参考令牌亦被排除 ⇒ reserve 侧三条件**全部排除**；失败必在**装订体**（唯一未读代码）（2026-10-13）
+
+**实测** ✓✗：
+
+```
+SYSTem:VDC:OUTPut:RUN:STOP -> '"OK"' ✓   READ:…:RUN? -> 12,1,0,1,3907,62512,3906,1,47,24,2500000 ✓
+[pre ] model : loaded=1 cfg=1 running=0 **phase=0** total=181 **fault=0** ✓（干净 ✓）
+[cfg ] LOAD 0,3 / MOTion / TRIGger("OK") / GROups 16 ✓
+[go  ] START -> '' ✗ ⇒ running=0 **phase=5** total=2896 **fault=3** ✗
+```
+
+**排除清单（已全部实测排除 ✓✓）**：
+
+| 候选 | 处置 | 结果 |
+|---|---|---|
+| counter 持 `COUNTER_RESERVED` | `COUNter:STOP` ✓ | 无效 ✗ |
+| source 令牌 `s_turntable_source_token` | `SOURce:STOP` ✓ + `SOURce:RELease` ✓ | 无效 ✗ |
+| run-output（`RUN_RESERVED`） | `REALtime:IO:OUTPut:RELease` ✓ + `:MODel:OUTPut:RELease` ✓（回 `"OK"` ✓） | 无效 ✗ |
+| reference 令牌 `s_reference_token` | `SYSTem:VDC:OUTPut:RUN:STOP` ✓（回 `"OK"` ✓） | **无效 ✗** |
+| 累积卡死 | `*RST`/`*CLS` ✓ + 干净态复测 ✓ | **证伪** ✗✓（A.3.132 ✓） |
+| 索引越界 | `PIN_COUNT = 4` ✓ | 合法 ✓ |
+| 表项超限 | `MAX_ENTRIES = 2048` ✓ | 64 ≪ 2048 ✓ |
+| 索引门 trace | `SYSTem:TRACe:LAST?` ✓ | 空 ✓（⇒ 非索引门 ✓） |
+
+⇒ **结论** ✓✓：失败**不在 `sync_io_schedule_reserve()` 的三条件** ✗✓（全部排除 ✓），
+而在其**之后**的装订体 —— **`sync_io_pulse_schedule_arm_on_pin_common_owned()`** ✓✓
+（它由 `:1050` 调用 ✓；我读了**调用点**与**租约** ✓，但**从未读其函数体** ✗✓ —— 这是唯一未读的一块 ✓）。
+
+**下一轮** ✓：读 `sync_io_pulse_schedule_arm_on_pin_common_owned()` 的**函数体** ✓（`sync_io_model_sched.c` ✓，
+约 `:1100` 之前 ✓ 或按符号定位 ✓）⇒ 逐条列出其**失败分支** ✓（SM/DMA/程序加载/引脚认领 ✓）
+⇒ 与"索引门无 trace ✓、其余门均排除 ✓"的实测对照 ✓ ⇒ 定出真正的拒绝点 ✓✓。
+
 ### A.3.132 【修正】"卡死态"假设被证伪：`START` 之前模型是**干净**的（phase=0/fault=0）⇒ 阻挡是"活条件"（2026-10-13）
 
 **实测** ✓✓（`*RST` + `*CLS` 后只做最小序列 ✓）：
