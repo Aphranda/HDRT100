@@ -372,6 +372,30 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.123 trace 页可读但**为空** ⇒ 索引门的 trace 未触发 ⇒ 拒绝在**后续未打 trace 的门**（2026-10-13）
+
+**实测** ✓（触发一次已知会失败的 `START` 并读 trace ✓）：
+
+```
+SYSTem:TRACe:LAST?  (before) -> "OK","",0,"",0,0,0     ✓（页可读 ✓）
+MODEl:TURNtable:STARt        -> ''                      ✗
+SYSTem:TRACe:LAST?  (after / again) -> "OK","",0,"",0,0,0   ✗ **仍为空** ✓
+READ:…:STATe? -> running=0 phase=5 total=2896 emitted=0 **fault=3** ✗
+```
+
+**结论** ✓✓：`sync_io_main_output_index_valid()` 那条分支的 trace（`SYNC_IO_TRACE_MODEL_FAIL = 92u` ✓）
+**没有触发** ✗ ⇒ 与 `BOARD_SYNC_OUTPUT_PIN_COUNT = 4`（索引 3 合法 ✓）**一致** ✓✓ ⇒
+`arm` 的拒绝发生在**索引门之后的某个门** ✓，且该处**未打 trace** ✗ ⇒ 需**直接读守卫链** ✓。
+
+**下一轮（读代码定因 ✓，20 分钟 ✓）**：读 `sync_io_model_sched.c:1135-1200` ✓ 的其余门 ✓，逐条对照实测状态 ✓：
+
+```
+候选门（已见）: entries == NULL  ✓否   entry_count == 0u  ✓否（64）
+其后:          entry_count > 上限？  pin 是否被占？  program/SM/DMA 认领？  tick/divider？
+```
+
+⇒ 定出确切分支后即可决定修法 ✓（多半在**工具侧/接线** ⇒ 免凭证 ✓；若在固件 ⇒ 走 `run` ✓）。
+
 ### A.3.122 假设被**否定**：`BOARD_SYNC_OUTPUT_PIN_COUNT = 4` ⇒ 索引 3 合法；失败在其后的门（2026-10-13）
 
 **决定性取值** ✓：
