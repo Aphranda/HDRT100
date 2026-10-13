@@ -372,6 +372,38 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.125 假设再否定：上限 = **2048**（64 ≪ 2048）⇒ 失败在 ③ 的**租约步**；`sched[0]=1` 应重解为"租约被持有/卡住"（2026-10-13）
+
+**逐字读到宏展开** ✓（`sync_io_persona_resources.h:27-34` ✓）：
+
+```c
+#define SYNC_IO_SHARED_WORKSPACE_DMA_RING_BITS 14u
+#define SYNC_IO_SHARED_WORKSPACE_BYTES  (1u << 14)              = 16384 字节 ✓
+#define SYNC_IO_SHARED_WORKSPACE_WORDS  (16384 / sizeof(uint32_t)) = 4096 字 ✓
+#define SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY 2u
+#define SYNC_IO_MODEL_PULSE_MAX_ENTRIES \
+    (SYNC_IO_SHARED_WORKSPACE_WORDS / SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY) = **2048** ✓✓
+```
+
+⇒ 我的块 **64 ≪ 2048** ✓ ⇒ **门②不拒** ✗✓ ⇒ A.3.124 的假设**被自己的取值否定** ✓✓（第二次 ✓，方法有效 ✓）。
+
+**⇒ 失败点落到 ③ `sync_io_pulse_schedule_arm_on_pin_common()`** ✓✓，其**第一步**即
+
+```c
+if (!sync_io_schedule_reserve(SYNC_IO_SCHEDULE_IDLE, SYNC_IO_SCHEDULE_LEGACY_OPERATION)) return false;
+```
+
+该步**无 trace** ✗ ⇒ 与 A.3.123 的"trace 为空"**完全吻合** ✓✓。
+
+**由此重新解读一处旧证据** ✓✓：此前我把调度页的 `[0]=1` 读作"**已拿到租约**" ✓（A.3.119 ✓）——
+现应重解为"**租约被持有/卡住**" ✗✓（即状态**不在 IDLE** ✓）⇒ `reserve(IDLE→LEGACY)` **失败** ✗ ⇒ `arm` 返回 false ⇒
+`fault 3` ✓（无 trace ✓）——**与全部实测一致** ✓✓（也解释了为何"停 counter/source"无关 ✗，
+以及为何 `A.3.101` 的 `LOAD 0,0` 当时能成功 ✓：那时租约尚未被卡住 ✓）。
+
+**下一轮** ✓：读 `sync_io_schedule_reserve()` 与调度相位 API ✓（`sync_io_schedule_*` ✓，
+A.3.104 已定位 ✓）⇒ 确认**相位是否卡在非 IDLE** ✓，并找出**释放/复位**手段 ✓
+（很可能正是流程需要补的一步：**启动模型前复位调度租约** ✓）⇒ 复测 `START` ✓ ⇒ 期望 `running=1` / `fault=0` ✓。
+
 ### A.3.124 【锁定】唯一剩余的门 = `entry_count > SYNC_IO_MODEL_PULSE_MAX_ENTRIES`（我的块可能太大）（2026-10-13）
 
 **逐字读到** ✓（`sync_io_model_sched.c:1130-1162` ✓）：
