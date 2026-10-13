@@ -251,7 +251,7 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 | ID | 任务 | 状态 | 前置与判据 |
 |---|---|---|---|
 | T2-AUDIT-01 | 模型脉冲路径的**运行期 PIO 热加载**整改：登记为启动期资源，经 mode descriptor 声明 PIO/SM/DMA/GPIO，STOP/config ACK 阶段装载并读回 | `PENDING` | 前置：模式声明位置与 `sync_io_mode_ops_t.hw` 字段定稿；判据：连续 `START/STOP` 后可用程序槽位不减少且装载只在 STOP 阶段；需 P3 硬件验收凭证 |
-| T2-AUDIT-02 | 每位置一组 → **每位置 16 组 + 两组滑动窗口**（审查 A-06/A-16） | `DONE` | 硬件闭环：`total = 2896 = 181 × 16`、`fault = 0`；残余：FREEZE 后按最新 DCO **重算未装填组**（K-2）仍待实现 |
+| T2-AUDIT-02 | 每位置一组 → **每位置 16 组 + 两组滑动窗口**（审查 A-06/A-16） | `DONE` | 硬件闭环：`total = 2896 = 181 × 16`、`fault = 0`；残余：FREEZE 后按最新 DCO **重算未装填组**（K-2）尚**未实现且未验证**。**落点已查明（2026-10-13）**：`components/model_turntable/` 内无 `freeze`/`DCO`/`token` 符号，`model_turntable_recompute_plan()`（`model_turntable.c:111`）仅在**配置/启动**路径被调用（`:263/:297/:312/:323`），**运行期不重算**；因此 K-2 应在**上层装填路径**实现（`trigger_t2_runtime` 的 `prepare_deadlines_core0()` / `service_deadlines()`，即架构 `T2-OWNER` 所指入口），**不在模型层动刀**；判据：装填前比较模型 token，不一致则用新解算，**已被硬件接受的 deadline 不得追改**，赶不上则判迟并记录 |
 | T2-AUDIT-03 | 紧凑记录的**跨域契约登记**（`docs/check/DOCS_REGISTRY.md`）+ **C11 独立交叉审核** + 与 **TDMA 一等席布局联审** | `BLOCKED` | 阻塞条件：描述符 wire 布局、profile 默认值、资源配额与正式时限**尚未冻结**；按本文与架构文件规定，**登记前不得写成冻结契约**，因此不得提前登记 |
 | T2-AUDIT-04 | 转台**源路径选型**定稿（`TRIGger:REServation:SOURce:*` 硬件 PWM 源 vs `CONFigure:MODEl:TURNtable:*` 加减速模型源） | `BLOCKED` | 阻塞条件：属**产品/验收口径决策**，选型会改变隔离验收（`T2-TURNTABLE-008`）的证据口径；待用户定稿，本任务不预设结论 |
 
