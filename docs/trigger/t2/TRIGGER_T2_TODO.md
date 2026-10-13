@@ -372,6 +372,33 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.128 解锁测试未成功：`RELease` 回 `1,0` 但状态不变 ⇒ 阻挡者应为**参考令牌/相位卡住**（2026-10-13）
+
+**实测** ✓：
+
+```
+TRIGger:REServation:SOURce:RELease  -> **'1,0'** ✓（有应答 ✓，但状态未变 ✗）
+TRIGger:REServation:COUNter:RELease -> ''  ✗（无此命令 ✓）
+MODEl:TURNtable:STARt               -> ''  ✗ ⇒ running=0 phase=5 total=2896 **fault=3** ✗
+REALtime:IO:MODel:PULSe:SCHEDule?   -> **1,0,0,0,0,0,0,0,0,0** ✓ —— 与历次**逐字节相同** ✓
+```
+
+**结论一** ✓✗：`SOURce:RELease` **未能**解除阻挡 ✗（应答 `1,0` 与 `STOP` 同形 ✓ ⇒ 该应答**不足以**判定"已释放" ✗✓
+—— 又一次"**应答 ≠ 状态**" ✓，本会话第 N 次 ✓）。
+
+**结论二** ✓✓：调度页 `[0]=1` 在**历次尝试中完全不变** ✓ ⇒ **调度状态卡住** ✗ ⇒ 与 A.3.126 的
+"**相位必须恰为 IDLE**"或"**参考令牌被持**"两条一致 ✓✓ ⇒ 需**读出该页字段语义** ✓ 以判定
+`[0]=1` 究竟表示"相位≠IDLE"还是"某令牌被持" ✓✓。
+
+**下一轮（两条并行 ✓）**：
+
+1. 读 `scpi_cmd_model_pulse_schedule_q`（`scpi_realtime_io_commands.h:33` ✓）的**发射字段顺序** ✓
+   ⇒ 解释 `[0]=1` 的含义 ✓（相位？租约？启用？✓）；
+2. 读 `sync_io_model_sched.c:487-534` ✓ 的**获取/释放两侧** ✓ ⇒ 取**公共 API 名** ✓
+   ⇒ 找出**参考令牌**的真正释放入口 ✓（很可能需要**停/关 VDC-DPLL 会话** ✓，即流程 Step 13 的对应拆卸 ✓✓）。
+
+⇒ 定位后即可决定：在**模型武装之前**插入哪一步让位 ✓（工具侧 ⇒ 免凭证 ✓）。
+
 ### A.3.127 【找到钥匙】正确的让位命令是 **`TRIGger:REServation:SOURce:RELease`**（不是 `STOP`）（2026-10-13）
 
 **逐字查到** ✓（`scpi_system_snapshot_commands.h:426-427` ✓）：
