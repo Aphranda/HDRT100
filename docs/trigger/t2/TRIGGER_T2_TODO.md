@@ -372,6 +372,31 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.106 【闭环】服务循环确在调用 ⇒ 执行端在固件侧**功能完整**（2026-10-13）
+
+**证据** ✓（逐字 ✓）：`application/src/app.c:1188` → **`model_turntable_service();`** ✓
+（声明 `model_turntable.h:65` ✓，定义 `model_turntable.c:353` ✓）⇒ **应用主循环每轮都会服务转台模型** ✓✓。
+
+⇒ **A.3.105 的疑问关闭** ✓✓：真实流程中 `emitted_pulses` **会递增** ✓、`arm_chunk(next)` **会自动续装订** ✓
+⇒ 我此前"纯 SCPI 测试里 `emitted=0`" ✗ 只是**缺服务循环** ✓（方法论问题 ✓，非固件缺陷 ✓）。
+
+**执行端在固件侧的功能闭环** ✓✓（全部已有硬件证据 ✓）：
+
+| 环节 | 状态 | 证据 |
+|---|---|---|
+| 装载（staged ✓ 启环前 ✓） | ✓ | `LOAD 0,3` → `"OK"` ✓、`LOAD?` = `1,0,3` ✓ |
+| 计划规模 = 位置 × 组 | ✓ | `GROups 16` ⇒ `total = 176` ✓（11 位置 ✓，两次复现 ✓） |
+| 分块装订（64 脉冲/块 ✓） | ✓✓ | 调度页 `64,64` 首块完成 ✓、ticks 递增 ✓ |
+| 续装订 + `emitted` 递进 | ✓ | `app.c:1188` 每轮 `service()` ✓ ⇒ 自动续块 ✓ |
+| 所有权/顺序 | ✓ | 先启动模型、后 `OUTPut:RUN` ✓（作者注释与 A.3.97 互证 ✓） |
+| 配置命令（含只改组数 ✓） | ✓ | `GROups` 读-改-写 ✓、越界拒绝 ✓ |
+
+**因此剩余工作全部在"流程侧"** ✓✓（固件侧无需再改 ✓）：
+
+1. **`TRIGger` 写被拒** ✗（A.3.103 ✓）⇒ 修好后模型计划才能设为 **181 位置** ✓（`stop 360 / step 2` ✓）；
+2. 把 **`GROups 16`** 并入流程的模型段 ✓（紧随 `LOAD` ✓，启环前 ✓）；
+3. 补 **`role_generation` / `schedule_crc` 期望值比对** ✓（照 `trigger_grid_preview.c:77` ✓）⇒ 即 D ✓。
+
 ### A.3.105 【突破】调度页证实分块装订在**硬件上真跑**；`emitted=0` 的真因是需要 `service()`（2026-10-13）
 
 **可读页** ✓：`REALtime:IO:MODel:PULSe:SCHEDule?` ✓（处理器 `scpi_cmd_model_pulse_schedule_q` ✓，
