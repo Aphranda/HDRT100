@@ -372,6 +372,38 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.50 根因确定：`test_t2_configure_signature.py` 是**发送点登记表**（行号即登记项）（2026-10-13）
+
+读守卫源码后结论明确：
+
+```python
+# Every place that sends TRIGger:REServation:T2:CONFigure, with the line it lives on.   (:38)
+def test_t2_configure_call_sites_are_pinned():                                          (:68)
+    … if "T2:CONFigure" in line and "TRIGger:REServation" in line …                     (:73)
+    f"{relative} sends T2:CONFigure from {found}, not {lines}: a new or moved …"       (:75)
+```
+
+⇒ 它维护一张**"文件 + 行号"登记表** ✓，要求"每一处发送 `T2:CONFigure` 的地方都恰好在登记行上" ✓。
+
+**两轮失败因此都被解释** ✓✓：
+
+| 轮次 | 改法 | 触发原因 |
+|---|---|---|
+| 141 | 直接插值扫描参数 | **行号位移** ✗（在文件中插入了行 ⇒ 登记行不再对应 ✓） |
+| 142 | 加法式（字面量未动，另加 helper） | **新增发送点** ✗（helper 里的 `TRIGger:REServation:T2:CONFigure` 模板未被登记 ✓） |
+
+（我此前"守卫盯着字面量"的推断 ✗ 与"失败与改动无关"的推断 ✗ 均被推翻 ✓✓。）
+
+**修法（下一轮一次完成）**：
+
+1. 应用**加法式**环境变量覆盖 ✓（helper + 两处调用点 ✓）；
+2. **同步更新登记表** ✓：把两处既有发送点的新行号 + `_scan_override_command()` 中模板所在行一并登记 ✓；
+3. 跑测试 ✓（应 107 ✓）→ 提交 ✓（tools-only ⇒ 免凭证 ✓）→ 验证两档：
+   - 默认：`positions=361` ✓；
+   - `T2_SCAN_OVERRIDE_TERMINAL_MDEG=5000`：`positions=6` 且末态 `entered == announced == 6` ✓（A.3.48 的边界证据由此**可复现** ✓）。
+
+**该守卫的价值**：它保证"**没有未登记的 CONFigure 发送点**" ✓ —— 这正是本会话最贵的一类风险（位置参数错位 ✗✓，A.4.3），因此**登记而不是绕过** ✓✓。
+
 ### A.3.49 环境变量覆盖被守卫拦下：干净树 107 通过，改动后必现 1 失败（2026-10-13）
 
 **决定性对照**（本轮实测）：
