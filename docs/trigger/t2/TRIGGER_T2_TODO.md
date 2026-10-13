@@ -372,6 +372,26 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.55 预算下发协议（可借用于 T2 验收）——apply 易失、save 才落 Flash（2026-10-13）
+
+读 `run_budget_operation()` 得到**可安全调预算的完整纪律**（要点摘录，原文为 docstring）：
+
+- **动作分层**：`read / validate / apply / save` ⇒ **`apply` 是易失的（RAM）**、**`save` 才写 Flash**
+  ⇒ **调预算实验可用 apply-only**（无 Flash 磨损、可复位恢复）；
+- **能力预检**：固件能力 `1,1` 必须**先**确认，且**不得在旧固件上先发 setter**（原文："Never issue
+  a setter before this preflight, including to old FW."）；
+- **写确认双重**：`SYST:ERR?` 首字段必须为 `0` **且**命令回显首字段为 `OK` —— 缺一即视为未执行；
+- **停机前提 + 稳定等待**：`stop` 必须**停触发/环并核实 ACK**；写后轮询 `SYST:TDMA:PERIOD?`
+  （5 字段）直到周期稳定（上限 5 s）——与 `run` 的停机序列天然吻合。
+
+**下一实验（A.3.54 的落地）**：
+
+1. `read` + `validate` 当前预算（本机 schema=**3** ⇒ 解析器需允许版本 3，见 A.3.54）；
+2. 用 `table_from_microseconds()` 构造**加宽 `SYNC_TRIGGER`** 的新表（从 `TDMA` 的约 34 µs 余量与
+   `GUARD` 的 30 µs 借），`apply`（易失）后 `settled()` 确认周期稳定；
+3. 在加宽后的窗口下测量"**计划下发 + 校验**"的一次性成本 —— 这是"16 组走计划表"路线的可行性判据；
+4. 实验结束**复位/读回**原预算，保持台架状态一致（符合"只提交已验证状态"的惯例）。
+
 ### A.3.54 【实测】Core1 预算与 T2 阶段余量：`SYNC_TRIGGER` 已占窗口 88%（2026-10-13）
 
 从台架直读 `SYSTem:TDMA:SCHEDULE?` 并按该分支 `parse_snapshot()` 的布局解析 ✓
