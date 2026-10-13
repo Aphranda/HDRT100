@@ -271,6 +271,21 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 | `TRIGger` 写修复 | 流程与直连均回 `"OK"`，`1,0,360,2,100,1,1000` 生效 | A.3.107 |
 | **PIO 一次装载** | 连续 6 次 `START/STOP` 全 **ARM OK**（`running=1 fault=0 total=2896`） | 提交 `310ff141`（P3 凭证 ✓） |
 
+**git 教训（2026-10-13 实测）**：若文件已 `git add`（暂存），`git checkout -- <file>` 会用**索引版本**覆盖工作树，
+从而把已暂存的修改（包括不合规内容）“恢复”回来；正解是 `git restore --source=HEAD --staged --worktree -- <file>`（或 `git checkout HEAD -- <file>`）。
+本次即因此一度使 C14 R3 的 FAIL 持续，已用正解清除。
+
+### C14 R3 命名规则（实测教训，2026-10-13）
+
+`doc_regression` 的 **C14 R3** 要求：写在 `*_TASK_PROGRESS.md` 的 `## 归档索引` 行，
+**必须指向** `docs/legacy/<domain>/LEGACY_<DOMAIN>_TASK_PROGRESS_<NN>.md`。
+因此：**归档的是「进度日志」时**，才在 Task Progress 里登记索引；
+**归档的是「待办附录/历史快照」时**，只在 `docs/README.md` 登记，并在本文保留指针，
+不得写入 Task Progress 的 `## 归档索引`（否则 FAIL）。
+
+当前实际登记：`docs/README.md` 中的 `legacy/trigger/LEGACY_TRIGGER_T2_TODO_01.md` 行（已归档、已登记）；
+若今后需轮转 `TRIGGER_T2_TASK_PROGRESS.md`，则按 R3 命名为 `LEGACY_TRIGGER_T2_TASK_PROGRESS_<NN>.md` 并在该文件内登记。
+
 ## 附录 A（已归档）
 
 原「实现注记」全部内容（编译器约束、legacy 三槽迁移清单、SCPI 接线落点、已结案项与 152 条探索日志）
