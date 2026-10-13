@@ -282,7 +282,13 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 但**语义本身无测试覆盖**：`tests/**` 中 `action_armed_mask`/`action_completed_mask`/`prepare_deadlines` **零命中**，
 `tools/sync_trigger/**` 也**无 DCO 扰动工具**。
 
-**采用方式（照既有先例）**：`tests/python/test_trigger_t2_freeze_abandon.py` 已证明**抽取式 harness**
+**采用方式（照既有先例，2026-10-13 已核实机制）**：`tests/python/test_trigger_t2_freeze_abandon.py` 的做法是——用 `tools.state_machine_resource_check` 的 **`c_definition_body` 抽取真实函数体**，配一个 C harness（**同名复刻 runtime 静态存储** + **为依赖提供桩函数**），编译运行后断言（见该文件 `:14-15/:17/:19-49`）。
+
+**前提（新增，必须先做）**：本次 K-2 改动是**大函数内部的判据行**，**无法直接抽取**；需先把判据**重构为小函数**（如 `static bool t2_deadline_recompute_needed(uint32_t frozen_bit_accepted, uint32_t prev_version, uint32_t prev_token, uint32_t descriptor_version, uint32_t model_token)`），`prepare_deadlines_core0()` 只调用它；然后 harness 抽取**该小函数**并驱动 C1–C6。
+
+**约束**：该重构属**固件范围**（行为等价），仍需独立走“改动 → 编译 → 烧录 → 四板验收 → 提交”周期，**不得与其他改动并行**。
+
+**原则**：：`tests/python/test_trigger_t2_freeze_abandon.py` 已证明**抽取式 harness**
 可直接驱动 freeze 分支（无需硬件）。K-2 同理：把 `prepare_deadlines_core0()` 的判据行抽取为可测函数，
 在 host 侧直接驱动**谓词真值表**（无需真实 DCO 扰动）。
 
