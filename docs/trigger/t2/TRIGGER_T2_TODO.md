@@ -142,6 +142,8 @@ Last updated: 2026-10-13
 达到一个真实 position_id 的四板位置广播、从板解算、不同 q 动作边沿和 READY 重叠结果后，停止无关矩阵，保留原始证据并进入独立复核。
 
 ## 当前依赖
+**更新（2026-10-13）**：T2 自身仅剩**两项**开放项——`T2-AUDIT-03`（登记 `ARCH-TRIGGERSLICE-01` ✓ 与 C11 ✓ 已完成，**仅欠 TDMA 域一等席尃局联审结论**）与 `T2-AUDIT-07`（位置邮箱契约：登记行 `ARCH-TRIGGERMAILBOX-01` 已插入，待 C11）。原 `T2-AUDIT-08`（单串口控制面）属接口域，已移出。
+
 
 | 项目 | 当前处置 | 阻塞范围 |
 |---|---|---|
@@ -311,23 +313,10 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 
 **步骤**：起草筻约行（前缀需在 `ROW_RE` 白名单内，如 `ARCH-*`）⇒ C11 独立交取核验 ⇒ 登记；status 初始为 `pending`。
 
-### T2-AUDIT-08：单串口拓扑下的控制面契约（2026-10-13，状态 PENDING）
+### T2-AUDIT-08（已移出：属接口域）
 
-**用户裁定**：后续**只有一个串口连接到 PC**，其余板卡都用 **RefMem 进行分布式控制**。
-
-**量化现状**（本轮实测）：
-- SCPI 命令表：`middleware/scpi_port/src/scpi_port.c:321`；全仓**仅 4 条**命令带节点作用域
-  （`scpi_cmd_refmem_node_q:218`、`scpi_cmd_refmem_load_node:531`、`scpi_cmd_config_role_q:5283`、`scpi_cmd_config_calibration_q:5349`）；
-  其余命令**仅作用于本板**。
-- 既有跨板机制：`distributed_refmem_stage_node_load`、`distributed_refmem_build_node_load_sync_frame`（`distributed_refmem.h:607`）、
-  `distributed_refmem_apply_node_load_sync_payload`（`:617`）；角色词汇：`reference / forward node`（`refmem_application_model.h:611`、`distributed_refmem.h:649-651`）。
-- **缺口**：未发现通用 SCPI 命令转发/代理构造；因此“任意命令指向别板”尚不成立。
-
-**两条可选路子**：**(a)** SCPI 层透明转发（需定义寻址/应答/超时/权限/幂等，偏离 SCPI 边界）；
-**(b)（推荐）** 保持命令本板作用域，由参考/转发节点写**控制意图**，经既有 node-load sync 帧机制分发，
-各板本地 apply（与 `load_node` 一致，复用 owner/准入/idle-only 规则）。
-
-**待确定**：控制意图表落位（TLV 区候选，3072 B）、幂等/应答/超时语义、与现有 4 条节点作用域命令的关系；登记前需 C11。
+> 本项为**跨域项**（归 INTERFACE/SCPI_HOST 域），已从 T2 待办移出，避免同一事实在两处复制（C12）。
+> 请见 `docs/interface/SCPI_HOST_TODO.md` 的 **IF-001..003**（单串口拓扑下的会话/寻址、命令转发与应答、隔离与权限）。
 
 ## 结论区（冻结，只增不改）
 
