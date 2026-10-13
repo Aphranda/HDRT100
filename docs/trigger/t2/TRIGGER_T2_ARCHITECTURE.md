@@ -57,6 +57,11 @@ Last updated: 2026-10-13
 | K-3 | **VDC 进入 LOCKED 并发布之后，T2 才有输出**。未发布时 cursor 可以推进用于诊断，但不得生成或装填动作 deadline。 |
 | K-4 | 扫描由起始、终止和 **STEP** 定义，**角度单位为度，分辨率 0.001°**（实现使用整数毫度）；**每个 STEP 位置都执行完整触发**。 |
 | K-5 | **T2 位置一帧发完，不分片**，作为一等席负载；DPLL/VDC 同步发布走特等席。**落地方式（2026-10-11 确认）**：T2 使用独立一等邮箱，与特等轮流占用 origin 快速路径的发布机会（当前比例 1:1，编译期常量）；一等邮箱是完整 process image，保留 VDC 核心字段与 ACK，既有 RefMem 区直接承载 T2 紧缩记录，**不再压缩同帧 VDC 字段占位来腾空间**。 |
+**K-5 增补（2026-10-13）**：一等席载荷仍受**两板 effective schedule CRC 一致性门**约束——
+CRC 不一致时**必须拒绝帧**，**禁止运行态单板私自降级**（见 `docs/arch/HAOFV_ARCHITECTURE.md` 的 TDMA
+operating profile 与 schedule CRC 条款）；本文约束层见
+`docs/trigger/t2/TRIGGER_T2_RUNTIME_CONSTRAINTS.md`。
+
 | K-6 | **每个位置运行多组序列与采样**（当前为 16 组）。16 组在位置开始前全部预装；执行端使用**包含两组的滑动窗口**：一组执行完，即用最新 DCO 解算并推入下一组，始终两组在途。 |
 
 ### 2026-10-12 增补（长扫描口径）
@@ -120,6 +125,21 @@ position_q = target_ms_index * subdivisions + target_fine_slice_index
 冻结后允许从板通过独立的低优先级 T2 diagnostic message class 回传一至两帧压缩诊断。第一帧报告 position、采用版本、版本年龄、q 有效性、动作准备状态和 READY 重叠状态；第二帧只在缺版本、旧代、CRC、时间片冲突或 READY 异常时发送，报告原因和残差摘要。诊断不能覆盖 VDC、ACK 或已排队的 VDC image。
 
 `tdma_flight_fifo` 的通用双槽发布/获取/释放能力继续保留，供后续 TDMA 流式 OTA、配置数据和可靠控制使用。它不属于 T2 业务语义；T2 不修改已经进入 FIFO 的 VDC image，也不使用排队帧补写 T2。
+
+### T2 完成与误差事实（载体声明，2026-10-13）
+
+按顶层对 T2/Trigger 的上向事实要求（`docs/arch/HAOFV_ARCHITECTURE.md` 的「基础件向上收敛表」T2 行），
+T2 对外必须提供：`T_fire_target_vdc`（预约目标）、reservation generation、READY mask、fence、
+**`T2_actual_local`**（实际边沿的**硬件 latch**）、**`T2_actual_vdc`** 与 **`T2_error`**（= actual − target）。
+
+载体分配：
+
+- **本文已定义部分**：位置（`position_q`）、FREEZE/版本与其完成掩码、诊断回传。
+- **归属预约闭环部分**（按顶层收敛顺序「最后开放预约执行」）：`T_fire_target_vdc`、预约代际、
+  READY mask、fence、`T2_actual_local/vdc` 与 `T2_error` 的**载体与字段定义**；其 canonical 为
+  `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`，本文不重复定义。
+- **奠基约束**：`T2_actual_local` 只能由 **PIO/DMA/IRQ 硬件 latch** 产生，**不得用 CPU 读取或软件完成时刻充填**；
+  `T2_error` 计算必须遵守回绕安全写法，不得把无符号回绕差当作相位误差。
 
 ## T2-TIME：共同时间坐标
 
