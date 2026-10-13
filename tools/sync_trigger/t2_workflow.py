@@ -2254,7 +2254,7 @@ def step_18_preflight_source_trial(ctx, slot, board, uid):
             # Keep the reading for the end-of-sampling criterion (A.3.38).
             _scan_fields = ctx.send(member, 'TRIGger:REServation:T2:SCAN?').split(",")
             if len(_scan_fields) >= 10:
-                ctx._t2_scan_last = [f.strip() for f in _scan_fields[:10]]
+                ctx._t2_scan_last = [f.strip() for f in _scan_fields[:15]]
         state = ctx.send(member, "TRIGger:REServation:T2?").split(",")
         ring = ctx.send(member, "SYSTem:TDMA:RING:STATus?").split(",")
         schedule = ctx.send(member, "SYSTem:TDMA:SCHEDule?").split(",")
@@ -2496,7 +2496,7 @@ def step_20_sampling(ctx, slot, board, uid):
                 # Keep the reading for the end-of-sampling criterion (A.3.38).
                 _scan_fields = ctx.send(member, 'TRIGger:REServation:T2:SCAN?').split(",")
                 if len(_scan_fields) >= 10:
-                    ctx._t2_scan_last = [f.strip() for f in _scan_fields[:10]]
+                    ctx._t2_scan_last = [f.strip() for f in _scan_fields[:15]]
             state = ctx.send(member, "TRIGger:REServation:T2?").split(",")
             position = ctx.send(member, "SYSTem:REFMEM:SYNC:FLIGHT:POSition?")
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
@@ -2632,6 +2632,24 @@ def step_20_sampling(ctx, slot, board, uid):
     # which the three-bit legacy mask cannot. Deliberately ADDITIVE: the legacy mask check
     # above still runs, so this cannot weaken the current verdict.
     scan = getattr(ctx, "_t2_scan_last", None)
+    # Self-consistency of the travel geometry reported by T2:SCAN? (A.3.72).
+    # Uses only values from the page itself, so it holds for any configured
+    # span: travel = pre_roll + (positions - 1) * step_pulses + post_roll.
+    if scan is not None and len(scan) >= 15:
+        try:
+            _m_start, _m_stop, _m_pulses = int(scan[10]), int(scan[11]), int(scan[12])
+            _pre_p, _post_p = int(scan[13]), int(scan[14])
+            _pos, _step_p = int(scan[4]), int(scan[5])
+            _expect = _pre_p + (_pos - 1) * _step_p + _post_p
+            _pulses_ok = _m_pulses == _expect
+            _bounds_ok = _m_stop - _m_start == _m_pulses
+            print(f"  travel: start={_m_start} stop={_m_stop} pulses={_m_pulses} "
+                  f"pre={_pre_p} post={_post_p} positions={_pos} step_pulses={_step_p} "
+                  f"-> {'OK' if (_pulses_ok and _bounds_ok) else 'MISMATCH'}", flush=True)
+            if not (_pulses_ok and _bounds_ok):
+                raise RuntimeError("T2 travel geometry is not self-consistent (A.3.72)")
+        except ValueError as _exc:
+            print(f"  travel: unparsable scan field ({_exc})", flush=True)
     if scan and scan[6].isdigit() and scan[7].isdigit():
         entered, announced = int(scan[6]), int(scan[7])
         # NOT entered == announced: at the end of the sampling window the window has only
