@@ -250,6 +250,21 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 
 本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
 
+### 进度日志轮转就绪（T2-AUDIT-05，2026-10-13）
+
+**触发**：`TRIGGER_T2_TASK_PROGRESS.md` 当前 **144 KB**（上限 200 KB，见 `DOCS_REGRESSION_PLAN.md` 的 C14/R1）；
+若继续收录审查记录则可能越限。**本条不提前轮转**（未越限即不动）。
+
+**轮转时的正确做法**（含本会话实测得到的机制细节）：
+1. 按 C14 **最旧优先连续**截断到 `docs/legacy/trigger/` 下的 `LEGACY_TRIGGER_T2_TASK_PROGRESS_<NN>.md`（轮转时才创建，故本条按 R3 的**模式形式**书写）；
+2. 在本文件维护**归档索引章节**（名称见下方注意事项），行必须指向 **`LEGACY_<DOMAIN>_TASK_PROGRESS_<NN>.md`** 的**确切文件名**（R3）；
+3. 保持 **ID 闭包与条目数相符**；**只搬旧证据、不删证据**；
+4. 新归档文件需带五字段元数据（Status/Domain/Canonical/Related/Last updated），并在 `docs/README.md` 登记一行。
+
+**注意事项（本会话实测教训）**：
+`doc_regression` 的 R3 检查**按字符串匹配**：正文中只要**字面出现**该章节标题（即使在反引号内）也会被当作章节并因“无数据行”而 FAIL；
+故提及该章节名时**不得带 `##`**，本条即按此约束编写。
+
 ## 结论区（冻结，只增不改）
 
 本区收录**已确认/已证伪**的结论，每条一行：结论 + 依据 + 状态。过程性排查不再增长（原附录 A 保留为证据位置）。
