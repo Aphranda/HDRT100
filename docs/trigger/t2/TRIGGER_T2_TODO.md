@@ -372,6 +372,44 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.138 装订体读到 `:958`：最后一道门 = **`sync_io_wave_output_manager_start()`**（第 10 项候选）（2026-10-13）
+
+**逐字读到** ✓（`sync_io_model_sched.c:895-958` ✓）：
+
+```c
+    … 条目转换（delay/high → ticks → words ✓）…
+    if (high_ticks == 0u) { trace; release; return false; }        /* :906 可按算术排除 ✓ */
+    …
+    const bool use_pio0_output_persona =
+        pulse_pio == BOARD_PIO_FAST &&
+        (pulse_sm == BOARD_SYNC_PIO0_WAVE_OUTPUT_SM || …SCHEDULED_TRIGGER_SM);   /* :926 我们的情形=true ✓ */
+    …
+    if (use_pio0_output_persona) {
+        const sync_io_persona_id_t persona_id = … **SYNC_IO_PERSONA_ID_WAVE_OUTPUT**;
+        if (!**sync_io_wave_output_manager_start(persona_id)**) {   /* ★★ :955 最后一道门 ✓✓ */
+            sync_io_core_trace(SYNC_IO_TRACE_MODEL_FAIL, SYNC_IO_TRACE_ERROR, entry_count, …);
+            return false;
+        }
+    }
+```
+
+**排除与锁定** ✓✓：
+
+| 门 | 判据 | 结论 |
+|---|---|---|
+| `high_ticks == 0u`（:906 ✓） | `pulse_width_us = 100` ✓、tick = 1000 ns ✓ ⇒ **100 拍** ✓ ≠ 0 | **算术排除** ✓ |
+| **`sync_io_wave_output_manager_start()`**（:955 ✓） | 若**已有 wave-output persona 活动** ✗ ⇒ 失败 ✓（`:187-188` 的 `s_wave_output_sm_claimed / dma_claimed` ✓ 正是其准入条件 ✓） | **最后一项未排除 ✓✓** |
+
+⇒ 这与 A.3.62 的单所有者清单**首次正面相遇** ✓✓：模型与 **wave-output persona** 争同一个 PIO0 输出 ✓
+⇒ 若 persona 已活动 ✗（由流程更早的步骤或我的历轮实验占用 ✓）⇒ **模型 arm 必然失败** ✓ ⇒ `fault 3` ✓✓。
+
+**下一轮（两步 ✓）**：
+
+1. `grep` `sync_io_wave_output_manager_(start|stop|is_active)` ✓ 及其 **SCPI 入口** ✓（逐字取拼写 ✓，
+   不猜 ✗✓）⇒ 找到**停止/释放 persona** 的命令 ✓；
+2. 发该命令 ✓ ⇒ 复测最小序列 ✓ ⇒ **判据**：`fault=0`/`running=1` ⇒ **根因确认 = wave-output persona 占用** ✓✓
+   ⇒ 随后在流程中"**模型武装前释放 persona**" ✓（与 A.3.62 的单所有者纪律一致 ✓）。
+
 ### A.3.137 capture 候选亦被排除（采集/分析器均空闲）⇒ 失败在**工作区租约之后**（第 9 项排除）（2026-10-13）
 
 **实测** ✓✗（拼写逐字取自 A.3.136 ✓）：
