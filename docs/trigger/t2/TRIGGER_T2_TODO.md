@@ -372,6 +372,38 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.71 `resolve()` 的校验顺序（可照抄的清单）+ 一处需澄清的差异（2026-10-13）
+
+读该分支 `refmem_sequence_roles.c` 后，`resolve()` 的结构是**固定顺序的 fail-fast 清单** ✓，
+可直接作为我们"启环前静态绑定"的实现骨架 ✓：
+
+| 序 | 检查 | 错误码 |
+|---|---|---|
+| 1 | 指针参数齐全（loads/instances/claims/request/binding ✓） | `BAD_ARGUMENT` |
+| 2 | `dut_slot != SLOT_NONE` ✓ | `BAD_SLOT` |
+| 3 | **`active_generation != 0`** ✓ | `STALE_GENERATION` |
+| 4 | **`claim_epoch != 0` 且 `claims->claim_epoch == request->claim_epoch`** ✓ | `STALE_CLAIM` |
+| 5 | 槽位合法性：`slot < slot_count` 且 `slot_id == slot` ✓ | `BAD_SLOT` |
+| 6 | 槽位已认领：`claim_state == CLAIMED` ✓ | `SLOT_NOT_CLAIMED` |
+| 7 | 槽位归属本板：`board_id == local_board_id` ✓ | `SLOT_NOT_LOCAL` |
+| 8 | 槽位代次一致：`claim_epoch` 相符 ✓ | `STALE_CLAIM` |
+| 9 | 加载项有效：`enabled != 0`、`node_id`/`instance_id` 与快照相符 ✓；同角色/同实例出现两次 ✓ | `DUT_NOT_LOADED` / `VNA_NOT_LOADED` / **`DUPLICATE_ROLE`** |
+| 10 | FB 有效：`enable_condition != 0`、`fb_type` 相符 ✓ | （同上族） |
+| 11 | **IO mask**：`single_input(dut_trigger_input_mask)` ✓；有 VNA 时 `vna_trigger_output_mask != 0` ✓ | `IO_REQUIRED` |
+| 12 | 命名空间冲突（IN/OUT 各自独立 ✓） | `IO_CONFLICT` / `RESOURCE_CONFLICT` |
+| 13 | 能力匹配 | `CAPABILITY_MISMATCH` |
+
+⚠️ **需澄清的差异** ✗✓：头文件注释写 "`dut_trigger_input_mask` **Zero permits MANUAL software stepping**" ✓，
+但实现的第 11 步要求 **`single_input(...)`** ✓ ⇒ **该角色流程要求恰好一个触发输入** ✓，
+**不接受 0（手工/软件步进）** ✗✓。这直接影响我们的取向 ✓：
+
+* 若采用"**MANUAL 软件步进**"（与用户裁决"本地按预测执行"最贴合 ✓），则**不能**照抄这一条 ✗
+  ⇒ 需（a）在本分支自己的静态检查里**允许 0** ✓，或（b）提供一条**名义输入**以满足 `single_input` ✓；
+* 该差异**必须在实现前定案** ✓（避免像本会话多次那样"照抄注释、忽略实现" ✗✓）。
+
+**结论**：借鉴其**顺序与错误词汇**（骨架 ✓），但**IO 要求按我们的执行模式调整** ✓（A.3.70 的
+"`=0` ⇒ MANUAL"按头注释记录，本条按**实现**为准 ✓）。
+
 ### A.3.70 【可借鉴·静态绑定】`refmem_sequence_roles` 是**纯解析**式角色绑定（启环前定版、运行期只读）（2026-10-13）
 
 读该分支 `components/distributed_refmem/inc/refmem_sequence_roles.h`（71 行 ✓）—— 正是用户所述
