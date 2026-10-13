@@ -372,6 +372,35 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.95 `READ:MODEl:TURNtable:STATe?` 的**显式字段映射**（18 字段；并反向佐证 A.3.92）（2026-10-13）
+
+**来源** ✓：`scpi_model_commands.c` 的 `scpi_cmd_model_turntable_state_q()` 发射顺序 ✓
+（与 `model_turntable.c` 的 `get_status()` 赋值顺序**逐项一致** ✓）：
+
+| idx | 字段 | 实测（`GROups=1` → `GROups=16`） |
+|---|---|---|
+| 0 | `loaded` | 0 → 0 ✓ |
+| 1 | `configured` | 1 → 1 ✓ |
+| 2 | `running` | 0 → 0 ✓ |
+| 3 | `phase` | 0（IDLE ✓） |
+| 4 | `slot_id` | 4294967295（未设 ✓） |
+| 5 | `output_index` | 0 ✓ |
+| 6 | `dimension` | 0 ✓ |
+| **7** | **`total_pulses`** | **11 → 176** ✓✓ |
+| 8 | `emitted_pulses` | 0 → 0 ✓ |
+| **9** | **`accel_pulses`** | **3 → 48** ✓ |
+| **10** | **`cruise_pulses`** | **4 → 79** ✓ |
+| **11** | **`decel_pulses`** | **3 → 48** ✓ |
+| **12** | **`min_interval_us`** | **100000 → 6250** ✓✓（组间隔 ÷16 ✓） |
+| **13** | **`max_interval_us`** | **400000 → 306250** ✓ |
+| **14** | `pulse_width_us` | 2000 → 2000 ✓（不变 ✓） |
+| 15 | `last_interval_us` | 0 → 0 ✓ |
+| 16 | `fault_code` | 0 → 0 ✓（无故障 ✓） |
+| 17 | `current_position` | 0.0 → 0.0（double ✓） |
+
+⇒ **A.3.92 的推断被逐项证实** ✓✓（我用的 7 个下标全部正确 ✓）；自此**不再依赖下标推断** ✓✓
+（`fault_code = 0` ✓ 也为"16 组配置下无故障"提供了直接证据 ✓）。
+
 ### A.3.94 D 的实现形态：照抄本仓库既有的"**代次 + CRC + 期望值校验**"惯用法（2026-10-13）
 
 **证据** ✓（本仓库已普遍使用该惯用法 ✓，无需发明 ✗）：
