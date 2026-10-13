@@ -1737,7 +1737,7 @@ def step_12_t2_mount(ctx, slot, board, uid):
         ctx.send(board, f"TRIGger:REServation:T2:CONFigure {ctx.dep_gen},0,14,"
                         f"{int(slot == 0)},5000,5000,950,0,0,360000,1000,1000")   # 0..360 deg @1 deg
         diag = ctx.send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
-        _override = _scan_override_command(dep_gen, int(slot == 0))
+        _override = _scan_override_command(ctx.dep_gen, int(slot == 0))
         if _override is not None:
             send(board, _override)
             print(f"  scan override -> {_override[:72]}", flush=True)
