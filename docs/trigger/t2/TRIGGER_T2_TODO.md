@@ -372,6 +372,27 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.116 三处上下文已定；并发现**历史证据**证明核心阻塞确曾挡住作者（fault 2 / 361）（2026-10-13）
+
+**三处 `LOAD 0,3` 的上下文** ✓（逐字 ✓）：
+
+| 行 | 前文摘要 | 判定 |
+|---|---|---|
+| 583 | "The model is the physical count source for the origin's counter; without it the counter stays at zero (T2 reports counter_count 0) and no position threshold is ever crossed." | 说明块 ✓（非目标 ✓） |
+| **1786** | "…once, on the counter/position source board." → `src = ctx.src` → **`if src is not None and slot == 0:`** | **目标处** ✓✓（唯一 ✓） |
+| 1845 | "…measured **"running 0 phase 0 emitted 0/361 fault 2"**, with the counter flat at 0 … **A 2-degree step gives 181 pulses - inside the limit** - and still sweeps 0..360." | 另一处注释 ✓✓ |
+
+**历史证据（价值高 ✓✓）**：作者当年测到 **`fault 2`** ✗ —— 而 `fault_code = 2` **正是我在分块装订里
+为"块大小越界"设的码** ✓（A.3.84 ✓）⇒ 作者当年被 **361 > 256（静态表）** 挡住 ✗✓，
+其**绕法是"把步长改成 2 ⇒ 181 脉冲"** ✓✓（正好落在 256 以内 ✓）。
+
+⇒ **我的分块续装订修复正是消除这个绕法** ✓✓ ⇒ 现在可回到 **step 1（360 位置）/ 361 位置** ✓，
+且与"每位置 16 组"（5776 脉冲 ⇒ 91 块 ✓）共存 ✓✓ —— **核心阻塞修复的价值由此得到作者注释的旁证** ✓✓。
+
+**下一轮落地（一次即成 ✓）**：用 A.3.115 的**上下文筛选选择器** ✓（`if src is not None and slot == 0:` ✓）
+唯一定位 **1786** ✓ ⇒ 在其前插入"**武装模型前停止计数器**" ✓（工具侧 ⇒ 免凭证 ✓）⇒ 跑 `t2` ✓
+⇒ 期望 **`running 1`** ✓、**`fault 0`** ✓、**`emitted` 递增** ✓。
+
 ### A.3.115 方案 (a) 的补丁被护栏正确拒绝：`LOAD 0,3` 有 **3 处**（第 4 次"同一文本多处"）（2026-10-13）
 
 **经过** ✓：按行号+上下文补丁时，断言 `TURNble:LOAD 0,3` 候选**唯一** ✗ ⇒ 实际 **3 处** ✗ ⇒
