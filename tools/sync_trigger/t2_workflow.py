@@ -2220,6 +2220,14 @@ def step_18_preflight_source_trial(ctx, slot, board, uid):
         if member is None:
             continue
         mask = ctx.send(member, "SYSTem:TDMA:LOAD:MASK?").split(",")[0].strip()
+        if not getattr(ctx, "_t2_scan_diag_read", False):
+            # Window health for the migration and the 361-position criterion
+            # (TRIGGER_T2_TODO.md A.3.36): entered == announced, no unannounced
+            # overwrite, no legacy/window announcement mismatch, and the derived
+            # geometry. Printed once per run.
+            ctx._t2_scan_diag_read = True
+            print(f"T2SCAN {ctx.send(member, 'TRIGger:REServation:T2:SCAN?')}",
+                  flush=True)
         state = ctx.send(member, "TRIGger:REServation:T2?").split(",")
         ring = ctx.send(member, "SYSTem:TDMA:RING:STATus?").split(",")
         schedule = ctx.send(member, "SYSTem:TDMA:SCHEDule?").split(",")
@@ -2441,6 +2449,14 @@ def step_20_sampling(ctx, slot, board, uid):
             member = ctx.boards.get(f"{uid_r:016X}")
             if member is None:
                 continue
+            if not getattr(ctx, "_t2_scan_diag_read", False):
+                # Window health for the migration and the 361-position criterion
+                # (TRIGGER_T2_TODO.md A.3.36): entered == announced, no unannounced
+                # overwrite, no legacy/window announcement mismatch, and the derived
+                # geometry. Printed once per run.
+                ctx._t2_scan_diag_read = True
+                print(f"T2SCAN {ctx.send(member, 'TRIGger:REServation:T2:SCAN?')}",
+                      flush=True)
             state = ctx.send(member, "TRIGger:REServation:T2?").split(",")
             position = ctx.send(member, "SYSTem:REFMEM:SYNC:FLIGHT:POSition?")
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
