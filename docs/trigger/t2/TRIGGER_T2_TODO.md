@@ -372,6 +372,35 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.74 【诊断】本轮红是**台架族**（跟随板 input_ready=0），站点 2 改动被排除（2026-10-13）
+
+现场证据（同一次运行 ✓）：
+
+```
+T2 自身健康 ✓ : T2:SCAN? = 1000,9,0,1000,361,1000,17,15,0,4797,-5000,365000,370000,5000,5000
+              ⇒ positions=361 ✓ · entered=17/announced=15 ✓ · overwrote=0 ✓ · Step 18 END OK ✓
+跟随板未就绪 ✗: [fol] readiness input_ready 0, locked 0（dpll.state 1, reason 5）  × 3 板
+              ring enabled/started ok **reason 5**（≠0）✗
+原点板正常 ✓  : [ref] input_ready 1, locked 1（dpll.state 5, reason 0, accepted 1168, run_blocks 3905）✓
+结果         : publishing=0 ✗ ⇒ Step 20（判发布）FAIL ⇒ failed=[20] ✓
+```
+
+**判定** ✓：本次红是**台架/DPLL 族** ✗ —— **三块跟随板的输入未就绪（`input_ready 0`）** ✗，
+导致发布数为 0 ✗ ⇒ 与"站点 2 的打印迁移"**无关** ✓（T2 页面读数正常 ✓、Step 18 通过 ✓、
+改动仅是**多打印一个字段** ✗）。
+
+**方法学（本轮做对的地方）** ✓：不再只凭"某步 FAIL"归因 ✗，而是取**同类多板对照** ✓
+（origin 锁 ✓ vs follower 未锁 ✗）⇒ 定位到**板级就绪度**而非我的代码 ✓✓。这正是本会话反复强调的
+"**用仪器连续量判定，而非 pass/fail**" ✓（A.3.1/A.3.16 系列 ✓）。
+
+**遗留缺项（再次）** ✗✓：我仍未抓到 Step 20 的**原始 reason 行** ✗（grep 模式又漏 ✗）——
+下一轮请用**完整行匹配** `Select-String -Pattern 'FAIL'` 并打印 **上下文 3 行** ✓，
+否则依旧只能靠旁证推断 ✗。
+
+**对台架的行动建议** ✓：跟随板 `input_ready=0` 属已知族（A.3.44 的脉冲路径/环就绪 ✓）⇒
+重跑前建议：停环→复位→确认 `READiness` 输入就绪→再跑 ✓；若连续两次同样 ✗，按 A.3.44 的
+恢复流程（`ring_config` 计数、`site RING error` 检查 ✓）处理 ✓。
+
 ### A.3.73 【A.3.35 细化】legacy 三槽的**工具侧消费者清单**（删除前必须迁移）（2026-10-13）
 
 本轮实测：**工具仍在消费 legacy 字段** ✗ ⇒ A.3.35 不能"直接删" ✗，须按站点迁移 ✓。
