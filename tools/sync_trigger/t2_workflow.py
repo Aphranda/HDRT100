@@ -1783,6 +1783,12 @@ def step_13_vdc_session(ctx, slot, board, uid):
     # once, on the counter/position source board.
     src = ctx.src
     if src is not None and slot == 0:
+        # Option (a) of TRIGGER_T2_TODO.md A.3.114: the pulse path has a single owner, so it
+        # must be released before the model is loaded and armed. Otherwise the model's arm is
+        # refused and it stays at fault_code 3 (measured: running 0 phase 5 emitted 0/181).
+        # Later steps restart the counter, which then only observes the model.
+        print(f"  counter stop before model arm -> {ctx.send(src, 'TRIGger:REServation:COUNter:STOP')}",
+              flush=True)
         for command in ("CONFigure:MODEl:TURNtable:LOAD 0,3",
                         "CONFigure:MODEl:TURNtable:MOTion 360,360",
                         "CONFigure:MODEl:TURNtable:TRIGger 1,0,360,2,100,1,1000"):
