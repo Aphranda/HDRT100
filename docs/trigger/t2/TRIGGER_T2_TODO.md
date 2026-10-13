@@ -372,6 +372,33 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.147 路径 B 项 1 的精确差距：T2 已栅栏 `ring_config_seq` ✓，但缺 `schedule_crc`（及 `role_generation`）✗（2026-10-13）
+
+**取证（`trigger_t2_runtime.c` ✓）**：
+
+```
+:97    struct { uint32_t session, **ring_config_seq**, prediction_version, expiry_sync; } ✓
+:370   plan.ring_config_seq == s_state.cursor.ring_config_seq ✓
+:444   plan->ring_config_seq != s_state.cursor.ring_config_seq || … ⇒ 拒绝 ✓
+:623   s_deadline[index].ring_config_seq != s_state.cursor.ring_config_seq ⇒ … ✓
+:642   plan->ring_config_seq != s_state.cursor.ring_config_seq || … ✓
+:1078  .session/.ring_config_seq = 模型快照 ✓
++:192/:193/:209/:211/:212  **freeze_ack_stale_mask / freeze_ack_incomplete_mask** ✓
+```
+
+⇒ **T2 侧已具备"环配置代次"栅栏 ✓**（5 处 ✓）与 freeze-ack 掩码 ✓；但 **`role_generation` 与 `schedule_crc`
+在 T2 文件中零命中** ✗✓ ⇒ 相对架构 `:527`（**map generation / calibration generation / schedule CRC /
+target mask 四域** ✓）与兄弟服务（`trigger_grid_preview.c:77-81` ✓ 的**三重比对** ✓）**T2 少了 CRC 这一域** ✗。
+
+**因此路径 B 项 1 可精确执行为** ✓（有现成样板 ✓）：
+
+1. 在 **T2 的同一组栅栏处**（`:370` / `:444` / `:623` / `:642` ✓）**增补 `schedule_crc` 比对** ✓
+   （以及可得的 `role_generation` ✓），**照 `trigger_grid_preview.c:77-81` 的写法** ✓；
+2. 失败语义与架构一致 ✓：**拒绝并留可追溯计数** ✓（对应兄弟服务的 `note_reject(N)` ✓ / T2 侧可用既有
+   `freeze_ack_stale_mask` 或新增拒绝计数 ✓）；
+3. **验收** ✓：先**改变 schedule CRC**（如重新下发布局 ✓）⇒ 若能观察到 T2 **拒绝**（而非继续执行 ✗）
+   ⇒ 栅栏生效 ✓✓；这是**无需路径 A** 即可完成的合规性提升 ✓。
+
 ### A.3.146 路径 B 的"代次/CRC/mask 栅栏"**已实现**（架构 `:527` 已满足）；剩余为 T2 侧对齐（2026-10-13）
 
 **取证（sync_trigger 服务层 ✓）**：
