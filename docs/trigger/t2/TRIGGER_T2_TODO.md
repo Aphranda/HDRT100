@@ -252,6 +252,8 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
 
 ### T2-AUDIT-04 决策输入
+**台架验收基线（用户裁定）**：无转台时以 **OUT4→IN1 硬件回环模拟转台输入**；接真实转台时由转台直接驱动 **IN1**。参见 Task Progress 的两条取证。
+
 
 本节长记录已按证据与任务分工下沉至 `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`（证据唯一落点）。
 
