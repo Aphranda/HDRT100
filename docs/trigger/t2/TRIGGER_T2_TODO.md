@@ -372,6 +372,40 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.67 【开放项封闭】闭窗口原语存在，但属 **STOP-only 维护租约**；运行期应走**表式** API（2026-10-13）
+
+读 `sync_io.h:208-291` 后，"用哪个 arm 变体"有了明确答案 ✓，且带出一个**关键属性区分** ✗✓：
+
+| API | 形态 | 租约/用途 |
+|---|---|---|
+| `sync_io_model_pulse_schedule_arm(output_index, entries, entry_count, rising_edge)` | **逐脉冲表**（`sync_io_model_pulse_entry_t`） | **运行期** ✓（转台模型现用 ✓） |
+| `…_arm_ns(…, entries_ns, entry_count, rising_edge, tick_period_ns)` | 纳秒**逐脉冲表** | **运行期** ✓（4 ns 档 ✓） |
+| `…_arm_periodic_ns(…, first_delay_ns, pulse_period_ns, pulse_high_ns, pulse_count, …, tick_period_ns)` | 周期式（等间隔 ✓） | **运行期** ✓ |
+| `sync_io_sma_observer_fixed_rate_arm(request, runtime, validate, ctx)` | rate_schedule 普通式 | **STOP-only 维护租约** ✗ |
+| `sync_io_sma_observer_subdivision_arm(request, marker_high_ns, …)` | **标记版**（pulse zero 更宽 ✓） | **STOP-only 维护租约** ✗ |
+| **`sync_io_sma_observer_subdivision_window_arm(request, marker_high_ns, …)`** | **闭窗口版** ✓✓ | **STOP-only 维护租约** ✗ |
+
+`subdivision_window_arm` 的注释原文（:264-266）：**"Two local markers enclose a finite grid; omit its
+final subdivision slot. `request.pulse_count` includes both markers, so their separation is
+`pulse_count * period_ns`."** ✓ ⇒ 语义正是 A.3.61 的 `generate_window` ✓（**pulse_count 含两标记** ✓）。
+
+**但**：这些 `sync_io_sma_observer_*` 函数头部注释写明 **"STOP-only maintenance owner"**（:251-253 ✓）
+⇒ **它们不是飞行/运行期路径** ✗✓（可在 **setup/校验** 时使用 ✓，不能在逐位置链式执行中使用 ✗）。
+
+**因此修正实现取向（重要）** ✗✓：
+
+| 场景 | 该用的 API |
+|---|---|
+| **运行期逐位置链式执行**（用户裁决的本地执行 ✓） | **`sync_io_model_pulse_schedule_arm_ns()`**（纳秒**表**式 ✓）——把每位置的 16 组**直接编成表项** ✓；标记语义用**表项本身**表达（首/末项加宽 ✓），因为运行期 API **没有** `marker_high_ns`/`closed_window` 参数 ✗ |
+| **STOP 期校验/演示闭窗口语义** | `sync_io_sma_observer_subdivision_window_arm()` ✓（真闭窗口 ✓，"两标记 + 省略末槽" ✓） |
+
+⇒ **"每位置 16 组"的最终落地形态** ✓：每位置一张 **16 项纳秒表**（`entries_ns` ✓，`tick_period_ns=4` ✓，
+首/末项加宽作标记 ✓，末槽静默由表内容表达 ✓），在 `model_turntable_service()` 里按"**在途 ≤ 2 块**"
+（深度 2 ✓）续装订 ✓；STOP 期可用 `subdivision_window_arm` 做**语义校验** ✓（两法互为印证 ✓）。
+
+**同时修正一条早先表述** ✗：A.3.61/A.3.62 把"闭窗口"当作**运行期可直接调用**的原语 ✗；
+实际它属**维护租约** ✓ ⇒ 运行期请用**表式** ✓（本条为准 ✓）。
+
 ### A.3.66 现有架构即"整段表 + 一次性装订"；深度 2 的钩子就是 `service()`（2026-10-13）
 
 读 `model_turntable.c:266-335` 得到现有形态：
