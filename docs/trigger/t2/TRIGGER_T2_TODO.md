@@ -372,6 +372,37 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.51 【借鉴清单】`origin/feature/node-sequence-reservation-trigger` 的 sync_io 序列域（2026-10-13）
+
+用户提示："node_sequence 分支的 sync_IO 域的工作已经完成一部分，可以进行借鉴"。已定位分支为
+**`origin/feature/node-sequence-reservation-trigger`** ✓（合并基 `7fa834df` ✓；与当前分支差异很大 ✓，
+不是可整体拣选的补丁 ✓ —— 应**按文件借鉴** ✓）。
+
+**该分支已存在的序列/域资产（文件级）**：
+
+| 域 | 资产 | 与 T2 两项待办的对应 |
+|---|---|---|
+| **sync_io** | `components/sync_io/inc/sync_io_sequence.h` + `src/sync_io_sequence.c` + **`src/sync_io_sequence.pio`** ✓ | **"每位置 16 组"的状态机/PIO 载体** ✓ |
+| **sync_io 模式** | `inc/sync_io_mode_seq_step.h` + **`src/seq_step.pio`** ✓ | 序列步进模式（每位置多组的触发节奏）✓ |
+| **sync_trigger 序列** | `inc/trigger_sequence_config.h`、`trigger_sequence_service.h`（+ `.c`）、`trigger_sequence_link.h`/`_link_protocol.h`（+ `.c`）✓ | **"执行端窗口深度 2"的预约/触发序列与链路协议** ✓ |
+| **refmem 角色** | `inc/refmem_sequence_roles.h`（+ `.c`）✓ | 各板在序列中的角色/顺序（16 组的分发）✓ |
+| **tdma 接收序列** | `inc/tdma_rx_sequence.h`（+ `.c`）✓ | 接收侧序列编排 ✓ |
+| **工具** | `tools/sequence_trigger_debug_ui/`（含 **`realtime_budget.py`** ✓，提交 `b1259a22`） | **实时预算**：每位置 16 组所需时间余量的量化 ✓（正对"16 组 + 深度 2"的可行性判断 ✓） |
+| **调试 UI** | `tools/sequence_trigger_debug_ui/sequence_trigger_debug_ui.py`（提交 `61cea2f3`） | 序列/触发的可视化验证 ✓ |
+| **单板验收** | `config/hardware_acceptance/sequence_single_board_receipt.json` ✓ + 单板工具链（`8cd9a9a5`/`7cfd7b65`/`385cf675`/`af020b17`/`0120403e`/`091fe5ce`） | **单板**校准/环回/夹具边界 ✓ —— 与本会话"环回/脉冲路径"偶发问题**同族** ✓ |
+
+**借鉴方式（建议顺序）**：
+
+1. **先读** `trigger_sequence_service.h` + `sync_io_sequence.h` + `refmem_sequence_roles.h` 三个头文件 ✓
+   ⇒ 明确其对"16 组/位置"与"在途深度"的**数据结构与状态机** ✓（这是迁移到当前分支前的接口梳理 ✓）；
+2. **再读** `tools/sequence_trigger_debug_ui/realtime_budget.py` ✓ ⇒ 取它的**预算模型**用于评估
+   16 组/位置在不同速度档（A.3.45 的 1/2/2.5/5 °/s ✓）下的时序余量 ✓；
+3. **按需移植**：优先可**独立编译/测试**的单元（`sequence_*` 头与实现 ✓、`realtime_budget.py` ✓），
+   避免把整条分支的应用层（`application/`、`calibration_manager` 等大改动 ✗）一起带入 ✓；
+4. **与 T2 的接线对齐**：T2 的"执行端窗口深度 2"属于**执行/预约侧** ✓，与 T2 预测侧的
+   `TRIGGER_TURNTABLE_WINDOW_MAX = 2` ✓（在途**预测**位置数 ✓）是**两个不同的深度概念** ✗✓ ——
+   移植时须在文档与命名上明确区分 ✓（避免又一次"字段名相似≠语义相同"✗✓，见 A.3.15c/A.3.19/A.3.40）。
+
 ### A.3.50 根因确定：`test_t2_configure_signature.py` 是**发送点登记表**（行号即登记项）（2026-10-13）
 
 读守卫源码后结论明确：
