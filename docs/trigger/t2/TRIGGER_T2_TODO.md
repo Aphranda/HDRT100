@@ -372,6 +372,35 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.112 修复在流程中生效（模型计划 181 ✓）；整跑红为环族，且**首次看清原因**（2026-10-13）
+
+**① 模型域：`TRIGger` 修复在真实流程中生效** ✓✓（本轮 `t2` 日志 ✓）：
+
+```
+turntable configured (not started): 1,1,0,5,0,3,1,**181**,0,90,0,90,5556,505596,100,15
+按 A.3.95 映射: [5]output=3 ✓  [6]dimension=1 ✓  [7]total=**181** ✓✓（此前 11 ✗）
+                [9]accel=90 ✓ [11]decel=90 ✓（自洽 ✓） [12]min_iv=5556 µs ✓ [14]pw=100 ✓
+```
+
+⇒ 流程发出的 `TRIGger 1,0,360,2,100,1,1000` **现在被接受** ✓✓（`total` 由 11 → **181** ✓）。
+
+⚠️ **但仍 `phase 5`(FAULT ✗) + `fault 3`** ✗（arm 被拒 ✓）：即便流程按正确顺序（先启动模型 ✓）
+也失败 ✗ ⇒ 疑与**我先前手动测试留下的模型/调度状态**有关 ✓（`LOAD 0,3` + `GROups 16` 等 ✓）
+⇒ 需**干净状态**下复测 ✓（先 `STOP` + 清除装载 ✓）。
+
+**② 整跑红：环族，首次拿到确切原因** ✓✓（`failed=[16,18,19]` ✓）：
+
+```
+Step 16 FAIL: cursor sticky fault site RING at seq 2185:
+              **ring enabled=0, adapter started=0, data enabled=0, ring config != bou…**
+Step 18 FAIL: reference cursor never became valid within 24 s (last err **7 valid 0** seq 2185) ✓
+ORIGIN STOP [after ORIGin:TRIAL]: cause **UNAUTHORIZED+COMM_FAULT** | FAULT_LATCHED ✓
+```
+
+⇒ 与本会话已知家族一致 ✓（`err 7 valid 0` ✓，A.3.44 ✓），且本次**指明了根因方向**：
+**`ring config != …`**（环配置代次不一致 ✓）⇒ 需要**环重新配置/复位** ✓ 后再跑 ✓
+（这解释了 `ring enabled=0 / adapter started=0 / data enabled=0` ✓ 的连锁 ✓）。
+
 ### A.3.111 【已修复并实测】`TRIGger` 写恢复：先读后改（含 4 空格缩进的教训）（2026-10-13）
 
 **落地** ✓（提交 `486071a2` ✓，`run` **第 1 次**通过 ✓，`ERROR 0 / FATAL 0` ✓）：
