@@ -154,6 +154,18 @@ enum {
 };
 bool trigger_t2_runtime_freeze_timing(
     uint32_t out[TRIGGER_T2_RUNTIME_FREEZE_TIMING_COUNT]);
+/* Diagnostic maxima (clk_sys cycles) of the parts of service_origin(), which the
+ * origin runs inside the SYNC_TRIGGER RECEIVE segment: the counter read, the
+ * prediction observe, the rolling-window block and the FREEZE call. */
+enum {
+    TRIGGER_T2_RUNTIME_ORIGIN_PROBE_COUNTER = 0u,
+    TRIGGER_T2_RUNTIME_ORIGIN_PROBE_OBSERVE = 1u,
+    TRIGGER_T2_RUNTIME_ORIGIN_PROBE_WINDOW = 2u,
+    TRIGGER_T2_RUNTIME_ORIGIN_PROBE_FREEZE = 3u,
+    TRIGGER_T2_RUNTIME_ORIGIN_PROBE_COUNT = 4u,
+};
+bool trigger_t2_runtime_origin_probe(
+    uint32_t out[TRIGGER_T2_RUNTIME_ORIGIN_PROBE_COUNT]);
 /* Core0 prediction and follower deadline preparation, outside the VDC phase. */
 void trigger_t2_runtime_prepare_core0(void);
 bool trigger_t2_runtime_preview_history(uint32_t position_id, uint32_t age,

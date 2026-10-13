@@ -234,6 +234,15 @@ scpi_result_t scpi_cmd_trigger_t2_q(scpi_t *context)
      * many positions this run lost that way. Positional readers keep their indices. */
     SCPI_ResultUInt32(context, s.freeze_no_preview_mask);
     SCPI_ResultUInt32(context, s.freeze_no_preview_count);
+    /* Appended last: the origin's SYNC_TRIGGER service split in clk_sys cycles -
+     * counter read, prediction observe, rolling-window block, FREEZE call. The
+     * RECEIVE segment maximum says the phase is over budget but not which part
+     * spends it. Positional readers keep their indices. */
+    uint32_t origin_probe[TRIGGER_T2_RUNTIME_ORIGIN_PROBE_COUNT];
+    if (!trigger_t2_runtime_origin_probe(origin_probe))
+        memset(origin_probe, 0, sizeof(origin_probe));
+    for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_ORIGIN_PROBE_COUNT; ++i)
+        SCPI_ResultUInt32(context, origin_probe[i]);
     return SCPI_RES_OK;
 }
 

@@ -257,6 +257,23 @@ static inline __attribute__((always_inline)) void freeze_timing_note(uint32_t in
     if (cycles > s_freeze_cycles[index]) s_freeze_cycles[index] = cycles;
 }
 
+/* Diagnostic split of the origin's SYNC_TRIGGER service, one maximum per part of
+ * service_origin(). The RECEIVE segment maximum alone says the phase is over its
+ * budget but not which part spends it, and the code is small enough that the
+ * suspect cannot be identified by reading it (measured 2026-10-13: RECEIVE 22.5k
+ * cycles while the whole FREEZE call is only 4.9k). Probe only - no behaviour. */
+static uint32_t T2_FREEZE_TIMING_SECTION
+    s_origin_probe_max[TRIGGER_T2_RUNTIME_ORIGIN_PROBE_COUNT];
+
+static inline __attribute__((always_inline)) void origin_probe_end(uint32_t part,
+    uint32_t *mark)
+{
+    const uint32_t now = t2_now();
+    const uint32_t cycles = (now - *mark) & T2_TICK_MASK;
+    if (cycles > s_origin_probe_max[part]) s_origin_probe_max[part] = cycles;
+    *mark = now;
+}
+
 static bool stage_one_freeze_timed(void);
 static bool stage_pending_freeze(void);
 
@@ -842,6 +859,7 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
     s_state.active = 1u;
     s_pending_mask = 0u;
     memset(s_freeze_cycles, 0, sizeof(s_freeze_cycles));
+    memset(s_origin_probe_max, 0, sizeof(s_origin_probe_max));
     memset(s_deadline, 0, sizeof(s_deadline));
     memset(s_deadline_mailbox, 0, sizeof(s_deadline_mailbox));
     memset(s_deadline_seen, 0, sizeof(s_deadline_seen));
@@ -896,12 +914,14 @@ static T2_RAM bool deadlines_need_service(void)
 /* NO1 origin path runs every coarse slice; from XIP it overran SYNC_TRIGGER. */
 static T2_BOUNDED bool T2_HOT(service_origin)(void)
 {
+    uint32_t mark = t2_now();
     uint32_t count;
     if (trigger_counter_read_core1(&count) != COUNTER_OK) {
         s_state.last_error = TRIGGER_T2_RUNTIME_COUNTER;
         return false;
     }
     s_state.last_counter_count = count;
+    origin_probe_end(TRIGGER_T2_RUNTIME_ORIGIN_PROBE_COUNTER, &mark);
     uint32_t mask = 0u;
     if (trigger_turntable_predictor_observe(&s_state.predictor,
             &s_config.predictor, count, &mask) != TRIGGER_TURNTABLE_OK) {
@@ -909,6 +929,7 @@ static T2_BOUNDED bool T2_HOT(service_origin)(void)
         return false;
     }
     s_pending_mask |= mask;
+    origin_probe_end(TRIGGER_T2_RUNTIME_ORIGIN_PROBE_OBSERVE, &mark);
     /* Feed the rolling window in parallel (migration step 1, TRIGGER_T2_TODO.md A.3.0 /
      * A.3.8): the window announces on its own thresholds and rolls, while the legacy mask
      * above still drives every consumer - so this changes no output yet and makes the
@@ -934,7 +955,10 @@ static T2_BOUNDED bool T2_HOT(service_origin)(void)
     }
     __atomic_store_n(&s_threshold_public, t2_published_mask(),
                      __ATOMIC_RELEASE);
-    return stage_one_freeze();
+    origin_probe_end(TRIGGER_T2_RUNTIME_ORIGIN_PROBE_WINDOW, &mark);
+    const bool frozen = stage_one_freeze();
+    origin_probe_end(TRIGGER_T2_RUNTIME_ORIGIN_PROBE_FREEZE, &mark);
+    return frozen;
 }
 
 T2_BOUNDED trigger_t2_runtime_result_t T2_HOT(trigger_t2_runtime_service)(void)
@@ -989,6 +1013,15 @@ bool trigger_t2_runtime_freeze_timing(
     /* Diagnostic maxima: single Core1 writer, word-sized, no tearing. */
     for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_FREEZE_TIMING_COUNT; ++i)
         out[i] = __atomic_load_n(&s_freeze_cycles[i], __ATOMIC_RELAXED);
+    return true;
+}
+
+bool trigger_t2_runtime_origin_probe(
+    uint32_t out[TRIGGER_T2_RUNTIME_ORIGIN_PROBE_COUNT])
+{
+    if (!out) return false;
+    for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_ORIGIN_PROBE_COUNT; ++i)
+        out[i] = __atomic_load_n(&s_origin_probe_max[i], __ATOMIC_RELAXED);
     return true;
 }
 

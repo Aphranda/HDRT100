@@ -13,6 +13,12 @@ static uint32_t s_grid_busy;
 static trigger_grid_preview_snapshot_t s_grid;
 static trigger_grid_anchor_snapshot_t s_anchor;
 
+/* Bounded retry of the transient refusals of a stopped-state grid configure
+ * (see trigger_grid_preview_configure). The spin keeps the whole retry inside
+ * the preview lease, well under a millisecond, so no caller sees a long stall. */
+#define TRIGGER_GRID_PREVIEW_CONFIGURE_ATTEMPTS 8u
+#define TRIGGER_GRID_PREVIEW_CONFIGURE_SPIN 2000u
+
 static bool preview_enter(void)
 {
     uint32_t idle = 0u;
@@ -181,7 +187,23 @@ uint32_t trigger_grid_preview_configure(const trigger_time_grid_t *grid)
     if (!trigger_time_grid_valid(grid)) return TRIGGER_TIME_GRID_ARGUMENT;
     if (!preview_enter()) return TRIGGER_GRID_PREVIEW_BUSY;
     preview_configuration_t request = {grid, TRIGGER_GRID_PREVIEW_NOT_STOPPED};
-    (void)tdma_service_update_stopped_metadata(tdma_runtime_owner_get(), configure_stopped, &request);
+    /* The stopped-state update can be refused TRANSIENTLY: the stopped proof is taken
+     * twice and re-compared, and the ring runtime may still be settling right after
+     * STOP or a metadata update may be in flight. A single refusal left the board
+     * WITHOUT a grid - the tool sends GRID:CLEar immediately before this - and that
+     * only surfaced four steps later as a T2 mount refusal (seat reject 91 "grid not
+     * configured", measured 2026-10-13 on one board while the other three mounted).
+     * Retry the bounded transient causes; GENERATION and MODEL are definitive. */
+    for (uint32_t attempt = 0u; attempt < TRIGGER_GRID_PREVIEW_CONFIGURE_ATTEMPTS; ++attempt) {
+        request.result = TRIGGER_GRID_PREVIEW_NOT_STOPPED;
+        (void)tdma_service_update_stopped_metadata(tdma_runtime_owner_get(), configure_stopped, &request);
+        if (request.result == TRIGGER_TIME_GRID_OK ||
+            request.result == TRIGGER_GRID_PREVIEW_GENERATION ||
+            request.result == TRIGGER_GRID_PREVIEW_MODEL)
+            break;
+        for (volatile uint32_t spin = 0u; spin < TRIGGER_GRID_PREVIEW_CONFIGURE_SPIN; ++spin) {
+        }
+    }
     preview_leave();
     return request.result;
 }

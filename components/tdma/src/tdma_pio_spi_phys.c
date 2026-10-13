@@ -2128,6 +2128,30 @@ static bool tdma_pio_spi_phys_transport_header_matches(
                TDMA_TRANSPORT_FRAME_HEADER_SIZE;
 }
 
+/* An alignment a scan RECORDS must satisfy the same bound the origin BEGIN
+ * ENFORCES before it arms anything (tdma_pio_spi_phys_origin.inc: the whole packet
+ * has to fit inside the physical frame from that offset). A candidate can match the
+ * magic and the transport header while still resting on a wrong phase whose packet
+ * would wrap the frame boundary; recording that phase poisoned the NEXT arm's
+ * alignment. Measured 2026-10-13: a recorded byte_shift of 42 in a frame whose whole
+ * prefix region is 9 bytes made BEGIN refuse check #38 (prefix 374 > 72), and that
+ * refusal is latched as a permanent origin fault which STOPs the ring - the run was
+ * lost while a peer was still joining. Rejecting the phase as an alignment witness
+ * here keeps the recorder and the consumer on one predicate. */
+static inline bool tdma_pio_spi_phys_alignment_fits(
+    const tdma_pio_spi_phys_t *phys, uint32_t byte_shift, uint32_t bit_shift)
+{
+    if (phys == NULL || phys->flight_physical_byte_count == 0u) return false;
+    const uint64_t packet_size =
+        (uint64_t)TDMA_TRANSPORT_FRAME_HEADER_SIZE + (uint64_t)phys->flight_payload_size;
+    if ((uint64_t)phys->flight_physical_byte_count <= packet_size) return false;
+    const uint64_t room_bits =
+        ((uint64_t)phys->flight_physical_byte_count - packet_size) * 8u;
+    return ((uint64_t)byte_shift + TDMA_PIO_SPI_PACKET_HEADER_SIZE) * 8u +
+               (uint64_t)bit_shift <=
+           room_bits;
+}
+
 static bool tdma_pio_spi_phys_capture_words_legacy(tdma_pio_spi_phys_t *phys,
                                             size_t max_words,
                                             size_t *received_words)
@@ -2250,20 +2274,28 @@ static bool tdma_pio_spi_phys_capture_words_legacy(tdma_pio_spi_phys_t *phys,
                 phys->flight_physical_byte_count != 0u) {
                 const uint32_t byte_shift = (uint32_t)(candidate %
                     phys->flight_physical_byte_count);
-                if (phys->flight_overlay_alignment_samples != 0u &&
-                    candidate - phys->flight_overlay_alignment_candidate ==
-                        phys->flight_physical_byte_count &&
-                    byte_shift == phys->flight_alignment_byte_shift &&
-                    bit_shift == phys->flight_alignment_bit_shift) {
-                    if (phys->flight_overlay_alignment_samples <
-                            TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES)
-                        phys->flight_overlay_alignment_samples++;
-                } else {
-                    phys->flight_overlay_alignment_samples = 1u;
+                if (tdma_pio_spi_phys_alignment_fits(phys, byte_shift, bit_shift)) {
+                    if (phys->flight_overlay_alignment_samples != 0u &&
+                        candidate - phys->flight_overlay_alignment_candidate ==
+                            phys->flight_physical_byte_count &&
+                        byte_shift == phys->flight_alignment_byte_shift &&
+                        bit_shift == phys->flight_alignment_bit_shift) {
+                        if (phys->flight_overlay_alignment_samples <
+                                TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES)
+                            phys->flight_overlay_alignment_samples++;
+                    } else {
+                        phys->flight_overlay_alignment_samples = 1u;
+                    }
+                    phys->flight_overlay_alignment_candidate = candidate;
+                    phys->flight_alignment_byte_shift = byte_shift;
+                    phys->flight_alignment_bit_shift = bit_shift;
                 }
-                phys->flight_overlay_alignment_candidate = candidate;
-                phys->flight_alignment_byte_shift = byte_shift;
-                phys->flight_alignment_bit_shift = bit_shift;
+                /* A phase that does not fit the physical frame is not an alignment
+                 * witness: leave the recorded alignment and its stability count
+                 * untouched (see tdma_pio_spi_phys_alignment_fits). Clearing the count
+                 * here instead would make the NEXT arm refuse check #27 "overlay
+                 * alignment unstable" - measured 2026-10-13. The frame itself is still
+                 * returned to the caller below. */
             }
             if (bit_shift == 0u) {
                 phys->snapshot.rx_magic_at_zero++;

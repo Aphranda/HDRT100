@@ -1603,6 +1603,20 @@ def step_8_grid(ctx, slot, board, uid):
     ctx.send(board, f"TRIGger:REServation:GRID:CONFigure "
                     f"{ctx.dep_gen},{ctx.dep_gen + 1},0,1000000,2000")
     print(f"  slot {slot} grid epoch {ctx.dep_gen}", flush=True)
+    # Verify the configure instead of assuming it. The reply names its own refusal, and
+    # an unverified grid used to surface four steps later as a T2 mount refusal (seat
+    # reject 91 "grid not configured") on one board while the other three mounted -
+    # measured 2026-10-13, which cost the whole run.
+    state = ctx.send(board, "TRIGger:REServation:GRID?").split(",")
+    result = state[1].strip() if len(state) > 1 else "?"
+    configured = state[2].strip() if len(state) > 2 else "?"
+    epoch = state[4].strip() if len(state) > 4 else "?"
+    print(f"  slot {slot} grid readback -> result {result}"
+          f" configured {configured} epoch {epoch}", flush=True)
+    if result != "0" or configured != "1" or epoch != str(ctx.dep_gen):
+        ctx.failures.append(
+            f"slot {slot} Step 8 grid not configured (result {result}"
+            f" configured {configured} epoch {epoch} asked {ctx.dep_gen})")
 
 
 @step(9)

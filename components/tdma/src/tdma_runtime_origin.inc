@@ -268,6 +268,15 @@ static tdma_origin_admission_result_t tdma_runtime_owner_origin_admit_impl(
     calibration_origin_timing_t trial;
     if (!calibration_manager_origin_get_timing(&trial) || !trial.enabled ||
         trial.epoch == s_origin_consumed_epoch) return TDMA_ORIGIN_ADMISSION_NONE;
+    /* A trial staged for an earlier ring configuration is STALE, not a rejected
+     * handoff. Admitting it fails the owner checks below and is reported REJECTED,
+     * which the adapter turns into a comm error plus an origin STOP while a peer is
+     * still joining (measured 2026-10-13: "config trial 4 ring 9", first fault site
+     * ADMISSION, comm state FAULT); the cursor already bound to that ring then latches
+     * a permanent binding fault and the whole run is lost. Ignore the stale trial and
+     * leave it unconsumed - this run stages its own trial against the ring it builds. */
+    if (config != NULL && config->owner_config_seq != trial.config_seq)
+        return TDMA_ORIGIN_ADMISSION_NONE;
     s_origin_consumed_epoch = trial.epoch;
     /* Only the independently authorized trial sequence can supply this
      * owner binding. Normalize the local copy after checking the input. */

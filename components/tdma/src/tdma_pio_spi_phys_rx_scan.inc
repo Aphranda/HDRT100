@@ -232,18 +232,24 @@ static bool tdma_pio_spi_phys_capture_words_async_ex(tdma_pio_spi_phys_t *phys,
     if (phys->process_image_enabled && !phys->flight_overlay_alignment_locked &&
         phys->flight_physical_byte_count != 0u && hint->stride_words == phys->flight_physical_byte_count) {
         const uint32_t byte_shift = (uint32_t)(candidate % phys->flight_physical_byte_count);
-        if (phys->flight_overlay_alignment_samples != 0u &&
-            candidate - phys->flight_overlay_alignment_candidate == phys->flight_physical_byte_count &&
-            byte_shift == phys->flight_alignment_byte_shift && shift == phys->flight_alignment_bit_shift) {
-            if (phys->flight_overlay_alignment_samples < TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES)
-                phys->flight_overlay_alignment_samples++;
-        } else {
-            phys->flight_overlay_alignment_samples = hint->stable_frames >= TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES
-                ? TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES : 1u;
+        if (tdma_pio_spi_phys_alignment_fits(phys, byte_shift, shift)) {
+            if (phys->flight_overlay_alignment_samples != 0u &&
+                candidate - phys->flight_overlay_alignment_candidate == phys->flight_physical_byte_count &&
+                byte_shift == phys->flight_alignment_byte_shift && shift == phys->flight_alignment_bit_shift) {
+                if (phys->flight_overlay_alignment_samples < TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES)
+                    phys->flight_overlay_alignment_samples++;
+            } else {
+                phys->flight_overlay_alignment_samples = hint->stable_frames >= TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES
+                    ? TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES : 1u;
+            }
+            phys->flight_overlay_alignment_candidate = candidate;
+            phys->flight_alignment_byte_shift = byte_shift;
+            phys->flight_alignment_bit_shift = shift;
         }
-        phys->flight_overlay_alignment_candidate = candidate;
-        phys->flight_alignment_byte_shift = byte_shift;
-        phys->flight_alignment_bit_shift = shift;
+        /* A phase that does not fit the physical frame is not an alignment witness: leave
+         * the recorded alignment and its stability count untouched. Clearing the count
+         * here instead makes the NEXT arm refuse check #27 "overlay alignment unstable"
+         * (measured 2026-10-13). The frame is still returned to the caller below. */
     }
     if (shift == 0u) phys->snapshot.rx_magic_at_zero++;
     else phys->snapshot.rx_magic_at_shift++;

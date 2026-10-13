@@ -480,8 +480,20 @@ static inline trigger_turntable_result_t trigger_turntable_window_advance(
     if (announced_now && !trigger_turntable_window_time_ready(s))
         s->window_rate_stale_count++;
     /* Roll only when the oldest entry has been announced: the next position is
-     * entered now, with the count as it is now. */
-    while (s->window[0].valid && s->window[0].announced) {
+     * entered now, with the count as it is now. BOUNDED per call: an entry whose
+     * target the counter has already passed is entered with its threshold clamped to
+     * the target, so a counter that is far ahead announces and rolls MANY entries in
+     * one call. Measured on the bench (2026-10-13, origin instrument): 18913 cycles in
+     * a single call inside a 26800-cycle SYNC_TRIGGER budget, which quarantined the
+     * origin's T2 load and failed the run. The scan itself advances one position per
+     * 200-250 ms (product cadence: one position runs 16 channel tests) while the origin
+     * services every ~1.1 ms coarse slice, so one roll per call catches up roughly
+     * 200-250x faster than the scan advances: the window converges over the following
+     * slices instead of paying an unbounded roll in one call. */
+#define TRIGGER_TURNTABLE_WINDOW_ROLLS_PER_ADVANCE 1u
+    for (uint32_t rolls = 0u;
+         rolls < TRIGGER_TURNTABLE_WINDOW_ROLLS_PER_ADVANCE &&
+         s->window[0].valid && s->window[0].announced; ++rolls) {
         for (uint32_t slot = 0u; slot + 1u < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot)
             s->window[slot] = s->window[slot + 1u];
         s->window[TRIGGER_TURNTABLE_WINDOW_MAX - 1u] =
