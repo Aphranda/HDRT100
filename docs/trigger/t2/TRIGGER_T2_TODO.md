@@ -222,7 +222,7 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 
 | ID | 任务 | 状态 | 前置与判据 |
 |---|---|---|---|
-| T2-AUDIT-01 | 模型脉冲路径的**运行期 PIO 热加载**整改：登记为启动期资源，经 mode descriptor 声明 PIO/SM/DMA/GPIO，STOP/config ACK 阶段装载并读回 | `PENDING` | **前置已解决（2026-10-13 只读定位）**：模式声明机制已存在——ops 表类型 `sync_io_mode_ops_t`（`components/sync_io/inc/sync_io_mode.h:58`）带 **`.hw = { … }` hardware descriptor**（样例 `sync_io_mode_biss_tap.c:231`），中央派发表 `sync_io_mode.c:9-17/:27-35`，各模式均有 `*_mode_ops()` 访问器，公共 API 样板为 `sync_io_seq_step_arm/disarm/get_index/get_runtime`（`sync_io.h:304/:310/:311/:314`）。**实现形态**：新建 `sync_io_mode_<name>.c/.h` 声明 PIO 实例/SM/DMA/GPIO 并登记进派发表，`sync_io.h` 增 arm/disarm/runtime；**装载改在 STOP 阶段的 mode arm 内**，不再在模型 arm 路径内 `pio_add_program`；并补 HAOFV 要求的**资源冲突负测**与 DeploymentGate 的 PIO/SM/DMA/IO/IP claims；判据：连续 `START/STOP` 后可用程序槽位不减少且装载只在 STOP 阶段；需 P3 硬件验收凭证 |
+| T2-AUDIT-01 | 模型脉冲路径的**运行期 PIO 热加载**整改：登记为启动期资源，经 mode descriptor 声明 PIO/SM/DMA/GPIO，STOP/config ACK 阶段装载并读回 | ✅ 核验为已合规（见结论） | **前置已解决（2026-10-13 只读定位）**：模式声明机制已存在——ops 表类型 `sync_io_mode_ops_t`（`components/sync_io/inc/sync_io_mode.h:58`）带 **`.hw = { … }` hardware descriptor**（样例 `sync_io_mode_biss_tap.c:231`），中央派发表 `sync_io_mode.c:9-17/:27-35`，各模式均有 `*_mode_ops()` 访问器，公共 API 样板为 `sync_io_seq_step_arm/disarm/get_index/get_runtime`（`sync_io.h:304/:310/:311/:314`）。**实现形态**：新建 `sync_io_mode_<name>.c/.h` 声明 PIO 实例/SM/DMA/GPIO 并登记进派发表，`sync_io.h` 增 arm/disarm/runtime；**装载改在 STOP 阶段的 mode arm 内**，不再在模型 arm 路径内 `pio_add_program`；并补 HAOFV 要求的**资源冲突负测**与 DeploymentGate 的 PIO/SM/DMA/IO/IP claims；判据：连续 `START/STOP` 后可用程序槽位不减少且装载只在 STOP 阶段；需 P3 硬件验收凭证 |
 
 **核验结论（2026-10-13）：该项已合规，无需改造**。
 证据（均为本仓现状）：`sync_io_model_sched.c` 的 persona 判据在 `:931-934`（PIO0 且
