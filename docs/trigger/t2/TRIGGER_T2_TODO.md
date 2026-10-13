@@ -372,6 +372,31 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.36 361 切换的工具侧改动：**判据必须从"掩码"换成"窗口自身健康"**（2026-10-13）
+
+取到待改点的确切文本：
+
+| 位置 | 当前文本 | 361 下的问题 |
+|---|---|---|
+| `t2_workflow.py:520` | `…T2:CONFigure {dep_gen},0,14,{int(slot == 0)},…` | **`target_mask = 14`** = 三位位置（bits 1..3）✗ |
+| `t2_workflow.py:1718` | 同上 | 同上 ✗ |
+| `t2_bench_probe.py:242` | `…CONFigure {generation},0,14,{int(i==0)},5000,5000,950,5000,10000,15000,5000,100…` | 同上 ✗ |
+| `t2_workflow.py:955` | `ALL_POSITIONS_MASK = 7  # TRIGGER_T2_RUNTIME_POSITION_COUNT == 3` | 三位置判据常量 ✗ |
+| `t2_workflow.py:2546-2567` | 阈值感知判据（A.3.25 后）：`crossed` 由计数器算、`if published_count < crossed` | 仍以 **legacy 掩码** 为准 ✗ |
+
+**关键结论**：**361 位置下"掩码判据"根本无法成立** ✗✓ —— legacy 掩码只有 3 位（`POSITION_COUNT == 3`）✓，而 361 个位置**不可能**用同一个字段表达 ✗。因此切换时必须**更换判据**：
+
+> **新判据（361 下）**：用 `TRIGger:REServation:T2:SCAN?` 读窗口自身健康 ——
+> `entered == announced` ✓（每个进入窗口的位置恰宣告一次）、`overwrote_unannounced == 0` ✓、
+> `announce_mismatch == 0` ✓（迁移期等价性）、并核对 `geometry positions/step_pulses` 为 `361/100` ✓。
+
+**改动顺序（与 A.3.35 的四步一致）**：
+
+1. 把 `T2:SCAN?` 接进工具（在采样步骤内按**具名/切片**解析，避免再次踩"位置化解析"✗；曾因缩进错误回退一次，须**逐处按各自缩进**插入 ✓）；
+2. 判据改为上式 ✓（`ALL_POSITIONS_MASK` 判据随之停用 ✓）；
+3. `target_mask` 的三处按新口径重定 ✓（或明确为"扫描下不适用"并停发 ✓）；
+4. 台架扫描切到 0..360°@1° ✓，核对 `geometry 361pos/100pul` ✓。
+
 ### A.3.35 删 legacy 三槽的读点清单 ⇒ **不能单独删除**，应与"切 361"同批（2026-10-13）
 
 grep 全树后，legacy 三槽（`target_count[]` / `threshold_count[]` / `announced_mask`；另有 `terminal_verified`）的真实读点只有 7 处：
