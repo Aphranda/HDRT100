@@ -276,7 +276,19 @@ TDMA START 前 CONFIG_CONTROL 配置并 STOP→ARM 激活
 
 ### T2-AUDIT-06：按参考实现移植 persona 资源与 WAVE_OUTPUT persona（2026-10-13）
 
-状态：**PENDING**（参考取证已完成，待实施）。参考实现：分支 `origin/feature/node-sequence-reservation-trigger`（`19b9c5ff`）。
+状态：**核验完成——本仓已具备，无需移植**。
+
+**核验结论（2026-10-13，前提已过期）**：本仓 `sync_io_persona_resources.c` 第 `:100` 行已有完整的
+`SYNC_IO_PERSONA_ID_WAVE_OUTPUT` 行（`.name = "wave_output"`、`.program_name = "sync_model_sched_pulse_high_or_low"`、
+`instruction_words = SYNC_IO_WAVE_OUTPUT_INSTRUCTION_WORDS`、`.sm_mask = SYNC_IO_SM_BIT(BOARD_SYNC_PIO0_WAVE_OUTPUT_SM)`、
+`.tx_fifo_sm_mask` / `.tx_dreq_sm_mask` 同 SM、`.gpio_write_mask = SYNC_IO_MAIN_OUTPUT_GPIO_MASK`、
+`.dma_channel_mask = SYNC_IO_DMA_BIT(SYNC_IO_MODEL_PULSE_DMA_CH)`），且 `sync_io_model_sched.c:931-934` 已按该 persona 路由。
+因此**不需要移植 persona 资源与 WAVE_OUTPUT persona**；本会话曾自制一份模式并已回退删除（避免双轨）。
+
+**仍真正缺失者（可选后续，非本项前提）**：参考实现的 **SEQUENCE 全域**（`sync_io_sequence.pio` / `.c` / `.h`、
+`SYNC_IO_PERSONA_ID_SEQUENCE` / `_SEQUENCE_COUNTER`）与其 **Python 调试界面**（`rp2350_tk_toolbox.py`）。
+
+**原状态记录（保留供追溯）**：PENDING（参考取证已完成，待实施）。参考实现：分支 `origin/feature/node-sequence-reservation-trigger`（`19b9c5ff`）。
 
 **已取证的对齐事实**（逐字）：
 - 该分支的 persona 枚举包含 **`SYNC_IO_PERSONA_ID_WAVE_OUTPUT`**（已有）；
