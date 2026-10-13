@@ -372,6 +372,35 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.150 B1 锚点齐备 + 选定**不碰共享游标**的最安全设计（2026-10-13）
+
+**最后一处锚点** ✓：
+
+```c
+/* components/sync_trigger/inc/trigger_time_cursor.h:32 （游标类型 ✓） */
+uint32_t session, sample_seq, last_event_id;
+uint32_t carrier_sequence, identity_crc32, ring_config_seq;
+```
+
+**⚠️ 判断** ✗✓：该游标是**多服务共享类型** ✓（字段呈"身份块"形态 ✓：`carrier_sequence / identity_crc32 /
+ring_config_seq` ✓）⇒ **改它有 ABI/语义外溢风险** ✗ ⇒ **不采用**"给游标加 `schedule_crc`" ✗✓。
+
+**模型侧 CRC 来源** ✓：`trigger_t2_runtime.c:1045-1046` 已在用 `model.session / model.token /
+model.dco.valid / model.dco.nominal_period_ns` ✓ ⇒ 同源字段即 **`model.dco.tdma_schedule_crc32`** ✓
+（`trigger_grid_preview.c:77-81` 用的正是它 ✓✓，A.3.146 ✓）。
+
+**⇒ 选定设计（T2 自包含、零共享类型改动 ✓✓）**：
+
+1. **计划结构**（`trigger_t2_runtime.c:95-99` ✓）加 `uint32_t schedule_crc;` ✓；
+2. **T2 自身状态**加一个"当前 CRC"缓存 ✓（在取模型快照/发布计划处更新 ✓，即 `:1076-1080` 同一上下文 ✓），
+   来源 `model.dco.tdma_schedule_crc32` ✓；
+3. 填充点（`:1078` ✓）加 `.schedule_crc = model.dco.tdma_schedule_crc32` ✓；
+4. **四处栅栏**（`:369-370` / `:442-445` / `:621-623` / `:641-642` ✓）各加
+   `… schedule_crc == s_state.<当前CRC>` ✓（照 `trigger_grid_preview.c:77-81` ✓）；
+5. `run` 取证 ✓ + **验收** ✓：**故意改动 schedule CRC** ⇒ T2 在 ②/④ **`action_fail`** ✓（而非继续 ✗）。
+
+⇒ 该设计**只动 T2 自己的结构与状态** ✓（不触共享游标 ✗、不跨组件 ✗）⇒ 锚点齐备、**可一次性落地** ✓✓。
+
 ### A.3.149 B1 补丁文本已固化（含块级锚点）；缺游标侧锚点故留待一次性落地（2026-10-13）
 
 **已逐字取得的锚点** ✓：
