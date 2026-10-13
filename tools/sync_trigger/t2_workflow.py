@@ -1968,6 +1968,27 @@ def step_16_ring_start(ctx, slot, board, uid):
         print(f"  origin trial: {grant[:40]}"
               f" | vdc {ctx.send(src, 'SYSTem:VDC:OUTPut:RUN?')[:36]}", flush=True)
         cursor_probe(ctx, src, "after ORIGin:TRIAL (source still stopped)")
+        # The trial is a deliberate diagnostic, but the reference ring MUST be healthy the
+        # moment it returns: passing runs read err 0 / valid 1 / ring_cfg == config_seq
+        # exactly here, while an UNAUTHORIZED trial (ORIGIN STOP cause UNAUTHORIZED+
+        # COMM_FAULT / FAULT_LATCHED) still bumps the ring config and leaves the binding one
+        # behind - a sticky drift (bound N vs ring N+1) that keeps the cursor invalid for
+        # the rest of the run and only surfaces three steps later as "cursor never became
+        # valid" (TRIGGER_T2_TODO.md A.3.28-A.3.31). Assert the recovery HERE, in the terms
+        # of the real cause, with a short retry so a slow re-arm is not a false failure.
+        ring_now = ctx.send(src, "SYSTem:TDMA:RING:STATus?").split(",")
+        for _attempt in range(3):
+            ring_now = ctx.send(src, "SYSTem:TDMA:RING:STATus?").split(",")
+            if ring_now and ring_now[0].strip() == "1":
+                break
+            time.sleep(1.0)
+        if not ring_now or ring_now[0].strip() != "1":
+            ctx.failures.append(
+                f"Step 16: reference ring did not recover after ORIGin:TRIAL "
+                f"(RING:STATus? {','.join(ring_now[:6])}) - an unauthorized trial "
+                f"(UNAUTHORIZED+COMM_FAULT) bumps the ring config and leaves a sticky "
+                f"drift, so no cursor can become valid in this run")
+            print(f"  ring did NOT recover after trial: {','.join(ring_now[:8])}", flush=True)
     # The DPLL lock path is independent of T2: the VDC domain only accepts input when
     # the sync-IO observer is enabled (SYSTem:SYNC:VDC:LOCK:READiness? field 8 =
     # ring_input || sync_io_input, and readiness field 2 = reason 2 on every board that
