@@ -2618,7 +2618,14 @@ def step_20_sampling(ctx, slot, board, uid):
             ctx.failures.append(
                 f"Step 20 window health: overwrote_unannounced {scan[8]} != 0 "
                 f"(T2:SCAN? {','.join(scan)})")
-        if scan[9].isdigit() and int(scan[9]) != 0:
+        # announce_mismatch compares the window's announced set with the legacy three-slot
+        # mask, which is only meaningful while the scan's positions coincide with those
+        # three named slots (A.3.13). At any other scan length - e.g. the 361-position
+        # 0..360@1 scan - the two models legitimately disagree, so the check is gated on
+        # that premise instead of failing (measured: mismatch = 558 during a healthy
+        # 361-position run, 2026-10-13).
+        legacy_premise = len(scan) > 4 and scan[4].strip() == "3"
+        if legacy_premise and scan[9].isdigit() and int(scan[9]) != 0:
             ctx.failures.append(
                 f"Step 20 window health: announce_mismatch {scan[9]} != 0 "
                 f"(T2:SCAN? {','.join(scan)})")
