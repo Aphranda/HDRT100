@@ -372,6 +372,43 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
 
 **剩余首选仍是假设 A**（`s_scan_step_mdeg` 在 start 时为 0），A.3.6d 的仪表（含 A.3.6e 的"配对数"字段）仍是一次性判定它的最直接手段。
 
+### A.3.52 序列域接口梳理（关键参数已确认）——可直接支撑"每位置 16 组"（2026-10-13）
+
+按 A.3.51 第 1 步读三个头，得到**可移植的接口与关键参数**：
+
+**① `sync_io/inc/sync_io_sequence.h`（PIO 步进序列器 —— "16 组/位置"的载体）**
+
+| 常量/字段 | 值/含义 |
+|---|---|
+| `SYNC_IO_SEQUENCE_TICK_NS` | **4 ns** ✓（时间分辨率 ✓） |
+| `SYNC_IO_SEQUENCE_TICKS_PER_US` | `1000/4 = 250` ✓ |
+| `SYNC_IO_SEQUENCE_TIME_MAX_US` | `UINT32_MAX / 250` ✓（时长上限 ✓） |
+| **`SYNC_IO_SEQUENCE_PLAN_MAX`** | **256 个计划项** ✓ ⇒ **每位置 16 组**绰绰有余 ✓（且可容多位置规划 ✓） |
+| `SYNC_IO_SEQUENCE_PIO0` / `PLAN_WORDS` | 用 PIO0 ✓、**每项 3 个 PIO 字** ✓ |
+| `SYNC_IO_SEQUENCE_COUNTER_LIMIT` | `UINT32_MAX − 32` ✓ |
+| 运行态 | `armed / ready / pending / busy / paused` ✓ |
+| 配置态 | `falling`、`status_mode`、`gateway_enabled/falling`、**`step_limit_enabled`** ✓（步数上限 ✓） |
+
+**② `sync_trigger/inc/trigger_sequence_service.h`（触发侧服务状态机 —— 执行端序列）**
+
+`dispatch(action, result)` 式回调 ✓；`NO_INDEX` 哨兵 ✓；状态/错误枚举 + 结构体字段
+`state / error / rejection_counts_pending / gateway_waiting / gateway_pulse_busy / counter_busy / finished` ✓
+⇒ 已具备**预约—网关—计数**的编排状态机 ✓（与 T2 的"执行端窗口深度 2"正是同一层 ✓）。
+
+**③ `distributed_refmem/inc/refmem_sequence_roles.h`（角色绑定）**
+
+`ROLE_SLOT_NONE` ✓、`ROLE_IO_MASK = 0x0F` ✓、**`ROLE_BINDING_VERSION = 2`** ✓
+⇒ 各板在序列中的**角色/版本绑定** ✓（16 组在多板间分工的落点 ✓）。
+
+**结论与移植建议**：
+
+1. **"每位置 16 组"无需自研** ✓ —— 直接用 `sync_io_sequence` 的**计划表**（≤256 项、4 ns 粒度 ✓）
+   表达一组 16 个脉冲/事件 ✓；
+2. **"执行端窗口深度 2"** 对应 `trigger_sequence_service` 的预约/网关状态 ✓（`gateway_waiting/busy` ✓、
+   `pending` ✓）—— 需与 T2 预测侧的 `WINDOW_MAX = 2`（在途**预测位置** ✓）在命名上区分 ✓（A.3.51 第 4 点 ✓）；
+3. **下一步**：读 `tools/sequence_trigger_debug_ui/realtime_budget.py` ✓ 取预算模型 ⇒ 量化
+   "16 组/位置"在 1/2/2.5/5 °/s（A.3.45）下的时间余量 ✓；再决定移植的具体子集 ✓。
+
 ### A.3.51 【借鉴清单】`origin/feature/node-sequence-reservation-trigger` 的 sync_io 序列域（2026-10-13）
 
 用户提示："node_sequence 分支的 sync_IO 域的工作已经完成一部分，可以进行借鉴"。已定位分支为
