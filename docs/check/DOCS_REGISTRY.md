@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGISTRY.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-09-19
+Last updated: 2026-10-13
 
 > 注：本文件必须满足 `tools/docs_check/docs_check.py` 的元数据要求（5 字段齐全），否则自回归门禁自相矛盾。
 
@@ -54,6 +54,7 @@ Last updated: 2026-09-19
 | TDMA-CAPTURE-01 | tdma | DPLL residual 只经固定 SRAM capture，停止后由 Core0/StorageAO 写 SD 并离线解码；不得进入 TDMA realtime path | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | vdc_dpll_manager.h | C build、CRC decoder、SD/OTA/HIL | 2026-08-29 | pending |
 | DOCS-PROGRESSROTATE-01 | docs | 进展日志单文件 ≤200KB、最旧优先连续截断归档到 `docs/legacy/<domain>/`、`## 归档索引` ID 闭包与 `Last updated` 新鲜度 | 1 | docs/check/DOCS_REGRESSION_PLAN.md | doc_regression_check.py | 环5 阈值/截断单调性/索引闭包/新鲜度正反用例 | 2026-09-17 | pending |
 | DOCS-PROGRESSORDER-01 | docs | 进展日志条目按新鲜度倒排——最新鲜的在最上面，日期序列非递增（同日不限），归档文件与索引区间同向 | 1 | docs/check/DOCS_REGRESSION_PLAN.md | doc_regression_check.py | 环5 日期级倒序判定、归档顺序与区间方向双向容忍正反用例 | 2026-09-17 | pending |
+| ARCH-TRIGGERSLICE-01 | trigger | 位置切片紧凑记录冻结：10 B 小端单帧（[0] tag=0xE0 PREVIEW / 0xF0 FREEZE 或 position_id(1..15)，故实际首字节为 0xE1..0xEF / 0xF1..0xFF；[1..2] prediction_version≠0；[3..6] target_ms_index；[7..9] fine≤0xFFFFFF），每帧一条记录、PREVIEW/FREEZE 不拆分；容器为 TDMA mailbox RefMem 区中 **10 B 的 RefMem 子区**（该区 offset 14、size 10 == TDMA_PROCESS_IMAGE_REFMEM_SIZE），位于 mailbox 的 24 B core0 内容体之内（前 8 B 为 core1 元数据）；owner 为 TriggerRegion[n]；CRC 由 **TDMA 帧级**承担（tdma_process_image_crc16_ccitt，RefMem 层不做**独立** CRC；ack 接收路径校验该帧级 CRC，priority-lane 的逐字节比较用于 RX 去重缓存）；尺寸随 **TDMA process image 布局版本**耦合（TDMA-PROCESSIMAGE-01），REPMEM-LAYOUT-01 只管 RefMem SRAM 向量表且明确不改变 TDMA wire 版本 | 1 | docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md | trigger_position_slice.h | 符号与常量比对 + 尺寸静态断言 + C11 交叉核验（提交单待录） | 2026-10-13 | pending |
 
 ## 条款落点表
 

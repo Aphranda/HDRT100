@@ -1,6 +1,6 @@
 # T2 预约触发实施架构
 
-Status: Draft
+Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
 Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/trigger/t2/TRIGGER_T2_RUNTIME_CONSTRAINTS.md`

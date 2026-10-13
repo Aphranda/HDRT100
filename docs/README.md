@@ -157,6 +157,7 @@ docs/
 | `docs/check/submissions/VDC_CROSS_REVIEW_04.md` | VDC Core1 typed 同步邮箱直接发布、运行代际和 owner 边界核验。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_02.md` | Flash canonical 结构重构核验：契约语义迁移、M0-M6 工作板和 v1 偏差复查。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_03.md` | Direct A/B slot/vector/hash/signature/compatibility fault matrix 与 Recovery 只读投影 C11 核验。 |
+| `docs/check/submissions/TRIGGER_CROSS_REVIEW_01.md` | T2 位置切片跨域契约 `ARCH-TRIGGERSLICE-01` 的 C11 独立交叉核验：10 B wire 布局、尺寸静态断言、容器（10 B RefMem 子区）、owner `TriggerRegion[n]`、每帧一条记录、帧级 CRC 归属与布局版本耦合归属；结论 APPROVE WITH NOTES，三项措辞/归属缺陷已修正。 |
 | `README.md` | 本索引文件，提供当前 `docs/` 文件归属。 |
 | `docs/README.md` | 文档治理域 README。 |
 | `arch/README.md` | 架构域 README。 |
