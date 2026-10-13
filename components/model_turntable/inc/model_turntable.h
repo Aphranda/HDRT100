@@ -21,6 +21,9 @@ typedef struct {
     uint32_t pulse_width_us;
     bool rising_edge;
     int32_t timeout_ms;
+    /* Sub-pulses emitted per position (A.3.87): 1 keeps the historical behaviour
+     * exactly, 16 gives the T2 "16 groups per position" sequence. */
+    uint32_t groups_per_position;
 } model_turntable_trigger_config_t;
 
 typedef struct {

@@ -24,6 +24,9 @@
  * 5776 - both exceed the table (see TRIGGER_T2_TODO.md A.3.84, chunking + depth 2). */
 #define MODEL_TURNTABLE_CHUNK_PULSES 64u
 
+/* Upper bound of sub-pulses per position (A.3.87); 16 is the T2 requirement. */
+#define MODEL_TURNTABLE_MAX_GROUPS_PER_POSITION 16u
+
 static uint32_t s_chunk_base;   /* pulses completed before the armed block */
 static uint32_t s_chunk_pulses; /* pulses in the armed block (0 = none armed) */
 
@@ -110,24 +113,32 @@ static uint32_t model_turntable_interval_for_next_pulse(uint32_t next_index)
 
 static void model_turntable_recompute_plan(void)
 {
+    uint32_t positions = 0u;
     const double total_distance =
         model_turntable_abs_double(s_turntable.trigger.stop - s_turntable.trigger.start);
     s_turntable.abs_step = model_turntable_abs_double(s_turntable.trigger.step);
     s_turntable.direction = s_turntable.trigger.stop >= s_turntable.trigger.start ? 1.0 : -1.0;
 
     if (s_turntable.abs_step <= 0.0 || total_distance <= 0.0) {
-        s_turntable.total_pulses = 1u;
+        positions = 1u;
     } else {
-        s_turntable.total_pulses = (uint32_t)(total_distance / s_turntable.abs_step) + 1u;
+        positions = (uint32_t)(total_distance / s_turntable.abs_step) + 1u;
+    }
+    const uint32_t groups = s_turntable.trigger.groups_per_position > 0u
+        ? s_turntable.trigger.groups_per_position : 1u;
+    s_turntable.total_pulses = positions * groups;
+    if (false) {
     }
 
     const double velocity = s_turntable.motion.velocity_units_per_s;
     const double acceleration = s_turntable.motion.acceleration_units_per_s2;
     s_turntable.min_interval_us =
-        model_turntable_clamp_interval((s_turntable.abs_step / velocity) * 1000000.0);
+        model_turntable_clamp_interval(
+            (s_turntable.abs_step / (velocity * (double)groups)) * 1000000.0);
 
     const double accel_distance = (velocity * velocity) / (2.0 * acceleration);
-    uint32_t accel_pulses = (uint32_t)(accel_distance / s_turntable.abs_step) + 1u;
+    uint32_t accel_pulses =
+        ((uint32_t)(accel_distance / s_turntable.abs_step) + 1u) * groups;
     if (accel_pulses < 1u) {
         accel_pulses = 1u;
     }
@@ -157,7 +168,9 @@ static bool model_turntable_valid_trigger_config(const model_turntable_trigger_c
            config->dimension < 16u &&
            config->step != 0.0 &&
            config->pulse_width_us > 0u &&
-           config->pulse_width_us <= 1000000u;
+           config->pulse_width_us <= 1000000u &&
+           config->groups_per_position >= 1u &&
+           config->groups_per_position <= MODEL_TURNTABLE_MAX_GROUPS_PER_POSITION;
 }
 
 static bool model_turntable_valid_motion_config(const model_turntable_motion_config_t *config)
@@ -240,6 +253,7 @@ bool model_turntable_init(void)
     s_turntable.slot_id = UINT32_MAX;
     s_turntable.output_index = 0u;
     s_turntable.trigger.dimension = 0u;
+    s_turntable.trigger.groups_per_position = 1u;
     s_turntable.trigger.start = 0.0;
     s_turntable.trigger.stop = 10.0;
     s_turntable.trigger.step = 1.0;
