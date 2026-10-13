@@ -617,3 +617,151 @@ T2 预约本身尚未运行；有限 OUT1 维护实验的真实 build、波形�
 **语义与 owner 边界层面无内容性冲突**；遗留项为：
 ① 实现偏离“运行期 PIO 热加载”（整改方向见约束文件）；② “每位置一组”已由硬件闭环（A-06/A-16）；
 ③ 紧凑记录跨域契约尚未登记与 TDMA 一等席布局联审；④ 转台源路径选型（T2-TURNTABLE-008 隔离验收口径）未冻结。
+
+## 2026-10-13 T2 待办长记录（自待办下沉）
+
+### A-2a 判别规则（2026-10-13 实测得出，搬移前必读）
+
+**不能按标题层级机械切分** ✗：`A.4` 段内既有**接线事实小节**（如 `A.4.2 STEP 如何抵达运行时（定案：独立 setter，不动结构体）`），
+也有**按时间追加的日志条目**，两者**同为四级标题、同为两段编号** ✗（如 `A.4.0` / `A.4.1` / `A.4.3`），
+仅凭 `#{2,4}\s+A\.\d+\.\d+` 无法区分 ✗✓。
+
+**安全判别（择一，且须逐条列出后再搬）**：
+
+1. **日期后缀**：日志条目标题通常含 `20xx-xx-xx`（如"…（2026-10-13 定）"）；接线事实小节不含 ✗；
+2. **显式清单**：搬移前先输出"待搬条目 + 行号"清单，经人工确认后再执行 ✓；
+3. **只搬不改**：搬移仅改**归属**（移入冻结归档章节），**不得改写或删除正文** ✗，以便任何一步都可回滚 ✓。
+
+**结论**：A-2a 的正确顺序是 ① 生成清单 → ② 人工确认 → ③ 只改归属的机械搬移 → ④ 更新块地图行区间 ✓。
+
+### 体量合规（2026-10-13 实测：TODO 376 KB = 上限 1.88 倍，必须把日志移出）
+
+**约束依据**：`docs/check/DOCS_REGRESSION_PLAN.md` C14（`:56`）与 R1（`:106`）——**Task Progress 单文件 ≤ 200 KB（204800 字节）**，超限 FAIL；R2（`:112-114`）明确**字节上限是硬约束**、保留窗口只是指导值，故归档用"**最旧优先连续**"。三件套文件接口见 `DOCS-TRIPLETFORMAT-01`。
+
+**实测（2026-10-13）**：
+
+| 文件 | 体量 | 行数 | 判定 |
+|---|---|---|---|
+| `TRIGGER_T2_ARCHITECTURE.md` | 45 KB | 441 | 合规 |
+| `TRIGGER_T2_TASK_PROGRESS.md` | 121 KB | 536 | 合规（余量 79 KB） |
+| **`TRIGGER_T2_TODO.md`** | **376 KB** | 5072 | **超限 1.88 倍，必须瘦身** |
+
+**根因**：14x 条按时间追加的日志条目（`A.3.x / A.4.x`）以四级标题形式**挂在 `A.4 接线落点` 之下**，使该章节名义范围达 **4748 行**；日志与"任务清单"混居是体量超限的直接原因。
+
+**处置（只改归属，不删证据）**：
+
+1. 日志条目**移出 TODO** ⇒ 迁入 `TRIGGER_T2_TASK_PROGRESS.md`（本就以"执行证据"为唯一职责）；若该文件亦将超限 ⇒ 按 C14 以"最旧优先连续"归档到 `docs/legacy/trigger/LEGACY_TRIGGER_T2_TASK_PROGRESS_<NN>.md` 并维护归档索引（ID 闭包、条目数相符）；
+2. TODO **只保留**：K 条、M0–M5、本结论区、已验证证据页，以及体量很小的迁移附录（`A.1` 实施约束 4 行 / `A.2` K-10 偏差 11 行 / `A.3` 迁移清单 47 行 / `A.5` 已结案 8 行）；
+3. **验收判据**：TODO **不含探索日志**且体量降至任务清单量级（建议 < 100 KB）；Task Progress 接收后仍 ≤ 200 KB 或已按 C14 归档；文档门禁（含 R1 字节检查与 C14 轮转）全绿。
+
+**搬移判别**：四级标题内**接线事实小节**与**日志条目**形状相同（同为两段编号）⇒ **禁止机械切分**；以"标题含 `20xx-xx-xx` 日期"为首要判据，并**先出清单、只改归属、可回滚**。
+
+### 执行交接（ROI 状态，2026-10-13）
+
+按用户指定的 ROI 规则记录下一步执行的状态、未验证范围与重启条件。
+
+| 项 | 状态 | 预计时间 | 价值 | 改变的决策 | 最早停止点 |
+|---|---|---|---|---|---|
+| ① PIO 模式化 + STOP 装载 | `EXECUTE`（待启动） | 1.5 / 2.5 / 4 h | 5 | 执行端能否声明**架构合规** | 模式注册完成 + 连续 `START/STOP` **槽位不减** |
+| ② K-2 重算判据 | `EXECUTE`（待启动） | 0.5 / 1 / 2 h | 5 | FREEZE 后未装填组是否仍随最新 DCO 重算 | `:1048`/`:1082` 改用既有掩码后，扰动 DCO 用例通过 |
+
+**本会话不执行的原因**（`DEFER_OR_RECOVER`，不改状态）：两项均为**固件范围**，
+按 AGENTS.md 硬约束，提交前必须执行 `python tools/hardware_acceptance/p3_hardware_acceptance.py run`
+（四板、约 25 分钟）；在无法完成该验收的会话内提交固件会违反约束，故**不提交未验证改动**。
+
+**未验证范围**：上述两项改动本身（均尚未实施）；已验证部分不受影响（本会话已硬件证实：16 组 `total=2896=181×16`、
+六次循环 ARM OK）。
+
+**重启条件**：获得执行许可且可安排一次四板 P3 验收窗口；建议两项**合并一批**（同源码指纹 ⇒ 一次 `run`）。
+
+### ② 的台架语义验收用例（K-2，2026-10-13 设计定稿）
+
+**现状**：已提交的 K-2 改动（`73dcd61a`）已过**回归**验收（P3 四板 PASS_WITH_WARNINGS，ERROR=0/FATAL=0），
+但**语义本身无测试覆盖**：`tests/**` 中 `action_armed_mask`/`action_completed_mask`/`prepare_deadlines` **零命中**，
+`tools/sync_trigger/**` 也**无 DCO 扰动工具**。
+
+**采用方式（照既有先例，2026-10-13 已核实机制）**：`tests/python/test_trigger_t2_freeze_abandon.py` 的做法是——用 `tools.state_machine_resource_check` 的 **`c_definition_body` 抽取真实函数体**，配一个 C harness（**同名复刻 runtime 静态存储** + **为依赖提供桩函数**），编译运行后断言（见该文件 `:14-15/:17/:19-49`）。
+
+**前提（新增，必须先做）**：本次 K-2 改动是**大函数内部的判据行**，**无法直接抽取**；需先把判据**重构为小函数**（如 `static bool t2_deadline_recompute_needed(uint32_t frozen_bit_accepted, uint32_t prev_version, uint32_t prev_token, uint32_t descriptor_version, uint32_t model_token)`），`prepare_deadlines_core0()` 只调用它；然后 harness 抽取**该小函数**并驱动 C1–C6。
+
+**约束**：该重构属**固件范围**（行为等价），仍需独立走“改动 → 编译 → 烧录 → 四板验收 → 提交”周期，**不得与其他改动并行**。
+
+**原则**：：`tests/python/test_trigger_t2_freeze_abandon.py` 已证明**抽取式 harness**
+可直接驱动 freeze 分支（无需硬件）。K-2 同理：把 `prepare_deadlines_core0()` 的判据行抽取为可测函数，
+在 host 侧直接驱动**谓词真值表**（无需真实 DCO 扰动）。
+
+| 用例 | 输入（snapshot 掩码） | 期望 |
+|---|---|---|
+| C1 已冻结且**未装填** | `frozen=1`, `armed=0`, `completed=0` | **不跳过** ⇒ 按最新 DCO 重算并发布（K-2 前半） |
+| C2 已冻结且**已接受** | `frozen=1`, `armed=1`, `completed=0` | **跳过** ⇒ 不追改（K-2 后半） |
+| C3 已完成 | `frozen=1`, `armed=1`, `completed=1` | **跳过** |
+| C4 未冻结 | `frozen=0`, `armed=0` | 重算（原行为不变） |
+| C5 token 未变 | `prediction_version` 与 `model_token` 均未变 | 跳过（原行为保留） |
+| C6 token 已变 | `model_token` 变 | 重算（原行为保留） |
+
+**判据**：C1 必须**重算/发布**（本次修正的直接目标）；C2/C3 必须**跳过**；C4–C6 保持原行为。
+该用例集**免硬件凭证**，属 host 测试，可纳入 `pytest` 常规门禁。
+
+### 判据抽取重构：P3 验收未通过（分支 B，2026-10-13）
+
+**事实**：`
+- 首次：`FAIL Latency Cal hardware acceptance: step failed`；子步 `child_capture` 报 `RuntimeError('Capture exited 2')`。
+- **重试（1/1，预算已尽）**：编译与四板 OTA 完成后**卡住**；最后一次写入为 `16:04:04`，
+  此后阶段目录始终只有 `ota-four-board`，产物年龄与经过时间 **1:1 增长**（56→70→85→106→119→132→143→… s）
+  ⇒ 直接证据表明**并非缓慢推进而是无任何新写入**。
+- 分级凭证始终未写入（现存为 `HAOFV_P3_JOINT_PROVISIONAL_V1`，非 `..._GRADED_V1`）。
+
+**未验证范围**：该重构的硬件回归（编译已过：`build exit=0`）；**行为等价性仅由代码审阅保证**。
+
+**处置（按用户指令与 ROI）**：
+- 重构**保留在工作树且已暂存**，**未提交**；不影响已提交的 K-2 语义修复（`73dcd61a`）。
+- **不并行修补其他部分**；不连累其他改动。
+- **重启条件**：台架恢复（排查 `Latency Cal`/`child_capture` 与 OTA 后卡住）后重跑一次 `run`；
+  若仍卡在同一步，则先排查环境而非本次改动（本次为**纯抽取、零顺序变化**）。
+
+### T2-AUDIT-04 决策输入：两条转台源路径的对照（2026-10-13，不预设结论）
+
+供用户定稿；本表只罗列架构条款与现有代码事实，不替代决策。
+
+| 维度 | **A. `TRIGger:REServation:SOURce:*`（OUT4 硬件 PWM 源）** | **B. `CONFigure:MODEl:TURNtable:*`（加减速模型源）** |
+|---|---|---|
+| 架构描述 | 本文 `T2-OWNER`：“STOP 预装本板 **OUT4** 的独立 PWM，RUN 只切换已装载波形使能；**不由 Core1 定时发脉冲**；不占用 VDC/TDMA 运行服务”。它**提供名义转台输入，不授予输入边沿时间戳或位置到位精度** | 模型组件 `components/model_turntable/`（本会话已实现并硬件验证：16 组 `total=2896=181×16`、分块续装订、`GROups`、PIO 一次装载 + 六次循环 ARM OK）；经 `sync_io_model_sched` 驱动 **PIO 波形输出** |
+| 边沿与证据 | 仅名义输入（不授予边沿时间戳/到位精度）⇒ 适合**驱动计数/预测链路的名义激励** | 产生**真实 PIO 边沿**（可作为 sync_io 的实际输出事实）；但当前状态属**未冻结选型**，且其 PIO 声明尚未纳入模式设施 |
+| 资源与模式 | 作为 `SOURce:*` 现有路径，与 OUT4 本地命名空间绑定 | 需成为**已声明模式**（`sync_io_mode_ops_t.hw` + 派发表），否则违反 `T2-DEPLOY`与 `ARCH-PIOCAT-01`/`ARCH-PIOPARTITION-01`（即 T2-AUDIT-01） |
+| 隔离验收（`T2-TURNTABLE-008`） | 选型决定后，验收证据口径随之变化（本文原文已声明） | 同上 |
+| 与约束的关系 | 不需新增 PIO 资源（现有路径） | 必须先完成 **T2-AUDIT-01**（模式化 + STOP 装载）才能声称合规 |
+
+**待用户明确的三个问题**（本任务不预设答案）：
+1. 验收（`T2-TURNTABLE-008`）要求的是**名义转台输入**还是**可作为事实的硬件边沿**？
+2. 若选 B，是否同意先完成 **T2-AUDIT-01**（否则不具备声明合规的前提）？
+3. 是否允许两路并存（A 作台架驱动、B 作产品输出），还是只保留一条？
+
+### T2-AUDIT-03 前置：契约冻结清单（2026-10-13，免台架）
+
+依据：`TRIGGER_T2_ARCHITECTURE.md` 尾节“位置描述符 wire、调试 profile 默认值、资源配额和正式时限
+在实现与独立复核后登记”与 `T2-PREDICT`“紧凑记录的跨域契约须在 `docs/check/DOCS_REGISTRY.md` 登记并经独立交叉审核（C11）；
+**登记完成前，当前实现不得写成冻结契约**”。
+
+**必须先冻结的五项**（每项需明确到“可作为契约条款”的精度）：
+
+| # | 项 | 当前状态与待定义点 |
+|---|---|---|
+| 1 | **位置描述符 wire 布局** | K-12 已定：**10 B 单帧**（tag + 4 bit `position_id` + 16 bit 版本 + 32 bit `target_ms_index` + 24 bit fine slice）；待定义：它在既有 RefMem 区的**精确偏移/长度**（`TRIGGER_POSITION_SLICE_WIRE_SIZE` 恰填）、**message subtype/身份字段**、CRC 归属与版本化 |
+| 2 | **与 TDMA 一等席布局的联审** | 待定：一等邮箱在 process image 的位置、轮换比例（`SYSTem:TDMA:SEAT:ROTation`，默认 1:1）、与两板 **effective schedule CRC** 一致性门的关联（见 K-5 增补） |
+| 3 | **调试 profile 默认值** | `switch_settle_offset_q` / `gateway_trig_offset_q` / `ready_check_offset_q` / `ready_window_q`；`threshold_per_mille`（当前 950/1000）；`pre_roll_mdeg`/`post_roll_mdeg`（台架 5°，**调试快照非产品额定值**） |
+| 4 | **资源配额** | `TRIGGER_T2_RUNTIME_POSITION_COUNT`、`TRIGGER_POSITION_FREEZE_LATCH_IDS`、控制字节偏移、**RAM 按实测尺寸**（K-7/K-12）；以及 **T2-AUDIT-01 落地后**的 mode 声明与 PIO/SM/DMA/GPIO claims |
+| 5 | **正式时限** | STEP 时间下限（由位置内多组跨度推出）、Core1 服务预算（顶层 `HIGH_PRIORITY` 500 µs）、`T2_FREEZE_RESEND_SLICES` 节奏、窗口到期判据 |
+
+**流程（不可跳步）**：决定上表 → 起草契约行（`contract_id` 唯一、**锚点必须真实存在**）→ **C11 交叉审核**（禁自审自批）→ 登记 → 此后方可将实现描述为已冻结。
+**护栏**：登记前不得把任何**数值快照**写成产品契约（AGENTS.md 硬约束 2）。
+
+### C14 R3 命名规则（实测教训，2026-10-13）
+
+`doc_regression` 的 **C14 R3** 要求：写在 `*_TASK_PROGRESS.md` 的 `归档索引`（章节） 行，
+**必须指向** `docs/legacy/<domain>/LEGACY_<DOMAIN>_TASK_PROGRESS_<NN>.md`。
+因此：**归档的是「进度日志」时**，才在 Task Progress 里登记索引；
+**归档的是「待办附录/历史快照」时**，只在 `docs/README.md` 登记，并在本文保留指针，
+不得写入 Task Progress 的 `归档索引`（章节）（否则 FAIL）。
+
+当前实际登记：`docs/README.md` 中的 `legacy/trigger/LEGACY_TRIGGER_T2_TODO_01.md` 行（已归档、已登记）；
+若今后需轮转 `TRIGGER_T2_TASK_PROGRESS.md`，则按 R3 命名为 `LEGACY_TRIGGER_T2_TASK_PROGRESS_<NN>.md` 并在该文件内登记。
