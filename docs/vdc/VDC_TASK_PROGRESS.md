@@ -22,6 +22,23 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-025：锁相的**定义与要求**（代码级，含门限常量）
+
+- **定义（代码事实）**：Domain 的 `dpll.state` 取 `VDC_DOMAIN_LOCK_LOCKED = 5`，当且仅当**准入样本数足够、且「校正相位误差」在门限内连续保持够多拍**——即「本地时基已被扳到与参考一致并保持」。判据在 `components/vdc_domain/src/vdc_domain.c:4222-4247`。
+- **要求（逐条，含常量）**：
+
+| 层级 | 要求 | 常量/来源 |
+|---|---|---|
+| **前置** | 必须有**准入样本**（过 evidence gate），`accepted_sample_count` 才增长 | evidence gate |
+| ① 样本档 | `accepted ≥ 1 / 2 / 3` 分别进入 `INITIAL_SYNC / FREQ_LOCK / PHASE_LOCK` | `INITIAL_LOCK_SAMPLES=1`、`FREQ_LOCK_SAMPLES=2`、`PHASE_LOCK_SAMPLES=3`（`vdc_domain.c:19-21`） |
+| ② 相位档 | `\|校正相位误差\| ≤ lock_threshold_ns`，门限按质量档：**FINE 100 ns** / DEBUG 1000 ns / COARSE 10000 ns | `VDC_DOMAIN_LOCK_TIER_FINE_NS=100`、`_DEBUG_NS=1000`、`_COARSE_NS=10000`（`vdc_domain.h:18-20`）；默认 servo `offset/debug/coarse_lock_threshold_ns` 取同值（`vdc_domain.c:1620-1622`） |
+| ③ 持续档 | `good_streak ≥ servo.lock_sample_count`（**默认 4**）；`good_streak` 在 `\|相位\| ≤ 门限` 时 +1、否则清 0 | `vdc_domain_default_servo(): lock_sample_count = 4u`（`vdc_domain.c:1624`） |
+| ④ 保持/退出 | 已 `LOCKED` 而相位越界 ⇒ **`RELOCKING`**（不直接回落 `LOCKED`） | `vdc_domain.c:4231-4232, 4242-4244` |
+| ⑤ 健康（更严） | `LOCKED` ∧ gate 通过 ∧ fine tier ∧ 有效且未超龄 freshness ⇒ `HEALTHY` | 架构文档 L167 |
+| ⑥ 发布（最严，可对外声明） | 非 provisional ∧ debug continuation 关 ∧ Domain/quality 均 `LOCKED` ∧ quality valid ∧ `HEALTHY` ∧ tier ≥ FINE ∧ 样本时间与 freshness 非零 ∧ age ≤ limit ∧ gate 通过 ⇒ `REFRESH_VECTOR_FLAG_LOCKED` | `distributed_refmem.c:2498-2509`（9 条合取） |
+- **重要区分（判据用的不是 trace 残差）**：② 判的是**准入样本算出的「校正相位误差」**，不是 `VDC_SUMMARY_TRACE` 记录里的事件残差区间（后者是匹配/观测口径，见 `-024`）。故**残差中心十几 ns 并不自动授予 `LOCKED`**——前置的准入记账若为 0，②③ 根本不会被评估。
+- **对台架实测的解释**：NO.1 `accepted=950`、相位 0 ns、`good_streak=950 ≥ 4` ⇒ 通过 ①②③④ ⇒ `LOCKED`；三从板 `accepted=0` ⇒ **停在①之前**（`CHECKING`），②③ 未评估。
+
 ### VDC-PROGRESS-20261014-024：从板「没锁相却 ±100 ns」不矛盾——**±100 ns 是区间宽度，真实偏差是中心（−16…+0.5 ns）**
 
 - **用户追问**：既然从板没有锁相，为什么偏差能到 ±100 ns？
