@@ -22,6 +22,18 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-039：T3 定位到参考侧"origin 快路径未接管"——priority provider 只在 origin.active 时才被调用
+
+- TODO task ID：`VDC-ISO-001`（T3 根因定位）、`TDMA-ISO-001`、`TDMA-ISO-003`。数值与代码位置均为 2026-10-14 快照，非产品事实源。
+- **代码路径（读码，未改源码）**：typed SYNC 的发布机会来自 TDMA 快路径——`tdma_pio_spi_ring_origin_service()`（`components/tdma/src/tdma_pio_spi_ring_origin.inc:604-627`）依次做 RX → observe → `tdma_pio_spi_ring_origin_publish()`，而 `publish()` 第一件事就是调用 `adapter->priority_tx_provider(&config, mailbox)`（同文件 `:548-554`）。provider 由 `vdc_dpll_manager_init()` 一次性注册为 `vdc_priority_tx_core1`（`components/vdc_dpll_manager/src/vdc_dpll_manager.c:1871`），注册走停机态门禁（`tdma_runtime_owner.c:574-586`），成立后不会被清除。⇒ provider 为 NULL 可以排除。
+- **关键分叉**：`tdma_pio_spi_ring_adapter_service_impl()`（`components/tdma/src/tdma_pio_spi_ring_adapter.c`）只在这一个条件下调用 origin 快路径：
+  `if (adapter->origin.active != 0u) { ... tx_ok = tdma_pio_spi_ring_origin_service(adapter, &rx_ok); }`
+  `else if (adapter->role == TDMA_PIO_SPI_RING_ROLE_REFERENCE) { ...tdma_pio_spi_ring_adapter_resident_process_image(adapter)... }`
+  即参考板在 `origin.active == 0` 时走 **resident process-image** 分支，**根本不调用 priority provider** —— 与实测 `SYSTem:VDC:PRIORity:TX?` 的 `calls` 整轮冻结完全一致。
+- **`origin.active` 的接管条件**（同文件 `:3172-3195`）：`burst_limit == 0 ∧ resident ∧ resident_seeded ∧ resident_return_ready ∧ comm_fsm.state == CYCLE_BOUNDARY ∧ !reference_tx_completion_pending ∧ !pending_tx_evidence ∧ phys_origin.admit != NULL ∧ origin_seed_valid(adapter)`；满足后由 `phys_origin.admit()` 起步，`start_origin_impl()` 成功才置 `origin.active = 1`（`tdma_pio_spi_ring_origin.inc:183`）。
+- **负载侧差异（本轮实测）**：T2 与 DPLL60 采集的环启动序列几乎相同（都是 `FLIGHT:MODE? = 2`、`RING:BURSt 0`、`RING:ARM/START`、`ORIGin:TRIAL`；对照 `hawf-201432` 采集 actions 与本轮 T2 日志），差别在 T2 还挂载了 `TRIGger:REServation:T2`（INSTall/ACTivate/CONFigure）与 `FLIGHT:FIFO:RESet`、`OPMode:STAGe 7` 等。⇒ 下一步要做的是**把这组接管条件逐项打点**（resident_seeded / resident_return_ready / comm_fsm / reference_tx_completion_pending / pending_tx_evidence / origin_seed_valid），在**同一固件**下跑一轮 T2 与一轮 DPLL60 采集做对照，确认是哪一项被负载改掉；随后按"基础件不受负载束缚"修复（让参考的 priority 发布机会不依赖 resident→origin 的接管，或让负载不再改它不拥有的模式）。
+- **本轮无源码改动**（纯定位，故无新凭证需求）。
+
 ### VDC-PROGRESS-20261014-038：T1 工具侧落地、owner arm 实机成立；T3 收窄到"T2 下 priority provider 整轮未被调用"
 
 - TODO task ID：`VDC-LOCKPUB-001①`（arm 实机成立）、`VDC-ISO-001`（T3 再收窄）、`TDMA-ISO-001`（T1 工具侧关闭）、`TDMA-ISO-003`。数值均为 2026-10-14 实验快照，非产品事实源。
