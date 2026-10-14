@@ -22,6 +22,24 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-010：探针细分到步内——**没有单一热点**，相位每次调用确实超载
+
+- **改动（诊断，未提交）**：探针由 15 段扩到 **20 段**（新增 5 段切 `sync_dpll_fb_step` 内部：`debug_continue` 检查、`role` 应用/挂起、`match + consume_cmd`、`tune + Domain 拍`、`ring evidence`），命令仍为 `SYSTem:SYNC:VDC:DPLL:PHASe:PROBe?`（现回 20 个 UInt32）。交叉编译全绿、相关 host 测试 64 passed；OTA 烧写后 `--steps '0-2'`（复位）→ `--step 3` 仍 **WARN / `realtime_gate=False`**（复现）。
+- **读数（Core1 周期，最大保持）**：
+
+| 段 | NO.1 | NO.2 | NO.3 | NO.4 |
+|---|---|---|---|---|
+| `sync_dpll_fb_step`（总额） | **55624** | 51007 | 51654 | 50912 |
+| `..match+consume_cmd` | 24388 | 29713 | 28832 | 28963 |
+| `..tune+domain_beat` | 26840 | 25830 | 26372 | 25187 |
+| `..ring_evidence` | 36475 | 23466 | 22935 | 23980 |
+| `vdc_priority_ingress`（独立子服务） | 16768 | 29444 | 30270 | 36669 |
+| `age_quality` | 21570 | 20569 | 21276 | 20927 |
+| `follow_health` | 14709 | 13601 | 13447 | 15265 |
+
+- **结论（关键）**：**没有单一热点可修**。`sync_dpll_fb_step` 内部三段各自最坏 23–37k（三者是**不同调用**上的分段最大值，不是同一次调用之和），再加 `vdc_priority_ingress` 最坏 36.7k、`age_quality` ~21k、`follow_health` ~15k。相位声明预算 **39000**，而**单个子步骤就常达 20–37k** ⇒ 该相位**每次调用做的工作量本身超出预算**；因此：① 即便解决 GUARD 约束做再平衡（见 `VDC-PROGRESS-20261014-009`），单靠挪预算也不足以达标；② 降低任一子步骤也不足以把总额压回 39k。正解方向只能是**让该相位每次少做事**（把子步骤摊到多个周期/降低节拍），或改变相位划分本身。
+- **未核验**：未改实时行为；未评估「子步骤摊到多周期」对 DPLL/VDC 闭环时序的影响；探针为最大值保持、不含分布。
+
 ### VDC-PROGRESS-20261014-009：①「直接调高 DPLL 预算」不可行——GUARD 是静态断言保护的 ingress 预留
 
 - **相位链已逐一算清并与实测窗口自洽**（`config/project_config.h`）：`PRIORITY_RX_IRQ_CYCLES=2500`、`PRIORITY_RX_PHASE_CYCLES=2×IRQ=5000`、`PRIORITY_RX_CLOSE_CYCLES=3500`；各相位 end = start + wcet + CLOSE + 边距（1000，DPLL 另有 `DPLL_ENTRY_MARGIN_CYCLES=1000`，SYNC_TRIGGER 为 200）。据此算得 TDMA end **166500**、VDC end **218000**、DPLL end **261500**、CALIBRATION **285000**、SYNC_CAPTURE **298500**、REFMEM **332000**、MODEL **335000**、SYNC_TRIGGER **365500**、TRIGGER_MEASURE **367500**、GUARD **367500..375000（= 7500）**——与实测快照**逐项吻合**。
