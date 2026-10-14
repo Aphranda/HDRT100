@@ -1268,6 +1268,16 @@ void tdma_pio_spi_phys_workspace_reset(void);
 void tdma_pio_spi_phys_service_observer(tdma_pio_spi_phys_t *phys);
 bool tdma_pio_spi_phys_get_event_snapshot(
     const tdma_pio_spi_phys_t *phys, tdma_pio_spi_event_snapshot_t *snapshot);
+/* Wire-sequence witness (VDC-ISO-001): how the event observer's monotonic
+ * sequence rule actually behaved in this epoch - forward steps > 1 (the seat
+ * rotation shares the wire), the largest such step, and repeated transmissions
+ * dropped as carrying no new event. Diagnostics only; no eligibility follows. */
+typedef struct {
+    uint32_t forward_count, step_max, repeat_count;
+    uint32_t wrap_count, backwards_count, zero_count, ones_count, refused, last;
+} tdma_pio_spi_event_sequence_evidence_t;
+bool tdma_pio_spi_phys_get_event_sequence_evidence(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_event_sequence_evidence_t *out);
 bool tdma_pio_spi_phys_take_tx_completion(void *context,
                                           uint64_t *tx_timestamp_ns);
 /* Submit first-stage SPI CLK training on the TDMA owner/core1 path. A forward

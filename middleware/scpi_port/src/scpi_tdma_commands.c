@@ -133,6 +133,22 @@ scpi_result_t scpi_cmd_tdma_event_snapshot_q(scpi_t *context)
     SCPI_ResultUInt32(context, s.pending_rx);
     SCPI_ResultUInt32(context, s.pending_tx);
     SCPI_ResultUInt32(context, s.pending_sequence);
+    /* Wire-sequence witness (VDC-ISO-001): appended, existing positions
+     * unchanged. forward_count > 0 proves the seat rotation shared the wire
+     * without retiring the observer; repeat_count counts transmissions dropped
+     * as carrying no new event. */
+    tdma_pio_spi_event_sequence_evidence_t evidence;
+    memset(&evidence, 0, sizeof(evidence));
+    (void)tdma_runtime_owner_get_event_sequence_evidence(&evidence);
+    SCPI_ResultUInt32(context, evidence.forward_count);
+    SCPI_ResultUInt32(context, evidence.step_max);
+    SCPI_ResultUInt32(context, evidence.repeat_count);
+    SCPI_ResultUInt32(context, evidence.wrap_count);
+    SCPI_ResultUInt32(context, evidence.backwards_count);
+    SCPI_ResultUInt32(context, evidence.zero_count);
+    SCPI_ResultUInt32(context, evidence.ones_count);
+    SCPI_ResultUInt32(context, evidence.refused);
+    SCPI_ResultUInt32(context, evidence.last);
     return SCPI_RES_OK;
 }
 

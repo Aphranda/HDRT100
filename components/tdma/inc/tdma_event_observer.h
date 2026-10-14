@@ -117,7 +117,35 @@ typedef struct {
     uint32_t first_sequence;
     uint32_t last_sequence;
     uint32_t reads_last;
+    /* Wire-sequence witness (VDC-ISO-001). The wire sequence counts every
+     * transmission that shares the ring, not only this epoch's event frames:
+     * TDMA-SEAT-01 rotates the first-class load onto the same fast path, so a
+     * forward step is a sanctioned fact and is counted here instead of retiring
+     * the observer (the ordinal check still proves event-stream contiguity and
+     * stays fatal). A standing still (repeat) or backwards sequence keeps the
+     * existing recoverable refusal; repeats are counted here as evidence. */
+    uint32_t sequence_forward_count;
+    uint32_t sequence_step_max;
+    uint32_t sequence_repeat_count;
+    /* The refusal itself: which branch refused, the offending captured
+     * sequence and the last accepted one. A wire word of all ones is not a
+     * value the event stream ever assigns, so naming it here separates "the
+     * load's frame carries no sequence witness" from a real wire fault. */
+    uint32_t sequence_wrap_count;      /* refused with last_sequence == UINT32_MAX */
+    uint32_t sequence_backwards_count;
+    uint32_t sequence_zero_count;      /* witness word read zero: no witness */
+    uint32_t sequence_ones_count;      /* witness word read all ones: no witness */
+    uint32_t sequence_refused;
+    uint32_t sequence_last;
 } tdma_event_observer_t;
+
+/* Diagnostic read of the wire-sequence witness above; NULL-safe. */
+typedef struct {
+    uint32_t forward_count, step_max, repeat_count;
+    uint32_t wrap_count, backwards_count, zero_count, ones_count, refused, last;
+} tdma_event_sequence_evidence_t;
+void tdma_event_observer_sequence_evidence(const tdma_event_observer_t *observer,
+                                           tdma_event_sequence_evidence_t *out);
 
 void tdma_event_observer_init(tdma_event_observer_t *observer);
 /* Caller proves common restart, X=Y=UINT32_MAX, clean FIFOs and pinned clock.

@@ -541,6 +541,17 @@ bool tdma_runtime_owner_get_event_snapshot(tdma_pio_spi_event_snapshot_t *snapsh
         tdma_pio_spi_phys_get_event_snapshot(&s_tdma_pio_spi_phys, snapshot);
 }
 
+bool tdma_runtime_owner_get_event_sequence_evidence(
+    tdma_pio_spi_event_sequence_evidence_t *out)
+{
+    if (out == NULL) return false;
+    if (!s_tdma_runtime_owner_initialized) {
+        *out = (tdma_pio_spi_event_sequence_evidence_t){0};
+        return false;
+    }
+    return tdma_pio_spi_phys_get_event_sequence_evidence(&s_tdma_pio_spi_phys, out);
+}
+
 tdma_event_window_result_t tdma_runtime_owner_copy_event_history_window(
     uint32_t expected_observer_epoch, uint64_t next_ordinal,
     tdma_pio_spi_event_window_t *out)

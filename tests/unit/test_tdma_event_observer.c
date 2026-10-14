@@ -182,18 +182,69 @@ static void test_missing_pairs(void)
 
 static void test_sequence_rejection(void)
 {
-    const uint32_t first[] = {1u, 1u, UINT32_MAX};
-    const uint32_t second[] = {1u, 3u, 0u};
-    for (size_t test = 0u; test < 3u; ++test) {
+    /* The wire sequence is a monotonic witness of every transmission on the
+     * wire (VDC-ISO-001), not this event stream's own index: TDMA-SEAT-01
+     * shares the fast path with the first-class load, so a forward step is a
+     * sanctioned fact and must not retire the observer. The ordinal check
+     * proves event-stream contiguity and stays fatal (test_missing_pairs). A
+     * repeat, a wrap and a backwards step keep the recoverable refusal. */
+    {
         tdma_event_observer_t observer = started();
         tdma_event_record_t output[TDMA_EVENT_MAX_RECORDS];
         tdma_event_batch_t input = batch(1190u, 1200u);
-        append(&input, 0u, first[test], UINT32_MAX - 50u);
-        append(&input, 1u, second[test], UINT32_MAX - 550u);
-        /* A good earlier pair in this SAME batch cannot publish on failure. */
-        assert(tdma_event_observer_feed(&observer, &input, output) == 0u);
-        assert(observer.reason == TDMA_EVENT_SEQUENCE);
-        assert_retired(&observer);
+        append(&input, 0u, 1u, UINT32_MAX - 50u);
+        append(&input, 1u, 3u, UINT32_MAX - 550u);
+        /* A forward step is bounded evidence: the load shared the wire. */
+        assert(tdma_event_observer_feed(&observer, &input, output) == 2u);
+        assert(observer.state == TDMA_EVENT_ACTIVE);
+        assert(observer.sequence_forward_count == 1u);
+        assert(observer.sequence_step_max == 2u);
+        assert(observer.sequence_repeat_count == 0u);
+        assert(output[1].sequence == 3u);
+    }
+    {
+        tdma_event_observer_t observer = started();
+        tdma_event_record_t output[TDMA_EVENT_MAX_RECORDS];
+        tdma_event_batch_t input = batch(1190u, 1200u);
+        append(&input, 0u, 5u, UINT32_MAX - 50u);
+        append(&input, 1u, 0u, UINT32_MAX - 550u);
+        /* A zero word carries no witness: the record is kept and the previous
+         * witness stands, so the next real step is still measured against 5. */
+        assert(tdma_event_observer_feed(&observer, &input, output) == 2u);
+        assert(observer.state == TDMA_EVENT_ACTIVE);
+        assert(observer.sequence_zero_count == 1u && observer.last_sequence == 5u);
+        assert(output[1].sequence == 0u);
+        /* The same holds for the all-ones word. */
+        tdma_event_batch_t ones_batch = batch(2190u, 2200u);
+        append(&ones_batch, 2u, 0u, UINT32_MAX - 1050u);
+        ones_batch.words[2][0] = UINT32_MAX;
+        assert(tdma_event_observer_feed(&observer, &ones_batch, output) == 1u);
+        assert(observer.state == TDMA_EVENT_ACTIVE);
+        assert(observer.sequence_ones_count == 1u && observer.last_sequence == 5u);
+        assert(output[0].sequence == UINT32_MAX);
+        tdma_event_batch_t next_batch = batch(3190u, 3200u);
+        append(&next_batch, 3u, 6u, UINT32_MAX - 1550u);
+        assert(tdma_event_observer_feed(&observer, &next_batch, output) == 1u);
+        assert(observer.state == TDMA_EVENT_ACTIVE && observer.last_sequence == 6u);
+    }
+    {
+        const uint32_t first[] = {1u, 5u};
+        const uint32_t second[] = {1u, 4u};
+        for (size_t test = 0u; test < 2u; ++test) {
+            /* Repeat and backwards stay (recoverable) refusals. */
+            tdma_event_observer_t observer = started();
+            tdma_event_record_t output[TDMA_EVENT_MAX_RECORDS];
+            tdma_event_batch_t input = batch(1190u, 1200u);
+            append(&input, 0u, first[test], UINT32_MAX - 50u);
+            append(&input, 1u, second[test], UINT32_MAX - 550u);
+            /* A good earlier pair in this SAME batch cannot publish on failure. */
+            assert(tdma_event_observer_feed(&observer, &input, output) == 0u);
+            assert(observer.reason == TDMA_EVENT_SEQUENCE);
+            assert(observer.sequence_forward_count == 0u);
+            assert(observer.sequence_repeat_count == (test == 0u ? 1u : 0u));
+            assert(observer.sequence_backwards_count == (test == 1u ? 1u : 0u));
+            assert_retired(&observer);
+        }
     }
 }
 

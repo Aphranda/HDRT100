@@ -73,6 +73,8 @@ bool tdma_runtime_owner_get_event_tap(tdma_pio_spi_event_tap_snapshot_t *snapsho
 bool tdma_runtime_owner_get_event_recovery(tdma_pio_spi_event_recovery_snapshot_t *snapshot);
 bool tdma_runtime_owner_get_event_live_snapshot(tdma_pio_spi_event_live_snapshot_t *snapshot);
 bool tdma_runtime_owner_get_event_snapshot(tdma_pio_spi_event_snapshot_t *snapshot);
+bool tdma_runtime_owner_get_event_sequence_evidence(
+    tdma_pio_spi_event_sequence_evidence_t *out);
 /* One bounded read attempt, no hardware access. expected_observer_epoch == 0
  * binds the current epoch and requires next_ordinal == 0. A nonzero old epoch
  * returns EPOCH_CHANGED. All failures leave *out unchanged. */

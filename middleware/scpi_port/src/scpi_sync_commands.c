@@ -2045,6 +2045,20 @@ scpi_result_t scpi_cmd_sync_vdc_lock_readiness_q(scpi_t *context)
     SCPI_ResultUInt32(context, live_lock.live_tick_hz);
     SCPI_ResultUInt32(context, live_lock.live_bracket_ok);
     SCPI_ResultUInt32(context, live_lock.live_samples);
+    /* Typed-lane identity witness (VDC-ISO-001 / T3): the payload's source
+     * event sequence against the carrier (frame) sequence that delivered it.
+     * The matcher correlates the payload number with a frame-indexed history,
+     * so this pair names whether the two numberings still agree under load.
+     * Appended: existing positions are unchanged. */
+    vdc_priority_rx_snapshot_t rx_witness;
+    memset(&rx_witness, 0, sizeof(rx_witness));
+    (void)vdc_dpll_manager_get_priority_rx(&rx_witness);
+    SCPI_ResultUInt32(context, rx_witness.carrier_sequence);
+    SCPI_ResultUInt32(context, rx_witness.typed_record.event_sequence);
+    SCPI_ResultUInt32(context, rx_witness.typed_record.binding_generation);
+    SCPI_ResultUInt32(context, rx_witness.carrier_count);
+    SCPI_ResultUInt32(context, rx_witness.unique_count);
+    SCPI_ResultUInt32(context, rx_witness.duplicate_count);
     return SCPI_RES_OK;
 }
 

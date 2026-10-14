@@ -327,6 +327,30 @@ static tdma_event_history_t s_tdma_event_history;
 static tdma_event_batch_t s_tdma_event_batch;
 static tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
 
+/* Wire-sequence witness readback (VDC-ISO-001). The counters live in the
+ * observer's own state, so no published snapshot layout changes; a maintenance
+ * reader takes them through this bounded accessor. */
+static bool tdma_pio_spi_phys_event_sequence_copy(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_event_sequence_evidence_t *out)
+{
+    (void)phys;
+    if (out == NULL) return false;
+    tdma_event_sequence_evidence_t evidence;
+    tdma_event_observer_sequence_evidence(&s_tdma_event_observer, &evidence);
+    *out = (tdma_pio_spi_event_sequence_evidence_t){
+        .forward_count = evidence.forward_count,
+        .step_max = evidence.step_max,
+        .repeat_count = evidence.repeat_count,
+        .wrap_count = evidence.wrap_count,
+        .backwards_count = evidence.backwards_count,
+        .zero_count = evidence.zero_count,
+        .ones_count = evidence.ones_count,
+        .refused = evidence.refused,
+        .last = evidence.last
+    };
+    return true;
+}
+
 /* The Core1 dispatcher is deliberately allowed to spend a whole static
  * phase on another owner.  A PIO RX FIFO is only eight words deep, so a
  * delayed observer service used to turn an ordinary scheduler gap into a

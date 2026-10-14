@@ -438,6 +438,17 @@ bool tdma_pio_spi_phys_get_event_snapshot(
     return tdma_pio_spi_phys_event_copy(phys, snapshot);
 }
 
+bool tdma_pio_spi_phys_get_event_sequence_evidence(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_event_sequence_evidence_t *out)
+{
+#if PROJECT_TDMA_EVENT_OBSERVER
+    return tdma_pio_spi_phys_event_sequence_copy(phys, out);
+#else
+    if (out != NULL) *out = (tdma_pio_spi_event_sequence_evidence_t){0};
+    return out != NULL;
+#endif
+}
+
 bool tdma_pio_spi_phys_select_program_persona(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_program_persona_t persona)

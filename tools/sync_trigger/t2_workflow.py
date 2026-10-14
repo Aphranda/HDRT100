@@ -2266,8 +2266,61 @@ def step_17_lock_and_dynamic_start(ctx, slot, board, uid):
                       f" observer_epoch {ready[27].strip()}"
                       f" tick_hz {ready[28].strip()}"
                       f" bracket_ok {ready[29].strip()}", flush=True)
+                if len(ready) > 36:
+                    print(f"    typed_lane carrier {ready[31].strip()}"
+                          f" source_event {ready[32].strip()}"
+                          f" binding {ready[33].strip()}"
+                          f" carriers {ready[34].strip()}"
+                          f" unique {ready[35].strip()}"
+                          f" dup {ready[36].strip()}", flush=True)
+                # Which counter does the observer's witness actually track? Ring
+                # status carries the adapter's own up/down/ring sequences, and the
+                # RX page carries the carrier (frame) sequence of the typed lane.
+                ring_status = ctx.send(member, "SYSTem:TDMA:RING:STATus?").split(",")
+                if len(ring_status) > 12:
+                    print(f"    ring_seq up_tx {ring_status[10].strip()}"
+                          f" down_rx {ring_status[11].strip()}"
+                          f" ring {ring_status[6].strip()}"
+                          f" adapter_tx {ring_status[23].strip() if len(ring_status) > 23 else '-'}"
+                          f" adapter_rx {ring_status[24].strip() if len(ring_status) > 24 else '-'}"
+                          f" services {ring_status[9].strip()}", flush=True)
             else:
                 print(f"    live_evidence <not in this build> ready[{len(ready)}]",
+                      flush=True)
+            # Event-observer evidence (VDC-ISO-001): the follower's matcher input
+            # predicate fails on the event-live flags, so read the observer's own
+            # state/reason/fault bits live. A non-ACTIVE state here is the cause
+            # the flags can only report, not explain.
+            event = ctx.send(member, "SYSTem:TDMA:EVENt:SNAPshot?").split(",")
+            if len(event) > 15:
+                try:
+                    event_faults = int(event[6].strip() or "0")
+                except ValueError:
+                    event_faults = -1
+                # Wire-sequence witness (VDC-ISO-001): forward steps are now
+                # counted evidence, so a refusal must name repeat/wrap/backwards.
+                evidence = ""
+                if len(event) > 24:
+                    evidence = (f" wire forward {event[16].strip()}"
+                                f" step_max {event[17].strip()}"
+                                f" repeat {event[18].strip()}"
+                                f" wrap {event[19].strip()}"
+                                f" backwards {event[20].strip()}"
+                                f" zero {event[21].strip()}"
+                                f" ones {event[22].strip()}"
+                                f" refused 0x{event[23].strip()}"
+                                f" last 0x{event[24].strip()}")
+                print(f"    event_live state {event[1].strip()}"
+                      f" reason {event[2].strip()} epoch {event[3].strip()}"
+                      f" joined {event[4].strip()} published {event[5].strip()}"
+                      f" fault_bits 0x{event_faults & 0xff:02x}"
+                      f" service_count {event[10].strip()}"
+                      f" gap_max_us {event[11].strip()}"
+                      f" max_us {event[12].strip()}"
+                      f" pending {event[13].strip()}/{event[14].strip()}"
+                      f"/{event[15].strip()}{evidence}", flush=True)
+            else:
+                print(f"    event_live <unavailable> {','.join(event)[:80]}",
                       flush=True)
             # All ten phases, not just SYNC_TRIGGER: whether the DPLL phase (2)
             # is serviced at all decides whether the matcher/follow lane runs,

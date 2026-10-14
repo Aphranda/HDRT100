@@ -280,9 +280,45 @@ size_t TDMA_EVENT_FEED_RAM tdma_event_observer_feed(tdma_event_observer_t *obser
             return invalidate(observer, TDMA_EVENT_ORDINAL);
         }
         const uint32_t sequence = wire_sequence(observer->pending[2][0].word);
-        if (observer->joined != 0u &&
-            (observer->last_sequence == UINT32_MAX || sequence != observer->last_sequence + 1u)) {
-            return invalidate(observer, TDMA_EVENT_SEQUENCE);
+        /* All-zero and all-ones are the two words this numbering never assigns:
+         * the capture read no sequence for that transmission (an idle or gap
+         * word while the load shares the wire). They carry no witness, so the
+         * record is kept and the previous witness stands. */
+        const bool witness = sequence != 0u && sequence != UINT32_MAX;
+        if (observer->joined != 0u) {
+            /* VDC-ISO-001: the wire sequence is a monotonic witness of every
+             * transmission on the wire, not this event stream's own frame index.
+             * TDMA-SEAT-01 legitimately boards the first-class load between
+             * event frames and an empty priority offer consumes no opportunity,
+             * so a forward step must not retire the base's observation - the
+             * ordinal check above already proves the event stream itself is
+             * contiguous, and a real event loss still lands there. A repeat or a
+             * backwards step keeps the existing recoverable refusal. */
+            if (!witness) {
+                if (sequence == 0u) {
+                    ++observer->sequence_zero_count;
+                } else {
+                    ++observer->sequence_ones_count;
+                }
+            } else if (sequence == observer->last_sequence) {
+                ++observer->sequence_repeat_count;
+                observer->sequence_refused = sequence;
+                return invalidate(observer, TDMA_EVENT_SEQUENCE);
+            } else {
+                const uint32_t step = sequence - observer->last_sequence;
+                if (step > UINT32_C(0x80000000)) {
+                    /* Backwards without a counter wrap: genuine wire reordering. */
+                    ++observer->sequence_backwards_count;
+                    observer->sequence_refused = sequence;
+                    return invalidate(observer, TDMA_EVENT_SEQUENCE);
+                }
+                if (step > 1u) {
+                    ++observer->sequence_forward_count;
+                    if (step > observer->sequence_step_max) {
+                        observer->sequence_step_max = step;
+                    }
+                }
+            }
         }
         for (size_t stream = 0; stream < 2u; ++stream) {
             const tdma_event_reason_t result = lift_sample(observer, stream,
@@ -320,10 +356,12 @@ size_t TDMA_EVENT_FEED_RAM tdma_event_observer_feed(tdma_event_observer_t *obser
             memmove(observer->pending[stream], observer->pending[stream] + stride,
                     observer->pending_count[stream] * sizeof(observer->pending[stream][0]));
         }
-        if (observer->joined == 0u) {
-            observer->first_sequence = sequence;
+        if (witness) {
+            if (observer->joined == 0u) {
+                observer->first_sequence = sequence;
+            }
+            observer->last_sequence = sequence;
         }
-        observer->last_sequence = sequence;
         ++observer->joined;
         ++produced;
     }
@@ -331,4 +369,21 @@ size_t TDMA_EVENT_FEED_RAM tdma_event_observer_feed(tdma_event_observer_t *obser
         return invalidate(observer, TDMA_EVENT_JOIN_TIMEOUT);
     }
     return produced;
+}
+
+void tdma_event_observer_sequence_evidence(const tdma_event_observer_t *observer,
+                                           tdma_event_sequence_evidence_t *out)
+{
+    if (out == NULL) return;
+    *out = (tdma_event_sequence_evidence_t){
+        .forward_count = observer != NULL ? observer->sequence_forward_count : 0u,
+        .step_max = observer != NULL ? observer->sequence_step_max : 0u,
+        .repeat_count = observer != NULL ? observer->sequence_repeat_count : 0u,
+        .wrap_count = observer != NULL ? observer->sequence_wrap_count : 0u,
+        .backwards_count = observer != NULL ? observer->sequence_backwards_count : 0u,
+        .zero_count = observer != NULL ? observer->sequence_zero_count : 0u,
+        .ones_count = observer != NULL ? observer->sequence_ones_count : 0u,
+        .refused = observer != NULL ? observer->sequence_refused : 0u,
+        .last = observer != NULL ? observer->last_sequence : 0u
+    };
 }
