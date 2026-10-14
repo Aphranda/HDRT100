@@ -22,6 +22,21 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-051：T3 根因定案——**无见证（哨兵）记录打破历史的严格递增规则，使从板历史被退休**（NO.4 因此能匹配）
+
+- TODO task ID：`VDC-ISO-001`（T3 根因定案）、`TDMA-ISO-002`。值为 2026-10-15 实验快照，非产品事实源。
+- **活体判别链（本轮新增读数，全部在无停机门禁页上，工作区待提交）**：
+  - `LOCK:READINESS?` 追加 matcher 活体状态（`calls/matched/rejected/superseded/history_miss/pending/busy/last_reason/first_reject_reason/history_result/anchor_fallback/have_match`）与 matcher 交给门面的 `arm_epoch/observer_epoch/tick_hz`；
+  - `EVENt:SNAPshot?` 追加采样点（`prefix_bits`、首字）与**精确门面前置条件**（`history_active/history_epoch/history_count/history_reason/observer_epoch/armed/arm_valid/arm_epoch`）。
+  - 关键更正：`history_result 4` 是 **RETIRED**（不是 EVICTED；枚举顺序为 OK/BUSY/PENDING/EVICTED/RETIRED/BAD_ARGUMENT/BAD_STATE）。
+- **定案（T2 轮 `out/tdma_t2/steps-20261015-042805.log`）**：
+  - 失配从板 NO.2/NO.3：`history_active 0`、`history_count 0`、**`history_reason 10 = BAD_SEQUENCE`**、`armed 1`、`arm_valid 1`、`arm_epoch 2`、`obs_epoch 1`、matcher 输入 `arm_epoch 2 / observer_epoch 1 / tick_hz 250 MHz` **全部一致** ⇒ 前置条件都成立，是**历史自己因序号被拒而退休**；
+  - 健康从板 NO.4：`history_active 1`、`history_count 16`、`history_reason 0` ⇒ **`matched 10521`、`anchor_fallback 3~7`、`have_match 1`** —— 即**负载下从板匹配已在同一轮的 NO.4 上成立**，且锚点关联真的在产出匹配。
+  - 机制：`0x0/0xFFFFFFFF` 无见证记录被按 -046/-048 的口径**保留**（记录照常成），但其 `sequence` 是哨兵值 ⇒ 在历史看来是"重复/后退" ⇒ `BAD_SEQUENCE` ⇒ `tdma_event_history_retire()` ⇒ 之后每次精确查找都返回 RETIRED ⇒ matcher 以 `SOURCE` 拒绝 ⇒ 永不匹配。没有哨兵的从板（NO.4）历史存活 ⇒ 正常匹配。
+- **修复方向（已用两轮试验确认边界）**：把**记录身份与线序见证解耦**——记录用本 epoch 的事件编号（0,1,2,…，与 ordinal 同步递增），线序见证只作证据；这样历史永远严格递增 ⇒ 不退休 ⇒ 配合已实现的锚点关联即可在负载下匹配。**代价**：6 个宿主 harness 需按"record.sequence = 事件编号"改期望（上一轮试做时已定位到具体断言），因此留到下一轮成批完成并刷写验证。
+  - 备选（代价更小但不丢事件）：哨兵记录**不进历史**（只作证据），历史只收有见证的记录——需确认 matcher 的 `event_sequence` 关联仍成立。
+- **本轮已交付**：锚点关联（宿主 294 项绿）、历史严格递增规则（gap 允许、重复/后退拒绝，宿主绿）、全套活体判别读数；`306 passed`。目标保持 active。
+
 ### VDC-PROGRESS-20261015-050：锚点关联已实现（宿主全绿）；但实机证明**历史查找已不是当前阻塞**——matcher 在更早的 SOURCE 检查就退出
 
 - TODO task ID：`VDC-ISO-001`（T3 剩余闸门再定位）、`TDMA-ISO-002`。值为 2026-10-15 实验快照，非产品事实源。
