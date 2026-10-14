@@ -22,6 +22,17 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-052：**T3 收口**——负载下三从全部成匹配；step 17 只剩参考侧锁声明（提交 bf8b94b1，P3 凭证）
+
+- TODO task ID：`VDC-ISO-001`（T3 关闭：观测者语义 + 历史不被退休 + 实机匹配）、`TDMA-ISO-002`（1:1 轮换保留）。值为 2026-10-15 实验快照，非产品事实源。
+- **修复（已提交 `bf8b94b1`，全项 P3 PASS、凭证 build `20261014211528`）**：
+  1. `tdma_event_history.c`：严格递增规则对**无见证字**（`0x0`/`0xFFFFFFFF`，空闲/间隙读）豁免——按上一真实见证排序、且不成为后续排序的参考；重复/后退/跨 epoch 回绕仍拒绝。⇒ 事件历史不再因共享导线被 `BAD_SEQUENCE` 退休。
+  2. `vdc_priority_match.inc`：精确查找返回 `EVICTED` 时改为与 **LIVE 保留观测**关联（`anchor_fallback` 计数；epoch/arm/tick/flags/timer1 括号证明全部保留）；`RETIRED` 仍按生命周期跳过。
+  3. 判别读数（无停机门禁）：`LOCK:READINESS?` 追加 matcher 活体状态与其交给门面的 arm/epoch/tick；`EVENt:SNAPshot?` 追加采样点与门面前置条件（`history_active/epoch/count/reason`、`observer_epoch`、`armed/arm_valid/arm_epoch`）；T2 工具打印 `match_live`/`match_arm`/`facade`/`sample_point`。
+- **实机（T2 轮 `out/tdma_t2/steps-20261015-050623.log`）**：三从**全部成匹配** `matched 9754 / 9965 / 9823`、`have_match 1`、`last_reason 0`、`anchor_fallback 4`；step 17 现在**只**卡参考板 `NOT locked on ['0010071E65B5CB38']`（参考 `input_ready 1 locked 0 reason 0`）。
+- **判定**：目标中"负载不得让基础件事件观测失效；观测者只对非前进/回绕判失效；前进跳号作有界证据；事件流连续性由 ordinal 把关"**已在实机达成**（比要求更强：从板在负载下不仅观测存活，而且形成了匹配）。T2 剩余闸门转为**参考侧锁声明**（`VDC-HOLD-001`/V2 家族，另案）。
+- **下一 gate**：参考板 `locked 0 / reason 0`（`dpll.state 0`）——按 V2（freshness→HOLDOVER）与 master 锁阶梯排查，使 step 17 四板齐锁。
+
 ### VDC-PROGRESS-20261015-051：T3 根因定案——**无见证（哨兵）记录打破历史的严格递增规则，使从板历史被退休**（NO.4 因此能匹配）
 
 - TODO task ID：`VDC-ISO-001`（T3 根因定案）、`TDMA-ISO-002`。值为 2026-10-15 实验快照，非产品事实源。
