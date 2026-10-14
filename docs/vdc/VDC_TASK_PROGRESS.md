@@ -22,6 +22,22 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-017：内部监测的 DPLL 偏差实测；从板偏差值是残留、不可读作跟踪误差
+
+- **偏差暴露面**：`SYSTem:SYNC:VDC:DPLL:FILTer?`（8 字段：`dpll.state`、`update_seq`、**`last_phase_error_ns`**、**`last_frequency_error_ppb`**、`loop_filter_integrator_ppb`、`clock.period_adjust_ppb`、`quality.consecutive_good_samples`、`quality.rejected_sample_count`）；另有 `SYSTem:REFMEM:VDC:VECtor?` 与 `SYSTem:REFMEM:DPLL:VECtor?` 各带一个 `last_phase_error_ns` 投影，以及 `READ:SYNC:QUALity?`。
+- **实测（环运行中）**：
+
+| 板 | state | update_seq | **相位偏差 ns** | 频差 ppb | 积分器 ppb | 周期修正 ppb | 连续良好 | 拒绝 |
+|---|---|---|---|---|---|---|---|---|
+| NO.1 | **5 LOCKED** | 422 | **−5** | 0 | 2882 | −2882 | 51 | 0 |
+| NO.2 | 1 CHECKING | 5 | −82014 | 0 | 0 | 0 | 0 | 0 |
+| NO.3 | 1 CHECKING | 11 | −252072 | 0 | 0 | 0 | 0 | 0 |
+| NO.4 | 1 CHECKING | 14 | 258146 | 0 | 0 | 0 | 0 | 0 |
+
+- **结论**：**唯一有意义的闭环偏差是参考板 NO.1 = 相位 −5 ns、频差 0 ppb、积分器 2882 ppb、周期修正 −2882 ppb、连续良好 51、拒绝 0**。
+- **误读警告（重要）**：三从板的 ±82 µs/±252 µs/±258 µs **不是跟踪误差**——同一页 `freq_err=0 / integrator=0 / period=0 / good=0` 且 `update_seq` 仅 5/11/14，说明环路几乎未运行（与 `accepted=0` 一致），这些是残留值。结合架构文档「`rms_offset_ns`/`jitter_rms_ns` 是历史平滑统计字段，不能当作严格统计 RMS 的精度证明」，从板的偏差数字**在未消费样本前不具精度含义**。
+- **交叉印证**：`READ:SYNC:QUALity?` 对 NO.1 给出 `DEGRADED, −5, …, accepted 207, res_ns 8, source 2(HARDWARE_TICK)`；三从板为 `CHECKING, 0, …, accepted 0, res_ns 8, source 1`。
+
 ### VDC-PROGRESS-20261014-016：VDC 锁定状态发布面实测——**四板 flags 完全相同，无法区分两种截然不同的状态**
 
 - **发布面有两处**：RefMem VDC 向量（`SYSTem:REFMEM:VDC:VECtor?` 的 `flags`，跨域消费面）与锁定裁决页（`SYSTem:SYNC:VDC:LOCK:READiness?` 24 字段）。
