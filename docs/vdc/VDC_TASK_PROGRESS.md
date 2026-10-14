@@ -22,6 +22,20 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-027：**用户裁定——单 PI 在主机，从板跟随即算锁相；错的只是发布**（更正 `-021/-022/-023/-025/-026` 的判读）
+
+- **架构意图（用户口径，本条为事实源）**：环路系统中**只允许一个 PI 调节锁相，即主机**；**其他板子跟随锁相**。若从机也做 PI，系统复杂度上升、**无法收敛**。⇒ **当前状态就是锁相了**；**发布的状态不对**。
+- **因此以下我此前的判读作废**：
+  - 把从板 `dpll.state = CHECKING`（其自身 Domain PI 阶梯停在第一级）读成「从板未锁相」——**错**。从板**不应**通过自身 PI 收敛，其 `accepted_sample_count = 0` 是**设计使然**，不是缺陷。
+  - 把 `accepted=0`/`ts_source=NONE` 当作「准入未 arm ⇒ 所以从板锁不上」——**错**（方向反了）：从板的正确锁相证据在**跟随通路**（typed FOLLOW/MATCH），不在其 Domain PI 准入计数。
+  - `-025` 里「四板都没有达到可发布要求 / 从板连前置都没过」的**结论仍成立，但原因需重述**：不是"从板性能不够"，而是**发布口径把从板跟随锁相当成了未锁**。
+- **已确认仍然成立的事实**：从板事件匹配中心 **−16…+0.5 ns**、每段约 1300 次成功、DCO `update_seq` 127–152、`FOLLow:STATus?/HEALth?` 有保留记录（session 1791953343）——即**从板确实在按设计跟随**。
+- **要修的对象＝发布口径**（三处）：
+  1. `SYSTem:SYNC:VDC:LOCK:READiness?` 的 `locked` 在 handler 内**本地判定**为 `snapshot.dpll.state == LOCKED && input_ready` ⇒ 从板恒为 0；
+  2. `REFMEM_VECTOR_FLAG_LOCKED` 的 9 条合取要求 `dpll.state == LOCKED ∧ quality.lock_state == LOCKED ∧ health == HEALTHY ∧ …` ⇒ 从板恒不置位；
+  3. 全站只有"主机 PI 锁"一种模型，**没有"角色感知"的锁定义**（架构 L165「typed DCO 采用不自动推进该状态」正是该口径的来源）。
+- **修法方向**：在**单一定义**处（`vdc_dpll_manager_lock_verdict()`）引入**角色感知的锁**——MASTER 用 Domain PI 阶梯；FOLLOWER 用**跟随通路证据**（FOLLOW 已启用 + health FRESH + 年龄在 `VDC_PRIORITY_FOLLOW_MAX_AGE_MS` 内，必要时加匹配成功/残差门限）；并让 ①② 两处**消费同一判定**，再按契约登记（含 C11）。
+
 ### VDC-PROGRESS-20261014-026：NO.1 的 DEGRADED 唯一成因＝freshness 过期；±100 ns 的准确含义
 
 - **NO.1 逐项实测（`READ:SYNC:QUALity?`，字段名已按 `scpi_sync_quality_q` 核对）**：
