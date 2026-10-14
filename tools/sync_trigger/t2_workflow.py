@@ -1461,8 +1461,10 @@ def step_2_stopped_block(ctx, slot, board, uid):
     if not ctx.poll(board, "SYSTem:VDC:FEEDback:SESSion?", 0, "0", tries=12):
         print(f"  slot {slot} WARNING: VDC feedback session still live", flush=True)
     ctx.send(board, "SYSTem:VDC:OUTPut:TIMing 24000,32000,16000")
-    for suffix in ("FOLLow:PHASe", "FOLLow", "SYNC", "MATCH"):
-        ctx.send(board, f"SYSTem:VDC:PRIORity:{suffix} 0")
+    # T1 (HAOFV review): the priority lanes are the VDC owner's (SYNC/MATCH/FOLLow/
+    # FOLLow:PHASe). The load no longer zeroes them - a zero write is still the load
+    # configuring the base, and the owner handles a stale session's request itself
+    # (672edf0b). SESSion stays: it is identity, not lane configuration.
     ctx.send(board, "SYSTem:VDC:FEEDback:REFerence 0")
     ctx.send(board, "SYSTem:VDC:FEEDback:LOCALfollow 0")
     # The foundation mask is VDC|DPLL|SYNC_CAPTURE|REFMEM|SYNC_TRIGGER = 91
@@ -1933,12 +1935,16 @@ def step_14_source(ctx, slot, board, uid):
 
 @step(15)
 def step_15_priority(ctx, slot, board, uid):
-    """Priority class: SYNC on the origin, MATCH/FOLLow/PHASe on the peers."""
+    """Priority class: observe the VDC owner's own arm of the observation lanes.
+
+    The load no longer configures the base (T1, HAOFV review): SESSion is
+    identity and stays, but SYNC/MATCH/FOLLow/FOLLow:PHASe are the VDC owner's
+    own lanes now (VDC-LOCKPUB-001①, commit 672edf0b). The workflow only reads
+    back what the owner armed, and reports a mismatch instead of writing it.
+    The owner arms within ~32 ms of the session opening, which step 13 opened
+    seconds ago.
+    """
     src = ctx.src
-    # Every write here needs a LIVE feedback session (priority_tx_set_stopped and the
-    # match/follow setters all check it): without one they are refused and the retry
-    # loops below would spend ~55 s proving it. Check once and fail fast with the
-    # reason and the fix.
     probe = None
     for uid_r, _s, _i, _o, _f in ROWS:
         candidate = ctx.boards.get(f"{uid_r:016X}")
@@ -1951,42 +1957,29 @@ def step_15_priority(ctx, slot, board, uid):
             ctx.failures.append(f"Step 15 refused: feedback session is {session_now}, "
                                 f"expected {ctx.dep_gen} - run step 13 first with a "
                                 f"larger generation")
-            print(f"  session {session_now} != {ctx.dep_gen}: skipping the priority "
-                  f"writes (they would all be refused)", flush=True)
+            print(f"  session {session_now} != {ctx.dep_gen}: the owner cannot arm for "
+                  f"this session", flush=True)
             return
     if src is not None:
-        ctx.set_priority(src, f"SYSTem:VDC:PRIORity:SYNC {ctx.dep_gen}",
-                         "SYSTem:VDC:PRIORity:SYNC?", "SYNC")
+        sync_generation = ctx.send(src, "SYSTem:VDC:PRIORity:SYNC?").strip()
+        print(f"  {src.address} owner SYNC generation {sync_generation}"
+              f" (expected {ctx.dep_gen})", flush=True)
+        if sync_generation != str(ctx.dep_gen):
+            ctx.failures.append(f"Step 15: origin SYNC generation is {sync_generation}, "
+                                f"expected the owner to arm {ctx.dep_gen}")
     for node, (uid_r, _s, _i, _o, _f) in enumerate(ROWS):
         peer = ctx.boards.get(f"{uid_r:016X}")
         if peer is None or node == 0:
             continue
         ctx.send(peer, f"SYSTem:VDC:FEEDback:SESSion {ctx.dep_gen}")
-        ctx.set_priority(peer, f"SYSTem:VDC:PRIORity:MATCH {ctx.dep_gen}",
-                         "SYSTem:VDC:PRIORity:MATCH?", f"{uid_r:016X} MATCH")
-        for _attempt in range(3):
-            ctx.send(peer, f"SYSTem:VDC:FEEDback:SESSion {ctx.dep_gen}")
-            ctx.send(peer, "SYSTem:VDC:OUTPut:RUN 1000000,2000,0")
-            ctx.send(peer, "SYSTem:VDC:PRIORity:FOLLow 1")
-            follow = ctx.send(peer, "SYSTem:VDC:PRIORity:FOLLow:STATus?").split(",")
-            if len(follow) > 1 and follow[1] not in ("0", ""):
-                break
-            time.sleep(0.5)
-        for _attempt in range(3):
-            ctx.send(peer, "SYSTem:VDC:OUTPut:RUN 1000000,2000,0")
-            ctx.send(peer, "SYSTem:VDC:PRIORity:FOLLow:PHASe 1")
-            # FOLLow:PHASe? refuses service while the lane is active (8 s per attempt,
-            # measured); its STATUS companion answers and carries the same evidence.
-            phase = ctx.send(peer, "SYSTem:VDC:PRIORity:FOLLow:PHASe:STATus?").split(",")
-            if phase and phase[0].strip() not in ("0", ""):
-                break
-            time.sleep(0.5)
-        print(f"  {uid_r:016X} follow status "
-              f"{ctx.send(peer, 'SYSTem:VDC:PRIORity:FOLLow:STATus?')[:36]}"
-              f" phase status "
-              f"{ctx.send(peer, 'SYSTem:VDC:PRIORity:FOLLow:PHASe:STATus?')[:28]}"
-              f" health {ctx.send(peer, 'SYSTem:VDC:PRIORity:FOLLow:HEALth?')[:32]}",
-              flush=True)
+        match_generation = ctx.send(peer, "SYSTem:VDC:PRIORity:MATCH?").strip()
+        follow = ctx.send(peer, "SYSTem:VDC:PRIORity:FOLLow?").strip()
+        print(f"  {uid_r:016X} owner MATCH generation {match_generation}"
+              f" (expected {ctx.dep_gen}) follow {follow}", flush=True)
+        if match_generation != str(ctx.dep_gen):
+            ctx.failures.append(f"Step 15: {uid_r:016X} MATCH generation is "
+                                f"{match_generation}, expected the owner to arm "
+                                f"{ctx.dep_gen}")
 
 
 @step(16)
@@ -2139,40 +2132,47 @@ def step_16_ring_start(ctx, slot, board, uid):
         print(f"  {uid_r:016X} SYNC:CHECk -> {check[:46]} | STARt -> {start[:14]}"
               f" | READ:SYNC:STATe? {state[:70]}", flush=True)
     cursor_probe(ctx, ctx.src, "after OBServer:TDMA + SYNC:CHECk/STARt")
-    # Post-ring priority arming (TDMA_TASK_PROGRESS, 2026-10-11 21:50 root-cause note):
-    # the SYNC_TRIGGER phase only fits the cycle when the priority source is active -
-    # its window (279736 ns) is narrower than its declared WCET (332000 ns), so
-    # without the priority ingress margin every cycle skips it via start_missed
-    # (app.c:888/904-905, 930-931). FOLLow 1 needs a live session, MATCH generation
-    # consistency and a successful boundary_set_stopped() (vdc_priority_follow.inc:60-71),
-    # so the stopped-state write in step 15 is normally refused (FOLLow? = 0) and the
-    # sync phase never runs. Re-assert here, with the ring running, and verify the
-    # readback - the documented rule is not to look at publication before this passes.
+    # Post-ring observation (T1, HAOFV review): the load no longer re-issues the
+    # priority lanes - a running ring refuses stopped-metadata writes anyway
+    # (reject 115, tdma_service.c:1033-1034), so the old block proved nothing and
+    # only masked the fact that the lane was never armed. The VDC owner keeps its
+    # own lanes armed and restarts them after a retire (672edf0b); this reads the
+    # result back and reports a timeout as a timeout (the old code labelled an
+    # 8 s timeout "n/a (reference)" and did not record a failure).
     for uid_r, slot_r, _i, _o, _f in ROWS:
         member = ctx.boards.get(f"{uid_r:016X}")
         if member is None:
             continue
         if slot_r == ROWS[0][1]:
-            ctx.send(member, f"SYSTem:VDC:PRIORity:SYNC {ctx.dep_gen}")
-        else:
-            ctx.send(member, f"SYSTem:VDC:FEEDback:SESSion {ctx.dep_gen}")
-            ctx.send(member, f"SYSTem:VDC:PRIORity:MATCH {ctx.dep_gen}")
-            ctx.send(member, "SYSTem:VDC:PRIORity:FOLLow 1")
-            ctx.send(member, "SYSTem:VDC:PRIORity:FOLLow:PHASe 1")
-        status = ctx.send(member, "SYSTem:VDC:PRIORity:FOLLow:STATus?").split(",")
-        # Only read the follow status on followers: the reference has no follow lane and a
-        # refused read costs the 8 s query timeout (measured: step 16 taking 75 s because
-        # of FOLLow:STATus?/HEALth? reads). Health is derived from the same status page.
-        status = status if slot_r != ROWS[0][1] else []
-        readable = bool(status) and not any("<timeout>" in value for value in status)
-        armed = readable and status[0].strip() not in ("0", "")
+            generation = ctx.send(member, "SYSTem:VDC:PRIORity:SYNC?").strip()
+            print(f"  post-ring priority {uid_r:016X} slot {slot_r}:"
+                  f" SYNC generation {generation} (owner-armed {ctx.dep_gen})",
+                  flush=True)
+            if generation != str(ctx.dep_gen):
+                ctx.failures.append(f"{uid_r:016X} Step 16 origin SYNC generation "
+                                    f"{generation}, expected the owner to keep "
+                                    f"{ctx.dep_gen}")
+            continue
+        generation = ctx.send(member, "SYSTem:VDC:PRIORity:MATCH?").strip()
+        # FOLLow? refuses service while the lane is active (measured 8 s timeout), so it
+        # is a best-effort read here: a timeout is reported as a timeout, never as
+        # "n/a (reference)" and never as a lane failure - the armed state is already
+        # carried by the MATCH generation above.
+        follow_read = ctx.send(member, "SYSTem:VDC:PRIORity:FOLLow?").strip()
+        follow_known = "<timeout>" not in follow_read
         print(f"  post-ring priority {uid_r:016X} slot {slot_r}:"
-              f" follow {'ARMED' if armed else 'not armed' if readable else 'n/a (reference)'}"
-              f" status {','.join(x.strip() for x in status[:6])}", flush=True)
-        if slot_r != ROWS[0][1] and readable and not armed:
-            ctx.failures.append(f"{uid_r:016X} Step 16 post-ring FOLLow not armed"
-                                f" (status {','.join(x.strip() for x in status[:4])}); the"
-                                f" SYNC_TRIGGER phase cannot run without priority ingress")
+              f" MATCH generation {generation}"
+              f" follow {'<not readable while running>' if not follow_known else follow_read}",
+              flush=True)
+        if "<timeout>" in generation:
+            ctx.failures.append(f"{uid_r:016X} Step 16 MATCH generation readback timed out;"
+                                f" the observation lane cannot be verified this way")
+        elif generation != str(ctx.dep_gen):
+            ctx.failures.append(f"{uid_r:016X} Step 16 MATCH generation {generation},"
+                                f" expected the owner to keep {ctx.dep_gen}")
+        elif follow_known and follow_read not in ("1", ""):
+            ctx.failures.append(f"{uid_r:016X} Step 16 follow lane reads {follow_read},"
+                                f" expected the owner's armed lane")
     cursor_probe(ctx, ctx.src, "after post-ring priority")
     # EXPERIMENT (--pre-lock-mask): assert the sync-trigger bit BEFORE waiting for the
     # lock. The chain normally withholds bit 6 until the lock, which would deadlock if

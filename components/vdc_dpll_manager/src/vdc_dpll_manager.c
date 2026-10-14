@@ -3313,9 +3313,11 @@ bool vdc_dpll_manager_get_lock_declaration(vdc_dpll_lock_declaration_t *out)
  * either: it is the session, the same identity the source publishes its typed
  * records under, so the record check (binding_generation == request) keeps
  * holding. */
-static void priority_match_owner_arm_core1(uint32_t generation, uint32_t session)
+static void priority_match_owner_arm_core1(uint32_t generation, uint32_t session,
+    bool replace_stale)
 {
-    if (__atomic_load_n(&s_priority_match_request, __ATOMIC_ACQUIRE) != 0u) return;
+    const uint32_t request = __atomic_load_n(&s_priority_match_request, __ATOMIC_ACQUIRE);
+    if (request != 0u && !replace_stale) return;
     __atomic_store_n(&s_priority_match_request_session, session, __ATOMIC_RELEASE);
     __atomic_store_n(&s_priority_match_request, generation, __ATOMIC_RELEASE);
 }
@@ -3337,17 +3339,32 @@ static void priority_match_owner_restart_core1(uint32_t generation, uint32_t ses
     priority_match_publish();
 }
 
-static void priority_tx_owner_arm_core1(uint32_t generation)
+static void priority_tx_owner_arm_core1(uint32_t generation, bool replace_stale)
 {
-    if (__atomic_load_n(&s_priority_tx_request, __ATOMIC_ACQUIRE) != 0u) return;
+    const uint32_t request = __atomic_load_n(&s_priority_tx_request, __ATOMIC_ACQUIRE);
+    if (request != 0u && !replace_stale) return;
     __atomic_store_n(&s_priority_tx_request, generation, __ATOMIC_RELEASE);
 }
 
 static void priority_tx_owner_restart_core1(uint32_t generation)
 {
     vdc_priority_tx_work_t *w = &s_priority_tx_work;
-    if (!w->status.retired || w->status.generation != generation) return;
     if (__atomic_load_n(&s_priority_tx_request, __ATOMIC_ACQUIRE) != generation) return;
+    /* A request that moved on (a new session) while the lane was never serviced
+     * since leaves the work struct on the old generation - and a retired lane is
+     * only reset by the provider's own generation-change path, which never runs
+     * if the fast path stops calling it (measured under T2: calls frozen, the
+     * snapshot stuck on the previous session). The owner adopts the request here
+     * with exactly the provider's reset. */
+    if (w->status.generation != generation) {
+        memset(w, 0, sizeof(*w));
+        w->status.schema = 1u;
+        w->status.generation = generation;
+        priority_gap_reset(generation);
+        priority_tx_publish();
+        return;
+    }
+    if (!w->status.retired) return;
     memset(w, 0, sizeof(*w));
     w->status.schema = 1u;
     w->status.generation = generation;
@@ -3438,8 +3455,14 @@ static void vdc_priority_owner_arm_core1(uint32_t session)
     const bool follower =
         s_vdc_domain.control.profile.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER;
     if (follower) {
-        if (vdc_dpll_manager_priority_match_generation() == 0u)
-            priority_match_owner_arm_core1(session, session);
+        /* A request left over from an earlier session is not this session's arm:
+         * with a load that no longer zeroes the lanes (T1) nothing else clears
+         * it, and a stale generation would keep the matcher retired forever. */
+        const uint32_t request = vdc_dpll_manager_priority_match_generation();
+        const bool stale = request != 0u &&
+            __atomic_load_n(&s_priority_match_request_session, __ATOMIC_ACQUIRE) != session;
+        if (request == 0u || stale)
+            priority_match_owner_arm_core1(session, session, stale);
         const uint32_t generation = vdc_dpll_manager_priority_match_generation();
         if (generation == 0u) return;
         priority_phase_owner_arm_core1();
@@ -3447,8 +3470,11 @@ static void vdc_priority_owner_arm_core1(uint32_t session)
         priority_match_owner_restart_core1(generation, session);
         priority_follow_owner_restart_core1(generation, session);
     } else {
-        if (vdc_dpll_manager_priority_sync_generation() == 0u)
-            priority_tx_owner_arm_core1(session);
+        const uint32_t request = vdc_dpll_manager_priority_sync_generation();
+        const bool stale = request != 0u &&
+            (request != session ||
+             (s_priority_tx_work.bound != 0u && s_priority_tx_work.status.session != session));
+        if (request == 0u || stale) priority_tx_owner_arm_core1(session, stale);
         const uint32_t generation = vdc_dpll_manager_priority_sync_generation();
         if (generation == 0u) return;
         priority_tx_owner_restart_core1(generation);
