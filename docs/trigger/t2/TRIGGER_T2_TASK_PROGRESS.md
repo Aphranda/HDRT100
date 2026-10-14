@@ -12,6 +12,20 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261014-002：更正——「已 LOCKED 并发布」的输入确实存在，T2 未消费
+
+- TODO task ID：`T2-GATE-001`。
+- **触发**：用户指正两点——「LOCK 是可以用指令查到」「应该有进行发布」。主控据实复核后确认指正成立；本条**覆盖**同日 `T2-PROGRESS-20261014-001` 中「VDC 侧不存在可被消费的『已 LOCKED 并发布』符号」的结论（001 条原文保留，不改写）。
+- **证据（主控直读）**：
+  1. `components/distributed_refmem/inc/refmem_vdc_vector.h`：`REFMEM_VECTOR_FLAG_LOCKED = (1u << 5u)`。
+  2. `components/distributed_refmem/src/distributed_refmem.c` 的 `distributed_refmem_vector_flags()`：在一份 guarded 快照上按**严格合取**置位——非 provisional、`dpll.debug_continue_enabled == 0`、`dpll.state == VDC_DOMAIN_LOCK_LOCKED`、`quality.valid == 1`、`quality.lock_state == VDC_DOMAIN_LOCK_LOCKED`、`quality.health_state == VDC_DOMAIN_HEALTH_HEALTHY`、`lock_quality_tier >= VDC_DOMAIN_LOCK_QUALITY_FINE_100NS`、`last_sample_time_ns != 0`、`freshness_limit_us != 0`、`last_sample_age_us <= freshness_limit_us`、`gate.passed != 0`；注释自述「No new observation, publication or formal promotion is performed by the vector writer」。该位写入两向量轮转的 VDC/DPLL RefMem 向量。
+  3. 主机可见面：`middleware/scpi_port/src/scpi_sync_commands.c` 的 `scpi_cmd_sync_vdc_lock_readiness_q`（`SYSTem:SYNC:VDC:LOCK:READiness?`）回 `input_ready`、`locked = has_snapshot && dpll.state == LOCKED && input_ready`、reason、`dpll.state`、健康与接受/拒绝计数、时间戳资格、字典 CRC 等。
+  4. 该标志已被测试：`tests/python/test_vdc_publication_generation.py` 断言发布向量 payload 的该位与期望一致（另有 `tests/unit/test_refmem_vector_projection.c`、`tests/python/test_vdc_idle_maintenance.py`）。
+  5. 文档已记该投影语义：`docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`（该位是同一快照中健康锁定状态的投影，**不代表**完整 formal promotion）。
+- **GATE-001 的真实缺口据此改写**：不是「无输入」，而是 **T2 未消费已发布的锁定标志**——全仓检索 `REFMEM_VECTOR_FLAG_LOCKED` 只有定义、置位、测试与文档引用，**尚无固件消费方**；T2 侧实际使用的仍是 `vdc_dpll_manager_get_committed_model()` 加弱判据 `model->dco.lock_state > VDC_DOMAIN_LOCK_FAULT`（把 OFF…RELOCKING 全当有效，评审 A-02 判据成立）。
+- **先前结论的错误来源（据实记录）**：001 条依赖子代理结论，而该结论有两处偏差——① 把符号名写成 `REFRESH_VECTOR_FLAG_LOCKED`（代码中无此拼写，正确为 `REFMEM_VECTOR_FLAG_LOCKED`）；② 由「T2 不消费该标志」推成「不存在可消费符号」。主控未先直读 `distributed_refmem.c` 的置位点即写入文档，属**核验不足**，已按本条更正。
+- **未核验**：本轮仍未运行 pytest / 构建 / 四板 P3；该标志在从板上的实际可读路径（T2 从 RefMem 区域读取的具体入口，以及是否经 `distributed_refmem` 暴露查询）与「该投影是否等同 `VDC-RUN-001` 正式判据」均待定。
+
 ### T2-PROGRESS-20261014-001：三个卡点的跨域前置核实与归口（GATE-001 / EXEC-002 / TRANSPORT-002+IDENT-001）
 
 - TODO task ID：`T2-GATE-001`、`T2-EXEC-002`、`T2-TRANSPORT-002`、`T2-IDENT-001`。
