@@ -22,6 +22,15 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-038：T1 工具侧落地、owner arm 实机成立；T3 收窄到"T2 下 priority provider 整轮未被调用"
+
+- TODO task ID：`VDC-LOCKPUB-001①`（arm 实机成立）、`VDC-ISO-001`（T3 再收窄）、`TDMA-ISO-001`（T1 工具侧关闭）、`TDMA-ISO-003`。数值均为 2026-10-14 实验快照，非产品事实源。
+- **T1 工具侧（提交 `7668ff0d`）**：T2 流程不再配置基础件——step 2 删除 `PRIORity:{FOLLow:PHASe,FOLLow,SYNC,MATCH} 0`；step 15 由写入改为**只读回 owner 已 arm 的车道**（世代须等于本次会话）；step 16 删除运行中重下发（本就被 reject 115 拒绝）并**把 `FOLLow?` 的运行中 8 s 超时如实标为"运行中不可读"**（旧代码标成 "n/a (reference)" 且不记失败，即 T4 的工具侧缺陷）。`SESSion` 保留（身份而非车道配置）。
+- **M1 arm 实机成立**：主机不再写优先级后，四板由 owner arm 到本会话且无需任何主机写入——step 15/16 读回 `SYNC? = 1791980606`、三从 `MATCH? = 1791980606`，两步骤 **OK**（`out/tdma_t2/steps-20261014-202326.log`）。
+- **M1 补强（实测驱动）**：`priority_tx_owner_restart_core1()` 增加"采纳请求世代"分支。上一轮实测显示 NO.1 的 `PRIORity:TX?` 快照停在**上一会话**（generation 1791979527、`calls` 冻结 31209、`retired 1`）：TX 车道只在 provider 自己的世代变更路径里复位，而该路径在本工况下没被调用。补强后同轮 `TX?` 的 generation 已变为本会话、NO.4 `LOCKED` 恢复。
+- **T3（VDC-ISO-001）再收窄**：本轮 T2 的失败步仍是 **step 17**，且证据把根因钉到参考侧发布——`SYSTem:VDC:PRIORity:TX?` 显示 **`calls = 0`（整轮 provider 从未被调用）**，即参考的 typed SYNC 在本负载工况下没有发布机会；从板因此无记录可匹配（`MATCH:STATus?` 三从 `calls == rejected ≈ 62k/60k/0.35k`、live 字段 0、首拒 `SOURCE`、`last_reason 18`）。⇒ 下一步在 TDMA/负载路径里定位"T2 挂载后一等席/overlay 路径为何不再调用 priority provider"（`tdma_pio_spi_ring_origin_publish()` 的 provider 分支与 T2 席位路径的关系），这正是 MOUNTING 约束禁止的"负载改变基础件行为"。
+- **验证**：全项 P3 PASS 并写凭证（build `20261014121441`，`PASS_WITH_WARNINGS`、INFO 33/WARN 11/ERROR 0/FATAL 0、step 29 联合采集 PASS）。
+
 ### VDC-PROGRESS-20261014-037：M1 落地——观测车道 arm 归 Core1 owner，主机驱动的会话一律让位（P3 全绿）
 
 - TODO task ID：`VDC-LOCKPUB-001①`（实现落地，效果待 T1 工具侧落地后实测）、`VDC-ISO-001`（M1 关闭实现面）、`TDMA-ISO-001/003`。数值均为 2026-10-14 实验快照，非产品事实源。
