@@ -22,6 +22,18 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-011：提交探针所需的 P3 未通过——卡在环启动交接，探针嫌疑未排除
+
+- **背景**：为提交 `VDC-PROGRESS-20261014-007/010` 的诊断固件（20 段探针 + 只读命令 + harness 原语，共 5 个文件），按硬约束 7 付一次 P3 full（`hawf-111659`）。**结果 FAIL**：
+  - `Step 26 warn: four-Node TDMA closed loop: RuntimeError: no complete board record available after failed startup`
+  - `Step 29 FAIL: AcceptanceError: TDMA stopped handoff incomplete: the capture failed before a board handoff could be checked (stage=process-image, phase=TRN-03B): RuntimeError: no complete board record available after failed startup`
+  - `credential: not eligible`（step 30 起未运行）⇒ **凭证未写入，固件不能提交**。
+- **未能排除的嫌疑（据实记录）**：探针给 DPLL 相位每次调用追加约 **20 次 SysTick 读**（`vdc_dpll_probe_now()`），而该相位实测每次调用 51–56k、预算 39k（`-010`）。也就是说**探针给一个已超预算的相位加了少量开销**，可能加剧调度让位、使启动屏障/交接失败。**未做 A/B**（需回退探针 → 烧写 → 重跑 P3）故不能定论。
+- **两侧证据（指向间歇而非确定性）**：仅 10 分钟前的 `DPLL60 --steps '0-2'` + `--step 3`（**同一份固件**）**成功产出板级记录**（summary 里 `dpll_schedule_gate` 已评估、无 `error`），而 P3 的 step 26/29 却报同一句启动失败；另 P3 在 **09:04 与 10:13 两次通过**（当时固件**不含**探针）。故当前只能判定为**间歇性启动/交接失败**，与探针的相关性未知。
+- **已排除的一个常见原因**：P3 流程在 step 4 会 **OTA 刷写并重启**四板，故「跨轮残留冻结 recorder」这一已知成因不适用本轮的 step 26/29（该成因是 DPLL60 工作流才需要 `--cancel-unsaved-record` 的原因）。
+- **下一步（未执行）**：① 先重跑一次 P3 看是否间歇（两次历史通过支持这一可能）；② 若再现，则做 A/B：回退探针 → 烧写 → 重跑 P3，以判定探针是否加剧启动失败；③ 两路都失败则转查环启动屏障本身（`startup_barrier` / 板级记录导出）。
+- **未核验**：未重跑 P3；未做探针 A/B；未定位「no complete board record available after failed startup」的根因。
+
 ### VDC-PROGRESS-20261014-010：探针细分到步内——**没有单一热点**，相位每次调用确实超载
 
 - **改动（诊断，未提交）**：探针由 15 段扩到 **20 段**（新增 5 段切 `sync_dpll_fb_step` 内部：`debug_continue` 检查、`role` 应用/挂起、`match + consume_cmd`、`tune + Domain 拍`、`ring evidence`），命令仍为 `SYSTem:SYNC:VDC:DPLL:PHASe:PROBe?`（现回 20 个 UInt32）。交叉编译全绿、相关 host 测试 64 passed；OTA 烧写后 `--steps '0-2'`（复位）→ `--step 3` 仍 **WARN / `realtime_gate=False`**（复现）。
