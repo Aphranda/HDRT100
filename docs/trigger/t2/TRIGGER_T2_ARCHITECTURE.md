@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
 Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/trigger/t2/TRIGGER_T2_RUNTIME_CONSTRAINTS.md`
-Last updated: 2026-10-13
+Last updated: 2026-10-14
 
 ## 文档接口与范围
 
@@ -54,7 +54,7 @@ Last updated: 2026-10-13
 |---|---|
 | K-1 | 转台到达位置后，**先切换通道（SWITCH），再触发网分测试（GATEWAY TRIG）**。多板模式下，网分 READY 只做异步的时间片踩踏校验，不是许可门；单板模式可另行规定。 |
 | K-2 | **DCO 是底层时间源，无法冻结，始终正常更新**。FREEZE 只冻结位置预测（`position_q` 与 prediction version）。单个动作的 deadline 被硬件接受后不再追改；尚未装填的动作在装填前按最新 DCO 重新解算，解算放在网分采样期间。 |
-| K-3 | **VDC 进入 LOCKED 并发布之后，T2 才有输出**。未发布时 cursor 可以推进用于诊断，但不得生成或装填动作 deadline。 |
+| K-3 | **调试阶段：T2 接受任何可达的锁态，只记录、不阻断**（2026-10-14 用户裁定，**取代**原「VDC 进入 LOCKED 并发布之后 T2 才有输出」）。T2 消费 VDC 的锁定判定并把它记入快照与证据，但**不得因锁态拒绝、阻塞或跳过** deadline 的生成与装填——本阶段先把功能跑通、能成功，规则细化阶段再收紧。正式输出门禁（含非发布态拒绝）延后为独立任务，不阻塞 T2 主线。 |
 | K-4 | 扫描由起始、终止和 **STEP** 定义，**角度单位为度，分辨率 0.001°**（实现使用整数毫度）；**每个 STEP 位置都执行完整触发**。 |
 | K-5 | **T2 位置一帧发完，不分片**，作为一等席负载；DPLL/VDC 同步发布走特等席。**落地方式（2026-10-11 确认）**：T2 使用独立一等邮箱，与特等轮流占用 origin 快速路径的发布机会（当前比例 1:1，编译期常量）；一等邮箱是完整 process image，保留 VDC 核心字段与 ACK，既有 RefMem 区直接承载 T2 紧缩记录，**不再压缩同帧 VDC 字段占位来腾空间**。 |
 **K-5 增补（2026-10-13）**：一等席载荷仍受**两板 effective schedule CRC 一致性门**约束——
@@ -365,7 +365,7 @@ deployment、PIO/SM/FIFO/GPIO persona、静态模板（含每位置全部组序�
 
 ### TDMA RUN 中
 
-- VDC 每个 1 kHz 基准同步更新一次 local cursor；VDC 未 LOCKED 并发布时，T2 不生成也不装填 deadline（K-3）；
+- VDC 每个 1 kHz 基准同步更新一次 local cursor；**锁态只记录不阻断**（K-3，2026-10-14 裁定）：T2 读 VDC 锁定判定并记入快照与证据，未 LOCKED／未发布时**同样**生成并装填 deadline；
 - NO1 在每次同步取得计数观察，Core0 按完成窗口异步更新预测；阈值跨越时通过 TDMA 一等席单帧广播一次位置提示；
 - 从板解析位置记录并标记本地各组动作时间片；
 - 执行端按两组滑动窗口装填，本地硬件到达时间片后执行动作；DCO 更新在网分采样期间作用于尚未装填的组；
@@ -389,7 +389,7 @@ T2 的 Core1 运行入口固定为 `APP_REALTIME_PHASE_SYNC_TRIGGER` / `sync_tri
 | 边界 | 当前入口 | 接受条件或结果 |
 |---|---|---|
 | STOP 资源 | `trigger_grid_preview_configure()`、`trigger_action_template_activate_resources()`、T2 SCPI configure | grid 几何和 staged ring 身份、活动 deployment、模板 CRC、本板资源装载读回；无 RUN model 时只保存未绑定几何，精确规划仍拒绝 |
-| 共同时间 | 既有 VDC committed DCO / TIMER1 → `trigger_time_cursor_service()` | T2 本地计算 coarse/fine q；复用会话、ring、slot、schedule、role/clock 身份和模型有效期，不以接收观察频次代替本地网格；不修改 VDC 服务。动作输出以 VDC 进入 LOCKED 并发布为前提（K-3），发布判据由 VDC 提供（`VDC-RUN-001`） |
+| 共同时间 | 既有 VDC committed DCO / TIMER1 → `trigger_time_cursor_service()` | T2 本地计算 coarse/fine q；复用会话、ring、slot、schedule、role/clock 身份和模型有效期，不以接收观察频次代替本地网格；不修改 VDC 服务。动作输出**不因锁态阻断**（K-3，2026-10-14 裁定）：T2 消费 VDC 的锁定判定（`vdc_dpll_manager_lock_verdict()`，见 VDC 域架构 `VDC-LOCKVERDICT-01`）并记录 `locked`/`provisional`/`published_qualified`/`reason`，仅作证据；正式门禁延后（`VDC-RUN-001`） |
 | NO1 预测 | `trigger_t2_runtime_service()` + `trigger_t2_runtime_prepare_core0()` | Core1 取得 COUNTER 观察并处理阈值；Core0 按最新完成窗口异步更新位置索引，阈值跨越后只冻结版本 index |
 | 一等运输 | `distributed_refmem_stage_position_descriptor()` → TDMA flight owner → origin 一等邮箱（`tdma_first_class.h`） | typed SYNC/专用 VDC 命令优先；T2 单 `position_q` 记录作为一等席负载一帧发完（紧缩记录，`TRIGGER_POSITION_SLICE_WIRE_SIZE`）；独立 message subtype、来源与序号；与特等按发布机会轮换（当前比例 1:1，编译期常量）。改写已排队 VDC image 的补丁路径已删除；从板侧由优先级通道第二接收端接收 |
 | 从板绑定 | `accept_remote_position()` | 启动期 run/grid/deployment 上下文匹配，position subtype、q 范围、版本状态和有效同步区间通过 |
