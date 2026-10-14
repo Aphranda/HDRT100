@@ -22,6 +22,25 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-023：锁相阶段的**确切阶梯与可达性**（枚举 9、可达 7、2 个无可达赋值点）
+
+- **枚举 9 个**（`components/vdc_domain/inc/vdc_domain.h:42-52`）：`0 OFF`、`1 CHECKING`、`2 INITIAL_SYNC`、`3 FREQ_LOCK`、`4 PHASE_LOCK`、`5 LOCKED`、`6 HOLDOVER`、`7 RELOCKING`、`8 FAULT`。
+- **实际迁移判据**（`components/vdc_domain/src/vdc_domain.c:4222-4247`，按 `accepted_sample_count` 与相位/连续良好数分档；门限 `VDC_DOMAIN_INITIAL_LOCK_SAMPLES=1`、`FREQ_LOCK_SAMPLES=2`、`PHASE_LOCK_SAMPLES=3`）：
+
+| 阶段 | 进入条件 |
+|---|---|
+| `OFF` | `ready==0` 或复位 |
+| `CHECKING` | `accepted < 1`（即 0） |
+| `INITIAL_SYNC` | `accepted < 2`（==1） |
+| `FREQ_LOCK` | `accepted < 3`（==2） |
+| `PHASE_LOCK` | `accepted ≥ 3` 但 `|相位| > lock_threshold_ns` **或** `good_streak < servo.lock_sample_count` |
+| `LOCKED` | `accepted ≥ 3` ∧ `|相位| ≤ lock_threshold_ns` ∧ `good_streak ≥ lock_sample_count` |
+| `RELOCKING` | 曾 `LOCKED` 而相位越界（或再捕获中未达 `LOCKED` 条件） |
+
+- **可达性结论**：**采集阶梯 6 级 + `RELOCKING` = 7 个可达**；**`HOLDOVER(6)` 与 `FAULT(8)` 在 domain 源码中没有任何赋值点**（与架构文档「并非所有失效迁移都已接通」「缺参考自动 HOLDOVER…仍属 `VDC-HOLD-001` 后续门禁」一致）。
+- **与台架实测对应**：NO.1 `accepted=950` ⇒ 满足 `LOCKED` 全部条件（相位 0 ns、`good_streak=950`）＝ **5 LOCKED**；三从板 `accepted=0` ⇒ 停在**第一级** `CHECKING`（`accepted < 1`）。即在准入开始之前，从板**不可能**进入任何更高阶段。
+- **勿混淆的三个不同阶梯**：锁态 9（可达 7）：本文；健康 6（`UNKNOWN/CHECKING/DEGRADED/LOCK_CANDIDATE/HEALTHY/FAULT`）；质量档 4（`NONE/COARSE_10US/DEBUG_1US/FINE_100NS`）。
+
 ### VDC-PROGRESS-20261014-022：从板残差为何在 ±100 ns 内——**typed MATCH 观测通路在工作，准入通路没有**（更正 `-021` 的用词）
 
 - **用户追问**：既然从板 `accepted=0`、`ts_source=NONE`、`state=CHECKING`，为什么记录的残差仍在 ±100 ns 内？
