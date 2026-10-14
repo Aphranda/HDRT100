@@ -22,6 +22,17 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-042：T3 根因指名——从板事件观测在 T2 下被判 INVALID 并清 ACTIVE（发布侧健康）
+
+- TODO task ID：`VDC-ISO-001`（根因指名）、`TDMA-ISO-003`、`TDMA-ISO-001`。值为 2026-10-14 实验快照，非产品事实源。
+- **判别证据（提交 `2f235aaf`）**：`vdc_priority_lock_word_t` 末尾追加 `live_flags/live_valid/live_arm_epoch_lo/live_observer_epoch/live_tick_hz/live_bracket_ok/live_samples`，由匹配器在判定 `priority_match_live_valid()` **之前**逐拍记录并随锁字发布；`LOCK:READINESS?` 末尾输出同字段（该页无停机门禁，可运行中读），T2 工具 step 17 打印 `live_evidence`。
+- **实机（全项 P3 PASS、凭证 build `20261014133640`；T2 轮 `out/tdma_t2/steps-20261014-214631.log`）**：
+  - 正常从板（NO.4，`LOCKED`）：`live_evidence flags 0x07`（`RETAINED|ACTIVE|ANCHOR_VALID`）`valid 1`，`arm_epoch_lo 18 observer_epoch 4 tick_hz 250000000 bracket_ok 1`。
+  - 失配从板（NO.2/NO.3，`reason 8`）：**`flags 0x15`＝`RETAINED|ANCHOR_VALID|INVALID`、`valid 0`**（`samples` 约 2.4–2.5 万；`bracket_ok 1`、锚点字段均正常）。
+  - 参考板（NO.1）：`flags 0x00 samples 0`（不跑从板匹配器，符合预期）；同轮 `seat_live` 显示参考 priority 席持续上车（`opportunities == priority == 37189`，`starved 0/0`、`fc_deferred 0`）。
+- **结论**：T2 下基础件的**发布侧健康**；缺口是**从板事件观测的 live 状态被置 `TDMA_EVENT_LIVE_INVALID` 且清掉 `ACTIVE`**，于是 `priority_match_live_valid()` 恒假 → 匹配器以 `SOURCE` 拒绝 → 从板永不锁相。这与 `-032` 首轮"NO.2/NO.3 匹配为零、首拒 SOURCE"完全一致，也解释了为什么 M2（采集相位不再被隔离）修好后仍未成匹配：采集相位在跑，但 live 状态被判无效。
+- **下一 gate**：定位 `components/tdma` 事件观测在负载下置 `INVALID`/清 `ACTIVE` 的条件（时钟丢失、FIFO/DMA 异常、观察者世代失配等），同固件下做 T2 与 DPLL60 对照，再按"基础件不受负载束缚"修复。
+
 ### VDC-PROGRESS-20261014-041：更正 —— 参考侧发布在 T2 下是健康的；T3 的真实缺口在从板观测侧
 
 - TODO task ID：`VDC-ISO-001`（T3 结论更正）、`TDMA-ISO-001/003`。值为 2026-10-14 实验快照，非产品事实源。
