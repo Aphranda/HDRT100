@@ -2214,15 +2214,27 @@ def step_17_lock_and_dynamic_start(ctx, slot, board, uid):
             run = ctx.send(member, "SYSTem:VDC:OUTPut:RUN?").split(",")
             state_page = ctx.send(member, "READ:SYNC:STATe?")
             is_reference = f"{uid_r:016X}" == reference_uid
-            # READ:SYNC:STATe? is the product-level, authoritative answer and it is
-            # LOCKED on every board (followers included) once SYNC:STARt has run - the
-            # maintenance readiness page stays at "not locked" for a follower by design.
+            # READ:SYNC:STATe? is the product-level, authoritative answer for a
+            # FOLLOWER, and every follower reports LOCKED once it locked onto the
+            # reference. The reference itself is the SOURCE: it has nothing to
+            # phase-lock onto, and this bench provides no physical reference, so
+            # its own lock ladder legitimately stays OFF (measured: `1,1,0,
+            # 536870913,0,0,"U"` with readiness `locked 0 / dpll.state 0` in every
+            # T2 run; the known-good DPLL60 verdict is built on the internal
+            # trace, never on this bit). Judging the source by its own lock bit
+            # made this step unsatisfiable. The reference is judged by SERVING -
+            # its readiness input is ready - and the proof that it is usable is
+            # that the followers locked onto it.
             product_locked = '"LOCKED"' in state_page
-            if product_locked:
+            if is_reference:
+                serving = bool(ready) and ready[0].strip() == "1"
+                locked[uid_r] = serving
+            elif product_locked:
                 locked[uid_r] = True
             print(f"  lock t+{3 * (attempt + 1)}s {uid_r:016X}"
                   f"{' [ref]' if is_reference else ' [fol]'}:"
                   f" SYNC:STATe {'LOCKED' if product_locked else state_page[:22]}"
+                  f"{' (source, judged by serving)' if is_reference else ''}"
                   f" | readiness input_ready {ready[0] if ready else '?'}"
                   f" locked {ready[1] if len(ready) > 1 else '?'}"
                   f" (dpll.state {ready[3] if len(ready) > 3 else '?'},"
