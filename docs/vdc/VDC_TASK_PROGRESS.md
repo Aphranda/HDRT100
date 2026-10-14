@@ -22,6 +22,17 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-053：**T2 跑通**——四步齐绿（step 17–21），1:1 负载在位、三从锁定并匹配
+
+- TODO task ID：`VDC-ISO-001`（T3 关闭）、`TDMA-ISO-002`（1:1 轮换保留）。值为 2026-10-15 实验快照，非产品事实源。
+- **最后的闸门是判据本身**：`t2_workflow.py` 的 step 17 原实现要求**四块板**都报 `READ:SYNC:STATe? = "LOCKED"`，但参考板是**源**（无可锁对象，本台无物理参考），其自身锁阶梯恒为 OFF——实测**每一次 T2 运行**参考板都是 `1,1,0,536870913,0,0,"U"`（`locked 0 / dpll.state 0`），而已知良好的 DPLL60 验收判据建立在**内部轨迹**上（`p3_dpll_short.py:_assess_internal_trace`），从不依赖这一位。工具自身 docstring 也写明"参考与从板判法不同"。
+- **修复**（工具侧，无固件改动）：参考板改按**是否在服务**判定（readiness `input_ready == 1`），从板仍要求 `"LOCKED"`；参考板实测值照旧打印并标注 `(source, judged by serving)`。
+- **实机（`out/tdma_t2/steps-20261015-052737.log`，`--full` 全 22 步）**：`failed steps: none`
+  - step 17 OK：三从 `SYNC:STATe LOCKED`、`locked 1`、`dpll.state 1`、`reason 0`；参考 `(source, judged by serving)`；
+  - step 18/19/20/21 全部 OK；step 20 运行采样：T2 counter 11k→284k、`published_mask 3`、`announced 3`、`prep 256047`；**一等席 1:1 轮换在位**：`seat opp/pri/fc ['127228','108011','19217']`；`travel ... -> OK`。
+  ⇒ 负载在位、基础件事件观测存活且从板锁定/匹配，T2 全流程跑通。
+- **结论**：本轮目标（负载不得让基础件事件观测失效；观测者只对非前进/回绕判失效；前进跳号作有界证据；ordinal 严格把关；最终跑通 T2）**已在实机全部达成并留下证据**。
+
 ### VDC-PROGRESS-20261015-052：**T3 收口**——负载下三从全部成匹配；step 17 只剩参考侧锁声明（提交 bf8b94b1，P3 凭证）
 
 - TODO task ID：`VDC-ISO-001`（T3 关闭：观测者语义 + 历史不被退休 + 实机匹配）、`TDMA-ISO-002`（1:1 轮换保留）。值为 2026-10-15 实验快照，非产品事实源。
