@@ -138,6 +138,11 @@ def main() -> int:
                              "of step 16 (before the lock wait), e.g. 91 to include the "
                              "sync-trigger bit 6 that the normal chain withholds until "
                              "the lock")
+    parser.add_argument("--release-quarantine", action="store_true",
+                        help="EXPERIMENT: in step 2 drive LOAD:MASK 0 -> foundation so every "
+                             "foundation load is seen as a disabled->enabled transition and "
+                             "released from quarantine (the base only clears a bit's "
+                             "quarantine on that transition, app.c:594-610)")
     args = parser.parse_args()
 
     if args.refresh_html:
@@ -152,18 +157,21 @@ def main() -> int:
         return run_steps([f"{row[0]:016X}" for row in ROWS], [args.step],
                          interactive=args.interactive,
                          generation=args.dep_generation,
-                         pre_lock_mask=args.pre_lock_mask)
+                         pre_lock_mask=args.pre_lock_mask,
+                         release_quarantine=args.release_quarantine)
     if args.steps is not None:
         return run_steps([f"{row[0]:016X}" for row in ROWS], parse_selection(args.steps),
                          interactive=args.interactive,
                          generation=args.dep_generation,
-                         pre_lock_mask=args.pre_lock_mask)
+                         pre_lock_mask=args.pre_lock_mask,
+                         release_quarantine=args.release_quarantine)
     if args.full:
         # One code path: the step engine, run continuously over all 21 steps (the
         # legacy run_full remains only as a reference implementation).
         return run_steps([f"{row[0]:016X}" for row in ROWS], parse_selection("all"),
                          interactive=args.interactive,
-                         pre_lock_mask=args.pre_lock_mask)
+                         pre_lock_mask=args.pre_lock_mask,
+                         release_quarantine=args.release_quarantine)
     crc = deployment_crc(args.generation, ROWS)
     print("deployment crc =", crc)
     for uid, slot, imask, omask, fb in ROWS:
@@ -1461,6 +1469,20 @@ def step_2_stopped_block(ctx, slot, board, uid):
     # (application/inc/app.h:25-29, APP_REALTIME_LOAD_FOUNDATION_MASK). 27 was not
     # a valid baseline: without the SYNC_TRIGGER bit the VDC domain never accepts a
     # sample, so the reference could never lock (measured).
+    if getattr(ctx, "release_quarantine", False):
+        # EXPERIMENT: a load bit is isolated for good after one WCET/deadline
+        # violation and the base only releases it on a disabled->enabled
+        # transition of that bit (app.c:594-610). 91 -> 91 is not a transition,
+        # so a quarantined foundation load (observed: mask 8 = SYNC_CAPTURE on
+        # all four boards) stays dead across runs. Drive 0 -> 91 and read the
+        # quarantine mask before and after.
+        before = ctx.send(board, "SYSTem:TDMA:SCHEDule?").split(",")
+        ctx.set_load_mask(board, 0, f"slot {slot} quarantine release: all loads off")
+        ctx.set_load_mask(board, 91, f"slot {slot} quarantine release: foundation on")
+        after = ctx.send(board, "SYSTem:TDMA:SCHEDule?").split(",")
+        print(f"  slot {slot} quarantine release: quarantined "
+              f"{before[5].strip() if len(before) > 5 else '?'} -> "
+              f"{after[5].strip() if len(after) > 5 else '?'}", flush=True)
     ctx.set_load_mask(board, 91, f"slot {slot}")
     ctx.send(board, "SYSTem:TDMA:FLIGHT:MODE 1")
     print(f"  slot {slot} timing {ctx.send(board, 'SYSTem:VDC:OUTPut:TIMing?')[:24]}"
@@ -2230,6 +2252,20 @@ def step_17_lock_and_dynamic_start(ctx, slot, board, uid):
                   f" role {role[:24]} mask {mask} sync_phase_runs {runs}"
                   f" ready[{len(ready)}] {','.join(x.strip() for x in ready[:12])}",
                   flush=True)
+            # All ten phases, not just SYNC_TRIGGER: whether the DPLL phase (2)
+            # is serviced at all decides whether the matcher/follow lane runs,
+            # and the 2026-10-14 T2 runs left two followers with frozen match
+            # counters (calls == rejected ~ 40k) while the origin and slot 3
+            # kept counting.
+            for phase_index, phase_name in enumerate(
+                    ("TDMA", "VDC", "DPLL", "CALIB", "SYNC_CAP", "REFTEM",
+                     "MODEL", "SYNC_TRG", "TRG_MEAS", "GUARD")):
+                print(f"    phase{phase_index} {phase_name:<9}"
+                      f" run {schedule_field(sched, phase_index, 6)}"
+                      f" start_miss {schedule_field(sched, phase_index, 8)}"
+                      f" deadline_miss {schedule_field(sched, phase_index, 10)}"
+                      f" max_rt {schedule_field(sched, phase_index, 5)}"
+                      f" overrun {schedule_field(sched, phase_index, 9)}", flush=True)
             # The DPLL lock does not depend on T2: what matters is whether this board's
             # VDC input path sees the ring at all. These pages answer that directly
             # (measured: followers report accepted 0 AND rejected 0 - nothing arrives).
@@ -2720,9 +2756,17 @@ def step_21_teardown(ctx, slot, board, uid):
         ctx.send(member, "TRIGger:REServation:T2:STOP")
         # Priority-lane diagnostics are readable only while stopped: this is the one
         # moment that shows whether the bring-up armed the class that gives the
-        # SYNC_TRIGGER phase its ingress slack.
-        for page in ("SYSTem:VDC:PRIORity:RX?", "SYSTem:VDC:PRIORity:TX?"):
-            print(f"  {uid_r:016X} {page} -> {ctx.send(member, page)[:80]}", flush=True)
+        # SYNC_TRIGGER phase its ingress slack. The match pages answer the T3
+        # question directly - the RX counters say typed records arrived, so the
+        # remaining question is why a follower did or did not form a match
+        # (generation/session/binding, or a rejection code).
+        for page in ("SYSTem:VDC:PRIORity:RX?", "SYSTem:VDC:PRIORity:TX?",
+                     "SYSTem:VDC:PRIORity:SYNC?", "SYSTem:VDC:PRIORity:MATCH?",
+                     "SYSTem:VDC:PRIORity:MATCH:STATus?",
+                     "SYSTem:VDC:PRIORity:FOLLow:STATus?",
+                     "SYSTem:VDC:PRIORity:FOLLow:HEALth?",
+                     "SYSTem:VDC:FEEDback:SESSion?"):
+            print(f"  {uid_r:016X} {page} -> {ctx.send(member, page)[:200]}", flush=True)
         ctx.send(member, "SYSTem:VDC:OUTPut:RUN:STOP")
         ctx.send(member, "SYSTem:VDC:FEEDback:SESSion 0")
         ctx.send(member, "TRIGger:REServation:T2:STOP")
@@ -2776,7 +2820,7 @@ class StepTee:
 
 
 def run_steps(board_ids, selection, interactive=False, teardown=None,
-              generation=None, pre_lock_mask=None) -> int:
+              generation=None, pre_lock_mask=None, release_quarantine=False) -> int:
     """Run the requested steps in order, reporting once per step.
 
     Any step from 1 to 20 can be selected on its own, in ranges ('--steps 4-9') or as
@@ -2794,6 +2838,10 @@ def run_steps(board_ids, selection, interactive=False, teardown=None,
     if pre_lock_mask:
         ctx.pre_lock_mask = pre_lock_mask
         print(f"pre-lock mask experiment enabled: {pre_lock_mask}", flush=True)
+    if release_quarantine:
+        ctx.release_quarantine = True
+        print("quarantine-release experiment enabled: mask 0 -> foundation in step 2",
+              flush=True)
     original_stdout = sys.stdout
     log_handle = open(ctx.log_path, "a", encoding="utf-8")
     sys.stdout = StepTee(original_stdout, log_handle)

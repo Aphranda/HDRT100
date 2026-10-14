@@ -419,9 +419,29 @@ int main(void) {
     reset(); service_cost=PROJECT_CORE1_PHASE_VDC_WCET_CYCLES+10u;
     assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_VDC,APP_REALTIME_LOAD_VDC,service));
     assert(s_realtime_schedule.phase_overrun_count[APP_REALTIME_PHASE_VDC]==1u);
-    assert(s_realtime_load_quarantined_mask&APP_REALTIME_LOAD_BIT(APP_REALTIME_LOAD_VDC));
+    /* A foundation phase is never quarantined: the overrun stays visible as a
+     * schedule miss, but the base's own input/publication path keeps running
+     * (VDC-PROGRESS-20261014-035: the sticky SYNC_CAPTURE isolation was
+     * starving the follower observation lane). */
+    assert((s_realtime_load_quarantined_mask&APP_REALTIME_LOAD_BIT(APP_REALTIME_LOAD_VDC))==0u);
+    assert(s_realtime_schedule.schedule_miss_count!=0u);
     reset(); service_cost=PROJECT_CORE1_PHASE_DPLL_WCET_CYCLES+10u;
     assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_DPLL,APP_REALTIME_LOAD_DPLL,service));
+    assert(s_realtime_load_quarantined_mask==0u);
+    /* An opportunistic (non-foundation) phase is still isolated after an
+     * overrun, and a later disabled -> enabled transition releases it. */
+    reset(); service_cost=PROJECT_CORE1_PHASE_CALIBRATION_WCET_CYCLES+10u;
+    assert(!app_realtime_run_phase(0u,APP_REALTIME_PHASE_CALIBRATION,APP_REALTIME_LOAD_CALIBRATION,service));
+    assert(s_realtime_load_quarantined_mask==APP_REALTIME_LOAD_BIT(APP_REALTIME_LOAD_CALIBRATION));
+    /* Only a disabled -> enabled transition of that bit releases it. */
+    assert(app_realtime_set_load_mask(APP_REALTIME_LOAD_ALL_MASK&~APP_REALTIME_LOAD_BIT(APP_REALTIME_LOAD_CALIBRATION)));
+    assert(s_realtime_load_quarantined_mask==APP_REALTIME_LOAD_BIT(APP_REALTIME_LOAD_CALIBRATION));
+    assert(app_realtime_set_load_mask(APP_REALTIME_LOAD_ALL_MASK));
+    assert(s_realtime_load_quarantined_mask==0u);
+    /* A mask write also releases a stale foundation isolation, so firmware that
+     * inherited one cannot keep the observation lane switched off. */
+    s_realtime_load_quarantined_mask=APP_REALTIME_LOAD_BIT(APP_REALTIME_LOAD_SYNC_CAPTURE);
+    assert(app_realtime_set_load_mask(APP_REALTIME_LOAD_FOUNDATION_MASK));
     assert(s_realtime_load_quarantined_mask==0u);
     /* Inherited lateness skips the foreground without quarantining it;
      * the remaining permitted IRQ waiting interval still remains useful. */
@@ -568,8 +588,13 @@ def test_production_dispatcher_priority_boundaries(tmp_path):
                      source.index("bool app_realtime_request_period_us")]
     dispatcher = source[source.index("static void app_realtime_record_skip"):
                         source.index("static void app_realtime_tdma_phase")]
+    # The isolation rule spans the dispatcher (what may be quarantined) and the
+    # load-mask writer (what releases an existing isolation), so both slices are
+    # compiled into the fixture.
+    masks = source[source.index("bool app_realtime_set_load_mask"):
+                   source.index("bool app_realtime_get_schedule_snapshot")]
     fixture = tmp_path / "dispatcher.c"
-    fixture.write_text(PRELUDE + helpers + dispatcher + CASES, encoding="utf-8")
+    fixture.write_text(PRELUDE + helpers + masks + dispatcher + CASES, encoding="utf-8")
     exe = tmp_path / ("dispatcher.exe" if os.name == "nt" else "dispatcher")
     subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
                     "-I" + str(ROOT / "application/inc"),

@@ -601,10 +601,13 @@ bool app_realtime_set_load_mask(uint32_t enabled_mask)
     /* Only a disabled -> enabled transition is an explicit decision to
      * release that load from quarantine.  Enabling a bounded diagnostic
      * phase must never revive unrelated loads that were isolated after a
-     * WCET/deadline violation. */
+     * WCET/deadline violation.  Foundation phases are never quarantined at
+     * all (see the isolation rule in the phase dispatcher), so any stale
+     * isolation of one is released here rather than keeping the base's own
+     * input/publication path switched off. */
     const uint32_t newly_enabled = enabled_mask & ~previous_mask;
     (void)__atomic_fetch_and(&s_realtime_load_quarantined_mask,
-                             ~newly_enabled,
+                             ~(newly_enabled | APP_REALTIME_LOAD_FOUNDATION_MASK),
                              __ATOMIC_ACQ_REL);
     return true;
 }
@@ -1089,11 +1092,20 @@ static bool app_realtime_run_phase(
     }
     app_realtime_schedule_write_end();
 
-    /* DPLL is a diagnostic/control load carried by a healthy TDMA node.  Its
-     * loss of lock or local timing overrun must remain visible as feedback,
-     * but must never quarantine the node's TDMA service. */
+    /* Isolation rule: quarantine exists to isolate opportunistic loads from the
+     * node's own input/publication path, never to switch that path off.  The
+     * foundation phases (VDC, DPLL, SYNC_CAPTURE, REFMEM, SYNC_TRIGGER) carry
+     * the base's event capture and publication, and the measured behaviour made
+     * their isolation self-defeating: one overrun sets the bit, the bit is only
+     * released on a disabled -> enabled transition of the load mask, and
+     * SYNC_CAPTURE's declared WCET sits below its measured worst case, so it
+     * re-quarantined immediately after every release
+     * (VDC-PROGRESS-20261014-035).  A foundation overrun is still recorded as a
+     * schedule miss and stays visible in the schedule/alarm evidence; it just no
+     * longer removes the base's observation lane. */
+    const uint32_t quarantinable = ~APP_REALTIME_LOAD_FOUNDATION_MASK;
     if ((work->overrun || work->own_deadline_missed) && work->optional_load && !work->warmup_cycle &&
-        !work->dpll_feedback_load) {
+        (work->load_bit & quarantinable) != 0u) {
         (void)__atomic_fetch_or(&s_realtime_load_quarantined_mask,
                                 work->load_bit,
                                 __ATOMIC_ACQ_REL);
