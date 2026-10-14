@@ -22,6 +22,13 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-020：DPLL60 复跑评估（`dpll60-124722`）——运行本身干净，问题均为存量
+
+- **运行结果**：`failed steps: none`；step 6 采集 **passed on attempt 1（110.1 s）**；子进程 `{"internal_health_passed": true, ..., "passed": true, "external_status": "SKIPPED"}`；量级正常（`actions.jsonl` 118103 B、`input-probe.json` 296539 B）。warn 仍是已知三项：step 3（`realtime_gate=False closed_loop=False`）、step 4（无示波器→internal only）、step 9（工作流凭证非正式凭证）。
+- **残差（与 `-019` 基线一致）**：NO.1 无有效残差段；NO.2/3/4 **稳态 bin1–5 = [−107,+94] / [−124,+96] / [−117,+97] ns**；bin0（捕获段）首成功 = 296322780 / 433676577 / 578645961 ticks ≈ **1.19 / 1.73 / 2.31 s**，落在历史基线内（NO2 0.86–1.28、NO3 1.12–1.88、NO4 1.36–2.45 s）。
+- **参考板环路健康**：`state=5 LOCKED`、`phase=0 ns`、`consecutive_good=950`、`accepted=950`、`ts_eligible=1`（health 仍为 DEGRADED）。
+- **仍存在的存量问题（非本次引入）**：① `dpll_schedule_gate` 不通过（DPLL 相位超预算 → VDC/REFMEM 丢期限），是「严格全绿」的唯一实质障碍，且相位预算不能单独放大；② 三从板**未进入锁定且未开始捕获**（`ts_eligible=0`、`accepted=0`、`state=1`，残差为残留值）——**与「锁相需要时间」不同，它们没有样本源**；③ 发布面四板 `flags=0x55` 完全一致，无法区分「参考已锁 950 样本」与「从板未开始」；④ 工具侧 `physical_continuous_lock_qualified`/`exact_event_correlation_qualified` 等硬编码 False；⑤ 稳态负侧 −107…−124 ns 略超 ±100 ns（历史 −94…−136 ns，非回归）。
+
 ### VDC-PROGRESS-20261014-019：历史 P3 记录的残差核对——**稳态在 ±100 ns 内，唯一例外是 bin 0 启动段**
 
 - **核对目标（用户）**：之前的 P3 记录，偏差应都在 ±100 ns 以内。
