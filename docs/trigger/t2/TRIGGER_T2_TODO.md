@@ -156,11 +156,12 @@ Last updated: 2026-10-14
 | 通用 FIFO/OTA | 双槽 flight FIFO 已具备基础 publish/acquire/release；保留给后续流式 OTA，不与 T2 单 q 共用业务语义 | 后续 OTA |
 | 从板解算 | Core0 fine q→deadline 与 Core1 预装 PIO 提交已接线；本地模板容量见 `TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY`（每位置一组），位置数为编译期定长（`TRIGGER_T2_RUNTIME_POSITION_COUNT`），FREEZE 后不再随 DCO 重算；需扩展为每位置多组、两组滑动窗口和随 DCO 重算 | M3 |
 | 执行端队列 | `sync_io_switch/gateway_realtime_schedule_at()` 为单槽，PENDING 时拒绝新 deadline；两组滑动窗口需 SYNC_IO 提供深度 2 队列 | M3 |
-| VDC 发布 | T2 输出以 VDC LOCKED 并发布为前提；`VDC-LOCK-001`、`VDC-RUN-001` 为 PENDING | M3 及之后的正式输出 |
+| VDC 发布 | T2 输出以 VDC LOCKED 并发布为前提；`VDC-LOCK-001`、`VDC-RUN-001` 为 PENDING。**消费方边界（用户，2026-10-14；HAOFV 审查 T5）**：T2 是基础件上的负载，只接收 VDC 按自身最优方式发布的事实——在固件内读取 RefMem 向量 `REFMEM_VECTOR_FLAG_LOCKED`（VDC owner 的 1 bit 声明，`VDC-LOCKPUB-002`）与全局锁定（`VDC-LOCKPUB-003`），VDC 未达正式质量时 fail closed；当前 step 17 在主机轮询 SCPI 判"四板锁定"，属过渡做法 | M3 及之后的正式输出 |
+| 不配置基础件 | HAOFV 审查 T1/T4（2026-10-14）：step 15/16 由 T2 流程下发 VDC 的 `FEEDback:SESSion`、`PRIORity:SYNC/MATCH/FOLLow/FOLLow:PHASe`，属负载配置基础件；VDC 自管 arm（`VDC-LOCKPUB-001` ①）与一等席独立（`TDMA-ISO-001`）落地后移除。step 16 "运行中重下发"在环运行后被 STOP 门禁拒绝，不起作用；其注释所述"`SYNC_TRIGGER` 需 priority ingress 余量才能入周期"若成立即违反挂载约束 §4.3（不得借用他域余量），待对照 `app.c` 准入与实测核实。T2 负载下基础件退化见 `VDC-ISO-001` | T2 台架、挂载约束升格 |
 | T2:STARt 命令语义 | 固件命令名沿用历史命名 `T2:STARt`，**实际语义是「挂载/武装」**（走停机态维护路径，环 `enabled`/`adapter_started` 后即被拒，`tdma_service.c:1033-1035/1079-1081`），不产生输出；**动态启动统一由 `LOAD:MASK` 位 6（`APP_REALTIME_LOAD_SYNC_TRIGGER`）承担**。把命令重命名为 `T2:MOUNT`（并与 `T2:STARt` 兼容或替换）待 T2 稳定后独立实施：需同步 SCPI 注册表、测试与工具，并按 AGENTS.md §7 付一次 P3 凭证 | 无（当前只影响命名清晰度；流程与文档已按三语义书写） |
 | ORIGin:TRIAL 停环 | `CALibration:ORIGin:TRIAL` 间歇使参考环 `enabled`/`adapter_started` 归 0、config 前进 1（已与 `SOURce:STARt` 拆开确认由 TRIAL 单独触发，见 `T2-PROGRESS-20261012-001`）；游标随之按 `site RING` 粘性失效，该轮无发布 | T2 台架稳定性 |
 | 从板相位起始迟到 | 从板 SYNC_TRIGGER 持续累计 `start_miss`（前序相位迟到继承，不隔离、游标计入 `missed_sync_count`）；需定位前序相位的迟到来源再判断是否影响动作时限 | M3 动作时限 |
-| 镜像辨识 | `PROJECT_BUILD_ID` 是 CMake configure 时的缓存值，增量构建不变；OTA 与验收凭证以构建号辨识镜像存在盲区，需改为每次构建唯一或以包 SHA256 绑定 | 验收证据可信度 |
+| 镜像辨识 | `PROJECT_BUILD_ID` 是 CMake configure 时的缓存值，增量构建不变；OTA 与验收凭证以构建号辨识镜像存在盲区，需改为每次构建唯一或以包 SHA256 绑定。**2026-10-14 处置**：`tools/ota/OTA_workflow.py` 构建时经 `tools/cmake_build_auto/cmake_build_auto.py --build-id` 传入新 id，实机已见四板 build 号随刷写改变（`VDC-LOCKPUB-002`）；其他构建入口仍按原口径 | 验收证据可信度 |
 | 一等席布局 | T2 单帧记录需要 VDC 核心字段清单、TDMA 一等席布局/预算与新的身份/确认位宽，经 `EXE-SEAT-01` 用户审核后在登记表登记（C11） | P0 运输与长扫描 |
 | READY 重叠 | GATEWAY 已有独立上升沿计数且脉冲完成后继续采集；缺少按 position 关联的物理时间戳和重叠窗口结论，计数不替代验收 | M4 |
 | 实际 latch | 需要硬件时间戳和 position_id 绑定 | M5 |
