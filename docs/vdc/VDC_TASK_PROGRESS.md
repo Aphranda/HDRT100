@@ -22,6 +22,23 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-005：门判据量化 + 两条路径同样失败（更正前四条的方向性表述）
+
+- **A/B 实验作废（自查）**：`trn03_closed_loop.py` 直调两次（只差 `--diagnostic-continue`/`--startup-poll-interval-s`）**都在更早处中止**：`RuntimeError: 0010071E65B5CB38: recorder cancel did not complete: {'state': 5, ... 'written': 14, 'bytes': 10116}`——NO.1 残留上一轮冻结未保存的 recorder。该次 `dpll_schedule_gate.nodes` 为空、`passed` 只是初值 `False` ⇒ **门根本没被评估**，故「旗标假设被推翻」不成立，一并撤回。正确流程须**先复位（DPLL60 step 2）再跑 step 3**。
+- **门的精确判据**（`trn03_closed_loop.validate_realtime_phase`）：每相位必须满足 `run_count` 增长、`overrun_count` 增量为 0、`deadline_miss_count` 增量为 0、该相位位不被 quarantine、`max_runtime_cycles <= wcet_cycles`；**dpll 相位 `diagnostic_only=True`，其失败只进 `feedback_errors` 不致败**（vdc/refmem 为致命）。
+- **正确复位后的失败量化**（`dpll60-103901`，四板）：
+
+| 板 | vdc | dpll | refmem |
+|---|---|---|---|
+| NO.1 | miss **519**、maxrt 11863/47000 | overrun 2451、miss 2285、maxrt **101147/39000** | 0 ✓ |
+| NO.2 | miss **1203** | overrun 1425、miss 1864、maxrt **108867/39000** | miss **319** |
+| NO.3 | miss **1252** | overrun 1331、miss 1918、maxrt 104604/39000 | miss **327** |
+| NO.4 | miss **1258** | overrun 1341、miss 1760、maxrt 106521/39000 | miss **280** |
+
+  ⇒ 致命项只有 **VDC（四板）与 REFMEM（三从板）的丢期限**；**DPLL 相位超预算 2.6×**（10 万 vs 3.9 万 cycles、上千次 overrun）是可疑起因，但按判据本身不致败。
+- **关键更正**：**P3 的 step 24 自己的 summary 同样是 `passed=false`**（`hawf-100344/tdma-process-image/summary.json`）：NO.1 `vdc miss=202`、NO.2/3/4 `vdc miss≈493–577` 且 `refmem miss≈156–178`、DPLL `maxrt 95k–107k / wcet 39000`。⇒ **该门在 P3 与 DPLL60 两条路径上都在失败**；差别只在**谁把它当门**：P3 的 step 24 不据此判败（报 OK），DPLL60 的 step 3 据此判败（warn）⇒ 后续采集失去准备好的成品而 exit 2。故 `VDC-PROGRESS-20261014-002/003` 中「P3 通过 / DPLL60 失败」的方向性表述应读作**门的采用策略差异**，而非门本身只在一边失败。
+- **未核验**：DPLL 相位为何超预算 2.6×（真实回归 or 该工况下的既有状态）未定位；未改动任何工具或固件。
+
 ### VDC-PROGRESS-20261014-004：否证「复位后未稳」假设；嫌疑转向 step 3 强制的 `--diagnostic-continue`
 
 - **实验**：`DPLL60_workflow.py --steps '0-2'`（含四板软件复位，OK）→ 等 **150 s** → `--step 3` 单独跑。
