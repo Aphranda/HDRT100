@@ -3835,16 +3835,28 @@ scpi_result_t scpi_cmd_system_tdma_ring_topology(scpi_t *context)
         !scpi_port_read_u32(context, &reference_slot)) {
         return SCPI_RES_ERR;
     }
-    if (!distributed_refmem_set_tdma_ring_topology(local_slot,
-                                                   reference_slot,
-                                                   node_count)) {
-        scpi_port_push_exec_error(context, "TDMA_RING_TOPOLOGY");
-        return SCPI_RES_ERR;
+    /* A stopped-state refusal here is TRANSIENT: the ring snapshot, the VDC manager
+     * plan and the RefMem application model can still be settling right after the
+     * RING:STOP the caller issued moments earlier. The caller cannot see that - a
+     * refused SCPI_RES_ERR sends no reply at all, so the host observes a plain
+     * timeout plus -200 in its queue (measured 2026-10-14: an intentionally invalid
+     * topology reproduces exactly that host-visible signature, and about 3% of the
+     * TRN-00 preparation writes timed out that way, each one costing the row).
+     * Retry inside this ONE command so a single host write either succeeds or
+     * reports a genuine refusal. */
+    for (uint32_t attempt = 0u; attempt < 50u; ++attempt) {
+        if (distributed_refmem_set_tdma_ring_topology(local_slot,
+                                                      reference_slot,
+                                                      node_count)) {
+            SCPI_ResultUInt32(context, node_count);
+            SCPI_ResultUInt32(context, local_slot);
+            SCPI_ResultUInt32(context, reference_slot);
+            return SCPI_RES_OK;
+        }
+        sleep_ms(20u);
     }
-    SCPI_ResultUInt32(context, node_count);
-    SCPI_ResultUInt32(context, local_slot);
-    SCPI_ResultUInt32(context, reference_slot);
-    return SCPI_RES_OK;
+    scpi_port_push_exec_error(context, "TDMA_RING_TOPOLOGY");
+    return SCPI_RES_ERR;
 }
 
 scpi_result_t scpi_cmd_system_tdma_ring_arm(scpi_t *context)

@@ -52,7 +52,8 @@ from calibration_ring_validate.calibration_storage_job import (  # noqa: E402
     wait_file_write_job,
 )
 from tdma_field_parse import RUNTIME_FIELDS  # noqa: E402
-from calibration_ring_validate.trn03_stage import error_is_clear  # noqa: E402
+from calibration_ring_validate.trn03_stage import (  # noqa: E402
+    drain_errors, error_is_clear)
 
 
 MARKER_FIELDS = (
@@ -526,19 +527,27 @@ def preparation_action(board: Board, label: str, command: str,
     evidence = {"board": board.address, "command": label, "scpi": command,
                 "errors_drained_before": drained, "passed": False}
     actions.append(evidence)
-    for _ in range(16):
-        raw = board_command(board, "SYSTem:ERR?", args)
-        drained.append(raw)
-        if error_is_clear(raw):
-            break
-    else:
-        raise RuntimeError(f"{board.address}: error queue did not drain")
+    # *CLS first, then prove the queue is empty: a preceding phase can leave a deep
+    # backlog of -200 entries, and the old bounded read loop aborted the whole row with
+    # "error queue did not drain" before this command had even run (measured 2026-10-14
+    # on all four boards, which cost the TRN-00 MARK row).
+    drained.extend(drain_errors(board, args))
     response = board_command(board, command, args)
     evidence["response"] = response
     error = board_command(board, "SYSTem:ERR?", args)
     evidence["error_after"] = error
     if (not error_is_clear(error) or response == "<timeout>" or
             response.startswith("OK(no payload") or not response):
+        # Name the cause while it is still readable. The TDMA service publishes its
+        # refusal reason through the seat-mount diagnostic channel (its last_reject
+        # field: 111..117 are the stopped-state/metadata gates, 131..137 the retired
+        # variants), and a ring that is not provably stopped is the first thing the
+        # topology path checks. Without these two readings a timeout is a dead end:
+        # the command itself measures 0.09-0.16 s in isolation (2026-10-14).
+        evidence["mount_diag"] = board_command(
+            board, "TRIGger:REServation:SEAT:MOUNT?", args)
+        evidence["ring_status"] = board_command(
+            board, "SYSTem:TDMA:RING:STATus?", args)
         raise RuntimeError(f"{board.address}: {label} unconfirmed or rejected")
     if expected is not None or profile_level is not None:
         actual = [int(value.strip().strip('"'), 0)

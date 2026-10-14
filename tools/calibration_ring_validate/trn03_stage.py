@@ -527,6 +527,11 @@ def parse_query(raw: str, fields: tuple[str, ...], tag: str) -> dict[str, Any]:
     return result
 
 
+# Reads allowed to prove the error queue is empty AFTER *CLS cleared it. The bound
+# only guards against a queue that keeps refilling; it is not the drain budget.
+DRAIN_ERRORS_LIMIT = 64
+
+
 def error_is_clear(raw: str) -> bool:
     row = next(csv.reader([raw]), [])
     if not row:
@@ -538,8 +543,19 @@ def error_is_clear(raw: str) -> bool:
 
 
 def drain_errors(board: Board, args: argparse.Namespace) -> list[str]:
+    """Clear the SCPI error queue and PROVE it is clean.
+
+    A preceding phase can leave a deep backlog of execution errors behind (a probe
+    command that answers with -200 by design, repeated once per offset row). Reading
+    the queue one entry at a time under a 16-read bound then aborted the whole
+    measurement with "SCPI error queue did not drain" before any command of the trial
+    had run - measured 2026-10-14 on TRN-00 MARK, on all four boards at once. *CLS
+    clears the queue in a single command, so the reads only have to prove it is empty,
+    which is what a caller actually needs: the next command's error is attributable.
+    """
     errors: list[str] = []
-    for _ in range(16):
+    board_command(board, "*CLS", args)
+    for _ in range(DRAIN_ERRORS_LIMIT):
         raw = board_command(board, "SYSTem:ERR?", args)
         errors.append(raw)
         if error_is_clear(raw):
