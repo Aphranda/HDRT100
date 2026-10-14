@@ -22,6 +22,17 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-036：M2 已修并验证——基础件相位不再被隔离；T2 step 17 仍缺 M1
+
+- TODO task ID：`VDC-ISO-001`（M2 关闭、M1/M3 打开）、`TDMA-ISO-003`、`VDC-LOCKPUB-001①`。数值均为 2026-10-14 实验快照，非产品事实源。
+- **改动（代码）**：隔离只对非基础件负载生效（`work->load_bit & ~APP_REALTIME_LOAD_FOUNDATION_MASK`，`application/src/app.c`）——基础件相位（VDC/DPLL/SYNC_CAPTURE/REFMEM/SYNC_TRIGGER）的超预算仍计入 `phase_overrun_count`/`deadline_miss`/`schedule_miss` 证据，但不再关停基础件的输入与发布通路；`app_realtime_set_load_mask()` 在任何掩码写入时一并释放遗留的基础件隔离，使已落进该状态的固件也能恢复。host 用例同步改写并纳入 `app_realtime_set_load_mask` 切片（`tests/python/test_app_realtime_priority.py`）。
+- **实证（P3 凭证 `hawf-184456`，build `20261014104506`，`PASS_WITH_WARNINGS`、INFO 33/WARN 11/ERROR 0/FATAL 0；T2 轮 `out/tdma_t2/steps-20261014-185408.log`）**：
+  - 四板 `quarantined_mask` 由恒定的 **8 → 0**（`quarantine 0` 见于 step 18 preflight 与 step 20 采样）。
+  - SYNC_CAPTURE（phase 4）`run` 由 `-034` 时的 **14776 / 1486 / 8025 / 13211 升到 204591 / 189275 / 188587 / 181320**，即事件采集通路恢复；其超预算仍如实记账（`overrun` 4550 / 5734 / 5397 / 5496，`schedule_miss` 仍增长）。
+  - 参考侧恢复健康：游标 `err 0 valid 1`、`seq` 递增、`bound token 243 vs model 243`，**step 18/19/20 全部通过**，本轮失败步回到单一 **[17]**（对照 `-035` 实验轮的 [17,18,19]）。
+- **仍未通过的部分（指向 M1）**：T2 step 17 仍是 NO.1/NO.2/NO.3 未锁、NO.4 `LOCKED`。`PRIORity:MATCH:STATus?`：NO.2/NO.3 仍为 `have_match 0`、`calls == rejected ≈ 39.6k`、`last_reason 18 (MATCH_STOP)`、live 字段全 0、`first_reject_reason 9 (SOURCE)`；NO.4 `matched 17893`。⇒ 采集通路恢复并未让两块从板开始观测：观测车道的 **arm/重 arm 仍完全由主机在停机态写入**（M1），环 enable 后写入被 reject 115、retire 后不重 arm。
+- **下一 gate**：实施 M1（`VDC-LOCKPUB-001①`：Core1 owner 按 session/role 自 arm，STOP retire 后自 reset 重绑，不改世代值以免破坏 `binding_generation == request` 校验；主机显式写入保持兼容），随后同轮 T2 验收"三从成匹配并各按角色声明"；M3（`LOAD:MASK` 经 0 后参考绑定不重建）单列。
+
 ### VDC-PROGRESS-20261014-035：T3 又两条基础件缺陷——SYNC_CAPTURE 声明预算不足导致自隔离；LOAD:MASK 0 转变破坏参考绑定
 
 - TODO task ID：`VDC-ISO-001`、`TDMA-ISO-003`、`VDC-LOCKPUB-001①`。数值均为 2026-10-14 实验快照，非产品事实源。
