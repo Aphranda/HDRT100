@@ -12,6 +12,17 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261014-003：GATE-001 锁态实测——台架已由主机侧保证 LOCKED，固件侧仍无门禁
+
+- TODO task ID：`T2-GATE-001`。
+- **实测（主控直达探针，复用本仓连接层；四板，静止态）**：`SYSTem:SYNC:VDC:LOCK:READiness?`（24 字段）读数——NO.1 `0010071E65B5CB38`：`input_ready=1, locked=1, reason=0, dpll.state=5(LOCKED), health=2, accepted=529, rejected=0`；NO.2 / NO.3 / NO.4：`input_ready=0, locked=0, reason=2, dpll.state=1, health=1, accepted=0`。即**静止时只有原点 LOCKED**，三块从板未就绪。
+- **成因（工具 + 代码直读）**：VDC 只在 sync-IO observer 启用后接受输入；`t2_workflow.py` 步骤 16 对每板发 `SYSTem:SYNC:VDC:OBServer:TDMA`，步骤 17 再以 `LOCK:READiness?` 第 1 字段逐板判定 `locked == 1`（5 轮 × 3 s，全板达成才 break），未达成则打印 “dynamic T2 start withheld” 并 `return 3` **中止本轮**；只有全板 locked 之后才置 `LOAD:MASK` 位 6 启动 T2 相位。⇒ 台架上「已 LOCKED」这一前置**由主机侧工作流强制**，且实测可达（否则 T2 轮不会通过）。
+- **GATE-001 的缺口因此定位得更准**：K-3 的前置**主机侧已强制、固件侧无检查**——生成侧 `prepare_deadlines_core0()` 与装填侧 `service_deadlines()` 都不看锁态/发布（评审 A-02 成立）。任何不经该工作流的主机路径、以及运行中锁态退化，都没有固件侧拒绝。
+- **对上一轮取舍问题的回答**：既然工作流已保证四板 `locked==1` 才启动 T2 输出，固件侧落 **fail-closed** 门禁**不会改变台架行为**，只会拒绝台架不会进入的状态。故「严格门禁会让台架失去 T2 输出」的顾虑**不成立**，无需为此引入额外开关。
+- **发布面的可读入口（实测存在）**：`SYSTem:REFMEM:VDC:VECtor?`、`SYSTem:REFMEM:DPLL:VECtor?`；仓库已有同时采集 readiness 与两个向量的工具 `tools/vdc/dpll_vdc_monitor/dpll_vdc_monitor.py`。
+- **实现前待定（未核验）**：T2 固件应消费的**访问器**尚未确定——`REFMEM_VECTOR_FLAG_LOCKED` 今天只有定义、置位、测试与文档引用，**无固件消费方**，需先确认从 `components/sync_trigger` 读取该发布的合法入口（或经 `vdc_dpll_manager_get_snapshot()` 读同等字段而**不自行判定锁态**），再动代码。
+- **未核验**：本轮未改任何源码，未运行 pytest / 构建 / 四板 P3；以上读数取自静止态，运行中锁态随 `t2_workflow` 步骤 16/17 变化（其日志已按轮打印 `lock t+Ns … LOCKED …`，可作为运行中佐证）。
+
 ### T2-PROGRESS-20261014-002：更正——「已 LOCKED 并发布」的输入确实存在，T2 未消费
 
 - TODO task ID：`T2-GATE-001`。
