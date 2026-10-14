@@ -22,6 +22,16 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-037：M1 落地——观测车道 arm 归 Core1 owner，主机驱动的会话一律让位（P3 全绿）
+
+- TODO task ID：`VDC-LOCKPUB-001①`（实现落地，效果待 T1 工具侧落地后实测）、`VDC-ISO-001`（M1 关闭实现面）、`TDMA-ISO-001/003`。数值均为 2026-10-14 实验快照，非产品事实源。
+- **改动（代码，提交 `672edf0b`）**：
+  1. Core1 owner 自管 arm/重 arm：`sync_dpll_fb_service()` 每拍调用 owner 侧 `vdc_priority_owner_arm_core1()`；FOLLOWER 用 `MATCH`/`FOLLow`/`PHASe`，MASTER 用 `SYNC`。arm 只在无人 arm 时进行（世代＝会话，绝不另造身份）；**retire 后原地重启**（保持世代，避免破坏 `binding_generation == request`）；follow 车道仅在请求仍是 `TYPED_FOLLOW` 时重启，主机 `FOLLow 0`/`SYNC 0` 的显式解除不会被推翻。
+  2. 主机兼容闸门：新增 `components/vdc_dpll_manager/src/vdc_priority_host_control.inc`；四个主机侧写入者（`priority_match_set_stopped`/`priority_tx_set_stopped`/`priority_phase_set_stopped`/`priority_follow_set_stopped`，均在 TDMA 停机态门禁之后）在 arming 写入（非零世代、`TYPED_FOLLOW`、启用相位）时置位；owner 据此把该会话判定为主机驱动并**完全不碰**（不覆盖世代、不复活被解除的车道、不复位主机正在测量的 matcher），并在会话开放后给主机 **32 拍**先手再自行 arm。零值写入是解除、不是控制，不置位。
+- **实机验证（全项 P3，run `hawf-194312`，build `20261014114319`）**：`PASS_WITH_WARNINGS`、INFO 33/WARN 11/**ERROR 0/FATAL 0**，凭证写入；step 29 的 DPLL 60 s 联合采集（HDO 示波器、内部 health 与外部稳态判据）**PASS**，step 30-36 全绿。⇒ **主机驱动的采集会话行为与改动前一致**（对照：改动过程中 `hawf-190706` 因主机 SYNC 写 ACK 被 owner 抢先占位而 `<timeout>`、`hawf-191605` 因 `FOLLow?` 解除读回被 owner 重新 arm 而 mismatch，两处均已按上一条修正）。同轮主机 harness **728 项通过**（match/tx/phase/follow/trace/command-owner）。
+- **仍未闭合的效果面**：owner arm 的**收益**要等 T2 不再自行配置基础件（T1 工具侧：移除 step 2 的优先级清零、step 15 的 `SYNC/MATCH/FOLLow/PHASe`、step 16 的运行中重下发与 `OBServer:TDMA`）之后才能在 T2 轮里被测到——那之前 T2 仍算"主机驱动的会话"，owner 依约让位。
+- **下一 gate**：落地 T1 工具侧（T2 不配置基础件）并复跑 T2，验收"三从成匹配并按角色声明"；随后按序进入 V2（`VDC-HOLD-001`）。
+
 ### VDC-PROGRESS-20261014-036：M2 已修并验证——基础件相位不再被隔离；T2 step 17 仍缺 M1
 
 - TODO task ID：`VDC-ISO-001`（M2 关闭、M1/M3 打开）、`TDMA-ISO-003`、`VDC-LOCKPUB-001①`。数值均为 2026-10-14 实验快照，非产品事实源。
