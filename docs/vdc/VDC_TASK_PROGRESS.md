@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_TASK_PROGRESS.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-10-14
+Last updated: 2026-10-15
 
 本文只记录当前 VDC 迁移的实施 checkpoint 和证据闭环。任务状态以 `VDC_DOMAIN_TODO.md`
 为唯一事实源，稳定语义以 `VDC_DOMAIN_ARCHITECTURE.md` 为准。重构前的长历史记录已移入
@@ -21,6 +21,19 @@ Last updated: 2026-10-14
 | 下一 gate | 必须指向一个 TODO Task ID 或明确外部阻塞。 |
 
 ## 当前 checkpoint
+
+### VDC-PROGRESS-20261015-045：T2 失配根因指名——历史按"线序见证"索引，而 typed 车道身份是"源事件序号"（负载下相差约 6.5 倍）
+
+- TODO task ID：`VDC-ISO-001`（T3 第二层根因）、`TDMA-ISO-002`（轮换共线）。值为 2026-10-15 实验快照，非产品事实源。
+- **新增判别读数（工作区，随下一次 P3 提交）**：`LOCK:READiness?` 末尾追加 typed 车道身份对——`carrier_sequence`（承载该记录那一帧的线序）、payload 的 `source_event`（源事件序号）、`binding_generation` 与 `carriers/unique/dup` 计数；T2 工具打印 `typed_lane …`。
+- **实测（刷写后 T2 轮 `out/tdma_t2/steps-20261015-000617.log`，三从同形）**：失配从板 NO.2
+  - `typed_lane carrier 72069 / source_event 72064`（两者一致，都是**事件口径**的小计数）；
+  - `event_live joined 72302 … last 0x72416 (=467990) wire forward 2 zero 70 ones 1`（观测者见证是**每传输口径**的大计数，起始约 39.6 万，约为事件数的 6.5 倍）；
+  - 匹配器 `MATCH:STATus? -> calls 116568 / matched 0 / superseded 78436 / history_result 4 (EVICTED)`。
+  ⇒ 匹配器拿 payload 的 `source_event`（≈7.2 万）去查一张**按线序见证（≈46.8 万）索引**、深度仅 `TDMA_EVENT_HISTORY_CAPACITY = 16` 的历史 ⇒ `age = newest - source` 永远远超 16 ⇒ 恒 `EVICTED`，永不匹配、永不锁相。DPLL60（负载不在位）之所以能匹配，是因为那时导线上"一次传输＝一个事件"，两套编号重合。
+- **结论**：基础件的**事件历史必须按 typed 车道使用的事件身份索引**（源事件序号 / 承载帧的事件编号），而不是按"每传输"的线序见证；或让观测者直接采集事件身份字段。线序见证仍按用户口径只作有界证据（前进跳号/哨兵计数，不判失效）。这是 T2 跑通的下一道闸门。
+- **本轮已完成目标的一半**：观测者语义＝"只对非前进/回绕判失效，前进跳号与哨兵字作有界证据"（已实机验证：三从 `state 1 (ACTIVE)`、`reason 0`、`joined` 7.2–7.5 万持续增长）。
+- **流程口径**：功能未全通过前不跑 P3；迭代期只刷写（`--steps 0-7`）。故本轮代码仍在工作区，文档单独提交。
 
 ### VDC-PROGRESS-20261014-044：T3 基础件侧已修——负载不再让从板事件观测失效（实机验证），失败面下移到匹配器历史查找
 
