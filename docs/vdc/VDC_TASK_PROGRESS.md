@@ -22,6 +22,23 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-007：分段探针上线，DPLL 相位超预算归因到 `sync_dpll_fb_step` 单段
+
+- **改动（诊断，未提交）**：按用户「断点调」指示，复用 2026-10-13 给 origin 路径加探针的同一手法，为 `sync_dpll_fb_service()` 的 **15 个子服务**各加一个分段最大周期保持（Core1 SysTick），并**新增只读命令** `SYSTem:SYNC:VDC:DPLL:PHASe:PROBe?`（15 个 UInt32，追加式新增，不改任何既有页面/线格式）。探针数组放**主 RAM**：放 `SCRATCH_Y` 会溢出 64 字节并与 Core0 栈重叠（scratch Y 已零余量）。host harness `test_vdc_idle_maintenance.py` 同步补探针原语（它抽取该函数体单独编译）。
+- **验证**：交叉编译全绿（`-Wall -Wextra -Werror`）；相关 host 测试 **77 passed**（含此前因新符号而 error 的 idle-maintenance 25 例）。以 OTA 烧写四板后，按断点式 `--steps '0-2'`（复位）→ `--step 3` **复现** WARN 与 `realtime_gate=False`。
+- **探针读数（四板，Core1 周期，最大值）**：
+
+| 板 | `sync_dpll_fb_step` | `vdc_priority_ingress` | `age_quality` | `follow_health` | 其余 11 段合计 |
+|---|---|---|---|---|---|
+| NO.1 | **57480** | 13854 | 19663 | 15736 | ~35k |
+| NO.2 | **51308** | 31300 | 22744 | 14720 | ~35k |
+| NO.3 | **46815** | 31376 | 21310 | 15123 | ~60k |
+| NO.4 | **51332** | 29260 | 20568 | 12827 | ~34k |
+
+- **结论**：相位预算 **39000**，而 **`sync_dpll_fb_step` 单独一段即 46815–57480**（1.2–1.5 倍整预算）⇒ 相位超预算与随之而来的 VDC/REFMEM 丢期限，首要归因是这一步；次因为 `vdc_priority_ingress`（从板 ~30k）与 `age_quality`（~20k）。
+- **该步的结构**（`vdc_dpll_manager.c:3155-3213`）：有界**四拍流水线**——① debug/role 应用（早退）；② `feedback_match_service` + `consume_follower_command`；③ `apply_pending_debug_servo_tune`（早退）；④ `s_vdc_domain_service_pending` → **`vdc_domain_service()` + `publish_runtime_snapshot_locked()`**；⑤ ring evidence（finalize/prepare/apply）。峰值来自**含 `vdc_domain_service()` 的第 ④ 拍**。
+- **未核验**：未在第 ④ 拍内部再分段（需再加探针 + 烧写）；未判定该拍 47–57k 是真实回归还是该工况既有水平；探针为**最大值保持**，不反映分布。
+
 ### VDC-PROGRESS-20261014-006：DPLL 相位超预算已量化，落在 `sync_dpll_fb_service()` 的 15 个子服务上
 
 - **接续** `VDC-PROGRESS-20261014-005`：致命项是 VDC（四板）与 REFMEM（三从板）丢期限，起因指向 DPLL 相位超预算。本条把该相位的内容与量级钉死。
