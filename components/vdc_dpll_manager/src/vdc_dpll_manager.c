@@ -3403,6 +3403,110 @@ bool vdc_dpll_manager_copy_local_follow_path(uint32_t local, uint32_t reference,
     return true;
 }
 
+bool vdc_dpll_manager_timestamp_dpll_eligible(uint32_t source,
+                                              uint32_t resolution_ns,
+                                              uint32_t flags)
+{
+    return source == VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK &&
+           resolution_ns > 0u &&
+           resolution_ns <=
+               VDC_DOMAIN_DPLL_ADMISSION_TIMESTAMP_RESOLUTION_LIMIT_NS &&
+           (flags & VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE) != 0u &&
+           (flags & VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u;
+}
+
+/* Single definition of the qualified-lock verdict (see the header for why it
+ * exists). Every source is read through the same guarded snapshot the RefMem
+ * writer uses, so the projection and this verdict cannot disagree about what
+ * "qualified" means, and no consumer has to re-derive it. */
+bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_lock_verdict)(
+    vdc_dpll_lock_verdict_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    *out = (vdc_dpll_lock_verdict_t){0};
+    /* Both sources are cleared before the guarded reads: -Wmaybe-uninitialized
+     * cannot see that a failed seqlock read still leaves the struct defined, and
+     * every field below is only consumed when the read succeeded. */
+    vdc_domain_snapshot_t snapshot;
+    vdc_dpll_manager_sync_io_observer_status_t observer;
+    memset(&snapshot, 0, sizeof(snapshot));
+    memset(&observer, 0, sizeof(observer));
+    const bool has_snapshot = vdc_dpll_manager_get_snapshot(&snapshot);
+    vdc_dpll_manager_get_sync_io_observer_status(&observer);
+
+    vdc_dpll_lock_verdict_reason_t reason;
+    if (!has_snapshot || snapshot.quality.valid == 0u) {
+        reason = VDC_DPLL_LOCK_VERDICT_SNAPSHOT_UNAVAILABLE;
+    } else {
+        const bool ring_input = snapshot.quality.accepted_sample_count != 0u;
+        const bool sync_io_input = observer.enabled != 0u;
+        if (!ring_input && !sync_io_input) {
+            reason = VDC_DPLL_LOCK_VERDICT_OBSERVER_DISABLED;
+        } else if (!ring_input &&
+                   (observer.dictionary_entry_count == 0u ||
+                    observer.dictionary_crc32 == 0u ||
+                    observer.dictionary_profile_crc32 !=
+                        snapshot.schedule.schedule_crc32)) {
+            reason = VDC_DPLL_LOCK_VERDICT_DICTIONARY_EMPTY;
+        } else if (!vdc_dpll_manager_timestamp_dpll_eligible(
+                       ring_input ? snapshot.quality.last_timestamp_source
+                                  : observer.last_timestamp_source,
+                       ring_input ? snapshot.quality.last_timestamp_resolution_ns
+                                  : observer.last_timestamp_resolution_ns,
+                       ring_input ? snapshot.quality.last_timestamp_flags
+                                  : observer.last_timestamp_flags)) {
+            reason = VDC_DPLL_LOCK_VERDICT_TIMESTAMP_NOT_ELIGIBLE;
+        } else if (snapshot.quality.accepted_sample_count == 0u) {
+            reason = VDC_DPLL_LOCK_VERDICT_NO_ACCEPTED_SAMPLE;
+        } else if (snapshot.quality.last_reject_code != VDC_DOMAIN_GATE_PASS ||
+                   (!ring_input &&
+                    observer.last_gate_reject_code != VDC_DOMAIN_GATE_PASS)) {
+            reason = VDC_DPLL_LOCK_VERDICT_GATE_REJECTED;
+        } else if (snapshot.dpll.state != VDC_DOMAIN_LOCK_LOCKED) {
+            reason = VDC_DPLL_LOCK_VERDICT_NOT_LOCKED;
+        } else {
+            reason = VDC_DPLL_LOCK_VERDICT_READY;
+        }
+    }
+    out->reason = (uint32_t)reason;
+    /* The ladder ends at NOT_LOCKED once every input path is ready, so the
+     * historical SCPI pair follows from the reason alone (see the header). */
+    out->input_ready = (reason == VDC_DPLL_LOCK_VERDICT_READY ||
+                        reason == VDC_DPLL_LOCK_VERDICT_NOT_LOCKED) ? 1u : 0u;
+    out->locked = reason == VDC_DPLL_LOCK_VERDICT_READY ? 1u : 0u;
+
+    if (has_snapshot) {
+        out->dpll_state = snapshot.dpll.state;
+        out->health_state = snapshot.quality.health_state;
+        out->accepted_sample_count = snapshot.quality.accepted_sample_count;
+        out->rejected_sample_count = snapshot.quality.rejected_sample_count;
+        out->last_reject_code = snapshot.quality.last_reject_code;
+        /* Provisional is the diagnostic-only path-delay mode. The RefMem writer
+         * refuses to project LOCKED while it is set, so a provisional session can
+         * be locked and still never publish as qualified. */
+        out->provisional =
+            (snapshot.path_delay.flags & VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY) != 0u
+                ? 1u : 0u;
+        const bool qualified_quality =
+            snapshot.quality.lock_state == VDC_DOMAIN_LOCK_LOCKED &&
+            snapshot.quality.health_state == VDC_DOMAIN_HEALTH_HEALTHY &&
+            snapshot.quality.lock_quality_tier >=
+                VDC_DOMAIN_LOCK_QUALITY_FINE_100NS &&
+            snapshot.quality.last_sample_time_ns != 0u &&
+            snapshot.quality.freshness_limit_us != 0u &&
+            snapshot.quality.last_sample_age_us <=
+                snapshot.quality.freshness_limit_us &&
+            snapshot.gate.passed != 0u &&
+            snapshot.dpll.debug_continue_enabled == 0u;
+        out->published_qualified =
+            (out->locked != 0u && out->provisional == 0u && qualified_quality)
+                ? 1u : 0u;
+    }
+    return true;
+}
+
 bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_snapshot)(
     vdc_domain_snapshot_t *snapshot)
 {

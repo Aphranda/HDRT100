@@ -12,6 +12,17 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261014-005：VDC 侧锁定判定已成固件单一入口（`T2-GATE-001` 的输入面就绪）
+
+- TODO task ID：`T2-GATE-001`。
+- **改动（VDC 域，3 个文件 + 1 个新测试）**：新增 `vdc_dpll_manager_lock_verdict()`（`components/vdc_dpll_manager/inc/vdc_dpll_manager.h`），一次读出 `input_ready` / `locked` / `provisional` / `published_qualified` / `reason` 与诊断计数；把原先**只存在于 SCPI 层**的 reason 阶梯与判断移入管理器实现；时间戳资格谓词导出为 `vdc_dpll_manager_timestamp_dpll_eligible()`；`SYSTem:SYNC:VDC:LOCK:READiness?` 改为薄委托，**24 字段线格式与 reason 编号逐字不变**。
+- **行为等价依据**：阶梯在「输入路径全就绪但 DPLL 未锁」时回 `NOT_LOCKED`，故 `input_ready == (reason ∈ {READY, NOT_LOCKED})`、`locked == (reason == READY)`——原 SCPI 处 `input_ready` 与 `locked` 的两个布尔由此可证等价。
+- **发布等价**：`published_qualified` 与 RefMem 写入方投影 `REFMEM_VECTOR_FLAG_LOCKED` 的合取一致；`provisional` 显式取自 `VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY`。**provisional 会话可 `locked` 而永不 `published_qualified`**——这与实测（台架四板 `flags` 恒为 `0x55`、bit5 恒 0）完全一致，属设计而非缺陷。
+- **验证**：交叉编译全绿（`-Wall -Wextra -Werror`；期间一处 `-Wmaybe-uninitialized` 由显式清零修掉）；新增主机测试 `tests/python/test_vdc_lock_verdict.py` 从**真实源码抽函数体**驱动，覆盖全部 7 个 reason 档位、readiness 与发布的分野、provisional、以及 fine/health/freshness/gate/debug-continuation 各自单独扣留发布。测试过程**发现并固化了一条阶梯顺序**：`accepted_sample_count == 0` 的档位**先于** gate 档位（原期望写反，已按代码事实改正为 C6/C6b 两例）。定向集 35 passed（含 `test_vdc_publication_generation` / `test_refmem_vector_projection` / `test_dpll_flash_default`）；host 单测组 `run_vdc_domain_tests` ✓、`run_refmem_vdc_bridge_tests` ✓、`run_vdc_time_mapping_tests` ✓。
+- **既有断裂（非本次引入）**：`tools/tests/run_refmem_vdc_vector_tests.ps1` 编译失败——其 include 列表缺 `components/sync_trigger/inc`，而未被本次改动触及的 `distributed_refmem.h` 会引入 `trigger_position_descriptor.h`；该组编译输入只有 `tests/unit/test_refmem_vector_table.c` 与 `refmem_vector_table.c`。据实记录，未修。
+- **仍待（不在本轮）**：门禁**严格度**取舍（取 `published_qualified` 则台架不出输出、须走显式诊断开关；取 `locked` 则须把 provisional 轮标为诊断结果）——待用户裁定后 T2 才落码；P3 硬件验收凭证与提交（本轮已发起 full 验收）。
+- **未核验**：主机测试与交叉编译不等于硬件行为；烧写后需比对 24 字段页面与改前基线（改前：NO.1 `input_ready 1 / locked 1 / reason 0 / dpll.state 5 / health 2 / accepted 529`；三从板 `input_ready 0 / locked 0 / reason 2 / dpll.state 1 / accepted 0`）。
+
 ### T2-PROGRESS-20261014-004：GATE-001 候选输入实测——发布锁定位在台架不可达，readiness 谓词无固件入口
 
 - TODO task ID：`T2-GATE-001`。本条**更正** `T2-PROGRESS-20261014-003` 中「固件侧落 fail-closed 不改变台架行为」的表述（003 原文保留，不改写）：该结论只在门禁输入取 readiness 判据时成立；取**发布位**时台架将失去 T2 输出。

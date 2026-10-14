@@ -417,6 +417,10 @@ static void scpi_sync_result_u64_parts(scpi_t *context, uint64_t value)
     SCPI_ResultUInt32(context, (uint32_t)(value >> 32u));
 }
 
+/* The verdict itself lives in the VDC manager
+ * (vdc_dpll_manager_lock_verdict) so firmware consumers and this page share ONE
+ * definition. The values below are the wire numbering of that verdict's reason
+ * field and must not be renumbered. */
 typedef enum {
     SCPI_SYNC_VDC_LOCK_READY = 0u,
     SCPI_SYNC_VDC_LOCK_SNAPSHOT_UNAVAILABLE = 1u,
@@ -432,12 +436,8 @@ static bool scpi_sync_vdc_timestamp_is_dpll_eligible(uint32_t source,
                                                      uint32_t resolution_ns,
                                                      uint32_t flags)
 {
-    return source == VDC_DOMAIN_TIMESTAMP_SOURCE_HARDWARE_TICK &&
-           resolution_ns > 0u &&
-           resolution_ns <=
-               VDC_DOMAIN_DPLL_ADMISSION_TIMESTAMP_RESOLUTION_LIMIT_NS &&
-           (flags & VDC_DOMAIN_TIMESTAMP_FLAG_DPLL_ELIGIBLE) != 0u &&
-           (flags & VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u;
+    return vdc_dpll_manager_timestamp_dpll_eligible(source, resolution_ns,
+                                                    flags);
 }
 
 static scpi_sync_vdc_lock_readiness_reason_t scpi_sync_vdc_lock_readiness_reason(
@@ -445,42 +445,12 @@ static scpi_sync_vdc_lock_readiness_reason_t scpi_sync_vdc_lock_readiness_reason
     const vdc_domain_snapshot_t *snapshot,
     const vdc_dpll_manager_sync_io_observer_status_t *observer)
 {
-    if (!has_snapshot || snapshot == NULL || snapshot->quality.valid == 0u) {
-        return SCPI_SYNC_VDC_LOCK_SNAPSHOT_UNAVAILABLE;
-    }
-    const bool ring_input = snapshot->quality.accepted_sample_count != 0u;
-    const bool sync_io_input = observer != NULL && observer->enabled;
-    if (!ring_input && !sync_io_input) {
-        return SCPI_SYNC_VDC_LOCK_OBSERVER_DISABLED;
-    }
-    if (!ring_input &&
-        (observer->dictionary_entry_count == 0u ||
-         observer->dictionary_crc32 == 0u ||
-         observer->dictionary_profile_crc32 !=
-             snapshot->schedule.schedule_crc32)) {
-        return SCPI_SYNC_VDC_LOCK_DICTIONARY_EMPTY;
-    }
-    if (!scpi_sync_vdc_timestamp_is_dpll_eligible(
-            ring_input ? snapshot->quality.last_timestamp_source
-                       : observer->last_timestamp_source,
-            ring_input ? snapshot->quality.last_timestamp_resolution_ns
-                       : observer->last_timestamp_resolution_ns,
-            ring_input ? snapshot->quality.last_timestamp_flags
-                       : observer->last_timestamp_flags)) {
-        return SCPI_SYNC_VDC_LOCK_TIMESTAMP_NOT_ELIGIBLE;
-    }
-    if (snapshot->quality.accepted_sample_count == 0u) {
-        return SCPI_SYNC_VDC_LOCK_NO_ACCEPTED_SAMPLE;
-    }
-    if (snapshot->quality.last_reject_code != VDC_DOMAIN_GATE_PASS ||
-        (!ring_input &&
-         observer->last_gate_reject_code != VDC_DOMAIN_GATE_PASS)) {
-        return SCPI_SYNC_VDC_LOCK_GATE_REJECTED;
-    }
-    if (snapshot->dpll.state != VDC_DOMAIN_LOCK_LOCKED) {
-        return SCPI_SYNC_VDC_LOCK_NOT_LOCKED;
-    }
-    return SCPI_SYNC_VDC_LOCK_READY;
+    (void)has_snapshot;
+    (void)snapshot;
+    (void)observer;
+    vdc_dpll_lock_verdict_t verdict;
+    (void)vdc_dpll_manager_lock_verdict(&verdict);
+    return (scpi_sync_vdc_lock_readiness_reason_t)verdict.reason;
 }
 
 scpi_result_t scpi_cmd_sync_vdc_status_q(scpi_t *context)

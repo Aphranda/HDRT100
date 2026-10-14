@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_RUNTIME_CONSTRAINTS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-26
+Last updated: 2026-10-14
 
 ## 文档接口与范围
 
@@ -228,6 +228,25 @@ Calibration load 建立完整 source/reference 矩阵，运行态只做索引，
 ### VDC-PUBLICATION-01：完整快照刷新
 
 完整快照的本地偶数 guard 是刷新标记，与 DPLL evidence 序号分离；失败不消费，零值回绕有效，保留有限 ABA 假设。每 beat 至多一份 RefMem 向量，旧 wire/CRC/quality 不变；完整约束见 [发布细则](VDC_RUNTIME_CONSTRAINTS.md#vdc-publication-01完整快照刷新与证据序号分离)。
+
+### VDC-LOCKVERDICT-01：锁定判定（**尚未登记**）
+
+固件可消费的**单一**锁定判定 `vdc_dpll_manager_lock_verdict()`（`vdc_dpll_manager.h`）：一次读取 guarded 快照与
+sync-IO observer 状态，给出 `input_ready`、`locked`、`provisional`、`published_qualified`、`reason` 与诊断计数字段。
+
+- `locked` **保留** `SYSTem:SYNC:VDC:LOCK:READiness?` 的历史语义（DPLL 处于 `LOCKED` 且输入路径就绪）。
+- `published_qualified` 是**发布等价**判定，与 RefMem 写入方投影 `REFMEM_VECTOR_FLAG_LOCKED` 的合取一致：非 provisional、
+  Domain 与 quality 均为 `LOCKED`、quality 有效且 HEALTHY、fine tier、样本时间非零、freshness 未超界、gate 通过、
+  debug continuation 关闭。
+- `provisional` 显式化「诊断态路径延时」（`VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY`）：**provisional 会话可以 `locked`，
+  但永不 `published_qualified`**。这是台架（`SYSTem:SYNC:VDC:DPLL:ProVisional 1`）的既定形态，属于设计而非缺陷。
+- `SYSTem:SYNC:VDC:LOCK:READiness?` 的 `input_ready`/`locked`/`reason` 由该判定产生，**24 字段线格式与 reason 编号不变**；
+  时间戳资格谓词导出为 `vdc_dpll_manager_timestamp_dpll_eligible()`，使报告方与判定本身**不可能各写一份**。
+
+**状态（据实）**：实现已于 2026-10-14 上树并通过交叉编译（`-Werror`）与主机回归
+`tests/python/test_vdc_lock_verdict.py`（覆盖每个 reason 档位、readiness 与发布的分野、provisional 与各质量项）；
+**登记表尚无对应行，冻结前须走 C11 独立审核**；「provisional 轮是否计入验收」属**消费者策略**，仍待用户裁定，
+本域不代定。
 
 ### VDC-REFERENCE-01：兼容分片参考与 ACK
 

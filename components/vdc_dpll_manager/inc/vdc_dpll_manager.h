@@ -684,6 +684,56 @@ void vdc_dpll_manager_get_waveform_capture_status(
 bool vdc_dpll_manager_waveform_capture_manifest(char *path_prefix,
                                                 size_t path_prefix_size,
                                                 uint32_t *segment_count);
+/* ONE definition of the qualified-lock verdict, for firmware consumers and SCPI
+ * alike. It exists because the verdict used to live only in the SCPI layer: a
+ * firmware consumer then had to re-derive it (K-3 forbids that - a consumer must
+ * use the published state, not judge the lock itself), and the two predicates
+ * could drift apart.
+ *
+ * `locked` keeps the historical SCPI meaning: the DPLL reports LOCKED and an
+ * input path is ready. `published_qualified` is the publication-equivalent
+ * verdict - the same conjunction the RefMem writer projects as
+ * REFMEM_VECTOR_FLAG_LOCKED - so it is the one a formal consumer must require.
+ * `provisional` names the diagnostic-only path-delay mode explicitly: a
+ * provisional session can be locked and still never publish as qualified, which
+ * is exactly the bench situation. A consumer that accepts a provisional
+ * qualification is choosing a diagnostic result, not an acceptance one, and must
+ * say so itself.
+ *
+ * Derivation, kept identical to the historical SCPI ladder: the reason ladder
+ * ends at NOT_LOCKED when every input path is ready but the DPLL is not LOCKED,
+ * so input_ready == (reason == READY || reason == NOT_LOCKED) and
+ * locked == (reason == READY). */
+typedef enum {
+    VDC_DPLL_LOCK_VERDICT_READY = 0u,
+    VDC_DPLL_LOCK_VERDICT_SNAPSHOT_UNAVAILABLE = 1u,
+    VDC_DPLL_LOCK_VERDICT_OBSERVER_DISABLED = 2u,
+    VDC_DPLL_LOCK_VERDICT_DICTIONARY_EMPTY = 3u,
+    VDC_DPLL_LOCK_VERDICT_NO_ACCEPTED_SAMPLE = 4u,
+    VDC_DPLL_LOCK_VERDICT_TIMESTAMP_NOT_ELIGIBLE = 5u,
+    VDC_DPLL_LOCK_VERDICT_GATE_REJECTED = 6u,
+    VDC_DPLL_LOCK_VERDICT_NOT_LOCKED = 7u,
+} vdc_dpll_lock_verdict_reason_t;
+
+typedef struct {
+    uint32_t input_ready;
+    uint32_t locked;
+    uint32_t provisional;
+    uint32_t published_qualified;
+    uint32_t reason;                 /* vdc_dpll_lock_verdict_reason_t */
+    uint32_t dpll_state;
+    uint32_t health_state;
+    uint32_t accepted_sample_count;
+    uint32_t rejected_sample_count;
+    uint32_t last_reject_code;
+} vdc_dpll_lock_verdict_t;
+
+bool vdc_dpll_manager_lock_verdict(vdc_dpll_lock_verdict_t *out);
+/* The timestamp-eligibility predicate the verdict uses, exported so a reporting
+ * caller (the lock-readiness page) cannot drift from the verdict itself. */
+bool vdc_dpll_manager_timestamp_dpll_eligible(uint32_t source,
+                                              uint32_t resolution_ns,
+                                              uint32_t flags);
 bool vdc_dpll_manager_get_snapshot(vdc_domain_snapshot_t *snapshot);
 /* Lock-free, seqlock-consistent publication for the RefMem Core1 path. */
 bool vdc_dpll_manager_get_refmem_snapshot(
