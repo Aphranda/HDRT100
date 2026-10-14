@@ -40,6 +40,12 @@ typedef struct {
     uint32_t model_token, session, role_generation, clock_epoch, clock_run;
     uint32_t local_slot, node_count, schedule_crc32, profile_crc32;
     uint32_t uncertainty_width;
+    /* Provider-entry evidence (VDC-ISO-001): every call into the origin fast
+     * path's priority provider, and how many arrived off Core1 - where the
+     * provider may not touch the lane state and answers EMPTY, which still lets
+     * the load's first-class seat board while the VDC priority seat is never
+     * offered a record. Appended: existing positions are unchanged. */
+    uint32_t provider_calls, provider_offcore;
     uint64_t event_time_lower;
     uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
 } vdc_priority_tx_snapshot_t;

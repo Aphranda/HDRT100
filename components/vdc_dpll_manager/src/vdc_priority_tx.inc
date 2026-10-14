@@ -174,10 +174,18 @@ tdma_priority_tx_result_t __attribute__((noinline)) vdc_priority_tx_core1(
     uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE])
 {
     const uint32_t request = vdc_dpll_manager_priority_sync_generation();
-    if (get_core_num() != 1u)
-        return request ? TDMA_PRIORITY_TX_EMPTY : TDMA_PRIORITY_TX_DISABLED;
     vdc_priority_tx_work_t *w = &s_priority_tx_work;
     vdc_priority_tx_snapshot_t *s = &w->status;
+    /* Provider-entry evidence, counted before every guard below (VDC-ISO-001):
+     * `calls` alone cannot tell "the fast path never asked us" from "we were
+     * asked off Core1 and had to answer EMPTY", and the difference decides
+     * whether the base lane or the load's route owns the problem. */
+    s->provider_calls = priority_tx_inc(s->provider_calls);
+    if (get_core_num() != 1u) {
+        s->provider_offcore = priority_tx_inc(s->provider_offcore);
+        priority_tx_publish();
+        return request ? TDMA_PRIORITY_TX_EMPTY : TDMA_PRIORITY_TX_DISABLED;
+    }
     if (!request) {
         priority_gap_cancel();
         if (s->generation && !s->retired) {

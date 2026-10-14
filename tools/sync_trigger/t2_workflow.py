@@ -2278,6 +2278,26 @@ def step_17_lock_and_dynamic_start(ctx, slot, board, uid):
                          "SYSTem:SYNC:VDC:OBServer:RING?"):
                 value = ctx.send(member, page)
                 print(f"    {page[:-1]:<28} {value[:120]}", flush=True)
+            # Live origin-handover evidence (VDC-ISO-001/T3): the typed SYNC
+            # publication only exists inside the origin fast path, and the adapter
+            # dispatch enters it only while origin.active != 0
+            # (tdma_pio_spi_ring_adapter.c service dispatch); otherwise the
+            # reference runs the resident process-image branch, which never calls
+            # the priority provider. Reading the page here - while the ring is up -
+            # names that branch, unlike the ORIGIN STOP sample in the stop handler
+            # (which always reads active 0 because the origin just retired).
+            origin = ctx.send(member, "READ:CALibration:ORIGin:RUNTIme?").split(",")
+            if len(origin) > 19:
+                print(f"    origin_live active {origin[1].strip()}"
+                      f" comm_fsm {origin[2].strip()}/{origin[3].strip()}"
+                      f" observed {origin[4].strip()} unobserved {origin[5].strip()}"
+                      f" rejected {origin[6].strip()}"
+                      f" published_gen {origin[7].strip()}/{origin[8].strip()}"
+                      f" matched_gen {origin[9].strip()}"
+                      f" admit allow/block {origin[17].strip()}/{origin[18].strip()}"
+                      f" ts_flags {origin[19].strip()}", flush=True)
+            else:
+                print(f"    origin_live <unavailable> {','.join(origin)[:80]}", flush=True)
         missing = [f"{uid:016X}" for uid, _s, _i, _o, _f in ROWS if uid not in locked]
         ctx.failures.append(f"Step 17 not locked on {missing}")
         ctx.lock_failed = True
