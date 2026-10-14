@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_TODO.md`
 Related: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`
-Last updated: 2026-09-22
+Last updated: 2026-10-14
 
 ## 文档接口与状态规则
 
@@ -100,7 +100,7 @@ RAM 释放已完成，历史接续链接在此保留；实现及验收见 `VDC-P
 | `VDC-SERVO-002` | 完整 Type-II PI 与调参边界 | PENDING | 依赖 `VDC-SERVO-001`、`VDC-ROLE-003`；积分、anti-windup、phase/rate slew、残差统计、配置 mailbox/回退可验证。既有局部 PI 不等于本任务完成。 |
 | `VDC-LOCK-001` | coarse/tracking/formal promotion | PENDING | 依赖 `VDC-SERVO-002`；fine tier、连续有效窗口、RMS/peak/jitter、freshness、active calibration、formal timestamp 及非 provisional path 全通过。累计计数和 LOCKED 位不替代连续样本证据。 |
 | `VDC-HOLD-001` | HOLDOVER、RELOCKING、FAULT | PENDING | 依赖 `VDC-SNAPSHOT-001`；aging、dispersion/drift bound、失效保持及重新 acquisition 通过。丢样本不伪造锁定，超预算禁止正式 RUN。 |
-| `VDC-RUN-001` | 正式 VDC 消费门禁 | PENDING | 依赖 `VDC-LOCK-001`、`VDC-SNAPSHOT-001`、`VDC-HOLD-001`；RefMem、T2/READY、FIRE_LOAD/RUN 对 coarse/provisional/unlocked/超预算 holdover 明确拒绝。 |
+| `VDC-RUN-001` | 正式 VDC 消费门禁 | PENDING | 依赖 `VDC-LOCK-001`、`VDC-SNAPSHOT-001`、`VDC-HOLD-001`；RefMem、T2/READY、FIRE_LOAD/RUN 对 coarse/provisional/unlocked/超预算 holdover 明确拒绝。**T2 侧实测要求（2026-10-14，来自 `T2-GATE-001`）**：消费门禁必须能被**固件**消费，而不只经 SCPI 可见——当前 readiness/locked 谓词只存在于 SCPI 层（`middleware/scpi_port/src/scpi_sync_commands.c`），发布位 `REFMEM_VECTOR_FLAG_LOCKED`（`components/distributed_refmem/inc/refmem_vdc_vector.h`）虽为固件可读（`distributed_refmem_get_vdc_vector_snapshot()`），但在台架的 `SYSTem:SYNC:VDC:DPLL:ProVisional 1` 下**结构上不可达**（实测四板 `flags` 恒为 `0x55`、bit5 恒 0，含自报 `locked=1` 的原点）。故本项需明确：把「已达标并发布」的判定（含 provisional 语义与台架可用路径）暴露给固件消费者，否则 T2 侧只能违反 K-3 自行判定或取一个台架永不为真的输入。 |
 | `VDC-VERIFY-001` | 汇总发布验收 | IN PROGRESS | 分阶段执行；最终关闭需 RUN、角色/配置矩阵及对应长稳。replay、故障注入、物理输出、失败和回退绑定源码；诊断、采用、内部锁定与正式锁相分别判定。 |
 
 ### 观测与长期验证

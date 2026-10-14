@@ -12,6 +12,16 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261014-004：GATE-001 候选输入实测——发布锁定位在台架不可达，readiness 谓词无固件入口
+
+- TODO task ID：`T2-GATE-001`。本条**更正** `T2-PROGRESS-20261014-003` 中「固件侧落 fail-closed 不改变台架行为」的表述（003 原文保留，不改写）：该结论只在门禁输入取 readiness 判据时成立；取**发布位**时台架将失去 T2 输出。
+- **实测 A（只启用 observer，四板，静止态，24 s）**：对每板发 `SYSTem:SYNC:VDC:OBServer:TDMA 1,0,100,0` 后，原点保持 `locked=1 / accepted=529`，**三块从板持续 `locked=0 / accepted=0`**——即从板的锁定**不能**只靠启用 observer 达成，需要环运行中收到 VDC 同步样本（与 `t2_workflow` 步骤 16→17 的实际顺序一致）。
+- **实测 B（同一窗口读 `SYSTem:REFMEM:VDC:VECtor?`）**：四板 `flags` 恒为 **`0x55`** = `VALID | SCHEDULE_VALID | HARDWARE_EVIDENCE | PROVISIONAL`；**`REFMEM_VECTOR_FLAG_LOCKED`（bit 5）始终为 0**，**包括自报 `locked=1`、`accepted=529` 的原点**；`PROVISIONAL`（bit 6）为 1。
+- **成因（代码直读）**：`distributed_refmem_vector_flags()` 置 LOCKED 位的前置包含「**非 provisional**」与 `quality.lock_state == LOCKED`、HEALTHY、fine tier、freshness 未超界、gate 通过等严格合取；而**台架故意开 provisional**——`t2_workflow.py` 步骤 6 即发 `SYSTem:SYNC:VDC:DPLL:ProVisional 1`。故该发布位在台架上**结构上不可达**。
+- **访问器现状（代码检索）**：发布面有固件入口 `distributed_refmem_get_vdc_vector_snapshot()`（`distributed_refmem.h`），且 `components/sync_trigger` **已依赖** `distributed_refmem`（`trigger_t2_runtime.c` 即在调 `distributed_refmem_get_position_descriptor()`）；但 **VDC 域没有任何 readiness/locked 谓词的固件访问器**——该谓词只存在于 SCPI 层（`middleware/scpi_port/src/scpi_sync_commands.c` 的 `scpi_sync_vdc_lock_readiness_reason()` 与处理器内联计算）。
+- **对 GATE-001 的净结论**：三个候选输入互不等价——① readiness `locked`：台架可达，但**无固件入口**，T2 自行重算即违反 K-3「不自行判定锁态」；② 发布位 `REFMEM_VECTOR_FLAG_LOCKED`：**合 K-3 且有固件入口**，但台架因 provisional 不可达，取它则台架失去 T2 输出（除非改用非 provisional 验收，或按本项备注的显式诊断开关放行）；③ 本板 `dpll.state == LOCKED`：有入口但属自行判定。⇒ 本项**仍阻塞于 VDC 域**，且阻塞内容现可精确表述：**VDC 需把「已达标并发布」的判定（含 provisional 语义）暴露给固件消费者，而不只暴露给 SCPI**。
+- **未核验**：未运行 pytest / 构建 / 四板 P3；实测 A/B 为静止态、环停止时的读数（未见运行中向量可见性）；未验证从板侧收到的发布向量是否与原点一致。
+
 ### T2-PROGRESS-20261014-003：GATE-001 锁态实测——台架已由主机侧保证 LOCKED，固件侧仍无门禁
 
 - TODO task ID：`T2-GATE-001`。
