@@ -22,6 +22,17 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-043：用户口径（1:1 轮换是 T2 能发布的前提）＋从板失配根因落到代码行（事件观测 SEQUENCE 失效）
+
+- TODO task ID：`TDMA-ISO-002`（用户裁定）、`VDC-ISO-001`/`T3`（根因落点）、`TDMA-ISO-001`。值为 2026-10-14 实验快照，非产品事实源。
+- **用户裁定（2026-10-14）**：特等席与一等席按发布机会 **1:1 轮换保留**——该轮换正是 T2 能发布的前提（特等几乎总有新内容，若特等不让座，一等拿不到任何机会）。据此 `TDMA-ISO-002` 的退出门禁改为**实测等价证明**（负载开/关下 typed SYNC 每圈上车率与最长间隔一致），并删除与之冲突的"规则改为特等有新内容时不让座"候选出口；`ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md` 一等行改正过期表述（轮换比例不是"编译期常量 `TDMA_SEAT_ROTATION_*_SHARE`"，而是 STOP-only 每板设置 `SYSTem:TDMA:SEAT:ROTation`，默认 1:1）。
+- **从板失配根因落到代码行**：新增 T2 侧活体读 `SYSTem:TDMA:EVENt:SNAPshot?`（无停机门禁），实机（`out/tdma_t2/steps-20261014-220218.log`）读得失配从板 NO.2：**`state 2 (INVALID)`、`reason 9 (SEQUENCE)`、`fault_bits 0x00`、`joined/published 91`、`service_count 542`、`gap_max_us 2712`、`max_us 351`**；NO.3 该页全零（观测者未 arm/未 join）；同轮 `live_evidence flags 0x15/0x3d`（`INVALID` 置位、`ACTIVE` 被清）。
+  - 代码落点：`components/tdma/src/tdma_event_observer.c:282-286`——观测者要求**线序号严格 +1**：
+    `if (joined != 0u && (last_sequence == UINT32_MAX || sequence != last_sequence + 1u)) return invalidate(observer, TDMA_EVENT_SEQUENCE);`
+    即参考侧帧序不连续（跳号或重复）即判定事件观测失效。失效经 `tdma_event_live_retire(TDMA_EVENT_LIVE_INVALID)`（`tdma_pio_spi_phys_event.inc:2114-2123`）清掉 live `ACTIVE`，于是从板匹配器 `priority_match_live_valid()` 恒假、以 `SOURCE` 拒绝、永不锁相。
+  - 与负载的因果：负载在位时参考侧发布由 origin 快路径按发布机会轮流承担（priority 与 first-class 交替，`seat_opportunity == priority + first_class`），被观测的帧序因此不再逐拍连续——**负载改变了基础件的观测输入**，正是挂载约束 §8 第 3 条禁止的形态。
+- **下一 gate**：同固件下做**负载开/关对照**（同一组两页：`SYSTem:TDMA:SEAT:COUNters?` 与 `SYSTem:TDMA:EVENt:SNAPshot?`，DPLL60 vs T2），确认帧序连续性差异；随后按"基础件不受负载束缚"修复（观测者应只按自身事件帧类判序，或参考侧保持事件帧序连续）。本轮另有一次更差的台架轮（四板均未锁、step 10 亦失败），已记录为台架状态劣化，不作为结论依据。
+
 ### VDC-PROGRESS-20261014-042：T3 根因指名——从板事件观测在 T2 下被判 INVALID 并清 ACTIVE（发布侧健康）
 
 - TODO task ID：`VDC-ISO-001`（根因指名）、`TDMA-ISO-003`、`TDMA-ISO-001`。值为 2026-10-14 实验快照，非产品事实源。
