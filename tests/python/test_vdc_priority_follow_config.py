@@ -63,6 +63,10 @@ def executable(tmp_path_factory):
     compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
     includes = [ROOT/f"components/{c}/inc" for c in ("tdma", "vdc_domain", "vdc_dpll_manager",
         "distributed_refmem", "calibration_manager", "ota_manager", "sync_trigger")]
+    # The inlined .inc files include sibling .inc files (e.g. the priority
+    # host-control latch), so the component source dirs must be on the path too.
+    includes += [ROOT/f"components/{c}/src" for c in ("tdma", "vdc_domain", "vdc_dpll_manager",
+        "distributed_refmem", "calibration_manager")]
     sources = existing.domain_sources()+[manager/"vdc_feedback_match.c",
         ROOT/"components/distributed_refmem/src/refmem_sync_vdc_feedback.c"]
     exe = directory/"baseline_config.exe"
