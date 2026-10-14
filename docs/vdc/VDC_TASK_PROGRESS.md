@@ -22,6 +22,18 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-012：独立 DPLL60 跑不了的机制＝**失败 P3 留下的临时凭证**使期望 build 退化
+
+- **用户判断（已证实）**：与 OTA 无关；DPLL60 应当跑**当前板上最新固件**，不该依赖记录推断。
+- **机制**（`tools/vdc_priority_trace/DPLL60_workflow.py:157-196` `expected_build()` 的真实优先级）：① bench config 的 `build_id` 优先；② 凭证存在时取其 `build_id`，**但 schema 为 `HAOFV_P3_JOINT_PROVISIONAL_V1` 的临时凭证被刻意忽略**（第 175 行）；③ 取 `out/**/ota-*/ota-workflow-summary.json` 中 `passed` 的最新一条，若其时间晚于凭证时间则用它；④ 否则退回凭证。
+  ⇒ **一次失败 P3 会在 step 28 写下临时凭证后中止**（step 29 挂掉、step 35 未运行），该文件留在 `config/hardware_acceptance/p3_acceptance_receipt.json`；于是 `receipt_build=""`、`receipt_mtime=0`，**任何**旧 OTA 记录都"更新"⇒ 期望 build 变成旧值。
+- **实测证据**：`hawf-111659` 失败后，独立 DPLL60 `--steps '2'` 报
+  `Step 2 FAIL: online boards do not run expected build 20261013132342`，而四板实际为 `20261014031725`（失败 P3 自己构建并烧写的那个）⇒ 期望值来自旧 OTA 记录，与板上固件不符，step 2 直接拒绝、后续全部无从运行。
+- **对照（为何 P3 能跑）**：P3 在 run 内部**自建自烧**，其期望 build 恒等于它刚烧的那个，不存在记录冲突 ⇒ **同一台台架上 P3 的 DPLL60 永远能跑，独立 DPLL60 会因为记录不一致而跑不了**。这不是台架硬件故障，也不需要 OTA。
+- **恢复验证**：在**回退掉全部诊断固件改动**后重跑 P3 full（`hawf-112921`）**通过并写入凭证**（step 29 OK 104.7 s、`credential: written`；新凭证 schema `HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_QUICK_GRADED_V1`、`build_id=20261014032934`）⇒ 独立 DPLL60 `--steps '2'` 随即 `expected build: 20261014032934 (from receipt)` → **OK 4.9 s、`failed steps: none`**。
+- **建议的工具侧修法（未实施）**：`expected_build()` 在凭证不可用（临时/缺失/不匹配）时**改为读取板上在线 build**（即"跑当前最新固件"），而不是退回到旧 OTA 记录；这样失败 P3 不会连带把独立 DPLL60 锁死。
+- **另记（已排除）**：NO.1 的 recorder 曾卡在 `state 5`（`SYSTem:TDMA:RECord:STATus? → 5,1791948276,250000,14,0,0,1,2708,0`），`--cancel-unsaved-record` 清不掉、记录只剩 2708 字节（对照通过轮 9956 字节）；该形态在**加探针之前**（10:39）就已出现，故与本轮诊断固件无关；P3 重新烧写（重启）后该状态消失。
+
 ### VDC-PROGRESS-20261014-011：提交探针所需的 P3 未通过——卡在环启动交接，探针嫌疑未排除
 
 - **背景**：为提交 `VDC-PROGRESS-20261014-007/010` 的诊断固件（20 段探针 + 只读命令 + harness 原语，共 5 个文件），按硬约束 7 付一次 P3 full（`hawf-111659`）。**结果 FAIL**：
