@@ -22,6 +22,26 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-016：VDC 锁定状态发布面实测——**四板 flags 完全相同，无法区分两种截然不同的状态**
+
+- **发布面有两处**：RefMem VDC 向量（`SYSTem:REFMEM:VDC:VECtor?` 的 `flags`，跨域消费面）与锁定裁决页（`SYSTem:SYNC:VDC:LOCK:READiness?` 24 字段）。
+- **flags 位**（`components/distributed_refmem/inc/refmem_vdc_vector.h:21-27`）：`VALID(1<<0)`、`STALE`、`SCHEDULE_VALID(1<<2)`、`CALIBRATION_VALID`、`HARDWARE_EVIDENCE(1<<4)`、**`LOCKED(1<<5)`**、**`PROVISIONAL(1<<6)`**；`LOCKED` 的产生是 `distributed_refmem.c:2498-2509` 的 **9 条合取**（`!provisional` ∧ `debug_continue_enabled==0` ∧ `dpll.state==LOCKED` ∧ `quality.valid` ∧ `quality.lock_state==LOCKED` ∧ `quality.health_state==HEALTHY` ∧ `tier>=FINE_100NS` ∧ `last_sample_time_ns!=0` ∧ `freshness_limit_us!=0` ∧ `age<=limit` ∧ `gate.passed`）。
+- **实测（环运行 + 观察器已启用，`t2_workflow --steps '1-17'` 之后）**：
+
+| 板 | 向量 flags | 裁决页 input/locked/reason | dpll.state | health | accepted | gate |
+|---|---|---|---|---|---|---|
+| NO.1 | **0x55**（VALID,SCHEDULE_VALID,HARDWARE_EVIDENCE,PROVISIONAL） | 1/1/**0 READY** | **5 LOCKED** | 2 DEGRADED | 207 | 0 |
+| NO.2 | 0x55（同上） | 0/0/**5 TIMESTAMP_NOT_ELIGIBLE** | 1 CHECKING | 1 CHECKING | 0 | 0 |
+| NO.3 | 0x55 | 0/0/**5** | 1 | 1 | 0 | 0 |
+| NO.4 | 0x55 | 0/0/**5** | 1 | 1 | 0 | 0 |
+
+  reason 枚举（`vdc_dpll_manager.h:708-716`）：`0 READY`、`1 SNAPSHOT_UNAVAILABLE`、`2 OBSERVER_DISABLED`、`3 DICTIONARY_EMPTY`、`4 NO_ACCEPTED_SAMPLE`、`5 TIMESTAMP_NOT_ELIGIBLE`、`6 GATE_REJECTED`、`7 NOT_LOCKED`。
+- **缺陷（发布面缺失可区分性）**：四板 `flags` **完全相同（0x55）**，却掩盖了两种截然不同的现实——参考板**已 LOCKED（state 5、accepted 207）但 provisional + DEGRADED**，从板**根本没在消费（state 1、accepted 0、时间戳不合格）**。跨域消费者只看 `flags` 时无法判断「谁锁了、谁卡在哪、卡在什么条件」。
+- **从板阻塞已精确具名且随启用程度推进**：观察器未启用时为 `reason=2 OBSERVER_DISABLED`；按 `SYSTem:SYNC:VDC:OBServer:TDMA 1,0,100,0` 启用后变为 `reason=5 TIMESTAMP_NOT_ELIGIBLE`。
+- **该不合格是当前模式的必然**：`vdc_dpll_manager_timestamp_dpll_eligible()`（`vdc_dpll_manager.c:3406-3416`）要求 `source==HARDWARE_TICK ∧ resolution∈(0,准入上限] ∧ 有 DPLL_ELIGIBLE 位 ∧ **无 DIAGNOSTIC_ONLY 位**`；当前所有流程均跑在 provisional/诊断模式（`SYSTem:SYNC:VDC:DPLL:ProVisional 1` / `--dpll-provisional`），从板消费的是**对端**时间戳且带 `DIAGNOSTIC_ONLY` ⇒ 按设计不合格；参考板用本地硬件 tick 故能锁。
+- **下一步（完善发布，待定方向）**：① **可区分性**——让跨域面能表达「锁态 + 阻塞原因」（向量加位是契约扩展需登记；或改由裁决页/`vdc_dpll_manager_lock_verdict()` 承担，其已含 reason/state/health/accepted 且 T2 可读）；② **语义决定**——provisional 模式下从板**是否应该**锁定：应当则放宽时间戳准入并**单独标注 provisional 锁**，不应当则在发布里显式表达。
+- **未核验**：未改动发布实现；未测非 provisional（关掉 `ProVisional`/诊断准入）时从板能否锁定与 LOCKED 位能否置位。
+
 ### VDC-PROGRESS-20261014-015：干净基线的锁相发布证据；「锁合格」类结论在工具侧是**硬编码占位**
 
 - **基线来源**：台架恢复（OTA ABORt + 期望 build 改读在线值）后，`DPLL60_workflow.py --full` 全程 `failed steps: none`，**step 6 采集 `capture passed on attempt 1`**，子进程 `{"internal_health_passed": true, ..., "passed": true, "external_status": "SKIPPED"}`。运行目录 `out/HardwareAcceptance/20261014/dpll60-120211`。
