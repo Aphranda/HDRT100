@@ -22,6 +22,27 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-026：NO.1 的 DEGRADED 唯一成因＝freshness 过期；±100 ns 的准确含义
+
+- **NO.1 逐项实测（`READ:SYNC:QUALity?`，字段名已按 `scpi_sync_quality_q` 核对）**：
+
+| 字段 | 值 | 要求 | 判定 |
+|---|---|---|---|
+| 域 `state` | **5 LOCKED** | == LOCKED | ✅ |
+| `tier` | **3 = FINE_100NS** | ≥ FINE | ✅ |
+| `reject_code` | **0 = GATE_PASS** | == GATE_PASS | ✅ |
+| `rms_offset_ns` / `last_offset_ns` | **1 / 0** | ≤ `fine_thr` | ✅（余量 ~100×） |
+| `max_abs_offset_ns` | 168 | — | 历史最大（含捕获暂态） |
+| **`age_us`** | **779083258（=779 s）** | ≤ freshness 上限 | ❌ |
+
+  ⇒ **`HEALTHY` 的其余合取项全部满足，唯一不满足的是 freshness（最后一次准入样本已过 779 s，因为此刻环是停的）** ⇒ `DEGRADED`。这属**设计行为**（架构：空转维护 age/health），**环在跑时本可 HEALTHY**。
+- **`VDC_DOMAIN_GATE_PASS = 0u`（更正）**：readiness 第 12 字段 `quality.last_reject_code == 0` 表示**通过**，此前把「0」读成"gate 未通过"是**错的**（`vdc_domain.h:107`）。
+- **「±100 ns」的确切含义（三层）**：
+  1. **它是 FINE 档的验收门限**：`VDC_DOMAIN_LOCK_TIER_FINE_NS = 100`（`vdc_domain.h:18`），`tier=3` 即 `FINE_100NS`；②相位档判的就是 `|校正相位误差| ≤ 100 ns`。
+  2. **它同时是当前观测的分辨率底线**：记录残差**区间跨度 190–216 ns ≈ ±100 ns**（`-024`）。故这些记录**能支持「满足 ±100 ns」，不能支持「优于 ±100 ns」**——区间中心（−16…+0.5 ns）的可信度受区间宽度限制。
+  3. **它是控制/质量口径，不是 GPIO 物理精度**：架构明确「计数分辨率不等于物理同步精度」「内部模型不等于 GPIO」「稀疏波形不证明未采样区间」，四个判定（参考到达 / 控制采用 / 引脚精度 / 共同时间发布）须分别成立。
+- **由此得出的关键结论**：**±100 ns 这条要求本身不是瓶颈**——NO.1 `rms=1 ns`、从板事件匹配中心 −16…+0.5 ns，均在门限内且余量很大。真正卡住 4/4 的是：① 从板**准入记账 = 0**（未 arm）；② NO.1 的 **freshness 过期**（环停）。两者都是**管路问题，不是精度问题**。
+
 ### VDC-PROGRESS-20261014-025：锁相的**定义与要求**（代码级，含门限常量）
 
 - **定义（代码事实）**：Domain 的 `dpll.state` 取 `VDC_DOMAIN_LOCK_LOCKED = 5`，当且仅当**准入样本数足够、且「校正相位误差」在门限内连续保持够多拍**——即「本地时基已被扳到与参考一致并保持」。判据在 `components/vdc_domain/src/vdc_domain.c:4222-4247`。
