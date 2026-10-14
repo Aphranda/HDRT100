@@ -22,6 +22,18 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-035：T3 又两条基础件缺陷——SYNC_CAPTURE 声明预算不足导致自隔离；LOAD:MASK 0 转变破坏参考绑定
+
+- TODO task ID：`VDC-ISO-001`、`TDMA-ISO-003`、`VDC-LOCKPUB-001①`。数值均为 2026-10-14 实验快照，非产品事实源。
+- **背景（`-034` 之后的实验）**：怀疑"基础件观测相位被隔离"是 T3 成因。读码确认隔离语义：任一 optional load 只要 `overrun || own_deadline_missed` 就被置入 `s_realtime_load_quarantined_mask`（`application/src/app.c:1095-1099`，DPLL 反馈负载例外），而**只有该位出现"禁用→启用"转变时才解除**（`app.c:594-610`：`newly_enabled = enabled_mask & ~previous_mask`）。实机四板 `quarantined_mask` 恒为 **8 = SYNC_CAPTURE（基础件掩码 91 的一位）**，即基础件自己的事件采集相位被关掉，且 91→91 不是转变、永远不会自行恢复。对应现象：从板匹配器首拒 `SOURCE`（事件 live 快照 `RETAINED|ACTIVE|ANCHOR_VALID` 不全，`vdc_priority_match.inc:275-277`）→ `FOLLOW_DISABLED`。
+- **实验一：显式解除隔离（`--release-quarantine`，先写 `LOAD:MASK 0` 再写 91）——未解除**。四板读回均为 `quarantined 8 -> 8`；同一轮 phase4(SNC_CAPTURE) `overrun` 计数为 2、`max_rt` 11381/12091/14589/13731 而声明 `wcet` **9000**（`config/project_config.h:106`：`4000 + PRIORITY_RX_PHASE_CYCLES`）⇒ **声明预算低于实测最坏值**，所以一旦解除就立刻再次超预算并立刻重新被隔离。即：该基础件相位的隔离不是偶发，而是"声明值不足"的必然结果（与 `-008` 记录的 DPLL 相位同类）。
+- **实验二（附带发现）：`LOAD:MASK` 的 0 转变会破坏参考绑定**。本轮自环 START 起游标一直 `err 1`、`bound token ? vs model 695/748/800/844`（模型未绑定），step 17 四板只有 NO.4 `LOCKED`，step 18/19 因游标始终无效失败 ⇒ 本轮失败步为 [17,18,19]。而 18:22/18:33 两轮（step 2 只写 27→91，不经过 0）游标正常。⇒ **把 VDC/REFTEM 等基础相位短暂关掉后，参考的模型/token 绑定不会自行重建**；这是继 `-033` 的"交接污染"之后第二条"基础件状态不可自恢复"的证据。
+- **T3 机制清单（本轮定稿，按可验证性排列）**：
+  1. **M1 无 owner 侧 arm/自恢复**：观测车道只由主机在停机态写 `PRIORity:SYNC/MATCH/FOLLow`，环 enable 后被 reject 115 拒绝（`-034`），retire 后不自恢复。
+  2. **M2 基础件采集相位自隔离 + 声明预算不足**：`quarantined_mask` 恒含 SYNC_CAPTURE；解除即复现超预算并重新隔离。
+  3. **M3 加载掩码转变破坏参考绑定**：`LOAD:MASK` 经 0 后参考不再绑定（本轮）。
+- **下一 gate**：把 M2 作为基础件隔离缺陷修（基础件掩码内的相位不得被隔离——超预算仍记 `schedule_miss` 证据，但不得关停基础件输入通路；SYNC_CAPTURE 的声明预算按其实测最坏值重新推导），与 M1（`VDC-LOCKPUB-001①` owner 自管 arm/自恢复）同批实施；M3 单列一条实验（在非 0 转变下复现并定位参考绑定重建路径）。
+
 ### VDC-PROGRESS-20261014-034：T3 机制落到匹配器 STOP 路径——两块从板只在前环窗口被服务过，负载期间观测车道无自恢复
 
 - TODO task ID：`VDC-ISO-001`、`TDMA-ISO-003`、`VDC-LOCKPUB-001①`、`VDC-LOCKPUB-002`；T2 侧 step 16/17。数值均为 2026-10-14 实验快照，非产品事实源。
