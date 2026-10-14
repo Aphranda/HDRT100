@@ -4,7 +4,7 @@ Status: Active
 Domain: SYNC_IO
 Canonical: `docs/sync/SYNC_IO_TODO.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TASK_PROGRESS.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_TODO.md`
-Last updated: 2026-09-18
+Last updated: 2026-10-14
 
 本文档只维护 SYNC_IO 域的里程碑、任务状态和退出门禁。稳定语义以
 `SYNC_IO_ARCHITECTURE.md` 为准，提交、构建、OTA/HIL 和失败证据只写入
@@ -82,6 +82,7 @@ Last updated: 2026-09-18
 | SYNC-LA-007 | 逻辑分析仪只读与 TDMA 无扰动 HIL | DONE | 专用 HIL 以 baseline 窗口校准既有链路误码后，验证 analyzer ARM/STOP 前后 TDMA ring 持续运行、accepted/sequence 前进，bad/transport/schedule/profile/error 增量无 analyzer 诱发增长；只读 GPIO 与业务 FIFO 约束由 analyzer contract/P3 同时覆盖。 |
 | SYNC-LA-008 | NO5/SMA 外部波形关联 | IN PROGRESS | 离线关联器、共同时间基匹配和证据边界已完成；仍需真实同窗本机/NO5 capture pair 与 sequence anchor 验收。 |
 | SYNC-LA-009 | TDMA 同钟有限原始采集 | DONE | analyzer 原邮箱、只读有限采集、冻结租约、Core0 分段导出与按 epoch 下载已由当前源码四板采集、CRC、显式失败恢复、零样本 timeout 和短帧闭环验证，见 `SYNC-PROGRESS-20260911-001`。完整 WCET、B0 最坏延迟及多帧稳定性仍由 `TDMA-FLIGHT-002A` 验收，不代表严格产品 P3 通过。 |
+| SYNC-SCHED-001 | 为 SWITCH/GATEWAY 执行端提供**深度 2 的绝对 deadline 队列**（T2 域 `T2-EXEC-002` 的跨域前置） | PENDING | 现状**单槽**：`sync_io_switch_realtime_schedule_at()` 以 `s_switch.state == SYNC_IO_SWITCH_PENDING` 显式拒绝（`sync_io_switch.c`），`sync_io_gateway_realtime_schedule_at()` 以 `s_realtime_pending` 间接拒绝（`sync_io_gateway.c` 的 `prepare_realtime()`，失败路径另清 OUTPUT/READY FIFO），两侧各只有一份 `s_deadline`，头文件自述 “One transaction at a time, Core1 only.”（`sync_io_gateway.h`）。**退出门禁**：两组**同时**未到期的绝对 deadline 可提交；每槽独立序号/回执/取消结果（现为单事务回执，`sync_io_switch.h` 的 status/receipt 结构）；STOP 取消队列内**全部**未执行组并记录硬件取消结果（现仅作用于单事务）；PENDING 语义由「拒绝」改为入队/双缓冲并对容量满给出明确返回。请方为 T2 域（依据 `docs/trigger/t2/TRIGGER_T2_TODO.md` 的 `T2-EXEC-002` 与评审 A-16）；本域在 2026-10-14 核实此前**无对应任务项**，故该接口变更长期无受理方。实现属固件/PIO 改动，按 AGENTS.md 硬约束 7 提交前需 P3 硬件验收凭证。 |
 
 ## 既有能力收尾
 

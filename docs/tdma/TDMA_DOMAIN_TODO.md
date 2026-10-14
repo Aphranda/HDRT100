@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-10-12
+Last updated: 2026-10-14
 
 ## 文档接口与状态规则
 
@@ -82,6 +82,7 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 | TDMA-FLIGHT-002K1 | 席位准入软件模型 | IN PROGRESS | `tdma_seat_admission` 的身份、预算各维度、一次性消费、STOP/换代撤销、别名输入、晚交接与整数边界验证；同源码构建/P3 和独立复核完成后关闭，不等于物理窗口开放。 |
 | TDMA-FLIGHT-002K2 | 物理边界与席位准入接线 | PENDING | 物理 selection、已提交发送及独立窗口时间证据先闭合，再绑定 owner 同代实测 TX/RX/CPU/反向预算；缺预算保持关闭；T2 经一等席验证，不能覆盖或暂停 VDC。 |
 | TDMA-FLIGHT-002L | load instance 分段调度 | PENDING | OTA/CONFIG/诊断按 segment、每周期帧数、队列深度、deadline 和 overflow policy 运行；TX/RX/重组/反向流均有快照。 |
+| TDMA-SEAT-01 | 一等席**容器与预算条款**的登记（T2 域一等席布局联审的条件 C1 要求） | PENDING | 现状：一等席容器/预算由 `TDMA-T2-001`、`TDMA-T2-002` 承担，**无专任任务行**；其载体章节在 `TDMA_DOMAIN_ARCHITECTURE.md` 中自述「本节不登记为契约」，且 `docs/check/DOCS_REGISTRY.md` 中 `SEAT`/`EXE-` 前缀**零命中**（2026-10-14 核实）⇒ T2 侧 `T2-IDENT-001`、`T2-TRANSPORT-002` 的「一等席布局/预算登记（C11）」**无落点**。**退出门禁**：以一个 `Status: Active` 文档为 clause_loc 登记一等席容器与预算条款（席位、字节、频率、Core1/IRQ 最坏耗时、SYNC 余量清单，即 `EXE-SEAT-01` 要求的预算清单节），staged 指纹与 C11 独立审核通过（核验方不得为起草方）；`EXE-SEAT-01` 的用户审核结论另记，不并入本条。 |
 | TDMA-SEAT-02 | 席位比例与 seat 计数 SCPI 页 | IN PROGRESS | 比例已是 STOP-only 可配置（`SYSTem:TDMA:SEAT:ROTation`，默认 1:1，每个 share 取 1..`TDMA_SEAT_ROTATION_SHARE_MAX` 且 `M+N <= TDMA_SEAT_ROTATION_CYCLE_MAX`，越界/零值/运行中拒绝）；origin 席位与一等席服务事实已接只读页（`SYSTem:TDMA:SEAT:COUNters?`，8 字段，含 stage 拒绝与交付前损失），主机负测覆盖校验、拒绝、快照读回与等待发布。剩余：从板一等 accept/duplicate/reject 已在 `SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 尾部，需在台架探针中按名提取（已加入 `t2_bench_probe.py`，待一次硬件运行验证）；比例属席位预算，须经 `EXE-SEAT-01` 审核并在 `DOCS_REGISTRY.md` 登记（C11）。 |
 | TDMA-SEAT-03 | 一等席服务等级对齐特等席 | IN PROGRESS | 目标：一等席在准入、失败记录、完整性与期限上与特等席同级。**已完成**（逐条见进展日志 `TDMA-PROGRESS-20261011-004/005/006/007/008`）：服务事实（stage 被拒、交付前退休、等待值先发布再退休）；完整性核对（记录级 header/identity/transport/mailbox CRC 由优先级通道在投递前统一校验）；有界接收**队列**（被拒 PREVIEW 每源 FIFO 深度 4、只追加 SPSC、满则丢弃并计数，由 T2 后续时间片按到达顺序补投，计数 `lane_hold/drain/drain_fail/hold_expired/hold_dropped`）；TX 侧控制字节仲裁 + **诊断准入**（先诊断后一等确认；有一等事实要发布时控制字节事先不授予诊断并计入 `lane_diag_refused_count`，未预留时的覆盖计入 `lane_ack_override_count`）；lane 拒绝按 class 归因（`first_class/other/unknown_class_reject_count` 三者之和恒等于 `reject_count`）；两条声明预算 + 越界计数（origin `TDMA_SEAT_FIRST_CLASS_WAIT_MAX_OPPORTUNITIES` → `seat_first_class_wait_violation_count`；从板 `DISTRIBUTED_REFMEM_POSITION_HOLD_MAX_ATTEMPTS` → `lane_hold_expired_count`）；**稳定性判定页** `SYSTem:TDMA:SEAT:HEALth?`（`ok,reason_mask` + 20 字段原始证据，只由退化事实置位，见 [运行约束](TDMA_RUNTIME_CONSTRAINTS.md)）；**loop plan 席位饥饿显式化**（`tdma_loop_plan_t.dropped_mask` + `tdma_loop_plan_seat_service()` 纯判定；origin 计入 `seat_starved_count` / `seat_first_class_starved_count`，判定页 bit6）；**注意门控当前默认关闭**（`TDMA_LOOP_SCHEDULE_ENABLED == 0`，席位窗口调度未启用），构建守卫保证其可编译。**裁定（2026-10-11，owner）**：快速通道只有一条、特等与一等**分时复用**（**M:N 轮换即席位调度**）；不存在"独立 TX 通道"目标，A″/B 作废，loop-plan 窗口门控保持关闭；共用通道下的控制字节准入/覆盖保护为长期机制（`TDMA-PROGRESS-20261011-034`）。**剩余**：真机 P3 凭证与四板席位页证据（条目 15）。 |
 | TDMA-FLIGHT-003 | 发车节拍下界与准入 | PENDING | 依据物理计划与 Calibration 输入给出可达下界；过快配置拒绝及只读证据齐全。 |

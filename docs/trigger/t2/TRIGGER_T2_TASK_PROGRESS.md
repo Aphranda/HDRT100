@@ -4,13 +4,24 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-10-13
+Last updated: 2026-10-14
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20261014-001：三个卡点的跨域前置核实与归口（GATE-001 / EXEC-002 / TRANSPORT-002+IDENT-001）
+
+- TODO task ID：`T2-GATE-001`、`T2-EXEC-002`、`T2-TRANSPORT-002`、`T2-IDENT-001`。
+- **取证方式**：三个**独立只读**侦察子代理分项核实（GATE-001 / EXEC-002 / 一等席与身份），均为代码 + 文档只读交叉核验，未创建/修改/删除文件、未运行构建与硬件工具；结论由主控按「实测代码 / 登记表事实 / 文档声明」三类分别复核，并**驳回了一条与主控直读冲突的子代理断言**（见末条）。
+- **GATE-001：缺陷成立，且 `BLOCKED` 是实质性的**。K-3（`TRIGGER_T2_ARCHITECTURE.md`）要求「VDC 进入 LOCKED 并发布之后 T2 才有输出」，而生成侧 `prepare_deadlines_core0()` 只守 local template、会话/token/`dco.valid`/period，装填侧 `service_deadlines()` 只守 `cursor_valid` 与身份/期限，**两侧都没有锁态或发布检查**；sync_trigger 内唯一相关判据是 `model->dco.lock_state > VDC_DOMAIN_LOCK_FAULT`（`trigger_time_cursor.c`、`trigger_time_projection.c`），该「枚举最大值」判据把 OFF…RELOCKING 全部当作有效。**主机实测反证**：`tests/python/test_trigger_t2_runtime.py` 的 fake 模型未置 `lock_state`（= OFF）却断言装填成功。VDC 侧**无**可被消费的「已 LOCKED 并发布」符号（`VDC-LOCK-001`/`VDC-RUN-001` 在 `docs/vdc/VDC_DOMAIN_TODO.md` 均 PENDING、登记表零命中、无实现；`published_update_seq`、`REFRESH_VECTOR_FLAG_LOCKED` 等按 VDC 域架构自述**不代表**完整 formal promotion）。⇒「消费 VDC 提供的发布状态」这一半**当前不可实现**；T2 侧可动部分为按 K-3 落 fail-closed 拒绝（非 LOCKED/未发布一律不生成不装填）+ 非发布锁态主机负测。
+- **EXEC-002：依赖长期无受理方**。现状确为单槽——`sync_io_switch.c` 以 `SYNC_IO_SWITCH_PENDING` 显式拒绝，`sync_io_gateway.c` 经 `prepare_realtime()` 的 pending 标志间接拒绝（失败路径另清 OUTPUT/READY FIFO），两侧各只有一份 `s_deadline`，头文件自述 “One transaction at a time, Core1 only.”。SYNC_IO 域此前**无任何对应任务项**（该域无 REVIEW 文件，找不到任何受理记录），已在该域登记 `SYNC-SCHED-001`（含退出门禁）。
+- **TRANSPORT-002 / IDENT-001：登记落点缺失，且原表述含一处误报**。`EXE-SEAT-01` **有定义**（`docs/check/DOCS_EXECUTION_CONSTRAINTS.md` 的「特等席增设须用户审核」节），但该文档 `Status: Draft`、**不可作 clause_loc**、自述不新增 wire 契约，且在登记表中**无行** ⇒ 原「按 `EXE-SEAT-01` 登记（C11）」仍无落点。真实落点为 TDMA 域 2026-10-14 建立的 `TDMA-SEAT-01`（一等席容器与预算条款登记）。布局事实（10 B 子区 = 24 B body 的相对偏移 6，绝对偏移 14..23；`_Static_assert(TRIGGER_POSITION_SLICE_WIRE_SIZE == TDMA_PROCESS_IMAGE_REFMEM_SIZE, …)`）经代码复核成立。
+- **评审引用行号已漂移（据实记录，未改评审原件）**：主控直读确认 A-02 所引 `trigger_t2_runtime.c:700-702` 现为 SyncIO 回执读取、`trigger_time_cursor.c:201` 现为溢出保护，对应的检查现位于别处；子代理另报 A-16 所引 `sync_io_switch.c:332-338` 处实为服务函数（拒绝条件在同文件更后处）、`trigger_t2_runtime.c:395-416` 现为 mailbox 读取。
+- **被驳回的子代理断言**：EXEC-002 侦察称 `prepare_deadlines_core0()` 「在现文件中已不存在（更名为 `service_deadlines()`）」。主控直读**证伪**——两者同时存在且职责不同：`service_deadlines()` 是装填路径（Core1 侧准入与提交），`prepare_deadlines_core0()` 是 Core0 侧的 deadline 解算/发布路径。故该断言未采信；登记的 `SYNC-SCHED-001` 文本不含此说法。
+- **未核验**：本轮为静态只读核验，**未运行 pytest / 构建 / 四板 P3**；上述「可测 / 可接」仅为读码判断，不代表已通过。
 
 ### T2-PROGRESS-20261013-002：TDMA 域一等席布局联审完成，`T2-AUDIT-03` 结案（有条件接受）
 
@@ -19,7 +30,7 @@ Last updated: 2026-10-13
 - **被确认成立**：10 B 子区位于 slot 14..23（24 B core0 body 内），与 VDC 8..13／ACK 24..26／CONTROL 27..28／DIAG 29／CRC 30..31 **无重叠无空洞**；`_Static_assert(TRIGGER_POSITION_SLICE_WIRE_SIZE == TDMA_PROCESS_IMAGE_REFMEM_SIZE, ...)` **逐字存在**（`distributed_refmem.c:33-34`）；发布机会轮换、「特等 `EMPTY` 让位」「两级皆空不消耗机会」「一等记录等待中不被覆盖」均为**代码机制**而非意向；`SYNC_TRIGGER` 相位预算获**独立重算确认**（相位 7、WCET 26800、窗口 335000..365500、REFMEM 298500..332000、SCPI 8 头部 + 每相位 11 字段）。
 - **T2 侧据实修正登记行 4 处**：① `REPMEM-LAYOUT-01` → **`REFMEM-LAYOUT-01`**（原为**悬空引用**，真实 id 见 registry:22）；② 「前 8 B 为 **core1** 元数据」→ mailbox **fast header，由 Core0 镜像构建写入**（`distributed_refmem.c:984-990`），Core1 仅上车前复验；③ 「offset 14」→ **slot 绝对偏移 14**（24 B body 内相对偏移 6）；④ 版本耦合由「尺寸随布局版本耦合」收紧为**符号级**，并写明 `TDMA_PROCESS_IMAGE_LAYOUT_VERSION` 自引入未递增、混版本保护实际靠 **class 白名单拒帧**（普通 transport 白名单不含 0x15）。
 - **跨域未闭合条件（仅指针，不计为 T2 待办项）**：TDMA 侧 **C1**（`TDMA-SEAT-01` 一等席容器与预算条款缺失）、**C2**（`TDMA-PROCESSIMAGE-01` 待补 RefMem 子区按 class 复用与版本递增规则）、**C3**（`SHARE_MAX == WAIT_MAX == 8`：合规 8:1 按设计置位 `SEAT:HEALth?` bit3）、**C4**（TDMA 不声明时间期限）；arch 侧 **C5**（`ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md:57` 引用**已删除**符号 `TDMA_SEAT_ROTATION_*_SHARE` 且称「编译期常量」，违反硬约束 2；另有多处已作废模型描述）。
-- **零命中（治理缺口）**：`TDMA-SEAT-01/02/03` 在 `docs/check/DOCS_REGISTRY.md` 中**无任何登记行**；`EXE-SEAT-01` **全库无定义、无登记、无结论**，却被 T2 与 TDMA 共 5 处当作前置引用 ⇒ `T2-IDENT-001` 的「按 `EXE-SEAT-01` 登记」**目前无落点**。
+- **零命中（治理缺口）**：`TDMA-SEAT-01/02/03` 在 `docs/check/DOCS_REGISTRY.md` 中**无任何登记行**；`EXE-SEAT-01` **全库无定义、无登记、无结论**，却被 T2 与 TDMA 共 5 处当作前置引用 ⇒ `T2-IDENT-001` 的「按 `EXE-SEAT-01` 登记」**目前无落点**。**（更正 2026-10-14：`EXE-SEAT-01` 并非「全库无定义」——它在 `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` 的「特等席增设须用户审核」节有定义；成立的是「无登记行、无用户审核结论」，且其宿主文档为 Draft、不可作 clause_loc。落点已改指 TDMA 域 `TDMA-SEAT-01`。见 `T2-PROGRESS-20261014-001`。）**
 - **未核验**：本次为**静态只读核验**，不含编译、pytest 与四板 P3；所有实测数字（2.13 ms 快速路径间隔、四板送达/冻结等）均为**文档快照**，仅核其与编译期常量自洽。
 
 ### T2-PROGRESS-20261013-001：位置邮箱契约登记完成并经 C11 独立交叉审核（`T2-AUDIT-07`）
