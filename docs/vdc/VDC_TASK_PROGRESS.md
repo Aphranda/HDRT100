@@ -22,6 +22,23 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-034：T3 机制落到匹配器 STOP 路径——两块从板只在前环窗口被服务过，负载期间观测车道无自恢复
+
+- TODO task ID：`VDC-ISO-001`、`TDMA-ISO-003`、`VDC-LOCKPUB-001①`、`VDC-LOCKPUB-002`；T2 侧 step 16/17。数值均为 2026-10-14 实验快照，非产品事实源。
+- **复现**：同固件（build `20261014093650`）再跑一轮 T2（`out/tdma_t2/steps-20261014-182824.log`，18:28:24–18:31:32），仍只 `failed steps: [17]`：NO.4 `SYNC:STATe LOCKED`，NO.1/NO.2/NO.3 UNLOCK（NO.1 `input_ready 1 reason 0` 但 `locked 0`；NO.2/NO.3 `reason 8`）。⇒ `-033` 的判读得到第二次独立复现。
+- **本轮新增证据（环 STOP 后读 `SYSTem:VDC:PRIORity:MATCH:STATus?`，字段序见 `scpi_sync_commands.c:1429-1454`）**：
+  | 板 | role | retired | have_match | calls | matched | rejected | last_reason | live 字段 |
+  |---|---|---|---|---|---|---|---|---|
+  | NO.1 `0010071E65B5CB38` | MASTER | — | — | — | — | — | — | `PRIORity:MATCH?`＝0（主机不设 MATCH，正确） |
+  | NO.2 `FB276192BEF9CCE1` | FOLLOWER | 0 | 0 | 39832 | 0 | **39832** | **18（`MATCH_STOP`）** | 全 0（`source_slot`/`event_sequence`/`rx_epoch`/`model_token`…） |
+  | NO.3 `2BD5090FE009FA2A` | FOLLOWER | 0 | 0 | 39919 | 0 | **39919** | **18** | 全 0 |
+  | NO.4 `A1E549202D18ED6A` | FOLLOWER | 1 | 1 | 25308 | **17459** | 2978 | 18 | `source_slot 0`、`event_sequence 123439`、`rx_epoch 8`、`model_token 2842`、`ring_config_seq 80` |
+  三从的传输面一致：`PRIORity:RX?` 的 `typed_accept_count` 122921/122921/121985、`typed_reject_count` 0、`binding_generation` 全为 `1791973704`、`event_sequence` 全为 `123439`。⇒ **只有 NO.4 形成了匹配**，NO.2/NO.3 的匹配服务从头到尾走的是 STOP 分支。
+- **机制（本轮推定，依据代码＋计数）**：`vdc_priority_match_core1()` 在自己读到的环快照 `!enabled || !adapter_started` 时走 `priority_match_skip(VDC_PRIORITY_MATCH_STOP, …)`（`components/vdc_dpll_manager/src/vdc_priority_match.inc:247-248`），`rejected` 因此按次累加；NO.2/NO.3 的 `calls` 与 `rejected` 相等且约为 4 万（≈1 kHz × 40 s，正是 step 15 写下 MATCH 到环 START 之间的停机窗），说明它们**只在前环窗口被服务过，环起来之后计数不再增长**，而两块板都未 retired（`retired 0`）。另据工具自身记录：负载会在环运行中下发 `CALibration:ORIGin:TRIAL`，其后 `RING:STATus?` 读到 `en 0 / adapter 0 / config 154→155`（`tools/sync_trigger/t2_workflow.py:2004-2055`），即**参考环被负载瞬时拉停**。基础件侧只有"停机态写 MATCH"这一条 arm 路径，环 enable 后被 reject 115 拒绝（`tdma_service.c:1033-1034`），**没有 owner 侧自恢复**。⇒ 三条事实指向同一结论：观测车道的 arm 归属必须回到 VDC owner。
+- **仍未闭合（下一步必须测）**：`calls` 为何在环起来后停止增长——是 owner 侧该板 DPLL 相位被跳过（相位准入，`app.c:928-932`）还是匹配器提前返回。计划在 step 17 的 diag 里补打印**全部 10 个相位的 skip/start_miss/deadline 计数**与 `first_reject_reason`，再据实判读。
+- **工具改动（未提交，待与固件一起付 P3）**：`tools/sync_trigger/t2_workflow.py` 的 step 21 收尾读回扩展为 `PRIORity:SYNC?/MATCH?/MATCH:STATus?/FOLLow:STATus?/FOLLow:HEALth?/FEEDback:SESSion?`（本次证据即由它给出）；`FOLLow:STATus?` 在活跃车道 8 s 超时仍被标 "n/a" 且不记失败的缺陷尚未修。
+- **下一 gate**：按 `VDC-LOCKPUB-001①` 实施 owner 自管 arm 与 STOP 后自恢复（含按 active profile 在停机边界 arm），同时移除 T2 流程对基础件的 `PRIORity:*`/`OBServer:TDMA` 下发（T1/T4），再以同一 T2 轮验收"三从成匹配并各自按角色声明"。
+
 ### VDC-PROGRESS-20261014-033：T3 收窄——T2 下失锁点在"接受之后、成匹配之前"；17:43 那轮无发布是跨流程交接假象
 
 - TODO task ID：`VDC-ISO-001`（新证据）、`VDC-HOLD-001`（V2 再证）、`VDC-LOCKPUB-001`、`TDMA-ISO-001`、`TDMA-ISO-002`；T2 侧 step 17。数值均为 2026-10-14 实验快照，非产品事实源。
