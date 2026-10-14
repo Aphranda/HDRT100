@@ -1,6 +1,7 @@
 /* Included after priority_follow_current(), under the same Core1 owner.
  * Successful Domain commits remain provisional until final publication
  * proves exactly the model that this owner committed. */
+#include "vdc_priority_host_control.inc"
 #ifndef VDC_PRIORITY_TRACE_PHASE_HOOK
 #define VDC_PRIORITY_TRACE_PHASE_HOOK(snapshot) ((void)(snapshot))
 #endif
@@ -51,7 +52,9 @@ bool vdc_dpll_manager_try_priority_follow_phase_enabled(bool *enabled)
 
 static bool priority_phase_set_stopped(void *context)
 {
-    __atomic_store_n(&s_priority_phase_request, *(const uint32_t *)context, __ATOMIC_RELEASE);
+    const uint32_t requested = *(const uint32_t *)context;
+    __atomic_store_n(&s_priority_phase_request, requested, __ATOMIC_RELEASE);
+    if (requested != 0u) priority_note_host_control();
     return true;
 }
 

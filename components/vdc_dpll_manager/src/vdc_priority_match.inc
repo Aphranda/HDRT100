@@ -1,5 +1,6 @@
 #include "vdc_priority_match.h"
 #include "vdc_priority_rx.h"
+#include "vdc_priority_host_control.inc"
 #include <limits.h>
 #include <string.h>
 
@@ -45,7 +46,10 @@ static bool priority_match_set_stopped(void *context)
     const uint32_t session = vdc_dpll_manager_feedback_session();
     if (generation && (generation <= s_priority_match_last_request ||
             !session)) return false;
-    if (generation) s_priority_match_last_request = generation;
+    if (generation) {
+        s_priority_match_last_request = generation;
+        priority_note_host_control();
+    }
     __atomic_store_n(&s_priority_match_request_session, generation ? session : 0u, __ATOMIC_RELEASE);
     __atomic_store_n(&s_priority_match_request, generation, __ATOMIC_RELEASE);
     return true;

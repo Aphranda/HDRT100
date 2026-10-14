@@ -1,6 +1,7 @@
 /* Sole Core1 owner. Preparation uses one fresh private matcher ticket before
  * the model writer guard; application revalidates actual owner state inside
  * that guard. Atomic-word publication is STOP diagnostics, never authority. */
+#include "vdc_priority_host_control.inc"
 #ifndef VDC_PRIORITY_TRACE_DECISION_HOOK
 #define VDC_PRIORITY_TRACE_DECISION_HOOK(snapshot) ((void)(snapshot))
 #endif
@@ -67,6 +68,7 @@ static bool priority_follow_set_stopped(void *context)
         (!session || !request->priority_generation ||
          request->priority_generation != vdc_dpll_manager_priority_match_generation() ||
          __atomic_load_n(&s_priority_match_request_session, __ATOMIC_ACQUIRE) != session)) return false;
+    if (request->mode == VDC_BOUNDARY_MODE_TYPED_FOLLOW) priority_note_host_control();
     return boundary_set_stopped(context);
 }
 

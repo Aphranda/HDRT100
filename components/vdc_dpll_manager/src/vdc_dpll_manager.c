@@ -3303,6 +3303,158 @@ bool vdc_dpll_manager_get_lock_declaration(vdc_dpll_lock_declaration_t *out)
     return false;
 }
 
+/* The observation channel is owned here (VDC-LOCKPUB-001①, HAOFV V3): the role
+ * and the session this node is running decide what is armed, and only the owner
+ * can restart a lane that a stop retired - a host write cannot, because
+ * stopped-metadata writes are refused once the ring is enabled (reject 115).
+ * Host writes keep working and are never overwritten: the owner arms a lane
+ * only when nobody armed it, and it never revives a lane the host zeroed or
+ * switched back to PROBE for this session. The generation is never invented
+ * either: it is the session, the same identity the source publishes its typed
+ * records under, so the record check (binding_generation == request) keeps
+ * holding. */
+static void priority_match_owner_arm_core1(uint32_t generation, uint32_t session)
+{
+    if (__atomic_load_n(&s_priority_match_request, __ATOMIC_ACQUIRE) != 0u) return;
+    __atomic_store_n(&s_priority_match_request_session, session, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_priority_match_request, generation, __ATOMIC_RELEASE);
+}
+
+/* Bumping the generation would invalidate every record the source already
+ * publishes under this binding, so a retired matcher is restarted in place. */
+static void priority_match_owner_restart_core1(uint32_t generation, uint32_t session)
+{
+    vdc_priority_match_work_t *w = &s_priority_match_work;
+    vdc_priority_match_snapshot_t *s = &w->status;
+    if (!s->retired || s->generation != generation) return;
+    if (__atomic_load_n(&s_priority_match_request, __ATOMIC_ACQUIRE) != generation ||
+        __atomic_load_n(&s_priority_match_request_session, __ATOMIC_ACQUIRE) != session) return;
+    memset(w, 0, sizeof(*w));
+    s->schema = 1u;
+    s->generation = generation;
+    s->session = session;
+    priority_lock_publish();
+    priority_match_publish();
+}
+
+static void priority_tx_owner_arm_core1(uint32_t generation)
+{
+    if (__atomic_load_n(&s_priority_tx_request, __ATOMIC_ACQUIRE) != 0u) return;
+    __atomic_store_n(&s_priority_tx_request, generation, __ATOMIC_RELEASE);
+}
+
+static void priority_tx_owner_restart_core1(uint32_t generation)
+{
+    vdc_priority_tx_work_t *w = &s_priority_tx_work;
+    if (!w->status.retired || w->status.generation != generation) return;
+    if (__atomic_load_n(&s_priority_tx_request, __ATOMIC_ACQUIRE) != generation) return;
+    memset(w, 0, sizeof(*w));
+    w->status.schema = 1u;
+    w->status.generation = generation;
+    priority_gap_reset(generation);
+    priority_tx_publish();
+}
+
+/* The phase-refinement lane belongs to the typed-follow lane, so the profile
+ * arms it once; a host request is never overwritten afterwards. */
+static void priority_phase_owner_arm_core1(void)
+{
+    if (__atomic_load_n(&s_priority_phase_request, __ATOMIC_ACQUIRE) != 0u) return;
+    __atomic_store_n(&s_priority_phase_request, 1u, __ATOMIC_RELEASE);
+}
+
+static bool priority_follow_request_state(uint32_t generation, uint32_t session,
+    bool *armed)
+{
+    uint32_t request, have_session, mode;
+    int32_t delta;
+    if (!boundary_request(&request, &have_session, &delta, &mode)) return false;
+    *armed = request && mode == VDC_BOUNDARY_MODE_TYPED_FOLLOW &&
+        have_session == session &&
+        __atomic_load_n(&s_boundary_request_priority_generation, __ATOMIC_ACQUIRE) == generation;
+    return true;
+}
+
+/* Arm the lane only when nobody asked for it yet. */
+static void priority_follow_owner_arm_core1(uint32_t generation, uint32_t session)
+{
+    bool armed = false;
+    if (!priority_follow_request_state(generation, session, &armed) || armed) return;
+    vdc_boundary_request_t next = {
+        .delta = 0, .mode = VDC_BOUNDARY_MODE_TYPED_FOLLOW,
+        .priority_generation = generation};
+    (void)boundary_set_stopped(&next);
+}
+
+/* Only a fresh request generation restarts the follow state machine, so a
+ * retired lane is re-armed by re-issuing the request - but only while the
+ * request still asks for typed follow: a host that switched the lane back to
+ * PROBE, or zeroed the observation generation, keeps it off. */
+static void priority_follow_owner_restart_core1(uint32_t generation, uint32_t session)
+{
+    bool armed = false;
+    if (!priority_follow_request_state(generation, session, &armed) || !armed) return;
+    const bool lane_ok = s_priority_follow_work.status.active != 0u &&
+        s_priority_follow_work.status.state != VDC_PRIORITY_FOLLOW_RETIRED &&
+        s_priority_follow_work.status.state != VDC_PRIORITY_FOLLOW_DISABLED;
+    if (lane_ok) return;
+    vdc_boundary_request_t next = {
+        .delta = 0, .mode = VDC_BOUNDARY_MODE_TYPED_FOLLOW,
+        .priority_generation = generation};
+    (void)boundary_set_stopped(&next);
+}
+
+/* Session the owner last armed (or deferred to the host) for, and the short
+ * head start the host gets before the owner's own arm. The capture tooling
+ * opens a session and writes its lanes within a few milliseconds, while a load
+ * that no longer configures the base (T1) leaves them untouched: the delay
+ * separates the two without a host-side handshake. */
+static uint32_t s_owner_arm_session;
+static uint32_t s_owner_arm_beats;
+static uint32_t s_priority_host_session;
+#define VDC_PRIORITY_OWNER_ARM_BEATS 32u
+
+static void vdc_priority_owner_arm_core1(uint32_t session)
+{
+    if (get_core_num() != 1u || !session ||
+        s_vdc_domain.control.profile.valid != 1u) return;
+    /* A host arming write (SCPI, stopped boundary) marks the session it belongs
+     * to: that session stays the host's, so the owner never overwrites a
+     * generation, never revives a lane the host disarmed, and never resets a
+     * matcher the host is measuring. */
+    if (s_priority_host_control_written) {
+        s_priority_host_control_written = false;
+        s_priority_host_session = session;
+    }
+    if (s_owner_arm_session != session) {
+        s_owner_arm_session = session;
+        s_owner_arm_beats = 0u;
+    }
+    if (s_priority_host_session == session) return;
+    if (s_owner_arm_beats < VDC_PRIORITY_OWNER_ARM_BEATS) {
+        ++s_owner_arm_beats;
+        return;
+    }
+    const bool follower =
+        s_vdc_domain.control.profile.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER;
+    if (follower) {
+        if (vdc_dpll_manager_priority_match_generation() == 0u)
+            priority_match_owner_arm_core1(session, session);
+        const uint32_t generation = vdc_dpll_manager_priority_match_generation();
+        if (generation == 0u) return;
+        priority_phase_owner_arm_core1();
+        priority_follow_owner_arm_core1(generation, session);
+        priority_match_owner_restart_core1(generation, session);
+        priority_follow_owner_restart_core1(generation, session);
+    } else {
+        if (vdc_dpll_manager_priority_sync_generation() == 0u)
+            priority_tx_owner_arm_core1(session);
+        const uint32_t generation = vdc_dpll_manager_priority_sync_generation();
+        if (generation == 0u) return;
+        priority_tx_owner_restart_core1(generation);
+    }
+}
+
 /* Keep the small publication wrapper in XIP. The existing realtime step stays
  * in RAM; duplicating its entry wrapper there crosses a 4 KiB BSS alignment. */
 void __attribute__((noinline)) sync_dpll_fb_service(void)
@@ -3314,6 +3466,7 @@ void __attribute__((noinline)) sync_dpll_fb_service(void)
     vdc_priority_ingress_core1();
     const uint32_t session = vdc_dpll_manager_feedback_session();
     if (session) {
+        vdc_priority_owner_arm_core1(session);
         (void)__atomic_add_fetch(&s_committed_model_guard, 1u, __ATOMIC_ACQ_REL);
         const bool ready = __atomic_load_n(&s_vdc_ready, __ATOMIC_ACQUIRE);
         if (s_vdc_domain.ready != (uint32_t)ready) {

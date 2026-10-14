@@ -2,6 +2,7 @@
  * source events and freezes complete mailbox offers. No per-event Core0 work. */
 #include "vdc_priority_tx.h"
 #include "vdc_priority_codec.h"
+#include "vdc_priority_host_control.inc"
 
 #ifndef VDC_PRIORITY_TRACE_ORIGIN_HOOK
 #define VDC_PRIORITY_TRACE_ORIGIN_HOOK(evidence) ((void)(evidence))
@@ -59,7 +60,10 @@ static bool priority_tx_set_stopped(void *context)
     const uint32_t generation = *(const uint32_t *)context;
     if (generation && (generation <= s_priority_tx_last_request ||
             !vdc_dpll_manager_feedback_session())) return false;
-    if (generation) s_priority_tx_last_request = generation;
+    if (generation) {
+        s_priority_tx_last_request = generation;
+        priority_note_host_control();
+    }
     __atomic_store_n(&s_priority_tx_request, generation, __ATOMIC_RELEASE);
     return true;
 }
