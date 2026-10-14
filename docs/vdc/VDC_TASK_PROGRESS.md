@@ -22,6 +22,13 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-050：锚点关联已实现（宿主全绿）；但实机证明**历史查找已不是当前阻塞**——matcher 在更早的 SOURCE 检查就退出
+
+- TODO task ID：`VDC-ISO-001`（T3 剩余闸门再定位）、`TDMA-ISO-002`。值为 2026-10-15 实验快照，非产品事实源。
+- **本轮实现（工作区，未提交）**：匹配器的**锚点关联**——当精确历史查找返回 `EVICTED`（typed 记录的编号落在保留窗口之外）时，不再跳过，而是与 **LIVE 保留观测**关联（epoch/arm/tick/flags/timer1 括号等全部证明照旧），并用新字段 `anchor_fallback` 计数；`MATCH:STATus?` 末尾追加该字段（既有索引不变）。宿主 `test_vdc_priority_match.py` 的 `evicted` 用例按新语义改写（并放宽投影 stub 的括号断言为"精确副本或 LIVE 锚二选一"），`294 passed` 全绿。
+- **实机反证（刷写后 T2 轮 `out/tdma_t2/steps-20261015-025012.log`）**：三从 `MATCH:STATus?` 仍 `calls ≈12.5 万 / matched 0 / rejected = calls`，但**`history_miss = 0` 且 `anchor_fallback = 0`** ⇒ 精确查找的 EVICTED 分支（以及我的关联分支）**都没有在这轮被执行**；发布出的 `history_result 4` 是更早某次调用的残留。同时 `first_reject_reason = 9 (SOURCE)` ⇒ 当前阻塞是**更早的 SOURCE 检查**（rx 绑定/slot/target_mask/live-valid 一类），而不是历史查找口径。
+- **下一 gate（明确）**：把 matcher 的**活体**拒因暴露到无停机门禁的页（`LOCK:READiness?` 末尾追加 `last_reason/first_reject_reason/anchor_fallback/history_result`），在同轮 T2 里指名是哪一个 SOURCE 前置检查在负载下失败；随后按该检查修复。观测者语义（目标前半）已闭环，不受影响。
+
 ### VDC-PROGRESS-20261015-049：采样点实读——观测者采到的是"另一套编号"，而事件空间三数彼此吻合
 
 - TODO task ID：`VDC-ISO-001`（T3 剩余闸门的又一层定位）、`TDMA-ISO-002`。值为 2026-10-15 实验快照，非产品事实源。
