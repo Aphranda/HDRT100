@@ -22,6 +22,28 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-048：见证规则收窄到"非回绕"——保住 epoch 内回绕语义，同时容忍负载哨兵
+
+- TODO task ID：`VDC-ISO-001`（T3 见证规则细化）、`TDMA-ISO-002`。值为 2026-10-15 实验快照，非产品事实源。
+- **问题**：`-046` 的哨兵规则把 `0xFFFFFFFF` 一律当"无见证"，与基础件本来的语义冲突——`0xFFFFFFFF` 也是计数器回绕前的**合法值**，且基础件明确要求"生产 epoch 不得跨越序号回绕"（`tdma_event_history` 精确门面以 `BAD_STATE` 拒绝跨回绕的查询）。该冲突被 `tests/python/test_tdma_event_exact.py::test_exact_terminal_boundaries` 抓住（`accept_event(0,UINT32_MAX); retain(0)` 后要求 RETIRED，实际变成仍存活 ⇒ BAD_STATE）。
+- **修复**：区分"回绕"与"哨兵"——只有当 `0x0/0xFFFFFFFF` **不是本 epoch 的正常 +1 步**时才算无见证（`wrap_step`/`ones_step` 判定）；真实回绕（`last == UINT32_MAX && seq == 0`）与重复、后退一并保持既有**可恢复拒绝**，并新增 `sequence_wrap_count` 计数。既保住基础件的回绕契约，又让负载下的空闲/间隙字不再退休观测者。
+- **实机（刷写后 T2 轮 `out/tdma_t2/steps-20261015-010842.log`）**：三从 `state 1 (ACTIVE)`、`reason 0`、`joined` 72.05/73.39/74.85 千；证据 `forward 2/1/0 step_max 38 zero 64/28/0 ones 2/1/0`、**`wrap 0 repeat 0 backwards 0`** ⇒ 负载下仍只产生哨兵与偶发跳号，观测者存活；step 17 仍因下一层闸门（`-047` 的身份口径）失败。
+- **测试修正**：`test_vdc_priority_tx_scpi.py` 的页字段计数改为 29，并断言新增的 `provider_calls/provider_offcore`；同时把 TX 页的两个新字段改到**mailbox hex 之后**输出，使 `event_time_lower` 等既有位置（24/25）不再移动——发布页的既有索引保持不变。
+- **下一 gate**：仍为身份口径统一（`-047` 的 R1/R2 择一），随后 T2 step 17 复验。
+
+### VDC-PROGRESS-20261015-047：见证失配的代码落点——两个独立采样器（线序 FIFO vs 每帧校验的 RX 车道）
+
+- TODO task ID：`VDC-ISO-001`（T3 剩余闸门的代码落点）、`TDMA-ISO-002`。值为 2026-10-15 读码+实测快照，非产品事实源。
+- **两个采样器（同一 phys TU，同一根线，负载下不再一致）**：
+  1. **事件观测者**（`tdma_pio_spi_phys_event.inc`）：序列 SM（`TDMA_EVENT_SEQUENCE_SM = BOARD_TDMA_TX_DATA_CAPTURE_SM`）在 **rx CS/SCK** 上采样，采样点 `bits = (byte_shift + PACKET_HEADER_SIZE + TRANSPORT_FRAME_SEQUENCE_OFFSET + 4) * 8 + bit_shift`（`:1671-1672`），其中 shift 取自 `phys->flight_alignment_byte_shift/bit_shift`（无显式 tap 时）；该词进入**独立 FIFO**，由 `tdma_event_observer_feed()` 每成一条记录弹出一个（`pending[2]`）。实测负载下该词 ≈ **46.7 万**。
+  2. **优先级 RX 车道**（`tdma_pio_spi_phys_priority.inc`，IRQ 内）：按 **CS 边界**算 candidate 并做**逐帧校验**（外层 magic + `packet_bytes`，`:193-195`），再按 `header[8..11]` 取传输帧序号（`:196-197`），发布给 VDC 的 `carrier_sequence`；其 shift 在首个边界由同一个 `flight_alignment_*` 复制（`:354-357`）。实测负载下该序号 ≈ **7.17 万**，与 `source_event`/`up_tx`/`joined` 同口径。
+- **机制**：负载在位时导线不再"一次传输＝一个事件"（一等席的帧与事件帧共享总线）。观测者的序列 SM 采样**每一次传输**，而其 rx/tx 配对只覆盖**事件帧**；两路 FIFO 独立，于是弹给记录的那个词不再属于该记录所属的那一帧，观测者见证被抬高到约 6.5 倍。DPLL60（1:1）时两者重合，故历史上可用。
+- **候选修复（择一，均属基础件身份口径）**：
+  - **R1（推荐，观测侧）**：让事件观测者**不再用自采词作身份**——成记录时以**优先级 RX 车道已验证的传输帧序号**（同 TU 内可取：`s_tdma_priority_*` 或 `tdma_priority_rx_*`）盖章，自采词降级为证据（`wire_witness`）；历史与匹配器均不改，负载与空载下都精确。
+  - **R2（参考侧）**：让 typed payload 的 `event_sequence` 携带**承载帧的传输序号**（而非 VDC 源事件序号），使匹配器的查找键与观测者见证同源。
+  - 二者都需契约登记与按 C11 的交叉评审；R1 不动 wire/codec 语义、只动内部身份来源，风险更低。
+- **当前 goal 状态**：目标前半（观测者只对非前进/回绕判失效、前进跳号作有界证据、ordinal 把关）已修复、实机验证并提交（`c286228f`）；"最终跑通 T2" 仍卡在上述身份口径统一，目标保持 active。
+
 ### VDC-PROGRESS-20261015-046：T3 基础件修复已提交（P3 凭证）；负载开/关对照锁定"见证↔帧身份"失配
 
 - TODO task ID：`VDC-ISO-001`（T3 修复闭环 + 下一层根因）、`TDMA-ISO-002`（轮换不削减特等 cadence 的反证）。值为 2026-10-15 实验快照，非产品事实源。
