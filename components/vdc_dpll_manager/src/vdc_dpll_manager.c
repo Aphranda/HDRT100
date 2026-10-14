@@ -4,6 +4,7 @@
 #include "vdc_priority_tx.h"
 #include "vdc_priority_rx.h"
 #include "vdc_priority_match.h"
+#include "vdc_priority_follow.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -136,6 +137,9 @@ static volatile uint32_t s_published_snapshot_guard;
 static vdc_domain_snapshot_t s_published_snapshot
     __attribute__((section(".scratch_y.vdc_snapshot"), aligned(4)));
 static bool s_published_snapshot_valid;
+/* The owner's lock declaration; written only by the Core1 DPLL service under
+ * s_published_snapshot_guard (vdc_dpll_manager_commit_lock_declaration_core1). */
+static vdc_dpll_lock_declaration_t s_published_lock;
 static volatile uint32_t s_published_dpll_update_seq;
 static uint32_t s_dpll_consumed_publication_revision;
 static bool s_dpll_have_consumed_publication;
@@ -1731,6 +1735,7 @@ bool vdc_dpll_manager_init(void)
            sizeof(s_published_sync_io_observer_status));
     s_published_snapshot_guard = 0u;
     memset(&s_published_snapshot, 0, sizeof(s_published_snapshot));
+    memset(&s_published_lock, 0, sizeof(s_published_lock));
     s_published_dpll_update_seq = 0u;
     s_dpll_consumed_publication_revision = 0u;
     s_dpll_have_consumed_publication = false;
@@ -3232,6 +3237,72 @@ static __attribute__((noinline)) void vdc_dpll_manager_age_quality_core1(void)
     (void)__atomic_add_fetch(&s_published_snapshot_guard, 1u, __ATOMIC_RELEASE);
 }
 
+/* The owner's one-bit lock declaration (VDC-LOCKPUB-001; HAOFV: the VDC owner
+ * is the only writer of the lock state). Pure: the role decides the evidence.
+ *   MASTER   - its own Domain PI is locked with a live sample window, taken
+ *              from the committed publication.
+ *   FOLLOWER - its internal observation of the phase error against NO1 is in
+ *              band (the Core1 lock word; Core1 ages it out itself). */
+static vdc_dpll_lock_declaration_t vdc_dpll_manager_lock_declaration(
+    uint32_t role, uint32_t match_generation,
+    const vdc_priority_lock_word_t *lock,
+    const vdc_domain_snapshot_t *published, bool published_valid)
+{
+    vdc_dpll_lock_declaration_t declaration = {.locked = 0u, .role = role};
+    if (role == VDC_DPLL_CONTROL_MODE_FOLLOWER) {
+        declaration.locked = match_generation != 0u && lock->locked != 0u;
+    } else if (published_valid) {
+        declaration.locked = vdc_dpll_manager_master_lock_is_live(
+            published->dpll.state, published->dpll.debug_continue_enabled,
+            published->quality.valid, published->quality.lock_state,
+            published->quality.last_sample_time_ns,
+            published->quality.freshness_limit_us,
+            published->quality.last_sample_age_us, published->gate.passed);
+    }
+    return declaration;
+}
+
+/* Once per DPLL beat, after every input of this beat has been committed. Only
+ * a changed declaration is written, and it moves the publication revision, so
+ * RefMem republishes on the same revision dedup it already uses. */
+static void vdc_dpll_manager_commit_lock_declaration_core1(void)
+{
+    vdc_dpll_manager_dpll_role_status_t role;
+    vdc_dpll_manager_get_dpll_role_status(&role);
+    const vdc_dpll_lock_declaration_t declaration =
+        vdc_dpll_manager_lock_declaration(
+            role.mode, vdc_dpll_manager_priority_match_generation(),
+            &s_priority_match_work.lock, &s_published_snapshot,
+            s_published_snapshot_valid);
+    if (declaration.locked == s_published_lock.locked &&
+        declaration.role == s_published_lock.role) return;
+    (void)__atomic_add_fetch(&s_published_snapshot_guard, 1u, __ATOMIC_ACQ_REL);
+    s_published_lock = declaration;
+    (void)__atomic_add_fetch(&s_published_snapshot_guard, 1u, __ATOMIC_RELEASE);
+}
+
+bool vdc_dpll_manager_get_lock_declaration(vdc_dpll_lock_declaration_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    for (uint32_t attempt = 0u; attempt < 8u; attempt++) {
+        const uint32_t begin = __atomic_load_n(
+            &s_published_snapshot_guard, __ATOMIC_ACQUIRE);
+        if ((begin & 1u) != 0u) {
+            continue;
+        }
+        const vdc_dpll_lock_declaration_t value = s_published_lock;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (begin == __atomic_load_n(&s_published_snapshot_guard,
+                                     __ATOMIC_ACQUIRE)) {
+            *out = value;
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Keep the small publication wrapper in XIP. The existing realtime step stays
  * in RAM; duplicating its entry wrapper there crosses a 4 KiB BSS alignment. */
 void __attribute__((noinline)) sync_dpll_fb_service(void)
@@ -3259,6 +3330,7 @@ void __attribute__((noinline)) sync_dpll_fb_service(void)
     if (session) model_feedback_end_core1(session);
     priority_summary_service(true);
     priority_guard_service_core1();
+    vdc_dpll_manager_commit_lock_declaration_core1();
 }
 
 void vdc_dpll_manager_dpll_service(void)
@@ -3415,6 +3487,18 @@ bool vdc_dpll_manager_timestamp_dpll_eligible(uint32_t source,
            (flags & VDC_DOMAIN_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY) == 0u;
 }
 
+/* FOLLOWER lock from the internal observation (VDC_DOMAIN_TODO.md
+ * VDC-LOCKPUB-001): the matcher's residual interval is this follower's phase
+ * error against NO1's published event time, and the Core1 owner reduces it to
+ * one small word (vdc_priority_lock_observe(): centre within the enter band for
+ * consecutive matches, hysteresis on exit, stale window). Readers take that word,
+ * never the matcher snapshot.
+ *
+ * Earlier sources were wrong: the FOLLow channel health is the local DCO lane and
+ * is not armed by the arming workflows; the matcher's active/have_match/matched
+ * only say a match once formed - sticky, with no freshness (measured
+ * 2026-10-14). */
+
 /* Single definition of the qualified-lock verdict (see the header for why it
  * exists). Every source is read through the same guarded snapshot the RefMem
  * writer uses, so the projection and this verdict cannot disagree about what
@@ -3436,8 +3520,51 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_lock_verdict)(
     const bool has_snapshot = vdc_dpll_manager_get_snapshot(&snapshot);
     vdc_dpll_manager_get_sync_io_observer_status(&observer);
 
+    vdc_dpll_manager_dpll_role_status_t role_status;
+    memset(&role_status, 0, sizeof(role_status));
+    vdc_dpll_manager_get_dpll_role_status(&role_status);
+    out->role = role_status.mode;
+    /* `locked` is the owner's committed declaration - the bit RefMem publishes -
+     * never re-derived here. A declaration made for another role (Core1 has not
+     * served since the role changed) is not this node's lock. */
+    vdc_dpll_lock_declaration_t declaration;
+    memset(&declaration, 0, sizeof(declaration));
+    const bool declared_locked =
+        vdc_dpll_manager_get_lock_declaration(&declaration) &&
+        declaration.role == role_status.mode && declaration.locked != 0u;
+
     vdc_dpll_lock_verdict_reason_t reason;
-    if (!has_snapshot || snapshot.quality.valid == 0u) {
+    if (role_status.mode == VDC_DPLL_CONTROL_MODE_FOLLOWER) {
+        /* FOLLOWER: no local PI (VDC_DOMAIN_TODO.md:24); the lock is the
+         * internal observation of its phase error against NO1. The matcher only
+         * forms that observation (VDC_RUNTIME_CONSTRAINTS.md:446); the reason
+         * below explains the owner's declaration from the same lock word. */
+        vdc_priority_lock_word_t lock;
+        memset(&lock, 0, sizeof(lock));
+        const bool have_lock = vdc_dpll_manager_get_priority_lock(&lock);
+        const uint64_t now_ns = vdc_dpll_manager_now_ns();
+        /* A disarmed request is not an observation, even before Core1 has
+         * retired the word it left behind. */
+        const bool observing =
+            vdc_dpll_manager_priority_match_generation() != 0u &&
+            have_lock && lock.last_match_ns != 0u;
+        const bool fresh = observing &&
+            now_ns != UINT64_MAX && now_ns >= lock.last_match_ns &&
+            now_ns - lock.last_match_ns <= VDC_PRIORITY_LOCK_STALE_NS;
+        /* The stale test is this reader's own: a published fact whose source
+         * stopped being served reads stale (HAOFV: stale slots answer stale). */
+        if (!observing) {
+            reason = VDC_DPLL_LOCK_VERDICT_FOLLOW_DISABLED;
+        } else if (!fresh) {
+            reason = VDC_DPLL_LOCK_VERDICT_FOLLOW_STALE;
+        } else if (!declared_locked) {
+            reason = VDC_DPLL_LOCK_VERDICT_NOT_LOCKED;
+        } else {
+            reason = VDC_DPLL_LOCK_VERDICT_READY;
+        }
+        out->input_ready = fresh ? 1u : 0u;
+        out->locked = reason == VDC_DPLL_LOCK_VERDICT_READY ? 1u : 0u;
+    } else if (!has_snapshot || snapshot.quality.valid == 0u) {
         reason = VDC_DPLL_LOCK_VERDICT_SNAPSHOT_UNAVAILABLE;
     } else {
         const bool ring_input = snapshot.quality.accepted_sample_count != 0u;
@@ -3471,11 +3598,15 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_lock_verdict)(
         }
     }
     out->reason = (uint32_t)reason;
-    /* The ladder ends at NOT_LOCKED once every input path is ready, so the
-     * historical SCPI pair follows from the reason alone (see the header). */
-    out->input_ready = (reason == VDC_DPLL_LOCK_VERDICT_READY ||
-                        reason == VDC_DPLL_LOCK_VERDICT_NOT_LOCKED) ? 1u : 0u;
-    out->locked = reason == VDC_DPLL_LOCK_VERDICT_READY ? 1u : 0u;
+    if (role_status.mode != VDC_DPLL_CONTROL_MODE_FOLLOWER) {
+        /* The ladder ends at NOT_LOCKED once every input path is ready, so the
+         * historical SCPI pair follows from the reason alone (see the header). */
+        out->input_ready = (reason == VDC_DPLL_LOCK_VERDICT_READY ||
+                            reason == VDC_DPLL_LOCK_VERDICT_NOT_LOCKED) ? 1u : 0u;
+        /* The ladder above is the diagnosis of the inputs; the lock itself is
+         * the owner's declaration, the same bit the RefMem vector carries. */
+        out->locked = declared_locked ? 1u : 0u;
+    }
 
     if (has_snapshot) {
         out->dpll_state = snapshot.dpll.state;
@@ -3562,6 +3693,10 @@ bool VDC_DPLL_MANAGER_TIME_CRITICAL(vdc_dpll_manager_get_vector_snapshot)(
         snapshot->path_delay.freshness_us =
             s_published_snapshot.path_delay.freshness_us;
         snapshot->gate = s_published_snapshot.gate;
+        /* The owner's committed lock declaration, under the same guard: the
+         * REFMEM phase projects it and never evaluates a lock rule itself
+         * (evaluating one there broke its WCET, measured 2026-10-14). */
+        snapshot->lock = s_published_lock;
         /* Finish all payload reads before rechecking the publication guard. */
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
         const uint32_t end = __atomic_load_n(

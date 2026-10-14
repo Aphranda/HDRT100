@@ -7,6 +7,10 @@ static uint32_t s_priority_match_request, s_priority_match_last_request;
 static uint32_t s_priority_match_request_session;
 static uint32_t s_priority_match_guard;
 static uint32_t s_priority_match_words[sizeof(vdc_priority_match_snapshot_t) / 4u];
+/* The follower lock word has its own small publication so a realtime reader
+ * never copies the matcher snapshot (VDC-LOCKPUB-002). */
+static uint32_t s_priority_lock_guard;
+static uint32_t s_priority_lock_words[sizeof(vdc_priority_lock_word_t) / 4u];
 typedef struct {
     vdc_priority_match_snapshot_t status;
     tdma_ring_clock_snapshot_t ring, ring_after;
@@ -21,10 +25,16 @@ typedef struct {
     uint32_t profile_crc32, session, bound, unresolved, candidate_sequence, path_checked_crc;
     /* Private, one-service Core1 ticket. Historical snapshot reads never set it. */
     uint32_t fresh;
+    /* Owner declaration from the residuals; reset with the request (memset). */
+    vdc_priority_lock_word_t lock;
 } vdc_priority_match_work_t;
 static vdc_priority_match_work_t s_priority_match_work;
 _Static_assert(sizeof(vdc_priority_match_snapshot_t) % 4u == 0u,
     "match snapshot publishes atomic words");
+_Static_assert(sizeof(vdc_priority_lock_word_t) % 4u == 0u,
+    "lock word publishes atomic words");
+_Static_assert(VDC_PRIORITY_LOCK_ENTER_NS == VDC_DOMAIN_LOCK_TIER_FINE_NS,
+    "follower lock enters at the FINE tier");
 
 static uint32_t priority_match_inc(uint32_t n) { return n == UINT32_MAX ? n : n + 1u; }
 uint32_t vdc_dpll_manager_priority_match_generation(void)
@@ -45,6 +55,36 @@ bool vdc_dpll_manager_set_priority_match(uint32_t generation)
     return get_core_num() == 0u && s_vdc_tdma_service &&
         tdma_service_update_stopped_metadata(s_vdc_tdma_service, priority_match_set_stopped, &generation);
 }
+static void priority_lock_publish(void)
+{
+    const uint32_t guard = __atomic_load_n(&s_priority_lock_guard, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_priority_lock_guard, guard + 1u, __ATOMIC_RELEASE);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    for (size_t i = 0u; i < sizeof(s_priority_match_work.lock) / 4u; ++i) {
+        uint32_t word;
+        memcpy(&word, (const uint8_t *)&s_priority_match_work.lock + 4u * i, 4u);
+        __atomic_store_n(s_priority_lock_words + i, word, __ATOMIC_RELAXED);
+    }
+    __atomic_store_n(&s_priority_lock_guard, guard + 2u, __ATOMIC_RELEASE);
+}
+bool vdc_dpll_manager_get_priority_lock(vdc_priority_lock_word_t *out)
+{
+    if (!out) return false;
+    for (uint32_t attempt = 0u; attempt < 4u; ++attempt) {
+        const uint32_t guard = __atomic_load_n(&s_priority_lock_guard, __ATOMIC_ACQUIRE);
+        if (guard & 1u) continue;
+        vdc_priority_lock_word_t value;
+        for (size_t i = 0u; i < sizeof(value) / 4u; ++i) {
+            const uint32_t word = __atomic_load_n(s_priority_lock_words + i, __ATOMIC_RELAXED);
+            memcpy((uint8_t *)&value + 4u * i, &word, 4u);
+        }
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (guard != __atomic_load_n(&s_priority_lock_guard, __ATOMIC_ACQUIRE)) continue;
+        *out = value;
+        return true;
+    }
+    return false;
+}
 static void priority_match_publish(void)
 {
     const uint32_t guard = __atomic_load_n(&s_priority_match_guard, __ATOMIC_RELAXED);
@@ -56,6 +96,7 @@ static void priority_match_publish(void)
         __atomic_store_n(s_priority_match_words + i, word, __ATOMIC_RELAXED);
     }
     __atomic_store_n(&s_priority_match_guard, guard + 2u, __ATOMIC_RELEASE);
+    priority_lock_publish();
 }
 bool vdc_dpll_manager_get_priority_match(vdc_priority_match_snapshot_t *out)
 {
@@ -90,6 +131,8 @@ static void priority_match_skip(uint32_t reason, bool retire)
     }
     if (retire) {
         s->active = 0u; s->retired = 1u;
+        /* A retired observation can no longer prove tracking. */
+        s_priority_match_work.lock = (vdc_priority_lock_word_t){0};
     }
     priority_match_publish();
 }
@@ -170,6 +213,17 @@ void __attribute__((noinline)) vdc_priority_match_core1(void)
     vdc_priority_match_work_t *w = &s_priority_match_work;
     vdc_priority_match_snapshot_t *s = &w->status;
     w->fresh = 0u;
+    if (w->lock.locked || w->lock.in_band_run || w->lock.out_band_run) {
+        /* Age the lock out here, before the owner's declaration of this beat,
+         * so a lock whose input stopped is never declared. The last match time
+         * stays, so a reader can still say the observation went STALE. */
+        const uint64_t now_ns = vdc_dpll_manager_now_ns();
+        if (now_ns == UINT64_MAX || now_ns < w->lock.last_match_ns ||
+            now_ns - w->lock.last_match_ns > VDC_PRIORITY_LOCK_STALE_NS) {
+            w->lock.locked = w->lock.in_band_run = w->lock.out_band_run = 0u;
+            priority_lock_publish();
+        }
+    }
     const uint32_t request = vdc_dpll_manager_priority_match_generation();
     if (!request) {
         if (s->generation && !s->retired) priority_match_skip(VDC_PRIORITY_MATCH_DISABLED, true);
@@ -181,6 +235,7 @@ void __attribute__((noinline)) vdc_priority_match_core1(void)
          * explicit next to the other per-request status fields. */
         s->first_reject_reason = 0u;
         s->session = __atomic_load_n(&s_priority_match_request_session, __ATOMIC_ACQUIRE);
+        priority_lock_publish();
     }
     if (s->retired) return;
     s->calls = priority_match_inc(s->calls);
@@ -338,5 +393,7 @@ void __attribute__((noinline)) vdc_priority_match_core1(void)
     s->matched = priority_match_inc(s->matched); s->have_match = s->active = w->bound = 1u;
     s->last_reason = VDC_PRIORITY_MATCH_OK; w->unresolved = 0u;
     w->fresh = 1u;
+    vdc_priority_lock_observe(&w->lock, w->residual_lo, w->residual_hi, sequence,
+                              vdc_dpll_manager_now_ns());
     priority_match_publish();
 }

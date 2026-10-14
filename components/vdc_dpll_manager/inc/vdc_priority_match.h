@@ -58,4 +58,89 @@ bool vdc_dpll_manager_get_priority_match(vdc_priority_match_snapshot_t *out);
 /* Core1 DPLL boundary before opening the committed-model writer guard. */
 void vdc_priority_match_core1(void);
 
+/* FOLLOWER lock from the internal observation (VDC_DOMAIN_TODO.md
+ * VDC-LOCKPUB-001). The matcher above only forms the error observation; this
+ * small word is the owner's declaration derived from it: the residual interval
+ * [residual_lo, residual_hi] is this follower's phase error against NO1's
+ * published event time, so its CENTER is the lock quantity. The interval width
+ * is the measurement uncertainty and already exceeds 2 x FINE on the bench, so
+ * "whole interval inside +/-FINE" is never asked; the width only rejects a
+ * broken measurement. Thresholds and counts are defaults pending user ruling. */
+/* ENTER is VDC_DOMAIN_LOCK_TIER_FINE_NS (bound by a static assert in the
+ * matcher), kept literal so this header stays self-contained. */
+#define VDC_PRIORITY_LOCK_ENTER_NS 100u
+#define VDC_PRIORITY_LOCK_EXIT_NS (2u * VDC_PRIORITY_LOCK_ENTER_NS)
+#define VDC_PRIORITY_LOCK_WIDTH_LIMIT_NS (4u * VDC_PRIORITY_LOCK_ENTER_NS)
+#define VDC_PRIORITY_LOCK_ENTER_COUNT 4u
+#define VDC_PRIORITY_LOCK_EXIT_COUNT 3u
+/* Same window as the Domain sample freshness default (1 s). */
+#define VDC_PRIORITY_LOCK_STALE_NS UINT64_C(1000000000)
+
+typedef struct {
+    uint32_t locked;        /* hysteresis state; read through _is_live() */
+    uint32_t in_band_run;   /* consecutive in-band observations */
+    uint32_t out_band_run;  /* consecutive out-of-band observations */
+    int32_t center_ns;      /* last observation, saturated */
+    uint32_t width_ns;      /* last observation, saturated */
+    uint32_t event_sequence;
+    uint64_t last_match_ns; /* TIMER1 ns of the last new match; 0 = none */
+} vdc_priority_lock_word_t;
+
+/* One new matched event. A gap longer than the stale window restarts the
+ * acquisition, an unreadable clock or inverted interval fails closed. */
+static inline void vdc_priority_lock_observe(vdc_priority_lock_word_t *word,
+    int64_t residual_lo, int64_t residual_hi, uint32_t event_sequence,
+    uint64_t now_ns)
+{
+    if (now_ns == UINT64_MAX || now_ns == 0u || residual_hi < residual_lo) {
+        *word = (vdc_priority_lock_word_t){0};
+        return;
+    }
+    if (word->last_match_ns != 0u &&
+        (now_ns < word->last_match_ns ||
+         now_ns - word->last_match_ns > VDC_PRIORITY_LOCK_STALE_NS)) {
+        *word = (vdc_priority_lock_word_t){0};
+    }
+    /* Unsigned difference is exact for hi >= lo; lo + width/2 cannot pass hi. */
+    const uint64_t width = (uint64_t)residual_hi - (uint64_t)residual_lo;
+    const int64_t center = residual_lo + (int64_t)(width / 2u);
+    const uint64_t magnitude = center < 0 ? (uint64_t)0 - (uint64_t)center
+                                          : (uint64_t)center;
+    const bool width_ok = width <= VDC_PRIORITY_LOCK_WIDTH_LIMIT_NS;
+    if (width_ok && magnitude <= VDC_PRIORITY_LOCK_ENTER_NS) {
+        word->out_band_run = 0u;
+        if (word->in_band_run != UINT32_MAX) word->in_band_run++;
+        if (word->in_band_run >= VDC_PRIORITY_LOCK_ENTER_COUNT) word->locked = 1u;
+    } else if (!width_ok || magnitude > VDC_PRIORITY_LOCK_EXIT_NS) {
+        word->in_band_run = 0u;
+        if (word->out_band_run != UINT32_MAX) word->out_band_run++;
+        if (word->out_band_run >= VDC_PRIORITY_LOCK_EXIT_COUNT) word->locked = 0u;
+    } else {
+        /* Between the enter and exit bands: hold the state, break both runs. */
+        word->in_band_run = 0u;
+        word->out_band_run = 0u;
+    }
+    word->center_ns = center > INT32_MAX ? INT32_MAX
+                    : center < INT32_MIN ? INT32_MIN : (int32_t)center;
+    word->width_ns = width > UINT32_MAX ? UINT32_MAX : (uint32_t)width;
+    word->event_sequence = event_sequence;
+    word->last_match_ns = now_ns;
+}
+
+/* The DPLL is dynamic: a lock whose last match is older than the stale window
+ * (or whose age cannot be read) is not live. */
+static inline bool vdc_priority_lock_is_live(const vdc_priority_lock_word_t *word,
+                                             uint64_t now_ns)
+{
+    return word->locked != 0u && word->last_match_ns != 0u &&
+           now_ns != UINT64_MAX && now_ns >= word->last_match_ns &&
+           now_ns - word->last_match_ns <= VDC_PRIORITY_LOCK_STALE_NS;
+}
+
+/* One bounded read of the Core1-published word; false preserves *out. The
+ * owner's lock declaration reads the Core1 working word directly; this copy is
+ * for Core0 readers, which explain the declaration (reason/STALE) with their own
+ * clock. Core1 ages `locked` out itself before declaring. */
+bool vdc_dpll_manager_get_priority_lock(vdc_priority_lock_word_t *out);
+
 #endif

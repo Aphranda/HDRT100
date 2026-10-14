@@ -216,8 +216,13 @@ def step_0_build(ctx):
         ctx.warnings.append("Step 0 build skipped by request: the package may not match"
                             " the working tree")
         return
+    # A fresh id per build: PROJECT_BUILD_ID is cached at configure time, and an
+    # unchanged id lets step 5 "verify" a board that never left the old image
+    # (2026-10-14: four OTAs in a row reported the same id, VDC-LOCKPUB-002).
+    build_id = time.strftime("%Y%m%d%H%M%S", time.gmtime())
     code, log = ctx.run([sys.executable, str(ROOT / "tools/cmake_build_auto/cmake_build_auto.py"),
-                         "--root", str(ROOT), "--build-dir", str(ctx.build_dir)], "build.log")
+                         "--root", str(ROOT), "--build-dir", str(ctx.build_dir),
+                         "--build-id", build_id], "build.log")
     ctx.log(f"  cmake_build_auto exit {code} (log {log.name})")
     if code != 0:
         tail = [line for line in log.read_text(encoding="utf-8", errors="replace").splitlines()

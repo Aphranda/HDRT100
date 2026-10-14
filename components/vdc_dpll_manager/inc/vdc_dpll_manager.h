@@ -582,6 +582,15 @@ typedef struct {
     uint32_t quality_health_state;
 } vdc_dpll_manager_refmem_snapshot_t;
 
+/* The VDC owner's one-bit lock declaration (HAOFV: VdcVector is the only fact
+ * source and its owner the only writer of the lock state). The Core1 DPLL
+ * service commits it under the published-snapshot guard; RefMem and the host
+ * pages only project it, they never derive it. */
+typedef struct {
+    uint32_t locked;  /* 0 = UNLOCK, 1 = LOCKED */
+    uint32_t role;    /* VDC_DPLL_CONTROL_MODE_* the declaration was made for */
+} vdc_dpll_lock_declaration_t;
+
 /* Read-only projection for the legacy RefMem runtime vectors. The full path
  * table, observation matrix and other diagnostics stay with the VDC owner;
  * a vector update must not put the full Domain snapshot on the Core1 stack. */
@@ -603,6 +612,7 @@ typedef struct {
         uint32_t freshness_us;
     } path_delay;
     vdc_gate_result_t gate;
+    vdc_dpll_lock_declaration_t lock; /* owner's declaration, same guard */
 } vdc_dpll_manager_vector_snapshot_t;
 
 bool vdc_dpll_manager_init(void);
@@ -713,11 +723,26 @@ typedef enum {
     VDC_DPLL_LOCK_VERDICT_TIMESTAMP_NOT_ELIGIBLE = 5u,
     VDC_DPLL_LOCK_VERDICT_GATE_REJECTED = 6u,
     VDC_DPLL_LOCK_VERDICT_NOT_LOCKED = 7u,
+    /* FOLLOWER-role codes, appended so the historical numbering above and the
+     * 24-field readiness wire format stay unchanged. A follower has no local
+     * PI to converge (VDC_DOMAIN_TODO.md:24: only the master runs PI); its lock
+     * is the internal observation of its phase error against NO1
+     * (VDC-LOCKPUB-001). A follower reuses READY (locked) and NOT_LOCKED
+     * (observing, centre not yet/no longer in band). */
+    VDC_DPLL_LOCK_VERDICT_FOLLOW_DISABLED = 8u, /* no observation armed/formed */
+    VDC_DPLL_LOCK_VERDICT_FOLLOW_STALE = 9u,    /* last match older than window */
 } vdc_dpll_lock_verdict_reason_t;
 
+/* The published lock state is ONE bit: 0 = unlocked, 1 = locked. The
+ * coarse/fine/full tiers are the MASTER's internal acquisition process
+ * (vdc_domain_lock_quality_t), not a published lock grade - do not invent a
+ * second vocabulary for the lock publication. Role decides the evidence:
+ * a MASTER locks through its own Domain PI ladder, a FOLLOWER locks by
+ * continuously adopting the master's published event time
+ * (VDC_DOMAIN_TODO.md:24/:37, task VDC-LOCAL-003). */
 typedef struct {
     uint32_t input_ready;
-    uint32_t locked;
+    uint32_t locked;                 /* the one published bit */
     uint32_t provisional;
     uint32_t published_qualified;
     uint32_t reason;                 /* vdc_dpll_lock_verdict_reason_t */
@@ -726,9 +751,38 @@ typedef struct {
     uint32_t accepted_sample_count;
     uint32_t rejected_sample_count;
     uint32_t last_reject_code;
+    uint32_t role;                   /* VDC_DPLL_CONTROL_MODE_* */
 } vdc_dpll_lock_verdict_t;
 
+/* The one definition of "this node is locked right now" for a MASTER: its own
+ * Domain PI is locked and its sample window is live. Health, tier and
+ * provisional are NOT part of it - the tier is the master's internal acquisition
+ * process and provisional has its own vector bit. Only the owner's declaration
+ * (vdc_dpll_manager_lock_declaration()) calls it; every consumer projects that
+ * declaration. The DPLL is dynamic: when the outside world breaks and the age
+ * stops being live, this reads false, so a lost lock is reported as lost. */
+static inline bool vdc_dpll_manager_master_lock_is_live(
+    uint32_t dpll_state, uint32_t debug_continue_enabled, uint32_t quality_valid,
+    uint32_t quality_lock_state, uint64_t last_sample_time_ns,
+    uint32_t freshness_limit_us, uint32_t last_sample_age_us,
+    uint32_t gate_passed)
+{
+    return dpll_state == VDC_DOMAIN_LOCK_LOCKED &&
+           debug_continue_enabled == 0u &&
+           quality_valid == 1u &&
+           quality_lock_state == VDC_DOMAIN_LOCK_LOCKED &&
+           last_sample_time_ns != 0u &&
+           freshness_limit_us != 0u &&
+           /* UINT32_MAX is the age saturation sentinel (clock read failed, age
+            * regressed or saturated): never live, whatever the limit says. */
+           last_sample_age_us != UINT32_MAX &&
+           last_sample_age_us <= freshness_limit_us &&
+           gate_passed != 0u;
+}
+
 bool vdc_dpll_manager_lock_verdict(vdc_dpll_lock_verdict_t *out);
+/* One guarded read of the owner's committed declaration; false preserves *out. */
+bool vdc_dpll_manager_get_lock_declaration(vdc_dpll_lock_declaration_t *out);
 /* The timestamp-eligibility predicate the verdict uses, exported so a reporting
  * caller (the lock-readiness page) cannot drift from the verdict itself. */
 bool vdc_dpll_manager_timestamp_dpll_eligible(uint32_t source,

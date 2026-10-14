@@ -9,6 +9,26 @@
 #include "vdc_priority_ingress.h"
 #include "distributed_refmem.h"
 
+/* The published lock state is LOCKED(1)/UNLOCK(0), written as the two words the
+ * system uses. The Domain ladder (vdc_domain_lock_state_t) is the MASTER's
+ * internal acquisition process and must not leak into a published state field:
+ * a follower's own PI never runs (single-PI rule, VDC_DOMAIN_TODO.md:24), so
+ * its ladder rests at CHECKING forever and publishing that value claimed "not
+ * locked" for a node that was in fact tracking. One source: the role-aware
+ * verdict.
+ *
+ * The DPLL is dynamic and the outside world can break: this returns what is
+ * true now, so a node whose samples stopped, whose gate failed, or whose
+ * tracking stopped reads UNLOCK rather than reporting a state it no longer
+ * holds. */
+static uint32_t scpi_sync_vdc_published_lock(void)
+{
+    vdc_dpll_lock_verdict_t verdict;
+    memset(&verdict, 0, sizeof(verdict));
+    (void)vdc_dpll_manager_lock_verdict(&verdict);
+    return verdict.locked != 0u ? 1u : 0u;
+}
+
 scpi_result_t scpi_sync_state_q(scpi_t *context)
 {
     SCPI_ResultUInt32(context, 1u);
@@ -17,7 +37,12 @@ scpi_result_t scpi_sync_state_q(scpi_t *context)
     SCPI_ResultUInt32(context, 0x20000001u);
     SCPI_ResultBool(context, FALSE);
     SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultText(context, "LOCKED");
+    /* The lock word is the real published state, not a constant. This page used
+     * to answer a fixed "LOCKED" whatever the node was doing, which is a false
+     * publication (measured 2026-10-14). The remaining fields of this page are
+     * still placeholders and are not evidence of anything. */
+    SCPI_ResultText(context, scpi_sync_vdc_published_lock() != 0u ? "LOCKED"
+                                                                  : "UNLOCK");
     SCPI_ResultText(context, "FIELD_SYNC_DEFAULT");
     SCPI_ResultUInt32(context, 0x20000002u);
     SCPI_ResultText(context, "FIELD_DEFAULT");
@@ -150,30 +175,21 @@ scpi_result_t scpi_sync_quality_q(scpi_t *context)
         has_snapshot ? &snapshot.quality : NULL;
     const vdc_error_budget_t *budget =
         has_snapshot ? &snapshot.error_budget : NULL;
-    const char *state_text = "UNAVAILABLE";
+    const char *state_text = "UNLOCK";
 
     if (quality != NULL) {
-        switch ((vdc_domain_health_state_t)quality->health_state) {
-        case VDC_DOMAIN_HEALTH_HEALTHY:
-            state_text = "OK";
-            break;
-        case VDC_DOMAIN_HEALTH_LOCK_CANDIDATE:
-            state_text = "LOCK_CANDIDATE";
-            break;
-        case VDC_DOMAIN_HEALTH_DEGRADED:
-            state_text = "DEGRADED";
-            break;
-        case VDC_DOMAIN_HEALTH_FAULT:
-            state_text = "FAULT";
-            break;
-        case VDC_DOMAIN_HEALTH_CHECKING:
-            state_text = "CHECKING";
-            break;
-        case VDC_DOMAIN_HEALTH_UNKNOWN:
-        default:
-            state_text = "UNKNOWN";
-            break;
-        }
+        /* Field 0 is the published lock state written as the two words the
+         * system uses: LOCKED when this node is locked right now, UNLOCK when it
+         * is not. It is NOT the health ladder: a follower's health reads
+         * CHECKING because its own PI never runs (single-PI rule,
+         * VDC_DOMAIN_TODO.md:24), which is a health fact, not a lock fact. The
+         * raw health value is still published numerically further down this
+         * page, so nothing is lost by naming the lock state here.
+         *
+         * The DPLL is dynamic: if the outside world breaks and samples stop
+         * arriving, this word must say UNLOCK - the state is reported as it is
+         * now, never as it once was. */
+        state_text = scpi_sync_vdc_published_lock() != 0u ? "LOCKED" : "UNLOCK";
     }
 
     SCPI_ResultText(context, state_text);
@@ -397,10 +413,12 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_filter_q(scpi_t *context)
     if (!vdc_dpll_manager_get_snapshot(&snapshot)) {
         return SCPI_RES_ERR;
     }
-    /* This is the closed-loop state, not a product lock claim.  The explicit
-     * integrator field lets the host distinguish FLL slope from Type-II
-     * filter memory while tuning a debug profile. */
-    SCPI_ResultUInt32(context, snapshot.dpll.state);
+    /* Field 0 is the published lock state, LOCKED(1)/UNLOCK(0) - not the Domain
+     * ladder (the master's internal acquisition process). The remaining fields
+     * are the closed loop's own numbers: the explicit integrator field lets the
+     * host distinguish FLL slope from Type-II filter memory while tuning a debug
+     * profile. */
+    SCPI_ResultUInt32(context, scpi_sync_vdc_published_lock());
     SCPI_ResultUInt32(context, snapshot.dpll.update_seq);
     SCPI_ResultInt32(context, snapshot.dpll.last_phase_error_ns);
     SCPI_ResultInt32(context, snapshot.dpll.last_frequency_error_ppb);
@@ -430,6 +448,8 @@ typedef enum {
     SCPI_SYNC_VDC_LOCK_TIMESTAMP_NOT_ELIGIBLE = 5u,
     SCPI_SYNC_VDC_LOCK_GATE_REJECTED = 6u,
     SCPI_SYNC_VDC_LOCK_NOT_LOCKED = 7u,
+    SCPI_SYNC_VDC_LOCK_FOLLOW_DISABLED = 8u,
+    SCPI_SYNC_VDC_LOCK_FOLLOW_STALE = 9u,
 } scpi_sync_vdc_lock_readiness_reason_t;
 
 static bool scpi_sync_vdc_timestamp_is_dpll_eligible(uint32_t source,
@@ -440,26 +460,13 @@ static bool scpi_sync_vdc_timestamp_is_dpll_eligible(uint32_t source,
                                                     flags);
 }
 
-static scpi_sync_vdc_lock_readiness_reason_t scpi_sync_vdc_lock_readiness_reason(
-    bool has_snapshot,
-    const vdc_domain_snapshot_t *snapshot,
-    const vdc_dpll_manager_sync_io_observer_status_t *observer)
-{
-    (void)has_snapshot;
-    (void)snapshot;
-    (void)observer;
-    vdc_dpll_lock_verdict_t verdict;
-    (void)vdc_dpll_manager_lock_verdict(&verdict);
-    return (scpi_sync_vdc_lock_readiness_reason_t)verdict.reason;
-}
-
 scpi_result_t scpi_cmd_sync_vdc_status_q(scpi_t *context)
 {
     vdc_dpll_manager_vdc_status_t status;
     vdc_dpll_manager_get_vdc_status(&status);
 
     SCPI_ResultBool(context, status.ready ? TRUE : FALSE);
-    SCPI_ResultUInt32(context, status.lock_state);
+    SCPI_ResultUInt32(context, scpi_sync_vdc_published_lock());
     SCPI_ResultUInt32(context, status.service_count);
     SCPI_ResultUInt32(context, status.first_service_ms);
     SCPI_ResultUInt32(context, status.last_service_ms);
@@ -473,7 +480,7 @@ scpi_result_t scpi_cmd_sync_vdc_dpll_status_q(scpi_t *context)
     vdc_dpll_manager_get_dpll_status(&status);
 
     SCPI_ResultBool(context, status.ready ? TRUE : FALSE);
-    SCPI_ResultUInt32(context, status.state);
+    SCPI_ResultUInt32(context, scpi_sync_vdc_published_lock());
     SCPI_ResultUInt32(context, status.service_count);
     SCPI_ResultUInt32(context, status.first_service_ms);
     SCPI_ResultUInt32(context, status.last_service_ms);
@@ -1985,29 +1992,24 @@ scpi_result_t scpi_cmd_sync_vdc_lock_readiness_q(scpi_t *context)
             timestamp_source,
             timestamp_resolution_ns,
             timestamp_flags);
-    reason = scpi_sync_vdc_lock_readiness_reason(has_snapshot,
-                                                 has_snapshot ? &snapshot : NULL,
-                                                 &observer);
-    input_ready = has_snapshot &&
-                  (ring_input || sync_io_input) &&
-                  (ring_input ||
-                   (observer.dictionary_entry_count != 0u &&
-                    observer.dictionary_crc32 != 0u &&
-                    observer.dictionary_profile_crc32 ==
-                        snapshot.schedule.schedule_crc32)) &&
-                  timestamp_eligible &&
-                  snapshot.quality.accepted_sample_count != 0u &&
-                  snapshot.quality.last_reject_code == VDC_DOMAIN_GATE_PASS &&
-                  (ring_input ||
-                   observer.last_gate_reject_code == VDC_DOMAIN_GATE_PASS);
-    locked = has_snapshot &&
-             snapshot.dpll.state == VDC_DOMAIN_LOCK_LOCKED &&
-             input_ready;
+    /* HAOFV: the page reports the owner's declaration, it does not decide.
+     * vdc_dpll_manager_lock_verdict() is the single verdict - it keeps the
+     * historical ladder for a MASTER and covers the FOLLOWER role, whose lock is
+     * continuous adoption of the master's published event time rather than a
+     * local PI state (VDC_DOMAIN_TODO.md:24/:37). Wire format and the
+     * historical reason numbering are unchanged; the follower codes are
+     * appended. */
+    vdc_dpll_lock_verdict_t verdict;
+    memset(&verdict, 0, sizeof(verdict));
+    (void)vdc_dpll_manager_lock_verdict(&verdict);
+    reason = (scpi_sync_vdc_lock_readiness_reason_t)verdict.reason;
+    input_ready = verdict.input_ready != 0u;
+    locked = verdict.locked != 0u;
 
     SCPI_ResultBool(context, input_ready ? TRUE : FALSE);
     SCPI_ResultBool(context, locked ? TRUE : FALSE);
     SCPI_ResultUInt32(context, (uint32_t)reason);
-    SCPI_ResultUInt32(context, has_snapshot ? snapshot.dpll.state : 0u);
+    SCPI_ResultUInt32(context, scpi_sync_vdc_published_lock());
     SCPI_ResultUInt32(context, has_snapshot ? snapshot.quality.health_state : 0u);
     SCPI_ResultUInt32(context, has_snapshot ? snapshot.quality.accepted_sample_count : 0u);
     SCPI_ResultUInt32(context, has_snapshot ? snapshot.quality.rejected_sample_count : 0u);

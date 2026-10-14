@@ -26,7 +26,7 @@ CASES = ["match", "signed", "duplicate", "next", "full_sequence", "out_of_order"
     "binding_role", "binding_clock", "binding_rx_epoch", "binding_arm", "binding_observer",
     "binding_tick", "binding_path", "guard", "saturation", "request_session", "unserviced_stop_arm",
     "remote_generation_race", "remote_source_race", "remote_target_race", "event_applied_race",
-    "first_reject", "first_reject_lifecycle"]
+    "first_reject", "first_reject_lifecycle", "lock_stale"]
 
 
 @pytest.fixture(scope="module", params=[(6, False), (6, True), (8, False), (8, True)])
@@ -204,6 +204,9 @@ bool vdc_dpll_manager_project_timer1_feedback_event(uint32_t ses,uint32_t role,u
     if(action==13u)++out->model.applied_command_seq;
     return true;
 }
+/* The matcher stamps the follower lock word with the manager's TIMER1 clock. */
+static uint64_t fake_now_ns = UINT64_C(1000000000);
+static uint64_t vdc_dpll_manager_now_ns(void) { return fake_now_ns; }
 #define __atomic_load_n read_atomic
 #include "vdc_priority_match.inc"
 #undef __atomic_load_n
@@ -248,6 +251,11 @@ int main(int argc,char **argv)
         assert(out.raw_lo==1200u && out.raw_hi==1210u); /* Not latest LIVE or TX elapsed. */
         assert(out.local_lo==10100u && out.expected_lo==10082u && out.expected_hi==10089u);
         assert(out.residual_lo==11 && out.residual_hi==38);
+        /* One new match stamps the lock word: centre 24, width 27, first run. */
+        vdc_priority_lock_word_t lock;
+        assert(vdc_dpll_manager_get_priority_lock(&lock));
+        assert(lock.center_ns==24 && lock.width_ns==27u && lock.in_band_run==1u && !lock.locked);
+        assert(lock.last_match_ns==fake_now_ns && lock.event_sequence==out.event_sequence);
         assert(out.path_direction==VDC_PATH_DELAY_DIRECTION_MARKER_FORWARD);
         assert(out.path_qualification==VDC_PRIORITY_MATCH_PATH_PROVISIONAL_TRANSPOSE);
     } else if(!strcmp(mode,"signed")) {
@@ -269,11 +277,16 @@ int main(int argc,char **argv)
     } else if(!strcmp(mode,"bound_stop") || !strcmp(mode,"rx_retired")) {
         out=sample();ring.enabled=0u;if(!strcmp(mode,"rx_retired"))rx.active=0u;
         expect(VDC_PRIORITY_MATCH_STOP,true);ring.enabled=rx.active=1u;out=sample();assert(out.retired && out.matched==1u);
+        /* A retired observation can no longer prove tracking. */
+        vdc_priority_lock_word_t lock;
+        assert(vdc_dpll_manager_get_priority_lock(&lock) && !lock.last_match_ns && !lock.locked);
     } else if(!strcmp(mode,"fresh_request")) {
         out=sample();ring.enabled=0u;out=sample();assert(request(102u));rx.typed_record.binding_generation=102u;
         ring.enabled=1u;out=sample();assert(out.matched==1u && !out.retired && out.generation==102u);
     } else if(!strcmp(mode,"disable")) {
         out=sample();assert(request(0u));expect(VDC_PRIORITY_MATCH_DISABLED,true);
+        vdc_priority_lock_word_t lock;
+        assert(vdc_dpll_manager_get_priority_lock(&lock) && !lock.last_match_ns && !lock.locked);
     } else if(!strcmp(mode,"request_session")) {
         ++session;expect(VDC_PRIORITY_MATCH_BINDING,true);
     } else if(!strcmp(mode,"unserviced_stop_arm")) {
@@ -385,6 +398,34 @@ int main(int argc,char **argv)
         ring.enabled=1u;out=sample();assert(out.matched==1u && !out.first_reject_reason);
         assert(request(0u));out=sample();
         assert(out.last_reason==VDC_PRIORITY_MATCH_DISABLED && !out.first_reject_reason);
+    } else if(!strcmp(mode,"lock_stale")) {
+        /* VDC-LOCKPUB-001: consecutive in-band matches lock; when the source
+         * stops (same sequence repeated) past the window, Core1 itself clears
+         * the published word so a clockless realtime reader cannot keep it. */
+        vdc_priority_lock_word_t lock;
+        for(uint32_t i=0u;i<VDC_PRIORITY_LOCK_ENTER_COUNT;++i){
+            if(i){next();}
+            fake_now_ns+=1000000u;out=sample();assert(out.matched==i+1u);
+        }
+        assert(vdc_dpll_manager_get_priority_lock(&lock) && lock.locked && lock.in_band_run==VDC_PRIORITY_LOCK_ENTER_COUNT);
+        fake_now_ns+=VDC_PRIORITY_LOCK_STALE_NS;out=sample();assert(out.repeated==1u);
+        assert(vdc_dpll_manager_get_priority_lock(&lock) && lock.locked);
+        fake_now_ns+=1u;out=sample();
+        /* Cleared lock and runs; the last match time stays so readers can
+         * report STALE rather than "never observed". */
+        assert(vdc_dpll_manager_get_priority_lock(&lock) && !lock.locked && lock.last_match_ns &&
+               !lock.in_band_run && !lock.out_band_run);
+        const vdc_priority_lock_word_t aged = lock;
+        fake_now_ns+=1000000u;out=sample();
+        assert(vdc_dpll_manager_get_priority_lock(&lock) && !memcmp(&lock,&aged,sizeof(lock)));
+        /* The next new event restarts acquisition from one in-band run. */
+        next();fake_now_ns+=1000000u;out=sample();
+        assert(vdc_dpll_manager_get_priority_lock(&lock) && !lock.locked && lock.in_band_run==1u);
+        /* The lock word's own guard rejects a torn read and preserves *out. */
+        vdc_priority_lock_word_t sentinel;memset(&sentinel,0xa5,sizeof(sentinel));lock=sentinel;
+        assert(!vdc_dpll_manager_get_priority_lock(NULL));++s_priority_lock_guard;
+        assert(!vdc_dpll_manager_get_priority_lock(&lock) && !memcmp(&lock,&sentinel,sizeof(lock)));
+        ++s_priority_lock_guard;
     } else assert(!"unknown case");
     printf("snapshot=%zu workspace=%zu totalstatic=%zu match passed\n",sizeof(out),sizeof(s_priority_match_work),
         sizeof(s_priority_match_work)+sizeof(s_priority_match_words)+16u);

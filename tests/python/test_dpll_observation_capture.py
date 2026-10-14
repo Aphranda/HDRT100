@@ -87,7 +87,15 @@ def test_debug_admission_override_is_explicit_and_mailbox_bound() -> None:
     assert "vdc_domain_set_debug_continue" in manager
     assert "vdc_domain_debug_gate_recoverable" in domain
     assert "vdc_domain_record_debug_continue" in domain
-    assert "snapshot->dpll.debug_continue_enabled == 0u" in refmem
+    # The published lock bit is the VDC owner's declaration: the manager feeds
+    # the debug-continue state into its MASTER predicate, the predicate refuses
+    # it, and RefMem only projects the declared bit.
+    header = Path(
+        "components/vdc_dpll_manager/inc/vdc_dpll_manager.h"
+    ).read_text(encoding="utf-8")
+    assert "published->dpll.debug_continue_enabled" in manager
+    assert "debug_continue_enabled == 0u" in header
+    assert "snapshot->lock.locked" in refmem
 
 
 def test_trace_save_response_rejects_non_capture_tuple() -> None:

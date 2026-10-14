@@ -7,6 +7,9 @@
 static vdc_domain_snapshot_t s_published_snapshot;
 static uint32_t s_published_snapshot_guard;
 static bool s_published_snapshot_valid;
+/* The owner's lock declaration rides the same guard; the randomized bytes
+ * below are never a declared lock. */
+static vdc_dpll_lock_declaration_t s_published_lock;
 static unsigned loads, interfere;
 
 static uint32_t snapshot_load(const uint32_t *value, int order)

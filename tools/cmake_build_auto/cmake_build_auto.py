@@ -22,6 +22,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--build-dir", type=Path, default=Path("out/build/default"), help="CMake build directory")
     parser.add_argument("--force-configure", action="store_true", help="run cmake configure even if cache matches")
     parser.add_argument("--no-build", action="store_true", help="only configure, do not run cmake --build")
+    parser.add_argument("--build-id", default=None,
+                        help="set PROJECT_BUILD_ID (UTC YYYYMMDDHHMMSS) before building; the id is"
+                             " otherwise cached at configure time, so an incremental build keeps it")
     return parser.parse_args()
 
 
@@ -111,6 +114,12 @@ def main() -> int:
         run(command, root)
     else:
         print(f"configure=skip cache matches current root build_dir={build_dir}", flush=True)
+
+    if args.build_id:
+        # Re-run configure on the existing tree with the new cache value. Ninja sees
+        # the generator command line change and regenerates project_build_info only.
+        run(["cmake", "-S", str(root), "-B", str(build_dir),
+             f"-DPROJECT_BUILD_ID={args.build_id}"], root)
 
     if not args.no_build:
         # Parallel by default: Ninja already parallelizes, but an explicit

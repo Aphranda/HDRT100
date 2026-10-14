@@ -16,8 +16,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _function(source, name):
-    start = source.index(name + ")(")
-    start = source.rfind("\n", 0, source.rfind("\n", 0, start)) + 1
+    # Macro-wrapped time-critical helpers read "NAME)(", while a plain static
+    # helper reads "NAME("; both keep the signature's leading lines.
+    marker = name + ")("
+    plain = marker not in source
+    if plain:
+        marker = name + "("
+    start = source.index(marker)
+    if plain:
+        # A plain static helper: begin at its own 'static ...' line, whatever the
+        # comment length above it.
+        head = source.rfind("\nstatic ", 0, start)
+        start = (head + 1) if head != -1 else (
+            source.rfind("\n", 0, source.rfind("\n", 0, start)) + 1)
+    else:
+        start = source.rfind("\n", 0, source.rfind("\n", 0, start)) + 1
     brace = source.index("{", start)
     depth = 1
     end = brace + 1
@@ -34,6 +47,21 @@ def projection_exe(request, tmp_path_factory):
     refmem = (ROOT/"components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
     functions = _function(manager, "vdc_dpll_manager_get_vector_snapshot")
     functions += "\n#undef __atomic_load_n\n"
+    # The vector getter carries the owner's role-aware lock declaration. This
+    # projection test is about the legacy bytes and the qualification gate, so
+    # the declaration is stubbed; its own behaviour lives in
+    # test_vdc_lock_verdict.py.
+    functions += ("\nbool vdc_dpll_manager_lock_verdict(vdc_dpll_lock_verdict_t *out)\n"
+                  "{\n"
+                  "    if (out == NULL) {\n"
+                  "        return false;\n"
+                  "    }\n"
+                  "    *out = (vdc_dpll_lock_verdict_t){0};\n"
+                  "    return true;\n"
+                  "}\n")
+    # The vector writer projects the owner's lock declaration from the snapshot
+    # (s_published_lock in the C driver, never set here); the declaration rule
+    # itself lives in test_vdc_lock_verdict.py.
     for name in ["distributed_refmem_vector_hardware_evidence_valid",
                  "distributed_refmem_vector_flags",
                  "distributed_refmem_fill_vdc_vector_payload",

@@ -20,7 +20,7 @@ from test_vdc_priority_follow import domain_sources
 
 def definition(source, name):
     match = re.search(
-        rf"(?m)^(?:static\s+)?(?:bool|void|uint32_t)\s+"
+        rf"(?m)^(?:static\s+)?(?:bool|void|uint32_t|vdc_dpll_lock_declaration_t)\s+"
         rf"(?:__attribute__\(\([^\n]*\)\)\s+)?"
         rf"(?:[A-Z_]+\(\s*)?{name}\s*\)?\s*\([^;{{}}]*\)\s*\{{", source)
     assert match, name
@@ -51,6 +51,8 @@ def publication_exe(tmp_path_factory):
     source = PRELUDE.replace("HAVE_REVISION_VALUE", str(int(have_revision)))
     source += runtime_type.group() + "\n"
     source += definition(manager, "vdc_dpll_manager_publish_snapshot") + "\n"
+    # The owner's real declaration rule; the harness plays its Core1 commit.
+    source += definition(manager, "vdc_dpll_manager_lock_declaration") + "\n"
     source += INTERFERENCE
     for name in ("vdc_dpll_manager_get_runtime_snapshot",
                  "vdc_dpll_manager_get_vector_snapshot",
@@ -95,6 +97,7 @@ def publication_exe(tmp_path_factory):
     "lock_not_fine", "lock_quality_state", "lock_health_degraded", "lock_no_limit",
     "lock_no_sample", "lock_provisional", "lock_debug", "lock_recovery",
     "lock_healthy_but_expired", "lock_healthy_but_gate_rejected",
+    "lock_follower_gain_loss", "lock_follower_unchanged",
 ])
 def test_publication_consumers(publication_exe, scenario):
     result = subprocess.run([str(publication_exe), scenario], capture_output=True,
@@ -110,6 +113,7 @@ PRELUDE = r'''
 #include <stdlib.h>
 #include <string.h>
 #include "vdc_dpll_manager.h"
+#include "vdc_priority_match.h"
 #include "refmem_vector_table.h"
 /* Report negative controls without opening a Windows CRT abort dialog. */
 #undef assert
@@ -119,6 +123,25 @@ PRELUDE = r'''
 #define HAVE_REVISION HAVE_REVISION_VALUE
 #define VDC_DPLL_MANAGER_TIME_CRITICAL(name) name
 #define DISTRIBUTED_REFMEM_TIME_CRITICAL(name) name
+/* The vector getter carries the owner's role-aware lock declaration; this test
+ * is about publication generation, so the declaration itself is stubbed. The
+ * verdict's own behaviour is covered by test_vdc_lock_verdict.py. */
+bool vdc_dpll_manager_lock_verdict(vdc_dpll_lock_verdict_t *out)
+{
+    if (out == NULL) {
+        return false;
+    }
+    *out = (vdc_dpll_lock_verdict_t){0};
+    return true;
+}
+
+/* The VDC owner's lock declaration rides the snapshot guard. In firmware the
+ * Core1 DPLL service commits it; here commit_declaration() plays that owner
+ * with the real rule. MASTER by default; the follower scenarios move only the
+ * Core1 lock word, never the Domain snapshot. */
+static vdc_dpll_lock_declaration_t s_published_lock;
+static uint32_t owner_role = VDC_DPLL_CONTROL_MODE_MASTER;
+static vdc_priority_lock_word_t follower_lock;
 static vdc_domain_snapshot_t s_published_snapshot, replacement;
 static uint32_t s_published_snapshot_guard, s_published_dpll_update_seq;
 static bool s_published_snapshot_valid;
@@ -166,11 +189,26 @@ static vdc_domain_context_t domain;
 static uint32_t evidence_seq;
 static vdc_clock_model_t original_clock;
 
+/* The owner's Core1 commit: only a changed declaration is written, under the
+ * snapshot guard, so it moves the revision RefMem dedups on. */
+static void commit_declaration(void)
+{
+    const vdc_dpll_lock_declaration_t declaration =
+        vdc_dpll_manager_lock_declaration(owner_role, 7u, &follower_lock,
+            &s_published_snapshot, s_published_snapshot_valid);
+    if (declaration.locked == s_published_lock.locked &&
+        declaration.role == s_published_lock.role) return;
+    ++s_published_snapshot_guard;
+    s_published_lock = declaration;
+    ++s_published_snapshot_guard;
+}
+
 static void publish(void)
 {
     vdc_domain_snapshot_t snapshot;
     assert(vdc_domain_get_snapshot(&domain, &snapshot));
     vdc_dpll_manager_publish_snapshot(&snapshot);
+    commit_declaration();
 }
 
 static uint32_t hint(void)
@@ -325,15 +363,35 @@ static void check_quality_lock_publication(const char *name)
     } else if (!strcmp(name, "lock_healthy_but_gate_rejected")) {
         domain.gate.passed = 0u;
         assert(domain.quality.health_state == VDC_DOMAIN_HEALTH_HEALTHY);
-    } else if (!strcmp(name, "lock_invalid")) domain.quality.valid = 0u;
-    else if (!strcmp(name, "lock_not_fine")) domain.quality.lock_quality_tier = VDC_DOMAIN_LOCK_QUALITY_DEBUG_1US;
-    else if (!strcmp(name, "lock_quality_state")) domain.quality.lock_state = VDC_DOMAIN_LOCK_FREQ_LOCK;
-    else if (!strcmp(name, "lock_health_degraded")) domain.quality.health_state = VDC_DOMAIN_HEALTH_DEGRADED;
-    else if (!strcmp(name, "lock_no_limit")) domain.quality.freshness_limit_us = 0u;
-    else if (!strcmp(name, "lock_no_sample")) domain.quality.last_sample_time_ns = 0u;
-    else if (!strcmp(name, "lock_provisional")) domain.path_delay.flags |= VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY;
-    else if (!strcmp(name, "lock_debug")) domain.dpll.debug_continue_enabled = 1u;
-    else assert(!"unknown lock publication scenario");
+    } else if (!strcmp(name, "lock_invalid")) {
+        domain.quality.valid = 0u;
+    } else if (!strcmp(name, "lock_not_fine")) {
+        /* The tier is the master's internal acquisition process, not a published
+         * grade: it no longer gates the one-bit lock state (user, 2026-10-14). */
+        domain.quality.lock_quality_tier = VDC_DOMAIN_LOCK_QUALITY_DEBUG_1US;
+        locked = true;
+    } else if (!strcmp(name, "lock_quality_state")) {
+        domain.quality.lock_state = VDC_DOMAIN_LOCK_FREQ_LOCK;
+    } else if (!strcmp(name, "lock_health_degraded")) {
+        /* Health is not part of the published lock bit either; the stale/expired
+         * case below still is, because an aged sample is not a live lock. */
+        domain.quality.health_state = VDC_DOMAIN_HEALTH_DEGRADED;
+        locked = true;
+    } else if (!strcmp(name, "lock_no_limit")) {
+        domain.quality.freshness_limit_us = 0u;
+    } else if (!strcmp(name, "lock_no_sample")) {
+        domain.quality.last_sample_time_ns = 0u;
+    } else if (!strcmp(name, "lock_provisional")) {
+        /* Provisional (diagnostic path delay) is its own vector bit and must not
+         * suppress lock: that suppression is what made a locked bench publish as
+         * unlocked. */
+        domain.path_delay.flags |= VDC_PATH_DELAY_FLAG_DIAGNOSTIC_ONLY;
+        locked = true;
+    } else if (!strcmp(name, "lock_debug")) {
+        domain.dpll.debug_continue_enabled = 1u;
+    } else {
+        assert(!"unknown lock publication scenario");
+    }
     publish(); vectors(); check_lock_vectors(locked, 2u, &saved_dco);
     if (!strcmp(name, "lock_recovery")) {
         /* Model accepted evidence's timestamp AND age reset before the real
@@ -348,6 +406,31 @@ static void check_quality_lock_publication(const char *name)
     }
 }
 
+/* VDC-LOCKPUB-002: a FOLLOWER's declaration comes from the Core1 lock word and
+ * changes without any Domain publication. The owner's commit moves the revision,
+ * so both vectors follow it, one vector per beat; an unchanged declaration does
+ * not republish. */
+static void check_follower_lock_publication(const char *name)
+{
+    health_qualified_lock_fixture();
+    /* The follower's own ladder never locks (single PI on NO1). */
+    domain.dpll.state = VDC_DOMAIN_LOCK_CHECKING;
+    const vdc_dco_control_t saved_dco = domain.dco;
+    owner_role = VDC_DPLL_CONTROL_MODE_FOLLOWER;
+    follower_lock.locked = 0u;
+    publish(); vectors(); check_lock_vectors(false, 1u, &saved_dco);
+    if (!strcmp(name, "lock_follower_unchanged")) {
+        commit_declaration(); vectors(); vectors();
+        check_lock_vectors(false, 1u, &saved_dco);
+        return;
+    }
+    follower_lock.locked = 1u;
+    commit_declaration(); vectors(); check_lock_vectors(true, 2u, &saved_dco);
+    commit_declaration(); vectors(); check_lock_vectors(true, 2u, &saved_dco);
+    follower_lock.locked = 0u;
+    commit_declaration(); vectors(); check_lock_vectors(false, 3u, &saved_dco);
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
@@ -356,6 +439,10 @@ int main(int argc, char **argv)
     domain.dpll.update_seq = 17u;
     evidence_seq = domain.dpll.update_seq;
     original_clock = domain.clock;
+    if (!strncmp(argv[1], "lock_follower_", 14u)) {
+        check_follower_lock_publication(argv[1]);
+        puts("follower lock publication passed"); return 0;
+    }
     if (!strncmp(argv[1], "lock_", 5u)) {
         check_quality_lock_publication(argv[1]);
         puts("health-qualified lock publication passed"); return 0;

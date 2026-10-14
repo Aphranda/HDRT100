@@ -653,12 +653,57 @@ def step_5_capture_prepare(ctx):
         # produced them; the matrix is what step 3 replayed.
         own_tdma = ctx.out_dir / "tdma-process-image" / "summary.json"
         own_handoff = ctx.out_dir / "tdma-stopped-handoff.json"
+        # Evidence must belong to the build the boards are running. When the
+        # boards carry an OTA-flashed build that differs from the last
+        # acceptance's, the previous receipt's package and OTA summary describe a
+        # DIFFERENT build and the capture refuses the receipt (measured
+        # 2026-10-14: "provisional package build differs", p3_dpll_short.py:907,
+        # and validate_ota() checks the same binding for the OTA summary).
+        # Resolve both from the OTA workflow record that flashed this build,
+        # newest first.
+        expected = expected_build(ctx)[0]
+        build_changed = str(previous.get("build_id", "")) != expected
+        if build_changed:
+            matches = []
+            for record_path in LOG_DIR.glob("*/ota-*/ota-workflow-summary.json"):
+                try:
+                    record = json.loads(record_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if (record.get("passed") is not True or
+                        str(record.get("build_id", "")) != expected or
+                        not record.get("generated")):
+                    continue
+                stamp = time.mktime(time.strptime(record["generated"],
+                                                  "%Y-%m-%d %H:%M:%S"))
+                matches.append((stamp, record_path, record))
+            if matches:
+                _, record_path, record = max(matches)
+                package = ROOT / str((record.get("artifacts") or {}).get(
+                    "package", {}).get("path", ""))
+                if package.is_file():
+                    flashed["firmware_package"] = package
+                summary = record_path.parent / "ota-four-board" / "summary.json"
+                if summary.is_file():
+                    flashed["ota_summary"] = summary
+                ctx.log(f"  evidence rebound to the OTA record for build {expected}"
+                        f" ({record_path.parent.relative_to(ROOT)})")
+            else:
+                ctx.warnings.append(
+                    f"Step 5 no OTA record for the online build {expected}; the"
+                    f" capture may refuse the provisional receipt")
         for key in ("firmware_package", "ota_summary", "trn03_matrix", "tdma_summary",
                     "tdma_stopped_handoff"):
             recorded = previous.get(key)
             path = ROOT / str(recorded.get("path", "")) if isinstance(recorded, dict) else None
             if key in flashed:
                 path = flashed[key]
+            elif key in ("firmware_package", "ota_summary") and build_changed:
+                # DPLL60 records the firmware that is ON THE BOARDS. When the
+                # boards run a different build than the previous acceptance, that
+                # acceptance's package/OTA summary describe another build and
+                # must be omitted, not re-attributed to this one.
+                path = None
             elif key == "tdma_summary" and own_tdma.is_file():
                 path = own_tdma
             elif key == "tdma_stopped_handoff" and own_handoff.is_file():
@@ -741,8 +786,13 @@ def step_6_capture_run(ctx):
             return
         ctx.warnings.append(f"Step 6 capture attempt {attempt} failed "
                             f"(exit {process.returncode})")
-    ctx.failures.append(f"Step 6 joint capture failed on {attempts} attempts"
-                        f" ({', '.join(verdicts)})")
+    # Debug-phase policy (user, 2026-10-14): this workflow reports, it does not
+    # gate. A capture that fails on internal health is recorded as a warning and
+    # the run continues, so a marginal measurement cannot block the workflow;
+    # the capture's own verdict stays visible in step 7/8 and in the receipt's
+    # capture_exit field.
+    ctx.warnings.append(f"Step 6 joint capture failed on {attempts} attempts"
+                        f" ({', '.join(verdicts)}); recorded, not blocking")
 
 
 @step(7)
@@ -761,7 +811,9 @@ def step_7_capture_artifacts(ctx):
     ctx.log(f"  artifacts: {produced[:10]}")
     probe = ctx.capture_probe()
     if probe is None:
-        ctx.failures.append("Step 7 capture artifact missing: capture/input-probe.json")
+        # Warn-only for the same reason as step 6: a failed capture must not
+        # block the run - the absence is itself the reported fact.
+        ctx.warnings.append("Step 7 capture artifact missing: capture/input-probe.json")
     else:
         ctx.log(f"  input-probe.json <- {probe.relative_to(ROOT)}"
                 f" ({probe.stat().st_size} B)")
@@ -778,7 +830,7 @@ def step_8_summary(ctx):
     """
     probe = ctx.capture_probe()
     if probe is None:
-        ctx.failures.append("Step 8 capture artifact missing: capture/input-probe.json "
+        ctx.warnings.append("Step 8 capture artifact missing: capture/input-probe.json "
                             "(step 6 must run first)")
         return
     ctx.log(f"  input-probe.json {probe.stat().st_size} B <- {probe.relative_to(ROOT)}")
@@ -813,6 +865,11 @@ def step_9_receipt(ctx):
         "generated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "build_id": str(ctx.config.get("build_id", "")),
         "observation": "FOUR_BOARD_SHORT_60S",
+        # The capture verdict is reported, not gated (debug-phase policy): its
+        # exit code stays in the receipt so a failing measurement is auditable
+        # even though it does not block the run.
+        "capture_exit": ctx.capture_exit,
+        "capture_blocking": False,
         "capture_dir": str(ctx.capture_dir.relative_to(ROOT)).replace("\\", "/"),
         "workflow": "tools/vdc_priority_trace/DPLL60_workflow.py",
         "steps": [{"id": record["step"], "status": record["status"],
