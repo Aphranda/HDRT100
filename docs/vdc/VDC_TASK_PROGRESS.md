@@ -22,6 +22,20 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-008：DPLL 相位预算是**声明值不足**，非软浮点、非单点回归
+
+- **排除软浮点**：`components/vdc_domain/src/vdc_dpll_manager.c` 与 `vdc_domain.c` 内**没有任何 `double`/`float`**（链接脚本 wrap 的整套 `__aeabi_d*` 是项目标准清单，不是本路径的证据）。
+- **排除「④ 拍是重活」的猜测**：`vdc_domain_service()` 本体极小（计数 + 锁态迁移 + `refresh_quality_age`），不可能承担 5 万周期。
+- **预算算术（`config/project_config.h`）**：
+  `PROJECT_CORE1_PHASE_VDC_WCET_CYCLES = 42000 + PRIORITY_RX_PHASE`、
+  `PHASE_DPLL_WCET_CYCLES = 34000 + PRIORITY_RX_PHASE`、
+  `PHASE_REFMEM_WCET_CYCLES = 24000 + PRIORITY_RX_PHASE`，
+  其中 `PRIORITY_RX_PHASE_CYCLES = 2 × PRIORITY_RX_IRQ_CYCLES`、`PRIORITY_RX_IRQ_CYCLES = 2500`
+  ⇒ 与实测相位 wcet **47000 / 39000 / 29000** 逐一对上。
+- **结论（可执行）**：DPLL 相位**声明预算 39000**，而**实测常态（last）44714**（净额 39714 > 基数 34000，超 5714），**最大子段 `sync_dpll_fb_step` 单独即 46815–57480** ⇒ 该相位的声明 WCET **低于其实际最坏开销**，这是相位超预算、进而 VDC/REFMEM 丢期限与 `quarantined_mask` 粘性的直接原因；不是软浮点、也不是某个子服务的单点回归。
+- **可改方向（未选）**：① 提高 `PROJECT_CORE1_PHASE_DPLL_WCET_CYCLES` 基数（需核 `PROJECT_CORE1_DPLL_ENTRY_MARGIN_CYCLES=1000` 与后续相位链在 375000 周期内是否吃得下）；② 降低该相位每次调用的工作量（重拍移出 0.5 ms 节拍）；③ 重新审视该相位的执行节拍与其声明窗口的关系。三项都必须重新付预算一致性证据，且属固件改动（P3）。
+- **未核验**：未改任何预算或代码；未验证调整后 VDC/REFMEM 丢期限是否归零；探针为最大值保持，不含分布。
+
 ### VDC-PROGRESS-20261014-007：分段探针上线，DPLL 相位超预算归因到 `sync_dpll_fb_step` 单段
 
 - **改动（诊断，未提交）**：按用户「断点调」指示，复用 2026-10-13 给 origin 路径加探针的同一手法，为 `sync_dpll_fb_service()` 的 **15 个子服务**各加一个分段最大周期保持（Core1 SysTick），并**新增只读命令** `SYSTem:SYNC:VDC:DPLL:PHASe:PROBe?`（15 个 UInt32，追加式新增，不改任何既有页面/线格式）。探针数组放**主 RAM**：放 `SCRATCH_Y` 会溢出 64 字节并与 Core0 栈重叠（scratch Y 已零余量）。host harness `test_vdc_idle_maintenance.py` 同步补探针原语（它抽取该函数体单独编译）。
