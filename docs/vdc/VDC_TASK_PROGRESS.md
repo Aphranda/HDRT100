@@ -22,6 +22,14 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-004：否证「复位后未稳」假设；嫌疑转向 step 3 强制的 `--diagnostic-continue`
+
+- **实验**：`DPLL60_workflow.py --steps '0-2'`（含四板软件复位，OK）→ 等 **150 s** → `--step 3` 单独跑。
+- **结果（否证）**：step 3 **仍然 WARN 79.6 s**，`trn03 exit 1`、`realtime_gate=False closed_loop=False`，与复位后立即跑的结果一致。⇒ **`VDC-PROGRESS-20261014-003` 中「复位后未稳的窗口效应」假设不成立**，该门在此序列下是**系统性**失败（原文保留，以本条更正）。
+- **新首要嫌疑**：DPLL60 的 step 3 **强制** `--diagnostic-continue`，而失败 summary 同步出现 `dpll_debug_admission=true`；P3 的 step 24 在**非诊断模式**下用同一工具跑同一 stage 却为 OK（本轮与上一轮的 P3 运行均是）。其余差异：DPLL60 未传 `--startup-poll-interval-s`（落到默认 0.1）、强制 `--cancel-unsaved-record`。
+- **下一步（A/B，未执行）**：直接用 `trn03_closed_loop.py` 以 **P3 的旗标组合**（不带 `--diagnostic-continue`、带 `--startup-poll-interval-s`）跑同一 stage，与带 `--diagnostic-continue` 的一次对照；两者只在旗标上不同，可直接判定是否由诊断准入引起。
+- **未核验**：未执行该 A/B；未改动任何工具；`dpll_max_runtime_exceeded_wcet` 的语义（计数器增长 vs 真实越界）仍需该窗口的相位证据判定。
+
 ### VDC-PROGRESS-20261014-003：DPLL60 工作流失败的根因是 `dpll_schedule_gate`（复位后未稳）
 
 - **接续**：`VDC-PROGRESS-20261014-002` 把差异指向台架准备序列；本条把失败定位到**具体门**。
