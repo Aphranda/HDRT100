@@ -149,6 +149,27 @@ scpi_result_t scpi_cmd_tdma_event_snapshot_q(scpi_t *context)
     SCPI_ResultUInt32(context, evidence.ones_count);
     SCPI_ResultUInt32(context, evidence.refused);
     SCPI_ResultUInt32(context, evidence.last);
+    /* Sample-point identity (VDC-ISO-001): the observer's own capture geometry
+     * (prefix_bits) and the first raw sequence words it read, so the wire
+     * witness can be compared with the typed lane's frame sequence on the same
+     * run instead of inferred. Existing positions are unchanged. */
+    SCPI_ResultUInt32(context, s.prefix_bits);
+    SCPI_ResultUInt32(context, s.fifo_sequence_first);
+    SCPI_ResultUInt32(context, s.fifo_tx_first);
+    SCPI_ResultUInt32(context, s.fifo_rx_first);
+    SCPI_ResultUInt32(context, s.fifo_rx_second);
+    /* Exact-facade preconditions (VDC-ISO-001/T3), appended after the sample
+     * point so every earlier index is unchanged. Any of these being wrong is
+     * what makes the matcher's exact lookup answer RETIRED. */
+    SCPI_ResultUInt32(context, evidence.history_active);
+    SCPI_ResultUInt32(context, evidence.history_epoch);
+    SCPI_ResultUInt32(context, evidence.history_count);
+    SCPI_ResultUInt32(context, evidence.history_reason);
+    SCPI_ResultUInt32(context, evidence.observer_epoch);
+    SCPI_ResultUInt32(context, evidence.armed);
+    SCPI_ResultUInt32(context, evidence.arm_valid);
+    SCPI_ResultUInt32(context, evidence.arm_epoch_lo);
+    SCPI_ResultUInt32(context, evidence.live_epoch);
     return SCPI_RES_OK;
 }
 

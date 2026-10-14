@@ -174,8 +174,15 @@ bool vdc_dpll_manager_project_timer1_feedback_event(uint32_t ses,uint32_t role,u
     ++project_calls;
     assert(ses==session && role==model.role_generation && epoch==model.clock_epoch_id);
     assert(run==model.clock_run_id && local_slot==ring.local_slot_id && schedule==ring.schedule_crc32);
-    assert(tick==live.tick_hz && lo==exact.timer1_enable_before+exact.record.rx_elapsed_cycles);
-    assert(hi==exact.timer1_enable_after+exact.record.rx_elapsed_cycles);
+    /* The correlated observation is either the exact history copy or - when the
+     * typed number is out of the retained window (VDC-ISO-001) - the LIVE
+     * retained record; both borrow the same LIVE enable bracket. */
+    const uint64_t anchor_lo = exact.timer1_enable_before + exact.record.rx_elapsed_cycles;
+    const uint64_t anchor_hi = exact.timer1_enable_after + exact.record.rx_elapsed_cycles;
+    const uint64_t live_lo = live.timer1_enable_before + live.record.rx_elapsed_cycles;
+    const uint64_t live_hi = live.timer1_enable_after + live.record.rx_elapsed_cycles;
+    assert(tick==live.tick_hz);
+    assert((lo==anchor_lo && hi==anchor_hi) || (lo==live_lo && hi==live_hi));
     if(!project_ok)return false;
     memset(out,0,sizeof(*out));out->model=model;
 #ifdef MATCH_REAL_MAPPING
@@ -299,7 +306,11 @@ int main(int argc,char **argv)
         out=sample();assert(!out.matched && !out.retired && (out.busy+out.pending)==1u);
         exact_result=TDMA_EVENT_EXACT_OK;out=sample();assert(out.matched==1u && exact_calls==2u);
     } else if(!strcmp(mode,"evicted")) {
-        exact_result=TDMA_EVENT_EXACT_EVICTED;out=sample();assert(out.history_miss==1u && !out.superseded);
+        /* VDC-ISO-001: an out-of-window typed number now correlates with the LIVE
+         * retained observation (all epoch/arm/tick/bracket proofs still run)
+         * instead of skipping, so this is an anchor correlation, not a miss. */
+        exact_result=TDMA_EVENT_EXACT_EVICTED;out=sample();
+        assert(out.anchor_fallback==1u && out.matched==1u && !out.history_miss && !out.superseded);
     } else if(!strcmp(mode,"superseded")) {
         exact_result=TDMA_EVENT_EXACT_PENDING;out=sample();next();exact_result=TDMA_EVENT_EXACT_OK;
         out=sample();assert(out.superseded==1u && out.matched==1u && !out.history_miss);

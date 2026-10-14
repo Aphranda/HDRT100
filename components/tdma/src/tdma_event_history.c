@@ -113,8 +113,7 @@ bool tdma_event_history_append(tdma_event_history_t *history,
         history->count > TDMA_EVENT_HISTORY_CAPACITY ||
         history->next >= TDMA_EVENT_HISTORY_CAPACITY)
         return reject(history, TDMA_EVENT_HISTORY_BAD_ARGUMENT);
-    const uint64_t ordinal_limit = (uint64_t)UINT32_MAX + 1u;
-    if (history->accepted > ordinal_limit - count)
+    const uint64_t ordinal_limit = (uint64_t)UINT32_MAX + 1u;    if (history->accepted > ordinal_limit - count)
         return reject(history, TDMA_EVENT_HISTORY_BAD_ORDINAL);
     const uint64_t accepted = history->accepted + count;
     if (source_joined != accepted)
@@ -137,9 +136,19 @@ bool tdma_event_history_append(tdma_event_history_t *history,
             return reject(history, TDMA_EVENT_HISTORY_BAD_FLAGS);
         if ((uint64_t)record->ordinal != history->accepted + i)
             return reject(history, TDMA_EVENT_HISTORY_BAD_ORDINAL);
-        if ((history->accepted != 0u || i != 0u) &&
-            record->sequence != (uint32_t)(previous_sequence + UINT32_C(1)))
-            return reject(history, TDMA_EVENT_HISTORY_BAD_SEQUENCE);
+        if (history->accepted != 0u || i != 0u) {
+            /* Strictly forward. The observer's wire witness advances by one per
+             * accepted record while the wire is 1:1 with events and by more once
+             * TDMA-SEAT-01 shares it (VDC-ISO-001); a repeat or a backwards step
+             * still retires this history. All-zero and all-ones words carry no
+             * witness at all (an idle or gap read on the shared wire): they are
+             * ordered against the last real witness instead of retiring the
+             * whole history, which is what a follower must survive under load. */
+            if (record->sequence != 0u && record->sequence != UINT32_MAX) {
+                const int32_t step = (int32_t)(record->sequence - previous_sequence);
+                if (step <= 0) return reject(history, TDMA_EVENT_HISTORY_BAD_SEQUENCE);
+            }
+        }
         if (record->start_bounds.lo > record->start_bounds.hi ||
             record->start_bounds.lo < history->initial_start.lo ||
             record->start_bounds.hi > history->initial_start.hi)
@@ -151,7 +160,9 @@ bool tdma_event_history_append(tdma_event_history_t *history,
             return reject(history, TDMA_EVENT_HISTORY_BAD_TIME);
         previous_rx = record->rx_elapsed_cycles;
         previous_tx = record->tx_elapsed_cycles;
-        previous_sequence = record->sequence;
+        /* A no-witness word must not become the reference for later ordering. */
+        if (record->sequence != 0u && record->sequence != UINT32_MAX)
+            previous_sequence = record->sequence;
     }
 
     const uint32_t guard = history_write_begin(history);

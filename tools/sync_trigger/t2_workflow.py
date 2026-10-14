@@ -2273,6 +2273,26 @@ def step_17_lock_and_dynamic_start(ctx, slot, board, uid):
                           f" carriers {ready[34].strip()}"
                           f" unique {ready[35].strip()}"
                           f" dup {ready[36].strip()}", flush=True)
+                # Live matcher state (the matcher's own page requires STOP).
+                if len(ready) > 48:
+                    print(f"    match_live calls {ready[37].strip()}"
+                          f" matched {ready[38].strip()}"
+                          f" rejected {ready[39].strip()}"
+                          f" superseded {ready[40].strip()}"
+                          f" history_miss {ready[41].strip()}"
+                          f" pending {ready[42].strip()}"
+                          f" busy {ready[43].strip()}"
+                          f" last_reason {ready[44].strip()}"
+                          f" first_reject {ready[45].strip()}"
+                          f" history_result {ready[46].strip()}"
+                          f" anchor_fallback {ready[47].strip()}"
+                          f" have_match {ready[48].strip()}", flush=True)
+                if len(ready) > 53:
+                    print(f"    match_arm arm_epoch_lo {ready[49].strip()}"
+                          f" arm_epoch_hi {ready[50].strip()}"
+                          f" observer_epoch {ready[51].strip()}"
+                          f" tick_hz {ready[52].strip()}"
+                          f" session {ready[53].strip()}", flush=True)
                 # Which counter does the observer's witness actually track? Ring
                 # status carries the adapter's own up/down/ring sequences, and the
                 # RX page carries the carrier (frame) sequence of the typed lane.
@@ -2310,6 +2330,20 @@ def step_17_lock_and_dynamic_start(ctx, slot, board, uid):
                                 f" ones {event[22].strip()}"
                                 f" refused 0x{event[23].strip()}"
                                 f" last 0x{event[24].strip()}")
+                if len(event) > 28:
+                    evidence += (f" | sample_point prefix_bits {event[25].strip()}"
+                                 f" seq_first 0x{event[26].strip()}"
+                                 f" tx_first 0x{event[27].strip()}"
+                                 f" rx_first 0x{event[28].strip()}")
+                if len(event) > 37:
+                    evidence += (f" | facade history_active {event[30].strip()}"
+                                 f" hist_epoch {event[31].strip()}"
+                                 f" hist_count {event[32].strip()}"
+                                 f" hist_reason {event[33].strip()}"
+                                 f" obs_epoch {event[34].strip()}"
+                                 f" armed {event[35].strip()}"
+                                 f" arm_valid {event[36].strip()}"
+                                 f" arm_epoch {event[37].strip()}")
                 print(f"    event_live state {event[1].strip()}"
                       f" reason {event[2].strip()} epoch {event[3].strip()}"
                       f" joined {event[4].strip()} published {event[5].strip()}"

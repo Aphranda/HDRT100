@@ -346,7 +346,16 @@ static bool tdma_pio_spi_phys_event_sequence_copy(
         .zero_count = evidence.zero_count,
         .ones_count = evidence.ones_count,
         .refused = evidence.refused,
-        .last = evidence.last
+        .last = evidence.last,
+        .history_active = s_tdma_event_history.active ? 1u : 0u,
+        .history_epoch = s_tdma_event_history.epoch,
+        .history_count = s_tdma_event_history.count,
+        .history_reason = (uint32_t)s_tdma_event_history.reason,
+        .observer_epoch = s_tdma_event_observer.epoch,
+        .armed = phys->armed ? 1u : 0u,
+        .arm_valid = s_tdma_pio_spi_rx_arm_valid ? 1u : 0u,
+        .arm_epoch_lo = (uint32_t)s_tdma_pio_spi_rx_arm_epoch,
+        .live_epoch = 0u
     };
     return true;
 }

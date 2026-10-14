@@ -73,11 +73,14 @@ int main(void)
     ring.adapter_started=0;snapshot_ok=false;
     assert(scpi_cmd_vdc_priority_match_status_q(&c)==SCPI_RES_ERR && results==0 && gets==1);
     snapshot_ok=true;
-    assert(scpi_cmd_vdc_priority_match_status_q(&c)==SCPI_RES_OK && results==63 && gets==2);
+    assert(scpi_cmd_vdc_priority_match_status_q(&c)==SCPI_RES_OK && results==64 && gets==2);
     assert(fields[0]==1 && fields[1]==42 && fields[2]==1);
     assert(fields[38]==0x9abcdef0 && fields[39]==0x12345678);
     assert(fields[58]==0 && fields[59]==0x80000000 && fields[60]==UINT32_MAX && fields[61]==UINT32_MAX);
     assert(fields[62]==6);
+    /* Anchor correlation count (VDC-ISO-001), appended after first_reject_reason
+     * so every earlier index stays put. */
+    assert(fields[63]==0);
     results=0;parameter=0;
     assert(scpi_cmd_vdc_priority_match(&c)==SCPI_RES_OK && fields[0]==0 && generation==0);
     return 0;

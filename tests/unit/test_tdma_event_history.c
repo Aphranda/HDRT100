@@ -166,20 +166,39 @@ static void test_incomplete_batches(void)
 
 static void test_bad_epoch_ordinal_and_sequence(void)
 {
+    /* Repeated and backwards sequences still retire the history; a forward gap
+     * is accepted because the wire witness advances by more than one once
+     * TDMA-SEAT-01 shares the wire (VDC-ISO-001). */
     const tdma_event_history_reason_t expected[] = {
         TDMA_EVENT_HISTORY_BAD_EPOCH, TDMA_EVENT_HISTORY_BAD_ORDINAL,
         TDMA_EVENT_HISTORY_BAD_SEQUENCE, TDMA_EVENT_HISTORY_BAD_SEQUENCE
     };
-    for (uint32_t bad = 0u; bad < 4u; ++bad) {
+    for (uint32_t bad = 0u; bad < 3u; ++bad) {
         tdma_event_history_t history = started();
         tdma_event_record_t input[2] = {record(0u, 1u), record(1u, 2u)};
         if (bad == 0u) input[1].epoch = 2u;
         if (bad == 1u) input[1].ordinal = 2u;
         if (bad == 2u) input[1].sequence = 1u;
-        if (bad == 3u) input[1].sequence = 3u;
         assert(!tdma_event_history_append(&history, input, 2u, 2u));
         assert(history.accepted == 0u);
         assert_retired(&history, expected[bad]);
+    }
+    {
+        tdma_event_history_t history = started();
+        tdma_event_record_t input[3] = {record(0u, 1u), record(1u, 2u), record(2u, 3u)};
+        input[1].sequence = 3u;
+        input[2].sequence = 9u;
+        assert(tdma_event_history_append(&history, input, 3u, 3u));
+        assert(history.accepted == 3u && history.active);
+        tdma_event_record_t out;
+        assert(tdma_event_history_lookup(&history, history.epoch, 9u, &out));
+        assert(out.ordinal == 2u);
+    }
+    {
+        tdma_event_history_t history = started();
+        tdma_event_record_t input[2] = {record(0u, 5u), record(1u, 4u)};
+        assert(!tdma_event_history_append(&history, input, 2u, 2u));
+        assert_retired(&history, TDMA_EVENT_HISTORY_BAD_SEQUENCE);
     }
 }
 

@@ -1478,6 +1478,9 @@ scpi_result_t scpi_cmd_vdc_priority_match_status_q(scpi_t *context)
     scpi_sync_result_u64_parts(context, (uint64_t)s.residual_hi);
     /* Appended trailer: keeps every existing field index stable. */
     SCPI_ResultUInt32(context, s.first_reject_reason);
+    /* Anchor correlation count (VDC-ISO-001), appended after the trailer so no
+     * previously published index moves. */
+    SCPI_ResultUInt32(context, s.anchor_fallback);
     return SCPI_RES_OK;
 }
 
@@ -2063,6 +2066,37 @@ scpi_result_t scpi_cmd_sync_vdc_lock_readiness_q(scpi_t *context)
     SCPI_ResultUInt32(context, rx_witness.carrier_count);
     SCPI_ResultUInt32(context, rx_witness.unique_count);
     SCPI_ResultUInt32(context, rx_witness.duplicate_count);
+    /* Live matcher rejection state (VDC-ISO-001/T3). The matcher's own status
+     * page requires STOP, so a running follower could not be diagnosed from it;
+     * these are the same published words, read live, so the rejecting
+     * precondition is nameable inside the T2 window. Appended: existing
+     * positions are unchanged. */
+    vdc_priority_match_snapshot_t match_witness;
+    memset(&match_witness, 0, sizeof(match_witness));
+    if (vdc_dpll_manager_get_priority_match(&match_witness)) {
+        SCPI_ResultUInt32(context, match_witness.calls);
+        SCPI_ResultUInt32(context, match_witness.matched);
+        SCPI_ResultUInt32(context, match_witness.rejected);
+        SCPI_ResultUInt32(context, match_witness.superseded);
+        SCPI_ResultUInt32(context, match_witness.history_miss);
+        SCPI_ResultUInt32(context, match_witness.pending);
+        SCPI_ResultUInt32(context, match_witness.busy);
+        SCPI_ResultUInt32(context, match_witness.last_reason);
+        SCPI_ResultUInt32(context, match_witness.first_reject_reason);
+        SCPI_ResultUInt32(context, match_witness.history_result);
+        SCPI_ResultUInt32(context, match_witness.anchor_fallback);
+        SCPI_ResultUInt32(context, match_witness.have_match);
+        /* The arm/epoch the matcher itself hands to the exact facade: RETIRED
+         * means one of these disagrees with the TDMA side, so both sides are
+         * readable live in the same window (VDC-ISO-001/T3). Appended last. */
+        SCPI_ResultUInt32(context, (uint32_t)match_witness.arm_epoch);
+        SCPI_ResultUInt32(context, (uint32_t)(match_witness.arm_epoch >> 32u));
+        SCPI_ResultUInt32(context, match_witness.observer_epoch);
+        SCPI_ResultUInt32(context, match_witness.tick_hz);
+        SCPI_ResultUInt32(context, match_witness.session);
+    } else {
+        for (size_t i = 0u; i < 17u; ++i) SCPI_ResultUInt32(context, 0u);
+    }
     return SCPI_RES_OK;
 }
 

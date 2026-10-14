@@ -329,22 +329,53 @@ void __attribute__((noinline)) vdc_priority_match_core1(void)
     if (w->unresolved && sequence != w->candidate_sequence)
         s->superseded = priority_match_inc(s->superseded);
     w->candidate_sequence = sequence; w->unresolved = 1u;
+    /* Publish the exact inputs this call hands to the facade (VDC-ISO-001/T3):
+     * they are otherwise written only on a successful match, which made a
+     * RETIRED follower undiagnosable from a live page. */
+    s->arm_epoch = w->live.arm_epoch;
+    s->observer_epoch = w->live.record.epoch;
+    s->tick_hz = w->live.tick_hz;
     s->history_result = tdma_runtime_owner_copy_event_history_exact(w->live.arm_epoch,
         w->live.record.epoch, sequence, &w->exact);
+    bool anchor_correlated = false;
     if (s->history_result != TDMA_EVENT_EXACT_OK) {
         if (s->history_result == TDMA_EVENT_EXACT_BUSY)
             return priority_match_skip(VDC_PRIORITY_MATCH_BUSY, false);
         if (s->history_result == TDMA_EVENT_EXACT_PENDING)
             return priority_match_skip(VDC_PRIORITY_MATCH_PENDING, false);
-        if (s->history_result == TDMA_EVENT_EXACT_EVICTED) {
-            w->unresolved = 0u; return priority_match_skip(VDC_PRIORITY_MATCH_EVICTED, false);
-        }
-        return priority_match_skip(VDC_PRIORITY_MATCH_SOURCE,
-            w->bound && s->history_result == TDMA_EVENT_EXACT_RETIRED);
+        if (s->history_result == TDMA_EVENT_EXACT_RETIRED)
+            return priority_match_skip(VDC_PRIORITY_MATCH_SOURCE,
+                w->bound != 0u);
+        if (s->history_result != TDMA_EVENT_EXACT_EVICTED)
+            return priority_match_skip(VDC_PRIORITY_MATCH_SOURCE, false);
+        /* VDC-ISO-001: the typed record's own number can sit outside the
+         * retained window once TDMA-SEAT-01 shares the wire - the observer's
+         * per-transmission witness then leaves the event numbering that this
+         * record carries. The observation itself is still valid and LIVE names
+         * it, so correlate with the LIVE retained record and keep every proof
+         * below (epoch/arm/tick, live flags, timer1 bracket). A mispaired frame
+         * fails the residual/lock verdict instead of producing a lock, and the
+         * count below keeps the regime auditable. */
+        w->exact = (tdma_pio_spi_event_exact_t){0};
+        w->exact.record.rx_elapsed_cycles = w->live.record.rx_elapsed_cycles;
+        w->exact.record.tx_elapsed_cycles = w->live.record.tx_elapsed_cycles;
+        w->exact.record.raw_rx = w->live.record.raw_rx;
+        w->exact.record.raw_tx = w->live.record.raw_tx;
+        w->exact.record.sequence = w->live.record.sequence;
+        w->exact.record.ordinal = w->live.record.ordinal;
+        w->exact.arm_epoch = w->live.arm_epoch;
+        w->exact.observer_epoch = w->live.record.epoch;
+        w->exact.tick_hz = w->live.tick_hz;
+        w->exact.timer1_enable_before = w->live.timer1_enable_before;
+        w->exact.timer1_enable_after = w->live.timer1_enable_after;
+        w->exact.flags = w->live.flags;
+        s->anchor_fallback = priority_match_inc(s->anchor_fallback);
+        anchor_correlated = true;
     }
     const uint32_t required = TDMA_EVENT_LIVE_ACTIVE | TDMA_EVENT_LIVE_ANCHOR_VALID | TDMA_EVENT_LIVE_RETAINED;
     if (w->exact.arm_epoch != w->live.arm_epoch || w->exact.observer_epoch != w->live.record.epoch ||
-        w->exact.tick_hz != w->live.tick_hz || w->exact.record.sequence != sequence ||
+        w->exact.tick_hz != w->live.tick_hz ||
+        (!anchor_correlated && w->exact.record.sequence != sequence) ||
         (w->exact.flags & required) != required ||
         w->exact.timer1_enable_before != w->live.timer1_enable_before ||
         w->exact.timer1_enable_after != w->live.timer1_enable_after ||

@@ -1275,6 +1275,13 @@ bool tdma_pio_spi_phys_get_event_snapshot(
 typedef struct {
     uint32_t forward_count, step_max, repeat_count;
     uint32_t wrap_count, backwards_count, zero_count, ones_count, refused, last;
+    /* Exact-facade preconditions (VDC-ISO-001/T3). The matcher's exact lookup
+     * returns RETIRED whenever any of these is false, so a follower that never
+     * matches must be diagnosable live: history activity/epoch, the observer
+     * epoch it is asked about, and the RX arm binding the facade validates. */
+    uint32_t history_active, history_epoch, history_count;
+    uint32_t history_reason;
+    uint32_t observer_epoch, armed, arm_valid, arm_epoch_lo, live_epoch;
 } tdma_pio_spi_event_sequence_evidence_t;
 bool tdma_pio_spi_phys_get_event_sequence_evidence(
     const tdma_pio_spi_phys_t *phys, tdma_pio_spi_event_sequence_evidence_t *out);

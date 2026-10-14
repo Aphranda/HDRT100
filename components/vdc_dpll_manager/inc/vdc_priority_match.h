@@ -43,6 +43,15 @@ typedef struct {
      * arming/teardown, not an observation failure. Appended last so every
      * existing snapshot and SCPI field index is unchanged. */
     uint32_t first_reject_reason;
+    /* Anchor correlation (VDC-ISO-001): when the typed record's own number is
+     * outside the retained history window - which happens once TDMA-SEAT-01
+     * shares the wire and the observer's per-transmission witness leaves the
+     * event numbering - the matcher correlates the record with the LIVE
+     * retained observation instead of skipping. Every epoch/arm/tick/bracket
+     * check still runs, so a mispaired frame fails the residual/lock tests
+     * rather than producing a lock. Counted so the regime stays visible.
+     * Appended last: every existing index is unchanged. */
+    uint32_t anchor_fallback;
 } vdc_priority_match_snapshot_t;
 
 /* Core0, stopped metadata gate; nonzero requires an existing feedback session
