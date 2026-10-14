@@ -154,16 +154,54 @@ class Context:
         return completed.returncode, path
 
 
+def online_builds(ctx):
+    """The build each bench board reports right now, read once per run."""
+    cached = getattr(ctx, "online_builds_cache", None)
+    if cached is not None:
+        return cached
+    result = {}
+    try:
+        sys.path.insert(0, str(ROOT / "tools" / "hardware_acceptance"))
+        import p3_hardware_acceptance as acceptance                        # noqa: PLC0415
+        timing = acceptance.acceptance_timing(
+            {"timing": dict(acceptance.DEFAULT_ACCEPTANCE_TIMING)})
+        result = acceptance.read_online_builds(list(BENCH_BOARDS), timing)
+    except Exception as exc:                                              # noqa: BLE001
+        ctx.log(f"  online build read unavailable: {type(exc).__name__}: {exc}")
+    ctx.online_builds_cache = result
+    return result
+
+
 def expected_build(ctx):
-    """The build the boards should be running, and where that expectation came from.
+    """The build the boards are running, taken from the boards themselves.
+
+    This workflow verifies the firmware that is flashed right now: it neither
+    builds nor flashes, so the expectation comes from the hardware and not from
+    build records. Record archaeology is what used to break it - an interrupted
+    acceptance leaves the provisional receipt (HAOFV_P3_JOINT_PROVISIONAL_V1)
+    in config/hardware_acceptance/, the old resolver deliberately ignored that
+    schema and then fell back to the newest OTA flash record, and step 2 refused
+    the reset while all four boards were already running the current build
+    (measured: refused for 20261013132342 while the boards ran 20261014031725).
+    """
+    online = online_builds(ctx)
+    builds = sorted({value for value in online.values() if value})
+    if len(builds) == 1:
+        return builds[0], "online boards"
+    if len(builds) > 1:
+        # Not an expectation to compare against: let the consumer fail loudly.
+        ctx.log(f"  online boards report mixed builds: {', '.join(builds)}")
+        return ", ".join(builds), "online boards (mixed)"
+    return record_build(ctx)
+
+
+def record_build(ctx):
+    """Fallback expectation when the boards cannot be read over serial.
 
     The bench config wins when it names one. Otherwise the newest passing
-    tools/ota/OTA_workflow.py record is used when it is newer than the receipt: that
-    record is what was just flashed and read back online, while the receipt still
-    names the build of the last acceptance (measured: OTA flashed 20261010050916 and
-    the receipt still said 20261012072310, so step 2 refused the reset and step 3 ran
-    TDMA against the wrong --expected-build). PROJECT_BUILD_ID is cached per build
-    directory, so different build directories carry different ids for one source.
+    tools/ota/OTA_workflow.py record is used when it is newer than the receipt.
+    Only reached when online discovery failed, so a stale value here cannot
+    block a healthy bench.
     """
     configured = str(ctx.config.get("build_id") or "")
     if configured:
@@ -334,7 +372,8 @@ def step_2_reset(ctx):
         expected, source = expected_build(ctx)
         ctx.log(f"  expected build: {expected or '(unknown)'} (from {source})")
         if not expected:
-            ctx.failures.append("Step 2 no expected build id (bench config or receipt)")
+            ctx.failures.append("Step 2 no expected build id (online boards and "
+                                "no bench-config/receipt fallback)")
             return
         timing = acceptance.acceptance_timing(
             {"timing": dict(acceptance.DEFAULT_ACCEPTANCE_TIMING)})
