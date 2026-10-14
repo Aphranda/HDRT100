@@ -22,6 +22,17 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-046：T3 基础件修复已提交（P3 凭证）；负载开/关对照锁定"见证↔帧身份"失配
+
+- TODO task ID：`VDC-ISO-001`（T3 修复闭环 + 下一层根因）、`TDMA-ISO-002`（轮换不削减特等 cadence 的反证）。值为 2026-10-15 实验快照，非产品事实源。
+- **已提交（`c286228f`，全项 P3 PASS、凭证 build `20261014162759`）**：观测者线序语义按用户口径收窄——前进跳号（`sequence_forward_count`/`step_max`）与 `0x00000000`/`0xFFFFFFFF` 哨兵字（`sequence_zero_count`/`ones_count`）只作有界证据，重复/后退仍为可恢复拒绝，**ordinal 检查保持致命**；证据经有界只读访问器暴露（不改已发布快照布局）；`EVENt:SNAPshot?` 追加 9 个证据字段；`LOCK:READiness?` 追加 typed 车道身份对；T2 工具新增 `typed_lane`/`ring_seq`/`event_live`/`live_evidence`/速率差值读数；单元测试按新语义改写。实机：三从 `state 1 (ACTIVE)`、`reason 0`、`joined` 72.1–74.9 千（修复前 88–108 即 INVALID）。
+- **负载开/关对照（同固件、同一批读数）**：
+  - load **off**（DPLL60 采集 `out/HardwareAcceptance/20261015/hawf-002747/…/capture/actions.jsonl`）：三从 `joined 62679 / last 62680 / source_event 62677 / carrier 62680`——**四者一致**，`matched 9148/8932/9321` ✓。
+  - load **on**（T2 `out/tdma_t2/steps-20261015-001650.log`）：三从 `joined ≈72.1–74.9 千 / last ≈46.7 万 / source_event ≈7.17 万 / carrier ≈7.17 万`——**见证与帧/事件编号相差约 6.5 倍**，`matched 0`、`history_result 4 (EVICTED)`。
+  - ⇒ 负载在位时导线上"一次传输 ≠ 一个事件"（一等席共享导线），而观测者见证取自逐传输计数的字段；匹配器却用源事件序号去查按见证索引、深度 16 的事件历史 ⇒ 恒 EVICTED。**这是 T2 跑通的剩余闸门**（编号口径统一），与观测者语义无关——后者的用户口径修复已闭环。
+  - 反证 `TDMA-ISO-002`：负载下 typed 车道的 `carrier`/`source_event` 仍与 `joined` 1:1（7.17 万 vs 7.21 万），**特等 cadence 未被轮换削减**；被抬高的只是逐传输见证，不是事件节拍。
+- **下一 gate**：统一事件身份口径——让事件历史的索引等于"承载该事件那一帧"的序号（从 RX/transport 侧取得，或让 typed payload 携带帧序号），使负载在位时匹配器仍能精确关联；随后进入刷写→T2 验证循环直至 step 17 转绿。
+
 ### VDC-PROGRESS-20261015-045：T2 失配根因指名——历史按"线序见证"索引，而 typed 车道身份是"源事件序号"（负载下相差约 6.5 倍）
 
 - TODO task ID：`VDC-ISO-001`（T3 第二层根因）、`TDMA-ISO-002`（轮换共线）。值为 2026-10-15 实验快照，非产品事实源。
