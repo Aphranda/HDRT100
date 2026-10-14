@@ -4,7 +4,7 @@ Status: Active
 Domain: INTERFACE
 Canonical: `docs/interface/SCPI_HOST_TODO.md`
 Related: `docs/interface/SCPI_HOST_ARCHITECTURE.md`, `docs/interface/SCPI_HOST_TASK_PROGRESS.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-10-13
+Last updated: 2026-10-14
 
 ## 任务表
 
@@ -12,9 +12,10 @@ Last updated: 2026-10-13
 |---|---|---|---|
 | IF-001 | 冻结“单串口 + 其余板卡经 RefMem 分布式控制”的**会话与寻址**语义 | PENDING | 用户 2026-10-13 指定拓扑 |
 | IF-002 | 定义**命令转发与应答**规则（参考/forward 节点） | PENDING | 与 T2-AUDIT-08 同源；登记前需 C11 |
-
-> 来源（2026-10-13，用户裁定）：“后续只有一个串口连接到 PC，其他板卡都用 REFMEM 进行分布式控制”。本项曾以 `T2-AUDIT-08` 形式误归于 T2 待办，现已移回本域；T2 待办仅保留指针。
 | IF-003 | 明确**隔离与权限**：哪些命令允许跨板、哪些仅本板 | PENDING | 基于实测的 4 条节点作用域命令 |
+| IF-004 | 冻结**命令拒绝的应答语义**：处理器返回 `SCPI_RES_ERR` 时，主机侧应当能观测到什么 | PENDING | 实测缺口：拒绝时不应答，主机只能等到超时；证据见 `SCPI_HOST_TASK_PROGRESS.md`；登记前需 C11 |
+
+> 来源（2026-10-13，用户裁定）：“后续只有一个串口连接到 PC，其他板卡都用 REFMEM 进行分布式控制”。IF-002 曾以 `T2-AUDIT-08` 形式误归于 T2 待办，现已移回本域；T2 待办仅保留指针。
 
 ## 决策输入（IF-002）
 
@@ -22,6 +23,27 @@ Last updated: 2026-10-13
 |---|---|---|
 | 转发实现 | (a) SCPI 层透明转发 | 需定寻址/应答/超时/权限/幂等；偏离 SCPI 现有边界 |
 |  | **(b) RefMem 控制意图 + delta（推荐）** | 保持命令本板作用域；由参考节点写控制意图，经既有 node-load sync 帧分发，各板本地 apply |
+
+## 决策输入（IF-004）
+
+**现象（代码锚点）**：处理器拒绝时调用 `scpi_port_push_exec_error(context, "<名称>")` 并 `return SCPI_RES_ERR`。
+实测该路径**不回任何应答**，且压入的名称**不进入队列消息**（`SYSTem:ERR?` 只回通用文本）。
+
+**对主机侧契约的含义**：
+
+- 「处理器拒绝」与「传输超时」在主机侧**不可区分**——两者都表现为读不到应答；
+- 每次拒绝都要付出一个完整的 `serial_timeout_s`（键见 `config/hardware_acceptance/p3_bench.json`），批量命令下不可接受；
+- 依赖 `SYSTem:ERR?` 归因的客户端会把拒绝读成超时（P3 验收 step 17 即因此整行作废）。
+
+| 项 | 选项 | 说明 |
+|---|---|---|
+| 拒绝的可观测性 | (a) 拒绝时回一个定义好的否定应答（错误码 + 名称） | 主机无需依赖超时即可归因；改变现有 wire 行为，需评估既有工具 |
+|  | (b) 把 `scpi_port_push_exec_error` 的名称带进队列消息 | 改动最小；仍要求主机读队列，且仍要等超时 |
+|  | (c) 明确「拒绝静默」为**约定**，主机侧以 `*CLS` + `SYSTem:ERR?` 为准 | 零 wire 改动；需在架构文档写出，并让工具统一采用 |
+
+**判据**：主机在不依赖超时的前提下，能区分「处理器拒绝」与「传输超时」，并拿到处理器声明的原因。
+
+**流程**：若冻结为条款，按 `docs/check/DOCS_REGRESSION_PLAN.md` 登记 `docs/check/DOCS_REGISTRY.md` 并走 C11（禁自审自批）。
 
 ## 状态词汇
 
