@@ -2298,6 +2298,19 @@ def step_17_lock_and_dynamic_start(ctx, slot, board, uid):
                       f" ts_flags {origin[19].strip()}", flush=True)
             else:
                 print(f"    origin_live <unavailable> {','.join(origin)[:80]}", flush=True)
+            # Live seat counters (TDMA-SEAT-01): the fast path's opportunities and
+            # which seat boarded. This page has no stopped gate, so it separates
+            # "the priority branch was never reached" (opportunities 0) from "it
+            # ran but only the load's first-class seat boarded" (SEAT-01).
+            seat = ctx.send(member, "SYSTem:TDMA:SEAT:COUNters?").split(",")
+            if len(seat) > 11:
+                print(f"    seat_live opportunities {seat[0].strip()}"
+                      f" priority {seat[1].strip()} first_class {seat[2].strip()}"
+                      f" yield {seat[3].strip()} fc_reject {seat[4].strip()}"
+                      f" fc_wait_max {seat[5].strip()} fc_deferred {seat[11].strip()}"
+                      f" starved {seat[9].strip()}/{seat[10].strip()}", flush=True)
+            else:
+                print(f"    seat_live <unavailable> {','.join(seat)[:80]}", flush=True)
         missing = [f"{uid:016X}" for uid, _s, _i, _o, _f in ROWS if uid not in locked]
         ctx.failures.append(f"Step 17 not locked on {missing}")
         ctx.lock_failed = True
@@ -2580,6 +2593,36 @@ def step_20_sampling(ctx, slot, board, uid):
             state = ctx.send(member, "TRIGger:REServation:T2?").split(",")
             position = ctx.send(member, "SYSTem:REFMEM:SYNC:FLIGHT:POSition?")
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
+            # Rate evidence, not absolutes (VDC-ISO-001/T3): the seat and match
+            # counters are cumulative since boot, so a single read cannot say
+            # whether *this* load window publishes/observes. Sample the first and
+            # the last tick and report the delta.
+            seat = ctx.send(member, "SYSTem:TDMA:SEAT:COUNters?").split(",")
+            match = ctx.send(member, "SYSTem:VDC:PRIORity:MATCH:STATus?").split(",")
+            rx = ctx.send(member, "SYSTem:VDC:PRIORity:RX?").split(",")
+            sample = {
+                "seat": [f.strip() for f in seat[:3]],
+                "match_calls": match[5].strip() if len(match) > 5 else "?",
+                "match_matched": match[6].strip() if len(match) > 6 else "?",
+                "rx_accept": rx[5].strip() if len(rx) > 5 else "?",
+            }
+            first = getattr(ctx, "_rate_first", None)
+            if first is None:
+                ctx._rate_first = {uid_r: sample}
+            else:
+                first = first.setdefault(uid_r, sample)
+                if tick == 4:
+                    def delta(key):
+                        try:
+                            return int(sample[key]) - int(first[key])
+                        except (TypeError, ValueError):
+                            return "?"
+                    seat_delta = [f"{int(b) - int(a)}" if a.isdigit() and b.isdigit() else "?"
+                                  for a, b in zip(first["seat"], sample["seat"])]
+                    print(f"    rate slot {slot_r} over sampling:"
+                          f" seat opp/pri/fc {seat_delta}"
+                          f" match calls/matched {delta('match_calls')}/{delta('match_matched')}"
+                          f" rx_accept {delta('rx_accept')}", flush=True)
             # Realtime health of the SYNC_TRIGGER load on every sample: a quarantined bit 6
             # stops the T2 service, the cursor and the counter read together (measured
             # t2-20261012-093219: count/cursor seq/sync_seq all frozen 2 s into sampling,
