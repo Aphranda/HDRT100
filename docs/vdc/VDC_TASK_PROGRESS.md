@@ -22,6 +22,16 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-002：同一采集工具两次结果不一致——P3 内部健康通过、DPLL60 工作流失败
+
+- **用户提问**：既然 P3 包含 DPLL60，为什么 P3 能通过？是不是有工作流在占用串口？
+- **P3 侧证据**（`out/HardwareAcceptance/20261014/hawf-100344` 10:13 与 `hawf-085542` 09:04）：两者的 `dpll-short-summary.json` 均为 `passed=True / evidence_status=PASS / scope_enabled=False / external_status=SKIPPED / errors=[]`，子进程自报 **`internal_health_passed: true`**。⇒ **无示波器时 P3 走的就是内部探针，且四板内部健康确实全过**；P3 确实包含 DPLL60（step 28 写 `HAOFV_P3_JOINT_PROVISIONAL_V1` 临时凭证 → step 29 联合采集 → step 30 摘要门限）。
+- **DPLL60 工作流侧证据**（`dpll60-102105`）：step 6 联合采集失败（两次尝试），子进程 `internal_health_passed: false`。
+- **已排除的差异源**：两次绑定**同一 build**（`20261014020356`，板子自报同值）、同一 `receipt_build`、同一 `tdma-stopped-handoff.json`（均 `passed: true`）、且都为 internal-only ⇒ **判据与凭证绑定都不是差异源**。
+- **剩余差异（指向台架准备序列）**：P3 在采集前已跑完标定/训练（step 10–23）与 TDMA 段（24–27）；而 DPLL60 工作流在 step 2 做**四板复位与数据复位**、step 3（TDMA 停机态基线证据）为 warn。同样的采集面对不同准备状态给出不同结果，NO.2 表现为发布为空（`node_count=0`、`schedule_crc32=0`、epoch 全 0）且 3669/3669 全拒（见 `VDC-PROGRESS-20261014-001`）。
+- **串口占用核实**：当前**无** python／台架工作流在运行（本会话全部后台作业为 completed/killed），仅两个空闲 powershell 进程且非台架工作流；上一条探针是被中断，不是端口冲突。
+- **未核验**：未定位「准备序列中哪一步使 NO.2 起不来」的代码级根因；未复跑 DPLL60 验证该假设。
+
 ### VDC-PROGRESS-20261014-001：DPLL60 联合采集的发布/消费证据（四板内部解码）
 
 - **触发**：用户要求跑一轮 DPLL60 工作流，以其为 VDC 发布证据，判断**锁定状态的发布**存在哪些问题。
