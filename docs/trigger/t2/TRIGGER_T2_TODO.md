@@ -4,7 +4,7 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TODO.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-10-13
+Last updated: 2026-10-14
 
 ## 文档接口与状态规则
 
@@ -345,7 +345,15 @@ T2 运行时消费域 `[1, TRIGGER_T2_RUNTIME_POSITION_COUNT]`（`= 3u`）。
 ### T2-AUDIT-08（已移出：属接口域）
 
 > 本项为**跨域项**（归 INTERFACE/SCPI_HOST 域），已从 T2 待办移出，避免同一事实在两处复制（C12）。
-> 请见 `docs/interface/SCPI_HOST_TODO.md` 的 **IF-001..003**（单串口拓扑下的会话/寻址、命令转发与应答、隔离与权限）。
+> 请见 `docs/interface/SCPI_HOST_TODO.md` 的 **IF-001..004**（单串口拓扑下的会话/寻址、命令转发与应答、隔离与权限、错误与故障可观测性口径）。
+
+### 跨域口径已归口接口域：错误/故障可观测性
+
+> 本项为**跨域口径**（归 INTERFACE/SCPI_HOST 域），已在 `docs/interface/SCPI_HOST_TODO.md` 的 **IF-004** 展开：
+> 主机在「命令被拒绝」「传输超时」「域级故障已 latch」三种情形下分别能观测到什么、又分别由什么清除
+> （含 `*CLS` 清错误队列但**不清** F1 域级故障这条分界）。
+> T2 域只保留自身的功能条目与已冻结的实测结论（见下表 C1 及其依据）；口径与条款不在本域重复（C12）。
+> 该口径由本仓 P3 验收 step 17 现场暴露，证据见 `docs/interface/SCPI_HOST_TASK_PROGRESS.md`。
 
 ## 结论区（冻结，只增不改）
 
