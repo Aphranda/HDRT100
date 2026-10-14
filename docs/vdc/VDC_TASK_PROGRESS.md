@@ -22,6 +22,15 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-019：历史 P3 记录的残差核对——**稳态在 ±100 ns 内，唯一例外是 bin 0 启动段**
+
+- **核对目标（用户）**：之前的 P3 记录，偏差应都在 ±100 ns 以内。
+- **数据源**：`out/HardwareAcceptance/**/hawf-*/**/capture/NO*/decoded.json` 的 `records[].residual_min_ns` / `residual_max_ns`（仅 `residual_extrema_valid=true` 有效）。共 **9 次 P3 运行、36 份产物**；`bin_index` 0=启动段、1–5=稳态段。
+- **稳态段结论（支持用户预期）**：全部 9 次运行中，每个从板的 **bin 1–5 残差均在约 ±100 ns 内**（正侧典型 +88…+100 ns、负侧 −94…−127 ns，个别触到 −136 ns）。
+- **唯一例外＝每个从板的 bin 0**：`hawf-114312` 实测 NO.2 `res=[−136, +673063] ns`、NO.3 `[−9141300, +91]`、NO.4 `[−4113324, +88]`，其 `first_success_offset_ticks` 分别为 **310667545 / 447067705 / 583166864**（≈1.24/1.79/2.33 s @250 MHz，按席位每板多约 0.54 s），`rejected` 616/886/1194；其余段 `first_success_offset_ticks` 仅 6–13 万。历史运行里该段 `residual_min` 达 −92…−350 ms，且随席位序号递增。
+- **判读**：bin 0 的负向大偏离是**锁定前的启动/首次成功偏差**，不是跟踪误差（与 `SUMMARY_STEADY_SUCCESS_GAP`、以及架构文档「首次成功不表示锁定」一致）；其「≈1×/2×/3× 板号」的递增正是**按席位递增的首次成功延迟**。
+- **补充事实**：参考板 NO.1 的段一律 `residual_extrema_valid=false`（无有效残差）⇒ 该残差口径只评估从板；参考板的偏差应看 `SYSTem:SYNC:VDC:DPLL:FILTer?`（见 `VDC-PROGRESS-20261014-017`，实测 −5 ns）。
+
 ### VDC-PROGRESS-20261014-018：P3 的 DPLL 段**不能脱离自有前置单独重跑**；内部监测状态全程不变
 
 - **动机**：直接跑 P3 的 DPLL 段（step 27–30 / 24–30），看内部监测状态。
