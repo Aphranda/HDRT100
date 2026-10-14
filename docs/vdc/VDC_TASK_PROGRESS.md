@@ -22,6 +22,15 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-009：①「直接调高 DPLL 预算」不可行——GUARD 是静态断言保护的 ingress 预留
+
+- **相位链已逐一算清并与实测窗口自洽**（`config/project_config.h`）：`PRIORITY_RX_IRQ_CYCLES=2500`、`PRIORITY_RX_PHASE_CYCLES=2×IRQ=5000`、`PRIORITY_RX_CLOSE_CYCLES=3500`；各相位 end = start + wcet + CLOSE + 边距（1000，DPLL 另有 `DPLL_ENTRY_MARGIN_CYCLES=1000`，SYNC_TRIGGER 为 200）。据此算得 TDMA end **166500**、VDC end **218000**、DPLL end **261500**、CALIBRATION **285000**、SYNC_CAPTURE **298500**、REFMEM **332000**、MODEL **335000**、SYNC_TRIGGER **365500**、TRIGGER_MEASURE **367500**、GUARD **367500..375000（= 7500）**——与实测快照**逐项吻合**。
+- **实测尝试（已回退）**：把 `PROJECT_CORE1_PHASE_DPLL_WCET_CYCLES` 基数由 34000 提到 40000（声明 39000→45000，把后续相位整体后移 6000）⇒ **编译期静态断言失败**：`app_realtime_profile.c:9-11` 要求 `PHASE_GUARD_END - PHASE_GUARD_START == 7500u`（"priority ingress cannot spend the existing GUARD reservation"），并连带 3 个 host 测试失败（`test_app_realtime_priority`、`test_app_realtime_profile`、`test_sync_io_workspace`）。**结论：GUARD 的 7500 周期是 priority ingress 的预留、不是空闲余量，任何相位预算都不能单独放大。** 已回退，构建恢复绿灯。
+- **由此排除** `VDC-PROGRESS-20261014-008` 的选项 ① 「直接调预算」。仍可走的路径：
+  1. **等额再平衡**（总量不变 ⇒ 链与断言不受影响）：把某相位多余预算转给 DPLL。天然捐赠者是 **VDC**——声明 42000（实测 47000）而本轮实测 `max_runtime_cycles` 仅 **11863**；但**缩小声明 WCET 是实时安全契约变更**，须先给出该相位最坏工况的证据，不能只凭单次台架读数。
+  2. **降低 DPLL 相位的实际开销**（把重拍移出每次调用的路径，或降低其节拍）。
+- **未核验**：未做再平衡（缺捐赠相位的最坏证据）；未改任何预算或行为；DPLL 峰值（约 100k，含 `sync_dpll_fb_step` 单段 46815–57480）仍远超任何可容纳的静态预算。
+
 ### VDC-PROGRESS-20261014-008：DPLL 相位预算是**声明值不足**，非软浮点、非单点回归
 
 - **排除软浮点**：`components/vdc_domain/src/vdc_dpll_manager.c` 与 `vdc_domain.c` 内**没有任何 `double`/`float`**（链接脚本 wrap 的整套 `__aeabi_d*` 是项目标准清单，不是本路径的证据）。
