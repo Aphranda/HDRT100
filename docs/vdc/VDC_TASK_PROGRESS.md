@@ -22,6 +22,17 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-018：P3 的 DPLL 段**不能脱离自有前置单独重跑**；内部监测状态全程不变
+
+- **动机**：直接跑 P3 的 DPLL 段（step 27–30 / 24–30），看内部监测状态。
+- **三次尝试与签名**：
+  1. `--steps '27-30'`（沿用 `hawf-114312`）：step 29 **FAIL 35.4 s**，`Capture exited 2` + `restore_original_ram: RAM restoration failures: ['0010071E65B5CB38: SCPI error queue not empty', '2BD5090FE009FA2A: SCPI error queue not empty']`（正常为 99–100 s）。原因：step 29 依赖 step 24–26 于 11:59 制备的停机态交接，而此后 T2 工作流（把环留在运行）与 `DPLL60 --full` 已改变台架。
+  2. `--steps '24-30'`（自洽切片）：step 24 OK 28.8 s，但 step 26 warn 与 step 29 **FAIL 1.0 s** —— **NO.1 recorder 卡在 `state 5`**（`epoch 1791950600, written 14/14, bytes 10068, reason 0`），`--cancel-unsaved-record` 无法清除，交接无法检查。
+  3. 先跑 **DPLL60 step 0**（其设计目的正是「完成保存或取消记录 → 等空闲态 0/8/9」，四板均报 `recorder state 5` 后被清掉，OK 3.7 s）再跑 `--steps '24-30'`：step 24 OK 32.4 s、step 26 warn，step 29 仍 **FAIL 31.2 s**（`Capture exited 2` + `0010071E65B5CB38: SCPI error queue not empty`）。
+- **内部监测状态（三次皆相同，实测两次）**：NO.1 `flags=0x55 / state=5 LOCKED / health=2 DEGRADED / 相位 −5 ns / accepted 207 / ts_eligible 1`；NO.2–4 `flags=0x55 / state=1 CHECKING / health=1 / 相位为残留值 / accepted 0 / ts_eligible 0`。⇒ **失败的 DPLL 采集不改变内部监测状态**（保留上次发布快照的投影，符合设计）。
+- **结论（过程约束）**：**打包的 DPLL 采集依赖其自有前置步骤与 OTA 所建立的干净台架状态**；在其它工作流动过台架后，单独重跑 24–30 不支持。需要「跑通的 P3 DPLL」时应走 **整条 P3**（已验证通过）或 **DPLL60 工作流**（已验证通过，自带准备与 step 0）。
+- **顺带验证了一个修复**：上述失败留下 `schema=HAOFV_P3_JOINT_PROVISIONAL_V1` 的临时凭证（已从备份恢复为 `..._QUICK_GRADED_V1` / build `20261014034324`）；而 **DPLL60 step 0 在临时凭证在位的情况下照常跑通**，证明 `VDC-PROGRESS-20261014-013` 的「期望 build 改读在线值」修复确实解除了该陷阱。
+
 ### VDC-PROGRESS-20261014-017：内部监测的 DPLL 偏差实测；从板偏差值是残留、不可读作跟踪误差
 
 - **偏差暴露面**：`SYSTem:SYNC:VDC:DPLL:FILTer?`（8 字段：`dpll.state`、`update_seq`、**`last_phase_error_ns`**、**`last_frequency_error_ppb`**、`loop_filter_integrator_ppb`、`clock.period_adjust_ppb`、`quality.consecutive_good_samples`、`quality.rejected_sample_count`）；另有 `SYSTem:REFMEM:VDC:VECtor?` 与 `SYSTem:REFMEM:DPLL:VECtor?` 各带一个 `last_phase_error_ns` 投影，以及 `READ:SYNC:QUALity?`。
