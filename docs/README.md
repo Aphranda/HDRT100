@@ -235,6 +235,7 @@ docs/
 | `legacy/vdc/LEGACY_VDC_DOMAIN_TODO.md` | VDC 重构前待办历史快照。 |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS.md` | VDC 重构前任务进度历史快照。 |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_09.md` | VDC C14 archive: `VDC-PROGRESS-20260918-006`..`VDC-PROGRESS-20260918-004`, 3 unchanged entries. |
+| `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_11.md` | VDC C14 archive: `VDC-PROGRESS-20260919-006`..`VDC-PROGRESS-20260918-034`, 25 unchanged entries. |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_10.md` | VDC C14 archive: `VDC-PROGRESS-20260918-033`..`VDC-PROGRESS-20260918-007`, 27 unchanged entries. |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_08.md` | VDC C14 archive: `VDC-PROGRESS-20260918-003`..`VDC-PROGRESS-20260917-031`, 4 unchanged entries. |
 | `legacy/vdc/LEGACY_VDC_TASK_PROGRESS_07.md` | VDC C14 archive: `VDC-PROGRESS-20260917-030`..`VDC-PROGRESS-20260917-025`, 6 unchanged entries. |
