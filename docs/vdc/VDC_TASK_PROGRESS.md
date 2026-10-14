@@ -22,6 +22,24 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-015：干净基线的锁相发布证据；「锁合格」类结论在工具侧是**硬编码占位**
+
+- **基线来源**：台架恢复（OTA ABORt + 期望 build 改读在线值）后，`DPLL60_workflow.py --full` 全程 `failed steps: none`，**step 6 采集 `capture passed on attempt 1`**，子进程 `{"internal_health_passed": true, ..., "passed": true, "external_status": "SKIPPED"}`。运行目录 `out/HardwareAcceptance/20261014/dpll60-120211`。
+- **「已备好」量级复核（与失败形态对照）**：`capture/actions.jsonl` **117668 B**（失败时 13260）、`capture/input-probe.json` **295993 B**（失败时 48886）、四板 `nodeN_board_record.bin` **10.0–11.2 KB**（失败时 NO.1 仅 2708）⇒ 代码文档所述的准备完成量级成立。
+- **四板发布证据（干净基线）**：
+
+| 板 | decode schema | state | reason | session/generation | complete_window_proven | physical_lock_qualified |
+|---|---|---|---|---|---|---|
+| NO.1 | V10 | 3 | 8 | 1791950631（共享） | False | False |
+| NO.2 | V9 | 3 | 8 | 共享 | False | False |
+| NO.3 | V9 | 3 | 8 | 共享 | False | False |
+| NO.4 | V9 | 3 | 8 | 共享 | False | False |
+
+  ⇒ 四板**共享同一 session/generation、状态一致**（较 `VDC-PROGRESS-20261014-001` 的污染轮次已改善）；仍存 **参考/从板 decode schema 分裂（V10 vs V9）**。
+- **关键发现（发布面不完整）**：上表后两列**不是板上事实**：`tools/vdc_priority_trace/vdc_priority_trace.py:217,318,372,452` 一律 `complete_window_proven=False, physical_lock_qualified=False`（硬编码），`tools/vdc_priority_trace/vdc_priority_joint_capture.py:188` 亦硬编码 `physical_continuous_lock_qualified=False`。⇒ 当前证据链里**真正被判过的只有内部健康**（`internal_health_passed=true`），所有「物理锁合格 / 完整窗口已证」类结论都是占位常量，不能当作板上锁相结论引用。
+- **下一步（完善发布）**：① 让这些占位改为由板上 trace 派生（或明确标注为占位，避免误读）；② 查参考/从板 `status['schema']` 分裂（10 vs 9）是角色相关设计还是缺陷（工具接受任意 `VDC_SUMMARY_TRACE_DECODE_V*`，故不阻断）；③ 继续固件侧锁态发布路径本身。
+- **未核验**：未改动这些占位；未定位 schema 分裂来源。
+
 ### VDC-PROGRESS-20261014-014：P3 step 8 失败的真因＝**被中断的 OTA 让四板停在 RECEIVING**；用 `SYSTem:OTA:ABORt` 清除
 
 - **现象**：`hawf-114312` 的 step 8（P0T 拓扑）FAIL，工具控制台只投影 `passed/anchor_id/ring_order/adjacency/pair_results`（**不含 `error`**），故先前看不到原因；真实错误在 P0T out-dir 的 `summary.json`：
