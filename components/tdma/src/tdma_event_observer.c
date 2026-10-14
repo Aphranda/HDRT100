@@ -280,11 +280,17 @@ size_t TDMA_EVENT_FEED_RAM tdma_event_observer_feed(tdma_event_observer_t *obser
             return invalidate(observer, TDMA_EVENT_ORDINAL);
         }
         const uint32_t sequence = wire_sequence(observer->pending[2][0].word);
-        /* All-zero and all-ones are the two words this numbering never assigns:
-         * the capture read no sequence for that transmission (an idle or gap
-         * word while the load shares the wire). They carry no witness, so the
-         * record is kept and the previous witness stands. */
-        const bool witness = sequence != 0u && sequence != UINT32_MAX;
+        /* All-zero and all-ones words are what an idle or gap read produces
+         * while TDMA-SEAT-01 shares the wire with the load, but all-ones is also
+         * the legitimate value just before the wrap into zero. They therefore
+         * carry no witness ONLY when they are not this epoch's ordinary +1 step:
+         * a real wrap stays the existing refusal, because a production observer
+         * epoch must not span a sequence wrap. */
+        const bool wrap_step = observer->last_sequence == UINT32_MAX && sequence == 0u;
+        const bool ones_step = observer->last_sequence == UINT32_MAX - 1u &&
+            sequence == UINT32_MAX;
+        const bool witness = !((sequence == 0u && !wrap_step) ||
+            (sequence == UINT32_MAX && !ones_step));
         if (observer->joined != 0u) {
             /* VDC-ISO-001: the wire sequence is a monotonic witness of every
              * transmission on the wire, not this event stream's own frame index.
@@ -292,16 +298,21 @@ size_t TDMA_EVENT_FEED_RAM tdma_event_observer_feed(tdma_event_observer_t *obser
              * event frames and an empty priority offer consumes no opportunity,
              * so a forward step must not retire the base's observation - the
              * ordinal check above already proves the event stream itself is
-             * contiguous, and a real event loss still lands there. A repeat or a
-             * backwards step keeps the existing recoverable refusal. */
+             * contiguous, and a real event loss still lands there. A repeat, a
+             * backwards step and an epoch-spanning wrap keep the existing
+             * recoverable refusal. */
             if (!witness) {
                 if (sequence == 0u) {
                     ++observer->sequence_zero_count;
                 } else {
                     ++observer->sequence_ones_count;
                 }
-            } else if (sequence == observer->last_sequence) {
-                ++observer->sequence_repeat_count;
+            } else if (wrap_step || sequence == observer->last_sequence) {
+                if (wrap_step) {
+                    ++observer->sequence_wrap_count;
+                } else {
+                    ++observer->sequence_repeat_count;
+                }
                 observer->sequence_refused = sequence;
                 return invalidate(observer, TDMA_EVENT_SEQUENCE);
             } else {

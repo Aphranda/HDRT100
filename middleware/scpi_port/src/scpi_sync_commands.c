@@ -1537,8 +1537,7 @@ scpi_result_t scpi_cmd_vdc_priority_tx_q(scpi_t *context)
         s.calls, s.encoded, s.repeated, s.rejected, s.last_reject, s.source_epoch,
         s.event_sequence, s.source_identity, s.published_version, s.model_token,
         s.session, s.role_generation, s.clock_epoch, s.clock_run, s.local_slot,
-        s.node_count, s.schedule_crc32, s.profile_crc32, s.uncertainty_width,
-        s.provider_calls, s.provider_offcore};
+        s.node_count, s.schedule_crc32, s.profile_crc32, s.uncertainty_width};
     for (size_t i = 0u; i < sizeof(fields) / sizeof(fields[0]); ++i)
         SCPI_ResultUInt32(context, fields[i]);
     scpi_sync_result_u64_parts(context, s.event_time_lower);
@@ -1550,6 +1549,11 @@ scpi_result_t scpi_cmd_vdc_priority_tx_q(scpi_t *context)
     }
     hex[sizeof(hex) - 1u] = '\0';
     SCPI_ResultText(context, hex);
+    /* Provider-entry evidence (VDC-ISO-001) is appended only after every
+     * existing position, including the event-time parts and mailbox hex, so no
+     * previously published field index moves. */
+    SCPI_ResultUInt32(context, s.provider_calls);
+    SCPI_ResultUInt32(context, s.provider_offcore);
     return SCPI_RES_OK;
 }
 

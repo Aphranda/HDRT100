@@ -83,8 +83,12 @@ int main(void)
     ring.adapter_started=0;snapshot_ok=false;
     assert(scpi_cmd_vdc_priority_tx_q(&c)==SCPI_RES_ERR && results==0 && gets==1);
     snapshot_ok=true;
-    assert(scpi_cmd_vdc_priority_tx_q(&c)==SCPI_RES_OK && results==27 && gets==2);
+    assert(scpi_cmd_vdc_priority_tx_q(&c)==SCPI_RES_OK && results==29 && gets==2);
     assert(fields[0]==1 && fields[1]==42 && fields[24]==0x9abcdef0 && fields[25]==0x12345678);
+    /* Provider-entry evidence is appended after the mailbox hex, so every
+     * previously published index (including the event-time parts) is stable
+     * (VDC-ISO-001). */
+    assert(fields[26]==0u && fields[27]==0u);
     results=0;gets=0;ring.enabled=1;
     assert(scpi_cmd_vdc_priority_rx_q(&c)==SCPI_RES_ERR && results==0 && gets==0);
     ring.enabled=0;ring.adapter_started=1;
