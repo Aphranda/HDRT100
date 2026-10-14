@@ -22,6 +22,29 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-014：P3 step 8 失败的真因＝**被中断的 OTA 让四板停在 RECEIVING**；用 `SYSTem:OTA:ABORt` 清除
+
+- **现象**：`hawf-114312` 的 step 8（P0T 拓扑）FAIL，工具控制台只投影 `passed/anchor_id/ring_order/adjacency/pair_results`（**不含 `error`**），故先前看不到原因；真实错误在 P0T out-dir 的 `summary.json`：
+  `RuntimeError: Calibration profile apply failed`，四板全同——发 `SYSTem:TDMA:RING:STOP` 得 `OK` 后等待环状态超时（`started=False topology=None`），`last={... ring_config_seq: 6, ring_applied_config_seq: 1 ...}` 即**存在未应用的挂起环配置**。
+- **真因**：我 kill 掉的那个整跑当时正处在 `Step 4 [B] 刷写（--method ota ...）build=20261014035018` **OTA 中途**；被中断后四板一致停在
+  `SYSTem:OTA:STATus? → "RECEIVING",1,"NONE",1`、`MODE? → "DIRECT_AB",1`、`STReam:STATus? → 5,0,0,0,0`。
+  固件 `tdma_component_core1_service()` 首句即 `if (ota_ao_is_active()) { return; }` ⇒ **OTA 会话 active 时 TDMA 服务被整段跳过** ⇒ 环配置永不应用 ⇒ 与 `ring_config_seq=6 / applied=1` 完全一致。**与我的工具改动无关（P3 不调用 DPLL60 工作流），也不是台架硬件故障。**
+- **解法（无需重烧）**：固件注册了 `SYSTem:OTA:ABORt`（`middleware/scpi_port/inc/scpi_ota_commands.h:69`，同族还有 `COMMit`/`BOOT`/`END`/`MODE?`/`STATus?`/`RESult?`/`JOURnal?`/`BCB:HEALth?`/`STReam:*`）。对四板发 `ABORt` → `STATus?` 变为 `"ABORTED",0,"ABORTED",5`、`RESult? = 5,"ABORTED","APPLIED",2,...` ⇒ 半截 OTA 丢弃。**随后 step 8 即 OK 31.9 s**（此前 6.8 s FAIL）。
+- **续跑完成**：`--run hawf-114312 --steps '9-36'` 按序跑完并 **`credential: written`**（step 24 OK 36.2 s、step 29 DPLL 采集 OK 99.0 s；step 19/23/26/33 为 warn）。⇒ 「不重复已完成流程」的断点续跑路径成立。
+- **教训（流程）**：**不得在 P3 的 OTA 步骤中途终止**；一旦发生，恢复手段是 `SYSTem:OTA:ABORt`（不是重烧），否则后续所有 TDMA/DPLL 步骤都会表现为「环配置不应用」。
+
+### VDC-PROGRESS-20261014-013：按台架所有者口径落实——独立 DPLL60 以**板上在线 build** 为准
+
+- **用户口径**：DPLL60 工作流**只用于验证当前板上固件的功能**，**不需要对照构建记录**（也不需要 OTA）。
+- **已实施**（`tools/vdc_priority_trace/DPLL60_workflow.py`）：
+  - 新增 `online_builds(ctx)`：经 `p3_hardware_acceptance.read_online_builds()` 读取四板**在线 build**，每轮缓存一次；
+  - `expected_build(ctx)` 改为**以在线 build 为准**（返回 `"(from online boards)"`）；四板不一致时报 `online boards (mixed)` 并让消费者显式失败；
+  - 原「凭证/OTA 记录」推断逻辑降级为 `record_build(ctx)`，**仅当串口发现失败、读不到在线 build 时**才使用（旧值不再能锁死健康台架）；
+  - 连带更新 step 2 的失败文案。
+- **验证**：语法与 `-k "dpll60 or dpll_workflow"` 12 例通过；新增硬件无关回归测试 `tests/python/test_dpll60_workflow_build_expectation.py`（3 例：在线优先且不查记录、混合 build 显式上报、读不到时才回退记录）全通过。实机冒烟：`--steps '2'` → `expected build: 20261014032934 (from online boards)` → `reset issued for 4 boards` → **OK 4.4 s、`failed steps: none`**。
+- **替代的旧机制记录**：`VDC-PROGRESS-20261014-012` 描述的优先级（bench config ＞ 凭证（忽略 PROVISIONAL）＞ 最新 passed OTA 记录 ＞ 凭证）已不再是默认路径；该条保留为机制证据。
+- **待办**：工具改动按硬约束 7 需 P3 凭证后方可提交（已暂存并启动 full 验收）。
+
 ### VDC-PROGRESS-20261014-012：独立 DPLL60 跑不了的机制＝**失败 P3 留下的临时凭证**使期望 build 退化
 
 - **用户判断（已证实）**：与 OTA 无关；DPLL60 应当跑**当前板上最新固件**，不该依赖记录推断。
