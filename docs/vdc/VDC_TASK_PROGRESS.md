@@ -22,6 +22,53 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-031：按用户口径收敛为**1 bit 发布**并验证；缺口＝向量发布没跟上跟随窗口
+
+- **用户口径（本条为事实源）**：**LOCK 的状态发布用 1 bit 就够（0/1 unlock/locked）**；**粗锁定/精锁定/完全锁定只是主机的过程**，不进发布。DPLL60 **只报 warning，不阻塞运行**。
+- **据此实现（`-029` 的简化，删除我先前过度设计）**：
+  1. 发布语义＝**1 bit**；`vdc_dpll_lock_verdict_t` 删去 `grade`/区间/`adopted`，只留 `locked`＋`reason`＋`role`；`vdc_dpll_adopt_grade_t` 与 `TRACKING_OUT_OF_BAND` 一并删除。
+  2. 角色决定证据：MASTER＝自身 PI 锁定 ∧ 样本窗口有效（`valid`∧`lock_state==LOCKED`∧样本时间≠0∧freshness 上限≠0∧未超龄）∧ gate 通过 ∧ debug 关；FOLLOWER＝**正在跟随**（follow `FRESH` ∧ 未超龄 ∧ 已成匹配）。
+  3. **health / tier / provisional 不再压制该位**（tier 是主机内部过程；provisional 由自己的位表达）——这正是"发布的状态不对"的根因。
+  4. 实时成本：向量写方改调**小证据访问器** `vdc_dpll_manager_lock_evidence()`（不再在 REFMEM 相位里做整份快照拷贝）。
+  5. DPLL60：step 6/7/8 的采集问题降为 **warning**，凭证记录 `capture_exit`/`capture_blocking=false`，运行不再被阻塞。
+- **验证（实机，可复现）**：
+  - `DPLL60_workflow.py --full` → **`failed steps: none`**（step 6 WARN，采集 exit 1 但不再阻塞）✓
+  - REFMEM 相位恢复：NO.1 `max_runtime` 由 29924 **回到 20028/29000**、丢期限 0；从板 29145–29401/29000 **贴 WCET 边**（改前亦有丢期限，需另记）。
+  - 角色感知位：arm 运行期间连续采样 200 s，**NO.4 的 LOCKED 位=1 被观测到 92 次**；NO.1/NO.2/NO.3 为 0 次。
+- **据此定位的缺口（重要）**：**T2 step 17 要求四板 `locked==1` 且该轮 `failed steps: none`** ⇒ 当时**四板的判定都成立**；但**向量位只在 NO.4 上被抓到**。⇒ **RefMem VDC 向量是"采样发布"，未跟上短时的跟随窗口**（主机位=0 另有依据：NO.1 最后准入样本已 66.8 s，按架构「控制状态因保持而仍为 LOCKED，不能掩盖质量过期」应为 0）。下一缺口＝查 `distributed_refmem_service()`/向量的发布触发与节奏。
+- **待裁定**：主机的位是否也忽略新鲜度（当前＝**活的锁**，符合文档；若改为纯保留态则输入已死也报 locked）。
+
+### VDC-PROGRESS-20261014-030：**验证失败**——`-029` 的实现把 REFMEM 相位撑破 WCET（实测抓到）
+
+- **验证方式（目标要求）**：P3 跑完后（`hawf-134838` 通过、`credential: written`、新固件 build `20261014054847` 上台），执行 `DPLL60_workflow.py --full`。
+- **结果：FAIL**。`dpll60-135749` step 6 联合采集两次尝试均失败：`child_capture: Capture exited 2` + `RAM restoration failures: ['FB276192BEF9CCE1: SCPI error queue not empty', 'A1E549202D18ED6A: SCPI error queue not empty']`；attempt2 `apply_ram_timing: Expected 3 fields: '<timeout>'`；子进程 `internal_health_passed: false`。
+- **真因（门增量对比，改前 vs 改后，同台架同流程）**：
+
+| 指标 | 改前 `dpll60-124722` | 改后 `dpll60-135749` |
+|---|---|---|
+| NO.1 REFMEM `max_runtime/wcet` | 18262 / 29000 | **29924 / 29000（超）** |
+| NO.2 REFMEM | 26603 / 29000 | **35031 / 29000（超）** |
+| NO.3 REFMEM | 18805 / 29000 | **32401 / 29000（超）** |
+| NO.4 REFMEM | 22592 / 29000 | **29476 / 29000（超）** |
+| VDC / DPLL 相位 | — | 基本不变（本次未改） |
+
+  ⇒ **`-029` 的改动把 REFMEM 相位推过 WCET**：我在 `vdc_dpll_manager_get_vector_snapshot()` 内调用 `vdc_dpll_manager_lock_verdict()`，而后者内部会**整份拷贝 `vdc_domain_snapshot_t`** 并再拷贝 observer 结构；该调用位于 **REMFEM 实时相位** ⇒ 相位超预算、丢期限 ⇒ 采集退化。
+- **重要教训（两件）**：① **P3 通过 ≠ 实时门通过**——同一固件 P3 的 step 29 采集 OK 98.6 s，因为它对 `dpll_schedule_gate` 容忍；**只有 DPLL60 + 门增量能暴露该回归**。② 实时相位内**不得整份拷贝快照**；跨相位复用判定必须走**纯函数投影**（只读它已持有的字段 + 少量原子字），不能靠调用一个自带大拷贝的入口。
+- **修法（下一步）**：抽出**纯投影** `vdc_dpll_lock_evaluate(inputs, out)`（无快照拷贝、无发布），让 `vdc_dpll_manager_lock_verdict()`（用已有 snapshot）与 `get_vector_snapshot()`（用已拷贝的向量字段 + follow/match 两个原子读）**共用同一套规则**，从而既保持"单一定义"，又把 REFMEM 相位恢复到预算内；随后重跑 DPLL60 复验门增量回到改前水平。
+
+### VDC-PROGRESS-20261014-029：实现角色感知的锁发布（推进 `VDC-LOCAL-003`/`VDC-LOCK-001` 的发布侧）
+
+- **依据（文档，逐条）**：`VDC_DOMAIN_TODO.md:24` 目标「四板 DPLL 稳定锁相与 VDC 一致发布；**NO1 自主 PI**，NO2–NO4 接收/ACK/加本地有向 delay 后由各自 Core1 跟踪」；`:37` 里程碑 C 判据「**三从持续采用 DCO**」；`:40` 档位「粗 ≤10 µs / 精 ≤1 µs / **完全 ≤100 ns**」；`:42` 「**四板等级取最低已证明等级**；…**测量不确定度未闭合时不宣称正式锁定**」；`:87` 「**允许先修局部发布缺陷**；完整门禁未闭合时**不得提升 formal quality**」。
+- **HAOFV 合规**：`VdcVector` 禁止被 SCPI/PIO/storage 直接写（`HAOFV_VDC_DPLL_ARCHITECTURE.md:67`）；matcher 只形成误差观测、**不发锁相声明**（`VDC_RUNTIME_CONSTRAINTS.md:446`）；一个字段一个 writer（`ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md:91`）。⇒ **由 owner 声明，消费方只读**。
+- **已实现**：
+  1. **owner 侧角色感知判定**（`vdc_dpll_manager_lock_verdict()`）：MASTER 走原 PI 阶梯（语义不变）；**FOLLOWER 用「持续采用」证据**——`vdc_priority_follow_health_t`（`FRESH` ∧ `age ≤ freshness_limit`）＋ `vdc_priority_match_snapshot_t`（`have_match` ∧ 残差区间）。
+  2. **分级用区间上下界**（不是中心）：`extent = max(|lo|,|hi|)` ⇒ 100 ns→`FULL`、1 µs→`FINE`、10 µs→`COARSE`，超出→`NONE`。依 `:42` 语义：不确定度未闭合不得宣称正式档。
+  3. **reason 只追加不重编号**：新增 `FOLLOW_DISABLED=8`、`FOLLOW_STALE=9`、`TRACKING_OUT_OF_BAND=10`；**24 字段线格式不变**。
+  4. **修复一处 HAOFV 违背**：`SYSTem:SYNC:VDC:LOCK:READiness?` 原先**自己算** `input_ready/locked`，现改为**只读 owner 判定**；同时删除那份已死的本地 reason 委托（消除"各写一份"）。
+  5. **判定随事实发布**：owner 的角色/采用/档位/区间进入 `vdc_dpll_manager_vector_snapshot_t`（`lock_role/lock_adopted/lock_grade/lock_interval_*`，RAM 结构、**非 wire**），供 RefMem 镜像与主机页**投影而非重算**。
+- **验证（本轮）**：交叉编译通过（`-Werror`，package 2067752）；`tests/python/test_vdc_lock_verdict.py` 扩至含 **D1–D9**（从板各档位/`FOLLOW_*`/`have_match=0`、以及"主机不读从板证据"）全过；受影响的 3 个 harness 补桩后 **45 passed**；`-k "vdc or refmem"` **3955 passed / 0 error**。
+- **未做（下一轮）**：③ 把 `grade`/区间暴露给消费面（新只读页或 Core0 保留区诊断子区）；④ 文档同步（架构 L16/L165 对齐、`VDC-LOCK-001`/`VDC-LOCAL-003` 进展、登记 + C11）；⑤ **P3** 与 **DPLL60 验证**（期望四板 `locked` 按角色成立、从板报出已证明档位）。
+
 ### VDC-PROGRESS-20261014-028：源头找到了——**答案在 `VDC_DOMAIN_TODO.md` 的目标/里程碑段**（我没读那一段）
 
 - **用户追问**：为什么无法从架构中得出「单 PI 在主机、从板跟随即算锁相」。**答：那句话就在 VDC TODO 的目标段，我漏读了该文档的「当前主线与里程碑」章节**（此前只读了它的任务表行）。
