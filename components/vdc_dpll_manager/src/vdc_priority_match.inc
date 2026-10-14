@@ -276,6 +276,32 @@ void __attribute__((noinline)) vdc_priority_match_core1(void)
         return priority_match_skip(VDC_PRIORITY_MATCH_MODEL, false);
     if (!tdma_runtime_owner_get_event_live_snapshot(&w->live))
         return priority_match_skip(VDC_PRIORITY_MATCH_BUSY, false);
+    /* Publish what this predicate is about to judge (VDC-ISO-001): a follower
+     * whose typed records arrive but never match must be diagnosable from a live
+     * page, and the only way to say which of RETAINED / ACTIVE / ANCHOR_VALID or
+     * which anchor term is missing is to record the evidence here, before the
+     * rejection. The lock word is the matcher's own per-beat publication. */
+    {
+        const bool bracket_ok =
+            w->live.timer1_enable_after >= w->live.timer1_enable_before &&
+            w->live.timer1_enable_after != 0u;
+        const bool live_valid = priority_match_live_valid(&w->live);
+        if (w->lock.live_flags != w->live.flags ||
+            w->lock.live_valid != (uint32_t)(live_valid ? 1u : 0u) ||
+            w->lock.live_arm_epoch_lo != (uint32_t)w->live.arm_epoch ||
+            w->lock.live_observer_epoch != w->live.record.epoch ||
+            w->lock.live_tick_hz != w->live.tick_hz ||
+            w->lock.live_bracket_ok != (uint32_t)(bracket_ok ? 1u : 0u)) {
+            w->lock.live_flags = w->live.flags;
+            w->lock.live_valid = live_valid ? 1u : 0u;
+            w->lock.live_arm_epoch_lo = (uint32_t)w->live.arm_epoch;
+            w->lock.live_observer_epoch = w->live.record.epoch;
+            w->lock.live_tick_hz = w->live.tick_hz;
+            w->lock.live_bracket_ok = bracket_ok ? 1u : 0u;
+            priority_lock_publish();
+        }
+        w->lock.live_samples = priority_match_inc(w->lock.live_samples);
+    }
     if (!priority_match_live_valid(&w->live)) {
         return priority_match_skip(VDC_PRIORITY_MATCH_SOURCE, w->bound != 0u);
     }

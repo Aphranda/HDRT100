@@ -2252,6 +2252,23 @@ def step_17_lock_and_dynamic_start(ctx, slot, board, uid):
                   f" role {role[:24]} mask {mask} sync_phase_runs {runs}"
                   f" ready[{len(ready)}] {','.join(x.strip() for x in ready[:12])}",
                   flush=True)
+            # Live observation evidence (VDC-ISO-001): the readiness page's tail
+            # carries what the matcher's own input predicate last saw - the
+            # event-live flags, the predicate verdict and its anchor terms.
+            if len(ready) > 30:
+                try:
+                    flags = int(ready[24].strip() or "0")
+                except ValueError:
+                    flags = -1
+                print(f"    live_evidence flags 0x{flags & 0x1ff:02x}"
+                      f" valid {ready[25].strip()} samples {ready[30].strip()}"
+                      f" arm_epoch_lo {ready[26].strip()}"
+                      f" observer_epoch {ready[27].strip()}"
+                      f" tick_hz {ready[28].strip()}"
+                      f" bracket_ok {ready[29].strip()}", flush=True)
+            else:
+                print(f"    live_evidence <not in this build> ready[{len(ready)}]",
+                      flush=True)
             # All ten phases, not just SYNC_TRIGGER: whether the DPLL phase (2)
             # is serviced at all decides whether the matcher/follow lane runs,
             # and the 2026-10-14 T2 runs left two followers with frozen match

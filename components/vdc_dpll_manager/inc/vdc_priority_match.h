@@ -84,6 +84,19 @@ typedef struct {
     uint32_t width_ns;      /* last observation, saturated */
     uint32_t event_sequence;
     uint64_t last_match_ns; /* TIMER1 ns of the last new match; 0 = none */
+    /* Live observation evidence (VDC-ISO-001): what the matcher's own input
+     * predicate saw on the latest service - the event-live flags and the anchor
+     * fields `priority_match_live_valid()` requires. A follower whose records
+     * arrive but never match needs exactly this: which of RETAINED / ACTIVE /
+     * ANCHOR_VALID, and which anchor term, was missing. Appended: existing
+     * positions are unchanged. */
+    uint32_t live_flags;
+    uint32_t live_valid;          /* priority_match_live_valid() verdict */
+    uint32_t live_arm_epoch_lo;
+    uint32_t live_observer_epoch;
+    uint32_t live_tick_hz;
+    uint32_t live_bracket_ok;     /* enable_after >= enable_before and nonzero */
+    uint32_t live_samples;        /* services that evaluated the predicate */
 } vdc_priority_lock_word_t;
 
 /* One new matched event. A gap longer than the stale window restarts the

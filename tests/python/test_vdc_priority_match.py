@@ -417,7 +417,18 @@ int main(int argc,char **argv)
                !lock.in_band_run && !lock.out_band_run);
         const vdc_priority_lock_word_t aged = lock;
         fake_now_ns+=1000000u;out=sample();
-        assert(vdc_dpll_manager_get_priority_lock(&lock) && !memcmp(&lock,&aged,sizeof(lock)));
+        /* The lock semantics stay frozen while the source is stalled. The
+         * appended live-observation evidence (VDC-ISO-001) is diagnostic: it
+         * follows the input on every service, so compare the lock fields. */
+        assert(vdc_dpll_manager_get_priority_lock(&lock) &&
+               lock.locked==aged.locked && lock.in_band_run==aged.in_band_run &&
+               lock.out_band_run==aged.out_band_run &&
+               lock.center_ns==aged.center_ns && lock.width_ns==aged.width_ns &&
+               lock.event_sequence==aged.event_sequence &&
+               lock.last_match_ns==aged.last_match_ns);
+        assert(lock.live_samples && lock.live_valid==1u &&
+               (lock.live_flags & 7u)==7u && lock.live_tick_hz &&
+               lock.live_bracket_ok==1u);
         /* The next new event restarts acquisition from one in-band run. */
         next();fake_now_ns+=1000000u;out=sample();
         assert(vdc_dpll_manager_get_priority_lock(&lock) && !lock.locked && lock.in_band_run==1u);

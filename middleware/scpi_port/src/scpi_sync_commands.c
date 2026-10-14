@@ -2033,6 +2033,18 @@ scpi_result_t scpi_cmd_sync_vdc_lock_readiness_q(scpi_t *context)
     SCPI_ResultUInt32(context, observer.last_payload_class);
     SCPI_ResultUInt32(context, observer.last_source_slot_id);
     SCPI_ResultUInt32(context, observer.last_reference_slot_id);
+    /* Live observation evidence (VDC-ISO-001): what the follower matcher's own
+     * input predicate last saw. Appended: existing positions are unchanged. */
+    vdc_priority_lock_word_t live_lock;
+    memset(&live_lock, 0, sizeof(live_lock));
+    (void)vdc_dpll_manager_get_priority_lock(&live_lock);
+    SCPI_ResultUInt32(context, live_lock.live_flags);
+    SCPI_ResultUInt32(context, live_lock.live_valid);
+    SCPI_ResultUInt32(context, live_lock.live_arm_epoch_lo);
+    SCPI_ResultUInt32(context, live_lock.live_observer_epoch);
+    SCPI_ResultUInt32(context, live_lock.live_tick_hz);
+    SCPI_ResultUInt32(context, live_lock.live_bracket_ok);
+    SCPI_ResultUInt32(context, live_lock.live_samples);
     return SCPI_RES_OK;
 }
 
