@@ -22,6 +22,19 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-003：DPLL60 工作流失败的根因是 `dpll_schedule_gate`（复位后未稳）
+
+- **接续**：`VDC-PROGRESS-20261014-002` 把差异指向台架准备序列；本条把失败定位到**具体门**。
+- **失败现场**（`out/HardwareAcceptance/20261014/dpll60-102105/tdma-process-image/summary.json`）：`passed=false`、`error=""`、`closed_loop_passed=false`、`realtime_gate_passed=false`、`diagnostic_passed=true`，其中
+  `dpll_schedule_gate = {required: true, passed: false}`，节点 **NO.1**：
+  `errors: ["vdc_deadline_miss_count_grew"]`，
+  `dpll_feedback: ["dpll_overrun_count_grew", "dpll_deadline_miss_count_grew", "dpll_max_runtime_exceeded_wcet"]`。
+  ⇒ **参考板的 VDC/DPLL 实时路径在采集窗口内丢期限计数与超限计数增长，并超过 WCET**。其余部分正常：`soak_validation.passed=true`（NO.1 `rx_good_frame_count=738`、`rx_bad_frame_count=0`）、`startup_barrier.passed=true`。
+- **P3 为何通过**：P3 的 step 24 用**同一个工具**跑 `--stage process-image --dpll-provisional` 且为 **OK**（本轮与上一轮的 P3 运行均是），故门本身未变 ⇒ 差异在**板子当时的状态**。
+- **两处调用差异（据实记录）**：DPLL60 的 step 3 **强制** `--diagnostic-continue` 与 `--cancel-unsaved-record`，且**未传** `--startup-poll-interval-s`（P3 传 `timing["status_poll_interval_s"]`，实测落到工具默认 `startup_poll_interval_s=0.1`）；更关键的是其 **step 2 对四板做了软件复位**，而 P3 跑到等价步骤前已用标定/训练（step 10–23）把 DPLL 跑稳十余分钟。
+- **结论（待验证的假设）**：门在**复位后未稳**的窗口内必然看到计数增长，因此在 DPLL60 工作流「复位 → 立刻 process-image」的序列下失败；P3 因序列更长而通过。
+- **未核验**：未验证「等待 DPLL 稳定后再跑 step 3」能否使其通过；未修改任何工具或固件；`dpll_max_runtime_exceeded_wcet` 是计数器增长还是真实 WCET 越界，需看该窗口的相位证据才能定。
+
 ### VDC-PROGRESS-20261014-002：同一采集工具两次结果不一致——P3 内部健康通过、DPLL60 工作流失败
 
 - **用户提问**：既然 P3 包含 DPLL60，为什么 P3 能通过？是不是有工作流在占用串口？
