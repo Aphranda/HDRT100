@@ -22,6 +22,13 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-040：活体判别——T2 下 VDC 发布 provider 一次都没被进入（provider_calls = 0）
+
+- TODO task ID：`VDC-ISO-001`（T3 判别工具与结论）、`TDMA-ISO-001`、`TDMA-ISO-003`。值为 2026-10-14 实验快照，非产品事实源。
+- **新增判别工具（提交 `ecc1e4f0`）**：`vdc_priority_tx_snapshot_t` 末尾追加 `provider_calls`/`provider_offcore`，在 `vdc_priority_tx_core1()` 的**所有 guard 之前**计数（`calls` 无法区分"快路径从未问过"与"被问到但不在 Core1、只能答 EMPTY"）；`SYSTem:VDC:PRIORity:TX?` 末尾追加两字段。T2 工具侧新增 **origin 活体读回**（step 17 诊断内、环仍在运行时读 `READ:CALibration:ORIGin:RUNTIme?`）——停止处理器里的同页读数在 origin 刚退休后必然 active 0，无法判别分支。
+- **实机结论（全项 P3 PASS、凭证 build `20261014124006`；T2 轮 `out/tdma_t2/steps-20261014-204919.log`）**：主机（参考板）活体 `origin_live active 1 comm_fsm 5/0 observed 16621 unobserved 52894 published_gen 34103/0 matched_gen 0`，而 `PRIORity:TX?` 的 **`provider_calls = 0`、`provider_offcore = 0`**。⇒ 参考的 origin 快路径确实在跑（active 1、逐周期计数增长），但 **VDC 的 priority provider 一次都没被进入**——既不是"从未询问"，也不是"在 Core1 之外被询问"。结合 `published_owner_generation = 0`（只有 `tdma_pio_spi_ring_origin_board()` 的零 tx 视图提交会留下这个形状），T2 期间的发布走的是 overlay/async 或 FIFO 分支，typed SYNC 没有任何发布机会，从板因此无记录可匹配。
+- **下一 gate**：在 `tdma_pio_spi_ring_origin_publish()` 内加分支计数（provider 指针是否为空 / async 分支 / FIFO 分支 / publish 是否被调用），把这一层钉死后再谈修复（让参考的 priority 发布机会不依赖该分支选择）。
+
 ### VDC-PROGRESS-20261014-039：T3 定位到参考侧"origin 快路径未接管"——priority provider 只在 origin.active 时才被调用
 
 - TODO task ID：`VDC-ISO-001`（T3 根因定位）、`TDMA-ISO-001`、`TDMA-ISO-003`。数值与代码位置均为 2026-10-14 快照，非产品事实源。
