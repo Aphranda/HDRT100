@@ -22,6 +22,34 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-022：从板残差为何在 ±100 ns 内——**typed MATCH 观测通路在工作，准入通路没有**（更正 `-021` 的用词）
+
+- **用户追问**：既然从板 `accepted=0`、`ts_source=NONE`、`state=CHECKING`，为什么记录的残差仍在 ±100 ns 内？
+- **实测（`dpll60-124722` 每 10 s bin，稳态 bin1–5）**：
+
+| 板 | 成功/段 | 拒绝/段 | 拒绝率 | 残差 |
+|---|---|---|---|---|
+| NO.2 | 1254–1337 | 32–37 | ≈2.5% | [−107,+94] ns |
+| NO.3 | 1331–1353 | 27–35 | ≈2.3% | [−124,+96] ns |
+| NO.4 | 1269–1375 | 28–36 | ≈2.4% | [−117,+97] ns |
+
+- **结论**：该残差是 **typed MATCH 的逐事件区间残差**（本地事件坐标 vs 主板投影事件时间＋路径 delay），**每段有约 1300 次成功匹配、只拒约 30 次**。按架构与代码，**从板的本地 TDMA evidence 通路「仍为可观测性而运行」**（`sync_dpll_fb_step` 注释：FOLLOWER 的本地证据由 Domain 标为 diagnostic-only、**永不喂本地 PI/DCO**）⇒ 它**不依赖** `accepted_sample_count`，因此在准入为 0 时仍能给出亚 100 ns 的匹配残差。
+- **两件事因此并不矛盾**：从板在「**匹配/观测**」层面**已经达标（<100 ns，成功率 ≈97.5%）**；在「**准入/控制**」层面**尚未接线**（`accepted=0` → `ring_input=false` → readiness 页退回空的 observer 时间戳 → `NONE`、`state=CHECKING`、不发布 LOCKED）。
+- **更正 `-021` 的表述**：原文「三从板……根本没有在消费 / 没有样本源」**过强**；准确说法是——**从板在匹配层正常消费并跟踪（每段约 1300 次成功、残差 <100 ns），但没有任何样本被准入到 Domain**。
+- **注意区分三个不同口径**：① 记录里的 `residual_*`＝typed MATCH 区间残差（<100 ns，本文）；② `SYSTem:SYNC:VDC:DPLL:FILTer?` 的 `last_phase_error_ns`＝Domain 质量的相位误差投影（从板为残留值 ±0.2–0.4 ms，未准入故无意义，见 `-017`）；③ Domain `accepted_sample_count`＝准入计数（从板 0）。
+
+### VDC-PROGRESS-20261014-021：「三从板没有时间戳源」的架构级答案＝**准入通路未被 arm**，非固件缺陷
+
+- **`timestamp_source` 是投影而非独立能力**（`scpi_sync_commands.c` readiness handler）：
+  `ring_input = accepted_sample_count != 0`；`timestamp_source = ring_input ? 域质量.last_timestamp_source : observer.last_timestamp_source`。故 `NONE` 的直接含义是**两支来源都没有记录**，不是缺少某件硬件/固件能力。
+- **从板在跟随，但没有任何样本被准入**：`SYSTem:SYNC:VDC:STATus?`（`ready, lock_state, service_count, first_ms, last_ms, sync_seq`）实测 NO.2/3/4 = `1,1,139/126/151,…`，`SYSTem:SYNC:VDC:DPLL:STATus?`（`ready, state, service_count, first_ms, last_ms, update_seq`）= `1,1,167134/168641/170145,…,**update_seq 140/127/152**` ⇒ 从板**确实在处理环事件并更新本地 DCO**；但 `accepted_sample_count = 0`。
+- **架构依据**：`docs/vdc/VDC_DOMAIN_ARCHITECTURE.md` L107-141 明确从板路径为「主板发布事件时间戳 → TDMA 固定邮箱 → RX IRQ 保全/解码 → MATCH → FOLLOW → 本板 DCO」；同时 L137/L165 明确 **FOLLOWER 的普通 local evidence 不进入 MASTER PI**、**typed DCO 采用不自动推进 lock 状态**，且「**显式 typed 本地跟踪是独立控制路径**」。⇒ 从板要成为「正式输入」必须**显式 arm**。
+- **arm 序列（工具侧事实）**：`tools/sync_trigger/t2_workflow.py:600-637` 发送
+  `SYSTem:VDC:PRIORity:SYNC <gen>` → `SYSTem:VDC:PRIORity:MATCH <gen>` → `SYSTem:VDC:PRIORity:FOLLow 1`（→ 可选 `FOLLow:PHASe 1`），并在 `:2068` 发送 `SYSTem:SYNC:VDC:OBServer:TDMA 1,0,100,0`。
+  **只有 T2 工作流发这些**；`DPLL60`/P3 流程只准备环与停机态交接，**从不 arm**，且其软件复位（DPLL60 step 2 / P3 step 7）会**清除**已 arm 状态。
+- **实测印证该因果**：在 T2 工作流跑过之后，从板 reason 由 `2 OBSERVER_DISABLED` 推进到 `5 TIMESTAMP_NOT_ELIGIBLE`（observer 已 arm、字典 2 项）；DPLL60 复跑（含复位）之后，四板 observer/字典归零、`ring|sync_io=0` ⇒ reason 退回未 arm 态。
+- **结论**：三从板「没有时间戳源」= **准入通路（typed FOLLow / observer）未被 arm 且准入计数为 0**；这是**配置/流程缺口**，不是固件缺陷，也不是架构遗漏。要让从板真正参与锁定，流程必须按 T2 工作流的序列对每块从板 arm。
+
 ### VDC-PROGRESS-20261014-020：DPLL60 复跑评估（`dpll60-124722`）——运行本身干净，问题均为存量
 
 - **运行结果**：`failed steps: none`；step 6 采集 **passed on attempt 1（110.1 s）**；子进程 `{"internal_health_passed": true, ..., "passed": true, "external_status": "SKIPPED"}`；量级正常（`actions.jsonl` 118103 B、`input-probe.json` 296539 B）。warn 仍是已知三项：step 3（`realtime_gate=False closed_loop=False`）、step 4（无示波器→internal only）、step 9（工作流凭证非正式凭证）。
