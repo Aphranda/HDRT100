@@ -22,6 +22,16 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-006：DPLL 相位超预算已量化，落在 `sync_dpll_fb_service()` 的 15 个子服务上
+
+- **接续** `VDC-PROGRESS-20261014-005`：致命项是 VDC（四板）与 REFMEM（三从板）丢期限，起因指向 DPLL 相位超预算。本条把该相位的内容与量级钉死。
+- **相位窗口（NO.1，`capture_load_masks=91`、`cycle_cycles=375000`）**：vdc `166500..218000`（wcet 47000）、dpll `218000..261500`（wcet 39000）、refmem `298500..332000`（wcet 29000）。
+- **DPLL 相位是常态超预算、非偶发**：`before.last_runtime_cycles=17450 / max=50147 / overrun=1106 / miss=82` → `after.last=44714 / max=101147 / overrun=3557 / miss=2367`。即**窗口末次运行 44714 已超 39000 预算 14%**，峰值 2.6×。
+- **VDC 相位本身不超预算**（`max=11863 < 47000`、`overrun=0`），但 `skip_count/start_miss` 增加 1285、`deadline_miss` 增加 519 ⇒ 属**被前序相位挤掉服务**，与 DPLL 超预算的因果一致。调度器级 `schedule_miss_count 31449→36639`、`quarantined_mask=8`（bit3 粘性）。
+- **该相位全部内容**（`application/src/app.c:1161-1166` → `sync_dpll_fb_service()`，`components/vdc_dpll_manager/src/vdc_dpll_manager.c:3237-3262`）为 **15 个子服务**：`priority_trace_service_core1`、`vdc_priority_match_core1`、`priority_trace_match_core1`、`priority_follow_prepare_core1`、`vdc_priority_ingress_core1`、反馈会话与快照发布、`vdc_dpll_manager_age_quality_core1`、`sync_dpll_fb_step`、`vdc_boundary_service_core1`、`priority_follow_apply_core1`、`priority_follow_health_service_core1`、`reference_discipline_service_core1`、`model_feedback_end_core1`、`priority_summary_service`、`priority_guard_service_core1`。
+- **下一步的阻塞**：仓库**没有**可读的逐子服务耗时（`vdc_priority_trace.h` 只声明函数、无计时字段），故要定位是哪一个吃掉 39k 预算，必须先加**分段最大周期探针**（与 2026-10-13 给 origin 路径加 `origin_probe` 的同一手法：分段取最大值、追加在既有诊断页尾部、只读不改行为）。属固件改动，按硬约束 7 提交前需 P3 凭证。
+- **未核验**：未加探针、未定位具体子服务；未判定 2.6× 是真实回归还是该工况下既有状态。
+
 ### VDC-PROGRESS-20261014-005：门判据量化 + 两条路径同样失败（更正前四条的方向性表述）
 
 - **A/B 实验作废（自查）**：`trn03_closed_loop.py` 直调两次（只差 `--diagnostic-continue`/`--startup-poll-interval-s`）**都在更早处中止**：`RuntimeError: 0010071E65B5CB38: recorder cancel did not complete: {'state': 5, ... 'written': 14, 'bytes': 10116}`——NO.1 残留上一轮冻结未保存的 recorder。该次 `dpll_schedule_gate.nodes` 为空、`passed` 只是初值 `False` ⇒ **门根本没被评估**，故「旗标假设被推翻」不成立，一并撤回。正确流程须**先复位（DPLL60 step 2）再跑 step 3**。
