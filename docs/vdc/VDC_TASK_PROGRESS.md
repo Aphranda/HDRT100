@@ -22,6 +22,20 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-033：T3 收窄——T2 下失锁点在"接受之后、成匹配之前"；17:43 那轮无发布是跨流程交接假象
+
+- TODO task ID：`VDC-ISO-001`（新证据）、`VDC-HOLD-001`（V2 再证）、`VDC-LOCKPUB-001`、`TDMA-ISO-001`、`TDMA-ISO-002`；T2 侧 step 17。数值均为 2026-10-14 实验快照，非产品事实源。
+- **假象排除（重要）**：`-032` 记录的 17:43 T2 轮（`out/tdma_t2/steps-20261014-174358.log`）自环 START 起每一拍都是 `err 7 valid 0 seq 0 bound ring_cfg 0 vs ring 14/14 bound token 0 vs model 43`、`sync_seq 0`、`count 0`，看起来像"基础件不再发布"。但该轮在 DPLL60（17:40:42–17:43:57）结束后 **1 s** 启动。同一固件（build `20261014093650`）18:22:52 单独重跑（`out/tdma_t2/steps-20261014-182252.log`）：游标 `err 0 valid 1`、`seq` 递增至 8.6 万、`bound ring_cfg 75 vs ring 75/75`、`bound token 243 vs model 243`、`sync_seq` 11 万+。⇒ **该模式是跨流程交接污染，不是 V1 回归，也不是基础件停止发布**；V1 声明归属改写本身未破坏环发布。
+- **重跑复现的真实偏离**（step 17 FAIL，`failed steps: [17]`）：四板 `role` 首字段 0/1/1/1 ⇒ NO.1 为 MASTER、其余为 FOLLOWER：
+  - NO.1（MASTER）：`readiness input_ready 1 locked 0 reason 0`（READY）、`accepted 194`、`READ:SYNC:STATe?`=UNLOCK。MASTER 分支的 `reason` 仍走历史输入阶梯（不查新鲜度），`locked` 取 owner 声明 ⇒ **阶梯 READY 与声明 0 并存**，成因是样本窗口过期（与 V2、`-026` 一致：NO.1 的 DEGRADED 唯一成因＝freshness 过期）。
+  - NO.4（FOLLOWER，slot 3）：`SYNC:STATe LOCKED`、`locked 1` ⇒ 角色感知声明在"确实在跟随"的从板上成立。
+  - NO.2/NO.3（FOLLOWER，slot 1/2）：`reason 8`（`FOLLOW_DISABLED`，无观测）。与 `-032` 的 16:55 轮同向：**T2 下只有一块从板成匹配**。
+- **本轮排除的两个候选（都不解释 slot 分化）**：
+  1. **相位跳过率**：同固件 DPLL60（`out/HardwareAcceptance/20261014/dpll60-174042/`）SYNC_TRIGGER（phase 7）`start_miss/run` 为 3901/42279、5372/40499、5804/40068、5176/40694（9–15%），T2 轮为 114279/579498、111866/581872、112992/581165、117027/573936（19–20%），且 `deadline_miss` 由 1/545/494/606 涨到 9/21754/22394/33307；但四板跳过率一致而成匹配按 slot 分化（只有 slot 3 成）⇒ 相位跳过是基础件既有事实与负载放大，**不是从板间差异的成因**。静态表里 SYNC_TRIGGER 的入口余量只有 **200 cycles**（`config/project_config.h:143-147`：`END = START + WCET + CLOSE + 200`），即该相位只能容忍前序相位迟到 0.8 µs 以内。
+  2. **入站（RX）**：STOP 后 `SYSTem:VDC:PRIORity:RX?` 三从 `typed_accept_count` 123857/122947 量级一致、`typed_reject_count 0`，即 typed 记录已被接受 ⇒ 失效点在**接受之后、成匹配之前**，不在运输。
+- **代码级确认（T4）**：环运行后一切"停机态写入"经 `tdma_service_update_event_tap()` 以 reject **115** 拒绝（`components/tdma/src/tdma_service.c:1033-1034`），故 step 16 的运行中重下发 `SYNC/MATCH/FOLLow/FOLLow:PHASe` 一律不生效；`FOLLow:STATus?` 在活跃车道读回 `<timeout>`（8 s），而工具把它标成 "n/a (reference)" 且**不记失败**（`tools/sync_trigger/t2_workflow.py:2140-2153`），掩盖了未 armed 的事实——这是工具侧缺陷，须先修再谈门禁。
+- **下一 gate**：在 T2 运行窗内取从板匹配侧证据（`SYSTem:VDC:PRIORity:MATCH:STATus?` 与 follow health），定位"接受之后未成匹配"的确切拒绝码；随后按已定式的同一条路——owner 自管 arm（`VDC-LOCKPUB-001①`）+ 基础件隔离缺陷（`VDC-ISO-001`）修复，再谈 T2 门禁（T5）。
+
 ### VDC-PROGRESS-20261014-032：从板以内部观测判锁相；锁定声明归 VDC owner；HAOFV 偏离审查
 
 - TODO task ID：`VDC-LOCKPUB-001`、`VDC-LOCKPUB-002`（IN PROGRESS），新增 `VDC-LOCKPUB-003`、`VDC-ISO-001`，`VDC-HOLD-001` 追记；TDMA 侧 `TDMA-ISO-001..003`。本条数值均为 2026-10-14 实验快照，非产品事实源。
