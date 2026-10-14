@@ -22,6 +22,18 @@ Last updated: 2026-10-14
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261014-041：更正 —— 参考侧发布在 T2 下是健康的；T3 的真实缺口在从板观测侧
+
+- TODO task ID：`VDC-ISO-001`（T3 结论更正）、`TDMA-ISO-001/003`。值为 2026-10-14 实验快照，非产品事实源。
+- **更正 `-040`**：该条据 `PRIORity:TX?` 的 `provider_calls = 0` 推断"T2 下参考侧 provider 从未被进入"。本轮改用**无停机门禁的** `SYSTem:TDMA:SEAT:COUNters?`（TDMA-SEAT-01 计数，可在环运行时读）并在**同一轮 T2 采样窗内取两次读数做差**（累积计数不能单点判读），结果（`out/tdma_t2/steps-20261014-205817.log`）：
+  - 参考板 slot 0 在约 8 s 采样窗内：`seat_opportunity_count +131839`、**`seat_priority_count +118564`**、`seat_first_class_count +13275`。
+  - ⇒ **参考的 priority 席（VDC typed SYNC）在 T2 下持续上车**，负载的一等席同时也在上车；`published_generation`/`seat_*` 均为累积计数，单点读会被"整轮未被服务"的假象误导。
+  - `PRIORity:TX?` 的 `provider_calls = 0` 属**停机后读数的假象**（TX work 快照在停机读数之前被清零；该页本身要求 STOP，无法在运行中读）。⇒ `-040` 的结论作废，TX 页不能用于"运行中是否被服务"的判断；应改用 SEAT 计数或 VDC 侧无门禁页。
+- **T3 的真实缺口（据此更正）**：发布侧健康，缺的是**从板观测侧**——从板 `PRIORity:RX?` 的 `typed_accept_count` 大量增长且 `typed_reject_count` 为 0（记录到达并被接受），但匹配器以 `SOURCE` 拒绝，即 `priority_match_live_valid()` 的 `TDMA_EVENT_LIVE_RETAINED|ACTIVE|ANCHOR_VALID` 事件 live 快照在 T2 下不完整（`vdc_priority_match.inc:275-277`）。这与 `-032` 首轮证据（首拒 `SOURCE`）一致，也与 M2 修复后 SYNC_CAPTURE 已恢复运行并不矛盾：采集相位在跑，但 live 快照的**标志/锚点**仍不满足。
+- **下一 gate**：把事件 live 快照的三个标志与锚点条件逐项打点（同 SEAT 计数那样可运行中读取），同固件下做 T2 与 DPLL60 对照，指名是哪一个标志/锚点在负载下不成立；随后按基础件不受负载束缚修复。
+- **本轮工具改动**：T2 侧新增 `seat_live` 读数与 `rate` 差值（采样窗首末两次），以及 origin 活体读数；这些改动待下一次成功的全项 P3 后再提交（本轮两次 P3 均在物理环节失败，见下）。
+- **本轮 P3 记录**：`hawf-210711` step 29 采集失败（`internal_health_passed false` + `external_status FAIL`，属台架/物理窗口问题），其 `--run` 续跑又在 step 8 P0T 拓扑失败（前一次失败采集留下的板状态）⇒ 本轮未取得新凭证，工具改动保持未提交。
+
 ### VDC-PROGRESS-20261014-040：活体判别——T2 下 VDC 发布 provider 一次都没被进入（provider_calls = 0）
 
 - TODO task ID：`VDC-ISO-001`（T3 判别工具与结论）、`TDMA-ISO-001`、`TDMA-ISO-003`。值为 2026-10-14 实验快照，非产品事实源。
