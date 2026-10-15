@@ -959,6 +959,7 @@ STEP_SCOPE = {14: "once", 15: "once", 16: "once", 17: "once",
 T2_FIELDS = {"last_error": 1, "configured": 2, "active": 3, "origin": 4,
              "source_slot": 5, "target_mask": 6, "run_id": 7,
              "last_sync_sequence": 8, "published_mask": 9, "received_mask": 10,
+             "descriptor_reject": 11, "transport_reject": 12,
              "event_count": 13, "frozen_mask": 15,
              "last_counter_count": 28, "pulse_index": 29, "fine_slice_index": 30,
              "announced_mask": 31, "prepared_last_reason": 41,
@@ -2715,6 +2716,25 @@ def step_20_sampling(ctx, slot, board, uid):
                 _pos_seen = {}
                 ctx._position_last = _pos_seen
             _pos_seen[uid_r] = [f.strip() for f in position.split(",")]
+            # Action-execution evidence per role (TRIGger:RESERVation:T2:ACTion?).
+            # The decoded position slice becomes a local deadline plan; the role's
+            # own template kind decides whether this board arms a SWITCH or a
+            # GATEWAY deadline, and the masks say whether it armed/completed. Only
+            # this page can answer "did each role execute its own sequence".
+            action_page = ctx.send(member, "TRIGger:REServation:T2:ACTion?").split(",")
+            _act_seen = getattr(ctx, "_action_last", None)
+            if _act_seen is None:
+                _act_seen = {}
+                ctx._action_last = _act_seen
+            _act_seen[uid_r] = [f.strip() for f in action_page]
+            # Runtime preparation state per board: whether the local T2 owner ever
+            # took a staged position out of its single-depth mailbox. Without this,
+            # "lane_accept low" cannot be told apart from "owner never consumed".
+            _rt_seen = getattr(ctx, "_runtime_last", None)
+            if _rt_seen is None:
+                _rt_seen = {}
+                ctx._runtime_last = _rt_seen
+            _rt_seen[uid_r] = [f.strip() for f in state]
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
             # Rate evidence, not absolutes (VDC-ISO-001/T3): the seat and match
             # counters are cumulative since boot, so a single read cannot say
@@ -3001,6 +3021,69 @@ def step_20_sampling(ctx, slot, board, uid):
             ctx.failures.append(
                 f"Step 20 position distribution: source published {source_publish} slices"
                 f" but no follower staged any (lane_accept {follower_accepts})")
+
+    # Role-specific action execution (TRIGger:RESERVation:T2:ACTion?): the decoded
+    # position slice becomes a local deadline plan, and each board's deployment role
+    # selects its template kind - SWITCH_A/SWITCH_B arm a switch deadline, GATEWAY
+    # arms a gateway pulse, COUNTER only sources positions. Page order
+    # (scpi_trigger_t2_runtime_commands.inc: scpi_cmd_trigger_t2_action_q):
+    # [0] 1, [1] armed, [2] completed, [3] failed, [4] uncertain, then per position
+    # [5+5i] sequence, [6+5i..7+5i] deadline_tick (lo,hi), [8+5i] backend_state,
+    # [9+5i] origin_width_ticks, then [20] event_count and the events.
+    acts = getattr(ctx, "_action_last", {}) or {}
+    if acts:
+        executed = 0
+        for uid_r, slot_r, _i, _o, _f in ROWS:
+            page = acts.get(uid_r)
+            if page is None:
+                continue
+
+            def act_field(index):
+                return page[index] if len(page) > index else "?"
+
+            role = ROLES[slot_r] if slot_r < len(ROLES) else f"slot{slot_r}"
+            per_position = []
+            for index in range(len(T2_TARGETS)):
+                base = 5 + 5 * index
+                per_position.append(
+                    f"[{index}] seq {act_field(base)}"
+                    f" deadline {act_field(base + 1)}:{act_field(base + 2)}"
+                    f" backend {act_field(base + 3)} width {act_field(base + 4)}")
+            print(f"  ACTION slot {slot_r} {role} {uid_r:016X}"
+                  f" armed {act_field(1)} completed {act_field(2)}"
+                  f" failed {act_field(3)} uncertain {act_field(4)}"
+                  f" events {act_field(20)}"
+                  f" | {' '.join(per_position)}", flush=True)
+            try:
+                if int(act_field(2)) != 0:
+                    executed += 1
+            except (TypeError, ValueError):
+                pass
+        print(f"  ACTION execution: {executed} of {len(acts)} boards completed an"
+              f" action (roles {[ROLES[s] if s < len(ROLES) else s for _u, s, _i, _o, _f in ROWS]})",
+              flush=True)
+
+    # Local runtime consumption per role: a role can only execute when its own T2
+    # owner took a staged descriptor (prepare) and froze it. received_mask shows the
+    # mailbox was populated for this board, prepare/preview that it was consumed,
+    # frozen_mask that a deadline plan exists.
+    rts = getattr(ctx, "_runtime_last", {}) or {}
+    for uid_r, slot_r, _i, _o, _f in ROWS:
+        page = rts.get(uid_r)
+        if page is None:
+            continue
+        role = ROLES[slot_r] if slot_r < len(ROLES) else f"slot{slot_r}"
+        print(f"  RUNTIME slot {slot_r} {role} {uid_r:016X}"
+              f" received {t2_field(page, 'received_mask')}"
+              f" frozen {t2_field(page, 'frozen_mask')}"
+              f" published {t2_field(page, 'published_mask')}"
+              f" announced {t2_field(page, 'announced_mask')}"
+              f" prepare {t2_field(page, 'prepare_calls')}"
+              f" preview_saved {t2_field(page, 'preview_saved')}"
+              f" prep_reason {t2_field(page, 'prepared_last_reason')}"
+              f" desc_reject {t2_field(page, 'descriptor_reject')}"
+              f" trans_reject {t2_field(page, 'transport_reject')}"
+              f" last_error {t2_field(page, 'last_error')}", flush=True)
 
 
 @step(21)
