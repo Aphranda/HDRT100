@@ -22,6 +22,25 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-056：Step 0 定因——**窗口在源侧按设计滚动（我上轮读错了板）**；真缺口是"从板只冻结 3 个位置，而源已公告 283 个"
+
+- TODO task ID：`T2-TURNTABLE-002`（窗口推进）、`T2-DEPLOY-003`（从板消费）、`T2-IDENT-002`（位置域口径）。值为 2026-10-15 实验快照，非产品事实源。
+- **更正**：上一轮我据 `T2:SCAN?` 的 `window_entered 2 / announced 0` 断言"窗口不滚动"，**读错了板** —— 工具那次读的是**从板**的页，而滚动发生在**源板**。本轮改为每 tick 对四板同时读，结论反转。
+- **实测（`out/tdma_t2/steps-20261015-102327.log`，每 2 s × 5 tick）**：
+
+| 板 | entered | announced | pred_err | 判读 |
+|---|---|---|---|---|
+| slot 0 COUNTER（源） | 9→78→147→216→**285** | 7→76→145→214→**283** | **0** | ✓ 随 count 单调滚动，恒为 `entered−2`（1~2 个在途未公告，正是设计口径） |
+| slot 1 SWITCH_A | 2（五个 tick 不动） | 0 | 0 | 从板不预测；只 `frozen 3` |
+| slot 2 GATEWAY | 2 | 0 | 0 | 同上，`frozen 3`，本轮 `action done 3` ✓ |
+| slot 3 SWITCH_B | 2 | 0 | 0 | 同上，`frozen 3`，本轮 `action done 3` ✓ |
+
+  ⇒ **既不满足 ①（advance 未被调用）也不满足 ②（BACKWARD 锁死）**：源侧 `predictor.last_error == 0` 且 entered 随 count 增长 ✓ ⇒ `window_advance()` 运行期正常调用、无后退锁死。
+- **真正的缺口**：源已公告 **283** 个位置，而从板只 `frozen 3`（三个 tick 值不变）⇒ **从板没有沿扫描消费被公告的位置序列**，仍是早期三槽结构（与报告 F3/F5 "消费者仍按早期三槽结构取用位置"、`T2-IDENT-002` 记录的 `position_id ≤ 3` 字面量一致）。分发侧同轮仍严重背压：`lane drop 46476 / 45684 / …`、`action done 3`。
+- **口径副作用**：源侧 `mismatch 1199` 恒定，是 361 扫描与 legacy 3 槽位掩码的口径差（工具已在 `positions==3` 前提下才判该值），不是失败。
+- **Step 1 重新界定**：不再是"让窗口滚动"（已成立），而是**从板侧消费**——为什么源公告 283 而从板只冻结 3：查冻结 latch 的 `position_id` 域（`T2-IDENT-002` 的三处口径）与运行时消费路径，判据 = 一轮内从板冻结/动作覆盖与源公告同阶。
+- **本轮另见**：T2 流程 step 10（模板/动作安装）本轮偶发 FAIL（同轮 `--full` 收尾；此前多轮 OK）；`tests/python/test_trigger_t2_runtime.py::test_t2_runtime[freeze_missing]` 为**既有红**（本轮工作区改动仅工具/文档/产物，未动固件与测试），应单独登记排查。
+
 ### VDC-PROGRESS-20261015-055：角色动作序列实测——**解码片到达的角色 3/3 完成动作**；缺口是"每轮总有一块目标板收不到片"
 
 - TODO task ID：`T2-DEPLOY-003`（多板槽位业务闭环）、`T2-TRANSPORT-002`。值为 2026-10-15 实验快照，非产品事实源。
