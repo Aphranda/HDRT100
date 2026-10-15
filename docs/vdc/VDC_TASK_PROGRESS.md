@@ -22,6 +22,19 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-060：DPLL60 **内部监测**当前不合格（基础件需先恢复）——示波器缺席，只能看内部健康位
+
+- TODO task ID：`T2-DEPLOY-003`（后续 Step 2 的前置）。值为 2026-10-15 实验快照，非产品事实源。
+- **专门的 DPLL60 工作流（本次使用的正是它，`--scope off` 即内部监测）**：
+  `python tools/vdc_priority_trace/vdc_priority_joint_capture.py --bench-adapter tools/archive/vdc/vdc_joint_capture/lineage_v1/internal_seal.py --workflow-inputs config/tool_workflows/vdc_joint_capture_internal_seal.json --scope off --seconds 60 --settle-s 5.0 --out out/HardwareAcceptance/20261015/dpll60-internal-baseline` ✓
+  （带 `--p3-provisional` 会因 `invalid P3 joint provisional receipt` 直接失败 ✗；不带则该次能进入采集 ✓。）
+- **结果**：外层 `{"passed": false, "errors": [{"stage": "child_capture", "error": "RuntimeError('Capture exited 2')"}], "duration_s": 20.031}` ✗；子进程 `child.stdout.log` 给出根因位：
+  `{"internal_health_passed": false, "external_status": "SKIPPED", "passed": false, "physical_continuous_lock_qualified": false, "exact_event_correlation_qualified": false}` ✗
+  ⇒ **基础件当前不正常**：内部健康与"物理连续锁定"均未达标 ✗（`external_*` 因无示波器被跳过 ✓）。这与之前的 `phase exceeds 1000 ns` ✗ 属同一族（同步链/锁定质量）✓。
+- **重要对照**：**本批自己的 P3 在 17:03 是过的** ✓（`hawf-165452`：`dpll-short passed=true`、`credential: written` ✓），而此后**没有再烧录任何固件** ✓ ⇒ 现在的不合格更可能是**台架状态**而非该固件 ✗；且 17:09 那次被我中断的 `--profile full` 很可能把台架留在半途状态 ✗（历史经验：中断/连跑后需要恢复序列 ✓）。
+- **下一步（恢复优先）**：① 先跑 `python tools/hardware_acceptance/hardware_acceptance_workflow.py --steps 0-7`（构建 + OTA + 初始化 ✓，约 3~4 分钟）恢复台架 → ② 再跑上面的专门 DPLL60 内部监测命令，期望 `internal_health_passed: true` ✓；③ 基础件正常后再继续 Step 2（分发公平性，判据：连续两轮每个目标角色都拿到片、`lane_accept` 单调、`hold_drop` 不增长 ✓）。
+- 下一 gate：基础件恢复（DPLL60 内部健康位）→ `T2-EXEC-002`/Step 2。
+
 ### VDC-PROGRESS-20261015-059：★ Step 1 批次**带 P3 凭证提交**（`87706fee`）——从板越过 legacy 3 槽；容量 8→16 被证明是 DPLL 相位回归源，本批保持 8
 
 - TODO task ID：`T2-DEPLOY-003`（主）、`T2-IDENT-002`、`T2-TURNTABLE-002`。值为 2026-10-15 实验快照，非产品事实源。
