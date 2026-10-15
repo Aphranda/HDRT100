@@ -22,6 +22,15 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-063：T2 step 20 失败=**工具缺陷**（未守卫的固定下标 `T2_SEGMENTS=(42,43,44)` ✗）——不是固件问题
+
+- TODO task ID：`T2-DEPLOY-003`。值为 2026-10-15 实验快照，非产品事实源。
+- **报错**（`out/tdma_t2/steps-20261015-172734.log`）：`=== Step 20 END FAIL 2.3s reason: Step 20 raised IndexError: list index out of range` ✗（step 20 = "运行采样（segments[42..44] / published_mask / POSition 发布）" ✓）。
+- **根因**：`tools/sync_trigger/t2_workflow.py:968` 定义 `T2_SEGMENTS = (42, 43, 44)`（`T2?` 页的 `core0`/`segment_max_cycles` 字段 ✓），但该页**长度随状态变化** ✗（本会话已实测：同一页在不同状态下尾部字段数不同 ✗），于是在短扫描/停机态下 `state[42..44]` 越界 ⇒ `IndexError` ✗。
+- **修法（与同文件既有正确写法一致 ✓）**：`t2_workflow.py:854` 已示范 `state[44] if len(state) > 44 else "?"` ✓；把 step 20 及其它 `T2_SEGMENTS` 的使用点都改成**带长度守卫**的取值（越界给 `"?"` 并在判据里显式标注"读数缺失"✗），而不是让整步抛异常 ✗。工具改动 ⇒ 台架已绿，可正常走一次 P3 收口 ✓。
+- **判据影响**：修好后重跑短扫描，step 20 应产出 `segments`/`published_mask`/`POSition` 读数而不再抛异常 ✓；随后即可进入 Step 2 分发公平性（连续两轮每个目标角色都拿到片、`lane_accept` 单调、`hold_drop` 不增长 ✓）。
+- 下一 gate：`T2-EXEC-002`/Step 2（分发公平性）。
+
 ### VDC-PROGRESS-20261015-062：★ 基础件**正常**（完整 P3 通过 + DPLL60 内部 `passed=true` ✓）；T2 短扫描转入 step 20 失败 ✗
 
 - TODO task ID：`T2-DEPLOY-003`。值为 2026-10-15 实验快照，非产品事实源。
