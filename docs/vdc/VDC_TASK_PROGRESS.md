@@ -22,6 +22,18 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-054：**位置分发实测成立**——T2 经一等席车道分发到三从；并更正上一轮基于 `rx_complete_count` 的错误结论
+
+- TODO task ID：`T2-TRANSPORT-002`/`T2-IDENT-001`（位置运输证据）、`VDC-ISO-001`。值为 2026-10-15 实验快照，非产品事实源。
+- **先更正**：上一轮我据 `SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 的 `rx_complete_count = 0` 判断"没有任何从板完成位置"，**是错的**。该计数器只属于**经典 mailbox** 路径；当一等席/优先级车道拥有位置运输时（`mailbox[3] == TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS`），经典解析被**设计性跳过**（`components/distributed_refmem/src/distributed_refmem.c:1893-1896` + `s_position_priority_owned`），因此 `rx_complete_count` 在完全正常的分发下恒为 0。判定位置分发的正确证据是**车道路径**计数：`lane_accept_count` 只在"解码成功且已提交到本地位置邮箱/冻结锁存"时自增（`distributed_refmem_position_ack.inc:287`）。
+- **实测（`out/tdma_t2/steps-20261015-083111.log`，`--full` 22 步、`failed steps: none`）**：
+  - 源 slot 0：`tx_publish 22935`、`tx_seq 24659`、`tx_phase 5`（持续发布切片）；
+  - 从 slot 1/2/3：`lane_accept 22860 / 11748 / 25481`、`lane_dup 24841 / 12033 / 27596`、`lane_reject 3257 / 30768 / 4451`、`owned 1`、`hold 2623 / 1614 / 3888`、`drain 2158 / 1329 / 3184`、`hold_delivered 461 / 281 / 704`、`drain_fail 1 / 0 / 0`；
+  - 工具新增判定行：`POSITION distribution: source tx_publish 22935; follower lane_accept [(1,22860),(2,11748),(3,25481)] -> DISTRIBUTED`。
+  ⇒ **T2 可以分发位置**：三从各自解码并提交了上万条切片，背压（单深度邮箱拒绝→有界 hold 队列→drain 重投）按设计工作；`lane_dup` 为导线重发计数。
+- **工具修正（`tools/sync_trigger/t2_workflow.py`）**：位置运输诊断改为按页面字段名逐一打印（tx_publish/tx_seq/tx_frag/tx_phase、lane_accept/dup/reject/owned/hold/drain/drain_fail/hold_drop/hold_delivered/decode_reject、classic rx_complete/rx_reject/rx_pending_mask/rx_last_failure），并新增**全板**的 `POSITION slot …` 明细与 `POSITION distribution … -> DISTRIBUTED/PARTIAL/NO DELIVERY` 判定；原先误把 `tx_position_id` 标成 `POS pub`、`rx_pending_mask` 标成 `rx` 的标签一并纠正。判据只在"源已发布而从板无一提交"这种明确情形下失败。
+- **仍待观察（非本轮目标）**：NO.3 的 `lane_reject 30768` 远高于其 `lane_accept 11748`（单深度邮箱背压），`hold_dropped` 与 `decode_reject` 已加入读数以便后续量化丢弃率；若要提高分发余量，方向是背压/邮箱深度而不是观测者。
+
 ### VDC-PROGRESS-20261015-053：**T2 跑通**——四步齐绿（step 17–21），1:1 负载在位、三从锁定并匹配
 
 - TODO task ID：`VDC-ISO-001`（T3 关闭）、`TDMA-ISO-002`（1:1 轮换保留）。值为 2026-10-15 实验快照，非产品事实源。
