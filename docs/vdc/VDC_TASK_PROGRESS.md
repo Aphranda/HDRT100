@@ -35,6 +35,13 @@ Last updated: 2026-10-15
 - **两条既有问题（各自追因，勿混入 Step 1 判据）**：① 短扫描下从板存在既有动作失败（`failed` 非零、`backend 0 = 45`），两份日志都有且与本次改动无关；② 既有红 `test_trigger_t2_runtime[freeze_missing]`（无预览路径挂死；固件侧 `stage_pending_freeze()` 已证明不阻塞，故归 harness 侧）。
 - **下一步（照做，勿再问背景）**：① 整批切换——`trigger_t2_runtime.c` 两侧掩码/数组（`published_mask`/`freeze_complete_mask`/`freeze_abandoned_mask` 与 `frozen_mask`/`received_mask`/`s_pending_mask`、`s_deadline[]`/`freeze_version[]`/`freeze_local_version[]`/`freeze_local_age[]`）→ `trigger_position_window_t`，并按实例而非槽号寻址、槽位可回收；**同批**更新 `tests/python/test_trigger_t2_runtime.py` 的 16 处旧三槽语义期望（第 26 轮实测：只切一侧必红）；② 驱动判据改为 `win_totals[2]/[3] > 3`（真计数），并把 `failed`/`backend` 非零单列报出；③ 验证 `T2_SCAN_OVERRIDE_TERMINAL_MDEG=8000 python tools/sync_trigger/t2_iterate.py`（短扫描）→ 去掉 override 全扫描；④ 收口：一次 `python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full`（P3 凭证，硬约束 7）+ 契约登记（`T2-DEPLOY-003`/`T2-IDENT-002`/`T2-TURNTABLE-002`）+ C11 交叉复核 + 文档与代码**分开提交**。
 - 下一 gate：`T2-DEPLOY-003`（整批切换完成并宿主点名集合全绿后，才进入台架短扫描）。
+- **2026-10-15 ★ 疑似回归（最高优先级，必须在下一次开工时先处理）**：P3 的 step 30 失败原因读到了具体条目：`out/HardwareAcceptance/20261015/hawf-161714/dpll-short-summary.json` → `passed=false, errors=['phase exceeds 1000 ns']` ✗（DPLL 相位超差 ✓，不是工具 flake ✗）。
+  **跨轮对照（今日 12 份 `hawf-*/dpll-short-summary.json`）**：
+  `014751 / 051512 / 054313 / 083959 / 093943 / 103220 / 110113 / 112744 / 113912 / 120809` = **passed ✓（10/10）**；
+  `155822 / 161714` = **FAIL `phase exceeds 1000 ns` ✗**。
+  ⇒ 失败**始于 12:08 与 15:58 之间**，与我"开始把 T2 窗口改动烧上板"的时间窗重合 ✗ ⇒ **必须按"疑似我的固件改动导致 DPLL 相位超差"来排查** ✗，不得当作既有 flake 放行 ✗。（同轮现象可互证：全扫描里三从 `input_ready 0 / reason 8` ✗ = 从板同步链未接纳 ⇒ 与相位超差同源 ✓。）
+- **下一次开工的第一步（二选一，先做第一个）**：① **对照实验**——把本批 T2 改动从固件中排除（`git stash` 暂存区外的窗口/运行时改动，或临时还原 `trigger_t2_runtime.c` + `trigger_position_window.h` 的本批 hunk ✓），重新 `--profile full`，看 `dpll-short-summary.json` 是否回到 `passed=true` ✓；若回到绿 ⇒ 本批改动与 DPLL 相位冲突 ⇒ **先修冲突再谈 Step 1 收口** ✗；② 若排除后仍 `phase exceeds 1000 ns` ✗ ⇒ 属台架/同步链既有问题 ⇒ 单独立项（届时再谈恢复步骤）。
+- 备注：本批代码**仍暂存未提交**（`git status` 可见 staged ✓），因此回退/对照都不需要动历史提交 ✓。
 - **2026-10-15 追加（step 30 定案：与本批无关，属 DPLL 短采集族）**：读 A 轮运行目录 `out/HardwareAcceptance/20261015/hawf-155822/workflow-state.json`（每步状态与报错的事实源 ✓）得到：
   `30 = {'title': 'DPLL 摘要校验（summarize_joint / validate_summary）', 'status': 'FAIL', 'reason': 'AcceptanceError: DPLL short evidence contains a blocking result', 'seconds': 0.x}` ✓。
   ⇒ step 29 自身判据 OK ✓、但**它产出的证据里含"blocking result"**，被 step 30 的更严校验拒绝 ✗。两次失败（A 轮 step30、B 轮 step29 `Capture exited 2`）**都落在 DPLL 短采集族**（步骤 29/30）✓，**没有任何证据指向本批 T2 改动** ✓（构建/OTA/前序步骤均通过 ✓）。
