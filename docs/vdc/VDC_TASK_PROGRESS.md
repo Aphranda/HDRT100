@@ -22,6 +22,14 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-064：step 20 的 IndexError 定位=**仍未确定**（`T2_SEGMENTS` 假设被证伪 ✗）；先让该步自诊断
+
+- TODO task ID：`T2-DEPLOY-003`。值为 2026-10-15 实验快照，非产品事实源。
+- **纠正当轮假设**（`VDC-PROGRESS-20261015-063` 里我推测是 `T2_SEGMENTS=(42,43,44)` 未守卫 ✗）：实际三个使用点**都已有长度守卫** ✓（`t2_workflow.py:2496/2865/2942/2951` 均为 `state[index] if len(state) > index else "?"` ✓），且同一日志的 preflight 行显示 segments 读取正常 ✓（`preflight slot 0..3: … segments 6426/1670/34 …` ✓）⇒ **该假设作废** ✗，IndexError 发生在 step 20 体内的**其它**列表访问 ✓。
+- **新问题**：日志只写了 `reason: Step 20 raised IndexError: list index out of range` ✗，**没有 traceback** ✗ ⇒ 无法进一步定位 ✓。
+- **下一步（先让失败自诊断，再定位）**：在 `t2_workflow.py` 的 step 执行包装处（`ctx.failures.append(...)` 之前）把 `traceback.format_exc()` 一并写入日志/失败理由 ✓（工具改动 ⇒ 台架已绿，可正常走一次 P3 收口 ✓）。拿到 traceback 后再修具体下标 ✓；若同一轮还要进 Step 2，可先用 `--steps` 跳到 step 21 观察 teardown 结论 ✓。
+- 下一 gate：`T2-EXEC-002`/Step 2（分发公平性）。
+
 ### VDC-PROGRESS-20261015-063：T2 step 20 失败=**工具缺陷**（未守卫的固定下标 `T2_SEGMENTS=(42,43,44)` ✗）——不是固件问题
 
 - TODO task ID：`T2-DEPLOY-003`。值为 2026-10-15 实验快照，非产品事实源。
