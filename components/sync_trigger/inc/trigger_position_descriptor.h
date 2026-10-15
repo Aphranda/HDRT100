@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "trigger_deployment.h"
+#include "trigger_position_window.h"   /* instance domain owner */
 
 #define TRIGGER_POSITION_DESCRIPTOR_SCHEMA 2u
 #define TRIGGER_POSITION_STAGE_PREVIEW 1u
@@ -190,7 +191,8 @@ static inline __attribute__((always_inline)) bool trigger_position_descriptor_va
 {
     if (d && d->schema == TRIGGER_POSITION_DESCRIPTOR_SCHEMA &&
         d->stage == TRIGGER_POSITION_STAGE_FREEZE)
-        return d->position_id >= 1u && d->position_id <= 3u &&
+        return d->position_id >= 1u &&
+            d->position_id <= TRIGGER_POSITION_INSTANCE_MAX &&
             d->prediction_version != 0u;
     return d && d->schema == TRIGGER_POSITION_DESCRIPTOR_SCHEMA &&
         d->run_id && d->sync_epoch && d->position_id && d->count_epoch &&
