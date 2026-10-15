@@ -1,71 +1,288 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <title>DHRT100 T2 阶段性现状报告（2026-10-13）</title>
-<style>body{font-family:system-ui,Segoe UI,Microsoft YaHei,sans-serif;margin:2em;line-height:1.6;max-width:1100px}
-table{border-collapse:collapse;margin:1em 0;width:100%}th,td{border:1px solid #bbb;padding:.4em .6em;text-align:left;vertical-align:top}
-th{background:#f0f0f0}code{background:#f6f6f6;padding:.1em .3em}.ok{color:#0a7d00;font-weight:600}.warn{color:#b06000;font-weight:600}</style>
-</head><body>
-<h1>DHRT100 T2（TRIGGER 域）阶段性现状报告</h1>
-<p>日期 2026-10-13 · 域 TRIGGER · 依据：代码事实 + 提交记录 + <code>docs/trigger/t2/TRIGGER_T2_TODO.md</code> 与其 Task Progress · 体例对齐同目录 DPLL 现状报告。</p>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body {
+    font-family:"Microsoft YaHei","SimSun","DengXian",Arial,sans-serif;
+    background:#d7d9df;
+    color:#1f2328;
+    padding:18px;
+    line-height:1.42;
+  }
+  @page { size:A4 portrait; margin:0; }
+  .page {
+    width:210mm;
+    height:297mm;
+    margin:0 auto 18px;
+    background:#fff;
+    box-shadow:0 3px 14px rgba(0,0,0,.16);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    break-after:page;
+    page-break-after:always;
+  }
+  .page-header {
+    padding:10mm 16mm 5mm;
+    border-bottom:5px solid #d9e1ef;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:18px;
+  }
+  .brand {
+    width:48mm;
+    height:14mm;
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    white-space:nowrap;
+  }
+  .brand-logo {
+    display:block;
+    width:38mm;
+    height:auto;
+  }
+  .doc-meta { text-align:right; font-size:10.5px; color:#687381; white-space:nowrap; }
+  .doc-meta strong { display:block; color:#1f3864; font-size:13px; margin-bottom:3px; }
+  .main { flex:1; padding:5mm 16mm 5mm; }
+  .page-footer {
+    padding:3mm 16mm 4mm;
+    border-top:5px solid #d9e1ef;
+    color:#8b949e;
+    font-size:9px;
+    display:flex;
+    justify-content:space-between;
+  }
+  h1 { font-size:23px; color:#172033; letter-spacing:0; margin-bottom:3px; }
+  .subtitle { color:#5b6573; font-size:12px; }
+  .chips { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:0 0 9px; }
+  .chip { border:1px solid #d9e1ef; border-left:4px solid #1f3864; padding:6px 8px; min-height:44px; background:#f8fafc; }
+  .chip:nth-child(2) { border-left-color:#2e7d32; }
+  .chip:nth-child(3) { border-left-color:#d97706; }
+  .chip:nth-child(4) { border-left-color:#6a1b9a; }
+  .chip .k { display:block; color:#687381; font-size:9.5px; margin-bottom:1px; }
+  .chip .v { display:block; color:#111827; font-size:12px; font-weight:700; }
+  .pct { font-weight:800; color:#1f3864; white-space:nowrap; }
+  .section { margin-top:7px; }
+  .section-title {
+    font-size:14px;
+    color:#1f3864;
+    font-weight:700;
+    padding-bottom:4px;
+    border-bottom:2px solid #1f3864;
+    margin-bottom:6px;
+  }
+  table { width:100%; border-collapse:collapse; font-size:10.1px; border:1.5px solid #2f3542; }
+  th {
+    background:#1f3864;
+    color:#fff;
+    text-align:left;
+    padding:4px 6px;
+    border:1px solid #182b4c;
+    font-weight:700;
+  }
+  td { padding:4px 6px; border:1px solid #c8d1dc; vertical-align:top; }
+  tbody tr:nth-child(even) td { background:#f5f8fc; }
+  .compact td { padding-top:3px; padding-bottom:3px; }
+  .mini { font-size:9.2px; line-height:1.28; }
+  .mini th { padding:3px 5px; }
+  .mini td { padding:2px 5px; }
+  .c { text-align:center; }
+  .b { font-weight:700; }
+  .tag { display:inline-block; color:#fff; font-weight:700; font-size:9.5px; padding:1px 6px; border-radius:3px; white-space:nowrap; }
+  .green { background:#2e7d32; }
+  .blue { background:#1565c0; }
+  .orange { background:#d97706; }
+  .purple { background:#6a1b9a; }
+  .gray { background:#6b7280; }
+  .red { background:#c62828; }
+  .summary { display:grid; grid-template-columns:1.12fr .88fr; gap:10px; align-items:stretch; }
+  .note-box, .todo-box, .coord-box, .risk-box {
+    padding:8px 10px;
+    font-size:10.8px;
+  }
+  .note-box { background:#f7fbf5; border-left:4px solid #2e7d32; }
+  .note-box strong { color:#1b5e20; }
+  .todo-box { background:#fff8ed; border-left:4px solid #d97706; }
+  .todo-box strong { color:#a14d00; }
+  .coord-box { background:#f5f7ff; border-left:4px solid #6a1b9a; }
+  .coord-box strong { color:#4a148c; }
+  .risk-box { background:#fff5f5; border-left:4px solid #c62828; }
+  .risk-box strong { color:#9f1239; }
+  ul { padding-left:17px; }
+  li { margin:1px 0; }
+  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .three-col { display:grid; grid-template-columns:1fr 1fr 1fr; gap:9px; }
+  .small-list { font-size:10.4px; color:#2f3542; }
+  .mono { font-family:Consolas,"Courier New",monospace; font-size:10px; }
+  .flow {
+    border:1px solid #d5dce6;
+    background:#f8fafc;
+    padding:8px 10px;
+    font-family:Consolas,"Courier New",monospace;
+    font-size:10px;
+    color:#243044;
+    white-space:pre-wrap;
+  }
+  .delay-page .main { padding-top:4mm; padding-bottom:4mm; }
+  .delay-page .flow { padding:5px 7px; font-size:8.8px; line-height:1.16; }
+  .delay-page .section-title { margin-bottom:5px; }
+  .delay-page table { font-size:8.45px; line-height:1.17; }
+  .delay-page th { padding:2px 4px; }
+  .delay-page td { padding:2px 4px; }
+  .bar {
+    margin-top:8px;
+    padding:7px 10px;
+    background:#172033;
+    color:#fff;
+    font-size:11.5px;
+    text-align:center;
+  }
+  .bar strong { color:#ffd166; }
+  @media print {
+    @page { size:A4 portrait; margin:0; }
+    html, body {
+      width:210mm;
+      min-width:210mm;
+      max-width:210mm;
+      background:#fff;
+      padding:0;
+      overflow:visible;
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+    }
+    .page {
+      width:210mm !important;
+      height:297mm !important;
+      min-height:297mm !important;
+      margin:0;
+      box-shadow:none;
+      break-after:page;
+      page-break-after:always;
+      transform:none !important;
+    }
+  }
 
-<h2>1. 结论摘要</h2>
-<ul>
-<li><span class="ok">K-2 语义链已闭合</span>：语义修复 + 判据抽取 + C1–C6 抽取式用例，三者各自通过 P3 四板分级验收（ERROR 0 / FATAL 0）。</li>
-<li><span class="ok">PIO 模式化经证据核验为已合规</span>：模型脉冲的装载发生在 persona 停态钩子，arm 路径只校验已装载。</li>
-<li><span class="ok">转台通道口径已定</span>：生产接实际转台走 <code>IN1</code>；当前台架以 <code>OUT4 → IN1</code> 硬件回环模拟转台输入。</li>
-<li><span class="warn">两项开放</span>：跨域契约登记尚欠 TDMA 域一等席布局联审结论；位置邮箱契约的登记行已插入但独立 C11 未完成、故未提交。</li>
-</ul>
-
-<h2>2. 已完成（代码事实 + 提交号）</h2>
-<table>
-<tr><th>项</th><th>代码事实</th><th>提交</th></tr>
-<tr><td>K-2 装填重算判据</td><td><code>prepare_deadlines_core0()</code> 仅跳过<b>已被硬件接受</b>的位（读快照 <code>action_armed_mask | action_completed_mask</code>），已冻结未装填的位仍随最新 DCO 重算；移除"冻结即不发布"袢断</td><td><code>73dcd61a</code>（P3 PASS_WITH_WARNINGS）</td></tr>
-<tr><td>判据抽取</td><td><code>t2_deadline_position_accepted</code> / <code>t2_deadline_plan_current</code>（纯函数，零顺序变化）</td><td><code>bb06318f</code></td></tr>
-<tr><td>K-2 用例</td><td>C1–C6 抽取真实函数体驱动的 host 用例（无需硬件凭证）</td><td><code>5d25ecfd</code></td></tr>
-<tr><td>PIO 模式化核验</td><td>判据 <code>sync_io_model_sched.c:931-934</code>（PIO0 且 SM 为 <code>BOARD_SYNC_PIO0_WAVE_OUTPUT_SM</code> 或 <code>SCHEDULED_TRIGGER_SM</code>）→ <code>:955</code> persona 路径 → <code>:173</code> 停态装载 → <code>:411</code> 注册 <code>.load</code> → <code>:213</code> arm 只校验 <code>s_wave_output_program_loaded</code>；非 PIO0 回退 <code>:980-1002</code> 不在 T2 路径</td><td><code>a61436b0</code></td></tr>
-<tr><td>转台通道</td><td>生产 IN1；台架 OUT4→IN1 回环；核验 <code>boards/rp2350_trig/inc/board_config.h:314</code> <code>BOARD_SYNC_OUTPUT_PIN_COUNT=4u</code>（本地输出 OUT1..OUT4）</td><td><code>adb845b4</code> / <code>c9254094</code> / <code>82038275</code> / <code>df294b7e</code></td></tr>
-<tr><td>工具链</td><td>OTA 多板刷写增加重枚举轮询（<code>DISCOVERY_SETTLE_S=60</code>，仅窗口耗尽才报 <code>missing_serial_numbers</code>）+ 每 10 s <code>ota_progress</code> 心跳（实测 20 行）</td><td><code>86732e17</code></td></tr>
-<tr><td>文档合规</td><td>T2 待办 378 KB → 47 KB；长历史归档；约束域内独立命名；审计项 01/05/06 以核验结论结案并下沉长记录</td><td>多次提交</td></tr>
-</table>
-
-<h2>3. 契约与治理状态</h2>
-<table>
-<tr><th>契约</th><th>内容</th><th>status</th><th>C11</th></tr>
-<tr><td><code>ARCH-TRIGGERSLICE-01</code></td><td>位置切片 10 B 小端单帧（tag 0xE0/0xF0 或 position_id(1..15)、prediction_version≠0、target_ms_index、fine≤0xFFFFFF）；一帧一条记录不拆分；容器为 mailbox 中 10 B 的 RefMem 子区；owner <code>TriggerRegion[n]</code>；CRC 由 TDMA 帧级承担</td><td><code>pending</code></td><td>已完成（提交单 <code>docs/check/submissions/TRIGGER_CROSS_REVIEW_01.md</code>，结论 APPROVE WITH NOTES，三处措辞已修正）</td></tr>
-<tr><td><code>ARCH-TRIGGERMAILBOX-01</code></td><td>位置邮箱为单生产者/单消费者；payload 仅在 WRITING 写、仅在 READING 读，READY 为 release/acquire 交接；<code>FREEZE_LATCH_IDS=15u</code>，<code>position_id ∈ [1, LATCH_IDS]</code>；被 RefMem 跨域 include（<code>distributed_refmem.c:30</code>）</td><td><code>pending</code>（登记行<b>已插入未提交</b>）</td><td>未完成（独立审核 subagent 被中止，无结论）</td></tr>
-</table>
-<p>登记表当前为 <b>39 条契约、ids unique</b>；门禁：<code>docs_check --strict-names</code>（files=185）与 <code>doc_regression_check</code> 均通过。</p>
-
-<h2>4. 量化事实（可复现）</h2>
-<table>
-<tr><th>指标</th><th>数值</th><th>来源</th></tr>
-<tr><td>长扫描档位</td><td>361（0..360 @1°）</td><td>既有硬件扫描记录</td></tr>
-<tr><td>每位置组数与总量</td><td>16 组；<code>total = 2896 = 181 × 16</code>，<code>fault = 0</code></td><td>台架闭环实测</td></tr>
-<tr><td>四板 OTA 耗时</td><td>≈200.98 s（历史通过样本 198.9 s）</td><td>验收 timing 记录</td></tr>
-<tr><td>SCPI 节点作用域命令</td><td>仅 4 条（<code>refmem_node_q:218</code>、<code>refmem_load_node:531</code>、<code>config_role_q:5283</code>、<code>config_calibration_q:5349</code>）</td><td><code>middleware/scpi_port/src</code></td></tr>
-<tr><td>RefMem 表容量</td><td>18432 B；16 区恰好填满；含未使用的 TLV 区 3072 B（无消费方）</td><td><code>distributed_refmem.h</code> / <code>refmem_vector_table.h</code></td></tr>
-</table>
-
-<h2>5. 未决项与风险</h2>
-<table>
-<tr><th>项</th><th>状态</th><th>需要谁</th></tr>
-<tr><td>T2-AUDIT-03 残项：TDMA 域一等席布局联审结论</td><td>登记与 C11 已完成；<b>仅欠联审</b></td><td>TDMA 域（需用户指定）</td></tr>
-<tr><td>T2-AUDIT-07：位置邮箱契约 C11 + 提交</td><td>登记行与 clause 在树、未提交</td><td>独立审核方（作者不得自审自批）</td></tr>
-<tr><td>接口域 IF-001..003（单串口控制面）</td><td>三件套已建；等待 D1–D4 决定</td><td>用户（属接口域，不在 T2 ROI 内）</td></tr>
-<tr><td>参考实现 SEQUENCE 全域 + tkinter 调试界面</td><td>未移植</td><td>用户排期</td></tr>
-<tr><td>RefMem 缺 <code>_Static_assert(sizeof(refmem_vector_table_t) == DISTRIBUTED_REFMEM_TABLE_SIZE)</code></td><td>未添加（属固件改动，需一轮 P3）</td><td>作者可做</td></tr>
-</table>
-
-<h2>6. 复现与验收命令</h2>
-<pre><code>python tools/docs_check/docs_check.py --strict-names
-python tools/doc_regression_check.py
-python -m pytest tests/python/test_trigger_t2_k2_recompute.py tests/python/test_trigger_t2_freeze_abandon.py -p no:cacheprovider -q
-python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full [--run latest]</code></pre>
-
-<h2>7. 限制与诚实说明</h2>
-<ul>
-<li>本报告不含任何未在本仓留痕的结论；每项均给出文件行号或提交号以便复核。</li>
-<li>PIO 模式化的"已合规"是<b>代码核验</b>结论（读码 + 静态断言关系），不是新的硬件实测。</li>
-<li>位置邮箱契约的登记行尚未提交，且其独立 C11 审核<b>未完成</b>（评审 subagent 被中止，无输出）——因此该契约当前<b>不构成</b>已确认事实。</li>
-</ul>
+  .main { min-height:0; }
+  .source { overflow-wrap:anywhere; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="page-header">
+    <div class="subtitle"><b>DHRT100 分布式触发系统</b><br>T2（TRIGGER 域）阶段性现状报告</div>
+    <div class="brand">DHRT100</div>
+    <div class="doc-meta">日期：2026-10-13<br>域：TRIGGER<br>页：1 / 4</div>
+  </div>
+  <div class="main">
+    <div class="note-box"><b>结论：</b>T2 主线已完成可验收部分（K-2 语义链、PIO 模式化核验、转台通道口径），当前仅剩两项开放：
+    跨域契约尚欠 <b>TDMA 域一等席尃局联审结论</b>；位置邮箱契约登记行已插入但<b>独立 C11 未完成</b>，故未提交。</div>
+    <div class="section"><div class="section-title">1. 核心状态卡片</div>
+      <div class="chips">
+        <div class="chip">K-2 语义链：已闭合</div>
+        <div class="chip">PIO 模式化：已核验合规</div>
+        <div class="chip">转台通道：口径已定</div>
+        <div class="chip">契约登记：39 条</div>
+        <div class="chip">开放项：2 项</div>
+      </div>
+    </div>
+    <div class="section"><div class="section-title">2. 范围与依据</div>
+      <div class="summary">本报告只覆盖 T2（TRIGGER 域）：位置切片与位置邮箱的运行时契约、装填重算判据、
+      模型脉冲的加载与防御路径、以及转台通道口径；不含接口域与其它域事项。</div>
+    </div>
+  </div>
+  <div class="bar">1. 摘要与状态</div>
+  <div class="page-footer">依据：代码事实 + 提交记录 + docs/trigger/t2/TRIGGER_T2_TODO.md 与其 Task Progress；每项均可核复。</div>
+</div>
+<div class="page">
+  <div class="page-header">
+    <div class="subtitle"><b>DHRT100 分布式触发系统</b><br>T2（TRIGGER 域）阶段性现状报告</div>
+    <div class="brand">DHRT100</div>
+    <div class="doc-meta">日期：2026-10-13<br>域：TRIGGER<br>页：2 / 4</div>
+  </div>
+  <div class="main">
+    <div class="note-box">已闭环项均给出<b>可核验处</b>（提交号或文件行号），新接手者应逐条复核而非直接采信。</div>
+    <div class="section"><div class="section-title">3. 已完成（代码事实 + 提交号）</div>
+      <table>
+        <tr><th>项</th><th>代码事实</th><th>提交</th></tr>
+        <tr><td>K-2 装填重算判据</td><td><code>prepare_deadlines_core0()</code> 仅跳过<b>已被硬件接受</b>的位（快照 <code>action_armed_mask | action_completed_mask</code>），已冻结未装填的位仍随最新 DCO 重算</td><td><code>73dcd61a</code></td></tr>
+        <tr><td>判据抽取</td><td><code>t2_deadline_position_accepted</code> / <code>t2_deadline_plan_current</code>（纯函数）</td><td><code>bb06318f</code></td></tr>
+        <tr><td>K-2 host 用例</td><td>C1–C6 抽取真实函数体驱动</td><td><code>5d25ecfd</code></td></tr>
+        <tr><td>PIO 模式化核验</td><td>判据 <code>sync_io_model_sched.c:931-934</code> → <code>:955</code> persona 路径 → <code>:173</code> 停态装载 → <code>:411</code> 注册 <code>.load</code> → <code>:213</code> arm 只校验；非 PIO0 回退 <code>:980-1002</code> 不在 T2 路径</td><td><code>a61436b0</code></td></tr>
+        <tr><td>转台通道口径</td><td>生产接实际转台走 <b>IN1</b>；台架以 <b>OUT4→IN1</b> 硬件回环模拟；本地输出仅 OUT1–OUT4（<code>board_config.h:314</code> <code>BOARD_SYNC_OUTPUT_PIN_COUNT=4u</code>）</td><td><code>adb845b4</code> / <code>c9254094</code> / <code>82038275</code> / <code>df294b7e</code></td></tr>
+        <tr><td>工具链</td><td>OTA 多板刷写重枚举轮询（<code>DISCOVERY_SETTLE_S=60</code>）+ 每 10 s <code>ota_progress</code> 心跳</td><td><code>86732e17</code></td></tr>
+        <tr><td>文档治理</td><td>T2 待办 378 KB → 47 KB；长历史归档；审计项 01/05/06 以核验结论结案并下沉长记录</td><td>多次提交</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="bar">2. 已完成项</div>
+  <div class="page-footer">依据：代码事实 + 提交记录 + docs/trigger/t2/TRIGGER_T2_TODO.md 与其 Task Progress；每项均可核复。</div>
+</div>
+<div class="page">
+  <div class="page-header">
+    <div class="subtitle"><b>DHRT100 分布式触发系统</b><br>T2（TRIGGER 域）阶段性现状报告</div>
+    <div class="brand">DHRT100</div>
+    <div class="doc-meta">日期：2026-10-13<br>域：TRIGGER<br>页：3 / 4</div>
+  </div>
+  <div class="main">
+    <div class="section"><div class="section-title">4. 契约状态</div>
+      <table>
+        <tr><th>契约</th><th>内容</th><th>status</th><th>C11</th></tr>
+        <tr><td><code>ARCH-TRIGGERSLICE-01</code></td><td>位置切片 10 B 小端单帧（tag 0xE0/0xF0 或 position_id(1..15)、prediction_version≠0、target_ms_index、fine≤0xFFFFFF）；一帧一条记录不拆分；容器为 mailbox 中 10 B 的 RefMem 子区；owner <code>TriggerRegion[n]</code>；CRC 由 TDMA 帧级承担</td><td><code>pending</code></td><td>已完成（提交单 <code>docs/check/submissions/TRIGGER_CROSS_REVIEW_01.md</code>，APPROVE WITH NOTES，三处措辞已修正）</td></tr>
+        <tr><td><code>ARCH-TRIGGERMAILBOX-01</code></td><td>单生产者/单消费者；payload 仅在 WRITING 写、仅在 READING 读，READY 为 release/acquire 交接；<code>FREEZE_LATCH_IDS=15u</code>，<code>position_id ∈ [1, LATCH_IDS]</code>；被 RefMem 跨域 include（<code>distributed_refmem.c:30</code>）</td><td><code>pending</code>（登记行<b>已插入未提交</b>）</td><td>未完成（独立审核被中止，无结论）</td></tr>
+      </table>
+      <div class="note-box">登记表当前为 39 条契约（ids unique）；门禁 <code>docs_check --strict-names</code>（files=190）与 <code>doc_regression_check</code> 均通过。</div>
+    </div>
+    <div class="section"><div class="section-title">5. 量化事实</div>
+      <table>
+        <tr><th>指标</th><th>数值</th><th>来源</th></tr>
+        <tr><td>长扫描档位</td><td>361（0..360 @1°）</td><td>硬件扫描记录</td></tr>
+        <tr><td>每位置组数与总量</td><td>16 组；<code>total = 2896 = 181 × 16</code>，<code>fault = 0</code></td><td>台架闭环实测</td></tr>
+        <tr><td>四板 OTA 耗时</td><td>≈200.98 s（历史通过样本 198.9 s）</td><td>验收 timing 记录</td></tr>
+        <tr><td>SCPI 节点作用域命令</td><td>仅 4 条</td><td><code>middleware/scpi_port/src</code></td></tr>
+        <tr><td>RefMem 表容量</td><td>18432 B；16 区恰好填满；TLV 区 3072 B 无消费方</td><td><code>distributed_refmem.h</code> / <code>refmem_vector_table.h</code></td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="bar">3. 契约与量化</div>
+  <div class="page-footer">依据：代码事实 + 提交记录 + docs/trigger/t2/TRIGGER_T2_TODO.md 与其 Task Progress；每项均可核复。</div>
+</div>
+<div class="page">
+  <div class="page-header">
+    <div class="subtitle"><b>DHRT100 分布式触发系统</b><br>T2（TRIGGER 域）阶段性现状报告</div>
+    <div class="brand">DHRT100</div>
+    <div class="doc-meta">日期：2026-10-13<br>域：TRIGGER<br>页：4 / 4</div>
+  </div>
+  <div class="main">
+    <div class="section"><div class="section-title">6. 未决项与风险</div>
+      <table>
+        <tr><th>项</th><th>状态</th><th>需要谁</th></tr>
+        <tr><td>T2-AUDIT-03 残项：TDMA 域一等席尃局联审结论</td><td>登记与 C11 已完成；<b>仅欠联审</b></td><td>TDMA 域（需用户指定）</td></tr>
+        <tr><td>T2-AUDIT-07：位置邮箱契约 C11 + 提交</td><td>登记行与 clause 在树、未提交</td><td>独立审核方（作者不得自审自批）</td></tr>
+        <tr><td>接口域 IF-001..003（单串口控制面）</td><td>三件套已建；等待 D1–D4 决定</td><td>用户（属接口域，不在 T2 ROI 内）</td></tr>
+        <tr><td>参考实现 SEQUENCE 全域 + tkinter 调试界面</td><td>未移植</td><td>用户排期</td></tr>
+        <tr><td>RefMem 缺 <code>_Static_assert(sizeof(refmem_vector_table_t) == DISTRIBUTED_REFMEM_TABLE_SIZE)</code></td><td>未添加（属固件改动，需一轮 P3）</td><td>作者可做</td></tr>
+      </table>
+    </div>
+    <div class="section"><div class="section-title">7. 复现与验收命令</div>
+      <div class="small-list">
+        <div><code>python tools/docs_check/docs_check.py --strict-names</code></div>
+        <div><code>python tools/doc_regression_check.py</code></div>
+        <div><code>python -m pytest tests/python/test_trigger_t2_k2_recompute.py tests/python/test_trigger_t2_freeze_abandon.py -p no:cacheprovider -q</code></div>
+        <div><code>python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full [--run latest]</code></div>
+      </div>
+    </div>
+    <div class="section"><div class="section-title">8. 限制与诚实说明</div>
+      <div class="todo-box">
+        <div>• 本报告不含未在本仓留痕的结论；每项均给出文件行号或提交号以便复核。</div>
+        <div>• PIO 模式化的"已合规"是<b>读码核验</b>结论，不是新的硬件实测。</div>
+        <div>• 位置邮箱契约的登记行尚未提交，且其独立 C11 审核<b>未完成</b>，因此该契约当前<b>不构成</b>已确认事实。</div>
+      </div>
+    </div>
+  </div>
+  <div class="bar">4. 未决项与复现</div>
+  <div class="page-footer">依据：代码事实 + 提交记录 + docs/trigger/t2/TRIGGER_T2_TODO.md 与其 Task Progress；每项均可核复。</div>
+</div>
 </body></html>
