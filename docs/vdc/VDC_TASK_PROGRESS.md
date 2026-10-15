@@ -22,6 +22,21 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-057：Step 1 根因**定案且不需要 wire 契约选择**——8 位回执是"待确认窗口"，三槽限制在运行时自己的簿记
+
+- TODO task ID：`T2-DEPLOY-003`、`T2-IDENT-002`、`T2-TURNTABLE-002`。值为 2026-10-15 实验快照，非产品事实源。
+- **更正上一轮的判断**：上一轮我把"从板沿 361 位置消费"列为需要 A/B 契约选择（run id 当回执代 vs 回执改绝对身份），**这是错的**。读源侧用法后定案：
+  - `components/distributed_refmem/src/distributed_refmem_position_ack.inc:68-92`：回执 = 4 位 run id（opcode）+ **8 位冻结掩码**；
+  - `components/sync_trigger/src/trigger_t2_runtime.c:186-216`（`resend_one_freeze()`）：`open = published_mask & ~(freeze_complete_mask|freeze_abandoned_mask)`，`freeze_complete_mask |= open & position_freeze_acked(run_id, peers)` ⇒ 源**只把回执与"发布但未完成"的集合按位与**，落在集合之外的陈旧位被忽略 ✓。
+  ⇒ 8 位掩码是**当前待确认窗口**，不是全量历史；一个回执代足以表达 ≤8 个待确认位置 ✓，**不需要改 run id 语义、不需要改回执格式**（wire 不变）。
+- **真正的三槽限制在运行时自己的位置簿记**（这才是 Step 1 的落点）：`published_mask` / `freeze_complete_mask` / `freeze_abandoned_mask`（源侧）与 `frozen_mask` / `received_mask` / `s_pending_mask` / `s_deadline[3]`（从板）全是 **3 位**；叠加 `accept_remote_position()` 的 `position_id > TRIGGER_T2_RUNTIME_POSITION_COUNT ⇒ reject` 与"冻结位置永久占用"（`trigger_t2_runtime.c:415-443`）、`TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY = 1`（`:747-766`）⇒ 从板一生只接受 3 个实例、源侧也只簿记 3 个位置，与四板实测（从板累计 `events 2/2/0`、`lane drop` 单向增长）逐项吻合。
+- **Step 1 修正后的范围（无需 A/B）**：把上述位置簿记从 **3 位窗口扩到 8 位窗口并使之可回收**——
+  1. `accept_remote_position()` 接受 `position_id ∈ [1,15]`（对齐线上域），按实例→槽映射，已完成/放弃的槽可回收；新增 15 位"已执行实例"集合杜绝重复 FREEZE 造成的重复执行；
+  2. 源侧 `published_mask`/`freeze_complete_mask`/`freeze_abandoned_mask` 与从板 `frozen_mask`/`received_mask` 同步扩到 8 位窗口（**在途预测窗口仍保持 1~2/3**，不回退到 361 行、不装长表）；
+  3. 同批并入 Step 3 的 `TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY 1→16`、`TRIGGER_ACTION_TEMPLATE_CAPACITY 8→16`。
+- **判据**：先用短扫描（工具已支持 `T2_SCAN_OVERRIDE_TERMINAL_MDEG`，≤8 位置，落在回执能力内）跑一轮，从板累计 `events`/冻结须覆盖**全部**位置、`lane drop` 不再单向增长、`ACTION execution` 覆盖全部目标板；随后全扫描判据＝从板累计冻结数与源 `announced` 同阶增长。固件改动 ⇒ 契约登记 + C11 + 一次全项 P3（含仍待提交的工具读数改动）。
+- 备注：本轮尝试在自动轮次用 `update_goal edit` 更新目标被策略拒绝（需直接人类回合），故这条更正先落在本日志；目标下次人类回合再同步。
+
 ### VDC-PROGRESS-20261015-056：Step 0 定因——**窗口在源侧按设计滚动（我上轮读错了板）**；真缺口是"从板只冻结 3 个位置，而源已公告 283 个"
 
 - TODO task ID：`T2-TURNTABLE-002`（窗口推进）、`T2-DEPLOY-003`（从板消费）、`T2-IDENT-002`（位置域口径）。值为 2026-10-15 实验快照，非产品事实源。
