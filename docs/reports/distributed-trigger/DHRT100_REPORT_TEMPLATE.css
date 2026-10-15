@@ -1,0 +1,187 @@
+/* DHRT100 分布式触发报告统一版式（打印/A4 竖版）
+ *
+ * 本文件是 docs/reports/distributed-trigger/ 下 HTML 阶段报告的唯一版式事实源。
+ * 报告 HTML 只保存内容，不再各自内嵌 <style>；改版式只改这一处。
+ *
+ * 用法：
+ *   <link rel="stylesheet" href="DHRT100_REPORT_TEMPLATE.css">
+ *   <link rel="icon" href="data:,">
+ *
+ * 页面接口（每页同一骨架，缺一不可）：
+ *   div.page > div.page-header（左：h1+subtitle / 右：brand) > div.main（内容） > div.bar（结论） > div.page-footer（依据 + N/M）
+ *   doc-meta 固定为：<strong>YYYY年M月D日</strong>星期X<br>报告属性
+ *
+ * 功能块接口（每个功能一页，四段式）：
+ *   1. 本页定位（导语 box）
+ *   2. 事实/契约表（table.compact）
+ *   3. 边界与未闭合项
+ *   4. 结论条（div.bar）
+ */
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body {
+    font-family:"Microsoft YaHei","SimSun","DengXian",Arial,sans-serif;
+    background:#d7d9df;
+    color:#1f2328;
+    padding:18px;
+    line-height:1.42;
+  }
+  @page { size:A4 portrait; margin:0; }
+  .page {
+    width:210mm;
+    height:297mm;
+    margin:0 auto 18px;
+    background:#fff;
+    box-shadow:0 3px 14px rgba(0,0,0,.16);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    break-after:page;
+    page-break-after:always;
+  }
+  .page-header {
+    padding:10mm 16mm 5mm;
+    border-bottom:5px solid #d9e1ef;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:18px;
+  }
+  .brand {
+    width:48mm;
+    height:14mm;
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    white-space:nowrap;
+  }
+  .brand-logo {
+    display:block;
+    width:38mm;
+    height:auto;
+  }
+  .doc-meta { text-align:right; font-size:10.5px; color:#687381; white-space:nowrap; }
+  .doc-meta strong { display:block; color:#1f3864; font-size:13px; margin-bottom:3px; }
+  /* 4mm 上下留白：功能块页承载「定位 + 事实 + 边界 + 结论」四段，
+     实测每页内容 277–297mm，5mm 会让最密的一页越界被裁。 */
+  .main { flex:1; padding:4mm 16mm 4mm; min-height:0; }
+  .page-footer {
+    padding:3mm 16mm 4mm;
+    border-top:5px solid #d9e1ef;
+    color:#8b949e;
+    font-size:9px;
+    display:flex;
+    justify-content:space-between;
+  }
+  h1 { font-size:23px; color:#172033; letter-spacing:0; margin-bottom:3px; }
+  .subtitle { color:#5b6573; font-size:12px; }
+  .chips { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:0 0 9px; }
+  .chip { border:1px solid #d9e1ef; border-left:4px solid #1f3864; padding:6px 8px; min-height:44px; background:#f8fafc; }
+  .chip:nth-child(2) { border-left-color:#2e7d32; }
+  .chip:nth-child(3) { border-left-color:#d97706; }
+  .chip:nth-child(4) { border-left-color:#6a1b9a; }
+  .chip .k { display:block; color:#687381; font-size:9.5px; margin-bottom:1px; }
+  .chip .v { display:block; color:#111827; font-size:12px; font-weight:700; }
+  .pct { font-weight:800; color:#1f3864; white-space:nowrap; }
+  .section { margin-top:7px; }
+  .section-title {
+    font-size:14px;
+    color:#1f3864;
+    font-weight:700;
+    padding-bottom:4px;
+    border-bottom:2px solid #1f3864;
+    margin-bottom:6px;
+  }
+  table { width:100%; border-collapse:collapse; font-size:10.1px; border:1.5px solid #2f3542; }
+  th {
+    background:#1f3864;
+    color:#fff;
+    text-align:left;
+    padding:4px 6px;
+    border:1px solid #182b4c;
+    font-weight:700;
+  }
+  td { padding:4px 6px; border:1px solid #c8d1dc; vertical-align:top; }
+  tbody tr:nth-child(even) td { background:#f5f8fc; }
+  .compact td { padding-top:3px; padding-bottom:3px; }
+  .mini { font-size:9.2px; line-height:1.28; }
+  .mini th { padding:3px 5px; }
+  .mini td { padding:2px 5px; }
+  .c { text-align:center; }
+  .b { font-weight:700; }
+  .tag { display:inline-block; color:#fff; font-weight:700; font-size:9.5px; padding:1px 6px; border-radius:3px; white-space:nowrap; }
+  .green { background:#2e7d32; }
+  .blue { background:#1565c0; }
+  .orange { background:#d97706; }
+  .purple { background:#6a1b9a; }
+  .gray { background:#6b7280; }
+  .red { background:#c62828; }
+  .summary { display:grid; grid-template-columns:1.12fr .88fr; gap:10px; align-items:stretch; }
+  /* bullet-box 统一为「本页定位 / 事实 / 边界 / 结论」用块；紧凑内边距保证四段同页不被裁。 */
+  .note-box, .todo-box, .coord-box, .risk-box {
+    padding:5px 8px;
+    font-size:10.8px;
+    line-height:1.32;
+  }
+  .note-box { background:#f7fbf5; border-left:4px solid #2e7d32; }
+  .note-box strong { color:#1b5e20; }
+  .todo-box { background:#fff8ed; border-left:4px solid #d97706; }
+  .todo-box strong { color:#a14d00; }
+  .coord-box { background:#f5f7ff; border-left:4px solid #6a1b9a; }
+  .coord-box strong { color:#4a148c; }
+  .risk-box { background:#fff5f5; border-left:4px solid #c62828; }
+  .risk-box strong { color:#9f1239; }
+  ul { padding-left:17px; }
+  li { margin:1px 0; }
+  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .three-col { display:grid; grid-template-columns:1fr 1fr 1fr; gap:9px; }
+  .small-list { font-size:10.4px; color:#2f3542; }
+  .mono { font-family:Consolas,"Courier New",monospace; font-size:10px; }
+  code { font-family:Consolas,"Courier New",monospace; font-size:.94em; }
+  .source { overflow-wrap:anywhere; }
+  .flow {
+    border:1px solid #d5dce6;
+    background:#f8fafc;
+    padding:8px 10px;
+    font-family:Consolas,"Courier New",monospace;
+    font-size:10px;
+    color:#243044;
+    white-space:pre-wrap;
+  }
+  .delay-page .main { padding-top:4mm; padding-bottom:4mm; }
+  .delay-page .flow { padding:5px 7px; font-size:8.8px; line-height:1.16; }
+  .delay-page .section-title { margin-bottom:5px; }
+  .delay-page table { font-size:8.45px; line-height:1.17; }
+  .delay-page th { padding:2px 4px; }
+  .delay-page td { padding:2px 4px; }
+  .bar {
+    margin-top:8px;
+    padding:7px 10px;
+    background:#172033;
+    color:#fff;
+    font-size:11.5px;
+    text-align:center;
+  }
+  .bar strong { color:#ffd166; }
+  @media print {
+    @page { size:A4 portrait; margin:0; }
+    html, body {
+      width:210mm;
+      min-width:210mm;
+      max-width:210mm;
+      background:#fff;
+      padding:0;
+      overflow:visible;
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+    }
+    .page {
+      width:210mm !important;
+      height:297mm !important;
+      min-height:297mm !important;
+      margin:0;
+      box-shadow:none;
+      break-after:page;
+      page-break-after:always;
+      transform:none !important;
+    }
+  }

@@ -4,15 +4,29 @@ Status: Active
 Domain: RELEASE
 Canonical: `docs/reports/distributed-trigger/README.md`
 Related: `docs/reports/README.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-Last updated: 2026-09-19
+Last updated: 2026-10-15
 
 本目录保存分布式触发技术报告、历史完整报告和仓库摘要。
 
+## 统一报告接口
+
+阶段报告（`DHRT100_*_STATUS_REPORT_*.html`）共用同一套页面接口，内容按功能块组织，不散装：
+
+| 件 | 作用 |
+|---|---|
+| `DHRT100_REPORT_TEMPLATE.css` | **版式唯一事实源**：A4 竖版页面骨架、页头三栏、功能块四段式（定位 → 事实 → 边界 → 结论）、表格与状态标签。报告只写内容，不内嵌 `<style>`；改版式只改这一处。 |
+| `DHRT100-brand.svg` | 统一品牌标志，页头 `div.brand` 内以 `<img class="brand-logo">` 引用，不再逐页内嵌 SVG。 |
+
+每页骨架固定为 `div.page > page-header（h1 + subtitle ｜ brand ｜ doc-meta）> main > bar（本页结论）> page-footer（依据 + N/M）`；每个功能块独占一页，页内先给「本页定位」，再给事实/契约表，再给边界与未闭合项，最后给结论条。新报告一律照此接口写。
+
+## 当前报告
+
 | 路径 | 定位 |
 |---|---|
+| `DHRT100_T2_STATUS_REPORT_20261013.html` | T2 触发闭环阶段性现状报告：A4 竖版六页（总览 + 五个功能块：装填重算判据、模型脉冲装载与转台通道、跨域契约、量化事实、未决项与复现），每项给出文件行号或提交号；实验快照。 |
 | `DHRT100_PROJECT_OVERVIEW_REPORT_20260919.html` / `DHRT100_PROJECT_OVERVIEW_REPORT_20260919.pdf` | 项目综述更新版：沿用 A4 竖版模板，面向总体架构评审，覆盖当前 HAOFV、四板 DPLL、无外参十分钟、外参相干性及调参实测，保留明确进度口径。 |
 | `DHRT100_PROJECT_OVERVIEW_REPORT_20260827.html` / `DHRT100_PROJECT_OVERVIEW_REPORT_20260827.pdf` | 2026-08-27 项目综述历史快照，保留原版。 |
-| `DHRT100_DPLL_STATUS_REPORT_20260918.html` / `DHRT100_DPLL_STATUS_REPORT_20260918.pdf` | 四板 DPLL 阶段报告：A4 竖版七页，包含硬件与环路拓扑、锁相组成、相位/频差实测及 FPGA 演进展望（实验快照）。 |
+| `DHRT100_DPLL_STATUS_REPORT_20260918.html` / `DHRT100_DPLL_STATUS_REPORT_20260918.pdf` | 四板 DPLL 阶段报告：A4 竖版七页，按统一接口组织为 功能块（一–四）／平台底座（五–八）／机制分解（九–十一）／实测（十二–十七）／改进与验证（十八–二十一）／门禁（二十二–二十四）；实验快照。 |
 | `DHRT100_DPLL_STATUS_REPORT_20260919.html` / `DHRT100_DPLL_STATUS_REPORT_20260919.pdf` | DPLL 阶段更新：A4 竖版八页，保留历史收敛与方波，新增长窗、外参 100/50 ppb/s 对比、SCPI/Flash、相干性与输入电气待验证项；实验快照。 |
 | `DISTRIBUTED_HARD_REALTIME_TRIGGER_OVERVIEW_REPORT.html` | Distributed Hard Real-Time Trigger System 3-4 页概述报告 |
 | `RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整报告 |

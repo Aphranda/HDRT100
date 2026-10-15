@@ -1,184 +1,25 @@
 <!DOCTYPE html>
-<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="四板 DPLL 物理闭环阶段报告；实验快照，非冻结契约。"><title>DHRT100 DPLL 物理闭环阶段报告 — 2026-09-18</title>
-<style>
-  * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  body {
-    font-family:"Microsoft YaHei","SimSun","DengXian",Arial,sans-serif;
-    background:#d7d9df;
-    color:#1f2328;
-    padding:18px;
-    line-height:1.42;
-  }
-  @page { size:A4 portrait; margin:0; }
-  .page {
-    width:210mm;
-    height:297mm;
-    margin:0 auto 18px;
-    background:#fff;
-    box-shadow:0 3px 14px rgba(0,0,0,.16);
-    display:flex;
-    flex-direction:column;
-    overflow:hidden;
-    break-after:page;
-    page-break-after:always;
-  }
-  .page-header {
-    padding:10mm 16mm 5mm;
-    border-bottom:5px solid #d9e1ef;
-    display:flex;
-    justify-content:space-between;
-    align-items:flex-start;
-    gap:18px;
-  }
-  .brand {
-    width:48mm;
-    height:14mm;
-    display:flex;
-    align-items:center;
-    justify-content:flex-end;
-    white-space:nowrap;
-  }
-  .brand-logo {
-    display:block;
-    width:38mm;
-    height:auto;
-  }
-  .doc-meta { text-align:right; font-size:10.5px; color:#687381; white-space:nowrap; }
-  .doc-meta strong { display:block; color:#1f3864; font-size:13px; margin-bottom:3px; }
-  .main { flex:1; padding:5mm 16mm 5mm; }
-  .page-footer {
-    padding:3mm 16mm 4mm;
-    border-top:5px solid #d9e1ef;
-    color:#8b949e;
-    font-size:9px;
-    display:flex;
-    justify-content:space-between;
-  }
-  h1 { font-size:23px; color:#172033; letter-spacing:0; margin-bottom:3px; }
-  .subtitle { color:#5b6573; font-size:12px; }
-  .chips { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:0 0 9px; }
-  .chip { border:1px solid #d9e1ef; border-left:4px solid #1f3864; padding:6px 8px; min-height:44px; background:#f8fafc; }
-  .chip:nth-child(2) { border-left-color:#2e7d32; }
-  .chip:nth-child(3) { border-left-color:#d97706; }
-  .chip:nth-child(4) { border-left-color:#6a1b9a; }
-  .chip .k { display:block; color:#687381; font-size:9.5px; margin-bottom:1px; }
-  .chip .v { display:block; color:#111827; font-size:12px; font-weight:700; }
-  .pct { font-weight:800; color:#1f3864; white-space:nowrap; }
-  .section { margin-top:7px; }
-  .section-title {
-    font-size:14px;
-    color:#1f3864;
-    font-weight:700;
-    padding-bottom:4px;
-    border-bottom:2px solid #1f3864;
-    margin-bottom:6px;
-  }
-  table { width:100%; border-collapse:collapse; font-size:10.1px; border:1.5px solid #2f3542; }
-  th {
-    background:#1f3864;
-    color:#fff;
-    text-align:left;
-    padding:4px 6px;
-    border:1px solid #182b4c;
-    font-weight:700;
-  }
-  td { padding:4px 6px; border:1px solid #c8d1dc; vertical-align:top; }
-  tbody tr:nth-child(even) td { background:#f5f8fc; }
-  .compact td { padding-top:3px; padding-bottom:3px; }
-  .mini { font-size:9.2px; line-height:1.28; }
-  .mini th { padding:3px 5px; }
-  .mini td { padding:2px 5px; }
-  .c { text-align:center; }
-  .b { font-weight:700; }
-  .tag { display:inline-block; color:#fff; font-weight:700; font-size:9.5px; padding:1px 6px; border-radius:3px; white-space:nowrap; }
-  .green { background:#2e7d32; }
-  .blue { background:#1565c0; }
-  .orange { background:#d97706; }
-  .purple { background:#6a1b9a; }
-  .gray { background:#6b7280; }
-  .red { background:#c62828; }
-  .summary { display:grid; grid-template-columns:1.12fr .88fr; gap:10px; align-items:stretch; }
-  .note-box, .todo-box, .coord-box, .risk-box {
-    padding:8px 10px;
-    font-size:10.8px;
-  }
-  .note-box { background:#f7fbf5; border-left:4px solid #2e7d32; }
-  .note-box strong { color:#1b5e20; }
-  .todo-box { background:#fff8ed; border-left:4px solid #d97706; }
-  .todo-box strong { color:#a14d00; }
-  .coord-box { background:#f5f7ff; border-left:4px solid #6a1b9a; }
-  .coord-box strong { color:#4a148c; }
-  .risk-box { background:#fff5f5; border-left:4px solid #c62828; }
-  .risk-box strong { color:#9f1239; }
-  ul { padding-left:17px; }
-  li { margin:1px 0; }
-  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  .three-col { display:grid; grid-template-columns:1fr 1fr 1fr; gap:9px; }
-  .small-list { font-size:10.4px; color:#2f3542; }
-  .mono { font-family:Consolas,"Courier New",monospace; font-size:10px; }
-  .flow {
-    border:1px solid #d5dce6;
-    background:#f8fafc;
-    padding:8px 10px;
-    font-family:Consolas,"Courier New",monospace;
-    font-size:10px;
-    color:#243044;
-    white-space:pre-wrap;
-  }
-  .delay-page .main { padding-top:4mm; padding-bottom:4mm; }
-  .delay-page .flow { padding:5px 7px; font-size:8.8px; line-height:1.16; }
-  .delay-page .section-title { margin-bottom:5px; }
-  .delay-page table { font-size:8.45px; line-height:1.17; }
-  .delay-page th { padding:2px 4px; }
-  .delay-page td { padding:2px 4px; }
-  .bar {
-    margin-top:8px;
-    padding:7px 10px;
-    background:#172033;
-    color:#fff;
-    font-size:11.5px;
-    text-align:center;
-  }
-  .bar strong { color:#ffd166; }
-  @media print {
-    @page { size:A4 portrait; margin:0; }
-    html, body {
-      width:210mm;
-      min-width:210mm;
-      max-width:210mm;
-      background:#fff;
-      padding:0;
-      overflow:visible;
-      -webkit-print-color-adjust:exact;
-      print-color-adjust:exact;
-    }
-    .page {
-      width:210mm !important;
-      height:297mm !important;
-      min-height:297mm !important;
-      margin:0;
-      box-shadow:none;
-      break-after:page;
-      page-break-after:always;
-      transform:none !important;
-    }
-  }
-</style>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="四板 DPLL 物理闭环阶段报告；实验快照，非冻结契约。"><title>DHRT100 DPLL 物理闭环阶段报告 — 2026-09-18</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="DHRT100_REPORT_TEMPLATE.css">
+<!-- 本报告不再内嵌版式：统一版式见 DHRT100_REPORT_TEMPLATE.css -->
 </head><body>
-<div class="page"><div class="page-header"><div><h1>DPLL 物理闭环阶段报告</h1><div class="subtitle">HAOFV 四板特等席同步 | 当前状态与实现边界</div></div><div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-1 brand-desc-1"><title id="brand-title-1">DHRT100</title><desc id="brand-desc-1">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main"><div class="chips"><div class="chip"><span class="k">验证对象</span><span class="v">NO1–NO4 / 实际输出</span></div><div class="chip"><span class="k">当前突破</span><span class="v">三从物理相位闭环</span></div><div class="chip"><span class="k">有限稳定窗口</span><span class="v">两轮均在 ±100 ns 内</span></div><div class="chip"><span class="k">发布状态</span><span class="v">研发验证 / 尚未正式发布</span></div></div>
+<div class="page"><div class="page-header"><div><h1>DPLL 物理闭环阶段报告</h1><div class="subtitle">HAOFV 四板特等席同步 | 当前状态与实现边界</div></div><div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main"><div class="chips"><div class="chip"><span class="k">验证对象</span><span class="v">NO1–NO4 / 实际输出</span></div><div class="chip"><span class="k">当前突破</span><span class="v">三从物理相位闭环</span></div><div class="chip"><span class="k">有限稳定窗口</span><span class="v">两轮均在 ±100 ns 内</span></div><div class="chip"><span class="k">发布状态</span><span class="v">研发验证 / 尚未正式发布</span></div></div>
 <div class="summary"><div class="note-box"><strong>已经验证：</strong>NO1 自主 PI 发布参考，NO2–NO4 本地匹配并调节 DCO。最新两轮连续四路波形同时覆盖启动与收敛，在相对 NO1 首沿的 0.4–0.9 秒窗口，各从 500 组条件同序边沿差均在 ±100 ns 内。内部相位修正与引脚周期变化方向、幅度一致。</div><div class="todo-box"><strong>结论边界：</strong>实际闭环有效，有限窗口达到百纳秒量级；独立首脉冲身份、长期连续性、跨启动稳定性、测量不确定度和路径误差预算仍需闭合。最终 VDC 有效性、质量及代际一致发布未验收。</div></div>
-<div class="section"><div class="section-title">当前频率误差：外部输出与内部修正分开看</div><table class="compact"><thead><tr><th>节点</th><th>第一轮输出频差（ppb）</th><th>第二轮输出频差（ppb）</th><th>第二轮末态 DCO 修正（ppb）</th></tr></thead><tbody><tr><td>NO1</td><td>参考</td><td>参考</td><td>不由相对输出推算</td></tr><tr><td>NO2</td><td>−8.4</td><td>+2.7</td><td>+2495</td></tr><tr><td>NO3</td><td>+2.2</td><td>+6.1</td><td>+2669</td></tr><tr><td>NO4</td><td>+4.1</td><td>+13.6</td><td>+5023</td></tr></tbody></table><div class="note-box" style="margin-top:5px;">输出频差由 0.4–0.9 s 稳定段各 500 组条件同序边沿拟合，正号表示从板输出较 NO1 快。<strong>这是含相位修正的半秒平均残余频差估计，不是晶振误差、瞬时频差或长期 ±50 ppb 认证。</strong>DCO 数值为 STOP 末态的内部频率修正，观测时刻与波形窗口不同；NO1 的绝对频率精度尚无外部标准溯源。</div></div>
-<div class="section"><div class="section-title">一、HAOFV 特等席处理路线</div><div class="flow">NO1：本地自主 PI → 最小 typed 时间戳 → 固定 TDMA 飞行槽位
+<div class="note-box"><strong>本页定位：</strong>给出本轮的对象、突破、稳定窗口与发布状态四项结论，并把外部输出频差与内部 DCO 修正分开陈述；后续六页分别展开功能块、平台底座、机制分解、实测、改进与门禁。</div>
+<div class="section"><div class="section-title">测量口径：外部输出频差与内部 DCO 修正分开看</div><table class="compact"><thead><tr><th>节点</th><th>第一轮输出频差（ppb）</th><th>第二轮输出频差（ppb）</th><th>第二轮末态 DCO 修正（ppb）</th></tr></thead><tbody><tr><td>NO1</td><td>参考</td><td>参考</td><td>不由相对输出推算</td></tr><tr><td>NO2</td><td>−8.4</td><td>+2.7</td><td>+2495</td></tr><tr><td>NO3</td><td>+2.2</td><td>+6.1</td><td>+2669</td></tr><tr><td>NO4</td><td>+4.1</td><td>+13.6</td><td>+5023</td></tr></tbody></table><div class="note-box" style="margin-top:5px;">输出频差由 0.4–0.9 s 稳定段各 500 组条件同序边沿拟合，正号表示从板输出较 NO1 快。<strong>这是含相位修正的半秒平均残余频差估计，不是晶振误差、瞬时频差或长期 ±50 ppb 认证。</strong>DCO 数值为 STOP 末态的内部频率修正，观测时刻与波形窗口不同；NO1 的绝对频率精度尚无外部标准溯源。</div></div>
+<div class="section"><div class="section-title">一、功能块：HAOFV 特等席处理路线</div><div class="flow">NO1：本地自主 PI → 最小 typed 时间戳 → 固定 TDMA 飞行槽位
 NO2–NO4：Core1 同事件 / 同代际匹配 → 本地 path delay → 独立 DCO
 回程：逐从 ACK        输出：Core1 准备 / 提交 → SYNC_IO PIO / DMA → GPIO</div></div>
-<div class="section"><div class="section-title">二、分层状态</div><table class="compact"><thead><tr><th>环节</th><th>当前实现与证据</th><th>尚未完成</th></tr></thead><tbody><tr><td>参考发布</td><td>NO1 自主 PI；编码原生记录可重放对账。</td><td>完整参考期限与质量发布资格。</td></tr><tr><td>特等席运输</td><td>固定编码、槽位、序号/代际匹配及 ACK；三从真实采用。</td><td>事件年龄、单圈送达与 DCO 生效期限分别验收。</td></tr><tr><td>本地闭环</td><td>三从均有频率及相位更新；原生记录与 STOP 末态模型一致。</td><td>更长连续跟踪、失效降级与恢复。</td></tr><tr><td>实际输出</td><td>PIO/DMA 执行；一秒连续波形包含启动与收敛。</td><td>独立首沿身份、全程无缺/多脉冲证明。</td></tr><tr><td>物理精度</td><td>两轮固定半秒窗口均进入百纳秒量级。</td><td>正式同序号、通道误差预算、长稳和跨启动复测。</td></tr><tr><td>VDC 发布</td><td>已有模型与代际发布基础。</td><td>Core1 / Core0 的时间、valid、quality、generation 一致验收。</td></tr></tbody></table></div>
-<div class="section"><div class="section-title">三、必须保持的执行边界</div><div class="two-col"><div class="coord-box"><strong>实时面：</strong>Core1 不等待 Core0，不经过普通解析、RefMem 分片、RTOS 或动态分配；PIO/DMA 执行确定性运输与边沿。NO1 不集中计算各从校正。</div><div class="coord-box"><strong>控制与观测：</strong>SCPI 仅用于 STOP 配置和触发，运行期间零查询。DPLL/VDC/SYNC 共用 TIMER1；TIMER0 保留系统计时。本轮未修改 OTA。</div></div></div>
-<div class="section"><div class="section-title">四、当前输出补偿候选</div><table class="compact"><thead><tr><th>节点</th><th>NO1</th><th>NO2</th><th>NO3</th><th>NO4</th></tr></thead><tbody><tr><td>输出 delay（ns）</td><td>0</td><td>−28</td><td>−88</td><td>−160</td></tr></tbody></table><div class="todo-box" style="margin-top:7px;">仅 STOP RAM 试验值，每轮核对请求、实际和恢复值，结束后恢复，未写 Flash。<strong>输出 delay 与 path delay 分离</strong>；不能由示波器偏差反推路径传播时间。</div></div>
+<div class="section"><div class="section-title">二、功能块：分层状态（已实现 / 尚未完成）</div><table class="compact"><thead><tr><th>环节</th><th>当前实现与证据</th><th>尚未完成</th></tr></thead><tbody><tr><td>参考发布</td><td>NO1 自主 PI；编码原生记录可重放对账。</td><td>完整参考期限与质量发布资格。</td></tr><tr><td>特等席运输</td><td>固定编码、槽位、序号/代际匹配及 ACK；三从真实采用。</td><td>事件年龄、单圈送达与 DCO 生效期限分别验收。</td></tr><tr><td>本地闭环</td><td>三从均有频率及相位更新；原生记录与 STOP 末态模型一致。</td><td>更长连续跟踪、失效降级与恢复。</td></tr><tr><td>实际输出</td><td>PIO/DMA 执行；一秒连续波形包含启动与收敛。</td><td>独立首沿身份、全程无缺/多脉冲证明。</td></tr><tr><td>物理精度</td><td>两轮固定半秒窗口均进入百纳秒量级。</td><td>正式同序号、通道误差预算、长稳和跨启动复测。</td></tr><tr><td>VDC 发布</td><td>已有模型与代际发布基础。</td><td>Core1 / Core0 的时间、valid、quality、generation 一致验收。</td></tr></tbody></table></div>
+<div class="section"><div class="section-title">三、功能块：必须保持的执行边界</div><div class="two-col"><div class="coord-box"><strong>实时面：</strong>Core1 不等待 Core0，不经过普通解析、RefMem 分片、RTOS 或动态分配；PIO/DMA 执行确定性运输与边沿。NO1 不集中计算各从校正。</div><div class="coord-box"><strong>控制与观测：</strong>SCPI 仅用于 STOP 配置和触发，运行期间零查询。DPLL/VDC/SYNC 共用 TIMER1；TIMER0 保留系统计时。本轮未修改 OTA。</div></div></div>
+<div class="section"><div class="section-title">四、功能块：当前输出补偿候选</div><table class="compact"><thead><tr><th>节点</th><th>NO1</th><th>NO2</th><th>NO3</th><th>NO4</th></tr></thead><tbody><tr><td>输出 delay（ns）</td><td>0</td><td>−28</td><td>−88</td><td>−160</td></tr></tbody></table><div class="todo-box" style="margin-top:7px;">仅 STOP RAM 试验值，每轮核对请求、实际和恢复值，结束后恢复，未写 Flash。<strong>输出 delay 与 path delay 分离</strong>；不能由示波器偏差反推路径传播时间。</div></div>
 <div class="bar">当前阶段结论：<strong>闭环真实生效，有限相位已达百纳秒；继续完成正式锁定与一致发布资格。</strong></div></div><div class="page-footer"><span>依据：VDC 架构 / TODO / 进度 045–047；本报告为实验快照</span><span>DHRT100 DPLL 阶段报告 | 1 / 7</span></div></div>
-<div class="page"><div class="page-header"><div><h1>当前板卡基础与精度潜力</h1><div class="subtitle">250 MHz / 4 ns 时间底座 | 现有平台优化与 FPGA 演进</div></div><div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-2 brand-desc-2"><title id="brand-title-2">DHRT100</title><desc id="brand-desc-2">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main">
+<div class="page"><div class="page-header"><div><h1>当前板卡基础与精度潜力</h1><div class="subtitle">250 MHz / 4 ns 时间底座 | 现有平台优化与 FPGA 演进</div></div><div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main">
+<div class="note-box"><strong>本页定位：</strong>交代这套百纳秒效果站在什么硬件底座上：时间粒度、执行通路、链路条件与测量条件分别是多少，以及从哪里继续压缩、往哪里演进。</div>
 <div class="chips"><div class="chip"><span class="k">当前系统时钟</span><span class="v">250 MHz</span></div><div class="chip"><span class="k">硬件基本节拍</span><span class="v">4 ns / tick</span></div><div class="chip"><span class="k">下一阶段目标</span><span class="v">争取 ±50 ns</span></div><div class="chip"><span class="k">平台演进方向</span><span class="v">FPGA / ps 量级</span></div></div>
 <div class="note-box"><strong>现有平台仍有优化空间：</strong>当前百纳秒级效果建立在 MCU、PIO 和 DMA 上。4 ns 是硬件时间分辨率；当前误差还包含参考采样区间、启动中心变化、路径与输出偏移、时钟及测量误差。进一步压缩这些误差，有望在现有板卡上争取 ±50 ns，尚需跨启动与长时间实测。</div>
-<div class="section"><div class="section-title">当前板卡与实验基础参数（配置 / 实测快照）</div>
+<div class="section"><div class="section-title">五、平台底座：当前板卡与实验基础参数（配置 / 实测快照）</div>
 <table class="compact"><thead><tr><th style="width:125px;">项目</th><th>当前参数与用途</th><th style="width:200px;">精度含义</th></tr></thead><tbody>
 <tr><td class="b">处理平台</td><td>RP2350B；双核分工，Core0 管理控制，Core1 承担确定性实时处理。</td><td>锁相关键路径不依赖 RTOS 任务调度。</td></tr>
 <tr><td class="b">系统时钟</td><td>BOARD_SYS_CLOCK_HZ = 250,000,000 Hz；当前超频配置。</td><td>1 / 250 MHz = 4 ns；不是多板锁相误差保证。</td></tr>
@@ -189,7 +30,7 @@ NO2–NO4：Core1 同事件 / 同代际匹配 → 本地 path delay → 独立 D
 <tr><td class="b">本轮观测输出</td><td>约 1 kHz、2 µs 高电平、5 V 标称；测量板级 OUT1，非 MCU GPIO 电压规格。</td><td>报告同一脉冲全波形及上升沿，纵轴 −2～+7 V。</td></tr>
 <tr><td class="b">外部记录</td><td>HDO4404 四通道、1× 探头；一秒记录 20 ns 样点，另有 0.2 秒 / 4 ns 网格记录。</td><td>样点间隔和插值不等于校准后的通道间测量精度。</td></tr>
 </tbody></table></div>
-<div class="section"><div class="section-title">四板闭合环路拓扑</div>
+<div class="section"><div class="section-title">六、平台底座：四板闭合环路拓扑（本实验线序）</div>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 670 100" style="display:block;width:100%;height:26mm;" role="img" aria-label="NO1 至 NO2 至 NO3 至 NO4 返回 NO1 的四板闭合环路">
 <defs><marker id="ring-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7 Z" fill="#1f3864"/></marker></defs>
 <g fill="#f5f8fc" stroke="#1f3864"><rect x="12" y="5" width="130" height="43" rx="4"/><rect x="184" y="5" width="130" height="43" rx="4"/><rect x="356" y="5" width="130" height="43" rx="4"/><rect x="528" y="5" width="130" height="43" rx="4"/></g>
@@ -197,9 +38,9 @@ NO2–NO4：Core1 同事件 / 同代际匹配 → 本地 path delay → 独立 D
 <g fill="none" stroke="#1f3864" stroke-width="1.7" marker-end="url(#ring-arrow)"><path d="M142 27 H180"/><path d="M314 27 H352"/><path d="M486 27 H524"/><path d="M593 48 V77 H77 V51"/></g>
 <rect x="218" y="65" width="238" height="23" fill="white"/><text x="337" y="80" text-anchor="middle" font-size="11" fill="#1f3864" font-family="Microsoft YaHei,Arial,sans-serif">逐站飞行转发，沿环路返回 ACK</text>
 </svg><div class="mini">线序依据已确认 P0 拓扑：NO1 → NO2 → NO3 → NO4 → NO1；线缆规格与速率为本次实验条件。</div></div>
-<div class="section"><div class="section-title">现有板卡：从百纳秒窗口向 ±50 ns 优化</div>
+<div class="section"><div class="section-title">七、平台底座：现有板卡从百纳秒窗口向 ±50 ns 优化</div>
 <div class="two-col"><div class="coord-box"><strong>优先压缩参考误差：</strong>继续缩短 NO1 事件时间戳采样区间，减少跨启动中心变化，校验本地 delay 与输出补偿，保持 PIO/DMA 连续执行。</div><div class="todo-box"><strong>以实测判定目标：</strong>±50 ns 指各从实际边沿相对 NO1 的误差目标，不是当前结论；固定补偿无法消除随机抖动，须覆盖全部节点、多次启动和长稳窗口。</div></div></div>
-<div class="section"><div class="section-title">更高性能平台：FPGA 支撑 ps 量级的演进路线</div>
+<div class="section"><div class="section-title">八、平台底座：更高性能平台（FPGA 支撑 ps 量级）</div>
 <div class="flow">纯硬件实现现有算法：时间戳锁存 / 身份匹配 → delay 加法 → 残差计算
 → 固定点 PI / DPLL 运算、限幅与状态更新 → NCO / 相位调节 → 定时输出
 FPGA 流水线与状态机承担实时闭环；处理器仅负责配置、监控与维护
@@ -207,8 +48,9 @@ FPGA 流水线与状态机承担实时闭环；处理器仅负责配置、监控
 <div class="summary" style="margin-top:8px;"><div class="note-box"><strong>FPGA 是可行方向：</strong>按器件与实现选择，可提供数十至数百 ps 量级的时间细分，并探索相应量级的板间锁相；具体精度由完整误差预算与实测决定。</div><div class="todo-box"><strong>分辨率与锁相精度分开：</strong>ps 级步进不自动等于 ps 级多板误差，更不表示达到 1 ps。当前 MCU 的 4 ns 基本节拍不能仅靠软件替换获得 ps 级单边沿控制。</div></div></div>
 <div class="bar">演进路径：<strong>当前有限窗口 ±100 ns → 现有平台争取 ±50 ns → FPGA 探索 ps 量级。</strong></div>
 </div><div class="page-footer"><span>依据：板级配置 / TIMER1 / P0 拓扑 / 用户实验条件；优化与演进为目标</span><span>DHRT100 DPLL 阶段报告 | 2 / 7</span></div></div>
-<div class="page"><div class="page-header"><div><h1>支撑锁相的组成与机制</h1><div class="subtitle">确定性控制链 | 每一层解决什么误差</div></div><div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-3 brand-desc-3"><title id="brand-title-3">DHRT100</title><desc id="brand-desc-3">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main"><div class="note-box"><strong>当前百纳秒效果由多层共同形成：</strong>参考端提供共同事件时间，通信与匹配保证“比较的是同一件事”，本地 DCO 分别消除频率斜率和相位偏移，统一时基与硬件输出把修正兑现到引脚，独立 output delay 再居中固定输出差。示波器用于校验实际效果，不在实时控制环内。</div>
-<div class="section"><div class="section-title">组合关系：从参考事件到实际边沿</div>
+<div class="page"><div class="page-header"><div><h1>支撑锁相的组成与机制</h1><div class="subtitle">确定性控制链 | 每一层解决什么误差</div></div><div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main"><div class="note-box"><strong>本页定位：</strong>把百纳秒结果拆成可指认的八层机制，逐层说明它解决哪一类误差、缺了它会怎样。</div>
+<div class="note-box"><strong>当前百纳秒效果由多层共同形成：</strong>参考端提供共同事件时间，通信与匹配保证“比较的是同一件事”，本地 DCO 分别消除频率斜率和相位偏移，统一时基与硬件输出把修正兑现到引脚，独立 output delay 再居中固定输出差。示波器用于校验实际效果，不在实时控制环内。</div>
+<div class="section"><div class="section-title">九、机制分解：从参考事件到实际边沿</div>
 <div class="flow">共同参考：NO1 自主 PI → 编码事件时间戳
 确定性承载：TDMA 固定槽位 / PIO-DMA → 逐从接收与 ACK
 本地判定：Core1 事件序号 + 代际匹配 → 加本地 path delay
@@ -216,7 +58,7 @@ FPGA 流水线与状态机承担实时闭环；处理器仅负责配置、监控
 共同坐标：TIMER1 → 本地 DCO 模型 → 未来 VDC 边沿反解
 物理执行：独立 output delay → 固定前缀 / 后缀补给 → SYNC_IO PIO-DMA
 外部证据：NO1 触发，四路实际输出同步记录 → 与 native DCO 对账</div></div>
-<div class="section"><div class="section-title">各部分解决的误差与必要边界</div>
+<div class="section"><div class="section-title">十、机制分解：各部分解决的误差与必要边界</div>
 <table class="compact"><thead><tr><th style="width:122px;">组成部分</th><th>对当前锁相效果的贡献</th><th style="width:178px;">边界 / 缺失时的影响</th></tr></thead><tbody>
 <tr><td class="b">① NO1 自主 PI 与参考编码</td><td>本地主板持续调节，发布同一事件的闭环时间。收窄 DMA 对 PIO enable 的采样包围区间，减少参考区间不确定性。</td><td>本轮 NO1 编码区间中位约 120 ns；NO1 自身抖动会进入各从参考，不能用编码分辨率替代精度。</td></tr>
 <tr><td class="b">② TDMA 特等席与身份匹配</td><td>固定编码/槽位运输，Core1 直接按事件序号、会话与代际匹配；ACK 证明到达，拒绝旧代或错误记录。</td><td>防止错配产生伪相位差；已到达不等于单圈期限已证明，ACK 不等于 DCO 已采用。</td></tr>
@@ -227,11 +69,12 @@ FPGA 流水线与状态机承担实时闭环；处理器仅负责配置、监控
 <tr><td class="b">⑦ 独立 output delay</td><td>在输出侧加入每板可配置补偿，将剩余固定边沿差居中；当前候选 0/−28/−88/−160 ns。</td><td>仅本轮 RAM 参数，不压低随机抖动、不消除频率斜率，不能替代路径校准或长期锁定。</td></tr>
 <tr><td class="b">⑧ 原生记录 + 外部示波器</td><td>内部检查真实 DCO 采用与代际；外部检查四路输出差、周期连续性和修正方向。两类证据互相对照。</td><td>属于验证层，不参与 Core1 闭环。并发 START 只改善首沿采集覆盖，不产生硬件同步或锁相能力。</td></tr>
 </tbody></table></div>
-<div class="section"><div class="section-title">为什么这组组合已经有效</div><div class="summary"><div class="note-box"><strong>误差被逐层处理：</strong>共同事件避免错配；本地 delay 建参考；频率环抑制斜率；相位中点消除偏移；输出补偿居中剩余差；PIO/DMA 保证动作按时间执行。</div><div class="todo-box"><strong>实测支撑：</strong>三从原生 −16～−18 µs 首次相位修正，对应输出约 +16～+18 µs 周期延长；两轮固定稳定窗口进入 ±100 ns。仍需长期与测量资格闭合。</div></div></div>
+<div class="section"><div class="section-title">十一、机制分解：为什么这组组合已经有效</div><div class="summary"><div class="note-box"><strong>误差被逐层处理：</strong>共同事件避免错配；本地 delay 建参考；频率环抑制斜率；相位中点消除偏移；输出补偿居中剩余差；PIO/DMA 保证动作按时间执行。</div><div class="todo-box"><strong>实测支撑：</strong>三从原生 −16～−18 µs 首次相位修正，对应输出约 +16～+18 µs 周期延长；两轮固定稳定窗口进入 ±100 ns。仍需长期与测量资格闭合。</div></div></div>
 <div class="bar">达到当前效果的核心是 <strong>共同参考 + 同事件匹配 + 本地双层修正 + 硬件兑现</strong>，任何单独一项都不等于物理锁定。</div>
 </div><div class="page-footer"><span>依据：当前 HAOFV / VDC / SYNC_IO 实现与本轮实测；组合能力不替代发布验收</span><span>DHRT100 DPLL 阶段报告 | 3 / 7</span></div></div>
-<div class="page"><div class="page-header"><div><h1>四板连续收敛实测</h1><div class="subtitle">启动到稳定期 | 原生 DCO 与外部物理边沿对照</div></div><div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-4 brand-desc-4"><title id="brand-title-4">DHRT100</title><desc id="brand-desc-4">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main"><div class="note-box"><strong>同一份记录中的启动与收敛：</strong>每路实际 50 M 点、20 ns 网格，时间轴 −0.1～+0.9 秒；CH1–CH4 = NO1–NO4 的 DPLL OUT1，1× 探头，以 NO1/CH1 上升沿触发。按 first_ordinal+j 条件配对，不做最近边沿或整周期平移。</div>
-<div class="section"><div class="section-title">五、第一轮实际波形：微秒偏差进入百纳秒窗口</div><svg style="display:block;width:100%;height:115mm;" xmlns:xlink="http://www.w3.org/1999/xlink" width="662.4pt" height="388.8pt" viewBox="0 0 662.4 388.8" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<div class="page"><div class="page-header"><div><h1>四板连续收敛实测</h1><div class="subtitle">启动到稳定期 | 原生 DCO 与外部物理边沿对照</div></div><div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main"><div class="note-box"><strong>本页定位：</strong>用同一份记录里的启动与稳定两段，给出收敛窗口、固定窗口范围与内部修正对外部引脚的量级对照。</div>
+<div class="note-box"><strong>同一份记录中的启动与收敛：</strong>每路实际 50 M 点、20 ns 网格，时间轴 −0.1～+0.9 秒；CH1–CH4 = NO1–NO4 的 DPLL OUT1，1× 探头，以 NO1/CH1 上升沿触发。按 first_ordinal+j 条件配对，不做最近边沿或整周期平移。</div>
+<div class="section"><div class="section-title">十二、实测：第一轮实际波形（微秒偏差进入百纳秒窗口）</div><svg style="display:block;width:100%;height:115mm;" xmlns:xlink="http://www.w3.org/1999/xlink" width="662.4pt" height="388.8pt" viewBox="0 0 662.4 388.8" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -3760,11 +3603,12 @@ L 659.39976 190.561178
 </div>
 <div class="small-list">图中绿色区为选取的稳定段，下面放大相位差。第一轮查看曲线后选定 0.4–0.9 秒窗口，第二轮沿用相同窗口复测。可见首脉冲的绝对身份尚需独立证明，图示不等同正式锁定资格。</div>
 <div class="note-box" style="margin-top:5px;padding:5px 8px;font-size:10px;"><strong>波动幅度已进入 ±50 ns：</strong>第一轮 NO2/NO3/NO4 围绕各自极值中点的半峰峰值约 30.1/38.5/30.0 ns。但相对 NO1 零点仍最远约 −79.9 ns；下一步消除中心偏移并验证跨启动重复性，图中数据未单独居中。</div>
-<div class="section"><div class="section-title">六、固定窗口复测结果</div><table class="compact"><thead><tr><th>相对 NO1</th><th>第一轮范围（ns）</th><th>第二轮范围（ns）</th><th>每轮配对数</th></tr></thead><tbody><tr><td>NO2</td><td>−60.17 ～ −0.002</td><td>−0.30 ～ +39.89</td><td>500</td></tr><tr><td>NO3</td><td>−79.09 ～ −2.14</td><td>+0.11 ～ +59.55</td><td>500</td></tr><tr><td>NO4</td><td>−79.89 ～ −19.94</td><td>−20.93 ～ +20.22</td><td>500</td></tr></tbody></table></div>
-<div class="section"><div class="section-title">七、内部修正与实际引脚变化</div><table class="compact"><thead><tr><th>节点</th><th>首次原生相位 delta（ns）</th><th>外部最大周期延长（ns）</th></tr></thead><tbody><tr><td>NO2</td><td>−16578</td><td>+16580</td></tr><tr><td>NO3</td><td>−17451</td><td>+17442</td></tr><tr><td>NO4</td><td>−17782</td><td>+17780</td></tr></tbody></table><div class="small-list" style="margin-top:6px;">负相位平移对应后续边沿延后，由一个较长周期完成。方向与幅度一致；这是量级对照，尚非独立硬件标签的逐事件因果证明。数 ns 的差值不代表仪器具备数 ns 绝对精度。</div></div>
+<div class="section"><div class="section-title">十三、实测：固定窗口复测结果</div><table class="compact"><thead><tr><th>相对 NO1</th><th>第一轮范围（ns）</th><th>第二轮范围（ns）</th><th>每轮配对数</th></tr></thead><tbody><tr><td>NO2</td><td>−60.17 ～ −0.002</td><td>−0.30 ～ +39.89</td><td>500</td></tr><tr><td>NO3</td><td>−79.09 ～ −2.14</td><td>+0.11 ～ +59.55</td><td>500</td></tr><tr><td>NO4</td><td>−79.89 ～ −19.94</td><td>−20.93 ～ +20.22</td><td>500</td></tr></tbody></table></div>
+<div class="section"><div class="section-title">十四、实测：内部修正与实际引脚变化</div><table class="compact"><thead><tr><th>节点</th><th>首次原生相位 delta（ns）</th><th>外部最大周期延长（ns）</th></tr></thead><tbody><tr><td>NO2</td><td>−16578</td><td>+16580</td></tr><tr><td>NO3</td><td>−17451</td><td>+17442</td></tr><tr><td>NO4</td><td>−17782</td><td>+17780</td></tr></tbody></table><div class="small-list" style="margin-top:6px;">负相位平移对应后续边沿延后，由一个较长周期完成。方向与幅度一致；这是量级对照，尚非独立硬件标签的逐事件因果证明。数 ns 的差值不代表仪器具备数 ns 绝对精度。</div></div>
 <div class="bar">两轮完整流程均通过，约 <strong>131 秒 / 轮</strong>；原生解码、DCO 末态、STOP 和参数恢复可追溯。</div></div><div class="page-footer"><span>原件：startup-one-second-r1/r2；条件序号分析，非正式锁定证书</span><span>DHRT100 DPLL 阶段报告 | 4 / 7</span></div></div>
-<div class="page"><div class="page-header"><div><h1>四路实际上升沿叠加</h1><div class="subtitle">同一组实测方波与上升沿细节 | 5 V 标称，纵轴 −2～+7 V</div></div><div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-5 brand-desc-5"><title id="brand-title-5">DHRT100</title><desc id="brand-desc-5">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main"><div class="note-box"><strong>直接展示原始电压：</strong>选取第一轮约 0.65 秒附近的同一组四路脉冲。上图显示完整方波，下图显示其上升沿细节；以 NO1 上升沿为共同零点，各通道不单独平移。5 V 标称电平、纵轴统一 −2～+7 V，点标记为实际 20 ns 样点。</div>
-<div class="section"><div class="section-title">上：四路完整方波；下：同一组上升沿细节</div><svg style="display:block;width:100%;height:140mm;" xmlns:xlink="http://www.w3.org/1999/xlink" width="662.4pt" height="417.6pt" viewBox="0 0 662.4 417.6" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<div class="page"><div class="page-header"><div><h1>四路实际上升沿叠加</h1><div class="subtitle">同一组实测方波与上升沿细节 | 5 V 标称，纵轴 −2～+7 V</div></div><div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main"><div class="note-box"><strong>本页定位：</strong>把时间轴上的收敛结论对齐到真实引脚电压：同一组脉冲的完整方波与上升沿细节，以及该组边沿差。</div>
+<div class="note-box"><strong>直接展示原始电压：</strong>选取第一轮约 0.65 秒附近的同一组四路脉冲。上图显示完整方波，下图显示其上升沿细节；以 NO1 上升沿为共同零点，各通道不单独平移。5 V 标称电平、纵轴统一 −2～+7 V，点标记为实际 20 ns 样点。</div>
+<div class="section"><div class="section-title">十五、实测：四路完整方波与同一组上升沿细节</div><svg style="display:block;width:100%;height:140mm;" xmlns:xlink="http://www.w3.org/1999/xlink" width="662.4pt" height="417.6pt" viewBox="0 0 662.4 417.6" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -6418,13 +6262,14 @@ z
  </defs>
 </svg>
 </div>
-<div class="section"><div class="section-title">图中所选边沿差（相对 NO1，ns）</div><table class="compact"><thead><tr><th>样本</th><th>NO1</th><th>NO2</th><th>NO3</th><th>NO4</th></tr></thead><tbody><tr><td>第一轮，约 0.650008 s</td><td>0</td><td>约 0</td><td>约 −20</td><td>约 −39</td></tr></tbody></table></div>
-<div class="section"><div class="section-title">读图说明与精度边界</div><div class="two-col"><div class="coord-box"><strong>实际输出已接近重合：</strong>本轮局部样本显示边沿在几十 ns 范围内。虚线为 1.5 V 判定阈值，表中值经相邻样点插值，仅用于描述该组边沿。</div><div class="todo-box"><strong>验收仍看整个窗口：</strong>单个边沿不代替整窗 500 组统计。−2～+7 V 显示范围覆盖该组样本的过冲和欠冲；未缩放电压。插值不提升 20 ns 网格的精度资格。</div></div></div>
+<div class="section"><div class="section-title">十六、实测：图中所选边沿差（相对 NO1，ns）</div><table class="compact"><thead><tr><th>样本</th><th>NO1</th><th>NO2</th><th>NO3</th><th>NO4</th></tr></thead><tbody><tr><td>第一轮，约 0.650008 s</td><td>0</td><td>约 0</td><td>约 −20</td><td>约 −39</td></tr></tbody></table></div>
+<div class="section"><div class="section-title">十七、实测：读图说明与精度边界</div><div class="two-col"><div class="coord-box"><strong>实际输出已接近重合：</strong>本轮局部样本显示边沿在几十 ns 范围内。虚线为 1.5 V 判定阈值，表中值经相邻样点插值，仅用于描述该组边沿。</div><div class="todo-box"><strong>验收仍看整个窗口：</strong>单个边沿不代替整窗 500 组统计。−2～+7 V 显示范围覆盖该组样本的过冲和欠冲；未缩放电压。插值不提升 20 ns 网格的精度资格。</div></div></div>
 <div class="bar">电压波形验证实际引脚，收敛曲线验证时间演化；<strong>两者共同支撑闭环有效的阶段结论。</strong></div></div><div class="page-footer"><span>原始波形：startup-one-second-r1；RAW 重绘、非仪器截图；同组方波与上升沿细节</span><span>DHRT100 DPLL 阶段报告 | 5 / 7</span></div></div>
-<div class="page"><div class="page-header"><div><h1>改进与验证状态</h1><div class="subtitle">中点相位控制、采集修复、同源码验收及资源边界</div></div><div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-6 brand-desc-6"><title id="brand-title-6">DHRT100</title><desc id="brand-desc-6">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main"><div class="section"><div class="section-title">八、最近四项关键改进</div><table class="compact"><thead><tr><th>改进</th><th>解决的问题</th><th>保留的边界</th></tr></thead><tbody><tr><td>相位中点策略</td><td>旧策略推向最近零端点，宽区间可能从不同方向停在两侧；现采用限幅中点控制估计。</td><td>完整残差区间不缩窄；频率优先、发布回执、累计平移、STOP/身份取消不变。</td></tr><tr><td>版本化原生记录</td><td>新相位 schema 6 验证中点策略，旧 schema 4 保持原规则，避免新旧解释混用。</td><td>原始区间与策略版本可追溯，不放宽历史解码。</td></tr><tr><td>受控并发 START</td><td>原串行发送约 219 ms，裁掉从板首沿；现四个预核验独立串口并行触发。</td><td>全部事务 join、真实 OK 后才 TRIAL；任何失败统一 STOP，不盲重试。</td></tr><tr><td>示波器配置顺序</td><td>修正 RUN/MAIN/时基顺序并核验 OPC、错误队列及实际 PRE，取得一秒连续记录。</td><td>保留错配、全低、点数不足等失败，不把请求深度当成实际采集。</td></tr></tbody></table></div>
-<div class="section"><div class="section-title">九、验证与资源状态</div><table class="compact"><thead><tr><th>项目</th><th>结果</th><th>说明</th></tr></thead><tbody><tr><td>算法主机回归</td><td>567 项通过</td><td>对应中点相位、历史解码、算术边界、生命周期及 producer→decoder。</td></tr><tr><td>并发采集回归</td><td>8 项通过</td><td>正常、四板分别超时、线程异常、缺会话、句柄别名；主线程统一日志。</td></tr><tr><td>Release A/B</td><td>构建和 Flash link 通过</td><td>代码基线 c24e06dd；本轮无固件实现修改。</td></tr><tr><td>四板 quick P3</td><td>PASS_WITH_WARNINGS</td><td>p3-phase-center-r3；DPLL 为 SKIPPED_TDMA_ONLY，不能作为精度验收。</td></tr><tr><td>最新物理专项</td><td>连续两轮完整通过</td><td>startup-one-second-r1/r2；真实波形、原生记录、配置和恢复对账。</td></tr><tr><td>正式 RAM 预算</td><td>仍未达标</td><td>空闲 20296 B；正式要求 49152 B。临时最低 16384 B 许可至 2026-09-25。</td></tr><tr><td>静态资源检查</td><td>保留 8 项既有 SYNC 失败</td><td>文本检查失败未被忽略，不宣称正式资源全绿。</td></tr></tbody></table></div>
-<div class="section"><div class="section-title">十、失败原件与处理原则</div><div class="two-col"><div class="risk-box"><strong>STOP 后读取：</strong>偶发 RAM 页或模型超时仍存在。冻结记录可补读、CRC 与已读页一致，不能改写原试验失败。具体只读拒绝分支尚待定位。</div><div class="todo-box"><strong>仪器记录：</strong>offset/时基读回错误、全低波形、实际点数不足和过大深度请求均保留。只有实际 PRE、完整块与有效脉冲可用于相位分析。</div></div></div>
-<div class="section"><div class="section-title">十一、版本及实测参数</div><div class="flow">固件改动：c24e06dd
+<div class="page"><div class="page-header"><div><h1>改进与验证状态</h1><div class="subtitle">中点相位控制、采集修复、同源码验收及资源边界</div></div><div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main"><div class="note-box"><strong>本页定位：</strong>列出本轮四项关键改进各自解决了什么问题、保留了哪些边界，并给出回归、资源与失败原件的真实状态。</div>
+<div class="section"><div class="section-title">十八、改进与验证：最近四项关键改进</div><table class="compact"><thead><tr><th>改进</th><th>解决的问题</th><th>保留的边界</th></tr></thead><tbody><tr><td>相位中点策略</td><td>旧策略推向最近零端点，宽区间可能从不同方向停在两侧；现采用限幅中点控制估计。</td><td>完整残差区间不缩窄；频率优先、发布回执、累计平移、STOP/身份取消不变。</td></tr><tr><td>版本化原生记录</td><td>新相位 schema 6 验证中点策略，旧 schema 4 保持原规则，避免新旧解释混用。</td><td>原始区间与策略版本可追溯，不放宽历史解码。</td></tr><tr><td>受控并发 START</td><td>原串行发送约 219 ms，裁掉从板首沿；现四个预核验独立串口并行触发。</td><td>全部事务 join、真实 OK 后才 TRIAL；任何失败统一 STOP，不盲重试。</td></tr><tr><td>示波器配置顺序</td><td>修正 RUN/MAIN/时基顺序并核验 OPC、错误队列及实际 PRE，取得一秒连续记录。</td><td>保留错配、全低、点数不足等失败，不把请求深度当成实际采集。</td></tr></tbody></table></div>
+<div class="section"><div class="section-title">十九、改进与验证：验证与资源状态</div><table class="compact"><thead><tr><th>项目</th><th>结果</th><th>说明</th></tr></thead><tbody><tr><td>算法主机回归</td><td>567 项通过</td><td>对应中点相位、历史解码、算术边界、生命周期及 producer→decoder。</td></tr><tr><td>并发采集回归</td><td>8 项通过</td><td>正常、四板分别超时、线程异常、缺会话、句柄别名；主线程统一日志。</td></tr><tr><td>Release A/B</td><td>构建和 Flash link 通过</td><td>代码基线 c24e06dd；本轮无固件实现修改。</td></tr><tr><td>四板 quick P3</td><td>PASS_WITH_WARNINGS</td><td>p3-phase-center-r3；DPLL 为 SKIPPED_TDMA_ONLY，不能作为精度验收。</td></tr><tr><td>最新物理专项</td><td>连续两轮完整通过</td><td>startup-one-second-r1/r2；真实波形、原生记录、配置和恢复对账。</td></tr><tr><td>正式 RAM 预算</td><td>仍未达标</td><td>空闲 20296 B；正式要求 49152 B。临时最低 16384 B 许可至 2026-09-25。</td></tr><tr><td>静态资源检查</td><td>保留 8 项既有 SYNC 失败</td><td>文本检查失败未被忽略，不宣称正式资源全绿。</td></tr></tbody></table></div>
+<div class="section"><div class="section-title">二十、改进与验证：失败原件与处理原则</div><div class="two-col"><div class="risk-box"><strong>STOP 后读取：</strong>偶发 RAM 页或模型超时仍存在。冻结记录可补读、CRC 与已读页一致，不能改写原试验失败。具体只读拒绝分支尚待定位。</div><div class="todo-box"><strong>仪器记录：</strong>offset/时基读回错误、全低波形、实际点数不足和过大深度请求均保留。只有实际 PRE、完整块与有效脉冲可用于相位分析。</div></div></div>
+<div class="section"><div class="section-title">二十一、改进与验证：版本及实测参数</div><div class="flow">固件改动：c24e06dd
 Source SHA-256：
 902a54895daf9eaedd1b82cd5797e910ddfb52711538b69a69fc698f4309aed6
 OTA package SHA-256：
@@ -6432,9 +6277,10 @@ OTA package SHA-256：
 RUN timing（本轮 RAM）：24000 / 32000 / 16000 µs
 输出周期（本轮）：1 ms    示波器：RIGOL HDO4404 / HDO4A244301137</div></div>
 <div class="bar">所有数字均为本阶段快照；<strong>build ID 曾复用，以源码与包指纹识别实际基线。</strong></div></div><div class="page-footer"><span>依据：原生记录、四板 P3、Release / 资源报告；失败原件保留</span><span>DHRT100 DPLL 阶段报告 | 6 / 7</span></div></div>
-<div class="page"><div class="page-header"><div><h1>后续门禁与证据索引</h1><div class="subtitle">从有限百纳秒结果到持续锁定与 VDC 一致发布</div></div><div class="brand" aria-label="DHRT100"><svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" role="img" aria-labelledby="brand-title-7 brand-desc-7"><title id="brand-title-7">DHRT100</title><desc id="brand-desc-7">红色方框与右下角实心方块组成的 DHRT100 标志</desc><rect x="5" y="5" width="32" height="32" fill="none" stroke="#d60037" stroke-width="2"/><rect x="29" y="29" width="16" height="16" fill="#d60037"/><text x="52" y="32" fill="#1f3864" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" letter-spacing="2">DHRT100</text></svg></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main"><div class="section"><div class="section-title">十二、后续执行顺序与退出判据</div><table class="compact"><thead><tr><th>顺序</th><th>任务</th><th>必须看到的结果</th></tr></thead><tbody><tr><td>1</td><td>同序号与持续输出</td><td>独立首沿/序号标记，或完整有限输出终止证据；拒绝缺首脉冲、漏/多边、裁剪、整周期位移与跨代拼接。</td></tr><tr><td>2</td><td>稳定性与误差预算</td><td>扩大连续时长和跨启动/恢复样本；量化探头、通道偏斜、阈值与采样误差。频差 ±50 ppb 为后续优化目标。</td></tr><tr><td>3</td><td>单圈确定性</td><td>分别证明事件年龄、同圈送达与真实 DCO 生效期限；收发/ACK 成功不能替代期限证明。</td></tr><tr><td>4</td><td>路径与时间轴</td><td>独立确认 forward-CS 方向、累计 delay、bridge/enable 和输出补偿预算，不由当前示波器差值倒推路径。</td></tr><tr><td>5</td><td>失效恢复</td><td>坏帧、缺帧、重复、失联、STOP/ARM 与重新收敛实测；不重放旧会话或旧命令。</td></tr><tr><td>6</td><td>VDC 一致发布</td><td>Core1 快速路径与 Core0 视图中的 time、valid、quality、generation 一致；降级和恢复通过后授予有效状态。</td></tr></tbody></table></div>
-<div class="section"><div class="section-title">十三、精度等级与当前资格</div><table class="compact"><thead><tr><th>等级</th><th>相位目标</th><th>本轮结论</th></tr></thead><tbody><tr><td>粗锁定</td><td>≤ 10 µs</td><td>观察到启动微秒级偏差及后续收敛；不要求首帧可用。</td></tr><tr><td>精锁定</td><td>≤ 1 µs</td><td>最新有限窗口已经优于该量级。</td></tr><tr><td>完全锁定</td><td>≤ 100 ns</td><td>两轮有限稳定窗口达到量级；正式同序号、长期与误差预算尚未完成。</td></tr></tbody></table><div class="todo-box" style="margin-top:7px;"><strong>资格说明：</strong>“第一条可见脉冲”可能是丢掉真正首脉冲之后的第二条。目前 common_ordinal_qualified 与 physical_lock_qualified 均为 false。该边界限定正式声明，不否定已经观察到的真实控制收敛，也不阻止继续调试。</div></div>
-<div class="section"><div class="section-title">十四、证据索引</div><table class="compact"><thead><tr><th>内容</th><th>可追溯入口</th></tr></thead><tbody><tr><td>任务与状态</td><td>docs/vdc/VDC_DOMAIN_TODO.md；VDC_TASK_PROGRESS.md，045–047。</td></tr><tr><td>文字阶段报告</td><td>docs/vdc/VDC_DPLL_STATUS_REVIEW.md。</td></tr><tr><td>P3 验收</td><td>out/HardwareAcceptance/20260918/p3-phase-center-r3/。</td></tr><tr><td>本轮证据根</td><td>out/HardwareAcceptance/20260918/dpll-extended-window-r1/。</td></tr><tr><td>两轮连续记录</td><td>证据根 / startup-one-second-r1、startup-one-second-r2。</td></tr><tr><td>原始采集</td><td>每轮 report.json、capture/input-probe.json、actions.jsonl、scope/*.block、*-native.ram.bin。</td></tr><tr><td>分析结果</td><td>每轮 startup-audit.json、native-scope-review.json、startup-conditional-phase.svg。</td></tr><tr><td>独立复核</td><td>证据根 independent-parallel-start-review.json、independent-one-second-r1-audit.json；r2 以复核原件为准。</td></tr></tbody></table></div>
+<div class="page"><div class="page-header"><div><h1>后续门禁与证据索引</h1><div class="subtitle">从有限百纳秒结果到持续锁定与 VDC 一致发布</div></div><div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div><div class="doc-meta"><strong>2026年9月18日</strong>星期五<br>内部研发阶段报告</div></div><div class="main"><div class="note-box"><strong>本页定位：</strong>从当前有限百纳秒结果走到持续锁定与 VDC 一致发布，还需要按什么顺序、看到什么结果，以及证据存放在哪里。</div>
+<div class="section"><div class="section-title">二十二、门禁：后续执行顺序与退出判据</div><table class="compact"><thead><tr><th>顺序</th><th>任务</th><th>必须看到的结果</th></tr></thead><tbody><tr><td>1</td><td>同序号与持续输出</td><td>独立首沿/序号标记，或完整有限输出终止证据；拒绝缺首脉冲、漏/多边、裁剪、整周期位移与跨代拼接。</td></tr><tr><td>2</td><td>稳定性与误差预算</td><td>扩大连续时长和跨启动/恢复样本；量化探头、通道偏斜、阈值与采样误差。频差 ±50 ppb 为后续优化目标。</td></tr><tr><td>3</td><td>单圈确定性</td><td>分别证明事件年龄、同圈送达与真实 DCO 生效期限；收发/ACK 成功不能替代期限证明。</td></tr><tr><td>4</td><td>路径与时间轴</td><td>独立确认 forward-CS 方向、累计 delay、bridge/enable 和输出补偿预算，不由当前示波器差值倒推路径。</td></tr><tr><td>5</td><td>失效恢复</td><td>坏帧、缺帧、重复、失联、STOP/ARM 与重新收敛实测；不重放旧会话或旧命令。</td></tr><tr><td>6</td><td>VDC 一致发布</td><td>Core1 快速路径与 Core0 视图中的 time、valid、quality、generation 一致；降级和恢复通过后授予有效状态。</td></tr></tbody></table></div>
+<div class="section"><div class="section-title">二十三、门禁：精度等级与当前资格</div><table class="compact"><thead><tr><th>等级</th><th>相位目标</th><th>本轮结论</th></tr></thead><tbody><tr><td>粗锁定</td><td>≤ 10 µs</td><td>观察到启动微秒级偏差及后续收敛；不要求首帧可用。</td></tr><tr><td>精锁定</td><td>≤ 1 µs</td><td>最新有限窗口已经优于该量级。</td></tr><tr><td>完全锁定</td><td>≤ 100 ns</td><td>两轮有限稳定窗口达到量级；正式同序号、长期与误差预算尚未完成。</td></tr></tbody></table><div class="todo-box" style="margin-top:7px;"><strong>资格说明：</strong>“第一条可见脉冲”可能是丢掉真正首脉冲之后的第二条。目前 common_ordinal_qualified 与 physical_lock_qualified 均为 false。该边界限定正式声明，不否定已经观察到的真实控制收敛，也不阻止继续调试。</div></div>
+<div class="section"><div class="section-title">二十四、门禁：证据索引与接续条件</div><table class="compact"><thead><tr><th>内容</th><th>可追溯入口</th></tr></thead><tbody><tr><td>任务与状态</td><td>docs/vdc/VDC_DOMAIN_TODO.md；VDC_TASK_PROGRESS.md，045–047。</td></tr><tr><td>文字阶段报告</td><td>docs/vdc/VDC_DPLL_STATUS_REVIEW.md。</td></tr><tr><td>P3 验收</td><td>out/HardwareAcceptance/20260918/p3-phase-center-r3/。</td></tr><tr><td>本轮证据根</td><td>out/HardwareAcceptance/20260918/dpll-extended-window-r1/。</td></tr><tr><td>两轮连续记录</td><td>证据根 / startup-one-second-r1、startup-one-second-r2。</td></tr><tr><td>原始采集</td><td>每轮 report.json、capture/input-probe.json、actions.jsonl、scope/*.block、*-native.ram.bin。</td></tr><tr><td>分析结果</td><td>每轮 startup-audit.json、native-scope-review.json、startup-conditional-phase.svg。</td></tr><tr><td>独立复核</td><td>证据根 independent-parallel-start-review.json、independent-one-second-r1-audit.json；r2 以复核原件为准。</td></tr></tbody></table></div>
 <div class="section"><div class="section-title">十五、当前交付与接续条件</div><div class="summary"><div class="note-box"><strong>本轮交付：</strong>四板实际相位闭环、连续启动收敛与两轮固定窗口复测；原生和物理修正量一致；完整 STOP 与参数恢复；A4 阶段报告。</div><div class="coord-box"><strong>继续推进：</strong>保留特等席确定性路线，以同序号、持续性、测量预算和有效发布为后续门禁。输出补偿保持可配置，不将临时居中值冻结成路径校准。</div></div></div>
 <div class="bar">最终目标：<strong>四路实际输出 100 ns 量级同步，并完成 VDC 时间、质量、有效性与代际一致发布。</strong></div></div><div class="page-footer"><span>本报告不新增或替代 DOCS_REGISTRY 冻结契约；测量分辨率不等于物理精度</span><span>DHRT100 DPLL 阶段报告 | 7 / 7</span></div></div>
 </body></html>

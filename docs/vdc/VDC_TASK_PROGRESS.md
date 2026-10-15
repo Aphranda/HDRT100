@@ -22,6 +22,18 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-055：角色动作序列实测——**解码片到达的角色 3/3 完成动作**；缺口是"每轮总有一块目标板收不到片"
+
+- TODO task ID：`T2-DEPLOY-003`（多板槽位业务闭环）、`T2-TRANSPORT-002`。值为 2026-10-15 实验快照，非产品事实源。
+- **角色→动作**：部署把四板定为 `COUNTER(slot0) / SWITCH_A(slot1) / GATEWAY(slot2) / SWITCH_B(slot3)`；动作表按**本板角色**筛选（`trigger_action_service.c:109` 只把 `row.role == binding.local_role` 的行进 `local_row_mask`），T2 运行时按本板模板种类在计划 deadline 上布置 **SWITCH 或 GATEWAY 截止**（`trigger_t2_runtime.c:670-710`）。⇒ "不同角色执行不同动作序列"在结构上已成立；本次给出**实测判据页** `TRIGger:RESERVation:T2:ACTion?`（`scpi_trigger_t2_runtime_commands.inc: scpi_cmd_trigger_t2_action_q`，含 armed/completed/failed/uncertain 与每位置 sequence/deadline/backend_state/origin_width）。
+- **实测（两轮 `--full`，均 `failed steps: none`）**：
+  - `out/tdma_t2/steps-20261015-091127.log`：SWITCH_A `armed 3 / completed 3 / failed 0 / uncertain 0 / events 2` ✓、GATEWAY 同为 `3/3/0/0` ✓、SWITCH_B `0/0/0/0` ✗、COUNTER 不动作 ✓；汇总 `ACTION execution: 2 of 4`。
+  - `out/tdma_t2/steps-20261015-092034.log`：SWITCH_A ✓、**SWITCH_B ✓**、**GATEWAY ✗**；同样 `2 of 4`。
+  - 配套 `RUNTIME` 行（T2? 页）：执行成功的板 `received 7 / frozen 3`；未执行的板 `received 0 / frozen 0 / preview_saved 0 / prep_reason 1`（其车道上仍接受了 2443 片）。
+- **机制**：位置片经一等席车道送达每块目标板，但**每板只有一个单深度位置邮箱**：邮箱未腾空时新片被拒（`lane_reject` 14k–69k），被拒片进入有界 hold 环，环满即丢（`hold_drop` 26k–69k）。若某板在源密集发布时没抢到"新鲜片"，此后看到的几乎全是同一片的重发（`lane_dup ≈ lane_accept`）⇒ `received_mask` 恒 0 ⇒ 该板无法布置动作。两轮各恰好一块板饿死，且**饿死者在轮换**（运行 A 是 SWITCH_B、运行 B 是 GATEWAY）⇒ 这是**竞争型分发 + 有界缓冲**的固有结果，不是某一角色的功能缺陷。
+- **结论**：解码位置片 → 按角色执行动作序列这一环**已验证可用**（收到片的角色 3/3 完成，`failed/uncertain` 全 0）；要让**每个**目标角色每轮都执行，必须改分发语义（每目标独立副本/独立邮箱、加深 hold 环、或按目标单播）——属 wire/运输契约层决策。
+- **工具新增（`tools/sync_trigger/t2_workflow.py` step 20）**：`ACTION slot …`（含每位置明细）、`ACTION execution: N of 4`、`RUNTIME slot …`（received/frozen/prepare/preview_saved/prep_reason/desc_reject/trans_reject/last_error），与既有 `POSITION slot …`/`POSITION distribution …` 一起使"谁执行了什么、谁没收到"成为可见事实。
+
 ### VDC-PROGRESS-20261015-054：**位置分发实测成立**——T2 经一等席车道分发到三从；并更正上一轮基于 `rx_complete_count` 的错误结论
 
 - TODO task ID：`T2-TRANSPORT-002`/`T2-IDENT-001`（位置运输证据）、`VDC-ISO-001`。值为 2026-10-15 实验快照，非产品事实源。

@@ -4,7 +4,7 @@ Status: Active
 Domain: RELEASE
 Canonical: `docs/reports/README.md`
 Related: `docs/README.md`, `docs/release/README.md`
-Last updated: 2026-08-28
+Last updated: 2026-10-15
 
 本目录保存当前产品交付和打印输出文件。Markdown 源文档仍归各业务域，HTML/PDF 输出物归本目录。
 
@@ -14,6 +14,8 @@ Last updated: 2026-08-28
 |---|---|
 | `scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.html` | 产品级 SCPI 指令表 HTML 输出 |
 | `scpi/RP1200波导天线测试系统分布式触发方案SCPI指令表.pdf` | 产品级 SCPI 指令表 PDF 输出 |
+| `distributed-trigger/DHRT100_REPORT_TEMPLATE.css` | 分布式触发阶段报告统一版式（A4 竖版页面骨架 + 功能块四段式）；报告 HTML 只写内容、不内嵌样式 |
+| `distributed-trigger/DHRT100-brand.svg` | 分布式触发阶段报告统一品牌标志（页头 `<img>` 引用） |
 | `distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整报告 |
 | `distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html` | 0804 分布式触发完整技术报告 |
 | `distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告摘要 |
