@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "trigger_position_window.h"   /* instance domain owner */
 
 /* Compact runtime contract: one position record fits one TDMA mailbox RefMem
  * region, so a PREVIEW or FREEZE is never split across frames. Prediction
@@ -35,7 +36,8 @@ static inline bool trigger_position_slice_tagged(uint8_t tag)
 
 static inline bool trigger_position_slice_valid(const trigger_position_slice_t *slice)
 {
-    return slice != NULL && slice->position_id >= 1u && slice->position_id <= 0x0Fu &&
+    return slice != NULL && slice->position_id >= 1u &&
+        slice->position_id <= TRIGGER_POSITION_INSTANCE_MAX &&
         slice->stage <= TRIGGER_POSITION_SLICE_FREEZE &&
         slice->prediction_version != 0u &&
         slice->target_fine_slice_index <= TRIGGER_POSITION_SLICE_FINE_MAX;

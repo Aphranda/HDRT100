@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "trigger_position_window.h"   /* instance domain owner */
 
 #include "trigger_position_descriptor.h"
 
@@ -71,7 +72,7 @@ static inline bool trigger_position_mailbox_take(
  * beside the single-depth PREVIEW mailbox, so a PREVIEW still waiting for its
  * consumer can never drop it. One producer, one consumer; a version is written
  * only while its bit is clear and read only while it is set. */
-#define TRIGGER_POSITION_FREEZE_LATCH_IDS 15u
+#define TRIGGER_POSITION_FREEZE_LATCH_IDS TRIGGER_POSITION_INSTANCE_MAX
 typedef struct {
     volatile uint32_t mask; /* bit position_id - 1 */
     uint32_t version[TRIGGER_POSITION_FREEZE_LATCH_IDS];
