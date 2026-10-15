@@ -25,4 +25,4 @@ def test_position_window_host_cases(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stdout + completed.stderr
     run = subprocess.run([str(executable)], capture_output=True, text=True)
     assert run.returncode == 0, run.stdout + run.stderr
-    assert "6 production C case groups passed" in run.stdout
+    assert "7 production C case groups passed" in run.stdout

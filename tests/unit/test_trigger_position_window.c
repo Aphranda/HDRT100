@@ -104,6 +104,37 @@ static void test_instance_domain_is_validated(void)
     assert(trigger_position_window_active_mask(&w) == 1u);
 }
 
+static void test_source_side_open_ack_and_expiry(void)
+{
+    trigger_position_window_t w;
+    trigger_position_window_reset(&w);
+    assert(trigger_position_window_alloc(&w, 1u, 5000u, 3u, 10u));
+    assert(trigger_position_window_alloc(&w, 2u, 15000u, 4u, 20u));
+    /* Re-announcing the same absolute position finds its instance. */
+    assert(trigger_position_window_find_target(&w, 15000u) ==
+           trigger_position_window_find(&w, 2u));
+    assert(trigger_position_window_find_target(&w, 25000u) < 0);
+    assert(trigger_position_window_mark(&w, 1u, TRIGGER_POSITION_WINDOW_ANNOUNCED));
+    assert(trigger_position_window_mark(&w, 2u, TRIGGER_POSITION_WINDOW_ANNOUNCED));
+    assert(trigger_position_window_mark(&w, 2u, TRIGGER_POSITION_WINDOW_FROZEN));
+    const uint32_t open = trigger_position_window_open_mask(&w);
+    assert(open == (trigger_position_window_active_mask(&w)));
+    /* Nothing acknowledged yet: incomplete. */
+    assert(!trigger_position_window_ack_complete(&w, 0u));
+    /* The follower acknowledges its frozen instance only: still incomplete. */
+    assert(!trigger_position_window_ack_complete(&w, trigger_position_window_ack_mask(&w)));
+    assert(trigger_position_window_ack_complete(&w, open));
+    /* Expiry abandons the live instance whose reserved q already passed. */
+    assert(trigger_position_window_expire(&w, 15u) == 1u);
+    assert(trigger_position_window_find(&w, 1u) < 0 ||
+           w.record[trigger_position_window_find(&w, 1u)].state ==
+               TRIGGER_POSITION_WINDOW_ABANDONED);
+    assert(w.abandoned == 1u);
+    /* An empty open set is complete by construction. */
+    assert(trigger_position_window_ack_complete(&w, 0u) ||
+           trigger_position_window_open_mask(&w) != 0u);
+}
+
 int main(void)
 {
     test_scan_walks_beyond_capacity();
@@ -112,6 +143,7 @@ int main(void)
     test_repeat_instance_keeps_its_record();
     test_abandon_and_unknown_instance();
     test_instance_domain_is_validated();
-    puts("6 production C case groups passed");
+    test_source_side_open_ack_and_expiry();
+    puts("7 production C case groups passed");
     return 0;
 }

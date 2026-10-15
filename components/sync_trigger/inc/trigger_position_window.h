@@ -178,4 +178,65 @@ static inline void trigger_position_window_reset(trigger_position_window_t *w)
     *w = (trigger_position_window_t){0};
 }
 
+/* ---- Source-side surface: the origin announces, freezes and abandons ---------
+ * The origin needs the same instance identity, but it asks different questions:
+ * which announced/frozen instances are still waiting for a confirmation, and
+ * whether every one of them has been acknowledged. Keeping both sides on one
+ * structure is what removes the old 3-bit publish/complete/abandoned masks.
+ */
+
+/* Instances still owing an acknowledgement (announced or frozen, not yet
+ * executed or abandoned). This is the set the origin intersects with the
+ * freeze-ack byte; stale instances outside it are ignored by construction. */
+static inline uint32_t trigger_position_window_open_mask(
+    const trigger_position_window_t *w)
+{
+    uint32_t mask = 0u;
+    for (uint32_t i = 0u; i < TRIGGER_POSITION_WINDOW_CAPACITY; ++i)
+        if (w->record[i].state == TRIGGER_POSITION_WINDOW_ANNOUNCED ||
+            w->record[i].state == TRIGGER_POSITION_WINDOW_FROZEN)
+            mask |= 1u << i;
+    return mask;
+}
+
+/* Absolute identity lookup: the origin re-announces the same position (same
+ * target_ms) and must find its instance instead of allocating a second one. */
+static inline int32_t trigger_position_window_find_target(
+    const trigger_position_window_t *w, uint32_t target_ms)
+{
+    for (uint32_t i = 0u; i < TRIGGER_POSITION_WINDOW_CAPACITY; ++i)
+        if (w->record[i].instance != 0u && w->record[i].target_ms == target_ms)
+            return (int32_t)i;
+    return -1;
+}
+
+/* True when every open instance is covered by the acked mask. An empty open
+ * set is complete by construction (nothing is waiting). */
+static inline bool trigger_position_window_ack_complete(
+    const trigger_position_window_t *w, uint32_t acked_mask)
+{
+    const uint32_t open = trigger_position_window_open_mask(w);
+    return (open & ~acked_mask) == 0u;
+}
+
+/* Window expiry: every live instance whose reserved action q has already
+ * passed is abandoned (the origin stops resending it), counted so the
+ * abandonment evidence survives in the window totals. */
+static inline uint32_t trigger_position_window_expire(
+    trigger_position_window_t *w, uint64_t expired_before_q)
+{
+    uint32_t expired = 0u;
+    for (uint32_t i = 0u; i < TRIGGER_POSITION_WINDOW_CAPACITY; ++i) {
+        trigger_position_window_record_t *r = &w->record[i];
+        if (r->instance == 0u) continue;
+        if (r->state == TRIGGER_POSITION_WINDOW_EXECUTED ||
+            r->state == TRIGGER_POSITION_WINDOW_ABANDONED) continue;
+        if (r->action_q >= expired_before_q) continue;
+        r->state = TRIGGER_POSITION_WINDOW_ABANDONED;
+        w->abandoned++;
+        expired++;
+    }
+    return expired;
+}
+
 #endif /* TRIGGER_POSITION_WINDOW_H */
