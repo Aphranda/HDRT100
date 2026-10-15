@@ -413,3 +413,4 @@ docs/
 - `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_03.md` ? VDC progress archive 03.
 
 | [`docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_14.md`](docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_14.md) | VDC 任务进度归档（C14 轮转，20260919-034..20260919-030） |
+| [`docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_15.md`](docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_15.md) | VDC 任务进度归档（C14 轮转，VDC-PROGRESS-20260921-038..VDC-PROGRESS-20260919-035） |
