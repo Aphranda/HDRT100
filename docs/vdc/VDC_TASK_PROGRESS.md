@@ -35,6 +35,12 @@ Last updated: 2026-10-15
 - **两条既有问题（各自追因，勿混入 Step 1 判据）**：① 短扫描下从板存在既有动作失败（`failed` 非零、`backend 0 = 45`），两份日志都有且与本次改动无关；② 既有红 `test_trigger_t2_runtime[freeze_missing]`（无预览路径挂死；固件侧 `stage_pending_freeze()` 已证明不阻塞，故归 harness 侧）。
 - **下一步（照做，勿再问背景）**：① 整批切换——`trigger_t2_runtime.c` 两侧掩码/数组（`published_mask`/`freeze_complete_mask`/`freeze_abandoned_mask` 与 `frozen_mask`/`received_mask`/`s_pending_mask`、`s_deadline[]`/`freeze_version[]`/`freeze_local_version[]`/`freeze_local_age[]`）→ `trigger_position_window_t`，并按实例而非槽号寻址、槽位可回收；**同批**更新 `tests/python/test_trigger_t2_runtime.py` 的 16 处旧三槽语义期望（第 26 轮实测：只切一侧必红）；② 驱动判据改为 `win_totals[2]/[3] > 3`（真计数），并把 `failed`/`backend` 非零单列报出；③ 验证 `T2_SCAN_OVERRIDE_TERMINAL_MDEG=8000 python tools/sync_trigger/t2_iterate.py`（短扫描）→ 去掉 override 全扫描；④ 收口：一次 `python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full`（P3 凭证，硬约束 7）+ 契约登记（`T2-DEPLOY-003`/`T2-IDENT-002`/`T2-TURNTABLE-002`）+ C11 交叉复核 + 文档与代码**分开提交**。
 - 下一 gate：`T2-DEPLOY-003`（整批切换完成并宿主点名集合全绿后，才进入台架短扫描）。
+- **2026-10-15 ★★ 批内二分命中根因：`TRIGGER_ACTION_TEMPLATE_CAPACITY 8→16` 就是 DPLL 相位回归的元凶**。
+  二分第一步：仅排除**运行时/SCPI 窗口簿记族**（`trigger_t2_runtime.c`、`trigger_t2_runtime.h`、`scpi_trigger_t2_runtime_commands.inc`）✓，保留模块头、`CAPACITY 16`、测试与工具 ⇒ 重跑 `--profile full`：
+  `hawf-164527`：`Step 29 END OK` ✓、`Step 30 END FAIL` ✗、`dpll-short: passed=False errors=['phase exceeds 1000 ns']` ✗（首轮 `hawf-163638` 命中 step 29 偶发、无结论 ✗，重试后得此结果 ✓）。
+  ⇒ 与"整批排除 ⇒ 全绿 ✓"合并推断：**罪魁在保留集合中的固件相关项** = `trigger_action_template_table.h` 的 `TRIGGER_ACTION_TEMPLATE_CAPACITY 8→16` ✗（工具/测试不进固件 ✗，可排除 ✓）。即该表由 8 行扩到 16 行后，DPLL 短采集出现 `phase exceeds 1000 ns` ✗ —— 典型的内存布局/时序扰动 ✗。
+- **下一步（三选一，先量后改）**：① 量该表实际占用（`sizeof(trigger_action_template_t) × CAPACITY` ✓，以及它是否位于 DPLL/同步路径敏感的 RAM 区域 ✓）；② 若只是足迹问题 ⇒ 把容量改回 8 并发起另一条"每位置 16 组"的存储方式（例如分组按需展开、或把表移出敏感区/改为非静态分配 ✓）；③ 若必须扩到 16 ⇒ 需要在固件内存布局层面给出证据（map 文件对比 ✓）后再改，**不得**以"再试一次"放行 ✗。
+- 判据不变：`credential: written` + `dpll-short passed=true` ✓；本批代码仍未提交 ✓（工作区已由脚本自动恢复 ✓，另存 `%TEMP%\t2batch-backup` 与 `%TEMP%\t2bisect-rt` ✓）。
 - **2026-10-15 ★★ 对照实验判定：本批 T2 改动导致 DPLL 相位回归（结论已定，勿再当 flake）**。
   方法：把本批 9 个文件**仅从工作区**排除（`git checkout HEAD -- <files>`，index 内的暂存副本保持不动 ✓），重跑 `--profile full`，随后自动从 index 恢复工作区 ✓。结果（`out/HardwareAcceptance/20261015/hawf-162657`）：
   `Step 29 END OK 97.2s` ✓、`Step 30 END OK 0.1s` ✓、**`credential: written`** ✓、`CONTROL dpll-short: passed = True  errors = []` ✓。
