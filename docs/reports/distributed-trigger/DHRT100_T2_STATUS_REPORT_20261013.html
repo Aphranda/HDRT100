@@ -171,118 +171,130 @@
 </head>
 <body>
 <div class="page">
-  <div class="page-header">
-    <div class="subtitle"><b>DHRT100 分布式触发系统</b><br>T2（TRIGGER 域）阶段性现状报告</div>
-    <div class="brand">DHRT100</div>
-    <div class="doc-meta">日期：2026-10-13<br>域：TRIGGER<br>页：1 / 4</div>
-  </div>
-  <div class="main">
-    <div class="note-box"><b>结论：</b>T2 主线已完成可验收部分（K-2 语义链、PIO 模式化核验、转台通道口径），当前仅剩两项开放：
-    跨域契约尚欠 <b>TDMA 域一等席尃局联审结论</b>；位置邮箱契约登记行已插入但<b>独立 C11 未完成</b>，故未提交。</div>
-    <div class="section"><div class="section-title">1. 核心状态卡片</div>
-      <div class="chips">
-        <div class="chip">K-2 语义链：已闭合</div>
-        <div class="chip">PIO 模式化：已核验合规</div>
-        <div class="chip">转台通道：口径已定</div>
-        <div class="chip">契约登记：39 条</div>
-        <div class="chip">开放项：2 项</div>
-      </div>
-    </div>
-    <div class="section"><div class="section-title">2. 范围与依据</div>
-      <div class="summary">本报告只覆盖 T2（TRIGGER 域）：位置切片与位置邮箱的运行时契约、装填重算判据、
-      模型脉冲的加载与防御路径、以及转台通道口径；不含接口域与其它域事项。</div>
-    </div>
-  </div>
-  <div class="bar">1. 摘要与状态</div>
-  <div class="page-footer">依据：代码事实 + 提交记录 + docs/trigger/t2/TRIGGER_T2_TODO.md 与其 Task Progress；每项均可核复。</div>
+<div class="page-header">
+  <div class="subtitle">位置切片与位置邮箱 | 当前状态与实现边界</div>
+  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>数据均标注可核验处</div>
+</div>
+<div class="main">
+<h1>T2 触发闭环阶段报告</h1>
+<div class="section"><div class="section-title">一、核心结论</div>
+<div class="note-box">T2 主线可验收部分已闭环（K-2 装填重算判据、PIO 模式化核验、转台通道口径）；当前仅剩两项开放：
+<b>TDMA 域一等席尃局联审结论</b>与<b>位置邮箱契约的独立 C11</b>。</div>
+<div class="section"><div class="section-title">二、状态卡片</div>
+<div class="chips">
+<div class="chip">K-2：已闭合</div>
+<div class="chip">PIO：已合规</div>
+<div class="chip">转台：口径已定</div>
+<div class="chip">契约：39 条</div>
+</div></div>
+<div class="section"><div class="section-title">三、审查范围</div>
+<table class="compact"><thead><tr><th>项</th><th>内容</th></tr></thead><tbody>
+<tr><td>覆盖</td><td>位置切片与位置邮箱的运行时契约、装填重算判据、模型脉冲的加载与防御路径、转台通道口径。</td></tr>
+<tr><td>不覆盖</td><td>接口域与其它域事项（它们在各自域的报告中处理）。</td></tr>
+</tbody></table></div>
+</div>
+<div class="bar">当前结论：<b>可验收部分已闭环，仅剩两项开放</b></div>
+<div class="page-footer"><span>依据：代码事实与提交记录</span><span>DHRT100 T2 阶段报告 | 1 / 5</span></div>
 </div>
 <div class="page">
-  <div class="page-header">
-    <div class="subtitle"><b>DHRT100 分布式触发系统</b><br>T2（TRIGGER 域）阶段性现状报告</div>
-    <div class="brand">DHRT100</div>
-    <div class="doc-meta">日期：2026-10-13<br>域：TRIGGER<br>页：2 / 4</div>
-  </div>
-  <div class="main">
-    <div class="note-box">已闭环项均给出<b>可核验处</b>（提交号或文件行号），新接手者应逐条复核而非直接采信。</div>
-    <div class="section"><div class="section-title">3. 已完成（代码事实 + 提交号）</div>
-      <table>
-        <tr><th>项</th><th>代码事实</th><th>提交</th></tr>
-        <tr><td>K-2 装填重算判据</td><td><code>prepare_deadlines_core0()</code> 仅跳过<b>已被硬件接受</b>的位（快照 <code>action_armed_mask | action_completed_mask</code>），已冻结未装填的位仍随最新 DCO 重算</td><td><code>73dcd61a</code></td></tr>
-        <tr><td>判据抽取</td><td><code>t2_deadline_position_accepted</code> / <code>t2_deadline_plan_current</code>（纯函数）</td><td><code>bb06318f</code></td></tr>
-        <tr><td>K-2 host 用例</td><td>C1–C6 抽取真实函数体驱动</td><td><code>5d25ecfd</code></td></tr>
-        <tr><td>PIO 模式化核验</td><td>判据 <code>sync_io_model_sched.c:931-934</code> → <code>:955</code> persona 路径 → <code>:173</code> 停态装载 → <code>:411</code> 注册 <code>.load</code> → <code>:213</code> arm 只校验；非 PIO0 回退 <code>:980-1002</code> 不在 T2 路径</td><td><code>a61436b0</code></td></tr>
-        <tr><td>转台通道口径</td><td>生产接实际转台走 <b>IN1</b>；台架以 <b>OUT4→IN1</b> 硬件回环模拟；本地输出仅 OUT1–OUT4（<code>board_config.h:314</code> <code>BOARD_SYNC_OUTPUT_PIN_COUNT=4u</code>）</td><td><code>adb845b4</code> / <code>c9254094</code> / <code>82038275</code> / <code>df294b7e</code></td></tr>
-        <tr><td>工具链</td><td>OTA 多板刷写重枚举轮询（<code>DISCOVERY_SETTLE_S=60</code>）+ 每 10 s <code>ota_progress</code> 心跳</td><td><code>86732e17</code></td></tr>
-        <tr><td>文档治理</td><td>T2 待办 378 KB → 47 KB；长历史归档；审计项 01/05/06 以核验结论结案并下沉长记录</td><td>多次提交</td></tr>
-      </table>
-    </div>
-  </div>
-  <div class="bar">2. 已完成项</div>
-  <div class="page-footer">依据：代码事实 + 提交记录 + docs/trigger/t2/TRIGGER_T2_TODO.md 与其 Task Progress；每项均可核复。</div>
+<div class="page-header">
+  <div class="subtitle">装填重算判据 | 代码事实与硬件凭证</div>
+  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>数据均标注可核验处</div>
+</div>
+<div class="main">
+<h1>装填重算与判据抽取</h1>
+<div class="section"><div class="section-title">一、装填重算判据（K-2）</div>
+<table class="compact"><thead><tr><th>项</th><th>代码事实</th><th>提交</th></tr></thead><tbody>
+<tr><td>重算条件</td><td><code>prepare_deadlines_core0()</code> 仅跳过<b>已被硬件接受</b>的位（快照 <code>action_armed_mask | action_completed_mask</code>）；已冻结未装填的位仍随最新 DCO 重算。</td><td><code>73dcd61a</code></td></tr>
+<tr><td>判据抽取</td><td>纯函数 <code>t2_deadline_position_accepted</code> 与 <code>t2_deadline_plan_current</code>，零顺序变化。</td><td><code>bb06318f</code></td></tr>
+<tr><td>主机用例</td><td>C1–C6 抽取真实函数体驱动（无需硬件凭证）。</td><td><code>5d25ecfd</code></td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、硬件验收凭证</div>
+<table class="compact"><thead><tr><th>交付</th><th>验收结果</th></tr></thead><tbody>
+<tr><td><code>73dcd61a</code></td><td>P3 四板分级验收通过（PASS_WITH_WARNINGS，ERROR 0 / FATAL 0）。</td></tr>
+<tr><td><code>bb06318f</code> / <code>5d25ecfd</code> / <code>86732e17</code></td><td>各自携带同等级凭证。</td></tr>
+</tbody></table></div>
+</div>
+<div class="bar">关键变化：<b>冻结不再等于不发布</b></div>
+<div class="page-footer"><span>依据：代码事实与提交记录</span><span>DHRT100 T2 阶段报告 | 2 / 5</span></div>
 </div>
 <div class="page">
-  <div class="page-header">
-    <div class="subtitle"><b>DHRT100 分布式触发系统</b><br>T2（TRIGGER 域）阶段性现状报告</div>
-    <div class="brand">DHRT100</div>
-    <div class="doc-meta">日期：2026-10-13<br>域：TRIGGER<br>页：3 / 4</div>
-  </div>
-  <div class="main">
-    <div class="section"><div class="section-title">4. 契约状态</div>
-      <table>
-        <tr><th>契约</th><th>内容</th><th>status</th><th>C11</th></tr>
-        <tr><td><code>ARCH-TRIGGERSLICE-01</code></td><td>位置切片 10 B 小端单帧（tag 0xE0/0xF0 或 position_id(1..15)、prediction_version≠0、target_ms_index、fine≤0xFFFFFF）；一帧一条记录不拆分；容器为 mailbox 中 10 B 的 RefMem 子区；owner <code>TriggerRegion[n]</code>；CRC 由 TDMA 帧级承担</td><td><code>pending</code></td><td>已完成（提交单 <code>docs/check/submissions/TRIGGER_CROSS_REVIEW_01.md</code>，APPROVE WITH NOTES，三处措辞已修正）</td></tr>
-        <tr><td><code>ARCH-TRIGGERMAILBOX-01</code></td><td>单生产者/单消费者；payload 仅在 WRITING 写、仅在 READING 读，READY 为 release/acquire 交接；<code>FREEZE_LATCH_IDS=15u</code>，<code>position_id ∈ [1, LATCH_IDS]</code>；被 RefMem 跨域 include（<code>distributed_refmem.c:30</code>）</td><td><code>pending</code>（登记行<b>已插入未提交</b>）</td><td>未完成（独立审核被中止，无结论）</td></tr>
-      </table>
-      <div class="note-box">登记表当前为 39 条契约（ids unique）；门禁 <code>docs_check --strict-names</code>（files=190）与 <code>doc_regression_check</code> 均通过。</div>
-    </div>
-    <div class="section"><div class="section-title">5. 量化事实</div>
-      <table>
-        <tr><th>指标</th><th>数值</th><th>来源</th></tr>
-        <tr><td>长扫描档位</td><td>361（0..360 @1°）</td><td>硬件扫描记录</td></tr>
-        <tr><td>每位置组数与总量</td><td>16 组；<code>total = 2896 = 181 × 16</code>，<code>fault = 0</code></td><td>台架闭环实测</td></tr>
-        <tr><td>四板 OTA 耗时</td><td>≈200.98 s（历史通过样本 198.9 s）</td><td>验收 timing 记录</td></tr>
-        <tr><td>SCPI 节点作用域命令</td><td>仅 4 条</td><td><code>middleware/scpi_port/src</code></td></tr>
-        <tr><td>RefMem 表容量</td><td>18432 B；16 区恰好填满；TLV 区 3072 B 无消费方</td><td><code>distributed_refmem.h</code> / <code>refmem_vector_table.h</code></td></tr>
-      </table>
-    </div>
-  </div>
-  <div class="bar">3. 契约与量化</div>
-  <div class="page-footer">依据：代码事实 + 提交记录 + docs/trigger/t2/TRIGGER_T2_TODO.md 与其 Task Progress；每项均可核复。</div>
+<div class="page-header">
+  <div class="subtitle">实现边界 | 加载与防御路径</div>
+  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>数据均标注可核验处</div>
+</div>
+<div class="main">
+<h1>模型脉冲装载与转台通道</h1>
+<div class="section"><div class="section-title">一、模型脉冲装载链（PIO 模式化核验）</div>
+<table class="compact"><thead><tr><th>环节</th><th>代码位置</th><th>说明</th></tr></thead><tbody>
+<tr><td>判据</td><td><code>sync_io_model_sched.c:931-934</code></td><td>PIO0 且 SM 为 <code>BOARD_SYNC_PIO0_WAVE_OUTPUT_SM</code> 或 <code>SCHEDULED_TRIGGER_SM</code> 时走 persona。</td></tr>
+<tr><td>转分支</td><td><code>:955</code></td><td>persona 分支调用 <code>sync_io_wave_output_manager_start()</code>。</td></tr>
+<tr><td>停态装载</td><td><code>:173</code>→<code>:206</code>→<code>:411</code></td><td>persona 载入钩子完成 <code>pio_add_program</code> 并注册 <code>.load</code>。</td></tr>
+<tr><td>开工只校验</td><td><code>:213</code></td><td><code>sync_io_wave_output_arm()</code> 只校验 <code>s_wave_output_program_loaded</code>。</td></tr>
+<tr><td>后备路径</td><td><code>:980-1002</code></td><td>非 PIO0 回退分支，不在 T2 转台路径上。</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、转台通道</div>
+<table class="compact"><thead><tr><th>场景</th><th>通道</th></tr></thead><tbody>
+<tr><td>生产</td><td>实际转台直接驱动 <b>IN1</b>。</td></tr>
+<tr><td>当前台架</td><td><b>OUT4 → IN1</b> 硬件回环模拟转台输入（回环已接好）。</td></tr>
+<tr><td>约束</td><td>本地同步输出仅 OUT1–OUT4（<code>boards/rp2350_trig/inc/board_config.h:314</code> <code>BOARD_SYNC_OUTPUT_PIN_COUNT=4u</code>）。</td></tr>
+</tbody></table></div>
+</div>
+<div class="bar">实现边界：<b>PIO0 persona 停态装载，arm 只校验</b></div>
+<div class="page-footer"><span>依据：代码事实与提交记录</span><span>DHRT100 T2 阶段报告 | 3 / 5</span></div>
 </div>
 <div class="page">
-  <div class="page-header">
-    <div class="subtitle"><b>DHRT100 分布式触发系统</b><br>T2（TRIGGER 域）阶段性现状报告</div>
-    <div class="brand">DHRT100</div>
-    <div class="doc-meta">日期：2026-10-13<br>域：TRIGGER<br>页：4 / 4</div>
-  </div>
-  <div class="main">
-    <div class="section"><div class="section-title">6. 未决项与风险</div>
-      <table>
-        <tr><th>项</th><th>状态</th><th>需要谁</th></tr>
-        <tr><td>T2-AUDIT-03 残项：TDMA 域一等席尃局联审结论</td><td>登记与 C11 已完成；<b>仅欠联审</b></td><td>TDMA 域（需用户指定）</td></tr>
-        <tr><td>T2-AUDIT-07：位置邮箱契约 C11 + 提交</td><td>登记行与 clause 在树、未提交</td><td>独立审核方（作者不得自审自批）</td></tr>
-        <tr><td>接口域 IF-001..003（单串口控制面）</td><td>三件套已建；等待 D1–D4 决定</td><td>用户（属接口域，不在 T2 ROI 内）</td></tr>
-        <tr><td>参考实现 SEQUENCE 全域 + tkinter 调试界面</td><td>未移植</td><td>用户排期</td></tr>
-        <tr><td>RefMem 缺 <code>_Static_assert(sizeof(refmem_vector_table_t) == DISTRIBUTED_REFMEM_TABLE_SIZE)</code></td><td>未添加（属固件改动，需一轮 P3）</td><td>作者可做</td></tr>
-      </table>
-    </div>
-    <div class="section"><div class="section-title">7. 复现与验收命令</div>
-      <div class="small-list">
-        <div><code>python tools/docs_check/docs_check.py --strict-names</code></div>
-        <div><code>python tools/doc_regression_check.py</code></div>
-        <div><code>python -m pytest tests/python/test_trigger_t2_k2_recompute.py tests/python/test_trigger_t2_freeze_abandon.py -p no:cacheprovider -q</code></div>
-        <div><code>python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full [--run latest]</code></div>
-      </div>
-    </div>
-    <div class="section"><div class="section-title">8. 限制与诚实说明</div>
-      <div class="todo-box">
-        <div>• 本报告不含未在本仓留痕的结论；每项均给出文件行号或提交号以便复核。</div>
-        <div>• PIO 模式化的"已合规"是<b>读码核验</b>结论，不是新的硬件实测。</div>
-        <div>• 位置邮箱契约的登记行尚未提交，且其独立 C11 审核<b>未完成</b>，因此该契约当前<b>不构成</b>已确认事实。</div>
-      </div>
-    </div>
-  </div>
-  <div class="bar">4. 未决项与复现</div>
-  <div class="page-footer">依据：代码事实 + 提交记录 + docs/trigger/t2/TRIGGER_T2_TODO.md 与其 Task Progress；每项均可核复。</div>
+<div class="page-header">
+  <div class="subtitle">跨域契约 | 登记状态与客观指标</div>
+  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>数据均标注可核验处</div>
+</div>
+<div class="main">
+<h1>契约登记与量化事实</h1>
+<div class="section"><div class="section-title">一、已登记契约</div>
+<table class="compact"><thead><tr><th>契约</th><th>内容</th><th>status</th><th>C11</th></tr></thead><tbody>
+<tr><td><code>ARCH-TRIGGERSLICE-01</code></td><td>位置切片 10 B 小端单帧；一帧一条记录不拆分；容器为 mailbox 中 10 B 的 RefMem 子区；owner <code>TriggerRegion[n]</code>；CRC 由 TDMA 帧级承担。</td><td><code>pending</code></td><td>已完成（APPROVE WITH NOTES，三处措辞已修正）。</td></tr>
+<tr><td><code>ARCH-TRIGGERMAILBOX-01</code></td><td>单生产者/单消费者；payload 仅在 WRITING 写、仅在 READING 读，READY 为 release/acquire 交接；<code>FREEZE_LATCH_IDS=15u</code>；被 RefMem 跨域 include（<code>distributed_refmem.c:30</code>）。</td><td><code>pending</code>（登记行未提交）</td><td><b>未完成</b>（独立审核被中止，无结论）。</td></tr>
+</tbody></table>
+<div class="note-box">登记表：39 条契约（ids unique）；门禁 <code>docs_check --strict-names</code>（files=190）与 <code>doc_regression_check</code> 均通过。</div></div>
+<div class="section"><div class="section-title">二、量化事实</div>
+<table class="compact"><thead><tr><th>指标</th><th>数值</th><th>来源</th></tr></thead><tbody>
+<tr><td>长扫描档位</td><td>361（0..360 @1°）</td><td>硬件扫描记录</td></tr>
+<tr><td>每位置组数与总量</td><td>16 组；<code>total = 2896 = 181 × 16</code>，<code>fault = 0</code></td><td>台架闭环实测</td></tr>
+<tr><td>四板 OTA 耗时</td><td>≈200.98 s（历史通过样本 198.9 s）</td><td>验收 timing 记录</td></tr>
+<tr><td>RefMem 表容量</td><td>18432 B；16 区恰好填满；TLV 区 3072 B 无消费方</td><td><code>distributed_refmem.h</code></td></tr>
+</tbody></table></div>
+</div>
+<div class="bar">契约状态：<b>两条均为 pending，其中一条待独立审核</b></div>
+<div class="page-footer"><span>依据：代码事实与提交记录</span><span>DHRT100 T2 阶段报告 | 4 / 5</span></div>
+</div>
+<div class="page">
+<div class="page-header">
+  <div class="subtitle">风险与后续 | 可复现性与诚实边界</div>
+  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>数据均标注可核验处</div>
+</div>
+<div class="main">
+<h1>未决项、复现与限制</h1>
+<div class="section"><div class="section-title">一、未决项</div>
+<table class="compact"><thead><tr><th>项</th><th>状态</th><th>需要谁</th></tr></thead><tbody>
+<tr><td>T2-AUDIT-03 残项：TDMA 域一等席尃局联审结论</td><td>登记与 C11 已完成，仅欠联审</td><td>TDMA 域（需用户指定）</td></tr>
+<tr><td>T2-AUDIT-07：位置邮箱契约 C11 与提交</td><td>登记行与条款在树、未提交</td><td>独立审核方（不得自审自批）</td></tr>
+<tr><td>RefMem 缺 <code>sizeof</code> 尺寸静态断言</td><td>未添加（固件改动，需一轮 P3）</td><td>作者可做</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、复现命令</div>
+<div class="small-list">
+<div><code>python tools/docs_check/docs_check.py --strict-names</code></div>
+<div><code>python tools/doc_regression_check.py</code></div>
+<div><code>python -m pytest tests/python/test_trigger_t2_k2_recompute.py tests/python/test_trigger_t2_freeze_abandon.py -p no:cacheprovider -q</code></div>
+<div><code>python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full [--run latest]</code></div>
+</div></div>
+<div class="section"><div class="section-title">三、限制与诚实说明</div>
+<div class="todo-box">
+<div>• 本报告不含未在本仓留痕的结论；每项均给出文件行号或提交号。</div>
+<div>• PIO 模式化的“已合规”为读码核验结论，非新的硬件实测。</div>
+<div>• 位置邮箱契约尚未提交且 C11 未完成，故当前不构成已确认事实。</div>
+</div></div>
+</div>
+<div class="bar">下一步：<b>收独立 C11 结论后提交邮箱契约</b></div>
+<div class="page-footer"><span>依据：代码事实与提交记录</span><span>DHRT100 T2 阶段报告 | 5 / 5</span></div>
 </div>
 </body></html>
