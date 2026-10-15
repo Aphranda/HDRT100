@@ -962,7 +962,7 @@ T2_FIELDS = {"last_error": 1, "configured": 2, "active": 3, "origin": 4,
              "descriptor_reject": 11, "transport_reject": 12,
              "event_count": 13, "frozen_mask": 15,
              "last_counter_count": 28, "pulse_index": 29, "fine_slice_index": 30,
-             "announced_mask": 31, "prepared_last_reason": 41,
+             "announced_mask": 31, "prepared_last_reason": 41, "predictor_last_error": 38,
              "prepare_calls": 39, "preview_saved": 40}
 T2_SEGMENTS = (42, 43, 44)
 ALL_POSITIONS_MASK = 7             # TRIGGER_T2_RUNTIME_POSITION_COUNT == 3
@@ -2735,6 +2735,36 @@ def step_20_sampling(ctx, slot, board, uid):
                 _rt_seen = {}
                 ctx._runtime_last = _rt_seen
             _rt_seen[uid_r] = [f.strip() for f in state]
+            # Per-tick time series (window investigation): the window counters were
+            # only read at the start and at the end of sampling, which cannot say
+            # whether the window ever rolled. T2:SCAN? carries the cumulative
+            # entered/announced/overwrote/mismatch at fixed indices and T2? carries
+            # predictor.last_error - together they separate "advance never called"
+            # from "a backward count latched the predictor".
+            scan_tick = ctx.send(member, "TRIGger:REServation:T2:SCAN?").split(",")
+            pos_tick = _pos_seen[uid_r]
+
+            def tick_field(page, index):
+                return page[index].strip() if len(page) > index else "?"
+
+            print(f"    WIN t+{2 * (tick + 1)}s slot {slot_r}"
+                  f" {ROLES[slot_r] if slot_r < len(ROLES) else slot_r}"
+                  f" entered {tick_field(scan_tick, 6)}"
+                  f" announced {tick_field(scan_tick, 7)}"
+                  f" overwrote {tick_field(scan_tick, 8)}"
+                  f" mismatch {tick_field(scan_tick, 9)}"
+                  f" pred_err {t2_field(state, 'predictor_last_error')}"
+                  f" | lane acc {tick_field(pos_tick, 18)}"
+                  f" dup {tick_field(pos_tick, 19)}"
+                  f" rej {tick_field(pos_tick, 20)}"
+                  f" drop {tick_field(pos_tick, 27)}"
+                  f" deliv {tick_field(pos_tick, 30)}"
+                  f" | rt recv {t2_field(state, 'received_mask')}"
+                  f" frozen {t2_field(state, 'frozen_mask')}"
+                  f" prep {t2_field(state, 'prepare_calls')}"
+                  f" saved {t2_field(state, 'preview_saved')}"
+                  f" | act armed {tick_field(action_page, 1)}"
+                  f" done {tick_field(action_page, 2)}", flush=True)
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
             # Rate evidence, not absolutes (VDC-ISO-001/T3): the seat and match
             # counters are cumulative since boot, so a single read cannot say
@@ -2923,6 +2953,11 @@ def step_20_sampling(ctx, slot, board, uid):
     # which the three-bit legacy mask cannot. Deliberately ADDITIVE: the legacy mask check
     # above still runs, so this cannot weaken the current verdict.
     scan = getattr(ctx, "_t2_scan_last", None)
+    # End-of-sampling scan window: the single early read only covers the first
+    # ~2 s (measured: entered 2 / announced 0), so it cannot say whether the
+    # publish path walked all 361 positions. Read it again now and show both.
+    _scan_end_raw = ctx.send(member, "TRIGger:RESERVation:T2:SCAN?")
+    print(f"  T2SCAN end {_scan_end_raw}", flush=True)
     # Self-consistency of the travel geometry reported by T2:SCAN? (A.3.72).
     # Uses only values from the page itself, so it holds for any configured
     # span: travel = pre_roll + (positions - 1) * step_pulses + post_roll.
