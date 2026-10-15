@@ -172,113 +172,137 @@
 <body>
 <div class="page">
 <div class="page-header">
-  <div class="subtitle">位置切片与位置邮箱 | 当前状态与实现边界</div>
-  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>数据均标注可核验处</div>
+  <div class="subtitle">T2 触发闭环 | 逐行事实与早前口径更正</div>
+  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>每项给出文件行号或提交号</div>
 </div>
 <div class="main">
-<h1>T2 触发闭环阶段报告</h1>
-<div class="section"><div class="section-title">一、核心结论</div>
-<div class="note-box">T2 主线可验收部分已闭环（K-2 装填重算判据、PIO 模式化核验、转台通道口径）；当前仅剩两项开放：
-<b>TDMA 域一等席尃局联审结论</b>与<b>位置邮箱契约的独立 C11</b>。</div>
-<div class="section"><div class="section-title">二、状态卡片</div>
-<div class="chips">
-<div class="chip">K-2：已闭合</div>
-<div class="chip">PIO：已合规</div>
-<div class="chip">转台：口径已定</div>
-<div class="chip">契约：39 条</div>
-</div></div>
-<div class="section"><div class="section-title">三、审查范围</div>
-<table class="compact"><thead><tr><th>项</th><th>内容</th></tr></thead><tbody>
-<tr><td>覆盖</td><td>位置切片与位置邮箱的运行时契约、装填重算判据、模型脉冲的加载与防御路径、转台通道口径。</td></tr>
-<tr><td>不覆盖</td><td>接口域与其它域事项（它们在各自域的报告中处理）。</td></tr>
+<h1>装填重算判据与口径更正</h1>
+<div class="section"><div class="section-title">一、装填重算判据（K-2）——逐行事实</div>
+<table class="compact"><thead><tr><th>环节</th><th>代码位置</th><th>精确语义</th></tr></thead><tbody>
+<tr><td>位置已接受判据</td><td><code>trigger_t2_runtime.c:1074</code></td><td><code>t2_deadline_position_accepted(accepted_mask, index)</code>：仅依赖已接受位位图。</td></tr>
+<tr><td>方案是否当前</td><td><code>:1079</code></td><td><code>t2_deadline_plan_current(prev_version, prev_token, desc_version, model_token)</code>。</td></tr>
+<tr><td>取快照与结合</td><td><code>:1085</code> → <code>:1098-1099</code></td><td><code>prepare_deadlines_core0(session, snapshot)</code> 内传入 <code>snapshot-&gt;action_armed_mask | snapshot-&gt;action_completed_mask</code>。</td></tr>
+<tr><td>版本判定调用</td><td><code>:1106</code></td><td>以 <code>previous.prediction_version</code> 与 <code>previous.model_token</code> 与描述符对比。</td></tr>
+<tr><td>发布</td><td><code>:1134</code></td><td><code>deadline_publish(index, &amp;plan)</code>（无条件发布，不受冻结阻断）。</td></tr>
+<tr><td>调用点</td><td><code>:1146</code></td><td><code>prepare_deadlines_core0(session, &amp;snapshot)</code>。</td></tr>
+</tbody></table>
+<div class="note-box">相关位掩码：<code>action_completed_mask</code> 置位 <code>:542</code>；
+<code>action_failed_mask |= frozen_mask &amp; ~action_completed_mask</code> 在 <code>:648</code> 与 <code>:895</code>；
+<code>action_armed_mask |= 1u &lt;&lt; selected</code> 在 <code>:695</code>。</div></div>
+<div class="section"><div class="section-title">二、本报告对早前口径的更正</div>
+<table class="compact"><thead><tr><th>早前表述</th><th>实际代码</th></tr></thead><tbody>
+<tr><td>判据在 <code>:1041</code> / <code>:1046</code></td><td>实为 <code>:1074</code> / <code>:1079</code>，<code>prepare_deadlines_core0</code> 在 <code>:1085</code>。</td></tr>
+<tr><td>载入用 <code>WAVE_OUTPUT</code> persona</td><td>转台路径实际使用 <b>Scheduled Trigger</b> persona：<code>.program_name="sync_model_sched_pulse_high_or_low"</code>（<code>sync_io_persona_resources.c:84</code>），
+<code>.instruction_words=SYNC_IO_SCHEDULED_TRIGGER_INSTRUCTION_WORDS</code>（<code>:88</code>），<code>.gpio_write_mask=SYNC_IO_GPIO_BIT(BOARD_SYNC_TRIG_OUT_PIN)</code>（<code>:91</code>）。</td></tr>
 </tbody></table></div>
 </div>
-<div class="bar">当前结论：<b>可验收部分已闭环，仅剩两项开放</b></div>
+<div class="bar">精度鏄点：<b>判据行号与装载 persona 已更正</b></div>
 <div class="page-footer"><span>依据：代码事实与提交记录</span><span>DHRT100 T2 阶段报告 | 1 / 5</span></div>
 </div>
 <div class="page">
 <div class="page-header">
-  <div class="subtitle">装填重算判据 | 代码事实与硬件凭证</div>
-  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>数据均标注可核验处</div>
+  <div class="subtitle">实现边界 | 逐行与引脚事实</div>
+  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>每项给出文件行号或提交号</div>
 </div>
 <div class="main">
-<h1>装填重算与判据抽取</h1>
-<div class="section"><div class="section-title">一、装填重算判据（K-2）</div>
-<table class="compact"><thead><tr><th>项</th><th>代码事实</th><th>提交</th></tr></thead><tbody>
-<tr><td>重算条件</td><td><code>prepare_deadlines_core0()</code> 仅跳过<b>已被硬件接受</b>的位（快照 <code>action_armed_mask | action_completed_mask</code>）；已冻结未装填的位仍随最新 DCO 重算。</td><td><code>73dcd61a</code></td></tr>
-<tr><td>判据抽取</td><td>纯函数 <code>t2_deadline_position_accepted</code> 与 <code>t2_deadline_plan_current</code>，零顺序变化。</td><td><code>bb06318f</code></td></tr>
-<tr><td>主机用例</td><td>C1–C6 抽取真实函数体驱动（无需硬件凭证）。</td><td><code>5d25ecfd</code></td></tr>
-</tbody></table></div>
-<div class="section"><div class="section-title">二、硬件验收凭证</div>
-<table class="compact"><thead><tr><th>交付</th><th>验收结果</th></tr></thead><tbody>
-<tr><td><code>73dcd61a</code></td><td>P3 四板分级验收通过（PASS_WITH_WARNINGS，ERROR 0 / FATAL 0）。</td></tr>
-<tr><td><code>bb06318f</code> / <code>5d25ecfd</code> / <code>86732e17</code></td><td>各自携带同等级凭证。</td></tr>
+<h1>模型脉冲装载与转台通道</h1>
+<div class="section"><div class="section-title">一、模型脉冲装载与防御路径（逐行）</div>
+<table class="compact"><thead><tr><th>环节</th><th>代码位置</th><th>精确内容</th></tr></thead><tbody>
+<tr><td>persona 判据</td><td><code>sync_io_model_sched.c:931-934</code></td><td><code>use_pio0_output_persona = (pulse_pio == BOARD_SYNC_PIO_FAST &amp;&amp; (pulse_sm == BOARD_SYNC_PIO0_WAVE_OUTPUT_SM || pulse_sm == BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM))</code>。</td></tr>
+<tr><td>persona 分支</td><td><code>:955</code></td><td>调用 <code>sync_io_wave_output_manager_start(persona_id)</code>，成功返回 <code>:969-977</code>。</td></tr>
+<tr><td>停态装载钩子</td><td><code>:173</code>（入口）/ <code>:206</code> / <code>:209</code></td><td><code>sync_io_wave_output_load</code> 完成声明与 <code>pio_add_program</code>，并置 <code>s_wave_output_program_loaded = true</code>。</td></tr>
+<tr><td>ops 注册</td><td><code>:411</code></td><td><code>.load = sync_io_wave_output_load</code>；单一调用方 <code>:1059</code>。</td></tr>
+<tr><td>开工只校验</td><td><code>:213</code></td><td><code>sync_io_wave_output_arm</code> 仅校验 <code>s_wave_output_program_loaded</code>，不再装载。</td></tr>
+<tr><td>后备（非 T2 路径）</td><td><code>:980-1002</code></td><td>非 PIO0 回退分支，含 <code>pio_add_program</code>（<code>:990</code>）。</td></tr>
+</tbody></table>
+<div class="note-box">检查到的精确命名事实：<code>BOARD_SYNC_PIO0_WAVE_OUTPUT_SM = 2u</code>（<code>board_config.h:275</code>）与
+<code>BOARD_SYNC_RJ45_TRIG_IN_SM = 2u</code>（<code>:265</code>，注释称 pio0/sm2 拥有 RJ45_TRIG_IN 通道）<b>数值相同</b>；
+<code>BOARD_SYNC_PIO0_SCHEDULED_TRIGGER_SM</code> 为 <code>BOARD_SYNC_SMA_OBSERVER_SM</code> 的别名（<code>:274</code>）。</div></div>
+<div class="section"><div class="section-title">二、转台通道与引脚事实</div>
+<table class="compact"><thead><tr><th>项</th><th>精确值</th><th>位置</th></tr></thead><tbody>
+<tr><td>生产转台输入</td><td>IN1（即 <code>BOARD_SYNC_GATE_IN_PIN = BASE + 0u</code>）</td><td><code>board_config.h:305</code></td></tr>
+<tr><td>台架模拟</td><td>OUT4 → IN1 硬件回环（回环已接好）</td><td>台架接线与文档口径</td></tr>
+<tr><td>本地输出数</td><td><code>BOARD_SYNC_OUTPUT_PIN_COUNT = 4u</code>（OUT1..OUT4）</td><td><code>:314</code></td></tr>
+<tr><td>输出基址</td><td><code>PROJECT_SYNC_IO_OUTPUT_BASE_PIN = 16u</code></td><td><code>:297</code></td></tr>
+<tr><td>输入偏移</td><td>TRIG_IN=+3 / ARM_IN=+2 / EXT_CLK_IN=+1 / GATE_IN=+0</td><td><code>:302-305</code></td></tr>
 </tbody></table></div>
 </div>
-<div class="bar">关键变化：<b>冻结不再等于不发布</b></div>
+<div class="bar">实现边界：<b>PIO0 persona 停态装载，arm 只校验</b></div>
 <div class="page-footer"><span>依据：代码事实与提交记录</span><span>DHRT100 T2 阶段报告 | 2 / 5</span></div>
 </div>
 <div class="page">
 <div class="page-header">
-  <div class="subtitle">实现边界 | 加载与防御路径</div>
-  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>数据均标注可核验处</div>
+  <div class="subtitle">跨域契约 | 逐字与逐行</div>
+  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>每项给出文件行号或提交号</div>
 </div>
 <div class="main">
-<h1>模型脉冲装载与转台通道</h1>
-<div class="section"><div class="section-title">一、模型脉冲装载链（PIO 模式化核验）</div>
-<table class="compact"><thead><tr><th>环节</th><th>代码位置</th><th>说明</th></tr></thead><tbody>
-<tr><td>判据</td><td><code>sync_io_model_sched.c:931-934</code></td><td>PIO0 且 SM 为 <code>BOARD_SYNC_PIO0_WAVE_OUTPUT_SM</code> 或 <code>SCHEDULED_TRIGGER_SM</code> 时走 persona。</td></tr>
-<tr><td>转分支</td><td><code>:955</code></td><td>persona 分支调用 <code>sync_io_wave_output_manager_start()</code>。</td></tr>
-<tr><td>停态装载</td><td><code>:173</code>→<code>:206</code>→<code>:411</code></td><td>persona 载入钩子完成 <code>pio_add_program</code> 并注册 <code>.load</code>。</td></tr>
-<tr><td>开工只校验</td><td><code>:213</code></td><td><code>sync_io_wave_output_arm()</code> 只校验 <code>s_wave_output_program_loaded</code>。</td></tr>
-<tr><td>后备路径</td><td><code>:980-1002</code></td><td>非 PIO0 回退分支，不在 T2 转台路径上。</td></tr>
+<h1>切片线格式与邮箱原子语义</h1>
+<div class="section"><div class="section-title">一、位置切片线格式与容器（逐字）</div>
+<table class="compact"><thead><tr><th>项</th><th>精确值</th><th>位置</th></tr></thead><tbody>
+<tr><td>帧长</td><td><code>TRIGGER_POSITION_SLICE_WIRE_SIZE = 10u</code></td><td><code>trigger_position_slice.h:13</code></td></tr>
+<tr><td>tag</td><td><code>TAG_PREVIEW = 0xE0u</code> / <code>TAG_FREEZE = 0xF0u</code></td><td><code>:14-15</code></td></tr>
+<tr><td>fine 上限</td><td><code>FINE_MAX = 0xFFFFFFu</code></td><td><code>:16</code></td></tr>
+<tr><td>字节布局（小端）</td><td>[0]=tag|position_id；[1..2]=prediction_version；[3..6]=target_ms_index；[7..9]=fine slice</td><td><code>:48-56</code></td></tr>
+<tr><td>有效性</td><td><code>position_id ∈ [1,0x0F]</code>、<code>stage ≤ FREEZE</code>、<code>prediction_version ≠ 0</code>、<code>fine ≤ FINE_MAX</code></td><td><code>:38-41</code></td></tr>
+<tr><td>容器尺寸静态断言</td><td><code>_Static_assert(TRIGGER_POSITION_SLICE_WIRE_SIZE == TDMA_PROCESS_IMAGE_REFMEM_SIZE, …)</code>（后者 = 10u）</td><td><code>distributed_refmem.c:33-34</code>；<code>tdma_process_image_layout.h:72</code></td></tr>
+<tr><td>RefMem 子区</td><td>字节偏移 14–23（10 B），位于 24 B core0 内容体内</td><td><code>docs/tdma/TDMA_SEAT_TX_CHANNEL_REVIEW.md:65</code></td></tr>
 </tbody></table></div>
-<div class="section"><div class="section-title">二、转台通道</div>
-<table class="compact"><thead><tr><th>场景</th><th>通道</th></tr></thead><tbody>
-<tr><td>生产</td><td>实际转台直接驱动 <b>IN1</b>。</td></tr>
-<tr><td>当前台架</td><td><b>OUT4 → IN1</b> 硬件回环模拟转台输入（回环已接好）。</td></tr>
-<tr><td>约束</td><td>本地同步输出仅 OUT1–OUT4（<code>boards/rp2350_trig/inc/board_config.h:314</code> <code>BOARD_SYNC_OUTPUT_PIN_COUNT=4u</code>）。</td></tr>
+<div class="section"><div class="section-title">二、邮箱状态机与原子原语（逐行）</div>
+<table class="compact"><thead><tr><th>语义</th><th>原子操作</th><th>位置</th></tr></thead><tbody>
+<tr><td>四态</td><td><code>EMPTY=0u, WRITING=1u, READY=2u, READING=3u</code></td><td><code>trigger_position_mailbox.h:18-21</code></td></tr>
+<tr><td>pending</td><td><code>__atomic_load_n(&amp;mbox-&gt;state, __ATOMIC_ACQUIRE) != EMPTY</code></td><td><code>:27-28</code></td></tr>
+<tr><td>stage（发方）</td><td>CAS <code>EMPTY→WRITING</code>（ACQ_REL / ACQUIRE）后 <code>store READY</code>（RELEASE）</td><td><code>:43-50</code></td></tr>
+<tr><td>take（收方）</td><td>CAS <code>READY→READING</code>（ACQ_REL / ACQUIRE）后 <code>store EMPTY</code>（RELEASE）</td><td><code>:59-66</code></td></tr>
+<tr><td>FREEZE latch 上限</td><td><code>TRIGGER_POSITION_FREEZE_LATCH_IDS = 15u</code>；边界 <code>position_id &lt; 1u || position_id &gt; 15u</code> 拒绝</td><td><code>:74</code>；<code>:84</code></td></tr>
+<tr><td>latch 更新</td><td><code>fetch_or(mask, bit, RELEASE)</code>；读 <code>mask</code> ACQUIRE，读 <code>version[]</code> RELAXED，清位用 ACQ_REL</td><td><code>:89</code>；<code>:98-102</code></td></tr>
 </tbody></table></div>
 </div>
-<div class="bar">实现边界：<b>PIO0 persona 停态装载，arm 只校验</b></div>
+<div class="bar">契约底座：<b>10 B 单帧与四态邮箱的原子语义</b></div>
 <div class="page-footer"><span>依据：代码事实与提交记录</span><span>DHRT100 T2 阶段报告 | 3 / 5</span></div>
 </div>
 <div class="page">
 <div class="page-header">
-  <div class="subtitle">跨域契约 | 登记状态与客观指标</div>
-  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>数据均标注可核验处</div>
+  <div class="subtitle">量化事实 | 精确数值与位置</div>
+  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>每项给出文件行号或提交号</div>
 </div>
 <div class="main">
-<h1>契约登记与量化事实</h1>
-<div class="section"><div class="section-title">一、已登记契约</div>
-<table class="compact"><thead><tr><th>契约</th><th>内容</th><th>status</th><th>C11</th></tr></thead><tbody>
-<tr><td><code>ARCH-TRIGGERSLICE-01</code></td><td>位置切片 10 B 小端单帧；一帧一条记录不拆分；容器为 mailbox 中 10 B 的 RefMem 子区；owner <code>TriggerRegion[n]</code>；CRC 由 TDMA 帧级承担。</td><td><code>pending</code></td><td>已完成（APPROVE WITH NOTES，三处措辞已修正）。</td></tr>
-<tr><td><code>ARCH-TRIGGERMAILBOX-01</code></td><td>单生产者/单消费者；payload 仅在 WRITING 写、仅在 READING 读，READY 为 release/acquire 交接；<code>FREEZE_LATCH_IDS=15u</code>；被 RefMem 跨域 include（<code>distributed_refmem.c:30</code>）。</td><td><code>pending</code>（登记行未提交）</td><td><b>未完成</b>（独立审核被中止，无结论）。</td></tr>
-</tbody></table>
-<div class="note-box">登记表：39 条契约（ids unique）；门禁 <code>docs_check --strict-names</code>（files=190）与 <code>doc_regression_check</code> 均通过。</div></div>
-<div class="section"><div class="section-title">二、量化事实</div>
-<table class="compact"><thead><tr><th>指标</th><th>数值</th><th>来源</th></tr></thead><tbody>
-<tr><td>长扫描档位</td><td>361（0..360 @1°）</td><td>硬件扫描记录</td></tr>
-<tr><td>每位置组数与总量</td><td>16 组；<code>total = 2896 = 181 × 16</code>，<code>fault = 0</code></td><td>台架闭环实测</td></tr>
-<tr><td>四板 OTA 耗时</td><td>≈200.98 s（历史通过样本 198.9 s）</td><td>验收 timing 记录</td></tr>
-<tr><td>RefMem 表容量</td><td>18432 B；16 区恰好填满；TLV 区 3072 B 无消费方</td><td><code>distributed_refmem.h</code></td></tr>
+<h1>扫描定容与工具链数值</h1>
+<div class="section"><div class="section-title">一、扫描与定容口径（精确数值）</div>
+<table class="compact"><thead><tr><th>项</th><th>精确值</th><th>位置</th></tr></thead><tbody>
+<tr><td>目标扫描</td><td>0..360°，STEP=1° ⇒ <b>361 个位置</b>（位置数 = ⌊(stop−start)/STEP⌋ + 1）</td><td><code>TRIGGER_T2_TODO.md:101</code></td></tr>
+<tr><td>行程</td><td>[ 起始−5° , 终止+5° ]（2026-10-12 用户裁决）</td><td><code>:83</code></td></tr>
+<tr><td>滚动窗口上限</td><td><code>TRIGGER_TURNTABLE_WINDOW_MAX = 2</code>（只预测下一到两个位置）</td><td><code>TRIGGER_T2_ARCHITECTURE.md:73</code></td></tr>
+<tr><td>常驻位位数</td><td><code>TRIGGER_T2_RUNTIME_POSITION_COUNT = 3</code>（作窗口用，**不放大到 361**）</td><td><code>TRIGGER_T2_TODO.md:108</code></td></tr>
+<tr><td>硬件闭环计数</td><td><code>total = 2896 = 181 × 16</code>，<code>fault = 0</code></td><td><code>TRIGGER_T2_TASK_PROGRESS.md:792</code></td></tr>
+<tr><td>回归面</td><td>累计 287 项通过（快照，非产品事实源）</td><td><code>TRIGGER_T2_TASK_PROGRESS.md:704</code></td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、契约与工具链（精确值）</div>
+<table class="compact"><thead><tr><th>项</th><th>精确值</th><th>位置</th></tr></thead><tbody>
+<tr><td>契约数</td><td>39 条（ids unique）</td><td><code>doc_regression_check</code> 输出</td></tr>
+<tr><td>契约 1</td><td><code>ARCH-TRIGGERSLICE-01</code>，status <code>pending</code>，clause_loc = <code>TRIGGER_T2_ARCHITECTURE.md</code>（Status: Active）</td><td><code>DOCS_REGISTRY.md:57</code></td></tr>
+<tr><td>契约 2</td><td><code>ARCH-TRIGGERMAILBOX-01</code>，status <code>pending</code>（登记行已插入、未提交）</td><td><code>DOCS_REGISTRY.md</code>（本轮新增行）</td></tr>
+<tr><td>RefMem 表</td><td><code>DISTRIBUTED_REFMEM_TABLE_SIZE = 18432u</code>，<code>LAYOUT_VERSION = 2u</code>，<code>NODE_COUNT = 8u</code>，<code>NODE_SLOT_SIZE = 128u</code></td><td><code>distributed_refmem.h:11-13,56</code></td></tr>
+<tr><td>区数与 TLV</td><td><code>REFMEM_VECTOR_REGION_COUNT = 16u</code>；TLV 区 <code>DISTRIBUTED_REFMEM_TLV_SIZE = 3072u</code>（已进 directory，无消费方）</td><td><code>refmem_vector_table.h:13,33,152</code></td></tr>
+<tr><td>OTA</td><td><code>DISCOVERY_SETTLE_S = 60.0</code>；心跳每 10 s；历史耗时 ≈200.98 s</td><td><code>ota_multi_update.py:36</code> / <code>:601</code></td></tr>
+<tr><td>SCPI 节点作用域命令</td><td>4 条：<code>refmem_node_q:218</code>、<code>refmem_load_node:531</code>、<code>config_role_q:5283</code>、<code>config_calibration_q:5349</code></td><td><code>middleware/scpi_port/src</code></td></tr>
 </tbody></table></div>
 </div>
-<div class="bar">契约状态：<b>两条均为 pending，其中一条待独立审核</b></div>
+<div class="bar">量化：<b>361 位置、常驻 3 槽、total=2896=181×16</b></div>
 <div class="page-footer"><span>依据：代码事实与提交记录</span><span>DHRT100 T2 阶段报告 | 4 / 5</span></div>
 </div>
 <div class="page">
 <div class="page-header">
   <div class="subtitle">风险与后续 | 可复现性与诚实边界</div>
-  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>数据均标注可核验处</div>
+  <div class="doc-meta"><strong>2026年10月13日</strong>内部评审阶段报告<br/>每项给出文件行号或提交号</div>
 </div>
 <div class="main">
 <h1>未决项、复现与限制</h1>
-<div class="section"><div class="section-title">一、未决项</div>
-<table class="compact"><thead><tr><th>项</th><th>状态</th><th>需要谁</th></tr></thead><tbody>
-<tr><td>T2-AUDIT-03 残项：TDMA 域一等席尃局联审结论</td><td>登记与 C11 已完成，仅欠联审</td><td>TDMA 域（需用户指定）</td></tr>
-<tr><td>T2-AUDIT-07：位置邮箱契约 C11 与提交</td><td>登记行与条款在树、未提交</td><td>独立审核方（不得自审自批）</td></tr>
-<tr><td>RefMem 缺 <code>sizeof</code> 尺寸静态断言</td><td>未添加（固件改动，需一轮 P3）</td><td>作者可做</td></tr>
+<div class="section"><div class="section-title">一、未决项与风险</div>
+<table class="compact"><thead><tr><th>项</th><th>精确状态</th><th>需要谁</th></tr></thead><tbody>
+<tr><td>T2-AUDIT-03</td><td>登记与 C11 已完成；仅欠 TDMA 域一等席尃局联审结论</td><td>TDMA 域（需用户指定）</td></tr>
+<tr><td>T2-AUDIT-07</td><td><code>ARCH-TRIGGERMAILBOX-01</code> 登记行与 clause 在树、未提交；独立 C11 被中止、无结论</td><td>独立审核方</td></tr>
+<tr><td>RefMem 尺寸断言</td><td>缺 <code>_Static_assert(sizeof(refmem_vector_table_t) == DISTRIBUTED_REFMEM_TABLE_SIZE)</code></td><td>作者（需一轮 P3）</td></tr>
+<tr><td>SM2 命名重叠</td><td><code>BOARD_SYNC_PIO0_WAVE_OUTPUT_SM = 2u</code> 与 <code>BOARD_SYNC_RJ45_TRIG_IN_SM = 2u</code> 数值相同，尚未逐条核实是否为同一体</td><td>作者可核</td></tr>
 </tbody></table></div>
 <div class="section"><div class="section-title">二、复现命令</div>
 <div class="small-list">
@@ -289,9 +313,9 @@
 </div></div>
 <div class="section"><div class="section-title">三、限制与诚实说明</div>
 <div class="todo-box">
-<div>• 本报告不含未在本仓留痕的结论；每项均给出文件行号或提交号。</div>
-<div>• PIO 模式化的“已合规”为读码核验结论，非新的硬件实测。</div>
-<div>• 位置邮箱契约尚未提交且 C11 未完成，故当前不构成已确认事实。</div>
+<div>• 每项均给出文件行号；行号本身可被后续提交推移，应以符号名为准。</div>
+<div>• PIO 部分为读码核验结论，非新的硬件实测。</div>
+<div>• 位置邮箱契约尚未提交且 C11 未完成，不构成已确认事实。</div>
 </div></div>
 </div>
 <div class="bar">下一步：<b>收独立 C11 结论后提交邮箱契约</b></div>
