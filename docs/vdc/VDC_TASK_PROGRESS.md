@@ -22,6 +22,15 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-062：★ 基础件**正常**（完整 P3 通过 + DPLL60 内部 `passed=true` ✓）；T2 短扫描转入 step 20 失败 ✗
+
+- TODO task ID：`T2-DEPLOY-003`。值为 2026-10-15 实验快照，非产品事实源。
+- **完整 `--profile full`（不打断）结果**：`Step 30 OK / 31 OK / 32 OK / 33 warn（时间预算 568.7s > 450s，软告警 ✓）/ 34 OK / 35 OK / 36 OK`、**`credential: written`** ✓、`hawf-171753` 的 `dpll-short-summary.json` → **`passed = True, errors = []`** ✓✓。
+  ⇒ **基础件正常** ✓；上一轮 `internal_health_passed: false` 确系**台架半途状态**（我中断 `--profile full` 所致 ✗），恢复序列 `--steps 0-7` + 一次完整跑即可复原 ✓；同时说明**已提交的 T2 批次不破坏 DPLL**（板上即该构建 ✓，与 `hawf-165452` 一致 ✓）。
+- **紧接着的 T2 短扫描**：`T2_SCAN_OVERRIDE_TERMINAL_MDEG=8000 python tools/sync_trigger/t2_iterate.py --no-flash` 在 **step 20 失败** ✗（`failed steps: [20]`，日志 `out/tdma_t2/steps-20261015-172734.log`；本轮未捕获其报错文本 ✗）。此前失败点是 step 17（锁/动态启动 ✗）与 step 10 ✗ —— step 20 是**新的失败点** ✓。
+- **下一步**：① 读 `out/tdma_t2/steps-20261015-172734.log` 中 step 20 的报错（判据用"pointed"方式 ✓，勿整段扫）；② 修好后继续 Step 2 分发公平性（判据：连续两轮每个目标角色都拿到片、`lane_accept` 单调、`hold_drop` 不增长 ✓；历史证据：`lane_accept [(1,12),(2,683),(3,980)]` 差异极大 ✗）；③ 台架已绿，**任何固件/工具改动可正常走 P3 收口** ✓。
+- 下一 gate：`T2-EXEC-002`/Step 2（分发公平性）。
+
 ### VDC-PROGRESS-20261015-061：台架已恢复（`--steps 0-7` 全 OK ✓）；单独跑 DPLL60 工具会因 **build id 过期**秒退 ✗ —— 基础件结论仍需走完整 P3 流程
 
 - TODO task ID：`T2-DEPLOY-003`（Step 2 前置）。值为 2026-10-15 实验快照，非产品事实源。
