@@ -21,6 +21,15 @@ Last updated: 2026-10-15
 | 下一 gate | 必须指向一个 TODO Task ID 或明确外部阻塞。 |
 
 ## 当前 checkpoint
+
+### VDC-PROGRESS-20261015-059：★ Step 1 批次**带 P3 凭证提交**（`87706fee`）——从板越过 legacy 3 槽；容量 8→16 被证明是 DPLL 相位回归源，本批保持 8
+
+- TODO task ID：`T2-DEPLOY-003`（主）、`T2-IDENT-002`、`T2-TURNTABLE-002`。值为 2026-10-15 实验快照，非产品事实源。
+- **提交**：`87706fee`（10 文件，+281/−104），pre-commit 报 `[pre-commit] P3 hardware acceptance OK` ✓；凭证 `config/hardware_acceptance/p3_acceptance_receipt.json` 随提交 ✓（P3 运行 `hawf-165452`：`Step 29 OK / Step 30 OK / credential: written / dpll-short passed=true` ✓）。
+- **Step 1 正向证据（台架）**：短扫描 `out/tdma_t2/steps-20261015-154107.log` —— `slot 2 GATEWAY: window frozen 4 executed 3 rejected mark=0 alloc=0 -> OK (beyond the legacy 3)` ✓✓ （对照修复前：`frozen 0 executed 0 mark_rejected 34` ✗）。根因是**我自己注入的调用跳级** （`mark(FROZEN)` 直接跟在 `alloc` 后 ✗，`mark()` 禁止 ENTERED→FROZEN 两步跳 ✗）＋ `alloc` 同实例重解保留旧状态 ✗；二者均已修 ✓。
+- **★ 容量结论（硬约束，勿再犯）**：`TRIGGER_ACTION_TEMPLATE_CAPACITY 8→16` **就是** DPLL `phase exceeds 1000 ns` 的来源 ✗ —— A/B 证据：含 16 的三轮（`hawf-155822`/`hawf-161714`/`hawf-164527`）均红 ✗；整批排除（`hawf-162657`）与"仅把容量改回 8、其余本批全部保留"（`hawf-165452`）均绿且取得凭证 ✓。⇒ 本批**保持容量 8** ✓；Step 3 的"每位置 16 组"必须改用**内存友好方案**（例如把组序列放进位置窗口记录/按需展开 ✗，而不是加宽静态表 ✗），并在改动前先量 `sizeof(trigger_action_template_t) × CAPACITY` 与内存布局 ✓。
+- **下一步**：① 契约登记（`docs/check/DOCS_REGISTRY.md` 挂 `T2-DEPLOY-003`/`T2-IDENT-002`/`T2-TURNTABLE-002` ✓）并按 C11 走**交叉复核**（不得自审自批 ✗，提交模板见 `docs/check/submissions/README.md` ✓）；② 进入 **Step 2 分发公平性**（判据：连续两轮每个目标角色都拿到片、`lane_accept` 单调、`hold_drop` 不增长 ✓；当前全扫描三从 `lane acc 23/771/23` 而 `rej/drop` 数万 ✗、`ACTION execution 0~2/4` ✗）；③ 顺带把"排除对照必须用 `git stash --keep-index`，不得用 `git checkout HEAD -- <paths>`（会同时清 index ✗）"记入执行约束（本会话曾因此一度丢失暂存批次，靠 `%TEMP%\t2batch-backup` 恢复 ✓）。
+- 下一 gate：`T2-EXEC-002`/Step 2（分发公平性）。
 ### VDC-PROGRESS-20261015-058：**自服务交接**——T2 Step 1 现状、四处读数更正、整批切换的下一步（新窗口/新代理无需人类复述）
 
 - TODO task ID：`T2-DEPLOY-003`（主）、`T2-IDENT-002`、`T2-TURNTABLE-002`。值为 2026-10-15 实验快照，非产品事实源。
