@@ -9,6 +9,8 @@ out/*
 .tmp/
 .tmp-doc-tests/
 DOC/
+.dsh-acl-reports/
+.dsh-report-work/
 docs/temp/
 
 # CMake generated files
@@ -194,3 +196,4 @@ out/standards/
 !out/standards/
 !out/standards/**
 !out/*.md
+

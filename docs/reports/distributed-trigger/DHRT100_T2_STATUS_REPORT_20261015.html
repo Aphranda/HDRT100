@@ -1,223 +1,227 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="DHRT100 T2 预约触发功能状态报告：按功能能否成立陈述，代码只作出处。">
-<title>DHRT100 T2 功能状态报告（2026-10-15）</title>
+<meta name="description" content="DHRT100 T2 预约触发功能清单与实现状态：按功能能否成立陈述，代码只作出处。">
+<title>DHRT100 T2 功能清单与实现状态（2026-10-15）</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="DHRT100_REPORT_TEMPLATE.css">
 </head>
 <body>
 
-<!-- 功能状态 1/7：总览与结论边界 -->
+<!-- 1/7 总览 -->
 <div class="page">
 <div class="page-header">
-  <div><h1>T2 预约触发功能状态报告</h1><div class="subtitle">按功能能否成立陈述 | 代码只作出处</div></div>
+  <div><h1>T2 预约触发功能清单与实现状态</h1><div class="subtitle">T2 具备哪些功能 | 各自完成到哪一步</div></div>
   <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
   <div class="doc-meta"><strong>2026年10月15日</strong>星期三<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
 </div>
 <div class="main">
 <div class="chips">
   <div class="chip"><span class="k">验证对象</span><span class="v">T2 预约触发</span></div>
-  <div class="chip"><span class="k">已成立</span><span class="v">静态部署 / 基准时间片</span></div>
-  <div class="chip"><span class="k">部分成立</span><span class="v">位置承载 / 单动作执行</span></div>
-  <div class="chip"><span class="k">未开始</span><span class="v">多组序列 / READY 校验</span></div>
+  <div class="chip"><span class="k">可用功能</span><span class="v">装载 · 时间片 · 承载 · 冻结</span></div>
+  <div class="chip"><span class="k">受限功能</span><span class="v">执行（单动作）</span></div>
+  <div class="chip"><span class="k">尚未开始</span><span class="v">多组序列 · 就绪校验</span></div>
 </div>
 <div class="summary">
-  <div class="note-box"><strong>当前结论：</strong>预约链路已经能通到「板上按预约位置动作」这一步——静态部署读回成立，1 kHz 基准时间片成立，位置索引能跨板承载并完成阈值冻结，从板也已在预约位置上完成动作。但每个预约位置目前只能装一个动作，动作序列尚未预装。</div>
-  <div class="todo-box"><strong>结论边界：</strong>板端动作完成由提交/回执判据认定，尚无物理边沿证据（无 position_id 级实际 latch）。每位置多组序列与 READY 踩踏校验尚未开始。转台模型源的独立实测数字不能当作 T2 链路证据。</div>
+  <div class="note-box"><strong>一句话结论：</strong>T2 现在是一条<b>能用的预约链路</b>——能配、能装、能算、能跨板承载、能冻结、能按角色在预约位置上动作，而且能读回全套诊断。差的是<b>容量</b>（一个位置只能装一个动作）和<b>物理证据</b>（引脚上真的打过那个边沿）。</div>
+  <div class="todo-box"><strong>结论边界：</strong>台架当前规模是<b>三个位置、两到三块目标板</b>；长扫描 361 位置与四目标同时送达尚未成立。板端动作完成由提交/回执认定，不等于物理边沿证据。转台模型源的独立实测数字不能顶替 T2 链路证据。</div>
 </div>
-<div class="section"><div class="section-title">本报告的功能划分与状态</div>
-<table class="compact"><thead><tr><th>页</th><th>功能</th><th>状态</th><th>判据</th></tr></thead><tbody>
-<tr><td>2</td><td>功能状态全景</td><td>—</td><td>六项功能的成立情况与卡点位置</td></tr>
-<tr><td>3</td><td>F1 静态部署</td><td><span class="tag green">已成立</span></td><td>启动前装载并读回，RUN 中不热加载</td></tr>
-<tr><td>4</td><td>F2 基准时间片与位置预测</td><td><span class="tag green">已成立</span></td><td>四板时间片坐标推进与预测窗口健康</td></tr>
-<tr><td>5</td><td>F3 位置承载与阈值冻结</td><td><span class="tag green">已成立</span></td><td>单帧跨板送达、冻结确认闭环</td></tr>
-<tr><td>6</td><td>F4 动作序列装载</td><td><span class="tag orange">未开始</span></td><td>每位置多组序列预装并读回</td></tr>
-<tr><td>7</td><td>F5 执行与完成证据</td><td><span class="tag orange">部分成立</span></td><td>按时间片执行并取得实际边沿证据</td></tr>
+<div class="section"><div class="section-title">T2 具备的功能一览</div>
+<table class="compact"><thead><tr><th>功能</th><th>能做什么</th><th>状态</th></tr></thead><tbody>
+<tr><td class="b">F1 配置与静态部署</td><td>停机窗口内一次性配置 12 个位置参数、装载部署/模板/PIO/IO 并读回；运行时不改</td><td><span class="tag green">已成立</span></td></tr>
+<tr><td class="b">F2 基准时间片</td><td>每次 1 kHz 基准同步推进一次本地时间片坐标（粗格 + 细格），四板同坐标</td><td><span class="tag green">已成立</span></td></tr>
+<tr><td class="b">F3 预测与冻结</td><td>按完成计数窗口预测下一到两个位置；阈值跨越广播冻结索引并停止位置更新</td><td><span class="tag green">已成立</span></td></tr>
+<tr><td class="b">F4 位置承载</td><td>位置作一等席单帧跨环送达，与同步发布轮流上车；冻结确认闭环</td><td><span class="tag green">已成立</span></td></tr>
+<tr><td class="b">F5 本地动作执行</td><td>各板按本板角色，在预约时间片执行已装载的切换/触发动作</td><td><span class="tag orange">受限</span></td></tr>
+<tr><td class="b">F6 诊断与读回</td><td>配置、运行、动作、窗口、分发、冻结、计时分段全部可读回</td><td><span class="tag green">已成立</span></td></tr>
 </tbody></table></div>
-<div class="bar">读法：<strong>先看功能成不成立，再看出处；代码位置只是证据坐标，不是报告主体</strong></div>
+<div class="bar">报告口径：<strong>先讲功能能否成立，再讲各自出处；代码位置只是证据坐标，不是报告主体</strong></div>
 </div>
-<div class="page-footer"><span>依据：T2 架构口径 K-1…K-12、TODO 里程碑、进展日志与台架实测</span><span>DHRT100 T2 功能状态报告 | 1 / 7</span></div>
+<div class="page-footer"><span>依据：T2 架构语义口径、TODO 里程碑与任务状态、2026-10-15 台架实测</span><span>DHRT100 T2 功能状态报告 | 1 / 7</span></div>
 </div>
 
-<!-- 功能状态 2/7：全景 -->
+<!-- 2/7 F1 -->
 <div class="page">
 <div class="page-header">
-  <div><h1>功能状态全景：六项功能各到哪一步</h1><div class="subtitle">能力闭合视图 | 已成立 / 部分成立 / 未开始</div></div>
+  <div><h1>F1 配置与静态部署：能配、能装、能读回</h1><div class="subtitle">运行前定型 | 运行中不热加载</div></div>
   <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
   <div class="doc-meta"><strong>2026年10月15日</strong>星期三<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
 </div>
 <div class="main">
-<div class="note-box"><strong>本页定位：</strong>把 T2 拆成六项可判定的功能，逐项回答「能不能用、凭什么是这个结论、还缺什么」，作为后面各页的总索引。</div>
-<div class="section"><div class="section-title">一、功能状态表（判据取 TODO 里程碑口径）</div>
-<table class="compact"><thead><tr><th>功能</th><th>状态</th><th>已能成立的部分</th><th>还缺什么</th></tr></thead><tbody>
-<tr><td class="b">F1 静态部署</td><td><span class="tag green">已成立</span></td><td>四板 deployment／PIO／IO 路由／动作模板在启动前装载并读回一致</td><td>长扫描的完整启动事务仍需随扫描规格一起验收</td></tr>
-<tr><td class="b">F2 基准时间片</td><td><span class="tag green">已成立</span></td><td>每次 VDC 基准同步推进一次本地时间片坐标；四板坐标持续推进</td><td>从板相位起始迟到偏高，动作时限余量待收</td></tr>
-<tr><td class="b">F3 位置承载与冻结</td><td><span class="tag green">已成立</span></td><td>位置作为一等席单帧跨环送达；阈值冻结、冻结确认与重发闭环</td><td>长扫描（361 位置）下的身份容量与在途槽位未定稿</td></tr>
-<tr><td class="b">F4 动作序列装载</td><td><span class="tag orange">未开始</span></td><td>动作模板库的装载/激活/读回通道已可用</td><td>每位置多组序列未预装；当前每位置只能展开一个动作</td></tr>
-<tr><td class="b">F5 按时间片执行</td><td><span class="tag orange">部分成立</span></td><td>从板在预约位置完成动作，提交与回执一致，失败为零</td><td>执行端同时只能持有一个待执行动作，「两组滑动窗口」未落地</td></tr>
-<tr><td class="b">F6 READY 校验与完成证据</td><td><span class="tag gray">未开始</span></td><td>网关具备上升沿计数能力</td><td>按位置关联的物理时间戳与重叠窗口结论；position_id 级实际边沿证据</td></tr>
+<div class="note-box"><strong>本页定位：</strong>回答「运行前该定的东西能不能定下来、怎么知道定对了、运行中会不会被偷改」。</div>
+<div class="section"><div class="section-title">一、具备的能力</div>
+<table class="compact"><thead><tr><th>能力</th><th>具体内容</th><th>状态</th></tr></thead><tbody>
+<tr><td>一次性位置配置</td><td>一次配置 12 个位置参数：运行标识、位置源槽位、目标掩码、原点、前/后行程、阈值比例、起点角、零位角、终点角、格距、每度脉冲</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>扫描几何派生与校验</td><td>从角度参数派生位置数、整数步脉冲、总脉冲；六类理由拒绝（参数缺失、方向反向、格距不整除、位置数超限、步脉冲非整数、格距容不下位置内序列跨度），拒绝即清空输出</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>部署装载与读回</td><td>四板部署、PIO 程序、IO 路由、动作模板在启动前装载；模板带 CRC 与代际校验，行角色必须等于本板绑定角色</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>维护窗口约束</td><td>装载只在停机维护窗口发生；波形程序在停态装载，开工只做校验；运行中只切换已装载使能</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>代际隔离</td><td>换代后旧动作表按代际被拒；清空后旧代仍被拒绝，新代重新安装通过</td><td><span class="tag green">可用</span></td></tr>
 </tbody></table></div>
-<div class="section"><div class="section-title">二、卡点：全部落在同一处</div>
-<div class="risk-box"><strong>F5 的「两组滑动窗口」是被引用的前置，不是独立进度。</strong>执行端（SWITCH／GATEWAY）当前一次只受理一个待执行动作，第二个会被显式拒绝；SYNC_IO 域此前没有对应受理任务，现已补登记为跨域前置。F4 的「每位置多组序列」也必须在同一执行端容量上展开——因此 F4、F5、F6 是同一处容量问题的三个面，不能分别宣布完成。</div></div>
-<div class="section"><div class="section-title">三、进度口径提醒</div>
-<div class="todo-box">每位置 <b>16 组</b>、<code>total = 2896 = 181 × 16</code> 那组数是<b>转台模型/独立模拟源</b>的直连实测，用来证明模型源本身每位置 16 组可跑通；它不是 T2 预约链路的实测结果。T2 链路的台架规模目前是 <b>3 个位置</b>。两类数字不可互相顶替。</div></div>
-<div class="bar">总判断：<strong>链路已经能通到板上动作，容量与证据两层还没到；这两层是同一处前置</strong></div>
+<div class="section"><div class="section-title">二、怎么用（台架现状）</div>
+<div class="flow">角色映射：NO1=计数观察、NO2=切换 A、NO3=网分网关、NO4=切换 B（首轮映射，可动态切换，不编译绑定板号）
+配置顺序：部署 STAGe/ACTivate → 模板 INSTall/ACTivate → 位置参数 CONFigure（须在同一停机窗口内按序完成）
+激活：连续 START/STOP 六次全部 ARM OK，程序槽位不减少、故障计数为零</div></div>
+<div class="section"><div class="section-title">三、未闭合</div>
+<div class="todo-box">长扫描（361 位置）下的<b>统一启动事务</b>未实现：现有能力是「停机下可动态加载」，还不是一次事务化的启动前部署；部署曾出现「激活后四板均未激活」的硬件倒退且未记录成因。</div></div>
+<div class="bar">结论：<strong>F1 可用——能配、能装、能读回、运行中不改；缺的是长扫描的一次性启动事务</strong></div>
 </div>
-<div class="page-footer"><span>依据：TODO 里程碑 M0–M5 与依赖表、进展日志实测条目</span><span>DHRT100 T2 功能状态报告 | 2 / 7</span></div>
+<div class="page-footer"><span>依据：位置配置参数面、扫描几何校验、四板装载读回与连续启停实测</span><span>DHRT100 T2 功能状态报告 | 2 / 7</span></div>
 </div>
 
-<!-- 功能状态 3/7：F1 静态部署 -->
+<!-- 3/7 F2 -->
 <div class="page">
 <div class="page-header">
-  <div><h1>F1 静态部署：启动前装载，运行中不热加载</h1><div class="subtitle">功能成立 | 资源、模板与身份在 RUN 前定型</div></div>
+  <div><h1>F2 基准时间片：四板走在同一个坐标上</h1><div class="subtitle">1 kHz 推进 | 粗格与细格</div></div>
   <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
   <div class="doc-meta"><strong>2026年10月15日</strong>星期三<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
 </div>
 <div class="main">
-<div class="note-box"><strong>本页定位：</strong>回答「运行前该定的东西有没有定下来、运行中会不会被偷偷改」，这是后面所有功能可信的前提。</div>
-<div class="section"><div class="section-title">一、功能定义</div>
-<div class="three-col">
-  <div class="note-box"><strong>装载</strong>部署绑定、PIO 程序、IO 路由、动作模板与循环参数在启动前一次完成。</div>
-  <div class="coord-box"><strong>读回</strong>模板 CRC、代际与绑定身份读回一致，才允许进入运行态。</div>
-  <div class="todo-box"><strong>冻结</strong>运行中不改业务槽位、不热加载程序或路由，只切换已装载的使能。</div>
-</div></div>
-<div class="section"><div class="section-title">二、状态与证据</div>
-<table class="compact"><thead><tr><th>判据</th><th>状态</th><th>依据</th></tr></thead><tbody>
-<tr><td>连续启动/停止后可用程序槽位不减少</td><td><span class="tag green">通过</span></td><td>连续 6 次 START/STOP 全 ARM OK，运行标志置位且故障计数为零</td></tr>
-<tr><td>装载只发生在停机维护窗口</td><td><span class="tag green">通过</span></td><td>装载走停机维护入口；波形程序在停态装载，开工只做校验</td></tr>
-<tr><td>四板部署与模板读回一致</td><td><span class="tag green">通过</span></td><td>四板静态装载读回成功（早期一轮曾出现四板均未激活的倒退，已记录）</td></tr>
-<tr><td>动作模板按本板角色构造并被接受</td><td><span class="tag green">通过</span></td><td>模板安装要求行角色等于本板绑定角色；观察板无对应动作类型，其安装被拒属预期</td></tr>
+<div class="note-box"><strong>本页定位：</strong>回答「四块板是不是同一个时间坐标、坐标会不会乱、细分能力有没有」。</div>
+<div class="section"><div class="section-title">一、具备的能力</div>
+<table class="compact"><thead><tr><th>能力</th><th>具体内容</th><th>状态</th></tr></thead><tbody>
+<tr><td>基准同步推进时间片</td><td>每次 VDC 基准同步更新一次本地时间片坐标，粗格脉冲序号与细格偏移同时维护</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>无观测也继续推进</td><td>接收观察没有更新时坐标仍继续推进；轮询跨格不误判为丢同步</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>共同 q 与同事件绑定</td><td>沿用既有类型化同步/匹配/跟随/相位配置与已提交的本地频率模型；四板共同位置的本地解算与换代恢复通过</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>细分脉冲能力</td><td>细分边沿、尾格空白、原始采样与恢复通过（用于验证细分能力与测量方法，不作运行时钟源）</td><td><span class="tag green">已验证</span></td></tr>
+<tr><td>位置网格与行程</td><td>行程为「起点前 5° 到终点后 5°」：前段使首个位置可被预测，后段使终点位置可验证；位置网格仍为起点到终点按格距</td><td><span class="tag green">可用</span></td></tr>
 </tbody></table></div>
-<div class="section"><div class="section-title">三、边界与未闭合项</div>
+<div class="section"><div class="section-title">二、怎么用</div>
+<div class="flow">粗格：1 kHz 基准同步脉冲 → 每次同步 = 一个粗格序号
+细格：格内偏移，与粗格共同构成逻辑索引；物理细分脉冲只用于验证，不作时钟源
+位置目标 = 扫描原点计数 + 角度派生，与「何时进入预测窗口」无关</div></div>
+<div class="section"><div class="section-title">三、未闭合</div>
+<div class="risk-box"><strong>从板相位起始迟到偏高：</strong>负载在位时该相位的跳过率与错过期限显著上升（同固件下与空载对比明显），直接影响动作时限余量，属执行功能的未闭合项——不是时间片本身不成立。</div></div>
+<div class="bar">结论：<strong>F2 可用——四板有共同时间片坐标且持续推进；剩余是动作时限余量与消费者迁移</strong></div>
+</div>
+<div class="page-footer"><span>依据：基准同步推进实测、共同 q 解算实测、细分能力直连实测</span><span>DHRT100 T2 功能状态报告 | 3 / 7</span></div>
+</div>
+
+<!-- 4/7 F3 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>F3 预测与冻结：提前算好，到点停更</h1><div class="subtitle">滚动窗口预测 | 阈值冻结与确认闭环</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>2026年10月15日</strong>星期三<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
+</div>
+<div class="main">
+<div class="note-box"><strong>本页定位：</strong>回答「位置能不能提前算出来、什么时候停止更新、怎么确认所有板都收到了」。</div>
+<div class="section"><div class="section-title">一、具备的能力</div>
+<table class="compact"><thead><tr><th>能力</th><th>具体内容</th><th>状态</th></tr></thead><tbody>
+<tr><td>滚动窗口预测</td><td>只预测下一到两个位置；常驻只保留在途 1～2 个，长扫描的 361 个位置不进常驻状态；进窗时用当时的计数重新计算</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>窗口外不产生事实</td><td>超出两个位置的预测一律视为不准确；窗口外不产生目标/阈值/冻结任何对外事实；速率不可用即按安全侧拒绝并计数</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>阈值冻结</td><td>达到阈值即发布冻结索引、停止新的位置更新；各位置的提前量按格距比例一致</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>冻结确认闭环</td><td>从板冻结后把冻结掩码随镜像带回原点，一次环回即可；原点重发未完成位置直至全部目标确认</td><td><span class="tag green">已实测</span></td></tr>
+<tr><td>无预览的失败处理</td><td>某位置没有预览时按位置记录一次并继续检查其余位置，不再因首个失败中止整轮；迟到预览仍可冻结，窗口到期另有放弃证据</td><td><span class="tag green">已实现</span></td></tr>
+<tr><td>窗口健康计数</td><td>进入/宣告/未宣告即被覆盖/迟到进入/重算计数可读回，判据为「进入等于宣告且无未宣告覆盖」</td><td><span class="tag green">可用</span></td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、四板实测（快照）</div>
+<table class="compact"><thead><tr><th>读数</th><th>结果</th></tr></thead><tbody>
+<tr><td>三从板冻结掩码</td><td>三个位置全部冻结（掩码全置）</td></tr>
+<tr><td>原点冻结完成掩码 / 放弃</td><td>全置 / 放弃为零，重发若干次后全部目标确认</td></tr>
+<tr><td>四板隔离</td><td>零隔离，从板接收段峰值在预算内</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">三、未闭合</div>
+<div class="todo-box">源早于首个预览就越过阈值的边界仍以测试开关绕过，固件侧语义变更待独立复核；长扫描下的位置身份容量与在途槽位尚未定稿（当前三个位置的规模不构成对 361 位置的证明）。</div></div>
+<div class="bar">结论：<strong>F3 可用——预测、冻结、确认与重发闭环均已实测；边界项与身份容量待收</strong></div>
+</div>
+<div class="page-footer"><span>依据：滚动窗口实测、四板冻结闭环实测（冻结掩码 7/7、放弃 0）</span><span>DHRT100 T2 功能状态报告 | 4 / 7</span></div>
+</div>
+
+<!-- 5/7 F4 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>F4 位置承载：单帧跨板送达与分发</h1><div class="subtitle">一等席单帧 | 判据怎么读</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>2026年10月15日</strong>星期三<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
+</div>
+<div class="main">
+<div class="note-box"><strong>本页定位：</strong>位置怎么从原点送到各板、送得怎么样、以及<b>该用什么读数判断送没送到</b>。</div>
+<div class="section"><div class="section-title">一、具备的能力</div>
+<table class="compact"><thead><tr><th>能力</th><th>具体内容</th><th>状态</th></tr></thead><tbody>
+<tr><td>一等席单帧承载</td><td>位置作为一等席负载一帧发完、不分片；与同步发布按发布机会轮流上车，不借用同步帧的字段空间</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>跨环送达</td><td>经一等席车道分发到各从板并各自提交；每板按源槽位取本板收到的位置描述符</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>身份与去重</td><td>线上不携带运行身份，从板以启动期配置补全后校验；旧代、错目标、过期状态被拒绝</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>分发判定工具</td><td>工具按目标板输出分发明细与结论（已分发／部分分发／未送达）</td><td><span class="tag green">可用</span></td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、读法纪律（很容易读反）</div>
+<div class="risk-box">判断分发<b>只能看一等席车道的接收计数</b>（仅解码并提交成功才自增）。经典的接收完成计数在一等席拥有运输时是被设计性跳过的，正常分发下恒为零——<b>按它判读会得到完全相反的结论</b>。现场诊断页目前同时给出两类读数，必须按上述口径取用。</div></div>
+<div class="section"><div class="section-title">三、最新分发实测（快照）</div>
+<table class="compact"><thead><tr><th>读数</th><th>结果</th></tr></thead><tbody>
+<tr><td>源侧发布次数</td><td>两万余次</td></tr>
+<tr><td>三从板车道接收</td><td>两万余 / 一万余 / 两万余（各板独立计数）</td></tr>
+<tr><td>持有与转交</td><td>各板持有成立；转交数百次</td></tr>
+<tr><td>排空失败</td><td>1 / 0 / 0</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">四、未闭合</div>
+<div class="risk-box"><strong>每轮总有一块目标板拿不到新鲜片：</strong>车道是竞争型单深度邮箱加有界转交环，拒绝与丢弃计数高达数万；饿死者在两轮之间轮换（切换板与网关板交替）。原因不在运输格式，而在分发语义——需改为每目标独立副本或独立邮箱、加深转交环，或按目标单播；判据应改为「每轮每个目标角色都拿到片」。</div></div>
+<div class="bar">结论：<strong>F4 格式可用、能送达；缺口是竞争型单深度分发导致的目标板轮换饿死</strong></div>
+</div>
+<div class="page-footer"><span>依据：2026-10-15 两轮台架分发实测、车道接收计数与分发判定工具</span><span>DHRT100 T2 功能状态报告 | 5 / 7</span></div>
+</div>
+
+<!-- 6/7 F5 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>F5 本地动作执行：单动作可用，多组未装</h1><div class="subtitle">按角色执行 | 容量是唯一卡点</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>2026年10月15日</strong>星期三<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
+</div>
+<div class="main">
+<div class="note-box"><strong>本页定位：</strong>回答「板子有没有在预约位置上真的动作、一个位置能装几个动作、为什么多组还没跑起来」。</div>
+<div class="section"><div class="section-title">一、具备的能力</div>
+<table class="compact"><thead><tr><th>能力</th><th>具体内容</th><th>状态</th></tr></thead><tbody>
+<tr><td>按角色布置动作</td><td>动作表按本板角色筛选；运行时按本板模板种类布置切换/网关截止时间</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>预约位置上动作</td><td>从板在预约位置完成动作；最新两轮各有两块目标板动作完成、失败为零、不确定为零</td><td><span class="tag green">已实测</span></td></tr>
+<tr><td>不依赖主机在期限点发令</td><td>动作由本地时间片提交；主机不在目标时刻发即时命令</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>动作模板库</td><td>模板可安装、激活、释放、读回，带 CRC 与代际校验</td><td><span class="tag green">可用</span></td></tr>
+<tr><td>每位置多组序列</td><td>目标口径为每位置多组（当前 16 组）在位置开始前全部预装并读回</td><td><span class="tag gray">未开始</span></td></tr>
+<tr><td>执行端两组在途</td><td>一组完成即推入下一组，始终两组在途</td><td><span class="tag gray">未开始</span></td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、为什么「一个位置只能一个动作」</div>
+<div class="risk-box">本地模板容量常量为 1：装填时一次只取一个最早冻结的位置、只装一个动作。执行端（切换/网关）同样一次只受理一个待执行动作，第二个会被显式拒绝。<b>把模板容量改大不会让多组跑起来</b>——两侧必须一起扩，且执行端扩容属跨域接口变更，已登记对应前置任务。</div></div>
+<div class="section"><div class="section-title">三、未闭合</div>
 <div class="todo-box">
-<div>• 长扫描（361 位置）的<b>完整启动事务</b>尚未实现：现有槽位能力是「停机下可动态加载」，统一事务仍未成型。</div>
-<div>• 部署曾出现「激活后四板均未激活」的硬件倒退且未记录成因，属已发现的稳定性缺口。</div>
+<div>• 每位置多组序列预装与读回；组间隔按最坏响应时间加建立余量的证据；组间不由就绪信号推进。</div>
+<div>• 冻结后未装填的动作随最新本地时间映射重算，已被硬件接受的不追改（当前被冻结门槛抑制）。</div>
+<div>• 模型源侧「每位置 16 组」是其自身直连实测（总数为 181×16、故障为零），属模型源证据，不能当作 T2 链路已支持 16 组。</div>
 </div></div>
-<div class="bar">结论：<strong>F1 成立——运行前定型、运行中不改；长扫描的统一启动事务是唯一未闭合处</strong></div>
+<div class="bar">结论：<strong>F5 单动作可用且已实测；多组序列与两组在途未开始，且两侧容量必须同时扩</strong></div>
 </div>
-<div class="page-footer"><span>依据：停机维护装载路径、模板安装校验、四板装载读回实测</span><span>DHRT100 T2 功能状态报告 | 3 / 7</span></div>
+<div class="page-footer"><span>依据：2026-10-15 两轮角色动作实测、本地模板容量、模型源直连实测</span><span>DHRT100 T2 功能状态报告 | 6 / 7</span></div>
 </div>
 
-<!-- 功能状态 4/7：F2 基准时间片与预测 -->
+<!-- 7/7 F6 + 矩阵 -->
 <div class="page">
 <div class="page-header">
-  <div><h1>F2 基准时间片与位置预测</h1><div class="subtitle">功能成立 | 共同时间坐标上的逐位置推进</div></div>
+  <div><h1>F6 诊断读回与功能状态矩阵</h1><div class="subtitle">能看什么 | 哪些已完成、哪些未完成</div></div>
   <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
   <div class="doc-meta"><strong>2026年10月15日</strong>星期三<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
 </div>
 <div class="main">
-<div class="note-box"><strong>本页定位：</strong>回答「四块板是不是走在同一个时间坐标上、位置是不是被提前算出来的」，这是预约能对得上号的前提。</div>
-<div class="section"><div class="section-title">一、功能定义</div>
-<div class="flow">共同坐标：VDC 1 kHz 基准同步 → 每次同步推进一次本地时间片坐标
-位置目标：扫描原点 + 角度派生绝对目标（与何时进入窗口无关）
-滚动预测：常驻只保留在途 1～2 个位置，长扫描不进常驻状态
-冻结余量：阈值按一个 STEP 的比例提前量，各位置提前量一致</div></div>
-<div class="section"><div class="section-title">二、状态与证据</div>
-<table class="compact"><thead><tr><th>判据</th><th>状态</th><th>依据</th></tr></thead><tbody>
-<tr><td>四板时间片坐标持续推进</td><td><span class="tag green">通过</span></td><td>台架探针确认本地游标持续推进；模拟源与计数通道均有脉冲读回</td></tr>
-<tr><td>位置目标与扫描几何自洽</td><td><span class="tag green">通过</span></td><td>361 档与边界档读回自洽（361 位置、窗口与行程一致；边界档 6 位置，进入与宣告相等）</td></tr>
-<tr><td>滚动窗口健康计数可读回</td><td><span class="tag green">通过</span></td><td>进入/宣告/未宣告即被覆盖/迟到进入/重算计数在运行页可读；判据为「进入等于宣告且无未宣告覆盖」</td></tr>
-<tr><td>预测窗口未闭合处</td><td><span class="tag orange">部分</span></td><td>预测器侧滚动窗口已落地；运行时长扫描的消费者仍按早期三槽结构取用，迁移未完成</td></tr>
+<div class="note-box"><strong>本页定位：</strong>给出现场能读到的全部事实面，并把功能清单按里程碑归类，明确完成与未完成。</div>
+<div class="section"><div class="section-title">一、F6 可读回的事实</div>
+<table class="compact compact-mini mini"><thead><tr><th>类别</th><th>能读到什么</th></tr></thead><tbody>
+<tr><td>配置</td><td>位置参数与扫描几何自洽性、部署与模板代际、绑定身份</td></tr>
+<tr><td>时间片</td><td>粗/细格坐标、丢同步计数、换代与回退</td></tr>
+<tr><td>预测与窗口</td><td>进入/宣告/未宣告即被覆盖/迟到进入/重算、速率不可用计数</td></tr>
+<tr><td>位置与冻结</td><td>发布/接收/已发出掩码、冻结掩码与版本、无预览与放弃计数、迟到量级</td></tr>
+<tr><td>分发</td><td>车道路径的接收/重复/拒绝/持有/转交/丢弃，以及按目标的分发结论</td></tr>
+<tr><td>动作</td><td>武装/完成/失败/不确定掩码、动作序号、后端状态、到期刻度与起止包围宽度</td></tr>
+<tr><td>计时分段</td><td>时间片/接收/截止三段峰值周期数，用于定位相位超预算</td></tr>
+<tr><td>锁态（记录用）</td><td>本地锁定判定与就绪原因档位，仅作证据，不参与准入判断</td></tr>
 </tbody></table></div>
-<div class="section"><div class="section-title">三、边界与未闭合项</div>
-<div class="todo-box">
-<div>• 从板相位起始迟到偏高：负载在位时该相位的跳过与错过期限显著上升，直接影响动作时限余量，属 M3 未闭合项。</div>
-<div>• 超出 2 个位置的预测一律视为不准确，窗口外不产生任何对外事实——这是设计口径，不是缺陷。</div>
-</div></div>
-<div class="bar">结论：<strong>F2 成立——四板有共同时间片、位置可提前算出；剩余是消费者迁移与动作时限余量</strong></div>
-</div>
-<div class="page-footer"><span>依据：基准同步推进实测、扫描档读回、窗口健康计数、TODO 依赖表</span><span>DHRT100 T2 功能状态报告 | 4 / 7</span></div>
-</div>
-
-<!-- 功能状态 5/7：F3 位置承载与冻结 -->
-<div class="page">
-<div class="page-header">
-  <div><h1>F3 位置承载与阈值冻结</h1><div class="subtitle">功能成立 | 单帧跨板送达与冻结确认闭环</div></div>
-  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
-  <div class="doc-meta"><strong>2026年10月15日</strong>星期三<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
-</div>
-<div class="main">
-<div class="note-box"><strong>本页定位：</strong>这一页是预约的「运输面」——位置怎么从原点送到各板、什么时候停止更新、怎么确认所有板都收到了。这是目前最完整的一段。</div>
-<div class="section"><div class="section-title">一、功能定义</div>
-<div class="flow">承载：位置作为一等席负载，一帧发完不分片；与同步发布按发布机会轮流上车
-触发：达到外部阈值即发布冻结索引，停止发送新的位置更新
-确认：从板冻结后把冻结掩码随镜像带回原点；原点重发未完成位置直至全部确认
-口径：冻结只冻结位置预测，不冻结本地时间基准</div></div>
-<div class="section"><div class="section-title">二、状态与证据</div>
-<table class="compact"><thead><tr><th>判据</th><th>状态</th><th>依据</th></tr></thead><tbody>
-<tr><td>位置单帧跨环送达从板</td><td><span class="tag green">通过</span></td><td>紧缩单帧经一等席快速路径送达；从板接收掩码含实际位置</td></tr>
-<tr><td>三从板全部冻结、无放弃</td><td><span class="tag green">通过</span></td><td>四板实测：三从板三个位置冻结掩码全置，原点冻结完成掩码全置、放弃为零</td></tr>
-<tr><td>冻结确认闭环且能重发补齐</td><td><span class="tag green">通过</span></td><td>同一轮实测中重发若干次后全部目标确认；四板零隔离</td></tr>
-<tr><td>早于预览越阈的边界</td><td><span class="tag orange">部分</span></td><td>源早于首个预览越阈的边界仍以测试开关绕过；固件侧语义变更待独立复核</td></tr>
+<div class="section"><div class="section-title">二、功能状态矩阵</div>
+<table class="compact"><thead><tr><th>功能</th><th>里程碑</th><th>已完成</th><th>未完成</th></tr></thead><tbody>
+<tr><td class="b">F1 配置与静态部署</td><td>M0</td><td>位置配置与几何校验、部署/模板/PIO/IO 装载读回、启停不丢槽位、代际隔离</td><td>长扫描一次性启动事务</td></tr>
+<tr><td class="b">F2 基准时间片</td><td>M1</td><td>四板坐标推进、共同 q 解算、细分能力验证、位置网格与行程</td><td>动作时限余量（相位起始迟到）</td></tr>
+<tr><td class="b">F3 预测与冻结</td><td>M2</td><td>滚动窗口、窗口外不产生事实、阈值冻结、冻结确认与重发闭环</td><td>源早于预览的边界语义、身份容量</td></tr>
+<tr><td class="b">F4 位置承载</td><td>M2/M3</td><td>一等席单帧承载、跨环送达、身份去重、分发判定工具</td><td>每目标稳定送达（现为轮换饿死）</td></tr>
+<tr><td class="b">F5 本地动作执行</td><td>M3</td><td>按角色布置、预约位置动作实测、不依赖主机发令</td><td>每位置多组序列、执行端两组在途、冻结后重算</td></tr>
+<tr><td class="b">F6 就绪校验与完成证据</td><td>M4/M5</td><td>诊断读回齐全、网关具上升沿计数</td><td>就绪按组重叠校验、位置级实际边沿与完成证据</td></tr>
 </tbody></table></div>
-<div class="section"><div class="section-title">三、边界与未闭合项</div>
-<div class="risk-box"><strong>长扫描身份容量未定稿：</strong>位置编号位宽与在途槽位数对 361 位置的长扫描是否够用尚未结论；线上编号只作在途实例编号，绝对位置由目标索引与扫描参数确定，因此线格式本身无需加宽——待定的是容量与在途槽位。</div></div>
-<div class="bar">结论：<strong>F3 成立——预约时间片的发送、接收、冻结与确认已全链路闭环，可用</strong></div>
+<div class="bar">下一步顺序：<strong>先把分发改成每目标都能拿到片 → 再扩执行端容量并预装每位置多组 → 最后收就绪校验与位置级实际边沿证据</strong></div>
 </div>
-<div class="page-footer"><span>依据：四板台架实测（冻结掩码 7/7、放弃 0、失败 0）、一等席运输条目</span><span>DHRT100 T2 功能状态报告 | 5 / 7</span></div>
-</div>
-
-<!-- 功能状态 6/7：F4 动作序列装载 -->
-<div class="page">
-<div class="page-header">
-  <div><h1>F4 动作序列装载：每位置多组未预装</h1><div class="subtitle">功能未开始 | 当前每个位置只装一个动作</div></div>
-  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
-  <div class="doc-meta"><strong>2026年10月15日</strong>星期三<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
-</div>
-<div class="main">
-<div class="note-box"><strong>本页定位：</strong>回答「一个预约位置上要做的整套动作（切通道、触发、采样）有没有事先装好」。答案是：通道有了，整组还没有。</div>
-<div class="section"><div class="section-title">一、功能定义（目标口径）</div>
-<div class="flow">每个位置运行多组序列与采样（当前口径 16 组）
-16 组的切换编码、相对位置偏移、触发脉宽与就绪窗口在位置开始前全部预装并读回
-组间隔按最坏响应时间加建立余量；组间不由就绪信号推进
-各板只展开本角色需要执行的那些步</div></div>
-<div class="section"><div class="section-title">二、状态与证据</div>
-<table class="compact"><thead><tr><th>判据</th><th>状态</th><th>说明</th></tr></thead><tbody>
-<tr><td>动作模板库的装载通道可用</td><td><span class="tag green">通道已通</span></td><td>模板可安装、激活、释放并读回；安装校验含角色门与 CRC 门</td></tr>
-<tr><td>每位置多组序列预装</td><td><span class="tag gray">未开始</span></td><td>任务仍为待办；无预装、无读回、无组间间隔证据</td></tr>
-<tr><td>一个位置能展开多个动作</td><td><span class="tag red">不成立</span></td><td>本地模板容量常量为 1，装填时一次只取一个最早冻结位置、只装一个动作</td></tr>
-<tr><td>模型源侧 16 组能力</td><td><span class="tag green">已实测</span></td><td>转台模型/独立模拟源直连实测每位置 16 组、故障为零（属模型源证据，非 T2 链路）</td></tr>
-</tbody></table></div>
-<div class="section"><div class="section-title">三、为什么它和执行端是同一件事</div>
-<div class="risk-box">多组序列必须在执行端有地方排开：当前执行端一次只受理一个待执行动作，第二个会被拒绝。因此「每位置多组预装」与「执行端两组滑动窗口」必须一起做，单独把模板容量改大不会让多组真正跑起来。</div></div>
-<div class="bar">结论：<strong>F4 未开始——模板装载通道可用，但每位置多组序列没有预装，当前每位置只能一个动作</strong></div>
-</div>
-<div class="page-footer"><span>依据：TODO 多组序列任务状态、本地模板容量常量、模型源直连实测</span><span>DHRT100 T2 功能状态报告 | 6 / 7</span></div>
-</div>
-
-<!-- 功能状态 7/7：F5/F6 执行与证据 -->
-<div class="page">
-<div class="page-header">
-  <div><h1>F5/F6 执行与完成证据</h1><div class="subtitle">部分成立 | 板端能动作，物理边沿证据未闭合</div></div>
-  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
-  <div class="doc-meta"><strong>2026年10月15日</strong>星期三<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
-</div>
-<div class="main">
-<div class="note-box"><strong>本页定位：</strong>回答「动作有没有真的在预约时间片上打出来、有没有证据」。当前能证明的是板端动作完成，不能证明引脚上真的出现过那个边沿。</div>
-<div class="section"><div class="section-title">一、F5 按时间片执行</div>
-<table class="compact"><thead><tr><th>判据</th><th>状态</th><th>依据与缺口</th></tr></thead><tbody>
-<tr><td>从板在预约位置完成动作</td><td><span class="tag green">通过</span></td><td>四板实测三个位置全部武装完成、失败为零；此前已有从板端到端闭环</td></tr>
-<tr><td>执行端支持两组在途</td><td><span class="tag gray">未开始</span></td><td>执行端一次一个待执行动作，第二个显式拒绝；跨域前置已登记</td></tr>
-<tr><td>不依赖主机在期限点发令</td><td><span class="tag green">通过</span></td><td>动作由本地时间片提交，主机不在目标时刻发送即时命令</td></tr>
-</tbody></table></div>
-<div class="section"><div class="section-title">二、F6 完成证据与就绪校验</div>
-<table class="compact"><thead><tr><th>判据</th><th>状态</th><th>依据与缺口</th></tr></thead><tbody>
-<tr><td>就绪信号按位置关联并做重叠校验</td><td><span class="tag gray">未开始</span></td><td>网关已有独立上升沿计数，但缺按位置关联的物理时间戳与重叠窗口结论</td></tr>
-<tr><td>位置级实际边沿证据</td><td><span class="tag gray">未开始</span></td><td>需要硬件时间戳与位置编号绑定；当前无示波器边沿证据、无就绪硬件锁存证据</td></tr>
-<tr><td>无缺脉冲/多脉冲证明</td><td><span class="tag gray">未开始</span></td><td>属 M5 闭环验收范围</td></tr>
-</tbody></table></div>
-<div class="section"><div class="section-title">三、交付路径与门禁</div>
-<table class="compact"><thead><tr><th>顺序</th><th>要做的功能</th><th>必须看到的结果</th></tr></thead><tbody>
-<tr><td>1</td><td>每位置多组序列预装</td><td>位置开始前全部组预装并读回，组间隔有余量证据</td></tr>
-<tr><td>2</td><td>执行端两组滑动窗口</td><td>一组完成即推入下一组，队列满与序号错配有终止性失败</td></tr>
-<tr><td>3</td><td>未装填组随本地时间基准重算</td><td>冻结后未装填的动作仍按最新时间映射解算；已被硬件接受的不追改</td></tr>
-<tr><td>4</td><td>就绪按组校验</td><td>早到/迟到/缺失/重复/重叠均能判定并恢复</td></tr>
-<tr><td>5</td><td>位置级实际证据</td><td>位置编号绑定的实际边沿与完成、范围声明通过</td></tr>
-</tbody></table></div>
-<div class="bar">诚实边界：<strong>板端动作成立不代表引脚边沿成立；本阶段不宣称完成，也不以此授权物理精度声明</strong></div>
-</div>
-<div class="page-footer"><span>依据：四板动作闭环实测、TODO 统一完成定义与依赖表；缺口据实保留</span><span>DHRT100 T2 功能状态报告 | 7 / 7</span></div>
+<div class="page-footer"><span>依据：诊断页字段面、TODO 里程碑与任务状态；缺口据实保留</span><span>DHRT100 T2 功能状态报告 | 7 / 7</span></div>
 </div>
 
 </body></html>
