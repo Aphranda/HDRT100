@@ -411,3 +411,5 @@ docs/
 - 查待办：优先读对应域的 `*_TODO.md`。
 - 查验证记录：优先读对应域的 `*_TASK_PROGRESS.md`。
 - `docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_03.md` ? VDC progress archive 03.
+
+| [`docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_14.md`](docs/legacy/vdc/LEGACY_VDC_TASK_PROGRESS_14.md) | VDC 任务进度归档（C14 轮转，20260919-034..20260919-030） |
