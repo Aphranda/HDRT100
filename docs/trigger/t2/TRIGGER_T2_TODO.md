@@ -6,6 +6,44 @@ Canonical: `docs/trigger/t2/TRIGGER_T2_TODO.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
 Last updated: 2026-10-15
 
+## 现状汇总与待办（2026-10-15，入口节）
+
+> 这一节是给"下一个自行启动的窗口/代理"看的入口：先读它，再读下方任务行与
+> `docs/vdc/VDC_TASK_PROGRESS.md` 顶部 `VDC-PROGRESS-20261015-058/-059/-060/-062/-063/-064`。
+
+### 已完成（含证据）
+
+- **Step 1 从板消费已落地并越界 3 槽**：提交 `87706fee`（含 P3 凭证，pre-commit 报 `P3 hardware acceptance OK`）；
+  台架证据 `out/tdma_t2/steps-20261015-154107.log` → `slot 2: window frozen 4 / executed 3 / rejected mark=0 alloc=0`；
+  对照修复前同板为 `frozen 0 / executed 0 / mark_rejected 34`。
+- **两条真根因（均已修）**：① `mark()` 禁止跳级，而我在 `accept_remote_position()` 里直接 `mark(FROZEN)` ⇒ 每次被拒（实测 mark_rejected 34）；
+  ② `trigger_position_window_alloc()` 的**同实例重解**路径保留旧 `state` ⇒ 后续 mark 全被拒。修法：先 `ANNOUNCED` 再 `FROZEN` ✓ + 重解复位 `ENTERED` ✓。
+- **读数可信化**：`T2:ACTion?` 尾追加 7 字段（`entered/announced/frozen/executed/abandoned/mark_rejected/alloc_rejected`，既有索引不动 ✓）；
+  **位掩码不是计数**（`7` = 0b111 = 3 槽 ✓）；驱动 `tools/sync_trigger/t2_iterate.py` 判据已改为真计数 ✓。
+- **契约登记**：`T2-DEPLOY-003` / `T2-IDENT-002` / `T2-TURNTABLE-002`（`docs/check/DOCS_REGISTRY.md:18-20` ✓）；**C11 交叉复核待他人签署** ✗。
+- **基础件正常**（示波器缺席时靠内部监测判定 ✓）：完整 `--profile full` → `credential: written` ✓ + `hawf-171753` 的 `dpll-short` `passed=true, errors=[]` ✓。
+
+### 硬约束（勿再犯，均有实测依据）
+
+- `TRIGGER_ACTION_TEMPLATE_CAPACITY 8→16` **会致 DPLL `phase exceeds 1000 ns`** ✗（A/B：含 16 的三轮全红；改回 8 后全绿并取得凭证 ✓）
+  ⇒ **保持 8**，Step 3 的"每位置 16 组"必须改用**内存友好方案**（先量 `sizeof(trigger_action_template_t) × CAPACITY` ✓）。
+- **台架一次只允许一个消费者** ✗；完整 P3 **不可中途打断** ✗（会留下台架半途态，需 `--steps 0-7` 恢复 ✓）。
+- 对照实验排除工作区改动：用 `git stash --keep-index` ✓，**不要**用 `git checkout HEAD -- <paths>` ✗（会同时清 index）。
+- 读数归属：窗口累计只在 **`T2:ACTion?`** 尾 ✓；从板真正写 `frozen_mask` 的是 `stage_pending_freeze()` ✓；`T2?` 尾部字段随状态变化 ✗。
+
+### 待办（按优先级）
+
+- **P0-a Step 2 分发公平性（IN PROGRESS）**：判据＝连续两轮每个目标角色都拿到片、`lane_accept` 单调、`hold_drop` 不增长；
+  现状 `ACTION execution 2/4` ✗、`lane_accept` 极不均（曾见 `23/771/23`、`12/683/980` ✗）。
+- **P0-b 未提交的工具改动待一次 P3 收口**：`tools/sync_trigger/t2_iterate.py`（真计数判据 ✓）、
+  `tools/sync_trigger/t2_workflow.py`（step 17 分层 ✓ + step 失败自诊断 `| at file:line` ✓）。
+- **P0-c 最新一轮（`out/tdma_t2/steps-20261015-173316.log`）**：`failed steps: [10, 18, 19]` ✗；本轮 step 20 反而 OK（343.1s，含 `SYSTem:VDC:PRIORity:RX? -> <timeout>` 8.1s ✗）
+  ⇒ 待查 10/18/19 与新出现的命令/USB 超时 ✗。
+- **P1 Step 3 容量与多组（PENDING）**：内存友好 16 组方案 + 执行端 SYNC_IO 深度 2（跨域接口，需 SYNC_IO 域确认，TODO `T2-EXEC-002`）。
+- **P1 Steps 4–6（PENDING）**：冻结后未装填动作按最新本地映射重算 / 就绪按组校验（早到·迟到·缺失·重复·重叠）/ 位置级实际边沿与完成证据。
+- **P2 C11 交叉复核签署**（`T2-DEPLOY-003`、`T2-IDENT-002`、`T2-TURNTABLE-002`）。
+- **既有红（不计入主线判据）**：`test_trigger_t2_runtime[freeze_missing]`（harness 侧挂死 ✓）、短扫描下从板 `failed` 掩码非零 ✓。
+
 ## 文档接口与状态规则
 
 本文是 T2 任务状态唯一落点；[Architecture](TRIGGER_T2_ARCHITECTURE.md) 维护稳定语义，[Task Progress](TRIGGER_T2_TASK_PROGRESS.md) 维护执行证据。状态仅用 `PENDING`、`IN PROGRESS`、`BLOCKED`、`DONE`；DONE 只关闭对应任务，不自动提升父任务、物理精度或产品资格。
