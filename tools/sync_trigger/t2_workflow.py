@@ -2708,6 +2708,13 @@ def step_20_sampling(ctx, slot, board, uid):
                     ctx._t2_scan_last = [f.strip() for f in _scan_fields[:15]]
             state = ctx.send(member, "TRIGger:REServation:T2?").split(",")
             position = ctx.send(member, "SYSTem:REFMEM:SYNC:FLIGHT:POSition?")
+            # Keep every board's position-transport page for the end-of-sampling
+            # distribution verdict below (the per-tick print is slot 0 only).
+            _pos_seen = getattr(ctx, "_position_last", None)
+            if _pos_seen is None:
+                _pos_seen = {}
+                ctx._position_last = _pos_seen
+            _pos_seen[uid_r] = [f.strip() for f in position.split(",")]
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
             # Rate evidence, not absolutes (VDC-ISO-001/T3): the seat and match
             # counters are cumulative since boot, so a single read cannot say
@@ -2803,8 +2810,33 @@ def step_20_sampling(ctx, slot, board, uid):
                       f" prep {t2_field(state, 'prepare_calls')}"
                       f"/{t2_field(state, 'preview_saved')}"
                       f" reason {t2_field(state, 'prepared_last_reason')}"
-                      f" | POS pub {fields[5] if len(fields) > 5 else '?'}"
-                      f" rx {fields[12] if len(fields) > 12 else '?'}"
+                      # Position transport, named by the page's own field order
+                      # (scpi_system_snapshot_commands.c: scpi_cmd_refmem_sync_flight_position_q).
+                      # The lane path is the one T2 uses: once
+                      # distributed_refmem_position_priority_rx() owns the transport
+                      # (mailbox class == T2_POSITION), the classic mailbox parser -
+                      # and therefore position_rx_complete_count - is bypassed by
+                      # design (distributed_refmem.c:1893-1896). lane_accept_count is
+                      # incremented only on a successful decode+stage, so it is the
+                      # distribution evidence; rx_complete_count only ever counts the
+                      # classic path.
+                      f" | POSITION tx_publish {fields[3] if len(fields) > 3 else '?'}"
+                      f" tx_seq {fields[9] if len(fields) > 9 else '?'}"
+                      f" tx_frag {fields[2] if len(fields) > 2 else '?'}"
+                      f" tx_phase {fields[6] if len(fields) > 6 else '?'}"
+                      f" | lane accept {fields[18] if len(fields) > 18 else '?'}"
+                      f" dup {fields[19] if len(fields) > 19 else '?'}"
+                      f" reject {fields[20] if len(fields) > 20 else '?'}"
+                      f" owned {fields[21] if len(fields) > 21 else '?'}"
+                      f" hold {fields[22] if len(fields) > 22 else '?'}"
+                      f" drain {fields[23] if len(fields) > 23 else '?'}"
+                      f" drain_fail {fields[24] if len(fields) > 24 else '?'}"
+                      f" hold_drop {fields[27] if len(fields) > 27 else '?'}"
+                      f" hold_delivered {fields[30] if len(fields) > 30 else '?'}"
+                      f" decode_reject {fields[29] if len(fields) > 29 else '?'}"
+                      f" | classic rx_complete {fields[10] if len(fields) > 10 else '?'}"
+                      f" rx_reject {fields[11] if len(fields) > 11 else '?'}"
+                      f" rx_last_failure {fields[17] if len(fields) > 17 else '?'}"
                       # The rolling window's health facts are appended to T2?, but a tail
                       # slice is NOT a reliable way to read them: measured on the bench
                       # (t2-20261013-020455) state[-9:] produced self-contradictory values
@@ -2918,6 +2950,57 @@ def step_20_sampling(ctx, slot, board, uid):
             ctx.failures.append(
                 f"Step 20 window health: announce_mismatch {scan[9]} != 0 "
                 f"(T2:SCAN? {','.join(scan)})")
+
+    # Position-distribution verdict (TRIGGER_T2_TODO, position transport). The
+    # SOURCE publishes slices; every other board receives them on the
+    # first-class/priority lane that T2 owns, so the delivery evidence is the lane
+    # counters, not the classic mailbox ones: while the lane owns the transport
+    # (mailbox class == T2_POSITION) the classic parser is skipped by design
+    # (distributed_refmem.c:1893-1896), so position_rx_complete_count stays 0 on a
+    # perfectly delivered run. lane_accept_count is incremented only on a
+    # successful decode+stage (distributed_refmem_position_ack.inc:287).
+    seen = getattr(ctx, "_position_last", {}) or {}
+    if seen:
+        source_publish = 0
+        follower_accepts = []
+        for uid_r, slot_r, _i, _o, _f in ROWS:
+            fields_p = seen.get(uid_r)
+            if fields_p is None:
+                continue
+
+            def pos_field(index):
+                return fields_p[index] if len(fields_p) > index else "?"
+
+            print(f"  POSITION slot {slot_r} {uid_r:016X}"
+                  f" tx_publish {pos_field(3)} tx_seq {pos_field(9)}"
+                  f" tx_frag {pos_field(2)} tx_phase {pos_field(6)}"
+                  f" | lane_accept {pos_field(18)} lane_dup {pos_field(19)}"
+                  f" lane_reject {pos_field(20)} owned {pos_field(21)}"
+                  f" hold {pos_field(22)} drain {pos_field(23)}"
+                  f" drain_fail {pos_field(24)} hold_drop {pos_field(27)}"
+                  f" hold_delivered {pos_field(30)}"
+                  f" decode_reject {pos_field(29)}"
+                  f" | classic rx_complete {pos_field(10)}"
+                  f" rx_reject {pos_field(11)} rx_pending_mask {pos_field(12)}"
+                  f" rx_last_failure {pos_field(17)}", flush=True)
+            try:
+                if slot_r == 0:
+                    source_publish = int(pos_field(3))
+                else:
+                    follower_accepts.append((slot_r, int(pos_field(18))))
+            except (TypeError, ValueError):
+                pass
+        delivered = sum(1 for _slot, accept in follower_accepts if accept > 0)
+        verdict = ("DISTRIBUTED" if follower_accepts and delivered == len(follower_accepts)
+                   else ("PARTIAL" if delivered else "NO DELIVERY"))
+        print(f"  POSITION distribution: source tx_publish {source_publish};"
+              f" follower lane_accept {follower_accepts} -> {verdict}", flush=True)
+        # Only the unambiguous failure is a criterion: the source published, yet no
+        # follower staged a single slice.
+        if source_publish > 0 and follower_accepts and delivered == 0:
+            ctx.failures.append(
+                f"Step 20 position distribution: source published {source_publish} slices"
+                f" but no follower staged any (lane_accept {follower_accepts})")
 
 
 @step(21)
