@@ -22,6 +22,16 @@ Last updated: 2026-10-15
 
 ## 当前 checkpoint
 
+### VDC-PROGRESS-20261015-061：台架已恢复（`--steps 0-7` 全 OK ✓）；单独跑 DPLL60 工具会因 **build id 过期**秒退 ✗ —— 基础件结论仍需走完整 P3 流程
+
+- TODO task ID：`T2-DEPLOY-003`（Step 2 前置）。值为 2026-10-15 实验快照，非产品事实源。
+- **本轮实测**：`python tools/hardware_acceptance/hardware_acceptance_workflow.py --steps 0-7` —— `Step 0/1 OK`、`Step 2 OK 144.8s`（构建）、`Step 3 OK`、`Step 4 OK 199.4s`（OTA）、`Step 5/6/7 OK` ✓ ⇒ 台架恢复 ✓。
+- 紧接着单独跑专门 DPLL60（`--scope off`）**1.9 s 即失败** ✗，原因是身份校验：
+  `All-board STOP barrier failed: … verify STOP/identity: RuntimeError("Build mismatch: '20261015091137'")`（四板一致 ✓）⇒ 该工具期望的 build id 是**旧的**（09:11:37 ✓），而板上是刚 OTA 的新构建 ✗ ⇒ **工具输入过期** ✗，**不能据此判断基础件好坏** ✗。
+- **因此**：① 上一轮 `internal_health_passed: false`（`hawf` 之前那次）仍只能说明"那一刻不合格" ✗；② 要回答"基础件是否正常"，走**完整 P3 流程**（它会生成与之匹配的 build/inputs，并在步骤 29 做 DPLL60 联合采集 ✓）或先刷新该工具的 workflow-inputs 里的 build id ✓。
+- **下一步**：① 跑一次 `--profile full`（约 10 分钟；**不要中途打断** —— 上次中断正是台架退化的原因 ✗）⇒ 读 `hawf-*/dpll-short-summary.json` 的 `passed` 与 `errors` ✓；② 基础件绿后再进 Step 2（分发公平性：连续两轮每个目标角色都拿到片、`lane_accept` 单调、`hold_drop` 不增长 ✓）。
+- 下一 gate：基础件（DPLL60 内部健康位）→ `T2-EXEC-002`/Step 2。
+
 ### VDC-PROGRESS-20261015-060：DPLL60 **内部监测**当前不合格（基础件需先恢复）——示波器缺席，只能看内部健康位
 
 - TODO task ID：`T2-DEPLOY-003`（后续 Step 2 的前置）。值为 2026-10-15 实验快照，非产品事实源。
