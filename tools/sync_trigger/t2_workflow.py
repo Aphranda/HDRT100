@@ -2206,6 +2206,7 @@ def step_17_lock_and_dynamic_start(ctx, slot, board, uid):
     print("  VDC lock detection (up to 30 s: the DPLL preparation alone takes ~18 s;"
           " authoritative state = READ:SYNC:STATe?)", flush=True)
     locked = {}
+    admitted = {}     # layer 1: did this board accept the sync input at all?
     reference_uid = f"{ROWS[0][0]:016X}"
     for attempt in range(10):
         for uid_r, _s, _i, _o, _f in ROWS:
@@ -2228,10 +2229,19 @@ def step_17_lock_and_dynamic_start(ctx, slot, board, uid):
             # its readiness input is ready - and the proof that it is usable is
             # that the followers locked onto it.
             product_locked = '"LOCKED"' in state_page
+            # Layered on purpose: "never admitted the sync input" and "admitted but
+            # not locked" are different failures, and one "not locked" verdict could
+            # not tell them apart on the bench (measured: followers reported
+            # input_ready 0 / reason 8 on runs whose firmware locks on others).
+            input_ok = bool(ready) and ready[0].strip() == "1"
+            admitted[uid_r] = input_ok
+            if not input_ok:
+                print(f"    layer1 FAIL {uid_r:016X}: sync input not admitted"
+                      f" (readiness reason {ready[2].strip() if len(ready) > 2 else '?'})",
+                      flush=True)
             if is_reference:
-                serving = bool(ready) and ready[0].strip() == "1"
-                locked[uid_r] = serving
-            elif product_locked:
+                locked[uid_r] = input_ok                    # source: judged by serving
+            elif input_ok and product_locked:
                 locked[uid_r] = True
             print(f"  lock t+{3 * (attempt + 1)}s {uid_r:016X}"
                   f"{' [ref]' if is_reference else ' [fol]'}:"
@@ -2430,7 +2440,14 @@ def step_17_lock_and_dynamic_start(ctx, slot, board, uid):
             else:
                 print(f"    seat_live <unavailable> {','.join(seat)[:80]}", flush=True)
         missing = [f"{uid:016X}" for uid, _s, _i, _o, _f in ROWS if uid not in locked]
-        ctx.failures.append(f"Step 17 not locked on {missing}")
+        no_input = [f"{u[0]:016X}" for u in ROWS if admitted.get(u[0]) is False]
+        if no_input:
+            ctx.failures.append(
+                f"Step 17 layer1: sync input not admitted on {no_input}"
+                f" (not locked on {missing} is a consequence, not the cause)")
+        else:
+            ctx.failures.append(f"Step 17 layer2 not locked on {missing}"
+                                " (input admitted everywhere)")
         ctx.lock_failed = True
         print(f"  lock detection: NOT locked on {missing} - dynamic T2 start withheld",
               flush=True)
@@ -2723,6 +2740,11 @@ def step_20_sampling(ctx, slot, board, uid):
             # GATEWAY deadline, and the masks say whether it armed/completed. Only
             # this page can answer "did each role execute its own sequence".
             action_page = ctx.send(member, "TRIGger:REServation:T2:ACTion?").split(",")
+            # Window cumulative totals are the LAST five fields of T2:ACTion?
+            # (appended after its variable-length events block); the same five
+            # positions on T2? are unrelated trailing values.
+            win_totals = ([f.strip() for f in action_page[-7:]]
+                          if len(action_page) >= 5 else ["?"] * 5)
             _act_seen = getattr(ctx, "_action_last", None)
             if _act_seen is None:
                 _act_seen = {}
@@ -2770,7 +2792,9 @@ def step_20_sampling(ctx, slot, board, uid):
                   f" mismatch {t2_field(state, 'freeze_mismatch')}"
                   f" fallback {t2_field(state, 'freeze_fallback')}"
                   f" miss_local {t2_field(state, 'freeze_missing_local')}"
-                  f" done {tick_field(action_page, 2)}", flush=True)
+                  f" | win {win_totals[0]}/{win_totals[1]}/{win_totals[2]}"
+                  f"/{win_totals[3]}/{win_totals[4]}/{win_totals[5]}/{win_totals[6]}"
+                  " (entered/announced/frozen/executed/abandoned/mark_rejected/alloc_rejected)" , flush=True)
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
             # Rate evidence, not absolutes (VDC-ISO-001/T3): the seat and match
             # counters are cumulative since boot, so a single read cannot say

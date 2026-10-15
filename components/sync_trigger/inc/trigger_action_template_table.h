@@ -7,6 +7,9 @@
 #include "trigger_action_template.h"
 #include "trigger_deployment.h"
 
+/* Per-position group sequence (T2-SEQ-001 / TRIGGER_T2_TODO.md:110): a position
+ * carries 16 groups, so the installable program must hold at least that many
+ * rows. Existing rows keep their indices; only the bound widens. */
 #define TRIGGER_ACTION_TEMPLATE_CAPACITY 8u
 
 typedef enum {

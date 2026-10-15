@@ -135,6 +135,19 @@ static void test_source_side_open_ack_and_expiry(void)
            trigger_position_window_open_mask(&w) != 0u);
 }
 
+/* The instance window is only correct while it fits the wire it reports on:
+ * the freeze acknowledgement carries a 4-bit run id next to an 8-bit frozen
+ * mask (distributed_refmem_position_ack.inc:68-92), and the compact slice
+ * carries the instance in a 4-bit field (trigger_position_slice.h:11-13).
+ * Lock both so a future widening cannot silently break the acknowledgement. */
+static void test_wire_contract_bindings(void)
+{
+    assert(TRIGGER_POSITION_INSTANCE_MAX == 15u);      /* 4-bit instance field   */
+    assert(TRIGGER_POSITION_WINDOW_CAPACITY == 8u);    /* 8-bit frozen-mask byte */
+    assert(TRIGGER_POSITION_WINDOW_CAPACITY <= 8u);    /* cannot exceed the byte */
+    assert(TRIGGER_POSITION_INSTANCE_MAX >= TRIGGER_POSITION_WINDOW_CAPACITY);
+}
+
 int main(void)
 {
     test_scan_walks_beyond_capacity();
@@ -144,6 +157,7 @@ int main(void)
     test_abandon_and_unknown_instance();
     test_instance_domain_is_validated();
     test_source_side_open_ack_and_expiry();
-    puts("7 production C case groups passed");
+    test_wire_contract_bindings();
+    puts("8 production C case groups passed");
     return 0;
 }

@@ -39,13 +39,13 @@ def judge(text: str) -> int:
     #    in the WIN line (rt frozen / act armed) are 3-bit and saturate at 0b111,
     #    so they can never answer this; the window cumulative totals appended to
     #    T2:ACTion? can, and the driver prints them as "win a/b/c/d/e"
-    #    (entered/announced/frozen/executed/abandoned).
+    #    (entered/announced/frozen/executed/abandoned/mark_rejected/alloc_rejected).
     win: dict[str, tuple[int, int]] = {}
     failed_masks: dict[str, int] = {}
     for line in text.splitlines():
         slot = re.search(r"WIN t\+\d+s slot (\d+)", line)
         if slot:
-            got = re.search(r"win (\d+)/(\d+)/(\d+)/(\d+)/(\d+)", line)
+            got = re.search(r"win (\d+)/(\d+)/(\d+)/(\d+)/(\d+)/(\d+)/(\d+)", line)
             if got:
                 frozen, executed = int(got.group(3)), int(got.group(4))
                 prev = win.get(slot.group(1), (0, 0))
@@ -59,6 +59,7 @@ def judge(text: str) -> int:
         frozen, executed = win[slot]
         moved = frozen > 3 or executed > 3
         print(f"  slot {slot}: window frozen {frozen} executed {executed}"
+              f" rejected mark={got.group(6)} alloc={got.group(7)}"
               f" {'OK (beyond the legacy 3)' if moved else 'FAIL (not beyond the legacy 3)'}")
         if not moved:
             problems.append(f"slot {slot} window frozen {frozen}/executed {executed}"

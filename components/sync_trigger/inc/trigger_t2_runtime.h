@@ -171,6 +171,15 @@ void trigger_t2_runtime_prepare_core0(void);
 bool trigger_t2_runtime_preview_history(uint32_t position_id, uint32_t age,
                                         trigger_position_descriptor_t *out);
 bool trigger_t2_runtime_take_event(trigger_action_runtime_event_t *out);
+/* Cumulative per-board position-window totals (Step 1, T2-DEPLOY-003). The
+ * frozen/action masks are 3-bit and saturate, so they can never answer "how many
+ * positions did this board consume"; these counters can. */
+void trigger_t2_runtime_position_window_totals(uint32_t *entered, uint32_t *announced,
+                                               uint32_t *frozen, uint32_t *executed,
+                                               uint32_t *abandoned);
+/* Refused window transitions: 0 on both means the marking call sites never ran. */
+void trigger_t2_runtime_position_window_rejections(uint32_t *mark_rejected,
+                                                   uint32_t *alloc_rejected);
 bool trigger_t2_runtime_snapshot(trigger_t2_runtime_snapshot_t *out);
 
 #endif

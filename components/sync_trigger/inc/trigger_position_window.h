@@ -48,6 +48,9 @@ typedef struct {
 typedef struct {
     trigger_position_window_record_t record[TRIGGER_POSITION_WINDOW_CAPACITY];
     uint32_t entered, announced, frozen, executed, abandoned;
+    /* Diagnostics (Step 1): rejected transitions are otherwise silent, and the bench
+     * measured entered>0 with frozen==0 - marks that never took effect. */
+    uint32_t mark_rejected, alloc_rejected;
 } trigger_position_window_t;
 
 static inline uint32_t trigger_position_window_ack_mask(
@@ -102,17 +105,28 @@ static inline bool trigger_position_window_alloc(
     trigger_position_window_t *w, uint32_t instance, uint32_t target_ms,
     uint16_t version, uint64_t action_q)
 {
-    if (w == NULL || instance == 0u || instance > TRIGGER_POSITION_INSTANCE_MAX)
+    if (w == NULL || instance == 0u || instance > TRIGGER_POSITION_INSTANCE_MAX) {
+        if (w != NULL) w->alloc_rejected++;
         return false;
+    }
     int32_t existing = trigger_position_window_find(w, instance);
     if (existing >= 0) {
         trigger_position_window_record_t *r = &w->record[existing];
         if (r->target_ms == target_ms && r->version == version) return true;
-        /* Same instance re-solved (newer prediction version): replace in place,
-         * keeping the window position so an in-flight confirmation stays valid. */
+        /* Same instance re-solved (newer prediction version). This is a NEW
+         * occurrence of the instance - the source reuses ids 1..3 for every
+         * position of a scan - so the record must go back to ENTERED. Keeping the
+         * previous state here is what silently stopped the follower window: the
+         * record stayed FROZEN/EXECUTED, every later mark was refused as a backwards
+         * or multi-step transition, and the counters never advanced
+         * (bench: entered 3~4 while frozen 0). The window position itself is kept. */
         r->target_ms = target_ms;
         r->version = version;
         r->action_q = action_q;
+        if (r->state != TRIGGER_POSITION_WINDOW_ENTERED) {
+            r->state = TRIGGER_POSITION_WINDOW_ENTERED;
+            w->entered++;
+        }
         return true;
     }
     for (uint32_t i = 0u; i < TRIGGER_POSITION_WINDOW_CAPACITY; ++i) {
@@ -146,11 +160,17 @@ static inline bool trigger_position_window_mark(
         }
         return true;
     }
-    if (state < r->state || state > TRIGGER_POSITION_WINDOW_EXECUTED) return false;
+    if (state < r->state || state > TRIGGER_POSITION_WINDOW_EXECUTED) {
+        w->mark_rejected++;
+        return false;
+    }
     if (state == r->state) return true;
     /* Strictly one step at a time while entering the pipeline: a record cannot
      * jump straight to FROZEN or EXECUTED without the stages that prove it. */
-    if (state != (trigger_position_window_state_t)(r->state + 1u)) return false;
+    if (state != (trigger_position_window_state_t)(r->state + 1u)) {
+        w->mark_rejected++;
+        return false;
+    }
     r->state = (uint8_t)state;
     if (state == TRIGGER_POSITION_WINDOW_ANNOUNCED) w->announced++;
     else if (state == TRIGGER_POSITION_WINDOW_FROZEN) w->frozen++;
@@ -170,6 +190,14 @@ static inline bool trigger_position_window_release(
         r->state != TRIGGER_POSITION_WINDOW_ABANDONED) return false;
     trigger_position_window_clear(r);
     return true;
+}
+
+/* Instance currently occupying a window slot (0 when free). */
+static inline uint32_t trigger_position_window_instance_at(
+    const trigger_position_window_t *w, uint32_t slot)
+{
+    return (w != NULL && slot < TRIGGER_POSITION_WINDOW_CAPACITY)
+        ? w->record[slot].instance : 0u;
 }
 
 static inline void trigger_position_window_reset(trigger_position_window_t *w)

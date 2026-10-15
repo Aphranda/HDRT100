@@ -106,6 +106,12 @@ typedef struct {
 /* Core0 is the only RUN writer of mailboxes; Core1 owns plans and states. */
 static t2_deadline_mailbox_t s_deadline_mailbox[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 static t2_deadline_plan_t s_deadline[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+/* Step 1 (T2-DEPLOY-003): the wire reuses instance ids 1..3 for every position of
+ * a scan, so a sticky per-slot frozen bit stopped the follower after the first
+ * few positions. This window owns the instances instead: it recycles a slot once
+ * its action finished, and the acknowledgement byte is derived from it, so it
+ * always names the instances that are currently awaiting confirmation. */
+static trigger_position_window_t s_position_window;
 static uint32_t s_deadline_seen[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 static uint32_t s_frozen_public;
 /* Core1 publishes the threshold before attempting the FREEZE handoff; Core0
@@ -346,6 +352,18 @@ static T2_BOUNDED bool T2_HOT(stage_pending_freeze)(void)
         }
         s_state.descriptors[index] = latest;
         s_state.freeze_version[index] = latest.prediction_version;
+        /* Step 1 (T2-DEPLOY-003): this is the writer that actually freezes on a
+         * follower (measured: window entered=3 while frozen=0 when only
+         * accept_remote_position() was instrumented), so the window must be fed
+         * here as well: instance id = this slot + 1, identity = the solve epoch. */
+        if (trigger_position_window_alloc(&s_position_window, index + 1u,
+                                          latest.count_epoch,
+                                          latest.prediction_version, 0u)) {
+            (void)trigger_position_window_mark(&s_position_window, index + 1u,
+                                               TRIGGER_POSITION_WINDOW_ANNOUNCED);
+            (void)trigger_position_window_mark(&s_position_window, index + 1u,
+                                               TRIGGER_POSITION_WINDOW_FROZEN);
+        }
         s_state.frozen_mask |= 1u << index;
         s_state.published_mask |= 1u << index;
         s_pending_mask &= ~(1u << index);
@@ -409,6 +427,14 @@ static T2_BOUNDED bool T2_HOT(descriptor_valid)(const trigger_position_descripto
 static T2_RAM void action_fail(uint32_t index)
 {
     s_state.action_failed_mask |= 1u << index;
+    {
+        const uint32_t failed = trigger_position_window_instance_at(&s_position_window, index);
+        if (failed != 0u) {
+            (void)trigger_position_window_mark(&s_position_window, failed,
+                                               TRIGGER_POSITION_WINDOW_ABANDONED);
+            (void)trigger_position_window_release(&s_position_window, failed);
+        }
+    }
     s_state.last_error = TRIGGER_T2_RUNTIME_ACTION;
 }
 
@@ -418,15 +444,43 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
     if (!distributed_refmem_get_position_descriptor(
             s_config.source_slot, &descriptor)) return true;
     if (descriptor.position_id < 1u ||
-        descriptor.position_id > TRIGGER_T2_RUNTIME_POSITION_COUNT ||
+        descriptor.position_id > TRIGGER_POSITION_INSTANCE_MAX ||
         descriptor.prediction_version > TRIGGER_T2_PREDICTION_VERSION_MAX)
         goto reject;
-    const uint32_t index = descriptor.position_id - 1u;
-    const uint32_t bit = 1u << index;
-    if (s_state.frozen_mask & bit) return true;
+    uint32_t index;
+    uint32_t bit;
+    /* The descriptor carries the solve epoch as its absolute identity (the wire's
+     * compact target_ms is not part of this legacy descriptor), so the window is
+     * keyed by instance here and by count_epoch for the identity check. */
+    if (!trigger_position_window_alloc(&s_position_window, descriptor.position_id,
+                                       descriptor.count_epoch,
+                                       descriptor.prediction_version, 0u))
+        goto reject;
+    {
+        const int32_t slot = trigger_position_window_find(&s_position_window,
+                                                          descriptor.position_id);
+        /* The window is as wide as the wire acknowledgement; this runtime keeps
+         * per-position state for POSITION_COUNT slots only, so a slot beyond that
+         * is refused instead of indexing past s_deadline[]/freeze_version[]. */
+        if (slot < 0 || (uint32_t)slot >= TRIGGER_T2_RUNTIME_POSITION_COUNT)
+            goto reject;
+        index = (uint32_t)slot;
+        bit = 1u << index;
+    }
+    if (trigger_position_window_find(&s_position_window, descriptor.position_id) >= 0 &&
+        trigger_position_window_ack_mask(&s_position_window) & bit) return true;
     if (descriptor.stage == TRIGGER_POSITION_STAGE_FREEZE) {
         if (!descriptor_valid(&descriptor))
             goto reject;
+        /* mark() forbids stage jumps (ENTERED -> FROZEN is a two-step move and was
+         * refused every time - bench: mark_rejected 34 per follower with alloc 0),
+         * so announce first; re-marking is idempotent and therefore safe here. */
+        (void)trigger_position_window_mark(&s_position_window,
+                                           descriptor.position_id,
+                                           TRIGGER_POSITION_WINDOW_ANNOUNCED);
+        (void)trigger_position_window_mark(&s_position_window,
+                                           descriptor.position_id,
+                                           TRIGGER_POSITION_WINDOW_FROZEN);
         s_state.frozen_mask |= bit;
         __atomic_store_n(&s_frozen_public, s_state.frozen_mask, __ATOMIC_RELEASE);
         /* Freeze complete for this follower: report it on every image. */
@@ -540,6 +594,14 @@ static void complete_action(uint32_t index)
     const uint32_t bit = 1u << index;
     s_state.emitted_position_mask |= bit;
     s_state.action_completed_mask |= bit;
+    {
+        const uint32_t finished = trigger_position_window_instance_at(&s_position_window, index);
+        if (finished != 0u) {
+            (void)trigger_position_window_mark(&s_position_window, finished,
+                                               TRIGGER_POSITION_WINDOW_EXECUTED);
+            (void)trigger_position_window_release(&s_position_window, finished);
+        }
+    }
     if (s_state.event_count >= TRIGGER_T2_RUNTIME_EVENT_CAPACITY) {
         s_state.event_dropped_count++;
         return;
@@ -710,6 +772,24 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     }
 }
 
+void trigger_t2_runtime_position_window_totals(uint32_t *entered, uint32_t *announced,
+                                               uint32_t *frozen, uint32_t *executed,
+                                               uint32_t *abandoned)
+{
+    if (entered) *entered = s_position_window.entered;
+    if (announced) *announced = s_position_window.announced;
+    if (frozen) *frozen = s_position_window.frozen;
+    if (executed) *executed = s_position_window.executed;
+    if (abandoned) *abandoned = s_position_window.abandoned;
+}
+
+void trigger_t2_runtime_position_window_rejections(uint32_t *mark_rejected,
+                                                   uint32_t *alloc_rejected)
+{
+    if (mark_rejected) *mark_rejected = s_position_window.mark_rejected;
+    if (alloc_rejected) *alloc_rejected = s_position_window.alloc_rejected;
+}
+
 bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
 {
     /* Split so a bench readout names the rejected condition (temporary). */
@@ -765,6 +845,7 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
     s_local_template = local;
     s_local_template_count = local_count;
     s_deployment_crc = trigger_deployment_crc(&config->deployment);
+    trigger_position_window_reset(&s_position_window);
     s_state.configured = 1u;
     s_state.origin = config->origin ? 1u : 0u;
     s_state.source_slot = config->source_slot;

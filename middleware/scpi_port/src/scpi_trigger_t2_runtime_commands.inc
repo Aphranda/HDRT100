@@ -357,5 +357,22 @@ scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context)
     SCPI_ResultUInt32(context,s.predictor.window_step_mdeg);
     SCPI_ResultUInt32(context,s.predictor.scan_geometry.positions);
     SCPI_ResultUInt32(context,s.predictor.scan_geometry.step_pulses);
+    /* Appended last: cumulative position-window totals (Step 1). The 3-bit
+     * frozen/action masks saturate, so these counters are the only readable
+     * evidence of how many positions this board actually consumed. */
+    {
+        uint32_t w_entered=0u,w_announced=0u,w_frozen=0u,w_executed=0u,w_abandoned=0u;
+        trigger_t2_runtime_position_window_totals(&w_entered,&w_announced,&w_frozen,
+                                                  &w_executed,&w_abandoned);
+        uint32_t w_mark_rejected=0u,w_alloc_rejected=0u;
+        trigger_t2_runtime_position_window_rejections(&w_mark_rejected,&w_alloc_rejected);
+        SCPI_ResultUInt32(context,w_entered);
+        SCPI_ResultUInt32(context,w_announced);
+        SCPI_ResultUInt32(context,w_frozen);
+        SCPI_ResultUInt32(context,w_executed);
+        SCPI_ResultUInt32(context,w_abandoned);
+        SCPI_ResultUInt32(context,w_mark_rejected);
+        SCPI_ResultUInt32(context,w_alloc_rejected);
+    }
     return SCPI_RES_OK;
 }
