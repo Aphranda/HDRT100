@@ -960,7 +960,8 @@ T2_FIELDS = {"last_error": 1, "configured": 2, "active": 3, "origin": 4,
              "source_slot": 5, "target_mask": 6, "run_id": 7,
              "last_sync_sequence": 8, "published_mask": 9, "received_mask": 10,
              "descriptor_reject": 11, "transport_reject": 12,
-             "event_count": 13, "frozen_mask": 15,
+             "event_count": 13, "event_dropped": 14, "frozen_mask": 15,
+             "freeze_mismatch": 16, "freeze_fallback": 17, "freeze_missing_local": 18,
              "last_counter_count": 28, "pulse_index": 29, "fine_slice_index": 30,
              "announced_mask": 31, "prepared_last_reason": 41, "predictor_last_error": 38,
              "prepare_calls": 39, "preview_saved": 40}
@@ -2764,6 +2765,11 @@ def step_20_sampling(ctx, slot, board, uid):
                   f" prep {t2_field(state, 'prepare_calls')}"
                   f" saved {t2_field(state, 'preview_saved')}"
                   f" | act armed {tick_field(action_page, 1)}"
+                  f" | CUM events {t2_field(state, 'event_count')}"
+                  f" dropped {t2_field(state, 'event_dropped')}"
+                  f" mismatch {t2_field(state, 'freeze_mismatch')}"
+                  f" fallback {t2_field(state, 'freeze_fallback')}"
+                  f" miss_local {t2_field(state, 'freeze_missing_local')}"
                   f" done {tick_field(action_page, 2)}", flush=True)
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
             # Rate evidence, not absolutes (VDC-ISO-001/T3): the seat and match
