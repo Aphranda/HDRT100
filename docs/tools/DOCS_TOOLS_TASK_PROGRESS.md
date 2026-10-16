@@ -4,13 +4,31 @@ Status: Active
 Domain: Tools
 Canonical: `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`
 Related: `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`, `docs/tools/DOCS_TOOLS_TODO.md`, `docs/check/DOCS_REGRESSION_PLAN.md`
-Last updated: 2026-09-22
+Last updated: 2026-10-16
 
 ## 文档接口
 
 本文只记录实施与验证事实，任务状态以 TODO 为准，治理语义以 Architecture 为准。每条记录引用稳定任务 ID，使用唯一 `TOOLS-PROGRESS-YYYYMMDD-NNN`，最新记录在上；轮转遵循文档自回归 C14/C15，历史失败和原始证据不得丢失。
 
 ## 当前 checkpoint
+
+### TOOLS-PROGRESS-20261016-002：P0T 线序假失败根因——单次接收侧采样定案；已改为"至少 N 次采样 + 500 ms 上限"
+
+- TODO task ID：TOOLS-P3-DPLL-SHORT-001、TOOLS-CHECK-001；本批（T2 批次）未提交。
+- **现象**：`hardware_acceptance_workflow.py --profile full` 在 step 8（P0T 线序与 NO 分配）偶发 FAIL：某条**真实环边**报 `detected:false`（`rx_frames/rx_words/rx_edges` 全 0），`render_ring_order()` 凑不出闭合环 ⇒ 该步失败；而同轮重跑即 OK，且其后 TRN/TDMA/DPLL 全部正常——**线序本身没问题**。
+- **根因（实测）**：判定只看接收侧证据。插桩重放（工具自身时序，`--pair-wait 1.5`）测得**单次 `_pair_snapshot` 约 172–190 ms**（含 `close_persistent_connections()` 与两页快照）；而 quick/level 档配置 `topology_pair_wait_s = 0.05`，`while monotonic() < deadline` 只容得下**一次**采样落地（≈180 ms 处）。单样本无法区分"驱动方突发尚未起始"与"这对不相邻" ⇒ 真环边被间歇判负。对照：full 档 `p0t` 用的是 1.0 s（5–8 次采样），故从不复发；工具自身默认 `--pair-wait` 是 1.5 s。
+- **旁证**：12 对里检出对**全部靠 `rx_words`**（14 443–15 836），`rx_frames` 与 `rx_edges` 在 12 对里恒为 0，`tx_delta` 也恒为 0（驱动侧计数器不能当"已发出"的证据）；健康轮重放 `passed=true`、`ring_order=NO.1→NO.2→NO.3→NO.4`、`transport_recoveries=0`（`out/scratch/p0t-diag-102800/`）。
+- **修复**：① 工具新增 `--pair-min-observations`（默认 **3**，范围 [1,64]，`calibration_ring_topology.py`）：`while observations < min or monotonic() < deadline` —— 判定"不相邻"前必取满 N 次采样，`pair_wait` 仍是失败上限；② 全部 `p3_bench*.json` 的 `topology_pair_wait_s` 统一为 **0.5 s**（full 档原 1.0、quick/level20-22 原 0.05）；③ summary 顶层新增 `pair_observation_policy{pair_wait_s,pair_min_observations}` 记录约束（紧凑 `pair_results` 行保持"只放物理证据"，逐对采样数已由 `pair_preparation[].activity_observations` 自带）。
+- **宿主证据**：`tests/python/test_calibration_topology_start.py` 新增 `test_slow_driver_start_is_not_a_missing_edge`（`pair_wait=0` + 突发在第 2 次采样才可见 ⇒ 仍判检出、`activity_observations ≥ 2`、策略字段相符）；**反证已做**：把 `pair_min_observations` 置 1（旧单样本行为）该用例立即红。相关全集 **228 passed**（16 个 calibration 用例文件 + P3/T2 定向）。
+
+### TOOLS-PROGRESS-20261016-001：scope-off 相位分级改取「收敛后的稳态端点 residual」，窗内 extrema 降为诊断证据
+
+- TODO task ID：TOOLS-P3-DPLL-SHORT-001、TOOLS-CHECK-001；本批（T2 批次）未提交，本条只记录判据语义变更与其证据。
+- **触发事实**：`p3_hardware_acceptance.py run` 与 `hardware_acceptance_workflow.py --profile full` 多次在 DPLL 摘要门（step 30）阻断：`phase_max_abs_ns = 23 007 109 / 25 007 791 ns` → `phase exceeds 1000 ns` → `evidence_status ERROR`。同轮 `internal_phase_endpoints` 为 **−83…+83 / −86…+74 / −74…+86 ns**（全部 ≤100 ns），且 `endpoint_within_last_bin` 成立。
+- **定性**：被分级的量是**匹配域的窗内包络**——`vdc_priority_match.inc` 里 `expected_lo = rx.typed_record.event_time_lower + path.delay_ns`，`residual_hi = projection.output_hi − expected_lo`，故一次重捕获样本携带的是它匹配到的参考事件年龄（观测到 +16…+25 ms，单样本、单方向，同 bin 其余仍在 ±136 ns 内）。锁相是**逐渐收敛**的过程，判据应取收敛后的稳态，而不是把重捕获样本当锁定相位。（与 `VDC_TASK_PROGRESS` 既有判读「启动/首次成功偏差不是跟踪误差」一致；`SUMMARY_STEADY_SUCCESS_GAP` 的实际语义是 **guard 已武装**，`priority_guard_steady_gaps()` 返回 `target_s != 0`，因此它不能用来逐样本剔除。）
+- **变更**：`tools/hardware_acceptance/p3_dpll_short.py` 的 scope-off 分支分级源由 `steady_values`（稳态 bin extrema）改为 `internal_values`（板端最终稳态端点 residual，`_internal_trace_summary` 已强制其落在最后一个稳态 bin 内，不成立即证据 ERROR）；窗内 extrema 继续完整记录并以 `phase_window_extrema_ns` 报告。`phase_domain` 相应改为 `internal_steady_endpoint_residual`。scope-on（外部物理）分级路径不变；真失锁仍会阻断——端点超限照旧走 `PHASE_WARN_NS`/`PHASE_ERROR_NS`。
+- **宿主证据**：`tests/python/test_p3_dpll_short.py` **80 passed**，含两条钉住新语义的用例——① 端点 86 ns + 窗内 23 ms 尖峰 ⇒ `passed True`、`phase_max_abs_ns 86`、`phase_window_extrema_ns 23 000 000`；② 端点 2000 ns + 窗内 86 ns ⇒ `ERROR` 且 `phase exceeds 1000 ns`。
+- **未闭合（含一处已定位的流程竞争）**：真板 step 30 的通过需一次**完整**运行（同一运行目录、同一源码指纹按序跑完）才能签发凭证。step 29 逐轮抖动的机制已定位为 **guard 60 s 检查点 vs harness STOP 的时序竞争**：同一固件下，PASS 轮四板 `stop_config_seq 0 / stop_accepted 0 / ring_retired 0 / output_retired 0`、`state 3 / reason_mask 0`、`output_state 2 (RUNNING)`；FAIL 轮被影响的板 `stop_config_seq 71 / stop_accepted 1 / ring_retired 1 / output_retired 1`、`state 4`、`reason_mask` 含 `VDC_PRIORITY_GUARD_OUTPUT_STOPPED (1u<<22)`/`OUTPUT_STALE (1u<<23)`，`first_failure_ms` 恰为 60000–60005（即检查点时刻）。对照：`hawf-093302` PASS（0 块已 STOP）、`hawf-095100` FAIL（2 块）、`hawf-100012` FAIL（4 块）。⇒ STOP 必须先于采集读取、但**不得先于各板检查点**：修法是 STOP 前按板轮询 `GUARd?` 直到 `checked_s == seconds`（有界等待），不在本批内实施。
 
 ### TOOLS-PROGRESS-20260922-031：修复外部相差负向超限漏报
 

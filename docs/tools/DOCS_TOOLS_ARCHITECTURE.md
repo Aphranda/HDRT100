@@ -4,7 +4,7 @@ Status: Draft
 Domain: Tools
 Canonical: `docs/tools/DOCS_TOOLS_ARCHITECTURE.md`
 Related: `docs/tools/DOCS_TOOLS_TODO.md`, `docs/tools/DOCS_TOOLS_TASK_PROGRESS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`, `tools/README.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-16
 
 ## 文档接口与范围
 
@@ -149,7 +149,7 @@ base 层由 tracked workflow 管理 allowlist、query barrier、总工作量/文
 
 结果分开表达执行成败、证据完整性、被测能力判定与清理结果。沿用 `INFO/WARN/ERROR/FATAL` 分级，判据在运行前固定；采集成功不能代替锁相通过，离线分析不能代替硬件验收。
 
-P3 默认绑定同一组四板完成 OTA、TDMA 与 `p3_bench.json` 的 `dpll_short_seconds` 短闭环，不再要求 NO5。配置的 HDO 可枚举时联合稀疏物理采样；确认未枚举时 external 明确为 SKIPPED，并以 NO2--NO4 原生 summary trace 的稳态 residual extrema 包络分级，不再只看最终 endpoint。当前“提高内部监控精度”工作以外部示波器对比为验收前提：scope-off 结果可保留为诊断证据，但不能关闭该精度对比 gate；VISA discovery 或 RAW 采集失败也不能冒充设备缺席。内部路径校验完整请求窗、终止/覆盖、每 bin 成功、`INTERNAL_MAX_SUCCESS_GAP_S`、最后稳态 bin 与 endpoint 一致性；`INTERNAL_SETTLING_SECONDS` 对应启动 bin 保留在证据中但不进入稳态精度分级。分页响应必须按 canonical 读序重组，并与 `summary.ram.bin`、原生解码结果一致；summary 还绑定源码指纹、build、四板 UID、session、generation、slot 与 node count。外部 `scope_samples[].phase.relative_ns` 与内部 owner residual 是不同测量域，不混合取值或逐事件相减；内部包络不授予连续 GPIO 波形精度。相差分级引用 `p3_dpll_short.py` 的 `PHASE_WARN_NS` 与 `PHASE_ERROR_NS`；证据缺失、解析、内部健康、STOP 或恢复失败使用独立 evidence ERROR，不伪装成相差超限。最终 receipt 哈希绑定 summary、joint reports、内部原生 trace/分页记录，以及 scope-on 时的 scope records 和 RAW block，`check-staged` 离线复算后放行。
+P3 默认绑定同一组四板完成 OTA、TDMA 与 `p3_bench.json` 的 `dpll_short_seconds` 短闭环，不再要求 NO5。配置的 HDO 可枚举时联合稀疏物理采样；确认未枚举时 external 明确为 SKIPPED，并以 NO2--NO4 **收敛后的稳态端点 residual** 分级：该端点由原生 summary trace 绑定到最后一个稳态 bin（`endpoint_within_last_bin` 不成立即证据 ERROR），窗内 residual extrema 仍完整记录并作为诊断证据报告（`phase_window_extrema_ns`），但不决定锁相判定——锁相是逐渐收敛的过程，重捕获样本携带其匹配到的参考事件年龄（`vdc_priority_match.inc` 的 `expected_lo`），属匹配/观测域而非锁定相位。当前“提高内部监控精度”工作以外部示波器对比为验收前提：scope-off 结果可保留为诊断证据，但不能关闭该精度对比 gate；VISA discovery 或 RAW 采集失败也不能冒充设备缺席。内部路径校验完整请求窗、终止/覆盖、每 bin 成功、`INTERNAL_MAX_SUCCESS_GAP_S`、最后稳态 bin 与 endpoint 一致性；`INTERNAL_SETTLING_SECONDS` 对应启动 bin 保留在证据中但不进入稳态精度分级。分页响应必须按 canonical 读序重组，并与 `summary.ram.bin`、原生解码结果一致；summary 还绑定源码指纹、build、四板 UID、session、generation、slot 与 node count。外部 `scope_samples[].phase.relative_ns` 与内部 owner residual 是不同测量域，不混合取值或逐事件相减；内部包络不授予连续 GPIO 波形精度。相差分级引用 `p3_dpll_short.py` 的 `PHASE_WARN_NS` 与 `PHASE_ERROR_NS`；证据缺失、解析、内部健康、STOP 或恢复失败使用独立 evidence ERROR，不伪装成相差超限。最终 receipt 哈希绑定 summary、joint reports、内部原生 trace/分页记录，以及 scope-on 时的 scope records 和 RAW block，`check-staged` 离线复算后放行。
 
 `p3_dpll_short.py` 的 `SCHEMA` 定义当前短闭环证据版本。每块板全局 START 前和全局 STOP 后各读取一次既有 TIMER1 bridge，原始 action 必须证明两个锚点包围全板 RUN，且 RUN 内板端查询数为零；前后 bridge 配置、原生 trace tick 频率及主机时钟身份必须一致。host 时间使用 `tools/common/host_evidence_clock.py` 定义的高分辨率单调时钟；时钟声明分辨率不等于测量准确度。scope 的保守区间从唯一成功的解除触发命令写入前时间开始，并按完整导出 RAW 的负时间偏移向外扩展，终点取后续首次 STOP 回复结束；核对新鲜 WAIT、原始采样字段、命令时序和四通道时间轴，不能将写入返回时刻当作触发下界。离线复算对全部仿射角点作保守投影，只输出 `AFFINE_UNIQUE`、`AFFINE_AMBIGUOUS`、`OUTSIDE_CAPTURE` 或 `UNMAPPED`；内部窗口与启动排除分别由 `INTERNAL_SUMMARY_INTERVAL_MS`、`INTERNAL_SETTLING_SECONDS` 定义。bin 关联不等于同一事件或内部数值误差，`exact_event_correlation_qualified` 与 `numeric_error_qualified` 保持 false。关联不足在 quick debug 中报告 evidence false/WARN，只有显式 strict DPLL 才按专项门禁升级；不增加 Core1 工作、实时席位或 RUN 探针。
 

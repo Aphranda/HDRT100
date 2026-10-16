@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="DHRT100 T2 预约触发功能状态报告 2026-10-16：361 全程达成，按功能陈述。">
+<title>DHRT100 T2 功能状态报告（2026-10-16）</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="DHRT100_REPORT_TEMPLATE.css">
+</head>
+<body>
+
+<!-- 1/8 总览 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>T2 预约触发功能状态报告</h1><div class="subtitle">2026-10-16 状态更新 | 361 全程达成</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>2026年10月16日</strong>星期四<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
+</div>
+<div class="main">
+<div class="chips">
+  <div class="chip"><span class="k">验证对象</span><span class="v">T2 预约触发</span></div>
+  <div class="chip"><span class="k">本轮突破</span><span class="v">361 全程三从板执行</span></div>
+  <div class="chip"><span class="k">执行覆盖</span><span class="v">354–360 / 361</span></div>
+  <div class="chip"><span class="k">批次收口</span><span class="v">代码待 P3 凭证</span></div>
+</div>
+<div class="summary">
+  <div class="note-box"><strong>本轮结论：</strong>「361 个位置正常发布 + 各从机接收、解码并执行序列动作」<b>已在台架成立</b>——连续三轮全程扫描，源端全程无损，三块从板各自进窗·宣告·冻结 361/361/361，执行 354–360/361（98–99.7%），未执行的 1–3 个位置全部有据、无静默丢失，且三块板负载均衡。</div>
+  <div class="todo-box"><strong>结论边界：</strong>每个位置目前仍只执行<b>一个</b>动作组，每位置多组序列（16 组）与执行端两组在途尚未落地（容量扩容已被实测证伪，需内存友好方案）。批次收口受阻：P3 五次尝试未取得可接受凭证，失败点在基础件的输出存活，<b>代码暂不提交</b>。板端动作完成仍不等于引脚边沿证据。</div>
+</div>
+<div class="section"><div class="section-title">功能状态一览（相对上一版的变化）</div>
+<table class="compact"><thead><tr><th>功能</th><th>能做什么</th><th>状态</th><th>变化</th></tr></thead><tbody>
+<tr><td class="b">F1 配置与静态部署</td><td>位置参数配置、扫描几何校验、部署/模板/PIO/IO 装载读回</td><td><span class="tag green">已成立</span></td><td>—</td></tr>
+<tr><td class="b">F2 基准时间片与预测</td><td>四板共同时间片、滚动窗口预测、阈值冻结</td><td><span class="tag green">已成立</span></td><td>消费者已迁到窗口驱动</td></tr>
+<tr><td class="b">F3 位置承载</td><td>一等席单帧广播到全部从板并各自提交</td><td><span class="tag green">已成立</span></td><td>均衡性大幅改善</td></tr>
+<tr><td class="b">F4 全程扫描执行</td><td>361 个位置逐个发布、接收、冻结并执行动作</td><td><span class="tag green">已达成</span></td><td><b>新达成</b></td></tr>
+<tr><td class="b">F5 每位置多组序列</td><td>每位置多组切换/触发在位置开始前预装</td><td><span class="tag orange">未落地</span></td><td>扩容方案被证伪</td></tr>
+<tr><td class="b">F6 就绪校验与完成证据</td><td>就绪按组校验、位置级实际边沿证据</td><td><span class="tag gray">未开始</span></td><td>—</td></tr>
+</tbody></table></div>
+<div class="bar">本轮核心：<strong>长扫描从「能跑三个位置」推进到「361 全程可用且有据」</strong></div>
+</div>
+<div class="page-footer"><span>依据：T2 进展日志 2026-10-16 条目、TODO 现状节、三轮台架实测</span><span>DHRT100 T2 功能状态报告 | 1 / 8</span></div>
+</div>
+
+<!-- 2/8 361 达成 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>本轮主结果：361 全程三从板执行</h1><div class="subtitle">连续三轮 | 残差全部有据 | 负载均衡</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>2026年10月16日</strong>星期四<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
+</div>
+<div class="main">
+<div class="note-box"><strong>本页定位：</strong>给出本轮唯一的目标性结论及其证据：长扫描 361 个位置是否真的逐个走通了「发布 → 接收 → 冻结 → 执行」。</div>
+<div class="section"><div class="section-title">一、连续三轮实测（同固件，只改引线参数）</div>
+<table class="compact compact-mini mini"><thead><tr><th>轮次</th><th>引线</th><th>切换 A</th><th>网关</th><th>切换 B</th><th>三从车道路径接收</th><th>环丢弃</th><th>失败（迟到/后端）</th></tr></thead><tbody>
+<tr><td>1</td><td>10%</td><td>355</td><td>355</td><td>354</td><td>49507 / 48194 / 49497</td><td>3.3k–4.4k</td><td>6/6/7 · 后端 ≤1</td></tr>
+<tr><td>2</td><td>13%</td><td><b>360</b></td><td><b>360</b></td><td><b>359</b></td><td>76076 / 73937 / 76083</td><td>5.1k–6.6k</td><td>1/1/2 · 其余 0</td></tr>
+<tr><td>3</td><td>20%</td><td><b>360</b></td><td>358</td><td><b>360</b></td><td>111636 / 108584 / 111467</td><td>7.5k–9.6k</td><td>1/1/1 · 后端 2（网关）</td></tr>
+</tbody></table>
+<div class="small-list" style="margin-top:5px;">每轮为「进窗 / 宣告 / 冻结 / 执行」四段读数中的<b>执行段</b>，单位「位置」。源端三轮均为 361/361/361/358/0，即全程无损、无放弃。三轮均为步骤全绿、执行判定通过、退出码 0。</div></div>
+<div class="section"><div class="section-title">二、结论与残差</div>
+<div class="note-box"><strong>成立的部分：</strong>361 个位置<b>全部被发布</b>；三块从板各自<b>进窗、宣告、冻结 361/361/361</b>（即每个位置都被三块板收到、解码并冻结）；<b>执行 354–360/361（98–99.7%）</b>；未执行的 1–3 个位置<b>全部有据</b>——直接原因是迟到（宣告引线覆盖不住从板流水线时延）与个别后端拒绝，不是链路丢位置。</div></div>
+<div class="section"><div class="section-title">三、为什么这一轮才算达成</div>
+<table class="compact"><thead><tr><th>此前</th><th>本轮</th><th>关键改动</th></tr></thead><tbody>
+<tr><td>只发布序号小于 3 的位置</td><td>361 个位置全部按窗口发布</td><td>源端冻结改由窗口条目驱动</td></tr>
+<tr><td>从板只消费固定的三个槽</td><td>从板按窗口条目消费并回收槽位</td><td>消费端迁到窗口驱动（已带凭证落地）</td></tr>
+<tr><td>粘性位导致槽位回收后新位置被挡</td><td>槽位完成/失败后清粘性位并设版本下限</td><td>槽位回收（recycle）</td></tr>
+<tr><td>时间基瞬态抖动会取消在飞位置并判失败</td><td>瞬态失效只推迟、不判失败</td><td>失败改为「可证迟到」时判定</td></tr>
+<tr><td>接收侧每遍只取一条，积压即丢新鲜记录</td><td>每遍有界批量排空，失效期间也排空</td><td>排空速率修复</td></tr>
+<tr><td>宣告引线固定 5%，不足以覆盖流水线时延</td><td>引线可调，13–20% 为佳</td><td>引线参数化</td></tr>
+</tbody></table></div>
+<div class="bar">结论：<strong>「361 个位置正常发布 + 各从机接收、解码并执行序列动作」在台架成立，覆盖 98–99.7%，残差有据</strong></div>
+</div>
+<div class="page-footer"><span>依据：2026-10-16 三轮台架日志（steps-20261016-015655 / 020822 / 021933）</span><span>DHRT100 T2 功能状态报告 | 2 / 8</span></div>
+</div>
+
+<!-- 3/8 F1/F2 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>F1/F2 配置、时间片与预测</h1><div class="subtitle">已成立 | 本轮改动落在消费端</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>2026年10月16日</strong>星期四<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
+</div>
+<div class="main">
+<div class="note-box"><strong>本页定位：</strong>这两项功能在上一版已成立，本页只记状态与本轮变化，避免重复陈述。</div>
+<div class="section"><div class="section-title">一、F1 配置与静态部署</div>
+<table class="compact"><thead><tr><th>能力</th><th>状态</th><th>证据</th></tr></thead><tbody>
+<tr><td>位置参数一次性配置（12 参数）与扫描几何校验</td><td><span class="tag green">可用</span></td><td>361 位置的扫描读回自洽；六类拒绝理由 fail-closed</td></tr>
+<tr><td>部署/模板/PIO/IO 装载并读回</td><td><span class="tag green">可用</span></td><td>四板静态装载读回成功；连续启停不减少程序槽位</td></tr>
+<tr><td>运行中不热加载、代际隔离</td><td><span class="tag green">可用</span></td><td>装载只在停机维护窗口；旧代动作表被拒</td></tr>
+<tr><td>长扫描统一启动事务</td><td><span class="tag orange">未落地</span></td><td>仍是停机下逐板配置，尚未事务化为一次启动前部署</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、F2 基准时间片与预测</div>
+<table class="compact"><thead><tr><th>能力</th><th>状态</th><th>证据与本轮变化</th></tr></thead><tbody>
+<tr><td>四板共同时间片坐标推进</td><td><span class="tag green">可用</span></td><td>四板坐标持续推进，轮询跨格不误判丢同步</td></tr>
+<tr><td>滚动窗口预测（在途 1～2 个位置）</td><td><span class="tag green">可用</span></td><td>361 全程轮中窗口进入与宣告一致，无未宣告覆盖</td></tr>
+<tr><td>阈值冻结与宣告引线</td><td><span class="tag green">可用</span></td><td><b>本轮变化：</b>引线做成可调；5% 引线不足，13–20% 在本台架工况下可零丢失或接近零</td></tr>
+<tr><td>消费端按窗口驱动</td><td><span class="tag green">本轮落地</span></td><td><b>本轮变化：</b>从板消费越过早期三槽结构，改按窗口条目消费并回收槽位（已带凭证）</td></tr>
+<tr><td>每序号预测版本容量</td><td><span class="tag orange">待量化</span></td><td>版本号 16 位，361 位置下按槽递增可能耗尽；需台架量出每序号版本数</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">三、未闭合</div>
+<div class="todo-box">动作时限余量：负载在位时从板相位起始迟到与错过期限仍高于空载，属执行侧余量问题；长扫描统一启动事务与版本容量待收。</div></div>
+<div class="bar">结论：<strong>F1/F2 维持可用；本轮把消费端真正迁到窗口驱动，才有后面的 361 全程</strong></div>
+</div>
+<div class="page-footer"><span>依据：TODO 现状节「已完成（含证据）」、361 全程轮窗口读数</span><span>DHRT100 T2 功能状态报告 | 3 / 8</span></div>
+</div>
+
+<!-- 4/8 F3 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>F3 位置承载：广播语义与读数纪律</h1><div class="subtitle">已成立 | 上一版的一处判断已作废</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>2026年10月16日</strong>星期四<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
+</div>
+<div class="main">
+<div class="note-box"><strong>本页定位：</strong>位置怎么送到各板、该用什么读数判断，以及上一版报告在这里的<b>口径更正</b>。</div>
+<div class="section"><div class="section-title">一、承载语义（本轮定案）</div>
+<div class="flow">分发方式：车道对全部板广播同一批位置时间片（不是按板分发，也没有按板配额）
+板上行为：一旦收到（冻结的）时间片，就按本板静态配置的「规划距离」推出动作
+动作时刻 = 冻结时间片 + 本板静态延时（延时在部署期预先配好）
+执行条件：收到即执行，不再等第二次下发
+本轮更正：上一版报告的「按目标板分发 / 公平性 / 逐板到位率」作为目标<b>不成立</b>，该口径已作废</div></div>
+<div class="section"><div class="section-title">二、那「某块板读数偏低」说明什么</div>
+<div class="risk-box">车道路径的接收量在三块板间出现离散时，说明的是<b>接收侧</b>（单深度邮箱 + 有界转交环）的争用与背压，<b>不是</b>分发不公平或缺位置。缺位置要在「广播 → 板内消费 → 冻结 → 执行」这条链路上查，不能在分发表上查。上一版据此提出的「改为每目标独立副本或单播」据此<b>不再作为待办</b>。</div></div>
+<div class="section"><div class="section-title">三、本轮实测：均衡性已大幅改善</div>
+<table class="compact"><thead><tr><th>读数</th><th>修复前</th><th>本轮</th></tr></thead><tbody>
+<tr><td>三从板车道路径接收</td><td>134k / 66k / 134k（相差一倍）</td><td>49.5k / 48.2k / 49.5k（几乎相同），更高速率下 111.6k / 108.6k / 111.5k</td></tr>
+<tr><td>有界环丢弃</td><td>176k–214k</td><td>3.3k–9.6k（降约 20–60 倍）</td></tr>
+<tr><td>被压垮的板</td><td>每轮固定有一块完全不消费</td><td>三轮均三块同时消费且执行 354–360</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">四、读数纪律（仍必须遵守）</div>
+<div class="todo-box">
+<div>• 判定分发只看<b>一等席车道的接收计数</b>（仅解码并提交成功才自增）。</div>
+<div>• 经典的接收完成计数在一等席拥有运输时被设计性跳过，正常分发下<b>恒为零</b>；按它判读会得到相反结论。</div>
+<div>• 位掩码类读数<b>不是计数</b>：例如「7」表示三个槽位，不能读成七次。</div>
+</div></div>
+<div class="bar">结论：<strong>F3 成立——广播承载、三块板均衡消费；分发「公平性」一说不成立并已撤回</strong></div>
+</div>
+<div class="page-footer"><span>依据：TODO 2026-10-15 用户澄清条目、三轮分发读数对比、读数归属定案</span><span>DHRT100 T2 功能状态报告 | 4 / 8</span></div>
+</div>
+
+<!-- 5/8 F4 达成细节 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>F4 全程执行：达成路径与可控旋钮</h1><div class="subtitle">每个环都有反证或台架对照</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>2026年10月16日</strong>星期四<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
+</div>
+<div class="main">
+<div class="note-box"><strong>本页定位：</strong>把「361 全程能被跑通」的因果链讲清楚：改了哪几处、每处凭什么说是它、以及现场还能调什么。</div>
+<div class="section"><div class="section-title">一、六个环节与本轮改动</div>
+<table class="compact"><thead><tr><th>环节</th><th>本轮改动</th><th>反证或对照</th></tr></thead><tbody>
+<tr><td>源端发布范围</td><td>冻结改由窗口条目驱动，不再只发序号小于 3 的位置</td><td>源端三轮 361/361/361/358/0</td></tr>
+<tr><td>从板消费范围</td><td>按窗口条目消费并回收槽位（越过早期三槽结构）</td><td>修复前同板冻结 0 / 执行 0 / 标记被拒 34，修复后冻结 4 / 执行 3</td></tr>
+<tr><td>状态机跳级</td><td>先宣告再冻结，禁止跳级</td><td>此前每次直接置冻结都被拒</td></tr>
+<tr><td>槽位重解状态</td><td>重新解算时复位进入态，不再保留旧状态</td><td>同实例重解路径此前保留旧状态</td></tr>
+<tr><td>粘性位</td><td>槽位完成/失败后清粘性位并设版本下限</td><td>此前同槽新位置被冻结位与回执位早退挡住</td></tr>
+<tr><td>时间基瞬态</td><td>瞬态失效只推迟，不取消在飞位置、不判失败</td><td>此前每次抖动成批判失败 2–4 个；改后失败只在可证迟到时发生</td></tr>
+<tr><td>接收排空</td><td>每遍有界批量排空，时间基失效期间也排空</td><td>把排空条数临时置 1，批量排空用例立即变红</td></tr>
+<tr><td>宣告引线</td><td>引线参数化（5% 不足，13–20% 为宜）</td><td>5% 时残差 100% 是迟到；20% 时两块板零丢失</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、现场可控的三个旋钮</div>
+<table class="compact"><thead><tr><th>旋钮</th><th>作用</th><th>当前取值</th></tr></thead><tbody>
+<tr><td>宣告引线（阈值比例）</td><td>引线越长越能覆盖从板流水线时延，但会增加预览流量</td><td>13–20% 区间（台架建议）</td></tr>
+<tr><td>每遍排空条数</td><td>提高接收侧排空速率，缓解单深度邮箱占满</td><td>4 条/遍</td></tr>
+<tr><td>有界转交环深度</td><td>加深可缓解突发，但不改变竞争语义</td><td>4</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">三、怎么判「引线够不够」</div>
+<div class="note-box">现场判据就是五类失败计数：<b>迟到类非零 ⇒ 加引线或降低扫描速率</b>。失败已按原因分类可读（迟到／过期／无方案／冲突／后端），因此残差可归因，不再需要靠推断。</div></div>
+<div class="bar">结论：<strong>F4 达成有完整因果链，每个环节都有反证或对照；引线与排空是留给现场的余量旋钮</strong></div>
+</div>
+<div class="page-footer"><span>依据：2026-10-16 条目 -001…-008、宿主反证用例、三轮台架对照</span><span>DHRT100 T2 功能状态报告 | 5 / 8</span></div>
+</div>
+
+<!-- 6/8 F5 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>F5 每位置多组序列：容量方案被证伪</h1><div class="subtitle">未落地 | 需要内存友好方案</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>2026年10月16日</strong>星期四<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
+</div>
+<div class="main">
+<div class="note-box"><strong>本页定位：</strong>本轮达成的 361 全程是「每位置一个动作组」。本页说明为什么「每位置多组」仍未落地，以及新增的一条实测否证。</div>
+<div class="section"><div class="section-title">一、当前能力与目标口径</div>
+<table class="compact"><thead><tr><th>项</th><th>现状</th><th>目标口径</th></tr></thead><tbody>
+<tr><td>每位置动作组数</td><td>1 组（本轮 361 全程即单组）</td><td>多组（当前口径 16 组）</td></tr>
+<tr><td>预装时机</td><td>动作模板在启动前装载</td><td>16 组在<b>位置开始前</b>全部预装并读回</td></tr>
+<tr><td>执行端在途</td><td>一次一个待执行动作，第二个被拒</td><td>两组滑动窗口，一组完成即推入下一组</td></tr>
+<tr><td>组间隔</td><td>—</td><td>按网分最坏响应时间加建立余量；组间不由就绪信号推进</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、本轮新增否证：直接把容量扩到 16 不可行</div>
+<div class="risk-box"><strong>模板表容量 8 → 16 的改动已被实测证伪：</strong>扩展后出现 DPLL 相位超出预算（相位超过 1000 ns），说明该扩容方式不可接受，必须改走<b>内存友好方案</b>。因此「把容量改大」这条路已经关闭，多组序列需要另找实现形态。</div></div>
+<div class="section"><div class="section-title">三、两个前置分别归谁</div>
+<table class="compact"><thead><tr><th>前置</th><th>归属</th><th>状态</th></tr></thead><tbody>
+<tr><td>执行端深度 2 队列</td><td>SYNC_IO 域（跨域接口变更）</td><td>已在对方域登记前置，T2 侧待其提供</td></tr>
+<tr><td>多组序列模板与预装</td><td>T2 域</td><td>方案待重定（原扩容路径已证伪）</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">四、未闭合</div>
+<div class="todo-box">
+<div>• 冻结后未装填的动作随最新本地时间映射重算，已被硬件接受的不追改（当前被冻结门槛抑制）。</div>
+<div>• 模型源侧「每位置 16 组」（总数 181×16、故障为零）是模型源自身直连实测，属模型源证据，不能当作 T2 链路已支持 16 组。</div>
+<div>• 多组方案重定后需与执行端容量同批落地，单独改一侧不会让多组跑起来。</div>
+</div></div>
+<div class="bar">结论：<strong>F5 未落地；本轮进一步关闭了「直接扩容」这条路，多组序列需要内存友好方案</strong></div>
+</div>
+<div class="page-footer"><span>依据：TODO 阻塞项 B9（容量 8→16 被实测证伪）、执行端单槽核实、模型源直连实测</span><span>DHRT100 T2 功能状态报告 | 6 / 8</span></div>
+</div>
+
+<!-- 7/8 F6 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>F6 就绪校验与物理证据</h1><div class="subtitle">未开始 | 本轮无进展</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>2026年10月16日</strong>星期四<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
+</div>
+<div class="main">
+<div class="note-box"><strong>本页定位：</strong>诚实记录这一项在本轮没有推进，并说明它为什么不影响「361 全程」的结论。</div>
+<div class="section"><div class="section-title">一、状态</div>
+<table class="compact"><thead><tr><th>判据</th><th>状态</th><th>说明</th></tr></thead><tbody>
+<tr><td>就绪信号按组关联上一动作并做重叠校验</td><td><span class="tag gray">未开始</span></td><td>网关具备上升沿计数能力，缺按位置关联的物理时间戳与重叠窗口结论</td></tr>
+<tr><td>位置级实际边沿证据</td><td><span class="tag gray">未开始</span></td><td>需要硬件时间戳与位置编号绑定；当前无示波器边沿证据</td></tr>
+<tr><td>无缺脉冲 / 多脉冲证明</td><td><span class="tag gray">未开始</span></td><td>属闭环验收范围</td></tr>
+<tr><td>板端动作完成</td><td><span class="tag green">已成立</span></td><td>本轮 354–360/361 为提交/回执判定，达标但不等价于引脚边沿</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、为什么不影响本轮结论</div>
+<div class="note-box">本轮验收的是<b>功能能否成立</b>：位置是否发布、是否被各板接收解码冻结、是否被执行。这三段都由板端可读回的事实判定，因此结论成立。物理边沿证据是<b>精度与资格</b>层面的验收，属后续门禁，本轮不宣称。</div></div>
+<div class="section"><div class="section-title">三、判读口径</div>
+<table class="compact compact-mini mini"><thead><tr><th>看到的现象</th><th>正确解释</th></tr></thead><tbody>
+<tr><td>某位置未执行且失败计数为迟到</td><td>宣告引线不足以覆盖从板流水线时延，加引线或降扫描速率</td></tr>
+<tr><td>某位置未执行且原因为后端</td><td>后端拒绝，属个案，需单独归因，不是链路丢位置</td></tr>
+<tr><td>执行数与进窗数不等但有放弃计数</td><td>差额已被计数，属可归因残差，不是静默丢失</td></tr>
+<tr><td>三块板车道路径接收量相差较大</td><td>接收侧争用与背压，不能读成「分发不公平」</td></tr>
+</tbody></table></div>
+<div class="bar">诚实边界：<strong>本阶段完成的是功能成立性；就绪校验与位置级物理边沿证据仍未开始，不据此授权精度声明</strong></div>
+</div>
+<div class="page-footer"><span>依据：TODO 里程碑 M4/M5 状态、本轮动作判据归属</span><span>DHRT100 T2 功能状态报告 | 7 / 8</span></div>
+</div>
+
+<!-- 8/8 批次收口 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>批次收口：代码待 P3 凭证</h1><div class="subtitle">五次尝试未过 | 失败点在基础件</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>2026年10月16日</strong>星期四<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
+</div>
+<div class="main">
+<div class="note-box"><strong>本页定位：</strong>说明本轮为什么「功能达成了但代码还没提交」，以及卡在哪里——这属于交付状态，不属于功能状态。</div>
+<div class="section"><div class="section-title">一、P3 五次尝试</div>
+<table class="compact"><thead><tr><th>#</th><th>命令</th><th>结果</th></tr></thead><tbody>
+<tr><td>1</td><td>完整档验收</td><td>失败于四节点进程镜像：调度门与 DPLL 运行超额</td></tr>
+<tr><td>2</td><td>完整档验收（复跑）</td><td>失败于数据重复步骤：每板调度错过计数 76k–89k</td></tr>
+<tr><td>3</td><td>规定档验收</td><td>失败于 <b>step 29</b> 四板联合采集：内部健康判定不通过</td></tr>
+<tr><td>4</td><td>规定档（重试）</td><td>同上一步；三块板中一块输出在窗口内提前到期</td></tr>
+<tr><td>5</td><td>恢复流程后复跑</td><td>同上一步；三块板输出提前到期（失败板漂移）</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、失败性质</div>
+<div class="risk-box"><strong>与 T2 无关：</strong>失败模式是板上 VDC 运行输出在 60 秒窗口内<b>提前到期</b>，且随轮次在不同板之间漂移；验收本身不配置 T2（T2 服务立即返回）。四板的内部评估（结构、区间、校验、覆盖、分箱成功率、观测时长）均通过。⇒ 症状指向基础件的输出存活（VDC 与同步 IO 输出路径），不是 T2 链路语义。</div></div>
+<div class="section"><div class="section-title">三、门禁与提交状态</div>
+<table class="compact"><thead><tr><th>项</th><th>状态</th></tr></thead><tbody>
+<tr><td>固件与工具改动</td><td>保持在工作区，<b>未提交</b>（失败轮只留下隔离的临时回执，不满足提交门禁）</td></tr>
+<tr><td>文档改动</td><td>本轮实际提交，含进展条目、待办现状、顶层刷新与轮转归档</td></tr>
+<tr><td>是否绕过门禁</td><td>未使用任何绕过手段</td></tr>
+<tr><td>已登记的契约</td><td>三项已登记；独立交叉复核<b>待他人签署</b></td></tr>
+<tr><td>新增页尾字段与采样器改动</td><td>契约登记与交叉复核随批次收口一并办</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">四、下一轮建议顺序</div>
+<div class="flow">① 先查「输出为何在窗口内到期」——VDC 运行输出的租约/时长/边沿配置与同步 IO 输出路径，属基础件一侧
+② 若判定为台架物理或板状态问题，按仓库既有做法冷启动后再跑规定档
+③ 凭证到手后把代码与回执同批 stage 提交（回执从索引读回）
+④ 再办新增页尾字段与采样器改动的契约登记与独立复核</div></div>
+<div class="bar">交付口径：<strong>功能已达成但代码未提交；阻塞在基础件的输出存活，不是 T2 本身</strong></div>
+</div>
+<div class="page-footer"><span>依据：T2 进展 2026-10-16 收口条目、TODO 现状节收口段；未核验项据实保留</span><span>DHRT100 T2 功能状态报告 | 8 / 8</span></div>
+</div>
+
+</body></html>

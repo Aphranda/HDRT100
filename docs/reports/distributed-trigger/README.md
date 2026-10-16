@@ -4,7 +4,7 @@ Status: Active
 Domain: RELEASE
 Canonical: `docs/reports/distributed-trigger/README.md`
 Related: `docs/reports/README.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-Last updated: 2026-10-15
+Last updated: 2026-10-16
 
 本目录保存分布式触发技术报告、历史完整报告和仓库摘要。
 
@@ -25,7 +25,7 @@ Last updated: 2026-10-15
 
 | 路径 | 定位 |
 |---|---|
-| `DHRT100_T2_STATUS_REPORT_20261015.html` / `DHRT100_T2_STATUS_REPORT_20261015.pdf` | T2 预约触发**功能清单与实现状态**：A4 竖版七页，按 F1 配置与静态部署／F2 基准时间片／F3 预测与冻结／F4 位置承载／F5 本地动作执行／F6 诊断读回六项功能陈述能否成立、证据与未闭合项，并给出功能状态一览与判读口径；实验快照。取代同日期的 `DHRT100_T2_STATUS_REPORT_20261013.html`（旧版按代码行号组织，已删除，内容并入本版）。 |
+| `DHRT100_T2_STATUS_REPORT_20261016.html` / `DHRT100_T2_STATUS_REPORT_20261016.pdf` | T2 预约触发**功能状态报告**：A4 竖版八页。主结果：**361 全程达成**——连续三轮，源端全程无损，三从板各自进窗·宣告·冻结 361/361/361、执行 354–360/361（98–99.7%），残差全部有据且负载均衡。功能面按 F1 配置与静态部署／F2 时间片与预测／F3 位置承载／F4 全程执行／F5 每位置多组序列／F6 就绪与物理证据陈述，另附批次收口（代码待 P3 凭证）。**已撤回**上一版「按板分发公平性」的判断：车道是向四板广播同一批时间片，板侧按静态延时执行，不存在按板分发目标。取代 `DHRT100_T2_STATUS_REPORT_20261015.html`（已删除，内容并入本版）。 |
 | `DHRT100_PROJECT_OVERVIEW_REPORT_20260919.html` / `DHRT100_PROJECT_OVERVIEW_REPORT_20260919.pdf` | 项目综述更新版：沿用 A4 竖版模板，面向总体架构评审，覆盖当前 HAOFV、四板 DPLL、无外参十分钟、外参相干性及调参实测，保留明确进度口径。 |
 | `DHRT100_PROJECT_OVERVIEW_REPORT_20260827.html` / `DHRT100_PROJECT_OVERVIEW_REPORT_20260827.pdf` | 2026-08-27 项目综述历史快照，保留原版。 |
 | `DHRT100_DPLL_STATUS_REPORT_20260918.html` / `DHRT100_DPLL_STATUS_REPORT_20260918.pdf` | 四板 DPLL 阶段报告：A4 竖版七页，按统一接口组织为 功能块（一–四）／平台底座（五–八）／机制分解（九–十一）／实测（十二–十七）／改进与验证（十八–二十一）／门禁（二十二–二十四）；实验快照。 |
