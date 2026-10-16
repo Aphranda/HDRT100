@@ -73,9 +73,20 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
         !scpi_trigger_grid_uint(context, UINT32_MAX, &pulses_per_degree) ||
         !scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
 
+    /* Optional 13th field: the promised window in coarse ordinals (a descriptor is
+     * valid until target + window). Older callers send 12 fields and keep the
+     * built-in grace, so the freeze/window budget becomes a STOP-state install
+     * parameter that can be tuned without a re-flash. */
+    uint32_t window_field = 0u;
+    const bool window_given = SCPI_ParamUInt32(context, &window_field, FALSE) == TRUE;
+    if (window_given &&
+        (window_field == 0u || window_field > TRIGGER_T2_DESCRIPTOR_WINDOW_MAX))
+        return scpi_trigger_t2_fail(context);
+
     trigger_grid_preview_snapshot_t grid;
     trigger_deployment_snapshot_t deployment;
     trigger_action_template_store_snapshot_t templates;
+    trigger_turntable_scan_geometry_t geometry;
     if (trigger_grid_preview_snapshot(&grid) || !grid.configured) {
         tdma_seat_mount_store_note_reject(91u);
         return scpi_trigger_t2_fail(context);
@@ -108,8 +119,13 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
     /* Fail-closed: a scan whose STEP/rolls/ppd cannot be run must be refused HERE, not
      * discovered after ARM. The derived geometry (positions, whole step_pulses, travel)
      * is read back through T2? once the runtime enters the window at start. */
-    if (trigger_turntable_scan_validate(&config.predictor, step_mdeg, 0u, NULL) !=
+    if (trigger_turntable_scan_validate(&config.predictor, step_mdeg, 0u, &geometry) !=
         TRIGGER_TURNTABLE_SCAN_OK)
+        return scpi_trigger_t2_fail(context);
+    /* A: a declaration lead thinner than the measured floor cannot be saved by anything
+     * downstream - it fails the configure instead of the run. */
+    if (geometry.step_pulses * (1000u - threshold) / 1000u <
+        TRIGGER_T2_MIN_DECLARE_LEAD_PULSES)
         return scpi_trigger_t2_fail(context);
     config.templates=templates.table;
     config.deployment=deployment.active.table;
@@ -118,7 +134,8 @@ scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context)
     config.local_role=deployment.active.local_role;
     config.source_slot=(uint32_t)source_slot;
     config.target_mask=(uint32_t)target_mask;
-    config.descriptor_window_sync=TRIGGER_T2_DESCRIPTOR_TARGET_GRACE_SYNC;
+    config.descriptor_window_sync = window_given ? window_field :
+        TRIGGER_T2_DESCRIPTOR_TARGET_GRACE_SYNC;
     config.origin=(uint32_t)origin;
     scpi_t2_stopped_request_t request={.config=&config};
     return scpi_trigger_grid_result(context,
@@ -380,5 +397,34 @@ scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context)
      * deadline to the backend. */
     for (uint32_t reason = 0u; reason < TRIGGER_T2_ACTION_FAIL_COUNT; ++reason)
         SCPI_ResultUInt32(context, s.action_fail_reason[reason]);
+    /* Appended after the fail reasons: the per-position GROUP SEQUENCE progress of
+     * T2-SEQ-001. Appending keeps every earlier index where it was. Without these a
+     * sequence that arms but never advances is indistinguishable from one that never
+     * armed: groups_executed counts completed groups, group_count the mounted role's
+     * groups, and the remaining words pack, per position slot, the next group to
+     * prepare (4 bits), the group in flight (4 bits, 0xF = none) and the bitmask of
+     * completed groups (8 bits). */
+    SCPI_ResultUInt32(context, s.action_groups_executed);
+    SCPI_ResultUInt32(context, s.action_group_count);
+    SCPI_ResultUInt32(context, trigger_t2_runtime_group_pack(0u));
+    SCPI_ResultUInt32(context, trigger_t2_runtime_group_pack(1u));
+    SCPI_ResultUInt32(context, trigger_t2_runtime_group_pack(2u));
+    /* Appended after the group words: the FREEZE lead evidence of this board. The
+     * design promise is "freeze early, act later", so these say how much budget the
+     * rest of the chain actually had: the smallest and the newest lead left when a
+     * position froze (coarse ordinals), how often a FREEZE was admitted at or after
+     * its own target, and the window's resend/abandon pressure. */
+    SCPI_ResultUInt32(context, s.freeze_lead_min_slices);
+    SCPI_ResultUInt32(context, s.freeze_lead_last_slices);
+    SCPI_ResultUInt32(context, s.freeze_lead_expired_count);
+    SCPI_ResultUInt32(context, s.freeze_resend_count);
+    SCPI_ResultUInt32(context, s.freeze_abandoned_count);
+    /* A: the DECLARED lead this board actually gave (target ordinal minus announce
+     * ordinal, in coarse ordinals = ms), minimum and last over the run. */
+    /* v1 segmentation, all packed min|last<<16: declared lead at announce (origin),
+     * lead at FREEZE staging (origin), lead at arm (follower). */
+    SCPI_ResultUInt32(context, s.declare_lead_pack);
+    SCPI_ResultUInt32(context, s.stage_lead_pack);
+    SCPI_ResultUInt32(context, s.arm_lead_pack);
     return SCPI_RES_OK;
 }

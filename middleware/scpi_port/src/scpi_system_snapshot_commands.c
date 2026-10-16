@@ -3149,18 +3149,29 @@ scpi_result_t scpi_cmd_system_tdma_flight_fifo_reset(scpi_t *context)
 
 scpi_result_t scpi_cmd_system_tdma_seat_rotation(scpi_t *context)
 {
-    uint32_t priority_share = 0u, first_class_share = 0u;
+    uint32_t priority_share = 0u, first_class_share = 0u, second_class_share = 0u;
     if (!scpi_port_read_u32(context, &priority_share) ||
-        !scpi_port_read_u32(context, &first_class_share) ||
-        !tdma_seat_rotation_valid(priority_share, first_class_share) ||
-        !tdma_runtime_owner_set_seat_rotation(priority_share,
-                                              first_class_share)) {
+        !scpi_port_read_u32(context, &first_class_share)) {
+        scpi_port_push_exec_error(context, "TDMA_SEAT_ROTATION");
+        return SCPI_RES_ERR;
+    }
+    /* Optional third field (owner decision 2026-10-16): slots of the cycle reserved for
+     * the path that does not use the fast channel. Absent => 0 => the two-share
+     * behaviour, so an existing caller keeps working unchanged. */
+    uint32_t third = 0u;
+    const bool has_third = SCPI_ParamUInt32(context, &third, FALSE) == TRUE;
+    if (has_third) second_class_share = third;
+    if (!tdma_seat_rotation_valid3(priority_share, first_class_share,
+                                  second_class_share) ||
+        !tdma_runtime_owner_set_seat_rotation3(priority_share, first_class_share,
+                                              second_class_share)) {
         scpi_port_push_exec_error(context, "TDMA_SEAT_ROTATION");
         return SCPI_RES_ERR;
     }
     SCPI_ResultText(context, "OK");
     SCPI_ResultUInt32(context, priority_share);
     SCPI_ResultUInt32(context, first_class_share);
+    SCPI_ResultUInt32(context, second_class_share);
     return SCPI_RES_OK;
 }
 
@@ -3186,13 +3197,19 @@ scpi_result_t scpi_cmd_system_tdma_seat_rotation_q(scpi_t *context)
         snapshot.seat_rotation_first_class_share);
     SCPI_ResultUInt32(context, priority_share);
     SCPI_ResultUInt32(context, first_class_share);
-    SCPI_ResultUInt32(context, priority_share + first_class_share);
+    /* Cycle length actually walked: the two fast seats plus the slots reserved for the
+     * path that does not use the fast channel (0 => the pre-three-share cycle). */
+    const uint32_t second_class_share = snapshot.seat_rotation_second_class_share;
+    SCPI_ResultUInt32(context, priority_share + first_class_share + second_class_share);
     SCPI_ResultUInt32(context, TDMA_SEAT_ROTATION_SHARE_MAX);
     SCPI_ResultUInt32(context, TDMA_SEAT_ROTATION_CYCLE_MAX);
     SCPI_ResultUInt32(context, TDMA_SEAT_FIRST_CLASS_WAIT_MAX_OPPORTUNITIES);
     SCPI_ResultUInt32(context, DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH);
     SCPI_ResultUInt32(context, DISTRIBUTED_REFMEM_POSITION_HOLD_MAX_ATTEMPTS);
     SCPI_ResultUInt32(context, TDMA_LOOP_SCHEDULE_ENABLED);
+    /* Appended for the three-share form: reserved second-class slots per cycle. Older
+     * readers take the first 11 fields and see 0 here only when nothing is reserved. */
+    SCPI_ResultUInt32(context, second_class_share);
     return SCPI_RES_OK;
 }
 

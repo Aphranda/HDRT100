@@ -687,6 +687,14 @@ bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled)
 bool tdma_runtime_owner_set_seat_rotation(uint32_t priority_share,
                                           uint32_t first_class_share)
 {
+    /* Two-share entry point: no slots reserved for the ordinary path. */
+    return tdma_runtime_owner_set_seat_rotation3(priority_share, first_class_share, 0u);
+}
+
+bool tdma_runtime_owner_set_seat_rotation3(uint32_t priority_share,
+                                           uint32_t first_class_share,
+                                           uint32_t second_class_share)
+{
     tdma_ring_runtime_snapshot_t ring;
     if (!s_tdma_runtime_owner_initialized ||
         !tdma_ring_runtime_get_snapshot(&s_tdma_runtime_owner.ring_runtime,
@@ -694,8 +702,11 @@ bool tdma_runtime_owner_set_seat_rotation(uint32_t priority_share,
         ring.enabled != 0u || ring.adapter_started != 0u) {
         return false;
     }
-    return tdma_pio_spi_ring_adapter_set_seat_rotation(
-        &s_tdma_pio_spi_ring_adapter, priority_share, first_class_share);
+    /* STOP-only: the adapter refuses a started instance as well, so a race cannot
+     * install a new ratio while the ring runs. */
+    return tdma_pio_spi_ring_adapter_set_seat_rotation3(
+        &s_tdma_pio_spi_ring_adapter, priority_share, first_class_share,
+        second_class_share);
 }
 
 bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled)

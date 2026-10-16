@@ -178,10 +178,63 @@ int main(int argc,char **argv)
     trigger_t2_runtime_config_t c=config(!strcmp(test,"origin") || !strcmp(test,"origin_resend") ||
         !strcmp(test,"origin_pending") || !strcmp(test,"origin_no_ack") || !strcmp(test,"origin_scan"));
     if (!strcmp(test,"capacity")) {
+        /* T2-SEQ-001: the board keeps EVERY row of its own role as the position's
+         * group sequence, up to the static table capacity, so a role with more
+         * than one row mounts (that used to be refused when one row per position
+         * was the whole model). */
         c.templates.count=2; c.templates.row[1]=c.templates.row[0];
         c.templates.row[1].template_id=8; c.templates.row[1].delta_q=10;
         c.template_crc=trigger_action_template_table_crc(&c.templates);
-        assert(!trigger_t2_runtime_configure(&c)); return 0;
+        assert(trigger_t2_runtime_configure(&c));
+        const trigger_t2_runtime_snapshot_t cap=snapshot();
+        assert(cap.action_group_count==2u);
+        assert(cap.action_group_next[0]==0u &&
+            cap.action_group_in_flight[0]==TRIGGER_T2_RUNTIME_GROUP_NONE);
+        /* The sequence is explicit about its starting group. */
+        assert(cap.action_group_done[0]==0u &&
+            cap.action_groups_executed==0u);
+        return 0;
+    }
+    if (!strcmp(test,"sequence")) {
+        /* T2-SEQ-001: one position runs the role's whole group sequence and is
+         * counted as executed only after its LAST group. Group 1 is prepared by
+         * Core0 from the same frozen slice and carries its own offset/argument. */
+        c.templates.count=2; c.templates.row[1]=c.templates.row[0];
+        c.templates.row[1].template_id=8; c.templates.row[1].delta_q=202;
+        c.template_crc=trigger_action_template_table_crc(&c.templates);
+        assert(trigger_t2_runtime_configure(&c));
+        assert(trigger_t2_runtime_start(11,0));
+        preview(&c,1,1,10,1);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        trigger_t2_runtime_prepare_core0();
+        freeze(1,1);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(schedule_calls==1 && snapshot().action_group_in_flight[0]==0u);
+        assert(snapshot().action_completed_mask==0u && !take());
+        /* Group 0 completes: the cursor advances, the position is NOT executed, and
+         * the in-flight window promotes group 1 in the SAME pass (no Core0 round
+         * trip between two groups of one position). */
+        receipts=true; now_ns=10000500u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        trigger_t2_runtime_snapshot_t seq=snapshot();
+        assert(seq.action_group_done[0]==1u && seq.action_group_next[0]==1u &&
+            seq.action_groups_executed==1u);
+        assert(seq.action_completed_mask==0u);
+        assert(!take());
+        assert(schedule_calls==2 && seq.action_group_in_flight[0]==1u);
+        /* Core0 republishes only to carry the tick of the group after the promoted one. */
+        trigger_t2_runtime_prepare_core0();
+        receipts=true; now_ns=20000500u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        trigger_action_runtime_event_t seq_event;
+        assert(trigger_t2_runtime_take_event(&seq_event));
+        assert(seq_event.position_id==1u && seq_event.template_id==8u);
+        assert(!take());
+        seq=snapshot();
+        assert(seq.action_completed_mask==1u && seq.action_group_done[0]==3u &&
+            seq.action_groups_executed==2u &&
+            !seq.action_failed_mask);
+        return 0;
     }
     if (!strcmp(test,"gateway")) {
         c.local_role=2; c.templates.row[0].role=2;
@@ -590,7 +643,10 @@ int main(int argc,char **argv)
     }
     local_offset_ns=2000u;
     trigger_t2_runtime_prepare_core0();
-    assert(inverse_calls==1 && !schedule_calls);
+    assert(inverse_calls==1);
+    assert(schedule_calls==0);
+    assert(inverse_calls==1);
+    assert(schedule_calls==0);
     if ((!strcmp(test,"independent_positions") || !strcmp(test,"all_events_retained"))) {
         for (unsigned pos=2;pos<=3;pos++) {
             preview(&c,pos,1,pos*10,1);
@@ -741,7 +797,7 @@ def runtime(tmp_path_factory):
 
 
 @pytest.mark.parametrize("case", ["origin", "origin_pending", "origin_resend", "origin_no_ack", "receiver", "fallback", "late_arrival", "wire_identity_ignored",
-    "expired", "freeze_missing", "freeze_stops_solve", "capacity", "gateway",
+    "expired", "freeze_missing", "freeze_stops_solve", "capacity", "sequence", "gateway",
     "independent_positions", "reject_no_retry", "stop", "restart", "identity",
     "wrong_receipt", "reject_uncertain", "conflict", "different_local_seq", "all_events_retained", "zero_pulse_index", "version_overflow", "version_limit",
     "follower_scan", "follower_scan_busy", "follower_scan_successor", "follower_overwrite_abandon", "burst_drain", "blip_drain", "origin_scan", "freeze_other_position", "scan_events_retained"])

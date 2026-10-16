@@ -521,8 +521,16 @@ def load_adapter(runtime_entrypoint: Path, *, board_uids=None, runtime_module=No
             else:
                 self.report["trial_intentionally_omitted"] = True
             self.save()
+            # The GUARD checkpoint runs from this board's own capture start, which
+            # trails the origin trial by the START/ARM latency. With a fixed +2 s
+            # margin the final STOP could land before a slow board's 60 s checkpoint,
+            # so that board read a retired output and latched OUTPUT_STOPPED while the
+            # peers passed. Keep the margin explicit, configurable and in the evidence.
+            margin = float(getattr(self.opt, "stop_margin_s", 8.0))
+            self.report["plan"]["stop_margin_s"] = margin
+            self.report["stop_margin_s"] = margin
             begun = time.monotonic()
-            helper.quiet_wait(self.opt.seconds + 2)
+            helper.quiet_wait(self.opt.seconds + margin)
             self.report["quiet_elapsed_s"] = time.monotonic() - begun
 
         def collect(self):

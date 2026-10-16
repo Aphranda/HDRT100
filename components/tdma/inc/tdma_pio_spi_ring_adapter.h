@@ -350,6 +350,34 @@ static inline bool tdma_seat_rotation_valid(uint32_t priority_share,
         priority_share + first_class_share <= TDMA_SEAT_ROTATION_CYCLE_MAX;
 }
 
+/* Three-share form (owner decision 2026-10-16): the third share is the time reserved
+ * for the path that does NOT use the fast channel ("second class" = ordinary frames /
+ * refmem image traffic). Because that class is defined by exclusion, reserving its time
+ * means the fast path must NOT claim the whole cycle: cycle = priority + first_class +
+ * second_class, and in the second_class slots neither fast seat boards.
+ * second_class == 0 reproduces today's behaviour exactly (cycle = p + f), so the
+ * two-share wrapper above stays the compatible entry point.
+ * Validation: each share within SHARE_MAX, at least one fast seat present, and the whole
+ * cycle within CYCLE_MAX. */
+static inline bool tdma_seat_rotation_valid3(uint32_t priority_share,
+    uint32_t first_class_share, uint32_t second_class_share)
+{
+    return priority_share >= 1u && first_class_share >= 1u &&
+        priority_share <= TDMA_SEAT_ROTATION_SHARE_MAX &&
+        first_class_share <= TDMA_SEAT_ROTATION_SHARE_MAX &&
+        second_class_share <= TDMA_SEAT_ROTATION_CYCLE_MAX &&
+        priority_share + first_class_share + second_class_share <=
+            TDMA_SEAT_ROTATION_CYCLE_MAX;
+}
+
+/* Cycle length the rotation walks: the two fast seats today, plus the reserved
+ * second-class slots once that share is configured. */
+static inline uint32_t tdma_seat_rotation_cycle(uint32_t priority_share,
+    uint32_t first_class_share, uint32_t second_class_share)
+{
+    return priority_share + first_class_share + second_class_share;
+}
+
 /* Configured share, or the compiled default when nothing was set. */
 static inline uint32_t tdma_seat_rotation_priority(uint32_t configured)
 {
@@ -372,6 +400,12 @@ typedef struct {
     /* TDMA-SEAT-01 rotation ratio in effect (compiled default when unset). */
     uint32_t seat_rotation_priority_share;
     uint32_t seat_rotation_first_class_share;
+    /* Reserved slots per rotation cycle for the path that does NOT use the fast
+     * channel (owner decision 2026-10-16: "second class = whatever does not go
+     * through the fast channel"). Zero keeps today's behaviour, where the cycle is
+     * exactly priority + first_class and the ordinary/refmem path only gets the
+     * leftovers; a non-zero value makes the fast path yield those slots. */
+    uint32_t seat_rotation_second_class_share;
     /* First-class seat service facts (zero while no seat object is attached):
      * stage attempts refused by the single-depth slot, and waiting records
      * retired before boarding. */
@@ -547,6 +581,11 @@ typedef struct {
      * runtime falls back to the compiled default. Frozen while started. */
     uint32_t seat_rotation_priority_share;
     uint32_t seat_rotation_first_class_share;
+    /* Reserved slots of the rotation cycle for the path that does NOT use the fast
+     * channel (owner decision 2026-10-16). Zero keeps today's behaviour, where the
+     * cycle is exactly priority + first_class; non-zero makes the fast path yield
+     * those slots to the ordinary / refmem (second-class) traffic. */
+    uint32_t seat_rotation_second_class_share;
     uint32_t started;
     uint32_t service_count;
     uint32_t forward_count;
@@ -791,6 +830,15 @@ bool tdma_pio_spi_ring_adapter_set_clock_evidence_enabled(
 /* TDMA-SEAT-01: set the origin rotation ratio (M:N) before the adapter starts.
  * Both shares must satisfy tdma_seat_rotation_valid(). Rejects a running
  * adapter so the ratio cannot change under a live emission sequence. */
+/* Three-share entry point (owner decision 2026-10-16). `second_class_share` reserves
+ * that many slots of the rotation cycle for the path that does not use the fast channel;
+ * 0 is exactly the two-share behaviour. Rejects a running adapter and any share set that
+ * cannot form a cycle. */
+bool tdma_pio_spi_ring_adapter_set_seat_rotation3(
+    tdma_pio_spi_ring_adapter_t *adapter, uint32_t priority_share,
+    uint32_t first_class_share, uint32_t second_class_share);
+uint32_t tdma_pio_spi_ring_adapter_seat_rotation_second_class(
+    const tdma_pio_spi_ring_adapter_t *adapter);
 bool tdma_pio_spi_ring_adapter_set_seat_rotation(
     tdma_pio_spi_ring_adapter_t *adapter, uint32_t priority_share,
     uint32_t first_class_share);

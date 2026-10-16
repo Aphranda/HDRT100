@@ -835,13 +835,33 @@ bool tdma_pio_spi_ring_adapter_set_seat_rotation(
     tdma_pio_spi_ring_adapter_t *adapter, uint32_t priority_share,
     uint32_t first_class_share)
 {
+    /* Two-share entry point: no slots reserved for the ordinary path, i.e. exactly the
+     * behaviour before the three-share form existed. */
+    return tdma_pio_spi_ring_adapter_set_seat_rotation3(adapter, priority_share,
+                                                        first_class_share, 0u);
+}
+
+bool tdma_pio_spi_ring_adapter_set_seat_rotation3(
+    tdma_pio_spi_ring_adapter_t *adapter, uint32_t priority_share,
+    uint32_t first_class_share, uint32_t second_class_share)
+{
     if (adapter == NULL || adapter->started != 0u ||
-        !tdma_seat_rotation_valid(priority_share, first_class_share)) {
+        !tdma_seat_rotation_valid3(priority_share, first_class_share,
+                                   second_class_share)) {
         return false;
     }
     adapter->seat_rotation_priority_share = priority_share;
     adapter->seat_rotation_first_class_share = first_class_share;
+    /* Reserved slots of the rotation cycle for the path that does not use the fast
+     * channel; 0 keeps the whole cycle with the two fast seats. */
+    adapter->seat_rotation_second_class_share = second_class_share;
     return true;
+}
+
+uint32_t tdma_pio_spi_ring_adapter_seat_rotation_second_class(
+    const tdma_pio_spi_ring_adapter_t *adapter)
+{
+    return adapter != NULL ? adapter->seat_rotation_second_class_share : 0u;
 }
 
 bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
@@ -3376,6 +3396,11 @@ bool tdma_pio_spi_ring_adapter_try_get_snapshot(
         snapshot->seat_rotation_first_class_share =
             tdma_seat_rotation_first_class(
                 adapter->seat_rotation_first_class_share);
+        /* Reserved slots for the path that does not use the fast channel: reported as
+         * configured (0 = the whole cycle belongs to the two fast seats, i.e. the
+         * pre-three-share behaviour). */
+        snapshot->seat_rotation_second_class_share =
+            adapter->seat_rotation_second_class_share;
         snapshot->first_class_stage_refused_count = adapter->first_class != NULL
             ? __atomic_load_n(&adapter->first_class->stage_refused_count,
                               __ATOMIC_RELAXED) : 0u;

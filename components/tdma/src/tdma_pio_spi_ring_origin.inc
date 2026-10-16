@@ -488,10 +488,21 @@ static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
         adapter->seat_rotation_priority_share);
     const uint32_t first_class_share = tdma_seat_rotation_first_class(
         adapter->seat_rotation_first_class_share);
-    const uint32_t cycle = priority_share + first_class_share;
-    const bool priority_leads =
-        adapter->origin.seat_opportunity_count % cycle < priority_share;
+    /* Three-share form (owner decision 2026-10-16): the cycle is p + f + s, and in the
+     * last s slots NEITHER fast seat boards - that time is reserved for the path that
+     * does not use the fast channel ("second class" = ordinary frames / refmem images).
+     * A yielded slot leaves both leases pending, so nothing is lost; it is deliberately
+     * NOT counted as first-class wait, because the seat was not passed over in favour of
+     * the other fast seat, the cycle simply reserves this opportunity. s == 0 reproduces
+     * the previous behaviour exactly.
+     * Evidence without a new counter: opportunities - priority - first_class = yields. */
+    const uint32_t second_class_share = adapter->seat_rotation_second_class_share;
+    const uint32_t cycle = priority_share + first_class_share + second_class_share;
+    const uint32_t slot = (cycle != 0u)
+        ? adapter->origin.seat_opportunity_count % cycle : 0u;
     adapter->origin.seat_opportunity_count++;
+    if (slot >= priority_share + first_class_share) return true;
+    const bool priority_leads = slot < priority_share;
     const bool board_first = first_pending && (!priority_new || !priority_leads);
     bool boarded = false;
     if (board_first) {

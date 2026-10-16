@@ -458,6 +458,11 @@ def parse_args(argv=None):
     p.add_argument('--scope-serial', default='HDO4A244301137',
                    help='required instrument serial from *IDN?; does not relax the HDO protocol')
     p.add_argument('--seconds', type=int, default=60)
+    p.add_argument('--stop-margin-s', type=float, default=8.0,
+                   help='margin added to seconds before the final STOP barrier: the board GUARD '
+                        'checkpoint runs from its own capture start, which is later than the origin '
+                        'trial by the START/ARM latency, so a STOP inside that skew makes the '
+                        'checkpoint read a retired output and latch OUTPUT_STOPPED')
     p.add_argument('--settle-s', type=float, default=5.0,
                    help='after START, windows up to this time are graded against the coarse 100 ns '
                         'bound only; later windows must hold the steady 50 ns band (0 disables)')
@@ -476,6 +481,8 @@ def parse_args(argv=None):
         p.error('seconds must be a whole minute from 60 through 600')
     if not math.isfinite(a.settle_s) or not 0 <= a.settle_s <= a.seconds:
         p.error('settle-s must be a finite allowance from 0 through seconds')
+    if not math.isfinite(a.stop_margin_s) or not 0 <= a.stop_margin_s <= 60:
+        p.error('stop-margin-s must be a finite allowance from 0 through 60')
     if (not math.isfinite(a.scope_threshold_ns) or
             not math.isfinite(a.scope_steady_threshold_ns) or
             a.scope_threshold_ns <= 0 or a.scope_steady_threshold_ns <= 0 or
@@ -531,6 +538,7 @@ def main():
             baseline=inputs.baseline, tap_baseline=inputs.tap_baseline,
             period_ns=1000000, scope=False, check_only=False, seconds=a.seconds, summary_interval_ms=10000,
             settle_s=a.settle_s,
+            stop_margin_s=a.stop_margin_s,
             scope_threshold_ns=a.scope_threshold_ns,
             scope_steady_threshold_ns=a.scope_steady_threshold_ns,
             no_reference=False, expire_output=False, external_scope=a.scope=='on', scope_trigger=a.scope_trigger,
@@ -548,6 +556,7 @@ def main():
              '--scope', a.scope, '--scope-trigger', a.scope_trigger,
              '--scope-resource', a.scope_resource, '--scope-serial', a.scope_serial,
              '--seconds', str(a.seconds), '--settle-s', str(a.settle_s),
+             '--stop-margin-s', str(a.stop_margin_s),
              '--scope-threshold-ns', str(a.scope_threshold_ns),
              '--scope-steady-threshold-ns', str(a.scope_steady_threshold_ns),
              '--out', str(a.out/'capture'), '--child']

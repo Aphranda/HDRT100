@@ -59,6 +59,12 @@ bool tdma_runtime_owner_set_flight_process_image_mode(bool enabled);
  * is enabled or the adapter has started; the ratio is frozen for the session. */
 bool tdma_runtime_owner_set_seat_rotation(uint32_t priority_share,
                                           uint32_t first_class_share);
+/* Three-share form (owner decision 2026-10-16): `second_class_share` reserves that many
+ * slots of the rotation cycle for the path that does not use the fast channel (ordinary
+ * frames / refmem images); 0 is exactly the two-share behaviour. STOP-only. */
+bool tdma_runtime_owner_set_seat_rotation3(uint32_t priority_share,
+                                           uint32_t first_class_share,
+                                           uint32_t second_class_share);
 bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled);
 bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled);
 bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled);

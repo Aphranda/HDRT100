@@ -59,6 +59,131 @@ def action_row(slot: int) -> tuple[int, int, int]:
     return slot, 1, 0                 # SWITCH_A (1) / SWITCH_B (3): switch code
 
 
+# Per-role group sequence (T2-SEQ-001 / T2-EXEC-002). The role's rows ARE the
+# sequence: group g of a position is row g, with its own channel code and its own
+# static offset delta_q, and the position counts as executed only after its last
+# group.
+#
+# TIMING IS A STOPPED-STATE INSTALL PARAMETER, NOT A BUILD PARAMETER: every group's
+# offset travels in its own TEMPlate row, so a new spacing/code set is a re-run of
+# the install (and of the scan) - it never needs a firmware build or a re-flash.
+# Precedence: command line > environment > --sequence-profile file > built-in default.
+#   --seq-groups 1,8,8,8          groups per role (COUNTER, SWITCH_A, GATEWAY, SWITCH_B)
+#   --seq-period-slices 20        group period P in fine slices (delta_q = offset + g*P)
+#   --seq-offset-slices 0,0,0,0   per-role base offset O_r in fine slices
+#   --seq-codes-a / --seq-codes-b per-group channel code / polarization level
+#   --seq-arg-g 20                GATEWAY pulse-width argument, used by every group
+# Environment names are the same with a T2_SEQ_ prefix (T2_SEQ_GROUPS, ...) and the
+# profile keys are groups, group_period_slices, group_offset_slices, codes,
+# gateway_pulse_argument (see config/trigger/t2_sequence_profile.json).
+# The built-in default is ONE row per role - the behaviour before the sequence
+# landed - because a sequence commands real switch and polarization lines.
+SEQ_ROLES = ("COUNTER", "SWITCH_A", "GATEWAY", "SWITCH_B")
+SEQUENCE_PROFILE_DEFAULT = "config/trigger/t2_sequence_profile.json"
+# Filled from the command line by main(); module level so the row builder stays pure.
+_sequence_cli: dict[str, str] = {}
+
+
+def set_sequence_options(profile=None, groups=None, period_slices=None, offsets=None,
+                         codes_a=None, codes_b=None, arg_g=None) -> None:
+    """Command-line overrides for the group program (None = not given)."""
+    _sequence_cli.clear()
+    _sequence_cli.update({
+        "profile": profile, "groups": groups, "period_slices": period_slices,
+        "offsets": offsets, "codes_a": codes_a, "codes_b": codes_b, "arg_g": arg_g})
+
+
+def _sequence_profile() -> dict:
+    path = (_sequence_cli.get("profile") or os.environ.get("T2_SEQ_PROFILE")
+            or SEQUENCE_PROFILE_DEFAULT)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except OSError:
+        return {}
+    except ValueError as error:
+        raise SystemExit(f"sequence profile {path} is not valid JSON: {error}")
+
+
+def _seq_env(name: str, default: str) -> list[str]:
+    return [item.strip() for item in os.environ.get(name, default).split(",")]
+
+
+def _seq_ints(value, what: str) -> list[int]:
+    if isinstance(value, list):
+        return [int(item) for item in value]
+    return [int(item.strip()) for item in str(value).split(",") if item.strip()]
+
+
+def sequence_program() -> tuple[list[int], int, list[int], list[int], list[int], int]:
+    profile = _sequence_profile()
+    codes = profile.get("codes") or {}
+    groups_value = (_sequence_cli.get("groups") or os.environ.get("T2_SEQ_GROUPS")
+                    or profile.get("groups") or "1,1,1,1")
+    groups = _seq_ints(groups_value, "groups")
+    if len(groups) != 4 or any(value < 1 for value in groups):
+        raise SystemExit("groups must be four positive counts (COUNTER,SWITCH_A,GATEWAY,SWITCH_B)")
+    period_value = (_sequence_cli.get("period_slices")
+                    if _sequence_cli.get("period_slices") is not None
+                    else os.environ.get("T2_SEQ_PERIOD_SLICES",
+                                        profile.get("group_period_slices", 12)))
+    period = int(period_value)
+    offsets_value = (_sequence_cli.get("offsets") or os.environ.get("T2_SEQ_OFFSET_SLICES")
+                     or profile.get("group_offset_slices") or "0,0,0,0")
+    offsets = _seq_ints(offsets_value, "offsets")
+    codes_a = _seq_ints(_sequence_cli.get("codes_a") or os.environ.get("T2_SEQ_CODES_A")
+                        or codes.get("SWITCH_A") or "0", "codes_a")
+    codes_b = _seq_ints(_sequence_cli.get("codes_b") or os.environ.get("T2_SEQ_CODES_B")
+                        or codes.get("SWITCH_B") or "0", "codes_b")
+    arg_value = (_sequence_cli.get("arg_g") if _sequence_cli.get("arg_g") is not None
+                 else os.environ.get("T2_SEQ_ARG_G", profile.get("gateway_pulse_argument", 20)))
+    arg_g = int(arg_value)
+    if period < 0:
+        raise SystemExit("group period must not be negative")
+    if len(offsets) != 4:
+        raise SystemExit("group offsets must be four values")
+    return groups, period, offsets, codes_a, codes_b, arg_g
+
+
+def sequence_rows(slot: int) -> list[tuple[int, int, int, int, int]]:
+    """(role, kind, argument, span_slices, delta_q) for each group of this role.
+
+    Codes follow the reservation sequence of the node-sequence branch
+    (trigger_reservation_build_plan): one per-position sequence of
+    TRIGGER_RESERVATION_ITEM_COUNT items, item i carrying
+    output_code = (i // 2) | (level << 2) - the SP8T channel steps every second
+    item and the polarization is the item's parity. Per role that is:
+      SWITCH_A (channel):   i // 2                 -> 0,0,1,1,2,2,3,3
+      SWITCH_B (polarize):  i % 2  == h_level/v_level -> 0,1,0,1,...
+      GATEWAY  (VNA):       pulse width, 2 pulses per position
+    T2_SEQ_CODES_A / T2_SEQ_CODES_B override the codes (bench diagnostics), and a
+    shorter list repeats its last entry.
+    """
+    groups, period, offsets, codes_a, codes_b, arg_g = sequence_program()
+    role, kind, arg = action_row(slot)
+    count = groups[slot]
+    base = offsets[slot]
+    rows: list[tuple[int, int, int, int, int]] = []
+    for group in range(count):
+        if kind == 2:                                   # GATEWAY pulse
+            argument = arg if arg else arg_g
+        elif role == 1:                                 # SWITCH_A: channel
+            codes = codes_a if codes_a != [0] else [group_index // 2 for group_index in range(count)]
+            argument = codes[min(group, len(codes) - 1)]
+        else:                                           # SWITCH_B: polarization
+            codes = codes_b if codes_b != [0] else [group_index % 2 for group_index in range(count)]
+            argument = codes[min(group, len(codes) - 1)]
+        rows.append((role, kind, argument, 1, base + group * period))
+    return rows
+
+
+def template_rows(slot: int, generation: int) -> list[tuple[int, int, int, int, int, int, int]]:
+    """Template table rows for this board's role: one row per group, in order."""
+    return [(group + 1, generation, role, kind, argument, span, delta)
+            for group, (role, kind, argument, span, delta)
+            in enumerate(sequence_rows(slot))]
+
+
 ROWS = (
     # COUNTER rows may not declare outputs (trigger_deployment_validate); the OUT4
     # turntable source loops into IN1 outside the deployment table.
@@ -118,6 +243,25 @@ def main() -> int:
     parser.add_argument("--observe", action="store_true", help="read the position transport page")
     parser.add_argument("--full", action="store_true",
                         help="per-board whole chain incl. fifo reset, T2 configure/start, then observe")
+    # Sequence timing lives in the STOPPED-state install (one TEMPlate row per group,
+    # each row carrying its own argument and delta_q), so tuning it is a re-run of the
+    # install - never a re-flash. Precedence: CLI > environment > --sequence-profile > default.
+    parser.add_argument("--sequence-profile", default=None,
+                        help="JSON file with the per-role group program (groups, "
+                             "group_period_slices, group_offset_slices, codes, "
+                             "gateway_pulse_argument); see config/trigger/t2_sequence_profile.json")
+    parser.add_argument("--seq-groups", default=None,
+                        help="groups per role as COUNTER,SWITCH_A,GATEWAY,SWITCH_B (e.g. 1,8,8,8)")
+    parser.add_argument("--seq-period-slices", type=int, default=None,
+                        help="group period P in fine slices (delta_q advances by P per group)")
+    parser.add_argument("--seq-offset-slices", default=None,
+                        help="per-role base offset in fine slices, e.g. 0,0,0,0")
+    parser.add_argument("--seq-codes-a", default=None,
+                        help="SWITCH_A channel code per group, e.g. 0,0,1,1,2,2,3,3")
+    parser.add_argument("--seq-codes-b", default=None,
+                        help="SWITCH_B polarization level per group, e.g. 0,1,0,1,0,1,0,1")
+    parser.add_argument("--seq-arg-g", type=int, default=None,
+                        help="GATEWAY pulse-width argument used by every group")
     parser.add_argument("--list", action="store_true",
                         help="print the step table and exit")
     parser.add_argument("--step", type=int, default=None,
@@ -144,6 +288,10 @@ def main() -> int:
                              "released from quarantine (the base only clears a bit's "
                              "quarantine on that transition, app.c:594-610)")
     args = parser.parse_args()
+    set_sequence_options(
+        profile=args.sequence_profile, groups=args.seq_groups,
+        period_slices=args.seq_period_slices, offsets=args.seq_offset_slices,
+        codes_a=args.seq_codes_a, codes_b=args.seq_codes_b, arg_g=args.seq_arg_g)
 
     if args.refresh_html:
         return refresh_html_view()
@@ -366,6 +514,17 @@ def run_full(board_ids) -> int:
         # the lock-detection block below. Asserting it during bring-up makes the
         # sync-trigger phase participate while the ring is still starting.
         send(board, "SYSTem:VDC:OUTPut:TIMing 24000,32000,16000")
+        # Seat rotation (STOP-only, per board). Today the firmware rotates TWO seats
+        # (priority, first-class): "SYSTem:TDMA:SEAT:ROTation <priority>,<first_class>",
+        # each <= 8 and their sum <= 12. Owner decision 2026-10-16: 7:3 for the two-seat
+        # form, and a THREE-way form (priority:first:second = 7:2:1 with VDC running,
+        # 1:2:7 without VDC) once the second-class share exists - the refmem image/ack
+        # path must get its own guaranteed time, which the two-seat rotation cannot give.
+        _rotation = os.environ.get("T2_SEAT_ROTATION")
+        if _rotation:
+            print(f"  slot {slot} seat rotation {_rotation} -> "
+                  f"{send(board, f'SYSTem:TDMA:SEAT:ROTation {_rotation}')[:40]}"
+                  f" | readback {send(board, 'SYSTem:TDMA:SEAT:ROTation?')[:24]}", flush=True)
         for _suffix in ("FOLLow:PHASe", "FOLLow", "SYNC", "MATCH"):
             send(board, f"SYSTem:VDC:PRIORity:{_suffix} 0")
         send(board, "SYSTem:VDC:FEEDback:REFerence 0")
@@ -491,9 +650,9 @@ def run_full(board_ids) -> int:
         reply = send(board, f"TRIGger:REServation:ACTion:INSTall {dep_gen},{acrc},{dep_gen},{dep_crc},"
                                 f"1,1,0,1000000,2,1,1,{role},{kind},{arg},0,1")
         print(f"  slot {slot} ACTion:INSTall -> {reply[:60]}")
-        rows = [(1, dep_gen, role, kind, arg, 1, 0)]
+        rows = template_rows(slot, dep_gen)
         tcrc = template_crc(dep_gen, rows)
-        reply = send(board, f"TRIGger:REServation:TEMPLate:INSTall {dep_gen},{tcrc},1,"
+        reply = send(board, f"TRIGger:REServation:TEMPLate:INSTall {dep_gen},{tcrc},{len(rows)},"
                                 + ",".join(str(v) for row in rows for v in row))
         print(f"  slot {slot} TEMPlate:INSTall -> {reply[:60]}")
         reply = send(board, "TRIGger:REServation:TEMPLate:ACTivate")
@@ -526,7 +685,7 @@ def run_full(board_ids) -> int:
         send(board, "SYSTem:TDMA:FLIGHT:FIFO:RESet")
         # NO1 (slot 0) is the only position source; every board names source slot 0.
         send(board, f"TRIGger:REServation:T2:CONFigure {dep_gen},0,14,{int(slot == 0)},"
-                    f"5000,5000,950,0,0,360000,1000,1000")   # 0..360 deg @1 deg (T2-TURNTABLE-009)
+                    f"5000,5000,700,0,0,360000,1000,1000")   # 0..360 deg @1 deg; threshold 700 = 300-pulse declare lead (firmware floor)
         diag = send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
         _override = _scan_override_command(dep_gen, int(slot == 0))
         if _override is not None:
@@ -558,6 +717,15 @@ def run_full(board_ids) -> int:
         # "OUTPut:RUN 1000000,2000,0"); the board default 12000,16000,6000 and the
         # previous 1000000,400000,10000 were never part of a passing cycle.
         send(board, "SYSTem:VDC:OUTPut:TIMing 24000,32000,16000")
+        # Seat rotation (STOP-only, per board): two-seat form today
+        # ("<priority>,<first_class>", each <= 8, sum <= 12); owner decision 2026-10-16
+        # is 7:3 for this form, with a three-share form (7:2:1 with VDC running, 1:2:7
+        # without) once the reserved second-class share exists in the rotation counter.
+        _rotation = os.environ.get("T2_SEAT_ROTATION")
+        if _rotation:
+            print(f"  slot {slot} seat rotation {_rotation} -> "
+                  f"{send(board, f'SYSTem:TDMA:SEAT:ROTation {_rotation}')[:40]}"
+                  f" | readback {send(board, 'SYSTem:TDMA:SEAT:ROTation?')[:24]}", flush=True)
         send(board, f"SYSTem:VDC:FEEDback:SESSion {session}")
         send(board, "SYSTem:VDC:OUTPut:RUN 1000000,2000,0")
         _opened = send(board, "SYSTem:VDC:FEEDback:SESSion?")
@@ -984,8 +1152,16 @@ def _scan_override_command(run_id, origin):
     # a 361-position scan was T2_ACTION_FAIL_LATE (38/39/36 per board, nothing else), i.e. the
     # deadline was already behind the cursor when it came to arm - a latency-budget question,
     # so the lead belongs to the scan configuration and is exposed here.
-    threshold = os.environ.get("T2_SCAN_OVERRIDE_THRESHOLD_PERMILLE", "950")
-    command = ("TRIGger:REServation:" + "T2:CONFigure " + f"{run_id},0,14,{origin},"
+    # 700 => 300 pulses of lead, the measured floor (a 100-pulse lead still lost
+    # 6-8% of a 361-position scan to LATE, 300 and 500 lost none); the firmware
+    # refuses a configure whose lead cannot reach TRIGGER_T2_MIN_DECLARE_LEAD_PULSES.
+    threshold = os.environ.get("T2_SCAN_OVERRIDE_THRESHOLD_PERMILLE", "700")
+    # Target mask override for TRANSPORT experiments: the origin's transmit volume and
+    # its FREEZE resend both scale with the number of peers it must wait for, so running
+    # the same scan against one peer separates "the origin's fan-out volume eats the
+    # lead" from "the lane duplicates/loses records regardless of fan-out".
+    target_mask = os.environ.get("T2_SCAN_OVERRIDE_TARGET_MASK", "14")
+    command = ("TRIGger:REServation:" + "T2:CONFigure " + f"{run_id},0,{target_mask},{origin},"
                f"5000,5000,{threshold},{start},{start},{terminal},{step},1000")
     return command
 T2_TARGETS = (32, 34, 36)          # target_count per position
@@ -1469,6 +1645,17 @@ def step_2_stopped_block(ctx, slot, board, uid):
     if not ctx.poll(board, "SYSTem:VDC:FEEDback:SESSion?", 0, "0", tries=12):
         print(f"  slot {slot} WARNING: VDC feedback session still live", flush=True)
     ctx.send(board, "SYSTem:VDC:OUTPut:TIMing 24000,32000,16000")
+    # Seat rotation (STOP-only, per board) - THIS is the step-2 the --full chain runs
+    # (run_steps -> the engine's @step(2)); the legacy chain and the session-reopen
+    # helpers have their own copies of the TIMing write and are not on this path.
+    # Two-seat form today: "<priority>,<first_class>", each <= 8, sum <= 12; owner
+    # decision 2026-10-16 is 7:3 for it, with a three-share form (7:2:1 with VDC
+    # running, 1:2:7 without) once the reserved second-class share exists.
+    _rotation = os.environ.get("T2_SEAT_ROTATION")
+    if _rotation:
+        print(f"  slot {slot} seat rotation {_rotation} -> "
+              f"{ctx.send(board, f'SYSTem:TDMA:SEAT:ROTation {_rotation}')[:40]}"
+              f" | readback {ctx.send(board, 'SYSTem:TDMA:SEAT:ROTation?')[:24]}", flush=True)
     # T1 (HAOFV review): the priority lanes are the VDC owner's (SYNC/MATCH/FOLLow/
     # FOLLow:PHASe). The load no longer zeroes them - a zero write is still the load
     # configuring the base, and the owner handles a stale session's request itself
@@ -1687,10 +1874,10 @@ def step_10_installs(ctx, slot, board, uid):
     reply = ctx.send(board, f"TRIGger:REServation:ACTion:INSTall {ctx.dep_gen},{acrc},"
                             f"{ctx.dep_gen},{ctx.dep_crc},1,1,0,1000000,2,1,1,"
                             f"{role},{kind},{arg},0,1")
-    rows = [(1, ctx.dep_gen, role, kind, arg, 1, 0)]
+    rows = template_rows(slot, ctx.dep_gen)
     tcrc = template_crc(ctx.dep_gen, rows)
     template_reply = ctx.send(board, f"TRIGger:REServation:TEMPLate:INSTall "
-                                     f"{ctx.dep_gen},{tcrc},1,"
+                                     f"{ctx.dep_gen},{tcrc},{len(rows)},"
                                      + ",".join(str(v) for row in rows for v in row))
     activate_reply = ctx.send(board, "TRIGger:REServation:TEMPLate:ACTivate")
     action = ctx.send(board, "TRIGger:REServation:ACTion?").split(",")
@@ -1781,7 +1968,7 @@ def step_12_t2_mount(ctx, slot, board, uid):
     for attempt in range(4):
         ctx.send(board, "SYSTem:TDMA:FLIGHT:FIFO:RESet")
         ctx.send(board, f"TRIGger:REServation:T2:CONFigure {ctx.dep_gen},0,14,"
-                        f"{int(slot == 0)},5000,5000,950,0,0,360000,1000,1000")   # 0..360 deg @1 deg
+                        f"{int(slot == 0)},5000,5000,700,0,0,360000,1000,1000")   # threshold 700 = 300-pulse declare lead
         diag = ctx.send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
         _override = _scan_override_command(ctx.dep_gen, int(slot == 0))
         if _override is not None:
@@ -1854,6 +2041,17 @@ def step_13_vdc_session(ctx, slot, board, uid):
     ctx.send(board, "SYSTem:VDC:OUTPut:RUN:STOP")
     time.sleep(0.2)
     ctx.send(board, "SYSTem:VDC:OUTPut:TIMing 24000,32000,16000")
+    # Optional seat rotation (STOP-only, per board): "priority,first_class" shares, each
+    # <= TDMA_SEAT_ROTATION_SHARE_MAX (8) and their sum <= TDMA_SEAT_ROTATION_CYCLE_MAX
+    # (12). Owner decision 2026-10-16: 7:3, and the first-class share is then split 2:1
+    # internally (position slices : refmem ack/state). The refmem image/ack path is NOT
+    # part of this two-seat rotation, so its queueing cannot be fixed from here - that
+    # needs the first-class seat to carry the ack as well (TDMA-SEAT-CLASS-001).
+    _rotation = os.environ.get("T2_SEAT_ROTATION")
+    if _rotation:
+        print(f"  seat rotation {_rotation} -> "
+              f"{ctx.send(board, f'SYSTem:TDMA:SEAT:ROTation {_rotation}')[:40]}"
+              f" | readback {ctx.send(board, 'SYSTem:TDMA:SEAT:ROTation?')[:24]}", flush=True)
     # The feedback session must increase strictly (vdc_model_feedback.inc tracks the
     # last accepted session), so re-issuing a generation that was already used after
     # a teardown closes the session is REFUSED and leaves SESSion? at 0 - which then
@@ -2753,13 +2951,26 @@ def step_20_sampling(ctx, slot, board, uid):
             # this page can answer "did each role execute its own sequence".
             action_page = ctx.send(member, "TRIGger:REServation:T2:ACTion?").split(",")
             # Window cumulative totals are the last twelve fields of T2:ACTion?: the seven
-            # window totals followed by the five action_fail() reason counters
-            # (late/expired/no_plan/conflict/backend), appended after the variable-length
-            # events block. The same five positions on T2? are unrelated trailing values.
-            # A short or truncated reply (a command timeout answers "<timeout>") must not
-            # raise: anything shorter than the tail is "unknown".
-            win_totals = ([f.strip() for f in action_page[-12:]]
-                          if len(action_page) >= 12 else ["?"] * 12)
+            # window totals (7) + five action_fail() reason counters + five group
+            # sequence words (T2-SEQ-001) + five FREEZE-lead words, appended after the
+            # variable-length events block. The same positions on T2? are unrelated
+            # trailing values. A short or truncated reply (a command timeout answers
+            # "<timeout>") must not raise: anything shorter than the tail is "unknown".
+            # The length is coupled to the FIRMWARE's page version: 17 words are the
+            # page up to INTERFACE-T2ACTION-01 v1, 22 add the group and freeze-lead
+            # words. Point T2_ACTION_TAIL_FIELDS at the flashed version when running an
+            # older image, otherwise every window number below is shifted.
+            tail_fields = int(os.environ.get("T2_ACTION_TAIL_FIELDS", "25"))
+            win_totals = ([f.strip() for f in action_page[-tail_fields:]]
+                          if len(action_page) >= tail_fields else ["?"] * tail_fields)
+            if tail_fields >= 7 and win_totals[0] not in ("?", "<timeout>") and any(
+                    win_totals[i] not in ("?", "<timeout>")
+                    for i in range(3, 5)
+                    if int(win_totals[i] or 0) > int(win_totals[0] or 0)):
+                print(f"  WARNING action page tail {tail_fields} disagrees with the "
+                      f"flashed firmware (executed/abandoned > entered): set "
+                      f"T2_ACTION_TAIL_FIELDS to the page version of the image on the "
+                      f"boards", flush=True)
             _act_seen = getattr(ctx, "_action_last", None)
             if _act_seen is None:
                 _act_seen = {}
@@ -2811,7 +3022,16 @@ def step_20_sampling(ctx, slot, board, uid):
                   f"/{win_totals[3]}/{win_totals[4]}/{win_totals[5]}/{win_totals[6]}"
                   " (entered/announced/frozen/executed/abandoned/mark_rejected/alloc_rejected)"
                   f" | fail late/expired/no_plan/conflict/backend"
-                  f" {win_totals[7]}/{win_totals[8]}/{win_totals[9]}/{win_totals[10]}/{win_totals[11]}",
+                  f" {win_totals[7]}/{win_totals[8]}/{win_totals[9]}/{win_totals[10]}/{win_totals[11]}"
+                  f" | groups exec/count {win_totals[12]}/{win_totals[13]}"
+                  f" slotpack next|inflight|done"
+                  f" {win_totals[14]}/{win_totals[15]}/{win_totals[16]}"
+                  f" | freeze lead min/last {win_totals[17]}/{win_totals[18]}"
+                  f" expired {win_totals[19]} resend {win_totals[20]}"
+                  f" abandoned {win_totals[21]}"
+                  f" | seg lead pack declare/stage/arm"
+                  f" {win_totals[22]}/{win_totals[23]}/{win_totals[24]}"
+                  f" (min|last<<16: announce / freeze-staged / armed)",
                   flush=True)
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
             # Rate evidence, not absolutes (VDC-ISO-001/T3): the seat and match

@@ -55,10 +55,13 @@ QUERIES = (HEALTH, COUNTERS, ROTATION, POSITION, SCHEDULE)
 # Field counts of the pages this tool reads. A mismatch means the firmware page
 # and the documented contract drifted, so every positional read after it would be
 # wrong: refuse to interpret rather than guess.
-EXPECTED_FIELDS = {HEALTH: 24, COUNTERS: 12, ROTATION: 11, POSITION: 31}
+EXPECTED_FIELDS = {HEALTH: 24, COUNTERS: 12, ROTATION: 12, POSITION: 31}
 
 # Field positions of SYSTem:TDMA:SEAT:ROTation?, which reports the declared
-# limits the counters above must be read against.
+# limits the counters above must be read against. The page grew to 12 with the
+# three-share form (2026-10-16): index 4 is now the whole cycle (p+f+s) and index 11
+# the slots reserved for the path that does not use the fast channel; indices 0..10
+# keep their meaning, so an older image (11 fields) still reads correctly.
 ROTATION_PRIORITY_SHARE = 0
 ROTATION_FIRST_CLASS_SHARE = 1
 ROTATION_CYCLE = 4
@@ -66,6 +69,7 @@ ROTATION_WAIT_BUDGET = 7
 ROTATION_HOLD_DEPTH = 8
 ROTATION_HOLD_ATTEMPTS = 9
 ROTATION_SCHEDULE_ENABLED = 10
+ROTATION_SECOND_CLASS_SHARE = 11
 
 # Reason bits of SYSTem:TDMA:SEAT:HEALth? (tdma_pio_spi_ring_adapter.h).
 REASON_BITS = (

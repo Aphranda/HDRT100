@@ -1,0 +1,55 @@
+{
+  "schema": "HDRT100_T2_SEQUENCE_V1",
+  "note": [
+    "Per-position group sequence of the reservation trigger (T2-SEQ-001).",
+    "Every parameter here is a STOPPED-state install parameter: t2_workflow.py turns",
+    "it into one TEMPlate row per group (argument + delta_q) and installs it with",
+    "TEMPLate:INSTall. Changing this file therefore needs a re-run of the install and",
+    "the scan - it never needs a firmware build or a re-flash.",
+    "The codes follow the reservation sequence of the node-sequence branch",
+    "(trigger_reservation_build_plan: output_code = (i // 2) | (level << 2), i.e. the",
+    "SP8T channel steps every second item and the polarization is the item's parity).",
+    "The first entry is the built-in default: ONE row per role, i.e. no sequence."
+  ],
+  "profiles": {
+    "single": {
+      "groups": [1, 1, 1, 1],
+      "group_period_slices": 0,
+      "comment": "behaviour before the sequence landed"
+    },
+    "reservation_8": {
+      "groups": [1, 8, 8, 8],
+      "group_period_slices": 20,
+      "group_offset_slices": [0, 0, 0, 0],
+      "gateway_pulse_argument": 20,
+      "codes": {
+        "SWITCH_A": [0, 0, 1, 1, 2, 2, 3, 3],
+        "SWITCH_B": [0, 1, 0, 1, 0, 1, 0, 1]
+      },
+      "comment": "one group per reservation item; period is a tuning knob, see below"
+    }
+  },
+  "active_profile": "single",
+  "groups": [1, 1, 1, 1],
+  "group_period_slices": 20,
+  "group_offset_slices": [0, 0, 0, 0],
+  "gateway_pulse_argument": 20,
+  "codes": {
+    "SWITCH_A": [0, 0, 1, 1, 2, 2, 3, 3],
+    "SWITCH_B": [0, 1, 0, 1, 0, 1, 0, 1]
+  },
+  "tuning": {
+    "measured_20261016": [
+      "period 20 fine slices (10 ms) and 50 (25 ms) both stalled at done=0b1 per slot:",
+      "the follower observes a group completing and only then arms the next one, so a",
+      "group spacing below that observation round trip cannot be sustained by the",
+      "single-depth SYNC_IO backends. Use tools/sync_trigger/t2_sequence_sweep.py to",
+      "scan periods on the bench WITHOUT rebuilding, and read groups exec/count plus",
+      "the slot pack (next|in_flight|done) on TRIGger:RESERVation:T2:ACTion? in the",
+      "scan output.",
+      "Sustaining tight spacing needs the depth>=2 absolute-deadline queue registered",
+      "as SYNC-SCHED-001 in the SYNC_IO domain; the T2 runtime already publishes the",
+      "next group's tick together with the current one."
+    ]
+  }
+}

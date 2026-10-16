@@ -238,11 +238,13 @@ void vdc_dpll_manager_feedback_prepare_core0(void);
  *               (quarantine). Moving it to SRAM left 12 B of main SRAM, so
  *               the owner set 200 records, freeing 11256 B (134 x 28 x 3)
  *               as standing headroom.
+ *   200 -> 100  2026-10-16, owner decision (RAM exhausted twice while adding the
+ *               T2 freeze-chain segmentation fields): frees 8400 B (100 x 28 x 3).
+ *               This supersedes the earlier "do not shrink again, shrink
+ *               DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH instead" preference.
  * The segment size is reported to the host, and SD segmentation plus
- * dropped-count accounting preserve long-run continuity. Do not shrink this
- * again without an owner decision: the seat side has the cheaper remaining
- * lever (DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH). */
-#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 200u
+ * dropped-count accounting preserve long-run continuity. */
+#define VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS 100u
 
 /* Per-record provenance for the external waveform evidence.  These bits are
  * diagnostic facts; only CORRECTED_ELIGIBLE records may enter corrected phase

@@ -16,14 +16,30 @@ enum {
     TRIGGER_T2_RUNTIME_SEGMENT_DEADLINES,
     TRIGGER_T2_RUNTIME_SEGMENT_COUNT,
 };
-#define TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY 1u
+/* How many action rows of the board's own role the runtime keeps: the role's
+ * group sequence (SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2). This is the number of
+ * rows the static template table can already hold, so the sequence needs no
+ * capacity growth (T2-SEQ-001); widening the table itself was disproven. */
+#define TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY TRIGGER_ACTION_TEMPLATE_CAPACITY
+/* No group in flight for a slot (fits uint8_t group cursors). */
+#define TRIGGER_T2_RUNTIME_GROUP_NONE 0xFFu
 /* One terminal receipt per executed position. A scan has many more positions than the
  * runtime has slots, and nothing drains this buffer in firmware (take_event is a host/
  * diagnostic reader), so it is sized for a short scan rather than for the slot count: the
  * event DETAIL is bounded, while event_count + event_dropped_count stays the total number
  * of receipts and the window's executed total stays the authoritative per-position count. */
-#define TRIGGER_T2_RUNTIME_EVENT_CAPACITY 16u
+#define TRIGGER_T2_RUNTIME_EVENT_CAPACITY 9u
 #define TRIGGER_T2_DESCRIPTOR_TARGET_GRACE_SYNC 2u
+/* Upper bound for the same window when it is supplied by T2:CONFigure (coarse
+ * ordinals). The default above stays for callers that send the 12-field command. */
+#define TRIGGER_T2_DESCRIPTOR_WINDOW_MAX 1000u
+/* A: floor for the DECLARED lead, in scan pulses (one STEP of the scan). Measured on
+ * the bench 2026-10-16 over a full 361-position scan: a 100-pulse lead (~35 ms) still
+ * lost 6-8% of the positions to TRIGGER_T2_ACTION_FAIL_LATE, while a 300-pulse lead
+ * (~114 ms) and a 500-pulse one lost none. T2:CONFigure refuses a configuration whose
+ * threshold cannot reach this many pulses, so a too-thin lead fails at configuration
+ * instead of turning into late positions during the run. */
+#define TRIGGER_T2_MIN_DECLARE_LEAD_PULSES 300u
 /* Records the follower takes from its position lane per service pass. One record per pass
  * caps the consumer at one per coarse slice: measured 2026-10-16 with a long announcement
  * lead, 361 positions produced ~155-176k lane records (~1.1 per slice), so a single-record
@@ -111,6 +127,17 @@ typedef struct {
     /* Attribution of every action_fail() call: see TRIGGER_T2_ACTION_FAIL_*. */
     uint32_t action_fail_reason[TRIGGER_T2_ACTION_FAIL_COUNT];
     uint32_t action_sequence[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+    /* Per-slot group sequence progress (T2-SEQ-001): the group count of the
+     * mounted role, the next group Core0 prepares, the group currently in
+     * flight, and which groups already completed. A position counts as executed
+     * only after its LAST group completes; intermediate completions advance the
+     * cursor instead of marking the position. Kept in bytes: the sequence had to
+     * fit inside the RAM the single-template runtime already used. */
+    uint8_t action_group_count;
+    uint8_t action_group_next[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+    uint8_t action_group_in_flight[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+    uint8_t action_group_done[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+    uint32_t action_groups_executed;
     /* Last observed backend state and origin bracket width; unknown = UINT32_MAX. */
     uint32_t action_backend_state[TRIGGER_T2_RUNTIME_POSITION_COUNT];
     uint32_t action_origin_width_ticks[TRIGGER_T2_RUNTIME_POSITION_COUNT];
@@ -122,6 +149,22 @@ typedef struct {
     /* Origin FREEZE: complete once every target reports it frozen; resent
      * until then, abandoned after the position window expires. */
     uint32_t freeze_complete_mask, freeze_abandoned_mask, freeze_resend_count;
+    /* How much of the FREEZE lead was left when this board actually froze a
+     * position, in coarse ordinals: min and last over the run, plus how often a
+     * FREEZE was admitted at or after its own target. The design promise is "freeze
+     * early, act later"; this is the budget the rest of the chain (lane, solve, arm)
+     * has to fit into, so a late count can be read against it instead of guessed. */
+    uint32_t freeze_lead_min_slices, freeze_lead_last_slices, freeze_lead_expired_count;
+    /* The DECLARED lead the origin gave a position, packed min | last<<16 (target
+     * ordinal minus the ordinal it announced at, coarse ordinals = ms). The per-mille
+     * threshold only becomes a budget once it is measured on the running scan. */
+    uint32_t declare_lead_pack;
+    /* v1 freeze-chain segmentation: the remaining lead at the two moments this board
+     * controls, packed as min | last<<16 (leads are far below 65536 ms). Origin:
+     * stage_lead_pack is taken when the FREEZE is staged. Follower: arm_lead_pack when
+     * the position is armed. Subtracting (declare-stage), (stage-follower freeze) and
+     * (freeze-arm) separates the chain without changing the wire format. */
+    uint32_t stage_lead_pack, arm_lead_pack;
     /* Saturating count of positions whose FREEZE completion was abandoned after
      * the position window closed. The mask is per position and is cleared by the
      * next run, so it cannot answer "how often did this happen"; this counter
@@ -204,5 +247,10 @@ void trigger_t2_runtime_position_window_totals(uint32_t *entered, uint32_t *anno
 void trigger_t2_runtime_position_window_rejections(uint32_t *mark_rejected,
                                                    uint32_t *alloc_rejected);
 bool trigger_t2_runtime_snapshot(trigger_t2_runtime_snapshot_t *out);
+/* Packed group-sequence progress of one position slot (T2-SEQ-001):
+ * bits 0-3 next group to prepare, bits 4-7 group in flight (0xF = none),
+ * bits 8-15 bitmask of completed groups. One word per slot keeps the diagnostic
+ * readable without growing the page by three words per slot. */
+uint32_t trigger_t2_runtime_group_pack(uint32_t index);
 
 #endif

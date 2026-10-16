@@ -50,13 +50,15 @@ int main(void)
     /* C4: a neighbour's bit never suppresses this position. */
     assert(!t2_deadline_position_accepted(0x1u, 2u));
 
-    /* C5: an unchanged prediction version and model token need no recompute. */
-    assert(t2_deadline_plan_current(7u, 0xABCDu, 7u, 0xABCDu));
+    /* C5: an unchanged prediction version, model token and group need no recompute. */
+    assert(t2_deadline_plan_current(7u, 0xABCDu, 1u, 7u, 0xABCDu, 1u));
 
-    /* C6: a new prediction version, or a new model token, forces one. */
-    assert(!t2_deadline_plan_current(7u, 0xABCDu, 8u, 0xABCDu));
-    assert(!t2_deadline_plan_current(7u, 0xABCDu, 7u, 0xABCEu));
-    assert(!t2_deadline_plan_current(7u, 0xABCDu, 8u, 0xABCEu));
+    /* C6: a new prediction version, a new model token, or the next group of the
+     * same position (T2-SEQ-001) forces one. */
+    assert(!t2_deadline_plan_current(7u, 0xABCDu, 1u, 8u, 0xABCDu, 1u));
+    assert(!t2_deadline_plan_current(7u, 0xABCDu, 1u, 7u, 0xABCEu, 1u));
+    assert(!t2_deadline_plan_current(7u, 0xABCDu, 1u, 8u, 0xABCEu, 1u));
+    assert(!t2_deadline_plan_current(7u, 0xABCDu, 1u, 7u, 0xABCDu, 2u));
     return 0;
 }
 '''
@@ -70,7 +72,8 @@ def _build(tmp_path):
         "static bool t2_deadline_position_accepted(uint32_t accepted_mask, uint32_t index) {"
         + accepted + "}\n"
         "static bool t2_deadline_plan_current(uint32_t previous_version, uint32_t previous_token, "
-        "uint32_t descriptor_version, uint32_t model_token) {" + current + "}\n")
+        "uint32_t previous_group, uint32_t descriptor_version, uint32_t model_token, "
+        "uint32_t group) {" + current + "}\n")
     return compile_grid(tmp_path, "t2-k2-recompute", HEAD + definition + MAIN)
 
 

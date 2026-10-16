@@ -88,15 +88,52 @@ bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
     s_scan_step_mdeg = step_mdeg;
     return true;
 }
-/* Static templates never change in RUN. The first hardware executor has one
- * local template per position and one pending hardware transaction per board. */
-static trigger_action_template_t s_local_template;
+/* Static templates never change in RUN. The board keeps every row of its own
+ * role (T2-SEQ-001): row g is group g of that role's per-position sequence, so
+ * the sequence is expanded group by group instead of being flattened into one
+ * action. All rows of a role share its kind (the table validator ties SWITCH to
+ * SWITCH_A/SWITCH_B and GATEWAY to GATEWAY), so the backend dispatch stays a
+ * single role-level value. */
+/* One group of the role's sequence, compacted to 8 B: the full
+ * trigger_action_template_t row is 32 B and eight of them did not fit the RAM the
+ * single-template runtime used (linker: region RAM overflowed by 376 bytes).
+ * template_id is kept for the receipt, argument is the channel code or pulse
+ * width and delta_q the static fine-slice offset; span_slices is not needed per
+ * row because the position's occupied span is the widest row (s_local_span_max). */
+typedef struct {
+    uint16_t template_id, argument;
+    int32_t delta_q;
+} t2_local_group_t;
+static t2_local_group_t s_local_group[TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY];
 static uint32_t s_local_template_count, s_deployment_crc;
+static uint32_t s_local_kind, s_local_role, s_local_span_max;
+/* Group cursors: next group Core0 prepares, and the group Core1 has in flight
+ * (TRIGGER_T2_RUNTIME_GROUP_NONE when none). One group per slot is in flight at
+ * a time; the two-group sliding window is the SYNC_IO side of T2-EXEC-002. */
+static uint8_t s_group_next[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+static uint8_t s_group_armed[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 typedef struct {
     uint64_t action_q, deadline_tick;
+    /* Tick of the NEXT group of this position, solved by Core0 together with this
+     * one. Core1 promotes it the moment the current group completes and arms it in
+     * the same pass: measured on the bench 2026-10-16, planning a group only after
+     * the previous one completed made the arm too late even at 60 ms spacing.
+     * Zero means "no further group".
+     * NOTE (2026-10-16, architecture): the per-group sequence belongs to the ACTION
+     * side, not to distribution - T2 hands one time slice per position and the
+     * executor walks the groups by the installed convention. This field is the
+     * interim T2-side window until the executor owns the sequence; see
+     * TRIGGER_T2_ARCHITECTURE.md「动作解耦」and SYNC-SCHED-001. */
+    uint64_t next_tick;
     uint32_t session, ring_config_seq, prediction_version, expiry_sync;
     uint32_t model_token;
+    /* Which group of the role's sequence this plan executes. The next group of
+     * the same position shares descriptor version and model token, so without
+     * this the Core0 currency check would treat it as already published. */
+    uint32_t group;
 } t2_deadline_plan_t;
+/* Tick deltas of the whole role sequence, relative to the plan's base_tick. */
+#define T2_SCHEDULE_WORDS TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY
 _Static_assert(sizeof(t2_deadline_plan_t) % sizeof(uint32_t) == 0u,
     "deadline handoff uses atomic words");
 typedef struct {
@@ -214,6 +251,15 @@ static void T2_HOT(publish_end)(void)
     (void)__atomic_add_fetch(&s_guard, 1u, __ATOMIC_RELEASE);
 }
 
+/* Remaining lead (ms, coarse ordinals) packed for one segmentation point: the low
+ * half keeps the run's minimum, the high half the last value. */
+static void note_lead_pack(uint32_t *pack, uint32_t lead)
+{
+    const uint32_t minimum = *pack & 0xFFFFu;
+    const uint32_t shown = minimum && minimum < lead ? minimum : lead;
+    *pack = shown | (lead << 16u);
+}
+
 /* FREEZE starts freezing; it completes when every target reports the position
  * frozen. Until then the origin resends it, spaced so PREVIEWs still board. */
 #define T2_FREEZE_RESEND_SLICES 4u
@@ -277,6 +323,15 @@ static T2_BOUNDED T2_RAM bool resend_one_freeze(void)
         s_state.freeze_resend_count++;
         s_freeze_last_slice = now;
         s_freeze_resend_next = index + 1u;
+        /* Segmentation v1 (origin side): how much lead was left when this FREEZE was
+         * actually staged. Subtracting it from declare_lead_ms isolates the
+         * announce -> stage segment. */
+        {
+            const uint32_t target =
+                (uint32_t)s_state.descriptors[index].target_ms_index;
+            note_lead_pack(&s_state.stage_lead_pack,
+                           target > now ? (uint32_t)(target - now) : 0u);
+        }
         return true;
     }
     return true;
@@ -439,6 +494,17 @@ static T2_BOUNDED void T2_HOT(origin_announce)(uint32_t ordinal, uint64_t target
         (void)trigger_position_window_release(&s_position_window, index + 1u);
     }
     s_slot_target[index] = target_count;
+    /* A: the declared lead is the budget the whole chain has to fit into; the
+     * threshold per mille only turns into a time once it is measured here. The
+     * TARGET ordinal is the one carried by the position's own descriptor (the same
+     * quantity the follower reports as freeze_lead_*), NOT s_prepare_ordinal - that
+     * one names when the preview is due and read back as 1 ms. */
+    {
+        const uint32_t target_ordinal =
+            (uint32_t)s_state.descriptors[index].target_ms_index;
+        note_lead_pack(&s_state.declare_lead_pack,
+                       target_ordinal > ordinal ? target_ordinal - ordinal : 0u);
+    }
     __atomic_store_n(&s_announced_ordinal[index], ordinal + 1u, __ATOMIC_RELEASE);
     s_pending_mask |= bit;
 }
@@ -459,7 +525,7 @@ static void deadline_publish(uint32_t index, const t2_deadline_plan_t *plan)
 static T2_BOUNDED void T2_HOT(deadline_receive)(void)
 {
     for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++index) {
-        if (s_state.frozen_mask & (1u << index)) continue;
+        const bool frozen = (s_state.frozen_mask & (1u << index)) != 0u;
         t2_deadline_mailbox_t *mail = &s_deadline_mailbox[index];
         const uint32_t before = __atomic_load_n(&mail->guard, __ATOMIC_ACQUIRE);
         if ((before & 1u) || before == s_deadline_seen[index]) continue;
@@ -471,9 +537,17 @@ static T2_BOUNDED void T2_HOT(deadline_receive)(void)
         __atomic_thread_fence(__ATOMIC_ACQ_REL);
         if (before != __atomic_load_n(&mail->guard, __ATOMIC_ACQUIRE)) continue;
         s_deadline_seen[index] = before;
-        if (plan.prediction_version && plan.session == s_state.cursor.session &&
-            plan.ring_config_seq == s_state.cursor.ring_config_seq)
-            s_deadline[index] = plan;
+        if (!plan.prediction_version || plan.session != s_state.cursor.session ||
+            plan.ring_config_seq != s_state.cursor.ring_config_seq) continue;
+        if (frozen && plan.group < s_deadline[index].group) continue;   /* an older group */
+        if (frozen && plan.group == s_deadline[index].group) {
+            /* This group is already armed or promoted: its own slice and tick are in
+             * the hardware owner's hands and must not move, but the tick of the group
+             * after it is exactly what the promotion needs. */
+            s_deadline[index].next_tick = plan.next_tick;
+            continue;
+        }
+        s_deadline[index] = plan;
     }
 }
 
@@ -497,6 +571,10 @@ static T2_BOUNDED bool T2_HOT(descriptor_valid)(const trigger_position_descripto
 static T2_RAM void action_fail(uint32_t index, uint32_t reason)
 {
     s_state.action_failed_mask |= 1u << index;
+    /* A failed position owns no group any more: its sequence is over, so Core0
+     * must not prepare a later group for it. */
+    s_group_armed[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
+    s_state.action_group_in_flight[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
     if (reason < TRIGGER_T2_ACTION_FAIL_COUNT &&
         s_state.action_fail_reason[reason] != UINT32_MAX)
         ++s_state.action_fail_reason[reason];
@@ -762,6 +840,22 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
                                            TRIGGER_POSITION_WINDOW_FROZEN);
         s_state.frozen_mask |= bit;
         __atomic_store_n(&s_frozen_public, s_state.frozen_mask, __ATOMIC_RELEASE);
+        /* How much of the freeze lead was left at this instant. The design promise is
+         * "freeze early, act later", so this is the whole budget the rest of the chain
+         * (lane transport, local solve, arm) has to fit into; a late/expired count has
+         * to be read against it. Units: coarse ordinals (ms on a 1 ms grid). */
+        {
+            const uint64_t current = s_state.cursor.pulse_index;
+            const uint64_t target = descriptor.target_ms_index;
+            if (target > current) {
+                const uint32_t lead = (uint32_t)(target - current);
+                if (!s_state.freeze_lead_min_slices || lead < s_state.freeze_lead_min_slices)
+                    s_state.freeze_lead_min_slices = lead;
+                s_state.freeze_lead_last_slices = lead;
+            } else {
+                ++s_state.freeze_lead_expired_count;
+            }
+        }
         /* Freeze complete for this follower: report it on every image. */
         report_frozen();
         s_state.freeze_version[index] = descriptor.prediction_version;
@@ -805,7 +899,7 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
                 (s_state.action_failed_mask & (1u << other))) continue;
             const uint64_t a = plan->action_q, b = s_deadline[other].action_q;
             const uint64_t distance = a > b ? a - b : b - a;
-            if (distance < s_local_template.span_slices ||
+            if (distance < s_local_span_max ||
                 (s_armed_index == other && a < b)) {
                 action_fail(index, TRIGGER_T2_ACTION_FAIL_CONFLICT);
                 return false;
@@ -822,6 +916,38 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
 static void complete_action(uint32_t index)
 {
     const uint32_t bit = 1u << index;
+    /* T2-SEQ-001: one position runs the whole group sequence of its role. A
+     * completed group that is not the last one only advances the cursor; the
+     * position is marked EXECUTED, released from the window and reported as a
+     * receipt only by its LAST group, so a partial sequence can never look like
+     * a finished position in the window totals. */
+    const uint32_t group = s_group_armed[index];
+    s_group_armed[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
+    s_state.action_group_in_flight[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
+    if (group < s_local_template_count) {
+        s_state.action_group_done[index] |= 1u << group;
+        s_state.action_groups_executed++;
+        if (group + 1u < s_local_template_count) {
+            s_group_next[index] = (uint8_t)(group + 1u);
+            s_state.action_group_next[index] = s_group_next[index];
+            /* T2-SEQ-001 in-flight window: promote the next group IN THIS PASS from the
+             * tick Core0 solved together with the one that just ran, so the arm does not
+             * wait for another Core0 round trip (measured 2026-10-16: that round trip
+             * exceeded 25 ms on loaded followers, which no real group spacing affords).
+             * The static delta_q gives the next slice without any solve. */
+            if (s_deadline[index].next_tick &&
+                s_local_group[group + 1u].delta_q >= s_local_group[group].delta_q) {
+                const uint64_t step =
+                    (uint64_t)((int64_t)s_local_group[group + 1u].delta_q -
+                               (int64_t)s_local_group[group].delta_q);
+                s_deadline[index].action_q += step;
+                s_deadline[index].deadline_tick = s_deadline[index].next_tick;
+                s_deadline[index].next_tick = 0u;   /* the group after it comes from Core0 */
+                s_deadline[index].group = group + 1u;
+            }
+            return;
+        }
+    }
     s_state.emitted_position_mask |= bit;
     s_state.action_completed_mask |= bit;
     report_frozen();
@@ -834,11 +960,13 @@ static void complete_action(uint32_t index)
         s_state.event_dropped_count++;
         return;
     }
+    const t2_local_group_t *last = &s_local_group[
+        s_local_template_count ? s_local_template_count - 1u : 0u];
     const uint32_t event_index = s_state.event_count++;
     s_state.events[event_index] = (trigger_action_runtime_event_t){
-        .position_id = index + 1u, .template_id = s_local_template.template_id,
-        .role = s_local_template.role, .kind = s_local_template.kind,
-        .argument = s_local_template.argument, .action_q = s_deadline[index].action_q};
+        .position_id = index + 1u, .template_id = last->template_id,
+        .role = s_local_role, .kind = s_local_kind,
+        .argument = last->argument, .action_q = s_deadline[index].action_q};
     s_state.event_dispatched[event_index] = 1u;
 }
 
@@ -852,14 +980,14 @@ static void T2_HOT(note_backend)(uint32_t index, uint32_t state, uint64_t before
 
 static T2_RAM bool cancel_backend(void)
 {
-    if (s_local_template.kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
+    if (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
         sync_io_switch_deadline_status_t status;
         (void)sync_io_switch_realtime_cancel();
         if (!sync_io_switch_realtime_status(&status)) return true;
         note_backend(s_armed_index, status.state, status.origin_before_tick, status.origin_after_tick);
         return status.state == SYNC_IO_SWITCH_DEADLINE_UNCERTAIN;
     }
-    if (s_local_template.kind == TRIGGER_ACTION_TEMPLATE_GATEWAY) {
+    if (s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY) {
         sync_io_gateway_deadline_status_t status;
         (void)sync_io_gateway_realtime_cancel();
         if (!sync_io_gateway_realtime_status(&status)) return true;
@@ -873,11 +1001,11 @@ static void stop_backend_core0(void)
 {
     if (s_armed_index >= TRIGGER_T2_RUNTIME_POSITION_COUNT) return;
     bool stopped = false;
-    if (s_local_template.kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
+    if (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
         sync_io_switch_snapshot_t status;
         stopped = sync_io_switch_snapshot(&status) && status.loaded &&
             sync_io_switch_stop(status.generation);
-    } else if (s_local_template.kind == TRIGGER_ACTION_TEMPLATE_GATEWAY) {
+    } else if (s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY) {
         sync_io_gateway_snapshot_t status;
         stopped = sync_io_gateway_snapshot(&status) && status.loaded &&
             sync_io_gateway_stop(status.generation);
@@ -894,7 +1022,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     bool complete = false, terminal = false, uncertain = false;
     uint32_t sequence = 0u;
     uint64_t deadline = 0u;
-    if (s_local_template.kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
+    if (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
         sync_io_switch_realtime_service_core1();
         sync_io_switch_deadline_status_t status;
         if (!sync_io_switch_realtime_status(&status)) return;
@@ -958,6 +1086,12 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         if (!(s_state.frozen_mask & bit) ||
             ((s_state.action_failed_mask | s_state.action_completed_mask) & bit)) continue;
         const t2_deadline_plan_t *plan = &s_deadline[index];
+        /* T2-SEQ-001: a plan that belongs to a group which already finished is
+         * not late - the next group simply has not been prepared yet, and its
+         * action lies in the future. Without this the selection pass right after
+         * a group completion judged the completed group's plan LATE and failed
+         * the position. */
+        if (plan->group != s_group_next[index]) continue;
         if (!plan->prediction_version || plan->session != s_state.cursor.session ||
             plan->ring_config_seq != s_state.cursor.ring_config_seq ||
             s_state.cursor.action_cursor / s_config.grid.subdivisions > plan->expiry_sync ||
@@ -972,13 +1106,23 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     }
     if (selected == TRIGGER_T2_RUNTIME_POSITION_COUNT) return;
     const t2_deadline_plan_t *plan = &s_deadline[selected];
-    const bool armed = s_local_template.kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
-        sync_io_switch_realtime_schedule_at(s_local_template.argument, plan->deadline_tick) :
-        sync_io_gateway_realtime_schedule_at(s_local_template.argument, plan->deadline_tick);
+    if (plan->group != s_group_next[selected]) {
+        /* The plan still belongs to the group that already finished, or to a
+         * group the cursor has not reached: never arm a stale group. Core0
+         * republishes the plan for the current group. */
+        s_deadline[selected].prediction_version = 0u;
+        action_fail(selected, TRIGGER_T2_ACTION_FAIL_NO_PLAN);
+        return;
+    }
+    const bool armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
+        sync_io_switch_realtime_schedule_at(
+        s_local_group[s_group_next[selected]].argument, plan->deadline_tick) :
+        sync_io_gateway_realtime_schedule_at(
+        s_local_group[s_group_next[selected]].argument, plan->deadline_tick);
     if (!armed) {
         /* A rejected absolute deadline is terminal. No fire-now fallback.
          * Origin validation can fail after the edge: preserve UNCERTAIN. */
-        if (s_local_template.kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
+        if (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
             sync_io_switch_deadline_status_t status;
             if (sync_io_switch_realtime_status(&status)) {
                 note_backend(selected, status.state, status.origin_before_tick, status.origin_after_tick);
@@ -997,10 +1141,21 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         return;
     }
     s_armed_index = selected;
+    /* Segmentation v1 (follower side): lead left at the moment of arming; subtracting
+     * it from freeze_lead_* isolates the admit -> arm segment. */
+    {
+        const uint32_t target =
+            (uint32_t)s_state.descriptors[selected].target_ms_index;
+        const uint64_t now_ms = s_state.cursor.pulse_index;
+        note_lead_pack(&s_state.arm_lead_pack,
+                       target > now_ms ? (uint32_t)(target - now_ms) : 0u);
+    }
+    s_group_armed[selected] = (uint8_t)plan->group;
+    s_state.action_group_in_flight[selected] = plan->group;
     s_state.action_armed_mask |= 1u << selected;
     s_state.action_deadline_tick[selected] = plan->deadline_tick;
     /* Read the owner's accepted sequence; a later mismatch cannot complete us. */
-    if (s_local_template.kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
+    if (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
         sync_io_switch_deadline_status_t status;
         if (sync_io_switch_realtime_status(&status)) {
             s_state.action_sequence[selected] = status.sequence;
@@ -1067,14 +1222,35 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
         tdma_seat_mount_store_note_reject(148u); return false;
     }
     if (s_state.active) return false;
-    uint32_t local_count = 0u;
-    trigger_action_template_t local = {0};
+    /* T2-SEQ-001: keep EVERY row of this board's role, in table order, as the
+     * group sequence of one position (SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2). The
+     * table capacity is unchanged; all rows of a role must share its kind because
+     * one backend serves the role. */
+    uint32_t local_count = 0u, local_kind = 0u, span_max = 0u;
     if (config->local_role >= TRIGGER_DEPLOYMENT_ROLE_COUNT) return false;
-    for (uint32_t i = 0u; i < config->templates.count; ++i)
-        if (config->templates.row[i].role == config->local_role) {
-            local = config->templates.row[i];
-            if (++local_count > TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY) return false;
+    for (uint32_t i = 0u; i < config->templates.count; ++i) {
+        const trigger_action_template_t *row = &config->templates.row[i];
+        if (row->role != config->local_role) continue;
+        if (local_count >= TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY) return false;
+        if (!local_count) local_kind = row->kind;
+        else if (row->kind != local_kind) return false;
+        /* The compact record is only lossless inside these ranges; a row outside
+         * them is refused rather than truncated (a truncated channel code or
+         * offset would command the wrong thing). Rows must also be in
+         * non-decreasing delta_q order: a later group is derived from the group
+         * before it, so a row that moves backwards in time is not a sequence. */
+        if (!row->template_id || row->template_id > UINT16_MAX ||
+            row->argument > UINT16_MAX ||
+            row->delta_q < INT32_MIN || row->delta_q > INT32_MAX ||
+            (local_count && row->delta_q < s_local_group[local_count - 1u].delta_q)) {
+            tdma_seat_mount_store_note_reject(150u); return false;
         }
+        if (row->span_slices > span_max) span_max = row->span_slices;
+        s_local_group[local_count].template_id = (uint16_t)row->template_id;
+        s_local_group[local_count].argument = (uint16_t)row->argument;
+        s_local_group[local_count].delta_q = (int32_t)row->delta_q;
+        ++local_count;
+    }
     publish_begin();
     s_config.grid = config->grid;
     s_config.predictor = config->predictor;
@@ -1085,8 +1261,17 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
     s_config.origin = config->origin;
     s_config.deployment_generation = config->deployment.generation;
     memset(&s_state, 0, sizeof(s_state));
-    s_local_template = local;
     s_local_template_count = local_count;
+    s_local_kind = local_kind;
+    s_local_role = config->local_role;
+    s_local_span_max = span_max ? span_max : 1u;
+    s_state.action_group_count = local_count;
+    for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++i) {
+        s_group_next[i] = 0u;
+        s_group_armed[i] = TRIGGER_T2_RUNTIME_GROUP_NONE;
+        s_state.action_group_next[i] = 0u;
+        s_state.action_group_in_flight[i] = TRIGGER_T2_RUNTIME_GROUP_NONE;
+    }
     s_deployment_crc = trigger_deployment_crc(&config->deployment);
     trigger_position_window_reset(&s_position_window);
     s_state.configured = 1u;
@@ -1151,6 +1336,16 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
     s_state.source_slot = s_config.source_slot;
     s_state.target_mask = s_config.target_mask;
     s_state.run_id = s_config.run_id;
+    /* The group sequence is part of this run's position accounting, so START must
+     * re-establish it after the reset above (the mounted rows themselves live
+     * outside s_state and survive). */
+    s_state.action_group_count = s_local_template_count;
+    for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++i) {
+        s_group_next[i] = 0u;
+        s_group_armed[i] = TRIGGER_T2_RUNTIME_GROUP_NONE;
+        s_state.action_group_next[i] = 0u;
+        s_state.action_group_in_flight[i] = TRIGGER_T2_RUNTIME_GROUP_NONE;
+    }
     for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++i)
         s_state.action_origin_width_ticks[i] = UINT32_MAX;
     /* NOTE: do NOT configure the window here. trigger_turntable_predictor_configure()
@@ -1240,7 +1435,7 @@ static T2_RAM bool deadlines_need_service(void)
          (s_state.frozen_mask & ~(s_state.action_failed_mask | s_state.action_completed_mask)) ||
          /* Keep polling a prior gateway transaction for a late READY even
           * after its independent output receipt has completed. */
-         (s_local_template.kind == TRIGGER_ACTION_TEMPLATE_GATEWAY && s_state.action_armed_mask));
+         (s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY && s_state.action_armed_mask));
 }
 
 /* NO1 origin path runs every coarse slice; from XIP it overran SYNC_TRIGGER. */
@@ -1427,6 +1622,16 @@ bool trigger_t2_runtime_preview_history(uint32_t position_id, uint32_t age,
         preview_copy(position_id - 1u, age, out);
 }
 
+uint32_t trigger_t2_runtime_group_pack(uint32_t index)
+{
+    if (index >= TRIGGER_T2_RUNTIME_POSITION_COUNT) return 0u;
+    trigger_t2_runtime_snapshot_t snapshot;
+    if (!trigger_t2_runtime_snapshot(&snapshot)) return 0u;
+    return ((uint32_t)snapshot.action_group_next[index] & 0xFu) |
+        (((uint32_t)snapshot.action_group_in_flight[index] & 0xFu) << 4u) |
+        ((uint32_t)snapshot.action_group_done[index] << 8u);
+}
+
 /* K-2 predicates, split out so a host harness can drive them directly
  * (same extraction technique as tests/python/test_trigger_t2_freeze_abandon.py). */
 static bool t2_deadline_position_accepted(uint32_t accepted_mask, uint32_t index)
@@ -1435,63 +1640,132 @@ static bool t2_deadline_position_accepted(uint32_t accepted_mask, uint32_t index
 }
 
 static bool t2_deadline_plan_current(uint32_t previous_version, uint32_t previous_token,
-                                     uint32_t descriptor_version, uint32_t model_token)
+                                     uint32_t previous_group, uint32_t descriptor_version,
+                                     uint32_t model_token, uint32_t group)
 {
-    return previous_version == descriptor_version && previous_token == model_token;
+    return previous_version == descriptor_version && previous_token == model_token &&
+        previous_group == group;
+}
+
+/* Absolute Timer1 tick for a fine-slice ordinal, through the committed DCO model.
+ * Shared by a group's own solve and by the solve of the group that follows it. */
+static bool slice_to_tick(uint64_t q, const vdc_dpll_manager_committed_model_t *model,
+                          uint64_t *raw_tick)
+{
+    const uint64_t coarse = q / s_config.grid.subdivisions;
+    const uint32_t fine = (uint32_t)(q % s_config.grid.subdivisions);
+    if (coarse > (UINT64_MAX - s_config.grid.anchor_vdc_ns) / s_config.grid.period_ns)
+        return false;
+    uint64_t output_ns = s_config.grid.anchor_vdc_ns + coarse * s_config.grid.period_ns;
+    /* Round toward the first representable ns/tick at or after the slice. */
+    const uint64_t fraction = (uint64_t)fine * s_config.grid.period_ns;
+    const uint64_t fine_ns = fraction / s_config.grid.subdivisions +
+        (fraction % s_config.grid.subdivisions != 0u);
+    if (output_ns > UINT64_MAX - fine_ns) return false;
+    output_ns += fine_ns;
+    uint64_t local_ns;
+    return vdc_domain_dco_output_to_local_ns(&model->dco, output_ns, &local_ns) &&
+        vdc_timer1_ns_to_ticks(BOARD_SYS_CLOCK_HZ, local_ns, true, raw_tick) &&
+        *raw_tick >= model->valid_from_raw;
+}
+
+/* Widen a compact group record back into the full row the shared expansion helper
+ * takes; nothing about the solve depends on the stored form. */
+static trigger_action_template_t group_row(uint32_t group)
+{
+    const t2_local_group_t *row = &s_local_group[group];
+    return (trigger_action_template_t){
+        .template_id = row->template_id, .generation = 1u,
+        .role = s_local_role, .kind = s_local_kind,
+        .argument = row->argument, .span_slices = s_local_span_max,
+        .delta_q = row->delta_q};
 }
 
 static void prepare_deadlines_core0(uint32_t session,
     const trigger_t2_runtime_snapshot_t *snapshot)
-{
-    if (!s_local_template_count) return;
+{    if (!s_local_template_count) return;
     vdc_dpll_manager_committed_model_t model;
     if (!vdc_dpll_manager_get_committed_model(&model) ||
         model.session != snapshot->cursor.session || !model.token || !model.dco.valid ||
         model.dco.nominal_period_ns != s_config.grid.period_ns) return;
     for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++index) {
         /* K-2: FREEZE freezes position prediction only, not the DCO. Skip a position only
-         * once its deadline has been accepted by the hardware owner (armed/completed); a
-         * frozen-but-not-yet-loaded position must still be re-solved by the latest DCO.
-         * A position whose action has already FAILED is finished too (T2-FREEZE-002: a FREEZE
-         * with no usable local solve fails the position); re-solving it would only publish a
-         * plan nothing will ever arm.
+         * once its action sequence FINISHED (completed or failed): a frozen-but-not-yet
+         * loaded position must still be re-solved by the latest DCO, and a position that
+         * merely armed an earlier group still needs its next group prepared.
+         * T2-SEQ-001: prepare the group the Core1 cursor is waiting for; the plan carries
+         * the group so a later group of the same position (same prediction version and
+         * model token) is published instead of being mistaken for an old plan.
          * Core0 reads the snapshot, never Core1's runtime state. */
-        if (t2_deadline_position_accepted(
-                snapshot->action_armed_mask | snapshot->action_completed_mask |
-                snapshot->action_failed_mask, index))
+        const uint32_t group = snapshot->action_group_next[index];
+        /* An armed group is already in the hardware owner's hands and is never
+         * re-solved (K-2: accepted actions are not rewritten); only when its
+         * completion advances the cursor does the next group get prepared. */
+        if (group >= s_local_template_count ||
+            snapshot->action_group_in_flight[index] == group ||
+            t2_deadline_position_accepted(
+                snapshot->action_completed_mask | snapshot->action_failed_mask, index))
             continue;
-        trigger_position_descriptor_t descriptor;
-        if (!preview_copy(index, 0u, &descriptor)) continue;
-        /* Mailbox has one RUN writer: Core0 can inspect its own old words. */
-        t2_deadline_plan_t previous;
-        memcpy(&previous, s_deadline_mailbox[index].words, sizeof(previous));
-        if (t2_deadline_plan_current(previous.prediction_version, previous.model_token,
-                                     descriptor.prediction_version, model.token)) continue;
-        trigger_action_template_instance_t instance;
-        if (!trigger_action_template_expand(&s_local_template, &descriptor,
-                s_config.grid.subdivisions, &instance)) continue;
-        const uint64_t q = instance.position.action_q;
-        const uint64_t coarse = q / s_config.grid.subdivisions;
-        const uint32_t fine = (uint32_t)(q % s_config.grid.subdivisions);
-        if (q <= snapshot->cursor.action_cursor ||
-            coarse > (UINT64_MAX - s_config.grid.anchor_vdc_ns) / s_config.grid.period_ns)
-            continue;
-        uint64_t output_ns = s_config.grid.anchor_vdc_ns + coarse * s_config.grid.period_ns;
-        /* Round toward the first representable ns/tick at or after the slice. */
-        const uint64_t fraction = (uint64_t)fine * s_config.grid.period_ns;
-        const uint64_t fine_ns = fraction / s_config.grid.subdivisions +
-            (fraction % s_config.grid.subdivisions != 0u);
-        if (output_ns > UINT64_MAX - fine_ns) continue;
-        output_ns += fine_ns;
-        uint64_t local_ns, raw_tick;
-        if (!vdc_domain_dco_output_to_local_ns(&model.dco, output_ns, &local_ns) ||
-            !vdc_timer1_ns_to_ticks(BOARD_SYS_CLOCK_HZ, local_ns, true, &raw_tick) ||
-            raw_tick < model.valid_from_raw) continue;
+        /* Where a group's absolute slice comes from. Group 0 solves from the newest
+         * PREVIEW. A LATER group continues the SAME position, so it is derived from
+         * the plan of the group before it (Core0's own last publish for this slot)
+         * and never re-solved from the descriptor mirror: that mirror is refreshed
+         * only when the FREEZE still finds its preview in the ring, so a missing
+         * match leaves the PREVIOUS occupant's descriptor behind and the derived
+         * slice lands in the past. Measured on the bench 2026-10-16 as "group 0
+         * completes, group 1 never prepared, nothing failed" (per slot done=0b1,
+         * next=1, in_flight=none, every fail counter 0 - the top page cannot show
+         * this, which is why the group words were appended to T2:ACTion?). */
+        uint64_t q;
+        uint32_t plan_version, plan_expiry;
+        if (group == 0u) {
+            trigger_position_descriptor_t descriptor;
+            if (!preview_copy(index, 0u, &descriptor)) continue;
+            /* Mailbox has one RUN writer: Core0 can inspect its own old words. */
+            t2_deadline_plan_t previous;
+            memcpy(&previous, s_deadline_mailbox[index].words, sizeof(previous));
+            if (t2_deadline_plan_current(previous.prediction_version, previous.model_token,
+                                         previous.group, descriptor.prediction_version,
+                                         model.token, group)) continue;
+            const trigger_action_template_t row = group_row(group);
+            trigger_action_template_instance_t instance;
+            if (!trigger_action_template_expand(&row, &descriptor,
+                    s_config.grid.subdivisions, &instance)) continue;
+            q = instance.position.action_q;
+            plan_version = descriptor.prediction_version;
+            plan_expiry = descriptor.expiry_sync;
+        } else {
+            t2_deadline_plan_t previous;
+            memcpy(&previous, s_deadline_mailbox[index].words, sizeof(previous));
+            if (previous.group + 1u != group || !previous.prediction_version ||
+                s_local_group[group].delta_q < s_local_group[group - 1u].delta_q)
+                continue;
+            const uint64_t step = (uint64_t)((int64_t)s_local_group[group].delta_q -
+                (int64_t)s_local_group[group - 1u].delta_q);
+            if (previous.action_q > UINT64_MAX - step) continue;
+            q = previous.action_q + step;
+            plan_version = previous.prediction_version;
+            plan_expiry = previous.expiry_sync;
+        }
+        if (q <= snapshot->cursor.action_cursor) continue;
+        uint64_t raw_tick;
+        if (!slice_to_tick(q, &model, &raw_tick)) continue;
+        /* Solve the NEXT group's tick in the same pass, so Core1 can arm it without
+         * waiting for another Core0 solve (see next_tick above). Zero when this is
+         * the last group or the offsets are not usable. */
+        uint64_t next_tick = 0u;
+        if (group + 1u < s_local_template_count &&
+            s_local_group[group + 1u].delta_q >= s_local_group[group].delta_q) {
+            const uint64_t step = (uint64_t)((int64_t)s_local_group[group + 1u].delta_q -
+                (int64_t)s_local_group[group].delta_q);
+            if (q <= UINT64_MAX - step) (void)slice_to_tick(q + step, &model, &next_tick);
+        }
         const t2_deadline_plan_t plan = {
-            .action_q = q, .deadline_tick = raw_tick,
+            .action_q = q, .deadline_tick = raw_tick, .next_tick = next_tick,
             .session = model.session, .ring_config_seq = snapshot->cursor.ring_config_seq,
-            .prediction_version = descriptor.prediction_version,
-            .expiry_sync = descriptor.expiry_sync, .model_token = model.token};
+            .prediction_version = plan_version,
+            .expiry_sync = plan_expiry, .model_token = model.token,
+            .group = group};
         if (session != __atomic_load_n(&s_session, __ATOMIC_ACQUIRE)) return;
         deadline_publish(index, &plan);
     }
