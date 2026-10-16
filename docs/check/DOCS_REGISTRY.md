@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGISTRY.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-10-13
+Last updated: 2026-10-16
 
 > 注：本文件必须满足 `tools/docs_check/docs_check.py` 的元数据要求（5 字段齐全），否则自回归门禁自相矛盾。
 
@@ -59,6 +59,13 @@ Last updated: 2026-10-13
 | DOCS-PROGRESSORDER-01 | docs | 进展日志条目按新鲜度倒排——最新鲜的在最上面，日期序列非递增（同日不限），归档文件与索引区间同向 | 1 | docs/check/DOCS_REGRESSION_PLAN.md | doc_regression_check.py | 环5 日期级倒序判定、归档顺序与区间方向双向容忍正反用例 | 2026-09-17 | pending |
 | ARCH-TRIGGERSLICE-01 | trigger | 位置切片紧凑记录冻结：10 B 小端单帧（[0] tag=0xE0 PREVIEW / 0xF0 FREEZE 或 position_id(1..15)，故实际首字节为 0xE1..0xEF / 0xF1..0xFF；[1..2] prediction_version≠0；[3..6] target_ms_index；[7..9] fine≤0xFFFFFF），每帧一条记录、PREVIEW/FREEZE 不拆分；容器为 TDMA mailbox RefMem 区中 **10 B 的 RefMem 子区**（该区 **slot 绝对偏移 14**、size 10 == TDMA_PROCESS_IMAGE_REFMEM_SIZE；24 B core0 内容体内的相对偏移为 6），位于 mailbox 的 24 B core0 内容体之内（前 8 B 为 mailbox **fast header**，由 **Core0** 镜像构建写入 magic/version/class/source/target/seq16，Core1 仅上车前复验）；owner 为 TriggerRegion[n]；CRC 由 **TDMA 帧级**承担（tdma_process_image_crc16_ccitt，RefMem 层不做**独立** CRC；ack 接收路径校验该帧级 CRC，priority-lane 的逐字节比较用于 RX 去重缓存）；尺寸为**符号级**耦合 **TDMA process image 布局版本**（TDMA-PROCESSIMAGE-01）——注意 `TDMA_PROCESS_IMAGE_LAYOUT_VERSION` 自引入以来**未递增**，故混版本保护实际靠 **class 白名单拒帧**（普通 transport 白名单不含 0x15）而非版本字段，该性质的成文化归 TDMA 侧条件 C2；`REFMEM-LAYOUT-01` 只管 RefMem SRAM 向量表且明确不改变 TDMA wire 版本 | 1 | docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md | trigger_position_slice.h | 符号与常量比对 + 尺寸静态断言 + C11 交叉核验（TRIGGER_CROSS_REVIEW_01，APPROVE WITH NOTES）+ TDMA 域联审（TRIGGER_CROSS_REVIEW_03，有条件接受） | 2026-10-13 | pending |
 | ARCH-TRIGGERMAILBOX-01 | trigger | 位置邮箱跨域契约冻结：trigger_position_mailbox_t 为**单生产者/单消费者**邮箱（volatile state + target_mask + trigger_position_descriptor_t descriptor）；**运行时（并发交接期）**载荷**仅**在 WRITING 写、**仅**在 READING 读，READY 作为 release/acquire 交接（四态 EMPTY/WRITING/READY/READING）；静默边界（init、STOP、环拓扑变更）由单核复位路径清空载荷，且 WRITING/READING 期间拒绝复位（故 READY 可在未经 READING 时被丢弃）；**FREEZE latch** 是**同头文件内独立于 mailbox** 的结构体 trigger_position_freeze_latch_t（**非** mailbox 成员，其载荷 version 的规则为「bit 清写／bit 置读」，**不适用**上述四态规则），其**槽位域**为 [1, TRIGGER_POSITION_FREEZE_LATCH_IDS]（= 15u，即 position_id-1 占 mask 的 bit0..14）；**线上** position_id 上限由 tag nibble 决定并归 **ARCH-TRIGGERSLICE-01**（本条不重复立法），T2 运行时实际消费域为 [1, TRIGGER_T2_RUNTIME_POSITION_COUNT]（当前 = 3u），trigger_position_descriptor_valid() 的 FREEZE 分支另限 position_id <= 3u（字面量，未引用宏）；三方口径收敛另立 T2-IDENT-002；该头文件被 RefMem 跨域使用（distributed_refmem.c:30 include） | 1 | docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md | trigger_position_mailbox.h | 符号与常量比对 + C11 交叉核验（TRIGGER_CROSS_REVIEW_02，PASS_WITH_NOTE） | 2026-10-13 | pending |
+
+| contract_id | domain | contract | ver | clause_loc | code_anchor | check | registered | status |
+|---|---|---|---|---|---|---|---|---|
+| INTERFACE-T2ACTION-01 | trigger | `T2:ACTion?` 页尾累计字段冻结为 12 项（entered/announced/frozen/executed/abandoned/mark_rejected/alloc_rejected + late/expired/no_plan/conflict/backend），顺序固定、只增不改、既有页索引不动；窗口累计只在 `T2:ACTion?`，`T2?` 尾部不得代替；本条取代 `T2-DEPLOY-003` 的「尾 7 字段」表述（旧行状态翻转属状态变更，待 C11 交叉审核） | 1 | docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md | scpi_trigger_t2_runtime_commands.inc | 页尾字段与顺序比对 + `t2_workflow.py` 尾 12 项切片回归 + 宿主用例 | 2026-10-16 | pending |
+| INTERFACE-T2SAMPLER-01 | trigger | T2 台架采样器读页面口径冻结：只读运行态可读页面（禁止停机态专属页面）、采样窗覆盖全程（`T2_SAMPLE_TICKS`）、逐板读 sticky cursor fault、宣告引线可配（`T2_SCAN_OVERRIDE_THRESHOLD_PERMILLE`，lead=(1000−阈值)‰） | 1 | docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md | t2_workflow.py | 工装行为回归 + 台架全程读数（三轮 361） | 2026-10-16 | pending |
+| CALIBRATION-P0TSAMPLING-01 | calibration | P0T 只判线序：有向活动（帧/字/边沿任一）即检出，magic/header 只记录不判定；判定不相邻前至少 `--pair-min-observations`（默认 3）次接收侧采样；`topology_pair_wait_s` 统一 0.5 s；summary 记 `pair_observation_policy` | 1 | docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md | calibration_ring_topology.py | 宿主用例（慢起搏仍检出、无活动仍判负、策略字段）+ 真板 12 对读数 | 2026-10-16 | pending |
+| CALIBRATION-P3DPLLGRADE-01 | calibration | scope-off 相位分级取收敛后的稳态端点 residual（端点绑定最后一个稳态 bin，`endpoint_within_last_bin` 不成立即证据 ERROR）；窗内 extrema 仅作诊断证据（`phase_window_extrema_ns`）；真失锁仍按 `PHASE_ERROR_NS` 阻断 | 1 | docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md | p3_dpll_short.py | 宿主用例（窗内尖峰不判失锁、端点超限仍 ERROR）+ 同源码 P3 摘要复算 | 2026-10-16 | pending |
 
 ## 条款落点表
 

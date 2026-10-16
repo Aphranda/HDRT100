@@ -12,6 +12,17 @@ Last updated: 2026-10-16
 
 ## 当前 checkpoint
 
+### TOOLS-PROGRESS-20261016-003：out/ 只放证据、不放维护代码——实时验收栈已全量在 tools/ 下，并加边界守卫
+
+- TODO task ID：TOOLS-CHECK-001；本批未提交（无功能改动，未跑台架）。
+- **规则**：`out/` 是产物/证据区；可维护代码一律在 `tools/` 下。只有被 manifest 固定 sha256 的兼容归档例外（见下）。
+- **实测审计（无硬件）**：构建实时 joint-capture 运行时（`tools/workflows/vdc_joint_capture/runtime_base.load_runtime(runtime_entrypoint=None, board_uids)`，即 P3 step 29 实际执行的路径）后检查 `sys.modules`：**`lineage_v1` 命中 0 个、`out/` 命中 0 个**（仅审计脚本自身在 out/）。实时栈 = `tools/workflows/vdc_joint_capture/*` 各层 + 32 个 `tools/*` 模块（`calibration_ring_validate`、`tdma_ring_monitor`、`common/scpi`、`domains/vdc`、`hardware_acceptance`、`vdc_priority_trace` 等）。
+- **提升映射（字节相同，已固定）**：`out/` 里 8 个 .py 与 `tools/archive/vdc/vdc_joint_capture/lineage_v1/` 下副本 sha256 完全一致——`20260915/dpll-input-probe-r1/input_probe.py`↔`base_probe.py`、`probe_support.py`↔`probe_support.py`、`20260916/dpll-scope-hold-r1/capture_scope_r3.py`↔`legacy_scope_reader.py`、`20260918/…/capture_startup_one_second.py`↔`parallel_startup.py`、`20260918/…/capture_late_scope_schema10.py`↔`late_scope_adapter.py`、`20260919/…/monitor_external.py`↔`external_monitor.py`、`20260919/internal-startup-r1/capture.py`↔`quiet_startup.py`、`20260919/internal-summary-probe.py`↔`internal_summary.py`。这 20 个角色（含 `internal_seal` 等）连同 sha256 固定于 `config/tool_workflows/vdc_joint_capture_internal_seal.json` 的 `adapter.migrated_sources`；`runtime_closure: []` 与 `runtime_entrypoint: null` 是"运行时已完全跟踪"的声明，`inputs.load_inputs` 会校验它。
+- **兼容归档的例外与理由**：`lineage_v1/*.py` 内仍留有指向 `out/` 的历史加载行（且其 `ROOT=parents[N]` 按 out 树深度书写，在 tools 位置算出来是 `tools/`）——这些文件是**被固定哈希的迁移证据**，从不执行；就地改写会使 `migrated_sources` 的 sha256 失配而让实时路径拒绝启动，故保持冻结，只由守卫测试把边界钉住。
+- **只归档、不删除（用户要求）**：我一开始删掉了本地 gitignored 的 `tools/scratch/sync-build.py`（其唯一作用是把 `out/origin-handshake.py` 的 build 号改写，目标文件早已不存在），随后按要求**按原字节恢复**（226 B、5 个 CRLF、无结尾换行，恢复后实测一致），并改为归档：`tools/archive/scratch/` 新增 5 个**归档副本**（`sync-build.py`、`condense_overview_report.py`、`report_logic_cleanup.py`、`update_overview_precision.py`、`update_dpll_report_20260919.py`，均为字节副本，sha256 记在 `tools/archive/scratch/README.md`），**原件原地保留**。后 4 个依赖已消失的 vendored 目录 `out/report-deps`。`tools/sync_trigger/t2_bench_probe.py` 的出处说明改为不含可加载 `.py` 路径的表述（仅此一行文字）。**本轮未删除任何文件。**
+- **新增守卫（`tests/python/test_out_tree_code_boundary.py`，3 passed）**：① 实时 joint-capture 栈的导入闭包中不得出现 `out/` 模块；② manifest 必须声明完全跟踪的运行时（`runtime_closure` 空、`runtime_entrypoint` 空、全部 `migrated_sources` 在 `tools/` 下）；③ **被 git 跟踪的** `tools/**/*.py` 中，`tools/archive/` 之外不得出现 `out/**/*.py` 代码引用（归档允许保留历史引用，但从不执行）。
+- **契约登记（本批一并完成）**：`INTERFACE-T2ACTION-01`（`T2:ACTion?` 页尾 12 字段冻结）、`INTERFACE-T2SAMPLER-01`（采样器读页面口径）、`CALIBRATION-P0TSAMPLING-01`（P0T 线序判定与采样下限）、`CALIBRATION-P3DPLLGRADE-01`（scope-off 稳态端点分级）四条已登记进 `docs/check/DOCS_REGISTRY.md`（status 均为 `pending`，id 用检查器白名单前缀 `INTERFACE`/`CALIBRATION`），落点条款分别写入 `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`（两个新小节）与 `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`（§10 两个新门禁小节），顶层 `docs/arch/HAOFV_ARCHITECTURE.md` 的 pending 表同步可见性。**C11**：本次只**新增**行与条款，未改任何既有行 status；`T2-DEPLOY-003` 中「尾 7 字段」被 `INTERFACE-T2ACTION-01` 取代，该旧行 status 翻转须他人交叉审核，不得自审自批。
+
 ### TOOLS-PROGRESS-20261016-002：P0T 线序假失败根因——单次接收侧采样定案；已改为"至少 N 次采样 + 500 ms 上限"
 
 - TODO task ID：TOOLS-P3-DPLL-SHORT-001、TOOLS-CHECK-001；本批（T2 批次）未提交。

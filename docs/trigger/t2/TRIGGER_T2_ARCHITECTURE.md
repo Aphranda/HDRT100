@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
 Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/trigger/t2/TRIGGER_T2_RUNTIME_CONSTRAINTS.md`
-Last updated: 2026-10-14
+Last updated: 2026-10-16
 
 ## 文档接口与范围
 
@@ -502,3 +502,42 @@ T2 运行时实际消费域为 `[1, TRIGGER_T2_RUNTIME_POSITION_COUNT]`（当前
 该头文件被 **RefMem 跨域使用**（`components/distributed_refmem/src/distributed_refmem.c:30` 直接 include），故其交接语义属跨域契约，
 已登记为 `ARCH-TRIGGERMAILBOX-01`（status `pending`；C11 结论 `PASS_WITH_NOTE`，提交单
 `docs/check/submissions/TRIGGER_CROSS_REVIEW_02.md`）。
+
+### 诊断页尾字段契约（2026-10-16 登记，status `pending`）
+
+`TRIGger:RESERVation:T2:ACTion?` 的**页尾累计字段冻结为 12 项**，顺序固定、**只增不改**（既有页索引不得移动）：
+
+| # | 字段 | 语义 |
+|---|---|---|
+| 1 | `entered` | 进窗位置数（实例键分配） |
+| 2 | `announced` | 已宣告位置数 |
+| 3 | `frozen` | 已冻结位置数 |
+| 4 | `executed` | 已执行位置数 |
+| 5 | `abandoned` | 已放弃位置数 |
+| 6 | `mark_rejected` | `mark()` 被拒计数 |
+| 7 | `alloc_rejected` | 槽位分配被拒计数 |
+| 8 | `late` | 动作失败：截止已过 |
+| 9 | `expired` | 动作失败：计划过期 |
+| 10 | `no_plan` | 动作失败：无可用计划 |
+| 11 | `conflict` | 动作失败：资源/顺序冲突 |
+| 12 | `backend` | 动作失败：后端拒绝 |
+
+- 第 8–12 项由 `TRIGGER_T2_ACTION_FAIL_{LATE,EXPIRED,NO_PLAN,CONFLICT,BACKEND}` 饱和计数经
+  `action_fail()` 记录（`components/sync_trigger/inc/trigger_t2_runtime.h`），页面组装在
+  `middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc`。
+- 任何读者（工装/判据）必须按**尾 12 项**切片；按固定偏移取前 5/前 7 项的旧假设作废。窗口累计
+  字段**只在 `T2:ACTion?`**，`T2?` 的尾部随状态变化，不得取尾 N 项代替。
+- 本条**取代** `T2-DEPLOY-003` 中「`T2:ACTion?` 尾 7 字段」的表述；该行 status 的翻转属登记表
+  状态变更，须 C11 交叉审核（禁止自审自批），本批只新增本行，不擅自改旧行状态。
+
+### 台架采样器读页面契约（2026-10-16 登记，status `pending`）
+
+T2 台架采样（`tools/sync_trigger/t2_workflow.py`）的行为冻结为：
+
+- **只读运行态可读的页面**：停机态专属页面不得在运行中采样（曾观测到 8 s 级单次阻塞并使从板漏拍）；
+- **采样窗覆盖全程**：采样次数由 `T2_SAMPLE_TICKS` 决定，默认值必须覆盖含末位置的整段扫描；
+- **逐板读取 sticky cursor fault**：`TRIGger:RESERVation:T2:CURSor?` 逐板读，用于区分「本板 cursor 失效」
+  与「分发问题」；
+- **宣告引线可配**：`T2_SCAN_OVERRIDE_THRESHOLD_PERMILLE` 决定引线（`lead = (1000 − 阈值)‰` 的位置间隔），
+  默认值须落在实测可行区间（13–20% 引线）。
+- 本契约只约束**读数工装**，不改变 T2 运行时语义；其验证为工装行为回归 + 台架全程读数。

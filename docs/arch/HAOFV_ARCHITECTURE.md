@@ -175,6 +175,10 @@ HAOFV 的顶层职责不是列出具体 GPIO，而是把系统约束变成可追
 | contract_id | 契约 | 域文档位置 | 状态 |
 |---|---|---|---|
 | `REFMEM-LAYOUT-01` | 静态容量/节点步长与布局版本一致发布，保留区域 ID 和 owner；部署包旧布局拒绝，host 产包与读回同步 | `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md:REFMEM-LAYOUT-01` | pending |
+| `INTERFACE-T2ACTION-01` | `TRIGger:RESERVation:T2:ACTion?` 页尾累计字段冻结为 12 项（窗口累计 7 项 + 动作失败五类 late/expired/no_plan/conflict/backend），顺序固定、只增不改；窗口累计只在 `T2:ACTion?` | `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md` 的“诊断页尾字段契约” | pending |
+| `INTERFACE-T2SAMPLER-01` | T2 台架采样器只读运行态可读页面、采样窗覆盖全程、逐板读 sticky cursor fault、宣告引线可配 | `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md` 的“台架采样器读页面契约” | pending |
+| `CALIBRATION-P0TSAMPLING-01` | P0T 只判线序（有向活动即检出，不看数据质量）；判定不相邻前至少 `--pair-min-observations` 次接收侧采样；`topology_pair_wait_s` 统一 0.5 s | `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` 的“P0T 线序判定门禁” | pending |
+| `CALIBRATION-P3DPLLGRADE-01` | scope-off 相位分级取收敛后的稳态端点 residual；窗内 extrema 仅作诊断证据；真失锁仍按 `PHASE_ERROR_NS` 阻断 | `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md` 的“DPLL 短闭环相位分级门禁” | pending |
 | `TDMA-FLIGHTBITMAP-01` | 编译容量限定静态资源，STOP 后按已准入拓扑选择 SHORT 邮箱数量，ARM 冻结布局与 DMA 长度，RUN 固定 | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` 的“固定 Node image、DPLL trailer 与 RX 位图快路径”章节 | pending |
 | `TDMA-PROCESSIMAGE-01` | 固定 SHORT process image 静态装配 Node mailbox 与 DPLL observation trailer，DPLL 不得替换 wire frame | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md` | pending |
 | `TDMA-RESIDENT-01` | process image 启动时一次注入并持续循环；单轮多 Node 局部 UNLOAD/LOAD，无更新透传，frame completion 不终止 resident loop | `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:TDMA-RESIDENT-01` | pending |

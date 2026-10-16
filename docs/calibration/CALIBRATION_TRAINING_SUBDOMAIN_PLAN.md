@@ -4,7 +4,7 @@ Status: Active
 Domain: CALIBRATION / TRAINING
 Canonical: `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`
 Related: `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/hardware/RP2350B_QFN80_IO_CONSTRAINTS.md`
-Last updated: 2026-09-13
+Last updated: 2026-10-16
 
 本文档把“先发送同步 marker，再按本地 PIO 周期发送编码 DATA，并在接收端按 marker 建立相对时间基准”的方案收敛为校准域下的独立训练子域。本文档是实施方案和待冻结候选接口，不把当前诊断值直接提升为 active calibration，也不允许训练子域绕过 TDMA core1 owner 直接操作 PIO、SM 或 DMA。
 
@@ -727,6 +727,27 @@ realtime load mask，不得使 calibration load quarantine，也不得进入 TDM
 
 该门禁证明当前代码没有破坏既有 P3 物理回归基线，不等于 endpoint bias、active candidate、
 持久化或产品精度门禁已经完成。后二者仍分别由 Calibration active lifecycle 和 P4-REL 判定。
+
+### P0T 线序判定门禁（2026-10-16 登记，status `pending`）
+
+- `tools/calibration_ring_validate/calibration_ring_topology.py`（`--adjacency-only`）**只判定线序**：
+  某一有向对上「帧数 / DMA 字数 / 边沿数任一 > 0」即算检出，`magic_info` / `bad_header` 只记录、
+  **不参与判定**，也不设数据质量门；
+- **判定"不相邻"前至少取 `--pair-min-observations`（默认 3）次接收侧采样**：单次快照（实测约 0.18 s）
+  无法区分「驱动突发尚未起始」与「该对不相邻」，曾据此把真实环边判为缺失、使闭合环凑不齐而假失败；
+- `topology_pair_wait_s` 统一为 **0.5 s**（此前 quick/level 档为 0.05 s，仅够一次采样；full 档为 1.0 s）；
+- summary 顶层记录 `pair_observation_policy{pair_wait_s, pair_min_observations}`；逐对采样数见
+  `pair_preparation[].activity_observations`，紧凑 `pair_results` 行仍只放物理证据。
+
+### DPLL 短闭环相位分级门禁（2026-10-16 登记，status `pending`）
+
+- scope-off（无示波器）时，相位分级取 **收敛后的稳态端点 residual**（`tools/hardware_acceptance/p3_dpll_short.py`）：
+  端点由原生 summary trace 绑定到最后一个稳态 bin，`endpoint_within_last_bin` 不成立即证据 ERROR；
+- 窗内 residual extrema 仍完整记录为诊断证据（`phase_window_extrema_ns`），但**不决定**锁相判定——
+  锁相是逐渐收敛的过程，重捕获样本携带其匹配到的参考事件年龄（`vdc_priority_match.inc` 的 `expected_lo`），
+  属匹配/观测域而非锁定相位；
+- 端点超限仍按 `PHASE_WARN_NS` / `PHASE_ERROR_NS` 阻断；scope-on 的外部物理分级路径不变；
+  本条不授予 GPIO 物理精度，也不关闭「内部 vs 外部对比」这一未闭合项。
 
 ## 11. 回退与交付顺序
 
