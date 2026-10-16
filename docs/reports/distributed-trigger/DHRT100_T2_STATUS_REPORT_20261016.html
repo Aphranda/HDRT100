@@ -24,7 +24,7 @@
 </div>
 <div class="summary">
   <div class="note-box"><strong>本轮结论：</strong>「361 个位置正常发布 + 各从机接收、解码并执行序列动作」<b>已在台架成立</b>——连续三轮全程扫描，源端全程无损，三块从板各自进窗·宣告·冻结 361/361/361，执行 354–360/361（98–99.7%），未执行的 1–3 个位置全部有据、无静默丢失，且三块板负载均衡。</div>
-  <div class="todo-box"><strong>结论边界：</strong>每个位置目前仍只执行<b>一个</b>动作组，每位置多组序列（16 组）与执行端两组在途尚未落地（容量扩容已被实测证伪，需内存友好方案）。批次收口受阻：P3 五次尝试未取得可接受凭证，失败点在基础件的输出存活，<b>代码暂不提交</b>。板端动作完成仍不等于引脚边沿证据。</div>
+  <div class="todo-box"><strong>结论边界：</strong>每个位置目前仍只执行<b>一个</b>动作组；每位置多组序列与执行端两组在途尚未落地（<b>模板表容量 8 已足够</b>——SWITCH_A 8／SWITCH_B 2／GATEWAY 2，缺的是按位置展开，不是扩容）。批次收口已更新：P3 凭证已取得（<code>QUICK_GRADED</code>，<code>PASS_WITH_WARNINGS</code>，INFO 33 / WARN 12 / ERROR 0 / FATAL 0），代码已按指纹提交；板端动作完成仍不等于引脚边沿证据。</div>
 </div>
 <div class="section"><div class="section-title">功能状态一览（相对上一版的变化）</div>
 <table class="compact"><thead><tr><th>功能</th><th>能做什么</th><th>状态</th><th>变化</th></tr></thead><tbody>
@@ -173,35 +173,38 @@
 <!-- 6/8 F5 -->
 <div class="page">
 <div class="page-header">
-  <div><h1>F5 每位置多组序列：容量方案被证伪</h1><div class="subtitle">未落地 | 需要内存友好方案</div></div>
+  <div><h1>F5 每位置多组序列：容量已足够，缺的是按位置展开</h1><div class="subtitle">未落地 | 模板表容量 8 无需扩容</div></div>
   <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
   <div class="doc-meta"><strong>2026年10月16日</strong>星期四<br>内部评审阶段报告<br>实验快照，非冻结契约</div>
 </div>
 <div class="main">
-<div class="note-box"><strong>本页定位：</strong>本轮达成的 361 全程是「每位置一个动作组」。本页说明为什么「每位置多组」仍未落地，以及新增的一条实测否证。</div>
+<div class="note-box"><strong>本页定位：</strong>本轮达成的 361 全程是「每位置一个动作组」。本页说明「每位置多组」为什么仍未落地，并更正容量口径。</div>
 <div class="section"><div class="section-title">一、当前能力与目标口径</div>
 <table class="compact"><thead><tr><th>项</th><th>现状</th><th>目标口径</th></tr></thead><tbody>
-<tr><td>每位置动作组数</td><td>1 组（本轮 361 全程即单组）</td><td>多组（当前口径 16 组）</td></tr>
-<tr><td>预装时机</td><td>动作模板在启动前装载</td><td>16 组在<b>位置开始前</b>全部预装并读回</td></tr>
+<tr><td>每位置动作组数</td><td>1 组（本轮 361 全程即单组）</td><td>按本角色动作集展开多组</td></tr>
+<tr><td>角色动作集需求</td><td colspan="2">SWITCH_A <b>8</b> 个动作（切换通道）· SWITCH_B <b>2</b> 个（切换极化）· GATEWAY <b>2</b> 个（接收脉冲、回复状态已完成）</td></tr>
+<tr><td>模板表容量</td><td>8 行（<code>TRIGGER_ACTION_TEMPLATE_CAPACITY</code>）</td><td><b>8 行已足够</b>，不扩容；SWITCH_A 恰好用满 8</td></tr>
+<tr><td>预装时机</td><td>动作模板在启动前装载</td><td>本角色序列在<b>位置开始前</b>预装并读回</td></tr>
 <tr><td>执行端在途</td><td>一次一个待执行动作，第二个被拒</td><td>两组滑动窗口，一组完成即推入下一组</td></tr>
 <tr><td>组间隔</td><td>—</td><td>按网分最坏响应时间加建立余量；组间不由就绪信号推进</td></tr>
 </tbody></table></div>
-<div class="section"><div class="section-title">二、本轮新增否证：直接把容量扩到 16 不可行</div>
-<div class="risk-box"><strong>模板表容量 8 → 16 的改动已被实测证伪：</strong>扩展后出现 DPLL 相位超出预算（相位超过 1000 ns），说明该扩容方式不可接受，必须改走<b>内存友好方案</b>。因此「把容量改大」这条路已经关闭，多组序列需要另找实现形态。</div></div>
+<div class="section"><div class="section-title">二、容量口径更正：8 已经足够（原「扩到 16」作废）</div>
+<div class="risk-box"><strong>更正：</strong>模板表按<b>角色</b>存放动作，各角色需求本就不同——SWITCH_A 8、SWITCH_B 2、GATEWAY 2——<b>8 行容量已经足够</b>，无需扩到 16。此前「每位置 16 组」是模型源自身直连实测的口径，不是 T2 的角色需求；而「容量 8→16」这一改动本身也已被实测证伪（扩展后 DPLL 相位超出预算，相位超过 1000 ns）。因此「扩容」不是待办：多组序列要解决的是<b>按位置展开</b>，不是加宽静态表。</div></div>
 <div class="section"><div class="section-title">三、两个前置分别归谁</div>
 <table class="compact"><thead><tr><th>前置</th><th>归属</th><th>状态</th></tr></thead><tbody>
-<tr><td>执行端深度 2 队列</td><td>SYNC_IO 域（跨域接口变更）</td><td>已在对方域登记前置，T2 侧待其提供</td></tr>
-<tr><td>多组序列模板与预装</td><td>T2 域</td><td>方案待重定（原扩容路径已证伪）</td></tr>
+<tr><td>执行端深度 2 队列</td><td>SYNC_IO 域（跨域接口变更）</td><td>已在对方域登记前置（<code>SYNC-SCHED-001</code>），T2 侧待其提供</td></tr>
+<tr><td>按位置展开本角色序列</td><td>T2 域</td><td>挂载路径当前只保留本角色 <b>1</b> 行（多一行直接拒绝），需改为按角色动作集（≤8）保留并逐组展开，静态表保持 8 行</td></tr>
 </tbody></table></div>
 <div class="section"><div class="section-title">四、未闭合</div>
 <div class="todo-box">
+<div>• 挂载路径（<code>trigger_t2_runtime.c</code> 的 <code>local_role</code> 筛选）当前 <code>TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY = 1</code>，多一行即拒绝挂载；需改为保留本角色动作集（≤8）并逐组展开。</div>
 <div>• 冻结后未装填的动作随最新本地时间映射重算，已被硬件接受的不追改（当前被冻结门槛抑制）。</div>
 <div>• 模型源侧「每位置 16 组」（总数 181×16、故障为零）是模型源自身直连实测，属模型源证据，不能当作 T2 链路已支持 16 组。</div>
-<div>• 多组方案重定后需与执行端容量同批落地，单独改一侧不会让多组跑起来。</div>
+<div>• 多组方案落地时需与执行端容量同批进行，单独改一侧不会让多组跑起来。</div>
 </div></div>
-<div class="bar">结论：<strong>F5 未落地；本轮进一步关闭了「直接扩容」这条路，多组序列需要内存友好方案</strong></div>
+<div class="bar">结论：<strong>F5 未落地；容量口径更正为「8 已足够」，实现路径是按位置展开本角色序列，而不是扩容模板表</strong></div>
 </div>
-<div class="page-footer"><span>依据：TODO 阻塞项 B9（容量 8→16 被实测证伪）、执行端单槽核实、模型源直连实测</span><span>DHRT100 T2 功能状态报告 | 6 / 8</span></div>
+<div class="page-footer"><span>依据：TODO 阻塞项 B9（容量口径更正）、挂载期单行限制、执行端单槽核实、模型源直连实测</span><span>DHRT100 T2 功能状态报告 | 6 / 8</span></div>
 </div>
 
 <!-- 7/8 F6 -->

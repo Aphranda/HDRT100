@@ -4,7 +4,7 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TODO.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-10-15
+Last updated: 2026-10-16
 
 ## 现状汇总与待办（2026-10-15，入口节）
 
@@ -35,7 +35,7 @@ Last updated: 2026-10-15
 | B6 | **位置域三方口径**（`T2-IDENT-002`）：FREEZE 校验硬编码 `position_id <= 3`，改宏不带动 | `trigger_position_descriptor.h:193`、`trigger_position_slice.h:38`、`trigger_position_mailbox.h:74` | 待并入 B2~B4 同批 |
 | B7 | **原判据「分发公平性」作废（2026-10-15 用户澄清；原观测保留作历史）**：车道对四板**广播同一批位置时间片**——一次飞行里各板收到预测时间片，**板子的序列动作依据就是冻结的时间片：一旦收到（冻结的）时间片，就按「规划距离」推出的延时动作**（延时是本板**静态配置**、部署期预先配好；动作时刻 = 冻结时间片 + 本板静态延时；**收到即执行，不再等第二次下发**）。业务预算见 `T2_MULTI_SYNC_POSITION_PLAN_500NS_V1`（快照 `out/archive/cold/misc/t2-multi-sync-plan-500ns-20260922/`：500 ns 网格 + switch settle/margin + trigger lead + VNA scan/feedback 窗口；其自述为 planning snapshot，非事实源）。⇒ **不存在「按板分发」「公平性」「逐板到位率」这类目标**；台架 `lane_accept` 三值离散只作**接收侧**（单深度邮箱 + 有界 hold 环）争用/背压的证据，缺位置的原因在 R1–R3 那条链路查——本条不再作为独立阻塞项 | 一等席车道 / `distributed_refmem` | 口径作废（证据并入 R1–R3） |
 | B8 | **旧语义用例钉死**：`test_trigger_t2_runtime.py` 16 个用例固定三槽语义（粘性冻结位、每板一个动作…），运行时切换必须与其同批更新 | `tests/python/test_trigger_t2_runtime.py` | 随 B2~B4 |
-| B9 | **每位置 16 组 / 执行端深度 2**：`TRIGGER_ACTION_TEMPLATE_CAPACITY 8→16` 已被实测证伪（DPLL `phase exceeds 1000 ns`），须内存友好方案；执行端深度 2 属 SYNC_IO 跨域（`SYNC-SCHED-001`） | `trigger_action_template_table.h:13`、`T2-EXEC-002` | 不阻塞"单组位置分发"，阻塞完整 T2 |
+| B9 | **每位置多组序列（按角色 8/2/2） / 执行端深度 2**：模板表容量 **8 已足够**（SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2），**无需扩容**；`8→16` 的改法另已被实测证伪（DPLL `phase exceeds 1000 ns`）。缺的是运行时**按位置展开**本角色动作集（`TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY` 当前 = 1，多一行即拒绝挂载）；执行端深度 2 属 SYNC_IO 跨域（`SYNC-SCHED-001`） | `trigger_action_template_table.h:13`、`trigger_t2_runtime.c:1070-1089`、`T2-EXEC-002` | 不阻塞"单组位置分发"，阻塞完整 T2 |
 | B10 | **台架未回归绿**：最新一轮 `steps-20261015-173316.log` `failed steps: [10, 18, 19]`，另有 `PRIORity:RX?` 8.1 s 超时；既有红 `freeze_missing`、短扫描下从板 `failed` 掩码非零 | 见 `VDC-PROGRESS-20261015-064` | 待查（`freeze_missing` 与从板 failed 为非关键） |
 
 ### 实施进展（2026-10-15，宿主已通过，**未上板、未做 P3、未提交**）
@@ -61,29 +61,31 @@ Last updated: 2026-10-15
 
 ### 分发与执行的边界（用户澄清，2026-10-15）
 
-一等席车道**只分发位置时间片**（位置编号、版本、`target_ms_index`、细分时间片、FREEZE）；SWITCH_A/SWITCH_B/GATEWAY 收到后**全部在本地解算**，并只展开**本板角色**的序列动作。因此：① 「361 位置发布并被各从机收到、解码」归车道与从板槽位逻辑（R1–R6、B7）；② 「各从机执行序列动作」归本地展开（`T2-SEQ-001` 每位置多组、`T2-EXEC-002` 执行端深度 2），**不是车道问题，不要再往车道加载荷**；③ 现状本地展开每位置仅 1 个动作（`LOCAL_TEMPLATE_CAPACITY = 1`），模板容量 8→16 已被实测证伪，须用运行时展开等省内存办法。
+一等席车道**只分发位置时间片**（位置编号、版本、`target_ms_index`、细分时间片、FREEZE）；SWITCH_A/SWITCH_B/GATEWAY 收到后**全部在本地解算**，并只展开**本板角色**的序列动作。因此：① 「361 位置发布并被各从机收到、解码」归车道与从板槽位逻辑（R1–R6、B7）；② 「各从机执行序列动作」归本地展开（`T2-SEQ-001` 每位置多组、`T2-EXEC-002` 执行端深度 2），**不是车道问题，不要再往车道加载荷**；③ 现状本地展开每位置仅 1 个动作（`LOCAL_TEMPLATE_CAPACITY = 1`）；**模板表容量 8 已足够**（按角色动作数 SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2），要的是运行时**按位置展开**本角色动作集，而不是扩容（`8→16` 另已被实测证伪）。
 
 **完整链路（2026-10-15 用户澄清，补全）**：主机**只发位置时间片 + FREEZE**；从机本地解算后**回「已冻结」**（`report_frozen()` → 出站镜像控制字节），主机按回执判定该位置是否闭环（`distributed_refmem_position_freeze_acked()`）；**板子的序列动作依据就是冻结的时间片**——收到该（冻结的）时间片后即按**规划距离**推出的延时在自己的时刻动作，**不再等第二次下发**。本板在部署期只取本角色那一行（`config->local_role` 筛选），按 `trigger_position_instance_expand()` 的 `action_q = target_q + delta_q` 得本板动作时刻（`delta_q` = 本板**静态配置的动作延时**，即规划距离对应的时间片偏移，部署期预先配好、STOP 期经 SCPI 装载，**运行中不再计算**，**仓内无硬编码数值**；例如 SWITCH_A/SWITCH_B/GATEWAY 各取自己的规划距离时间片。该延时的业务预算见 `T2_MULTI_SYNC_POSITION_PLAN_500NS_V1`，快照在 `out/archive/cold/misc/t2-multi-sync-plan-500ns-20260922/`；**一次飞行内四板共用同一批预测时间片**，各板只用自己的规划距离延时），到点由 `sync_io_*_realtime_schedule_at()` 触发。**语义与实现的分工（关键）**：语义上唯一依据是**冻结的时间片**；实现上 FREEZE 帧只带身份（`position_id`/版本/`target_ms_index`），冻结那一片的载荷由**被这次 FREEZE 绑定住的那片 PREVIEW**承载（`accept_remote_position()` 的 FREEZE 分支把槽内 `descriptors[index]` 回绑到与计划同版本的那片，Core0 再由 `preview_copy()` 解 deadline）——两者由 R1 的目标校验绑定为同一位置实例，所以 R1 的校验不是单纯的丢包问题：过紧丢合法 FREEZE，过松就用错片的基准展开。
 
 ### 序列与角色时间的定义（用户要求，2026-10-15；**草案，数值待用户定**）
 
-**原则**：序列在 STOP 阶段一次定死并读回（随部署事务装载），运行中只按位置时间片 `q_P`（线上 `target_ms_index` + 细分片）展开；各角色的动作时刻 = `q_P` + 本角色相对偏移，**不由车道或主站逐板下发**。现有模板行已有 `role / kind / argument / span_slices / delta_q`，`delta_q`（单位：细分时间片）就是「角色相对位置时间片的时间」，缺的是把一个位置内的 16 组序列定死。
+**原则**：序列在 STOP 阶段一次定死并读回（随部署事务装载），运行中只按位置时间片 `q_P`（线上 `target_ms_index` + 细分片）展开；各角色的动作时刻 = `q_P` + 本角色相对偏移，**不由车道或主站逐板下发**。现有模板行已有 `role / kind / argument / span_slices / delta_q`，`delta_q`（单位：细分时间片）就是「角色相对位置时间片的时间」，缺的是把一个位置内的**本角色动作序列**定死。
 
-**每位置序列（K-6：16 组，各板只展开本角色的步）**：组 `g = 0..15`，角色 `r` 的第 `g` 组动作时刻
-`q = q_P + O_r + g × P`，占用 `span_r` 个细分片。
+**每位置序列（按角色动作组数：SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2；各板只展开本角色的步）**：角色 `r` 的组 `g = 0..G_r−1`，第 `g` 组动作时刻
+`q = q_P + O_r + g × P`，占用 `span_r` 个细分片。（早期文中的「K-6：16 组」为模型源口径，已按角色实际动作数更正。）
 
 | 角色 | 动作 | 相对偏移 `O_r` 的含义 | 需要用户定的量 |
 |---|---|---|---|
-| SWITCH_A（NO2，SP8T） | 每组切到该组的通道编码 `code_A[g]` | 组起点（最先动，留出切换整定） | 16 个编码、整定时间 |
-| SWITCH_B（NO4，SP2T/HV） | 每组切到 `code_B[g]` | 与 SWITCH_A 同组起点或其后固定间隔 | 16 个编码、与 A 的先后 |
-| GATEWAY（NO3，VNA 网关） | 每组一个 TRIG 脉冲，READY 窗口做上一组重叠校验（K-1） | 晚于两个开关的整定完成点 | TRIG 脉宽、READY 窗口、`O_G` |
+| SWITCH_A（NO2，SP8T） | 每组切到该组的通道编码 `code_A[g]` | 组起点（最先动，留出切换整定） | **8** 个动作/编码、整定时间 |
+| SWITCH_B（NO4，SP2T/HV） | 每组切到 `code_B[g]` | 与 SWITCH_A 同组起点或其后固定间隔 | **2** 个动作/编码、与 A 的先后 |
+| GATEWAY（NO3，VNA 网关） | 每组一个 TRIG 脉冲，READY 窗口做上一组重叠校验（K-1） | 晚于两个开关的整定完成点 | **2** 个动作（接收脉冲、回复状态已完成）、TRIG 脉宽、READY 窗口、`O_G` |
 | COUNTER（NO1） | 不展开序列（只预测位置） | — | — |
 
-**组周期 `P`** ≥ 网分最坏响应时间 + 开关整定 + 余量（组间不由 READY 推进，K-1）；**位置内总跨度** `O_max + 15×P + span` 必须 < STEP 对应时间，`trigger_turntable_scan_validate()` 的 `SPAN_TOO_SHORT` 已按此拒绝。
+> **容量口径（2026-10-16 更正）**：模板表按**角色**存放动作，各角色需求不同——SWITCH_A **8**、SWITCH_B **2**、GATEWAY **2**——因此 `TRIGGER_ACTION_TEMPLATE_CAPACITY = 8` **已经足够，不需要扩容**（SWITCH_A 恰好用满 8）。此前文中的「每位置 16 组」是模型源自身直连实测的口径，不是 T2 角色需求，已按角色实际动作数更正。
 
-**省内存的存法（不放大静态模板表，避开 DPLL 相位回归）**：每个角色只存一份**紧凑序列程序**——`{kind, base_offset O_r, period P, group_count, span, code[16]}`，运行时按「两组滑动窗口」逐组展开成 deadline（即 `T2-EXEC-002` 的深度 2），不为每组占一个 `trigger_action_template_t` 行。`TRIGGER_ACTION_TEMPLATE_CAPACITY` 保持 8。
+**组周期 `P`** ≥ 网分最坏响应时间 + 开关整定 + 余量（组间不由 READY 推进，K-1）；**位置内总跨度** `O_r + (G_r − 1)×P + span`（`G_r` = 本角色动作组数：SWITCH_A 8、SWITCH_B 2、GATEWAY 2）必须 < STEP 对应时间，`trigger_turntable_scan_validate()` 的 `SPAN_TOO_SHORT` 已按此拒绝。
 
-**待用户给出的数值**（硬件事实，我不能替定）：① `P`；② 开关整定时间；③ 网分最坏响应时间与 TRIG 脉宽；④ READY 窗口；⑤ 每组 `code_A/code_B`（16 组）；⑥ SWITCH_A 与 SWITCH_B 同时动还是错开。给出后：宿主先写序列展开与时间关系的测试（各角色时刻、跨度、STEP 容得下），再改固件。
+**省内存的存法（不放大静态模板表，避开 DPLL 相位回归）**：每个角色只存一份**紧凑序列程序**——`{kind, base_offset O_r, period P, group_count G_r, span, code[G_r]}`（`G_r ≤ 8`，即不超过模板表容量），运行时按「两组滑动窗口」逐组展开成 deadline（即 `T2-EXEC-002` 的深度 2），不为每组占一个 `trigger_action_template_t` 行。`TRIGGER_ACTION_TEMPLATE_CAPACITY` 保持 8（**且 8 已足够**）。
+
+**待用户给出的数值**（硬件事实，我不能替定）：① `P`；② 开关整定时间；③ 网分最坏响应时间与 TRIG 脉宽；④ READY 窗口；⑤ 各角色动作编码（SWITCH_A **8** 组 / SWITCH_B **2** 组 / GATEWAY **2** 组）；⑥ SWITCH_A 与 SWITCH_B 同时动还是错开。给出后：宿主先写序列展开与时间关系的测试（各角色时刻、跨度、STEP 容得下），再改固件。
 
 ### 代码审查发现（2026-10-15，审查本批 `trigger_t2_runtime.c` 等改动；只读，**未修复**）
 
@@ -109,7 +111,7 @@ Last updated: 2026-10-15
 
 ### 硬约束（勿再犯，均有实测依据）
 
-- `TRIGGER_ACTION_TEMPLATE_CAPACITY` **保持 8**（改 16 致 DPLL 相位回归，A/B 已证）。
+- `TRIGGER_ACTION_TEMPLATE_CAPACITY` **保持 8**（改 16 致 DPLL 相位回归，A/B 已证；且按角色动作数 8/2/2 **8 已足够**，无需扩容）。
 - **台架一次只允许一个消费者**；完整 P3 **不可中途打断**（会留下半途态，需 `--steps 0-7` 恢复）。
 - 对照实验排除工作区改动用 `git stash --keep-index`；**不要**用 `git checkout HEAD -- <paths>`。
 - 读数归属：窗口累计只在 **`T2:ACTion?`** 尾；从板真正写 `frozen_mask` 的是 `stage_pending_freeze()`；`T2?` 尾部字段随状态变化，勿取尾 N 项。
@@ -123,7 +125,7 @@ Last updated: 2026-10-15
 3. **P0 台架判据**：`--steps 0-7` → `t2_iterate.py`（`T2_SCAN_OVERRIDE_TERMINAL_MDEG=8000`）→ `t2_workflow.py --full`。
 4. **P0 台架复验 R1/R2/R3/R4/R6**（工作区均已改；R3/R6 已有宿主用例与「禁用即红」反证，待一轮完整 T2 判定；见下条中断取证与续跑命令）；**接收侧争用**（单深度邮箱 + 有界 hold 环：按 R1–R3 查缺位置，**不再按「分发公平性／逐板到位率」立判据**——四板收到同一批预测时间片，各板按本板静态配置的延时动作）；**B10 查 10/18/19 与命令超时**；**两条宿主红**（`test_t2_configure_signature` 的 `t2_workflow.py` 调用点行号需随批次更新；`test_trigger_grid_preview[configure_race]` 现为稳定红且其 owner harness 不编译 `trigger_t2_runtime.c`）随批次清掉。
 5. **收口**：361 全扫描 → 一次 `--profile full` P3 → 契约登记（挂 `TDMA-SEAT-01`）+ C11 → 文档/代码分开提交。
-6. **P1**：B9（Step 3 内存友好 16 组 + `T2-EXEC-002`）、Steps 4–6（未装填动作重算 / READY 按组校验 / 位置级完成证据）。
+6. **P1**：B9（按角色展开动作序列 8/2/2 + `T2-EXEC-002`）、Steps 4–6（未装填动作重算 / READY 按组校验 / 位置级完成证据）。
 7. **P2**：C11 签署 `T2-DEPLOY-003`/`T2-IDENT-002`/`T2-TURNTABLE-002`；未提交工具改动（`t2_iterate.py` 真计数判据、`t2_workflow.py` step 17 分层与自诊断）随收口一次 P3。
 
 ### 本文整理说明（2026-10-15）
@@ -154,7 +156,7 @@ Last updated: 2026-10-15
 4. **诊断回传**：冻结后用低优先级 T2 diagnostic class 回传一帧摘要；仅在版本缺失、旧代、CRC、q 冲突或 READY 异常时追加第二帧。诊断不覆盖 VDC、ACK 或已排队 VDC image。
 5. **通用 FIFO 保留**：现有 `tdma_flight_fifo` 双槽 publish/acquire/release 保留给 TDMA 流式 OTA、配置数据和可靠控制。T2 不通过修改已排队 VDC image 来插入位置数据；旧完整描述符分片仅作为迁移材料和历史失败证据保留。
 
-6. **角度扫描与多组序列**（2026-10-10 确认）：扫描由起始、终止和 STEP 定义，单位为度、分辨率 0.001°，每个 STEP 位置都执行完整触发（K-4）；每个位置运行多组序列与采样（当前 16 组），16 组预装，执行端按包含两组的滑动窗口装填，DCO 更新放在网分采样期间（K-6）。多板模式下 READY 只做异步踩踏校验（K-1）。
+6. **角度扫描与多组序列**（2026-10-10 确认，2026-10-16 更正组数）：扫描由起始、终止和 STEP 定义，单位为度、分辨率 0.001°，每个 STEP 位置都执行完整触发（K-4）；每个位置运行多组序列与采样——组数**按角色**为 SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2（原记「16 组」为模型源口径，已更正），本角色序列在位置开始前预装，执行端按包含两组的滑动窗口装填，DCO 更新放在网分采样期间（K-6）。多板模式下 READY 只做异步踩踏校验（K-1）。
 7. **锁态只记录不阻断**（2026-10-14 用户裁定，取代原「VDC 进入 LOCKED 并发布后 T2 才有输出」的 K-3）：调试阶段 T2 消费 VDC 锁定判定并记入快照与证据，但**不因锁态拒绝、阻塞或跳过** deadline 的生成与装填；正式输出门禁延后为独立任务（`T2-GATE-001`）。
 
 当前状态：方案为 `P0 / IN PROGRESS`，尚未冻结 compact-q wire subtype；完成定义是四板真实单 `position_q` 一帧送达、阈值冻结、从板本地准备、1～2 帧诊断回传，且 VDC cadence 和外部同步相位不变。现行代码与上述口径的偏差逐项见 [T2 评审](TRIGGER_T2_REVIEW.md)。
@@ -207,7 +209,7 @@ Last updated: 2026-10-15
 | T2-COMPLETE-001 | 实际动作/READY 证据闭合 | PENDING | 实际边沿、READY、模型和 position_id 绑定；缺 latch 只报告未确定 |
 | T2-ACCEPT-001 | 当前切片交付 | PENDING | host/Release/P3/TDMA 短帧/示波器/恢复证据闭合，不宣布产品资格；从板送达读数以优先级通道 accept/duplicate/reject 为准，不以 `position_rx_complete_count` 判定 |
 | T2-STEP-001 | 角度扫描与 STEP 位置 | IN PROGRESS | **行程 = [起始−5°, 终止+5°]**（2026-10-12 用户裁决）：必须从起始前 5° 起、终止后 5° 停——预行程使**位置 0 可被预测**（否则首个位置无速率/无观测），后行程使**终止位置可验证**；两段 roll 必须是整数脉冲且 ≥ 1 个 STEP，位置网格仍为 起始..终止 by STEP。起始/终止/STEP/转速/`pulses_per_degree` 以整数毫度配置（分辨率 0.001°）；整除、`step_pulses` 整数性、溢出、STEP 时间下限大于位置内序列跨度均在 STOP 校验并 fail-closed；lead 取一步比例（见架构「角度扫描与 STEP 位置」）；零位只作网格一致性检查，不在网格上即拒绝；内部 index 0 基、线上 position id 1 基；在途槽位数与身份容量归 `T2-IDENT-001`；可复用 `feature/node-sequence-reservation-trigger` 的 `CONFigure:ANGLe:*` 解析与校验（评审 A-14、D-1/D-5/D-6）。**已落地派生与校验层**：`trigger_turntable_scan_validate()` 派生位置数/整数 `step_pulses`/总脉冲，并按六类理由拒绝（参数缺失、反向、STEP 不整除、位置数超限、STEP 非整数脉冲、STEP 容不下序列跨度），拒绝时清零输出；0..360°@1° 规格（361 位置、step_pulses=100）与 `tests/python/test_turntable_scan_geometry.py` 全通过。**已完成（2026-10-13，台架验证）**：SCPI 前端已接出扫描参数并在配置期调用校验——`T2:CONFigure` 现为 12 个位置参数（`run_id, source_slot, target_mask, origin, pre_roll, post_roll, threshold, start_angle, zero_angle, terminal_angle, step_mdeg, pulses_per_degree`），处理器在构造 config 后调用 `trigger_turntable_scan_validate()`（六类拒绝理由 fail-closed），4 处台架调用点已同步；`t2` 验收 `passed=True / configured=4 / failed steps: none`。**剩余**：把台架扫描参数从 5/10/15° 切到 0..360°@1°（须先完成 A.3 迁移，见 A.3 顺序约束）；**不得往 `trigger_turntable_predictor_config_t` 加字段**（`-Wextra -Werror` 下 partial initializer 编译失败，STEP 现由 `trigger_turntable_window_configure()` 存入 snapshot） |
-| T2-SEQ-001 | 每位置多组序列预装 | PENDING | 每位置 16 组（切换编码、相对 `q_P` 偏移、网分脉宽、READY 窗口）在位置开始前预装并读回；组间隔按网分最坏响应时间加 settle 与余量；组间不由 READY 推进；各板只展开本角色的步（评审 A-16） |
+| T2-SEQ-001 | 每位置多组序列预装 | PENDING | 每位置按角色动作组数（SWITCH_A **8** / SWITCH_B **2** / GATEWAY **2**；切换编码、相对 `q_P` 偏移、网分脉宽、READY 窗口）在位置开始前预装并读回；组间隔按网分最坏响应时间加 settle 与余量；组间不由 READY 推进；各板只展开本角色的步（评审 A-16） |
 | T2-EXEC-002 | 两组滑动窗口执行端 | PENDING | SWITCH/GATEWAY 执行端支持深度 2 的绝对 deadline 队列，每组独立序号、回执与取消结果；一组完成即推入下一组；STOP 取消队列内全部未执行组并记录硬件取消结果；属 SYNC_IO 接口变更，需该域确认（评审 A-16）。**2026-10-14 核实**：现状确为单槽——`sync_io_switch.c` 以 `SYNC_IO_SWITCH_PENDING` 显式拒绝、`sync_io_gateway.c` 经 `prepare_realtime()` 的 pending 标志间接拒绝（失败路径另清 OUTPUT/READY FIFO），两侧各只有一份 `s_deadline`，头文件自述 “One transaction at a time, Core1 only.”；而 SYNC_IO 域此前**无对应任务项**，故本项长期无受理方。已在该域登记 **`SYNC-SCHED-001`** 作为本项跨域前置（`docs/sync/SYNC_IO_TODO.md`）。**T2 侧可动部分**：提交/取消/回执状态机（在途 2、窗口前移、逐组 `sequence` 绑定）与容量满、序号错配的终止性失败负测。 |
 | T2-DCO-001 | FREEZE 后 deadline 随 DCO 更新 | PENDING | FREEZE 只锁定位置；Core0 在模型 token 变化时为未装填组重新解算，更新放在网分采样期间；Core1 装填前比较 token；已被硬件接受的组不追改；依赖 VDC 证明模型切换无相位跳变（评审 A-06、E-01） |
 | T2-GATE-001 | VDC 锁态**记录**（正式输出门禁延后） | PENDING | **2026-10-14 用户裁定**：调试阶段 T2 接受任何可达锁态，**只记录、不拒绝、不阻断**——能跑通、能成功即本阶段目标，规则细化阶段再收紧；K-3 已据此改写（见 [架构](TRIGGER_T2_ARCHITECTURE.md)）。**剩余**：① T2 消费 `vdc_dpll_manager_lock_verdict()`，把 `locked`/`provisional`/`published_qualified`/`reason` **记入快照与证据，但不参与任何准入判断**；② 正式输出门禁（含非发布态拒绝）另立**独立后续任务**，本项不再阻塞主线。**历史取证与更正全过程**（原 A-02 判据成立：生成/装填两侧都无锁态与发布检查，唯一相关判据是枚举越界 `lock_state > VDC_DOMAIN_LOCK_FAULT`；发布位 `REFMEM_VECTOR_FLAG_LOCKED` 在台架因 provisional **结构不可达**，实测四板 `flags` 恒为 `0x55`、bit5 恒 0；固件入口已于 2026-10-14 具备）见 `T2-PROGRESS-20261014-003/004/005`。 |
@@ -233,7 +235,7 @@ Last updated: 2026-10-15
 |---|---|
 | 常驻位置 | **1～2 个在途位置**（`TRIGGER_T2_RUNTIME_POSITION_COUNT` = 3 继续作窗口用，**不放大到 361**） |
 | 线上身份 | **不加宽 4 bit `position_id`**：10 B 单帧已带 32 bit `target_ms_index`，配合扫描参数即可确定绝对位置；两级身份方案作废 |
-| 模板/组 | 每位置 **16 组** × 在途 1～2 ⇒ 常驻 16～32 组（现每位置 1 组 ⇒ `LOCAL_TEMPLATE_CAPACITY` 需 1 → 16） |
+| 模板/组 | 每位置按角色 **8/2/2 组** × 在途 1～2 ⇒ 常驻 ≤ 16 组（现每位置 1 组 ⇒ `LOCAL_TEMPLATE_CAPACITY` 需 1 → 本角色组数（≤8）；模板表容量 8 已足够，不扩容） |
 | 冻结确认 | 32 bit 掩码足够（覆盖在途位置/槽位），无需 361 位分级确认 |
 | 361 的用处 | 仅用于**扫描派生与 STOP 期 fail-closed 校验** |
 
@@ -256,11 +258,11 @@ Last updated: 2026-10-15
 | 产品入口（校验 + 建窗合一；拒绝即不建窗、清空全部窗口事实） | `trigger_turntable_window_begin_scan` | 同上 |
 | 可读回健全性事实（**已接 `TRIGger:REServation:T2?` 末尾**，含 `window_step_mdeg` 与派生几何；台架判据 `announced == entered`、`overwrote_unannounced == 0`） | `window_entered_count` / `window_announced_count` / `window_overwrote_unannounced_count` / `window_late_entry_count` / `window_recomputed_count` / `window_rate_stale_count` | 滚动窗口测试 |
 
-**仍在待办**：① SCPI 接线；② `trigger_t2_runtime.c` 消费者迁移（legacy 3 槽 → 窗口条目，并把附录 A 之外的健康计数读回）；③ 每位置 16 组与执行端窗口深度 2；④ 边界位置执行侧证据闭合。代码级落点、编译约束与结案复盘见 **附录 A**。
+**仍在待办**：① SCPI 接线；② `trigger_t2_runtime.c` 消费者迁移（legacy 3 槽 → 窗口条目，并把附录 A 之外的健康计数读回）；③ 每位置多组（按角色 8/2/2）与执行端窗口深度 2；④ 边界位置执行侧证据闭合。代码级落点、编译约束与结案复盘见 **附录 A**。
 
 本节的代码级落点（SCPI 命令面）、实施约束（`-Werror` partial initializer）与结案复盘见文末**附录 A**。
 
-**仍在待办（原清单，保留引用）**：① SCPI 接线（见下节）；② `trigger_t2_runtime.c` 消费者迁移（legacy 3 槽 → 窗口条目，并把上表计数读回）；③ 每位置 16 组与执行端窗口深度 2；④ 边界位置证据闭合。
+**仍在待办（原清单，保留引用）**：① SCPI 接线（见下节）；② `trigger_t2_runtime.c` 消费者迁移（legacy 3 槽 → 窗口条目，并把上表计数读回）；③ 每位置多组（按角色 8/2/2）与执行端窗口深度 2；④ 边界位置证据闭合。
 
 ## 实施顺序与停止条件
 

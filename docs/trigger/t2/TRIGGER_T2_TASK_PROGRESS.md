@@ -12,6 +12,18 @@ Last updated: 2026-10-16
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261016-010：动作序列容量口径更正——模板表 **8 已足够**（按角色 8/2/2），缺的是"按位置展开"
+
+- TODO task ID：`T2-SEQ-001`、`T2-EXEC-002`、`T2-DEPLOY-003`。
+- **用户裁定（2026-10-16）**：模板表**不用扩容**——各角色动作数本就不同：**SWITCH_A 8 个动作**（切换通道）、**SWITCH_B 2 个**（切换极化）、**GATEWAY 2 个**（接收脉冲、回复状态已完成）。`TRIGGER_ACTION_TEMPLATE_CAPACITY = 8` **已足够**（SWITCH_A 恰好用满）。此前文中的「每位置 16 组」是**模型源自身直连实测**（`total = 181×16`）的口径，不是 T2 的角色需求；`8→16` 的改法另已被实测证伪（DPLL `phase exceeds 1000 ns`）。
+- **当前动作序列的实际编排（代码核实，2026-10-16）**：
+  1. **装载**：`ACTion:INSTall` / `TEMPLate:INSTall` 写入动作模板表（`trigger_action_template_table_t`，容量 8），每行 `{template_id, generation, role, kind, argument, span_slices, delta_q}`；`trigger_action_template_table_validate()` 校验 id 唯一、role 合法、SWITCH 仅限 SWITCH_A/SWITCH_B 且 `argument ⊆ deployment.rows[role].output_mask`、GATEWAY 仅限 GATEWAY 角色，并核对整表 CRC（`trigger_action_template_table.h:46-70`）。
+  2. **挂载**：`trigger_t2_runtime_configure()` 按**本板 `local_role`** 过滤出属于自己角色的行（`trigger_t2_runtime.c:1070-1089`）；当前 `TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY = 1` ⇒ **每板每角色只允许 1 行**，第 2 行即 `return false` 拒绝挂载（只有最后一行存入 `s_local_template`）。
+  3. **位置→动作**：从板收到 PREVIEW/FREEZE 后本地解算 (coarse, fine)，按 `action_q = target_q + delta_q` 得本板动作时刻（`delta_q` = 部署期静态配置的规划距离延时，运行中不重算），再按 `s_local_template.kind` 布置 SWITCH 或 GATEWAY 截止（`trigger_t2_runtime.c:670-710`），Core0 解算 → Core1 PIO 提交。
+  4. **结论**：现状是**「一个位置 = 一行模板 = 一个动作」**；"每位置多组序列"要补的是**运行时按位置展开本角色动作集**（`G_r ≤ 8`，两组滑动窗口 = `T2-EXEC-002`，执行端深度 2 属 SYNC_IO 跨域 `SYNC-SCHED-001`），**不是**加宽静态模板表。
+- **本轮落地（文档）**：`docs/reports/distributed-trigger/DHRT100_T2_STATUS_REPORT_20261016.html` 的 F5 页改写为「容量已足够，缺的是按位置展开」（含按角色动作表、更正说明、两个前置的归属），并重渲染 PDF（8 页、无溢出/重叠，`out/report-update-20260919/` 留 PNG 与 layout.json）；`docs/trigger/t2/TRIGGER_T2_TODO.md` 的 B9、T2-SEQ-001、"每位置 16 组"相关计划条目、"模板/组"表与硬约束条目均按 8/2/2 更正（**保留**模型源实测证据行 `total = 2896 = 181×16` 不动，仅注明其口径归属）。
+- **未闭合**：`components/sync_trigger/inc/trigger_action_template_table.h:10-12` 的注释仍写「a position carries 16 groups, so the installable program must hold at least that many rows」——与本次更正矛盾；因改它属**固件源**变更（会使当前 P3 凭证指纹失效），留到下一批固件改动时一并修正并在台架上重新取证。
+
 ### T2-PROGRESS-20261016-009：批次收口受阻——P3 五次尝试均未取得可接受凭证（step 29 内部 DPLL 采集：多板输出在 60 s 窗口内到期）；代码按门禁暂不提交，仅提交文档
 
 - TODO task ID：`T2-DEPLOY-003`（批次收口）。**结论：本批固件改动目前无法取得 `check-staged` 接受的 P3 凭证，故代码保持未提交。**
