@@ -778,9 +778,15 @@ def summarize_joint(root: Path, joint_report_path: Path, input_report_path: Path
     else:
         if verdict.get("external_status") != "SKIPPED" or inner.get("scope_samples"):
             errors.append("scope-absent run must record external SKIPPED without samples")
-        phase_source = "NO2..NO4/summary.ram.bin steady residual extrema"
-        phase_domain = "internal_steady_summary_residual_envelope"
-        phase_values = steady_values
+        # Lock is a convergence property: grade the converged steady endpoint
+        # residual, which _internal_trace_summary already binds to the last
+        # steady estimation bin. The window residual extrema stay in the
+        # evidence as diagnostics: a re-acquisition sample carries the age of
+        # the reference event it matched (vdc_priority_match.inc expected_lo),
+        # so it reports the matching domain, not the locked phase.
+        phase_source = "NO2..NO4 final steady endpoint residual (last steady bin)"
+        phase_domain = "internal_steady_endpoint_residual"
+        phase_values = internal_values
         external_status = "SKIPPED"
 
     if not phase_values:
@@ -799,6 +805,7 @@ def summarize_joint(root: Path, joint_report_path: Path, input_report_path: Path
         "phase_domain": phase_domain, "phase_warn_ns": PHASE_WARN_NS,
         "phase_error_ns": PHASE_ERROR_NS, "phase_max_abs_ns": max_abs_ns,
         "phase_severity": severity, "internal_phase_endpoints": internal_rows,
+        "phase_window_extrema_ns": max(map(abs, steady_values), default=0.0),
         "internal_phase_traces": internal_traces,
         "internal_summary_interval_ms": INTERNAL_SUMMARY_INTERVAL_MS,
         "internal_settling_seconds_excluded": INTERNAL_SETTLING_SECONDS,

@@ -421,6 +421,9 @@ typedef struct {
      * lane_hold_count == lane_drain_count + lane_hold_expired_count +
      * lane_hold_delivered_count + still queued. */
     uint32_t lane_hold_delivered_count;
+    /* FREEZE delivery evidence (it bypasses the PREVIEW queue): latched by the lane, kept
+     * first (a second FREEZE for an id not yet taken is not stored), taken by T2. */
+    uint32_t lane_freeze_latched_count, lane_freeze_kept_count, lane_freeze_taken_count;
 } distributed_refmem_position_transport_snapshot_t;
 
 /* Bounded receive preservation for the first-class seat (TDMA-SEAT-03). These

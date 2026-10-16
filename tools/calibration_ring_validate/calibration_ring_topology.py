@@ -56,6 +56,10 @@ def parse_args() -> argparse.Namespace:
                         help=("split clock training into bounded chunks; "
                               "0 sends one command"))
     parser.add_argument("--pair-wait", type=float, default=1.5)
+    parser.add_argument("--pair-min-observations", type=int, default=3,
+                        help="minimum receiver samples before a pair may be "
+                             "reported as not adjacent; one sample cannot tell a "
+                             "slow driver start from a missing edge")
     parser.add_argument("--min-rx-frames", type=int, default=10)
     parser.add_argument("--min-rx-words", type=int, default=8)
     parser.add_argument("--baud", type=int, default=115200)
@@ -505,6 +509,8 @@ def main() -> int:
             "than cycles")
     if not 1 <= args.probe_phase_cycles <= 31:
         raise SystemExit("probe-phase-cycles must be in [1, 31]")
+    if not 1 <= args.pair_min_observations <= 64:
+        raise SystemExit("pair-min-observations must be in [1, 64]")
     args.board_ids = board_ids
 
     boards = discover(args)
@@ -567,12 +573,20 @@ def main() -> int:
                 before = start_pair(driver, receiver, args, pair_actions, transport_recoveries)
                 # START is an intent.  Use the receiver's counters as the
                 # completion query and return as soon as activity is visible;
-                # pair_wait is only the bounded failure timeout.
+                # pair_wait is only the bounded failure timeout.  A single
+                # receiver sample cannot distinguish "the driver's burst has not
+                # started yet" from "this pair is not adjacent", so at least
+                # pair_min_observations samples are always taken: with a 0.05 s
+                # bound one snapshot (~0.2 s of serial work) used to decide the
+                # pair on its own and reported real ring edges as missing.
                 deadline = time.monotonic() + args.pair_wait
                 after = None
-                while time.monotonic() < deadline:
+                observations = 0
+                began = time.monotonic()
+                while observations < args.pair_min_observations or time.monotonic() < deadline:
                     candidate = _pair_snapshot(receiver, args, before["tdma"],
                         preparation.setdefault("activity_observations", []), phase="activity")
+                    observations += 1
                     rx_delta = counter_delta(
                         before["tdma"]["ring_adapter_rx_count"],
                         candidate["tdma"]["ring_adapter_rx_count"])
@@ -588,6 +602,7 @@ def main() -> int:
                             rx_edges_delta > 0):
                         break
                     time.sleep(min(args.gap, 0.02))
+                activity_wait_ms = int((time.monotonic() - began) * 1000.0)
                 if after is None:
                     raise RuntimeError(
                         f"{receiver.address}: pair activity query produced no snapshot")
@@ -628,6 +643,8 @@ def main() -> int:
                     "magic_info": magic_info,
                     "receiver_status": after["tdma"],
                     "receiver_phys": after["phys"],
+                    "observation_count": observations,
+                    "activity_wait_ms": activity_wait_ms,
                 })
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
@@ -725,6 +742,13 @@ def main() -> int:
         "transport_recoveries": transport_recoveries,
         "adjacency_only": args.adjacency_only,
         "probe_phase_cycles": args.probe_phase_cycles,
+        # What bounded each pair verdict: a pair is only reported as not
+        # adjacent after at least this many receiver samples, because one sample
+        # cannot tell a slow driver start from a missing edge.
+        "pair_observation_policy": {
+            "pair_wait_s": args.pair_wait,
+            "pair_min_observations": args.pair_min_observations,
+        },
     }
     out_dir = args.out_dir or (
         ROOT / "out" / "training" /

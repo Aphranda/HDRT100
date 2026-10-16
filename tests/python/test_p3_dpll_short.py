@@ -233,7 +233,7 @@ def test_phase_severity_boundaries(value, severity):
     assert short.phase_severity(value) == severity
 
 
-def test_internal_only_uses_steady_native_envelope_and_skips_external(tmp_path):
+def test_internal_only_grades_steady_endpoint_and_skips_external(tmp_path):
     joint, inner = reports(tmp_path, scope=False, maximum=101)
     summary = short.summarize_joint(
         tmp_path, joint, inner, scope_enabled=False, seconds=60)
@@ -241,7 +241,8 @@ def test_internal_only_uses_steady_native_envelope_and_skips_external(tmp_path):
     assert summary["phase_severity"] == "WARN"
     assert summary["phase_max_abs_ns"] == 101
     assert summary["external_status"] == "SKIPPED"
-    assert summary["phase_domain"] == "internal_steady_summary_residual_envelope"
+    assert summary["phase_domain"] == "internal_steady_endpoint_residual"
+    assert summary["phase_source"].startswith("NO2..NO4 final steady endpoint")
     assert summary["internal_summary_interval_ms"] == 10000
     assert summary["internal_settling_seconds_excluded"] == 10
     assert len(summary["internal_phase_traces"]) == 3
@@ -249,6 +250,34 @@ def test_internal_only_uses_steady_native_envelope_and_skips_external(tmp_path):
                row["endpoint_within_last_bin"]
                for row in summary["internal_phase_traces"])
     short.validate_summary(tmp_path, summary)
+
+
+def test_internal_window_spike_does_not_decide_the_lock_verdict(tmp_path):
+    # Lock is a convergence property: a re-acquisition sample carries the age of
+    # the reference event it matched, so it lands in the window extrema but not
+    # in the converged endpoint the verdict grades.
+    joint, inner = reports(
+        tmp_path, scope=False, maximum=86, trace_maximum=23_000_000)
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=False, seconds=60)
+    assert summary["phase_max_abs_ns"] == 86
+    assert summary["phase_severity"] == "INFO"
+    assert summary["passed"] is True
+    assert summary["phase_window_extrema_ns"] == 23_000_000
+    assert all(row["steady_residual_max_ns"] == 23_000_000
+               for row in summary["internal_phase_traces"])
+    short.validate_summary(tmp_path, summary)
+
+
+def test_internal_converged_endpoint_still_fails_when_unlocked(tmp_path):
+    joint, inner = reports(
+        tmp_path, scope=False, maximum=2000, trace_maximum=86)
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=False, seconds=60)
+    assert summary["phase_max_abs_ns"] == 2000
+    assert summary["phase_severity"] == "ERROR"
+    assert summary["passed"] is False
+    assert "phase exceeds 1000 ns" in summary["errors"]
 
 
 def test_internal_startup_transient_is_recorded_but_not_used_for_severity(tmp_path):

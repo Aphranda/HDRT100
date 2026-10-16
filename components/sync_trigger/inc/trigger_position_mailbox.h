@@ -76,17 +76,23 @@ static inline bool trigger_position_mailbox_take(
 typedef struct {
     volatile uint32_t mask; /* bit position_id - 1 */
     uint32_t version[TRIGGER_POSITION_FREEZE_LATCH_IDS];
+    /* The FREEZE frame carries the position's absolute identity (the wire's 32-bit
+     * target_ms_index, T2-IDENT-001); position_id is only the in-flight instance number
+     * and a scan reuses it, so the consumer needs this to tell which position froze. */
+    uint32_t target_ms[TRIGGER_POSITION_FREEZE_LATCH_IDS];
 } trigger_position_freeze_latch_t;
 
 /* Producer. A position already latched keeps its first FREEZE. */
 static inline bool trigger_position_freeze_latch_put(
-    trigger_position_freeze_latch_t *latch, uint32_t position_id, uint32_t version)
+    trigger_position_freeze_latch_t *latch, uint32_t position_id, uint32_t version,
+    uint32_t target_ms)
 {
     if (!latch || position_id < 1u || position_id > TRIGGER_POSITION_FREEZE_LATCH_IDS ||
         !version) return false;
     const uint32_t bit = 1u << (position_id - 1u);
     if (__atomic_load_n(&latch->mask, __ATOMIC_ACQUIRE) & bit) return true;
     __atomic_store_n(&latch->version[position_id - 1u], version, __ATOMIC_RELAXED);
+    __atomic_store_n(&latch->target_ms[position_id - 1u], target_ms, __ATOMIC_RELAXED);
     (void)__atomic_fetch_or(&latch->mask, bit, __ATOMIC_RELEASE);
     return true;
 }
@@ -100,12 +106,14 @@ static inline bool trigger_position_freeze_latch_take(
     if (!mask) return false;
     const uint32_t index = (uint32_t)__builtin_ctz(mask);
     const uint32_t version = __atomic_load_n(&latch->version[index], __ATOMIC_RELAXED);
+    const uint32_t target_ms = __atomic_load_n(&latch->target_ms[index], __ATOMIC_RELAXED);
     (void)__atomic_fetch_and(&latch->mask, ~(1u << index), __ATOMIC_ACQ_REL);
     *descriptor = (trigger_position_descriptor_t){
         .schema = TRIGGER_POSITION_DESCRIPTOR_SCHEMA,
         .stage = TRIGGER_POSITION_STAGE_FREEZE,
         .position_id = index + 1u,
         .prediction_version = version,
+        .target_ms_index = target_ms,
     };
     return true;
 }

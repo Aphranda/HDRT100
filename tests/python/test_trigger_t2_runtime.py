@@ -21,6 +21,11 @@ static trigger_time_cursor_snapshot_t cursor;
 static trigger_counter_snapshot_t counter;
 static trigger_position_descriptor_t remote_descriptor;
 static bool remote_valid, tx_pending, cursor_valid=true, zero_pulse_index;
+/* Lane queue for the burst/blip cases (see the get stub): the mailbox holds one record and
+ * the bounded ring holds more, so a single drain per pass cannot keep up. */
+static trigger_position_descriptor_t remote_queue[8];
+static unsigned remote_queue_len, remote_queue_head;
+static bool remote_queue_on;
 static trigger_position_descriptor_t transmitted[32];
 static unsigned transmitted_count, inverse_calls, schedule_calls, cancel_calls;
 static unsigned backend_polls, backend_snapshots;
@@ -79,7 +84,13 @@ bool distributed_refmem_stage_position_descriptor(
 { (void)mask; assert(d); transmitted[transmitted_count++]=*d; tx_pending=true; return true; }
 bool distributed_refmem_get_position_descriptor(uint32_t slot,
     trigger_position_descriptor_t *out)
-{ if (!out || slot != 0u || !remote_valid) return false;
+{ if (!out || slot != 0u) return false;
+  /* Optional queue for the burst/ blip cases: the lane can hold several records (one in the
+   * mailbox plus the bounded ring), and the consumer must take a bounded batch per pass. */
+  if (remote_queue_on) {
+      if (remote_queue_head >= remote_queue_len) return false;
+      *out = remote_queue[remote_queue_head++]; return true; }
+  if (!remote_valid) return false;
   *out=remote_descriptor; remote_valid=false; return true; }
 bool sync_io_switch_realtime_schedule_at(uint32_t code, uint64_t deadline)
 { (void)code; ++schedule_calls;
@@ -165,7 +176,7 @@ int main(int argc,char **argv)
     assert(argc==2); counter.loaded=1; counter.io.valid=1;
     const char *test=argv[1];
     trigger_t2_runtime_config_t c=config(!strcmp(test,"origin") || !strcmp(test,"origin_resend") ||
-        !strcmp(test,"origin_pending") || !strcmp(test,"origin_no_ack"));
+        !strcmp(test,"origin_pending") || !strcmp(test,"origin_no_ack") || !strcmp(test,"origin_scan"));
     if (!strcmp(test,"capacity")) {
         c.templates.count=2; c.templates.row[1]=c.templates.row[0];
         c.templates.row[1].template_id=8; c.templates.row[1].delta_q=10;
@@ -275,6 +286,240 @@ int main(int argc,char **argv)
             if (transmitted[i].stage == TRIGGER_POSITION_STAGE_FREEZE) saw_freeze=true;
         }
         assert(saw_preview && saw_freeze && !inverse_calls && !schedule_calls); return 0;
+    }
+    if (!strcmp(test,"burst_drain")) {
+        /* The lane's single mailbox + bounded ring can hold several records, and a long
+         * announcement lead makes the lane deliver more than one per coarse slice (measured
+         * 2026-10-16: 361 positions -> ~176k lane records, ~1.1 per slice). One record per
+         * pass saturated the mailbox (hold_drop ~214k) and starved one board per run. A
+         * bounded batch per pass must consume the queued burst. */
+        local_offset_ns=2000u;
+        now_ns=5000000u;
+        for (unsigned k=0u;k<3u;++k){ preview(&c,k+1u,k+1u,10u*(k+1u),1);
+            remote_queue[k]=remote_descriptor; }
+        remote_queue_len=3u; remote_queue_head=0u; remote_queue_on=true; remote_valid=false;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(remote_queue_head==remote_queue_len);            /* all three in ONE pass */
+        assert(snapshot().received_mask==7u);
+        remote_queue_on=false;
+        return 0;
+    }
+    if (!strcmp(test,"blip_drain")) {
+        /* A cursor blip must not stop the transport: the lane's ring is the only storage and
+         * this service is the only drain (the previous code returned before draining, so a
+         * board whose cursor blipped drained at half rate while its ring dropped the
+         * overflow). Admission/arming still wait for a valid cursor. */
+        local_offset_ns=2000u;
+        now_ns=5000000u;
+        preview(&c,1,1,10,1);                       /* one valid pass establishes the time base */
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().received_mask==1u);
+        preview(&c,2,2,20,1); remote_queue[0]=remote_descriptor;
+        remote_queue_len=1u; remote_queue_head=0u; remote_queue_on=true; remote_valid=false;
+        cursor_valid=false;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_CURSOR);
+        assert(remote_queue_head==remote_queue_len);            /* drained anyway */
+        assert(snapshot().received_mask==3u);
+        cursor_valid=true; remote_queue_on=false;
+        return 0;
+    }
+    if (!strcmp(test,"follower_scan")) {
+        /* A scan has more positions than the three slots: ordinal k takes slot k%3 and
+         * the wire id slot+1. Versions keep rising per slot, a slot is handed on only
+         * after its action finished, and leftovers of a finished occupant are ignored. */
+        local_offset_ns=2000u;
+        for (unsigned k=0u; k<9u; ++k) {
+            const unsigned slot=k%3u+1u, ms=k*20u+10u, version=k+1u, bit=1u<<(slot-1u);
+            now_ns=(ms-5u)*1000000u;
+            preview(&c,slot,version,ms,1);
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+            trigger_t2_runtime_prepare_core0();
+            freeze(slot,version);
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+            assert(snapshot().action_armed_mask & bit);
+            if (k>=3u) {
+                /* the slot's previous occupant was recycled, not carried over */
+                assert(snapshot().freeze_version[slot-1u]==version);
+            }
+            now_ns=ms*1000000u+500u;
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+            assert(snapshot().action_completed_mask & bit);
+            assert(take());
+        }
+        uint32_t entered,announced,frozen,executed,abandoned;
+        trigger_t2_runtime_position_window_totals(&entered,&announced,&frozen,&executed,&abandoned);
+        assert(entered==9u && frozen==9u && executed==9u && abandoned==0u);
+        assert(!snapshot().action_failed_mask && !snapshot().descriptor_reject_count);
+        /* leftovers: a resent FREEZE and an old PREVIEW of finished occupants */
+        const uint32_t rejects=snapshot().descriptor_reject_count;
+        freeze(1u,7u); now_ns+=1000000u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        preview(&c,2u,2u,70u,1); now_ns+=1000000u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().descriptor_reject_count==rejects && !take());
+        trigger_t2_runtime_position_window_totals(&entered,&announced,&frozen,&executed,&abandoned);
+        assert(entered==9u && frozen==9u);
+        return 0;
+    }
+    if (!strcmp(test,"scan_events_retained")) {
+        /* Nothing drains the events in firmware: a 9-position scan on a 3-slot runtime
+         * must keep all 9 receipts (capacity is not tied to the slot count). */
+        local_offset_ns=2000u;
+        for (unsigned k=0u; k<9u; ++k) {
+            const unsigned slot=k%3u+1u, ms=k*20u+10u;
+            now_ns=(ms-5u)*1000000u;
+            preview(&c,slot,k+1u,ms,1);
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+            trigger_t2_runtime_prepare_core0();
+            freeze(slot,k+1u);
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+            now_ns=ms*1000000u+500u;
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        }
+        assert(snapshot().event_count==9u && !snapshot().event_dropped_count);
+        return 0;
+    }
+    if (!strcmp(test,"follower_scan_busy")) {
+        /* A newer PREVIEW for a slot whose action is still in flight is not taken into the
+         * slot: the occupant keeps its version and its action. It is HELD as the slot's
+         * successor (R3) and handed on as soon as the occupant finished - without waiting
+         * for another PREVIEW, because the origin does not re-stage one. */
+        local_offset_ns=2000u;
+        now_ns=5000000u;
+        preview(&c,1,1,10,1);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        trigger_t2_runtime_prepare_core0();
+        freeze(1,1);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().action_armed_mask==1u);
+        preview(&c,1,5,30,1);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().descriptors[0].prediction_version==1u &&
+               snapshot().frozen_mask==1u);
+        now_ns=10000500u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().action_completed_mask==1u && take());
+        const uint32_t rejects=snapshot().descriptor_reject_count;
+        /* no transport record this pass: the finished slot still takes its successor */
+        now_ns=20000000u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().descriptors[0].prediction_version==5u &&
+               !snapshot().frozen_mask && !snapshot().action_completed_mask);
+        assert(snapshot().descriptor_reject_count==rejects);
+        return 0;
+    }
+    if (!strcmp(test,"follower_scan_successor")) {
+        /* The bench loss R3: the successor's PREVIEW arrives while the occupant is still in
+         * flight (dropped before this fix), and after that only its FREEZE resends arrive -
+         * the origin never stages that PREVIEW again. The stashed successor must be handed on
+         * at completion and freeze on the resend alone, so the position still executes. */
+        local_offset_ns=2000u;
+        now_ns=5000000u;
+        preview(&c,1,1,10,1);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        trigger_t2_runtime_prepare_core0();
+        freeze(1,1);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().action_armed_mask==1u);
+        preview(&c,1,5,30,1);              /* successor, while the occupant is in flight */
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        now_ns=10000500u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().action_completed_mask==1u && take());
+        now_ns=11000000u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);   /* hands on the slot */
+        trigger_t2_runtime_prepare_core0();                            /* Core0 solves it */
+        freeze(1,5); remote_descriptor.target_ms_index=30u;             /* only the resend */
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().frozen_mask==1u && snapshot().action_armed_mask==1u);
+        assert(snapshot().descriptors[0].prediction_version==5u);
+        now_ns=30000500u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().action_completed_mask==1u && take());
+        uint32_t entered,announced,frozen,executed,abandoned;
+        trigger_t2_runtime_position_window_totals(&entered,&announced,&frozen,&executed,&abandoned);
+        assert(entered==2u && frozen==2u && executed==2u && abandoned==0u);
+        assert(snapshot().freeze_abandoned_count==0u &&
+               !snapshot().freeze_missing_local_count);
+        return 0;
+    }
+    if (!strcmp(test,"follower_overwrite_abandon")) {
+        /* A PREVIEW replaced by a DIFFERENT position before it was ever frozen is a lost
+         * position, and the loss must be counted instead of vanishing (R6). A re-solve of
+         * the same position is not a replacement. */
+        local_offset_ns=2000u;
+        now_ns=5000000u;
+        preview(&c,1,1,10,1);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().received_mask==1u && snapshot().freeze_abandoned_count==0u);
+        preview(&c,1,5,30,1);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().descriptors[0].prediction_version==5u &&
+               snapshot().freeze_abandoned_count==1u);
+        preview(&c,1,6,30,1);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().freeze_abandoned_count==1u);
+        return 0;
+    }
+    if (!strcmp(test,"freeze_other_position")) {
+        /* FREEZE names its position by target_ms_index. After a slot has been handed on,
+         * a FREEZE that is nearer to the PREVIOUS occupant's target than to the PREVIEW now
+         * held is that occupant's leftover: it must neither freeze nor fail the new one.
+         * A FREEZE for the held PREVIEW whose target drifted (a re-solve) is accepted. */
+        local_offset_ns=2000u;
+        now_ns=5000000u;
+        preview(&c,1,1,10,1);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        trigger_t2_runtime_prepare_core0();
+        freeze(1,1); remote_descriptor.target_ms_index=10u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().action_armed_mask==1u);
+        now_ns=10000500u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().action_completed_mask==1u && take());
+        /* a finished position is no longer reported as awaiting confirmation */
+        assert(noted_active && noted_frozen==0u);
+        now_ns=25000000u;
+        preview(&c,1,5,30,1);
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        trigger_t2_runtime_prepare_core0();
+        freeze(1,9); remote_descriptor.target_ms_index=10u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(!snapshot().frozen_mask && !snapshot().action_failed_mask &&
+               snapshot().freeze_mismatch_count==1u);
+        freeze(1,5); remote_descriptor.target_ms_index=33u;   /* drifted, still the held one */
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().frozen_mask==1u && snapshot().action_armed_mask==1u);
+        assert(noted_frozen==1u);
+        return 0;
+    }
+    if (!strcmp(test,"origin_scan")) {
+        /* 11 positions on a 3-slot runtime: every ordinal must be announced, previewed
+         * and frozen on its own slot (id = slot + 1) instead of stopping after three. */
+        trigger_t2_runtime_stop();
+        assert(trigger_t2_runtime_scan_step(1000));
+        assert(trigger_t2_runtime_configure(&c));
+        assert(trigger_t2_runtime_start(11,0));
+        freeze_acked=7u;
+        unsigned freezes=0u;
+        for (unsigned i=0u; i<260u; ++i) {
+            now_ns=(i+1u)*1000000u; counter.io.count32=(i+1u)*100u; tx_pending=false;
+            assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+            trigger_t2_runtime_prepare_core0();
+            tx_pending=false;
+        }
+        uint32_t entered,announced,frozen,executed,abandoned;
+        trigger_t2_runtime_position_window_totals(&entered,&announced,&frozen,&executed,&abandoned);
+        for (unsigned k=0u; k<transmitted_count; ++k)
+            if (transmitted[k].stage==TRIGGER_POSITION_STAGE_FREEZE) {
+                assert(transmitted[k].position_id>=1u && transmitted[k].position_id<=3u);
+                assert(transmitted[k].target_ms_index!=0u);   /* identity rides on FREEZE */
+                ++freezes;
+            }
+        assert(snapshot().predictor.window_announced_count==11u);
+        assert(frozen==11u && snapshot().freeze_abandoned_count==0u);
+        assert(snapshot().freeze_no_preview_count==0u && freezes>=11u);
+        return 0;
     }
     preview(&c,1,1,10,1);
     if (!strcmp(test,"zero_pulse_index")) {
@@ -420,8 +665,22 @@ int main(int argc,char **argv)
         assert(snapshot().action_failed_mask==2 && schedule_calls==1 && !take()); return 0;
     }
     if (!strcmp(test,"identity")) {
+        /* A transiently invalid cursor is NOT an identity change: an armed absolute
+         * deadline belongs to the backend, so it must neither be cancelled nor failed
+         * (the previous behaviour cancelled and abandoned the position, which turned every
+         * cursor blip into lost positions - measured 2026-10-16 as 23-30 abandoned
+         * positions per follower over a 361-position scan). The position still completes on
+         * its own receipt; a REAL session/ring change is caught once the cursor is valid
+         * again (see the plan-identity checks and the `conflict` case). */
         cursor_valid=false; assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_CURSOR);
-        assert(cancel_calls==1 && snapshot().action_failed_mask==1 && !take()); return 0;
+        assert(cancel_calls==0 && !snapshot().action_failed_mask && !take());
+        assert(snapshot().action_armed_mask==1);
+        cursor_valid=true; now_ns=10000500u;
+        assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
+        assert(snapshot().action_completed_mask==1 && take());
+        assert(!snapshot().action_failed_mask);
+        assert(!snapshot().action_fail_reason[TRIGGER_T2_ACTION_FAIL_BACKEND]);
+        return 0;
     }
     if (!strcmp(test,"wrong_receipt")) {
         hw.sequence++; hw.state=SYNC_IO_SWITCH_DEADLINE_COMPLETE;
@@ -484,7 +743,8 @@ def runtime(tmp_path_factory):
 @pytest.mark.parametrize("case", ["origin", "origin_pending", "origin_resend", "origin_no_ack", "receiver", "fallback", "late_arrival", "wire_identity_ignored",
     "expired", "freeze_missing", "freeze_stops_solve", "capacity", "gateway",
     "independent_positions", "reject_no_retry", "stop", "restart", "identity",
-    "wrong_receipt", "reject_uncertain", "conflict", "different_local_seq", "all_events_retained", "zero_pulse_index", "version_overflow", "version_limit"])
+    "wrong_receipt", "reject_uncertain", "conflict", "different_local_seq", "all_events_retained", "zero_pulse_index", "version_overflow", "version_limit",
+    "follower_scan", "follower_scan_busy", "follower_scan_successor", "follower_overwrite_abandon", "burst_drain", "blip_drain", "origin_scan", "freeze_other_position", "scan_events_retained"])
 def test_t2_runtime(runtime, case):
     result = subprocess.run([str(runtime), case], capture_output=True,
                             text=True, timeout=5)

@@ -55,6 +55,17 @@ static uint32_t s_position_priority_hold_count, s_position_priority_hold_dropped
  * record itself is not lost, but the queue must still account for the exit:
  * without this counter hold_count could not be reconciled with what is queued. */
 static uint32_t s_position_priority_hold_delivered_count;
+/* FREEZE never queues (it goes to the per-position latch), so the PREVIEW-oriented lane
+ * counters cannot say whether a FREEZE reached a follower. These three can: latched by the
+ * lane, kept-first (a FREEZE for an id whose previous latch was not yet taken is NOT stored),
+ * and taken by the T2 consumer. latched == taken + still pending; kept is the silent loss. */
+static uint32_t s_position_freeze_latched_count;
+static uint32_t s_position_freeze_kept_count;
+static uint32_t s_position_freeze_taken_count;
+static inline void distributed_refmem_position_note_freeze_taken(void)
+{
+    ++s_position_freeze_taken_count;
+}
 static uint32_t s_position_priority_drain_count, s_position_priority_drain_fail_count;
 static uint32_t s_position_priority_hold_expired_count;
 /* Diagnostic patches that lost the control bytes to the first-class fact. */
@@ -214,8 +225,16 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(distributed_refmem_position_priority_rx)(
     bool staged = false;
     if (decoded) {
         if (slice.stage == TRIGGER_POSITION_SLICE_FREEZE) {
+            const bool was_latched = slice.position_id >= 1u &&
+                slice.position_id <= TRIGGER_POSITION_FREEZE_LATCH_IDS &&
+                (__atomic_load_n(&s_position_freeze_latches[source].mask, __ATOMIC_ACQUIRE) &
+                 (1u << (slice.position_id - 1u))) != 0u;
             staged = trigger_position_freeze_latch_put(&s_position_freeze_latches[source],
-                slice.position_id, slice.prediction_version);
+                slice.position_id, slice.prediction_version, slice.target_ms_index);
+            if (staged) {
+                if (was_latched) ++s_position_freeze_kept_count;
+                else ++s_position_freeze_latched_count;
+            }
         } else {
             const trigger_position_descriptor_t received = {
                 .schema = TRIGGER_POSITION_DESCRIPTOR_SCHEMA,

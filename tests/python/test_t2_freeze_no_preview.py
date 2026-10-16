@@ -26,6 +26,7 @@ HARNESS = r'''
 #include <string.h>
 #include "trigger_t2_runtime.h"
 #include "trigger_position_descriptor.h"
+#include "trigger_position_window.h"
 
 /* The runtime's own storage, reproduced with the same names so the extracted
  * body compiles unchanged. */
@@ -33,8 +34,13 @@ static trigger_t2_runtime_snapshot_t s_state;
 static trigger_t2_runtime_config_t s_config;
 static uint32_t s_pending_mask;
 static uint64_t s_freeze_last_slice;
+/* Window bookkeeping and the scan-slot guard the extracted body reads. */
+static trigger_position_window_t s_position_window;
+static int32_t s_scan_step_mdeg;
+static uint64_t s_slot_target[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 
 static uint32_t s_preview_mask = 0u;
+static uint64_t s_preview_target;
 static uint32_t s_preview_calls;
 static bool s_stage_ok = true;
 static uint32_t s_stage_calls;
@@ -52,6 +58,7 @@ static bool preview_copy(uint32_t index, uint32_t age,
     out->schema = TRIGGER_POSITION_DESCRIPTOR_SCHEMA;
     out->position_id = index + 1u;
     out->prediction_version = 100u + index;
+    out->target_count = s_preview_target;
     return true;
 }
 
@@ -73,11 +80,15 @@ static void reset(void)
     memset(&s_config, 0, sizeof(s_config));
     s_config.target_mask = 0xEu;
     s_preview_mask = 0u;
+    s_preview_target = 0u;
     s_preview_calls = 0u;
     s_stage_ok = true;
     s_stage_calls = 0u;
     s_freeze_last_slice = 0u;
     s_pending_mask = 0u;
+    s_scan_step_mdeg = 0;
+    memset(s_slot_target, 0, sizeof(s_slot_target));
+    trigger_position_window_reset(&s_position_window);
 }
 
 int main(void)
@@ -140,6 +151,22 @@ int main(void)
     assert(s_state.transport_reject_count == 1u);
     assert(s_state.last_error == TRIGGER_T2_RUNTIME_TRANSPORT);
     assert(s_state.freeze_no_preview_count == 0u);
+
+    /* 5. Scan slots are reused: with a scan step a saved PREVIEW only counts when its
+     *    target is the one awaiting the FREEZE. An earlier occupant's PREVIEW (a
+     *    different target_count) is "no PREVIEW", the pending bit stays, and the
+     *    matching one stages normally. */
+    reset();
+    s_scan_step_mdeg = 1000;
+    s_pending_mask = 0x1u;
+    s_preview_mask = 0x1u;
+    s_slot_target[0] = 777u;                      /* preview_copy() reports target_count 0 */
+    assert(stage_pending_freeze());
+    assert(s_stage_calls == 0u);
+    assert(s_state.freeze_no_preview_mask == 0x1u && s_pending_mask == 0x1u);
+    s_preview_target = 777u;
+    assert(stage_pending_freeze());
+    assert(s_stage_calls == 1u && s_pending_mask == 0u);
     return 0;
 }
 '''

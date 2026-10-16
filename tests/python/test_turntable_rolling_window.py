@@ -150,9 +150,13 @@ int main(void)
     assert(trigger_turntable_window_begin(&late, &c, 0u));
     assert(trigger_turntable_window_advance(&late, &c, 200u, &mask) ==
            TRIGGER_TURNTABLE_OK);
-    /* Both early entries were already announced at count 200, so the window
-     * drained to ordinal 2 - whose target is still the absolute 300 (a target
-     * re-based on the entry moment would have said 500). */
+    /* Both early entries are already due at count 200, but the window rolls ONE
+     * position per call (TRIGGER_TURNTABLE_WINDOW_ROLLS_PER_ADVANCE, a cycle bound),
+     * so it takes a second call to drain to ordinal 2 - whose target is still the
+     * absolute 300 (a target re-based on the entry moment would have said 500). */
+    assert(late.window[0].absolute_index == 1u);
+    assert(trigger_turntable_window_advance(&late, &c, 200u, &mask) ==
+           TRIGGER_TURNTABLE_OK);
     assert(late.window[0].absolute_index == 2u);
     assert(late.window[0].target_count == 300u);
 

@@ -41,6 +41,7 @@ def judge(text: str) -> int:
     #    T2:ACTion? can, and the driver prints them as "win a/b/c/d/e"
     #    (entered/announced/frozen/executed/abandoned/mark_rejected/alloc_rejected).
     win: dict[str, tuple[int, int]] = {}
+    rejects: dict[str, tuple[str, str]] = {}
     failed_masks: dict[str, int] = {}
     for line in text.splitlines():
         slot = re.search(r"WIN t\+\d+s slot (\d+)", line)
@@ -50,6 +51,7 @@ def judge(text: str) -> int:
                 frozen, executed = int(got.group(3)), int(got.group(4))
                 prev = win.get(slot.group(1), (0, 0))
                 win[slot.group(1)] = (max(prev[0], frozen), max(prev[1], executed))
+                rejects[slot.group(1)] = (got.group(6), got.group(7))
         act = re.search(r"ACTION slot \d+ \S+ [0-9A-Fa-f]+ armed \d+ completed \d+"
                         r" failed (\d+)", line)
         if act:
@@ -57,9 +59,10 @@ def judge(text: str) -> int:
             failed_masks[key] = max(failed_masks.get(key, 0), int(act.group(1)))
     for slot in sorted(s for s in win if s != "0"):
         frozen, executed = win[slot]
+        mark, alloc = rejects.get(slot, ("?", "?"))
         moved = frozen > 3 or executed > 3
         print(f"  slot {slot}: window frozen {frozen} executed {executed}"
-              f" rejected mark={got.group(6)} alloc={got.group(7)}"
+              f" rejected mark={mark} alloc={alloc}"
               f" {'OK (beyond the legacy 3)' if moved else 'FAIL (not beyond the legacy 3)'}")
         if not moved:
             problems.append(f"slot {slot} window frozen {frozen}/executed {executed}"

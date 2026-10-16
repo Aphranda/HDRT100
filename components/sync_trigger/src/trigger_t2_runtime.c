@@ -53,9 +53,9 @@ static trigger_t2_runtime_snapshot_t s_state;
 static int32_t s_scan_step_mdeg;
 /* How many times start() actually took the window branch (A.3.6d). */
 static uint32_t s_window_branch_entered;
-/* Migration equivalence evidence (A.3.11): samples where the window's announced set
- * differs from the legacy announced_mask, compared per scan ordinal. Valid while the
- * scan's positions coincide with the three legacy slots (the current bench scan). */
+/* Migration equivalence evidence (A.3.11), retired: the window now drives the FREEZE, so
+ * there is no legacy announced set left to compare against. Kept (always 0) because the
+ * diagnostics page still reports it and page indexes do not move. */
 static uint32_t s_announce_mismatch_count;
 
 /* Migration step 2, slice 1 (TRIGGER_T2_TODO.md A.3.13): the published threshold mask is
@@ -70,8 +70,8 @@ static uint32_t t2_published_mask(void)
     for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot) {
         const trigger_turntable_window_entry_t *entry = &s_state.predictor.window[slot];
         if (entry->valid && entry->announced &&
-            entry->absolute_index < TRIGGER_T2_RUNTIME_POSITION_COUNT)
-            mask |= 1u << entry->absolute_index;
+            entry->absolute_index != UINT32_MAX)
+            mask |= 1u << (entry->absolute_index % TRIGGER_T2_RUNTIME_POSITION_COUNT);
     }
     return mask;
 }
@@ -121,6 +121,37 @@ static uint32_t s_threshold_public;
 static uint32_t s_version_exhausted;
 static uint32_t s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
 static uint32_t s_pending_mask;
+/* A scan has far more positions than the runtime keeps state for: scan ordinal k takes slot
+ * k % POSITION_COUNT and goes on the wire as position_id = slot + 1, so the wire and every
+ * per-slot array stay as they are. A slot is reused only after its previous occupant is
+ * finished, and prediction versions keep rising per slot (never reset), which is what tells
+ * a stale PREVIEW/FREEZE of a finished occupant from the next one.
+ *  - s_slot_target:   origin, target count of the ordinal that awaits its FREEZE; the saved
+ *                     PREVIEW must carry it, otherwise it belongs to an earlier occupant.
+ *  - s_slot_floor:    follower, highest version of a finished occupant; anything at or
+ *                     below it is a leftover and is ignored.
+ *  - s_prepare_ordinal / s_prepare_next: Core0, last ordinal prepared per slot and the
+ *                     round-robin start so the two window entries share the one stage a call. */
+static uint64_t s_slot_target[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+static uint32_t s_slot_floor[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+static uint32_t s_prepare_ordinal[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+static uint32_t s_prepare_next;
+/* Origin: scan ordinal + 1 last announced per slot. Core0 checks it (not the window, which
+ * already rolled the announced entry out) before staging a PREVIEW for that position. */
+static volatile uint32_t s_announced_ordinal[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+/* Follower: target_ms of the occupant a slot last handed on (0 = none), so a FREEZE can be
+ * told apart from the PREVIEW now held: it belongs to whichever target it is closer to. */
+static uint64_t s_slot_prev_target[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+/* Follower (R3): the slot's NEXT occupant, announced while the current one is still in
+ * flight. The origin stages a PREVIEW only while a position is pending and never re-stages
+ * it after its FREEZE, so a PREVIEW dropped here is lost for good: the successor's FREEZE
+ * resends are refused by the finished-not-handed-on branch until a PREVIEW recycles the
+ * slot, and no such PREVIEW follows. One stashed successor per slot, s_stash_valid is a
+ * bit mask over slots. */
+static trigger_position_descriptor_t s_stash[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+static uint32_t s_stash_valid;
+_Static_assert(TRIGGER_T2_RUNTIME_POSITION_COUNT == 3u,
+    "trigger_position_descriptor_valid() bounds a FREEZE position_id by a literal 3");
 static uint32_t s_core0_prepare_calls, s_core0_preview_saved, s_core0_prepare_last_reason;
 static volatile uint32_t s_guard;
 
@@ -236,6 +267,7 @@ static T2_BOUNDED T2_RAM bool resend_one_freeze(void)
             .stage = TRIGGER_POSITION_STAGE_FREEZE,
             .position_id = index + 1u,
             .prediction_version = s_state.freeze_version[index],
+            .target_ms_index = s_state.descriptors[index].target_ms_index,
         };
         if (!distributed_refmem_stage_position_descriptor(&freeze, s_config.target_mask)) {
             s_state.transport_reject_count++;
@@ -322,8 +354,11 @@ static T2_BOUNDED bool T2_HOT(stage_pending_freeze)(void)
          ++index) {
         if ((s_pending_mask & (1u << index)) == 0u) continue;
         trigger_position_descriptor_t latest;
-        if (!preview_copy(index, 0u, &latest)) {
-            /* T2-FREEZE-002 (评审 A-13): a pending position with no saved PREVIEW
+        if (!preview_copy(index, 0u, &latest) ||
+            (s_scan_step_mdeg && latest.target_count != s_slot_target[index])) {
+            /* A scan reuses slots: a saved PREVIEW whose target is not the one awaiting
+             * its FREEZE is an earlier occupant's and counts as no PREVIEW at all.
+             * T2-FREEZE-002 (评审 A-13): a pending position with no saved PREVIEW
              * used to end this whole pass (return true), so every later pending
              * position was never even examined and the loss left no trace. Record
              * the position once - the mask names it and the counter reports how
@@ -343,6 +378,8 @@ static T2_BOUNDED bool T2_HOT(stage_pending_freeze)(void)
             .stage = TRIGGER_POSITION_STAGE_FREEZE,
             .position_id = index + 1u,
             .prediction_version = latest.prediction_version,
+            /* The absolute identity of the frozen position rides on the FREEZE frame. */
+            .target_ms_index = latest.target_ms_index,
         };
         if (!distributed_refmem_stage_position_descriptor(&freeze,
                                                          s_config.target_mask)) {
@@ -371,6 +408,39 @@ static T2_BOUNDED bool T2_HOT(stage_pending_freeze)(void)
         return true;
     }
     return true;
+}
+
+/* Origin: scan ordinal k announces its threshold. It takes slot k % POSITION_COUNT, whose
+ * previous occupant (k - POSITION_COUNT) crossed its threshold a whole window ago; if that
+ * one is still unconfirmed it is abandoned here (counted, never silent) and the slot's
+ * bookkeeping starts over for the new position. */
+static T2_BOUNDED void T2_HOT(origin_announce)(uint32_t ordinal, uint64_t target_count)
+{
+    const uint32_t index = ordinal % TRIGGER_T2_RUNTIME_POSITION_COUNT;
+    const uint32_t bit = 1u << index;
+    if ((s_state.published_mask | s_pending_mask) & bit &
+        ~(s_state.freeze_complete_mask | s_state.freeze_abandoned_mask)) {
+        if (s_state.freeze_abandoned_count != UINT32_MAX)
+            ++s_state.freeze_abandoned_count;
+    }
+    s_state.published_mask &= ~bit;
+    s_state.freeze_complete_mask &= ~bit;
+    s_state.freeze_abandoned_mask &= ~bit;
+    s_state.freeze_no_preview_mask &= ~bit;
+    s_state.frozen_mask &= ~bit;
+    s_state.freeze_version[index] = 0u;
+    s_state.descriptors[index] = (trigger_position_descriptor_t){0};
+    if (trigger_position_window_find(&s_position_window, index + 1u) >= 0) {
+        const trigger_position_window_state_t last =
+            s_position_window.record[trigger_position_window_find(
+                &s_position_window, index + 1u)].state == TRIGGER_POSITION_WINDOW_FROZEN
+            ? TRIGGER_POSITION_WINDOW_EXECUTED : TRIGGER_POSITION_WINDOW_ABANDONED;
+        (void)trigger_position_window_mark(&s_position_window, index + 1u, last);
+        (void)trigger_position_window_release(&s_position_window, index + 1u);
+    }
+    s_slot_target[index] = target_count;
+    __atomic_store_n(&s_announced_ordinal[index], ordinal + 1u, __ATOMIC_RELEASE);
+    s_pending_mask |= bit;
 }
 
 static void deadline_publish(uint32_t index, const t2_deadline_plan_t *plan)
@@ -424,57 +494,266 @@ static T2_BOUNDED bool T2_HOT(descriptor_valid)(const trigger_position_descripto
     return trigger_position_descriptor_valid(descriptor, s_config.grid.subdivisions);
 }
 
-static T2_RAM void action_fail(uint32_t index)
+static T2_RAM void action_fail(uint32_t index, uint32_t reason)
 {
     s_state.action_failed_mask |= 1u << index;
-    {
-        const uint32_t failed = trigger_position_window_instance_at(&s_position_window, index);
-        if (failed != 0u) {
-            (void)trigger_position_window_mark(&s_position_window, failed,
-                                               TRIGGER_POSITION_WINDOW_ABANDONED);
-            (void)trigger_position_window_release(&s_position_window, failed);
-        }
+    if (reason < TRIGGER_T2_ACTION_FAIL_COUNT &&
+        s_state.action_fail_reason[reason] != UINT32_MAX)
+        ++s_state.action_fail_reason[reason];
+    if (trigger_position_window_find(&s_position_window, index + 1u) >= 0) {
+        (void)trigger_position_window_mark(&s_position_window, index + 1u,
+                                           TRIGGER_POSITION_WINDOW_ABANDONED);
+        (void)trigger_position_window_release(&s_position_window, index + 1u);
     }
     s_state.last_error = TRIGGER_T2_RUNTIME_ACTION;
 }
 
+/* Highest prediction version this slot's current occupant has used. */
+static T2_BOUNDED uint32_t T2_HOT(slot_version_high)(uint32_t index)
+{
+    uint32_t high = s_state.freeze_version[index];
+    if (s_state.freeze_local_version[index] > high) high = s_state.freeze_local_version[index];
+    if (s_state.descriptors[index].prediction_version > high)
+        high = s_state.descriptors[index].prediction_version;
+    return high;
+}
+
+/* Follower: hand a finished slot (action completed or failed) to the next scan position.
+ * The occupant's evidence stays in the cumulative window totals; the per-slot bits, plan and
+ * versions are cleared so the new occupant is judged on its own, and the highest version the
+ * old one used becomes the floor below which any late PREVIEW/FREEZE is a leftover. */
+static T2_BOUNDED void T2_HOT(recycle_slot)(uint32_t index)
+{
+    const uint32_t keep = ~(1u << index);
+    const uint32_t high = slot_version_high(index);
+    if (high > s_slot_floor[index]) s_slot_floor[index] = high;
+    if (s_state.descriptors[index].target_ms_index)
+        s_slot_prev_target[index] = s_state.descriptors[index].target_ms_index;
+    s_state.frozen_mask &= keep;
+    s_state.received_mask &= keep;
+    s_state.emitted_position_mask &= keep;
+    s_state.action_armed_mask &= keep;
+    s_state.action_completed_mask &= keep;
+    s_state.action_failed_mask &= keep;
+    s_state.action_uncertain_mask &= keep;
+    s_state.freeze_version[index] = 0u;
+    s_state.freeze_local_version[index] = 0u;
+    s_state.freeze_local_age[index] = 0u;
+    s_state.action_sequence[index] = 0u;
+    s_state.action_deadline_tick[index] = 0u;
+    s_state.action_backend_state[index] = 0u;
+    s_state.action_origin_width_ticks[index] = UINT32_MAX;
+    s_state.descriptors[index] = (trigger_position_descriptor_t){0};
+    memset(&s_deadline[index], 0, sizeof(s_deadline[index]));
+    __atomic_store_n(&s_frozen_public, s_state.frozen_mask, __ATOMIC_RELEASE);
+    distributed_refmem_note_position_frozen(s_config.run_id, true, s_state.frozen_mask);
+}
+
+/* The acknowledgement names the instances CURRENTLY awaiting confirmation: a position whose
+ * action already completed is no longer one. The origin reuses a slot for the next scan
+ * position and clears its own confirmation then, so a finished position still reported as
+ * frozen would confirm the NEXT position before it was ever frozen (false acknowledgement). */
+static T2_BOUNDED void T2_HOT(report_frozen)(void)
+{
+    distributed_refmem_note_position_frozen(s_config.run_id, true,
+        s_state.frozen_mask & ~s_state.action_completed_mask);
+}
+
+/* A refused arrival (wire identity, FREEZE validation, PREVIEW admission) is one aggregate
+ * fact: "how many records this run refused". Kept in one place so every rejection site
+ * reports the same way. */
+static void T2_RAM note_descriptor_reject(void)
+{
+    s_state.descriptor_reject_count++;
+    s_state.last_error = TRIGGER_T2_RUNTIME_DESCRIPTOR;
+}
+
+/* A position this board never froze - the successor replaced it, or a new PREVIEW replaced
+ * an unfrozen one - is a lost position. The mask cannot answer "how often", so the
+ * saturating counter is the evidence (R6). */
+static void T2_RAM note_position_lost(void)
+{
+    if (s_state.freeze_abandoned_count != UINT32_MAX)
+        ++s_state.freeze_abandoned_count;
+}
+
+/* Bind, validate and admit a PREVIEW into its slot. The compact wire carries only the
+ * slice, so this run's start-up identity and grid are bound here; there is no local CRC on
+ * Core1 (a bitwise CRC overran the SYNC_TRIGGER phase on followers). Shared by the
+ * transport path and by the R3 promotion of a stashed successor, so both admit a descriptor
+ * under exactly the same identity, window and slot-floor rules. */
+static T2_BOUNDED bool T2_HOT(admit_preview)(
+    trigger_position_descriptor_t descriptor, uint32_t index, uint64_t current_ms)
+{
+    const uint32_t bit = 1u << index;
+    descriptor.run_id = s_config.run_id;
+    descriptor.sync_epoch = s_state.cursor.grid_epoch;
+    descriptor.count_epoch = s_state.predictor.count_epoch;
+    descriptor.grid_generation = s_config.grid.generation;
+    descriptor.deployment_generation = s_config.deployment_generation;
+    descriptor.deployment_crc = s_deployment_crc;
+    descriptor.valid_from_sync = 0u;
+    descriptor.expiry_sync = descriptor.target_ms_index >
+        UINT32_MAX - s_config.descriptor_window_sync ? 0u :
+        (uint32_t)descriptor.target_ms_index + s_config.descriptor_window_sync;
+    descriptor.descriptor_crc32 = 0u;
+    /* Transport owns wire CRC. Validate each new version here once, not the same
+     * deployment/table CRC on every realtime polling call. */
+    if (s_state.received_mask & bit &&
+        s_state.descriptors[index].prediction_version == descriptor.prediction_version)
+        return true;
+    if (!descriptor_valid(&descriptor) ||
+        descriptor.run_id != s_config.run_id ||
+        descriptor.sync_epoch != s_state.cursor.grid_epoch ||
+        descriptor.count_epoch != s_state.predictor.count_epoch ||
+        descriptor.grid_generation != s_config.grid.generation ||
+        descriptor.deployment_generation != s_config.deployment_generation ||
+        descriptor.deployment_crc != s_deployment_crc) {
+        goto reject;
+    }
+    /* Window admission, split so a LATE arrival is attributed instead of being folded into
+     * the aggregate descriptor reject (which mixes every rejection cause above too). The
+     * accept/reject decision is unchanged: an empty window (expiry_sync == 0, target
+     * overflow) is still rejected, it is just not counted as lateness because no window was
+     * ever promised. valid_from_sync is forced to 0 by this consumer, so only lateness is
+     * reachable here. */
+    if (current_ms < descriptor.valid_from_sync ||
+        current_ms > descriptor.expiry_sync) {
+        if (descriptor.expiry_sync != 0u && current_ms > descriptor.expiry_sync) {
+            ++s_state.late_arrival_count;
+            /* Magnitude for the page: how late, against which promise. */
+            s_state.late_last_current_ms = (uint32_t)current_ms;
+            s_state.late_last_expiry_sync = descriptor.expiry_sync;
+        }
+        goto reject;
+    }
+    if (s_state.received_mask & bit &&
+        s_state.descriptors[index].prediction_version >= descriptor.prediction_version)
+        goto reject;
+    /* R6: an occupant that was received but never frozen, replaced by a DIFFERENT position,
+     * is a lost position - counted here instead of disappearing silently. A re-solve of the
+     * same position (equal target) is not a replacement. */
+    if ((s_state.received_mask & bit) && !(s_state.frozen_mask & bit) &&
+        s_state.descriptors[index].target_ms_index != descriptor.target_ms_index)
+        note_position_lost();
+    s_state.descriptors[index] = descriptor;
+    preview_save(index, &descriptor);
+    s_state.received_mask |= bit;
+    (void)trigger_position_window_alloc(&s_position_window, descriptor.position_id,
+        (uint32_t)descriptor.target_ms_index, (uint16_t)descriptor.prediction_version, 0u);
+    return true;
+reject:
+    note_descriptor_reject();
+    return false;
+}
+
+/* R3: keep the slot's next occupant while the current one is still in flight. Only a
+ * PREVIEW newer than everything the occupant used AND naming a different position is a
+ * successor: a same-target re-solve of the occupant itself is not, and must not be promoted
+ * later as a second action for the same position. Replacing a successor that was never
+ * frozen counts the loss (R6). */
+static void T2_RAM stash_successor(uint32_t index,
+                                   const trigger_position_descriptor_t *descriptor)
+{
+    const uint32_t bit = 1u << index;
+    if (descriptor->stage != TRIGGER_POSITION_STAGE_PREVIEW ||
+        descriptor->prediction_version <= slot_version_high(index) ||
+        descriptor->target_ms_index == s_state.descriptors[index].target_ms_index)
+        return;
+    if ((s_stash_valid & bit) &&
+        s_stash[index].target_ms_index != descriptor->target_ms_index)
+        note_position_lost();
+    s_stash[index] = *descriptor;
+    s_stash_valid |= bit;
+}
+
+/* R3: hand a finished slot to its stashed successor BEFORE the transport is read, so the
+ * FREEZE that follows (the origin keeps resending it until it is acknowledged) finds the
+ * successor's PREVIEW and freezes it, instead of being refused as a leftover of the
+ * finished occupant. A successor whose window closed in the meantime is a lost position. */
+static T2_BOUNDED void T2_HOT(promote_stashed)(uint64_t current_ms)
+{
+    for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++index) {
+        const uint32_t bit = 1u << index;
+        if (!(s_stash_valid & bit)) continue;
+        if (!(s_state.frozen_mask & bit) ||
+            !((s_state.action_failed_mask | s_state.action_completed_mask) & bit)) continue;
+        const trigger_position_descriptor_t successor = s_stash[index];
+        s_stash_valid &= ~bit;
+        recycle_slot(index);
+        if (!admit_preview(successor, index, current_ms)) note_position_lost();
+    }
+}
+
 static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
 {
+    /* R3: a slot whose occupant already finished is handed to its stashed successor first,
+     * so the FREEZE resend arriving in this same pass freezes the successor instead of being
+     * refused as the finished occupant's leftover. */
+    promote_stashed(current_ms);
     trigger_position_descriptor_t descriptor;
     if (!distributed_refmem_get_position_descriptor(
             s_config.source_slot, &descriptor)) return true;
     if (descriptor.position_id < 1u ||
-        descriptor.position_id > TRIGGER_POSITION_INSTANCE_MAX ||
-        descriptor.prediction_version > TRIGGER_T2_PREDICTION_VERSION_MAX)
-        goto reject;
-    uint32_t index;
-    uint32_t bit;
-    /* The descriptor carries the solve epoch as its absolute identity (the wire's
-     * compact target_ms is not part of this legacy descriptor), so the window is
-     * keyed by instance here and by count_epoch for the identity check. */
-    if (!trigger_position_window_alloc(&s_position_window, descriptor.position_id,
-                                       descriptor.count_epoch,
-                                       descriptor.prediction_version, 0u))
-        goto reject;
-    {
-        const int32_t slot = trigger_position_window_find(&s_position_window,
-                                                          descriptor.position_id);
-        /* The window is as wide as the wire acknowledgement; this runtime keeps
-         * per-position state for POSITION_COUNT slots only, so a slot beyond that
-         * is refused instead of indexing past s_deadline[]/freeze_version[]. */
-        if (slot < 0 || (uint32_t)slot >= TRIGGER_T2_RUNTIME_POSITION_COUNT)
-            goto reject;
-        index = (uint32_t)slot;
-        bit = 1u << index;
+        descriptor.position_id > TRIGGER_T2_RUNTIME_POSITION_COUNT ||
+        descriptor.prediction_version > TRIGGER_T2_PREDICTION_VERSION_MAX) {
+        note_descriptor_reject();
+        return false;
     }
-    if (trigger_position_window_find(&s_position_window, descriptor.position_id) >= 0 &&
-        trigger_position_window_ack_mask(&s_position_window) & bit) return true;
+    /* position_id is the slot (+1), not the scan position: the scan's position is the
+     * PREVIEW's target_ms_index, which is what the window records as its identity. */
+    const uint32_t index = descriptor.position_id - 1u;
+    const uint32_t bit = 1u << index;
+    if (s_state.frozen_mask & bit) {
+        if (!((s_state.action_failed_mask | s_state.action_completed_mask) & bit)) {
+            /* Frozen and still in flight: the occupant keeps its version and everything
+             * addressed to this slot is its duplicate - except a NEWER PREVIEW naming a
+             * different position, which is the slot's next occupant. It must not be dropped
+             * (see s_stash). */
+            stash_successor(index, &descriptor);
+            return true;
+        }
+        /* Finished but not yet handed on: only a PREVIEW newer than anything the finished
+         * occupant used starts the next position; the rest is a leftover resend. */
+        if (descriptor.stage == TRIGGER_POSITION_STAGE_FREEZE ||
+            descriptor.prediction_version <= slot_version_high(index))
+            return true;
+        recycle_slot(index);
+    } else if (s_slot_floor[index] && descriptor.prediction_version <= s_slot_floor[index]) {
+        return true;
+    }
     if (descriptor.stage == TRIGGER_POSITION_STAGE_FREEZE) {
-        if (!descriptor_valid(&descriptor))
-            goto reject;
-        /* mark() forbids stage jumps (ENTERED -> FROZEN is a two-step move and was
+        if (!descriptor_valid(&descriptor)) {
+            note_descriptor_reject();
+            return false;
+        }
+        /* The FREEZE names its position by target_ms_index. A leftover FREEZE of the occupant
+         * this slot handed on carries ITS target, so it is told apart by closeness: nearer
+         * to the previous occupant's target than to the PREVIEW now held means it is not for
+         * the current occupant. Drift between PREVIEW versions of one position is small
+         * against the distance between two positions, so no tolerance has to be configured
+         * (a fixed 2-sync tolerance rejected legitimate FREEZEs on the bench). */
+        if ((s_state.received_mask & bit) && descriptor.target_ms_index != 0u &&
+            s_slot_prev_target[index] != 0u) {
+            const uint64_t have = s_state.descriptors[index].target_ms_index;
+            const uint64_t want = descriptor.target_ms_index;
+            const uint64_t prev = s_slot_prev_target[index];
+            const uint64_t to_have = have > want ? have - want : want - have;
+            const uint64_t to_prev = prev > want ? prev - want : want - prev;
+            if (to_prev < to_have) {
+                ++s_state.freeze_mismatch_count;
+                return true;
+            }
+        }
+        /* The window record normally exists already (the PREVIEW allocated it under the
+         * scan position's target_ms); alloc() with that same identity changes nothing,
+         * and a FREEZE with no PREVIEW at all still gets a record to count on.
+         * mark() forbids stage jumps (ENTERED -> FROZEN is a two-step move and was
          * refused every time - bench: mark_rejected 34 per follower with alloc 0),
          * so announce first; re-marking is idempotent and therefore safe here. */
+        (void)trigger_position_window_alloc(&s_position_window, descriptor.position_id,
+            (uint32_t)s_state.descriptors[index].target_ms_index,
+            (uint16_t)s_state.descriptors[index].prediction_version, 0u);
         (void)trigger_position_window_mark(&s_position_window,
                                            descriptor.position_id,
                                            TRIGGER_POSITION_WINDOW_ANNOUNCED);
@@ -484,15 +763,18 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
         s_state.frozen_mask |= bit;
         __atomic_store_n(&s_frozen_public, s_state.frozen_mask, __ATOMIC_RELEASE);
         /* Freeze complete for this follower: report it on every image. */
-        distributed_refmem_note_position_frozen(s_config.run_id, true, s_state.frozen_mask);
+        report_frozen();
         s_state.freeze_version[index] = descriptor.prediction_version;
         const t2_deadline_plan_t *plan = &s_deadline[index];
         s_state.freeze_local_age[index] = 0xFFu;
         s_state.freeze_local_version[index] = plan->prediction_version;
-        if (!plan->prediction_version) {
+        /* A plan at or below the slot's floor is the finished occupant's, solved from a
+         * PREVIEW that has since been replaced: it is no plan for this position. */
+        if (!plan->prediction_version ||
+            plan->prediction_version <= s_slot_floor[index]) {
             s_state.freeze_missing_local_count++;
             s_state.freeze_mismatch_count++;
-            action_fail(index);
+            action_fail(index, TRIGGER_T2_ACTION_FAIL_NO_PLAN);
             return false;
         }
         /* FREEZE uses the newest completed local solve, even when RX has a
@@ -514,7 +796,8 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
             plan->session != s_state.cursor.session ||
             plan->ring_config_seq != s_state.cursor.ring_config_seq ||
             plan->action_q <= s_state.cursor.action_cursor) {
-            action_fail(index);
+            action_fail(index, plan->action_q <= s_state.cursor.action_cursor ?
+                TRIGGER_T2_ACTION_FAIL_LATE : TRIGGER_T2_ACTION_FAIL_EXPIRED);
             return false;
         }
         for (uint32_t other = 0u; other < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++other) {
@@ -524,69 +807,16 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
             const uint64_t distance = a > b ? a - b : b - a;
             if (distance < s_local_template.span_slices ||
                 (s_armed_index == other && a < b)) {
-                action_fail(index);
+                action_fail(index, TRIGGER_T2_ACTION_FAIL_CONFLICT);
                 return false;
             }
         }
         return true;
     }
-    /* The compact wire carries only the slice; bind it to this run's start-up
-     * identity and grid before validation. No local CRC on Core1: a compact
-     * record is identified by its version, and a bitwise CRC here overran the
-     * SYNC_TRIGGER phase on followers. */
-    descriptor.run_id = s_config.run_id;
-    descriptor.sync_epoch = s_state.cursor.grid_epoch;
-    descriptor.count_epoch = s_state.predictor.count_epoch;
-    descriptor.grid_generation = s_config.grid.generation;
-    descriptor.deployment_generation = s_config.deployment_generation;
-    descriptor.deployment_crc = s_deployment_crc;
-    descriptor.valid_from_sync = 0u;
-    descriptor.expiry_sync = descriptor.target_ms_index >
-        UINT32_MAX - s_config.descriptor_window_sync ? 0u :
-        (uint32_t)descriptor.target_ms_index + s_config.descriptor_window_sync;
-    descriptor.descriptor_crc32 = 0u;
-    /* Transport owns wire CRC. Validate each new version here once, not the
-     * same deployment/table CRC on every realtime polling call. */
-    if (s_state.received_mask & bit &&
-        s_state.descriptors[index].prediction_version == descriptor.prediction_version)
-        return true;
-    if (!descriptor_valid(&descriptor) ||
-        descriptor.run_id != s_config.run_id ||
-        descriptor.sync_epoch != s_state.cursor.grid_epoch ||
-        descriptor.count_epoch != s_state.predictor.count_epoch ||
-        descriptor.grid_generation != s_config.grid.generation ||
-        descriptor.deployment_generation != s_config.deployment_generation ||
-        descriptor.deployment_crc != s_deployment_crc) {
-        goto reject;
-    }
-    /* Window admission, split so a LATE arrival is attributed instead of being
-     * folded into the aggregate descriptor reject (which mixes every rejection
-     * cause above too). The accept/reject decision is unchanged: an empty
-     * window (expiry_sync == 0, target overflow) is still rejected, it is just
-     * not counted as lateness because no window was ever promised.
-     * valid_from_sync is forced to 0 by this consumer, so only lateness is
-     * reachable here. */
-    if (current_ms < descriptor.valid_from_sync ||
-        current_ms > descriptor.expiry_sync) {
-        if (descriptor.expiry_sync != 0u && current_ms > descriptor.expiry_sync) {
-            ++s_state.late_arrival_count;
-            /* Magnitude for the page: how late, against which promise. */
-            s_state.late_last_current_ms = (uint32_t)current_ms;
-            s_state.late_last_expiry_sync = descriptor.expiry_sync;
-        }
-        goto reject;
-    }
-    if (s_state.received_mask & bit &&
-        s_state.descriptors[index].prediction_version >= descriptor.prediction_version)
-        goto reject;
-    s_state.descriptors[index] = descriptor;
-    preview_save(index, &descriptor);
-    s_state.received_mask |= bit;
-    return true;
-reject:
-    s_state.descriptor_reject_count++;
-    s_state.last_error = TRIGGER_T2_RUNTIME_DESCRIPTOR;
-    return false;
+    /* Compact PREVIEW: the same binding, validation, window admission and slot save the
+     * R3 promotion of a stashed successor uses, so a successor is admitted under exactly
+     * the rules of a transport-delivered PREVIEW. */
+    return admit_preview(descriptor, index, current_ms);
 }
 
 static void complete_action(uint32_t index)
@@ -594,13 +824,11 @@ static void complete_action(uint32_t index)
     const uint32_t bit = 1u << index;
     s_state.emitted_position_mask |= bit;
     s_state.action_completed_mask |= bit;
-    {
-        const uint32_t finished = trigger_position_window_instance_at(&s_position_window, index);
-        if (finished != 0u) {
-            (void)trigger_position_window_mark(&s_position_window, finished,
-                                               TRIGGER_POSITION_WINDOW_EXECUTED);
-            (void)trigger_position_window_release(&s_position_window, finished);
-        }
+    report_frozen();
+    if (trigger_position_window_find(&s_position_window, index + 1u) >= 0) {
+        (void)trigger_position_window_mark(&s_position_window, index + 1u,
+                                           TRIGGER_POSITION_WINDOW_EXECUTED);
+        (void)trigger_position_window_release(&s_position_window, index + 1u);
     }
     if (s_state.event_count >= TRIGGER_T2_RUNTIME_EVENT_CAPACITY) {
         s_state.event_dropped_count++;
@@ -692,22 +920,35 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
             deadline != s_deadline[index].deadline_tick) {
             cancel_backend();
             s_state.action_uncertain_mask |= bit;
-            action_fail(index);
+            action_fail(index, TRIGGER_T2_ACTION_FAIL_BACKEND);
             s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
         } else if (complete) {
             complete_action(index);
             s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
-        } else if (terminal || !cursor_valid ||
-                   s_deadline[index].session != s_state.cursor.session ||
-                   s_deadline[index].ring_config_seq != s_state.cursor.ring_config_seq) {
+        } else if (terminal ||
+                   /* An armed absolute deadline belongs to the backend: a transiently
+                    * invalid cursor says nothing about it, and the plan-identity checks
+                    * below need a valid cursor to compare against (comparing against the
+                    * stale snapshot cancelled live actions - measured 2026-10-16 as bursts
+                    * of abandoned positions on all three followers at the same tick). Only
+                    * a terminal backend state or a REAL identity change cancels here. */
+                   (cursor_valid &&
+                    (s_deadline[index].session != s_state.cursor.session ||
+                     s_deadline[index].ring_config_seq != s_state.cursor.ring_config_seq))) {
             if (!terminal) uncertain = cancel_backend();
             if (uncertain) s_state.action_uncertain_mask |= bit;
-            action_fail(index);
+            action_fail(index, TRIGGER_T2_ACTION_FAIL_BACKEND);
             s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
         }
     }
     if (!cursor_valid) {
-        s_state.action_failed_mask |= s_state.frozen_mask & ~s_state.action_completed_mask;
+        /* Defer: an invalid cursor is a statement about the time base, not about these
+         * positions. The armed one is serviced by the backend above; the rest keep their
+         * frozen state until the cursor returns, at which point the selection loop below
+         * fails any that is provably late (TRIGGER_T2_ACTION_FAIL_LATE) or expired. Failing
+         * them here - the previous behaviour - turned every cursor blip into a burst of
+         * abandoned positions (measured 2026-10-16: 23-30 per follower over a 361-position
+         * scan, in bursts that hit all three boards on the same tick). */
         return;
     }
     if (s_armed_index < TRIGGER_T2_RUNTIME_POSITION_COUNT) return;
@@ -721,7 +962,9 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
             plan->ring_config_seq != s_state.cursor.ring_config_seq ||
             s_state.cursor.action_cursor / s_config.grid.subdivisions > plan->expiry_sync ||
             plan->action_q <= s_state.cursor.action_cursor) {
-            action_fail(index);
+            action_fail(index, !plan->prediction_version ? TRIGGER_T2_ACTION_FAIL_NO_PLAN :
+                (plan->action_q <= s_state.cursor.action_cursor ?
+                 TRIGGER_T2_ACTION_FAIL_LATE : TRIGGER_T2_ACTION_FAIL_EXPIRED));
             continue;
         }
         if (selected == TRIGGER_T2_RUNTIME_POSITION_COUNT ||
@@ -750,7 +993,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
                     s_state.action_uncertain_mask |= 1u << selected;
             }
         }
-        action_fail(selected);
+        action_fail(selected, TRIGGER_T2_ACTION_FAIL_BACKEND);
         return;
     }
     s_armed_index = selected;
@@ -939,6 +1182,14 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
     }
     s_state.active = 1u;
     s_pending_mask = 0u;
+    memset(s_slot_target, 0, sizeof(s_slot_target));
+    memset(s_slot_floor, 0, sizeof(s_slot_floor));
+    memset(s_slot_prev_target, 0, sizeof(s_slot_prev_target));
+    for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++i)
+        __atomic_store_n(&s_announced_ordinal[i], 0u, __ATOMIC_RELEASE);
+    memset(s_prepare_ordinal, 0, sizeof(s_prepare_ordinal));
+    s_prepare_next = 0u;
+    trigger_position_window_reset(&s_position_window);
     memset(s_freeze_cycles, 0, sizeof(s_freeze_cycles));
     memset(s_origin_probe_max, 0, sizeof(s_origin_probe_max));
     memset(s_deadline, 0, sizeof(s_deadline));
@@ -1009,30 +1260,28 @@ static T2_BOUNDED bool T2_HOT(service_origin)(void)
         s_state.last_error = TRIGGER_T2_RUNTIME_DESCRIPTOR;
         return false;
     }
-    s_pending_mask |= mask;
+    /* Without a scan step the three legacy positions drive the FREEZE; with one, the
+     * rolling window does (the legacy mask only knows START/ZERO/TERMINAL). */
+    if (!s_scan_step_mdeg) s_pending_mask |= mask;
     origin_probe_end(TRIGGER_T2_RUNTIME_ORIGIN_PROBE_OBSERVE, &mark);
-    /* Feed the rolling window in parallel (migration step 1, TRIGGER_T2_TODO.md A.3.0 /
-     * A.3.8): the window announces on its own thresholds and rolls, while the legacy mask
-     * above still drives every consumer - so this changes no output yet and makes the
-     * window's health facts (announced == entered, overwrote == 0) meaningful and
-     * readable through TRIGger:REServation:T2:SCAN?. */
+    /* The rolling window announces each position's threshold exactly once and rolls in
+     * the same call, so the announced entry has already left the window when advance()
+     * returns: read who occupies each window slot BEFORE advancing, then map the returned
+     * slot bits to scan ordinals (migration step 2: the window now drives the FREEZE). */
     if (s_scan_step_mdeg) {
+        uint32_t ordinal[TRIGGER_TURNTABLE_WINDOW_MAX];
+        uint64_t target[TRIGGER_TURNTABLE_WINDOW_MAX];
+        for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot) {
+            const trigger_turntable_window_entry_t *entry = &s_state.predictor.window[slot];
+            ordinal[slot] = entry->valid ? entry->absolute_index : UINT32_MAX;
+            target[slot] = entry->target_count;
+        }
         uint32_t window_mask = 0u;
         (void)trigger_turntable_window_advance(&s_state.predictor,
                                                &s_config.predictor, count, &window_mask);
-        /* Behaviour-neutral equivalence counter: would a consumer that read the window
-         * announce exactly what the legacy mask announced? Compared per scan ordinal,
-         * which is only the legacy bit index while the scan's positions coincide with the
-         * three legacy slots (true for the current bench scan). */
-        for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot) {
-            const trigger_turntable_window_entry_t *entry = &s_state.predictor.window[slot];
-            if (!entry->valid) continue;
-            const uint32_t ordinal = entry->absolute_index;
-            const bool legacy_announced =
-                ordinal < TRIGGER_T2_RUNTIME_POSITION_COUNT &&
-                (s_state.predictor.announced_mask & (1u << ordinal)) != 0u;
-            if (legacy_announced != entry->announced) s_announce_mismatch_count++;
-        }
+        for (uint32_t slot = 0u; slot < TRIGGER_TURNTABLE_WINDOW_MAX; ++slot)
+            if ((window_mask & (1u << slot)) && ordinal[slot] != UINT32_MAX)
+                origin_announce(ordinal[slot], target[slot]);
     }
     __atomic_store_n(&s_threshold_public, t2_published_mask(),
                      __ATOMIC_RELEASE);
@@ -1040,6 +1289,31 @@ static T2_BOUNDED bool T2_HOT(service_origin)(void)
     const bool frozen = stage_one_freeze();
     origin_probe_end(TRIGGER_T2_RUNTIME_ORIGIN_PROBE_FREEZE, &mark);
     return frozen;
+}
+
+/* The follower's position lane cannot wait for a cursor: its single-depth mailbox plus the
+ * bounded hold ring are the only storage and this service is the only drain. A cursor blip
+ * (non-sticky, and frequent enough to matter: measured 2026-10-16, one board drained at half
+ * the rate of its peers - 66k lane accepts against 134k - and its window stayed empty) must
+ * therefore not stop the drain. Admission and arming still need a valid cursor and wait for
+ * the next pass; only the transport is taken here. Bounded batch, per-record work unchanged:
+ * see TRIGGER_T2_RUNTIME_RECEIVE_DRAIN_MAX. */
+static T2_BOUNDED void T2_HOT(drain_lane)(uint64_t current_ms)
+{
+    deadline_receive();
+    for (uint32_t taken = 0u; taken < TRIGGER_T2_RUNTIME_RECEIVE_DRAIN_MAX; ++taken)
+        (void)accept_remote_position(current_ms);
+}
+
+/* Same drain with no valid cursor: the snapshot keeps its fields when it is invalidated, so
+ * the last known coarse ordinal is still usable for admission timestamps. Gated on a time
+ * base this run has ALREADY established (a real coarse sample was taken): a board that never
+ * bound has no consistent session/grid to admit records into, and admitting them there would
+ * only turn into NO_PLAN failures later (pinned by the zero_pulse_index case). */
+static T2_BOUNDED void T2_HOT(drain_lane_without_cursor)(void)
+{
+    if (!s_state.last_sync_sequence) return;
+    drain_lane(s_state.cursor.pulse_index ? s_state.cursor.pulse_index - 1u : 0u);
 }
 
 T2_BOUNDED trigger_t2_runtime_result_t T2_HOT(trigger_t2_runtime_service)(void)
@@ -1055,12 +1329,14 @@ T2_BOUNDED trigger_t2_runtime_result_t T2_HOT(trigger_t2_runtime_service)(void)
     trigger_time_cursor_snapshot_t *const cursor = &s_state.cursor;
     if (!trigger_time_cursor_snapshot(cursor)) {
         s_state.cursor.valid = 0u;
+        drain_lane_without_cursor();
         if (deadlines_need_service()) service_deadlines(false);
         s_state.last_error = TRIGGER_T2_RUNTIME_CURSOR;
         T2_RETURN(s_state.last_error);
     }
     if (!cursor->valid || !cursor->pulse_index) {
         cursor->valid = 0u;
+        drain_lane_without_cursor();
         if (deadlines_need_service()) service_deadlines(false);
         s_state.last_error = TRIGGER_T2_RUNTIME_CURSOR;
         T2_RETURN(s_state.last_error);
@@ -1074,9 +1350,10 @@ T2_BOUNDED trigger_t2_runtime_result_t T2_HOT(trigger_t2_runtime_service)(void)
     if (s_state.origin && new_coarse) {
         if (!service_origin()) T2_RETURN(s_state.last_error);
     } else if (!s_state.origin) {
-        deadline_receive();
-        /* The validated cursor already supplies coarse ordinal + 1. */
-        (void)accept_remote_position(cursor->pulse_index - 1u);
+        /* The validated cursor already supplies coarse ordinal + 1; the lane is drained in a
+         * bounded batch so a long announcement lead's record burst cannot outrun the
+         * consumer (see TRIGGER_T2_RUNTIME_RECEIVE_DRAIN_MAX). */
+        drain_lane(cursor->pulse_index - 1u);
     }
     segment_end(segment, &mark);
     segment = TRIGGER_T2_RUNTIME_SEGMENT_DEADLINES;
@@ -1175,9 +1452,13 @@ static void prepare_deadlines_core0(uint32_t session,
         /* K-2: FREEZE freezes position prediction only, not the DCO. Skip a position only
          * once its deadline has been accepted by the hardware owner (armed/completed); a
          * frozen-but-not-yet-loaded position must still be re-solved by the latest DCO.
+         * A position whose action has already FAILED is finished too (T2-FREEZE-002: a FREEZE
+         * with no usable local solve fails the position); re-solving it would only publish a
+         * plan nothing will ever arm.
          * Core0 reads the snapshot, never Core1's runtime state. */
         if (t2_deadline_position_accepted(
-                snapshot->action_armed_mask | snapshot->action_completed_mask, index))
+                snapshot->action_armed_mask | snapshot->action_completed_mask |
+                snapshot->action_failed_mask, index))
             continue;
         trigger_position_descriptor_t descriptor;
         if (!preview_copy(index, 0u, &descriptor)) continue;
@@ -1240,23 +1521,37 @@ void trigger_t2_runtime_prepare_core0(void)
     if (s_count_size < T2_WINDOW_HISTORY_CAPACITY) s_count_size++;
     if (distributed_refmem_position_descriptor_pending()) { s_core0_prepare_last_reason=4u; return; }
 
-    for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT;
-         ++index) {
+    /* With a scan step the candidates are the window's one or two entries (any scan
+     * ordinal, mapped to its slot); without one they are the three legacy positions.
+     * Starting from a rotating entry keeps a position that changes every slice from
+     * starving the other one, since one PREVIEW is staged per call. */
+    const uint32_t entries = s_scan_step_mdeg ? TRIGGER_TURNTABLE_WINDOW_MAX
+                                              : TRIGGER_T2_RUNTIME_POSITION_COUNT;
+    for (uint32_t step = 0u; step < entries; ++step) {
+        const uint32_t entry_index = (s_prepare_next + step) % entries;
+        uint32_t index = entry_index;
+        uint64_t window_threshold, window_target;
+        if (s_scan_step_mdeg) {
+            const trigger_turntable_window_entry_t *entry =
+                &snapshot.predictor.window[entry_index];
+            if (!entry->valid) continue;
+            index = entry->absolute_index % TRIGGER_T2_RUNTIME_POSITION_COUNT;
+            if (__atomic_load_n(&s_announced_ordinal[index], __ATOMIC_ACQUIRE) >=
+                entry->absolute_index + 1u) continue;
+            window_threshold = entry->threshold_count;
+            window_target = entry->target_count;
+            /* A new scan position on this slot starts its own preparation cadence. */
+            if (s_prepare_ordinal[index] != entry->absolute_index + 1u) {
+                s_prepare_ordinal[index] = entry->absolute_index + 1u;
+                s_last_calculated_coarse[index] = 0u;
+            }
+        } else {
+            window_threshold = snapshot.predictor.threshold_count[index];
+            window_target = snapshot.predictor.target_count[index];
+        }
         const uint32_t bit = 1u << index;
-        /* Only the threshold/target VALUES come from the rolling window here; the skip
-         * condition keeps the legacy announced_mask on purpose (A.3.16b): window_advance()
-         * runs EARLIER in the same origin service cycle, so entry->announced is already set
-         * by the time this loop reads the snapshot - using it as a skip condition made
-         * every preparation skip and starved the whole path (preview_saved == 0). */
-        const trigger_turntable_window_entry_t *entry =
-            s_scan_step_mdeg
-                ? trigger_turntable_window_find(&snapshot.predictor, index) : NULL;
-        const uint64_t window_threshold = entry ? entry->threshold_count
-                                                : snapshot.predictor.threshold_count[index];
-        const uint64_t window_target = entry ? entry->target_count
-                                             : snapshot.predictor.target_count[index];
         if (__atomic_load_n(&s_threshold_public, __ATOMIC_ACQUIRE) & bit ||
-            snapshot.predictor.announced_mask & bit ||
+            (!s_scan_step_mdeg && snapshot.predictor.announced_mask & bit) ||
             snapshot.last_counter_count >= window_threshold ||
             snapshot.last_counter_count >= window_target)
             continue;
@@ -1339,9 +1634,13 @@ void trigger_t2_runtime_prepare_core0(void)
         if (session != __atomic_load_n(&s_session, __ATOMIC_ACQUIRE)) return;
         if (__atomic_load_n(&s_threshold_public, __ATOMIC_ACQUIRE) & bit)
             continue;
+        if (s_scan_step_mdeg &&
+            __atomic_load_n(&s_announced_ordinal[index], __ATOMIC_ACQUIRE) >= s_prepare_ordinal[index])
+            continue;
         if (distributed_refmem_stage_position_descriptor(
                 &next, s_config.target_mask)) {
             preview_save(index, &next); ++s_core0_preview_saved; s_core0_prepare_last_reason=8u;
+            s_prepare_next = (entry_index + 1u) % entries;
         } else s_core0_prepare_last_reason=9u;
         return;
     }

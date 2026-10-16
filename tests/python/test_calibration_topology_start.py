@@ -25,6 +25,7 @@ def snapshot_with_raw(board, tdma, phys):
 def options(tmp_path):
     return Namespace(board_id=["A", "B"], anchor_id="A", expected_build="BUILD",
         level=7, cycles=512, train_chunk_cycles=0, pair_wait=.02,
+        pair_min_observations=3,
         min_rx_frames=10, min_rx_words=8, timeout=.03, action_timeout=.01,
         settle=0., gap=0., arm_wait=.1, out_dir=tmp_path, verbose=False,
         no_assign=True, reboot_verify_no=False, adjacency_only=True,
@@ -541,6 +542,49 @@ def test_valid_lifetime_or_identity_change_never_retries_snapshot(monkeypatch, t
         topology.start_pair(DRIVER, RECEIVER, options(tmp_path), actions, [])
     assert bench.snapshots == 1 and len(actions[0]["baseline_observations"]) == 1
     assert not any(command.endswith(":START") for _, command in bench.calls)
+
+
+def test_slow_driver_start_is_not_a_missing_edge(monkeypatch, tmp_path):
+    """A real ring edge whose burst lands after the first sample stays detected.
+
+    P0T's job is the line order.  With a 0.05 s bound one receiver sample used to
+    decide a pair on its own; that sample can precede the driver's burst and then
+    reported a wired ring edge as missing, so the ring could not be closed.
+    """
+    bench = Bench()
+    bench.install(monkeypatch)
+    seen = {"receiver": 0}
+
+    def read(board, timeout):
+        result = bench.snapshot(board, timeout)
+        if board.address == RECEIVER.address:
+            seen["receiver"] += 1
+            if seen["receiver"] <= 2:  # baseline plus one burst-not-yet-visible sample
+                result["tdma"]["ring_adapter_rx_count"] = 7
+                result["phys"]["rx_dma_produced_words"] = 7
+                result["phys"]["rx_edge_count"] = 7
+        return snapshot_with_raw(board, result["tdma"], result["phys"])
+
+    monkeypatch.setattr(topology, "snapshot", read)
+    opts = options(tmp_path)
+    opts.pair_wait = 0.0  # no time budget: only the minimum-sample rule can help
+    monkeypatch.setattr(topology, "parse_args", lambda: opts)
+    monkeypatch.setattr(topology, "discover", lambda _: {"A": DRIVER, "B": RECEIVER})
+    assert topology.main() == 0
+    report = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    assert report["error"] == ""
+    assert report["ring_order"] == ["A", "B"]
+    edge = next(row for row in report["pair_results"]
+                if row["driver"] == DRIVER.address and row["receiver"] == RECEIVER.address)
+    assert edge["detected"] is True
+    # Several receiver samples backed the verdict: the burst became visible only
+    # on the second one, which a single-sample decision could never have seen.
+    preparation = next(row for row in report["pair_preparation"]
+                       if row["driver"] == DRIVER.address and
+                       row["receiver"] == RECEIVER.address)
+    assert len(preparation["activity_observations"]) >= 2
+    assert report["pair_observation_policy"] == {
+        "pair_wait_s": 0.0, "pair_min_observations": 3}
 
 
 def test_valid_no_activity_is_a_negative_pair_and_scan_continues(monkeypatch, tmp_path):

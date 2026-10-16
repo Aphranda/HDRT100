@@ -3085,6 +3085,9 @@ scpi_result_t scpi_cmd_refmem_sync_flight_position_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.lane_decode_reject_count);
     /* Appended last: positional readers keep their existing indices. */
     SCPI_ResultUInt32(context, snapshot.lane_hold_delivered_count);
+    SCPI_ResultUInt32(context, snapshot.lane_freeze_latched_count);
+    SCPI_ResultUInt32(context, snapshot.lane_freeze_kept_count);
+    SCPI_ResultUInt32(context, snapshot.lane_freeze_taken_count);
     return SCPI_RES_OK;
 }
 

@@ -17,13 +17,34 @@ enum {
     TRIGGER_T2_RUNTIME_SEGMENT_COUNT,
 };
 #define TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY 1u
-/* One terminal receipt per position/local template; preserve every admitted
- * event without carrying the larger shared-table capacity on each board. */
-#define TRIGGER_T2_RUNTIME_EVENT_CAPACITY \
-    (TRIGGER_T2_RUNTIME_POSITION_COUNT * TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY)
+/* One terminal receipt per executed position. A scan has many more positions than the
+ * runtime has slots, and nothing drains this buffer in firmware (take_event is a host/
+ * diagnostic reader), so it is sized for a short scan rather than for the slot count: the
+ * event DETAIL is bounded, while event_count + event_dropped_count stays the total number
+ * of receipts and the window's executed total stays the authoritative per-position count. */
+#define TRIGGER_T2_RUNTIME_EVENT_CAPACITY 16u
 #define TRIGGER_T2_DESCRIPTOR_TARGET_GRACE_SYNC 2u
+/* Records the follower takes from its position lane per service pass. One record per pass
+ * caps the consumer at one per coarse slice: measured 2026-10-16 with a long announcement
+ * lead, 361 positions produced ~155-176k lane records (~1.1 per slice), so a single-record
+ * pass left the single-depth mailbox busy and the bounded hold ring dropped the overflow
+ * (hold_drop ~176k-214k) until one board per run starved with a zero window. */
+#define TRIGGER_T2_RUNTIME_RECEIVE_DRAIN_MAX 4u
 /* Compact wire revision is never truncated or wrapped within a run. */
 #define TRIGGER_T2_PREDICTION_VERSION_MAX UINT16_MAX
+
+/* Why a frozen position did not run. The abandon count alone cannot say whether the loss
+ * belongs to the lane (late arm), to the local solve (no plan), to the position geometry
+ * (sibling conflict) or to the backend (refused/terminal); these are different owners and
+ * different fixes. Appended to the T2:ACTion? tail so existing page indices do not move. */
+enum {
+    TRIGGER_T2_ACTION_FAIL_LATE = 0u,     /* deadline already behind the action cursor */
+    TRIGGER_T2_ACTION_FAIL_EXPIRED = 1u,  /* the position's window had closed */
+    TRIGGER_T2_ACTION_FAIL_NO_PLAN = 2u,  /* no usable local solve when the FREEZE arrived */
+    TRIGGER_T2_ACTION_FAIL_CONFLICT = 3u, /* sibling span/order conflict in the same slot set */
+    TRIGGER_T2_ACTION_FAIL_BACKEND = 4u,  /* backend refused, cancelled or uncertain */
+    TRIGGER_T2_ACTION_FAIL_COUNT = 5u,
+};
 
 typedef enum {
     TRIGGER_T2_RUNTIME_OK = 0u,
@@ -87,6 +108,8 @@ typedef struct {
     /* ARMED is admission only. COMPLETE/emitted require the matching PIO receipt. */
     uint32_t action_armed_mask, action_completed_mask, action_failed_mask;
     uint32_t action_uncertain_mask;
+    /* Attribution of every action_fail() call: see TRIGGER_T2_ACTION_FAIL_*. */
+    uint32_t action_fail_reason[TRIGGER_T2_ACTION_FAIL_COUNT];
     uint32_t action_sequence[TRIGGER_T2_RUNTIME_POSITION_COUNT];
     /* Last observed backend state and origin bracket width; unknown = UINT32_MAX. */
     uint32_t action_backend_state[TRIGGER_T2_RUNTIME_POSITION_COUNT];

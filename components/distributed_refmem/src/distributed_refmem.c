@@ -710,7 +710,10 @@ bool distributed_refmem_get_position_descriptor(
     if (source_slot >= DISTRIBUTED_REFMEM_NODE_COUNT) return false;
     /* A latched FREEZE is final; it overtakes any PREVIEW still waiting. */
     if (trigger_position_freeze_latch_take(&s_position_freeze_latches[source_slot],
-                                           descriptor)) return true;
+                                           descriptor)) {
+        distributed_refmem_position_note_freeze_taken();
+        return true;
+    }
     if (trigger_position_mailbox_take(&s_position_rx_mailboxes[source_slot],
                                       descriptor, &target_mask)) return true;
     /* Nothing staged: retry one held first-class record, then hand it to this
@@ -765,6 +768,9 @@ bool distributed_refmem_get_position_transport(
         .lane_hold_delivered_count = __atomic_load_n(
             &s_position_priority_hold_delivered_count, __ATOMIC_RELAXED),
         .lane_owned = distributed_refmem_position_priority_owned(),
+        .lane_freeze_latched_count = __atomic_load_n(&s_position_freeze_latched_count, __ATOMIC_RELAXED),
+        .lane_freeze_kept_count = __atomic_load_n(&s_position_freeze_kept_count, __ATOMIC_RELAXED),
+        .lane_freeze_taken_count = __atomic_load_n(&s_position_freeze_taken_count, __ATOMIC_RELAXED),
     };
     for (uint32_t slot = 0u; slot < DISTRIBUTED_REFMEM_NODE_COUNT; ++slot)
         if (trigger_position_mailbox_pending(&s_position_rx_mailboxes[slot]) ||
@@ -1341,7 +1347,8 @@ static void distributed_refmem_tdma_parse_position_fragment(
         };
         const bool staged = received.stage == TRIGGER_POSITION_STAGE_FREEZE
             ? trigger_position_freeze_latch_put(&s_position_freeze_latches[source_slot],
-                                                position_id, received.prediction_version)
+                                                position_id, received.prediction_version,
+                                                (uint32_t)received.target_ms_index)
             : trigger_position_mailbox_stage(
                 &s_position_rx_mailboxes[source_slot], &received, target_mask);
         if (staged) {

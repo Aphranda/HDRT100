@@ -979,8 +979,14 @@ def _scan_override_command(run_id, origin):
         return None
     start = os.environ.get("T2_SCAN_OVERRIDE_START_MDEG", "0")
     step = os.environ.get("T2_SCAN_OVERRIDE_STEP_MDEG", "1000")
+    # threshold_per_mille sets the ANNOUNCEMENT LEAD (lead = (1000 - threshold) per mille of
+    # the position interval). Measured 2026-10-16 with 950: every residual follower loss over
+    # a 361-position scan was T2_ACTION_FAIL_LATE (38/39/36 per board, nothing else), i.e. the
+    # deadline was already behind the cursor when it came to arm - a latency-budget question,
+    # so the lead belongs to the scan configuration and is exposed here.
+    threshold = os.environ.get("T2_SCAN_OVERRIDE_THRESHOLD_PERMILLE", "950")
     command = ("TRIGger:REServation:" + "T2:CONFigure " + f"{run_id},0,14,{origin},"
-               f"5000,5000,950,{start},{start},{terminal},{step},1000")
+               f"5000,5000,{threshold},{start},{start},{terminal},{step},1000")
     return command
 T2_TARGETS = (32, 34, 36)          # target_count per position
 T2_THRESHOLDS = (33, 35, 37)       # threshold_count per position
@@ -2702,12 +2708,18 @@ def step_19_trial_and_pulse_start(ctx, slot, board, uid):
 
 @step(20)
 def step_20_sampling(ctx, slot, board, uid):
-    """Sample the T2 runtime and the position transport for ~10 s."""
+    """Sample the T2 runtime and the position transport for T2_SAMPLE_TICKS x 2 s.
+
+    The window has to cover the scan it is judging: the 9-position scan is done in ~10 s
+    (default 5 ticks), while the 361-position scan travels ~45 s - a fixed 10 s window then
+    verifies only its first ~28 positions and reports them as the whole run.
+    """
     if ctx.preflight_frozen:
         print("  sampling skipped: SYNC_TRIGGER phase frozen on every board", flush=True)
         return
     published = "?"
-    for tick in range(5):
+    ticks = max(1, int(os.environ.get("T2_SAMPLE_TICKS", "5")))
+    for tick in range(ticks):
         time.sleep(2.0)
         for uid_r, slot_r, _i, _o, _f in ROWS:
             member = ctx.boards.get(f"{uid_r:016X}")
@@ -2740,11 +2752,14 @@ def step_20_sampling(ctx, slot, board, uid):
             # GATEWAY deadline, and the masks say whether it armed/completed. Only
             # this page can answer "did each role execute its own sequence".
             action_page = ctx.send(member, "TRIGger:REServation:T2:ACTion?").split(",")
-            # Window cumulative totals are the LAST five fields of T2:ACTion?
-            # (appended after its variable-length events block); the same five
-            # positions on T2? are unrelated trailing values.
-            win_totals = ([f.strip() for f in action_page[-7:]]
-                          if len(action_page) >= 5 else ["?"] * 5)
+            # Window cumulative totals are the last twelve fields of T2:ACTion?: the seven
+            # window totals followed by the five action_fail() reason counters
+            # (late/expired/no_plan/conflict/backend), appended after the variable-length
+            # events block. The same five positions on T2? are unrelated trailing values.
+            # A short or truncated reply (a command timeout answers "<timeout>") must not
+            # raise: anything shorter than the tail is "unknown".
+            win_totals = ([f.strip() for f in action_page[-12:]]
+                          if len(action_page) >= 12 else ["?"] * 12)
             _act_seen = getattr(ctx, "_action_last", None)
             if _act_seen is None:
                 _act_seen = {}
@@ -2794,20 +2809,28 @@ def step_20_sampling(ctx, slot, board, uid):
                   f" miss_local {t2_field(state, 'freeze_missing_local')}"
                   f" | win {win_totals[0]}/{win_totals[1]}/{win_totals[2]}"
                   f"/{win_totals[3]}/{win_totals[4]}/{win_totals[5]}/{win_totals[6]}"
-                  " (entered/announced/frozen/executed/abandoned/mark_rejected/alloc_rejected)" , flush=True)
+                  " (entered/announced/frozen/executed/abandoned/mark_rejected/alloc_rejected)"
+                  f" | fail late/expired/no_plan/conflict/backend"
+                  f" {win_totals[7]}/{win_totals[8]}/{win_totals[9]}/{win_totals[10]}/{win_totals[11]}",
+                  flush=True)
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
             # Rate evidence, not absolutes (VDC-ISO-001/T3): the seat and match
             # counters are cumulative since boot, so a single read cannot say
             # whether *this* load window publishes/observes. Sample the first and
             # the last tick and report the delta.
             seat = ctx.send(member, "SYSTem:TDMA:SEAT:COUNters?").split(",")
-            match = ctx.send(member, "SYSTem:VDC:PRIORity:MATCH:STATus?").split(",")
-            rx = ctx.send(member, "SYSTem:VDC:PRIORity:RX?").split(",")
+            # The priority-lane pages are STOPPED-STATE ONLY: they refuse while
+            # ring.enabled/adapter_started or the lane is active (the same reason the
+            # teardown read below is the one that works). Reading them mid-run made every
+            # follower block for the full 8 s command timeout on each of five samples, and
+            # the measured schedule shows what that cost: phase-7 start_miss/deadline_miss
+            # in the tens of thousands on those boards, the cursor losing validity, and the
+            # T2 service answering TRIGGER_T2_RUNTIME_CURSOR for the whole scan - so their
+            # position holds never drained while the origin's did. Keep the mid-run sample
+            # to the pages that answer while the ring is up; the seat counters are the rate
+            # evidence (VDC-ISO-001/T3) and the priority pages are read at teardown.
             sample = {
                 "seat": [f.strip() for f in seat[:3]],
-                "match_calls": match[5].strip() if len(match) > 5 else "?",
-                "match_matched": match[6].strip() if len(match) > 6 else "?",
-                "rx_accept": rx[5].strip() if len(rx) > 5 else "?",
             }
             first = getattr(ctx, "_rate_first", None)
             if first is None:
@@ -2815,17 +2838,12 @@ def step_20_sampling(ctx, slot, board, uid):
             else:
                 first = first.setdefault(uid_r, sample)
                 if tick == 4:
-                    def delta(key):
-                        try:
-                            return int(sample[key]) - int(first[key])
-                        except (TypeError, ValueError):
-                            return "?"
                     seat_delta = [f"{int(b) - int(a)}" if a.isdigit() and b.isdigit() else "?"
                                   for a, b in zip(first["seat"], sample["seat"])]
                     print(f"    rate slot {slot_r} over sampling:"
                           f" seat opp/pri/fc {seat_delta}"
-                          f" match calls/matched {delta('match_calls')}/{delta('match_matched')}"
-                          f" rx_accept {delta('rx_accept')}", flush=True)
+                          " (priority match/rx pages are stopped-state only; read at teardown)",
+                          flush=True)
             # Realtime health of the SYNC_TRIGGER load on every sample: a quarantined bit 6
             # stops the T2 service, the cursor and the counter read together (measured
             # t2-20261012-093219: count/cursor seq/sync_seq all frozen 2 s into sampling,
@@ -2850,6 +2868,27 @@ def step_20_sampling(ctx, slot, board, uid):
                 ctx.failures.append(f"Step 20 slot {slot_r} quarantined SYNC_TRIGGER"
                                     f" (mask {quarantine}, overrun {sched(9)},"
                                     f" deadline_miss {sched(10)}, max_rt {sched(5)})")
+            # Sticky cursor binding fault, read for EVERY board: the origin-only probe
+            # below cannot see a follower's latch, and that latch is what makes a
+            # follower's T2 service answer CURSOR(5) for the rest of the run (its lane
+            # hold queue then only fills, so its position window stops growing while
+            # lane_accept keeps counting). One extra read per board until it latches.
+            if not hasattr(ctx, "_cursor_fault_seen"):
+                ctx._cursor_fault_seen = set()
+            if slot_r not in ctx._cursor_fault_seen:
+                fc = ctx.send(member, "TRIGger:REServation:T2:CURSor?").split(",")
+                fault_r = cursor_fault(fc)
+                if fault_r is not None and fault_r["site"] not in ("0", ""):
+                    ctx._cursor_fault_seen.add(slot_r)
+                    mism = cursor_fault_mismatches(fault_r)
+                    print(f"  t+{2 * (tick + 1)}s slot {slot_r} STICKY CURSOR FAULT:"
+                          f" site {CURSOR_FAULT_SITES.get(fault_r['site'], fault_r['site'])}"
+                          f" err {fault_r['error']} at seq {fault_r['sample_seq']}"
+                          f" | differs: {', '.join(mism) if mism else 'nothing decoded'}"
+                          f" | now valid {page_field(fc, CURSOR_FIELDS, 'valid')}"
+                          f" err {page_field(fc, CURSOR_FIELDS, 'err')}"
+                          f" ring_cfg {fault_r['ring_config']} model_token {fault_r['model_token']}",
+                          flush=True)
             if slot_r == 0:
                 cursor = ctx.send(member, "TRIGger:REServation:T2:CURSor?").split(",")
                 model = ctx.send(member, "SYSTem:VDC:FEEDback:MODel?").split(",")
@@ -3065,6 +3104,8 @@ def step_20_sampling(ctx, slot, board, uid):
                   f" drain_fail {pos_field(24)} hold_drop {pos_field(27)}"
                   f" hold_delivered {pos_field(30)}"
                   f" decode_reject {pos_field(29)}"
+                  f" | FREEZE latched {pos_field(31)} kept {pos_field(32)}"
+                  f" taken {pos_field(33)}"
                   f" | classic rx_complete {pos_field(10)}"
                   f" rx_reject {pos_field(11)} rx_pending_mask {pos_field(12)}"
                   f" rx_last_failure {pos_field(17)}", flush=True)
@@ -3278,6 +3319,16 @@ def _run_selected_steps(ctx, selection, interactive, teardown) -> int:
             error = ""
         except Exception as exc:                                          # noqa: BLE001
             error = f"{type(exc).__name__}: {exc}"
+            # Self-diagnosing failures: the log otherwise only says "IndexError: list
+            # index out of range" and the offending line is lost (see step 20).
+            _frames = []
+            _tb = exc.__traceback__
+            while _tb is not None:
+                _name = str(_tb.tb_frame.f_code.co_filename).replace(chr(92), '/')
+                _frames.append(f"{_name.split('/')[-1]}:{_tb.tb_lineno}")
+                _tb = _tb.tb_next
+            if _frames:
+                error += " | at " + " <- ".join(_frames[-4:])
             ctx.failures.append(f"Step {number} raised {error}")
         duration = time.time() - started
         new_failures = ctx.failures[failures_before:]

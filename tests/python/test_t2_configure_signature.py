@@ -36,9 +36,11 @@ EXPECTED_PARAMETERS = (
 )
 
 # Every place that sends TRIGger:REServation:T2:CONFigure, with the line it lives on.
+# Updated with the 2026-10-15 tool batch (scan override + t2_iterate judging), as this
+# test's own contract requires: the pins move with the call sites, never silently.
 EXPECTED_CALL_SITES = {
     "tools/sync_trigger/t2_bench_probe.py": (242,),
-    "tools/sync_trigger/t2_workflow.py": (214, 520, 972, 1737,),
+    "tools/sync_trigger/t2_workflow.py": (222, 528, 988, 1783,),
 }
 
 

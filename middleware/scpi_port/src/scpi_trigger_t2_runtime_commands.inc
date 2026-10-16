@@ -374,5 +374,11 @@ scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context)
         SCPI_ResultUInt32(context,w_mark_rejected);
         SCPI_ResultUInt32(context,w_alloc_rejected);
     }
+    /* Appended after the window totals: WHY each action_fail() happened. "361 published,
+     * 331 executed" is only attributable with this split - a late arm belongs to the lane,
+     * a missing plan to the local solve, a conflict to the position geometry and a refused
+     * deadline to the backend. */
+    for (uint32_t reason = 0u; reason < TRIGGER_T2_ACTION_FAIL_COUNT; ++reason)
+        SCPI_ResultUInt32(context, s.action_fail_reason[reason]);
     return SCPI_RES_OK;
 }

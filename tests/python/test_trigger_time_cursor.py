@@ -175,15 +175,48 @@ int main(int argc,char **argv){assert(argc==2);setup();const char *c=argv[1];
         at(12000000);fresh_session();trigger_time_cursor_service();
         assert(snap().valid&&snap().session==8&&snap().sample_seq==1&&snap().action_cursor==0&&snap().missed_sync_count==0);return 0;
     }
-    if(!strcmp(c,"backward")||!strcmp(c,"phase_backstep")){
+    if(!strcmp(c,"backward")){
         at(11000500);
-        if(!strcmp(c,"phase_backstep")){++model.token;model.dco.phase_offset_ns=-1000;at(11001000);}
-        else at(11000496);
+        at(11000496);
         assert(!snap().valid&&snap().last_error==TRIGGER_TIME_CURSOR_BACKWARD);
         assert(SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_BACKWARD&&fault().sample_seq==2);
         at(13000000);assert(!snap().valid&&snap().last_error==TRIGGER_TIME_CURSOR_BACKWARD);
         fresh_session();trigger_time_cursor_service();assert(snap().valid&&snap().action_cursor==0);
         assert(SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_NONE);return 0;
+    }
+    if(!strcmp(c,"overflow_rebase")){
+        /* A fresh token is a new model generation, and its projection can put the same
+         * instant at a LOWER coarse pulse index than the previous generation reached. The
+         * gap computation subtracted against the previous generation's pulse_index, so it
+         * underflowed (~2^64) and latched a fatal OVERFLOW - measured 2026-10-16: all three
+         * followers latched site OVERFLOW at t+8s/40s/120s of a 361-position scan, exactly
+         * where their position windows stopped. Across a boundary the gap is not defined:
+         * one step, stay valid; within a generation the gap still counts as missed. */
+        at(11000500);
+        ++model.token;model.dco.phase_offset_ns=-1001000;at(11001000);
+        assert(snap().valid&&snap().model_token==12);
+        assert(SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_NONE);
+        assert(snap().last_error==TRIGGER_TIME_CURSOR_OK&&snap().action_cursor==0u);
+        at(13001000);
+        assert(snap().valid&&snap().missed_sync_count==1u);
+        assert(SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_NONE);return 0;
+    }
+    if(!strcmp(c,"phase_backstep")){
+        /* A fresh token is a NEW model generation, and the followers' typed follow path
+         * re-issues the model during a run: the projection may step back across that
+         * boundary (measured 2026-10-16: two of three followers latched this as a FATAL
+         * backward fault and then consumed nothing for the rest of a 361-position scan,
+         * while the board that did not latch consumed the whole scan). Re-base instead:
+         * stay valid on the new generation, and keep the fault for a regression WITHIN
+         * one generation. */
+        at(11000500);
+        ++model.token;model.dco.phase_offset_ns=-1000;at(11001000);
+        assert(snap().valid&&snap().model_token==12&&SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_NONE);
+        /* one step on the boundary poll (the gap is not defined across generations) */
+        assert(snap().sample_seq==3&&snap().last_error==TRIGGER_TIME_CURSOR_OK);
+        at(11000996);
+        assert(!snap().valid&&snap().last_error==TRIGGER_TIME_CURSOR_BACKWARD);
+        assert(SITE(fault())==TRIGGER_TIME_CURSOR_FAULT_BACKWARD);return 0;
     }
     /* Real committed publication mints a fresh token for each of these changes. */
     if(!strcmp(c,"role")){++model.role_generation;++model.token;}
@@ -256,7 +289,7 @@ def cursor(tmp_path_factory):
     "unconfigured", "no_session", "no_model", "missing_ring", "pending_ring",
     "model_late", "before_anchor", "session_race", "no_rx", "sparse_rx",
     "fine_floor", "uneven_grid", "model_update", "late_update", "clock_unavailable",
-    "session", "backward", "phase_backstep", "role", "epoch", "run", "slot",
+    "session", "backward", "phase_backstep", "overflow_rebase", "role", "epoch", "run", "slot",
     "schedule", "ring_config", "stop", "period", "overflow",
     "same_token_command", "bound_model_unavailable", "zero_token", "model_seq_missing",
     "model_period_missing", "rate_invalid", "state_invalid", "ring_slot", "ring_crc",

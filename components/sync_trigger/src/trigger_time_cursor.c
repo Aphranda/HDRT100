@@ -178,8 +178,22 @@ static __attribute__((noinline, optimize("Os"))) void TRIGGER_CURSOR_HOT(cursor_
         invalidate(next, TRIGGER_TIME_CURSOR_SESSION, false);
         return;
     }
-    if (s_binding.bound && (now_raw < s_binding.last_raw ||
-                            output_ns < next->event_vdc_ns)) {
+    /* A NEW committed model re-bases the projection: raw time, the projected VDC time
+     * and the coarse pulse index are only continuous inside one generation, and the
+     * followers' typed follow path re-issues the model (fresh token) during a run.
+     * Comparing across that re-base is meaningless, and treating it as a regression is
+     * fatal - measured on the bench 2026-10-16, the three followers latched site BACKWARD
+     * (err 10) and then site OVERFLOW (err 5) at t+8s/40s/120s of a 361-position scan,
+     * exactly where each one's position window stopped growing, while the projection's own
+     * coarse index had simply stepped back with the new generation (a uint64 subtraction
+     * against the previous generation's pulse_index underflows to ~2^64). So adopt the new
+     * generation as the baseline - the projection below overwrites event_vdc_ns, last_raw
+     * and pulse_index - and keep both checks for regressions WITHIN one generation, where
+     * they are real faults. */
+    const bool rebased = s_binding.bound && model->token != next->model_token;
+    if (s_binding.bound && !rebased &&
+        (now_raw < s_binding.last_raw ||
+         output_ns < next->event_vdc_ns)) {
         cursor_note_fault(next, TRIGGER_TIME_CURSOR_FAULT_BACKWARD,
             TRIGGER_TIME_CURSOR_BACKWARD, NULL, model);
         invalidate(next, TRIGGER_TIME_CURSOR_BACKWARD, true);
@@ -196,8 +210,12 @@ static __attribute__((noinline, optimize("Os"))) void TRIGGER_CURSOR_HOT(cursor_
         (uint32_t)((uint64_t)remainder * next->subdivisions / next->period_ns);
     /* Valid geometry has 2 <= subdivisions <= period_ns. Hence the complete
      * q is floor(elapsed * subdivisions / period_ns) <= elapsed, and coarse
-     * is at most UINT64_MAX/2. Neither q nor coarse+1 can overflow. */
-    const uint64_t delta = s_binding.bound ? coarse - (next->pulse_index - 1u) : 1u;
+     * is at most UINT64_MAX/2. Neither q nor coarse+1 can overflow. Across a generation
+     * boundary the gap is not defined (see `rebased` above): coarse can legitimately be
+     * BELOW the previous generation's pulse_index, and subtracting would underflow into
+     * the OVERFLOW latch. One step, no missed-cycle accounting, on that poll only. */
+    const uint64_t delta = (s_binding.bound && !rebased) ?
+        coarse - (next->pulse_index - 1u) : 1u;
     if (delta > UINT32_MAX - next->sample_seq) {
         cursor_note_fault(next, TRIGGER_TIME_CURSOR_FAULT_OVERFLOW,
             TRIGGER_TIME_CURSOR_OVERFLOW, NULL, model);
