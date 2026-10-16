@@ -180,6 +180,18 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 
 席位余量须分开核对 wire 与 CPU：当前 typed 同步 body 由 `TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_SIZE` 完整占用，不能再塞入健康状态或把普通 class 的 optional 空间重复记作 typed 可用余量。SYNC 的后续需求须列出独立资源及最坏耗时，未完成准入/实测的空间不算已承诺余量。新增或扩容特等席须先经用户审核（`EXE-SEAT-01`）。VDC 健康镜像、统计及查询是 Core0 异步诊断，不占特等邮箱，也不新增 Core1 发布工作。
 
+### 三份额轮换与让位周期（2026-10-16 目标裁定，status `pending` 待 C11 交叉审核）
+
+快速通道只有一条 TX 快路径，按发布机会在**特等席**（VDC typed SYNC）与**一等席**（T2 position descriptor，class `TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS`）之间轮换。**二等席的定义是"不走快速通道的部分"**——普通帧与 refmem 镜像/回执（含位置冻结回执）——它不参与轮换，因此**只能在快速通道用剩的时间里通行**。
+
+**轮换周期语义**：`cycle = priority_share + first_class_share + second_class_share`（`tdma_seat_rotation_cycle()`，`tdma_pio_spi_ring_adapter.h`）。一个周期内前 `priority_share` 个机会归特等席、随后 `first_class_share` 个归一等席，**最后 `second_class_share` 个机会两席都不得上车（让位段）**，把该时段留给普通/refmem 流量。让位段内两席的租约**保留**（内容不丢），且**不计入** `seat_first_class_wait`（它不是"被另一席抢走机会"，而是周期为普通路径预留），因此也不会产生等待超限。`second_class_share == 0` 时 `cycle = p + f`，与三份额形式之前的行为**逐位等价**。
+
+**让位证据（不新增计数）**：`seat_opportunity_count − seat_priority_count − seat_first_class_count = 让位机会数`；期望比例 `fc ≈ f/(p+f+s)`、`yield ≈ s/(p+f+s)`。
+
+**配置**：`SYSTem:TDMA:SEAT:ROTation <p>,<f>[,<s>]`（STOP-only 每板；第三字段可选，缺省 0；越界或无法构成周期即拒绝）。**两种工况预设**（目标口径）：VDC **未启动**时特等席等于没在跑 ⇒ **`1,2,7`**；VDC **启动** ⇒ **`7,2,1`**。读回 `SYSTem:TDMA:SEAT:ROTation?` 为 12 字段：索引 4 = 整周期 `p+f+s`，索引 11 = 二等席份额，索引 0–10 含义不变（旧镜像 11 字段仍可正确读前 11 项）。
+
+**与 `TDMA-SEAT-CLASS-001` 的关系**：本条款给二等席**固定时间**；另一条路线是把冻结回执/状态上行**提升到一等席**。目标已选择先做本条。**门禁**：两工况台架下"冻结往返"回落到环数周期量级、`freeze_resend`/位置降到个位数、特等席 cadence 无回归；`EXE-SEAT-01` 预算清单登记本条款的三份额与周期语义。
+
 ## 配置与生命周期
 
 | 边界 | 必须保持的语义 |

@@ -301,7 +301,7 @@ TDMA START 前装载并冻结：
 
 ### 位置内多组序列
 
-按 K-6，每个位置运行多组序列与采样（当前为 16 组）。每组依次为“切换通道 → 触发网分 → READY 窗口”（K-1）。所有组都锚定在同一个位置 `q_P` 加模板偏移上：
+按 K-6，每个位置运行多组序列与采样。组数取自 `node-sequence` 分支的权威定义：`TRIGGER_RESERVATION_ITEM_COUNT`（`trigger_reservation_config.h`），每项一项测量配置（`trigger_reservation_build_plan()`：`output_code = (i // 2) | (level << 2)`，即 SP8T 通道每两项一档、极化取项奇偶）。每组依次为“切换通道 → 触发网分 → READY 窗口”（K-1）。所有组都锚定在同一个位置 `q_P` 加模板偏移上：
 
 ```text
 位置 P（q_P）:
@@ -315,6 +315,8 @@ TDMA START 前装载并冻结：
 - 组间隔按网分**最坏**响应时间加切换 settle 和余量排布；READY 窗口用于发现踩踏，不用于推迟下一组。
 - 各板分工：SWITCH 板只执行各组的切换步，GATEWAY 板执行各组的触发与 READY 采集；各板共享同一个 `q_P`，偏移来自各自的模板。
 - 一个位置的跨度约为 `n × 组间隔`，它决定 STEP 的时间下限（见 T2-PREDICT）。
+- **时间参数是可配置的安装参数，不是编译参数**：每组的偏移住在它自己那行模板里（`delta_q`）与自己的 `argument` 里，安装发生在停机态（`TEMPLate:INSTall`），因此改组间隔/组码只需**重跑安装与采集**，**不需要重新烧录**。工装侧的统一入口是 `config/trigger/t2_sequence_profile.json`（角色组数、`group_period_slices`、`group_offset_slices`、逐组码、网分脉宽）与 `t2_workflow.py` 的 `--seq-*` 参数；优先级为 **命令行 > 环境变量 > profile 文件 > 内置默认**（内置默认是每角色 1 行，即序列落地前的行为）。扫组间隔用 `tools/sync_trigger/t2_sequence_sweep.py`（同一固件、多档周期，逐档只重跑安装+采集）。
+- **实测约束（2026-10-16，短扫描）**：周期 10 ms 与 25 ms 两档下，从板每个位置只跑完第 0 组（`T2:ACTion?` 组打包字 `done=0b1`、`next=1`、`in_flight=0xF`），25 ms 档开始出现 `late`/`no_plan`。原因是**执行端是"观测到上一组完成才布防下一组"**，该往返在重载从板上大于组间隔；因此紧间隔需要的深度 ≥2 绝对 deadline 队列是**跨域前置**（SYNC_IO 域 `SYNC-SCHED-001`）。T2 侧已实现的“在途窗口”把下一组的**绝对 tick 与当前组一并解出**（`t2_deadline_plan_t.next_tick`），Core1 在完成当遍即可推进布防，去掉 Core0 解算往返；剩余的是执行端能否**提前持有**第二个 deadline。
 
 ### 预装与两组滑动窗口
 
@@ -329,6 +331,13 @@ DCO 新鲜度评估见 [T2 评审](TRIGGER_T2_REVIEW.md) E-01：VDC LOCKED 时�
 ### 动作解耦
 
 动作不使用“下一动作”串行提交模型。每个动作只负责自己的时间片、输出和执行证据。顺序由模板中的相对 offset 和 settle 预算预先确定；动作到达自身时间片即执行；上一级时间分析通过静态 profile 约束下一级位置，不变成运行时等待或临界期软件补救。
+
+**边界判定（2026-10-16，用户口径）**：`T2 只负责分发时间片；动作执行得到时间片之后，自行按照约定进行`。即：
+
+- **分发侧（T2）**：每个位置只交出一个时间片（位置身份 + `q_P` + FREEZE + 该位置的绝对 deadline），并负责**约定**的安装与可读（本板角色的组序列表：每组 `argument` 与相对偏移 `delta_q`），以及位置级执行证据。**T2 不得逐组配速**：不按“上一组完成”去推下一组的布防，也不为每组做 Core0 解算。
+- **动作侧（执行端）**：拿到时间片后**自行**按约定展开整条序列——第 `g` 组落在 `时间片 + (delta_q_g − delta_q_0)`，settle/READY 与逐组回执都由它自己掌握；相邻两组之间不得依赖任何一次 T2 服务往返。需要它具备**深度 ≥2 的绝对 deadline 队列**（`SYNC-SCHED-001`，SYNC_IO 域）。
+- **四板并行、只对时间片负责（2026-10-16 用户口径）**：四块板**并行执行**，各自只对**位置时间片**负责。同一 `q_P` 分发到各板后，每板按本角色的约定独立展开自己的序列；**板间无先后、无逐组握手、无跨板等待**（组间不由 READY 推进，K-1），任何一块板的动作不构成另一块板推进的前提。T2 的分发只承载时间片与身份，板上执行证据各自上报、由位置级汇总判定。
+- **过渡态**：在动作侧具备序列能力前，T2 侧保留一个**在途窗口**（`t2_deadline_plan_t.next_tick`：解本组时一并下发下一组的 tick，Core1 在完成当遍推进），它只是过渡实现——真板实测（周期 30/40/50/60 ms）显示"观测到完成再布防"在任何间隔下都停在每组 1 组，故这条过渡路径不作为长期方案，动作侧接受序列后即移除。
 
 ### 审查/完善记录（已下沉）
 
@@ -505,14 +514,14 @@ T2 运行时实际消费域为 `[1, TRIGGER_T2_RUNTIME_POSITION_COUNT]`（当前
 
 ### 诊断页尾字段契约（2026-10-16 登记，status `pending`）
 
-`TRIGger:RESERVation:T2:ACTion?` 的**页尾累计字段冻结为 12 项**，顺序固定、**只增不改**（既有页索引不得移动）：
+`TRIGger:RESERVation:T2:ACTion?` 的**页尾累计字段冻结为 22 项**，顺序固定、**只增不改**（既有页索引不得移动）：
 
 | # | 字段 | 语义 |
 |---|---|---|
 | 1 | `entered` | 进窗位置数（实例键分配） |
 | 2 | `announced` | 已宣告位置数 |
 | 3 | `frozen` | 已冻结位置数 |
-| 4 | `executed` | 已执行位置数 |
+| 4 | `executed` | 已执行位置数（T2-SEQ-001：位置**末组**完成后才计） |
 | 5 | `abandoned` | 已放弃位置数 |
 | 6 | `mark_rejected` | `mark()` 被拒计数 |
 | 7 | `alloc_rejected` | 槽位分配被拒计数 |
@@ -521,11 +530,73 @@ T2 运行时实际消费域为 `[1, TRIGGER_T2_RUNTIME_POSITION_COUNT]`（当前
 | 10 | `no_plan` | 动作失败：无可用计划 |
 | 11 | `conflict` | 动作失败：资源/顺序冲突 |
 | 12 | `backend` | 动作失败：后端拒绝 |
+| 13 | `groups_executed` | 已完成**组**数（T2-SEQ-001 饱和计数） |
+| 14 | `group_count` | 本板角色挂载的组数（SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2） |
+| 15–17 | `slot0/1/2` 打包字 | 每位置槽一字：`next`(bit0–3) / `in_flight`(bit4–7，`0xF`=无在飞组) / `done`(bit8–15 已完成组位图) |
+| 18 | `freeze_lead_min_slices` | 本板冻结位置时剩余提前量的**最小值**（粗片序号；1 ms 栅格下即 ms） |
+| 19 | `freeze_lead_last_slices` | 最近一次冻结时的剩余提前量 |
+| 20 | `freeze_lead_expired_count` | 冻结受理时**已达/已过目标**的次数（提前量为负） |
+| 21 | `freeze_resend_count` | origin 端 FREEZE 重发次数（窗口紧张度） |
+| 22 | `freeze_abandoned_count` | 超过 `expiry+1` 仍未确认而被放弃的 FREEZE 数 |
+
+### 冻结配置与提前量（2026-10-16 明确）
+
+FREEZE 是"提前冻结预测、留出动作时间"的机制，因此**它值多少提前量**必须可读、可配：
+
+| 项 | 位置 | 现状 |
+|---|---|---|
+| **宣告提前量**（决定冻结发生得多早） | 运行期配置：`T2:CONFigure ... threshold ...`，提前量 = (1000−threshold)‰ × 一个位置间隔 | 唯一真正决定从板可用余量的旋钮；工装经 `T2_SCAN_OVERRIDE_THRESHOLD_PERMILLE` 暴露 |
+| **承诺窗口**（描述符有效期，`expiry = target + window`） | 运行期配置：`T2:CONFigure` **可选第 13 字段**；缺省＝固件内置 grace | 2026-10-16 起可由停机态安装给出，无需重烧；上限 `TRIGGER_T2_DESCRIPTOR_WINDOW_MAX` |
+| FREEZE 重发间隔 | 固件常量 `T2_FREEZE_RESEND_SLICES`＝4 粗片 | 未完成确认前每 ≥4 片重发一个（3 槽轮转） |
+| 失败归属 | 页尾 8–9 项 | `late`＝窗内但时间片已过；`expired`＝已超出承诺窗口。两者本来就是"提前量不足"（expired）与"窗内被调度吃掉"（late）的分界 |
+| 实测（2026-10-16 短扫描 48 位置） | 页尾 18–22 | 提前量 50 脉冲≈19 ms：GATEWAY/SWITCH_B 各 2 例 `late`；**提前量 100 脉冲≈35 ms 与 400 脉冲≈155 ms：三从板 `late` 全为 0**。冻结重发比随提前量上升（1.88×/位置 → 3.98× → 5.81×），与"越早冻结、等待期越长、重发越多"一致 |
+| 实测（2026-10-16 全程 361 位置） | 同上 | 长度影响结论：35 ms 档在全程扫描里损失 6–8%（`late` 29/27/27），**≈114 ms（300 脉冲）与 ≈191 ms（500 脉冲）损失 0**；且后两档重发比升到 4.7×/6.7× 而 `late` 仍为 0 ⇒ 约束是**与流量无关的固定时延**，不是记录量 |
+
+### 冻结链路分段计时（2026-10-16 立项，本批实现）
+
+`late` 只说明"布防时动作时刻已过"，不说明**这几十毫秒花在哪一段**。已知：`freeze_lead_last` 28–36 ms（典型够）、`freeze_lead_min` 1–4 ms（尾部不够）、`freeze_lead_expired ≈ late`。因此必须把冻结链路切成段并逐位置计时（单位统一为**粗片序号＝1 ms 栅格下的 ms**）：
+
+| 段 | 起点 → 终点 | 新增证据 | 若它占大头的含义 |
+|---|---|---|---|
+| ① 宣告→冻结发出 | origin `announce_ordinal` → `freeze_staged_ordinal` | origin：`seg_announce_to_stage` min/last | origin **冻结发得太晚**（本地解算/门控问题），与环无关 |
+| ② 冻结发出→从板收到 | `freeze_staged_ordinal` → 从板 `freeze_received_ordinal` | 从板：`seg_transport` min/last | 运输**排队**（排在重复投递/持有环之后）⇒ 压重复投递或给冻结记录优先级 |
+| ③ 收到→受理 | `freeze_received_ordinal` → `t_frozen`（现有 `freeze_lead_*` 的同一时刻） | 从板：`seg_admit` min/last | 本地服务被调度挤掉（与 `deadline_miss` 一致） |
+| ④ 受理→布防 | `t_frozen` → `armed_ordinal` | 从板：`seg_arm` min/last | Core0 解算 + Core1 装填耗时 |
+| ⑤ **冻结往返（ack）** | origin `freeze_staged_ordinal` → 首次在 `freeze_complete_mask` 看到**全部对端已确认** | origin：`seg_ack` min/last + `freeze_ack_incomplete_mask` | 重发门控是流量主因 ⇒ 改用本地判据提前停止重发（如已过 X 轮/从板已收 N 次），不等全对端 ack |
+
+**v1 实现形式（不动物理帧：全部由两侧"以同一目标序数为基准的剩余提前量"相减得到）**
+
+| 量 | 侧 | 定义 | 状态 |
+|---|---|---|---|
+| `declare_lead_ms` | origin | 宣告时：`目标序数 − 宣告序数` | 已有（本批修正为取描述符的 `target_ms_index`） |
+| `stage_lead_ms` | origin | 冻结发出时：`目标序数 − 发出序数` | 本批新增 |
+| `freeze_lead_*` | follower | 冻结受理时：`目标序数 − 受理序数` | 已有 |
+| `arm_lead_ms` | follower | 布防时：`目标序数 − 布防序数` | 本批新增 |
+
+由此**无需改线格式**即可分离出各段（两侧同栅格、同目标序数）：
+
+```text
+① 宣告→冻结发出 = declare_lead_ms − stage_lead_ms          （origin 侧）
+② 冻结发出→从板受理 = stage_lead_ms − freeze_lead_ms        （跨板相减 = 运输 + 受理排队）
+④ 受理→布防 = freeze_lead_ms − arm_lead_ms                 （从板本地）
+⑤ 冻结→全部 ack 可见 = ack_visible_ordinal − freeze_staged_ordinal  （origin 侧）
+③（收到→受理）在同一服务遍内完成，v1 记为 ≈0，不单列
+```
+
+- 判读：先看 ② 是否 ≫ 环周期×数（运输/排队）→ 再各自与 `deadline_miss`、`lane_dup/rej/drop` 对照；① 大 ⇒ 冻结发得晚；④ 大 ⇒ 本地服务/装填慢。**每一段都要给出 min/last**，取 max 做提前量预算。
+
+- **ack 机制现状**：从板在冻结受理后用 `distributed_refmem_note_position_frozen(run_id, true, frozen_mask & ~completed_mask)` 发布**电平式**状态；origin 以 `distributed_refmem_position_freeze_acked(run_id, peers)` 读回并据此停止重发（`trigger_t2_runtime.c:278-283`、`:618-622`）。它**不在**从板布防的关键路径上，但通过"重发量"间接影响下一个位置的① ②段。
+- **判读规则（事先定好）**：取 `max` 段值做预算；提前量下限应写成 `k × max(各段最坏值)`（k≈2），并随实测收窄——目标是回到"35 ms 足够"（按环周期估算 ≈20 轮）。
+- **暴露方式**：全部**追加**到 `T2:ACTion?` 页尾（只增不改），工装 `T2_ACTION_TAIL_FIELDS` 同步；每段给 min/last 两个值，先不做均值（避免额外除法与 RAM）。
+- **RAM 纪律**：本批已因新字段两次触顶（先 376 B、后 4 B），两次都靠"打包/回收"过关（组行 32→8 B、快照组状态 u32→u8、事件明细 16→9、提前量四点统一 `min|last<<16` 打包）。**再不够时的授权动作（2026-10-16 目标决定）**：继续缩小波形缓冲 `VDC_DPLL_MANAGER_WAVEFORM_SEGMENT_MAX_RECORDS`（当前 **200** 段，28 B/记录 × 3 缓冲）→ **100 段可释放约 8,400 B**；代价＝单段记录容量减半，长程连续性由 SD 分段与 `dropped_count` 记账保证。注意 `docs/arch/ARCH_RAM_REVIEW.md` 与 `TDMA_SEAT_ACCEPTANCE_REVIEW.md` 记录过"该缓冲不可再缩、优先缩 `DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH`（4→2 省 320 B）"的相反意见——**目标已明确选择缩缓冲**，实际动它时须同步订正这两处表述。
 
 - 第 8–12 项由 `TRIGGER_T2_ACTION_FAIL_{LATE,EXPIRED,NO_PLAN,CONFLICT,BACKEND}` 饱和计数经
   `action_fail()` 记录（`components/sync_trigger/inc/trigger_t2_runtime.h`），页面组装在
   `middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc`。
-- 任何读者（工装/判据）必须按**尾 12 项**切片；按固定偏移取前 5/前 7 项的旧假设作废。窗口累计
+- 第 13–17 项是**组序列进度**：没有它，"布防了但序列不推进"与"从未布防"在页面上不可区分
+  （2026-10-16 台架实测：三从板 `frozen 3 / executed 0 / 各失败计数 0`，无法判定停在哪一组）。
+  打包字由 `trigger_t2_runtime_group_pack(slot)` 组装（同头文件声明）。
+- 任何读者（工装/判据）必须按**尾 17 项**切片；按固定偏移取前 5/前 7/前 12 项的旧假设作废。窗口累计
   字段**只在 `T2:ACTion?`**，`T2?` 的尾部随状态变化，不得取尾 N 项代替。
 - 本条**取代** `T2-DEPLOY-003` 中「`T2:ACTion?` 尾 7 字段」的表述；该行 status 的翻转属登记表
   状态变更，须 C11 交叉审核（禁止自审自批），本批只新增本行，不擅自改旧行状态。

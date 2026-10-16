@@ -12,6 +12,9 @@ Last updated: 2026-10-09
 
 | 当前路径 | 定位 |
 |---|---|
+| `sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md` | 位置内序列的解算与执行（时间片 → 逐组绝对 deadline），含深度 ≥2 队列与逐组证据口径。 |
+| `sequence/TRIGGER_SEQUENCE_TODO.md` | 序列解算与执行的任务状态。 |
+| `sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md` | 序列解算与执行的闭环与台架证据。 |
 | `TRIGGER_SYNC_TODO.md` | 触发系统产品化待办 |
 | `TRIGGER_SEQ_STEP_DESIGN.md` | 序列步进触发模式设计 |
 | `TRIGGER_ENC_COUNT_DESIGN.md` | 编码器计数触发模式设计 |

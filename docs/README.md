@@ -110,6 +110,9 @@ docs/
 |---|---|---|
 | BiSS-C | `communication/BISSC_TASK_PROGRESS.md` | BiSS-C 新任务记录写入本文件。 |
 | SYNC_IO | `sync/SYNC_IO_TASK_PROGRESS.md` | SYNC_IO / Trigger 同步重构闭环记录写入本文件。 |
+| TRIGGER | `trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md` | 位置内序列的解算与执行（拿到位置时间片后自行按约定展开）；深度 ≥2 绝对 deadline 队列与逐组证据口径。 |
+| TRIGGER | `trigger/sequence/TRIGGER_SEQUENCE_TODO.md` | 序列解算与执行的任务状态（`TRIGGER-SEQ-*`，跨域前置 `SYNC-SCHED-001`）。 |
+| TRIGGER | `trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md` | 序列解算与执行的闭环与台架证据记录。 |
 | RTOS | `arch/RTOS_HAOFV_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
 | Flash | `arch/HAOFV_FLASH_TASK_PROGRESS.md` | FlashMap、事务 owner、store、Boot/OTA 迁移和 HIL checkpoint 写入本文件。 |
 | SCPI | `interface/SCPI_TASK_PROGRESS.md` | SCPI 指令框架、验证脚本和接口拆分闭环记录写入本文件。 |
