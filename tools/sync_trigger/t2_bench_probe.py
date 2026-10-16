@@ -1,7 +1,7 @@
 """Focused four-board T2 bench probe, not a P3 or action-completion receipt.
 
-Promoted unchanged from out/t2-local-cursor-20260927/probe.py, the last chain
-that published a T2 position fragment. Usage:
+Promoted unchanged from the out-tree 20260927 T2 local-cursor probe snapshot, the
+last chain that published a T2 position fragment. Usage:
     python tools/sync_trigger/t2_bench_probe.py [OUT_DIR] [--actions] [--scope] [--late-source]
 """
 import json
