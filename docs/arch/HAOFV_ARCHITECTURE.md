@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-10-08
+Last updated: 2026-10-16
 Version: 6
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -528,6 +528,13 @@ local_tick_raw + hardware edge latch
   必须重新 PREPARE；arm guard 后不得通过软件临界路径静默改写已装载 deadline。
 - VDC 未满足正式质量门禁时，新的预约必须 fail closed；HOLDOVER 是否可预约由 profile
   误差预算决定，不能由 TDMA ring running 状态替代。
+- T2 cursor 的时间连续性判据以**一个 committed model 代**为单位：新 token 意味着坐标重基，
+  不得判为时间回退（2026-10-15/16 台架：从板 typed follow 路径在运行中重发模型，旧实现把该
+  重基锁存为致命 BACKWARD 故障，该板 T2 服务随即整轮拒绝、位置消费停摆；修复为**换代重基、
+  同代回退仍锁存**）。同期实测：源端 361 位置（0..360°@1°）全量发布与冻结成立；从板接收/
+  解码成立，**逐板消费必须看 `TRIGger:RESERVation:T2:ACTion?` 的窗口累计 `executed`**，
+  不能用 `lane_accept`（它由通道 ISR 计数，与服务是否运行无关）。细节见
+  `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md` 的 `T2-PROGRESS-20261016-001`。
 
 ### 基础件向上收敛表
 

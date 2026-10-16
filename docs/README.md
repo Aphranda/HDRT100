@@ -226,6 +226,7 @@ docs/
 | `legacy/tdma/LEGACY_TDMA_DOMAIN_ARCHITECTURE.md` | TDMA 架构重构前历史快照，保留旧方案、迁移过程与原描述。 |
 | `legacy/tdma/LEGACY_TDMA_DOMAIN_TODO.md` | TDMA 待办重构前历史快照，当前状态以主域 TODO 为准。 |
 | `legacy/trigger/LEGACY_TRIGGER_T2_TODO_01.md` | T2 待办重构前历史快照（原附录 A：实现注记与探索日志）。 |
+| `legacy/trigger/LEGACY_TRIGGER_T2_TASK_PROGRESS_01.md` | T2 进展归档（C14 轮转）：`T2-PROGRESS-20260926-016`..`T2-PROGRESS-20260922-001`，35 条，条目逐字保留。 |
 | `trigger/t2/TRIGGER_T2_RUNTIME_CONSTRAINTS.md` | T2 运行时约束：启动期 PIO 资源准入、越界判定与验证证据分级。 |
 | `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_03.md` | TDMA 进展归档：`TDMA-PROGRESS-20260913-067`..`TDMA-PROGRESS-20260913-030`，38 条。 |
 | `legacy/tdma/LEGACY_TDMA_TASK_PROGRESS_02.md` | TDMA 进展归档：`TDMA-PROGRESS-20260912-029`..`TDMA-PROGRESS-20260912-001`，29 条。 |
