@@ -12,6 +12,15 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-038：origin 窗口的两轮修正都没解决——已把"实测跨度 vs 上限"变成读数
+
+- **第一轮修法**（`c5480e2a` 之后）：把 `raw_tick(&now)` 移到计划构建之后、并用真实 tick 重算首组 delay（新增 `sync_io_sequence_plan_first_delay()`）⇒ 台架仍 `ORIG_WIN=1`、`executed=0`。
+- **第二轮修法**：把 origin 上限按组数放大（`ORIGIN_MAX_NS × group_count`，单组行为不变）⇒ 台架**仍然** `ORIG_WIN=1`、`executed=0`、`BUSY=160`。
+- **同轮对照**：两块单组从板 **161/161 零失败**（`executed=161`，所有桶为 0）⇒ 问题严格限定在"一次交整表"的开关路径，且只在第一组武装发生一次，之后被 `PENDING` 卡死。
+- **拒绝桶拆分**（`NO_READY/BUSY/CLOCK/TICK/PLAN/ORIG_DELAY/ORIG_WIN`）证明：`ORIG_DELAY=0`、`ORIG_WIN=1` ⇒ 失败在"使能后回读 tick"的比较，而不是"截止太近"。
+- **下一步（本轮已就位）**：新增 `s_origin_span_last` / `s_origin_bound_last` 并在窄页输出（`7a2ffbb7`）——下一次台架运行直接读到"实测 90 拍 vs 上限 64 拍"这类数字，再决定是放宽上限、减少推字次数，还是把 origin 检查改成"只统计成功"。
+- **教训（写下来）**：`SYNC_IO_SWITCH_ORIGIN_MAX_NS=256`（64 拍）对单组（2 次推字）够用，对多组（2×组数 次推字 + in-sync 使能）明显偏紧；改之前必须拿到实测跨度，否则就是猜。
+
 ### T2-PROGRESS-20261018-037：开关双组窗口的真机根因已锁定——**首组武装的 ORIGIN 窗口失败**，随后整块位置永远 PENDING
 
 - **仪器**（`a4da030e` + `c5480e2a`）：`stage_sequence` 的六个早退点各一个桶（`NO_READY/BUSY/CLOCK/TICK/PLAN/ORIGIN`），通过窄页 `T2:ACTion:WHY?` 输出（开关整页 `TRIGger:SWITch?` 太长会 timeout）。
