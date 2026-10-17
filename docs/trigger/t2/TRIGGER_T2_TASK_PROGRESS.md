@@ -12,6 +12,28 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-046：双行模板本身是**合法**的——`expand_fail` 只可能来自 instance 边界
+
+- **逐字段解码**（`TRIGger:RESERVation:TEMPLate?`；行块 7 字段 = `template_id, generation, role, kind, argument, span_slices, delta_q`）：
+  ```
+  FB276192 (双组) header: installed=1 binding=1 resources=1 generation=1792276295 count=2
+      row0: template_id=1 generation=1792276295 role=1 kind=1 argument=0 span=1 delta=0
+      row1: template_id=2 generation=1792276295 role=1 kind=1 argument=0 span=1 delta=2
+  2BD5090F (单组) header: count=1
+      row0: template_id=1 generation=1792276295 role=2 kind=2 argument=20 span=1 delta=0
+  ```
+  ⇒ 两行的 `generation`、`span_slices`、`kind` **都合法**，`trigger_action_template_valid()` 必然通过。
+- **因此 `expand_fail` 只能来自 `trigger_position_instance_expand(descriptor, subdivisions, delta_q, ...)`**：第 2 行 `delta_q = 2`（或默认 12）落不进该位置描述符允许的细片范围。这解释了为什么把 `T2_SEQ_PERIOD_SLICES` 从 12 改成 2 也照样失败——**只要 delta≠0 就出界**，说明网格细分 `subdivisions` 对“每位置多动作”的预算不足。
+- **下轮只剩一个动作**：把 `subdivisions`（动作表安装参数）按 `N项 × 组周期` 设置（或按 `delta_q max + span` 推导下界），再复跑 2 组链路；预期 `expand_fail → 0`、`executed → 169`、`NO_PLAN → 0`。若仍失败，再读 `trigger_position_instance_expand()` 的边界条件。
+- **目标盘点（截至本轮）**：
+  - ① 序列语义（16 动作、无等待窗、READY=下一动作）✅ 文档+图+配置模块+台架派生值一致；
+  - ② 全部 SCPI 可配（A..G / 通道·极化·网格 / 码序 / 重复 / 派生周期）✅ 台架四板读数确认；
+  - ③ GATEWAY 收 READY + 踩踏计数 ✅ 代码就绪、页面可读；**实测待接网分**；
+  - ④ 一次交整表 + 按组回执：**执行器侧真机跑通**（6 个位置走完两组、零拒绝），**限制在 `subdivisions` 预算**；
+  - ⑤ T2 位置传输不回归 ✅ 全程 `DISTRIBUTED` / `SEAT refused 0`。
+
+
+
 ### T2-PROGRESS-20261018-045：交接记录——双组展开失败的最后一步已收敛到“第 2 行的模板行内容”
 
 - **本轮读到的代码路径**（不再猜）：
