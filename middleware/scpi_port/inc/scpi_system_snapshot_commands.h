@@ -195,6 +195,7 @@ scpi_result_t scpi_cmd_trigger_t2_stop(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_cursor_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_t2_action_why_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_announce(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_announce_q(scpi_t *context);
@@ -499,6 +500,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:REServation:T2?", .callback = scpi_cmd_trigger_t2_q}, \
     {.pattern = "TRIGger:REServation:T2:CURSor?", .callback = scpi_cmd_trigger_t2_cursor_q}, \
     {.pattern = "TRIGger:REServation:T2:ACTion?", .callback = scpi_cmd_trigger_t2_action_q}, \
+    {.pattern = "TRIGger:REServation:T2:ACTion:WHY?", .callback = scpi_cmd_trigger_t2_action_why_q}, \
     {.pattern = "TRIGger:REServation:T2:SCAN?", .callback = scpi_cmd_trigger_t2_scan_q}, \
     {.pattern = "TRIGger:REServation:T2:ANNOUNCE", .callback = scpi_cmd_trigger_t2_announce}, \
     {.pattern = "TRIGger:REServation:T2:ANNOUNCE?", .callback = scpi_cmd_trigger_t2_announce_q}, \

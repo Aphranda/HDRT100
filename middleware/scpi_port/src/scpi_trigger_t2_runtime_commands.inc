@@ -540,6 +540,25 @@ scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* Narrow diagnostic: why multi-group positions failed, and how far their group sequence got.
+ * Kept short on purpose - T2:ACTion? is truncated by the tool's read window long before the
+ * fail reasons, so this page is the only practical way to see them on the bench. */
+scpi_result_t scpi_cmd_trigger_t2_action_why_q(scpi_t *context)
+{
+    trigger_t2_runtime_snapshot_t s;
+    if (!trigger_t2_runtime_snapshot(&s) || !scpi_trigger_grid_end(context))
+        return scpi_trigger_t2_fail(context);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, s.action_groups_executed);
+    SCPI_ResultUInt32(context, s.action_group_count);
+    SCPI_ResultUInt32(context, trigger_t2_runtime_group_pack(0u));
+    SCPI_ResultUInt32(context, trigger_t2_runtime_group_pack(1u));
+    SCPI_ResultUInt32(context, trigger_t2_runtime_group_pack(2u));
+    for (uint32_t reason = 0u; reason < TRIGGER_T2_ACTION_FAIL_COUNT; ++reason)
+        SCPI_ResultUInt32(context, s.action_fail_reason[reason]);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context)
 {
     trigger_t2_runtime_snapshot_t s;
