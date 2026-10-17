@@ -265,6 +265,14 @@ static void note_lead_pack(uint32_t *pack, uint32_t lead)
 #define T2_FREEZE_RESEND_SLICES 4u
 static uint64_t s_freeze_last_slice;
 static uint32_t s_freeze_resend_next;
+/* Per-position cursor at the moment its FREEZE was staged. Pairing the two stages is what
+ * turns the ack readout into a TIME: at ack visibility, now - s_freeze_stage_at[i] is that
+ * position's own round trip (the arrival of the refmem image carrying the ack, i.e. the
+ * only measurable number for the path that does not use the fast channel). Cleared when
+ * consumed and at run start, so a stale value can never fake a measurement.
+ * Cost: TRIGGER_T2_RUNTIME_POSITION_COUNT * 4 B (3 * 4 = 12 B), paid for by the waveform
+ * buffer reduction 200 -> 100 records. */
+static uint32_t s_freeze_stage_at[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 
 static T2_BOUNDED T2_RAM bool resend_one_freeze(void)
 {
@@ -284,9 +292,32 @@ static T2_BOUNDED T2_RAM bool resend_one_freeze(void)
     const uint32_t own = 1u << s_config.source_slot;
     const uint32_t peers = (s_config.target_mask & ~own);
     s_state.freeze_ack_own_in_mask = (s_config.target_mask & own) ? 1u : 0u;
-    s_state.freeze_complete_mask |= peers
+    const uint32_t acked_now = peers
         ? (open & distributed_refmem_position_freeze_acked(s_config.run_id, peers))
         : open;
+    if (acked_now) {
+        /* Stage 5 (the only look at the path that does NOT use the fast channel): the
+         * moment the follower's frozen state became visible HERE, i.e. the refmem image
+         * carrying the position ack has arrived. PAIRED with the cursor recorded when
+         * this position's FREEZE was staged, so the packed value is that position's own
+         * round trip in pulses (= ms on the 1 ms grid):
+         *     ack round trip = now - s_freeze_stage_at[i]
+         * (packed min | last<<16). Without the pairing the pack only held a lead, and
+         * subtracting two per-run extremes mixed different positions - which is exactly
+         * why the first version could report an ack "earlier" than the follower froze. */
+        const uint64_t now_ack = s_state.cursor.pulse_index;
+        for (uint32_t step = 0u; step < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++step) {
+            const uint32_t bit = 1u << step;
+            if (!(acked_now & bit)) continue;
+            const uint32_t staged = s_freeze_stage_at[step];
+            if (staged == 0u) continue;
+            const uint32_t rtt = now_ack > (uint64_t)staged
+                ? (uint32_t)(now_ack - staged) : 0u;
+            note_lead_pack(&s_state.ack_lead_pack, rtt);
+            s_freeze_stage_at[step] = 0u; /* one measurement per position */
+        }
+    }
+    s_state.freeze_complete_mask |= acked_now;
     if (peers)
         distributed_refmem_position_ack_pending(s_config.run_id, peers,
             &s_state.freeze_ack_stale_mask, &s_state.freeze_ack_incomplete_mask);
@@ -323,6 +354,11 @@ static T2_BOUNDED T2_RAM bool resend_one_freeze(void)
         s_state.freeze_resend_count++;
         s_freeze_last_slice = now;
         s_freeze_resend_next = index + 1u;
+        /* Pairing for stage 5: remember WHEN this position's FREEZE went out, so the ack
+         * becoming visible later yields this position's own round trip
+         * (now_ack - s_freeze_stage_at[index]) instead of a difference of two per-run
+         * extremes taken from different positions. */
+        s_freeze_stage_at[index] = (uint32_t)now;
         /* Segmentation v1 (origin side): how much lead was left when this FREEZE was
          * actually staged. Subtracting it from declare_lead_ms isolates the
          * announce -> stage segment. */
@@ -1261,6 +1297,9 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
     s_config.origin = config->origin;
     s_config.deployment_generation = config->deployment.generation;
     memset(&s_state, 0, sizeof(s_state));
+    /* The pairing array lives outside s_state, so a run start/reset must clear it too:
+     * a stale staging cursor would otherwise fabricate an ack round trip. */
+    memset(s_freeze_stage_at, 0, sizeof(s_freeze_stage_at));
     s_local_template_count = local_count;
     s_local_kind = local_kind;
     s_local_role = config->local_role;
@@ -1331,6 +1370,9 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
          distributed_refmem_get_position_descriptor(s_config.source_slot, &discarded); ++i) {}
     publish_begin();
     memset(&s_state, 0, sizeof(s_state));
+    /* The pairing array lives outside s_state, so a run start/reset must clear it too:
+     * a stale staging cursor would otherwise fabricate an ack round trip. */
+    memset(s_freeze_stage_at, 0, sizeof(s_freeze_stage_at));
     s_state.configured = 1u;
     s_state.origin = s_config.origin ? 1u : 0u;
     s_state.source_slot = s_config.source_slot;
@@ -1893,10 +1935,38 @@ void trigger_t2_runtime_prepare_core0(void)
         }
         next.expiry_sync = (uint32_t)next.target_ms_index +
                            s_config.descriptor_window_sync;
+        /* Announce suppression: EXACT match was the old rule; measured 2026-10-16, with a
+         * CONSTANT Core0 prepare cadence (~1,600/s), the staging-attempt rate per prepare
+         * call varied 0.9% -> 47.8% (53x) between runs, and every attempt the single-depth
+         * first-class seat cannot take is refused (refused == position wait_count, to the
+         * count, in five runs). Two independent bounds now apply; the first announcement
+         * and FREEZE stay untouched (FREEZE is staged on the freeze path, not here):
+         *   (a) magnitude -- a re-solved target that moved less than the tolerance is noise;
+         *   (b) interval  -- at most one announcement per T_min, so the records offered per
+         *       position window are bounded. The follower executes the last announced
+         *       target, so its staleness stays below T_min + tolerance.
+         * Measured (2026-10-16): the magnitude bound ALONE changed nothing (submits/prep
+         * 48.43% vs 47.83% without it), i.e. the predictor wobbles by more than the 4 ms
+         * tolerance between prepares -- which is why the interval bound, not a bigger
+         * tolerance, is what actually caps the offered rate. */
+        static uint32_t s_announce_ms[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+        const int64_t announce_delta_q =
+            ((int64_t)next.target_ms_index - (int64_t)previous.target_ms_index) *
+                (int64_t)s_config.grid.subdivisions +
+            ((int64_t)next.target_fine_slice_index -
+             (int64_t)previous.target_fine_slice_index);
+        const int64_t announce_tolerance_q =
+            (int64_t)TRIGGER_T2_ANNOUNCE_TARGET_TOLERANCE_MS *
+            (int64_t)s_config.grid.subdivisions;
+        const bool announce_too_soon = s_announce_ms[index] != 0u &&
+            (uint32_t)coarse - s_announce_ms[index] <
+                (uint32_t)TRIGGER_T2_ANNOUNCE_MIN_INTERVAL_MS;
         if (previous.prediction_version &&
-            previous.target_ms_index == next.target_ms_index &&
-            previous.target_fine_slice_index == next.target_fine_slice_index)
+            (announce_too_soon ||
+             (announce_delta_q <= announce_tolerance_q &&
+              -announce_delta_q <= announce_tolerance_q)))
             continue;
+        s_announce_ms[index] = (uint32_t)coarse;
         if (previous.prediction_version >= TRIGGER_T2_PREDICTION_VERSION_MAX) {
             /* Preserve the last valid local version for FREEZE fallback.
              * A new run is needed before the compact revision can restart. */

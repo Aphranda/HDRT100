@@ -10,6 +10,23 @@
 #include "trigger_turntable_predictor.h"
 
 #define TRIGGER_T2_RUNTIME_POSITION_COUNT 3u
+/* Announce tolerance, ms: a re-solved target that moved less than this counts as "no
+ * news" and is NOT re-announced, so the single-depth first-class seat is not flooded by
+ * prediction wobble. Measured motivation (2026-10-16): with a CONSTANT Core0 prepare
+ * cadence, staging attempts per prepare call varied 0.9% -> 47.8% (53x) between runs,
+ * and seat stage-refusals equalled the position wait counter 1:1 in five runs (to the
+ * count in the last one). The follower executes on the last announced target, so its
+ * staleness from suppressing sub-tolerance wobble is bounded by this value; FREEZE and
+ * the first announcement are unaffected (< 0 means the old exact-match behaviour). */
+#define TRIGGER_T2_ANNOUNCE_TARGET_TOLERANCE_MS 4u
+/* Minimum interval between two ANNOUNCEMENTS of the same position, ms. Measured
+ * (2026-10-16): the magnitude tolerance alone changed nothing (submits/prep 48.43% with
+ * vs 47.83% without), i.e. the re-solved target wobbles by more than the tolerance
+ * between Core0 prepare calls, so an interval bound is what actually caps how many
+ * records the single-depth first-class seat is offered. The follower executes the last
+ * announced target, so its staleness is bounded by this interval + the tolerance; the
+ * first announcement and FREEZE are unaffected. */
+#define TRIGGER_T2_ANNOUNCE_MIN_INTERVAL_MS 10u
 enum {
     TRIGGER_T2_RUNTIME_SEGMENT_CURSOR = 0u,
     TRIGGER_T2_RUNTIME_SEGMENT_RECEIVE,
@@ -39,7 +56,19 @@ enum {
  * (~114 ms) and a 500-pulse one lost none. T2:CONFigure refuses a configuration whose
  * threshold cannot reach this many pulses, so a too-thin lead fails at configuration
  * instead of turning into late positions during the run. */
-#define TRIGGER_T2_MIN_DECLARE_LEAD_PULSES 300u
+/* Minimum announcement lead the configure step accepts (pulses). FROZEN 2026-10-17 from a
+ * measured four-point sweep with the announce throttle in place (361 positions, three
+ * boards, 1:1 seat):
+ *   300 pulses (~116 ms): all 361/361, zero fail     (old operating point)
+ *   200 pulses (~ 77 ms): all 361/361, zero fail     <-- adopted floor
+ *   150 pulses (~ 58 ms): GATEWAY lost 1 to LATE     (first failure)
+ *   100 pulses (~ 39 ms): refused without this floor
+ * The old floor of 300u was correct for the un-throttled path, where a 100-pulse lead
+ * lost 6-8% of a scan to LATE. The throttle removed enough contention to make 200 safe,
+ * which is a -33% lead. NOTE: pulses are the wrong unit for this floor (300 pulses is a
+ * different time at a different scan rate); re-express it in MILLISECONDS when the scan
+ * rate stops being a fixed bench property. */
+#define TRIGGER_T2_MIN_DECLARE_LEAD_PULSES 200u
 /* Records the follower takes from its position lane per service pass. One record per pass
  * caps the consumer at one per coarse slice: measured 2026-10-16 with a long announcement
  * lead, 361 positions produced ~155-176k lane records (~1.1 per slice), so a single-record
@@ -165,6 +194,15 @@ typedef struct {
      * the position is armed. Subtracting (declare-stage), (stage-follower freeze) and
      * (freeze-arm) separates the chain without changing the wire format. */
     uint32_t stage_lead_pack, arm_lead_pack;
+    /* Stage 5 (origin only): the lead still left to the position's target at the moment
+     * the follower's frozen state became VISIBLE here, i.e. when the refmem image
+     * carrying the ack arrived. That image rides the path that does NOT use the fast
+     * channel (the second-class seat), so
+     *     ack round trip = stage_lead - ack_lead
+     * is the only measurement of the second class in this chain; without it, seat time
+     * reserved for that path can only be seen as a COST (first-class lead) and never as
+     * a benefit. Packed as min | last<<16, pulses on the 1 ms grid, 0 = not observed. */
+    uint32_t ack_lead_pack;
     /* Saturating count of positions whose FREEZE completion was abandoned after
      * the position window closed. The mask is per position and is cleared by the
      * next run, so it cannot answer "how often did this happen"; this counter

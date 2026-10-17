@@ -426,5 +426,10 @@ scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context)
     SCPI_ResultUInt32(context, s.declare_lead_pack);
     SCPI_ResultUInt32(context, s.stage_lead_pack);
     SCPI_ResultUInt32(context, s.arm_lead_pack);
+    /* Stage 5: origin-side lead when the frozen ack became visible (min | last<<16).
+     * ack round trip = stage_lead_pack - ack_lead_pack; this is the only readout of the
+     * path that does not use the fast channel, so the seat reservation for it can be
+     * judged on time instead of only on the first-class cost. */
+    SCPI_ResultUInt32(context, s.ack_lead_pack);
     return SCPI_RES_OK;
 }

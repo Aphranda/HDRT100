@@ -1967,8 +1967,17 @@ def step_12_t2_mount(ctx, slot, board, uid):
     diag = []
     for attempt in range(4):
         ctx.send(board, "SYSTem:TDMA:FLIGHT:FIFO:RESet")
+        # Threshold (= announcement lead), FROZEN 2026-10-17 at 800: lead in pulses =
+        # 1000 - permille, so 800 => 200 pulses (~77 ms). A measured four-point sweep with
+        # the announce throttle in place gave 300 pulses: clean, 200: clean (adopted),
+        # 150: GATEWAY lost 1 to LATE, 100: rejected by the firmware floor. The previous
+        # default was 700 (300 pulses); 300 was the un-throttled floor, where 100 pulses
+        # lost 6-8%. NOTE the override block below is gated on T2_SCAN_OVERRIDE_TERMINAL_MDEG:
+        # setting only T2_SCAN_OVERRIDE_THRESHOLD_PERMILLE silently does nothing, which is
+        # why this production literal must stay settable on its own.
+        _t2_threshold_permille = os.environ.get("T2_CONFIGURE_THRESHOLD_PERMILLE", "800")
         ctx.send(board, f"TRIGger:REServation:T2:CONFigure {ctx.dep_gen},0,14,"
-                        f"{int(slot == 0)},5000,5000,700,0,0,360000,1000,1000")   # threshold 700 = 300-pulse declare lead
+                        f"{int(slot == 0)},5000,5000,{_t2_threshold_permille},0,0,360000,1000,1000")
         diag = ctx.send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
         _override = _scan_override_command(ctx.dep_gen, int(slot == 0))
         if _override is not None:
@@ -2960,7 +2969,7 @@ def step_20_sampling(ctx, slot, board, uid):
             # page up to INTERFACE-T2ACTION-01 v1, 22 add the group and freeze-lead
             # words. Point T2_ACTION_TAIL_FIELDS at the flashed version when running an
             # older image, otherwise every window number below is shifted.
-            tail_fields = int(os.environ.get("T2_ACTION_TAIL_FIELDS", "25"))
+            tail_fields = int(os.environ.get("T2_ACTION_TAIL_FIELDS", "26"))
             win_totals = ([f.strip() for f in action_page[-tail_fields:]]
                           if len(action_page) >= tail_fields else ["?"] * tail_fields)
             if tail_fields >= 7 and win_totals[0] not in ("?", "<timeout>") and any(
@@ -3029,9 +3038,10 @@ def step_20_sampling(ctx, slot, board, uid):
                   f" | freeze lead min/last {win_totals[17]}/{win_totals[18]}"
                   f" expired {win_totals[19]} resend {win_totals[20]}"
                   f" abandoned {win_totals[21]}"
-                  f" | seg lead pack declare/stage/arm"
-                  f" {win_totals[22]}/{win_totals[23]}/{win_totals[24]}"
-                  f" (min|last<<16: announce / freeze-staged / armed)",
+                  f" | seg lead pack declare/stage/arm/ackRtt"
+                  f" {win_totals[22]}/{win_totals[23]}/{win_totals[24]}/{win_totals[25]}"
+                  f" (min|last<<16: announce / freeze-staged / armed / ack round trip in ms;"
+                  f" the ack value is the PAIRED now_ack - stage_at, not a lead)",
                   flush=True)
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
             # Rate evidence, not absolutes (VDC-ISO-001/T3): the seat and match
@@ -3113,13 +3123,46 @@ def step_20_sampling(ctx, slot, board, uid):
                 cursor = ctx.send(member, "TRIGger:REServation:T2:CURSor?").split(",")
                 model = ctx.send(member, "SYSTem:VDC:FEEDback:MODel?").split(",")
                 ring = ctx.send(member, "SYSTem:TDMA:RING:STATus?").split(",")
+                # TX image handoff. Field order = FIFO_FIELDS in
+                # tools/tdma_ring_monitor/flight_bitmap_validate.py:79-88, i.e.
+                #   index 6 tx_release_count = images RETIRED (turnover)
+                #   index 7 tx_ready_count   = prepared-but-not-retired (0..2 = depth)
+                # A position publication is refused while tx_ready_count >= 2
+                # (distributed_refmem.c:1632 WAIT_RESOURCE/FIFO_READY), so these two
+                # numbers are the direct measure of what blocks and what unblocks T2.
+                fifo = ctx.send(member, "SYSTem:TDMA:FLIGHT:FIFO?").split(",")
+                seat = ctx.send(member, "SYSTem:TDMA:SEAT:COUNters?").split(",")
                 print(f"t+{2 * (tick + 1)}s vdc session "
                       f"{ctx.send(member, 'SYSTem:VDC:FEEDback:SESSion?')[:12]}"
                       f" | model ok {model[0] if model else '?'}"
                       f" token {model[1] if len(model) > 1 else '?'}"
                       f" session {model[2] if len(model) > 2 else '?'}"
                       f" | ring enabled {ring[0] if ring else '?'}"
-                      f" started {ring[8] if len(ring) > 8 else '?'}", flush=True)
+                      f" started {ring[8] if len(ring) > 8 else '?'}"
+                      f" | FIFO release {fifo[6] if len(fifo) > 6 else '?'}"
+                      f" ready {fifo[7] if len(fifo) > 7 else '?'}"
+                      # Identity check: if this page belongs to the same FIFO that the
+                      # position publication uses (tdma_service_get_flight_fifo_snapshot,
+                      # distributed_refmem.c:1618), its own tx_publish_count/reject must
+                      # move with the POSITION page's tx_publish. If they stay flat, this
+                      # page is a DIFFERENT instance and cannot explain WAIT_RESOURCE.
+                      f" pub {fifo[1] if len(fifo) > 1 else '?'}"
+                      f" rej {fifo[2] if len(fifo) > 2 else '?'}"
+                      f" acq {fifo[3] if len(fifo) > 3 else '?'}"
+                      f" slot {fifo[8] if len(fifo) > 8 else '?'}"
+                      # The first-class seat is SINGLE DEPTH by contract
+                      # (tdma_first_class.h:10-14: "the next one may be staged only
+                      # after the origin boarded or retired it"), so the seat's own
+                      # counters are the purpose-built evidence for the blocking that
+                      # the position page reports as WAIT_RESOURCE/reason 3
+                      # (distributed_refmem.c:1742-1746 reuses FAILURE_FIFO_READY for
+                      # "the previous record still waits"). SYSTem:TDMA:SEAT:COUNters?
+                      # indices: 6 first_class_stage_refused_count,
+                      #          7 first_class_retired_waiting_count,
+                      #         11 seat_first_class_deferred_count.
+                      f" | SEAT refused {seat[6] if len(seat) > 6 else '?'}"
+                      f" retired {seat[7] if len(seat) > 7 else '?'}"
+                      f" deferred {seat[11] if len(seat) > 11 else '?'}", flush=True)
                 segments = "/".join(state[index] if len(state) > index else "?"
                                     for index in T2_SEGMENTS)
                 print(f"t+{2 * (tick + 1)}s cursor err "
@@ -3163,6 +3206,11 @@ def step_20_sampling(ctx, slot, board, uid):
                       f" tx_seq {fields[9] if len(fields) > 9 else '?'}"
                       f" tx_frag {fields[2] if len(fields) > 2 else '?'}"
                       f" tx_phase {fields[6] if len(fields) > 6 else '?'}"
+                      # Per-tick wait reason/count (page indices 7/8): the phase alone
+                      # says WAIT_RESOURCE, and only these two split it into
+                      # FIFO_SNAPSHOT (2) vs FIFO_READY (3) vs FEEDBACK (4) vs NONE (0).
+                      f" tx_wait {fields[7] if len(fields) > 7 else '?'}"
+                      f"/{fields[8] if len(fields) > 8 else '?'}"
                       f" | lane accept {fields[18] if len(fields) > 18 else '?'}"
                       f" dup {fields[19] if len(fields) > 19 else '?'}"
                       f" reject {fields[20] if len(fields) > 20 else '?'}"
@@ -3318,6 +3366,16 @@ def step_20_sampling(ctx, slot, board, uid):
             print(f"  POSITION slot {slot_r} {uid_r:016X}"
                   f" tx_publish {pos_field(3)} tx_seq {pos_field(9)}"
                   f" tx_frag {pos_field(2)} tx_phase {pos_field(6)}"
+                  # Fields 7/8 are the ONLY discriminator for what blocks a position
+                  # publication; before this they were silently dropped, so every reading
+                  # was blind to it. Index cross-checked against the tool's own uses of
+                  # 2/3/6/9/10/11/12/17/18/19/20 in this same printout (they match the
+                  # documented page order exactly).
+                  #   phase:    1 STAGED 2 WAIT_VDC 3 WAIT_RESOURCE 4 WAIT_FEEDBACK
+                  #             5 SUBMITTED 6 RECEIVED 7 COMPLETE 8 FAILED
+                  #   wait:     0 NONE 1 BAD_DESCRIPTOR 2 FIFO_SNAPSHOT 3 FIFO_READY
+                  #             4 FEEDBACK 5 PUBLISH 6 CRC 7 FRAGMENT   (reason/count)
+                  f" tx_wait {pos_field(7)}/{pos_field(8)}"
                   f" | lane_accept {pos_field(18)} lane_dup {pos_field(19)}"
                   f" lane_reject {pos_field(20)} owned {pos_field(21)}"
                   f" hold {pos_field(22)} drain {pos_field(23)}"
