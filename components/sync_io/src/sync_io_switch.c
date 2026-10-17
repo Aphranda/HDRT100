@@ -75,13 +75,15 @@ static __attribute__((noinline)) bool __not_in_flash_func(start_deadline)(uint64
             deadline-before-3u>UINT32_MAX)return false;
         delay=(uint32_t)(deadline-before-3u);
     }else{
-        /* 8 = the four instructions of the previous trigger's tail (mov isr, push) plus
-         * the next pair's head (pull, out y, pull, out x) before the delay loop starts. */
+        /* Cycle budget, derived from sync_switch.pio rather than guessed: after the
+         * previous edge (mov pins,y) come mov isr (1), push (1), wrap, pull (1), out y (1),
+         * pull (1), out x (1) = 6, then the jmp loop runs X+1 times and the next
+         * mov pins,y is the edge: next_edge = previous_edge + 6 + 1 + X. So X = delta - 7. */
         if(previous_deadline==0u || deadline<=previous_deadline ||
-            deadline-previous_deadline<8u ||
-            deadline-previous_deadline-8u>UINT32_MAX)return false;
+            deadline-previous_deadline<7u ||
+            deadline-previous_deadline-7u>UINT32_MAX)return false;
         before=previous_deadline;
-        delay=(uint32_t)(deadline-previous_deadline-8u);
+        delay=(uint32_t)(deadline-previous_deadline-7u);
     }
     /* Two words per group (code then delay). Written out per SM instead of a loop:
      * this function lives in SCRATCH_Y, and the loop form overflowed it by 64 B. */
