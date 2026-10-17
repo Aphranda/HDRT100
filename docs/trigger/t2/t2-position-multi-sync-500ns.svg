@@ -68,7 +68,6 @@
     <text x="56" y="322">C</text><text x="110" y="322" fill="#166534">触发提前量</text><text x="280" y="322">两块都稳定 → TRIG 的间隔</text>
     <text x="56" y="344">D</text><text x="110" y="344" fill="#166534">触发脉宽</text><text x="280" y="344">GATEWAY TRIG 高电平宽度</text>
     <text x="56" y="366">E</text><text x="110" y="366">网分响应</text><text x="280" y="366">网分扫描/响应（≈8 ms 实际值）</text>
-    <text x="56" y="388">—</text><text x="110" y="388" fill="#166534">无 F</text><text x="280" y="388">READY 完成即下一动作开始，无额外等待窗</text>
     <text x="56" y="386"></text>
 
     <text x="760" y="278">G</text><text x="814" y="278" fill="#475569">转台移动</text><text x="984" y="278">位置之间移动（无动作，实测填入）</text>
@@ -122,13 +121,9 @@
   <rect x="316" y="628" width="470" height="16" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.3" rx="4"/>
   <text class="k" x="500" y="641" fill="#1e40af">E ≈ 8 ms（扫描/响应）</text>
   <line x1="786" y1="620" x2="786" y2="652" stroke="#15803d" stroke-width="2.6"/>
-  <text class="ms" x="742" y="614" fill="#166534">拉 READY↑ = 下一动作</text>
-  <rect x="786" y="628" width="118" height="16" fill="#dcfce7" stroke="#15803d" stroke-width="1.3" rx="4"/>
-  <text class="k" x="796" y="641" fill="#166534">无等待窗</text>
-  <line x1="904" y1="620" x2="904" y2="652" stroke="#33415c" stroke-width="2.2"/>
-  <text class="ms" x="836" y="614">下一动作预设片（同一时刻）</text>
-  <rect x="904" y="628" width="26" height="16" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="4"/>
-  <text class="ms" x="936" y="641" fill="#9a3412">动作 k+1 的切换 →</text>
+  <text class="ms" x="700" y="614" fill="#166534">拉 READY↑ = 下一动作的预设片</text>
+  <rect x="786" y="628" width="26" height="16" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="4"/>
+  <text class="ms" x="818" y="641" fill="#9a3412">动作 k+1 的切换 →</text>
 
   <g class="l">
 Δ动作 = max(A, B) + C + D + E：READY↑ 就是下一个动作的开始，没有单独的等待窗。此行原为    <text x="52" y="700">按 E ≈ 8 ms 推算：Δ项 ≈ 8.05 ms；16 项 ≈ 128.8 ms；加 G=200 ms ⇒ 位置 ≈ 328.8 ms（随配置变）</text>
