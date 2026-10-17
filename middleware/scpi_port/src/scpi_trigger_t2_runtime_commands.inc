@@ -558,8 +558,11 @@ scpi_result_t scpi_cmd_trigger_t2_action_why_q(scpi_t *context)
     for (uint32_t reason = 0u; reason < TRIGGER_T2_ACTION_FAIL_COUNT; ++reason)
         SCPI_ResultUInt32(context, s.action_fail_reason[reason]);
     /* Why the switch refused a whole-table arm: NO_READY, BUSY, CLOCK, TICK, PLAN, ORIGIN. */
-    {uint32_t reject[6]; sync_io_switch_realtime_stage_reject(reject);
-     for (uint32_t i=0u;i<6u;++i) SCPI_ResultUInt32(context, reject[i]);}
+    {uint32_t reject[7]; sync_io_switch_realtime_stage_reject(reject);
+     for (uint32_t i=0u;i<7u;++i) SCPI_ResultUInt32(context, reject[i]);}
+    /* Last arm's measured span (cycles) and its bound: tells WHY the window check failed. */
+    {uint32_t span=0u, bound=0u; sync_io_switch_realtime_origin_span(&span,&bound);
+     SCPI_ResultUInt32(context, span); SCPI_ResultUInt32(context, bound);}
     return SCPI_RES_OK;
 }
 

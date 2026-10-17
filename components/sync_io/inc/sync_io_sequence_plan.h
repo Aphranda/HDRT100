@@ -31,6 +31,10 @@ typedef struct {
 /* Build the stream for `count` groups. `delta_ticks[i]` is the offset of group i from the
  * position's base tick (strictly increasing); the base deadline is the absolute local tick
  * of group 0. Returns the first error found and leaves `plan->error` set. */
+/* Delay word for group 0 measured from `now_tick`: the edge budget is the same constant the
+ * plan builder uses. Returns false when the deadline is already too close to express. */
+bool sync_io_sequence_plan_first_delay(uint64_t now_tick, uint64_t base_tick, uint32_t *delay);
+
 sync_io_sequence_plan_error_t sync_io_sequence_plan_build(sync_io_sequence_plan_t *plan,
     uint64_t now_tick, uint64_t base_deadline_tick, const uint32_t *codes,
     const uint64_t *delta_ticks, uint32_t count);

@@ -51,14 +51,17 @@ static uint32_t s_sequence_base_sequence;
 /* Refusal buckets of stage_sequence: NO_READY, BUSY, CLOCK, TICK, PLAN, ORIGIN. The bench showed
  * groups_executed staying 0 with every position failing BACKEND, so the reason must be countable
  * rather than inferred from "it returned false". */
-#define SWITCH_STAGE_REJECT_COUNT 6u
+#define SWITCH_STAGE_REJECT_COUNT 7u
 #define SWITCH_STAGE_REJECT_NO_READY 0u
 #define SWITCH_STAGE_REJECT_BUSY 1u
 #define SWITCH_STAGE_REJECT_CLOCK 2u
 #define SWITCH_STAGE_REJECT_TICK 3u
 #define SWITCH_STAGE_REJECT_PLAN 4u
-#define SWITCH_STAGE_REJECT_ORIGIN 5u
+#define SWITCH_STAGE_REJECT_ORIGIN_DELAY 5u
+#define SWITCH_STAGE_REJECT_ORIGIN_WINDOW 6u
 static uint32_t s_stage_reject[SWITCH_STAGE_REJECT_COUNT];
+/* Measured arm span and its bound, kept for the diagnostic page (0xFFFFFFFF = unreadable). */
+static uint32_t s_origin_span_last, s_origin_bound_last;
 static sync_io_persona_manager_handle_t s_handle;
 static uint32_t s_busy,s_generation,s_claimed,s_offset,s_active_sms,s_physical_mask;
 static bool s_loaded,s_lease,s_pins_owned;
@@ -560,7 +563,18 @@ bool __not_in_flash_func(sync_io_switch_realtime_stage_sequence)(uint64_t base_d
     /* First group: armed exactly like a single deadline (same timer read and origin window),
      * but its words come from the plan so the rest of the sequence keeps the authored gaps. */
     const uint32_t first_code=s_sequence.words[0];
-    const uint32_t first_delay=s_sequence.words[1];
+    /* The origin window must cover the ARM only. Take the tick HERE, after the plan arithmetic
+     * and prepare_group, and derive group 0's delay from it: the bench measured the two-group
+     * arm crossing SYNC_IO_SWITCH_ORIGIN_MAX_NS with the plan build inside the window, which
+     * left the switch PENDING for the rest of the scan (156 x BUSY, executed=0). */
+    uint64_t arm_tick=0u;
+    uint32_t first_delay=0u;
+    if(!raw_tick(&arm_tick) ||
+        !sync_io_sequence_plan_first_delay(arm_tick,base_deadline_tick,&first_delay)) {
+        ++s_stage_reject[SWITCH_STAGE_REJECT_ORIGIN_DELAY];
+        s_sequence_group=0u;
+        return false;
+    }
     for(uint32_t i=0u;i<s_switch.group_count;++i) {
         sync_io_switch_group_t *g=&s_switch.groups[i];
         g->code=(first_code>>(g->output_base_pin-BOARD_SYNC_OUTPUT_BASE_PIN))&
@@ -571,11 +585,19 @@ bool __not_in_flash_func(sync_io_switch_realtime_stage_sequence)(uint64_t base_d
     pio_enable_sm_mask_in_sync(SWITCH_PIO,s_active_sms);
     uint64_t after=0u;
     const bool read=raw_tick(&after);
-    s_deadline.origin_before_tick=now;
+    s_deadline.origin_before_tick=arm_tick;
     s_deadline.origin_after_tick=read && after!=UINT64_MAX ? after+1u : UINT64_MAX;
-    if(!read || after<now || after==UINT64_MAX ||
-        after+1u-now > (uint64_t)BOARD_SYS_CLOCK_HZ*SYNC_IO_SWITCH_ORIGIN_MAX_NS/1000000000u) {
-        ++s_stage_reject[SWITCH_STAGE_REJECT_ORIGIN];
+    /* The window must cover the work done between the tick read and the enable: two FIFO words
+     * per group plus the in-sync enable. One group fits SYNC_IO_SWITCH_ORIGIN_MAX_NS; every extra
+     * group adds another pair of pushes, so the bound grows with the group count (measured: a
+     * two-group arm needed more than the one-group window and left the switch PENDING). */
+    const uint64_t origin_bound_ns=(uint64_t)SYNC_IO_SWITCH_ORIGIN_MAX_NS*
+        (s_sequence.count?s_sequence.count:1u);
+    s_origin_span_last = (read && after>arm_tick) ? (uint32_t)(after-arm_tick) : 0xFFFFFFFFu;
+    s_origin_bound_last = (uint32_t)((uint64_t)BOARD_SYS_CLOCK_HZ*origin_bound_ns/1000000000u);
+    if(!read || after<arm_tick || after==UINT64_MAX ||
+        after+1u-arm_tick > (uint64_t)BOARD_SYS_CLOCK_HZ*origin_bound_ns/1000000000u) {
+        ++s_stage_reject[SWITCH_STAGE_REJECT_ORIGIN_WINDOW];
         for(uint32_t i=0u;i<s_switch.group_count;++i) {
             pio_sm_set_enabled(SWITCH_PIO,s_switch.groups[i].sm,false);
             pio_sm_clear_fifos(SWITCH_PIO,s_switch.groups[i].sm);
@@ -598,10 +620,17 @@ bool __not_in_flash_func(sync_io_switch_realtime_stage_sequence)(uint64_t base_d
 }
 
 /* Refusal buckets of stage_sequence(), for the narrow diagnostic page. */
-void sync_io_switch_realtime_stage_reject(uint32_t out[SWITCH_STAGE_REJECT_COUNT])
+void sync_io_switch_realtime_stage_reject(uint32_t *out)
 {
     if(out==NULL)return;
     for(uint32_t i=0u;i<SWITCH_STAGE_REJECT_COUNT;++i) out[i]=s_stage_reject[i];
+}
+
+/* Measured arm span (cycles) and the bound it was compared against on the last arm. */
+void sync_io_switch_realtime_origin_span(uint32_t *span, uint32_t *bound)
+{
+    if(span) *span=s_origin_span_last;
+    if(bound) *bound=s_origin_bound_last;
 }
 
 bool __not_in_flash_func(sync_io_switch_realtime_status)(sync_io_switch_deadline_status_t *out)

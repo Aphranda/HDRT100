@@ -93,3 +93,14 @@ sync_io_sequence_plan_error_t sync_io_sequence_plan_build(sync_io_sequence_plan_
     plan->error = SYNC_IO_SEQUENCE_PLAN_OK;
     return plan->error;
 }
+
+bool sync_io_sequence_plan_first_delay(uint64_t now_tick, uint64_t base_tick, uint32_t *delay)
+{
+    if (delay == NULL || base_tick <= now_tick) return false;
+    const uint64_t gap = base_tick - now_tick;
+    if (gap <= FIRST_EDGE_CYCLES) return false;
+    const uint64_t value = gap - FIRST_EDGE_CYCLES;
+    if (value > UINT32_MAX) return false;
+    *delay = (uint32_t)value;
+    return true;
+}

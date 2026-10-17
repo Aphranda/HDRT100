@@ -33,7 +33,7 @@ typedef struct {
     uint32_t desired_code, applied_code, applied_valid, stage_sequence, completed_sequence;
     uint32_t cancelled_sequence, sm_claimed_mask, sm_enabled_mask, instruction_words;
     /* Refusal buckets of one-shot stage_sequence(): NO_READY, BUSY, CLOCK, TICK, PLAN, ORIGIN. */
-    uint32_t stage_reject[6];
+    uint32_t stage_reject[7];
     /* actual_output_mask reads all public OUT pads, including unleased pins,
      * so diagnostics can compare unselected outputs without driving them. */
     uint32_t program_offset, actual_output_mask, receipt_mask, fault;
@@ -74,7 +74,8 @@ void sync_io_switch_realtime_service_core1(void);
  * Caller owns the frozen model, generation and absolute TIMER1 deadline. */
 bool sync_io_switch_realtime_schedule_at(uint32_t code,uint64_t deadline_tick);
 /* Refusal buckets of stage_sequence(): NO_READY, BUSY, CLOCK, TICK, PLAN, ORIGIN. */
-void sync_io_switch_realtime_stage_reject(uint32_t out[6]);
+void sync_io_switch_realtime_stage_reject(uint32_t *out);
+void sync_io_switch_realtime_origin_span(uint32_t *span, uint32_t *bound);
 /* Group sequence: a position's groups on the SHARED timeline, anchored at that position's
  * time slice. `delta_ticks[i]` is group i's offset from the base tick (strictly increasing,
  * same conversion as the deadline), so the whole sequence is written once and the spacing
