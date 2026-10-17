@@ -126,19 +126,21 @@
   <rect x="786" y="628" width="118" height="16" fill="#dcfce7" stroke="#15803d" stroke-width="1.3" rx="4"/>
   <text class="k" x="812" y="641" fill="#166534">F 等窗</text>
   <line x1="904" y1="620" x2="904" y2="652" stroke="#33415c" stroke-width="2.2"/>
-  <text class="ms" x="866" y="614">项结束</text>
+  <text class="ms" x="852" y="614">下一动作预设片</text>
+  <rect x="904" y="628" width="26" height="16" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="4"/>
+  <text class="ms" x="936" y="641" fill="#9a3412">动作 k+1 的切换 →</text>
 
   <g class="l">
-    <text x="52" y="678">Δ项 = max(A, B) + C + D + E + F；三条轴共用同一时间原点（该位置的预设起点），各段互不推导。</text>
+    <text x="52" y="678">Δ项 = max(A, B) + C + D + E + F；F 很小——它就是“READY 之后到下一动作预设片”的间隙。</text>
     <text x="52" y="700">按 E ≈ 8 ms 推算：Δ项 ≈ 8.05 ms；16 项 ≈ 128.8 ms；加 G=200 ms ⇒ 位置 ≈ 328.8 ms（随配置变）</text>
     <text x="52" y="722">最后一项之后进入 G 移动窗口：移动期不排任何动作（安装期校验拒绝）</text>
     <text x="52" y="744" class="n">TRIG/READY 是**一对**：GATEWAY 的 TRIG 输出接网分 TRIG 输入；网分的 READY 输出接 GATEWAY READY 输入。每项 1 对，共 16 对。</text>
-    <text x="52" y="764" class="n">C 从 max(A,B) 起算；F 是 GATEWAY 等 READY↑ 的窗（收到即结束，超时＝该项失败）。READY 是证据时刻，不向网格吸附。</text>
+    <text x="52" y="764" class="n">踩踏判据：READY↑ 必须早于下一动作的预设片；落在该片之后 ⇒ 本动作失败、下一动作不执行（不重试、不当作已执行）。</text>
   </g>
 
   <!-- ============ ④ 16 items ============ -->
   <rect class="band" x="974" y="412" width="512" height="360"/>
-  <text class="h" x="992" y="438">④ 一个位置的 16 项（ch1·H … ch8·V）</text>
+  <text class="h" x="992" y="438">④ 一个位置 = 16 个相同动作（同一张三轴图重复 16 次）</text>
   <g>
     <rect x="992" y="456" width="56" height="44" fill="#ffedd5" stroke="#c2410c" stroke-width="1.2" rx="4"/>
     <rect x="1050" y="456" width="56" height="44" fill="#ffedd5" stroke="#c2410c" stroke-width="1.2" rx="4"/>
@@ -160,14 +162,14 @@
     <text x="1404" y="474">→G</text>
   </g>
   <g class="l">
-    <text x="992" y="528">A 每 2 项加 1 通道；B 在 H/V 交替</text>
-    <text x="992" y="550">⇒ 相邻两组 code 的差 = A 通道位段或 B 极化位</text>
-    <text x="992" y="572">delay 恒为 Δ项 − 指令预算</text>
-    <text x="992" y="598">每位置 N项 次 TRIG、等量 READY 一一对应：</text>
+    <text x="992" y="528">16 个动作流程完全相同：切换 A → 切换 B → TRIG → E → READY↑</text>
+    <text x="992" y="550">只有两处不同：A 的通道码、B 的极化码（其余时序一致）</text>
+    <text x="992" y="572">动作 k 与 k+1 之间只有 F 这一点间隙 ⇒ 挨着下一个动作</text>
+    <text x="992" y="598">每位置 16 对 TRIG/READY 一一对应：</text>
     <text x="992" y="618">少一次＝位置不完整，多一次＝不确定</text>
-    <text x="992" y="644">预置位：每项的三条轴都相对“项起点”，</text>
-    <text x="992" y="664">项起点 = 位置 base + k × Δ项</text>
-    <text x="992" y="690" class="n">（黄框＝最后一项，之后进入 G 移动窗口）</text>
+    <text x="992" y="644">每个动作的三条轴都相对“动作起点”：</text>
+    <text x="992" y="664">动作起点 = 位置 base + k × Δ项</text>
+    <text x="992" y="690" class="n">（黄框＝最后一个动作，之后进入 G 移动窗口）</text>
   </g>
 
   <!-- ============ ⑤ mapping ============ -->
