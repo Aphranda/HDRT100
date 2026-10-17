@@ -58,5 +58,8 @@ scpi_result_t scpi_cmd_trigger_gateway_q(scpi_t *context)
     SCPI_ResultUInt32(context,s.io.output_rx_level);
     SCPI_ResultUInt32(context,s.io.ready_tx_level);
     SCPI_ResultUInt32(context,s.io.ready_rx_level);
+    /* Appended: READY answer-vs-next-action evidence (see sync_io_gateway.h). */
+    SCPI_ResultUInt32(context,s.io.ready_collision_count);
+    SCPI_ResultUInt32(context,s.io.ready_margin_min_ticks);
     return SCPI_RES_OK;
 }
