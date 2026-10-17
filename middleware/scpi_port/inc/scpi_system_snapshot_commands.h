@@ -200,6 +200,11 @@ scpi_result_t scpi_cmd_trigger_t2_announce(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_announce_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_drain(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_drain_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sequence_timing(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sequence_timing_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sequence_counts(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sequence_counts_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sequence_period_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
@@ -495,6 +500,11 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:REServation:T2:ANNOUNCE?", .callback = scpi_cmd_trigger_t2_announce_q}, \
     {.pattern = "TRIGger:RESERVation:T2:DRAIN", .callback = scpi_cmd_trigger_t2_drain}, \
     {.pattern = "TRIGger:RESERVation:T2:DRAIN?", .callback = scpi_cmd_trigger_t2_drain_q}, \
+    {.pattern = "TRIGger:SEQuence:TIMing", .callback = scpi_cmd_trigger_sequence_timing}, \
+    {.pattern = "TRIGger:SEQuence:TIMing?", .callback = scpi_cmd_trigger_sequence_timing_q}, \
+    {.pattern = "TRIGger:SEQuence:COUNts", .callback = scpi_cmd_trigger_sequence_counts}, \
+    {.pattern = "TRIGger:SEQuence:COUNts?", .callback = scpi_cmd_trigger_sequence_counts_q}, \
+    {.pattern = "TRIGger:SEQuence:PERiod?", .callback = scpi_cmd_trigger_sequence_period_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BRIDge?", .callback = scpi_cmd_vdc_feedback_bridge_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MATCh?", .callback = scpi_cmd_vdc_feedback_match_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \

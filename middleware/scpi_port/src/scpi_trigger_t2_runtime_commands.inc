@@ -1,6 +1,7 @@
 #include "trigger_action_template_store.h"
 #include "trigger_deployment_service.h"
 #include "trigger_grid_preview.h"
+#include "trigger_sequence_timing.h"
 #include "trigger_t2_runtime.h"
 #include "tdma_seat_mount_store.h"
 
@@ -315,6 +316,90 @@ scpi_result_t scpi_cmd_trigger_t2_announce_q(scpi_t *context)
  * out of the latest-value table. It is the knob that matches transmit traffic to the
  * measured seat turnaround, and it is a run-time install parameter so a sweep costs no
  * re-flash. 0 = drain as fast as the seat frees. */
+/* ---- multi-sync sequence timing (TRIGger:SEQuence:*) --------------------------------
+ * One action = switch A + switch B on the same preset edge, wait max(A,B), lead C, TRIG pulse
+ * D, analyzer response E; READY IS the next action's preset edge (no extra wait window).
+ * Every value is an install parameter: changing it only moves the sequence's edges. */
+
+static bool scpi_sequence_u32(scpi_t *context, uint32_t max, uint32_t *out)
+{
+    uint64_t value;
+    if (!scpi_trigger_grid_uint(context, max, &value)) return false;
+    *out = (uint32_t)value;
+    return true;
+}
+
+scpi_result_t scpi_cmd_trigger_sequence_timing(scpi_t *context)
+{
+    trigger_sequence_timing_t t;
+    if (!trigger_sequence_timing_get(&t)) return scpi_trigger_t2_fail(context);
+    if (!scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_US, &t.settle_a_us) ||
+        !scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_US, &t.settle_b_us) ||
+        !scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_US, &t.lead_us) ||
+        !scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_US, &t.trig_us) ||
+        !scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_US, &t.vna_us) ||
+        !scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_US, &t.move_us) ||
+        !scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    return scpi_trigger_grid_result(context,
+        trigger_sequence_timing_set(&t) == TRIGGER_SEQUENCE_TIMING_OK ?
+        TRIGGER_T2_RUNTIME_OK : TRIGGER_T2_RUNTIME_ARGUMENT);
+}
+
+scpi_result_t scpi_cmd_trigger_sequence_timing_q(scpi_t *context)
+{
+    trigger_sequence_timing_t t;
+    if (!trigger_sequence_timing_get(&t) || !scpi_trigger_grid_end(context))
+        return scpi_trigger_t2_fail(context);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, t.settle_a_us);
+    SCPI_ResultUInt32(context, t.settle_b_us);
+    SCPI_ResultUInt32(context, t.lead_us);
+    SCPI_ResultUInt32(context, t.trig_us);
+    SCPI_ResultUInt32(context, t.vna_us);
+    SCPI_ResultUInt32(context, t.move_us);
+    return SCPI_RES_OK;
+}
+
+/* Channel count, polarization count and grid slice: the shape of the action table. */
+scpi_result_t scpi_cmd_trigger_sequence_counts(scpi_t *context)
+{
+    trigger_sequence_timing_t t;
+    if (!trigger_sequence_timing_get(&t)) return scpi_trigger_t2_fail(context);
+    if (!scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_CHANNELS, &t.channels) ||
+        !scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_POLARIZATIONS,
+            &t.polarizations) ||
+        !scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_GRID_NS, &t.grid_ns) ||
+        !scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    return scpi_trigger_grid_result(context,
+        trigger_sequence_timing_set(&t) == TRIGGER_SEQUENCE_TIMING_OK ?
+        TRIGGER_T2_RUNTIME_OK : TRIGGER_T2_RUNTIME_ARGUMENT);
+}
+
+scpi_result_t scpi_cmd_trigger_sequence_counts_q(scpi_t *context)
+{
+    trigger_sequence_timing_t t;
+    if (!trigger_sequence_timing_get(&t) || !scpi_trigger_grid_end(context))
+        return scpi_trigger_t2_fail(context);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, t.channels);
+    SCPI_ResultUInt32(context, t.polarizations);
+    SCPI_ResultUInt32(context, t.grid_ns);
+    return SCPI_RES_OK;
+}
+
+/* Derived periods: what the installed timing actually means. Read-only. */
+scpi_result_t scpi_cmd_trigger_sequence_period_q(scpi_t *context)
+{
+    trigger_sequence_timing_t t;
+    if (!trigger_sequence_timing_get(&t) || !scpi_trigger_grid_end(context))
+        return scpi_trigger_t2_fail(context);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, trigger_sequence_timing_actions(&t));
+    SCPI_ResultUInt32(context, trigger_sequence_timing_action_us(&t));
+    SCPI_ResultUInt32(context, trigger_sequence_timing_position_us(&t));
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_trigger_t2_drain(scpi_t *context)
 {
     uint64_t drain_ms;
