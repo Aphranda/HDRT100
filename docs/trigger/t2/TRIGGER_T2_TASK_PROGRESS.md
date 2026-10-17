@@ -12,6 +12,20 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-037：开关双组窗口的真机根因已锁定——**首组武装的 ORIGIN 窗口失败**，随后整块位置永远 PENDING
+
+- **仪器**（`a4da030e` + `c5480e2a`）：`stage_sequence` 的六个早退点各一个桶（`NO_READY/BUSY/CLOCK/TICK/PLAN/ORIGIN`），通过窄页 `T2:ACTion:WHY?` 输出（开关整页 `TRIGger:SWITch?` 太长会 timeout）。
+- **台架读数**（`T2_SEQ_GROUPS='1,2,1,1'`，SWITCH_A 两组；同一轮里两块单组从板 **157/157 全过**）：
+  ```
+  FB276192 (SWITCH_A, 2 组) -> executed=0 group_count=2 reasons[BACKEND]=157
+                               stage_reject: NO_READY=0 BUSY=156 CLOCK=0 TICK=0 PLAN=0 ORIGIN=1
+  2BD5090F / A1E54920 (1 组) -> executed=157 reasons 全 0 stage_reject 全 0
+  ```
+- **结论（因果链完整）**：首次双组武装在 **ORIGIN 窗口**检查处失败（`after+1-now` 超出 `SYNC_IO_SWITCH_ORIGIN_MAX_NS`），但此时两个 SM 已经被使能、字也已入 FIFO ⇒ 开关从此停在 `PENDING`，后续 156 次武装全部 `BUSY`，`groups_executed` 永远是 0。**不是时序太紧、不是 LATE、不是 plan 拒绝。**
+- **为什么双组才触发**：`stage_sequence` 把 `raw_tick(&now)` 放在**计划构建（含逐组 tick 换算）之前**，窗口内还包含 `prepare_group` 与 2×组数 次 `pio_sm_put`；组数从 1 变 2，测量的“origin 宽度”就跨过了上限。
+- **下轮修法（已明确，改动很小）**：先把计划算完，再取 `now`，并且**只用真实 `now` 重算首组的 delay**（`base - now - FIRST_EDGE_CYCLES`），后续组的 delay 是“间隔−固定预算”、与 `now` 无关；这样 origin 窗口只覆盖“使能之前的那几次推字”，双组也不会超限。修完复跑同一条 2 组链路，期望 `ORIGIN=0 / BUSY=0 / executed>0`。
+- **顺带确认**：单组路径在本轮再次 157/157 零失败（GATEWAY 与 SWITCH_B），说明问题只在“一次交整表”的开关路径上。
+
 ### T2-PROGRESS-20261018-036：单组 GATEWAY 157/157 通过；**开关的双组窗口在台架上稳定失败**（executed=0、BACKEND）
 
 - **隔离实验**（`T2_SEQ_GROUPS='1,2,1,1'`：只有 SWITCH_A 两组，其余单组；`T2_SEQ_PERIOD_SLICES=2000`）：
