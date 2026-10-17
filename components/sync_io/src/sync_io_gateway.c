@@ -35,6 +35,10 @@ static uint32_t s_saved_ctrl,s_saved_pad;
 static bool s_saved_direction,s_saved_latch,s_saved_pio_level,s_saved_pio_direction;
 static volatile uint32_t s_realtime_pending;
 static bool s_ready_active;
+/* Time-collision evidence: an action started while the previous READY was still outstanding,
+ * and the smallest gap ever measured between a received READY and the next armed deadline. */
+static uint32_t s_ready_collision_count;
+static uint32_t s_ready_margin_min_ticks;
 static sync_io_gateway_deadline_status_t s_deadline;
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define GATEWAY_HOT(name) __scratch_y("t2_gateway_deadline") name
@@ -244,6 +248,8 @@ bool sync_io_gateway_snapshot(sync_io_gateway_snapshot_t *out)
     snapshot.output_level=snapshot.output_port ? gpio_get(snapshot.output_pin) : 0u;
     snapshot.output_tx_level=s_lease ? pio_sm_get_tx_fifo_level(GATEWAY_PIO,OUTPUT_SM) : 0u;
     snapshot.output_rx_level=s_lease ? pio_sm_get_rx_fifo_level(GATEWAY_PIO,OUTPUT_SM) : 0u;
+    snapshot.ready_collision_count=s_ready_collision_count;
+    snapshot.ready_margin_min_ticks=s_ready_margin_min_ticks;
     snapshot.ready_tx_level=s_lease ? pio_sm_get_tx_fifo_level(GATEWAY_PIO,READY_SM) : 0u;
     snapshot.ready_rx_level=s_lease ? pio_sm_get_rx_fifo_level(GATEWAY_PIO,READY_SM) : 0u;
     *out=snapshot;leave();return true;
@@ -257,8 +263,11 @@ static bool prepare_realtime(uint32_t pulse_ns)
        !pulse_ns || product%UINT64_C(1000000000) || pulse_ticks<2u ||
        pulse_ticks>UINT32_MAX || s_gateway.trigger_count==UINT32_MAX ||
        __atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE)) return false;
-    /* Drain an already captured late READY before beginning the next local
-     * diagnostic window. An absent READY never blocks a new action. */
+    /* Drain an already captured late READY before beginning the next local diagnostic
+     * window. An absent READY never blocks a new action, but an action that starts while the
+     * previous READY is still missing IS a time collision and is counted: the schedule owes
+     * exactly one READY per TRIG, and the next action may not overtake it. */
+    if (s_ready_active) ++s_ready_collision_count;
     sync_io_gateway_realtime_service_core1();
     pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
     pio_sm_set_enabled(GATEWAY_PIO,READY_SM,false);
@@ -312,6 +321,22 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
     if(s_ready_active && !pio_sm_is_rx_fifo_empty(GATEWAY_PIO,READY_SM)) {
         (void)pio_sm_get(GATEWAY_PIO,READY_SM);
         if(s_gateway.ready_count!=UINT32_MAX)++s_gateway.ready_count;
+        /* Margin to the action armed NEXT (if any): a tiny or negative margin is exactly the
+         * "READY vs next action" collision the sequence layout has to avoid. */
+        uint64_t ready_tick;
+        if(raw_tick(&ready_tick)) {
+            /* The next action is the deadline currently armed in this backend (a queued
+             * group, once the sequence path exists, appears here through the same field). */
+            uint64_t next_deadline=0u;
+            if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_ARMED)
+                next_deadline=s_deadline.deadline_tick;
+            if(next_deadline>ready_tick) {
+                const uint64_t margin=next_deadline-ready_tick;
+                const uint32_t margin_ticks = margin>UINT32_MAX ? UINT32_MAX : (uint32_t)margin;
+                if(!s_ready_margin_min_ticks || margin_ticks<s_ready_margin_min_ticks)
+                    s_ready_margin_min_ticks=margin_ticks;
+            }else if(next_deadline) ++s_ready_collision_count;
+        }
         s_ready_active=false;pio_sm_set_enabled(GATEWAY_PIO,READY_SM,false);
     }
 }

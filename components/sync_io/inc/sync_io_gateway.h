@@ -31,6 +31,12 @@ typedef struct {
     uint32_t sm_claimed_mask, sm_enabled_mask, instruction_words;
     uint32_t output_program_offset, ready_program_offset, grant_pending;
     uint32_t output_level, trigger_count, ready_count;
+    /* READY is the VNA's answer to one TRIG and must arrive before the next action starts.
+     * `ready_collision_count` counts the actions that were started while the previous READY
+     * had still not been received (the "time collision" the schedule has to avoid);
+     * `ready_margin_min_ticks` is the smallest positive gap ever measured between a received
+     * READY and the deadline of the action that was armed next (0 = never measured). */
+    uint32_t ready_collision_count, ready_margin_min_ticks;
     uint32_t output_tx_level, output_rx_level, ready_tx_level, ready_rx_level;
 } sync_io_gateway_snapshot_t;
 
