@@ -12,6 +12,20 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-035：双组窗口的失败原因已定位——**BACKEND（后端拒绝）**，不是 LATE
+
+- **工具**：新增窄页 `TRIGger:RESERVation:T2:ACTion:WHY?`（`6375d919`），返回 `groups_executed, group_count, group_pack(0..2), action_fail_reason[5]`。原因很简单：`T2:ACTion?` 约 1500 字段，工具读窗口截断在 53 字段，**失败原因桶在截断之外**，此前根本看不到。
+- **台架实测**（`T2_SEQ_GROUPS='1,2,2,2'`，22 步全 OK、`DISTRIBUTED`，三块从板读数一致）：
+  ```
+  FB276192 / 2BD5090F / A1E54920 -> 1,0, 0, 2, 240,240,240, 0,0,0,0,166
+                                     └executed=0 └group_count=2  └packs┘ └reason[0..3]┘ └reason[4]=166
+  ```
+  `TRIGGER_T2_ACTION_FAIL_BACKEND = 4u` ⇒ **166 个位置因“后端拒绝/取消/不确定”失败**，而 `groups_executed = 0`、`group_count = 2`。
+- **结论**：双组窗口根本没跑起来——不是“第二组太晚（LATE）”，而是**一次都没被执行器接受**。可能的直接原因（下轮按顺序验证）：
+  1. 上一位置的窗口仍 `PENDING`（两组耗时 > 位置间隔），下一次 `stage_sequence` 被开关的 `state==PENDING` 拒绝 ⇒ 属“组周期/位置周期太短”；
+  2. GATEWAY 侧 `stage_sequence` 要求 `!s_ready_active`：台架**没接网分**，READY 永不到达 ⇒ 第 2 个位置起一直被拒（这条与 `ready_collision_count` 的预期增长一致）。
+- **下轮顺序**：① 先把 `T2_SEQ_PERIOD_SLICES` 与位置间隔放大到“两组动作能跑完”（例如组周期 ≥ 2×动作时间），复测 `groups_executed>0`；② 无网分时把 GATEWAY 的窗口预期改成“只验 TRIG 与踩踏计数”，或注入 READY；③ 再谈四板全链。
+
 ### T2-PROGRESS-20261018-034：两动作窗口在台架上出现 failed，且 ACTION 页步长仍需按实测对齐
 
 - **工具已收口一半**（`c100cf77`）：`T2:ACTion?` 的逐位置尾部**不再猜步长**——只有声明 `T2_ACTION_FIELDS` 才解析，否则打印字段数并标注“未解析”。prefix（schema/armed/completed/failed/uncertain）位置固定，始终可信。
