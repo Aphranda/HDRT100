@@ -151,6 +151,15 @@ static t2_deadline_plan_t s_deadline[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 static trigger_position_window_t s_position_window;
 static uint32_t s_deadline_seen[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 static uint32_t s_frozen_public;
+/* Positions the second-position cache rescued (T2-PROVISIONAL-001): each increment is one
+ * position that would otherwise have been lost because its FREEZE never arrived. Read
+ * through the accessor below, so it is always used and can be published later. */
+static uint32_t s_position_fallback_promotions;
+
+uint32_t trigger_t2_runtime_fallback_promoted_count(void)
+{
+    return s_position_fallback_promotions;
+}
 /* Core1 publishes the threshold before attempting the FREEZE handoff; Core0
  * abandons in-progress predictions for that position. Transport additionally
  * serializes PREVIEW/FREEZE acceptance to close the final check/stage race. */
@@ -1535,17 +1544,18 @@ static T2_BOUNDED bool T2_HOT(service_origin)(void)
  * therefore not stop the drain. Admission and arming still need a valid cursor and wait for
  * the next pass; only the transport is taken here. Bounded batch, per-record work unchanged:
  * see TRIGGER_T2_RUNTIME_RECEIVE_DRAIN_MAX. */
-/* Second-position fallback (T2-PROVISIONAL-001, simplified route). The record already
- * carries the NEXT position's target in the same 16 B slice, so no new state machine is
- * needed: if a position's FREEZE never arrived and the cached target is still in the
- * future but inside the margin, promote it to frozen and let the existing selection/arming
- * path execute it. A target already past -- or a missing descriptor -- is never promoted,
- * so this can never manufacture a late action. Default off (see the header) to keep the
- * firmware bit-for-bit equivalent until the switch is validated on the bench. */
+/* Second-position fallback (T2-PROVISIONAL-001). The record already carries the NEXT
+ * position's target (same 16 B slice), so when a position's FREEZE never arrives the cached
+ * target is used instead of losing the position entirely. This is the feature, not an
+ * experiment: it always runs. The guards below mean it can only fire where the old code
+ * would have waited forever, so a healthy run behaves exactly as before:
+ *   - the position is not frozen yet (a real FREEZE always wins);
+ *   - it has a staged descriptor (something to execute);
+ *   - the cached target is still in the future (never fire late) and inside the margin. */
 static T2_BOUNDED void T2_HOT(position_fallback)(uint64_t current_ms)
 {
-    if (!TRIGGER_T2_PROVISIONAL_FALLBACK_ENABLE) return;
     const trigger_position_next_cache_t *cache = trigger_position_next_cache();
+
     if (cache->position_id < 1u ||
         cache->position_id > TRIGGER_T2_RUNTIME_POSITION_COUNT) return;
     const uint32_t index = cache->position_id - 1u, bit = 1u << index;
@@ -1556,6 +1566,7 @@ static T2_BOUNDED void T2_HOT(position_fallback)(uint64_t current_ms)
         cache->target_ms_index) return;                              /* too early: wait */
     s_state.descriptors[index].target_ms_index = cache->target_ms_index;
     s_state.frozen_mask |= bit;
+    s_position_fallback_promotions++;
     report_frozen();
 }
 

@@ -39,14 +39,11 @@
  * can see is at most this interval. Predictive freezing tolerates that delay (owner ruling
  * 2026-10-17: "due to predictive freezing the delay impact is small"). */
 #define TRIGGER_T2_ANNOUNCE_MIN_GLOBAL_INTERVAL_MS 6u
-/* Second-position fallback (T2-PROVISIONAL-001, simplified route: no new mechanism -- the
- * next position already rides in the same 16 B slice and the follower has its own PREVIEW).
- * When enabled, a position whose FREEZE never arrived may still execute on the cached
- * next-position target if that target is inside the margin and not yet past; a past target
- * or an expired window is never executed (no late actions). Default 0 keeps the firmware
- * bit-for-bit equivalent to the previous behaviour so the switch can be validated on the
- * bench before it is trusted. */
-#define TRIGGER_T2_PROVISIONAL_FALLBACK_ENABLE 0u
+/* Second-position fallback (T2-PROVISIONAL-001): the next position's target already rides
+ * in the same 16 B slice, so a position whose FREEZE never arrived executes on that cached
+ * target instead of being lost. Always on -- this is the feature, not an experiment. The
+ * margin is the arming budget: inside it the cache may fire, past the target it may not
+ * (a late action is never manufactured). */
 #define TRIGGER_T2_PROVISIONAL_MARGIN_MS 20u
 enum {
     TRIGGER_T2_RUNTIME_SEGMENT_CURSOR = 0u,
