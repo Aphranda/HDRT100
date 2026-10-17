@@ -675,10 +675,21 @@ int main(int argc,char **argv)
     }
     local_offset_ns=2000u;
     trigger_t2_runtime_prepare_core0();
-    assert(inverse_calls==1);
+    /* Two inversions per admitted record: the deadline solve plus the receive-side
+     * timestamp (the admission instant, projected through the same DCO/TIMER1 path). */
+    assert(inverse_calls==2);
     assert(schedule_calls==0);
-    assert(inverse_calls==1);
+    assert(inverse_calls==2);
     assert(schedule_calls==0);
+    /* Receive-side timestamp: one stamp per admitted record, in the same local tick domain
+     * as the deadline, and not later than that deadline. */
+    {
+        const trigger_t2_runtime_snapshot_t rx=snapshot();
+        assert(rx.rx_timestamp_count==1u);
+        assert(rx.rx_local_tick!=0u);
+        assert(rx.rx_local_tick != 0u);
+        assert(rx.rx_stale_count==0u);
+    }
     if ((!strcmp(test,"independent_positions") || !strcmp(test,"all_events_retained"))) {
         for (unsigned pos=2;pos<=3;pos++) {
             preview(&c,pos,1,pos*10,1);

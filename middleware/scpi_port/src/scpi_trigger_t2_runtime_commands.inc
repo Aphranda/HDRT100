@@ -265,6 +265,16 @@ scpi_result_t scpi_cmd_trigger_t2_q(scpi_t *context)
      * freeze_fallback_count (version mismatch on the FREEZE path); it is the only field
      * that answers "how often did the second position rescue a position". */
     SCPI_ResultUInt32(context, s.fallback_promoted_count);
+    /* Appended: receive-side timestamp of the record this engine admitted (see
+     * trigger_t2_runtime.h). rx_local_tick is split into lo/hi because SCPI has no 64-bit
+     * result type here; the pair is the local TIMER1 tick of the admission, the sequence is
+     * the observation that produced the local action_cursor, and the two counters say how
+     * many admissions were stamped and how many were already late. */
+    SCPI_ResultUInt32(context, (uint32_t)(s.rx_local_tick & 0xFFFFFFFFu));
+    SCPI_ResultUInt32(context, (uint32_t)(s.rx_local_tick >> 32u));
+    SCPI_ResultUInt32(context, s.rx_local_sample_seq);
+    SCPI_ResultUInt32(context, s.rx_timestamp_count);
+    SCPI_ResultUInt32(context, s.rx_stale_count);
     return SCPI_RES_OK;
 }
 

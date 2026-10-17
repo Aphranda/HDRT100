@@ -247,6 +247,23 @@ typedef struct {
      * local solve), and it is the only counter that answers "was the second position
      * actually used". */
     uint32_t fallback_promoted_count;
+    /* Receive-side timestamp of the position record this engine is working on.
+     * SEMANTICS: `rx_local_tick` is the local TIMER1 tick sampled at the instant this
+     * board ADMITTED a new position record (the moment Core0 consumed a descriptor whose
+     * version differs from the last published plan), and `rx_observation_seq` is the
+     * cursor observation that projected it into the shared VDC coordinate. It is not the
+     * transport lane's arrival tick (that one lives in distributed_refmem): T2 must record
+     * when the record became USABLE locally, because every deadline is solved against that
+     * same local time base.
+     * PLACEMENT: one stamp per engine (a record carries up to two positions received at the
+     * same instant), so a per-position array would only duplicate it. The local time of the
+     * admission is projected from the local `action_cursor` through the same DCO/TIMER1
+     * conversion every deadline uses - no extra clock source, no fabricated tick. A record
+     * admitted after its own deadline had already passed (stale) is counted in
+     * `rx_stale_count`, the observable form of "don't put an old receive timestamp into a
+     * newer model". */
+    uint64_t rx_local_tick;
+    uint32_t rx_local_sample_seq, rx_timestamp_count, rx_stale_count;
     /* Monotonic source of the field above (also readable without a snapshot). */
     uint8_t event_dispatched[TRIGGER_T2_RUNTIME_EVENT_CAPACITY];
     uint64_t last_counter_count;

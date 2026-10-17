@@ -194,6 +194,13 @@ static uint32_t s_frozen_public;
  * through the accessor below, so it is always used and can be published later. */
 static uint32_t s_position_fallback_promotions;
 
+/* Receive-side timestamp of the record this engine last ADMITTED (see the header):
+ * the local tick of the admission, projected from the local action_cursor through the same
+ * DCO/TIMER1 conversion every deadline uses, and the observation sequence that produced
+ * that cursor. Recorded once per record, not per position. */
+static uint64_t s_rx_local_tick;
+static uint32_t s_rx_local_sample_seq, s_rx_timestamp_count, s_rx_stale_count;
+
 uint32_t trigger_t2_runtime_fallback_promoted_count(void)
 {
     return s_position_fallback_promotions;
@@ -1727,6 +1734,12 @@ bool trigger_t2_runtime_snapshot(trigger_t2_runtime_snapshot_t *out)
              * different fact from freeze_fallback_count (version mismatch on the FREEZE
              * path), and only this one says "the cached next target was executed". */
             out->fallback_promoted_count = s_position_fallback_promotions;
+            /* Receive-side timestamp: when this engine ADMITTED the record it is working
+             * on, plus its age in microseconds at query time (see the header comment). */
+            out->rx_local_tick = s_rx_local_tick;
+            out->rx_local_sample_seq = s_rx_local_sample_seq;
+            out->rx_timestamp_count = s_rx_timestamp_count;
+            out->rx_stale_count = s_rx_stale_count;
             out->prediction_version_exhausted_mask =
                 __atomic_load_n(&s_version_exhausted, __ATOMIC_ACQUIRE);
             return true;
@@ -1799,6 +1812,18 @@ static trigger_action_template_t group_row(uint32_t group)
         .role = s_local_role, .kind = s_local_kind,
         .argument = row->argument, .span_slices = s_local_span_max,
         .delta_q = row->delta_q};
+}
+
+static void note_rx_timestamp(const trigger_t2_runtime_snapshot_t *snapshot,
+    const vdc_dpll_manager_committed_model_t *model, uint64_t deadline_tick)
+{
+    uint64_t admission_tick;
+    if (!slice_to_tick(snapshot->cursor.action_cursor, model, &admission_tick)) return;
+    s_rx_local_tick = admission_tick;
+    s_rx_local_sample_seq = snapshot->cursor.sample_seq;
+    ++s_rx_timestamp_count;
+    /* The record was already late when this board admitted it. */
+    if (deadline_tick < admission_tick) ++s_rx_stale_count;
 }
 
 static void prepare_deadlines_core0(uint32_t session,
@@ -1887,6 +1912,9 @@ static void prepare_deadlines_core0(uint32_t session,
             .expiry_sync = plan_expiry, .model_token = model.token,
             .group = group};
         if (session != __atomic_load_n(&s_session, __ATOMIC_ACQUIRE)) return;
+        /* Receive-side stamp: the moment THIS board admitted the record that produced this
+         * plan, in the same local time base the deadline was solved in. */
+        if (group == 0u) note_rx_timestamp(snapshot, &model, raw_tick);
         deadline_publish(index, &plan);
     }
 }
