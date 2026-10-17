@@ -597,6 +597,13 @@ bool __not_in_flash_func(sync_io_switch_realtime_stage_sequence)(uint64_t base_d
     return true;
 }
 
+/* Refusal buckets of stage_sequence(), for the narrow diagnostic page. */
+void sync_io_switch_realtime_stage_reject(uint32_t out[SWITCH_STAGE_REJECT_COUNT])
+{
+    if(out==NULL)return;
+    for(uint32_t i=0u;i<SWITCH_STAGE_REJECT_COUNT;++i) out[i]=s_stage_reject[i];
+}
+
 bool __not_in_flash_func(sync_io_switch_realtime_status)(sync_io_switch_deadline_status_t *out)
 {
     if(get_core_num()!=1u || !out)return false;

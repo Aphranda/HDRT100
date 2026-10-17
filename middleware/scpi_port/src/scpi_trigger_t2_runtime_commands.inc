@@ -1,3 +1,4 @@
+#include "sync_io_switch.h"
 #include "trigger_action_template_store.h"
 #include "trigger_deployment_service.h"
 #include "trigger_grid_preview.h"
@@ -556,6 +557,9 @@ scpi_result_t scpi_cmd_trigger_t2_action_why_q(scpi_t *context)
     SCPI_ResultUInt32(context, trigger_t2_runtime_group_pack(2u));
     for (uint32_t reason = 0u; reason < TRIGGER_T2_ACTION_FAIL_COUNT; ++reason)
         SCPI_ResultUInt32(context, s.action_fail_reason[reason]);
+    /* Why the switch refused a whole-table arm: NO_READY, BUSY, CLOCK, TICK, PLAN, ORIGIN. */
+    {uint32_t reject[6]; sync_io_switch_realtime_stage_reject(reject);
+     for (uint32_t i=0u;i<6u;++i) SCPI_ResultUInt32(context, reject[i]);}
     return SCPI_RES_OK;
 }
 
