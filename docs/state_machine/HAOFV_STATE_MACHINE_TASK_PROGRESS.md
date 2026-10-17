@@ -9,28 +9,6 @@ Last updated: 2026-10-10
 本文档只记录状态机域的实施、构建、测试、OTA/HIL、失败和回退证据；任务状态以
 `HAOFV_STATE_MACHINE_TODO.md` 为唯一事实源，稳定语义以架构文档为准。
 
-### SM-PROGRESS-20260905-032 - EDGE_TIMESTAMP 切片硬件门禁阻塞记录
-
-- TODO task ID：`SYNC-LA-003`（关联 `SM-RES-008` 短帧回归）。
-- 代码候选：`components/sync_io/src/sync_io_logic_analyzer.c` 增加 EDGE_TIMESTAMP
-  真实 PIO/DMA 采样路径，仅在 `previous_level ^ level != 0` 时发布 edge record，空闲
-  电平不生成无界记录；变更尚未提交，等待硬件门禁。
-- 软件验证：SYNC_IO C contract 与 Python 静态回归通过；edge backend、drop interval 和
-  analyzer 关联器定向测试通过，release 编译/UF2/package/flash-link 通过，候选 build
-  `20260904211707`。
-- 硬件失败链：同一 build 进行四节点 TDMA 启动三次（普通、短训练、延长
-  `arm-wait=8s`），均在 follower `FB276192BEF9CCE1` ARM timeout 退出，状态快照为
-  `ring_enabled=1/ring_adapter_started=0/ring_up_running=0/ring_down_running=0`；因此
-  尚未获得 TDMA 短帧闭环，不提交 EDGE 代码。
-- SD/波形排查：五板 SMA 对称 RTT 工具成功，四条链路 `52/52/52/54 ns`，wire order
-  与 NO5 识别通过；该证据排除明显线缆断路，但不能替代 TDMA ring ARM/短帧证据。
-- 处置：保留原始日志于
-  `out/hardware-acceptance/sync-la-003-edge-timestamp-tdma-20260905/`、`...-r2/`、
-  `...-r3/`、`...-r4/` 及 `sync-la-003-edge-timestamp-sd-repair-20260905/`；下一步需
-  修复/恢复 follower ARM 现场后重新完成 TDMA 短帧，再验收并提交。
-
-## 当前 Checkpoint
-
 ### SM-PROGRESS-20260906-034 - OTA HAOFV 当前源码指纹 TDMA/P3 门禁阻塞
 
 - TODO task ID：`SM-P0-003`、`SM-RES-008`（关联 OTA-HAOFV-010）。
@@ -112,6 +90,28 @@ Last updated: 2026-10-10
   training matrix 做迭代验收，避免重复完整训练；不得通过降低硬件门禁掩盖超时。
 - 结论：TDMA 短帧与 Logic Analyzer 无扰动证据通过；NO5 DPLL phase/SD writer 仍是
   `SM-RES-006/SM-M6` 阻塞，下一步用 Logic Analyzer 与 NO5 同窗证据定位收敛问题。
+
+### SM-PROGRESS-20260905-032 - EDGE_TIMESTAMP 切片硬件门禁阻塞记录
+
+- TODO task ID：`SYNC-LA-003`（关联 `SM-RES-008` 短帧回归）。
+- 代码候选：`components/sync_io/src/sync_io_logic_analyzer.c` 增加 EDGE_TIMESTAMP
+  真实 PIO/DMA 采样路径，仅在 `previous_level ^ level != 0` 时发布 edge record，空闲
+  电平不生成无界记录；变更尚未提交，等待硬件门禁。
+- 软件验证：SYNC_IO C contract 与 Python 静态回归通过；edge backend、drop interval 和
+  analyzer 关联器定向测试通过，release 编译/UF2/package/flash-link 通过，候选 build
+  `20260904211707`。
+- 硬件失败链：同一 build 进行四节点 TDMA 启动三次（普通、短训练、延长
+  `arm-wait=8s`），均在 follower `FB276192BEF9CCE1` ARM timeout 退出，状态快照为
+  `ring_enabled=1/ring_adapter_started=0/ring_up_running=0/ring_down_running=0`；因此
+  尚未获得 TDMA 短帧闭环，不提交 EDGE 代码。
+- SD/波形排查：五板 SMA 对称 RTT 工具成功，四条链路 `52/52/52/54 ns`，wire order
+  与 NO5 识别通过；该证据排除明显线缆断路，但不能替代 TDMA ring ARM/短帧证据。
+- 处置：保留原始日志于
+  `out/hardware-acceptance/sync-la-003-edge-timestamp-tdma-20260905/`、`...-r2/`、
+  `...-r3/`、`...-r4/` 及 `sync-la-003-edge-timestamp-sd-repair-20260905/`；下一步需
+  修复/恢复 follower ARM 现场后重新完成 TDMA 短帧，再验收并提交。
+
+## 当前 Checkpoint
 
 ### SM-PROGRESS-20260905-033 - SM-RES-009 方向化 RX unload / TX load 回归收口
 

@@ -9,6 +9,43 @@ Last updated: 2026-10-10
 本文只追加 RS485 的提交、构建、host/HIL 原始证据、失败、回退和阻塞记录；不在此冻结新契约，
 也不替代 Architecture/TODO 的事实边界。
 
+## COMM-RS485-20260825-007 - 波特率配置收敛到 communication owner
+
+- 代码：新增 `rs485_communication_set_baud_hz()` / `rs485_communication_baud_hz()`，SCPI
+  `COMMunication:SERial:UART#:BAUD` 不再直接调用 UART driver。owner 在 Modbus master
+  outstanding transaction 或 TX lease 活跃时拒绝改速率；driver 同时拒绝 active TX，避免
+  修改 divisor 时破坏半双工帧。
+- 默认：board 配置符号 `BOARD_UART_BAUD_HZ` 继续作为启动默认值（当前代码值见
+  `config/project_config.h`）；查询返回 SDK 实际分频后的波特率。
+- 计算链：字符时间、Modbus 3.5 字符间隔、主站 wire timeout 和 DE release deadline 都读取
+  同一 driver 当前值，避免 setter 后残留旧时序。
+- 验证：`tests/python/test_rs485_scpi_mode.py` 增加 owner/default 静态门禁；V2 主工程构建、
+  文档门禁和 DHRT100 闭环 transcript：
+  `out/flash_hil/dhrt100_rs485_baud_owner_flash_20260825.txt`、
+  `out/flash_hil/dhrt100_rs485_baud_owner_probe_20260825.txt`、
+  `out/flash_hil/dhrt100_rs485_baud_owner_restore_20260825.txt`。
+
+## COMM-RS485-20260825-008 - Modbus 主站诊断与 peer 工具帧完整性修复
+
+- 工具修复：`rs485_modbus_validate.py --peer` 对主站请求使用固定 8 字节读取，不再把
+  请求的地址高字节误当成 `0x03` 响应 byte-count；响应写入使用 `write_all()`、t3.5 等待和
+  完整响应 wire-time 保持，避免 USB-RS485 适配器短写/提前关闭造成首字节截断。
+- 固件：新增 `COMMunication:SERial:UART#:MODBus:MASTER:DIAGnostic?`，由 communication
+  component owner 投影最近帧长度、期望长度、CRC/协议/超时计数和帧前缀，不暴露 Flash 或
+  DMA 内部可写状态。
+- 构建/烧录：V2 factory candidate、签名、FlashMap/link gate 通过；使用固化
+  `tools/picotool_flash/picotool_flash.py` load/verify，未执行 full erase。证据：
+  `out/flash_hil/dhrt100_rs485_diag_prefix_flash_20260825.txt`。
+- DHRT100：peer 工具已确认收到完整请求并生成合法 CRC 响应，但板端诊断仍显示
+  `last_frame_length=1`、`expected_length=9`、`last_frame_prefix=0`、CRC 错误递增；将该
+  结果定性为 RS485 回传方向/电气链路未把完整 peer 响应送入 DHRT100，不把工具或 parser
+  误判为闭环通过。原始证据：
+  `out/flash_hil/dhrt100_modbus_master_peer_writeall_20260825.json`、
+  `out/flash_hil/dhrt100_modbus_master_prefix2ms_read_20260825.txt`。
+- 回归：同一工件切回 Modbus slave 后，read/write、CRC reject 均通过；证据：
+  `out/flash_hil/dhrt100_modbus_slave_postdiag_20260825.json`。DHRT100 已恢复为 SCPI
+  maintenance mode，`SYSTem:ERRor?` 保持无错误。
+
 ## COMM-RS485-20260824-001 - 建立 RS485 三件套与 COM11 联调入口
 
 - 状态：文档三件套建立；RS485 固件 producer、COM11 实际收发和 DHRT100 OTA 尚未宣称完成。
@@ -103,43 +140,6 @@ Last updated: 2026-10-10
 - 电源更换后的烧录与运行期间没有观察到 watchdog timeout；一次受控 picotool reboot
   的 reset evidence 单独保留，不作为故障证据。Modbus adapter、RS485 OTA 数据面和
   真实断电验证仍未完成。
-
-## COMM-RS485-20260825-007 - 波特率配置收敛到 communication owner
-
-- 代码：新增 `rs485_communication_set_baud_hz()` / `rs485_communication_baud_hz()`，SCPI
-  `COMMunication:SERial:UART#:BAUD` 不再直接调用 UART driver。owner 在 Modbus master
-  outstanding transaction 或 TX lease 活跃时拒绝改速率；driver 同时拒绝 active TX，避免
-  修改 divisor 时破坏半双工帧。
-- 默认：board 配置符号 `BOARD_UART_BAUD_HZ` 继续作为启动默认值（当前代码值见
-  `config/project_config.h`）；查询返回 SDK 实际分频后的波特率。
-- 计算链：字符时间、Modbus 3.5 字符间隔、主站 wire timeout 和 DE release deadline 都读取
-  同一 driver 当前值，避免 setter 后残留旧时序。
-- 验证：`tests/python/test_rs485_scpi_mode.py` 增加 owner/default 静态门禁；V2 主工程构建、
-  文档门禁和 DHRT100 闭环 transcript：
-  `out/flash_hil/dhrt100_rs485_baud_owner_flash_20260825.txt`、
-  `out/flash_hil/dhrt100_rs485_baud_owner_probe_20260825.txt`、
-  `out/flash_hil/dhrt100_rs485_baud_owner_restore_20260825.txt`。
-
-## COMM-RS485-20260825-008 - Modbus 主站诊断与 peer 工具帧完整性修复
-
-- 工具修复：`rs485_modbus_validate.py --peer` 对主站请求使用固定 8 字节读取，不再把
-  请求的地址高字节误当成 `0x03` 响应 byte-count；响应写入使用 `write_all()`、t3.5 等待和
-  完整响应 wire-time 保持，避免 USB-RS485 适配器短写/提前关闭造成首字节截断。
-- 固件：新增 `COMMunication:SERial:UART#:MODBus:MASTER:DIAGnostic?`，由 communication
-  component owner 投影最近帧长度、期望长度、CRC/协议/超时计数和帧前缀，不暴露 Flash 或
-  DMA 内部可写状态。
-- 构建/烧录：V2 factory candidate、签名、FlashMap/link gate 通过；使用固化
-  `tools/picotool_flash/picotool_flash.py` load/verify，未执行 full erase。证据：
-  `out/flash_hil/dhrt100_rs485_diag_prefix_flash_20260825.txt`。
-- DHRT100：peer 工具已确认收到完整请求并生成合法 CRC 响应，但板端诊断仍显示
-  `last_frame_length=1`、`expected_length=9`、`last_frame_prefix=0`、CRC 错误递增；将该
-  结果定性为 RS485 回传方向/电气链路未把完整 peer 响应送入 DHRT100，不把工具或 parser
-  误判为闭环通过。原始证据：
-  `out/flash_hil/dhrt100_modbus_master_peer_writeall_20260825.json`、
-  `out/flash_hil/dhrt100_modbus_master_prefix2ms_read_20260825.txt`。
-- 回归：同一工件切回 Modbus slave 后，read/write、CRC reject 均通过；证据：
-  `out/flash_hil/dhrt100_modbus_slave_postdiag_20260825.json`。DHRT100 已恢复为 SCPI
-  maintenance mode，`SYSTem:ERRor?` 保持无错误。
 
 ## 证据索引
 
