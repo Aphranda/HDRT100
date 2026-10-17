@@ -12,6 +12,19 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-045：交接记录——双组展开失败的最后一步已收敛到“第 2 行的模板行内容”
+
+- **本轮读到的代码路径**（不再猜）：
+  `trigger_action_template_expand()` → `trigger_action_template_valid()`（要求 `template_id && generation && span_slices && kind∈{SWITCH,GATEWAY}`）→ `trigger_position_instance_expand(descriptor, subdivisions, t->delta_q, &position)`。
+  ⇒ 双行失败只可能来自两处：**第 2 行的 `generation`/`span_slices` 为 0**，或 **`trigger_position_instance_expand` 用该 `delta_q` 算不出实例**。
+- **台架读数（模板页）**：`TRIGger:RESERVation:TEMPLate?` 在双组板返回 **23 字段**、单组板 **16 字段**，差值 7 ⇒ 每行一块（7 字段）。这与“双组板装了 2 行”一致，但字段顺序尚未逐项核对，因此**还没有直接证明第 2 行的 generation 为 0**。
+- **下轮（最省事的两步）**：
+  1. 按页 handler 顺序列出 7 字段含义，确认第 2 行的 `generation/span/kind` 是否为 0；
+  2. 在 `expand` 的两个失败出口各加一个桶（`invalid_row` / `instance_expand_fail`），一次台架即可锁定；随后按结果修（补行内容 or 放宽 instance 边界）。
+- **已确认可用的事实**：执行器侧“一次交整表 + 逐组回执”在真机上跑通（同一轮 6 个位置完整走完两组、`stage_reject` 全 0、`origin_late` 仅 3 次）；单组路径 169/169 零失败；T2 位置传输全程 `DISTRIBUTED`、`SEAT refused 0`。
+
+
+
 ### T2-PROGRESS-20261018-044：组周期假设也被否定——`expand_fail=544` 与周期无关，是结构性问题
 
 - **实验**：同一条双组链路改用 `T2_SEQ_PERIOD_SLICES=2`（怀疑第二行 `delta` 超出网格细分范围）。
