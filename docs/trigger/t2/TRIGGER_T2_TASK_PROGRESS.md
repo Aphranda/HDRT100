@@ -12,6 +12,20 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-039：开关双组窗口**开始执行了**（executed 0→6），限制点前移到 `NO_PLAN`
+
+- **拿到实测数字**（上一轮的仪器）：`span=497~544 拍`、`bound=128 拍`（`256 ns × 组数`）。即双组武装的真实代价是 **~2 µs**（4 次 `pio_sm_put` + `pio_enable_sm_mask_in_sync`），远大于单组预算 64 拍。
+- **修法**（`4df45340`）：origin 跨度超限**不再致命**——它本来就是“这条边沿迟到多少”，已由 `origin_before/after_tick` 上报；组间间隔用的是相对 delay，不受影响。改成 `origin_late_count` 计数并继续。
+- **台架前后对比（同一条 `T2_SEQ_GROUPS='1,2,1,1'` 链路）**：
+  | 指标 | 修前 | 修后 |
+  |---|---|---|
+  | `executed`（SWITCH_A 双组） | 0 | **6** |
+  | `stage_reject` 全部桶 | BUSY=160, ORIG_WIN=1 | **全 0** |
+  | 失败原因 | BACKEND=161 | **NO_PLAN=166**（BACKEND=0） |
+  | 单组从板（GATEWAY/SWITCH_B） | 161/161 | **169/169 零失败** |
+- **结论**：开关“一次交整表 + 逐组回执”的机制在真机上**已经跑通**（有 6 个位置完整走完两组）；剩下的拦住 166 个位置的是**本地规划器拿不到可用计划**（`TRIGGER_T2_ACTION_FAIL_NO_PLAN`），属于“每位置 2 组时模板/部署与本地 solve 不匹配”的问题，与执行器无关。
+- **下轮**：查 `NO_PLAN` —— 看 `trigger_t2_runtime` 的本地 solve 在 2 行模板下是否只解出 1 组（`s_local_template_count` 与 `group_count/group_tick[]` 的对应）、以及 FREEZE 到达时计划表是否已就绪；对症修完再复跑，期望 `executed → 169`、`NO_PLAN → 0`。
+
 ### T2-PROGRESS-20261018-038：origin 窗口的两轮修正都没解决——已把"实测跨度 vs 上限"变成读数
 
 - **第一轮修法**（`c5480e2a` 之后）：把 `raw_tick(&now)` 移到计划构建之后、并用真实 tick 重算首组 delay（新增 `sync_io_sequence_plan_first_delay()`）⇒ 台架仍 `ORIG_WIN=1`、`executed=0`。
