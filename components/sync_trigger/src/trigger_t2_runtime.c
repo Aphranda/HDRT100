@@ -1245,13 +1245,18 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     }
     bool armed;
     uint32_t handed = 0u;
-    if (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH && plan->group_count > 1u) {
+    if (plan->group_count > 1u) {
+        /* One call per window, whichever backend this role owns: the spacing then comes from
+         * the table Core0 solved, not from re-arming after each completion. */
         uint64_t delta_ticks[T2_PLAN_GROUP_MAX];
         const uint64_t base = plan->group_tick[0];
         for (uint32_t k = 0u; k < plan->group_count; ++k)
             delta_ticks[k] = (plan->group_tick[k] > base) ? plan->group_tick[k] - base : 0u;
-        armed = sync_io_switch_realtime_stage_sequence(base, plan->group_argument,
-            delta_ticks, plan->group_count);
+        armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
+            sync_io_switch_realtime_stage_sequence(base, plan->group_argument,
+                delta_ticks, plan->group_count) :
+            sync_io_gateway_realtime_stage_sequence(base, plan->group_argument,
+                delta_ticks, plan->group_count);
         if (armed) handed = plan->group_count;
     } else {
         armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
