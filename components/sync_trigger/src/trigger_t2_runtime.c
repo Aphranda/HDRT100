@@ -1065,6 +1065,14 @@ static void complete_action(uint32_t index)
     }
     s_group_handed[index] = 0u;
     s_action_sequence_last[index] = 0u;
+    /* A finished window must not leave its last group behind: the arm path clears
+     * prediction_version, and the FREEZE path reads version 0 as NO_PLAN. Measured with a
+     * two-group role: freeze_missing_local=166 against 6 executed positions, while
+     * single-group roles (which only ever leave group 0 behind) ran 169/169. */
+    s_deadline[index].group = 0u;
+    s_deadline[index].group_count = 0u;
+    s_deadline[index].prediction_version = 0u;
+    s_deadline[index].next_tick = 0u;
     s_state.emitted_position_mask |= bit;
     s_state.action_completed_mask |= bit;
     report_frozen();

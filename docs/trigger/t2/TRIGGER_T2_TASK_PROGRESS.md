@@ -12,6 +12,16 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-042：假设被台架否定一次——清槽位计划身份**没有**改善双组；`NO_PLAN` 的来源改为指向"描述符版本为 0"
+
+- **试的修法**：窗口结束时清空该槽位的计划身份（`group/group_count/prediction_version/next_tick = 0`，理由：武装路径会清版本，FREEZE 把 version 0 读成 NO_PLAN）。
+- **台架结果（同一 `T2_SEQ_GROUPS='1,2,1,1'`）**：双组板**完全没变** —— `executed=6`、`NO_PLAN=166`、`freeze_missing_local=166`；单组板仍 `168/169` 全过。⇒ **假设错误**，已如实记录。
+- **排除掉的两条**：
+  1. `t2_deadline_plan_current()` 已经要求 `previous_group == group`，所以"Core0 因为组号不同而跳过发布"不成立；
+  2. 槽位遗留状态不是原因（清零无效）。
+- **新的方向（代码依据）**：Core0 的 `plan_version = descriptor.prediction_version`（L1942）；若该位置的**描述符版本本身就是 0**，发布出去的计划版本也是 0，FREEZE 必然判 `NO_PLAN`。所以下一步该查的是：双行模板下，该位置的 PREVIEW/描述符是否根本没带版本（例如部署表里两行模板使 `trigger_action_template_expand` 只对第 1 行生成 instance，或 descriptor 的版本在展开时被清零）。
+- **下轮**：在 Core0 的 group 0 分支上加两个计数（`expand_fail_count` / `descriptor_version_zero_count`），一次台架就能分辨"展开失败"还是"版本为 0"，再对症修。
+
 ### T2-PROGRESS-20261018-041：读到了区分两种成因的计数——双组是 **`freeze_missing_local_count=166`（根本没解出计划）**
 
 - **读数**（`TRIGger:RESERVation:T2?` prefix，索引由 handler 顺序算出：13=frozen_mask、14=mismatch、15=fallback、16=missing_local）：
