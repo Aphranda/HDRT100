@@ -337,6 +337,12 @@ enum {
 bool trigger_t2_runtime_origin_probe(
     uint32_t out[TRIGGER_T2_RUNTIME_ORIGIN_PROBE_COUNT]);
 /* Core0 prediction and follower deadline preparation, outside the VDC phase. */
+/* Counters for the "why is there no plan" question (T2-PROGRESS-20261018-043). */
+typedef struct {
+    uint32_t prepare_calls, prepare_last_reason;
+    uint32_t no_descriptor, expand_fail, version_zero, published;
+} trigger_t2_runtime_solve_stats_t;
+bool trigger_t2_runtime_solve_stats(trigger_t2_runtime_solve_stats_t *out);
 void trigger_t2_runtime_prepare_core0(void);
 bool trigger_t2_runtime_preview_history(uint32_t position_id, uint32_t age,
                                         trigger_position_descriptor_t *out);

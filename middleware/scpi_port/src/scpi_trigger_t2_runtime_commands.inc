@@ -560,6 +560,16 @@ scpi_result_t scpi_cmd_trigger_t2_action_why_q(scpi_t *context)
     /* Why the switch refused a whole-table arm: NO_READY, BUSY, CLOCK, TICK, PLAN, ORIGIN. */
     {uint32_t reject[7]; sync_io_switch_realtime_stage_reject(reject);
      for (uint32_t i=0u;i<7u;++i) SCPI_ResultUInt32(context, reject[i]);}
+    /* Where positions lose their plan, plus Core0's own last reason code. */
+    {trigger_t2_runtime_solve_stats_t st;
+     if (trigger_t2_runtime_solve_stats(&st)) {
+         SCPI_ResultUInt32(context, st.prepare_calls);
+         SCPI_ResultUInt32(context, st.prepare_last_reason);
+         SCPI_ResultUInt32(context, st.no_descriptor);
+         SCPI_ResultUInt32(context, st.expand_fail);
+         SCPI_ResultUInt32(context, st.version_zero);
+         SCPI_ResultUInt32(context, st.published);
+     }}
     /* Last arm's measured span (cycles) and its bound: tells WHY the window check failed. */
     {uint32_t span=0u, bound=0u, late=0u;
      sync_io_switch_realtime_origin_span(&span,&bound,&late);

@@ -257,6 +257,9 @@ static uint32_t s_stash_valid;
 _Static_assert(TRIGGER_T2_RUNTIME_POSITION_COUNT == 3u,
     "trigger_position_descriptor_valid() bounds a FREEZE position_id by a literal 3");
 static uint32_t s_core0_prepare_calls, s_core0_preview_saved, s_core0_prepare_last_reason;
+/* Where a position can lose its plan before FREEZE sees it: counted so the bench answers
+ * "expand failed" / "descriptor had no version" instead of us guessing (rounds 53-57). */
+static uint32_t s_solve_no_descriptor, s_solve_expand_fail, s_solve_version_zero, s_solve_publish;
 static volatile uint32_t s_guard;
 
 #define T2_WINDOW_HISTORY_CAPACITY 17u
@@ -1935,7 +1938,7 @@ static void prepare_deadlines_core0(uint32_t session,
         uint32_t plan_version, plan_expiry;
         if (group == 0u) {
             trigger_position_descriptor_t descriptor;
-            if (!preview_copy(index, 0u, &descriptor)) continue;
+            if (!preview_copy(index, 0u, &descriptor)) { ++s_solve_no_descriptor; continue; }
             /* Mailbox has one RUN writer: Core0 can inspect its own old words. */
             t2_deadline_plan_t previous;
             memcpy(&previous, s_deadline_mailbox[index].words, sizeof(previous));
@@ -1945,10 +1948,14 @@ static void prepare_deadlines_core0(uint32_t session,
             const trigger_action_template_t row = group_row(group);
             trigger_action_template_instance_t instance;
             if (!trigger_action_template_expand(&row, &descriptor,
-                    s_config.grid.subdivisions, &instance)) continue;
+                    s_config.grid.subdivisions, &instance)) {
+                ++s_solve_expand_fail;
+                continue;
+            }
             q = instance.position.action_q;
             plan_version = descriptor.prediction_version;
             plan_expiry = descriptor.expiry_sync;
+            if (!plan_version) ++s_solve_version_zero;
         } else {
             t2_deadline_plan_t previous;
             memcpy(&previous, s_deadline_mailbox[index].words, sizeof(previous));
@@ -2001,8 +2008,21 @@ static void prepare_deadlines_core0(uint32_t session,
         /* Receive-side stamp: the moment THIS board admitted the record that produced this
          * plan, in the same local time base the deadline was solved in. */
         if (group == 0u) note_rx_timestamp(snapshot, &model, raw_tick);
+        ++s_solve_publish;
         deadline_publish(index, &plan);
     }
+}
+
+bool trigger_t2_runtime_solve_stats(trigger_t2_runtime_solve_stats_t *out)
+{
+    if (!out) return false;
+    out->prepare_calls = s_core0_prepare_calls;
+    out->prepare_last_reason = s_core0_prepare_last_reason;
+    out->no_descriptor = s_solve_no_descriptor;
+    out->expand_fail = s_solve_expand_fail;
+    out->version_zero = s_solve_version_zero;
+    out->published = s_solve_publish;
+    return true;
 }
 
 void trigger_t2_runtime_prepare_core0(void)
