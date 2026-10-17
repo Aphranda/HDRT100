@@ -32,6 +32,8 @@ typedef struct {
     uint32_t schema, generation, state, loaded, output_mask, group_count;
     uint32_t desired_code, applied_code, applied_valid, stage_sequence, completed_sequence;
     uint32_t cancelled_sequence, sm_claimed_mask, sm_enabled_mask, instruction_words;
+    /* Refusal buckets of one-shot stage_sequence(): NO_READY, BUSY, CLOCK, TICK, PLAN, ORIGIN. */
+    uint32_t stage_reject[6];
     /* actual_output_mask reads all public OUT pads, including unleased pins,
      * so diagnostics can compare unselected outputs without driving them. */
     uint32_t program_offset, actual_output_mask, receipt_mask, fault;

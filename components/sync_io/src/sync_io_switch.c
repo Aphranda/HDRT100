@@ -48,6 +48,17 @@ static uint32_t s_sequence_group;
 static uint64_t s_sequence_deadline_cursor;
 /* Sequence number of group 0 of the staged plan; group k is base+k. */
 static uint32_t s_sequence_base_sequence;
+/* Refusal buckets of stage_sequence: NO_READY, BUSY, CLOCK, TICK, PLAN, ORIGIN. The bench showed
+ * groups_executed staying 0 with every position failing BACKEND, so the reason must be countable
+ * rather than inferred from "it returned false". */
+#define SWITCH_STAGE_REJECT_COUNT 6u
+#define SWITCH_STAGE_REJECT_NO_READY 0u
+#define SWITCH_STAGE_REJECT_BUSY 1u
+#define SWITCH_STAGE_REJECT_CLOCK 2u
+#define SWITCH_STAGE_REJECT_TICK 3u
+#define SWITCH_STAGE_REJECT_PLAN 4u
+#define SWITCH_STAGE_REJECT_ORIGIN 5u
+static uint32_t s_stage_reject[SWITCH_STAGE_REJECT_COUNT];
 static sync_io_persona_manager_handle_t s_handle;
 static uint32_t s_busy,s_generation,s_claimed,s_offset,s_active_sms,s_physical_mask;
 static bool s_loaded,s_lease,s_pins_owned;
@@ -509,18 +520,31 @@ bool __not_in_flash_func(sync_io_switch_realtime_schedule_at)(uint32_t code,uint
 bool __not_in_flash_func(sync_io_switch_realtime_stage_sequence)(uint64_t base_deadline_tick,
     const uint32_t *codes,const uint64_t *delta_ticks,uint32_t count)
 {
-    if(get_core_num()!=1u || !s_lease || !s_loaded || !s_pins_owned ||
-       s_switch.state==SYNC_IO_SWITCH_FAULT || s_switch.state==SYNC_IO_SWITCH_STOPPED ||
-       s_switch.state==SYNC_IO_SWITCH_PENDING || s_queue_count ||
-       clock_get_hz(clk_sys)!=BOARD_SYS_CLOCK_HZ || timer1_hw->pause ||
-       timer1_hw->source!=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS)return false;
+    if(get_core_num()!=1u || !s_lease || !s_loaded || !s_pins_owned) {
+        ++s_stage_reject[SWITCH_STAGE_REJECT_NO_READY];
+        return false;
+    }
+    if(s_switch.state==SYNC_IO_SWITCH_FAULT || s_switch.state==SYNC_IO_SWITCH_STOPPED ||
+       s_switch.state==SYNC_IO_SWITCH_PENDING || s_queue_count) {
+        ++s_stage_reject[SWITCH_STAGE_REJECT_BUSY];
+        return false;
+    }
+    if(clock_get_hz(clk_sys)!=BOARD_SYS_CLOCK_HZ || timer1_hw->pause ||
+       timer1_hw->source!=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS) {
+        ++s_stage_reject[SWITCH_STAGE_REJECT_CLOCK];
+        return false;
+    }
     uint64_t now=0u;
-    if(!raw_tick(&now)) return false;
+    if(!raw_tick(&now)) {
+        ++s_stage_reject[SWITCH_STAGE_REJECT_TICK];
+        return false;
+    }
     /* The plan is authored on the shared timeline: the base tick is this position's time
      * slice and every group is an offset from it (see sync_io_sequence_plan.h). */
     if(sync_io_sequence_plan_build(&s_sequence,now,base_deadline_tick,codes,delta_ticks,
             count)!=SYNC_IO_SEQUENCE_PLAN_OK) {
         s_sequence_group=0u;
+        ++s_stage_reject[SWITCH_STAGE_REJECT_PLAN];
         return false;
     }
     s_queue_count=0u;
@@ -551,6 +575,7 @@ bool __not_in_flash_func(sync_io_switch_realtime_stage_sequence)(uint64_t base_d
     s_deadline.origin_after_tick=read && after!=UINT64_MAX ? after+1u : UINT64_MAX;
     if(!read || after<now || after==UINT64_MAX ||
         after+1u-now > (uint64_t)BOARD_SYS_CLOCK_HZ*SYNC_IO_SWITCH_ORIGIN_MAX_NS/1000000000u) {
+        ++s_stage_reject[SWITCH_STAGE_REJECT_ORIGIN];
         for(uint32_t i=0u;i<s_switch.group_count;++i) {
             pio_sm_set_enabled(SWITCH_PIO,s_switch.groups[i].sm,false);
             pio_sm_clear_fifos(SWITCH_PIO,s_switch.groups[i].sm);

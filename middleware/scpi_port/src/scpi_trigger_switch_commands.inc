@@ -63,6 +63,8 @@ scpi_result_t scpi_cmd_trigger_switch_q(scpi_t *context)
     SCPI_ResultUInt32(context,s.io.actual_output_mask);
     SCPI_ResultUInt32(context,s.io.receipt_mask);
     SCPI_ResultUInt32(context,s.io.fault);
+    /* Appended: why a whole-table arm was refused (all zero = never refused). */
+    for (uint32_t i=0;i<6u;++i) SCPI_ResultUInt32(context,s.io.stage_reject[i]);
     for (uint32_t i=0;i<SYNC_IO_SWITCH_MAX_GROUPS;++i) {
         SCPI_ResultUInt32(context,s.io.groups[i].sm);
         SCPI_ResultUInt32(context,s.io.groups[i].output_base_pin);
