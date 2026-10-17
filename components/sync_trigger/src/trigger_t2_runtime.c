@@ -149,9 +149,22 @@ static uint32_t s_local_kind, s_local_role, s_local_span_max;
  * (TRIGGER_T2_RUNTIME_GROUP_NONE when none). One group per slot is in flight at
  * a time; the two-group sliding window is the SYNC_IO side of T2-EXEC-002. */
 static uint8_t s_group_next[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+/* End of the window already handed to the executor (absolute group index, 0 = none). While a
+ * window is open it is the authority on how many groups this position has. */
+static uint8_t s_group_handed[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+/* Last backend sequence the window may report; the backend advances it per group. */
+static uint32_t s_action_sequence_last[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 static uint8_t s_group_armed[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+/* How many groups of one position are handed to the executor in a single call. */
+#define T2_PLAN_GROUP_MAX 4u
 typedef struct {
     uint64_t action_q, deadline_tick;
+    /* Absolute local ticks of the following groups of this same position, solved by Core0 in
+     * the same pass and handed to ONE stage_sequence() call. group_count <= 1 keeps the
+     * single-group path. */
+    uint64_t group_tick[T2_PLAN_GROUP_MAX];
+    uint32_t group_argument[T2_PLAN_GROUP_MAX];
+    uint32_t group_count;
     /* Tick of the NEXT group of this position, solved by Core0 together with this
      * one. Core1 promotes it the moment the current group completes and arms it in
      * the same pass: measured on the bench 2026-10-16, planning a group only after
@@ -1012,14 +1025,26 @@ static void complete_action(uint32_t index)
      * receipt only by its LAST group, so a partial sequence can never look like
      * a finished position in the window totals. */
     const uint32_t group = s_group_armed[index];
+    /* An open window is the authority on how many groups this position has: the role template
+     * count can be smaller than the plan's window (measured: template count 1 with a 2-group
+     * window finished the position on the first receipt). */
+    const uint32_t groups_total = s_group_handed[index]
+        ? s_group_handed[index] : s_local_template_count;
     s_group_armed[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
     s_state.action_group_in_flight[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
-    if (group < s_local_template_count) {
+    if (group < groups_total) {
         s_state.action_group_done[index] |= 1u << group;
         s_state.action_groups_executed++;
-        if (group + 1u < s_local_template_count) {
+        if (group + 1u < groups_total) {
             s_group_next[index] = (uint8_t)(group + 1u);
             s_state.action_group_next[index] = s_group_next[index];
+            if (s_group_next[index] < s_group_handed[index]) {
+                /* Already in hardware: this receipt advances the cursor, nothing is armed. */
+                s_group_armed[index] = s_group_next[index];
+                s_state.action_group_in_flight[index] = s_group_next[index];
+                s_deadline[index].group = s_group_next[index];
+                return;
+            }
             /* T2-SEQ-001 in-flight window: promote the next group IN THIS PASS from the
              * tick Core0 solved together with the one that just ran, so the arm does not
              * wait for another Core0 round trip (measured 2026-10-16: that round trip
@@ -1038,6 +1063,8 @@ static void complete_action(uint32_t index)
             return;
         }
     }
+    s_group_handed[index] = 0u;
+    s_action_sequence_last[index] = 0u;
     s_state.emitted_position_mask |= bit;
     s_state.action_completed_mask |= bit;
     report_frozen();
@@ -1134,7 +1161,19 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     }
     if (s_armed_index < TRIGGER_T2_RUNTIME_POSITION_COUNT) {
         const uint32_t index = s_armed_index, bit = 1u << index;
-        if (sequence != s_state.action_sequence[index] ||
+        const uint32_t expected = s_state.action_sequence[index];
+        const uint32_t window_last = s_action_sequence_last[index];
+        if (sequence > expected && sequence <= window_last) {
+            /* Inside the handed window: the previous group completed and the next one is
+             * already armed in hardware. */
+            complete_action(index);
+            s_state.action_sequence[index] = sequence;
+            s_deadline[index].deadline_tick = deadline;
+            if (s_group_next[index] < s_group_handed[index])
+                s_state.action_group_in_flight[index] = s_group_next[index];
+            return;
+        }
+        if (sequence != expected ||
             deadline != s_deadline[index].deadline_tick) {
             cancel_backend();
             s_state.action_uncertain_mask |= bit;
@@ -1204,11 +1243,23 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         action_fail(selected, TRIGGER_T2_ACTION_FAIL_NO_PLAN);
         return;
     }
-    const bool armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
-        sync_io_switch_realtime_schedule_at(
-        s_local_group[s_group_next[selected]].argument, plan->deadline_tick) :
-        sync_io_gateway_realtime_schedule_at(
-        s_local_group[s_group_next[selected]].argument, plan->deadline_tick);
+    bool armed;
+    uint32_t handed = 0u;
+    if (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH && plan->group_count > 1u) {
+        uint64_t delta_ticks[T2_PLAN_GROUP_MAX];
+        const uint64_t base = plan->group_tick[0];
+        for (uint32_t k = 0u; k < plan->group_count; ++k)
+            delta_ticks[k] = (plan->group_tick[k] > base) ? plan->group_tick[k] - base : 0u;
+        armed = sync_io_switch_realtime_stage_sequence(base, plan->group_argument,
+            delta_ticks, plan->group_count);
+        if (armed) handed = plan->group_count;
+    } else {
+        armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
+            sync_io_switch_realtime_schedule_at(
+            s_local_group[s_group_next[selected]].argument, plan->deadline_tick) :
+            sync_io_gateway_realtime_schedule_at(
+            s_local_group[s_group_next[selected]].argument, plan->deadline_tick);
+    }
     if (!armed) {
         /* A rejected absolute deadline is terminal. No fire-now fallback.
          * Origin validation can fail after the edge: preserve UNCERTAIN. */
@@ -1242,6 +1293,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     }
     s_group_armed[selected] = (uint8_t)plan->group;
     s_state.action_group_in_flight[selected] = plan->group;
+    s_group_handed[selected] = (uint8_t)(plan->group + (handed ? handed : 1u));
     s_state.action_armed_mask |= 1u << selected;
     s_state.action_deadline_tick[selected] = plan->deadline_tick;
     /* Read the owner's accepted sequence; a later mismatch cannot complete us. */
@@ -1249,6 +1301,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         sync_io_switch_deadline_status_t status;
         if (sync_io_switch_realtime_status(&status)) {
             s_state.action_sequence[selected] = status.sequence;
+            s_action_sequence_last[selected] = status.sequence + (handed ? handed - 1u : 0u);
             note_backend(selected, status.state, status.origin_before_tick, status.origin_after_tick);
         }
     } else {
@@ -1361,6 +1414,8 @@ bool trigger_t2_runtime_configure(const trigger_t2_runtime_config_t *config)
     s_state.action_group_count = local_count;
     for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++i) {
         s_group_next[i] = 0u;
+    s_group_handed[i] = 0u;
+    s_action_sequence_last[i] = 0u;
         s_group_armed[i] = TRIGGER_T2_RUNTIME_GROUP_NONE;
         s_state.action_group_next[i] = 0u;
         s_state.action_group_in_flight[i] = TRIGGER_T2_RUNTIME_GROUP_NONE;
@@ -1438,6 +1493,8 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
     s_state.action_group_count = s_local_template_count;
     for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++i) {
         s_group_next[i] = 0u;
+    s_group_handed[i] = 0u;
+    s_action_sequence_last[i] = 0u;
         s_group_armed[i] = TRIGGER_T2_RUNTIME_GROUP_NONE;
         s_state.action_group_next[i] = 0u;
         s_state.action_group_in_flight[i] = TRIGGER_T2_RUNTIME_GROUP_NONE;
@@ -1905,12 +1962,28 @@ static void prepare_deadlines_core0(uint32_t session,
                 (int64_t)s_local_group[group].delta_q);
             if (q <= UINT64_MAX - step) (void)slice_to_tick(q + step, &model, &next_tick);
         }
-        const t2_deadline_plan_t plan = {
+        t2_deadline_plan_t plan = {
             .action_q = q, .deadline_tick = raw_tick, .next_tick = next_tick,
             .session = model.session, .ring_config_seq = snapshot->cursor.ring_config_seq,
             .prediction_version = plan_version,
             .expiry_sync = plan_expiry, .model_token = model.token,
-            .group = group};
+            .group = group, .group_count = 0u};
+        plan.group_tick[plan.group_count] = raw_tick;
+        plan.group_argument[plan.group_count++] = s_local_group[group].argument;
+        for (uint32_t k = group + 1u; k < s_local_template_count &&
+             plan.group_count < T2_PLAN_GROUP_MAX; ++k) {
+            if (s_local_group[k].delta_q < s_local_group[k - 1u].delta_q) break;
+            const uint64_t step = (uint64_t)((int64_t)s_local_group[k].delta_q -
+                (int64_t)s_local_group[k - 1u].delta_q);
+            const uint64_t from_q = q + (uint64_t)((int64_t)s_local_group[k - 1u].delta_q -
+                (int64_t)s_local_group[group].delta_q);
+            if (from_q > UINT64_MAX - step) break;
+            uint64_t tick = 0u;
+            if (!slice_to_tick(from_q + step, &model, &tick)) break;
+            if (tick <= plan.group_tick[plan.group_count - 1u]) break;
+            plan.group_tick[plan.group_count] = tick;
+            plan.group_argument[plan.group_count++] = s_local_group[k].argument;
+        }
         if (session != __atomic_load_n(&s_session, __ATOMIC_ACQUIRE)) return;
         /* Receive-side stamp: the moment THIS board admitted the record that produced this
          * plan, in the same local time base the deadline was solved in. */

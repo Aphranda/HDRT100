@@ -92,8 +92,23 @@ bool distributed_refmem_get_position_descriptor(uint32_t slot,
       *out = remote_queue[remote_queue_head++]; return true; }
   if (!remote_valid) return false;
   *out=remote_descriptor; remote_valid=false; return true; }
+static unsigned sequence_stage_calls, sequence_stage_count;
+static uint32_t window_remaining;
+static uint64_t window_step, sequence_stage_base;
+bool sync_io_switch_realtime_stage_sequence(uint64_t base_deadline, const uint32_t *codes,
+                                            const uint64_t *delta_ticks, uint32_t count)
+{ (void)codes; ++schedule_calls; ++sequence_stage_calls;
+  sequence_stage_count=count; sequence_stage_base=base_deadline;
+  if (!accept_schedule || count==0u ||
+      base_deadline <= (now_ns+local_offset_ns)/4u+25000u) return false;
+  window_remaining=count-1u;
+  window_step=(count>1u)?(delta_ticks[1]-delta_ticks[0]):0u;
+  hw.sequence++; hw.deadline_tick=base_deadline; hw.state=SYNC_IO_SWITCH_DEADLINE_ARMED;
+  hw.origin_before_tick=(now_ns+local_offset_ns)/4u;
+  hw.origin_after_tick=hw.origin_before_tick+40u;
+  return true; }
 bool sync_io_switch_realtime_schedule_at(uint32_t code, uint64_t deadline)
-{ (void)code; ++schedule_calls;
+{ (void)code; ++schedule_calls; window_remaining=0u;
   if (rejected_uncertain) { hw.state=SYNC_IO_SWITCH_DEADLINE_UNCERTAIN;
       hw.origin_before_tick=100u; hw.origin_after_tick=180u; return false; }
   if (!accept_schedule || hw.state==SYNC_IO_SWITCH_DEADLINE_ARMED ||
@@ -106,8 +121,13 @@ void sync_io_switch_realtime_service_core1(void)
 { ++backend_polls;
   if (receipts && hw.state==SYNC_IO_SWITCH_DEADLINE_ARMED &&
        (now_ns+local_offset_ns)/4u>=hw.deadline_tick) {
-      hw.state=SYNC_IO_SWITCH_DEADLINE_COMPLETE; hw.receipt_mask=1;
-      gateway_completed_sequence=hw.sequence;
+      if (window_remaining) {
+          --window_remaining; hw.sequence++; hw.deadline_tick+=window_step;
+          hw.receipt_mask=1; gateway_completed_sequence=hw.sequence;
+      } else {
+          hw.state=SYNC_IO_SWITCH_DEADLINE_COMPLETE; hw.receipt_mask=1;
+          gateway_completed_sequence=hw.sequence;
+      }
   } }
 bool sync_io_switch_realtime_status(sync_io_switch_deadline_status_t *out)
 { ++backend_snapshots; *out=hw; return true; }
@@ -241,7 +261,8 @@ int main(int argc,char **argv)
         trigger_t2_runtime_prepare_core0();
         freeze(1,1);
         assert(trigger_t2_runtime_service()==TRIGGER_T2_RUNTIME_OK);
-        assert(schedule_calls==1 && snapshot().action_group_in_flight[0]==0u);
+        assert(schedule_calls==1 && sequence_stage_calls==1 && sequence_stage_count==2u);
+        assert(snapshot().action_group_in_flight[0]==0u);
         assert(snapshot().action_completed_mask==0u && !take());
         /* Group 0 completes: the cursor advances, the position is NOT executed, and
          * the in-flight window promotes group 1 in the SAME pass (no Core0 round
@@ -253,7 +274,7 @@ int main(int argc,char **argv)
             seq.action_groups_executed==1u);
         assert(seq.action_completed_mask==0u);
         assert(!take());
-        assert(schedule_calls==2 && seq.action_group_in_flight[0]==1u);
+        assert(schedule_calls==1 && seq.action_group_in_flight[0]==1u);
         /* Core0 republishes only to carry the tick of the group after the promoted one. */
         trigger_t2_runtime_prepare_core0();
         receipts=true; now_ns=20000500u;
