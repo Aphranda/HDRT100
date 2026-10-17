@@ -1,192 +1,176 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  T2 位置多路同步循环（500 ns 网格）：SWITCH_A 切 8 通道 → SWITCH_B 切 2 极化 → GATEWAY 发 TRIG /
-  收 READY → 网分测量。每个位置 16 次测量 = 8 × 2，网分被触发 16 次、回复 16 次。
-  数值取自归档规划快照 out/archive/cold/misc/t2-multi-sync-plan-500ns-20260922/multi-sync-plan.json
-  (schema T2_MULTI_SYNC_POSITION_PLAN_500NS_V1)：grid_slice_ns 500、item 1002 slices = 501 us、
-  16 items/位置 = 8.016 ms、move 400000 slices = 200 ms、位置 416032 slices = 208.016 ms。
-  该快照为规划值，不是契约；契约在 TRIGGER_T2_ARCHITECTURE.md。
+  T2 位置多路同步循环：SWITCH_A 切 8 通道 → SWITCH_B 切 2 极化 → GATEWAY 发 TRIG / 收 READY → 网分。
+  要点：每个开关切换与每次 TRIG 都落在**预设位置**（相对该位置时间片的固定偏移），不随软件漂移；
+        图中所有时长都是**可独立配置项**，实际网分响应约 8 ms（500 ns/501 µs 只是画图预设，不是实测）。
+  规划快照参考：out/archive/cold/misc/t2-multi-sync-plan-500ns-20260922/multi-sync-plan.json
+  （T2_MULTI_SYNC_POSITION_PLAN_500NS_V1）；本图已按“响应≈8 ms”重排，数值为配置示意。
 -->
-<svg xmlns="http://www.w3.org/2000/svg" width="1520" height="1120" viewBox="0 0 1520 1120"
+<svg xmlns="http://www.w3.org/2000/svg" width="1520" height="1140" viewBox="0 0 1520 1140"
      font-family="Segoe UI, Helvetica, Arial, sans-serif">
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
             orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#33415c"/></marker>
     <style>
-      .t  { font-size: 24px; font-weight: 600; fill: #0f172a; }
-      .s  { font-size: 14px; fill: #475569; }
-      .h  { font-size: 16px; font-weight: 600; fill: #0f172a; }
-      .l  { font-size: 13px; fill: #1e293b; }
-      .m  { font-family: Consolas, 'Cascadia Mono', monospace; font-size: 12.5px; fill: #0f172a; }
-      .ms { font-family: Consolas, 'Cascadia Mono', monospace; font-size: 11.5px; fill: #334155; }
-      .n  { font-size: 11.5px; fill: #64748b; }
+      .t  { font-size: 23px; font-weight: 600; fill: #0f172a; }
+      .s  { font-size: 13.5px; fill: #475569; }
+      .h  { font-size: 15.5px; font-weight: 600; fill: #0f172a; }
+      .l  { font-size: 12.5px; fill: #1e293b; }
+      .m  { font-family: Consolas, 'Cascadia Mono', monospace; font-size: 12px; fill: #0f172a; }
+      .ms { font-family: Consolas, 'Cascadia Mono', monospace; font-size: 11px; fill: #334155; }
+      .n  { font-size: 11px; fill: #64748b; }
       .band{ fill: #f8fafc; stroke: #cbd5e1; stroke-width: 1.2; rx: 12; }
     </style>
   </defs>
 
-  <rect width="1520" height="1120" fill="#ffffff"/>
-  <text class="t" x="36" y="42">T2 位置多路同步循环（500 ns 网格）：A 切 8 通道 → B 切 2 极化 → GATEWAY TRIG/READY → 网分</text>
-  <text class="s" x="36" y="66">每个位置 16 次测量（8 通道 × 2 极化）；网分被触发 16 次、回复 16 次；每项 501 µs</text>
+  <rect width="1520" height="1140" fill="#ffffff"/>
+  <text class="t" x="34" y="38">T2 位置多路同步：A 切通道 → B 切极化 → GATEWAY TRIG/READY → 网分（全部时长可独立配置）</text>
+  <text class="s" x="34" y="60">每个位置的每次切换与每次触发都落在<strong>预设位置</strong>（相对该位置时间片的固定偏移）；网分响应实际约 8 ms</text>
 
-  <!-- ================= ① topology ================= -->
-  <rect class="band" x="36" y="84" width="1448" height="150"/>
-  <text class="h" x="56" y="112">① 三块板在一次测量项里的分工</text>
+  <!-- ============ ① topology ============ -->
+  <rect class="band" x="34" y="76" width="1452" height="132"/>
+  <text class="h" x="52" y="102">① 一次测量项里的三块板</text>
   <g>
-    <rect x="70" y="126" width="300" height="72" fill="#ffedd5" stroke="#c2410c" stroke-width="1.5" rx="8"/>
-    <text class="m" x="86" y="152" fill="#9a3412">SWITCH_A · 8 通道</text>
-    <text class="ms" x="86" y="172" fill="#9a3412">一次切 1 个通道（1..8）</text>
-    <text class="ms" x="86" y="190" fill="#9a3412">切完需 settle 500 ns</text>
+    <rect x="62" y="114" width="292" height="66" fill="#ffedd5" stroke="#c2410c" stroke-width="1.5" rx="8"/>
+    <text class="m" x="76" y="138" fill="#9a3412">SWITCH_A · 8 通道</text>
+    <text class="ms" x="76" y="156" fill="#9a3412">选 1 通道；切换时刻＝预设片</text>
+    <text class="ms" x="76" y="172" fill="#9a3412">稳定时间 t<sub>SETTLE</sub>（可配）</text>
 
-    <rect x="420" y="126" width="300" height="72" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.5" rx="8"/>
-    <text class="m" x="436" y="152" fill="#1e40af">SWITCH_B · 2 极化</text>
-    <text class="ms" x="436" y="172" fill="#1e40af">H / V 二选一</text>
-    <text class="ms" x="436" y="190" fill="#1e40af">与 A 同一时刻切换</text>
+    <rect x="372" y="114" width="292" height="66" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.5" rx="8"/>
+    <text class="m" x="386" y="138" fill="#1e40af">SWITCH_B · 2 极化</text>
+    <text class="ms" x="386" y="156" fill="#1e40af">H / V；与 A 同一预设片切换</text>
+    <text class="ms" x="386" y="172" fill="#1e40af">同一 t<sub>SETTLE</sub></text>
 
-    <rect x="770" y="126" width="360" height="72" fill="#dcfce7" stroke="#15803d" stroke-width="1.5" rx="8"/>
-    <text class="m" x="786" y="152" fill="#166534">GATEWAY · TRIG / READY</text>
-    <text class="ms" x="786" y="172" fill="#166534">TRIG 脉冲（1 µs）→ 网分开始扫描</text>
-    <text class="ms" x="786" y="190" fill="#166534">READY 上升沿 → 本次测量完成</text>
+    <rect x="682" y="114" width="352" height="66" fill="#dcfce7" stroke="#15803d" stroke-width="1.5" rx="8"/>
+    <text class="m" x="696" y="138" fill="#166534">GATEWAY · TRIG / READY</text>
+    <text class="ms" x="696" y="156" fill="#166534">TRIG 脉宽 t<sub>TRIG</sub>（可配）</text>
+    <text class="ms" x="696" y="172" fill="#166534">READY 等待窗 t<sub>READY</sub>（可配）</text>
 
-    <rect x="1180" y="126" width="270" height="72" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" rx="8"/>
-    <text class="m" x="1196" y="152" fill="#334155">网分（外部仪器）</text>
-    <text class="ms" x="1196" y="172">扫描 450 µs</text>
-    <text class="ms" x="1196" y="190">反馈窗 50 µs</text>
+    <rect x="1052" y="114" width="410" height="66" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" rx="8"/>
+    <text class="m" x="1066" y="138" fill="#334155">网分（外部仪器）</text>
+    <text class="ms" x="1066" y="156">响应时间 t<sub>VNA</sub> ≈ 8 ms（可配，实际值）</text>
+    <text class="ms" x="1066" y="172">每次测量 1 次 TRIG、1 次回复</text>
   </g>
-  <g class="ms" fill="#64748b">
-    <text x="360" y="166">→</text>
-    <text x="712" y="166">→</text>
-    <text x="1122" y="166">→</text>
-  </g>
-  <text class="n" x="56" y="220">16 次测量 = 8 × 2；每次都要 A 定通道、B 定极化、GATEWAY 发一次 TRIG 并等到一次 READY。</text>
+  <text class="n" x="52" y="196">16 次测量 = 8 通道 × 2 极化；每次都要 A 定通道、B 定极化、GATEWAY 发一次 TRIG 并等到一次 READY。通道数/极化数同样可配。</text>
 
-  <!-- ================= ② scan level ================= -->
-  <rect class="band" x="36" y="248" width="1448" height="150"/>
-  <text class="h" x="56" y="276">② 扫描级：位置之间（测量矩阵 8.016 ms + 转台移动 200 ms）</text>
-  <line x1="70" y1="356" x2="1450" y2="356" stroke="#94a3b8" stroke-width="2" marker-end="url(#a)"/>
-  <g>
-    <rect x="86" y="310" width="300" height="38" fill="#ffedd5" stroke="#c2410c" stroke-width="1.4" rx="6"/>
-    <text class="m" x="96" y="335" fill="#9a3412">P1 矩阵 8.016 ms（16 项）</text>
-    <rect x="392" y="310" width="300" height="38" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1.2" rx="6"/>
-    <text class="m" x="402" y="335" fill="#475569">转台移动 200 ms</text>
-    <rect x="698" y="310" width="300" height="38" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.4" rx="6"/>
-    <text class="m" x="708" y="335" fill="#1e40af">P2 矩阵 8.016 ms（16 项）</text>
-    <rect x="1004" y="310" width="300" height="38" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1.2" rx="6"/>
-    <text class="m" x="1014" y="335" fill="#475569">转台移动 200 ms</text>
-    <rect x="1310" y="310" width="130" height="38" fill="#dcfce7" stroke="#15803d" stroke-width="1.4" rx="6"/>
-    <text class="m" x="1318" y="335" fill="#166534">P3 8.016 ms</text>
+  <!-- ============ ② config panel ============ -->
+  <rect class="band" x="34" y="220" width="1452" height="176"/>
+  <text class="h" x="52" y="246">② 可独立配置项（图中所有时长都来自这些参数，没有硬编码）</text>
+  <g class="ms">
+    <text x="56"  y="272">t<sub>SETTLE</sub>   开关稳定（A/B 共用或各自配）</text>
+    <text x="56"  y="294">t<sub>LEAD</sub>     切换 → TRIG 的固定提前量</text>
+    <text x="56"  y="316">t<sub>TRIG</sub>     TRIG 脉宽（GATEWAY 的 pulse width 字）</text>
+    <text x="56"  y="338">t<sub>VNA</sub>      网分响应（≈8 ms，本图按此排布）</text>
+    <text x="56"  y="360">t<sub>READY</sub>    READY 等待窗（超时＝该项失败）</text>
+    <text x="56"  y="382">t<sub>MOVE</sub>     位置之间的转台移动</text>
+
+    <text x="700" y="272">N<sub>CH</sub>       通道数（默认 8）</text>
+    <text x="700" y="294">N<sub>POL</sub>      极化数（默认 2）</text>
+    <text x="700" y="316">N<sub>ITEM</sub>    每位置测量项 = N<sub>CH</sub> × N<sub>POL</sub> = 16</text>
+    <text x="700" y="338">T<sub>GRID</sub>     网格片（500 ns 仅作画图预设，可配）</text>
+    <text x="700" y="360">Δ<sub>ITEM</sub>    相邻两项间隔 = t<sub>SETTLE</sub>+t<sub>LEAD</sub>+t<sub>VNA</sub>+t<sub>READY</sub></text>
+    <text x="700" y="382">Δ<sub>POS</sub>     位置间隔 = N<sub>ITEM</sub>·Δ<sub>ITEM</sub> + t<sub>MOVE</sub></text>
+  </g>
+  <text class="n" x="56" y="404" >约定：这些值一起决定组表里的 delay；改任意一项只影响排布，不改执行器代码。</text>
+
+  <!-- ============ ③ item timing (parameterised) ============ -->
+  <rect class="band" x="34" y="410" width="900" height="286"/>
+  <text class="h" x="52" y="436">③ 单项时序（参数化；按 t<sub>VNA</sub>≈8 ms 画）</text>
+  <line x1="66" y1="512" x2="904" y2="512" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <line x1="110" y1="470" x2="110" y2="534" stroke="#c2410c" stroke-width="2.6"/>
+  <text class="m" x="74" y="458" fill="#9a3412">预设片：A/B 切换</text>
+  <rect x="110" y="494" width="70" height="16" fill="#ffedd5" stroke="#c2410c" stroke-width="1.2" rx="3"/>
+  <text class="ms" x="118" y="506" fill="#9a3412">t<sub>SETTLE</sub></text>
+
+  <line x1="196" y1="470" x2="196" y2="534" stroke="#15803d" stroke-width="2.6"/>
+  <text class="m" x="164" y="458" fill="#166534">预设片：TRIG↑</text>
+  <rect x="180" y="494" width="34" height="16" fill="#dcfce7" stroke="#15803d" stroke-width="1.2" rx="3"/>
+  <text class="ms" x="184" y="506" fill="#166534">t<sub>TRIG</sub></text>
+
+  <rect x="214" y="494" width="470" height="16" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.3" rx="4"/>
+  <text class="ms" x="368" y="506" fill="#1e40af">t<sub>VNA</sub> ≈ 8 ms（网分响应/扫描）</text>
+
+  <rect x="684" y="494" width="120" height="16" fill="#dcfce7" stroke="#15803d" stroke-width="1.3" rx="4"/>
+  <text class="ms" x="694" y="506" fill="#166534">t<sub>READY</sub> 窗</text>
+
+  <line x1="804" y1="470" x2="804" y2="534" stroke="#33415c" stroke-width="2.2"/>
+  <text class="m" x="768" y="458">项结束 ⇒ 下一项</text>
+
+  <g class="l">
+    <text x="56" y="556">Δ<sub>ITEM</sub> = t<sub>SETTLE</sub> + t<sub>LEAD</sub> + t<sub>VNA</sub> + t<sub>READY</sub></text>
+    <text x="56" y="578">按 t<sub>VNA</sub> ≈ 8 ms 推算：Δ<sub>ITEM</sub> ≈ 8.05 ms；16 项 ≈ 128.8 ms；加 t<sub>MOVE</sub>=200 ms ⇒ 位置 ≈ 328.8 ms</text>
+    <text x="56" y="600">15 项之后进入移动窗口：移动期**不排任何动作**（安装期校验拒绝落在移动窗口里的组）</text>
+    <text x="56" y="622" class="n">切换与 TRIG 都是“预设位置”：相对该位置时间片的固定片偏移；READY 是证据时刻，允许落在网格之间，不向网格对齐。</text>
   </g>
   <g class="ms">
-    <text x="86"   y="374">t=0</text>
-    <text x="392"  y="374">+8.016 ms</text>
-    <text x="698"  y="374">+208.016 ms</text>
-    <text x="1004" y="374">+216.032 ms</text>
-    <text x="1310" y="374">+416.032 ms</text>
+    <text x="560" y="556">q<sub>REQ</sub>  触发象限（未用）</text>
+    <text x="560" y="578">active</text>
+    <text x="560" y="600">T2:ACTion? 组进度</text>
+    <text x="560" y="622">rx_local_tick（受理戳）</text>
   </g>
 
-  <!-- ================= ③ 16 items ================= -->
-  <rect class="band" x="36" y="408" width="1448" height="180"/>
-  <text class="h" x="56" y="436">③ 一个位置内部：16 项循环（每项 = A 通道 + B 极化 + 一次 TRIG/READY）</text>
+  <!-- ============ ④ 16 items ============ -->
+  <rect class="band" x="952" y="410" width="534" height="286"/>
+  <text class="h" x="970" y="436">④ 一个位置的 16 项（ch1·H … ch8·V）</text>
   <g>
-    <rect x="70" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="158" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="246" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="334" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="422" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="510" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="598" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="686" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="774" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="862" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="950" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="1038" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="1126" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="1214" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="1302" y="452" width="84" height="50" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="5"/>
-    <rect x="1390" y="452" width="84" height="50" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.7" rx="5"/>
+    <rect x="970" y="452" width="60" height="44" fill="#ffedd5" stroke="#c2410c" stroke-width="1.2" rx="4"/>
+    <rect x="1032" y="452" width="60" height="44" fill="#ffedd5" stroke="#c2410c" stroke-width="1.2" rx="4"/>
+    <rect x="1094" y="452" width="60" height="44" fill="#ffedd5" stroke="#c2410c" stroke-width="1.2" rx="4"/>
+    <rect x="1156" y="452" width="60" height="44" fill="#ffedd5" stroke="#c2410c" stroke-width="1.2" rx="4"/>
+    <rect x="1218" y="452" width="60" height="44" fill="#ffedd5" stroke="#c2410c" stroke-width="1.2" rx="4"/>
+    <rect x="1280" y="452" width="60" height="44" fill="#ffedd5" stroke="#c2410c" stroke-width="1.2" rx="4"/>
+    <rect x="1342" y="452" width="60" height="44" fill="#ffedd5" stroke="#c2410c" stroke-width="1.2" rx="4"/>
+    <rect x="1404" y="452" width="60" height="44" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.6" rx="4"/>
   </g>
   <g class="ms">
-    <text x="76"   y="472">it0</text><text x="76"   y="490">ch1·H</text>
-    <text x="164"  y="472">it1</text><text x="164"  y="490">ch1·V</text>
-    <text x="252"  y="472">it2</text><text x="252"  y="490">ch2·H</text>
-    <text x="340"  y="472">it3</text><text x="340"  y="490">ch2·V</text>
-    <text x="428"  y="472">it4</text><text x="428"  y="490">ch3·H</text>
-    <text x="516"  y="472">it5</text><text x="516"  y="490">ch3·V</text>
-    <text x="604"  y="472">it6</text><text x="604"  y="490">ch4·H</text>
-    <text x="692"  y="472">it7</text><text x="692"  y="490">ch4·V</text>
-    <text x="780"  y="472">it8</text><text x="780"  y="490">ch5·H</text>
-    <text x="868"  y="472">it9</text><text x="868"  y="490">ch5·V</text>
-    <text x="956"  y="472">it10</text><text x="956"  y="490">ch6·H</text>
-    <text x="1044" y="472">it11</text><text x="1044" y="490">ch6·V</text>
-    <text x="1132" y="472">it12</text><text x="1132" y="490">ch7·H</text>
-    <text x="1220" y="472">it13</text><text x="1220" y="490">ch7·V</text>
-    <text x="1308" y="472">it14</text><text x="1308" y="490">ch8·H</text>
-    <text x="1396" y="472">it15</text><text x="1396" y="490">ch8·V</text>
+    <text x="976" y="470">it0</text><text x="976" y="486">ch1·H</text>
+    <text x="1038" y="470">it1</text><text x="1038" y="486">ch1·V</text>
+    <text x="1100" y="470">it2</text><text x="1100" y="486">ch2·H</text>
+    <text x="1162" y="470">it3</text><text x="1162" y="486">ch2·V</text>
+    <text x="1224" y="470">…</text><text x="1224" y="486">…</text>
+    <text x="1286" y="470">it14</text><text x="1286" y="486">ch8·H</text>
+    <text x="1348" y="470">it15</text><text x="1348" y="486">ch8·V</text>
+    <text x="1410" y="470">→ 移动</text>
   </g>
   <g class="l">
-    <text x="70" y="526">每项 1002 slices = 501 µs；16 项 = 16032 slices = 8.016 ms；每项 1 次 TRIG、1 次 READY ⇒ 每个位置 16 次触发、16 次回复</text>
-    <text x="70" y="548">A 每 2 项加 1 个通道；B 在 H/V 之间交替 —— 这就是序列表里相邻两组 code 的差</text>
-    <text x="70" y="570" class="n">it15 之后（黄框）矩阵结束，进入 200 ms 转台移动；移动期不得有任何动作目标</text>
+    <text x="970" y="524">A 每 2 项加 1 通道；B 在 H/V 交替</text>
+    <text x="970" y="546">⇒ 相邻两组 code 的差 = A 通道位段或</text>
+    <text x="970" y="566">B 极化位；delay 恒为 Δ<sub>ITEM</sub>−预算</text>
+    <text x="970" y="592">每位置固定 16 次 TRIG / 16 次 READY，</text>
+    <text x="970" y="612">一一对应；少一次＝位置不完整，多一次＝不确定</text>
+    <text x="970" y="638" class="n">（黄框＝最后一项，之后进入移动窗口）</text>
   </g>
 
-  <!-- ================= ④ single item ================= -->
-  <rect class="band" x="36" y="600" width="930" height="330"/>
-  <text class="h" x="56" y="628">④ 单项 501 µs：A/B 切换 → TRIG → 扫描 → READY</text>
-  <line x1="70" y1="700" x2="930" y2="700" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#a)"/>
-
-  <line x1="120" y1="660" x2="120" y2="720" stroke="#c2410c" stroke-width="2.6"/>
-  <text class="m" x="86" y="648" fill="#9a3412">t=0 A/B 切换</text>
-  <text class="ms" x="76"  y="740" fill="#9a3412">SWITCH_A ← 通道码（8 选 1）</text>
-  <text class="ms" x="76"  y="758" fill="#1e40af">SWITCH_B ← 极化码（H/V）</text>
-  <text class="n"  x="76"  y="776">settle 500 ns + margin 500 ns</text>
-
-  <line x1="196" y1="660" x2="196" y2="720" stroke="#15803d" stroke-width="2.6"/>
-  <text class="m" x="168" y="648" fill="#166534">+1 µs TRIG↑</text>
-  <text class="ms" x="150" y="796">GATEWAY 发 TRIG 脉冲（1 µs）</text>
-
-  <rect x="196" y="682" width="560" height="18" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.3" rx="4"/>
-  <text class="ms" x="330" y="696" fill="#1e40af">网分扫描 450 µs</text>
-
-  <rect x="756" y="682" width="120" height="18" fill="#dcfce7" stroke="#15803d" stroke-width="1.3" rx="4"/>
-  <text class="ms" x="762" y="696" fill="#166534">READY 窗 50 µs</text>
-  <line x1="876" y1="660" x2="876" y2="720" stroke="#15803d" stroke-width="2.6"/>
-  <text class="m" x="812" y="648" fill="#166534">+501 µs 项结束</text>
-  <text class="ms" x="700" y="740" fill="#166534">READY 上升沿 = 本次测量完成</text>
-
-  <g class="l">
-    <text x="70" y="830">网格 500 ns：切换落在 switch_q_offset = k×1002 的整数片；TRIG 在 +2 片（1 µs）；扫描到 +902 片（451 µs）；</text>
-    <text x="70" y="852">READY 截止在 +1002 片。q mod 2000 == 1999 的片不安排动作目标；实际 READY 也不向网格对齐——</text>
-    <text x="70" y="874">“计划时刻”与“证据时刻”是两个量，不能互相替代。</text>
-    <text x="70" y="902" class="n">READY 缺失 ⇒ 该项失败（不重试、不把下一项当作已执行）；READY 重复 ⇒ 该项不确定。</text>
-  </g>
-
-  <!-- ================= ⑤ mapping ================= -->
-  <rect class="band" x="984" y="600" width="500" height="330"/>
-  <text class="h" x="1004" y="628">⑤ 落到实现（本仓库已提交的路径）</text>
+  <!-- ============ ⑤ mapping ============ -->
+  <rect class="band" x="34" y="704" width="1452" height="192"/>
+  <text class="h" x="52" y="730">⑤ 落到实现（已提交的路径 + 仍需完成的一步）</text>
   <g class="ms">
-    <text x="1004" y="656">组表：16 组 × [code, delay]</text>
-    <text x="1004" y="678">A/B 两个 SM 各取 code 的位段</text>
-    <text x="1004" y="700">GATEWAY：脉宽字 + delay（TRIG）</text>
-    <text x="1004" y="722">delay₀ = (base − now) − 5</text>
-    <text x="1004" y="744">delayₖ = 501 µs − 7（指令预算）</text>
-    <text x="1004" y="766">base = 该位置的时间片（共同轴）</text>
-    <text x="1004" y="788">stage_sequence() 一次交出 16 组</text>
-    <text x="1004" y="810">FIFO 4 字 = 2 组在飞，排空续填</text>
-    <text x="1004" y="832">组 k 回执 ⇒ completed_sequence = base+k</text>
+    <text x="56"  y="756">组表：16 组 × [code, delay]（code 含 A 通道位段 / B 极化位）</text>
+    <text x="56"  y="778">delay₀ = (base − now) − 5；delayₖ = Δ<sub>ITEM</sub> − 7（指令预算，见 sync_io_sequence_plan.c）</text>
+    <text x="56"  y="800">base = 该位置时间片（共同时间轴）；所有切换/触发都由此派生 ⇒ “预设位置”</text>
+    <text x="56"  y="822">stage_sequence() 一次交出整条序列；FIFO 4 字＝2 组在飞，排空续填</text>
+    <text x="56"  y="844">GATEWAY：脉宽字 t<sub>TRIG</sub> + delay；READY 由 GATEWAY 单独捕获并计数</text>
   </g>
-  <g class="l">
-    <text x="1004" y="862">续填只决定“还有没有下一组”，不决定</text>
-    <text x="1004" y="882">“下一组何时切”——后者由表里的 delay</text>
-    <text x="1004" y="902">与 PIO tick 计数决定。</text>
+  <g class="ms">
+    <text x="800" y="756">已提交：sync_io_sequence_plan / stage_sequence / 三组宿主用例</text>
+    <text x="800" y="778">已提交：接收时间戳 rx_local_tick / rx_stale_count（台架 stamps≈14.5k, stale 0）</text>
+    <text x="800" y="800">待完成：runtime 一次交出 N 组（“已交出窗口” s_group_handed）</text>
+    <text x="800" y="822">待完成：GATEWAY 侧 stage_sequence 同构（脉宽版）</text>
+    <text x="800" y="844">待完成：单板台架实测 Δ<sub>ITEM</sub> / TRIG→READY 对齐</text>
   </g>
+  <text class="n" x="56" y="874">证据口径：图上的时长是配置与推算；验收必须用台架实测（单板间隔 + 四板链），二者不得混用。</text>
 
-  <!-- ================= legend ================= -->
-  <rect class="band" x="36" y="948" width="1448" height="150"/>
-  <text class="h" x="56" y="976">不变量（每条都要有证据，不能只写在图上）</text>
+  <!-- ============ legend ============ -->
+  <rect class="band" x="34" y="906" width="1452" height="196"/>
+  <text class="h" x="52" y="932">不变量</text>
   <g class="l">
-    <text x="56" y="1000">1. 每项“A/B 切换 → TRIG”固定 1 µs（2 片）；错位即该项失败，不重试。</text>
-    <text x="56" y="1022">2. 每位置 16 次 TRIG、16 次 READY，一一对应；少一次则该位置不完整，多一次则该位置不确定。</text>
-    <text x="56" y="1044">3. 相邻两项间隔 501 µs 由组表 delay 决定（宿主已断言）；位置间 200 ms 移动期不得编排动作。</text>
-    <text x="56" y="1066">4. 本图数值来自归档规划快照（`T2_MULTI_SYNC_POSITION_PLAN_500NS_V1`）：500 ns 片、501 µs 项、8.016 ms 矩阵、208.016 ms/位置、16 项/位置。</text>
-    <text x="56" y="1086" class="n">实测值必须来自台架（单板间隔测量 + 四板链），不得把规划值写进验收结论。</text>
+    <text x="52" y="956">1. 切换与 TRIG 落在“预设位置”：相对 base 的固定片偏移，任何软件延迟都不得改变它们的相对间隔。</text>
+    <text x="52" y="978">2. 改任一配置项（t<sub>SETTLE</sub>/t<sub>LEAD</sub>/t<sub>TRIG</sub>/t<sub>VNA</sub>/t<sub>READY</sub>/t<sub>MOVE</sub>/N<sub>CH</sub>/N<sub>POL</sub>）只改排布，不改执行器代码。</text>
+    <text x="52" y="1000">3. 每位置 16 次 TRIG、16 次 READY 一一对应；缺一＝不完整，多一＝不确定，均不得计入“已完成”。</text>
+    <text x="52" y="1022">4. 移动窗口内不得有动作目标；序列安装时校验，越界即拒绝（不靠运行期纠正）。</text>
+    <text x="52" y="1044">5. READY 是证据时刻，允许落在网格之间；不得为了“对齐好看”而把它吸附到网格。</text>
+    <text x="52" y="1066" class="n">参考：T2_MULTI_SYNC_POSITION_PLAN_500NS_V1（归档规划快照，500 ns/501 µs 为当时画图预设）；本图按“t_VNA≈8 ms”重排。</text>
+    <text x="52" y="1088" class="n">契约：docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md §T2-SEQ-TRANSPORT；执行器：components/sync_io/src/sync_io_sequence_plan.c</text>
   </g>
 </svg>
