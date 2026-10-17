@@ -12,6 +12,17 @@ Last updated: 2026-10-17
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261017-025：借鉴 node-sequence 分支定下组序列通道（DMA 喂 FIFO），并修正 SWITCH 链式预算常数
+
+- **借鉴结论（先读代码，再决定）**：`origin/feature/node-sequence-reservation-trigger` 的序列能力是**边沿驱动**（`docs/trigger/TRIGGER_SEQ_STEP_DESIGN.md`：每个 `TRIG_IN` 上升沿按编码表步进一位；`sync_io_sequence.pio` 是 ingress + 状态机），与 T2 的**时间调度**不同源，不能直接搬。可借的是**执行面形态**：
+  1. **表驱动 + DMA 喂 PIO 的 TX FIFO**：`sync_io_sequence.c` 用 `channel_config_set_dreq(pio_get_dreq(SM,true))` + `read_increment` over `s_plan` + `chain_to` 重载（`DMA_SLOTS 5`）；
+  2. **plan 一致性**：`plan` 带 `id/generation/count/crc`（`trigger_sequence_config.h`）；
+  3. **有限配额**：`max_steps` + PIO 内 `jmp y--` 到永久 park（`sequence_finite_ingress`）；
+  4. **结果码枚举**：`trigger_sequence_service_result_t` 12 项。
+- **由此修正设计（写进架构）**：组序列不再靠软件逐组 `pio_sm_put`（"两字/触发"后 FIFO 只容 **2 组**，第 3 组又回到软件时序），改为**DMA 按 TX DREQ 喂同一份组表**（元素 `[code/width, delay_ticks]`，delay 为与上一组边沿的间隔）。组数上限改由 RAM 决定，软件只在换表时介入。见 `TRIGGER_T2_ARCHITECTURE.md` §「T2-SEQ-TRANSPORT」。
+- **SWITCH 链式常数修正（本轮）**：按 `sync_switch.pio` 逐条数指令推得 `next_edge = prev_edge + 6 + 1 + X`，故队列触发的 delay 应为 `delta − 7`（此前写 8，提前 1 拍）。已改 `components/sync_io/src/sync_io_switch.c` 并注明推导，测试 28 passed、构建绿。
+- **GATEWAY 深度 2 仍卡在同一处**：新程序下"脉宽精确 250 周期"断言不过（`fall−rise ≠ 250`；结合 `pc=13` 现象，怀疑 mock 里 `out y` 与 `pull` 的取字顺序/相位仍与固件不一致）。已二度回退，`test_sync_io_gateway + test_sync_io_switch` **76 passed**，树内只保留 SWITCH 的 `−7` 修正。下次应按 `T2-SEQ-TRANSPORT` 直接上 DMA 组表，而不是继续在 2 深队列上磨 gateway。
+
 ### T2-PROGRESS-20261017-024：接收时间戳落地（语义/落点/台架证据），P3 再次通过
 
 - **语义（写进头文件，不靠口头约定）**：`trigger_t2_runtime.h` 新增 `rx_local_tick`＝本板**受理**位置记录那一刻的本地 TIMER1 tick，由本地 `action_cursor` 经**与 deadline 相同的 DCO/TIMER1 换算**投影得到（不读额外时钟、不伪造）；`rx_local_sample_seq`＝该时刻的本地 coarse 网格号；`rx_timestamp_count`＝已打戳受理次数；`rx_stale_count`＝**受理时该记录 deadline 已过去**的次数（"别把旧接收时间戳套进新模型"的可观测形式）。注释明确区分：这**不是**传输车道的到达时刻（那个在 `distributed_refmem`）。
