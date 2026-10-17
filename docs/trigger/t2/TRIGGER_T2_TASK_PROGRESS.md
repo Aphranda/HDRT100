@@ -12,6 +12,17 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-040：`NO_PLAN` 的两个来源已定位到代码行，下一步只需读两个现成计数
+
+- **代码定位**（`components/sync_trigger/src/trigger_t2_runtime.c`）：
+  1. **FREEZE 路径**（~L974）：`!plan->prediction_version || plan->prediction_version <= s_slot_floor[index]` ⇒ `action_fail(NO_PLAN)`，并 `freeze_missing_local_count++ / freeze_mismatch_count++`；
+  2. **抢占/选择路径**（~L1228）：`!plan->prediction_version` ⇒ `NO_PLAN`；`plan->action_q <= cursor` ⇒ `LATE`；会话/网格不符 ⇒ `EXPIRED`。
+- **为什么只怀疑第 1 条**：本轮 166 个失败位置里 `LATE=0 / EXPIRED=0 / CONFLICT=0 / BACKEND=0`，只有 `NO_PLAN=166`；而"每位置 2 组"会把同一位置的占位窗口拉长（占位地板 `s_slot_floor` 在执行中推进），于是下一个位置的计划版本可能刚好等于地板 ⇒ 被判"没有计划"。这条与"单组 169/169 全过、双组只有 6 个走完"完全吻合。
+- **下轮先读现成计数**（无需改固件）：`TRIGger:REServation:T2?` 的 prefix 里已经有 `freeze_mismatch_count / freeze_fallback_count / freeze_missing_local_count`。
+  - 若 `freeze_missing_local_count` 增长 ⇒ 本地根本没解出计划（模板 2 行时的 solve 问题）；
+  - 若只有 `freeze_mismatch_count` 增长 ⇒ 就是"地板/版本"语义问题，修法是把地板比较改成"同一位置窗口内不推进"，或让 `s_slot_floor` 只在**位置收尾**时推进。
+- **修好后复验目标**：`executed → 169`、`NO_PLAN → 0`、`origin_late_count` 只增不减但不影响执行。
+
 ### T2-PROGRESS-20261018-039：开关双组窗口**开始执行了**（executed 0→6），限制点前移到 `NO_PLAN`
 
 - **拿到实测数字**（上一轮的仪器）：`span=497~544 拍`、`bound=128 拍`（`256 ns × 组数`）。即双组武装的真实代价是 **~2 µs**（4 次 `pio_sm_put` + `pio_enable_sm_mask_in_sync`），远大于单组预算 64 拍。
