@@ -72,11 +72,15 @@ Last updated: 2026-10-10
 
 ### A-01：T2 位置帧覆盖已排队的 VDC image
 
-`distributed_refmem_tdma_flight_sync_publish()` 在 `position_publication && fifo.tx_ready_count != 0u` 时，调用 `tdma_flight_fifo_core0_patch_tx_ready()`，把整个 compact mailbox 覆盖到 CORE0_READY 槽里的普通 VDC 状态 image 上。被覆盖的包括 class 字节和 seq 字段。这条路径来自 `2953ad0c`/`03e058d5`，目前仍有效。
+历史描述（保留作记录）：`distributed_refmem_tdma_flight_sync_publish()` 曾在 `position_publication && fifo.tx_ready_count != 0u` 时调用 `tdma_flight_fifo_core0_patch_tx_ready()`，把整个 compact mailbox 覆盖到 CORE0_READY 槽里的普通 VDC 状态 image 上（含 class 与 seq 字段）。这条路径来自 `2953ad0c`/`03e058d5`。
 
-评审期间，工作区曾出现过一版用 `if (0u && ...)` 关闭该路径、并去掉 `!resident_master` 的未提交改动，但它没有进入 `7ff68367`，当前 HEAD 中也已不存在。
+**现状修正（2026-10-16 复核；三处独立证据一致）**：该路径**已删除、全库无调用者** ——
+`TRIGGER_T2_STEP_REVIEW.md:63`（「全库无 `tdma_flight_fifo_core0_patch_tx_ready` / `tdma_service_patch_flight_tx_ready` 调用」，状态"已闭环"）、
+`TDMA_TASK_PROGRESS.md:503`（「删除 `tdma_flight_fifo_core0_patch_tx_ready` 与 `tdma_service_patch_flight_tx_ready`」）、
+`TDMA_DOMAIN_ARCHITECTURE.md:153`（「改写已排队 VDC image 的补丁路径…作废删除」）。
+⇒ 位置发布**不再**覆盖已排队镜像；origin 启用特等 provider 时，特等与一等**都只走快速路径**，普通 flight FIFO 不参与 origin 的座位发布。本行早前"目前仍有效"的结论**作废**（该结论会误导"T2 可抢占已排队镜像"）。
 
-相关遗留：`tdma_flight_fifo.c:210` 中的 patch 实现，以及 `tdma_service_patch_flight_tx_ready()`（`tdma_service.c:2157`，已无调用者）。RefMem 绕过 service API，直接访问 `owner->flight_fifo`。
+评审期间，工作区曾出现过一版用 `if (0u && ...)` 关闭该路径、并去掉 `!resident_master` 的未提交改动，但它没有进入 `7ff68367`。
 
 关于 `!resident_master`：`DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED` 默认为 0（`distributed_refmem.h:18`），此时 `resident_master` 恒为 false，这个条件挡不住 NO1。如果日后启用 VDC command 运输并去掉该条件，position 在 class 三元表达式中的优先级高于 `VDC_COMMAND`，会顶替 VDC 命令分片，违反 VDC 优先（读码）。
 
