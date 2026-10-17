@@ -4,13 +4,19 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20261018-028：定位“交出一整条序列后 service 非 OK”的根因（runtime 的身份检查），并补齐计划构建的拒绝路径用例
+
+- **根因（代码定位，`trigger_t2_runtime.c:1137`）**：`service_deadlines()` 用**单一** sequence 做身份检查——`sequence != s_state.action_sequence[index]` 或 `deadline != s_deadline[index].deadline_tick` 即判 `BACKEND` 失败。一次交出 N 组后，第 0 组完成时后端把 `status.sequence` 推进到 **base+1**（下一组已 armed），而 runtime 只记了 base ⇒ 判身份不符 ⇒ `action_fail(BACKEND)` ⇒ `service()` 非 OK。这是三次尝试都停在“组 0 完成那次 service”的真实原因（此前只是推测）。
+- **正确修法（下轮实施）**：把“已交出窗口”记成区间 `[base, base+N−1]`；`service_deadlines` 接受窗口内任一 sequence，并把“sequence 前进一格”解释为“上一组完成、下一组已在硬件”，据此推进 `s_group_next/armed` 而**不再 arm**；只有落在窗口外才走现有 BACKEND 失败路径。
+- **本轮落地（可验证的小步）**：执行器的计划构建补**拒绝路径**用例（此前只测成功路径）：非单调偏移、间隔小于指令预算（0,5）、组 0 偏移不为 0、基点已过——四种都必须返回 false 且**不留半装载的管道**（断言 `ctrl` 未使能、TX FIFO 空、无引脚写）。`test_sync_io_switch + test_sync_io_sequence_plan` **28 passed**，构建绿。
 
 ### T2-PROGRESS-20261017-026：序列执行接线（`stage_sequence` + 排空续填）与三位置序列流图
 
