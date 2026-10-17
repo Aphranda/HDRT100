@@ -65,6 +65,12 @@ void sync_io_gateway_realtime_service_core1(void);
  * Origin interval is bounded to ORIGIN_MAX_NS; a failed late cancellation is
  * UNCERTAIN. No interrupt masking, DMA, wait or target-time polling. */
 bool sync_io_gateway_realtime_schedule_at(uint32_t pulse_ns,uint64_t deadline_tick);
+/* Group sequence on the SHARED timeline: one call accepts the whole action table for the
+ * position (`pulse_ns[i]` and `delta_ticks[i]` = group i's pulse width and its offset from the
+ * base tick). The first trigger is armed immediately; every following group is armed at its own
+ * absolute tick when the previous pulse completes, so the spacing is the table's. */
+bool sync_io_gateway_realtime_stage_sequence(uint64_t base_deadline_tick,
+    const uint32_t *pulse_ns,const uint64_t *delta_ticks,uint32_t count);
 bool sync_io_gateway_realtime_status(sync_io_gateway_deadline_status_t *out);
 bool sync_io_gateway_realtime_cancel(void);
 #endif

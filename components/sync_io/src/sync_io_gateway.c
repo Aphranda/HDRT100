@@ -40,6 +40,15 @@ static bool s_ready_active;
 static uint32_t s_ready_collision_count;
 static uint32_t s_ready_margin_min_ticks;
 static sync_io_gateway_deadline_status_t s_deadline;
+/* Whole action table of the position currently running (SYNC-SCHED-001). Small on purpose: the
+ * gateway fires one pulse at a time, so it only needs the groups that are still ahead of it. */
+#define GATEWAY_PLAN_MAX 16u
+typedef struct {
+    uint64_t deadline_tick;
+    uint32_t pulse_ns;
+} gateway_plan_group_t;
+static gateway_plan_group_t s_plan[GATEWAY_PLAN_MAX];
+static uint32_t s_plan_count, s_plan_next;
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define GATEWAY_HOT(name) __scratch_y("t2_gateway_deadline") name
 #else
@@ -291,6 +300,7 @@ static bool prepare_realtime(uint32_t pulse_ns)
 
 bool sync_io_gateway_realtime_fire(uint32_t pulse_ns)
 {
+    s_plan_count=0u;s_plan_next=0u;
     if(!prepare_realtime(pulse_ns))return false;
     pio_sm_put(GATEWAY_PIO,OUTPUT_SM,0u);
     pio_enable_sm_mask_in_sync(GATEWAY_PIO,GATEWAY_SM_MASK);
@@ -316,6 +326,15 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
         s_deadline.completed_sequence=receipt;
         if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_ARMED)
             s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_COMPLETE;
+        /* Next group of the staged table: armed now, at its own absolute tick, so the spacing
+         * between pulses is decided by the table rather than by this service pass. */
+        if(s_plan_next<s_plan_count) {
+            const gateway_plan_group_t group=s_plan[s_plan_next++];
+            if(!sync_io_gateway_realtime_schedule_at(group.pulse_ns,group.deadline_tick)) {
+                s_plan_count=0u;s_plan_next=0u;
+                s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
+            }
+        } else s_plan_count=0u;
     }
     /* One READY per transaction; continue after the pulse completion. */
     if(s_ready_active && !pio_sm_is_rx_fifo_empty(GATEWAY_PIO,READY_SM)) {
@@ -359,6 +378,32 @@ bool __not_in_flash_func(sync_io_gateway_realtime_schedule_at)(uint32_t pulse_ns
     ++s_gateway.trigger_count;s_ready_active=true;
     __atomic_store_n(&s_realtime_pending,1u,__ATOMIC_RELEASE);
     s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_ARMED;
+    return true;
+}
+
+/* Accept the whole action table of one position. The groups' absolute ticks were solved on the
+ * shared timeline, so this call does not need to know the action period. */
+bool __not_in_flash_func(sync_io_gateway_realtime_stage_sequence)(uint64_t base_deadline_tick,
+    const uint32_t *pulse_ns,const uint64_t *delta_ticks,uint32_t count)
+{
+    if(get_core_num()!=1u || !s_lease || count==0u || count>GATEWAY_PLAN_MAX ||
+        pulse_ns==NULL || delta_ticks==NULL || delta_ticks[0]!=0u) return false;
+    for(uint32_t i=1u;i<count;++i)
+        if(delta_ticks[i]<=delta_ticks[i-1u]) return false;
+    /* Refuse before touching the backend: a rejected table must not leave a half-armed pulse. */
+    if(s_plan_count || s_ready_active) return false;
+    for(uint32_t i=0u;i<count;++i) {
+        if(pulse_ns[i]==0u) return false;
+        if(base_deadline_tick>UINT64_MAX-delta_ticks[i]) return false;
+        s_plan[i].pulse_ns=pulse_ns[i];
+        s_plan[i].deadline_tick=base_deadline_tick+delta_ticks[i];
+    }
+    s_plan_count=count;s_plan_next=0u;
+    const gateway_plan_group_t first=s_plan[s_plan_next++];
+    if(!sync_io_gateway_realtime_schedule_at(first.pulse_ns,first.deadline_tick)) {
+        s_plan_count=0u;s_plan_next=0u;
+        return false;
+    }
     return true;
 }
 
