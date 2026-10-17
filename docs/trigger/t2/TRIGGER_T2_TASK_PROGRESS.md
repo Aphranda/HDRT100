@@ -12,6 +12,16 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-032：GATEWAY 两字协议试改失败后决定“不对称”——开关排队、网关逐发
+
+- **试了什么**：把 GATEWAY 也改成两字协议（脉宽字 + 延时字，`OUTPUT_WORDS 11`，`start_deadline(width)`，首组 `−6`），并同步把 mock 改成 11 字程序 / `out y` / `mov isr,y` / wrap `hi=15`。固件能编过，但**脉宽断言仍不过**：`fall−rise ≠ 250`（把一次性 `advance(260)` 改成“等到出现下降沿”后依然不等）。这正是两次同类失败的同一处：网关 mock 的 SM 起始/停止相位与两字程序的 6 拍启动预算没有对齐，而开关 mock 是逐指令建模的。
+- **决定（写进设计，不再来回试）**：**两条路径允许不对称**
+  - **SWITCH**：需要“一条动作表在硬件里排队”，所以用**两字协议 + 窗口 + 排空续填**（已提交，37 + 544 用例通过）；
+  - **GATEWAY**：每次都只发**一个**脉冲，下一组在上一脉冲完成时再武装（`stage_sequence` 已提交，50 passed），所以**保留预装 Y 的单字路径**即可。两字协议对网关的收益只是“省一次武装”，而代价是整条完成状态机与 mock 全部要重写——收益为负。
+- **由此明确的时序约束（网关侧）**：因为武装发生在“上一脉冲完成”之后，`start_deadline` 用的是 `deadline − now − 4`；只要武装早于下一组的绝对 tick（E≈8 ms 的动作间隔下，武装只需微秒级），表里的间隔就被如实执行；若武装已经晚于该 tick，`start_deadline` 会**拒绝**（不会悄悄压缩间隔）。
+- **本轮**：全部回退（`git checkout` 四个文件），`test_sync_io_gateway + test_sync_io_switch` **77 passed**、构建绿、工作区 clean。
+- **下轮**：把 runtime 的窗口交接按角色分开——SWITCH 走 `stage_sequence`（已完成），GATEWAY 走 `sync_io_gateway_realtime_stage_sequence`（API 已就绪，仅需在 arm 处按角色调用 + harness 补桩），然后上单板台架。
+
 ### T2-PROGRESS-20261018-031：GATEWAY 侧序列入口已落地；链式用例卡在 mock 的“预装脉宽”路径
 
 - **已提交**（`7894b106`，P3 `build=20261017180911`）：`sync_io_gateway_realtime_stage_sequence(base, pulse_ns[], delta_ticks[], count)` —— 一次接受整条动作表，首组立即武装，其余组在上一脉冲完成时按**各自的绝对 tick** 武装；非法表（count 为 0/越界、偏移非单调、脉宽为 0、加法溢出、已有在飞动作）整体拒绝，不留半武装。`test_sync_io_gateway` 50 passed。
