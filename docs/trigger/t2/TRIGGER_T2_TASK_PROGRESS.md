@@ -12,6 +12,13 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-029：一次交出 N 组的第二个卡点——`complete_action` 用全局模板数判断“是否最后一组”
+
+- **本轮实测（窗口版代码，构建通过、用例失败）**：一次交出两组后，第 0 组完成时 `service()` 已能走“窗口内 sequence 前进”分支（不再误判 BACKEND），但该位置**立刻被判为完成**：`mask=1 done=1 exec=1`。原因是 `complete_action()` 用 `group + 1u < s_local_template_count` 决定“还有没有下一组”，当该位置在当前配置里只有 1 个**角色组**（模板数 ≠ 计划表组数）时，它会在收到第 0 组回执时直接收尾。
+- **结论**：多组交接的“还有没有下一组”必须由**计划表自己**回答（`plan->group + plan->group_count` 与 `plan->group`），不能再用全局 `s_local_template_count`；这也解释了此前“组 0 完成就被判完成 / 或停在 PENDING”两种相反症状。
+- **本轮已回退**该尝试（`trigger_t2_runtime.c` 与用例），`test_trigger_t2_runtime` **37 passed**、构建绿、工作区 clean；网关侧 READY 踩踏计数已单独提交（`67be60fd`，P3 `build=20261017164327`）。
+- **下轮一次到位**：`complete_action` 改读计划的组表（`s_group_handed` 一并对齐），harness 里计划表与模板数保持一致；再补 `[sequence]` 断言“一次 arm、按组回执、最后一组才收尾”。
+
 ### T2-PROGRESS-20261018-028：定位“交出一整条序列后 service 非 OK”的根因（runtime 的身份检查），并补齐计划构建的拒绝路径用例
 
 - **根因（代码定位，`trigger_t2_runtime.c:1137`）**：`service_deadlines()` 用**单一** sequence 做身份检查——`sequence != s_state.action_sequence[index]` 或 `deadline != s_deadline[index].deadline_tick` 即判 `BACKEND` 失败。一次交出 N 组后，第 0 组完成时后端把 `status.sequence` 推进到 **base+1**（下一组已 armed），而 runtime 只记了 base ⇒ 判身份不符 ⇒ `action_fail(BACKEND)` ⇒ `service()` 非 OK。这是三次尝试都停在“组 0 完成那次 service”的真实原因（此前只是推测）。
