@@ -12,6 +12,20 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-030：序列配置面首次上台架——四板读数一致，派生周期与图完全对上
+
+- **台架（build 20261017174216，四板一致）**：
+  - TRIGger:SEQuence:TIMing? → A=1, B=1, C=1, D=1, E=8000, G=200000（µs）
+  - TRIGger:SEQuence:COUNts? → N通道=8, N极化=2, 网格=500 ns
+  - TRIGger:SEQuence:PERiod? → 16 动作, Δ动作=8003 µs, Δ位置=328048 µs —— 正好等于 16×8003+200000，与图里的推算一致
+  - TRIGger:SEQuence:REPeat? → 重复 1, 每位置总动作 16
+  - TRIGger:SEQuence:CODE? 3 → 通道 2, 极化 1（派生规则：3/2+1、3%2）
+  （每页前两个字段是本树 SCPI 回包的状态前缀，值从第三个字段起。）
+- **同轮 T2 不回归**：--steps 0-20 全步 OK；	x_publish 26774、DISTRIBUTED（从板 24040/23665/24009）、SEAT refused 0。
+- **仍未做**：④ runtime 一次交出整条动作表（计划表驱动重构）；GATEWAY 侧 stage_sequence；单板实测 Δ动作/TRIG→READY 对齐与踩踏计数。
+
+
+
 ### T2-PROGRESS-20261018-029：一次交出 N 组的第二个卡点——`complete_action` 用全局模板数判断“是否最后一组”
 
 - **本轮实测（窗口版代码，构建通过、用例失败）**：一次交出两组后，第 0 组完成时 `service()` 已能走“窗口内 sequence 前进”分支（不再误判 BACKEND），但该位置**立刻被判为完成**：`mask=1 done=1 exec=1`。原因是 `complete_action()` 用 `group + 1u < s_local_template_count` 决定“还有没有下一组”，当该位置在当前配置里只有 1 个**角色组**（模板数 ≠ 计划表组数）时，它会在收到第 0 组回执时直接收尾。
