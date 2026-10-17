@@ -482,6 +482,7 @@ T2 只读 VDC 模型与本地 TIMER1；游标、解算、预算优化和动作�
 
 **决定：改由 DMA 按 SM 的 TX DREQ 喂同一份"组表"，PIO 程序不变。**
 - 组表：每位置一张 RAM 表，元素为 `[code/width, delay_ticks]` 两字一组；`delay_ticks` 为**与上一组边沿的间隔**（与已实现的链式算法一致，见 `sync_switch.c` 的 `-7` 与 `sync_io_gateway.c` 的 `-6 / width-8`）。
+- 已落地的第一步：`sync_io_sequence_plan.{h,c}` 以**时间片为基点**把共同时间轴上的组偏移编成两字流（首个 `base−5`、链式 `间隔−7`）；`sync_io_switch_realtime_stage_sequence()` 用它起第一个边沿，其余词对在 `poll()` 中随 FIFO 排空续填。图示见 [`T2_SEQUENCE_FLOW.svg`](T2_SEQUENCE_FLOW.svg)（三个位置的编排示例）。
 - 传输：`channel_config_set_dreq(&c, pio_get_dreq(SM, true))` + `read_increment=true` + `write_increment=false`（目标 `&pio->txf[SM]`），`chain_to` 指向重载通道，实现"一张表接一张表"；**这条形态在 `feature/node-sequence-reservation-trigger` 已工作**（`components/sync_io/src/sync_io_sequence.c` 的 `s_plan` + `DMA_SLOTS 5`）。
 - 结果：组数上限由 RAM 与表大小决定，不再由 FIFO 深度决定；软件只在"换表"时介入，组间间隔完全由 PIO 的 tick 计数决定。
 - 复用边界：该分支的序列是**边沿驱动**（外部脉冲步进编码表，`docs/trigger/TRIGGER_SEQ_STEP_DESIGN.md`），与 T2 的**时间调度**不同；可借用的是**执行面形态**（表驱动 + DMA + 有限配额 + plan 的 generation/crc 一致性 + 结果码枚举），不是它的触发源语义。

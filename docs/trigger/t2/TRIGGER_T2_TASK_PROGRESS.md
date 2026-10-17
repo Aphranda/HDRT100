@@ -12,6 +12,18 @@ Last updated: 2026-10-17
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261017-026：序列执行接线（`stage_sequence` + 排空续填）与三位置序列流图
+
+- **接线（SWITCH 侧，按你的口径：以时间片为基点、在共同时间轴编序列）**：`sync_io_switch_realtime_stage_sequence(base_deadline_tick, codes, delta_ticks, count)`：
+  1. 用 `sync_io_sequence_plan_build()` 以 `now`（一次 TIMER1 采样）为起点、`base_deadline_tick` 为位置时间片，把共同轴上的组偏移编成两字流（首个 `base−5`、链式 `间隔−7`）；
+  2. 第一组按**与单触发完全相同**的方式起边沿：同一采样窗口做 origin 检查（≤ `SYNC_IO_SWITCH_ORIGIN_MAX_NS`），失败则清 FIFO/关 SM 并置 FAULT；
+  3. 其余词对由 `sequence_feed()` 在两个 SM 的 TX FIFO **都**有 ≥2 字空间时成对补入（避免把某一组的 code/delay 拆散），`poll()` 在队头完成后调用它；
+  4. 组表耗尽且回执齐 ⇒ 关 SM、`state=COMPLETE`；STOP 取消全部并清序列表。
+- **不变量**：续填只决定"还有没有下一组"，**不决定下一组何时打**——那个由表里的 delay 决定；这正是 `SYNC-SCHED-001` 要的"tick 驱动而非完成驱动"。
+- **图示**：新增 [`T2_SEQUENCE_FLOW.svg`](T2_SEQUENCE_FLOW.svg)，按三个位置（P1/P2/P3）编排：① 共同时间轴上的时间片与组偏移（`Δq=0/+2/+5`，示例值）→ ② 本地 tick 投影（与 deadline 同一换算）→ ③ 两字触发流与 `−5 / −7` 预算 → ④ PIO 执行、FIFO 排空续填与回执；图上标明 `rx_local_tick`（受理戳）与 `base_tick` 同域。架构文档 `T2-SEQ-TRANSPORT` 已引用此图。
+- **验证**：`test_sync_io_switch + test_sync_io_sequence_plan` **27 passed**；固件构建绿（`sync_io_sequence_plan.c` 已入 `CMakeLists`，`sources=1822`）；P3 全链 PASS_WITH_WARNINGS（见凭证）。
+- **未闭合**：`stage_sequence` 的**专用宿主用例**（三组边沿+回执）尚未补；GATEWAY 侧同构接线；`trigger_t2_runtime` 把该位置整条组序列一次交出的调用点；单板台架的"组间间隔误差"实测。
+
 ### T2-PROGRESS-20261017-025：借鉴 node-sequence 分支定下组序列通道（DMA 喂 FIFO），并修正 SWITCH 链式预算常数
 
 - **借鉴结论（先读代码，再决定）**：`origin/feature/node-sequence-reservation-trigger` 的序列能力是**边沿驱动**（`docs/trigger/TRIGGER_SEQ_STEP_DESIGN.md`：每个 `TRIG_IN` 上升沿按编码表步进一位；`sync_io_sequence.pio` 是 ingress + 状态机），与 T2 的**时间调度**不同源，不能直接搬。可借的是**执行面形态**：

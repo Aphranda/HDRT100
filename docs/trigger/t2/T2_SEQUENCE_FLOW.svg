@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  T2 sequence flow (three positions). Illustrative: the slice counts are an example, the
+  cycle budgets and the two-word protocol are the ones in the code
+  (sync_io_sequence_plan.c: first = base - 5, chained = gap - 7; sync_switch.pio: pull,out y,
+  pull,out x,delay,edge). Not a contract; the contract lives in TRIGGER_T2_ARCHITECTURE.md.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="1020" viewBox="0 0 1480 1020"
+     font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+            orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#33415c"/>
+    </marker>
+    <marker id="arrowWarm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+            orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c2410c"/>
+    </marker>
+    <marker id="arrowCool" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+            orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1d4ed8"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+            orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#15803d"/>
+    </marker>
+    <style>
+      .title { font-size: 26px; font-weight: 600; fill: #0f172a; }
+      .sub   { font-size: 15px; fill: #475569; }
+      .h     { font-size: 16px; font-weight: 600; fill: #0f172a; }
+      .lbl   { font-size: 13px; fill: #1e293b; }
+      .mono  { font-family: Consolas, 'Cascadia Mono', monospace; font-size: 12.5px; fill: #0f172a; }
+      .monos { font-family: Consolas, 'Cascadia Mono', monospace; font-size: 11.5px; fill: #334155; }
+      .note  { font-size: 12px; fill: #64748b; }
+      .box   { fill: #ffffff; stroke: #94a3b8; stroke-width: 1.4; rx: 10; }
+      .band  { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 1.2; rx: 12; }
+    </style>
+  </defs>
+
+  <rect width="1480" height="1020" fill="#ffffff"/>
+  <text class="title" x="40" y="46">T2 序列执行流（三个位置）</text>
+  <text class="sub" x="40" y="72">时间片为基点 → 共同时间轴上的组偏移 → 本地 tick → 两字触发流 → PIO 执行与回执</text>
+
+  <!-- ===================== shared timeline ===================== -->
+  <rect class="band" x="40" y="92" width="1400" height="196"/>
+  <text class="h" x="60" y="120">① 共同时间轴（VDC 共同坐标，粗片 q）</text>
+  <text class="note" x="60" y="140">三个位置各自的“时间片”是同一个坐标系里的三个点；位置之间不需要同步握手。</text>
+
+  <line x1="90" y1="205" x2="1400" y2="205" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+  <g class="monos">
+    <text x="88"  y="228">q₀</text>
+    <text x="268" y="228">+2</text>
+    <text x="428" y="228">+5</text>
+    <text x="618" y="228">q₁₂</text>
+    <text x="798" y="228">+2</text>
+    <text x="958" y="228">+5</text>
+    <text x="1148" y="228">q₂₄</text>
+    <text x="1328" y="228">+2</text>
+  </g>
+  <g stroke="#cbd5e1" stroke-width="1">
+    <line x1="90" y1="198" x2="90" y2="212"/><line x1="280" y1="198" x2="280" y2="212"/>
+    <line x1="440" y1="198" x2="440" y2="212"/><line x1="630" y1="198" x2="630" y2="212"/>
+    <line x1="810" y1="198" x2="810" y2="212"/><line x1="970" y1="198" x2="970" y2="212"/>
+    <line x1="1160" y1="198" x2="1160" y2="212"/><line x1="1340" y1="198" x2="1340" y2="212"/>
+  </g>
+
+  <!-- timeline ticks per position group -->
+  <g marker-end="url(#arrowWarm)">
+    <line x1="90"  y1="176" x2="440"  y2="176" stroke="#c2410c" stroke-width="2"/>
+    <line x1="630" y1="176" x2="970"  y2="176" stroke="#c2410c" stroke-width="2"/>
+    <line x1="1160" y1="176" x2="1340" y2="176" stroke="#c2410c" stroke-width="2"/>
+  </g>
+  <g fill="#c2410c">
+    <circle cx="90" cy="176" r="5"/><circle cx="280" cy="176" r="4"/><circle cx="440" cy="176" r="4"/>
+    <circle cx="630" cy="176" r="5"/><circle cx="810" cy="176" r="4"/><circle cx="970" cy="176" r="4"/>
+    <circle cx="1160" cy="176" r="5"/><circle cx="1340" cy="176" r="4"/>
+  </g>
+  <g class="mono">
+    <text x="96"  y="166">P1 基点 Δq=0</text>
+    <text x="252" y="158">组1 Δq=2</text>
+    <text x="406" y="166">组2 Δq=5</text>
+    <text x="636" y="166">P2 基点 Δq=0</text>
+    <text x="782" y="158">组1 Δq=2</text>
+    <text x="936" y="166">组2 Δq=5</text>
+    <text x="1166" y="166">P3 基点 Δq=0</text>
+    <text x="1306" y="158">组1 Δq=2</text>
+  </g>
+  <text class="note" x="60" y="262">“组 k 在基点之后第 Δq 个粗片”——序列在这里编排，与本地时钟、FIFO 深度、软件节奏都无关。</text>
+  <text class="note" x="60" y="280">每位置组数上限 SYNC_IO_SEQUENCE_PLAN_MAX_GROUPS；示例里 P3 的第 2 组留给下一轮（示意“未编排”）。</text>
+
+  <!-- ===================== local projection ===================== -->
+  <rect class="band" x="40" y="302" width="690" height="250"/>
+  <text class="h" x="60" y="330">② 本地换算（与 deadline 同一套 DCO/TIMER1 投影）</text>
+  <text class="mono" x="60" y="360">tick_g = base_tick + (delta_q_g − delta_q_0)</text>
+  <g class="mono">
+    <text x="60" y="392" fill="#c2410c">P1: base=1 000 000 000 · 组1=+2 片 · 组2=+5 片</text>
+    <text x="60" y="414">→ tick: 1 000 000 000 / 1 000 020 000 / 1 000 050 000（示例周期 10 ms/片）</text>
+    <text x="60" y="442" fill="#1d4ed8">P2: base=1 000 060 000 · 组1=+2 片 · 组2=+5 片</text>
+    <text x="60" y="464">→ tick: 1 000 060 000 / 1 000 080 000 / 1 000 110 000</text>
+    <text x="60" y="492" fill="#15803d">P3: base=1 000 120 000 · 组1=+2 片（本示例只编 2 组）</text>
+    <text x="60" y="514">→ tick: 1 000 120 000 / 1 000 140 000</text>
+  </g>
+  <text class="note" x="60" y="540">受理时刻 rx_local_tick（T2 页尾）与 base_tick 同域，可直接比较：受理 → 首组的提前量就是 “base − rx_local_tick”。</text>
+
+  <!-- ===================== word stream ===================== -->
+  <rect class="band" x="750" y="302" width="690" height="250"/>
+  <text class="h" x="770" y="330">③ 编码成两字触发流（每位置一张表）</text>
+  <g class="mono">
+    <text x="770" y="360">delay₀ = (base − now) − 5</text>
+    <text x="770" y="380">delayₖ = (deltaₖ − deltaₖ₋₁) − 7   ← 间隔，不是“deadline − now”</text>
+  </g>
+  <rect class="box" x="770" y="398" width="650" height="132"/>
+  <g class="mono">
+    <text x="788" y="422" fill="#c2410c">P1  [0x5, d₀]  [0xA, 2片−7]  [0x3, 3片−7]</text>
+    <text x="788" y="448" fill="#1d4ed8">P2  [0x5, d₀]  [0xA, 2片−7]  [0x3, 3片−7]</text>
+    <text x="788" y="474" fill="#15803d">P3  [0x5, d₀]  [0xA, 2片−7]</text>
+    <text x="788" y="502" class="note">5 与 7 来自 sync_switch.pio 的指令预算（见 sync_io_sequence_plan.c 注释）</text>
+    <text x="788" y="520" class="note">表里只放“与上一组边沿的间隔”，所以软件慢一拍也不会把后一组推晚。</text>
+  </g>
+
+  <!-- ===================== PIO execution ===================== -->
+  <rect class="band" x="40" y="572" width="1400" height="268"/>
+  <text class="h" x="60" y="600">④ PIO 执行（两字/组，FIFO 4 字 = 2 组；软件只在排空前续填）</text>
+
+  <rect class="box" x="60" y="620" width="300" height="96"/>
+  <text class="mono" x="76" y="644">SM (SWITCH_A group0)</text>
+  <text class="monos" x="76" y="666">pull · out y · pull · out x</text>
+  <text class="monos" x="76" y="684">jmp x-- · mov pins,y · push</text>
+  <text class="note" x="76" y="704">边沿 = 起始 + 5 + delay</text>
+
+  <rect class="box" x="60" y="728" width="300" height="96"/>
+  <text class="mono" x="76" y="752">SM (SWITCH_B group1)</text>
+  <text class="monos" x="76" y="774">同一份字流，按位段取码</text>
+  <text class="note" x="76" y="796">两 SM 由同一 mask 同步使能</text>
+
+  <g marker-end="url(#arrow)">
+    <line x1="700" y1="676" x2="372" y2="668" stroke="#33415c" stroke-width="1.6"/>
+    <line x1="700" y1="700" x2="372" y2="776" stroke="#33415c" stroke-width="1.6"/>
+  </g>
+  <rect class="box" x="700" y="628" width="380" height="150"/>
+  <text class="mono" x="716" y="652">FIFO（每 SM 4 字）</text>
+  <text class="monos" x="716" y="676">组 k 在飞 → 组 k+1 已预装</text>
+  <text class="monos" x="716" y="696">level ≤ 2 时 sequence_feed() 续填</text>
+  <text class="monos" x="716" y="716">续填只影响“还有没有下一组”，</text>
+  <text class="monos" x="716" y="734">不影响“下一组什么时候打”——</text>
+  <text class="monos" x="716" y="752">那个由表里的 delay 决定</text>
+
+  <g marker-end="url(#arrowGreen)">
+    <line x1="1220" y1="660" x2="1110" y2="660" stroke="#15803d" stroke-width="1.8"/>
+  </g>
+  <rect class="box" x="1220" y="628" width="200" height="150"/>
+  <text class="mono" x="1236" y="652">回执</text>
+  <text class="monos" x="1236" y="676">PIO push = 组码</text>
+  <text class="monos" x="1236" y="696">poll() 按 head 比对</text>
+  <text class="monos" x="1236" y="716">每位置逐组完成</text>
+  <text class="monos" x="1236" y="736">码不符 → FAULT</text>
+
+  <text class="note" x="60" y="826">终止条件：组表耗尽 + 队头回执齐 → 关 SM、state=COMPLETE；STOP 取消全部并清队。</text>
+
+  <!-- ===================== legend / invariants ===================== -->
+  <rect class="band" x="40" y="860" width="1400" height="126"/>
+  <text class="h" x="60" y="888">不变量与证据落点</text>
+  <g class="lbl">
+    <text x="60"  y="914">· 组间间隔由表里的 delay 决定（不依赖软件节奏、不依赖 FIFO 深度）</text>
+    <text x="60"  y="936">· 首组用与单触发相同的 tick 采样与 origin 窗口（≤ SYNC_IO_SWITCH_ORIGIN_MAX_NS）</text>
+    <text x="60"  y="958">· 位置受理时刻 rx_local_tick 与 base_tick 同域；rx_stale_count 记录“受理时已过 deadline”</text>
+    <text x="760" y="914">证据：TRIGger:RESERVation:T2?（受理戳/计数）</text>
+    <text x="760" y="936">       SYSTem:REFMEM:SYNC:FLIGHT:POSition?（位置传输）</text>
+    <text x="760" y="958">宿主：test_sync_io_sequence_plan / test_sync_io_switch</text>
+  </g>
+</svg>
