@@ -3046,6 +3046,16 @@ scpi_result_t scpi_cmd_refmem_sync_flight_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.vdc_command_record_source_update_seq);
     SCPI_ResultUInt32(context, snapshot.vdc_command_last_common_time_ns_lo);
     SCPI_ResultUInt32(context, snapshot.vdc_command_last_common_time_ns_hi);
+
+    /* Appended: WHY the VDC feedback path last refused to let a frame out. A refusal
+     * stops the whole flight publish path (no VDC and no T2 frame), so the branch is
+     * exposed instead of guessed. Buckets: 1 not-ready/tx-active, 2 not-ready/offer,
+     * 3 snapshot busy, 4 binding changed. */
+    uint32_t feedback_reason[8];
+    const uint32_t feedback_last =
+        distributed_refmem_feedback_prepare_reason(feedback_reason, 8u);
+    SCPI_ResultUInt32(context, feedback_last);
+    for (uint32_t i = 0u; i < 8u; ++i) SCPI_ResultUInt32(context, feedback_reason[i]);
     return SCPI_RES_OK;
 }
 
@@ -3088,6 +3098,9 @@ scpi_result_t scpi_cmd_refmem_sync_flight_position_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.lane_freeze_latched_count);
     SCPI_ResultUInt32(context, snapshot.lane_freeze_kept_count);
     SCPI_ResultUInt32(context, snapshot.lane_freeze_taken_count);
+    /* Appended last: how many staged updates were MERGED into a newer value before the
+     * wire (latest-value TX table). Non-zero proves the merge; it is not a loss. */
+    SCPI_ResultUInt32(context, snapshot.tx_coalesced_count);
     return SCPI_RES_OK;
 }
 

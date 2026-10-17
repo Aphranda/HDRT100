@@ -3405,6 +3405,14 @@ def step_20_sampling(ctx, slot, board, uid):
             ctx.failures.append(
                 f"Step 20 position distribution: source published {source_publish} slices"
                 f" but no follower staged any (lane_accept {follower_accepts})")
+        # A source that published NOTHING is the other unambiguous failure, and it used to
+        # slip through as OK (measured 2026-10-17: tx_publish 0 for a whole run because the
+        # VDC feedback path stalled the publish function, and step 20 still reported OK).
+        if source_publish == 0:
+            ctx.failures.append(
+                "Step 20 position distribution: the source published no slice at all"
+                f" (tx_publish 0, follower lane_accept {follower_accepts}); check"
+                " SYSTem:REFMEM:SYNC:FLIGHT? feedback-refusal reason")
 
     # Role-specific action execution (TRIGger:RESERVation:T2:ACTion?): the decoded
     # position slice becomes a local deadline plan, and each board's deployment role

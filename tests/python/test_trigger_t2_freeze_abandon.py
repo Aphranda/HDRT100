@@ -28,6 +28,17 @@ static trigger_t2_runtime_snapshot_t s_state;
 static trigger_t2_runtime_config_t s_config;
 static uint64_t s_freeze_last_slice;
 static uint32_t s_freeze_resend_next;
+/* Paired ack round-trip instrumentation the extracted body now uses: the stage time
+ * per position and the packer that folds a lead into a packed min|last word. */
+static uint32_t s_freeze_stage_at[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+static void note_lead_pack(uint32_t *pack, uint32_t lead)
+{
+    /* Same packing as the runtime: low half keeps the run's minimum, high half the
+     * last value. */
+    const uint32_t minimum = *pack & 0xFFFFu;
+    const uint32_t shown = minimum && minimum < lead ? minimum : lead;
+    *pack = shown | (lead << 16u);
+}
 
 static uint32_t s_acked;
 static bool s_stage_ok = true;

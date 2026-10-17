@@ -28,6 +28,16 @@ _Static_assert(sizeof(sync_switch_program_instructions)/sizeof(uint16_t)==
     SYNC_IO_SWITCH_INSTRUCTION_WORDS,"switch program accounting");
 
 static sync_io_switch_snapshot_t s_switch;
+/* Two outstanding absolute deadlines (SYNC-SCHED-001). Each entry keeps its own
+ * sequence, code and receipt mask, so a completion is attributed to the trigger it
+ * belongs to instead of to "the transaction". */
+#define SWITCH_QUEUE_DEPTH 2u
+typedef struct {
+    uint64_t deadline_tick;
+    uint32_t code, sequence, receipt_mask;
+} switch_queued_t;
+static switch_queued_t s_queue[SWITCH_QUEUE_DEPTH];
+static uint32_t s_queue_count;
 static sync_io_persona_manager_handle_t s_handle;
 static uint32_t s_busy,s_generation,s_claimed,s_offset,s_active_sms,s_physical_mask;
 static bool s_loaded,s_lease,s_pins_owned;
@@ -48,16 +58,40 @@ static inline __attribute__((always_inline)) bool raw_tick(uint64_t *out)
     if(hi!=timer1_hw->timerawh)return false;
     *out=((uint64_t)hi<<32u)|lo;return true;
 }
-static __attribute__((noinline)) bool SWITCH_HOT(start_deadline)(uint64_t deadline)
+static void push_trigger(const sync_io_switch_group_t *g,uint32_t code,uint32_t delay);
+/* arm=true  : first trigger of a burst; the delay is measured from a fresh timer read.
+ * arm=false : the trigger is already queued behind another one, so the PIO counts its
+ *             delay only AFTER it has output the previous code. The delay must therefore
+ *             be the GAP to the previous deadline, not deadline-now; otherwise a queued
+ *             trigger fires late by exactly the time it spent waiting. */
+static __attribute__((noinline)) bool __not_in_flash_func(start_deadline)(uint64_t deadline,bool arm,
+    uint64_t previous_deadline)
 {
-    uint64_t before,after;
-    const uint64_t guard=(uint64_t)BOARD_SYS_CLOCK_HZ/1000000u*SYNC_IO_SWITCH_DEADLINE_GUARD_US;
-    if(!raw_tick(&before) || deadline<before || deadline-before<guard ||
-        deadline-before-3u>UINT32_MAX)return false;
-    const uint32_t delay=(uint32_t)(deadline-before-3u);
+    uint64_t before=0u,after=0u;
+    uint32_t delay=0u;
+    if(arm) {
+        const uint64_t guard=(uint64_t)BOARD_SYS_CLOCK_HZ/1000000u*SYNC_IO_SWITCH_DEADLINE_GUARD_US;
+        if(!raw_tick(&before) || deadline<before || deadline-before<guard ||
+            deadline-before-3u>UINT32_MAX)return false;
+        delay=(uint32_t)(deadline-before-3u);
+    }else{
+        /* 8 = the four instructions of the previous trigger's tail (mov isr, push) plus
+         * the next pair's head (pull, out y, pull, out x) before the delay loop starts. */
+        if(previous_deadline==0u || deadline<=previous_deadline ||
+            deadline-previous_deadline<8u ||
+            deadline-previous_deadline-8u>UINT32_MAX)return false;
+        before=previous_deadline;
+        delay=(uint32_t)(deadline-previous_deadline-8u);
+    }
+    /* Two words per group (code then delay). Written out per SM instead of a loop:
+     * this function lives in SCRATCH_Y, and the loop form overflowed it by 64 B. */
+    pio_sm_put(SWITCH_PIO,SYNC_IO_SWITCH_FIRST_SM,s_switch.groups[0].code);
     pio_sm_put(SWITCH_PIO,SYNC_IO_SWITCH_FIRST_SM,delay);
-    if(s_active_sms&(1u<<SYNC_IO_SWITCH_SECOND_SM))
+    if(s_switch.group_count>1u) {
+        pio_sm_put(SWITCH_PIO,SYNC_IO_SWITCH_SECOND_SM,s_switch.groups[1].code);
         pio_sm_put(SWITCH_PIO,SYNC_IO_SWITCH_SECOND_SM,delay);
+    }
+    if(!arm) return true;
     pio_enable_sm_mask_in_sync(SWITCH_PIO,s_active_sms);
     const bool read=raw_tick(&after);
     s_deadline.origin_before_tick=before;
@@ -76,15 +110,20 @@ static __attribute__((noinline)) bool SWITCH_HOT(start_deadline)(uint64_t deadli
     return false;
 }
 
-static void prepare_group(const sync_io_switch_group_t *g,uint32_t code)
+/* Two words per trigger: the group code then the delay (see sync_switch.pio). The
+ * code rides in the word instead of being preloaded into Y, which is what makes a
+ * SECOND, different group code queueable behind the first. */
+static void push_trigger(const sync_io_switch_group_t *g,uint32_t code,uint32_t delay)
+{
+    pio_sm_put(SWITCH_PIO,g->sm,code);
+    pio_sm_put(SWITCH_PIO,g->sm,delay);
+}
+static void prepare_group(const sync_io_switch_group_t *g)
 {
     pio_sm_set_enabled(SWITCH_PIO,g->sm,false);
     pio_sm_clear_fifos(SWITCH_PIO,g->sm);
     pio_sm_restart(SWITCH_PIO,g->sm);
     pio_sm_exec(SWITCH_PIO,g->sm,pio_encode_jmp(s_offset));
-    pio_sm_put(SWITCH_PIO,g->sm,code);
-    pio_sm_exec(SWITCH_PIO,g->sm,pio_encode_pull(false,true));
-    pio_sm_exec(SWITCH_PIO,g->sm,pio_encode_mov(pio_y,pio_osr));
 }
 
 static bool enter(void)
@@ -208,8 +247,9 @@ bool sync_io_switch_stage(uint32_t generation,uint32_t code)
     for(uint32_t i=0u;i<s_switch.group_count;++i) {
         sync_io_switch_group_t *g=&s_switch.groups[i];
         g->code=(code>>(g->output_base_pin-BOARD_SYNC_OUTPUT_BASE_PIN))&((1u<<g->output_count)-1u);
-        prepare_group(g,g->code);
-        pio_sm_put(SWITCH_PIO,g->sm,0u);
+        prepare_group(g);
+        /* apply() only enables the SM, so the staged trigger is a zero delay. */
+        push_trigger(g,g->code,0u);
     }
     ++s_switch.stage_sequence;s_switch.desired_code=code;s_switch.receipt_mask=0u;
     s_deadline.state=SYNC_IO_SWITCH_DEADLINE_IDLE;
@@ -222,6 +262,11 @@ bool sync_io_switch_apply(uint32_t generation)
     /* Simultaneous divider reset + enable: groups run the same four words
      * with one already queued input each. No host/CPU wait for completion. */
     pio_enable_sm_mask_in_sync(SWITCH_PIO,s_active_sms);
+    /* The staged path is a one-shot trigger: it enters the same queue so a completion
+     * is still attributed to its own sequence. */
+    s_queue[0]=(switch_queued_t){.deadline_tick=0u,.code=s_switch.desired_code,
+        .sequence=s_switch.stage_sequence,.receipt_mask=0u};
+    s_queue_count=1u;
     s_switch.state=SYNC_IO_SWITCH_PENDING;leave();return true;
 }
 bool sync_io_switch_stop(uint32_t generation)
@@ -231,11 +276,20 @@ bool sync_io_switch_stop(uint32_t generation)
     if(s_switch.state==SYNC_IO_SWITCH_PENDING || s_switch.state==SYNC_IO_SWITCH_STAGED)
         s_switch.cancelled_sequence=s_switch.stage_sequence;
     safe_stop();s_switch.state=SYNC_IO_SWITCH_STOPPED;s_switch.applied_valid=0u;
+    /* STOP cancels EVERY outstanding deadline, and each one is classified by a fresh
+     * tick sample: a future edge is CANCELLED, a passed one may have executed. */
     if(s_deadline.state==SYNC_IO_SWITCH_DEADLINE_ARMED) {
         uint64_t stopped;
-        s_deadline.state=raw_tick(&stopped) && stopped<s_deadline.deadline_tick ?
-            SYNC_IO_SWITCH_DEADLINE_CANCELLED:SYNC_IO_SWITCH_DEADLINE_UNCERTAIN;
+        const bool read=raw_tick(&stopped);
+        for(uint32_t i=0u;i<s_queue_count;++i)
+            s_deadline.state=(read && s_queue[i].deadline_tick!=0u &&
+                stopped<s_queue[i].deadline_tick) ?
+                SYNC_IO_SWITCH_DEADLINE_CANCELLED:SYNC_IO_SWITCH_DEADLINE_UNCERTAIN;
+        if(!s_queue_count)
+            s_deadline.state=read && stopped<s_deadline.deadline_tick ?
+                SYNC_IO_SWITCH_DEADLINE_CANCELLED:SYNC_IO_SWITCH_DEADLINE_UNCERTAIN;
     }
+    s_queue_count=0u;
     s_switch.receipt_mask=0u;s_switch.fault=0u;leave();return true;
 }
 bool sync_io_switch_release(uint32_t generation)
@@ -246,33 +300,56 @@ bool sync_io_switch_release(uint32_t generation)
     s_lease=false;const bool ok=sync_io_core_switch_release(&s_switch);
     s_switch.state=SYNC_IO_SWITCH_IDLE;s_switch.applied_valid=0u;leave();return ok;
 }
+static uint32_t group_code_of(uint32_t code,const sync_io_switch_group_t *g)
+{
+    return (code>>(g->output_base_pin-BOARD_SYNC_OUTPUT_BASE_PIN))&((1u<<g->output_count)-1u);
+}
 /* noinline: a split poll.part.0 clone landed in XIP behind the RAM service. */
 static __attribute__((noinline)) void __not_in_flash_func(poll)(void)
 {
-    if(s_switch.state!=SYNC_IO_SWITCH_PENDING) return;
+    if(s_switch.state!=SYNC_IO_SWITCH_PENDING || !s_queue_count) return;
+    switch_queued_t *head=&s_queue[0];
     for(uint32_t i=0u;i<s_switch.group_count;++i) {
         const sync_io_switch_group_t *g=&s_switch.groups[i];
-        if(s_switch.receipt_mask&(1u<<i)) continue;
+        if(head->receipt_mask&(1u<<i)) continue;
         if(!pio_sm_is_rx_fifo_empty(SWITCH_PIO,g->sm)) {
             const uint32_t receipt=pio_sm_get(SWITCH_PIO,g->sm);
-            if(receipt!=g->code) {
-                safe_stop();s_switch.state=SYNC_IO_SWITCH_FAULT;
+            if(receipt!=group_code_of(head->code,g)) {
+                safe_stop();s_switch.state=SYNC_IO_SWITCH_FAULT;s_queue_count=0u;
                 if(s_deadline.state==SYNC_IO_SWITCH_DEADLINE_ARMED)
                     s_deadline.state=SYNC_IO_SWITCH_DEADLINE_UNCERTAIN;
                 s_switch.fault=1u;s_switch.applied_valid=0u;return;
             }
-            s_switch.receipt_mask|=1u<<i;
+            head->receipt_mask|=1u<<i;
+            /* Mirror the head's partial progress: a reader sees "first group done"
+             * instead of only the final mask. */
+            s_switch.receipt_mask=head->receipt_mask;
         }
     }
-    if(s_switch.receipt_mask==((1u<<s_switch.group_count)-1u)) {
-        for(uint32_t i=0u;i<s_switch.group_count;++i) pio_sm_set_enabled(SWITCH_PIO,s_switch.groups[i].sm,false);
-        s_switch.applied_code=s_switch.desired_code;s_switch.applied_valid=1u;
-        s_switch.completed_sequence=s_switch.stage_sequence;s_switch.state=SYNC_IO_SWITCH_COMPLETE;
-        if(s_deadline.state==SYNC_IO_SWITCH_DEADLINE_ARMED) {
-            s_deadline.receipt_mask=s_switch.receipt_mask;
-            s_deadline.state=SYNC_IO_SWITCH_DEADLINE_COMPLETE;
-        }
+    if(head->receipt_mask!=((1u<<s_switch.group_count)-1u)) return;
+    /* This trigger is complete: publish its own evidence before the next one owns the
+     * receipt channel. */
+    s_switch.receipt_mask=head->receipt_mask;
+    s_deadline.receipt_mask=head->receipt_mask;
+    s_deadline.state=SYNC_IO_SWITCH_DEADLINE_COMPLETE;
+    s_switch.applied_code=head->code;s_switch.applied_valid=1u;
+    s_switch.completed_sequence=head->sequence;
+    memmove(s_queue,s_queue+1,(SWITCH_QUEUE_DEPTH-1u)*sizeof(s_queue[0]));
+    --s_queue_count;
+    if(s_queue_count) {
+        /* More work is already in the hardware queue: stay enabled and wait for the
+         * next trigger's receipts. No software re-arm happens here. */
+        s_switch.receipt_mask=0u;
+        s_deadline=(sync_io_switch_deadline_status_t){
+            .state=SYNC_IO_SWITCH_DEADLINE_ARMED,
+            .deadline_tick=s_queue[0].deadline_tick,.sequence=s_queue[0].sequence};
+        return;
     }
+    /* Queue empty: the completed transaction keeps its receipt mask as evidence until the
+     * next trigger starts (a new head clears it). */
+    for(uint32_t i=0u;i<s_switch.group_count;++i)
+        pio_sm_set_enabled(SWITCH_PIO,s_switch.groups[i].sm,false);
+    s_switch.state=SYNC_IO_SWITCH_COMPLETE;
 }
 static bool poll_stopped(void *context)
 {
@@ -289,6 +366,7 @@ bool sync_io_switch_snapshot(sync_io_switch_snapshot_t *out)
     snapshot.loaded=s_lease;snapshot.sm_claimed_mask=0u;
     for(uint sm=0u;sm<4u;++sm)
         if((s_claimed&(1u<<sm)) && pio_sm_is_claimed(SWITCH_PIO,sm)) snapshot.sm_claimed_mask|=1u<<sm;
+    snapshot.pending_count=s_queue_count;
     snapshot.sm_enabled_mask=s_lease ? SWITCH_PIO->ctrl&s_claimed : 0u;
     snapshot.instruction_words=s_loaded ? SYNC_IO_SWITCH_INSTRUCTION_WORDS : 0u;
     snapshot.program_offset=s_loaded ? s_offset : 0u;
@@ -319,8 +397,8 @@ bool sync_io_switch_realtime_fire(uint32_t code)
         const uint32_t mask=(1u<<g->output_count)-1u;
         const uint32_t group_code=(code>>
             (g->output_base_pin-BOARD_SYNC_OUTPUT_BASE_PIN))&mask;
-        g->code=group_code;prepare_group(g,group_code);
-        pio_sm_put(SWITCH_PIO,g->sm,0u);
+        g->code=group_code;prepare_group(g);
+        push_trigger(g,group_code,0u);
     }
     s_switch.desired_code=code;s_switch.receipt_mask=0u;
     ++s_switch.stage_sequence;s_switch.state=SYNC_IO_SWITCH_PENDING;
@@ -335,23 +413,33 @@ void __not_in_flash_func(sync_io_switch_realtime_service_core1)(void)
     if(get_core_num()==1u) poll();
 }
 
-/* Runs on the T2 arming slice, the busiest one: keep it out of XIP. */
+/* Runs on the T2 arming slice, the busiest one: keep it out of XIP.
+ * A second deadline is ENQUEUED (not rejected) while the first is still pending: the
+ * two-word program keeps both triggers in the TX FIFO, so their spacing is decided by
+ * the hardware deadlines alone. Only a full queue / a fault is refused. */
 bool __not_in_flash_func(sync_io_switch_realtime_schedule_at)(uint32_t code,uint64_t deadline_tick)
 {
     if(get_core_num()!=1u || !s_lease || !s_loaded || !s_pins_owned ||
-       (code&~s_switch.output_mask) || s_switch.state==SYNC_IO_SWITCH_PENDING ||
-       s_switch.state==SYNC_IO_SWITCH_FAULT || s_switch.stage_sequence==UINT32_MAX ||
+       (code&~s_switch.output_mask) || s_switch.state==SYNC_IO_SWITCH_FAULT ||
+       s_switch.state==SYNC_IO_SWITCH_STOPPED ||
+       s_queue_count>=SWITCH_QUEUE_DEPTH || s_switch.stage_sequence==UINT32_MAX ||
        clock_get_hz(clk_sys)!=BOARD_SYS_CLOCK_HZ || timer1_hw->pause ||
        timer1_hw->source!=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS)return false;
+    const bool first=s_queue_count==0u;
     for(uint32_t i=0u;i<s_switch.group_count;++i) {
         sync_io_switch_group_t *g=&s_switch.groups[i];
         g->code=(code>>(g->output_base_pin-BOARD_SYNC_OUTPUT_BASE_PIN))&((1u<<g->output_count)-1u);
-        prepare_group(g,g->code);
+        /* Resetting the pipes for the SECOND trigger would discard the first one, which
+         * is already queued in hardware. */
+        if(first) prepare_group(g);
     }
+    const uint32_t sequence=s_switch.stage_sequence+1u;
     s_deadline=(sync_io_switch_deadline_status_t){
         .state=SYNC_IO_SWITCH_DEADLINE_CANCELLED,.deadline_tick=deadline_tick,
-        .sequence=s_switch.stage_sequence+1u};
-    if(!start_deadline(deadline_tick)) {
+        .sequence=sequence};
+    const uint64_t previous_deadline =
+        s_queue_count ? s_queue[s_queue_count-1u].deadline_tick : 0u;
+    if(!start_deadline(deadline_tick,first,previous_deadline)) {
         for(uint32_t i=0u;i<s_switch.group_count;++i)
             pio_sm_clear_fifos(SWITCH_PIO,s_switch.groups[i].sm);
         s_switch.state=s_deadline.state==SYNC_IO_SWITCH_DEADLINE_UNCERTAIN ?
@@ -362,7 +450,10 @@ bool __not_in_flash_func(sync_io_switch_realtime_schedule_at)(uint32_t code,uint
         s_switch.applied_valid=0u;
         return false;
     }
-    s_switch.desired_code=code;s_switch.receipt_mask=0u;
+    s_queue[s_queue_count++]=(switch_queued_t){
+        .deadline_tick=deadline_tick,.code=code,.sequence=sequence,.receipt_mask=0u};
+    s_switch.desired_code=code;
+    if(first) s_switch.receipt_mask=0u;
     ++s_switch.stage_sequence;s_switch.state=SYNC_IO_SWITCH_PENDING;
     s_deadline.state=SYNC_IO_SWITCH_DEADLINE_ARMED;
     return true;
@@ -386,6 +477,9 @@ bool __not_in_flash_func(sync_io_switch_realtime_cancel)(void)
             SYNC_IO_SWITCH_DEADLINE_CANCELLED:SYNC_IO_SWITCH_DEADLINE_UNCERTAIN;
     }
     s_switch.cancelled_sequence=s_switch.stage_sequence;
+    /* Every queued deadline is cancelled, not just the last one: with depth 2 the
+     * second trigger is already in the hardware FIFO when this runs. */
+    s_queue_count=0u;
     s_switch.state=SYNC_IO_SWITCH_STOPPED;s_switch.applied_valid=0u;
     return true;
 }

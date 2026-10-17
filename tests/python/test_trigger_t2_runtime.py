@@ -177,6 +177,38 @@ int main(int argc,char **argv)
     const char *test=argv[1];
     trigger_t2_runtime_config_t c=config(!strcmp(test,"origin") || !strcmp(test,"origin_resend") ||
         !strcmp(test,"origin_pending") || !strcmp(test,"origin_no_ack") || !strcmp(test,"origin_scan"));
+    if (!strcmp(test,"announce_config")) {
+        /* The three announce gates are install parameters, not compile-time constants
+         * (TRIGger:RESERVation:T2:ANNOUNCE / ?). Defaults must equal the frozen macros,
+         * a valid write must read back, and a 0 or out-of-range gate must be REFUSED so
+         * shaping can never be disabled by an empty write; a refused write must leave the
+         * previously installed values untouched. */
+        uint32_t tolerance=0u, min_interval=0u, global_interval=0u;
+        assert(trigger_t2_runtime_announce_get(&tolerance,&min_interval,&global_interval));
+        assert(tolerance==TRIGGER_T2_ANNOUNCE_TARGET_TOLERANCE_MS);
+        assert(min_interval==TRIGGER_T2_ANNOUNCE_MIN_INTERVAL_MS);
+        assert(global_interval==TRIGGER_T2_ANNOUNCE_MIN_GLOBAL_INTERVAL_MS);
+        /* 0 means "this gate does not suppress" (the producer writes freely and T_drain
+         * owns the traffic), so it must be ACCEPTED; only out-of-range values are
+         * refused, and a refused write leaves the installed gates untouched. */
+        assert(trigger_t2_runtime_announce(0u,0u,0u));
+        assert(trigger_t2_runtime_announce_get(&tolerance,&min_interval,&global_interval));
+        assert(tolerance==0u && min_interval==0u && global_interval==0u);
+        assert(trigger_t2_runtime_announce(6u,12u,15u));
+        assert(trigger_t2_runtime_announce_get(&tolerance,&min_interval,&global_interval));
+        assert(tolerance==6u && min_interval==12u && global_interval==15u);
+        assert(!trigger_t2_runtime_announce(TRIGGER_T2_ANNOUNCE_MAX_TOLERANCE_MS+1u,12u,15u));
+        assert(!trigger_t2_runtime_announce(6u,TRIGGER_T2_ANNOUNCE_MAX_INTERVAL_MS+1u,15u));
+        assert(!trigger_t2_runtime_announce(6u,12u,TRIGGER_T2_ANNOUNCE_MAX_INTERVAL_MS+1u));
+        assert(trigger_t2_runtime_announce_get(&tolerance,&min_interval,&global_interval));
+        assert(tolerance==6u && min_interval==12u && global_interval==15u);
+        assert(trigger_t2_runtime_announce(TRIGGER_T2_ANNOUNCE_TARGET_TOLERANCE_MS,
+            TRIGGER_T2_ANNOUNCE_MIN_INTERVAL_MS,TRIGGER_T2_ANNOUNCE_MIN_GLOBAL_INTERVAL_MS));
+        /* The second position's consumption is its OWN counter, never freeze_fallback. */
+        assert(snapshot().fallback_promoted_count ==
+            trigger_t2_runtime_fallback_promoted_count());
+        return 0;
+    }
     if (!strcmp(test,"capacity")) {
         /* T2-SEQ-001: the board keeps EVERY row of its own role as the position's
          * group sequence, up to the static table capacity, so a role with more
@@ -796,7 +828,7 @@ def runtime(tmp_path_factory):
         [ROOT / "components/sync_trigger/src/trigger_t2_runtime.c"])
 
 
-@pytest.mark.parametrize("case", ["origin", "origin_pending", "origin_resend", "origin_no_ack", "receiver", "fallback", "late_arrival", "wire_identity_ignored",
+@pytest.mark.parametrize("case", ["announce_config", "origin", "origin_pending", "origin_resend", "origin_no_ack", "receiver", "fallback", "late_arrival", "wire_identity_ignored",
     "expired", "freeze_missing", "freeze_stops_solve", "capacity", "sequence", "gateway",
     "independent_positions", "reject_no_retry", "stop", "restart", "identity",
     "wrong_receipt", "reject_uncertain", "conflict", "different_local_seq", "all_events_retained", "zero_pulse_index", "version_overflow", "version_limit",

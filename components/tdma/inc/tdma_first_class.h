@@ -44,6 +44,17 @@ static inline bool tdma_first_class_pending(const tdma_first_class_t *f)
     return f && __atomic_load_n(&f->state, __ATOMIC_ACQUIRE) == TDMA_FIRST_CLASS_READY;
 }
 
+/* Core0: is the single slot free to take another record right now? Asking first turns a
+ * REJECTION into a WAIT: the producer keeps its prepared record and retries on its next
+ * service pass instead of offering it into an occupied slot and having it counted as a
+ * refused stage. Core0 is the only writer that moves EMPTY -> WRITING, so a free answer
+ * cannot be invalidated by anyone else; the CAS in tdma_first_class_stage() stays as the
+ * hard invariant (a stage that still loses is a real defect, not backpressure). */
+static inline bool tdma_first_class_free(const tdma_first_class_t *f)
+{
+    return f && __atomic_load_n(&f->state, __ATOMIC_ACQUIRE) == TDMA_FIRST_CLASS_EMPTY;
+}
+
 /* Core0: publish one complete mailbox. False if a record is still waiting.
  * A refusal is a first-class backpressure fact, not an error: it is counted so
  * a record starved by the single-depth slot is visible in the seat evidence. */

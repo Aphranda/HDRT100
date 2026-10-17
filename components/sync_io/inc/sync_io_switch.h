@@ -6,7 +6,7 @@
 #define SYNC_IO_SWITCH_SCHEMA 1u
 #define SYNC_IO_SWITCH_FIRST_SM 1u
 #define SYNC_IO_SWITCH_SECOND_SM 3u
-#define SYNC_IO_SWITCH_INSTRUCTION_WORDS 6u
+#define SYNC_IO_SWITCH_INSTRUCTION_WORDS 8u
 #define SYNC_IO_SWITCH_MAX_GROUPS 2u
 #define SYNC_IO_SWITCH_DEADLINE_GUARD_US 100u
 #define SYNC_IO_SWITCH_ORIGIN_MAX_NS 256u
@@ -35,6 +35,10 @@ typedef struct {
     /* actual_output_mask reads all public OUT pads, including unleased pins,
      * so diagnostics can compare unselected outputs without driving them. */
     uint32_t program_offset, actual_output_mask, receipt_mask, fault;
+    /* SYNC-SCHED-001: how many absolute deadlines are still outstanding (0..2). Two
+     * triggers may be in flight; the hardware runs them back-to-back from the TX FIFO,
+     * so the gap between them is tick-driven, not "software saw the first completion". */
+    uint32_t pending_count;
     sync_io_switch_group_t groups[SYNC_IO_SWITCH_MAX_GROUPS];
 } sync_io_switch_snapshot_t;
 

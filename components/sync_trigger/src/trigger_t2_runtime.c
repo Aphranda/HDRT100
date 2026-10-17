@@ -51,6 +51,17 @@ static trigger_t2_runtime_snapshot_t s_state;
 /* Scan STEP for the next run; 0 keeps the rolling window disabled (see the header).
  * Defined after s_state, which the STOP-only guard inspects. */
 static int32_t s_scan_step_mdeg;
+/* Announce gates, installed at STOP instead of being frozen at build time: the right value
+ * depends on the measured single-depth seat turnaround of the running ring, and sweeping it
+ * used to cost a re-flash. Defaults are the measured values (4/10/6 ms); a 0 is refused so
+ * shaping cannot be switched off by an empty write. Read on every announce evaluation. */
+static struct {
+    uint32_t tolerance_ms, min_interval_ms, global_interval_ms;
+} s_announce = {
+    TRIGGER_T2_ANNOUNCE_TARGET_TOLERANCE_MS,
+    TRIGGER_T2_ANNOUNCE_MIN_INTERVAL_MS,
+    TRIGGER_T2_ANNOUNCE_MIN_GLOBAL_INTERVAL_MS,
+};
 /* How many times start() actually took the window branch (A.3.6d). */
 static uint32_t s_window_branch_entered;
 /* Migration equivalence evidence (A.3.11), retired: the window now drives the FREEZE, so
@@ -74,6 +85,33 @@ static uint32_t t2_published_mask(void)
             mask |= 1u << (entry->absolute_index % TRIGGER_T2_RUNTIME_POSITION_COUNT);
     }
     return mask;
+}
+
+bool trigger_t2_runtime_announce(uint32_t tolerance_ms, uint32_t min_interval_ms,
+                                 uint32_t global_interval_ms)
+{
+    /* 0 now means "this gate does not suppress": the producer writes the newest value on
+     * every pass and the traffic is decided by T_drain alone, which is the shape the
+     * architecture asks for (buffer updates immediately, transmit on a fixed period).
+     * Values above the bounds are still refused, and a refused write leaves the
+     * previously installed gates untouched. */
+    if (tolerance_ms > TRIGGER_T2_ANNOUNCE_MAX_TOLERANCE_MS) return false;
+    if (min_interval_ms > TRIGGER_T2_ANNOUNCE_MAX_INTERVAL_MS) return false;
+    if (global_interval_ms > TRIGGER_T2_ANNOUNCE_MAX_INTERVAL_MS) return false;
+    s_announce.tolerance_ms = tolerance_ms;
+    s_announce.min_interval_ms = min_interval_ms;
+    s_announce.global_interval_ms = global_interval_ms;
+    return true;
+}
+
+bool trigger_t2_runtime_announce_get(uint32_t *tolerance_ms, uint32_t *min_interval_ms,
+                                     uint32_t *global_interval_ms)
+{
+    if (tolerance_ms) *tolerance_ms = s_announce.tolerance_ms;
+    if (min_interval_ms) *min_interval_ms = s_announce.min_interval_ms;
+    if (global_interval_ms) *global_interval_ms = s_announce.global_interval_ms;
+    /* An all-zero install is legal (no suppression), so the readback never fails. */
+    return true;
 }
 
 bool trigger_t2_runtime_scan_step(int32_t step_mdeg)
@@ -1685,6 +1723,10 @@ bool trigger_t2_runtime_snapshot(trigger_t2_runtime_snapshot_t *out)
             out->core0_prepare_calls=s_core0_prepare_calls;
             out->core0_preview_saved=s_core0_preview_saved;
             out->core0_prepare_last_reason=s_core0_prepare_last_reason;
+            /* Second-position fallback, read from its own monotonic counter: it is a
+             * different fact from freeze_fallback_count (version mismatch on the FREEZE
+             * path), and only this one says "the cached next target was executed". */
+            out->fallback_promoted_count = s_position_fallback_promotions;
             out->prediction_version_exhausted_mask =
                 __atomic_load_n(&s_version_exhausted, __ATOMIC_ACQUIRE);
             return true;
@@ -1871,7 +1913,13 @@ void trigger_t2_runtime_prepare_core0(void)
         .count = (uint32_t)snapshot.last_counter_count, .coarse = (uint32_t)coarse};
     s_count_head = (s_count_head + 1u) % T2_WINDOW_HISTORY_CAPACITY;
     if (s_count_size < T2_WINDOW_HISTORY_CAPACITY) s_count_size++;
-    if (distributed_refmem_position_descriptor_pending()) { s_core0_prepare_last_reason=4u; return; }
+    /* NO pending gate here any more. The position TX is a latest-value table that merges
+     * an unwritten value into the newest one, so "a record is still waiting" is not a
+     * reason to stop producing - that gate belonged to the single-depth mailbox and it is
+     * exactly what made the producer slave to the transmit cadence (measured 2026-10-17:
+     * with T_drain=50 ms the publish rate still tracked the taker and the merge counter
+     * stayed 0, i.e. the producer never had anything to merge). The transmit side decides
+     * WHEN a value goes out; the producer decides only WHAT the newest value is. */
 
     /* With a scan step the candidates are the window's one or two entries (any scan
      * ordinal, mapped to its slot); without one they are the three legacy positions.
@@ -2011,14 +2059,14 @@ void trigger_t2_runtime_prepare_core0(void)
             ((int64_t)next.target_fine_slice_index -
              (int64_t)previous.target_fine_slice_index);
         const int64_t announce_tolerance_q =
-            (int64_t)TRIGGER_T2_ANNOUNCE_TARGET_TOLERANCE_MS *
+            (int64_t)s_announce.tolerance_ms *
             (int64_t)s_config.grid.subdivisions;
         const bool announce_too_soon = s_announce_ms[index] != 0u &&
             (uint32_t)coarse - s_announce_ms[index] <
-                (uint32_t)TRIGGER_T2_ANNOUNCE_MIN_INTERVAL_MS;
+                (uint32_t)s_announce.min_interval_ms;
         const bool offer_too_soon = s_last_offer_ms != 0u &&
             (uint32_t)coarse - s_last_offer_ms <
-                (uint32_t)TRIGGER_T2_ANNOUNCE_MIN_GLOBAL_INTERVAL_MS;
+                (uint32_t)s_announce.global_interval_ms;
         if (previous.prediction_version &&
             (announce_too_soon || offer_too_soon ||
              (announce_delta_q <= announce_tolerance_q &&

@@ -1,7 +1,15 @@
-; Y is preloaded with the selected group code while disabled. TX supplies
-; one delay. First write = SM origin + delay + 3 clocks. Empty PULL parks.
+; Two words per trigger, so two triggers can be queued in the TX FIFO (depth 4)
+; without any software in between:
+;   word A = group code (latched into Y, echoed as the receipt)
+;   word B = delay in clk_sys cycles
+; First edge = SM origin + delay + 4 clocks (pull,out,pull,out). Empty PULL parks,
+; so after the last queued trigger the SM waits instead of firing spuriously.
+; Y is no longer preloaded by software: the code rides in the word, which is what
+; lets a SECOND, different group code be queued while the first is still pending.
 .program sync_switch
 .wrap_target
+    pull block
+    out y, 32
     pull block
     out x, 32
 delay:

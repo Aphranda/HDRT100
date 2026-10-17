@@ -28,11 +28,12 @@ MOCK=SWITCH_MOCK.replace('uint32_t osr,isr,tx[4],rx[4];','uint32_t osr,isr,x,y,t
 MOCK=replace_function(MOCK,'pio_sm_get_rx_fifo_level','')
 MOCK=replace_function(MOCK,'pio_sm_get_tx_fifo_level','')
 # The shared mock hard-codes the SWITCH program length in pio_can_add_program and
-# pio_add_program; this harness loads the ACTION program, which is 8 words
-# (see sync_action.pio.h). Keep the anchor on the mock's real text and assert it
-# applied, so a future mock edit cannot silently disable this harness again.
-assert MOCK.count('g->length==6')>=2
-MOCK=MOCK.replace('g->length==6','g->length==8').replace('SYNC_IO_PERSONA_ID_SWITCH','SYNC_IO_PERSONA_ID_ACTION')
+# pio_add_program. This harness loads the ACTION program, which is also 8 words; keep the
+# anchor on the mock's real text and assert it applied, so a future mock edit cannot
+# silently disable this harness again (the switch program grew to 8 words with the
+# two-word trigger protocol).
+assert MOCK.count('g->length==8')>=2
+MOCK=MOCK.replace('SYNC_IO_PERSONA_ID_SWITCH','SYNC_IO_PERSONA_ID_ACTION')
 MOCK=MOCK.replace('&&!r&&w==(allowed_mask<<16)','&&w==(allowed_mask<<16)')
 # This variant of the shared mock leaves several stub entry points unused (the
 # switch fixture calls them, this one does not); they are deliberate harness

@@ -143,9 +143,10 @@ uint32_t ota_crc32_update(uint32_t c,const uint8_t *p,size_t n)
 { for(size_t i=0;i<n;i++){ c^=p[i]; for(unsigned j=0;j<8;j++) c=(c>>1)^((c&1)?0xedb88320u:0); } return c; }
 static void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,const uint8_t *m,const tdma_flight_rx_view_t *v)
 { (void)slot; (void)m; (void)v; }
-/* T2 owns separate asynchronous mailboxes; these VDC transport cases do not
- * submit or receive T2 position descriptors. */
-static void distributed_refmem_position_tx_prepare(void) {}
+/* T2 owns a separate latest-value table; these VDC transport cases do not submit or
+ * receive T2 position descriptors, so the taker is stubbed as "nothing pending". */
+static bool distributed_refmem_position_tx_prepare(tdma_service_service_t *owner)
+{ (void)owner; return false; }
 static void distributed_refmem_tdma_parse_position_fragment(uint32_t slot,const uint8_t *m)
 { (void)slot; (void)m; }
 ''' + state.group(0) + "\nstatic distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;\n"
@@ -158,7 +159,8 @@ static bool s_vdc_flight_rx_admission_ready;
     harness += "\n".join(ingress_definition(service, name) for name in (
         "tdma_service_core0_advance_flight_rx_admission_epoch", "tdma_service_acquire_flight_rx",
         "tdma_service_release_flight_rx", "tdma_service_publish_flight_tx", "tdma_service_get_flight_fifo_snapshot",
-        "tdma_service_first_class_route", "tdma_service_stage_first_class"))
+        "tdma_service_first_class_route", "tdma_service_stage_first_class",
+        "tdma_service_first_class_free"))
     harness += "\n" + "\n".join(ingress_definition(source, name) for name in (
         "distributed_refmem_put_le16", "distributed_refmem_put_i16", "distributed_refmem_put_le32",
         "distributed_refmem_get_le16", "distributed_refmem_get_i16", "distributed_refmem_get_le32",

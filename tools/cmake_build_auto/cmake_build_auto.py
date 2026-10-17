@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -55,13 +56,54 @@ def load_configure_preset(root: Path, preset_name: str) -> tuple[str, dict[str, 
     raise SystemExit(f"configure preset not found: {preset_name}")
 
 
+SOURCE_STATE_DIRS = ("application", "components", "middleware", "osal", "config", "pio")
+SOURCE_STATE_SUFFIXES = {".c", ".h", ".inc", ".cpp", ".pio", ".cmake", ".ld", ".ldinc", ".in"}
+SOURCE_STATE_FILE = ".dsh_source_state"
+
+
+def source_state_digest(root: Path) -> str:
+    """Cheap content identity of the firmware inputs.
+
+    Reusing a build directory must NOT reuse a stale firmware identity: `PROJECT_BUILD_ID`
+    is produced at CONFIGURE time, so a build that silently skips configure keeps reporting
+    the build id of the first configure for ever (measured 2026-10-17: the dpll60 package
+    claimed build 20261016011253 while compiling the current sources, which makes every
+    acceptance receipt ambiguous about the code it validated).
+    """
+    digest = hashlib.sha256()
+    for top in (root / "CMakeLists.txt", root / "CMakePresets.json"):
+        if top.is_file():
+            stat = top.stat()
+            digest.update(f"{top.name}:{stat.st_size}:{int(stat.st_mtime)}".encode())
+    for name in SOURCE_STATE_DIRS:
+        base = root / name
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in SOURCE_STATE_SUFFIXES:
+                continue
+            stat = path.stat()
+            digest.update(f"{path.relative_to(root)}:{stat.st_size}:{int(stat.st_mtime)}".encode())
+    return digest.hexdigest()[:32]
+
+
 def cache_matches(root: Path, build_dir: Path) -> bool:
     cache_path = build_dir / "CMakeCache.txt"
     cached_root = read_cache_var(cache_path, "CMAKE_HOME_DIRECTORY")
     cached_build = read_cache_var(cache_path, "CMAKE_CACHEFILE_DIR")
     if cached_root is None or cached_build is None:
         return False
-    return normalized_path(cached_root) == normalized_path(root) and normalized_path(cached_build) == normalized_path(build_dir)
+    if (normalized_path(cached_root) != normalized_path(root) or
+            normalized_path(cached_build) != normalized_path(build_dir)):
+        return False
+    state_path = build_dir / SOURCE_STATE_FILE
+    if not state_path.is_file():
+        return False
+    return state_path.read_text(encoding="utf-8").strip() == source_state_digest(root)
+
+
+def record_source_state(root: Path, build_dir: Path) -> None:
+    (build_dir / SOURCE_STATE_FILE).write_text(source_state_digest(root), encoding="utf-8")
 
 
 def ensure_build_dir_is_safe(root: Path, build_dir: Path) -> None:
@@ -112,6 +154,7 @@ def main() -> int:
         for key, value in cache_vars.items():
             command.append(f"-D{key}={value}")
         run(command, root)
+        record_source_state(root, build_dir)
     else:
         print(f"configure=skip cache matches current root build_dir={build_dir}", flush=True)
 

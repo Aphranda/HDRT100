@@ -257,6 +257,10 @@ typedef struct {
     uint32_t seat_first_class_count;
     uint32_t seat_priority_yield_count; /* priority new, first class boarded */
     uint32_t seat_first_class_reject_count;
+    /* A frame was acquired from the flight FIFO and then rejected before boarding. The
+     * view is released on every such path (a leaked CORE1_ACTIVE slot wedges the FIFO for
+     * the whole run), and this counter says how often it happened. */
+    uint32_t flight_publish_reject_count;
     uint32_t seat_first_class_wait_max; /* opportunities a record waited */
     uint32_t seat_first_class_wait;
     /* Bounded-service evidence: times a waiting first-class record reached the

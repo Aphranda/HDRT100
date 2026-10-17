@@ -54,8 +54,9 @@ QUERIES = (HEALTH, COUNTERS, ROTATION, POSITION, SCHEDULE)
 
 # Field counts of the pages this tool reads. A mismatch means the firmware page
 # and the documented contract drifted, so every positional read after it would be
-# wrong: refuse to interpret rather than guess.
-EXPECTED_FIELDS = {HEALTH: 24, COUNTERS: 12, ROTATION: 12, POSITION: 31}
+# wrong: refuse to interpret rather than guess. POSITION grew 31 -> 35 with the
+# T2 position-transport additions (freeze latched/kept/taken + coalesced).
+EXPECTED_FIELDS = {HEALTH: 24, COUNTERS: 12, ROTATION: 12, POSITION: 35}
 
 # Field positions of SYSTem:TDMA:SEAT:ROTation?, which reports the declared
 # limits the counters above must be read against. The page grew to 12 with the

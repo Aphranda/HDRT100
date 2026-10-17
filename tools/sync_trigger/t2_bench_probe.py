@@ -37,7 +37,8 @@ T2_FIELDS = (['ok', 'last_error', 'configured', 'active', 'origin', 'source_slot
              ['predictor_error', 'core0_prepare_calls', 'core0_preview_saved',
               'core0_prepare_last_reason', 'segment_cursor_max', 'segment_receive_max',
               'segment_deadlines_max', 'freeze_complete_mask', 'freeze_abandoned_mask',
-              'freeze_resend_count', 'freeze_abandoned_count'])
+              'freeze_resend_count', 'freeze_abandoned_count',
+              'fallback_promoted_count'])
 
 
 def t2_page(raw):

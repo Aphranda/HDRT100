@@ -82,6 +82,32 @@ static void feedback_publish(uint32_t *words, uint32_t *guard, const void *input
     (void)__atomic_add_fetch(guard, 1u, __ATOMIC_RELEASE);
 }
 
+/* Why feedback_prepare() refused to let a frame out. A -1 stalls the WHOLE flight publish
+ * path (no VDC frame and no T2 frame is built), so the branch that produced it must be
+ * readable on the bench instead of guessed (2026-10-17: tx_publish froze at 395 with
+ * wait_reason FAILURE_FEEDBACK and three candidate branches). */
+enum {
+    FB_PREPARE_OK = 0u,
+    FB_PREPARE_NOT_READY_TX_ACTIVE = 1u,
+    FB_PREPARE_NOT_READY_OFFER = 2u,
+    FB_PREPARE_SNAPSHOT_BUSY = 3u,
+    FB_PREPARE_BINDING_CHANGED = 4u,
+    FB_PREPARE_INFLIGHT_INVALID = 5u,
+    FB_PREPARE_REASON_COUNT
+};
+static volatile uint32_t s_feedback_prepare_last_reason;
+static volatile uint32_t
+    s_feedback_prepare_reason_count[FB_PREPARE_REASON_COUNT];
+
+static int feedback_refuse(uint32_t reason)
+{
+    __atomic_store_n(&s_feedback_prepare_last_reason, reason, __ATOMIC_RELEASE);
+    if (reason < FB_PREPARE_REASON_COUNT)
+        (void)__atomic_add_fetch(&s_feedback_prepare_reason_count[reason], 1u,
+                                __ATOMIC_RELAXED);
+    return -1;
+}
+
 static bool feedback_read_binding(tdma_service_service_t *owner,
     distributed_refmem_feedback_binding_t *out)
 {
@@ -224,17 +250,19 @@ static int distributed_refmem_boundary_prepare(tdma_service_service_t *owner)
         s_feedback_binding.ring_config_seq, s_feedback_binding.role_generation,
         s_feedback_binding.local, s_feedback_binding.schedule_crc32,
         s_feedback_binding.session, &command, &offer_id);
-    if (available < 0) return s_feedback_tx_active || boundary_offer_pending() ? -1 : 0;
+    if (available < 0) return (s_feedback_tx_active || boundary_offer_pending()) ?
+        feedback_refuse(FB_PREPARE_SNAPSHOT_BUSY) : 0;
     if (available == 0 || offer_id == 0u) {
         if (s_feedback_tx_active || boundary_offer_pending()) feedback_cancel_tx();
         return 0;
     }
     distributed_refmem_feedback_binding_t after;
     if (!feedback_read_binding(owner, &after))
-        return s_feedback_tx_active || boundary_offer_pending() ? -1 : 0;
+        return (s_feedback_tx_active || boundary_offer_pending()) ?
+            feedback_refuse(FB_PREPARE_SNAPSHOT_BUSY) : 0;
     if (!feedback_same_binding(&after, &s_feedback_binding)) {
         if (s_feedback_tx_active || boundary_offer_pending()) feedback_cancel_tx();
-        return -1;
+        return feedback_refuse(FB_PREPARE_BINDING_CHANGED);
     }
     uint8_t candidate[REFMEM_VDC_FEEDBACK_RECORD_SIZE];
     if (command.source_slot != after.local || command.target_slot == after.local ||
@@ -303,8 +331,10 @@ static bool reference_receipt_covered(const uint8_t reference[64])
 static int distributed_refmem_receipt_prepare(tdma_service_service_t *owner)
 {
     distributed_refmem_feedback_binding_t after;
-    if (!feedback_read_binding(owner, &after)) return s_feedback_tx_active ? -1 : 0;
-    if (!feedback_same_binding(&after, &s_feedback_binding)) return -1;
+    if (!feedback_read_binding(owner, &after))
+        return s_feedback_tx_active ? feedback_refuse(FB_PREPARE_SNAPSHOT_BUSY) : 0;
+    if (!feedback_same_binding(&after, &s_feedback_binding))
+        return feedback_refuse(FB_PREPARE_BINDING_CHANGED);
     if (!after.session || after.target >= after.node_count) return 0;
     distributed_refmem_vdc_feedback_rx_snapshot_t rx;
     feedback_load(s_feedback_rx[after.target].words, &rx, sizeof(rx));
@@ -355,8 +385,10 @@ static int distributed_refmem_reference_prepare(tdma_service_service_t *owner)
     distributed_refmem_feedback_binding_t after;
     uint32_t epoch;
     if (!feedback_read_binding(owner, &after) ||
-        !tdma_runtime_owner_get_origin_reference_epoch(&epoch)) return s_feedback_tx_active ? -1 : 0;
-    if (!feedback_same_binding(&after, &s_feedback_binding)) return -1;
+        !tdma_runtime_owner_get_origin_reference_epoch(&epoch))
+        return s_feedback_tx_active ? feedback_refuse(FB_PREPARE_SNAPSHOT_BUSY) : 0;
+    if (!feedback_same_binding(&after, &s_feedback_binding))
+        return feedback_refuse(FB_PREPARE_BINDING_CHANGED);
     if (!epoch || !after.session) {
         if (s_feedback_tx_active) feedback_cancel_tx();
         return 0;
@@ -397,7 +429,8 @@ static int distributed_refmem_reference_prepare(tdma_service_service_t *owner)
     distributed_refmem_feedback_binding_t final;
     uint32_t final_epoch;
     if (!feedback_read_binding(owner, &final) || !feedback_same_binding(&after, &final) ||
-        !tdma_runtime_owner_get_origin_reference_epoch(&final_epoch) || final_epoch != epoch) return -1;
+        !tdma_runtime_owner_get_origin_reference_epoch(&final_epoch) || final_epoch != epoch)
+        return feedback_refuse(FB_PREPARE_BINDING_CHANGED);
     const refmem_sync_vdc_feedback_record_t record = {
         .schema_version = REFMEM_VDC_FEEDBACK_MODEL_SCHEMA,
         .domain_flags = REFMEM_VDC_FEEDBACK_MODEL_DOMAIN_FLAGS,
@@ -422,7 +455,10 @@ static int distributed_refmem_reference_prepare(tdma_service_service_t *owner)
 /* -1 = contention, 0 = ordinary, 1 = feedback fragment, 2 = boundary command. */
 static int distributed_refmem_feedback_prepare(tdma_service_service_t *owner)
 {
-    if (!s_feedback_ready) return s_feedback_tx_active || boundary_offer_pending() ? -1 : 0;
+    if (!s_feedback_ready)
+        return (s_feedback_tx_active || boundary_offer_pending()) ?
+            feedback_refuse(s_feedback_tx_active ? FB_PREPARE_NOT_READY_TX_ACTIVE :
+                                                   FB_PREPARE_NOT_READY_OFFER) : 0;
     if (s_feedback_binding.rate_mode == VDC_BOUNDARY_MODE_REFERENCE)
         return distributed_refmem_reference_prepare(owner);
     if (s_feedback_binding.mode == VDC_DPLL_CONTROL_MODE_MASTER)
@@ -431,7 +467,8 @@ static int distributed_refmem_feedback_prepare(tdma_service_service_t *owner)
     tdma_pio_spi_event_live_snapshot_t live;
     tdma_pio_spi_event_tap_snapshot_t tap;
     distributed_refmem_feedback_binding_t after;
-    if (!tdma_runtime_owner_get_event_tap(&tap)) return s_feedback_tx_active ? -1 : 0;
+    if (!tdma_runtime_owner_get_event_tap(&tap))
+        return s_feedback_tx_active ? feedback_refuse(FB_PREPARE_SNAPSHOT_BUSY) : 0;
     if (tap.applied_valid != 1u || tap.applied.enabled != 1u || !tap.actual_valid ||
         tap.actual_prefix_bits != tap.applied.prefix_bits ||
         tap.actual_sample_delay_cycles != tap.applied.sample_delay_cycles) {
@@ -439,8 +476,10 @@ static int distributed_refmem_feedback_prepare(tdma_service_service_t *owner)
         return 0;
     }
     if (!tdma_runtime_owner_get_event_live_snapshot(&live) ||
-        !feedback_read_binding(owner, &after)) return s_feedback_tx_active ? -1 : 0;
-    if (!feedback_same_binding(&after, &s_feedback_binding)) return -1;
+        !feedback_read_binding(owner, &after))
+        return s_feedback_tx_active ? feedback_refuse(FB_PREPARE_SNAPSHOT_BUSY) : 0;
+    if (!feedback_same_binding(&after, &s_feedback_binding))
+        return feedback_refuse(FB_PREPARE_BINDING_CHANGED);
     if ((live.flags & (TDMA_EVENT_LIVE_RETAINED | TDMA_EVENT_LIVE_ACTIVE | TDMA_EVENT_LIVE_ANCHOR_VALID)) !=
             (TDMA_EVENT_LIVE_RETAINED | TDMA_EVENT_LIVE_ACTIVE | TDMA_EVENT_LIVE_ANCHOR_VALID)) {
         if (s_feedback_tx_active) feedback_cancel_tx();
@@ -502,7 +541,8 @@ static int distributed_refmem_feedback_prepare(tdma_service_service_t *owner)
             record.model.control_session = after.session;
         }
         distributed_refmem_feedback_binding_t final;
-        if (!feedback_read_binding(owner, &final) || !feedback_same_binding(&after, &final)) return -1;
+        if (!feedback_read_binding(owner, &final) || !feedback_same_binding(&after, &final))
+        return feedback_refuse(FB_PREPARE_BINDING_CHANGED);
     }
     uint8_t candidate[REFMEM_VDC_FEEDBACK_RECORD_SIZE];
     distributed_refmem_vdc_feedback_tx_snapshot_t tx;
@@ -1110,4 +1150,14 @@ bool __attribute__((noinline)) distributed_refmem_copy_vdc_boundary_command(
         next.command.source_slot != source) return false;
     *view = next;
     return true;
+}
+
+
+/* Diagnostic read-back for the refusal branch (declared in distributed_refmem.h). It lives
+ * here because the reason counters are file-scope state of this translation unit. */
+uint32_t distributed_refmem_feedback_prepare_reason(uint32_t *counts, uint32_t count)
+{
+    for (uint32_t i = 0u; counts && i < count; ++i)
+        counts[i] = __atomic_load_n(&s_feedback_prepare_reason_count[i], __ATOMIC_RELAXED);
+    return __atomic_load_n(&s_feedback_prepare_last_reason, __ATOMIC_RELAXED);
 }

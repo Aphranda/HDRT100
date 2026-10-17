@@ -391,12 +391,43 @@ typedef enum {
     DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_PUBLISH = 5u,
     DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_CRC = 6u,
     DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FRAGMENT = 7u,
+    /* The single-depth first-class seat still held the previous record, so this pass did
+     * NOT offer: the prepared record is kept and boards on a later pass. Counted in
+     * tx_wait_count, never in stage_refused_count - a wait, not a drop. */
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_SEAT_BUSY = 8u,
+    /* The pending value was ready but the fixed T_drain cadence had not elapsed yet: the
+     * record WAITS in the latest-value table and is taken on a later pass. */
+    DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_DRAIN_PACE = 9u,
 } distributed_refmem_position_transport_failure_t;
+
+/* T2 position TX: the producer always writes the newest value for a position into a
+ * latest-value table (never refused), and the transport takes AT MOST ONE record per
+ * T_drain ms, only while the single-depth first-class seat is free. This is the
+ * "buffer updates immediately, transmit on a fixed period" shape the RefMem/HAOFV
+ * contracts require (REFMEM_SYNC_ARCHITECTURE "merge to latest before the wire"), and it
+ * makes a refused offer impossible by construction. The cadence is a STOP-state install
+ * parameter so it can be tuned without a re-flash; 0 means "as fast as the seat allows". */
+#define DISTRIBUTED_REFMEM_POSITION_DRAIN_DEFAULT_MS 6u
+#define DISTRIBUTED_REFMEM_POSITION_DRAIN_MAX_MS 1000u
+/* Depth of the latest-value TX table: one entry per position the T2 runtime keeps in
+ * flight (the same number as TRIGGER_T2_RUNTIME_POSITION_COUNT). It is an own symbol so
+ * this module needs no trigger-runtime header; a wider window must widen both. */
+#define DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS 3u
+bool distributed_refmem_position_drain_ms(uint32_t drain_ms);
+void distributed_refmem_position_drain_get(uint32_t *drain_ms);
+/* Why the VDC feedback path last refused to let a frame out (a refusal stalls the WHOLE
+ * flight publish path - no VDC frame and no T2 frame is built). `counts` receives
+ * FB_PREPARE_* buckets in order; returns the last reason. Diagnostic only. */
+uint32_t distributed_refmem_feedback_prepare_reason(uint32_t *counts, uint32_t count);
 
 typedef struct {
     uint32_t tx_pending, tx_active, tx_fragment_index;
     uint32_t tx_publish_count, tx_reject_count, tx_position_id;
     uint32_t tx_phase, tx_wait_reason, tx_wait_count, tx_submitted_sequence;
+    /* Latest-value coalescing on the TX side: how many staged updates replaced (or were
+     * outranked by) a value that had not been transmitted yet. Zero means every staged
+     * value reached the wire; non-zero proves the merge, not a loss. */
+    uint32_t tx_coalesced_count;
     uint32_t rx_complete_count, rx_reject_count, rx_pending_mask;
     uint32_t rx_source_slot, rx_position_id, cancel_requested;
     uint32_t rx_phase, rx_last_failure;

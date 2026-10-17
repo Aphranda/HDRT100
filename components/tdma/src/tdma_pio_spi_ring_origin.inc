@@ -325,9 +325,16 @@ static bool tdma_pio_spi_ring_origin_publish_async(tdma_pio_spi_ring_adapter_t *
     if (state != TDMA_OVERLAY_PREPARE_IDLE ||
         !adapter->phys_origin.ready(adapter->phys_ctrl_context) || adapter->flight_fifo == NULL) return true;
     tdma_flight_tx_view_t tx;
-    if (!tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx) ||
-        (adapter->origin.published_owner_generation == tx.generation &&
-         adapter->origin.published_owner_sequence == tx.sequence)) return true;
+    if (!tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx)) return true;
+    if (adapter->origin.published_owner_generation == tx.generation &&
+        adapter->origin.published_owner_sequence == tx.sequence) {
+        /* Acquiring made this slot CORE1_ACTIVE; returning without releasing it leaks the
+         * only active view, and every later acquire then fails while the FIFO keeps
+         * reporting one ready image for ever (measured 2026-10-17: tx_ready_count stayed 1
+         * for 568 s, which stopped BOTH the ordinary VDC frame and T2). */
+        tdma_flight_fifo_core1_release_tx(adapter->flight_fifo);
+        return true;
+    }
     if (tx.data == NULL ||
         !tdma_flight_engine_copy_tx_layout(adapter->flight_engine, &job->layout) ||
         job->layout.local_slot_id != adapter->config.local_slot_id) return false;
@@ -568,27 +575,50 @@ static bool tdma_pio_spi_ring_origin_publish(tdma_pio_spi_ring_adapter_t *adapte
     if (!adapter->phys_origin.ready(adapter->phys_ctrl_context) || adapter->flight_fifo == NULL)
         return true;
     tdma_flight_tx_view_t tx;
-    if (!tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx) ||
-        (adapter->origin.published_owner_generation == tx.generation &&
-         adapter->origin.published_owner_sequence == tx.sequence)) return true;
-    if (tx.generation == 0u || tx.segment_mask != (1u << adapter->config.local_slot_id)) return false;
+    if (!tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx)) return true;
+    if (adapter->origin.published_owner_generation == tx.generation &&
+        adapter->origin.published_owner_sequence == tx.sequence) {
+        /* Acquiring made this slot CORE1_ACTIVE; returning without releasing it leaks the
+         * only active view, and every later acquire then fails while the FIFO keeps
+         * reporting one ready image for ever (measured 2026-10-17: tx_ready_count stayed 1
+         * for 568 s, which stopped BOTH the ordinary VDC frame and T2). */
+        tdma_flight_fifo_core1_release_tx(adapter->flight_fifo);
+        return true;
+    }
+    if (tx.generation == 0u || tx.segment_mask != (1u << adapter->config.local_slot_id)) {
+        tdma_flight_fifo_core1_release_tx(adapter->flight_fifo);
+        adapter->origin.flight_publish_reject_count++;
+        return false;
+    }
     /* Activation already validated the complete map under its writer guard.
      * Only that fixed local-mailbox grant can authorize this hardware graph.
      * The active FIFO owns complete Core0-prepared bytes throughout this call;
      * no remote image, full map copy or byte bitmap construction is needed. */
     tdma_flight_tx_layout_t layout;
     if (!tdma_flight_engine_copy_tx_layout(adapter->flight_engine, &layout) ||
-        layout.local_slot_id != adapter->config.local_slot_id || tx.data == NULL) return false;
+        layout.local_slot_id != adapter->config.local_slot_id || tx.data == NULL) {
+        tdma_flight_fifo_core1_release_tx(adapter->flight_fifo);
+        adapter->origin.flight_publish_reject_count++;
+        return false;
+    }
     const uint32_t offset = layout.local_slot_id * TDMA_FLIGHT_SHORT_SLOT_SIZE;
     const uint8_t *mailbox = tx.data;
     if (tx.data_size != TDMA_FLIGHT_SHORT_SLOT_SIZE) {
         /* Preserve full-image producer support, selecting only our grant. */
-        if (tx.data_size < offset + TDMA_FLIGHT_SHORT_SLOT_SIZE) return false;
+        if (tx.data_size < offset + TDMA_FLIGHT_SHORT_SLOT_SIZE) {
+        tdma_flight_fifo_core1_release_tx(adapter->flight_fifo);
+        adapter->origin.flight_publish_reject_count++;
+            return false;
+        }
         mailbox += offset;
     }
     if (!tdma_process_image_flight_class_valid(mailbox[3]) ||
         !tdma_pio_spi_ring_origin_mailbox_valid(mailbox, adapter->config.local_slot_id,
-            (1u << adapter->config.node_count) - 1u)) return false;
+            (1u << adapter->config.node_count) - 1u)) {
+        tdma_flight_fifo_core1_release_tx(adapter->flight_fifo);
+        adapter->origin.flight_publish_reject_count++;
+        return false;
+    }
 
 #if TDMA_LOOP_SCHEDULE_ENABLED
     /* Publish only in the window of the seat this load is mounted on; otherwise
@@ -603,11 +633,19 @@ static bool tdma_pio_spi_ring_origin_publish(tdma_pio_spi_ring_adapter_t *adapte
         .output_bytes = TDMA_FLIGHT_SHORT_SLOT_SIZE,
     };
     if (!tdma_flight_engine_accept_tx(adapter->flight_engine, &layout, &applied,
-                                    tx.reused_previous)) return false;
+                                    tx.reused_previous)) {
+        tdma_flight_fifo_core1_release_tx(adapter->flight_fifo);
+        adapter->origin.flight_publish_reject_count++;
+        return false;
+    }
     uint32_t generation = 0u;
     if (!adapter->phys_origin.publish(adapter->phys_ctrl_context, mailbox, &generation))
         return true; /* deferred: active FIFO view remains available for retry */
-    if (generation == 0u || generation == adapter->origin.published_generation) return false;
+    if (generation == 0u || generation == adapter->origin.published_generation) {
+        tdma_flight_fifo_core1_release_tx(adapter->flight_fifo);
+        adapter->origin.flight_publish_reject_count++;
+        return false;
+    }
     tdma_pio_spi_ring_origin_commit_owner(adapter, &tx, mailbox, generation);
     return true;
 }

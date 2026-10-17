@@ -300,7 +300,16 @@ def assess_capture(decoded: dict[str, Any], requested_s: float,
                      if success else None)
     success_last = (success[-1]["observed_start_raw"] + success[-1]["last_success_offset_ticks"]
                     if success else None)
-    gap = max((r["max_success_gap_ticks"] / hz for r in rows), default=0)
+    # The TERMINAL bin's gap is dominated by the stop tail: successes stop when the target
+    # completes, so max() over ALL rows measures the shutdown silence rather than a
+    # transport stall. Measured 2026-10-17 (four boards, steady bins vs terminal bin):
+    # 37.6/47.2/45.3/50.1 ms steady, 1.70/1.16/0.54/0.04 s terminal - the 1.70 s tail alone
+    # failed the 1.0 s criterion on a chain whose steady-state cadence never exceeded 51 ms.
+    # Keep the steady bins as the criterion and report the terminal tail separately.
+    steady_rows = [r for r in rows if "TERMINAL" not in r["flag_names"]] or rows
+    gap = max((r["max_success_gap_ticks"] / hz for r in steady_rows), default=0)
+    terminal_gap = max((r["max_success_gap_ticks"] / hz for r in rows
+                        if "TERMINAL" in r["flag_names"]), default=0)
     return dict(schema_ok=schema_ok, interval_ok=interval_ok,
                 summary_interval_ms=status["sample_interval_ms"], first_raw_tick=first, last_raw_tick=last,
                 observed_s=observed, requested_s=requested_s, terminal=terminal,
@@ -314,6 +323,7 @@ def assess_capture(decoded: dict[str, Any], requested_s: float,
                     'STEADY_SUCCESS_GAP' in rows[0]['flag_names'] else 'start_inclusive'),
                 success_gap_limit_s=max_success_gap_s,
                 success_gap_passed=bool(success) and gap <= max_success_gap_s,
+                terminal_success_gap_s=terminal_gap,
                 success_count=sum(r["success_count"] for r in rows),
                 frequency_applied_count=sum(r["frequency_applied_count"] for r in rows),
                 phase_applied_count=sum(r["phase_applied_count"] for r in rows),

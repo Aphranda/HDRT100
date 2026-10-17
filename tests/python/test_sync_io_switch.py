@@ -116,7 +116,11 @@ static void advance(uint cycles){
                     pio.dbg_padout=(pio.dbg_padout&~mask)|((value<<base)&mask);
                     machine[s].last_write_tick=tick_count;++machine[s].writes;
                 }else{assert(dest==6u);machine[s].isr=value;}
-            }else if(op==3u){assert(((ins>>5)&7u)==1u);machine[s].x=machine[s].osr;}
+            }else if(op==3u){
+                /* OUT dst, 32: the two-word protocol writes Y (code) and X (delay). */
+                const uint dest=(ins>>5)&7u;
+                assert(dest==1u||dest==2u);
+                if(dest==1u)machine[s].x=machine[s].osr;else machine[s].y=machine[s].osr;}
             else if(op==0u){assert(((ins>>5)&7u)==2u);if(machine[s].x-- != 0u)next=ins&31u;}
             else {assert(!"unexpected assembled instruction");}
             machine[s].pc=next;
@@ -127,8 +131,8 @@ static unsigned get_core_num(void){return core;}
 static bool pio_sm_is_claimed(PIO p,uint s){check_sm(p,s);return (claimed&(1u<<s))!=0;}
 static void pio_sm_claim(PIO p,uint s){check_sm(p,s);assert(!(claimed&(1u<<s)));claimed|=1u<<s;}
 static void pio_sm_unclaim(PIO p,uint s){check_owned(p,s);assert(!(pio.ctrl&(1u<<s)));claimed&=~(1u<<s);}
-static bool pio_can_add_program(PIO p,const struct pio_program *g){assert(p==&pio);return !deny_load&&g->length==6;}
-static uint pio_add_program(PIO p,const struct pio_program *g){assert(p==&pio&&!loaded&&g->length==6);memcpy(instruction_memory+9,g->instructions,g->length*sizeof(uint16_t));instruction_memory[11]=(instruction_memory[11]&~31u)|11u;loaded=1;return 9;}
+static bool pio_can_add_program(PIO p,const struct pio_program *g){assert(p==&pio);return !deny_load&&g->length==8;}
+static uint pio_add_program(PIO p,const struct pio_program *g){assert(p==&pio&&!loaded&&g->length==8);memcpy(instruction_memory+9,g->instructions,g->length*sizeof(uint16_t));instruction_memory[13]=(instruction_memory[13]&~31u)|13u; /* JMP delay target, absolute */loaded=1;return 9;}
 static void pio_remove_program(PIO p,const struct pio_program *g,uint o){assert(p==&pio&&o==9&&loaded);loaded=0;}
 static pio_sm_config pio_get_default_sm_config(void){return (pio_sm_config){0};}
 static void sm_config_set_wrap(pio_sm_config*c,uint a,uint b){c->wrap_bottom=a;c->wrap_top=b;}
@@ -140,6 +144,7 @@ static void pio_sm_set_enabled(PIO p,uint s,bool e){check_owned(p,s);assert(!e);
 static void pio_sm_clear_fifos(PIO p,uint s){check_owned(p,s);machine[s].tx_count=0;machine[s].rx_count=0;}
 static void pio_sm_restart(PIO p,uint s){check_owned(p,s);machine[s].isr=0;}
 static uint pio_encode_jmp(uint x){return x;}
+static uint pio_encode_pull(bool c,bool b) __attribute__((unused));
 static uint pio_encode_pull(bool c,bool b){assert(!c&&b);return 0x80a0;}
 static uint pio_encode_mov(uint d,uint r){return 0xa000|(d<<5)|r;}
 static void pio_sm_exec(PIO p,uint s,uint x){check_owned(p,s);assert(!(pio.ctrl&(1u<<s)));
@@ -149,7 +154,7 @@ static void pio_sm_exec(PIO p,uint s,uint x){check_owned(p,s);assert(!(pio.ctrl&
 
 static void pio_sm_set_pins_with_mask(PIO p,uint s,uint v,uint m){check_owned(p,s);assert(!(m&~(allowed_mask<<16))&&!(v&~m));p->dbg_padout=(p->dbg_padout&~m)|v;}
 static void pio_sm_set_pindirs_with_mask(PIO p,uint s,uint v,uint m){check_owned(p,s);assert(!(m&~(allowed_mask<<16))&&!(v&~m));p->dbg_padoe=(p->dbg_padoe&~m)|v;}
-static void pio_sm_put(PIO p,uint s,uint v){check_owned(p,s);assert(!(pio.ctrl&(1u<<s))&&machine[s].tx_count<4);machine[s].tx[machine[s].tx_count++]=v;}
+static void pio_sm_put(PIO p,uint s,uint v){check_owned(p,s);assert(machine[s].tx_count<4);machine[s].tx[machine[s].tx_count++]=v;}
 static void pio_enable_sm_mask_in_sync(PIO p,uint m){assert(p==&pio&&m&&!(m&~claimed)&&!(pio.ctrl&m));last_enable_mask=m;++sync_enables;pio.ctrl|=m;}
 static bool pio_sm_is_rx_fifo_empty(PIO p,uint s){check_owned(p,s);return machine[s].rx_count==0;}
 static uint pio_sm_get(PIO p,uint s){check_owned(p,s);return pop(machine[s].rx,&machine[s].rx_count);}
@@ -226,7 +231,7 @@ static void route_check(sync_io_switch_snapshot_t s,uint mask){
         assert(!(bits&~mask)&&!(covered&bits));covered|=bits;active|=1u<<g.sm;
         assert(!g.rx_level&&!g.tx_level);
     }
-    assert(covered==mask&&s.sm_claimed_mask==10&&s.instruction_words==6&&!s.sm_enabled_mask);
+    assert(covered==mask&&s.sm_claimed_mask==10&&s.instruction_words==8&&!s.sm_enabled_mask);
     assert(active==(expected_groups==2?10u:2u));
 }
 static void execute(uint generation,uint mask,uint code){
@@ -236,16 +241,20 @@ static void execute(uint generation,uint mask,uint code){
     assert(staged.state==SYNC_IO_SWITCH_STAGED&&staged.desired_code==code&&!staged.receipt_mask);
     assert(staged.stage_sequence==previous.stage_sequence+1&&staged.completed_sequence==previous.completed_sequence);
     assert(sio.gpio_out==sio_before&&pio.dbg_padout==pio_before&&pads_output()==original_pad);
-    for(uint i=0;i<staged.group_count;i++)assert(staged.groups[i].tx_level==1&&!staged.groups[i].rx_level);
+    for(uint i=0;i<staged.group_count;i++)assert(staged.groups[i].tx_level==2&&!staged.groups[i].rx_level);
     unchanged_unselected();uint sync_before=sync_enables;
     assert(sync_io_switch_apply(generation));assert(sync_enables==sync_before+1);
     assert(last_enable_mask==(staged.group_count==2?10u:2u));
     assert(get().state==SYNC_IO_SWITCH_PENDING&&pads_output()==original_pad);
     assert(!sync_io_switch_apply(generation));assert(!sync_io_switch_stage(generation,code));
     assert(!sync_io_switch_release(generation));
-    advance(1); /* actual PULL consumes TX but still no GPIO write or receipt */
+    advance(1); /* PULL: the code word leaves the FIFO, no GPIO write yet */
     assert(pads_output()==original_pad&&get().state==SYNC_IO_SWITCH_PENDING);
-    advance(3); /* OUT X, JMP, actual MOV PINS, independently masked for each group */
+    advance(1); /* OUT Y: the code is latched, still no edge */
+    assert(pads_output()==original_pad);
+    advance(1); /* PULL: the delay word leaves the FIFO */
+    advance(1); /* OUT X */
+    advance(2); /* JMP (delay 0 falls through), MOV PINS, independently masked per group */
     assert((pads_output()&mask)==code);
     assert((pads_output()&(~mask&15u))==(original_pad&(~mask&15u)));
     assert(get().state==SYNC_IO_SWITCH_PENDING);
@@ -290,7 +299,7 @@ static void lifecycle(void){
     assert(sync_io_switch_stop(g));uint cancel=get().cancelled_sequence;
     advance(100);assert(get().completed_sequence==done&&get().cancelled_sequence==cancel&&!get().applied_valid);
     assert(!(get().actual_output_mask&5u));
-    assert(sync_io_switch_stage(g,4));assert(sync_io_switch_apply(g));advance(4); /* output happened, no receipt yet */
+    assert(sync_io_switch_stage(g,4));assert(sync_io_switch_apply(g));advance(6); /* code+PULL/OUT, OUT X, JMP, MOV PINS: no receipt yet */
     assert((get().actual_output_mask&5u)==4u&&get().state==SYNC_IO_SWITCH_PENDING);
     assert(sync_io_switch_stop(g));advance(100);
     assert(get().completed_sequence==done&&!get().applied_valid&&!(get().actual_output_mask&5u));
@@ -300,9 +309,9 @@ static void partial_and_bad_receipt(void){
     uint32_t g;initialize(5u,0u);assert(sync_io_switch_load(5u,&g));
     assert(sync_io_switch_stage(g,5));assert(sync_io_switch_apply(g));
     pio.ctrl&=~8u; /* injected stalled second group: first receipt is insufficient */
-    advance(6);assert(get().state==SYNC_IO_SWITCH_PENDING&&get().receipt_mask==1u);
-    pio.ctrl|=8u;advance(6);assert(get().state==SYNC_IO_SWITCH_COMPLETE&&get().applied_code==5u);
-    assert(sync_io_switch_stage(g,0));assert(sync_io_switch_apply(g));advance(6);
+    advance(8);assert(get().state==SYNC_IO_SWITCH_PENDING&&get().receipt_mask==1u);
+    pio.ctrl|=8u;advance(8);assert(get().state==SYNC_IO_SWITCH_COMPLETE&&get().applied_code==5u);
+    assert(sync_io_switch_stage(g,0));assert(sync_io_switch_apply(g));advance(8);
     machine[3].rx[0]^=1u;
     assert(get().state==SYNC_IO_SWITCH_FAULT&&get().fault&&!get().applied_valid);
     assert(get().completed_sequence==1u&&!(get().actual_output_mask&5u));
@@ -336,7 +345,12 @@ static void deadline_case(const char *name){
     }else{
         assert(ok&&d.state==SYNC_IO_SWITCH_DEADLINE_ARMED&&d.sequence==1);
         assert(d.origin_after_tick-d.origin_before_tick<=64);
-        assert(!sync_io_switch_realtime_schedule_at(0u,target+40000));
+        /* SYNC-SCHED-001: a SECOND absolute deadline is ENQUEUED, not rejected; the
+         * third is refused because the two-deep hardware queue is full. */
+        assert(sync_io_switch_realtime_schedule_at(0u,target+40000));
+        core=0;assert(get().pending_count==2);core=1;
+        assert(!sync_io_switch_realtime_schedule_at(0u,target+80000));
+        core=0;assert(get().pending_count==2);core=1;
         if(!strcmp(name,"deadline_cancel")){
             assert(sync_io_switch_realtime_cancel());advance(40000);
             assert(sync_io_switch_realtime_status(&d)&&d.state==SYNC_IO_SWITCH_DEADLINE_CANCELLED);
@@ -352,10 +366,26 @@ static void deadline_case(const char *name){
         ring_running=true;core=0;
         assert(get().state==SYNC_IO_SWITCH_PENDING&&machine[1].rx_count==1&&machine[3].rx_count==1);
         core=1;sync_io_switch_realtime_service_core1();ring_running=false;
-        assert(sync_io_switch_realtime_status(&d)&&d.state==SYNC_IO_SWITCH_DEADLINE_COMPLETE&&d.receipt_mask==3);
-        target=tick_count+30000;assert(sync_io_switch_realtime_schedule_at(0,target));
-        advance(30010);sync_io_switch_realtime_service_core1();
-        assert(sync_io_switch_realtime_status(&d)&&d.state==SYNC_IO_SWITCH_DEADLINE_COMPLETE&&d.sequence==2);
+        /* Trigger 1 completed and its evidence is in the snapshot; the status struct has
+         * already moved on to the ARMED trigger 2 (that is the point of a queue: the
+         * completion of one does not stop the next). */
+        assert(sync_io_switch_realtime_status(&d)&&d.state==SYNC_IO_SWITCH_DEADLINE_ARMED&&
+            d.sequence==2);
+        core=0;
+        assert(get().completed_sequence==1&&get().pending_count==1&&
+            get().state==SYNC_IO_SWITCH_PENDING);
+        core=1;
+        /* The second trigger was already in the hardware queue: it completes on its own
+         * deadline with no software re-arm and no new schedule call. */
+        advance(40004);sync_io_switch_realtime_service_core1();
+        assert(sync_io_switch_realtime_status(&d)&&d.state==SYNC_IO_SWITCH_DEADLINE_COMPLETE&&
+            d.sequence==2&&d.receipt_mask==3);
+        core=0;
+        /* Per-trigger evidence lives in the snapshot: the status struct is the "current"
+         * transaction, while completed_sequence/receipt_mask name the one just finished. */
+        assert(get().completed_sequence==2&&get().receipt_mask==3&&
+            get().pending_count==0&&get().state==SYNC_IO_SWITCH_COMPLETE);
+        core=1;
         assert(!(pio.dbg_padout&(5u<<16)));
     }
     core=0;assert(sync_io_switch_stop(g));assert(sync_io_switch_release(g));restored();
@@ -409,10 +439,10 @@ int main(void){
     const sync_io_persona_descriptor_t *s=sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_SWITCH);
     const sync_io_persona_descriptor_t *r=sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_REFERENCE_MONITOR);
     sync_io_persona_compatibility_t c;
-    assert(s->instruction_words==6 && s->sm_mask==10);
+    assert(s->instruction_words==8 && s->sm_mask==10);
     assert(!s->dma_channel_mask && !s->irq_mask && !s->workspace_mask);
     assert(sync_io_persona_compatible(s,r,&c));
-    assert(c.instruction_words_total==17);
+    assert(c.instruction_words_total==19);
     return 0;
 }
 """

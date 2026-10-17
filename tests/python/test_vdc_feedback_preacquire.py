@@ -25,11 +25,23 @@ def preacquire_executable(tmp_path_factory):
         # The extracted service functions touch the position transport statics
         # that live in distributed_refmem_position_ack.inc, which this harness
         # does not compile. Inject the same objects and stub the cancel service.
-        "static trigger_position_mailbox_t s_position_tx_mailbox,"
+        # The TX side is a latest-value table now (no TX mailbox).
+        "static trigger_position_mailbox_t "
         "s_position_rx_mailboxes[DISTRIBUTED_REFMEM_NODE_COUNT];\n"
         "static trigger_position_freeze_latch_t "
         "s_position_freeze_latches[DISTRIBUTED_REFMEM_NODE_COUNT];\n"
         "static volatile uint32_t s_position_cancel_requested;\n"
+        "typedef struct {\n"
+        "    uint8_t wire[TRIGGER_POSITION_SLICE_WIRE_SIZE];\n"
+        "    uint8_t target_mask, stage, position_id, pending;\n"
+        "} distributed_refmem_position_pending_t;\n"
+        "static distributed_refmem_position_pending_t "
+        "s_position_pending[DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS];\n"
+        "static uint32_t s_position_drain_ms __attribute__((unused));\n"
+        "static uint32_t s_position_last_drain_ms __attribute__((unused));\n"
+        "static uint32_t s_position_coalesced_count __attribute__((unused));\n"
+        "static uint8_t s_position_drain_cursor __attribute__((unused)), "
+        "s_position_wait_counted __attribute__((unused));\n"
         "static void distributed_refmem_position_cancel_service(void) { }\n"
         "static tdma_service_service_t owner;")
     harness = harness.replace("tdma_flight_fifo_core0_publish_tx(&service->flight_fifo,",

@@ -45,6 +45,14 @@
  * margin is the arming budget: inside it the cache may fire, past the target it may not
  * (a late action is never manufactured). */
 #define TRIGGER_T2_PROVISIONAL_MARGIN_MS 20u
+/* Installable bounds for the three announce gates above. They are no longer only
+ * compile-time constants: the right value depends on the measured seat turnaround of the
+ * ring that is actually running, so `TRIGger:RESERVation:T2:ANNOUNCE` installs them at
+ * STOP and `...:ANNOUNCE?` reads them back without a re-flash (owner ruling 2026-10-17).
+ * A gate of 0 would silently disable the shaping, so 0 is refused rather than treated as
+ * "off"; the defaults below stay the measured values. */
+#define TRIGGER_T2_ANNOUNCE_MAX_TOLERANCE_MS 1000u
+#define TRIGGER_T2_ANNOUNCE_MAX_INTERVAL_MS 1000u
 enum {
     TRIGGER_T2_RUNTIME_SEGMENT_CURSOR = 0u,
     TRIGGER_T2_RUNTIME_SEGMENT_RECEIVE,
@@ -233,6 +241,13 @@ typedef struct {
      * examining the remaining positions instead of ending the pass on the first
      * one - the loss used to be silent and stopped every later position. */
     uint32_t freeze_no_preview_mask, freeze_no_preview_count;
+    /* T2-PROVISIONAL-001 second position, consumed: how often a position was executed on
+     * the NEXT target carried in the same slice because its FREEZE never arrived. It is
+     * NOT freeze_fallback_count (that one counts a FREEZE whose version did not match the
+     * local solve), and it is the only counter that answers "was the second position
+     * actually used". */
+    uint32_t fallback_promoted_count;
+    /* Monotonic source of the field above (also readable without a snapshot). */
     uint8_t event_dispatched[TRIGGER_T2_RUNTIME_EVENT_CAPACITY];
     uint64_t last_counter_count;
     trigger_time_cursor_snapshot_t cursor;
@@ -249,6 +264,22 @@ typedef struct {
  * the tree and a new field breaks those initialisers under -Wextra -Werror. Until a
  * caller sets a step the rolling window stays disabled and the run is unchanged. */
 bool trigger_t2_runtime_scan_step(int32_t step_mdeg);
+/* Install the three announce gates (tolerance, per-position interval, global interval, all
+ * in ms) at STOP. Returns false - leaving the previous values installed - for a 0 gate or
+ * a value above its bound, so shaping can never be disabled by an empty write. The gates are
+ * read on every announce evaluation, so an install takes effect from the next evaluation;
+ * FREEZE and a position's FIRST announcement bypass them by design. */
+bool trigger_t2_runtime_announce(uint32_t tolerance_ms, uint32_t min_interval_ms,
+                                 uint32_t global_interval_ms);
+/* Read the installed gates back. Returns false if no gate has been installed (which cannot
+ * happen in practice - the defaults are installed at start-up), so a reader never gets a
+ * silent zero. Any pointer may be NULL. */
+bool trigger_t2_runtime_announce_get(uint32_t *tolerance_ms, uint32_t *min_interval_ms,
+                                     uint32_t *global_interval_ms);
+/* How many positions executed on the cached NEXT target because their FREEZE never
+ * arrived (T2-PROVISIONAL-001). Distinct from freeze_fallback_count, which counts a
+ * FREEZE whose version did not match the local solve. */
+uint32_t trigger_t2_runtime_fallback_promoted_count(void);
 /* One-shot diagnostics for the parallel-window investigation (A.3.6d): the configured
  * step, how often start() took the window branch, the window's own validation result and
  * step, and the derived geometry. Any pointer may be NULL. */

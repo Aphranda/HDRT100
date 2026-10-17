@@ -2168,6 +2168,11 @@ bool tdma_service_first_class_pending(const tdma_service_service_t *service)
     return service != NULL && tdma_first_class_pending(&service->first_class);
 }
 
+bool tdma_service_first_class_free(const tdma_service_service_t *service)
+{
+    return service != NULL && tdma_first_class_free(&service->first_class);
+}
+
 bool tdma_service_stage_first_class(tdma_service_service_t *service,
     const uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE])
 {

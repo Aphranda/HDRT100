@@ -9,7 +9,10 @@ CASES = r'''
 int main(void)
 {
     setup(0u);
-    s_tdma_flight_sync.publish_interval_ms=1u;
+    /* T2 fills IDLE cycles only: a due ordinary/VDC frame keeps its cadence, so the
+     * interval is wide enough that the cycle below is idle. */
+    s_tdma_flight_sync.publish_interval_ms=10u;
+    s_tdma_flight_sync.last_publish_ms=now_ms;   /* start from an idle cycle */
     const trigger_position_slice_t slice={.target_ms_index=20u,.target_fine_slice_index=7u,
         .prediction_version=5u,.position_id=3u,.stage=TRIGGER_POSITION_SLICE_PREVIEW};
     assert(trigger_position_slice_encode(&slice,s_tdma_flight_sync.position_tx_wire));
@@ -17,7 +20,8 @@ int main(void)
     s_tdma_flight_sync.position_tx_active=1u;
     s_tdma_flight_sync.position_tx_target_mask=0x0eu;
     uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
-    now_ms++;
+    const uint32_t idle_mark=s_tdma_flight_sync.last_publish_ms;
+    now_ms+=2;
     distributed_refmem_tdma_flight_sync_publish(&owner,&ring);
     consume(mailbox);
     assert(mailbox[3]==TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS);
@@ -30,7 +34,9 @@ int main(void)
     assert(trigger_position_slice_tagged(mailbox[TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET]));
     assert(tdma_process_image_crc16_ccitt(mailbox,TDMA_PROCESS_IMAGE_CRC_OFFSET)==
         distributed_refmem_get_le16(mailbox+TDMA_PROCESS_IMAGE_CRC_OFFSET));
-    assert(s_tdma_flight_sync.last_publish_ms==now_ms);
+    /* An idle-cycle T2 frame must NOT move the VDC cadence: the next ordinary frame is
+     * still due at its original deadline. */
+    assert(s_tdma_flight_sync.last_publish_ms==idle_mark);
     trigger_position_slice_t received;
     assert(trigger_position_slice_decode(mailbox+TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET,&received));
     assert(received.position_id==3u && received.target_ms_index==20u &&
@@ -38,7 +44,7 @@ int main(void)
     /* One frame carries the whole record: the transport is idle again. */
     assert(!s_tdma_flight_sync.position_tx_active);
     assert(s_tdma_flight_sync.position_tx_publish_count==1u);
-    now_ms++;
+    now_ms+=10;   /* the ordinary frame is due again: it owns the cycle, T2 yields */
     distributed_refmem_tdma_flight_sync_publish(&owner,&ring);
     consume(mailbox);
     assert(mailbox[3]==TDMA_PROCESS_IMAGE_MESSAGE_CLASS);
@@ -82,7 +88,7 @@ int main(void)
     trigger_position_descriptor_t old={.schema=TRIGGER_POSITION_DESCRIPTOR_SCHEMA,
         .stage=TRIGGER_POSITION_STAGE_FREEZE,.position_id=1,.prediction_version=9};
     assert(trigger_position_mailbox_stage(&s_position_rx_mailboxes[1],&old,1));
-    assert(trigger_position_mailbox_stage(&s_position_tx_mailbox,&old,1));
+    assert(distributed_refmem_stage_position_descriptor(&old,1));
     s_tdma_flight_sync.position_rx_fragments[1].active=1;
     s_tdma_flight_sync.position_rx_fragments[1].next_fragment=12;
     s_tdma_flight_sync.position_rx_fragments[1].accepted_fragment_count=55;
@@ -107,7 +113,7 @@ int main(void)
     assert(distributed_refmem_reset_position_stopped());
     assert(ordinary_accepts==before+4); /* co-carried VDC is never skipped */
     assert(!s_position_cancel_requested&&!s_tdma_flight_sync.position_tx_active);
-    assert(!trigger_position_mailbox_pending(&s_position_tx_mailbox));
+    assert(!distributed_refmem_position_descriptor_pending());
     assert(!trigger_position_mailbox_pending(&s_position_rx_mailboxes[1]));
     assert(!s_tdma_flight_sync.position_rx_fragments[1].active);
     assert(s_tdma_flight_sync.position_rx_fragments[1].accepted_fragment_count==55);
@@ -167,9 +173,20 @@ def test_stopped_reset_retires_queued_freeze_without_dropping_vdc(tmp_path):
     harness = harness.replace('#include "distributed_refmem.h"', '#include "distributed_refmem.h"\n#include "trigger_position_mailbox.h"')
     harness = harness.replace('static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;',
         'static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;\n'
-        'static trigger_position_mailbox_t s_position_tx_mailbox,s_position_rx_mailboxes[DISTRIBUTED_REFMEM_NODE_COUNT];\n'
+        'static trigger_position_mailbox_t s_position_rx_mailboxes[DISTRIBUTED_REFMEM_NODE_COUNT];\n'
         'static trigger_position_freeze_latch_t s_position_freeze_latches[DISTRIBUTED_REFMEM_NODE_COUNT];\n'
-        'static volatile uint32_t s_position_cancel_requested;')
+        'static volatile uint32_t s_position_cancel_requested;\n'
+        'typedef struct {\n'
+        '    uint8_t wire[TRIGGER_POSITION_SLICE_WIRE_SIZE];\n'
+        '    uint8_t target_mask, stage, position_id, pending;\n'
+        '} distributed_refmem_position_pending_t;\n'
+        'static distributed_refmem_position_pending_t '
+        's_position_pending[DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS];\n'
+        'static uint32_t s_position_drain_ms __attribute__((unused));\n'
+        'static uint32_t s_position_last_drain_ms __attribute__((unused));\n'
+        'static uint32_t s_position_coalesced_count __attribute__((unused));\n'
+        'static uint8_t s_position_drain_cursor __attribute__((unused)), '
+        's_position_wait_counted __attribute__((unused));')
     # The hold/drain receiver lives in the lane .inc, which this harness does not
     # compile: stub it so the extracted get path links (held records are absent
     # here, matching "nothing staged" for this scenario).
@@ -182,7 +199,9 @@ def test_stopped_reset_retires_queued_freeze_without_dropping_vdc(tmp_path):
     harness = harness.replace('static void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,const uint8_t *m,const tdma_flight_rx_view_t *v)\n{ (void)slot; (void)m; (void)v; }',
         'static unsigned ordinary_accepts;\nstatic void distributed_refmem_vdc_flight_rx_accept(uint32_t slot,const uint8_t *m,const tdma_flight_rx_view_t *v)\n{ (void)slot; (void)m; (void)v; ++ordinary_accepts; }')
     for name in ('distributed_refmem_tdma_parse_position_fragment',
-                 'distributed_refmem_get_position_descriptor', 'distributed_refmem_reset_position_stopped'):
+                 'distributed_refmem_get_position_descriptor', 'distributed_refmem_reset_position_stopped',
+                 'distributed_refmem_stage_position_descriptor',
+                 'distributed_refmem_position_descriptor_pending'):
         harness += '\n' + ingress_definition(source, name)
     exe = compile_executable(tmp_path, 'position-stopped-reset', harness + RESET_CASES, FEEDBACK_SOURCES)
     result = subprocess.run([str(exe)], capture_output=True, text=True, timeout=10)

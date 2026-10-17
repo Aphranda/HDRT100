@@ -260,6 +260,68 @@ scpi_result_t scpi_cmd_trigger_t2_q(scpi_t *context)
         memset(origin_probe, 0, sizeof(origin_probe));
     for (uint32_t i = 0u; i < TRIGGER_T2_RUNTIME_ORIGIN_PROBE_COUNT; ++i)
         SCPI_ResultUInt32(context, origin_probe[i]);
+    /* Appended: the SECOND POSITION actually used - a position executed on the next
+     * target carried in the same slice because its FREEZE never arrived. This is not
+     * freeze_fallback_count (version mismatch on the FREEZE path); it is the only field
+     * that answers "how often did the second position rescue a position". */
+    SCPI_ResultUInt32(context, s.fallback_promoted_count);
+    return SCPI_RES_OK;
+}
+
+/* Announce gates as install parameters instead of a re-flash: the tolerance, the
+ * per-position interval and the global offer interval decide how many records the
+ * single-depth first-class seat is offered, and the right value depends on the seat
+ * turnaround of the ring that is running. A dedicated command (not another field of
+ * T2:CONFigure) so no positional caller of the 12-field configure is disturbed, and a
+ * dedicated query so no reader's positional assumption on T2? is invalidated. */
+scpi_result_t scpi_cmd_trigger_t2_announce(scpi_t *context)
+{
+    uint64_t tolerance, min_interval, global_interval;
+    if (!scpi_trigger_grid_uint(context, UINT32_MAX, &tolerance) ||
+        !scpi_trigger_grid_uint(context, UINT32_MAX, &min_interval) ||
+        !scpi_trigger_grid_uint(context, UINT32_MAX, &global_interval) ||
+        !scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    return scpi_trigger_grid_result(context,
+        trigger_t2_runtime_announce((uint32_t)tolerance, (uint32_t)min_interval,
+            (uint32_t)global_interval) ? TRIGGER_T2_RUNTIME_OK :
+        TRIGGER_T2_RUNTIME_ARGUMENT);
+}
+
+scpi_result_t scpi_cmd_trigger_t2_announce_q(scpi_t *context)
+{
+    if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    uint32_t tolerance = 0u, min_interval = 0u, global_interval = 0u;
+    const bool installed = trigger_t2_runtime_announce_get(&tolerance, &min_interval,
+                                                           &global_interval);
+    scpi_trigger_grid_result(context,
+        installed ? TRIGGER_T2_RUNTIME_OK : TRIGGER_T2_RUNTIME_ARGUMENT);
+    SCPI_ResultUInt32(context, tolerance);
+    SCPI_ResultUInt32(context, min_interval);
+    SCPI_ResultUInt32(context, global_interval);
+    return SCPI_RES_OK;
+}
+
+/* T_drain: the fixed period at which the position transport takes the next pending value
+ * out of the latest-value table. It is the knob that matches transmit traffic to the
+ * measured seat turnaround, and it is a run-time install parameter so a sweep costs no
+ * re-flash. 0 = drain as fast as the seat frees. */
+scpi_result_t scpi_cmd_trigger_t2_drain(scpi_t *context)
+{
+    uint64_t drain_ms;
+    if (!scpi_trigger_grid_uint(context, UINT32_MAX, &drain_ms) ||
+        !scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    return scpi_trigger_grid_result(context,
+        distributed_refmem_position_drain_ms((uint32_t)drain_ms) ?
+        TRIGGER_T2_RUNTIME_OK : TRIGGER_T2_RUNTIME_ARGUMENT);
+}
+
+scpi_result_t scpi_cmd_trigger_t2_drain_q(scpi_t *context)
+{
+    if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    uint32_t drain_ms = 0u;
+    distributed_refmem_position_drain_get(&drain_ms);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, drain_ms);
     return SCPI_RES_OK;
 }
 

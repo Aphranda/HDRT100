@@ -299,7 +299,28 @@ typedef struct {
 } distributed_refmem_tdma_flight_sync_t;
 
 static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;
-static trigger_position_mailbox_t s_position_tx_mailbox;
+/* T2 position TX as a latest-value table drained on a fixed period (see the header): the
+ * Core0 producer always succeeds and overwrites the pending value for its position, while
+ * the transport takes at most one record per T_drain ms and only while the single-depth
+ * first-class seat is free. A newer PREVIEW replaces an older one; a FREEZE already waiting
+ * is never replaced by a PREVIEW (FREEZE outranks it). */
+typedef struct {
+    uint8_t wire[TRIGGER_POSITION_SLICE_WIRE_SIZE];
+    uint8_t target_mask;
+    uint8_t stage;      /* TRIGGER_POSITION_SLICE_PREVIEW / _FREEZE */
+    uint8_t position_id;
+    uint8_t pending;
+} distributed_refmem_position_pending_t;
+
+static distributed_refmem_position_pending_t
+    s_position_pending[DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS];
+static uint32_t s_position_drain_ms = DISTRIBUTED_REFMEM_POSITION_DRAIN_DEFAULT_MS;
+static uint32_t s_position_last_drain_ms;
+static uint32_t s_position_coalesced_count;
+static uint8_t s_position_drain_cursor;
+/* One wait fact per blocked drain, not one per service pass: the edge detector keeps
+ * tx_wait_count readable as "how often a ready value had to wait". */
+static uint8_t s_position_wait_counted;
 static trigger_position_mailbox_t
     s_position_rx_mailboxes[DISTRIBUTED_REFMEM_NODE_COUNT];
 static trigger_position_freeze_latch_t
@@ -415,7 +436,11 @@ static void distributed_refmem_log_tdma_ring_service(void);
 static void distributed_refmem_tdma_flight_sync_init(void)
 {
     memset(&s_tdma_flight_sync, 0, sizeof(s_tdma_flight_sync));
-    memset(&s_position_tx_mailbox, 0, sizeof(s_position_tx_mailbox));
+    memset(s_position_pending, 0, sizeof(s_position_pending));
+    s_position_drain_cursor = 0u;
+    s_position_last_drain_ms = 0u;
+    s_position_coalesced_count = 0u;
+    s_position_wait_counted = 0u;
     memset(s_position_rx_mailboxes, 0, sizeof(s_position_rx_mailboxes));
     memset(s_position_freeze_latches, 0, sizeof(s_position_freeze_latches));
     __atomic_store_n(&s_position_cancel_requested, 0u, __ATOMIC_RELEASE);
@@ -469,8 +494,10 @@ static void distributed_refmem_tdma_flight_sync_update_ring(
         DISTRIBUTED_REFMEM_POSITION_TRANSPORT_IDLE;
     s_tdma_flight_sync.position_tx_wait_reason =
         DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
-    __atomic_store_n(&s_position_tx_mailbox.state,
-                     TRIGGER_POSITION_MAILBOX_EMPTY, __ATOMIC_RELEASE);
+    /* A new ring identity invalidates every pending value: they belong to the old grid. */
+    memset(s_position_pending, 0, sizeof(s_position_pending));
+    s_position_wait_counted = 0u;
+    s_position_last_drain_ms = 0u;
     for (uint32_t slot = 0u; slot < DISTRIBUTED_REFMEM_NODE_COUNT; ++slot) {
         __atomic_store_n(&s_position_rx_mailboxes[slot].state,
                          TRIGGER_POSITION_MAILBOX_EMPTY, __ATOMIC_RELEASE);
@@ -662,12 +689,55 @@ DISTRIBUTED_REFMEM_RAM_TEXT
 bool distributed_refmem_stage_position_descriptor(
     const trigger_position_descriptor_t *descriptor, uint32_t target_mask)
 {
-    return target_mask <= 0xFFu &&
-        !__atomic_load_n(&s_position_cancel_requested, __ATOMIC_ACQUIRE) &&
-        !__atomic_load_n(&s_tdma_flight_sync.position_tx_active,
-                         __ATOMIC_ACQUIRE) &&
-        trigger_position_mailbox_stage(&s_position_tx_mailbox,
-                                       descriptor, target_mask);
+    /* Producing never fails for backpressure any more: the newest value for a position is
+     * written into the latest-value table and the transport decides when to take it. A
+     * false return now means only "this descriptor cannot be represented" (bad mask, no
+     * position id, slice out of range, or a cancelled run). */
+    /* Same admission the mailbox boundary used to apply: a record that is not a fully
+     * formed position descriptor is refused here, before it can occupy a table slot. */
+    if (!descriptor || target_mask == 0u || target_mask > 0xFFu ||
+        descriptor->schema != TRIGGER_POSITION_DESCRIPTOR_SCHEMA ||
+        descriptor->position_id == 0u ||
+        descriptor->position_id > TRIGGER_POSITION_INSTANCE_MAX ||
+        descriptor->prediction_version == 0u ||
+        (descriptor->stage != 0u &&
+         descriptor->stage != TRIGGER_POSITION_STAGE_PREVIEW &&
+         descriptor->stage != TRIGGER_POSITION_STAGE_FREEZE) ||
+        __atomic_load_n(&s_position_cancel_requested, __ATOMIC_ACQUIRE)) return false;
+    const trigger_position_slice_t slice = {
+        .target_ms_index = (uint32_t)descriptor->target_ms_index,
+        .target_fine_slice_index = descriptor->target_fine_slice_index,
+        .prediction_version = (uint16_t)descriptor->prediction_version,
+        .position_id = (uint8_t)descriptor->position_id,
+        .stage = descriptor->stage == TRIGGER_POSITION_STAGE_FREEZE
+            ? TRIGGER_POSITION_SLICE_FREEZE : TRIGGER_POSITION_SLICE_PREVIEW,
+        .next_position_id = descriptor->next_position_id,
+        .next_target_ms_index = descriptor->next_target_ms_index,
+    };
+    distributed_refmem_position_pending_t next;
+    memset(&next, 0, sizeof(next));
+    next.target_mask = (uint8_t)target_mask;
+    next.stage = (uint8_t)slice.stage;
+    next.position_id = (uint8_t)descriptor->position_id;
+    if (descriptor->target_ms_index > UINT32_MAX ||
+        descriptor->prediction_version > UINT16_MAX ||
+        !trigger_position_slice_encode(&slice, next.wire)) return false;
+    distributed_refmem_position_pending_t *entry =
+        &s_position_pending[(descriptor->position_id - 1u) %
+                            DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS];
+    if (entry->pending) {
+        /* MERGE: the value that has not gone out yet is superseded. A PREVIEW never
+         * displaces a FREEZE that is still waiting for that position. */
+        if (entry->stage == TRIGGER_POSITION_SLICE_FREEZE &&
+            next.stage != TRIGGER_POSITION_SLICE_FREEZE) {
+            s_position_coalesced_count++;
+            return true;
+        }
+        s_position_coalesced_count++;
+    }
+    next.pending = 1u;
+    *entry = next;
+    return true;
 }
 
 void distributed_refmem_request_position_cancel(void)
@@ -675,19 +745,28 @@ void distributed_refmem_request_position_cancel(void)
     __atomic_store_n(&s_position_cancel_requested, 1u, __ATOMIC_RELEASE);
 }
 
+/* T_drain: how often the transport may take the next pending value. Configurable at run
+ * time so the traffic can be tuned against the measured seat turnaround without a
+ * re-flash; 0 disables pacing (drain as fast as the seat frees) and > MAX is refused. */
+bool distributed_refmem_position_drain_ms(uint32_t drain_ms)
+{
+    if (drain_ms > DISTRIBUTED_REFMEM_POSITION_DRAIN_MAX_MS) return false;
+    s_position_drain_ms = drain_ms;
+    return true;
+}
+
+void distributed_refmem_position_drain_get(uint32_t *drain_ms)
+{
+    if (drain_ms) *drain_ms = s_position_drain_ms;
+}
+
 static void distributed_refmem_position_cancel_service(void)
 {
     if (!__atomic_load_n(&s_position_cancel_requested, __ATOMIC_ACQUIRE)) return;
-    const uint32_t state = __atomic_load_n(&s_position_tx_mailbox.state,
-                                            __ATOMIC_ACQUIRE);
-    if (state == TRIGGER_POSITION_MAILBOX_WRITING ||
-        state == TRIGGER_POSITION_MAILBOX_READING) return;
-    if (state == TRIGGER_POSITION_MAILBOX_READY) {
-        trigger_position_descriptor_t ignored;
-        uint32_t ignored_mask;
-        if (!trigger_position_mailbox_take(&s_position_tx_mailbox,
-                                            &ignored, &ignored_mask)) return;
-    }
+    /* Producer and consumer are both Core0, so a cancel cannot race a half-written entry:
+     * dropping the table and the in-flight record is the whole action. */
+    memset(s_position_pending, 0, sizeof(s_position_pending));
+    s_position_wait_counted = 0u;
     __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 0u,
                      __ATOMIC_RELEASE);
     s_tdma_flight_sync.position_tx_fragment_index = 0u;
@@ -697,9 +776,11 @@ static void distributed_refmem_position_cancel_service(void)
 DISTRIBUTED_REFMEM_RAM_TEXT
 bool distributed_refmem_position_descriptor_pending(void)
 {
-    return __atomic_load_n(&s_tdma_flight_sync.position_tx_active,
-                           __ATOMIC_ACQUIRE) != 0u ||
-        trigger_position_mailbox_pending(&s_position_tx_mailbox);
+    if (__atomic_load_n(&s_tdma_flight_sync.position_tx_active,
+                        __ATOMIC_ACQUIRE) != 0u) return true;
+    for (uint32_t slot = 0u; slot < DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS; ++slot)
+        if (s_position_pending[slot].pending) return true;
+    return false;
 }
 
 /* Core1 T2 polls this every slice; keep it out of XIP. */
@@ -730,7 +811,7 @@ bool distributed_refmem_get_position_transport(
 {
     if (!snapshot) return false;
     *snapshot = (distributed_refmem_position_transport_snapshot_t){
-        .tx_pending = trigger_position_mailbox_pending(&s_position_tx_mailbox),
+        .tx_pending = distributed_refmem_position_descriptor_pending(),
         .tx_active = __atomic_load_n(&s_tdma_flight_sync.position_tx_active,
                                      __ATOMIC_ACQUIRE),
         .tx_fragment_index = s_tdma_flight_sync.position_tx_fragment_index,
@@ -741,6 +822,7 @@ bool distributed_refmem_get_position_transport(
         .tx_wait_reason = s_tdma_flight_sync.position_tx_wait_reason,
         .tx_wait_count = s_tdma_flight_sync.position_tx_wait_count,
         .tx_submitted_sequence = s_tdma_flight_sync.position_tx_submitted_sequence,
+        .tx_coalesced_count = s_position_coalesced_count,
         .rx_complete_count = s_tdma_flight_sync.position_rx_complete_count,
         .rx_reject_count = s_tdma_flight_sync.position_rx_reject_count,
         .rx_source_slot = s_tdma_flight_sync.position_rx_source_slot,
@@ -1423,37 +1505,103 @@ static void distributed_refmem_tdma_parse_position_fragment(
     }
 }
 
-static void distributed_refmem_position_tx_prepare(void)
+/* The transmit side TAKES: nothing is ever offered to it. A record is taken out of the
+ * latest-value table only when the single-depth seat can board it right now, so there is
+ * no "offer refused" state at all - the seat's own occupancy decides when the next value
+ * goes out, and the value left behind is the newest one for its position. Returns true
+ * when a value was taken into position_tx_wire (the caller then boards it in the same
+ * pass); false means "nothing to take right now", never "rejected". */
+static bool distributed_refmem_position_tx_prepare(tdma_service_service_t *owner)
 {
-    if (s_tdma_flight_sync.position_tx_active) return;
-    trigger_position_descriptor_t descriptor;
-    uint32_t target_mask;
-    if (!trigger_position_mailbox_take(&s_position_tx_mailbox,
-                                       &descriptor, &target_mask)) return;
-    const trigger_position_slice_t slice = {
-        .target_ms_index = (uint32_t)descriptor.target_ms_index,
-        .target_fine_slice_index = descriptor.target_fine_slice_index,
-        .prediction_version = (uint16_t)descriptor.prediction_version,
-        .position_id = (uint8_t)descriptor.position_id,
-        .stage = descriptor.stage == TRIGGER_POSITION_STAGE_FREEZE
-            ? TRIGGER_POSITION_SLICE_FREEZE : TRIGGER_POSITION_SLICE_PREVIEW,
-        .next_position_id = descriptor.next_position_id,
-        .next_target_ms_index = descriptor.next_target_ms_index,
-    };
-    if (descriptor.target_ms_index <= UINT32_MAX &&
-        descriptor.prediction_version <= UINT16_MAX &&
-        trigger_position_slice_encode(&slice, s_tdma_flight_sync.position_tx_wire)) {
-        s_tdma_flight_sync.position_tx_fragment_index = UINT32_MAX;
-    } else {
-        s_tdma_flight_sync.position_tx_reject_count++;
+    if (__atomic_load_n(&s_tdma_flight_sync.position_tx_active, __ATOMIC_ACQUIRE))
+        return false;
+    /* Seat still holding the previous record: take nothing, leave the table untouched. */
+    if (owner == NULL || !tdma_service_first_class_free(owner)) {
+        if (!s_position_wait_counted) {
+            s_position_wait_counted = 1u;
+            s_tdma_flight_sync.position_tx_wait_count++;
+        }
         s_tdma_flight_sync.position_tx_phase =
-            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILED;
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_RESOURCE;
         s_tdma_flight_sync.position_tx_wait_reason =
-            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_BAD_DESCRIPTOR;
-        return;
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_SEAT_BUSY;
+        return false;
     }
+    /* Pick the record to transmit: a waiting FREEZE outranks every PREVIEW, and otherwise
+     * the cursor rotates so no position can be starved by a busier neighbour. */
+    uint32_t chosen = DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS;
+    for (uint32_t i = 0u; i < DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS; ++i) {
+        const uint32_t slot =
+            (s_position_drain_cursor + i) % DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS;
+        if (s_position_pending[slot].pending &&
+            s_position_pending[slot].stage == TRIGGER_POSITION_SLICE_FREEZE) {
+            chosen = slot;
+            break;
+        }
+    }
+    if (chosen == DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS) {
+        for (uint32_t i = 0u; i < DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS; ++i) {
+            const uint32_t slot =
+                (s_position_drain_cursor + i) % DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS;
+            if (s_position_pending[slot].pending) { chosen = slot; break; }
+        }
+    }
+    if (chosen == DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS) {
+        /* Nothing pending: the seat stays idle and no fact is recorded - an empty table is
+         * not a wait. */
+        s_position_wait_counted = 0u;
+        return false;
+    }
+    const bool is_freeze =
+        s_position_pending[chosen].stage == TRIGGER_POSITION_SLICE_FREEZE;
+    const uint32_t now_ms = osal_tick_ms();
+    /* Fixed draining period: at most one PREVIEW per T_drain ms, so the transmit side sets
+     * the traffic instead of the producer's solve rate. A FREEZE is not paced - a freeze
+     * that arrives late is worthless, and there is at most one per position. */
+    if (!is_freeze && s_position_drain_ms != 0u && s_position_last_drain_ms != 0u &&
+        (uint32_t)(now_ms - s_position_last_drain_ms) < s_position_drain_ms) {
+        if (!s_position_wait_counted) {
+            s_position_wait_counted = 1u;
+            s_tdma_flight_sync.position_tx_wait_count++;
+        }
+        s_tdma_flight_sync.position_tx_phase =
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_RESOURCE;
+        s_tdma_flight_sync.position_tx_wait_reason =
+            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_DRAIN_PACE;
+        return false;
+    }
+    memcpy(s_tdma_flight_sync.position_tx_wire, s_position_pending[chosen].wire,
+           TRIGGER_POSITION_SLICE_WIRE_SIZE);
+    /* ONE record carries TWO predicted positions: the pending entry of the NEXT position
+     * (in table order) rides in bytes 10..15 of the same slice, so the follower caches the
+     * next target without a second boarding. Unknown stays 0. */
+    {
+        const uint32_t next_slot =
+            (chosen + 1u) % DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS;
+        if (s_position_pending[next_slot].pending) {
+            trigger_position_slice_t tail;
+            if (trigger_position_slice_decode(s_position_pending[next_slot].wire, &tail)) {
+                trigger_position_slice_t head;
+                if (trigger_position_slice_decode(s_tdma_flight_sync.position_tx_wire,
+                                                  &head)) {
+                    head.next_position_id = tail.position_id;
+                    head.next_target_ms_index = tail.target_ms_index;
+                    (void)trigger_position_slice_encode(&head,
+                        s_tdma_flight_sync.position_tx_wire);
+                }
+            }
+        }
+    }
+    const uint8_t target_mask = s_position_pending[chosen].target_mask;
+    const uint8_t position_id = s_position_pending[chosen].position_id;
+    s_position_pending[chosen].pending = 0u;
+    s_position_drain_cursor =
+        (uint8_t)((chosen + 1u) % DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS);
+    s_position_wait_counted = 0u;
+    s_position_last_drain_ms = now_ms;
+    s_tdma_flight_sync.position_tx_fragment_index = UINT32_MAX;
     s_tdma_flight_sync.position_tx_target_mask = target_mask;
-    s_tdma_flight_sync.position_tx_position_id = descriptor.position_id;
+    s_tdma_flight_sync.position_tx_position_id = position_id;
     s_tdma_flight_sync.position_tx_sequence =
         s_tdma_flight_sync.next_seq32 ? s_tdma_flight_sync.next_seq32 : 1u;
     __atomic_store_n(&s_tdma_flight_sync.position_tx_active, 1u,
@@ -1462,6 +1610,7 @@ static void distributed_refmem_position_tx_prepare(void)
         DISTRIBUTED_REFMEM_POSITION_TRANSPORT_STAGED;
     s_tdma_flight_sync.position_tx_wait_reason =
         DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
+    return true;
 }
 
 static void distributed_refmem_tdma_flight_parse_mailbox(
@@ -1621,7 +1770,9 @@ static void distributed_refmem_tdma_flight_sync_publish(
     }
     const bool normal_due =
         now_ms - s_tdma_flight_sync.last_publish_ms >= publish_interval_ms;
-    distributed_refmem_position_tx_prepare();
+    /* The transmit side pulls: taking a value here already required a free seat, so the
+     * boarding below cannot be refused. */
+    (void)distributed_refmem_position_tx_prepare(owner);
     if (!normal_due && !s_tdma_flight_sync.position_tx_active) {
         return;
     }
@@ -1691,7 +1842,16 @@ static void distributed_refmem_tdma_flight_sync_publish(
     const bool resident_master = false;
 #endif
     /* VDC command/feedback owns the frame. T2 is admitted only when the
-     * higher-priority VDC path has no pending record. */
+     * higher-priority VDC path has no pending record.
+     *
+     * REVERTED RULE (2026-10-17): "T2 fills idle cycles only" (`&& !normal_due`) deadlocks.
+     * `last_publish_ms` advances only when a frame is published; if a queued image gets
+     * stuck (Core1 not boarding, FIFO ready stays 1) the ordinary path stops, `normal_due`
+     * then stays true for ever, and T2 - the only path that bypasses the FIFO - stops with
+     * it. Measured: two full runs with tx_publish 0 for 313-568 s and NO DELIVERY, while
+     * the position table kept merging (22,788 coalesced). The VDC-cadence cost of letting
+     * T2 take a due cycle is bounded by T_drain instead, and the reason recorded below is
+     * now explicit about which priority blocked the record. */
     const bool position_publication =
         s_tdma_flight_sync.position_tx_active && !resident_master && feedback <= 0;
     if (s_tdma_flight_sync.position_tx_active && !position_publication) {
@@ -1699,8 +1859,13 @@ static void distributed_refmem_tdma_flight_sync_publish(
             resident_master || feedback > 0
                 ? DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_VDC
                 : DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_FEEDBACK;
+        /* Distinguish "a VDC frame owns this cycle" from "the ordinary flight FIFO is
+         * holding an image that Core1 has not boarded": the two have different owners and
+         * the old single FAILURE_FEEDBACK label made the bench log point at the wrong one. */
         s_tdma_flight_sync.position_tx_wait_reason =
-            DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FEEDBACK;
+            resident_master || feedback > 0
+                ? DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FEEDBACK
+                : DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FIFO_READY;
         s_tdma_flight_sync.position_tx_wait_count++;
     }
     const uint8_t message_class = position_publication
@@ -1738,6 +1903,10 @@ static void distributed_refmem_tdma_flight_sync_publish(
                 DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_BAD_DESCRIPTOR;
             return;
         }
+        /* The value was taken only because the seat was free (see
+         * distributed_refmem_position_tx_prepare), and Core0 is the only writer of the
+         * slot, so this boarding cannot be refused. A false here is an invariant break,
+         * not backpressure: count it and keep the record for the next pass. */
         if (tdma_service_stage_first_class(owner, position_frame)) {
             s_tdma_flight_sync.position_tx_publish_count++;
             s_tdma_flight_sync.position_tx_phase =
@@ -1756,12 +1925,14 @@ static void distributed_refmem_tdma_flight_sync_publish(
                              __ATOMIC_RELEASE);
             s_tdma_flight_sync.position_tx_fragment_index = 0u;
         } else {
-            /* The previous record still waits for its opportunity. */
+            /* Invariant break: the seat was free when this value was taken, so the
+             * boarding must succeed. Keep the record and make the defect visible instead
+             * of pretending it is backpressure. */
+            s_tdma_flight_sync.position_tx_reject_count++;
             s_tdma_flight_sync.position_tx_phase =
-                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_WAIT_RESOURCE;
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILED;
             s_tdma_flight_sync.position_tx_wait_reason =
-                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FIFO_READY;
-            s_tdma_flight_sync.position_tx_wait_count++;
+                DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_SEAT_BUSY;
         }
         return;
     }
@@ -1946,10 +2117,8 @@ bool distributed_refmem_reset_position_stopped(void)
         fifo.tx_ready_count || fifo.tx_active_generation ||
         fifo.rx_queued_count>TDMA_FLIGHT_RX_FRAME_SLOT_COUNT ||
         fifo.rx_parse_count!=fifo.rx_queued_count) return false;
-    /* No consumer may hold a private mailbox across this stopped boundary. */
-    const uint32_t tx=__atomic_load_n(&s_position_tx_mailbox.state,__ATOMIC_ACQUIRE);
-    if (tx==TRIGGER_POSITION_MAILBOX_WRITING || tx==TRIGGER_POSITION_MAILBOX_READING)
-        return false;
+    /* No consumer may hold a private mailbox across this stopped boundary. The TX side has
+     * no mailbox any more: the pending table is Core0-only and is dropped below. */
     for (uint32_t slot=0u;slot<DISTRIBUTED_REFMEM_NODE_COUNT;++slot) {
         const uint32_t state=__atomic_load_n(&s_position_rx_mailboxes[slot].state,__ATOMIC_ACQUIRE);
         if (state==TRIGGER_POSITION_MAILBOX_WRITING || state==TRIGGER_POSITION_MAILBOX_READING)
@@ -1969,7 +2138,9 @@ bool distributed_refmem_reset_position_stopped(void)
         if (!tdma_service_get_flight_fifo_snapshot(owner,&fifo) ||
             fifo.rx_queued_count || fifo.rx_parse_count)return false;
     }
-    __atomic_store_n(&s_position_tx_mailbox.state,TRIGGER_POSITION_MAILBOX_EMPTY,__ATOMIC_RELEASE);
+    memset(s_position_pending, 0, sizeof(s_position_pending));
+    s_position_wait_counted = 0u;
+    s_position_last_drain_ms = 0u;
     __atomic_store_n(&s_tdma_flight_sync.position_tx_active,0u,__ATOMIC_RELEASE);
     s_tdma_flight_sync.position_tx_fragment_index=0u;
     s_tdma_flight_sync.position_tx_phase =

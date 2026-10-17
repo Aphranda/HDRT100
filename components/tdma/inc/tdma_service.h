@@ -630,6 +630,10 @@ bool tdma_service_publish_flight_tx(tdma_service_service_t *service,
  * origin fast path. route() is true only while that path is the sole route. */
 bool tdma_service_first_class_route(const tdma_service_service_t *service);
 bool tdma_service_first_class_pending(const tdma_service_service_t *service);
+/* True while the single first-class slot can take a record immediately. A producer asks
+ * this BEFORE staging so an occupied slot becomes a WAIT (the record is kept and retried)
+ * instead of a counted refusal. */
+bool tdma_service_first_class_free(const tdma_service_service_t *service);
 bool tdma_service_stage_first_class(tdma_service_service_t *service,
     const uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE]);
 /* Core0 RX consumer task only; see the FIFO admission boundary contract. */
