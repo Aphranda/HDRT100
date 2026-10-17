@@ -400,6 +400,51 @@ scpi_result_t scpi_cmd_trigger_sequence_period_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+/* One action's code pair (A channel, B polarization), and how many times the table repeats. */
+scpi_result_t scpi_cmd_trigger_sequence_code(scpi_t *context)
+{
+    uint32_t action, channel, polarization;
+    if (!scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_ACTIONS - 1u, &action) ||
+        !scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_CHANNELS, &channel) ||
+        !scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_POLARIZATIONS, &polarization) ||
+        !scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    return scpi_trigger_grid_result(context,
+        trigger_sequence_code_set(action, channel, polarization) == TRIGGER_SEQUENCE_CODE_OK ?
+        TRIGGER_T2_RUNTIME_OK : TRIGGER_T2_RUNTIME_ARGUMENT);
+}
+
+scpi_result_t scpi_cmd_trigger_sequence_code_q(scpi_t *context)
+{
+    uint32_t action, channel = 0u, polarization = 0u;
+    if (!scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_ACTIONS - 1u, &action) ||
+        !scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    if (!trigger_sequence_code_get(action, &channel, &polarization))
+        return scpi_trigger_t2_fail(context);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, channel);
+    SCPI_ResultUInt32(context, polarization);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_trigger_sequence_repeat(scpi_t *context)
+{
+    uint32_t repeat;
+    if (!scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_REPEAT, &repeat) ||
+        !scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    return scpi_trigger_grid_result(context,
+        trigger_sequence_code_repeat_set(repeat) == TRIGGER_SEQUENCE_CODE_OK ?
+        TRIGGER_T2_RUNTIME_OK : TRIGGER_T2_RUNTIME_ARGUMENT);
+}
+
+scpi_result_t scpi_cmd_trigger_sequence_repeat_q(scpi_t *context)
+{
+    if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, trigger_sequence_code_repeat());
+    SCPI_ResultUInt32(context, trigger_sequence_timing_position_actions_total());
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_trigger_t2_drain(scpi_t *context)
 {
     uint64_t drain_ms;

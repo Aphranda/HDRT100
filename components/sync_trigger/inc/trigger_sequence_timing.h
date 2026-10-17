@@ -17,6 +17,9 @@
 #define TRIGGER_SEQUENCE_TIMING_MAX_CHANNELS 16u
 #define TRIGGER_SEQUENCE_TIMING_MAX_POLARIZATIONS 8u
 #define TRIGGER_SEQUENCE_TIMING_MAX_GRID_NS 100000u
+/* Action table: at most this many actions may carry an explicit code pair. */
+#define TRIGGER_SEQUENCE_TIMING_MAX_ACTIONS 128u
+#define TRIGGER_SEQUENCE_TIMING_MAX_REPEAT 1000u
 
 typedef enum {
     TRIGGER_SEQUENCE_TIMING_OK = 0,
@@ -51,5 +54,24 @@ uint32_t trigger_sequence_timing_position_us(const trigger_sequence_timing_t *t)
 uint32_t trigger_sequence_timing_channel_of(uint32_t action, uint32_t channels,
                                             uint32_t polarizations);
 uint32_t trigger_sequence_timing_polarization_of(uint32_t action, uint32_t polarizations);
+
+/* The sequence itself: an explicit code pair per action overrides the derived rule, and the
+ * whole table repeats `repeat` times per position. Both are configuration, not code. */
+typedef enum {
+    TRIGGER_SEQUENCE_CODE_OK = 0,
+    TRIGGER_SEQUENCE_CODE_BAD_ACTION,
+    TRIGGER_SEQUENCE_CODE_BAD_CHANNEL,
+    TRIGGER_SEQUENCE_CODE_BAD_POLARIZATION,
+    TRIGGER_SEQUENCE_CODE_BAD_REPEAT
+} trigger_sequence_code_error_t;
+
+trigger_sequence_code_error_t trigger_sequence_code_set(uint32_t action, uint32_t channel,
+                                                        uint32_t polarization);
+bool trigger_sequence_code_get(uint32_t action, uint32_t *channel, uint32_t *polarization);
+bool trigger_sequence_code_clear(void);
+trigger_sequence_code_error_t trigger_sequence_code_repeat_set(uint32_t repeat);
+uint32_t trigger_sequence_code_repeat(void);
+/* Total actions in one position, INCLUDING repeats. */
+uint32_t trigger_sequence_timing_position_actions_total(void);
 
 #endif

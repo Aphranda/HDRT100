@@ -205,6 +205,10 @@ scpi_result_t scpi_cmd_trigger_sequence_timing_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_counts(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_counts_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_period_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sequence_code(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sequence_code_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sequence_repeat(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sequence_repeat_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);
@@ -505,6 +509,10 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:SEQuence:COUNts", .callback = scpi_cmd_trigger_sequence_counts}, \
     {.pattern = "TRIGger:SEQuence:COUNts?", .callback = scpi_cmd_trigger_sequence_counts_q}, \
     {.pattern = "TRIGger:SEQuence:PERiod?", .callback = scpi_cmd_trigger_sequence_period_q}, \
+    {.pattern = "TRIGger:SEQuence:CODE", .callback = scpi_cmd_trigger_sequence_code}, \
+    {.pattern = "TRIGger:SEQuence:CODE?", .callback = scpi_cmd_trigger_sequence_code_q}, \
+    {.pattern = "CONFigure:SEQuence:REPeat", .callback = scpi_cmd_trigger_sequence_repeat}, \
+    {.pattern = "TRIGger:SEQuence:REPeat?", .callback = scpi_cmd_trigger_sequence_repeat_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:BRIDge?", .callback = scpi_cmd_vdc_feedback_bridge_q}, \
     {.pattern = "SYSTem:VDC:FEEDback:MATCh?", .callback = scpi_cmd_vdc_feedback_match_q}, \
     {.pattern = "SYSTem:REFMEM:SYNC:TDMA:ABORt", .callback = scpi_cmd_refmem_sync_tdma_abort}, \

@@ -64,8 +64,33 @@ int main(void)
     assert(t.channels == 4u && t.polarizations == 3u);
     assert(t.vna_us == 8000u);
 
+    /* The sequence itself is configuration: an explicit code pair overrides the derived rule,
+     * and the table can repeat. */
+    {
+        uint32_t ch=0u, pol=0u;
+        assert(trigger_sequence_code_get(3u,&ch,&pol) && ch==2u && pol==0u);
+        assert(trigger_sequence_code_set(3u,3u,1u) == TRIGGER_SEQUENCE_CODE_OK);
+        assert(trigger_sequence_code_get(3u,&ch,&pol) && ch==3u && pol==1u);
+        assert(trigger_sequence_code_set(3u,0u,0u) == TRIGGER_SEQUENCE_CODE_BAD_CHANNEL);
+        assert(trigger_sequence_code_set(3u,1u,3u) == TRIGGER_SEQUENCE_CODE_BAD_POLARIZATION);
+        assert(trigger_sequence_code_set(TRIGGER_SEQUENCE_TIMING_MAX_ACTIONS,1u,0u) ==
+            TRIGGER_SEQUENCE_CODE_BAD_ACTION);
+        assert(trigger_sequence_code_repeat() == 1u);
+        assert(trigger_sequence_code_repeat_set(3u) == TRIGGER_SEQUENCE_CODE_OK);
+        assert(trigger_sequence_code_repeat() == 3u);
+        assert(trigger_sequence_code_repeat_set(0u) == TRIGGER_SEQUENCE_CODE_BAD_REPEAT);
+        assert(trigger_sequence_timing_position_actions_total() == 3u * 12u);
+        assert(trigger_sequence_code_clear());
+        assert(trigger_sequence_code_get(3u,&ch,&pol) && ch==2u && pol==0u);
+    }
+
     trigger_sequence_timing_reset();
     assert(trigger_sequence_timing_get(&t) && t.channels == 8u && t.settle_a_us == 1u);
+    assert(trigger_sequence_code_repeat() == 1u);
+    {
+        uint32_t ch=0u, pol=0u;
+        assert(trigger_sequence_code_get(0u,&ch,&pol) && ch==1u && pol==0u);
+    }
     printf("sequence timing cases ok\n");
     return 0;
 }

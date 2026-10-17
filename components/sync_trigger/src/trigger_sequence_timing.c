@@ -30,6 +30,10 @@ static const trigger_sequence_timing_t s_default = {
 
 static trigger_sequence_timing_t s_timing;
 static bool s_loaded;
+/* Explicit code pair per action; 0 means "derive it from the rule". */
+static uint16_t s_code_a[TRIGGER_SEQUENCE_TIMING_MAX_ACTIONS];
+static uint16_t s_code_b[TRIGGER_SEQUENCE_TIMING_MAX_ACTIONS];
+static uint32_t s_repeat = 1u;
 
 static bool loaded(void)
 {
@@ -44,6 +48,8 @@ void trigger_sequence_timing_reset(void)
 {
     s_timing = s_default;
     s_loaded = true;
+    (void)trigger_sequence_code_clear();
+    s_repeat = 1u;
 }
 
 bool trigger_sequence_timing_defaults(trigger_sequence_timing_t *out)
@@ -123,4 +129,64 @@ uint32_t trigger_sequence_timing_polarization_of(uint32_t action, uint32_t polar
 {
     if (polarizations == 0u) return 0u;
     return action % polarizations;
+}
+
+trigger_sequence_code_error_t trigger_sequence_code_set(uint32_t action, uint32_t channel,
+                                                        uint32_t polarization)
+{
+    (void)loaded();
+    if (action >= TRIGGER_SEQUENCE_TIMING_MAX_ACTIONS)
+        return TRIGGER_SEQUENCE_CODE_BAD_ACTION;
+    if (channel == 0u || channel > s_timing.channels)
+        return TRIGGER_SEQUENCE_CODE_BAD_CHANNEL;
+    if (polarization >= s_timing.polarizations)
+        return TRIGGER_SEQUENCE_CODE_BAD_POLARIZATION;
+    s_code_a[action] = (uint16_t)channel;
+    s_code_b[action] = (uint16_t)polarization;
+    return TRIGGER_SEQUENCE_CODE_OK;
+}
+
+bool trigger_sequence_code_get(uint32_t action, uint32_t *channel, uint32_t *polarization)
+{
+    (void)loaded();
+    if (action >= TRIGGER_SEQUENCE_TIMING_MAX_ACTIONS) return false;
+    uint32_t a = s_code_a[action];
+    uint32_t b = s_code_b[action];
+    if (a == 0u) {
+        a = trigger_sequence_timing_channel_of(action, s_timing.channels,
+                                               s_timing.polarizations);
+        b = trigger_sequence_timing_polarization_of(action, s_timing.polarizations);
+    }
+    if (channel) *channel = a;
+    if (polarization) *polarization = b;
+    return true;
+}
+
+bool trigger_sequence_code_clear(void)
+{
+    for (uint32_t i = 0u; i < TRIGGER_SEQUENCE_TIMING_MAX_ACTIONS; ++i) {
+        s_code_a[i] = 0u;
+        s_code_b[i] = 0u;
+    }
+    return true;
+}
+
+trigger_sequence_code_error_t trigger_sequence_code_repeat_set(uint32_t repeat)
+{
+    if (repeat == 0u || repeat > TRIGGER_SEQUENCE_TIMING_MAX_REPEAT)
+        return TRIGGER_SEQUENCE_CODE_BAD_REPEAT;
+    s_repeat = repeat;
+    return TRIGGER_SEQUENCE_CODE_OK;
+}
+
+uint32_t trigger_sequence_code_repeat(void)
+{
+    (void)loaded();
+    return s_repeat;
+}
+
+uint32_t trigger_sequence_timing_position_actions_total(void)
+{
+    (void)loaded();
+    return trigger_sequence_timing_actions(&s_timing) * s_repeat;
 }
