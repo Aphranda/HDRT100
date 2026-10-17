@@ -4,13 +4,35 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-10-16
+Last updated: 2026-10-17
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20261017-022：P3 全流程通过（含 DPLL60）——修复的是"判据尾巴"，不是 VDC 发布；并修掉构建身份冻结
+
+- **P3 结果（本轮新增凭证）**：`--profile full` 全链跑通，`PASS_WITH_WARNINGS`（INFO 33 / WARN 10 / ERROR 0 / FATAL 0），step 36 自检 OK，凭证写入 `config/hardware_acceptance/p3_acceptance_receipt.json`：`schema=HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_QUICK_GRADED_V1`、`passed=true`、`generated_at_utc=2026-10-17T14:00:46Z`、`build_id=20261017135128`、`source_tree_sha256=7433b7e9…`（1819 文件）。DPLL60 摘要 `passed=true / evidence_status=PASS`。
+- **"VDC 发布坏了"是我的误判，已更正**：`tx_publish`/`tx_release` 在今天**每一次** T2 整跑（含 17:43，改动之前）都静止，`tx_ready_count` 恒 1 —— 那是 T2 启动前的遗留镜像，T2 走一等席不喂普通 FIFO，**不是 VDC 故障证据**。据此追的三轮"FIFO 停滞"结论作废。
+- **DPLL60 反复失败的真实原因＝终止 bin 的停机尾巴**：离线解析 `capture/NO*/decoded.json`（`success_gap_basis=after_first_success`），11:39 那轮稳态各 bin 最大成功间隔 **37.6/47.2/45.3/50.1 ms**，而 **TERMINAL bin 为 1.70/1.16/0.54/0.04 s**；判据此前对**所有** bin 取 `max()`，于是把"目标完成后到窗口结束的静默"当成成功间隔，`1.70 s` 直接顶掉 1.0 s 门限。修复：判据只在**非 TERMINAL 稳态 bin** 取最大值，尾巴另存 `terminal_success_gap_s` 供复核；本轮通过跑实测稳态 13–41 ms、尾巴 0.01–0.03 s。
+- **`T2` 拍抢占规则的反例（重要，勿再"优化"回来）**：曾把 T2 准入改为"仅空闲拍"（`&& !normal_due`），结果**自锁**——`last_publish_ms` 只在真正发帧时推进，普通通道一旦有帧未被取走就停发，`normal_due` 永远为真，而 T2 是唯一绕过 FIFO 的通路，于是整链 0 帧（两轮整跑实测 `tx_publish 0`、313–568 s、`NO DELIVERY`，同轮生产端仍 `coalesced 22,788`）。已回退并在代码注释中写明原因；同时把 `wait_reason` 归因改准：只有 `resident_master || feedback>0` 才记 `FAILURE_FEEDBACK`，否则记新的 `FAILURE_FIFO_READY`。
+- **feedback 拒发仪表（保留，用于以后定位）**：`feedback_prepare()` 的各 `-1` 分支加 `last_reason` + 分桶计数（1 未就绪+在飞、2 未就绪+offer、3 快照忙、4 绑定变化），`SYSTem:REFMEM:SYNC:FLIGHT?` 页尾追加 9 字段（只增不改）。本轮四板读数**全 0** ⇒ feedback 从未拒发，这是"VDC 发布无辜"的直接证据。
+- **构建身份冻结（真工具缺陷，已修）**：`PROJECT_BUILD_ID` 在 configure 时生成，而 `tools/cmake_build_auto/cmake_build_auto.py:cache_matches()` 只比较路径 ⇒ 复用构建目录一律跳过 configure ⇒ id 永远停在首配值（`dpll60-latest` 的包声称 `20261016011253`，却在编译当天源码）。修复：新增 `source_state_digest()`（源码路径+大小+mtime 的 SHA-256）落盘为 `.dsh_source_state`，`cache_matches()` 追加该比对。实测：源码变 ⇒ `configure=needed`；未变 ⇒ `configure=skip`；生成 id 变为 `20261017134124`。
+- **FIFO 防御性修复（保留）**：`tdma_pio_spi_ring_origin.inc` 的"重复帧"分支与 5 条拒收路径在 `acquire_tx()` 后补 `release_tx()`，并新增 `origin.flight_publish_reject_count`；坏帧不得永久占用唯一活动槽。
+- **未闭合**：`SYNC-SCHED-001` 深度 2 仍只完成 SWITCH 侧（GATEWAY 未改）；契约登记（`ARCH-TRIGGERSLICE-01` 仍写 10 B@14、`TDMA-PROCESSIMAGE-01` C2、`POSition?` 35 字段与 `T2?` 72 字段）；`T_drain` 默认值需按 Core1 相位预算重新定档并登记。
+
+### T2-PROGRESS-20261017-020：位置 TX 改为"最新值表 + 定周期取数"——台架首次 `coalesced 671`、零拒绝、零迟到
+
+- **背景与根因（代码事实，不是推断）**：单深度一等席时代，生产者每轮解算都"递交一次"，座位被占就 `stage_refused_count++` 并重试同一条 ⇒ 该计数实际是**轮次忙等计数**（实测 1.07–1.50 次/条），拒绝率随公告簇发在 6.6%–33.4% 之间漂移；`T_drain` 也无法改变发送量，因为 `trigger_t2_runtime.c` 里还有一句旧邮箱门 `if (distributed_refmem_position_descriptor_pending()) return;` 让**生产者被发射端反向锁死**（50 ms 那轮发送速率仍随取数上限走、`coalesced` 恒 0）。
+- **实现**：`distributed_refmem` 的 TX 侧删除单槽邮箱，改为每位置一格最新值表（`DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS=3`）；生产端 `stage_position_descriptor()` 永不因背压失败（仅非法描述符失败），写已有未发值即覆盖并计 `tx_coalesced_count`，等待中的 FREEZE 不被 PREVIEW 覆盖；发射端 `position_tx_prepare(owner)` **只在 `tdma_service_first_class_free(owner)` 为真时取值**，因此递交不可能被拒；PREVIEW 受 `T_drain` 约束、FREEZE 不受约束；取值时把下一位目标写进同一 16 B 切片 `[10..15]`（一条记录两个位置）。删除上述生产者 pending 门。
+- **安装参数（新增 SCPI，掉电回默认）**：`T2:DRAIN <ms>` / `DRAIN?`（默认 6，上限 1000，0=不限速）；`T2:ANNOUNCE <tol>,<min>,<global>` / `ANNOUNCE?`（默认 4/10/6，**0 = 该闸门不抑制**，越界拒绝且不改已安装值）。页追加：`SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 第 35 字段 `tx_coalesced_count`；`TRIGger:RESERVation:T2?` 末字段 `fallback_promoted_count`。
+- **台架判据（build `20261017102517`，`--steps 0-20`，220 s 采样，22 步全 OK）**：`SEAT refused 0`、`tx_reject 0`、**`tx_coalesced_count 671`**、发送速率 **171/s**（贴住 6 ms 上限 ≈167/s）、四板 **361/361/361/361**、`late/expired/no_plan/conflict/backend` 全 0、从板 `decode_reject 0`、`DISTRIBUTED`；`freeze_fallback`（版本不匹配）27/30/16。
+- **反例（同一固件、只改安装参数）**：`T_drain=50 ms` ⇒ SWITCH_A `abandoned 28 / late 28`、SWITCH_B `abandoned 29 / late 27 / backend 2` ⇒ **50 ms 超出从板流水线预算，6 ms 才是安全区**；该轮 `coalesced` 仍为 0，正是生产者 pending 门未删前的证据。
+- **口径更正**：此前把 `freeze_fallback_count`（FREEZE 版本 ≠ 本地最新解算版本）当作"第二位置使用次数"是**错的**；第二位置的真实计数是 `fallback_promoted_count`，全 361 位置实测 **0 次**。方向（本地更新/更旧）尚未记录，待加两个方向计数后定性。
+- **未闭合**：契约登记（`ARCH-TRIGGERSLICE-01` 仍写 10 B@14，实际已是 16 B@8；`TDMA-PROCESSIMAGE-01` C2 按 class 子区复用未闭环；`POSition?` 31→35 字段与 `T2?` 72 字段待登记）；P3 凭证与提交。宿主：`refmem/trigger_position/t2_/seat/vdc_feedback` 选择 **576 passed**，受影响 4 文件 24 passed。
+
 
 ### T2-PROGRESS-20261016-016：`late` 归因落到"宣告提前量不足"——提前量 100 脉冲（≈35 ms）时三从板 `late` 归零
 

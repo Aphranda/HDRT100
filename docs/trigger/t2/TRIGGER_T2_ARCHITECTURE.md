@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
 Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/trigger/t2/TRIGGER_T2_RUNTIME_CONSTRAINTS.md`
-Last updated: 2026-10-16
+Last updated: 2026-10-17
 
 ## 文档接口与范围
 
@@ -120,7 +120,18 @@ position_q = target_ms_index * subdivisions + target_fine_slice_index
 
 另附 `freeze_abandoned_count`（饱和计数）：位置窗口过期仍未完成会置位掩码，但掩码按位置保存、下一次 run 会清零，**只有计数能回答"发生过多少次"**。
 
-### 冻结后的诊断回传
+### 位置 TX：最新值表 + 定周期取数（2026-10-17 冻结口径）
+
+位置记录的发送不是“生产者递交、被拒后重试”，而是**生产者只写最新值、发射端自己按周期取**：
+
+- **最新值表**：每个在途位置一格（`DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS = 3`，与 `TRIGGER_T2_RUNTIME_POSITION_COUNT` 同值）。生产者（Core0 解算）每次解算都可写入，**永不因背压失败**；写已有未发值即**覆盖**并计 `tx_coalesced_count`（合并，不是丢弃）。等待中的 FREEZE 不被后到的 PREVIEW 覆盖（FREEZE 优先）。
+- **发射端自己取**：`distributed_refmem_position_tx_prepare()` 只有在**一等席空闲**（`tdma_service_first_class_free()`）时才从表里取值，因此递交**按构造不可能被拒**（`stage_refused_count` 恒 0）；取数受 `T_drain` 定时约束（PREVIEW 受约束，FREEZE 不受约束），一次最多取一条。
+- **一条记录带两个位置**：取当前条时，把表里下一位的最新目标写进同一 16 B 切片的 `[10..15]`（`next_position_id`/`next_target_ms_index`），从板因此无需第二次上车即可缓存下一位目标。
+- **为何改**：单深度席 + 生产者每轮“递交/被拒”会把 `stage_refused` 变成“轮次忙等计数”（实测 1.07–1.50 次/条），且拒绝率随公告簇发在 6.6%–33.4% 之间漂移，无法作为判据。改为拉模型后：生产端只决定“最新值是什么”，发射端决定“何时发”。
+- **安装参数（STOP 态或运行态写入、掉电回默认）**：`TRIGger:RESERVation:T2:DRAIN <ms>` / `DRAIN?`（默认 6 ms，上限 1000，0 = 不限速）；`TRIGger:RESERVation:T2:ANNOUNCE <tol_ms>,<min_ms>,<global_ms>` / `ANNOUNCE?`（默认 4/10/6；**0 表示该闸门不抑制**，越界仍拒绝且不改已安装值）。三者都进 `TRIGger:RESERVation:T2?` 相关页与 `SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 的 `tx_coalesced_count`。
+- **台架判据（2026-10-17 全 361 位置实测）**：`SEAT refused 0`、`tx_reject 0`、`tx_coalesced_count 671 > 0`、发送速率贴住 `T_drain` 上限（6 ms ⇒ 171/s）、四板 `361/361/361/361`、`late/expired/no_plan/conflict/backend` 全 0、`decode_reject 0`。**反例**：`T_drain=50 ms` 时 SWITCH_A/SWITCH_B 各出现 28/29 次 LATE ⇒ 50 ms 超出从板流水线预算，6 ms 才是安全区。
+
+
 
 冻结后允许从板通过独立的低优先级 T2 diagnostic message class 回传一至两帧压缩诊断。第一帧报告 position、采用版本、版本年龄、q 有效性、动作准备状态和 READY 重叠状态；第二帧只在缺版本、旧代、CRC、时间片冲突或 READY 异常时发送，报告原因和残差摘要。诊断不能覆盖 VDC、ACK 或已排队的 VDC image。
 
