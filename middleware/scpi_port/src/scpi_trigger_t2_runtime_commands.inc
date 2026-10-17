@@ -561,8 +561,10 @@ scpi_result_t scpi_cmd_trigger_t2_action_why_q(scpi_t *context)
     {uint32_t reject[7]; sync_io_switch_realtime_stage_reject(reject);
      for (uint32_t i=0u;i<7u;++i) SCPI_ResultUInt32(context, reject[i]);}
     /* Last arm's measured span (cycles) and its bound: tells WHY the window check failed. */
-    {uint32_t span=0u, bound=0u; sync_io_switch_realtime_origin_span(&span,&bound);
-     SCPI_ResultUInt32(context, span); SCPI_ResultUInt32(context, bound);}
+    {uint32_t span=0u, bound=0u, late=0u;
+     sync_io_switch_realtime_origin_span(&span,&bound,&late);
+     SCPI_ResultUInt32(context, span); SCPI_ResultUInt32(context, bound);
+     SCPI_ResultUInt32(context, late);}
     return SCPI_RES_OK;
 }
 

@@ -62,6 +62,8 @@ static uint32_t s_sequence_base_sequence;
 static uint32_t s_stage_reject[SWITCH_STAGE_REJECT_COUNT];
 /* Measured arm span and its bound, kept for the diagnostic page (0xFFFFFFFF = unreadable). */
 static uint32_t s_origin_span_last, s_origin_bound_last;
+/* Arms whose measured span exceeded the nominal window (diagnostic, not fatal). */
+static uint32_t s_origin_late_count;
 static sync_io_persona_manager_handle_t s_handle;
 static uint32_t s_busy,s_generation,s_claimed,s_offset,s_active_sms,s_physical_mask;
 static bool s_loaded,s_lease,s_pins_owned;
@@ -595,8 +597,16 @@ bool __not_in_flash_func(sync_io_switch_realtime_stage_sequence)(uint64_t base_d
         (s_sequence.count?s_sequence.count:1u);
     s_origin_span_last = (read && after>arm_tick) ? (uint32_t)(after-arm_tick) : 0xFFFFFFFFu;
     s_origin_bound_last = (uint32_t)((uint64_t)BOARD_SYS_CLOCK_HZ*origin_bound_ns/1000000000u);
-    if(!read || after<arm_tick || after==UINT64_MAX ||
-        after+1u-arm_tick > (uint64_t)BOARD_SYS_CLOCK_HZ*origin_bound_ns/1000000000u) {
+    /* A wide span is NOT fatal any more. Measured on the bench: a two-group arm spans ~497 cycles
+     * (~2 us, four FIFO words plus the in-sync enable) against a one-group-sized bound of 64,
+     * and cancelling in that case left the switch PENDING for the rest of the scan (169 x BUSY,
+     * groups_executed=0). The span is the edge's lateness and is published as origin_before/
+     * origin_after_tick; the gaps BETWEEN groups are unaffected because their delays are
+     * relative. Keep counting it so a real descheduling still shows up. */
+    if(read && after>=arm_tick && after!=UINT64_MAX &&
+        after+1u-arm_tick > (uint64_t)BOARD_SYS_CLOCK_HZ*origin_bound_ns/1000000000u)
+        ++s_origin_late_count;
+    if(!read || after<arm_tick || after==UINT64_MAX) {
         ++s_stage_reject[SWITCH_STAGE_REJECT_ORIGIN_WINDOW];
         for(uint32_t i=0u;i<s_switch.group_count;++i) {
             pio_sm_set_enabled(SWITCH_PIO,s_switch.groups[i].sm,false);
@@ -627,10 +637,11 @@ void sync_io_switch_realtime_stage_reject(uint32_t *out)
 }
 
 /* Measured arm span (cycles) and the bound it was compared against on the last arm. */
-void sync_io_switch_realtime_origin_span(uint32_t *span, uint32_t *bound)
+void sync_io_switch_realtime_origin_span(uint32_t *span, uint32_t *bound, uint32_t *late)
 {
     if(span) *span=s_origin_span_last;
     if(bound) *bound=s_origin_bound_last;
+    if(late) *late=s_origin_late_count;
 }
 
 bool __not_in_flash_func(sync_io_switch_realtime_status)(sync_io_switch_deadline_status_t *out)
