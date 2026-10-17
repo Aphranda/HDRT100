@@ -12,6 +12,15 @@ Last updated: 2026-10-17
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261017-024：接收时间戳落地（语义/落点/台架证据），P3 再次通过
+
+- **语义（写进头文件，不靠口头约定）**：`trigger_t2_runtime.h` 新增 `rx_local_tick`＝本板**受理**位置记录那一刻的本地 TIMER1 tick，由本地 `action_cursor` 经**与 deadline 相同的 DCO/TIMER1 换算**投影得到（不读额外时钟、不伪造）；`rx_local_sample_seq`＝该时刻的本地 coarse 网格号；`rx_timestamp_count`＝已打戳受理次数；`rx_stale_count`＝**受理时该记录 deadline 已过去**的次数（"别把旧接收时间戳套进新模型"的可观测形式）。注释明确区分：这**不是**传输车道的到达时刻（那个在 `distributed_refmem`）。
+- **落点**：一条记录一个戳（一条记录带两个位置、同一时刻受理），放引擎状态而非 361 位置数组；打戳点在 `prepare_deadlines_core0()` 的**新描述符被采纳并发布计划**处（`group==0`），不在每轮重复解算处。页追加（只增不改）：`TRIGger:RESERVation:T2?` 尾 5 字段 = `rx_local_tick_lo/hi, rx_local_sample_seq, rx_timestamp_count, rx_stale_count`（页面 72 → 77 字段）。
+- **台架证据（build `20261017142410`，`--steps 0-20`，22 步全 OK）**：三块从板 `stamps 14,531 / 14,598 / 14,898`、`rx_local_tick` 非零、**`stale 0`**；源板（COUNTER）`stamps 0`——它对位置只发布不受理，符合语义。同轮非回归：`tx_publish 15,963`、`DISTRIBUTED`（从板 `13,697/13,530/13,758`）、`SEAT refused 0`。
+- **注意（未台架验证项）**：同伴字段初版用的是 `carrier_sequence`，实测四板恒为 0（无 carrier 流），故改成语义明确的本地网格号 `sample_seq`；该**改名只过了宿主用例**，尚未再上板读数。
+- **P3**：全链再跑一次 **PASS_WITH_WARNINGS**，凭证 `build_id=20261017144026`、`source_tree_sha256=8b78db5e…`、`generated_at_utc=2026-10-17T14:49:04Z`；宿主 `trigger_t2/t2_/seat/refmem` 选择 **321 passed**。
+- **未闭合**：GATEWAY 深度 2（上一条的失败证据仍在）；组序列接口 `base_tick + 组序列表`；契约登记债务。
+
 ### T2-PROGRESS-20261017-023：GATEWAY 深度 2 首次尝试未通过宿主时序断言，已回退（保留证据供下次直接接续）
 
 - **做了什么**：按 SWITCH 已验证的模板把 GATEWAY 也改成"两字/触发"（word A=脉宽写入 Y 并作回执、word B=延时）+ 深度 2 队列：`sync_gateway.pio` 8→11 条指令、`SYNC_IO_GATEWAY_OUTPUT_WORDS 11`、`start_deadline(deadline)` 内部按"首触发/排队触发"分流（排队时用 `deadline − previous − 12` 的**间隔**）、`s_queue[2]` 与逐条 `sequence/width`、STOP 取消全部、回执按 head 的 width 归属、`safe_stop()` 清队列。
