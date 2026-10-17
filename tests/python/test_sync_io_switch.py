@@ -400,6 +400,19 @@ static void sequence_case(void){
     const uint64_t base=tick_count+30000u;
     const uint32_t codes[3]={5u,0u,4u};
     const uint64_t deltas[3]={0u,40000u,90000u};
+    /* Rejections happen BEFORE anything is armed: a bad plan must not leave the pipes half
+     * loaded, otherwise the position would look armed but fire the wrong sequence. */
+    {
+        uint64_t bad[3]={0u,40000u,30000u};      /* not increasing */
+        assert(!sync_io_switch_realtime_stage_sequence(base,codes,bad,3u));
+        uint64_t tight[2]={0u,5u};               /* gap below the instruction budget */
+        assert(!sync_io_switch_realtime_stage_sequence(base,codes,tight,2u));
+        uint64_t offset[3]={5u,40000u,90000u};   /* group 0 must sit on the base tick */
+        assert(!sync_io_switch_realtime_stage_sequence(base,codes,offset,3u));
+        assert(!sync_io_switch_realtime_stage_sequence(tick_count-1u,codes,deltas,3u));
+        assert(!(pio.ctrl&10u));          /* nothing started */
+        assert(!machine[1].tx_count&&!machine[1].writes);
+    }
     assert(sync_io_switch_realtime_stage_sequence(base,codes,deltas,3u));
     sync_io_switch_deadline_status_t d;assert(sync_io_switch_realtime_status(&d));
     assert(d.state==SYNC_IO_SWITCH_DEADLINE_ARMED&&d.sequence==1u);

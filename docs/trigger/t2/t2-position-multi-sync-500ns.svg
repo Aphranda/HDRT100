@@ -42,14 +42,18 @@
     <text class="ms" x="386" y="146" fill="#1e40af">H / V，在预设片切换；稳定 B</text>
 
     <rect x="682" y="108" width="352" height="56" fill="#dcfce7" stroke="#15803d" stroke-width="1.5" rx="8"/>
-    <text class="m" x="696" y="128" fill="#166534">GATEWAY · TRIG / READY</text>
+    <text class="m" x="696" y="128" fill="#166534">GATEWAY · TRIG 输出 / READY 输入</text>
     <text class="ms" x="696" y="146" fill="#166534">提前量 C、脉宽 D、等窗 F</text>
 
     <rect x="1052" y="108" width="410" height="56" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4" rx="8"/>
-    <text class="m" x="1066" y="128" fill="#334155">网分（外部仪器）</text>
-    <text class="ms" x="1066" y="146">响应 E ≈ 8 ms；每项 1 次 TRIG、1 次回复</text>
+    <text class="m" x="1066" y="128" fill="#334155">网分 · TRIG 输入 / READY 输出</text>
+    <text class="ms" x="1066" y="146">收到 TRIG 后扫描 E ≈ 8 ms，完成后拉 READY</text>
   </g>
-  <text class="n" x="52" y="180">16 项 = 8 通道 × 2 极化（通道数、极化数可配）；每项由 A 定通道、B 定极化、GATEWAY 发一次 TRIG 并等到一次 READY。</text>
+  <g class="ms" fill="#166534">
+    <text x="1038" y="122">→ TRIG</text>
+    <text x="1038" y="158">← READY</text>
+  </g>
+  <text class="n" x="52" y="180">16 项 = 8 通道 × 2 极化（可配）；每项：A 定通道、B 定极化 → GATEWAY 发 1 次 TRIG（进网分）→ 网分扫描完拉 1 次 READY（回 GATEWAY）；16 对一一对应。</text>
 
   <!-- ============ ② config ============ -->
   <rect class="band" x="34" y="204" width="1452" height="190"/>
@@ -113,10 +117,14 @@
   <!-- VNA track -->
   <text class="track" x="52" y="640">网分</text>
   <line x1="140" y1="636" x2="930" y2="636" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#a)"/>
+  <line x1="316" y1="628" x2="316" y2="652" stroke="#1d4ed8" stroke-width="2.2"/>
+  <text class="ms" x="300" y="664" fill="#1e40af">收到 TRIG</text>
   <rect x="316" y="628" width="470" height="16" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.3" rx="4"/>
-  <text class="k" x="512" y="641" fill="#1e40af">E ≈ 8 ms（扫描/响应）</text>
+  <text class="k" x="500" y="641" fill="#1e40af">E ≈ 8 ms（扫描/响应）</text>
+  <line x1="786" y1="620" x2="786" y2="652" stroke="#15803d" stroke-width="2.6"/>
+  <text class="ms" x="742" y="614" fill="#166534">拉 READY↑</text>
   <rect x="786" y="628" width="118" height="16" fill="#dcfce7" stroke="#15803d" stroke-width="1.3" rx="4"/>
-  <text class="k" x="820" y="641" fill="#166534">F</text>
+  <text class="k" x="812" y="641" fill="#166534">F 等窗</text>
   <line x1="904" y1="620" x2="904" y2="652" stroke="#33415c" stroke-width="2.2"/>
   <text class="ms" x="866" y="614">项结束</text>
 
@@ -124,8 +132,8 @@
     <text x="52" y="678">Δ项 = max(A, B) + C + D + E + F；三条轴共用同一时间原点（该位置的预设起点），各段互不推导。</text>
     <text x="52" y="700">按 E ≈ 8 ms 推算：Δ项 ≈ 8.05 ms；16 项 ≈ 128.8 ms；加 G=200 ms ⇒ 位置 ≈ 328.8 ms（随配置变）</text>
     <text x="52" y="722">最后一项之后进入 G 移动窗口：移动期不排任何动作（安装期校验拒绝）</text>
-    <text x="52" y="744" class="n">C 的起点是 max(A,B)：两块开关都稳定后才允许 TRIG；A 与 B 各自配，谁慢谁决定 C 的起点。</text>
-    <text x="52" y="764" class="n">READY 是证据时刻，可落在网格之间，不向网格吸附；缺失＝该项失败，重复＝该项不确定。</text>
+    <text x="52" y="744" class="n">TRIG/READY 是**一对**：GATEWAY 的 TRIG 输出接网分 TRIG 输入；网分的 READY 输出接 GATEWAY READY 输入。每项 1 对，共 16 对。</text>
+    <text x="52" y="764" class="n">C 从 max(A,B) 起算；F 是 GATEWAY 等 READY↑ 的窗（收到即结束，超时＝该项失败）。READY 是证据时刻，不向网格吸附。</text>
   </g>
 
   <!-- ============ ④ 16 items ============ -->
