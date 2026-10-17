@@ -65,7 +65,6 @@ static void position_frame(uint8_t image[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE],uint32_
     distributed_refmem_put_le16(m,TDMA_FLIGHT_MAILBOX_MAGIC);
     m[2]=TDMA_FLIGHT_MAILBOX_VERSION;m[3]=TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS;
     m[4]=1;m[5]=1;distributed_refmem_put_le16(m+6,(uint16_t)seq);
-    m[8]=0x45;m[9]=0x12;m[10]=0x89;m[11]=0x67;m[12]=4;m[13]=3;
     assert(trigger_position_slice_encode(slice,m+TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET));crc(m);
 }
 static void queue_position(uint32_t seq,const trigger_position_slice_t *slice)
@@ -103,6 +102,8 @@ int main(void)
     /* Requeue old RX to prove reset's T2 filtering, separately from shared TX retirement. */
     for(unsigned i=0;i<4;i++)queue_position(20+i,&freeze);
     const unsigned before=ordinary_accepts;
+    uint8_t kept[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+    memcpy(kept,s_tdma_flight_sync.tx_image+32,sizeof(kept)); /* retained slot 0 before reset */
     assert(distributed_refmem_reset_position_stopped());
     assert(ordinary_accepts==before+4); /* co-carried VDC is never skipped */
     assert(!s_position_cancel_requested&&!s_tdma_flight_sync.position_tx_active);
@@ -111,8 +112,15 @@ int main(void)
     assert(!s_tdma_flight_sync.position_rx_fragments[1].active);
     assert(s_tdma_flight_sync.position_rx_fragments[1].accepted_fragment_count==55);
     assert(owner.flight_fifo.rx_admission_epoch==admission); /* no VDC admission change */
-    assert(!memcmp(s_tdma_flight_sync.tx_image+32+8,image+32+8,6));
-    assert(!s_tdma_flight_sync.tx_image[32+TDMA_PROCESS_IMAGE_REFMEM_OFFSET]);
+    /* Outside the 16 B slice the retained image is untouched: header (0..7) and the
+     * ACK/control/diagnostic tail (24..29) keep their pre-reset bytes. */
+    assert(!memcmp(s_tdma_flight_sync.tx_image+32,kept,TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET));
+    assert(!memcmp(s_tdma_flight_sync.tx_image+32+TDMA_PROCESS_IMAGE_ACK_QUALITY_OFFSET,
+        kept+TDMA_PROCESS_IMAGE_ACK_QUALITY_OFFSET,
+        TDMA_PROCESS_IMAGE_CRC_OFFSET-TDMA_PROCESS_IMAGE_ACK_QUALITY_OFFSET));
+    /* The whole slice is cleared, so no decodable old FREEZE survives. */
+    for(unsigned i=0;i<TRIGGER_POSITION_SLICE_WIRE_SIZE;i++)
+        assert(!s_tdma_flight_sync.tx_image[32+TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET+i]);
     assert(tdma_process_image_crc16_ccitt(s_tdma_flight_sync.tx_image+32,30)==
         distributed_refmem_get_le16(s_tdma_flight_sync.tx_image+32+30));
     tdma_flight_fifo_snapshot_t f;assert(tdma_service_get_flight_fifo_snapshot(&owner,&f));

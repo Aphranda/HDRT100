@@ -48,7 +48,7 @@ static tdma_priority_rx_record_t record(uint8_t cls, uint32_t position, uint32_t
     const trigger_position_slice_t slice = {.position_id = (uint8_t)position,
         .prediction_version = (uint16_t)version, .target_ms_index = target,
         .stage = freeze ? TRIGGER_POSITION_SLICE_FREEZE : TRIGGER_POSITION_SLICE_PREVIEW};
-    assert(trigger_position_slice_encode(&slice, m + TDMA_PROCESS_IMAGE_REFMEM_OFFSET));
+    assert(trigger_position_slice_encode(&slice, m + TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET));
     seal(m);
     return r;
 }
@@ -283,7 +283,7 @@ int main(void)
         record(TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS, 5u, 40u, false, 400u);
     /* Clear the slice tag bits: the frame itself is well formed, but the compact
      * slice cannot decode. */
-    undecodable.mailbox[TDMA_PROCESS_IMAGE_REFMEM_OFFSET] = 0x1Fu;
+    undecodable.mailbox[TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET] = 0x1Fu;
     distributed_refmem_position_priority_rx(&undecodable);
     assert(s_position_priority_decode_reject_count == decode_rejects + 1u);
     assert(s_position_priority_reject_count == backpressure_rejects);

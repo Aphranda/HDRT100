@@ -1993,14 +1993,19 @@ bool distributed_refmem_reset_position_stopped(void)
         DISTRIBUTED_REFMEM_POSITION_TRANSPORT_IDLE;
     s_tdma_flight_sync.position_rx_last_failure =
         DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_NONE;
-    /* Retained private images must not publish the old FREEZE again. Keep all
-     * co-carried VDC bytes intact; a zero-count T2 record has no action meaning. */
+    /* Retained private images must not publish the old FREEZE again. Only the compact
+     * slice is cleared; the header and the ACK/control/diagnostic tail are kept as they
+     * were (a zero-count T2 record has no action meaning). */
     for (size_t offset=0u;offset+TDMA_FLIGHT_SHORT_SLOT_SIZE<=sizeof(s_tdma_flight_sync.tx_image);
          offset+=TDMA_FLIGHT_SHORT_SLOT_SIZE) {
         uint8_t *mailbox=s_tdma_flight_sync.tx_image+offset;
         if (distributed_refmem_get_le16(mailbox)!=DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_MAGIC ||
             mailbox[3]!=TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS)continue;
-        memset(mailbox+TDMA_PROCESS_IMAGE_REFMEM_OFFSET,0,TDMA_PROCESS_IMAGE_REFMEM_SIZE);
+        /* Clear the WHOLE compact slice (16 B from VDC_PHASE_OFFSET, not the legacy 10 B
+         * at REFMEM_OFFSET): with the extended layout a partial clear would leave a
+         * decodable slice behind and the retained image could still publish the old FREEZE. */
+        memset(mailbox + TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET, 0,
+               TRIGGER_POSITION_SLICE_WIRE_SIZE);
         distributed_refmem_put_le16(mailbox+TDMA_PROCESS_IMAGE_CRC_OFFSET,
             tdma_process_image_crc16_ccitt(mailbox,TDMA_PROCESS_IMAGE_CRC_OFFSET));
     }

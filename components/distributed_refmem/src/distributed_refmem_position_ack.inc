@@ -211,7 +211,12 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(distributed_refmem_position_priority_rx)(
         source >= DISTRIBUTED_REFMEM_NODE_COUNT) return;
     __atomic_store_n(&s_position_priority_owned, 1u, __ATOMIC_RELEASE);
     const uint32_t target_mask = mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET];
-    const uint8_t *wire = &mailbox[TDMA_PROCESS_IMAGE_REFMEM_OFFSET];
+    /* The T2 slice now starts where the VDC observation used to be and spans the RefMem
+     * region too (16 B = VDC area 6 B + RefMem 10 B; asserted in distributed_refmem.c), so
+     * this MUST read VDC_PHASE_OFFSET, not REFMEM_OFFSET: reading the old offset made every
+     * record fail the slice decode (measured 2026-10-17: decode_reject ~78k, lane_accept 0
+     * on all three followers). */
+    const uint8_t *wire = &mailbox[TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET];
     uint8_t *last = s_position_priority_last[source];
     bool repeat = true;
     for (uint32_t i = 0u; i < TRIGGER_POSITION_SLICE_WIRE_SIZE; ++i)
