@@ -12,6 +12,21 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-041：读到了区分两种成因的计数——双组是 **`freeze_missing_local_count=166`（根本没解出计划）**
+
+- **读数**（`TRIGger:RESERVation:T2?` prefix，索引由 handler 顺序算出：13=frozen_mask、14=mismatch、15=fallback、16=missing_local）：
+  ```
+  FB276192 SWITCH_A 2组 : mismatch=0    fallback=1  missing_local=166   ← 与 NO_PLAN=166 一一对应
+  2BD5090F GATEWAY  1组 : mismatch=160  fallback=1  missing_local=7     ← 169/169 全过
+  A1E54920 SWITCH_B 1组 : mismatch=160  fallback=1  missing_local=5     ← 169/169 全过
+  ```
+- **结论（这次是数字说话）**：单组板大量 `mismatch` 但**照常执行**（fallback 路径可用），所以 `mismatch` 不是问题；双组板 `mismatch=0` 而 `missing_local=166` ⇒ **该位置的槽里根本没有可用计划（版本为 0）**，FREEZE 只能判 `NO_PLAN`。
+- **代码指针**：
+  - `trigger_t2_runtime.c:1242` 在武装后把 `s_deadline[selected].prediction_version = 0u`；
+  - `trigger_t2_runtime.c:974` 在 FREEZE 时把 `version==0` 判为 `NO_PLAN`；
+  ⇒ 双组时 Core0 的 solve 没有在下一个 FREEZE 之前把**该位置自己的**计划填进去（单组时靠旧版本走 fallback，所以看不出问题）。
+- **下轮**：检查 Core0 solve 的入口守卫（`s_local_template_count` 与部署/模板行数的一致性、以及“solve 只对 `group==0` 生成计划”的假设），并加一个“每位置 Core0 发布计划次数”的计数；修好后复验 `missing_local → 0`、`executed → 169`。
+
 ### T2-PROGRESS-20261018-040：`NO_PLAN` 的两个来源已定位到代码行，下一步只需读两个现成计数
 
 - **代码定位**（`components/sync_trigger/src/trigger_t2_runtime.c`）：
