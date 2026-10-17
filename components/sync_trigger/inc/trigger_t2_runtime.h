@@ -27,6 +27,18 @@
  * announced target, so its staleness is bounded by this interval + the tolerance; the
  * first announcement and FREEZE are unaffected. */
 #define TRIGGER_T2_ANNOUNCE_MIN_INTERVAL_MS 10u
+/* Global offer interval, ms: at most one ANNOUNCEMENT (re-announce) across ALL positions per
+ * this interval. Motivation (2026-10-16/17): the per-position interval above smooths each
+ * position, but three positions in the window plus FREEZE re-sends still burst the shared
+ * single-depth seat. Measured with the per-position limit in place: ~271 offers/s vs ~164
+ * seat boardings/s (turnaround ~5.4 ms/record), i.e. the seat is over-offered by ~1.65x and
+ * a second record inside one turnaround is refused. At 6 ms the offer rate caps at ~167/s,
+ * which matches the boarding rate, so the single slot should stop filling in steady state.
+ * Only RE-announcements are shaped (a position's first announcement always passes), and the
+ * per-position staleness bound (T_min + tolerance) is unchanged; the extra delay a record
+ * can see is at most this interval. Predictive freezing tolerates that delay (owner ruling
+ * 2026-10-17: "due to predictive freezing the delay impact is small"). */
+#define TRIGGER_T2_ANNOUNCE_MIN_GLOBAL_INTERVAL_MS 6u
 enum {
     TRIGGER_T2_RUNTIME_SEGMENT_CURSOR = 0u,
     TRIGGER_T2_RUNTIME_SEGMENT_RECEIVE,

@@ -1013,7 +1013,16 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
                REFMEM_SYNC_VDC_FRAGMENT_DATA_SIZE);
     } else
 #endif
-    {
+    if (message_class != TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS) {
+        /* VDC observation is DEAD PAYLOAD on a T2-class record: the follower's position
+         * lane requires mailbox[3] == 0x15 and only reads the 10 B slice
+         * (distributed_refmem_position_ack.inc:210), and the classic mailbox parse --
+         * the one that fills last_vdc_* -- is skipped by design while the position lane
+         * owns the transport (distributed_refmem.c:1893-1896). Omitting it frees ~6-7 B
+         * of the 32 B record for the two-position (current + provisional) payload without
+         * growing the RefMem region, so the ordinary image's generation/field_id/value
+         * metadata is not squeezed. VDC diagnostics now come from the VDC classes
+         * (feedback / boundary / command) only, which is the more correct source. */
         vdc_domain_snapshot_t vdc;
         memset(&vdc, 0, sizeof(vdc));
         if (vdc_dpll_manager_get_snapshot(&vdc)) {

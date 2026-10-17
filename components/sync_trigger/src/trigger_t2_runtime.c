@@ -1950,6 +1950,13 @@ void trigger_t2_runtime_prepare_core0(void)
          * tolerance between prepares -- which is why the interval bound, not a bigger
          * tolerance, is what actually caps the offered rate. */
         static uint32_t s_announce_ms[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+        /* Global offer shaping: one re-announcement per T_global ACROSS positions. The
+         * per-position interval below cannot see the burst formed by three positions in
+         * the window plus FREEZE re-sends, which is what keeps the shared single-depth
+         * seat full (measured ~271 offers/s vs ~164 boardings/s). Only re-announcements
+         * are shaped -- a position's first announcement always passes -- so no position
+         * can be starved of its initial announce. */
+        static uint32_t s_last_offer_ms;
         const int64_t announce_delta_q =
             ((int64_t)next.target_ms_index - (int64_t)previous.target_ms_index) *
                 (int64_t)s_config.grid.subdivisions +
@@ -1961,12 +1968,16 @@ void trigger_t2_runtime_prepare_core0(void)
         const bool announce_too_soon = s_announce_ms[index] != 0u &&
             (uint32_t)coarse - s_announce_ms[index] <
                 (uint32_t)TRIGGER_T2_ANNOUNCE_MIN_INTERVAL_MS;
+        const bool offer_too_soon = s_last_offer_ms != 0u &&
+            (uint32_t)coarse - s_last_offer_ms <
+                (uint32_t)TRIGGER_T2_ANNOUNCE_MIN_GLOBAL_INTERVAL_MS;
         if (previous.prediction_version &&
-            (announce_too_soon ||
+            (announce_too_soon || offer_too_soon ||
              (announce_delta_q <= announce_tolerance_q &&
               -announce_delta_q <= announce_tolerance_q)))
             continue;
         s_announce_ms[index] = (uint32_t)coarse;
+        s_last_offer_ms = (uint32_t)coarse;
         if (previous.prediction_version >= TRIGGER_T2_PREDICTION_VERSION_MAX) {
             /* Preserve the last valid local version for FREEZE fallback.
              * A new run is needed before the compact revision can restart. */

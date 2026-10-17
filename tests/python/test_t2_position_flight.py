@@ -24,8 +24,13 @@ int main(void)
     assert(tdma_process_image_flight_class_valid(mailbox[3]));
     assert(!tdma_process_image_transport_class_valid(mailbox[3]));
     assert(mailbox[5]==0x0eu);
-    assert(distributed_refmem_get_i16(mailbox+TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET)==20);
-    assert(distributed_refmem_get_i16(mailbox+TDMA_PROCESS_IMAGE_VDC_RATE_OFFSET)==-20);
+    /* T2 records must NOT carry the VDC observation block (2026-10-17): the follower's
+     * position lane reads only the slice, and the classic parse that consumes last_vdc_*
+     * is skipped while the position lane owns the transport, so those bytes were dead
+     * weight; their ~6-7 B are freed for the two-position (current + provisional) payload
+     * without growing the RefMem region. VDC diagnostics come from the VDC classes. */
+    assert(distributed_refmem_get_i16(mailbox+TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET)==0);
+    assert(distributed_refmem_get_i16(mailbox+TDMA_PROCESS_IMAGE_VDC_RATE_OFFSET)==0);
     assert(tdma_process_image_crc16_ccitt(mailbox,TDMA_PROCESS_IMAGE_CRC_OFFSET)==
         distributed_refmem_get_le16(mailbox+TDMA_PROCESS_IMAGE_CRC_OFFSET));
     assert(s_tdma_flight_sync.last_publish_ms==now_ms);
