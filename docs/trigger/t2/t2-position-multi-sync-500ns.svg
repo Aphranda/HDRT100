@@ -68,15 +68,15 @@
     <text x="56" y="322">C</text><text x="110" y="322" fill="#166534">触发提前量</text><text x="280" y="322">两块都稳定 → TRIG 的间隔</text>
     <text x="56" y="344">D</text><text x="110" y="344" fill="#166534">触发脉宽</text><text x="280" y="344">GATEWAY TRIG 高电平宽度</text>
     <text x="56" y="366">E</text><text x="110" y="366">网分响应</text><text x="280" y="366">网分扫描/响应（≈8 ms 实际值）</text>
-    <text x="56" y="388">F</text><text x="110" y="388" fill="#166534">等回复窗</text><text x="280" y="388">等 READY 的超时窗</text>
+    <text x="56" y="388">—</text><text x="110" y="388" fill="#166534">无 F</text><text x="280" y="388">READY 完成即下一动作开始，无额外等待窗</text>
     <text x="56" y="386"></text>
 
     <text x="760" y="278">G</text><text x="814" y="278" fill="#475569">转台移动</text><text x="984" y="278">位置之间移动（无动作，实测填入）</text>
     <text x="760" y="300">N通道</text><text x="814" y="300">通道数</text><text x="984" y="300">默认 8</text>
     <text x="760" y="322">N极化</text><text x="814" y="322">极化数</text><text x="984" y="322">默认 2（H/V）</text>
-    <text x="760" y="344">N项</text><text x="814" y="344">每位置项数</text><text x="984" y="344">N通道 × N极化</text>
+    <text x="760" y="344">N项</text><text x="814" y="344">每位置动作数</text><text x="984" y="344">N通道 × N极化</text>
     <text x="760" y="366">G网格</text><text x="814" y="366">网格片</text><text x="984" y="366">500 ns 仅画图预设，可配</text>
-    <text x="760" y="388">Δ项</text><text x="814" y="388">项周期</text><text x="984" y="388">max(A,B) + C + D + E + F</text>
+    <text x="760" y="388">Δ动作</text><text x="814" y="388">动作周期</text><text x="984" y="388">max(A,B) + C + D + E</text>
   </g>
   <text class="n" x="52" y="408">A 与 B 是两块板各自的稳定时间，不要求相同；Δ位置 = N项 × Δ项 + G。</text>
 
@@ -122,21 +122,19 @@
   <rect x="316" y="628" width="470" height="16" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.3" rx="4"/>
   <text class="k" x="500" y="641" fill="#1e40af">E ≈ 8 ms（扫描/响应）</text>
   <line x1="786" y1="620" x2="786" y2="652" stroke="#15803d" stroke-width="2.6"/>
-  <text class="ms" x="742" y="614" fill="#166534">拉 READY↑</text>
+  <text class="ms" x="742" y="614" fill="#166534">拉 READY↑ = 下一动作</text>
   <rect x="786" y="628" width="118" height="16" fill="#dcfce7" stroke="#15803d" stroke-width="1.3" rx="4"/>
-  <text class="k" x="812" y="641" fill="#166534">F 等窗</text>
+  <text class="k" x="796" y="641" fill="#166534">无等待窗</text>
   <line x1="904" y1="620" x2="904" y2="652" stroke="#33415c" stroke-width="2.2"/>
-  <text class="ms" x="852" y="614">下一动作预设片</text>
+  <text class="ms" x="836" y="614">下一动作预设片（同一时刻）</text>
   <rect x="904" y="628" width="26" height="16" fill="#ffedd5" stroke="#c2410c" stroke-width="1.3" rx="4"/>
   <text class="ms" x="936" y="641" fill="#9a3412">动作 k+1 的切换 →</text>
 
   <g class="l">
-    <text x="52" y="678">Δ项 = max(A, B) + C + D + E + F；F 很小——它就是“READY 之后到下一动作预设片”的间隙。</text>
-    <text x="52" y="700">按 E ≈ 8 ms 推算：Δ项 ≈ 8.05 ms；16 项 ≈ 128.8 ms；加 G=200 ms ⇒ 位置 ≈ 328.8 ms（随配置变）</text>
+Δ动作 = max(A, B) + C + D + E：READY↑ 就是下一个动作的开始，没有单独的等待窗。此行原为    <text x="52" y="700">按 E ≈ 8 ms 推算：Δ项 ≈ 8.05 ms；16 项 ≈ 128.8 ms；加 G=200 ms ⇒ 位置 ≈ 328.8 ms（随配置变）</text>
     <text x="52" y="722">最后一项之后进入 G 移动窗口：移动期不排任何动作（安装期校验拒绝）</text>
     <text x="52" y="744" class="n">TRIG/READY 是**一对**：GATEWAY 的 TRIG 输出接网分 TRIG 输入；网分的 READY 输出接 GATEWAY READY 输入。每项 1 对，共 16 对。</text>
-    <text x="52" y="764" class="n">踩踏判据：READY↑ 必须早于下一动作的预设片；落在该片之后 ⇒ 本动作失败、下一动作不执行（不重试、不当作已执行）。</text>
-  </g>
+踩踏判据：下一动作的预设片 = 本动作 READY↑；READY 迟到即与下一动作踩踏  </g>
 
   <!-- ============ ④ 16 items ============ -->
   <rect class="band" x="974" y="412" width="512" height="360"/>
@@ -164,8 +162,7 @@
   <g class="l">
     <text x="992" y="528">16 个动作流程完全相同：切换 A → 切换 B → TRIG → E → READY↑</text>
     <text x="992" y="550">只有两处不同：A 的通道码、B 的极化码（其余时序一致）</text>
-    <text x="992" y="572">动作 k 与 k+1 之间只有 F 这一点间隙 ⇒ 挨着下一个动作</text>
-    <text x="992" y="598">每位置 16 对 TRIG/READY 一一对应：</text>
+READY↑ 之后立刻是动作 k+1（没有间隙）    <text x="992" y="598">每位置 16 对 TRIG/READY 一一对应：</text>
     <text x="992" y="618">少一次＝位置不完整，多一次＝不确定</text>
     <text x="992" y="644">每个动作的三条轴都相对“动作起点”：</text>
     <text x="992" y="664">动作起点 = 位置 base + k × Δ项</text>
