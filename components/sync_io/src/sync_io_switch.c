@@ -44,6 +44,10 @@ static uint32_t s_queue_count;
  * pushed into both SMs. Zero remaining groups means "single trigger only". */
 static sync_io_sequence_plan_t s_sequence;
 static uint32_t s_sequence_group;
+/* Absolute deadline of the group last fed, advanced by the gap that group encodes. */
+static uint64_t s_sequence_deadline_cursor;
+/* Sequence number of group 0 of the staged plan; group k is base+k. */
+static uint32_t s_sequence_base_sequence;
 static sync_io_persona_manager_handle_t s_handle;
 static uint32_t s_busy,s_generation,s_claimed,s_offset,s_active_sms,s_physical_mask;
 static bool s_loaded,s_lease,s_pins_owned;
@@ -372,6 +376,7 @@ static bool poll_stopped(void *context)
 static void __not_in_flash_func(sequence_feed)(void)
 {
     if(s_sequence_group>=s_sequence.count) return;
+    if(s_queue_count>=SWITCH_QUEUE_DEPTH) return;
     for(uint32_t i=0u;i<s_switch.group_count;++i) {
         const uint sm=s_switch.groups[i].sm;
         if(pio_sm_get_tx_fifo_level(SWITCH_PIO,sm)>2u) return;
@@ -385,6 +390,16 @@ static void __not_in_flash_func(sequence_feed)(void)
         pio_sm_put(SWITCH_PIO,g->sm,g->code);
         pio_sm_put(SWITCH_PIO,g->sm,delay);
     }
+    /* Each fed group also becomes a queue head, so its own receipts are attributed to it:
+     * without this the later groups' receipts arrive with an empty queue and are never
+     * consumed (measured: a 3-group sequence stopped at completed_sequence 1, still PENDING).
+     * The absolute deadline of group k is the base plus the accumulated gaps, which is the
+     * same number the plan encoded as delay+7. */
+    const uint64_t gap=(s_sequence_group==0u)?0u:(uint64_t)delay+7u;
+    s_sequence_deadline_cursor+=gap;
+    s_queue[s_queue_count++]=(switch_queued_t){
+        .deadline_tick=s_sequence_deadline_cursor,.code=code,
+        .sequence=s_sequence_base_sequence+s_sequence_group,.receipt_mask=0u};
     ++s_sequence_group;
 }
 bool sync_io_switch_snapshot(sync_io_switch_snapshot_t *out)
@@ -509,7 +524,11 @@ bool __not_in_flash_func(sync_io_switch_realtime_stage_sequence)(uint64_t base_d
         return false;
     }
     s_queue_count=0u;
+    /* Group k is the (k+1)-th trigger of this position, so its receipt advances the
+     * per-position sequence exactly like a single deadline would. */
     const uint32_t sequence=s_switch.stage_sequence+1u;
+    s_sequence_base_sequence=sequence;
+    s_sequence_deadline_cursor=base_deadline_tick;
     s_deadline=(sync_io_switch_deadline_status_t){
         .state=SYNC_IO_SWITCH_DEADLINE_CANCELLED,.deadline_tick=base_deadline_tick,
         .sequence=sequence};

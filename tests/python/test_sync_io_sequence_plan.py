@@ -25,7 +25,7 @@ int main(void)
     sync_io_sequence_plan_t plan;
     const uint32_t codes[3] = {0x5u, 0xAu, 0x3u};
     /* Absolute local ticks of the three groups; group 0 sits 1000 cycles after "now". */
-    const uint64_t deltas[3] = {1000u, 3000u, 5000u};
+    const uint64_t deltas[3] = {0u, 2000u, 4000u};   /* offsets from the position slice */
     const uint64_t now = 4000u;
 
     /* Success: first delay = (deadline - now) - 5, chained = gap - 7. */
@@ -33,10 +33,10 @@ int main(void)
         SYNC_IO_SEQUENCE_PLAN_OK);
     assert(plan.count == 3u && plan.word_count == 6u);
     assert(plan.words[0] == 0x5u && plan.words[1] == 1000u - 5u);
-    assert(plan.words[2] == 0xAu && plan.words[3] == (3000u - 1000u) - 7u);
-    assert(plan.words[4] == 0x3u && plan.words[5] == (5000u - 3000u) - 7u);
+    assert(plan.words[2] == 0xAu && plan.words[3] == (2000u - 0u) - 7u);
+    assert(plan.words[4] == 0x3u && plan.words[5] == (4000u - 2000u) - 7u);
     assert(plan.first_deadline_tick == now + 1000u);
-    assert(plan.last_deadline_tick == now + 5000u);
+    assert(plan.last_deadline_tick == now + 1000u + 4000u);   /* base + last offset */
 
     /* The spacing between consecutive edges equals the requested delta, once the fixed
      * instruction budget is added back: delay + budget == gap for every chained group. */
@@ -46,14 +46,14 @@ int main(void)
     }
 
     /* Non-monotonic deltas cannot be expressed as positive delays. */
-    const uint64_t bad[3] = {1000u, 3000u, 2000u};
+    const uint64_t bad[3] = {0u, 3000u, 2000u};
     assert(sync_io_sequence_plan_build(&plan, now, now + 1000u, codes, bad, 3u) ==
         SYNC_IO_SEQUENCE_PLAN_NON_MONOTONIC);
     /* A base deadline in the past is refused instead of being silently clamped. */
     assert(sync_io_sequence_plan_build(&plan, now, now, codes, deltas, 3u) ==
         SYNC_IO_SEQUENCE_PLAN_DEADLINE_PASSED);
     /* A gap that cannot fit the instruction budget is refused. */
-    const uint64_t tight[2] = {1000u, 1005u};
+    const uint64_t tight[2] = {0u, 5u};
     assert(sync_io_sequence_plan_build(&plan, now, now + 1000u, codes, tight, 2u) ==
         SYNC_IO_SEQUENCE_PLAN_TOO_CLOSE);
     /* Bounds and empty input. */

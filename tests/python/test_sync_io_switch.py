@@ -390,9 +390,42 @@ static void deadline_case(const char *name){
     }
     core=0;assert(sync_io_switch_stop(g));assert(sync_io_switch_release(g));restored();
 }
+/* Group sequence: three groups authored on the shared timeline. The assertion that matters
+ * is that the SPACING between edges is decided by the table (the delay of group k is the gap
+ * to group k-1 minus the instruction budget), so the second and third edges must land at
+ * base+gap1 and base+gap1+gap2 within the mock's one-cycle granularity - not "as soon as the
+ * software happened to refill the FIFO". */
+static void sequence_case(void){
+    uint32_t g;initialize(5u,0u);assert(sync_io_switch_load(5u,&g));core=1;
+    const uint64_t base=tick_count+30000u;
+    const uint32_t codes[3]={5u,0u,4u};
+    const uint64_t deltas[3]={0u,40000u,90000u};
+    assert(sync_io_switch_realtime_stage_sequence(base,codes,deltas,3u));
+    sync_io_switch_deadline_status_t d;assert(sync_io_switch_realtime_status(&d));
+    assert(d.state==SYNC_IO_SWITCH_DEADLINE_ARMED&&d.sequence==1u);
+    uint64_t edge[3]={0u,0u,0u};
+    uint32_t seen=0u;
+    /* Walk the timeline one cycle at a time; every completed group records the tick of its
+     * last pin write. Bounded so a failure reports instead of hanging. */
+    for(uint32_t guard=0u;guard<200000u&&seen<3u;++guard){
+        advance(1);
+        if(machine[1].writes>seen){edge[seen]=machine[1].last_write_tick;++seen;}
+        if(seen<3u)sync_io_switch_realtime_service_core1();
+    }
+    assert(seen==3u);
+    assert(edge[0]+40000u-64u<=edge[1]&&edge[1]<=edge[0]+40000u+64u);
+    assert(edge[1]+50000u-64u<=edge[2]&&edge[2]<=edge[1]+50000u+64u);
+    for(uint32_t i=0u;i<8u;++i){advance(2);sync_io_switch_realtime_service_core1();}
+    core=0;
+    const sync_io_switch_snapshot_t done=get();
+    assert(done.state==SYNC_IO_SWITCH_COMPLETE&&done.applied_valid);
+    assert(done.completed_sequence==3u);   /* group k is the (k+1)-th trigger of the position */
+    core=0;assert(sync_io_switch_stop(g));assert(sync_io_switch_release(g));restored();
+}
 int main(int argc,char **argv){
     assert(argc==2);
     if(!strncmp(argv[1],"deadline",8)){deadline_case(argv[1]);}
+    else if(!strcmp(argv[1],"sequence")){sequence_case();}
     else if(!strcmp(argv[1],"all")){
         for(uint mask=1;mask<16;mask++)all_codes(mask);
         assert(mask_count==15&&transactions==80);printf("masks=%u transactions=%u\n",mask_count,transactions);
@@ -420,7 +453,7 @@ def executable(tmp_path_factory):
     r=subprocess.run([shutil.which("gcc"),"-std=c11","-O2","-Wall","-Wextra","-Werror","-I"+str(d),"-I"+str(ROOT/"components/sync_io/inc"),"-DSWITCH_SOURCE=\""+str(SRC/"sync_io_switch.c").replace('\\','/')+"\"",str(d/"switch.c"),str(ROOT/"components/sync_io/src/sync_io_sequence_plan.c"),"-o",str(exe)],capture_output=True,text=True); assert r.returncode==0,r.stderr
     return exe
 
-@pytest.mark.parametrize("case", ["all", "lifecycle", "receipts", "failures", "restore", "deadline", "deadline_late", "deadline_origin", "deadline_uncertain", "deadline_cancel"] + [str(i) for i in range(1,16)])
+@pytest.mark.parametrize("case", ["all", "lifecycle", "receipts", "failures", "restore", "deadline", "deadline_late", "deadline_origin", "deadline_uncertain", "deadline_cancel", "sequence"] + [str(i) for i in range(1,16)])
 def test_switch_masks_codes_and_lifecycle(executable,case):
     r=subprocess.run([str(executable),case],capture_output=True,text=True,timeout=10)
     assert r.returncode==0,r.stdout+r.stderr

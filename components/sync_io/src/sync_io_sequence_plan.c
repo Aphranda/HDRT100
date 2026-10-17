@@ -40,14 +40,15 @@ sync_io_sequence_plan_error_t sync_io_sequence_plan_build(sync_io_sequence_plan_
         plan->error = SYNC_IO_SEQUENCE_PLAN_INVALID;
         return plan->error;
     }
-    /* The groups must advance in time: a plan whose deltas do not move forward cannot be
-     * expressed as positive delays, and a zero gap would queue two edges in the same tick. */
-    for (uint32_t i = 0u; i < count; ++i) {
-        if (delta_ticks[i] == 0u) {
-            plan->error = SYNC_IO_SEQUENCE_PLAN_NON_MONOTONIC;
-            return plan->error;
-        }
-        if (i > 0u && delta_ticks[i] <= delta_ticks[i - 1u]) {
+    /* The table is anchored at the position's time slice: group 0 IS the base, so its offset
+     * is 0 by definition and every later group must advance. A zero gap between two later
+     * groups would queue two edges in the same tick, which is not a sequence. */
+    if (delta_ticks[0] != 0u) {
+        plan->error = SYNC_IO_SEQUENCE_PLAN_INVALID;
+        return plan->error;
+    }
+    for (uint32_t i = 1u; i < count; ++i) {
+        if (delta_ticks[i] <= delta_ticks[i - 1u]) {
             plan->error = SYNC_IO_SEQUENCE_PLAN_NON_MONOTONIC;
             return plan->error;
         }
@@ -88,7 +89,7 @@ sync_io_sequence_plan_error_t sync_io_sequence_plan_build(sync_io_sequence_plan_
     plan->count = count;
     plan->word_count = count * 2u;
     plan->first_deadline_tick = base_deadline_tick;
-    plan->last_deadline_tick = base_deadline_tick + (delta_ticks[count - 1u] - delta_ticks[0u]);
+    plan->last_deadline_tick = base_deadline_tick + delta_ticks[count - 1u];
     plan->error = SYNC_IO_SEQUENCE_PLAN_OK;
     return plan->error;
 }
