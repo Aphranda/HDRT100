@@ -71,6 +71,14 @@ void sync_io_switch_realtime_service_core1(void);
  * Guard is setup margin, not accuracy or a mandatory 100ms prediction lead.
  * Caller owns the frozen model, generation and absolute TIMER1 deadline. */
 bool sync_io_switch_realtime_schedule_at(uint32_t code,uint64_t deadline_tick);
+/* Group sequence: a position's groups on the SHARED timeline, anchored at that position's
+ * time slice. `delta_ticks[i]` is group i's offset from the base tick (strictly increasing,
+ * same conversion as the deadline), so the whole sequence is written once and the spacing
+ * between edges is decided by the table and the PIO tick counter - not by when software
+ * happens to refill the FIFO. The first group is armed with the same timer read and origin
+ * window as a single deadline; the remaining word pairs are refilled as the FIFO drains. */
+bool sync_io_switch_realtime_stage_sequence(uint64_t base_deadline_tick,
+    const uint32_t *codes,const uint64_t *delta_ticks,uint32_t count);
 bool sync_io_switch_realtime_status(sync_io_switch_deadline_status_t *out);
 bool sync_io_switch_realtime_cancel(void);
 #endif

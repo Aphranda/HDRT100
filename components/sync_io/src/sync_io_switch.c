@@ -1,6 +1,7 @@
 #include "sync_io_switch.h"
 #include <string.h>
 #include "board_config.h"
+#include "sync_io_sequence_plan.h"
 #include "hardware/gpio.h"
 #include "hardware/clocks.h"
 #include "hardware/timer.h"
@@ -38,6 +39,11 @@ typedef struct {
 } switch_queued_t;
 static switch_queued_t s_queue[SWITCH_QUEUE_DEPTH];
 static uint32_t s_queue_count;
+/* Group sequence in flight: the whole word stream was built once from the position's time
+ * slice, and `s_sequence_group` is the next group whose [code, delay] pair still has to be
+ * pushed into both SMs. Zero remaining groups means "single trigger only". */
+static sync_io_sequence_plan_t s_sequence;
+static uint32_t s_sequence_group;
 static sync_io_persona_manager_handle_t s_handle;
 static uint32_t s_busy,s_generation,s_claimed,s_offset,s_active_sms,s_physical_mask;
 static bool s_loaded,s_lease,s_pins_owned;
@@ -306,6 +312,7 @@ static uint32_t group_code_of(uint32_t code,const sync_io_switch_group_t *g)
 {
     return (code>>(g->output_base_pin-BOARD_SYNC_OUTPUT_BASE_PIN))&((1u<<g->output_count)-1u);
 }
+static void __not_in_flash_func(sequence_feed)(void);
 /* noinline: a split poll.part.0 clone landed in XIP behind the RAM service. */
 static __attribute__((noinline)) void __not_in_flash_func(poll)(void)
 {
@@ -348,7 +355,9 @@ static __attribute__((noinline)) void __not_in_flash_func(poll)(void)
         return;
     }
     /* Queue empty: the completed transaction keeps its receipt mask as evidence until the
-     * next trigger starts (a new head clears it). */
+     * next trigger starts (a new head clears it). A staged group sequence keeps the SMs
+     * running and refills them as their FIFOs drain. */
+    if(s_sequence_group<s_sequence.count) { sequence_feed(); return; }
     for(uint32_t i=0u;i<s_switch.group_count;++i)
         pio_sm_set_enabled(SWITCH_PIO,s_switch.groups[i].sm,false);
     s_switch.state=SYNC_IO_SWITCH_COMPLETE;
@@ -356,6 +365,27 @@ static __attribute__((noinline)) void __not_in_flash_func(poll)(void)
 static bool poll_stopped(void *context)
 {
     (void)context;poll();return true;
+}
+/* Push the next [code, delay] pair of the staged sequence into both SMs, but only when each
+ * SM's TX FIFO has room for the pair: refilling a partially drained FIFO would interleave
+ * the two words of a group and hand the SM a delay where it expects a code. */
+static void __not_in_flash_func(sequence_feed)(void)
+{
+    if(s_sequence_group>=s_sequence.count) return;
+    for(uint32_t i=0u;i<s_switch.group_count;++i) {
+        const uint sm=s_switch.groups[i].sm;
+        if(pio_sm_get_tx_fifo_level(SWITCH_PIO,sm)>2u) return;
+    }
+    const uint32_t code=s_sequence.words[s_sequence_group*2u];
+    const uint32_t delay=s_sequence.words[s_sequence_group*2u+1u];
+    for(uint32_t i=0u;i<s_switch.group_count;++i) {
+        sync_io_switch_group_t *g=&s_switch.groups[i];
+        g->code=(code>>(g->output_base_pin-BOARD_SYNC_OUTPUT_BASE_PIN))&
+            ((1u<<g->output_count)-1u);
+        pio_sm_put(SWITCH_PIO,g->sm,g->code);
+        pio_sm_put(SWITCH_PIO,g->sm,delay);
+    }
+    ++s_sequence_group;
 }
 bool sync_io_switch_snapshot(sync_io_switch_snapshot_t *out)
 {
@@ -458,6 +488,68 @@ bool __not_in_flash_func(sync_io_switch_realtime_schedule_at)(uint32_t code,uint
     if(first) s_switch.receipt_mask=0u;
     ++s_switch.stage_sequence;s_switch.state=SYNC_IO_SWITCH_PENDING;
     s_deadline.state=SYNC_IO_SWITCH_DEADLINE_ARMED;
+    return true;
+}
+
+bool __not_in_flash_func(sync_io_switch_realtime_stage_sequence)(uint64_t base_deadline_tick,
+    const uint32_t *codes,const uint64_t *delta_ticks,uint32_t count)
+{
+    if(get_core_num()!=1u || !s_lease || !s_loaded || !s_pins_owned ||
+       s_switch.state==SYNC_IO_SWITCH_FAULT || s_switch.state==SYNC_IO_SWITCH_STOPPED ||
+       s_switch.state==SYNC_IO_SWITCH_PENDING || s_queue_count ||
+       clock_get_hz(clk_sys)!=BOARD_SYS_CLOCK_HZ || timer1_hw->pause ||
+       timer1_hw->source!=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS)return false;
+    uint64_t now=0u;
+    if(!raw_tick(&now)) return false;
+    /* The plan is authored on the shared timeline: the base tick is this position's time
+     * slice and every group is an offset from it (see sync_io_sequence_plan.h). */
+    if(sync_io_sequence_plan_build(&s_sequence,now,base_deadline_tick,codes,delta_ticks,
+            count)!=SYNC_IO_SEQUENCE_PLAN_OK) {
+        s_sequence_group=0u;
+        return false;
+    }
+    s_queue_count=0u;
+    const uint32_t sequence=s_switch.stage_sequence+1u;
+    s_deadline=(sync_io_switch_deadline_status_t){
+        .state=SYNC_IO_SWITCH_DEADLINE_CANCELLED,.deadline_tick=base_deadline_tick,
+        .sequence=sequence};
+    for(uint32_t i=0u;i<s_switch.group_count;++i) prepare_group(&s_switch.groups[i]);
+    /* First group: armed exactly like a single deadline (same timer read and origin window),
+     * but its words come from the plan so the rest of the sequence keeps the authored gaps. */
+    const uint32_t first_code=s_sequence.words[0];
+    const uint32_t first_delay=s_sequence.words[1];
+    for(uint32_t i=0u;i<s_switch.group_count;++i) {
+        sync_io_switch_group_t *g=&s_switch.groups[i];
+        g->code=(first_code>>(g->output_base_pin-BOARD_SYNC_OUTPUT_BASE_PIN))&
+            ((1u<<g->output_count)-1u);
+        pio_sm_put(SWITCH_PIO,g->sm,g->code);
+        pio_sm_put(SWITCH_PIO,g->sm,first_delay);
+    }
+    pio_enable_sm_mask_in_sync(SWITCH_PIO,s_active_sms);
+    uint64_t after=0u;
+    const bool read=raw_tick(&after);
+    s_deadline.origin_before_tick=now;
+    s_deadline.origin_after_tick=read && after!=UINT64_MAX ? after+1u : UINT64_MAX;
+    if(!read || after<now || after==UINT64_MAX ||
+        after+1u-now > (uint64_t)BOARD_SYS_CLOCK_HZ*SYNC_IO_SWITCH_ORIGIN_MAX_NS/1000000000u) {
+        for(uint32_t i=0u;i<s_switch.group_count;++i) {
+            pio_sm_set_enabled(SWITCH_PIO,s_switch.groups[i].sm,false);
+            pio_sm_clear_fifos(SWITCH_PIO,s_switch.groups[i].sm);
+        }
+        s_sequence_group=0u;
+        s_switch.state=SYNC_IO_SWITCH_FAULT;s_switch.fault=2u;s_switch.applied_valid=0u;
+        safe_stop();
+        return false;
+    }
+    s_queue[0]=(switch_queued_t){.deadline_tick=base_deadline_tick,.code=first_code,
+        .sequence=sequence,.receipt_mask=0u};
+    s_queue_count=1u;
+    s_sequence_group=1u;   /* group 0 went out with the arming pull above */
+    s_switch.desired_code=first_code;
+    s_switch.receipt_mask=0u;
+    ++s_switch.stage_sequence;s_switch.state=SYNC_IO_SWITCH_PENDING;
+    s_deadline.state=SYNC_IO_SWITCH_DEADLINE_ARMED;
+    sequence_feed();
     return true;
 }
 

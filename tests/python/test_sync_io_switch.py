@@ -417,7 +417,7 @@ def executable(tmp_path_factory):
     asm=os.environ.get("PIOASM") or shutil.which("pioasm") or str(Path.home()/".pico-sdk/tools/2.2.0/pioasm/pioasm.exe")
     r=subprocess.run([asm,"-o","c-sdk",str(SRC/"sync_switch.pio"),str(d/"sync_switch.pio.h")],capture_output=True,text=True); assert r.returncode==0,r.stderr
     (d/"switch.c").write_text(HARNESS,encoding="utf-8"); exe=d/"switch.exe"
-    r=subprocess.run([shutil.which("gcc"),"-std=c11","-O2","-Wall","-Wextra","-Werror","-I"+str(d),"-I"+str(ROOT/"components/sync_io/inc"),"-DSWITCH_SOURCE=\""+str(SRC/"sync_io_switch.c").replace('\\','/')+"\"",str(d/"switch.c"),"-o",str(exe)],capture_output=True,text=True); assert r.returncode==0,r.stderr
+    r=subprocess.run([shutil.which("gcc"),"-std=c11","-O2","-Wall","-Wextra","-Werror","-I"+str(d),"-I"+str(ROOT/"components/sync_io/inc"),"-DSWITCH_SOURCE=\""+str(SRC/"sync_io_switch.c").replace('\\','/')+"\"",str(d/"switch.c"),str(ROOT/"components/sync_io/src/sync_io_sequence_plan.c"),"-o",str(exe)],capture_output=True,text=True); assert r.returncode==0,r.stderr
     return exe
 
 @pytest.mark.parametrize("case", ["all", "lifecycle", "receipts", "failures", "restore", "deadline", "deadline_late", "deadline_origin", "deadline_uncertain", "deadline_cancel"] + [str(i) for i in range(1,16)])
