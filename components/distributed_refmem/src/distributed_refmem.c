@@ -30,8 +30,9 @@
 #include "trigger_position_mailbox.h"
 #include "vdc_dpll_manager.h"
 
-_Static_assert(TRIGGER_POSITION_SLICE_WIRE_SIZE == TDMA_PROCESS_IMAGE_REFMEM_SIZE,
-               "A T2 position record must fill exactly one mailbox RefMem region");
+_Static_assert(TRIGGER_POSITION_SLICE_WIRE_SIZE ==
+                   TDMA_PROCESS_IMAGE_REFMEM_SIZE + TDMA_PROCESS_IMAGE_VDC_SIZE,
+               "A T2 position record spans the freed VDC observation area plus the RefMem region");
 
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "pico.h"
@@ -1059,9 +1060,12 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
         &mailbox[TDMA_PROCESS_IMAGE_REFMEM_VALUE_OFFSET], value);
 
     if (message_class == TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS) {
-        /* One compact record per frame: PREVIEW and FREEZE are never split. */
+        /* One compact record per frame: PREVIEW and FREEZE are never split. The slice now
+         * starts where the VDC observation used to be and spans the RefMem region too
+         * (16 B = VDC area 6 B + RefMem 10 B, asserted at the top of this file), so it
+         * carries the current position AND the optional next-position cache. */
         if (!s_tdma_flight_sync.position_tx_active) return false;
-        memcpy(&mailbox[TDMA_PROCESS_IMAGE_REFMEM_OFFSET],
+        memcpy(&mailbox[TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET],
                s_tdma_flight_sync.position_tx_wire, TRIGGER_POSITION_SLICE_WIRE_SIZE);
     }
 
@@ -1330,18 +1334,20 @@ static void distributed_refmem_tdma_parse_position_fragment(
             DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_CRC;
         return;
     }
-    s_tdma_flight_sync.last_vdc_phase_offset_ns = tdma_process_image_expand_i16(
-        distributed_refmem_get_i16(&mailbox[TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET]),
-        TDMA_PROCESS_IMAGE_VDC_PHASE_QUANTUM_NS);
-    s_tdma_flight_sync.last_vdc_rate_adjust_ppb = tdma_process_image_expand_i16(
-        distributed_refmem_get_i16(&mailbox[TDMA_PROCESS_IMAGE_VDC_RATE_OFFSET]),
-        TDMA_PROCESS_IMAGE_VDC_RATE_QUANTUM_PPB);
-    s_tdma_flight_sync.last_vdc_lock_state =
-        mailbox[TDMA_PROCESS_IMAGE_VDC_LOCK_OFFSET];
-    s_tdma_flight_sync.last_vdc_quality =
-        mailbox[TDMA_PROCESS_IMAGE_VDC_QUALITY_OFFSET];
+    /* The bytes that used to carry the VDC observation now carry the first 6 bytes of the
+     * T2 slice (VDC area 8..13 + RefMem area 14..23 = one 16 B slice), so reading VDC
+     * fields here would decode slice bytes as diagnostics. VDC diagnostics come from the
+     * VDC message classes instead (feedback / boundary / command), which still populate
+     * last_vdc_*. */
     trigger_position_slice_t slice;
-    if (trigger_position_slice_decode(&mailbox[TDMA_PROCESS_IMAGE_REFMEM_OFFSET], &slice)) {
+    if (trigger_position_slice_decode(&mailbox[TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET], &slice)) {
+        /* Publish the NEXT-position cache the record carried (T2-PROVISIONAL-001). The
+         * runtime reads it only when a position's FREEZE is missing, so storing it here
+         * cannot change any execution on its own. */
+        *trigger_position_next_cache() = (trigger_position_next_cache_t){
+            .position_id = slice.next_position_id,
+            .target_ms_index = slice.next_target_ms_index,
+        };
         const uint32_t position_id = slice.position_id;
         /* Run identity and grid bindings are completed by the T2 owner from
          * its own start-up configuration; the wire carries only the slice. */
@@ -1431,6 +1437,8 @@ static void distributed_refmem_position_tx_prepare(void)
         .position_id = (uint8_t)descriptor.position_id,
         .stage = descriptor.stage == TRIGGER_POSITION_STAGE_FREEZE
             ? TRIGGER_POSITION_SLICE_FREEZE : TRIGGER_POSITION_SLICE_PREVIEW,
+        .next_position_id = descriptor.next_position_id,
+        .next_target_ms_index = descriptor.next_target_ms_index,
     };
     if (descriptor.target_ms_index <= UINT32_MAX &&
         descriptor.prediction_version <= UINT16_MAX &&

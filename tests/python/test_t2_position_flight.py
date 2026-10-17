@@ -24,18 +24,15 @@ int main(void)
     assert(tdma_process_image_flight_class_valid(mailbox[3]));
     assert(!tdma_process_image_transport_class_valid(mailbox[3]));
     assert(mailbox[5]==0x0eu);
-    /* T2 records must NOT carry the VDC observation block (2026-10-17): the follower's
-     * position lane reads only the slice, and the classic parse that consumes last_vdc_*
-     * is skipped while the position lane owns the transport, so those bytes were dead
-     * weight; their ~6-7 B are freed for the two-position (current + provisional) payload
-     * without growing the RefMem region. VDC diagnostics come from the VDC classes. */
-    assert(distributed_refmem_get_i16(mailbox+TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET)==0);
-    assert(distributed_refmem_get_i16(mailbox+TDMA_PROCESS_IMAGE_VDC_RATE_OFFSET)==0);
+    /* The slice now STARTS where the VDC observation used to be: 16 B = VDC area (6) +
+     * RefMem area (10), with the current position first and the optional next-position
+     * cache in bytes 10..14 (T2-PROVISIONAL-001). */
+    assert(trigger_position_slice_tagged(mailbox[TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET]));
     assert(tdma_process_image_crc16_ccitt(mailbox,TDMA_PROCESS_IMAGE_CRC_OFFSET)==
         distributed_refmem_get_le16(mailbox+TDMA_PROCESS_IMAGE_CRC_OFFSET));
     assert(s_tdma_flight_sync.last_publish_ms==now_ms);
     trigger_position_slice_t received;
-    assert(trigger_position_slice_decode(mailbox+TDMA_PROCESS_IMAGE_REFMEM_OFFSET,&received));
+    assert(trigger_position_slice_decode(mailbox+TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET,&received));
     assert(received.position_id==3u && received.target_ms_index==20u &&
         received.target_fine_slice_index==7u && received.prediction_version==5u);
     /* One frame carries the whole record: the transport is idle again. */
@@ -69,7 +66,7 @@ static void position_frame(uint8_t image[TDMA_FLIGHT_SHORT_PAYLOAD_SIZE],uint32_
     m[2]=TDMA_FLIGHT_MAILBOX_VERSION;m[3]=TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS;
     m[4]=1;m[5]=1;distributed_refmem_put_le16(m+6,(uint16_t)seq);
     m[8]=0x45;m[9]=0x12;m[10]=0x89;m[11]=0x67;m[12]=4;m[13]=3;
-    assert(trigger_position_slice_encode(slice,m+TDMA_PROCESS_IMAGE_REFMEM_OFFSET));crc(m);
+    assert(trigger_position_slice_encode(slice,m+TDMA_PROCESS_IMAGE_VDC_PHASE_OFFSET));crc(m);
 }
 static void queue_position(uint32_t seq,const trigger_position_slice_t *slice)
 {

@@ -1535,11 +1535,36 @@ static T2_BOUNDED bool T2_HOT(service_origin)(void)
  * therefore not stop the drain. Admission and arming still need a valid cursor and wait for
  * the next pass; only the transport is taken here. Bounded batch, per-record work unchanged:
  * see TRIGGER_T2_RUNTIME_RECEIVE_DRAIN_MAX. */
+/* Second-position fallback (T2-PROVISIONAL-001, simplified route). The record already
+ * carries the NEXT position's target in the same 16 B slice, so no new state machine is
+ * needed: if a position's FREEZE never arrived and the cached target is still in the
+ * future but inside the margin, promote it to frozen and let the existing selection/arming
+ * path execute it. A target already past -- or a missing descriptor -- is never promoted,
+ * so this can never manufacture a late action. Default off (see the header) to keep the
+ * firmware bit-for-bit equivalent until the switch is validated on the bench. */
+static T2_BOUNDED void T2_HOT(position_fallback)(uint64_t current_ms)
+{
+    if (!TRIGGER_T2_PROVISIONAL_FALLBACK_ENABLE) return;
+    const trigger_position_next_cache_t *cache = trigger_position_next_cache();
+    if (cache->position_id < 1u ||
+        cache->position_id > TRIGGER_T2_RUNTIME_POSITION_COUNT) return;
+    const uint32_t index = cache->position_id - 1u, bit = 1u << index;
+    if ((s_state.frozen_mask & bit) != 0u) return;                   /* FREEZE already owns it */
+    if (s_state.descriptors[index].prediction_version == 0u) return; /* nothing to execute */
+    if (cache->target_ms_index <= (uint32_t)current_ms) return;      /* past: never fire late */
+    if ((uint32_t)current_ms + TRIGGER_T2_PROVISIONAL_MARGIN_MS <
+        cache->target_ms_index) return;                              /* too early: wait */
+    s_state.descriptors[index].target_ms_index = cache->target_ms_index;
+    s_state.frozen_mask |= bit;
+    report_frozen();
+}
+
 static T2_BOUNDED void T2_HOT(drain_lane)(uint64_t current_ms)
 {
     deadline_receive();
     for (uint32_t taken = 0u; taken < TRIGGER_T2_RUNTIME_RECEIVE_DRAIN_MAX; ++taken)
         (void)accept_remote_position(current_ms);
+    position_fallback(current_ms);
 }
 
 /* Same drain with no valid cursor: the snapshot keeps its fields when it is invalidated, so
@@ -1935,6 +1960,18 @@ void trigger_t2_runtime_prepare_core0(void)
         }
         next.expiry_sync = (uint32_t)next.target_ms_index +
                            s_config.descriptor_window_sync;
+        /* NEXT-position cache (T2-PROVISIONAL-001): if the following position already has
+         * a live descriptor, ship its target inside this record (same slice, bytes 10..14).
+         * The follower then holds the next target without a second boarding, which is what
+         * lets a missing FREEZE fall back to the cached target instead of skipping the
+         * position. Zero stays "unknown" when the neighbour has no descriptor yet. */
+        {
+            const uint32_t neighbour = (index + 1u) % TRIGGER_T2_RUNTIME_POSITION_COUNT;
+            if (s_state.descriptors[neighbour].prediction_version != 0u) {
+                next.next_position_id = s_state.descriptors[neighbour].position_id;
+                next.next_target_ms_index = s_state.descriptors[neighbour].target_ms_index;
+            }
+        }
         /* Announce suppression: EXACT match was the old rule; measured 2026-10-16, with a
          * CONSTANT Core0 prepare cadence (~1,600/s), the staging-attempt rate per prepare
          * call varied 0.9% -> 47.8% (53x) between runs, and every attempt the single-depth

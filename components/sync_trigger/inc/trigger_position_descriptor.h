@@ -34,6 +34,12 @@ typedef struct {
     uint32_t stage;
     uint64_t observed_count;
     uint32_t window_pulses, window_syncs;
+    /* Optional cache of the NEXT position (T2-PROVISIONAL-001). The producer fills these
+     * when it already knows the following position in the window; the transport copies
+     * them into the same 16 B slice, so the follower gets the next target in the record it
+     * is already receiving. Zero means "unknown" and keeps the record byte-compatible. */
+    uint32_t next_position_id;
+    uint32_t next_target_ms_index;
     uint32_t descriptor_crc32;
 } trigger_position_descriptor_t;
 
