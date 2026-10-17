@@ -544,6 +544,7 @@ set(PROJECT_APP_SOURCES
         components/sync_io/src/sync_io_gateway.c
         components/sync_io/src/sync_io_switch.c
         components/sync_io/src/sync_io_sequence_plan.c
+        components/sync_trigger/src/trigger_sequence_timing.c
         components/sync_io/src/sync_io_action.c
         components/sync_io/src/sync_io_reference.c
         components/sync_io/src/sync_io_pio0_runtime.c
