@@ -3434,17 +3434,27 @@ def step_20_sampling(ctx, slot, board, uid):
                 return page[index] if len(page) > index else "?"
 
             role = ROLES[slot_r] if slot_r < len(ROLES) else f"slot{slot_r}"
+            # The per-position layout (sequence, deadline lo/hi, backend, width) is only printed
+            # when the caller declares how many fields one position occupies: T2:ACTion? has
+            # grown several times and a wrong stride silently shifted every value (measured
+            # 2026-10-18: "seq 150405957821", "width 218"). The prefix (armed/completed/failed/
+            # uncertain) is positional and verified, so it is always printed.
+            stride = int(os.environ.get("T2_ACTION_FIELDS", "0") or "0")
             per_position = []
-            for index in range(len(T2_TARGETS)):
-                base = 5 + 5 * index
-                per_position.append(
-                    f"[{index}] seq {act_field(base)}"
-                    f" deadline {act_field(base + 1)}:{act_field(base + 2)}"
-                    f" backend {act_field(base + 3)} width {act_field(base + 4)}")
+            if stride >= 4:
+                count = min(len(T2_TARGETS), max(0, (len(page) - 5) // stride))
+                for index in range(count):
+                    base = 5 + stride * index
+                    per_position.append(
+                        f"[{index}] seq {act_field(base)}"
+                        f" deadline {act_field(base + 1)}:{act_field(base + 2)}"
+                        f" backend {act_field(base + 3)} width {act_field(base + 4)}")
+            else:
+                per_position.append(f"[per-position tail not parsed: fields {len(page)},"
+                                    " set T2_ACTION_FIELDS]")
             print(f"  ACTION slot {slot_r} {role} {uid_r:016X}"
                   f" armed {act_field(1)} completed {act_field(2)}"
                   f" failed {act_field(3)} uncertain {act_field(4)}"
-                  f" events {act_field(20)}"
                   f" | {' '.join(per_position)}", flush=True)
             try:
                 if int(act_field(2)) != 0:
