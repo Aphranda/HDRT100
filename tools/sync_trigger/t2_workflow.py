@@ -3434,12 +3434,12 @@ def step_20_sampling(ctx, slot, board, uid):
                 return page[index] if len(page) > index else "?"
 
             role = ROLES[slot_r] if slot_r < len(ROLES) else f"slot{slot_r}"
-            # The per-position layout (sequence, deadline lo/hi, backend, width) is only printed
-            # when the caller declares how many fields one position occupies: T2:ACTion? has
-            # grown several times and a wrong stride silently shifted every value (measured
-            # 2026-10-18: "seq 150405957821", "width 218"). The prefix (armed/completed/failed/
-            # uncertain) is positional and verified, so it is always printed.
-            stride = int(os.environ.get("T2_ACTION_FIELDS", "0") or "0")
+            # The per-position layout is FOUR fields (sequence, deadline as one UInt64 field,
+            # backend state, origin width) - verified against scpi_cmd_trigger_t2_action_q.
+            # It used to be parsed with a stride of 5, which shifted every value by one
+            # ("seq 150405957821", "width 218"); the prefix (armed/completed/failed/uncertain)
+            # is positional and remains the trustworthy part.
+            stride = int(os.environ.get("T2_ACTION_FIELDS", "4") or "4")
             per_position = []
             if stride >= 4:
                 count = min(len(T2_TARGETS), max(0, (len(page) - 5) // stride))
