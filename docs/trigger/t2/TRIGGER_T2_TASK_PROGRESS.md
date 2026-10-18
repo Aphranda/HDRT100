@@ -12,6 +12,22 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-055：N≥3 的测试矩阵全部为负，收敛到"槽位只在前两个位置被回收"
+
+- **本轮又排除了三个因素**（每次只改一项，22 步全 OK）：
+  | 变量 | 取值 | `executed` | `NO_PLAN` |
+  |---|---|---|---|
+  | 组间隔 `T2_SEQ_PERIOD_SLICES` | 2 / 8 | 6 / 6 | 110 / 119 |
+  | `--subdivisions` | 32 / 16 | 6 / 6 | 110 / 184 |
+  | `--period-ns`（位置周期） | 1 ms / 4 ms / 100 ms | — | 6 / 6 / 6（三次都是 executed=6） |
+  | FREEZE 前就地刷新槽位（新增 `deadline_receive_slot`） | 有 | 6 | 112 |
+  | 取消"武装清版本" | 有（`recv_ok` 从 109 涨到 654） | 6 | 112 |
+- **常量 `executed=6`** 贯穿全部配置 ⇒ 恰好是 **2 个位置 × 3 组**。这说明不是时序、不是间隔、不是版本，而是**前两个位置之后，槽位再也不被回收**（`recycle_slot()` 只在 `promote_stashed()` 里被调用，需要 `s_stash_valid`；或由"更新的 PREVIEW"触发）。`skip_accepted≈7.5 万` 之前被我判为"正常空转"，现在看它是这个死锁的表现。
+- **下一步（下一轮唯一实验）**：给 `recycle_slot()` 调用点加两个计数（`recycle_promote / recycle_newer_preview`），并统计 `s_stash_valid` 的置位次数；若确诊"回收未发生"，修 `promote_stashed` 的触发条件（允许"已失败"的占用者也被后继 PREVIEW 直接回收，而不必先有 stash）。
+- **已提交的实质改进**（本轮代码）：`deadline_receive()` 拆出 `deadline_receive_slot(index)` 并在 FREEZE 前就地刷新；跨位置的组号比较语义修正；取消武装时的版本清零（保留 FREEZE 的"版本 ≤ 地板"判据）。宿主 37 passed、构建绿、P3 通过。
+
+
+
 ### T2-PROGRESS-20261018-054：计划"发布在前、接收成功"，却在 FREEZE 里读到 0 —— 竞态在"武装清版本"与"下一位置计划到达"之间
 
 - **新计数**（窗口页尾）：`publish_before_freeze / publish_after_freeze` 与 `recv(busy,no_version,session,older,ok)`。

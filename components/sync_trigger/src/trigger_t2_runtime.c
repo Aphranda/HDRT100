@@ -644,44 +644,46 @@ static void deadline_publish(uint32_t index, const t2_deadline_plan_t *plan)
 }
 
 /* Follower path runs every coarse slice; from XIP it overran SYNC_TRIGGER. */
+static T2_RAM void deadline_receive_slot(uint32_t index)
+{
+    const bool frozen = (s_state.frozen_mask & (1u << index)) != 0u;
+    t2_deadline_mailbox_t *mail = &s_deadline_mailbox[index];
+    const uint32_t before = __atomic_load_n(&mail->guard, __ATOMIC_ACQUIRE);
+    if ((before & 1u) || before == s_deadline_seen[index]) return;
+    t2_deadline_plan_t plan;
+    for (size_t i = 0u; i < sizeof(plan) / sizeof(uint32_t); ++i) {
+        const uint32_t word = __atomic_load_n(&mail->words[i], __ATOMIC_RELAXED);
+        memcpy((uint8_t *)&plan + i * sizeof(word), &word, sizeof(word));
+    }
+    __atomic_thread_fence(__ATOMIC_ACQ_REL);
+    if (before != __atomic_load_n(&mail->guard, __ATOMIC_ACQUIRE)) { ++s_recv_busy; return; }
+    s_deadline_seen[index] = before;
+    if (!plan.prediction_version) { ++s_recv_no_version; return; }
+    if (plan.session != s_state.cursor.session ||
+        plan.ring_config_seq != s_state.cursor.ring_config_seq) { ++s_recv_session; return; }
+    /* Groups are ordered WITHIN a position: a smaller group number is only "older" when it
+     * belongs to the position already in the slot. The next occupant's group 0 carries a new
+     * prediction version and must be accepted. */
+    const bool same_position = plan.prediction_version == s_deadline[index].prediction_version;
+    if (frozen && same_position && plan.group < s_deadline[index].group) {
+        ++s_recv_older;
+        return;
+    }
+    ++s_recv_ok;
+    if (frozen && same_position && plan.group == s_deadline[index].group) {
+        /* This group is already armed or promoted: its own slice and tick are in the hardware
+         * owner's hands and must not move, but the tick of the group after it is exactly what
+         * the promotion needs. */
+        s_deadline[index].next_tick = plan.next_tick;
+        return;
+    }
+    s_deadline[index] = plan;
+}
+
 static T2_BOUNDED void T2_HOT(deadline_receive)(void)
 {
-    for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++index) {
-        const bool frozen = (s_state.frozen_mask & (1u << index)) != 0u;
-        t2_deadline_mailbox_t *mail = &s_deadline_mailbox[index];
-        const uint32_t before = __atomic_load_n(&mail->guard, __ATOMIC_ACQUIRE);
-        if ((before & 1u) || before == s_deadline_seen[index]) continue;
-        t2_deadline_plan_t plan;
-        for (size_t i = 0u; i < sizeof(plan) / sizeof(uint32_t); ++i) {
-            const uint32_t word = __atomic_load_n(&mail->words[i], __ATOMIC_RELAXED);
-            memcpy((uint8_t *)&plan + i * sizeof(word), &word, sizeof(word));
-        }
-        __atomic_thread_fence(__ATOMIC_ACQ_REL);
-        if (before != __atomic_load_n(&mail->guard, __ATOMIC_ACQUIRE)) { ++s_recv_busy; continue; }
-        s_deadline_seen[index] = before;
-        if (!plan.prediction_version) { ++s_recv_no_version; continue; }
-        if (plan.session != s_state.cursor.session ||
-            plan.ring_config_seq != s_state.cursor.ring_config_seq) { ++s_recv_session; continue; }
-        /* Groups are ordered WITHIN a position: a smaller group number is only "older" when it
-         * belongs to the position already in the slot. The next occupant's group 0 carries a new
-         * prediction version and must be accepted, otherwise its FREEZE sees version 0 and the
-         * position is failed as NO_PLAN (measured with a three-group window: 123 publishes, all
-         * before the freeze, 110 positions NO_PLAN). */
-        const bool same_position = plan.prediction_version == s_deadline[index].prediction_version;
-        if (frozen && same_position && plan.group < s_deadline[index].group) {
-            ++s_recv_older;
-            continue;
-        }
-        ++s_recv_ok;
-        if (frozen && same_position && plan.group == s_deadline[index].group) {
-            /* This group is already armed or promoted: its own slice and tick are in
-             * the hardware owner's hands and must not move, but the tick of the group
-             * after it is exactly what the promotion needs. */
-            s_deadline[index].next_tick = plan.next_tick;
-            continue;
-        }
-        s_deadline[index] = plan;
-    }
+    for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++index)
+        deadline_receive_slot(index);
 }
 
 /* Peak cycles of one service segment; locates a phase overrun without a probe. */
@@ -992,11 +994,19 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
         /* Freeze complete for this follower: report it on every image. */
         report_frozen();
         s_state.freeze_version[index] = descriptor.prediction_version;
+        /* Pick up a plan that was written between the receive pass and this freeze: arming the
+         * previous occupant clears this slot's version, so without this refresh a plan that is
+         * already in the mailbox is invisible and the position is failed as NO_PLAN (measured
+         * with a three-group window: 109 publishes before the freeze, all received, 109 NO_PLAN). */
+        deadline_receive_slot(index);
         const t2_deadline_plan_t *plan = &s_deadline[index];
         s_state.freeze_local_age[index] = 0xFFu;
         s_state.freeze_local_version[index] = plan->prediction_version;
-        /* A plan at or below the slot's floor is the finished occupant's, solved from a
-         * PREVIEW that has since been replaced: it is no plan for this position. */
+        /* The plan must belong to THIS position: the descriptor's version is the identity, and
+         * anything at or below the slot's floor is the finished occupant's leftover. Version 0
+         * means no plan at all. Measured with a three-group window: plans were published before
+         * the freeze and received (recv_ok=109) yet invisible here, because arming the previous
+         * position cleared the slot and Core0 will not republish a plan its mailbox still holds. */
         if (!plan->prediction_version ||
             plan->prediction_version <= s_slot_floor[index]) {
             s_state.freeze_missing_local_count++;
@@ -1304,7 +1314,10 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         /* The plan still belongs to the group that already finished, or to a
          * group the cursor has not reached: never arm a stale group. Core0
          * republishes the plan for the current group. */
-        s_deadline[selected].prediction_version = 0u;
+        /* The version is no longer cleared here: the FREEZE compares it with the descriptor's own
+     * version, so a leftover can never be accepted, and an early plan for the next position
+     * stays visible instead of being destroyed by this arm (that destruction was worth 109
+     * NO_PLAN positions with a three-group window). */
         action_fail(selected, TRIGGER_T2_ACTION_FAIL_NO_PLAN);
         return;
     }
