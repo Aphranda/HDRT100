@@ -32,7 +32,12 @@ static sync_io_switch_snapshot_t s_switch;
 /* Two outstanding absolute deadlines (SYNC-SCHED-001). Each entry keeps its own
  * sequence, code and receipt mask, so a completion is attributed to the trigger it
  * belongs to instead of to "the transaction". */
+/* One queue entry per pushed group: a four-group window needs four, otherwise the enqueue of a
+ * later group is refused, its receipt has no owner, and COMPLETE fires one group early. The
+ * single-deadline API keeps its documented two-deep limit (SYNC-SCHED-001: the second absolute
+ * deadline is enqueued, the third is refused). */
 #define SWITCH_QUEUE_DEPTH 2u
+#define SWITCH_SINGLE_DEPTH 2u
 typedef struct {
     uint64_t deadline_tick;
     uint32_t code, sequence, receipt_mask;
@@ -64,6 +69,8 @@ static uint32_t s_stage_reject[SWITCH_STAGE_REJECT_COUNT];
 static uint32_t s_origin_span_last, s_origin_bound_last;
 /* Arms whose measured span exceeded the nominal window (diagnostic, not fatal). */
 static uint32_t s_origin_late_count;
+/* The window counters as they stood when COMPLETE was declared. */
+static uint32_t s_complete_count_seen, s_complete_fed_seen, s_complete_queued_seen;
 static sync_io_persona_manager_handle_t s_handle;
 static uint32_t s_busy,s_generation,s_claimed,s_offset,s_active_sms,s_physical_mask;
 static bool s_loaded,s_lease,s_pins_owned;
@@ -377,7 +384,20 @@ static __attribute__((noinline)) void __not_in_flash_func(poll)(void)
     /* Queue empty: the completed transaction keeps its receipt mask as evidence until the
      * next trigger starts (a new head clears it). A staged group sequence keeps the SMs
      * running and refills them as their FIFOs drain. */
-    if(s_sequence_group<s_sequence.count) { sequence_feed(); return; }
+    if(s_sequence_group<s_sequence.count) {
+        sequence_feed();
+        /* SEQ-B01/B02: the refilled group must become the head the status describes. Leaving
+         * COMPLETE here while queued > 0 hid every later group's completion (the status stayed at the
+         * previous sequence and the runtime never saw the event). */
+        if(s_queue_count) {
+            s_deadline=(sync_io_switch_deadline_status_t){
+                .state=SYNC_IO_SWITCH_DEADLINE_ARMED,
+                .deadline_tick=s_queue[0].deadline_tick,.sequence=s_queue[0].sequence,
+                .receipt_mask=0u};
+            s_switch.receipt_mask=0u;
+        }
+        return;
+    }
     /* All groups are PUSHED - but a pushed pair may still be waiting in the TX FIFO. Disabling the
      * SM now would drop that trigger and its receipt (measured: a 3-group window reported COMPLETE
      * after two triggers). Wait until the FIFOs are empty. */
@@ -385,6 +405,9 @@ static __attribute__((noinline)) void __not_in_flash_func(poll)(void)
         if(pio_sm_get_tx_fifo_level(SWITCH_PIO,s_switch.groups[i].sm) != 0u) return;
     for(uint32_t i=0u;i<s_switch.group_count;++i)
         pio_sm_set_enabled(SWITCH_PIO,s_switch.groups[i].sm,false);
+    s_complete_count_seen=s_sequence.count;
+    s_complete_fed_seen=s_sequence_group;
+    s_complete_queued_seen=s_queue_count;
     s_switch.state=SYNC_IO_SWITCH_COMPLETE;
 }
 static bool poll_stopped(void *context)
@@ -490,7 +513,7 @@ bool __not_in_flash_func(sync_io_switch_realtime_schedule_at)(uint32_t code,uint
     if(get_core_num()!=1u || !s_lease || !s_loaded || !s_pins_owned ||
        (code&~s_switch.output_mask) || s_switch.state==SYNC_IO_SWITCH_FAULT ||
        s_switch.state==SYNC_IO_SWITCH_STOPPED ||
-       s_queue_count>=SWITCH_QUEUE_DEPTH || s_switch.stage_sequence==UINT32_MAX ||
+       s_queue_count>=SWITCH_SINGLE_DEPTH || s_switch.stage_sequence==UINT32_MAX ||
        clock_get_hz(clk_sys)!=BOARD_SYS_CLOCK_HZ || timer1_hw->pause ||
        timer1_hw->source!=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS)return false;
     const bool first=s_queue_count==0u;
@@ -630,7 +653,10 @@ bool __not_in_flash_func(sync_io_switch_realtime_stage_sequence)(uint64_t base_d
      * same base sequence (stage_sequence + 1), so a second position's groups carry the numbers the
      * previous one already used and the runtime's window identity check cannot tell them apart
      * (measured: the arm function never touched the counter). */
-    ++s_switch.stage_sequence;
+    /* `stage_sequence` means "last issued sequence": this window issued base..base+count-1. The
+     * review (SEQ-B04) caught a fixed +2 here, which coincided with count only for two groups and made
+     * consecutive windows overlap ([1,3], [3,5], [5,7]). */
+    s_switch.stage_sequence=sequence+(s_sequence.count?s_sequence.count:1u)-1u;
     s_switch.desired_code=first_code;
     s_switch.receipt_mask=0u;
     ++s_switch.stage_sequence;s_switch.state=SYNC_IO_SWITCH_PENDING;

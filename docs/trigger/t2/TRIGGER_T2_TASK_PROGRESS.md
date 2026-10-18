@@ -12,6 +12,24 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-062：采纳评审（SEQ-B01/B02/B04/B05）——窗口序号不再重叠、状态随补装重指；`executed` 由 6 变 3（第 1 个位置完整跑完 3 组）
+
+- **依据**：`docs/trigger/t2/TRIGGER_T2_REVIEW.md` 第七节的独立审核（主机探针 + 读码），指出三个阻塞点：
+  - `SEQ-B01/B02`：`poll()` 换 head 时先置 COMPLETE，补装下一组后**不重指 `s_deadline`**，导致 "COMPLETE 与 queued>0 并存"、后续组的完成不进入 status；
+  - `SEQ-B04`：`stage_sequence` 的语义应是 "最后发出的序号" = `base+count-1`，原来固定 +2，N=3 起相邻窗口区间重叠（`[1,3]`、`[3,5]`…）；
+  - `SEQ-B05`：`SWITCH_QUEUE_DEPTH` 从 2 提到 4 对这条路径无效（TX FIFO 只容 2 组），单条 API 仍维持 2 深。
+- **本轮改动**（`sync_io_switch.c`）：补装后**重指 status**（ARMED + 新 head 的 deadline/sequence、`receipt_mask=0`）；`stage_sequence = base + count − 1`；QUEUE_DEPTH 回到 2（单条路径显式 `SWITCH_SINGLE_DEPTH`）。
+- **台架（N=3）**：
+  ```
+  executed=3（原 6）  NO_PLAN=116  LATE=3  BACKEND=0  freeze_missing=116
+  window(count,fed,queued,state,last) = 3,3,0,4(COMPLETE),11
+  ```
+  `last=11` 说明窗口序号现在是 `9..11`（上一窗口 `5..7` 之后）⇒ **SEQ-B04 已修好，序号不再重叠**；并且**第 1 个位置完整跑完 3 组**（executed=3）。
+- **剩余**：`SEQ-B03`（运行期把同一个 COMPLETE 消费两次、且以"head 的 sequence + 回执"猜组号）仍在，导致后续位置 NO_PLAN。下轮按评审建议 #1：给 `sync_io_switch_deadline_status_t` 增加 `completed_sequence`，运行期只按该事件推进 `complete_action()`，不再猜组号；判据 `executed = 3 × 位置数`、`NO_PLAN = 0`。
+- **评审还指出**（未做）：`SEQ-B07` 主机 mock 在每组推进时给 `receipt_mask=1`、与生产语义不符（换 head 清零），所以 37 项 runtime 测试全绿但没覆盖真实契约——修 SEQ-B03 时要同步修 mock。
+
+
+
 ### T2-PROGRESS-20261018-061：两个真 bug 修掉了（窗口序号不自增、COMPLETE 不等 FIFO 排空），但开关仍在"第 2 组后"收尾
 
 - **修 1（确凿）**：`sync_io_switch_realtime_stage_sequence()` **从未自增 `s_switch.stage_sequence`**（单条 `schedule_at` 会自增），于是每个窗口都复用同一个 base 序号。修后元组从 `seq=4` 变成 `seq=6`（序号确实开始推进）。

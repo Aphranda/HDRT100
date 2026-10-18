@@ -570,6 +570,31 @@ scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context)
  * fail reasons, so this page is the only practical way to see them on the bench. */
 /* The staged window, on its own page: plan group count, fed cursor, queue depth, switch state,
  * last completed sequence. Self-contained so its field order cannot drift with other appends. */
+/* Self-describing diagnostics: schema word first, then a FIXED field list, so a reading can never be
+ * mis-aligned by fields appended elsewhere. */
+#define T2_ACTION_DIAG_SCHEMA 0xDA01u
+scpi_result_t scpi_cmd_trigger_t2_action_diag_q(scpi_t *context)
+{
+    trigger_t2_runtime_window_stats_t st;
+    if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    if (!trigger_t2_runtime_window_stats(&st)) return scpi_trigger_t2_fail(context);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, T2_ACTION_DIAG_SCHEMA);
+    SCPI_ResultUInt32(context, st.action_advance);
+    SCPI_ResultUInt32(context, st.action_finish);
+    SCPI_ResultUInt32(context, st.finish_group);
+    SCPI_ResultUInt32(context, st.finish_total);
+    SCPI_ResultUInt32(context, st.window_seq);
+    SCPI_ResultUInt32(context, st.window_expected);
+    SCPI_ResultUInt32(context, st.window_last);
+    SCPI_ResultUInt32(context, st.window_complete);
+    SCPI_ResultUInt32(context, st.freeze_no_plan_zero);
+    SCPI_ResultUInt32(context, st.freeze_no_plan_floor);
+    SCPI_ResultUInt32(context, st.window_seq);
+    SCPI_ResultUInt32(context, st.window_complete);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_trigger_t2_action_window_q(scpi_t *context)
 {
     if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
@@ -581,50 +606,9 @@ scpi_result_t scpi_cmd_trigger_t2_action_window_q(scpi_t *context)
     SCPI_ResultUInt32(context, queued);
     SCPI_ResultUInt32(context, state);
     SCPI_ResultUInt32(context, last);
-    /* In-window accounting: advance, jump, reuse, no_receipt. */
-    {trigger_t2_runtime_window_stats_t st;
-     if (trigger_t2_runtime_window_stats(&st)) {
-         SCPI_ResultUInt32(context, st.advance);
-         SCPI_ResultUInt32(context, st.jump);
-         SCPI_ResultUInt32(context, st.reuse);
-         SCPI_ResultUInt32(context, st.no_receipt);
-         SCPI_ResultUInt32(context, st.skip_unreachable);
-         SCPI_ResultUInt32(context, st.skip_inflight);
-         SCPI_ResultUInt32(context, st.skip_accepted);
-         SCPI_ResultUInt32(context, st.published);
-         SCPI_ResultUInt32(context, st.no_descriptor);
-         SCPI_ResultUInt32(context, st.version_zero);
-         SCPI_ResultUInt32(context, st.expand_fail);
-         SCPI_ResultUInt32(context, st.publish_before_freeze);
-         SCPI_ResultUInt32(context, st.publish_after_freeze);
-         SCPI_ResultUInt32(context, st.recv_busy);
-         SCPI_ResultUInt32(context, st.recv_no_version);
-         SCPI_ResultUInt32(context, st.recv_session);
-         SCPI_ResultUInt32(context, st.recv_older);
-         SCPI_ResultUInt32(context, st.recv_ok);
-         SCPI_ResultUInt32(context, st.recycle_promote);
-         SCPI_ResultUInt32(context, st.recycle_newer);
-         SCPI_ResultUInt32(context, st.stash_set);
-         for (uint32_t i = 0u; i < 8u; ++i) SCPI_ResultUInt32(context, st.freeze_hist[i]);
-         SCPI_ResultUInt32(context, st.freeze_no_plan_zero);
-         SCPI_ResultUInt32(context, st.freeze_no_plan_floor);
-         SCPI_ResultUInt32(context, st.action_advance);
-         SCPI_ResultUInt32(context, st.action_finish);
-         SCPI_ResultUInt32(context, st.finish_group);
-         SCPI_ResultUInt32(context, st.finish_total);
-         SCPI_ResultUInt32(context, st.window_seq);
-         SCPI_ResultUInt32(context, st.window_expected);
-         SCPI_ResultUInt32(context, st.window_last);
-         SCPI_ResultUInt32(context, st.window_complete);
-     }}
-    /* First four slots: frozen, completed, failed, plan version, recv seen, group cursor. */
-    for (uint32_t slot = 0u; slot < 4u; ++slot) {
-        uint32_t probe[6] = {0u, 0u, 0u, 0u, 0u, 0u};
-        (void)trigger_t2_runtime_slot_probe(slot, probe);
-        for (uint32_t f = 0u; f < 6u; ++f) SCPI_ResultUInt32(context, probe[f]);
-    }
     return SCPI_RES_OK;
 }
+
 
 scpi_result_t scpi_cmd_trigger_t2_action_why_q(scpi_t *context)
 {

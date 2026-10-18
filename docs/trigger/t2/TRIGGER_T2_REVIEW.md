@@ -4,11 +4,11 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_REVIEW.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-18
 
 ## 文档接口与范围
 
-本文是 2026-10-09 对 T2 代码的一次只读评审，回答两件事：代码是否偏离架构语义，以及 T2 的实际状态。本文是评审快照，**不登记为契约**（AGENTS.md 硬约束 6），也不改变 [TODO](TRIGGER_T2_TODO.md) 的任务状态；采纳的项须转为 TODO 任务，实测写入 [Task Progress](TRIGGER_T2_TASK_PROGRESS.md)。
+本文是 2026-10-09 对 T2 代码的一次只读评审，回答两件事：代码是否偏离架构语义，以及 T2 的实际状态；2026-10-18 增补第七节 sequence 阻塞点独立审核。本文是评审快照，**不登记为契约**（AGENTS.md 硬约束 6），也不改变 [TODO](TRIGGER_T2_TODO.md) 的任务状态；采纳的项须转为 TODO 任务，实测写入 [Task Progress](TRIGGER_T2_TASK_PROGRESS.md)。
 
 - **基线**：分支 `wip/tdma-real-flight-processing`，HEAD `84f7f317`，包含 `7ff68367`（seat mount store / T2 enable chain）。评审过程中仓库由其他会话提交，文件:行号以该 HEAD 为准。
 - **范围**：
@@ -367,3 +367,88 @@ T2 架构写的是“已冻结实例保留本次模型”，ARCH_T2 要求跨 ge
 5. **补 STEP、多组序列与单帧载荷**：先在架构与 TODO 中定义 STEP（A-14）、每位置多组序列及其时间预算（A-16）和一等席单帧紧凑记录（A-15），再改 predictor、模板容量、执行侧连续装填和运输，并删除 A-01 的 patch 路径。
 6. **修 Flash 与跨核问题**：A-08 挂载 SAVE 加 STOP 门、挂载表加跨核保护；A-09 v2 映射改用专用分区或统一读写偏移，并走 Flash 登记。
 7. **继续 P0 主线**：修 cursor 有效性（M1）→ compact-q 接线 → FREEZE 上板 → 诊断回传 → READY 接线；同步更新 TODO 状态（S-03、D-05）。
+
+## 七、sequence 阻塞点独立审核（2026-10-18）
+
+> 本节是 2026-10-18 对 T2 位置内多组序列（sequence）的只读独立审核，接在第一至六节之后；不改变既有结论，也不把任何推断登记为契约。基线为 `fdc45274` + 工作区未提交改动（`components/sync_io/src/sync_io_switch.c`：`SWITCH_QUEUE_DEPTH` 改为 4、新增 `s_complete_*` 三个计数器），与 `T2-PROGRESS-20261018-061` 同一现场。
+
+### 7.1 范围与方法
+
+- **对象**：`sync_io_switch_realtime_stage_sequence()` → `poll()` → `trigger_t2_runtime.c::service_deadlines()/complete_action()` 的 3 组窗口（N=3）。
+- **方法**：只读读码 + 用生产 C 源码在仓库既有 PIO mock 上跑临时探针。探针不修改仓库测试，只打印 `sync_io_switch_deadline_status_t` 与 `sync_io_switch_realtime_sequence_state()`；同一探针对工作区（深度 4）和 HEAD（深度 2）分别编译运行。
+- **边界**：未构建固件、未上板；台架读数引自 `T2-PROGRESS-20261018-061`，本文只做代码归因。证据分级：`已核实（探针）`＝生产 C 在主机 mock 上复现；`读码`＝逐行核对；`推测`＝尚无执行证据。
+
+### 7.2 结论摘要
+
+1. **队列深度不是阻塞点**。3 组窗口在武装时最多只能预装 2 组：PIO TX FIFO 只有 4 word，`sequence_feed()` 每次只推 1 组，且要求 FIFO 电平 ≤2。`SWITCH_QUEUE_DEPTH` 从 2 提到 4 不改变这条路径，HEAD 与工作区的探针输出逐字相同。
+2. **阻塞点在“每组完成”的状态契约**：第 2 组完成时 `poll()` 已经置 `COMPLETE`，而第 3 组还在队列里；补装第 3 组后又没有把 `s_deadline` 指向它。状态长期停在 `seq=base+1 / COMPLETE`，第 3 组的完成只写进 `s_switch.completed_sequence`，运行期看不到。
+3. **运行期把同一个 COMPLETE 消费两次**：先在 `sequence > expected` 分支记一次 advance，下一拍又在 `else if (complete)` 记一次并清空 `s_armed_index`；第 3 组完成时已无人认领 ⇒ `finish=0`、`group_next=2`、槽位不回收 ⇒ 后续位置 NO_PLAN。
+4. **`stage_sequence` 每个窗口只自增 2，而不是 `count`**：该字段的语义应是“最后发出的序号”，即 `base+count-1`；N=2 时 2 恰好等于 count，N=3 起相邻窗口的序号区间重叠。这是独立于上述阻塞点的身份缺陷。
+5. **主机测试没有覆盖真实契约**：runtime mock 在每组推进时给 `receipt_mask=1`，而生产在换 head 时清零；switch 测试只断言最终 `completed_sequence`。两套测试都绿，但不代表 N=3 路径成立。
+
+### 7.3 主机探针（工作区 = 深度 4）
+
+以下为本次主机探针快照，非事实源：
+
+```text
+PROBE t=25     state=1 seq=1 mask=0 | count=3 fed=2 queued=2 sw=3 last=0 writes=0
+PROBE t=30003  state=1 seq=2 mask=0 | count=3 fed=2 queued=1 sw=3 last=1 writes=1
+PROBE t=70004  state=2 seq=2 mask=3 | count=3 fed=3 queued=1 sw=3 last=2 writes=2
+PROBE t=120005 state=2 seq=2 mask=3 | count=3 fed=3 queued=0 sw=4 last=3 writes=3
+PROBE-END t=160024 writes1=3 | state=2 seq=2 mask=3 | count=3 fed=3 queued=0 sw=4 last=3
+```
+
+状态取值：`state 1=ARMED, 2=COMPLETE`；`sw 3=PENDING, 4=COMPLETE`；`last=completed_sequence`；`writes` 是 group0 所在 SM 的边沿数（3 组各一拍）。
+
+读法：
+
+- t=25 武装后 `fed=2/queued=2`：第 3 组没有预装。原因是 TX FIFO 已满（两组 = 4 word），不是“队列深度 2 拒绝”。
+- t=30003 第 1 组已发，status 只把 `sequence` 推到 2，`mask=0`：第 1 组的完成没有以 COMPLETE/回执形式出现。
+- t=70004 第 2 组已发、第 3 组未发（`writes=2`），`status=COMPLETE seq=2 mask=3`，同时 `queued=1`：**COMPLETE 与未完成组并存**。
+- t=120005 第 3 组已发（`writes=3`），`completed_sequence=3`，但 `status.sequence` 仍是 2：**最后一组的完成没有进入 status**。
+- HEAD（深度 2）跑同一探针，输出逐字相同 ⇒ 深度 4 对该路径零影响。
+
+### 7.4 阻塞链（与 061 台架 tuple 对齐）
+
+以第 3 个窗口为例，`base=5, last=7`（序号为什么是 5 见 7.5 的 SEQ-B04）：
+
+1. 武装：`fed=2/queued=2`，`expected=5, window_last=7`。
+2. 第 1 组（seq5）完成：status `ARMED seq6 mask0`；运行期 `sequence>expected`，但 `receipt_mask==0`，走 `no_receipt` 返回，只增加 advance 计数，不调用 `complete_action()`。
+3. 第 2 组（seq6）完成：`poll` 置 `COMPLETE seq6 mask3`，补装第 3 组（seq7），但不重指 `s_deadline`；运行期在 advance 分支调用一次 `complete_action()`（把第 2 组的完成记到第 1 组），`expected=6`。
+4. 下一拍：`seq6==expected6` 且 `complete=1`，走 `else if (complete)` 再调用一次 `complete_action()`（把同一事件记到第 2 组），清 `s_armed_index`。
+5. 第 3 组（seq7）完成：只更新 `completed_sequence=7`；status 仍 `seq6`；运行期不再服务。
+6. 槽位停在 `group_next=2`，不回收；同一槽位的后续 FREEZE 无计划/被地板拒绝 ⇒ NO_PLAN 级联。
+
+061 的 `tuple seq=6 expected=6 window_last=7 complete=1` 正好是第 4 步后的快照；`adv=6 finish=0 group_next=2` 与“每位置 2 次 advance”一致。061 的“队列深度 2 拒掉第 3 组”不是这条链的成因：第 3 组确实在 t=70004 被补装（`fed=3`），问题是补装后的状态契约。
+
+补充（读码推断，见 SEQ-B09）：`e6564a38` 新增的“最后一组完成直接走 `complete_action`”捷径在 N=3 时到不了（arm 已在 `seq=base+1` 被 `else if (complete)` 清掉）；在 N=2 时它会在第 2 组完成时只把第 1 组推进完就清 `s_armed_index`，按读码 `finish` 也应为 0。这与 061 的“N=2 一直正常”冲突，建议用 N=2 台架复验；该捷径不应在 `complete_action()` 尚未 finish 时无条件清 arm。
+
+### 7.5 发现表
+
+| ID | 严重度 | 位置 | 发现 | 证据 |
+|---|---|---|---|---|
+| SEQ-B01 | 阻塞 | `sync_io_switch.c:370,387` | 换 head 时先置 COMPLETE，再在队列空时补装下一组并直接 return；COMPLETE 与 `queued>0` 并存 | 探针 t=70004 |
+| SEQ-B02 | 阻塞 | `sync_io_switch.c:375-382,387` | 补装只写 `s_queue[s_queue_count++]=...`，不更新 `s_deadline`；最后一组完成只更新 `completed_sequence`，`status.sequence` 停在上一组 | 探针 t=120005（`last=3, seq=2`） |
+| SEQ-B03 | 阻塞 | `trigger_t2_runtime.c:1263-1290,1298-1300` | 同一个 COMPLETE 先在 advance 分支消费，下一拍再在 `else if (complete)` 消费；第二次清 `s_armed_index`；中途的 `!receipt` 又挡掉第 1 组完成 | 读码 + 061 台架 `adv=6 finish=0` |
+| SEQ-B04 | 高 | `sync_io_switch.c:643,646` | 窗口内 `stage_sequence` 自增 2 次；该字段应为 `base+count-1`。N=2 时 2==count，N=3 起区间重叠（`[1,3]`、`[3,5]`、`[5,7]`） | 读码 + 061 tuple 的 base=5/last=7 与两次自增一致 |
+| SEQ-B05 | 中 | `sync_io_switch.c:407-435` | TX FIFO 4 word 只容 2 组，`sequence_feed()` 每次 1 组；`SWITCH_QUEUE_DEPTH 4` 对此路径无效 | 探针 `fed=2`；HEAD 与工作区输出相同 |
+| SEQ-B06 | 中 | `sync_io_switch.c:73,395-397` | 三个 `s_complete_*` 只写不读，`sync_io_switch_realtime_sequence_state()` 未暴露；061 承诺的 COMPLETE 时刻字段读不到 | 读码；全仓无读取点 |
+| SEQ-B07 | 中 | `tests/python/test_trigger_t2_runtime.py:124-129` | mock 在每组推进时 `receipt_mask=1` 且 `sequence++`；生产在 `sync_io_switch.c:378` 清零、补装不重指。37 项 runtime 测试全绿，但未覆盖真实契约 | 读码 + 37 passed（本次快照） |
+| SEQ-B08 | 低 | `tests/python/test_sync_io_switch.py:398-437` | `sequence_case` 只断言最终 `completed_sequence==3` 与边沿间隔，不检查中间 status 或 COMPLETE 与 queued 并存；HEAD 与深度 4 都通过 | 本审核分别跑 HEAD/工作区 |
+| SEQ-B09 | 高（读码推断） | `trigger_t2_runtime.c:1276-1280` | 最后一组捷径在 `complete_action()` 只推进一组后就清 `s_armed_index`；N=2 时按读码 `finish=0`，N=3 时该捷径根本到不了（arm 已先被清） | 读码；与 061 的“N=2 正常”冲突，待台架复验 |
+
+### 7.6 修复方向（供采纳，不代替设计）
+
+按依赖顺序：
+
+1. **先定义“每组完成”的可观测事件**：给 `sync_io_switch_deadline_status_t` 增加 `completed_sequence`（或保留已完成 head 的 `receipt_mask` 直到消费），运行期按该事件推进 `complete_action()`，不要用“当前 head 的 sequence + 回执”猜组号。这样第 1 组和最后一组的完成都能被计数。
+2. **COMPLETE 只在“所有组已装填 + 最后一组回执已到 + FIFO 排空”后发布**；队列空但还有组待装时，补装后必须把 `s_deadline` 重指到新 head（ARMED、deadline、sequence），不得让 COMPLETE 与 `queued>0` 并存。
+3. **`stage_sequence` 按 `count` 推进**：武装后置为 `base+count-1`（最后发出的序号），不要固定 +2。N=2 的“正常”只是 2==count 的巧合。
+4. **去掉或证明 `SWITCH_QUEUE_DEPTH 4`**：该路径最多排队 2 组，深度 4 不改变行为；若保留，只在单 deadline API 上维持 2 深度，并补注释说明 FIFO 与 queue 两个上限的关系。
+5. **补回归测试**：switch 测试在每组边沿后断言“`queued>0` 时 status 不得 COMPLETE”和“`completed_sequence` 每组 +1”；runtime mock 必须按生产语义在换 head 时清 `receipt_mask`、补装时不改 sequence，并覆盖 N=2/N=3/N=4。测试应在没有真实台架时能红。
+
+### 7.7 未决与边界
+
+- 本节未验证固件、未上板；`SEQ-B03`/`SEQ-B07` 的运行期部分为读码 + 台架读数对齐，不是主机执行。
+- gateway 多组序列存在同源风险：`s_switch_receipt_seen` 只在 switch 分支赋值，gateway 分支的中途推进永远没有 receipt，按当前 `if(!s_switch_receipt_seen) return` 也会挡掉中途组；061 的 GATEWAY `BACKEND=114` 是否同因未验证（推测）。
+- 本节不改变 TODO 状态；采纳项应转成 TODO 任务并附台架判据。
