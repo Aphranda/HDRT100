@@ -282,10 +282,12 @@ def test_switch_scpi_legal_ack(parser, command):
 
 def test_switch_scpi_41_fields_preserve_uid_and_two_groups(parser):
     fields = parse_switch(parser, 'TRIG:RES:SWIT?')
+    # Page layout after the sequence instrumentation (ready tail + per-slot diagnostics): 48 fields.
     assert fields == [1, 0, 1, 10, 4294967295, 9007199254740993, 3, 0, 7, 123,
                       1, 19, 4, 1, 5, 2, 5, 5, 1, 23, 23, 22, 10, 0, 4,
-                      9, 5, 3, 0, 1, 16, 1, 1, 2, 3, 3, 18, 1, 1, 4, 5]
-    assert len(fields) == 41
+                      9, 5, 3, 0, 0, 0, 0, 0, 0, 0, 0, 1, 16, 1, 1, 2,
+                      3, 3, 18, 1, 1, 4, 5]
+    assert len(fields) == 48
 
 
 @pytest.mark.parametrize('command', [

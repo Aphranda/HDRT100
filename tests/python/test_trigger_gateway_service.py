@@ -279,10 +279,11 @@ def test_gateway_scpi_ack(parser, command):
 
 def test_gateway_scpi_complete_snapshot_and_uint64_uid(parser):
     values = parse_gateway(parser, 'TRIG:RES:GATE?')
+    # Page layout after the sequence instrumentation: 37 fields (the tail reports late/arm refusals).
     assert values == [1, 0, 1, 10, 4294967295, 9007199254740993, 2, 3, 7, 123,
                       1, 17, 1, 1, 1, 23, 4, 19, 200, 50, 250000000, 1,
-                      10, 0, 13, 0, 7, 0, 0, 0, 0, 2, 3, 4, 1]
-    assert len(values) == 35
+                      10, 0, 13, 0, 7, 0, 0, 0, 0, 2, 3, 4, 1, 0, 0]
+    assert len(values) == 37
 
 
 @pytest.mark.parametrize('command', [
