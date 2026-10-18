@@ -12,6 +12,29 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-029：N=2 掉组——只读代码给出的两个候选机制与判别实验（下一轮照此执行）
+
+- **现象回顾（N=2 台架）**：`finished = 691/692`（位置都收尾）而 `executed = 438/440`（≈0.63×组数）；
+  `done_hist` 多行是"看见完成但未推进"（`completed == expected == window_last`），
+  说明**计数不足发生在"最后一组"的收尾路径**，而不是推进路径被卡住。
+- **候选机制 A（最可能）**：`complete_action()` 只在 `s_group_armed[index]` 指向一个真实组号时
+  才把 `action_groups_executed++`；而"窗口最后一组"是从
+  `sequence == window_last && complete` 分支直接调用 `complete_action(index)`，此时
+  `s_group_armed` 可能已是 `GROUP_NONE(0xFF)` ⇒ 该组**完成了位置、但没有计入 executed**。
+  这能解释：16 组窗口里 16 次里少记 1 次时不易察觉（比例小），2 组窗口里就掉到 0.63。
+- **候选机制 B**：`window_last` 的计算在 `handed` 为 0 的路径上退化为 0，使 `completed <= window_last` 恒假，
+  该组只能走收尾分支——同样导致漏计。
+- **判别实验（不改代码，只读页面）**：跑一次 N=2，采样时同时读
+  `TRIGger:REServation:T2:ACTion:WHY?`（含 `group_next`/`group_armed`）与 `T2?` 的组位图；
+  若某位置的组位图显示 2 位全置而 `executed` 只 +1，则 **A 成立**（收尾路径漏计）；
+  若位图只置 1 位就收尾，则 **B 成立**（窗口上界退化）。
+- **修法预判**：若 A，则给收尾路径补一次"按组计数"（`complete_action` 接受显式组号，或在收尾前
+  把 `s_group_armed` 置为 `window_last - base`）；若 B，则修正 `handed` 为 0 时的
+  `s_action_sequence_last` 赋值。两者都**不新增状态**，符合 ⑧。
+- **当前状态**：树干净、336 passed、P3 `build=20261018231151` 通过；N=16 与三后端仍为零失败。
+
+
+
 ### T2-PROGRESS-20261019-028：**两个 SCPI 页断言已按实际布局重建**（299→336 passed）；但"事件优先"的分支顺序在台架上把 16 组打回原形——已回退
 
 - **已修好的债务（本轮净收益）**：两个页用例此前按 41/35 字段断言，而页面在序列插桩后已是
