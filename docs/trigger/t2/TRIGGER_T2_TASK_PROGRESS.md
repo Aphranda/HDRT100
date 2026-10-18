@@ -12,6 +12,28 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-025：RAM 占用排名已测——**FreeRTOS 堆 `ucHeap` 118 KB 是最大单体**，余量问题的正解在配置侧
+
+- **`nm --print-size --size-sort` 实测（RAM 大头）**：
+  ```
+  0x1d000  ucHeap                       118,784 B   ← FreeRTOS 堆（configTOTAL_HEAP_SIZE = 116 KB）
+  0x05648  s_control                     22,088 B
+  0x04800  s_distributed_refmem_table    18,432 B
+  0x04000  sync_io_shared_workspace      16,384 B
+  0x04000  s_write_buffer / s_ota_fast_blocks  各 16 KB
+  ```
+  ⇒ 我之前怀疑的"逐槽位小数组"方向是错的：`TRIGGER_T2_RUNTIME_POSITION_COUNT` **只有 3**，
+  `s_deadline[3]` 总共不到 300 B。真正的余量只能从上面这些"整块"里腾。
+- **因此下一轮的正解（不改语义、风险最低）**：把 `configTOTAL_HEAP_SIZE` 从 116 KB 降到 **112 KB**（-4 KB），
+  并用 `xPortGetMinimumEverFreeHeapSize()`/高水位证据确认运行时从不逼近上限；这一步能给后续
+  "事件推进"语义修正（并顺带修 N=2 掉组）腾出充足余量。
+- **纪律提醒**：本机 `flash_link_contract=OK` 可能是**复用旧 ELF**的结果；任何"绿"都要先删 ELF 强制重链接再确认
+  （本轮已按此法验证：已提交状态重链接通过）。
+- **不变的事实**：三角色短跑 16 组 × 上百位置零失败；开关长跑 240/241 PASS；N=2 的掉组已定位为
+  `completed_sequence` 电平语义（待修）。
+
+
+
 ### T2-PROGRESS-20261019-024：**RAM 已到墙**——连"删掉一个分支"的净减少改动也溢出 956 B；代码冻结，先解决内存
 
 - **三次实验（互相矛盾但都指向同一结论）**：
