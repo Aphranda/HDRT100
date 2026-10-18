@@ -12,6 +12,32 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-008：网关武装失败分成两类——**BUSY 61 次** 与 **RANGE 51 次**（偏移已用受控实验钉死）
+
+- **GWDIAG 字段顺序（受控实验确认）**：`0,1` 结果字；`2` schema(0xDA02)；`3` plan_count；`4` ready_active；
+  **`5` ready_required**（把 `REAdy` 在 0/1 之间切换，只有 idx5 变化）；`6` pulse_ns；`7` collision；
+  `8` margin；`9..16` stage 的 8 个拒绝桶；**`17` late**；`18..21` 新增的 4 个武装拒绝桶
+  （core/clock、prepare_realtime、origin、**delay range**）。
+- **本轮读数（N=16，组间距 8 slice）**：
+  ```
+  SWITCH_A 1792 = 16×112   SWITCH_B 1808 = 16×113   三类失败全 0
+  GATEWAY  executed 0  BACKEND 112
+  DIAG : identity 1  terminal 51  arm 61
+  GWDIAG: plan_count 1  collision 51  stage_reject[BUSY]=61  arm_reject[delay_range]=51
+  ```
+  ⇒ 两个**互相独立**的成因：
+  1. **`stage_sequence` 被 BUSY 拒绝 61 次**：上一份计划还在飞（`s_plan_count != 0`）时运行期又提交新窗口；
+     网关不像开关那样把计划排空，于是下一次武装被拒。
+  2. **`start_deadline` 的 delay 范围拒绝 51 次**：`deadline - now - 4 > UINT32_MAX`，即**武装时刻与 tick 的
+     时间基不一致**（网关的 `raw_tick` 与计划里 `slice_to_tick` 得到的绝对 tick 不是同一基准），
+     这解释了为什么"迟到钳位"没有救到它（差值不是负数，而是巨大正数）。
+- **下一轮（二选一，先做 (2)）**：核对网关 `raw_tick()` 与 `slice_to_tick()` 的时间基（TIMER1 vs 同步时间轴），
+  把 `schedule_at` 的入参统一到同一基准；随后再做 (1)：让网关在计划未排空时**等待**而不是让运行期失败
+  （或让 `service` 完成时把 `s_plan_count` 排空）。
+- **开关侧**：1792/1808 = 16×位置数，`finish` 与位置数一致，三类失败全 0。
+
+
+
 ### T2-PROGRESS-20261019-007：网关"迟到即拒绝"改为"迟到也要发"（`arm` 45→0）；失败点再前移到 **service 内部的下一组武装**
 
 - **改动（执行器侧，符合触发域语义：迟到的触发仍要发，迟到可观测）**：`start_deadline` 不再因

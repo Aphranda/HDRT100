@@ -46,6 +46,8 @@ static bool s_ready_required = false;
 static uint32_t s_ready_collision_count;
 /* Groups whose tick had already passed when they were armed (they still fire). */
 static uint32_t s_late_count;
+/* Arm refusals: core/clock, prepare_realtime, origin window, delay range. */
+static uint32_t s_arm_reject[4];
 /* The PIO echoes the trigger count as its receipt, while the SEQUENCE names the group of the staged
  * table. Keeping them apart is what lets the runtime match a completion to a group (same model as the
  * switch, where the code word carried the group's identity). */
@@ -80,7 +82,7 @@ static __attribute__((noinline)) bool GATEWAY_HOT(start_deadline)(uint64_t deadl
 {
     uint64_t before,after;
     const uint64_t guard=(uint64_t)BOARD_SYS_CLOCK_HZ/1000000u*SYNC_IO_GATEWAY_DEADLINE_GUARD_US;
-    if(!raw_tick(&before) || deadline-before-4u>UINT32_MAX)return false;
+    if(!raw_tick(&before) || deadline-before-4u>UINT32_MAX) { ++s_arm_reject[3]; return false; }
     /* A tick that is already inside the arming guard (or past) fires as soon as the PIO can, and the
      * lateness is counted: refusing it turned every such group into a BACKEND failure of the whole
      * position (measured: arm=45 == the refusal bucket). */
@@ -94,6 +96,7 @@ static __attribute__((noinline)) bool GATEWAY_HOT(start_deadline)(uint64_t deadl
     if(read && after>=before && after!=UINT64_MAX &&
         after+1u-before <= (uint64_t)BOARD_SYS_CLOCK_HZ*SYNC_IO_GATEWAY_ORIGIN_MAX_NS/1000000000u)
         return true;
+    ++s_arm_reject[2];
     pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
     pio_sm_set_enabled(GATEWAY_PIO,READY_SM,false);
     uint64_t stopped;
@@ -390,8 +393,11 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
 bool __not_in_flash_func(sync_io_gateway_realtime_schedule_at)(uint32_t pulse_ns,uint64_t deadline_tick)
 {
     if(get_core_num()!=1u || clock_get_hz(clk_sys)!=BOARD_SYS_CLOCK_HZ ||
-       timer1_hw->pause || timer1_hw->source!=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS ||
-       !prepare_realtime(pulse_ns))return false;
+       timer1_hw->pause || timer1_hw->source!=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS) {
+        ++s_arm_reject[0];
+        return false;
+    }
+    if(!prepare_realtime(pulse_ns)) { ++s_arm_reject[1]; return false; }
     s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_CANCELLED;
     s_pending_receipt=s_gateway.trigger_count+1u;
     s_pending_sequence=s_sequence_override?s_sequence_override:s_pending_receipt;
@@ -465,6 +471,7 @@ void sync_io_gateway_realtime_diag(uint32_t *out)
     out[4]=s_ready_collision_count;
     out[5]=s_ready_margin_min_ticks;
     out[14]=s_late_count;
+    for(uint32_t i=0u;i<4u;++i) out[15u+i]=s_arm_reject[i];
     for(uint32_t i=0u;i<GATEWAY_STAGE_REJECT_COUNT;++i) out[6u+i]=s_stage_reject[i];
 }
 
