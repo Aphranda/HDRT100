@@ -6,6 +6,8 @@ Canonical: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
 Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/trigger/t2/TRIGGER_T2_RUNTIME_CONSTRAINTS.md`
 Last updated: 2026-10-17
 
+
+> 口径（2026-10-19）：本文中"每位置 16 组"是**模型源口径**；台架判据按角色 **SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2**（见 `TRIGGER_T2_TODO.md` 与登记项 `T2-GROUPCOUNT-01`）。
 ## 文档接口与范围
 
 本文件定义 T2 当前主线的时间模型、owner 边界、不变量和验证语义；[TODO](TRIGGER_T2_TODO.md) 是任务状态唯一落点；[Task Progress](TRIGGER_T2_TASK_PROGRESS.md) 记录实现与证据。

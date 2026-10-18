@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGISTRY.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-10-16
+Last updated: 2026-10-19
 
 > 注：本文件必须满足 `tools/docs_check/docs_check.py` 的元数据要求（5 字段齐全），否则自回归门禁自相矛盾。
 
@@ -17,6 +17,9 @@ Last updated: 2026-10-16
 |---|---|---|---|---|---|---|---|---|
 | T2-DEPLOY-003 | trigger | 位置实例窗口驱动从板消费：`trigger_position_window_t` 以实例键分配/回收槽位，`mark()` 单调且幂等（禁止跳级；同实例重解必须复位 `ENTERED`），`T2:ACTion?` 尾 7 字段暴露 entered/announced/frozen/executed/abandoned/mark_rejected/alloc_rejected | 1 | `docs/trigger/t2/TRIGGER_T2_TODO.md` | `trigger_position_window.h` | 宿主用例 8 组 + 台架短扫描越界证据 + P3 凭证 | 2026-10-15 | active |
 | T2-IDENT-002 | trigger | 位置实例域口径统一：描述符 FREEZE 分支、slice 合法域、freeze latch ids 一律引用 `TRIGGER_POSITION_INSTANCE_MAX`，不再出现裸字面量 | 1 | `docs/trigger/t2/TRIGGER_T2_TODO.md` | `trigger_position_descriptor.h` | 口径收敛提交 67705adb/61a26fb1 + 宿主用例 | 2026-10-15 | active |
+| T2-SEQ-001 | trigger | 序列执行归动作侧：一个位置的全部组表由动作侧一次展开并交给执行器（`T2_PLAN_GROUP_MAX` 组一个窗口），T2 侧不得再维护第二套组游标/窗口权威；运行期只按 `completed_sequence` 前进一步计一组完成 | 1 | `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md` | `trigger_t2_runtime.c` | 台架 `executed = 组数 × action_finish` 且 `NO_PLAN/LATE/BACKEND` 全 0 | 2026-10-19 | active |
+| T2-GROUPCOUNT-01 | trigger | 台架按角色组数口径：SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2；16 组是模型源口径，不是台架判据 | 1 | `docs/trigger/t2/TRIGGER_T2_TODO.md` | `trigger_action_template_table.h` | `T2_SEQ_GROUPS` 与 TODO:72 对照 | 2026-10-19 | active |
+| T2-EXEC-LATE-01 | trigger | 执行器迟到语义：绝对 tick 已进入武装 guard 或已过期时，触发仍要执行（钳到最近可行时刻并计 `late`），不得以拒绝让整个位置失败 | 1 | `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md` | `sync_io_gateway.c` | 宿主 `deadline_late` 用例 + GWDIAG `late` 计数 | 2026-10-19 | active |
 | T2-TURNTABLE-002 | trigger | 源侧预测窗口按设计滚动（`announced = entered − 在途`），从板不预测；窗口推进以 `T2?`/`T2:ACTion?` 页读数为唯一事实源 | 1 | `docs/trigger/t2/TRIGGER_T2_TODO.md` | `trigger_turntable_predictor.h` | 四板每 tick 实测读数（entered/announced/pred_err） | 2026-10-15 | active |
 | TDMA-REASON-01 | tdma | ring reason code 9 项冻结 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_ring_runtime.h | enum 比对 | 2026-08-19 | active |
 | TDMA-SEQLOCK-01 | tdma | runtime snapshot 必须 seqlock | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_service.c | 代码审查 | 2026-08-19 | active |
