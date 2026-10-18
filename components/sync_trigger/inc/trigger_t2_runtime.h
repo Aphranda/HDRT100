@@ -360,6 +360,8 @@ typedef struct {
     uint32_t freeze_no_plan_zero, freeze_no_plan_floor;
     /* complete_action(): how many advances and finishes happened, and the last finish' group/total. */
     uint32_t action_advance, action_finish, finish_group, finish_total;
+    /* Last window-branch evaluation: sequence, expected, window end, COMPLETE flag. */
+    uint32_t window_seq, window_expected, window_last, window_complete;
 } trigger_t2_runtime_window_stats_t;
 bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out);
 

@@ -12,6 +12,20 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-060：元组给出答案的一半——开关在 `sequence=4` 时就报 COMPLETE，而窗口要到 5
+
+- **精确元组**（两块从板一致，本轮新增 4 个字段）：
+  ```
+  executed=6  NO_PLAN=119  adv=6  finish=0
+  window tuple: seq=4  expected=4  window_last=5  complete=1
+  ```
+- **解读**：`window_last = base + handed − 1 = 5` 说明运行时确实交出了 **3 组**（base=3）；而开关在 **`sequence=4`（即第 2 组之后）就置 COMPLETE** ⇒ **开关只认到 2 组**，第 3 组从未触发/从未计数。
+  - 因为 `seq(4) == expected(4)` 且 `complete=1`，运行时会走 `complete_action`，但此时 `s_group_armed` 已经是组 2 之前的组号（adv=6 = 每槽 2 次），**收尾条件 `group+1 == groups_total` 永远不成立**，于是 `finish=0`、位置停在"已冻结未完成" ⇒ 同槽位后续位置 `NO_PLAN=119`。
+- **结论**：问题在**开关侧"组数"口径**：`s_sequence.count` 是 3，但 `s_sequence_group`/COMPLETE 判定只走了 2 组。下一轮在开关侧加两个计数：**实际触发的 `trigger_count` 增量** 与 **`s_sequence_group` 终值**，与 `s_sequence.count` 对照，即可确定是 `sequence_feed()` 在最后一次没推入、还是 COMPLETE 判定提前（`s_sequence_group >= s_sequence.count` 的口径）。
+- **顺带**：这也是为什么 N=2 一直正常——2 组时"第 2 组之后 COMPLETE"恰好与窗口长度一致。
+
+
+
 ### T2-PROGRESS-20261018-059：三组位置**只推进到第 3 组之前**（adv=6 / finish=0），且三槽位行为完全一致
 
 - **用户的澄清（重要，写入模型）**：**FREEZE 是同步发给三个槽位的**——同一个位置在三个槽位上被冻结，逻辑应当完全相同。台架读数与此一致：`freeze_hist = 38,38,38`（三槽各 38 次），三槽的 `group_next` 都停在 **2**，说明这是**同一处逻辑**的问题，不是某个槽位特殊。

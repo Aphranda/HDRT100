@@ -284,6 +284,8 @@ static uint32_t s_freeze_per_slot[T2_FREEZE_HISTOGRAM];
 static uint32_t s_freeze_no_plan_zero, s_freeze_no_plan_floor;
 /* complete_action(): advances, finishes, and the group/groups_total observed at the finish. */
 static uint32_t s_action_advance_count, s_action_finish_count;
+/* Last window-branch evaluation: backend sequence, runtime expectation, window end, COMPLETE flag. */
+static uint32_t s_window_seq_seen, s_window_expected_seen, s_window_last_seen, s_window_complete_seen;
 static uint32_t s_finish_group_last, s_finish_total_last;
 static volatile uint32_t s_guard;
 
@@ -1253,6 +1255,10 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         const uint32_t index = s_armed_index, bit = 1u << index;
         const uint32_t expected = s_state.action_sequence[index];
         const uint32_t window_last = s_action_sequence_last[index];
+        s_window_seq_seen = sequence;
+        s_window_expected_seen = expected;
+        s_window_last_seen = window_last;
+        s_window_complete_seen = complete ? 1u : 0u;
         if (window_last && sequence == expected && expected > 0u) ++s_window_reuse_count;
         if (sequence > expected && sequence <= window_last) {
             /* Inside the handed window. The switch loads the NEXT queue entry as soon as the
@@ -2159,6 +2165,10 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->recv_older = s_recv_older;
     out->recv_ok = s_recv_ok;
     for (uint32_t i = 0u; i < T2_FREEZE_HISTOGRAM; ++i) out->freeze_hist[i] = s_freeze_per_slot[i];
+    out->window_seq = s_window_seq_seen;
+    out->window_expected = s_window_expected_seen;
+    out->window_last = s_window_last_seen;
+    out->window_complete = s_window_complete_seen;
     out->action_advance = s_action_advance_count;
     out->action_finish = s_action_finish_count;
     out->finish_group = s_finish_group_last;
