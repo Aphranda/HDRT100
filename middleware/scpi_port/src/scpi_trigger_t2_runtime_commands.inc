@@ -588,6 +588,13 @@ scpi_result_t scpi_cmd_trigger_t2_action_window_q(scpi_t *context)
          SCPI_ResultUInt32(context, st.jump);
          SCPI_ResultUInt32(context, st.reuse);
          SCPI_ResultUInt32(context, st.no_receipt);
+         SCPI_ResultUInt32(context, st.skip_unreachable);
+         SCPI_ResultUInt32(context, st.skip_inflight);
+         SCPI_ResultUInt32(context, st.skip_accepted);
+         SCPI_ResultUInt32(context, st.published);
+         SCPI_ResultUInt32(context, st.no_descriptor);
+         SCPI_ResultUInt32(context, st.version_zero);
+         SCPI_ResultUInt32(context, st.expand_fail);
      }}
     return SCPI_RES_OK;
 }

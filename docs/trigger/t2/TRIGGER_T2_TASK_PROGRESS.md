@@ -12,6 +12,27 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-053：计划**有**发布（118/327 次），但 FREEZE 时槽里仍是 0 —— 说明"发布晚于冻结"
+
+- **新增到自包含窗口页的四个供给计数**：`published, no_descriptor, version_zero, expand_fail`。
+- **N=3 台架读数**（`T2_READY_REQUIRED=0`，22 步全 OK）：
+  ```
+  SWITCH_A: executed=6  NO_PLAN=110  window(count,fed,queued,state,last)=3,3,0,4,5
+            advance=6 jump=0 reuse=159 no_receipt=3
+            skip(unreachable,in_flight,accepted)=0,351,75069
+            supply(published,no_descriptor,version_zero,expand_fail)=118,87256,0,0
+  SWITCH_B: executed=6  NO_PLAN=94   同一结构，published=327
+  ```
+- **逐条解读**：
+  1. `version_zero=0`、`expand_fail=0` ⇒ 展开与版本都正常，**不是**这两个的原因（前几轮的两个怀疑到此彻底排除）；
+  2. `published=118/327` ⇒ **计划确实发布了**（远超实际执行的 2 个位置）；
+  3. `no_descriptor=8.7 万/9.6 万` ⇒ 求解器绝大多数轮次是因为"该槽位没有新描述符"而空转（361 个槽位每轮都扫，属正常空转，不是错误）；
+  4. `skip_accepted=7.5 万` 同样是大基数空转（已收尾的槽位），不代表死锁——**上一轮我把这个当死锁的判断是错的**。
+- **真正的不一致**：`published` 有 118 次，而 `NO_PLAN=110` 个位置在 FREEZE 读到的本地版本是 0（`freeze_missing≈358` 累计）⇒ **发布发生在 FREEZE 之后**。也就是说：三组时槽位被占用更久，后继位置被 `stash_successor` 暂存，等占用者收尾、`promote_stashed` 回收后已经来不及解出计划，FREEZE 先到。
+- **下轮（直接可验）**：给每个位置记两个计数——`published_before_freeze` / `published_after_freeze`（在 `deadline_publish` 时比较该槽位是否已 `frozen`），一次 N=3 台架即可确认"晚发布"；若确认，修法是**允许在占用者最后一组在飞时就为后继位置解计划**（`prepare_deadlines_core0` 对 `in_flight==group` 的槽位不再整段跳过，而是只跳过"该组本身"），这样后继计划的解算时间就从"收尾后"提前到"收尾前一个动作"。
+
+
+
 ### T2-PROGRESS-20261018-052：窗口完成判定加上「必须有回执」——开关侧队列已能清空、状态回到 COMPLETE；剩余 NO_PLAN 转到计划供给
 
 - **新增窗口统计**（`T2:ACTion:WINdow?` 尾四字段：`advance, jump, reuse, no_receipt`）。

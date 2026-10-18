@@ -264,6 +264,9 @@ static uint32_t s_core0_prepare_calls, s_core0_preview_saved, s_core0_prepare_la
 /* Where a position can lose its plan before FREEZE sees it: counted so the bench answers
  * "expand failed" / "descriptor had no version" instead of us guessing (rounds 53-57). */
 static uint32_t s_solve_no_descriptor, s_solve_expand_fail, s_solve_version_zero, s_solve_publish;
+/* The three ways the solver entry skips a position; counted to see which one starves the plan
+ * supply (N=3 executes two positions, N=2 executes all 361). */
+static uint32_t s_skip_group_unreachable, s_skip_inflight, s_skip_accepted;
 static volatile uint32_t s_guard;
 
 #define T2_WINDOW_HISTORY_CAPACITY 17u
@@ -1950,11 +1953,13 @@ static void prepare_deadlines_core0(uint32_t session,
         /* An armed group is already in the hardware owner's hands and is never
          * re-solved (K-2: accepted actions are not rewritten); only when its
          * completion advances the cursor does the next group get prepared. */
-        if (group >= s_local_template_count ||
-            snapshot->action_group_in_flight[index] == group ||
-            t2_deadline_position_accepted(
-                snapshot->action_completed_mask | snapshot->action_failed_mask, index))
+        if (group >= s_local_template_count) { ++s_skip_group_unreachable; continue; }
+        if (snapshot->action_group_in_flight[index] == group) { ++s_skip_inflight; continue; }
+        if (t2_deadline_position_accepted(
+                snapshot->action_completed_mask | snapshot->action_failed_mask, index)) {
+            ++s_skip_accepted;
             continue;
+        }
         /* Where a group's absolute slice comes from. Group 0 solves from the newest
          * PREVIEW. A LATER group continues the SAME position, so it is derived from
          * the plan of the group before it (Core0's own last publish for this slot)
@@ -2051,6 +2056,13 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->jump = s_window_jump_count;
     out->reuse = s_window_reuse_count;
     out->no_receipt = s_window_no_receipt_count;
+    out->skip_unreachable = s_skip_group_unreachable;
+    out->skip_inflight = s_skip_inflight;
+    out->skip_accepted = s_skip_accepted;
+    out->published = s_solve_publish;
+    out->no_descriptor = s_solve_no_descriptor;
+    out->version_zero = s_solve_version_zero;
+    out->expand_fail = s_solve_expand_fail;
     return true;
 }
 
