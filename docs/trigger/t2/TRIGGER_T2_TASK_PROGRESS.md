@@ -12,6 +12,29 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-022：N=2 回归抽查发现**计数掉组**——位置都在收尾（691/692），但 `executed` 只有 438/440
+
+- **台架（`T2_SEQ_GROUPS='1,2,2,2'`，80 s，组间距 8）**：
+  ```
+  SWITCH_A executed=438  groups=2  finished=691  NO_PLAN/LATE/BACKEND=0
+  SWITCH_B executed=440  groups=2  finished=692  NO_PLAN/LATE/BACKEND=0
+  GATEWAY  executed=0    finished=116  BACKEND=220
+  ```
+  ⇒ 开关两侧**位置都正常收尾**（691/692 个），但 `executed` 只有 438/440，**远小于 2 × finished**：
+  两组的窗口里**每组位置只被计了一组**（或计组路径在 2 组窗口下少记一次）。
+- **这正好命中目标 ⑤（N=2 的 361×2=722 不得回归）**：不是"跑不动"，而是**计数口径在 2 组窗口下失真**；
+  由于判据依赖 `executed`，它会让 722 这个验收数字永远达不到，即使硬件行为正常。
+- **下一轮（先定位再改）**：
+  1. 用 `done_hist`（DIAG 尾部）观察 2 组窗口下 `completed/expected/window_last` 的推进序列，
+     确认是"第二组完成没被 `completed > expected` 捕获"还是"第二组根本没被武装"；
+  2. 若属前者：2 组窗口的 `expected` 起点（`base-1`）使第一组完成即把 `expected` 推到 base，第二组的
+     `completed = base+1` 应能通过；需要看实测序列；
+  3. 台架判据回到 `executed = 组数 × action_finish`（N=2 时 = 2 × 位置数）。
+- **网关**：2 组窗口下 BACKEND=220、`executed=0`——与 16 组窗口的成功形成对比，说明网关的修复
+  依赖"一个位置装一次窗口"的前提，2 组窗口下仍需单独核对。
+
+
+
 ### T2-PROGRESS-20261019-021：夜间收尾——核心目标已达成（三角色 16 组 × 上百位置零失败），追赶前移留待白天
 
 - **核心结论（多轮台架反复验证）**：
