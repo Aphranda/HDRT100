@@ -515,3 +515,70 @@ step4  completed=4 expected=4 complete=1  -> ELSE_COMPLETE armed=3 -> PROMOTE g=
 - 064 的“3 个窗口 ×4 组”与 `LATE=3` 不自洽：若一个位置真的跑了 3 个窗口，窗口之间不应产生 3 次 LATE；更合理的读法是 3 个 16 组位置各在首窗口末失败（`executed=12=3×4`，`LATE=3`）。请用 position_id/槽位探针确认；若成立，064 的“第 4 个窗口起停住”应改为“每个 16 组位置在第 1 个窗口末失败”。
 - 本节未验证固件、未上板；16 组探针为生产 C + mock，未修改仓库测试。N=3 的 357 结论不否定，但它的成功路径没有覆盖窗口交接。
 - 本节不改变 TODO 状态；采纳项应转成 TODO 任务并附台架判据。
+
+## 九、约束冗余与 sequence 可实现性（2026-10-18 晚二）
+
+> 问题：sequence 一直无法闭合，是否因为“冗余约束太多”？结论：**不是单纯的“多”，而是三条约束互不相容**；另外确有两处过时/重复口径在放大工作量。基线：HEAD `21ff8c6e` + 工作区 20:59 状态（已含 `s_waiting_window`、窗口内 `action_q` 推进）。
+
+### 9.1 结论
+
+1. **sequence 不是“不可实现”**；在单一 owner 模型下可实现。
+2. **当前实现不可满足**：批量窗口（一次交 2–4 组）+ 逐组计划链（`previous.group+1`）+ 在途不重解（K-2）三者同时成立时，窗口边界处的下一组没有前驱计划可派生。2 组和 4 组窗口都会在第一个边界停住；只有 1 组/窗口能跑。
+3. **“16 组”是过时口径**：架构 K-6 仍写 16，TODO 已更正为角色 8/2/2；台架用 16 组压测，制造 3 个边界，但真正的产品需求 SWITCH_A 8 走同一条链，按同一机制也会在第一个边界失败。16 组不是根因，但让问题看起来更“多”。
+4. **冗余的是状态与口径，不是用户需求**：`groups_total`、`s_group_handed`、`plan.group_count`、`s_group_next`、`next_tick`、`completed_sequence`、`window_last`、`waiting_window` 等多套权威，都是“T2 过渡窗口”和“动作侧目标态”同时存在的症状。删变量不能解决；必须先选 owner。
+
+### 9.2 约束清单与冲突
+
+| 约束 / 口径 | 来源 | 现状 | 判定 |
+|---|---|---|---|
+| T2 只发时间片，动作侧展开整条序列 | `TRIGGER_T2_ARCHITECTURE.md:348`、`TRIGGER_T2_TODO.md:212` | 代码仍在 T2 侧跑组游标/window | **目标态** |
+| T2 侧过渡窗口（`next_tick`、逐组游标、同遍推进） | `TRIGGER_T2_ARCHITECTURE.md:351` | 代码已实现 | **过渡态，应移除** |
+| 一次 `stage_sequence` 交 2–4 组 | `trigger_t2_runtime.c:166,1395` | `T2_PLAN_GROUP_MAX=4` | **与逐组链冲突** |
+| 第 g 组计划由 `previous.group+1` 派生 | `trigger_t2_runtime.c:2103` | Core0 solver | **与批量窗口冲突** |
+| 在途组不重解（K-2） | `trigger_t2_runtime.c:2062` | `skip_inflight` | **与批量窗口冲突** |
+| K-6 每位置 16 组 | `TRIGGER_T2_ARCHITECTURE.md:65` | 台架 `1,16,16,16` | **过时；与 TODO 冲突** |
+| 角色组数 8/2/2 | `TRIGGER_T2_TODO.md:72-86` | 代码按模板行数 | **产品口径** |
+| 两组滑动窗口 | `TRIGGER_T2_ARCHITECTURE.md:335` | 代码是 4 组批量 | **不一致** |
+| TX FIFO 2 组 / queue depth 2 | `sync_io_switch.c` | 硬件/实现 | **不是根因** |
+
+### 9.3 决定性冲突的机制
+
+1. 武装时 Core0 发布一个从 group0 开始的计划，`group_count=N`（2 或 4）；这 N 组被一次性交给硬件，`action_group_in_flight` 指向其中一组。
+2. Core0 的 solver 看到 `action_group_in_flight == group` 就跳过（K-2：在途不重解），所以 groups 1..N-1 没有各自独立的计划；邮箱里的最后一个计划仍是 group0。
+3. 到窗口边界，`action_group_next=N`，运行期把 `prediction_version` 清 0 并等待 Core0 发布 group N。Core0 的 group>0 分支要求 `previous.group+1 == N`，而邮箱 `previous.group=0` ⇒ `0+1 != N`，直接跳过。
+4. 于是 group N 永远不会被发布，`planver=0` 一直保持，位置停在边界。N=2 和 N=4 只是“停在第 2 组”还是“停在第 4 组”的差别；N=1 不产生边界，所以只有单组/窗口能跑。
+
+这不是时序、回执或队列深度问题；是**计划派生模型**与**批量交付模型**不兼容。
+
+### 9.4 探针证据
+
+```text
+4 组窗口: stage count=4, 4 组后 boundary=1, published=1, skip_inflight=3, planver=0, 不再推进
+2 组窗口: stage count=2, 2 组后 boundary=1, published=1, skip_inflight=1, planver=0, 不再推进
+```
+
+- 2 组是编译期实验（把 `T2_PLAN_GROUP_MAX` 改为 2，同一 16 组模板），未修改仓库。
+- 两种窗口都在第一个边界停住；唯一变化是停住前跑了几组。⇒ 边界链是阻塞点，窗口大小不是。
+- `published=1`、`skip_inflight` 随窗口增大，说明中间组全部被“在途”跳过，邮箱没有可派生的前驱。
+
+### 9.5 冗余口径
+
+- **16 vs 8/2/2**：架构 `:65` 仍写 K-6 的 16 组；TODO `:73`/`:82` 已更正为 SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2，并明确“16 组是模型源口径，不是 T2 角色需求”。台架继续用 `T2_SEQ_GROUPS='1,16,16,16'`，等于在过时口径上压测；SWITCH_A 8 同样会在第一个边界失败，16 只是多两次边界。两套口径都停留在架构/TODO，未登记为契约（`DOCS_REGISTRY.md` 没有 `T2-SEQ-001` 行），所以文档门禁不会报冲突，台架目标可以长期漂移。
+- **窗口尺寸多套**：`T2_PLAN_GROUP_MAX=4`、`SYNC_IO_SEQUENCE_PLAN_MAX_GROUPS=8`、`SYNC_IO_SWITCH_MAX_GROUPS=2`、`SWITCH_QUEUE_DEPTH=2`、K-6 两组——没有单一事实源。4 组 plan 是 RAM 妥协（16 组单窗口溢出 364 B），不是契约。
+- **状态多套**：`groups_total`（模板总数）、`s_group_handed`（窗口末）、`plan.group_count`（本窗口组数）、`s_group_next`（游标）、`next_tick`（过渡下一拍）、`completed_sequence`（完成事件）、`window_last`（序号末）各自说话。边界 bug 的每次修复都只是让其中两套暂时一致；下一套仍会打架。
+- **双 owner**：架构已把序列判给动作侧（T2-SEQ-001 MOVED），但 T2 侧过渡窗口仍在逐组配速。这不是“多一条约束”，是**两个 owner 同时生效**；它才是状态爆炸的根源。
+
+### 9.6 路线选择
+
+- **A（目标态，推荐）**：动作侧展开整条序列（`T2-EXEC-002` / `SYNC-SCHED-001`）。T2 只发时间片 + 本角色组表（8/2/2），不再有逐组 Core0 计划链，也不再有窗口边界交接。删除 `next_tick`、`s_group_handed`、`waiting_window` 和 T2 侧组游标。这是架构 `:348-351` 的方向。
+- **B（短期，仅作正确性桥）**：T2 侧改为**一组/窗口**，Core0 在上一组执行时解下一组。没有边界，但实测 Core0 往返在重载从板上 >25 ms，紧间隔不够；只能证明单组链可行，不是产品方案。
+- **C（混合，若必须保留 T2 侧批量）**：允许 Core0 直接发布“下一窗口 base”计划（从 descriptor + delta_q 派生，或允许 `previous.group + K == group` 的累计 delta），不要依赖 `previous.group+1`；同时只保留一套窗口状态并加有界等待/超时。工作量大于 A，且仍保留双 owner，只建议作为台架桥。
+
+**建议**：先明确选 A 还是 C，再动代码；不要继续在边界状态机上打补丁。若选 A，16/8 组问题自然消失；若选 C，先把“窗口 base 计划”定义成契约，并删掉单步链。
+
+### 9.7 边界
+
+- 本节是约束/架构评审，不是代码修复；工作区仍在变动，结论以 20:59 快照为准。
+- 2 组探针是编译期实验，未修改仓库测试；16 组探针为生产 C + mock，未上板。
+- N=3（单窗口）仍然成立，但它不经过边界，不能证明多组/多窗口成立。
+- 16 vs 8/2/2 的口径冲突应先回写架构/登记，否则后续台架目标仍会漂移。

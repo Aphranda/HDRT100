@@ -12,6 +12,29 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-066：按"减少冗余限制"做了一次激进删减 → 台架反而全 BACKEND（已回退，教训与正确做法写明）
+
+- **用户意见**：这条路径上堆了太多冗余限制，所以跑不起来。方向对，我按它删了四样：
+  ① `s_waiting_window[]` 与窗口边界分支（清版本/释放 arm）；② 推进分支里的回执闸门
+  （`!s_switch_receipt_seen → return`）；③ 以 `sequence` 为键的第二个推进分支；④ `position_fallback`
+  自带的计划/地板否决。目标只剩一条规则：**按 `completed_sequence` 推进**。
+- **台架结果（N=16）**：`executed=0`、`BACKEND=108`（三块从板一致），窗口页 `count=4 fed=2 queued=0
+  state=5(STOPPED)` ⇒ 反而更糟：删掉回执闸门后，运行期把"装载了下一组"当成完成，组游标跑在硬件前面，
+  随后武装身份不符 → BACKEND，开关停在 STOPPED。
+- **结论（重要，写进设计）**：这些限制里只有"回执闸门"和"按 `completed_sequence` 推进"是**必需**的，
+  其余（等待标志/边界清版本/`sequence` 分支/回退自带否决）才是冗余。**删减必须逐项做、每项上台架**，
+  不能一次删四项——与"单步验证"同一条纪律。
+- **本轮已回退**（`trigger_t2_runtime.c` 与 runtime mock 均 `git checkout`），回到 `5605927d` 的状态：
+  构建绿、`test_trigger_t2_runtime` **37 passed**、工作区 clean（仅 5 个未跟踪的 out/ 临时文件）。
+- **下一轮的删除顺序（每步都跑一次 N=16 短采样，判据 executed 不下降）**：
+  1. 先删 `s_waiting_window[]`（改为：边界只清版本并返回，不设等待标志、不跳选择）；
+  2. 观察无回归后再删 `position_fallback` 里的自否否决；
+  3. 最后才考虑把"回执闸门"合并进 `completed_sequence` 判断（它们语义重叠，但合并必须保留"每组只计一次"）。
+- **顺带完成并已提交**：网关 `stage_sequence` 八个拒绝出口分桶 + `window_boundary` 暴露（`5605927d`），
+  下一轮网关 BACKEND 可以直接读出原因（含 READY/NO_LEASE/BD_* 等）。
+
+
+
 ### T2-PROGRESS-20261018-065：窗口边界推进已加，但 N=16 仍停在第 4 个窗口（executed=12）
 
 - **改动（已提交）**：`complete_action()` 的推进分支加"窗口边界"处理——当 `next_tick == 0`（本窗口最后一组，下一组属于新窗口）时，把 `s_deadline.group` 前移到 `s_group_next`、清 `group_count` 与 `prediction_version`，强制 Core0 发布下一窗口的首组；并加计数 `window_boundary`。
