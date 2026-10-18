@@ -610,6 +610,8 @@ scpi_result_t scpi_cmd_trigger_t2_action_diag_q(scpi_t *context)
     SCPI_ResultUInt32(context, st.backend_terminal);
     SCPI_ResultUInt32(context, st.backend_arm);
     SCPI_ResultUInt32(context, st.plan_window);
+    SCPI_ResultUInt32(context, st.done_skip_range);
+    SCPI_ResultUInt32(context, st.done_skip_none);
     for (uint32_t i = 0u; i < 3u; ++i)
         for (uint32_t j = 0u; j < 3u; ++j) SCPI_ResultUInt32(context, st.done_hist[i][j]);
     /* Gateway staged-table refusals: NO_LEASE, BAD_COUNT, BAD_OFFSET, BAD_DELTA, BUSY, READY,

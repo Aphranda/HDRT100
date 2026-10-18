@@ -368,6 +368,8 @@ typedef struct {
     uint32_t backend_identity, backend_terminal, backend_arm;
     /* Groups handed to the executor by the last published plan. */
     uint32_t plan_window;
+    /* complete_action() early returns: group out of range / no armed group. */
+    uint32_t done_skip_range, done_skip_none;
     /* Last three advance decisions: completed (bit31 = seen but not advanced), expected, window_last. */
     uint32_t done_hist[3][3];
 } trigger_t2_runtime_window_stats_t;

@@ -291,6 +291,8 @@ static uint32_t s_action_advance_count, s_action_finish_count;
 static uint32_t s_window_seq_seen, s_window_expected_seen, s_window_last_seen, s_window_complete_seen;
 /* Where a BACKEND failure came from: identity mismatch, terminal/cursor state, or a refused arm. */
 static uint8_t s_window_staged[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+/* complete_action() early returns: group out of range, or no armed group. */
+static uint32_t s_done_skip_range, s_done_skip_none;
 /* Last three advance decisions: completed, expected, window_last. */
 static uint32_t s_done_hist[3][3];
 static uint32_t s_done_hist_next;
@@ -1109,6 +1111,8 @@ static void complete_action(uint32_t index)
      * each further group is promoted and then staged as the next window. */
     const uint32_t groups_total = s_local_template_count ? s_local_template_count
         : (s_group_handed[index] ? s_group_handed[index] : 1u);
+    if (group >= groups_total) ++s_done_skip_range;
+    if (group == TRIGGER_T2_RUNTIME_GROUP_NONE) ++s_done_skip_none;
     s_group_armed[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
     s_state.action_group_in_flight[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
     if (group < groups_total) {
@@ -2257,6 +2261,8 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->backend_terminal = s_backend_terminal;
     out->backend_arm = s_backend_arm;
     out->plan_window = s_plan_window_last;
+    out->done_skip_range = s_done_skip_range;
+    out->done_skip_none = s_done_skip_none;
     for (uint32_t i = 0u; i < 3u; ++i)
         for (uint32_t j = 0u; j < 3u; ++j)
             out->done_hist[i][j] = s_done_hist[i][j];
