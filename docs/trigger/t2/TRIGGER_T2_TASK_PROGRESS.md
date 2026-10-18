@@ -12,6 +12,26 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-032：**目标 ④ 在开关两侧正式判定 PASS**（分圈口径：361 位置 × 16 组 = 5776、零失败）
+
+- **判定口径**：`sequence_workflow.py --steps 3-5 --positions 361`（位置数由"一整圈=361"独立给出，
+  避免用 `finish` 反推造成的循环/跨圈失真），对比 `executed` 与 `组数 × 位置数`，并要求三类失败为 0。
+- **判定结果（整圈台架快照）**：
+  ```
+  SWITCH_A: expected 5776  executed 5776  positions 361  NO_PLAN 0  LATE 0  BACKEND 0   → PASS
+  SWITCH_B: expected 5776  executed 5776  positions 361  NO_PLAN 0  LATE 0  BACKEND 0   → PASS
+  GATEWAY : expected 5776  executed 293   positions 361  三类失败全 0                    → FAIL（节拍）
+  ```
+  ⇒ **目标的验收数字在开关两个角色上正式达成**：一整圈 361 个位置、每个位置 16 个动作、零失败。
+- **网关**：零失败但只跑 293 组（≈18 个位置），即"每个位置平均只跑 2.2 组就被新位置取代"——
+  与开关的差别是**每位置组数没跑满**，不是错误。
+- **下一轮（网关专项）**：用 `GWDIAG.plan_next/complete` 与运行期 `finish` 的比例，判定是
+  "计划被新位置顶掉（BUSY 前一刻）"还是"计划装入后排不空"；两者修法不同：
+  前者要在运行期按位置排队（等待本位置跑完），后者要修 `service` 的排空条件。
+- **交付物**：`out/sync_trigger/sequence_report.html` 已按本次判定重新生成（判据表里 SWITCH_A/B 为 PASS）。
+
+
+
 ### T2-PROGRESS-20261019-031：**达成 361 × 16 = 5776**——开关两侧整圈零失败；网关 293（节拍待修）
 
 - **整圈台架（140 s 采样，组间距 8，`T2_SEQ_GROUPS='1,16,16,16'`）**：
