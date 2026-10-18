@@ -608,6 +608,10 @@ scpi_result_t scpi_cmd_trigger_t2_action_window_q(scpi_t *context)
          for (uint32_t i = 0u; i < 8u; ++i) SCPI_ResultUInt32(context, st.freeze_hist[i]);
          SCPI_ResultUInt32(context, st.freeze_no_plan_zero);
          SCPI_ResultUInt32(context, st.freeze_no_plan_floor);
+         SCPI_ResultUInt32(context, st.action_advance);
+         SCPI_ResultUInt32(context, st.action_finish);
+         SCPI_ResultUInt32(context, st.finish_group);
+         SCPI_ResultUInt32(context, st.finish_total);
      }}
     /* First four slots: frozen, completed, failed, plan version, recv seen, group cursor. */
     for (uint32_t slot = 0u; slot < 4u; ++slot) {

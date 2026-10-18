@@ -282,6 +282,9 @@ static uint32_t s_freeze_per_slot[T2_FREEZE_HISTOGRAM];
 /* Why the freeze found no plan: version 0 (nothing solved) or at/below the slot floor (a leftover
  * of the previous occupant). The floor rises on every recycle, so a reused slot is the suspect. */
 static uint32_t s_freeze_no_plan_zero, s_freeze_no_plan_floor;
+/* complete_action(): advances, finishes, and the group/groups_total observed at the finish. */
+static uint32_t s_action_advance_count, s_action_finish_count;
+static uint32_t s_finish_group_last, s_finish_total_last;
 static volatile uint32_t s_guard;
 
 #define T2_WINDOW_HISTORY_CAPACITY 17u
@@ -1091,6 +1094,7 @@ static void complete_action(uint32_t index)
     if (group < groups_total) {
         s_state.action_group_done[index] |= 1u << group;
         s_state.action_groups_executed++;
+        ++s_action_advance_count;
         if (group + 1u < groups_total) {
             s_group_next[index] = (uint8_t)(group + 1u);
             s_state.action_group_next[index] = s_group_next[index];
@@ -1119,6 +1123,9 @@ static void complete_action(uint32_t index)
             return;
         }
     }
+    ++s_action_finish_count;
+    s_finish_group_last = group;
+    s_finish_total_last = groups_total;
     s_group_handed[index] = 0u;
     s_action_sequence_last[index] = 0u;
     /* Put the group cursor back to the first group: the next position on this slot must be
@@ -1257,6 +1264,15 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
             ++s_window_advance_count;
             if (sequence != expected + 1u) ++s_window_jump_count;
             s_deadline[index].deadline_tick = deadline;
+            /* The LAST group of the window ends the position: the switch reports COMPLETE and its
+             * receipt is already retired, so the receipt gate below would loop for ever and the
+             * finish would never run (measured: advance=6, finish=0, group_next stuck at 2). */
+            if (sequence == window_last && complete) {
+                complete_action(index);
+                s_state.action_sequence[index] = sequence;
+                s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
+                return;
+            }
             if (!s_switch_receipt_seen) {
                 ++s_window_no_receipt_count;
                 return;
@@ -2143,6 +2159,10 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->recv_older = s_recv_older;
     out->recv_ok = s_recv_ok;
     for (uint32_t i = 0u; i < T2_FREEZE_HISTOGRAM; ++i) out->freeze_hist[i] = s_freeze_per_slot[i];
+    out->action_advance = s_action_advance_count;
+    out->action_finish = s_action_finish_count;
+    out->finish_group = s_finish_group_last;
+    out->finish_total = s_finish_total_last;
     out->freeze_no_plan_zero = s_freeze_no_plan_zero;
     out->freeze_no_plan_floor = s_freeze_no_plan_floor;
     out->recycle_promote = s_recycle_promote;

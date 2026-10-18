@@ -12,6 +12,22 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-059：三组位置**只推进到第 3 组之前**（adv=6 / finish=0），且三槽位行为完全一致
+
+- **用户的澄清（重要，写入模型）**：**FREEZE 是同步发给三个槽位的**——同一个位置在三个槽位上被冻结，逻辑应当完全相同。台架读数与此一致：`freeze_hist = 38,38,38`（三槽各 38 次），三槽的 `group_next` 都停在 **2**，说明这是**同一处逻辑**的问题，不是某个槽位特殊。
+- **决定性计数**（窗口页尾，字段已对齐）：
+  ```
+  SWITCH_A / SWITCH_B: executed=6  NO_PLAN=111  adv=6  finish=0  finish_group=0  finish_total=0
+                       no_plan_zero=111  slots frozen=[0,0,1,0]  group_next=[2,2,2,0]
+  GATEWAY            : executed=0  BACKEND=114  adv=0 finish=0
+  ```
+  ⇒ 每个位置**只推进到第 2 组结束**（0→1、1→2），第 3 组的完成**从未被识别**，于是 `finish` 永远为 0，槽位停在 `frozen + failed`（slot2）或 `frozen` 且 `group_next=2`。
+- **已修（本代码提交）**：窗口分支此前对"最后一组完成"也会走回执闸门（`!receipt_seen` ⇒ 直接 return），使 `expected` 永不前进、`complete` 分支永远到不了；现在 `sequence == window_last && complete` 直接 `complete_action` 并收尾。**但台架读数未变**（adv=6 / finish=0），说明真正的阻断点还在更前面：`complete` 或 `window_last` 与该时刻的实际值不符。
+- **下一轮（打印精确元组）**：在窗口分支加 4 个临时字段：`sequence`、`expected`、`window_last`、`complete`（取最近一次），一次台架即可看出最后一组到底上报成什么；同时给网关的 `BACKEND` 加拒绝桶（它当轮 114 次全部 BACKEND）。
+- **注**：GATEWAY 仍 114 次 BACKEND（已下发 `REAdy 0`），需要单独看它 `stage_sequence` 的拒绝桶。
+
+
+
 ### T2-PROGRESS-20261018-058：更正上一轮的读数 + 新假设——三组位置**从未走到收尾**（`group_next` 停在 2）
 
 - **更正**：上一轮我读 `win[-2:]` 当作"zero/floor 桶"，但那两个字段在**槽位探针之后**，所以读到的是探针数据。真实情况：`freeze_missing=105` 说明 **NO_PLAN 是 FREEZE 路径判的**（不是选择路径）。
