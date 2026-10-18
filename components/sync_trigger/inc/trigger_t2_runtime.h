@@ -353,8 +353,13 @@ typedef struct {
     uint32_t publish_before_freeze, publish_after_freeze;
     /* deadline_receive() exits: guard busy, no version, wrong session, older group, accepted. */
     uint32_t recv_busy, recv_no_version, recv_session, recv_older, recv_ok;
+    /* Slot recycling: promoted from the stash, recycled by a newer preview, stash sets. */
+    uint32_t recycle_promote, recycle_newer, stash_set;
 } trigger_t2_runtime_window_stats_t;
 bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out);
+
+/* frozen, completed, failed, plan version, receive seen, group cursor. */
+bool trigger_t2_runtime_slot_probe(uint32_t index, uint32_t out[6]);
 void trigger_t2_runtime_prepare_core0(void);
 bool trigger_t2_runtime_preview_history(uint32_t position_id, uint32_t age,
                                         trigger_position_descriptor_t *out);

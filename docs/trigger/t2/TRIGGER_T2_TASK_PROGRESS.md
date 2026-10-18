@@ -12,6 +12,22 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-056：槽位探针给出新线索——**只有 slot 2 被使用**，其余槽位从未冻结
+
+- **新仪器**：窗口页尾 24 字段 = 前 4 个槽位 × `(frozen, completed, failed, plan_version, recv_seen, group_next)`。
+- **N=3 探针读数**（两块从板一致）：
+  ```
+  slot 0: frozen=0 completed=0 failed=0 plan_ver=0 recv_seen=524 group_next=2
+  slot 1: frozen=0 completed=0 failed=0 plan_ver=0 recv_seen=594 group_next=2
+  slot 2: frozen=1 completed=0 failed=1 plan_ver=0 recv_seen=216 group_next=2
+  slot 3: 全 0（从未使用）
+  ```
+  ⇒ **整轮只用了 slot 2**（position_id=3），且它停在 `failed=1 / group_next=2`。这与 `executed=6`（2 位置×3 组）完全吻合：一旦 slot 2 失败并再也没被"当作新位置"接受，后面所有位置都判 NO_PLAN。
+- **本轮修复（已提交）**：`complete_action()` 的收尾分支此前把该槽位的 `prediction_version` 清 0（第 57 轮的"清洁性改动"），使 Core0 早已为下一位置发布的计划**不可见**（邮箱 guard 未变 ⇒ `deadline_receive` 不再重读）。现在改为**保留计划**、只把 `s_deadline_seen` 清零以强制下一次重读；残留计划由 `recycle_slot()` 抬高的槽位地板（版本 ≤ 地板即拒绝）兜住。
+- **仍未解决**：`executed` 依旧 6、`NO_PLAN=105`。**下一轮首要线索**：为什么所有位置都落到 slot 2？可能原因：origin 侧 position_id 恒为 3，或 `T2_TARGETS` 只配了一个目标槽。验证方法：统计 `descriptor.position_id` 的分布（每槽计数），若确认恒为 3，则问题在"位置→槽位"的映射，而不在计划供给。
+
+
+
 ### T2-PROGRESS-20261018-055：N≥3 的测试矩阵全部为负，收敛到"槽位只在前两个位置被回收"
 
 - **本轮又排除了三个因素**（每次只改一项，22 步全 OK）：

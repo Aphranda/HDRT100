@@ -272,6 +272,9 @@ static uint32_t s_skip_group_unreachable, s_skip_inflight, s_skip_accepted;
 static uint32_t s_publish_before_freeze, s_publish_after_freeze;
 /* deadline_receive() exits: guard busy, no version, wrong session, older group. */
 static uint32_t s_recv_busy, s_recv_no_version, s_recv_session, s_recv_older, s_recv_ok;
+/* Slot recycling: executed is a constant 6 across every configuration, so the suspicion is that a
+ * slot is never handed back to a new position after its first occupants. */
+static uint32_t s_recycle_promote, s_recycle_newer, s_stash_set;
 static volatile uint32_t s_guard;
 
 #define T2_WINDOW_HISTORY_CAPACITY 17u
@@ -868,6 +871,7 @@ reject:
 static void T2_RAM stash_successor(uint32_t index,
                                    const trigger_position_descriptor_t *descriptor)
 {
+    ++s_stash_set;
     const uint32_t bit = 1u << index;
     if (descriptor->stage != TRIGGER_POSITION_STAGE_PREVIEW ||
         descriptor->prediction_version <= slot_version_high(index) ||
@@ -893,6 +897,7 @@ static T2_BOUNDED void T2_HOT(promote_stashed)(uint64_t current_ms)
             !((s_state.action_failed_mask | s_state.action_completed_mask) & bit)) continue;
         const trigger_position_descriptor_t successor = s_stash[index];
         s_stash_valid &= ~bit;
+        ++s_recycle_promote;
         recycle_slot(index);
         if (!admit_preview(successor, index, current_ms)) note_position_lost();
     }
@@ -931,6 +936,7 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
         if (descriptor.stage == TRIGGER_POSITION_STAGE_FREEZE ||
             descriptor.prediction_version <= slot_version_high(index))
             return true;
+        ++s_recycle_newer;
         recycle_slot(index);
     } else if (s_slot_floor[index] && descriptor.prediction_version <= s_slot_floor[index]) {
         return true;
@@ -1119,14 +1125,17 @@ static void complete_action(uint32_t index)
     s_group_next[index] = 0u;
     s_group_armed[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
     s_state.action_group_in_flight[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
-    /* A finished window must not leave its last group behind: the arm path clears
-     * prediction_version, and the FREEZE path reads version 0 as NO_PLAN. Measured with a
-     * two-group role: freeze_missing_local=166 against 6 executed positions, while
-     * single-group roles (which only ever leave group 0 behind) ran 169/169. */
+    /* Reset the group identity but KEEP the plan: clearing `prediction_version` here made a plan
+     * that Core0 had already published for the NEXT position invisible, because the mailbox guard
+     * does not change and deadline_receive() therefore never copies it again - every slot ended
+     * the run with plan_ver=0 and the next FREEZE ruled NO_PLAN (executed stuck at 6 for any
+     * configuration). A leftover plan is harmless: recycle_slot() raises the slot floor to the
+     * version the finished occupant used and the FREEZE rejects anything at or below it.
+     * Resetting `s_deadline_seen` forces the next receive pass to re-read the mailbox. */
     s_deadline[index].group = 0u;
     s_deadline[index].group_count = 0u;
-    s_deadline[index].prediction_version = 0u;
     s_deadline[index].next_tick = 0u;
+    s_deadline_seen[index] = 0u;
     s_state.emitted_position_mask |= bit;
     s_state.action_completed_mask |= bit;
     report_frozen();
@@ -2082,6 +2091,20 @@ static void prepare_deadlines_core0(uint32_t session,
     }
 }
 
+/* Raw numbers of one position slot, for the bench probe. */
+bool trigger_t2_runtime_slot_probe(uint32_t index, uint32_t out[6])
+{
+    if (!out || index >= TRIGGER_T2_RUNTIME_POSITION_COUNT) return false;
+    const uint32_t bit = 1u << index;
+    out[0] = (s_state.frozen_mask & bit) ? 1u : 0u;
+    out[1] = (s_state.action_completed_mask & bit) ? 1u : 0u;
+    out[2] = (s_state.action_failed_mask & bit) ? 1u : 0u;
+    out[3] = s_deadline[index].prediction_version;
+    out[4] = s_deadline_seen[index];
+    out[5] = s_state.action_group_next[index];
+    return true;
+}
+
 bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
 {
     if (!out) return false;
@@ -2103,6 +2126,9 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->recv_session = s_recv_session;
     out->recv_older = s_recv_older;
     out->recv_ok = s_recv_ok;
+    out->recycle_promote = s_recycle_promote;
+    out->recycle_newer = s_recycle_newer;
+    out->stash_set = s_stash_set;
     return true;
 }
 

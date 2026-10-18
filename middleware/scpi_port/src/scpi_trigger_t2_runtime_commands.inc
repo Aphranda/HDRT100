@@ -602,7 +602,16 @@ scpi_result_t scpi_cmd_trigger_t2_action_window_q(scpi_t *context)
          SCPI_ResultUInt32(context, st.recv_session);
          SCPI_ResultUInt32(context, st.recv_older);
          SCPI_ResultUInt32(context, st.recv_ok);
+         SCPI_ResultUInt32(context, st.recycle_promote);
+         SCPI_ResultUInt32(context, st.recycle_newer);
+         SCPI_ResultUInt32(context, st.stash_set);
      }}
+    /* First four slots: frozen, completed, failed, plan version, recv seen, group cursor. */
+    for (uint32_t slot = 0u; slot < 4u; ++slot) {
+        uint32_t probe[6] = {0u, 0u, 0u, 0u, 0u, 0u};
+        (void)trigger_t2_runtime_slot_probe(slot, probe);
+        for (uint32_t f = 0u; f < 6u; ++f) SCPI_ResultUInt32(context, probe[f]);
+    }
     return SCPI_RES_OK;
 }
 
