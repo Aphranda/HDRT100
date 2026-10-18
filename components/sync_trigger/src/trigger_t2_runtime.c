@@ -291,6 +291,9 @@ static uint32_t s_action_advance_count, s_action_finish_count;
 static uint32_t s_window_seq_seen, s_window_expected_seen, s_window_last_seen, s_window_complete_seen;
 /* Window boundaries crossed (a position with more groups than one window carries). */
 static uint32_t s_window_boundary_count;
+/* A position whose window ended but which still has groups left: wait for the next window's plan
+ * instead of running the selection loop in the same pass (review SEQ-C04). */
+static uint8_t s_waiting_window[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 static uint32_t s_finish_group_last, s_finish_total_last;
 static volatile uint32_t s_guard;
 
@@ -1107,10 +1110,21 @@ static void complete_action(uint32_t index)
             s_group_next[index] = (uint8_t)(group + 1u);
             s_state.action_group_next[index] = s_group_next[index];
             if (s_group_next[index] < s_group_handed[index]) {
-                /* Already in hardware: this receipt advances the cursor, nothing is armed. */
-                s_group_armed[index] = s_group_next[index];
-                s_state.action_group_in_flight[index] = s_group_next[index];
-                s_deadline[index].group = s_group_next[index];
+                /* Already in hardware: this receipt advances the cursor, nothing is armed. SEQ-C02:
+                 * the slice and tick must advance with the group, otherwise the promotion at the
+                 * window end starts from the window's FIRST slice and lands two groups behind the
+                 * cursor (measured: LATE at the fourth group). */
+                const uint32_t prev = group;
+                const uint32_t next = s_group_next[index];
+                if (s_local_group[next].delta_q >= s_local_group[prev].delta_q) {
+                    const int64_t step = s_local_group[next].delta_q - s_local_group[prev].delta_q;
+                    if (step > 0 && (uint64_t)step <= UINT64_MAX - s_deadline[index].action_q)
+                        s_deadline[index].action_q += (uint64_t)step;
+                }
+                s_deadline[index].next_tick = 0u;   /* SEQ-C03: only a single-group window uses it */
+                s_group_armed[index] = next;
+                s_state.action_group_in_flight[index] = next;
+                s_deadline[index].group = next;
                 return;
             }
             /* T2-SEQ-001 in-flight window: promote the next group IN THIS PASS from the
@@ -1118,7 +1132,15 @@ static void complete_action(uint32_t index)
              * wait for another Core0 round trip (measured 2026-10-16: that round trip
              * exceeded 25 ms on loaded followers, which no real group spacing affords).
              * The static delta_q gives the next slice without any solve. */
-            if (!s_deadline[index].next_tick) {
+            if (s_group_next[index] >= s_group_handed[index] &&
+                s_group_next[index] < groups_total) {
+                /* Window boundary. Keep the arm so the same pass does not run the selection loop,
+                 * and wait for Core0 to publish the next window's first group (SEQ-C04). */
+                s_waiting_window[index] = 1u;
+                /* Release the arm: keeping it blocked every other position AND this one, so the next
+                 * window was never selected and the position silently stopped after 12 of 16 groups
+                 * (measured: executed=12 with NO_PLAN/LATE/BACKEND all 0). */
+                s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
                 /* Window boundary: the group after this one belongs to the NEXT window, so no
                  * next_tick was solved. Move the slot identity forward and drop the plan version so
                  * Core0 publishes that window's first group; the selection loop then accepts it
@@ -1323,7 +1345,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
             s_state.action_uncertain_mask |= bit;
             action_fail(index, TRIGGER_T2_ACTION_FAIL_BACKEND);
             s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
-        } else if (complete) {
+        } else if (complete && s_group_armed[index] != TRIGGER_T2_RUNTIME_GROUP_NONE) {
             complete_action(index);
             s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
         } else if (terminal ||
@@ -1358,6 +1380,11 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         const uint32_t bit = 1u << index;
         if (!(s_state.frozen_mask & bit) ||
             ((s_state.action_failed_mask | s_state.action_completed_mask) & bit)) continue;
+        /* A window boundary is not a failure: wait for the next window's plan, then arm it like any
+         * other group. Only the failure judgement is skipped while the plan is missing. */
+        if (s_waiting_window[index] &&
+            (!s_deadline[index].prediction_version ||
+             s_deadline[index].group != s_group_next[index])) continue;
         const t2_deadline_plan_t *plan = &s_deadline[index];
         /* T2-SEQ-001: a plan that belongs to a group which already finished is
          * not late - the next group simply has not been prepared yet, and its
@@ -1446,6 +1473,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     s_group_armed[selected] = (uint8_t)plan->group;
     s_state.action_group_in_flight[selected] = plan->group;
     s_group_handed[selected] = (uint8_t)(plan->group + (handed ? handed : 1u));
+    s_waiting_window[selected] = 0u;
     s_state.action_armed_mask |= 1u << selected;
     s_state.action_deadline_tick[selected] = plan->deadline_tick;
     /* Read the owner's accepted sequence; a later mismatch cannot complete us. */
@@ -1454,6 +1482,11 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         if (sync_io_switch_realtime_status(&status)) {
             s_state.action_sequence[selected] = status.sequence;
             s_action_sequence_last[selected] = status.sequence + (handed ? handed - 1u : 0u);
+            /* SEQ-C01: `expected` must be the sequence BEFORE the first group, otherwise the first
+             * group's completion (`completed == base`) fails `completed > expected` and every group
+             * slips one beat - the window's last group then falls into the `else if (complete)` path,
+             * which clears the arm and lets the selection loop fail the position as LATE. */
+            if (handed && s_state.action_sequence[selected]) --s_state.action_sequence[selected];
             note_backend(selected, status.state, status.origin_before_tick, status.origin_after_tick);
         }
     } else {
