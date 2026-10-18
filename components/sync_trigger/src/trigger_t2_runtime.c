@@ -289,6 +289,8 @@ static uint32_t s_freeze_no_plan_zero, s_freeze_no_plan_floor;
 static uint32_t s_action_advance_count, s_action_finish_count;
 /* Last window-branch evaluation: backend sequence, runtime expectation, window end, COMPLETE flag. */
 static uint32_t s_window_seq_seen, s_window_expected_seen, s_window_last_seen, s_window_complete_seen;
+/* Window boundaries crossed (a position with more groups than one window carries). */
+static uint32_t s_window_boundary_count;
 static uint32_t s_finish_group_last, s_finish_total_last;
 static volatile uint32_t s_guard;
 
@@ -1116,6 +1118,17 @@ static void complete_action(uint32_t index)
              * wait for another Core0 round trip (measured 2026-10-16: that round trip
              * exceeded 25 ms on loaded followers, which no real group spacing affords).
              * The static delta_q gives the next slice without any solve. */
+            if (!s_deadline[index].next_tick) {
+                /* Window boundary: the group after this one belongs to the NEXT window, so no
+                 * next_tick was solved. Move the slot identity forward and drop the plan version so
+                 * Core0 publishes that window's first group; the selection loop then accepts it
+                 * because `plan->group` matches `s_group_next`. */
+                s_deadline[index].group = s_group_next[index];
+                s_deadline[index].group_count = 0u;
+                s_deadline[index].prediction_version = 0u;
+                ++s_window_boundary_count;
+                return;
+            }
             if (s_deadline[index].next_tick &&
                 s_local_group[group + 1u].delta_q >= s_local_group[group].delta_q) {
                 const uint64_t step =
@@ -2180,6 +2193,7 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->recv_older = s_recv_older;
     out->recv_ok = s_recv_ok;
     for (uint32_t i = 0u; i < T2_FREEZE_HISTOGRAM; ++i) out->freeze_hist[i] = s_freeze_per_slot[i];
+    out->window_boundary = s_window_boundary_count;
     out->window_seq = s_window_seq_seen;
     out->window_expected = s_window_expected_seen;
     out->window_last = s_window_last_seen;

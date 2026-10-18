@@ -314,7 +314,7 @@ docs/
 | `trigger/t2/TRIGGER_T2_ARCHITECTURE.md` | T2 实施架构草案：多板槽位部署、预约身份、READY/fence、VDC 映射与实际回读边界。 |
 | `trigger/t2/TRIGGER_T2_TODO.md` | 多板实际槽位部署后开展 T2 预约触发的任务、依赖与验收。 |
 | `trigger/t2/TRIGGER_T2_TASK_PROGRESS.md` | T2 分支参考、切片实现、验证、失败与交接记录。 |
-| `trigger/t2/TRIGGER_T2_REVIEW.md` | 2026-10-09 T2 代码与架构语义评审快照：偏离项、实际状态对账、文档漂移与建议顺序；2026-10-18 增补 sequence 阻塞点独立审核（完成状态契约、序号推进、主机探针）；非契约。 |
+| `trigger/t2/TRIGGER_T2_REVIEW.md` | 2026-10-09 T2 代码与架构语义评审快照：偏离项、实际状态对账、文档漂移与建议顺序；2026-10-18 增补两轮 sequence 独立审核（完成状态契约、序号推进、N=16 窗口边界与主机探针）；非契约。 |
 | `trigger/t2/TRIGGER_T2_STEP_REVIEW.md` | 2026-10-11 T2 复核汇总：状态对账、predictor/runtime/wire 与分支角度前端两份审计的核对、31 位置/STEP/身份/模拟源影响与待裁定决定清单；非契约。 |
 | `trigger/t2/T2_FLOW.html` | T2 起链工作流 A4 视图：由 `tools/sync_trigger/t2_workflow.py` 注入最近一次运行的逐步结果；数据快照，非事实源。 |
 | `trigger/t2/DPLL60_FLOW.html` | DPLL60 工作流 A4 视图：由 `tools/vdc_priority_trace/DPLL60_workflow.py` 注入最近一次运行的逐步结果；不是验收凭证。 |

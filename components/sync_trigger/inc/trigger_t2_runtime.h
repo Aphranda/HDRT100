@@ -362,6 +362,8 @@ typedef struct {
     uint32_t action_advance, action_finish, finish_group, finish_total;
     /* Last window-branch evaluation: sequence, expected, window end, COMPLETE flag. */
     uint32_t window_seq, window_expected, window_last, window_complete;
+    /* Window boundaries crossed (more groups than one window carries). */
+    uint32_t window_boundary;
 } trigger_t2_runtime_window_stats_t;
 bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out);
 

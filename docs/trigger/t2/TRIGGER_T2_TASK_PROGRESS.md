@@ -12,6 +12,16 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-065：窗口边界推进已加，但 N=16 仍停在第 4 个窗口（executed=12）
+
+- **改动（已提交）**：`complete_action()` 的推进分支加"窗口边界"处理——当 `next_tick == 0`（本窗口最后一组，下一组属于新窗口）时，把 `s_deadline.group` 前移到 `s_group_next`、清 `group_count` 与 `prediction_version`，强制 Core0 发布下一窗口的首组；并加计数 `window_boundary`。
+- **台架（N=16，20 s，22 步 OK）**：`executed=12`、`groups=16`、`NO_PLAN=108`、`LATE=3`、`BACKEND=0`；窗口页 `count=4 fed=4 queued=0 COMPLETE last=14`。
+  - `last=14` 说明**第 4 个窗口确实被武装过**（base=14，覆盖组 12..15），但它的四组一组都没完成 ⇒ 卡在"第 4 窗口已装、回执不来"。
+- **本轮的一次台架故障**：首跑在步骤 6/16-20 失败（origin 板 `'EMPTY'` 校准页、`phase 5 fault 3`），重跑即恢复——属台架侧偶发，已记录。
+- **下一轮**：① 把 `window_boundary` 输出到 `DIAG?`（现在只写不读，评审 SEQ-B06 同类问题）；② 若 `window_boundary>0` 且第 4 窗口零完成，则查开关侧：第 4 窗口的 `stage_sequence` 是否被 `s_switch.state==PENDING` 拒绝（`schedule_at`/`stage_sequence` 都要求非 PENDING），以及 `sequence` 是否与运行期 `expected` 脱节；③ 判据 `executed = 16 × 位置数`。
+
+
+
 ### T2-PROGRESS-20261018-064：N=16 前三个窗口跑通（executed=12），第 4 个窗口起停住；单窗口 16 组被 RAM 否决
 
 - **改动（已提交）**：`complete_action()` 的"本位置有几组"改为**按角色模板**取（此前取"已交出窗口"的大小，导致 16 组的位置在第 4 组就被判完成）。这样 4 组一窗、逐窗滑动成为可能。

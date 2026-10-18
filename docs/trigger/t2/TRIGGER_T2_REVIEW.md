@@ -452,3 +452,66 @@ PROBE-END t=160024 writes1=3 | state=2 seq=2 mask=3 | count=3 fed=3 queued=0 sw=
 - 本节未验证固件、未上板；`SEQ-B03`/`SEQ-B07` 的运行期部分为读码 + 台架读数对齐，不是主机执行。
 - gateway 多组序列存在同源风险：`s_switch_receipt_seen` 只在 switch 分支赋值，gateway 分支的中途推进永远没有 receipt，按当前 `if(!s_switch_receipt_seen) return` 也会挡掉中途组；061 的 GATEWAY `BACKEND=114` 是否同因未验证（推测）。
 - 本节不改变 TODO 状态；采纳项应转成 TODO 任务并附台架判据。
+
+## 八、sequence 第二轮独立审核：N=16 窗口边界（2026-10-18 晚）
+
+> 本节接第七节，审核对象是“N=3 已跑通”之后的新现场：多窗口位置（16 组）在窗口交接处失败，以及工作区未提交的 `complete_action()` 边界分支。基线为 HEAD `21ff8c6e` + 未提交改动（`trigger_t2_runtime.c`：`!next_tick` 边界分支与 `window_boundary` 计数）。方法为只读读码 + 生产 C 在既有 runtime mock 上跑 16 组探针；探针把 mock 的 `completed_sequence`/`receipt_mask` 改成生产语义（仓库现有 mock 没有这些字段，见 8.4 的 SEQ-C06）。未构建固件、未上板。
+
+### 8.1 结论摘要
+
+1. **N=3 的“跑通”没有覆盖窗口交接。** 16 组位置在第一个窗口末（第 4 组）就失败：`exec=4, finish=0, boundary=0`，失败原因是 LATE；HEAD 与工作区未提交改动输出相同。
+2. **直接原因 A：窗口内只推进 `group`，不推进 `action_q`。** 第 2/3/4 组完成时 `complete_action()` 走 `s_group_next < s_group_handed` 分支，只改 `group`；`s_deadline.action_q` 仍停在窗口首组（20001）。窗口末把它 + 一个 delta 得到 20201（第 2 组的 q），而 cursor 已到 20601（第 4 组）⇒ 选择循环判 LATE。
+3. **直接原因 B：`!next_tick` 边界条件永远不成立。** 窗口内分支从不清理 `next_tick`，探针里每次 `complete_action` 都读到 `nt=2525125`；窗口末因此走“本地推进一组”而不是边界分支，`window_boundary=0`。
+4. **直接原因 C：`completed > expected` 差一。** 武装时 expected=base；第 1 组完成时 `completed_sequence=base`，`completed > expected` 为假，第 1 组不被计数；后续每组都晚一拍，窗口末组由 `else if (complete)` 处理。该分支会清 `s_armed_index` 并落入选择循环，正是 LATE 的触发点。
+5. **未提交的边界分支即使能到达也不成立。** 它把 `prediction_version` 清 0 后返回；调用方 `else if (complete)` 仍会清 arm 并立刻跑选择循环，Core0 来不及发布下一窗口 ⇒ 版本 0 会被判 NO_PLAN。窗口交接需要显式的“等待下一窗口计划”状态，不能在同一拍失效 + 选择。
+6. **测试仍未覆盖。** 仓库 runtime mock 不设置 `status.completed_sequence`，37 项测试走的是旧的 `sequence` 路径；本节的 16 组探针必须先补 mock 才能复现。第七节的 SEQ-B07 仍未关闭。
+
+### 8.2 16 组主机探针（生产语义 mock，工作区 = 未提交边界分支）
+
+```text
+step0  completed=1 expected=1 complete=0  -> 不推进（第1组完成被跳过）
+step1  completed=2 expected=1 complete=0  -> ADVANCED 1->2，complete_action(g=0)，next=1
+step2  completed=3 expected=2 complete=0  -> ADVANCED 2->3，complete_action(g=1)，next=2
+step3  completed=4 expected=3 complete=0  -> ADVANCED 3->4，complete_action(g=2)，next=3
+step4  completed=4 expected=4 complete=1  -> ELSE_COMPLETE armed=3 -> PROMOTE g=4 q=20201 cursor=20601 -> LATE
+       exec=4 finish=0 boundary=0 fail_reason=LATE
+```
+
+- `complete_action` 每次的 `next_tick` 都是 2525125（第 1 组的下一拍），从未被清理。
+- 第 4 组完成时 `s_deadline.action_q=20001`（窗口首组），本地推进 +200 得 20201；第 4 组的 q 是 20601（cursor 同值）⇒ LATE。
+- HEAD（无未提交边界分支）输出相同：`exec=4 finish=0 boundary=0 LATE`。即该分支对本路径零作用。
+
+### 8.3 阻塞链
+
+1. 武装窗口 0..3，`handed=4`，`next_tick`=第 1 组 tick。
+2. 第 1 组完成：`completed=base`，`expected=base`，`completed>expected` 不成立；`sequence` 前进但换 head 时 `receipt_mask=0`，第 1 组不推进。
+3. 第 2 组完成：`completed=base+1`，推进第 1 组；`s_group_next=1 < handed=4`，只改 `group=1`，`action_q` 不变。
+4. 第 3、4 组同理；到第 4 组完成时，`action_q` 仍是窗口首组 q，`next_tick` 仍是第 1 组 tick。
+5. `else if (complete)` 处理第 4 组：`next_tick` 非零 ⇒ 走本地推进，`q=base+step`（第 2 组），`deadline_tick=next_tick`（第 1 组），清 arm。
+6. 同拍选择循环看到 `plan->group=4` 但 `action_q <= cursor` ⇒ LATE，位置失败；16 组位置没有完成，后续窗口不再推进。
+
+### 8.4 发现表
+
+| ID | 严重度 | 位置 | 发现 | 证据 |
+|---|---|---|---|---|
+| SEQ-C01 | 阻塞 | `trigger_t2_runtime.c:1284` | `completed > expected` 差一：第 1 组 `completed=base==expected` 不计；每组晚一拍，窗口末组落到 `else if(complete)` | 探针 step0/step4 |
+| SEQ-C02 | 阻塞 | `trigger_t2_runtime.c:1109-1114` | 窗口内推进只改 `group`，不更新 `action_q`/`deadline_tick`；窗口末 q 停留在首组 | 探针 q=20201 vs cursor=20601 |
+| SEQ-C03 | 阻塞 | `trigger_t2_runtime.c:1121` | 边界条件 `!next_tick` 不可达：窗口内分支从不清理 `next_tick` | 探针 `nt=2525125`、`boundary=0` |
+| SEQ-C04 | 高 | `trigger_t2_runtime.c:1121-1130,1326-1328` | 即使到达边界，清 `prediction_version` 后调用方清 arm 并立即选择，Core0 来不及发布 ⇒ NO_PLAN | 读码 + step4 路径 |
+| SEQ-C05 | 高 | `trigger_t2_runtime.c:1100-1103,1326-1328` | 若只修 C01，让第 4 组走 completed 分支并在边界返回，下一拍 `else if(complete)` 会以 `GROUP_NONE(0xFF)` 再调 `complete_action`；`0xFF >= groups_total` ⇒ 直接 finish，4 组就收尾 | 读码推断；探针的 ELSE_COMPLETE 路径 |
+| SEQ-C06 | 中 | `tests/python/test_trigger_t2_runtime.py:120-129` | mock 不设置 `status.completed_sequence`；37 passed 走旧 `sequence` 路径，未验证新分支/窗口交接 | 读码 + 本节探针需先补 mock |
+| SEQ-C07 | 中 | `T2-PROGRESS-20261018-064` | `executed=12/LATE=3` 更像 3 个 16 组位置各在首窗口末失败（4 组×3），而不是 1 个位置的 3 个窗口；`LATE=3` 与探针每次边界 LATE 一致 | 探针 + 计数；待 position_id/槽位确认 |
+
+### 8.5 修复方向
+
+1. **先修 `completed_sequence` 的起点**：武装时把 expected 设为 `status.sequence - 1`（或 `completed >= expected` + first 标志），让第 1 组也走 `completed` 分支；这样第 4 组在窗口末不会被 `else if(complete)` 接管。
+2. **窗口内同步推进 q/tick**：在 `s_group_next < s_group_handed` 分支按 `s_local_group[next].delta_q - s_local_group[group].delta_q` 累加 `action_q`，并把 `deadline_tick` 指到该组的 `group_tick[]`；不要让 q 停在窗口首组。
+3. **把边界显式化**：用 `s_group_next == s_group_handed`（且 `s_group_next < groups_total`）判窗口末，而不是 `!next_tick`；窗口内分支应清理/忽略 `next_tick`（它只适用于单组窗口）。
+4. **给窗口交接一个状态**：`complete_action()` 返回“窗口内前进 / 需要下一窗口 / 位置完成”三态；需要下一窗口时保留 `s_armed_index` 或置 `waiting_next_window`，不要清 arm、不要同拍选择。等 Core0 发布下一窗口计划后再 arm；超时才按 NO_PLAN/BACKEND 失败，不能用 LATE 代替。
+5. **修测试**：mock 必须设置 `completed_sequence`（完成组，不是下一 head）、换 head 清 `receipt_mask`；新增 16 组用例，断言 16 次 advance、1 次 finish、`boundary` 计数正确、无 LATE。
+
+### 8.6 对 064 的更正与边界
+
+- 064 的“3 个窗口 ×4 组”与 `LATE=3` 不自洽：若一个位置真的跑了 3 个窗口，窗口之间不应产生 3 次 LATE；更合理的读法是 3 个 16 组位置各在首窗口末失败（`executed=12=3×4`，`LATE=3`）。请用 position_id/槽位探针确认；若成立，064 的“第 4 个窗口起停住”应改为“每个 16 组位置在第 1 个窗口末失败”。
+- 本节未验证固件、未上板；16 组探针为生产 C + mock，未修改仓库测试。N=3 的 357 结论不否定，但它的成功路径没有覆盖窗口交接。
+- 本节不改变 TODO 状态；采纳项应转成 TODO 任务并附台架判据。
