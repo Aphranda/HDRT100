@@ -12,6 +12,26 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-014：GWDIAG 增加 SM 直接观测量（在 teardown 前采样）：**停住时 SM 是关闭的、pending=0、TX=0**
+
+- **新增（设备侧，`PICO_ON_DEVICE` 保护）**：`sm_enabled`（`ctrl` 位）、`pc`（`sm[].addr`）、`tx_level`（`fstat`）、
+  `pending`。宿主 harness 用解释器建模 PIO，不读这些寄存器，故条件编译。
+- **读数（N=16，组间距 8，快照在 teardown 之前）**：
+  ```
+  plan_count=16  svc_complete=2  plan_next=3  svc_wait=51
+  sm_enabled=0   pending=0      tx_level=0
+  ```
+  ⇒ 停住时**输出 SM 已关闭、没有待发的字、pending 已清**。也就是说"第三发被武装、只是不执行"这个描述要更正：
+  **第三发根本没有发生**——`plan_next` 停在 3（= 装表时的第一发 + `service` 里的两发），之后 `service` 不再武装。
+- **这指向运行期一侧**：第二发完成之后，运行期没有继续处理这个槽位（完成计数没推进 ⇒ 位置被
+  `identity/terminal` 判失败 ⇒ 不再调用该槽位的后端）。`arm=114`（每位置一次）与 `identity=1` 也支持这一点。
+- **下一轮（一步）**：在运行期的推进分支上把"每次完成"的三元组（`completed / expected / window_last`）
+  打点（已有 `window_seq/expected` 镜像，但只在 armed 时更新，需要新增一个"最后三次完成"的环形记录），
+  台架读一次即可看出第 2 发之后为什么不再前进。
+- **开关侧**：`executed = 16 × 位置数`、三类失败全 0。
+
+
+
 ### T2-PROGRESS-20261019-013：网关"恒为 2 发"与组间距、SM 禁用都无关——下一轮改为直接读 SM 状态
 
 - **两条对照实验（都不改代码，仅台架参数 / 一行代码）**：

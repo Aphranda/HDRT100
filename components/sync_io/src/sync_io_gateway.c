@@ -480,6 +480,16 @@ void sync_io_gateway_realtime_diag(uint32_t *out)
     out[5]=s_ready_margin_min_ticks;
     out[14]=s_late_count;
     for(uint32_t i=0u;i<4u;++i) out[15u+i]=s_arm_reject[i];
+    /* Raw register reads: this SDK's header set does not declare the pio_sm_get_* helpers. Device only -
+     * the host harness models the PIO through its interpreter, not through these registers. */
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    out[23]=(GATEWAY_PIO->ctrl & (1u<<OUTPUT_SM))?1u:0u;
+    out[24]=GATEWAY_PIO->sm[OUTPUT_SM].addr;
+    out[25]=(GATEWAY_PIO->fstat>>(4u*OUTPUT_SM))&0xFu;
+#else
+    out[23]=out[24]=out[25]=0u;
+#endif
+    out[26]=__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE);
     out[19]=s_service_wait;
     out[20]=s_service_bad_receipt;
     out[21]=s_service_complete;
