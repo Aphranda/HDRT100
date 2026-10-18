@@ -637,6 +637,17 @@ void sync_io_switch_realtime_stage_reject(uint32_t *out)
 }
 
 /* Measured arm span (cycles) and the bound it was compared against on the last arm. */
+/* Staged window: how many groups the plan carries, how many were fed, and the queue depth. */
+void sync_io_switch_realtime_sequence_state(uint32_t *count, uint32_t *fed, uint32_t *queued,
+                                            uint32_t *state, uint32_t *last_sequence)
+{
+    if (count) *count = s_sequence.count;
+    if (fed) *fed = s_sequence_group;
+    if (queued) *queued = s_queue_count;
+    if (state) *state = s_switch.state;
+    if (last_sequence) *last_sequence = s_switch.completed_sequence;
+}
+
 void sync_io_switch_realtime_origin_span(uint32_t *span, uint32_t *bound, uint32_t *late)
 {
     if(span) *span=s_origin_span_last;

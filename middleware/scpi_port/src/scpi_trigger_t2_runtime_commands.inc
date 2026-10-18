@@ -568,6 +568,22 @@ scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context)
 /* Narrow diagnostic: why multi-group positions failed, and how far their group sequence got.
  * Kept short on purpose - T2:ACTion? is truncated by the tool's read window long before the
  * fail reasons, so this page is the only practical way to see them on the bench. */
+/* The staged window, on its own page: plan group count, fed cursor, queue depth, switch state,
+ * last completed sequence. Self-contained so its field order cannot drift with other appends. */
+scpi_result_t scpi_cmd_trigger_t2_action_window_q(scpi_t *context)
+{
+    if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    uint32_t count = 0u, fed = 0u, queued = 0u, state = 0u, last = 0u;
+    sync_io_switch_realtime_sequence_state(&count, &fed, &queued, &state, &last);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, count);
+    SCPI_ResultUInt32(context, fed);
+    SCPI_ResultUInt32(context, queued);
+    SCPI_ResultUInt32(context, state);
+    SCPI_ResultUInt32(context, last);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_trigger_t2_action_why_q(scpi_t *context)
 {
     trigger_t2_runtime_snapshot_t s;
@@ -584,6 +600,14 @@ scpi_result_t scpi_cmd_trigger_t2_action_why_q(scpi_t *context)
     /* Why the switch refused a whole-table arm: NO_READY, BUSY, CLOCK, TICK, PLAN, ORIGIN. */
     {uint32_t reject[7]; sync_io_switch_realtime_stage_reject(reject);
      for (uint32_t i=0u;i<7u;++i) SCPI_ResultUInt32(context, reject[i]);}
+    /* Staged window state: plan count, fed cursor, queue depth, switch state, last sequence. */
+    {uint32_t count = 0u, fed = 0u, queued = 0u, state = 0u, last = 0u;
+     sync_io_switch_realtime_sequence_state(&count, &fed, &queued, &state, &last);
+     SCPI_ResultUInt32(context, count);
+     SCPI_ResultUInt32(context, fed);
+     SCPI_ResultUInt32(context, queued);
+     SCPI_ResultUInt32(context, state);
+     SCPI_ResultUInt32(context, last);}
     /* Where positions lose their plan, plus Core0's own last reason code. */
     {trigger_t2_runtime_solve_stats_t st;
      if (trigger_t2_runtime_solve_stats(&st)) {

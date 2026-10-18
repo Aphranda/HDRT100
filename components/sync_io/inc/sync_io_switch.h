@@ -76,6 +76,9 @@ bool sync_io_switch_realtime_schedule_at(uint32_t code,uint64_t deadline_tick);
 /* Refusal buckets of stage_sequence(): NO_READY, BUSY, CLOCK, TICK, PLAN, ORIGIN. */
 void sync_io_switch_realtime_stage_reject(uint32_t *out);
 void sync_io_switch_realtime_origin_span(uint32_t *span, uint32_t *bound, uint32_t *late);
+/* Plan group count, fed cursor, queue depth, switch state, last completed sequence. */
+void sync_io_switch_realtime_sequence_state(uint32_t *count, uint32_t *fed, uint32_t *queued,
+                                            uint32_t *state, uint32_t *last_sequence);
 /* Group sequence: a position's groups on the SHARED timeline, anchored at that position's
  * time slice. `delta_ticks[i]` is group i's offset from the base tick (strictly increasing,
  * same conversion as the deadline), so the whole sequence is written once and the spacing

@@ -661,6 +661,14 @@ def run_full(board_ids) -> int:
         _action_page = send(board, "TRIGger:REServation:ACTion?").split(",")
         _template_page = send(board, "TRIGger:REServation:TEMPLate?").split(",")
         _diag = send(board, "TRIGger:REServation:SEAT:MOUNT?").split(",")
+        # A rig without an analyzer cannot answer READY; T2_READY_REQUIRED=0 tells the gateway to
+        # retire a pending READY (and count it) instead of refusing the next action.
+        _ready_required = os.environ.get("T2_READY_REQUIRED", "1")
+        if _ready_required not in ("0", "1"):
+            raise SystemExit("T2_READY_REQUIRED must be 0 or 1")
+        send(board, f"TRIGger:SEQuence:REAdy {_ready_required}")
+        print(f"  slot {slot} SEQuence:REAdy {_ready_required} -> "
+              f"{send(board, 'TRIGger:SEQuence:REAdy?')[:24]}", flush=True)
         print(f"  slot {slot} ACTion? -> {','.join(_action_page[:5])}"
               f" TEMPlate? -> {','.join(_template_page[:5])}"
               f" diag {_diag[4] if len(_diag) > 4 else '?'}"

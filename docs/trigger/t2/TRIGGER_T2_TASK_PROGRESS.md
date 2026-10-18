@@ -12,6 +12,25 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-051：N≥3 的真凶方向：开关窗口**永远停在 PENDING**（队列残留 1 项），而运行时多算了完成数
+
+- **新仪器**：独立页 `TRIGger:RESERVation:T2:ACTion:WINdow?`（`count, fed, queued, state, last_seq`），避免尾块偏移随固件漂移；工作流新增 `T2_READY_REQUIRED=0/1`，会在 T2 启动前下发 `TRIGger:SEQuence:REAdy`（无网分台架可用）。
+- **N=3 台架读数（`T2_READY_REQUIRED=0`，22 步全 OK）**：
+  ```
+  SWITCH_A / SWITCH_B : 运行时 executed=6  groups=3  NO_PLAN=111  LATE=3
+      开关窗口 : count=3  fed=3  queued=1  state=3(PENDING)  last_seq=4
+  GATEWAY             : executed=0  BACKEND=114   ← 该板 REAdy 依然是 1（工作流的下发发生在配置阶段之前/之后需确认），下一轮核对
+  ```
+- **两个数字对不上，这就是症结**：
+  1. 开关侧 `fed=3`（3 组全部喂入）但 **`queued=1`** ⇒ 最后一条队列项**永远没收到回执**，于是 `poll()` 走不到“队列空 → COMPLETE”，状态卡在 **PENDING**；
+  2. 运行时侧 `executed=6`（两位置×3 组）而开关侧 `last_seq=4` ⇒ **运行时把完成数算多了**：我的窗口分支把“`sequence` 前进”当作“上一组完成”，但同一 `sequence` 可能被多次上报/或有跳跃，导致一次前进被记成多次完成，进而让 `s_group_next` 越过真实进度。
+- **下一轮两条并行修法（都有明确判据）**：
+  1. **运行时以 `completed_sequence` 判定组完成**（而不是 `sequence` 前进）：只有 `status.completed_sequence` 变成“本次期望的那一组”才 `complete_action`，其余只更新 `deadline_tick`；判据：`executed` 必须等于 `last_seq - base + 1`；
+  2. **开关侧残留队列项**：在读回执时按 `receipt_mask` 与 `s_queue[0]` 的 code 匹配（当前只比 `width`/code 是否为 0），并把不匹配的一次计入新桶 `stale_receipt_count`；若确认是“多读了一次回执”，则改为“每次 `poll()` 最多消费一条、且必须匹配队列头”。
+- **判据不变**：修好后 `T2_SEQ_GROUPS='1,16,16,16'` 的 `executed` 必须 = `16 × 位置数`、`NO_PLAN=0`，且 N=2 的 `361×2=722` 不回归。
+
+
+
 ### T2-PROGRESS-20261018-050：READY 可关（新命令实测生效）+ 表容量 8→48（16 行装进去了）；N≥3 的窗口续填仍缺
 
 - **新配置项**（已提交，P3 `build=20261018013008` 之后的这次 P3 覆盖）：
