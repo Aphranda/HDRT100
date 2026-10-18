@@ -289,13 +289,10 @@ static uint32_t s_freeze_no_plan_zero, s_freeze_no_plan_floor;
 static uint32_t s_action_advance_count, s_action_finish_count;
 /* Last window-branch evaluation: backend sequence, runtime expectation, window end, COMPLETE flag. */
 static uint32_t s_window_seq_seen, s_window_expected_seen, s_window_last_seen, s_window_complete_seen;
-/* Window boundaries crossed (a position with more groups than one window carries). */
-static uint32_t s_window_boundary_count;
 /* Where a BACKEND failure came from: identity mismatch, terminal/cursor state, or a refused arm. */
 static uint32_t s_backend_identity, s_backend_terminal, s_backend_arm;
 /* A position whose window ended but which still has groups left: wait for the next window's plan
  * instead of running the selection loop in the same pass (review SEQ-C04). */
-static uint8_t s_waiting_window[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 static uint32_t s_finish_group_last, s_finish_total_last;
 static volatile uint32_t s_guard;
 
@@ -1134,25 +1131,6 @@ static void complete_action(uint32_t index)
              * wait for another Core0 round trip (measured 2026-10-16: that round trip
              * exceeded 25 ms on loaded followers, which no real group spacing affords).
              * The static delta_q gives the next slice without any solve. */
-            if (s_group_next[index] >= s_group_handed[index] &&
-                s_group_next[index] < groups_total) {
-                /* Window boundary. Keep the arm so the same pass does not run the selection loop,
-                 * and wait for Core0 to publish the next window's first group (SEQ-C04). */
-                s_waiting_window[index] = 1u;
-                /* Release the arm: keeping it blocked every other position AND this one, so the next
-                 * window was never selected and the position silently stopped after 12 of 16 groups
-                 * (measured: executed=12 with NO_PLAN/LATE/BACKEND all 0). */
-                s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
-                /* Window boundary: the group after this one belongs to the NEXT window, so no
-                 * next_tick was solved. Move the slot identity forward and drop the plan version so
-                 * Core0 publishes that window's first group; the selection loop then accepts it
-                 * because `plan->group` matches `s_group_next`. */
-                s_deadline[index].group = s_group_next[index];
-                s_deadline[index].group_count = 0u;
-                s_deadline[index].prediction_version = 0u;
-                ++s_window_boundary_count;
-                return;
-            }
             if (s_deadline[index].next_tick &&
                 s_local_group[group + 1u].delta_q >= s_local_group[group].delta_q) {
                 const uint64_t step =
@@ -1384,11 +1362,6 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         const uint32_t bit = 1u << index;
         if (!(s_state.frozen_mask & bit) ||
             ((s_state.action_failed_mask | s_state.action_completed_mask) & bit)) continue;
-        /* A window boundary is not a failure: wait for the next window's plan, then arm it like any
-         * other group. Only the failure judgement is skipped while the plan is missing. */
-        if (s_waiting_window[index] &&
-            (!s_deadline[index].prediction_version ||
-             s_deadline[index].group != s_group_next[index])) continue;
         const t2_deadline_plan_t *plan = &s_deadline[index];
         /* T2-SEQ-001: a plan that belongs to a group which already finished is
          * not late - the next group simply has not been prepared yet, and its
@@ -1479,7 +1452,6 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     s_group_armed[selected] = (uint8_t)plan->group;
     s_state.action_group_in_flight[selected] = plan->group;
     s_group_handed[selected] = (uint8_t)(plan->group + (handed ? handed : 1u));
-    s_waiting_window[selected] = 0u;
     s_state.action_armed_mask |= 1u << selected;
     s_state.action_deadline_tick[selected] = plan->deadline_tick;
     /* Read the owner's accepted sequence; a later mismatch cannot complete us. */
@@ -2234,7 +2206,7 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->recv_older = s_recv_older;
     out->recv_ok = s_recv_ok;
     for (uint32_t i = 0u; i < T2_FREEZE_HISTOGRAM; ++i) out->freeze_hist[i] = s_freeze_per_slot[i];
-    out->window_boundary = s_window_boundary_count;
+    out->window_boundary = 0u;   /* the boundary path was deleted (route A) */
     out->backend_identity = s_backend_identity;
     out->backend_terminal = s_backend_terminal;
     out->backend_arm = s_backend_arm;

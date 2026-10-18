@@ -12,6 +12,27 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-002：路线 A 第 1 步——删除窗口边界机制；NO_REGRESS 通过（SWITCH_B `1872 = 16×117` PASS）；READY 默认关闭
+
+- **改动（HAOFV ⑧ 单一 owner）**：删除窗口边界这一整套第二权威——
+  边界分支（等待标志 / 释放 arm / 清计划版本 / 移动 slot 身份）、`s_waiting_window[]` 数组及其武装清零、选择环里的豁免；
+  `window_boundary` 字段保留在 DIAG 中但恒为 0（不再产生该状态）。
+  保留的唯一推进规则：**`completed_sequence` 前进一步 = 该组完成**；窗口内游标前进仍按 `s_group_next < s_group_handed`。
+- **READY 默认关闭（用户指示：没有真实网分，避免影响链路）**：固件侧 `s_ready_required` 早前已默认 false；
+  本轮把工作流里 3 处 `T2_READY_REQUIRED` 默认值从 `"1"` 改为 `"0"`（启动后与采样前都会下发），
+  避免"默认 1"悄悄把严格模式重新打开——这正是网关之前反复被拒的一个来源。
+- **台架（N=16，`T2_SEQ_GROUPS='1,16,16,16'`，20 s）**：
+  ```
+  SWITCH_B: executed = 1872 = 16 × 117   finished=117   NO_PLAN/LATE/BACKEND = 0   → 非循环判据 PASS
+  SWITCH_A: executed = 1856 = 16 × 116   finished=117   → 仍差一个位置（16 次）
+  GATEWAY : executed = 0                 BACKEND=117
+  ```
+  与上一轮（SWITCH_B `1808 = 16×113`）对比：**执行总量上升、零失败**，删除边界机制没有回归。
+- **下一步**：① SWITCH_A 的单位置丢失（`group_done/group_next` 逐槽位对比 A/B）；② 网关 117 次 BACKEND
+  （读 `backend_identity/terminal/arm` + `GWDIAG` 八桶，确定来源后同引擎化）。
+
+
+
 ### T2-PROGRESS-20261019-001：夜间长期任务发布（用户授权自主决策）——目标与执行规则
 
 - **用户指示**：发布一个长期任务，夜间自主推进；需要我决策的直接按推荐来（与早前"夜里按推荐决策"的长期授权一致）。
