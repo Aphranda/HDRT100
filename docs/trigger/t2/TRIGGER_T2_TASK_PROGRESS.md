@@ -26,6 +26,16 @@ Last updated: 2026-10-19
 - **当前事实基线（供夜间对照）**：开关侧 16 组单窗口 `executed = 16 × 位置数`、零失败（多次实测 1782–1824）；
   SWITCH_B 曾达 `1808 = 16 × 113` 且判据 PASS；SWITCH_A 少一个位置（差 16 次）；GATEWAY `executed=0 / BACKEND=113`。
 - **P3 现在的可靠用法**：`--run <dir> --steps a-b` 续跑（中途不改源码），或改完一次性 `--profile full`（约 10 分钟）。
+- **用户追加要求（已写入任务 goal-94c4a5d9 rev3）**：**代码改动必须符合 HAOFV 架构**，每轮提交前自检四项：
+  1. **分层不越权**——`TRIGger:*` / TriggerAO / TriggerFB 只做产品 RUN 状态、门禁、active sequence 绑定与业务状态；
+     `REALtime:*` / `sync_io` / PIO/DMA/IRQ 只做实时资源与低层状态；两个方向都不得绕过 owner（依据
+     `docs/arch/HAOFV_ARCHITECTURE.md` 的「Trigger / Realtime 分层」）。
+  2. **单一 owner**——序列执行归动作侧（`T2-SEQ-001`）；T2 侧过渡窗口代码只能删，不得新增第二个权威
+     （对应删除 `s_group_handed` / `s_waiting_window` / `next_tick` 这类重复状态）。
+  3. **通道语义**——只经稳定抽象通道（`TRIG_IN`/`TRIG_OUT`/`RJ45_TRIG_*`），GPIO 映射只留 board profile 与 `sync_io`。
+  4. **常量单一事实源 + 契约登记**——组数/窗口尺寸/时序常量收敛到单一出处；跨域契约登记 `docs/check/DOCS_REGISTRY.md`
+     并更新 `Last updated`，文档门禁全绿。
+  任一不满足则该轮不做该项改动。
 
 
 
