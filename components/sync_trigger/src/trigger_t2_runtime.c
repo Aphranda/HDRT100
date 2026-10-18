@@ -160,6 +160,9 @@ static uint32_t s_window_advance_count, s_window_jump_count, s_window_reuse_coun
     s_window_no_receipt_count;
 static uint8_t s_group_armed[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 /* How many groups of one position are handed to the executor in a single call. */
+/* Four groups per window: a 16-group plan would grow the per-slot mailbox past the RAM budget
+ * (measured: 364 bytes over), and the switch refills its queue as the FIFO drains anyway, so the
+ * remaining groups go through the sliding hand-over (see complete_action). */
 #define T2_PLAN_GROUP_MAX 4u
 typedef struct {
     uint64_t action_q, deadline_tick;
@@ -1086,11 +1089,12 @@ static void complete_action(uint32_t index)
      * receipt only by its LAST group, so a partial sequence can never look like
      * a finished position in the window totals. */
     const uint32_t group = s_group_armed[index];
-    /* An open window is the authority on how many groups this position has: the role template
-     * count can be smaller than the plan's window (measured: template count 1 with a 2-group
-     * window finished the position on the first receipt). */
-    const uint32_t groups_total = s_group_handed[index]
-        ? s_group_handed[index] : s_local_template_count;
+    /* How many groups this POSITION has comes from its role template - a window only carries up to
+     * T2_PLAN_GROUP_MAX of them, so using the window as the total finished a 16-group position after
+     * the first four. The window still bounds the in-hardware advance below (`s_group_handed`), and
+     * each further group is promoted and then staged as the next window. */
+    const uint32_t groups_total = s_local_template_count ? s_local_template_count
+        : (s_group_handed[index] ? s_group_handed[index] : 1u);
     s_group_armed[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
     s_state.action_group_in_flight[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
     if (group < groups_total) {

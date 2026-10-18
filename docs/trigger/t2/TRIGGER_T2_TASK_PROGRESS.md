@@ -12,6 +12,20 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-064：N=16 前三个窗口跑通（executed=12），第 4 个窗口起停住；单窗口 16 组被 RAM 否决
+
+- **改动（已提交）**：`complete_action()` 的"本位置有几组"改为**按角色模板**取（此前取"已交出窗口"的大小，导致 16 组的位置在第 4 组就被判完成）。这样 4 组一窗、逐窗滑动成为可能。
+- **N=16 台架（`T2_SEQ_GROUPS='1,16,16,16'`、`T2_SEQ_PERIOD_SLICES=1`、20 s）**：
+  ```
+  executed=12  groups=16  NO_PLAN=108  LATE=3  BACKEND=0
+  window(count,fed,queued,state,last) = 4,4,0,COMPLETE,14
+  ```
+  `executed=12` = **3 个窗口 × 4 组** ⇒ 滑动确实在跑；停在第 4 个窗口（组 12..15）。
+- **尝试过"单窗口装 16 组"（已回退）**：把 `T2_PLAN_GROUP_MAX` 4→16 后**链接失败**——`region RAM overflowed by 364 bytes`（计划结构在每个槽位都有一份，361 份 × 12 组额外 tick 太大）。所以 16 组只能走滑动。
+- **下一轮**：查第 4 个窗口为什么不被接受/推进 —— 关键在 `complete_action()` 的推进分支（`s_group_next < s_group_handed` 才走"窗口内前进"，否则走"Core0 重新解算下一组"）。预期是后者在组 12 处 `next_tick`/`group` 对不上（第 3 个窗口收尾时我重置了 `s_deadline.group/next_tick`，可能把第 4 个窗口的接力信息清掉了）。判据：`executed = 16 × 位置数`。
+
+
+
 ### T2-PROGRESS-20261018-063：**N=3 全线跑通**——`executed=357 = 119 位置 × 3 组`，`NO_PLAN/LATE/BACKEND` 全 0
 
 - **修法（评审 SEQ-B03，`docs/trigger/t2/TRIGGER_T2_REVIEW.md` §7.5）**：`sync_io_switch_deadline_status_t` 增加 **`completed_sequence`**（"刚刚消费完的那一组"，永不超过硬件），`poll()` 在每次出队时写入、补装重指时保留；运行期窗口分支改为**只按 `completed > expected`** 推进 `complete_action()`，不再用"当前 head 的 sequence + 回执"猜组号，所以同一次 COMPLETE 只被消费一次。
