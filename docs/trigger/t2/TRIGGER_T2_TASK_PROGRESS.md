@@ -12,6 +12,23 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-054：计划"发布在前、接收成功"，却在 FREEZE 里读到 0 —— 竞态在"武装清版本"与"下一位置计划到达"之间
+
+- **新计数**（窗口页尾）：`publish_before_freeze / publish_after_freeze` 与 `recv(busy,no_version,session,older,ok)`。
+- **N=3 台架读数**：
+  ```
+  SWITCH_A: executed=6  NO_PLAN=109
+     pub(before,after) = 109,0        ← 计划全部在冻结前发布（“晚发布”假设否定）
+     recv(busy,noVer,session,older,ok) = 0,0,0,0,109   ← 计划全部被接收（四个早退桶全为 0）
+  SWITCH_B: 同构（117 / ok=117）
+  ```
+  ⇒ **发布在前、接收也成功，但 FREEZE 读到的本地版本仍是 0**（`freeze_missing=109`）。
+- **结论（竞态）**：`s_deadline[slot]` 被两件事同时触碰——(a) `deadline_receive()` 写入下一位置的计划；(b) 位置**武装**时把该槽位的 `prediction_version` 清 0（用于标记"这份计划已被消费"）。三组时窗口更长，当 (b) 发生在 (a) 之后，FREEZE 就看到 0 ⇒ NO_PLAN。N=2 因为窗口短、(b) 总在 (a) 之前，所以从不暴露。
+- **修复方案（下一轮实施，已定）**：在 FREEZE 读计划之前，对该槽位做一次**就地邮箱刷新**（`deadline_receive_slot(index)`，只读一个槽位、代价 O(1)）：若邮箱里有更新的计划就用它，否则才判 NO_PLAN。这样不动"武装清版本"的语义（它仍然是 Core0 重新发布的信号），只把竞态窗口补上。
+- **另一个已提交的潜在 bug 修复**：`deadline_receive()` 里"更小的组号=更旧"的判断现在只在**同一预测版本**下成立——跨位置（新版本、组 0）的计划不再被丢弃（虽然本轮 N=3 的结果未变，但这是正确的语义）。
+
+
+
 ### T2-PROGRESS-20261018-053：计划**有**发布（118/327 次），但 FREEZE 时槽里仍是 0 —— 说明"发布晚于冻结"
 
 - **新增到自包含窗口页的四个供给计数**：`published, no_descriptor, version_zero, expand_fail`。

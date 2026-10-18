@@ -349,6 +349,10 @@ typedef struct {
     uint32_t skip_unreachable, skip_inflight, skip_accepted;
     /* Plan supply: publishes that reached the mailbox vs the ways a position bailed out. */
     uint32_t published, no_descriptor, version_zero, expand_fail;
+    /* Plan timing versus the freeze of that slot. */
+    uint32_t publish_before_freeze, publish_after_freeze;
+    /* deadline_receive() exits: guard busy, no version, wrong session, older group, accepted. */
+    uint32_t recv_busy, recv_no_version, recv_session, recv_older, recv_ok;
 } trigger_t2_runtime_window_stats_t;
 bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out);
 void trigger_t2_runtime_prepare_core0(void);

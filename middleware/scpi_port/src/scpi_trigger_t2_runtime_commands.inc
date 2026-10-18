@@ -595,6 +595,13 @@ scpi_result_t scpi_cmd_trigger_t2_action_window_q(scpi_t *context)
          SCPI_ResultUInt32(context, st.no_descriptor);
          SCPI_ResultUInt32(context, st.version_zero);
          SCPI_ResultUInt32(context, st.expand_fail);
+         SCPI_ResultUInt32(context, st.publish_before_freeze);
+         SCPI_ResultUInt32(context, st.publish_after_freeze);
+         SCPI_ResultUInt32(context, st.recv_busy);
+         SCPI_ResultUInt32(context, st.recv_no_version);
+         SCPI_ResultUInt32(context, st.recv_session);
+         SCPI_ResultUInt32(context, st.recv_older);
+         SCPI_ResultUInt32(context, st.recv_ok);
      }}
     return SCPI_RES_OK;
 }

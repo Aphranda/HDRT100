@@ -267,6 +267,11 @@ static uint32_t s_solve_no_descriptor, s_solve_expand_fail, s_solve_version_zero
 /* The three ways the solver entry skips a position; counted to see which one starves the plan
  * supply (N=3 executes two positions, N=2 executes all 361). */
 static uint32_t s_skip_group_unreachable, s_skip_inflight, s_skip_accepted;
+/* Plan timing against the freeze: a plan that arrives after the position froze is useless, because
+ * the FREEZE path reads the slot and rules NO_PLAN when the local version is still 0. */
+static uint32_t s_publish_before_freeze, s_publish_after_freeze;
+/* deadline_receive() exits: guard busy, no version, wrong session, older group. */
+static uint32_t s_recv_busy, s_recv_no_version, s_recv_session, s_recv_older, s_recv_ok;
 static volatile uint32_t s_guard;
 
 #define T2_WINDOW_HISTORY_CAPACITY 17u
@@ -624,6 +629,10 @@ static T2_BOUNDED void T2_HOT(origin_announce)(uint32_t ordinal, uint64_t target
 
 static void deadline_publish(uint32_t index, const t2_deadline_plan_t *plan)
 {
+    if (__atomic_load_n(&s_frozen_public, __ATOMIC_ACQUIRE) & (1u << index))
+        ++s_publish_after_freeze;
+    else
+        ++s_publish_before_freeze;
     t2_deadline_mailbox_t *mail = &s_deadline_mailbox[index];
     (void)__atomic_add_fetch(&mail->guard, 1u, __ATOMIC_ACQ_REL);
     for (size_t i = 0u; i < sizeof(*plan) / sizeof(uint32_t); ++i) {
@@ -648,12 +657,23 @@ static T2_BOUNDED void T2_HOT(deadline_receive)(void)
             memcpy((uint8_t *)&plan + i * sizeof(word), &word, sizeof(word));
         }
         __atomic_thread_fence(__ATOMIC_ACQ_REL);
-        if (before != __atomic_load_n(&mail->guard, __ATOMIC_ACQUIRE)) continue;
+        if (before != __atomic_load_n(&mail->guard, __ATOMIC_ACQUIRE)) { ++s_recv_busy; continue; }
         s_deadline_seen[index] = before;
-        if (!plan.prediction_version || plan.session != s_state.cursor.session ||
-            plan.ring_config_seq != s_state.cursor.ring_config_seq) continue;
-        if (frozen && plan.group < s_deadline[index].group) continue;   /* an older group */
-        if (frozen && plan.group == s_deadline[index].group) {
+        if (!plan.prediction_version) { ++s_recv_no_version; continue; }
+        if (plan.session != s_state.cursor.session ||
+            plan.ring_config_seq != s_state.cursor.ring_config_seq) { ++s_recv_session; continue; }
+        /* Groups are ordered WITHIN a position: a smaller group number is only "older" when it
+         * belongs to the position already in the slot. The next occupant's group 0 carries a new
+         * prediction version and must be accepted, otherwise its FREEZE sees version 0 and the
+         * position is failed as NO_PLAN (measured with a three-group window: 123 publishes, all
+         * before the freeze, 110 positions NO_PLAN). */
+        const bool same_position = plan.prediction_version == s_deadline[index].prediction_version;
+        if (frozen && same_position && plan.group < s_deadline[index].group) {
+            ++s_recv_older;
+            continue;
+        }
+        ++s_recv_ok;
+        if (frozen && same_position && plan.group == s_deadline[index].group) {
             /* This group is already armed or promoted: its own slice and tick are in
              * the hardware owner's hands and must not move, but the tick of the group
              * after it is exactly what the promotion needs. */
@@ -2063,6 +2083,13 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->no_descriptor = s_solve_no_descriptor;
     out->version_zero = s_solve_version_zero;
     out->expand_fail = s_solve_expand_fail;
+    out->publish_before_freeze = s_publish_before_freeze;
+    out->publish_after_freeze = s_publish_after_freeze;
+    out->recv_busy = s_recv_busy;
+    out->recv_no_version = s_recv_no_version;
+    out->recv_session = s_recv_session;
+    out->recv_older = s_recv_older;
+    out->recv_ok = s_recv_ok;
     return true;
 }
 
