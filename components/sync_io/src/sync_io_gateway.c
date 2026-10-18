@@ -44,6 +44,8 @@ static bool s_ready_required = false;
 /* Time-collision evidence: an action started while the previous READY was still outstanding,
  * and the smallest gap ever measured between a received READY and the next armed deadline. */
 static uint32_t s_ready_collision_count;
+/* Groups whose tick had already passed when they were armed (they still fire). */
+static uint32_t s_late_count;
 /* The PIO echoes the trigger count as its receipt, while the SEQUENCE names the group of the staged
  * table. Keeping them apart is what lets the runtime match a completion to a group (same model as the
  * switch, where the code word carried the group's identity). */
@@ -78,9 +80,13 @@ static __attribute__((noinline)) bool GATEWAY_HOT(start_deadline)(uint64_t deadl
 {
     uint64_t before,after;
     const uint64_t guard=(uint64_t)BOARD_SYS_CLOCK_HZ/1000000u*SYNC_IO_GATEWAY_DEADLINE_GUARD_US;
-    if(!raw_tick(&before) || deadline<before || deadline-before<guard ||
-        deadline-before-4u>UINT32_MAX)return false;
-    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)(deadline-before-4u));
+    if(!raw_tick(&before) || deadline-before-4u>UINT32_MAX)return false;
+    /* A tick that is already inside the arming guard (or past) fires as soon as the PIO can, and the
+     * lateness is counted: refusing it turned every such group into a BACKEND failure of the whole
+     * position (measured: arm=45 == the refusal bucket). */
+    uint64_t target=deadline;
+    if(deadline<before+guard) { target=before+guard; ++s_late_count; }
+    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)(target-before-4u));
     pio_enable_sm_mask_in_sync(GATEWAY_PIO,GATEWAY_SM_MASK);
     const bool read=raw_tick(&after);
     s_deadline.origin_before_tick=before;
@@ -458,6 +464,7 @@ void sync_io_gateway_realtime_diag(uint32_t *out)
     out[3]=s_gateway.pulse_ns;
     out[4]=s_ready_collision_count;
     out[5]=s_ready_margin_min_ticks;
+    out[14]=s_late_count;
     for(uint32_t i=0u;i<GATEWAY_STAGE_REJECT_COUNT;++i) out[6u+i]=s_stage_reject[i];
 }
 

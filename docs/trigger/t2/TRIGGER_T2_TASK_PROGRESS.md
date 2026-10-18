@@ -12,6 +12,28 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-007：网关"迟到即拒绝"改为"迟到也要发"（`arm` 45→0）；失败点再前移到 **service 内部的下一组武装**
+
+- **改动（执行器侧，符合触发域语义：迟到的触发仍要发，迟到可观测）**：`start_deadline` 不再因
+  "deadline 已进入 guard 或已过期"而拒绝，而是把目标钳到 `now + guard` 并计数 `s_late_count`
+  （GWDIAG 尾部新字段）；只有 PIO 32 位延时表达不了的差值才拒绝。
+- **台架（N=16，组间距 8 slice）**：
+  ```
+  SWITCH_A 1904 = 16 × 119   finish 119   NO_PLAN/LATE/BACKEND 全 0
+  SWITCH_B 1920 = 16 × 120   finish 120   全 0
+  GATEWAY  executed 0  LATE=1  BACKEND=119  | DIAG: identity 0  terminal 119  arm 0
+             GWDIAG: plan_count=0  collision=119  late=0
+  ```
+  ⇒ **`arm` 从 45 归零**（运行期的武装不再被拒），但 `terminal=119` 仍在，且 `plan_count=0`
+  ⇒ 失败发生在 **`service` 内部的"下一组武装"**（`schedule_at` 返回 false ⇒ 计划清空 + UNCERTAIN），
+  而不是运行期发起的武装。
+- **下一轮（一步）**：在 `service` 的这条路线上分桶——`prepare_realtime` 失败 / 时钟或 TIMER1 检查失败 /
+  `start_deadline` 的 origin 校验失败 / 计划越界，各加一个计数并输出到 GWDIAG；先看清是哪一类，再决定
+  "同引擎化（预装两组）"还是"修该守卫"。
+- **开关侧**：1904/1920 = 16×位置数、`finish` 与位置数一致、三类失败全 0。
+
+
+
 ### T2-PROGRESS-20261019-006：网关 `identity` 归零（语义已对齐），失败点前移到 **武装 tick 已过期**（GWDIAG：SCHEDULE 拒绝 + `arm=45`）
 
 - **改动**：武装后的 tick 属于执行器（HAOFV 分层），运行期不再因"tick 前移"判身份失败——
