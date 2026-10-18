@@ -12,6 +12,28 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-023：N=2 掉组的机制看清了——`completed_sequence` 是**电平**不是**事件**
+
+- **读数（N=2 快照，DIAG `done_hist`）**：
+  ```
+  slot1: advance=7990  finish=691  plan_window=2
+         done_hist = [0x80000000|656, 656, 656] [0x80000000|653, 653, 653] [656, 654, 656]
+  slot3: advance=7992  finish=692  plan_window=2
+  ```
+  其中 `0x80000000|X` 表示"**看见一次完成但没有推进**"（`completed == expected`），
+  只有最后一行是真正推进（`completed 656 > expected 654`）。
+- **机制**：开关的 `completed_sequence` 是"**最近一次已完成组**"的**电平值**，会保持不变；
+  而运行期把它当**事件**用（`completed > expected` 才推进）。第一组完成后 `expected` 被抬到该值，
+  之后同一个电平反复出现 ⇒ `completed == expected` ⇒ **不再推进**（开关 16 组窗口里这条被
+  `sequence > expected` 的回执分支掩盖了，2 组窗口下就暴露成掉组）。
+- **正确做法（下一轮）**：恢复以 **`sequence > expected` + 回执**为主推进（这条路径已验证过 357×3 与 16×114），
+  `completed_sequence` 只用于"最后一组/收尾"的确认；并把 2 组窗口纳入判据用例。
+  这是**语义修正**，不是加容差——`completed` 与 `sequence` 本来就不是一回事（前者是电平、后者是推进）。
+- **网关的 2 组窗口**（`executed=0`、`BACKEND=220`）也应在同一轮一并复核：它的 16 组成功依赖"一次装一窗"，
+  2 组窗口下 `plan_count=2` 与 `s_window_staged` 的交互需要实测。
+
+
+
 ### T2-PROGRESS-20261019-022：N=2 回归抽查发现**计数掉组**——位置都在收尾（691/692），但 `executed` 只有 438/440
 
 - **台架（`T2_SEQ_GROUPS='1,2,2,2'`，80 s，组间距 8）**：
