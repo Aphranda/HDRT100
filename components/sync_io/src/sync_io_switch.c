@@ -378,6 +378,11 @@ static __attribute__((noinline)) void __not_in_flash_func(poll)(void)
      * next trigger starts (a new head clears it). A staged group sequence keeps the SMs
      * running and refills them as their FIFOs drain. */
     if(s_sequence_group<s_sequence.count) { sequence_feed(); return; }
+    /* All groups are PUSHED - but a pushed pair may still be waiting in the TX FIFO. Disabling the
+     * SM now would drop that trigger and its receipt (measured: a 3-group window reported COMPLETE
+     * after two triggers). Wait until the FIFOs are empty. */
+    for(uint32_t i=0u;i<s_switch.group_count;++i)
+        if(pio_sm_get_tx_fifo_level(SWITCH_PIO,s_switch.groups[i].sm) != 0u) return;
     for(uint32_t i=0u;i<s_switch.group_count;++i)
         pio_sm_set_enabled(SWITCH_PIO,s_switch.groups[i].sm,false);
     s_switch.state=SYNC_IO_SWITCH_COMPLETE;
@@ -621,6 +626,11 @@ bool __not_in_flash_func(sync_io_switch_realtime_stage_sequence)(uint64_t base_d
         .sequence=sequence,.receipt_mask=0u};
     s_queue_count=1u;
     s_sequence_group=1u;   /* group 0 went out with the arming pull above */
+    /* Advance the window counter like a single deadline does. Without this every window reuses the
+     * same base sequence (stage_sequence + 1), so a second position's groups carry the numbers the
+     * previous one already used and the runtime's window identity check cannot tell them apart
+     * (measured: the arm function never touched the counter). */
+    ++s_switch.stage_sequence;
     s_switch.desired_code=first_code;
     s_switch.receipt_mask=0u;
     ++s_switch.stage_sequence;s_switch.state=SYNC_IO_SWITCH_PENDING;

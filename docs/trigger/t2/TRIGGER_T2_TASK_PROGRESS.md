@@ -12,6 +12,22 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-061：两个真 bug 修掉了（窗口序号不自增、COMPLETE 不等 FIFO 排空），但开关仍在"第 2 组后"收尾
+
+- **修 1（确凿）**：`sync_io_switch_realtime_stage_sequence()` **从未自增 `s_switch.stage_sequence`**（单条 `schedule_at` 会自增），于是每个窗口都复用同一个 base 序号。修后元组从 `seq=4` 变成 `seq=6`（序号确实开始推进）。
+- **修 2（确凿）**：`poll()` 用"已推送组数"判 COMPLETE 并随即关闭 SM，**没有等 TX FIFO 排空**，会把还在 FIFO 里的最后一对[码,延时]连同回执一起丢掉。现在要求两个 SM 的 TX FIFO 都为空才收尾。
+- **修后的台架读数（N=3）**：
+  ```
+  executed=6  NO_PLAN=103  adv=6  finish=0
+  tuple: seq=6  expected=6  window_last=7  complete=1
+  窗口页: count=3  fed=3  queued=0  state=COMPLETE  last_seq=基准值
+  ```
+  ⇒ `count=3 / fed=3` 说明三组都推了，但 **`completed_sequence` 只到基准值**（只结算了一组回执），COMPLETE 却在"第 2 组"就到了。
+- **结论**：`poll()` 的"队列空 + 已推送完"判定与实际回执数不一致——最可能是 `sequence_feed()` 的入队（`s_queue[s_queue_count++]`）在最后一组时被 `s_queue_count >= SWITCH_QUEUE_DEPTH` 拒掉（深度 2），于是那组的回执无处归属，但 `s_sequence_group` 仍被加 1 ⇒ "已推送完 + 队列空" 立刻成立。
+- **下一轮**：把 `SWITCH_QUEUE_DEPTH` 从 2 提到 4（一组一项，最多 4 组窗口不丢回执），并在窗口页加 3 个字段（COMPLETE 时刻的 `count/fed/queued`）；判据：`executed = 3 × 位置数`、`NO_PLAN=0`。
+
+
+
 ### T2-PROGRESS-20261018-060：元组给出答案的一半——开关在 `sequence=4` 时就报 COMPLETE，而窗口要到 5
 
 - **精确元组**（两块从板一致，本轮新增 4 个字段）：
