@@ -12,6 +12,28 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-011：窗口"只装一次"（`s_window_staged`）+ 失败时清理交接状态——网关 `arm` 121→113，但计划仍只排空 2 组
+
+- **两处运行期改动（单 owner 语义）**：
+  1. 用显式 `s_window_staged[index]` 区分"收到计划"与"已交出窗口"：网关在**窗口仍在飞**时不再重复提交
+     （此前 `deadline_receive` 会先把 `group_count=16` 写进槽位，导致第一次武装就误判为"已有窗口"，一步跳空）；
+  2. `action_fail()` 时清 `s_window_staged` 与 `group_count`——否则下一个位置会"复用"一个已被放弃的窗口
+     （此前实测 `arm=80 / identity=41`）。
+- **台架（N=16，组间距 8）**：
+  ```
+  SWITCH_A 1808 = 16 × 114   SWITCH_B 1824 = 16 × 114   三类失败全 0
+  GATEWAY  BACKEND 114 | DIAG: advance 0 identity 1 arm 113
+           GWDIAG: plan_count 16  plan_next 3  svc_complete 2  svc_wait 47  late 2
+  ```
+  ⇒ 网关**每个位置只装一次窗口**（`arm` 从 121 降到 113，剩下的失败都是"新位置遇到上一份计划未排空"），
+  且**计划只排空 2 组就停**：第 3 组武装后 PIO 不再推回执（`svc_wait` 持续增长、`complete` 停在 2）。
+- **下一轮（一步）**：查网关 PIO 为什么在第 3 个脉冲后不再推回执——重点看 `service` 里
+  `pio_sm_set_enabled(false)` 与下一次 `pio_enable_sm_mask_in_sync` 之间的状态（开关的"两字预装"正是为了避免
+  这种"停-等-再启"），必要时把网关的输出程序也改成两字协议（与开关同引擎）。
+- **开关侧**：1808/1824 = 16 × 位置数、`finish` 114、三类失败全 0。
+
+
+
 ### T2-PROGRESS-20261019-010：网关**确实在完成脉冲**（`svc_complete=2`、`plan_next=3`），但运行期 `advance=0`——因为 `arm` 失败 121 次把位置提前判死
 
 - **新增完成路径计数（GWDIAG 尾部）**：`svc_wait`（pending 置位但 RX 空）、`svc_bad_receipt`、`svc_complete`、

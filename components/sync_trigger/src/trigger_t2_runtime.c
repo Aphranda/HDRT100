@@ -290,6 +290,7 @@ static uint32_t s_action_advance_count, s_action_finish_count;
 /* Last window-branch evaluation: backend sequence, runtime expectation, window end, COMPLETE flag. */
 static uint32_t s_window_seq_seen, s_window_expected_seen, s_window_last_seen, s_window_complete_seen;
 /* Where a BACKEND failure came from: identity mismatch, terminal/cursor state, or a refused arm. */
+static uint8_t s_window_staged[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 static uint32_t s_backend_identity, s_backend_terminal, s_backend_arm;
 /* Groups handed to the executor by the last published plan (1 = the window never widened). */
 static uint32_t s_plan_window_last;
@@ -734,6 +735,10 @@ static T2_RAM void action_fail(uint32_t index, uint32_t reason)
      * must not prepare a later group for it. */
     s_group_armed[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
     s_state.action_group_in_flight[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
+    /* A failed position no longer owns its window: leaving the hand-over flag set made the NEXT position
+     * on this slot reuse a window that had already been abandoned (measured: arm=80, identity=41). */
+    s_window_staged[index] = 0u;
+    s_deadline[index].group_count = 0u;
     if (reason < TRIGGER_T2_ACTION_FAIL_COUNT &&
         s_state.action_fail_reason[reason] != UINT32_MAX)
         ++s_state.action_fail_reason[reason];
@@ -1150,6 +1155,8 @@ static void complete_action(uint32_t index)
     s_finish_group_last = group;
     s_finish_total_last = groups_total;
     s_group_handed[index] = 0u;
+    s_deadline[index].group_count = 0u;   /* the window is done */
+    s_window_staged[index] = 0u;
     s_action_sequence_last[index] = 0u;
     /* Put the group cursor back to the first group: the next position on this slot must be
      * solved from group 0 again. Leaving it at the last group made the Core0 guard at the
@@ -1409,7 +1416,12 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     }
     bool armed;
     uint32_t handed = 0u;
-    if (plan->group_count > 1u) {
+    /* The executor already holds this position's window: re-staging it made `stage_sequence` refuse as
+     * BUSY and failed the position (measured: arm=121 with the plan still at 16 groups). */
+    if (s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY && s_window_staged[selected]) {
+        armed = true;
+        handed = s_deadline[selected].group_count;
+    } else if (plan->group_count > 1u) {
         /* One call per window, whichever backend this role owns: the spacing then comes from
          * the table Core0 solved, not from re-arming after each completion. */
         uint64_t delta_ticks[T2_PLAN_GROUP_MAX];
@@ -1422,7 +1434,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
             sync_io_switch_realtime_stage_sequence(base, pulses, delta_ticks, plan->group_count) :
             sync_io_gateway_realtime_stage_sequence(base, pulses, delta_ticks, plan->group_count);
-        if (armed) handed = plan->group_count;
+        if (armed) { handed = plan->group_count; s_window_staged[selected] = 1u; }
     } else {
         armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
             sync_io_switch_realtime_schedule_at(
