@@ -702,6 +702,12 @@ def run_full(board_ids) -> int:
         print(f"  configure diag {diag[4] if len(diag) > 4 else '?'}"
               " (91/92/93 prereq, 100/101 inner, 140-148 validate, 111-137 stopped)")
         send(board, f"TRIGger:REServation:T2:STARt {dep_gen},0")
+        # The gateway module is re-initialised by the configure/start path, so the READY requirement is
+        # sent again here - after the start - and verified on the spot.
+        _ready_required = os.environ.get("T2_READY_REQUIRED", "1")
+        send(board, f"TRIGger:SEQuence:REAdy {_ready_required}")
+        print(f"  slot {slot} SEQuence:REAdy {_ready_required} (after start) -> "
+              f"{send(board, 'TRIGger:SEQuence:REAdy?')[:24]}", flush=True)
         state = send(board, "TRIGger:REServation:T2?").split(",")
         print(f"{uid:016X} slot {slot} | T2 configured {state[2] if len(state) > 2 else '?'}"
               f" active {state[3] if len(state) > 3 else '?'}"
@@ -2934,6 +2940,16 @@ def step_20_sampling(ctx, slot, board, uid):
         return
     published = "?"
     ticks = max(1, int(os.environ.get("T2_SAMPLE_TICKS", "5")))
+    # Last chance to set the READY requirement: the TDMA start and the device load in the steps before
+    # this one re-initialise the sync_io modules and leave it at the default (1 = wait for READY).
+    _ready = os.environ.get("T2_READY_REQUIRED", "1")
+    for uid_r, slot_r, _i, _o, _f in ROWS:
+        member = ctx.boards.get(f"{uid_r:016X}")
+        if member is None:
+            continue
+        ctx.send(member, f"TRIGger:SEQuence:REAdy {_ready}")
+        print(f"  slot {slot_r} SEQuence:REAdy {_ready} (before sampling) -> "
+              f"{ctx.send(member, 'TRIGger:SEQuence:REAdy?')[:24]}", flush=True)
     for tick in range(ticks):
         time.sleep(2.0)
         for uid_r, slot_r, _i, _o, _f in ROWS:
