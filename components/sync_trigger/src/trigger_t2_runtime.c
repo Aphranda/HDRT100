@@ -1319,7 +1319,13 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
                 s_state.action_group_in_flight[index] = s_group_next[index];
             return;
         }
-        if (sequence != expected ||
+        /* The gateway reports the group it has armed as `sequence`, one past the group the runtime
+         * counts as expected (measured 2026-10-19: window_seq 118 vs window_expected 117, and all 117
+         * BACKENDs were `backend_identity`). Accept that value for the gateway kind only; the switch
+         * has its own `sequence > expected` branch above and must stay strict. */
+        const bool gateway_armed_group =
+            s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY && sequence == expected + 1u;
+        if ((sequence != expected && !gateway_armed_group) ||
             deadline != s_deadline[index].deadline_tick) {
             cancel_backend();
             ++s_backend_identity;

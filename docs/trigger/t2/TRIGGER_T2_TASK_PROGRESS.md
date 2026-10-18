@@ -12,6 +12,32 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-004：网关 BACKEND 的真正原因浮出水面——**网关的计划只有 1 组**（`window_last=0`）
+
+- **按发射顺序建立 DIAG 索引表**（result×2, schema, advance, finish, finish_group, finish_total,
+  window_seq, window_expected, window_last, window_complete, freeze_zero, freeze_floor, seq(dup),
+  complete(dup), boundary, **backend_identity(16) / backend_terminal(17) / backend_arm(18)**, 8 个网关拒绝桶），
+  上一轮"身份不符"的判断由此可被准确读出。
+- **本轮读数（N=16）**：
+  ```
+  SWITCH_A 1744 = 16 × 109、SWITCH_B 1760 = 16 × 110，三类失败全 0（开关不受影响）
+  GATEWAY  executed=0  BACKEND=110
+  gateway DIAG: window_seq=101  window_expected=101  window_last=0  window_complete=0  identity=101  terminal=0  arm=9
+  ```
+  **`window_last = 0` 是关键**：它等于 `status.sequence + handed - 1`，而 `handed` 在 `plan->group_count <= 1`
+  时为 0 ⇒ **网关收到的计划只有 1 组**，于是走单组武装分支（不更新 `s_deadline[index].deadline_tick`），
+  随后的身份检查因 deadline 不符而每位置失败一次（identity=101）。
+- **为什么只有 1 组**：窗口构建循环在 `k=group+1` 处 `break`——条件是
+  `s_local_group[k].delta_q < s_local_group[k-1].delta_q` 或 `slice_to_tick` 失败。
+  台架侧证据：两块从板的 `TRIGger:REServation:T2:ACTion?` 字段数不同（开关 **71** vs 网关 **53**），
+  说明网关的组表布局/组间距与开关不一致（组间距可能全为 0）。
+- **下一轮（一步）**：把两块板的 `ACTion?` 逐字段对齐（尤其是 group/delta 那几列），确认网关 16 组的 `delta_q`
+  是否递增；不递增则在**装表处**修（工作流/表布局，单一事实源），不在运行期猜。
+- **已提交**：本轮只改了运行期身份检查（网关 kind 接受 `expected+1`，开关与 wrong_receipt 测试保持严格），
+  构建绿、37 passed、P3 build `202610181724xx`，台架无回归。
+
+
+
 ### T2-PROGRESS-20261019-003：SEQ-C01 的"低一格起点"改为**仅开关**使用；网关仍是 0/BACKEND（已排除该假设）
 
 - **三次台架对照（N=16，20 s，各自冻结源码跑 P3）**：
