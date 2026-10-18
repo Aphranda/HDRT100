@@ -206,6 +206,8 @@ scpi_result_t scpi_cmd_trigger_sequence_timing_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_counts(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_counts_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_period_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sequence_ready(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_sequence_ready_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_code(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_code_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_repeat(scpi_t *context);
@@ -511,6 +513,8 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:SEQuence:COUNts", .callback = scpi_cmd_trigger_sequence_counts}, \
     {.pattern = "TRIGger:SEQuence:COUNts?", .callback = scpi_cmd_trigger_sequence_counts_q}, \
     {.pattern = "TRIGger:SEQuence:PERiod?", .callback = scpi_cmd_trigger_sequence_period_q}, \
+    {.pattern = "TRIGger:SEQuence:REAdy", .callback = scpi_cmd_trigger_sequence_ready}, \
+    {.pattern = "TRIGger:SEQuence:REAdy?", .callback = scpi_cmd_trigger_sequence_ready_q}, \
     {.pattern = "TRIGger:SEQuence:CODE", .callback = scpi_cmd_trigger_sequence_code}, \
     {.pattern = "TRIGger:SEQuence:CODE?", .callback = scpi_cmd_trigger_sequence_code_q}, \
     {.pattern = "CONFigure:SEQuence:REPeat", .callback = scpi_cmd_trigger_sequence_repeat}, \

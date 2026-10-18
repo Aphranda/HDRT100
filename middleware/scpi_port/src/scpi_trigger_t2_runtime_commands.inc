@@ -1,3 +1,4 @@
+#include "sync_io_gateway.h"
 #include "sync_io_switch.h"
 #include "trigger_action_template_store.h"
 #include "trigger_deployment_service.h"
@@ -443,6 +444,29 @@ scpi_result_t scpi_cmd_trigger_sequence_repeat_q(scpi_t *context)
     scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
     SCPI_ResultUInt32(context, trigger_sequence_code_repeat());
     SCPI_ResultUInt32(context, trigger_sequence_timing_position_actions_total());
+    return SCPI_RES_OK;
+}
+
+/* 1 (default) = bench-accurate: an unanswered READY blocks the next action. 0 = diagnostic mode
+ * for a rig without an analyzer: the pending READY is retired and COUNTED as a collision, so the
+ * sequence and the whole position chain can be exercised. */
+scpi_result_t scpi_cmd_trigger_sequence_ready(scpi_t *context)
+{
+    trigger_sequence_timing_t t;
+    if (!trigger_sequence_timing_get(&t)) return scpi_trigger_t2_fail(context);
+    if (!scpi_sequence_u32(context, 1u, &t.ready_required) || !scpi_trigger_grid_end(context))
+        return scpi_trigger_t2_fail(context);
+    if (trigger_sequence_timing_set(&t) != TRIGGER_SEQUENCE_TIMING_OK)
+        return scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_ARGUMENT);
+    sync_io_gateway_realtime_set_ready_required(t.ready_required != 0u);
+    return scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+}
+
+scpi_result_t scpi_cmd_trigger_sequence_ready_q(scpi_t *context)
+{
+    if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, sync_io_gateway_realtime_ready_required() ? 1u : 0u);
     return SCPI_RES_OK;
 }
 

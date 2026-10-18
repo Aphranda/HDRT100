@@ -69,6 +69,12 @@ bool sync_io_gateway_realtime_schedule_at(uint32_t pulse_ns,uint64_t deadline_ti
  * position (`pulse_ns[i]` and `delta_ticks[i]` = group i's pulse width and its offset from the
  * base tick). The first trigger is armed immediately; every following group is armed at its own
  * absolute tick when the previous pulse completes, so the spacing is the table's. */
+/* Whether a new action must wait for the previous READY. 1 (default) = the bench-accurate
+ * behaviour: an action that has not been answered blocks the next one. 0 = diagnostic mode for a
+ * rig without an analyzer: the pending READY is cleared and COUNTED as a collision, and the chain
+ * keeps running (so the sequence/positions can be exercised end to end). */
+void sync_io_gateway_realtime_set_ready_required(bool required);
+bool sync_io_gateway_realtime_ready_required(void);
 bool sync_io_gateway_realtime_stage_sequence(uint64_t base_deadline_tick,
     const uint32_t *pulse_ns,const uint64_t *delta_ticks,uint32_t count);
 bool sync_io_gateway_realtime_status(sync_io_gateway_deadline_status_t *out);

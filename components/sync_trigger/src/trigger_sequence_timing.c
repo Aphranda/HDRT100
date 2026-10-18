@@ -26,6 +26,7 @@ static const trigger_sequence_timing_t s_default = {
     .channels = 8u,
     .polarizations = 2u,
     .grid_ns = 500u,
+    .ready_required = 1u,
 };
 
 static trigger_sequence_timing_t s_timing;
@@ -88,6 +89,7 @@ trigger_sequence_timing_error_t trigger_sequence_timing_set(
         return TRIGGER_SEQUENCE_TIMING_BAD_COUNT;
     if (in->grid_ns == 0u || in->grid_ns > TRIGGER_SEQUENCE_TIMING_MAX_GRID_NS)
         return TRIGGER_SEQUENCE_TIMING_BAD_GRID;
+    if (in->ready_required > 1u) return TRIGGER_SEQUENCE_TIMING_INVALID;
     s_timing = *in;
     s_loaded = true;
     return TRIGGER_SEQUENCE_TIMING_OK;

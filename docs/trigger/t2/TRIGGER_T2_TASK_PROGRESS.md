@@ -12,6 +12,23 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-050：READY 可关（新命令实测生效）+ 表容量 8→48（16 行装进去了）；N≥3 的窗口续填仍缺
+
+- **新配置项**（已提交，P3 `build=20261018013008` 之后的这次 P3 覆盖）：
+  `TRIGger:SEQuence:REAdy <0|1>` / `?` —— 1（默认）表示“上一个 READY 未到就不许开下一个动作”，0 表示**台架诊断模式**：把待决 READY 退掉并**计数**为踩踏，链路继续跑。
+  台架实测：`REAdy?` → `1,0,1`，发 `REAdy 0` 后 `REAdy?` → `1,0,0`（生效）。
+- **表容量 8 → 48**：`TRIGGER_ACTION_TEMPLATE_CAPACITY` 提升后，`T2_SEQ_GROUPS='1,16,16,16'` 第 10 步**装表成功**（三块板 `count=16`），16 行不再是拦路点。
+- **16 组台架读数（`--period-ns 10000000 --subdivisions 32`，采样 60 s）**：
+  ```
+  SWITCH_A : executed=6  groups=16  LATE=3  NO_PLAN=316  BACKEND=2
+  SWITCH_B : executed=6  groups=16  LATE=3  NO_PLAN=316  BACKEND=2
+  GATEWAY  : executed=0  groups=16  BACKEND=321   ← 该板 REAdy 仍为 1（本轮到得早于设置），属预期
+  ```
+- **结论**：`N=2` 的窗口交接已验证通过（361×2=722 零失败），但 **`N≥3` 会退化成 NO_PLAN**（N=3 与 N=16 同样 316~358 个位置无计划）⇒ 窗口续填（`sequence_feed` 在 3 组以上时的补对条件）是下一个要修的点，而不是容量或 READY。
+- **下一步**：① 在 `sync_io_switch.c` 的 `sequence_feed()` 里对“剩余组数 ≥2 但 FIFO 只有 2 词空间”的情况加计数并放宽（或在窗口开启时一次性推入全部组，`T2_PLAN_GROUP_MAX=4` 时最多 4×2=8 词，两个 SM 各 8 词会超过 FIFO 深度，需要按 SM 分开推）；② 把 `T2_PLAN_GROUP_MAX` 提到 16 以覆盖“一位置 16 动作”的单窗口；③ 复跑 16 组，期望 `executed = 16 × 位置数`。
+
+
+
 ### T2-PROGRESS-20261018-049：完整位置 + 双组在真机通过（SWITCH_B 361×2=722，零失败）；3 组与 16 组各有明确拦路点
 
 - **配置**：`T2_SEQ_GROUPS='1,3,2,2'`（表容量 8 行能装下的最大），组间隔 2 细片，粗周期 10 ms / 32 细分，采样 110 s 跑满整轮。22 步全 OK，`DISTRIBUTED`（`tx_publish 57207`）。

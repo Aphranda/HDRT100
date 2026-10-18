@@ -40,6 +40,7 @@ typedef struct {
     uint32_t channels;      /* N通道 */
     uint32_t polarizations; /* N极化 */
     uint32_t grid_ns;       /* grid slice, configurable (500 ns was only a drawing preset) */
+    uint32_t ready_required; /* 1 = an unanswered READY blocks the next action (default 1) */
 } trigger_sequence_timing_t;
 
 void trigger_sequence_timing_reset(void);

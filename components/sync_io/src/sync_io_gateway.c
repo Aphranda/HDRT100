@@ -35,6 +35,9 @@ static uint32_t s_saved_ctrl,s_saved_pad;
 static bool s_saved_direction,s_saved_latch,s_saved_pio_level,s_saved_pio_direction;
 static volatile uint32_t s_realtime_pending;
 static bool s_ready_active;
+/* 1 = a pending READY blocks the next action (bench-accurate, default). 0 = diagnostic mode for a
+ * rig without an analyzer: the pending READY is retired and counted, the chain keeps running. */
+static bool s_ready_required = true;
 /* Time-collision evidence: an action started while the previous READY was still outstanding,
  * and the smallest gap ever measured between a received READY and the next armed deadline. */
 static uint32_t s_ready_collision_count;
@@ -276,7 +279,10 @@ static bool prepare_realtime(uint32_t pulse_ns)
      * window. An absent READY never blocks a new action, but an action that starts while the
      * previous READY is still missing IS a time collision and is counted: the schedule owes
      * exactly one READY per TRIG, and the next action may not overtake it. */
-    if (s_ready_active) ++s_ready_collision_count;
+    if (s_ready_active) {
+        ++s_ready_collision_count;
+        if (!s_ready_required) s_ready_active = false;
+    }
     sync_io_gateway_realtime_service_core1();
     pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
     pio_sm_set_enabled(GATEWAY_PIO,READY_SM,false);
@@ -383,6 +389,16 @@ bool __not_in_flash_func(sync_io_gateway_realtime_schedule_at)(uint32_t pulse_ns
 
 /* Accept the whole action table of one position. The groups' absolute ticks were solved on the
  * shared timeline, so this call does not need to know the action period. */
+void sync_io_gateway_realtime_set_ready_required(bool required)
+{
+    s_ready_required = required;
+}
+
+bool sync_io_gateway_realtime_ready_required(void)
+{
+    return s_ready_required;
+}
+
 bool __not_in_flash_func(sync_io_gateway_realtime_stage_sequence)(uint64_t base_deadline_tick,
     const uint32_t *pulse_ns,const uint64_t *delta_ticks,uint32_t count)
 {
@@ -391,7 +407,9 @@ bool __not_in_flash_func(sync_io_gateway_realtime_stage_sequence)(uint64_t base_
     for(uint32_t i=1u;i<count;++i)
         if(delta_ticks[i]<=delta_ticks[i-1u]) return false;
     /* Refuse before touching the backend: a rejected table must not leave a half-armed pulse. */
-    if(s_plan_count || s_ready_active) return false;
+    if(s_plan_count) return false;
+    if(s_ready_active && s_ready_required) return false;
+    if(s_ready_active) { ++s_ready_collision_count; s_ready_active=false; }
     for(uint32_t i=0u;i<count;++i) {
         if(pulse_ns[i]==0u) return false;
         if(base_deadline_tick>UINT64_MAX-delta_ticks[i]) return false;

@@ -10,7 +10,10 @@
 /* Per-position group sequence (T2-SEQ-001 / TRIGGER_T2_TODO.md:110): a position
  * carries 16 groups, so the installable program must hold at least that many
  * rows. Existing rows keep their indices; only the bound widens. */
-#define TRIGGER_ACTION_TEMPLATE_CAPACITY 8u
+/* One action needs three rows (SWITCH_A + SWITCH_B + GATEWAY TRIG), so a position that
+ * carries the full 16 actions (8 channels x 2 polarizations) needs 48. The table is shared by
+ * all roles, which is why 8 was enough only for two actions. */
+#define TRIGGER_ACTION_TEMPLATE_CAPACITY 48u
 
 typedef enum {
     TRIGGER_ACTION_TEMPLATE_TABLE_OK = 0u,
