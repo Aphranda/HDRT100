@@ -13,6 +13,7 @@ referenced local evidence digest remains intact.
 
 from __future__ import annotations
 
+import pathlib
 import argparse
 import csv
 import hashlib
@@ -2183,11 +2184,30 @@ def dpll_short_run_capture(root: Path, config: dict[str, Any], out_dir: Path, *,
     if pre_capture:
         print(f"Hardware acceptance: pre-capture hook: {pre_capture}", flush=True)
         subprocess.run(pre_capture, shell=True, cwd=str(root), check=False)
+    # Point the manifest at THIS run's provisional receipt: the committed manifest names the committed
+    # receipt, whose source fingerprint no longer matches, which made step 29 fail unconditionally.
+    workflow_inputs = root / config["dpll_short_workflow_inputs"]
+    provisional = pathlib.Path(config.get("_provisional_receipt_path") or
+                               (root / "config/hardware_acceptance/p3_acceptance_receipt.json"))
+    if provisional.is_file():
+        import json as _json
+        manifest = _json.loads(workflow_inputs.read_text(encoding="utf-8"))
+        manifest.setdefault("files", {}).setdefault("receipt", {})["path"] = \
+            provisional.relative_to(root).as_posix()
+        remapped = out_dir / "workflow-inputs.json"
+        remapped.write_text(_json.dumps(manifest, ensure_ascii=False, indent=1) + "\n",
+                            encoding="utf-8")
+        workflow_inputs = remapped
+        print(f"Hardware acceptance: joint capture uses {workflow_inputs.name} "
+              f"-> {provisional.name}", flush=True)
+    else:
+        print(f"Hardware acceptance: WARNING no provisional receipt at {provisional}; "
+              "the joint capture will validate the committed one", flush=True)
     command = [
         sys.executable,
         str(root / "tools/vdc_priority_trace/vdc_priority_joint_capture.py"),
         "--bench-adapter", str(root / config["dpll_short_bench_adapter"]),
-        "--workflow-inputs", str(root / config["dpll_short_workflow_inputs"]),
+        "--workflow-inputs", str(workflow_inputs),
         "--scope", "on" if scope_enabled else "off",
         "--scope-trigger", "CHAN1",
         "--scope-resource", resource,
@@ -3951,6 +3971,12 @@ def phase_dpll_provisional(run: AcceptanceRun) -> None:
         tdma_summary_path=run.get("tdma_summary_path"),
         stopped_handoff_path=run.get("stopped_handoff_path"),
         calibration_generation=run.get("training_generation"))
+    # The writer targets `run.receipt_path`; hand that path to the capture step so the remapped
+    # manifest validates the receipt this run just wrote.
+    if not run.receipt_path.is_file():
+        raise AcceptanceError(f"provisional receipt was not written at {run.receipt_path}")
+    run.config["_provisional_receipt_path"] = str(run.receipt_path)
+    print(f"Hardware acceptance: provisional receipt -> {run.receipt_path.name}", flush=True)
     run.put(provisional_receipt_written=True)
 
 
