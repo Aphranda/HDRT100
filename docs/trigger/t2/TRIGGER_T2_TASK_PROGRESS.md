@@ -12,6 +12,24 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-013：网关"恒为 2 发"与组间距、SM 禁用都无关——下一轮改为直接读 SM 状态
+
+- **两条对照实验（都不改代码，仅台架参数 / 一行代码）**：
+  1. **组间距从 2.5 ms 拉到 20 ms**（`--group-slices 64`）：结果**完全相同**
+     （`svc_complete=2`、`plan_next=3`、`plan_next` 不再前进、`arm` 随位置数增长）；
+  2. **完成时不关闭输出 SM**（与开关一致，留 SM 停在 `pull block`）：结果**完全相同**
+     （`complete=2`、`plan_next=3`、`svc_wait=54`）。
+- **结论（重要）**：网关**每份计划恒好两发**，与节拍无关、与"读回执后禁用 SM"无关；
+  第三发被武装（`pending=1`、TX 有字、`start_deadline` 返回 true）但**PIO 从不执行它**
+  （`svc_wait` 单调增长、`svc_bad_receipt=0`）。
+- **纪律**：那条"SM 保持使能"的改动**已回退**（未证明有效，不入库）；工作区只剩 P3 生成的报告差异。
+- **下一轮（一步，读状态而不是猜）**：在 GWDIAG 增加四个直接观测量——
+  `pio_sm_is_enabled(OUTPUT_SM)`、`pio_sm_get_pc(OUTPUT_SM)`、TX FIFO 电平、`s_realtime_pending`；
+  台架一次采样即可判定是"SM 没被使能""PC 卡在非 pull 指令"还是"TX 字没进 FIFO"。
+- **开关侧**：1824/1840 = 16 × 位置数、`finish` 114/115、三类失败全 0。
+
+
+
 ### T2-PROGRESS-20261019-012：新增"连续三次脉冲"主机用例——**主机上连打三发完全正常**，排除"SM 重启丢回执"假设
 
 - **新用例**：`tests/python/test_sync_io_gateway.py` 增加 `triple`——`load` 后连续三次
