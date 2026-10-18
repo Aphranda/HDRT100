@@ -12,6 +12,21 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-047：`--subdivisions 16` 实测也无效——`expand_fail` 是常量，说明它不是变量
+
+- **运行**：`T2_SEQ_GROUPS='1,2,1,1'`，`--subdivisions 16`（默认是 2，正是上一轮的怀疑对象），22 步全 OK。
+- **读数**：
+  ```
+  SWITCH_A 2组 : executed=6   NO_PLAN=184  freeze_missing=185  expand_fail=544 (与 subdivisions=2 时一模一样)
+  GATEWAY  1组 : executed=187 NO_PLAN=0
+  SWITCH_B 1组 : executed=187 NO_PLAN=0
+  ```
+- **结论**：`expand_fail=544` 在 `subdivisions∈{2,16}`、`period∈{2,12}` 四种组合下**恒定不变** ⇒ 它是与配置无关的一次性常量（很可能发生在安装/预跑阶段），**不是**决定双组失败的那个量。上一轮把它当成原因，判断错误，现在改正。
+- **真正与失败同步变化的量**：`freeze_missing ≈ NO_PLAN`（185≈184）且 `executed=6`、`published=6` —— 也就是**双组位置的计划在 FREEZE 时版本为 0**，而 Core0 的发布计数只有 6。
+- **下一个（正确的）仪器化方向**：我此前的计数器只装在 `prepare_deadlines_core0()`（源板路径）里；从板走的是 `!snapshot.origin` 的**另一条发布路径**（单组从板 `published=0` 却能执行 187 就是证据）。所以下轮要在**从板那条路径**上加同样的计数，才能看到双组从板为什么只发布 6 次。
+
+
+
 ### T2-PROGRESS-20261018-046：双行模板本身是**合法**的——`expand_fail` 只可能来自 instance 边界
 
 - **逐字段解码**（`TRIGger:RESERVation:TEMPLate?`；行块 7 字段 = `template_id, generation, role, kind, argument, span_slices, delta_q`）：
