@@ -12,6 +12,22 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-052：窗口完成判定加上「必须有回执」——开关侧队列已能清空、状态回到 COMPLETE；剩余 NO_PLAN 转到计划供给
+
+- **新增窗口统计**（`T2:ACTion:WINdow?` 尾四字段：`advance, jump, reuse, no_receipt`）。
+- **修前实测（N=3）**：`advance=3, jump=0, no_receipt=3, reuse=159` ⇒ **每一次“窗口内前进”都没有回执**：开关只是装载了下一组（状态仍 PENDING、`queued=1`、`last_seq=4`），而运行时把它记成“上一组完成”（`executed=6`）。N=2 看起来正常只是因为回执恰好落在同一次轮询里。
+- **修法**：窗口内“sequence 前进”只有在**同一状态里带回执**（`receipt_mask != 0`）时才计为完成；否则只更新 deadline，不推进组游标。
+- **修后台架（N=3）**：
+  ```
+  开关窗口: count=3 fed=3 queued=0 state=4(COMPLETE) last_seq=5  advance=6 jump=0 reuse=166
+  ```
+  ⇒ **队列清空、状态回 COMPLETE**，不再永久 PENDING（这是实质进展）。
+- **但 `executed` 仍只有 6（= 2 位置 × 3 组），NO_PLAN 115~117** ⇒ 瓶颈已经转到**计划供给**：只有 2 个位置拿到了计划。下一个怀疑点是 `prepare_deadlines_core0()` 入口的
+  `t2_deadline_position_accepted(completed|failed, index)` 与 `action_group_next/in_flight` 组合——位置槽位循环复用时，若 `completed` 位未被新位置清掉，Core0 会**永久跳过**该槽位（N=2 下可能因时序不同没暴露）。
+- **下轮**：给 `prepare_deadlines_core0` 的三个 `continue` 各加一个桶（`accepted_skip / inflight_skip / group_unreachable`），一次 N=3 台架即可确定是哪一个把 3..N 个位置全跳过；修好后判据仍是 `executed = 3 × 位置数`（先 N=3），再上 16。
+
+
+
 ### T2-PROGRESS-20261018-051：N≥3 的真凶方向：开关窗口**永远停在 PENDING**（队列残留 1 项），而运行时多算了完成数
 
 - **新仪器**：独立页 `TRIGger:RESERVation:T2:ACTion:WINdow?`（`count, fed, queued, state, last_seq`），避免尾块偏移随固件漂移；工作流新增 `T2_READY_REQUIRED=0/1`，会在 T2 启动前下发 `TRIGger:SEQuence:REAdy`（无网分台架可用）。

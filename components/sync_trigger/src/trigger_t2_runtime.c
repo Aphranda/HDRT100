@@ -154,6 +154,10 @@ static uint8_t s_group_next[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 static uint8_t s_group_handed[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 /* Last backend sequence the window may report; the backend advances it per group. */
 static uint32_t s_action_sequence_last[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+/* In-window accounting: a completion is only real when the backend's sequence advances by exactly
+ * one and the backend reports a receipt. Counted so the bench shows which rule is violated. */
+static uint32_t s_window_advance_count, s_window_jump_count, s_window_reuse_count,
+    s_window_no_receipt_count;
 static uint8_t s_group_armed[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 /* How many groups of one position are handed to the executor in a single call. */
 #define T2_PLAN_GROUP_MAX 4u
@@ -1164,12 +1168,14 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     bool complete = false, terminal = false, uncertain = false;
     uint32_t sequence = 0u;
     uint64_t deadline = 0u;
+    bool s_switch_receipt_seen = false;
     if (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
         sync_io_switch_realtime_service_core1();
         sync_io_switch_deadline_status_t status;
         if (!sync_io_switch_realtime_status(&status)) return;
         note_backend(s_armed_index, status.state, status.origin_before_tick, status.origin_after_tick);
         sequence = status.sequence; deadline = status.deadline_tick;
+        s_switch_receipt_seen = status.receipt_mask != 0u;
         complete = status.state == SYNC_IO_SWITCH_DEADLINE_COMPLETE;
         uncertain = status.state == SYNC_IO_SWITCH_DEADLINE_UNCERTAIN;
         terminal = uncertain || status.state == SYNC_IO_SWITCH_DEADLINE_CANCELLED;
@@ -1188,12 +1194,23 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         const uint32_t index = s_armed_index, bit = 1u << index;
         const uint32_t expected = s_state.action_sequence[index];
         const uint32_t window_last = s_action_sequence_last[index];
+        if (window_last && sequence == expected && expected > 0u) ++s_window_reuse_count;
         if (sequence > expected && sequence <= window_last) {
-            /* Inside the handed window: the previous group completed and the next one is
-             * already armed in hardware. */
+            /* Inside the handed window. The switch loads the NEXT queue entry as soon as the
+             * previous group completes, so a sequence advance means "a group finished and the
+             * next one is armed" ONLY together with a receipt: without one the backend has just
+             * advertised the armed group and nothing finished yet (measured: 3 advances, 0 jumps,
+             * 3 without receipt, 159 repeats of the same sequence). Counting those as completions
+             * made executed run ahead of the hardware and left the window PENDING for ever. */
+            ++s_window_advance_count;
+            if (sequence != expected + 1u) ++s_window_jump_count;
+            s_deadline[index].deadline_tick = deadline;
+            if (!s_switch_receipt_seen) {
+                ++s_window_no_receipt_count;
+                return;
+            }
             complete_action(index);
             s_state.action_sequence[index] = sequence;
-            s_deadline[index].deadline_tick = deadline;
             if (s_group_next[index] < s_group_handed[index])
                 s_state.action_group_in_flight[index] = s_group_next[index];
             return;
@@ -2025,6 +2042,16 @@ static void prepare_deadlines_core0(uint32_t session,
         ++s_solve_publish;
         deadline_publish(index, &plan);
     }
+}
+
+bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
+{
+    if (!out) return false;
+    out->advance = s_window_advance_count;
+    out->jump = s_window_jump_count;
+    out->reuse = s_window_reuse_count;
+    out->no_receipt = s_window_no_receipt_count;
+    return true;
 }
 
 bool trigger_t2_runtime_solve_stats(trigger_t2_runtime_solve_stats_t *out)

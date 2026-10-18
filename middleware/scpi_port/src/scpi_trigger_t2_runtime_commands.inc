@@ -581,6 +581,14 @@ scpi_result_t scpi_cmd_trigger_t2_action_window_q(scpi_t *context)
     SCPI_ResultUInt32(context, queued);
     SCPI_ResultUInt32(context, state);
     SCPI_ResultUInt32(context, last);
+    /* In-window accounting: advance, jump, reuse, no_receipt. */
+    {trigger_t2_runtime_window_stats_t st;
+     if (trigger_t2_runtime_window_stats(&st)) {
+         SCPI_ResultUInt32(context, st.advance);
+         SCPI_ResultUInt32(context, st.jump);
+         SCPI_ResultUInt32(context, st.reuse);
+         SCPI_ResultUInt32(context, st.no_receipt);
+     }}
     return SCPI_RES_OK;
 }
 

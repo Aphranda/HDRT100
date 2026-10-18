@@ -343,6 +343,10 @@ typedef struct {
     uint32_t no_descriptor, expand_fail, version_zero, published;
 } trigger_t2_runtime_solve_stats_t;
 bool trigger_t2_runtime_solve_stats(trigger_t2_runtime_solve_stats_t *out);
+typedef struct {
+    uint32_t advance, jump, reuse, no_receipt;
+} trigger_t2_runtime_window_stats_t;
+bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out);
 void trigger_t2_runtime_prepare_core0(void);
 bool trigger_t2_runtime_preview_history(uint32_t position_id, uint32_t age,
                                         trigger_position_descriptor_t *out);
