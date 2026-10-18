@@ -12,6 +12,34 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-073：判据改为"非循环"后第一次给出真实结论——SWITCH_B 16×113 全过、SWITCH_A 少一个位置、GATEWAY 仍 0
+
+- **发现并修掉的判据缺陷**：我原来的 `verdict` 用 `positions = executed / groups` 反推位置数，再检查
+  `executed == groups × positions`——**永远成立**（自证），所以上一轮它报 OK 是假象。现在改为用 DIAG 的
+  **`action_finish`（真正收尾的位置数）**作为独立量，判据为 `executed == groups × finished` 且 `finished > 0`、
+  三类失败为 0；并且跳过没有动作组的源板（COUNTER）。
+- **另一个采样缺陷**：链路结束会自动跑 teardown（步骤 21），**之后再读板子全是 0**。现在工作流在采样循环末尾
+  （teardown 之前）把 `WHY/WINdow/DIAG/T2/GWDIAG` 写成 `out/sync_trigger/sequence_snapshot.json`，
+  判据读该快照。
+- **真实读数（N=16，`T2_SEQ_GROUPS='1,16,16,16'`）**：
+  ```
+  SWITCH_B: executed=1808 = 16 × 113   finished=113   NO_PLAN/LATE/BACKEND=0   → 判据 PASS
+  SWITCH_A: executed=1792 = 16 × 112   finished=113   → 少一个位置的距离（差 16 次）
+  GATEWAY : executed=0                 BACKEND=113
+  ```
+- **结论**：路线 A（一位置一窗口、无边界）在开关侧**已经成立**，只剩两件小事：
+  1. SWITCH_A 少一次 16 组（差 16 次执行）——像单个位置丢失，下一轮用 `group_done/group_next` 逐槽定位；
+  2. GATEWAY 仍 0（BACKEND=113）——按"参照 SWITCH"把它改成同引擎（两字协议 + 队列 + 逐组回执）。
+- **台架在本轮末尾不可用**：P3 连续在步骤 29 失败（`invalid P3 joint provisional receipt`），无法产出凭证。
+  因此把两处**已验证逻辑但未过 P3** 的改动入库前隔离：
+  ```
+  stash@{0}  sequence tooling: non-circular verdict + pre-teardown snapshot (pending P3)
+  stash@{1}  runtime BACKEND buckets (pending P3)
+  ```
+  工作区 clean；下一轮台架恢复后按 `stash pop` → P3 → 提交的顺序入库。
+
+
+
 ### T2-PROGRESS-20261018-072：接受第九节评审的定性——**停止在边界状态机上打补丁**；本轮把未验证的探针代码入库前先隔离
 
 - **评审结论（第九节，已读）**：三条约束互斥——① 批量交付（`T2_PLAN_GROUP_MAX` 2–4 组/次）；
