@@ -12,6 +12,31 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-071：按用户指示先禁用 READY；网关改为"上报组序号"（同开关模型）——网关仍 BACKEND，且本轮 SWITCH_A 异常未运行
+
+- **两处改动（已提交）**：
+  1. 网关 `schedule_at`/`service` 把 **PIO 回执（触发计数）** 与 **组序号** 分开：`sequence = 计划基号 + k`，
+     `completed_sequence = 该组序号`，与开关完全同构（此前网关把触发计数当序号上报，运行期比的是组序号，
+     所以 `completed > expected` 永不成立）；
+  2. `s_ready_required` 默认改 **false**（READY 暂不使用，待接网分后 `TRIGger:SEQuence:REAdy 1` 打开）。
+- **台架（N=16，20 s）**：
+  ```
+  SWITCH_B: executed = 1728 = 16 × 108   NO_PLAN/LATE/BACKEND 全 0   window(16,16,0,COMPLETE)
+  SWITCH_A: executed = 0                window state=1(LOADED)     ← 本轮该板根本没运行
+  GATEWAY : executed = 0  BACKEND = 108
+  GWDIAG  : plan_count=0 ready_active=0 ready_required=0 pulse=20 collision=108 rejects=全 0
+  ```
+- **两个待解问题（都很具体）**：
+  1. **SWITCH_A 为何 state=LOADED 且 window 全 0** —— 同一轮 SWITCH_B 跑满，说明是这块板/这次装载的个案，
+     下一轮先读它的 `T2?`（configure diag / armed）与开关页确认是 lease 未拿还是武装被拒；
+  2. **GATEWAY 仍 BACKEND=108 且拒绝桶全 0** —— `stage_sequence` 的 8 个出口一个都没计到，而 `collision=108`
+     恰好每位置一次，说明它**进入了 `stage_sequence` 并通过了守卫**（collision 在守卫之后），随后失败发生在
+     *运行期* 的武装/身份判定；下一轮在运行期 `action_fail(BACKEND)` 的**三个来源**各加一个计数
+     （身份不符 / 未武装 / 后端返回 false），一次台架即可定位。
+- **开关侧不变**：16 组单窗口仍是 `16 × 位置数`、零失败（本轮 SWITCH_B 1728 = 16×108 再次确认）。
+
+
+
 ### T2-PROGRESS-20261018-069：READY 已在采样前强制下发（`ready_required=0` 确认生效），网关剩下的问题是"计划装满但从不排空"
 
 - **工作流改动**：`TRIGger:SEQuence:REAdy <env>` 现在在**采样循环开始前**对四块板各下发一次并当场回读

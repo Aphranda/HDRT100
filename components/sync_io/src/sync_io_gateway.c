@@ -37,10 +37,17 @@ static volatile uint32_t s_realtime_pending;
 static bool s_ready_active;
 /* 1 = a pending READY blocks the next action (bench-accurate, default). 0 = diagnostic mode for a
  * rig without an analyzer: the pending READY is retired and counted, the chain keeps running. */
-static bool s_ready_required = true;
+/* READY is disabled for now (the analyzer is not wired): the pending READY is retired and counted as a
+ * collision, so the sequence can run end to end. TRIGger:SEQuence:REAdy 1 re-enables the strict
+ * behaviour when the analyzer answers. */
+static bool s_ready_required = false;
 /* Time-collision evidence: an action started while the previous READY was still outstanding,
  * and the smallest gap ever measured between a received READY and the next armed deadline. */
 static uint32_t s_ready_collision_count;
+/* The PIO echoes the trigger count as its receipt, while the SEQUENCE names the group of the staged
+ * table. Keeping them apart is what lets the runtime match a completion to a group (same model as the
+ * switch, where the code word carried the group's identity). */
+static uint32_t s_pending_receipt, s_pending_sequence, s_sequence_override, s_plan_base_sequence;
 /* Why a staged table was refused: NO_LEASE, BAD_COUNT, BAD_OFFSET, BAD_DELTA, BUSY, READY,
  * BAD_PULSE, SCHEDULE. */
 #define GATEWAY_STAGE_REJECT_COUNT 8u
@@ -329,18 +336,21 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
         const uint32_t receipt=pio_sm_get(GATEWAY_PIO,OUTPUT_SM);
         __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);
         pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
-        if(receipt!=s_gateway.trigger_count) {
+        if(receipt!=s_pending_receipt) {
             safe_stop();s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
             return;
         }
-        s_deadline.completed_sequence=receipt;
+        s_deadline.completed_sequence=s_pending_sequence;
         if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_ARMED)
             s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_COMPLETE;
         /* Next group of the staged table: armed now, at its own absolute tick, so the spacing
          * between pulses is decided by the table rather than by this service pass. */
         if(s_plan_next<s_plan_count) {
             const gateway_plan_group_t group=s_plan[s_plan_next++];
-            if(!sync_io_gateway_realtime_schedule_at(group.pulse_ns,group.deadline_tick)) {
+            s_sequence_override=s_plan_base_sequence+s_plan_next-1u;
+            const bool armed=sync_io_gateway_realtime_schedule_at(group.pulse_ns,group.deadline_tick);
+            s_sequence_override=0u;
+            if(!armed) {
                 s_plan_count=0u;s_plan_next=0u;
                 s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
             }
@@ -377,7 +387,9 @@ bool __not_in_flash_func(sync_io_gateway_realtime_schedule_at)(uint32_t pulse_ns
        timer1_hw->pause || timer1_hw->source!=TIMER_SOURCE_CLK_SYS_VALUE_CLK_SYS ||
        !prepare_realtime(pulse_ns))return false;
     s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_CANCELLED;
-    s_deadline.deadline_tick=deadline_tick;s_deadline.sequence=s_gateway.trigger_count+1u;
+    s_pending_receipt=s_gateway.trigger_count+1u;
+    s_pending_sequence=s_sequence_override?s_sequence_override:s_pending_receipt;
+    s_deadline.deadline_tick=deadline_tick;s_deadline.sequence=s_pending_sequence;
     s_deadline.origin_before_tick=s_deadline.origin_after_tick=0u;
     if(!start_deadline(deadline_tick)) {
         if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN)safe_stop();
@@ -423,8 +435,13 @@ bool __not_in_flash_func(sync_io_gateway_realtime_stage_sequence)(uint64_t base_
         s_plan[i].deadline_tick=base_deadline_tick+delta_ticks[i];
     }
     s_plan_count=count;s_plan_next=0u;
+    /* The staged table owns the group numbering: group k reports sequence base + k. */
+    s_plan_base_sequence=s_gateway.trigger_count+1u;
     const gateway_plan_group_t first=s_plan[s_plan_next++];
-    if(!sync_io_gateway_realtime_schedule_at(first.pulse_ns,first.deadline_tick)) {
+    s_sequence_override=s_plan_base_sequence;
+    const bool armed=sync_io_gateway_realtime_schedule_at(first.pulse_ns,first.deadline_tick);
+    s_sequence_override=0u;
+    if(!armed) {
         ++s_stage_reject[7];
         s_plan_count=0u;s_plan_next=0u;
         return false;
