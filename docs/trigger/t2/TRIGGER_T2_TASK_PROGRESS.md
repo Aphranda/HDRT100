@@ -12,6 +12,24 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-049：完整位置 + 双组在真机通过（SWITCH_B 361×2=722，零失败）；3 组与 16 组各有明确拦路点
+
+- **配置**：`T2_SEQ_GROUPS='1,3,2,2'`（表容量 8 行能装下的最大），组间隔 2 细片，粗周期 10 ms / 32 细分，采样 110 s 跑满整轮。22 步全 OK，`DISTRIBUTED`（`tx_publish 57207`）。
+- **读数**：
+  | 角色 | 组数 | executed | 失败原因 |
+  |---|---|---|---|
+  | SWITCH_B | **2** | **722 = 2 × 361** | 全 0 ⇒ **完整 361 位置 × 双组通过** |
+  | GATEWAY | 2 | 0 | `BACKEND=361`（无网分时 READY 永不到达，`stage_sequence` 因 `s_ready_active` 拒绝） |
+  | SWITCH_A | **3** | 6 | `NO_PLAN=358`、`LATE=3` ⇒ **3 组窗口仍有 off-by-one** |
+- **结论**：
+  1. **双组机制在真机上已被完整验证**（361 位置、722 次执行、零 LATE/EXPIRED/NO_PLAN/BACKEND），与单组的 361 次严格成 2:1；
+  2. **GATEWAY 的 2 组失败是设计使然**（台架没接网分）：需要注入 READY 或接真网分，届时读 `ready_collision_count`（当前 `TRIGger:GATEway?` 页在错误态下会 timeout，需像 ACTION 页那样加一个窄页）；
+  3. **3 组是新的边界 bug**：2 组过、3 组不过 ⇒ 怀疑窗口 `[seq, seq+N−1]`、`s_group_handed` 与 `s_group_next` 的对应在 N=3 时错位一格，下轮按 N=3 的逐组回执定位。
+  4. **16 组被表容量挡住**：`TRIGGER_ACTION_TEMPLATE_CAPACITY = 8u`（所有角色共用），16 动作 = 16×3 = 48 行 ⇒ 需要把容量提到 ≥48 并审计所有以它为尺寸的结构；`T2_SEQ_GROUPS='1,16,16,16'` 实测在第 10 步被拒（`stores not current`），不是时序问题。
+- **下一步顺序**：① 修 N=3 的窗口边界（有 N=2 作对照，定位快）；② 数据容量 8→48 并复跑 16 组；③ 给 `TRIGger:GATEway?` 加窄页读踩踏计数；④ 接网分实测 READY。
+
+
+
 ### T2-PROGRESS-20261018-048：双组序列在真机上**跑通**——174 个位置 × 2 组 = 348 次执行，零失败
 
 - **根因（两个游标只复位了一个）**：Core0 从 `action_group_next[]` 决定要解哪一组，Core1 用**私有的** `s_group_next[]` 决定要不要接这个计划（`trigger_t2_runtime.c` 选择分支：`plan->group != s_group_next[index]` 就跳过）。位置收尾时我把 Core0 那个复位了、Core1 那个没复位 ⇒ 计划已经到齐（`NO_PLAN` 立刻归 0），但 Core1 始终只认“上一位置最后一组”，于是 `executed` 停在 6。
