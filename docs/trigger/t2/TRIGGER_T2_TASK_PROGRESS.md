@@ -12,6 +12,27 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-015：**网关跑通了！三个角色全部 `executed = 16 × 位置数`、零失败**
+
+- **最后一处修复（一行）**：网关的武装分支**没有设置窗口上界** `s_action_sequence_last`（开关分支有）。
+  于是 `done_hist` 显示唯一一次完成判定是 `completed=1（已见未推进）, expected=1, window_last=0`，
+  而推进规则是 `completed > expected && completed <= window_last` ⇒ **上界为 0，永远不可能推进**；
+  计划就停在执行器已经跑掉的那两发上——这正是"卡在两发"的真相。
+- **台架（N=16，组间距 8）**：
+  ```
+  SWITCH_A 1817  finish 114   BACKEND 0   （16×113=1808 再 +9，采样点落在位置中间）
+  SWITCH_B 1824 = 16 × 114    finish 115   BACKEND 0
+  GATEWAY  1824 = 16 × 114    finish 114   BACKEND 0   identity 0  terminal 0  arm 0
+  gateway GWDIAG: plan_count=16  svc_complete=1824  plan_next=1  （每位置新装一份计划）
+  ```
+  ⇒ **网关与开关达到同级**：16 组/位置 × 一百多个位置、三类失败全 0、`svc_complete` 与 `executed` 一致。
+- **意义**：路线 ② 的"参照 SWITCH"目标达成——网关不再是另一套语义；它现在缺的只是"预装两组"的性能优化
+  （评审指出的 5.4 s/32 位延时上限与预装需求），而不是正确性。
+- **下一轮（④ 达标验证）**：短采样已证明倍数关系，直接上 **361 位置全链**（`T2_SAMPLE_TICKS=110`），
+  判据 `executed = 16 × action_finish`、三类失败为 0；同时复查 N=2 的 722 不回归。
+
+
+
 ### T2-PROGRESS-20261019-014：GWDIAG 增加 SM 直接观测量（在 teardown 前采样）：**停住时 SM 是关闭的、pending=0、TX=0**
 
 - **新增（设备侧，`PICO_ON_DEVICE` 保护）**：`sm_enabled`（`ctrl` 位）、`pc`（`sm[].addr`）、`tx_level`（`fstat`）、

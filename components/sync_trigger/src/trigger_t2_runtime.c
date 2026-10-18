@@ -291,6 +291,9 @@ static uint32_t s_action_advance_count, s_action_finish_count;
 static uint32_t s_window_seq_seen, s_window_expected_seen, s_window_last_seen, s_window_complete_seen;
 /* Where a BACKEND failure came from: identity mismatch, terminal/cursor state, or a refused arm. */
 static uint8_t s_window_staged[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+/* Last three advance decisions: completed, expected, window_last. */
+static uint32_t s_done_hist[3][3];
+static uint32_t s_done_hist_next;
 static uint32_t s_backend_identity, s_backend_terminal, s_backend_arm;
 /* Groups handed to the executor by the last published plan (1 = the window never widened). */
 static uint32_t s_plan_window_last;
@@ -1294,10 +1297,20 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
          * hardware, so `completed > expected` is true exactly once per group (review SEQ-B03). */
         if (completed > expected && completed <= window_last) {
             ++s_window_advance_count;
+            s_done_hist[s_done_hist_next][0] = completed;
+            s_done_hist[s_done_hist_next][1] = expected;
+            s_done_hist[s_done_hist_next][2] = window_last;
+            s_done_hist_next = (s_done_hist_next + 1u) % 3u;
             s_state.action_sequence[index] = completed;
             complete_action(index);
             s_deadline[index].deadline_tick = deadline;
             return;
+        }
+        if (completed && completed <= expected) {
+            s_done_hist[s_done_hist_next][0] = completed | 0x80000000u;   /* seen but not advanced */
+            s_done_hist[s_done_hist_next][1] = expected;
+            s_done_hist[s_done_hist_next][2] = window_last;
+            s_done_hist_next = (s_done_hist_next + 1u) % 3u;
         }
         if (sequence > expected && sequence <= window_last) {
             /* Inside the handed window. The switch loads the NEXT queue entry as soon as the
@@ -1499,6 +1512,10 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         sync_io_gateway_deadline_status_t status;
         if (sync_io_gateway_realtime_status(&status)) {
             s_state.action_sequence[selected] = status.sequence;
+            /* The window bound is the last group handed to the executor - the same rule the switch
+             * branch uses. Without it `window_last` stayed 0 and no completion could ever advance the
+             * plan (measured: done_hist = completed 1, expected 1, window_last 0). */
+            s_action_sequence_last[selected] = status.sequence + (handed ? handed - 1u : 0u);
             note_backend(selected, status.state, status.origin_before_tick, status.origin_after_tick);
         }
     }
@@ -2240,6 +2257,9 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->backend_terminal = s_backend_terminal;
     out->backend_arm = s_backend_arm;
     out->plan_window = s_plan_window_last;
+    for (uint32_t i = 0u; i < 3u; ++i)
+        for (uint32_t j = 0u; j < 3u; ++j)
+            out->done_hist[i][j] = s_done_hist[i][j];
     out->window_seq = s_window_seq_seen;
     out->window_expected = s_window_expected_seen;
     out->window_last = s_window_last_seen;
