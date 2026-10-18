@@ -355,6 +355,9 @@ typedef struct {
     uint32_t recv_busy, recv_no_version, recv_session, recv_older, recv_ok;
     /* Slot recycling: promoted from the stash, recycled by a newer preview, stash sets. */
     uint32_t recycle_promote, recycle_newer, stash_set;
+    uint32_t freeze_hist[8];
+    /* NO_PLAN split: version was 0, or at/below the slot floor. */
+    uint32_t freeze_no_plan_zero, freeze_no_plan_floor;
 } trigger_t2_runtime_window_stats_t;
 bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out);
 

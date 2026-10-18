@@ -605,6 +605,9 @@ scpi_result_t scpi_cmd_trigger_t2_action_window_q(scpi_t *context)
          SCPI_ResultUInt32(context, st.recycle_promote);
          SCPI_ResultUInt32(context, st.recycle_newer);
          SCPI_ResultUInt32(context, st.stash_set);
+         for (uint32_t i = 0u; i < 8u; ++i) SCPI_ResultUInt32(context, st.freeze_hist[i]);
+         SCPI_ResultUInt32(context, st.freeze_no_plan_zero);
+         SCPI_ResultUInt32(context, st.freeze_no_plan_floor);
      }}
     /* First four slots: frozen, completed, failed, plan version, recv seen, group cursor. */
     for (uint32_t slot = 0u; slot < 4u; ++slot) {

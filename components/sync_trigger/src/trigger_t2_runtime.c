@@ -275,6 +275,13 @@ static uint32_t s_recv_busy, s_recv_no_version, s_recv_session, s_recv_older, s_
 /* Slot recycling: executed is a constant 6 across every configuration, so the suspicion is that a
  * slot is never handed back to a new position after its first occupants. */
 static uint32_t s_recycle_promote, s_recycle_newer, s_stash_set;
+/* FREEZEs seen per slot (first 8). The probe showed plans reaching slots 0/1 while only slot 2 ever
+ * froze, so the distribution decides whether the origin addresses few slots or the mapping is off. */
+#define T2_FREEZE_HISTOGRAM 8u
+static uint32_t s_freeze_per_slot[T2_FREEZE_HISTOGRAM];
+/* Why the freeze found no plan: version 0 (nothing solved) or at/below the slot floor (a leftover
+ * of the previous occupant). The floor rises on every recycle, so a reused slot is the suspect. */
+static uint32_t s_freeze_no_plan_zero, s_freeze_no_plan_floor;
 static volatile uint32_t s_guard;
 
 #define T2_WINDOW_HISTORY_CAPACITY 17u
@@ -980,6 +987,7 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
                                            descriptor.position_id,
                                            TRIGGER_POSITION_WINDOW_FROZEN);
         s_state.frozen_mask |= bit;
+        if (index < T2_FREEZE_HISTOGRAM) ++s_freeze_per_slot[index];
         __atomic_store_n(&s_frozen_public, s_state.frozen_mask, __ATOMIC_RELEASE);
         /* How much of the freeze lead was left at this instant. The design promise is
          * "freeze early, act later", so this is the whole budget the rest of the chain
@@ -1013,6 +1021,8 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
          * means no plan at all. Measured with a three-group window: plans were published before
          * the freeze and received (recv_ok=109) yet invisible here, because arming the previous
          * position cleared the slot and Core0 will not republish a plan its mailbox still holds. */
+        if (!plan->prediction_version) ++s_freeze_no_plan_zero;
+        else if (plan->prediction_version <= s_slot_floor[index]) ++s_freeze_no_plan_floor;
         if (!plan->prediction_version ||
             plan->prediction_version <= s_slot_floor[index]) {
             s_state.freeze_missing_local_count++;
@@ -1755,6 +1765,12 @@ static T2_BOUNDED void T2_HOT(position_fallback)(uint64_t current_ms)
     const uint32_t index = cache->position_id - 1u, bit = 1u << index;
     if ((s_state.frozen_mask & bit) != 0u) return;                   /* FREEZE already owns it */
     if (s_state.descriptors[index].prediction_version == 0u) return; /* nothing to execute */
+    /* A descriptor is not a plan: freezing here without one guaranteed a NO_PLAN at selection.
+     * Measured with a three-group window: the FREEZE path's own NO_PLAN counters were 0 while every
+     * failed position came through this fallback, because the longer window makes the FREEZE image
+     * arrive late more often. */
+    if (s_deadline[index].prediction_version == 0u) return;          /* no plan yet */
+    if (s_deadline[index].prediction_version <= s_slot_floor[index]) return; /* leftover */
     if (cache->target_ms_index <= (uint32_t)current_ms) return;      /* past: never fire late */
     if ((uint32_t)current_ms + TRIGGER_T2_PROVISIONAL_MARGIN_MS <
         cache->target_ms_index) return;                              /* too early: wait */
@@ -2126,6 +2142,9 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->recv_session = s_recv_session;
     out->recv_older = s_recv_older;
     out->recv_ok = s_recv_ok;
+    for (uint32_t i = 0u; i < T2_FREEZE_HISTOGRAM; ++i) out->freeze_hist[i] = s_freeze_per_slot[i];
+    out->freeze_no_plan_zero = s_freeze_no_plan_zero;
+    out->freeze_no_plan_floor = s_freeze_no_plan_floor;
     out->recycle_promote = s_recycle_promote;
     out->recycle_newer = s_recycle_newer;
     out->stash_set = s_stash_set;
