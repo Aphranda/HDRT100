@@ -12,6 +12,26 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-027：批量尝试（heap 112 KB + 事件推进）**链接与运行时用例都通过**，但 SCPI 页断言需要重新生成——本轮回退，先把页契约定下来
+
+- **本轮实测**：
+  - `configTOTAL_HEAP_SIZE` 116→112 KB **+** 删除电平分支（事件推进）：**强制重链接三 profile 全通过**，
+    `test_trigger_t2_runtime` **37 passed** ⇒ 语义修正本身是可落地的（RAM 4 KB 余量够用）。
+  - 但两个"完整快照"页用例仍红：`tests/python/test_trigger_switch_service.py`（41 字段，diff 在 index 29）
+    与 `test_trigger_gateway_service.py`（35 字段）。我按 index 29 = `ready_required` 改了一处后**仍红**，
+    说明语义修正还改动了**别的字段值**（页里有多处由运行期状态渲染）。
+- **为什么回退**：这些页是**对外契约**（SCPI 观测面）。在"页契约该表达什么"没定下来之前，
+  用改断言的方式让它变绿，等于把契约写给实现看——违反 ⑧ 的"契约登记"精神。
+- **下一轮（先定契约，再改实现）**：
+  1. 明确这两个页在"事件推进/READY 默认关"之后的**字段语义**（哪些是电平、哪些是事件、哪些是计数），
+     必要时同步更新 `DOCS_REGISTRY` 里对应页的登记项；
+  2. 再一次性更新两个页用例的期望值（并在提交信息里写明契约变更）；
+  3. 与 heap 112 KB、事件推进同批提交，台架验 N=16 与 N=2。
+- **当前状态**：已回退（构建强制重链接通过、`test_trigger_t2_runtime` 37 passed、工作区 clean）；
+  两个页用例仍按旧契约断言（已在前一条登记为债务）。
+
+
+
 ### T2-PROGRESS-20261019-026：库存测试里有 **2 个 SCPI 页断言仍按旧的 sequence 语义**（属债务，随下一轮语义修正一起改）
 
 - **实测**：`tests/python/test_trigger_gateway_service.py` 与 `test_trigger_switch_service.py` 的
