@@ -12,6 +12,21 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-026：库存测试里有 **2 个 SCPI 页断言仍按旧的 sequence 语义**（属债务，随下一轮语义修正一起改）
+
+- **实测**：`tests/python/test_trigger_gateway_service.py` 与 `test_trigger_switch_service.py` 的
+  "完整快照"用例在连跑时 2 failed / 297 passed。差异集中在 sequence 字段——自网关修复起，
+  `s_deadline.sequence` 上报的是**组序号**（`base + k`）而不再是 `trigger_count + 1`。
+  这是**契约变化**，断言需要同步，而不是把断言放宽。
+- **处理策略**：这两个用例的值会在下一轮"事件推进"语义修正后**再次变化**，因此本轮**不改**它们，
+  以免同一处改两遍；已在本条登记为债务，下一轮与其一并更新（并在提交信息里写明契约变更）。
+- **RAM 杠杆（已确认，未落地）**：`configTOTAL_HEAP_SIZE` 116 KB → 112 KB 可一次腾出 4 KB，
+  强制重链接后 app/B/boot 三 profile 均通过；但 heap 下调需要台架验证（避免运行时堆饥饿），
+  因此与语义修正同批执行：改配置 → 强制重链接 → 宿主 → P3 → 台架（N=16 与 N=2）。
+- **当前树状态**：构建通过（强制重链接验证）、工作区 clean、相关固件/工具测试除上述 2 项外全绿。
+
+
+
 ### T2-PROGRESS-20261019-025：RAM 占用排名已测——**FreeRTOS 堆 `ucHeap` 118 KB 是最大单体**，余量问题的正解在配置侧
 
 - **`nm --print-size --size-sort` 实测（RAM 大头）**：
