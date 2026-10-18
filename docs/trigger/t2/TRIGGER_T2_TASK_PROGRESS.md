@@ -12,6 +12,29 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-009：迟到钳位原来**在范围检查之后**（past-due 被误判为 RANGE）；修好后网关能装计划，但**首脉冲回执不来**（plan_count=16 不排空）
+
+- **修掉的顺序错误（关键）**：`start_deadline` 先做 `deadline-before-4 > UINT32_MAX` 的范围检查，再钳位。
+  对"已经过去"的 tick，这个减法**下溢成巨大无符号数**，于是被当成"延时不可表示"拒绝——
+  正是钳位要救的场景（GWDIAG：`arm_reject[range]=51`、`late=0`）。现在**先钳位、再按钳位后的差值检查**。
+- **契约变更（已在测试中固化）**：迟到（tick 已进入武装 guard 或已过期）的组**照发**并计数 `late`，不再拒绝；
+  `tests/python/test_sync_io_gateway.py` 的 `deadline_late` 用例改为断言"armed 且随后起脉冲"。
+  这条契约需要登记（下一轮 ③ 一并登记 `T2-SEQ-001` 与该"迟到照发"条款）。
+- **台架（N=16，组间距 8）**：
+  ```
+  SWITCH_A 1776 = 16 × 111   SWITCH_B 1792 = 16 × 112   三类失败全 0，finish 与位置数一致
+  GATEWAY  executed 0  BACKEND 112
+  DIAG : identity 1  terminal 0  arm 111
+  GWDIAG: plan_count 16（计划装入后一直不排空）  late 2  arm_reject=[0,0,1,0]
+  ```
+  ⇒ 网关现在**能装入 16 组计划**（`stage` 不再被 BUSY 拒），失败点最后一次前移：
+  **首脉冲的完成事件没有发生**（`plan_count` 恒为 16、`s_plan_next` 不动 ⇒ 运行期下一窗口被 BUSY 拒）。
+- **下一轮（一步）**：给 `service` 的完成路径加三个计数（`s_realtime_pending` 是否置位 / RX FIFO 是否非空 /
+  回执是否与 `s_pending_receipt` 相符），输出到 GWDIAG 尾部；据此确定是"PIO 从未推送回执"还是"推送了但被丢弃"。
+- **开关侧**：1776/1792 = 16 × 位置数、`finish` 111/112、三类失败全 0。
+
+
+
 ### T2-PROGRESS-20261019-008：网关武装失败分成两类——**BUSY 61 次** 与 **RANGE 51 次**（偏移已用受控实验钉死）
 
 - **GWDIAG 字段顺序（受控实验确认）**：`0,1` 结果字；`2` schema(0xDA02)；`3` plan_count；`4` ready_active；

@@ -201,7 +201,12 @@ static void deadline_case(const char *name){
     if(!strcmp(name,"deadline_ready_high"))pins[input_pin].level=true;
     const bool ok=sync_io_gateway_realtime_schedule_at(1000,target);
     sync_io_gateway_deadline_status_t d;assert(sync_io_gateway_realtime_status(&d));
-    if(!strcmp(name,"deadline_late")||!strcmp(name,"deadline_origin")||!strcmp(name,"deadline_uncertain")){
+    if(!strcmp(name,"deadline_late")){
+        /* Contract (2026-10-19): a tick that is already inside the arming guard still fires, as soon as
+         * the PIO can; the lateness is counted instead of failing the group. */
+        assert(ok&&d.state==SYNC_IO_GATEWAY_DEADLINE_ARMED&&d.sequence==1);
+        advance(40000);assert(rise_tick!=0);   /* the clamp arms at now + guard */
+    }else if(!strcmp(name,"deadline_origin")||!strcmp(name,"deadline_uncertain")){
         assert(!ok&&!(peripheral.ctrl&10u));
         assert(d.state==(!strcmp(name,"deadline_uncertain")?SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN:SYNC_IO_GATEWAY_DEADLINE_CANCELLED));
     }else{

@@ -82,13 +82,15 @@ static __attribute__((noinline)) bool GATEWAY_HOT(start_deadline)(uint64_t deadl
 {
     uint64_t before,after;
     const uint64_t guard=(uint64_t)BOARD_SYS_CLOCK_HZ/1000000u*SYNC_IO_GATEWAY_DEADLINE_GUARD_US;
-    if(!raw_tick(&before) || deadline-before-4u>UINT32_MAX) { ++s_arm_reject[3]; return false; }
-    /* A tick that is already inside the arming guard (or past) fires as soon as the PIO can, and the
-     * lateness is counted: refusing it turned every such group into a BACKEND failure of the whole
-     * position (measured: arm=45 == the refusal bucket). */
+    if(!raw_tick(&before)) { ++s_arm_reject[3]; return false; }
+    /* Clamp BEFORE the range check: a past deadline underflows the subtraction and would be rejected as
+     * "not representable" (measured: arm_reject[3]=51 with late=0), which is exactly the case the clamp
+     * exists for. A late group fires as soon as the PIO can and the lateness is counted. */
     uint64_t target=deadline;
     if(deadline<before+guard) { target=before+guard; ++s_late_count; }
-    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)(target-before-4u));
+    const uint64_t delta=target-before;
+    if(delta>UINT32_MAX || delta<4u) { ++s_arm_reject[3]; return false; }
+    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)(delta-4u));
     pio_enable_sm_mask_in_sync(GATEWAY_PIO,GATEWAY_SM_MASK);
     const bool read=raw_tick(&after);
     s_deadline.origin_before_tick=before;
