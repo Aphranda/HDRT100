@@ -582,3 +582,81 @@ step4  completed=4 expected=4 complete=1  -> ELSE_COMPLETE armed=3 -> PROMOTE g=
 - 2 组探针是编译期实验，未修改仓库测试；16 组探针为生产 C + mock，未上板。
 - N=3（单窗口）仍然成立，但它不经过边界，不能证明多组/多窗口成立。
 - 16 vs 8/2/2 的口径冲突应先回写架构/登记，否则后续台架目标仍会漂移。
+
+## 十、16 组单窗口与网关首组（2026-10-18 深夜）
+
+> 背景：`22b0202f` 把 `T2_PLAN_GROUP_MAX` 4→16，一个窗口装完一个位置的 16 组；台架 SWITCH_B `1728=16×108`、`1824=16×114` 零失败；GATEWAY 仍 `BACKEND=108`；SWITCH_A 本轮未运行。基线：HEAD `fcbe9bf4` + 工作区 22:25 状态（`backend_identity/terminal/arm` 三计数未提交）。方法：只读读码 + 16 组主机探针（生产 C + mock）。
+
+### 10.1 结论
+
+1. **开关 16 组单窗口成立**：主机探针 `stage count=16`、`exec=16`、`finish=1`、`boundary=0`；台架 1728/1824 与之一致。§9 的窗口边界问题在 ≤16 组时被“单窗口”绕开，不再是当前阻塞。
+2. **网关 `BACKEND=108` 的根因不是 READY/stage 守卫，而是运行期武装分支漏了开关分支的两行簿记**：`s_action_sequence_last` 未设置、`expected` 未减 1。首组完成 `completed==expected` 不计；网关随即 schedule 下一组，`sequence` 前进，运行期走 `sequence != expected` → `action_fail(BACKEND)`，每位置一次，正好 108。
+3. **16 组扩展没有同步到诊断/位图**：`action_group_done` 仍是 uint8，`group_pack` 仍是 4/4/8；16 组时 `done` 只保留前 8 组、`next=16` 回绕、`in_flight=15` 与“无在飞”冲突。台架 `executed` 可信（来自 `action_groups_executed`），但 `T2:ACTion?` 的组进度字不可信。
+4. **16 组是新的硬墙，不是通用解**：`T2_PLAN_GROUP_MAX=16`，但模板容量 48；17+ 组的角色仍会在第 16 组边界走 `previous.group+1` 失败，configure 不拒绝。
+5. **16 位参数/32 位 delta 是新的隐式限制**：网关 `pulse_ns` 或 template_id >65535 被拒；组跨度 >2^32 ticks（约 17.18 s）时计划静默截断。
+
+### 10.2 网关 BACKEND 的根因
+
+同一武装路径的两个分支：
+
+```c
+/* switch: trigger_t2_runtime.c:1486-1496 */
+s_state.action_sequence[selected] = status.sequence;
+s_action_sequence_last[selected] = status.sequence + (handed ? handed - 1u : 0u);
+if (handed && s_state.action_sequence[selected]) --s_state.action_sequence[selected];
+
+/* gateway: :1498-1503 */
+s_state.action_sequence[selected] = status.sequence;   /* 只有这一行 */
+```
+
+后果：
+
+1. 网关 `window_last=0`（`s_action_sequence_last` 只在开关分支赋值），多组窗口没有上界。
+2. 首组完成时 `completed = base`、`expected = base`，`completed > expected` 为假；`service_core1` 随即 schedule 下一组，`s_deadline.sequence` 变成 `base+1`。
+3. 运行期下一次 service 看到 `sequence != expected`（`base+1 != base`），走 `:1344` 的身份/后端分支 → `cancel_backend()` + `action_fail(BACKEND)`。
+4. 单组网关不受影响（完成后没有下一组，`sequence` 不变，走 complete 分支）；多组网关在首组完成时必失败。108 个 16 组位置 ×1 次 = `BACKEND=108`，与台架完全吻合。
+5. stage 拒绝桶全 0、`plan_count=0` 与这条链不矛盾：stage 成功，失败发生在运行期；`plan_count` 是后续 stop/configure 清掉的，不能反推 stage 失败。
+
+**修复**：网关分支镜像开关的三行（`action_sequence_last`、`expected--`），再补 2/4/16 组网关主机测试；先看未提交的 `backend_identity` 是否从 108 归零，确认归因。
+
+### 10.3 16 组诊断/位图冲突
+
+- `action_group_done` 是 `uint8_t`（`trigger_t2_runtime.h:194`）；`s_state.action_group_done[index] |= 1u << group`（`:1108`）在 `group>=8` 时被截断。
+- 16 组探针实测：第 8 组后 `done=0xFF`，第 16 组后仍是 `0xFF`（应为 `0xFFFF`）。
+- `trigger_t2_runtime_group_pack`（`:2012-2019`）仍是 `next` 4 位 / `in_flight` 4 位 / `done` 8 位；架构 `:559` 也仍写 4/4/8。16 组下：
+  - `next=16` 被 `&0xF` 回绕成 0；
+  - `in_flight=15` 与“无在飞”的 `0xF` 撞码；
+  - `done` 的 bit8–15 全部丢失。
+- `action_groups_executed` 是 uint32，能到 16，所以台架 `executed=1824` 可信；但任何从 `done/next/in_flight` 读出的 16 组进度都不可信。
+
+### 10.4 新的硬限制
+
+- **16 组硬墙**：`T2_PLAN_GROUP_MAX=16`，`TRIGGER_ACTION_TEMPLATE_CAPACITY=48`；configure 接受最多 48 行（`:1568`），但计划只覆盖 16。第 17 组会在边界走 `previous.group+1`（`:2103`）失败，且 configure 不拒绝。当前角色 8/2/2 不触发，但代码/容量表宣称 48。
+- **16 位参数**：`group_argument`/`template_id` 是 uint16（`:172-173`），configure 对 `row->argument > UINT16_MAX` 直接拒绝（`:1577`）。网关 `pulse_ns` >65535 ns（65.5 µs）或模板 ID >65535 会被拒，文档未写这个上限。
+- **32 位 tick delta**：`group_tick_delta` 是 uint32；`if (delta > UINT32_MAX) break;`（`:2188`）会静默停止追加组，`group_count<16`，而 `groups_total` 仍是 16，随后在边界停住。跨度 >17.18 s 才会触发，但应 fail-fast，不应静默截断。
+- **RAM**：16 组单窗口 96 B/slot，当前构建通过；这是用 32 位 delta + 16 位参数换来的，后续再加字段需重新核预算。
+
+### 10.5 发现表
+
+| ID | 严重度 | 位置 | 发现 | 证据 |
+|---|---|---|---|---|
+| SEQ-E01 | 阻塞 | `trigger_t2_runtime.c:1498-1503`（对比 `:1486-1496`） | 网关武装漏 `action_sequence_last` 与 `expected--`；首组完成不计，下一组 `sequence` 前进 → BACKEND，每位置一次 | 读码 + 台架 `BACKEND=108`；待 `backend_identity` 确认 |
+| SEQ-E02 | 高 | `trigger_t2_runtime.h:194`、`trigger_t2_runtime.c:2019`、架构 `:559` | done 8 位 / pack 4/4/8 无法表示 16 组；done 丢 bit8–15、next=16 回绕、in_flight=15 撞 NONE | 探针 `done=0xFF`；pack 代码/文档 |
+| SEQ-E03 | 中 | `trigger_t2_runtime.c:166,1103,2103` | 16 组硬墙；17+ 组仍边界失败，configure 不拒绝 17–48 行 | 读码；与 §9 同链 |
+| SEQ-E04 | 中 | `trigger_t2_runtime.c:1577,1583,2175` | 16 位 argument/template_id 上限（65.5 µs/65535），未文档化 | 读码 |
+| SEQ-E05 | 低 | `trigger_t2_runtime.c:2188` | >2^32 tick 跨度静默截断计划 | 读码 |
+| SEQ-E06 | 中 | `tests/python/test_trigger_t2_runtime.py` mock | 38 passed，但 mock 不设 `completed_sequence`；无 16 组/网关多组用例；16 组仅台架+临时探针 | 读码 + 38 passed |
+
+### 10.6 修复顺序
+
+1. **网关先补三行**（`action_sequence_last`、`expected--`），加 2/4/16 组网关主机测试；用 `backend_identity` 确认 BACKEND=108 归零。
+2. **扩 `action_group_done` 到 uint32**，重设计 `group_pack`（如 5/5/16 或拆字段），同步更新架构 `:559` 与页字段顺序测试；16 组台架确认 `done=0xFFFF`。
+3. **configure 拒绝 `local_count > T2_PLAN_GROUP_MAX`**（或实现多窗口），把 16 组写成显式上限，不要让 17–48 行静默停住。
+4. **为 argument/template_id/delta 上限加显式拒绝理由**，禁止静默 `break`/截断。
+5. **修 runtime mock** 的 `completed_sequence`/`receipt_mask`，补 16 组用例；否则 38 passed 仍不覆盖当前主路径。
+
+### 10.7 边界
+
+- 本节未上板；16 组探针为生产 C + mock；gateway 多组未在主机复现，SEQ-E01 为读码 + 台架计数对齐。
+- SWITCH_A 本轮 `state=LOADED / executed=0` 是个案，本节不归因；需该板的 `T2?` 与开关页确认是 lease 未拿还是武装被拒。
+- 16 组单窗口的开关成功不否定 §9 的 >16 约束冲突；它只是把墙从 4 挪到 16。
