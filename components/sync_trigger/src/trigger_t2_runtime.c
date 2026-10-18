@@ -291,6 +291,8 @@ static uint32_t s_action_advance_count, s_action_finish_count;
 static uint32_t s_window_seq_seen, s_window_expected_seen, s_window_last_seen, s_window_complete_seen;
 /* Window boundaries crossed (a position with more groups than one window carries). */
 static uint32_t s_window_boundary_count;
+/* Where a BACKEND failure came from: identity mismatch, terminal/cursor state, or a refused arm. */
+static uint32_t s_backend_identity, s_backend_terminal, s_backend_arm;
 /* A position whose window ended but which still has groups left: wait for the next window's plan
  * instead of running the selection loop in the same pass (review SEQ-C04). */
 static uint8_t s_waiting_window[TRIGGER_T2_RUNTIME_POSITION_COUNT];
@@ -1342,6 +1344,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         if (sequence != expected ||
             deadline != s_deadline[index].deadline_tick) {
             cancel_backend();
+            ++s_backend_identity;
             s_state.action_uncertain_mask |= bit;
             action_fail(index, TRIGGER_T2_ACTION_FAIL_BACKEND);
             s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
@@ -1360,6 +1363,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
                      s_deadline[index].ring_config_seq != s_state.cursor.ring_config_seq))) {
             if (!terminal) uncertain = cancel_backend();
             if (uncertain) s_state.action_uncertain_mask |= bit;
+            ++s_backend_terminal;
             action_fail(index, TRIGGER_T2_ACTION_FAIL_BACKEND);
             s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
         }
@@ -1441,6 +1445,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
             s_local_group[s_group_next[selected]].argument, plan->deadline_tick);
     }
     if (!armed) {
+        ++s_backend_arm;
         /* A rejected absolute deadline is terminal. No fire-now fallback.
          * Origin validation can fail after the edge: preserve UNCERTAIN. */
         if (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
@@ -2230,6 +2235,9 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->recv_ok = s_recv_ok;
     for (uint32_t i = 0u; i < T2_FREEZE_HISTOGRAM; ++i) out->freeze_hist[i] = s_freeze_per_slot[i];
     out->window_boundary = s_window_boundary_count;
+    out->backend_identity = s_backend_identity;
+    out->backend_terminal = s_backend_terminal;
+    out->backend_arm = s_backend_arm;
     out->window_seq = s_window_seq_seen;
     out->window_expected = s_window_expected_seen;
     out->window_last = s_window_last_seen;

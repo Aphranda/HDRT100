@@ -135,8 +135,32 @@ def step_chain(state, args):
 
 
 def step_counters(state, args):
-    ctx, boards = board_session()
+    # The chain writes this file just before teardown; polling the boards afterwards always yields zeros
+    # because the teardown resets the runtime.
+    snapshot = OUT / "sequence_snapshot.json"
     readings = {}
+    if snapshot.exists():
+        import json as _json
+        snap = _json.loads(snapshot.read_text(encoding="utf-8"))
+        for slot, pages in snap.items():
+            role = ROLES[int(slot)] if int(slot) < len(ROLES) else f"slot{slot}"
+            why = fields(pages.get("why", ""))
+            window = fields(pages.get("window", ""))
+            diag = fields(pages.get("diag", ""))
+            readings[role] = {
+                "executed": why[2] if len(why) > 2 else "?",
+                "groups": why[3] if len(why) > 3 else "?",
+                "late": why[7] if len(why) > 7 else "?",
+                "expired": why[8] if len(why) > 8 else "?",
+                "no_plan": why[9] if len(why) > 9 else "?",
+                "backend": why[11] if len(why) > 11 else "?",
+                "window": window[-5:],
+                "finished": diag[4] if len(diag) > 4 else "?",
+                "source": "snapshot",
+            }
+        state["readings"]["counters"] = readings
+        return (f"read {len(readings)} roles from the snapshot", bool(readings))
+    ctx, boards = board_session()
     try:
         for uid, role in zip(BOARDS, ROLES):
             board = boards.get(uid)
@@ -144,6 +168,7 @@ def step_counters(state, args):
                 continue
             why = fields(command(ctx, board, "TRIGger:REServation:T2:ACTion:WHY?"))
             window = fields(command(ctx, board, "TRIGger:REServation:T2:ACTion:WINdow?"))
+            diag = fields(command(ctx, board, "TRIGger:REServation:T2:ACTion:DIAG?"))
             state_page = fields(command(ctx, board, "TRIGger:REServation:T2?"))
             readings[role] = {
                 "executed": why[2] if len(why) > 2 else "?",
@@ -153,6 +178,8 @@ def step_counters(state, args):
                 "no_plan": why[9] if len(why) > 9 else "?",
                 "backend": why[11] if len(why) > 11 else "?",
                 "window": window[-5:],
+                # DIAG: result(2) + schema + action_advance + action_finish + ...
+                "finished": diag[4] if len(diag) > 4 else "?",
                 "freeze_missing": state_page[16] if len(state_page) > 16 else "?",
             }
     finally:
@@ -166,6 +193,8 @@ def step_verdict(state, args):
     verdict = {}
     ok = True
     for role, r in readings.items():
+        if not r.get("groups") or r["groups"] == "0":
+            continue                      # the position source has no action groups
         try:
             executed = int(r["executed"])
             groups = int(r["groups"])
@@ -176,11 +205,13 @@ def step_verdict(state, args):
             verdict[role] = {"ok": False, "why": "unreadable counters"}
             ok = False
             continue
-        # expected = groups x positions is what the verdict must prove, so positions are derived
-        # from the readings rather than guessed from a page offset.
-        positions = args.positions if args.positions else (executed // groups if groups else 0)
+        # Independent position count: the number of positions that actually finished, from DIAG. Deriving
+        # it from `executed` made the criterion circular (it could never fail).
+        finished = int(r.get("finished") or 0)
+        positions = args.positions if args.positions else finished
         expected = groups * positions
-        role_ok = no_plan == 0 and late == 0 and backend == 0 and executed == expected
+        role_ok = (no_plan == 0 and late == 0 and backend == 0 and positions > 0
+                   and executed == expected)
         verdict[role] = {"ok": role_ok, "executed": executed, "groups": groups,
                          "positions": positions, "expected": expected,
                          "no_plan": no_plan, "late": late, "backend": backend}

@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pathlib
 import struct
 import sys
 import time
@@ -3281,6 +3282,29 @@ def step_20_sampling(ctx, slot, board, uid):
                   # WCET (t2-20261012-104142: slot 2 max_rt 28916 > 26800).
                   f" | segments {'/'.join(state[i] if len(state) > i else '?' for i in T2_SEGMENTS)}"
                   f" | POS {position[:40]}", flush=True)
+
+    # The sequence counters are only valid BEFORE teardown, so they are captured here and written to a
+    # file the sequence tool reads afterwards (polling the boards later always yields zeros).
+    try:
+        import json as _json
+        _snap = {}
+        for uid_r, slot_r, _i, _o, _f in ROWS:
+            member = ctx.boards.get(f"{uid_r:016X}")
+            if member is None:
+                continue
+            _snap[slot_r] = {
+                "why": ctx.send(member, "TRIGger:REServation:T2:ACTion:WHY?"),
+                "window": ctx.send(member, "TRIGger:REServation:T2:ACTion:WINdow?"),
+                "diag": ctx.send(member, "TRIGger:REServation:T2:ACTion:DIAG?"),
+                "t2": ctx.send(member, "TRIGger:REServation:T2?"),
+                "gwdiag": ctx.send(member, "TRIGger:REServation:T2:ACTion:GWDIAG?"),
+            }
+        _path = pathlib.Path("out/sync_trigger/sequence_snapshot.json")
+        _path.parent.mkdir(parents=True, exist_ok=True)
+        _path.write_text(_json.dumps(_snap, indent=2), encoding="utf-8")
+        print(f"  sequence snapshot -> {_path}", flush=True)
+    except Exception as _exc:                     # never fail the run because of a diagnostic
+        print(f"  sequence snapshot skipped: {type(_exc).__name__}", flush=True)
     # Judge the mask against the counter's own progress (TRIGGER_T2_TODO.md A.3.25): a
     # position can only be announced after the counter crosses its threshold
     # (4750/9750/14750 = one STEP's lead before 5000/10000/15000), and this rig's counter
