@@ -12,6 +12,22 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-048：双组序列在真机上**跑通**——174 个位置 × 2 组 = 348 次执行，零失败
+
+- **根因（两个游标只复位了一个）**：Core0 从 `action_group_next[]` 决定要解哪一组，Core1 用**私有的** `s_group_next[]` 决定要不要接这个计划（`trigger_t2_runtime.c` 选择分支：`plan->group != s_group_next[index]` 就跳过）。位置收尾时我把 Core0 那个复位了、Core1 那个没复位 ⇒ 计划已经到齐（`NO_PLAN` 立刻归 0），但 Core1 始终只认“上一位置最后一组”，于是 `executed` 停在 6。
+- **修复**（两处一起复位）：位置收尾时 `action_group_next = 0`、`s_group_next = 0`、`s_group_armed = NONE`、`action_group_in_flight = NONE`。
+- **台架读数（`T2_SEQ_GROUPS='1,2,1,1'`，22 步全 OK）**：
+  ```
+  SWITCH_A 2组 : executed=348  groups=2  reasons(全 0)  freeze_missing=9     ← 174 位置 × 2 组
+  GATEWAY  1组 : executed=174  groups=1  reasons(全 0)  freeze_missing=9
+  SWITCH_B 1组 : executed=174  groups=1  reasons(全 0)  freeze_missing=11
+  ```
+  ⇒ **双组特权路径（一次交整表 + 按组回执 + 由表决定组间隔）在真机上完成 348 次执行，零 LATE / 零 EXPIRED / 零 NO_PLAN / 零 BACKEND**，且与单组的执行次数严格成 2:1。
+- **前后的判据链（全部有读数支撑）**：`NO_PLAN=186` → 复位 Core0 游标后 `NO_PLAN=0` 但 `executed=6` → 复位 Core1 游标后 `executed=348`。
+- **仍未做**：③ 的 READY 实测（需要接网分或用注入器：`ready_collision_count` / `ready_margin_min_ticks` 已在 `TRIGger:GATEway?` 页尾可读）；16 组（8 通道 × 2 极化）整链复跑；转台连续运行下的长时间稳定性。
+
+
+
 ### T2-PROGRESS-20261018-047：`--subdivisions 16` 实测也无效——`expand_fail` 是常量，说明它不是变量
 
 - **运行**：`T2_SEQ_GROUPS='1,2,1,1'`，`--subdivisions 16`（默认是 2，正是上一轮的怀疑对象），22 步全 OK。

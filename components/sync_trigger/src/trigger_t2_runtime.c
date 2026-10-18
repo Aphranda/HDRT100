@@ -1068,6 +1068,20 @@ static void complete_action(uint32_t index)
     }
     s_group_handed[index] = 0u;
     s_action_sequence_last[index] = 0u;
+    /* Put the group cursor back to the first group: the next position on this slot must be
+     * solved from group 0 again. Leaving it at the last group made the Core0 guard at the
+     * solver entry skip the slot for ever (group 1 is only derivable from a group-0 plan, so
+     * the solve bailed out and the FREEZE saw prediction_version 0 -> NO_PLAN). Bench
+     * measurement that pinned this: two-group role executed 6 of 189 positions, NO_PLAN 186,
+     * invariant to the position period (1 ms / 4 ms / 100 ms all identical), while single-group
+     * roles executed 189 of 189. */
+    /* Both sides of the handshake: Core0 publishes from `action_group_next`, Core1 selects on
+     * `s_group_next`; leaving either at the last group makes a published group-0 plan unusable
+     * (measured: NO_PLAN 186 -> 0 after the Core0 side, while executed stayed at 6). */
+    s_state.action_group_next[index] = 0u;
+    s_group_next[index] = 0u;
+    s_group_armed[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
+    s_state.action_group_in_flight[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
     /* A finished window must not leave its last group behind: the arm path clears
      * prediction_version, and the FREEZE path reads version 0 as NO_PLAN. Measured with a
      * two-group role: freeze_missing_local=166 against 6 executed positions, while
