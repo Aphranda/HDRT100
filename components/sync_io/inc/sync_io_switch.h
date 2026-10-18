@@ -19,6 +19,10 @@ enum { SYNC_IO_SWITCH_DEADLINE_IDLE, SYNC_IO_SWITCH_DEADLINE_ARMED,
     SYNC_IO_SWITCH_DEADLINE_UNCERTAIN };
 typedef struct {
     uint32_t state, sequence, receipt_mask;
+    /* Sequence of the group whose receipt has just been consumed. Unlike `sequence` - which names the
+     * group now ARMED - this never runs ahead of the hardware, so the caller can advance its own
+     * group cursor exactly once per completion (review SEQ-B03). */
+    uint32_t completed_sequence;
     uint64_t deadline_tick, origin_before_tick, origin_after_tick;
 } sync_io_switch_deadline_status_t;
 

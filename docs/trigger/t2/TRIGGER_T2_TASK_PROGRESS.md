@@ -12,6 +12,20 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-063：**N=3 全线跑通**——`executed=357 = 119 位置 × 3 组`，`NO_PLAN/LATE/BACKEND` 全 0
+
+- **修法（评审 SEQ-B03，`docs/trigger/t2/TRIGGER_T2_REVIEW.md` §7.5）**：`sync_io_switch_deadline_status_t` 增加 **`completed_sequence`**（"刚刚消费完的那一组"，永不超过硬件），`poll()` 在每次出队时写入、补装重指时保留；运行期窗口分支改为**只按 `completed > expected`** 推进 `complete_action()`，不再用"当前 head 的 sequence + 回执"猜组号，所以同一次 COMPLETE 只被消费一次。
+- **台架（N=3，20 s 采样，22 步全 OK）**：
+  ```
+  SWITCH_A / SWITCH_B: executed=357  NO_PLAN=0  LATE=0  BACKEND=0  freeze_missing=2/1
+                       window(count,fed,queued,state,last) = 3,3,0,COMPLETE,475
+  ```
+  `357 = 119 位置 × 3 组` ⇒ **多组窗口在真机上完整成立**，且与位置数严格成 3 倍关系。
+- **这一轮的因果链（全部有据）**：评审指出 SEQ-B01/B02（补装不重指 status）、SEQ-B04（序号固定 +2 导致窗口区间重叠）、SEQ-B05（队列深度无关）→ 上一轮修完 `executed` 6→3（第 1 个位置跑完 3 组）→ 本轮修 SEQ-B03（按 `completed_sequence` 推进）→ `executed=357`、零失败。
+- **下一步**：① N=16（`T2_SEQ_GROUPS='1,16,16,16'`，需把 `T2_PLAN_GROUP_MAX` 4→16 或依赖窗口滑动）；② 361 位置全链（`T2_SAMPLE_TICKS=110`）；③ 接网分验 READY。
+
+
+
 ### T2-PROGRESS-20261018-062：采纳评审（SEQ-B01/B02/B04/B05）——窗口序号不再重叠、状态随补装重指；`executed` 由 6 变 3（第 1 个位置完整跑完 3 组）
 
 - **依据**：`docs/trigger/t2/TRIGGER_T2_REVIEW.md` 第七节的独立审核（主机探针 + 读码），指出三个阻塞点：

@@ -1227,7 +1227,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
 {
     if (!s_local_template_count) return;
     bool complete = false, terminal = false, uncertain = false;
-    uint32_t sequence = 0u;
+    uint32_t sequence = 0u, completed = 0u;
     uint64_t deadline = 0u;
     bool s_switch_receipt_seen = false;
     if (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
@@ -1236,6 +1236,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         if (!sync_io_switch_realtime_status(&status)) return;
         note_backend(s_armed_index, status.state, status.origin_before_tick, status.origin_after_tick);
         sequence = status.sequence; deadline = status.deadline_tick;
+        completed = status.completed_sequence;
         s_switch_receipt_seen = status.receipt_mask != 0u;
         complete = status.state == SYNC_IO_SWITCH_DEADLINE_COMPLETE;
         uncertain = status.state == SYNC_IO_SWITCH_DEADLINE_UNCERTAIN;
@@ -1246,6 +1247,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         if (!sync_io_gateway_realtime_status(&status)) return;
         note_backend(s_armed_index, status.state, status.origin_before_tick, status.origin_after_tick);
         sequence = status.sequence; deadline = status.deadline_tick;
+        completed = status.completed_sequence;
         complete = status.state == SYNC_IO_GATEWAY_DEADLINE_COMPLETE &&
             status.completed_sequence == status.sequence;
         uncertain = status.state == SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
@@ -1260,6 +1262,15 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         s_window_last_seen = window_last;
         s_window_complete_seen = complete ? 1u : 0u;
         if (window_last && sequence == expected && expected > 0u) ++s_window_reuse_count;
+        /* Advance on the group the switch says has completed: `completed` never runs ahead of the
+         * hardware, so `completed > expected` is true exactly once per group (review SEQ-B03). */
+        if (completed > expected && completed <= window_last) {
+            ++s_window_advance_count;
+            s_state.action_sequence[index] = completed;
+            complete_action(index);
+            s_deadline[index].deadline_tick = deadline;
+            return;
+        }
         if (sequence > expected && sequence <= window_last) {
             /* Inside the handed window. The switch loads the NEXT queue entry as soon as the
              * previous group completes, so a sequence advance means "a group finished and the

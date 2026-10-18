@@ -370,6 +370,7 @@ static __attribute__((noinline)) void __not_in_flash_func(poll)(void)
     s_deadline.state=SYNC_IO_SWITCH_DEADLINE_COMPLETE;
     s_switch.applied_code=head->code;s_switch.applied_valid=1u;
     s_switch.completed_sequence=head->sequence;
+    s_deadline.completed_sequence=head->sequence;
     memmove(s_queue,s_queue+1,(SWITCH_QUEUE_DEPTH-1u)*sizeof(s_queue[0]));
     --s_queue_count;
     if(s_queue_count) {
@@ -393,7 +394,7 @@ static __attribute__((noinline)) void __not_in_flash_func(poll)(void)
             s_deadline=(sync_io_switch_deadline_status_t){
                 .state=SYNC_IO_SWITCH_DEADLINE_ARMED,
                 .deadline_tick=s_queue[0].deadline_tick,.sequence=s_queue[0].sequence,
-                .receipt_mask=0u};
+                .completed_sequence=s_deadline.completed_sequence,.receipt_mask=0u};
             s_switch.receipt_mask=0u;
         }
         return;
