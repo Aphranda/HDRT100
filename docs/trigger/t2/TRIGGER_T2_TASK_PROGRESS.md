@@ -12,6 +12,28 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-033：网关整圈读数拆开看——**脉冲发了 524 个，运行期只记了 293 组**，计划没有 BUSY
+
+- **GWDIAG（整圈 140 s，按 `out[i] = g[i+3]` 对齐）**：
+  ```
+  plan_count=0  plan_next=0  complete=524  svc_wait=6858  bad_receipt=0
+  collision=391  late=391  stage 的 8 个拒绝桶全 0   arm_reject[origin]=1
+  运行期: advance=523  finish=133  executed=293   identity=terminal=arm=0
+  ```
+- **两条硬结论**：
+  1. **不是 BUSY、也不是计划排不空**：`stage_*` 全 0、`plan_count/plan_next` 收尾均为 0 ⇒
+     之前"新位置顶掉计划"的假设**被排除**；
+  2. **脉冲与计数脱节**：`complete(524) ≈ advance(523)`，但 `executed` 只有 **293** ⇒
+     有约 230 次完成事件进了推进分支却**没有计入组数**（`complete_action` 提前返回，例如
+     `group >= groups_total` 或组号来自 `s_group_next` 而非"刚完成的那一组"）。
+     而 `finish=133` 与 `complete/16≈33` 也不一致 ⇒ 位置归属同样有偏差。
+- **下一轮（网关专项，一步）**：在 `complete_action()` 入口加两个计数
+  （`group >= groups_total` 的丢弃次数、`s_group_armed == GROUP_NONE` 的次数）并读一次，
+  即可确定是"组号来源错"还是"收尾路径重复调用"。修法都不新增状态。
+- **开关侧不变**：整圈 `executed = 5776 = 16 × 361`、三类失败全 0（目标 ④ 已 PASS）。
+
+
+
 ### T2-PROGRESS-20261019-032：**目标 ④ 在开关两侧正式判定 PASS**（分圈口径：361 位置 × 16 组 = 5776、零失败）
 
 - **判定口径**：`sequence_workflow.py --steps 3-5 --positions 361`（位置数由"一整圈=361"独立给出，
