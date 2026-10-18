@@ -1462,9 +1462,12 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
             s_action_sequence_last[selected] = status.sequence + (handed ? handed - 1u : 0u);
             /* SEQ-C01: `expected` must be the sequence BEFORE the first group, otherwise the first
              * group's completion (`completed == base`) fails `completed > expected` and every group
-             * slips one beat - the window's last group then falls into the `else if (complete)` path,
-             * which clears the arm and lets the selection loop fail the position as LATE. */
-            if (handed && s_state.action_sequence[selected]) --s_state.action_sequence[selected];
+             * slips one beat. Measured 2026-10-19: removing this made the switches drop from
+             * 1872 = 16x117 to 1136 = 16x71 with BACKEND 47/48, so it stays. The armed group is then
+             * `expected + 1`, which the identity check below must accept. */
+            if (handed && s_state.action_sequence[selected] &&
+                s_local_kind != TRIGGER_ACTION_TEMPLATE_GATEWAY)
+                --s_state.action_sequence[selected];
             note_backend(selected, status.state, status.origin_before_tick, status.origin_after_tick);
         }
     } else {
