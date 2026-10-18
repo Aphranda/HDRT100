@@ -7,7 +7,7 @@
  * [code0, delay0, code1, delay1, ...]. The delay of every group is the GAP to the previous
  * edge minus the fixed instruction budget (see sync_io_sequence_plan.c for the derivation),
  * which is what makes the spacing between groups independent of software timing. */
-#define SYNC_IO_SEQUENCE_PLAN_MAX_GROUPS 8u
+#define SYNC_IO_SEQUENCE_PLAN_MAX_GROUPS 16u
 #define SYNC_IO_SEQUENCE_PLAN_MAX_WORDS (SYNC_IO_SEQUENCE_PLAN_MAX_GROUPS * 2u)
 
 typedef enum {

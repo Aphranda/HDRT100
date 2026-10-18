@@ -12,6 +12,25 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-067：**16 动作/位置在真机上跑通**——单窗口装 16 组，`executed = 1824 = 16 × 114 位置`，零失败
+
+- **做法（去掉滑动窗口这一整类限制）**：计划里把每组的 tick 存成**相对窗口基准的 32 位增量**、参数存成 16 位
+  （每组 6 字节），`T2_PLAN_GROUP_MAX` 4→**16**、`SYNC_IO_SEQUENCE_PLAN_MAX_GROUPS` 8→16。这样**一个窗口装完一个位置的全部 16 组**，
+  边界/等待标志那些分支根本不会被走到——正是"减少冗余限制"的正确落法：不是删守卫，而是让需要守卫的场景不再出现。
+  - 之前 `group_tick[16]` 用 uint64 时 RAM 溢出 364 B；改成增量后 96 B/槽（原 48 B/槽），链接通过。
+- **台架（N=16，20 s 采样，22 步 OK）**：
+  ```
+  SWITCH_A / SWITCH_B: executed = 1824   groups = 16   NO_PLAN = 0  LATE = 0  BACKEND = 0
+                       窗口页 count=16 fed=16 queued=0 state=COMPLETE last=1937
+  ```
+  `1824 = 16 × 114` ⇒ **114 个位置、每个位置 16 个动作全部执行，零失败**。
+- **唯一剩余阻塞**：GATEWAY `executed=0 / BACKEND=114`（每位置一次），其窗口页全 0 ⇒ `stage_sequence` 从未成功武装；
+  DIAG 里我新加的 8 个网关拒绝桶**全为 0**，说明失败发生在进入 `stage_sequence` 之前或那几个桶的偏移还没对齐。
+  下一轮：给网关做**独立诊断页**（`TRIGger:REServation:T2:ACTion:GWDIAG?`，schema + 固定字段），把
+  `s_plan_count / s_ready_active / s_ready_required / schedule_at 的返回` 直接读出来。
+
+
+
 ### T2-PROGRESS-20261018-066：按"减少冗余限制"做了一次激进删减 → 台架反而全 BACKEND（已回退，教训与正确做法写明）
 
 - **用户意见**：这条路径上堆了太多冗余限制，所以跑不起来。方向对，我按它删了四样：

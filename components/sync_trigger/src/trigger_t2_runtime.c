@@ -160,17 +160,17 @@ static uint32_t s_window_advance_count, s_window_jump_count, s_window_reuse_coun
     s_window_no_receipt_count;
 static uint8_t s_group_armed[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 /* How many groups of one position are handed to the executor in a single call. */
-/* Four groups per window: a 16-group plan would grow the per-slot mailbox past the RAM budget
- * (measured: 364 bytes over), and the switch refills its queue as the FIFO drains anyway, so the
- * remaining groups go through the sliding hand-over (see complete_action). */
-#define T2_PLAN_GROUP_MAX 4u
+/* All groups of a position in ONE window. The per-slot cost is what decides this: ticks are stored
+ * as 32-bit deltas from the window base (4 B) and arguments as 16-bit (2 B), i.e. 96 B per slot for
+ * 16 groups instead of the 192 B that overflowed RAM. */
+#define T2_PLAN_GROUP_MAX 16u
 typedef struct {
     uint64_t action_q, deadline_tick;
-    /* Absolute local ticks of the following groups of this same position, solved by Core0 in
-     * the same pass and handed to ONE stage_sequence() call. group_count <= 1 keeps the
-     * single-group path. */
-    uint64_t group_tick[T2_PLAN_GROUP_MAX];
-    uint32_t group_argument[T2_PLAN_GROUP_MAX];
+    /* Local tick of each group RELATIVE to `deadline_tick` (group 0 is always 0), solved by Core0
+     * in the same pass and handed to ONE stage_sequence() call. 32-bit deltas keep a 16-group window
+     * inside the RAM budget; the executor only needs the differences, never the absolutes. */
+    uint32_t group_tick_delta[T2_PLAN_GROUP_MAX];
+    uint16_t group_argument[T2_PLAN_GROUP_MAX];
     uint32_t group_count;
     /* Tick of the NEXT group of this position, solved by Core0 together with this
      * one. Core1 promotes it the moment the current group completes and arms it in
@@ -1423,14 +1423,15 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         /* One call per window, whichever backend this role owns: the spacing then comes from
          * the table Core0 solved, not from re-arming after each completion. */
         uint64_t delta_ticks[T2_PLAN_GROUP_MAX];
-        const uint64_t base = plan->group_tick[0];
-        for (uint32_t k = 0u; k < plan->group_count; ++k)
-            delta_ticks[k] = (plan->group_tick[k] > base) ? plan->group_tick[k] - base : 0u;
+        uint32_t pulses[T2_PLAN_GROUP_MAX];
+        const uint64_t base = plan->deadline_tick;
+        for (uint32_t k = 0u; k < plan->group_count; ++k) {
+            delta_ticks[k] = plan->group_tick_delta[k];
+            pulses[k] = plan->group_argument[k];
+        }
         armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
-            sync_io_switch_realtime_stage_sequence(base, plan->group_argument,
-                delta_ticks, plan->group_count) :
-            sync_io_gateway_realtime_stage_sequence(base, plan->group_argument,
-                delta_ticks, plan->group_count);
+            sync_io_switch_realtime_stage_sequence(base, pulses, delta_ticks, plan->group_count) :
+            sync_io_gateway_realtime_stage_sequence(base, pulses, delta_ticks, plan->group_count);
         if (armed) handed = plan->group_count;
     } else {
         armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
@@ -2165,8 +2166,8 @@ static void prepare_deadlines_core0(uint32_t session,
             .prediction_version = plan_version,
             .expiry_sync = plan_expiry, .model_token = model.token,
             .group = group, .group_count = 0u};
-        plan.group_tick[plan.group_count] = raw_tick;
-        plan.group_argument[plan.group_count++] = s_local_group[group].argument;
+        plan.group_tick_delta[plan.group_count] = 0u;   /* group 0 IS the base */
+        plan.group_argument[plan.group_count++] = (uint16_t)s_local_group[group].argument;
         for (uint32_t k = group + 1u; k < s_local_template_count &&
              plan.group_count < T2_PLAN_GROUP_MAX; ++k) {
             if (s_local_group[k].delta_q < s_local_group[k - 1u].delta_q) break;
@@ -2177,9 +2178,11 @@ static void prepare_deadlines_core0(uint32_t session,
             if (from_q > UINT64_MAX - step) break;
             uint64_t tick = 0u;
             if (!slice_to_tick(from_q + step, &model, &tick)) break;
-            if (tick <= plan.group_tick[plan.group_count - 1u]) break;
-            plan.group_tick[plan.group_count] = tick;
-            plan.group_argument[plan.group_count++] = s_local_group[k].argument;
+            if (tick <= raw_tick + (uint64_t)plan.group_tick_delta[plan.group_count - 1u]) break;
+            const uint64_t delta = tick - raw_tick;
+            if (delta > UINT32_MAX) break;
+            plan.group_tick_delta[plan.group_count] = (uint32_t)delta;
+            plan.group_argument[plan.group_count++] = (uint16_t)s_local_group[k].argument;
         }
         if (session != __atomic_load_n(&s_session, __ATOMIC_ACQUIRE)) return;
         /* Receive-side stamp: the moment THIS board admitted the record that produced this
