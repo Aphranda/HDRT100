@@ -592,6 +592,12 @@ scpi_result_t scpi_cmd_trigger_t2_action_diag_q(scpi_t *context)
     SCPI_ResultUInt32(context, st.freeze_no_plan_floor);
     SCPI_ResultUInt32(context, st.window_seq);
     SCPI_ResultUInt32(context, st.window_complete);
+    SCPI_ResultUInt32(context, st.window_boundary);
+    /* Gateway staged-table refusals: NO_LEASE, BAD_COUNT, BAD_OFFSET, BAD_DELTA, BUSY, READY,
+     * BAD_PULSE, SCHEDULE. */
+    {uint32_t reject[8] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+     sync_io_gateway_realtime_stage_reject(reject);
+     for (uint32_t i = 0u; i < 8u; ++i) SCPI_ResultUInt32(context, reject[i]);}
     return SCPI_RES_OK;
 }
 

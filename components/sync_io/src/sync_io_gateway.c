@@ -41,6 +41,10 @@ static bool s_ready_required = true;
 /* Time-collision evidence: an action started while the previous READY was still outstanding,
  * and the smallest gap ever measured between a received READY and the next armed deadline. */
 static uint32_t s_ready_collision_count;
+/* Why a staged table was refused: NO_LEASE, BAD_COUNT, BAD_OFFSET, BAD_DELTA, BUSY, READY,
+ * BAD_PULSE, SCHEDULE. */
+#define GATEWAY_STAGE_REJECT_COUNT 8u
+static uint32_t s_stage_reject[GATEWAY_STAGE_REJECT_COUNT];
 static uint32_t s_ready_margin_min_ticks;
 static sync_io_gateway_deadline_status_t s_deadline;
 /* Whole action table of the position currently running (SYNC-SCHED-001). Small on purpose: the
@@ -402,27 +406,36 @@ bool sync_io_gateway_realtime_ready_required(void)
 bool __not_in_flash_func(sync_io_gateway_realtime_stage_sequence)(uint64_t base_deadline_tick,
     const uint32_t *pulse_ns,const uint64_t *delta_ticks,uint32_t count)
 {
-    if(get_core_num()!=1u || !s_lease || count==0u || count>GATEWAY_PLAN_MAX ||
-        pulse_ns==NULL || delta_ticks==NULL || delta_ticks[0]!=0u) return false;
+    if(get_core_num()!=1u || !s_lease) { ++s_stage_reject[0]; return false; }
+    if(count==0u || count>GATEWAY_PLAN_MAX || pulse_ns==NULL || delta_ticks==NULL)
+        { ++s_stage_reject[1]; return false; }
+    if(delta_ticks[0]!=0u) { ++s_stage_reject[2]; return false; }
     for(uint32_t i=1u;i<count;++i)
-        if(delta_ticks[i]<=delta_ticks[i-1u]) return false;
+        if(delta_ticks[i]<=delta_ticks[i-1u]) { ++s_stage_reject[3]; return false; }
     /* Refuse before touching the backend: a rejected table must not leave a half-armed pulse. */
-    if(s_plan_count) return false;
-    if(s_ready_active && s_ready_required) return false;
+    if(s_plan_count) { ++s_stage_reject[4]; return false; }
+    if(s_ready_active && s_ready_required) { ++s_stage_reject[5]; return false; }
     if(s_ready_active) { ++s_ready_collision_count; s_ready_active=false; }
     for(uint32_t i=0u;i<count;++i) {
-        if(pulse_ns[i]==0u) return false;
-        if(base_deadline_tick>UINT64_MAX-delta_ticks[i]) return false;
+        if(pulse_ns[i]==0u) { ++s_stage_reject[6]; return false; }
+        if(base_deadline_tick>UINT64_MAX-delta_ticks[i]) { ++s_stage_reject[6]; return false; }
         s_plan[i].pulse_ns=pulse_ns[i];
         s_plan[i].deadline_tick=base_deadline_tick+delta_ticks[i];
     }
     s_plan_count=count;s_plan_next=0u;
     const gateway_plan_group_t first=s_plan[s_plan_next++];
     if(!sync_io_gateway_realtime_schedule_at(first.pulse_ns,first.deadline_tick)) {
+        ++s_stage_reject[7];
         s_plan_count=0u;s_plan_next=0u;
         return false;
     }
     return true;
+}
+
+void sync_io_gateway_realtime_stage_reject(uint32_t *out)
+{
+    if(!out)return;
+    for(uint32_t i=0u;i<GATEWAY_STAGE_REJECT_COUNT;++i) out[i]=s_stage_reject[i];
 }
 
 bool __not_in_flash_func(sync_io_gateway_realtime_status)(sync_io_gateway_deadline_status_t *out)

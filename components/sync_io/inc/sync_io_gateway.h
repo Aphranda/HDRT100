@@ -74,6 +74,9 @@ bool sync_io_gateway_realtime_schedule_at(uint32_t pulse_ns,uint64_t deadline_ti
  * rig without an analyzer: the pending READY is cleared and COUNTED as a collision, and the chain
  * keeps running (so the sequence/positions can be exercised end to end). */
 void sync_io_gateway_realtime_set_ready_required(bool required);
+/* Why a staged table was refused: NO_LEASE, BAD_COUNT, BAD_OFFSET, BAD_DELTA, BUSY, READY,
+ * BAD_PULSE, SCHEDULE. */
+void sync_io_gateway_realtime_stage_reject(uint32_t *out);
 bool sync_io_gateway_realtime_ready_required(void);
 bool sync_io_gateway_realtime_stage_sequence(uint64_t base_deadline_tick,
     const uint32_t *pulse_ns,const uint64_t *delta_ticks,uint32_t count);
