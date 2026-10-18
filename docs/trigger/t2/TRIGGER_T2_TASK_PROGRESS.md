@@ -12,6 +12,24 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-057：槽位映射的代码语义已确认，但探针与它矛盾——下一轮从"origin 实际发布了哪些槽位"入手
+
+- **代码语义**（`trigger_t2_runtime.c:232-236`）：扫描序号 `k` 取槽位 `k % POSITION_COUNT`，上线的 `position_id = slot + 1`；一个槽位只有在前一占用者**结束后**才会被复用，预测版本按槽位单调上升。
+  ⇒ 若这条路径正常，110 个位置应分散在 slot 0..109。
+- **探针实测（N=3）却只有 slot 2 活跃**：
+  ```
+  slot 0: frozen=0 completed=0 failed=0 recv_seen=524 group_next=2
+  slot 1: frozen=0 completed=0 failed=0 recv_seen=594 group_next=2
+  slot 2: frozen=1 completed=0 failed=1 recv_seen=216 group_next=2
+  slot 3: 全 0（recv_seen=0，从未收到任何计划）
+  ```
+  `recv_seen` 是每个槽位的邮箱代际计数（每次发布 +2），所以 slot 0/1 **收到过**计划，slot 3 **一次都没收到**。
+- **矛盾点**：`recv_seen(slot0/1) ≫ 0` 与 `frozen=0` 并存 ⇒ 计划发到了这些槽位，但 FREEZE 从未到过它们；同时 ~105 个位置被判 NO_PLAN。这说明**FREEZE 与计划的槽位号对不上**（或 FREEZE 全落在极少数槽位上）。
+- **下一轮（唯一实验）**：在从板加"FREEZE 到达次数 per 槽位"的直方图（前 8 槽），并在 origin 板读 `published_mask`；两者对照即可确定是"origin 只发少数槽位"还是"FREEZE 只到少数槽位"。
+- **本轮无代码改动**（仅分析）；上一轮的收尾保留计划修复已在 `958a13c9`。
+
+
+
 ### T2-PROGRESS-20261018-056：槽位探针给出新线索——**只有 slot 2 被使用**，其余槽位从未冻结
 
 - **新仪器**：窗口页尾 24 字段 = 前 4 个槽位 × `(frozen, completed, failed, plan_version, recv_seen, group_next)`。
