@@ -12,6 +12,28 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-006：网关 `identity` 归零（语义已对齐），失败点前移到 **武装 tick 已过期**（GWDIAG：SCHEDULE 拒绝 + `arm=45`）
+
+- **改动**：武装后的 tick 属于执行器（HAOFV 分层），运行期不再因"tick 前移"判身份失败——
+  对网关接受 `deadline > 记录值`（只把"回退"或"序号不符"当错误）；开关仍严格双字段比对。
+  台架：网关 `backend_identity` 从 113/114 **降到 0**。
+- **失败点前移（本轮最关键的证据）**：
+  ```
+  N=16、组间距 8 slice：
+  SWITCH_A advance 3648 finish 228 物理失败全 0
+  SWITCH_B advance 3664 finish 229 物理失败全 0
+  GATEWAY  advance 0    finish 0   identity 0   terminal 183   arm 45
+  GWDIAG: plan_count=16 ready_active=0 ready_required=0 pulse=20 collision=183 rejects[...]=45
+  ```
+  ⇒ 网关的 `identity` 已归零，现在全是 **terminal**（CANCELLED/UNCERTAIN），并且运行期 `arm=45` 与 GWDIAG 的
+  "某一拒绝桶=45"对应——**`schedule_at` 的 `start_deadline` 拒绝了已过期的绝对 tick**。
+- **结论（与评审一致）**：网关是"完成一组后才武装下一组"，而下一组的绝对 tick 在它准备好时往往已经过去；
+  开关没有这个问题，因为它**预先装了两组**（两字协议 + 深度 2 FIFO）。所以网关必须"参照 SWITCH"换成
+  **窗口预装 + 队列**，而不是继续在运行期加容差。下一轮即为该改造（PIO 两字协议 + 深度 2 队列 + 逐组回执）。
+- **开关侧**：`advance = 16 × 位置数`、identity/terminal/arm 全 0、`finish` 与位置数一致（228/229）。
+
+
+
 ### T2-PROGRESS-20261019-005：`plan_window=16` 证明"网关计划只有 1 组"的推断**错误**；身份失败其实是 **deadline 不符**
 
 - **新增诊断**：DIAG 末尾 `plan_window`（最近一次发布出去的计划组数），数值随计划发布点记录。

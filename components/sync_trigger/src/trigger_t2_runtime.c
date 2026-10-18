@@ -1327,8 +1327,13 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
          * has its own `sequence > expected` branch above and must stay strict. */
         const bool gateway_armed_group =
             s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY && sequence == expected + 1u;
-        if ((sequence != expected && !gateway_armed_group) ||
-            deadline != s_deadline[index].deadline_tick) {
+        /* A gateway re-arms each group at its own absolute tick, so its reported deadline moves forward
+         * through the window. The tick is the executor's business (HAOFV: realtime owns arming); only a
+         * tick that moves BACKWARDS (or a sequence that changed) is a real mismatch. */
+        const bool deadline_ok = deadline == s_deadline[index].deadline_tick ||
+            (s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY &&
+             deadline > s_deadline[index].deadline_tick);
+        if ((sequence != expected && !gateway_armed_group) || !deadline_ok) {
             cancel_backend();
             ++s_backend_identity;
             s_state.action_uncertain_mask |= bit;
