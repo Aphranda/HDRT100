@@ -48,6 +48,8 @@ static uint32_t s_ready_collision_count;
 static uint32_t s_late_count;
 /* Arm refusals: core/clock, prepare_realtime, origin window, delay range. */
 static uint32_t s_arm_reject[4];
+/* Completion path: waiting for the PIO, receipt mismatch, accepted completions. */
+static uint32_t s_service_wait, s_service_bad_receipt, s_service_complete;
 /* The PIO echoes the trigger count as its receipt, while the SEQUENCE names the group of the staged
  * table. Keeping them apart is what lets the runtime match a completion to a group (same model as the
  * switch, where the code word carried the group's identity). */
@@ -348,9 +350,11 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
         __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);
         pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
         if(receipt!=s_pending_receipt) {
+            ++s_service_bad_receipt;
             safe_stop();s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
             return;
         }
+        ++s_service_complete;
         s_deadline.completed_sequence=s_pending_sequence;
         if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_ARMED)
             s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_COMPLETE;
@@ -366,6 +370,8 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
                 s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
             }
         } else s_plan_count=0u;
+    } else if(__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE)) {
+        ++s_service_wait;
     }
     /* One READY per transaction; continue after the pulse completion. */
     if(s_ready_active && !pio_sm_is_rx_fifo_empty(GATEWAY_PIO,READY_SM)) {
@@ -474,6 +480,10 @@ void sync_io_gateway_realtime_diag(uint32_t *out)
     out[5]=s_ready_margin_min_ticks;
     out[14]=s_late_count;
     for(uint32_t i=0u;i<4u;++i) out[15u+i]=s_arm_reject[i];
+    out[19]=s_service_wait;
+    out[20]=s_service_bad_receipt;
+    out[21]=s_service_complete;
+    out[22]=s_plan_next;
     for(uint32_t i=0u;i<GATEWAY_STAGE_REJECT_COUNT;++i) out[6u+i]=s_stage_reject[i];
 }
 
