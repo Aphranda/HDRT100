@@ -609,6 +609,7 @@ scpi_result_t scpi_cmd_trigger_t2_action_diag_q(scpi_t *context)
     SCPI_ResultUInt32(context, st.backend_identity);
     SCPI_ResultUInt32(context, st.backend_terminal);
     SCPI_ResultUInt32(context, st.backend_arm);
+    SCPI_ResultUInt32(context, st.plan_window);
     /* Gateway staged-table refusals: NO_LEASE, BAD_COUNT, BAD_OFFSET, BAD_DELTA, BUSY, READY,
      * BAD_PULSE, SCHEDULE. */
     {uint32_t reject[8] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};

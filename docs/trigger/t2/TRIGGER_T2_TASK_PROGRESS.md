@@ -12,6 +12,27 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-005：`plan_window=16` 证明"网关计划只有 1 组"的推断**错误**；身份失败其实是 **deadline 不符**
+
+- **新增诊断**：DIAG 末尾 `plan_window`（最近一次发布出去的计划组数），数值随计划发布点记录。
+- **本轮读数（N=16）**：
+  ```
+  slot1 SWITCH_A : advance 1792  finish 112  seq 1905  expected 1904  identity 0    plan_window 16
+  slot3 SWITCH_B : advance 1808  finish 113  seq 1922  expected 1921  identity 0    plan_window 16
+  slot2 GATEWAY  : advance 0     finish 0    seq 114   expected 113   identity 113  plan_window 16
+  ```
+  ⇒ **三个角色的计划都是 16 组**，上一轮"网关只有 1 组"的推断被推翻（`window_last=0` 只是该镜像字段在网关分支未被更新）。
+- **更正后的根因**：网关身份的判定是 `sequence != expected || deadline != s_deadline[index].deadline_tick`；
+  其中 `sequence == expected + 1`（网关报告"已武装的下一组"）已被 kind 容忍，
+  **剩下的不符项是 `deadline`**：网关的 `service` 每完成一组就按下一组的绝对 tick 重新武装，
+  `status.deadline_tick` 因此指向**下一组**，而运行期记录的仍是**窗口基准**——两者天然不等。
+- **结论（决定下一轮的做法）**：这不是再加一个容差能解决的，而是网关的状态语义与开关不一致造成的。
+  下一轮按 ② 的第二步做**同引擎化**：网关也按"逐组武装 + 每组的 sequence/deadline 成对上报"，
+  运行期保持"一组一比对"的严格判定（⑦ 与 HAOFV 单一 owner 都要求如此）。
+- **开关侧不变**：`advance = 16 × 位置数`、`identity = 0`、三类失败全 0。
+
+
+
 ### T2-PROGRESS-20261019-004：网关 BACKEND 的真正原因浮出水面——**网关的计划只有 1 组**（`window_last=0`）
 
 - **按发射顺序建立 DIAG 索引表**（result×2, schema, advance, finish, finish_group, finish_total,

@@ -366,6 +366,8 @@ typedef struct {
     uint32_t window_boundary;
     /* BACKEND failure sources: identity mismatch, terminal/cursor state. */
     uint32_t backend_identity, backend_terminal, backend_arm;
+    /* Groups handed to the executor by the last published plan. */
+    uint32_t plan_window;
 } trigger_t2_runtime_window_stats_t;
 bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out);
 

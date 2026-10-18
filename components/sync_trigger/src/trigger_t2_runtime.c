@@ -291,6 +291,8 @@ static uint32_t s_action_advance_count, s_action_finish_count;
 static uint32_t s_window_seq_seen, s_window_expected_seen, s_window_last_seen, s_window_complete_seen;
 /* Where a BACKEND failure came from: identity mismatch, terminal/cursor state, or a refused arm. */
 static uint32_t s_backend_identity, s_backend_terminal, s_backend_arm;
+/* Groups handed to the executor by the last published plan (1 = the window never widened). */
+static uint32_t s_plan_window_last;
 /* A position whose window ended but which still has groups left: wait for the next window's plan
  * instead of running the selection loop in the same pass (review SEQ-C04). */
 static uint32_t s_finish_group_last, s_finish_total_last;
@@ -2175,6 +2177,7 @@ static void prepare_deadlines_core0(uint32_t session,
          * plan, in the same local time base the deadline was solved in. */
         if (group == 0u) note_rx_timestamp(snapshot, &model, raw_tick);
         ++s_solve_publish;
+        s_plan_window_last = plan.group_count;
         deadline_publish(index, &plan);
     }
 }
@@ -2219,6 +2222,7 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->backend_identity = s_backend_identity;
     out->backend_terminal = s_backend_terminal;
     out->backend_arm = s_backend_arm;
+    out->plan_window = s_plan_window_last;
     out->window_seq = s_window_seq_seen;
     out->window_expected = s_window_expected_seen;
     out->window_last = s_window_last_seen;
