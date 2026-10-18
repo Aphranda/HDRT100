@@ -44,7 +44,7 @@ def backend(tmp_path_factory):
                                  'restore_input', 'restore_mux', 'wrong_port', 'pulse',
                                  'core', 'generation', 'gate', 'load_output_fail',
                                  'load_ready_fail', 'init_output_fail', 'init_ready_fail',
-                                 'sm_output_busy', 'sm_ready_busy', 'repeated', 'stop',
+                                 'sm_output_busy', 'sm_ready_busy', 'repeated', 'triple', 'stop',
                                  'clock', 'snapshot_unchanged', 'restore_registers', 'route_readback',
                                  'restore_pio0_high', 'restore_pio0_input'] +
                          [f'route{i}{o}' for i in range(1,5) for o in range(1,5)])
@@ -190,6 +190,7 @@ bool sync_io_pio0_runtime_release(sync_io_persona_manager_handle_t *h){assert(h-
 '''
 
 HARNESS = r'''
+#include <stdio.h>
 #include "gateway_mock.h"
 #include GATEWAY_SOURCE
 static void deadline_case(const char *name){
@@ -299,6 +300,20 @@ int main(int argc,char **argv){
     assert(original_ctrl==io_bank.io[output_pin].ctrl&&original_pad==pads.io[output_pin]);
     assert(peripheral.dbg_padout==original_pio_out&&peripheral.dbg_padoe==original_pio_oe);
     assert(!snapshot().loaded&&!snapshot().instruction_words&&!snapshot().sm_claimed_mask&&!snapshot().sm_enabled_mask);
+    if(!strcmp(test,"triple")){
+        uint32_t g;assert(sync_io_gateway_load(1,4,1000,&g));core=1;
+        for(uint32_t i=0u;i<3u;++i){
+            /* 60 us out: comfortably beyond the arming guard, so the late clamp cannot move it. */
+            const uint64_t target=tick_count+60000;
+            assert(sync_io_gateway_realtime_schedule_at(1000,target));
+            advance(70000);
+            sync_io_gateway_realtime_service_core1();
+            sync_io_gateway_deadline_status_t d;assert(sync_io_gateway_realtime_status(&d));
+            assert(d.state==SYNC_IO_GATEWAY_DEADLINE_COMPLETE);
+            assert(d.completed_sequence==i+1u);
+        }
+        return 0;
+    }
     if(!strcmp(test,"repeated")){uint32_t next;assert(sync_io_gateway_load(1,4,8,&next)&&next==2);assert(snapshot().pulse_ticks==2);assert(!sync_io_gateway_stop(g));assert(sync_io_gateway_release(next));}
     assert(add_calls==remove_calls);return 0;
 }

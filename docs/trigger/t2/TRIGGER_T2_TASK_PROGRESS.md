@@ -12,6 +12,24 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-012：新增"连续三次脉冲"主机用例——**主机上连打三发完全正常**，排除"SM 重启丢回执"假设
+
+- **新用例**：`tests/python/test_sync_io_gateway.py` 增加 `triple`——`load` 后连续三次
+  `schedule_at → advance → service`，断言每次都 `COMPLETE` 且 `completed_sequence = 1,2,3`。
+  **通过**（51 passed），说明"读回执时禁用 SM、下一发再启用"的这套流程在主机模型里**不会**丢回执。
+- **同时确认的常量**：`SYNC_IO_GATEWAY_DEADLINE_GUARD_US = 100 µs`（80000 ticks）；
+  台架组间距在 `T2_SEQ_PERIOD_SLICES=8` 下约 2.5 ms，远大于 guard，所以"每组都被钳位"也不成立
+  （实测 `late` 只有 2）。
+- **因此台架上的停滞不是"SM 重启丢回执"**，而是**节拍问题**：`service` 每完成一组才武装下一组，
+  一旦某组完成得晚，后面几组的绝对 tick 已经进入 guard/过期区间，于是被钳位成"立刻发"，
+  连发几发后计划就跟不上位置的到来节奏（GWDIAG `plan_next=3`、`svc_wait` 持续、`arm` 继续失败）。
+- **下一轮（一步）**：给"钳位次数"与"每组实际起脉冲时刻 − 计划 tick"的偏差加观测（GWDIAG 已有 `late`，
+  再加一个"最大偏差"就够），确认偏差是否随时间累积；若累积，则把网关改成**预装两发**（两字协议），
+  这正是开关的模型，也是评审 ② 的最终形态。
+- **开关侧不变**：`executed = 16 × 位置数`、三类失败全 0。
+
+
+
 ### T2-PROGRESS-20261019-011：窗口"只装一次"（`s_window_staged`）+ 失败时清理交接状态——网关 `arm` 121→113，但计划仍只排空 2 组
 
 - **两处运行期改动（单 owner 语义）**：
