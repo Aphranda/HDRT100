@@ -573,6 +573,19 @@ scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context)
 /* Self-describing diagnostics: schema word first, then a FIXED field list, so a reading can never be
  * mis-aligned by fields appended elsewhere. */
 #define T2_ACTION_DIAG_SCHEMA 0xDA01u
+/* Gateway-only diagnostics: its own page, so the field order cannot be shifted by other appends. */
+#define T2_GATEWAY_DIAG_SCHEMA 0xDA02u
+scpi_result_t scpi_cmd_trigger_t2_gateway_diag_q(scpi_t *context)
+{
+    uint32_t fields[14] = {0u};
+    if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    sync_io_gateway_realtime_diag(fields);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, T2_GATEWAY_DIAG_SCHEMA);
+    for (uint32_t i = 0u; i < 14u; ++i) SCPI_ResultUInt32(context, fields[i]);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_trigger_t2_action_diag_q(scpi_t *context)
 {
     trigger_t2_runtime_window_stats_t st;

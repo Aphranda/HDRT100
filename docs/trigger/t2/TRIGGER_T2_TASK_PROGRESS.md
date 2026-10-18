@@ -12,6 +12,26 @@ Last updated: 2026-10-18
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261018-068：网关有了独立诊断页；读数指向"REAdy 下发之后又被复位成 1"
+
+- **新增**：`TRIGger:REServation:T2:ACTion:GWDIAG?` —— `schema(0xDA02), plan_count, ready_active, ready_required,
+  pulse_ns, collision_count, margin_min_ticks, 8 个 stage 拒绝桶`（网关自己的页，字段不可能被别的追加块挤偏）。
+- **本轮读数（N=16，短采样）**：
+  ```
+  GWDIAG: schema=0xDA02 plan_count=0 ready_active=0 ready_required=1 pulse_ns=20 collision=109 margin=0 rejects=全 0
+  读数: executed=0  BACKEND=109（每位置一次）
+  ```
+- **两个事实互相矛盾，正好指出下一步**：
+  1. `collision=109` ⇒ 有 109 次是在 `ready_required == 0` 的分支里把待决 READY 退掉的 ⇒ **运行期间该标志确实是 0**；
+  2. 但收尾时读回 `ready_required=1`，且 8 个拒绝桶全 0 ⇒ 收尾前标志被**复位成默认值 1**（`trigger_sequence_timing_reset()` 或某次 configure/stop 路径），
+     并且 `stage_sequence` 的拒绝出口没有一个被计到（说明"拒绝"发生在更前面，或失败时用的不是这条路径）。
+- **下一轮（两条并行，都很快）**：
+  1. 让工作流在 **T2 configure 之后**再下发一次 `TRIGger:SEQuence:REAdy 0`（现在是配置前下发），并在第 12 步后立刻读 `GWDIAG?` 确认标志为 0；
+  2. 在 `trigger_sequence_timing_reset()` 的调用点上打点（谁在运行期把 `ready_required` 复位），或在 `T2:CONFigure` 里**保留**该标志（配置不应改变它）。
+- **已完成并保持**：开关侧 16 组单窗口 `executed = 1824 = 16 × 114`、零失败（`22b0202f`）。
+
+
+
 ### T2-PROGRESS-20261018-067：**16 动作/位置在真机上跑通**——单窗口装 16 组，`executed = 1824 = 16 × 114 位置`，零失败
 
 - **做法（去掉滑动窗口这一整类限制）**：计划里把每组的 tick 存成**相对窗口基准的 32 位增量**、参数存成 16 位

@@ -432,6 +432,18 @@ bool __not_in_flash_func(sync_io_gateway_realtime_stage_sequence)(uint64_t base_
     return true;
 }
 
+void sync_io_gateway_realtime_diag(uint32_t *out)
+{
+    if(!out)return;
+    out[0]=s_plan_count;
+    out[1]=s_ready_active?1u:0u;
+    out[2]=s_ready_required?1u:0u;
+    out[3]=s_gateway.pulse_ns;
+    out[4]=s_ready_collision_count;
+    out[5]=s_ready_margin_min_ticks;
+    for(uint32_t i=0u;i<GATEWAY_STAGE_REJECT_COUNT;++i) out[6u+i]=s_stage_reject[i];
+}
+
 void sync_io_gateway_realtime_stage_reject(uint32_t *out)
 {
     if(!out)return;
