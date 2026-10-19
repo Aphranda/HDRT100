@@ -67,7 +67,7 @@
 <tr><td class="b">OTA 升级</td><td class="c b">87</td><td>06-21 → 10-14</td><td>统一包 + 断电/异常注入验证；P3 四板 OTA 包与回滚验证常态化（<span class="mono">OTA_HAOFV_ARCHITECTURE</span>）</td></tr>
 <tr><td class="b">VDC / DPLL</td><td class="c b">481</td><td>08-13 → 10-16</td><td>DPLL 状态 owner 抽取 → 相位/频率闭环 → <span class="mono">step 30</span> 摘要校验阻断式判定；HAOFV 偏离 V2–V4/T1–T5 登记</td></tr>
 <tr><td class="b">TDMA 环</td><td class="c b">398</td><td>08-16 → 10-18</td><td>环分发与席位模型；<b>席位三份额化</b>（cycle = p+f+s，<span class="mono">TDMA-SEAT-SHARE-01</span>）；T3 收口与历史帧校验</td></tr>
-<tr><td class="b">REFMEM</td><td class="c b">207</td><td>08-10 → 10-18</td><td>分布式内存与自同步验证（<span class="mono">37b18c3b</span>）；一等席位优先级通道接收 + FREEZE 闭环（<span class="mono">3ddeb258</span>）</td></tr>
+<tr><td class="b">REFMEM</td><td class="c b">207</td><td>08-10 → 10-18</td><td>分布式内存与自同步验证（<span class="mono">37b18c3b</span>）；一等席位优先级通道接收 + FREEZE 闭环（<span class="mono">3ddeb258</span>）；<b>下一步</b>：统一控制面（NodeLoad 可靠性 + 9 表模型 + activation gate）</td></tr>
 <tr><td class="b">Trigger / T2</td><td class="c b">599</td><td>06-25 → 10-19</td><td>位置传输（最新值表 + <span class="mono">T_drain</span>）→ 一位置一窗口 → 多动作序列；三后端同圈零失败（本报告第 4 页）</td></tr>
 <tr><td class="b">SYNC_IO</td><td class="c b">121</td><td>06-21 → 10-19</td><td>PIO 两字协议 + 深度 2 队列 + 逐组回执；迟到照发并计数（<span class="mono">T2-EXEC-LATE-01</span>）；稳态续装降 per-group 开销</td></tr>
 <tr><td class="b">接口 / SCPI</td><td class="c b">422</td><td>06-21 → 10-19</td><td>A..G 指令面 + 页契约钉住（SWITCH 48 / GATEWAY 37 字段）+ host 联合 + P3 远程步骤</td></tr>
@@ -193,8 +193,9 @@
 </tbody></table>
 <p class="mini" style="margin-top:5px;">判据用不变量 <span class="mono">executed = 组数 × finish</span>（2 / 16 / 18 组三档均精确成立）；位置数由 <span class="mono">executed ÷ 组数</span> 反推——<span class="mono">action_finish</span> 跨圈会重置。SWITCH_B 差 1 个位置属采样边界，不是丢组。</p></div>
 <div class="section"><div class="section-title">十一、剩余项（均非阻塞）</div>
-<div class="risk-box"><strong>待办：</strong>
+<div class="risk-box"><strong>待办（按优先级）：</strong>
 <ul class="small-list">
+<li><b>REFMEM 优化与统一控制面（下一步主线）</b>：<b>分布式控制的基础是 REFMEM</b>——接任意一个接口、操作 REFMEM，就能控制所有设备。当前待办（取自 <span class="mono">REFMEM_DOMAIN_TODO</span> 的 P0）：TDMA/AUTO NodeLoad 补齐 ACK/重发/fence completion；TDMA 作为可装载 system node 纳入 9 表模型；<span class="mono">.rmtp LOAD:SD</span> 必须逐表解析并执行 owner validation + SlotClaimMap + RealtimeCapacity 校验；补完整 activation gate（load mode / idle-park / flash lockout / CRC bundle）；dump 只导出稳定快照、load 只进 staging；owner validation 结果回写 TableRegistry；NodeLoad staging 与 rollback/abort 语义。</li>
 <li><b>网分 READY 实测</b>：按既定决策暂禁用；接入分析仪后需验 <span class="mono">ready_collision_count=0</span>、<span class="mono">ready_margin_min_ticks&gt;0</span>。</li>
 <li><b>两字协议预装两组</b>：可选性能；当前 <span class="mono">late</span> 非零（迟到照发、非失败），预装可压到接近 0，设计见 <span class="mono">T2-GATEWAY-PRELOAD</span>。</li>
 <li><b>常量四源收敛</b>：表容量 / 运行期窗口 / 网关 plan / 计划构建四处上限必须相等，建议收敛为单一头文件 + 静态断言。</li>
