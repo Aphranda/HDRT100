@@ -12,6 +12,31 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-050：**18 动作/位置打通**——第四个常量 `SYNC_IO_SEQUENCE_PLAN_MAX_GROUPS` 才是开关侧的最后一道门
+
+- **因果链（本轮把"+2"彻底做通）**：
+  1. 16→18 需要 **四个**单一事实源同时改：
+     `TRIGGER_ACTION_TEMPLATE_CAPACITY` 48→54 行、
+     `T2_PLAN_GROUP_MAX` 16→18、
+     `GATEWAY_PLAN_MAX` 16→18、
+     **`SYNC_IO_SEQUENCE_PLAN_MAX_GROUPS` 16→18**（本轮补上，开关侧的 `sync_io_sequence_plan_build` 上限）；
+  2. 前三个改完后开关仍 361 次 BACKEND（每位置一次）——因为计划构建在第四个常量处失败，
+     运行期只看到 `!armed`，没有桶可看。
+- **台架（N=18，40 s）**：
+  ```
+  SWITCH_A 2026 ≈ 18 × 113   finish 113   BACKEND 0
+  SWITCH_B 2023 ≈ 18 × 113   finish 113   BACKEND 0
+  GATEWAY  2016 = 18 × 112   finish 112   BACKEND 0
+  ```
+  ⇒ **18 动作/位置在三后端全部跑通、零失败**；`executed/18 ≈ finish` 自洽。
+- **经验（写进 ⑧ 的执行习惯）**：改"每位置动作数"这类常量，必须**一次找齐所有上限**
+  （表容量 / 运行期窗口 / 网关 plan / 计划构建），否则失败会以"每位置一次 BACKEND"这种
+  无桶可查的形式出现——本轮为此多花了一轮。
+- **对用户的答复**：动作容量已从 **16 → 18**（+2）落地并台架验证；"容错"仍来自运行期策略
+  （窗口上界、迟到照发、EXECUTED 真跑过才算、BUSY 延后），容量只提供余量。
+
+
+
 ### T2-PROGRESS-20261019-049：**整圈达成并双指标自洽**——开关 5776 = 16 × 361、`finish=361`、三类失败 0；网关在 BUSY 改"延后"后**零失败**
 
 - **网关 BUSY 修法**：`stage4(BUSY)=101` 与运行期 BACKEND=101 一一对应——上一份计划未排空时新窗口被拒，
