@@ -164,6 +164,7 @@ docs/
 | `docs/check/submissions/TRIGGER_CROSS_REVIEW_02.md` | T2 位置邮箱跨域契约 `ARCH-TRIGGERMAILBOX-01` 的 C11 独立交叉核验：单生产者/单消费者四态邮箱、`READY` release/acquire 配对、载荷读写态与静默边界复位例外、FREEZE latch 归属、以及「位置」域三方口径（15 / 3 / 3）不一致；结论 APPROVE WITH NOTES，四项措辞/归属缺陷已修正，域口径收敛另立 `T2-IDENT-002`。 |
 | `docs/check/submissions/TRIGGER_CROSS_REVIEW_03.md` | T2 一等席运输的 **TDMA 域联审**（关闭 `T2-AUDIT-03` 第三项）：10 B 单帧布局/越界/静态断言与轮换、「机会不空过」机制均成立，`SYNC_TRIGGER` 相位预算获独立重算确认；结论**有条件接受**，登记行三处表述与一处悬空契约引用已修正，跨域条件 C1–C5（TDMA 席位条款/布局版本递增/预算比例矛盾/期限口径、arch 文档引用已删除符号）仅登记为指针。 |
 | `docs/trigger/t2/TRIGGER_T2_HANDOFF_CHECKLIST.md` | T2 会话交接与自审清单：环境事实、已闭环项与可核验处、立即要做的 3 项、流程铁律与自审命令（原「用户偏好」小节已于 2026-10-13 移除，索引随之更正）。 |
+| `docs/trigger/t2/TRIGGER_T2_DEBUG_PLAYBOOK.md` | T2 调试手册：测量纪律、失败定位的固定顺序、已踩坑位（症状→根因→修法）、决策规则、工具配方、网关预装两组的精确设计。 |
 | `docs/interface/SCPI_HOST_ARCHITECTURE.md` | 接口域架构：上位机与多板系统的通信边界、单串口 + RefMem 分布式控制拓扑与待冻结项。 |
 | `docs/interface/SCPI_HOST_TODO.md` | 接口域待办：会话与寻址、命令转发与应答、隔离与权限（IF-001..003）。 |
 | `docs/interface/SCPI_HOST_TASK_PROGRESS.md` | 接口域任务进度：建域与现状取证（节点作用域命令仅 4 条等实测）。 |
