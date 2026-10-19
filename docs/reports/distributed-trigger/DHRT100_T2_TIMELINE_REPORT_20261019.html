@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="DHRT100 项目提交链时间轴：2026-06-21 至 2026-10-19，2261 个提交，T2 多动作序列目标达成。">
+<meta name="last-updated" content="2026-10-19">
+<title>DHRT100 项目提交链时间轴 · 2026-10-19</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="DHRT100_REPORT_TEMPLATE.css">
+</head>
+<body>
+
+<!-- 1/2 提交链全貌 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>项目提交链时间轴</h1><div class="subtitle">2026-06-21 → 2026-10-19 ｜ 2 261 个提交 ｜ T2 多动作序列目标达成</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>时间轴报告</strong>依据 git 提交链<br>读数取台架快照<br>2026-10-19</div>
+</div>
+<div class="main">
+<div class="chips">
+  <div class="chip"><span class="k">提交总数</span><span class="v">2 261</span></div>
+  <div class="chip"><span class="k">历时</span><span class="v">121 天</span></div>
+  <div class="chip"><span class="k">最后一役</span><span class="v">78 提交 / 19.4 h</span></div>
+  <div class="chip"><span class="k">达成</span><span class="v">5 776 · 5 776 · 5 760</span></div>
+</div>
+<div class="summary">
+  <div class="note-box"><strong>一句话结论：</strong>从 2026-06-21 的 PIO 骨架到 2026-10-19，项目用 121 天、2 261 个提交走完「骨架 → 协议 → 架构 → 硬化 → 攻坚」五段；在最后一役的 19.4 小时里，T2 多动作序列把「每个位置的全部 16 个动作在真机上按序执行、零失败」做成，三后端同圈 <b>5 776 / 5 776 / 5 760</b>。</div>
+  <div class="todo-box"><strong>范围界定：</strong>本报告只覆盖提交链到 T2 序列目标达成这一段。网分 READY 实测（待设备）、两字协议预装（可选性能）、常量四源收敛（架构债）不在本次达成范围，列为剩余项。</div>
+</div>
+<div class="section"><div class="section-title">一、总体节奏（五阶段，2 261 提交）</div>
+<table class="compact"><thead><tr><th style="width:13%">阶段</th><th style="width:19%">时间窗</th><th style="width:9%" class="c">提交</th><th>主线</th></tr></thead><tbody>
+<tr><td class="b">① 骨架</td><td>06-21 → 06-30</td><td class="c b">29</td><td>PIO 初始化、OTA 方案与统一包、异常注入与断电验证闭环</td></tr>
+<tr><td class="b">② 协议</td><td>07-01 → 07-31</td><td class="c b">27</td><td>OTA 收敛、桌面端联调、早期时序原型</td></tr>
+<tr><td class="b">③ 架构</td><td>08-01 → 08-31</td><td class="c b">809</td><td>HAOFV 架构 v3（08-21）：Trigger / Realtime / PIO 分层与稳定通道冻结；文档自回归体系 + pre-commit 门禁</td></tr>
+<tr><td class="b">④ 硬化</td><td>09-01 → 09-30</td><td class="c b">694</td><td>环 5 上线（C14 轮转 / C15 倒排，09-17）；T2 进展日志起点（09-26）</td></tr>
+<tr><td class="b">⑤ 攻坚</td><td>10-01 → 10-19</td><td class="c b">702</td><td>T2 语义确认 → 位置传输定型 → 多动作序列 → 三后端整圈零失败</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">二、里程碑（按日期，均可回溯到提交或文档）</div>
+<table class="compact mini"><thead><tr><th style="width:11%">日期</th><th style="width:47%">里程碑</th><th>可核验证据</th></tr></thead><tbody>
+<tr><td class="b">06-21 / 06-23</td><td>PIO 骨架、OTA 方案落地；统一包与断电验证闭环</td><td>INIT / PIO_INIT / OTA 统一包系列提交</td></tr>
+<tr><td class="b">08-21</td><td>HAOFV 架构 v3：分层职责、稳定通道语义、写权限边界冻结</td><td><span class="mono">docs/arch/HAOFV_ARCHITECTURE.md</span></td></tr>
+<tr><td class="b">09-17</td><td>环 5 上线：进展日志 ≤200 KB 轮转（C14）+ 条目倒排（C15）</td><td>累计 10 轮轮转，归档 01…10</td></tr>
+<tr><td class="b">10-10</td><td>T2 语义口径确认：一位置一窗口、组序号回执、READY 语义</td><td><span class="mono">T2-SEMANTICS</span></td></tr>
+<tr><td class="b">10-12</td><td>P3 硬件验收门禁：37 步一次连跑，凭证绑定源码指纹</td><td><span class="mono">hardware_acceptance_workflow.py</span></td></tr>
+<tr><td class="b">10-17</td><td>位置传输定型：最新值表 + T_drain、DISTRIBUTED、SEAT refused 0</td><td><span class="mono">T2-SEQ-TRANSPORT</span></td></tr>
+<tr><td class="b">10-18</td><td>一位置一窗口（T2_PLAN_GROUP_MAX 4→16），台架 1 824 = 16 × 114</td><td>commit <span class="mono">22b0202f</span></td></tr>
+<tr><td class="b">10-19</td><td>三后端整圈零失败：5 776 / 5 776 / 5 760，verdict OK</td><td>commit <span class="mono">1b0bb413</span></td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">三、达成轨迹（同一判据下的五次读数）</div>
+<table class="compact mini"><thead><tr><th style="width:11%">时间</th><th style="width:12%">提交</th><th style="width:30%">整圈读数</th><th>说明</th></tr></thead><tbody>
+<tr><td class="b">10-18 21:29</td><td class="mono">22b0202f</td><td class="mono">1 824 = 16 × 114</td><td>一位置一窗口落地（此前按 2 组窗口滚动）</td></tr>
+<tr><td class="b">10-19 07:35</td><td class="mono">ba8ea51a</td><td class="mono">5 776（开关两侧）</td><td>开关整圈达标；网关只跑到 293 组</td></tr>
+<tr><td class="b">10-19 10:40</td><td class="mono">c84f70a8</td><td class="mono">5 776 · finish 361</td><td>网关 BUSY 由「失败」改「延后」，开关首次双指标自洽</td></tr>
+<tr><td class="b">10-19 11:16</td><td class="mono">8bc8fd94</td><td class="mono">6 480 = 18 × 360</td><td>容量档：18 动作/位置（四处上限同步）</td></tr>
+<tr><td class="b">10-19 16:03</td><td class="mono">1b0bb413</td><td class="mono">5 776 / 5 776 / 5 760</td><td><b>三后端同圈全绿</b>，verdict OK</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">四、这条链的形状（三个可复用的观察）</div>
+<table class="compact mini"><thead><tr><th style="width:22%">观察</th><th>证据</th></tr></thead><tbody>
+<tr><td class="b">先证据后代码</td><td>本役 6 个 <span class="mono">feat(debug)</span>（分桶、计数、诊断页、SM 观测）全部出现在对应的 <span class="mono">fix</span> 之前——每次修法都是读数指出来的，不是想出来的</td></tr>
+<tr><td class="b">失败也入库</td><td>至少 5 次「已回退」（激进删减、整表前移 ×3、容量只改两处）都写清了为什么不成立，这是后面少走弯路的直接原因</td></tr>
+<tr><td class="b">判据先行</td><td>判据从 <span class="mono">action_finish</span> 改为不变量 <span class="mono">executed = 组数 × finish</span>；这一条改动对后续效率的影响大于任何单个 fix</td></tr>
+</tbody></table></div>
+</div>
+<div class="page-footer"><span>依据：git 提交链（2 261 个提交）、台架快照与验收登记表</span><span>DHRT100 项目提交链时间轴 ｜ 1 / 2</span></div>
+</div>
+
+<!-- 2/2 攻坚与本役 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>项目提交链时间轴</h1><div class="subtitle">2026-06-21 → 2026-10-19 ｜ 2 261 个提交 ｜ T2 多动作序列目标达成</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>时间轴报告</strong>最后一役：78 提交<br>2026-10-18 20:39 → 10-19 16:03<br>2026-10-19</div>
+</div>
+<div class="main">
+<div class="section"><div class="section-title">五、T2 攻坚：78 个提交 / 19.4 小时（文档 43 · feat 16 · fix 12 · test 4 · perf 2 · refactor 1）</div>
+<table class="compact mini"><thead><tr><th style="width:12%">阶段</th><th style="width:26%">关键提交</th><th>结果与教训</th></tr></thead><tbody>
+<tr><td class="b">窗口语义</td><td><span class="mono">0b19192d · 5605927d · 22b0202f</span></td><td>一个窗口装完一位置 16 组（1 824 = 16 × 114）；八个拒绝桶让「为什么拒」第一次可读</td></tr>
+<tr><td class="b">路线 A</td><td><span class="mono">5c1019d7 · 1d4643ee · f34b686d</span></td><td>删窗口边界机制，只留 completed_sequence 推进；补上网关缺失的窗口上界（决定性一行，BACKEND 归零）</td></tr>
+<tr><td class="b">RAM 墙</td><td><span class="mono">fa1fdede · 8b1b29f7 · 50fe433e</span></td><td>整表前移三次因溢出约 960 B 回退；nm 实测 ucHeap 118 KB 为最大单体 → heap 116→112 KB 腾 4 KB</td></tr>
+<tr><td class="b">容量 +2</td><td><span class="mono">838a406a · 8bc8fd94 · 47776003</span></td><td>18 动作/位置需四处上限同步（表 54 行 / 运行期窗口 / 网关 plan / 计划构建）；18 × 360 精确自洽</td></tr>
+<tr><td class="b">零失败收口</td><td><span class="mono">c84f70a8 · 521bd408 · 9b049eee · 1b0bb413</span></td><td>BUSY 改延后；三处残留 deadline 归零；稳态续装 late 12 657 → 5 415、svc_wait 74 244 → 18 283</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">六、目标达成判据（2026-10-19 16:03，整圈 361 位置）</div>
+<table class="compact"><thead><tr><th style="width:20%">角色</th><th style="width:24%">executed</th><th class="c" style="width:12%">位置数</th><th style="width:26%">NO_PLAN / LATE / BACKEND</th><th class="c">判定</th></tr></thead><tbody>
+<tr><td class="b">SWITCH_A</td><td class="mono">5 776 = 16 × 361</td><td class="c b">361</td><td>0 / 0 / 0</td><td class="c"><span class="tag green">PASS</span></td></tr>
+<tr><td class="b">SWITCH_B</td><td class="mono">5 760 = 16 × 360</td><td class="c b">360</td><td>0 / 0 / 0</td><td class="c"><span class="tag green">PASS</span></td></tr>
+<tr><td class="b">GATEWAY</td><td class="mono">5 776 = 16 × 361</td><td class="c b">361</td><td>0 / 0 / 0</td><td class="c"><span class="tag green">PASS</span></td></tr>
+</tbody></table>
+<p class="mini" style="margin-top:5px;">判据用不变量 <span class="mono">executed = 组数 × finish</span>（2 / 16 / 18 组三档均精确成立）；位置数由 <span class="mono">executed ÷ 组数</span> 反推——<span class="mono">action_finish</span> 跨圈会重置，不能直接当位置数。SWITCH_B 差 1 个位置属采样边界，不是丢组。</p></div>
+<div class="section"><div class="section-title">七、剩余项（均非阻塞，不属本次达成范围）</div>
+<div class="risk-box"><strong>待办：</strong>
+<ul class="small-list">
+<li><b>网分 READY 实测</b>：按既定决策暂禁用；接入分析仪后需验 <span class="mono">ready_collision_count=0</span>、<span class="mono">ready_margin_min_ticks&gt;0</span>。</li>
+<li><b>两字协议预装两组</b>：可选性能项；当前 <span class="mono">late</span> 仍非零（迟到照发、非失败），预装可压到接近 0，设计已到指令级（<span class="mono">T2-GATEWAY-PRELOAD</span>）。</li>
+<li><b>常量四源收敛</b>：表容量 / 运行期窗口 / 网关 plan / 计划构建四处上限必须相等，建议收敛为单一头文件 + 静态断言（架构债）。</li>
+<li><b>收尾核对</b>：SWITCH_B 同圈 361、SCPI 面 A..G 手工抽查。</li>
+</ul></div></div>
+<div class="bar">达成：<strong>每位置 16 个动作按序执行 · 三后端零失败 · 证据闭环</strong></div>
+<div class="source">证据来源：<span class="mono">out/sync_trigger/sequence_flow.json</span>（verdict 全 OK）、<span class="mono">out/sync_trigger/sequence_snapshot.json</span>（teardown 前快照）、<span class="mono">docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md</span> 与 <span class="mono">docs/trigger/t2/TRIGGER_T2_DEBUG_PLAYBOOK.md</span>；提交号可直接 <span class="mono">git show</span> 复核。</div>
+</div>
+<div class="page-footer"><span>判据与读数以台架快照与登记表为准；本页结论可逐条回溯到提交号</span><span>DHRT100 项目提交链时间轴 ｜ 2 / 2</span></div>
+</div>
+
+</body>
+</html>

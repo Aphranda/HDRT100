@@ -4,7 +4,7 @@ Status: Active
 Domain: RELEASE
 Canonical: `docs/reports/distributed-trigger/README.md`
 Related: `docs/reports/README.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-Last updated: 2026-10-18
+Last updated: 2026-10-19
 
 本目录保存分布式触发技术报告、历史完整报告和仓库摘要。
 
@@ -30,6 +30,7 @@ Last updated: 2026-10-18
 |---|---|
 | `DHRT100_SEQUENCE_PROGRESS_REPORT.html` / `DHRT100_SEQUENCE_PROGRESS_REPORT.pdf` | **SYNC_SEQUENCE 位置内序列进度报告**（A4 竖版七页，陈述式、**文档内不写日期**）：输入与解算（时间片 + 组序列表 → 逐组绝对 tick）、执行模型（整表交入、按组回执、完成推进）、容量与上限（18 组/位置，四处上限同改）、台架证据（N=2/16/18；16 组整圈两开关各 5776 = 16×361、零失败；18 组整圈满足 executed = 组数 × 位置数）、诊断与判读、剩余项与下一步。属 `docs/trigger/sequence/` 能力域。 |
 | `DHRT100_T2_COMPLETION_REPORT.html` / `DHRT100_T2_COMPLETION_REPORT.pdf` | T2 **能力达成情况报告**（A4 竖版七页，陈述式、**文档内不写日期**）：能力总述与清单、判定链路与实现方式（八项实现机制 + 逐段判据）、能力清单（配置面/运行面/观测面/角色面）、验收证据一（361 全程三轮：源端无损、三从板各进窗·宣告·冻结 361/361/361）、验收证据二（T2 侧交接面：双组 722 次、容量 48 行）、达成路径与读数纪律、能力范围与边界（覆盖/不覆盖与归属；组序列解算与逐组证据归 `docs/trigger/sequence/` 能力域）。取代 `DHRT100_T2_STATUS_REPORT_20261016.html`（已删除，内容并入本版）。 |
+| `DHRT100_T2_TIMELINE_REPORT_20261019.html` / `DHRT100_T2_TIMELINE_REPORT_20261019.pdf` | **项目提交链时间轴（两页）**：2026-06-21 → 2026-10-19，2 261 个提交、五阶段（骨架/协议/架构/硬化/攻坚）；页一为总体节奏、里程碑与五次达成读数（1 824 → 5 776 → 6 480 → 5 776/5 776/5 760），页二为最后一役 78 提交的分段（窗口语义/路线 A/RAM 墙/容量 +2/零失败收口）、达成判据（`executed = 组数 × finish`，三后端 0/0/0）与剩余项（网分 READY、两字预装、常量四源）。数字均可回溯到提交号与台架快照。 |
 | `DHRT100_PROJECT_OVERVIEW_REPORT_20260919.html` / `DHRT100_PROJECT_OVERVIEW_REPORT_20260919.pdf` | 项目综述更新版：沿用 A4 竖版模板，面向总体架构评审，覆盖当前 HAOFV、四板 DPLL、无外参十分钟、外参相干性及调参实测，保留明确进度口径。 |
 | `DHRT100_PROJECT_OVERVIEW_REPORT_20260827.html` / `DHRT100_PROJECT_OVERVIEW_REPORT_20260827.pdf` | 2026-08-27 项目综述历史快照，保留原版。 |
 | `DHRT100_DPLL_STATUS_REPORT_20260918.html` / `DHRT100_DPLL_STATUS_REPORT_20260918.pdf` | 四板 DPLL 阶段报告：A4 竖版七页，按统一接口组织为 功能块（一–四）／平台底座（五–八）／机制分解（九–十一）／实测（十二–十七）／改进与验证（十八–二十一）／门禁（二十二–二十四）；实验快照。 |
