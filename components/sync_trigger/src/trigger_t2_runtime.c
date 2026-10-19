@@ -634,9 +634,13 @@ static T2_BOUNDED void T2_HOT(origin_announce)(uint32_t ordinal, uint64_t target
     s_state.freeze_version[index] = 0u;
     s_state.descriptors[index] = (trigger_position_descriptor_t){0};
     if (trigger_position_window_find(&s_position_window, index + 1u) >= 0) {
+        /* EXECUTED means the position actually ran, not that it happened to be frozen when the slot was
+         * taken over: `w_executed` counted 128 while only 119 positions ran their groups, because this
+         * path promoted every displaced-frozen occupant to EXECUTED (measured 2026-10-19). */
+        const bool emitted = (s_state.emitted_position_mask & (1u << index)) != 0u;
         const trigger_position_window_state_t last =
-            s_position_window.record[trigger_position_window_find(
-                &s_position_window, index + 1u)].state == TRIGGER_POSITION_WINDOW_FROZEN
+            (emitted && s_position_window.record[trigger_position_window_find(
+                &s_position_window, index + 1u)].state == TRIGGER_POSITION_WINDOW_FROZEN)
             ? TRIGGER_POSITION_WINDOW_EXECUTED : TRIGGER_POSITION_WINDOW_ABANDONED;
         (void)trigger_position_window_mark(&s_position_window, index + 1u, last);
         (void)trigger_position_window_release(&s_position_window, index + 1u);

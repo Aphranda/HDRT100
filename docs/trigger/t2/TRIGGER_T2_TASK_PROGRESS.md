@@ -12,6 +12,25 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-045：窗口计数改为"**真跑过才算 executed**"——`w_executed` 首次与 `组数/16` 对齐
+
+- **问题**：槽位被新位置接管时，旧占用者只要窗口状态是 FROZEN 就被标成 `EXECUTED`——
+  于是"被顶掉、组没跑完"的位置也被算作已执行（实测 `w_executed=128` vs `组数/16=119`，差 9）。
+- **修法（一行，不新增状态）**：该路径改为"**只有本槽真的发射过位置（`emitted_position_mask` 置位）
+  才记 EXECUTED**，否则记 ABANDONED"。
+- **台架验证（40 s）**：
+  ```
+  SWITCH_A: w_entered=122 w_announced=120 w_frozen=120 w_executed=120 w_abandoned=0 | groups 1920=16×120
+  SWITCH_B: w_entered=123 w_announced=121 w_frozen=121 w_executed=120 w_abandoned=1 | groups 1920=16×120
+  ```
+  ⇒ **`w_executed(120) == 组数/16(120)` 对上了**（修正前 128 vs 119）；SWITCH_B 的 `w_abandoned=1`
+  正是被正确分类的那一个位置。
+- **意义**：位置层指标从此可信——`w_executed` 可作"完成位置数"的独立来源，与 `executed/组数` 互相校验。
+- **顺带确认**：`T2:ACTion?` 的窗口计数位于 **45..51**（`E=9` 时），登记项 `T2-DEPLOY-003` 的"尾 7 字段"
+  描述已过期，待随下次登记更新。
+
+
+
 ### T2-PROGRESS-20261019-044：`T2:ACTion?` 字段索引已按发射顺序重建（登记项描述确认过期）
 
 - **索引表（从板 71 字段；`E = event_count`）**：
