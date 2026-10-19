@@ -157,6 +157,7 @@ def step_counters(state, args):
         snap = _json.loads(snapshot.read_text(encoding="utf-8"))
         for slot, pages in snap.items():
             role = ROLES[int(slot)] if int(slot) < len(ROLES) else f"slot{slot}"
+            action = fields(pages.get("action", ""))
             why = fields(pages.get("why", ""))
             window = fields(pages.get("window", ""))
             diag = fields(pages.get("diag", ""))
@@ -169,6 +170,13 @@ def step_counters(state, args):
                 "backend": why[11] if len(why) > 11 else "?",
                 "window": window[-5:],
                 "finished": diag[4] if len(diag) > 4 else "?",
+                # Position-window totals from T2:ACTion? fields 45..49:
+                # entered / announced / frozen / executed / abandoned.
+                "entered": action[45] if len(action) > 45 else "?",
+                "announced": action[46] if len(action) > 46 else "?",
+                "frozen": action[47] if len(action) > 47 else "?",
+                "w_executed": action[48] if len(action) > 48 else "?",
+                "abandoned": action[49] if len(action) > 49 else "?",
                 "source": "snapshot",
             }
         # Counters are monotonic across runs: report THIS run by subtracting the pre-sampling baseline.
