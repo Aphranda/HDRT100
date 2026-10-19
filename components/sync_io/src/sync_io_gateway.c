@@ -69,6 +69,8 @@ typedef struct {
 } gateway_plan_group_t;
 static gateway_plan_group_t s_plan[GATEWAY_PLAN_MAX];
 static uint32_t s_plan_count, s_plan_next;
+/* Output SM is enabled and holds this position's pulse width in Y. */
+static bool s_output_running;
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #define GATEWAY_HOT(name) __scratch_y("t2_gateway_deadline") name
 #else
@@ -325,6 +327,7 @@ static bool prepare_realtime(uint32_t pulse_ns)
     pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_pull(false,true));
     pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_mov(pio_isr,pio_osr));
     s_ready_active=false;
+    s_output_running=true;
     return true;
 }
 
@@ -341,6 +344,9 @@ bool sync_io_gateway_realtime_fire(uint32_t pulse_ns)
 }
 
 /* Polled every T2 slice while a deadline is armed: keep it out of XIP. */
+/* Defined with the scheduler below; used by the service path to arm the next group. */
+static bool GATEWAY_HOT(schedule_continuation)(uint32_t pulse_ns,uint64_t deadline_tick);
+
 void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
 {
     if(get_core_num()!=1u || !s_lease)return;
@@ -349,6 +355,7 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
         const uint32_t receipt=pio_sm_get(GATEWAY_PIO,OUTPUT_SM);
         __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);
         pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
+        s_output_running=false;
         if(receipt!=s_pending_receipt) {
             ++s_service_bad_receipt;
             safe_stop();s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
@@ -363,7 +370,8 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
         if(s_plan_next<s_plan_count) {
             const gateway_plan_group_t group=s_plan[s_plan_next++];
             s_sequence_override=s_plan_base_sequence+s_plan_next-1u;
-            const bool armed=sync_io_gateway_realtime_schedule_at(group.pulse_ns,group.deadline_tick);
+            const bool armed=schedule_continuation(group.pulse_ns,group.deadline_tick) ||
+                sync_io_gateway_realtime_schedule_at(group.pulse_ns,group.deadline_tick);
             s_sequence_override=0u;
             if(!armed) {
                 s_plan_count=0u;s_plan_next=0u;
@@ -398,6 +406,22 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
 }
 
 /* Runs on the T2 arming slice, the busiest one: keep it out of XIP. */
+/* Arm the next group without re-initialising the SM: valid only when the width is unchanged (Y still
+ * holds it) and the SM was left prepared and idle. */
+static bool GATEWAY_HOT(schedule_continuation)(uint32_t pulse_ns,uint64_t deadline_tick)
+{
+    if(!s_output_running || pulse_ns!=s_gateway.pulse_ns ||
+       pio_sm_get_tx_fifo_level(GATEWAY_PIO,OUTPUT_SM)!=0u) return false;
+    if(!start_deadline(deadline_tick)) {
+        if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN)safe_stop();
+        return false;
+    }
+    ++s_gateway.trigger_count;s_ready_active=true;
+    __atomic_store_n(&s_realtime_pending,1u,__ATOMIC_RELEASE);
+    s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_ARMED;
+    return true;
+}
+
 bool __not_in_flash_func(sync_io_gateway_realtime_schedule_at)(uint32_t pulse_ns,uint64_t deadline_tick)
 {
     if(get_core_num()!=1u || clock_get_hz(clk_sys)!=BOARD_SYS_CLOCK_HZ ||

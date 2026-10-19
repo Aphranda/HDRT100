@@ -12,6 +12,29 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-059：交接项②第一步——**稳态续装**（不再每组重置 SM）：`late` 12657→3315、`svc_wait` 74244→11319、网关位置数 169→221
+
+- **问题**：计划里的**每一组**都要走 `schedule_at → prepare_realtime`：关 SM、清两个 FIFO、重启、
+  再回放四条预置指令（Y/ISR/pull/mov），然后才武装下一发。开关不是这样——它的队列一直在跑。
+- **改法（`sync_io_gateway.c`）**：新增 `schedule_continuation()`，仅当
+  **脉宽未变（Y 里就是它）+ SM 仍处于已准备且空闲**时走"只武装、不重置"，
+  其余情况（首组、脉宽变化、恢复）**回落到原路径**，行为不变。服务路径优先尝试它。
+- **台架（整圈 140 s，N=16）**：
+  ```
+  SWITCH_A 5776 = 16 × 361   BACKEND 0
+  SWITCH_B 5776 = 16 × 361   BACKEND 0
+  GATEWAY  3536 = 16 × 221   BACKEND 1
+  GWDIAG: late 3315（原 12657）、svc_wait 11319（原 74244）、complete 3536
+  ```
+  ⇒ 网关位置数 **169 → 221**（同源码指纹下同量级窗口），`late` 与 `svc_wait` 各降 3.8×/6.6×。
+- **仍有 1 次 BACKEND**：`id_count=1`，抓到的仍是"armed 比 recorded 小"
+  （`147772343771` vs `147785093749`，回退 12.75 M ticks ≈ 15.9 ms）——说明**还有一条路径**会把
+  旧位置的 deadline 留在槽位里（本次不是收尾/失败路径）。下一步把 `s_deadline[index].deadline_tick`
+  的**所有写入点**列出来，只在校验通过后才写。
+- **下一步（②的后半）**：两字协议（延时 + 组序号）实现真正的"两发在飞"；本文档第 6 节已有指令级设计。
+
+
+
 ### T2-PROGRESS-20261019-058：交接项③完成——两处测试债务清零，`pytest -k "trigger or sync_io or t2_ or position"` **1340 passed / 0 failed**
 
 - **债务①（harness 与实现漂移）**：`test_sync_io_workspace.py` 的宿主 harness 只截取
