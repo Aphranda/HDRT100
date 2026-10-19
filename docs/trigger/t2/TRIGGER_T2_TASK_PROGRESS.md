@@ -12,6 +12,31 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-058：交接项③完成——两处测试债务清零，`pytest -k "trigger or sync_io or t2_ or position"` **1340 passed / 0 failed**
+
+- **债务①（harness 与实现漂移）**：`test_sync_io_workspace.py` 的宿主 harness 只截取
+  `sync_io_model_sched.c` 里的**函数体**，漏了该文件头部的两个静态量
+  （`s_model_pulse_program` / `s_model_pulse_program_offset`），导致
+  `sync_io_pulse_schedule_arm_on_pin_common_owned` 编译失败。补上这两行静态声明即可，
+  **不改生产代码**。
+- **债务②（断言与重试语义不一致）**：`test_trigger_grid_preview.py` 的 `configure_race` 场景写成
+  "模型在 configure 期间变化 ⇒ 返回 CHANGED 且不配置"。但 `trigger_grid_preview_configure` 早已有
+  **有界重试**（正是为了解决"单次拒绝会让板子没有 grid，四步后才表现为 T2 挂载被拒"）：
+  第二次尝试会把模型连读两次（同一 token）并提交**新鲜**绑定。故场景改为
+  `== TRIGGER_TIME_GRID_OK` 且快照已配置、`last_generation == grid.generation`。
+  另外 `trigger_grid_preview_snapshot()` 返回的是**状态码**（不是 bool），断言改为与
+  `TRIGGER_TIME_GRID_OK` 比较。
+- **验证**：
+  ```
+  pytest -k "trigger or sync_io or t2_ or position"  → 1340 passed, 0 failed
+  test_trigger_grid_preview.py                      → 89 passed
+  test_sync_io_workspace.py::…schedule_bounds…      → passed
+  ```
+  P3（`--profile full`）已按"改测试也要过硬件门禁"的规则重跑。
+- **三项交接进度**：① ✅ 完成（`521bd408`）；③ ✅ 完成（本条）；② 网关预装两组 ⏸ 未开始。
+
+
+
 ### T2-PROGRESS-20261019-057：交接项①完成——网关"偶发 1 次 BACKEND"根因是**跨位置的到期时间残留**
 
 - **定位（新增 DIAG 抓取 `id_*` 五字段：sequence / expected / armed deadline / recorded / count）**：

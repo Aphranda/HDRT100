@@ -269,6 +269,9 @@ static fake_pio_t fake_pio;
 '''
     harness += model_type + r'''
 static sync_io_model_pulse_t s_model_pulse;
+/* statics the production translation unit keeps above the extracted functions */
+static const pio_program_t *s_model_pulse_program;
+static uint s_model_pulse_program_offset;
 static uint32_t sync_io_shared_workspace[SYNC_IO_SHARED_WORKSPACE_WORDS];
 static uint32_t s_phase_observer_words[SYNC_IO_MODEL_PULSE_WORDS_PER_ENTRY];
 static bool capture_running, manager_ok = true, s_wave_output_manager_active;

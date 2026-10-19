@@ -201,9 +201,12 @@ int main(int argc,char **argv)
     }
     if(!strcmp(scenario,"configure_race")) {
         race=scenario;
-        assert(trigger_grid_preview_configure(&grid)==TRIGGER_GRID_PREVIEW_CHANGED);
-        trigger_grid_preview_snapshot_t s;assert(!trigger_grid_preview_snapshot(&s));
-        assert(!s.configured && !s.last_generation);return 0;
+        /* A single transient model change is absorbed by the bounded retry: the second attempt
+         * re-reads the model twice with the same token, so configure commits a FRESH binding
+         * instead of failing and leaving the board without a grid. */
+        assert(trigger_grid_preview_configure(&grid)==TRIGGER_TIME_GRID_OK);
+        trigger_grid_preview_snapshot_t s;assert(trigger_grid_preview_snapshot(&s)==TRIGGER_TIME_GRID_OK);
+        assert(s.configured && s.last_generation==grid.generation);return 0;
     }
     if(!strcmp(scenario,"configure_schedule")) {
         ++staged.schedule_crc32;
