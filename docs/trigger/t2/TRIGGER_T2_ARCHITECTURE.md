@@ -525,6 +525,35 @@ T2 只读 VDC 模型与本地 TIMER1；游标、解算、预算优化和动作�
 3. **回执语义**：`push` 只表示"完成一次"，身份由软件环决定 —— 这保持了与开关一致的
    "执行器只报告推进、动作侧负责归属"。
 
+### 修订（2026-10-19 深夜，读码后）
+
+初稿说"两字 = delay, width"。读码后更正为——**宽度不必每字带**：
+
+- `prepare_realtime()` 已经把**脉宽**写进 Y（`pull` + `mov y, osr`），并在同一次里把
+  **ISR 预置为 `trigger_count+1`**（`pull` + `mov isr, osr`），这正是单发路径的身份来源；
+- 但 `prepare_realtime()` 每次都会**清 FIFO 并重启 SM**，所以 FIFO 里永远只有一发。
+
+因此两发在飞的最小改法是：
+
+```text
+pull block        ; 字 A = 延时
+out x, 32
+pull block        ; 字 B = 本组序号（身份）
+out isr, 32
+delay: jmp x-- delay
+irq 6
+set pins, 1
+high:  jmp y-- high     ; 脉宽仍来自 Y（每位置预置一次）
+set pins, 0
+push block              ; 推 ISR = 本组序号
+```
+
+- 每个触发 **两个字**（延时 + 序号），FIFO 深度 4 ⇒ **两发在飞**；
+- `stage_sequence` 一次推两组；第二组的延时 = `(d2 − d1) − 脉宽 − 4`（自第一发脉冲结束起算）；
+- `service` 直接拿 `push` 出来的序号作 `completed_sequence`（回执自带身份，不再需要软件环）；
+- 脉宽在**每个位置**开始时预置一次（现有 `prepare_realtime` 已具备该动作，只是要拆出"每位置一次"
+  与"每组一次"两段）。
+
 ### 验证计划
 
 - 宿主：`test_sync_io_gateway.py` 的 mock 需按新程序实现（脉宽取字 B、延时取字 A、`push` 即完成），
