@@ -12,6 +12,22 @@ Last updated: 2026-10-20
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261020-011：两字协议把 harness 从 49 红降到 9 红——剩余为"执行 OUT 出现未预期目的寄存器"
+
+- **本轮把 harness 的布局期望全部改为推导式/新值**（这是上一轮记下的关键前置）：
+  - `pio_add_program` 记录第一段程序长度 `prog_out_len`，第二段偏移改为 `5+prog_out_len`；
+  - `pio_remove_program` 去掉 `off==13` 硬断言；
+  - `pio_sm_init` 的 wrap 断言改为 `lo==5, hi==5+prog_out_len-1`（ready 段同理）；
+  - 驱动期望 `loaded_words`/`instruction_words` 14→16、`ready_program_offset` 13→15。
+- **结果**：`test_gateway_never_fires_and_restores_exactly` 从 **49 红降到 9 红 / 40 绿**。
+- **剩余 9 个的根因（已定位到断言）**：mock 的 `OUT` 处理出现**未预期目的寄存器**——
+  断言 `d==1u||d==7u` 失败（dest 既不是 x 也不是 isr）。说明两字程序在某条路径上执行了
+  另一个 `out`（很可能是 `pio_sm_exec` 预置路径或 wrap 窗口边界导致把数据当指令）。
+  下一步：给该断言加 `printf` 打出 `dest / ins / pc`（本轮已准备，但改动随实验回退）。
+- **状态**：实验**全部回退**，工作区 clean，`88 passed`。下一轮从"打印 OUT dest"开始，预计 1~2 次即可定位。
+
+
+
 ### T2-PROGRESS-20261020-010：两字协议第二轮尝试——mock 的 OUT 已支持 `out isr`，剩余卡点是**时序模型**
 
 - **已提交**（`506e2072`）：宿主 mock 的 `OUT` 现在支持 dest 7（`out isr, 32`），且 51 个用例保持全绿——
