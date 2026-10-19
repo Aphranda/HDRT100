@@ -69,6 +69,7 @@ typedef struct {
 } gateway_plan_group_t;
 static gateway_plan_group_t s_plan[GATEWAY_PLAN_MAX];
 static uint32_t s_plan_count, s_plan_next;
+static uint32_t s_last_delay_word, s_last_deadline_lo, s_last_delta_lo;
 /* Why the staged plan was last cleared (see sync_io_gateway_realtime_diag). */
 typedef struct {
     uint32_t reason, plan_next, complete, tick_lo;
@@ -103,6 +104,11 @@ static __attribute__((noinline)) bool GATEWAY_HOT(start_deadline)(uint64_t deadl
     const uint64_t delta=target-before;
     if(delta>UINT32_MAX || delta<4u) { ++s_arm_reject[3]; return false; }
     pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)(delta-4u));
+    /* Diagnostics: the word the PIO will wait on, and the deadline it came from. A stalled "armed but never
+     * fired" group is explained by an absurd word (bad base tick) more often than by anything else. */
+    s_last_delay_word = (uint32_t)(delta-4u);
+    s_last_deadline_lo = (uint32_t)deadline;
+    s_last_delta_lo = (uint32_t)delta;
     pio_enable_sm_mask_in_sync(GATEWAY_PIO,GATEWAY_SM_MASK);
     const bool read=raw_tick(&after);
     s_deadline.origin_before_tick=before;
@@ -322,6 +328,9 @@ static bool prepare_realtime(uint32_t pulse_ns)
     }
     sync_io_gateway_realtime_service_core1();
     pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
+    /* Cleared BEFORE any early return below: a failed prepare used to leave the flag true from the previous
+     * prepare, so a later continuation pushed its delay word into a disabled SM (stalled group, word 0). */
+    s_output_running=false;
     pio_sm_set_enabled(GATEWAY_PIO,READY_SM,false);
     pio_sm_clear_fifos(GATEWAY_PIO,OUTPUT_SM);
     pio_sm_clear_fifos(GATEWAY_PIO,READY_SM);
@@ -357,6 +366,21 @@ bool sync_io_gateway_realtime_fire(uint32_t pulse_ns)
 /* Polled every T2 slice while a deadline is armed: keep it out of XIP. */
 /* Defined with the scheduler below; used by the service path to arm the next group. */
 static bool GATEWAY_HOT(schedule_continuation)(uint32_t pulse_ns,uint64_t deadline_tick);
+
+static void note_stall_snapshot(void)
+{
+    uint32_t pc = 0u, tx = 0u;
+#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    pc = GATEWAY_PIO->sm[OUTPUT_SM].addr;
+    tx = (GATEWAY_PIO->fstat >> (4u * OUTPUT_SM)) & 0xFu;
+#endif
+    gw_clear_event_t *e = &s_clear_ring[s_clear_ring_next & 3u];
+    e->reason = 5u;                      /* stalled: pending with no receipt for 4096 service waits */
+    e->plan_next = s_plan_next;
+    e->complete = pc | (tx << 16u);
+    e->tick_lo = s_last_delay_word;
+    ++s_clear_ring_next;
+}
 
 static void note_plan_clear(uint32_t reason)
 {
@@ -402,6 +426,9 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
         } else { note_plan_clear(1u); s_plan_count=0u; }
     } else if(__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE)) {
         ++s_service_wait;
+        /* A group that never completes shows up here first. Snapshot the executor state once per 4096 waits
+         * so the stall is attributable without another run: reason 5 carries pc/tx/pending + the last word. */
+        if((s_service_wait & 0xFFFu)==0u) note_stall_snapshot();
     }
     /* One READY per transaction; continue after the pulse completion. */
     if(s_ready_active && !pio_sm_is_rx_fifo_empty(GATEWAY_PIO,READY_SM)) {
@@ -541,6 +568,9 @@ void sync_io_gateway_realtime_diag(uint32_t *out)
     out[28]=last->plan_next;
     out[29]=last->complete;
     out[30]=last->tick_lo;
+    out[34]=s_last_delay_word;
+    out[35]=s_last_deadline_lo;
+    out[36]=s_last_delta_lo;
     out[19]=s_service_wait;
     out[20]=s_service_bad_receipt;
     out[21]=s_service_complete;

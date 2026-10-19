@@ -1980,7 +1980,16 @@ def step_12_t2_mount(ctx, slot, board, uid):
     # whole acceptance run its configured==4 requirement - measured on slot 1).
     configured = active = "?"
     diag = []
+    # A previous run that aborted before teardown leaves the runtime active, and both CONFigure and MOUNT
+    # refuse while it is: clear it here so consecutive runs do not need a board reboot.
+    ctx.send(board, "TRIGger:REServation:T2:UNMOUNT")
+    for _ in range(10):
+        state = ctx.send(board, "TRIGger:REServation:T2?").split(",")
+        if len(state) > 3 and state[3] == "0":
+            break
+        time.sleep(0.1)
     for attempt in range(4):
+        ctx.send(board, "TRIGger:REServation:T2:UNMOUNT")
         ctx.send(board, "SYSTem:TDMA:FLIGHT:FIFO:RESet")
         # Threshold (= announcement lead), FROZEN 2026-10-17 at 800: lead in pulses =
         # 1000 - permille, so 800 => 200 pulses (~77 ms). A measured four-point sweep with

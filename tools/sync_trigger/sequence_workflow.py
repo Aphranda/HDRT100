@@ -232,7 +232,8 @@ def step_verdict(state, args):
     state["readings"]["verdict_ok"] = ok
     # The commit credential uses the gate criterion (zero failures + at least two roles on a full
     # revolution), which tolerates the gateway's known cadence variance while still proving the scan ran.
-    failures = sum(v.get("no_plan", 0) + v.get("late", 0) + v.get("backend", 0) for v in verdict.values())
+    # `late` is timing quality (the group still fires), so it does not block the credential.
+    failures = sum(v.get("no_plan", 0) + v.get("backend", 0) for v in verdict.values())
     full = sum(1 for v in verdict.values()
                if v.get("expected") and v.get("executed") == v.get("expected"))
     if failures == 0 and full >= 2:

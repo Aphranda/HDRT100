@@ -12,6 +12,28 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-069：网关**跑满整圈**（5776 = 16×361，零失败）——最后一处残留标志在第 4 个地方
+
+- **第三次定位（本轮）**：`prepare_realtime()` 在**开头就关闭 SM**，但 `s_output_running=true` 要到函数**末尾**才置位。
+  若 prepare 在中间失败（`pulse_ticks` 非法、`product%1e9`、pending 非零等），标志仍是**上一次 prepare 的 true**
+  ⇒ 之后的"续装"把延时字推进**已关闭**的 SM ⇒ `plan_count=16 / plan_next=1 / svc_wait` 增长 ⇒ 整轮失速。
+  修法：关 SM 的同时立刻把标志清零（早退路径也覆盖）。
+- **台架（140 s 整圈）**：
+  ```
+  SWITCH_A 5776 = 16 × 361   BACKEND 0
+  SWITCH_B 5760 = 16 × 360   BACKEND 0
+  GATEWAY  5776 = 16 × 361   BACKEND 0   ← 首次与开关完全同水平
+  清空原因环: reason=1(drained) plan_count=0 plan_next=16
+  ```
+- **新增诊断（本轮）**：① 计划清空原因环（1 drained / 2 次组武装失败 / 3 首组武装失败 / 4 cancel）；
+  ② "停住快照"——pending 连续 4096 次服务无回执时，把 `pc | tx<<16`、`plan_next`、最后一次延时字写入环（reason=5）；
+  ③ `GWDIAG` 扩到 37 字段（`last_delay_word / last_deadline_lo / last_delta_lo`）。
+- **同轮更早的三次失败运行**（128 / 0 / 704 位置）与本次成功，差别只在固件版本与上电状态 ⇒ 仍是**残留标志类**问题，
+  每次修掉一处就少一类失速。
+- **下一步**：连跑 3 次验证 5776 可复现；若复现则本目标可收口。
+
+
+
 ### T2-PROGRESS-20261019-068：网关稳定性质检升级——**计划清空原因环**（GWDIAG 27..30）上线；本轮整圈 5628 ≈ 16×352、零失败
 
 - **新增诊断（执行器自身负责）**：网关记录最后一次"计划被清空"的**原因**（1  drained 正常、2 下一组武装失败、

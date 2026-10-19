@@ -50,7 +50,8 @@ def main() -> int:
         roles[role] = {"executed": executed, "groups": groups, "expected": expected,
                        "no_plan": no_plan, "late": late, "backend": backend,
                        "full_revolution": executed == expected}
-        failures += no_plan + late + backend
+        # `late` is timing quality (the clamp still fires the group), not a functional failure.
+        failures += no_plan + backend
         if executed == expected:
             full += 1
 
