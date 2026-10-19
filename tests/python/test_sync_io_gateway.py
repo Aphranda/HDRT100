@@ -117,7 +117,8 @@ static void advance(uint cycles){while(cycles--){++tick_count;
         else if(op==1){uint src=(ins>>5)&3u,pol=(ins>>7)&1u;
             if(src==2){if(!(peripheral.irq&(1u<<(ins&7u))))continue;peripheral.irq&=~(1u<<(ins&7u));}
             else {assert(src==1);if(pins[input_pin].level!=(bool)pol)continue;}}
-        else if(op==3){assert(((ins>>5)&7u)==1u);machine[sm].x=machine[sm].osr;}
+        else if(op==3){const uint d=(ins>>5)&7u;assert(d==1u||d==7u);
+            if(d==1u)machine[sm].x=machine[sm].osr;else machine[sm].isr=machine[sm].osr;}
         else if(op==4){if(ins&0x80u){if(!machine[sm].tx_count)continue;machine[sm].osr=pop(machine[sm].tx,&machine[sm].tx_count);}
             else {if(machine[sm].rx_count==4)continue;machine[sm].rx[machine[sm].rx_count++]=machine[sm].isr;machine[sm].isr=0;}}
         else if(op==5){assert(((ins>>5)&7u)==6);uint32_t v=(ins&7u)==1?machine[sm].x:machine[sm].osr;if(ins&8u)v=~v;machine[sm].isr=v;}
