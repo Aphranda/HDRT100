@@ -12,6 +12,25 @@ Last updated: 2026-10-20
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261020-015：续装"跑完一个窗口就 NO_PLAN"仍未解——已排除序号减一假设
+
+- **本轮假设**：网关在 `staging` 后应像开关一样把期望序号减一（`SEQ-C01`），否则第一组永远不满足
+  `completed > expected`。**实测否定**：把该减一对网关也启用后，整圈仍是 `no_plan 354`、
+  `cont_hit 45`、`ring 1`（无失速）。已**回退**该改动，保持既有语义。
+- **当前确定的事实**（同一固件连跑）：
+  ```
+  cont_hit 45~90 / miss 0   ring 1（无失速）
+  no_plan 354（窗口结束后余下位置全部记 NO_PLAN）
+  w_executed 达 23696~34601（执行器一直在跑，说明是运行期对"这一窗已交完"的判定问题）
+  ```
+- **推论**：`no_plan` 的判据是 `plan->group != s_group_next[selected]`，与序号无关；问题在于
+  **窗口用尽后运行期没有重新发布/接收计划**（`s_window_staged` 或 `s_group_next` 的推进没有随
+  "续装把 16 组全部消耗完"而更新）。
+- **下一轮聚焦**：查 `complete_action()` / `s_group_next[selected]` 在"整窗由续装一次消耗完"时是否只推进一次，
+  以及 core0 何时发布下一窗计划（`plan_generation`）。判据不变：`abandoned==0 && w_executed==361` 连跑两轮。
+
+
+
 ### T2-PROGRESS-20261020-014：三字协议落地（延时+序号+脉宽）、service 改为排空回执；快路径可跑 45 组但随后 NO_PLAN 洪水
 
 - **已实装（本轮）**：
