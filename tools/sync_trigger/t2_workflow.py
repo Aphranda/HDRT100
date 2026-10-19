@@ -3300,6 +3300,8 @@ def step_20_sampling(ctx, slot, board, uid):
                 "diag": "TRIGger:REServation:T2:ACTion:DIAG?",
                 "t2": "TRIGger:REServation:T2?",
                 "gwdiag": "TRIGger:REServation:T2:ACTion:GWDIAG?",
+                # tail 7 = entered / announced / frozen / executed / abandoned / mark_rejected / alloc_rejected (the position-window accounting).
+                "action": "TRIGger:REServation:T2:ACTion?",
             }
             _entry, _failed = {}, []
             for _name, _page in _pages.items():

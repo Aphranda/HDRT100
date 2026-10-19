@@ -12,6 +12,28 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-043：快照已纳入 `T2:ACTion?` 页；实测其"尾部 7 字段"与登记项 `T2-DEPLOY-003` 的描述**已不一致**（契约漂移）
+
+- **改动（`t2_workflow.py`）**：采样前快照增加 `T2:ACTion?` 页（位置窗口计数的载体）。
+- **实测（短跑快照）**：
+  ```
+  slot0: n=53  tail7 = 0,534,0,0,11534490,0,196609
+  slot1: n=71  tail7 = 0,0,776,0,0,12320949,0
+  slot2: n=71  tail7 = 0,0,781,0,0,12386480,0
+  slot3: n=71  tail7 = 0,0,785,0,0,12648621,0
+  ```
+  而登记项 `T2-DEPLOY-003` 写的是"`T2:ACTion?` 尾 7 字段暴露 entered/announced/frozen/executed/abandoned/
+  mark_rejected/alloc_rejected"。实测尾部的值域（含 1.2e7 量级计数）与该描述**不符**，
+  且页面字段数已从当时的规模增到 71（从板）/53（源板）。
+- **结论**：这是一处**契约漂移**——登记表描述的是旧版页面。按 ⑧ 的要求，不能再用"尾 7 字段"做诊断；
+  必须先按发射顺序重新建立 `T2:ACTion?` 的字段索引（像之前对 DIAG/GWDIAG 做的那样），
+  再更新 `T2-DEPLOY-003` 的描述。
+- **下一轮**：① 读 `scpi_trigger_t2_runtime_commands.inc` 里 `ACTion?` 的发射顺序 → 建索引表；
+  ② 用索引表读出 entered/announced/frozen/executed，定位 SWITCH_A"少 13 个位置"发生在哪一段；
+  ③ 若确有漂移，更新登记项（并保持 `Last updated` 与门禁绿）。
+
+
+
 ### T2-PROGRESS-20261019-042：快照可靠性已修；"`T2?` 只有 2 字段"其实是**该页在网关角色不可用**，不是读失败
 
 - **改动（`t2_workflow.py`）**：采样前快照从"整块 try 里连发五页"改为**逐页读取 + 一次重试 + 失败登记**，
