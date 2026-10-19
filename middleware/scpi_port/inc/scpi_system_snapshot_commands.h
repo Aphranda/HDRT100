@@ -586,7 +586,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:RING:ARM", .callback = scpi_cmd_system_tdma_ring_arm}, \
     {.pattern = "SYSTem:TDMA:RING:TRAIN", .callback = scpi_cmd_system_tdma_ring_train}, \
     {.pattern = "SYSTem:TDMA:RING:TRAIN:STATus?", .callback = scpi_cmd_system_tdma_ring_train_status_q}, \
-    {.pattern = "SYSTem:TDMA:RING:START", .callback = scpi_cmd_system_tdma_ring_start}, \
+    {.pattern = "SYSTem:TDMA:RING:STARt", .callback = scpi_cmd_system_tdma_ring_start}, \
     {.pattern = "SYSTem:TDMA:RING:STOP", .callback = scpi_cmd_system_tdma_ring_stop}, \
     {.pattern = "SYSTem:TDMA:RING:LOG?", .callback = scpi_cmd_system_tdma_ring_log_q}, \
     {.pattern = "SYSTem:TDMA:RING:LOG", .callback = scpi_cmd_system_tdma_ring_log}, \

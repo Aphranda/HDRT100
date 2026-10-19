@@ -24,7 +24,7 @@ scpi_result_t scpi_config_switch_q(scpi_t *context);
     {.pattern = "READ:ANGLe:PULSe?", .callback = scpi_config_angle_pulse_q}, \
     {.pattern = "READ:ANGLe:POSition?", .callback = scpi_config_angle_position_q}, \
     {.pattern = "CONFigure:ANGLe:BREAkpoint", .callback = scpi_port_result_accepted}, \
-    {.pattern = "CONFigure:ANGLe:BREAkpoint:CLEAr", .callback = scpi_port_result_accepted}, \
+    {.pattern = "CONFigure:ANGLe:BREAkpoint:CLEar", .callback = scpi_port_result_accepted}, \
     {.pattern = "READ:ANGLe:BREAkpoint?", .callback = scpi_config_angle_breakpoint_q}, \
     {.pattern = "CONFigure:SEQuence", .callback = scpi_port_result_accepted}, \
     {.pattern = "READ:SEQuence?", .callback = scpi_config_sequence_q}, \

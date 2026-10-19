@@ -316,7 +316,7 @@ SD 命令遵循 `docs/storage/SD_TODO.md` 中的 `StorageAO + StorageFB + Storag
 | `SYSTem:STOR:STAT?` | `SYSTem:SD:STAT?` 的 Storage 域别名。 |
 | `SYSTem:STOR:JOB:INFO "<path>"` | 投递 StorageAO `FILE_INFO` job，返回 `"OK",job_id`；实际 FatFs 查询在 `storage_manager_service()` 中执行。 |
 | `SYSTem:STOR:JOB?` | 查询最近 Storage job：`state,id,type,path,size,kind,path_hash,error`；当前 type 包含 `FILE_INFO`、`FILE_READ`、`FILE_WRITE`、`FILE_DELETE`、`FILE_RENAME`、`DIRECTORY_CREATE`、`DIRECTORY_DELETE`、`DIRECTORY_RENAME`、`CATALOG_PAGE`、`MANIFEST_SCAN`、`SYSTEM_INIT`、`SNAPSHOT_WRITE`、`FAULT_EVIDENCE`，manifest/system-init job 的 kind 为 `MANIFEST` 且 size 为 required_count，file read job 的 kind 为 `READ` 且 size 为本次返回字节数，catalog page job 的 kind 为 `CATALOG` 且 size 为本页返回条目数，fault evidence job 的 path 指向最新 fault report。 |
-| `SYSTem:STORage:FILE:WRITe:BEGIN "<path>",<size>,<crc32>` | 建立 StorageAO 文件写事务，路径必须落在白名单根下，返回 `OK,txn_id`；不直接写 SD。 |
+| `SYSTem:STORage:FILE:WRITe:BEGin "<path>",<size>,<crc32>` | 建立 StorageAO 文件写事务，路径必须落在白名单根下，返回 `OK,txn_id`；不直接写 SD。 |
 | `SYSTem:STORage:FILE:WRITe:DATA <txn_id>,<offset>,"<hex>"` | 顺序写入当前事务 buffer，返回 `OK,txn_id,received_size`；单块十六进制数据最大 256 字节。 |
 | `SYSTem:STORage:FILE:WRITe:END <txn_id>` | 校验事务 CRC 后投递 `FILE_WRITE` job，由 StorageAO 执行临时文件写入、sync 和原子替换，返回 `WRITTEN,active,txn_id,state,expected_size,received_size,expected_crc32,actual_crc32,path_hash,error,job_id,path`。 |
 | `SYSTem:STORage:FILE:WRITe:ABORt [txn_id]` | 中止当前文件写事务，返回 `OK`。 |
@@ -346,7 +346,7 @@ OTA 命令遵循 `docs/ota/OTA_HAOFV_ARCHITECTURE.md` 中的 `OtaAO + OtaFB + Ot
 |---|---|
 | `SYSTem:OTA:STAT?` | 查询 OTA 状态摘要：状态、目标 slot、错误码、最近结果。 |
 | `SYSTem:OTA:PROG?` | 查询 OTA 进度：已接收字节、期望字节、千分比进度。 |
-| `SYSTem:OTA:BEGIN <size>,<crc32>` | 开始 OTA 传输，`size/crc32` 对应标准 raw firmware `.bin`，接受后返回 `"OK"`。 |
+| `SYSTem:OTA:BEGin <size>,<crc32>` | 开始 OTA 传输，`size/crc32` 对应标准 raw firmware `.bin`，接受后返回 `"OK"`。 |
 | `SYSTem:OTA:PBEGIN <size>,<crc32>` | 开始统一 OTA package 传输，包内包含 Slot A/Slot B 两个 App 镜像；下位机根据当前 OTA 模式和 target slot 自行选择写入镜像。 |
 | `SYSTem:OTA:DATA #<block>` | 发送 `.bin` 二进制块，投递 `OTA_EVENT_DATA_BLOCK`，为保证吞吐当前不逐块返回 ACK。 |
 | `SYSTem:OTA:END` | 结束传输并请求校验，投递 `OTA_EVENT_END`，接受后返回 `"OK"`。 |

@@ -62,7 +62,7 @@ scpi_result_t scpi_cmd_ota_inject_metadata_repair(scpi_t *context);
 #define SCPI_OTA_COMMANDS \
     {.pattern = "SYSTem:OTA:STATus?", .callback = scpi_cmd_ota_status_q}, \
     {.pattern = "SYSTem:OTA:PROGress?", .callback = scpi_cmd_ota_progress_q}, \
-    {.pattern = "SYSTem:OTA:BEGIN", .callback = scpi_cmd_ota_begin}, \
+    {.pattern = "SYSTem:OTA:BEGin", .callback = scpi_cmd_ota_begin}, \
     {.pattern = "SYSTem:OTA:PBEGIN", .callback = scpi_cmd_ota_package_begin}, \
     {.pattern = "SYSTem:OTA:DATA", .callback = scpi_cmd_ota_data}, \
     {.pattern = "SYSTem:OTA:END", .callback = scpi_cmd_ota_end}, \

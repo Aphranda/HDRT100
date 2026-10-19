@@ -218,7 +218,46 @@ def step_verdict(state, args):
         ok = ok and role_ok
     state["readings"]["verdict"] = verdict
     state["readings"]["verdict_ok"] = ok
+    if ok:
+        write_t2_receipt(state)
     return ("all roles match groups x positions with zero failures", ok)
+
+
+T2_RECEIPT = ROOT / "config/hardware_acceptance/t2_acceptance_receipt.json"
+T2_RECEIPT_SCHEMA = "HAOFV_T2_SEQUENCE_ACCEPTANCE_RECEIPT_V1"
+
+
+def write_t2_receipt(state) -> None:
+    """Record a PASS as a commit credential (same fingerprint the P3 tool uses)."""
+    import datetime
+    import json as _json
+    import sys as _sys
+
+    _sys.path.insert(0, str(ROOT / "tools/hardware_acceptance"))
+    try:
+        from p3_hardware_acceptance import working_source_fingerprint   # noqa: PLC0415
+    except Exception as exc:                                            # never fail a run over a credential
+        print(f"  T2 receipt skipped: {type(exc).__name__}", flush=True)
+        return
+    fingerprint, file_count = working_source_fingerprint(ROOT)
+    verdict = state["readings"].get("verdict") or {}
+    roles = {role: {"executed": v.get("executed"), "groups": v.get("groups"),
+                    "positions": v.get("positions"), "no_plan": v.get("no_plan"),
+                    "late": v.get("late"), "backend": v.get("backend")}
+             for role, v in verdict.items()}
+    receipt = {
+        "schema": T2_RECEIPT_SCHEMA,
+        "passed": True,
+        "source_tree_sha256": fingerprint,
+        "source_file_count": file_count,
+        "generated_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "groups": (state.get("args_groups") if isinstance(state, dict) else None),
+        "roles": roles,
+        "verdict_ok": bool(state["readings"].get("verdict_ok")),
+    }
+    T2_RECEIPT.parent.mkdir(parents=True, exist_ok=True)
+    T2_RECEIPT.write_text(_json.dumps(receipt, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"  T2 acceptance receipt -> {T2_RECEIPT}", flush=True)
 
 
 def step_report(state, args):

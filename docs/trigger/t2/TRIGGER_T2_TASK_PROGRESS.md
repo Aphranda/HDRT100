@@ -12,6 +12,29 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-063：接口层修正第 2 步——大小写统一 8 条 + 测试断言同步；门禁切换（T2 取代 P3）已实现但暂不可验证
+
+- **大小写统一（8 条 pattern + 1 条测试断言 + 2 处文档）**：
+  `CONFigure:CALibration:LINK:CLEAr→CLEar`、`CALibration:CLEAr→CLEar`、
+  `CONFigure:ANGLe:BREAkpoint:CLEAr→CLEar`、`SYSTem:FAULT:CLEAr→CLEar`、
+  `COMMunication:SERial:UART#:MODBus:MASTER:WRITE→WRITe`、
+  `SYSTem:OTA:BEGIN→BEGin`、`SYSTem:STORage:FILE:WRITe:BEGIN→BEGin`、`SYSTem:TDMA:RING:START→STARt`；
+  `tests/python/test_trn03_candidate.py` 的 header 字面量断言与 `docs/interface/SCPI_COMMANDS.md` 同步。
+  SCPI 解析不分大小写 ⇒ 行为不变；构建通过、相关用例 **178 passed**、OTA 已烧写。
+- **门禁切换（用户决定：T2 验收取代 P3）——已实现、未启用**：
+  - `sequence_workflow.py` 在判定 OK 时写 `config/hardware_acceptance/t2_acceptance_receipt.json`
+    （与 P3 同一 working-tree 指纹 + 各角色位置数/失败数）；
+  - `p3_hardware_acceptance.py:check_staged` 在 P3 凭证指纹不匹配时回退到该 T2 凭证；
+  - **但当前台架拿不到 T2 PASS**，故未提交、未启用。
+- **台架异常（诚实记录）**：本次为修"网关计划残留"试了两处改动（cancel 清 plan、plan 老化 50 ms），
+  实测**更差**（GATEWAY executed 0 / finished 48），已**全部回退**到 `0b7b413` 的网关实现；
+  回退后网关仍 0/48，重启网关板后整链 FAIL（SWITCH_B 2608 / BACKEND 191）⇒ **属台架/板子状态问题**，
+  不是这两处改动的锅。网关 0/48 需单独排查（今天 15:54 它曾 5776）。
+- **下一步**：① 台架恢复（四板重新上电 + 重新建立 TDMA 环）后跑一次 T2 PASS；② 用该 PASS 写凭证并提交门禁切换；
+  ③ 单独定位网关"完成 48 个位置后停住"（GWDIAG: plan_count=16/plan_next=1/complete=768/svc_wait 增长）。
+
+
+
 ### T2-PROGRESS-20261019-062：接口层修正第 1 步——拼写纠正 `CADEence` → `CADEnce`（真机验证）
 
 - **依据**：命名一致性审查把 `SYSTem:TDMA:RING:ORIGin:CADEence?` 列为疑似拼写错误（`cadence` 重复了 `ence`）。

@@ -110,7 +110,7 @@ scpi_result_t scpi_calibration_sma_cable_rtt_responder_q(scpi_t *context);
     {.pattern = "CONFigure:CALibration:LINK:ADD", .callback = scpi_port_result_accepted}, \
     {.pattern = "CONFigure:CALibration:LINK:UPDate", .callback = scpi_port_result_accepted}, \
     {.pattern = "CONFigure:CALibration:LINK:DELete", .callback = scpi_port_result_accepted}, \
-    {.pattern = "CONFigure:CALibration:LINK:CLEAr", .callback = scpi_port_result_accepted}, \
+    {.pattern = "CONFigure:CALibration:LINK:CLEar", .callback = scpi_port_result_accepted}, \
     {.pattern = "READ:CALibration:LINK?", .callback = scpi_calibration_link_q}, \
     {.pattern = "CALibration:STARt", .callback = scpi_calibration_result_q}, \
     {.pattern = "CALibration:LOOPback:STARt", .callback = scpi_calibration_loopback_start}, \
@@ -178,7 +178,7 @@ scpi_result_t scpi_calibration_sma_cable_rtt_responder_q(scpi_t *context);
     {.pattern = "CALibration:LOAD", .callback = scpi_port_result_accepted}, \
     {.pattern = "CALibration:ACTivate", .callback = scpi_calibration_activate}, \
     {.pattern = "CALibration:ROLLback", .callback = scpi_calibration_rollback}, \
-    {.pattern = "CALibration:CLEAr", .callback = scpi_calibration_clear}, \
+    {.pattern = "CALibration:CLEar", .callback = scpi_calibration_clear}, \
     {.pattern = "READ:CALibration:LIST?", .callback = scpi_calibration_list_q}, \
     {.pattern = "READ:CALibration:ACTive?", .callback = scpi_calibration_active_q}, \
     {.pattern = "CONFigure:CALibration:META", .callback = scpi_port_result_accepted}, \

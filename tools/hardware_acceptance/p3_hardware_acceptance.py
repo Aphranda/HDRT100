@@ -1653,8 +1653,21 @@ def check_staged(root: Path, receipt_path: Path) -> None:
         raise AcceptanceError("staged hardware acceptance receipt is not PASS")
     fingerprint, file_count = staged_source_fingerprint(root)
     if receipt.get("source_tree_sha256") != fingerprint:
+        # T2 fallback (policy 2026-10-19): a green T2 bring-up run is an accepted credential, because its
+        # 22 steps drive the same system path P3 measures. P3 numeric budgets remain available on demand.
+        t2_path = root / "config/hardware_acceptance/t2_acceptance_receipt.json"
+        if t2_path.is_file():
+            t2 = json.loads(t2_path.read_text(encoding="utf-8"))
+            if (t2.get("schema") == "HAOFV_T2_SEQUENCE_ACCEPTANCE_RECEIPT_V1" and
+                    t2.get("passed") is True and
+                    t2.get("source_tree_sha256") == fingerprint and
+                    t2.get("source_file_count") == file_count):
+                print(f"OK   hardware acceptance (T2 sequence): sources={file_count} "
+                      f"generated={t2.get('generated_at')}")
+                return
         raise AcceptanceError(
-            "staged code fingerprint has no matching hardware acceptance; run "
+            "staged code fingerprint has no matching hardware acceptance (neither P3 nor a T2 "
+            "sequence receipt); run sequence_workflow to a PASS, or "
             "python tools/hardware_acceptance/p3_hardware_acceptance.py run")
     if receipt.get("source_file_count") != file_count:
         raise AcceptanceError("P3 acceptance source file count mismatch")

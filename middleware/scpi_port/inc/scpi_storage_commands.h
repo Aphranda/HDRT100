@@ -48,7 +48,7 @@ scpi_result_t scpi_cmd_storage_directory_catalog_q(scpi_t *context);
     {.pattern = "SYSTem:STORage:FILE:READ?", .callback = scpi_cmd_storage_file_read_q}, \
     {.pattern = "SYSTem:STORage:FILE:DELete", .callback = scpi_cmd_storage_file_delete}, \
     {.pattern = "SYSTem:STORage:FILE:REName", .callback = scpi_cmd_storage_file_rename}, \
-    {.pattern = "SYSTem:STORage:FILE:WRITe:BEGIN", .callback = scpi_cmd_storage_file_write_begin}, \
+    {.pattern = "SYSTem:STORage:FILE:WRITe:BEGin", .callback = scpi_cmd_storage_file_write_begin}, \
     {.pattern = "SYSTem:STORage:FILE:WRITe:DATA", .callback = scpi_cmd_storage_file_write_data}, \
     {.pattern = "SYSTem:STORage:FILE:WRITe:END", .callback = scpi_cmd_storage_file_write_end}, \
     {.pattern = "SYSTem:STORage:FILE:WRITe:ABORt", .callback = scpi_cmd_storage_file_write_abort}, \

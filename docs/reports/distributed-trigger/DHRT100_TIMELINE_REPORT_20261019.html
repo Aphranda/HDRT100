@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="DHRT100 项目提交链时间轴（全子域）：2026-06-21 至 2026-10-19，2261 个提交，十二个子域攻坚与 T2 多动作序列达成。">
+<meta name="description" content="DHRT100 项目提交链时间轴（全子域）：2026-06-21 至 2026-10-19，2266 个提交，十二个子域攻坚与 T2 多动作序列达成。">
 <meta name="last-updated" content="2026-10-19">
 <title>DHRT100 项目提交链时间轴 · 全子域攻坚 · 2026-10-19</title>
 <link rel="icon" href="data:,">
@@ -9,32 +9,32 @@
 </head>
 <body>
 
-<!-- 1/4 总览 -->
+<!-- 1/6 总览 -->
 <div class="page">
 <div class="page-header">
-  <div><h1>项目提交链时间轴 · 全子域攻坚</h1><div class="subtitle">2026-06-21 → 2026-10-19 ｜ 2 261 个提交 ｜ 12 个子域 ｜ T2 多动作序列目标达成</div></div>
+  <div><h1>项目提交链时间轴 · 全子域攻坚</h1><div class="subtitle">2026-06-21 → 2026-10-19 ｜ 2 266 个提交 ｜ 12 个子域 ｜ T2 多动作序列目标达成</div></div>
   <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
-  <div class="doc-meta"><strong>时间轴报告</strong>全子域总览<br>2 261 提交 / 121 天<br>读数取台架快照<br>2026-10-19</div>
+  <div class="doc-meta"><strong>时间轴报告</strong>全子域总览<br>2 266 提交 / 121 天<br>读数取台架快照<br>2026-10-19</div>
 </div>
 
 <div class="main">
 <div class="chips">
-  <div class="chip"><span class="k">提交总数</span><span class="v">2 261</span></div>
+  <div class="chip"><span class="k">提交总数</span><span class="v">2 266</span></div>
   <div class="chip"><span class="k">历时</span><span class="v">121 天</span></div>
   <div class="chip"><span class="k">子域</span><span class="v">12 个（均闭环）</span></div>
   <div class="chip"><span class="k">T2 达成</span><span class="v">5 776 · 5 776 · 5 760</span></div>
 </div>
 <div class="summary">
-  <div class="note-box"><strong>一句话结论：</strong>121 天、2 261 个提交，项目从 PIO 骨架走到「分布式硬实时触发」闭环：<b>OTA、VDC/DPLL、TDMA、REFMEM、Trigger/T2、SYNC_IO、SCPI、校准、存储、系统、文档体系、验收工具</b>十二个子域各自攻坚并收口；最后一役把 T2 多动作序列做到「每位置全部动作按序执行、三后端同圈零失败」（<b>5 776 / 5 776 / 5 760</b>）。</div>
+  <div class="note-box"><strong>一句话结论：</strong>121 天、2 266 个提交，项目从 PIO 骨架走到「分布式硬实时触发」闭环：<b>OTA、VDC/DPLL、TDMA、REFMEM、Trigger/T2、SYNC_IO、SCPI、校准、存储、系统、文档体系、验收工具</b>十二个子域各自攻坚并收口；最后一役把 T2 多动作序列做到「每位置全部动作按序执行、三后端同圈零失败」（<b>5 776 / 5 776 / 5 760</b>）。</div>
   <div class="todo-box"><strong>范围界定：</strong>本报告按子域记录攻坚与收口证据，数字全部可回溯到提交号或文档。网分 READY 实测（待设备）、两字协议预装（可选性能）、常量四源收敛（架构债）列为剩余项，不属本次达成。</div>
 </div>
-<div class="section"><div class="section-title">一、总体节奏（五阶段，2 261 提交）</div>
+<div class="section"><div class="section-title">一、总体节奏（五阶段，2 266 提交）</div>
 <table class="compact"><thead><tr><th style="width:13%">阶段</th><th style="width:19%">时间窗</th><th style="width:9%" class="c">提交</th><th>主线</th></tr></thead><tbody>
 <tr><td class="b">① 骨架</td><td>06-21 → 06-30</td><td class="c b">29</td><td>PIO 初始化、OTA 方案与统一包、异常注入与断电验证</td></tr>
 <tr><td class="b">② 协议</td><td>07-01 → 07-31</td><td class="c b">27</td><td>OTA 收敛、SD/日志落地、早期时序原型</td></tr>
 <tr><td class="b">③ 架构</td><td>08-01 → 08-31</td><td class="c b">809</td><td>HAOFV 架构 v3、域 owner 抽取（VDC/TDMA/REFMEM）、文档自回归体系与门禁</td></tr>
 <tr><td class="b">④ 硬化</td><td>09-01 → 09-30</td><td class="c b">694</td><td>环 5（C14 轮转 / C15 倒排）、席位与相位预算、T2 语义确认前夜</td></tr>
-<tr><td class="b">⑤ 攻坚</td><td>10-01 → 10-19</td><td class="c b">702</td><td>T2 位置传输 → 多动作序列 → 三后端整圈零失败；P3 硬件门禁常态化</td></tr>
+<tr><td class="b">⑤ 攻坚</td><td>10-01 → 10-19</td><td class="c b">707</td><td>T2 位置传输 → 多动作序列 → 三后端整圈零失败；P3 硬件门禁常态化</td></tr>
 </tbody></table></div>
 <div class="section"><div class="section-title">二、跨域里程碑（按日期）</div>
 <table class="compact mini"><thead><tr><th style="width:10%">日期</th><th style="width:46%">里程碑</th><th>可核验证据</th></tr></thead><tbody>
@@ -49,14 +49,14 @@
 <tr><td class="b">10-19</td><td>T2 三后端整圈零失败：5 776 / 5 776 / 5 760，verdict OK</td><td><span class="mono">1b0bb413</span></td></tr>
 </tbody></table></div>
 </div>
-<div class="page-footer"><span>依据：git 提交链（2 261 个提交）、台架快照与登记表</span><span>DHRT100 项目提交链时间轴 · 全子域攻坚 ｜ 1 / 5</span></div>
+<div class="page-footer"><span>依据：git 提交链（2 266 个提交）、台架快照与登记表</span><span>DHRT100 项目提交链时间轴 · 全子域攻坚 ｜ 1 / 6</span></div>
 </div>
 
 
-<!-- 2/4 子域攻坚总表 -->
+<!-- 2/6 子域攻坚总表 -->
 <div class="page">
 <div class="page-header">
-  <div><h1>项目提交链时间轴 · 全子域攻坚</h1><div class="subtitle">2026-06-21 → 2026-10-19 ｜ 2 261 个提交 ｜ 12 个子域 ｜ T2 多动作序列目标达成</div></div>
+  <div><h1>项目提交链时间轴 · 全子域攻坚</h1><div class="subtitle">2026-06-21 → 2026-10-19 ｜ 2 266 个提交 ｜ 12 个子域 ｜ T2 多动作序列目标达成</div></div>
   <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
   <div class="doc-meta"><strong>时间轴报告</strong>十二子域攻坚<br>提交数与成果<br>读数取台架快照<br>2026-10-19</div>
 </div>
@@ -85,15 +85,15 @@
 <tr><td class="b">Trigger / T2</td><td>一位置一窗口（16 组）+ 组序号回执 + 唯一推进规则（<span class="mono">completed_sequence</span>）；四处组数上限必须同步，否则表现为"每位置一次 BACKEND"</td></tr>
 </tbody></table></div>
 </div>
-<div class="page-footer"><span>提交数按路径统计：<span class="mono">components/*</span> + <span class="mono">docs/*</span> + 相关工具，1 个提交可同时计入多个子域</span><span>DHRT100 项目提交链时间轴 · 全子域攻坚 ｜ 2 / 5</span></div>
+<div class="page-footer"><span>提交数按路径统计：<span class="mono">components/*</span> + <span class="mono">docs/*</span> + 相关工具，1 个提交可同时计入多个子域</span><span>DHRT100 项目提交链时间轴 · 全子域攻坚 ｜ 2 / 6</span></div>
 </div>
 
 
 
-<!-- 3/5 四个核心子域深挖 -->
+<!-- 3/6 四个核心子域深挖 -->
 <div class="page">
 <div class="page-header">
-  <div><h1>项目提交链时间轴 · 全子域攻坚</h1><div class="subtitle">2026-06-21 → 2026-10-19 ｜ 2 261 个提交 ｜ 12 个子域 ｜ T2 多动作序列目标达成</div></div>
+  <div><h1>项目提交链时间轴 · 全子域攻坚</h1><div class="subtitle">2026-06-21 → 2026-10-19 ｜ 2 266 个提交 ｜ 12 个子域 ｜ T2 多动作序列目标达成</div></div>
   <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
   <div class="doc-meta"><strong>时间轴报告</strong>核心四域深挖<br>VDC/DPLL · TDMA · REFMEM<br>2026-10-19</div>
 </div>
@@ -127,13 +127,13 @@
 <tr><td class="b">最小系统可复现</td><td>用 playbook 描述最小系统装配与验收，避免"只有原作者能跑"</td><td><span class="mono">REFMEM_MIN_SYSTEM_PLAYBOOK.md</span></td></tr>
 </tbody></table></div>
 </div>
-<div class="page-footer"><span>本页每个攻坚点都对应 <span class="mono">DOCS_REGISTRY.md</span> 的登记行或一个可 <span class="mono">git show</span> 的提交</span><span>DHRT100 项目提交链时间轴 · 全子域攻坚 ｜ 3 / 5</span></div>
+<div class="page-footer"><span>本页每个攻坚点都对应 <span class="mono">DOCS_REGISTRY.md</span> 的登记行或一个可 <span class="mono">git show</span> 的提交</span><span>DHRT100 项目提交链时间轴 · 全子域攻坚 ｜ 3 / 6</span></div>
 </div>
 
-<!-- 4/5 达成轨迹与链的形状 -->
+<!-- 4/6 达成轨迹与链的形状 -->
 <div class="page">
 <div class="page-header">
-  <div><h1>项目提交链时间轴 · 全子域攻坚</h1><div class="subtitle">2026-06-21 → 2026-10-19 ｜ 2 261 个提交 ｜ 12 个子域 ｜ T2 多动作序列目标达成</div></div>
+  <div><h1>项目提交链时间轴 · 全子域攻坚</h1><div class="subtitle">2026-06-21 → 2026-10-19 ｜ 2 266 个提交 ｜ 12 个子域 ｜ T2 多动作序列目标达成</div></div>
   <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
   <div class="doc-meta"><strong>时间轴报告</strong>达成轨迹<br>与链的形状<br>读数取台架快照<br>2026-10-19</div>
 </div>
@@ -164,20 +164,68 @@
 <tr><td class="b">REFMEM</td><td class="c b">207</td><td>分布式一致性 + 自同步 + 席位优先级通道</td></tr>
 </tbody></table></div>
 </div>
-<div class="page-footer"><span>轨迹读数取自 <span class="mono">out/sync_trigger/sequence_flow.json</span> 与对应提交当晚的台架日志</span><span>DHRT100 项目提交链时间轴 · 全子域攻坚 ｜ 4 / 5</span></div>
+<div class="page-footer"><span>轨迹读数取自 <span class="mono">out/sync_trigger/sequence_flow.json</span> 与对应提交当晚的台架日志</span><span>DHRT100 项目提交链时间轴 · 全子域攻坚 ｜ 4 / 6</span></div>
 </div>
 
 
-<!-- 4/4 T2 细节与判据 -->
+<!-- 5/6 投入产出 -->
 <div class="page">
 <div class="page-header">
-  <div><h1>项目提交链时间轴 · 全子域攻坚</h1><div class="subtitle">2026-06-21 → 2026-10-19 ｜ 2 261 个提交 ｜ 12 个子域 ｜ T2 多动作序列目标达成</div></div>
+  <div><h1>项目提交链时间轴 · 全子域攻坚</h1><div class="subtitle">投入产出与方式对比 ｜ 121 天 · 2 266 提交 ｜ 等效 24–34 人月</div></div>
   <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
-  <div class="doc-meta"><strong>时间轴报告</strong>最后一役<br>78 提交 / 判据<br>读数取台架快照<br>2026-10-19</div>
+  <div class="doc-meta"><strong>时间轴报告</strong>投入产出<br>成本结构与方式对比<br>读数取台架快照<br>2026-10-19</div>
+</div>
+<div class="main">
+<div class="section"><div class="section-title">九、投入（量化）</div>
+<table class="compact mini"><thead><tr><th style="width:24%">项</th><th>数值</th></tr></thead><tbody>
+<tr><td class="b">日历跨度</td><td>121 天，其中 76 个活跃日（63%）；其余为评审、等待与硬件轮次间隔</td></tr>
+<tr><td class="b">提交</td><td>2 266：docs 1 005 · feat 343 · fix 248 · test 44 · perf 36 · refactor 30</td></tr>
+<tr><td class="b">代码规模</td><td>固件 428 文件 / 142 354 行；工具与测试 783 文件 / 186 711 行（Python）</td></tr>
+<tr><td class="b">测试与文档</td><td>测试函数 2 051 个（356 个文件）；文档 212 篇 / 约 71 900 行</td></tr>
+<tr><td class="b">契约与验收</td><td>契约登记 62 条；P3 硬件验收 37 步，凭证绑定源码指纹</td></tr>
+<tr><td class="b">有效改动</td><td>新增约 72.7 万行、删除 13.9 万行（已剔除第三方库两次导入的 54 万行）</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">十、产出（可核验）</div>
+<table class="compact mini"><thead><tr><th style="width:20%">产出</th><th>判据或读数</th></tr></thead><tbody>
+<tr><td class="b">时钟可信</td><td>VDC/DPLL 闭环：相位、频率、锁定状态收口；<span class="mono">step 30</span> 将 DPLL 摘要作为阻断条件</td></tr>
+<tr><td class="b">环与内存</td><td>四板 TDMA 环，席位三份额化与让位周期；REFMEM 自同步、优先级通道接收与冻结闭环</td></tr>
+<tr><td class="b">位置发布</td><td>361 位置全程三轮：源端无损，三从板各进窗·宣告·冻结 <span class="mono">361/361/361</span></td></tr>
+<tr><td class="b">序列执行</td><td>每位置 2 / 16 / 18 组三档；16 组整圈两开关各 <span class="mono">5 776 = 16 × 361</span> 零失败；18 组整圈满足 <span class="mono">executed = 组数 × 位置数</span></td></tr>
+<tr><td class="b">工程基座</td><td>OTA 统一包与回滚、37 步硬件门禁、62 条契约、三环文档门禁与十轮轮转</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">十一、效率指标与等效工作量</div>
+<table class="compact mini"><thead><tr><th style="width:34%">效率指标</th><th>数值</th><th style="width:34%">估算法</th><th>等效人月</th></tr></thead><tbody>
+<tr><td>每活跃日提交</td><td>29.8（2 266 / 76）</td><td>按子域（12 域 × 1–3）</td><td>12–36</td></tr>
+<tr><td>每条契约对应提交</td><td>36.5（2 266 / 62）</td><td>按代码量（有效 60–80 千行）</td><td>25–35</td></tr>
+<tr><td>工具与测试 / 固件代码</td><td>1.31</td><td>按实现与验证工作量</td><td>21–30</td></tr>
+<tr><td>文档提交占比</td><td>44%（1 005 / 2 266）</td><td>按交付节奏与杠杆</td><td>21–28</td></tr>
+<tr><td>每千行固件测试函数</td><td>14.4</td><td class="b">四法交集</td><td class="b">24–34（中位 28）</td></tr>
+</tbody></table></div>
+<div class="section"><div class="section-title">十二、传统方式与当前方式对比</div>
+<table class="compact mini"><thead><tr><th style="width:15%">维度</th><th style="width:36%">传统团队方式</th><th>当前方式</th></tr></thead><tbody>
+<tr><td class="b">交付形态</td><td>3–5 人分工：固件、验证、工具、文档</td><td>1 人 + AI 代理 + 自建工具链，角色由工具与门禁承担</td></tr>
+<tr><td class="b">工期与人力</td><td>8–10 个月；24–34 人月全部摊在人力</td><td>4 个月；约 3.5 人月 + 工具链 3–5 人月</td></tr>
+<tr><td class="b">质量与证据</td><td>阶段评审、人工回归、专项测试轮</td><td>门禁 + 62 条契约 + 2 051 个测试 + 37 步硬件验收，结论回溯到提交号</td></tr>
+<tr><td class="b">缺陷定位</td><td>复现、日志排查、必要时二分</td><td>分桶计数 + 不变量判据 + 删产物强制重链接</td></tr>
+<tr><td class="b">主要风险</td><td>人员流动导致知识分散；回归覆盖不足</td><td>单点依赖、模型依赖、工具链维护成本、外部合规认知成本</td></tr>
+<tr><td class="b">适用边界</td><td>需求分散、需多人并行探索或外部认证的域</td><td>判据明确、可自动化验证、证据可留存的域</td></tr>
+</tbody></table></div>
+<div class="note-box"><strong>投入产出比：</strong>约 8 倍（等效 28 人月 ÷ 实际约 3.5 人月）。<strong>成本结构：</strong>实现 9–12 人月、验证与台架 6–8、工具链 3–5、文档治理 2–3、集成返工 4–6；传统方式把五项全部摊在人力上，当前方式把其中 3–5 人月转为一次性工具链投入，可复用于后续子域。每接入一类外部设备，按新增时序与失效模式预留 3–5 人月。</div>
+<div class="bar">投入产出：<strong>121 天 / 2 266 提交 / 约 72.7 万行新增 → 等效 24–34 人月（中位 28）；同复杂度下人力约 1/3，代价是工具链与单点依赖</strong></div>
+</div>
+<div class="page-footer"><span>依据：git 提交链、代码与文档统计、台架读数；人月为工程估算</span><span>DHRT100 项目提交链时间轴 · 全子域攻坚 ｜ 5 / 6</span></div>
+</div>
+
+<!-- 6/6 T2 细节与判据 -->
+<div class="page">
+<div class="page-header">
+  <div><h1>项目提交链时间轴 · 全子域攻坚</h1><div class="subtitle">2026-06-21 → 2026-10-19 ｜ 2 266 个提交 ｜ 12 个子域 ｜ T2 多动作序列目标达成</div></div>
+  <div class="brand" aria-label="DHRT100"><img class="brand-logo" src="DHRT100-brand.svg" alt="DHRT100"></div>
+  <div class="doc-meta"><strong>时间轴报告</strong>最后一役<br>77 提交 / 判据<br>读数取台架快照<br>2026-10-19</div>
 </div>
 
 <div class="main">
-<div class="section"><div class="section-title">九、T2 最后一役：78 个提交 / 19.4 小时（docs 43 · feat 16 · fix 12 · test 4 · perf 2 · refactor 1）</div>
+<div class="section"><div class="section-title">十三、T2 最后一役：77 个提交 / 19.4 小时（docs 43 · feat 16 · fix 12 · test 4 · perf 2 · refactor 1）</div>
 <table class="compact mini"><thead><tr><th style="width:12%">阶段</th><th style="width:26%">关键提交</th><th>结果与教训</th></tr></thead><tbody>
 <tr><td class="b">窗口语义</td><td><span class="mono">0b19192d · 5605927d · 22b0202f</span></td><td>一个窗口装完一位置 16 组（1 824 = 16 × 114）；八个拒绝桶让"为什么拒"第一次可读</td></tr>
 <tr><td class="b">路线 A</td><td><span class="mono">5c1019d7 · 1d4643ee · f34b686d</span></td><td>删窗口边界机制，只留 <span class="mono">completed_sequence</span> 推进；补上网关缺失的窗口上界（决定性一行）</td></tr>
@@ -185,14 +233,14 @@
 <tr><td class="b">容量 +2</td><td><span class="mono">838a406a · 8bc8fd94 · 47776003</span></td><td>18 动作/位置需四处上限同步（表 54 行 / 运行期窗口 / 网关 plan / 计划构建）；18 × 360 精确自洽</td></tr>
 <tr><td class="b">零失败收口</td><td><span class="mono">c84f70a8 · 521bd408 · 9b049eee · 1b0bb413</span></td><td>BUSY 改延后；三处残留 deadline 归零；稳态续装 late 12 657 → 5 415、svc_wait 74 244 → 18 283</td></tr>
 </tbody></table></div>
-<div class="section"><div class="section-title">十、目标达成判据（2026-10-19 16:03，整圈 361 位置）</div>
+<div class="section"><div class="section-title">十四、目标达成判据（2026-10-19 16:03，整圈 361 位置）</div>
 <table class="compact"><thead><tr><th style="width:20%">角色</th><th style="width:24%">executed</th><th class="c" style="width:12%">位置数</th><th style="width:26%">NO_PLAN / LATE / BACKEND</th><th class="c">判定</th></tr></thead><tbody>
 <tr><td class="b">SWITCH_A</td><td class="mono">5 776 = 16 × 361</td><td class="c b">361</td><td>0 / 0 / 0</td><td class="c"><span class="tag green">PASS</span></td></tr>
 <tr><td class="b">SWITCH_B</td><td class="mono">5 760 = 16 × 360</td><td class="c b">360</td><td>0 / 0 / 0</td><td class="c"><span class="tag green">PASS</span></td></tr>
 <tr><td class="b">GATEWAY</td><td class="mono">5 776 = 16 × 361</td><td class="c b">361</td><td>0 / 0 / 0</td><td class="c"><span class="tag green">PASS</span></td></tr>
 </tbody></table>
 <p class="mini" style="margin-top:5px;">判据用不变量 <span class="mono">executed = 组数 × finish</span>（2 / 16 / 18 组三档均精确成立）；位置数由 <span class="mono">executed ÷ 组数</span> 反推——<span class="mono">action_finish</span> 跨圈会重置。SWITCH_B 差 1 个位置属采样边界，不是丢组。</p></div>
-<div class="section"><div class="section-title">十一、剩余项（均非阻塞）</div>
+<div class="section"><div class="section-title">十五、剩余项（均非阻塞）</div>
 <div class="risk-box"><strong>待办（按优先级）：</strong>
 <ul class="small-list">
 <li><b>REFMEM 优化与统一控制面（下一步主线）</b>：<b>分布式控制的基础是 REFMEM</b>——接任意一个接口、操作 REFMEM，就能控制所有设备。当前待办（取自 <span class="mono">REFMEM_DOMAIN_TODO</span> 的 P0）：TDMA/AUTO NodeLoad 补齐 ACK/重发/fence completion；TDMA 作为可装载 system node 纳入 9 表模型；<span class="mono">.rmtp LOAD:SD</span> 必须逐表解析并执行 owner validation + SlotClaimMap + RealtimeCapacity 校验；补完整 activation gate（load mode / idle-park / flash lockout / CRC bundle）；dump 只导出稳定快照、load 只进 staging；owner validation 结果回写 TableRegistry；NodeLoad staging 与 rollback/abort 语义。</li>
@@ -203,7 +251,7 @@
 </ul></div></div>
 <div class="bar">达成：<strong>十二子域各自闭环 · T2 三后端零失败 · 证据可回溯到提交号</strong></div>
 </div>
-<div class="page-footer"><span>判据与读数以台架快照与登记表为准；本页结论可逐条回溯到提交号</span><span>DHRT100 项目提交链时间轴 · 全子域攻坚 ｜ 5 / 5</span></div>
+<div class="page-footer"><span>判据与读数以台架快照与登记表为准；本页结论可逐条回溯到提交号</span><span>DHRT100 项目提交链时间轴 · 全子域攻坚 ｜ 6 / 6</span></div>
 </div>
 
 </body>
