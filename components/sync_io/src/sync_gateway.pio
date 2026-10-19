@@ -5,6 +5,8 @@
 .wrap_target
     pull block
     out x, 32
+    pull block
+    out isr, 32
 delay:
     jmp x-- delay
     irq 6

@@ -1,24 +1,15 @@
 {
  "schema": "HAOFV_T2_SEQUENCE_ACCEPTANCE_RECEIPT_V1",
- "passed": true,
- "source_tree_sha256": "15480abe375928e459e8611d9ee6c99ac1c755adb44e765a48201ea44eb11665",
+ "passed": false,
+ "source_tree_sha256": "648877cb9acc8af8adf9f41b3deacb6f4b370b8ec47dee32f57cb1d5f242d291",
  "source_file_count": 1827,
- "generated_at": "2026-10-20T03:15:28+08:00",
+ "generated_at": "2026-10-20T06:12:16+08:00",
  "positions_criterion": 361,
- "full_revolution_roles": 2,
- "failures": 0,
+ "full_revolution_roles": 0,
+ "failures": 35,
  "roles": {
   "SWITCH_A": {
-   "executed": 5776,
-   "groups": 16,
-   "expected": 5776,
-   "no_plan": 0,
-   "late": 0,
-   "backend": 0,
-   "full_revolution": true
-  },
-  "GATEWAY": {
-   "executed": 339,
+   "executed": 5680,
    "groups": 16,
    "expected": 5776,
    "no_plan": 0,
@@ -26,14 +17,23 @@
    "backend": 0,
    "full_revolution": false
   },
+  "GATEWAY": {
+   "executed": 1,
+   "groups": 16,
+   "expected": 5776,
+   "no_plan": 35,
+   "late": 3,
+   "backend": 0,
+   "full_revolution": false
+  },
   "SWITCH_B": {
-   "executed": 5776,
+   "executed": 5664,
    "groups": 16,
    "expected": 5776,
    "no_plan": 0,
    "late": 0,
    "backend": 0,
-   "full_revolution": true
+   "full_revolution": false
   }
  }
 }

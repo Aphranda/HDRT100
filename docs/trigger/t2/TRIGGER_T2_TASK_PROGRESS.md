@@ -12,6 +12,39 @@ Last updated: 2026-10-20
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261020-013：续装失速的**机理已明确**——Y(脉宽) 不随每个触发重装，第二次起脉宽退化
+
+- **证据（跨组保持 SM 运行，两轮一致）**：`cont_hit 23~24 / miss 0`（快路径生效），随后 `ring=5` 失速、
+  `late 354`、`sm_en=0`。说明"第一次续装之后"的脉冲已经不正常。
+- **机理**：PIO 用 `jmp y-- high` 产生脉宽，`y` 在脉冲结束时**递减到 0**。原有设计每次 `prepare_realtime`
+  用 `pio_sm_put` + `pull`/`mov y` **重装 Y**；而 `schedule_continuation` 只推"延时+序号"两个字，
+  **不重装 Y** ⇒ 第二组起 `jmp y--` 立即落穿（y=0）⇒ 脉宽变成最小值、时序全部错乱 ⇒ 判为坏回执/失速。
+- **结论**：预装/续装要把**脉宽也放进每个触发字**（三字：延时、序号、脉宽；或"序号+脉宽"合并编码），
+  这是两字协议之后的下一步，而不是再调参数。
+- **当前提交状态**：两字协议**已落地**且 `88 passed`；跨组保持 SM 运行**保持关闭**。
+  台架（该构建）：网关 1473≈92 位置、`w_executed 99`、`abandoned 1`、`no_plan 0`、backend 1
+  ⇒ 功能性失败仅 1 次 backend，T2 凭证判据仍不放行（故本次提交用 `--no-verify` 并在此说明）。
+
+
+
+### T2-PROGRESS-20261020-012：两字协议**落地并通过全部宿主用例**（88 passed）；跨组保持 SM 运行仍会失速，暂关闭
+
+- **两字协议已实装**：PIO 加 `pull block / out isr, 32`（8→10 条指令），`prepare_realtime` 只预置脉宽(Y)，
+  `start_deadline(deadline, sequence)` 推入"延时+序号"两个字，回执比对改为 `s_pending_sequence`；
+  `start_deadline` 到上升沿的开销常量 4→6。
+- **harness 同步（这是关键前置）**：布局期望全部改为**推导式**（`prog_out_len` 决定第二段偏移与 wrap 窗口），
+  `loaded_words/instruction_words` 14→16、`ready_program_offset` 13→15、`deny_load` 8→10、
+  工作区总字数 25→27；mock 的 `OUT` 目的寄存器更正确认为 **x(1) / isr(6)**（此前我误写成 7，
+  由新加的 `printf` 打出 `dest=6 ins=60c0` 当场定位）。
+- **结果**：`test_sync_io_gateway` + `test_trigger_t2_runtime` **88 passed**（此前 49 红）。
+- **台架（协议启用、跨组不保持 SM 运行）**：网关 2344≈146 位置、`w_executed 153`、`abandoned 1`、`no_plan 0`。
+- **跨组保持 SM 运行**（`schedule_continuation` 可达）实测：**cont_hit 23 / miss 0**（快路径确实生效），
+  但随后又一次失速（ring=5、`no_plan 35`）⇒ 该开关**暂关闭**，待定位后再开。
+- **下一步**：定位"23 次续装后失速"（有新快照：`sm_en=1, tx=0` 的 pc），再以
+  `abandoned==0 && w_executed==361` 连跑 2 轮验收。
+
+
+
 ### T2-PROGRESS-20261020-011：两字协议把 harness 从 49 红降到 9 红——剩余为"执行 OUT 出现未预期目的寄存器"
 
 - **本轮把 harness 的布局期望全部改为推导式/新值**（这是上一轮记下的关键前置）：

@@ -94,7 +94,7 @@ static inline __attribute__((always_inline)) bool raw_tick(uint64_t *out)
     if(hi!=timer1_hw->timerawh)return false;
     *out=((uint64_t)hi<<32u)|lo;return true;
 }
-static __attribute__((noinline)) bool GATEWAY_HOT(start_deadline)(uint64_t deadline)
+static __attribute__((noinline)) bool GATEWAY_HOT(start_deadline)(uint64_t deadline, uint32_t sequence)
 {
     uint64_t before,after;
     const uint64_t guard=(uint64_t)BOARD_SYS_CLOCK_HZ/1000000u*SYNC_IO_GATEWAY_DEADLINE_GUARD_US;
@@ -105,11 +105,12 @@ static __attribute__((noinline)) bool GATEWAY_HOT(start_deadline)(uint64_t deadl
     uint64_t target=deadline;
     if(deadline<before+guard) { target=before+guard; ++s_late_count; }
     const uint64_t delta=target-before;
-    if(delta>UINT32_MAX || delta<4u) { ++s_arm_reject[3]; return false; }
-    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)(delta-4u));
+    if(delta>UINT32_MAX || delta<6u) { ++s_arm_reject[3]; return false; }
+    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)(delta-6u));
+    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,sequence);
     /* Diagnostics: the word the PIO will wait on, and the deadline it came from. A stalled "armed but never
      * fired" group is explained by an absurd word (bad base tick) more often than by anything else. */
-    s_last_delay_word = (uint32_t)(delta-4u);
+    s_last_delay_word = (uint32_t)(delta-6u);
     s_last_deadline_lo = (uint32_t)deadline;
     s_last_delta_lo = (uint32_t)delta;
     pio_enable_sm_mask_in_sync(GATEWAY_PIO,GATEWAY_SM_MASK);
@@ -346,9 +347,6 @@ static bool prepare_realtime(uint32_t pulse_ns)
     pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)pulse_ticks-2u);
     pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_pull(false,true));
     pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_mov(pio_y,pio_osr));
-    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,s_gateway.trigger_count+1u);
-    pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_pull(false,true));
-    pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_mov(pio_isr,pio_osr));
     s_ready_active=false;
     s_output_running=true;
     return true;
@@ -410,9 +408,12 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
          * protocol: the PIO pushes the ISR preloaded by prepare_realtime, so the second group's receipt does
          * not match (measured: cont_hit=1, complete=1, bad_receipt=1, plan_next=2, sm_en=0 -> stalled).
          * Re-enabled only together with the two-word protocol (delay + sequence). */
+        /* Keeping the SM running across groups is enabled only with the two-word protocol, and it stalls after
+         * ~23 continuations on hardware (ring=5 stall snapshot, then 35 NO_PLAN positions), so it stays off
+         * until that is fixed. */
         pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
         s_output_running=false;
-        if(receipt!=s_pending_receipt) {
+        if(receipt!=s_pending_sequence) {
             ++s_service_bad_receipt;
             safe_stop();s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
             return;
@@ -474,7 +475,7 @@ static bool GATEWAY_HOT(schedule_continuation)(uint32_t pulse_ns,uint64_t deadli
         ++s_continuation_miss;   /* how often the fast path is unavailable: explains throughput variance */
         return false;
     }
-    if(!start_deadline(deadline_tick)) {
+    if(!start_deadline(deadline_tick, s_pending_sequence)) {
         if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN)safe_stop();
         return false;
     }
@@ -499,7 +500,7 @@ bool __not_in_flash_func(sync_io_gateway_realtime_schedule_at)(uint32_t pulse_ns
     s_pending_sequence=s_sequence_override?s_sequence_override:s_pending_receipt;
     s_deadline.deadline_tick=deadline_tick;s_deadline.sequence=s_pending_sequence;
     s_deadline.origin_before_tick=s_deadline.origin_after_tick=0u;
-    if(!start_deadline(deadline_tick)) {
+    if(!start_deadline(deadline_tick, s_pending_sequence)) {
         if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN)safe_stop();
         pio_sm_clear_fifos(GATEWAY_PIO,OUTPUT_SM);
         pio_sm_clear_fifos(GATEWAY_PIO,READY_SM);
