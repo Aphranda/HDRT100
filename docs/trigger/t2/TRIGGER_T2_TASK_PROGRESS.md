@@ -4,13 +4,31 @@ Status: Draft
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-10-19
+Last updated: 2026-10-20
 
 ## 文档接口
 
 本文记录真实执行、来源和证据，不冻结契约或代替 [TODO](TRIGGER_T2_TODO.md) 的任务状态；设计见 [Architecture](TRIGGER_T2_ARCHITECTURE.md)。条目使用 `T2-PROGRESS-YYYYMMDD-NNN`，最新在上；按 C14/C15 保留失败、历史和归档索引。
 
 ## 当前 checkpoint
+
+### T2-PROGRESS-20261020-001：网关"续装"通路此前是**死路**（hit 0 / miss 1487）；打开后暴露"脉冲中途被关 SM"，已回退并留诊断
+
+- **关键发现**：`service` 在每次完成时**先关 SM 再武装下一组**，于是 `schedule_continuation()` 六次条件永假：
+  实测 `cont_hit=0 / cont_miss=1487~2536` ⇒ **每一组都在付完整的 SM 重初始化代价**（关 SM、清双 FIFO、重启、回放 4 条预置）。
+  这正是网关只有开关 40~60% 吞吐的机制性原因。
+- **尝试**（保留 SM 运行以便走续装）：首组续装即**卡在中途**——`ring reason=5`（停住快照）记录 `pc=28`、`tx=0`、
+  `plan_next=2`、`late=345`、`backend=1`；`stage0=20`（NO_LEASE 拒绝 20 次）、`arm_origin=1`。
+  说明"保持 SM 运行"必须配套修掉"另一处会在脉冲中途关 SM 的路径"，否则更差。
+- **处置**：**回退**"保持 SM 运行"，保留 `cont_hit/cont_miss` 计数与停住快照（reason=5）。回退后整圈：
+  ```
+  SWITCH_A 5776 / SWITCH_B 5776 / GATEWAY 4977 ≈ 16×311   no_plan 0  late 0  backend 0
+  ```
+  ⇒ 零失败、网关 86%，回到本轮开始前的水平之上。
+- **下一步（明确）**：先定位"脉冲中途被关 SM"的调用者（`stage_sequence`→`prepare_realtime` 在 pending 时本应拒；
+  `safe_stop`/`cancel` 会关），再用 `cont_hit` 验证续装真实生效——那是把网关拉到 100% 的路径。
+
+
 
 ### T2-PROGRESS-20261019-069：网关**跑满整圈**（5776 = 16×361，零失败）——最后一处残留标志在第 4 个地方
 

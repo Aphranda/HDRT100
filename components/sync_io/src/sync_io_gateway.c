@@ -70,6 +70,7 @@ typedef struct {
 static gateway_plan_group_t s_plan[GATEWAY_PLAN_MAX];
 static uint32_t s_plan_count, s_plan_next;
 static uint32_t s_last_delay_word, s_last_deadline_lo, s_last_delta_lo;
+static uint32_t s_continuation_hit, s_continuation_miss;
 /* Why the staged plan was last cleared (see sync_io_gateway_realtime_diag). */
 typedef struct {
     uint32_t reason, plan_next, complete, tick_lo;
@@ -400,6 +401,9 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
        !pio_sm_is_rx_fifo_empty(GATEWAY_PIO,OUTPUT_SM)) {
         const uint32_t receipt=pio_sm_get(GATEWAY_PIO,OUTPUT_SM);
         __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);
+        /* NOTE: keeping the SM running here (to reach schedule_continuation) was measured to leave the SM
+         * stuck mid-pulse on the very first continuation: pc=28, tx empty, plan_next=2, late 345, backend 1.
+         * Reverted until the stale-disable source is fixed; the hit/miss counters stay for that work. */
         pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
         s_output_running=false;
         if(receipt!=s_pending_receipt) {
@@ -460,11 +464,15 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
 static bool GATEWAY_HOT(schedule_continuation)(uint32_t pulse_ns,uint64_t deadline_tick)
 {
     if(!s_output_running || pulse_ns!=s_gateway.pulse_ns ||
-       pio_sm_get_tx_fifo_level(GATEWAY_PIO,OUTPUT_SM)!=0u) return false;
+       pio_sm_get_tx_fifo_level(GATEWAY_PIO,OUTPUT_SM)!=0u) {
+        ++s_continuation_miss;   /* how often the fast path is unavailable: explains throughput variance */
+        return false;
+    }
     if(!start_deadline(deadline_tick)) {
         if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN)safe_stop();
         return false;
     }
+    ++s_continuation_hit;
     ++s_gateway.trigger_count;s_ready_active=true;
     __atomic_store_n(&s_realtime_pending,1u,__ATOMIC_RELEASE);
     s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_ARMED;
@@ -571,6 +579,8 @@ void sync_io_gateway_realtime_diag(uint32_t *out)
     out[34]=s_last_delay_word;
     out[35]=s_last_deadline_lo;
     out[36]=s_last_delta_lo;
+    out[37]=s_continuation_hit;
+    out[38]=s_continuation_miss;
     out[19]=s_service_wait;
     out[20]=s_service_bad_receipt;
     out[21]=s_service_complete;
