@@ -12,6 +12,33 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-046：动作容量 16→18 试改：开关无回归，**网关回退（BACKEND=133）**——已回退，先查网关
+
+- **用户问题**："当前动作容量是多少？能否 +2，是否能增加容错"。
+  现状：`TRIGGER_ACTION_TEMPLATE_CAPACITY = 48` 行 = **16 动作 × 3 行**；`T2_PLAN_GROUP_MAX = 16`（窗口）。
+- **试改**（两处必须同时改，因为路线 A 之后一个位置必须装得进一个窗口）：
+  `CAPACITY 48 → 54`（18×3）、`T2_PLAN_GROUP_MAX 16 → 18`。
+  - 构建：强制重链接三 profile 通过（RAM 够，heap 112 KB 腾的 4 KB 起了作用）；
+  - 宿主：`test_trigger_t2_runtime` + `test_sync_io_gateway` **88 passed**；
+  - 台架（N=16，80 s）：
+    ```
+    SWITCH_A 3952 = 16 × 247   finish 247   BACKEND 0
+    SWITCH_B 3982 ≈ 16 × 249   finish 249   BACKEND 0
+    GATEWAY  1840  finish 115  BACKEND = 133   ← 回退
+    ```
+    ⇒ 开关无回归，**网关出现 133 次 BACKEND**（容量/窗口加大后网关路径不再成立）。
+- **处理**：**已回退**这两处常量（构建恢复绿、37 passed、工作区 clean）。
+- **结论与下一步**：
+  1. "+2" 在容量与窗口层面可行（RAM、宿主、开关都过），**但不能只改常量**——网关的
+     `stage_sequence`/`s_plan[]` 与 `T2_PLAN_GROUP_MAX` 有隐含耦合（网关的 plan 数组按 16 设计），
+     必须先按 18 复核网关一侧再一起改；
+  2. "容错"不来自容量：容量给的是**余量**（可放校验/占位动作），对"少位置/迟到/缺计划"的容错
+     仍由运行期策略决定。
+- **待办（下一轮）**：查网关在 `group_count` 达到 17/18 或 plan 数组边界时的行为（`GATEWAY_PLAN_MAX` 是否也是 16？），
+  再决定"只加容量不加窗口"（18 只是表能装，仍需 ≤16 组的位置）还是"两者一起加"。
+
+
+
 ### T2-PROGRESS-20261019-045：窗口计数改为"**真跑过才算 executed**"——`w_executed` 首次与 `组数/16` 对齐
 
 - **问题**：槽位被新位置接管时，旧占用者只要窗口状态是 FROZEN 就被标成 `EXECUTED`——
