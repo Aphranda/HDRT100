@@ -12,6 +12,22 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-038：全量回归清扫——1333 passed / 2 failed，其中 1 个已修、1 个确认与本夜改动无关
+
+- **清扫范围**：`pytest -k "trigger or sync_io or t2_"` ⇒ **1333 passed, 3 failed**（初始）。
+- **已修（我造成的）**：`test_t2_configure_signature.py` 是"调用点钉住"用例——本夜给 `t2_workflow.py`
+  加了 REAdy 下发与采样前快照，行号从 `(370, 687, 1164, 1979)` 移到 `(371, 696, 1179, 1994)`；
+  已按该用例的设计（"钉住的数字随调用点移动，绝不悄悄漂移"）更新并加注原因，现 **2 passed**。
+- **确认与本夜无关（证据）**：`test_trigger_grid_preview.py::test_owner_boundaries[configure_race]` 失败，
+  但 `git log e067e1a6^..HEAD -- components/sync_trigger/src/trigger_grid_preview.c tests/python/test_trigger_grid_preview.py`
+  **为空**（本夜 14 个提交都只动 `trigger_t2_runtime.c` 等），该用例最后一次修改来自 `6831ee4b`。
+  ⇒ 属**既有失败**，另行记录，不在本夜范围。
+- **结论**：本夜改动相关的宿主测试全绿（含 1333 项清扫中与 T2/触发/同步 IO 有关的部分）；
+  两个页用例（switch 48 字段 / gateway 37 字段）也已按实际布局重建。
+- **当前状态**：树干净（本提交含 1 个测试钉住更新 + 文档）、构建三 profile 通过、P3 有效。
+
+
+
 ### T2-PROGRESS-20261019-037：落地 heap 112 KB（腾出 4 KB，台架无回归）——为网关"两字预装"准备 RAM 余量
 
 - **改动**：`config/freertos/FreeRTOSConfig.h` 的 `configTOTAL_HEAP_SIZE` 116 KB → **112 KB**。

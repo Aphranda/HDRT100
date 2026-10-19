@@ -40,7 +40,7 @@ EXPECTED_PARAMETERS = (
 # test's own contract requires: the pins move with the call sites, never silently.
 EXPECTED_CALL_SITES = {
     "tools/sync_trigger/t2_bench_probe.py": (243,),
-    "tools/sync_trigger/t2_workflow.py": (370, 687, 1164, 1979,),
+    "tools/sync_trigger/t2_workflow.py": (371, 696, 1179, 1994,),
 }
 
 
