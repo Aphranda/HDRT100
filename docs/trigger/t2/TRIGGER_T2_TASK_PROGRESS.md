@@ -12,6 +12,31 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-047：动作容量 16→18 落地（**三个常量一起改**）——网关首次与开关同速、零失败
+
+- **上一轮失败的原因找到了**：只改了表容量与 `T2_PLAN_GROUP_MAX`，**漏了 `GATEWAY_PLAN_MAX`（=16）**，
+  于是网关的 `stage_sequence` 对 17+ 组的窗口一律以 `count > GATEWAY_PLAN_MAX` 拒绝 ⇒ 每位置一次 BACKEND（133）。
+- **本轮改动（三处单一事实源一起动）**：
+  | 常量 | 16 动作时代 | 18 动作时代 |
+  |---|---|---|
+  | `TRIGGER_ACTION_TEMPLATE_CAPACITY` | 48 行 | **54 行**（18×3） |
+  | `T2_PLAN_GROUP_MAX` | 16 | **18** |
+  | `GATEWAY_PLAN_MAX` | 16 | **18** |
+- **验证**：
+  - 强制重链接：三 profile 通过；
+  - 宿主：`test_trigger_t2_runtime` + `test_sync_io_gateway` + `test_sync_io_switch` **115 passed**；
+  - 台架（N=16，80 s）：
+    ```
+    SWITCH_A 3680 = 16 × 230   BACKEND 0
+    SWITCH_B 3678 ≈ 16 × 230   BACKEND 0
+    GATEWAY  3680 = 16 × 230   BACKEND 0   ← 首次与开关同速
+    ```
+    ⇒ **三后端同窗口同数量、零失败**；网关此前的"1/4 吞吐"在把 `GATEWAY_PLAN_MAX` 补齐后消失
+    （说明它此前的瓶颈正是"窗口被网关自己的数组上限截断"）。
+- **下一轮**：跑整圈 361（`--positions 361`）看三后端能否同时 5776；若网关仍不足，再谈预装。
+
+
+
 ### T2-PROGRESS-20261019-046：动作容量 16→18 试改：开关无回归，**网关回退（BACKEND=133）**——已回退，先查网关
 
 - **用户问题**："当前动作容量是多少？能否 +2，是否能增加容错"。

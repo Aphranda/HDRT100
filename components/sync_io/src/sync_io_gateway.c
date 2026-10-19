@@ -62,7 +62,7 @@ static uint32_t s_ready_margin_min_ticks;
 static sync_io_gateway_deadline_status_t s_deadline;
 /* Whole action table of the position currently running (SYNC-SCHED-001). Small on purpose: the
  * gateway fires one pulse at a time, so it only needs the groups that are still ahead of it. */
-#define GATEWAY_PLAN_MAX 16u
+#define GATEWAY_PLAN_MAX 18u
 typedef struct {
     uint64_t deadline_tick;
     uint32_t pulse_ns;

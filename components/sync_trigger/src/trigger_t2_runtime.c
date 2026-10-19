@@ -163,7 +163,7 @@ static uint8_t s_group_armed[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 /* All groups of a position in ONE window. The per-slot cost is what decides this: ticks are stored
  * as 32-bit deltas from the window base (4 B) and arguments as 16-bit (2 B), i.e. 96 B per slot for
  * 16 groups instead of the 192 B that overflowed RAM. */
-#define T2_PLAN_GROUP_MAX 16u
+#define T2_PLAN_GROUP_MAX 18u
 typedef struct {
     uint64_t action_q, deadline_tick;
     /* Local tick of each group RELATIVE to `deadline_tick` (group 0 is always 0), solved by Core0
