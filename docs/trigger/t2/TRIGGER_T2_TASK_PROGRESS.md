@@ -12,6 +12,35 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-044：`T2:ACTion?` 字段索引已按发射顺序重建（登记项描述确认过期）
+
+- **索引表（从板 71 字段；`E = event_count`）**：
+  | 位置 | 内容 |
+  |---|---|
+  | 0 | 常量 1 |
+  | 1..4 | armed / completed / failed / uncertain 掩码 |
+  | 5..16 | 三槽 × (sequence, deadline, backend_state, origin_width) |
+  | 17 | `event_count` |
+  | 18..(17+2E) | 事件对 (position_id, action_q) |
+  | (18+2E)..(+8) | 预测器 9 项（entered/announced/overwrote/late_entry/recomputed/rate_stale/step_mdeg/positions/step_pulses） |
+  | **紧跟其后 7 项** | **w_entered / w_announced / w_frozen / w_executed / w_abandoned / w_mark_rejected / w_alloc_rejected** |
+  | 之后 | 16 个 `action_fail_reason[]`，再 `groups_executed`、`group_count`、组包 |
+  ⇒ 本轮 `E=9` 时窗口计数落在 **45..51**，而不是登记项 `T2-DEPLOY-003` 说的"尾 7 字段"——**登记项过期已确认**。
+- **本轮读数（40 s）**：
+  ```
+  SWITCH_A: w_entered=130 w_announced=128 w_frozen=128 w_executed=128 w_abandoned=0
+  SWITCH_B: w_entered=131 w_announced=129 w_frozen=129 w_executed=129 w_abandoned=0
+  同时 DIAG: SWITCH_A executed(组)=1904=16×119、SWITCH_B 1920=16×120
+  ```
+  ⇒ **窗口管道本身无损**（announced→frozen→executed 全部相等、abandoned=0）；差 2 是开窗前的两个位置。
+  但 `w_executed(128)` 与 `组数/16 = 119` **相差 9** —— 说明"位置被判为 executed"与"该位置跑满 16 组"
+  不是同一件事，这正是下一轮要查清的点（候选：部分位置只跑了部分组却被计入 executed，
+  或 executed 在 FREEZE 时就计数）。
+- **下一轮**：核对 `w_executed` 的递增点（在 FREEZE、arm 还是 finish），据此判断 119 vs 128 的口径差，
+  并据此更新 `T2-DEPLOY-003` 的描述与判据（`executed = 组数 × w_executed` 还是 × `finish`）。
+
+
+
 ### T2-PROGRESS-20261019-043：快照已纳入 `T2:ACTion?` 页；实测其"尾部 7 字段"与登记项 `T2-DEPLOY-003` 的描述**已不一致**（契约漂移）
 
 - **改动（`t2_workflow.py`）**：采样前快照增加 `T2:ACTion?` 页（位置窗口计数的载体）。
