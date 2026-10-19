@@ -17,6 +17,7 @@ Last updated: 2026-10-18
 | `distributed-trigger/DHRT100_REPORT_TEMPLATE.css` | 分布式触发阶段报告统一版式（A4 竖版页面骨架 + 功能状态页四段式）；报告 HTML 只写内容、不内嵌样式 |
 | `distributed-trigger/DHRT100-brand.svg` | 分布式触发阶段报告统一品牌标志（页头 `<img>` 引用） |
 | `distributed-trigger/DHRT100_T2_COMPLETION_REPORT.html` / `.pdf` | T2 能力达成情况报告：达成清单、如何实现与能力范围（A4 竖版七页，文档内不写日期） |
+| `distributed-trigger/DHRT100_SEQUENCE_PROGRESS_REPORT.html` / `.pdf` | SYNC_SEQUENCE 位置内序列进度报告：解算与执行模型、18 组容量、台架证据与剩余项（A4 竖版七页） |
 | `distributed-trigger/RTOS_DISTRIBUTED_TRIGGER_0614_REPORT.html` | 0614 分布式触发完整报告 |
 | `distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.html` | 0804 分布式触发完整技术报告 |
 | `distributed-trigger/相控阵测试系统RP分布式触发方案技术报告0804.md` | 0804 分布式触发报告摘要 |

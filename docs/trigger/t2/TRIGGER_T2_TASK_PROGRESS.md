@@ -12,6 +12,30 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-057：交接项①完成——网关"偶发 1 次 BACKEND"根因是**跨位置的到期时间残留**
+
+- **定位（新增 DIAG 抓取 `id_*` 五字段：sequence / expected / armed deadline / recorded / count）**：
+  ```
+  id: seq=2705  expected=2705  armed=111896712483  recorded=111907462556  count=1
+  ```
+  ⇒ 判定失败**不是序号问题**（两者相等），而是**armed 比 recorded 小 10,750,073 ticks（≈13.4 ms）**，
+  即 tick **回退**；而网关的容差只接受前移。
+- **根因**：`recorded`（槽位的 `s_deadline[index].deadline_tick`）属于**上一个位置**——
+  位置收尾/失败时只清了 `group_count`，没清 deadline，于是新位置的第一发看起来"往回跳"。
+- **修法（两行）**：收尾与失败路径都把 `s_deadline[index].deadline_tick` 清零（与 `group_count` 同步），
+  新位置的第一发便与 0 比较（任何真实 tick 都是前移），既不削弱"同一位置内回退要报错"的判据。
+- **台架（整圈 140 s）**：
+  ```
+  SWITCH_A 5760 = 16 × 360   BACKEND 0
+  SWITCH_B 5760 = 16 × 360   BACKEND 0
+  GATEWAY  1799 ≈ 16 × 112   BACKEND 0   identity 0  id_count 0
+  ```
+  ⇒ **三后端 identity/terminal/arm 全为 0**，交接项①（网关偶发失败）关闭。
+- **遗留（属交接项②）**：网关吞吐本轮 112 个位置（其余轮次 240~360 不等），仍是节拍方差，
+  需"预装两组"来稳定。
+
+
+
 ### T2-PROGRESS-20261019-056：60 轮预算收尾——目标达成情况与交接（不再改动代码）
 
 - **最终校验**：工作区 clean；构建强制重链接通过；关键测试集 **414 passed**

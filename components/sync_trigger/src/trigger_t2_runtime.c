@@ -291,6 +291,9 @@ static uint32_t s_action_advance_count, s_action_finish_count;
 static uint32_t s_window_seq_seen, s_window_expected_seen, s_window_last_seen, s_window_complete_seen;
 /* Where a BACKEND failure came from: identity mismatch, terminal/cursor state, or a refused arm. */
 static uint8_t s_window_staged[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+/* Last identity mismatch: sequence, expected, armed deadline, recorded deadline, count. */
+static uint32_t s_id_seq_last, s_id_expected_last, s_id_count;
+static uint64_t s_id_deadline_last, s_id_recorded_last;
 /* complete_action() early returns: group out of range, or no armed group. */
 static uint32_t s_done_skip_range, s_done_skip_none;
 /* Last three advance decisions: completed, expected, window_last. */
@@ -748,6 +751,7 @@ static T2_RAM void action_fail(uint32_t index, uint32_t reason)
      * on this slot reuse a window that had already been abandoned (measured: arm=80, identity=41). */
     s_window_staged[index] = 0u;
     s_deadline[index].group_count = 0u;
+    s_deadline[index].deadline_tick = 0u;
     if (reason < TRIGGER_T2_ACTION_FAIL_COUNT &&
         s_state.action_fail_reason[reason] != UINT32_MAX)
         ++s_state.action_fail_reason[reason];
@@ -1167,6 +1171,9 @@ static void complete_action(uint32_t index)
     s_finish_total_last = groups_total;
     s_group_handed[index] = 0u;
     s_deadline[index].group_count = 0u;   /* the window is done */
+    /* The recorded deadline belongs to the finished position: keeping it made the NEXT position's first
+     * arm look like a backwards move (measured: 10.75 M ticks behind) and failed it as BACKEND. */
+    s_deadline[index].deadline_tick = 0u;
     s_window_staged[index] = 0u;
     s_action_sequence_last[index] = 0u;
     /* Put the group cursor back to the first group: the next position on this slot must be
@@ -1364,6 +1371,11 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         if ((sequence != expected && !gateway_armed_group) || !deadline_ok) {
             cancel_backend();
             ++s_backend_identity;
+            s_id_seq_last = sequence;
+            s_id_expected_last = expected;
+            s_id_deadline_last = deadline;
+            s_id_recorded_last = s_deadline[index].deadline_tick;
+            ++s_id_count;
             s_state.action_uncertain_mask |= bit;
             action_fail(index, TRIGGER_T2_ACTION_FAIL_BACKEND);
             s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
@@ -2271,6 +2283,11 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->backend_arm = s_backend_arm;
     out->plan_window = s_plan_window_last;
     out->done_skip_range = s_done_skip_range;
+    out->id_seq_last = s_id_seq_last;
+    out->id_expected_last = s_id_expected_last;
+    out->id_deadline_last = s_id_deadline_last;
+    out->id_recorded_last = s_id_recorded_last;
+    out->id_count = s_id_count;
     out->done_skip_none = s_done_skip_none;
     for (uint32_t i = 0u; i < 3u; ++i)
         for (uint32_t j = 0u; j < 3u; ++j)
