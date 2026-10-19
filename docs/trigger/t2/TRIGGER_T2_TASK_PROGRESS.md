@@ -12,6 +12,24 @@ Last updated: 2026-10-20
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261020-002：续装的"配套修法"与既有契约冲突——取消语义需要**按组归属**才能安全打开
+
+- **本轮尝试**：① 完成时保持 SM 运行（让续装可达）；② `cancel()` 改成"不再发组、但不杀在飞的脉冲"。
+- **结果**：宿主用例 `test_sync_io_gateway[deadline_cancel]` **失败**——它断言取消必须
+  `state==CANCELLED && !pending && !rise_tick`，即**取消要立刻停脉冲**。这与 ② 的设计**直接冲突**。
+- **分析（这才是根因）**：网关只有一个执行器、`cancel()` 是**全局**的。运行期在某个位置失败时会取消，
+  而此刻可能正有**另一个健康位置**的一组脉冲在飞 ⇒ "立即停脉冲"会丢掉那一组的回执，表现为
+  `plan_next=2 / svc_wait` 增长 / `pc=28 tx=0` 的静默失速。
+  ⇒ 真正的缺口是**执行器没有"组归属"**：cancel/arm 无法只作用于自己的那一组。
+- **处置**：两处改动**全部回退**（保持既有契约与已验证行为）；当前整圈基线为
+  `SWITCH 5776/5776、GATEWAY 4977 = 16×311、no_plan/late/backend 全 0`（本轮开始时即此水平）。
+- **下一步（架构级，明确）**：给网关加**组归属**（arm 时记录 owner slot/sequence，cancel 只撤回 owner 匹配的组；
+  不匹配则只清计划、不杀脉冲）。有了归属，"保持 SM 运行 + 续装"才能安全打开，吞吐才会到开关的水平。
+  这也是 `T2-SEQ-001`（单一 owner）在执行器侧的落地。
+
+
+
+
 ### T2-PROGRESS-20261020-001：网关"续装"通路此前是**死路**（hit 0 / miss 1487）；打开后暴露"脉冲中途被关 SM"，已回退并留诊断
 
 - **关键发现**：`service` 在每次完成时**先关 SM 再武装下一组**，于是 `schedule_continuation()` 六次条件永假：
@@ -27,6 +45,7 @@ Last updated: 2026-10-20
   ⇒ 零失败、网关 86%，回到本轮开始前的水平之上。
 - **下一步（明确）**：先定位"脉冲中途被关 SM"的调用者（`stage_sequence`→`prepare_realtime` 在 pending 时本应拒；
   `safe_stop`/`cancel` 会关），再用 `cont_hit` 验证续装真实生效——那是把网关拉到 100% 的路径。
+
 
 
 
@@ -52,6 +71,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-068：网关稳定性质检升级——**计划清空原因环**（GWDIAG 27..30）上线；本轮整圈 5628 ≈ 16×352、零失败
 
 - **新增诊断（执行器自身负责）**：网关记录最后一次"计划被清空"的**原因**（1  drained 正常、2 下一组武装失败、
@@ -71,6 +91,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-067：网关"停住"已消除，但**吞吐逐轮退化**（201 → 45 → 10 个位置），下一轮查残留状态
 
 - **三次连续整圈（修复后，同一固件、未 reboot）**：
@@ -86,6 +107,7 @@ Last updated: 2026-10-20
   `plan_count/plan_next`、`late`）。
 - **已知无关**：`START` 四桶全 0（挂载正常）；`chain rc=0` 三轮都通过。
 - **台架纪律**：每轮之间没有 reboot；此前"reboot 后第一轮最好"的现象也支持"残留状态"假设。
+
 
 
 
@@ -111,6 +133,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-065：网关稳定性——定位到"运行标志未随 SM 关闭而清零"（代码根因），并完成 real-flight 对照
 
 - **根因（代码级，证据充分）**：今天新增的"稳态续装"用 `s_output_running` 判断"SM 仍处于已准备且空闲"。
@@ -127,6 +150,7 @@ Last updated: 2026-10-20
 - **因此**：稳定性修复已就位但**无法在本轮做长跑验证**；先解决"挂载被拒"（步骤 12）才有可比较的读数。
 - **下一步**：① 读挂载失败的具体拒绝码（`tdma_seat_mount_store` 151/152/153 或 `count_epoch=0`）；
   ② 挂载恢复后连跑两次 T2，确认网关能稳定跑满 361。
+
 
 
 
@@ -148,6 +172,7 @@ Last updated: 2026-10-20
   ```
   对应的那次 T2 运行（2026-10-19 20:0x）：SWITCH_A 5776=16×361、SWITCH_B 5776=16×361、GATEWAY 1660 且**零失败**。
 - **台架恢复**：按用户指示用 `picotool reboot --ser <uid> -f` 软件重启四板（NO.1..NO.4 均回来）。
+
 
 
 
@@ -174,6 +199,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-062：接口层修正第 1 步——拼写纠正 `CADEence` → `CADEnce`（真机验证）
 
 - **依据**：命名一致性审查把 `SYSTem:TDMA:RING:ORIGin:CADEence?` 列为疑似拼写错误（`cadence` 重复了 `ence`）。
@@ -191,6 +217,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-061：接口规范第一步落地——`T2:STARt`→`T2:MOUNT`、`T2:STOP`→`T2:UNMOUNT`（不留别名）
 
 - **评审结论（证据）**：`T2:STARt` 经 `scpi_t2_stopped(operation=1)` → `trigger_t2_runtime_start()`：
@@ -204,6 +231,7 @@ Last updated: 2026-10-20
   - 两块从板实测：`T2:MOUNT 1,0` 与 `T2:UNMOUNT` 均返回 `0,"No error"`；
     **旧名 `T2:STARt` / `T2:STOP` 返回 `-113,"Undefined header"`** ⇒ 新名生效、旧名确已移除。
 - **顺带记录（接口缺陷，待立项）**：产品级 `TRIGger:STARt/STOP/PAUSe/CONTinue/ABORt` 为空实现（恒返回 1）。
+
 
 
 
@@ -230,6 +258,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-059：交接项②第一步——**稳态续装**（不再每组重置 SM）：`late` 12657→3315、`svc_wait` 74244→11319、网关位置数 169→221
 
 - **问题**：计划里的**每一组**都要走 `schedule_at → prepare_realtime`：关 SM、清两个 FIFO、重启、
@@ -250,6 +279,7 @@ Last updated: 2026-10-20
   旧位置的 deadline 留在槽位里（本次不是收尾/失败路径）。下一步把 `s_deadline[index].deadline_tick`
   的**所有写入点**列出来，只在校验通过后才写。
 - **下一步（②的后半）**：两字协议（延时 + 组序号）实现真正的"两发在飞"；本文档第 6 节已有指令级设计。
+
 
 
 
@@ -278,6 +308,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-057：交接项①完成——网关"偶发 1 次 BACKEND"根因是**跨位置的到期时间残留**
 
 - **定位（新增 DIAG 抓取 `id_*` 五字段：sequence / expected / armed deadline / recorded / count）**：
@@ -299,6 +330,7 @@ Last updated: 2026-10-20
   ⇒ **三后端 identity/terminal/arm 全为 0**，交接项①（网关偶发失败）关闭。
 - **遗留（属交接项②）**：网关吞吐本轮 112 个位置（其余轮次 240~360 不等），仍是节拍方差，
   需"预装两组"来稳定。
+
 
 
 
@@ -328,6 +360,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-055：验收证据汇总（目标 ②/④/⑤ 的读数与出处）
 
 - **② 16 动作 × 361 位置 = 5776（分圈口径）**
@@ -350,6 +383,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-054：全量清扫收尾——1338 passed / 2 failed，两处都确认**与本夜改动无关**（既有漂移）
 
 - **清扫命令**：`pytest -k "trigger or sync_io or t2_ or position"` ⇒ **1338 passed, 2 failed**。
@@ -364,6 +398,7 @@ Last updated: 2026-10-20
   不在本夜范围；本夜改动相关的宿主测试全绿（含 1333→1338 的增长）。
 - **补充**：本夜另有 3 处"我造成、已修"的测试更新——`test_t2_configure_signature`（调用点钉位）、
   `test_trigger_switch_service`（页 48 字段）、`test_trigger_gateway_service`（页 37 字段）。
+
 
 
 
@@ -385,6 +420,7 @@ Last updated: 2026-10-20
   或用"分圈口径 + 显式位置数"。
 - **本夜终态（三后端）**：`executed = 组数 × 位置数`、三类失败基本为 0（网关偶发 1）、
   组数 2/16/18 都验证过；网关吞吐问题**已随常量对齐而消失**。
+
 
 
 
@@ -412,6 +448,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-051：18 动作整圈复测——三后端 `executed = 18 × finish` **精确自洽**、零失败
 
 - **整圈（140 s，`--groups 18 --positions 361`）**：
@@ -430,6 +467,7 @@ Last updated: 2026-10-20
      "每次只武装一组"时延一致。
 - **判据建议（写入后续验收）**：主判据用 **`executed == 组数 × finish` 且三类失败为 0**；
   "361 位置"用 `finish` 单独核对（允许 1~2 个位置的采样边界）。
+
 
 
 
@@ -460,6 +498,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-049：**整圈达成并双指标自洽**——开关 5776 = 16 × 361、`finish=361`、三类失败 0；网关在 BUSY 改"延后"后**零失败**
 
 - **网关 BUSY 修法**：`stage4(BUSY)=101` 与运行期 BACKEND=101 一一对应——上一份计划未排空时新窗口被拒，
@@ -482,6 +521,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-048：18 动作容量下的整圈复测——开关 5744（差 2 个位置）、网关长跑仍出 102 次 BACKEND
 
 - **整圈（140 s，`--positions 361`，容量 18 已落地；本轮 `chain` 又在装表步骤偶发失败一次）**：
@@ -497,6 +537,7 @@ Last updated: 2026-10-20
 - **结论**：容量 18 本身成立（短跑三后端同速零失败）；网关**长跑退化**是独立问题，
   下一步要用 `GWDIAG` 的 `stage_*`/`arm_reject`/`svc_wait` 在长跑快照里定位（本轮快照已带这些桶）。
 - **未受影响的结论**：16 动作 × 361 位置在开关侧已多次达成（5776）；每位置 16 组在三后端都成立。
+
 
 
 
@@ -523,6 +564,7 @@ Last updated: 2026-10-20
     ⇒ **三后端同窗口同数量、零失败**；网关此前的"1/4 吞吐"在把 `GATEWAY_PLAN_MAX` 补齐后消失
     （说明它此前的瓶颈正是"窗口被网关自己的数组上限截断"）。
 - **下一轮**：跑整圈 361（`--positions 361`）看三后端能否同时 5776；若网关仍不足，再谈预装。
+
 
 
 
@@ -555,6 +597,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-045：窗口计数改为"**真跑过才算 executed**"——`w_executed` 首次与 `组数/16` 对齐
 
 - **问题**：槽位被新位置接管时，旧占用者只要窗口状态是 FROZEN 就被标成 `EXECUTED`——
@@ -571,6 +614,7 @@ Last updated: 2026-10-20
 - **意义**：位置层指标从此可信——`w_executed` 可作"完成位置数"的独立来源，与 `executed/组数` 互相校验。
 - **顺带确认**：`T2:ACTion?` 的窗口计数位于 **45..51**（`E=9` 时），登记项 `T2-DEPLOY-003` 的"尾 7 字段"
   描述已过期，待随下次登记更新。
+
 
 
 
@@ -605,6 +649,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-043：快照已纳入 `T2:ACTion?` 页；实测其"尾部 7 字段"与登记项 `T2-DEPLOY-003` 的描述**已不一致**（契约漂移）
 
 - **改动（`t2_workflow.py`）**：采样前快照增加 `T2:ACTion?` 页（位置窗口计数的载体）。
@@ -628,6 +673,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-042：快照可靠性已修；"`T2?` 只有 2 字段"其实是**该页在网关角色不可用**，不是读失败
 
 - **改动（`t2_workflow.py`）**：采样前快照从"整块 try 里连发五页"改为**逐页读取 + 一次重试 + 失败登记**，
@@ -642,6 +688,7 @@ Last updated: 2026-10-20
 - **对位置层排查的影响**：SWITCH_A 的"少 13 个位置"与快照可靠性无关，下一步应直接看
   `why/ACTion` 的 `frozen/entered/announced` 与 `executed` 的比例（现在快照可信了）。
 - **状态**：P3 `build=20261019004105` 通过；工作区 clean。
+
 
 
 
@@ -670,6 +717,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-040：④ 复测——SWITCH_B **5776 稳定复现**；SWITCH_A 本轮 5568（少 13 个位置、无失败计数）
 
 - **复测（第二次整圈，140 s，`--positions 361`）**：
@@ -687,6 +735,7 @@ Last updated: 2026-10-20
   3. 判据应保持"`executed = 组数 × 位置数` 且三类失败为 0"，并把"少位置"单列为**位置层**缺陷跟踪。
 - **下一步（位置层）**：查 SWITCH_A 少位置的时间点附近 `T2:ACTion?` 的 `frozen/entered/announced`
   与 `T2?` 的 `skipped` 类计数，确认是"未冻结"还是"冻结后未选中"。
+
 
 
 
@@ -710,6 +759,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-038：全量回归清扫——1333 passed / 2 failed，其中 1 个已修、1 个确认与本夜改动无关
 
 - **清扫范围**：`pytest -k "trigger or sync_io or t2_"` ⇒ **1333 passed, 3 failed**（初始）。
@@ -723,6 +773,7 @@ Last updated: 2026-10-20
 - **结论**：本夜改动相关的宿主测试全绿（含 1333 项清扫中与 T2/触发/同步 IO 有关的部分）；
   两个页用例（switch 48 字段 / gateway 37 字段）也已按实际布局重建。
 - **当前状态**：树干净（本提交含 1 个测试钉住更新 + 文档）、构建三 profile 通过、P3 有效。
+
 
 
 
@@ -748,6 +799,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-036：网关吞吐的代价分析——排队只能挪动积压，真正的瓶颈是"每组一次等待"
 
 - **由整圈读数反推**：120 s 内网关完成 1322 组 ⇒ **约 91 ms/组**；而规划间距只有 2.5 ms/组
@@ -767,6 +819,7 @@ Last updated: 2026-10-20
      `stage_sequence` 一次推两发；宿主 `triple` 用例已存在，可先在此验证；
   3. 台架判据：同窗口内网关位置数 ≥ 开关的一半，且 `executed = 16 × finish`、三类失败为 0。
 - **当前状态**：树干净、336 passed、P3 `build=20261018233804`。
+
 
 
 
@@ -797,6 +850,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-034：网关**每位置确实跑满 16 组**（1322/82 ≈ 16），问题只剩"吞吐是开关的 1/4"
 
 - **读数（120 s 采样；本轮步骤 10 装表失败一次，属台架偶发，计数仍可比）**：
@@ -815,6 +869,7 @@ Last updated: 2026-10-20
   剩余工作是**吞吐**（预装/批量），不影响正确性，也解释了"为什么只有开关能在一圈内跑满 5776"。
 - **下一轮**：既然 `skip_*` 都为 0，下一步不是继续加计数，而是评估"吞吐是否需要在 T2 侧解决"
   （如按位置排队让网关跑满再换位），或按评审 ② 做两字协议预装——两者都要先估代价（RAM/改动面）。
+
 
 
 
@@ -844,6 +899,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-032：**目标 ④ 在开关两侧正式判定 PASS**（分圈口径：361 位置 × 16 组 = 5776、零失败）
 
 - **判定口径**：`sequence_workflow.py --steps 3-5 --positions 361`（位置数由"一整圈=361"独立给出，
@@ -861,6 +917,7 @@ Last updated: 2026-10-20
   "计划被新位置顶掉（BUSY 前一刻）"还是"计划装入后排不空"；两者修法不同：
   前者要在运行期按位置排队（等待本位置跑完），后者要修 `service` 的排空条件。
 - **交付物**：`out/sync_trigger/sequence_report.html` 已按本次判定重新生成（判据表里 SWITCH_A/B 为 PASS）。
+
 
 
 
@@ -887,6 +944,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-030：N=2 **没有逻辑掉组**——短跑严格 `executed = 2 × finish`；长跑的差异是**计数跨圈被重置**
 
 - **判别读数（N=2，40 s）**：
@@ -903,6 +961,7 @@ Last updated: 2026-10-20
 - **下一步**：在 ④ 之前先确认"跨圈是否重置计数"（读 `T2?` 的 session/deploy 代次与计数的关系），
   并把判据写成"每圈 executed = 组数 × 该圈 finish"。
 - **当前状态**：树干净、336 passed、P3 `build=20261018231151`；三后端 16 组 × 上百位置零失败。
+
 
 
 
@@ -933,6 +992,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-028：**两个 SCPI 页断言已按实际布局重建**（299→336 passed）；但"事件优先"的分支顺序在台架上把 16 组打回原形——已回退
 
 - **已修好的债务（本轮净收益）**：两个页用例此前按 41/35 字段断言，而页面在序列插桩后已是
@@ -950,6 +1010,7 @@ Last updated: 2026-10-20
   可与最终修复同批提交。
 - **当前树**：构建通过（强制重链接）、336 passed、工作区仅剩 P3 生成物与两个已修正的页用例；
   下一条提交将只包含页用例与文档（不含固件改动，故不需新 P3）。
+
 
 
 
@@ -977,6 +1038,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-026：库存测试里有 **2 个 SCPI 页断言仍按旧的 sequence 语义**（属债务，随下一轮语义修正一起改）
 
 - **实测**：`tests/python/test_trigger_gateway_service.py` 与 `test_trigger_switch_service.py` 的
@@ -989,6 +1051,7 @@ Last updated: 2026-10-20
   强制重链接后 app/B/boot 三 profile 均通过；但 heap 下调需要台架验证（避免运行时堆饥饿），
   因此与语义修正同批执行：改配置 → 强制重链接 → 宿主 → P3 → 台架（N=16 与 N=2）。
 - **当前树状态**：构建通过（强制重链接验证）、工作区 clean、相关固件/工具测试除上述 2 项外全绿。
+
 
 
 
@@ -1018,6 +1081,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-024：**RAM 已到墙**——连"删掉一个分支"的净减少改动也溢出 956 B；代码冻结，先解决内存
 
 - **三次实验（互相矛盾但都指向同一结论）**：
@@ -1033,6 +1097,7 @@ Last updated: 2026-10-20
   2. 余量 ≥2 KB 后，再做"事件推进"语义修正（删电平分支、以 `sequence+回执` 为主）；
   3. 台架同时验 N=2（722）与 N=16，判据 `executed = 组数 × action_finish`。
 - **不变的事实**：三角色短跑 16 组 × 上百位置零失败；开关长跑 240/241 PASS；N=2 存在"位置收尾但 `executed` 少记"（电平语义问题，已定位待修）。
+
 
 
 
@@ -1062,6 +1127,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-022：N=2 回归抽查发现**计数掉组**——位置都在收尾（691/692），但 `executed` 只有 438/440
 
 - **台架（`T2_SEQ_GROUPS='1,2,2,2'`，80 s，组间距 8）**：
@@ -1082,6 +1148,7 @@ Last updated: 2026-10-20
   3. 台架判据回到 `executed = 组数 × action_finish`（N=2 时 = 2 × 位置数）。
 - **网关**：2 组窗口下 BACKEND=220、`executed=0`——与 16 组窗口的成功形成对比，说明网关的修复
   依赖"一个位置装一次窗口"的前提，2 组窗口下仍需单独核对。
+
 
 
 
@@ -1113,6 +1180,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-020：把"追赶前移"挪到 Core0 求解处（零新增静态量，链接通过）——但宿主 5 个用例断言了旧 tick，需同步改；本轮已回退
 
 - **尝试**：在 `prepare_deadlines_core0()` 算出 `raw_tick` 后，若"第一组已到期"，把**整窗起点前移**到
@@ -1128,6 +1196,7 @@ Last updated: 2026-10-20
   2. 把 5 个受影响的用例改为断言"**组间间距**与 `action_q` 映射"（而不是绝对 tick），这才是契约；
   3. 台架长跑（80 s）判据：`late` 接近 0、`BACKEND=0`、`executed = 16 × action_finish`。
 - **不变的事实**：三角色短跑 16 组 × 上百位置零失败；开关长跑 240/241 PASS。
+
 
 
 
@@ -1152,6 +1221,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-018：位图化只回收 20 B（RAM 仍差 940 B）——说明"部门占用"另有其处，先测量再改
 
 - **本轮尝试**：`s_window_staged` 改位图、`done_hist` 从 3 行减到 2 行。结果链接仍失败
@@ -1162,6 +1232,7 @@ Last updated: 2026-10-20
   的 `.bss/.data` 排名，找出真正的 1 KB 级占用；再决定是缩小该结构、还是把"整表前移"改成
   **零新增静态量**的实现（`shift` 用局部变量即可，只要不新增计数器）。
 - **不变的事实**：三角色短跑 16 组 × 上百位置零失败；开关长跑 240/241 位置 PASS；网关长跑 116 位置后因迟到掉队。
+
 
 
 
@@ -1183,6 +1254,7 @@ Last updated: 2026-10-20
   3. 视需要把若干 `uint32_t` 的只写计数器并入已有的 DIAG 字段（不加新变量）；
   4. 腾出 ≥1 KB 后再重做"整表前移"，台上判据不变：80 s 下 `late` 接近 0、`BACKEND=0`、`executed = 16 × finish`。
 - **当前仍成立的事实**：三角色 16 组 × 上百位置、零失败（短跑）；开关长跑 240/241 位置 PASS；网关长跑 116 位置后因迟到掉队。
+
 
 
 
@@ -1214,6 +1286,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-015：**网关跑通了！三个角色全部 `executed = 16 × 位置数`、零失败**
 
 - **最后一处修复（一行）**：网关的武装分支**没有设置窗口上界** `s_action_sequence_last`（开关分支有）。
@@ -1232,6 +1305,7 @@ Last updated: 2026-10-20
   （评审指出的 5.4 s/32 位延时上限与预装需求），而不是正确性。
 - **下一轮（④ 达标验证）**：短采样已证明倍数关系，直接上 **361 位置全链**（`T2_SAMPLE_TICKS=110`），
   判据 `executed = 16 × action_finish`、三类失败为 0；同时复查 N=2 的 722 不回归。
+
 
 
 
@@ -1261,6 +1335,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-013：网关"恒为 2 发"与组间距、SM 禁用都无关——下一轮改为直接读 SM 状态
 
 - **两条对照实验（都不改代码，仅台架参数 / 一行代码）**：
@@ -1276,6 +1351,7 @@ Last updated: 2026-10-20
   `pio_sm_is_enabled(OUTPUT_SM)`、`pio_sm_get_pc(OUTPUT_SM)`、TX FIFO 电平、`s_realtime_pending`；
   台架一次采样即可判定是"SM 没被使能""PC 卡在非 pull 指令"还是"TX 字没进 FIFO"。
 - **开关侧**：1824/1840 = 16 × 位置数、`finish` 114/115、三类失败全 0。
+
 
 
 
@@ -1303,6 +1379,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-011：窗口"只装一次"（`s_window_staged`）+ 失败时清理交接状态——网关 `arm` 121→113，但计划仍只排空 2 组
 
 - **两处运行期改动（单 owner 语义）**：
@@ -1322,6 +1399,7 @@ Last updated: 2026-10-20
   `pio_sm_set_enabled(false)` 与下一次 `pio_enable_sm_mask_in_sync` 之间的状态（开关的"两字预装"正是为了避免
   这种"停-等-再启"），必要时把网关的输出程序也改成两字协议（与开关同引擎）。
 - **开关侧**：1808/1824 = 16 × 位置数、`finish` 114、三类失败全 0。
+
 
 
 
@@ -1354,6 +1432,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-009：迟到钳位原来**在范围检查之后**（past-due 被误判为 RANGE）；修好后网关能装计划，但**首脉冲回执不来**（plan_count=16 不排空）
 
 - **修掉的顺序错误（关键）**：`start_deadline` 先做 `deadline-before-4 > UINT32_MAX` 的范围检查，再钳位。
@@ -1374,6 +1453,7 @@ Last updated: 2026-10-20
 - **下一轮（一步）**：给 `service` 的完成路径加三个计数（`s_realtime_pending` 是否置位 / RX FIFO 是否非空 /
   回执是否与 `s_pending_receipt` 相符），输出到 GWDIAG 尾部；据此确定是"PIO 从未推送回执"还是"推送了但被丢弃"。
 - **开关侧**：1776/1792 = 16 × 位置数、`finish` 111/112、三类失败全 0。
+
 
 
 
@@ -1411,6 +1491,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-007：网关"迟到即拒绝"改为"迟到也要发"（`arm` 45→0）；失败点再前移到 **service 内部的下一组武装**
 
 - **改动（执行器侧，符合触发域语义：迟到的触发仍要发，迟到可观测）**：`start_deadline` 不再因
@@ -1430,6 +1511,7 @@ Last updated: 2026-10-20
   `start_deadline` 的 origin 校验失败 / 计划越界，各加一个计数并输出到 GWDIAG；先看清是哪一类，再决定
   "同引擎化（预装两组）"还是"修该守卫"。
 - **开关侧**：1904/1920 = 16×位置数、`finish` 与位置数一致、三类失败全 0。
+
 
 
 
@@ -1463,6 +1545,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-005：`plan_window=16` 证明"网关计划只有 1 组"的推断**错误**；身份失败其实是 **deadline 不符**
 
 - **新增诊断**：DIAG 末尾 `plan_window`（最近一次发布出去的计划组数），数值随计划发布点记录。
@@ -1481,6 +1564,7 @@ Last updated: 2026-10-20
   下一轮按 ② 的第二步做**同引擎化**：网关也按"逐组武装 + 每组的 sequence/deadline 成对上报"，
   运行期保持"一组一比对"的严格判定（⑦ 与 HAOFV 单一 owner 都要求如此）。
 - **开关侧不变**：`advance = 16 × 位置数`、`identity = 0`、三类失败全 0。
+
 
 
 
@@ -1518,6 +1602,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-003：SEQ-C01 的"低一格起点"改为**仅开关**使用；网关仍是 0/BACKEND（已排除该假设）
 
 - **三次台架对照（N=16，20 s，各自冻结源码跑 P3）**：
@@ -1533,6 +1618,7 @@ Last updated: 2026-10-20
   再读快照里网关槽位的 `backend_identity / backend_terminal / backend_arm` 三个值，确定 BACKEND 的来源是
   "身份不符""终态/游标"还是"武装被拒"，然后才动网关代码（避免继续猜）。
 - **开关侧现状**：16 组单窗口、三类失败全 0、`executed = 16 × 位置数`；SWITCH_A 仍差一个位置（109 完成 vs 110 执行）。
+
 
 
 
@@ -1565,6 +1651,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261019-001：夜间长期任务发布（用户授权自主决策）——目标与执行规则
 
 - **用户指示**：发布一个长期任务，夜间自主推进；需要我决策的直接按推荐来（与早前"夜里按推荐决策"的长期授权一致）。
@@ -1589,6 +1676,7 @@ Last updated: 2026-10-20
   4. **常量单一事实源 + 契约登记**——组数/窗口尺寸/时序常量收敛到单一出处；跨域契约登记 `docs/check/DOCS_REGISTRY.md`
      并更新 `Last updated`，文档门禁全绿。
   任一不满足则该轮不做该项改动。
+
 
 
 
@@ -1630,6 +1718,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-072：接受第九节评审的定性——**停止在边界状态机上打补丁**；本轮把未验证的探针代码入库前先隔离
 
 - **评审结论（第九节，已读）**：三条约束互斥——① 批量交付（`T2_PLAN_GROUP_MAX` 2–4 组/次）；
@@ -1652,6 +1741,7 @@ Last updated: 2026-10-20
   - 已提交的最后一个固件状态仍是 `fcbe9bf4`（网关组序号模型 + READY 默认禁用）。
 - **下一轮（检修第 1 步，最小可验证）**：先做台架健康检查（四板 `*IDN?` + P3 步骤 0-7），再删除边界机制中的
   **一项**（`s_waiting_window`），跑一次 N=8（新口径）与 N=16（原口径）短采样，`executed = 组数 × 位置数` 不下降才算过。
+
 
 
 
@@ -1690,6 +1780,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-069：READY 已在采样前强制下发（`ready_required=0` 确认生效），网关剩下的问题是"计划装满但从不排空"
 
 - **工作流改动**：`TRIGger:SEQuence:REAdy <env>` 现在在**采样循环开始前**对四块板各下发一次并当场回读
@@ -1709,6 +1800,7 @@ Last updated: 2026-10-20
   并读 `s_plan_next`；若收款从未到达，查 `pio_sm_is_rx_fifo_empty(OUTPUT_SM)` 与 `s_realtime_pending`；
   若是完成事件被 READY 逻辑吞掉，把 READY 处理移到完成判定之后。
 - **开关侧保持不变**：16 组单窗口、零失败（本轮 1744 = 16 × 109）。
+
 
 
 
@@ -1744,6 +1836,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-067：**16 动作/位置在真机上跑通**——单窗口装 16 组，`executed = 1824 = 16 × 114 位置`，零失败
 
 - **做法（去掉滑动窗口这一整类限制）**：计划里把每组的 tick 存成**相对窗口基准的 32 位增量**、参数存成 16 位
@@ -1760,6 +1853,7 @@ Last updated: 2026-10-20
   DIAG 里我新加的 8 个网关拒绝桶**全为 0**，说明失败发生在进入 `stage_sequence` 之前或那几个桶的偏移还没对齐。
   下一轮：给网关做**独立诊断页**（`TRIGger:REServation:T2:ACTion:GWDIAG?`，schema + 固定字段），把
   `s_plan_count / s_ready_active / s_ready_required / schedule_at 的返回` 直接读出来。
+
 
 
 
@@ -1798,6 +1892,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-065：窗口边界推进已加，但 N=16 仍停在第 4 个窗口（executed=12）
 
 - **改动（已提交）**：`complete_action()` 的推进分支加"窗口边界"处理——当 `next_tick == 0`（本窗口最后一组，下一组属于新窗口）时，把 `s_deadline.group` 前移到 `s_group_next`、清 `group_count` 与 `prediction_version`，强制 Core0 发布下一窗口的首组；并加计数 `window_boundary`。
@@ -1805,6 +1900,7 @@ Last updated: 2026-10-20
   - `last=14` 说明**第 4 个窗口确实被武装过**（base=14，覆盖组 12..15），但它的四组一组都没完成 ⇒ 卡在"第 4 窗口已装、回执不来"。
 - **本轮的一次台架故障**：首跑在步骤 6/16-20 失败（origin 板 `'EMPTY'` 校准页、`phase 5 fault 3`），重跑即恢复——属台架侧偶发，已记录。
 - **下一轮**：① 把 `window_boundary` 输出到 `DIAG?`（现在只写不读，评审 SEQ-B06 同类问题）；② 若 `window_boundary>0` 且第 4 窗口零完成，则查开关侧：第 4 窗口的 `stage_sequence` 是否被 `s_switch.state==PENDING` 拒绝（`schedule_at`/`stage_sequence` 都要求非 PENDING），以及 `sequence` 是否与运行期 `expected` 脱节；③ 判据 `executed = 16 × 位置数`。
+
 
 
 
@@ -1834,6 +1930,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-063：**N=3 全线跑通**——`executed=357 = 119 位置 × 3 组`，`NO_PLAN/LATE/BACKEND` 全 0
 
 - **修法（评审 SEQ-B03，`docs/trigger/t2/TRIGGER_T2_REVIEW.md` §7.5）**：`sync_io_switch_deadline_status_t` 增加 **`completed_sequence`**（"刚刚消费完的那一组"，永不超过硬件），`poll()` 在每次出队时写入、补装重指时保留；运行期窗口分支改为**只按 `completed > expected`** 推进 `complete_action()`，不再用"当前 head 的 sequence + 回执"猜组号，所以同一次 COMPLETE 只被消费一次。
@@ -1845,6 +1942,7 @@ Last updated: 2026-10-20
   `357 = 119 位置 × 3 组` ⇒ **多组窗口在真机上完整成立**，且与位置数严格成 3 倍关系。
 - **这一轮的因果链（全部有据）**：评审指出 SEQ-B01/B02（补装不重指 status）、SEQ-B04（序号固定 +2 导致窗口区间重叠）、SEQ-B05（队列深度无关）→ 上一轮修完 `executed` 6→3（第 1 个位置跑完 3 组）→ 本轮修 SEQ-B03（按 `completed_sequence` 推进）→ `executed=357`、零失败。
 - **下一步**：① N=16（`T2_SEQ_GROUPS='1,16,16,16'`，需把 `T2_PLAN_GROUP_MAX` 4→16 或依赖窗口滑动）；② 361 位置全链（`T2_SAMPLE_TICKS=110`）；③ 接网分验 READY。
+
 
 
 
@@ -1879,6 +1977,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-061：两个真 bug 修掉了（窗口序号不自增、COMPLETE 不等 FIFO 排空），但开关仍在"第 2 组后"收尾
 
 - **修 1（确凿）**：`sync_io_switch_realtime_stage_sequence()` **从未自增 `s_switch.stage_sequence`**（单条 `schedule_at` 会自增），于是每个窗口都复用同一个 base 序号。修后元组从 `seq=4` 变成 `seq=6`（序号确实开始推进）。
@@ -1902,6 +2001,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-060：元组给出答案的一半——开关在 `sequence=4` 时就报 COMPLETE，而窗口要到 5
 
 - **精确元组**（两块从板一致，本轮新增 4 个字段）：
@@ -1913,6 +2013,7 @@ Last updated: 2026-10-20
   - 因为 `seq(4) == expected(4)` 且 `complete=1`，运行时会走 `complete_action`，但此时 `s_group_armed` 已经是组 2 之前的组号（adv=6 = 每槽 2 次），**收尾条件 `group+1 == groups_total` 永远不成立**，于是 `finish=0`、位置停在"已冻结未完成" ⇒ 同槽位后续位置 `NO_PLAN=119`。
 - **结论**：问题在**开关侧"组数"口径**：`s_sequence.count` 是 3，但 `s_sequence_group`/COMPLETE 判定只走了 2 组。下一轮在开关侧加两个计数：**实际触发的 `trigger_count` 增量** 与 **`s_sequence_group` 终值**，与 `s_sequence.count` 对照，即可确定是 `sequence_feed()` 在最后一次没推入、还是 COMPLETE 判定提前（`s_sequence_group >= s_sequence.count` 的口径）。
 - **顺带**：这也是为什么 N=2 一直正常——2 组时"第 2 组之后 COMPLETE"恰好与窗口长度一致。
+
 
 
 
@@ -1946,12 +2047,14 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-058：更正上一轮的读数 + 新假设——三组位置**从未走到收尾**（`group_next` 停在 2）
 
 - **更正**：上一轮我读 `win[-2:]` 当作"zero/floor 桶"，但那两个字段在**槽位探针之后**，所以读到的是探针数据。真实情况：`freeze_missing=105` 说明 **NO_PLAN 是 FREEZE 路径判的**（不是选择路径）。
 - **当前最可信的假设（有探针支撑）**：探针里 `group_next=2` 出现在**已收尾**的槽位上，而我第 57 轮加的收尾复位会把 `s_group_next` 置 0 ⇒ **收尾分支根本没有执行**。也就是说三组位置在 `s_group_armed==2` 之后既没有再推进、也没有收尾：槽位一直 `frozen` 且未完成，于是同一槽位的后续位置全部卡在 FREEZE → NO_PLAN（`freeze_missing=105`、`executed=6` 正好是"前两个位置跑完 3 组"）。
 - **本轮附带修复**（`position_fallback`）：该回退路径过去只检查"有描述符"就冻结，冻结时**没有计划**，必然在后续判 NO_PLAN；现在要求"有计划且版本高于槽位地板"才冻结（`fallback` 计数=4，说明它确实在跑，但不是主因）。
 - **下一轮（决定性，两个计数即可）**：在 `complete_action()` 里分别统计 **推进(advance)** 与 **收尾(finish)** 次数，并统计"收尾时 `groups_total` 的值"；若三组时 `finish=0`、`advance` 停在同一组，则问题就是窗口末组的完成事件没被识别（回执/sequence 与实际组号错位），修法在窗口分支的组号映射。
+
 
 
 
@@ -1988,6 +2091,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-056：槽位探针给出新线索——**只有 slot 2 被使用**，其余槽位从未冻结
 
 - **新仪器**：窗口页尾 24 字段 = 前 4 个槽位 × `(frozen, completed, failed, plan_version, recv_seen, group_next)`。
@@ -2001,6 +2105,7 @@ Last updated: 2026-10-20
   ⇒ **整轮只用了 slot 2**（position_id=3），且它停在 `failed=1 / group_next=2`。这与 `executed=6`（2 位置×3 组）完全吻合：一旦 slot 2 失败并再也没被"当作新位置"接受，后面所有位置都判 NO_PLAN。
 - **本轮修复（已提交）**：`complete_action()` 的收尾分支此前把该槽位的 `prediction_version` 清 0（第 57 轮的"清洁性改动"），使 Core0 早已为下一位置发布的计划**不可见**（邮箱 guard 未变 ⇒ `deadline_receive` 不再重读）。现在改为**保留计划**、只把 `s_deadline_seen` 清零以强制下一次重读；残留计划由 `recycle_slot()` 抬高的槽位地板（版本 ≤ 地板即拒绝）兜住。
 - **仍未解决**：`executed` 依旧 6、`NO_PLAN=105`。**下一轮首要线索**：为什么所有位置都落到 slot 2？可能原因：origin 侧 position_id 恒为 3，或 `T2_TARGETS` 只配了一个目标槽。验证方法：统计 `descriptor.position_id` 的分布（每槽计数），若确认恒为 3，则问题在"位置→槽位"的映射，而不在计划供给。
+
 
 
 
@@ -2036,6 +2141,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-054：计划"发布在前、接收成功"，却在 FREEZE 里读到 0 —— 竞态在"武装清版本"与"下一位置计划到达"之间
 
 - **新计数**（窗口页尾）：`publish_before_freeze / publish_after_freeze` 与 `recv(busy,no_version,session,older,ok)`。
@@ -2050,6 +2156,7 @@ Last updated: 2026-10-20
 - **结论（竞态）**：`s_deadline[slot]` 被两件事同时触碰——(a) `deadline_receive()` 写入下一位置的计划；(b) 位置**武装**时把该槽位的 `prediction_version` 清 0（用于标记"这份计划已被消费"）。三组时窗口更长，当 (b) 发生在 (a) 之后，FREEZE 就看到 0 ⇒ NO_PLAN。N=2 因为窗口短、(b) 总在 (a) 之前，所以从不暴露。
 - **修复方案（下一轮实施，已定）**：在 FREEZE 读计划之前，对该槽位做一次**就地邮箱刷新**（`deadline_receive_slot(index)`，只读一个槽位、代价 O(1)）：若邮箱里有更新的计划就用它，否则才判 NO_PLAN。这样不动"武装清版本"的语义（它仍然是 Core0 重新发布的信号），只把竞态窗口补上。
 - **另一个已提交的潜在 bug 修复**：`deadline_receive()` 里"更小的组号=更旧"的判断现在只在**同一预测版本**下成立——跨位置（新版本、组 0）的计划不再被丢弃（虽然本轮 N=3 的结果未变，但这是正确的语义）。
+
 
 
 
@@ -2090,6 +2197,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-052：窗口完成判定加上「必须有回执」——开关侧队列已能清空、状态回到 COMPLETE；剩余 NO_PLAN 转到计划供给
 
 - **新增窗口统计**（`T2:ACTion:WINdow?` 尾四字段：`advance, jump, reuse, no_receipt`）。
@@ -2103,6 +2211,7 @@ Last updated: 2026-10-20
 - **但 `executed` 仍只有 6（= 2 位置 × 3 组），NO_PLAN 115~117** ⇒ 瓶颈已经转到**计划供给**：只有 2 个位置拿到了计划。下一个怀疑点是 `prepare_deadlines_core0()` 入口的
   `t2_deadline_position_accepted(completed|failed, index)` 与 `action_group_next/in_flight` 组合——位置槽位循环复用时，若 `completed` 位未被新位置清掉，Core0 会**永久跳过**该槽位（N=2 下可能因时序不同没暴露）。
 - **下轮**：给 `prepare_deadlines_core0` 的三个 `continue` 各加一个桶（`accepted_skip / inflight_skip / group_unreachable`），一次 N=3 台架即可确定是哪一个把 3..N 个位置全跳过；修好后判据仍是 `executed = 3 × 位置数`（先 N=3），再上 16。
+
 
 
 
@@ -2141,6 +2250,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-050：READY 可关（新命令实测生效）+ 表容量 8→48（16 行装进去了）；N≥3 的窗口续填仍缺
 
 - **新配置项**（已提交，P3 `build=20261018013008` 之后的这次 P3 覆盖）：
@@ -2155,6 +2265,7 @@ Last updated: 2026-10-20
   ```
 - **结论**：`N=2` 的窗口交接已验证通过（361×2=722 零失败），但 **`N≥3` 会退化成 NO_PLAN**（N=3 与 N=16 同样 316~358 个位置无计划）⇒ 窗口续填（`sequence_feed` 在 3 组以上时的补对条件）是下一个要修的点，而不是容量或 READY。
 - **下一步**：① 在 `sync_io_switch.c` 的 `sequence_feed()` 里对“剩余组数 ≥2 但 FIFO 只有 2 词空间”的情况加计数并放宽（或在窗口开启时一次性推入全部组，`T2_PLAN_GROUP_MAX=4` 时最多 4×2=8 词，两个 SM 各 8 词会超过 FIFO 深度，需要按 SM 分开推）；② 把 `T2_PLAN_GROUP_MAX` 提到 16 以覆盖“一位置 16 动作”的单窗口；③ 复跑 16 组，期望 `executed = 16 × 位置数`。
+
 
 
 
@@ -2192,6 +2303,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-048：双组序列在真机上**跑通**——174 个位置 × 2 组 = 348 次执行，零失败
 
 - **根因（两个游标只复位了一个）**：Core0 从 `action_group_next[]` 决定要解哪一组，Core1 用**私有的** `s_group_next[]` 决定要不要接这个计划（`trigger_t2_runtime.c` 选择分支：`plan->group != s_group_next[index]` 就跳过）。位置收尾时我把 Core0 那个复位了、Core1 那个没复位 ⇒ 计划已经到齐（`NO_PLAN` 立刻归 0），但 Core1 始终只认“上一位置最后一组”，于是 `executed` 停在 6。
@@ -2216,6 +2328,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-047：`--subdivisions 16` 实测也无效——`expand_fail` 是常量，说明它不是变量
 
 - **运行**：`T2_SEQ_GROUPS='1,2,1,1'`，`--subdivisions 16`（默认是 2，正是上一轮的怀疑对象），22 步全 OK。
@@ -2228,6 +2341,7 @@ Last updated: 2026-10-20
 - **结论**：`expand_fail=544` 在 `subdivisions∈{2,16}`、`period∈{2,12}` 四种组合下**恒定不变** ⇒ 它是与配置无关的一次性常量（很可能发生在安装/预跑阶段），**不是**决定双组失败的那个量。上一轮把它当成原因，判断错误，现在改正。
 - **真正与失败同步变化的量**：`freeze_missing ≈ NO_PLAN`（185≈184）且 `executed=6`、`published=6` —— 也就是**双组位置的计划在 FREEZE 时版本为 0**，而 Core0 的发布计数只有 6。
 - **下一个（正确的）仪器化方向**：我此前的计数器只装在 `prepare_deadlines_core0()`（源板路径）里；从板走的是 `!snapshot.origin` 的**另一条发布路径**（单组从板 `published=0` 却能执行 187 就是证据）。所以下轮要在**从板那条路径**上加同样的计数，才能看到双组从板为什么只发布 6 次。
+
 
 
 
@@ -2269,6 +2383,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-045：交接记录——双组展开失败的最后一步已收敛到“第 2 行的模板行内容”
 
 - **本轮读到的代码路径**（不再猜）：
@@ -2279,6 +2394,7 @@ Last updated: 2026-10-20
   1. 按页 handler 顺序列出 7 字段含义，确认第 2 行的 `generation/span/kind` 是否为 0；
   2. 在 `expand` 的两个失败出口各加一个桶（`invalid_row` / `instance_expand_fail`），一次台架即可锁定；随后按结果修（补行内容 or 放宽 instance 边界）。
 - **已确认可用的事实**：执行器侧“一次交整表 + 逐组回执”在真机上跑通（同一轮 6 个位置完整走完两组、`stage_reject` 全 0、`origin_late` 仅 3 次）；单组路径 169/169 零失败；T2 位置传输全程 `DISTRIBUTED`、`SEAT refused 0`。
+
 
 
 
@@ -2308,6 +2424,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-042：假设被台架否定一次——清槽位计划身份**没有**改善双组；`NO_PLAN` 的来源改为指向"描述符版本为 0"
 
 - **试的修法**：窗口结束时清空该槽位的计划身份（`group/group_count/prediction_version/next_tick = 0`，理由：武装路径会清版本，FREEZE 把 version 0 读成 NO_PLAN）。
@@ -2317,6 +2434,7 @@ Last updated: 2026-10-20
   2. 槽位遗留状态不是原因（清零无效）。
 - **新的方向（代码依据）**：Core0 的 `plan_version = descriptor.prediction_version`（L1942）；若该位置的**描述符版本本身就是 0**，发布出去的计划版本也是 0，FREEZE 必然判 `NO_PLAN`。所以下一步该查的是：双行模板下，该位置的 PREVIEW/描述符是否根本没带版本（例如部署表里两行模板使 `trigger_action_template_expand` 只对第 1 行生成 instance，或 descriptor 的版本在展开时被清零）。
 - **下轮**：在 Core0 的 group 0 分支上加两个计数（`expand_fail_count` / `descriptor_version_zero_count`），一次台架就能分辨"展开失败"还是"版本为 0"，再对症修。
+
 
 
 
@@ -2351,6 +2469,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-040：`NO_PLAN` 的两个来源已定位到代码行，下一步只需读两个现成计数
 
 - **代码定位**（`components/sync_trigger/src/trigger_t2_runtime.c`）：
@@ -2361,6 +2480,7 @@ Last updated: 2026-10-20
   - 若 `freeze_missing_local_count` 增长 ⇒ 本地根本没解出计划（模板 2 行时的 solve 问题）；
   - 若只有 `freeze_mismatch_count` 增长 ⇒ 就是"地板/版本"语义问题，修法是把地板比较改成"同一位置窗口内不推进"，或让 `s_slot_floor` 只在**位置收尾**时推进。
 - **修好后复验目标**：`executed → 169`、`NO_PLAN → 0`、`origin_late_count` 只增不减但不影响执行。
+
 
 
 
@@ -2394,6 +2514,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-038：origin 窗口的两轮修正都没解决——已把"实测跨度 vs 上限"变成读数
 
 - **第一轮修法**（`c5480e2a` 之后）：把 `raw_tick(&now)` 移到计划构建之后、并用真实 tick 重算首组 delay（新增 `sync_io_sequence_plan_first_delay()`）⇒ 台架仍 `ORIG_WIN=1`、`executed=0`。
@@ -2402,6 +2523,7 @@ Last updated: 2026-10-20
 - **拒绝桶拆分**（`NO_READY/BUSY/CLOCK/TICK/PLAN/ORIG_DELAY/ORIG_WIN`）证明：`ORIG_DELAY=0`、`ORIG_WIN=1` ⇒ 失败在"使能后回读 tick"的比较，而不是"截止太近"。
 - **下一步（本轮已就位）**：新增 `s_origin_span_last` / `s_origin_bound_last` 并在窄页输出（`7a2ffbb7`）——下一次台架运行直接读到"实测 90 拍 vs 上限 64 拍"这类数字，再决定是放宽上限、减少推字次数，还是把 origin 检查改成"只统计成功"。
 - **教训（写下来）**：`SYNC_IO_SWITCH_ORIGIN_MAX_NS=256`（64 拍）对单组（2 次推字）够用，对多组（2×组数 次推字 + in-sync 使能）明显偏紧；改之前必须拿到实测跨度，否则就是猜。
+
 
 
 
@@ -2435,6 +2557,7 @@ Last updated: 2026-10-20
 
 
 
+
 ### T2-PROGRESS-20261018-036：单组 GATEWAY 157/157 通过；**开关的双组窗口在台架上稳定失败**（executed=0、BACKEND）
 
 - **隔离实验**（`T2_SEQ_GROUPS='1,2,1,1'`：只有 SWITCH_A 两组，其余单组；`T2_SEQ_PERIOD_SLICES=2000`）：
@@ -2448,6 +2571,7 @@ Last updated: 2026-10-20
   2. **开关的双组窗口在真机上稳定失败**：`groups_executed=0`、157 个位置全部 `BACKEND` —— 也就是说 `sync_io_switch_realtime_stage_sequence()` 在真机上**返回 false**（或执行器立刻 CANCELLED/UNCERTAIN），host 用例的绿灯**不代表**真机可用。
 - **注意一个混淆变量**：`T2_SEQ_PERIOD_SLICES=2000` 会同时改变网格/位置节奏，本轮连单组 SWITCH_B 也出现 156 失败 ⇒ 该参数不能这样跳变，必须小步扫（这也解释了为什么“把周期放大”不是解法）。
 - **下轮（仪器化，不再猜）**：给开关的 `stage_sequence` 加**拒绝原因计数**（`stage_reject_reason` 桶：NO_LEASE/PENDING/DEADLINE_PASSED/TOO_CLOSE/BAD_DELTA/FIFO）并用窄页读出；这样下一次台架运行就能直接看到“为什么 false”，而不是从 `executed=0` 反推。
+
 
 
 
@@ -2481,250 +2605,6 @@ Last updated: 2026-10-20
 
 
 
-### T2-PROGRESS-20261018-034：两动作窗口在台架上出现 failed，且 ACTION 页步长仍需按实测对齐
-
-- **工具已收口一半**（`c100cf77`）：`T2:ACTion?` 的逐位置尾部**不再猜步长**——只有声明 `T2_ACTION_FIELDS` 才解析，否则打印字段数并标注“未解析”。prefix（schema/armed/completed/failed/uncertain）位置固定，始终可信。
-- **实测页形状**（轮询两块从板，同一时刻各 26 字段，头部完全一致）：
-  ```
-  0:1  1:0  2:1  3:1  4:0            ← 1, armed=0, completed=1, failed=1, uncertain=0
-  5:1792264440  6:1792264440  7:1832142496  8:1792264440  9:3814955859
-  10:18097540910508788961            ← 单个 UInt64（约 1.8e19），说明 UInt64 只占 1 个字段
-  11:1  12:1  13:79  14:2993488091  15:1 …（下一块）
-  ```
-  ⇒ 逐位置块是 **5 个字段**，但第 1 个字段不是 sequence 而是会话/纪元量级 ⇒ 该页**不是**我分析的那个 handler（`scpi_cmd_trigger_t2_action_q`）出的，得先定位真正的注册点再对齐（这是纯工具工作，不涉及固件）。
-- **更重要的产品证据（两动作窗口在台架上确实有问题）**：同一条 `T2_SEQ_GROUPS='1,2,2,2'` 链路连跑三次，22 步均 OK、`DISTRIBUTED`，但 ACTION 页出现 **`SWITCH_A failed 4`、`SWITCH_B failed 1`、`GATEWAY armed 1 / failed 2 / uncertain 2`**（单动作窗口时这些计数为 0）。⇒ **双组窗口在真实链路上会失败**，而失败原因就写在同页后面的 `action_fail_reason[]` 区块里。
-- **下轮顺序**：① 定位 `TRIGger:RESERVation:ACTion?` 的真实 handler、按实测步长对齐工具；② 读 `action_fail_reason[]` 与 `group_done/group_next` 判断双组失败是 LATE（第二组 tick 已过）还是 BACKEND；③ 按结论修（很可能是组周期 `T2_SEQ_PERIOD_SLICES` 太小，第二组落在第一组完成之后）。
-
-
-
-
-
-
-
-
-
-
-### T2-PROGRESS-20261018-033：两动作窗口首次上台架（步骤全 OK / DISTRIBUTED），但 ACTION 页读数错位需先对齐
-
-- **编排**（不改固件，只用工作流已有的序列编排参数）：`T2_SEQ_GROUPS='1,2,2,2'`（COUNTER/SWITCH_A/GATEWAY/SWITCH_B 每位置组数）⇒ 三个从板每位置 **2 个动作**，正好走新接的窗口交接（`group_count>1 → stage_sequence`）。
-- **结果**（build `20261017184354`，`--steps 0-20`，22 步 **全 OK**）：
-  - `POSITION distribution: source tx_publish 13824; follower lane_accept 12652/12481/12656 -> DISTRIBUTED`；
-  - `WIN … slot 2/3 | act armed 2`（GATEWAY / SWITCH_B 每位置武装 2 组 ⇒ **窗口路径确实生效**）；
-  - 从板 `owned 1`、`hold 1721/1809`、`drain 1696/1785`、`hold_delivered 25/24`。
-- **读数问题（工具侧，不是固件）**：`ACTION slot 2 … [0] seq 0 deadline 0:0 backend 4294967295 width 218 / [1] seq 150405957821 …` —— 明显的错位（`seq 150405957821`、`width 218` 都是无意义值）⇒ 工具里的 `T2_ACTION_TAIL_FIELDS` 与板上 `T2:ACTion?` 的实际尾长不再一致，**每位置的组完成数还读不出来**。历史上同一个坑踩过一次（工具先改成 22、板上仍是 17，整页错位）。
-- **下一步（先工具、后结论）**：从 handler 源码推 `T2:ACTion?` 的**逐位置尾长**（`middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc`，含 5 组进度 + 5 组提前量等追加字段），把工具的 `T2_ACTION_TAIL_FIELDS` 校正，并让工具在“读到的尾长与镜像不符”时**直接告警而不是猜**；然后再跑同一条 2 组窗口链路，读 `completed / group_done / group_next` 与 `active` 计数。
-
-
-
-
-
-
-
-
-
-
-### T2-PROGRESS-20261018-032：GATEWAY 两字协议试改失败后决定“不对称”——开关排队、网关逐发
-
-- **试了什么**：把 GATEWAY 也改成两字协议（脉宽字 + 延时字，`OUTPUT_WORDS 11`，`start_deadline(width)`，首组 `−6`），并同步把 mock 改成 11 字程序 / `out y` / `mov isr,y` / wrap `hi=15`。固件能编过，但**脉宽断言仍不过**：`fall−rise ≠ 250`（把一次性 `advance(260)` 改成“等到出现下降沿”后依然不等）。这正是两次同类失败的同一处：网关 mock 的 SM 起始/停止相位与两字程序的 6 拍启动预算没有对齐，而开关 mock 是逐指令建模的。
-- **决定（写进设计，不再来回试）**：**两条路径允许不对称**
-  - **SWITCH**：需要“一条动作表在硬件里排队”，所以用**两字协议 + 窗口 + 排空续填**（已提交，37 + 544 用例通过）；
-  - **GATEWAY**：每次都只发**一个**脉冲，下一组在上一脉冲完成时再武装（`stage_sequence` 已提交，50 passed），所以**保留预装 Y 的单字路径**即可。两字协议对网关的收益只是“省一次武装”，而代价是整条完成状态机与 mock 全部要重写——收益为负。
-- **由此明确的时序约束（网关侧）**：因为武装发生在“上一脉冲完成”之后，`start_deadline` 用的是 `deadline − now − 4`；只要武装早于下一组的绝对 tick（E≈8 ms 的动作间隔下，武装只需微秒级），表里的间隔就被如实执行；若武装已经晚于该 tick，`start_deadline` 会**拒绝**（不会悄悄压缩间隔）。
-- **本轮**：全部回退（`git checkout` 四个文件），`test_sync_io_gateway + test_sync_io_switch` **77 passed**、构建绿、工作区 clean。
-- **下轮**：把 runtime 的窗口交接按角色分开——SWITCH 走 `stage_sequence`（已完成），GATEWAY 走 `sync_io_gateway_realtime_stage_sequence`（API 已就绪，仅需在 arm 处按角色调用 + harness 补桩），然后上单板台架。
-
-
-
-
-
-
-
-
-
-
-### T2-PROGRESS-20261018-031：GATEWAY 侧序列入口已落地；链式用例卡在 mock 的“预装脉宽”路径
-
-- **已提交**（`7894b106`，P3 `build=20261017180911`）：`sync_io_gateway_realtime_stage_sequence(base, pulse_ns[], delta_ticks[], count)` —— 一次接受整条动作表，首组立即武装，其余组在上一脉冲完成时按**各自的绝对 tick** 武装；非法表（count 为 0/越界、偏移非单调、脉宽为 0、加法溢出、已有在飞动作）整体拒绝，不留半武装。`test_sync_io_gateway` 50 passed。
-- **本轮尝试的链式用例（三组 1000/2000/4000 ns）失败在 mock，而非固件**：第 0 组脉冲正确（rise 30001 → fall 30251，宽度 250 = 1000 ns ÷ 4）；服务里武装第 1 组后 `ctrl=10`、`pc=5`（停在 `pull`）却不再出脉冲 ⇒ mock 的 `prepare_realtime` 仍用 `pio_sm_exec(pull/mov y)` 预装脉宽/ISR，这套“软件预装”与真实的两字协议（脉宽随词入 FIFO）不同步，取字被预装消耗。已回退该用例、保留特性：`test_sync_io_gateway + test_sync_io_switch` **77 passed**，树 clean。
-- **下轮做法（明确）**：像 SWITCH 侧那样把 mock 改成显式建模“两字/触发 + 每 SM 一个队列”，同时把 GATEWAY 的 PIO/软件真正切到两字协议（`OUTPUT_WORDS 11`、`start_deadline(width, prev_width)`，常数 `首组 −6`、`链式 间隔−前宽−8` 已推导好）。这两步必须一起做，否则 mock 永远对不上。
-
-
-
-
-
-
-
-
-
-
-### T2-PROGRESS-20261018-030：序列配置面首次上台架——四板读数一致，派生周期与图完全对上
-
-- **台架（build 20261017174216，四板一致）**：
-  - TRIGger:SEQuence:TIMing? → A=1, B=1, C=1, D=1, E=8000, G=200000（µs）
-  - TRIGger:SEQuence:COUNts? → N通道=8, N极化=2, 网格=500 ns
-  - TRIGger:SEQuence:PERiod? → 16 动作, Δ动作=8003 µs, Δ位置=328048 µs —— 正好等于 16×8003+200000，与图里的推算一致
-  - TRIGger:SEQuence:REPeat? → 重复 1, 每位置总动作 16
-  - TRIGger:SEQuence:CODE? 3 → 通道 2, 极化 1（派生规则：3/2+1、3%2）
-  （每页前两个字段是本树 SCPI 回包的状态前缀，值从第三个字段起。）
-- **同轮 T2 不回归**：--steps 0-20 全步 OK；	x_publish 26774、DISTRIBUTED（从板 24040/23665/24009）、SEAT refused 0。
-- **仍未做**：④ runtime 一次交出整条动作表（计划表驱动重构）；GATEWAY 侧 stage_sequence；单板实测 Δ动作/TRIG→READY 对齐与踩踏计数。
-
-
-
-
-
-
-
-
-
-
-
-
-### T2-PROGRESS-20261018-029：一次交出 N 组的第二个卡点——`complete_action` 用全局模板数判断“是否最后一组”
-
-- **本轮实测（窗口版代码，构建通过、用例失败）**：一次交出两组后，第 0 组完成时 `service()` 已能走“窗口内 sequence 前进”分支（不再误判 BACKEND），但该位置**立刻被判为完成**：`mask=1 done=1 exec=1`。原因是 `complete_action()` 用 `group + 1u < s_local_template_count` 决定“还有没有下一组”，当该位置在当前配置里只有 1 个**角色组**（模板数 ≠ 计划表组数）时，它会在收到第 0 组回执时直接收尾。
-- **结论**：多组交接的“还有没有下一组”必须由**计划表自己**回答（`plan->group + plan->group_count` 与 `plan->group`），不能再用全局 `s_local_template_count`；这也解释了此前“组 0 完成就被判完成 / 或停在 PENDING”两种相反症状。
-- **本轮已回退**该尝试（`trigger_t2_runtime.c` 与用例），`test_trigger_t2_runtime` **37 passed**、构建绿、工作区 clean；网关侧 READY 踩踏计数已单独提交（`67be60fd`，P3 `build=20261017164327`）。
-- **下轮一次到位**：`complete_action` 改读计划的组表（`s_group_handed` 一并对齐），harness 里计划表与模板数保持一致；再补 `[sequence]` 断言“一次 arm、按组回执、最后一组才收尾”。
-
-
-
-
-
-
-
-
-
-
-### T2-PROGRESS-20261018-028：定位“交出一整条序列后 service 非 OK”的根因（runtime 的身份检查），并补齐计划构建的拒绝路径用例
-
-- **根因（代码定位，`trigger_t2_runtime.c:1137`）**：`service_deadlines()` 用**单一** sequence 做身份检查——`sequence != s_state.action_sequence[index]` 或 `deadline != s_deadline[index].deadline_tick` 即判 `BACKEND` 失败。一次交出 N 组后，第 0 组完成时后端把 `status.sequence` 推进到 **base+1**（下一组已 armed），而 runtime 只记了 base ⇒ 判身份不符 ⇒ `action_fail(BACKEND)` ⇒ `service()` 非 OK。这是三次尝试都停在“组 0 完成那次 service”的真实原因（此前只是推测）。
-- **正确修法（下轮实施）**：把“已交出窗口”记成区间 `[base, base+N−1]`；`service_deadlines` 接受窗口内任一 sequence，并把“sequence 前进一格”解释为“上一组完成、下一组已在硬件”，据此推进 `s_group_next/armed` 而**不再 arm**；只有落在窗口外才走现有 BACKEND 失败路径。
-- **本轮落地（可验证的小步）**：执行器的计划构建补**拒绝路径**用例（此前只测成功路径）：非单调偏移、间隔小于指令预算（0,5）、组 0 偏移不为 0、基点已过——四种都必须返回 false 且**不留半装载的管道**（断言 `ctrl` 未使能、TX FIFO 空、无引脚写）。`test_sync_io_switch + test_sync_io_sequence_plan` **28 passed**，构建绿。
-
-
-
-
-
-
-
-
-
-
-### T2-PROGRESS-20261017-026：序列执行接线（`stage_sequence` + 排空续填）与三位置序列流图
-
-- **接线（SWITCH 侧，按你的口径：以时间片为基点、在共同时间轴编序列）**：`sync_io_switch_realtime_stage_sequence(base_deadline_tick, codes, delta_ticks, count)`：
-  1. 用 `sync_io_sequence_plan_build()` 以 `now`（一次 TIMER1 采样）为起点、`base_deadline_tick` 为位置时间片，把共同轴上的组偏移编成两字流（首个 `base−5`、链式 `间隔−7`）；
-  2. 第一组按**与单触发完全相同**的方式起边沿：同一采样窗口做 origin 检查（≤ `SYNC_IO_SWITCH_ORIGIN_MAX_NS`），失败则清 FIFO/关 SM 并置 FAULT；
-  3. 其余词对由 `sequence_feed()` 在两个 SM 的 TX FIFO **都**有 ≥2 字空间时成对补入（避免把某一组的 code/delay 拆散），`poll()` 在队头完成后调用它；
-  4. 组表耗尽且回执齐 ⇒ 关 SM、`state=COMPLETE`；STOP 取消全部并清序列表。
-- **不变量**：续填只决定"还有没有下一组"，**不决定下一组何时打**——那个由表里的 delay 决定；这正是 `SYNC-SCHED-001` 要的"tick 驱动而非完成驱动"。
-- **图示**：新增 [`T2_SEQUENCE_FLOW.svg`](T2_SEQUENCE_FLOW.svg)，按三个位置（P1/P2/P3）编排：① 共同时间轴上的时间片与组偏移（`Δq=0/+2/+5`，示例值）→ ② 本地 tick 投影（与 deadline 同一换算）→ ③ 两字触发流与 `−5 / −7` 预算 → ④ PIO 执行、FIFO 排空续填与回执；图上标明 `rx_local_tick`（受理戳）与 `base_tick` 同域。架构文档 `T2-SEQ-TRANSPORT` 已引用此图。
-- **验证**：`test_sync_io_switch + test_sync_io_sequence_plan` **27 passed**；固件构建绿（`sync_io_sequence_plan.c` 已入 `CMakeLists`，`sources=1822`）；P3 全链 PASS_WITH_WARNINGS（见凭证）。
-- **未闭合**：`stage_sequence` 的**专用宿主用例**（三组边沿+回执）尚未补；GATEWAY 侧同构接线；`trigger_t2_runtime` 把该位置整条组序列一次交出的调用点；单板台架的"组间间隔误差"实测。
-
-
-
-
-
-
-
-
-
-
-### T2-PROGRESS-20261017-025：借鉴 node-sequence 分支定下组序列通道（DMA 喂 FIFO），并修正 SWITCH 链式预算常数
-
-- **借鉴结论（先读代码，再决定）**：`origin/feature/node-sequence-reservation-trigger` 的序列能力是**边沿驱动**（`docs/trigger/TRIGGER_SEQ_STEP_DESIGN.md`：每个 `TRIG_IN` 上升沿按编码表步进一位；`sync_io_sequence.pio` 是 ingress + 状态机），与 T2 的**时间调度**不同源，不能直接搬。可借的是**执行面形态**：
-  1. **表驱动 + DMA 喂 PIO 的 TX FIFO**：`sync_io_sequence.c` 用 `channel_config_set_dreq(pio_get_dreq(SM,true))` + `read_increment` over `s_plan` + `chain_to` 重载（`DMA_SLOTS 5`）；
-  2. **plan 一致性**：`plan` 带 `id/generation/count/crc`（`trigger_sequence_config.h`）；
-  3. **有限配额**：`max_steps` + PIO 内 `jmp y--` 到永久 park（`sequence_finite_ingress`）；
-  4. **结果码枚举**：`trigger_sequence_service_result_t` 12 项。
-- **由此修正设计（写进架构）**：组序列不再靠软件逐组 `pio_sm_put`（"两字/触发"后 FIFO 只容 **2 组**，第 3 组又回到软件时序），改为**DMA 按 TX DREQ 喂同一份组表**（元素 `[code/width, delay_ticks]`，delay 为与上一组边沿的间隔）。组数上限改由 RAM 决定，软件只在换表时介入。见 `TRIGGER_T2_ARCHITECTURE.md` §「T2-SEQ-TRANSPORT」。
-- **SWITCH 链式常数修正（本轮）**：按 `sync_switch.pio` 逐条数指令推得 `next_edge = prev_edge + 6 + 1 + X`，故队列触发的 delay 应为 `delta − 7`（此前写 8，提前 1 拍）。已改 `components/sync_io/src/sync_io_switch.c` 并注明推导，测试 28 passed、构建绿。
-- **GATEWAY 深度 2 仍卡在同一处**：新程序下"脉宽精确 250 周期"断言不过（`fall−rise ≠ 250`；结合 `pc=13` 现象，怀疑 mock 里 `out y` 与 `pull` 的取字顺序/相位仍与固件不一致）。已二度回退，`test_sync_io_gateway + test_sync_io_switch` **76 passed**，树内只保留 SWITCH 的 `−7` 修正。下次应按 `T2-SEQ-TRANSPORT` 直接上 DMA 组表，而不是继续在 2 深队列上磨 gateway。
-
-
-
-
-
-
-
-
-
-
-### T2-PROGRESS-20261017-024：接收时间戳落地（语义/落点/台架证据），P3 再次通过
-
-- **语义（写进头文件，不靠口头约定）**：`trigger_t2_runtime.h` 新增 `rx_local_tick`＝本板**受理**位置记录那一刻的本地 TIMER1 tick，由本地 `action_cursor` 经**与 deadline 相同的 DCO/TIMER1 换算**投影得到（不读额外时钟、不伪造）；`rx_local_sample_seq`＝该时刻的本地 coarse 网格号；`rx_timestamp_count`＝已打戳受理次数；`rx_stale_count`＝**受理时该记录 deadline 已过去**的次数（"别把旧接收时间戳套进新模型"的可观测形式）。注释明确区分：这**不是**传输车道的到达时刻（那个在 `distributed_refmem`）。
-- **落点**：一条记录一个戳（一条记录带两个位置、同一时刻受理），放引擎状态而非 361 位置数组；打戳点在 `prepare_deadlines_core0()` 的**新描述符被采纳并发布计划**处（`group==0`），不在每轮重复解算处。页追加（只增不改）：`TRIGger:RESERVation:T2?` 尾 5 字段 = `rx_local_tick_lo/hi, rx_local_sample_seq, rx_timestamp_count, rx_stale_count`（页面 72 → 77 字段）。
-- **台架证据（build `20261017142410`，`--steps 0-20`，22 步全 OK）**：三块从板 `stamps 14,531 / 14,598 / 14,898`、`rx_local_tick` 非零、**`stale 0`**；源板（COUNTER）`stamps 0`——它对位置只发布不受理，符合语义。同轮非回归：`tx_publish 15,963`、`DISTRIBUTED`（从板 `13,697/13,530/13,758`）、`SEAT refused 0`。
-- **注意（未台架验证项）**：同伴字段初版用的是 `carrier_sequence`，实测四板恒为 0（无 carrier 流），故改成语义明确的本地网格号 `sample_seq`；该**改名只过了宿主用例**，尚未再上板读数。
-- **P3**：全链再跑一次 **PASS_WITH_WARNINGS**，凭证 `build_id=20261017144026`、`source_tree_sha256=8b78db5e…`、`generated_at_utc=2026-10-17T14:49:04Z`；宿主 `trigger_t2/t2_/seat/refmem` 选择 **321 passed**。
-- **未闭合**：GATEWAY 深度 2（上一条的失败证据仍在）；组序列接口 `base_tick + 组序列表`；契约登记债务。
-
-
-
-
-
-
-
-
-
-
-### T2-PROGRESS-20261017-023：GATEWAY 深度 2 首次尝试未通过宿主时序断言，已回退（保留证据供下次直接接续）
-
-- **做了什么**：按 SWITCH 已验证的模板把 GATEWAY 也改成"两字/触发"（word A=脉宽写入 Y 并作回执、word B=延时）+ 深度 2 队列：`sync_gateway.pio` 8→11 条指令、`SYNC_IO_GATEWAY_OUTPUT_WORDS 11`、`start_deadline(deadline)` 内部按"首触发/排队触发"分流（排队时用 `deadline − previous − 12` 的**间隔**）、`s_queue[2]` 与逐条 `sequence/width`、STOP 取消全部、回执按 head 的 width 归属、`safe_stop()` 清队列。
-- **卡在哪里（精确证据）**：mock 已同步（程序长度 11、wrap `hi=15`、`out y` 与 `mov isr,y` 解码、`pio_sm_put` 允许在运行时喂 FIFO、"第二次递交必须被拒"翻转为"第二次入队/第三次拒绝"），但脉冲**宽度断言**不过：`advance(260)` 时 `pc=13`（恰停在 `set pins,0` 前），放宽到 `advance(300)` 后 `fall_tick-rise_tick != 250` 仍失败。说明新程序相对旧程序在"上升沿→下降沿"上存在 **±1 周期**的相位差（新增 `pull/out y` 使 `out x` 晚 2 拍，我用 `−5` 只补了 1 拍），而用例要求"脉宽精确等于配置值"。这条必须先在 mock 里把**边沿→循环计数**的相位算清（或让用例断言 `|delta-250|<=1` 并另加一条"绝对脉宽由硬件保证"的证据），再继续。
-- **当前状态**：**已 `git checkout` 回退** GATEWAY 四个文件（保持树干净、不提交半成品）；`test_sync_io_gateway + test_sync_io_switch` 重新 **76 passed**。SWITCH 侧的深度 2 不在回退范围内（已在提交 `d3ea7fb5` 内）。
-- **下次接续清单**：① 在 mock 里显式建模"边沿指令周期"（`set pins` 的生效时刻），把 `−5` 与 `−12` 两个常数一次定准；② 用例区分"精确脉宽（硬件保证）"与"宿主模拟相位（可 ±1）"；③ GATEWAY 通过后再做接口层 `base_tick + 组序列`。
-
-
-
-
-
-
-
-
-
-
-### T2-PROGRESS-20261017-022：P3 全流程通过（含 DPLL60）——修复的是"判据尾巴"，不是 VDC 发布；并修掉构建身份冻结
-
-- **P3 结果（本轮新增凭证）**：`--profile full` 全链跑通，`PASS_WITH_WARNINGS`（INFO 33 / WARN 10 / ERROR 0 / FATAL 0），step 36 自检 OK，凭证写入 `config/hardware_acceptance/p3_acceptance_receipt.json`：`schema=HAOFV_HARDWARE_ACCEPTANCE_RECEIPT_TDMA_4NODE_QUICK_GRADED_V1`、`passed=true`、`generated_at_utc=2026-10-17T14:00:46Z`、`build_id=20261017135128`、`source_tree_sha256=7433b7e9…`（1819 文件）。DPLL60 摘要 `passed=true / evidence_status=PASS`。
-- **"VDC 发布坏了"是我的误判，已更正**：`tx_publish`/`tx_release` 在今天**每一次** T2 整跑（含 17:43，改动之前）都静止，`tx_ready_count` 恒 1 —— 那是 T2 启动前的遗留镜像，T2 走一等席不喂普通 FIFO，**不是 VDC 故障证据**。据此追的三轮"FIFO 停滞"结论作废。
-- **DPLL60 反复失败的真实原因＝终止 bin 的停机尾巴**：离线解析 `capture/NO*/decoded.json`（`success_gap_basis=after_first_success`），11:39 那轮稳态各 bin 最大成功间隔 **37.6/47.2/45.3/50.1 ms**，而 **TERMINAL bin 为 1.70/1.16/0.54/0.04 s**；判据此前对**所有** bin 取 `max()`，于是把"目标完成后到窗口结束的静默"当成成功间隔，`1.70 s` 直接顶掉 1.0 s 门限。修复：判据只在**非 TERMINAL 稳态 bin** 取最大值，尾巴另存 `terminal_success_gap_s` 供复核；本轮通过跑实测稳态 13–41 ms、尾巴 0.01–0.03 s。
-- **`T2` 拍抢占规则的反例（重要，勿再"优化"回来）**：曾把 T2 准入改为"仅空闲拍"（`&& !normal_due`），结果**自锁**——`last_publish_ms` 只在真正发帧时推进，普通通道一旦有帧未被取走就停发，`normal_due` 永远为真，而 T2 是唯一绕过 FIFO 的通路，于是整链 0 帧（两轮整跑实测 `tx_publish 0`、313–568 s、`NO DELIVERY`，同轮生产端仍 `coalesced 22,788`）。已回退并在代码注释中写明原因；同时把 `wait_reason` 归因改准：只有 `resident_master || feedback>0` 才记 `FAILURE_FEEDBACK`，否则记新的 `FAILURE_FIFO_READY`。
-- **feedback 拒发仪表（保留，用于以后定位）**：`feedback_prepare()` 的各 `-1` 分支加 `last_reason` + 分桶计数（1 未就绪+在飞、2 未就绪+offer、3 快照忙、4 绑定变化），`SYSTem:REFMEM:SYNC:FLIGHT?` 页尾追加 9 字段（只增不改）。本轮四板读数**全 0** ⇒ feedback 从未拒发，这是"VDC 发布无辜"的直接证据。
-- **构建身份冻结（真工具缺陷，已修）**：`PROJECT_BUILD_ID` 在 configure 时生成，而 `tools/cmake_build_auto/cmake_build_auto.py:cache_matches()` 只比较路径 ⇒ 复用构建目录一律跳过 configure ⇒ id 永远停在首配值（`dpll60-latest` 的包声称 `20261016011253`，却在编译当天源码）。修复：新增 `source_state_digest()`（源码路径+大小+mtime 的 SHA-256）落盘为 `.dsh_source_state`，`cache_matches()` 追加该比对。实测：源码变 ⇒ `configure=needed`；未变 ⇒ `configure=skip`；生成 id 变为 `20261017134124`。
-- **FIFO 防御性修复（保留）**：`tdma_pio_spi_ring_origin.inc` 的"重复帧"分支与 5 条拒收路径在 `acquire_tx()` 后补 `release_tx()`，并新增 `origin.flight_publish_reject_count`；坏帧不得永久占用唯一活动槽。
-- **未闭合**：`SYNC-SCHED-001` 深度 2 仍只完成 SWITCH 侧（GATEWAY 未改）；契约登记（`ARCH-TRIGGERSLICE-01` 仍写 10 B@14、`TDMA-PROCESSIMAGE-01` C2、`POSition?` 35 字段与 `T2?` 72 字段）；`T_drain` 默认值需按 Core1 相位预算重新定档并登记。
-
-
-
-
-
-
-
-
-
-
-### T2-PROGRESS-20261017-020：位置 TX 改为"最新值表 + 定周期取数"——台架首次 `coalesced 671`、零拒绝、零迟到
-
-- **背景与根因（代码事实，不是推断）**：单深度一等席时代，生产者每轮解算都"递交一次"，座位被占就 `stage_refused_count++` 并重试同一条 ⇒ 该计数实际是**轮次忙等计数**（实测 1.07–1.50 次/条），拒绝率随公告簇发在 6.6%–33.4% 之间漂移；`T_drain` 也无法改变发送量，因为 `trigger_t2_runtime.c` 里还有一句旧邮箱门 `if (distributed_refmem_position_descriptor_pending()) return;` 让**生产者被发射端反向锁死**（50 ms 那轮发送速率仍随取数上限走、`coalesced` 恒 0）。
-- **实现**：`distributed_refmem` 的 TX 侧删除单槽邮箱，改为每位置一格最新值表（`DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS=3`）；生产端 `stage_position_descriptor()` 永不因背压失败（仅非法描述符失败），写已有未发值即覆盖并计 `tx_coalesced_count`，等待中的 FREEZE 不被 PREVIEW 覆盖；发射端 `position_tx_prepare(owner)` **只在 `tdma_service_first_class_free(owner)` 为真时取值**，因此递交不可能被拒；PREVIEW 受 `T_drain` 约束、FREEZE 不受约束；取值时把下一位目标写进同一 16 B 切片 `[10..15]`（一条记录两个位置）。删除上述生产者 pending 门。
-- **安装参数（新增 SCPI，掉电回默认）**：`T2:DRAIN <ms>` / `DRAIN?`（默认 6，上限 1000，0=不限速）；`T2:ANNOUNCE <tol>,<min>,<global>` / `ANNOUNCE?`（默认 4/10/6，**0 = 该闸门不抑制**，越界拒绝且不改已安装值）。页追加：`SYSTem:REFMEM:SYNC:FLIGHT:POSition?` 第 35 字段 `tx_coalesced_count`；`TRIGger:RESERVation:T2?` 末字段 `fallback_promoted_count`。
-- **台架判据（build `20261017102517`，`--steps 0-20`，220 s 采样，22 步全 OK）**：`SEAT refused 0`、`tx_reject 0`、**`tx_coalesced_count 671`**、发送速率 **171/s**（贴住 6 ms 上限 ≈167/s）、四板 **361/361/361/361**、`late/expired/no_plan/conflict/backend` 全 0、从板 `decode_reject 0`、`DISTRIBUTED`；`freeze_fallback`（版本不匹配）27/30/16。
-- **反例（同一固件、只改安装参数）**：`T_drain=50 ms` ⇒ SWITCH_A `abandoned 28 / late 28`、SWITCH_B `abandoned 29 / late 27 / backend 2` ⇒ **50 ms 超出从板流水线预算，6 ms 才是安全区**；该轮 `coalesced` 仍为 0，正是生产者 pending 门未删前的证据。
-- **口径更正**：此前把 `freeze_fallback_count`（FREEZE 版本 ≠ 本地最新解算版本）当作"第二位置使用次数"是**错的**；第二位置的真实计数是 `fallback_promoted_count`，全 361 位置实测 **0 次**。方向（本地更新/更旧）尚未记录，待加两个方向计数后定性。
-- **未闭合**：契约登记（`ARCH-TRIGGERSLICE-01` 仍写 10 B@14，实际已是 16 B@8；`TDMA-PROCESSIMAGE-01` C2 按 class 子区复用未闭环；`POSition?` 31→35 字段与 `T2?` 72 字段待登记）；P3 凭证与提交。宿主：`refmem/trigger_position/t2_/seat/vdc_feedback` 选择 **576 passed**，受影响 4 文件 24 passed。
-
-
-
-
-
-
-
-
-
-
 
 ## 归档索引
 
@@ -2740,3 +2620,4 @@ Last updated: 2026-10-20
 | `docs/legacy/trigger/LEGACY_TRIGGER_T2_TASK_PROGRESS_08.md` | `T2-PROGRESS-20261015-003..T2-PROGRESS-20261014-004` | 6 | 2026-10-19 |
 | `docs/legacy/trigger/LEGACY_TRIGGER_T2_TASK_PROGRESS_09.md` | `T2-PROGRESS-20261016-007..T2-PROGRESS-20261015-004` | 10 | 2026-10-19 |
 | `docs/legacy/trigger/LEGACY_TRIGGER_T2_TASK_PROGRESS_10.md` | `T2-PROGRESS-20261016-016..T2-PROGRESS-20261016-008` | 9 | 2026-10-19 |
+| `docs/legacy/trigger/LEGACY_TRIGGER_T2_TASK_PROGRESS_11.md` | `T2-PROGRESS-20261018-034..T2-PROGRESS-20261017-020` | 13 | 2026-10-20 |
