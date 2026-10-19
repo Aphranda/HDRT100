@@ -140,6 +140,18 @@ def step_counters(state, args):
     snapshot = OUT / "sequence_snapshot.json"
     readings = {}
     if snapshot.exists():
+        # Keep one copy per run: the gateway's throughput drifts run over run with clean failure counters, and
+        # a single overwritten snapshot cannot show which counter is accumulating.
+        import datetime as _dt
+        import shutil as _shutil
+        runs = OUT / "runs"
+        runs.mkdir(parents=True, exist_ok=True)
+        stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        try:
+            _shutil.copyfile(snapshot, runs / f"snapshot-{stamp}.json")
+        except OSError:
+            pass
+    if snapshot.exists():
         import json as _json
         snap = _json.loads(snapshot.read_text(encoding="utf-8"))
         for slot, pages in snap.items():

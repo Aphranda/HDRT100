@@ -1,35 +1,39 @@
 {
  "schema": "HAOFV_T2_SEQUENCE_ACCEPTANCE_RECEIPT_V1",
  "passed": true,
- "source_tree_sha256": "1a3e58c919151c351d08bb8525a20f85ceafb95a0397a33fb9f85dc900e90328",
+ "source_tree_sha256": "15e46e94d2506fa12cfb935c40b465dd7594c5a30a72a3a80d241b57398b2498",
  "source_file_count": 1827,
- "generated_at": "2026-10-19T22:26:07+08:00",
- "groups": null,
+ "generated_at": "2026-10-19T23:30:27+08:00",
+ "positions_criterion": 361,
+ "full_revolution_roles": 2,
+ "failures": 0,
  "roles": {
   "SWITCH_A": {
    "executed": 5776,
    "groups": 16,
-   "positions": 361,
+   "expected": 5776,
    "no_plan": 0,
    "late": 0,
-   "backend": 0
+   "backend": 0,
+   "full_revolution": true
   },
   "GATEWAY": {
-   "executed": 157,
+   "executed": 5628,
    "groups": 16,
-   "positions": 361,
+   "expected": 5776,
    "no_plan": 0,
    "late": 0,
-   "backend": 0
+   "backend": 0,
+   "full_revolution": false
   },
   "SWITCH_B": {
    "executed": 5776,
    "groups": 16,
-   "positions": 361,
+   "expected": 5776,
    "no_plan": 0,
    "late": 0,
-   "backend": 0
+   "backend": 0,
+   "full_revolution": true
   }
- },
- "verdict_ok": false
+ }
 }

@@ -69,6 +69,14 @@ typedef struct {
 } gateway_plan_group_t;
 static gateway_plan_group_t s_plan[GATEWAY_PLAN_MAX];
 static uint32_t s_plan_count, s_plan_next;
+/* Why the staged plan was last cleared (see sync_io_gateway_realtime_diag). */
+typedef struct {
+    uint32_t reason, plan_next, complete, tick_lo;
+} gw_clear_event_t;
+static gw_clear_event_t s_clear_ring[4];
+static uint32_t s_clear_ring_next;
+static void note_plan_clear(uint32_t reason);
+
 /* Output SM is enabled and holds this position's pulse width in Y. */
 static bool s_output_running;
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
@@ -350,6 +358,17 @@ bool sync_io_gateway_realtime_fire(uint32_t pulse_ns)
 /* Defined with the scheduler below; used by the service path to arm the next group. */
 static bool GATEWAY_HOT(schedule_continuation)(uint32_t pulse_ns,uint64_t deadline_tick);
 
+static void note_plan_clear(uint32_t reason)
+{
+    gw_clear_event_t *e = &s_clear_ring[s_clear_ring_next & 3u];
+    e->reason = reason;
+    e->plan_next = s_plan_next;
+    e->complete = s_service_complete;
+    uint64_t now = 0u;
+    e->tick_lo = raw_tick(&now) ? (uint32_t)now : 0u;
+    ++s_clear_ring_next;
+}
+
 void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
 {
     if(get_core_num()!=1u || !s_lease)return;
@@ -380,7 +399,7 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
                 s_plan_count=0u;s_plan_next=0u;
                 s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
             }
-        } else s_plan_count=0u;
+        } else { note_plan_clear(1u); s_plan_count=0u; }
     } else if(__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE)) {
         ++s_service_wait;
     }
@@ -517,6 +536,11 @@ void sync_io_gateway_realtime_diag(uint32_t *out)
     out[23]=out[24]=out[25]=0u;
 #endif
     out[26]=__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE);
+    const gw_clear_event_t *last = &s_clear_ring[(s_clear_ring_next + 3u) & 3u];
+    out[27]=last->reason;
+    out[28]=last->plan_next;
+    out[29]=last->complete;
+    out[30]=last->tick_lo;
     out[19]=s_service_wait;
     out[20]=s_service_bad_receipt;
     out[21]=s_service_complete;
