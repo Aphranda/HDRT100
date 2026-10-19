@@ -95,7 +95,11 @@ SOURCE_ROOT_FILES = {
     "CMakeLists.txt", "CMakePresets.json", "pico_sdk_import.cmake",
     "pytest.ini",
 }
-SOURCE_EXCLUDES = {DEFAULT_RECEIPT.as_posix()}
+SOURCE_EXCLUDES = {
+    DEFAULT_RECEIPT.as_posix(),
+    # A T2 acceptance receipt must not change the fingerprint it certifies (same rule as P3).
+    "config/hardware_acceptance/t2_acceptance_receipt.json",
+}
 SCHEDULE_HEADER_FIELDS = 8
 SCHEDULE_PHASE_FIELDS = 11
 DEFAULT_ACCEPTANCE_TIMING = {

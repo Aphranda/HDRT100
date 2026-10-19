@@ -33,12 +33,12 @@ echo "[pre-commit] doc gates OK"
 fi
 
 if [ "$needs_firmware_gate" -eq 1 ]; then
-    echo "[pre-commit] P3 hardware acceptance..."
+    echo "[pre-commit] hardware acceptance (P3 receipt or T2 sequence run)..."
     python tools/hardware_acceptance/p3_hardware_acceptance.py check-staged || {
-        echo "P3 hardware acceptance FAILED - run the mandatory build/OTA/P3 gate"
+        echo "hardware acceptance FAILED - run the T2 sequence workflow to a PASS (tools/sync_trigger/sequence_workflow.py), or the P3 gate"
         exit 1
     }
-    echo "[pre-commit] P3 hardware acceptance OK"
+    echo "[pre-commit] hardware acceptance OK"
 else
     echo "[pre-commit] P3 hardware gate skipped (no firmware-scope changes)"
 fi

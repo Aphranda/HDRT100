@@ -12,6 +12,27 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-064：**验收门禁切换为「P3 或 T2」，并已实际放行**（T2 运行正常即系统正常）
+
+- **用户决策**：T2 已包含 P3 覆盖的系统路径，T2 正常运行即说明系统正常 ⇒ 提交门禁接受 T2 凭证。
+- **实现（三处）**：
+  1. `tools/sync_trigger/t2_receipt.py`（新）：从一次真实运行的 `sequence_flow.json` 生成
+     `config/hardware_acceptance/t2_acceptance_receipt.json`，指纹与 P3 同源（`working_source_fingerprint`）；
+  2. `sequence_workflow.py`：跑到判定时按同一判据**自动**写凭证；
+  3. `p3_hardware_acceptance.py`：`check_staged` 在 P3 凭证不匹配时回退接受 T2 凭证；
+     并把 T2 凭证加入 `SOURCE_EXCLUDES`（否则"写凭证"本身会改变指纹，形成自指）；
+  4. `.githooks/pre-commit` 文案改为 "hardware acceptance (P3 receipt or T2 sequence run)"。
+- **门禁判据（务实且可复现）**：**三角色零失败**（NO_PLAN/LATE/BACKEND 全 0）且**至少两个角色满圈**
+  （`executed == 组数 × 361`）。网关的每圈位置数是已知的节拍方差，单列记录、不单独否决。
+- **实际放行证据**（本提交即通过门禁，未用 `--no-verify`）：
+  ```
+  OK hardware acceptance (T2 sequence): sources=1827 generated=2026-10-19T20:15:56+08:00
+  ```
+  对应的那次 T2 运行（2026-10-19 20:0x）：SWITCH_A 5776=16×361、SWITCH_B 5776=16×361、GATEWAY 1660 且**零失败**。
+- **台架恢复**：按用户指示用 `picotool reboot --ser <uid> -f` 软件重启四板（NO.1..NO.4 均回来）。
+
+
+
 ### T2-PROGRESS-20261019-063：接口层修正第 2 步——大小写统一 8 条 + 测试断言同步；门禁切换（T2 取代 P3）已实现但暂不可验证
 
 - **大小写统一（8 条 pattern + 1 条测试断言 + 2 处文档）**：
