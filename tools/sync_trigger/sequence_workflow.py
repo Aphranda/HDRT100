@@ -138,6 +138,7 @@ def step_counters(state, args):
     # The chain writes this file just before teardown; polling the boards afterwards always yields zeros
     # because the teardown resets the runtime.
     snapshot = OUT / "sequence_snapshot.json"
+    baseline = OUT / "sequence_baseline.json"
     readings = {}
     if snapshot.exists():
         # Keep one copy per run: the gateway's throughput drifts run over run with clean failure counters, and
@@ -170,6 +171,28 @@ def step_counters(state, args):
                 "finished": diag[4] if len(diag) > 4 else "?",
                 "source": "snapshot",
             }
+        # Counters are monotonic across runs: report THIS run by subtracting the pre-sampling baseline.
+        if baseline.exists():
+            try:
+                base = _json.loads(baseline.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                base = {}
+            for slot_r, pages in (base or {}).items():
+                role = ROLES[int(slot_r)] if int(slot_r) < len(ROLES) else f"slot{slot_r}"
+                current = readings.get(role)
+                if not current:
+                    continue
+                b_why = fields((pages or {}).get("why", ""))
+                b_diag = fields((pages or {}).get("diag", ""))
+                for key, base_seq, index in (
+                        ("executed", b_why, 2), ("late", b_why, 7), ("expired", b_why, 8),
+                        ("no_plan", b_why, 9), ("backend", b_why, 11), ("finished", b_diag, 4)):
+                    try:
+                        delta = int(current.get(key)) - int(base_seq[index])
+                    except (TypeError, ValueError, IndexError):
+                        continue
+                    current[key] = str(max(delta, 0))
+                current["baseline"] = True
         state["readings"]["counters"] = readings
         return (f"read {len(readings)} roles from the snapshot", bool(readings))
     ctx, boards = board_session()

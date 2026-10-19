@@ -2960,6 +2960,26 @@ def step_20_sampling(ctx, slot, board, uid):
         ctx.send(member, f"TRIGger:SEQuence:REAdy {_ready}")
         print(f"  slot {slot_r} SEQuence:REAdy {_ready} (before sampling) -> "
               f"{ctx.send(member, 'TRIGger:SEQuence:REAdy?')[:24]}", flush=True)
+    # Baseline BEFORE sampling: the runtime counters are monotonic across runs, so the verdict must subtract
+    # this snapshot (see T2-PROGRESS-20261020-004). Written next to the post-run snapshot.
+    try:
+        import json as _json_b
+        _base = {}
+        for uid_r, slot_r, _i, _o, _f in ROWS:
+            member = ctx.boards.get(f"{uid_r:016X}")
+            if member is None:
+                continue
+            _base[slot_r] = {
+                "why": ctx.send(member, "TRIGger:REServation:T2:ACTion:WHY?"),
+                "diag": ctx.send(member, "TRIGger:REServation:T2:ACTion:DIAG?"),
+                "gwdiag": ctx.send(member, "TRIGger:REServation:T2:ACTion:GWDIAG?"),
+            }
+        _base_path = pathlib.Path("out/sync_trigger/sequence_baseline.json")
+        _base_path.parent.mkdir(parents=True, exist_ok=True)
+        _base_path.write_text(_json_b.dumps(_base, indent=1), encoding="utf-8")
+        print(f"  sequence baseline -> {_base_path}", flush=True)
+    except Exception as _exc:                     # never fail a run because of a diagnostic
+        print(f"  sequence baseline skipped: {type(_exc).__name__}", flush=True)
     for tick in range(ticks):
         time.sleep(2.0)
         for uid_r, slot_r, _i, _o, _f in ROWS:

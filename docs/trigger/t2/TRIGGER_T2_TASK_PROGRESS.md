@@ -12,6 +12,26 @@ Last updated: 2026-10-20
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261020-005：**差值口径落地**——首次拿到"本轮真实吞吐"：开关 ≈354、网关 66~260
+
+- **改动（测量侧，两个工具）**：
+  1. `t2_workflow.py` 在采样**开始前**抓一次 `WHY?/DIAG?/GWDIAG?` 写入 `out/sync_trigger/sequence_baseline.json`；
+  2. `sequence_workflow.py` 的 counters 步骤对有基线的角色做**逐字段相减**（executed/late/expired/no_plan/backend/finished），
+     并在读数里标 `baseline=True`。
+- **两轮实测（差值口径）**：
+  ```
+  run1: SWITCH_A 5664(354 位置)  SWITCH_B 5664  GATEWAY 1051 ≈ 65.7 位置   backend 0
+  run2: SWITCH_A 5680(355)       SWITCH_B 5664  GATEWAY 4155 ≈ 259.7 位置  backend 1
+  ```
+  ⇒ **首次得到可信的"每轮"吞吐**：开关稳定在 354~355（361 减去基线窗口内的几处），
+  网关在 66~260 之间波动（开关的 19%~73%），且**未出现硬停住**。
+- **与上一条更正的关系**：`executed/16` 的"361/701/1054/1110"是累计值；差值口径下网关的真实每轮吞吐远低于开关，
+  所以**两字协议（预装）确实是提升吞吐的必经之路**，而不是"可能不需要"。
+- **下一步**：① 以差值口径连跑 5 轮，给出网关吞吐的 min/median/max（稳定性基线）；② 两字协议需要先重构
+  `test_sync_io_gateway.py` 的 mock（它把单字契约写死在断言里），再改 PIO/`start_deadline`/`service`。
+
+
+
 ### T2-PROGRESS-20261020-004：**重要更正**——网关 DIAG 计数是**跨轮累计**，"吞吐方差"大半是度量假象
 
 - **证据（24 份按轮归档快照的相关性分析）**：
