@@ -12,6 +12,22 @@ Last updated: 2026-10-20
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261020-014：三字协议落地（延时+序号+脉宽）、service 改为排空回执；快路径可跑 45 组但随后 NO_PLAN 洪水
+
+- **已实装（本轮）**：
+  1. PIO 第三个字 `pull/out y`（脉宽随每个触发重装，解决 Y 递减到 0 的问题），指令 8→**12**；
+  2. `start_deadline` 推入**三个字**、开销常量 6→8；`prepare_realtime` 不再预置 Y；
+  3. `service_core1` 改为**一次排空所有回执**（旧版每次只读一个，4 深 FIFO 会溢出丢完成），
+     并在表用尽时**清 pending**，让运行期能装下一个窗口。
+- **宿主用例**：`test_sync_io_gateway` + `test_trigger_t2_runtime` **88 passed**
+  （期间修正了 harness 的 12/18/17/12/29 等字数与 `out y` 目的寄存器支持）。
+- **台架**：`cont_hit 45 / miss 0`（续装真正生效，超过两字时的 23），`ring 1`（无失速），
+  但随后 **`no_plan 346`**：窗口跑完后运行期判定"计划组号不符"，把余下位置全部记 NO_PLAN。
+- **下一步（聚焦）**：核对 `s_sequence_override`（网关侧 base+plan_next-1）与运行期期望的
+  `s_action_sequence[index]` 是否错位——45≈3×15 组的偏移，正是错位一号的典型特征。
+
+
+
 ### T2-PROGRESS-20261020-013：续装失速的**机理已明确**——Y(脉宽) 不随每个触发重装，第二次起脉宽退化
 
 - **证据（跨组保持 SM 运行，两轮一致）**：`cont_hit 23~24 / miss 0`（快路径生效），随后 `ring=5` 失速、

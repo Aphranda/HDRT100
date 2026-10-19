@@ -7,6 +7,8 @@
     out x, 32
     pull block
     out isr, 32
+    pull block
+    out y, 32            ; pulse width in cycles: reloaded per trigger so a continued group keeps its shape
 delay:
     jmp x-- delay
     irq 6

@@ -54,6 +54,7 @@ static uint32_t s_service_wait, s_service_bad_receipt, s_service_complete;
  * table. Keeping them apart is what lets the runtime match a completion to a group (same model as the
  * switch, where the code word carried the group's identity). */
 static uint32_t s_pending_receipt, s_pending_sequence, s_sequence_override, s_plan_base_sequence;
+static uint32_t s_width_ticks;   /* cycles high, pushed with every trigger */
 /* Why a staged table was refused: NO_LEASE, BAD_COUNT, BAD_OFFSET, BAD_DELTA, BUSY, READY,
  * BAD_PULSE, SCHEDULE. */
 #define GATEWAY_STAGE_REJECT_COUNT 8u
@@ -105,12 +106,13 @@ static __attribute__((noinline)) bool GATEWAY_HOT(start_deadline)(uint64_t deadl
     uint64_t target=deadline;
     if(deadline<before+guard) { target=before+guard; ++s_late_count; }
     const uint64_t delta=target-before;
-    if(delta>UINT32_MAX || delta<6u) { ++s_arm_reject[3]; return false; }
-    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)(delta-6u));
+    if(delta>UINT32_MAX || delta<8u) { ++s_arm_reject[3]; return false; }
+    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)(delta-8u));
     pio_sm_put(GATEWAY_PIO,OUTPUT_SM,sequence);
+    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,s_width_ticks);   /* width for THIS trigger */
     /* Diagnostics: the word the PIO will wait on, and the deadline it came from. A stalled "armed but never
      * fired" group is explained by an absurd word (bad base tick) more often than by anything else. */
-    s_last_delay_word = (uint32_t)(delta-6u);
+    s_last_delay_word = (uint32_t)(delta-8u);
     s_last_deadline_lo = (uint32_t)deadline;
     s_last_delta_lo = (uint32_t)delta;
     pio_enable_sm_mask_in_sync(GATEWAY_PIO,GATEWAY_SM_MASK);
@@ -344,9 +346,7 @@ static bool prepare_realtime(uint32_t pulse_ns)
     pio_sm_exec(GATEWAY_PIO,READY_SM,pio_encode_jmp(s_ready_offset));
     pio_sm_exec(GATEWAY_PIO,READY_SM,pio_encode_mov_not(pio_x,pio_null));
     pio_interrupt_clear(GATEWAY_PIO,SYNC_IO_GATEWAY_GRANT_IRQ);
-    pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)pulse_ticks-2u);
-    pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_pull(false,true));
-    pio_sm_exec(GATEWAY_PIO,OUTPUT_SM,pio_encode_mov(pio_y,pio_osr));
+    s_width_ticks=(uint32_t)pulse_ticks-2u;
     s_ready_active=false;
     s_output_running=true;
     return true;
@@ -397,23 +397,15 @@ static void note_plan_clear(uint32_t reason)
 void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
 {
     if(get_core_num()!=1u || !s_lease)return;
-    if(__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE) &&
-       !pio_sm_is_rx_fifo_empty(GATEWAY_PIO,OUTPUT_SM)) {
+    /* Drain every completed group: with the fast path several pulses can finish between two service passes, and
+     * reading only one per pass overflowed the 4-deep RX FIFO (measured: 45 continuations, then 354 NO_PLAN). */
+    while(__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE) &&
+          !pio_sm_is_rx_fifo_empty(GATEWAY_PIO,OUTPUT_SM)) {
         const uint32_t receipt=pio_sm_get(GATEWAY_PIO,OUTPUT_SM);
-        __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);
-        /* NOTE: keeping the SM running here (to reach schedule_continuation) was measured to leave the SM
-         * stuck mid-pulse on the very first continuation: pc=28, tx empty, plan_next=2, late 345, backend 1.
-         * Reverted until the stale-disable source is fixed; the hit/miss counters stay for that work. */
-        /* Keeping the SM running (to reach schedule_continuation) is not compatible with the single-word
-         * protocol: the PIO pushes the ISR preloaded by prepare_realtime, so the second group's receipt does
-         * not match (measured: cont_hit=1, complete=1, bad_receipt=1, plan_next=2, sm_en=0 -> stalled).
-         * Re-enabled only together with the two-word protocol (delay + sequence). */
-        /* Keeping the SM running across groups is enabled only with the two-word protocol, and it stalls after
-         * ~23 continuations on hardware (ring=5 stall snapshot, then 35 NO_PLAN positions), so it stays off
-         * until that is fixed. */
-        pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
-        s_output_running=false;
         if(receipt!=s_pending_sequence) {
+            pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
+            s_output_running=false;
+            __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);
             ++s_service_bad_receipt;
             safe_stop();s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
             return;
@@ -422,8 +414,6 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
         s_deadline.completed_sequence=s_pending_sequence;
         if(s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_ARMED)
             s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_COMPLETE;
-        /* Next group of the staged table: armed now, at its own absolute tick, so the spacing
-         * between pulses is decided by the table rather than by this service pass. */
         if(s_plan_next<s_plan_count) {
             const gateway_plan_group_t group=s_plan[s_plan_next++];
             s_sequence_override=s_plan_base_sequence+s_plan_next-1u;
@@ -432,13 +422,19 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
             s_sequence_override=0u;
             if(!armed) {
                 s_plan_count=0u;s_plan_next=0u;
+                __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);
                 s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
+                return;
             }
-        } else { note_plan_clear(1u); s_plan_count=0u; }
-    } else if(__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE)) {
+        } else {
+            /* The staged table is finished: clear pending so the runtime can stage the next window. */
+            note_plan_clear(1u);
+            s_plan_count=0u;
+            __atomic_store_n(&s_realtime_pending,0u,__ATOMIC_RELEASE);
+        }
+    }
+    if(__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE)) {
         ++s_service_wait;
-        /* A group that never completes shows up here first. Snapshot the executor state once per 4096 waits
-         * so the stall is attributable without another run: reason 5 carries pc/tx/pending + the last word. */
         if((s_service_wait & 0xFFFu)==0u) note_stall_snapshot();
     }
     /* One READY per transaction; continue after the pulse completion. */
