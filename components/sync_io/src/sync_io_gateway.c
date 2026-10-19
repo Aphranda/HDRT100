@@ -71,6 +71,8 @@ static gateway_plan_group_t s_plan[GATEWAY_PLAN_MAX];
 static uint32_t s_plan_count, s_plan_next;
 static uint32_t s_last_delay_word, s_last_deadline_lo, s_last_delta_lo;
 static uint32_t s_continuation_hit, s_continuation_miss;
+/* Sequence this backend armed last, so a cancel can be scoped to its owner. */
+static uint32_t s_armed_owner, s_cancel_match, s_cancel_miss;
 /* Why the staged plan was last cleared (see sync_io_gateway_realtime_diag). */
 typedef struct {
     uint32_t reason, plan_next, complete, tick_lo;
@@ -404,6 +406,10 @@ void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
         /* NOTE: keeping the SM running here (to reach schedule_continuation) was measured to leave the SM
          * stuck mid-pulse on the very first continuation: pc=28, tx empty, plan_next=2, late 345, backend 1.
          * Reverted until the stale-disable source is fixed; the hit/miss counters stay for that work. */
+        /* Keeping the SM running (to reach schedule_continuation) is not compatible with the single-word
+         * protocol: the PIO pushes the ISR preloaded by prepare_realtime, so the second group's receipt does
+         * not match (measured: cont_hit=1, complete=1, bad_receipt=1, plan_next=2, sm_en=0 -> stalled).
+         * Re-enabled only together with the two-word protocol (delay + sequence). */
         pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
         s_output_running=false;
         if(receipt!=s_pending_receipt) {
@@ -474,6 +480,7 @@ static bool GATEWAY_HOT(schedule_continuation)(uint32_t pulse_ns,uint64_t deadli
     }
     ++s_continuation_hit;
     ++s_gateway.trigger_count;s_ready_active=true;
+    s_armed_owner=s_pending_sequence;
     __atomic_store_n(&s_realtime_pending,1u,__ATOMIC_RELEASE);
     s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_ARMED;
     return true;
@@ -580,6 +587,9 @@ void sync_io_gateway_realtime_diag(uint32_t *out)
     out[35]=s_last_deadline_lo;
     out[36]=s_last_delta_lo;
     out[37]=s_continuation_hit;
+    out[39]=s_armed_owner;
+    out[40]=s_cancel_match;
+    out[41]=s_cancel_miss;
     out[38]=s_continuation_miss;
     out[19]=s_service_wait;
     out[20]=s_service_bad_receipt;
@@ -604,6 +614,20 @@ bool __not_in_flash_func(sync_io_gateway_realtime_status)(sync_io_gateway_deadli
     if(get_core_num()!=1u || !out)return false;
     *out=s_deadline;out->ready_count=s_gateway.ready_count;
     out->pending=__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE);
+    return true;
+}
+
+bool __not_in_flash_func(sync_io_gateway_realtime_cancel_owned)(uint32_t owner)
+{
+    if(get_core_num()!=1u || !s_lease)return false;
+    if(owner==s_armed_owner || !__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE)) {
+        ++s_cancel_match;
+        return sync_io_gateway_realtime_cancel();
+    }
+    /* Another position owns the pulse in flight: drop the staged table only, never kill that pulse. */
+    ++s_cancel_miss;
+    if(s_plan_count) note_plan_clear(4u);
+    s_plan_count=0u;s_plan_next=0u;s_plan_base_sequence=0u;
     return true;
 }
 

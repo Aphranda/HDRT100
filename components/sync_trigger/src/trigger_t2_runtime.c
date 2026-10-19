@@ -1251,7 +1251,7 @@ static T2_RAM bool cancel_backend(void)
     }
     if (s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY) {
         sync_io_gateway_deadline_status_t status;
-        (void)sync_io_gateway_realtime_cancel();
+        (void)sync_io_gateway_realtime_cancel_owned(s_state.action_sequence[s_armed_index]);
         if (!sync_io_gateway_realtime_status(&status)) return true;
         note_backend(s_armed_index, status.state, status.origin_before_tick, status.origin_after_tick);
         return status.state == SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;

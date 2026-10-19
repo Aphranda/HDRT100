@@ -577,12 +577,12 @@ scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context)
 #define T2_GATEWAY_DIAG_SCHEMA 0xDA02u
 scpi_result_t scpi_cmd_trigger_t2_gateway_diag_q(scpi_t *context)
 {
-    uint32_t fields[39] = {0u};
+    uint32_t fields[42] = {0u};
     if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
     sync_io_gateway_realtime_diag(fields);
     scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
     SCPI_ResultUInt32(context, T2_GATEWAY_DIAG_SCHEMA);
-    for (uint32_t i = 0u; i < 39u; ++i) SCPI_ResultUInt32(context, fields[i]);
+    for (uint32_t i = 0u; i < 42u; ++i) SCPI_ResultUInt32(context, fields[i]);
     return SCPI_RES_OK;
 }
 

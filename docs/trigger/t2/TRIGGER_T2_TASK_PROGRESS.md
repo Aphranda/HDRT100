@@ -12,6 +12,26 @@ Last updated: 2026-10-20
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261020-003：定论——**续装与单字协议不兼容**（回执身份固定），必须走两字协议
+
+- **决定性证据（停住快照 + 计数，同一轮）**：
+  ```
+  cont_hit = 1     complete = 1     bad_receipt = 1
+  plan_next = 2    sm_en = 0        pending = 0      ring reason = 5
+  ```
+  ⇒ 续装把第二组的延时字推入 FIFO 后，PIO 结束时 `push` 的是 `prepare_realtime` 预置的
+  **ISR（第一组的序号）**，与第二组的 `s_pending_receipt` 不符 ⇒ 判为坏回执 ⇒ `safe_stop()` ⇒
+  计划停在 `plan_next=2`、整轮失速。
+- **结论**：只要回执身份仍由"每次 prepare 预置的 ISR"承担，**续装（预装下一组）就不可能成立**。
+  想拿到开关那样的吞吐，必须把"序号"放进**每个触发字**里——即早已成文的
+  `T2-GATEWAY-PRELOAD`（两字：延时 + 组序号，`push` 回序号）。
+- **本轮保留的资产**：① `sync_io_gateway_realtime_cancel_owned(owner)`（owner 匹配才立即停，
+  否则只清计划）——两字协议之后 `cancel` 语义仍然正确的前提；② `cont_hit/cont_miss`、
+  `armed_owner`、`cancel_match/miss` 计数（GWDIAG 39..41）；③ 停住快照 reason=5。
+- **下一轮**：实现两字协议（PIO 程序 + `stage_sequence`/service + 宿主 mock），再把"保持 SM 运行"打开。
+
+
+
 ### T2-PROGRESS-20261020-002：续装的"配套修法"与既有契约冲突——取消语义需要**按组归属**才能安全打开
 
 - **本轮尝试**：① 完成时保持 SM 运行（让续装可达）；② `cancel()` 改成"不再发组、但不杀在飞的脉冲"。

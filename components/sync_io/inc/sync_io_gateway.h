@@ -86,5 +86,7 @@ bool sync_io_gateway_realtime_ready_required(void);
 bool sync_io_gateway_realtime_stage_sequence(uint64_t base_deadline_tick,
     const uint32_t *pulse_ns,const uint64_t *delta_ticks,uint32_t count);
 bool sync_io_gateway_realtime_status(sync_io_gateway_deadline_status_t *out);
+/* Cancel scoped to the armed owner: a different owner only drops the staged table. */
+bool sync_io_gateway_realtime_cancel_owned(uint32_t owner);
 bool sync_io_gateway_realtime_cancel(void);
 #endif

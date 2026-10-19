@@ -39,13 +39,22 @@ def main() -> int:
 
     roles, full, failures = {}, 0, 0
     for role, r in readings.items():
-        groups = int(r.get("groups") or 0)
-        if not groups:
+        def as_int(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+        groups = as_int(r.get("groups"))
+        executed = as_int(r.get("executed"))
+        no_plan = as_int(r.get("no_plan")) or 0
+        late = as_int(r.get("late")) or 0
+        backend = as_int(r.get("backend")) or 0
+        if groups is None or executed is None:
+            # An unreadable page cannot certify anything: count it as a failing role.
+            failures += 1
             continue
-        executed = int(r.get("executed") or 0)
-        no_plan = int(r.get("no_plan") or 0)
-        late = int(r.get("late") or 0)
-        backend = int(r.get("backend") or 0)
+        if not groups:
+            continue                      # the position source carries no action groups
         expected = groups * args.positions
         roles[role] = {"executed": executed, "groups": groups, "expected": expected,
                        "no_plan": no_plan, "late": late, "backend": backend,
