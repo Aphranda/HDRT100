@@ -372,6 +372,8 @@ typedef struct {
     uint32_t done_skip_range, done_skip_none;
     /* Last identity mismatch inputs (see trigger_t2_runtime.c). */
     uint32_t id_seq_last, id_expected_last, id_count;
+    /* Why START refused: 0 guard, 1 grid cursor, 2 predictor configure, 3 predictor begin. */
+    uint32_t start_reject[4];
     uint64_t id_deadline_last, id_recorded_last;
     /* Last three advance decisions: completed (bit31 = seen but not advanced), expected, window_last. */
     uint32_t done_hist[3][3];

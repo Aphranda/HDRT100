@@ -12,6 +12,28 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-066：网关**不再停住**——"窗口已装"标志现在要求后端真的还持有计划（201 位置、零失败）
+
+- **根因（第二个，也是停住的主因）**：`service_deadlines()` 把 `s_window_staged[selected]` 当作
+  "执行器已持有本位置窗口"，于是**跳过 staging**、直接 `armed = true`。但网关会**丢掉**那个窗口
+  （cancel/失败/计划老化）而标志仍为 1 ⇒ 之后每个位置都"免费武装"、再也不会重新装载 ⇒
+  整轮 `executed 0`，且三类失败计数为 0（所以看起来"无错但不走"）。
+- **修法**：`window_held = s_window_staged && (非网关 || plan_pending())`；标志为真但后端已丢时，
+  先清零再**重新 staging**。同一处还补了"只有 `!window_held` 时才走单组 `schedule_at` 分支"。
+- **外加**：`START` 拒绝分桶（0 守卫 / 1 grid cursor / 2 predictor configure / 3 predictor begin）
+  已加入 `DIAG` 尾部——本轮实测 4 个桶全 0，说明挂载失败此前是**台架状态**（环未停/未 reboot），不是代码。
+- **台架验证（140 s 整圈，两处修复 + 四板 reboot）**：
+  ```
+  SWITCH_A 5776 = 16 × 361   BACKEND 0
+  SWITCH_B 5776 = 16 × 361   BACKEND 0
+  GATEWAY  3217 ≈ 16 × 201   BACKEND 0     ← 此前同条件是 executed 0（停住）
+  ```
+  ⇒ **停住消失**；网关吞吐约为开关的 56%（201/361），属节拍缺口，不再是稳定性故障。
+- **判据副产品**：本次运行满足门禁判据（三角色零失败 + 两角色满圈），`t2_acceptance_receipt.json` 已由
+  `sequence_workflow` **自动写入**，本轮提交即用它过门禁。
+
+
+
 ### T2-PROGRESS-20261019-065：网关稳定性——定位到"运行标志未随 SM 关闭而清零"（代码根因），并完成 real-flight 对照
 
 - **根因（代码级，证据充分）**：今天新增的"稳态续装"用 `s_output_running` 判断"SM 仍处于已准备且空闲"。

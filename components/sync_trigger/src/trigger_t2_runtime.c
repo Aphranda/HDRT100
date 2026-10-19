@@ -291,6 +291,8 @@ static uint32_t s_action_advance_count, s_action_finish_count;
 static uint32_t s_window_seq_seen, s_window_expected_seen, s_window_last_seen, s_window_complete_seen;
 /* Where a BACKEND failure came from: identity mismatch, terminal/cursor state, or a refused arm. */
 static uint8_t s_window_staged[TRIGGER_T2_RUNTIME_POSITION_COUNT];
+/* Why START refused: 0 guard, 1 grid cursor, 2 predictor configure, 3 predictor begin. */
+static uint32_t s_start_reject[4];
 /* Last identity mismatch: sequence, expected, armed deadline, recorded deadline, count. */
 static uint32_t s_id_seq_last, s_id_expected_last, s_id_count;
 static uint64_t s_id_deadline_last, s_id_recorded_last;
@@ -1463,10 +1465,20 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         /* The gateway is still draining the previous window: defer, do not fail the position. */
         return;
     }
-    if (s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY && s_window_staged[selected]) {
+    /* "Window staged" only counts while the executor still holds it: a backend cancel (failed group, stale
+     * plan, failure path) drops the table, and a stale flag made every later position arm nothing - the run
+     * then reported executed 0 with clean failure counters. */
+    const bool window_held = s_window_staged[selected] &&
+        (s_local_kind != TRIGGER_ACTION_TEMPLATE_GATEWAY ||
+         sync_io_gateway_realtime_plan_pending());
+    if (window_held) {
         armed = true;
         handed = s_deadline[selected].group_count;
-    } else if (plan->group_count > 1u) {
+    } else if (s_window_staged[selected]) {
+        s_window_staged[selected] = 0u;          /* the backend lost it: fall through and stage again */
+        armed = false;
+    }
+    if (!window_held && plan->group_count > 1u) {
         /* One call per window, whichever backend this role owns: the spacing then comes from
          * the table Core0 solved, not from re-arming after each completion. */
         uint64_t delta_ticks[T2_PLAN_GROUP_MAX];
@@ -1486,7 +1498,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
              * than its predecessor's last group, which must not read as a backwards move. */
             s_deadline[selected].deadline_tick = 0u;
         }
-    } else {
+    } else if (!window_held) {
         armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
             sync_io_switch_realtime_schedule_at(
             s_local_group[s_group_next[selected]].argument, plan->deadline_tick) :
@@ -1716,7 +1728,10 @@ void trigger_t2_runtime_scan_diagnostics(uint32_t *step_mdeg, uint32_t *branch_e
 
 bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
 {
-    if (!s_state.configured || s_state.active || !count_epoch) return false;
+    if (!s_state.configured || s_state.active || !count_epoch) {
+        ++s_start_reject[0];
+        return false;
+    }
     /* START runs inside STOP maintenance, with the RX producer parked. The
      * transport keeps one PREVIEW and one latched FREEZE per position; consume
      * a previous run's untagged records before establishing local mirrors. */
@@ -1752,13 +1767,20 @@ bool trigger_t2_runtime_start(uint32_t count_epoch, uint64_t origin_count)
      * before it - measured on the bench as "geometry 0pos/0pul with no step visible" while
      * the window looked enabled. window_begin_scan() configures the step itself, after
      * that reset. */
-    const bool started =
-        trigger_time_cursor_configure(&s_config.grid) &&
-        trigger_turntable_predictor_configure(
-            &s_state.predictor, &s_config.predictor) &&
-        trigger_turntable_predictor_begin(
+    bool started = trigger_time_cursor_configure(&s_config.grid);
+    if (!started) {
+        ++s_start_reject[1];
+    } else {
+        started = trigger_turntable_predictor_configure(
+            &s_state.predictor, &s_config.predictor);
+        if (!started) ++s_start_reject[2];
+    }
+    if (started) {
+        started = trigger_turntable_predictor_begin(
             &s_state.predictor, &s_config.predictor, count_epoch,
             origin_count, s_scan_step_mdeg);
+        if (!started) ++s_start_reject[3];
+    }
     if (!started) {
         publish_end();
         return false;
@@ -2301,6 +2323,7 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->id_deadline_last = s_id_deadline_last;
     out->id_recorded_last = s_id_recorded_last;
     out->id_count = s_id_count;
+    for (uint32_t i = 0u; i < 4u; ++i) out->start_reject[i] = s_start_reject[i];
     out->done_skip_none = s_done_skip_none;
     for (uint32_t i = 0u; i < 3u; ++i)
         for (uint32_t j = 0u; j < 3u; ++j)

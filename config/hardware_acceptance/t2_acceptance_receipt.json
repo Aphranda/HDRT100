@@ -1,9 +1,9 @@
 {
  "schema": "HAOFV_T2_SEQUENCE_ACCEPTANCE_RECEIPT_V1",
  "passed": true,
- "source_tree_sha256": "c138e7c8b2d966f194bd28841600dcf2f214729c8ec31e48424d58849d5042f6",
+ "source_tree_sha256": "1a3e58c919151c351d08bb8525a20f85ceafb95a0397a33fb9f85dc900e90328",
  "source_file_count": 1827,
- "generated_at": "2026-10-19T20:15:56+08:00",
+ "generated_at": "2026-10-19T22:08:06+08:00",
  "positions_criterion": 361,
  "full_revolution_roles": 2,
  "failures": 0,
@@ -18,7 +18,7 @@
    "full_revolution": true
   },
   "GATEWAY": {
-   "executed": 1660,
+   "executed": 3217,
    "groups": 16,
    "expected": 5776,
    "no_plan": 0,
