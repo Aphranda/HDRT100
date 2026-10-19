@@ -12,6 +12,26 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-037：落地 heap 112 KB（腾出 4 KB，台架无回归）——为网关"两字预装"准备 RAM 余量
+
+- **改动**：`config/freertos/FreeRTOSConfig.h` 的 `configTOTAL_HEAP_SIZE` 116 KB → **112 KB**。
+  这是评审 ② 预装改造的前置条件：此前 RAM 余量只有几十字节，任何代码体量扰动都会 `overflow`。
+- **验证**：
+  - 强制重链接（删 ELF 重建）：app / B / boot 三 profile 全部通过；
+  - 宿主：`test_trigger_t2_runtime` + `test_sync_io_gateway` **88 passed**；
+  - 台架（N=16，40 s）：
+    ```
+    SWITCH_A 1904 = 16 × 119   SWITCH_B 1920 = 16 × 120   三类失败全 0
+    GATEWAY   356 ≈ 16 × 22                               零失败
+    ```
+    ⇒ 堆下调没有引起任何堆饥饿或运行时异常（`DISTRIBUTED`、`SEAT` 相关步骤照常）。
+- **下一轮（预装改造，分三步走）**：
+  1. `sync_gateway.pio` 输出程序改两字（delay, width），让两组可同时入 FIFO（深度 4）；
+  2. 网关软件维护"待完成组号"的小环形（2 项，槽位仅 3 个，RAM 可忽略），`push` 只作"完成一次"的信号；
+  3. 宿主 `triple` 用例先验（无需台架），再上台架比吞吐：判据"同窗口网关位置数 ≥ 开关一半"。
+
+
+
 ### T2-PROGRESS-20261019-036：网关吞吐的代价分析——排队只能挪动积压，真正的瓶颈是"每组一次等待"
 
 - **由整圈读数反推**：120 s 内网关完成 1322 组 ⇒ **约 91 ms/组**；而规划间距只有 2.5 ms/组
