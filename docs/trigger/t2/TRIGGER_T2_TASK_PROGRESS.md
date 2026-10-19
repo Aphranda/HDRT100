@@ -12,6 +12,24 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-067：网关"停住"已消除，但**吞吐逐轮退化**（201 → 45 → 10 个位置），下一轮查残留状态
+
+- **三次连续整圈（修复后，同一固件、未 reboot）**：
+  ```
+  run1: SWITCH_A 5776 / SWITCH_B 5760 / GATEWAY 3217 ≈ 16×201   BACKEND 0
+  run2: SWITCH_A 5776 / SWITCH_B 5760 / GATEWAY  718 ≈ 16×45    BACKEND 0
+  run3: SWITCH_A 5776 / SWITCH_B 5776 / GATEWAY  157 ≈ 16×10    BACKEND 0
+  ```
+  ⇒ **不再出现 `executed 0` 的硬停住**（这是本轮修复的成果），但网关位置数**逐轮下降**：
+  201 → 45 → 10，且三类失败始终为 0（再次说明"没报错但不走"）。
+- **判读**：这是**跨轮残留状态**造成的节拍退化，而不是本轮修的那个标志问题。
+  需要"每轮归档 GWDIAG/DIAG 再比对"，看哪一项在累积（候选：`collision`、`svc_wait`、
+  `plan_count/plan_next`、`late`）。
+- **已知无关**：`START` 四桶全 0（挂载正常）；`chain rc=0` 三轮都通过。
+- **台架纪律**：每轮之间没有 reboot；此前"reboot 后第一轮最好"的现象也支持"残留状态"假设。
+
+
+
 ### T2-PROGRESS-20261019-066：网关**不再停住**——"窗口已装"标志现在要求后端真的还持有计划（201 位置、零失败）
 
 - **根因（第二个，也是停住的主因）**：`service_deadlines()` 把 `s_window_staged[selected]` 当作
