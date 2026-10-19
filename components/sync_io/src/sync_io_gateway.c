@@ -104,6 +104,7 @@ static __attribute__((noinline)) bool GATEWAY_HOT(start_deadline)(uint64_t deadl
         return true;
     ++s_arm_reject[2];
     pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
+    s_output_running=false;                 /* the SM is off: a continuation would queue into nothing */
     pio_sm_set_enabled(GATEWAY_PIO,READY_SM,false);
     uint64_t stopped;
     s_deadline.state=raw_tick(&stopped) && stopped<deadline ?
@@ -145,6 +146,7 @@ static bool arm(void *context,const sync_io_persona_descriptor_t *d,uint32_t dma
     (void)context;(void)d;(void)dma;
     if(s_loaded!=3u || s_claimed!=GATEWAY_SM_MASK || !s_pin_saved) return false;
     pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
+    s_output_running=false;
     pio_sm_set_enabled(GATEWAY_PIO,READY_SM,false);
     pio_sm_config output=sync_gateway_output_program_get_default_config(s_output_offset);
     sm_config_set_set_pins(&output,s_gateway.output_pin,1u);
@@ -175,6 +177,7 @@ static void __not_in_flash_func(safe_stop)(void)
     s_ready_active=false;
     if(s_claimed&(1u<<OUTPUT_SM)) {
         pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
+        s_output_running=false;             /* cleared with the SM, not only on the completion path */
         if(s_pin_owned) pio_sm_set_pins_with_mask(GATEWAY_PIO,OUTPUT_SM,0u,1u<<s_gateway.output_pin);
         pio_sm_clear_fifos(GATEWAY_PIO,OUTPUT_SM);pio_sm_restart(GATEWAY_PIO,OUTPUT_SM);
     }

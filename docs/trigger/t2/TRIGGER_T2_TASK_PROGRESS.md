@@ -12,6 +12,25 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-065：网关稳定性——定位到"运行标志未随 SM 关闭而清零"（代码根因），并完成 real-flight 对照
+
+- **根因（代码级，证据充分）**：今天新增的"稳态续装"用 `s_output_running` 判断"SM 仍处于已准备且空闲"。
+  该标志只在**完成路径**清零，而 `safe_stop()`（cancel/失败路径会走到）与 `start_deadline()` 的
+  origin 失败路径都会**关闭 SM 却不清标志**。结果：下一组走"续装"，把延时字推进**已关闭**的 SM 的 FIFO，
+  没有消费者 ⇒ `pending` 永久为 1、`svc_wait` 持续增长、位置永不结束。
+  与实测特征一一对应（`plan_count=16, plan_next=1, complete=N, svc_wait` 上升、三类失败为 0）。
+- **修法**：`safe_stop()`、`start_deadline()` 的 origin 失败分支、`arm()` 三处都置 `s_output_running=false`。
+  构建通过、`test_sync_io_gateway` + `test_trigger_t2_runtime` **88 passed**。
+- **real-flight 对照（用户要求）**：切到 `wip/tdma-real-flight-processing` 构建并跑一次，
+  **同样失败于步骤 12/18/19/20**（`T2 not mounted after retries (configured 1 active 0)`、
+  `Step 18 service never ran`、`reference published_mask 0`），网关 `executed 0 / finished 103`。
+  ⇒ **当前失败不是本夜改动引入的**；台架此刻处于"四板 T2 挂载均被拒"的状态。
+- **因此**：稳定性修复已就位但**无法在本轮做长跑验证**；先解决"挂载被拒"（步骤 12）才有可比较的读数。
+- **下一步**：① 读挂载失败的具体拒绝码（`tdma_seat_mount_store` 151/152/153 或 `count_epoch=0`）；
+  ② 挂载恢复后连跑两次 T2，确认网关能稳定跑满 361。
+
+
+
 ### T2-PROGRESS-20261019-064：**验收门禁切换为「P3 或 T2」，并已实际放行**（T2 运行正常即系统正常）
 
 - **用户决策**：T2 已包含 P3 覆盖的系统路径，T2 正常运行即说明系统正常 ⇒ 提交门禁接受 T2 凭证。
