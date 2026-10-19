@@ -1439,6 +1439,11 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     uint32_t handed = 0u;
     /* The executor already holds this position's window: re-staging it made `stage_sequence` refuse as
      * BUSY and failed the position (measured: arm=121 with the plan still at 16 groups). */
+    if (s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY &&
+        sync_io_gateway_realtime_plan_pending() && !s_window_staged[selected]) {
+        /* The gateway is still draining the previous window: defer, do not fail the position. */
+        return;
+    }
     if (s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY && s_window_staged[selected]) {
         armed = true;
         handed = s_deadline[selected].group_count;

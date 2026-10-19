@@ -497,6 +497,11 @@ void sync_io_gateway_realtime_diag(uint32_t *out)
     for(uint32_t i=0u;i<GATEWAY_STAGE_REJECT_COUNT;++i) out[6u+i]=s_stage_reject[i];
 }
 
+bool sync_io_gateway_realtime_plan_pending(void)
+{
+    return s_plan_count != 0u;
+}
+
 void sync_io_gateway_realtime_stage_reject(uint32_t *out)
 {
     if(!out)return;

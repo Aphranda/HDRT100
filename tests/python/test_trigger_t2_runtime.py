@@ -133,6 +133,7 @@ bool sync_io_switch_realtime_status(sync_io_switch_deadline_status_t *out)
 { ++backend_snapshots; *out=hw; return true; }
 bool sync_io_switch_realtime_cancel(void)
 { ++cancel_calls; hw.state=SYNC_IO_SWITCH_DEADLINE_CANCELLED; return true; }
+bool sync_io_gateway_realtime_plan_pending(void) { return false; }
 bool sync_io_gateway_realtime_stage_sequence(uint64_t base_deadline, const uint32_t *pulses,
                                              const uint64_t *delta_ticks, uint32_t count)
 { (void)pulses; (void)delta_ticks;

@@ -76,6 +76,8 @@ bool sync_io_gateway_realtime_schedule_at(uint32_t pulse_ns,uint64_t deadline_ti
 void sync_io_gateway_realtime_set_ready_required(bool required);
 /* Why a staged table was refused: NO_LEASE, BAD_COUNT, BAD_OFFSET, BAD_DELTA, BUSY, READY,
  * BAD_PULSE, SCHEDULE. */
+/* True while a staged table still has groups to arm (a new window must wait, not fail). */
+bool sync_io_gateway_realtime_plan_pending(void);
 void sync_io_gateway_realtime_stage_reject(uint32_t *out);
 /* plan_count, ready_active, ready_required, expected_width, collision_count, margin_min_ticks,
  * then the eight stage refusals. */
