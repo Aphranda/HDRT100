@@ -12,6 +12,25 @@ Last updated: 2026-10-20
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261020-010：两字协议第二轮尝试——mock 的 OUT 已支持 `out isr`，剩余卡点是**时序模型**
+
+- **已提交**（`506e2072`）：宿主 mock 的 `OUT` 现在支持 dest 7（`out isr, 32`），且 51 个用例保持全绿——
+  这是两字协议的前置条件，可独立保留。
+- **本轮尝试并回退的内容**（记录以便下次直接续）：PIO 加第二个 `pull/out isr`（8→10 条）、
+  `prepare_realtime` 去掉 ISR 预置、`start_deadline(deadline, sequence)` 推入成对字、完成时保留 SM 运行。
+- **遇到的三处测试耦合（按顺序）**：
+  1. mock 断言**程序窗口** `off==5 && lo==5 && hi==12` → 已是 10 条指令，需改 `hi==14`、ready 段 `off==15,hi==20`；
+  2. 脉冲时序断言 `rise_tick>=target && rise_tick<=target+64` **失败**：因为 `start_deadline` 的
+     "到上升沿的开销"常量还是 **4**，两字协议后应为 **6**（`pull,out x,pull,out isr,jmp,irq`）——
+     已改为 6 但仍失败，说明 mock 的逐 tick 执行模型对"两次 pull"还有一步偏差（约 2 tick），
+     需要在 harness 里把"arming 到 rise"的期望改成从**实际程序布局**推导，而不是常量化。
+  3. `pio_sm_init` 的窗口断言硬编码了 5/13 偏移 → 建议改为按 `pio_add_program` 返回的偏移推导。
+- **当前状态**：改动**全部回退**，工作区 clean，`88 passed`，固件与台架行为不受影响。
+- **下一轮**：先把 harness 的时序/布局期望改成**推导式**（不硬编码 4/5/12/13），再重放两字协议；
+  判据仍是 `abandoned == 0 && w_executed == 361` 连续两轮。
+
+
+
 ### T2-PROGRESS-20261020-009：**网关的损耗机制被量化**——每圈"被顶掉 9 个位置"，不是丢组也不是拒绝
 
 - **`T2:ACTion?` 的窗口五总量（45..49）已接入 `sequence_workflow` 的读数**，本轮整圈：
