@@ -12,6 +12,25 @@ Last updated: 2026-10-20
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261020-016：运行期**确实**观察到完成（advance=7），NO_PLAN 发生在更后面
+
+- **从 `T2:ACTion?` 读到的关键事实**（网关槽位）：
+  ```
+  action_advance = 7        ← 不是 0：运行期确实推进过 7 次
+  action_finish  = 0
+  window_seq/expected/last 等字段与 361 的窗口总量并存
+  ```
+  ⇒ 之前"D 运行期完全没看到完成"的推断**不成立**；`no_plan 354` 是在推进了若干组之后才出现的，
+  即**窗口中途/末尾**的推进与下一窗发布之间断链。
+- **结合已排除项**：不是序号减一（已实测否定并回退）、不是服务循环（3.0 waits 恒定）、
+  不是拒绝/延后（计数全 0）、不是失速（ring 1）。
+- **下一轮聚焦（更具体）**：`complete_action()` 在 `group + 1 == groups_total` 时走"窗口结束"分支
+  （重置 `s_group_handed/s_group_next/s_window_staged`），而续装场景下**最后几组的完成可能在同一次服务里
+  被合并观察**（`completed` 直接跳到最后一组）。需要确认：合并观察时 `done` 位图与
+  `action_groups_executed` 是否只记 1 组，从而让"窗口结束"分支提前或滞后触发。
+
+
+
 ### T2-PROGRESS-20261020-015：续装"跑完一个窗口就 NO_PLAN"仍未解——已排除序号减一假设
 
 - **本轮假设**：网关在 `staging` 后应像开关一样把期望序号减一（`SEQ-C01`），否则第一组永远不满足
