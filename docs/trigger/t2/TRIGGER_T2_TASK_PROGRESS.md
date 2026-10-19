@@ -12,6 +12,23 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-062：接口层修正第 1 步——拼写纠正 `CADEence` → `CADEnce`（真机验证）
+
+- **依据**：命名一致性审查把 `SYSTem:TDMA:RING:ORIGin:CADEence?` 列为疑似拼写错误（`cadence` 重复了 `ence`）。
+- **改动**：仅命令注册 1 处（`middleware/scpi_port/inc/scpi_system_snapshot_commands.h`），回调与实现不变。
+- **验证（OTA + 指令回执，按既定流程）**：
+  ```
+  SYSTem:TDMA:RING:ORIGin:CADEnce?   -> 0        （err 0,"No error"）
+  SYSTem:TDMA:RING:ORIGin:CADEence?  -> <timeout>（err -113,"Undefined header"）
+  ```
+  两块从板一致 ⇒ 新拼写生效、旧拼写已移除。
+- **其余三处"疑似拼写"经核实为有意命名，不改**：
+  `CALibration:ORIGin:TRIAL:NORECord`（NO+RECord 复合词）、`SYSTem:BOOT:BOOTSel`（release_check 以该字面量做 ELF 标记，改动会破坏工具）、
+  `SYST:OTA:PBEGIN`（package begin，20 处文档/工具引用）。
+- **下一项**：大小写统一（`CLEAr`→`CLEar`、`START`→`STARt`、`BEGIN`→`BEGin`、`WRITE`→`WRITe`，共 17 处）。
+
+
+
 ### T2-PROGRESS-20261019-061：接口规范第一步落地——`T2:STARt`→`T2:MOUNT`、`T2:STOP`→`T2:UNMOUNT`（不留别名）
 
 - **评审结论（证据）**：`T2:STARt` 经 `scpi_t2_stopped(operation=1)` → `trigger_t2_runtime_start()`：

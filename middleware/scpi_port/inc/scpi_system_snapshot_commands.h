@@ -569,7 +569,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:RING:LOOP:DELay?", .callback = scpi_cmd_system_tdma_ring_loop_delay_q}, \
     {.pattern = "SYSTem:TDMA:RING:DIAGnostic", .callback = scpi_cmd_system_tdma_ring_diagnostic}, \
     {.pattern = "SYSTem:TDMA:RING:DIAGnostic?", .callback = scpi_cmd_system_tdma_ring_diagnostic_q}, \
-    {.pattern = "SYSTem:TDMA:RING:ORIGin:CADEence?", .callback = scpi_cmd_system_tdma_ring_origin_cadence_q}, \
+    {.pattern = "SYSTem:TDMA:RING:ORIGin:CADEnce?", .callback = scpi_cmd_system_tdma_ring_origin_cadence_q}, \
     {.pattern = "SYSTem:TDMA:RING:BURSt", .callback = scpi_cmd_system_tdma_ring_burst}, \
     {.pattern = "SYSTem:TDMA:RING:BURSt?", .callback = scpi_cmd_system_tdma_ring_burst_q}, \
     {.pattern = "SYSTem:TDMA:RING:BURSt:STATus?", .callback = scpi_cmd_system_tdma_ring_burst_status_q}, \
