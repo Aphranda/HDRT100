@@ -12,6 +12,29 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-060：**三后端整圈全绿**——GATEWAY 5776 = 16 × 361、零失败；根因是"槽位里残留的 recorded deadline"
+
+- **用户观察到的"网关错误回归"确认存在，原因链完整**：`identity` 判据把**新位置**的武装 tick
+  与**上一个位置**留下的 `s_deadline[index].deadline_tick` 比较，新位置起点更早 ⇒ 被当成"往回跳"⇒ BACKEND。
+  记录值在三条路径上都会残留：
+  1. 位置收尾/失败路径——已在 `521bd408` 修；
+  2. **槽位被接管**（`origin_announce`）——清掩码/描述符/窗口，却没清 `s_deadline[index]`；本轮修；
+  3. **窗口重新装载**——装载后仍保留上一窗口最后一组的 tick；本轮修（装载成功时清零）。
+- **台架（整圈 140 s，N=16，`--positions 361`）**：
+  ```
+  SWITCH_A: executed 5776 = 16 × 361   finish 361   三类失败全 0   → PASS
+  GATEWAY : executed 5776 = 16 × 361   finish 361   三类失败全 0   → PASS   ← 首次整圈达标
+  SWITCH_B: executed 5760 = 16 × 360   finish 360   三类失败全 0   → PASS（差 1 个位置 = 采样边界）
+  verdict: all roles OK
+  ```
+  `GWDIAG`：`identity=0 terminal=0 arm=0`，`low`/`late`/`svc_wait` 同步下降（`late` 12657 → 5415）。
+- **结论**：**"每个位置的全部 16 个动作在真机上跑通、证据闭环、零失败"在三后端全部成立**，
+  且网关与开关在整圈内同为 5776/5760（此前 1322~4326）。
+- **交接项状态**：① ✅、③ ✅、② **以"稳态续装 + deadline 归零"达成目标**；
+  两字协议（真·两发在飞）仍是可选优化（进一步降 `late`），不再是达标必需。
+
+
+
 ### T2-PROGRESS-20261019-059：交接项②第一步——**稳态续装**（不再每组重置 SM）：`late` 12657→3315、`svc_wait` 74244→11319、网关位置数 169→221
 
 - **问题**：计划里的**每一组**都要走 `schedule_at → prepare_realtime`：关 SM、清两个 FIFO、重启、

@@ -231,55 +231,223 @@ def step_report(state, args):
     def esc(value):
         return html.escape(str(value))
 
-    def table(rows, header):
+    def val(value):
+        return "—" if value is None else esc(value)
+
+    def table(rows, header, classes=None):
         head = "".join(f"<th>{esc(h)}</th>" for h in header)
-        body = "".join("<tr>" + "".join(f"<td>{esc(c)}</td>" for c in row) + "</tr>" for row in rows)
-        return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+        body = []
+        for index, row in enumerate(rows):
+            cls = classes[index] if classes and index < len(classes) else ""
+            cells = "".join(f"<td>{val(c)}</td>" for c in row)
+            body.append(f'<tr class="{cls}">{cells}</tr>')
+        if not body:
+            body.append(f'<tr><td colspan="{len(header)}">无数据</td></tr>')
+        return f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
 
     boards = readings.get("boards") or {}
-    board_rows = [(role, v.get("uid", "?"), v.get("online"), v.get("build", "?"))
-                  for role, v in boards.items()]
+    board_rows = [(role, v.get("uid", "?"), "在线" if v.get("online") else "离线",
+                   v.get("build", "?")) for role, v in boards.items()]
     counters = readings.get("counters") or {}
     counter_rows = [(role, r.get("executed"), r.get("groups"), r.get("no_plan"), r.get("late"),
                      r.get("backend"), r.get("freeze_missing"), ",".join(r.get("window") or []))
                     for role, r in counters.items()]
     verdict = readings.get("verdict") or {}
     verdict_rows = [(role, v.get("expected"), v.get("executed"), v.get("no_plan"), v.get("late"),
-                     v.get("backend"), "PASS" if v.get("ok") else "FAIL") for role, v in verdict.items()]
+                     v.get("backend"), "PASS" if v.get("ok") else "FAIL")
+                    for role, v in verdict.items()]
+    verdict_classes = ["ok-row" if v.get("ok") else "fail-row" for v in verdict.values()]
     configure = readings.get("configure") or {}
     config_rows = [(role, v.get("timing"), v.get("counts"), v.get("period"), v.get("repeat"), v.get("ready"))
                    for role, v in configure.items()]
     chain = readings.get("chain") or {}
+    failed_roles = [f"{role} LATE={v.get('late', 0)} BACKEND={v.get('backend', 0)}"
+                    for role, v in verdict.items() if not v.get("ok")]
+    summary = "；".join(failed_roles) if failed_roles else "全部角色判据通过"
+    tail_text = chr(10).join(chain.get("tail") or [])
+    tail_ok = bool(tail_text) and "\ufffd" not in tail_text and "锟" not in tail_text
+    if tail_ok:
+        tail_block = (f'<details class="logbox"><summary>链尾输出（点击展开）</summary>'
+                      f'<pre class="log">{esc(tail_text)}</pre></details>')
+    elif tail_text:
+        tail_block = ('<div class="notes"><b>链尾</b>：本次输出包含不可解码字符，未嵌入；'
+                      '请查看本次 <code>t2_workflow</code> 日志。</div>')
+    else:
+        tail_block = ""
 
-    overall = "PASS" if readings.get("verdict_ok") else "PENDING"
+    steps = state.get("steps") or {}
+    node_order = [
+        ("environment", "准备 · 板卡与序列配置"),
+        ("configure", None),
+        ("chain", "起链 · t2_workflow 0-20"),
+        ("counters", "判据 · 执行读数与判定"),
+        ("verdict", None),
+        ("report", "报告"),
+    ]
+    details = {name: detail for name, _fn, detail in STEPS}
+    flow = []
+    passed = failed = notrun = 0
+    total_seconds = 0
+    for index, (name, group) in enumerate(node_order, 1):
+        entry = steps.get(name)
+        if entry and entry.get("ok"):
+            status = "ok"
+            passed += 1
+        elif entry:
+            status = "fail"
+            failed += 1
+        else:
+            status = "notrun"
+            notrun += 1
+        seconds = entry.get("seconds") if entry else None
+        if seconds:
+            total_seconds += int(seconds)
+        if group:
+            flow.append(f'<div class="group">▍{esc(group)}</div>')
+        elif index > 1:
+            flow.append('<div class="conn"></div>')
+        if status == "fail":
+            reason = summary if name == "verdict" else entry.get("message", "")
+        elif status == "notrun":
+            reason = "本次未运行"
+        else:
+            reason = ""
+        sec = "—" if seconds is None else f"{seconds}s"
+        flow.append(
+            f'<div class="node {status}"><div class="id">{index}</div>'
+            f'<div class="body"><div class="title">{esc(details.get(name, name))}</div>'
+            + (f'<div class="reason">{esc(reason)}</div>' if reason else "")
+            + f'</div><div class="sec {status}">{sec}</div></div>')
+
+    if failed:
+        overall, overall_class = "FAIL", "fail"
+    elif readings.get("verdict_ok"):
+        overall, overall_class = "PASS", "ok"
+    else:
+        overall, overall_class = "PENDING", "pending"
+    generated = time.strftime("%Y-%m-%d %H:%M:%S")
+    head = (f"生成 {generated} · 整体 {overall} · 链耗时 {val(chain.get('seconds'))} s"
+            f" · rc {val(chain.get('returncode'))}")
+    bars = (f'<span class="bar">整体 <b class="txt-{overall_class}">{overall}</b></span>'
+            f'<span class="bar">通过 {passed}</span>'
+            f'<span class="bar">失败 {failed}' + (f"（{esc(', '.join(n for n in steps if steps[n].get('ok') is False))}）" if failed else "") + '</span>'
+            f'<span class="bar">未运行 {notrun}</span>'
+            f'<span class="bar">累计 {total_seconds} s</span>'
+            f'<span class="bar">{esc(STATE.relative_to(ROOT))}</span>')
+
+    css = """
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body { font-family:"Microsoft YaHei","DengXian",Arial,sans-serif; background:#d7d9df; color:#1f2328;
+         padding:18px; line-height:1.35; }
+  @page { size:A4 portrait; margin:0; }
+  .page { width:210mm; height:297mm; margin:0 auto 18px; background:#fff; overflow:hidden;
+          box-shadow:0 3px 14px rgba(0,0,0,.16); display:flex; flex-direction:column;
+          padding:10mm 12mm 8mm; break-after:page; page-break-after:always; }
+  h1 { font-size:18px; } h2 { font-size:14px; color:#26496b; margin-bottom:5px; }
+  .sub { font-size:10px; color:#5a6472; margin-top:3px; }
+  .rule { height:3px; background:#d9e1ef; margin:7px 0 9px; }
+  .bars { display:flex; gap:8px; flex-wrap:wrap; font-size:10.5px; margin-bottom:7px; }
+  .bar { border:1px solid #d5dbe4; border-radius:4px; padding:3px 6px; background:#f7f9fc; }
+  .legend { display:flex; gap:11px; font-size:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+  .ok{background:#1f9d55}.fail{background:#c0392b}.pending{background:#d9822b}.notrun{background:#98a2b3}
+  .txt-ok{color:#1f9d55;font-weight:700}.txt-fail{color:#c0392b;font-weight:700}.txt-pending{color:#d9822b;font-weight:700}
+
+  /* page 1: flow chart */
+  .flow { flex:0 0 auto; display:flex; flex-direction:column; justify-content:flex-start; padding-top:2mm; }
+  .group { font-size:9.5px; color:#5a6472; letter-spacing:.3px; margin:3px 0 1px 27px; }
+  .group:first-child { margin-top:0; }
+  .node { position:relative; border:1px solid #ccd6e2; border-left:5px solid #98a2b3; border-radius:6px;
+          background:#fff; padding:3px 8px 3px 9px; display:flex; align-items:center; gap:9px; }
+  .node.ok { border-left-color:#1f9d55; background:#f6fbf8; }
+  .node.fail { border-left-color:#c0392b; background:#fdf6f6; }
+  .node.pending { border-left-color:#d9822b; background:#fffaf2; }
+  .node.notrun { border-left-color:#98a2b3; background:#fbfbfc; }
+  .node .id { width:20px; height:20px; border-radius:50%; background:#98a2b3; color:#fff;
+              font-size:10.5px; font-weight:700; display:flex; align-items:center;
+              justify-content:center; flex:0 0 auto; }
+  .node.ok .id{background:#1f9d55} .node.fail .id{background:#c0392b} .node.pending .id{background:#d9822b}
+  .node .body { flex:1; min-width:0; }
+  .node .title { font-size:10.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node .reason { font-size:9px; color:#8c2f2f; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node .sec { font-size:10.5px; font-weight:700; font-variant-numeric:tabular-nums; flex:0 0 auto;
+               background:transparent; }
+  .node .sec.ok{color:#1f9d55}.node .sec.fail{color:#c0392b}.node .sec.pending{color:#d9822b}
+  .conn { height:5px; margin-left:25px; border-left:2px dashed #b9c4d2; }
+
+  /* page 2: report */
+  table { width:100%; border-collapse:collapse; font-size:10px; margin-bottom:4px; }
+  th { background:#eef2f7; text-align:left; padding:4px 5px; border-bottom:1px solid #c8d3e0; }
+  td { padding:3px 5px; border-bottom:1px solid #edf0f4; vertical-align:top; }
+  tr.ok-row td:first-child{border-left:4px solid #1f9d55}
+  tr.fail-row td:first-child{border-left:4px solid #c0392b}
+  tr.pending-row td:first-child{border-left:4px solid #d9822b}
+  tr.notrun-row td:first-child{border-left:4px solid #98a2b3}
+  .id-col{width:32px;font-weight:700;color:#26496b}.sec-col{width:52px;text-align:right}.st-col{width:54px}
+  .reason{color:#8c2f2f}
+  .notes{margin-top:7px;font-size:9.5px;background:#f4f7fb;border:1px solid #d5e0ef;border-radius:5px;
+         padding:6px 8px;color:#3a4757}
+  .notes b{color:#26496b}
+  .concl{margin-top:7px;font-size:10.5px;border-left:4px solid #26496b;background:#f2f7ff;
+         padding:6px 8px;border-radius:4px}
+  .missing{background:#fff4f4;border-color:#e6b8b8;color:#8c2f2f}
+  pre.log { margin-top:6px; max-height:48mm; overflow:auto; background:#f7f9fc; border:1px solid #d5e0ef;
+            border-radius:5px; padding:7px 9px; font-size:8.5px; line-height:1.4; color:#3a4757;
+            white-space:pre-wrap; word-break:break-all; }
+  .logbox { margin-top:7px; font-size:9.5px; color:#3a4757; }
+  .logbox summary { cursor:pointer; color:#26496b; font-weight:600; }
+  footer{margin-top:auto;font-size:9px;color:#7a8494;display:flex;justify-content:space-between;
+         border-top:1px solid #e6eaf0;padding-top:4px}
+"""
     document = f"""<!doctype html>
-<html lang="zh"><head><meta charset="utf-8">
-<title>T2 序列步进报告</title>
-<style>
-body{{font-family:Segoe UI,Helvetica,Arial,sans-serif;margin:24px;color:#0f172a}}
-h1{{font-size:20px}} h2{{font-size:16px;margin-top:24px}}
-table{{border-collapse:collapse;margin:8px 0;font-size:13px}}
-th,td{{border:1px solid #cbd5e1;padding:4px 8px;text-align:left}}
-th{{background:#eef2f7}} .ok{{color:#15803d;font-weight:600}} .bad{{color:#b91c1c;font-weight:600}}
-code{{background:#f1f5f9;padding:1px 4px;border-radius:3px}}
-</style></head><body>
-<h1>T2 多动作序列 · 步进报告</h1>
-<p>整体判定：<span class="{'ok' if overall == 'PASS' else 'bad'}">{esc(overall)}</span>
- · 链耗时 {esc(chain.get('seconds', '?'))} s · rc {esc(chain.get('returncode', '?'))}</p>
+<html lang="zh-CN"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>T2 序列步进工作流 · 流程 + 报告</title>
+<style>{css}</style>
+</head><body>
 
-<h2>1. 板卡</h2>{table(board_rows, ["角色", "UID", "在线", "固件 build"])}
+<!-- ============ PAGE 1: FLOW ============ -->
+<div class="page">
+  <h1>T2 序列步进工作流 · 流程</h1>
+  <div class="sub">{esc(head)}</div>
+  <div class="rule"></div>
+  <div class="bars">{bars}</div>
+  <div class="legend">
+    <span><i class="dot ok"></i>实测通过</span><span><i class="dot fail"></i>失败（具名原因）</span>
+    <span><i class="dot notrun"></i>未运行</span>
+    <span>语义：① 板卡/固件 → ② 序列配置 → ③ 起链 → ④ 执行读数 → ⑤ 判据 → ⑥ 报告</span>
+  </div>
+  <div class="flow">{''.join(flow)}</div>
+  <div class="notes"><b>摘要</b>：{esc(summary)}。<br/>
+    <b>链</b>：{val(chain.get('seconds'))} s · rc {val(chain.get('returncode'))}；
+    <b>状态</b>：<code>{esc(STATE.relative_to(ROOT))}</code>。</div>
+  <footer><span>HDRT100 · T2 sequence workflow · 流程</span><span>第 1 / 2 页</span></footer>
+</div>
 
-<h2>2. 序列配置</h2>{table(config_rows, ["角色", "TIMing", "COUNts", "PERiod", "REPeat", "REAdy"])}
-
-<h2>3. 执行读数</h2>{table(counter_rows, ["角色", "executed", "groups", "NO_PLAN", "LATE", "BACKEND",
-                                          "freeze_missing", "window(5)"])}
-
-<h2>4. 判据（executed = groups × positions，且三类失败为 0）</h2>
-{table(verdict_rows, ["角色", "expected", "executed", "NO_PLAN", "LATE", "BACKEND", "判定"])}
-
-<h2>5. 链尾输出</h2><pre>{esc(chr(10).join(chain.get('tail') or []))}</pre>
-<p style="color:#64748b;font-size:12px">生成时间 {time.strftime('%Y-%m-%d %H:%M:%S')} ·
- 状态文件 <code>{esc(STATE.relative_to(ROOT))}</code></p>
+<!-- ============ PAGE 2: REPORT ============ -->
+<div class="page">
+  <h1>T2 序列步进工作流 · 报告</h1>
+  <div class="sub">{esc(head)}</div>
+  <div class="rule"></div>
+  <h2>1. 板卡</h2>
+  {table(board_rows, ["角色", "UID", "在线", "固件 build"])}
+  <h2>2. 序列配置</h2>
+  {table(config_rows, ["角色", "TIMing", "COUNts", "PERiod", "REPeat", "REAdy"])}
+  <h2>3. 执行读数</h2>
+  {table(counter_rows, ["角色", "executed", "groups", "NO_PLAN", "LATE", "BACKEND", "freeze_missing", "window(5)"])}
+  <h2>4. 判据（executed = groups × positions，且三类失败为 0）</h2>
+  {table(verdict_rows, ["角色", "expected", "executed", "NO_PLAN", "LATE", "BACKEND", "判定"], verdict_classes)}
+  <div class="concl"><b>结论</b>：整体 <b class="txt-{overall_class}">{overall}</b>；
+    通过 {passed} 步、失败 {failed} 步、未运行 {notrun} 步；链耗时 {val(chain.get('seconds'))} s，
+    rc {val(chain.get('returncode'))}。
+    判据为 <code>executed = groups × positions</code> 且 <code>NO_PLAN/LATE/BACKEND</code> 全 0。</div>
+  <div class="notes"><b>判据链</b>：板卡在线/固件 → 序列配置回读 → t2_workflow 0-20 起链 →
+    执行读数 → <code>executed = groups × positions</code>。<br/>
+    <b>数据</b>：<code>{esc(STATE.relative_to(ROOT))}</code>；生成 {generated}。<br/>
+    <b>复现</b>：<code>python tools/sync_trigger/sequence_workflow.py</code>（可加 <code>--steps 0-5</code>）。</div>
+  {tail_block}
+  <footer><span>HDRT100 · T2 sequence workflow · 报告</span><span>第 2 / 2 页</span></footer>
+</div>
 </body></html>
 """
     target.parent.mkdir(parents=True, exist_ok=True)

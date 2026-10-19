@@ -636,6 +636,13 @@ static T2_BOUNDED void T2_HOT(origin_announce)(uint32_t ordinal, uint64_t target
     s_state.frozen_mask &= ~bit;
     s_state.freeze_version[index] = 0u;
     s_state.descriptors[index] = (trigger_position_descriptor_t){0};
+    /* The deadline bookkeeping belongs to the displaced occupant: keeping it made the next position's
+     * first arm look like a backwards move (measured: 15.9 ms behind) and failed it as BACKEND. */
+    s_deadline[index].deadline_tick = 0u;
+    s_deadline[index].group = 0u;
+    s_deadline[index].group_count = 0u;
+    s_deadline[index].next_tick = 0u;
+    s_deadline_seen[index] = 0u;
     if (trigger_position_window_find(&s_position_window, index + 1u) >= 0) {
         /* EXECUTED means the position actually ran, not that it happened to be frozen when the slot was
          * taken over: `w_executed` counted 128 while only 119 positions ran their groups, because this
@@ -1472,7 +1479,13 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
             sync_io_switch_realtime_stage_sequence(base, pulses, delta_ticks, plan->group_count) :
             sync_io_gateway_realtime_stage_sequence(base, pulses, delta_ticks, plan->group_count);
-        if (armed) { handed = plan->group_count; s_window_staged[selected] = 1u; }
+        if (armed) {
+            handed = plan->group_count;
+            s_window_staged[selected] = 1u;
+            /* The recorded tick belongs to the window that just ended: a fresh plan may start earlier
+             * than its predecessor's last group, which must not read as a backwards move. */
+            s_deadline[selected].deadline_tick = 0u;
+        }
     } else {
         armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
             sync_io_switch_realtime_schedule_at(
