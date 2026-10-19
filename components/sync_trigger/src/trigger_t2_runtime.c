@@ -2327,6 +2327,9 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->id_recorded_last = s_id_recorded_last;
     out->id_count = s_id_count;
     out->defer_plan_pending = s_defer_plan_pending;
+    trigger_t2_runtime_position_window_totals(&out->window_entered, &out->window_announced,
+                                              &out->window_frozen, &out->window_executed,
+                                              &out->window_abandoned);
     for (uint32_t i = 0u; i < 4u; ++i) out->start_reject[i] = s_start_reject[i];
     out->position_descriptor_reject = s_state.descriptor_reject_count;
     out->position_transport_reject = s_state.transport_reject_count;

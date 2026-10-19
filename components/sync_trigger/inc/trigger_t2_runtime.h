@@ -380,6 +380,8 @@ typedef struct {
     /* Position-loss attribution: descriptor rejects, transport rejects, FREEZE mismatches. */
     uint32_t position_descriptor_reject, position_transport_reject, position_freeze_mismatch;
     uint32_t defer_plan_pending;
+    /* Position-window totals: entered / announced / frozen / executed / abandoned. */
+    uint32_t window_entered, window_announced, window_frozen, window_executed, window_abandoned;
 } trigger_t2_runtime_window_stats_t;
 bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out);
 
