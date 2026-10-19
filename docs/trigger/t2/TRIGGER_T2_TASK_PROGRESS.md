@@ -12,6 +12,23 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-054：全量清扫收尾——1338 passed / 2 failed，两处都确认**与本夜改动无关**（既有漂移）
+
+- **清扫命令**：`pytest -k "trigger or sync_io or t2_ or position"` ⇒ **1338 passed, 2 failed**。
+- **两处失败的证据（都不是本夜引入）**：
+  1. `test_sync_io_workspace.py::test_schedule_bounds_rejection_and_private_observer`
+     —— 其宿主 harness 仍引用 `s_model_pulse_program` / `s_model_pulse_program_offset` 等**已不存在的符号**
+     （编译期就失败）；`git log e067e1a6^..HEAD -- tests/python/test_sync_io_workspace.py components/sync_io/src/sync_io_workspace.c`
+     **为空**，最后一次改动是 `b5d20a9e`（远早于本夜）。
+  2. `test_trigger_grid_preview.py::test_owner_boundaries[configure_race]` —— 同样：本夜未动
+     `trigger_grid_preview.c` 与该测试（最后一次 `6831ee4b`）。
+- **处理**：两处都记为**既有债务**（harness 与实现漂移、以及一个 race 场景的行为断言），
+  不在本夜范围；本夜改动相关的宿主测试全绿（含 1333→1338 的增长）。
+- **补充**：本夜另有 3 处"我造成、已修"的测试更新——`test_t2_configure_signature`（调用点钉位）、
+  `test_trigger_switch_service`（页 48 字段）、`test_trigger_gateway_service`（页 37 字段）。
+
+
+
 ### T2-PROGRESS-20261019-053：**三后端同时逼近 5776**——网关 5760 = 16 × 360（此前 1322/2421/4326）
 
 - **整圈台架（140 s，`--groups 16 --positions 361`）**：
