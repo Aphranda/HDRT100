@@ -500,8 +500,8 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:REServation:SEAT:MOUNT?", .callback = scpi_cmd_trigger_seat_mount_q}, \
     {.pattern = "TRIGger:REServation:SEAT:CLEar", .callback = scpi_cmd_trigger_seat_clear}, \
         {.pattern = "TRIGger:REServation:T2:CONFigure", .callback = scpi_cmd_trigger_t2_configure}, \
-    {.pattern = "TRIGger:REServation:T2:STARt", .callback = scpi_cmd_trigger_t2_start}, \
-    {.pattern = "TRIGger:REServation:T2:STOP", .callback = scpi_cmd_trigger_t2_stop}, \
+    {.pattern = "TRIGger:REServation:T2:MOUNT", .callback = scpi_cmd_trigger_t2_start}, \
+    {.pattern = "TRIGger:REServation:T2:UNMOUNT", .callback = scpi_cmd_trigger_t2_stop}, \
     {.pattern = "TRIGger:REServation:T2?", .callback = scpi_cmd_trigger_t2_q}, \
     {.pattern = "TRIGger:REServation:T2:CURSor?", .callback = scpi_cmd_trigger_t2_cursor_q}, \
     {.pattern = "TRIGger:REServation:T2:ACTion?", .callback = scpi_cmd_trigger_t2_action_q}, \

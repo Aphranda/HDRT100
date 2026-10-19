@@ -12,6 +12,22 @@ Last updated: 2026-10-19
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261019-061：接口规范第一步落地——`T2:STARt`→`T2:MOUNT`、`T2:STOP`→`T2:UNMOUNT`（不留别名）
+
+- **评审结论（证据）**：`T2:STARt` 经 `scpi_t2_stopped(operation=1)` → `trigger_t2_runtime_start()`：
+  清运行状态、绑定 `source_slot`/`target_mask`/`run_id`、重建组序列 ⇒ 语义是**挂载 + 开 run**，不是"开始"；
+  `T2:CONFigure` 的 `target_mask` 是**参与板/席位掩码**（为零拒绝 146），不是"动作使能"。
+- **决定（用户）**：采用 **B 方案 `MOUNT`/`UNMOUNT`**，**不保留别名**（避免同一语义两名并存导致误用）。
+- **改动（28 处，6 个文件）**：命令注册 2、`t2_workflow.py` 12、`t2_bench_probe.py` 3、
+  架构文档 4、TODO 3、流程图 SVG 4；冻结的历史日志（`docs/legacy/**`、TDMA 进展日志）**不改文本**。
+- **验证（按用户要求：OTA 后只验指令，不跑完整 P3）**：
+  - OTA 全 8 步通过（重新烧写带改名的固件）；
+  - 两块从板实测：`T2:MOUNT 1,0` 与 `T2:UNMOUNT` 均返回 `0,"No error"`；
+    **旧名 `T2:STARt` / `T2:STOP` 返回 `-113,"Undefined header"`** ⇒ 新名生效、旧名确已移除。
+- **顺带记录（接口缺陷，待立项）**：产品级 `TRIGger:STARt/STOP/PAUSe/CONTinue/ABORt` 为空实现（恒返回 1）。
+
+
+
 ### T2-PROGRESS-20261019-060：**三后端整圈全绿**——GATEWAY 5776 = 16 × 361、零失败；根因是"槽位里残留的 recorded deadline"
 
 - **用户观察到的"网关错误回归"确认存在，原因链完整**：`identity` 判据把**新位置**的武装 tick

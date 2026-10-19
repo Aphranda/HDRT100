@@ -25,8 +25,8 @@ Last updated: 2026-10-17
 起链必须严格分成两段；把"配置"混到"运行"之后会静默失败。**三个语义必须分清**：
 
 1. **配置**：写入参数或表（环剖面、标定重放、位置表、动作表、模板、计数器、路径延时交接）。全部是停机态写入。
-2. **挂载（arm）**：只把模块置为"已武装/可用"，本身不产生输出。包括 `T2:CONFigure` + `T2:STARt`（**名字里的 START 是历史命名，语义是挂载**）、`VDC:FEEDback:SESSion` + `VDC:OUTPut:RUN`（提交运行请求）、`PRIORity:SYNC/MATCH/FOLLow`（提交优先级类）、`SYNC:VDC:DPLL:ProVisional`（路径延时交接）。
-3. **启动（动态）**：真正让运行时开始产出的那次使能——`RING:START`（环数据使能）与 `LOAD:MASK` 位 6（`APP_REALTIME_LOAD_SYNC_TRIGGER`，同步触发相位使能 ⇒ T2 开始发布）。**"T2 的启动"只能用掩码位 6 表达**：环一旦 `enabled`/`adapter_started`，`T2:STARt`、`SESSion`、`OUTPut:RUN`、`PRIORity:*` 等停机态写入一律被拒（`tdma_service.c:1033-1035` 与 `1079-1081`，reject 115/135），因此挂载必须在起环前完成，而动态启动由不受该限制的掩码位承担。
+2. **挂载（arm）**：只把模块置为"已武装/可用"，本身不产生输出。包括 `T2:CONFigure` + `T2:MOUNT`（2026-10-19 起命令名已由历史命名 `STARt` 改为 `MOUNT`，与语义一致）、`VDC:FEEDback:SESSion` + `VDC:OUTPut:RUN`（提交运行请求）、`PRIORity:SYNC/MATCH/FOLLow`（提交优先级类）、`SYNC:VDC:DPLL:ProVisional`（路径延时交接）。
+3. **启动（动态）**：真正让运行时开始产出的那次使能——`RING:START`（环数据使能）与 `LOAD:MASK` 位 6（`APP_REALTIME_LOAD_SYNC_TRIGGER`，同步触发相位使能 ⇒ T2 开始发布）。**"T2 的启动"只能用掩码位 6 表达**：环一旦 `enabled`/`adapter_started`，`T2:MOUNT`、`SESSion`、`OUTPut:RUN`、`PRIORity:*` 等停机态写入一律被拒（`tdma_service.c:1033-1035` 与 `1079-1081`，reject 115/135），因此挂载必须在起环前完成，而动态启动由不受该限制的掩码位承担。
 
 **静态配置（`RING:START` 之前，环必须停止）**：凡走停机态元数据路径（`tdma_service_run_stopped_maintenance` / `update_stopped_metadata`）的写入都属此类，它们**会推进环配置序号**，因此顺序由绑定新鲜度决定：
 
@@ -38,9 +38,9 @@ Last updated: 2026-10-17
 - 优先级类：`PRIORity:SYNC`/`MATCH`/`FOLLow`/`FOLLow:PHASe`。`FOLLow` 要求活跃会话、generation 匹配、`s_priority_match_request_session == session`，并要 boundary 请求计数为偶数；其查询页 `FOLLow?` 在通道 active 时拒答，**判据只能用 `FOLLow:STATus?`**。
 - 时基掩码：`LOAD:MASK 91`（位 6 = `APP_REALTIME_LOAD_SYNC_TRIGGER`）属静态配置，在起环前设置。
 
-**静态提交、动态生效**：`T2:STARt`、`VDC:OUTPut:RUN`、`PRIORity:* 1`、`LOAD:MASK 91`、`ProVisional 1` 只提交请求或使能；实际产出发生在运行期（VDC 输出服务的起环前 outcome 是 `RING_WAIT`/`MODEL_UNAVAILABLE`/`IDENTITY_WAIT`，属正常等待而非故障）。
+**静态提交、动态生效**：`T2:MOUNT`、`VDC:OUTPut:RUN`、`PRIORity:* 1`、`LOAD:MASK 91`、`ProVisional 1` 只提交请求或使能；实际产出发生在运行期（VDC 输出服务的起环前 outcome 是 `RING_WAIT`/`MODEL_UNAVAILABLE`/`IDENTITY_WAIT`，属正常等待而非故障）。
 
-**动态动作（只能在运行期）**：`RING:START`（数据使能）、`SOURce:STARt`、`CALibration:ORIGin:TRIAL`、采样与验收判据、停机 teardown。**T2 的发布建立在这三者之上**：TDMA 环在跑（`enabled && adapter_started`，`ring_seq` 递增）+ VDC 输出在产块 + 计数器在走；`T2:STARt` 只是挂载，服务在同步触发相位里被调用，条件不满足即早退（`T2?` 的 `segment_max_cycles` 保持 0）。
+**动态动作（只能在运行期）**：`RING:START`（数据使能）、`SOURce:STARt`、`CALibration:ORIGin:TRIAL`、采样与验收判据、停机 teardown。**T2 的发布建立在这三者之上**：TDMA 环在跑（`enabled && adapter_started`，`ring_seq` 递增）+ VDC 输出在产块 + 计数器在走；`T2:MOUNT` 只是挂载，服务在同步触发相位里被调用，条件不满足即早退（`T2?` 的 `segment_max_cycles` 保持 0）。
 
 **计数时序约束**：参考游标必须在计数到达首个阈值之前有效。台架上推进计数的是 PWM 源（`TRIGger:REServation:SOURce:STARt`），因此源只能在游标有效之后启动；计数先于游标越过阈值的位置不会再有预览，该轮无法发布。转台模型仍须在环启动前武装（其脉冲调度在环接管调度器后会被拒，fault 3）。
 

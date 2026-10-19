@@ -370,7 +370,7 @@ def main() -> int:
             print("T2: note: single-node bench has no freeze peer to wait for")
         print("T2:CONFigure ->", q(f"TRIGger:REServation:T2:CONFigure 1,{source_slot},"
                                    f"{target_mask},1,0,0,999,0,0,0,5000,1000")[:24])
-        print("T2:STARt ->", q("TRIGger:REServation:T2:STARt")[:24])
+        print("T2:MOUNT ->", q("TRIGger:REServation:T2:MOUNT")[:24])
         print("T2? ->", q("TRIGger:REServation:T2?")[:90])
     if args.observe:
         print("POSition ->", q("SYSTem:REFMEM:SYNC:FLIGHT:POSition?")[:140])
@@ -467,7 +467,7 @@ def run_full(board_ids) -> int:
         send(board, "SYSTem:VDC:OUTPut:RUN:STOP")
         # A T2 run left ACTIVE refuses every stopped-state configuration without
         # replying, which surfaces only as a timeout: stop it first and verify.
-        send(board, "TRIGger:REServation:T2:STOP")
+        send(board, "TRIGger:REServation:T2:UNMOUNT")
         send(board, "MODEl:TURNtable:STOP")
         send(board, "TRIGger:REServation:COUNter:STOP")
         for _attempt in range(12):
@@ -702,7 +702,7 @@ def run_full(board_ids) -> int:
             print(f"  scan override -> {_override[:72]}", flush=True)
         print(f"  configure diag {diag[4] if len(diag) > 4 else '?'}"
               " (91/92/93 prereq, 100/101 inner, 140-148 validate, 111-137 stopped)")
-        send(board, f"TRIGger:REServation:T2:STARt {dep_gen},0")
+        send(board, f"TRIGger:REServation:T2:MOUNT {dep_gen},0")
         # The gateway module is re-initialised by the configure/start path, so the READY requirement is
         # sent again here - after the start - and verified on the spot.
         _ready_required = os.environ.get("T2_READY_REQUIRED", "0")
@@ -875,7 +875,7 @@ def run_full(board_ids) -> int:
     # stays NO_SYNC with session 0 and nothing is ever published. The probe enables
     # 27 during the bring-up and 91 (27 | 64) once the ring is running.
     # The load mask here carries only the static phases (27). Bit 6 is the DYNAMIC
-    # T2 start: every stopped-state write (T2:STARt, SESSion, OUTPut:RUN,
+    # T2 start: every stopped-state write (T2:MOUNT, SESSion, OUTPut:RUN,
     # PRIORity:*) is refused once the ring is enabled (tdma_service.c:1033/1079
     # reject 115/135), so the only firmware-legal way to "start T2 after the DPLL
     # has locked" is to arm T2 during the stopped configuration and assert bit 6
@@ -1060,7 +1060,7 @@ def run_full(board_ids) -> int:
         if _board is None:
             continue
         send(_board, "SYSTem:TDMA:RING:STOP")
-        send(_board, "TRIGger:REServation:T2:STOP")
+        send(_board, "TRIGger:REServation:T2:UNMOUNT")
         # The priority-lane diagnostics are stopped-state only (they refuse while
         # ring.enabled/adapter_started or while the lane is active), so this is the
         # one moment they can be read: it shows whether the bring-up actually armed
@@ -1069,7 +1069,7 @@ def run_full(board_ids) -> int:
             print(f"  {uid:016X} {_page} -> {send(_board, _page)[:80]}", flush=True)
         send(_board, "SYSTem:VDC:OUTPut:RUN:STOP")
         send(_board, "SYSTem:VDC:FEEDback:SESSion 0")
-        send(_board, "TRIGger:REServation:T2:STOP")
+        send(_board, "TRIGger:REServation:T2:UNMOUNT")
         send(_board, "TRIGger:REServation:COUNter:UNLoad")
         set_load_mask(_board, 27, f"{uid:016X} teardown")
     # (5b) teardown: turntable, VDC run, T2
@@ -1080,7 +1080,7 @@ def run_full(board_ids) -> int:
         if board is None:
             continue
         send(board, "SYSTem:VDC:OUTPut:RUN:STOP")
-        send(board, "TRIGger:REServation:T2:STOP")
+        send(board, "TRIGger:REServation:T2:UNMOUNT")
         send(board, "SYSTem:TDMA:RING:STOP")
     close_persistent_connections()
     return 3 if _abort else 0
@@ -1641,7 +1641,7 @@ def step_1_stop(ctx, slot, board, uid):
     if not ctx.poll(board, "SYSTem:TDMA:RING:STATus?", 8, "0", tries=40):
         print(f"  slot {slot} WARNING: ring not stopped before configuration", flush=True)
     ctx.send(board, "SYSTem:VDC:OUTPut:RUN:STOP")
-    ctx.send(board, "TRIGger:REServation:T2:STOP")
+    ctx.send(board, "TRIGger:REServation:T2:UNMOUNT")
     ctx.send(board, "MODEl:TURNtable:STOP")
     if board is ctx.src:
         # The PWM source advances the counter; a source left running by an earlier run
@@ -1998,7 +1998,7 @@ def step_12_t2_mount(ctx, slot, board, uid):
         if _override is not None:
             ctx.send(board, _override)
             print(f"  scan override -> {_override[:72]}", flush=True)
-        ctx.send(board, f"TRIGger:REServation:T2:STARt {ctx.dep_gen},0")
+        ctx.send(board, f"TRIGger:REServation:T2:MOUNT {ctx.dep_gen},0")
         state = ctx.send(board, "TRIGger:REServation:T2?").split(",")
         configured = state[2] if len(state) > 2 else "?"
         active = state[3] if len(state) > 3 else "?"
@@ -3569,7 +3569,7 @@ def step_21_teardown(ctx, slot, board, uid):
         if member is None:
             continue
         ctx.send(member, "SYSTem:TDMA:RING:STOP")
-        ctx.send(member, "TRIGger:REServation:T2:STOP")
+        ctx.send(member, "TRIGger:REServation:T2:UNMOUNT")
         # Priority-lane diagnostics are readable only while stopped: this is the one
         # moment that shows whether the bring-up armed the class that gives the
         # SYNC_TRIGGER phase its ingress slack. The match pages answer the T3
@@ -3585,7 +3585,7 @@ def step_21_teardown(ctx, slot, board, uid):
             print(f"  {uid_r:016X} {page} -> {ctx.send(member, page)[:200]}", flush=True)
         ctx.send(member, "SYSTem:VDC:OUTPut:RUN:STOP")
         ctx.send(member, "SYSTem:VDC:FEEDback:SESSion 0")
-        ctx.send(member, "TRIGger:REServation:T2:STOP")
+        ctx.send(member, "TRIGger:REServation:T2:UNMOUNT")
         ctx.send(member, "TRIGger:REServation:COUNter:UNLoad")
         ctx.set_load_mask(member, 27, f"{uid_r:016X} teardown")
         ctx.send(member, "SYSTem:TDMA:RING:STOP")

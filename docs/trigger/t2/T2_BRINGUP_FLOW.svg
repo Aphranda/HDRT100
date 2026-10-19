@@ -33,7 +33,7 @@
     <rect x="200" y="258" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
     <circle cx="228" cy="298" r="10" fill="#1f9d55"/>
     <text x="252" y="284" font-size="14" font-weight="700" fill="#1c2430">Step 1 停机序列（① 配置前置）</text>
-    <text x="252" y="306" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">RING:STOP · VDC:OUTPUT:RUN:STOP · T2:STOP · TURNtable:STOP · COUNter:STOP</text>
+    <text x="252" y="306" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">RING:STOP · VDC:OUTPUT:RUN:STOP · T2:UNMOUNT · TURNtable:STOP · COUNter:STOP</text>
     <text x="252" y="326" font-size="12" fill="#4a5563">反馈：RING:STATus?[0]=0 且 [8]=0；T2?[3]=0</text>
     <text x="1148" y="298" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">4.0s</text>
   </g>
@@ -145,8 +145,8 @@
   <g>
     <rect x="200" y="1402" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
     <circle cx="228" cy="1442" r="10" fill="#d9822b"/>
-    <text x="252" y="1428" font-size="14" font-weight="700" fill="#1c2430">Step 12 T2 配置 + 挂载（命令名 T2:STARt，语义=挂载，不产出）</text>
-    <text x="252" y="1450" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">FLIGHT:FIFO:RESet · T2:CONFigure {dep},0,14,{origin},… · T2:STARt {dep},0</text>
+    <text x="252" y="1428" font-size="14" font-weight="700" fill="#1c2430">Step 12 T2 配置 + 挂载（命令名 T2:MOUNT，语义=挂载，不产出）</text>
+    <text x="252" y="1450" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">FLIGHT:FIFO:RESet · T2:CONFigure {dep},0,14,{origin},… · T2:MOUNT {dep},0</text>
     <text x="252" y="1470" font-size="12" fill="#4a5563">前置：diag 91/92/93（网格/部署/模板 binding_current）· 反馈：T2 configured 1 active 1（diag 100/101 均为通过）· 必须先于 Step 14 转台</text>
     <text x="1148" y="1442" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">3.1s</text>
   </g>
@@ -237,7 +237,7 @@
     <rect x="200" y="2338" width="990" height="80" rx="8" fill="#ffffff" stroke="#cdd7e2"/>
     <circle cx="228" cy="2378" r="10" fill="#1f9d55"/>
     <text x="252" y="2364" font-size="14" font-weight="700" fill="#1c2430">Step 21 停机 teardown</text>
-    <text x="252" y="2386" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">TURNtable:STOP · RING:STOP · T2:STOP · RUN:STOP · SESSion 0 · COUNter:UNLoad · LOAD:MASK 27 · 停机态读 PRIORity:RX?/TX?</text>
+    <text x="252" y="2386" font-size="12" font-family="Consolas, monospace" fill="#2b3a4a">TURNtable:STOP · RING:STOP · T2:UNMOUNT · RUN:STOP · SESSion 0 · COUNter:UNLoad · LOAD:MASK 27 · 停机态读 PRIORity:RX?/TX?</text>
     <text x="252" y="2406" font-size="12" fill="#4a5563">反馈：四板回到停机态（环 enabled/started=0，mask=27），并打印停机态优先级读数供下一轮对比</text>
     <text x="1148" y="2378" font-size="13" font-weight="700" fill="#1f9d55" text-anchor="end">每轮</text>
   </g>

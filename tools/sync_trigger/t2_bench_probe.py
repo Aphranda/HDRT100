@@ -186,7 +186,7 @@ try:
     barrier()
     if actions_mode:
         for p,uid in PAIRS:
-            cmd(p,'TRIGger:REServation:T2:STOP','1,0')
+            cmd(p,'TRIGger:REServation:T2:UNMOUNT','1,0')
             cmd(p,'SYSTem:REFMEM:SYNC:TDMA:ABORt')
     if scope_mode:
         from tools.vdc_priority_trace.vdc_priority_joint_capture import make_scope_class
@@ -241,7 +241,7 @@ try:
             # Debug run keeps the first target beyond model startup while
             # retaining a five degree pre-roll and three independent positions.
             cmd(p,f'TRIGger:REServation:T2:CONFigure {generation},0,14,{int(i==0)},5000,5000,950,0,0,360000,1000,1000','1,0')
-            cmd(p,f'TRIGger:REServation:T2:STARt {generation},0','1,0')
+            cmd(p,f'TRIGger:REServation:T2:MOUNT {generation},0','1,0')
         cmd(PAIRS[0][0],'TRIGger:REServation:COUNter:CLEar','1,0')
         cmd(PAIRS[0][0],'TRIGger:REServation:COUNter:STARt','1,0')
         cmd(PAIRS[0][0],'TRIGger:REServation:SOURce:RELease','1,0')
@@ -373,7 +373,7 @@ finally:
                 except Exception as exc: report['errors'].append('LANES '+p+': '+repr(exc))
         for p in sessions:
             try:
-                cmd(p,'TRIGger:REServation:T2:STOP')
+                cmd(p,'TRIGger:REServation:T2:UNMOUNT')
                 cmd(p,'TRIGger:REServation:TEMPLate:RELease')
             except Exception as exc: report['errors'].append('T2 STOP '+p+': '+repr(exc))
         if PAIRS[0][0] in sessions:
