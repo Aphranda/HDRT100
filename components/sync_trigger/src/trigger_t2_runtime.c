@@ -298,6 +298,8 @@ static uint32_t s_id_seq_last, s_id_expected_last, s_id_count;
 static uint64_t s_id_deadline_last, s_id_recorded_last;
 /* complete_action() early returns: group out of range, or no armed group. */
 static uint32_t s_done_skip_range, s_done_skip_none;
+/* Positions deferred because the gateway was still draining its previous window. */
+static uint32_t s_defer_plan_pending;
 /* Last three advance decisions: completed, expected, window_last. */
 static uint32_t s_done_hist[3][3];
 static uint32_t s_done_hist_next;
@@ -1463,6 +1465,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     if (s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY &&
         sync_io_gateway_realtime_plan_pending() && !s_window_staged[selected]) {
         /* The gateway is still draining the previous window: defer, do not fail the position. */
+        ++s_defer_plan_pending;
         return;
     }
     /* "Window staged" only counts while the executor still holds it: a backend cancel (failed group, stale
@@ -2323,7 +2326,11 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->id_deadline_last = s_id_deadline_last;
     out->id_recorded_last = s_id_recorded_last;
     out->id_count = s_id_count;
+    out->defer_plan_pending = s_defer_plan_pending;
     for (uint32_t i = 0u; i < 4u; ++i) out->start_reject[i] = s_start_reject[i];
+    out->position_descriptor_reject = s_state.descriptor_reject_count;
+    out->position_transport_reject = s_state.transport_reject_count;
+    out->position_freeze_mismatch = s_state.freeze_mismatch_count;
     out->done_skip_none = s_done_skip_none;
     for (uint32_t i = 0u; i < 3u; ++i)
         for (uint32_t j = 0u; j < 3u; ++j)

@@ -618,6 +618,10 @@ scpi_result_t scpi_cmd_trigger_t2_action_diag_q(scpi_t *context)
     SCPI_ResultUInt64(context, st.id_recorded_last);
     SCPI_ResultUInt32(context, st.id_count);
     for (uint32_t i = 0u; i < 4u; ++i) SCPI_ResultUInt32(context, st.start_reject[i]);
+    SCPI_ResultUInt32(context, st.position_descriptor_reject);
+    SCPI_ResultUInt32(context, st.position_transport_reject);
+    SCPI_ResultUInt32(context, st.position_freeze_mismatch);
+    SCPI_ResultUInt32(context, st.defer_plan_pending);
     for (uint32_t i = 0u; i < 3u; ++i)
         for (uint32_t j = 0u; j < 3u; ++j) SCPI_ResultUInt32(context, st.done_hist[i][j]);
     /* Gateway staged-table refusals: NO_LEASE, BAD_COUNT, BAD_OFFSET, BAD_DELTA, BUSY, READY,

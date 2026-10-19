@@ -12,6 +12,23 @@ Last updated: 2026-10-20
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261020-007：位置丢失**不在执行器**——拒绝/延后计数全为 0，loss 在上游分发
+
+- **新增三个"位置丢失"计数到 DIAG**：`position_descriptor_reject / position_transport_reject /
+  position_freeze_mismatch`；另加 `defer_plan_pending`（网关"计划在飞"而延后的次数）。
+- **实测（整圈，网关 4024 ≈ 16×251 位置）**：
+  ```
+  descriptor_reject 0   transport_reject 0   freeze_mismatch 0   defer_plan_pending 0
+  ```
+  ⇒ 网关**没有拒绝任何位置、也没有延后任何位置**，却只执行了 251 个（开关 355）。
+  这排除了执行器侧全部候选（拒绝、延后、坏回执）。
+- **推论**：丢失发生在**上游位置分发**——这些位置根本没有冻结到网关板（FREEZE 未到达或被分发跳过）。
+  下一步应比较 `published_mask / frozen_mask / received_mask` 的本轮增量，以及
+  `T2:ACTion?` 里"本槽位收到 FREEZE 次数"，判断是"未广播到该板"还是"广播了但未落槽"。
+- **本轮保留**：三个 loss 计数 + defer 计数（都已进 DIAG，供下一轮直接对照）。
+
+
+
 ### T2-PROGRESS-20261020-006：差值口径下的稳定性基线（4 轮）——网关**能跑满，但方差极大**
 
 - **4 轮整圈（差值口径，同一固件、未 reboot）**：

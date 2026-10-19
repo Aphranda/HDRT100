@@ -377,6 +377,9 @@ typedef struct {
     uint64_t id_deadline_last, id_recorded_last;
     /* Last three advance decisions: completed (bit31 = seen but not advanced), expected, window_last. */
     uint32_t done_hist[3][3];
+    /* Position-loss attribution: descriptor rejects, transport rejects, FREEZE mismatches. */
+    uint32_t position_descriptor_reject, position_transport_reject, position_freeze_mismatch;
+    uint32_t defer_plan_pending;
 } trigger_t2_runtime_window_stats_t;
 bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out);
 
