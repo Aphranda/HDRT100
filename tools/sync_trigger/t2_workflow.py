@@ -3292,13 +3292,32 @@ def step_20_sampling(ctx, slot, board, uid):
             member = ctx.boards.get(f"{uid_r:016X}")
             if member is None:
                 continue
-            _snap[slot_r] = {
-                "why": ctx.send(member, "TRIGger:REServation:T2:ACTion:WHY?"),
-                "window": ctx.send(member, "TRIGger:REServation:T2:ACTion:WINdow?"),
-                "diag": ctx.send(member, "TRIGger:REServation:T2:ACTion:DIAG?"),
-                "t2": ctx.send(member, "TRIGger:REServation:T2?"),
-                "gwdiag": ctx.send(member, "TRIGger:REServation:T2:ACTion:GWDIAG?"),
+            # One page per read, one retry, and a recorded failure: a timed-out page must never be
+            # stored as if it were a reading (round 44 saw `T2?` come back with 2 fields).
+            _pages = {
+                "why": "TRIGger:REServation:T2:ACTion:WHY?",
+                "window": "TRIGger:REServation:T2:ACTion:WINdow?",
+                "diag": "TRIGger:REServation:T2:ACTion:DIAG?",
+                "t2": "TRIGger:REServation:T2?",
+                "gwdiag": "TRIGger:REServation:T2:ACTion:GWDIAG?",
             }
+            _entry, _failed = {}, []
+            for _name, _page in _pages.items():
+                _value = ""
+                for _attempt in range(2):
+                    try:
+                        _value = ctx.send(member, _page)
+                        if _value and len(_value.split(",")) >= 2:
+                            break
+                    except Exception:
+                        _value = ""
+                    time.sleep(0.05)
+                if not _value:
+                    _failed.append(_name)
+                _entry[_name] = _value
+            if _failed:
+                _entry["failed"] = _failed
+            _snap[slot_r] = _entry
         _path = pathlib.Path("out/sync_trigger/sequence_snapshot.json")
         _path.parent.mkdir(parents=True, exist_ok=True)
         _path.write_text(_json.dumps(_snap, indent=2), encoding="utf-8")
