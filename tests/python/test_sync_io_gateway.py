@@ -94,7 +94,6 @@ static struct {uint32_t io[30];} pads;
 #define io_bank0_hw (&io_bank)
 #define pads_bank0_hw (&pads)
 static uint32_t core,hz=BOARD_SYS_CLOCK_HZ,claimed,loaded_words,add_calls,remove_calls,init_calls,io_writes;
-static uint32_t prog_out_len;
 static uint32_t deny_load,deny_init;
 static bool gate,deny_gate;
 static struct {bool dir,level;} pins[30];
@@ -118,7 +117,7 @@ static void advance(uint cycles){while(cycles--){++tick_count;
         else if(op==1){uint src=(ins>>5)&3u,pol=(ins>>7)&1u;
             if(src==2){if(!(peripheral.irq&(1u<<(ins&7u))))continue;peripheral.irq&=~(1u<<(ins&7u));}
             else {assert(src==1);if(pins[input_pin].level!=(bool)pol)continue;}}
-        else if(op==3){const uint d=(ins>>5)&7u;if(d!=1u&&d!=6u){printf("OUT dest=%u ins=%04x pc=%u sm=%u\n",d,ins,machine[sm].pc,sm);fflush(stdout);}assert(d==1u||d==6u);
+        else if(op==3){const uint d=(ins>>5)&7u;assert(d==1u||d==7u);
             if(d==1u)machine[sm].x=machine[sm].osr;else machine[sm].isr=machine[sm].osr;}
         else if(op==4){if(ins&0x80u){if(!machine[sm].tx_count)continue;machine[sm].osr=pop(machine[sm].tx,&machine[sm].tx_count);}
             else {if(machine[sm].rx_count==4)continue;machine[sm].rx[machine[sm].rx_count++]=machine[sm].isr;machine[sm].isr=0;}}
@@ -137,16 +136,16 @@ static bool pio_sm_is_claimed(PIO p,uint sm){check(p,sm);return (claimed&(1u<<sm
 static void pio_sm_claim(PIO p,uint sm){check(p,sm);assert(!(claimed&(1u<<sm)));claimed|=1u<<sm;}
 static void pio_sm_unclaim(PIO p,uint sm){check(p,sm);assert(claimed&(1u<<sm));claimed&=~(1u<<sm);}
 static bool pio_can_add_program(PIO p,const struct pio_program *g){assert(p==BOARD_SYNC_PIO_FAST);return g->length!=deny_load;}
-static unsigned pio_add_program(PIO p,const struct pio_program *g){assert(p==BOARD_SYNC_PIO_FAST);add_calls++;loaded_words+=g->length;if(!prog_out_len)prog_out_len=g->length;const uint off=loaded_words==prog_out_len?5u:5u+prog_out_len;
+static unsigned pio_add_program(PIO p,const struct pio_program *g){assert(p==BOARD_SYNC_PIO_FAST);add_calls++;loaded_words+=g->length;const uint off=g->length==8?5:13;
     for(uint i=0;i<g->length;i++){uint16_t ins=g->instructions[i];if((ins>>13)==0)ins=(ins&~31u)|((ins&31u)+off);ins_mem[off+i]=ins;}return off;}
-static void pio_remove_program(PIO p,const struct pio_program *g,uint off){(void)off;assert(p==BOARD_SYNC_PIO_FAST);remove_calls++;loaded_words-=g->length;prog_out_len=0;}
+static void pio_remove_program(PIO p,const struct pio_program *g,uint off){assert(p==BOARD_SYNC_PIO_FAST&&off==(g->length==8?5u:13u));remove_calls++;loaded_words-=g->length;}
 static pio_sm_config pio_get_default_sm_config(void){return (pio_sm_config){0};}
 static void sm_config_set_wrap(pio_sm_config *c,uint lo,uint hi){c->lo=lo;c->hi=hi;}
 static void sm_config_set_set_pins(pio_sm_config *c,uint pin,uint count){assert(pin==output_pin&&count==1);c->set_pin=pin;}
 static void sm_config_set_in_pins(pio_sm_config *c,uint pin){assert(pin==input_pin);c->in_pin=pin;}
 static void sm_config_set_out_shift(pio_sm_config *c,bool right,bool autopull,uint n){(void)c;assert(right&&!autopull&&n==32);}
 static void sm_config_set_clkdiv_int_frac(pio_sm_config *c,uint d,uint f){c->div=d;c->frac=f;}
-static int pio_sm_init(PIO p,uint sm,uint off,const pio_sm_config *c){check(p,sm);init_calls++;assert(c->div==1&&!c->frac);if(sm==1)assert(off==5&&c->set_pin==output_pin&&c->lo==5&&c->hi==5+prog_out_len-1u);else assert(off==5+prog_out_len&&c->in_pin==input_pin&&c->lo==5+prog_out_len&&c->hi==c->lo+5u);p->sm[sm].pinctrl=(c->set_pin<<5)|(c->in_pin<<15);machine[sm].pc=off;machine[sm].lo=c->lo;machine[sm].hi=c->hi;return deny_init==sm?-1:0;}
+static int pio_sm_init(PIO p,uint sm,uint off,const pio_sm_config *c){check(p,sm);init_calls++;assert(c->div==1&&!c->frac);if(sm==1)assert(off==5&&c->set_pin==output_pin&&c->lo==5&&c->hi==12);else assert(off==13&&c->in_pin==input_pin&&c->lo==13&&c->hi==18);p->sm[sm].pinctrl=(c->set_pin<<5)|(c->in_pin<<15);machine[sm].pc=off;machine[sm].lo=c->lo;machine[sm].hi=c->hi;return deny_init==sm?-1:0;}
 static void pio_sm_set_enabled(PIO p,uint sm,bool enable){check(p,sm);assert(!enable);peripheral.ctrl&=~(1u<<sm);}
 static void pio_sm_clear_fifos(PIO p,uint sm){check(p,sm);machine[sm].tx_count=machine[sm].rx_count=0;}
 static void pio_sm_restart(PIO p,uint sm){check(p,sm);machine[sm].isr=0;}
@@ -266,7 +265,7 @@ int main(int argc,char **argv){
     if(!strcmp(test,"core")){core=1;assert(!sync_io_gateway_load(1,4,1000,&g));assert(!sync_io_gateway_stop(1));core=0;}
     if(!strcmp(test,"clock")){hz=125000000;assert(!sync_io_gateway_load(1,4,1000,&g));hz=BOARD_SYS_CLOCK_HZ;}
     if(!strcmp(test,"gate"))deny_gate=true;
-    if(!strcmp(test,"load_output_fail"))deny_load=10;
+    if(!strcmp(test,"load_output_fail"))deny_load=8;
     if(!strcmp(test,"load_ready_fail"))deny_load=6;
     if(!strcmp(test,"init_output_fail"))deny_init=1;
     if(!strcmp(test,"init_ready_fail"))deny_init=3;
@@ -279,10 +278,10 @@ int main(int argc,char **argv){
         deny_gate=false;deny_load=deny_init=claimed=0;
     }
     peripheral.irq=(1u<<6)|(1u<<4);
-    assert(sync_io_gateway_load(inport,outport,1000,&g));assert(g==1&&gate&&claimed==10&&loaded_words==16);
+    assert(sync_io_gateway_load(inport,outport,1000,&g));assert(g==1&&gate&&claimed==10&&loaded_words==14);
     sync_io_gateway_snapshot_t s=snapshot();
     assert(s.loaded&&s.state==SYNC_IO_GATEWAY_LOADED&&s.input_pin==input_pin&&s.output_pin==output_pin&&s.pulse_ticks==250);
-    assert(s.sm_claimed_mask==10&&!s.sm_enabled_mask&&s.instruction_words==16&&s.output_program_offset==5&&s.ready_program_offset==15);
+    assert(s.sm_claimed_mask==10&&!s.sm_enabled_mask&&s.instruction_words==14&&s.output_program_offset==5&&s.ready_program_offset==13);
     assert(!s.output_level&&!s.grant_pending&&!s.trigger_count&&!s.ready_count&&s.ready_level==pins[input_pin].level);
     assert(!s.output_tx_level&&!s.output_rx_level&&!s.ready_tx_level&&!s.ready_rx_level);
     assert(peripheral.irq==(1u<<4));assert(!memcmp(original+input_pin*sizeof(pins[0]),&pins[input_pin],sizeof(pins[input_pin])));
@@ -341,7 +340,7 @@ int main(void){
     const sync_io_persona_descriptor_t *r=sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_REFERENCE_MONITOR);
     const sync_io_persona_descriptor_t *c=sync_io_persona_descriptor(SYNC_IO_PERSONA_ID_PULSE_COUNTER);
     sync_io_persona_compatibility_t p;
-    assert(g->sm_mask==10&&g->instruction_words==16&&g->gpio_read_mask==(1u<<23)&&g->gpio_write_mask==(1u<<19));
+    assert(g->sm_mask==10&&g->instruction_words==14&&g->gpio_read_mask==(1u<<23)&&g->gpio_write_mask==(1u<<19));
     assert(!g->dma_channel_mask&&!g->workspace_mask&&g->irq_mask==SYNC_IO_PERSONA_IRQ_INTERNAL_6);
     assert(sync_io_persona_compatible(g,r,&p));assert(!sync_io_persona_compatible(g,c,&p)&&(p.conflict_mask&SYNC_IO_PERSONA_CONFLICT_SM));
     const sync_io_persona_manager_hooks_t hooks={.load=load_hook};sync_io_persona_manager_handle_t a,b,conflict;
@@ -349,7 +348,7 @@ int main(void){
         assert(sync_io_pio0_runtime_prepare(reverse?g->id:r->id,&hooks,NULL,&a));
         assert(sync_io_pio0_runtime_prepare(reverse?r->id:g->id,&hooks,NULL,&b));
         assert(!sync_io_pio0_runtime_prepare(c->id,&hooks,NULL,&conflict));
-        assert(s_runtime.active_count==2&&s_runtime.instruction_words_total==27);
+        assert(s_runtime.active_count==2&&s_runtime.instruction_words_total==25);
         assert(sync_io_pio0_runtime_release(&a));assert(sync_io_pio0_runtime_release(&b));
     }
     for(unsigned in=20;in<24;in++)for(unsigned out=16;out<20;out++){
@@ -361,7 +360,7 @@ int main(void){
         assert(actual->sm_mask==g->sm_mask&&actual->instruction_words==g->instruction_words&&actual->irq_mask==g->irq_mask);
         assert(sync_io_pio0_runtime_prepare(r->id,&hooks,NULL,&b));
         assert(actual==s_runtime.leases[a.slot].descriptor&&actual->gpio_write_mask==(1u<<out));
-        assert(s_runtime.leases[b.slot].descriptor!=actual&&s_runtime.instruction_words_total==27);
+        assert(s_runtime.leases[b.slot].descriptor!=actual&&s_runtime.instruction_words_total==25);
         assert(g->gpio_write_mask==(1u<<19)&&r->gpio_read_mask==(15u<<20));
         assert(sync_io_pio0_runtime_release(&a));
         assert(s_runtime.active_count==1&&s_runtime.instruction_words_total==11&&s_runtime.used_gpio_write_mask==0);
