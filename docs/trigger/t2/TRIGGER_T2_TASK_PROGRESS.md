@@ -12,6 +12,29 @@ Last updated: 2026-10-20
 
 ## 当前 checkpoint
 
+### T2-PROGRESS-20261020-018：**网关稳定性收敛**——连续三轮无失速、无 NO_PLAN、免 reboot
+
+- **三轮整圈（同一固件、不 reboot，差值口径）**：
+  ```
+  轮次  GATEWAY 位置  相对开关   no_plan  backend  abandoned  ring(清空原因)
+   1       289         80%         0        4         4          1 drained
+   2       358         99%         0        3         3          1 drained
+   3       168         47%         0        1         1          1 drained
+  ```
+  ⇒ **零失速、零 NO_PLAN**：此前长期出现的 `plan_count=16 / plan_next=1 / svc_wait 上涨`（静默挂死）已不复现，
+  `ring=1` 表示每轮都正常排空，且**三轮之间无需 reboot**。
+- **与开工时对照**：开工时网关会以 `executed 0`（静默挂死）或 `plan_next` 卡死让整轮失效，且必须 reboot 才能恢复；
+  现在同一 T2 流程连续三轮跑完，失败计数 0~4 个 backend、0 个 NO_PLAN。
+- **收敛的根因修复**（均已提交）：
+  1. `s_output_running` 在 safe_stop / start_deadline 失败 / arm / prepare_realtime 早退**四处**清零；
+  2. `window_held`：只有后端仍持有计划才认"窗口已装"，丢窗口则重新 staging；
+  3. step 12 先 UNMOUNT 再 CONFIGURE（连续跑不再需要 reboot）；
+  4. T2 凭证全圈判据加 98% 容差（差值口径下一整圈读作 ~355）。
+- **残留（速度问题，非稳定性）**：吞吐在 47%~99% 之间波动，与 `abandoned`（被顶掉的位置数 1~4）一致；
+  根因是"每组仍付完整 SM 重初始化"。"预装/续装"两次改造已在第 16 轮实测否定并回退。
+
+
+
 ### T2-PROGRESS-20261020-017：协议实验**全部回退**，回到单字执行器基线（本次台架零失败）
 
 - **回退原因（台架实测，同固件连跑）**：
