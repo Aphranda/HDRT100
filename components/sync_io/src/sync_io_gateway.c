@@ -46,6 +46,28 @@ static bool s_ready_required = false;
 static uint32_t s_ready_collision_count;
 /* Groups whose tick had already passed when they were armed (they still fire). */
 static uint32_t s_late_count;
+/* HOW LATE, not just how often: (now + guard) - deadline for the last arm and the worst.
+ * 250 MHz ticks, so 250000 ticks = 1 ms. Distinguishes "the plan is born late"
+ * (tens of ms) from "the arm path just misses the guard" (sub-ms). */
+static uint32_t s_late_max_ticks, s_late_last_ticks;
+/* Split of that lateness: how late the PLAN already was when the runtime handed it over
+ * (measured at stage_sequence entry, before any executor work).
+ *   freeze lead = 144..192 ms  (runtime's own counter, ms ordinals)
+ *   stage_late  = what is left of it when the executor is called
+ *   late(arm) - stage_late = executor's own stage->arm cost (expected us)
+ * So stage_late large => the position arrives late (lane/solve/admission);
+ *    stage_late ~0 while late large => the executor itself is slow. */
+static uint32_t s_stage_late_max_ticks, s_stage_late_last_ticks;
+static uint32_t s_stage_early_max_ticks, s_stage_early_last_ticks;
+/* PROGRESS watchdog. A stall is "work is in hand but nothing moved", which is wider than any
+ * single state: measured stalls are plan_count=16 with plan_next=1 and svc_wait growing (service
+ * waiting for a receipt that never comes), and ARMED slots whose pulse never completes. Watching
+ * `pending`/`plan_count` therefore missed the real case (review 12.1). This watches the PROGRESS
+ * FINGERPRINT instead: if it does not change for GATEWAY_PROGRESS_STALL_PASSES passes while a plan
+ * is staged or a receipt is pending, the executor stops the SM, drops the table and reports
+ * CANCELLED, so the runtime's terminal branch releases the slot as a named BACKEND failure. */
+#define GATEWAY_PROGRESS_STALL_PASSES 256u   /* ~1 s at a 4 ms service period */
+static uint32_t s_progress_fp, s_progress_stale, s_progress_retired;
 /* Arm refusals: core/clock, prepare_realtime, origin window, delay range. */
 static uint32_t s_arm_reject[4];
 /* Completion path: waiting for the PIO, receipt mismatch, accepted completions. */
@@ -103,7 +125,12 @@ static __attribute__((noinline)) bool GATEWAY_HOT(start_deadline)(uint64_t deadl
      * "not representable" (measured: arm_reject[3]=51 with late=0), which is exactly the case the clamp
      * exists for. A late group fires as soon as the PIO can and the lateness is counted. */
     uint64_t target=deadline;
-    if(deadline<before+guard) { target=before+guard; ++s_late_count; }
+    if(deadline<before+guard) {
+        target=before+guard; ++s_late_count;
+        const uint64_t late=before+guard-deadline;
+        s_late_last_ticks = late>UINT32_MAX ? UINT32_MAX : (uint32_t)late;
+        if(s_late_last_ticks>s_late_max_ticks) s_late_max_ticks=s_late_last_ticks;
+    }
     const uint64_t delta=target-before;
     if(delta>UINT32_MAX || delta<4u) { ++s_arm_reject[3]; return false; }
     pio_sm_put(GATEWAY_PIO,OUTPUT_SM,(uint32_t)(delta-4u));
@@ -399,6 +426,29 @@ static void note_plan_clear(uint32_t reason)
 void __not_in_flash_func(sync_io_gateway_realtime_service_core1)(void)
 {
     if(get_core_num()!=1u || !s_lease)return;
+    /* Progress watchdog: work in hand but nothing moved => stop the SM, drop the table, report
+     * CANCELLED. Any of plan_next / receipt / completion / trigger count changing counts as
+     * progress, so a healthy 8 ms group (2 passes) never trips it. */
+    /* Retire only when the RX FIFO is EMPTY: a late-but-present receipt must be consumed by the
+     * branch below, not discarded by safe_stop() (review 13.4). */
+    if(pio_sm_is_rx_fifo_empty(GATEWAY_PIO,OUTPUT_SM)) {
+        const uint32_t pending_now=__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE);
+        const bool busy = (s_plan_count!=0u) || (pending_now!=0u);
+        const uint32_t fp = s_service_complete ^ (s_plan_next<<8) ^ (s_pending_receipt<<16) ^
+            (s_gateway.trigger_count<<24) ^ (s_deadline.state<<28);
+        if(busy) {
+            if(fp==s_progress_fp) {
+                if(++s_progress_stale>GATEWAY_PROGRESS_STALL_PASSES) {
+                    s_progress_stale=0u;
+                    ++s_progress_retired;
+                    safe_stop();
+                    s_plan_count=0u;s_plan_next=0u;
+                    s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_CANCELLED;
+                }
+            } else s_progress_stale=0u;
+        } else s_progress_stale=0u;
+        s_progress_fp=fp;
+    }
     if(__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE) &&
        !pio_sm_is_rx_fifo_empty(GATEWAY_PIO,OUTPUT_SM)) {
         const uint32_t receipt=pio_sm_get(GATEWAY_PIO,OUTPUT_SM);
@@ -542,6 +592,29 @@ bool __not_in_flash_func(sync_io_gateway_realtime_stage_sequence)(uint64_t base_
         s_plan[i].pulse_ns=pulse_ns[i];
         s_plan[i].deadline_tick=base_deadline_tick+delta_ticks[i];
     }
+    /* Pre-executor lateness: how far past its own base the table already is when it arrives.
+     * Compared later against `late` (measured at arm), this splits the chain into
+     * "the position arrived late" vs "the executor armed it late". */
+    {
+        uint64_t now;
+        if(raw_tick(&now)) {
+            if(now>base_deadline_tick) {
+                const uint64_t d=now-base_deadline_tick;
+                s_stage_late_last_ticks = d>UINT32_MAX ? UINT32_MAX : (uint32_t)d;
+                if(s_stage_late_last_ticks>s_stage_late_max_ticks)
+                    s_stage_late_max_ticks=s_stage_late_last_ticks;
+            } else {
+                /* Recorded ALWAYS: a table that arrives early is exactly what tells a slow arm
+                 * path apart from a time-base offset. Swallowing "early" into 0 made both look
+                 * identical. */
+                const uint64_t d=base_deadline_tick-now;
+                s_stage_early_last_ticks = d>UINT32_MAX ? UINT32_MAX : (uint32_t)d;
+                s_stage_late_last_ticks = 0u;
+                if(s_stage_early_last_ticks>s_stage_early_max_ticks)
+                    s_stage_early_max_ticks=s_stage_early_last_ticks;
+            }
+        }
+    }
     s_plan_count=count;s_plan_next=0u;
     /* The staged table owns the group numbering: group k reports sequence base + k. */
     s_plan_base_sequence=s_gateway.trigger_count+1u;
@@ -583,14 +656,29 @@ void sync_io_gateway_realtime_diag(uint32_t *out)
     out[28]=last->plan_next;
     out[29]=last->complete;
     out[30]=last->tick_lo;
+    out[31]=s_late_max_ticks;
+    out[32]=s_late_last_ticks;
+    /* Early arrival at stage: the counterpart of late_max, and the only way to tell a
+     * slow arm path from a time-base offset. */
+    out[33]=s_stage_early_max_ticks;
+    out[39]=s_progress_retired;
+    /* Appended beyond the original 42: the page now carries the owner/stale pair instead of
+     * squeezing them into slots that already had meanings (review 12.4). */
+    out[42]=s_armed_owner;
+    out[43]=s_progress_stale;
+    /* The three numbers that decide whether a completion can ever match: the state the runtime
+     * waits on, and the sequence it expects versus the one the executor actually completed. */
+    out[44]=s_deadline.state;
+    out[45]=s_deadline.sequence;
+    out[46]=s_deadline.completed_sequence;
+    out[37]=s_stage_late_max_ticks;
+    out[38]=s_stage_late_last_ticks;
     out[34]=s_last_delay_word;
     out[35]=s_last_deadline_lo;
     out[36]=s_last_delta_lo;
-    out[37]=s_continuation_hit;
-    out[39]=s_armed_owner;
+
     out[40]=s_cancel_match;
     out[41]=s_cancel_miss;
-    out[38]=s_continuation_miss;
     out[19]=s_service_wait;
     out[20]=s_service_bad_receipt;
     out[21]=s_service_complete;

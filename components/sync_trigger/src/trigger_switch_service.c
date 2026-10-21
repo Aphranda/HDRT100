@@ -1,4 +1,5 @@
 #include "trigger_switch_service.h"
+#include "trigger_sequence_pilot.h"
 
 #include "board_identity.h"
 #include "pico.h"
@@ -74,9 +75,38 @@ static uint32_t switch_binding(trigger_deployment_binding_t *binding,
 typedef struct {uint32_t operation,generation,crc,code,result;} switch_request_t;
 enum {SWITCH_LOAD,SWITCH_STAGE,SWITCH_APPLY,SWITCH_STOP,SWITCH_UNLOAD};
 
+/* Give the SMA pins back when the unified model takes over the switch positions. Core1-only:
+ * the licence is owned there, and the caller (the pilot service) runs in the same context as the
+ * maintain loop. */
+bool trigger_switch_force_unload(void)
+{
+    if (!trigger_switch_is_loaded()) return true;
+    /* A persona left STAGED/PENDING refuses a bare release, so stop it first (the state machine
+     * requires STOPPED before the licence can go back). */
+    (void)sync_io_switch_stop(s_switch_generation);
+    bool ok = sync_io_switch_release(s_switch_generation);
+    if (!ok) {
+        (void)sync_io_switch_stop(s_switch_generation);
+        ok = sync_io_switch_release(s_switch_generation);
+    }
+    if (ok) {
+        s_switch_generation = 0u;
+        __atomic_store_n(&s_switch_loaded, 0u, __ATOMIC_RELEASE);
+    }
+    return ok;
+}
+
 static bool switch_maintain(void *context)
 {
     switch_request_t *r=context;
+    /* Mode 2: the unified model owns the switch's outputs and claims the persona itself. Loading
+     * the legacy persona as well makes that claim fail (fault detail 9), and releasing a loaded
+     * persona is refused, so the clean path is to never load it on a model-driven board. The
+     * loaded flag stays 0, so a rollback to mode 1 reloads normally on the next configure. */
+    if (r->operation==SWITCH_LOAD && trigger_sequence_pilot_switch_enabled()) {
+        r->result=SWITCH_OK;
+        return true;
+    }
     if (r->operation==SWITCH_LOAD) {
         if (trigger_switch_is_loaded() || trigger_counter_is_loaded() || trigger_gateway_is_loaded()) {
             r->result=SWITCH_BUSY;return false;

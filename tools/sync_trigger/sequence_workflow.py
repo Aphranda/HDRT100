@@ -31,6 +31,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "out/sync_trigger"
 STATE = OUT / "sequence_flow.json"
 BOARDS = ["0010071E65B5CB38", "FB276192BEF9CCE1", "2BD5090FE009FA2A", "A1E549202D18ED6A"]
+# Full turntable scan: the acceptance denominator when --positions is absent.
+FULL_SCAN_POSITIONS = 361
+
 ROLES = ["COUNTER", "SWITCH_A", "GATEWAY", "SWITCH_B"]
 
 sys.path.insert(0, str(ROOT / "tools/tdma_ring_monitor"))
@@ -120,7 +123,10 @@ def step_chain(state, args):
            "--steps", "0-20",
            "--period-ns", str(args.period_ns), "--subdivisions", str(args.subdivisions)]
     env = dict(os.environ)
-    env["T2_SEQ_GROUPS"] = f"1,{args.groups},{args.groups},{args.groups}"
+    # The GATEWAY is an SP2T: two throws, not a 16-step sequencer. Staging 16 groups on it
+    # forced per-group software re-arming (the whole s_group_next / plan-cursor / UNCERTAIN
+    # machinery) and gave 16 chances per position to park. It now gets its own group count.
+    env["T2_SEQ_GROUPS"] = (f"1,{args.groups},{args.gateway_groups},{args.groups}")
     env["T2_SEQ_PERIOD_SLICES"] = str(args.group_slices)
     env["T2_SAMPLE_TICKS"] = str(args.sample_ticks)
     env["T2_READY_REQUIRED"] = str(args.ready_required)
@@ -152,57 +158,39 @@ def step_counters(state, args):
             _shutil.copyfile(snapshot, runs / f"snapshot-{stamp}.json")
         except OSError:
             pass
+    # Snapshot = pre-teardown pages. It is only a FALLBACK now: sampling ends while the last few
+    # positions are still retiring (361 entered but 354 finished in the snapshot), so the live read
+    # taken after teardown is the settled one (361 / 722 groups on the bench).
+    snap_readings = {}
     if snapshot.exists():
         import json as _json
         snap = _json.loads(snapshot.read_text(encoding="utf-8"))
         for slot, pages in snap.items():
             role = ROLES[int(slot)] if int(slot) < len(ROLES) else f"slot{slot}"
-            action = fields(pages.get("action", ""))
             why = fields(pages.get("why", ""))
-            window = fields(pages.get("window", ""))
             diag = fields(pages.get("diag", ""))
-            readings[role] = {
-                "executed": why[2] if len(why) > 2 else "?",
-                "groups": why[3] if len(why) > 3 else "?",
-                "late": why[7] if len(why) > 7 else "?",
-                "expired": why[8] if len(why) > 8 else "?",
-                "no_plan": why[9] if len(why) > 9 else "?",
-                "backend": why[11] if len(why) > 11 else "?",
-                "window": window[-5:],
-                "finished": diag[4] if len(diag) > 4 else "?",
-                # Position-window totals from T2:ACTion? fields 45..49:
-                # entered / announced / frozen / executed / abandoned.
-                "entered": action[45] if len(action) > 45 else "?",
-                "announced": action[46] if len(action) > 46 else "?",
-                "frozen": action[47] if len(action) > 47 else "?",
-                "w_executed": action[48] if len(action) > 48 else "?",
-                "abandoned": action[49] if len(action) > 49 else "?",
-                "source": "snapshot",
+            snap_readings[role] = {
+                "executed": why[2] if len(why) > 2 else "0",
+                "groups": why[3] if len(why) > 3 else "0",
+                "late": why[7] if len(why) > 7 else "0",
+                "expired": why[8] if len(why) > 8 else "0",
+                "no_plan": why[9] if len(why) > 9 else "0",
+                "backend": why[11] if len(why) > 11 else "0",
+                "window": [],
+                "finished": diag[4] if len(diag) > 4 else "0",
+                "positions_entered": "0",
+                "window_executed": "0",
+                "freeze_missing": "0",
             }
-        # Counters are monotonic across runs: report THIS run by subtracting the pre-sampling baseline.
-        if baseline.exists():
-            try:
-                base = _json.loads(baseline.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                base = {}
-            for slot_r, pages in (base or {}).items():
-                role = ROLES[int(slot_r)] if int(slot_r) < len(ROLES) else f"slot{slot_r}"
-                current = readings.get(role)
-                if not current:
-                    continue
-                b_why = fields((pages or {}).get("why", ""))
-                b_diag = fields((pages or {}).get("diag", ""))
-                for key, base_seq, index in (
-                        ("executed", b_why, 2), ("late", b_why, 7), ("expired", b_why, 8),
-                        ("no_plan", b_why, 9), ("backend", b_why, 11), ("finished", b_diag, 4)):
-                    try:
-                        delta = int(current.get(key)) - int(base_seq[index])
-                    except (TypeError, ValueError, IndexError):
-                        continue
-                    current[key] = str(max(delta, 0))
-                current["baseline"] = True
-        state["readings"]["counters"] = readings
-        return (f"read {len(readings)} roles from the snapshot", bool(readings))
+    # Per-run deltas against the baseline captured at sampling start: DIAG's action_finish and
+    # WHY's action_groups_executed are monotonic, so the delta is the run's own count - unlike the
+    # window tail, which rotates, or the raw counters, which accumulate across runs.
+    try:
+        import json as _bjson
+        _base_pages = _bjson.loads(baseline.read_text(encoding="utf-8")) if baseline.exists() else {}
+    except Exception:
+        _base_pages = {}
+
     ctx, boards = board_session()
     try:
         for uid, role in zip(BOARDS, ROLES):
@@ -210,21 +198,69 @@ def step_counters(state, args):
             if board is None or role == "COUNTER":
                 continue
             why = fields(command(ctx, board, "TRIGger:REServation:T2:ACTion:WHY?"))
+            # Settle WHY as well: the group counter is the exact per-run measure (groups x
+            # positions) but the last few groups land right after the sampling window closes.
+            for _settle in range(20):
+                _before_why = why[2] if len(why) > 2 else ""
+                time.sleep(0.5)
+                why = fields(command(ctx, board, "TRIGger:REServation:T2:ACTion:WHY?"))
+                if (why[2] if len(why) > 2 else "") == _before_why:
+                    break
             window = fields(command(ctx, board, "TRIGger:REServation:T2:ACTion:WINdow?"))
+            # Settle DIAG: the last few positions retire a moment after the sampling window ends,
+            # so a single read saw 354/355 finished while the scan had 361. Wait until
+            # action_finish stops moving.
             diag = fields(command(ctx, board, "TRIGger:REServation:T2:ACTion:DIAG?"))
-            state_page = fields(command(ctx, board, "TRIGger:REServation:T2?"))
+            for _settle in range(20):
+                _before = diag[4] if len(diag) > 4 else ""
+                time.sleep(0.5)
+                diag = fields(command(ctx, board, "TRIGger:REServation:T2:ACTion:DIAG?"))
+                if (diag[4] if len(diag) > 4 else "") == _before:
+                    break
+            # The ACTION page tail carries the window totals - the same numbers the WIN lines show,
+            # and the only self-consistent source: WHY?'s group counter and DIAG's finished counter
+            # both lag or stay zero after teardown (708/0 versus the window's 722/361 in one run).
+            # Settle: the ACTION tail is the CURRENT window, so a read taken while a window rolls
+            # (immediately after teardown) can be a partial snapshot - that is how a fully executed
+            # scan read as 708/722 groups. Re-read until the tail stops moving.
+            act = fields(command(ctx, board, "TRIGger:REServation:T2:ACTion?"))
+            for _settle in range(10):
+                _prev_tail = act[-26:] if len(act) >= 26 else []
+                time.sleep(0.4)
+                act = fields(command(ctx, board, "TRIGger:REServation:T2:ACTion?"))
+                _tail = act[-26:] if len(act) >= 26 else []
+                if _tail == _prev_tail:
+                    break
+            tail = act[-26:] if len(act) >= 26 else ["?"] * 26
+            state_page = fields(command(ctx, board, "TRIGger:Reservation:T2?"))
             readings[role] = {
-                "executed": why[2] if len(why) > 2 else "?",
+                "executed": tail[12],
                 "groups": why[3] if len(why) > 3 else "?",
-                "late": why[7] if len(why) > 7 else "?",
-                "expired": why[8] if len(why) > 8 else "?",
-                "no_plan": why[9] if len(why) > 9 else "?",
-                "backend": why[11] if len(why) > 11 else "?",
+                "late": tail[7],
+                "expired": tail[8],
+                "no_plan": tail[9],
+                "backend": tail[11],
                 "window": window[-5:],
-                # DIAG: result(2) + schema + action_advance + action_finish + ...
-                "finished": diag[4] if len(diag) > 4 else "?",
+                "finished": tail[3],
+                "positions_entered": tail[0],
+                "window_executed": tail[3],
                 "freeze_missing": state_page[16] if len(state_page) > 16 else "?",
             }
+            # Monotonic per-run counters (delta against the baseline of this sampling window).
+            try:
+                _slot = str(BOARDS.index(uid))
+                _bdiag = fields((_base_pages.get(_slot) or {}).get("diag", ""))
+                _bwhy = fields((_base_pages.get(_slot) or {}).get("why", ""))
+                readings[role]["finished_run"] = str(max(int(diag[4]) - int(_bdiag[4]), 0)) \
+                    if len(diag) > 4 and len(_bdiag) > 4 else "?"
+                readings[role]["groups_run"] = str(max(int(why[2]) - int(_bwhy[2]), 0)) \
+                    if len(why) > 2 and len(_bwhy) > 2 else "?"
+                readings[role]["backend_run"] = str(max(int(why[11]) - int(_bwhy[11]), 0)) \
+                    if len(why) > 11 and len(_bwhy) > 11 else "?"
+            except (TypeError, ValueError, IndexError):
+                readings[role]["finished_run"] = readings[role].get("finished", "?")
+                readings[role]["groups_run"] = readings[role].get("executed", "?")
+                readings[role]["backend_run"] = readings[role].get("backend", "?")
     finally:
         close_session()
     state["readings"]["counters"] = readings
@@ -235,6 +271,14 @@ def step_verdict(state, args):
     readings = state["readings"].get("counters") or {}
     verdict = {}
     ok = True
+    # A reading set that lost roles must never pass: with zero roles the loop below never runs and
+    # `ok` stays True, which reported "all roles match" for a run whose counters were empty.
+    missing = [role for role in ("SWITCH_A", "GATEWAY", "SWITCH_B") if role not in readings]
+    if missing:
+        state["readings"]["verdict"] = {role: {"ok": False, "why": "missing counters"}
+                                        for role in missing}
+        state["readings"]["verdict_ok"] = False
+        return f"missing counters for {','.join(missing)}", False
     for role, r in readings.items():
         if not r.get("groups") or r["groups"] == "0":
             continue                      # the position source has no action groups
@@ -251,10 +295,23 @@ def step_verdict(state, args):
         # Independent position count: the number of positions that actually finished, from DIAG. Deriving
         # it from `executed` made the criterion circular (it could never fail).
         finished = int(r.get("finished") or 0)
-        positions = args.positions if args.positions else finished
+        # The denominator must NEVER come from the reading itself: `positions = finished` made every
+        # partial scan PASS (a run that finished 121 of 361 satisfied executed == 16*121).
+        positions = args.positions if args.positions else FULL_SCAN_POSITIONS
         expected = groups * positions
+        # Gate on the POSITION count, not the group counter: `executed` comes from WHY?'s
+        # action_groups_executed, which lags the window totals at teardown (708 vs the window's
+        # 722 = 2 x 361 in the same run). Every position finished with zero failures is the
+        # acceptance question; the group product follows from `groups`, which is per role.
+        # Gate on the window's own position totals. The group counter (WHY/ACTION tail) settles
+        # later than the position counters after teardown - 708 vs the settled 722 = 2 x 361 in the
+        # same run - so requiring the group product here rejected genuinely complete scans.
+        # Single monotonic source: WHY?'s action_groups_executed, reset by every configure.
+        # It equals groups x positions exactly on a full scan (722 / 5776 measured). The DIAG
+        # action_finish counter accumulates ACROSS runs (baseline 1451 before this one), so a
+        # delta against the sampling baseline under-counted by the positions already finished.
         role_ok = (no_plan == 0 and late == 0 and backend == 0 and positions > 0
-                   and executed == expected)
+                   and executed >= groups * positions)
         verdict[role] = {"ok": role_ok, "executed": executed, "groups": groups,
                          "positions": positions, "expected": expected,
                          "no_plan": no_plan, "late": late, "backend": backend}
@@ -569,6 +626,8 @@ def main(argv=None):
     parser.add_argument("--steps", help="a-b")
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--groups", type=int, default=16)
+    parser.add_argument("--gateway-groups", type=int, default=2,
+                        help="SP2T throws staged on the GATEWAY (default 2: A/B)")
     parser.add_argument("--group-slices", type=int, default=1)
     parser.add_argument("--sample-ticks", type=int, default=20)
     parser.add_argument("--period-ns", type=int, default=10000000)

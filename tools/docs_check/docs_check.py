@@ -31,6 +31,7 @@ ALLOWED_PREFIXES = {
     "DOCS",
     "CALIBRATION",
     "REFMEM",
+    "EVENT",
     "COMMUNICATION",
     "MEASURE",
     "HARDWARE",

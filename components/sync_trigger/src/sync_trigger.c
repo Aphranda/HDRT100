@@ -14,6 +14,7 @@
 #include "trigger_resource_map.h"
 #include "trigger_time_cursor.h"
 #include "trigger_t2_runtime.h"
+#include "trigger_sequence_pilot.h"
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #include "hardware/structs/systick.h"
 #include "hardware/regs/m33.h"
@@ -747,6 +748,8 @@ __attribute__((optimize("Os"))) TRIGGER_DISPATCH_HOT void sync_trigger_service(v
     const uint32_t started=timing_now();
     const trigger_t2_runtime_result_t t2_result =
         trigger_t2_runtime_service();
+    /* Unified-model pilot: no-op unless a pilot run was requested from SCPI. */
+    trigger_sequence_pilot_service();
     const uint32_t runtime_done=timing_now();
     if (t2_result == TRIGGER_T2_RUNTIME_NOT_CONFIGURED ||
         t2_result == TRIGGER_T2_RUNTIME_NOT_ACTIVE)

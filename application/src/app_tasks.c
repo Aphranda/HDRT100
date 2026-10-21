@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "app.h"
+#include "trigger_sequence_pilot.h"
 #include "app_runtime.h"
 #include "board.h"
 #include "calibration_manager.h"
@@ -50,6 +51,8 @@ static void task_system(void *context)
         led_manager_service(app_is_ready());
         drv_watchdog_mark_progress(0u, APP_PROGRESS(1u, 3u));
         app_diag_service();
+        drv_watchdog_mark_progress(0u, APP_PROGRESS(1u, 5u));
+        trigger_sequence_pilot_service_core0();
         drv_watchdog_mark_progress(0u, APP_PROGRESS(1u, 4u));
         diagnostics_watchdog_task_heartbeat(DIAGNOSTICS_WATCHDOG_TASK_SYSTEM);
         osal_task_delay_ms(1u);

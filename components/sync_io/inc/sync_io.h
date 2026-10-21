@@ -163,6 +163,9 @@ typedef struct {
 } sync_io_biss_tap_config_t;
 
 bool sync_io_init(const sync_io_config_t *config);
+
+/* Diagnostic: why the unified sequence model cannot claim the SMA outputs (0 = free). */
+uint32_t sync_io_sequence_outputs_blockers(void);
 bool sync_io_start_capture(uint32_t sample_hz);
 void sync_io_stop_capture(void);
 size_t sync_io_read_capture_words(uint32_t *buffer, size_t max_words);
@@ -311,6 +314,9 @@ void sync_io_seq_step_disarm(void);
 uint32_t sync_io_seq_step_get_index(void);
 uint64_t sync_io_seq_step_get_rollover_count(void);
 bool sync_io_seq_step_is_running(void);
+/* Hardware-accurate variant: the state machine is enabled right now. */
+bool sync_io_seq_step_is_active(void);
+bool sync_io_enc_count_is_active(void);
 void sync_io_seq_step_get_runtime(sync_io_seq_step_runtime_t *runtime);
 void sync_io_seq_step_trace_runtime_sample(bool force);
 void sync_io_set_expected_ready_mask(uint32_t mask);

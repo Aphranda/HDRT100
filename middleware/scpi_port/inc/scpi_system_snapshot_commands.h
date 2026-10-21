@@ -198,6 +198,7 @@ scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_action_why_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_action_window_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_action_diag_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_t2_action_arm_branch_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_gateway_diag_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_t2_announce(scpi_t *context);
@@ -210,6 +211,10 @@ scpi_result_t scpi_cmd_trigger_sequence_counts(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_counts_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_period_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_ready(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_t2_seq_pilot(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_t2_seq_mode(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_t2_seq_mode_q(scpi_t *context);
+scpi_result_t scpi_cmd_trigger_t2_seq_pilot_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_ready_q(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_code(scpi_t *context);
 scpi_result_t scpi_cmd_trigger_sequence_code_q(scpi_t *context);
@@ -508,6 +513,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:REServation:T2:ACTion:WHY?", .callback = scpi_cmd_trigger_t2_action_why_q}, \
     {.pattern = "TRIGger:REServation:T2:ACTion:WINdow?", .callback = scpi_cmd_trigger_t2_action_window_q}, \
     {.pattern = "TRIGger:REServation:T2:ACTion:DIAG?", .callback = scpi_cmd_trigger_t2_action_diag_q}, \
+{.pattern = "TRIGger:REServation:T2:ACTion:ARMBranch?", .callback = scpi_cmd_trigger_t2_action_arm_branch_q}, \
     {.pattern = "TRIGger:REServation:T2:ACTion:GWDIAG?", .callback = scpi_cmd_trigger_t2_gateway_diag_q}, \
     {.pattern = "TRIGger:REServation:T2:SCAN?", .callback = scpi_cmd_trigger_t2_scan_q}, \
     {.pattern = "TRIGger:REServation:T2:ANNOUNCE", .callback = scpi_cmd_trigger_t2_announce}, \
@@ -520,6 +526,10 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "TRIGger:SEQuence:COUNts?", .callback = scpi_cmd_trigger_sequence_counts_q}, \
     {.pattern = "TRIGger:SEQuence:PERiod?", .callback = scpi_cmd_trigger_sequence_period_q}, \
     {.pattern = "TRIGger:SEQuence:REAdy", .callback = scpi_cmd_trigger_sequence_ready}, \
+{.pattern = "TRIGger:REServation:T2:SEQ:PILot", .callback = scpi_cmd_trigger_t2_seq_pilot}, \
+{.pattern = "TRIGger:REServation:T2:SEQ:MODE", .callback = scpi_cmd_trigger_t2_seq_mode}, \
+{.pattern = "TRIGger:REServation:T2:SEQ:MODE?", .callback = scpi_cmd_trigger_t2_seq_mode_q}, \
+{.pattern = "TRIGger:REServation:T2:SEQ:PILot?", .callback = scpi_cmd_trigger_t2_seq_pilot_q}, \
     {.pattern = "TRIGger:SEQuence:REAdy?", .callback = scpi_cmd_trigger_sequence_ready_q}, \
     {.pattern = "TRIGger:SEQuence:CODE", .callback = scpi_cmd_trigger_sequence_code}, \
     {.pattern = "TRIGger:SEQuence:CODE?", .callback = scpi_cmd_trigger_sequence_code_q}, \

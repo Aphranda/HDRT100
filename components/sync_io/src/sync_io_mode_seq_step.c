@@ -319,6 +319,16 @@ bool sync_io_seq_step_is_running(void)
     return s_seq_step.running;
 }
 
+/* "Running" is only a flag. A board that persisted a mode before the reboot keeps it set while
+ * nothing drives the pins any more, and the legacy gate then refuses to disarm it (reference
+ * token or a reserved phase blocks sync_io_core_legacy_try_enter). The unified sequence model
+ * asks THIS instead: is the state machine enabled right now. */
+bool sync_io_seq_step_is_active(void)
+{
+    return s_seq_step.running &&
+        sync_io_core_sm_is_enabled(BOARD_SYNC_PIO_WAVE, s_seq_step.seq_sm);
+}
+
 uint64_t sync_io_seq_step_get_rollover_count(void)
 {
     return s_seq_step.rollover_count;

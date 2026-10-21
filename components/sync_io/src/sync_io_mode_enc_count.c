@@ -269,6 +269,13 @@ bool sync_io_enc_count_is_running(void)
     return s_enc.running;
 }
 
+/* Hardware-accurate variant: see sync_io_seq_step_is_active. */
+bool sync_io_enc_count_is_active(void)
+{
+    return s_enc.running &&
+        sync_io_core_sm_is_enabled(BOARD_SYNC_PIO_WAVE, s_enc.sm);
+}
+
 void sync_io_enc_count_get_runtime(sync_io_enc_count_runtime_t *runtime)
 {
     if (runtime == NULL) {

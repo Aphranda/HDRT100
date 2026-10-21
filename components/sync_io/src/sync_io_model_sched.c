@@ -120,6 +120,16 @@ void sync_io_core_legacy_leave(void)
 
 static void sync_io_model_update_completion(void);
 
+/* The unified sequence base model only needs "no model pulse is running or owned". The
+ * phase-guarded sync_io_core_model_output_active() answers a different question (legacy vs
+ * scheduled) and is TRUE on an idle board, which made the model's outputs_available()
+ * precondition unsatisfiable when it was ported to this baseline. */
+bool sync_io_core_model_pulse_active(void)
+{
+    return s_model_pulse.running || s_model_pulse.persona_managed ||
+           s_model_pulse.total_pulses != 0u || s_model_pulse.offset != 0u;
+}
+
 bool sync_io_core_model_output_active(void)
 {
     if (__atomic_load_n(&s_schedule_phase, __ATOMIC_ACQUIRE) !=
@@ -449,6 +459,30 @@ static void sync_io_wave_output_manager_release(void)
         &s_wave_output_manager,
         &s_wave_output_handle);
     s_wave_output_manager_active = false;
+}
+
+/* A phase left behind by an operation that is no longer running keeps every later reservation
+ * out (outputs_available() sees "persona active" forever). Clear it when nothing is actually
+ * executing, so the model can take the outputs. */
+bool sync_io_core_schedule_clear_stale(void)
+{
+    if (__atomic_load_n(&s_schedule_phase, __ATOMIC_ACQUIRE) == SYNC_IO_SCHEDULE_IDLE) return true;
+    if (s_model_pulse.running || s_wave_output_manager_active || s_wave_output_sm_claimed ||
+        s_wave_output_dma_claimed || s_wave_output_program_loaded) return false;
+    __atomic_store_n(&s_schedule_phase, SYNC_IO_SCHEDULE_IDLE, __ATOMIC_RELEASE);
+    return true;
+}
+
+/* A RESERVED phase belongs to a role that has claimed the schedule but is not driving it yet
+ * (the switch board holds SWITCH_RESERVED while the unified model runs its outputs). Treating any
+ * non-IDLE phase as "persona active" made every model arm on such a board fail. */
+bool sync_io_core_schedule_blocks_outputs(void)
+{
+    if (s_wave_output_manager_active) return true;
+    const uint32_t phase = __atomic_load_n(&s_schedule_phase, __ATOMIC_ACQUIRE);
+    return !(phase == SYNC_IO_SCHEDULE_IDLE || phase == SYNC_IO_SCHEDULE_RUN_RESERVED ||
+             phase == SYNC_IO_SCHEDULE_COUNTER_RESERVED || phase == SYNC_IO_SCHEDULE_GATEWAY_RESERVED ||
+             phase == SYNC_IO_SCHEDULE_SWITCH_RESERVED);
 }
 
 bool sync_io_core_wave_output_persona_active(void)

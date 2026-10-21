@@ -40,7 +40,7 @@ def backend(tmp_path_factory):
     return exe
 
 
-@pytest.mark.parametrize('case', ['deadline', 'deadline_ready_high', 'deadline_late', 'deadline_origin', 'deadline_uncertain', 'deadline_cancel', 'deadline_bad_receipt', 'cycle', 'ready_high', 'ready_low', 'restore_high',
+@pytest.mark.parametrize('case', ['deadline', 'deadline_ready_high', 'deadline_late', 'deadline_origin', 'deadline_uncertain', 'deadline_cancel', 'deadline_bad_receipt', 'deadline_stall', 'cycle', 'ready_high', 'ready_low', 'restore_high',
                                  'restore_input', 'restore_mux', 'wrong_port', 'pulse',
                                  'core', 'generation', 'gate', 'load_output_fail',
                                  'load_ready_fail', 'init_output_fail', 'init_ready_fail',
@@ -199,6 +199,23 @@ static void deadline_case(const char *name){
     uint64_t target=tick_count+30000;
     if(!strcmp(name,"deadline_late"))target=tick_count+10;
     if(!strcmp(name,"deadline_origin"))origin_cost=80;
+    if(!strcmp(name,"deadline_stall")){
+        /* A pulse that never fires: the executor must retire it through the PROGRESS watchdog
+         * instead of leaving the runtime parked on a slot that can never complete. Covers the
+         * case the old ARMED-and-not-pending condition missed (plan staged / receipt pending). */
+        const uint64_t t=tick_count+200000;
+        assert(sync_io_gateway_realtime_schedule_at(1000,t));
+        sync_io_gateway_deadline_status_t d;assert(sync_io_gateway_realtime_status(&d));
+        assert(d.state==SYNC_IO_GATEWAY_DEADLINE_ARMED&&d.pending);
+        for(unsigned i=0;i<300u;++i)sync_io_gateway_realtime_service_core1();
+        assert(sync_io_gateway_realtime_status(&d));
+        assert(d.state==SYNC_IO_GATEWAY_DEADLINE_CANCELLED);
+        uint32_t f[47]={0};sync_io_gateway_realtime_diag(f);
+        assert(f[39]>=1u);            /* progress_retired */
+        assert(!rise_tick);
+        core=0;assert(sync_io_gateway_stop(g));assert(sync_io_gateway_release(g));
+        return;
+    }
     if(!strcmp(name,"deadline_uncertain"))late_after=1;
     if(!strcmp(name,"deadline_ready_high"))pins[input_pin].level=true;
     const bool ok=sync_io_gateway_realtime_schedule_at(1000,target);

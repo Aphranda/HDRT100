@@ -26,4 +26,6 @@ uint32_t trigger_switch_stop(void);
 uint32_t trigger_switch_unload(void);
 uint32_t trigger_switch_snapshot(trigger_switch_snapshot_t *out);
 bool trigger_switch_is_loaded(void);
+/* Core1: release the legacy switch persona (pins back to SIO) before the unified model claims them. */
+bool trigger_switch_force_unload(void);
 #endif

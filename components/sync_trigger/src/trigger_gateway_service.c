@@ -1,4 +1,5 @@
 #include "trigger_gateway_service.h"
+#include "trigger_sequence_pilot.h"
 
 #include "board_identity.h"
 #include "pico.h"
@@ -74,9 +75,24 @@ static uint32_t gateway_binding(trigger_deployment_binding_t *binding,
 typedef struct {uint32_t operation,generation,crc,pulse_ns,result;} gateway_request_t;
 enum {GATEWAY_LOAD,GATEWAY_STOP,GATEWAY_UNLOAD};
 
+/* Give the SMA pins back when the unified model takes over. Core1 only (the licence lives there). */
+bool trigger_gateway_force_unload(void)
+{
+    if (!trigger_gateway_is_loaded()) return true;
+    const bool ok = sync_io_gateway_release(s_gateway_generation);
+    if (ok) {
+        s_gateway_generation = 0u;
+        __atomic_store_n(&s_gateway_loaded, 0u, __ATOMIC_RELEASE);
+    }
+    return ok;
+}
+
 static bool gateway_maintain(void *context)
 {
     gateway_request_t *r=context;
+    /* Unified-model position flow owns the SMA pins itself: the legacy gateway persona must not be
+     * loaded, or its PIO claims the same outputs and the model's reservation can never be granted. */
+    if (trigger_sequence_pilot_position_enabled()) { r->result=GATEWAY_OK; return true; }
     if (r->operation==GATEWAY_LOAD) {
         if (trigger_gateway_is_loaded() || trigger_counter_is_loaded()) {
             r->result=GATEWAY_BUSY;return false;

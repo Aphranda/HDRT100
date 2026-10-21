@@ -345,6 +345,18 @@ typedef struct {
 bool trigger_t2_runtime_solve_stats(trigger_t2_runtime_solve_stats_t *out);
 typedef struct {
     uint32_t advance, jump, reuse, no_receipt;
+    /* How often the T2 service was entered at all (liveness of the whole path). */
+    uint32_t service_calls;
+    /* Arm sweeps: service_deadlines() actually ran (predicate true). */
+    uint32_t arm_sweeps;
+    /* Service calls turned away by each guard. */
+    uint32_t svc_gate_configured, svc_gate_active;
+    /* Arm sweep that armed nothing, by the silent return it took. */
+    uint32_t sweep_no_template, sweep_no_cursor, sweep_no_select;
+    uint32_t backend_lost;
+    uint32_t sweep_skip_done, sweep_skip_group;
+    uint32_t svc_status_fail;
+    uint32_t armed_pass_complete, armed_pass_idle, armed_pass_terminal, armed_pass_other;
     /* Solver-entry skips: group unreachable, still in flight, position already accepted. */
     uint32_t skip_unreachable, skip_inflight, skip_accepted;
     /* Plan supply: publishes that reached the mailbox vs the ways a position bailed out. */
@@ -369,7 +381,7 @@ typedef struct {
     /* Groups handed to the executor by the last published plan. */
     uint32_t plan_window;
     /* complete_action() early returns: group out of range / no armed group. */
-    uint32_t done_skip_range, done_skip_none;
+    uint32_t done_skip_range, done_skip_none, finish_lost;
     /* Last identity mismatch inputs (see trigger_t2_runtime.c). */
     uint32_t id_seq_last, id_expected_last, id_count;
     /* Why START refused: 0 guard, 1 grid cursor, 2 predictor configure, 3 predictor begin. */
@@ -382,6 +394,7 @@ typedef struct {
     uint32_t defer_plan_pending;
     /* Position-window totals: entered / announced / frozen / executed / abandoned. */
     uint32_t window_entered, window_announced, window_frozen, window_executed, window_abandoned;
+    uint32_t arm_branch;
 } trigger_t2_runtime_window_stats_t;
 bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out);
 
@@ -408,3 +421,4 @@ bool trigger_t2_runtime_snapshot(trigger_t2_runtime_snapshot_t *out);
 uint32_t trigger_t2_runtime_group_pack(uint32_t index);
 
 #endif
+uint32_t trigger_t2_runtime_arm_branch(void);

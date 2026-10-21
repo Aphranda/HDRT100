@@ -18,6 +18,8 @@ bool resource_arbiter_mode_is_valid(resource_arbiter_mode_t mode);
 
 typedef enum {
     RESOURCE_ARBITER_RESOURCE_FLASH = 1u << 0,
+    /* SMA GPIO bank ownership for the sequence base model (node_sequence). */
+    RESOURCE_ARBITER_RESOURCE_SMA_GPIO = 1u << 19,
     RESOURCE_ARBITER_RESOURCE_SPI0 = 1u << 1,
     RESOURCE_ARBITER_RESOURCE_USB = 1u << 2,
     RESOURCE_ARBITER_RESOURCE_PIO0 = 1u << 3,

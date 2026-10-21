@@ -875,6 +875,59 @@ static bool sync_io_sma_frequency_rx_measure_owned(
     uint32_t gate_us,
     sync_io_sma_frequency_rx_result_t *result);
 
+/* Capture-SM lease for the unified sequence base model (node_sequence): the model holds the
+ * capture SM and the workspace arena for one armed run and restores the capture program after.
+ * Both calls are Core1-only, matching the model's lifecycle contract. */
+bool sync_io_core_capture_sm_lease(const void *owner)
+{
+    if (get_core_num() != 1u || !s_sync_io.initialized || owner == NULL ||
+        !sync_io_workspace_claim(owner)) return false;
+    /* The model needs the capture SM to be FREE, not pre-claimed: on an idle board nothing has
+     * claimed it yet, and requiring a prior claim made every arm fail with RESOURCE. An enabled SM
+     * or a busy DMA channel still refuses the lease. */
+    if (s_sync_io.capture_running ||
+        sync_io_core_sm_is_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM) ||
+        dma_channel_is_busy(SYNC_IO_CAPTURE_DMA_CH)) {
+        (void)sync_io_workspace_release(owner);
+        return false;
+    }
+    return true;
+}
+
+void sync_io_core_capture_sm_restore(const void *owner)
+{
+    if (get_core_num() != 1u || !sync_io_workspace_held_by(owner)) return;
+    pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, false);
+    sync_capture_4bit_program_init(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM,
+        s_sync_io.capture_offset, BOARD_SYNC_INPUT_BASE_PIN, BOARD_SYNC_INPUT_PIN_COUNT,
+        sync_io_clkdiv_for_instruction_rate(s_sync_io.capture_sample_hz));
+    pio_sm_set_enabled(BOARD_SYNC_PIO_FAST, BOARD_SYNC_CAPTURE_SM, false);
+    (void)sync_io_workspace_release(owner);
+}
+
+/* Why the sequence base model cannot take the SMA outputs right now. Mirrors the model's own
+ * outputs_available() preconditions so the owner of the resolver can name the blocker instead of
+ * only counting failures. Bit 0 uninitialised, 1 seq-step running, 2 enc-count running,
+ * 3 model output active, 4 wave output persona active, 5 an SMA pin is not SIO/NULL,
+ * 6 an SMA output is already high. */
+uint32_t sync_io_sequence_outputs_blockers(void)
+{
+    uint32_t reason = 0u;
+    if (!s_sync_io.initialized) reason |= 1u << 0;
+    if (sync_io_seq_step_is_active()) reason |= 1u << 1;
+    if (sync_io_enc_count_is_active()) reason |= 1u << 2;
+    if (sync_io_core_model_pulse_active()) reason |= 1u << 3;
+    if (sync_io_core_wave_output_persona_active()) reason |= 1u << 4;
+    for (uint32_t i = 0u; i < BOARD_SYNC_OUTPUT_PIN_COUNT; ++i) {
+        const gpio_function_t fn = gpio_get_function(BOARD_SYNC_OUTPUT_BASE_PIN + i);
+        if (fn != GPIO_FUNC_SIO && fn != GPIO_FUNC_NULL) { reason |= 1u << 5; break; }
+    }
+    for (uint32_t i = 0u; i < BOARD_SYNC_OUTPUT_PIN_COUNT; ++i) {
+        if (gpio_get(BOARD_SYNC_OUTPUT_BASE_PIN + i)) { reason |= 1u << 6; break; }
+    }
+    return reason;
+}
+
 static bool sync_io_start_capture_owned(uint32_t sample_hz)
 {
     if (!s_sync_io.initialized ||

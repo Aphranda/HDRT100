@@ -94,8 +94,12 @@ bool sync_io_core_switch_reserve(const void *token);
 bool sync_io_core_switch_release(const void *token);
 /* Legacy gate only: services completed legacy schedule just as is_running. */
 bool sync_io_core_model_output_active(void);
+/* Pulse-only variant used by the unified sequence model (no phase guard). */
+bool sync_io_core_model_pulse_active(void);
 bool sync_io_core_sma_frequency_output_active(void);
 bool sync_io_core_wave_output_persona_active(void);
+bool sync_io_core_schedule_clear_stale(void);
+bool sync_io_core_schedule_blocks_outputs(void);
 /* Raw check for a legacy wrapper that already owns LEGACY_OPERATION. */
 bool sync_io_core_wave_output_persona_active_owned(void);
 bool sync_io_core_sm_is_enabled(PIO pio, uint sm);

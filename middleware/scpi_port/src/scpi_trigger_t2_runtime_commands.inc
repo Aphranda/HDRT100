@@ -574,15 +574,15 @@ scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context)
  * mis-aligned by fields appended elsewhere. */
 #define T2_ACTION_DIAG_SCHEMA 0xDA01u
 /* Gateway-only diagnostics: its own page, so the field order cannot be shifted by other appends. */
-#define T2_GATEWAY_DIAG_SCHEMA 0xDA02u
+#define T2_GATEWAY_DIAG_SCHEMA 0xDA03u
 scpi_result_t scpi_cmd_trigger_t2_gateway_diag_q(scpi_t *context)
 {
-    uint32_t fields[42] = {0u};
+    uint32_t fields[47] = {0u};
     if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
     sync_io_gateway_realtime_diag(fields);
     scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
     SCPI_ResultUInt32(context, T2_GATEWAY_DIAG_SCHEMA);
-    for (uint32_t i = 0u; i < 42u; ++i) SCPI_ResultUInt32(context, fields[i]);
+    for (uint32_t i = 0u; i < 47u; ++i) SCPI_ResultUInt32(context, fields[i]);
     return SCPI_RES_OK;
 }
 
@@ -691,7 +691,36 @@ scpi_result_t scpi_cmd_trigger_t2_action_why_q(scpi_t *context)
      sync_io_switch_realtime_origin_span(&span,&bound,&late);
      SCPI_ResultUInt32(context, span); SCPI_ResultUInt32(context, bound);
      SCPI_ResultUInt32(context, late);}
+    /* Appended last: how often the T2 service was entered at all. A gateway that reports
+     * entered/frozen > 0 with exec 0 and untouched executor counters is indistinguishable from
+     * "the service is never called" without this number. */
+    {trigger_t2_runtime_window_stats_t ws;
+     if (trigger_t2_runtime_window_stats(&ws)) {
+         SCPI_ResultUInt32(context, ws.service_calls);
+         SCPI_ResultUInt32(context, ws.arm_sweeps);
+         SCPI_ResultUInt32(context, ws.svc_gate_configured);
+         SCPI_ResultUInt32(context, ws.svc_gate_active);
+         SCPI_ResultUInt32(context, ws.sweep_no_template);
+         SCPI_ResultUInt32(context, ws.sweep_no_cursor);
+         SCPI_ResultUInt32(context, ws.sweep_no_select);
+         SCPI_ResultUInt32(context, ws.backend_lost);
+         SCPI_ResultUInt32(context, ws.sweep_skip_done);
+         SCPI_ResultUInt32(context, ws.sweep_skip_group);
+         SCPI_ResultUInt32(context, ws.svc_status_fail);
+         SCPI_ResultUInt32(context, ws.armed_pass_complete);
+         SCPI_ResultUInt32(context, ws.armed_pass_idle);
+         SCPI_ResultUInt32(context, ws.armed_pass_terminal);
+         SCPI_ResultUInt32(context, ws.armed_pass_other);
+         /* Slot recycling: promoted from the stash, recycled by a newer preview, stash sets. A
+          * frozen slot that is neither promoted nor recycled is what pins the window. */
+         SCPI_ResultUInt32(context, ws.recycle_promote);
+         SCPI_ResultUInt32(context, ws.recycle_newer);
+         SCPI_ResultUInt32(context, ws.stash_set);
+     }}
     return SCPI_RES_OK;
+    /* Last arm path taken: 1 = windowed model, 2 = windowed legacy, 3 = single, 4 = model refused. */
+    {trigger_t2_runtime_window_stats_t wst;
+     SCPI_ResultUInt32(context, trigger_t2_runtime_window_stats(&wst) ? wst.arm_branch : 0u);}
 }
 
 scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context)
@@ -787,5 +816,84 @@ scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context)
      * path that does not use the fast channel, so the seat reservation for it can be
      * judged on time instead of only on the first-class cost. */
     SCPI_ResultUInt32(context, s.ack_lead_pack);
+    return SCPI_RES_OK;
+}
+
+/* Gateway pilot for the unified sequence base model. The request only queues a run; Core1
+ * drives the state machine from the trigger service and publishes the result copy read here. */
+scpi_result_t scpi_cmd_trigger_t2_seq_pilot(scpi_t *context)
+{
+    uint32_t steps = 0u, pulse_us = 0u;
+    if (!scpi_sequence_u32(context, 1u, &steps)) return scpi_trigger_t2_fail(context);
+    (void)scpi_sequence_u32(context, TRIGGER_SEQUENCE_TIMING_MAX_US, &pulse_us);
+    if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    return scpi_trigger_grid_result(context,
+        trigger_sequence_pilot_request(steps, pulse_us) ? TRIGGER_T2_RUNTIME_OK
+                                                        : TRIGGER_T2_RUNTIME_ARGUMENT);
+}
+
+scpi_result_t scpi_cmd_trigger_t2_seq_pilot_q(scpi_t *context)
+{
+    trigger_sequence_pilot_status_t st;
+    if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    trigger_sequence_pilot_status(&st);
+    SCPI_ResultUInt32(context, st.state);
+    SCPI_ResultUInt32(context, st.steps);
+    SCPI_ResultUInt32(context, st.steps_done);
+    SCPI_ResultUInt32(context, st.errors);
+    SCPI_ResultUInt32(context, st.pulse_us);
+    SCPI_ResultUInt32(context, st.busy ? 1u : 0u);
+    SCPI_ResultUInt32(context, st.armed ? 1u : 0u);
+    SCPI_ResultUInt32(context, st.gateway_pulse_busy ? 1u : 0u);
+    SCPI_ResultUInt32(context, st.gateway_waiting ? 1u : 0u);
+    SCPI_ResultUInt32(context, st.gateway_trigger_count);
+    SCPI_ResultUInt32(context, st.gateway_ready_count);
+    SCPI_ResultUInt32(context, st.written);
+    SCPI_ResultUInt32(context, st.completed);
+    SCPI_ResultUInt32(context, st.accepted);
+    SCPI_ResultUInt32(context, st.fault);
+    SCPI_ResultUInt32(context, st.reserve_reason);
+    SCPI_ResultUInt32(context, st.requested);
+    SCPI_ResultUInt32(context, st.reserved);
+    SCPI_ResultUInt32(context, st.fault_detail);
+    SCPI_ResultUInt32(context, st.step_detail);
+    SCPI_ResultUInt32(context, st.pos_pulse_us);
+    SCPI_ResultUInt32(context, st.pos_step_us);
+    SCPI_ResultUInt32(context, st.pos_count);
+    SCPI_ResultUInt32(context, st.pos_stage);
+    return SCPI_RES_OK;
+}
+
+/* Switch the GATEWAY position flow onto the unified sequence model (1) or back to the
+ * per-group sync_io_gateway staging (0). Default 0 keeps the verified path. */
+scpi_result_t scpi_cmd_trigger_t2_seq_mode(scpi_t *context)
+{
+    uint32_t enabled = 0u;
+    if (!scpi_sequence_u32(context, 2u, &enabled) || !scpi_trigger_grid_end(context))
+        return scpi_trigger_t2_fail(context);
+    if (enabled > 2u) return scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_ARGUMENT);
+    trigger_sequence_pilot_position_mode(enabled);
+    return scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+}
+
+scpi_result_t scpi_cmd_trigger_t2_seq_mode_q(scpi_t *context)
+{
+    if (!scpi_trigger_grid_end(context)) return scpi_trigger_t2_fail(context);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, trigger_sequence_pilot_position_mode_get());
+    return SCPI_RES_OK;
+}
+
+/* Single-field diagnostic: which arm path ran, for which role, with which model flags.
+ * Appending this to WHY? was unreliable (that page's tail length depends on solve stats), so it
+ * gets its own query: bits 0..7 branch, 8..11 local kind, 16 switch model enabled, 17 position
+ * model enabled. */
+scpi_result_t scpi_cmd_trigger_t2_action_arm_branch_q(scpi_t *context)
+{
+    if (!scpi_trigger_grid_end(context))
+        return scpi_trigger_t2_fail(context);
+    scpi_trigger_grid_result(context, TRIGGER_T2_RUNTIME_OK);
+    SCPI_ResultUInt32(context, trigger_t2_runtime_arm_branch());
     return SCPI_RES_OK;
 }

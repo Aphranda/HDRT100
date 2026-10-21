@@ -1,39 +1,35 @@
 {
  "schema": "HAOFV_T2_SEQUENCE_ACCEPTANCE_RECEIPT_V1",
  "passed": true,
- "source_tree_sha256": "2dc111a0affc03abd9707fb7e18996705762d8c0c40dc28da2148a544d9de1f1",
- "source_file_count": 1827,
- "generated_at": "2026-10-20T08:39:29+08:00",
- "positions_criterion": 361,
- "full_revolution_roles": 2,
- "failures": 0,
+ "source_tree_sha256": "667401d0c1dae2d37212b02044a2c4e7937a39ac40eebe25868baaf7195342b3",
+ "source_file_count": 1832,
+ "generated_at": "2026-10-21T21:55:47+08:00",
+ "groups": null,
  "roles": {
   "SWITCH_A": {
-   "executed": 5680,
+   "executed": 5776,
    "groups": 16,
-   "expected": 5776,
+   "positions": 361,
    "no_plan": 0,
    "late": 0,
-   "backend": 0,
-   "full_revolution": true
+   "backend": 0
   },
   "GATEWAY": {
-   "executed": 823,
-   "groups": 16,
-   "expected": 5776,
+   "executed": 722,
+   "groups": 2,
+   "positions": 361,
    "no_plan": 0,
    "late": 0,
-   "backend": 0,
-   "full_revolution": false
+   "backend": 0
   },
   "SWITCH_B": {
-   "executed": 5664,
+   "executed": 5776,
    "groups": 16,
-   "expected": 5776,
+   "positions": 361,
    "no_plan": 0,
    "late": 0,
-   "backend": 0,
-   "full_revolution": true
+   "backend": 0
   }
- }
+ },
+ "verdict_ok": true
 }

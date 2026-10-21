@@ -36,6 +36,7 @@
 #include "scpi_trigger_cursor_commands.inc"
 #include "scpi_trigger_deployment_commands.inc"
 #include "scpi_trigger_template_commands.inc"
+#include "trigger_sequence_pilot.h"
 #include "scpi_trigger_t2_runtime_commands.inc"
 #include "tdma_seat_admission.h"
 #include "tdma_seat_mount_store.h"

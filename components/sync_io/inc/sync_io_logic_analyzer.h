@@ -118,9 +118,14 @@ typedef struct {
 } sync_io_logic_analyzer_record_t;
 
 /* The analyzer has an active capture plus a published shadow.  Keep both
- * bounded to 512 records so diagnostics cannot consume the SRAM budget needed
- * by the realtime path; the raw DMA workspace remains independently sized. */
-#define SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS 512u
+ * bounded so diagnostics cannot consume the SRAM budget needed by the realtime
+ * path; the raw DMA workspace remains independently sized.
+ * 256 (was 512) records: the three 512-entry arrays (records + capture + shadow)
+ * cost ~48 KB, and the T2 realtime path needed that back - the gateway burst /
+ * continuation work overflowed RAM by 444 bytes while the analyzer is idle during
+ * every T2 run. 256 records still covers a full 16-group position at the
+ * analyzer's 1 us edge sample period. */
+#define SYNC_IO_LOGIC_ANALYZER_MAX_RECORDS 256u
 /* Core1 fills one bounded batch at a time and publishes it to Core0.  Core0
  * only reads READY slots, never the active capture ring. */
 #define SYNC_IO_LOGIC_ANALYZER_CORE0_BATCH_RECORDS 32u

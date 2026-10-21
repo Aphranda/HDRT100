@@ -47,6 +47,12 @@ bool sync_io_workspace_release(const void *owner);
 #define SYNC_IO_WAVE_OUTPUT_INSTRUCTION_WORDS 8u
 #define SYNC_IO_LOGIC_ANALYZER_INSTRUCTION_WORDS 5u
 #define SYNC_IO_SMA_PERSONA_MAX_INSTRUCTION_WORDS 9u
+/* The sequence base model runs four programs (ingress, executor, gateway, counter); 31 words is the
+ * longest (sequence_executor + its finite ingress variant). */
+#define SYNC_IO_SEQUENCE_INSTRUCTION_WORDS 31u
+/* Output-only role: just sequence_executor (18 words), so a capture persona can keep
+ * its share of the PIO instruction space. */
+#define SYNC_IO_SEQUENCE_EXECUTOR_WORDS 18u
 
 typedef enum {
     SYNC_IO_PERSONA_ID_NONE = 0,
@@ -61,6 +67,11 @@ typedef enum {
     SYNC_IO_PERSONA_ID_GATEWAY,
     SYNC_IO_PERSONA_ID_SWITCH,
     SYNC_IO_PERSONA_ID_ACTION,
+    /* Base model (node_sequence): one id for the sequence engine and one for its optional counter,
+     * appended so every existing id keeps its value. */
+    SYNC_IO_PERSONA_ID_SEQUENCE,
+    SYNC_IO_PERSONA_ID_SEQUENCE_COUNTER,
+    SYNC_IO_PERSONA_ID_SEQUENCE_OUTPUT,
     SYNC_IO_PERSONA_ID_COUNT,
 } sync_io_persona_id_t;
 

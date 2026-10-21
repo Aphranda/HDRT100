@@ -27,5 +27,7 @@ uint32_t trigger_gateway_stop(void);
 uint32_t trigger_gateway_unload(void);
 uint32_t trigger_gateway_snapshot(trigger_gateway_snapshot_t *out);
 bool trigger_gateway_is_loaded(void);
+/* Core1: release the legacy gateway persona so the unified model can own the pins. */
+bool trigger_gateway_force_unload(void);
 
 #endif

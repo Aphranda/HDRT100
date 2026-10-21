@@ -1,5 +1,27 @@
 #include "trigger_t2_runtime.h"
+#include "trigger_sequence_pilot.h"
 
+
+/* Weak fallbacks: the position flow only exists when the unified-model module is linked in (the
+ * host runtime harness links the runtime alone, and must still build). The firmware provides the
+ * strong definitions, which win at link time. */
+__attribute__((weak)) void trigger_sequence_pilot_position_mode(uint32_t mode) { (void)mode; }
+__attribute__((weak)) bool trigger_sequence_pilot_position_enabled(void) { return false; }
+__attribute__((weak)) bool trigger_sequence_pilot_switch_enabled(void) { return false; }
+__attribute__((weak)) bool trigger_sequence_pilot_position_arm(uint32_t slot, const uint32_t *values,
+                                                             uint32_t count, uint32_t pulse_us,
+                                                             uint32_t step_us, bool gateway_role,
+                                                             uint64_t base_tick, const uint64_t *deltas)
+{
+    (void)slot; (void)values; (void)count; (void)pulse_us; (void)step_us; (void)gateway_role;
+    (void)base_tick; (void)deltas;
+    return false;
+}
+__attribute__((weak)) bool trigger_sequence_pilot_position_service(uint32_t slot)
+{
+    (void)slot;
+    return false;
+}
 #include <string.h>
 
 #include "distributed_refmem.h"
@@ -156,6 +178,42 @@ static uint8_t s_group_handed[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 static uint32_t s_action_sequence_last[TRIGGER_T2_RUNTIME_POSITION_COUNT];
 /* In-window accounting: a completion is only real when the backend's sequence advances by exactly
  * one and the backend reports a receipt. Counted so the bench shows which rule is violated. */
+/* Liveness: how often the T2 service was actually entered. The gateway has been measured
+ * sitting at exec 0 with entered/frozen > 0 and every executor counter untouched, which is
+ * indistinguishable from "the service is never called" until this number exists. */
+static uint32_t s_service_calls;
+/* Arm sweeps: how often the predicate let service_deadlines() run at all. service_calls counts
+ * entries to the whole service, so this is the number that separates "the predicate never lets
+ * us arm" (template/kind gate) from "we sweep but arm nothing" (the inner arm loop). */
+static uint32_t s_arm_sweeps;
+/* Which guard turns the service away. `service_calls` counts only the calls that got PAST both
+ * guards, so a board that is never configured/active looks identical to one that is never
+ * serviced. These two separate the cases. */
+static uint32_t s_svc_gate_configured, s_svc_gate_active;
+/* Why an ARM SWEEP armed nothing when the service itself did run: no local template,
+ * invalid cursor (deferred), or nothing selectable. The three silent returns between
+ * "the service ran" and "stage_sequence was called". */
+static uint32_t s_sweep_no_template, s_sweep_no_cursor, s_sweep_no_select;
+/* Slots released because the runtime held one and the executor held nothing. */
+static uint32_t s_backend_lost;
+/* Slots this occupant has really armed at least once. An armed-but-empty backend is only a
+ * lost slot when it was armed before: right after start the very same combination is the
+ * legitimate "about to arm" state (the gateway host case fails if it is treated as lost). */
+static uint32_t s_slot_armed_once;
+
+/* Sweep outcome partition: a frozen slot skipped as already done/failed, a slot skipped for a
+ * group mismatch, and a sweep that ended with nothing selected. Together with the early-return
+ * counters they cover every path from 'sweep entry' to 'stage_sequence called'. */
+static uint32_t s_sweep_skip_done, s_sweep_skip_group;
+/* Outcome of one pass through the armed-slot block, when s_armed_index points at a slot. Without
+ * this partition 30k sweeps were unaccounted for: no_select/skip_done only cover the selection
+ * path, so the parked branch never showed WHICH condition it parked on. */
+static uint32_t s_armed_pass_complete, s_armed_pass_idle, s_armed_pass_terminal, s_armed_pass_other;
+/* Sweeps that returned because the backend status call failed (core/lease). */
+static uint32_t s_svc_status_fail;
+/* Sweeps that found a slot 'armed' and just waited on it (the 1435 return), plus the backend
+ * state word seen there (low byte = state, 0x100 = pending). This is the last uncounted path
+ * between 'sweep ran' and 'stage_sequence called'. */
 static uint32_t s_window_advance_count, s_window_jump_count, s_window_reuse_count,
     s_window_no_receipt_count;
 static uint8_t s_group_armed[TRIGGER_T2_RUNTIME_POSITION_COUNT];
@@ -298,12 +356,15 @@ static uint32_t s_id_seq_last, s_id_expected_last, s_id_count;
 static uint64_t s_id_deadline_last, s_id_recorded_last;
 /* complete_action() early returns: group out of range, or no armed group. */
 static uint32_t s_done_skip_range, s_done_skip_none;
+/* Completions rejected because the group identity was lost (no finish, failed BACKEND). */
+static uint32_t s_finish_lost;
 /* Positions deferred because the gateway was still draining its previous window. */
 static uint32_t s_defer_plan_pending;
 /* Last three advance decisions: completed, expected, window_last. */
 static uint32_t s_done_hist[3][3];
 static uint32_t s_done_hist_next;
 static uint32_t s_backend_identity, s_backend_terminal, s_backend_arm;
+static uint32_t s_arm_branch;   /* 1 = windowed model, 2 = windowed legacy, 3 = single, 4 = model refused */
 /* Groups handed to the executor by the last published plan (1 = the window never widened). */
 static uint32_t s_plan_window_last;
 /* A position whose window ended but which still has groups left: wait for the next window's plan
@@ -751,13 +812,46 @@ static T2_BOUNDED bool T2_HOT(descriptor_valid)(const trigger_position_descripto
     return trigger_position_descriptor_valid(descriptor, s_config.grid.subdivisions);
 }
 
+static void complete_action(uint32_t index);
+
+/* The unified sequence model executes the GATEWAY position itself; this entry lets it retire the
+ * slot through the same bookkeeping as a backend completion. */
+void trigger_t2_runtime_external_complete(uint32_t index)
+{
+    if (index >= TRIGGER_T2_RUNTIME_POSITION_COUNT) return;
+    /* The unified model ran the WHOLE position (every throw), so account every group here and let
+     * complete_action() finish it. Counting one group made the verdict compare 361 groups against
+     * an expected 2 x 361, and a NONE cursor made complete_action() fail the position instead. */
+    /* complete_action() derives the group total from the ROLE TEMPLATE (16 for a full position),
+     * so the model's cursor must land on that same last group - otherwise complete_action sees
+     * "more groups ahead", promotes and returns, and the position is never retired (DIAG showed
+     * action_finish 0 with action_advance growing and every failure counter clean). */
+    const uint32_t groups = s_local_template_count ? s_local_template_count : 1u;
+    for (uint32_t g = 0u; g + 1u < groups && g < 32u; ++g) {
+        s_state.action_group_done[index] |= 1u << g;
+        ++s_state.action_groups_executed;
+    }
+    /* complete_action() derives the position's group total from the role template, falling back to
+     * s_group_handed; with no local template it saw 1 and failed the position as out of range. Pin
+     * the total the model actually ran before handing over. */
+    s_group_handed[index] = groups;
+    s_group_armed[index] = (uint8_t)(groups - 1u);
+    complete_action(index);
+}
+
 static T2_RAM void action_fail(uint32_t index, uint32_t reason)
 {
     s_state.action_failed_mask |= 1u << index;
+    s_slot_armed_once &= ~(1u << index);
     /* A failed position owns no group any more: its sequence is over, so Core0
      * must not prepare a later group for it. */
     s_group_armed[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
     s_state.action_group_in_flight[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
+    /* The next position on this slot starts at group 0. Leaving the cursor where the failed position
+     * stopped made every later plan fail `plan->group != s_group_next` in the arm selection, which
+     * skips the slot silently for ever (complete_action already resets both sides for the same reason). */
+    s_group_next[index] = 0u;
+    s_state.action_group_next[index] = 0u;
     /* A failed position no longer owns its window: leaving the hand-over flag set made the NEXT position
      * on this slot reuse a window that had already been abandoned (measured: arm=80, identity=41). */
     s_window_staged[index] = 0u;
@@ -795,6 +889,7 @@ static T2_BOUNDED void T2_HOT(recycle_slot)(uint32_t index)
     if (high > s_slot_floor[index]) s_slot_floor[index] = high;
     if (s_state.descriptors[index].target_ms_index)
         s_slot_prev_target[index] = s_state.descriptors[index].target_ms_index;
+    s_slot_armed_once &= keep;
     s_state.frozen_mask &= keep;
     s_state.received_mask &= keep;
     s_state.emitted_position_mask &= keep;
@@ -983,8 +1078,22 @@ static T2_BOUNDED bool T2_HOT(accept_remote_position)(uint64_t current_ms)
         }
         /* Finished but not yet handed on: only a PREVIEW newer than anything the finished
          * occupant used starts the next position; the rest is a leftover resend. */
+        /* A FAILED occupant no longer owns the slot: the next PREVIEW must take it even when its
+         * version is not higher. Requiring a strictly newer version here deadlocked the board as
+         * soon as the origin had moved past a failed position - all three slots stayed
+         * frozen|failed, the arm selection skipped every one of them (sweep_skip_done grew while
+         * nothing armed) and every further descriptor was refused. Measured signature: the gateway
+         * stops dead ~2 s into the run with entered 9 / executed 6 and no failure counters moving. */
+        /* A FAILED occupant no longer owns the slot: the next PREVIEW takes it even when its version
+         * is not higher. Requiring a strictly newer version here deadlocked the board as soon as the
+         * origin had moved past a failed position - all three slots stayed frozen|failed, the arm
+         * selection skipped every one of them and every further descriptor was refused.
+         * NOTE: the same relaxation for COMPLETED slots was tried and REVERTED - `follower_scan`
+         * pins the version floor for a finished occupant, so that change needs its own negative test
+         * (and a deliberate decision) before it can land. */
+        const bool failed_owner = (s_state.action_failed_mask & bit) != 0u;
         if (descriptor.stage == TRIGGER_POSITION_STAGE_FREEZE ||
-            descriptor.prediction_version <= slot_version_high(index))
+            (!failed_owner && descriptor.prediction_version <= slot_version_high(index)))
             return true;
         ++s_recycle_newer;
         recycle_slot(index);
@@ -1130,10 +1239,27 @@ static void complete_action(uint32_t index)
      * each further group is promoted and then staged as the next window. */
     const uint32_t groups_total = s_local_template_count ? s_local_template_count
         : (s_group_handed[index] ? s_group_handed[index] : 1u);
-    if (group >= groups_total) ++s_done_skip_range;
-    if (group == TRIGGER_T2_RUNTIME_GROUP_NONE) ++s_done_skip_none;
     s_group_armed[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
     s_state.action_group_in_flight[index] = TRIGGER_T2_RUNTIME_GROUP_NONE;
+    if (group == TRIGGER_T2_RUNTIME_GROUP_NONE || group >= groups_total) {
+        /* "Which group finished" is unknown or out of range: a LOST group, never a completed
+         * position. Finishing here (the previous behaviour: GROUP_NONE=0xFF >= groups_total fell
+         * through to the finish path) fabricated an executed position - completed_mask, position
+         * event, window release - and thereby hid the very stall it should have reported
+         * (review 12.3). Drop the window bookkeeping and fail the position BY NAME instead. */
+        if (group == TRIGGER_T2_RUNTIME_GROUP_NONE) ++s_done_skip_none; else ++s_done_skip_range;
+        s_group_handed[index] = 0u;
+        s_deadline[index].group_count = 0u;
+        s_deadline[index].deadline_tick = 0u;
+        s_deadline_seen[index] = 0u;
+        s_window_staged[index] = 0u;
+        s_action_sequence_last[index] = 0u;
+        s_group_next[index] = 0u;
+        s_state.action_group_next[index] = 0u;
+        ++s_finish_lost;
+        action_fail(index, TRIGGER_T2_ACTION_FAIL_BACKEND);
+        return;
+    }
     if (group < groups_total) {
         s_state.action_group_done[index] |= 1u << group;
         s_state.action_groups_executed++;
@@ -1282,31 +1408,55 @@ static void stop_backend_core0(void)
 /* Armed-deadline polling runs every slice; from XIP it overran followers. */
 static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
 {
-    if (!s_local_template_count) return;
+    if (!s_local_template_count) { ++s_sweep_no_template; return; }
+    /* Model-driven GATEWAY position: the unified sequence engine owns the backend, so the whole
+     * gateway status path below is bypassed for this slot. */
+    if (s_armed_index < TRIGGER_T2_RUNTIME_POSITION_COUNT &&
+        ((s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY &&
+          trigger_sequence_pilot_position_enabled()) ||
+         (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH &&
+          trigger_sequence_pilot_switch_enabled()))) {
+        const uint32_t index = s_armed_index;
+        if (trigger_sequence_pilot_position_service(index)) {
+            s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
+            trigger_t2_runtime_external_complete(index);
+        }
+        return;
+    }
     bool complete = false, terminal = false, uncertain = false;
+    bool backend_idle = false;
+    uint32_t backend_state = 0u;
     uint32_t sequence = 0u, completed = 0u;
     uint64_t deadline = 0u;
     bool s_switch_receipt_seen = false;
     if (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH) {
         sync_io_switch_realtime_service_core1();
         sync_io_switch_deadline_status_t status;
-        if (!sync_io_switch_realtime_status(&status)) return;
+        if (!sync_io_switch_realtime_status(&status)) { ++s_svc_status_fail; return; }
         note_backend(s_armed_index, status.state, status.origin_before_tick, status.origin_after_tick);
         sequence = status.sequence; deadline = status.deadline_tick;
         completed = status.completed_sequence;
         s_switch_receipt_seen = status.receipt_mask != 0u;
+        backend_state = status.state;
         complete = status.state == SYNC_IO_SWITCH_DEADLINE_COMPLETE;
         uncertain = status.state == SYNC_IO_SWITCH_DEADLINE_UNCERTAIN;
         terminal = uncertain || status.state == SYNC_IO_SWITCH_DEADLINE_CANCELLED;
     } else {
         sync_io_gateway_realtime_service_core1();
         sync_io_gateway_deadline_status_t status;
-        if (!sync_io_gateway_realtime_status(&status)) return;
+        if (!sync_io_gateway_realtime_status(&status)) { ++s_svc_status_fail; return; }
         note_backend(s_armed_index, status.state, status.origin_before_tick, status.origin_after_tick);
         sequence = status.sequence; deadline = status.deadline_tick;
         completed = status.completed_sequence;
         complete = status.state == SYNC_IO_GATEWAY_DEADLINE_COMPLETE &&
             status.completed_sequence == status.sequence;
+        /* The executor holds no pulse at all: an armed slot that waits on this can never finish. */
+        /* The executor holds NOTHING: no armed deadline, no pending receipt, so no completion can
+         * ever arrive for the slot the runtime believes is armed. Only the true IDLE state is
+         * treated as lost here: ARMED with pending cleared also occurs on the legitimate
+         * "armed, receipt not yet drained" path (the gateway host case fails if it is included). */
+        backend_idle = status.state == SYNC_IO_GATEWAY_DEADLINE_IDLE && !status.pending;
+        backend_state = status.state;
         uncertain = status.state == SYNC_IO_GATEWAY_DEADLINE_UNCERTAIN;
         terminal = uncertain || status.state == SYNC_IO_GATEWAY_DEADLINE_CANCELLED;
     }
@@ -1390,8 +1540,24 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
             s_state.action_uncertain_mask |= bit;
             action_fail(index, TRIGGER_T2_ACTION_FAIL_BACKEND);
             s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
-        } else if (complete && s_group_armed[index] != TRIGGER_T2_RUNTIME_GROUP_NONE) {
+        } else if (complete) {
+            /* A backend that reports COMPLETE while this runtime has already lost track of which
+             * group it armed (`s_group_armed == NONE`) used to fall through EVERY branch: not
+             * complete (guard), not terminal, not idle - so the slot stayed "armed" forever and the
+             * whole board parked (measured: gateway dead 38 s with 3 frozen slots, no failures).
+             * complete_action() already handles the NONE case by counting s_done_skip_none, so the
+             * slot is released instead of waiting for a completion that already arrived. */
             complete_action(index);
+            s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
+        } else if (backend_idle) {
+            /* The runtime believes this slot owns a pulse, the executor holds NOTHING: no armed
+             * deadline, no pending receipt, so no completion can ever arrive. Returning here - the
+             * previous behaviour - parked the gateway permanently: entered kept rising, exec stayed
+             * 0 and every failure counter stayed 0 (measured: armed 2 / completed 0 / failed 0 with
+             * pending 0 and plan_count 0, 23k arm sweeps all silently skipped). Release the slot so
+             * the selection pass below can arm a position again. */
+            ++s_backend_lost;
+            action_fail(index, TRIGGER_T2_ACTION_FAIL_BACKEND);
             s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
         } else if (terminal ||
                    /* An armed absolute deadline belongs to the backend: a transiently
@@ -1409,6 +1575,13 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
             action_fail(index, TRIGGER_T2_ACTION_FAIL_BACKEND);
             s_armed_index = TRIGGER_T2_RUNTIME_POSITION_COUNT;
         }
+        /* Which condition the parked pass actually took (s_armed_index cleared => one fired). */
+        if (s_armed_index >= TRIGGER_T2_RUNTIME_POSITION_COUNT) {
+            if (complete) ++s_armed_pass_complete;
+            else if (terminal) ++s_armed_pass_terminal;
+            else if (backend_idle) ++s_armed_pass_idle;
+            else ++s_armed_pass_other;
+        }
     }
     if (!cursor_valid) {
         /* Defer: an invalid cursor is a statement about the time base, not about these
@@ -1418,6 +1591,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
          * them here - the previous behaviour - turned every cursor blip into a burst of
          * abandoned positions (measured 2026-10-16: 23-30 per follower over a 361-position
          * scan, in bursts that hit all three boards on the same tick). */
+        ++s_sweep_no_cursor;
         return;
     }
     if (s_armed_index < TRIGGER_T2_RUNTIME_POSITION_COUNT) return;
@@ -1425,14 +1599,17 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     for (uint32_t index = 0u; index < TRIGGER_T2_RUNTIME_POSITION_COUNT; ++index) {
         const uint32_t bit = 1u << index;
         if (!(s_state.frozen_mask & bit) ||
-            ((s_state.action_failed_mask | s_state.action_completed_mask) & bit)) continue;
+            ((s_state.action_failed_mask | s_state.action_completed_mask) & bit)) {
+            if (s_state.frozen_mask & bit) ++s_sweep_skip_done;
+            continue;
+        }
         const t2_deadline_plan_t *plan = &s_deadline[index];
         /* T2-SEQ-001: a plan that belongs to a group which already finished is
          * not late - the next group simply has not been prepared yet, and its
          * action lies in the future. Without this the selection pass right after
          * a group completion judged the completed group's plan LATE and failed
          * the position. */
-        if (plan->group != s_group_next[index]) continue;
+        if (plan->group != s_group_next[index]) { ++s_sweep_skip_group; continue; }
         if (!plan->prediction_version || plan->session != s_state.cursor.session ||
             plan->ring_config_seq != s_state.cursor.ring_config_seq ||
             s_state.cursor.action_cursor / s_config.grid.subdivisions > plan->expiry_sync ||
@@ -1445,7 +1622,7 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
         if (selected == TRIGGER_T2_RUNTIME_POSITION_COUNT ||
             plan->action_q < s_deadline[selected].action_q) selected = index;
     }
-    if (selected == TRIGGER_T2_RUNTIME_POSITION_COUNT) return;
+    if (selected == TRIGGER_T2_RUNTIME_POSITION_COUNT) { ++s_sweep_no_select; return; }
     const t2_deadline_plan_t *plan = &s_deadline[selected];
     if (plan->group != s_group_next[selected]) {
         /* The plan still belongs to the group that already finished, or to a
@@ -1471,9 +1648,19 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
     /* "Window staged" only counts while the executor still holds it: a backend cancel (failed group, stale
      * plan, failure path) drops the table, and a stale flag made every later position arm nothing - the run
      * then reported executed 0 with clean failure counters. */
+    /* A held window must be a window the executor is actually DRAINING. `plan_pending()` only says
+     * a table is staged; a table left behind with nothing in flight (no armed deadline, no pending
+     * receipt) can never report a completion, and trusting it here marked the slot armed without
+     * arming anything: the runtime then parked on it forever (measured 23k sweeps, executor
+     * counters frozen, every failure counter 0). With the executor idle the window is treated as
+     * lost, so the staging path runs and a BUSY refusal becomes a counted BACKEND failure. */
+    /* Only an ARMED executor can still report a completion. COMPLETE/CANCELLED/UNCERTAIN/IDLE must
+     * never read as "the window is draining": with those the slot would be marked armed and the
+     * sweep would park on a table that is already finished or already retired (review 12.2). */
     const bool window_held = s_window_staged[selected] &&
         (s_local_kind != TRIGGER_ACTION_TEMPLATE_GATEWAY ||
-         sync_io_gateway_realtime_plan_pending());
+         (sync_io_gateway_realtime_plan_pending() &&
+          backend_state == SYNC_IO_GATEWAY_DEADLINE_ARMED));
     if (window_held) {
         armed = true;
         handed = s_deadline[selected].group_count;
@@ -1491,9 +1678,35 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
             delta_ticks[k] = plan->group_tick_delta[k];
             pulses[k] = plan->group_argument[k];
         }
-        armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
-            sync_io_switch_realtime_stage_sequence(base, pulses, delta_ticks, plan->group_count) :
-            sync_io_gateway_realtime_stage_sequence(base, pulses, delta_ticks, plan->group_count);
+        if ((s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY &&
+             trigger_sequence_pilot_position_enabled()) ||
+            (s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH &&
+             trigger_sequence_pilot_switch_enabled())) {
+            /* Position flow on the unified model: one call arms the whole SP2T sequence and the
+             * model's PIO owns the step spacing from then on. */
+            const uint32_t pulse_us = plan->group_argument[0] / 1000u;
+            const uint32_t step_us = plan->group_tick_delta[0]
+                ? (uint32_t)(plan->group_tick_delta[0] / (BOARD_SYS_CLOCK_HZ / 1000000u)) : 8003u;
+            /* Plan VALUES are pin patterns, not pulse widths: the template argument is the pulse
+             * width (ns) and passing it here failed build_plan's subset check (fault CONFIG). The
+             * GATEWAY only needs the step to advance - its pulse comes from gateway_fire. */
+            uint32_t model_values[T2_PLAN_GROUP_MAX];
+            const bool switch_role = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH;
+            for (uint32_t k = 0u; k < plan->group_count && k < T2_PLAN_GROUP_MAX; ++k)
+                /* The switch's per-group argument is the route code word it drives; the gateway's
+                 * is a pulse width and its trigger comes from gateway_fire, so it writes zero. */
+                model_values[k] = switch_role ? plan->group_argument[k] : 0u;
+            armed = trigger_sequence_pilot_position_arm(selected, model_values, plan->group_count,
+                        pulse_us, step_us,
+                        s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY,
+                        plan->deadline_tick, delta_ticks);
+            s_arm_branch = armed ? 1u : 4u;
+        } else {
+            armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
+                sync_io_switch_realtime_stage_sequence(base, pulses, delta_ticks, plan->group_count) :
+                sync_io_gateway_realtime_stage_sequence(base, pulses, delta_ticks, plan->group_count);
+            s_arm_branch = 2u;
+        }
         if (armed) {
             handed = plan->group_count;
             s_window_staged[selected] = 1u;
@@ -1502,12 +1715,31 @@ static T2_BOUNDED void T2_HOT(service_deadlines)(bool cursor_valid)
             s_deadline[selected].deadline_tick = 0u;
         }
     } else if (!window_held) {
-        armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
-            sync_io_switch_realtime_schedule_at(
-            s_local_group[s_group_next[selected]].argument, plan->deadline_tick) :
-            sync_io_gateway_realtime_schedule_at(
-            s_local_group[s_group_next[selected]].argument, plan->deadline_tick);
+        /* SWITCH only: the gateway keeps its windowed path here. Diverting a two-group gateway
+         * position into a one-group model plan made every position fail with BACKEND. */
+        const bool model_here =
+            s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH && trigger_sequence_pilot_switch_enabled();
+        if (model_here) {
+            /* Single-group arm on the unified model: the switch reaches this branch (its window is
+             * never held), so without a hook here every position fell through to the legacy
+             * schedule_at() and failed with BACKEND while the model stayed idle (arm_branch = 3). */
+            const uint32_t value = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
+                s_local_group[s_group_next[selected]].argument : 0u;
+            armed = trigger_sequence_pilot_position_arm(selected, &value, 1u,
+                        s_local_group[s_group_next[selected]].argument / 1000u, 8003u,
+                        s_local_kind == TRIGGER_ACTION_TEMPLATE_GATEWAY,
+                        plan->deadline_tick, NULL);
+            s_arm_branch = 5u;
+        } else {
+            s_arm_branch = 3u;
+            armed = s_local_kind == TRIGGER_ACTION_TEMPLATE_SWITCH ?
+                sync_io_switch_realtime_schedule_at(
+                s_local_group[s_group_next[selected]].argument, plan->deadline_tick) :
+                sync_io_gateway_realtime_schedule_at(
+                s_local_group[s_group_next[selected]].argument, plan->deadline_tick);
+        }
     }
+    if (armed) s_slot_armed_once |= 1u << selected;
     if (!armed) {
         ++s_backend_arm;
         /* A rejected absolute deadline is terminal. No fire-now fallback.
@@ -1970,8 +2202,15 @@ static T2_BOUNDED void T2_HOT(drain_lane_without_cursor)(void)
 
 T2_BOUNDED trigger_t2_runtime_result_t T2_HOT(trigger_t2_runtime_service)(void)
 {
-    if (!s_state.configured) return TRIGGER_T2_RUNTIME_NOT_CONFIGURED;
-    if (!s_state.active) return TRIGGER_T2_RUNTIME_NOT_ACTIVE;
+    if (!s_state.configured) {
+        if (s_svc_gate_configured != UINT32_MAX) ++s_svc_gate_configured;
+        return TRIGGER_T2_RUNTIME_NOT_CONFIGURED;
+    }
+    if (!s_state.active) {
+        if (s_svc_gate_active != UINT32_MAX) ++s_svc_gate_active;
+        return TRIGGER_T2_RUNTIME_NOT_ACTIVE;
+    }
+    if (s_service_calls != UINT32_MAX) ++s_service_calls;
     publish_begin();
     uint32_t mark = t2_now(), segment = TRIGGER_T2_RUNTIME_SEGMENT_CURSOR;
 #define T2_RETURN(value) do { segment_end(segment, &mark); publish_end(); return (value); } while (0)
@@ -1982,14 +2221,14 @@ T2_BOUNDED trigger_t2_runtime_result_t T2_HOT(trigger_t2_runtime_service)(void)
     if (!trigger_time_cursor_snapshot(cursor)) {
         s_state.cursor.valid = 0u;
         drain_lane_without_cursor();
-        if (deadlines_need_service()) service_deadlines(false);
+        if (deadlines_need_service()) { ++s_arm_sweeps; service_deadlines(false); }
         s_state.last_error = TRIGGER_T2_RUNTIME_CURSOR;
         T2_RETURN(s_state.last_error);
     }
     if (!cursor->valid || !cursor->pulse_index) {
         cursor->valid = 0u;
         drain_lane_without_cursor();
-        if (deadlines_need_service()) service_deadlines(false);
+        if (deadlines_need_service()) { ++s_arm_sweeps; service_deadlines(false); }
         s_state.last_error = TRIGGER_T2_RUNTIME_CURSOR;
         T2_RETURN(s_state.last_error);
     }
@@ -2009,7 +2248,7 @@ T2_BOUNDED trigger_t2_runtime_result_t T2_HOT(trigger_t2_runtime_service)(void)
     }
     segment_end(segment, &mark);
     segment = TRIGGER_T2_RUNTIME_SEGMENT_DEADLINES;
-    if (deadlines_need_service()) service_deadlines(true);
+    if (deadlines_need_service()) { ++s_arm_sweeps; service_deadlines(true); }
     const trigger_t2_runtime_result_t completed=s_state.last_error;
     if (completed != TRIGGER_T2_RUNTIME_OK) T2_RETURN(completed);
     T2_RETURN(TRIGGER_T2_RUNTIME_OK);
@@ -2055,7 +2294,11 @@ bool trigger_t2_runtime_take_event(trigger_action_runtime_event_t *out)
 bool trigger_t2_runtime_snapshot(trigger_t2_runtime_snapshot_t *out)
 {
     if (!out) return false;
-    for (uint32_t attempt = 0u; attempt < 4u; ++attempt) {
+    /* 4 attempts is not enough while Core0 is publishing hard: the gateway failed EVERY T2? during a
+     * run and answered the 2-word fail reply instead of its 77-field page, which made the acceptance
+     * tool read a truncated page as if it were data. The guard window is a handful of instructions,
+     * so a bounded 64 attempts still costs microseconds. */
+    for (uint32_t attempt = 0u; attempt < 64u; ++attempt) {
         const uint32_t before = __atomic_load_n(&s_guard, __ATOMIC_ACQUIRE);
         if (before & 1u) continue;
         *out = s_state;
@@ -2297,6 +2540,22 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
 {
     if (!out) return false;
     out->advance = s_window_advance_count;
+    out->service_calls = s_service_calls;
+    out->arm_sweeps = s_arm_sweeps;
+    out->svc_gate_configured = s_svc_gate_configured;
+    out->svc_gate_active = s_svc_gate_active;
+    out->sweep_no_template = s_sweep_no_template;
+    out->sweep_no_cursor = s_sweep_no_cursor;
+    out->sweep_no_select = s_sweep_no_select;
+    out->backend_lost = s_backend_lost;
+    out->sweep_skip_done = s_sweep_skip_done;
+    out->sweep_skip_group = s_sweep_skip_group;
+    out->svc_status_fail = s_svc_status_fail;
+    out->armed_pass_complete = s_armed_pass_complete;
+    out->armed_pass_idle = s_armed_pass_idle;
+    out->armed_pass_terminal = s_armed_pass_terminal;
+    out->armed_pass_other = s_armed_pass_other;
+
     out->jump = s_window_jump_count;
     out->reuse = s_window_reuse_count;
     out->no_receipt = s_window_no_receipt_count;
@@ -2335,6 +2594,7 @@ bool trigger_t2_runtime_window_stats(trigger_t2_runtime_window_stats_t *out)
     out->position_transport_reject = s_state.transport_reject_count;
     out->position_freeze_mismatch = s_state.freeze_mismatch_count;
     out->done_skip_none = s_done_skip_none;
+    out->finish_lost = s_finish_lost;
     for (uint32_t i = 0u; i < 3u; ++i)
         for (uint32_t j = 0u; j < 3u; ++j)
             out->done_hist[i][j] = s_done_hist[i][j];
@@ -2570,4 +2830,14 @@ void trigger_t2_runtime_prepare_core0(void)
         } else s_core0_prepare_last_reason=9u;
         return;
     }
+}
+
+/* Diagnostic only, called from the SCPI handler (never from the realtime path): which arm path
+ * ran, for which role, with which model flags. */
+uint32_t trigger_t2_runtime_arm_branch(void)
+{
+    return s_arm_branch
+        | ((uint32_t)(s_local_kind & 0xFu) << 8)
+        | ((uint32_t)(trigger_sequence_pilot_switch_enabled() ? 1u : 0u) << 16)
+        | ((uint32_t)(trigger_sequence_pilot_position_enabled() ? 1u : 0u) << 17);
 }

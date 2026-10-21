@@ -3054,6 +3054,11 @@ def step_20_sampling(ctx, slot, board, uid):
             # predictor.last_error - together they separate "advance never called"
             # from "a backward count latched the predictor".
             scan_tick = ctx.send(member, "TRIGger:REServation:T2:SCAN?").split(",")
+            # Executor state DURING the run. The window counters alone cannot tell "the runtime
+            # never armed" from "the executor armed and never completed": the gateway parks with
+            # the runtime believing a slot is armed, and GWDIAG is the only page that carries the
+            # plan cursor / pending / progress watchdog. Indices: page = field + 3.
+            gw_tick = ctx.send(member, "TRIGger:REServation:T2:ACTion:GWDIAG?").split(",")
             pos_tick = _pos_seen[uid_r]
 
             def tick_field(page, index):
@@ -3096,6 +3101,31 @@ def step_20_sampling(ctx, slot, board, uid):
                   f" {win_totals[22]}/{win_totals[23]}/{win_totals[24]}/{win_totals[25]}"
                   f" (min|last<<16: announce / freeze-staged / armed / ack round trip in ms;"
                   f" the ack value is the PAIRED now_ack - stage_at, not a lead)",
+                  flush=True)
+            print(f"    RT  t+{2 * (tick + 1)}s slot {slot_r}"
+                  f" frozen {tick_field(pos_tick, 15)}"
+                  f" published {tick_field(pos_tick, 9)}"
+                  f" received {tick_field(pos_tick, 10)}"
+                  f" desc_rej {tick_field(pos_tick, 11)}"
+                  f" event {tick_field(pos_tick, 13)}"
+                  f" drop {tick_field(pos_tick, 14)}"
+                  f" prepared {tick_field(pos_tick, 39)}"
+                  f" preview {tick_field(pos_tick, 40)}"
+                  f" prep_reason {tick_field(pos_tick, 41)}",
+                  flush=True)
+            print(f"    GW  t+{2 * (tick + 1)}s slot {slot_r}"
+                  f" plan {tick_field(gw_tick, 3)}"
+                  f" plan_next {tick_field(gw_tick, 25)}"
+                  f" pending {tick_field(gw_tick, 29)}"
+                  f" sm {tick_field(gw_tick, 26)}"
+                  f" svc_wait {tick_field(gw_tick, 22)}"
+                  f" svc_done {tick_field(gw_tick, 24)}"
+                  f" late {tick_field(gw_tick, 17)}"
+                  f" prog_retired {tick_field(gw_tick, 42)}"
+                  f" prog_stale {tick_field(gw_tick, 46)}"
+                  f" state {tick_field(gw_tick, 47)}"
+                  f" seq {tick_field(gw_tick, 48)}"
+                  f" done_seq {tick_field(gw_tick, 49)}",
                   flush=True)
             counter = ctx.send(member, "TRIGger:REServation:COUNter?").split(",")
             # Rate evidence, not absolutes (VDC-ISO-001/T3): the seat and match
@@ -3314,6 +3344,32 @@ def step_20_sampling(ctx, slot, board, uid):
 
     # The sequence counters are only valid BEFORE teardown, so they are captured here and written to a
     # file the sequence tool reads afterwards (polling the boards later always yields zeros).
+    # Settle: positions still in flight when the sampling window ends are legitimate, but they are
+    # not in the counters yet, so the acceptance saw 708/722 instead of 722/722. Poll each role's
+    # DIAG until it stops moving (bounded) before taking the snapshot.
+    try:
+        for _settle in range(20):
+            _moved = False
+            for _row in ROWS:
+                _member = ctx.boards.get(f"{_row[0]:016X}")
+                if _member is None:
+                    continue
+                try:
+                    _now = ctx.send(_member, "TRIGger:REServation:T2:ACTion:DIAG?").split(",")
+                    _key = (_row[0], _now[1] if len(_now) > 1 else "", _now[2] if len(_now) > 2 else "")
+                    _prev = getattr(ctx, "_settle_last", {})
+                    if _prev.get(_row[0]) != _key:
+                        _prev[_row[0]] = _key
+                        ctx._settle_last = _prev
+                        _moved = True
+                except Exception:
+                    pass
+            if not _moved:
+                break
+            time.sleep(0.25)
+    except Exception:
+        pass
+
     try:
         import json as _json
         _snap = {}
@@ -3332,14 +3388,20 @@ def step_20_sampling(ctx, slot, board, uid):
                 # tail 7 = entered / announced / frozen / executed / abandoned / mark_rejected / alloc_rejected (the position-window accounting).
                 "action": "TRIGger:REServation:T2:ACTion?",
             }
+            # Minimum plausible length per page. `1,1` is the 2-word FAIL reply, and a page that
+            # short used to be stored as if it were a reading (the gateway answered `1,1` to every
+            # T2? while its snapshot guard was contended, so its frozen/received masks were read
+            # from a 2-token string and reported as zeros).
+            _min_fields = {"t2": 40, "gwdiag": 40, "why": 8, "window": 7, "diag": 20, "action": 8}
             _entry, _failed = {}, []
             for _name, _page in _pages.items():
                 _value = ""
-                for _attempt in range(2):
+                for _attempt in range(3):
                     try:
                         _value = ctx.send(member, _page)
-                        if _value and len(_value.split(",")) >= 2:
+                        if _value and len(_value.split(",")) >= _min_fields.get(_name, 2):
                             break
+                        _value = ""
                     except Exception:
                         _value = ""
                     time.sleep(0.05)
@@ -3348,6 +3410,7 @@ def step_20_sampling(ctx, slot, board, uid):
                 _entry[_name] = _value
             if _failed:
                 _entry["failed"] = _failed
+                print(f"  snapshot page(s) missing for slot {slot_r}: {','.join(_failed)}", flush=True)
             _snap[slot_r] = _entry
         _path = pathlib.Path("out/sync_trigger/sequence_snapshot.json")
         _path.parent.mkdir(parents=True, exist_ok=True)
