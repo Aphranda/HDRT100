@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation
 Canonical: `docs/README.md`
 Related: `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
-Last updated: 2026-10-18
+Last updated: 2026-10-21
 
 本文档是 `docs/` 的总入口。新文档的命名、层级、元数据和迁移规则以
 `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md` 为准。
@@ -30,6 +30,7 @@ docs/
   calibration/    CAL link、delay、参数、版本、质量
   tdma/           上行/下行 TDMA、payload registry、adapter 和环路 completion 基础件
   refmem/         分布式向量表、命令槽、ACK/NACK、节点事实
+  refmem/event/   RefMem Event Plane 子域（静态域）：EventPack/Catalog/Map/Alias/EventVector
   vdc/            虚拟 DC、共同时间、DPLL、HOLDOVER、时间质量
   communication/  BiSS-C、UART、RS485、RJ45 后端维护
   measure/        测量原语、T2 摘要、链路 delay 测量服务
@@ -62,6 +63,7 @@ docs/
 | `calibration/` | `calibration/README.md` | CAL link、delay、参数、版本和质量 |
 | `tdma/` | `tdma/README.md` | 上行/下行 TDMA、payload registry、adapter、ring runtime 和 completion evidence 基础件 |
 | `refmem/` | `refmem/README.md` | 分布式向量表、命令槽、ACK/NACK、同步架构和最小系统板操作 |
+| `refmem/event/` | `refmem/event/REFMEM_EVENT_ARCHITECTURE.md` | RefMem Event Plane 子域（静态域）：EventPack/Catalog/Map/Alias/EventVector |
 | `vdc/` | `vdc/README.md` | 虚拟 DC、共同时间、DPLL、HOLDOVER 和时间质量 |
 | `communication/` | `communication/README.md` | BiSS-C、UART、RS485 和通信维护 |
 | `measure/` | `measure/README.md` | 测量原语、T2 摘要和链路 delay 测量服务 |
@@ -97,6 +99,7 @@ docs/
 | STATE_MACHINE | `state_machine/HAOFV_STATE_MACHINE_ARCHITECTURE.md` | 状态机与底层实时资源域，定义 PIO SM、DMA/FIFO、上下行控制和资源仲裁边界。 |
 | WATCHDOG | `watchdog/ARCH_WATCHDOG_ARCHITECTURE.md` | Watchdog 硬件适配、唯一 feed owner、健康门禁、复位证据和 OTA/Flash 故障定位边界。 |
 | TRIGGER | `trigger/TRIGGER_SYNC_TODO.md` | 触发业务模式、生产化缺口和跨模式待办入口。 |
+| REFMEM/EVENT | `refmem/event/REFMEM_EVENT_ARCHITECTURE.md` | RefMem Event Plane 子域（静态域）canonical：EventPack/Catalog/Map/Alias/EventVector；运行时分发/执行归 RefMem/TRIGGER。 |
 | BISSC | `communication/BISSC_TAP_BRIDGE_DESIGN.md` | BiSS-C 协议、TAP bridge、固件 persona 和验证边界入口。 |
 | OTA | `ota/OTA_HAOFV_ARCHITECTURE.md` | OTA 域 owner、OtaAO/OtaFB/OtaVector、BCB selection 和 Boot 交接；跨域 Flash 语义服从 `arch/HAOFV_FLASH_ARCHITECTURE.md`。 |
 | SD | `storage/SD_TODO.md` | SD、StorageAO、System Pack、快照和持久化观测入口。 |
@@ -113,6 +116,7 @@ docs/
 | TRIGGER | `trigger/sequence/TRIGGER_SEQUENCE_ARCHITECTURE.md` | 位置内序列的解算与执行（拿到位置时间片后自行按约定展开）；深度 ≥2 绝对 deadline 队列与逐组证据口径。 |
 | TRIGGER | `trigger/sequence/TRIGGER_SEQUENCE_TODO.md` | 序列解算与执行的任务状态（`TRIGGER-SEQ-*`，跨域前置 `SYNC-SCHED-001`）。 |
 | TRIGGER | `trigger/sequence/TRIGGER_SEQUENCE_TASK_PROGRESS.md` | 序列解算与执行的闭环与台架证据记录。 |
+| REFMEM/EVENT | `refmem/event/REFMEM_EVENT_TASK_PROGRESS.md` | RefMem Event Plane 子域新任务记录写入本文件。 |
 | RTOS | `arch/RTOS_HAOFV_TASK_PROGRESS.md` | RTOS / 双核 / 分布式触发任务闭环记录写入本文件。 |
 | Flash | `arch/HAOFV_FLASH_TASK_PROGRESS.md` | FlashMap、事务 owner、store、Boot/OTA 迁移和 HIL checkpoint 写入本文件。 |
 | SCPI | `interface/SCPI_TASK_PROGRESS.md` | SCPI 指令框架、验证脚本和接口拆分闭环记录写入本文件。 |
@@ -153,6 +157,16 @@ docs/
 | `docs/check/submissions/TDMA_CROSS_REVIEW_05.md` | TDMA Core1 phase 预算归因：500 µs 目标下未达（实测 667–692 µs），缺口归因到 adapter RX 路径并建立优化队列；2026-09-14 判据修订（预算升至 850 µs）后改判 `MET`（有限窗口快照，非事实源；C11 pending）。 |
 | `docs/check/submissions/TDMA_CROSS_REVIEW_06.md` | TDMA 对 DPLL 的支撑能力核验：`PARTIAL_SUPPORT`——硬件 latch 8 ns/非 diagnostic/链路零误码已成立，同圈关联与生产准入未闭合；给出 P1–P5 优先任务（有限窗口快照，非事实源；C11 pending，2026-09-14）。 |
 | `docs/check/submissions/REFMEM_CROSS_REVIEW_01.md` | RefMem 静态缩容评审结论与 TODO 移交；独立方案复核及 `REFMEM-LAYOUT-01` pending 登记审核完成，实施与四板验收证据见 RefMem Task Progress。 |
+| `docs/check/submissions/EVENT_CROSS_REVIEW_01.md` | Event Plane 架构第二版与 RefMem 事件面微调的独立复评：B1–B3 已闭合，E0 前仍有 5 项阻塞；`PASS_WITH_CHANGES`，C11 最终签署待独立复核。 |
+| `docs/check/submissions/EVENT_CROSS_REVIEW_02.md` | Event Plane 架构第三版（命令面/EventPack/传输/失败恢复）复审：R-B1/B2/B4 部分通过，新增 B6 POSITION/EVR 重复接收；`PASS_WITH_CHANGES`。 |
+| `docs/check/submissions/EVENT_CROSS_REVIEW_03.md` | Event Plane 静态域重写复审：静态域约束基本落实；RefMem 仍列 `EVENT_INJECT/ABORT`、静态 owner 未命名、`VALidate?`/`CONFigure` 语义不清；`PASS_WITH_CHANGES`。 |
+| `docs/check/submissions/EVENT_CROSS_REVIEW_04.md` | RefMem Event Plane 子域迁移 R4 复审：迁移/索引通过，S-B1 闭合；S-B2/S-B3、EventPack 路径/rollback、EventVector 存放仍开放；`PASS_WITH_CHANGES`。 |
+| `docs/check/submissions/EVENT_CROSS_REVIEW_05.md` | Event Plane 静态基线 + R0–R6 运行时方向 R5 审查：静态基线 PASS；运行时 T-B1–T-B5 未闭合，需先定 owner/状态/预算/handler 契约。 |
+| `docs/check/submissions/EVENT_CROSS_REVIEW_06.md` | Event Plane R6 HAOFV 符合性复审：静态基线 PASS；T-B1–T-B5 已文档修正；U-M1–U-M8（event_id/ABORT/target/契约/预算/日志）仍开放。 |
+| `docs/check/submissions/EVENT_CROSS_REVIEW_07.md` | Event Plane R7 设计终审：静态基线 + 方案 B 运行时设计均符合 HAOFV；剩余为实现、契约登记、TDMA 联审和 C11。 |
+| `docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_01.md` | RefMem 单端口统一控制面三缺口 R1：三条 canonical 已落位；config-control profile、ARMING、MOUNT 兼容、command handler/队列仍待闭合。 |
+| `docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_02.md` | RefMem 四条款 R2：单板保留 + 统一面增量；ARMING DISARM、STOPPING 超时、未注册 command、mask 回退已补。 |
+| `docs/check/submissions/REFMEM_HAOFV_REVIEW_01.md` | RefMem 四条款 HAOFV 偏差 R1：预算符号、config-control subtype、session writer、ActionDispatcher 归属、本地/协调者边界、实时性已修。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_01.md` | Flash v2 首次层间核验：硬件/构建/实现/域文档一致性与当前 v1 偏差。 |
 | `docs/check/submissions/VDC_CROSS_REVIEW_01.md` | VDC 服务边界频率命令的 wire、owner、实际应用 ACK 及取消规则 C11 核验。 |
 | `docs/check/submissions/VDC_CROSS_REVIEW_02.md` | VDC 同命令原有效期内有界重复运输、ACK 退休与至多一次应用 C11 核验。 |
@@ -166,7 +180,7 @@ docs/
 | `docs/trigger/t2/TRIGGER_T2_HANDOFF_CHECKLIST.md` | T2 会话交接与自审清单：环境事实、已闭环项与可核验处、立即要做的 3 项、流程铁律与自审命令（原「用户偏好」小节已于 2026-10-13 移除，索引随之更正）。 |
 | `docs/trigger/t2/TRIGGER_T2_DEBUG_PLAYBOOK.md` | T2 调试手册：测量纪律、失败定位的固定顺序、已踩坑位（症状→根因→修法）、决策规则、工具配方、网关预装两组的精确设计。 |
 | `docs/interface/SCPI_HOST_ARCHITECTURE.md` | 接口域架构：上位机与多板系统的通信边界、单串口 + RefMem 分布式控制拓扑与待冻结项。 |
-| `docs/interface/SCPI_HOST_TODO.md` | 接口域待办：会话与寻址、命令转发与应答、隔离与权限（IF-001..003）。 |
+| `docs/interface/SCPI_HOST_TODO.md` | 接口域待办：会话与寻址、命令转发与应答、隔离与权限、可观测性（IF-001..IF-010，含 2026-10-20 评审转办）。 |
 | `docs/interface/SCPI_HOST_TASK_PROGRESS.md` | 接口域任务进度：建域与现状取证（节点作用域命令仅 4 条等实测）。 |
 | `README.md` | 本索引文件，提供当前 `docs/` 文件归属。 |
 | `docs/README.md` | 文档治理域 README。 |
@@ -195,6 +209,10 @@ docs/
 | `refmem/REFMEM_SYNC_ARCHITECTURE.md` | Distributed RefMem Sync 内部架构，定义总线无关同步协议和 adapter 边界。 |
 | `refmem/REFMEM_MIN_SYSTEM_PLAYBOOK.md` | Distributed RefMem 最小系统板 bring-up 记录，维护当前两板线序和验证步骤。 |
 | `refmem/REFMEM_DOMAIN_RISK_REVIEW.md` | Distributed RefMem 主域风险评审，记录 P0-P3 架构偏差、HAOFV 边界风险和纠偏结论。 |
+| `refmem/REFMEM_CONTROL_PLANE_REVIEW.md` | RefMem 统一控制面与触发执行方案评审稿（2026-10-21 评审通过，非契约）：控制面挂接、动作分发、MRF Event Plane、分阶段计划与 MRF 子域升级评估。 |
+| `refmem/event/REFMEM_EVENT_ARCHITECTURE.md` | RefMem Event Plane 子域架构（Draft，静态域）：EventPack/Catalog/Map/Alias/EventVector；运行时事件归 RefMem/TRIGGER。 |
+| `refmem/event/REFMEM_EVENT_TODO.md` | RefMem Event Plane 子域待办（静态域）：E0 静态契约、E1 静态实现、E2 别名静态映射、E3 运行时读取契约。 |
+| `refmem/event/REFMEM_EVENT_TASK_PROGRESS.md` | RefMem Event Plane 子域任务进度：域建立、迁移和静态域重写记录。 |
 | `vdc/README.md` | VDC 内部主域 README。 |
 | `vdc/VDC_DOMAIN_ARCHITECTURE.md` | VDC 内部主域架构，定义共同时间、DPLL、timestamp、HOLDOVER 和质量门禁。 |
 | `vdc/VDC_RUNTIME_CONSTRAINTS.md` | VDC 已登记运行接口细则：typed 同步、本地跟踪、输出/探针及兼容分片协议。 |
@@ -241,6 +259,7 @@ docs/
 | `legacy/trigger/LEGACY_TRIGGER_T2_TASK_PROGRESS_09.md` | T2 进展归档（C14 第九轮）：`T2-PROGRESS-20261016-007`..`T2-PROGRESS-20261015-004`，10 条，条目逐字保留。 |
 | `legacy/trigger/LEGACY_TRIGGER_T2_TASK_PROGRESS_10.md` | T2 进展归档（C14 第十轮）：`T2-PROGRESS-20261016-016`..`T2-PROGRESS-20261016-008`，9 条，条目逐字保留。 |
 | `legacy/trigger/LEGACY_TRIGGER_T2_TASK_PROGRESS_11.md` | T2 进展归档（C14 第十一轮）：`T2-PROGRESS-20261018-034`..`T2-PROGRESS-20261017-020`，13 条，条目逐字保留。 |
+| `legacy/trigger/LEGACY_TRIGGER_T2_TASK_PROGRESS_12.md` | T2 进展归档（C14 第十一轮）：`T2-PROGRESS-20261018-034`..`T2-PROGRESS-20261017-020`，13 条，条目逐字保留。 |
 | `trigger/t2/TRIGGER_T2_RUNTIME_CONSTRAINTS.md` | T2 运行时约束：启动期 PIO 资源准入、越界判定与验证证据分级。 |
 | `legacy/arch/LEGACY_HAOFV_FLASH_TASK_PROGRESS_01.md` | HAOFV_FLASH 进展归档：`FLASH-TASK-20260821-001`..`FLASH-TASK-20260821-001`，3 条。 |
 | `legacy/arch/LEGACY_HAOFV_FLASH_TASK_PROGRESS_02.md` | HAOFV_FLASH 进展归档：`FLASH-TASK-20260822-004`..`FLASH-TASK-20260822-002`，4 条。 |
@@ -322,7 +341,7 @@ docs/
 | `trigger/t2/TRIGGER_T2_ARCHITECTURE.md` | T2 实施架构草案：多板槽位部署、预约身份、READY/fence、VDC 映射与实际回读边界。 |
 | `trigger/t2/TRIGGER_T2_TODO.md` | 多板实际槽位部署后开展 T2 预约触发的任务、依赖与验收。 |
 | `trigger/t2/TRIGGER_T2_TASK_PROGRESS.md` | T2 分支参考、切片实现、验证、失败与交接记录。 |
-| `trigger/t2/TRIGGER_T2_REVIEW.md` | 2026-10-09 T2 代码与架构语义评审快照：偏离项、实际状态对账、文档漂移与建议顺序；2026-10-18 增补四轮 sequence 独立审核（完成状态契约、N=16 窗口边界、约束冲突、16 组单窗口与网关首组）；非契约。 |
+| `trigger/t2/TRIGGER_T2_REVIEW.md` | 2026-10-09 T2 代码与架构语义评审快照：偏离项、实际状态对账、文档漂移与建议顺序；2026-10-18 增补四轮 sequence 独立审核，2026-10-20/21 增补代码级复审、停摆修复复核、基础模型/pilot 实现复核与开关 mode 2 复核（网关计数 PASS、开关 service/码字/时序缺口）；非契约。 |
 | `trigger/t2/TRIGGER_T2_STEP_REVIEW.md` | 2026-10-11 T2 复核汇总：状态对账、predictor/runtime/wire 与分支角度前端两份审计的核对、31 位置/STEP/身份/模拟源影响与待裁定决定清单；非契约。 |
 | `trigger/t2/T2_FLOW.html` | T2 起链工作流 A4 视图：由 `tools/sync_trigger/t2_workflow.py` 注入最近一次运行的逐步结果；数据快照，非事实源。 |
 | `trigger/t2/DPLL60_FLOW.html` | DPLL60 工作流 A4 视图：由 `tools/vdc_priority_trace/DPLL60_workflow.py` 注入最近一次运行的逐步结果；不是验收凭证。 |
@@ -383,6 +402,7 @@ docs/
 | `storage/LOG_SYSTEM_TODO.md` | 日志系统待办和演进方向。 |
 | `interface/SCPI_USB_INTERFACE_DESIGN.md` | USB CDC/USBTMC 接口设计、描述符、bus-powered/self-powered 决策记录。 |
 | `interface/SCPI_TASK_PROGRESS.md` | SCPI 指令框架、接口拆分、USB 验证和产品指令闭环记录。 |
+| `interface/SCPI_HAOFV_REVIEW.md` | 2026-10-20 接口域 HAOFV 符合性评审：实现面（阻塞/直驱/空实现）与契约面（命令树/摘要/错误码）不符合项、证据和处置顺序；非契约。 |
 
 ## 08 发布、验证与全局进度
 

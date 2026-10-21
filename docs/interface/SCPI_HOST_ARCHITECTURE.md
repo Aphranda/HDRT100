@@ -3,8 +3,8 @@
 Status: Draft
 Domain: INTERFACE
 Canonical: `docs/interface/SCPI_HOST_ARCHITECTURE.md`
-Related: `docs/interface/SCPI_HOST_TODO.md`, `docs/interface/SCPI_HOST_TASK_PROGRESS.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-10-13
+Related: `docs/interface/SCPI_HOST_TODO.md`, `docs/interface/SCPI_HOST_TASK_PROGRESS.md`, `docs/interface/SCPI_HAOFV_REVIEW.md`, `docs/check/DOCS_REGISTRY.md`
+Last updated: 2026-10-20
 
 ## 域职责
 
@@ -33,3 +33,10 @@ Last updated: 2026-10-13
 ## 非目标
 
 本域不定义板内命令实现，也不复制其它域的语义/状态/证据（C12）。
+
+## 评审（2026-10-20）
+
+HAOFV 符合性评审见 `docs/interface/SCPI_HAOFV_REVIEW.md`（非契约）。结论：域边界方向正确，
+但维护/HIL 路径存在 3 项高、4 项中实现不符合项（回调内阻塞、直接硬件动作、空实现/死代码），
+已转 `IF-005..IF-010` 跟踪。维护命令与产品命令同受 HAOFV 约束，**不设强操作例外**；本域暂不
+据此冻结新契约。

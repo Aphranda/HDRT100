@@ -3,10 +3,32 @@
 Status: Active
 Domain: INTERFACE
 Canonical: `docs/interface/SCPI_HOST_TASK_PROGRESS.md`
-Related: `docs/interface/SCPI_HOST_ARCHITECTURE.md`, `docs/interface/SCPI_HOST_TODO.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-10-14
+Related: `docs/interface/SCPI_HOST_ARCHITECTURE.md`, `docs/interface/SCPI_HOST_TODO.md`, `docs/interface/SCPI_HAOFV_REVIEW.md`, `docs/check/DOCS_REGISTRY.md`
+Last updated: 2026-10-20
 
 ## 当前 checkpoint
+
+### SCPI-PROGRESS-20261020-001：接口域 HAOFV 符合性评审与文档回写
+
+- **范围**：`docs/interface/` 全部文档 + `middleware/scpi_port` 命令表/分域模块；按 HAOFV
+  “SCPI 只表达意图、只写 command/config slot 或读 snapshot、完成态 ACK/NACK 闭环、FB/AO
+  非阻塞”逐条对照。
+- **结论（快照）**：主干方向符合；不符合项集中在维护/HIL 路径——回调内等待 Storage job 并
+  直调 `storage_manager_service()`（上限约 10 s）、`RING:TOPology` 回调内 50×20 ms 重试、
+  SMA/OUTPut/UART 维护命令直接操作硬件、Flash validation 回调内擦写、未注册 raw SPI
+  handler 残留、`FAULT:CLEar` 空实现、拒绝无应答（IF-004 延续）。
+- **取证**：逐条 `文件:行号` 与违反条款见 `docs/interface/SCPI_HAOFV_REVIEW.md`；本文不复制
+  评审正文，只记录闭环状态。
+- **回写**：`SCPI_COMMAND_PLAN.md` 增 §13 结论表与 §10 事实边界；`SCPI_COMMANDS.md` 增
+  文档边界；`SCPI_HOST_ARCHITECTURE.md` 增评审指针；`SCPI_HOST_TODO.md` 新增
+  `IF-005..IF-010`；`docs/README.md` 与本域 README 增索引；`docs/arch/HAOFV_MAINTENANCE_TODO.md`
+  撤销“维护接口可以保留强操作”的旧口径。
+- **契约状态**：本次不登记新契约、不改任何登记行状态；评审结论冻结前仍为 PENDING，冻结需
+  `DOCS_REGISTRY.md` 登记 + C11 交叉审核。
+- **强制口径（2026-10-20）**：维护强操作不设例外；`IF-007` 按“intent mailbox + owner 执行”
+  强制收敛，不接受把现有直驱登记为例外。`HAOFV-MAINT-20260813-008` 的旧表述不再适用于
+  接口域。
+- **门禁**：`docs_check --strict-names` 与 `doc_regression_check` 在回写后重跑，结果见提交记录。
 
 ### SCPI-PROGRESS-20261014-001：命令拒绝在主机侧不可观测（P3 验收 step 17 现场）
 

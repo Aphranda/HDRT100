@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/submissions/README.md`
 Related: `docs/check/DOCS_REGISTRY.md`, `docs/check/DOCS_REGRESSION_TODO.md`
-Last updated: 2026-09-17
+Last updated: 2026-10-21
 
 > 用途：层间逐级核验（域 → 父层）的提交单归档目录。每份提交单一个文件：
 > `docs/check/submissions/<DOMAIN>_CROSS_REVIEW_<NN>.md`
@@ -72,3 +72,13 @@ Last updated: <YYYY-MM-DD>
 | `ARCH_FLASH_CROSS_REVIEW_01.md` | Flash v2 与 hardware/build/Boot/OTA/TDMA/RefMem/VDC | `ACCEPT_WITH_DEVIATION` |
 | `ARCH_FLASH_CROSS_REVIEW_02.md` | Flash canonical 重构与 M0-M6 工作板 | `ACCEPT_WITH_DEVIATION` |
 | `REFMEM_CROSS_REVIEW_01.md` | RefMem 静态缩容评审结论与 TODO 移交，并更正 MPU 与刷新预算依据；实施与验收由 RefMem Task Progress 承接 | `ACCEPTED_FOR_TODO`；独立方案复核及 `REFMEM-LAYOUT-01` pending 登记审核完成 |
+| `EVENT_CROSS_REVIEW_01.md` | Event Plane 架构第二版与 RefMem 事件面微调的独立复评；B1–B3 已闭合，E0 前仍有 5 项阻塞 | `PASS_WITH_CHANGES`；C11 最终签署待独立复核 |
+| `EVENT_CROSS_REVIEW_02.md` | Event Plane 架构第三版（命令面/EventPack/传输/失败恢复补充）复审；R-B1/B2/B4 部分通过，新增 B6 POSITION/EVR 重复接收 | `PASS_WITH_CHANGES`；B6–B10 + B3/B5 待闭合 |
+| `EVENT_CROSS_REVIEW_03.md` | Event Plane 静态域重写复审：静态域约束基本落实；RefMem 仍列 `EVENT_INJECT/ABORT`、静态 owner 未命名、`VALidate?`/`CONFigure` 语义不清 | `PASS_WITH_CHANGES`；S-B1–S-B3 待闭合 |
+| `EVENT_CROSS_REVIEW_04.md` | RefMem Event Plane 子域迁移 R4 复审：迁移/索引通过，S-B1 闭合；S-B2/S-B3、EventPack 路径/rollback、EventVector 存放仍开放 | `PASS_WITH_CHANGES` |
+| `EVENT_CROSS_REVIEW_05.md` | Event Plane 静态基线 + R0–R6 运行时方向 R5 审查：静态基线 PASS；运行时 T-B1–T-B5 未闭合，需先定 owner/状态/预算/handler 契约 | 静态 `PASS`；运行时 `PASS_WITH_CHANGES` |
+| `EVENT_CROSS_REVIEW_06.md` | Event Plane R6 HAOFV 符合性复审：静态基线 PASS；T-B1–T-B5 已文档修正；U-M1–U-M8（event_id/ABORT/target/契约/预算/日志）仍开放 | 静态 `PASS`；运行时 `PASS_WITH_CHANGES` |
+| `EVENT_CROSS_REVIEW_07.md` | Event Plane R7 设计终审：静态基线 + 方案 B 运行时设计均符合 HAOFV；剩余为实现、契约登记、TDMA 联审和 C11 | 设计 `PASS`；实现未做 |
+| `REFMEM_UNIFIED_CONTROL_REVIEW_01.md` | RefMem 单端口统一控制面三缺口 R1：三条 canonical 已落位；config-control profile、ARMING、MOUNT 兼容、command handler/队列仍待闭合 | `PASS_WITH_CHANGES` |
+| `REFMEM_UNIFIED_CONTROL_REVIEW_02.md` | RefMem 四条款 R2：单板保留 + 统一面增量；ARMING DISARM、STOPPING 超时、未注册 command、mask 回退已补 | `PASS_WITH_CHANGES` |
+| `REFMEM_HAOFV_REVIEW_01.md` | RefMem 四条款 HAOFV 偏差 R1：预算符号、config-control subtype、session writer、ActionDispatcher 归属、本地/协调者边界、实时性已修 | `PASS_WITH_CHANGES` |

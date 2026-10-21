@@ -3,8 +3,8 @@
 Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-08-17
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/interface/SCPI_TASK_PROGRESS.md`, `docs/interface/SCPI_HAOFV_REVIEW.md`
+Last updated: 2026-10-20
 
 本文档用于独立维护 Distributed Hard Real-Time Trigger System 对 HAOFV 架构的符合性待办。`DHRT100` 保留为当前设备型号，`RP2350_TRIG` 保留为历史工程和构建产物名。
 这里不记录普通功能开发流水账，而是记录会影响 owner、层次边界、反射内存事实、
@@ -315,10 +315,11 @@ Active Object / Function Block 划分、资源仲裁和硬实时边界的架构�
 - 问题：
   - Storage 已有 manager/vector/job 模型，但部分 SCPI 维护命令仍同步等待或直接执行 raw/format/probe。
 - 影响：
-  - 维护接口可以保留强操作，但产品接口不应被阻塞式 job 等待污染。
+  - 维护接口与产品接口同受 HAOFV 约束：不得在 SCPI 回调内直接执行强操作或阻塞等待；
+    维护动作也必须经 owner/intent 执行并由 ACK/回读闭环（2026-10-20 接口域强制口径，无例外）。
 - 待办：
   - [ ] 明确 `MMEMory/STORage` 产品接口只提交 job 并查询结果。
-  - [ ] raw clear/read/format 标为维护或工厂权限。
+  - [ ] raw clear/read/format 可标为维护或工厂权限，但权限只决定可见性，不豁免 owner 执行与非阻塞。
   - [ ] 所有长操作返回 job id，完成状态通过 `...:JOB?` 查询。
   - [ ] Storage manager 逐步补齐 `StorageAO / StorageFB / StorageVector` 命名和边界。
 - 关联文件：

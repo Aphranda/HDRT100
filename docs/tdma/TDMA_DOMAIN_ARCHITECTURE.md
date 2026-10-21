@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-10-11
+Last updated: 2026-10-21
 
 ## 文档接口与范围
 
@@ -111,6 +111,18 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 | 无座 | 普通控制、日志与维护数据 | 预定低优先级或 maintenance 预算；不得扩帧、借 guard 或阻塞前述路径。 |
 
 上述是服务目标及 owner 分层，不表示所有等级已完成统一调度、共存与饱和验收。
+
+### REFMEM-TRANSPORT-01：REFMEM_CMD 载体（pending）
+
+`REFMEM_CMD` 是 RefMem 统一控制面的跨节点命令帧，首版**复用既有** `TDMA_PAYLOAD_CLASS_CONFIG_CONTROL`，不新增 payload class：
+
+- `payload_subtype = REFMEM_CMD`；envelope 与 command slot 一致（`command_seq/type/class/origin/target/required/payload/crc`）。
+- `message_class = TDMA_PAYLOAD_CLASS_CONFIG_CONTROL`；接收端按 subtype 分派，`REFMEM_CMD` 是唯一 consumer；未知 subtype 拒绝，其他 config-control consumer 不得占用同一 subtype。
+- 预算以 `tdma_traffic_class_profile_t` 的 `reserved_bytes_per_cycle`/`max_frames_per_cycle`/`queue_depth`/`deadline_ns` 为准；payload 上限绑定 `sizeof(refmem_command_request_t.payload)`，不手写数字。
+- 优先级：`TDMA_TRAFFIC_CONFIG_CONTROL`；不占 core1 硬实时窗口，不在 ISR 执行；config-control 是控制面预算，不承诺硬实时。
+- ACK/fence 复用 `TDMA_PAYLOAD_CLASS_REFMEM_ACK_FENCE`；命令帧与 ACK 不共享队列语义。
+- 只有 config-control 预算不足时，才评估专用 payload class；必须另立契约和 TDMA 联审，不能静默扩类。
+- 契约状态：pending；代码锚点 `tdma_profile.h`；需 host 编码/解码 + 两板命令/ACK 证据。
 
 ### TDMA-SEAT-01（用户已审核，已实现）：快速路径按发布机会轮换的流式调度
 

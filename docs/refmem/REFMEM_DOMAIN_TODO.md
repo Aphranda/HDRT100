@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_TODO.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-21
 
 本文档维护 Distributed Vector Blackboard / RefMem Sync Domain 的当前可执行待办。这里不记录普通开发流水账，只记录会影响分布式共同事实、RefMemAO、A0-A7 通用逻辑插槽、节点装载、SlotClaim 协调、表镜像、slot owner、命令 ACK/NACK、部署门禁、连接质量和 RefMem Sync 的架构与实现事项。
 
@@ -388,3 +388,38 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [x] 增加 RefMem Sync HELLO 纯 C 单元测试入口：`tools/tests/run_refmem_sync_hello_tests.ps1`，覆盖 board capability + adapter caps 生成 HELLO payload、编码为 frame、adapter RX staging poll 和字段校验。
 - [x] 增加 RefMem Quality 派生视图纯 C 单元测试入口：`tools/tests/run_refmem_quality_tests.ps1`，覆盖本地 adapter 计数、remote QUALITY snapshot、runtime table 拼装和越界查询。
 - [x] 增加 RefMem Command Slot 纯 C 单元测试入口：`tools/tests/run_refmem_command_tests.ps1`，覆盖 post/take/ack/nack/timeout/clear 和 sync COMMAND/ACK_NACK payload 映射。
+
+## P8 - 统一控制面（REFMEM-CTRL-01）
+
+目标：把“任一板卡接口操作 RefMem、控制全部板卡”从愿景收敛为可验证契约；接入点无关、目标本地执行、显式掩码、单一协调者和聚合完成，不引入远程裸写或跨板阻塞查询。架构见 `REFMEM_DOMAIN_ARCHITECTURE.md` 的 `REFMEM-CTRL-01`。
+
+- [ ] C0 冻结命令槽物理放置：当前 live slot 为 `distributed_refmem.c` 的 static `s_refmem_command_slot`，`refmem_vector_table_t.ack_command`（`DISTRIBUTED_REFMEM_ACK_CMD_SIZE`）仅目录注册；二选一迁入该区（同步目录/布局版本）或明确 static 为规范物理位置，并同步 `REFMEM-CTRL-01`。
+- [ ] 扩展 `refmem_command_request_t` / `refmem_command_snapshot_t`：`coordinator_slot`、`coordinator_boot_id`、`lease_epoch`、`catalog_crc32`、`fence_required`、`fence_state`、`control_reply`；旧字段语义不变，host 用例覆盖旧快照兼容。
+- [ ] 定义 `control_owner_slot` 解析与唯一性门禁：profile 未声明时取最低已 claim 插槽；`DeploymentGate` 拒绝零个或多个控制 owner 的 RUN。
+- [ ] 实现协调者租约：`CONTROL_LEASE_TAKE/RENEW/RELEASE`；仅 STOP/维护态迁移；RUN 中丢失 fail-closed 进入 `CONTROL_LOST`，禁止静默双主。
+- [ ] 实现跨节点命令路由：Entry → Coordinator → Target 的 `REFMEM_CMD`/`REFMEM_ACK`；目标本地 owner TAKE、校验、执行、ACK/NACK；origin 通过 `control_reply` 读聚合结果。
+- [ ] 实现 `required_mask` 部分成功、timeout、`STOP`/`FAULT_CLEAR` 抢占、重复/重传命中和 `ABORTED_BY_PREEMPT` 证据。
+- [ ] 扩展 `refmem_command_reason_t` 与 SCPI reason 表：`UNSUPPORTED_COMMAND`、`CATALOG_MISMATCH`、`CONTROL_BUSY`、`CONTROL_OWNER_CONFLICT`、`TARGET_NOT_CLAIMED`、`ABORTED_LEASE_LOST`、`LATE_ACK`、`SKIPPED_STALE`。
+- [ ] 新增 `SYSTem:COMMand:STATus?` / `SYSTem:COMMand:TARget?` 只读聚合视图；`SYSTem:COMMand:ACK?`/`NACK?` 仍读同一底层 command slot，不另建事实。
+- [ ] 命令目录版本化：每个 `command_type` 声明 `allowed_states`、`required_capabilities`、`idempotent`、`transactional`、`default_timeout`、`payload_schema`；目录 CRC 进入 Version Bundle。
+- [ ] Event Plane 静态装载：新增 `EVENT_CONFIGURE`/`EVENT_VALIDATE`/`EVENT_ACTIVATE` command type 与 `EventPackService` 静态入口；`DistributedRefMemAO` 保持唯一 command slot owner，Event Plane 不 take、不写 ACK、不建第二 epoch；ACK/NACK 写回同一 `AckCommandRegion`。`EVENT_INJECT`/`EVENT_ABORT` 不归 `EventPackService`；方案 B 才由 `EventRuntimeService` 承接。
+- [ ] 方案 B R0：新增 `EVENT_INJECT`/`EVENT_ABORT` command type 与 `EventRuntimeService` handler；RefMem 保持唯一 command slot/ACK/lease；POSITION 直接拒绝（`NOT_MY_DOMAIN`）；先 host 契约，不接 POSITION/transport。
+- [ ] 权限与运行态矩阵落地：入口权限与目标权限逻辑交集，无 force/override；`START`、`CAL`、`RESOURCE_JOB`、`LOAD:*` 等按矩阵拒绝。
+- [ ] C1 两板 HIL：A 接入发起、B 本地执行、A 读到 ACK/fence；C4 多板 all-target `START`/`STOP` 逐目标证据一致；C5 与 `LOAD:SD`/activation 跨节点 FENCE 闭环。
+
+## M0 - 单端口统一控制面架构补齐（本目标）
+
+目标：**只通过文档与契约**补齐 `REFMEM-TRANSPORT-01`、`REFMEM-SESSION-01`、`REFMEM-ACTION-01` 三个 canonical 缺口，并冻结 `REFMEM-LOCAL-01`（单板控制保留）；不改代码、不做板端验证。架构见 `REFMEM_DOMAIN_ARCHITECTURE.md` 的四个同名小节。
+
+- [ ] M0.1 `REFMEM-TRANSPORT-01`：`REFMEM_CMD` 复用 `TDMA_PAYLOAD_CLASS_CONFIG_CONTROL`；冻结 envelope、`TDMA_CONFIG_CONTROL_RESERVED_BYTES`/`MAX_FRAMES`、`REFMEM_CMD_MAX_PAYLOAD`、ACK/fence；TDMA 联审。
+- [ ] M0.2 `REFMEM-SESSION-01`：冻结 `CONFIGURE/ARM/START/STOP/ABORT`、状态机、source/target/required、`T2:MOUNT/UNMOUNT` 兼容映射、ACK/fence。
+- [ ] M0.3 `REFMEM-ACTION-01`：冻结 `ActionRegistry`/`ActionDispatcher`、`action_id→handler`、STOP 装载、post 非阻塞、缺 handler gate。
+- [ ] M0.4 `REFMEM-LOCAL-01`：单板 SCPI/slot/owner/T2 保留；本地 target 不走 `REFMEM_CMD`；统一面不可用时本地仍可用，远端/全目标拒绝而非静默缩成单板。
+- [ ] M0.5 契约登记：四条 pending 行、clause_loc/code_anchor 核对。
+- [ ] M0.6 独立复核：另一 agent 复核条款/边界；不涉及代码/板端。
+
+门禁：M0 只改文档/契约；不新增第二命令槽、不接 POSITION、不让 Event Plane 执行实时边沿。
+
+## 后续实现（不在本目标）
+
+- M1 host 闭环；M2 两板 HIL；M3 两板 T2 session；M4 四板 all-target；M5 C11/产品证据。实现阶段另立任务，不在本轮架构补齐范围内。

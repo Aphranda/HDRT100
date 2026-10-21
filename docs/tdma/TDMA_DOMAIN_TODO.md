@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_TODO.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`
-Last updated: 2026-10-14
+Last updated: 2026-10-21
 
 ## 文档接口与状态规则
 
@@ -36,6 +36,8 @@ Architecture 维护 owner 与稳定语义，运行细则维护代码接口与预
 | 2 | 异步准备与自主运行 | no-update 复用、selection 退休、迟到更新、STOP 取消及主从 blackout；同圈 overlay 不破坏节拍。 |
 | 3 | 特等席期限与负载隔离 | 事件生成到实际送达/采用的身份、最长间隔、覆盖/缺口及饱和负测；不依赖普通解析。 |
 | 4 | 产品化扩展 | 资源/WCET、全拓扑、长档运行、recovery/fence 和多板 T2 分别验收。 |
+
+> 文档项：`REFMEM-TRANSPORT-01`（`REFMEM_CMD` 复用 config-control）待与 RefMem 联审；本轮只补条款/契约，不改 TDMA 代码。
 
 ### Foundation 席位预算与 load instance 顺序
 

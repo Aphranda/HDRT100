@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation
 Canonical: `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`
 Related: `docs/README.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`, `docs/docs/DOCS_MIGRATION_TODO.md`, `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-21
 
 本文档定义 `docs/` 后续按产品主域整理的目标结构、迁移规则和文档归属。当前阶段不直接移动大批文件，先冻结目录规划、迁移 gate 和索引规则，后续按域小批量迁移。
 
@@ -72,6 +72,7 @@ docs/
 | Control Plane / System Manager | `arch/` | `_ARCHITECTURE.md`, `_DESIGN.md`, `_TASK_PROGRESS.md` |
 | Command Transaction / ACK-NACK | `refmem/` | `_DESIGN.md`, `_COMMANDS.md`, `_CHECKLIST.md` |
 | Distributed Vector / REFMEM | `refmem/` | 内部主域；`REFMEM_DOMAIN_ARCHITECTURE.md`, `REFMEM_DOMAIN_TODO.md`, `REFMEM_TASK_PROGRESS.md` |
+| Event Plane（REFMEM 子域） | `refmem/event/` | 子域；`REFMEM_EVENT_ARCHITECTURE.md`, `REFMEM_EVENT_TODO.md`, `REFMEM_EVENT_TASK_PROGRESS.md` |
 | Virtual Distributed Clock / VDC | `vdc/` | 内部主域；`VDC_DOMAIN_ARCHITECTURE.md`, `VDC_DOMAIN_TODO.md`, `VDC_TASK_PROGRESS.md` |
 | TDMA Foundation | `tdma/` | 内部基础主域；`TDMA_DOMAIN_ARCHITECTURE.md`, `TDMA_DOMAIN_TODO.md`, `TDMA_TASK_PROGRESS.md` |
 | Loop Engine / Sequence Engine | `trigger/` | `_DESIGN.md`, `_PLAN.md`, `_TASK_PROGRESS.md` |
@@ -98,6 +99,7 @@ docs/
 | `tdma/` | `TDMA_DOMAIN_ARCHITECTURE.md`, `TDMA_DOMAIN_TODO.md`, `TDMA_TASK_PROGRESS.md` |
 | `calibration/` | 首批需要从 SCPI/RTOS 文档中抽出 `CALibration` 专题设计文档 |
 | `refmem/` | `REFMEM_DOMAIN_ARCHITECTURE.md`, `REFMEM_DOMAIN_TODO.md`, `REFMEM_TASK_PROGRESS.md`；`LEGACY_PINPROBEA1_RAM_REFLECTIVE_MEMORY_ARCHITECTURE.md` 作为参考 |
+| `refmem/event/` | `REFMEM_EVENT_ARCHITECTURE.md`, `REFMEM_EVENT_TODO.md`, `REFMEM_EVENT_TASK_PROGRESS.md`；MRF Event System 作为参考模型 |
 | `communication/` | `BISSC_TAP_BRIDGE_DESIGN.md`, `BISSC_IMPLEMENTATION_TODO.md`, `BISSC_TASK_PROGRESS.md`, `BISSC_NETWORK_LOOPBACK_PLAYBOOK.md` |
 | `measure/` | 首批需要新增测量服务设计，定义与 CAL/SYNC/T2 的边界 |
 | `storage/` | `SD_TODO.md`, `SD_TASK_PROGRESS.md`, `LOG_SYSTEM_TODO.md` |

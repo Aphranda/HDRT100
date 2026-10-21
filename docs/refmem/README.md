@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/README.md`
 Related: `docs/README.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_DOMAIN_STRUCTURE_PLAN.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-08-14
+Last updated: 2026-10-21
 
 本目录是 Distributed Vector Blackboard / RefMem Sync 内部主域入口，维护分布式向量表、RefMemAO、通用 A0-A7 逻辑插槽、静态分布式应用模型、节点装载、SlotClaim 协调、表镜像加载、命令槽、ACK/NACK、stale/CRC/epoch 和多板共同状态。
 
@@ -22,6 +22,10 @@ Last updated: 2026-08-14
 | `REFMEM_SYNC_ARCHITECTURE.md` | RefMem Sync 内部架构，定义总线无关同步协议、adapter 边界、RMA/fence/quality 约束。 | RefMem 同步协议的 canonical 架构说明。 |
 | `REFMEM_MIN_SYSTEM_PLAYBOOK.md` | RefMem 最小系统板 bring-up 记录，维护当前两板线序、端口、验证和执行日志。 | 只记录当前最小系统板实际操作，不写架构约束。 |
 | `REFMEM_DOMAIN_RISK_REVIEW.md` | RefMem 主域独立风险评审，记录 P0-P3 结构偏差、HAOFV 边界风险和纠偏结论。 | 作为 P0/P1 代码修改前的审查输入。 |
+| `REFMEM_CONTROL_PLANE_REVIEW.md` | 统一控制面与触发执行方案评审稿（2026-10-21 评审通过，非契约）：接入点无关、ControlCoordinator、MRF Event Plane、ActionDispatcher、分阶段与子域评估。 | 方案依据；结论回写后由 canonical 承接。 |
+| `event/REFMEM_EVENT_ARCHITECTURE.md` | RefMem Event Plane 子域架构（Draft，静态域）：EventPack/Catalog/Map/Alias/EventVector。 | 子域 canonical；运行时事件归 RefMem/TRIGGER。 |
+| `event/REFMEM_EVENT_TODO.md` | 子域静态域待办：E0 契约、E1 静态实现、E2 别名映射、E3 读取契约。 | 子域执行计划。 |
+| `event/REFMEM_EVENT_TASK_PROGRESS.md` | 子域任务进度：域建立、迁移和静态域重写记录。 | 子域证据日志。 |
 
 ## 当前状态摘要
 

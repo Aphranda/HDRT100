@@ -3,8 +3,8 @@
 Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMAND_PLAN.md`
-Related: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/interface/SCPI_TASK_PROGRESS.md`
-Last updated: 2026-10-10
+Related: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/interface/SCPI_TASK_PROGRESS.md`, `docs/interface/SCPI_HAOFV_REVIEW.md`
+Last updated: 2026-10-20
 
 本文档记录 Distributed Hard Real-Time Trigger System 当前 SCPI 固件架构、命令域边界、owner 归属和后续收敛待办。`DHRT100` 暂作为当前设备型号和 `*IDN?` 字段保留。它不是历史流水账，也不是上位机最终指令手册：
 
@@ -457,6 +457,12 @@ FBITs / POFFset / PBITs / PMODulo
 
 以下指令树按当前固件注册表整理。详细参数和响应字段见正式指令表与 `docs/interface/SCPI_COMMANDS.md`。
 
+> **事实边界（2026-10-20）**：本节是指令树的评审快照，非事实源；事实源为
+> `middleware/scpi_port/src/scpi_port.c` 的命令表宏装配。2026-10-20 的 HAOFV 符合性评审
+> 发现本节未覆盖 `TRIGger:REServation:*`、`SYSTem:VDC:*`、`SYSTem:TDMA:*`、
+> `SYSTem:REFMEM:SYNC:*`、`SYSTem:DIAGnostic:*` 等维护树；再生成与机器校验见
+> `docs/interface/SCPI_HAOFV_REVIEW.md` 与 `IF-009`。
+
 ```text
 *
   CLS
@@ -766,3 +772,25 @@ python tools/validation/realtime_scpi_validate/realtime_scpi_validate.py --dry-r
 python tools/docs_check/docs_check.py
 git diff --check
 ```
+
+## 13. HAOFV 符合性评审（2026-10-20）
+
+评审记录与逐条证据见 `docs/interface/SCPI_HAOFV_REVIEW.md`（非契约）。本节只保留接口域
+canonical 需要跟踪的结论，避免复制评审正文：
+
+| 结论 | 状态 | 接口域待办 |
+|---|---|---|
+| SCPI 回调内不得等待 Storage job 或调用 `*_service()` | 实现未闭环 | IF-005 |
+| 写命令失败不得在回调内阻塞重试 | 实现未闭环（`RING:TOPology` 临时处置） | IF-006 |
+| 维护/查询命令不得直接操作 GPIO/PIO/PWM/RS485（**无例外**） | 实现未闭环 | IF-007 |
+| Flash 擦写、raw SPI 直驱、`FAULT:CLEar` 空实现需清理 | 实现未闭环 | IF-008 |
+| §10 指令树与顶层 `INTERFACE-*` 摘要需与登记表/命令表同步 | 文档未闭环 | IF-009 |
+| 接口域错误码区间与拒绝可观测性 | 待冻结（IF-004 扩展） | IF-010 |
+
+维护接口**不设强操作例外**：`SYSTem:*`、`REALtime:*`、`CALibration:*`、`SYNC:*`、
+`COMMunication:*` 的任何写/动作命令都必须走 owner API、intent mailbox 或 command/config
+slot，硬件动作由 owner 执行；SCPI 只返回 accepted，并通过 ACK/NACK 或 `READ:*?`/`SYSTem:*?`
+回读。`HAOFV-MAINT-20260813-008` 中“维护接口可以保留强操作”的旧表述不再适用于接口域，
+以本节为准；该口径待按 C11 登记为契约。
+
+上述条目在冻结为契约前不改变现有行为；冻结需在 `docs/check/DOCS_REGISTRY.md` 登记并走 C11。

@@ -3,10 +3,13 @@
 Status: Active
 Domain: INTERFACE
 Canonical: `docs/interface/SCPI_HOST_TODO.md`
-Related: `docs/interface/SCPI_HOST_ARCHITECTURE.md`, `docs/interface/SCPI_HOST_TASK_PROGRESS.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-10-14
+Related: `docs/interface/SCPI_HOST_ARCHITECTURE.md`, `docs/interface/SCPI_HOST_TASK_PROGRESS.md`, `docs/interface/SCPI_HAOFV_REVIEW.md`, `docs/check/DOCS_REGISTRY.md`
+Last updated: 2026-10-20
 
 ## 任务表
+
+`IF-005..IF-010` 来自 2026-10-20 的 HAOFV 符合性评审（见 `docs/interface/SCPI_HAOFV_REVIEW.md`）；
+它们不改变现有命令行为，冻结前仍为 PENDING。
 
 | ID | 任务 | 状态 | 备注 |
 |---|---|---|---|
@@ -14,6 +17,12 @@ Last updated: 2026-10-14
 | IF-002 | 定义**命令转发与应答**规则（参考/forward 节点） | PENDING | 与 T2-AUDIT-08 同源；登记前需 C11 |
 | IF-003 | 明确**隔离与权限**：哪些命令允许跨板、哪些仅本板 | PENDING | 基于实测的 4 条节点作用域命令 |
 | IF-004 | 冻结**错误与故障的可观测性口径**：主机在「命令被拒绝」「传输超时」「域级故障已 latch」三种情形下分别能观测到什么、又分别由什么清除 | PENDING | 归口自 T2 域的跨域口径（T2-AUDIT-03 结论表 C1 等）；实测缺口：拒绝不应答 ⇒ 主机只能等到超时；登记前需 C11 |
+| IF-005 | 移除 SCPI 回调内的 Storage job 等待与 `storage_manager_service()` 直调（H1） | PENDING | 证据与判据见 `SCPI_HAOFV_REVIEW.md` §3.1；改为提交 job + `...:JOB?`/`READ:*?` 回读 |
+| IF-006 | `SYSTem:TDMA:RING:TOPology` 去掉 50×20 ms 回调内重试（H2） | PENDING | 改为 accepted/BUSY + request sequence + `RING:STATus?` 回读；与 IF-004 的拒绝可观测性同源 |
+| IF-007 | 维护/查询命令（SMA/OUTPut/MODel/UART TX TEST）**强制**收敛为单槽 intent + owner 执行（H3，无例外） | PENDING | 维护强操作同样受 HAOFV 约束；需资源 claim、有界耗时、owner 与 RUN 态门禁；参照 `ARCH-IOANALYZER-02`；登记前需 C11 |
+| IF-008 | 清理 Flash validation 回调擦写、未注册 raw SPI handler、`FAULT:CLEar` 空实现（M1–M3） | PENDING | Flash 移入 owner 异步 job；raw SPI 删除或改走 TDMA intent；`FAULT:CLEar` 接 owner 事件或删除 |
+| IF-009 | 再生成 §10 指令树并修正顶层 `INTERFACE-*` 摘要/归属（M5–M6、L2） | PENDING | 由命令表宏装配生成或校验；顶层 12 项 vs 登记表 v4 22 项；契约文本变更走 C11 |
+| IF-010 | 分配接口域错误码区间并冻结拒绝/清除语义（L1） | PENDING | 现 `2401/2402` 在冻结区间外；错误名不入队列；与 IF-004 合并冻结 |
 
 > 来源（2026-10-13，用户裁定）：“后续只有一个串口连接到 PC，其他板卡都用 REFMEM 进行分布式控制”。IF-002 曾以 `T2-AUDIT-08` 形式误归于 T2 待办，现已移回本域；T2 待办仅保留指针。
 

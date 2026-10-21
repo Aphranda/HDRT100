@@ -4,9 +4,76 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-21
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
+
+### REFMEM-TASK-20261021-005 — HAOFV 偏差审查
+
+- 状态：完成条款修正；未改代码。
+- 修正：预算字段、config-control subtype、session writer、ActionDispatcher 归属、本地/协调者边界、实时性。
+- 验证：`docs_check` 229/0；`doc_regression` 48。
+- 下一步：C11 独立复核。
+
+### REFMEM-TASK-20261021-004 — 四条款复审 R2
+
+- 状态：完成条款复审与修正；未改代码。
+- 修正：ARMING 失败 DISARM；STOPPING 超时进 DEGRADED/FAULT；未注册 command_type 拒绝；mask 解析失败不回退本地。
+- 文档：`docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_02.md`。
+- 验证：`python tools/docs_check/docs_check.py --strict-names` 通过（228 文件、0 warning）；`python tools/doc_regression_check.py` 通过（48 契约、19 进展日志）。
+- 下一步：C11 独立复核；仍不改代码。
+
+### REFMEM-TASK-20261021-003 — 单板控制保留条款
+
+- 状态：完成 `REFMEM-LOCAL-01` 文档/契约；未改代码。
+- 内容：
+  - RefMem 统一面是增量层，不替换单板 SCPI、本地 command slot、本地 owner、本地 T2 `MOUNT/UNMOUNT`。
+  - 本地 target 不走 `REFMEM_CMD`；统一面不可用时本地仍可用；远端/全目标必须拒绝 `UNIFIED_UNAVAILABLE`，不得静默缩成单板。
+  - 两条路径共享同一本地门禁；EventPack 未激活不阻断本地基础命令。
+- 契约：`REFMEM-LOCAL-01` pending；登记表/顶层/Review 01 §9 已同步。
+- 验证：`python tools/docs_check/docs_check.py --strict-names` 通过（227 文件、0 warning）；`python tools/doc_regression_check.py` 通过（48 契约、19 进展日志）。
+- 下一步：独立复核四条条款；仍不改代码。
+
+### REFMEM-TASK-20261021-002 — 三缺口条款审查与修正
+
+- 状态：完成条款级审查与修正；未修改固件/SCPI，未做板端验证。
+- 结论：`PASS_WITH_CHANGES`；V-B1–V-B4 已改，V-M4（C11）仍开放。
+- 修正：
+  - `REFMEM-TRANSPORT-01`：active profile 必须含 config-control；缺失返回 `TRANSPORT_UNAVAILABLE`；`REFMEM_CMD_MAX_PAYLOAD` 绑定结构体上限。
+  - `REFMEM-SESSION-01`：增加 `ARMING`；required 未全 arm 不得 START；START 后失败进入 `DEGRADED`；`T2:MOUNT` 仅兼容模式一次性映射。
+  - `REFMEM-ACTION-01`：增加 `CommandHandlerRegistry`；有界 mailbox/优先级/BUSY；`action_registry_crc` 进 Version Bundle。
+- 文档：`docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_01.md`；索引已更新。
+- 验证：`python tools/docs_check/docs_check.py --strict-names` 通过（227 文件、0 warning）；`python tools/doc_regression_check.py` 通过（47 契约、19 进展日志）。
+- 下一步：独立复核三条条款；仍不改代码。
+
+### REFMEM-TASK-20261021-001 — 单端口统一控制面三缺口 canonical 补齐
+
+- 状态：完成架构/契约文档补齐；未修改固件、SCPI、工具或测试，未执行板端验证。
+- 目标：只补三个 canonical 缺口——`REFMEM-TRANSPORT-01`、`REFMEM-SESSION-01`、`REFMEM-ACTION-01`，不改代码。
+- 完成内容：
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 新增三个同名小节：`REFMEM_CMD` 复用 TDMA config-control；系统级 `TriggerSession`（CONFIGURE/ARM/START/STOP/ABORT + 状态机 + T2 MOUNT 映射）；`ActionRegistry`/`ActionDispatcher`（action_id→handler、post、缺 handler gate）。
+  - 命令类型表加入 `TRIGGER_SESSION_*`。
+  - `TDMA_DOMAIN_ARCHITECTURE.md` 增加 `REFMEM-TRANSPORT-01` 载体条款；`TDMA_DOMAIN_TODO.md` 增加文档联审项。
+  - `DOCS_REGISTRY.md` 登记三条 pending 契约；顶层 `HAOFV_ARCHITECTURE.md` 增加三缺口摘要。
+  - `REFMEM_DOMAIN_TODO.md` 新增 M0 文档补齐清单；M1–M5 标为实现阶段、不在本目标。
+- 边界：三条契约均 pending，未实现、未联审；不新增第二命令槽、不接 POSITION、不让 Event Plane 执行实时边沿。
+- 验证：`python tools/docs_check/docs_check.py --strict-names` 通过（226 文件、0 warning）；`python tools/doc_regression_check.py` 通过（47 契约、19 进展日志）。
+- 下一步：M0.5 独立复核三条条款；复核通过后仍不写代码。
+
+### REFMEM-TASK-20261020-001 — 统一控制面契约细化与架构落位
+
+- 状态：完成文档契约细化与登记；未修改固件、SCPI 或工具实现，未执行板端验证。
+- 目标：把“通过任意一个板卡接口操作 RefMem、实现所有板卡的操作”从报告层愿景收敛为 RefMem 域可验证契约，并明确接入点无关、目标本地执行、显式掩码、单一协调者和聚合完成的边界。
+- 完成内容：
+  - `REFMEM_DOMAIN_ARCHITECTURE.md` 新增 `REFMEM-CTRL-01` 章节：CP1–CP8 不变量、Control Entry/Coordinator/Target/Observer 角色、命令信封既有字段语义与扩展字段、路由与命令状态机、fence/超时/部分成功、聚合与逐目标读模型、权限与运行态矩阵、失败恢复、边界、C0–C5 阶段和当前实现状态。
+  - 架构章节补充“挂接关系：控制面接入 RefMem”：命令面、观测面、目录面三个挂接面；RefMem 是控制面的 bearer/router，不是执行者；不另建控制总线、第二套命令槽或第二套 ACK 事实。
+  - 记录当前单板命令面物理放置：live slot 为 `distributed_refmem.c` 的 static `s_refmem_command_slot`，`refmem_vector_table_t.ack_command`（`DISTRIBUTED_REFMEM_ACK_CMD_SIZE`）仅目录注册；C0 需冻结“迁入该区”或“static 为规范位置”。
+  - `DOCS_REGISTRY.md` 登记 `REFMEM-CTRL-01`（pending），`clause_loc` 指向架构章节，`code_anchor` 为 `refmem_command.h`。
+  - 顶层 `HAOFV_ARCHITECTURE.md` 同日刷新：RefMem 定位补“统一控制面”，核心规则补接入点无关/目标本地执行/无强制位一条。
+  - `REFMEM_DOMAIN_TODO.md` 新增 P8 统一控制面十项实现清单。
+- 实现边界：跨节点命令路由、协调者租约、聚合视图、跨节点 FENCE 均未实现；当前只有本地 command slot 与 `SYSTem:COMMand:ACK?`/`NACK?`。本条不授予“任意接口控制全部设备”已产品化的结论。
+- 验证：`python tools/docs_check/docs_check.py --strict-names` 通过（214 文件、0 warning）；`python tools/doc_regression_check.py` 通过（44 契约、10 顶层条款落点、18 进展日志）；`FORCE_DOC_GATES=1 sh .githooks/pre-commit` 通过。`python -m pytest tests/python/test_doc_regression.py tests/python/test_docs_check.py -p no:cacheprovider` 为 36 passed / 2 failed，失败项是 `TDMA_TASK_PROGRESS.md` 轮转债务和 `SYNC_IO_TASK_PROGRESS.md` 顺序债务在 2026-10-17 截止后的既有时间炸弹，与本次改动无关，未在本切片修复。
+- 下一步：按 P8 顺序先冻结 C0 schema 与目录 CRC，再做 C1 两板 Entry→Coordinator→Target HIL。
 
 ### REFMEM-TASK-20260916-001 — 静态向量缩容与布局版本迁移
 

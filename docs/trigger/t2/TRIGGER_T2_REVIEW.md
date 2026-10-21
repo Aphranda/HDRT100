@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_REVIEW.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-10-18
+Last updated: 2026-10-21
 
 ## 文档接口与范围
 
@@ -660,3 +660,650 @@ s_state.action_sequence[selected] = status.sequence;   /* 只有这一行 */
 - 本节未上板；16 组探针为生产 C + mock；gateway 多组未在主机复现，SEQ-E01 为读码 + 台架计数对齐。
 - SWITCH_A 本轮 `state=LOADED / executed=0` 是个案，本节不归因；需该板的 `T2?` 与开关页确认是 lease 未拿还是武装被拒。
 - 16 组单窗口的开关成功不否定 §9 的 >16 约束冲突；它只是把墙从 4 挪到 16。
+
+## 十一、代码级复审：当前 sequence 通路与吞吐阻塞（2026-10-20）
+
+> 本节针对 HEAD `d38f2cde` + 2026-10-20 未提交改动（网关 `late/stage_late` 诊断、运行期 liveness/`backend_idle`/`why` 追加字段）做逐行审查。上一节的状态结论仍然成立：稳定性/NO_PLAN 已收口，主阻塞是网关吞吐/位置准入；本节回答“代码上具体卡在哪、哪些新改动有缺陷”。
+
+### 11.1 当前状态一句话
+
+- 最新 09:05 快照：SWITCH_A 5680/5776（finished 355）、SWITCH_B 5664/5776（finished 354）、GATEWAY 2689/5776（finished 168，entered 178）；`no_plan=late=0`，网关 `backend=1`。
+- 网关 361 个位置里 **183 个从未 entered/frozen**，不是 NO_PLAN/LATE；这是准入/吞吐问题。
+- 网关每组仍走完整 `prepare_realtime`，`schedule_continuation` 在当前基线**结构上不可达**（见 11.2/G01）。
+
+### 11.2 代码级发现
+
+| ID | 严重度 | 位置 | 发现 | 证据/影响 |
+|---|---|---|---|---|
+| SEQ-G01 | 阻塞 | `sync_io_gateway.c:413-414,429,490-492` | 完成分支先 `pio_sm_set_enabled(false); s_output_running=false;`，随后才调用 `schedule_continuation()`；而快路径第一条判断就是 `!s_output_running`。因此 `cont_hit` 恒为 0、每组 `cont_miss`，16 组全部回退到 `prepare_realtime` 的完整重初始化 | 与 `T2-PROGRESS-20261020-001` 的台架 `cont_hit=0 / cont_miss=1487~2536` 完全一致；这是当前吞吐阻塞的直接机制 |
+| SEQ-G02 | 高 | `sync_io_gateway.c:86,492,499,632-633`；`scpi...inc:580,585` | 新诊断把 `out[37]/[38]` 从 `cont_hit/cont_miss` **改语义**为 `stage_late_max/last`；`cont_hit/miss` 变量还在，但已无任何读取点。GWDIAG schema 仍为 `0xDA02`，字段数仍 42 | 现场无法再验证续装是否生效；旧的 GWDIAG 读者会把 37/38 读成 cont；没有字段顺序测试/版本号 |
+| SEQ-G03 | 中 | `trigger_t2_runtime.c:1533-1542,1553-1555`；`sync_io_gateway.c:554` | `window_held` 只信 `s_window_staged[selected]` 布尔量，不校验 `s_deadline` 里的 plan 是否仍是当窗（version/group）。若后端丢了旧窗、`s_deadline` 已换成新 plan，而 `s_plan_count` 还没清，`window_held` 可能把新 plan 当旧窗；否则清标志后 `stage_sequence` 因 `s_plan_count` 非零直接 BUSY，位置被记 BACKEND | 读码推断；与“后端丢窗口后重新 staging”的注释矛盾：注释说会重新 staging，代码在 plan_pending 时实际会撞 BUSY |
+| SEQ-G04 | 中 | `trigger_t2_runtime.c:1413-1414,1421` | 网关专用 `gateway_armed_group = (sequence == expected + 1)` 无条件接受“下一组已武装”，不检查 `s_group_armed`/`s_group_next` 是否匹配。它本意是避开中途 `no_receipt` 的 identity 失败，但也可能让一个停滞/错位的槽位一直保持 armed，只靠 `backend_idle` 兜底 | 读码推断；需要“sequence=expected+1 但 group 不匹配”的负测 |
+| SEQ-G05 | 中 | `trigger_t2_runtime.c:1317,1915-1922` | `s_sweep_no_template` 在 `service_deadlines()` 里自增，但 `deadlines_need_service()` 在 `s_local_template_count==0` 时返回 false，`service_deadlines()` 根本不会进；该计数恒为 0，无法区分“无模板”与“无冻结/无 armed” | 代码路径确定；liveness 页少一个关键分桶 |
+| SEQ-G06 | 低 | `trigger_t2_runtime.c:180,787,829,1570` | `s_slot_armed_once` 只写不读；注释说“armed-but-empty backend 只有曾武装过才算 lost”，但 `backend_idle` 分支并未使用它 | 死状态；要么删，要么接进 `backend_idle` 条件 |
+| SEQ-G07 | 低 | `trigger_t2_runtime.c:1435-1444,1518-1542` | `backend_idle` 失败路径只 `action_fail(BACKEND)`，没有先 `cancel_owned`/清 `s_plan_count`；若后端还留着 staged plan，下一次选择可能再次 BUSY，再吃一个 BACKEND | 读码推断；liveness 修好了，但“恢复”仍可能连续失败 |
+| SEQ-G08 | 低 | `trigger_t2_runtime.c:2030-2046` | `service_calls` 在 configured/active 两个 gate 之后才自增，注释却写“entered at all”；被 gate 拒绝的调用只进 `svc_gate_*`。统计口径与注释不一致 | 诊断口径问题，不影响功能 |
+
+### 11.3 关键代码段
+
+**G01：续装死路**
+
+```c
+/* sync_io_gateway.c:413-414 */
+pio_sm_set_enabled(GATEWAY_PIO,OUTPUT_SM,false);
+s_output_running=false;
+
+/* :429-430 */
+const bool armed=schedule_continuation(group.pulse_ns,group.deadline_tick) ||
+                 sync_io_gateway_realtime_schedule_at(group.pulse_ns,group.deadline_tick);
+
+/* :490-492 */
+if(!s_output_running || pulse_ns!=s_gateway.pulse_ns ||
+   pio_sm_get_tx_fifo_level(GATEWAY_PIO,OUTPUT_SM)!=0u) {
+    ++s_continuation_miss;
+    return false;
+}
+```
+
+先关 SM 再试 continuation，所以快路径必然 miss。单字协议的注释（`:409-412`）说明保持 SM 运行会让第二组回执身份不匹配；两字协议（delay+sequence）是为此设计的，但 `a053bae0` 后因台架回归被 `0abc12c4` 回退。**当前吞吐问题不是“再调一个参数”能解决的，需要恢复两字协议 + 续装，或走动作侧展开。**
+
+**G02：GWDIAG 37/38 改语义**
+
+```c
+/* sync_io_gateway.c:627-633 */
+out[31]=s_late_max_ticks;
+out[32]=s_late_last_ticks;
+out[33]=s_stage_early_max_ticks;
+out[37]=s_stage_late_max_ticks;   /* was s_continuation_hit */
+out[38]=s_stage_late_last_ticks;  /* was s_continuation_miss */
+```
+
+`GWDIAG?` 仍输出 42 个字段、schema 仍 `0xDA02`；没有版本号/字段顺序测试。`s_continuation_hit/miss` 仍被写入但无人读取。现场若按旧索引读 37/38，会把“续装命中”误读成“stage 迟到”。
+
+**G05：死计数**
+
+```c
+static bool deadlines_need_service(void) {
+    return s_local_template_count && ...;   /* 无模板直接 false */
+}
+...
+if (!s_local_template_count) { ++s_sweep_no_template; return; }  /* 进不来 */
+```
+
+`service_deadlines()` 只有 predicate 为真才调用，所以无模板时 `s_sweep_no_template` 永远 0。liveness 页会出现 `service_calls>0, arm_sweeps=0, sweep_no_template=0`，无法判断是“无模板”还是“无冻结”。
+
+### 11.4 测试与证据
+
+- `test_trigger_t2_runtime.py` + `test_sync_io_gateway.py`：**88 passed**（本次工作区）。
+- 但现有 harness 不检查 GWDIAG 字段 37/38、不覆盖 `window_held` 的“旧窗 plan 被新 plan 替换”、也不覆盖 `backend_idle` 失败后的再次 staging；88 绿不能证明 G02/G03/G07。
+- `sequence_workflow.py` 只读 `DIAG?`，不读 `GWDIAG?`；新增的 `late/stage_late` 不会出现在 `sequence_report.html`，现场仍要手工读 GWDIAG。
+
+### 11.5 建议顺序
+
+1. **先恢复续装可观测性**：把 `cont_hit/cont_miss` 放回 GWDIAG（新开字段或升 schema/字段顺序测试），再谈吞吐；否则无法验证修复是否生效。
+2. **修 G01 的协议路径**：恢复两字协议（delay+sequence）并保持 SM 运行；同时用 `cancel_owned`/`s_armed_owner` 做组归属，避免 G03/G07 的旧窗/取消误伤。若两字协议仍回归，走 §9 路线 A（动作侧展开整条序列），不要在单字协议上继续堆诊断。
+3. **修 G05/G06**：把无模板分桶移到 `trigger_t2_runtime_service()` 的 gate 层；`s_slot_armed_once` 要么接进 `backend_idle` 条件，要么删除。
+4. **修 G03**：给 `s_window_staged` 配一个 plan 身份（group/version），`window_held` 只在身份一致时成立；丢窗时先 `cancel_owned` 清 plan，再 staging，避免 BUSY 直接吃 BACKEND。
+5. **修 G04**：`gateway_armed_group` 增加 `s_group_armed != NONE` 且 `s_group_next` 在窗口内的条件；补“sequence=expected+1 但 group 不匹配”的负测。
+6. **不要用 09:05 的 47% 直接归因吞吐**：先记录 build、groups、period、sample、cont_hit/miss；47%~99% 的波动目前缺控制变量。
+
+### 11.6 边界
+
+- 本节为代码级复审，未重新上板；G03/G04/G07 为读码推断，G01/G02/G05/G06 为代码路径确定。
+- 工作区仍在变动，若后续提交改了这些行号，以提交内容为准。
+- 稳定性/NO_PLAN 的结论不变；本节只针对吞吐、诊断可信度和窗口恢复路径。
+
+### 11.7 2026-10-20 下午复核：每条发现的当前状态（已上板对账）
+
+> 本节把 11.2 的八条发现与当天的台架数据逐条对账，并更正 11.1/11.3/11.5 的因果与顺序。读数为快照，非事实源。
+
+| 发现 | 状态 | 台架/代码依据 |
+|---|---|---|
+| **G01** 续装结构不可达 | **确认**（结构事实成立） | 实测 `cont_hit` 差值 0、`cont_miss` 差值 = 完成组数 − 完成位置数（残差 0）。**但“重初始化 = 吞吐瓶颈”被否**：2507 次 miss × 段峰值 35026 cyc ≈ 0.7 s ≈ 整轮 0.14%；要吃掉一半整轮需每次 ≈101 ms |
+| **G02** GWDIAG 37/38 改语义 | **确认，且比原文更糟** | 除改语义外，函数后段还有 `out[37]=s_continuation_hit; out[38]=s_continuation_miss;` **覆盖**了 `stage_late`，使该字段恒 0——前几轮读到的“表准时到手”全是假的。已修：37/38 只保留 `stage_late`，early 值移到 33 |
+| **G03** `window_held` 只信布尔 | **确认 = 本轮修掉的根因** | 已改为 `plan_pending() && !backend_idle`。台架：网关 26k 次扫描全部停在 `if (s_armed_index < COUNT) return;`，而该槽位正是被 `window_held` 在未调用任何执行器接口的情况下标成“已武装”的 |
+| **G05** `s_sweep_no_template` 死计数 | **确认** | predicate 先返回 false，`service_deadlines()` 进不去；该桶至今恒 0 |
+| **G06** `s_slot_armed_once` 只写不读 | **确认** | 把它接进 `backend_idle` 条件会让 `[gateway]` 主机用例转红（ARMED+无 pending 在合法流程里也会出现），故暂时保留为死状态 |
+| **G08** `service_calls` 口径 | **确认** | 注释与实现不符；已补 `svc_gate_configured/active` 两个分桶 |
+| 11.1「183 个未进入 = 准入/吞吐」 | **细化（结论方向对，机制不同）** | 准入确实被挡，但直接原因是**三个槽位全冻结**（`frozen_mask=7`）且永不退休；而冻结不解除的原因是网关在 **t≈2 s 后彻底停摆**——不是“逐步变慢” |
+| 11.3/11.5「优先恢复两字协议」 | **降级为待议** | 步长 8 ms→16 ms 实测无改善（`late=91`、`entered=3` 不变）；`late` 稳态仅 3 ms、偶发 75 ms。当前证据不支持“协议/步长”是主因 |
+
+**当天新增、11.2 里没有的事实**（三条都能复现）：
+
+1. **网关 t≈2 s 后完全停摆**：t=2..40 s 共 19 次采样，`groups=97 / entered=9 / frozen=9 / executed=6 / abandoned=0` **一字不变**，开关同时段 176→1824 组匀速。
+2. **表早到、武装稳态只晚 3 ms**：`stage_early_max=193 ms`、`stage_late_max=0`、`late_max=75 ms`、`late_last=3.1 ms`。
+3. **停摆期间失败计数全 0**：`no_plan/late/backend` 均 0，`abandoned=0`——这是“静默停摆”，不是“执行失败”。
+
+⇒ 因此 11.5 的顺序应改为：**先把“停摆”变成具名失败或自动恢复**（本轮已做两处：`window_held` 校验 + 执行器侧“ARMED 且无在途”退休），再谈吞吐；两字协议与动作侧展开都排在其后。
+
+### 11.8 边界（复核）
+
+- 全部为 2026-10-20 当天台架，同固件同配置；未做多轮重复，单次读数不足以给出百分比契约。
+- 本轮修复（`window_held` 校验、执行器退休）仍需多轮台架确认不回归，且提交前须走 P3/T2 验收。
+
+## 十二、对三处“停摆修复”的代码复核（2026-10-20 下午）
+
+> 先接受 11.7 的因果更正：`cont_miss` 的量级只有整轮的约 0.14%，**不是** t≈2 s 硬停的原因；停摆是“运行时认为有槽位在途、执行器实际无进展”的状态分叉。本节只审三处修复是否覆盖实际停摆，不重复吞吐讨论。
+
+### 12.1 结论
+
+三处修复方向正确，但**当前实现只覆盖了窄状态**；观测到的 `plan_count=16 / plan_next=1 / svc_wait` 增长这一主场景，仍可能不被任何一处接住。
+
+### 12.2 关键发现
+
+| ID | 严重度 | 位置 | 发现 | 后果 |
+|---|---|---|---|---|
+| SEQ-H01 | 阻塞 | `sync_io_gateway.c:429-435` | “ARMED 且无在途”退休条件同时要求 `!s_plan_count && !pending`。观测停摆是 `plan_count=16 / plan_next=1 / svc_wait` 增长 ⇒ `plan_count>0` 且 pending 为 1；条件为假，退休永不触发 | 修复 #2 对主场景无效；网关继续停在 `s_armed_index < COUNT` |
+| SEQ-H02 | 阻塞 | `trigger_t2_runtime.c:1348,1533-1535` | `backend_idle` 只认 `state==IDLE && !pending`；停摆状态是 ARMED/COMPLETE/CANCELLED，不是 IDLE。`window_held` 仍用 `plan_pending && !backend_idle`，因此 ARMED+plan_pending 依旧被当成“窗口仍在泵” | 修复 #1 对主场景无效；运行期继续信布尔量 |
+| SEQ-H03 | 严重 | `trigger_t2_runtime.c:1165-1167,1212-1215` | `complete_action()` 对 `group==GROUP_NONE`（以及 `group>=groups_total`）只加 `s_done_skip_none/range`，随后 `group<groups_total` 为假，**直接落入 finish 块**：`++s_action_finish_count`、置 `action_completed_mask`、发位置事件、释放窗口 | 把“组簿记丢失”伪装成“位置完成”；`finished/executed` 会虚增，丢失的组被掩盖；这不是“具名失败” |
+| SEQ-H04 | 高 | `sync_io_gateway.c:649,655` | 新退休计数 `out[39]=s_armed_idle_released` 被同函数后面的 `out[39]=s_armed_owner` **覆盖**；与 11.7 修的 37/38 是同一类错误 | 无法从 GWDIAG 证明退休是否发生；`cont_hit/miss` 也仍无读取点 |
+| SEQ-H05 | 中 | `sync_io_gateway.c:431-435,680-691` | 退休只把 `s_deadline.state` 置 CANCELLED，没有 `safe_stop()`/关 SM/清 FIFO/清 `s_plan_count`；运行期 terminal 分支因 `terminal=true` 不会调用 `cancel_backend()` | 可能留下孤儿脉冲；下一位置可能继续看到 `plan_pending`，再次 BUSY/假武装 |
+| SEQ-H06 | 中 | `trigger_t2_runtime.c:1533-1542` | `window_held` 仍不校验 `s_deadline` 里的 plan 是否还是“当窗”（version/group）；新 plan 覆盖旧 plan 时可能把新窗当旧窗 | 修复 #1 只解决“IDLE”分支，未解决 plan 身份分叉 |
+| SEQ-H07 | 低 | `trigger_t2_runtime.c:150-180,1317,1915` | `sweep_no_template` 仍因 predicate 先返回 false 而恒 0；`s_slot_armed_once` 仍只写不读 | liveness 漏斗仍缺“无模板”分桶；死状态未清 |
+
+### 12.3 代码细节
+
+**H01：退休条件排除了真正的停摆**
+
+```c
+/* sync_io_gateway.c:429-435 */
+if(!s_plan_count && !__atomic_load_n(&s_realtime_pending,__ATOMIC_ACQUIRE) &&
+   s_deadline.state==SYNC_IO_GATEWAY_DEADLINE_ARMED) {
+    if(++s_armed_idle_passes>GATEWAY_ARMED_IDLE_PASSES) {
+        s_armed_idle_passes=0u;
+        ++s_armed_idle_released;
+        s_deadline.state=SYNC_IO_GATEWAY_DEADLINE_CANCELLED;
+    }
+} else s_armed_idle_passes=0u;
+```
+
+观测停摆的 `svc_wait` 增长说明 `pending=1`、RX 空；`plan_count=16`。前两个条件都不满足，计数器根本不增长。**正确的看门狗应看“progress”而不是“pending/plan_count”**：记录 `s_service_complete`/`plan_next`/`s_pending_receipt` 的联合指纹，连续 N 次 service 不变即退休，不论 pending 是否为 1、plan_count 是否为 16。
+
+**H02：`backend_idle` 的定义太窄**
+
+```c
+backend_idle = status.state == SYNC_IO_GATEWAY_DEADLINE_IDLE && !status.pending;
+...
+window_held = s_window_staged[selected] &&
+    (kind != GATEWAY || (plan_pending() && !backend_idle));
+```
+
+停摆时状态通常是 ARMED（有 pending）或 COMPLETE/CANCELLED（无 pending 但不是 IDLE）。`!backend_idle` 全为真 ⇒ `window_held` 仍为真。应把“pumping”定义为：`state==ARMED && (pending || tx_fifo/SM 在跑)`，或 `plan_next` 在最近 N 次 service 中有增长；COMPLETE/CANCELLED/STOPPED 一律不算 held。
+
+**H03：`complete_action` 的 NONE 分支是假完成**
+
+```c
+if (group >= groups_total) ++s_done_skip_range;
+if (group == TRIGGER_T2_RUNTIME_GROUP_NONE) ++s_done_skip_none;
+...
+if (group < groups_total) { ... advance ... }
+/* group==NONE 时直接落到这里 */
+++s_action_finish_count;
+s_finish_group_last = group;          /* 255 */
+...
+s_state.action_completed_mask |= bit;
+```
+
+`GROUP_NONE=0xFF >= groups_total`，所以 `group<groups_total` 为假，finish 无条件执行。`s_done_skip_none` 只是一个计数，不是失败；这与“异常计为具名失败”相反。正确做法：在 NONE/越界时**早退并 action_fail**（或返回“lost”给调用方），不增加 finish/executed/event。
+
+**H04：out[39] 覆盖**
+
+```c
+out[39]=s_armed_idle_released;   /* :649 */
+...
+out[39]=s_armed_owner;           /* :655 覆盖 */
+```
+
+与 37/38 完全同类。需要把 GWDIAG 扩到 43 字段（SCPI handler 的 `fields[42]`/循环 42 也要改），或把 retired 放到真正空闲的槽位；并加字段顺序测试。`cont_hit/miss` 仍应恢复。
+
+### 12.4 测试缺口
+
+- 当前 `test_trigger_t2_runtime.py` + `test_sync_io_gateway.py`：**88 passed**。
+- 但没有用例覆盖：
+  1. `plan_count=16, pending=1, state=ARMED`，连续 65 次 service 无进展 → 期望退休，当前不会；
+  2. `plan_count=16, pending=0, state=ARMED` → 期望退休，当前不会（`!plan_count` 挡住）；
+  3. `complete_action` 收到 `GROUP_NONE` → 期望**不增加 finish/executed**、记具名失败；当前会增加；
+  4. GWDIAG out[39] 的退休计数可读；
+  5. `window_held` 在 ARMED/CANCELLED + plan_pending 时不得为真。
+- 这五个用例都能用现有 mock 加，不必上板；先让它们红，再改代码。
+
+### 12.5 建议
+
+1. **把退休改成 progress watchdog**：不看 pending/plan_count，连续 N 次 service 的 `(complete, plan_next, pending_receipt)` 不变即触发；触发时 `safe_stop`、清 plan、置 CANCELLED，并让运行期走 terminal→具名失败/释放。
+2. **收窄 `window_held`**：只接受 `state==ARMED` 且最近有 progress 的窗口；COMPLETE/CANCELLED/STOPPED/IDLE 一律不算 held。必要时加 plan identity（version/group）。
+3. **修 H03**：NONE/越界早退，`action_fail(TRIGGER_T2_ACTION_FAIL_BACKEND)` 或新增 `GROUP_LOST`，不 finish、不发 completed 事件；`s_done_skip_none` 只作诊断。
+4. **修 H04/H05**：GWDIAG 扩字段并恢复 cont_hit/miss；退休路径统一 `safe_stop`+清 plan。
+5. **先跑上述五个负测**，再上板；否则台架“不再停”可能只是 H03 的假完成把停摆掩盖了。
+
+### 12.6 边界
+
+- H01/H02/H03/H04 都是代码路径确定的事实；H05/H06 为读码推断。
+- 本节不否定 11.7 的台架观察：t≈2 s 停摆、`svc_wait` 增长、失败计数全 0。正是这些数据说明退休条件必须覆盖 pending=1/plan_count>0。
+- 若下一轮台架看到 `finished` 上升但 `executed` 与 `groups×positions` 仍不符，优先怀疑 H03 的假完成。
+
+## 十三、最新修复与 15:59 台架复核（2026-10-20 傍晚）
+
+> 对 14:26/14:56 后的工作区做复审：`complete_action` 的 NONE 分支、`window_held` 的 ARMED 校验、网关 progress watchdog、GWDIAG 扩字段，以及 15:53–15:59 的新台架。读数为快照，非事实源。
+
+### 13.1 先确认已修好的
+
+- **H03 假完成**：`complete_action()` 在 `group==NONE || group>=groups_total` 时已早退（`trigger_t2_runtime.c:1190-1207`），清窗口簿记、`++s_finish_lost`、`action_fail(BACKEND)`，不再增加 finish/completed 事件。方向正确。
+- **H01 主停摆**：网关新增 progress fingerprint watchdog（`sync_io_gateway.c:426-448`），`busy = plan_count || pending`，指纹看 `complete/plan_next/pending_receipt/trigger_count/state`，连续 256 次不变则 `safe_stop()`、清 plan、置 CANCELLED。覆盖了 “pending=1 但回执不来” 的场景。
+- **H02 窗口在泵**：`window_held` 现在要求 `backend_state == ARMED`（`trigger_t2_runtime.c:1585-1588`），COMPLETE/CANCELLED/UNCERTAIN/IDLE 不再算 held。
+- **H04 诊断覆盖**：GWDIAG 扩到 47 字段，`out[39]=progress_retired`，owner 移到 42，stale 43，state/seq/done_seq 44–46；SCPI 的 `fields[47]`/循环 47 已同步。
+- 主机：`test_trigger_t2_runtime.py` + `test_sync_io_gateway.py` **89 passed**（新增 `deadline_stall`）。
+
+### 13.2 仍未闭合的阻塞
+
+| ID | 严重度 | 位置/证据 | 发现 | 后果 |
+|---|---|---|---|---|
+| SEQ-H08 | 阻塞 | 15:54–15:59 日志；`sync_io_gateway.c:426-448` | 主停摆已从“ARMED+pending”变成“**UNCERTAIN + plan0 + pending0**”：slot2 连续 20 次采样 `state=4(UNCERTAIN) svc_wait=546 svc_done=181 late=170 plan=0 pending=0 sm=0 prog_retired=0 prog_stale=0`。`busy=(plan_count||pending)` 为假，watchdog 根本不跑；`prog_retired=0` 证明它不会退休 | 若该槽不是 `s_armed_index`，运行期 terminal 分支不会处理；窗口槽保持 frozen，新位置不再准入（本轮 gateway 只 entered 14） |
+| SEQ-H09 | 高 | 日志 `snapshot page(s) missing for slot 0..3: window`；`t2_workflow.py:3369` | `_min_fields["window"]=8`，但 `ACTion:WINdow?` 只有 7 个字段；所有 window 页被判 “missing”，状态文件里 `window: [""]` | 窗口五总量（entered/frozen/w_executed/abandoned）全部丢失；报告无法对账，H08 的 frozen 槽也看不到 |
+| SEQ-H10 | 高 | `sequence_workflow.py:253-255`；15:59 状态 | 判据仍 `positions = args.positions if args.positions else finished`，即 `expected = groups × finished`。本轮 SWITCH_B 只跑了 121 个位置（124 s 采样），仍判 `ok:true` | 截断/部分扫描可以“通过”；这不是全圈验收，不能拿来证明修复成功 |
+| SEQ-H11 | 中 | `tests/python/test_sync_io_gateway.py` 新 `deadline_stall` | 测试用 `uint32_t f[44]`，但 `sync_io_gateway_realtime_diag()` 现在写 `out[0..46]` | 栈缓冲区越界 3 个字；测试能过是未定义行为，不是证据 |
+| SEQ-H12 | 中 | `sync_io_gateway.c:654-673`；SCPI `:577-585` | GWDIAG 字段从 42 扩到 47，schema 仍 `0xDA02`；owner 从 39 移到 42；无字段顺序测试/版本号 | 旧读者按 39 读 owner、按 42 字段截断，会误读；`cont_hit/miss` 仍无读取点 |
+| SEQ-H13 | 中 | `sync_io_gateway.c:426-448` 与 `:450+` | progress watchdog 在**收 RX 之前**执行；若第 256 次 stale 恰好有一笔迟到回执在 FIFO 里，会先 `safe_stop` 清掉它 | 合法但晚到的完成被误判为停摆，产生 BACKEND 失败 |
+| SEQ-H14 | 低 | `GATEWAY_PROGRESS_STALL_PASSES=256` | 阈值是**服务次数**，不是时间；冻结 lead 实测 144–192 ms，若 service 周期小于约 0.75 ms，256 次可能早于合法首组到期 | 合法首组被提前退休；应改用 tick 时间或大于最大 lead 的阈值 |
+
+### 13.3 15:59 台架读数
+
+```text
+SWITCH_A: executed 1888 = 16×118, finished 118, entered 129, late 1, backend 0
+SWITCH_B: executed 1936 = 16×121, finished 121, entered 131, backend 0, 判定 ok:true
+GATEWAY : executed   68 = 16×4,   finished   4, entered  14, backend 0
+window  : 所有角色 [""]（H09 丢弃了 7 字段页）
+chain   : 276 s，采样 124.2 s（不是 361 位置全圈）
+```
+
+- `SWITCH_B ok:true` 不代表全圈通过：它只覆盖 121 个位置，判据用 `finished` 当分母（H10）。
+- GATEWAY 只 entered 14、finished 4；GWDIAG 的 slot2 是 `UNCERTAIN/plan0/pending0`，watchdog 不跑（H08），所以“修好停摆”的结论**还没有被这轮数据证明**。
+- `window` 全空（H09），本轮无法看到 frozen/w_executed/abandoned，也无法判断 H08 的 frozen 槽是否就是准入停止的原因。
+
+### 13.4 建议
+
+1. **先修 H09**：`window` 最小字段改 7（或每页一个常量），让窗口五总量重新可读；这是验证 H08 的前提。
+2. **修 H08**：progress watchdog 不能只看 `plan_count||pending`；对 `state==UNCERTAIN/CANCELLED` 且无 plan/pending 的槽，也要有“冻结槽退休”路径（按 `s_window_staged`/`s_slot_armed_once` 或 per-slot backend 记录），否则 frozen 槽永远不释放。
+3. **修 H10**：验收必须用配置的扫描位置数（361）或要求 `--positions`，并断言 `finished == expected_positions`；不能用 `finished` 当分母。
+4. **修 H11**：测试数组改 `f[47]`/常量 `SYNC_IO_GATEWAY_DIAG_FIELDS`；这是未定义行为。
+5. **修 H13/H14**：watchdog 先检查 RX FIFO/回执，再决定退休；阈值改 tick 时间，覆盖 144–192 ms lead。
+6. **H12**：GWDIAG 升 schema/加字段顺序测试，恢复 `cont_hit/miss` 可读。
+7. **重跑一轮 361 位置全圈**，记录 window 五总量 + GWDIAG state/seq/retired；在 H08/H09/H10 修好前，不要把 15:59 的 SWITCH_B ok 当作通过。
+
+### 13.5 边界
+
+- H08 的“frozen 槽不再准入”是读日志推断；H09/H10/H11/H12 是代码/工具确定事实，H13/H14 为代码路径推断。
+- 本轮 89 passed 不覆盖 H08 的 UNCERTAIN/no-plan 场景，也不覆盖 window 页 7 字段与 GWDIAG 47 字段的解析。
+- 15:59 采样只有 124 s，不是全圈；任何百分比/通过结论都不成立。
+
+## 十四、基础模型（node_sequence）拆解与网关试点方案（2026-10-20）
+
+> 依据：`origin/feature/node-sequence-reservation-trigger` 上的 `sync_io_sequence.{c,h}` + `sync_io_sequence.pio`（1322/154/149 行）。本节只做拆解与适配设计，不动代码。
+
+### 14.1 一句话
+
+基础模型 = **一份器件配置 + 一条计划 + 四个 PIO 状态机**：外部脉冲（或内部 FIFO）驱动"序列切换"，每步写输出、计数 settle/pulse、回一条回执，可选地回一条 READY。**网关不是独立执行器，而是配置里的 `gateway_enabled`**。
+
+### 14.2 PIO 程序（4 个，块级职责）
+
+| 程序 | 指令块 | 职责 |
+|---|---|---|
+| `sequence_ingress` | `inactive/active/observed/decide/admitted/request` | 输入边沿 → 采样状态 → 判忙 → IRQ4/5 请求一次推进 |
+| `sequence_finite_ingress` | 同上 + `quota/parked` | 有限配额（`max_steps`）：Y 递减，用完永久停 |
+| `sequence_executor` | `admission/waiting/writing/written/settling/status_prepare/status_mode/pulsing/status_active/completed` | 每步吃 3 字 {packed values, settle, pulse}；写 `pins`、发回执、可切 status 模式（LEVEL/PULSE/NONE） |
+| `sequence_gateway` | `pull/grant/pulsing` | **一发**：等 IRQ6 授权 → 拉高 → 计数 → 拉低 → 回执 |
+| `sequence_ready_counter` | `grant/inactive/active/observed/counted` | **一次完整 READY 边沿**：授权后等 0→1，计数并回执 |
+| `sequence_counter` | `inactive/active/observed/counted` | 转台累计边沿计数（X 递减，noblock 推） |
+
+### 14.3 状态块（实现侧）
+
+| 块 | 位置 | 职责 |
+|---|---|---|
+| `reserve/release`、`outputs_available` | 266/281/251 | Core0 预约；与 `resource_arbiter` 互斥 |
+| persona hooks `load/arm/start/cleanup` | 332–609 | 申请 PIO0 SM/DMA、装载程序、`prime_initial_state`、起 SM |
+| `config_valid`、`build_plan`、`arm_plan` | 629–764 | 校验 + 把 256×3 字计划推入 FIFO/DMA |
+| `receive_word`/`drain_receipts`/`produced_receipts` | 772–875 | 回执 DMA 与背压 |
+| `account_input`/`account_counter*` | 900–962 | 边沿入账、计数器阈值与故障 |
+| `service` | 962 | 一次推进 + 故障聚合 |
+| `software_step(_prepared)` | 1029/1036 | **内部 FIFO 驱动**（无外部脉冲时等价于一次边沿） |
+| `gateway_service/start/cancel/fire/ready` | 1082–1174 | 网关一次性脉冲与 READY 回执；READY 只是回执，不请求推进 |
+| `pause/stop/finish_ingress` | 1267/1314/1234 | 收尾、停机、清owned |
+| `set_switch/get_switch` | 177/197 | SP8T 掷向（独立维护通道） |
+
+### 14.4 与当前分布式项目的差异（必须适配的四处）
+
+1. **时间轴**：模型内部是 PIO 4 ns tick + 整 us；当前 T2 用 TDMA/`vdc_timer1` 绝对 tick。适配点：在 `arm_plan` 入口把绝对 tick 折算成 (settle_us, pulse_us)，或引入分支里的 `trigger_reservation_clock` 做单一换算处。
+2. **计划来源**：模型假设本机 FIFO 承载计划；当前由 origin 解算、REFMEM 分发。适配点：保留分发，把每组的 `deadline_tick + argument` 转成 3 字项；`s_group_next` 一类的软件游标**不再需要**。
+3. **SCPI/页面**：分支用 `scpi_sequence_*`，当前用 `trigger_t2_*` 与 `T2?/WHY?/GWDIAG?`。试点期只映射最小集（arm / fire / ready / status / stop / switch），并把 `sequence_snapshot_t` 的关键字段并入现有页面，保证 `sequence_workflow.py` 仍能读。
+4. **资源**：模型要 4 个 SM + 3 条 DMA；当前 switch 已占 2 SM。试点期按板分配，避免同板双栈。
+
+### 14.5 网关试点（最小切片，只动 GATEWAY 板）
+
+- 配置：`gateway_enabled=true`、`gateway_pulse_us=8000`、`gateway_input_channel=0`（软件 READY）、`status_mode=NONE`、`pulse_us` 留 0；计划 = **2 步**（SP2T 的 A/B）。
+- 推进：`software_step()`（内部 FIFO）驱动，不接外部脉冲；`gateway_fire()` 产生一次 8 ms 脉冲，`gateway_ready()` 完成一次 READY。
+- 并行：SWITCH_A/B 与 COUNTER 继续跑现有 T2 运行时（异板，互不干扰）。
+- 观测：`snapshot.gateway_trigger_count / gateway_ready_count / gateway_waiting / gateway_pulse_busy / fault`，与现有 `GWDIAG?` 对照。
+- 通过判据：`executed == 2 × positions`、`fault=0`、无 `busy_rejected`；位置吞吐 ≥ 当前 SP2T 实测（37 位置/40 s）。
+
+### 14.6 依据与风险
+
+- **依据**：本轮 SP2T 试点（网关 16 组 → 2 组）已把网关从 1–11 个位置提到 **37 个位置 / 74 组**，`no_plan/late/backend` 全 0——说明"少交接"是正确方向，而基础模型正是把它做成硬件序列。
+- **风险**：PIO0 SM/DMA 配额；tick 换算精度；双栈共存；`sync_io_sequence.c` 来自另一分支（含资源仲裁/人设接口），需按当前 `sync_io_pio0_runtime` 的 hooks 重新对接。
+- **不做的事**：不整分支合并；不改 SWITCH 的执行器；不在同板并行两套执行器。
+
+## 十五、基础模型/pilot 实现独立复核（2026-10-20 傍晚）
+
+> 复核对象是当前工作区里已经落地的 `sync_io_sequence.{c,h,pio}`（1392 行）+ `trigger_sequence_pilot.{c,h}` + `TRIGGER:REServation:T2:SEQ:PILot` 集成。结论：**这是可评审的实现，但按当前代码，pilot 连第一步都走不通**；§14 的适配清单里最关键的 persona 对接还没有完成。
+
+### 15.1 阻塞级发现
+
+| ID | 严重度 | 位置 | 发现 |
+|---|---|---|---|
+| P01 | 阻塞 | `sync_io_persona_resources.h:69-70` vs `sync_io_persona_resources.c:65-245` | 新增了 `SYNC_IO_PERSONA_ID_SEQUENCE` / `_SEQUENCE_COUNTER`，但 `s_sync_io_personas[]` **没有对应 descriptor**。`sync_io_persona_catalog_valid()` 要求 descriptor 数 == ID_COUNT-1，直接失败；`sync_io_sequence_arm_plan()` 的 `sync_io_persona_manager_claim(..., SYNC_IO_PERSONA_ID_SEQUENCE, ...)` 找不到人设，arm 必失败（`FAULT_RESOURCE`）。主机 `test_switch_reference_resource_budget` 已实测红。 |
+| P02 | 阻塞 | `sync_io_sequence.c:1036-1053`、`:1156-1164`；`trigger_sequence_pilot.c:163-167` | pilot 先 `software_step()` 再 `gateway_fire()`；但 `software_step_prepared()` 在提交时把 `status.ready=false`（:1049），而 `gateway_fire()` 第一条就要求 `status.ready`（:1161）。所以 **fire 必返回 false**，pilot 进 DONE/errors。反过来先 fire 也不行：`software_step_prepared()` 又拒绝 `gateway_waiting/gateway_pulse_busy`（:1042-1043）。当前 API 下没有一个顺序能让两者在同一轮都成功。 |
+| P03 | 阻塞 | `trigger_sequence_pilot.c:169-177`；`sync_io_sequence.c:150-165` | WAITING 只调用 `sync_io_sequence_get_snapshot()`，不调用 `sync_io_sequence_service()`。fire 后 `gateway_pulse_busy=true`，只有 `gateway_service()`（在 `sync_io_sequence_service()` 内）会把它清掉；而 `sync_io_sequence_service()` 在仓库里**没有其他周期调用点**（`sync_trigger_service` / T2 runtime / app_tasks 都没有）。因此即使 P02 修好，WAITING 也会永远看到 busy，pilot 死锁。 |
+| P04 | 高 | `trigger_sequence_pilot.c:174-175` | `(void)sync_io_sequence_gateway_ready();` 忽略返回值，随后无条件 `++s_index`。如果 READY 没完成（不在 waiting、fault、pulse 未收），pilot 仍伪造一个完成步，`steps_done` 与 `gateway_ready_count` 不一致。修 P03 时必须同时检查返回值。 |
+| P05 | 高（外部 READY） | `sync_io_sequence.pio:120-149`；`sync_io_sequence.c:302,1143` | `sequence_gateway` / `sequence_ready_counter` 都 `wait 1 irq 6`，但 C 侧只有 `pio_interrupt_clear(GATEWAY_GRANT_IRQ)`，**从未 set/force IRQ6**。软件 READY（`gateway_input_channel=0`）把 grant 补丁成 NOP[2]，所以 pilot 不受影响；一旦用 1..4 外部 READY，grant 永远不来，外部网关/READY 路径是死的。 |
+| P06 | 中 | `trigger_sequence_pilot.c:92-103,179-189` | `s_index`/`s_errors` 标注为 Core1-private，却在 `trigger_sequence_pilot_request()`（Core0/SCPI）里直接写。请求只检查 `req_sequence == done_sequence`；而 Core1 在 DONE 分支先写 `s_done_sequence`（:182），再置 IDLE、最后 `pilot_publish()`（:189）。Core0 可在 Core1 还没 publish 完时通过 busy 检查并改写 `s_index/s_errors`，与 Core1 的旧 run 发布竞争。 |
+| P07 | 高（流程） | 新文件 `sync_io_sequence.*`、`trigger_sequence_pilot.*` | 新引擎 61KB + PIO 没有对应的 host 测试；现有 89 个 T2/gateway 用例覆盖不到它。`test_switch_reference_resource_budget` 因 P01 已经红；新代码还未构建、未上板，`16:54` 的 `sequence_flow.json` 仍是旧 switch/gateway 路径，不是 pilot 证据。 |
+
+### 15.2 代码路径
+
+**P02：step 清 ready，fire 又要求 ready**
+
+```c
+/* sync_io_sequence.c:1049 */
+s_sequence.status.ready = false;      /* software_step_prepared 提交后 */
+
+/* sync_io_sequence.c:1161 */
+if (!s_sequence.status.ready || s_sequence.status.gateway_waiting ||
+    s_sequence.status.gateway_pulse_busy || ...) return false;
+
+/* trigger_sequence_pilot.c:165-166 */
+if (!sync_io_sequence_software_step()) { ... }
+if (!sync_io_sequence_gateway_fire()) { ... }   /* 必失败 */
+```
+
+这不是参数问题，是 pilot 编排与模型 API 的契约冲突：需要明确“step 完成/ready 重新置位后再 fire”，或把 gateway 触发做成与 step 分离的独立轮次；当前同一轮 step→fire 不成立。
+
+**P03：WAITING 没有 drive service**
+
+```c
+case PILOT_STATE_WAITING: {
+    sync_io_sequence_snapshot_t snap;
+    sync_io_sequence_get_snapshot(&snap);
+    if (snap.gateway_pulse_busy) break;          /* 没人会清它 */
+    (void)sync_io_sequence_gateway_ready();      /* 只有这里才间接 service */
+    ++s_index;
+    ...
+}
+```
+
+`gateway_pulse_busy` 的清除在 `gateway_service()`，而它只由 `sync_io_sequence_service()` 调用；pilot 在 busy 时直接 break，形成自锁。最小修法：WAITING 每轮先 `sync_io_sequence_service()`（或把 service 挂到 `sync_trigger_service`），再看 snapshot；然后检查 `gateway_ready()` 返回值。
+
+**P01：catalog 缺口**
+
+```c
+/* sync_io_persona_resources.h:69-70 新增 ID */
+SYNC_IO_PERSONA_ID_SEQUENCE,
+SYNC_IO_PERSONA_ID_SEQUENCE_COUNTER,
+
+/* sync_io_persona_resources.c:65-245 的数组没有这两项 */
+```
+
+测试实测：
+
+```text
+FAILED tests/python/test_sync_io_switch.py::test_switch_reference_resource_budget
+Assertion failed: sync_io_persona_catalog_valid()
+```
+
+在补 descriptor 之前，`sync_io_sequence_arm_plan()` 的 manager claim 不可能成功，pilot 的 `errors` 只会增长。
+
+### 15.3 建议顺序
+
+1. **先补 P01**：为 `SEQUENCE` / `SEQUENCE_COUNTER` 加 descriptor（instruction_words=31、SM mask 覆盖 ingress/executor/counter，counter 还要 SM0/capture lease、5 路 DMA、SMA GPIO 读/写/safe-low/restore 掩码），并让 `sync_io_persona_catalog_valid()` 恢复。先跑 `test_switch_reference_resource_budget`。
+2. **修 P02/P03**：把 pilot 的 step→fire→wait 改成模型允许的顺序；WAITING 每轮 drive `sync_io_sequence_service()`；`gateway_ready()` 返回值必须检查。
+3. **修 P05**：外部 READY 要么在 C 侧 grant IRQ6（明确谁在什么边沿 set），要么在配置校验里暂时拒绝 `gateway_input_channel!=0`，不要留一条永远 wait 的路径。
+4. **P06**：把 `s_index/s_errors` 的复位移到 Core1 的 IDLE/ARMING，或把命令放进独立 command slot；不要用 `done_sequence` 作为唯一“Core1 已完全退出”的判据。
+5. **P07**：给新引擎加 host 测试（plan/build、step/fire/ready、DMA 回执、stop/cleanup、persona claim），再构建、再上板；在 pilot 通过前不要把 §14 的 37 位置/40 s 当作新模型证据（那是旧执行器的试点）。
+
+### 15.4 边界
+
+- P01/P02/P03/P04/P05 是代码路径确定；P06 是跨核时序推断；P07 是流程事实。
+- 本节不评价新模型 PIO 指令级时序（未上板、未构建）；只评价“能否进入第一步”和集成契约。
+- §14 的方案方向（硬件序列、少交接）仍然成立；问题在落地代码的 persona/编排/服务调用，不在方案本身。
+
+### 14.7 网关试点通过（2026-10-20 19:45，build 20261020…）
+
+统一模型（`sync_io_sequence`）已在当前基线落地并驱动网关输出，实测三组配置：
+
+| `T2:SEQ:PILOT` | steps_done | trigger | ready | written/completed/accepted | pulse_us | errors/fault |
+|---|---|---|---|---|---|---|
+| 2, 8000 | 2 | 2 | 2 | 2/2/2 | 8000 | 0/0 |
+| 2, 4000 | 2 | 2 | 2 | 2/2/2 | 4000 | 0/0 |
+| 1, 2000 | 1 | 1 | 1 | 1/1/1 | 2000 | 0/0 |
+
+移植与适配清单（每一处都是"当前树与分支语义不同"导致的）：
+
+1. 三个接口：`SYNC_IO_SEQUENCE_INSTRUCTION_WORDS`、两个 persona id（追加，不改旧值）、`RESOURCE_ARBITER_RESOURCE_SMA_GPIO`；
+2. 两个 SM 租借 helper：`sync_io_core_capture_sm_lease/restore`，且"空闲即可"，不要求预 claim；
+3. 两个 persona 描述符（`SEQUENCE` / `SEQUENCE_COUNTER`），否则 `persona_manager_claim` 必然拒绝；
+4. 四处语义修正：`model_output_active`（空闲恒真→纯脉冲判据）、`seq_step/enc_count` 的"运行中"改为 SM 实测使能、软件 READY 下的 fire 前置按模型契约保留（不自改语义）、命令槽代际消费。
+
+HAOFV 归属（L120/L150/L151）：SCPI 只写命令槽；core0 域服务做软件预约/释放；core1 独占 arm/step/fire/ready/stop；跨核代际 + seqlock。
+
+边界：这是**试点命令**，不参与位置验收判据；把 GATEWAY 的位置流正式切到该模型是下一步部署工作。
+
+### 14.9 开关迁移的设计结论（2026-10-21，阻塞项）
+
+**代码事实**（`sync_io_switch.c`）：
+
+```c
+static void split_groups(void)            /* 输出掩码 -> 连续段，每段一个 SM */
+{
+    g->sm = s_switch.group_count ? SYNC_IO_SWITCH_SECOND_SM : SYNC_IO_SWITCH_FIRST_SM;
+    g->output_base_pin = BOARD_SYNC_OUTPUT_BASE_PIN + i;
+    do { ++g->output_count; ++i; } while (连续);
+}
+pio_sm_put(..., FIRST_SM,  s_switch.groups[0].code);   /* 各自截止时刻 */
+pio_sm_put(..., SECOND_SM, s_switch.groups[1].code);
+```
+
+即：开关是"**最多两条路由、每条一个 SM、在各自截止时刻写入自己那段引脚**"的器件；码字来自部署绑定
+（设备配置），不是每组的脉冲宽度。
+
+**为什么现在的模型表达不了**：`sync_io_sequence` 的执行器只有 **1 个 SM**，`sm_config_set_out_pins(BASE, 4)`
+一次写全部四位。若用单 SM 按组写整字，两条路由会在**同一个时刻**一起变化，而开关要求它们**相隔一个组步长**
+各自变化——引脚时序不等价。
+
+**修正（同日复核）**：每条路由的 SM 只驱动自己的引脚段并**保持电平**，所以"单 SM 每步写**合成字**"
+（本条路由的新值 + 其余路由的上一值）在引脚时序上与原实现等价——**不需要多执行器**。
+真正的缺口是**数据**：模型的计划值需要"每步的完整 4 位码字"，而运行时当前只拿到脉冲宽度
+（`stage_sequence(base, pulses, deltas, count)`），码字在 `sync_io_switch` 内部由部署绑定给出、从未上送。
+
+按这个修正，迁移缩小为三件事：
+
+1. 把部署绑定里的开关**码字 + 输出掩码切分**上送（SCPI/模板层新增字段，或由 `switch_load` 导出）；
+2. 运行时按路由切分把每步合成成完整 4 位值，作为模型计划值；
+3. `MODE 2` 两次 361（`16 × 361`、零失败）通过后删旧开关路径。
+
+**（原方案，保留作为备选）迁移所需的最小模型扩展**（建议实现顺序）：
+
+1. `sync_io_sequence_config_t` 增加 `route_mask` / `route_count`（≤2）以及每路由的 `base/count`；
+2. `arm_hardware` 为每条路由分配一个 executor SM，计划项增加"路由号"，各 SM 只写自己的引脚段；
+3. 回执按路由区分（复用现成的 `(logical<<SHIFT)` 字段），完成判定 = 所有路由当步回执齐；
+4. 运行时侧：把部署绑定里的 `code` 与输出掩码传给模型（当前 T2 计划只携带脉冲宽度，拿不到码字）；
+5. 验收：`T2:SEQ:MODE 2` 跑两次 361，`groups = 16 × 361` 且零失败，才允许删旧开关路径。
+
+**在此之前**：`T2:SEQ:MODE 1`（网关模型化、开关旧路径）是已验证配置，连续两次严格口径 PASS。
+
+**同日实测补充（mode 2 的不可回退性）**：
+
+- `MODE 2` 下开关报 `fault=2 / fault_detail=8`（`outputs_available()` 为假）：旧开关 persona 仍持有引脚，
+  仅"跳过装载"会让"已装载"标志与实际硬件不一致，回退 mode 1 后旧路径不再重载。
+- 更关键的是**引脚状态残留**：mode 2 的实验会把 SMA 引脚留在非 SIO 功能上，之后即使回到 mode 1，
+  模型的 `reserve()` 也会因 `outputs_available()` 失败而永久被拒（`fault_detail=8`、`reserved=0`），
+  **只能靠重新刷写/复位恢复**。
+- 因此 mode 2 的切换必须实现为**原子转换**：先 `trigger_switch_unload`（或 persona STOP）让出引脚 →
+  再 `sync_io_sequence_reserve`；回退时反向执行并恢复引脚功能。在做完这一步之前，mode 2 不具备可回退性，
+  不应在验收链路上启用。
+- 恢复验证：重新刷写后 mode 1 再次 `SWITCH_A 5776/5776、GATEWAY 722/722、SWITCH_B 5776/5776`，
+  零失败，`verdict OK`（当晚第 3 次严格口径 PASS，凭证已生成）。
+
+**同日补充（数据链路已通 + 顺序问题）**：
+
+- 开关 `stage_sequence(base, codes, delta, count)` 的参数名就是 **`codes`**：运行时的
+  `plan->group_argument[k]` **本来就是每组码字**，所以"码字上送"这一步其实不需要新增接口——
+  计划值直接取 `group_argument[k]` 即可（网关仍取 0，其触发由 `gateway_fire` 产生）。
+- 已新增 `trigger_switch_force_unload()`（Core1）并让试点在 mode 2 下 arm 前先让出引脚，
+  但实测仍 `fault_detail=8`：**顺序不对**——core0 的 `reserve()` 先于 core1 的卸载执行，
+  于是每次 reserve 都撞在旧 persona 上。正确顺序应是：core0 发出"让出"意图 → core1 卸载 →
+  core0 再 reserve（三段握手），或在进入 mode 2 时就完成卸载，而不是在 arm 时。
+- 恢复验证：重新刷写后 mode 1 再次 `5776/722/5776` 零失败，`verdict OK`（当晚第 4 次严格口径 PASS）。
+
+**日间补充（2026-10-21 上午，断电重启后）**：
+
+1. **网关统一模型恢复并双跑验证**：断电重启后，`MODE 1` 连续两次 361（第二次未重设 MODE）：
+   `SWITCH_A 5776 / GATEWAY 722 / SWITCH_B 5776`，其中第二次为全 PASS。这验证了当夜新加的
+   **"预约丢失后自动重约"**修复（`sync_io_sequence_is_reserved()` + core0 重约）——此前第二次运行起必然全崩。
+2. **`t2:STOP` 会释放模型预约**，而 core0 的 `s_core0_reserved` 标志不会自动清零；已按"每次检查模型
+   是否仍持有预约"修正。
+3. **开关的模型钩子从未被进入**：`MODE 2` 下开关 `pos_count=0`、`arm_branch=2`（窗口 legacy），
+   说明开关的 arm 走的是窗口 legacy 路径，两处 `switch_enabled()` 钩子条件均未命中；
+   `backend` 全部计入 `BACKEND`，因为 legacy `stage_sequence` 在模型持有引脚后被拒。
+4. **诊断通道需要固定字段页**：把 `arm_branch` 追加在 `WHY?` 尾部不可靠（该页尾部字段数随 solve-stats
+   变化），应新增单字段查询（如 `T2:ACTion:ARMBranch?`）返回 `branch | kind<<8 | switch_en<<16 | pos_en<<17`。
+5. **mode 2 实验会再次泄漏网关的状态**：实验后即使切回 mode 1，网关也报 `backend=361`
+   （模型仍 armed、预约被拒），需重启才恢复。因此 **mode 2 的调试必须每轮重启**，或先把"交接"做成
+   core1 主动 stop + core0 重约的完整闭环。
+
+**日间结论（2026-10-21 下午）：统一模型侧三处修复 + 开关迁移的剩余点**
+
+按"修统一模型、再适配不同角色"的方向，改的是模型本身（不是给网关打补丁）：
+
+1. **陈旧调度相位**：`sync_io_core_schedule_clear_stale()`——操作结束后残留的相位会让
+   `outputs_available()` 永远为假；无运行时清回 IDLE。
+2. **输出所有权**：`sync_io_sequence_reserve()` 取得仲裁后主动**接管并规整引脚**（SIO/输出/低电平），
+   而不是因"引脚被占"就报 RESOURCE。这就是 §14.9 所说的"模型作为所有者"。
+3. **保留相位不算阻塞**：`sync_io_core_schedule_blocks_outputs()` 把 `*_RESERVED` 视为合法保留态
+   （开关板在模型驱动期间就持有 `SWITCH_RESERVED`），只有 RUNNING/LEGACY 才阻塞；
+   另外 ARM 时改用"已持有预约"口径（模型自己会把输出拉高，不能要求"全低"）。
+
+**验证**：修复后网关连续两次 361 全 PASS（第二次未重设 MODE），
+`SWITCH_A 5776 / GATEWAY 722 / SWITCH_B 5776`，零失败，凭证已生成。
+
+**开关剩余**：`MODE 2` 下模型已能 arm 到 `pos_count=16`、`pos_stage=3`，但模型的 persona claim 仍失败
+（`fault_detail=9`）：SEQUENCE 描述符在开关板上申请不到资源，需要**按角色给开关板一份自己的
+SEQUENCE 资源描述（SM/DMA 布局）**——即"适配不同角色"的最后一处配置，而不是再改执行逻辑。
+
+## 十六、网关模型通过后的独立复核：开关 mode 2 与时序判据（2026-10-21）
+
+> 复核对象是 2026-10-21 15:12 的工作区（persona 描述符已补、pilot step/fire/WAITING 已修、`T2:SEQ:MODE` 已接入），以及 15:11 的台架快照。先确认成绩，再指出尚未闭合的阻塞。
+
+### 16.1 先确认：网关 mode 1 已经能跑
+
+- 进度 022 记录：`MODE 1` 下连续三轮 `SWITCH_A 361/5776、GATEWAY 361/722、SWITCH_B 361/5776`，`no_plan/late/backend=0`，凭证已生成；这与 15:11 的快照方向一致（GATEWAY `executed=312=2×156`、`finished=156`、`entered=159`，`no_plan/late=0`）。
+- 15:11 的开关 `executed=0 / entered=4 / backend=1` 与进度 022 的 mode 2 `entered=126 / executed=0 / backend=124` 一致：**失败集中在开关模型路径**，不是网关模型路径。
+- persona `SEQUENCE`/`SEQUENCE_COUNTER` 已补（`sync_io_persona_resources.c:260-302`），`test_switch_reference_resource_budget` 已恢复通过。
+
+### 16.2 开关 mode 2 的代码级阻塞
+
+| ID | 严重度 | 位置 | 发现 |
+|---|---|---|---|
+| S01 | 阻塞 | `trigger_sequence_pilot.c:389-425` | `position_service()` **无条件**调用 `sync_io_sequence_gateway_fire()/gateway_ready()`，没有保存 `gateway_role`。开关的 config 是 `gateway_enabled=false`，`gateway_fire()` 第一条就返回 false（`sync_io_sequence.c:1156-1164`），所以开关位置永远停在 stage 3，不会走 step 完成/下一组。 |
+| S02 | 阻塞 | `trigger_t2_runtime.c:1691-1699`；`§14.9` | 运行时把 `plan->group_argument[k]` 当作开关的**引脚码**传给模型；但按 §14.9，T2 的 argument 是脉冲宽度/时序参数，开关码字在 `sync_io_switch` 的部署绑定里，**从未上送**。结果要么 `build_plan` 的 `value ⊆ output_mask` 失败（CONFIG），要么写入错误码字。 |
+| S03 | 高 | `trigger_sequence_pilot.c:379` | `if (!sync_io_sequence_is_armed() && !arm_plan(...))`：模型一旦 armed，后续位置的 `values/count/pulse_us` 全部被忽略。网关两组的 values 恒 0，暂时看不出来；开关每个位置的 16 组码字/组数不同，会被第一位置的计划覆盖。 |
+| S04 | 高 | `sync_io_sequence.c:677-681`；`trigger_sequence_pilot.c:381` | `build_plan` 把计划旋转一位：`initial_output=values[0]`，计划项从 `values[1]` 开始；而 pilot 仍执行 `count` 步。对 count 组序列，首组已 prime，后面只需要 `count-1` 次推进；执行 `count` 次会多走一步（wraps 到 values[0]），开关 16 组的组序/时序因此错位。网关 values 全 0 掩盖了它。 |
+| S05 | 阻塞（时序） | `trigger_t2_runtime.c:1412-1422` | 模型分支在 `service_deadlines()` 里直接 `return`，绕过了 legacy 的 `deadline_ok/late` 检查；`position_arm()` 只接收 `pulse_us/step_us`，**没有接收 `plan->deadline_tick`/组 delta**，`software_step()` 是立即推进。也就是说：361 PASS 是**计数/完成 PASS**，`late=0` 在模型路径上是**未被测量**，不是“时序正确”。 |
+| S06 | 高 | `trigger_sequence_pilot.c:304-325`；SCPI `:870-877` | `T2:SEQ:MODE` 是 SCPI/Core0 调用的，但 `trigger_sequence_pilot_position_mode()` 直接调用 `sync_io_sequence_stop()`（Core1-only，`sync_io_sequence.c:1314` 首行 `get_core_num()!=1` 直接 return）。Core0 上这是 no-op；随后 `release()` 又因模型仍 armed 而 no-op。模式切回 0/1 时模型可能仍持有 SMA/persona，旧路径再申请就冲突。 |
+| S07 | 中 | `sync_io_sequence.c:33,355,1212` | 外部 READY 的 `wait 1 irq 6` 仍没有 C 侧 set/force（只有 clear）；软件 READY（input=0）把 grant 补丁成 NOP[2] 所以 mode1 不受影响，但 1..4 外部 READY 仍是死路径。 |
+| S08 | 中 | `trigger_sequence_pilot.c:117-120` | `s_index/s_errors` 仍由 Core0 的 `request()` 直接写；Core1 在 DONE 先写 `done_sequence` 再置 IDLE/publish，Core0 可在 publish 前通过 busy 检查并改写，旧 run 的状态发布会被污染。 |
+| S09 | 中（证据） | 15:11 `sequence_flow.json` | `--positions 40` 与 `positions_entered=159` 不一致；`window` 五个总量全 0；verdict 的 expected=80、executed=312。该快照不能作为“网关通过”或“开关失败”的定量凭证，只能作为方向证据。 |
+
+### 16.3 关键代码
+
+**S01：开关也走 gateway_fire**
+
+```c
+/* trigger_sequence_pilot.c:396-415 */
+if (!s_pos_fired) {
+    if (!s_pos_submitted) { ... software_step ... }
+    if (!snap.ready) return false;
+    if (!sync_io_sequence_gateway_fire()) { s_pos_stage = 3u; return false; }
+    ...
+}
+if (snap.gateway_pulse_busy) ...
+(void)sync_io_sequence_gateway_ready();
+```
+
+开关的 `config.gateway_enabled=false`，`gateway_fire()` 直接 false；这段没有“非网关”的完成判据（应该等 `snap.completed`/executor receipt），所以开关不可能完成。
+
+**S05：模型分支绕过 late**
+
+```c
+/* trigger_t2_runtime.c:1412-1422 */
+if (s_armed_index < COUNT && model_enabled) {
+    const uint32_t index = s_armed_index;
+    if (trigger_sequence_pilot_position_service(index)) { ... external_complete ... }
+    return;                    /* legacy deadline/late 检查在这里被跳过 */
+}
+```
+
+`position_arm()` 也没有 `plan->deadline_tick` 参数（`trigger_sequence_pilot.c:332-334`）。因此 `no_plan/late/backend=0` 中的 `late=0` 对模型位置没有证明力。
+
+**S06：Core0 上调 Core1-only stop**
+
+```c
+/* trigger_sequence_pilot.c:313-320，SCPI 线程/Core0 调用 */
+sync_io_sequence_stop();      /* Core1-only: Core0 上直接 return */
+sync_io_sequence_release();   /* armed 时也直接 return */
+```
+
+模式切换没有真正停掉模型；这也是“回退 mode 1 后旧路径再冲突/需要 reboot”的代码根因之一。
+
+### 16.4 建议
+
+1. **先修 S01/S03/S04**：给 pilot 保存 `s_pos_gateway`；开关分支不调用 `gateway_fire/ready`，改用 `snap.completed/written` 推进；每个位置按 code word/count 重新 arm 或提供“更新计划”接口；明确 prime 后是 `count-1` 次推进，补 16 组开关的单测。
+2. **修 S02**：把开关部署绑定的码字 + 输出段上送（模板/SCPI 或 `switch_load` 导出），运行时按段合成完整 4 位值；不要再用 `plan->group_argument` 当码字。先让 `pos_count=16` 的 `fault=0`、`fault_detail=0`。
+3. **修 S05**：模型 arm 接口必须带 `base_deadline_tick`/每组 delta，或在模型内实现绝对截止比较；在模型分支恢复 `late` 计数，否则 361 PASS 只能证明“都执行了”，不能证明“按 T2 时间执行”。
+4. **修 S06**：`T2:SEQ:MODE` 只写 Core0 命令槽/代际，由 Core1 service 执行 stop+release+handback；不要从 SCPI 直接调 Core1-only API。模式切换后等 `armed=0` 再允许旧路径。
+5. **S07/S08**：外部 READY 要么补 IRQ6 grant，要么配置校验拒绝 `gateway_input_channel!=0`；把 `s_index/s_errors` 的复位移到 Core1 IDLE/ARMING。
+6. **证据**：15:11 用 `--positions 361 --sample-ticks 90` 重跑，修好 window 总量读取；在 S05 修好前，报告里不要把 `late=0` 写成时序通过。
+
+### 16.5 边界
+
+- S01/S02/S03/S04/S05/S06 是代码路径确定；S07/S08 是代码/时序推断。
+- 网关 mode 1 的 361 PASS（进度 022）是当前已验证的配置；本节不否定它，只指出它是**计数/完成**通过，且开关 mode 2 仍有独立阻塞。
+- 15:11 快照的 `positions 40` 与 `entered 159` 不一致，不能用于定量验收；以进度 022 的 361 全圈和修复后的重跑为准。
+
+**架构决策（2026-10-21 傍晚，按主控指示）：PIO 程序按角色热加载**
+
+PIO0 是 SMA/sync 专用块（`BOARD_TDMA_SMA_PIO_BLOCK_ID = 0`），只有 **32 条指令**，且 persona 必须
+在描述符里申报占用（`instruction_words`）。实测开关板在 `MODE 2` 下可用余量装不下 18 条 executor
+（`fault_detail = 60 + 剩余字数` 已可读出预算）。按主控指示，正确方向不是挤占，而是**按角色热加载**：
+
+| 板角色 | 装载的 PIO 程序 | 约需字数 |
+|---|---|---|
+| 开关（SWITCH） | `sync_switch`（现有开关程序，2 个 SM，`(code, delay)` 协议） | ~8 |
+| 网分（GATEWAY） | `sequence_gateway`（现有 SP2T 程序，2 个 SM） | ~14 |
+| 计数器（COUNTER） | `sequence_counter` / 捕获 | 现有 |
+
+即：统一模型保留**计划与时序**（value + settle + 脉冲、绝对截止、组序列），但**执行器按角色选择**，
+不再所有板都装 31 条通用程序。实现要点：
+
+1. `sync_io_sequence_config_t` 增加 `executor_kind`（SEQUENCE | SWITCH | GATEWAY）；
+2. `load_hardware` 按 `executor_kind` 选择程序与 SM 布局（开关用 `sync_switch` 的 2-SM 布局）；
+3. 计划项 → 程序协议适配：开关推送 `(code, settle_ticks)`，网关推送现有格式；
+4. persona 描述符按角色给出 `instruction_words`，让 claim 的预算检查反映真实占用；
+5. 验收仍以 `MODE 2` 下两次 361（`16 × 361` 组、零失败、`late` 可观测）为准。
+
+**S06 修复（2026-10-21 晚）：模式切换改为三段握手，回退不再需要重启**
+
+- `T2:SEQ:MODE` 是 Core0/SCPI 路径，而 `sync_io_sequence_stop()/release()` 是 Core1-only。原实现让
+  Core0 直接调用，等于什么都没做：切回 mode 1 后模型仍持引脚，旧路径整轮 `backend=361`，只能重启恢复。
+- 现改为：Core0 只增加"模式变更请求"代数并清零自己的预约标志；Core1 的
+  `trigger_sequence_pilot_service()` 发现代数不一致后执行 `stop + release + 解除 plan 签名 +`
+  （mode≥2 时）让出旧 persona，然后回执；Core0 等回执后才碰仲裁器。
+- **实测**：先切 mode 2、再切回 mode 1（不重启），开关立刻恢复（`SWITCH_B 5776`、`SWITCH_A 5760`）；
+  随后干净复跑 `SWITCH_A 5776 / SWITCH_B 5776 / GATEWAY 720`（网关差 1 个位置，窗口边缘）。
+- 结论：**开关旧模式 + 网关统一模型的混合配置可以完整跑完 361**，且模式切换可逆。

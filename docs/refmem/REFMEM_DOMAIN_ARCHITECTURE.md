@@ -3,10 +3,10 @@
 Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
-Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-10-10
+Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
+Last updated: 2026-10-21
 
-本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面。
+本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面，并以统一控制面把系统级命令意图路由到显式目标插槽、聚合 ACK/NACK/fence，使接入点不再决定系统操作语义。
 
 ## 主域定位
 
@@ -26,6 +26,7 @@ RefMem Domain
 
 ```text
 分布式系统中，所有节点对当前系统事实的共同认知是什么。
+如何通过任一接入点，把系统级命令意图安全地路由到目标节点并确认完成。
 ```
 
 它不回答：
@@ -50,6 +51,7 @@ RefMem Domain 负责：
   - `DistributedConnectionQualityTable`
 - 管理 slot owner / writer / reader。
 - 管理 command slot / ACK / NACK / busy / timeout。
+- 维护统一控制面：把任一接入点的系统级命令意图路由到显式目标插槽，聚合 ACK/NACK/fence 和本地系统视图。
 - 管理 slot seq / CRC / stale / version / dirty。
 - 承接跨节点 `REFMEM_DELTA` / `REFMEM_EPOCH` 同步。
 - 给 SCPI/UI/System Pack 提供 snapshot。
@@ -59,6 +61,7 @@ RefMem Domain 负责：
 RefMem Domain 不负责：
 
 - 不执行业务动作。
+- 不代替目标节点执行动作，不提供远程裸内存写、跨板阻塞查询或绕过目标本地门禁的强制位。
 - 不驱动硬实时边沿。
 - 不解析产品命令语义。
 - 不传输 OTA payload、日志全文、波形、SD 文件内容或硬实时边沿。
@@ -183,6 +186,7 @@ Other nodes
 本节是当前实现和后续待办的收敛点。若下文历史推导与本节冲突，以本节为准。
 
 - `DistributedRefMemAO` 是 RefMem Domain 的唯一运行 owner；SCPI、UI、System Pack 和业务 AO/FB 只提交意图或读取 snapshot，不直接改 active fact。
+- RefMem 统一控制面以 `AckCommandRegion` 为唯一命令事实契约：接入点无关、显式 `target_mask`/`required_mask`、单一控制协调者租约、目标本地 owner 执行、ACK/NACK/fence 聚合；读取只读本地快照。当前 live slot 尚未迁入该区，物理放置见本章“当前实现状态”。契约见 `REFMEM-CTRL-01`。
 - A0-A7 是全环唯一的通用逻辑插槽，代表可装载 slot substrate，不代表固定产品角色；具体角色由 `DistributedNodeLoadTable` 绑定到 AO/FB instance。
 - 一块物理板可以加载多个逻辑实例，例如调试阶段同时承载模拟网分和模拟转台；active assignment 仍最多 8 个，candidate proposal 上限为 16。
 - `DistributedGenericNodeTable` 只描述通用逻辑插槽基座、硬件身份、capability、claim policy 和 fail policy；不得把业务 role/persona 反向塞回 GenericNode。
@@ -1178,6 +1182,16 @@ SCPI 写命令返回 `OK` 或 `1` 只表示接口层 accepted，不表示动作�
 | `NODE_LOAD_STAGE` | 提交 NodeLoad 候选到 RefMem staging。 | DistributedRefMemAO / 对应 AO/FB owner |
 | `BOARD_CAPABILITY_STAGE` | 提交 BoardCapability 候选到 RefMem staging。 | DistributedRefMemAO |
 | `TABLE_PACKAGE_STAGE` | 提交 `.rmtp` table package 校验摘要到 RefMem staging。 | DistributedRefMemAO |
+| `EVENT_CONFIGURE` | 装载 EventPack 到 staging（只 stage，不激活）。 | EventPackService |
+| `EVENT_VALIDATE` | 校验 staged EventPack（schema/CRC/map/alias/target policy/EVG slot）。 | EventPackService |
+| `EVENT_ACTIVATE` | 激活已通过 validate 的 staged EventPack。 | EventPackService |
+| `EVENT_INJECT` | 运行时注入控制事件（方案 B，R0 后启用）。 | EventRuntimeService（handler） |
+| `EVENT_ABORT` | 运行时中止事件/会话（方案 B，R0 后启用）。 | EventRuntimeService（handler） |
+| `TRIGGER_SESSION_CONFIGURE` | 配置系统级触发会话（source/target/grid/template CRC）。 | TriggerSession owner / T2 |
+| `TRIGGER_SESSION_ARM` | target 本地 arm、source 准备游标/阈值。 | TriggerSession owner / T2 |
+| `TRIGGER_SESSION_START` | source 启动 T2 发布，targets 进入 RUNNING。 | TriggerSession owner / T2 |
+| `TRIGGER_SESSION_STOP` | 停止新位置并排空在途。 | TriggerSession owner / T2 |
+| `TRIGGER_SESSION_ABORT` | 中止 session，保留已执行证据。 | TriggerSession owner / T2 |
 
 命令状态机：
 
@@ -1279,6 +1293,317 @@ RefMem 中的时间字段分三类：
 
 `uint32_t` tick 不能直接表示长时间绝对时间。产品化版本必须增加 `epoch_seconds` 或等价 `time_epoch` 字段，避免 49 天回绕破坏 VDC/DPLL/T2、日志排序和 stale 计算。
 
+## 统一控制面（REFMEM-CTRL-01）
+
+本节把“通过任意一个板卡接口操作 RefMem、实现所有板卡的操作”细化为可验证契约。结论先给出：RefMem 统一控制面提供的是**接入点无关的系统级命令面 + 本地快照观测面**；控制面客户端接入的是 RefMem，而不是某块板或某条独立控制总线。它不提供跨板裸写、同步远程读或绕过目标本地门禁的强制通道。
+
+### 挂接关系：控制面接入 RefMem
+
+统一控制面不是 RefMem 之外的第二套总线或独立服务。控制面客户端（SCPI/UI/System Pack/上位机工具）通过 RefMem 的三个既有面挂接：
+
+| 挂接面 | 客户端动作 | RefMem 侧承载 | 不得做的事 |
+|---|---|---|---|
+| 命令面 | 提交 `SYSTem:*` intent | `AckCommandRegion` command slot + 命令目录 | 直接调用目标 owner、直接写目标事实 |
+| 观测面 | 读取状态、聚合结果和证据 | 本地 snapshot、`control_reply`、`SYSTem:REFMEM:*` 视图 | 同步跨板查询、驱动现场 IO |
+| 目录面 | 查询命令、能力和版本 | 命令目录、Version Bundle、`SYSTem:REFMEM:STATus?` | 用目录查询替代命令执行 |
+
+挂接规则：
+
+- 客户端只认 RefMem 的 `SYSTem:*` 契约，不认某块板的物理身份；接入哪块板只改变 `origin` 和本地权限。
+- RefMem 是控制面的承载者（bearer）与路由者（router），不是执行者；执行仍归目标 owner。
+- 控制面客户端不得绕过 RefMem 直接访问 TDMA/PIO/目标内存；RefMem 也不得绕过 owner 直接执行。
+- 控制面接入不改变数据面：事实仍走 `REFMEM_DELTA`，命令走 `REFMEM_CMD`/`REFMEM_ACK`；两者共享 epoch、owner、CRC 和 quality，但不共享队列语义。
+- 不新增第二套命令槽或 ACK 事实；所有控制面视图最终都回到同一个命令事实源（现行 `AckCommandRegion` 契约；当前 live slot 见“当前实现状态”）。
+
+### 事件面挂接（Event Plane 静态子域）
+
+RefMem 命令槽是命令事实的唯一 owner；Event Plane 是 RefMem 下的**静态基线子域**，方案 B 再增加 `CONTROL_EVENT` 运行时 handler。它不持有第二个命令槽、ACK 区域或 epoch。子域文档位于 `docs/refmem/event/`，canonical 为 `REFMEM_EVENT_ARCHITECTURE.md`。
+
+```text
+静态基线：
+SYSTem:EVENT:CONFigure -> EVENT_CONFIGURE -> staged
+SYSTem:EVENT:VALidate  -> EVENT_VALIDATE  -> validated/failed
+SYSTem:EVENT:ACTivate  -> EVENT_ACTIVATE  -> active/rejected
+  -> DistributedRefMemAO 唯一 take/ACK
+  -> EventPackService 静态校验/激活
+  -> EventVector 静态更新
+  -> ACK/NACK 写回同一 AckCommandRegion
+
+方案 B R0+：
+SYSTem:EVENT:INJect/ABORt -> EVENT_INJECT/ABORT
+  -> DistributedRefMemAO 唯一 take/ACK
+  -> EventRuntimeService handler（CONTROL_EVENT only）
+  -> EventStatus/EventLog
+  -> result 回 RefMem
+  -> POSITION 直接 NOT_MY_DOMAIN
+```
+
+- 静态阶段只启用 `EVENT_CONFIGURE`/`EVENT_VALIDATE`/`EVENT_ACTIVATE`；方案 B 的 R0 后才启用 `EVENT_INJECT`/`EVENT_ABORT`，且 command slot/ACK/lease 仍归 RefMem，`EventRuntimeService` 只做 CONTROL_EVENT handler；POSITION 永不归 Event Plane。
+- 三步各自 ACK：`CONFIGURE`=staged、`VALIDATE`=validated/failed、`ACTIVATE`=active/rejected；Event Plane 只返回结果，ACK/NACK 由 `DistributedRefMemAO` 写回同一 `AckCommandRegion`。`epoch/run_id` 使用 RefMem 的值，不另建 epoch。
+- `EventVector` 只存静态 pack/catalog/map/alias/EVG 席位；EventStatus/EventLog 是运行时状态，由 EventRuntimeService 写；TriggerRun 归 TRIGGER。
+- 静态阶段运行期不归本域；方案 B 的 CONTROL_EVENT handler 只 post 给 owner，不执行、不接 POSITION。
+- 首版 `EventPackService`/`EventRuntimeService` 运行在 `task_refmem_sync`，不新增任务；若独立 AO，需单独预算和顶层注册。
+
+### REFMEM-TRANSPORT-01：REFMEM_CMD 运输
+
+`REFMEM_CMD` 是单端口控制面的跨节点命令帧，不新增物理总线，也不新增第二命令槽。首版复用 TDMA 既有 `TDMA_PAYLOAD_CLASS_CONFIG_CONTROL` 作为载体：
+
+- `payload_subtype = REFMEM_CMD`；命令 envelope 与 `AckCommandRegion` 字段一致（command_seq/type/class/origin/target/required/payload/crc）。
+- `message_class = TDMA_PAYLOAD_CLASS_CONFIG_CONTROL`；TDMA 接收端按 subtype 分派，`REFMEM_CMD` 是唯一 consumer；未知 subtype 拒绝，其他 config-control consumer 不得占用同一 subtype。
+- active profile 必须包含 `TDMA_PAYLOAD_CLASS_CONFIG_CONTROL`；缺失时 `REFMEM_CMD` 返回 `TRANSPORT_UNAVAILABLE`，不静默降级；不改变 `TDMA_PAYLOAD_FOUNDATION_REQUIRED_MASK`。
+- 预算以 `tdma_traffic_class_profile_t` 的 `reserved_bytes_per_cycle`/`max_frames_per_cycle`/`queue_depth`/`deadline_ns` 为准；`REFMEM_CMD` payload 上限绑定 `sizeof(refmem_command_request_t.payload)`，不新增手写数字。
+- 优先级：`TDMA_TRAFFIC_CONFIG_CONTROL`；不占用 core1 硬实时窗口，不在 ISR 执行；config-control 是控制面预算，不承诺硬实时，超时/fence 不替代 TDMA 调度。
+- ACK/fence 复用 `TDMA_PAYLOAD_CLASS_REFMEM_ACK_FENCE`；命令帧与 ACK 不共享队列语义。
+- 若 config-control 预算不足，才评估专用 payload class；必须另立契约和 TDMA 联审，不能静默扩类。
+- 单端口入口只决定 `origin`；命令必须经 `DistributedRefMemAO` 唯一 command slot，再编码为 `REFMEM_CMD`。
+
+### REFMEM-SESSION-01：系统级触发会话
+
+单端口启动触发不能逐板 `T2:MOUNT`；用 RefMem 命令面的 session 统一：
+
+| command_type | 语义 |
+|---|---|
+| `TRIGGER_SESSION_CONFIGURE` | `session_id/run_id/source_slot/target_mask/required_mask/grid/template CRC` 写入 staging |
+| `TRIGGER_SESSION_ARM` | target 本地 arm；source 准备游标/阈值 |
+| `TRIGGER_SESSION_START` | source 启动 T2 发布；targets 进入 RUNNING |
+| `TRIGGER_SESSION_STOP` | 停止新位置，排空在途 |
+| `TRIGGER_SESSION_ABORT` | 中止 session，保留已执行证据 |
+
+状态机：
+
+```text
+IDLE -> CONFIGURED -> ARMING -> ARMED -> RUNNING -> STOPPING -> IDLE
+                         \-> CONFIGURED（arm 失败，source 未启动）
+RUNNING -> DEGRADED -> ABORTED / STOPPING
+```
+
+- `session_id` 由 coordinator 分配；`source_slot` 必须唯一且具备 COUNTER/VDC 能力（缺失由 DeploymentGate 拒绝）；`target_mask` 来自 active `SlotClaimMap`。
+- `ControlCoordinator` 是 session 状态的唯一 writer；T2/target 只上报 `armed/running/stopped`，不写 session 状态；`origin` 只读聚合。
+- 单板 `T2:MOUNT/UNMOUNT` 不创建系统 session；只有 `REFMEM-SESSION-01` 才写 coordinator 的 session 状态。
+- `ARMING` 聚合 required targets 的 arm 结果：required 未全 arm 不得进入 `ARMED`，也不得 `START`；失败时已 arm 的 target 必须 `DISARM`，source 不启动，session 回 `CONFIGURED` 或 `FAULT`。
+- `START` 只允许从 `ARMED` 发起；若 source 已启动后 required target 失败，进入 `DEGRADED`，必须显式 `STOP/ABORT`，不静默 partial。
+- `STOPPING` 必须有超时：`STOP_TIMEOUT -> DEGRADED/FAULT`，不得静默回 `IDLE`；排空证据写 EventLog。
+- `START` 的 ACK 表示“source 已启动 + required targets 已 arm”，不表示位置已执行；执行证据仍看 T2 `published/frozen/executed`。
+- `T2:MOUNT` 兼容模式 = `CONFIGURE + ARM + START` 一次性（仅旧 SCPI）；已 RUNNING 时幂等返回当前 session，不重复启动。新应用使用分步 session 命令；`T2:UNMOUNT` 映射 `STOP`。
+- POSITION 的实时接收/执行仍归 TRIGGER；Event Plane 只提供静态映射，不接 session 实时状态。
+- 契约状态：pending，代码锚点 `trigger_t2_runtime.h`；需 host + 两板 T2 证据。
+
+### REFMEM-ACTION-01：动作分发
+
+RefMem 命令/事件要落到 AO/FB，需要统一的动作分发契约：
+
+- `ActionDispatcher` 是每板 `DistributedRefMemAO` 的 sub-service，运行在 `task_refmem_sync`；不是独立 AO/FB，不新增任务；只写 evidence，不写业务事实。
+- `ActionRegistry`：每板静态表，`action_id → {owner_id, handler, required, version, crc}`；STOP 期装载，RUN 只读；`action_registry_crc` 进 Version Bundle。
+- `CommandHandlerRegistry`：`command_type → handler`，覆盖 `START/STOP/CAL/LOAD` 等 generic command；与 `action_id` 表分开，避免只有事件路径。
+- `ActionDispatcher`：校验 run-state/permission/deployment/freshness，然后 `post` 到 owner 的有界 mailbox；返回 `ACCEPTED/BUSY/REJECTED`，不直调 handler、不操作 PIO。
+- mailbox 有界且带优先级；满时 `BUSY`/`REJECTED`，不阻塞、不丢 required；可选事件可进 evidence。
+- required `action_id`/`command_type` 缺 handler 时，`DeploymentGate` 拒绝 RUN；optional 缺失进入 evidence；运行期收到未注册 `command_type` 直接 `REJECTED(UNHANDLED)`。
+- handler 必须非阻塞；耗时动作返回 BUSY，由 owner service tick 推进。
+- `action_id` 来自 Event Plane 的静态 EventMapTable；`command_type` 来自 RefMem 命令目录；Event Plane 只提供映射，不执行。
+- 契约状态：pending，代码锚点 `distributed_refmem.h`；需 host 分发用例 + 单板 HIL。
+
+### REFMEM-LOCAL-01：单板控制保留
+
+RefMem 统一面是**增量层**，不替换单板控制：
+
+- 单板 SCPI、本地 command slot、本地 owner、本地 T2 `MOUNT/UNMOUNT` 继续可用；不要求 coordinator、lease、`REFMEM_CMD` 或 transport。
+- `target_mask` 只含本地时走本地 execute，不编码 `REFMEM_CMD`；含远端时才走统一面；mask 解析失败直接拒绝，不回退本地。
+- 统一面不可用（无 coordinator/transport/profile）时，本地命令仍可执行；**全目标/远端命令必须拒绝 `UNIFIED_UNAVAILABLE`，不得静默缩成本地单板执行**。
+- 两条路径共享同一套本地门禁（permission/run-state/deployment/slot single-writer），统一面不得降低本地门禁。
+- `REFMEM-SESSION-01` 是可选系统级会话；单板 `T2:MOUNT/UNMOUNT` 保留，只有需要 source+targets 时才用 session。
+- Event Plane 静态包/运行时 handler 不成为单板控制的前置；EventPack 未激活时，本地基础命令仍可用，事件类命令按自身门禁拒绝。
+- 契约状态：pending，代码锚点 `refmem_command.h`；需 host 本地路径 + 两板“本地仍可用”证据。
+
+### 目标与不变量
+
+| ID | 不变量 | 含义 |
+|---|---|---|
+| CP1 | 接入点无关 | 同一固件族的每个节点都暴露同一套 `SYSTem:*` 维护接口和同一份 `command_type` 目录；接入点只决定 `origin`、本地权限和回程路径，不改变命令含义。 |
+| CP2 | 执行必在目标 | 命令只能由目标插槽的本地 owner 在其 service 上下文执行；发起节点不得写目标 active fact，不得直接驱动目标 IO、Flash 或实时边沿。 |
+| CP3 | 既有门禁不降级 | 控制面不解锁 slot 单 writer、owner validation、staging/activation、RunState、ResourceArbiter、Flash lockout 或权限表。 |
+| CP4 | 读只读本地快照 | 系统视图由本地 mirror 逐槽拼装，每行带 `epoch/seq/age/stale`；禁止同步跨板读，禁止把 stale mirror 当 current fact。 |
+| CP5 | 目标显式 | `target_mask`/`required_mask` 必须由 active `SlotClaimMap` 显式解析并随命令记录；“全部板卡”是发令时解析出的掩码，不是隐式广播或魔法零值。 |
+| CP6 | 单一协调者 | 跨节点/多目标系统命令在同一 epoch 内只有一个 `ControlCoordinator` 拥有命令发号、超时判定和完成聚合权；其他接入点只转发，不并行发号。单板本地维护命令（target 仅本地）走本地 command slot，不要求 coordinator，但不生成跨节点命令事实。 |
+| CP7 | 至多一次有效执行 | 同一 `(coordinator_boot_id, command_seq, target)` 只执行一次；重传只返回既有终态，不重复动作。 |
+| CP8 | 接受不等于完成 | SCPI 的 `OK`/`1` 只表示 envelope 被接受；完成状态只能来自 ACK/NACK/fence 聚合快照。 |
+| CP9 | 单板控制保留 | 统一面是增量层，不替换本地 SCPI/slot/owner/T2；统一面不可用时本地仍可用，远端命令必须拒绝，不得静默缩成单板执行。 |
+
+### 角色与协调者
+
+| 角色 | 职责 | 禁止 |
+|---|---|---|
+| Control Entry | 任一节点的维护接口；解析 SCPI、做形状校验、生成 intent、记录 `origin` | 直接改目标事实；绕过协调者并行发号 |
+| Control Coordinator | 唯一发号者；分配 `command_seq`；解析目标掩码；维护在途命令、超时和聚合状态 | 代替目标执行；覆盖目标 NACK |
+| Target Executor | `target_mask` 命中的节点；本地 owner TAKE、校验、执行、ACK/NACK | 执行未过本地门禁的命令；执行非本 slot 命令 |
+| Observer | SCPI/UI/Report；读本地聚合快照与逐目标行 | 触发同步远程查询；把读取变成控制命令 |
+
+`control_owner_slot` 由 active profile 的部署参数声明，是逻辑角色而不是新增 A 插槽；首版可从 `DistributedApplicationMap` profile 元数据或 `BoardCapabilityTable` capability 派生，二者择一在 C0 冻结。profile 未声明时取最低已 claim 插槽。`DeploymentGate` 必须拒绝零个或多个 `control_owner_slot` 的 RUN。协调者身份用 `(slot, boot_id, lease_epoch)` 标识。
+
+协调者迁移只允许发生在 STOP 或显式维护态；迁移后 `lease_epoch` 递增，旧协调者的未完成命令一律记 `ABORTED_LEASE_LOST`。RUN 中协调者丢失时控制面 **fail-closed**：不再接受新的系统级命令，保留已提交事实和已执行结果，进入可诊断的 `CONTROL_LOST`，等待 STOP 后重新选举；不得在 RUN 中静默产生第二个协调者。此状态下系统级 `STOP` 也不可用，必须由本板 STOP、维护路径或硬件保护逐板执行。本板安全动作（本板 STOP、FAULT 锁存、硬件保护）不经控制面，始终可用。
+
+### 命令信封
+
+复用 `AckCommandRegion` 与 `refmem_command_request_t` 既有字段；新增字段进入新的 schema 版本，旧节点按目录/版本拒绝而不是按旧布局误读。既有字段语义明确如下：
+
+| 字段 | 统一控制面语义 | 约束 |
+|---|---|---|
+| `command_seq` | 协调者单调命令序号 | 只由协调者分配；回绕按符号差值处理 |
+| `source_node` / `source_instance` | 发起接入点，也是聚合回程目标 | 回程只投递到 origin 的命令镜像 |
+| `target_mask` | 解析后的目标插槽位图 | 必须是 active claim 子集；空掩码拒绝 |
+| `required_mask` | 必须 ACK 的子集 | 缺省等于 `target_mask`；report-only 目标不入 required |
+| `command_type` / `command_class` | 命令目录项与权限分类 | 未知 type 或目录版本不符 → `NACK_UNSUPPORTED_COMMAND` / `NACK_CATALOG_MISMATCH` |
+| `payload_kind/ref/size/crc32` | 受控载荷引用 | 只允许 `INLINE_SMALL`、`SLOT_REF`、`TLV_REF`、`STAGING_REF`；不得携带 bulk |
+| `issue_epoch` / `run_id` | 运行代际 | 与目标 active 不一致 → `NACK_EPOCH_MISMATCH` |
+| `timeout_us` | 协调者超时预算 | RUN 类命令不得为 0；目标不得自报 timeout |
+
+需要扩展的字段（随 schema 版本发布）：
+
+| 字段 | 用途 |
+|---|---|
+| `coordinator_slot` / `coordinator_boot_id` / `lease_epoch` | 标识唯一发号者；旧 lease 的命令拒绝执行 |
+| `catalog_crc32` | 命令目录摘要；进入 Version Bundle，跨节点目录不一致时拒绝 |
+| `fence_required` / `fence_state` | 声明是否需要“执行结果对后续读取可见”的 fence |
+| `control_reply` | 每个节点保留最近一次聚合结果的只读副本；origin 与 Observer 读取它，不访问协调者私有状态 |
+
+命令目录必须为每个 `command_type` 声明 `allowed_states`、`required_capabilities`、`idempotent`、`transactional`、`default_timeout` 和 `payload_schema`；目录 CRC 进入 Version Bundle。未知命令不得按“尽力而为”执行。
+
+### 路由、执行与完成
+
+```text
+Entry accepted
+  -> entry != coordinator ? forward intent to coordinator : continue
+  -> coordinator resolves target_mask / required_mask from active SlotClaimMap
+  -> coordinator allocates command_seq, POSTED
+  -> REFMEM_CMD to each target (short frame, bounded retry)
+  -> target owner TAKE: epoch/lease/permission/catalog/CRC/run-state checks
+  -> TAKEN -> EXECUTING/BUSY -> ACK / NACK + reason
+  -> REFMEM_ACK back to coordinator
+  -> coordinator aggregates required_mask, writes control_reply
+  -> aggregate 小帧广播到 active slots 的 control_reply（origin 与 Observer 同源可读）
+  -> VISIBLE (snapshot) -> CLEAR_PENDING -> IDLE
+```
+
+规则：
+
+- 目标 owner 的 TAKE 只做原子占用与校验，耗时动作转入其 service tick 并置 `busy_flags`；不得在 TAKE/CLEAR 临界区执行耗时动作。
+- 目标可以拒绝任何命令；协调者不得用重试覆盖 NACK，只能升级证据或改发新命令。
+- 单条命令的 `target_mask` 解析结果必须随命令记录；发令后新 claim 的节点不追溯加入。
+- 在途期间同一接入点的新 intent：普通类返回 `CONTROL_BUSY`；只有 `STOP`、`FAULT_CLEAR` 允许抢占，在途命令记 `ABORTED_BY_PREEMPT`。目标在下一个 service 边界停止后续步骤，已发生的物理动作保留 evidence；不承诺原子回滚。
+- 传输重试只允许同 `command_seq` 同 `payload_crc32`；目标命中重传缓存时直接返回既有终态，不重复执行。
+
+命令状态机在既有 `IDLE/POSTED/TAKEN/BUSY/ACKED/NACKED/TIMED_OUT` 上扩展：
+
+```text
+IDLE
+POSTED
+TAKEN
+EXECUTING / BUSY
+ACKED / NACKED / TIMED_OUT / FAULTED / ABORTED / UNKNOWN
+VISIBLE
+CLEAR_PENDING
+IDLE
+```
+
+- `VISIBLE` 表示聚合结果和 fence 已进入可读快照；RUN gate 只消费 `VISIBLE` 之后的事实。
+- `UNKNOWN` 只用于协调者丢失且无法证明目标是否执行的非幂等命令；必须进入 evidence 和人工/维护复核，不得自动重发。
+- `ABORTED` 表示被抢占或租约丢失；不得改写为 `NACKED` 以掩盖已发生的部分执行。
+
+### 完成、fence 与超时
+
+- 完成判据：`required_mask ⊆ ack_flags` 且不存在 required `nack/timeout`；否则失败。
+- `fence_state` 依次为 `PENDING → ACKED → VISIBLE → PASSED`；只有 `PASSED` 才允许后续 RUN gate/activation 消费。fence 超时按失败处理，不把“已发送”当作“已可见”。
+- 超时只由协调者判定；超时后到达的 ACK 记 `LATE_ACK` 证据，不改写终态。
+- 部分成功必须逐目标报告，不得折叠成总体 `OK`；required 与 report-only 分开统计。
+
+### 读模型
+
+- `SYSTem:COMMand:ACK?` / `NACK?` 保持现有语义，读取本地 `AckCommandRegion` 快照。
+- 统一控制面新增聚合视图（拟名 `SYSTem:COMMand:STATus?`）：`version,command_seq,state,type,class,origin,coordinator,lease_epoch,target_mask,required_mask,acked_mask,nacked_mask,busy_mask,timeout_mask,fence_state,age_ms,last_reason,last_reason_node,evidence_index,clear_seq,last_completed_seq`。
+- 逐目标视图（拟名 `SYSTem:COMMand:TARget? <slot>`）：`slot,state,ack,nack,busy,timeout,reason,age_ms,evidence_index`。
+- 可用性：协调者与 origin 读聚合行；目标读自身逐目标行；未参与节点返回 `NOT_APPLICABLE`。聚合行经小帧广播，任何接入点都能读到同一份系统级结果；逐目标明细不全网复制，避免把控制面变成状态广播总线。
+- 系统级观测仍走 `SYSTem:REFMEM:STATus?`、`NODE?`、`TABle?`、`QUALity?`；每行必须带 `seq/epoch/age/stale`，UI/Report 不得把多板行拼成“同一瞬间”。
+- 所有视图只读快照，不触发跨板阻塞查询；读取命令本身也不得产生新的控制命令。
+
+### 授权与运行态
+
+- 接入点本地权限决定能否提交；目标本地权限决定能否执行；两者都通过才执行（逻辑交集）。权限不随命令 payload 传递，也不存在 force/override 位。
+- 命令类与运行态矩阵（首版）：
+
+| 命令类 | STOP | RUN | 维护 / FAULT | 约束 |
+|---|---|---|---|---|
+| `CONFIG_STAGE` / `CONFIG_ACTIVATE` | 允许 | 拒绝 | 仅维护 | ConfigGate、staging 校验 |
+| `START` / `STOP` | 允许 | `STOP` 允许，`START` 拒绝 | 允许 `STOP` | `START` 需 DeploymentGate |
+| `ARM` / `FIRE_LOAD` | 允许 | 按 Trigger 状态机 | 拒绝 | 不改变实时边沿 owner |
+| `CAL_*` | 允许 | 拒绝 | 仅维护 | realtime idle |
+| `SYNC_*` | 允许 | 按 VDC 门禁 | 允许 STOP 类 | 不替代 VDC owner |
+| `NODE_LOAD_*` / `BOARD_*` / `TABLE_*` | 允许 | 拒绝 | 仅维护 | RefMem load mode + staging |
+| `RESOURCE_JOB` | 允许 | 拒绝 | 仅维护 | Flash lockout / ResourceArbiter |
+| `FAULT_CLEAR` | 允许 | 允许 | 允许 | 不覆盖 FATAL 锁存 |
+| `CONTROL_LEASE_*` | 允许 | 拒绝 | 允许 | 仅协调者候选 |
+
+- 命令目录、权限表、RunState、ResourceArbiter、Flash lockout、owner validation 任一拒绝即终态；控制面不得重试到通过。
+- 不允许通过 payload 表达“写任意地址/任意长度”；payload 只能按目录 schema 解释。
+
+### 边界
+
+- 不承载 OTA、日志、波形、SD 文件或大表 bytes；只传 path hash、package CRC、descriptor 和摘要。
+- 不在 core1 ISR 或 TDMA 硬实时窗口内执行命令；命令帧只使用短帧保留容量，执行发生在 core0 owner service。
+- 不替代本地安全联锁、Fault 锁存、看门狗和 Flash 写保护。
+- 不提供跨板同步读、远程裸内存、远端 FB 调用或运行时动态部署。
+- “控制所有板卡”指一条命令的显式掩码覆盖所有 active slot 并由各目标本地执行，不是一块板代替其他板写事实。
+
+### 失败与恢复
+
+| 场景 | 处理 | 证据 |
+|---|---|---|
+| 目标 stale / 心跳丢失 | required → 失败；report-only → `SKIPPED_STALE` | `NODE_STALE` + quality |
+| epoch / lease 不一致 | 拒绝，不执行 | `EPOCH_MISMATCH` / `CONTROL_OWNER_CONFLICT` |
+| 重复或重传 | 返回既有终态 | `DUP_SEQ` 命中计数 |
+| 目标 busy 超时 | 协调者置 timeout | `TIMEOUT` + busy 快照 |
+| 协调者丢失 | 新 epoch 仅在 STOP/维护态建立；在途命令 `ABORTED_LEASE_LOST`；非幂等命令 `UNKNOWN` | lease 证据 + 逐目标状态 |
+| 协调者分裂 | DeploymentGate 拒绝 RUN；命令拒绝发号 | `CONTROL_OWNER_CONFLICT` |
+| 目标执行后 ACK 丢失 | 只读状态核对，不重发执行；非幂等类 `UNKNOWN` | 目标 snapshot + dedup cache |
+| 目录/版本不一致 | 拒绝，不解释 payload | `CATALOG_MISMATCH` / `UNSUPPORTED_COMMAND` |
+
+`refmem_command_reason_t` 需补充 `UNSUPPORTED_COMMAND`、`CATALOG_MISMATCH`、`CONTROL_BUSY`、`CONTROL_OWNER_CONFLICT`、`TARGET_NOT_CLAIMED`、`ABORTED_BY_PREEMPT`、`ABORTED_LEASE_LOST`、`LATE_ACK`、`SKIPPED_STALE`；SCPI reason 表与 `SYSTem:COMMand:NACK?` 必须同步，不得只加枚举不加解释。
+
+### 当前实现状态
+
+当前单卡控制面属于 RefMem 域：`DistributedRefMemAO` 拥有命令槽、SCPI intent API 和 owner 执行路径；但命令槽尚未进入 64 KB 表的 `AckCommandRegion`，`ack_command` 区只是预留并注册到 directory。
+
+| 能力 | 状态 |
+|---|---|
+| 本地 command slot、ACK/NACK/busy/timeout、`SYSTem:COMMand:ACK?` | 已实现 |
+| 命令槽物理放置 | live slot 是 `distributed_refmem.c` 的 static `s_refmem_command_slot`；`refmem_vector_table_t.ack_command`（`DISTRIBUTED_REFMEM_ACK_CMD_SIZE`）仅目录注册，未承载 live slot |
+| Event Plane 静态装载（`EVENT_CONFIGURE`） | 未实现；Event Plane 是静态子域，不持有第二命令槽/ACK/epoch，不做运行时注入 |
+| 显式 `target_mask` / `required_mask` 字段与本地 take 校验 | 已实现 |
+| 跨节点命令路由与 ACK 回程 | 未实现 |
+| 协调者租约、`control_owner_slot` 唯一性门禁 | 未实现 |
+| 聚合视图 / 逐目标视图 / `control_reply` | 未实现 |
+| 跨节点 FENCE（activation gate 的全环 ACK） | 未实现 |
+| 命令目录 CRC 进入 Version Bundle | 未实现 |
+
+### 分阶段落地与验收
+
+| 阶段 | 内容 | 退出判据 |
+|---|---|---|
+| C0 | 信封字段、目录 CRC、聚合视图 schema 冻结；命令槽物理放置二选一：迁入 `ack_command` 区并同步目录/布局版本，或明确 static 为规范物理位置；本地单板语义不变 | host 用例 + 既有 HIL 回归 |
+| C1 | 两板与转发：Entry A（协调者）→ Target B；再测 Entry B（非协调者）→ Coordinator A → Target C，覆盖转发与聚合回程 | B/C 本地状态变化 + A/B 读到 ACK/fence |
+| C2 | required/partial/timeout/preempt/重复幂等 | 负测覆盖 NACK、timeout、重复、抢占 |
+| C3 | 协调者租约、STOP/维护态迁移、双主拒绝 | 租约迁移与双主负测 |
+| C4 | 多板 all-target `START`/`STOP` + 权限/运行态矩阵 | 逐目标证据一致，无隐式跳过 |
+| C5 | 与 `LOAD:SD`/activation gate 的跨节点 FENCE 闭环 | 逐表 activation 证据与回滚保持 |
+
+在 C4/C5 通过前，只能表述为“统一控制面契约与本地命令面已落地”，不得宣称“任意接口控制全部设备”已产品化。
+
+### 与既有契约的关系
+
+- 扩展 `Command / ACK / NACK 契约`，不改变 `AckCommandRegion` 既有字段语义；新增字段随 schema 版本发布。
+- 保持 `RefMemRmaWindow` 边界：控制面仍不提供任意地址 put/get；事实同步仍走 `REFMEM_DELTA`。
+- 保持 `Snapshot 与并发契约`：读只读本地快照，跨板阻塞查询仍禁止。
+- 为 `RefMem Table Image Activation Contract` 补跨节点 FENCE/ACK；activation 的本地 gate 不减少。
+- 登记 `REFMEM-CTRL-01`（pending）；实现和证据完成前，本条不授予产品 RUN 或“全设备可控”结论。
+
 ## 对外接口边界
 
 RefMem 不建立裸顶级 `REFMEM` SCPI 域。对外维护查询归 `SYSTem:REFMEM:*`：
@@ -1298,6 +1623,8 @@ SYSTem:REFMEM:TABle?
 SYSTem:REFMEM:TABle:IMAGe?
 SYSTem:REFMEM:TABle:VIEW?
 ```
+
+统一控制面的聚合视图拟以 `SYSTem:COMMand:STATus?` 和 `SYSTem:COMMand:TARget?` 提供；实现前，`SYSTem:COMMand:ACK?` / `SYSTem:COMMand:NACK?` 仍是唯一命令事实读取面。它们同样只读本地快照，不改变本节接口边界。
 
 `SYSTem:REFMEM:STATus?` 的前 8 个字段保持为 `table_size,layout_version,table_seq,local_node_id,node_count,local_heartbeat,service_count,flags`。从初始化可观测性固化后追加 `initialized,init_stage,init_error`，其中 `init_stage` 使用 `DISTRIBUTED_REFMEM_INIT_STAGE_*` 固定枚举，正常完成为 `READY=8`，`init_error=0` 表示无初始化错误；失败时 `init_error` 等于失败阶段码。
 

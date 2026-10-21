@@ -4,8 +4,8 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-10-16
-Version: 6
+Last updated: 2026-10-20
+Version: 7
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
 
@@ -340,7 +340,7 @@ Vector 是数据表，但"时间"由调度器保证。也就是说，Vector 按�
 
 ### Distributed Vector Blackboard / RefMem Sync Layer
 
-Distributed RefMem 是 HAOFV 在分布式 RTOS 系统中的核心体现。它不是 IEC 61499 分布式运行时，也不是任意共享变量区，而是多节点共同事实、命令意图、ACK/NACK、版本、质量和证据的静态数据面。
+Distributed RefMem 是 HAOFV 在分布式 RTOS 系统中的核心体现。它不是 IEC 61499 分布式运行时，也不是任意共享变量区，而是多节点共同事实、命令意图、ACK/NACK、版本、质量和证据的静态数据面，也是系统级命令意图与观测快照的统一控制面。
 
 Distributed RefMem 需要吸收 IEC 61499 分布式运行时的优点，但保留静态、可验证、产品化的实现方式。也就是说，它不支持动态部署 FB，却要有“静态分布式应用模型”的概念：系统中有哪些节点、每个节点部署哪些 AO/FB 实例、哪些事件连接跨节点、哪些数据连接进入哪个 slot、哪个 owner 写入、谁消费、如何确认和如何诊断。
 
@@ -367,6 +367,8 @@ Distributed RefMem 需要吸收 IEC 61499 分布式运行时的优点，但保�
 - state、summary、health、result、quality 和 evidence slot 只能由对应 owner 写入。
 - 跨节点同步只传播 slot delta、版本、CRC、stale、ACK/NACK 和小载荷，不传播 OTA payload、日志全文、波形或硬实时边沿。
 - 查询必须读取本地快照；slot stale 时返回 stale，不临时跨板阻塞查询。
+- RefMem 统一控制面：控制面客户端经 RefMem 的命令槽/快照面挂接，不另建控制总线；任一节点的维护接口都可作为接入点；命令按显式 `target_mask`/`required_mask` 路由到目标插槽，由目标本地 owner 校验并执行，聚合 ACK/NACK/fence；不提供远程裸写、跨板阻塞查询或绕过本地门禁的强制位。契约见 `REFMEM-CTRL-01`。
+- 单端口控制全部板卡的补齐条款：`REFMEM-TRANSPORT-01`（REFMEM_CMD 复用 TDMA config-control）、`REFMEM-SESSION-01`（系统级 TriggerSession）、`REFMEM-ACTION-01`（ActionRegistry/ActionDispatcher）、`REFMEM-LOCAL-01`（单板控制保留：统一面增量，不替换本地 SCPI/slot/owner/T2）；当前均为 pending 架构条款，未实现、未做板端验证。
 - VDC/DPLL 提供共同时间事实，RefMem 保存时间事实的版本、质量和证据。
 - 所有跨节点事件连接和数据连接必须在静态表中声明，禁止在业务代码中临时拼接远程目标。
 - 每个跨节点连接必须定义 source、destination、载荷格式、超时、ACK/NACK、stale 策略和诊断字段。
