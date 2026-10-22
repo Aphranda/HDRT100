@@ -176,6 +176,13 @@ typedef struct {
     uint32_t rejected_count;
 } refmem_sync_vdc_fragment_context_t;
 
+typedef bool (*refmem_sync_command_handler_t)(
+    void *handler_context,
+    const refmem_sync_command_payload_t *payload,
+    uint8_t source_slot,
+    uint32_t epoch_id,
+    uint32_t run_id);
+
 typedef struct {
     uint8_t local_slot;
     uint32_t active_epoch_id;
@@ -186,6 +193,8 @@ typedef struct {
     refmem_sync_fence_snapshot_t fence[REFMEM_SYNC_NODE_COUNT];
     refmem_sync_remote_quality_snapshot_t remote_quality[REFMEM_SYNC_NODE_COUNT];
     refmem_sync_quality_counters_t quality;
+    refmem_sync_command_handler_t command_handler;
+    void *command_handler_context;
 } refmem_sync_context_t;
 
 /* The resident compact mailbox expands only to DELTA. It needs peer order,
@@ -240,6 +249,10 @@ bool refmem_sync_init(refmem_sync_context_t *context,
 bool refmem_sync_set_epoch(refmem_sync_context_t *context,
                            uint32_t active_epoch_id,
                            uint32_t active_run_id);
+void refmem_sync_set_command_handler(
+    refmem_sync_context_t *context,
+    refmem_sync_command_handler_t handler,
+    void *handler_context);
 refmem_sync_rx_result_t refmem_sync_receive_frame(refmem_sync_context_t *context,
                                                   const uint8_t *frame,
                                                   size_t frame_size,

@@ -7,6 +7,7 @@
 
 #include "tdma_adapter_comm_fsm.h"
 #include "tdma_first_class.h"
+#include "tdma_maintenance_stream.h"
 #include "tdma_flight_fifo.h"
 #include "tdma_flight_engine.h"
 #include "tdma_overlay_prepare.h"
@@ -317,8 +318,7 @@ typedef struct {
 typedef struct {
     uint32_t lane_hold_dropped_count;
     uint32_t lane_hold_expired_count;
-    uint32_t lane_ack_override_count;
-    uint32_t wait_violation_count;
+    uint32_t lane_ack_override_count;    uint32_t wait_violation_count;
     uint32_t lane_reject_first_class_count;
     uint32_t retired_waiting_count;
     uint32_t first_class_starved_count;
@@ -533,6 +533,14 @@ typedef struct {
     uint32_t data_next_node[TDMA_RING_CALIBRATION_LINK_MAX];
 } tdma_pio_spi_ring_topology_t;
 
+/* HAOFV payload hook: a registered maintenance service is serviced after the
+ * T2 flight/priority path and only gets the remaining cycle budget. */
+typedef bool (*tdma_ring_maintenance_service_fn)(void *context,
+                                                 uint64_t now_ns);
+typedef bool (*tdma_ring_maintenance_mailbox_fn)(
+    void *context,
+    uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE]);
+
 typedef struct {
     tdma_ring_runtime_config_t config;
     bool configured;
@@ -575,6 +583,14 @@ typedef struct {
     tdma_flight_fifo_t *flight_fifo;
     tdma_first_class_t *first_class;
     tdma_flight_engine_t *flight_engine;
+    tdma_ring_maintenance_service_fn maintenance_service;
+    void *maintenance_service_context;
+    tdma_ring_maintenance_mailbox_fn maintenance_mailbox;
+    void *maintenance_mailbox_context;
+    volatile uint32_t maintenance_priority_calls;
+    volatile uint32_t maintenance_yield_slots;
+    volatile uint32_t maintenance_attempts;
+    volatile uint32_t maintenance_publish_ok;
     tdma_receive_health_t receive_health;
     tdma_pio_spi_ring_topology_t topology;
     uint32_t topology_probe_mode;
@@ -826,6 +842,14 @@ void tdma_pio_spi_ring_adapter_set_first_class(
 void tdma_pio_spi_ring_adapter_set_flight_engine(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_flight_engine_t *engine);
+void tdma_pio_spi_ring_adapter_set_maintenance_service(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_ring_maintenance_service_fn service,
+    void *context);
+void tdma_pio_spi_ring_adapter_set_maintenance_mailbox(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_ring_maintenance_mailbox_fn provider,
+    void *context);
 bool tdma_pio_spi_ring_adapter_set_forwarding_mode(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_forwarding_mode_t mode);
@@ -850,6 +874,24 @@ bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
                                          const uint8_t *packet,
                                          size_t packet_size,
                                          uint64_t rx_timestamp_ns);
+/* Core1 maintenance payload only: read one independent LONG frame that the
+ * origin scheduler already admitted. The T2 flight FIFO is never touched. */
+bool tdma_pio_spi_ring_adapter_read_maintenance(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    uint8_t *payload,
+    size_t payload_capacity,
+    size_t *payload_size,
+    uint32_t *transport_sequence);
+bool tdma_pio_spi_ring_adapter_take_maintenance_chunk(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    uint8_t chunk[TDMA_MAINTENANCE_CHUNK_SIZE],
+    uint32_t *source_slot);
+void tdma_pio_spi_ring_adapter_get_maintenance_counters(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t *priority_calls,
+    uint32_t *yield_slots,
+    uint32_t *attempts,
+    uint32_t *publish_ok);
 const tdma_ring_adapter_ops_t *tdma_pio_spi_ring_adapter_ops(void);
 /* One bounded read. A writer in progress or changed version returns false. */
 bool tdma_pio_spi_ring_adapter_try_get_snapshot(

@@ -1346,15 +1346,18 @@ SYSTem:EVENT:INJect/ABORt -> EVENT_INJECT/ABORT
 
 ### REFMEM-TRANSPORT-01：REFMEM_CMD 运输
 
-`REFMEM_CMD` 是单端口控制面的跨节点命令帧，不新增物理总线，也不新增第二命令槽。首版复用 TDMA 既有 `TDMA_PAYLOAD_CLASS_CONFIG_CONTROL` 作为载体：
+`REFMEM_CMD` 是单端口控制面的跨节点命令帧，不新增物理总线，也不新增第二命令槽。它走 **TDMA 二等席**（RefMem 数据/ACK/fence 所在的普通路径），不再使用 config-control，也不使用 raw SPI：
 
 - `payload_subtype = REFMEM_CMD`；命令 envelope 与 `AckCommandRegion` 字段一致（command_seq/type/class/origin/target/required/payload/crc）。
-- `message_class = TDMA_PAYLOAD_CLASS_CONFIG_CONTROL`；TDMA 接收端按 subtype 分派，`REFMEM_CMD` 是唯一 consumer；未知 subtype 拒绝，其他 config-control consumer 不得占用同一 subtype。
-- active profile 必须包含 `TDMA_PAYLOAD_CLASS_CONFIG_CONTROL`；缺失时 `REFMEM_CMD` 返回 `TRANSPORT_UNAVAILABLE`，不静默降级；不改变 `TDMA_PAYLOAD_FOUNDATION_REQUIRED_MASK`。
-- 预算以 `tdma_traffic_class_profile_t` 的 `reserved_bytes_per_cycle`/`max_frames_per_cycle`/`queue_depth`/`deadline_ns` 为准；`REFMEM_CMD` payload 上限绑定 `sizeof(refmem_command_request_t.payload)`，不新增手写数字。
-- 优先级：`TDMA_TRAFFIC_CONFIG_CONTROL`；不占用 core1 硬实时窗口，不在 ISR 执行；config-control 是控制面预算，不承诺硬实时，超时/fence 不替代 TDMA 调度。
+- wire 尺寸/偏移/CRC 以 `refmem_cmd_codec.h` 的 `REFMEM_CMD_WIRE_SIZE`/`REFMEM_CMD_CRC_OFFSET` 为准；帧不内联 payload 数组。
+- `message_class` 属于 TDMA 二等席的 RefMem 类；接收端按 subtype 分派，`REFMEM_CMD` 是唯一 consumer；未知 subtype 拒绝。
+- 四板分发：`target_mask`/`required_mask` 使用 A0-A3 的显式位；`ring_node_count >= 4`；不得用隐式广播或魔法零值。
+- active profile 必须包含二等席/RefMem 类；缺失时 `REFMEM_CMD` 返回 `TRANSPORT_UNAVAILABLE`，不静默降级。
+- 席位预算：`SYSTem:TDMA:SEAT:ROTation <p>,<f>,<s>` 的 `s` 为二等席让位段；四板分发要求 `s>0`，且按 TDMA 实测规则 `f>=3`（避免 `7,2,1`）；不得拉长周期到影响一等席位置路径。
+- 预算以 `tdma_traffic_class_profile_t` 的 `reserved_bytes_per_cycle`/`max_frames_per_cycle`/`queue_depth`/`deadline_ns` 为准；命令载荷走 `payload_kind`/`payload_ref`/`payload_size`/`payload_crc32`，大载荷用 staging/TLV ref。
+- 优先级：TDMA 二等席；不占用 core1 硬实时窗口，不在 ISR 执行；二等席是普通路径预算，不承诺硬实时。
 - ACK/fence 复用 `TDMA_PAYLOAD_CLASS_REFMEM_ACK_FENCE`；命令帧与 ACK 不共享队列语义。
-- 若 config-control 预算不足，才评估专用 payload class；必须另立契约和 TDMA 联审，不能静默扩类。
+- 不允许为 command 另开 payload class 或物理总线；只有二等席预算不足时，才另立契约和 TDMA 联审。
 - 单端口入口只决定 `origin`；命令必须经 `DistributedRefMemAO` 唯一 command slot，再编码为 `REFMEM_CMD`。
 
 ### REFMEM-SESSION-01：系统级触发会话
@@ -1380,7 +1383,7 @@ RUNNING -> DEGRADED -> ABORTED / STOPPING
 - `session_id` 由 coordinator 分配；`source_slot` 必须唯一且具备 COUNTER/VDC 能力（缺失由 DeploymentGate 拒绝）；`target_mask` 来自 active `SlotClaimMap`。
 - `ControlCoordinator` 是 session 状态的唯一 writer；T2/target 只上报 `armed/running/stopped`，不写 session 状态；`origin` 只读聚合。
 - 单板 `T2:MOUNT/UNMOUNT` 不创建系统 session；只有 `REFMEM-SESSION-01` 才写 coordinator 的 session 状态。
-- `ARMING` 聚合 required targets 的 arm 结果：required 未全 arm 不得进入 `ARMED`，也不得 `START`；失败时已 arm 的 target 必须 `DISARM`，source 不启动，session 回 `CONFIGURED` 或 `FAULT`。
+- `ARMING` 聚合 required targets 的 arm 结果和 source 准备结果：required 未全 arm 或 source 准备失败，不得进入 `ARMED`，也不得 `START`；失败时已 arm 的 target 必须 `DISARM`，source 不启动，session 回 `CONFIGURED` 或 `FAULT`。
 - `START` 只允许从 `ARMED` 发起；若 source 已启动后 required target 失败，进入 `DEGRADED`，必须显式 `STOP/ABORT`，不静默 partial。
 - `STOPPING` 必须有超时：`STOP_TIMEOUT -> DEGRADED/FAULT`，不得静默回 `IDLE`；排空证据写 EventLog。
 - `START` 的 ACK 表示“source 已启动 + required targets 已 arm”，不表示位置已执行；执行证据仍看 T2 `published/frozen/executed`。
@@ -1396,7 +1399,7 @@ RefMem 命令/事件要落到 AO/FB，需要统一的动作分发契约：
 - `ActionRegistry`：每板静态表，`action_id → {owner_id, handler, required, version, crc}`；STOP 期装载，RUN 只读；`action_registry_crc` 进 Version Bundle。
 - `CommandHandlerRegistry`：`command_type → handler`，覆盖 `START/STOP/CAL/LOAD` 等 generic command；与 `action_id` 表分开，避免只有事件路径。
 - `ActionDispatcher`：校验 run-state/permission/deployment/freshness，然后 `post` 到 owner 的有界 mailbox；返回 `ACCEPTED/BUSY/REJECTED`，不直调 handler、不操作 PIO。
-- mailbox 有界且带优先级；满时 `BUSY`/`REJECTED`，不阻塞、不丢 required；可选事件可进 evidence。
+- mailbox 有界且带优先级；满时 `BUSY`/`REJECTED`，不阻塞、不丢 required；required 满时 `REJECTED(QUEUE_FULL)`，可选事件可进 evidence。
 - required `action_id`/`command_type` 缺 handler 时，`DeploymentGate` 拒绝 RUN；optional 缺失进入 evidence；运行期收到未注册 `command_type` 直接 `REJECTED(UNHANDLED)`。
 - handler 必须非阻塞；耗时动作返回 BUSY，由 owner service tick 推进。
 - `action_id` 来自 Event Plane 的静态 EventMapTable；`command_type` 来自 RefMem 命令目录；Event Plane 只提供映射，不执行。

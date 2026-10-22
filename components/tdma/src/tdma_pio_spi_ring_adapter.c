@@ -1,6 +1,7 @@
 #include "tdma_seat_admission.h"
 #include "tdma_seat_mount_store.h"
 #include "tdma_pio_spi_ring_adapter.h"
+#include "tdma_long_frame.h"
 
 #include <string.h>
 
@@ -809,6 +810,30 @@ void tdma_pio_spi_ring_adapter_set_flight_engine(
     adapter->flight_engine = engine;
 }
 
+void tdma_pio_spi_ring_adapter_set_maintenance_service(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_ring_maintenance_service_fn service,
+    void *context)
+{
+    if (adapter == NULL) {
+        return;
+    }
+    adapter->maintenance_service = service;
+    adapter->maintenance_service_context = context;
+}
+
+void tdma_pio_spi_ring_adapter_set_maintenance_mailbox(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_ring_maintenance_mailbox_fn provider,
+    void *context)
+{
+    if (adapter == NULL) {
+        return;
+    }
+    adapter->maintenance_mailbox = provider;
+    adapter->maintenance_mailbox_context = context;
+}
+
 bool tdma_pio_spi_ring_adapter_set_forwarding_mode(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_forwarding_mode_t mode)
@@ -873,6 +898,132 @@ bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
                                                 packet,
                                                 packet_size,
                                                 rx_timestamp_ns);
+}
+
+bool tdma_pio_spi_ring_adapter_read_maintenance(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    uint8_t *payload,
+    size_t payload_capacity,
+    size_t *payload_size,
+    uint32_t *transport_sequence)
+{
+    if (adapter == NULL || payload == NULL || payload_size == NULL ||
+        !adapter->last_rx_gate_accepted ||
+        adapter->last_rx_packet_size == 0u ||
+        adapter->last_rx_packet_size > sizeof(adapter->last_rx_packet)) {
+        return false;
+    }
+    tdma_transport_frame_view_t view;
+    tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+    if (!tdma_transport_frame_decode(adapter->last_rx_packet,
+                                     adapter->last_rx_packet_size,
+                                     &view,
+                                     &result) ||
+        view.payload_class != TDMA_PAYLOAD_CLASS_CONFIG_CONTROL ||
+        view.payload == NULL ||
+        view.payload_size > payload_capacity ||
+        view.origin_slot_id == adapter->config.local_slot_id) {
+        return false;
+    }
+    memcpy(payload, view.payload, view.payload_size);
+    *payload_size = view.payload_size;
+    if (transport_sequence != NULL) {
+        *transport_sequence = view.transport_sequence;
+    }
+    adapter->last_rx_gate_accepted = false;
+    return true;
+}
+
+bool tdma_pio_spi_ring_adapter_take_maintenance_chunk(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    uint8_t chunk[TDMA_MAINTENANCE_CHUNK_SIZE],
+    uint32_t *source_slot)
+{
+    if (adapter == NULL || chunk == NULL ||
+        adapter->last_rx_packet_size == 0u ||
+        adapter->last_rx_packet_size > sizeof(adapter->last_rx_packet)) {
+        return false;
+    }
+    tdma_transport_frame_view_t view;
+    tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+    if (!tdma_transport_frame_decode(adapter->last_rx_packet,
+                                     adapter->last_rx_packet_size,
+                                     &view,
+                                     &result) ||
+        (view.payload_class != TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE &&
+         view.payload_class != TDMA_PAYLOAD_CLASS_CONFIG_CONTROL) ||
+        view.payload == NULL) {
+        return false;
+    }
+    if (view.payload_class == TDMA_PAYLOAD_CLASS_CONFIG_CONTROL) {
+        const uint8_t *mailbox = view.payload;
+        if (view.payload_size < TDMA_FLIGHT_SHORT_SLOT_SIZE ||
+            (uint32_t)mailbox[0] != (TDMA_FLIGHT_MAILBOX_MAGIC & 0xFFu) ||
+            (uint32_t)mailbox[1] != (TDMA_FLIGHT_MAILBOX_MAGIC >> 8u) ||
+            mailbox[TDMA_FLIGHT_MAILBOX_VERSION_OFFSET] !=
+                TDMA_FLIGHT_MAILBOX_VERSION ||
+            mailbox[3] != TDMA_PROCESS_IMAGE_MESSAGE_CLASS ||
+            mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] ==
+                (uint8_t)adapter->config.local_slot_id) {
+            return false;
+        }
+        memcpy(chunk,
+               mailbox + TDMA_FLIGHT_MAILBOX_FAST_HEADER_SIZE,
+               TDMA_MAINTENANCE_CHUNK_SIZE);
+        if (source_slot != NULL) {
+            *source_slot = mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET];
+        }
+        return true;
+    }
+    const uint32_t mask = (1u << adapter->config.node_count) - 1u;
+    for (uint32_t slot = 0u; slot < adapter->config.node_count; slot++) {
+        if ((mask & (1u << slot)) == 0u) {
+            continue;
+        }
+        const uint8_t *mailbox =
+            view.payload + slot * TDMA_FLIGHT_SHORT_SLOT_SIZE;
+        if ((uint32_t)mailbox[0] != (TDMA_FLIGHT_MAILBOX_MAGIC & 0xFFu) ||
+            (uint32_t)mailbox[1] != (TDMA_FLIGHT_MAILBOX_MAGIC >> 8u) ||
+            mailbox[TDMA_FLIGHT_MAILBOX_VERSION_OFFSET] !=
+                TDMA_FLIGHT_MAILBOX_VERSION ||
+            mailbox[3] != TDMA_PROCESS_IMAGE_MESSAGE_CLASS ||
+            mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] ==
+                (uint8_t)adapter->config.local_slot_id) {
+            continue;
+        }
+        memcpy(chunk,
+               mailbox + TDMA_FLIGHT_MAILBOX_FAST_HEADER_SIZE,
+               TDMA_MAINTENANCE_CHUNK_SIZE);
+        if (source_slot != NULL) {
+            *source_slot = mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET];
+        }
+        return true;
+    }
+    return false;
+}
+
+void tdma_pio_spi_ring_adapter_get_maintenance_counters(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t *priority_calls,
+    uint32_t *yield_slots,
+    uint32_t *attempts,
+    uint32_t *publish_ok)
+{
+    if (adapter == NULL) {
+        return;
+    }
+    if (priority_calls != NULL) {
+        *priority_calls = adapter->maintenance_priority_calls;
+    }
+    if (yield_slots != NULL) {
+        *yield_slots = adapter->maintenance_yield_slots;
+    }
+    if (attempts != NULL) {
+        *attempts = adapter->maintenance_attempts;
+    }
+    if (publish_ok != NULL) {
+        *publish_ok = adapter->maintenance_publish_ok;
+    }
 }
 
 static uint32_t tdma_pio_spi_ring_adapter_expected_owner_mask(
@@ -1767,7 +1918,7 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
         tdma_flight_engine_is_active(adapter->flight_engine);
     /* Product RUN has one wire shape.  DPLL evidence is a fixed trailer in
      * that process image; it never replaces a cycle with an IDLE frame. */
-    const bool emit_process_image = has_flight_tx || product_process_image;
+    bool emit_process_image = has_flight_tx || product_process_image;
     const uint8_t *wire_payload = emit_process_image ? tx_view.data : NULL;
     size_t wire_payload_size = emit_process_image ? tx_view.data_size : 0u;
     bool dpll_observation_ready = false;
@@ -1821,17 +1972,32 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
         wire_payload = process_payload;
         wire_payload_size = engine_snapshot.payload_size;
     }
+    uint8_t maintenance_payload[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+    bool maintenance_frame = false;
+    if (!has_flight_tx && adapter->maintenance_mailbox != NULL &&
+        adapter->maintenance_mailbox(adapter->maintenance_mailbox_context,
+                                     maintenance_payload)) {
+        wire_payload = maintenance_payload;
+        wire_payload_size = sizeof(maintenance_payload);
+        emit_process_image = true;
+        maintenance_frame = true;
+        dpll_observation_ready = false;
+    }
     const tdma_transport_frame_build_t build = {
         .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
         .origin_slot_id = adapter->config.local_slot_id,
         .transport_sequence = sequence,
-        .payload_class = emit_process_image
-                             ? TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE
-                             : TDMA_PAYLOAD_CLASS_IDLE_BEACON,
-        .flags = emit_process_image
-                     ? (TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK |
-                        TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE)
-                     : TDMA_TRANSPORT_FLAG_IDLE_BEACON,
+        .payload_class = maintenance_frame
+                             ? TDMA_PAYLOAD_CLASS_CONFIG_CONTROL
+                             : (emit_process_image
+                                    ? TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE
+                                    : TDMA_PAYLOAD_CLASS_IDLE_BEACON),
+        .flags = maintenance_frame
+                     ? 0u
+                     : (emit_process_image
+                            ? (TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK |
+                               TDMA_TRANSPORT_FLAG_FLIGHT_MUTABLE)
+                            : TDMA_TRANSPORT_FLAG_IDLE_BEACON),
         .schedule_crc32 = adapter->config.schedule_crc32,
         .ring_profile_crc32 = adapter->config.ring_profile_crc32,
         .hop_limit = adapter->config.node_count - 1u,
@@ -3185,6 +3351,7 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
             }
         } else {
             tx_ok = true; /* throttled round: keep the UP leg running. */
+            (void)tdma_pio_spi_ring_origin_publish_maintenance(adapter);
         }
         rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter, now_ns);
         /* The owner hands over a completed bootstrap at this boundary,
@@ -3353,6 +3520,10 @@ static bool tdma_pio_spi_ring_adapter_service(
     const bool result = tdma_pio_spi_ring_adapter_service_impl(context,
                                                                now_ns,
                                                                status);
+    if (result && adapter->maintenance_service != NULL) {
+        (void)adapter->maintenance_service(
+            adapter->maintenance_service_context, now_ns);
+    }
     tdma_pio_spi_ring_adapter_snapshot_write_end(adapter);
     tdma_service_timing_record(TDMA_TIMING_ADAPTER, started);
     return result;

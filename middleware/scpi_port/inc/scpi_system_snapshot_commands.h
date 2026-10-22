@@ -287,6 +287,9 @@ scpi_result_t scpi_cmd_system_tdma_ring_start(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_stop(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_log(scpi_t *context);
 scpi_result_t scpi_cmd_system_tdma_ring_log_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_long_frame_tx(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_long_frame_rx_q(scpi_t *context);
+scpi_result_t scpi_cmd_system_tdma_long_frame_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_core_vector_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_vdc_vector_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_vdc_priority_q(scpi_t *context);
@@ -600,6 +603,9 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:TDMA:RING:STOP", .callback = scpi_cmd_system_tdma_ring_stop}, \
     {.pattern = "SYSTem:TDMA:RING:LOG?", .callback = scpi_cmd_system_tdma_ring_log_q}, \
     {.pattern = "SYSTem:TDMA:RING:LOG", .callback = scpi_cmd_system_tdma_ring_log}, \
+    {.pattern = "SYSTem:TDMA:LONGframe:TX", .callback = scpi_cmd_system_tdma_long_frame_tx}, \
+    {.pattern = "SYSTem:TDMA:LONGframe:RX?", .callback = scpi_cmd_system_tdma_long_frame_rx_q}, \
+    {.pattern = "SYSTem:TDMA:LONGframe:STATus?", .callback = scpi_cmd_system_tdma_long_frame_status_q}, \
     {.pattern = "SYSTem:CORE:VECTOR?", .callback = scpi_cmd_core_vector_q}, \
     {.pattern = "SYSTem:REFMEM:VDC:VECtor?", .callback = scpi_cmd_refmem_vdc_vector_q}, \
     {.pattern = "SYSTem:REFMEM:VDC:PRIORity?", .callback = scpi_cmd_refmem_vdc_priority_q}, \

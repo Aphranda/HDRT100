@@ -9,6 +9,7 @@
 #include "diagnostics_tdma_record.h"
 #include "pico/time.h"
 #include "board_config.h"
+#include "board_identity.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
 #include "distributed_refmem_vdc_bridge.h"
@@ -29,6 +30,12 @@
 #include "tdma_runtime_owner.h"
 #include "tdma_rx_start_cut.h"
 #include "tdma_service_timing.h"
+#include "tdma_long_frame.h"
+#include "tdma_maintenance.h"
+#include "tdma_maintenance_stream.h"
+#include "tdma_maintenance_runtime.h"
+#include "tdma_process_image_layout.h"
+#include "tdma_pio_spi_ring_adapter.h"
 #include "vdc_dpll_manager.h"
 #include "vdc_timestamp_clock.h"
 
@@ -41,6 +48,141 @@
 #include "tdma_seat_admission.h"
 #include "tdma_seat_mount_store.h"
 #include "scpi_trigger_seat_commands.inc"
+
+static tdma_long_frame_fifo_t s_tdma_long_frame_tx;
+static tdma_long_frame_fifo_t s_tdma_long_frame_rx;
+static tdma_maintenance_service_t s_tdma_maintenance;
+static bool s_tdma_long_frame_ready;
+static tdma_maintenance_stream_tx_t s_tdma_maintenance_stream;
+static bool s_tdma_maintenance_stream_active;
+static uint32_t s_tdma_maintenance_mailbox_seq;
+static volatile uint32_t s_tdma_maintenance_mailbox_calls;
+static volatile uint32_t s_tdma_maintenance_chunks;
+
+static bool tdma_ring_maintenance_mailbox(void *context,
+                                          uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE])
+{
+    (void)context;
+    if (!s_tdma_maintenance_stream_active) {
+        return false;
+    }
+    s_tdma_maintenance_mailbox_calls++;
+    uint8_t chunk[TDMA_MAINTENANCE_CHUNK_SIZE];
+    if (!tdma_maintenance_stream_next_chunk(&s_tdma_maintenance_stream, chunk)) {
+        s_tdma_maintenance_stream_active = false;
+        return false;
+    }
+    s_tdma_maintenance_chunks++;
+    memset(mailbox, 0, TDMA_FLIGHT_SHORT_SLOT_SIZE);
+    mailbox[0] = (uint8_t)TDMA_FLIGHT_MAILBOX_MAGIC;
+    mailbox[1] = (uint8_t)(TDMA_FLIGHT_MAILBOX_MAGIC >> 8u);
+    mailbox[2] = TDMA_FLIGHT_MAILBOX_VERSION;
+    mailbox[3] = TDMA_PROCESS_IMAGE_MESSAGE_CLASS;
+    mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] =
+        (uint8_t)(board_identity_get_no() - 1u);
+    mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] = 0x0Fu;
+    mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET] =
+        (uint8_t)s_tdma_maintenance_mailbox_seq;
+    mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET + 1u] =
+        (uint8_t)(s_tdma_maintenance_mailbox_seq >> 8u);
+    s_tdma_maintenance_mailbox_seq++;
+    memcpy(mailbox + TDMA_FLIGHT_MAILBOX_FAST_HEADER_SIZE,
+           chunk, sizeof(chunk));
+    const uint16_t crc =
+        tdma_process_image_crc16_ccitt(mailbox, TDMA_PROCESS_IMAGE_CRC_OFFSET);
+    mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET] = (uint8_t)crc;
+    mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] = (uint8_t)(crc >> 8u);
+    return true;
+}
+
+static bool tdma_ring_maintenance_send(void *context,
+                                       const uint8_t *frame,
+                                       size_t frame_size,
+                                       uint32_t generation,
+                                       uint32_t sequence,
+                                       uint32_t segment_mask)
+{
+    (void)context;
+    (void)frame;
+    (void)frame_size;
+    (void)generation;
+    (void)sequence;
+    (void)segment_mask;
+    /* The origin TX scheduler owns admission; the old physical bypass is gone. */
+    return false;
+}
+
+static bool tdma_ring_maintenance_poll(void *context,
+                                       uint8_t *frame,
+                                       size_t frame_capacity,
+                                       size_t *frame_size,
+                                       uint32_t *generation,
+                                       uint32_t *sequence,
+                                       uint32_t *segment_mask)
+{
+    (void)context;
+    tdma_pio_spi_ring_adapter_t *adapter =
+        tdma_runtime_owner_get_ring_adapter();
+    uint32_t transport_sequence = 0u;
+    if (adapter == NULL ||
+        !tdma_pio_spi_ring_adapter_read_maintenance(
+            adapter, frame, frame_capacity, frame_size, &transport_sequence)) {
+        return false;
+    }
+    *generation = 1u;
+    *sequence = transport_sequence;
+    *segment_mask = 1u;
+    return true;
+}
+
+static bool tdma_ring_maintenance_service(void *context, uint64_t now_ns)
+{
+    (void)now_ns;
+    tdma_maintenance_on_cycle((tdma_maintenance_service_t *)context);
+    return true;
+}
+
+static void tdma_long_frame_ensure_ready(void)
+{
+    tdma_pio_spi_ring_adapter_t *adapter =
+        tdma_runtime_owner_get_ring_adapter();
+    if (s_tdma_long_frame_ready) {
+        if (adapter != NULL) {
+            tdma_pio_spi_ring_adapter_set_maintenance_service(
+                adapter, tdma_ring_maintenance_service, &s_tdma_maintenance);
+            tdma_pio_spi_ring_adapter_set_maintenance_mailbox(
+                adapter, tdma_ring_maintenance_mailbox, NULL);
+        }
+        return;
+    }
+    tdma_long_frame_fifo_init(&s_tdma_long_frame_tx);
+    tdma_long_frame_fifo_init(&s_tdma_long_frame_rx);
+    static const tdma_maintenance_transport_ops_t ops = {
+        .send = tdma_ring_maintenance_send,
+        .poll = tdma_ring_maintenance_poll,
+    };
+    static const tdma_maintenance_config_t config = {
+        .period_cycles = 64u,
+        .window_cycles = 8u,
+        .max_window_bytes = TDMA_LONG_FRAME_MAX,
+    };
+    if (tdma_maintenance_init(&s_tdma_maintenance,
+                              &s_tdma_long_frame_tx,
+                              &s_tdma_long_frame_rx,
+                              &config, &ops, NULL)) {
+        s_tdma_long_frame_ready = true;
+        if (adapter != NULL) {
+            tdma_pio_spi_ring_adapter_set_maintenance_service(
+                adapter,
+                tdma_ring_maintenance_service,
+                &s_tdma_maintenance);
+            tdma_pio_spi_ring_adapter_set_maintenance_mailbox(
+                adapter,
+                tdma_ring_maintenance_mailbox,
+                NULL);
+        }
+    }
+}
 
 #define SCPI_REFMEM_LOAD_JOB_WAIT_LOOPS 10000u
 #define SCPI_TDMA_FIFO_RESET_WAIT_LOOPS 100u
@@ -1222,6 +1364,65 @@ scpi_result_t scpi_cmd_refmem_sync_rx(scpi_t *context)
                                         &s_refmem_sync.last_rx);
     }
     scpi_refmem_sync_apply_node_load_delta(&s_refmem_sync.last_rx);
+    SCPI_ResultText(context, s_refmem_sync.last_rx.accepted != 0u ? "ACCEPTED" : "REJECTED");
+    scpi_refmem_sync_result_rx_snapshot(context, &s_refmem_sync.last_rx);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_frame_tx(scpi_t *context)
+{
+    if (!scpi_refmem_sync_ensure_initialized()) {
+        return SCPI_RES_ERR;
+    }
+
+    const char *hex = NULL;
+    size_t hex_len = 0u;
+    if (SCPI_ParamCharacters(context, &hex, &hex_len, TRUE) != TRUE) {
+        return SCPI_RES_ERR;
+    }
+
+    uint8_t frame[SCPI_REFMEM_SYNC_FRAME_MAX];
+    size_t frame_size = 0u;
+    if (!scpi_refmem_sync_hex_decode(hex,
+                                     hex_len,
+                                     frame,
+                                     sizeof(frame),
+                                     &frame_size) ||
+        !refmem_spi_physical_adapter_transmit(&s_refmem_sync.spi_adapter,
+                                              frame,
+                                              frame_size)) {
+        scpi_port_push_exec_error(context, "REFMEM_SYNC_FRAME_TX");
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, (uint32_t)frame_size);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_sync_frame_rx(scpi_t *context)
+{
+    if (!scpi_refmem_sync_ensure_initialized()) {
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t timeout_ms = 1000u;
+    (void)SCPI_ParamUInt32(context, &timeout_ms, FALSE);
+    uint8_t frame[SCPI_REFMEM_SYNC_FRAME_MAX];
+    size_t frame_size = 0u;
+    if (!refmem_spi_physical_adapter_receive(&s_refmem_sync.spi_adapter,
+                                             frame,
+                                             sizeof(frame),
+                                             &frame_size,
+                                             timeout_ms)) {
+        scpi_port_push_exec_error(context, "REFMEM_SYNC_FRAME_RX");
+        return SCPI_RES_ERR;
+    }
+
+    (void)refmem_sync_receive_frame(&s_refmem_sync.context,
+                                    frame,
+                                    frame_size,
+                                    &s_refmem_sync.last_rx);
     SCPI_ResultText(context, s_refmem_sync.last_rx.accepted != 0u ? "ACCEPTED" : "REJECTED");
     scpi_refmem_sync_result_rx_snapshot(context, &s_refmem_sync.last_rx);
     return SCPI_RES_OK;
@@ -3764,24 +3965,55 @@ scpi_result_t scpi_cmd_system_tdma_flight_tx(scpi_t *context)
     uint32_t generation = 1u;
     uint32_t sequence = 1u;
     uint32_t segment_mask = 1u;
-    if (owner == NULL ||
-        !scpi_port_read_u32(context, &byte_count)) {
+    const char *hex_text = NULL;
+    size_t hex_len = 0u;
+    uint8_t payload[TDMA_FLIGHT_PAYLOAD_CAPACITY];
+    bool hex_mode = false;
+    if (owner == NULL) {
         return SCPI_RES_ERR;
     }
-    (void)SCPI_ParamUInt32(context, &seed, FALSE);
-    (void)SCPI_ParamUInt32(context, &generation, FALSE);
-    (void)SCPI_ParamUInt32(context, &sequence, FALSE);
-    (void)SCPI_ParamUInt32(context, &segment_mask, FALSE);
+
+    if (SCPI_ParamCharacters(context, &hex_text, &hex_len, FALSE) == TRUE) {
+        size_t decoded = 0u;
+        if (!scpi_refmem_sync_hex_decode(hex_text,
+                                         hex_len,
+                                         payload,
+                                         sizeof(payload),
+                                         &decoded) ||
+            decoded == 0u) {
+            scpi_port_push_exec_error(context, "TDMA_FLIGHT_TX_HEX");
+            return SCPI_RES_ERR;
+        }
+        byte_count = (uint32_t)decoded;
+        hex_mode = true;
+        (void)SCPI_ParamUInt32(context, &generation, FALSE);
+        (void)SCPI_ParamUInt32(context, &sequence, FALSE);
+        (void)SCPI_ParamUInt32(context, &segment_mask, FALSE);
+    } else {
+        if (!scpi_port_read_u32(context, &byte_count)) {
+            return SCPI_RES_ERR;
+        }
+        (void)SCPI_ParamUInt32(context, &seed, FALSE);
+        (void)SCPI_ParamUInt32(context, &generation, FALSE);
+        (void)SCPI_ParamUInt32(context, &sequence, FALSE);
+        (void)SCPI_ParamUInt32(context, &segment_mask, FALSE);
+    }
+
     if (byte_count > TDMA_FLIGHT_PAYLOAD_CAPACITY ||
         seed > UINT8_MAX || generation == 0u) {
         return SCPI_RES_ERR;
     }
 
-    uint8_t payload[TDMA_FLIGHT_PAYLOAD_CAPACITY];
     uint32_t checksum = 0u;
-    for (uint32_t i = 0u; i < byte_count; i++) {
-        payload[i] = (uint8_t)(seed + i);
-        checksum += payload[i];
+    if (!hex_mode) {
+        for (uint32_t i = 0u; i < byte_count; i++) {
+            payload[i] = (uint8_t)(seed + i);
+            checksum += payload[i];
+        }
+    } else {
+        for (uint32_t i = 0u; i < byte_count; i++) {
+            checksum += payload[i];
+        }
     }
 
     if (!tdma_service_publish_flight_tx(owner,
@@ -3808,6 +4040,14 @@ scpi_result_t scpi_cmd_system_tdma_flight_rx_q(scpi_t *context)
 {
     tdma_service_service_t *owner = tdma_runtime_owner_get();
     tdma_flight_rx_view_t view;
+    const char *mode = NULL;
+    size_t mode_len = 0u;
+    const bool hex_mode =
+        SCPI_ParamCharacters(context, &mode, &mode_len, FALSE) == TRUE &&
+        mode_len == 3u &&
+        (mode[0] == 'H' || mode[0] == 'h') &&
+        (mode[1] == 'E' || mode[1] == 'e') &&
+        (mode[2] == 'X' || mode[2] == 'x');
     if (owner == NULL ||
         !tdma_service_acquire_flight_rx(owner, &view)) {
         SCPI_ResultText(context, "EMPTY");
@@ -3829,9 +4069,21 @@ scpi_result_t scpi_cmd_system_tdma_flight_rx_q(scpi_t *context)
         (uint32_t)(view.timestamp_ns & 0xFFFFFFFFull);
     const uint32_t timestamp_ns_hi = (uint32_t)(view.timestamp_ns >> 32u);
     const uint32_t quality_flags = view.quality_flags;
-    (void)tdma_service_release_flight_rx(owner, view.slot_index);
-
-    SCPI_ResultText(context, "RX");
+    if (hex_mode && view.data_size <= TDMA_FLIGHT_PAYLOAD_CAPACITY) {
+        char hex[(TDMA_FLIGHT_PAYLOAD_CAPACITY * 2u) + 1u];
+        static const char digits[] = "0123456789ABCDEF";
+        for (uint32_t i = 0u; i < view.data_size; i++) {
+            hex[i * 2u] = digits[view.data[i] >> 4u];
+            hex[(i * 2u) + 1u] = digits[view.data[i] & 0x0Fu];
+        }
+        hex[view.data_size * 2u] = '\0';
+        (void)tdma_service_release_flight_rx(owner, view.slot_index);
+        SCPI_ResultText(context, "RXHEX");
+        SCPI_ResultText(context, hex);
+    } else {
+        (void)tdma_service_release_flight_rx(owner, view.slot_index);
+        SCPI_ResultText(context, "RX");
+    }
     SCPI_ResultUInt32(context, data_size);
     SCPI_ResultUInt32(context, checksum);
     SCPI_ResultUInt32(context, first_byte);
@@ -4378,6 +4630,142 @@ scpi_result_t scpi_cmd_system_tdma_ring_log_q(scpi_t *context)
 {
     SCPI_ResultBool(context,
                     distributed_refmem_get_tdma_ring_log_enabled() ? TRUE : FALSE);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_long_frame_tx(scpi_t *context)
+{
+    const char *hex = NULL;
+    size_t hex_len = 0u;
+    uint8_t frame[TDMA_LONG_FRAME_MAX];
+    size_t frame_size = 0u;
+    uint32_t generation = 1u;
+    uint32_t sequence = 1u;
+    uint32_t segment_mask = 1u;
+    if (SCPI_ParamCharacters(context, &hex, &hex_len, TRUE) != TRUE ||
+        !scpi_refmem_sync_hex_decode(hex, hex_len, frame, sizeof(frame),
+                                     &frame_size)) {
+        scpi_port_push_exec_error(context, "TDMA_LONGFRAME_TX_HEX");
+        return SCPI_RES_ERR;
+    }
+    (void)SCPI_ParamUInt32(context, &generation, FALSE);
+    (void)SCPI_ParamUInt32(context, &sequence, FALSE);
+    (void)SCPI_ParamUInt32(context, &segment_mask, FALSE);
+    tdma_long_frame_ensure_ready();
+    if (!tdma_maintenance_runtime_submit(
+            frame, frame_size,
+            (uint8_t)(board_identity_get_no() - 1u),
+            (uint8_t)generation)) {
+        scpi_port_push_exec_error(context, "TDMA_LONGFRAME_TX");
+        return SCPI_RES_ERR;
+    }
+    uint32_t checksum = 0u;
+    for (size_t i = 0u; i < frame_size; i++) {
+        checksum += frame[i];
+    }
+    SCPI_ResultText(context, "OK");
+    SCPI_ResultUInt32(context, (uint32_t)frame_size);
+    SCPI_ResultUInt32(context, checksum);
+    SCPI_ResultUInt32(context, generation);
+    SCPI_ResultUInt32(context, sequence);
+    SCPI_ResultUInt32(context, segment_mask);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_long_frame_rx_q(scpi_t *context)
+{
+    const char *mode = NULL;
+    size_t mode_len = 0u;
+    const bool hex_mode =
+        SCPI_ParamCharacters(context, &mode, &mode_len, FALSE) == TRUE &&
+        mode_len == 3u &&
+        (mode[0] == 'H' || mode[0] == 'h') &&
+        (mode[1] == 'E' || mode[1] == 'e') &&
+        (mode[2] == 'X' || mode[2] == 'x');
+    tdma_long_frame_ensure_ready();
+    uint8_t received[TDMA_LONG_FRAME_MAX];
+    size_t received_size = 0u;
+    uint8_t received_stream = 0u;
+    uint8_t received_generation = 0u;
+    while (tdma_maintenance_runtime_take(
+               received, sizeof(received), &received_size,
+               &received_stream, &received_generation)) {
+        (void)tdma_long_frame_publish_rx(
+            &s_tdma_long_frame_rx,
+            received, received_size,
+            received_generation, received_stream, 1u);
+    }
+    tdma_long_frame_view_t view;
+    if (!tdma_long_frame_acquire_rx(&s_tdma_long_frame_rx, &view)) {
+        SCPI_ResultText(context, "EMPTY");
+        return SCPI_RES_OK;
+    }
+    if (hex_mode) {
+        char hex[(TDMA_LONG_FRAME_MAX * 2u) + 1u];
+        static const char digits[] = "0123456789ABCDEF";
+        for (uint32_t i = 0u; i < view.data_size; i++) {
+            hex[i * 2u] = digits[view.data[i] >> 4u];
+            hex[(i * 2u) + 1u] = digits[view.data[i] & 0x0Fu];
+        }
+        hex[view.data_size * 2u] = '\0';
+        SCPI_ResultText(context, "LONGHEX");
+        SCPI_ResultText(context, hex);
+    } else {
+        SCPI_ResultText(context, "LONG");
+    }
+    const uint32_t data_size = view.data_size;
+    const uint32_t generation = view.generation;
+    const uint32_t sequence = view.sequence;
+    const uint32_t segment_mask = view.segment_mask;
+    uint32_t checksum = 0u;
+    for (uint32_t i = 0u; i < view.data_size; i++) {
+        checksum += view.data[i];
+    }
+    tdma_long_frame_release_rx(&s_tdma_long_frame_rx, view.slot_index);
+    SCPI_ResultUInt32(context, data_size);
+    SCPI_ResultUInt32(context, checksum);
+    SCPI_ResultUInt32(context, generation);
+    SCPI_ResultUInt32(context, sequence);
+    SCPI_ResultUInt32(context, segment_mask);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_system_tdma_long_frame_status_q(scpi_t *context)
+{
+    tdma_long_frame_ensure_ready();
+    tdma_maintenance_snapshot_t snapshot;
+    tdma_maintenance_get_snapshot(&s_tdma_maintenance, &snapshot);
+    SCPI_ResultUInt32(context, snapshot.version);
+    SCPI_ResultUInt32(context, snapshot.tx_sent_count);
+    SCPI_ResultUInt32(context, snapshot.tx_blocked_count);
+    SCPI_ResultUInt32(context, snapshot.rx_published_count);
+    SCPI_ResultUInt32(context, snapshot.rx_reject_count);
+    SCPI_ResultUInt32(context, snapshot.window_open_count);
+    SCPI_ResultUInt32(context, snapshot.cycle_count);
+    SCPI_ResultUInt32(context, snapshot.window_open ? 1u : 0u);
+    uint32_t mailbox_calls = 0u;
+    uint32_t chunks = 0u;
+    uint32_t frames = 0u;
+    uint32_t rejects = 0u;
+    tdma_maintenance_runtime_get_counters(
+        &mailbox_calls, &chunks, &frames, &rejects);
+    SCPI_ResultUInt32(context, TDMA_LONG_FRAME_MAX);
+    SCPI_ResultUInt32(context, mailbox_calls);
+    SCPI_ResultUInt32(context, chunks);
+    SCPI_ResultUInt32(context, frames);
+    SCPI_ResultUInt32(context, rejects);
+    uint32_t priority_calls = 0u;
+    uint32_t yield_slots = 0u;
+    uint32_t attempts = 0u;
+    uint32_t publish_ok = 0u;
+    tdma_pio_spi_ring_adapter_t *adapter =
+        tdma_runtime_owner_get_ring_adapter();
+    tdma_pio_spi_ring_adapter_get_maintenance_counters(
+        adapter, &priority_calls, &yield_slots, &attempts, &publish_ok);
+    SCPI_ResultUInt32(context, priority_calls);
+    SCPI_ResultUInt32(context, yield_slots);
+    SCPI_ResultUInt32(context, attempts);
+    SCPI_ResultUInt32(context, publish_ok);
     return SCPI_RES_OK;
 }
 

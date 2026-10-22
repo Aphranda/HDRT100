@@ -269,6 +269,18 @@ bool refmem_sync_set_epoch(refmem_sync_context_t *context,
     return true;
 }
 
+void refmem_sync_set_command_handler(
+    refmem_sync_context_t *context,
+    refmem_sync_command_handler_t handler,
+    void *handler_context)
+{
+    if (context == NULL) {
+        return;
+    }
+    context->command_handler = handler;
+    context->command_handler_context = handler_context;
+}
+
 static refmem_sync_rx_result_t refmem_sync_receive_frame_impl(
     const refmem_sync_rx_context_t *context,
     const uint8_t *frame,
@@ -372,6 +384,44 @@ static refmem_sync_rx_result_t refmem_sync_receive_frame_impl(
                                   payload_size,
                                   false);
         return REFMEM_SYNC_RX_FRAME_INVALID;
+    }
+
+    if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_COMMAND &&
+        payload_size == sizeof(refmem_sync_command_payload_t) &&
+        context->maintenance != NULL &&
+        context->maintenance->command_handler != NULL) {
+        refmem_sync_command_payload_t command;
+        (void)memcpy(&command, payload, sizeof(command));
+        const bool target_ok =
+            command.target_mask != 0u &&
+            (command.target_mask & (1u << context->local_slot)) != 0u;
+        const bool handled = target_ok &&
+            context->maintenance->command_handler(
+                context->maintenance->command_handler_context,
+                &command,
+                header.source_slot,
+                header.epoch_id,
+                header.run_id);
+        if (!handled) {
+            context->quality->bad_frame_count++;
+            refmem_sync_fill_snapshot(snapshot,
+                                      REFMEM_SYNC_RX_FRAME_INVALID,
+                                      REFMEM_SYNC_FRAME_BAD_TYPE,
+                                      &header,
+                                      payload,
+                                      payload_size,
+                                      false);
+            return REFMEM_SYNC_RX_FRAME_INVALID;
+        }
+        context->quality->accepted_count++;
+        refmem_sync_fill_snapshot(snapshot,
+                                  REFMEM_SYNC_RX_ACCEPTED,
+                                  frame_result,
+                                  &header,
+                                  payload,
+                                  payload_size,
+                                  true);
+        return REFMEM_SYNC_RX_ACCEPTED;
     }
 
     if (header.frame_type == (uint8_t)REFMEM_SYNC_FRAME_COMMAND &&

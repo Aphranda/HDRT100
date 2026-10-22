@@ -562,6 +562,11 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_profile.c
         components/tdma/src/tdma_payload_registry.c
         components/tdma/src/tdma_flight_fifo.c
+        components/tdma/src/tdma_long_frame.c
+        components/tdma/src/tdma_maintenance.c
+        components/tdma/src/tdma_maintenance_load.c
+        components/tdma/src/tdma_maintenance_stream.c
+        components/tdma/src/tdma_maintenance_runtime.c
         components/tdma/src/tdma_flight_overlay.c
         components/tdma/src/tdma_overlay_prepare.c
         components/tdma/src/tdma_rx_prepare.c

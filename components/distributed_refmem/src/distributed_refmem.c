@@ -149,6 +149,12 @@ typedef struct {
 
 static refmem_vector_table_t s_distributed_refmem_table __attribute__((aligned(4)));
 static refmem_command_slot_t s_refmem_command_slot;
+static bool distributed_refmem_sync_command_handler(
+    void *handler_context,
+    const refmem_sync_command_payload_t *payload,
+    uint8_t source_slot,
+    uint32_t epoch_id,
+    uint32_t run_id);
 static refmem_realtime_tdma_service_t s_refmem_realtime_tdma;
 static refmem_spi_physical_adapter_t s_refmem_realtime_spi;
 static distributed_refmem_node_load_owner_entry_t
@@ -2245,6 +2251,9 @@ static void distributed_refmem_node_load_auto_init(void)
                            s_node_load_auto_sync.local_slot,
                            s_node_load_auto_sync.epoch_id,
                            s_node_load_auto_sync.run_id);
+    refmem_sync_set_command_handler(&s_refmem_sync_context,
+                                    distributed_refmem_sync_command_handler,
+                                    NULL);
 }
 
 static bool distributed_refmem_node_load_auto_enqueue(uint32_t instance_id)
@@ -4626,6 +4635,38 @@ bool distributed_refmem_build_node_load_sync_frame(uint32_t instance_id,
                                                    frame_size);
 }
 
+static bool distributed_refmem_sync_command_handler(
+    void *handler_context,
+    const refmem_sync_command_payload_t *payload,
+    uint8_t source_slot,
+    uint32_t epoch_id,
+    uint32_t run_id)
+{
+    (void)handler_context;
+    refmem_command_request_t request;
+    if (payload == NULL ||
+        !refmem_command_request_from_sync_payload(
+            payload, source_slot, epoch_id, run_id, &request)) {
+        return false;
+    }
+    const uint32_t local_slot = s_refmem_sync_context.local_slot;
+    if ((request.target_mask & (1u << local_slot)) == 0u ||
+        !refmem_command_try_post(&s_refmem_command_slot, &request, osal_tick_ms())) {
+        return false;
+    }
+    const refmem_command_take_result_t take =
+        refmem_command_try_take(&s_refmem_command_slot,
+                                local_slot,
+                                epoch_id,
+                                run_id,
+                                request.payload_crc32,
+                                0u);
+    if (take != REFMEM_COMMAND_TAKE_TAKEN) {
+        return false;
+    }
+    return refmem_command_ack(&s_refmem_command_slot, local_slot, 0u);
+}
+
 bool distributed_refmem_apply_node_load_sync_payload(const uint8_t *payload,
                                                      uint16_t payload_size)
 {
@@ -4686,6 +4727,9 @@ bool distributed_refmem_configure_node_load_auto_sync(
                           s_node_load_auto_sync.run_id)) {
         return false;
     }
+    refmem_sync_set_command_handler(&s_refmem_sync_context,
+                                    distributed_refmem_sync_command_handler,
+                                    NULL);
     /* SCPI and RefMem are separate Core0 tasks. Only the RefMem service may
      * retire/write the dedicated command receiver; configuration leaves it
      * for the next service boundary. */

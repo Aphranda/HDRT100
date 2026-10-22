@@ -368,7 +368,7 @@ Distributed RefMem 需要吸收 IEC 61499 分布式运行时的优点，但保�
 - 跨节点同步只传播 slot delta、版本、CRC、stale、ACK/NACK 和小载荷，不传播 OTA payload、日志全文、波形或硬实时边沿。
 - 查询必须读取本地快照；slot stale 时返回 stale，不临时跨板阻塞查询。
 - RefMem 统一控制面：控制面客户端经 RefMem 的命令槽/快照面挂接，不另建控制总线；任一节点的维护接口都可作为接入点；命令按显式 `target_mask`/`required_mask` 路由到目标插槽，由目标本地 owner 校验并执行，聚合 ACK/NACK/fence；不提供远程裸写、跨板阻塞查询或绕过本地门禁的强制位。契约见 `REFMEM-CTRL-01`。
-- 单端口控制全部板卡的补齐条款：`REFMEM-TRANSPORT-01`（REFMEM_CMD 复用 TDMA config-control）、`REFMEM-SESSION-01`（系统级 TriggerSession）、`REFMEM-ACTION-01`（ActionRegistry/ActionDispatcher）、`REFMEM-LOCAL-01`（单板控制保留：统一面增量，不替换本地 SCPI/slot/owner/T2）；当前均为 pending 架构条款，未实现、未做板端验证。
+- 单端口控制全部板卡的补齐条款：`REFMEM-TRANSPORT-01`（REFMEM_CMD 走 TDMA 二等席，四板 A0-A3 分发，不新增物理总线）、`REFMEM-SESSION-01`（系统级 TriggerSession）、`REFMEM-ACTION-01`（ActionRegistry/ActionDispatcher）、`REFMEM-LOCAL-01`（单板控制保留：统一面增量，不替换本地 SCPI/slot/owner/T2）；当前均为 pending 架构条款，未实现、未做板端验证。
 - VDC/DPLL 提供共同时间事实，RefMem 保存时间事实的版本、质量和证据。
 - 所有跨节点事件连接和数据连接必须在静态表中声明，禁止在业务代码中临时拼接远程目标。
 - 每个跨节点连接必须定义 source、destination、载荷格式、超时、ACK/NACK、stale 策略和诊断字段。

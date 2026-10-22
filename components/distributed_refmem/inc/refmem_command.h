@@ -189,6 +189,15 @@ bool refmem_command_get_snapshot(const refmem_command_slot_t *slot,
                                  refmem_command_snapshot_t *snapshot);
 bool refmem_command_to_sync_command_payload(const refmem_command_snapshot_t *snapshot,
                                             refmem_sync_command_payload_t *payload);
+bool refmem_command_request_to_sync_payload(
+    const refmem_command_request_t *request,
+    refmem_sync_command_payload_t *payload);
+bool refmem_command_request_from_sync_payload(
+    const refmem_sync_command_payload_t *payload,
+    uint32_t source_node,
+    uint32_t issue_epoch,
+    uint32_t run_id,
+    refmem_command_request_t *request);
 bool refmem_command_to_sync_ack_payload(const refmem_command_snapshot_t *snapshot,
                                         refmem_sync_ack_nack_payload_t *payload);
 

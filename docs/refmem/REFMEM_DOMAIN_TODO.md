@@ -411,15 +411,30 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 目标：**只通过文档与契约**补齐 `REFMEM-TRANSPORT-01`、`REFMEM-SESSION-01`、`REFMEM-ACTION-01` 三个 canonical 缺口，并冻结 `REFMEM-LOCAL-01`（单板控制保留）；不改代码、不做板端验证。架构见 `REFMEM_DOMAIN_ARCHITECTURE.md` 的四个同名小节。
 
-- [ ] M0.1 `REFMEM-TRANSPORT-01`：`REFMEM_CMD` 复用 `TDMA_PAYLOAD_CLASS_CONFIG_CONTROL`；冻结 envelope、`TDMA_CONFIG_CONTROL_RESERVED_BYTES`/`MAX_FRAMES`、`REFMEM_CMD_MAX_PAYLOAD`、ACK/fence；TDMA 联审。
-- [ ] M0.2 `REFMEM-SESSION-01`：冻结 `CONFIGURE/ARM/START/STOP/ABORT`、状态机、source/target/required、`T2:MOUNT/UNMOUNT` 兼容映射、ACK/fence。
-- [ ] M0.3 `REFMEM-ACTION-01`：冻结 `ActionRegistry`/`ActionDispatcher`、`action_id→handler`、STOP 装载、post 非阻塞、缺 handler gate。
-- [ ] M0.4 `REFMEM-LOCAL-01`：单板 SCPI/slot/owner/T2 保留；本地 target 不走 `REFMEM_CMD`；统一面不可用时本地仍可用，远端/全目标拒绝而非静默缩成单板。
-- [ ] M0.5 契约登记：四条 pending 行、clause_loc/code_anchor 核对。
-- [ ] M0.6 独立复核：另一 agent 复核条款/边界；不涉及代码/板端。
+- [x] M0.1 `REFMEM-TRANSPORT-01`：`REFMEM_CMD` 走 TDMA 二等席（RefMem 数据/ACK/fence 普通路径），四板 A0-A3 显式 target/required；冻结 envelope、`tdma_traffic_class_profile_t` 预算、seat rotation `s>0 & f>=3`、payload ref/size/crc、ACK/fence；TDMA 联审待做。
+- [x] M0.2 `REFMEM-SESSION-01`：冻结 `CONFIGURE/ARM/START/STOP/ABORT`、状态机、source/target/required、`T2:MOUNT/UNMOUNT` 兼容映射、ACK/fence。
+- [x] M0.3 `REFMEM-ACTION-01`：冻结 `ActionRegistry`/`ActionDispatcher`、`action_id→handler`、STOP 装载、post 非阻塞、缺 handler gate。
+- [x] M0.4 `REFMEM-LOCAL-01`：单板 SCPI/slot/owner/T2 保留；本地 target 不走 `REFMEM_CMD`；统一面不可用时本地仍可用，远端/全目标拒绝而非静默缩成单板。
+- [x] M0.5 契约登记：四条 pending 行、clause_loc/code_anchor 核对。
+- [ ] M0.6 独立复核：另一 agent 复核条款/边界；不涉及代码/板端。当前 R1/R2/HAOFV R1 为同一 agent fresh pass，C11 未签。
+
+证据：`REFMEM_DOMAIN_ARCHITECTURE.md` 四个同名小节；`DOCS_REGISTRY.md` 四条 pending 行；`REFMEM_UNIFIED_CONTROL_REVIEW_01/02.md`、`REFMEM_HAOFV_REVIEW_01.md`。
 
 门禁：M0 只改文档/契约；不新增第二命令槽、不接 POSITION、不让 Event Plane 执行实时边沿。
 
+## M1 - host 实现（当前分支）
+
+目标：只做 host 可编译/可测试的 M1 骨架，不接板、不接 TDMA 实物、不加第二命令槽。
+
+- [x] `REFMEM_CMD` codec：`refmem_cmd_codec.h/.c`，`REFMEM_CMD_WIRE_SIZE` canonical frame、LE、CRC、magic/version/reserved 校验；payload 只走 ref/size/crc。
+- [x] `REFMEM_SYNC_FRAME_COMMAND` payload 转换：`refmem_command_request_to/from_sync_payload`，与既有 `refmem_sync_command_payload_t` 对接；host 用例覆盖 mask/seq/type 拒绝。
+- [x] `TriggerSession` 状态机：`refmem_trigger_session.h/.c`，CONFIGURE/ARM/START/STOP/ABORT、ARMING、DISARM、DEGRADED、STOP timeout、T2 MOUNT 兼容。
+- [x] `ActionRegistry/ActionDispatcher`：`refmem_action_registry.h/.c`，action_id/command_type 查找、有界队列、QUEUE_FULL、UNHANDLED、required handler gate。
+- [x] 本地/统一面路由：`refmem_control_route.h/.c`，local-only 不走 `REFMEM_CMD`；统一面不可用拒绝远端/全目标。
+- [x] host 测试：5 个新 runner + `run_refmem_all_host_tests.ps1`（设置 sync_trigger include 后跑全部 RefMem host tests）。
+- [ ] 接入 CMake/固件主流程（M2 前不做；避免当前分支 WIP 冲突）。
+- [ ] 板端/HIL（不在 host M1）。
+
 ## 后续实现（不在本目标）
 
-- M1 host 闭环；M2 两板 HIL；M3 两板 T2 session；M4 四板 all-target；M5 C11/产品证据。实现阶段另立任务，不在本轮架构补齐范围内。
+- M2 两板 HIL；M3 两板 T2 session；M4 四板 all-target；M5 C11/产品证据。实现阶段另立任务。

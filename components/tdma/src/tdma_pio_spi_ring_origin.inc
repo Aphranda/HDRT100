@@ -290,6 +290,9 @@ static void tdma_pio_spi_ring_origin_commit_owner(tdma_pio_spi_ring_adapter_t *a
     adapter->origin.published_owner_sequence = tx->sequence;
 }
 
+static bool tdma_pio_spi_ring_origin_publish_maintenance(
+    tdma_pio_spi_ring_adapter_t *adapter);
+
 static bool tdma_pio_spi_ring_origin_publish_async(tdma_pio_spi_ring_adapter_t *adapter)
 {
     tdma_overlay_prepare_t *job = adapter->overlay_preparation;
@@ -314,6 +317,7 @@ static bool tdma_pio_spi_ring_origin_publish_async(tdma_pio_spi_ring_adapter_t *
             (void)tdma_flight_engine_accept_tx(adapter->flight_engine, &job->layout,
                 &job->applied, job->tx.reused_previous);
             tdma_pio_spi_ring_origin_commit_owner(adapter, &job->tx, job->tx_data, generation);
+            (void)tdma_pio_spi_ring_origin_publish_maintenance(adapter);
         }
         tdma_overlay_prepare_release(job);
         return valid;
@@ -325,7 +329,23 @@ static bool tdma_pio_spi_ring_origin_publish_async(tdma_pio_spi_ring_adapter_t *
     if (state != TDMA_OVERLAY_PREPARE_IDLE ||
         !adapter->phys_origin.ready(adapter->phys_ctrl_context) || adapter->flight_fifo == NULL) return true;
     tdma_flight_tx_view_t tx;
-    if (!tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx)) return true;
+    if (!tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx)) {
+        if (adapter->maintenance_mailbox != NULL &&
+            adapter->phys_origin.ready(adapter->phys_ctrl_context)) {
+            uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+            if (adapter->maintenance_mailbox(
+                    adapter->maintenance_mailbox_context, mailbox)) {
+                uint32_t generation = 0u;
+                if (adapter->phys_origin.publish(
+                        adapter->phys_ctrl_context, mailbox, &generation) &&
+                    generation != 0u &&
+                    generation != adapter->origin.published_generation) {
+                    adapter->origin.published_generation = generation;
+                }
+            }
+        }
+        return true;
+    }
     if (adapter->origin.published_owner_generation == tx.generation &&
         adapter->origin.published_owner_sequence == tx.sequence) {
         /* Acquiring made this slot CORE1_ACTIVE; returning without releasing it leaks the
@@ -436,11 +456,36 @@ static bool tdma_pio_spi_ring_origin_first_class_valid(
  * and the call consumes no publication opportunity at all. Publication
  * opportunities are counted separately in origin.seat_opportunity_count, and each
  * one ends in exactly one seat, deferral or refusal. */
+static bool tdma_pio_spi_ring_origin_publish_maintenance(
+    tdma_pio_spi_ring_adapter_t *adapter)
+{
+    ++adapter->maintenance_attempts;
+    if (adapter->maintenance_mailbox == NULL ||
+        !adapter->phys_origin.ready(adapter->phys_ctrl_context)) {
+        return false;
+    }
+    uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+    if (!adapter->maintenance_mailbox(
+            adapter->maintenance_mailbox_context, mailbox)) {
+        return false;
+    }
+    uint32_t generation = 0u;
+    if (!adapter->phys_origin.publish(
+            adapter->phys_ctrl_context, mailbox, &generation) ||
+        generation == 0u ||
+        generation == adapter->origin.published_generation) {
+        return false;
+    }
+    adapter->origin.published_generation = generation;
+    ++adapter->maintenance_publish_ok;
+    return true;
+}
+
 static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
     tdma_pio_spi_ring_adapter_t *adapter, bool *handled)
 {
-    uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
-    const tdma_priority_tx_result_t offered =
+    ++adapter->maintenance_priority_calls;
+    uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];    const tdma_priority_tx_result_t offered =
         adapter->priority_tx_provider(&adapter->config, mailbox);
     *handled = offered != TDMA_PRIORITY_TX_DISABLED;
     if (!*handled) return true;
@@ -484,8 +529,11 @@ static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
     }
     /* EMPTY reserves nothing: an idle priority seat yields the opportunity. */
     const bool first_pending = tdma_first_class_pending(adapter->first_class);
-    if ((!priority_new && !first_pending) ||
-        !adapter->phys_origin.ready(adapter->phys_ctrl_context)) return true;
+    if (!adapter->phys_origin.ready(adapter->phys_ctrl_context)) return true;
+    if (!priority_new && !first_pending) {
+        (void)tdma_pio_spi_ring_origin_publish_maintenance(adapter);
+        return true;
+    }
 
     /* One publication opportunity: the exchange is free and someone has news.
      * Rotate the leading class per opportunity (M:N), never wasting it. The
@@ -508,7 +556,11 @@ static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
     const uint32_t slot = (cycle != 0u)
         ? adapter->origin.seat_opportunity_count % cycle : 0u;
     adapter->origin.seat_opportunity_count++;
-    if (slot >= priority_share + first_class_share) return true;
+    if (slot >= priority_share + first_class_share) {
+        ++adapter->maintenance_yield_slots;
+        (void)tdma_pio_spi_ring_origin_publish_maintenance(adapter);
+        return true;
+    }
     const bool priority_leads = slot < priority_share;
     const bool board_first = first_pending && (!priority_new || !priority_leads);
     bool boarded = false;
@@ -575,7 +627,23 @@ static bool tdma_pio_spi_ring_origin_publish(tdma_pio_spi_ring_adapter_t *adapte
     if (!adapter->phys_origin.ready(adapter->phys_ctrl_context) || adapter->flight_fifo == NULL)
         return true;
     tdma_flight_tx_view_t tx;
-    if (!tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx)) return true;
+    if (!tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx)) {
+        if (adapter->maintenance_mailbox != NULL &&
+            adapter->phys_origin.ready(adapter->phys_ctrl_context)) {
+            uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+            if (adapter->maintenance_mailbox(
+                    adapter->maintenance_mailbox_context, mailbox)) {
+                uint32_t generation = 0u;
+                if (adapter->phys_origin.publish(
+                        adapter->phys_ctrl_context, mailbox, &generation) &&
+                    generation != 0u &&
+                    generation != adapter->origin.published_generation) {
+                    adapter->origin.published_generation = generation;
+                }
+            }
+        }
+        return true;
+    }
     if (adapter->origin.published_owner_generation == tx.generation &&
         adapter->origin.published_owner_sequence == tx.sequence) {
         /* Acquiring made this slot CORE1_ACTIVE; returning without releasing it leaks the

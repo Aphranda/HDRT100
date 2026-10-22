@@ -421,6 +421,67 @@ bool refmem_command_to_sync_command_payload(const refmem_command_snapshot_t *sna
     return true;
 }
 
+bool refmem_command_request_to_sync_payload(
+    const refmem_command_request_t *request,
+    refmem_sync_command_payload_t *payload)
+{
+    if (request == NULL || payload == NULL) {
+        return false;
+    }
+    if (request->command_seq == 0u || request->command_type == 0u ||
+        request->target_mask == 0u || request->required_mask == 0u ||
+        (request->required_mask & ~request->target_mask) != 0u) {
+        return false;
+    }
+
+    payload->command_seq = request->command_seq;
+    payload->command_type = request->command_type;
+    payload->command_class = request->command_class;
+    payload->source_instance = request->source_instance;
+    payload->target_mask = request->target_mask;
+    payload->required_mask = request->required_mask;
+    payload->payload_kind = request->payload_kind;
+    payload->payload_ref = request->payload_ref;
+    payload->payload_size = request->payload_size;
+    payload->payload_crc32 = request->payload_crc32;
+    payload->timeout_us = request->timeout_us;
+    return true;
+}
+
+bool refmem_command_request_from_sync_payload(
+    const refmem_sync_command_payload_t *payload,
+    uint32_t source_node,
+    uint32_t issue_epoch,
+    uint32_t run_id,
+    refmem_command_request_t *request)
+{
+    if (payload == NULL || request == NULL) {
+        return false;
+    }
+    if (payload->command_seq == 0u || payload->command_type == 0u ||
+        payload->target_mask == 0u || payload->required_mask == 0u ||
+        (payload->required_mask & ~payload->target_mask) != 0u) {
+        return false;
+    }
+
+    (void)memset(request, 0, sizeof(*request));
+    request->command_seq = payload->command_seq;
+    request->source_node = source_node;
+    request->source_instance = payload->source_instance;
+    request->target_mask = payload->target_mask;
+    request->required_mask = payload->required_mask;
+    request->command_type = payload->command_type;
+    request->command_class = payload->command_class;
+    request->payload_kind = payload->payload_kind;
+    request->payload_ref = payload->payload_ref;
+    request->payload_size = payload->payload_size;
+    request->payload_crc32 = payload->payload_crc32;
+    request->issue_epoch = issue_epoch;
+    request->run_id = run_id;
+    request->timeout_us = payload->timeout_us;
+    return true;
+}
+
 bool refmem_command_to_sync_ack_payload(const refmem_command_snapshot_t *snapshot,
                                         refmem_sync_ack_nack_payload_t *payload)
 {

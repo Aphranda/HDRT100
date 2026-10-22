@@ -2,6 +2,8 @@
 
 #include "tdma_pio_spi_phys.h"
 #include "tdma_pio_spi_ring_adapter.h"
+#include "tdma_maintenance_runtime.h"
+#include "board_identity.h"
 #include "vdc_timestamp_clock.h"
 #include "resource_arbiter.h"
 #include "calibration_origin_timing.h"
@@ -406,6 +408,10 @@ bool tdma_runtime_owner_init(void)
             &s_tdma_pio_spi_ring_adapter,
             0u,
             TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY);
+        const uint32_t board_no = board_identity_get_no();
+        (void)tdma_maintenance_runtime_init(
+            &s_tdma_pio_spi_ring_adapter,
+            board_no > 0u ? board_no - 1u : 0u);
         initialized = true;
     }
     if (!initialized) {
