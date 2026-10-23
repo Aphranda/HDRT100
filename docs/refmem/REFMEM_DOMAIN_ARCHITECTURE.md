@@ -186,7 +186,7 @@ Other nodes
 本节是当前实现和后续待办的收敛点。若下文历史推导与本节冲突，以本节为准。
 
 - `DistributedRefMemAO` 是 RefMem Domain 的唯一运行 owner；SCPI、UI、System Pack 和业务 AO/FB 只提交意图或读取 snapshot，不直接改 active fact。
-- RefMem 统一控制面以 `AckCommandRegion` 为唯一命令事实契约：接入点无关、显式 `target_mask`/`required_mask`、单一控制协调者租约、目标本地 owner 执行、ACK/NACK/fence 聚合；读取只读本地快照。C0 已冻结（2026-10-23）：live slot 保持 `distributed_refmem.c` 的 static `s_refmem_command_slot`，`ack_command` 预留区仅目录注册，不承载 live slot；物理放置与证据见本章“当前实现状态”和 `REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。契约见 `REFMEM-CTRL-01`。
+- RefMem 统一控制面以 REFMEM 复制区为唯一命令事实契约：任意板写入本板 RefMem 槽后全环同步，接入点无关、显式 `target_mask`/`required_mask`、目标本地 owner 执行、ACK/NACK/fence 聚合；观测面直接读 REFMEM 快照。C0 方向（2026-10-23 修订）：命令槽由 REFMEM 复制区承载，static `s_refmem_command_slot` 仅为迁移前本地载体；详见本章“当前实现状态”。契约见 `REFMEM-CTRL-01`。
 - A0-A7 是全环唯一的通用逻辑插槽，代表可装载 slot substrate，不代表固定产品角色；具体角色由 `DistributedNodeLoadTable` 绑定到 AO/FB instance。
 - 一块物理板可以加载多个逻辑实例，例如调试阶段同时承载模拟网分和模拟转台；active assignment 仍最多 8 个，candidate proposal 上限为 16。
 - `DistributedGenericNodeTable` 只描述通用逻辑插槽基座、硬件身份、capability、claim policy 和 fail policy；不得把业务 role/persona 反向塞回 GenericNode。
@@ -1577,7 +1577,7 @@ IDLE
 | 能力 | 状态 |
 |---|---|
 | 本地 command slot、ACK/NACK/busy/timeout、`SYSTem:COMMand:ACK?` | 已实现 |
-| 命令槽物理放置 | **C0 已冻结（2026-10-23）**：live slot 保持 `distributed_refmem.c` 的 static `s_refmem_command_slot` 为规范物理位置；`refmem_vector_table_t.ack_command`（`DISTRIBUTED_REFMEM_ACK_CMD_SIZE`）仅目录注册，不承载 live slot；本地单板语义不变 |
+| 命令槽物理放置 | **C0 方向（2026-10-23 修订）**：命令槽必须由 REFMEM 复制区承载，任意板写入 → 全环同步；`distributed_refmem.c` 的 static `s_refmem_command_slot` 仅为当前本地载体，不再是规范物理位置；观测面直接读 REFMEM 快照 |
 | Event Plane 静态装载（`EVENT_CONFIGURE`） | 未实现；Event Plane 是静态子域，不持有第二命令槽/ACK/epoch，不做运行时注入 |
 | 显式 `target_mask` / `required_mask` 字段与本地 take 校验 | 已实现 |
 | 跨节点命令路由与 ACK 回程 | `REFTMEM_CMD` 经 TDMA 维护流（二等载荷类型 0x52）已实现并 HIL 验证：参考板 SCPI 入队 → 三目标 `rx_events/decoded/posted/acked=1`，发送方 `tx_ok=1`；见 `REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。协调者租约/非协调者转发仍属 C1/C3 |
@@ -1586,17 +1586,18 @@ IDLE
 | 跨节点 FENCE（activation gate 的全环 ACK） | 未实现 |
 | 命令目录 CRC 进入 Version Bundle | 未实现 |
 
-**C0 决策（2026-10-23）**：命令槽的规范物理位置确定为 `distributed_refmem.c` 的 static
-`s_refmem_command_slot`，不迁入 `AckCommandRegion` 的 `ack_command` 预留区。理由：现有
-owner/SCPI intent/slot 生命周期均绑定该 static；迁入需同步目录与布局版本并重做单板语义，
-收益不足以覆盖风险。`ack_command` 区继续只做目录注册。C0 的 HIL 证据与 C1 的已完成部分见
-`docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。
+**C0 方向修订（2026-10-23）**：命令槽不再冻结在本地 static，改为由 **REFMEM 复制区**
+承载：任意板写入本板 RefMem 槽（process-image mailbox 格式，带 seq/CRC），环同步到所有板；
+各板从本地镜像读命令、落本地 command slot、执行并把 ACK/NACK 写回同一复制区。观测面直接读
+REFMEM 快照（`SYSTem:REFMEM:*`），不新增独立观测面。static `s_refmem_command_slot` 仅作为
+迁移前的本地载体保留。`--no-t2` 的 `PHYSICAL_FLIGHT` 纯直通环没有从板写入口，验证必须用启用
+flight engine / process-image 的环。
 
 ### 分阶段落地与验收
 
 | 阶段 | 内容 | 退出判据 |
 |---|---|---|
-| C0 | 信封字段、目录 CRC、聚合视图 schema 冻结；命令槽物理放置二选一：迁入 `ack_command` 区并同步目录/布局版本，或明确 static 为规范物理位置；本地单板语义不变 | host 用例 + 既有 HIL 回归 |
+| C0 | 信封字段、目录 CRC、聚合视图 schema 冻结；命令槽由 REFMEM 复制区承载（任意板可写、全环同步），本地单板语义不变 | host 用例 + process-image 环 HIL 回归 |
 | C1 | 两板与转发：Entry A（协调者）→ Target B；再测 Entry B（非协调者）→ Coordinator A → Target C，覆盖转发与聚合回程 | B/C 本地状态变化 + A/B 读到 ACK/fence |
 | C2 | required/partial/timeout/preempt/重复幂等 | 负测覆盖 NACK、timeout、重复、抢占 |
 | C3 | 协调者租约、STOP/维护态迁移、双主拒绝 | 租约迁移与双主负测 |

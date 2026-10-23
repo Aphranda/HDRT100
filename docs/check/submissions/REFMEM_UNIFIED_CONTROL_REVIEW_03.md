@@ -6,6 +6,10 @@ Canonical: `docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_03.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/check/DOCS_REGISTRY.md`, `tools/refmem/refmem_cmd_tdma_workflow/README.md`
 Last updated: 2026-10-23
 
+> **2026-10-23 修订**：本单的 C0“static 冻结”结论已被 `REFMEM_DOMAIN_ARCHITECTURE.md`
+> 的 C0 方向修订取代——命令槽改由 REFMEM 复制区承载（任意板写、全环同步，观测读
+> REFMEM 快照）。C1a 的投递/解析/ACK 证据仍有效，继续作为后续迁移的回归基线。
+
 ## 1. 审查范围
 
 对象：`REFMEM-CTRL-01` 的 **C0**（命令槽物理放置冻结）与 **C1a**（`REFTMEM_CMD` 全目标投递/解析/ACK）。

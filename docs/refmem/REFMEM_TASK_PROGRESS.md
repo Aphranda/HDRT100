@@ -19,6 +19,7 @@ Last updated: 2026-10-23
 - 下一步：C11 独立复核 C0/C1a；之后按 C1 转发 → C2 负测 → C3 租约推进。
 - 追加（2026-10-23，T2_DYNAMIC 执行闭环）：解析器在 envelope 校验后调用 `tdma_t2_dynamic_apply_fn`；默认 executor 记录 `t2_dynamic_applied/last_target/last_run/last_config/last_value`，可用 `tdma_t2_dynamic_set_apply()` 替换为真实 T2 运行时；`REFTMEM:CMD:STATus?` 追加 5 字段。HIL（build `20261023131748`，`target_mask=0x0F`）三目标均 `t2_dynamic_ok=1`、`t2_dynamic_applied=1`，记录字段 `15/42/7/9` 与发送 envelope 一致；证据 `out/refmem_cmd_tdma/t2_dynamic_closeout/`。
 - C1 转发实验（2026-10-23）：以 COM4（从板）为 Entry、`target_mask=0x0C` 提交 `REFTMEM_CMD`，源端 `submitted/served/tx_ok=1`，但 COM3/COM6 `rx_events=0`、源端 `inject_attempts=0`。原因：从板转发走 PIO 直通（`PHYSICAL_FLIGHT`/`PHYSICAL_PROCESS_IMAGE`），软件 TX 路径不参与，维护流没有上行注入点。⇒ 非协调者 Entry 需要 process-overlay 注入或专用 uplink mailbox（或把入口收敛到协调者）；C1 保持未完成，本轮未保留无效代码。证据 `out/refmem_cmd_tdma/c1_entry_com4/`。
+- C0 方向修订（2026-10-23）：RefMem 是对称复制黑板，任意板写入 REFMEM 的数据同步到其他板；统一控制面 = 修改 REFMEM 控制所有板、观测 REFMEM 快照观测所有板。命令槽改由 REFMEM 复制区承载，static `s_refmem_command_slot` 仅作迁移前载体；`--no-t2` 纯直通环验证不了从板写，后续 HIL 用启用 flight engine / process-image 的环。原“static 冻结”结论作废。
 
 ### REFMEM-TASK-20261021-005 — HAOFV 偏差审查
 
