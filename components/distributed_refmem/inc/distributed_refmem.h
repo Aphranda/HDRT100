@@ -605,6 +605,21 @@ bool distributed_refmem_command_mark_timeout(uint32_t now_tick32,
                                              uint32_t evidence_index);
 bool distributed_refmem_command_clear(uint32_t clear_seq);
 bool distributed_refmem_get_command_snapshot(refmem_command_snapshot_t *snapshot);
+
+/* C0: per-board replicated control record in the node slot.  The AO mirrors
+ * every local command-slot change into the local node's record; any board can
+ * read another board's record from the REFMEM snapshot. */
+bool distributed_refmem_node_control_write(uint32_t node_id,
+                                           const refmem_command_snapshot_t *snapshot,
+                                           uint32_t seq);
+bool distributed_refmem_node_control_read(uint32_t node_id,
+                                          refmem_command_snapshot_t *snapshot,
+                                          uint32_t *seq,
+                                          uint32_t *crc32);
+bool distributed_refmem_node_control_ack(uint32_t node_id,
+                                         uint32_t target_slot,
+                                         uint32_t evidence_index);
+bool distributed_refmem_node_control_clear(uint32_t node_id);
 bool distributed_refmem_register_node_load_owner(
     uint32_t instance_id,
     distributed_refmem_node_load_owner_t owner,

@@ -101,6 +101,36 @@ bool refmem_cmd_load_submit_type(uint8_t type,
     }
     s_submitted++;
     s_tx_ok++;
+    if (type == TDMA_SECOND_CLASS_TYPE_REFMEM_CMD) {
+        /* C0: the issuer also records the command in its own REFMEM node
+         * control slot, so the source is observable through the same
+         * snapshot as the targets instead of only through TX counters. */
+        refmem_command_request_t request;
+        if (wire_size == REFMEM_CMD_WIRE_SIZE &&
+            refmem_cmd_codec_decode(wire, &request) == REFMEM_CMD_CODEC_OK) {
+            const uint32_t board_no = board_identity_get_no();
+            const uint32_t local_slot = board_no > 0u ? board_no - 1u : 0u;
+            refmem_command_snapshot_t snapshot;
+            memset(&snapshot, 0, sizeof(snapshot));
+            snapshot.state = REFMEM_COMMAND_STATE_POSTED;
+            snapshot.command_seq = request.command_seq;
+            snapshot.source_node = local_slot;
+            snapshot.source_instance = request.source_instance;
+            snapshot.target_mask = request.target_mask;
+            snapshot.required_mask = request.required_mask;
+            snapshot.command_type = request.command_type;
+            snapshot.command_class = request.command_class;
+            snapshot.payload_kind = request.payload_kind;
+            snapshot.payload_ref = request.payload_ref;
+            snapshot.payload_size = request.payload_size;
+            snapshot.payload_crc32 = request.payload_crc32;
+            snapshot.issue_epoch = request.issue_epoch;
+            snapshot.run_id = request.run_id;
+            snapshot.timeout_us = request.timeout_us;
+            (void)distributed_refmem_node_control_write(
+                local_slot, &snapshot, request.command_seq);
+        }
+    }
     return true;
 }
 

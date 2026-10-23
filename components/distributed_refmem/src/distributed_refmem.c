@@ -15,6 +15,7 @@
 #include "refmem_command.h"
 #include "refmem_cmd_load.h"
 #include "refmem_control_route.h"
+#include "refmem_node_control.h"
 #include "refmem_node_load_sync.h"
 #include "refmem_quality.h"
 #include "refmem_realtime_tdma.h"
@@ -3990,6 +3991,8 @@ bool distributed_refmem_command_set_reason_table_crc32(uint32_t reason_table_crc
     return ok;
 }
 
+static void distributed_refmem_mirror_local_control(void);
+
 bool distributed_refmem_command_try_post(const refmem_command_request_t *request,
                                          uint32_t issue_tick32)
 {
@@ -4014,6 +4017,9 @@ bool distributed_refmem_command_try_post(const refmem_command_request_t *request
                                             request,
                                             issue_tick32);
     osal_critical_exit();
+    if (ok) {
+        distributed_refmem_mirror_local_control();
+    }
     return ok;
 }
 
@@ -4029,6 +4035,7 @@ refmem_command_take_result_t distributed_refmem_command_try_take(
         &s_refmem_command_slot, target_node, active_epoch, active_run_id,
         observed_payload_crc32, evidence_index);
     osal_critical_exit();
+    distributed_refmem_mirror_local_control();
     return result;
 }
 
@@ -4040,6 +4047,7 @@ bool distributed_refmem_command_ack(uint32_t target_node,
                                        target_node,
                                        evidence_index);
     osal_critical_exit();
+    distributed_refmem_mirror_local_control();
     return ok;
 }
 
@@ -4053,6 +4061,7 @@ bool distributed_refmem_command_nack(uint32_t target_node,
                                         reason,
                                         evidence_index);
     osal_critical_exit();
+    distributed_refmem_mirror_local_control();
     return ok;
 }
 
@@ -4064,6 +4073,7 @@ bool distributed_refmem_command_mark_timeout(uint32_t now_tick32,
                                                 now_tick32,
                                                 evidence_index);
     osal_critical_exit();
+    distributed_refmem_mirror_local_control();
     return ok;
 }
 
@@ -4072,7 +4082,84 @@ bool distributed_refmem_command_clear(uint32_t clear_seq)
     osal_critical_enter();
     const bool ok = refmem_command_clear(&s_refmem_command_slot, clear_seq);
     osal_critical_exit();
+    distributed_refmem_mirror_local_control();
     return ok;
+}
+
+/* C0: mirror the single local command slot into the local node's REFMEM
+ * control record.  The record is the replicated fact; the static command slot
+ * remains the execution edge until the write path is switched to REFMEM. */
+static uint32_t s_node_control_seq;
+
+static void distributed_refmem_mirror_local_control(void);
+
+bool distributed_refmem_node_control_write(uint32_t node_id,
+                                           const refmem_command_snapshot_t *snapshot,
+                                           uint32_t seq)
+{
+    refmem_vector_node_region_t *node = distributed_refmem_node_region(node_id);
+    return node != NULL &&
+           refmem_node_control_write(&node->command, &node->control_seq,
+                                     &node->control_crc32, snapshot, seq);
+}
+
+bool distributed_refmem_node_control_read(uint32_t node_id,
+                                          refmem_command_snapshot_t *snapshot,
+                                          uint32_t *seq,
+                                          uint32_t *crc32)
+{
+    const refmem_vector_node_region_t *node =
+        distributed_refmem_node_region(node_id);
+    if (node == NULL) {
+        return false;
+    }
+    if (!refmem_node_control_read(&node->command, node->control_seq,
+                                  node->control_crc32, snapshot)) {
+        return false;
+    }
+    if (seq != NULL) {
+        *seq = node->control_seq;
+    }
+    if (crc32 != NULL) {
+        *crc32 = node->control_crc32;
+    }
+    return true;
+}
+
+bool distributed_refmem_node_control_ack(uint32_t node_id,
+                                         uint32_t target_slot,
+                                         uint32_t evidence_index)
+{
+    refmem_vector_node_region_t *node = distributed_refmem_node_region(node_id);
+    return node != NULL &&
+           refmem_node_control_ack(&node->command, &node->control_seq,
+                                   &node->control_crc32, target_slot,
+                                   evidence_index);
+}
+
+bool distributed_refmem_node_control_clear(uint32_t node_id)
+{
+    refmem_vector_node_region_t *node = distributed_refmem_node_region(node_id);
+    return node != NULL &&
+           refmem_node_control_clear(&node->command, &node->control_seq,
+                                     &node->control_crc32);
+}
+
+static void distributed_refmem_mirror_local_control(void)
+{
+    refmem_command_snapshot_t snapshot;
+    if (!refmem_command_get_snapshot(&s_refmem_command_slot, &snapshot)) {
+        return;
+    }
+    refmem_vector_node_region_t *node =
+        distributed_refmem_node_region(DISTRIBUTED_REFMEM_LOCAL_NODE_ID);
+    if (node == NULL) {
+        return;
+    }
+    s_node_control_seq++;
+    (void)refmem_node_control_write(&node->command, &node->control_seq,
+                                    &node->control_crc32, &snapshot,
+                                    s_node_control_seq);
 }
 
 bool distributed_refmem_get_command_snapshot(refmem_command_snapshot_t *snapshot)

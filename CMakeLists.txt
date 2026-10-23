@@ -472,6 +472,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_application_model.c
         components/distributed_refmem/src/refmem_claim_protocol.c
         components/distributed_refmem/src/refmem_command.c
+        components/distributed_refmem/src/refmem_node_control.c
         components/distributed_refmem/src/refmem_cmd_codec.c
         components/distributed_refmem/src/refmem_cmd_load.c
         components/distributed_refmem/src/refmem_trigger_session.c

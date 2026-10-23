@@ -881,6 +881,43 @@ scpi_result_t scpi_cmd_refmem_cmd_status_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_node_control_q(scpi_t *context)
+{
+    uint32_t node_id = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    (void)SCPI_ParamUInt32(context, &node_id, FALSE);
+
+    refmem_command_snapshot_t snapshot;
+    uint32_t seq = 0u;
+    uint32_t crc32 = 0u;
+    if (!distributed_refmem_node_control_read(node_id, &snapshot, &seq,
+                                              &crc32)) {
+        return SCPI_RES_ERR;
+    }
+
+    SCPI_ResultUInt32(context, node_id);
+    SCPI_ResultUInt32(context, seq);
+    SCPI_ResultUInt32(context, crc32);
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.command_seq);
+    SCPI_ResultUInt32(context, snapshot.source_node);
+    SCPI_ResultUInt32(context, snapshot.target_mask);
+    SCPI_ResultUInt32(context, snapshot.required_mask);
+    SCPI_ResultUInt32(context, snapshot.command_type);
+    SCPI_ResultUInt32(context, snapshot.command_class);
+    SCPI_ResultUInt32(context, snapshot.ack_flags);
+    SCPI_ResultUInt32(context, snapshot.nack_flags);
+    SCPI_ResultUInt32(context, snapshot.busy_flags);
+    SCPI_ResultUInt32(context, snapshot.timeout_flags);
+    SCPI_ResultUInt32(context, snapshot.last_reason);
+    SCPI_ResultUInt32(context, snapshot.last_reason_slot);
+    SCPI_ResultUInt32(context, snapshot.evidence_index);
+    SCPI_ResultUInt32(context, snapshot.last_completed_seq);
+    SCPI_ResultUInt32(context, snapshot.run_id);
+    SCPI_ResultUInt32(context, snapshot.issue_epoch);
+    SCPI_ResultUInt32(context, snapshot.payload_crc32);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_load_board_status_q(scpi_t *context)
 {
     refmem_board_capability_load_snapshot_t snapshot;
