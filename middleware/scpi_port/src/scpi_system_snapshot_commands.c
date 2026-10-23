@@ -873,6 +873,11 @@ scpi_result_t scpi_cmd_refmem_cmd_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.t2_static_last_value);
     SCPI_ResultUInt32(context, status.t2_dynamic_ok);
     SCPI_ResultUInt32(context, status.t2_dynamic_reject);
+    SCPI_ResultUInt32(context, status.t2_dynamic_applied);
+    SCPI_ResultUInt32(context, status.t2_dynamic_last_target);
+    SCPI_ResultUInt32(context, status.t2_dynamic_last_run);
+    SCPI_ResultUInt32(context, status.t2_dynamic_last_config);
+    SCPI_ResultUInt32(context, status.t2_dynamic_last_value);
     return SCPI_RES_OK;
 }
 

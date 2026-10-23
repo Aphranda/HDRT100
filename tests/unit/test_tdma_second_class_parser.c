@@ -84,6 +84,12 @@ int main(void)
     assert(tdma_second_class_parser_get_count(
         TDMA_SECOND_CLASS_TYPE_T2_DYNAMIC, &count));
     assert(count.accepted == 1u && count.rejected == 1u);
+    assert(tdma_t2_dynamic_applied_count() == 1u);
+    uint32_t dyn_target = 0u, dyn_run = 0u, dyn_config = 0u, dyn_value = 0u;
+    assert(tdma_t2_dynamic_get_last(&dyn_target, &dyn_run, &dyn_config,
+                                    &dyn_value));
+    assert(dyn_target == 0x0Fu && dyn_run == 42u && dyn_config == 7u &&
+           dyn_value == 9u);
 
     assert(!tdma_second_class_parser_dispatch(0x7Fu, static_frame,
                                               sizeof(static_frame)));

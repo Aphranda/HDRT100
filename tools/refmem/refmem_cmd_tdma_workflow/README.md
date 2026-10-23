@@ -126,4 +126,25 @@ The HIL workflow verifies `t2_static_ok` and `t2_static_applied` on every
 target.  A real T2 state machine can replace the executor with
 `tdma_t2_static_set_apply()` without changing the parser or transport.
 
+## T2_DYNAMIC execution
+
+The T2_DYNAMIC parser uses the same envelope-first contract: it validates
+magic/version/target/run and the zero reserved word, then calls the registered
+`tdma_t2_dynamic_apply_fn`.  The default executor records the validated
+descriptor so the accepted payload is observable before a real T2 runtime
+consumes it:
+
+```text
+t2_dynamic_applied
+t2_dynamic_last_target
+t2_dynamic_last_run
+t2_dynamic_last_config
+t2_dynamic_last_value
+```
+
+The HIL workflow verifies `t2_dynamic_ok` and `t2_dynamic_applied`, and checks
+that the recorded target/run/config/value equal the sent default envelope.  A
+real T2 state machine can replace the executor with
+`tdma_t2_dynamic_set_apply()` without changing the parser or transport.
+
 

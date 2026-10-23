@@ -18,6 +18,13 @@ static uint32_t s_t2_static_applied;
 static uint32_t s_t2_static_target;
 static uint32_t s_t2_static_config;
 static uint32_t s_t2_static_value;
+static tdma_t2_dynamic_apply_fn s_t2_dynamic_apply;
+static void *s_t2_dynamic_context;
+static uint32_t s_t2_dynamic_applied;
+static uint32_t s_t2_dynamic_target;
+static uint32_t s_t2_dynamic_run;
+static uint32_t s_t2_dynamic_config;
+static uint32_t s_t2_dynamic_value;
 
 static bool t2_static_default_apply(uint32_t target_mask,
                                     uint32_t config_id,
@@ -30,6 +37,52 @@ static bool t2_static_default_apply(uint32_t target_mask,
     s_t2_static_value = value;
     s_t2_static_applied++;
     return true;
+}
+
+static bool t2_dynamic_default_apply(uint32_t target_mask,
+                                     uint32_t run_id,
+                                     uint32_t config_id,
+                                     uint32_t value,
+                                     void *context)
+{
+    (void)context;
+    s_t2_dynamic_target = target_mask;
+    s_t2_dynamic_run = run_id;
+    s_t2_dynamic_config = config_id;
+    s_t2_dynamic_value = value;
+    s_t2_dynamic_applied++;
+    return true;
+}
+
+void tdma_t2_dynamic_set_apply(tdma_t2_dynamic_apply_fn apply, void *context)
+{
+    s_t2_dynamic_apply = apply;
+    s_t2_dynamic_context = context;
+}
+
+uint32_t tdma_t2_dynamic_applied_count(void)
+{
+    return s_t2_dynamic_applied;
+}
+
+bool tdma_t2_dynamic_get_last(uint32_t *target_mask,
+                              uint32_t *run_id,
+                              uint32_t *config_id,
+                              uint32_t *value)
+{
+    if (target_mask != NULL) {
+        *target_mask = s_t2_dynamic_target;
+    }
+    if (run_id != NULL) {
+        *run_id = s_t2_dynamic_run;
+    }
+    if (config_id != NULL) {
+        *config_id = s_t2_dynamic_config;
+    }
+    if (value != NULL) {
+        *value = s_t2_dynamic_value;
+    }
+    return s_t2_dynamic_applied != 0u;
 }
 
 void tdma_t2_static_set_apply(tdma_t2_static_apply_fn apply, void *context)
@@ -78,6 +131,11 @@ void tdma_second_class_parser_reset(void)
     s_t2_static_target = 0u;
     s_t2_static_config = 0u;
     s_t2_static_value = 0u;
+    s_t2_dynamic_applied = 0u;
+    s_t2_dynamic_target = 0u;
+    s_t2_dynamic_run = 0u;
+    s_t2_dynamic_config = 0u;
+    s_t2_dynamic_value = 0u;
 }
 
 bool tdma_second_class_parser_register(uint8_t type,
@@ -187,9 +245,19 @@ bool tdma_t2_dynamic_parser(const uint8_t *payload,
     if (payload == NULL || payload_size != TDMA_T2_DYNAMIC_SIZE) {
         return false;
     }
-    return get_u16(payload) == TDMA_T2_DYNAMIC_MAGIC &&
-           payload[2] == 1u &&
-           get_u32(payload + 4u) != 0u &&
-           get_u32(payload + 8u) != 0u &&
-           get_u32(payload + 20u) == 0u;
+    if (get_u16(payload) != TDMA_T2_DYNAMIC_MAGIC ||
+        payload[2] != 1u ||
+        get_u32(payload + 4u) == 0u ||
+        get_u32(payload + 8u) == 0u ||
+        get_u32(payload + 20u) != 0u) {
+        return false;
+    }
+    /* Envelope-first, execution second: the reserved word is already proven
+     * zero, so the executor receives only validated fields. */
+    const tdma_t2_dynamic_apply_fn apply =
+        s_t2_dynamic_apply != NULL ? s_t2_dynamic_apply
+                                   : t2_dynamic_default_apply;
+    return apply(get_u32(payload + 4u), get_u32(payload + 8u),
+                 get_u32(payload + 12u), get_u32(payload + 16u),
+                 s_t2_dynamic_context);
 }

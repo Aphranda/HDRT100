@@ -58,6 +58,8 @@ FIELDS = [
     "refmem_parser_reject", "t2_static_ok", "t2_static_reject",
     "t2_static_applied", "t2_static_last_config", "t2_static_last_value",
     "t2_dynamic_ok", "t2_dynamic_reject",
+    "t2_dynamic_applied", "t2_dynamic_last_target", "t2_dynamic_last_run",
+    "t2_dynamic_last_config", "t2_dynamic_last_value",
 ]
 
 
@@ -270,12 +272,26 @@ class Workflow:
             elif self.args.payload_type == 0x53:
                 fields = ("t2_static_ok", "t2_static_applied")
             elif self.args.payload_type == 0x54:
-                fields = ("t2_dynamic_ok",)
+                fields = ("t2_dynamic_ok", "t2_dynamic_applied")
             else:
                 fields = ("rx_events",)
             for field in fields:
                 if row[field] < 1:
                     errors.append(f"{port}: {field} == 0")
+            if (self.args.payload_type == 0x54 and
+                    self.args.payload_hex is None):
+                # The default executor records the validated envelope; the
+                # HIL check proves the fields crossed the parser unchanged.
+                expected = {
+                    "t2_dynamic_last_target": self.args.target_mask,
+                    "t2_dynamic_last_run": 42,
+                    "t2_dynamic_last_config": 7,
+                    "t2_dynamic_last_value": 9,
+                }
+                for field, value in expected.items():
+                    if row[field] != value:
+                        errors.append(
+                            f"{port}: {field} {row[field]} != {value}")
         return {"passed": not errors, "errors": errors,
                 "targets": targets,
                 "source": {k: source[k] for k in FIELDS},

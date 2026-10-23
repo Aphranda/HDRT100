@@ -62,6 +62,23 @@ bool tdma_t2_static_get_last(uint32_t *target_mask,
                              uint32_t *config_id,
                              uint32_t *value);
 
+/* T2 dynamic configuration execution hook.  Same envelope-first contract as
+ * the static hook: the parser validates magic/version/target/run/reserved,
+ * then hands the decoded fields to the registered executor.  The default
+ * executor records the applied descriptor so the accepted dynamic payload is
+ * observable before a real T2 state machine consumes it. */
+typedef bool (*tdma_t2_dynamic_apply_fn)(uint32_t target_mask,
+                                         uint32_t run_id,
+                                         uint32_t config_id,
+                                         uint32_t value,
+                                         void *context);
+void tdma_t2_dynamic_set_apply(tdma_t2_dynamic_apply_fn apply, void *context);
+uint32_t tdma_t2_dynamic_applied_count(void);
+bool tdma_t2_dynamic_get_last(uint32_t *target_mask,
+                              uint32_t *run_id,
+                              uint32_t *config_id,
+                              uint32_t *value);
+
 #define TDMA_T2_STATIC_MAGIC 0x5453u /* "TS" */
 #define TDMA_T2_DYNAMIC_MAGIC 0x5444u /* "TD" */
 #define TDMA_T2_STATIC_SIZE 16u

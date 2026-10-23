@@ -174,6 +174,17 @@ bool refmem_cmd_load_get_status(refmem_cmd_load_status_t *status)
         status->t2_dynamic_ok = count.accepted;
         status->t2_dynamic_reject = count.rejected;
     }
+    status->t2_dynamic_applied = tdma_t2_dynamic_applied_count();
+    uint32_t dyn_target = 0u;
+    uint32_t dyn_run = 0u;
+    uint32_t dyn_config = 0u;
+    uint32_t dyn_value = 0u;
+    (void)tdma_t2_dynamic_get_last(&dyn_target, &dyn_run, &dyn_config,
+                                   &dyn_value);
+    status->t2_dynamic_last_target = dyn_target;
+    status->t2_dynamic_last_run = dyn_run;
+    status->t2_dynamic_last_config = dyn_config;
+    status->t2_dynamic_last_value = dyn_value;
     if (s_adapter != NULL) {
         tdma_pio_spi_ring_adapter_get_rx_debug(
             s_adapter, &status->rx_drop_count,

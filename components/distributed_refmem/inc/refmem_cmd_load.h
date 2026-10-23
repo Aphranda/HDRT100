@@ -57,6 +57,11 @@ typedef struct {
     uint32_t t2_static_last_value;
     uint32_t t2_dynamic_ok;
     uint32_t t2_dynamic_reject;
+    uint32_t t2_dynamic_applied;
+    uint32_t t2_dynamic_last_target;
+    uint32_t t2_dynamic_last_run;
+    uint32_t t2_dynamic_last_config;
+    uint32_t t2_dynamic_last_value;
 } refmem_cmd_load_status_t;
 
 bool refmem_cmd_load_get_status(refmem_cmd_load_status_t *status);
