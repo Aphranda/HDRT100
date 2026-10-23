@@ -1599,6 +1599,11 @@ rx/tx/reject/last_error），保留原有状态字段。为容纳 +1 KB，`stora
 16→12 KB（3×4 KB），TDMA 帧/槽未动，RAM 余量约 3.3 KB。注：正文中的“64 KB 表”指契约上限/
 历史快照布局；当前实现为 19,456 B 压缩布局。
 
+**统一执行入口（2026-10-24）**：`SYSTem:CTRL:EXECute <command_id|name>,<target_mask>,
+<required_mask>[,params]` 查静态命令目录（`config/refmem/command_catalog.yaml` → C 表），写本板
+node 控制记录；本地 AO 按目录分发到 owner handler，`STATus?`/`CATalog?` 观测，`SYSTem:REFMEM:NODES?`
+聚合节点状态（含 `age_ms`/`stale`）。远端 target 暂返回 `UNIFIED_UNAVAILABLE`，等 C1 传输。
+
 **C0 命令路径（2026-10-23，build `20261023152319`）**：`refmem_node_control` 提供控制块的
 写/读/ACK/清除（seq+CRC 防撕裂）；AO 在 post/take/ack/nack/timeout/clear 后把本地 command slot
 镜像到本板 node slot，`refmem_cmd_load_submit` 在发送侧也写入本板控制记录；新增

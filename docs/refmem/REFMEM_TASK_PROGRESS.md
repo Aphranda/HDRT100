@@ -22,6 +22,7 @@ Last updated: 2026-10-23
 - C0 方向修订（2026-10-23）：RefMem 是对称复制黑板，任意板写入 REFMEM 的数据同步到其他板；统一控制面 = 修改 REFMEM 控制所有板、观测 REFMEM 快照观测所有板。命令槽改由 REFMEM 复制区承载，static `s_refmem_command_slot` 仅作迁移前载体；`--no-t2` 纯直通环验证不了从板写，后续 HIL 用启用 flight engine / process-image 的环。原“static 冻结”结论作废。
 - C0 容量扩展（2026-10-23，build `20261023144347`）：node slot 128→256 B（8 槽 2 KB）、表 18,432→19,456 B；node slot 增加控制块（`refmem_command_snapshot_t` 108 B + seq/CRC + rx/tx/reject/last_error）。为容纳 +1 KB，`storage_manager` 文件写缓冲 16→12 KB（3×4 KB）；TDMA 帧/槽未动，RAM 余量 3,376 B。`refmem_all_host_tests` 全过；P3 `hawf-224329` step 8/29 OK、`credential: written`（step 29 仍用一次重试，step 8 为 P0T 瞬时 flake，手动复测通过）。
 - C0 命令路径（2026-10-23，build `20261023152319`）：`refmem_node_control` 写/读/ACK/清除（seq+CRC）落地；AO 在 post/take/ack/nack/timeout/clear 后镜像 command slot 到本板 node slot，`refmem_cmd_load_submit` 发送侧也写本板记录；新增 `SYSTem:REFMEM:NODE:CONTrol?` 只读快照。四板 HIL（`c0_node_control_r2`）：源 COM5 `POSTED`、required 目标 COM4 `ACKED`、COM3/COM6 `TAKEN` 并记录 ACK 位；P3 `hawf-232301` step 8/29/30 OK、`credential: written`（step 29 一次通过）。未完成：跨板复制该记录与从板写入口。
+- 夜间 N0/N1/N2.3（2026-10-24，build `20261023164831`）：命令目录 3 条试点 + `SYSTem:CTRL:EXECute/STATus?/CATalog?` + 本地分发（LOAD_NODE ACKED、LOAD_BOARD 负路径）+ `SYSTem:REFMEM:NODES?`（本板 stale=0、远端 stale=1）；工作区未提交，等批量 P3。
 
 ### REFMEM-TASK-20261021-005 — HAOFV 偏差审查
 
