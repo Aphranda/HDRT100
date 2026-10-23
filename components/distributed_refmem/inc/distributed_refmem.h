@@ -8,7 +8,7 @@
 #include "trigger_position_slice.h"
 #include "tdma_priority_rx.h"
 
-#define DISTRIBUTED_REFMEM_TABLE_SIZE       19456u
+#define DISTRIBUTED_REFMEM_TABLE_SIZE       19712u
 #define DISTRIBUTED_REFMEM_LAYOUT_VERSION   2u
 #define DISTRIBUTED_REFMEM_NODE_COUNT       8u
 #define DISTRIBUTED_REFMEM_LOCAL_NODE_ID    0u
@@ -53,7 +53,7 @@
 #define DISTRIBUTED_REFMEM_VDC_SIZE         1024u
 #define DISTRIBUTED_REFMEM_LOOP_SIZE        1024u
 #define DISTRIBUTED_REFMEM_DPLL_SIZE        1024u
-#define DISTRIBUTED_REFMEM_NODE_SLOT_SIZE   256u
+#define DISTRIBUTED_REFMEM_NODE_SLOT_SIZE   288u
 #define DISTRIBUTED_REFMEM_TRIGGER_SIZE     1024u
 #define DISTRIBUTED_REFMEM_IO_SIZE          1024u
 #define DISTRIBUTED_REFMEM_CAL_SIZE         1024u
@@ -65,6 +65,7 @@
 #define DISTRIBUTED_REFMEM_TLV_SIZE         3072u
 
 #include "refmem_command.h"
+#include "refmem_node_control.h"
 #include "refmem_realtime_tdma.h"
 #include "refmem_sync.h"
 #include "refmem_sync_vdc_feedback.h"
@@ -609,6 +610,29 @@ bool distributed_refmem_get_command_snapshot(refmem_command_snapshot_t *snapshot
 /* C0: per-board replicated control record in the node slot.  The AO mirrors
  * every local command-slot change into the local node's record; any board can
  * read another board's record from the REFMEM snapshot. */
+/* Aggregated per-node observation for SYSTem:REFMEM:NODES?: status fields,
+ * age and stale flag (never-updated or older than the sync threshold). */
+typedef struct {
+    uint32_t node_id;
+    uint32_t state;
+    uint32_t heartbeat;
+    uint32_t slot_version;
+    uint32_t last_update_ms;
+    uint32_t stale_count;
+    uint32_t fault_code;
+    uint32_t flags;
+    uint32_t node_type;
+    uint32_t age_ms;
+    uint32_t stale;
+    uint32_t control_state;
+    uint32_t ack_flags;
+    uint32_t nack_flags;
+    uint32_t last_reason;
+} refmem_node_status_t;
+
+bool distributed_refmem_get_node_status(uint32_t node_id,
+                                        refmem_node_status_t *status);
+
 bool distributed_refmem_node_control_write(uint32_t node_id,
                                            const refmem_command_snapshot_t *snapshot,
                                            uint32_t seq);
@@ -616,6 +640,17 @@ bool distributed_refmem_node_control_read(uint32_t node_id,
                                           refmem_command_snapshot_t *snapshot,
                                           uint32_t *seq,
                                           uint32_t *crc32);
+bool distributed_refmem_node_control_write_with_params(
+    uint32_t node_id,
+    const refmem_command_snapshot_t *snapshot,
+    const uint32_t *params,
+    uint32_t seq);
+bool distributed_refmem_node_control_read_params(
+    uint32_t node_id,
+    refmem_command_snapshot_t *snapshot,
+    uint32_t params[REFMEM_NODE_CONTROL_PARAM_WORDS],
+    uint32_t *seq,
+    uint32_t *crc32);
 bool distributed_refmem_node_control_ack(uint32_t node_id,
                                          uint32_t target_slot,
                                          uint32_t evidence_index);

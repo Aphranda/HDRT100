@@ -95,8 +95,10 @@ typedef struct {
      * block from the REFMEM snapshot.  state/ack flags are the local single
      * command slot's snapshot, not a second command fact. */
     refmem_command_snapshot_t command;
+    /* Control-command parameters (64 B, part of the control CRC). */
+    uint32_t params[16];
     uint32_t control_seq;       /* writer order/duplicate guard */
-    uint32_t control_crc32;     /* CRC over the control block */
+    uint32_t control_crc32;     /* CRC over command+params+seq */
     uint32_t rx_count;          /* status counters for this board */
     uint32_t tx_count;
     uint32_t reject_count;
@@ -104,7 +106,8 @@ typedef struct {
 
     uint8_t reserved[DISTRIBUTED_REFMEM_NODE_SLOT_SIZE -
                      (15u * sizeof(uint32_t)) -
-                     sizeof(refmem_command_snapshot_t)];
+                     sizeof(refmem_command_snapshot_t) -
+                     (16u * sizeof(uint32_t))];
 } refmem_vector_node_region_t;
 
 /* The legacy payloads are written by core1 and read by core0/diagnostic clients.

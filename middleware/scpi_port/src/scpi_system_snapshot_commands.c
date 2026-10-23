@@ -13,6 +13,8 @@
 #include "refmem_control_route.h"
 #include "refmem_cmd_load.h"
 #include "refmem_cmd_codec.h"
+#include "refmem_command_catalog.h"
+#include "refmem_node_control.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
 #include "distributed_refmem_vdc_bridge.h"
@@ -915,6 +917,201 @@ scpi_result_t scpi_cmd_refmem_node_control_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.run_id);
     SCPI_ResultUInt32(context, snapshot.issue_epoch);
     SCPI_ResultUInt32(context, snapshot.payload_crc32);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_nodes_q(scpi_t *context)
+{
+    uint32_t offset = 0u;
+    uint32_t count = DISTRIBUTED_REFMEM_NODE_COUNT;
+    (void)SCPI_ParamUInt32(context, &offset, FALSE);
+    (void)SCPI_ParamUInt32(context, &count, FALSE);
+    if (offset >= DISTRIBUTED_REFMEM_NODE_COUNT || count == 0u) {
+        return SCPI_RES_ERR;
+    }
+    if (count > DISTRIBUTED_REFMEM_NODE_COUNT - offset) {
+        count = DISTRIBUTED_REFMEM_NODE_COUNT - offset;
+    }
+    for (uint32_t i = offset; i < offset + count; i++) {
+        refmem_node_status_t status;
+        if (!distributed_refmem_get_node_status(i, &status)) {
+            return SCPI_RES_ERR;
+        }
+        SCPI_ResultUInt32(context, status.node_id);
+        SCPI_ResultUInt32(context, status.state);
+        SCPI_ResultUInt32(context, status.heartbeat);
+        SCPI_ResultUInt32(context, status.slot_version);
+        SCPI_ResultUInt32(context, status.last_update_ms);
+        SCPI_ResultUInt32(context, status.age_ms);
+        SCPI_ResultUInt32(context, status.stale);
+        SCPI_ResultUInt32(context, status.stale_count);
+        SCPI_ResultUInt32(context, status.fault_code);
+        SCPI_ResultUInt32(context, status.flags);
+        SCPI_ResultUInt32(context, status.node_type);
+        SCPI_ResultUInt32(context, status.control_state);
+        SCPI_ResultUInt32(context, status.ack_flags);
+        SCPI_ResultUInt32(context, status.nack_flags);
+        SCPI_ResultUInt32(context, status.last_reason);
+    }
+    return SCPI_RES_OK;
+}
+
+static uint32_t s_ctrl_exec_seq;
+
+static uint32_t scpi_ctrl_params_crc(const uint32_t *params, uint32_t words)
+{
+    uint32_t crc = 2166136261u;
+    for (uint32_t i = 0u; i < words; i++) {
+        for (uint32_t shift = 0u; shift < 32u; shift += 8u) {
+            crc ^= (uint8_t)(params[i] >> shift);
+            crc *= 16777619u;
+        }
+    }
+    return crc;
+}
+
+scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context)
+{
+    const char *token = NULL;
+    size_t token_len = 0u;
+    if (!SCPI_ParamCharacters(context, &token, &token_len, TRUE) ||
+        token == NULL || token_len == 0u) {
+        return SCPI_RES_ERR;
+    }
+
+    const refmem_catalog_entry_t *entry = NULL;
+    bool numeric = true;
+    uint32_t id = 0u;
+    for (size_t i = 0u; i < token_len; i++) {
+        if (token[i] < '0' || token[i] > '9') {
+            numeric = false;
+            break;
+        }
+        id = id * 10u + (uint32_t)(token[i] - '0');
+    }
+    if (numeric) {
+        entry = refmem_command_catalog_find_by_id((uint16_t)id);
+    } else {
+        char name[40];
+        if (token_len >= sizeof(name)) {
+            scpi_port_push_exec_error(context, "UNSUPPORTED_COMMAND");
+            return SCPI_RES_ERR;
+        }
+        memcpy(name, token, token_len);
+        name[token_len] = '\0';
+        entry = refmem_command_catalog_find_by_name(name);
+    }
+    if (entry == NULL) {
+        scpi_port_push_exec_error(context, "UNSUPPORTED_COMMAND");
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t target_mask = 0u;
+    uint32_t required_mask = 0u;
+    if (!scpi_port_read_u32(context, &target_mask) ||
+        !scpi_port_read_u32(context, &required_mask) ||
+        target_mask == 0u || (required_mask & ~target_mask) != 0u) {
+        scpi_port_push_exec_error(context, "BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+
+    uint32_t params[REFMEM_NODE_CONTROL_PARAM_WORDS];
+    memset(params, 0, sizeof(params));
+    for (uint32_t i = 0u; i < entry->param_words; i++) {
+        if (!scpi_port_read_u32(context, &params[i])) {
+            scpi_port_push_exec_error(context, "BAD_ARGUMENT");
+            return SCPI_RES_ERR;
+        }
+    }
+    if (!refmem_command_catalog_validate_params(
+            entry, entry->param_words, entry->param_kind)) {
+        scpi_port_push_exec_error(context, "BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+
+    const uint32_t local_bit = 1u << DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    if ((target_mask & ~local_bit) != 0u) {
+        /* Cross-board transport is C1; the P0 entry is local-only. */
+        scpi_port_push_exec_error(context, "UNIFIED_UNAVAILABLE");
+        return SCPI_RES_ERR;
+    }
+
+    refmem_command_snapshot_t snapshot;
+    memset(&snapshot, 0, sizeof(snapshot));
+    s_ctrl_exec_seq++;
+    if (s_ctrl_exec_seq == 0u) {
+        s_ctrl_exec_seq = 1u;
+    }
+    snapshot.state = REFMEM_COMMAND_STATE_POSTED;
+    snapshot.command_seq = s_ctrl_exec_seq;
+    snapshot.source_node = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    snapshot.target_mask = target_mask;
+    snapshot.required_mask = required_mask;
+    snapshot.command_type = entry->command_type;
+    snapshot.payload_kind = entry->param_kind;
+    snapshot.payload_size = entry->param_words * (uint32_t)sizeof(uint32_t);
+    snapshot.payload_crc32 =
+        scpi_ctrl_params_crc(params, entry->param_words);
+    snapshot.issue_epoch = 1u;
+    snapshot.run_id = 1u;
+    snapshot.timeout_us = entry->timeout_us;
+
+    if (!distributed_refmem_node_control_write_with_params(
+            DISTRIBUTED_REFMEM_LOCAL_NODE_ID, &snapshot, params,
+            s_ctrl_exec_seq)) {
+        scpi_port_push_exec_error(context, "REJECTED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "QUEUED");
+    SCPI_ResultUInt32(context, s_ctrl_exec_seq);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_ctrl_status_q(scpi_t *context)
+{
+    refmem_command_snapshot_t snapshot;
+    uint32_t seq = 0u;
+    uint32_t crc32 = 0u;
+    if (!distributed_refmem_node_control_read(DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
+                                              &snapshot, &seq, &crc32)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, seq);
+    SCPI_ResultUInt32(context, crc32);
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.command_seq);
+    SCPI_ResultUInt32(context, snapshot.target_mask);
+    SCPI_ResultUInt32(context, snapshot.required_mask);
+    SCPI_ResultUInt32(context, snapshot.ack_flags);
+    SCPI_ResultUInt32(context, snapshot.nack_flags);
+    SCPI_ResultUInt32(context, snapshot.busy_flags);
+    SCPI_ResultUInt32(context, snapshot.timeout_flags);
+    SCPI_ResultUInt32(context, snapshot.last_reason);
+    SCPI_ResultUInt32(context, snapshot.last_reason_slot);
+    SCPI_ResultUInt32(context, snapshot.last_completed_seq);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_ctrl_catalog_q(scpi_t *context)
+{
+    uint32_t offset = 0u;
+    uint32_t count = refmem_command_catalog_count;
+    (void)SCPI_ParamUInt32(context, &offset, FALSE);
+    (void)SCPI_ParamUInt32(context, &count, FALSE);
+    if (count > 16u) {
+        count = 16u;
+    }
+    for (uint32_t i = offset;
+         i < refmem_command_catalog_count && i < offset + count; i++) {
+        const refmem_catalog_entry_t *entry = &refmem_command_catalog[i];
+        SCPI_ResultUInt32(context, entry->id);
+        SCPI_ResultText(context, entry->name);
+        SCPI_ResultUInt32(context, entry->command_type);
+        SCPI_ResultUInt32(context, entry->owner);
+        SCPI_ResultUInt32(context, entry->param_words);
+        SCPI_ResultUInt32(context, entry->param_kind);
+        SCPI_ResultUInt32(context, entry->realtime);
+    }
     return SCPI_RES_OK;
 }
 
