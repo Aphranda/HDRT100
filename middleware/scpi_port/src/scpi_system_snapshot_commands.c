@@ -1030,13 +1030,6 @@ scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    const uint32_t local_bit = 1u << DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
-    if ((target_mask & ~local_bit) != 0u) {
-        /* Cross-board transport is C1; the P0 entry is local-only. */
-        scpi_port_push_exec_error(context, "UNIFIED_UNAVAILABLE");
-        return SCPI_RES_ERR;
-    }
-
     refmem_command_snapshot_t snapshot;
     memset(&snapshot, 0, sizeof(snapshot));
     s_ctrl_exec_seq++;
@@ -1056,6 +1049,17 @@ scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context)
     snapshot.issue_epoch = 1u;
     snapshot.run_id = 1u;
     snapshot.timeout_us = entry->timeout_us;
+
+    const uint32_t local_bit = 1u << DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    if ((target_mask & ~local_bit) != 0u) {
+        if (!refmem_cmd_load_submit_fragments(&snapshot, params)) {
+            scpi_port_push_exec_error(context, "REJECTED");
+            return SCPI_RES_ERR;
+        }
+        SCPI_ResultText(context, "QUEUED");
+        SCPI_ResultUInt32(context, s_ctrl_exec_seq);
+        return SCPI_RES_OK;
+    }
 
     uint8_t frame[REFMEM_SYNC_FRAME_HEADER_SIZE +
                   REFMEM_SYNC_FRAME_PAYLOAD_MAX];

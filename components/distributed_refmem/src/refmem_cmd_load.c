@@ -6,6 +6,8 @@
 #include "distributed_refmem.h"
 #include "osal.h"
 #include "refmem_cmd_codec.h"
+#include "refmem_cmd_frame.h"
+#include "refmem_cmd_fragment.h"
 #include "tdma_long_frame.h"
 #include "tdma_maintenance_runtime.h"
 #include "tdma_second_class_parser.h"
@@ -22,6 +24,17 @@ static volatile uint32_t s_posted;
 static volatile uint32_t s_acked;
 static uint8_t s_generation;
 static uint8_t s_tx_frame[TDMA_MAINTENANCE_RUNTIME_MAX];
+static refmem_cmd_fragment_ctx_t s_frag_ctx;
+static uint32_t s_frag_frame_seq;
+static uint8_t s_pending_frame[REFMEM_SYNC_FRAME_HEADER_SIZE +
+                              REFMEM_SYNC_FRAME_PAYLOAD_MAX];
+static uint32_t s_pending_size;
+static uint32_t s_pending_index;
+static uint32_t s_pending_count;
+static uint32_t s_pending_seq;
+static uint32_t s_pending_active;
+
+static void refmem_cmd_load_service_fragments(void);
 
 static bool refmem_cmd_parser(const uint8_t *payload,
                               size_t payload_size,
@@ -56,6 +69,31 @@ static bool refmem_cmd_parser(const uint8_t *payload,
     return true;
 }
 
+static bool refmem_fragment_parser(const uint8_t *payload,
+                                  size_t payload_size,
+                                  void *context)
+{
+    (void)context;
+    uint32_t frame_seq = 0u;
+    uint8_t index = 0u;
+    uint8_t count = 0u;
+    uint8_t source_slot = 0u;
+    uint32_t word = 0u;
+    if (!refmem_cmd_fragment_record_parse(payload, payload_size, &frame_seq,
+                                          &index, &count, &source_slot,
+                                          &word)) {
+        return false;
+    }
+    uint8_t frame[REFMEM_CMD_FRAGMENT_MAX_BYTES];
+    size_t frame_size = 0u;
+    if (refmem_cmd_fragment_accept(&s_frag_ctx, source_slot, frame_seq, count,
+                                   index, word, frame, sizeof(frame),
+                                   &frame_size)) {
+        return distributed_refmem_cmd_frame_receive(frame, frame_size);
+    }
+    return true;
+}
+
 bool refmem_cmd_load_init(tdma_pio_spi_ring_adapter_t *adapter)
 {
     s_adapter = adapter;
@@ -69,7 +107,10 @@ bool refmem_cmd_load_init(tdma_pio_spi_ring_adapter_t *adapter)
         !tdma_second_class_parser_register(
             TDMA_SECOND_CLASS_TYPE_T2_STATIC, tdma_t2_static_parser, NULL) ||
         !tdma_second_class_parser_register(
-            TDMA_SECOND_CLASS_TYPE_T2_DYNAMIC, tdma_t2_dynamic_parser, NULL)) {
+            TDMA_SECOND_CLASS_TYPE_T2_DYNAMIC, tdma_t2_dynamic_parser, NULL) ||
+        !tdma_second_class_parser_register(
+            TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT, refmem_fragment_parser,
+            NULL)) {
         s_initialized = 0u;
         return false;
     }
@@ -139,6 +180,7 @@ void refmem_cmd_load_service(void)
     if (s_initialized == 0u) {
         return;
     }
+    refmem_cmd_load_service_fragments();
     uint8_t frame[TDMA_MAINTENANCE_RUNTIME_MAX];
     size_t frame_size = 0u;
     uint8_t stream_id = 0u;
@@ -224,4 +266,73 @@ bool refmem_cmd_load_get_status(refmem_cmd_load_status_t *status)
             s_adapter, &status->inject_attempts, &status->inject_ok);
     }
     return true;
+}
+
+bool refmem_cmd_load_submit_fragments(
+    const refmem_command_snapshot_t *snapshot,
+    const uint32_t *params)
+{
+    if (snapshot == NULL || s_initialized == 0u) {
+        s_rejected++;
+        return false;
+    }
+    uint8_t frame[REFMEM_SYNC_FRAME_HEADER_SIZE +
+                  REFMEM_SYNC_FRAME_PAYLOAD_MAX];
+    size_t frame_size = 0u;
+    const uint32_t board_no = board_identity_get_no();
+    const uint32_t local_slot = board_no > 0u ? board_no - 1u : 0u;
+    if (!refmem_cmd_frame_build((uint8_t)local_slot,
+                                (uint8_t)snapshot->target_mask,
+                                snapshot->issue_epoch, snapshot->run_id,
+                                snapshot->command_seq, snapshot, params, frame,
+                                sizeof(frame), &frame_size)) {
+        s_rejected++;
+        return false;
+    }
+    const uint32_t count = refmem_cmd_fragment_count(frame_size);
+    if (count == 0u || frame_size > sizeof(s_pending_frame)) {
+        s_rejected++;
+        return false;
+    }
+    s_frag_frame_seq++;
+    memcpy(s_pending_frame, frame, frame_size);
+    s_pending_size = (uint32_t)frame_size;
+    s_pending_index = 0u;
+    s_pending_count = count;
+    s_pending_seq = s_frag_frame_seq;
+    s_pending_active = 1u;
+    s_submitted++;
+    s_tx_ok++;
+    return true;
+}
+
+/* Pace one fragment per service call: the maintenance runtime queue is small,
+ * so a 55-fragment frame must not be flooded in one call. */
+static void refmem_cmd_load_service_fragments(void)
+{
+    if (s_pending_active == 0u || s_initialized == 0u) {
+        return;
+    }
+    const uint32_t board_no = board_identity_get_no();
+    const uint32_t local_slot = board_no > 0u ? board_no - 1u : 0u;
+    uint32_t word = 0u;
+    if (s_pending_index >= s_pending_count ||
+        !refmem_cmd_fragment_get(s_pending_frame, s_pending_size,
+                                 s_pending_index, &word)) {
+        s_pending_active = 0u;
+        return;
+    }
+    uint8_t record[REFMEM_CMD_FRAGMENT_RECORD_SIZE];
+    (void)refmem_cmd_fragment_record_build(
+        s_pending_seq, (uint8_t)s_pending_index, (uint8_t)s_pending_count,
+        (uint8_t)local_slot, word, record);
+    if (!tdma_maintenance_runtime_submit(
+            record, REFMEM_CMD_FRAGMENT_RECORD_SIZE,
+            TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT, s_generation++)) {
+        return; /* retry next service */
+    }
+    s_pending_index++;
+    if (s_pending_index >= s_pending_count) {
+        s_pending_active = 0u;
+    }
 }

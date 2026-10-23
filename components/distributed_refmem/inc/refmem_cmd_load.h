@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "tdma_pio_spi_ring_adapter.h"
+#include "refmem_command.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,6 +21,9 @@ bool refmem_cmd_load_submit_type(uint8_t type,
                                  const uint8_t *wire,
                                  uint32_t wire_size);
 void refmem_cmd_load_service(void);
+bool refmem_cmd_load_submit_fragments(
+    const refmem_command_snapshot_t *snapshot,
+    const uint32_t *params);
 
 typedef struct {
     uint32_t load_initialized;

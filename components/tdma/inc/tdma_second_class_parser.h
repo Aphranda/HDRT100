@@ -14,6 +14,7 @@ extern "C" {
 #define TDMA_SECOND_CLASS_TYPE_REFMEM_CMD 0x52u
 #define TDMA_SECOND_CLASS_TYPE_T2_STATIC 0x53u
 #define TDMA_SECOND_CLASS_TYPE_T2_DYNAMIC 0x54u
+#define TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT 0x55u
 #define TDMA_SECOND_CLASS_PARSER_MAX 8u
 
 typedef bool (*tdma_second_class_parser_fn)(
