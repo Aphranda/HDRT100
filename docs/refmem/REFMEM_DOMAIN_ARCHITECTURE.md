@@ -1596,9 +1596,14 @@ flight engine / process-image 的环。
 **C0 实现进展（2026-10-23，build `20261023144347`）**：node slot 128→256 B（8 槽 2 KB），表
 18,432→19,456 B；node slot 增加控制块（`refmem_command_snapshot_t` 108 B + seq/CRC +
 rx/tx/reject/last_error），保留原有状态字段。为容纳 +1 KB，`storage_manager` 文件写缓冲
-16→12 KB（3×4 KB），TDMA 帧/槽未动，RAM 余量约 3.3 KB。命令的写/读路径、ACK 回写与 REFMEM
-快照暴露尚未实现。注：正文中的“64 KB 表”指契约上限/历史快照布局；当前实现为 19,456 B
-压缩布局。
+16→12 KB（3×4 KB），TDMA 帧/槽未动，RAM 余量约 3.3 KB。注：正文中的“64 KB 表”指契约上限/
+历史快照布局；当前实现为 19,456 B 压缩布局。
+
+**C0 命令路径（2026-10-23，build `20261023152319`）**：`refmem_node_control` 提供控制块的
+写/读/ACK/清除（seq+CRC 防撕裂）；AO 在 post/take/ack/nack/timeout/clear 后把本地 command slot
+镜像到本板 node slot，`refmem_cmd_load_submit` 在发送侧也写入本板控制记录；新增
+`SYSTem:REFMEM:NODE:CONTrol? [<node>]` 只读快照（21 字段）。四板 HIL：源 `POSTED`、required
+目标 `ACKED`、其余目标 `TAKEN` 并记录各自 ACK 位。跨板复制该记录（C1 写路径）仍未实现。
 
 ### 分阶段落地与验收
 

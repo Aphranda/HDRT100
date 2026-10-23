@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMANDS.md`
 Related: `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/sync/SYNC_IO_TODO.md`, `docs/ota/OTA_HAOFV_ARCHITECTURE.md`, `docs/storage/SD_TODO.md`, `docs/interface/SCPI_USB_INTERFACE_DESIGN.md`, `docs/interface/SCPI_HAOFV_REVIEW.md`
-Last updated: 2026-10-20
+Last updated: 2026-10-23
 
 成品默认 SCPI 服务通过 USBTMC/USB488 接入。命令以 `\n` 或 `\r\n` 结束。Trigger 相关控制命令当前已经通过 `sync_trigger` 事件接口收口，SCPI 不再直接调用底层 `sync_io`。
 
@@ -76,6 +76,7 @@ Last updated: 2026-10-20
 | `SYSTem:SCPI:RUN:ALLOW? [index]` | 查询 RUN 态 SCPI 白名单策略表；省略 `index` 时查询 0。返回 `version,entry_count,enforced,policy_crc32,index,class_id,run_allowed,query_allowed,write_allowed,forbidden_error_code,pattern`。关键触发/采样/时钟/BiSS/Storage/OTA 写入口已按表拒绝，禁止码 `2401=RUN_STATE_DENIED`、`2402=RESOURCE_BUSY`。 |
 | `SYSTem:REFMEM:STATus?` | 查询 RefMem 内部主域的本地 DistributedVectorTable P0 快照：`table_size,layout_version,table_seq,local_node_id,node_count,local_heartbeat,service_count,flags,initialized,init_stage,init_error`。`init_stage` 使用 `DISTRIBUTED_REFMEM_INIT_STAGE_*` 固定枚举，`init_error=0` 表示初始化无错误。 |
 | `SYSTem:REFMEM:NODE? [node_id]` | 查询 RefMem 内部主域的 NodeSlot P0 快照；省略时读取本节点，当前预留 A0-A7 八个通用节点，真实板卡、脉冲分发、链路切换、仪表控制、模型网分、模拟转台、网关和测试代理作为 role/persona/instance 载入节点。返回 `node_id,state,heartbeat,slot_version,last_update_ms,stale_count,fault_code,flags,node_type`。 |
+| `SYSTem:REFMEM:NODE:CONTrol? [node_id]` | 查询本板（或指定节点）node slot 内的每板控制记录：`node_id,control_seq,control_crc32,state,command_seq,source_node,target_mask,required_mask,command_type,command_class,ack_flags,nack_flags,busy_flags,timeout_flags,last_reason,last_reason_slot,evidence_index,last_completed_seq,run_id,issue_epoch,payload_crc32`。该记录属于 REFMEM 快照；`control_seq=0` 或 CRC 不匹配时返回错误。 |
 | `SYSTem:REFMEM:CLAIM? [slot_id]` | 查询 SlotClaimMap 首版派生视图；省略时查询 A0。返回 `version,claim_epoch,slot_count,candidate_count,assigned_count,conflict_count,overflow_count,disabled_count,map_crc32,gate_ready,first_bad_slot,first_reason,required_missing_count,mismatch_count,slot_id,board_id,board_uuid_crc32,capability_mask,io_constraint_mask,ip_core_mask,loaded_instance_mask,claim_count,claim_state,reason,claim_policy,claim_priority,online_required,slot_claim_epoch,last_claim_seq,claim_crc32`。 |
 | `SYSTem:REFMEM:CLAIM:EVIDence? [evidence_id]` | 查询 SlotClaimMap 诊断证据；省略时查询 0。默认 profile 无证据时返回 `evidence_count=0` 和空字段。返回 `version,claim_epoch,evidence_count,requested_id,evidence_id,candidate_id,slot_id,board_id,board_uuid_crc32,preferred_slot_id,claim_state,reason,claim_policy,claim_priority,evidence_claim_epoch,evidence_crc32`。 |
 | `SYSTem:REFMEM:LOAD:SD [path]` | 只在 RefMem load 状态机 `mode=IDLE` 且实时触发空闲时允许；先由 StorageAO 扫描 SD System Pack manifest、读取并校验 RefMem table image，默认路径 `/refmem/app_model.rmtp`。SCPI 只提交 StorageAO 结果摘要，`DistributedRefMemAO` 通过 `TABLE_PACKAGE_STAGE` command slot 写 staging 并 ACK/NACK；不直接覆盖 active 表。返回 `STAGED/REJECTED` 加 load snapshot。 |

@@ -394,7 +394,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 目标：把“任一板卡接口操作 RefMem、控制全部板卡”从愿景收敛为可验证契约；接入点无关、目标本地执行、显式掩码、单一协调者和聚合完成，不引入远程裸写或跨板阻塞查询。架构见 `REFMEM_DOMAIN_ARCHITECTURE.md` 的 `REFMEM-CTRL-01`。
 
 - [ ] C0 命令槽改由 REFMEM 复制区承载（2026-10-23 修订，替代原 static 冻结结论）：任意板写入本板 RefMem 槽（process-image mailbox，带 seq/CRC）→ 全环同步 → 各板从镜像读命令/落 command slot/ACK 写回；观测直接读 REFMEM 快照。static `s_refmem_command_slot` 仅迁移前保留。验证用启用 flight engine / process-image 的环，`--no-t2` 纯直通环无从板写入口。
-  - 进展（2026-10-23，build `20261023144347`）：node slot 128→256 B（8 槽 2 KB）、表 18,432→19,456 B，node slot 已加控制块（`refmem_command_snapshot_t` + seq/CRC + 计数器）；storage 文件写缓冲 16→12 KB 腾出 RAM，TDMA 未动。**未完成**：命令写/读路径、ACK 回写、REFMEM 快照暴露。
+  - 进展（2026-10-23，build `20261023144347`）：node slot 128→256 B（8 槽 2 KB）、表 18,432→19,456 B，node slot 已加控制块（`refmem_command_snapshot_t` + seq/CRC + 计数器）；storage 文件写缓冲 16→12 KB 腾出 RAM，TDMA 未动。
+  - 进展（2026-10-23，build `20261023152319`）：`refmem_node_control` 写/读/ACK/清除（seq+CRC）已落地；AO 镜像 command slot 到本板控制块，发送侧写入本板记录；`SYSTem:REFMEM:NODE:CONTrol?` 只读快照；host 用例通过，四板 HIL 观测到源 `POSTED`、required 目标 `ACKED`、其余 `TAKEN`。**未完成**：跨板复制该记录（C1 process-image 写路径）与从板写入口。
 - [ ] 扩展 `refmem_command_request_t` / `refmem_command_snapshot_t`：`coordinator_slot`、`coordinator_boot_id`、`lease_epoch`、`catalog_crc32`、`fence_required`、`fence_state`、`control_reply`；旧字段语义不变，host 用例覆盖旧快照兼容。
 - [ ] 定义 `control_owner_slot` 解析与唯一性门禁：profile 未声明时取最低已 claim 插槽；`DeploymentGate` 拒绝零个或多个控制 owner 的 RUN。
 - [ ] 实现协调者租约：`CONTROL_LEASE_TAKE/RENEW/RELEASE`；仅 STOP/维护态迁移；RUN 中丢失 fail-closed 进入 `CONTROL_LOST`，禁止静默双主。
