@@ -13,6 +13,9 @@ scpi_result_t scpi_cmd_refmem_load_node(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_board(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_activate(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_cmd_submit(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_cmd_submit_type(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_cmd_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_board_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_table_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_table_image_q(scpi_t *context);
@@ -330,6 +333,9 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:LOAD:BOARD", .callback = scpi_cmd_refmem_load_board}, \
     {.pattern = "SYSTem:REFMEM:LOAD:ACTivate", .callback = scpi_cmd_refmem_load_activate}, \
     {.pattern = "SYSTem:REFMEM:LOAD:STATus?", .callback = scpi_cmd_refmem_load_status_q}, \
+    {.pattern = "SYSTem:REFMEM:CMD:SUBmit", .callback = scpi_cmd_refmem_cmd_submit}, \
+    {.pattern = "SYSTem:REFMEM:CMD:SUBmit:TYPe", .callback = scpi_cmd_refmem_cmd_submit_type}, \
+    {.pattern = "SYSTem:REFMEM:CMD:STATus?", .callback = scpi_cmd_refmem_cmd_status_q}, \
     {.pattern = "SYSTem:REFMEM:LOAD:BOARD:STATus?", .callback = scpi_cmd_refmem_load_board_status_q}, \
     {.pattern = "SYSTem:REFMEM:TABle:IMAGe?", .callback = scpi_cmd_refmem_table_image_q}, \
     {.pattern = "SYSTem:REFMEM:TABle:VIEW?", .callback = scpi_cmd_refmem_table_view_q}, \

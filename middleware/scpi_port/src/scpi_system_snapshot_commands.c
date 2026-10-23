@@ -10,6 +10,9 @@
 #include "pico/time.h"
 #include "board_config.h"
 #include "board_identity.h"
+#include "refmem_control_route.h"
+#include "refmem_cmd_load.h"
+#include "refmem_cmd_codec.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
 #include "distributed_refmem_vdc_bridge.h"
@@ -781,6 +784,95 @@ scpi_result_t scpi_cmd_refmem_load_status_q(scpi_t *context)
     refmem_application_model_load_snapshot_t snapshot;
     refmem_application_model_get_load_snapshot(&snapshot);
     scpi_refmem_result_load_snapshot(context, &snapshot);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_cmd_submit(scpi_t *context)
+{
+    const char *hex = NULL;
+    size_t hex_len = 0u;
+    uint8_t wire[REFMEM_CMD_WIRE_SIZE];
+    size_t wire_size = 0u;
+    if (SCPI_ParamCharacters(context, &hex, &hex_len, TRUE) != TRUE ||
+        !scpi_refmem_sync_hex_decode(hex, hex_len, wire, sizeof(wire),
+                                     &wire_size) ||
+        wire_size != REFMEM_CMD_WIRE_SIZE) {
+        scpi_port_push_exec_error(context, "REFMEM_CMD_SUBMIT_HEX");
+        return SCPI_RES_ERR;
+    }
+    if (!refmem_cmd_load_submit(wire, (uint32_t)wire_size)) {
+        scpi_port_push_exec_error(context, "REFMEM_CMD_SUBMIT_BUSY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "QUEUED");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_cmd_submit_type(scpi_t *context)
+{
+    uint32_t type = 0u;
+    const char *hex = NULL;
+    size_t hex_len = 0u;
+    uint8_t wire[80];
+    size_t wire_size = 0u;
+    if (!scpi_port_read_u32(context, &type) ||
+        SCPI_ParamCharacters(context, &hex, &hex_len, TRUE) != TRUE ||
+        !scpi_refmem_sync_hex_decode(hex, hex_len, wire, sizeof(wire),
+                                     &wire_size) ||
+        wire_size == 0u) {
+        scpi_port_push_exec_error(context, "REFMEM_CMD_SUBMIT_TYPE_HEX");
+        return SCPI_RES_ERR;
+    }
+    if (!refmem_cmd_load_submit_type((uint8_t)type, wire,
+                                     (uint32_t)wire_size)) {
+        scpi_port_push_exec_error(context, "REFMEM_CMD_SUBMIT_TYPE_BUSY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "QUEUED");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_cmd_status_q(scpi_t *context)
+{
+    refmem_cmd_load_status_t status;
+    if (!refmem_cmd_load_get_status(&status)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, status.load_initialized);
+    SCPI_ResultUInt32(context, status.submitted);
+    SCPI_ResultUInt32(context, status.served);
+    SCPI_ResultUInt32(context, status.rejected);
+    SCPI_ResultUInt32(context, status.window_closed);
+    SCPI_ResultUInt32(context, status.rx_events);
+    SCPI_ResultUInt32(context, status.decoded);
+    SCPI_ResultUInt32(context, status.posted);
+    SCPI_ResultUInt32(context, status.acked);
+    SCPI_ResultUInt32(context, status.tx_ok);
+    SCPI_ResultUInt32(context, status.tx_fail);
+    SCPI_ResultUInt32(context, status.tx_stage);
+    SCPI_ResultUInt32(context, status.rx_seen);
+    SCPI_ResultUInt32(context, status.rx_delivered);
+    SCPI_ResultUInt32(context, status.rx_drop_count);
+    SCPI_ResultUInt32(context, status.last_rx_packet_size);
+    SCPI_ResultUInt32(context, status.last_rx_payload_class);
+    SCPI_ResultUInt32(context, status.rx_config_control);
+    SCPI_ResultUInt32(context, status.rx_process_image);
+    SCPI_ResultUInt32(context, status.build_class);
+    SCPI_ResultUInt32(context, status.build_size);
+    SCPI_ResultUInt32(context, status.build_load);
+    SCPI_ResultUInt32(context, status.inject_attempts);
+    SCPI_ResultUInt32(context, status.inject_ok);
+    SCPI_ResultUInt32(context, status.parser_registered);
+    SCPI_ResultUInt32(context, status.parser_unknown);
+    SCPI_ResultUInt32(context, status.refmem_parser_ok);
+    SCPI_ResultUInt32(context, status.refmem_parser_reject);
+    SCPI_ResultUInt32(context, status.t2_static_ok);
+    SCPI_ResultUInt32(context, status.t2_static_reject);
+    SCPI_ResultUInt32(context, status.t2_static_applied);
+    SCPI_ResultUInt32(context, status.t2_static_last_config);
+    SCPI_ResultUInt32(context, status.t2_static_last_value);
+    SCPI_ResultUInt32(context, status.t2_dynamic_ok);
+    SCPI_ResultUInt32(context, status.t2_dynamic_reject);
     return SCPI_RES_OK;
 }
 
@@ -3973,9 +4065,15 @@ scpi_result_t scpi_cmd_system_tdma_flight_tx(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    if (SCPI_ParamCharacters(context, &hex_text, &hex_len, FALSE) == TRUE) {
+    if (SCPI_ParamUInt32(context, &byte_count, TRUE) == TRUE) {
+        (void)SCPI_ParamUInt32(context, &seed, FALSE);
+        (void)SCPI_ParamUInt32(context, &generation, FALSE);
+        (void)SCPI_ParamUInt32(context, &sequence, FALSE);
+        (void)SCPI_ParamUInt32(context, &segment_mask, FALSE);
+    } else {
         size_t decoded = 0u;
-        if (!scpi_refmem_sync_hex_decode(hex_text,
+        if (SCPI_ParamCharacters(context, &hex_text, &hex_len, TRUE) != TRUE ||
+            !scpi_refmem_sync_hex_decode(hex_text,
                                          hex_len,
                                          payload,
                                          sizeof(payload),
@@ -3986,14 +4084,6 @@ scpi_result_t scpi_cmd_system_tdma_flight_tx(scpi_t *context)
         }
         byte_count = (uint32_t)decoded;
         hex_mode = true;
-        (void)SCPI_ParamUInt32(context, &generation, FALSE);
-        (void)SCPI_ParamUInt32(context, &sequence, FALSE);
-        (void)SCPI_ParamUInt32(context, &segment_mask, FALSE);
-    } else {
-        if (!scpi_port_read_u32(context, &byte_count)) {
-            return SCPI_RES_ERR;
-        }
-        (void)SCPI_ParamUInt32(context, &seed, FALSE);
         (void)SCPI_ParamUInt32(context, &generation, FALSE);
         (void)SCPI_ParamUInt32(context, &sequence, FALSE);
         (void)SCPI_ParamUInt32(context, &segment_mask, FALSE);

@@ -82,6 +82,7 @@ class Context:
         self.capture_exit = None
         self.capture_command = None
         self.capture_seconds = int(self.config.get("dpll_short_seconds", 60))
+        self.diagnostic_capture = False
 
     def capture_probe(self):
         """The capture writes its probe under <out>/dpll-four-board-short/capture/.
@@ -461,7 +462,14 @@ def step_3_tdma_process_image(ctx):
     except Exception as exc:                                              # noqa: BLE001
         ctx.log(f"  add_serial_timing unavailable ({type(exc).__name__}); "
                 f"continuing with defaults")
-    if ctx.config.get("tdma_capture_waveforms"):
+    if ctx.diagnostic_capture or ctx.config.get("tdma_capture_waveforms"):
+        # add_serial_timing appends its own --timeout; append ours last so the
+        # capture latch is not clipped by the generic 3 s serial timing.
+        command.extend(["--timeout", "120",
+                        "--capture-timeout", "120",
+                        "--capture-latch-retries", "3",
+                        "--allow-capture-disturbance"])
+    if ctx.diagnostic_capture or ctx.config.get("tdma_capture_waveforms"):
         command.append("--capture-waveforms")
     ctx.log(f"  trn03 matrix <- {matrix_path.relative_to(ROOT)}")
     ctx.log(f"  command: {' '.join(command[1:])[:160]}")
@@ -510,17 +518,16 @@ def step_3_tdma_process_image(ctx):
                           f" incomplete={incomplete or 'none'}")
             except (OSError, ValueError):
                 detail = ""
-        ctx.warnings.append(f"Step 3 TRN-03 supporting evidence not passed (exit {code});"
-                            f" the capture owns the verdict.{detail}")
-        ctx.log(f"  WARNING (non-blocking):{detail or ' no summary detail'}")
+        ctx.failures.append(f"Step 3 TRN-03 supporting evidence not passed (exit {code});"
+                            f" the capture cannot own a verdict it never reached.{detail}")
+        ctx.log(f"  FAIL (blocking):{detail or ' no summary detail'}")
         return
     try:
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
         ctx.log(f"  summary passed={summary.get('passed')} "
                 f"keys={sorted(summary)[:6]}")
         if summary.get("passed") is not True:
-            ctx.warnings.append("Step 3 TRN-03 summary not passed (non-blocking; the"
-                                " capture owns the verdict)")
+            ctx.failures.append("Step 3 TRN-03 summary not passed (blocking)")
     except (OSError, ValueError) as exc:
         ctx.failures.append(f"Step 3 summary unreadable: {exc}")
 
@@ -784,15 +791,10 @@ def step_6_capture_run(ctx):
         if process.returncode == 0:
             ctx.log(f"  capture passed on attempt {attempt}")
             return
-        ctx.warnings.append(f"Step 6 capture attempt {attempt} failed "
-                            f"(exit {process.returncode})")
-    # Debug-phase policy (user, 2026-10-14): this workflow reports, it does not
-    # gate. A capture that fails on internal health is recorded as a warning and
-    # the run continues, so a marginal measurement cannot block the workflow;
-    # the capture's own verdict stays visible in step 7/8 and in the receipt's
-    # capture_exit field.
-    ctx.warnings.append(f"Step 6 joint capture failed on {attempts} attempts"
-                        f" ({', '.join(verdicts)}); recorded, not blocking")
+    # A capture failure means the DPLL60 observation does not exist. It is a
+    # blocking step, not a diagnostic warning.
+    ctx.failures.append(f"Step 6 joint capture failed on {attempts} attempts"
+                        f" ({', '.join(verdicts)})")
 
 
 @step(7)
@@ -848,6 +850,8 @@ def step_8_summary(ctx):
                 scope_enabled=bool(ctx.scope_enabled),
                 seconds=int(ctx.capture_seconds))
             ctx.summary = summary
+            if summary.get("passed") is not True:
+                ctx.failures.append("Step 8 DPLL60 summary not passed")
             path = ctx.out_dir / "dpll-short-summary.json"
             path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
                             encoding="utf-8")
@@ -981,9 +985,11 @@ def parse_selection(text):
     return sorted(selection)
 
 
-def run_steps(selection, interactive=False, require_scope=False):
+def run_steps(selection, interactive=False, require_scope=False, fail_fast=True,
+              diagnostic_capture=False):
     ctx = Context()
     ctx.require_scope = require_scope
+    ctx.diagnostic_capture = diagnostic_capture
     # Step 5 writes the capture's provisional receipt into the config path; this
     # workflow never certifies, so the config receipt is restored when it ends.
     receipt_snapshot = RECEIPT.read_bytes() if RECEIPT.exists() else None
@@ -1026,6 +1032,10 @@ def run_steps(selection, interactive=False, require_scope=False):
                                 "warning": new_warnings[0] if new_warnings else ""})
             ctx.log(f"=== Step {number} END    {status.upper()}  {duration:.1f}s"
                     f"{'  reason: ' + reason if reason else ''}")
+            if status == "FAIL" and fail_fast:
+                ctx.log(f"=== ABORT: step {number} is a critical blocker; "
+                        "later steps are not runnable")
+                break
             if interactive:
                 try:
                     if input(f"Step {number} done. Enter=continue, q=stop: ").strip()[:1] == "q":
@@ -1079,6 +1089,10 @@ def main() -> int:
                              " the capture on internal lock evidence only")
     parser.add_argument("--interactive", action="store_true",
                         help="wait for Enter between steps")
+    parser.add_argument("--keep-going", action="store_true",
+                        help="diagnostic only: continue after a FAIL instead of aborting")
+    parser.add_argument("--diagnostic-capture", action="store_true",
+                        help="pass --capture-waveforms to the TDMA process-image stage")
     parser.add_argument("--refresh-html", action="store_true",
                         help="re-inject the newest run's data into the HTML view and exit")
     args = parser.parse_args()
@@ -1090,13 +1104,19 @@ def main() -> int:
         return 0
     if args.step is not None:
         return run_steps([args.step], interactive=args.interactive,
-                         require_scope=args.require_scope)
+                         require_scope=args.require_scope,
+                         fail_fast=not args.keep_going,
+                         diagnostic_capture=args.diagnostic_capture)
     if args.steps is not None:
         return run_steps(parse_selection(args.steps), interactive=args.interactive,
-                         require_scope=args.require_scope)
+                         require_scope=args.require_scope,
+                         fail_fast=not args.keep_going,
+                         diagnostic_capture=args.diagnostic_capture)
     if args.full:
         return run_steps(parse_selection("all"), interactive=args.interactive,
-                         require_scope=args.require_scope)
+                         require_scope=args.require_scope,
+                         fail_fast=not args.keep_going,
+                         diagnostic_capture=args.diagnostic_capture)
     parser.print_help()
     return 2
 

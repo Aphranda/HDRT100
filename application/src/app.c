@@ -1138,10 +1138,12 @@ static void app_realtime_tdma_phase(void)
      * this prevents accidental PIO/SM/DMA/GPIO/IRQ/DREQ activity while the
      * NO1..NO4 state-machine ring is running independently. */
     if (board_identity_get_no() != 5u) {
+        /* The owner harvests the physical observer FIFOs once per phase inside
+         * tdma_runtime_owner_service_phys_tx(). Calling the observer again here
+         * serviced the same finite FIFOs twice and spent the TDMA window twice;
+         * the blackout branch keeps its own explicit harvest because it skips
+         * the full service body. */
         tdma_component_core1_service();
-        /* TDMA owns the physical observer.  Harvest it once per TDMA phase
-         * before VDC/DPLL consume the resulting clock/evidence snapshot. */
-        tdma_runtime_owner_service_observer();
     }
     vdc_run_output_service_core1();
     /* Reference intent/retirement must progress even when the optional SYNC

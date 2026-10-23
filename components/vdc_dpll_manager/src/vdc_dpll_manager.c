@@ -3550,8 +3550,6 @@ void tdma_component_core1_service(void)
         tdma_service_core1_service(s_vdc_tdma_service);
     }
     tdma_service_timing_record(TDMA_TIMING_OWNER_SERVICE, timing_start);
-    /* RefMem captured any MASTER command in its own phase.  Admit that
-     * frozen batch only after the sole TDMA scheduler has advanced. */
     timing_start = tdma_service_timing_now();
     distributed_refmem_tdma_publish_service();
     tdma_service_timing_record(TDMA_TIMING_REFMEM_PUBLISH, timing_start);

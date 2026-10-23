@@ -10,6 +10,7 @@ $refmemInclude = Join-Path $repo "components\distributed_refmem\inc"
 $testSource = Join-Path $repo "tests\unit\test_refmem_unified_control_host.c"
 $sources = @(
     (Join-Path $repo "components\distributed_refmem\src\refmem_cmd_codec.c"),
+    (Join-Path $repo "components\distributed_refmem\src\refmem_command.c"),
     (Join-Path $repo "components\distributed_refmem\src\refmem_control_route.c"),
     (Join-Path $repo "components\distributed_refmem\src\refmem_trigger_session.c"),
     (Join-Path $repo "components\distributed_refmem\src\refmem_action_registry.c")

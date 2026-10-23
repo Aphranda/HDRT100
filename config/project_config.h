@@ -69,8 +69,11 @@ static const char g_project_build_id[] = "dev";
  * It uses only TDMA's existing foreground interval, never a new phase. */
 #define PROJECT_CORE1_RUN_OUTPUT_HANDOFF_WCET_CYCLES 20000u
 /* Separate candidate for output-only planning/refill when whole TDMA no
- * longer fits. Measured independently; does not enlarge the static phase. */
-#define PROJECT_CORE1_RUN_OUTPUT_PLAN_WCET_CYCLES 100000u
+ * longer fits. Measured independently; does not enlarge the static phase.
+ * The bounded planner's observed wall is 43-48k cycles in the four-board
+ * DPLL acceptance, so 64k keeps ~33% headroom while fitting the handoff into
+ * windows that the former 100k declaration rejected. */
+#define PROJECT_CORE1_RUN_OUTPUT_PLAN_WCET_CYCLES 64000u
 
 #define PROJECT_CORE1_PHASE_TDMA_START_CYCLE 0u
 #define PROJECT_CORE1_PHASE_TDMA_WCET_CYCLES \

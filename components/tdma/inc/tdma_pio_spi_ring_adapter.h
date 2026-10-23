@@ -8,6 +8,7 @@
 #include "tdma_adapter_comm_fsm.h"
 #include "tdma_first_class.h"
 #include "tdma_maintenance_stream.h"
+#include "tdma_transport_load.h"
 #include "tdma_flight_fifo.h"
 #include "tdma_flight_engine.h"
 #include "tdma_overlay_prepare.h"
@@ -587,6 +588,25 @@ typedef struct {
     void *maintenance_service_context;
     tdma_ring_maintenance_mailbox_fn maintenance_mailbox;
     void *maintenance_mailbox_context;
+    volatile uint32_t maintenance_rx_sequence;
+    volatile uint32_t maintenance_inject_attempts;
+    volatile uint32_t maintenance_inject_ok;
+    struct tdma_transport_load *transport_load;
+    void (*transport_load_rx)(void *context,
+                              const uint8_t *payload,
+                              size_t payload_size);
+    void *transport_load_rx_context;
+    volatile uint32_t transport_load_tx_ok;
+    volatile uint32_t transport_load_tx_fail;
+    volatile uint32_t transport_load_tx_stage;
+    volatile uint32_t transport_load_rx_seen;
+    volatile uint32_t transport_load_rx_delivered;
+    volatile uint32_t rx_class_config_control;
+    volatile uint32_t rx_class_process_image;
+    volatile uint32_t rx_class_other;
+    volatile uint32_t transport_load_build_class;
+    volatile uint32_t transport_load_build_size;
+    volatile uint32_t transport_load_build_load;
     volatile uint32_t maintenance_priority_calls;
     volatile uint32_t maintenance_yield_slots;
     volatile uint32_t maintenance_attempts;
@@ -850,6 +870,40 @@ void tdma_pio_spi_ring_adapter_set_maintenance_mailbox(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_ring_maintenance_mailbox_fn provider,
     void *context);
+bool tdma_pio_spi_ring_adapter_set_transport_load(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_transport_load_t *load);
+void tdma_pio_spi_ring_adapter_set_transport_load_rx(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    void (*callback)(void *context,
+                     const uint8_t *payload,
+                     size_t payload_size),
+    void *context);
+void tdma_pio_spi_ring_adapter_get_transport_load_tx(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t *ok,
+    uint32_t *fail,
+    uint32_t *stage);
+void tdma_pio_spi_ring_adapter_get_transport_load_rx(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t *seen,
+    uint32_t *delivered);
+void tdma_pio_spi_ring_adapter_get_rx_debug(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t *drop_count,
+    uint32_t *last_packet_size,
+    uint32_t *last_payload_class,
+    uint32_t *config_control_count,
+    uint32_t *process_image_count);
+void tdma_pio_spi_ring_adapter_get_transport_load_build(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t *payload_class,
+    uint32_t *payload_size,
+    uint32_t *load_frame);
+void tdma_pio_spi_ring_adapter_get_maintenance_inject(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t *attempts,
+    uint32_t *ok);
 bool tdma_pio_spi_ring_adapter_set_forwarding_mode(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_forwarding_mode_t mode);

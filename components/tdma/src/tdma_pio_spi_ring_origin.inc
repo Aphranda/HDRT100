@@ -516,14 +516,20 @@ static __attribute__((noinline)) bool tdma_pio_spi_ring_origin_publish_priority(
     }
     bool priority_new = false;
     if (offered == TDMA_PRIORITY_TX_READY) {
-        if (!tdma_process_image_typed_sync_class_valid(mailbox[3]) ||
-            !tdma_pio_spi_ring_origin_mailbox_valid(mailbox, adapter->config.local_slot_id,
-                (1u << adapter->config.node_count) - 1u)) return false;
-        /* New means new against the priority seat's own last boarding, not the
+        if (!tdma_process_image_typed_sync_class_valid(mailbox[3])) return false;
+        /* Duplicate provider content is the common case. Compare against the
+         * last boarded mailbox first: those bytes already passed the boarding
+         * CRC, so recomputing it for an identical payload is wasted TDMA time.
+         * New means new against the priority seat's own last boarding, not the
          * seat's last publication: a first-class boarding must not make an old
          * priority event look new. */
-        priority_new = !adapter->origin.priority_boarded ||
-            memcmp(adapter->origin.last_priority, mailbox, sizeof(mailbox)) != 0;
+        const bool same_as_last = adapter->origin.priority_boarded &&
+            memcmp(adapter->origin.last_priority, mailbox, sizeof(mailbox)) == 0;
+        if (!same_as_last &&
+            !tdma_pio_spi_ring_origin_mailbox_valid(
+                mailbox, adapter->config.local_slot_id,
+                (1u << adapter->config.node_count) - 1u)) return false;
+        priority_new = !same_as_last;
     } else if (offered != TDMA_PRIORITY_TX_EMPTY) {
         return false;
     }

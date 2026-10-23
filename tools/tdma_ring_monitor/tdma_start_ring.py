@@ -313,6 +313,12 @@ def _board_command_on_serial(board: Board, text: str,
         float(args.timeout),
     )
     result_write = action in COMPOSITE_ACK_HEADERS or action in TDMA_CONTROL_RESULT_FIELDS
+    # The capture latch is a value-returning write, but it is not a timing-critical
+    # ACK: forcing it onto the 0.2 s action timeout made trn03 report a spurious
+    # "<timeout>" while a fresh connection returned generation/epoch immediately.
+    result_write = result_write or action in {
+        "CALIBRATION:RING:CAPTURE:LATCH", "CAL:RING:CAPTURE:LATCH",
+        "CALIBRATION:RING:CAPTURE:SAVE", "CAL:RING:CAPTURE:SAVE"}
     ordinary_write = not is_scpi_query(text) and not result_write
     try:
         response = command(

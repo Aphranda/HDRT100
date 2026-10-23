@@ -557,6 +557,7 @@ typedef refmem_dpll_vector_payload_t distributed_refmem_dpll_vector_snapshot_t;
 
 bool distributed_refmem_init(void);
 void distributed_refmem_service(void);
+void distributed_refmem_tdma_core1_service(void);
 void distributed_refmem_realtime_run_once(void);
 /* Core1 TDMA-owner boundary for a frozen MASTER command batch.  RefMem's
  * own realtime phase may capture a batch, but it must never enqueue work
@@ -589,6 +590,12 @@ bool distributed_refmem_quality_gate_ready(void);
 bool distributed_refmem_command_set_reason_table_crc32(uint32_t reason_table_crc32);
 bool distributed_refmem_command_try_post(const refmem_command_request_t *request,
                                          uint32_t issue_tick32);
+refmem_command_take_result_t distributed_refmem_command_try_take(
+    uint32_t target_node,
+    uint32_t active_epoch,
+    uint32_t active_run_id,
+    uint32_t observed_payload_crc32,
+    uint32_t evidence_index);
 bool distributed_refmem_command_ack(uint32_t target_node,
                                     uint32_t evidence_index);
 bool distributed_refmem_command_nack(uint32_t target_node,

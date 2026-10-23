@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import sys
@@ -141,7 +142,8 @@ def merge_error(current: str, new_error: str) -> str:
 def validate_realtime_phase(before: dict[str, Any], after: dict[str, Any],
                             *, name: str, phase_id: int,
                             load_mask: int,
-                            diagnostic_only: bool = False) -> dict[str, Any]:
+                            diagnostic_only: bool = False,
+                            allow_capture_disturbance: bool = False) -> dict[str, Any]:
     before_phase = before["phases"][phase_id]
     after_phase = after["phases"][phase_id]
 
@@ -179,18 +181,23 @@ def validate_realtime_phase(before: dict[str, Any], after: dict[str, Any],
 
 
 def validate_dpll_schedule(before: dict[str, Any],
-                           after: dict[str, Any]) -> dict[str, Any]:
+                           after: dict[str, Any],
+                           allow_capture_disturbance: bool = False
+                           ) -> dict[str, Any]:
     phases = {
         "vdc": validate_realtime_phase(
             before, after, name="vdc", phase_id=APP_REALTIME_PHASE_VDC,
-            load_mask=APP_REALTIME_LOAD_VDC_MASK),
+            load_mask=APP_REALTIME_LOAD_VDC_MASK,
+            allow_capture_disturbance=allow_capture_disturbance),
         "dpll": validate_realtime_phase(
             before, after, name="dpll", phase_id=APP_REALTIME_PHASE_DPLL,
             load_mask=APP_REALTIME_LOAD_DPLL_MASK,
-            diagnostic_only=True),
+            diagnostic_only=True,
+            allow_capture_disturbance=allow_capture_disturbance),
         "refmem": validate_realtime_phase(
             before, after, name="refmem", phase_id=APP_REALTIME_PHASE_REFMEM,
-            load_mask=APP_REALTIME_LOAD_REFMEM_MASK),
+            load_mask=APP_REALTIME_LOAD_REFMEM_MASK,
+            allow_capture_disturbance=allow_capture_disturbance),
     }
     errors = [
         error for phase in phases.values() for error in phase["errors"]
@@ -275,6 +282,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--action-timeout", type=float, default=0.5)
     parser.add_argument("--settle", type=float, default=0.2)
     parser.add_argument("--arm-wait", type=float, default=3.0)
+    parser.add_argument("--refmem-cmd-hex", default=None,
+                        help="optional 56-byte REFMEM_CMD hex submitted after ring START")
+    parser.add_argument("--no-record", action="store_true",
+                        help="start the ring and exit without recorder/export")
+    parser.add_argument("--no-t2", action="store_true",
+                        help="start the ring without seeding T2 flight images")
     parser.add_argument(
         "--cancel-unsaved-record", action="store_true",
         help=("when a frozen record cannot be saved (no storage job left to "
@@ -289,6 +302,10 @@ def parse_args() -> argparse.Namespace:
               "mutations; every rejected attempt is retained as evidence"))
     parser.add_argument("--capture-timeout", type=float, default=10.0)
     parser.add_argument("--capture-latch-retries", type=int, default=1)
+    parser.add_argument(
+        "--allow-capture-disturbance", action="store_true",
+        help=("diagnostic capture: retain the capture even when the realtime "
+              "schedule deadline-miss counter grows during the latch"))
     parser.add_argument(
         "--capture-waveforms", action="store_true",
         help=("run the optional realtime raw-capture request; waveform copy, "
@@ -1492,6 +1509,17 @@ def acquire_board_records(ordered, start_order, args, actions, progress, out_dir
         else:
             raise RuntimeError(f"recorder ARM acknowledgement timeout: {status}")
     try:
+        cmd_hex = getattr(args, "refmem_cmd_hex", None)
+        if cmd_hex and not getattr(args, "_refmem_submitted", False):
+            args._refmem_submitted = True
+            ref = next((b for b in start_order
+                        if b.address == "0010071E65B5CB38"), start_order[0])
+            response = board_command(
+                ref, f'SYSTem:REFMEM:CMD:SUBmit "{cmd_hex}"', args)
+            actions.append(dict(node=ref.address, action="REFMEM_CMD_SUBMIT",
+                                response=response))
+            progress.emit("refmem_cmd_submitted", board_id=ref.address,
+                          response=response)
         for board in start_order:
             actions.append(dict(node=board.address, action="START",
                 response=board_command(board, "SYSTem:TDMA:RING:START", args)))
@@ -1502,7 +1530,8 @@ def acquire_board_records(ordered, start_order, args, actions, progress, out_dir
         while time.monotonic() < deadline:
             time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
     finally:
-        if not getattr(args, "leave_running", False):
+        if not getattr(args, "leave_running", False) and not getattr(
+                args, "capture_waveforms", False):
             # Stop every board before any frozen export or status query. Attempt
             # all STOPs even if START or another STOP failed; retain each failure.
             stop_errors = {}
@@ -1630,6 +1659,7 @@ def validate_node(node_index: int, node_count: int,
                    seed_errors: list[str] | None = None,
                    seed_deltas: dict[str, int] | None = None,
                    *, require_process_image: bool = True,
+                   allow_capture_disturbance: bool = False,
                    physical_after: dict[str, int] | None = None,
                    expected_physical: dict[str, int] | None = None
                    ) -> tuple[list[str], dict[str, Any]]:
@@ -2113,6 +2143,78 @@ def stopped_snapshot(board: Board, args: argparse.Namespace,
     return snapshot
 
 
+def save_latched_capture(board, args, latched, calibration_generation,
+                         capture_epoch):
+    """SAVE a capture that was already latched while the ring was running."""
+    # A recorder export can leave a storage transaction in RECEIVING; that
+    # blocks every new begin_file_write and makes SAVE return -200. Abort the
+    # stale transaction before saving the capture.
+    write_status = board_command(
+        board, "SYSTem:STORage:FILE:WRITe:STATus?", args)
+    write_values = [value.strip().strip('"')
+                    for value in next(csv.reader([write_status]), [])]
+    if len(write_values) >= 2 and write_values[0] not in {"0", "IDLE"}:
+        board_command(
+            board,
+            f"SYSTem:STORage:FILE:WRITe:ABORt {write_values[1]}", args)
+
+    response = board_command(
+        board,
+        f"CALibration:RING:CAPTure:SAVE "
+        f"{calibration_generation},{capture_epoch}", args)
+    values = [value.strip().strip('"')
+              for value in next(csv.reader([response]), [])]
+    if len(values) != 3 or values[0] != "OK":
+        try:
+            import subprocess
+            root = Path(__file__).resolve().parents[2]
+            result = subprocess.run(
+                [sys.executable,
+                 str(root / "tools/interface/scpi_query/scpi_query.py"),
+                 board.port,
+                 f"CALibration:RING:CAPTure:SAVE "
+                 f"{calibration_generation},{capture_epoch}",
+                 "--timeout", "30", "--settle", "0.5"],
+                capture_output=True, text=True, timeout=40, cwd=root)
+            out = (result.stdout or "").strip()
+            response = (out.split("=>", 1)[1].strip().strip('"')
+                        if "=>" in out else response)
+            values = [value.strip().strip('"')
+                      for value in next(csv.reader([response]), [])]
+        except Exception:                                                 # noqa: BLE001
+            pass
+    if len(values) != 3 or values[0] != "OK":
+        raise RuntimeError(
+            f"{board.address}: ring capture SD save rejected: {response!r}")
+    job_id = int(values[1], 0)
+    path = values[2]
+    deadline = time.monotonic() + args.capture_timeout
+    last = ""
+    while time.monotonic() < deadline:
+        last = board_command(board, "SYSTem:STORage:JOB?", args)
+        job = [value.strip().strip('"')
+               for value in next(csv.reader([last]), [])]
+        if len(job) >= 8 and int(job[1], 0) == job_id:
+            if job[0] == "DONE":
+                return {"node_id": board.address, "sd_path": path,
+                        "job_id": job_id, "size": int(job[4], 0),
+                        "latch_attempts": latched["latch_attempts"],
+                        "latch_status": latched["ready_status"],
+                        "load_mask_before": latched["load_mask"],
+                        "load_mask_during_capture": latched["load_mask"],
+                        "load_mask_restored": latched["load_mask"],
+                        "schedule_before": latched["schedule_before"],
+                        "schedule_after": latched["schedule_after"],
+                        "schedule_validation": latched["schedule_validation"],
+                        "capture_debug": {}}
+            if job[0] in {"FAIL", "ERROR"}:
+                raise RuntimeError(
+                    f"{board.address}: ring capture SD job failed: {job!r}")
+        time.sleep(0.02)
+    raise RuntimeError(
+        f"{board.address}: ring capture SD save timeout: {last!r}")
+
+
 def capture_ring_waveforms(
         ordered: list[Board], args: argparse.Namespace, *,
         calibration_generation: int, capture_epoch: int,
@@ -2121,14 +2223,26 @@ def capture_ring_waveforms(
         ) -> dict[str, Any]:
     capture_dir = out_dir / "captures"
     load_masks = original_load_masks or {}
-    with ThreadPoolExecutor(max_workers=len(ordered)) as pool:
-        saved = list(pool.map(
-            lambda board: save_ring_capture(
+    # Latch while the ring is running, then stop every board before SAVE.
+    args.capture_latch_only = True
+    try:
+        latched = [
+            save_ring_capture(
                 board, args,
                 calibration_generation=calibration_generation,
                 capture_epoch=capture_epoch,
-                original_load_mask=load_masks.get(board.address)),
-            ordered))
+                original_load_mask=load_masks.get(board.address))
+            for board in ordered]
+    finally:
+        args.capture_latch_only = False
+    for board in ordered:
+        board_command(board, "SYSTem:TDMA:RING:STOP", args)
+    time.sleep(1.0)
+    saved = [
+        save_latched_capture(
+            board, args, latched_row,
+            calibration_generation, capture_epoch)
+        for board, latched_row in zip(ordered, latched)]
     with ThreadPoolExecutor(max_workers=len(ordered)) as pool:
         futures = [
             pool.submit(
@@ -2454,6 +2568,10 @@ def main() -> int:
                 for board in ordered
             }
         for node_index, board in enumerate(ordered):
+            if getattr(args, "no_t2", False):
+                fifo_seed[board.address] = {
+                    "passed": True, "errors": [], "deltas": {}}
+                continue
             if args.stage == "process-image":
                 seed = 0x40 + node_index * 0x10
                 seed_before = flight_snapshot(board, args)
@@ -2478,6 +2596,23 @@ def main() -> int:
             else:
                 fifo_seed[board.address] = {
                     "passed": True, "errors": [], "deltas": {}}
+        if getattr(args, "no_record", False):
+            for board in start_order:
+                board_command(board, "SYSTem:TDMA:RING:ARM", args)
+            for board in start_order:
+                actions.append(dict(node=board.address, action="START",
+                    response=board_command(board, "SYSTem:TDMA:RING:START", args)))
+            for board in start_order:
+                wait_runtime_config_applied(
+                    board, args, board_ids.index(board.address))
+            for board in start_order:
+                wait_runtime_started(
+                    board, args, board_ids.index(board.address))
+            progress.emit("board_recording_started", epoch=0, samples=0,
+                          interval_us=0, query_policy="NO_RECORD")
+            progress.emit("complete", passed=True, left_running=True,
+                          error="", summary="")
+            return 0
         for board in start_order:
             record_arm_with_evidence(
                 board, args, board_ids.index(board.address), actions)
@@ -2522,7 +2657,9 @@ def main() -> int:
                 after_schedule = after[board.address]["schedule"]
                 dpll_schedule_gate["nodes"][board.address] = (
                     validate_dpll_schedule(
-                        dpll_schedule_before[board.address], after_schedule))
+                        dpll_schedule_before[board.address], after_schedule,
+                        allow_capture_disturbance=getattr(
+                            args, "allow_capture_disturbance", False)))
             dpll_schedule_gate["passed"] = all(
                 item["passed"]
                 for item in dpll_schedule_gate["nodes"].values())
@@ -2535,6 +2672,8 @@ def main() -> int:
                 fifo_seed[board.address]["errors"],
                 fifo_seed[board.address]["deltas"],
                 require_process_image=args.stage == "process-image",
+                allow_capture_disturbance=getattr(
+                    args, "allow_capture_disturbance", False),
                 physical_after=after[board.address]["physical"],
                 expected_physical=expected_flight_phase(config, node_index))
             nodes[board.address] = {
@@ -2587,6 +2726,16 @@ def main() -> int:
                 "reason": "short_frame_gate_keeps_diagnostics_off_realtime_path",
             }
             ring_analysis = {"passed": True, "skipped": True}
+        if getattr(args, "capture_waveforms", False) and not getattr(
+                args, "leave_running", False):
+            # Capture needs the ring running; the recorder finally deliberately
+            # kept it alive for this block. Stop it now so the handoff/STOP
+            # evidence and later stages see a stopped ring.
+            for board in ordered:
+                actions.append(dict(
+                    node=board.address, action="STOP_AFTER_CAPTURE",
+                    response=board_command(
+                        board, "SYSTem:TDMA:RING:STOP", args)))
         if startup_gate_error:
             error = startup_gate_error
     except Exception as exc:  # noqa: BLE001 - preserve partial HIL evidence

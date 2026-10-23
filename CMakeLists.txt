@@ -472,6 +472,11 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_application_model.c
         components/distributed_refmem/src/refmem_claim_protocol.c
         components/distributed_refmem/src/refmem_command.c
+        components/distributed_refmem/src/refmem_cmd_codec.c
+        components/distributed_refmem/src/refmem_cmd_load.c
+        components/distributed_refmem/src/refmem_trigger_session.c
+        components/distributed_refmem/src/refmem_action_registry.c
+        components/distributed_refmem/src/refmem_control_route.c
         components/distributed_refmem/src/refmem_node_load_sync.c
         components/distributed_refmem/src/refmem_pio_spi_adapter.c
         components/distributed_refmem/src/refmem_quality.c
@@ -563,6 +568,8 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_payload_registry.c
         components/tdma/src/tdma_flight_fifo.c
         components/tdma/src/tdma_long_frame.c
+        components/tdma/src/tdma_transport_load.c
+        components/tdma/src/tdma_second_class_parser.c
         components/tdma/src/tdma_maintenance.c
         components/tdma/src/tdma_maintenance_load.c
         components/tdma/src/tdma_maintenance_stream.c

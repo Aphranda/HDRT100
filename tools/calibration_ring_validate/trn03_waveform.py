@@ -24,6 +24,7 @@ for tool_path in (ROOT / "tools", ROOT / "tools" / "tdma_ring_monitor",
 from calibration_data_train import parse_storage_read  # noqa: E402
 from tools.common.scpi.scpi_serial import STORAGE_FILE_READ_MAX_BYTES  # noqa: E402
 from tdma_start_ring import Board, board_command  # noqa: E402
+import tdma_start_ring  # noqa: E402
 
 
 CAPTURE_SCHEMAS = {
@@ -254,6 +255,46 @@ def save_ring_capture(board: Board, args: argparse.Namespace, *,
             board,
             f"CALibration:RING:CAPTure:LATCh "
             f"{calibration_generation},{capture_epoch}", args)
+        if str(latch).strip() == "<timeout>":
+            # The persistent session can time out on this value-returning write
+            # even though a fresh connection answers immediately (measured).
+            # Use a dedicated short connection for the latch so capture is not
+            # coupled to the recorder session's queue.
+            connection = tdma_start_ring._PERSISTENT_CONNECTIONS.pop(
+                board.address, None)
+            if connection is not None:
+                connection.close()
+            try:
+                import serial  # noqa: PLC0415
+                with serial.Serial(board.port, args.baud,
+                                   timeout=args.timeout,
+                                   write_timeout=args.timeout) as ser:
+                    time.sleep(max(float(args.settle), 0.5))
+                    ser.reset_input_buffer()
+                    ser.write((f"CALibration:RING:CAPTure:LATCh "
+                               f"{calibration_generation},{capture_epoch}\n").encode())
+                    latch = ser.readline().decode(errors="replace").strip() or "<timeout>"
+            except Exception:                                             # noqa: BLE001
+                latch = "<timeout>"
+            if latch == "<timeout>":
+                # Last resort: use the same one-shot SCPI helper that succeeds
+                # manually while the ring is left running.
+                try:
+                    import subprocess  # noqa: PLC0415
+                    root = Path(__file__).resolve().parents[2]
+                    result = subprocess.run(
+                        [sys.executable,
+                         str(root / "tools/interface/scpi_query/scpi_query.py"),
+                         board.port,
+                         f"CALibration:RING:CAPTure:LATCh "
+                         f"{calibration_generation},{capture_epoch}",
+                         "--timeout", "12", "--settle", "0.5"],
+                        capture_output=True, text=True, timeout=20,
+                        cwd=root)
+                    out = (result.stdout or "").strip()
+                    latch = out.split("=>", 1)[1].strip().strip('"') if "=>" in out else "<timeout>"
+                except Exception:                                         # noqa: BLE001
+                    latch = "<timeout>"
         latch_values = [value.strip().strip('"')
                         for value in next(csv.reader([latch]), [])]
         if (len(latch_values) != 2 or
@@ -285,7 +326,8 @@ def save_ring_capture(board: Board, args: argparse.Namespace, *,
         schedule_after = read_tdma_schedule(board, args)
         schedule_validation = validate_capture_schedule(
             schedule_before, schedule_after)
-        if not schedule_validation["passed"]:
+        if not schedule_validation["passed"] and not getattr(
+                args, "allow_capture_disturbance", False):
             raise RuntimeError(
                 f"{board.address}: ring capture disturbed TDMA schedule: "
                 f"{','.join(schedule_validation['errors'])}; "
@@ -302,6 +344,14 @@ def save_ring_capture(board: Board, args: argparse.Namespace, *,
         raise RuntimeError(
             f"{board.address}: ring capture latch timeout: {last!r}; "
             f"schedule={json.dumps(schedule_diagnostic, separators=(',', ':'))}")
+
+    if getattr(args, "capture_latch_only", False):
+        return {"ready_status": ready_status,
+                "latch_attempts": latch_attempts,
+                "schedule_before": schedule_before,
+                "schedule_after": schedule_after,
+                "schedule_validation": schedule_validation,
+                "load_mask": original_load_mask}
 
     response = board_command(
         board,
@@ -502,30 +552,42 @@ def analyze_sck_timing(
     }
 
 
+def _pack_shifted_bytes(values: Sequence[int], shift: int) -> list[int]:
+    bits = byte_bits(values)
+    if shift:
+        bits = bits[shift:]
+    out: list[int] = []
+    for index in range(0, len(bits) - 7, 8):
+        byte = 0
+        for bit in bits[index:index + 8]:
+            byte = (byte << 1) | int(bit)
+        out.append(byte)
+    return out
+
+
 def latest_complete_packet(values: Sequence[int]) -> list[int] | None:
     """Return the newest complete 0x54,0x44,length packet in a byte stream."""
-    fallback: list[int] | None = None
-    for start in range(len(values) - 4, -1, -1):
-        if values[start] != 0x54 or values[start + 1] != 0x44:
-            continue
-        frame_bytes = 4 + int(values[start + 2]) + (int(values[start + 3]) << 8)
-        if frame_bytes >= 4 and start + frame_bytes <= len(values):
-            packet = [int(value)
-                      for value in values[start:start + frame_bytes]]
-            # PHY and transport intentionally share the 0x54,0x44 magic.  A
-            # backward-only search otherwise mistakes the nested transport
-            # header for a newer PHY packet (version/class look like length).
-            # Prefer the candidate whose payload is a self-consistent TDMA
-            # transport frame, while retaining V1/generic capture support.
-            if (frame_bytes >= 4 + TRANSPORT_HEADER_SIZE and
-                    packet[4:6] == [0x54, 0x44] and
-                    packet[6] == 1 and
-                    packet[10] == TRANSPORT_HEADER_SIZE and
-                    packet[8] + (packet[9] << 8) == frame_bytes - 4):
-                return packet
-            if fallback is None:
-                fallback = packet
-    return fallback
+    for shift in range(8):
+        candidates = values if shift == 0 else _pack_shifted_bytes(values, shift)
+        fallback: list[int] | None = None
+        for start in range(len(candidates) - 4, -1, -1):
+            if candidates[start] != 0x54 or candidates[start + 1] != 0x44:
+                continue
+            frame_bytes = 4 + int(candidates[start + 2]) + (int(candidates[start + 3]) << 8)
+            if frame_bytes >= 4 and start + frame_bytes <= len(candidates):
+                packet = [int(value)
+                          for value in candidates[start:start + frame_bytes]]
+                if (frame_bytes >= 4 + TRANSPORT_HEADER_SIZE and
+                        packet[4:6] == [0x54, 0x44] and
+                        packet[6] == 1 and
+                        packet[10] == TRANSPORT_HEADER_SIZE and
+                        packet[8] + (packet[9] << 8) == frame_bytes - 4):
+                    return packet
+                if fallback is None:
+                    fallback = packet
+        if fallback is not None:
+            return fallback
+    return None
 
 
 def decode_transport_evidence(

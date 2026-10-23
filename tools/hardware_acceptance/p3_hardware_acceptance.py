@@ -1904,6 +1904,62 @@ def read_schedules(board_ids: list[str], timing: dict[str, float]) -> dict[str, 
         close_persistent_connections()
 
 
+PROTECTION_FIELDS = (
+    "version", "table_seq", "ram_resident_required", "flash_lockout_supported",
+    "flash_lockout_online", "flash_lockout_requested",
+    "flash_lockout_acknowledged", "park_state", "last_result",
+    "last_elapsed_us", "request_seq", "ack_seq", "release_seq",
+    "timeout_count", "release_timeout_count", "entry_table_owner", "flags",
+    "guard_owner", "guard_crc32", "guard_stale", "guard_flags",
+)
+
+
+def parse_protection(raw: str) -> dict[str, int]:
+    """Parse ``SYSTem:PROTection:STATus?`` (flash park/lockout counters).
+
+    These counters are the only board-side evidence of a flash transaction
+    during the 60 s window; a park stalls Core1 even though the refill path
+    itself is unchanged.
+    """
+    try:
+        values = [int(value.strip().strip('"')) for value in raw.split(",")]
+    except ValueError as exc:
+        raise AcceptanceError(f"invalid protection status: {raw!r}") from exc
+    if len(values) != len(PROTECTION_FIELDS):
+        raise AcceptanceError(
+            f"protection status field count {len(values)} != {len(PROTECTION_FIELDS)}")
+    return dict(zip(PROTECTION_FIELDS, values))
+
+
+def read_realtime_context(board_ids: list[str], timing: dict[str, float]
+                          ) -> dict[str, dict[str, Any]]:
+    """Read the phase schedule and flash/park counters in one CDC session."""
+    sys.path.insert(0, str(ROOT / "tools" / "tdma_ring_monitor"))
+    from tdma_start_ring import (  # type: ignore
+        board_command, close_persistent_connections, discover)
+
+    args = argparse.Namespace(
+        board_ids=board_ids, baud=115200,
+        timeout=timing["serial_timeout_s"], settle=timing["serial_settle_s"],
+        keep_open=True)
+    boards = discover(args)
+    missing = sorted(set(board_ids) - set(boards))
+    if missing:
+        raise AcceptanceError("realtime context boards missing: " + ", ".join(missing))
+    try:
+        return {
+            board_id: {
+                "schedule": parse_schedule(board_command(
+                    boards[board_id], "SYSTem:TDMA:SCHEDule?", args)),
+                "protection": parse_protection(board_command(
+                    boards[board_id], "SYSTem:PROTection:STATus?", args)),
+            }
+            for board_id in board_ids
+        }
+    finally:
+        close_persistent_connections()
+
+
 def validate_ota(summary: dict[str, Any], expected_ids: list[str],
                  build_id: str) -> None:
     found = {board.get("serial_number") for board in summary.get("boards", [])}
@@ -2186,17 +2242,58 @@ def dpll_short_discover_scope(config: dict[str, Any], out_dir: Path) -> tuple[Pa
     return discovery_path, discovery["present"] is True
 
 
+_DPLL_OUTPUT_REASONS = {
+    0: "OK", 1: "CANCELLED", 2: "CLOCK", 3: "STARVED",
+    4: "DEADLINE", 5: "ARGUMENT", 6: "DMA", 7: "EXPIRED",
+}
+
+
+def dpll_capture_failure_detail(joint_dir: Path) -> str:
+    """Name the boards that stopped feeding the 60 s window.
+
+    The capture writes its own probe before it exits; a bare ``Capture exited 2``
+    hides which board starved and when, which cost several full acceptance rounds.
+    Best-effort only: a missing or foreign probe yields no detail.
+    """
+    try:
+        report = json.loads(
+            (joint_dir / "capture" / "input-probe.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(report, dict):
+        return ""
+    parts: list[str] = []
+    for uid, row in (report.get("boards") or {}).items():
+        if not isinstance(row, dict):
+            continue
+        raw = row.get("run_output_raw")
+        if not isinstance(raw, str):
+            continue
+        try:
+            fields = [int(value) for value in raw.split(",")]
+        except ValueError:
+            continue
+        if len(fields) < 6:
+            continue
+        reason, edges = fields[3], fields[5]
+        if reason == 3:
+            parts.append(f"{uid}: STARVED after {edges / 1000.0:.1f}s")
+        elif edges < 50_000:
+            parts.append(
+                f"{uid}: output stopped after {edges / 1000.0:.1f}s "
+                f"({_DPLL_OUTPUT_REASONS.get(reason, reason)})")
+    samples = report.get("scope_samples") or []
+    missed = [row for row in samples if row.get("missed")]
+    if missed:
+        parts.append(f"scope {len(missed)}/{len(samples)} windows missed")
+    return "; ".join(parts)
+
+
 def dpll_short_run_capture(root: Path, config: dict[str, Any], out_dir: Path, *,
                            scope_enabled: bool) -> Path:
     resource = str(config["dpll_short_scope_resource"])
     serial = str(config["dpll_short_scope_serial"])
     seconds = int(config["dpll_short_seconds"])
-    joint_dir = out_dir / "dpll-four-board-short"
-    attempt = 1
-    while joint_dir.exists():
-        # The capture creates its own directory and refuses an existing one.
-        attempt += 1
-        joint_dir = out_dir / f"dpll-four-board-short-attempt{attempt}"
     pre_capture = os.environ.get("HAOFV_PRE_CAPTURE_COMMAND", "").strip()
     if pre_capture:
         print(f"Hardware acceptance: pre-capture hook: {pre_capture}", flush=True)
@@ -2220,7 +2317,7 @@ def dpll_short_run_capture(root: Path, config: dict[str, Any], out_dir: Path, *,
     else:
         print(f"Hardware acceptance: WARNING no provisional receipt at {provisional}; "
               "the joint capture will validate the committed one", flush=True)
-    command = [
+    command_prefix = [
         sys.executable,
         str(root / "tools/vdc_priority_trace/vdc_priority_joint_capture.py"),
         "--bench-adapter", str(root / config["dpll_short_bench_adapter"]),
@@ -2234,16 +2331,42 @@ def dpll_short_run_capture(root: Path, config: dict[str, Any], out_dir: Path, *,
         "--scope-threshold-ns", "1000",
         "--scope-steady-threshold-ns", "1000",
         "--p3-provisional",
-        "--out", str(joint_dir),
     ]
     print(
         "Hardware acceptance: four-board DPLL 60 s joint observation " +
         ("with HDO scope" if scope_enabled else "with internal evidence; scope absent"),
         flush=True)
-    _run_step(command, root, out_dir / (
-        "dpll-short.log" if attempt == 1 else f"dpll-short-attempt{attempt}.log"),
-        heartbeat_s=10.0)
-    return joint_dir
+    # The finite RUN can retire a board's output mid-window (SYNC-OUT-002); that
+    # is a physical-window flake, not a deterministic rejection. Retry with a
+    # fresh window and keep each attempt's evidence, while a repeatable failure
+    # still ends the step.
+    attempts = max(1, int(config.get("dpll_short_capture_attempts", 2)))
+    joint_dir = out_dir / "dpll-four-board-short"
+    number = 1
+    while joint_dir.exists():
+        number += 1
+        joint_dir = out_dir / f"dpll-four-board-short-attempt{number}"
+    for attempt in range(1, attempts + 1):
+        if attempt > 1:
+            while joint_dir.exists():
+                number += 1
+                joint_dir = out_dir / f"dpll-four-board-short-attempt{number}"
+        command = command_prefix + ["--out", str(joint_dir)]
+        log = out_dir / ("dpll-short.log" if number == 1
+                         else f"dpll-short-attempt{number}.log")
+        try:
+            _run_step(command, root, log, heartbeat_s=10.0)
+        except AcceptanceError as exc:
+            detail = dpll_capture_failure_detail(joint_dir)
+            if detail:
+                exc = AcceptanceError(f"{exc} [{detail}]")
+            if attempt >= attempts:
+                raise exc from None
+            print(f"Hardware acceptance: joint capture attempt {attempt} failed; "
+                  f"retrying with a fresh window ({exc})", flush=True)
+            continue
+        return joint_dir
+    raise AcceptanceError("joint capture produced no attempt directory")
 
 
 def dpll_short_summarize(
@@ -4001,9 +4124,20 @@ def phase_dpll_provisional(run: AcceptanceRun) -> None:
 def phase_dpll_capture(run: AcceptanceRun) -> None:
     if run.tdma_only:
         return
+    # Phase-schedule misses and flash park counters are read around the window:
+    # their delta is the only board-side explanation when a follower output
+    # starves (the capture itself closes all board connections during the run).
+    def context():
+        try:
+            return read_realtime_context(run.board_ids, run.timing)
+        except Exception as exc:  # evidence only; never block the capture
+            return {"error": f"{type(exc).__name__}: {exc}"}
+
+    run.put(dpll_realtime_before=context())
     joint_dir = dpll_short_run_capture(
         run.root, run.config, run.out_dir, scope_enabled=run.get("dpll_scope_enabled"))
     run.put(dpll_joint_dir=joint_dir)
+    run.put(dpll_realtime_after=context())
 
 
 @acceptance_step(30, "DPLL 摘要门限（summarize_joint / validate_summary）")
@@ -4588,6 +4722,7 @@ def run_dpll_short_acceptance(args: argparse.Namespace) -> None:
     manifest = json.loads(
         (root / config["dpll_short_workflow_inputs"]).read_text(encoding="utf-8"))
     provisional_path = out_dir / "provisional-receipt.json"
+    config["_provisional_receipt_path"] = str(provisional_path)
     manifest["files"]["receipt"]["path"] = provisional_path.relative_to(root).as_posix()
     manifest_copy = out_dir / "workflow-inputs.json"
     manifest_copy.write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n",

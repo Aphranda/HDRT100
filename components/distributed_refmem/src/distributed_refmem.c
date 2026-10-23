@@ -13,6 +13,8 @@
 #include "ota_ao.h"
 #include "refmem_application_model.h"
 #include "refmem_command.h"
+#include "refmem_cmd_load.h"
+#include "refmem_control_route.h"
 #include "refmem_node_load_sync.h"
 #include "refmem_quality.h"
 #include "refmem_realtime_tdma.h"
@@ -3737,6 +3739,15 @@ void distributed_refmem_service(void)
     if (!s_initialized) {
         return;
     }
+    static bool cmd_load_ready;
+    if (!cmd_load_ready) {
+        tdma_pio_spi_ring_adapter_t *adapter =
+            tdma_runtime_owner_get_ring_adapter();
+        if (adapter != NULL) {
+            cmd_load_ready = refmem_cmd_load_init(adapter);
+        }
+    }
+    refmem_cmd_load_service();
 
     osal_critical_enter();
 
@@ -3772,6 +3783,14 @@ void distributed_refmem_service(void)
     }
     distributed_refmem_tdma_flight_sync_service();
     distributed_refmem_log_tdma_ring_service();
+}
+
+void distributed_refmem_tdma_core1_service(void)
+{
+    if (!s_initialized) {
+        return;
+    }
+    refmem_realtime_tdma_core1_service(&s_refmem_realtime_tdma);
 }
 
 /* Low-frequency read-only TDMA ring maintenance log (P0.5-3 monitoring).
@@ -3974,12 +3993,43 @@ bool distributed_refmem_command_set_reason_table_crc32(uint32_t reason_table_crc
 bool distributed_refmem_command_try_post(const refmem_command_request_t *request,
                                          uint32_t issue_tick32)
 {
+    if (request == NULL) {
+        return false;
+    }
+    const uint32_t board_no = board_identity_get_no();
+    const uint32_t local_slot = board_no > 0u ? board_no - 1u : 0u;
+    tdma_ring_runtime_snapshot_t ring;
+    const bool unified_available =
+        tdma_runtime_owner_get_ring_snapshot(&ring) &&
+        ring.enabled != 0u && ring.adapter_started != 0u;
+    const refmem_control_route_t route = refmem_control_route_decide(
+        local_slot, request->target_mask, unified_available);
+    if (route == REFMEM_CONTROL_ROUTE_REJECT_NO_TARGET ||
+        route == REFMEM_CONTROL_ROUTE_REJECT_UNIFIED_UNAVAILABLE ||
+        route == REFMEM_CONTROL_ROUTE_REJECT_BAD_SLOT) {
+        return false;
+    }
     osal_critical_enter();
     const bool ok = refmem_command_try_post(&s_refmem_command_slot,
                                             request,
                                             issue_tick32);
     osal_critical_exit();
     return ok;
+}
+
+refmem_command_take_result_t distributed_refmem_command_try_take(
+    uint32_t target_node,
+    uint32_t active_epoch,
+    uint32_t active_run_id,
+    uint32_t observed_payload_crc32,
+    uint32_t evidence_index)
+{
+    osal_critical_enter();
+    const refmem_command_take_result_t result = refmem_command_try_take(
+        &s_refmem_command_slot, target_node, active_epoch, active_run_id,
+        observed_payload_crc32, evidence_index);
+    osal_critical_exit();
+    return result;
 }
 
 bool distributed_refmem_command_ack(uint32_t target_node,

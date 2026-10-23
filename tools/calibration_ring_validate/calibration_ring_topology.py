@@ -666,8 +666,13 @@ def main() -> int:
 
     anchor = args.anchor_id or board_ids[0]
     ring_order = render_ring_order(adjacency, anchor, len(board_ids))
+    # Adjacency-only is a wiring/line-order check, not a link-quality check.
+    # A cleanup START may time out after the pair probe has already observed the
+    # adjacent link (transport_recoveries records it); that must not turn a
+    # correctly wired ring into a topology FAIL.
+    cleanup_ok = all(row["passed"] for row in cleanup_results)
     passed = (not error and len(ring_order) == len(board_ids) and
-              all(row["passed"] for row in cleanup_results))
+              (cleanup_ok or args.adjacency_only))
     assignments: list[dict[str, object]] = []
     reboot_readback: list[dict[str, object]] = []
     try:

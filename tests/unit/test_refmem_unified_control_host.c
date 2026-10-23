@@ -1,5 +1,6 @@
 #include "refmem_action_registry.h"
 #include "refmem_cmd_codec.h"
+#include "refmem_command.h"
 #include "refmem_control_route.h"
 #include "refmem_trigger_session.h"
 
@@ -123,6 +124,36 @@ int main(void)
     rc |= expect_u32("session degraded",
                      (uint32_t)refmem_trigger_session_target_failed(&session, 1u),
                      (uint32_t)REFMEM_TRIGGER_SESSION_TARGET_FAILED);
+
+    refmem_sync_command_payload_t sync_payload;
+    refmem_command_request_t from_sync;
+    refmem_command_slot_t slot;
+    refmem_command_snapshot_t snapshot;
+    rc |= expect_u32("sync encode",
+                     refmem_command_request_to_sync_payload(&req, &sync_payload) ? 0u : 1u,
+                     0u);
+    rc |= expect_u32("sync decode",
+                     refmem_command_request_from_sync_payload(
+                         &sync_payload, req.source_node,
+                         req.issue_epoch, req.run_id, &from_sync) ? 0u : 1u,
+                     0u);
+    rc |= expect_u32("sync seq", from_sync.command_seq, req.command_seq);
+    rc |= expect_u32("sync target", from_sync.target_mask, req.target_mask);
+    rc |= expect_u32("slot init", refmem_command_init(&slot, 0u) ? 0u : 1u, 0u);
+    rc |= expect_u32("slot post",
+                     refmem_command_try_post(&slot, &from_sync, 1u) ? 0u : 1u,
+                     0u);
+    rc |= expect_u32("slot take",
+                     (uint32_t)refmem_command_try_take(
+                         &slot, 1u, from_sync.issue_epoch, from_sync.run_id,
+                         from_sync.payload_crc32, 0u),
+                     (uint32_t)REFMEM_COMMAND_TAKE_TAKEN);
+    rc |= expect_u32("slot ack",
+                     refmem_command_ack(&slot, 1u, 0u) ? 0u : 1u, 0u);
+    rc |= expect_u32("slot snapshot",
+                     refmem_command_get_snapshot(&slot, &snapshot) ? 0u : 1u,
+                     0u);
+    rc |= expect_u32("ack bit", (snapshot.ack_flags >> 1u) & 1u, 1u);
 
     if (rc == 0) {
         (void)printf("refmem_unified_control_host tests passed\n");

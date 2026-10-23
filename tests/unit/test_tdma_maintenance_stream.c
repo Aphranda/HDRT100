@@ -31,6 +31,24 @@ int main(void)
     assert(rx.frame_size == sizeof(frame));
     assert(memcmp(rx.frame, frame, sizeof(frame)) == 0);
 
-    printf("tdma_maintenance_stream: 32B fragmentation/reassembly OK\n");
+    uint8_t refmem_cmd[56];
+    for (size_t i = 0u; i < sizeof(refmem_cmd); i++) {
+        refmem_cmd[i] = (uint8_t)(0x44u + i);
+    }
+    assert(tdma_maintenance_stream_tx_begin(&tx, refmem_cmd,
+                                             sizeof(refmem_cmd), 0x52u, 2u));
+    memset(&rx, 0, sizeof(rx));
+    complete = false;
+    chunks = 0u;
+    while (tdma_maintenance_stream_next_chunk(&tx, chunk)) {
+        chunks++;
+        assert(tdma_maintenance_stream_rx_chunk(&rx, chunk, &complete));
+    }
+    assert(chunks == tx.chunk_count);
+    assert(complete);
+    assert(rx.frame_size == sizeof(refmem_cmd));
+    assert(memcmp(rx.frame, refmem_cmd, sizeof(refmem_cmd)) == 0);
+
+    printf("tdma_maintenance_stream: 80B + 56B fragmentation/reassembly OK\n");
     return 0;
 }

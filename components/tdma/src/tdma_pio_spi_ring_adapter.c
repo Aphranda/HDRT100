@@ -834,6 +834,140 @@ void tdma_pio_spi_ring_adapter_set_maintenance_mailbox(
     adapter->maintenance_mailbox_context = context;
 }
 
+bool tdma_pio_spi_ring_adapter_set_transport_load(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_transport_load_t *load)
+{
+    if (adapter == NULL) {
+        return false;
+    }
+    adapter->transport_load = load;
+    return true;
+}
+
+void tdma_pio_spi_ring_adapter_set_transport_load_rx(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    void (*callback)(void *context,
+                     const uint8_t *payload,
+                     size_t payload_size),
+    void *context)
+{
+    if (adapter == NULL) {
+        return;
+    }
+    adapter->transport_load_rx = callback;
+    adapter->transport_load_rx_context = context;
+}
+
+void tdma_pio_spi_ring_adapter_get_transport_load_tx(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t *ok,
+    uint32_t *fail,
+    uint32_t *stage)
+{
+    if (adapter == NULL) {
+        return;
+    }
+    if (ok != NULL) {
+        *ok = adapter->transport_load_tx_ok;
+    }
+    if (fail != NULL) {
+        *fail = adapter->transport_load_tx_fail;
+    }
+    if (stage != NULL) {
+        *stage = adapter->transport_load_tx_stage;
+    }
+}
+
+void tdma_pio_spi_ring_adapter_get_transport_load_rx(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t *seen,
+    uint32_t *delivered)
+{
+    if (adapter == NULL) {
+        return;
+    }
+    if (seen != NULL) {
+        *seen = adapter->transport_load_rx_seen;
+    }
+    if (delivered != NULL) {
+        *delivered = adapter->transport_load_rx_delivered;
+    }
+}
+
+void tdma_pio_spi_ring_adapter_get_rx_debug(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t *drop_count,
+    uint32_t *last_packet_size,
+    uint32_t *last_payload_class,
+    uint32_t *config_control_count,
+    uint32_t *process_image_count)
+{
+    if (adapter == NULL) {
+        return;
+    }
+    if (drop_count != NULL) {
+        *drop_count = adapter->rx_drop_count;
+    }
+    if (last_packet_size != NULL) {
+        *last_packet_size = (uint32_t)adapter->last_rx_packet_size;
+    }
+    if (last_payload_class != NULL) {
+        *last_payload_class = 0u;
+        if (adapter->last_rx_packet_size != 0u) {
+            tdma_transport_frame_view_t view;
+            tdma_transport_result_t result = TDMA_TRANSPORT_OK;
+            if (tdma_transport_frame_decode(adapter->last_rx_packet,
+                                            adapter->last_rx_packet_size,
+                                            &view, &result)) {
+                *last_payload_class = view.payload_class;
+            }
+        }
+    }
+    if (config_control_count != NULL) {
+        *config_control_count = adapter->rx_class_config_control;
+    }
+    if (process_image_count != NULL) {
+        *process_image_count = adapter->rx_class_process_image;
+    }
+}
+
+void tdma_pio_spi_ring_adapter_get_transport_load_build(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t *payload_class,
+    uint32_t *payload_size,
+    uint32_t *load_frame)
+{
+    if (adapter == NULL) {
+        return;
+    }
+    if (payload_class != NULL) {
+        *payload_class = adapter->transport_load_build_class;
+    }
+    if (payload_size != NULL) {
+        *payload_size = adapter->transport_load_build_size;
+    }
+    if (load_frame != NULL) {
+        *load_frame = adapter->transport_load_build_load;
+    }
+}
+
+void tdma_pio_spi_ring_adapter_get_maintenance_inject(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    uint32_t *attempts,
+    uint32_t *ok)
+{
+    if (adapter == NULL) {
+        return;
+    }
+    if (attempts != NULL) {
+        *attempts = adapter->maintenance_inject_attempts;
+    }
+    if (ok != NULL) {
+        *ok = adapter->maintenance_inject_ok;
+    }
+}
+
 bool tdma_pio_spi_ring_adapter_set_forwarding_mode(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_forwarding_mode_t mode)
@@ -955,6 +1089,10 @@ bool tdma_pio_spi_ring_adapter_take_maintenance_chunk(
         view.payload == NULL) {
         return false;
     }
+    if ((view.transport_sequence + 1u) ==
+        adapter->maintenance_rx_sequence) {
+        return false;
+    }
     if (view.payload_class == TDMA_PAYLOAD_CLASS_CONFIG_CONTROL) {
         const uint8_t *mailbox = view.payload;
         if (view.payload_size < TDMA_FLIGHT_SHORT_SLOT_SIZE ||
@@ -973,6 +1111,7 @@ bool tdma_pio_spi_ring_adapter_take_maintenance_chunk(
         if (source_slot != NULL) {
             *source_slot = mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET];
         }
+        adapter->maintenance_rx_sequence = view.transport_sequence + 1u;
         return true;
     }
     const uint32_t mask = (1u << adapter->config.node_count) - 1u;
@@ -997,6 +1136,7 @@ bool tdma_pio_spi_ring_adapter_take_maintenance_chunk(
         if (source_slot != NULL) {
             *source_slot = mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET];
         }
+        adapter->maintenance_rx_sequence = view.transport_sequence + 1u;
         return true;
     }
     return false;
@@ -1530,6 +1670,7 @@ static bool tdma_pio_spi_ring_adapter_launch_reference(
         tdma_pio_spi_ring_adapter_resident_process_image(adapter);
     uint64_t tx_timestamp_ns = 0ull;
     if (tdma_pio_spi_ring_adapter_burst_exhausted(adapter)) {
+        adapter->transport_load_tx_stage = 6u;
         return true;
     }
     const uint64_t submit_start = tdma_service_timing_now();
@@ -1557,11 +1698,13 @@ static bool tdma_pio_spi_ring_adapter_launch_reference(
         }
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_TX_FAILED);
+        adapter->transport_load_tx_stage = 4u;
         return false;
     }
 
     /* An accepted submission may already be on the wire. Count it even if
      * a later FSM/evidence step fails, and never refund an aborted frame. */
+    adapter->transport_load_tx_stage = 8u;
     if (tdma_ring_diagnostic_burst_limit(adapter->config.flags) != 0u) {
         adapter->diagnostic_burst_launched++;
     }
@@ -1592,10 +1735,12 @@ static bool tdma_pio_spi_ring_adapter_launch_reference(
     if (!comm_started) {
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_COMM_FSM);
+        adapter->transport_load_tx_stage = 5u;
         return false;
     }
 
     *launched = true;
+    adapter->transport_load_tx_stage = 9u;
     adapter->reference_tx_completion_pending =
         tx_timestamp_ns == 0ull && adapter->phys_tx_complete != NULL;
     adapter->resident_bootstrap_tx_pending =
@@ -1737,6 +1882,27 @@ static bool tdma_pio_spi_ring_adapter_tx_resident_cycle_from(
         return false;
     }
 
+    if (adapter->maintenance_mailbox != NULL &&
+        returned_view.payload_size >=
+            (adapter->config.local_slot_id + 1u) *
+                TDMA_FLIGHT_SHORT_SLOT_SIZE) {
+        uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE];
+        adapter->maintenance_inject_attempts++;
+        if (adapter->maintenance_mailbox(adapter->maintenance_mailbox_context,
+                                         mailbox)) {
+            adapter->maintenance_inject_ok++;
+            uint8_t *slot = processed_payload +
+                adapter->config.local_slot_id *
+                    TDMA_FLIGHT_SHORT_SLOT_SIZE;
+            memcpy(slot, mailbox, TDMA_FLIGHT_SHORT_SLOT_SIZE);
+            const uint16_t crc = tdma_process_image_crc16_ccitt(
+                slot, TDMA_PROCESS_IMAGE_CRC_OFFSET);
+            slot[TDMA_PROCESS_IMAGE_CRC_OFFSET] = (uint8_t)crc;
+            slot[TDMA_PROCESS_IMAGE_CRC_OFFSET + 1u] =
+                (uint8_t)(crc >> 8u);
+        }
+    }
+
     const bool dpll_observation_ready =
         tdma_pio_spi_ring_adapter_build_dpll_observation(
             adapter, processed_payload, returned_view.payload_size);
@@ -1805,10 +1971,25 @@ static bool tdma_pio_spi_ring_adapter_tx_resident_cycle_from(
     return true;
 }
 
+static bool tdma_pio_spi_ring_adapter_tx_beacon(
+    tdma_pio_spi_ring_adapter_t *adapter,
+    bool *launched);
+
 static bool tdma_pio_spi_ring_adapter_tx_next_resident_cycle(
     tdma_pio_spi_ring_adapter_t *adapter,
     bool *launched)
 {
+    if (adapter != NULL && adapter->transport_load != NULL &&
+        tdma_transport_load_pending(adapter->transport_load) &&
+        tdma_transport_load_window_open(adapter->transport_load)) {
+        const bool ok = tdma_pio_spi_ring_adapter_tx_beacon(adapter, launched);
+        if (ok) {
+            adapter->transport_load_tx_ok++;
+        } else {
+            adapter->transport_load_tx_fail++;
+        }
+        return ok;
+    }
     if (adapter == NULL || !adapter->resident_return_ready ||
         adapter->comm_fsm.state != TDMA_ADAPTER_COMM_STATE_CYCLE_BOUNDARY ||
         adapter->last_rx_packet_size == 0u) {
@@ -1826,6 +2007,17 @@ static bool tdma_pio_spi_ring_adapter_tx_stale_resident_cycle(
     tdma_pio_spi_ring_adapter_t *adapter,
     bool *launched)
 {
+    if (adapter != NULL && adapter->transport_load != NULL &&
+        tdma_transport_load_pending(adapter->transport_load) &&
+        tdma_transport_load_window_open(adapter->transport_load)) {
+        const bool ok = tdma_pio_spi_ring_adapter_tx_beacon(adapter, launched);
+        if (ok) {
+            adapter->transport_load_tx_ok++;
+        } else {
+            adapter->transport_load_tx_fail++;
+        }
+        return ok;
+    }
     if (adapter == NULL || !adapter->resident_seeded ||
         adapter->resident_return_ready ||
         adapter->reference_tx_completion_pending ||
@@ -1892,7 +2084,18 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
 {
     tdma_flight_tx_view_t tx_view;
     memset(&tx_view, 0, sizeof(tx_view));
-    const bool has_flight_tx =
+    uint8_t load_payload[TDMA_TRANSPORT_LOAD_MAX_BYTES];
+    uint32_t load_size = 0u;
+    const bool load_frame = adapter->transport_load != NULL &&
+        tdma_transport_load_window_open(adapter->transport_load) &&
+        tdma_transport_load_take(adapter->transport_load,
+                                 load_payload,
+                                 sizeof(load_payload),
+                                 &load_size);
+    if (load_frame) {
+        tdma_transport_load_advance(adapter->transport_load);
+    }
+    const bool has_flight_tx = !load_frame &&
         adapter->flight_fifo != NULL &&
         tdma_flight_fifo_core1_acquire_tx(adapter->flight_fifo, &tx_view);
     const uint32_t sequence = adapter->up_sequence + 1u;
@@ -1934,7 +2137,7 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
         wire_payload = alignment_payload;
         wire_payload_size = fixed_flight_payload_size;
     }
-    if (product_process_image) {
+    if (!load_frame && product_process_image) {
         tdma_flight_engine_snapshot_t engine_snapshot;
         tdma_flight_engine_apply_t applied;
         tdma_flight_engine_result_t engine_result =
@@ -1983,16 +2186,45 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
         maintenance_frame = true;
         dpll_observation_ready = false;
     }
+    if (load_frame) {
+        static uint8_t load_padded[TDMA_TRANSPORT_SHORT_PAYLOAD_MAX];
+        memset(load_padded, 0, sizeof(load_padded));
+        memcpy(load_padded, load_payload,
+               load_size < sizeof(load_padded) ? load_size : sizeof(load_padded));
+        size_t target_size = fixed_flight_payload_size;
+        const uint8_t *packets[2] = {
+            adapter->resident_packet, adapter->last_rx_packet};
+        const size_t packet_sizes[2] = {
+            adapter->resident_packet_size, adapter->last_rx_packet_size};
+        for (uint32_t i = 0u; i < 2u; i++) {
+            if (packet_sizes[i] == 0u) {
+                continue;
+            }
+            tdma_transport_frame_view_t resident_view;
+            tdma_transport_result_t resident_result = TDMA_TRANSPORT_OK;
+            if (tdma_transport_frame_decode(packets[i], packet_sizes[i],
+                                            &resident_view,
+                                            &resident_result) &&
+                resident_view.payload_size <= sizeof(load_padded) &&
+                resident_view.payload_size > target_size) {
+                target_size = resident_view.payload_size;
+            }
+        }
+        wire_payload = load_padded;
+        wire_payload_size = target_size;
+        emit_process_image = true;
+        dpll_observation_ready = false;
+    }
     const tdma_transport_frame_build_t build = {
         .frame_class = TDMA_TRANSPORT_FRAME_CLASS_SHORT,
         .origin_slot_id = adapter->config.local_slot_id,
         .transport_sequence = sequence,
-        .payload_class = maintenance_frame
+        .payload_class = (maintenance_frame || load_frame)
                              ? TDMA_PAYLOAD_CLASS_CONFIG_CONTROL
                              : (emit_process_image
                                     ? TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE
                                     : TDMA_PAYLOAD_CLASS_IDLE_BEACON),
-        .flags = maintenance_frame
+        .flags = (maintenance_frame || load_frame)
                      ? 0u
                      : (emit_process_image
                             ? (TDMA_TRANSPORT_FLAG_REQUIRE_FEEDBACK |
@@ -2004,6 +2236,9 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
         .payload = wire_payload,
         .payload_size = wire_payload_size,
     };
+    adapter->transport_load_build_class = build.payload_class;
+    adapter->transport_load_build_size = (uint32_t)build.payload_size;
+    adapter->transport_load_build_load = load_frame ? 1u : 0u;
     uint8_t packet[TDMA_TRANSPORT_SHORT_PACKET_MAX];
     size_t packet_size = 0u;
     tdma_transport_result_t result = TDMA_TRANSPORT_OK;
@@ -2012,6 +2247,7 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
                                      sizeof(packet),
                                      &packet_size,
                                      &result)) {
+        adapter->transport_load_tx_stage = 1u;
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_TX_FAILED);
         return false;
@@ -2022,11 +2258,12 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
                                      packet_size,
                                      &view,
                                      &result)) {
+        adapter->transport_load_tx_stage = 2u;
         tdma_pio_spi_ring_adapter_set_error(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_TX_FAILED);
         return false;
     }
-    return tdma_pio_spi_ring_adapter_launch_reference(
+    const bool launch_ok = tdma_pio_spi_ring_adapter_launch_reference(
         adapter,
         packet,
         packet_size,
@@ -2034,6 +2271,12 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
         dpll_observation_ready,
         false,
         launched);
+    adapter->transport_load_tx_stage = launch_ok
+        ? (adapter->transport_load_tx_stage == 9u
+               ? 10u : adapter->transport_load_tx_stage)
+        : (adapter->transport_load_tx_stage == 0u ? 3u :
+           adapter->transport_load_tx_stage);
+    return launch_ok;
 }
 
 #include "tdma_pio_spi_ring_origin.inc"
@@ -2076,6 +2319,31 @@ static bool tdma_pio_spi_ring_adapter_process_rx_impl(
     if (prepared != NULL) {
         view = prepared->view;
         result = prepared->result;
+    }
+    if (decoded) {
+        /* Classification is a diagnostic projection of the frame already
+         * decoded above. It must not add a second decode to the realtime RX
+         * path: the per-packet CRC/parse cost there starved the ring service
+         * and the VDC run-output refill on the four-board 60 s observation. */
+        if (view.payload_class == TDMA_PAYLOAD_CLASS_CONFIG_CONTROL) {
+            adapter->rx_class_config_control++;
+        } else if (view.payload_class == TDMA_PAYLOAD_CLASS_CYCLIC_PROCESS_IMAGE) {
+            adapter->rx_class_process_image++;
+        } else {
+            adapter->rx_class_other++;
+        }
+    }
+    if (decoded && view.payload_class == TDMA_PAYLOAD_CLASS_CONFIG_CONTROL) {
+        adapter->transport_load_rx_seen++;
+        if (adapter->transport_load != NULL && view.payload != NULL &&
+            view.payload_size >=
+                adapter->transport_load->descriptor.max_frame_size &&
+            adapter->transport_load_rx != NULL) {
+            adapter->transport_load_rx_delivered++;
+            adapter->transport_load_rx(adapter->transport_load_rx_context,
+                                       view.payload,
+                                       view.payload_size);
+        }
     }
     const bool schedule_bad = decoded &&
         view.schedule_crc32 != adapter->config.schedule_crc32;
@@ -3351,7 +3619,9 @@ static bool tdma_pio_spi_ring_adapter_service_impl(
             }
         } else {
             tx_ok = true; /* throttled round: keep the UP leg running. */
-            (void)tdma_pio_spi_ring_origin_publish_maintenance(adapter);
+            /* The reference hot path does not publish maintenance: the ring
+             * admits one TX frame per service and the maintenance transport is
+             * not admitted into that slot. */
         }
         rx_ok = tdma_pio_spi_ring_adapter_rx_poll(adapter, now_ns);
         /* The owner hands over a completed bootstrap at this boundary,
