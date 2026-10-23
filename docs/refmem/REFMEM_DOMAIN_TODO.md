@@ -397,6 +397,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - 进展（2026-10-23，build `20261023144347`）：node slot 128→256 B（8 槽 2 KB）、表 18,432→19,456 B，node slot 已加控制块（`refmem_command_snapshot_t` + seq/CRC + 计数器）；storage 文件写缓冲 16→12 KB 腾出 RAM，TDMA 未动。
   - 进展（2026-10-23，build `20261023152319`）：`refmem_node_control` 写/读/ACK/清除（seq+CRC）已落地；AO 镜像 command slot 到本板控制块，发送侧写入本板记录；`SYSTem:REFMEM:NODE:CONTrol?` 只读快照；host 用例通过，四板 HIL 观测到源 `POSTED`、required 目标 `ACKED`、其余 `TAKEN`。**未完成**：跨板复制该记录（C1 process-image 写路径）与从板写入口。
   - 进展（2026-10-24）：原子入口 `SYSTem:CTRL:EXECute/STATus?/CATalog?` + 命令目录 3 条试点 + 本地分发（LOAD_NODE ACKED、LOAD_BOARD 负路径）通过；`REFMEM:NODES?` 观测落地。**未完成**：params ref（N2.4）、请求/状态分离（N2.5）、跨板同步（N3）。
+  - 进展（2026-10-24，build `20261023172516`）：参数池绑定 TLV、请求/状态分离（`update_status`/`apply_request`）、命令帧 `refmem_cmd_frame` build/apply、`EXECute` 帧 loopback（QUEUED→ACKED）；SCPI 全量目录 829 条（386 setter）。**未完成**：跨板发送/远端 apply/租约（N3.2）、REF 路径与 `LOAD_SD`、N4/N5.2。
 - [ ] 扩展 `refmem_command_request_t` / `refmem_command_snapshot_t`：`coordinator_slot`、`coordinator_boot_id`、`lease_epoch`、`catalog_crc32`、`fence_required`、`fence_state`、`control_reply`；旧字段语义不变，host 用例覆盖旧快照兼容。
 - [ ] 定义 `control_owner_slot` 解析与唯一性门禁：profile 未声明时取最低已 claim 插槽；`DeploymentGate` 拒绝零个或多个控制 owner 的 RUN。
 - [ ] 实现协调者租约：`CONTROL_LEASE_TAKE/RENEW/RELEASE`；仅 STOP/维护态迁移；RUN 中丢失 fail-closed 进入 `CONTROL_LOST`，禁止静默双主。
