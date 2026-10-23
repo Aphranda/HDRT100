@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_TODO.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Last updated: 2026-10-21
+Last updated: 2026-10-23
 
 本文档维护 Distributed Vector Blackboard / RefMem Sync Domain 的当前可执行待办。这里不记录普通开发流水账，只记录会影响分布式共同事实、RefMemAO、A0-A7 通用逻辑插槽、节点装载、SlotClaim 协调、表镜像、slot owner、命令 ACK/NACK、部署门禁、连接质量和 RefMem Sync 的架构与实现事项。
 
@@ -393,7 +393,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 目标：把“任一板卡接口操作 RefMem、控制全部板卡”从愿景收敛为可验证契约；接入点无关、目标本地执行、显式掩码、单一协调者和聚合完成，不引入远程裸写或跨板阻塞查询。架构见 `REFMEM_DOMAIN_ARCHITECTURE.md` 的 `REFMEM-CTRL-01`。
 
-- [ ] C0 冻结命令槽物理放置：当前 live slot 为 `distributed_refmem.c` 的 static `s_refmem_command_slot`，`refmem_vector_table_t.ack_command`（`DISTRIBUTED_REFMEM_ACK_CMD_SIZE`）仅目录注册；二选一迁入该区（同步目录/布局版本）或明确 static 为规范物理位置，并同步 `REFMEM-CTRL-01`。
+- [x] C0 冻结命令槽物理放置（2026-10-23）：规范位置确定为 `distributed_refmem.c` 的 static `s_refmem_command_slot`，不迁入 `ack_command` 预留区（该区仅目录注册）；理由与证据见 `REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。已同步 `REFMEM-CTRL-01`。
 - [ ] 扩展 `refmem_command_request_t` / `refmem_command_snapshot_t`：`coordinator_slot`、`coordinator_boot_id`、`lease_epoch`、`catalog_crc32`、`fence_required`、`fence_state`、`control_reply`；旧字段语义不变，host 用例覆盖旧快照兼容。
 - [ ] 定义 `control_owner_slot` 解析与唯一性门禁：profile 未声明时取最低已 claim 插槽；`DeploymentGate` 拒绝零个或多个控制 owner 的 RUN。
 - [ ] 实现协调者租约：`CONTROL_LEASE_TAKE/RENEW/RELEASE`；仅 STOP/维护态迁移；RUN 中丢失 fail-closed 进入 `CONTROL_LOST`，禁止静默双主。
@@ -406,6 +406,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 方案 B R0：新增 `EVENT_INJECT`/`EVENT_ABORT` command type 与 `EventRuntimeService` handler；RefMem 保持唯一 command slot/ACK/lease；POSITION 直接拒绝（`NOT_MY_DOMAIN`）；先 host 契约，不接 POSITION/transport。
 - [ ] 权限与运行态矩阵落地：入口权限与目标权限逻辑交集，无 force/override；`START`、`CAL`、`RESOURCE_JOB`、`LOAD:*` 等按矩阵拒绝。
 - [ ] C1 两板 HIL：A 接入发起、B 本地执行、A 读到 ACK/fence；C4 多板 all-target `START`/`STOP` 逐目标证据一致；C5 与 `LOAD:SD`/activation 跨节点 FENCE 闭环。
+  - 部分完成（2026-10-23，C1a）：`REFTMEM_CMD`（类型 0x52）从参考板 SCPI 入队 → TDMA 维护流 → 三目标 `rx_events/decoded/posted/acked=1`，发送方 `tx_ok=1`；三类载荷解析器与拒绝负测通过。证据见 `docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。非协调者 Entry 转发、C4 多板 `START`/`STOP`、C5 `LOAD:SD` FENCE 仍未做，C1 保持未勾选。
 
 ## M0 - 单端口统一控制面架构补齐（本目标）
 

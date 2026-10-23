@@ -4,9 +4,19 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-10-21
+Last updated: 2026-10-23
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
+
+### REFMEM-TASK-20261023-001 — C0/C1a 收口：命令槽放置冻结 + REFTMEM_CMD 全目标投递证据
+
+- 状态：完成 C0 决策与 C1a HIL 证据；未改代码。等待 C11 独立复核。
+- C0：规范物理位置冻结为 `distributed_refmem.c` 的 static `s_refmem_command_slot`；`ack_command` 预留区仅目录注册，不承载 live slot。已同步 `REFMEM-CTRL-01` 与 P8 C0。
+- C1a（build `20261023121304`，`target_mask=0x0F`）：`REFTMEM_CMD` 从参考板 COM5 SCPI 入队 → TDMA 维护流 → COM4/COM3/COM6 每板 `rx_events/decoded/posted/acked=1`，源 `submitted/served/tx_ok=1`、`rejected=0`。
+- 解析器：0x52/0x53/0x54 三类全过（0x53 `t2_static_applied=1`）；拒绝套件坏 CRC/坏 magic/坏 reserved 均按对应 parser 拒绝。
+- 证据：`out/refmem_cmd_tdma/closeout_c0c1/`、`closeout_parser_suite/`、`closeout_reject_suite/`；评审提交单 `docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。
+- 未覆盖：C1 非协调者 Entry 转发、C4/C5、C2/C3、聚合视图；五项契约保持 pending。
+- 下一步：C11 独立复核 C0/C1a；之后按 C1 转发 → C2 负测 → C3 租约推进。
 
 ### REFMEM-TASK-20261021-005 — HAOFV 偏差审查
 

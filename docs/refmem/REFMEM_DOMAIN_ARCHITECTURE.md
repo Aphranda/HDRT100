@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
-Last updated: 2026-10-21
+Last updated: 2026-10-23
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面，并以统一控制面把系统级命令意图路由到显式目标插槽、聚合 ACK/NACK/fence，使接入点不再决定系统操作语义。
 
@@ -186,7 +186,7 @@ Other nodes
 本节是当前实现和后续待办的收敛点。若下文历史推导与本节冲突，以本节为准。
 
 - `DistributedRefMemAO` 是 RefMem Domain 的唯一运行 owner；SCPI、UI、System Pack 和业务 AO/FB 只提交意图或读取 snapshot，不直接改 active fact。
-- RefMem 统一控制面以 `AckCommandRegion` 为唯一命令事实契约：接入点无关、显式 `target_mask`/`required_mask`、单一控制协调者租约、目标本地 owner 执行、ACK/NACK/fence 聚合；读取只读本地快照。当前 live slot 尚未迁入该区，物理放置见本章“当前实现状态”。契约见 `REFMEM-CTRL-01`。
+- RefMem 统一控制面以 `AckCommandRegion` 为唯一命令事实契约：接入点无关、显式 `target_mask`/`required_mask`、单一控制协调者租约、目标本地 owner 执行、ACK/NACK/fence 聚合；读取只读本地快照。C0 已冻结（2026-10-23）：live slot 保持 `distributed_refmem.c` 的 static `s_refmem_command_slot`，`ack_command` 预留区仅目录注册，不承载 live slot；物理放置与证据见本章“当前实现状态”和 `REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。契约见 `REFMEM-CTRL-01`。
 - A0-A7 是全环唯一的通用逻辑插槽，代表可装载 slot substrate，不代表固定产品角色；具体角色由 `DistributedNodeLoadTable` 绑定到 AO/FB instance。
 - 一块物理板可以加载多个逻辑实例，例如调试阶段同时承载模拟网分和模拟转台；active assignment 仍最多 8 个，candidate proposal 上限为 16。
 - `DistributedGenericNodeTable` 只描述通用逻辑插槽基座、硬件身份、capability、claim policy 和 fail policy；不得把业务 role/persona 反向塞回 GenericNode。
@@ -1577,14 +1577,20 @@ IDLE
 | 能力 | 状态 |
 |---|---|
 | 本地 command slot、ACK/NACK/busy/timeout、`SYSTem:COMMand:ACK?` | 已实现 |
-| 命令槽物理放置 | live slot 是 `distributed_refmem.c` 的 static `s_refmem_command_slot`；`refmem_vector_table_t.ack_command`（`DISTRIBUTED_REFMEM_ACK_CMD_SIZE`）仅目录注册，未承载 live slot |
+| 命令槽物理放置 | **C0 已冻结（2026-10-23）**：live slot 保持 `distributed_refmem.c` 的 static `s_refmem_command_slot` 为规范物理位置；`refmem_vector_table_t.ack_command`（`DISTRIBUTED_REFMEM_ACK_CMD_SIZE`）仅目录注册，不承载 live slot；本地单板语义不变 |
 | Event Plane 静态装载（`EVENT_CONFIGURE`） | 未实现；Event Plane 是静态子域，不持有第二命令槽/ACK/epoch，不做运行时注入 |
 | 显式 `target_mask` / `required_mask` 字段与本地 take 校验 | 已实现 |
-| 跨节点命令路由与 ACK 回程 | 未实现 |
+| 跨节点命令路由与 ACK 回程 | `REFTMEM_CMD` 经 TDMA 维护流（二等载荷类型 0x52）已实现并 HIL 验证：参考板 SCPI 入队 → 三目标 `rx_events/decoded/posted/acked=1`，发送方 `tx_ok=1`；见 `REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。协调者租约/非协调者转发仍属 C1/C3 |
 | 协调者租约、`control_owner_slot` 唯一性门禁 | 未实现 |
 | 聚合视图 / 逐目标视图 / `control_reply` | 未实现 |
 | 跨节点 FENCE（activation gate 的全环 ACK） | 未实现 |
 | 命令目录 CRC 进入 Version Bundle | 未实现 |
+
+**C0 决策（2026-10-23）**：命令槽的规范物理位置确定为 `distributed_refmem.c` 的 static
+`s_refmem_command_slot`，不迁入 `AckCommandRegion` 的 `ack_command` 预留区。理由：现有
+owner/SCPI intent/slot 生命周期均绑定该 static；迁入需同步目录与布局版本并重做单板语义，
+收益不足以覆盖风险。`ack_command` 区继续只做目录注册。C0 的 HIL 证据与 C1 的已完成部分见
+`docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。
 
 ### 分阶段落地与验收
 

@@ -166,6 +166,7 @@ docs/
 | `docs/check/submissions/EVENT_CROSS_REVIEW_07.md` | Event Plane R7 设计终审：静态基线 + 方案 B 运行时设计均符合 HAOFV；剩余为实现、契约登记、TDMA 联审和 C11。 |
 | `docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_01.md` | RefMem 单端口统一控制面三缺口 R1：三条 canonical 已落位；config-control profile、ARMING、MOUNT 兼容、command handler/队列仍待闭合。 |
 | `docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_02.md` | RefMem 四条款 R2：单板保留 + 统一面增量；ARMING DISARM、STOPPING 超时、未注册 command、mask 回退已补。 |
+| `docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_03.md` | RefMem C0/C1a 收口：命令槽物理放置冻结（static 为规范位置）+ REFTMEM_CMD 四板全目标投递/解析/ACK、三类解析器与拒绝负测（build 20261023121304）；C1 转发/C4/C5 仍开放，建议 `PASS_WITH_OPEN_ITEMS`。 |
 | `docs/check/submissions/REFMEM_HAOFV_REVIEW_01.md` | RefMem 四条款 HAOFV 偏差 R1：预算符号、config-control subtype、session writer、ActionDispatcher 归属、本地/协调者边界、实时性已修。 |
 | `docs/check/submissions/ARCH_FLASH_CROSS_REVIEW_01.md` | Flash v2 首次层间核验：硬件/构建/实现/域文档一致性与当前 v1 偏差。 |
 | `docs/check/submissions/VDC_CROSS_REVIEW_01.md` | VDC 服务边界频率命令的 wire、owner、实际应用 ACK 及取消规则 C11 核验。 |
