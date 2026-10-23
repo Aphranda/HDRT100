@@ -407,6 +407,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - [ ] 权限与运行态矩阵落地：入口权限与目标权限逻辑交集，无 force/override；`START`、`CAL`、`RESOURCE_JOB`、`LOAD:*` 等按矩阵拒绝。
 - [ ] C1 两板 HIL：A 接入发起、B 本地执行、A 读到 ACK/fence；C4 多板 all-target `START`/`STOP` 逐目标证据一致；C5 与 `LOAD:SD`/activation 跨节点 FENCE 闭环。
   - 部分完成（2026-10-23，C1a）：`REFTMEM_CMD`（类型 0x52）从参考板 SCPI 入队 → TDMA 维护流 → 三目标 `rx_events/decoded/posted/acked=1`，发送方 `tx_ok=1`；三类载荷解析器与拒绝负测通过。证据见 `docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。非协调者 Entry 转发、C4 多板 `START`/`STOP`、C5 `LOAD:SD` FENCE 仍未做，C1 保持未勾选。
+  - C1b 阻塞（2026-10-23）：从板 Entry 的维护流没有上行注入点——从板转发走 PIO 直通（`PHYSICAL_FLIGHT`/`PHYSICAL_PROCESS_IMAGE`），软件 TX 路径不参与；COM4 Entry 实验源端 `tx_ok=1` 但目标 `rx_events=0`、源端 `inject_attempts=0`。需 process-overlay 注入或专用 uplink mailbox，或把入口收敛到协调者；证据 `out/refmem_cmd_tdma/c1_entry_com4/`。
 
 ## M0 - 单端口统一控制面架构补齐（本目标）
 
