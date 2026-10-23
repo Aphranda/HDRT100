@@ -16,6 +16,8 @@
 #include "refmem_cmd_load.h"
 #include "refmem_control_route.h"
 #include "refmem_node_control.h"
+#include "refmem_param_pool.h"
+#include "refmem_cmd_frame.h"
 #include "refmem_node_load_sync.h"
 #include "refmem_quality.h"
 #include "refmem_realtime_tdma.h"
@@ -3604,6 +3606,8 @@ bool distributed_refmem_init(void)
     header->table_owner = REFMEM_VECTOR_TABLE_OWNER;
     header->header_stale = REFMEM_VECTOR_HEADER_STALE;
     refmem_vector_table_init_directory(&s_distributed_refmem_table);
+    refmem_param_pool_init(s_distributed_refmem_table.tlv,
+                           sizeof(s_distributed_refmem_table.tlv));
     header->directory_crc32 = refmem_vector_directory_crc(&s_distributed_refmem_table);
     distributed_refmem_publish_runtime_locked();
 
@@ -4203,11 +4207,25 @@ static void distributed_refmem_mirror_local_control(void)
     if (node == NULL) {
         return;
     }
-    s_node_control_seq++;
-    (void)refmem_node_control_write(&node->command, node->params,
-                                    &node->control_seq,
-                                    &node->control_crc32, &snapshot, NULL,
-                                    s_node_control_seq);
+    refmem_command_snapshot_t current;
+    if (refmem_node_control_read(&node->command, node->params,
+                                 node->control_seq, node->control_crc32,
+                                 &current, NULL)) {
+        /* Request/status split: the issuer owns the request fields; the local
+         * owner only refreshes status, so two writers cannot clobber. */
+        (void)refmem_node_control_update_status(
+            &node->command, node->params, &node->control_seq,
+            &node->control_crc32, snapshot.state, snapshot.ack_flags,
+            snapshot.nack_flags, snapshot.busy_flags, snapshot.timeout_flags,
+            snapshot.last_reason, snapshot.last_reason_slot,
+            snapshot.evidence_index, snapshot.last_completed_seq);
+    } else {
+        s_node_control_seq++;
+        (void)refmem_node_control_write(&node->command, node->params,
+                                        &node->control_seq,
+                                        &node->control_crc32, &snapshot, NULL,
+                                        s_node_control_seq);
+    }
 }
 
 /* Local REFMEM control: consume a command record that the issuer wrote into
@@ -4300,6 +4318,50 @@ static void distributed_refmem_node_control_service(void)
                 0u);
         }
     }
+}
+
+bool distributed_refmem_node_control_apply_request(
+    uint32_t node_id,
+    const refmem_command_snapshot_t *request,
+    const uint32_t *params,
+    uint32_t seq)
+{
+    refmem_vector_node_region_t *node = distributed_refmem_node_region(node_id);
+    return node != NULL &&
+           refmem_node_control_apply_request(&node->command, node->params,
+                                             &node->control_seq,
+                                             &node->control_crc32, request,
+                                             params, seq);
+}
+
+bool distributed_refmem_cmd_frame_receive(const uint8_t *frame, size_t size)
+{
+    refmem_command_snapshot_t snapshot;
+    uint32_t params[REFMEM_NODE_CONTROL_PARAM_WORDS];
+    uint8_t source_slot = 0u;
+    uint8_t target_mask = 0u;
+    if (!refmem_cmd_frame_apply(frame, size, &snapshot, params, &source_slot,
+                                &target_mask)) {
+        return false;
+    }
+    (void)source_slot;
+    if ((snapshot.target_mask &
+         (1u << DISTRIBUTED_REFMEM_LOCAL_NODE_ID)) == 0u) {
+        return false;
+    }
+    return distributed_refmem_node_control_apply_request(
+        DISTRIBUTED_REFMEM_LOCAL_NODE_ID, &snapshot, params,
+        snapshot.command_seq != 0u ? snapshot.command_seq : 1u);
+}
+
+bool distributed_refmem_param_pool_access(uint8_t **region, size_t *size)
+{
+    if (region == NULL || size == NULL) {
+        return false;
+    }
+    *region = s_distributed_refmem_table.tlv;
+    *size = sizeof(s_distributed_refmem_table.tlv);
+    return true;
 }
 
 bool distributed_refmem_get_node_status(uint32_t node_id,

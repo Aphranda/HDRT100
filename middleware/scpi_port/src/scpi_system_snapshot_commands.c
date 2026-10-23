@@ -13,6 +13,7 @@
 #include "refmem_control_route.h"
 #include "refmem_cmd_load.h"
 #include "refmem_cmd_codec.h"
+#include "refmem_cmd_frame.h"
 #include "refmem_command_catalog.h"
 #include "refmem_node_control.h"
 #include "distributed_config.h"
@@ -1056,9 +1057,15 @@ scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context)
     snapshot.run_id = 1u;
     snapshot.timeout_us = entry->timeout_us;
 
-    if (!distributed_refmem_node_control_write_with_params(
-            DISTRIBUTED_REFMEM_LOCAL_NODE_ID, &snapshot, params,
-            s_ctrl_exec_seq)) {
+    uint8_t frame[REFMEM_SYNC_FRAME_HEADER_SIZE +
+                  REFMEM_SYNC_FRAME_PAYLOAD_MAX];
+    size_t frame_size = 0u;
+    if (!refmem_cmd_frame_build(DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
+                                (uint8_t)target_mask, snapshot.issue_epoch,
+                                snapshot.run_id, snapshot.command_seq,
+                                &snapshot, params, frame, sizeof(frame),
+                                &frame_size) ||
+        !distributed_refmem_cmd_frame_receive(frame, frame_size)) {
         scpi_port_push_exec_error(context, "REJECTED");
         return SCPI_RES_ERR;
     }

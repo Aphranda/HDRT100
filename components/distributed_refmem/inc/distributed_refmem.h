@@ -630,6 +630,17 @@ typedef struct {
     uint32_t last_reason;
 } refmem_node_status_t;
 
+/* Parameter pool bound to the REFMEM TLV region (3 x 1 KB slots). */
+bool distributed_refmem_param_pool_access(uint8_t **region, size_t *size);
+bool distributed_refmem_node_control_apply_request(
+    uint32_t node_id,
+    const refmem_command_snapshot_t *request,
+    const uint32_t *params,
+    uint32_t seq);
+bool distributed_refmem_cmd_frame_receive(const uint8_t *frame, size_t size);
+
+
+
 bool distributed_refmem_get_node_status(uint32_t node_id,
                                         refmem_node_status_t *status);
 

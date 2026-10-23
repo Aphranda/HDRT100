@@ -72,6 +72,44 @@ int main(void)
     assert(!refmem_node_control_read(&command, params, seq, crc, &readback,
                                      NULL));
 
-    printf("refmem_node_control: write/read/params/ack/clear OK\n");
+    /* Request/status split: issuer request then owner status update. */
+    memset(&snapshot, 0, sizeof(snapshot));
+    snapshot.state = REFMEM_COMMAND_STATE_POSTED;
+    snapshot.command_seq = 20u;
+    snapshot.source_node = 0u;
+    snapshot.target_mask = 0x01u;
+    snapshot.required_mask = 0x01u;
+    snapshot.command_type = REFMEM_COMMAND_TYPE_NODE_LOAD_STAGE;
+    assert(refmem_node_control_write(&command, params, &seq, &crc, &snapshot,
+                                     new_params, 10u));
+    memset(&snapshot, 0, sizeof(snapshot));
+    snapshot.command_seq = 21u;
+    snapshot.source_node = 0u;
+    snapshot.target_mask = 0x01u;
+    snapshot.required_mask = 0x01u;
+    snapshot.command_type = REFMEM_COMMAND_TYPE_NODE_LOAD_STAGE;
+    assert(refmem_node_control_apply_request(&command, params, &seq, &crc,
+                                             &snapshot, new_params, 11u));
+    assert(refmem_node_control_read(&command, params, seq, crc, &readback,
+                                    read_params));
+    assert(readback.command_seq == 21u);
+    assert(readback.state == REFMEM_COMMAND_STATE_POSTED);
+    assert(readback.ack_flags == 0u);
+
+    /* Stale request must be rejected. */
+    assert(!refmem_node_control_apply_request(&command, params, &seq, &crc,
+                                              &snapshot, new_params, 12u));
+
+    assert(refmem_node_control_update_status(&command, params, &seq, &crc,
+                                             REFMEM_COMMAND_STATE_ACKED, 0x03u,
+                                             0u, 0u, 0u, 0u, 0u, 0u, 21u));
+    assert(refmem_node_control_read(&command, params, seq, crc, &readback,
+                                    read_params));
+    assert(readback.command_seq == 21u);
+    assert(readback.state == REFMEM_COMMAND_STATE_ACKED);
+    assert(readback.ack_flags == 0x03u);
+    assert(readback.last_completed_seq == 21u);
+
+    printf("refmem_node_control: write/read/params/ack/clear/split OK\n");
     return 0;
 }
