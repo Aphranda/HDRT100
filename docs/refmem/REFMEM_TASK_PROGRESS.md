@@ -17,6 +17,7 @@ Last updated: 2026-10-23
 - 证据：`out/refmem_cmd_tdma/closeout_c0c1/`、`closeout_parser_suite/`、`closeout_reject_suite/`；评审提交单 `docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。
 - 未覆盖：C1 非协调者 Entry 转发、C4/C5、C2/C3、聚合视图；五项契约保持 pending。
 - 下一步：C11 独立复核 C0/C1a；之后按 C1 转发 → C2 负测 → C3 租约推进。
+- 追加（2026-10-23，T2_DYNAMIC 执行闭环）：解析器在 envelope 校验后调用 `tdma_t2_dynamic_apply_fn`；默认 executor 记录 `t2_dynamic_applied/last_target/last_run/last_config/last_value`，可用 `tdma_t2_dynamic_set_apply()` 替换为真实 T2 运行时；`REFTMEM:CMD:STATus?` 追加 5 字段。HIL（build `20261023131748`，`target_mask=0x0F`）三目标均 `t2_dynamic_ok=1`、`t2_dynamic_applied=1`，记录字段 `15/42/7/9` 与发送 envelope 一致；证据 `out/refmem_cmd_tdma/t2_dynamic_closeout/`。
 
 ### REFMEM-TASK-20261021-005 — HAOFV 偏差审查
 
