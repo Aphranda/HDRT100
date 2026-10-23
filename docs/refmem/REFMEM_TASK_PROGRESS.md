@@ -24,6 +24,7 @@ Last updated: 2026-10-23
 - C0 命令路径（2026-10-23，build `20261023152319`）：`refmem_node_control` 写/读/ACK/清除（seq+CRC）落地；AO 在 post/take/ack/nack/timeout/clear 后镜像 command slot 到本板 node slot，`refmem_cmd_load_submit` 发送侧也写本板记录；新增 `SYSTem:REFMEM:NODE:CONTrol?` 只读快照。四板 HIL（`c0_node_control_r2`）：源 COM5 `POSTED`、required 目标 COM4 `ACKED`、COM3/COM6 `TAKEN` 并记录 ACK 位；P3 `hawf-232301` step 8/29/30 OK、`credential: written`（step 29 一次通过）。未完成：跨板复制该记录与从板写入口。
 - 夜间 N0/N1/N2.3（2026-10-24，build `20261023164831`）：命令目录 3 条试点 + `SYSTem:CTRL:EXECute/STATus?/CATalog?` + 本地分发（LOAD_NODE ACKED、LOAD_BOARD 负路径）+ `SYSTem:REFMEM:NODES?`（本板 stale=0、远端 stale=1）；工作区未提交，等批量 P3。
 - 夜间 N2.4/N2.5/N3.1（2026-10-24，build `20261023172516`）：参数池绑定 TLV；请求/状态分离（`update_status`/`apply_request`）；命令帧 `refmem_cmd_frame`（snapshot+params）build/apply；`EXECute` 帧 loopback 验证 QUEUED→ACKED；SCPI 全量目录 829 条（386 setter）。
+- 夜间 N3.2（2026-10-24，build `20261023175156`）：分片传输（9 B 记录/0x55 解析/节流）落地；本地帧回环 HIL 通过；带环远端 HIL 未通过（参考板 QUEUED，目标无记录），待诊断维护 TX/AO 服务节奏。
 
 ### REFMEM-TASK-20261021-005 — HAOFV 偏差审查
 
