@@ -9,7 +9,10 @@
 #include "sd_card.h"
 
 #define STORAGE_MANAGER_FILE_READ_MAX_BYTES 4096u
-#define STORAGE_MANAGER_FILE_WRITE_MAX_BYTES 16384u
+/* Three 4 KB groups: one analyzer burst/read page plus two upload groups.
+ * Kept below the four-group layout so the RefMem node-slot control record
+ * (256 B slot, table +1 KB) fits the 512 KB RAM region with margin. */
+#define STORAGE_MANAGER_FILE_WRITE_MAX_BYTES (3u * 4096u)
 
 typedef enum {
     STORAGE_MANAGER_STATE_UNINITIALIZED = 0,

@@ -89,7 +89,22 @@ typedef struct {
     uint32_t fault_code;
     uint32_t flags;
     uint32_t node_type;
-    uint8_t reserved[DISTRIBUTED_REFMEM_NODE_SLOT_SIZE - 9u * sizeof(uint32_t)];
+
+    /* Replicated per-board control record (C0): any board writes the slot for
+     * its own node and the ring syncs it to every board; observers read this
+     * block from the REFMEM snapshot.  state/ack flags are the local single
+     * command slot's snapshot, not a second command fact. */
+    refmem_command_snapshot_t command;
+    uint32_t control_seq;       /* writer order/duplicate guard */
+    uint32_t control_crc32;     /* CRC over the control block */
+    uint32_t rx_count;          /* status counters for this board */
+    uint32_t tx_count;
+    uint32_t reject_count;
+    uint32_t last_error;
+
+    uint8_t reserved[DISTRIBUTED_REFMEM_NODE_SLOT_SIZE -
+                     (15u * sizeof(uint32_t)) -
+                     sizeof(refmem_command_snapshot_t)];
 } refmem_vector_node_region_t;
 
 /* The legacy payloads are written by core1 and read by core0/diagnostic clients.
