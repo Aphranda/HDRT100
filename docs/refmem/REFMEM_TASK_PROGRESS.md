@@ -10,11 +10,10 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261024-017`。
-- 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
-  RUN 配置 idle 窗口仍开放。
+- 最新条目：`REFMEM-TASK-20261024-018`。
+- 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
-- 下一步：补 N3.2.7 剩余矩阵 → N3.3/N4。
+- 下一步：N5.2a 环运行期 app-model staging 修复/延迟事务 → N5.2b permission → N5.2c 真实 STOP→START；N3.2.7 剩余为可选。
 
 ## 归档索引
 
@@ -23,6 +22,18 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_01.md` | REFMEM-TASK-20260813-021..REFMEM-TASK-20260813-001 | 21 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
+
+### REFMEM-TASK-20261024-018 — N5.2 诊断：reason 13 根因（进行中）
+
+- 状态：N5.2 进行中；发现 reason 13 根因不是 owner/permission，而是**环运行期 app-model staging 失败**。
+- 诊断（build `20261024132502`）：
+  - 远程 A→B（环运行）：`command_type=14`、`source=0`、`target=2`、`state=5`、`reason=13`；`LOAD:STATus?` → `load_seq=1, staging_state=3 FAILED, last_error=7 PACKAGE_INVALID, lint_error=1 BAD_TABLE_VERSION`。
+  - 本地 COM4（环停止）：`state=4 ACKED`、`staging_state=2 VALIDATED`、`package_crc` 非 0。
+  - 本地 COM4（环运行）：`state=5 reason=13`、`staging_state=3`、`last_error=7`，与远程同签名。
+- 结论：reason 13 是**环运行期 app-model staging/table-package 冲突**；单纯加权限门控只会把 A→B node 1 从 13 变成 12，不会让合法远程 stage ACK。
+- 重排：N5.2a 环安全/延迟 staging → N5.2b owner/permission → N5.2c 真实 STOP→stage→START；N5.3/N5.4 仍先于 N5.5。
+- 证据：`out/refmem_remote_txn_hil/n52_diag/REPORT.md`。
+- 下一步：N5.2a 设计决策（环安全 staging vs 环内收命令/STOP 执行/重启回 ACK 的延迟事务）。
 
 ### REFMEM-TASK-20261024-017 — N5.1 契约交叉审核（C11）
 
@@ -33,11 +44,11 @@ Last updated: 2026-10-24
   - `REFMEM-TRANSPORT-01`：FAIL → pending。blocking：clause “seat rotation 二等让位 s>0 且 f>=3” 与实现/预设不符（代码只校验 p>=1/f>=1；预置 `1,2,7`/`7,2,1` 的 f=2；HIL 自身用 `1,2,7`）；P3 凭证为 `PASS_WITH_WARNINGS`、`strict_gates_passed=false`（step 26 four-Node TDMA rc=1、step 33 预算超限），不能写成 strict passed；维护 ACK 的 clause_loc 跨 TDMA/REFMEM 两个 anchor。
   - `REFTMEM-IDLE-01`：FAIL → pending。blocking：无 host 用例；legacy `SYSTem:REFMEM:LOAD:NODE/BOARD/ACTIVATE` 绕过 idle 窗口（不同 gate/错误文本，直接 app-model stage）；无真实 STOP→stage→START 证据（HIL 只有 BEGIN/stage/COMMIT/ABORt）；remote “valid” stage 全为 reason 13（仅断言 !=7）；COMMIT 失败仍返回成功/关窗，无法区分。
 - 数据修正：soak20 `tx_retries=5`（原写 4）；P3 统一表述为 `credential written (PASS_WITH_WARNINGS; strict=false)`，不写“P3 通过”。
-- carry-over：N5.1a（TRANSPORT seat/条款/P3 诚实表述）、N5.1b（IDLE host/legacy/STOP/COMMIT）、N5.2（remote owner/permission，解 reason 13）。
+- carry-over：N5.1a（TRANSPORT seat/条款/P3 诚实表述）、N5.1b（IDLE host/legacy/STOP/COMMIT）、N5.2a（环运行期 app-model staging，reason 13 根因）、N5.2b（owner/permission）、N5.2c（真实 STOP→stage→START）。
 - 下一步：N5.2；N5.1a/b 作为 TRANSPORT/IDLE 复审前置。
 ### REFMEM-TASK-20261024-016 — N4.3/N4.4 远程事务 HIL 与收口
 
-- 状态：完成；两板/四板 HIL 全过；P3 待跑。
+- 状态：完成；两板/四板 HIL 全过；P3 凭证已写。
 - 完成内容：
   - HIL `tools/refmem/refmem_remote_txn_hil`：目标 BEGIN/COMMIT/ABORt 本地事务，A 经环发 `LOAD_NODE`。
   - 两板（COM4）与四板（COM4/3/6）逐目标证据。
@@ -52,7 +63,7 @@ Last updated: 2026-10-24
 - 下一步：N3.3/N4 目标收口；N3.2 剩余矩阵为可选补测。
 ### REFMEM-TASK-20261024-015 — N4.2 配置事务（STOP→stage→START）
 
-- 状态：完成（本地事务 HIL）；P3 待跑。
+- 状态：完成（本地事务 HIL）；P3 凭证已写。
 - 完成内容：
   - `distributed_refmem_config_transaction_begin/commit/abort/active`：BEGIN 开窗并标记事务；COMMIT 提交 prepared table views（失败丢弃）并关窗；ABORt 丢弃并重开；状态只读。
   - `SYSTem:REFMEM:CONFig:BEGIN/COMMit/ABORt/STATus?`。
@@ -67,7 +78,7 @@ Last updated: 2026-10-24
 - 下一步：N4.3 两板/四板 HIL → N4.4 契约/文档收口。
 ### REFMEM-TASK-20261024-014 — N3.3.4 租约收口 + N4.1 idle 窗口门控
 
-- 状态：N3.3.4 完成；N4.1 门控 + 测试钩子完成；P3 待跑。
+- 状态：N3.3.4 完成；N4.1 门控 + 测试钩子完成；P3 凭证已写。
 - 完成内容：
   - N3.3.4：`REFTMEM-LEASE-01` 契约/架构/SCPI/里程碑收口；两板租约 HIL 工具 `tools/refmem/refmem_lease_hil`。
   - N4.1：`distributed_refmem_set_idle_window`/`idle_window`；配置类命令（BOARD/NODE/TABLE stage/activate）在窗口关闭时以 `RUN_STATE_DENIED` 拒绝，不进入 dispatch。
@@ -75,7 +86,7 @@ Last updated: 2026-10-24
 - 验证结果：
   - 租约两板 HIL 全通过：`out/refmem_lease_hil/n333_202610242012/`。
   - idle HIL：默认开=1；关=0 后 LOAD_NODE → `state=5/reason=7`；开=1 后同命令 → `state=4/reason=0`。`out/refmem_idle_hil/n41_202610242040/`。
-  - P3 待跑。
+  - P3 凭证已写。
 - P3：build `20261024120853`，源码指纹 `b3ccf1b1af4db71e676d391f0e6ebb3cbb3bd95d448c88d9f528251ddeee547a`（1940 files），`QUICK_DIAGNOSTIC`，credential written；step 23/26/33 warn，无 ERROR/FATAL。
 - 下一步：N5.2 远程配置 owner/permission（同时解 IDLE remote reason 13）；N5.1a/b 作为 TRANSPORT/IDLE 复审前置。
 ### REFMEM-TASK-20261024-013 — N3.3.3 两板租约 HIL
@@ -91,7 +102,7 @@ Last updated: 2026-10-24
 - 工具 `tools/refmem/refmem_lease_hil/refmem_lease_hil.py` 已落盘，待与后续固件变更一起 P3/提交。
 ### REFMEM-TASK-20261024-012 — N3.3 最小租约（状态机 + 控制面接入）
 
-- 状态：N3.3.1/2 完成（host + 本地 smoke）；P3 待跑；N3.3.3 两板 HIL 待做。
+- 状态：N3.3.1/2 完成（host + 本地 smoke）；P3 凭证已写；N3.3.3 两板 HIL 待做。
 - 完成内容：
   - `refmem_lease` 纯状态机（FREE/GRANTED/EXPIRED，owner/epoch/seq/expiry；TAKE/CONFLICT/STALE/EXPIRED/NOT_OWNER 的 fail-closed reason）。
   - `refmem_lease_table` 每目标节点一条记录；目录新增 `REFTMEM_LEASE_TAKE`（type 18）/`REFTMEM_LEASE_RELEASE`（type 19），经现有命令槽/ACK 回程执行。
@@ -153,7 +164,7 @@ Last updated: 2026-10-24
 
 ### REFMEM-TASK-20261024-007 — N3.2.5 单环多批命令
 
-- 状态：16 槽队列 + 双命令单环验证通过；P3 待跑。
+- 状态：16 槽队列 + 双命令单环验证通过；P3 凭证已写。
 - 任务目标：一个环启动内执行 >1 批命令；队列不因第二条 7 帧命令而满；两批命令按序完成、不串 seq/回复。
 - 完成内容：
   - `tdma_maintenance_runtime` TX 队列 8→16 槽（可用 15），可预排两条 7 帧命令。
@@ -182,7 +193,7 @@ Last updated: 2026-10-24
 
 ### REFMEM-TASK-20261024-005 — N3.2.3 RX 新帧重启与唯一 chunk 计数
 
-- 状态：RX 重启/计数完成；host 用例通过；exec196 6/6 成功；P3 待跑。
+- 状态：RX 重启/计数完成；host 用例通过；exec196 6/6 成功；P3 凭证已写。
 - 任务目标：一次丢 chunk 不得永久 wedge RX；区分唯一/重复 chunk；验证新 sequence + 每周期 1 chunk。
 - 完成内容：
   - `tdma_maintenance_stream_rx_chunk` header 不一致时放弃未完成旧帧、重启新帧（此前永久 `return false`）；新增 `restart_count`/`duplicate_count`。

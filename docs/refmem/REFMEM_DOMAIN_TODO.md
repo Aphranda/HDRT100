@@ -489,13 +489,15 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 | 里程碑 | 内容 | 验收 | 依赖 |
 |---|---|---|---|
 | **N5.1** ✅（审核完成：LEASE active；TRANSPORT/IDLE pending） | 契约交叉审核 `REFTMEM-LEASE-01`/`IDLE-01`/`TRANSPORT-01` | 交叉审核记录 + 转 active 或记录偏差 | 无（可并行） |
-| **N5.2** | 远程配置 owner/permission：谁可以 stage 哪个节点 | 远程 stage 按授权 ACK/拒绝（`PERMISSION_DENIED` 等）；两板/四板 HIL | N5.1（可并行） |
+| **N5.2** | 远程配置 owner/permission + 环安全 stage：N5.2a 环运行期 app-model staging（PACKAGE_INVALID）；N5.2b 谁可以 stage 哪个节点；N5.2c 真实 STOP→stage→START | 远程 stage 真正 ACK（N5.2a+b）；未授权 `PERMISSION_DENIED`；两板/四板 HIL；全程 STOP 边界 | N5.1 |
 | **N5.3** | `control_owner_slot` 冻结（profile 元数据或 BoardCapabilityTable 择一） | 唯一协调者槽 + 只读视图 + 契约 | N5.2 |
 | **N5.4** | 协调者租约/唯一性门禁（grant/renew/release/expire） | 非协调者写入/执行被拒绝；TAKE→CONFLICT→RELEASE→TAKE 两板 HIL | N5.3 |
 | **N5.5** | 非协调者入口：任一维护接口同语义转发 | 从非协调者板发起同一命令；不新增总线 | N5.4 |
 | **N5.6** | 跨节点 FENCE：activation gate 前 required visible/ACK/fence | timeout/reason evidence；两板/四板 HIL | N5.4、N5.5 |
 | **N5.7** | 聚合广播/`control_reply` 独立只读副本 | 系统级 `COMMand:STATus?/TARget?`；不复制 node 记录 | N5.6 |
 | **N5.8** | `REFTMEM-CTRL-01` 交叉审核转 active + 最终 HIL 矩阵 | 契约/文档/SCPI 同步；门禁绿 | N5.1–N5.7 |
+
+**N5.2 诊断（2026-10-24）**：reason 13 不是 owner/permission；环运行期本地/远程 stage 都失败（`staging_state=3 FAILED`、`last_error=7 PACKAGE_INVALID`、`lint_error=1 BAD_TABLE_VERSION`），环停止本地 stage ACK（`staging_state=2 VALIDATED`）。因此先做 N5.2a（环安全或延迟事务），再加 N5.2b 权限；N5.2c 补真实 STOP→stage→START。证据 `out/refmem_remote_txn_hil/n52_diag/REPORT.md`。
 
 **N5.1 审核后 carry-over（未闭环，保持 pending）**：
 - **N5.1a** `REFMEM-TRANSPORT-01`：seat rotation `f>=3` 条款与实现/预设不符；需 TDMA 域决定修条款或改实现并补显式断言；维护 ACK 的 clause_loc 跨 TDMA/REFMEM 两个 anchor；P3 报告改为 `PASS_WITH_WARNINGS/strict=false` 的诚实表述。
