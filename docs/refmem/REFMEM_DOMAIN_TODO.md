@@ -488,8 +488,9 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 | 里程碑 | 内容 | 验收 | 依赖 |
 |---|---|---|---|
+| **N5.0** | 文件拆分（前置，不改行为）：按关注点拆 `distributed_refmem.c` / `scpi_system_snapshot_commands.c` 等；设行数预算 | 无单文件超预算；build/host/P3/HIL 烟测；行为不变 | 无 |
 | **N5.1** ✅（审核完成：LEASE active；TRANSPORT/IDLE pending） | 契约交叉审核 `REFTMEM-LEASE-01`/`IDLE-01`/`TRANSPORT-01` | 交叉审核记录 + 转 active 或记录偏差 | 无（可并行） |
-| **N5.2** | 远程配置 owner/permission + 环安全 stage：N5.2a 环运行期 app-model staging（PACKAGE_INVALID）；N5.2b 谁可以 stage 哪个节点；N5.2c 真实 STOP→stage→START | 远程 stage 真正 ACK（N5.2a+b）；未授权 `PERMISSION_DENIED`；两板/四板 HIL；全程 STOP 边界 | N5.1 |
+| **N5.2** | 远程配置 owner/permission + 环安全 stage：N5.2a 环运行期 app-model staging（PACKAGE_INVALID）；N5.2b 谁可以 stage 哪个节点；N5.2c 真实 STOP→stage→START | 远程 stage 真正 ACK（N5.2a+b）；未授权 `PERMISSION_DENIED`；两板/四板 HIL；全程 STOP 边界 | N5.0、N5.1 |
 | **N5.3** | `control_owner_slot` 冻结（profile 元数据或 BoardCapabilityTable 择一） | 唯一协调者槽 + 只读视图 + 契约 | N5.2 |
 | **N5.4** | 协调者租约/唯一性门禁（grant/renew/release/expire） | 非协调者写入/执行被拒绝；TAKE→CONFLICT→RELEASE→TAKE 两板 HIL | N5.3 |
 | **N5.5** | 非协调者入口：任一维护接口同语义转发 | 从非协调者板发起同一命令；不新增总线 | N5.4 |
@@ -498,6 +499,28 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 | **N5.8** | `REFTMEM-CTRL-01` 交叉审核转 active + 最终 HIL 矩阵 | 契约/文档/SCPI 同步；门禁绿 | N5.1–N5.7 |
 
 **N5.2 诊断（2026-10-24）**：reason 13 不是 owner/permission；环运行期本地/远程 stage 都失败（`staging_state=3 FAILED`、`last_error=7 PACKAGE_INVALID`、`lint_error=1 BAD_TABLE_VERSION`），环停止本地 stage ACK（`staging_state=2 VALIDATED`）。因此先做 N5.2a；**N5.2a 决策（2026-10-24）：延迟配置事务（STOP-only stage）**——环运行只收命令/排队，STOP 执行，START 后回 ACK；不选环安全 staging（process-image 与 raw-flight 均失败，冲突在环运行期表包/服务）。开放：命令超时跨 STOP/START、队列深度/顺序、多目标 ACK 聚合、COMMIT 与 START 先后。再加 N5.2b 权限；N5.2c 补真实 STOP→stage→START。证据 `out/refmem_remote_txn_hil/n52_diag/REPORT.md`。
+
+#### N5.0 拆分清单（前置）
+
+| 文件 | 总行数 | 拆分目标 |
+|---|---:|---|
+| `components/distributed_refmem/src/distributed_refmem.c` | 6,370 | core / command / config-txn / cmd-reply / tdma / vdc / diag + `distributed_refmem_internal.h`；单文件 ≤1,200 |
+| `middleware/scpi_port/src/scpi_system_snapshot_commands.c` | 6,393 | refmem / tdma / vdc / system / 其它按域拆；单文件 ≤1,300 |
+| `components/vdc_dpll_manager/src/vdc_dpll_manager.c` | 4,826 | DPLL 状态机 / 训练 / 观测 / SCPI 适配；单文件 ≤1,500 |
+| `components/vdc_domain/src/vdc_domain.c` | 4,460 | 域模型 / 发布 / 观测；单文件 ≤1,500 |
+| `components/calibration_manager/src/calibration_manager.c` | 4,138 | 会话 / 采集 / 结果 / 持久化；单文件 ≤1,500 |
+| `components/tdma/src/tdma_pio_spi_ring_adapter.c` | 4,116 | PIO/DMA / 配置 / 训练 / 诊断；单文件 ≤1,500 |
+| `components/storage_manager/src/storage_manager.c` | 3,566 | 文件 / 目录 / 写缓冲 / 诊断；单文件 ≤1,500 |
+| `components/tdma/src/tdma_pio_spi_phys.c` | 3,076 | 物理层 / 诊断；单文件 ≤1,500 |
+| `components/distributed_refmem/src/refmem_application_model.c` | 3,180 | 装载 / 校验 / 表；单文件 ≤1,500 |
+| `components/sync_trigger/src/trigger_t2_runtime.c` | 2,843 | 会话 / 执行 / 观测；单文件 ≤1,500 |
+
+- **N5.0.1** 预算与关注点地图（docs，无代码）：新文件 ≤800 行；拆分后单文件 ≤1,500；>2,000 需 TODO/豁免；>3,000 冻结新功能（拆分除外）。
+- **N5.0.2** `distributed_refmem.c` 先拆；**N5.2a 代码必须等它完成**，避免继续给 6.3k 行文件加功能。
+- **N5.0.3** `scpi_system_snapshot_commands.c` 按域拆（当前最大文件，6,393 行）。
+- **N5.0.4** VDC/calibration/TDMA adapter 依次拆；每步单独提交。
+- **N5.0.5** 预算门禁（可选 line-count 检查）+ 文档/HAOFV 收口。
+- **每步约束**：纯移动/重命名 + 私有头；不改行为；host/build/P3/HIL 烟测；代码/文档分离提交。
 
 **N5.1 审核后 carry-over（未闭环，保持 pending）**：
 - **N5.1a** `REFMEM-TRANSPORT-01`：seat rotation `f>=3` 条款与实现/预设不符；需 TDMA 域决定修条款或改实现并补显式断言；维护 ACK 的 clause_loc 跨 TDMA/REFMEM 两个 anchor；P3 报告改为 `PASS_WITH_WARNINGS/strict=false` 的诚实表述。
