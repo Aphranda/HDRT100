@@ -367,7 +367,7 @@ Core0 准备、Core1 固定窗口选择、PIO/DMA 发送；`TDMA_RECOVERY_BUFFER
 
 维护流 RX 重组器在 **header 不一致**时放弃未完成的旧帧并以新帧头重启，不永久拒绝后续帧；重复 chunk 只计 `duplicate_count`，不重复复制。单次 chunk 丢失不得 wedge 整个 run；整帧丢失的补偿属于上层 per-stream ACK/重试，不在重组器内伪造完成。
 
-维护帧采用 stop-and-wait ACK：TX 在整帧发完后保留队列槽位，接收端经 process-image ACK 席位回 `stream_id:generation + result`（诊断字节 `0xA0|result`，与命令回复的 `ACK_FLAG_COMMAND` 区分）；源端 50 ms 超时、最多 3 次、每次重试 generation+1，接收端按新 generation 重启重组。ACK 丢失/超时重传不得静默丢帧；重试耗尽计数并释放槽位。命令回复优先占用 ACK 席位，维护 ACK 仅在无命令回复时发布，避免延迟命令终态；7 帧命令的 stop-and-wait 需 ≥2 s 环窗口预算。
+维护帧采用 stop-and-wait ACK：TX 在整帧发完后保留队列槽位，接收端经 process-image ACK 席位回 `stream_id:generation + result`（诊断字节 `0xA0|result`，与命令回复的 `ACK_FLAG_COMMAND` 区分）；源端 50 ms 超时、最多 3 次、每次重试 generation+1，接收端按新 generation 重启重组。ACK 丢失/超时重传不得静默丢帧；重试耗尽计数并释放槽位。每个目标各回一份维护 ACK，源端按 required_mask 全覆盖才释放；命令回复优先占用 ACK 席位，维护 ACK 仅在无命令回复时发布，避免延迟命令终态；7 帧命令的 stop-and-wait 需 ≥2 s 环窗口预算。
 
 维护 TX 队列为 16 槽（可用 15），可在一个环启动内预排两条 7 帧命令并按序执行；环运行中再入队需要并发测试驱动，当前 HIL 覆盖预排队多批。队列满时显式拒绝，不静默覆盖。
 

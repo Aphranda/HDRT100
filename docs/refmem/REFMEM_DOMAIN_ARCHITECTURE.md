@@ -1619,7 +1619,7 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 配置类命令在 RUN 仍按本地门禁 NACK（reason 13），该 NACK 现在同样回传到源板。限制：seq 只有低
 16 位过线；回复不复制到其它 observer 的 node 记录；聚合广播/协调者租约仍未实现。
 
-**维护流可靠交付（2026-10-24，N3.2.1–N3.2.5）**：7 帧命令改为帧级 **stop-and-wait**：TX 整帧发完后保留槽位，目标在 process-image ACK 席位回 `stream_id:generation + result`（诊断字节 `0xA0|result`，`seq16=stream_id:generation`）；源端 50 ms 超时、最多 3 次、每次 generation+1，接收端按新 generation 重启重组。**命令回复优先占用 ACK 席位，维护 ACK 仅在无命令回复时发布**，不延迟命令终态。重试耗尽计数并释放槽位，不静默丢帧；7 帧命令的 stop-and-wait 需 **≥2 s 环窗口**（0.5 s 窗口会留下未发完帧，属有界未完成而非丢帧）。N3.2.6 的 2 帧紧凑帧实验投递成功但目标回复未 arm，已回退并记为延后优化；不作为本路径的完成条件。
+**维护流可靠交付（2026-10-24，N3.2.1–N3.2.5）**：7 帧命令改为帧级 **stop-and-wait**：TX 整帧发完后保留槽位，每个目标在 process-image ACK 席位各回一份 `stream_id:generation + result`（诊断字节 `0xA0|result`，`seq16=stream_id:generation`）；源端按目标累积 ACK 掩码，`required_mask` 全覆盖才释放，单目标漏帧触发整帧重传；50 ms 超时、最多 3 次、每次 generation+1，接收端按新 generation 重启重组。**命令回复优先占用 ACK 席位，维护 ACK 仅在无命令回复时发布**，不延迟命令终态。重试耗尽计数并释放槽位，不静默丢帧；7 帧命令的 stop-and-wait 需 **≥2 s 环窗口**（0.5 s 窗口会留下未发完帧，属有界未完成而非丢帧）。N3.2.6 的 2 帧紧凑帧实验投递成功但目标回复未 arm，已回退并记为延后优化；不作为本路径的完成条件。
 
 **C0 命令路径（2026-10-23，build `20261023152319`）**：`refmem_node_control` 提供控制块的
 写/读/ACK/清除（seq+CRC 防撕裂）；AO 在 post/take/ack/nack/timeout/clear 后把本地 command slot

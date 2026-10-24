@@ -10,10 +10,10 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261024-010`。
+- 最新条目：`REFMEM-TASK-20261024-011`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
   RUN 配置 idle 窗口仍开放。
-- N3.2：N3.2.1–5、N3.2.8 完成；N3.2.6 延后；N3.2.7 部分（待补重复/乱序/窗口 miss/RX timeout/ring stop→start/mid-ring/长期 soak）。
+- N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - 下一步：补 N3.2.7 剩余矩阵 → N3.3/N4。
 
 ## 归档索引
@@ -23,6 +23,20 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_01.md` | REFMEM-TASK-20260813-021..REFMEM-TASK-20260813-001 | 21 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
+
+### REFMEM-TASK-20261024-011 — per-target 维护帧 ACK
+
+- 状态：完成；P3 通过。
+- 问题：soak 20 出现 3/20 失败（COM4 漏帧、COM3/6 完成）；根因是帧级 ACK 由**任一**目标回复即释放，源端误判整帧已送达所有目标。
+- 修正：
+  - `tdma_maintenance_runtime_submit` 增加 `target_mask`；队列保存并写入 mailbox target mask，只发给显式目标。
+  - `tdma_maintenance_runtime_ack` 增加 `source_slot`，按目标累积 `ack_mask`；仅当 `required_mask` 全覆盖才释放，NACK/50 ms 超时重传整帧（最多 3 次）。
+  - `parse_mailbox` 把 ACK 来源槽传给 runtime；命令回复仍优先占用 ACK 席位。
+- 验证结果：
+  - per-target soak 10/10：`inject_ok=54`（1 次重传为 60）、三目标 `frag_complete=1`。`out/refmem_transport_diag/n327_pertarget_soak10_202610241803/`。
+  - drop 1 1/1：`inject_ok=67`、三目标 `frag_complete=1`。`n327_pertarget_drop1_202610241810/`。
+  - reply HIL multi：`state=4`、`ack_flags=14`、`aggregate_state=4`。`out/refmem_cmd_reply/pertarget_multi_202610241810/`。
+  - P3：build `20261024102324`，源码指纹 `9da69200c16121a8d8205d9f4316997df8395a77ff1b441122d47ff1cbf547fd`（1930 files），`QUICK_DIAGNOSTIC`，credential written；DPLL 前两次失败后 `--steps 7-36` 重试通过；step 26/33 warn，无 ERROR/FATAL。
 
 ### REFMEM-TASK-20261024-010 — N3.2.8 契约/文档收口与 ACK 席位优先级
 
@@ -46,6 +60,7 @@ Last updated: 2026-10-24
   - `--drop 200`：无完成、源 `POSTED`、`tx_retries=8`、队列未排空，无假 ACK（fail-closed）。`n327_dropfail_202610241705/`。
   - soak 5/5（2 s 环窗口）：`inject_ok=54`、三目标 `frag_complete=1`。`n327_soak5b_202610241707/`。
   - 0.5 s 窗口 soak 2/5 未排空 → stop-and-wait 7 帧命令需 ≥2 s 环窗口。
+  - 重复：raw56_x2 同一 wire 两次 → 三目标 `refmem_parser_ok=2`、`posted=1`、`acked=1`（第二次被去重）。`n327_dup_202610241730/`。
 - 下一步：补重复/乱序/窗口 miss/RX timeout/ring stop→start/mid-ring/长期 soak。
 
 ### REFMEM-TASK-20261024-008 — N3.2.6 紧凑命令帧实验（负结果，延后）
