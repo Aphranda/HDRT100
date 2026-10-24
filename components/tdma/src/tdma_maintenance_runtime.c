@@ -17,7 +17,7 @@ static volatile uint32_t s_rejects;
 
 /* Small TX queue so a multi-frame control message (e.g. a fragmented REFMEM
  * command) can be queued before the ring starts; the adapter's maintenance
- * mailbox drains it chunk by chunk during the startup window. */
+ * mailbox drains it chunk by chunk whenever the adapter asks for one. */
 #define TDMA_MAINTENANCE_RUNTIME_TX_QUEUE 8u
 static uint8_t s_tx_queue[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE]
                           [TDMA_MAINTENANCE_STREAM_MAX];
@@ -29,6 +29,8 @@ static volatile uint32_t s_tx_queue_tail;
 static volatile uint32_t s_tx_queue_count;
 static volatile uint32_t s_tx_queued;
 static volatile uint32_t s_tx_queue_full;
+static volatile uint32_t s_tx_dequeued;
+static volatile uint32_t s_rx_chunk_rejects;
 
 static bool maintenance_mailbox(void *context,
                                 uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE])
@@ -47,6 +49,7 @@ static bool maintenance_mailbox(void *context,
         }
         s_tx_queue_head = (head + 1u) % TDMA_MAINTENANCE_RUNTIME_TX_QUEUE;
         s_tx_queue_count--;
+        s_tx_dequeued++;
     }
     uint8_t chunk[TDMA_MAINTENANCE_CHUNK_SIZE];
     if (!tdma_maintenance_stream_next_chunk(&s_tx, chunk)) {
@@ -142,6 +145,7 @@ bool tdma_maintenance_runtime_take(uint8_t *frame,
         bool complete = false;
         if (!tdma_maintenance_stream_rx_chunk(&s_rx, chunk, &complete)) {
             s_rejects++;
+            s_rx_chunk_rejects++;
             continue;
         }
         if (complete) {
@@ -183,4 +187,21 @@ void tdma_maintenance_runtime_get_counters(uint32_t *mailbox_calls,
     if (rejects != NULL) {
         *rejects = s_rejects;
     }
+}
+
+void tdma_maintenance_runtime_get_diag(tdma_maintenance_runtime_diag_t *diag)
+{
+    if (diag == NULL) {
+        return;
+    }
+    memset(diag, 0, sizeof(*diag));
+    diag->queue_depth = s_tx_queue_count;
+    diag->enqueued = s_tx_queued;
+    diag->dequeued = s_tx_dequeued;
+    diag->queue_full = s_tx_queue_full;
+    diag->mailbox_calls = s_mailbox_calls;
+    diag->chunks = s_chunks;
+    diag->frames = s_frames;
+    diag->rejects = s_rejects;
+    diag->rx_chunk_rejects = s_rx_chunk_rejects;
 }

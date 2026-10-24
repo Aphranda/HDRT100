@@ -293,7 +293,32 @@ bool refmem_cmd_load_get_status(refmem_cmd_load_status_t *status)
             &status->rx_config_control, &status->rx_process_image);
         tdma_pio_spi_ring_adapter_get_maintenance_inject(
             s_adapter, &status->inject_attempts, &status->inject_ok);
+        tdma_maintenance_adapter_diag_t adapter_diag;
+        tdma_pio_spi_ring_adapter_get_maintenance_diag(s_adapter,
+                                                       &adapter_diag);
+        status->inject_launched = adapter_diag.inject_launched;
+        status->inject_dropped_unlaunched =
+            adapter_diag.inject_dropped_unlaunched;
+        status->inject_new_sequence = adapter_diag.inject_new_sequence;
+        status->inject_repeated_sequence =
+            adapter_diag.inject_repeated_sequence;
+        status->inject_last_sequence = adapter_diag.inject_last_sequence;
+        status->beacon_frames = adapter_diag.beacon_frames;
+        status->rx_polls = adapter_diag.rx_polls;
+        status->rx_seen_chunks = adapter_diag.rx_seen_chunks;
+        status->rx_accepted_chunks = adapter_diag.rx_accepted_chunks;
+        status->rx_dedup_sequence = adapter_diag.rx_dedup_sequence;
+        status->rx_bad_mailbox = adapter_diag.rx_bad_mailbox;
+        status->rx_last_sequence = adapter_diag.rx_last_sequence;
+        status->rx_sequence_cursor = adapter_diag.rx_sequence_cursor;
     }
+    tdma_maintenance_runtime_diag_t runtime_diag;
+    tdma_maintenance_runtime_get_diag(&runtime_diag);
+    status->queue_depth = runtime_diag.queue_depth;
+    status->queue_enqueued = runtime_diag.enqueued;
+    status->queue_dequeued = runtime_diag.dequeued;
+    status->queue_full = runtime_diag.queue_full;
+    status->rx_chunk_rejects = runtime_diag.rx_chunk_rejects;
     return true;
 }
 

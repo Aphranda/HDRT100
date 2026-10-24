@@ -591,6 +591,23 @@ typedef struct {
     volatile uint32_t maintenance_rx_sequence;
     volatile uint32_t maintenance_inject_attempts;
     volatile uint32_t maintenance_inject_ok;
+    /* N3.2.1 diagnostics: distinguish "the mailbox callback produced a chunk"
+     * from "the frame carrying it was actually launched", and count how often
+     * a frame sequence repeats (the follower dedups the immediate previous
+     * sequence).  Read-only; never changes transport behaviour. */
+    volatile uint32_t maintenance_inject_launched;
+    volatile uint32_t maintenance_inject_dropped_unlaunched;
+    volatile uint32_t maintenance_inject_new_sequence;
+    volatile uint32_t maintenance_inject_repeated_sequence;
+    volatile uint32_t maintenance_inject_last_sequence;
+    volatile uint32_t maintenance_beacon_frames;
+    volatile uint32_t maintenance_rx_polls;
+    volatile uint32_t maintenance_rx_seen_chunks;
+    volatile uint32_t maintenance_rx_accepted_chunks;
+    volatile uint32_t maintenance_rx_dedup_sequence;
+    volatile uint32_t maintenance_rx_bad_mailbox;
+    volatile uint32_t maintenance_rx_last_sequence;
+    volatile uint32_t maintenance_rx_last_poll_sequence;
     struct tdma_transport_load *transport_load;
     void (*transport_load_rx)(void *context,
                               const uint8_t *payload,
@@ -904,6 +921,33 @@ void tdma_pio_spi_ring_adapter_get_maintenance_inject(
     const tdma_pio_spi_ring_adapter_t *adapter,
     uint32_t *attempts,
     uint32_t *ok);
+
+/* N3.2.1 read-only maintenance diagnostics.  The caller must not infer a
+ * delivery guarantee from these counters; they only localize where a chunk is
+ * lost (callback, unlaunched frame, repeated sequence, follower dedup, or bad
+ * mailbox). */
+typedef struct {
+    uint32_t inject_attempts;
+    uint32_t inject_ok;
+    uint32_t inject_launched;
+    uint32_t inject_dropped_unlaunched;
+    uint32_t inject_new_sequence;
+    uint32_t inject_repeated_sequence;
+    uint32_t inject_last_sequence;
+    uint32_t beacon_frames;
+    uint32_t rx_polls;
+    uint32_t rx_seen_chunks;
+    uint32_t rx_accepted_chunks;
+    uint32_t rx_dedup_sequence;
+    uint32_t rx_bad_mailbox;
+    uint32_t rx_last_sequence;
+    uint32_t rx_last_poll_sequence;
+    uint32_t rx_sequence_cursor;
+} tdma_maintenance_adapter_diag_t;
+
+void tdma_pio_spi_ring_adapter_get_maintenance_diag(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_maintenance_adapter_diag_t *diag);
 bool tdma_pio_spi_ring_adapter_set_forwarding_mode(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_forwarding_mode_t mode);

@@ -888,6 +888,24 @@ scpi_result_t scpi_cmd_refmem_cmd_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.frag_pending);
     SCPI_ResultUInt32(context, status.frag_pending_index);
     SCPI_ResultUInt32(context, status.frag_pending_count);
+    SCPI_ResultUInt32(context, status.queue_depth);
+    SCPI_ResultUInt32(context, status.queue_enqueued);
+    SCPI_ResultUInt32(context, status.queue_dequeued);
+    SCPI_ResultUInt32(context, status.queue_full);
+    SCPI_ResultUInt32(context, status.rx_chunk_rejects);
+    SCPI_ResultUInt32(context, status.inject_launched);
+    SCPI_ResultUInt32(context, status.inject_dropped_unlaunched);
+    SCPI_ResultUInt32(context, status.inject_new_sequence);
+    SCPI_ResultUInt32(context, status.inject_repeated_sequence);
+    SCPI_ResultUInt32(context, status.inject_last_sequence);
+    SCPI_ResultUInt32(context, status.beacon_frames);
+    SCPI_ResultUInt32(context, status.rx_polls);
+    SCPI_ResultUInt32(context, status.rx_seen_chunks);
+    SCPI_ResultUInt32(context, status.rx_accepted_chunks);
+    SCPI_ResultUInt32(context, status.rx_dedup_sequence);
+    SCPI_ResultUInt32(context, status.rx_bad_mailbox);
+    SCPI_ResultUInt32(context, status.rx_last_sequence);
+    SCPI_ResultUInt32(context, status.rx_sequence_cursor);
     return SCPI_RES_OK;
 }
 

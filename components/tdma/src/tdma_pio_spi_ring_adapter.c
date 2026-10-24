@@ -968,6 +968,35 @@ void tdma_pio_spi_ring_adapter_get_maintenance_inject(
     }
 }
 
+void tdma_pio_spi_ring_adapter_get_maintenance_diag(
+    const tdma_pio_spi_ring_adapter_t *adapter,
+    tdma_maintenance_adapter_diag_t *diag)
+{
+    if (adapter == NULL || diag == NULL) {
+        return;
+    }
+    memset(diag, 0, sizeof(*diag));
+    diag->inject_attempts = adapter->maintenance_inject_attempts;
+    diag->inject_ok = adapter->maintenance_inject_ok;
+    diag->inject_launched = adapter->maintenance_inject_launched;
+    diag->inject_dropped_unlaunched =
+        adapter->maintenance_inject_dropped_unlaunched;
+    diag->inject_new_sequence = adapter->maintenance_inject_new_sequence;
+    diag->inject_repeated_sequence =
+        adapter->maintenance_inject_repeated_sequence;
+    diag->inject_last_sequence = adapter->maintenance_inject_last_sequence;
+    diag->beacon_frames = adapter->maintenance_beacon_frames;
+    diag->rx_polls = adapter->maintenance_rx_polls;
+    diag->rx_seen_chunks = adapter->maintenance_rx_seen_chunks;
+    diag->rx_accepted_chunks = adapter->maintenance_rx_accepted_chunks;
+    diag->rx_dedup_sequence = adapter->maintenance_rx_dedup_sequence;
+    diag->rx_bad_mailbox = adapter->maintenance_rx_bad_mailbox;
+    diag->rx_last_sequence = adapter->maintenance_rx_last_sequence;
+    diag->rx_last_poll_sequence =
+        adapter->maintenance_rx_last_poll_sequence;
+    diag->rx_sequence_cursor = adapter->maintenance_rx_sequence;
+}
+
 bool tdma_pio_spi_ring_adapter_set_forwarding_mode(
     tdma_pio_spi_ring_adapter_t *adapter,
     tdma_pio_spi_ring_forwarding_mode_t mode)
@@ -1089,8 +1118,15 @@ bool tdma_pio_spi_ring_adapter_take_maintenance_chunk(
         view.payload == NULL) {
         return false;
     }
+    adapter->maintenance_rx_polls++;
     if ((view.transport_sequence + 1u) ==
         adapter->maintenance_rx_sequence) {
+        if (adapter->maintenance_rx_last_poll_sequence !=
+            view.transport_sequence) {
+            adapter->maintenance_rx_dedup_sequence++;
+            adapter->maintenance_rx_last_poll_sequence =
+                view.transport_sequence;
+        }
         return false;
     }
     if (view.payload_class == TDMA_PAYLOAD_CLASS_CONFIG_CONTROL) {
@@ -1103,6 +1139,7 @@ bool tdma_pio_spi_ring_adapter_take_maintenance_chunk(
             mailbox[3] != TDMA_PROCESS_IMAGE_MESSAGE_CLASS ||
             mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] ==
                 (uint8_t)adapter->config.local_slot_id) {
+            adapter->maintenance_rx_bad_mailbox++;
             return false;
         }
         memcpy(chunk,
@@ -1112,6 +1149,9 @@ bool tdma_pio_spi_ring_adapter_take_maintenance_chunk(
             *source_slot = mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET];
         }
         adapter->maintenance_rx_sequence = view.transport_sequence + 1u;
+        adapter->maintenance_rx_last_sequence = view.transport_sequence;
+        adapter->maintenance_rx_seen_chunks++;
+        adapter->maintenance_rx_accepted_chunks++;
         return true;
     }
     const uint32_t mask = (1u << adapter->config.node_count) - 1u;
@@ -1137,6 +1177,9 @@ bool tdma_pio_spi_ring_adapter_take_maintenance_chunk(
             *source_slot = mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET];
         }
         adapter->maintenance_rx_sequence = view.transport_sequence + 1u;
+        adapter->maintenance_rx_last_sequence = view.transport_sequence;
+        adapter->maintenance_rx_seen_chunks++;
+        adapter->maintenance_rx_accepted_chunks++;
         return true;
     }
     return false;
@@ -1882,6 +1925,7 @@ static bool tdma_pio_spi_ring_adapter_tx_resident_cycle_from(
         return false;
     }
 
+    bool maintenance_injected = false;
     if (adapter->maintenance_mailbox != NULL &&
         returned_view.payload_size >=
             (adapter->config.local_slot_id + 1u) *
@@ -1891,6 +1935,7 @@ static bool tdma_pio_spi_ring_adapter_tx_resident_cycle_from(
         if (adapter->maintenance_mailbox(adapter->maintenance_mailbox_context,
                                          mailbox)) {
             adapter->maintenance_inject_ok++;
+            maintenance_injected = true;
             uint8_t *slot = processed_payload +
                 adapter->config.local_slot_id *
                     TDMA_FLIGHT_SHORT_SLOT_SIZE;
@@ -1928,6 +1973,15 @@ static bool tdma_pio_spi_ring_adapter_tx_resident_cycle_from(
             adapter, TDMA_PIO_SPI_RING_ADAPTER_ERROR_TX_FAILED);
         return false;
     }
+    if (maintenance_injected) {
+        const uint32_t emitted_sequence = next_view.transport_sequence;
+        if (emitted_sequence == adapter->maintenance_inject_last_sequence) {
+            adapter->maintenance_inject_repeated_sequence++;
+        } else {
+            adapter->maintenance_inject_new_sequence++;
+        }
+        adapter->maintenance_inject_last_sequence = emitted_sequence;
+    }
     if (data_rx_timed_out &&
         adapter->comm_fsm.state == TDMA_ADAPTER_COMM_STATE_RUNNING &&
         !tdma_adapter_comm_fsm_dispatch(
@@ -1953,6 +2007,13 @@ static bool tdma_pio_spi_ring_adapter_tx_resident_cycle_from(
             false,
             &reference_launched)) {
         return false;
+    }
+    if (maintenance_injected) {
+        if (reference_launched) {
+            adapter->maintenance_inject_launched++;
+        } else {
+            adapter->maintenance_inject_dropped_unlaunched++;
+        }
     }
     if (!reference_launched) {
         return true;
@@ -2184,6 +2245,7 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
         wire_payload_size = sizeof(maintenance_payload);
         emit_process_image = true;
         maintenance_frame = true;
+        adapter->maintenance_beacon_frames++;
         dpll_observation_ready = false;
     }
     if (load_frame) {

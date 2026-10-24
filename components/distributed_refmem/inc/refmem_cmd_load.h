@@ -73,6 +73,25 @@ typedef struct {
     uint32_t frag_pending;
     uint32_t frag_pending_index;
     uint32_t frag_pending_count;
+    /* N3.2.1 transport diagnostics (read-only). */
+    uint32_t queue_depth;
+    uint32_t queue_enqueued;
+    uint32_t queue_dequeued;
+    uint32_t queue_full;
+    uint32_t rx_chunk_rejects;
+    uint32_t inject_launched;
+    uint32_t inject_dropped_unlaunched;
+    uint32_t inject_new_sequence;
+    uint32_t inject_repeated_sequence;
+    uint32_t inject_last_sequence;
+    uint32_t beacon_frames;
+    uint32_t rx_polls;
+    uint32_t rx_seen_chunks;
+    uint32_t rx_accepted_chunks;
+    uint32_t rx_dedup_sequence;
+    uint32_t rx_bad_mailbox;
+    uint32_t rx_last_sequence;
+    uint32_t rx_sequence_cursor;
 } refmem_cmd_load_status_t;
 
 bool refmem_cmd_load_get_status(refmem_cmd_load_status_t *status);

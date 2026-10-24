@@ -26,4 +26,22 @@ void tdma_maintenance_runtime_get_counters(uint32_t *mailbox_calls,
                                            uint32_t *frames,
                                            uint32_t *rejects);
 
+/* N3.2.1 read-only queue/stream diagnostics.  `queue_depth` is sampled at call
+ * time; the other counters are monotonic.  `rx_chunk_rejects` counts chunks
+ * rejected by the stream reassembler (bad header or a chunk that belongs to a
+ * different frame while one is still incomplete). */
+typedef struct {
+    uint32_t queue_depth;
+    uint32_t enqueued;
+    uint32_t dequeued;
+    uint32_t queue_full;
+    uint32_t mailbox_calls;
+    uint32_t chunks;
+    uint32_t frames;
+    uint32_t rejects;
+    uint32_t rx_chunk_rejects;
+} tdma_maintenance_runtime_diag_t;
+
+void tdma_maintenance_runtime_get_diag(tdma_maintenance_runtime_diag_t *diag);
+
 #endif /* TDMA_MAINTENANCE_RUNTIME_H */
