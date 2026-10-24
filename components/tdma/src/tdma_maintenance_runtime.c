@@ -4,6 +4,7 @@
 
 #include "tdma_maintenance_stream.h"
 #include "tdma_process_image_layout.h"
+#include "tdma_spsc_index.h"
 
 static tdma_pio_spi_ring_adapter_t *s_adapter;
 static tdma_maintenance_stream_tx_t s_tx;
@@ -24,9 +25,8 @@ static uint8_t s_tx_queue[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE]
 static uint16_t s_tx_queue_size[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE];
 static uint8_t s_tx_queue_stream_id[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE];
 static uint8_t s_tx_queue_generation[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE];
-static volatile uint32_t s_tx_queue_head;
-static volatile uint32_t s_tx_queue_tail;
-static volatile uint32_t s_tx_queue_count;
+static uint32_t s_tx_queue_head;
+static uint32_t s_tx_queue_tail;
 static volatile uint32_t s_tx_queued;
 static volatile uint32_t s_tx_queue_full;
 static volatile uint32_t s_tx_dequeued;
@@ -37,19 +37,30 @@ static bool maintenance_mailbox(void *context,
 {
     (void)context;
     s_mailbox_calls++;
-    if (!s_tx.frame || s_tx.next_chunk >= s_tx.chunk_count) {
-        if (s_tx_queue_count == 0u) {
+    if (s_tx.frame != NULL && s_tx.next_chunk >= s_tx.chunk_count) {
+        /* The frame has been fully handed to the wire.  Release its slot only
+         * now: the stream keeps a pointer into the queue slot while draining,
+         * so advancing head earlier would let the producer overwrite a frame
+         * that is still being transmitted. */
+        s_tx.frame = NULL;
+        const uint32_t head = s_tx_queue_head;
+        __atomic_store_n(&s_tx_queue_head,
+                         tdma_spsc_next(head, TDMA_MAINTENANCE_RUNTIME_TX_QUEUE),
+                         __ATOMIC_RELEASE);
+        s_tx_dequeued++;
+    }
+    if (s_tx.frame == NULL) {
+        const uint32_t head = s_tx_queue_head;
+        const uint32_t tail =
+            __atomic_load_n(&s_tx_queue_tail, __ATOMIC_ACQUIRE);
+        if (tdma_spsc_empty(head, tail)) {
             return false;
         }
-        const uint32_t head = s_tx_queue_head;
         if (!tdma_maintenance_stream_tx_begin(
                 &s_tx, s_tx_queue[head], s_tx_queue_size[head],
                 s_tx_queue_stream_id[head], s_tx_queue_generation[head])) {
             return false;
         }
-        s_tx_queue_head = (head + 1u) % TDMA_MAINTENANCE_RUNTIME_TX_QUEUE;
-        s_tx_queue_count--;
-        s_tx_dequeued++;
     }
     uint8_t chunk[TDMA_MAINTENANCE_CHUNK_SIZE];
     if (!tdma_maintenance_stream_next_chunk(&s_tx, chunk)) {
@@ -88,7 +99,6 @@ bool tdma_maintenance_runtime_init(tdma_pio_spi_ring_adapter_t *adapter,
     memset(&s_rx, 0, sizeof(s_rx));
     s_tx_queue_head = 0u;
     s_tx_queue_tail = 0u;
-    s_tx_queue_count = 0u;
     tdma_pio_spi_ring_adapter_set_maintenance_mailbox(
         adapter, maintenance_mailbox, NULL);
     return true;
@@ -113,18 +123,21 @@ bool tdma_maintenance_runtime_submit(const uint8_t *frame,
         s_rejects++;
         return false;
     }
-    if (s_tx_queue_count >= TDMA_MAINTENANCE_RUNTIME_TX_QUEUE) {
+    const uint32_t head =
+        __atomic_load_n(&s_tx_queue_head, __ATOMIC_ACQUIRE);
+    const uint32_t tail = s_tx_queue_tail;
+    if (tdma_spsc_full(head, tail, TDMA_MAINTENANCE_RUNTIME_TX_QUEUE)) {
         s_rejects++;
         s_tx_queue_full++;
         return false;
     }
-    const uint32_t tail = s_tx_queue_tail;
     memcpy(s_tx_queue[tail], frame, frame_size);
     s_tx_queue_size[tail] = (uint16_t)frame_size;
     s_tx_queue_stream_id[tail] = stream_id;
     s_tx_queue_generation[tail] = generation;
-    s_tx_queue_tail = (tail + 1u) % TDMA_MAINTENANCE_RUNTIME_TX_QUEUE;
-    s_tx_queue_count++;
+    __atomic_store_n(&s_tx_queue_tail,
+                     tdma_spsc_next(tail, TDMA_MAINTENANCE_RUNTIME_TX_QUEUE),
+                     __ATOMIC_RELEASE);
     s_tx_queued++;
     return true;
 }
@@ -195,7 +208,12 @@ void tdma_maintenance_runtime_get_diag(tdma_maintenance_runtime_diag_t *diag)
         return;
     }
     memset(diag, 0, sizeof(*diag));
-    diag->queue_depth = s_tx_queue_count;
+    const uint32_t head =
+        __atomic_load_n(&s_tx_queue_head, __ATOMIC_ACQUIRE);
+    const uint32_t tail =
+        __atomic_load_n(&s_tx_queue_tail, __ATOMIC_ACQUIRE);
+    diag->queue_depth =
+        tdma_spsc_depth(head, tail, TDMA_MAINTENANCE_RUNTIME_TX_QUEUE);
     diag->enqueued = s_tx_queued;
     diag->dequeued = s_tx_dequeued;
     diag->queue_full = s_tx_queue_full;

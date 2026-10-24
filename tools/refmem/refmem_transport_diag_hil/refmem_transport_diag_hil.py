@@ -88,6 +88,7 @@ CASES = [
     {"name": "raw56", "kind": "refmem_cmd", "frames": 1, "chunks": 6},
     {"name": "raw56_x2", "kind": "refmem_cmd_x2", "frames": 2, "chunks": 12},
     {"name": "exec196", "kind": "exec_self_check", "frames": 7, "chunks": 56},
+    {"name": "queue_full", "kind": "queue_full", "frames": 0, "chunks": 0},
 ]
 
 
@@ -193,6 +194,25 @@ class DiagHil:
                 self.args.source_port,
                 f'SYSTem:REFMEM:CMD:SUBmit:TYPe {0x52},"{make_refmem_cmd(self.args.target_mask)}"')
             response = f"{first};{second}"
+        elif case["kind"] == "queue_full":
+            responses = []
+            for _ in range(9):
+                try:
+                    responses.append(scpi(
+                        self.args.source_port,
+                        f'SYSTem:REFMEM:CMD:SUBmit:TYPe {0x52},"{make_refmem_cmd(self.args.target_mask)}"',
+                        timeout=3.0))
+                except Exception as exc:  # noqa: BLE001 - rejection is expected
+                    responses.append(f"<error:{exc}>")
+            if "QUEUED" not in responses[0]:
+                raise RuntimeError(f"first queue submission failed: {responses[0]}")
+            return {
+                "response": responses,
+                "rejected": sum(1 for item in responses
+                                if item == "<timeout>" or
+                                "REJECTED" in item or
+                                item.startswith("<error")),
+            }
         else:
             response = scpi(
                 self.args.source_port,
@@ -273,6 +293,8 @@ class DiagHil:
             success = any(t["refmem_parser_ok"] >= 1 for t in targets)
         elif case["kind"] == "refmem_cmd_x2":
             success = any(t["refmem_parser_ok"] >= 2 for t in targets)
+        elif case["kind"] == "queue_full":
+            success = source["queue_full"] > 0
         else:
             success = (all(t["frag_complete"] >= 1 for t in targets) and
                        source_ctrl is not None and
