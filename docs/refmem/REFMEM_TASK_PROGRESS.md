@@ -10,11 +10,11 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261024-009`。
+- 最新条目：`REFMEM-TASK-20261024-010`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
   RUN 配置 idle 窗口仍开放。
-- N3.2：N3.2.1–5 完成；N3.2.6 紧凑帧负结果延后；N3.2.7 矩阵部分完成。
-- 下一步：补 N3.2.7 剩余矩阵 → N3.2.8 收口；N3.3/N4 待 N3.2 关闭。
+- N3.2：N3.2.1–5、N3.2.8 完成；N3.2.6 延后；N3.2.7 部分（待补重复/乱序/窗口 miss/RX timeout/ring stop→start/mid-ring/长期 soak）。
+- 下一步：补 N3.2.7 剩余矩阵 → N3.3/N4。
 
 ## 归档索引
 
@@ -23,6 +23,19 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_01.md` | REFMEM-TASK-20260813-021..REFMEM-TASK-20260813-001 | 21 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
+
+### REFMEM-TASK-20261024-010 — N3.2.8 契约/文档收口与 ACK 席位优先级
+
+- 状态：完成；ACK 优先级修正 + 契约/架构/SCPI 记录；N3.2.6 延后、N3.2.7 部分在案。
+- 完成内容：
+  - process-image builder 的 ACK 分支改为**命令回复优先**，维护 ACK 仅在无命令回复时发布；publish flags 同步。
+  - `REFTMEM-TRANSPORT-01` 登记维护流帧级 ACK（复用 ACK 席位、诊断 magic `0xA0`、命令回复优先）。
+  - `TDMA_DOMAIN_ARCHITECTURE`/`REFMEM_DOMAIN_ARCHITECTURE` 补 stop-and-wait/重试/≥2 s 窗口/优先级；`SCPI_COMMANDS` 已记 `CMD:DROP`。
+- 验证结果：
+  - reply HIL multi：origin `state=4`、`ack_flags=14`、`aggregate_state=4`、`acked_mask=14`；targets 各自 ACK 位。证据 `out/refmem_cmd_reply/ackprio_multi_202610241700/`。
+  - exec196 normal 1/1、drop 1 1/1（`frag_complete=1`，restart 正常）。证据 `out/refmem_transport_diag/ackprio_exec196_202610241705/`、`ackprio_drop1_202610241705/`。
+  - P3：build `20261024090754`，源码指纹 `b81745bc830f23ae1eaa9fa71ca6c336e10a0f7afae86869188b5f5aead5279d`（1930 files），`QUICK_DIAGNOSTIC`，credential written；step 26/33 warn，无 ERROR/FATAL。
+- 下一步：补 N3.2.7 剩余矩阵（重复/乱序/窗口 miss/RX timeout/ring stop→start/mid-ring/长期 soak）。
 
 ### REFMEM-TASK-20261024-009 — N3.2.7 HIL 矩阵（部分）
 

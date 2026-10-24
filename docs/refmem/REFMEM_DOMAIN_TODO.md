@@ -426,7 +426,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 | **N3.2.5** | 多批命令/环内序列 ✅（预排队两批，2026-10-24） | 一个环启动内支持 >1 批命令（队列深度/顺序/背压），或在中途可靠提交；支持 TAKE→CONFLICT→RELEASE→TAKE 序列 | 同一环运行内三条命令按序完成；租约两板 HIL 不需逐次复位 | 3、4 |
 | **N3.2.6** | 命令帧尺寸/参数 ref ❌ 延后（紧凑帧回复回归，已回退） | 评估 `param_kind=ref`/可变参数/快照压缩，把常用命令从 7 维护帧降到 ≤2 帧；`LOAD_SD` 走 ref | `SELF_CHECK`、`LOAD_NODE` ≤2 帧；`LOAD_SD` 只传摘要/ref，不传 bulk | 可与 1 并行 |
 | **N3.2.7** | HIL 矩阵与故障注入 ⏳ 部分（2026-10-24） | 四板 process-image 环：1/2/7 帧、单/多目标、NACK、重复、窗口 miss、RX timeout、ring stop→start、soak；逐目标证据 | 全部场景通过；N3.2 可关闭，进入 N3.3 租约 | 3、4、5 |
-| **N3.2.8** | 契约/文档/观测入口 | 同步 `REFMEM-TRANSPORT-01`、`TDMA-PROCESSIMAGE-01`、P8 与 SCPI 计数；不新增 payload class/物理总线；预算仍用 `tdma_traffic_class_profile_t` | 文档门禁绿、登记锚点真实、无第二命令槽/ACK 事实 | 连续 |
+| **N3.2.8** | 契约/文档/观测入口 ✅（2026-10-24；N3.2.6 延后、N3.2.7 部分已记录） | 同步 `REFMEM-TRANSPORT-01`、`TDMA-PROCESSIMAGE-01`、P8 与 SCPI 计数；不新增 payload class/物理总线；预算仍用 `tdma_traffic_class_profile_t` | 文档门禁绿、登记锚点真实、无第二命令槽/ACK 事实 | 连续 |
 
 **执行顺序**：N3.2.1 → N3.2.2（并行）→ N3.2.3 → N3.2.4 → N3.2.5 → N3.2.7；N3.2.6 可并行；N3.2.8 随每项连续更新。
 
@@ -443,6 +443,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 **N3.2.6 进展（2026-10-24，负结果/延后）**：尝试 headerless 56 B codec wire（SELF_CHECK 2 维护帧）：投递/重组成功（`frag_ok=2`、`frag_complete=1`、源 `tx_ack_ok=2`），但目标 `armed/published=0`、源 `CTRL:STATus?` 仍 `POSTED`；补 SELF_CHECK 参数后仍失败。全部改动已回退、未入库。结论：目标执行/reply 触发依赖 v1 快照/信封的某个字段，需目标侧 `cmd_frame_*` 计数才能定段；作为尺寸优化延后，不阻塞 N3.2.1–5 的可靠性主链。
 
 **N3.2.7 进展（2026-10-24，部分）**：N3.2.5 build（P3 `20261024075123`）矩阵：1/2 帧 raw16/raw56 通过；7 帧 exec196 1/1；单目标 `0x02` 源 `target_mask=2`/`required=2`/`ack_flags=2`/`state=ACKED`（COM3/6 仅重组不执行）；`--drop 200` 无完成、源 `POSTED`、无假 ACK（fail-closed）；soak 5/5（2 s 环窗口）；0.5 s 窗口下 2/5 因 stop-and-wait 未排空 → 7 帧命令需 ≥2 s 环窗口。待补：重复/乱序/窗口 miss/RX timeout/ring stop→start/mid-ring/长期 soak。证据 `out/refmem_transport_diag/n327_normal_202610241700/`、`n327_single_202610241700/`、`n327_soak5b_202610241707/`、`n327_dropfail_202610241705/`。
+
+**N3.2.8 进展（2026-10-24）**：`REFTMEM-TRANSPORT-01` 登记维护流帧级 ACK（复用同一 process-image ACK 席位、诊断 magic `0xA0`、命令回复优先）；`TDMA_DOMAIN_ARCHITECTURE`/`REFMEM_DOMAIN_ARCHITECTURE` 补 stop-and-wait/重试/≥2 s 窗口/优先级；`SCPI_COMMANDS` 已记 `CMD:DROP`；N3.2.6 紧凑帧负结果列为已延后偏差。无新增 payload class、物理总线、第二命令槽。ACK 席位优先级修正后 reply HIL（multi）通过，exec196 normal/drop1 通过；P3 build `20261024090754`（fingerprint `b81745…`）credential written。
 
 **每项完成后的 HAOFV 审查门**：①是否新增总线/payload class/第二命令槽/第二 ACK 事实；②是否占用 core1 硬实时窗口或拉长一等席周期；③单写者与 owner 边界是否保持；④故障是否 fail-closed 且有 reason/evidence；⑤布局/版本/契约是否同步；⑥host + 四板证据是否可复跑。任一项不满足不进入下一子项。
 - [ ] 扩展 `refmem_command_request_t` / `refmem_command_snapshot_t`：`coordinator_slot`、`coordinator_boot_id`、`lease_epoch`、`catalog_crc32`、`fence_required`、`fence_state`、`control_reply`；旧字段语义不变，host 用例覆盖旧快照兼容。
