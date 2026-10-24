@@ -837,6 +837,23 @@ scpi_result_t scpi_cmd_refmem_cmd_submit_type(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_idle_window(scpi_t *context)
+{
+    uint32_t open = 0u;
+    if (!scpi_port_read_u32(context, &open)) {
+        return SCPI_RES_ERR;
+    }
+    distributed_refmem_set_idle_window(open != 0u);
+    SCPI_ResultUInt32(context, open != 0u ? 1u : 0u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_idle_window_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context, distributed_refmem_idle_window() ? 1u : 0u);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_lease_q(scpi_t *context)
 {
     refmem_lease_snapshot_t lease;

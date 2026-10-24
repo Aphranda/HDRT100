@@ -4541,6 +4541,21 @@ static void distributed_refmem_mirror_local_control(void)
  * the execution edge (post/take/ack) and its snapshot is mirrored back. */
 static uint32_t s_node_control_last_command_seq;
 static refmem_lease_result_t s_lease_last_result;
+static uint32_t s_dispatch_reason;
+static volatile uint32_t s_idle_window = 1u;
+
+static bool distributed_refmem_is_config_type(uint32_t type)
+{
+    switch ((refmem_command_type_t)type) {
+    case REFMEM_COMMAND_TYPE_BOARD_CAPABILITY_STAGE:
+    case REFMEM_COMMAND_TYPE_NODE_LOAD_STAGE:
+    case REFMEM_COMMAND_TYPE_TABLE_PACKAGE_STAGE:
+    case REFMEM_COMMAND_TYPE_TABLE_PACKAGE_ACTIVATE:
+        return true;
+    default:
+        return false;
+    }
+}
 
 static uint32_t distributed_refmem_lease_reason(
     refmem_lease_result_t result)
@@ -4565,6 +4580,12 @@ static bool distributed_refmem_dispatch_control(
     const refmem_command_snapshot_t *snapshot,
     const uint32_t *params)
 {
+    s_dispatch_reason = (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+    if (distributed_refmem_is_config_type(snapshot->command_type) &&
+        s_idle_window == 0u) {
+        s_dispatch_reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
+        return false;
+    }
     switch ((refmem_command_type_t)snapshot->command_type) {
     case REFMEM_COMMAND_TYPE_BOARD_CAPABILITY_STAGE:
         return refmem_application_model_stage_scpi_board_capability(
@@ -4607,6 +4628,9 @@ static bool distributed_refmem_dispatch_control(
             distributed_refmem_local_slot(), snapshot->source_node, params[0],
             osal_tick_ms(), params[1]);
         s_lease_last_result = result;
+        if (result != REFMEM_LEASE_OK) {
+            s_dispatch_reason = distributed_refmem_lease_reason(result);
+        }
         return result == REFMEM_LEASE_OK;
     }
     case REFMEM_COMMAND_TYPE_LEASE_RELEASE: {
@@ -4614,6 +4638,9 @@ static bool distributed_refmem_dispatch_control(
             distributed_refmem_local_slot(), snapshot->source_node,
             params[0]);
         s_lease_last_result = result;
+        if (result != REFMEM_LEASE_OK) {
+            s_dispatch_reason = distributed_refmem_lease_reason(result);
+        }
         return result == REFMEM_LEASE_OK;
     }
     default:
@@ -4681,8 +4708,7 @@ static void distributed_refmem_node_control_service(void)
                 (uint32_t)REFMEM_COMMAND_STATE_ACKED,
                 (uint32_t)REFMEM_COMMAND_REASON_NONE);
         } else {
-            uint32_t reason =
-                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+            uint32_t reason = s_dispatch_reason;
             if (snapshot.command_type ==
                     (uint32_t)REFMEM_COMMAND_TYPE_LEASE_TAKE ||
                 snapshot.command_type ==
@@ -4718,6 +4744,16 @@ uint32_t distributed_refmem_local_slot(void)
     return slot < DISTRIBUTED_REFMEM_NODE_COUNT
                ? slot
                : (uint32_t)DISTRIBUTED_REFMEM_NODE_COUNT - 1u;
+}
+
+void distributed_refmem_set_idle_window(bool open)
+{
+    s_idle_window = open ? 1u : 0u;
+}
+
+bool distributed_refmem_idle_window(void)
+{
+    return s_idle_window != 0u;
 }
 
 static uint32_t s_cmd_frame_calls;

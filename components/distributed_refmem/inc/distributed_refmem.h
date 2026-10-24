@@ -640,6 +640,12 @@ bool distributed_refmem_node_control_apply_request(
 bool distributed_refmem_cmd_frame_receive(const uint8_t *frame, size_t size);
 uint32_t distributed_refmem_local_slot(void);
 
+/* N4.1 idle window: config-class commands (board/node/table stage or activate)
+ * are rejected with RUN_STATE_DENIED unless the window is explicitly open.
+ * The N4.2 STOP -> stage -> START transaction owns the open/close edges. */
+void distributed_refmem_set_idle_window(bool open);
+bool distributed_refmem_idle_window(void);
+
 void distributed_refmem_cmd_frame_counters(uint32_t *calls,
                                            uint32_t *apply_fail,
                                            uint32_t *target_miss,
