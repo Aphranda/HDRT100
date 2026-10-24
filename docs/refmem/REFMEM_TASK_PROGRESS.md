@@ -32,6 +32,8 @@ Last updated: 2026-10-24
   - 本地 COM4（环运行）：`state=5 reason=13`、`staging_state=3`、`last_error=7`，与远程同签名。
 - 结论：reason 13 是**环运行期 app-model staging/table-package 冲突**；单纯加权限门控只会把 A→B node 1 从 13 变成 12，不会让合法远程 stage ACK。
 - 重排：N5.2a 环安全/延迟 staging → N5.2b owner/permission → N5.2c 真实 STOP→stage→START；N5.3/N5.4 仍先于 N5.5。
+- raw-flight 对照：环运行（无 process-image）本地 stage 仍 `staging_state=3/last_error=7`，排除 process-image 因素。
+- **N5.2a 决策**：选**延迟配置事务（STOP-only stage）**——环运行只收命令/排队，STOP 执行，START 后回 ACK；不选环安全 staging。开放：命令超时跨 STOP/START、队列深度/顺序、多目标 ACK 聚合、COMMIT 与 START 先后。
 - 证据：`out/refmem_remote_txn_hil/n52_diag/REPORT.md`。
 - 下一步：N5.2a 设计决策（环安全 staging vs 环内收命令/STOP 执行/重启回 ACK 的延迟事务）。
 
