@@ -484,6 +484,25 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - 部分完成（2026-10-23，C1a）：`REFTMEM_CMD`（类型 0x52）从参考板 SCPI 入队 → TDMA 维护流 → 三目标 `rx_events/decoded/posted/acked=1`，发送方 `tx_ok=1`；三类载荷解析器与拒绝负测通过。证据见 `docs/check/submissions/REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。非协调者 Entry 转发、C4 多板 `START`/`STOP`、C5 `LOAD:SD` FENCE 仍未做，C1 保持未勾选。
   - C1b 阻塞（2026-10-23）：从板 Entry 的维护流没有上行注入点——从板转发走 PIO 直通（`PHYSICAL_FLIGHT`/`PHYSICAL_PROCESS_IMAGE`），软件 TX 路径不参与；COM4 Entry 实验源端 `tx_ok=1` 但目标 `rx_events=0`、源端 `inject_attempts=0`。需 process-overlay 注入或专用 uplink mailbox，或把入口收敛到协调者；证据 `out/refmem_cmd_tdma/c1_entry_com4/`。
 
+## P8.2 - N5 统一控制面闭环（2026-10-24 启动）
+
+| 里程碑 | 内容 | 验收 | 依赖 |
+|---|---|---|---|
+| **N5.1** | 契约交叉审核 `REFTMEM-LEASE-01`/`IDLE-01`/`TRANSPORT-01` | 交叉审核记录 + 转 active 或记录偏差 | 无（可并行） |
+| **N5.2** | 远程配置 owner/permission：谁可以 stage 哪个节点 | 远程 stage 按授权 ACK/拒绝（`PERMISSION_DENIED` 等）；两板/四板 HIL | N5.1（可并行） |
+| **N5.3** | `control_owner_slot` 冻结（profile 元数据或 BoardCapabilityTable 择一） | 唯一协调者槽 + 只读视图 + 契约 | N5.2 |
+| **N5.4** | 协调者租约/唯一性门禁（grant/renew/release/expire） | 非协调者写入/执行被拒绝；TAKE→CONFLICT→RELEASE→TAKE 两板 HIL | N5.3 |
+| **N5.5** | 非协调者入口：任一维护接口同语义转发 | 从非协调者板发起同一命令；不新增总线 | N5.4 |
+| **N5.6** | 跨节点 FENCE：activation gate 前 required visible/ACK/fence | timeout/reason evidence；两板/四板 HIL | N5.4、N5.5 |
+| **N5.7** | 聚合广播/`control_reply` 独立只读副本 | 系统级 `COMMand:STATus?/TARget?`；不复制 node 记录 | N5.6 |
+| **N5.8** | `REFTMEM-CTRL-01` 交叉审核转 active + 最终 HIL 矩阵 | 契约/文档/SCPI 同步；门禁绿 | N5.1–N5.7 |
+
+**可选 backlog（不阻塞 N5）**：
+- **N3.2-O1** 紧凑帧（2 帧）诊断/回退：先补目标侧 `cmd_frame_*` 计数，决定修复或长期延后。
+- **N3.2-O2** 可靠性矩阵补测：乱序、窗口 miss、RX timeout、mid-ring、50× soak；以 per-target ACK 版本为基线。
+
+**顺序建议**：N5.1（docs，零代码）→ N5.2（小改，直接解决远程 reason 13）→ N5.3（冻结协调者槽）→ N5.4（核心）→ N5.5 → N5.6 → N5.7 → N5.8。N5.1/N5.2 可并行。
+**关键决策**：N5.3 需在“active profile 元数据”与“BoardCapabilityTable”之间冻结 `control_owner_slot` 派生来源；冻结后写入契约，不在代码里留双源。
 ## M0 - 单端口统一控制面架构补齐（本目标）
 
 目标：**只通过文档与契约**补齐 `REFMEM-TRANSPORT-01`、`REFMEM-SESSION-01`、`REFMEM-ACTION-01` 三个 canonical 缺口，并冻结 `REFMEM-LOCAL-01`（单板控制保留）；不改代码、不做板端验证。架构见 `REFMEM_DOMAIN_ARCHITECTURE.md` 的四个同名小节。
