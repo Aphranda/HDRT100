@@ -483,6 +483,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_cmd_load.c
         components/distributed_refmem/src/refmem_lease.c
         components/distributed_refmem/src/refmem_lease_table.c
+    components/distributed_refmem/src/refmem_config_txn.c
         components/distributed_refmem/src/refmem_trigger_session.c
         components/distributed_refmem/src/refmem_action_registry.c
         components/distributed_refmem/src/refmem_control_route.c
