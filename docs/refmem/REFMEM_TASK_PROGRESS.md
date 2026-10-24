@@ -10,11 +10,11 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261024-007`。
+- 最新条目：`REFMEM-TASK-20261024-009`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
   RUN 配置 idle 窗口仍开放。
-- N3.2：诊断计数、SPSC 队列、RX 重启、帧级 ACK/重试、单环多批命令完成。
-- 下一步：N3.2.6 帧尺寸/ref → N3.2.7 HIL 矩阵（含 mid-ring 并发）→ N3.2.8 收口。
+- N3.2：N3.2.1–5 完成；N3.2.6 紧凑帧负结果延后；N3.2.7 矩阵部分完成。
+- 下一步：补 N3.2.7 剩余矩阵 → N3.2.8 收口；N3.3/N4 待 N3.2 关闭。
 
 ## 归档索引
 
@@ -23,6 +23,25 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_01.md` | REFMEM-TASK-20260813-021..REFMEM-TASK-20260813-001 | 21 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
+
+### REFMEM-TASK-20261024-009 — N3.2.7 HIL 矩阵（部分）
+
+- 状态：部分矩阵完成；重复/乱序/窗口 miss/RX timeout/ring stop→start/mid-ring/长期 soak 待补。
+- 完成内容/证据：
+  - 7 帧 exec196 1/1：`inject_ok=54`、三目标 `frag_complete=1`。`out/refmem_transport_diag/n327_normal_202610241700/`。
+  - 单目标 `0x02`：源 `target_mask=2`、`required=2`、`ack_flags=2`、`state=ACKED`；COM3/6 仅重组不执行。`n327_single_202610241700/`。
+  - `--drop 200`：无完成、源 `POSTED`、`tx_retries=8`、队列未排空，无假 ACK（fail-closed）。`n327_dropfail_202610241705/`。
+  - soak 5/5（2 s 环窗口）：`inject_ok=54`、三目标 `frag_complete=1`。`n327_soak5b_202610241707/`。
+  - 0.5 s 窗口 soak 2/5 未排空 → stop-and-wait 7 帧命令需 ≥2 s 环窗口。
+- 下一步：补重复/乱序/窗口 miss/RX timeout/ring stop→start/mid-ring/长期 soak。
+
+### REFMEM-TASK-20261024-008 — N3.2.6 紧凑命令帧实验（负结果，延后）
+
+- 状态：未完成；紧凑帧投递成功但目标 reply 未 arm；已回退，未入库。
+- 实验：headerless 56 B codec wire（SELF_CHECK 2 维护帧）：
+  - 投递/重组：`frag_ok=2`、三目标 `frag_complete=1`、源 `tx_ack_ok=2`、队列 2/2 排空。
+  - 回复：目标 `CMD:REPLy?` `armed=0/published=0`；源 `CTRL:STATus?` `POSTED`；补 SELF_CHECK 参数后仍失败。
+- 结论：目标执行/reply 触发依赖 v1 快照/信封的某个字段；需目标侧 `cmd_frame_calls/ok/apply_fail/target_miss/request_fail` 才能定段。作为尺寸优化延后，不阻塞可靠性主链；N3.2.8 收口时记录为已知偏差。
 
 ### REFMEM-TASK-20261024-007 — N3.2.5 单环多批命令
 
