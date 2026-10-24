@@ -1629,6 +1629,13 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 - 观测：`SYSTem:REFMEM:LEASE?` 返回 `owner,epoch,state,expiry_ms,lease_seq,state_name`；本地只读，不触发跨板查询。
 - 边界：租约是目标节点 RAM 记录，环 stop→start 保持、板复位清零；跨板复制/协调者选举、租约续期心跳尚未实现。
 
+## REFTMEM-IDLE-01 idle 窗口与配置事务（N4）
+
+- idle 窗口是配置类命令（BOARD/NODE/TABLE stage/activate）的唯一允许条件；窗口关闭时 dispatch 直接返回 `RUN_STATE_DENIED`（reason 7），不进入业务校验、不静默执行。
+- `CONFig:BEGIN` 打开窗口并标记事务；`CONFig:COMMit` 提交 prepared table views（失败则丢弃）、关闭窗口、清除事务；`CONFig:ABORt` 丢弃 prepared views、重新打开窗口、清除事务；`CONFig:STATus?` 只读 `txn_active,idle_window`。
+- 调用方负责外部 STOP/START 边界：STOP 后 BEGIN → stage → COMMIT → START；COMMIT 后窗口关闭，RUN 中配置命令被拒绝。
+- 不新增命令槽/ACK 事实/payload class；窗口与事务是 REFMEM 控制面本地状态。节点/板级 stage 由各自 dispatch 校验，prepared table views 是唯一带 commit/discard 对的暂存对象。
+
 **C0 命令路径（2026-10-23，build `20261023152319`）**：`refmem_node_control` 提供控制块的
 写/读/ACK/清除（seq+CRC 防撕裂）；AO 在 post/take/ack/nack/timeout/clear 后把本地 command slot
 镜像到本板 node slot，`refmem_cmd_load_submit` 在发送侧也写入本板控制记录；新增

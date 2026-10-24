@@ -85,6 +85,10 @@ Last updated: 2026-10-24
 | `SYSTem:REFMEM:CMD:DROP <n>` | **调试专用**：让本板维护流 TX 跳过接下来的 n 个 chunk（stream 索引仍前进），用于故障注入验证 ACK/重传；返回实际设置的 n。不影响正常控制面路径。 |
 | `SYSTem:REFMEM:LEASE?` | 查询本板节点最小租约：`owner_slot,epoch,state,expiry_ms,lease_seq,state_name`；`state` 0=FREE/1=GRANTED/2=EXPIRED。本地只读，不触发跨板查询。租约经 `CTRL:EXECute REFMEM_LEASE_TAKE/RELEASE` 取得/释放。 |
 | `SYSTem:REFMEM:IDLE:WINDow <0|1>` / `SYSTem:REFMEM:IDLE:WINDow?` | 打开/关闭本板配置类命令的 idle 窗口；关闭时 `BOARD/NODE/TABLE` stage/activate 命令以 `RUN_STATE_DENIED`（reason 7）NACK，不静默执行。当前为测试/事务钩子，N4.2 STOP→stage→START 事务将负责开/关边界。 |
+| `SYSTem:REFMEM:CONFig:BEGIN` | 打开 idle 窗口并标记配置事务开始；已有事务时返回错误。调用方负责外部 STOP/START 边界。 |
+| `SYSTem:REFMEM:CONFig:COMMit` | 提交配置事务：提交/丢弃 prepared table views，关闭 idle 窗口并清除事务；节点/板级 stage 由各自 dispatch 校验。 |
+| `SYSTem:REFMEM:CONFig:ABORt` | 中止配置事务：丢弃 prepared table views，重新打开 idle 窗口并清除事务。 |
+| `SYSTem:REFMEM:CONFig:STATus?` | 返回 `txn_active,idle_window`。本地只读。 |
 | `SYSTem:REFMEM:CLAIM? [slot_id]` | 查询 SlotClaimMap 首版派生视图；省略时查询 A0。返回 `version,claim_epoch,slot_count,candidate_count,assigned_count,conflict_count,overflow_count,disabled_count,map_crc32,gate_ready,first_bad_slot,first_reason,required_missing_count,mismatch_count,slot_id,board_id,board_uuid_crc32,capability_mask,io_constraint_mask,ip_core_mask,loaded_instance_mask,claim_count,claim_state,reason,claim_policy,claim_priority,online_required,slot_claim_epoch,last_claim_seq,claim_crc32`。 |
 | `SYSTem:REFMEM:CLAIM:EVIDence? [evidence_id]` | 查询 SlotClaimMap 诊断证据；省略时查询 0。默认 profile 无证据时返回 `evidence_count=0` 和空字段。返回 `version,claim_epoch,evidence_count,requested_id,evidence_id,candidate_id,slot_id,board_id,board_uuid_crc32,preferred_slot_id,claim_state,reason,claim_policy,claim_priority,evidence_claim_epoch,evidence_crc32`。 |
 | `SYSTem:REFMEM:LOAD:SD [path]` | 只在 RefMem load 状态机 `mode=IDLE` 且实时触发空闲时允许；先由 StorageAO 扫描 SD System Pack manifest、读取并校验 RefMem table image，默认路径 `/refmem/app_model.rmtp`。SCPI 只提交 StorageAO 结果摘要，`DistributedRefMemAO` 通过 `TABLE_PACKAGE_STAGE` command slot 写 staging 并 ACK/NACK；不直接覆盖 active 表。返回 `STAGED/REJECTED` 加 load snapshot。 |
