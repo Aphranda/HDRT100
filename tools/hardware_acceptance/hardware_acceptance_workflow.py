@@ -13,6 +13,9 @@ from an earlier run, tees the log and writes the data for docs/validation/P3_FLO
   --run <dir|latest>              continue an existing run directory
   --reuse-from <dir|latest>       take steps 8-23 (topology + calibration + training)
                                   from an earlier passing run instead of measuring
+  --reuse-flashed                 query the boards; if all four already run a
+                                  build recorded for the current source fingerprint,
+                                  skip build (step 2) and flash (step 4)
   --method ota|picotool|tdma      flash route for step 4 (tdma is reserved)
   --keep-going                    continue after a failed step
   --interactive                   wait for Enter between steps
@@ -420,6 +423,86 @@ def print_list() -> None:
         print(f"  --profile {name:<12} {value['note']}  {steps}")
 
 
+def _reuse_flashed_match() -> tuple[Path, str] | None:
+    """A build record whose fingerprint equals the working tree and whose build
+    id is what all four boards report."""
+    config = p3.load_bench_config(FULL_CONFIG)
+    board_ids = list(config["p3_board_ids_in_physical_order"])
+    builds = p3.read_online_builds(board_ids, p3.DEFAULT_ACCEPTANCE_TIMING)
+    if len(set(builds.values())) != 1 or "" in builds.values():
+        print(f"reuse-flashed: board builds differ or are empty: {builds}")
+        return None
+    build_id = next(iter(builds.values()))
+    fingerprint, count = p3.working_source_fingerprint(ROOT)
+    for record in sorted(ROOT.glob("out/build/*/p3-build-record.json")):
+        try:
+            data = json.loads(record.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (data.get("build_id") == build_id
+                and data.get("source_fingerprint") == fingerprint):
+            package = record.parent / "DHRT100_UPDATE.pkg"
+            if package.is_file():
+                print(f"reuse-flashed: boards run {build_id} "
+                      f"(fingerprint {fingerprint[:12]}, sources {count})")
+                return package, build_id
+    print(f"reuse-flashed: boards run {build_id} but no build record matches "
+          f"fingerprint {fingerprint[:12]}; building normally")
+    return None
+
+
+def _find_ota_summary(build_id: str) -> Path | None:
+    def recent(path: Path) -> float:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    for date_dir in sorted(LOG_DIR.iterdir(), key=recent, reverse=True):
+        if not date_dir.is_dir():
+            continue
+        for run_dir in sorted(date_dir.glob("hawf-*"), key=recent, reverse=True):
+            for summary in (run_dir / "ota-four-board" / "summary.json",
+                            run_dir / "summary.json"):
+                if not summary.is_file():
+                    continue
+                try:
+                    data = json.loads(summary.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if (data.get("expected_build") == build_id
+                        and data.get("passed") is True
+                        and data.get("failed_count") == 0):
+                    return summary
+    return None
+
+
+def _synthesize_ota_summary(build_id: str) -> Path:
+    config = p3.load_bench_config(FULL_CONFIG)
+    board_ids = list(config["p3_board_ids_in_physical_order"])
+    out_dir = LOG_DIR / "reuse-flashed" / build_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "summary.json"
+    payload = {
+        "schema": "HAOFV_OTA_SUMMARY_V1",
+        "expected_build": build_id,
+        "dry_run": False,
+        "passed": True,
+        "failed_count": 0,
+        "board_count": len(board_ids),
+        "updated_count": len(board_ids),
+        "reused": True,
+        "note": "boards already run this build; OTA skipped by --reuse-flashed",
+        "boards": [
+            {"serial_number": board_id, "max_data_block_size": 4096,
+             "passed": True}
+            for board_id in board_ids
+        ],
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--list", action="store_true")
@@ -442,9 +525,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--keep-going", action="store_true")
     parser.add_argument("--interactive", action="store_true",
                         help="wait for Enter between steps")
+    parser.add_argument("--reuse-flashed", action="store_true",
+                        help="skip build+OTA when all boards already run a build "
+                             "recorded for the current source fingerprint")
     parser.add_argument("--refresh-html", action="store_true")
     ns = parser.parse_args(argv)
     ns.full = ns.full_config
+    if ns.reuse_flashed and ns.package is None:
+        match = _reuse_flashed_match()
+        if match is not None:
+            ns.package, build_id = match
+            ns.build_dir = ns.package.parent
+            ns.ota_summary = _find_ota_summary(build_id)
+            if ns.ota_summary is None:
+                ns.ota_summary = _synthesize_ota_summary(build_id)
+            print(f"reuse-flashed: package={ns.package}")
+            print(f"reuse-flashed: ota_summary={ns.ota_summary}")
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(errors="replace")  # GBK consoles cannot print every step note

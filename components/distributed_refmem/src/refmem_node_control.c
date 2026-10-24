@@ -173,8 +173,9 @@ bool refmem_node_control_apply_request(
     if (*seq != 0u &&
         refmem_node_control_read(command, params, *seq, *crc32, &current,
                                  NULL) &&
-        request->command_seq <= current.command_seq) {
-        return false; /* stale or duplicate request */
+        request->command_seq <= current.command_seq &&
+        request->source_node == current.source_node) {
+        return false; /* stale or duplicate request from the same issuer */
     }
     refmem_command_snapshot_t next = *request;
     next.state = REFMEM_COMMAND_STATE_POSTED;

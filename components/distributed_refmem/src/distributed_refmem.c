@@ -4203,7 +4203,7 @@ static void distributed_refmem_mirror_local_control(void)
         return;
     }
     refmem_vector_node_region_t *node =
-        distributed_refmem_node_region(DISTRIBUTED_REFMEM_LOCAL_NODE_ID);
+        distributed_refmem_node_region(distributed_refmem_local_slot());
     if (node == NULL) {
         return;
     }
@@ -4262,8 +4262,9 @@ static void distributed_refmem_node_control_service(void)
 {
     refmem_command_snapshot_t snapshot;
     uint32_t params[REFMEM_NODE_CONTROL_PARAM_WORDS];
+    const uint32_t local_slot = distributed_refmem_local_slot();
     if (!distributed_refmem_node_control_read_params(
-            DISTRIBUTED_REFMEM_LOCAL_NODE_ID, &snapshot, params, NULL, NULL)) {
+            local_slot, &snapshot, params, NULL, NULL)) {
         return;
     }
     if (snapshot.command_seq == 0u ||
@@ -4271,9 +4272,9 @@ static void distributed_refmem_node_control_service(void)
         snapshot.state != REFMEM_COMMAND_STATE_POSTED) {
         return;
     }
-    const uint32_t local_slot = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
-    if (snapshot.source_node != local_slot ||
-        (snapshot.target_mask & (1u << local_slot)) == 0u) {
+    /* Accept local and remote issuers; the target mask is the authority.
+     * (A record written by a remote source must still be consumed here.) */
+    if ((snapshot.target_mask & (1u << local_slot)) == 0u) {
         return;
     }
 
@@ -4334,24 +4335,70 @@ bool distributed_refmem_node_control_apply_request(
                                              params, seq);
 }
 
+uint32_t distributed_refmem_local_slot(void)
+{
+    const uint32_t no = board_identity_get_no();
+    const uint32_t slot = no > 0u ? no - 1u : 0u;
+    return slot < DISTRIBUTED_REFMEM_NODE_COUNT
+               ? slot
+               : (uint32_t)DISTRIBUTED_REFMEM_NODE_COUNT - 1u;
+}
+
+static uint32_t s_cmd_frame_calls;
+static uint32_t s_cmd_frame_apply_fail;
+static uint32_t s_cmd_frame_target_miss;
+static uint32_t s_cmd_frame_request_fail;
+static uint32_t s_cmd_frame_ok;
+
+void distributed_refmem_cmd_frame_counters(uint32_t *calls,
+                                           uint32_t *apply_fail,
+                                           uint32_t *target_miss,
+                                           uint32_t *request_fail,
+                                           uint32_t *ok)
+{
+    if (calls != NULL) {
+        *calls = s_cmd_frame_calls;
+    }
+    if (apply_fail != NULL) {
+        *apply_fail = s_cmd_frame_apply_fail;
+    }
+    if (target_miss != NULL) {
+        *target_miss = s_cmd_frame_target_miss;
+    }
+    if (request_fail != NULL) {
+        *request_fail = s_cmd_frame_request_fail;
+    }
+    if (ok != NULL) {
+        *ok = s_cmd_frame_ok;
+    }
+}
+
 bool distributed_refmem_cmd_frame_receive(const uint8_t *frame, size_t size)
 {
+    s_cmd_frame_calls++;
     refmem_command_snapshot_t snapshot;
     uint32_t params[REFMEM_NODE_CONTROL_PARAM_WORDS];
     uint8_t source_slot = 0u;
     uint8_t target_mask = 0u;
     if (!refmem_cmd_frame_apply(frame, size, &snapshot, params, &source_slot,
                                 &target_mask)) {
+        s_cmd_frame_apply_fail++;
         return false;
     }
     (void)source_slot;
-    if ((snapshot.target_mask &
-         (1u << DISTRIBUTED_REFMEM_LOCAL_NODE_ID)) == 0u) {
+    const uint32_t local = distributed_refmem_local_slot();
+    if ((snapshot.target_mask & (1u << local)) == 0u) {
+        s_cmd_frame_target_miss++;
         return false;
     }
-    return distributed_refmem_node_control_apply_request(
-        DISTRIBUTED_REFMEM_LOCAL_NODE_ID, &snapshot, params,
-        snapshot.command_seq != 0u ? snapshot.command_seq : 1u);
+    if (!distributed_refmem_node_control_apply_request(
+            local, &snapshot, params,
+            snapshot.command_seq != 0u ? snapshot.command_seq : 1u)) {
+        s_cmd_frame_request_fail++;
+        return false;
+    }
+    s_cmd_frame_ok++;
+    return true;
 }
 
 bool distributed_refmem_param_pool_access(uint8_t **region, size_t *size)

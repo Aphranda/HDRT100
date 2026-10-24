@@ -18,6 +18,7 @@ scpi_result_t scpi_cmd_refmem_cmd_submit_type(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_cmd_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_node_control_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_nodes_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_cmdframe_q(scpi_t *context);
 scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context);
 scpi_result_t scpi_cmd_ctrl_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_ctrl_catalog_q(scpi_t *context);
@@ -343,6 +344,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
     {.pattern = "SYSTem:REFMEM:CMD:STATus?", .callback = scpi_cmd_refmem_cmd_status_q}, \
 {.pattern = "SYSTem:REFMEM:NODE:CONTrol?", .callback = scpi_cmd_refmem_node_control_q}, \
 {.pattern = "SYSTem:REFMEM:NODES?", .callback = scpi_cmd_refmem_nodes_q}, \
+{.pattern = "SYSTem:REFMEM:CMDFRame?", .callback = scpi_cmd_refmem_cmdframe_q}, \
 {.pattern = "SYSTem:CTRL:EXECute", .callback = scpi_cmd_ctrl_execute}, \
 {.pattern = "SYSTem:CTRL:STATus?", .callback = scpi_cmd_ctrl_status_q}, \
 {.pattern = "SYSTem:CTRL:CATalog?", .callback = scpi_cmd_ctrl_catalog_q}, \

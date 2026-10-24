@@ -15,13 +15,38 @@ static volatile uint32_t s_chunks;
 static volatile uint32_t s_frames;
 static volatile uint32_t s_rejects;
 
+/* Small TX queue so a multi-frame control message (e.g. a fragmented REFMEM
+ * command) can be queued before the ring starts; the adapter's maintenance
+ * mailbox drains it chunk by chunk during the startup window. */
+#define TDMA_MAINTENANCE_RUNTIME_TX_QUEUE 8u
+static uint8_t s_tx_queue[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE]
+                          [TDMA_MAINTENANCE_STREAM_MAX];
+static uint16_t s_tx_queue_size[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE];
+static uint8_t s_tx_queue_stream_id[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE];
+static uint8_t s_tx_queue_generation[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE];
+static volatile uint32_t s_tx_queue_head;
+static volatile uint32_t s_tx_queue_tail;
+static volatile uint32_t s_tx_queue_count;
+static volatile uint32_t s_tx_queued;
+static volatile uint32_t s_tx_queue_full;
+
 static bool maintenance_mailbox(void *context,
                                 uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE])
 {
     (void)context;
     s_mailbox_calls++;
     if (!s_tx.frame || s_tx.next_chunk >= s_tx.chunk_count) {
-        return false;
+        if (s_tx_queue_count == 0u) {
+            return false;
+        }
+        const uint32_t head = s_tx_queue_head;
+        if (!tdma_maintenance_stream_tx_begin(
+                &s_tx, s_tx_queue[head], s_tx_queue_size[head],
+                s_tx_queue_stream_id[head], s_tx_queue_generation[head])) {
+            return false;
+        }
+        s_tx_queue_head = (head + 1u) % TDMA_MAINTENANCE_RUNTIME_TX_QUEUE;
+        s_tx_queue_count--;
     }
     uint8_t chunk[TDMA_MAINTENANCE_CHUNK_SIZE];
     if (!tdma_maintenance_stream_next_chunk(&s_tx, chunk)) {
@@ -58,6 +83,9 @@ bool tdma_maintenance_runtime_init(tdma_pio_spi_ring_adapter_t *adapter,
     s_local_slot = local_slot;
     memset(&s_tx, 0, sizeof(s_tx));
     memset(&s_rx, 0, sizeof(s_rx));
+    s_tx_queue_head = 0u;
+    s_tx_queue_tail = 0u;
+    s_tx_queue_count = 0u;
     tdma_pio_spi_ring_adapter_set_maintenance_mailbox(
         adapter, maintenance_mailbox, NULL);
     return true;
@@ -77,12 +105,25 @@ bool tdma_maintenance_runtime_submit(const uint8_t *frame,
         s_rejects++;
         return false;
     }
-    const bool ok = tdma_maintenance_stream_tx_begin(
-        &s_tx, frame, frame_size, stream_id, generation);
-    if (!ok) {
+    if (frame == NULL || frame_size == 0u ||
+        frame_size > TDMA_MAINTENANCE_STREAM_MAX) {
         s_rejects++;
+        return false;
     }
-    return ok;
+    if (s_tx_queue_count >= TDMA_MAINTENANCE_RUNTIME_TX_QUEUE) {
+        s_rejects++;
+        s_tx_queue_full++;
+        return false;
+    }
+    const uint32_t tail = s_tx_queue_tail;
+    memcpy(s_tx_queue[tail], frame, frame_size);
+    s_tx_queue_size[tail] = (uint16_t)frame_size;
+    s_tx_queue_stream_id[tail] = stream_id;
+    s_tx_queue_generation[tail] = generation;
+    s_tx_queue_tail = (tail + 1u) % TDMA_MAINTENANCE_RUNTIME_TX_QUEUE;
+    s_tx_queue_count++;
+    s_tx_queued++;
+    return true;
 }
 
 bool tdma_maintenance_runtime_take(uint8_t *frame,

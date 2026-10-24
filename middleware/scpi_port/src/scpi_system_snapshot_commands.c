@@ -881,12 +881,19 @@ scpi_result_t scpi_cmd_refmem_cmd_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.t2_dynamic_last_run);
     SCPI_ResultUInt32(context, status.t2_dynamic_last_config);
     SCPI_ResultUInt32(context, status.t2_dynamic_last_value);
+    SCPI_ResultUInt32(context, status.frag_ok);
+    SCPI_ResultUInt32(context, status.frag_reject);
+    SCPI_ResultUInt32(context, status.frag_complete);
+    SCPI_ResultUInt32(context, status.frag_submit_fail);
+    SCPI_ResultUInt32(context, status.frag_pending);
+    SCPI_ResultUInt32(context, status.frag_pending_index);
+    SCPI_ResultUInt32(context, status.frag_pending_count);
     return SCPI_RES_OK;
 }
 
 scpi_result_t scpi_cmd_refmem_node_control_q(scpi_t *context)
 {
-    uint32_t node_id = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    uint32_t node_id = distributed_refmem_local_slot();
     (void)SCPI_ParamUInt32(context, &node_id, FALSE);
 
     refmem_command_snapshot_t snapshot;
@@ -918,6 +925,23 @@ scpi_result_t scpi_cmd_refmem_node_control_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.run_id);
     SCPI_ResultUInt32(context, snapshot.issue_epoch);
     SCPI_ResultUInt32(context, snapshot.payload_crc32);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_cmdframe_q(scpi_t *context)
+{
+    uint32_t calls = 0u;
+    uint32_t apply_fail = 0u;
+    uint32_t target_miss = 0u;
+    uint32_t request_fail = 0u;
+    uint32_t ok = 0u;
+    distributed_refmem_cmd_frame_counters(&calls, &apply_fail, &target_miss,
+                                          &request_fail, &ok);
+    SCPI_ResultUInt32(context, calls);
+    SCPI_ResultUInt32(context, apply_fail);
+    SCPI_ResultUInt32(context, target_miss);
+    SCPI_ResultUInt32(context, request_fail);
+    SCPI_ResultUInt32(context, ok);
     return SCPI_RES_OK;
 }
 
@@ -1032,13 +1056,18 @@ scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context)
 
     refmem_command_snapshot_t snapshot;
     memset(&snapshot, 0, sizeof(snapshot));
-    s_ctrl_exec_seq++;
     if (s_ctrl_exec_seq == 0u) {
-        s_ctrl_exec_seq = 1u;
+        /* Seed from the tick so a new issuer does not collide with a target
+         * record left by an earlier run (apply_request rejects <= seq). */
+        s_ctrl_exec_seq = osal_tick_ms();
+        if (s_ctrl_exec_seq == 0u) {
+            s_ctrl_exec_seq = 1u;
+        }
     }
+    s_ctrl_exec_seq++;
     snapshot.state = REFMEM_COMMAND_STATE_POSTED;
     snapshot.command_seq = s_ctrl_exec_seq;
-    snapshot.source_node = DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    snapshot.source_node = distributed_refmem_local_slot();
     snapshot.target_mask = target_mask;
     snapshot.required_mask = required_mask;
     snapshot.command_type = entry->command_type;
@@ -1050,7 +1079,7 @@ scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context)
     snapshot.run_id = 1u;
     snapshot.timeout_us = entry->timeout_us;
 
-    const uint32_t local_bit = 1u << DISTRIBUTED_REFMEM_LOCAL_NODE_ID;
+    const uint32_t local_bit = 1u << distributed_refmem_local_slot();
     if ((target_mask & ~local_bit) != 0u) {
         if (!refmem_cmd_load_submit_fragments(&snapshot, params)) {
             scpi_port_push_exec_error(context, "REJECTED");
@@ -1083,7 +1112,7 @@ scpi_result_t scpi_cmd_ctrl_status_q(scpi_t *context)
     refmem_command_snapshot_t snapshot;
     uint32_t seq = 0u;
     uint32_t crc32 = 0u;
-    if (!distributed_refmem_node_control_read(DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
+    if (!distributed_refmem_node_control_read(distributed_refmem_local_slot(),
                                               &snapshot, &seq, &crc32)) {
         return SCPI_RES_ERR;
     }

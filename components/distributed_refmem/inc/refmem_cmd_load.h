@@ -66,6 +66,13 @@ typedef struct {
     uint32_t t2_dynamic_last_run;
     uint32_t t2_dynamic_last_config;
     uint32_t t2_dynamic_last_value;
+    uint32_t frag_ok;
+    uint32_t frag_reject;
+    uint32_t frag_complete;
+    uint32_t frag_submit_fail;
+    uint32_t frag_pending;
+    uint32_t frag_pending_index;
+    uint32_t frag_pending_count;
 } refmem_cmd_load_status_t;
 
 bool refmem_cmd_load_get_status(refmem_cmd_load_status_t *status);

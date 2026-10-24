@@ -3215,6 +3215,16 @@ def phase_build(run: AcceptanceRun) -> None:
         "--root", str(root), "--build-dir", str(build_dir),
     ], root, out_dir / "build.log")
     run.put(build_dir=build_dir)
+    package = build_dir / "DHRT100_UPDATE.pkg"
+    if package.is_file():
+        # Record which source produced this package so --reuse-flashed can
+        # prove that the boards' build is the current tree's build.
+        fingerprint, count = working_source_fingerprint(root)
+        (build_dir / "p3-build-record.json").write_text(
+            json.dumps({"build_id": _read_package_build_id(package),
+                        "source_fingerprint": fingerprint,
+                        "source_file_count": count}, indent=2),
+            encoding="utf-8")
 
 
 @acceptance_step(3, "固件包校验（包存在 + 构建号）")

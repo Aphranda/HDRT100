@@ -638,6 +638,13 @@ bool distributed_refmem_node_control_apply_request(
     const uint32_t *params,
     uint32_t seq);
 bool distributed_refmem_cmd_frame_receive(const uint8_t *frame, size_t size);
+uint32_t distributed_refmem_local_slot(void);
+
+void distributed_refmem_cmd_frame_counters(uint32_t *calls,
+                                           uint32_t *apply_fail,
+                                           uint32_t *target_miss,
+                                           uint32_t *request_fail,
+                                           uint32_t *ok);
 
 
 
