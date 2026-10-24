@@ -20,6 +20,10 @@ scpi_result_t scpi_cmd_refmem_cmd_drop(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_lease_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_idle_window(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_idle_window_q(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_config_begin(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_config_commit(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_config_abort(scpi_t *context);
+scpi_result_t scpi_cmd_refmem_config_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_node_control_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_nodes_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_cmdframe_q(scpi_t *context);
@@ -351,6 +355,10 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
 {.pattern = "SYSTem:REFMEM:LEASE?", .callback = scpi_cmd_refmem_lease_q}, \
 {.pattern = "SYSTem:REFMEM:IDLE:WINDow", .callback = scpi_cmd_refmem_idle_window}, \
 {.pattern = "SYSTem:REFMEM:IDLE:WINDow?", .callback = scpi_cmd_refmem_idle_window_q}, \
+{.pattern = "SYSTem:REFMEM:CONFig:BEGIN", .callback = scpi_cmd_refmem_config_begin}, \
+{.pattern = "SYSTem:REFMEM:CONFig:COMMit", .callback = scpi_cmd_refmem_config_commit}, \
+{.pattern = "SYSTem:REFMEM:CONFig:ABORt", .callback = scpi_cmd_refmem_config_abort}, \
+{.pattern = "SYSTem:REFMEM:CONFig:STATus?", .callback = scpi_cmd_refmem_config_status_q}, \
 {.pattern = "SYSTem:REFMEM:NODE:CONTrol?", .callback = scpi_cmd_refmem_node_control_q}, \
 {.pattern = "SYSTem:REFMEM:NODES?", .callback = scpi_cmd_refmem_nodes_q}, \
 {.pattern = "SYSTem:REFMEM:CMDFRame?", .callback = scpi_cmd_refmem_cmdframe_q}, \

@@ -837,6 +837,41 @@ scpi_result_t scpi_cmd_refmem_cmd_submit_type(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_config_begin(scpi_t *context)
+{
+    if (!distributed_refmem_config_transaction_begin()) {
+        scpi_port_push_exec_error(context, "CONFIG_TXN_BUSY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, 1u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_config_commit(scpi_t *context)
+{
+    if (!distributed_refmem_config_transaction_commit()) {
+        scpi_port_push_exec_error(context, "CONFIG_TXN_COMMIT_FAILED");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, 1u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_config_abort(scpi_t *context)
+{
+    distributed_refmem_config_transaction_abort();
+    SCPI_ResultUInt32(context, 0u);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_config_status_q(scpi_t *context)
+{
+    SCPI_ResultUInt32(context,
+                      distributed_refmem_config_transaction_active() ? 1u : 0u);
+    SCPI_ResultUInt32(context, distributed_refmem_idle_window() ? 1u : 0u);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_idle_window(scpi_t *context)
 {
     uint32_t open = 0u;

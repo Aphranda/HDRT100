@@ -646,6 +646,15 @@ uint32_t distributed_refmem_local_slot(void);
 void distributed_refmem_set_idle_window(bool open);
 bool distributed_refmem_idle_window(void);
 
+/* N4.2 STOP -> stage -> START transaction.  BEGIN opens the idle window and
+ * marks a transaction; COMMIT applies the prepared table views and closes the
+ * window (failure discards and keeps the window open); ABORT discards and
+ * reopens the window.  The caller owns the external STOP/START edge. */
+bool distributed_refmem_config_transaction_begin(void);
+bool distributed_refmem_config_transaction_commit(void);
+void distributed_refmem_config_transaction_abort(void);
+bool distributed_refmem_config_transaction_active(void);
+
 void distributed_refmem_cmd_frame_counters(uint32_t *calls,
                                            uint32_t *apply_fail,
                                            uint32_t *target_miss,
