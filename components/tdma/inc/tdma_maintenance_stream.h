@@ -41,6 +41,11 @@ typedef struct {
     uint8_t generation;
     uint8_t chunk_count;
     uint8_t received_mask;
+    /* N3.2.3 reassembly diagnostics: a duplicate chunk (index already present)
+     * and a stale incomplete frame replaced by a new header.  Neither changes
+     * the accepted bytes; the counters only make the loss mechanism visible. */
+    uint32_t duplicate_count;
+    uint32_t restart_count;
 } tdma_maintenance_stream_rx_t;
 
 uint32_t tdma_maintenance_stream_crc32(const uint8_t *data, size_t size);

@@ -40,6 +40,8 @@ typedef struct {
     uint32_t frames;
     uint32_t rejects;
     uint32_t rx_chunk_rejects;
+    uint32_t rx_restarts;
+    uint32_t rx_duplicate_chunks;
 } tdma_maintenance_runtime_diag_t;
 
 void tdma_maintenance_runtime_get_diag(tdma_maintenance_runtime_diag_t *diag);

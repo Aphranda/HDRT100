@@ -906,6 +906,8 @@ scpi_result_t scpi_cmd_refmem_cmd_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.rx_bad_mailbox);
     SCPI_ResultUInt32(context, status.rx_last_sequence);
     SCPI_ResultUInt32(context, status.rx_sequence_cursor);
+    SCPI_ResultUInt32(context, status.rx_restarts);
+    SCPI_ResultUInt32(context, status.rx_duplicate_chunks);
     return SCPI_RES_OK;
 }
 

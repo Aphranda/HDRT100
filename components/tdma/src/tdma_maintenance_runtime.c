@@ -31,6 +31,8 @@ static volatile uint32_t s_tx_queued;
 static volatile uint32_t s_tx_queue_full;
 static volatile uint32_t s_tx_dequeued;
 static volatile uint32_t s_rx_chunk_rejects;
+static volatile uint32_t s_rx_restarts;
+static volatile uint32_t s_rx_duplicate_chunks;
 
 static bool maintenance_mailbox(void *context,
                                 uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE])
@@ -156,7 +158,13 @@ bool tdma_maintenance_runtime_take(uint8_t *frame,
     while (tdma_pio_spi_ring_adapter_take_maintenance_chunk(
                s_adapter, chunk, &source_slot)) {
         bool complete = false;
-        if (!tdma_maintenance_stream_rx_chunk(&s_rx, chunk, &complete)) {
+        const uint32_t restart_before = s_rx.restart_count;
+        const uint32_t duplicate_before = s_rx.duplicate_count;
+        const bool accepted = tdma_maintenance_stream_rx_chunk(&s_rx, chunk,
+                                                               &complete);
+        s_rx_restarts += s_rx.restart_count - restart_before;
+        s_rx_duplicate_chunks += s_rx.duplicate_count - duplicate_before;
+        if (!accepted) {
             s_rejects++;
             s_rx_chunk_rejects++;
             continue;
@@ -176,7 +184,11 @@ bool tdma_maintenance_runtime_take(uint8_t *frame,
                 *generation = s_rx.generation;
             }
             s_frames++;
+            const uint32_t duplicate = s_rx.duplicate_count;
+            const uint32_t restart = s_rx.restart_count;
             memset(&s_rx, 0, sizeof(s_rx));
+            s_rx.duplicate_count = duplicate;
+            s_rx.restart_count = restart;
             return true;
         }
     }
@@ -222,4 +234,6 @@ void tdma_maintenance_runtime_get_diag(tdma_maintenance_runtime_diag_t *diag)
     diag->frames = s_frames;
     diag->rejects = s_rejects;
     diag->rx_chunk_rejects = s_rx_chunk_rejects;
+    diag->rx_restarts = s_rx_restarts;
+    diag->rx_duplicate_chunks = s_rx_duplicate_chunks;
 }

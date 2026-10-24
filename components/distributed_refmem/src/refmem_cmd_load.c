@@ -319,6 +319,8 @@ bool refmem_cmd_load_get_status(refmem_cmd_load_status_t *status)
     status->queue_dequeued = runtime_diag.dequeued;
     status->queue_full = runtime_diag.queue_full;
     status->rx_chunk_rejects = runtime_diag.rx_chunk_rejects;
+    status->rx_restarts = runtime_diag.rx_restarts;
+    status->rx_duplicate_chunks = runtime_diag.rx_duplicate_chunks;
     return true;
 }
 

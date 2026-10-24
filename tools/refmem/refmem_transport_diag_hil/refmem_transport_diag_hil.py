@@ -77,7 +77,7 @@ FIELDS = [
     "inject_last_sequence", "beacon_frames",
     "rx_polls", "rx_seen_chunks", "rx_accepted_chunks",
     "rx_dedup_sequence", "rx_bad_mailbox", "rx_last_sequence",
-    "rx_sequence_cursor",
+    "rx_sequence_cursor", "rx_restarts", "rx_duplicate_chunks",
 ]
 
 # Expected maintenance chunks for each case.  The raw paths submit one 80 B
@@ -286,6 +286,8 @@ class DiagHil:
             verdict.append("H3: TX queue rejected a frame (full)")
         if any(t["rx_bad_mailbox"] > 0 for t in targets):
             verdict.append("H4: follower rejected a maintenance mailbox")
+        if any(t["rx_restarts"] > 0 for t in targets):
+            verdict.append("H4: reassembler restarted on a new header (no permanent wedge)")
         success = False
         if case["kind"] == "t2_static":
             success = any(t["t2_static_ok"] >= 1 for t in targets)
@@ -300,7 +302,15 @@ class DiagHil:
                        source_ctrl is not None and
                        source_ctrl.get("state") == 4)
         if not success and not verdict:
-            verdict.append("delivery incomplete without a source-side loss signature")
+            if (case["kind"] == "exec_self_check" and
+                    any(t["rx_restarts"] > 0 for t in targets) and
+                    all(t["frag_ok"] >= 3 for t in targets)):
+                verdict.append(
+                    "N3.2.3: RX restarted, no permanent wedge; "
+                    "missed frame needs N3.2.4 retry")
+            else:
+                verdict.append(
+                    "delivery incomplete without a source-side loss signature")
         return {
             "case": case["name"],
             "expected_frames": case["frames"],

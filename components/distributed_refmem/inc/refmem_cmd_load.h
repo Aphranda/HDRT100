@@ -92,6 +92,8 @@ typedef struct {
     uint32_t rx_bad_mailbox;
     uint32_t rx_last_sequence;
     uint32_t rx_sequence_cursor;
+    uint32_t rx_restarts;
+    uint32_t rx_duplicate_chunks;
 } refmem_cmd_load_status_t;
 
 bool refmem_cmd_load_get_status(refmem_cmd_load_status_t *status);

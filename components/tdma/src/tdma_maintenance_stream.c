@@ -116,7 +116,19 @@ bool tdma_maintenance_stream_rx_chunk(tdma_maintenance_stream_rx_t *rx,
     } else if (rx->chunk_count != count || rx->frame_size != total ||
                rx->frame_crc32 != crc ||
                rx->stream_id != chunk[2] || rx->generation != chunk[3]) {
-        return false;
+        /* A lost chunk means the old frame can never complete.  Abandon it
+         * and start the new frame from this header; otherwise every later
+         * frame would be rejected and one loss would wedge the receiver. */
+        const uint32_t duplicate = rx->duplicate_count;
+        const uint32_t restart = rx->restart_count;
+        memset(rx, 0, sizeof(*rx));
+        rx->duplicate_count = duplicate;
+        rx->restart_count = restart + 1u;
+        rx->stream_id = chunk[2];
+        rx->generation = chunk[3];
+        rx->chunk_count = count;
+        rx->frame_size = total;
+        rx->frame_crc32 = crc;
     }
     const size_t offset = (size_t)index * TDMA_MAINTENANCE_CHUNK_DATA_SIZE;
     if (offset >= rx->frame_size) {
@@ -128,7 +140,11 @@ bool tdma_maintenance_stream_rx_chunk(tdma_maintenance_stream_rx_t *rx,
     }
     memcpy(rx->frame + offset,
            chunk + TDMA_MAINTENANCE_CHUNK_HEADER_SIZE, copy);
-    rx->received_mask |= (uint8_t)(1u << index);
+    const uint8_t chunk_bit = (uint8_t)(1u << index);
+    if ((rx->received_mask & chunk_bit) != 0u) {
+        rx->duplicate_count++;
+    }
+    rx->received_mask |= chunk_bit;
     const uint8_t full_mask = (uint8_t)((1u << rx->chunk_count) - 1u);
     *complete = (rx->received_mask & full_mask) == full_mask &&
         tdma_maintenance_stream_crc32(rx->frame, rx->frame_size) == rx->frame_crc32;
