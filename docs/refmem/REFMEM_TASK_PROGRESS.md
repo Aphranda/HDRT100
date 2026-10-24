@@ -10,11 +10,11 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261024-006`。
+- 最新条目：`REFMEM-TASK-20261024-007`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
   RUN 配置 idle 窗口仍开放。
-- N3.2：诊断计数、SPSC 队列、RX 重启、帧级 ACK/重试完成；丢 1 chunk 可恢复。
-- 下一步：N3.2.5 多批命令 → N3.2.6 帧尺寸/ref → N3.2.7 HIL 矩阵 → N3.2.8 收口。
+- N3.2：诊断计数、SPSC 队列、RX 重启、帧级 ACK/重试、单环多批命令完成。
+- 下一步：N3.2.6 帧尺寸/ref → N3.2.7 HIL 矩阵（含 mid-ring 并发）→ N3.2.8 收口。
 
 ## 归档索引
 
@@ -23,6 +23,20 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_01.md` | REFMEM-TASK-20260813-021..REFMEM-TASK-20260813-001 | 21 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
+
+### REFMEM-TASK-20261024-007 — N3.2.5 单环多批命令
+
+- 状态：16 槽队列 + 双命令单环验证通过；P3 待跑。
+- 任务目标：一个环启动内执行 >1 批命令；队列不因第二条 7 帧命令而满；两批命令按序完成、不串 seq/回复。
+- 完成内容：
+  - `tdma_maintenance_runtime` TX 队列 8→16 槽（可用 15），可预排两条 7 帧命令。
+  - HIL 新增 `multibatch`：环启动前排入两条 `REFMEM_MAINTENANCE_SELF_CHECK`，单环内按序执行。
+- 验证结果：
+  - `out/refmem_transport_diag/n325_multibatch3_202610241544/`：`submitted=2`、`queue_enqueued=14`、`queue_dequeued=14`、`queue_depth=0`、`queue_full=0`、`inject_ok=108`、`tx_ack_ok=14`、`tx_retries=0`；三目标 `frag_ok=14`/`frag_complete=2`。
+  - 回归：exec196 1/1 仍 `frag_complete=1`；16 槽 queue_full 提交 18 条仍显式拒绝。
+- 限制：真正的“环运行中再入队”需要与 trn03 并发的测试驱动；当前验证的是“一个环启动内执行 >1 批预排队命令”，mid-ring 并发留 N3.2.7。
+- P3：build `20261024075123`，源码指纹 `2f05da00ffe6f061bd6ac8cd71215281649f8faccf976ea07a519711cfc77f41`（1930 files），`QUICK_DIAGNOSTIC`，`credential: written`；step 26/33 warn，无 ERROR/FATAL。
+- 下一步：N3.2.6 帧尺寸/param_kind=ref。
 
 ### REFMEM-TASK-20261024-006 — N3.2.4 维护帧 ACK/有界重试
 

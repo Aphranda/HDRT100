@@ -369,6 +369,8 @@ Core0 准备、Core1 固定窗口选择、PIO/DMA 发送；`TDMA_RECOVERY_BUFFER
 
 维护帧采用 stop-and-wait ACK：TX 在整帧发完后保留队列槽位，接收端经 process-image ACK 席位回 `stream_id:generation + result`（诊断字节 `0xA0|result`，与命令回复的 `ACK_FLAG_COMMAND` 区分）；源端 50 ms 超时、最多 3 次、每次重试 generation+1，接收端按新 generation 重启重组。ACK 丢失/超时重传不得静默丢帧；重试耗尽计数并释放槽位。
 
+维护 TX 队列为 16 槽（可用 15），可在一个环启动内预排两条 7 帧命令并按序执行；环运行中再入队需要并发测试驱动，当前 HIL 覆盖预排队多批。队列满时显式拒绝，不静默覆盖。
+
 ## 失败、恢复与验证映射
 
 错帧、覆盖、重复、旧代或不完整记录拒绝并计数；DPLL 跳过坏样本，是否保持/失锁由 VDC 质量策略判定。DPLL 局部拒绝或相位超时不能自动隔离仍健康的 TDMA。STOP 意图、配置应用、物理停机和池退休需分别对账；故障不抹除先前失败记录。
