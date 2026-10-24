@@ -32,6 +32,8 @@ enum {
     REFMEM_CMD_ID_REFMEM_LOAD_NODE = 2u,
     REFMEM_CMD_ID_REFMEM_LOAD_SD = 3u,
     REFMEM_CMD_ID_REFMEM_MAINTENANCE_SELF_CHECK = 4u,
+    REFMEM_CMD_ID_REFMEM_LEASE_TAKE = 5u,
+    REFMEM_CMD_ID_REFMEM_LEASE_RELEASE = 6u,
 };
 
 extern const refmem_catalog_entry_t refmem_command_catalog[];

@@ -29,6 +29,7 @@
 #include "refmem_sync.h"
 #include "refmem_sync_hello.h"
 #include "refmem_table_registry.h"
+#include "refmem_lease_table.h"
 #include "tdma_maintenance_runtime.h"
 #include "scpi_port_internal.h"
 #include "storage_manager.h"
@@ -833,6 +834,26 @@ scpi_result_t scpi_cmd_refmem_cmd_submit_type(scpi_t *context)
         return SCPI_RES_ERR;
     }
     SCPI_ResultText(context, "QUEUED");
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_refmem_lease_q(scpi_t *context)
+{
+    refmem_lease_snapshot_t lease;
+    memset(&lease, 0, sizeof(lease));
+    if (!refmem_lease_table_get(distributed_refmem_local_slot(), &lease)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, lease.owner_slot);
+    SCPI_ResultUInt32(context, lease.epoch);
+    SCPI_ResultUInt32(context, lease.state);
+    SCPI_ResultUInt32(context, lease.expiry_ms);
+    SCPI_ResultUInt32(context, lease.lease_seq);
+    SCPI_ResultText(context,
+                    lease.state == REFMEM_LEASE_GRANTED
+                        ? "GRANTED"
+                        : (lease.state == REFMEM_LEASE_EXPIRED ? "EXPIRED"
+                                                               : "FREE"));
     return SCPI_RES_OK;
 }
 

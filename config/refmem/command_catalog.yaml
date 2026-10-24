@@ -76,3 +76,34 @@ commands:
     required_capabilities: 0
     idempotent: true
     timeout_us: 0
+
+  # N3.3 minimal lease: the target's node record holds one lease; the issuer
+  # slot (source_node) is the owner.  TAKE grants/renews, RELEASE clears; a
+  # second issuer gets CONFLICT, a stale epoch is rejected.
+  - id: 5
+    name: REFMEM_LEASE_TAKE
+    scpi: "SYSTem:REFMEM:LEASE:TAKE"
+    command_type: LEASE_TAKE
+    owner: REFMEM
+    realtime: false
+    param_words: 2
+    param_kind: inline
+    params: [lease_epoch, lease_ttl_ms]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: false
+    timeout_us: 0
+
+  - id: 6
+    name: REFMEM_LEASE_RELEASE
+    scpi: "SYSTem:REFMEM:LEASE:RELEASE"
+    command_type: LEASE_RELEASE
+    owner: REFMEM
+    realtime: false
+    param_words: 1
+    param_kind: inline
+    params: [lease_epoch]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: false
+    timeout_us: 0

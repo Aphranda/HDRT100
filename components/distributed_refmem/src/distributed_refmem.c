@@ -14,6 +14,7 @@
 #include "refmem_application_model.h"
 #include "refmem_command.h"
 #include "refmem_cmd_load.h"
+#include "refmem_lease_table.h"
 #include "refmem_control_route.h"
 #include "refmem_node_control.h"
 #include "refmem_param_pool.h"
@@ -3787,6 +3788,7 @@ static void distributed_refmem_publish_runtime_locked(void)
 bool distributed_refmem_init(void)
 {
     memset(&s_status, 0, sizeof(s_status));
+    refmem_lease_table_init();
     s_initialized = false;
     s_vdc_vector_publish_sequence = 0u;
     s_dpll_vector_publish_sequence = 0u;
@@ -4538,6 +4540,24 @@ static void distributed_refmem_mirror_local_control(void)
  * its own node slot.  The record is the input fact; the command slot remains
  * the execution edge (post/take/ack) and its snapshot is mirrored back. */
 static uint32_t s_node_control_last_command_seq;
+static refmem_lease_result_t s_lease_last_result;
+
+static uint32_t distributed_refmem_lease_reason(
+    refmem_lease_result_t result)
+{
+    switch (result) {
+    case REFMEM_LEASE_CONFLICT:
+        return (uint32_t)REFMEM_COMMAND_REASON_RESOURCE_BUSY;
+    case REFMEM_LEASE_STALE_EPOCH:
+        return (uint32_t)REFMEM_COMMAND_REASON_EPOCH_MISMATCH;
+    case REFMEM_LEASE_NOT_OWNER:
+        return (uint32_t)REFMEM_COMMAND_REASON_PERMISSION_DENIED;
+    case REFMEM_LEASE_RESULT_EXPIRED:
+        return (uint32_t)REFMEM_COMMAND_REASON_TIMEOUT;
+    default:
+        return (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+    }
+}
 
 /* Catalog-driven local dispatch: the node control record is the intent, the
  * owner function below executes it.  RefMem only carries and aggregates. */
@@ -4581,6 +4601,20 @@ static bool distributed_refmem_dispatch_control(
             }
         }
         return true;
+    }
+    case REFMEM_COMMAND_TYPE_LEASE_TAKE: {
+        const refmem_lease_result_t result = refmem_lease_table_take(
+            distributed_refmem_local_slot(), snapshot->source_node, params[0],
+            osal_tick_ms(), params[1]);
+        s_lease_last_result = result;
+        return result == REFMEM_LEASE_OK;
+    }
+    case REFMEM_COMMAND_TYPE_LEASE_RELEASE: {
+        const refmem_lease_result_t result = refmem_lease_table_release(
+            distributed_refmem_local_slot(), snapshot->source_node,
+            params[0]);
+        s_lease_last_result = result;
+        return result == REFMEM_LEASE_OK;
     }
     default:
         return false;
@@ -4647,13 +4681,18 @@ static void distributed_refmem_node_control_service(void)
                 (uint32_t)REFMEM_COMMAND_STATE_ACKED,
                 (uint32_t)REFMEM_COMMAND_REASON_NONE);
         } else {
-            (void)distributed_refmem_command_nack(
-                local_slot, REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED,
-                0u);
+            uint32_t reason =
+                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+            if (snapshot.command_type ==
+                    (uint32_t)REFMEM_COMMAND_TYPE_LEASE_TAKE ||
+                snapshot.command_type ==
+                    (uint32_t)REFMEM_COMMAND_TYPE_LEASE_RELEASE) {
+                reason = distributed_refmem_lease_reason(s_lease_last_result);
+            }
+            (void)distributed_refmem_command_nack(local_slot, reason, 0u);
             distributed_refmem_cmd_reply_arm(
                 snapshot.command_seq, snapshot.source_node,
-                (uint32_t)REFMEM_COMMAND_STATE_NACKED,
-                (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+                (uint32_t)REFMEM_COMMAND_STATE_NACKED, reason);
         }
     }
 }

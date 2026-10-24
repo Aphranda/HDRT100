@@ -6,6 +6,8 @@ const refmem_catalog_entry_t refmem_command_catalog[] = {
     {2u, 14u, 0u, 0u, 7u, 0u, 1u, 0u, 0u, 0u, "REFMEM_LOAD_NODE", "SYSTem:REFMEM:LOAD:NODE"},
     {3u, 16u, 0u, 0u, 4u, 0u, 1u, 0u, 0u, 0u, "REFMEM_LOAD_SD", "SYSTem:REFMEM:LOAD:SD"},
     {4u, 13u, 0u, 0u, 1u, 0u, 1u, 0u, 0u, 0u, "REFMEM_MAINTENANCE_SELF_CHECK", "SYSTem:REFMEM:MAINTenance:SELFcheck"},
+    {5u, 18u, 0u, 0u, 2u, 0u, 0u, 0u, 0u, 0u, "REFMEM_LEASE_TAKE", "SYSTem:REFMEM:LEASE:TAKE"},
+    {6u, 19u, 0u, 0u, 1u, 0u, 0u, 0u, 0u, 0u, "REFMEM_LEASE_RELEASE", "SYSTem:REFMEM:LEASE:RELEASE"},
 };
 
 const uint32_t refmem_command_catalog_count =
