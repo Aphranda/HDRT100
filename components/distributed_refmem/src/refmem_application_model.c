@@ -1585,7 +1585,10 @@ static bool refmem_model_stage_inline_package_image(void)
                                                  &validation)) {
         s_load_snapshot.staging_package_crc32 = 0u;
         s_load_snapshot.staging_lint_error_count = 1u;
-        s_load_snapshot.staging_first_lint_error = REFMEM_APP_LINT_BAD_TABLE_VERSION;
+        /* N5.2a.1 diagnostic: low byte = package validation error, next byte = first bad table. */
+        s_load_snapshot.staging_first_lint_error =
+            (uint32_t)validation.error |
+            ((uint32_t)validation.first_bad_table << 8u);
         s_load_snapshot.staging_state = REFMEM_APP_STAGING_FAILED;
         s_load_snapshot.last_error = REFMEM_APP_LOAD_ERR_PACKAGE_INVALID;
         s_load_snapshot.mode = REFMEM_APP_MODEL_MODE_IDLE;
