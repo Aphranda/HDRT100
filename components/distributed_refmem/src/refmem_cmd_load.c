@@ -158,8 +158,16 @@ bool refmem_cmd_load_submit_type(uint8_t type,
     }
     const uint8_t generation = s_generation++;
     memcpy(s_tx_frame, wire, wire_size);
+    uint8_t target_mask = 0x0Fu;
+    if (type == TDMA_SECOND_CLASS_TYPE_REFMEM_CMD &&
+        wire_size == REFMEM_CMD_WIRE_SIZE) {
+        refmem_command_request_t request;
+        if (refmem_cmd_codec_decode(wire, &request) == REFMEM_CMD_CODEC_OK) {
+            target_mask = (uint8_t)request.target_mask;
+        }
+    }
     if (!tdma_maintenance_runtime_submit(s_tx_frame, wire_size,
-                                         type, generation)) {
+                                         type, generation, target_mask)) {
         s_rejected++;
         s_tx_fail++;
         return false;
@@ -414,7 +422,7 @@ bool refmem_cmd_load_submit_fragments(
             last) {
             if (!tdma_maintenance_runtime_submit(
                     payload, used, TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT,
-                    s_generation++)) {
+                    s_generation++, (uint8_t)snapshot->target_mask)) {
                 s_frag_submit_fail++;
                 return false;
             }
@@ -467,7 +475,8 @@ static void refmem_cmd_load_service_fragments(void)
         (uint8_t)local_slot, word, record);
     if (!tdma_maintenance_runtime_submit(
             record, REFMEM_CMD_FRAGMENT_RECORD_SIZE,
-            TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT, s_generation++)) {
+            TDMA_SECOND_CLASS_TYPE_REFMEM_FRAGMENT, s_generation++,
+            0x0Fu)) {
         s_frag_submit_fail++;
         return; /* retry next service */
     }

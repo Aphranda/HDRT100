@@ -1941,6 +1941,7 @@ static void distributed_refmem_tdma_flight_parse_mailbox(
         const uint8_t ack_generation =
             (uint8_t)(s_tdma_flight_sync.last_ack_seq16 & 0xFFu);
         (void)tdma_maintenance_runtime_ack(ack_stream_id, ack_generation,
+                                           header.source_slot,
                                            (ack_diag & 1u) == 0u);
     } else {
         distributed_refmem_cmd_reply_store(

@@ -5085,7 +5085,7 @@ scpi_result_t scpi_cmd_system_tdma_long_frame_tx(scpi_t *context)
     if (!tdma_maintenance_runtime_submit(
             frame, frame_size,
             (uint8_t)(board_identity_get_no() - 1u),
-            (uint8_t)generation)) {
+            (uint8_t)generation, 0x0Fu)) {
         scpi_port_push_exec_error(context, "TDMA_LONGFRAME_TX");
         return SCPI_RES_ERR;
     }

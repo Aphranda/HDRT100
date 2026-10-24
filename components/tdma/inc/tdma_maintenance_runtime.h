@@ -15,7 +15,8 @@ bool tdma_maintenance_runtime_ready(void);
 bool tdma_maintenance_runtime_submit(const uint8_t *frame,
                                      size_t frame_size,
                                      uint8_t stream_id,
-                                     uint8_t generation);
+                                     uint8_t generation,
+                                     uint8_t target_mask);
 bool tdma_maintenance_runtime_take(uint8_t *frame,
                                    size_t frame_capacity,
                                    size_t *frame_size,
@@ -27,6 +28,7 @@ bool tdma_maintenance_runtime_take(uint8_t *frame,
  * A NACK or a missing ACK retries the whole frame with a new generation. */
 bool tdma_maintenance_runtime_ack(uint8_t stream_id,
                                   uint8_t generation,
+                                  uint8_t source_slot,
                                   bool ok);
 
 /* Test/debug only: drop the next N maintenance chunks (the stream index still

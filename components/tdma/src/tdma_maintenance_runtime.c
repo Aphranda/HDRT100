@@ -29,6 +29,7 @@ static uint8_t s_tx_queue[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE]
 static uint16_t s_tx_queue_size[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE];
 static uint8_t s_tx_queue_stream_id[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE];
 static uint8_t s_tx_queue_generation[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE];
+static uint8_t s_tx_queue_target_mask[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE];
 static uint32_t s_tx_queue_head;
 static uint32_t s_tx_queue_tail;
 static volatile uint32_t s_tx_queued;
@@ -42,7 +43,10 @@ static volatile uint32_t s_tx_sent_ms;
 static volatile uint32_t s_tx_attempts;
 static volatile uint8_t s_tx_active_stream_id;
 static volatile uint8_t s_tx_active_generation;
-static uint32_t s_tx_ack_pending;
+static volatile uint8_t s_tx_target_mask;
+static volatile uint8_t s_tx_required_mask;
+static uint32_t s_tx_ack_mask;
+static uint32_t s_tx_nack;
 static volatile uint32_t s_tx_ack_ok;
 static volatile uint32_t s_tx_retries;
 static volatile uint32_t s_tx_fail;
@@ -53,11 +57,34 @@ static void maintenance_release_slot(void)
 {
     s_tx.frame = NULL;
     __atomic_store_n(&s_tx_awaiting_ack, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_tx_ack_mask, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_tx_nack, 0u, __ATOMIC_RELEASE);
     const uint32_t head = s_tx_queue_head;
     __atomic_store_n(&s_tx_queue_head,
                      tdma_spsc_next(head, TDMA_MAINTENANCE_RUNTIME_TX_QUEUE),
                      __ATOMIC_RELEASE);
     s_tx_dequeued++;
+}
+
+static bool maintenance_retry_or_fail(uint32_t now)
+{
+    if (s_tx_attempts >= TDMA_MAINTENANCE_MAX_ATTEMPTS) {
+        s_tx_fail++;
+        s_rejects++;
+        maintenance_release_slot();
+        return false;
+    }
+    s_tx_attempts++;
+    s_tx_retries++;
+    s_tx.generation = (uint8_t)(s_tx.generation + 1u);
+    s_tx.next_chunk = 0u;
+    __atomic_store_n(&s_tx_active_generation, s_tx.generation,
+                     __ATOMIC_RELEASE);
+    s_tx_sent_ms = now;
+    __atomic_store_n(&s_tx_awaiting_ack, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_tx_ack_mask, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_tx_nack, 0u, __ATOMIC_RELEASE);
+    return false;
 }
 
 static bool maintenance_mailbox(void *context,
@@ -66,34 +93,22 @@ static bool maintenance_mailbox(void *context,
     (void)context;
     s_mailbox_calls++;
     if (__atomic_load_n(&s_tx_awaiting_ack, __ATOMIC_ACQUIRE) != 0u) {
-        const uint32_t ack =
-            __atomic_exchange_n(&s_tx_ack_pending, 0u, __ATOMIC_ACQ_REL);
-        if (ack == 1u) {
+        const uint32_t now = osal_tick_ms();
+        if (__atomic_load_n(&s_tx_nack, __ATOMIC_ACQUIRE) != 0u) {
+            return maintenance_retry_or_fail(now);
+        }
+        const uint32_t mask =
+            __atomic_load_n(&s_tx_ack_mask, __ATOMIC_ACQUIRE);
+        if ((mask & s_tx_required_mask) == s_tx_required_mask) {
             s_tx_ack_ok++;
             maintenance_release_slot();
             return false;
         }
-        const uint32_t now = osal_tick_ms();
-        if (ack == 2u ||
-            (uint32_t)(now - s_tx_sent_ms) >=
-                TDMA_MAINTENANCE_ACK_TIMEOUT_MS) {
-            if (s_tx_attempts >= TDMA_MAINTENANCE_MAX_ATTEMPTS) {
-                s_tx_fail++;
-                s_rejects++;
-                maintenance_release_slot();
-                return false;
-            }
-            s_tx_attempts++;
-            s_tx_retries++;
-            s_tx.generation = (uint8_t)(s_tx.generation + 1u);
-            s_tx.next_chunk = 0u;
-            __atomic_store_n(&s_tx_active_generation, s_tx.generation,
-                             __ATOMIC_RELEASE);
-            s_tx_sent_ms = now;
-            __atomic_store_n(&s_tx_awaiting_ack, 0u, __ATOMIC_RELEASE);
-            return false;
+        if ((uint32_t)(now - s_tx_sent_ms) >=
+            TDMA_MAINTENANCE_ACK_TIMEOUT_MS) {
+            return maintenance_retry_or_fail(now);
         }
-        return false; /* waiting for the receiver's frame ACK */
+        return false; /* waiting for all target frame ACKs */
     }
     if (s_tx.frame == NULL) {
         const uint32_t head = s_tx_queue_head;
@@ -107,6 +122,12 @@ static bool maintenance_mailbox(void *context,
                 s_tx_queue_stream_id[head], s_tx_queue_generation[head])) {
             return false;
         }
+        s_tx_target_mask = s_tx_queue_target_mask[head];
+        s_tx_required_mask = (uint8_t)(s_tx_target_mask & 0x0Fu &
+                                       ~(1u << s_local_slot));
+        s_tx_attempts = 1u;
+        __atomic_store_n(&s_tx_ack_mask, 0u, __ATOMIC_RELEASE);
+        __atomic_store_n(&s_tx_nack, 0u, __ATOMIC_RELEASE);
     }
     if (s_tx.next_chunk >= s_tx.chunk_count) {
         /* The frame has been fully handed to the wire.  Keep the slot until
@@ -116,7 +137,6 @@ static bool maintenance_mailbox(void *context,
         __atomic_store_n(&s_tx_active_generation, s_tx.generation,
                          __ATOMIC_RELEASE);
         s_tx_sent_ms = osal_tick_ms();
-        s_tx_attempts = 1u;
         __atomic_store_n(&s_tx_awaiting_ack, 1u, __ATOMIC_RELEASE);
         return false;
     }
@@ -138,7 +158,7 @@ static bool maintenance_mailbox(void *context,
     mailbox[2] = TDMA_FLIGHT_MAILBOX_VERSION;
     mailbox[3] = TDMA_PROCESS_IMAGE_MESSAGE_CLASS;
     mailbox[TDMA_FLIGHT_MAILBOX_SOURCE_SLOT_OFFSET] = (uint8_t)s_local_slot;
-    mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] = 0x0Fu;
+    mailbox[TDMA_FLIGHT_MAILBOX_TARGET_MASK_OFFSET] = s_tx_target_mask;
     mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET] = (uint8_t)s_mailbox_seq;
     mailbox[TDMA_FLIGHT_MAILBOX_SEQ16_OFFSET + 1u] =
         (uint8_t)(s_mailbox_seq >> 8u);
@@ -165,7 +185,8 @@ bool tdma_maintenance_runtime_init(tdma_pio_spi_ring_adapter_t *adapter,
     s_tx_queue_head = 0u;
     s_tx_queue_tail = 0u;
     __atomic_store_n(&s_tx_awaiting_ack, 0u, __ATOMIC_RELEASE);
-    __atomic_store_n(&s_tx_ack_pending, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_tx_ack_mask, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_tx_nack, 0u, __ATOMIC_RELEASE);
     __atomic_store_n(&s_drop_chunks, 0u, __ATOMIC_RELEASE);
     s_tx_attempts = 0u;
     s_tx_active_stream_id = 0u;
@@ -183,7 +204,8 @@ bool tdma_maintenance_runtime_ready(void)
 bool tdma_maintenance_runtime_submit(const uint8_t *frame,
                                      size_t frame_size,
                                      uint8_t stream_id,
-                                     uint8_t generation)
+                                     uint8_t generation,
+                                     uint8_t target_mask)
 {
     if (!tdma_maintenance_runtime_ready()) {
         s_rejects++;
@@ -206,6 +228,7 @@ bool tdma_maintenance_runtime_submit(const uint8_t *frame,
     s_tx_queue_size[tail] = (uint16_t)frame_size;
     s_tx_queue_stream_id[tail] = stream_id;
     s_tx_queue_generation[tail] = generation;
+    s_tx_queue_target_mask[tail] = target_mask;
     __atomic_store_n(&s_tx_queue_tail,
                      tdma_spsc_next(tail, TDMA_MAINTENANCE_RUNTIME_TX_QUEUE),
                      __ATOMIC_RELEASE);
@@ -266,16 +289,25 @@ bool tdma_maintenance_runtime_take(uint8_t *frame,
 
 bool tdma_maintenance_runtime_ack(uint8_t stream_id,
                                   uint8_t generation,
+                                  uint8_t source_slot,
                                   bool ok)
 {
     if (__atomic_load_n(&s_tx_awaiting_ack, __ATOMIC_ACQUIRE) == 0u) {
         return false;
     }
     if (stream_id != s_tx_active_stream_id ||
-        generation != s_tx_active_generation) {
+        generation != s_tx_active_generation ||
+        source_slot >= TDMA_RING_NODE_MAX) {
         return false; /* late ACK for an older attempt */
     }
-    __atomic_store_n(&s_tx_ack_pending, ok ? 1u : 2u, __ATOMIC_RELEASE);
+    if (!ok) {
+        __atomic_store_n(&s_tx_nack, 1u, __ATOMIC_RELEASE);
+        return true;
+    }
+    if ((s_tx_required_mask & (1u << source_slot)) == 0u) {
+        return false; /* this node is not a required target of the frame */
+    }
+    __atomic_fetch_or(&s_tx_ack_mask, 1u << source_slot, __ATOMIC_ACQ_REL);
     return true;
 }
 
