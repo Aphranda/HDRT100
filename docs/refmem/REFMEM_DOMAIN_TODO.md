@@ -419,7 +419,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 | ID | 任务 | 变更/边界 | 完成判据 | 依赖 |
 |---|---|---|---|---|
-| **N3.2.1** | 诊断与计数闭环 | 只加只读计数/日志：队列深度、enqueue/reject、chunk emit/accept/dedup、重组 incomplete、每目标 chunk 数、丢失 chunk 掩码；HIL 输出逐 chunk 证据 | 对 1/2/7 帧命令能定位丢在“入队/注入/去重/重组/解析”哪一段；根因 H1–H4 有结论 | — |
+| **N3.2.1** | 诊断与计数闭环 ✅（2026-10-24） | 只加只读计数/日志：队列深度、enqueue/reject、chunk emit/accept/dedup、重组 incomplete、每目标 chunk 数、丢失 chunk 掩码；HIL 输出逐 chunk 证据 | 对 1/2/7 帧命令能定位丢在“入队/注入/去重/重组/解析”哪一段；根因 H1–H4 有结论 | — |
 | **N3.2.2** | core0/core1 队列交接 | `tdma_maintenance_runtime` 的 head/tail/count 改 release/acquire 或等价屏障；满队列显式 `BUSY/REJECTED`，不静默丢 | host 队列用例 + 目标侧压力测试无丢失/重复；队列满可见 | 可与 1 并行 |
 | **N3.2.3** | 注入调度与序列 | 每个维护 chunk 必须搭载**新 transport sequence**（或维护帧不按 sequence 去重，改按 stream_id/generation/index）；每周期 chunk 配额；不抢占一等席 | 56 chunk 在 data phase 内有界完成；不从板去重计数为 0；位置/VDC 时延无退化 | 1 |
 | **N3.2.4** | 逐帧可靠交付 | 维护帧/流 ACK（可为 per-stream 位图）+ 有界重试/backoff；TX 保留未 ACK 帧；dedup 按 `stream_id+generation+index` | 故障注入（丢 1 chunk、重复、乱序、窗口 miss）后帧最终完成或带原因失败，不静默丢 | 2、3 |
@@ -429,6 +429,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 | **N3.2.8** | 契约/文档/观测入口 | 同步 `REFMEM-TRANSPORT-01`、`TDMA-PROCESSIMAGE-01`、P8 与 SCPI 计数；不新增 payload class/物理总线；预算仍用 `tdma_traffic_class_profile_t` | 文档门禁绿、登记锚点真实、无第二命令槽/ACK 事实 | 连续 |
 
 **执行顺序**：N3.2.1 → N3.2.2（并行）→ N3.2.3 → N3.2.4 → N3.2.5 → N3.2.7；N3.2.6 可并行；N3.2.8 随每项连续更新。
+
+**N3.2.1 进展（2026-10-24，build `20261024030428`）**：新增维护队列/inject/RX 只读计数与 `SYSTem:REFMEM:CMD:STATus?` 末尾 18 字段；HIL 覆盖 raw16/raw56/raw56_x2/exec196。1/2/7 帧应用层均成功（`t2_static_ok=1`、`refmem_parser_ok=1/2`、`frag_ok=7/frag_complete=1`）；exec196 连续 6 次 + 前序 1 次均为 `frag_complete=1`、源 `state=ACKED`，源侧 `inject_launched=inject_ok=54`、`dropped_unlaunched=0`、`new_sequence=54`、`repeated_sequence=0`、`queue_depth=0`。结论：H1–H4 在源侧均未出现，原 `rx_seen=2` 未复现；`rx_accepted/rx_dedup/rx_chunk_rejects` 含同一 mailbox 重复投递噪声，唯一 chunk 计数留 N3.2.3。证据 `out/refmem_transport_diag/n321_202610241248/`、`n321_exec196_202610241257/`。下一步 N3.2.2 队列 release/acquire 与 N3.2.3 唯一 chunk 计数/注入配额。
 
 **每项完成后的 HAOFV 审查门**：①是否新增总线/payload class/第二命令槽/第二 ACK 事实；②是否占用 core1 硬实时窗口或拉长一等席周期；③单写者与 owner 边界是否保持；④故障是否 fail-closed 且有 reason/evidence；⑤布局/版本/契约是否同步；⑥host + 四板证据是否可复跑。任一项不满足不进入下一子项。
 - [ ] 扩展 `refmem_command_request_t` / `refmem_command_snapshot_t`：`coordinator_slot`、`coordinator_boot_id`、`lease_epoch`、`catalog_crc32`、`fence_required`、`fence_state`、`control_reply`；旧字段语义不变，host 用例覆盖旧快照兼容。

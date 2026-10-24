@@ -10,10 +10,11 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261024-002`。
-- 统一控制面：命令回复回程已打通（单目标/多目标/负向），租约、非协调者入口、
+- 最新条目：`REFTMEM-TASK-20261024-003`。
+- 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
   RUN 配置 idle 窗口仍开放。
-- 下一步：P3 firmware 验收 → 文档收口 → N3.3/N4。
+- N3.2：诊断计数已落地，1/2/7 帧应用层均可完成；H1–H4 源侧排除，偶发失败未复现。
+- 下一步：N3.2.2 队列交接 → N3.2.3 注入配额/唯一 chunk 计数 → N3.3/N4。
 
 ## 归档索引
 
@@ -22,6 +23,23 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_01.md` | REFMEM-TASK-20260813-021..REFMEM-TASK-20260813-001 | 21 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
+
+### REFMEM-TASK-20261024-003 — N3.2.1 维护流诊断计数与 1/2/7 帧定位
+
+- 状态：诊断计数与四板 HIL 完成；H1–H4 有初步结论；N3.2.2/N3.2.3 待做。
+- 任务目标：只加只读计数，定位 196 B/7 维护帧命令的丢帧阶段，不改传输语义。
+- 完成内容：
+  - `tdma_maintenance_runtime` 新增队列深度/enqueued/dequeued/full、`rx_chunk_rejects` 计数与 `get_diag()`。
+  - `tdma_pio_spi_ring_adapter` 新增 inject launched/dropped_unlaunched、new/repeated sequence、beacon_frames、rx polls/seen/accepted/dedup/bad mailbox/last sequence 计数与 `get_maintenance_diag()`。
+  - `SYSTem:REFMEM:CMD:STATus?` 末尾追加 18 个只读诊断字段；新增 `tools/refmem/refmem_transport_diag_hil`，覆盖 raw16（1 帧/2 chunk）、raw56（1 帧/6 chunk）、raw56_x2（2 帧/12 chunk）、exec196（7 帧/54 chunk）。
+- 验证结果（build `20261024030428`）：
+  - 1/2/7 帧应用层均成功：raw16 `t2_static_ok=1`；raw56 `refmem_parser_ok=1`；raw56_x2 `refmem_parser_ok=2`；exec196 `frag_ok=7`/`frag_complete=1`（三目标一致）。
+  - exec196 连续 6 次加前序 1 次全部 `frag_complete=1`、源 `CTRL:STATus? state=ACKED`；源 `inject_ok=54`、`inject_launched=54`、`inject_dropped_unlaunched=0`、`inject_new_sequence=54`、`inject_repeated_sequence=0`、`queue_depth=0`、`queue_full=0`。
+  - `rx_accepted_chunks`/`rx_dedup_sequence`/`rx_chunk_rejects` 含重复投递噪声（同一 mailbox 在未注入新 chunk 的帧上重复出现），不能直接当唯一 chunk 丢失；交付以 `frag_complete`/parser 计数为准。
+- 结论：H1（源侧 sequence 复用）未出现；H2/H3（注入未发射/队列不排空）未出现；H4（重组器阻塞）未造成应用层失败；原 `rx_seen=2` 失败未在 10 次 7 帧运行中复现，倾向启动时序/历史状态的偶发问题，需 N3.2.2/N3.2.3 用唯一 chunk 计数与故障注入继续收敛。
+- 证据：`out/refmem_transport_diag/n321_202610241248/`、`out/refmem_transport_diag/n321_exec196_202610241257/`。
+- P3：build `20261024050910`，源码指纹 `212e893f6ed10505ad5ceb2b4d4f17ceeebbd8475efe93bb4ed7adcf7ab973f1`（1927 files），`QUICK_DIAGNOSTIC`，`credential: written`；step 26/33 为 warn，无 ERROR/FATAL。
+- 下一步：N3.2.2 队列 release/acquire；N3.2.3 唯一 chunk 计数 + 注入配额/序列。
 
 ### REFMEM-TASK-20261024-002 — 统一控制面命令回复回程（C1b 方向）
 
