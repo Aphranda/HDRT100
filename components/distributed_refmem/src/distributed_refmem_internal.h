@@ -28,4 +28,10 @@ void distributed_refmem_cmd_reply_note_published(void);
 /* Shared node region accessor used by the node-control implementation. */
 refmem_vector_node_region_t *distributed_refmem_node_region(uint32_t node_id);
 
+void distributed_refmem_node_control_service(void);
+bool distributed_refmem_post_command_replacing_complete(
+    refmem_command_request_t *request, uint32_t issue_tick32);
+bool distributed_refmem_node_load_auto_enqueue(uint32_t instance_id);
+refmem_vector_table_t *distributed_refmem_vector_table(void);
+
 #endif
