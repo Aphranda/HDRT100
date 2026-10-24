@@ -10,7 +10,7 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261024-012`。
+- 最新条目：`REFMEM-TASK-20261024-013`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
   RUN 配置 idle 窗口仍开放。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -24,6 +24,17 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 
+### REFMEM-TASK-20261024-013 — N3.3.3 两板租约 HIL
+
+- 状态：完成；两板 A TAKE→B CONFLICT→A RELEASE→B TAKE + ring stop→start 全部通过。
+- 步骤（A=COM5 slot0，B=COM4 slot1，B 的 target bit=2）：
+  - A 经环 `LEASE_TAKE` epoch1 → B `LEASE?=owner 0,GRANTED,lease_seq=1`。
+  - B 本地 `LEASE_TAKE` epoch2 → `CONFLICT`：B `CTRL:STATus? state=5`、`reason=6 (RESOURCE_BUSY)`；B 仍归 A。
+  - 停环（不复位）→ B 租约保持 `owner 0,GRANTED`（RAM 记录跨 ring stop）。
+  - A 第二个环 `LEASE_RELEASE` epoch1 → B `FREE,lease_seq=2`。
+  - B 本地 `LEASE_TAKE` epoch2 → `owner 1,GRANTED,lease_seq=3`、`state=ACKED`。
+- 证据：`out/refmem_lease_hil/n333_202610242012/REPORT.md`。
+- 工具 `tools/refmem/refmem_lease_hil/refmem_lease_hil.py` 已落盘，待与后续固件变更一起 P3/提交。
 ### REFMEM-TASK-20261024-012 — N3.3 最小租约（状态机 + 控制面接入）
 
 - 状态：N3.3.1/2 完成（host + 本地 smoke）；P3 待跑；N3.3.3 两板 HIL 待做。
