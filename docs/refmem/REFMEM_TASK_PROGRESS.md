@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-003`。
+- 最新条目：`REFMEM-TASK-20261025-004`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -29,6 +29,16 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
 
+### REFMEM-TASK-20261025-004 — N5.0.2f 成功：VDC SCPI 拆分（设计后）
+
+- 状态：N5.0.2f 完成；此前连续块尝试（003）失败后，按“TU + 私有头 + `.inc`/helper 一起迁移”的设计重做成功。
+- 内容：新增 `scpi_vdc_snapshot_commands.c`（740 行）；VDC 反馈/运行/固定/细分 handler + `scpi_feedback_record` 迁出；`scpi_vdc_run_u32`/`run_end` 非 static，经 `scpi_system_snapshot_internal.h` 共享；`.inc` 链留在主文件（避免重复 trigger 定义）。
+- 行数：`scpi_system_snapshot_commands.c` 6,393→**5,712**。
+- 验证：
+  - build 成功；P3 `20261024170018`，fingerprint `de957c6940d2c9517da37b931ec8848d122289548ca67cff8280c27c0091ddcd`，1950 files，`PASS_WITH_WARNINGS/strict=false`。
+  - VDC SCPI smoke：`SYSTem:VDC:FEEDback:SESSion?`=0、`AUTO?`=0；`tools/interface/scpi_query`。
+- 下一刀：N5.0.2g TDMA flight（状态/私有头设计后再切）。
+
 ### REFMEM-TASK-20261025-003 — N5.0.2f 尝试：VDC SCPI 拆分失败（已回退，负结果）
 
 - 状态：N5.0.2f **未完成**；尝试后回退，无代码变更。
@@ -36,7 +46,8 @@ Last updated: 2026-10-25
 - 失败：`scpi_vdc_output_slices.inc` 仍在主文件尾部，依赖被移走的 `scpi_vdc_run_end`/`vdc_run_output_status_t`；连续 handler 块移动破坏 include/helper 顺序，build 报 `unknown type name`/`implicit declaration`。
 - 处理：`git checkout` 主文件、删除新文件、CMake 回退；工作树干净。
 - 教训：剩余 SCPI/TDMA 大块不能按“连续行段”机械移动；必须按 **translation unit + 私有头** 拆，且把 `.inc`/类型/helper 一起迁移并保持定义顺序。
-- 下一步：N5.0.2f 先做拆分设计（TDMA flight/VDC 各自的状态/头/`.inc` 归属），或先转 N5.2a；不把失败尝试留在主干。
+- N5.0.2f：VDC SCPI 拆分在设计后成功（6,393→5,712）；P3 `20261024170018`；VDC SCPI 查询 smoke 通过。
+- 下一步：N5.0.2g TDMA flight 拆分设计 → N5.2a 延迟事务；N3.2.7 可选。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 
