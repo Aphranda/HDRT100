@@ -1635,6 +1635,7 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 - `CONFig:BEGIN` 打开窗口并标记事务；`CONFig:COMMit` 提交 prepared table views（失败则丢弃）、关闭窗口、清除事务；`CONFig:ABORt` 丢弃 prepared views、重新打开窗口、清除事务；`CONFig:STATus?` 只读 `txn_active,idle_window`。
 - 调用方负责外部 STOP/START 边界：STOP 后 BEGIN → stage → COMMIT → START；COMMIT 后窗口关闭，RUN 中配置命令被拒绝。
 - 不新增命令槽/ACK 事实/payload class；窗口与事务是 REFMEM 控制面本地状态。节点/板级 stage 由各自 dispatch 校验，prepared table views 是唯一带 commit/discard 对的暂存对象。
+- 远程配置命令同样受目标窗口门控：窗口内业务校验失败返回 reason 13，窗口外返回 reason 7；远端 owner/permission 校验尚未实现（当前远程 stage 返回 13，门控仍可区分）。
 
 **C0 命令路径（2026-10-23，build `20261023152319`）**：`refmem_node_control` 提供控制块的
 写/读/ACK/清除（seq+CRC 防撕裂）；AO 在 post/take/ack/nack/timeout/clear 后把本地 command slot

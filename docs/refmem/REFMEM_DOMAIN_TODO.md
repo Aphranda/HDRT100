@@ -458,7 +458,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 | **N3.3.4** ✅（2026-10-24） | 契约/文档/HAOFV 收口 | 门禁绿 | N3.3.3 |
 | **N4.1** ✅（2026-10-24，测试钩子） | idle 窗口门控：RUN 中配置类命令显式 BUSY/REJECT | 不静默执行 | N3.3 |
 | **N4.2** ✅（2026-10-24，本地事务 HIL） | STOP→stage→START 事务 + 回滚 | 两板 HIL | N4.1 |
-| **N4.3/4.4** | HIL + 契约/文档收口 | 门禁绿 | N4.2 |
+| **N4.3/4.4** ✅（2026-10-24） | HIL + 契约/文档收口 | 门禁绿 | N4.2 |
 
 **N3.3.2 本地 smoke（2026-10-24）**：COM4 本地 `CTRL:EXECute 5,2,2,1,1000` → `LEASE?=1,1,1,90406,1,"GRANTED"`、`CTRL:STATus? state=ACKED`；`EXECute 6,2,2,1` → `FREE`；`EXECute 5,2,2,2,1000` → `1,2,1,"GRANTED"`。CONFLICT/远端路径待 N3.3.3 两板环。
 
@@ -467,6 +467,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 **N4.1 进展（2026-10-24）**：配置类命令（BOARD/NODE/TABLE stage/activate）在 idle 窗口关闭时显式 `RUN_STATE_DENIED`（reason 7），不进入 dispatch；`SYSTem:REFMEM:IDLE:WINDow` 提供测试/事务钩子。HIL：默认开=1；关=0 后 LOAD_NODE → `state=5/reason=7`；开=1 后同命令 → `state=4/reason=0`。证据 `out/refmem_idle_hil/n41_202610242040/`。N4.2 将由 STOP→stage→START 事务管理开/关边界。
 
 **N4.2 进展（2026-10-24）**：`CONFig:BEGIN/COMMit/ABORt/STATus?` 配置事务：BEGIN 开窗并标记事务；窗口内 `LOAD_NODE` ACK；COMMIT 关窗、active=0；随后同命令 `state=5/reason=7`；再次 BEGIN + 无效 stage（node 99）→ `reason=13`（门控已过，业务失败）；ABORt → active=0/window=1。prepared table views 失败丢弃；节点/板级 stage 由各自 dispatch 校验。证据 `out/refmem_config_txn_hil/n42b_202610242035/`。
+
+**N4.3/N4.4 进展（2026-10-24）**：两板（COM4）与四板（COM4/3/6）远程事务 HIL：目标 BEGIN 后 A 经环 `LOAD_NODE` → `reason=13`（门控通过、业务失败）；目标 COMMIT 后同命令 → `reason=7`；BEGIN + 无效 stage → 13；ABORt → 窗口重开。远程配置 stage 当前返回业务 reason 13（远端 owner/permission 未实现），窗口门控 reason 7 可区分。证据 `out/refmem_remote_txn_hil/n43_two_b_202610242118/`、`n43_four_202610242120/`。`REFTMEM-IDLE-01` 已登记（pending）。
 - [ ] 扩展 `refmem_command_request_t` / `refmem_command_snapshot_t`：`coordinator_slot`、`coordinator_boot_id`、`lease_epoch`、`catalog_crc32`、`fence_required`、`fence_state`、`control_reply`；旧字段语义不变，host 用例覆盖旧快照兼容。
 - [ ] 定义 `control_owner_slot` 解析与唯一性门禁：profile 未声明时取最低已 claim 插槽；`DeploymentGate` 拒绝零个或多个控制 owner 的 RUN。
 - [ ] 实现协调者租约：`CONTROL_LEASE_TAKE/RENEW/RELEASE`；仅 STOP/维护态迁移；RUN 中丢失 fail-closed 进入 `CONTROL_LOST`，禁止静默双主。
