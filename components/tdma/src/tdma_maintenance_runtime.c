@@ -23,7 +23,7 @@ static volatile uint32_t s_rejects;
 /* Small TX queue so a multi-frame control message (e.g. a fragmented REFMEM
  * command) can be queued before the ring starts; the adapter's maintenance
  * mailbox drains it chunk by chunk whenever the adapter asks for one. */
-#define TDMA_MAINTENANCE_RUNTIME_TX_QUEUE 8u
+#define TDMA_MAINTENANCE_RUNTIME_TX_QUEUE 16u
 static uint8_t s_tx_queue[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE]
                           [TDMA_MAINTENANCE_STREAM_MAX];
 static uint16_t s_tx_queue_size[TDMA_MAINTENANCE_RUNTIME_TX_QUEUE];

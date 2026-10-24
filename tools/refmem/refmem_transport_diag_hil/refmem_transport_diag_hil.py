@@ -91,6 +91,7 @@ CASES = [
     {"name": "raw56_x2", "kind": "refmem_cmd_x2", "frames": 2, "chunks": 12},
     {"name": "exec196", "kind": "exec_self_check", "frames": 7, "chunks": 56},
     {"name": "queue_full", "kind": "queue_full", "frames": 0, "chunks": 0},
+    {"name": "multibatch", "kind": "multibatch", "frames": 14, "chunks": 112},
 ]
 
 
@@ -198,7 +199,7 @@ class DiagHil:
             response = f"{first};{second}"
         elif case["kind"] == "queue_full":
             responses = []
-            for _ in range(9):
+            for _ in range(18):
                 try:
                     responses.append(scpi(
                         self.args.source_port,
@@ -236,12 +237,14 @@ class DiagHil:
             "--board-id", "A1E549202D18ED6A",
             "--config", str(self.args.matrix),
             "--expected-build", self.build,
-            "--level", "7", "--cycles", "4096",
+            "--level", "7",
+            "--cycles", "16384" if case["kind"] == "multibatch" else "4096",
             "--stage", "process-image",
             "--clock-evidence", "disabled",
             "--leave-running", "--diagnostic-continue",
             "--no-record", "--no-t2",
-            "--window-s", "0.5", "--sample-interval-s", "0.25",
+            "--window-s", "8.0" if case["kind"] == "multibatch" else "0.5",
+            "--sample-interval-s", "0.25",
             "--startup-timeout-s", "3.0", "--startup-stable-samples", "3",
             "--startup-poll-interval-s", "0.05",
             "--out-dir", str(self.out_dir / case["name"] / "ring"),
@@ -302,6 +305,10 @@ class DiagHil:
             success = any(t["refmem_parser_ok"] >= 2 for t in targets)
         elif case["kind"] == "queue_full":
             success = source["queue_full"] > 0
+        elif case["kind"] == "multibatch":
+            success = (source["tx_ack_ok"] >= 14 and
+                       source["queue_full"] == 0 and
+                       all(t["frag_complete"] >= 2 for t in targets))
         else:
             success = (all(t["frag_complete"] >= 1 for t in targets) and
                        source_ctrl is not None and
@@ -333,8 +340,26 @@ class DiagHil:
         self.reset_boards()
         self.discover()
         self.seat()
-        queued = self.queue(case)
-        self.start_ring(case)
+        if case["kind"] == "multibatch":
+            # N3.2.5: two 7-frame commands queued before one ring start; the
+            # 16-slot SPSC queue must accept both without a full rejection and
+            # the ring must execute them in order.
+            first = scpi(
+                self.args.source_port,
+                "SYSTem:CTRL:EXECute REFMEM_MAINTENANCE_SELF_CHECK,"
+                f"{self.args.target_mask},{self.args.target_mask},0")
+            second = scpi(
+                self.args.source_port,
+                "SYSTem:CTRL:EXECute REFMEM_MAINTENANCE_SELF_CHECK,"
+                f"{self.args.target_mask},{self.args.target_mask},0")
+            if "QUEUED" not in first or "QUEUED" not in second:
+                raise RuntimeError(
+                    f"multibatch submit rejected: {first} / {second}")
+            queued = {"first": first, "second": second}
+            self.start_ring(case)
+        else:
+            queued = self.queue(case)
+            self.start_ring(case)
         statuses = self.read_statuses()
         source_ctrl = self.read_source_ctrl()
         record = self.diagnose(case, statuses, source_ctrl)
