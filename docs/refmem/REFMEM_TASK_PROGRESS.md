@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-006`。
+- 最新条目：`REFMEM-TASK-20261025-007`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,17 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-007 — N5.2a.1 诊断：table 9 TDMA foundation profile owner validation
+
+- 状态：N5.2a.1 完成；无行为变更（仅诊断字段）。
+- 实验：
+  - 对照（未跑环）：`staging_state=2`、`lint=0`、`last_error=0`、`state=4 ACKED`。
+  - ring start/stop 后：`staging_state=3`、`lint=2312`、`last_error=7`、`state=5/reason=13`。
+- 解码：`2312 = 0x0908` → 低字节 `validation.error=8`（`REFTMEM_TABLE_PACKAGE_ERR_OWNER_VALIDATION`），高字节 `first_bad_table=9`（`REFTMEM_APP_TABLE_TDMA_FOUNDATION_PROFILE`）。
+- 结论：ring start 改变了 **TDMA foundation profile** 表/owner；app-model inline package 的 owner 契约对 table 9 失败。不是 table registry 描述子、不是权限、不是“stage 瞬间环在跑”。
+- 下一步：N5.2a.2 在 app-model 侧使用**稳定的 TDMA foundation profile 快照/owner 契约**（不让 ring 运行态 profile 进入 inline package），再跑 ring start/stop → stage HIL。
+- 证据：`out/refmem_remote_txn_hil/n52a1_diag/report.json`。
 
 ### REFMEM-TASK-20261025-006 — N5.2a 设计决策：app-model staging 隔离
 
@@ -72,7 +83,8 @@ Last updated: 2026-10-25
 - N5.0.2f：VDC SCPI 拆分在设计后成功（6,393→5,712）；P3 `20261024170018`；VDC SCPI 查询 smoke 通过。
 - N5.2a 第二次诊断：环 start/stop 后 stage 仍 PACKAGE_INVALID（staging_state=3/last_error=7）；deferral 不是充分条件，代码已回退。
 - N5.2a 设计决策：选 **app-model staging 隔离**（option 1），不选 STOP 重置；先加 `validation.error` 诊断，再建 staging registry 基线。
-- 下一步：N5.2a.1 诊断字段（P3）→ N5.2a.2 staging 基线 → N5.2a.3 HIL；N5.0.2g；N3.2.7 可选。
+- N5.2a.1：诊断字段已定位 table 9（TDMA foundation profile）owner validation 失败；`lint=2312=0x0908`。
+- 下一步：N5.2a.2 用稳定的 app-model TDMA profile 快照/owner 契约修 table 9 → N5.2a.3 HIL；N5.0.2g；N3.2.7 可选。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 

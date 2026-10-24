@@ -498,6 +498,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 | **N5.7** | 聚合广播/`control_reply` 独立只读副本 | 系统级 `COMMand:STATus?/TARget?`；不复制 node 记录 | N5.6 |
 | **N5.8** | `REFTMEM-CTRL-01` 交叉审核转 active + 最终 HIL 矩阵 | 契约/文档/SCPI 同步；门禁绿 | N5.1–N5.7 |
 
+**N5.2a.1 诊断（2026-10-25）**：ring 后 `lint=2312=0x0908` → error 8 OWNER_VALIDATION、table 9 TDMA foundation profile；不是 registry/权限。N5.2a.2 用稳定 app-model profile 快照/owner 契约修 table 9。
+
 **N5.2a 设计决策（2026-10-25）**：table descriptor 前后一致，失败在 app-model stage；选 **app-model staging 隔离**（N5.2a.1 诊断 → N5.2a.2 staging 基线 → N5.2a.3 改造 → N5.2a.4 HIL），不选 STOP 重置。
 
 **N5.2a 第二次诊断（2026-10-25）**：环 start/stop 后 stage 仍 `staging_state=3/last_error=7`；根因是环 start 已改变 app-model table registry/package，STOP 不恢复；deferral 不是充分条件。下一步先设计 table package/registry 与 TDMA process image 的分离/重建，再写 deferral。
