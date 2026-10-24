@@ -365,6 +365,8 @@ Core0 准备、Core1 固定窗口选择、PIO/DMA 发送；`TDMA_RECOVERY_BUFFER
 
 维护流 TX 队列是 SPSC：core0 producer 以 release 发布 tail，core1 consumer 以 acquire 读取 tail 后才读槽位；槽位只在帧**完全发完**后 release head（不得在 `tx_begin` 时提前释放），队列满显式拒绝并计 `queue_full`，不静默覆盖在途帧。该不变量由 `tdma_spsc_index.h` 的 index helper 与 host 用例约束。
 
+维护流 RX 重组器在 **header 不一致**时放弃未完成的旧帧并以新帧头重启，不永久拒绝后续帧；重复 chunk 只计 `duplicate_count`，不重复复制。单次 chunk 丢失不得 wedge 整个 run；整帧丢失的补偿属于上层 per-stream ACK/重试，不在重组器内伪造完成。
+
 ## 失败、恢复与验证映射
 
 错帧、覆盖、重复、旧代或不完整记录拒绝并计数；DPLL 跳过坏样本，是否保持/失锁由 VDC 质量策略判定。DPLL 局部拒绝或相位超时不能自动隔离仍健康的 TDMA。STOP 意图、配置应用、物理停机和池退休需分别对账；故障不抹除先前失败记录。

@@ -10,12 +10,11 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261024-004`。
+- 最新条目：`REFTMEM-TASK-20261024-005`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
   RUN 配置 idle 窗口仍开放。
-- N3.2：诊断计数与 SPSC 队列交接完成；exec196 出现 COM3 H4（RX 旧帧阻塞），
-  移交 N3.2.3。
-- 下一步：N3.2.3 RX 新帧重启/唯一 chunk 计数/注入配额 → N3.2.4 ACK/重试 → N3.3/N4。
+- N3.2：诊断计数、SPSC 队列、RX 新帧重启完成；整帧丢失的可靠重试留给 N3.2.4。
+- 下一步：N3.2.4 per-stream ACK/重试 → N3.2.5 多批命令 → N3.3/N4。
 
 ## 归档索引
 
@@ -24,6 +23,21 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_01.md` | REFMEM-TASK-20260813-021..REFMEM-TASK-20260813-001 | 21 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
+
+### REFMEM-TASK-20261024-005 — N3.2.3 RX 新帧重启与唯一 chunk 计数
+
+- 状态：RX 重启/计数完成；host 用例通过；exec196 6/6 成功；P3 待跑。
+- 任务目标：一次丢 chunk 不得永久 wedge RX；区分唯一/重复 chunk；验证新 sequence + 每周期 1 chunk。
+- 完成内容：
+  - `tdma_maintenance_stream_rx_chunk` header 不一致时放弃未完成旧帧、重启新帧（此前永久 `return false`）；新增 `restart_count`/`duplicate_count`。
+  - runtime `rx_restarts`/`rx_duplicate_chunks` 接入 `SYSTem:REFMEM:CMD:STATus?`（再追加 2 字段）。
+  - host `test_tdma_maintenance_stream` 新增“旧帧未完成 + 新帧头重启/重复 chunk”用例。
+- 验证结果：
+  - host `run_tdma_maintenance_stream_tests.ps1` PASS。
+  - HIL `out/refmem_transport_diag/n323_exec196_202610241355/`：6/6 exec196、3 目标 `frag_complete=1`；源 54/54 launched、new sequence 54、repeated 0、dropped 0。
+  - N3.2.2 的 COM3 H4 wedge 未再复现；若发生丢帧，新逻辑会 restart 而非永久拒绝，但整帧丢失仍需 N3.2.4 重试。
+  - P3：build `20261024060410`，源码指纹 `b344beda5d5304088ec70e63ad0597e9bd70760bd24c7698d7d64c12d5bb77ac`（1930 files），`QUICK_DIAGNOSTIC`，`credential: written`；step 8 首次拓扑失败后重试通过，step 26/33 warn，无 ERROR/FATAL。
+- 下一步：N3.2.4 per-stream ACK/位图 + 有界重试。
 
 ### REFMEM-TASK-20261024-004 — N3.2.2 维护流 TX 队列 SPSC 交接
 
