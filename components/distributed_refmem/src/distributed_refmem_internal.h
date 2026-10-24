@@ -3,6 +3,8 @@
 
 #include "distributed_refmem.h"
 #include "refmem_cmd_reply.h"
+#include "refmem_sync.h"
+#include "refmem_vector_table.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -22,5 +24,8 @@ void distributed_refmem_cmd_reply_service(void);
 bool distributed_refmem_cmd_reply_tx_get(refmem_cmd_reply_t *reply);
 uint32_t distributed_refmem_cmd_reply_target_mask(void);
 void distributed_refmem_cmd_reply_note_published(void);
+
+/* Shared node region accessor used by the node-control implementation. */
+refmem_vector_node_region_t *distributed_refmem_node_region(uint32_t node_id);
 
 #endif
