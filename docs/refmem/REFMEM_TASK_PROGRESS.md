@@ -10,11 +10,12 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261024-020`。
+- 最新条目：`REFMEM-TASK-20261024-021`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
 - N5.0.2b：cmd-reply 拆出（6,315→6,109）；P3 `20261024151357`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
+- N5.0.2c：node control 拆出（6,109→6,003）；P3 `20261024154054`；config txn HIL 14/14。
 - 下一步：N5.0.2 剩余组（command/tdma-vdc/diag）→ N5.2a 延迟事务 → N5.2b permission；N3.2.7 可选。
 
 ## 归档索引
@@ -24,6 +25,16 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_01.md` | REFMEM-TASK-20260813-021..REFMEM-TASK-20260813-001 | 21 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
+
+### REFMEM-TASK-20261024-021 — N5.0.2c 拆出 node control（进行中）
+
+- 状态：N5.0.2 进行中；第三刀完成，行为不变。
+- 内容：新增 `distributed_refmem_node_control.c`（109 行）；`node_control_write_with_params/read_params/read/ack/update_status/clear` 迁出；`distributed_refmem_node_region` 改为非 static，经 `distributed_refmem_internal.h` 共享。
+- 行数：`distributed_refmem.c` 6,109→**6,003**。
+- 验证：
+  - build 成功；P3 `20261024154054`，fingerprint `7819143263a117d0d04321837c8ed156afdc160fa02148244845a2b5b915757f`，1946 files，`PASS_WITH_WARNINGS/strict=false`。
+  - config txn HIL 14/14（build `20261024153758`）：`out/refmem_config_txn_hil/n502c_202610242357/`。
+- 下一刀：dispatch/command 或 tdma-vdc / diag；每步 build/P3/HIL 烟测。
 
 ### REFMEM-TASK-20261024-020 — N5.0.2b 拆出 cmd-reply（进行中）
 
