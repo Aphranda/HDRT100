@@ -669,6 +669,7 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_system_diagnostics_commands.c
         middleware/scpi_port/src/scpi_system_runtime_commands.c
         middleware/scpi_port/src/scpi_system_snapshot_commands.c
+    middleware/scpi_port/src/scpi_vdc_snapshot_commands.c
         middleware/scpi_port/src/scpi_tdma_commands.c
         middleware/scpi_port/src/scpi_trigger_commands.c
         middleware/u8g2_port/src/u8g2_port.c
