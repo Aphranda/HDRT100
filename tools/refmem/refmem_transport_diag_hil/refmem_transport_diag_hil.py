@@ -243,7 +243,10 @@ class DiagHil:
             "--clock-evidence", "disabled",
             "--leave-running", "--diagnostic-continue",
             "--no-record", "--no-t2",
-            "--window-s", "8.0" if case["kind"] == "multibatch" else "0.5",
+            "--window-s",
+            "8.0" if case["kind"] == "multibatch"
+            else "2.0" if case["name"] == "exec196"
+            else "0.5",
             "--sample-interval-s", "0.25",
             "--startup-timeout-s", "3.0", "--startup-stable-samples", "3",
             "--startup-poll-interval-s", "0.05",

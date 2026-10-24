@@ -1351,17 +1351,10 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
     uint8_t maint_ack_stream_id = 0u;
     uint8_t maint_ack_generation = 0u;
     bool maint_ack_ok = false;
-    if (refmem_cmd_load_peek_maintenance_ack(&maint_ack_stream_id,
-                                             &maint_ack_generation,
-                                             &maint_ack_ok)) {
-        /* N3.2.4: the ACK seat carries a maintenance-frame ACK, tagged with a
-         * diagnostic magic so the origin can distinguish it from a command
-         * reply.  seq16 = stream_id:generation, bit0 of the magic = result. */
-        ack_seq16 = (uint16_t)(((uint16_t)maint_ack_stream_id << 8u) |
-                               maint_ack_generation);
-        ack_flags = TDMA_PROCESS_IMAGE_ACK_FLAG_VALID;
-        ack_reason = (uint8_t)(0xA0u | (maint_ack_ok ? 0u : 1u));
-    } else if (distributed_refmem_cmd_reply_pending()) {
+    if (distributed_refmem_cmd_reply_pending()) {
+        /* The command terminal reply owns the ACK seat; the transport-level
+         * maintenance ACK yields to it so a command reply is never delayed by
+         * maintenance flow control. */
         refmem_cmd_reply_t reply = {
             .command_seq = s_cmd_reply_tx.command_seq,
             .state = s_cmd_reply_tx.state,
@@ -1374,6 +1367,16 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
             ack_flags = wire.flags;
             ack_reason = wire.reason;
         }
+    } else if (refmem_cmd_load_peek_maintenance_ack(&maint_ack_stream_id,
+                                                    &maint_ack_generation,
+                                                    &maint_ack_ok)) {
+        /* N3.2.4: the ACK seat carries a maintenance-frame ACK, tagged with a
+         * diagnostic magic so the origin can distinguish it from a command
+         * reply.  seq16 = stream_id:generation, bit0 of the magic = result. */
+        ack_seq16 = (uint16_t)(((uint16_t)maint_ack_stream_id << 8u) |
+                               maint_ack_generation);
+        ack_flags = TDMA_PROCESS_IMAGE_ACK_FLAG_VALID;
+        ack_reason = (uint8_t)(0xA0u | (maint_ack_ok ? 0u : 1u));
     } else if (s_tdma_flight_sync.remote_slot < REFMEM_SYNC_NODE_COUNT) {
         const uint32_t remote_bit = 1u << s_tdma_flight_sync.remote_slot;
         ack_seq16 = (uint16_t)(s_tdma_flight_sync.rx_last_seq_by_source[
@@ -2110,11 +2113,12 @@ static void distributed_refmem_tdma_flight_sync_publish(
                 : DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FIFO_READY;
         s_tdma_flight_sync.position_tx_wait_count++;
     }
-    const bool maint_ack_publication =
-        refmem_cmd_load_peek_maintenance_ack(NULL, NULL, NULL) &&
-        !position_publication && !resident_master && feedback <= 0;
     const bool reply_publication =
-        !maint_ack_publication && distributed_refmem_cmd_reply_pending() &&
+        distributed_refmem_cmd_reply_pending() &&
+        !position_publication && !resident_master && feedback <= 0;
+    const bool maint_ack_publication =
+        !reply_publication &&
+        refmem_cmd_load_peek_maintenance_ack(NULL, NULL, NULL) &&
         !position_publication && !resident_master && feedback <= 0;
     const uint8_t message_class =
         (reply_publication || maint_ack_publication)
