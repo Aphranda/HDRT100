@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-004`。
+- 最新条目：`REFMEM-TASK-20261025-005`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,16 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-005 — N5.2a 诊断：STOP-only stage 仍失败（进行中，阻塞）
+
+- 状态：N5.2a 未完成；deferral 代码已回退；工作树干净。
+- 实验：B `CONFig:BEGIN`；A 排队 `LOAD_NODE`；ring1 start/stop 后读 B `LOAD:STATus?`：
+  `load_seq=1, staging_state=3 FAILED, last_error=7 PACKAGE_INVALID, lint_error=1 BAD_TABLE_VERSION`。
+- 对照：fresh reset、**未跑环**的本地 stage 为 `staging_state=2 VALIDATED` + ACK。
+- 结论：不是“stage 瞬间环在跑”，而是**环 start 已经改变了 app-model table registry/package**，STOP 不恢复；因此“环内收命令、STOP 执行”的 deferral 不足以让 stage 成功。
+- 下一步：N5.2a 设计——把 app-model table package/registry 与 TDMA process image 分离，或在 STOP 重建 staging context；未定前不写 deferral。
+- 证据：`out/refmem_remote_txn_hil/n52_diag/REPORT.md`（追加第二次诊断）。
 
 ### REFMEM-TASK-20261025-004 — N5.0.2f 成功：VDC SCPI 拆分（设计后）
 
@@ -47,7 +57,8 @@ Last updated: 2026-10-25
 - 处理：`git checkout` 主文件、删除新文件、CMake 回退；工作树干净。
 - 教训：剩余 SCPI/TDMA 大块不能按“连续行段”机械移动；必须按 **translation unit + 私有头** 拆，且把 `.inc`/类型/helper 一起迁移并保持定义顺序。
 - N5.0.2f：VDC SCPI 拆分在设计后成功（6,393→5,712）；P3 `20261024170018`；VDC SCPI 查询 smoke 通过。
-- 下一步：N5.0.2g TDMA flight 拆分设计 → N5.2a 延迟事务；N3.2.7 可选。
+- N5.2a 第二次诊断：环 start/stop 后 stage 仍 PACKAGE_INVALID（staging_state=3/last_error=7）；deferral 不是充分条件，代码已回退。
+- 下一步：N5.2a 设计（app-model table package 与 TDMA process image 分离/重置）→ N5.0.2g；N3.2.7 可选。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 
