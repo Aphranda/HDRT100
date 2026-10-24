@@ -36,6 +36,7 @@ Last updated: 2026-10-24
   - per-target soak 10/10：`inject_ok=54`（1 次重传为 60）、三目标 `frag_complete=1`。`out/refmem_transport_diag/n327_pertarget_soak10_202610241803/`。
   - drop 1 1/1：`inject_ok=67`、三目标 `frag_complete=1`。`n327_pertarget_drop1_202610241810/`。
   - reply HIL multi：`state=4`、`ack_flags=14`、`aggregate_state=4`。`out/refmem_cmd_reply/pertarget_multi_202610241810/`。
+  - per-target soak 20/20：4 次重传恢复（`inject_ok=60/62`）、1 次 restart，三目标 `frag_complete=1`。`out/refmem_transport_diag/n327_pertarget_soak20_202610241849/`。
   - P3：build `20261024102324`，源码指纹 `9da69200c16121a8d8205d9f4316997df8395a77ff1b441122d47ff1cbf547fd`（1930 files），`QUICK_DIAGNOSTIC`，credential written；DPLL 前两次失败后 `--steps 7-36` 重试通过；step 26/33 warn，无 ERROR/FATAL。
 
 ### REFMEM-TASK-20261024-010 — N3.2.8 契约/文档收口与 ACK 席位优先级
