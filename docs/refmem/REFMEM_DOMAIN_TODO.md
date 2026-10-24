@@ -399,6 +399,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - 进展（2026-10-24）：原子入口 `SYSTem:CTRL:EXECute/STATus?/CATalog?` + 命令目录 3 条试点 + 本地分发（LOAD_NODE ACKED、LOAD_BOARD 负路径）通过；`REFMEM:NODES?` 观测落地。**未完成**：params ref（N2.4）、请求/状态分离（N2.5）、跨板同步（N3）。
   - 进展（2026-10-24，build `20261023172516`）：参数池绑定 TLV、请求/状态分离（`update_status`/`apply_request`）、命令帧 `refmem_cmd_frame` build/apply、`EXECute` 帧 loopback（QUEUED→ACKED）；SCPI 全量目录 829 条（386 setter）。**未完成**：跨板发送/远端 apply/租约（N3.2）、REF 路径与 `LOAD_SD`、N4/N5.2。
   - 进展（2026-10-24，build `20261023180940`）：N3.2 分片传输（9 B 记录 / 0x55 解析 / 按 service 节流）落库；本地帧回环通过；**带环远端 HIL 未通过**（参考板 `QUEUED`、目标无记录）。下一步：补 0x55 每类型 RX 与分片 accepted/rejected/submit_fail 计数定位；剩余待办见 `out/refmem/REMAINING_TODO.md`。
+  - 进展（2026-10-24，build `20261024022034`）：N3.2 远端投递打通——维护流 8 帧 TX 队列、分片 8 条/帧、动态 `distributed_refmem_local_slot()`、消费门禁修正；COM4 `NODE:CONTrol?` 出现远端请求（target=2/type=14），`SYSTem:REFMEM:CMDFRame?` ok=1；目标 NACK reason=13（RUN 中 config staging 被拒，fail-closed）。下一步：idle 窗口/`STOP→stage→START` 事务（N4）+ ACK 回传。
 - [ ] 扩展 `refmem_command_request_t` / `refmem_command_snapshot_t`：`coordinator_slot`、`coordinator_boot_id`、`lease_epoch`、`catalog_crc32`、`fence_required`、`fence_state`、`control_reply`；旧字段语义不变，host 用例覆盖旧快照兼容。
 - [ ] 定义 `control_owner_slot` 解析与唯一性门禁：profile 未声明时取最低已 claim 插槽；`DeploymentGate` 拒绝零个或多个控制 owner 的 RUN。
 - [ ] 实现协调者租约：`CONTROL_LEASE_TAKE/RENEW/RELEASE`；仅 STOP/维护态迁移；RUN 中丢失 fail-closed 进入 `CONTROL_LOST`，禁止静默双主。

@@ -25,6 +25,7 @@ Last updated: 2026-10-23
 - 夜间 N0/N1/N2.3（2026-10-24，build `20261023164831`）：命令目录 3 条试点 + `SYSTem:CTRL:EXECute/STATus?/CATalog?` + 本地分发（LOAD_NODE ACKED、LOAD_BOARD 负路径）+ `SYSTem:REFMEM:NODES?`（本板 stale=0、远端 stale=1）；工作区未提交，等批量 P3。
 - 夜间 N2.4/N2.5/N3.1（2026-10-24，build `20261023172516`）：参数池绑定 TLV；请求/状态分离（`update_status`/`apply_request`）；命令帧 `refmem_cmd_frame`（snapshot+params）build/apply；`EXECute` 帧 loopback 验证 QUEUED→ACKED；SCPI 全量目录 829 条（386 setter）。
 - 夜间 N3.2（2026-10-24，build `20261023175156`）：分片传输（9 B 记录/0x55 解析/节流）落地；本地帧回环 HIL 通过；带环远端 HIL 未通过（参考板 QUEUED，目标无记录），待诊断维护 TX/AO 服务节奏。
+- 夜间 N3.2 传输（2026-10-24，build `20261024022034`）：维护流 8 帧 TX 队列/分片打包/动态 local slot/消费门禁修正；远端 frame→apply→consume→dispatch 打通（COM4 NACK reason=13 为 RUN 配置门禁）。
 
 ### REFMEM-TASK-20261021-005 — HAOFV 偏差审查
 
