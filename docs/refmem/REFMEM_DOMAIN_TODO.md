@@ -488,7 +488,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 | 里程碑 | 内容 | 验收 | 依赖 |
 |---|---|---|---|
-| **N5.0** | 文件拆分（前置，不改行为）：按关注点拆 `distributed_refmem.c` / `scpi_system_snapshot_commands.c` 等；设行数预算 | 无单文件超预算；build/host/P3/HIL 烟测；行为不变 | 无 |
+| **N5.0** ⏳（N5.0.2a 完成） | 文件拆分（前置，不改行为）：按关注点拆 `distributed_refmem.c` / `scpi_system_snapshot_commands.c` 等；设行数预算 | 无单文件超预算；build/host/P3/HIL 烟测；行为不变 | 无 |
 | **N5.1** ✅（审核完成：LEASE active；TRANSPORT/IDLE pending） | 契约交叉审核 `REFTMEM-LEASE-01`/`IDLE-01`/`TRANSPORT-01` | 交叉审核记录 + 转 active 或记录偏差 | 无（可并行） |
 | **N5.2** | 远程配置 owner/permission + 环安全 stage：N5.2a 环运行期 app-model staging（PACKAGE_INVALID）；N5.2b 谁可以 stage 哪个节点；N5.2c 真实 STOP→stage→START | 远程 stage 真正 ACK（N5.2a+b）；未授权 `PERMISSION_DENIED`；两板/四板 HIL；全程 STOP 边界 | N5.0、N5.1 |
 | **N5.3** | `control_owner_slot` 冻结（profile 元数据或 BoardCapabilityTable 择一） | 唯一协调者槽 + 只读视图 + 契约 | N5.2 |
@@ -517,6 +517,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 - **N5.0.1** 预算与关注点地图（docs，无代码）：新文件 ≤800 行；拆分后单文件 ≤1,500；>2,000 需 TODO/豁免；>3,000 冻结新功能（拆分除外）。
 - **N5.0.2** `distributed_refmem.c` 先拆；**N5.2a 代码必须等它完成**，避免继续给 6.3k 行文件加功能。
+  - **N5.0.2a** ✅（2026-10-24）：config-txn 拆出到 `refmem_config_txn.c`；`distributed_refmem.c` 6,370→6,315；P3 `20261024144807`；config txn HIL 14/14。下一刀 cmd-reply/command/tdma-vdc/diag。
 - **N5.0.3** `scpi_system_snapshot_commands.c` 按域拆（当前最大文件，6,393 行）。
 - **N5.0.4** VDC/calibration/TDMA adapter 依次拆；每步单独提交。
 - **N5.0.5** 预算门禁（可选 line-count 检查）+ 文档/HAOFV 收口。
