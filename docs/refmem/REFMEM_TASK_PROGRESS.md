@@ -10,11 +10,11 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261024-005`。
+- 最新条目：`REFMEM-TASK-20261024-006`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
   RUN 配置 idle 窗口仍开放。
-- N3.2：诊断计数、SPSC 队列、RX 新帧重启完成；整帧丢失的可靠重试留给 N3.2.4。
-- 下一步：N3.2.4 per-stream ACK/重试 → N3.2.5 多批命令 → N3.3/N4。
+- N3.2：诊断计数、SPSC 队列、RX 重启、帧级 ACK/重试完成；丢 1 chunk 可恢复。
+- 下一步：N3.2.5 多批命令 → N3.2.6 帧尺寸/ref → N3.2.7 HIL 矩阵 → N3.2.8 收口。
 
 ## 归档索引
 
@@ -23,6 +23,21 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_01.md` | REFMEM-TASK-20260813-021..REFMEM-TASK-20260813-001 | 21 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
+
+### REFMEM-TASK-20261024-006 — N3.2.4 维护帧 ACK/有界重试
+
+- 状态：帧级 stop-and-wait ACK + 有界重试完成；正常、丢 1 chunk 与 P3 均通过。
+- 任务目标：维护帧丢失后不静默丢；TX 保留未 ACK 帧，目标回帧级 ACK，超时重传；重试 generation+1，目标按新 generation 重启重组。
+- 完成内容：
+  - `tdma_maintenance_runtime`：整帧发完后保留槽位并等待 ACK（`tx_awaiting_ack`）；50 ms 超时、最多 3 次、每次 generation+1；`tdma_maintenance_runtime_ack()` 只接受匹配 `stream_id:generation` 的 ACK。
+  - 目标：`refmem_cmd_load_service` 在解析维护帧后 arm ACK；process-image builder 用 ACK 席位回 `stream_id:generation + result`（诊断字节 `0xA0|result`，flags 仅 VALID，不带 COMMAND），源端 `parse_mailbox` 识别并调用 runtime ACK。
+  - 新增 `SYSTem:REFMEM:CMD:DROP <n>` 调试注入口，丢 chunk 触发重试；`CMD:STATus?` 追加 `tx_awaiting_ack/tx_ack_ok/tx_retries/tx_ack_fail/tx_dropped_chunks`。
+- 验证结果：
+  - 正常 exec196 2/2：`tx_ack_ok=7`、`tx_retries=0`、`tx_ack_fail=0`、三目标 `frag_complete=1`。证据 `out/refmem_transport_diag/n324_exec196_202610241433/`。
+  - 丢 1 chunk 2/2：`tx_dropped_chunks=1`、`tx_retries=1`、`tx_ack_ok=7`、三目标 `frag_complete=1`、`rx_restarts=1`。证据 `out/refmem_transport_diag/n324_drop1_202610241435/`。
+- 未覆盖：重复/乱序/窗口 miss 的完整矩阵（N3.2.7）；当前是整帧重传，不是 per-chunk 位图。
+- P3：build `20261024071934`，源码指纹 `5a4c52f479cf8823b48e232e6dcb323536a01494c2f6580576ab106b33e57d84`（1930 files），`QUICK_DIAGNOSTIC`，`credential: written`；step 29 DPLL 最终通过（146.9s），step 26/33 warn；前三次 DPLL `recorder cancel did not complete` 判为台架/recorder 间歇，最终全量重跑恢复。
+- 下一步：N3.2.5 多批命令；N3.2.7 HIL 矩阵（重复/乱序/窗口 miss/RX timeout/soak）。
 
 ### REFMEM-TASK-20261024-005 — N3.2.3 RX 新帧重启与唯一 chunk 计数
 
