@@ -19,6 +19,7 @@
 #include "refmem_param_pool.h"
 #include "refmem_cmd_frame.h"
 #include "refmem_cmd_reply.h"
+#include "tdma_maintenance_runtime.h"
 #include "refmem_node_load_sync.h"
 #include "refmem_quality.h"
 #include "refmem_realtime_tdma.h"
@@ -1347,7 +1348,20 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
     uint16_t ack_seq16 = 0u;
     uint8_t ack_reason =
         (uint8_t)(s_tdma_flight_sync.last_error & 0xFFu);
-    if (distributed_refmem_cmd_reply_pending()) {
+    uint8_t maint_ack_stream_id = 0u;
+    uint8_t maint_ack_generation = 0u;
+    bool maint_ack_ok = false;
+    if (refmem_cmd_load_peek_maintenance_ack(&maint_ack_stream_id,
+                                             &maint_ack_generation,
+                                             &maint_ack_ok)) {
+        /* N3.2.4: the ACK seat carries a maintenance-frame ACK, tagged with a
+         * diagnostic magic so the origin can distinguish it from a command
+         * reply.  seq16 = stream_id:generation, bit0 of the magic = result. */
+        ack_seq16 = (uint16_t)(((uint16_t)maint_ack_stream_id << 8u) |
+                               maint_ack_generation);
+        ack_flags = TDMA_PROCESS_IMAGE_ACK_FLAG_VALID;
+        ack_reason = (uint8_t)(0xA0u | (maint_ack_ok ? 0u : 1u));
+    } else if (distributed_refmem_cmd_reply_pending()) {
         refmem_cmd_reply_t reply = {
             .command_seq = s_cmd_reply_tx.command_seq,
             .state = s_cmd_reply_tx.state,
@@ -1910,10 +1924,26 @@ static void distributed_refmem_tdma_flight_parse_mailbox(
         mailbox[TDMA_PROCESS_IMAGE_OPTIONAL_DIAGNOSTIC_OFFSET];
     s_tdma_flight_sync.last_mailbox_crc16 = distributed_refmem_get_le16(
         &mailbox[TDMA_PROCESS_IMAGE_CRC_OFFSET]);
-    distributed_refmem_cmd_reply_store(
-        header.source_slot, s_tdma_flight_sync.last_ack_seq16,
-        s_tdma_flight_sync.last_ack_flags,
-        (uint8_t)s_tdma_flight_sync.last_optional_diagnostic);
+    const uint8_t ack_diag =
+        (uint8_t)s_tdma_flight_sync.last_optional_diagnostic;
+    if ((s_tdma_flight_sync.last_ack_flags &
+         TDMA_PROCESS_IMAGE_ACK_FLAG_VALID) != 0u &&
+        (s_tdma_flight_sync.last_ack_flags &
+         TDMA_PROCESS_IMAGE_ACK_FLAG_COMMAND) == 0u &&
+        (ack_diag & 0xF0u) == 0xA0u) {
+        /* N3.2.4 maintenance-frame ACK: seq16 is stream_id:generation and the
+         * diagnostic low bit is the result.  It is not a command reply. */
+        const uint8_t ack_stream_id =
+            (uint8_t)(s_tdma_flight_sync.last_ack_seq16 >> 8u);
+        const uint8_t ack_generation =
+            (uint8_t)(s_tdma_flight_sync.last_ack_seq16 & 0xFFu);
+        (void)tdma_maintenance_runtime_ack(ack_stream_id, ack_generation,
+                                           (ack_diag & 1u) == 0u);
+    } else {
+        distributed_refmem_cmd_reply_store(
+            header.source_slot, s_tdma_flight_sync.last_ack_seq16,
+            s_tdma_flight_sync.last_ack_flags, ack_diag);
+    }
     if (result == REFMEM_SYNC_RX_ACCEPTED) {
         s_tdma_flight_sync.rx_accept_count++;
         s_tdma_flight_sync.last_error = 0u;
@@ -2080,10 +2110,14 @@ static void distributed_refmem_tdma_flight_sync_publish(
                 : DISTRIBUTED_REFMEM_POSITION_TRANSPORT_FAILURE_FIFO_READY;
         s_tdma_flight_sync.position_tx_wait_count++;
     }
+    const bool maint_ack_publication =
+        refmem_cmd_load_peek_maintenance_ack(NULL, NULL, NULL) &&
+        !position_publication && !resident_master && feedback <= 0;
     const bool reply_publication =
-        distributed_refmem_cmd_reply_pending() && !position_publication &&
-        !resident_master && feedback <= 0;
-    const uint8_t message_class = reply_publication
+        !maint_ack_publication && distributed_refmem_cmd_reply_pending() &&
+        !position_publication && !resident_master && feedback <= 0;
+    const uint8_t message_class =
+        (reply_publication || maint_ack_publication)
         ? TDMA_PROCESS_IMAGE_MESSAGE_CLASS
         : position_publication
         ? TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS
@@ -2092,7 +2126,9 @@ static void distributed_refmem_tdma_flight_sync_publish(
         : (feedback == 2 ? TDMA_PROCESS_IMAGE_VDC_BOUNDARY_COMMAND_MESSAGE_CLASS
             : (feedback == 1 ? TDMA_PROCESS_IMAGE_VDC_FEEDBACK_MESSAGE_CLASS
                              : TDMA_PROCESS_IMAGE_MESSAGE_CLASS));
-    const uint32_t target_mask = reply_publication
+    const uint32_t target_mask = maint_ack_publication
+        ? (1u << s_tdma_flight_sync.reference_slot)
+        : reply_publication
         ? (1u << s_cmd_reply_tx.origin_slot)
         : position_publication
         ? s_tdma_flight_sync.position_tx_target_mask
@@ -2197,6 +2233,8 @@ static void distributed_refmem_tdma_flight_sync_publish(
             if (s_cmd_reply_tx.publish_remaining != 0u) {
                 s_cmd_reply_tx.publish_remaining--;
             }
+        } else if (maint_ack_publication) {
+            refmem_cmd_load_consume_maintenance_ack();
         } else if (position_publication) {
             s_tdma_flight_sync.position_tx_publish_count++;
             s_tdma_flight_sync.position_tx_phase =

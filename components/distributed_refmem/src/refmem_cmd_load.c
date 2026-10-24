@@ -37,6 +37,11 @@ static uint32_t s_pending_active;
 static uint32_t s_frag_complete;
 static uint32_t s_frag_submit_fail;
 static uint32_t s_frag_rejected;
+static uint8_t s_maint_ack_stream_id;
+static uint8_t s_maint_ack_generation;
+static uint8_t s_maint_ack_ok;
+static uint32_t s_maint_ack_remaining;
+static uint32_t s_maint_ack_count;
 
 static void refmem_cmd_load_service_fragments(void);
 
@@ -207,7 +212,39 @@ void refmem_cmd_load_service(void)
     while (tdma_maintenance_runtime_take(frame, sizeof(frame), &frame_size,
                                          &stream_id, &generation)) {
         s_rx_frames++;
-        (void)tdma_second_class_parser_dispatch(stream_id, frame, frame_size);
+        const bool accepted =
+            tdma_second_class_parser_dispatch(stream_id, frame, frame_size);
+        s_maint_ack_stream_id = stream_id;
+        s_maint_ack_generation = generation;
+        s_maint_ack_ok = accepted ? 1u : 0u;
+        s_maint_ack_remaining = 4u;
+        s_maint_ack_count++;
+    }
+}
+
+bool refmem_cmd_load_peek_maintenance_ack(uint8_t *stream_id,
+                                          uint8_t *generation,
+                                          bool *ok)
+{
+    if (s_maint_ack_remaining == 0u) {
+        return false;
+    }
+    if (stream_id != NULL) {
+        *stream_id = s_maint_ack_stream_id;
+    }
+    if (generation != NULL) {
+        *generation = s_maint_ack_generation;
+    }
+    if (ok != NULL) {
+        *ok = s_maint_ack_ok != 0u;
+    }
+    return true;
+}
+
+void refmem_cmd_load_consume_maintenance_ack(void)
+{
+    if (s_maint_ack_remaining != 0u) {
+        s_maint_ack_remaining--;
     }
 }
 
@@ -321,6 +358,11 @@ bool refmem_cmd_load_get_status(refmem_cmd_load_status_t *status)
     status->rx_chunk_rejects = runtime_diag.rx_chunk_rejects;
     status->rx_restarts = runtime_diag.rx_restarts;
     status->rx_duplicate_chunks = runtime_diag.rx_duplicate_chunks;
+    status->tx_awaiting_ack = runtime_diag.tx_awaiting_ack;
+    status->tx_ack_ok = runtime_diag.tx_ack_ok;
+    status->tx_retries = runtime_diag.tx_retries;
+    status->tx_ack_fail = runtime_diag.tx_fail;
+    status->tx_dropped_chunks = runtime_diag.tx_dropped_chunks;
     return true;
 }
 

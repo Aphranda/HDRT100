@@ -78,6 +78,8 @@ FIELDS = [
     "rx_polls", "rx_seen_chunks", "rx_accepted_chunks",
     "rx_dedup_sequence", "rx_bad_mailbox", "rx_last_sequence",
     "rx_sequence_cursor", "rx_restarts", "rx_duplicate_chunks",
+    "tx_awaiting_ack", "tx_ack_ok", "tx_retries", "tx_ack_fail",
+    "tx_dropped_chunks",
 ]
 
 # Expected maintenance chunks for each case.  The raw paths submit one 80 B
@@ -218,9 +220,12 @@ class DiagHil:
                 self.args.source_port,
                 "SYSTem:CTRL:EXECute REFMEM_MAINTENANCE_SELF_CHECK,"
                 f"{self.args.target_mask},{self.args.target_mask},0")
+            if self.args.drop > 0:
+                scpi(self.args.source_port,
+                     f"SYSTem:REFMEM:CMD:DROP {self.args.drop}")
         if "QUEUED" not in response:
             raise RuntimeError(f"command not queued: {response}")
-        return {"response": response}
+        return {"response": response, "drop": self.args.drop}
 
     def start_ring(self, case: dict) -> None:
         command = [
@@ -394,6 +399,8 @@ def main() -> int:
     parser.add_argument("--target-mask", type=lambda value: int(value, 0),
                         default=0x0E)
     parser.add_argument("--repeat-7", type=int, default=1)
+    parser.add_argument("--drop", type=int, default=0,
+                        help="drop N maintenance chunks before the ring starts")
     parser.add_argument("--only", default=None,
                         help="run only one case by name (raw16/raw56/raw56_x2/exec196)")
     parser.add_argument("--reset-settle-s", type=float, default=8.0)

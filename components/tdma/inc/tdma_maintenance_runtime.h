@@ -21,6 +21,18 @@ bool tdma_maintenance_runtime_take(uint8_t *frame,
                                    size_t *frame_size,
                                    uint8_t *stream_id,
                                    uint8_t *generation);
+
+/* N3.2.4 frame-level ACK: the receiver reports the completed maintenance
+ * frame's (stream_id, generation); only a matching ACK releases the TX slot.
+ * A NACK or a missing ACK retries the whole frame with a new generation. */
+bool tdma_maintenance_runtime_ack(uint8_t stream_id,
+                                  uint8_t generation,
+                                  bool ok);
+
+/* Test/debug only: drop the next N maintenance chunks (the stream index still
+ * advances) to exercise retry.  Zero on INIT. */
+void tdma_maintenance_runtime_drop_chunks(uint32_t count);
+
 void tdma_maintenance_runtime_get_counters(uint32_t *mailbox_calls,
                                            uint32_t *chunks,
                                            uint32_t *frames,
@@ -42,6 +54,11 @@ typedef struct {
     uint32_t rx_chunk_rejects;
     uint32_t rx_restarts;
     uint32_t rx_duplicate_chunks;
+    uint32_t tx_awaiting_ack;
+    uint32_t tx_ack_ok;
+    uint32_t tx_retries;
+    uint32_t tx_fail;
+    uint32_t tx_dropped_chunks;
 } tdma_maintenance_runtime_diag_t;
 
 void tdma_maintenance_runtime_get_diag(tdma_maintenance_runtime_diag_t *diag);

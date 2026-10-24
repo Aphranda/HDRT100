@@ -24,6 +24,13 @@ void refmem_cmd_load_service(void);
 bool refmem_cmd_load_submit_fragments(
     const refmem_command_snapshot_t *snapshot,
     const uint32_t *params);
+/* N3.2.4 maintenance-frame ACK: the RX service arms the completed frame's
+ * stream_id/generation; the process-image builder publishes it on the per-node
+ * ACK seat for a few frames, then consumes it. */
+bool refmem_cmd_load_peek_maintenance_ack(uint8_t *stream_id,
+                                          uint8_t *generation,
+                                          bool *ok);
+void refmem_cmd_load_consume_maintenance_ack(void);
 
 typedef struct {
     uint32_t load_initialized;
@@ -94,6 +101,11 @@ typedef struct {
     uint32_t rx_sequence_cursor;
     uint32_t rx_restarts;
     uint32_t rx_duplicate_chunks;
+    uint32_t tx_awaiting_ack;
+    uint32_t tx_ack_ok;
+    uint32_t tx_retries;
+    uint32_t tx_ack_fail;
+    uint32_t tx_dropped_chunks;
 } refmem_cmd_load_status_t;
 
 bool refmem_cmd_load_get_status(refmem_cmd_load_status_t *status);

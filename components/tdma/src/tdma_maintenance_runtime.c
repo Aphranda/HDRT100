@@ -2,9 +2,13 @@
 
 #include <string.h>
 
+#include "osal.h"
 #include "tdma_maintenance_stream.h"
 #include "tdma_process_image_layout.h"
 #include "tdma_spsc_index.h"
+
+#define TDMA_MAINTENANCE_ACK_TIMEOUT_MS 50u
+#define TDMA_MAINTENANCE_MAX_ATTEMPTS 3u
 
 static tdma_pio_spi_ring_adapter_t *s_adapter;
 static tdma_maintenance_stream_tx_t s_tx;
@@ -33,23 +37,63 @@ static volatile uint32_t s_tx_dequeued;
 static volatile uint32_t s_rx_chunk_rejects;
 static volatile uint32_t s_rx_restarts;
 static volatile uint32_t s_rx_duplicate_chunks;
+static volatile uint32_t s_tx_awaiting_ack;
+static volatile uint32_t s_tx_sent_ms;
+static volatile uint32_t s_tx_attempts;
+static volatile uint8_t s_tx_active_stream_id;
+static volatile uint8_t s_tx_active_generation;
+static uint32_t s_tx_ack_pending;
+static volatile uint32_t s_tx_ack_ok;
+static volatile uint32_t s_tx_retries;
+static volatile uint32_t s_tx_fail;
+static uint32_t s_drop_chunks;
+static volatile uint32_t s_tx_dropped_chunks;
+
+static void maintenance_release_slot(void)
+{
+    s_tx.frame = NULL;
+    __atomic_store_n(&s_tx_awaiting_ack, 0u, __ATOMIC_RELEASE);
+    const uint32_t head = s_tx_queue_head;
+    __atomic_store_n(&s_tx_queue_head,
+                     tdma_spsc_next(head, TDMA_MAINTENANCE_RUNTIME_TX_QUEUE),
+                     __ATOMIC_RELEASE);
+    s_tx_dequeued++;
+}
 
 static bool maintenance_mailbox(void *context,
                                 uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE])
 {
     (void)context;
     s_mailbox_calls++;
-    if (s_tx.frame != NULL && s_tx.next_chunk >= s_tx.chunk_count) {
-        /* The frame has been fully handed to the wire.  Release its slot only
-         * now: the stream keeps a pointer into the queue slot while draining,
-         * so advancing head earlier would let the producer overwrite a frame
-         * that is still being transmitted. */
-        s_tx.frame = NULL;
-        const uint32_t head = s_tx_queue_head;
-        __atomic_store_n(&s_tx_queue_head,
-                         tdma_spsc_next(head, TDMA_MAINTENANCE_RUNTIME_TX_QUEUE),
-                         __ATOMIC_RELEASE);
-        s_tx_dequeued++;
+    if (__atomic_load_n(&s_tx_awaiting_ack, __ATOMIC_ACQUIRE) != 0u) {
+        const uint32_t ack =
+            __atomic_exchange_n(&s_tx_ack_pending, 0u, __ATOMIC_ACQ_REL);
+        if (ack == 1u) {
+            s_tx_ack_ok++;
+            maintenance_release_slot();
+            return false;
+        }
+        const uint32_t now = osal_tick_ms();
+        if (ack == 2u ||
+            (uint32_t)(now - s_tx_sent_ms) >=
+                TDMA_MAINTENANCE_ACK_TIMEOUT_MS) {
+            if (s_tx_attempts >= TDMA_MAINTENANCE_MAX_ATTEMPTS) {
+                s_tx_fail++;
+                s_rejects++;
+                maintenance_release_slot();
+                return false;
+            }
+            s_tx_attempts++;
+            s_tx_retries++;
+            s_tx.generation = (uint8_t)(s_tx.generation + 1u);
+            s_tx.next_chunk = 0u;
+            __atomic_store_n(&s_tx_active_generation, s_tx.generation,
+                             __ATOMIC_RELEASE);
+            s_tx_sent_ms = now;
+            __atomic_store_n(&s_tx_awaiting_ack, 0u, __ATOMIC_RELEASE);
+            return false;
+        }
+        return false; /* waiting for the receiver's frame ACK */
     }
     if (s_tx.frame == NULL) {
         const uint32_t head = s_tx_queue_head;
@@ -63,6 +107,25 @@ static bool maintenance_mailbox(void *context,
                 s_tx_queue_stream_id[head], s_tx_queue_generation[head])) {
             return false;
         }
+    }
+    if (s_tx.next_chunk >= s_tx.chunk_count) {
+        /* The frame has been fully handed to the wire.  Keep the slot until
+         * the receiver ACKs this exact generation; only then release it. */
+        __atomic_store_n(&s_tx_active_stream_id, s_tx.stream_id,
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&s_tx_active_generation, s_tx.generation,
+                         __ATOMIC_RELEASE);
+        s_tx_sent_ms = osal_tick_ms();
+        s_tx_attempts = 1u;
+        __atomic_store_n(&s_tx_awaiting_ack, 1u, __ATOMIC_RELEASE);
+        return false;
+    }
+    if (__atomic_load_n(&s_drop_chunks, __ATOMIC_ACQUIRE) != 0u) {
+        __atomic_sub_fetch(&s_drop_chunks, 1u, __ATOMIC_ACQ_REL);
+        s_tx_dropped_chunks++;
+        uint8_t discarded[TDMA_MAINTENANCE_CHUNK_SIZE];
+        (void)tdma_maintenance_stream_next_chunk(&s_tx, discarded);
+        return false;
     }
     uint8_t chunk[TDMA_MAINTENANCE_CHUNK_SIZE];
     if (!tdma_maintenance_stream_next_chunk(&s_tx, chunk)) {
@@ -101,6 +164,12 @@ bool tdma_maintenance_runtime_init(tdma_pio_spi_ring_adapter_t *adapter,
     memset(&s_rx, 0, sizeof(s_rx));
     s_tx_queue_head = 0u;
     s_tx_queue_tail = 0u;
+    __atomic_store_n(&s_tx_awaiting_ack, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_tx_ack_pending, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_drop_chunks, 0u, __ATOMIC_RELEASE);
+    s_tx_attempts = 0u;
+    s_tx_active_stream_id = 0u;
+    s_tx_active_generation = 0u;
     tdma_pio_spi_ring_adapter_set_maintenance_mailbox(
         adapter, maintenance_mailbox, NULL);
     return true;
@@ -195,12 +264,31 @@ bool tdma_maintenance_runtime_take(uint8_t *frame,
     return false;
 }
 
+bool tdma_maintenance_runtime_ack(uint8_t stream_id,
+                                  uint8_t generation,
+                                  bool ok)
+{
+    if (__atomic_load_n(&s_tx_awaiting_ack, __ATOMIC_ACQUIRE) == 0u) {
+        return false;
+    }
+    if (stream_id != s_tx_active_stream_id ||
+        generation != s_tx_active_generation) {
+        return false; /* late ACK for an older attempt */
+    }
+    __atomic_store_n(&s_tx_ack_pending, ok ? 1u : 2u, __ATOMIC_RELEASE);
+    return true;
+}
+
+void tdma_maintenance_runtime_drop_chunks(uint32_t count)
+{
+    __atomic_store_n(&s_drop_chunks, count, __ATOMIC_RELEASE);
+}
+
 void tdma_maintenance_runtime_get_counters(uint32_t *mailbox_calls,
                                            uint32_t *chunks,
                                            uint32_t *frames,
                                            uint32_t *rejects)
-{
-    if (mailbox_calls != NULL) {
+{    if (mailbox_calls != NULL) {
         *mailbox_calls = s_mailbox_calls;
     }
     if (chunks != NULL) {
@@ -236,4 +324,10 @@ void tdma_maintenance_runtime_get_diag(tdma_maintenance_runtime_diag_t *diag)
     diag->rx_chunk_rejects = s_rx_chunk_rejects;
     diag->rx_restarts = s_rx_restarts;
     diag->rx_duplicate_chunks = s_rx_duplicate_chunks;
+    diag->tx_awaiting_ack =
+        __atomic_load_n(&s_tx_awaiting_ack, __ATOMIC_ACQUIRE);
+    diag->tx_ack_ok = s_tx_ack_ok;
+    diag->tx_retries = s_tx_retries;
+    diag->tx_fail = s_tx_fail;
+    diag->tx_dropped_chunks = s_tx_dropped_chunks;
 }

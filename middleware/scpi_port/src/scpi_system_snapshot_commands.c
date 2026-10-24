@@ -29,6 +29,7 @@
 #include "refmem_sync.h"
 #include "refmem_sync_hello.h"
 #include "refmem_table_registry.h"
+#include "tdma_maintenance_runtime.h"
 #include "scpi_port_internal.h"
 #include "storage_manager.h"
 #include "system_manager.h"
@@ -835,6 +836,17 @@ scpi_result_t scpi_cmd_refmem_cmd_submit_type(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_cmd_drop(scpi_t *context)
+{
+    uint32_t count = 0u;
+    if (!scpi_port_read_u32(context, &count)) {
+        return SCPI_RES_ERR;
+    }
+    tdma_maintenance_runtime_drop_chunks(count);
+    SCPI_ResultUInt32(context, count);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_cmd_status_q(scpi_t *context)
 {
     refmem_cmd_load_status_t status;
@@ -908,6 +920,11 @@ scpi_result_t scpi_cmd_refmem_cmd_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, status.rx_sequence_cursor);
     SCPI_ResultUInt32(context, status.rx_restarts);
     SCPI_ResultUInt32(context, status.rx_duplicate_chunks);
+    SCPI_ResultUInt32(context, status.tx_awaiting_ack);
+    SCPI_ResultUInt32(context, status.tx_ack_ok);
+    SCPI_ResultUInt32(context, status.tx_retries);
+    SCPI_ResultUInt32(context, status.tx_ack_fail);
+    SCPI_ResultUInt32(context, status.tx_dropped_chunks);
     return SCPI_RES_OK;
 }
 
