@@ -447,6 +447,20 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 **N3.2.8 进展（2026-10-24）**：`REFTMEM-TRANSPORT-01` 登记维护流帧级 ACK（复用同一 process-image ACK 席位、诊断 magic `0xA0`、命令回复优先）；`TDMA_DOMAIN_ARCHITECTURE`/`REFMEM_DOMAIN_ARCHITECTURE` 补 stop-and-wait/重试/≥2 s 窗口/优先级；`SCPI_COMMANDS` 已记 `CMD:DROP`；N3.2.6 紧凑帧负结果列为已延后偏差。无新增 payload class、物理总线、第二命令槽。ACK 席位优先级修正后 reply HIL（multi）通过，exec196 normal/drop1 通过；P3 build `20261024090754`（fingerprint `b81745…`）credential written。
 
 **每项完成后的 HAOFV 审查门**：①是否新增总线/payload class/第二命令槽/第二 ACK 事实；②是否占用 core1 硬实时窗口或拉长一等席周期；③单写者与 owner 边界是否保持；④故障是否 fail-closed 且有 reason/evidence；⑤布局/版本/契约是否同步；⑥host + 四板证据是否可复跑。任一项不满足不进入下一子项。
+
+## P8.1 - N3.3 最小租约 / N4 idle 窗口（2026-10-24 启动）
+
+| 里程碑 | 内容 | 验收 | 依赖 |
+|---|---|---|---|
+| **N3.3.1** ✅ | `refmem_lease` 状态机 + host 用例 | TAKE/CONFLICT/RELEASE/TAKE、stale epoch、expiry、not-owner | — |
+| **N3.3.2** ✅（本地 smoke） | 目录 `REFTMEM_LEASE_TAKE/RELEASE` + `refmem_lease_table` + 节点控制 + `SYSTem:REFMEM:LEASE?` | 本地 TAKE→RELEASE→TAKE，`LEASE?` owner/epoch/state 正确 | N3.3.1 |
+| **N3.3.3** ⏳ | 两板 HIL：A TAKE→B CONFLICT→A RELEASE→B TAKE，含 ring stop→start | 两板逐目标证据 | N3.3.2、N3.2.5 |
+| **N3.3.4** | 契约/文档/HAOFV 收口 | 门禁绿 | N3.3.3 |
+| **N4.1** | idle 窗口门控：RUN 中配置类命令显式 BUSY/REJECT | 不静默执行 | N3.3 |
+| **N4.2** | STOP→stage→START 事务 + 回滚 | 两板 HIL | N4.1 |
+| **N4.3/4.4** | HIL + 契约/文档收口 | 门禁绿 | N4.2 |
+
+**N3.3.2 本地 smoke（2026-10-24）**：COM4 本地 `CTRL:EXECute 5,2,2,1,1000` → `LEASE?=1,1,1,90406,1,"GRANTED"`、`CTRL:STATus? state=ACKED`；`EXECute 6,2,2,1` → `FREE`；`EXECute 5,2,2,2,1000` → `1,2,1,"GRANTED"`。CONFLICT/远端路径待 N3.3.3 两板环。
 - [ ] 扩展 `refmem_command_request_t` / `refmem_command_snapshot_t`：`coordinator_slot`、`coordinator_boot_id`、`lease_epoch`、`catalog_crc32`、`fence_required`、`fence_state`、`control_reply`；旧字段语义不变，host 用例覆盖旧快照兼容。
 - [ ] 定义 `control_owner_slot` 解析与唯一性门禁：profile 未声明时取最低已 claim 插槽；`DeploymentGate` 拒绝零个或多个控制 owner 的 RUN。
 - [ ] 实现协调者租约：`CONTROL_LEASE_TAKE/RENEW/RELEASE`；仅 STOP/维护态迁移；RUN 中丢失 fail-closed 进入 `CONTROL_LOST`，禁止静默双主。

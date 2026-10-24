@@ -1621,6 +1621,14 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 
 **维护流可靠交付（2026-10-24，N3.2.1–N3.2.5）**：7 帧命令改为帧级 **stop-and-wait**：TX 整帧发完后保留槽位，每个目标在 process-image ACK 席位各回一份 `stream_id:generation + result`（诊断字节 `0xA0|result`，`seq16=stream_id:generation`）；源端按目标累积 ACK 掩码，`required_mask` 全覆盖才释放，单目标漏帧触发整帧重传；50 ms 超时、最多 3 次、每次 generation+1，接收端按新 generation 重启重组。**命令回复优先占用 ACK 席位，维护 ACK 仅在无命令回复时发布**，不延迟命令终态。重试耗尽计数并释放槽位，不静默丢帧；7 帧命令的 stop-and-wait 需 **≥2 s 环窗口**（0.5 s 窗口会留下未发完帧，属有界未完成而非丢帧）。N3.2.6 的 2 帧紧凑帧实验投递成功但目标回复未 arm，已回退并记为延后优化；不作为本路径的完成条件。
 
+## REFTMEM-LEASE-01 最小租约（N3.3）
+
+- 记录：每个目标节点一个 `refmem_lease_record_t`（`owner_slot`/`epoch`/`lease_seq`/`expiry_ms`/`state`），状态 `FREE/GRANTED/EXPIRED`。
+- 命令：目录命令 `REFTMEM_LEASE_TAKE`（`command_type=LEASE_TAKE`，参数 `epoch,ttl_ms`）与 `REFTMEM_LEASE_RELEASE`（`LEASE_RELEASE`，参数 `epoch`），经既有 `CTRL:EXECute`/命令槽/ACK 回程执行；不新增第二命令槽、第二 ACK 事实或 payload class。
+- 语义：同一 owner+epoch 重复 TAKE 只续期；其他 owner 得到 `CONFLICT`（reason `RESOURCE_BUSY`）；`epoch` 小于记录 `STALE_EPOCH`（`EPOCH_MISMATCH`）；过期后旧 owner RELEASE 得 `EXPIRED`（`TIMEOUT`），新 epoch 可接管；非 owner RELEASE 得 `NOT_OWNER`（`PERMISSION_DENIED`）。
+- 观测：`SYSTem:REFMEM:LEASE?` 返回 `owner,epoch,state,expiry_ms,lease_seq,state_name`；本地只读，不触发跨板查询。
+- 边界：租约是目标节点 RAM 记录，环 stop→start 保持、板复位清零；跨板复制/协调者选举、租约续期心跳尚未实现。
+
 **C0 命令路径（2026-10-23，build `20261023152319`）**：`refmem_node_control` 提供控制块的
 写/读/ACK/清除（seq+CRC 防撕裂）；AO 在 post/take/ack/nack/timeout/clear 后把本地 command slot
 镜像到本板 node slot，`refmem_cmd_load_submit` 在发送侧也写入本板控制记录；新增

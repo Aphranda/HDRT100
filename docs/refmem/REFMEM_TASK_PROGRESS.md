@@ -10,7 +10,7 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261024-011`。
+- 最新条目：`REFMEM-TASK-20261024-012`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
   RUN 配置 idle 窗口仍开放。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -24,6 +24,20 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 
+### REFMEM-TASK-20261024-012 — N3.3 最小租约（状态机 + 控制面接入）
+
+- 状态：N3.3.1/2 完成（host + 本地 smoke）；P3 待跑；N3.3.3 两板 HIL 待做。
+- 完成内容：
+  - `refmem_lease` 纯状态机（FREE/GRANTED/EXPIRED，owner/epoch/seq/expiry；TAKE/CONFLICT/STALE/EXPIRED/NOT_OWNER 的 fail-closed reason）。
+  - `refmem_lease_table` 每目标节点一条记录；目录新增 `REFTMEM_LEASE_TAKE`（type 18）/`REFTMEM_LEASE_RELEASE`（type 19），经现有命令槽/ACK 回程执行。
+  - `distributed_refmem_dispatch_control` 执行租约并映射 reason（CONFLICT→RESOURCE_BUSY、STALE→EPOCH_MISMATCH、EXPIRED→TIMEOUT、NOT_OWNER→PERMISSION_DENIED）。
+  - `SYSTem:REFMEM:LEASE?` 只读视图；`REFTMEM-LEASE-01` 契约登记（pending）。
+- 验证结果：
+  - host `test_refmem_lease` / `test_refmem_lease_table` PASS。
+  - COM4 本地 smoke：TAKE(epoch1) → `1,1,1,90406,1,"GRANTED"`、`CTRL:STATus? state=ACKED`；RELEASE → FREE；TAKE(epoch2) → `1,2,1,"GRANTED"`。
+  - 固件构建/刷写通过；`CTRL:CATalog?` 列出 id 5/6、type 18/19。
+- P3：build `20261024113544`，源码指纹 `3ba76ea57489ce930b8efd129ca8db04e51723637a44b35ffa7df1839ca3d55c`（1938 files），`QUICK_DIAGNOSTIC`，credential written；step 26/33 warn，无 ERROR/FATAL。
+- 下一步：N3.3.3 两板 HIL（A TAKE→B CONFLICT→A RELEASE→B TAKE，含 ring stop→start）。
 ### REFMEM-TASK-20261024-011 — per-target 维护帧 ACK
 
 - 状态：完成；P3 通过。
