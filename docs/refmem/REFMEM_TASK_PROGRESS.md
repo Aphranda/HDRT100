@@ -10,14 +10,15 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-001`。
+- 最新条目：`REFMEM-TASK-20261025-002`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
 - N5.0.2b：cmd-reply 拆出（6,315→6,109）；P3 `20261024151357`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2c：node control 拆出（6,109→6,003）；P3 `20261024154054`；config txn HIL 14/14。
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
-- 下一步：N5.0.2 剩余组（dispatch/tdma-vdc/diag）→ N5.2a 延迟事务 → N5.2b permission；N3.2.7 可选。
+- N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
+- 下一步：N5.0.2 剩余组（tdma-vdc/diag）→ N5.2a 延迟事务 → N5.2b permission；N3.2.7 可选。
 
 ## 归档索引
 
@@ -26,6 +27,16 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_01.md` | REFMEM-TASK-20260813-021..REFMEM-TASK-20260813-001 | 21 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
+
+### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
+
+- 状态：N5.0.2 进行中；第五刀完成，行为不变。
+- 内容：新增 `distributed_refmem_command.c`（191 行）；`dispatch_control`、`node_control_service`、lease reason/config type、三个共享状态迁出；`post_command_replacing_complete`/`node_load_auto_enqueue`/`vector_table` 经 internal 头共享。
+- 行数：`distributed_refmem.c` 5,946→**5,763**。
+- 验证：
+  - build 成功；P3 `20261024163157`，fingerprint `711cfd6e2278682e0110456cf336f69a31a01e35b335c664573c1cb3d5df2e10`，1948 files，`PASS_WITH_WARNINGS/strict=false`。
+  - config txn HIL 14/14（build `20261024162907`）：`out/refmem_config_txn_hil/n502e_202610250045/`。
+- 下一刀：tdma-vdc / diag；每步 build/P3/HIL 烟测。
 
 ### REFMEM-TASK-20261025-001 — N5.0.2d 拆出 cmd-frame（进行中）
 
