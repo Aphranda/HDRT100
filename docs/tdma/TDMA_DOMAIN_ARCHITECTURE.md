@@ -363,6 +363,8 @@ Core0 准备、Core1 固定窗口选择、PIO/DMA 发送；`TDMA_RECOVERY_BUFFER
 | SYNC_IO | 经资源和时间接口协调确定性 capture/output。 | IN/OUT 的状态机、输出计划与引脚精度。 |
 | 管理与观测 | 配置 intent、只读 snapshot、冻结记录。 | 通过 SCPI 轮询维持实时运行。 |
 
+维护流 TX 队列是 SPSC：core0 producer 以 release 发布 tail，core1 consumer 以 acquire 读取 tail 后才读槽位；槽位只在帧**完全发完**后 release head（不得在 `tx_begin` 时提前释放），队列满显式拒绝并计 `queue_full`，不静默覆盖在途帧。该不变量由 `tdma_spsc_index.h` 的 index helper 与 host 用例约束。
+
 ## 失败、恢复与验证映射
 
 错帧、覆盖、重复、旧代或不完整记录拒绝并计数；DPLL 跳过坏样本，是否保持/失锁由 VDC 质量策略判定。DPLL 局部拒绝或相位超时不能自动隔离仍健康的 TDMA。STOP 意图、配置应用、物理停机和池退休需分别对账；故障不抹除先前失败记录。

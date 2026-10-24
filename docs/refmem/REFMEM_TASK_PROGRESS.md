@@ -10,11 +10,12 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFTMEM-TASK-20261024-003`。
+- 最新条目：`REFTMEM-TASK-20261024-004`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
   RUN 配置 idle 窗口仍开放。
-- N3.2：诊断计数已落地，1/2/7 帧应用层均可完成；H1–H4 源侧排除，偶发失败未复现。
-- 下一步：N3.2.2 队列交接 → N3.2.3 注入配额/唯一 chunk 计数 → N3.3/N4。
+- N3.2：诊断计数与 SPSC 队列交接完成；exec196 出现 COM3 H4（RX 旧帧阻塞），
+  移交 N3.2.3。
+- 下一步：N3.2.3 RX 新帧重启/唯一 chunk 计数/注入配额 → N3.2.4 ACK/重试 → N3.3/N4。
 
 ## 归档索引
 
@@ -23,6 +24,22 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_01.md` | REFMEM-TASK-20260813-021..REFMEM-TASK-20260813-001 | 21 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
+
+### REFMEM-TASK-20261024-004 — N3.2.2 维护流 TX 队列 SPSC 交接
+
+- 状态：队列交接/满队列背压完成；H4（RX 重组阻塞）在本轮 exec196 复现，移交 N3.2.3。
+- 任务目标：core0 producer / core1 consumer 的 8 帧维护队列改为 release/acquire；满队列显式拒绝；修正“在途帧槽位被覆盖”的时序缺陷。
+- 完成内容：
+  - head/tail 改 SPSC，producer release tail、consumer acquire tail / release head；移除共享 count。
+  - 槽位只在帧完全发完后释放（此前 `tx_begin` 即推进 head，producer 可覆盖仍在发送的槽）。
+  - 新增 `tdma_spsc_index.h`（next/empty/full/depth）与 `run_tdma_spsc_index_tests.ps1`。
+  - `queue_full`/`dequeued`/`depth` 计数接入 `SYSTem:REFMEM:CMD:STATus?`。
+- 验证结果：
+  - host `run_tdma_spsc_index_tests.ps1` 通过；RefMem host 全量仍全绿。
+  - HIL `out/refmem_transport_diag/n322_202610241327/`：queue_full 9 次提交 → 7 `QUEUED` + 2 拒绝，`queue_full=2`、depth=0；raw16/raw56/raw56_x2 成功。
+  - exec196：COM4/COM6 `frag_complete=1`，COM3 `frag_ok=2/frag_complete=0`；源 54/54 launched、dropped/repeated=0 → H4（RX 旧帧阻塞），移交 N3.2.3。
+  - P3：build `20261024053749`，源码指纹 `f8e29d0c8981b7b0245c94c215327e2e4f0d00d6a12148abf958ee4a25b06821`（1930 files），`QUICK_DIAGNOSTIC`，`credential: written`；step 26/33 warn，无 ERROR/FATAL。
+- 下一步：N3.2.3 RX 新帧重启 + 唯一/重复 chunk 计数 + 注入配额。
 
 ### REFMEM-TASK-20261024-003 — N3.2.1 维护流诊断计数与 1/2/7 帧定位
 
