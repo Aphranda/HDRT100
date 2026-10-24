@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-007`。
+- 最新条目：`REFMEM-TASK-20261025-008`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,15 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-008 — N5.2a.2 尝试：候选 TDMA profile 指针无效（负结果）
+
+- 状态：N5.2a.2 未完成；代码已回退，工作树干净。
+- 改动：`serialize_candidate_table(9)` 改用 `refmem_model_candidate_tdma_foundation_profile()`（`&s_tdma_foundation_profile`），不再用 active image profile。
+- 结果：ring start/stop 后仍 `staging_state=3`、`lint=2312=0x0908`（OWNER_VALIDATION/table 9）；control 仍 `lint=0/staging_state=2`。
+- 结论：table 9 的 owner/version 在 **profile 数据本身**，已被 ring 更新；仅换指针不够。需要 app-model init 时的 **profile 快照**，或把 table 9 的 owner 契约与 ring 运行态分离。
+- 代码回退；实验 P3 `20261024181340`（e8a3db…）不作为提交凭证；保留为负结果证据。
+- 下一步：N5.2a.2 snapshot API/owner 契约设计；N5.2a 仍阻塞。
 
 ### REFMEM-TASK-20261025-007 — N5.2a.1 诊断：table 9 TDMA foundation profile owner validation
 
@@ -84,7 +93,8 @@ Last updated: 2026-10-25
 - N5.2a 第二次诊断：环 start/stop 后 stage 仍 PACKAGE_INVALID（staging_state=3/last_error=7）；deferral 不是充分条件，代码已回退。
 - N5.2a 设计决策：选 **app-model staging 隔离**（option 1），不选 STOP 重置；先加 `validation.error` 诊断，再建 staging registry 基线。
 - N5.2a.1：诊断字段已定位 table 9（TDMA foundation profile）owner validation 失败；`lint=2312=0x0908`。
-- 下一步：N5.2a.2 用稳定的 app-model TDMA profile 快照/owner 契约修 table 9 → N5.2a.3 HIL；N5.0.2g；N3.2.7 可选。
+- N5.2a.2 尝试：仅换 profile 指针无效（ring 后仍 lint=2312=0x0908）；需 profile 快照/owner 契约分离。
+- 下一步：N5.2a.2 snapshot API 设计 → N5.2a.3；N5.0.2g；N3.2.7 可选。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 
