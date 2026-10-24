@@ -455,14 +455,16 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 | **N3.3.1** ✅ | `refmem_lease` 状态机 + host 用例 | TAKE/CONFLICT/RELEASE/TAKE、stale epoch、expiry、not-owner | — |
 | **N3.3.2** ✅（本地 smoke） | 目录 `REFTMEM_LEASE_TAKE/RELEASE` + `refmem_lease_table` + 节点控制 + `SYSTem:REFMEM:LEASE?` | 本地 TAKE→RELEASE→TAKE，`LEASE?` owner/epoch/state 正确 | N3.3.1 |
 | **N3.3.3** ✅（2026-10-24） | 两板 HIL：A TAKE→B CONFLICT→A RELEASE→B TAKE，含 ring stop→start | 两板逐目标证据 | N3.3.2、N3.2.5 |
-| **N3.3.4** ⏳ | 契约/文档/HAOFV 收口 | 门禁绿 | N3.3.3 |
-| **N4.1** | idle 窗口门控：RUN 中配置类命令显式 BUSY/REJECT | 不静默执行 | N3.3 |
+| **N3.3.4** ✅（2026-10-24） | 契约/文档/HAOFV 收口 | 门禁绿 | N3.3.3 |
+| **N4.1** ✅（2026-10-24，测试钩子） | idle 窗口门控：RUN 中配置类命令显式 BUSY/REJECT | 不静默执行 | N3.3 |
 | **N4.2** | STOP→stage→START 事务 + 回滚 | 两板 HIL | N4.1 |
 | **N4.3/4.4** | HIL + 契约/文档收口 | 门禁绿 | N4.2 |
 
 **N3.3.2 本地 smoke（2026-10-24）**：COM4 本地 `CTRL:EXECute 5,2,2,1,1000` → `LEASE?=1,1,1,90406,1,"GRANTED"`、`CTRL:STATus? state=ACKED`；`EXECute 6,2,2,1` → `FREE`；`EXECute 5,2,2,2,1000` → `1,2,1,"GRANTED"`。CONFLICT/远端路径待 N3.3.3 两板环。
 
 **N3.3.3 两板 HIL（2026-10-24）**：A=COM5、B=COM4；A 经环 TAKE（epoch1）→ B `LEASE?=owner 0,GRANTED`；B 本地 TAKE（epoch2）→ `CONFLICT`（state=5、reason=6 RESOURCE_BUSY），B 仍归 A；**停环后租约保持**（owner 0,GRANTED）；A 第二个环 RELEASE → B FREE；B 本地 TAKE（epoch2）→ `owner 1,GRANTED`、`CTRL:STATus? state=ACKED`。证据 `out/refmem_lease_hil/n333_202610242012/`。
+
+**N4.1 进展（2026-10-24）**：配置类命令（BOARD/NODE/TABLE stage/activate）在 idle 窗口关闭时显式 `RUN_STATE_DENIED`（reason 7），不进入 dispatch；`SYSTem:REFMEM:IDLE:WINDow` 提供测试/事务钩子。HIL：默认开=1；关=0 后 LOAD_NODE → `state=5/reason=7`；开=1 后同命令 → `state=4/reason=0`。证据 `out/refmem_idle_hil/n41_202610242040/`。N4.2 将由 STOP→stage→START 事务管理开/关边界。
 - [ ] 扩展 `refmem_command_request_t` / `refmem_command_snapshot_t`：`coordinator_slot`、`coordinator_boot_id`、`lease_epoch`、`catalog_crc32`、`fence_required`、`fence_state`、`control_reply`；旧字段语义不变，host 用例覆盖旧快照兼容。
 - [ ] 定义 `control_owner_slot` 解析与唯一性门禁：profile 未声明时取最低已 claim 插槽；`DeploymentGate` 拒绝零个或多个控制 owner 的 RUN。
 - [ ] 实现协调者租约：`CONTROL_LEASE_TAKE/RENEW/RELEASE`；仅 STOP/维护态迁移；RUN 中丢失 fail-closed 进入 `CONTROL_LOST`，禁止静默双主。

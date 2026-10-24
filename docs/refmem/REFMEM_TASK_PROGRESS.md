@@ -10,7 +10,7 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261024-013`。
+- 最新条目：`REFMEM-TASK-20261024-014`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
   RUN 配置 idle 窗口仍开放。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -24,6 +24,19 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 
+### REFMEM-TASK-20261024-014 — N3.3.4 租约收口 + N4.1 idle 窗口门控
+
+- 状态：N3.3.4 完成；N4.1 门控 + 测试钩子完成；P3 待跑。
+- 完成内容：
+  - N3.3.4：`REFTMEM-LEASE-01` 契约/架构/SCPI/里程碑收口；两板租约 HIL 工具 `tools/refmem/refmem_lease_hil`。
+  - N4.1：`distributed_refmem_set_idle_window`/`idle_window`；配置类命令（BOARD/NODE/TABLE stage/activate）在窗口关闭时以 `RUN_STATE_DENIED` 拒绝，不进入 dispatch。
+  - `SYSTem:REFMEM:IDLE:WINDow <0|1>` / `?` 测试/事务钩子。
+- 验证结果：
+  - 租约两板 HIL 全通过：`out/refmem_lease_hil/n333_202610242012/`。
+  - idle HIL：默认开=1；关=0 后 LOAD_NODE → `state=5/reason=7`；开=1 后同命令 → `state=4/reason=0`。`out/refmem_idle_hil/n41_202610242040/`。
+  - P3 待跑。
+- P3：build `20261024120853`，源码指纹 `b3ccf1b1af4db71e676d391f0e6ebb3cbb3bd95d448c88d9f528251ddeee547a`（1940 files），`QUICK_DIAGNOSTIC`，credential written；step 23/26/33 warn，无 ERROR/FATAL。
+- 下一步：N4.2 STOP→stage→START 事务（idle 窗口内 stage/activate，失败回滚）。
 ### REFMEM-TASK-20261024-013 — N3.3.3 两板租约 HIL
 
 - 状态：完成；两板 A TAKE→B CONFLICT→A RELEASE→B TAKE + ring stop→start 全部通过。
