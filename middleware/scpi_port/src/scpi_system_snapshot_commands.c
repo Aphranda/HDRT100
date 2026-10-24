@@ -945,6 +945,30 @@ scpi_result_t scpi_cmd_refmem_cmdframe_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
+scpi_result_t scpi_cmd_refmem_cmd_reply_q(scpi_t *context)
+{
+    refmem_cmd_reply_status_t status;
+    if (!distributed_refmem_cmd_reply_status(&status)) {
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, status.rx_count);
+    SCPI_ResultUInt32(context, status.applied_count);
+    SCPI_ResultUInt32(context, status.stale_count);
+    SCPI_ResultUInt32(context, status.bad_target_count);
+    SCPI_ResultUInt32(context, status.duplicate_count);
+    SCPI_ResultUInt32(context, status.armed_count);
+    SCPI_ResultUInt32(context, status.published_count);
+    SCPI_ResultUInt32(context, status.publish_remaining);
+    SCPI_ResultUInt32(context, status.pending_seq);
+    SCPI_ResultUInt32(context, status.aggregate_state);
+    SCPI_ResultUInt32(context, status.acked_mask);
+    SCPI_ResultUInt32(context, status.nacked_mask);
+    SCPI_ResultUInt32(context, status.last_slot);
+    SCPI_ResultUInt32(context, status.last_state);
+    SCPI_ResultUInt32(context, status.last_reason);
+    return SCPI_RES_OK;
+}
+
 scpi_result_t scpi_cmd_refmem_nodes_q(scpi_t *context)
 {
     uint32_t offset = 0u;

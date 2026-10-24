@@ -356,6 +356,23 @@ bool refmem_cmd_load_submit_fragments(
     s_pending_active = 0u;
     s_submitted++;
     s_tx_ok++;
+    /* The issuer records the request in its own REFMEM node control slot, so
+     * the reply aggregation has one pending command fact and observers see
+     * the request even before any target answers. */
+    {
+        refmem_command_snapshot_t source = *snapshot;
+        source.source_node = (uint32_t)local_slot;
+        source.state = REFMEM_COMMAND_STATE_POSTED;
+        source.ack_flags = 0u;
+        source.nack_flags = 0u;
+        source.busy_flags = 0u;
+        source.timeout_flags = 0u;
+        source.last_reason = 0u;
+        source.last_reason_slot = 0u;
+        source.last_completed_seq = 0u;
+        (void)distributed_refmem_node_control_write_with_params(
+            local_slot, &source, params, source.command_seq);
+    }
     return submitted_frames > 0u;
 }
 

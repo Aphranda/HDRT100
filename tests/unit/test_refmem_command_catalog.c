@@ -6,7 +6,7 @@
 
 int main(void)
 {
-    assert(refmem_command_catalog_count == 3u);
+    assert(refmem_command_catalog_count == 4u);
 
     const refmem_catalog_entry_t *board =
         refmem_command_catalog_find_by_id(REFMEM_CMD_ID_REFMEM_LOAD_BOARD);
@@ -18,6 +18,13 @@ int main(void)
     const refmem_catalog_entry_t *by_name =
         refmem_command_catalog_find_by_name("REFMEM_LOAD_NODE");
     assert(by_name != NULL && by_name->id == REFMEM_CMD_ID_REFMEM_LOAD_NODE);
+
+    const refmem_catalog_entry_t *self_check =
+        refmem_command_catalog_find_by_id(
+            REFMEM_CMD_ID_REFMEM_MAINTENANCE_SELF_CHECK);
+    assert(self_check != NULL);
+    assert(self_check->command_type == 13u);
+    assert(self_check->param_words == 1u);
 
     assert(refmem_command_catalog_find_by_id(999u) == NULL);
     assert(refmem_command_catalog_find_by_name("NOPE") == NULL);

@@ -258,7 +258,12 @@ def test_progress_rejects_oversize_log(tmp_path: Path) -> None:
     assert any("C14 R1" in f for f in _run_progress(tmp_path).failures)
 
 
-def test_progress_warns_for_registered_debt(tmp_path: Path) -> None:
+def test_progress_warns_for_registered_debt(tmp_path: Path,
+                                            monkeypatch) -> None:
+    # The warning path is independent of the real debt deadline; pin it to the
+    # future so the test does not turn into a time bomb after 2026-10-17.
+    monkeypatch.setitem(regress.PROGRESS_ROTATION_DEBT,
+                        "docs/tdma/TDMA_TASK_PROGRESS.md", "2099-01-01")
     _put(tmp_path, "docs/tdma/TDMA_TASK_PROGRESS.md", _log(
         ["TDMA-PROGRESS-20260917-001"],
         tail="### TDMA-PROGRESS-20260917-002 - big\n\n"
@@ -392,7 +397,10 @@ def test_progress_allows_any_same_day_order(tmp_path: Path) -> None:
     assert _run_progress(tmp_path).failures == []
 
 
-def test_progress_warns_for_registered_order_debt(tmp_path: Path) -> None:
+def test_progress_warns_for_registered_order_debt(tmp_path: Path,
+                                                  monkeypatch) -> None:
+    monkeypatch.setitem(regress.PROGRESS_ORDER_DEBT,
+                        "docs/sync/SYNC_IO_TASK_PROGRESS.md", "2099-01-01")
     _put(tmp_path, "docs/sync/SYNC_IO_TASK_PROGRESS.md",
          _log(["SYNC-PROGRESS-20260910-001", "SYNC-PROGRESS-20260917-002"]))
     result = _run_progress(tmp_path)

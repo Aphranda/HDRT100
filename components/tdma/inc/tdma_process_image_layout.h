@@ -91,6 +91,11 @@ _Static_assert(TDMA_PROCESS_IMAGE_T2_FRAGMENT_INDEX_OFFSET ==
 #define TDMA_PROCESS_IMAGE_ACK_FLAG_VALID (1u << 0u)
 #define TDMA_PROCESS_IMAGE_ACK_FLAG_NACK (1u << 1u)
 #define TDMA_PROCESS_IMAGE_ACK_FLAG_FENCE (1u << 2u)
+/* Bit 3 distinguishes a per-target REFMEM_CMD reply from a delta ACK of the
+ * same seat.  The command sequence is carried as seq16; the optional
+ * diagnostic byte carries the reason when this bit is set.  Bits 4-7 remain
+ * the RX quality nibble. */
+#define TDMA_PROCESS_IMAGE_ACK_FLAG_COMMAND (1u << 3u)
 #define TDMA_PROCESS_IMAGE_ACK_QUALITY_SHIFT 4u
 #define TDMA_PROCESS_IMAGE_ACK_QUALITY_MASK 0xF0u
 

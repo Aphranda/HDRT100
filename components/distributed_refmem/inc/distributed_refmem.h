@@ -646,6 +646,29 @@ void distributed_refmem_cmd_frame_counters(uint32_t *calls,
                                            uint32_t *request_fail,
                                            uint32_t *ok);
 
+/* REFMEM_CMD per-target reply return path: the target repeats its terminal
+ * result on the per-node process-image ACK seat; the origin folds the newest
+ * reply of every mirrored slot into its own node control record. */
+typedef struct {
+    uint32_t rx_count;
+    uint32_t applied_count;
+    uint32_t stale_count;
+    uint32_t bad_target_count;
+    uint32_t duplicate_count;
+    uint32_t armed_count;
+    uint32_t published_count;
+    uint32_t publish_remaining;
+    uint32_t pending_seq;
+    uint32_t aggregate_state;
+    uint32_t acked_mask;
+    uint32_t nacked_mask;
+    uint32_t last_slot;
+    uint32_t last_state;
+    uint32_t last_reason;
+} refmem_cmd_reply_status_t;
+
+bool distributed_refmem_cmd_reply_status(refmem_cmd_reply_status_t *status);
+
 
 
 bool distributed_refmem_get_node_status(uint32_t node_id,
@@ -672,6 +695,17 @@ bool distributed_refmem_node_control_read_params(
 bool distributed_refmem_node_control_ack(uint32_t node_id,
                                          uint32_t target_slot,
                                          uint32_t evidence_index);
+bool distributed_refmem_node_control_update_status(
+    uint32_t node_id,
+    uint32_t state,
+    uint32_t ack_flags,
+    uint32_t nack_flags,
+    uint32_t busy_flags,
+    uint32_t timeout_flags,
+    uint32_t last_reason,
+    uint32_t last_reason_slot,
+    uint32_t evidence_index,
+    uint32_t last_completed_seq);
 bool distributed_refmem_node_control_clear(uint32_t node_id);
 bool distributed_refmem_register_node_load_owner(
     uint32_t instance_id,
