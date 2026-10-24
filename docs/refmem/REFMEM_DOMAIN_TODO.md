@@ -442,7 +442,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 **N3.2.6 进展（2026-10-24，负结果/延后）**：尝试 headerless 56 B codec wire（SELF_CHECK 2 维护帧）：投递/重组成功（`frag_ok=2`、`frag_complete=1`、源 `tx_ack_ok=2`），但目标 `armed/published=0`、源 `CTRL:STATus?` 仍 `POSTED`；补 SELF_CHECK 参数后仍失败。全部改动已回退、未入库。结论：目标执行/reply 触发依赖 v1 快照/信封的某个字段，需目标侧 `cmd_frame_*` 计数才能定段；作为尺寸优化延后，不阻塞 N3.2.1–5 的可靠性主链。
 
-**N3.2.7 进展（2026-10-24，部分）**：N3.2.5 build（P3 `20261024075123`）矩阵：1/2 帧 raw16/raw56 通过；7 帧 exec196 1/1；单目标 `0x02` 源 `target_mask=2`/`required=2`/`ack_flags=2`/`state=ACKED`（COM3/6 仅重组不执行）；`--drop 200` 无完成、源 `POSTED`、无假 ACK（fail-closed）；soak 5/5（2 s 环窗口）；0.5 s 窗口下 2/5 因 stop-and-wait 未排空 → 7 帧命令需 ≥2 s 环窗口。待补：重复/乱序/窗口 miss/RX timeout/ring stop→start/mid-ring/长期 soak。重复：raw56_x2 同一 wire 两次 → 三目标 `refmem_parser_ok=2`、`posted=1`、`acked=1`（第二次被 command try_post 去重）。证据 `out/refmem_transport_diag/n327_normal_202610241700/`、`n327_single_202610241700/`、`n327_soak5b_202610241707/`、`n327_dropfail_202610241705/`、`n327_dup_202610241730/`。per-target ACK 修正后：soak 10/10；soak 20/20（4 次重传恢复、1 次 restart，三目标全部完成）；drop 1 通过（`inject_ok=67`，三目标 `frag_complete=1`）；reply HIL multi `state=4`/`ack_flags=14`；证据 `out/refmem_transport_diag/n327_pertarget_soak10_202610241803/`、`n327_pertarget_drop1_202610241810/`、`out/refmem_cmd_reply/pertarget_multi_202610241810/`。
+**N3.2.7 进展（2026-10-24，部分）**：N3.2.5 build（P3 `20261024075123`）矩阵：1/2 帧 raw16/raw56 通过；7 帧 exec196 1/1；单目标 `0x02` 源 `target_mask=2`/`required=2`/`ack_flags=2`/`state=ACKED`（COM3/6 仅重组不执行）；`--drop 200` 无完成、源 `POSTED`、无假 ACK（fail-closed）；soak 5/5（2 s 环窗口）；0.5 s 窗口下 2/5 因 stop-and-wait 未排空 → 7 帧命令需 ≥2 s 环窗口。待补：重复/乱序/窗口 miss/RX timeout/ring stop→start/mid-ring/长期 soak。重复：raw56_x2 同一 wire 两次 → 三目标 `refmem_parser_ok=2`、`posted=1`、`acked=1`（第二次被 command try_post 去重）。证据 `out/refmem_transport_diag/n327_normal_202610241700/`、`n327_single_202610241700/`、`n327_soak5b_202610241707/`、`n327_dropfail_202610241705/`、`n327_dup_202610241730/`。per-target ACK 修正后：soak 10/10；soak 20/20（5 次重传恢复、1 次 restart，三目标全部完成）；drop 1 通过（`inject_ok=67`，三目标 `frag_complete=1`）；reply HIL multi `state=4`/`ack_flags=14`；证据 `out/refmem_transport_diag/n327_pertarget_soak10_202610241803/`、`n327_pertarget_drop1_202610241810/`、`out/refmem_cmd_reply/pertarget_multi_202610241810/`。
 
 **N3.2.8 进展（2026-10-24）**：`REFTMEM-TRANSPORT-01` 登记维护流帧级 ACK（复用同一 process-image ACK 席位、诊断 magic `0xA0`、命令回复优先）；`TDMA_DOMAIN_ARCHITECTURE`/`REFMEM_DOMAIN_ARCHITECTURE` 补 stop-and-wait/重试/≥2 s 窗口/优先级；`SCPI_COMMANDS` 已记 `CMD:DROP`；N3.2.6 紧凑帧负结果列为已延后偏差。无新增 payload class、物理总线、第二命令槽。ACK 席位优先级修正后 reply HIL（multi）通过，exec196 normal/drop1 通过；P3 build `20261024090754`（fingerprint `b81745…`）credential written。
 
@@ -488,7 +488,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 | 里程碑 | 内容 | 验收 | 依赖 |
 |---|---|---|---|
-| **N5.1** | 契约交叉审核 `REFTMEM-LEASE-01`/`IDLE-01`/`TRANSPORT-01` | 交叉审核记录 + 转 active 或记录偏差 | 无（可并行） |
+| **N5.1** ✅（审核完成：LEASE active；TRANSPORT/IDLE pending） | 契约交叉审核 `REFTMEM-LEASE-01`/`IDLE-01`/`TRANSPORT-01` | 交叉审核记录 + 转 active 或记录偏差 | 无（可并行） |
 | **N5.2** | 远程配置 owner/permission：谁可以 stage 哪个节点 | 远程 stage 按授权 ACK/拒绝（`PERMISSION_DENIED` 等）；两板/四板 HIL | N5.1（可并行） |
 | **N5.3** | `control_owner_slot` 冻结（profile 元数据或 BoardCapabilityTable 择一） | 唯一协调者槽 + 只读视图 + 契约 | N5.2 |
 | **N5.4** | 协调者租约/唯一性门禁（grant/renew/release/expire） | 非协调者写入/执行被拒绝；TAKE→CONFLICT→RELEASE→TAKE 两板 HIL | N5.3 |
@@ -497,6 +497,10 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 | **N5.7** | 聚合广播/`control_reply` 独立只读副本 | 系统级 `COMMand:STATus?/TARget?`；不复制 node 记录 | N5.6 |
 | **N5.8** | `REFTMEM-CTRL-01` 交叉审核转 active + 最终 HIL 矩阵 | 契约/文档/SCPI 同步；门禁绿 | N5.1–N5.7 |
 
+**N5.1 审核后 carry-over（未闭环，保持 pending）**：
+- **N5.1a** `REFMEM-TRANSPORT-01`：seat rotation `f>=3` 条款与实现/预设不符；需 TDMA 域决定修条款或改实现并补显式断言；维护 ACK 的 clause_loc 跨 TDMA/REFMEM 两个 anchor；P3 报告改为 `PASS_WITH_WARNINGS/strict=false` 的诚实表述。
+- **N5.1b** `REFTMEM-IDLE-01`：补 host 用例；把 legacy `SYSTem:REFMEM:LOAD:NODE/BOARD/ACTIVATE` 纳入 idle 窗口门控或缩小条款；补真实 STOP→stage→START 证据；COMMIT 失败需可区分（不能丢弃后仍返回成功）。
+- **N5.1c** 数据修正：soak20 `tx_retries=5`（原写 4）；P3 为 `PASS_WITH_WARNINGS`、`strict_gates_passed=false`，不写成 strict passed。
 **可选 backlog（不阻塞 N5）**：
 - **N3.2-O1** 紧凑帧（2 帧）诊断/回退：先补目标侧 `cmd_frame_*` 计数，决定修复或长期延后。
 - **N3.2-O2** 可靠性矩阵补测：乱序、窗口 miss、RX timeout、mid-ring、50× soak；以 per-target ACK 版本为基线。

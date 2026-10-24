@@ -10,7 +10,7 @@ Last updated: 2026-10-24
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261024-016`。
+- 最新条目：`REFMEM-TASK-20261024-017`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、非协调者入口、
   RUN 配置 idle 窗口仍开放。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
@@ -24,6 +24,17 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 
+### REFMEM-TASK-20261024-017 — N5.1 契约交叉审核（C11）
+
+- 状态：完成；审核结论 **activate subset**：`REFTMEM-LEASE-01` 转 active；`REFMEM-TRANSPORT-01`/`REFTMEM-IDLE-01` 保持 pending。
+- 审核方：独立 subagent `c774c2f8`（agent-cross，独立上下文，未改文件）；方式：证据包 + 代码/文档/HIL/P3 复核；证据包 `out/refmem_contract_review/N5_1_EVIDENCE.md`。
+- 结论：
+  - `REFTMEM-LEASE-01`：PASS_WITH_NOTE → active。host + n333 两板 HIL 覆盖 clause；备注：lazy expiry（`LEASE?` 可能显示过期 GRANTED 直到下一次 TAKE/RELEASE）、边界（环 stop→start 保持、板复位清零、无跨板复制/协调者租约/心跳）已写入 verification。
+  - `REFMEM-TRANSPORT-01`：FAIL → pending。blocking：clause “seat rotation 二等让位 s>0 且 f>=3” 与实现/预设不符（代码只校验 p>=1/f>=1；预置 `1,2,7`/`7,2,1` 的 f=2；HIL 自身用 `1,2,7`）；P3 凭证为 `PASS_WITH_WARNINGS`、`strict_gates_passed=false`（step 26 four-Node TDMA rc=1、step 33 预算超限），不能写成 strict passed；维护 ACK 的 clause_loc 跨 TDMA/REFMEM 两个 anchor。
+  - `REFTMEM-IDLE-01`：FAIL → pending。blocking：无 host 用例；legacy `SYSTem:REFMEM:LOAD:NODE/BOARD/ACTIVATE` 绕过 idle 窗口（不同 gate/错误文本，直接 app-model stage）；无真实 STOP→stage→START 证据（HIL 只有 BEGIN/stage/COMMIT/ABORt）；remote “valid” stage 全为 reason 13（仅断言 !=7）；COMMIT 失败仍返回成功/关窗，无法区分。
+- 数据修正：soak20 `tx_retries=5`（原写 4）；P3 统一表述为 `credential written (PASS_WITH_WARNINGS; strict=false)`，不写“P3 通过”。
+- carry-over：N5.1a（TRANSPORT seat/条款/P3 诚实表述）、N5.1b（IDLE host/legacy/STOP/COMMIT）、N5.2（remote owner/permission，解 reason 13）。
+- 下一步：N5.2；N5.1a/b 作为 TRANSPORT/IDLE 复审前置。
 ### REFMEM-TASK-20261024-016 — N4.3/N4.4 远程事务 HIL 与收口
 
 - 状态：完成；两板/四板 HIL 全过；P3 待跑。
@@ -66,7 +77,7 @@ Last updated: 2026-10-24
   - idle HIL：默认开=1；关=0 后 LOAD_NODE → `state=5/reason=7`；开=1 后同命令 → `state=4/reason=0`。`out/refmem_idle_hil/n41_202610242040/`。
   - P3 待跑。
 - P3：build `20261024120853`，源码指纹 `b3ccf1b1af4db71e676d391f0e6ebb3cbb3bd95d448c88d9f528251ddeee547a`（1940 files），`QUICK_DIAGNOSTIC`，credential written；step 23/26/33 warn，无 ERROR/FATAL。
-- N3.3/N4 已完成；N3.2 剩余矩阵为可选补测。
+- 下一步：N5.2 远程配置 owner/permission（同时解 IDLE remote reason 13）；N5.1a/b 作为 TRANSPORT/IDLE 复审前置。
 ### REFMEM-TASK-20261024-013 — N3.3.3 两板租约 HIL
 
 - 状态：完成；两板 A TAKE→B CONFLICT→A RELEASE→B TAKE + ring stop→start 全部通过。
@@ -94,7 +105,7 @@ Last updated: 2026-10-24
 - 下一步：N3.3.3 两板 HIL（A TAKE→B CONFLICT→A RELEASE→B TAKE，含 ring stop→start）。
 ### REFMEM-TASK-20261024-011 — per-target 维护帧 ACK
 
-- 状态：完成；P3 通过。
+- 状态：完成；P3 凭证已写（PASS_WITH_WARNINGS；step 26/33 warn）。
 - 问题：soak 20 出现 3/20 失败（COM4 漏帧、COM3/6 完成）；根因是帧级 ACK 由**任一**目标回复即释放，源端误判整帧已送达所有目标。
 - 修正：
   - `tdma_maintenance_runtime_submit` 增加 `target_mask`；队列保存并写入 mailbox target mask，只发给显式目标。
@@ -104,7 +115,7 @@ Last updated: 2026-10-24
   - per-target soak 10/10：`inject_ok=54`（1 次重传为 60）、三目标 `frag_complete=1`。`out/refmem_transport_diag/n327_pertarget_soak10_202610241803/`。
   - drop 1 1/1：`inject_ok=67`、三目标 `frag_complete=1`。`n327_pertarget_drop1_202610241810/`。
   - reply HIL multi：`state=4`、`ack_flags=14`、`aggregate_state=4`。`out/refmem_cmd_reply/pertarget_multi_202610241810/`。
-  - per-target soak 20/20：4 次重传恢复（`inject_ok=60/62`）、1 次 restart，三目标 `frag_complete=1`。`out/refmem_transport_diag/n327_pertarget_soak20_202610241849/`。
+  - per-target soak 20/20：5 次重传恢复（`inject_ok=60/62`）、1 次 restart，三目标 `frag_complete=1`。`out/refmem_transport_diag/n327_pertarget_soak20_202610241849/`。
   - P3：build `20261024102324`，源码指纹 `9da69200c16121a8d8205d9f4316997df8395a77ff1b441122d47ff1cbf547fd`（1930 files），`QUICK_DIAGNOSTIC`，credential written；DPLL 前两次失败后 `--steps 7-36` 重试通过；step 26/33 warn，无 ERROR/FATAL。
 
 ### REFMEM-TASK-20261024-010 — N3.2.8 契约/文档收口与 ACK 席位优先级
