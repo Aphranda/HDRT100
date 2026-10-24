@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-10-21
+Last updated: 2026-10-24
 
 ## 文档接口与范围
 
@@ -325,6 +325,8 @@ transport header、SHORT/LONG 上限以 `tdma_transport_frame.h` 为准。当前
 `TDMA-FLIGHTBITMAP-01`：`PROJECT_NODE_CAPACITY` 限制本地静态容量；STOP 后由已准入 topology 选择 N 个邮箱，ARM 冻结 map/trailer/DMA 长度，RUN 不变。降低运行节点数缩短有效 wire，不自动释放已编译 RAM。
 
 `TDMA-PROCESSIMAGE-01`：Node mailbox 和全局 observation trailer 组成固定 SHORT image；同步开关不能改 transport 帧型、长度、序列或 PIO 节拍。实际 payload 由 `tdma_flight_payload_size()` 得出，trailer 位于有效 payload 尾部；最大容量宏不是当前运行长度。RX 位图只表示 presence/new/expected 等运输事实，不能代替业务 ACK。
+
+Node mailbox 的 ACK 席位（偏移 24..26）由 16-bit seq 与 1 B flags 组成，flags 的 bit0/1/2 为 VALID/NACK/FENCE，bit3 为 `ACK_FLAG_COMMAND`：置位表示该席位携带 **REFMEM_CMD 的单目标终态回复**（`seq16 = command_seq & 0xFFFF`），此时可选诊断字节（偏移 29）解释为 reason；未置位时仍是 delta/fence ACK。该复用不新增 payload class、不改变帧长或节拍，回复的传输优先级低于一等席（位置/VDC/feedback），由 RefMem 在普通镜像中发布。
 
 ### TDMA-RECOVERY-01：有界恢复
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
-Last updated: 2026-10-23
+Last updated: 2026-10-24
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面，并以统一控制面把系统级命令意图路由到显式目标插槽、聚合 ACK/NACK/fence，使接入点不再决定系统操作语义。
 
@@ -1580,9 +1580,9 @@ IDLE
 | 命令槽物理放置 | **C0 方向（2026-10-23 修订）**：命令槽必须由 REFMEM 复制区承载，任意板写入 → 全环同步；`distributed_refmem.c` 的 static `s_refmem_command_slot` 仅为当前本地载体，不再是规范物理位置；观测面直接读 REFMEM 快照 |
 | Event Plane 静态装载（`EVENT_CONFIGURE`） | 未实现；Event Plane 是静态子域，不持有第二命令槽/ACK/epoch，不做运行时注入 |
 | 显式 `target_mask` / `required_mask` 字段与本地 take 校验 | 已实现 |
-| 跨节点命令路由与 ACK 回程 | `REFTMEM_CMD` 经 TDMA 维护流（二等载荷类型 0x52）已实现并 HIL 验证：参考板 SCPI 入队 → 三目标 `rx_events/decoded/posted/acked=1`，发送方 `tx_ok=1`；见 `REFMEM_UNIFIED_CONTROL_REVIEW_03.md`。协调者租约/非协调者转发仍属 C1/C3 |
+| 跨节点命令路由与 ACK 回程 | `REFTMEM_CMD` 分段经 TDMA 维护流投递到目标已实现（0x52/0x55）；目标执行后把终态写入自己的 **process-image ACK 席位**（`ACK_FLAG_COMMAND` + seq16 + reason），源板从本板 REFMEM 镜像逐槽聚合，更新源 node 控制记录的 `state/ack_flags/nack_flags/last_reason`；`SYSTem:CTRL:STATus?` 可见。非协调者 Entry 转发、租约仍属 C1/C3 |
 | 协调者租约、`control_owner_slot` 唯一性门禁 | 未实现 |
-| 聚合视图 / 逐目标视图 / `control_reply` | 未实现 |
+| 聚合视图 / 逐目标视图 / `control_reply` | 逐目标回复聚合已实现（源 node 控制记录 + `SYSTem:REFMEM:CMD:REPLy?` 计数）；系统级 `SYSTem:COMMand:STATus?/TARget?` 聚合广播与 `control_reply` 独立只读副本仍未实现 |
 | 跨节点 FENCE（activation gate 的全环 ACK） | 未实现 |
 | 命令目录 CRC 进入 Version Bundle | 未实现 |
 
@@ -1602,7 +1602,22 @@ rx/tx/reject/last_error），保留原有状态字段。为容纳 +1 KB，`stora
 **统一执行入口（2026-10-24）**：`SYSTem:CTRL:EXECute <command_id|name>,<target_mask>,
 <required_mask>[,params]` 查静态命令目录（`config/refmem/command_catalog.yaml` → C 表），写本板
 node 控制记录；本地 AO 按目录分发到 owner handler，`STATus?`/`CATalog?` 观测，`SYSTem:REFMEM:NODES?`
-聚合节点状态（含 `age_ms`/`stale`）。远端 target 暂返回 `UNIFIED_UNAVAILABLE`，等 C1 传输。
+聚合节点状态（含 `age_ms`/`stale`）。远端 target 经 `REFMEM_CMD` 分段投递。
+
+**命令回复回程（2026-10-24）**：目标执行命令后不再只写本板 node 记录——它把终态写进自己的
+**process-image mailbox ACK 席位**（`TDMA_PROCESS_IMAGE_ACK_SEQ16_OFFSET/FLAGS`），用
+`TDMA_PROCESS_IMAGE_ACK_FLAG_COMMAND` 与 delta ACK 区分，`seq16 = command_seq & 0xFFFF`，
+`reason` 放在可选诊断字节；ACK 席位属于既有 `REFMEM_ACK_FENCE` 路径，不新增 payload class、
+第二命令槽或物理总线。目标连续发布 4 个普通镜像（VDC/T2/位置帧优先，回复不抢占一等席），
+源板在 `distributed_refmem_cmd_reply_service()` 中按来源槽保存最新回复，并把
+`required_mask` 的 ACK/NACK 聚合写回源 node 控制记录；`SYSTem:CTRL:STATus?`、
+`SYSTem:REFMEM:NODE:CONTrol?` 直接可见，`SYSTem:REFMEM:CMD:REPLy?` 暴露
+rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 node 记录保留命令的全局
+`required_mask`，因此单目标执行完成后记录保持 `TAKEN` 并置自身 `ack_flags` 位；完成态只在源板
+聚合记录中产生（单目标场景自身位即 required，目标记录直接 `ACKED`）。命令目录新增
+`REFTMEM_MAINTENANCE_SELF_CHECK`（`command_type=MAINTENANCE`）作为 RUN 中可成功执行的控制面探针；
+配置类命令在 RUN 仍按本地门禁 NACK（reason 13），该 NACK 现在同样回传到源板。限制：seq 只有低
+16 位过线；回复不复制到其它 observer 的 node 记录；聚合广播/协调者租约仍未实现。
 
 **C0 命令路径（2026-10-23，build `20261023152319`）**：`refmem_node_control` 提供控制块的
 写/读/ACK/清除（seq+CRC 防撕裂）；AO 在 post/take/ack/nack/timeout/clear 后把本地 command slot
