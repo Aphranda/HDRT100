@@ -1,4 +1,5 @@
 #include "distributed_refmem.h"
+#include "distributed_refmem_internal.h"
 
 #include <string.h>
 
@@ -322,34 +323,6 @@ static distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;
  * source slot and folds them into its own node control record (acked/nacked
  * masks + reason), which `SYSTem:CTRL:STATus?` and
  * `SYSTem:REFMEM:NODE:CONTrol?` already expose. */
-#define DISTRIBUTED_REFMEM_CMD_REPLY_PUBLISH_COUNT 4u
-typedef struct {
-    uint32_t command_seq;
-    uint32_t state;
-    uint32_t reason;
-    uint32_t origin_slot;
-    uint32_t publish_remaining;
-} distributed_refmem_cmd_reply_tx_t;
-
-typedef struct {
-    uint32_t valid;
-    uint32_t seq16;
-    uint32_t flags;
-    uint32_t reason;
-} distributed_refmem_cmd_reply_rx_t;
-
-static distributed_refmem_cmd_reply_tx_t s_cmd_reply_tx;
-static distributed_refmem_cmd_reply_rx_t
-    s_cmd_reply_rx[DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT];
-static uint32_t s_cmd_reply_last_seq;
-static uint32_t s_cmd_reply_last_complete;
-static uint32_t s_cmd_reply_armed_count;
-static uint32_t s_cmd_reply_published_count;
-static uint32_t s_cmd_reply_rx_count;
-static uint32_t s_cmd_reply_applied_count;
-static uint32_t s_cmd_reply_stale_count;
-static uint32_t s_cmd_reply_bad_target_count;
-static uint32_t s_cmd_reply_duplicate_count;
 /* T2 position TX as a latest-value table drained on a fixed period (see the header): the
  * Core0 producer always succeeds and overwrites the pending value for its position, while
  * the transport takes at most one record per T_drain ms and only while the single-depth
@@ -1107,149 +1080,6 @@ static bool distributed_refmem_tdma_prepare_vdc_command_record(
 }
 #endif
 
-static void distributed_refmem_cmd_reply_arm(uint32_t command_seq,
-                                             uint32_t origin_slot,
-                                             uint32_t state,
-                                             uint32_t reason)
-{
-    const uint32_t local = distributed_refmem_local_slot();
-    if (command_seq == 0u ||
-        origin_slot >= DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT ||
-        origin_slot == local) {
-        return; /* a local-only command needs no wire reply */
-    }
-    s_cmd_reply_tx.command_seq = command_seq;
-    s_cmd_reply_tx.origin_slot = origin_slot;
-    s_cmd_reply_tx.state = state;
-    s_cmd_reply_tx.reason = reason;
-    s_cmd_reply_tx.publish_remaining =
-        DISTRIBUTED_REFMEM_CMD_REPLY_PUBLISH_COUNT;
-    s_cmd_reply_armed_count++;
-}
-
-static bool distributed_refmem_cmd_reply_pending(void)
-{
-    return s_cmd_reply_tx.publish_remaining != 0u &&
-           s_cmd_reply_tx.command_seq != 0u;
-}
-
-static void distributed_refmem_cmd_reply_store(uint32_t source_slot,
-                                               uint16_t seq16,
-                                               uint8_t flags,
-                                               uint8_t reason)
-{
-    if (source_slot >= DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT ||
-        (flags & (REFMEM_CMD_REPLY_FLAG_VALID |
-                  REFMEM_CMD_REPLY_FLAG_COMMAND)) !=
-            (REFMEM_CMD_REPLY_FLAG_VALID | REFMEM_CMD_REPLY_FLAG_COMMAND)) {
-        return;
-    }
-    s_cmd_reply_rx[source_slot].valid = 1u;
-    s_cmd_reply_rx[source_slot].seq16 = (uint32_t)seq16;
-    s_cmd_reply_rx[source_slot].flags = (uint32_t)flags;
-    s_cmd_reply_rx[source_slot].reason = (uint32_t)reason;
-    s_cmd_reply_rx_count++;
-}
-
-/* Fold the newest reply of every mirrored source slot into the origin's own
- * node control record.  The record is the local REFMEM fact; no second ACK
- * region and no coordinator-private state are introduced.  A partial result
- * is published as POSTED with the acked bits so `CTRL:STATus?` shows progress;
- * the terminal result is latched once and not overwritten by later services. */
-static void distributed_refmem_cmd_reply_service(void)
-{
-    const uint32_t local = distributed_refmem_local_slot();
-    refmem_command_snapshot_t snapshot;
-    if (!distributed_refmem_node_control_read(local, &snapshot, NULL, NULL)) {
-        return;
-    }
-    if (snapshot.command_seq == 0u) {
-        s_cmd_reply_last_seq = 0u;
-        s_cmd_reply_last_complete = 0u;
-        return;
-    }
-    if (s_cmd_reply_last_seq != snapshot.command_seq) {
-        s_cmd_reply_last_seq = snapshot.command_seq;
-        s_cmd_reply_last_complete = 0u;
-    }
-    if (s_cmd_reply_last_complete != 0u) {
-        return;
-    }
-    /* Only the command issuer aggregates replies.  A target has the same
-     * request bytes mirrored but must not absorb another target's result. */
-    if (snapshot.source_node != local) {
-        return;
-    }
-    const uint32_t remote_mask = snapshot.target_mask & ~(1u << local);
-    if (remote_mask == 0u) {
-        return;
-    }
-
-    refmem_cmd_reply_aggregate_t aggregate;
-    refmem_cmd_reply_aggregate_begin(&aggregate, snapshot.command_seq,
-                                     snapshot.target_mask,
-                                     snapshot.required_mask);
-    /* Seed with what the local target / earlier passes already proved. */
-    aggregate.acked_mask = snapshot.ack_flags;
-    aggregate.nacked_mask = snapshot.nack_flags;
-    aggregate.last_slot = snapshot.last_reason_slot;
-    aggregate.last_reason = snapshot.last_reason;
-
-    for (uint32_t slot = 0u;
-         slot < DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_SLOT_COUNT; slot++) {
-        if ((remote_mask & (1u << slot)) == 0u) {
-            continue;
-        }
-        const distributed_refmem_cmd_reply_rx_t *entry = &s_cmd_reply_rx[slot];
-        if (entry->valid == 0u) {
-            continue;
-        }
-        refmem_cmd_reply_wire_t wire = {
-            .seq16 = (uint16_t)entry->seq16,
-            .flags = (uint8_t)entry->flags,
-            .reason = (uint8_t)entry->reason,
-        };
-        refmem_cmd_reply_t reply;
-        if (!refmem_cmd_reply_decode(&wire, &reply)) {
-            s_cmd_reply_bad_target_count++;
-            continue;
-        }
-        reply.source_slot = slot;
-        const uint32_t stale_before = aggregate.stale_count;
-        const uint32_t duplicate_before = aggregate.duplicate_count;
-        (void)refmem_cmd_reply_aggregate_apply(&aggregate, &reply);
-        s_cmd_reply_stale_count += aggregate.stale_count - stale_before;
-        s_cmd_reply_duplicate_count +=
-            aggregate.duplicate_count - duplicate_before;
-    }
-    if (aggregate.applied_count == 0u) {
-        return;
-    }
-    s_cmd_reply_applied_count += aggregate.applied_count;
-    const uint32_t state = refmem_cmd_reply_aggregate_finish(&aggregate);
-    if (state == snapshot.state &&
-        aggregate.acked_mask == snapshot.ack_flags &&
-        aggregate.nacked_mask == snapshot.nack_flags) {
-        return;
-    }
-    /* A required NACK makes the command fail immediately, but the aggregate
-     * keeps folding replies until every required target is terminal so the
-     * per-target evidence is not truncated to the first failure. */
-    const uint32_t answered =
-        (aggregate.acked_mask | aggregate.nacked_mask) &
-        snapshot.required_mask;
-    const bool all_required_terminal =
-        snapshot.required_mask != 0u &&
-        answered == snapshot.required_mask;
-    (void)distributed_refmem_node_control_update_status(
-        local, state, aggregate.acked_mask, aggregate.nacked_mask, 0u, 0u,
-        aggregate.last_reason, aggregate.last_slot, 0u,
-        all_required_terminal ? snapshot.command_seq : 0u);
-    if (all_required_terminal) {
-        s_cmd_reply_last_complete = 1u;
-    }
-}
-
 static bool distributed_refmem_tdma_flight_build_compact_mailbox(
     uint8_t source_slot,
     uint8_t target_mask,
@@ -1352,16 +1182,11 @@ static bool distributed_refmem_tdma_flight_build_compact_mailbox(
     uint8_t maint_ack_stream_id = 0u;
     uint8_t maint_ack_generation = 0u;
     bool maint_ack_ok = false;
-    if (distributed_refmem_cmd_reply_pending()) {
+    refmem_cmd_reply_t reply;
+    if (distributed_refmem_cmd_reply_tx_get(&reply)) {
         /* The command terminal reply owns the ACK seat; the transport-level
          * maintenance ACK yields to it so a command reply is never delayed by
          * maintenance flow control. */
-        refmem_cmd_reply_t reply = {
-            .command_seq = s_cmd_reply_tx.command_seq,
-            .state = s_cmd_reply_tx.state,
-            .reason = s_cmd_reply_tx.reason,
-            .source_slot = s_cmd_reply_tx.origin_slot,
-        };
         refmem_cmd_reply_wire_t wire;
         if (refmem_cmd_reply_encode(&reply, &wire)) {
             ack_seq16 = wire.seq16;
@@ -2135,7 +1960,7 @@ static void distributed_refmem_tdma_flight_sync_publish(
     const uint32_t target_mask = maint_ack_publication
         ? (1u << s_tdma_flight_sync.reference_slot)
         : reply_publication
-        ? (1u << s_cmd_reply_tx.origin_slot)
+        ? distributed_refmem_cmd_reply_target_mask()
         : position_publication
         ? s_tdma_flight_sync.position_tx_target_mask
         : resident_master
@@ -2235,10 +2060,7 @@ static void distributed_refmem_tdma_flight_sync_publish(
         s_tdma_flight_sync.tx_publish_count++;
         if (normal_due) s_tdma_flight_sync.last_publish_ms = now_ms;
         if (reply_publication) {
-            s_cmd_reply_published_count++;
-            if (s_cmd_reply_tx.publish_remaining != 0u) {
-                s_cmd_reply_tx.publish_remaining--;
-            }
+            distributed_refmem_cmd_reply_note_published();
         } else if (maint_ack_publication) {
             refmem_cmd_load_consume_maintenance_ack();
         } else if (position_publication) {
@@ -4465,34 +4287,6 @@ bool distributed_refmem_node_control_update_status(
                &node->control_crc32, state, ack_flags, nack_flags, busy_flags,
                timeout_flags, last_reason, last_reason_slot, evidence_index,
                last_completed_seq);
-}
-
-bool distributed_refmem_cmd_reply_status(refmem_cmd_reply_status_t *status)
-{
-    if (status == NULL) {
-        return false;
-    }
-    memset(status, 0, sizeof(*status));
-    status->rx_count = s_cmd_reply_rx_count;
-    status->applied_count = s_cmd_reply_applied_count;
-    status->stale_count = s_cmd_reply_stale_count;
-    status->bad_target_count = s_cmd_reply_bad_target_count;
-    status->duplicate_count = s_cmd_reply_duplicate_count;
-    status->armed_count = s_cmd_reply_armed_count;
-    status->published_count = s_cmd_reply_published_count;
-    status->publish_remaining = s_cmd_reply_tx.publish_remaining;
-    refmem_command_snapshot_t snapshot;
-    if (distributed_refmem_node_control_read(
-            distributed_refmem_local_slot(), &snapshot, NULL, NULL)) {
-        status->pending_seq = snapshot.command_seq;
-        status->aggregate_state = snapshot.state;
-        status->acked_mask = snapshot.ack_flags;
-        status->nacked_mask = snapshot.nack_flags;
-        status->last_slot = snapshot.last_reason_slot;
-        status->last_reason = snapshot.last_reason;
-        status->last_state = snapshot.state;
-    }
-    return true;
 }
 
 bool distributed_refmem_node_control_clear(uint32_t node_id)
