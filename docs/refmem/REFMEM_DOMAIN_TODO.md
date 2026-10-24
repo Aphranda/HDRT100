@@ -401,6 +401,36 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - 进展（2026-10-24，build `20261023180940`）：N3.2 分片传输（9 B 记录 / 0x55 解析 / 按 service 节流）落库；本地帧回环通过；**带环远端 HIL 未通过**（参考板 `QUEUED`、目标无记录）。下一步：补 0x55 每类型 RX 与分片 accepted/rejected/submit_fail 计数定位；剩余待办见 `out/refmem/REMAINING_TODO.md`。
   - 进展（2026-10-24，build `20261024022034`）：N3.2 远端投递打通——维护流 8 帧 TX 队列、分片 8 条/帧、动态 `distributed_refmem_local_slot()`、消费门禁修正；COM4 `NODE:CONTrol?` 出现远端请求（target=2/type=14），`SYSTem:REFMEM:CMDFRame?` ok=1；目标 NACK reason=13（RUN 中 config staging 被拒，fail-closed）。下一步：idle 窗口/`STOP→stage→START` 事务（N4）+ ACK 回传。
   - 进展（2026-10-24，N3.2b 回复回程）：目标终态写入本板 process-image ACK 席位（`TDMA_PROCESS_IMAGE_ACK_FLAG_COMMAND`，seq16 + reason），源板逐槽聚合到源 node 控制记录；`SYSTem:CTRL:STATus?` 可见 `ACKED`/`NACKED`，新增 `SYSTem:REFMEM:CMD:REPLy?` 计数。目录新增 `REFMEM_MAINTENANCE_SELF_CHECK` 作为 RUN 中可成功的探针。四板 HIL（P3 build `20261024035648`）：单目标 COM4 `ACKED`、源板 `ACKED`；多目标源板 `ack=0x0E/applied=3`；RUN `LOAD_NODE` 三目标 `NACKED reason=13`、源板 `nack=0x0E/reason=13`；证据 `out/refmem_cmd_reply/p3build_single_try1/`、`p3build_multi_try1/`、`p3build_nack_try1/`。P3 凭证已写（QUICK_DIAGNOSTIC，`config/hardware_acceptance/p3_acceptance_receipt.json`）。**未完成**：seq 仅低 16 位、回复不写其他 observer、协调者租约/非协调者转发（N3.3）、idle 窗口事务（N4）、分片命令启动窗口偶发丢帧（N3.2 P0）。
+
+#### N3.2 传输可靠性细分（2026-10-24）
+
+**失败签名**：196 B 的 `REFTMEM_CMD` 帧经 `refmem_cmd_fragment` 拆成 49 条 9 B 记录，再按 8 条/72 B 打包成 **7 个维护帧**；每个 72 B 帧在 22 B 链路段上占 8 个 chunk，共 **56 chunk**。带环 HIL 观测到参考板 `inject_ok=54`，但目标 `rx_seen=2`（只见到 2 个 chunk），即“源侧已注入、链路上只送达前 2 个”。这不是租约/ACK 逻辑问题，而是维护流的**注入窗口、序列去重和丢失恢复**问题。
+
+**根因假设（N3.2.1 逐项验证，不先下结论）**：
+
+| 假设 | 依据 | 验证手段 |
+|---|---|---|
+| H1 启动/重试帧复用 `transport_sequence`，从板 `maintenance_rx_sequence` 去重把后续 chunk 丢掉 | `take_maintenance_chunk` 只接受 `view.transport_sequence > maintenance_rx_sequence`；bootstrap 重试可能复用 sequence | 记录每个 chunk 的 emit/accept sequence，检查被去重的 chunk 数与 `inject_ok` 的差 |
+| H2 启动窗口（config-control 帧数）短于 56 个 chunk 所需周期 | 维护注入在 `tx_resident_cycle_from` 每次返回周期注入一个 chunk；bootstrap 结束后窗口关闭 | 统计窗口内 config-control 帧数 vs 已注入 chunk 数 |
+| H3 core0 提交与 core1 抽取的 8 帧队列缺 release/acquire，core1 看不到新队列项 | `tdma_maintenance_runtime` 的 head/tail/count 只有 `volatile`，无原子/屏障 | 注入前后读队列深度；加 fence 后 A/B |
+| H4 不同维护帧的 chunk 交错/重入导致 RX 重组器拒绝新帧 | `tdma_maintenance_stream_rx_chunk` 在 header 不一致时直接 `return false`，不保留新帧 | 记录 RX 重组器拒绝时的 stream_id/index，检查是否新帧被旧帧阻塞 |
+
+**细分任务**：
+
+| ID | 任务 | 变更/边界 | 完成判据 | 依赖 |
+|---|---|---|---|---|
+| **N3.2.1** | 诊断与计数闭环 | 只加只读计数/日志：队列深度、enqueue/reject、chunk emit/accept/dedup、重组 incomplete、每目标 chunk 数、丢失 chunk 掩码；HIL 输出逐 chunk 证据 | 对 1/2/7 帧命令能定位丢在“入队/注入/去重/重组/解析”哪一段；根因 H1–H4 有结论 | — |
+| **N3.2.2** | core0/core1 队列交接 | `tdma_maintenance_runtime` 的 head/tail/count 改 release/acquire 或等价屏障；满队列显式 `BUSY/REJECTED`，不静默丢 | host 队列用例 + 目标侧压力测试无丢失/重复；队列满可见 | 可与 1 并行 |
+| **N3.2.3** | 注入调度与序列 | 每个维护 chunk 必须搭载**新 transport sequence**（或维护帧不按 sequence 去重，改按 stream_id/generation/index）；每周期 chunk 配额；不抢占一等席 | 56 chunk 在 data phase 内有界完成；不从板去重计数为 0；位置/VDC 时延无退化 | 1 |
+| **N3.2.4** | 逐帧可靠交付 | 维护帧/流 ACK（可为 per-stream 位图）+ 有界重试/backoff；TX 保留未 ACK 帧；dedup 按 `stream_id+generation+index` | 故障注入（丢 1 chunk、重复、乱序、窗口 miss）后帧最终完成或带原因失败，不静默丢 | 2、3 |
+| **N3.2.5** | 多批命令/环内序列 | 一个环启动内支持 >1 批命令（队列深度/顺序/背压），或在中途可靠提交；支持 TAKE→CONFLICT→RELEASE→TAKE 序列 | 同一环运行内三条命令按序完成；租约两板 HIL 不需逐次复位 | 3、4 |
+| **N3.2.6** | 命令帧尺寸/参数 ref | 评估 `param_kind=ref`/可变参数/快照压缩，把常用命令从 7 维护帧降到 ≤2 帧；`LOAD_SD` 走 ref | `SELF_CHECK`、`LOAD_NODE` ≤2 帧；`LOAD_SD` 只传摘要/ref，不传 bulk | 可与 1 并行 |
+| **N3.2.7** | HIL 矩阵与故障注入 | 四板 process-image 环：1/2/7 帧、单/多目标、NACK、重复、窗口 miss、RX timeout、ring stop→start、soak；逐目标证据 | 全部场景通过；N3.2 可关闭，进入 N3.3 租约 | 3、4、5 |
+| **N3.2.8** | 契约/文档/观测入口 | 同步 `REFMEM-TRANSPORT-01`、`TDMA-PROCESSIMAGE-01`、P8 与 SCPI 计数；不新增 payload class/物理总线；预算仍用 `tdma_traffic_class_profile_t` | 文档门禁绿、登记锚点真实、无第二命令槽/ACK 事实 | 连续 |
+
+**执行顺序**：N3.2.1 → N3.2.2（并行）→ N3.2.3 → N3.2.4 → N3.2.5 → N3.2.7；N3.2.6 可并行；N3.2.8 随每项连续更新。
+
+**每项完成后的 HAOFV 审查门**：①是否新增总线/payload class/第二命令槽/第二 ACK 事实；②是否占用 core1 硬实时窗口或拉长一等席周期；③单写者与 owner 边界是否保持；④故障是否 fail-closed 且有 reason/evidence；⑤布局/版本/契约是否同步；⑥host + 四板证据是否可复跑。任一项不满足不进入下一子项。
 - [ ] 扩展 `refmem_command_request_t` / `refmem_command_snapshot_t`：`coordinator_slot`、`coordinator_boot_id`、`lease_epoch`、`catalog_crc32`、`fence_required`、`fence_state`、`control_reply`；旧字段语义不变，host 用例覆盖旧快照兼容。
 - [ ] 定义 `control_owner_slot` 解析与唯一性门禁：profile 未声明时取最低已 claim 插槽；`DeploymentGate` 拒绝零个或多个控制 owner 的 RUN。
 - [ ] 实现协调者租约：`CONTROL_LEASE_TAKE/RENEW/RELEASE`；仅 STOP/维护态迁移；RUN 中丢失 fail-closed 进入 `CONTROL_LOST`，禁止静默双主。
