@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
 Related: `AGENTS.md`, `README.md`, `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-10-08
+Last updated: 2026-10-24
 
 > 本文是跨 worker/agent 的长期执行流程入口。它描述如何工作、如何留证和何时停止；不替代产品架构、域内运行时契约或单次验收报告。
 
@@ -18,6 +18,13 @@ Last updated: 2026-10-08
 2. 仓库 `AGENTS.md` 与本文必须保持一致；`AGENTS.md` 只保留 onboarding、最短门禁和本文入口。
 3. 域架构、TODO、Task Progress 和验收报告分别承担稳定语义、计划状态、执行记录和原始证据，不得相互替代。
 4. 与历史快照、旧任务消息或已废止流程冲突时，以当前 canonical 文档和最新用户指令为准，并保留冲突证据。
+
+### EXE-REPORT-01：长期目标里程碑汇报
+
+- 任何长期目标/多里程碑任务的第一次汇报前，先声明“本次按 `AGENTS.md` §8 模板汇报”。
+- 每次子项完成/失败/延后按 §8 六段：完成状态表、证据、HAOFV 六门、偏差与残余、提交与凭证、下一步。
+- HAOFV 六门逐门 ✅/⚠️/❌；任一门失败不进入下一子项，先归因修正；延后必须用户明确接受并记为非完成项。
+- 证据必须可复跑；代码提交前按 staged 指纹核验 P3；代码/文档分离提交；最终收口给子项总表、残余风险、契约状态和证据索引。
 
 ## 2. 工具、编码与工作区
 
