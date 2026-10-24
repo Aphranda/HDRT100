@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_TODO.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Last updated: 2026-10-24
+Last updated: 2026-10-25
 
 本文档维护 Distributed Vector Blackboard / RefMem Sync Domain 的当前可执行待办。这里不记录普通开发流水账，只记录会影响分布式共同事实、RefMemAO、A0-A7 通用逻辑插槽、节点装载、SlotClaim 协调、表镜像、slot owner、命令 ACK/NACK、部署门禁、连接质量和 RefMem Sync 的架构与实现事项。
 
@@ -520,6 +520,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - **N5.0.2a** ✅（2026-10-24）：config-txn 拆出到 `refmem_config_txn.c`；`distributed_refmem.c` 6,370→6,315；P3 `20261024144807`；config txn HIL 14/14。下一刀 cmd-reply/command/tdma-vdc/diag。
   - **N5.0.2b** ✅（2026-10-24）：cmd-reply 拆出到 `distributed_refmem_cmd_reply.c` + `distributed_refmem_internal.h`；`distributed_refmem.c` 6,315→6,109；P3 `20261024151357`；exec196 HIL `[1,1,1]`。下一刀 command/tdma-vdc/diag。
   - **N5.0.2c** ✅（2026-10-24）：node control 拆出到 `distributed_refmem_node_control.c`；`distributed_refmem.c` 6,109→6,003；P3 `20261024154054`；config txn HIL 14/14。
+  - **N5.0.2d** ✅（2026-10-25）：cmd-frame 拆出到 `distributed_refmem_cmd_frame.c`；`distributed_refmem.c` 6,003→5,946；P3 `20261024160525`；exec196 HIL `[1,1,1]`。
 - **N5.0.3** `scpi_system_snapshot_commands.c` 按域拆（当前最大文件，6,393 行）。
 - **N5.0.4** VDC/calibration/TDMA adapter 依次拆；每步单独提交。
 - **N5.0.5** 预算门禁（可选 line-count 检查）+ 文档/HAOFV 收口。

@@ -4,19 +4,20 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-10-24
+Last updated: 2026-10-25
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261024-021`。
+- 最新条目：`REFMEM-TASK-20261025-001`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
 - N5.0.2b：cmd-reply 拆出（6,315→6,109）；P3 `20261024151357`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2c：node control 拆出（6,109→6,003）；P3 `20261024154054`；config txn HIL 14/14。
-- 下一步：N5.0.2 剩余组（command/tdma-vdc/diag）→ N5.2a 延迟事务 → N5.2b permission；N3.2.7 可选。
+- N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
+- 下一步：N5.0.2 剩余组（dispatch/tdma-vdc/diag）→ N5.2a 延迟事务 → N5.2b permission；N3.2.7 可选。
 
 ## 归档索引
 
@@ -25,6 +26,16 @@ Last updated: 2026-10-24
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_01.md` | REFMEM-TASK-20260813-021..REFMEM-TASK-20260813-001 | 21 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
+
+### REFMEM-TASK-20261025-001 — N5.0.2d 拆出 cmd-frame（进行中）
+
+- 状态：N5.0.2 进行中；第四刀完成，行为不变。
+- 内容：新增 `distributed_refmem_cmd_frame.c`（63 行）；`cmd_frame_counters` + `cmd_frame_receive` 及 5 个计数迁出。
+- 行数：`distributed_refmem.c` 6,003→**5,946**。
+- 验证：
+  - build 成功；P3 `20261024160525`，fingerprint `f8bef21bd3f04a1333e4db51d06b00e86d5925f58fa24c72f3e1adb5293614dc`，1947 files，`PASS_WITH_WARNINGS/strict=false`。
+  - exec196 HIL：`frag_complete=[1,1,1]`、`inject_ok=60`；`out/refmem_transport_diag/n502d_exec196_202610250020/`。
+- 下一刀：dispatch/command 或 tdma-vdc / diag。
 
 ### REFMEM-TASK-20261024-021 — N5.0.2c 拆出 node control（进行中）
 
