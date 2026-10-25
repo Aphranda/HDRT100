@@ -545,6 +545,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - **N5.0.4c** ✅（2026-10-26 完成）：`scpi_calibration_commands.c` 2,131 → 1,022 + `scpi_calibration_capture_commands.c` 1,122（均 ≤1,300）；跨边界仅 `scpi_calibration_result_u64`（去 static 进 `scpi_calibration_commands_internal.h`）；归档 `middleware/scpi_port/archive/scpi_calibration_split_v1/`；函数定义集合 87/87 一致；P3 `PASS_WITH_WARNINGS`（INFO 31/WARN 14/ERROR 0）；提交 `cf472872`。
 - **N5.0.4d** ⏸（2026-10-26 尝试后暂缓）：`scpi_sync_commands.c`（2,333）按族界切 1,094 / 1,239，产物试编译通过；但 17 个 host 用例按路径抽取/编译该文件，重跑得 109 errors + 5 failed，**须先做测试锚点改造**（统一改读两文件或符号级断言）再重试。尝试产物归档到 `out/split-20261025/archive/scpi_sync_split_v1_attempt/`；源文件已按归档副本原样恢复（blob `6addb3b1` 与 HEAD 一致，未删除任何内容）。
 - **N5.0.4e** ⏸（2026-10-26 尝试后暂缓）：`vdc_domain.c`（4,460，0 个文件级 static）在深度 0 切 1,489 / 1,495 / 1,497 三单元 + `vdc_domain_internal.h`（46 个跨单元 helper），**设备构建与 `run_vdc_domain_tests.ps1` / `run_refmem_vdc_bridge_tests.ps1` 均通过**；但约 15 个 python 用例按源清单/路径编译或抽取该文件，逐个补单元后仍不断暴露新锚点（如 `tdma_service_core1` 也需同批补），判定为测试锚点债务高于拆分本身，暂缓。尝试产物归档 `out/split-20261025/archive/vdc_domain_split_v1_attempt/`（含三单元、私有头与拆分前副本）；工作树经 `git stash` 完整快照后恢复到 `8df8833f`，未删除任何内容。
+- **N5.0.4f** ✅（2026-10-26 完成）：`status_ui.c` 2,522 → 1,230 + `status_ui_render_kit.c` 1,208 + `status_ui_internal.h` 134（均 ≤1,500）；依赖单向（页面→套件 32 个原语、反向 0），函数定义集合 74/74 一致，`s_ui` 仍唯一实例；P3 `PASS_WITH_WARNINGS`（INFO 33/WARN 10/ERROR 0），提交 `fbc997e7`。
 - **N5.0.5** ⏳（收口报告 2026-10-25）：行数快照/残差/HAOFV 已记录；N5.0 **未完成**，A.3/A.4/N5.0.3b 留待扩展。
 - **每步约束**：纯移动/重命名 + 私有头；不改行为；host/build/P3/HIL 烟测；代码/文档分离提交。
 
