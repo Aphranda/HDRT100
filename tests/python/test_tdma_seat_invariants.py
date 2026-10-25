@@ -17,7 +17,7 @@ import shutil
 import subprocess
 
 from test_t2_freeze_completion import HARNESS as REFMEM_HARNESS
-from test_t2_freeze_completion import INC as REFMEM_INC
+from refmem_units import body as refmem_unit_body
 from test_trigger_grid_preview import ROOT, compile_grid
 from test_tdma_seat_rotation import FUNCTIONS, HARNESS
 from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
@@ -248,7 +248,7 @@ def test_randomized_harness_is_deterministic(tmp_path):
 # --- bounded receive preservation: randomized accounting invariants ---------
 
 REFMEM_PREFIX = REFMEM_HARNESS.split("\nint main(void)")[0].replace(
-    '"INC"', '"' + REFMEM_INC.as_posix() + '"')
+    '#include "INC"', refmem_unit_body("distributed_refmem_position_ack"))
 
 REFMEM_RANDOM_MAIN = r'''
 #pragma GCC diagnostic ignored "-Wunused-function"

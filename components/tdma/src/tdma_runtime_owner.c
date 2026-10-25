@@ -57,7 +57,24 @@ static tdma_traffic_scheduler_slot_t
 static bool s_tdma_runtime_owner_initialized;
 static uint32_t s_tdma_topology_probe_phase_delay_cycles;
 
-#include "tdma_runtime_origin.inc"
+/* Read-only views of the owner's device state for the origin unit. */
+tdma_service_service_t *tdma_owner_service_state(void)
+{
+    return &s_tdma_runtime_owner;
+}
+
+tdma_pio_spi_phys_t *tdma_owner_phys_state(void)
+{
+    return &s_tdma_pio_spi_phys;
+}
+
+tdma_pio_spi_ring_adapter_t *tdma_owner_ring_state(void)
+{
+    return &s_tdma_pio_spi_ring_adapter;
+}
+
+
+#include "tdma_runtime_origin.h"
 #include "tdma_seat_mount_store.h"
 
 TDMA_ORIGIN_OWNER_RAM
@@ -75,13 +92,14 @@ tdma_service_timing_context_t tdma_runtime_owner_timing_context(void)
     if (s_tdma_runtime_owner_initialized && r->enabled && a->started && s_tdma_pio_spi_phys.armed) {
         state = 1u;
         if (a->origin.active && a->comm_fsm.state == TDMA_ADAPTER_COMM_STATE_AUTONOMOUS &&
-            s_origin_trial.enabled && s_origin_trial.epoch == calibration_manager_origin_epoch())
+            tdma_runtime_origin_trial()->enabled &&
+        tdma_runtime_origin_trial()->epoch == calibration_manager_origin_epoch())
             state = TDMA_TIMING_STATE_AUTONOMOUS;
     }
     return (tdma_service_timing_context_t){
         .state = state | (a->comm_fsm.state << 8u),
         .config_generation = __atomic_load_n(&r->config_seq, __ATOMIC_ACQUIRE),
-        .trial_epoch = s_origin_trial.epoch,
+        .trial_epoch = tdma_runtime_origin_trial()->epoch,
         .return_sequence = a->origin.returned.sequence};
 }
 

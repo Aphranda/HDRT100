@@ -25,6 +25,12 @@ def admission_exe(tmp_path_factory):
     while body and (not body[0].strip() or body[0].lstrip().startswith("#include")):
         body.pop(0)
     (build / "origin_timing_body.inc").write_text("".join(body), encoding="utf-8")
+    # Same for the TDMA origin unit: the harness defines its own owner state,
+    # so it takes the body only (the RAM placement macro is a no-op on host).
+    unit = (ROOT / "components/tdma/src/tdma_runtime_origin.c").read_text(encoding="utf-8")
+    origin_body = ("#define TDMA_ORIGIN_OWNER_RAM\n"
+                   + unit[unit.index("/* The sole TDMA owner consumes"):])
+    (build / "runtime_origin_body.inc").write_text(origin_body, encoding="utf-8")
     compiler = shutil.which("gcc") or shutil.which("clang")
     assert compiler
     exe = build / ("admission.exe" if os.name == "nt" else "admission")
