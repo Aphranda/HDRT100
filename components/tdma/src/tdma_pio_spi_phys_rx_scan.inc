@@ -1,3 +1,21 @@
+#ifndef TDMA_PIO_SPI_ALIGNMENT_FITS_DEFINED
+#define TDMA_PIO_SPI_ALIGNMENT_FITS_DEFINED
+/* Shared pure predicate used by the host unit and the async RX-scan code. */
+static inline bool tdma_pio_spi_phys_alignment_fits(
+    const tdma_pio_spi_phys_t *phys, uint32_t byte_shift, uint32_t bit_shift)
+{
+    if (phys == NULL || phys->flight_physical_byte_count == 0u) return false;
+    const uint64_t packet_size =
+        (uint64_t)TDMA_TRANSPORT_FRAME_HEADER_SIZE + (uint64_t)phys->flight_payload_size;
+    if ((uint64_t)phys->flight_physical_byte_count <= packet_size) return false;
+    const uint64_t room_bits =
+        ((uint64_t)phys->flight_physical_byte_count - packet_size) * 8u;
+    return ((uint64_t)byte_shift + TDMA_PIO_SPI_PACKET_HEADER_SIZE) * 8u +
+               (uint64_t)bit_shift <=
+           room_bits;
+}
+#endif
+
 /* Only Core1 reads the live ring. Core0 discovers geometry in its private
  * snapshot; a returned hint is revalidated against current completed words. */
 #include "tdma_service_timing.h"

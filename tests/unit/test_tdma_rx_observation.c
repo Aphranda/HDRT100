@@ -24,6 +24,7 @@ typedef struct {
     tdma_rx_scan_t *rx_scan_preparation;
     tdma_rx_scan_hint_t rx_scan_hint;
     uint32_t flight_physical_byte_count, flight_alignment_byte_shift, flight_alignment_bit_shift;
+    uint32_t flight_payload_size;
     uint32_t flight_tail_bytes;
     uint32_t flight_overlay_alignment_samples;
     uint64_t flight_overlay_alignment_candidate;

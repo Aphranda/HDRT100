@@ -1,39 +1,37 @@
 {
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
   "passed": true,
-  "fingerprint": "c06c5f3eaf703c5728e505daacf1fcc186f5c166237c7483f04a73243c56a39e",
+  "fingerprint": "481d71b682426f290e7d151bfb4348e5d396d2e5fb3862e1c4db454800c96fa2",
   "file_count": 524,
-  "working_fingerprint": "c06c5f3eaf703c5728e505daacf1fcc186f5c166237c7483f04a73243c56a39e",
+  "working_fingerprint": "481d71b682426f290e7d151bfb4348e5d396d2e5fb3862e1c4db454800c96fa2",
   "unstaged_tested_files": [],
   "command": [
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_vdc_host_harness.py",
-    "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_owner_hook_link.py",
+    "tests/python/test_tdma_frozen_geometry.py",
+    "tests/python/test_tdma_rx_observation.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_vdc_host_harness.py",
-    "tests/python/test_split_unit_hooks.py",
-    "tests/python/test_owner_hook_link.py"
+    "tests/python/test_tdma_frozen_geometry.py",
+    "tests/python/test_tdma_rx_observation.py"
   ],
-  "started_at_utc": "2026-10-25T11:42:31.914922+00:00",
-  "duration_s": 9.078,
+  "started_at_utc": "2026-10-25T12:41:53.704244+00:00",
+  "duration_s": 37.25,
   "returncode": 0,
   "summary": {
-    "passed": 75,
+    "passed": 101,
     "failed": 0,
     "errors": 0,
     "skipped": 0
   },
-  "summary_line": "75 passed in 8.15s",
+  "summary_line": "101 passed in 36.29s",
   "tail": [
-    "........................................................................ [ 96%]",
-    "...                                                                      [100%]",
-    "75 passed in 8.15s"
+    "........................................................................ [ 71%]",
+    ".............................                                            [100%]",
+    "101 passed in 36.29s"
   ]
 }

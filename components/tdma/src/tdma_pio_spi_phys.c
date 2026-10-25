@@ -199,16 +199,16 @@ _Static_assert(sizeof(tdma_flight_overlay_dma_run_t) == 16u &&
                offsetof(dma_channel_hw_t, al3_ctrl) == 0x30u &&
                offsetof(dma_channel_hw_t, al3_read_addr_trig) == 0x3cu,
                "Command descriptors must match the RP2350 AL3 register alias");
-static uint64_t s_tdma_pio_spi_rx_scan_produced;
-static tdma_rx_dma_counter_t s_tdma_pio_spi_rx_sequence;
+uint64_t s_tdma_pio_spi_rx_scan_produced;
+tdma_rx_dma_counter_t s_tdma_pio_spi_rx_sequence;
 /* Core1-only boot-local diagnostic IDs. Neither STOP nor a new phys object
  * resets them. Exhaustion disables provenance, never healthy RX transport. */
-static uint64_t s_tdma_pio_spi_rx_arm_epoch;
-static uint64_t s_tdma_pio_spi_rx_capture_id;
-static bool s_tdma_pio_spi_rx_arm_valid;
+uint64_t s_tdma_pio_spi_rx_arm_epoch;
+uint64_t s_tdma_pio_spi_rx_capture_id;
+bool s_tdma_pio_spi_rx_arm_valid;
 /* Core1-private normalized bytes, never a DMA target. The live DMA ring
  * remains word-wide; only this assembled observation is compacted. */
-static uint8_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX]
+uint8_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX]
     __attribute__((aligned(4)));
 
 bool tdma_pio_spi_phys_is_flight_persona(void)
@@ -347,7 +347,7 @@ static void tdma_pio_spi_phys_clk_train_reset(tdma_pio_spi_phys_t *phys)
     tdma_pio_spi_phys_clk_train_write_end(phys);
 }
 
-static void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys,
+void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys,
                                         uint32_t error)
 {
     if (phys == NULL) {
@@ -360,7 +360,6 @@ static void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys,
     }
 }
 
-static void tdma_geometry_arm_failed(void);
 static void tdma_priority_stop(void);
 static void tdma_priority_boundary_service(tdma_pio_spi_phys_t *phys);
 static bool tdma_pio_spi_phys_arm_reject(
@@ -408,9 +407,8 @@ static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys
     __atomic_store_n(&phys->flight_origin_record_guard, guard + 2u, __ATOMIC_RELEASE);
 }
 
-static void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *config);
-static void tdma_rx_first_window_arm_failed(void);
-#include "tdma_pio_spi_phys_geometry.inc"
+void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *config);
+void tdma_rx_first_window_arm_failed(void);
 #include "tdma_pio_spi_phys_event.inc"
 
 void tdma_pio_spi_phys_workspace_reset(void)
@@ -1971,7 +1969,7 @@ static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys)
     return true;
 }
 
-static uint32_t tdma_pio_spi_phys_rx_write_index(void)
+uint32_t tdma_pio_spi_phys_rx_write_index(void)
 {
     const uintptr_t ring_base = (uintptr_t)s_tdma_pio_spi_rx_ring;
     const uintptr_t write_addr =
@@ -1982,7 +1980,7 @@ static uint32_t tdma_pio_spi_phys_rx_write_index(void)
                       sizeof(uint32_t));
 }
 
-static uint64_t tdma_pio_spi_phys_rx_produced_words(
+uint64_t tdma_pio_spi_phys_rx_produced_words(
     tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL || s_tdma_pio_spi_rx_dma_channel < 0) return 0u;
@@ -2060,7 +2058,7 @@ static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t produced,
  * instructions while competing with the background parser. Its instruction
  * storage is part of the linked RAM budget; callers still prove retention. */
 __attribute__((noinline, section(".time_critical.tdma_pio_spi_phys_rx_ring_copy")))
-static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination,
+void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination,
     uint64_t produced, uint32_t count, uint32_t bit_shift)
 {
     if (count == 0u) return;
@@ -2140,20 +2138,6 @@ static bool tdma_pio_spi_phys_transport_header_matches(
  * refusal is latched as a permanent origin fault which STOPs the ring - the run was
  * lost while a peer was still joining. Rejecting the phase as an alignment witness
  * here keeps the recorder and the consumer on one predicate. */
-static inline bool tdma_pio_spi_phys_alignment_fits(
-    const tdma_pio_spi_phys_t *phys, uint32_t byte_shift, uint32_t bit_shift)
-{
-    if (phys == NULL || phys->flight_physical_byte_count == 0u) return false;
-    const uint64_t packet_size =
-        (uint64_t)TDMA_TRANSPORT_FRAME_HEADER_SIZE + (uint64_t)phys->flight_payload_size;
-    if ((uint64_t)phys->flight_physical_byte_count <= packet_size) return false;
-    const uint64_t room_bits =
-        ((uint64_t)phys->flight_physical_byte_count - packet_size) * 8u;
-    return ((uint64_t)byte_shift + TDMA_PIO_SPI_PACKET_HEADER_SIZE) * 8u +
-               (uint64_t)bit_shift <=
-           room_bits;
-}
-
 static bool tdma_pio_spi_phys_capture_words_legacy(tdma_pio_spi_phys_t *phys,
                                             size_t max_words,
                                             size_t *received_words)
@@ -2332,7 +2316,6 @@ static bool tdma_pio_spi_phys_capture_words_legacy(tdma_pio_spi_phys_t *phys,
     return false;
 }
 
-#include "tdma_pio_spi_phys_rx_scan.inc"
 
 static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
                                             size_t max_words,

@@ -60,6 +60,9 @@ def geometry_exe(tmp_path_factory):
         "tdma_flight_engine", "tdma_flight_overlay", "tdma_overlay_prepare",
         "tdma_rx_prepare", "tdma_rx_scan", "tdma_receive_health", "tdma_process_image_map",
         "tdma_ring_runtime", "tdma_transport_frame", "tdma_profile", "tdma_rx_sequence",
+        # The adapter and origin units reference these by name; the harness
+        # used to omit them and failed at link time.
+        "tdma_transport_load", "tdma_pio_spi_ring_origin", "tdma_pio_spi_ring_rx_prepare",
     )
     includes = (
         "tests/unit/host_stubs", "boards/rp2350_trig/inc", "components/tdma/inc",

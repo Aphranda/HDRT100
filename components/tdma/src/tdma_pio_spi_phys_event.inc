@@ -320,7 +320,7 @@ _Static_assert(TDMA_EVENT_RX_SM == 1u && TDMA_EVENT_TX_SM == 2u &&
                TDMA_EVENT_SEQUENCE_SM == 3u && BOARD_TDMA_TX_CONTROL_OUT_SM == 0u,
                "Relative IRQ layout must match the paired observer programs");
 
-static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination,
+void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination,
     uint64_t produced, uint32_t count, uint32_t bit_shift);
 static tdma_event_observer_t s_tdma_event_observer;
 static tdma_event_history_t s_tdma_event_history;
@@ -1198,7 +1198,7 @@ static void tdma_rx_first_reason(uint32_t reason)
         s_tdma_rx_first_window.first_reason = reason;
 }
 
-static void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *config)
+void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *config)
 {
     if (config == NULL || config->owner_config_seq == s_tdma_rx_first_window.config_seq ||
         !tdma_rx_first_write_begin()) return;
@@ -1281,7 +1281,7 @@ static void tdma_rx_first_window_retire(uint32_t reason, bool stopped)
     tdma_rx_first_write_end();
 }
 
-static void tdma_rx_first_window_arm_failed(void)
+void tdma_rx_first_window_arm_failed(void)
 {
     tdma_rx_first_window_t *w = &s_tdma_rx_first_window;
     if ((w->flags & TDMA_RX_FIRST_AVAILABLE) == 0u ||
@@ -2336,9 +2336,9 @@ bool tdma_pio_spi_phys_event_tap_get(const tdma_pio_spi_phys_t *phys,
     (void)phys; (void)out;
     return false;
 }
-static void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *config) { (void)config; }
+void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *config) { (void)config; }
 void tdma_pio_spi_phys_rx_first_window_persona_unload(void) { }
-static void tdma_rx_first_window_arm_failed(void) { }
+void tdma_rx_first_window_arm_failed(void) { }
 static void tdma_rx_first_window_retire(uint32_t reason, bool stopped) { (void)reason; (void)stopped; }
 bool tdma_pio_spi_phys_get_rx_first_window(tdma_rx_first_window_t *out)
 {

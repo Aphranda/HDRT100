@@ -23,7 +23,26 @@ def build_scanner(directory, asynchronous=False, instrumented=False, physical=Fa
         ("void", "tdma_pio_spi_phys_rx_ring_copy", "uint8_t *destination, uint64_t produced, uint32_t count, uint32_t bit_shift"),
         ("bool", "tdma_pio_spi_phys_transport_header_matches", "uint64_t packet_start, uint32_t bit_shift, uint16_t frame_size"),
     ]
-    code = ""
+    code = """
+/* Shared pure predicate: the sliced phys helpers call it and the fragment
+ * ships the same guarded definition. */
+#ifndef TDMA_PIO_SPI_ALIGNMENT_FITS_DEFINED
+#define TDMA_PIO_SPI_ALIGNMENT_FITS_DEFINED
+static inline bool tdma_pio_spi_phys_alignment_fits(
+    const tdma_pio_spi_phys_t *phys, uint32_t byte_shift, uint32_t bit_shift)
+{
+    if (phys == NULL || phys->flight_physical_byte_count == 0u) return false;
+    const uint64_t packet_size =
+        (uint64_t)TDMA_TRANSPORT_FRAME_HEADER_SIZE + (uint64_t)phys->flight_payload_size;
+    if ((uint64_t)phys->flight_physical_byte_count <= packet_size) return false;
+    const uint64_t room_bits =
+        ((uint64_t)phys->flight_physical_byte_count - packet_size) * 8u;
+    return ((uint64_t)byte_shift + TDMA_PIO_SPI_PACKET_HEADER_SIZE) * 8u +
+               (uint64_t)bit_shift <=
+           room_bits;
+}
+#endif
+"""
     for kind, name, signature in definitions:
         symbol = "real_ring_copy" if name.endswith("rx_ring_copy") else name
         code += f"static {kind} __attribute__((unused)) {symbol}({signature}) {{" + c_definition_body(live, name) + "}\n"

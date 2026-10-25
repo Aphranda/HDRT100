@@ -2,6 +2,8 @@
 #define TDMA_PIO_SPI_PHYS_INTERNAL_H
 
 #include "tdma_pio_spi_phys.h"
+#include "tdma_rx_sequence.h"
+#include "tdma_pio_spi_phys_programs.h"
 
 /* Program state and helpers shared by the maintenance/calibration/training
  * units that used to be textually included into tdma_pio_spi_phys.c. They
@@ -80,5 +82,74 @@ void tdma_pio_spi_phys_cal_mark_persona( tdma_pio_spi_phys_t *phys, tdma_pio_spi
 uint32_t tdma_pio_spi_cal_sample_byte(uint32_t word, uint32_t index);
 
 bool tdma_pio_spi_phys_cal_persona_switch_ready(void);
+
+#ifndef TDMA_PIO_SPI_ALIGNMENT_FITS_DEFINED
+#define TDMA_PIO_SPI_ALIGNMENT_FITS_DEFINED
+/* Shared pure predicate used by the host unit and the async RX-scan code. */
+static inline bool tdma_pio_spi_phys_alignment_fits(
+    const tdma_pio_spi_phys_t *phys, uint32_t byte_shift, uint32_t bit_shift)
+{
+    if (phys == NULL || phys->flight_physical_byte_count == 0u) return false;
+    const uint64_t packet_size =
+        (uint64_t)TDMA_TRANSPORT_FRAME_HEADER_SIZE + (uint64_t)phys->flight_payload_size;
+    if ((uint64_t)phys->flight_physical_byte_count <= packet_size) return false;
+    const uint64_t room_bits =
+        ((uint64_t)phys->flight_physical_byte_count - packet_size) * 8u;
+    return ((uint64_t)byte_shift + TDMA_PIO_SPI_PACKET_HEADER_SIZE) * 8u +
+               (uint64_t)bit_shift <=
+           room_bits;
+}
+#endif
+
+/* ---- Split-unit surface (2026-10-25) -------------------------------------
+ * The phys fragments used to share these through one translation unit. They
+ * stay plain externs and direct memory accesses: several of these paths run on
+ * the Core1 realtime side, so no accessor indirection is introduced. */
+
+/* RX service state owned by tdma_pio_spi_phys.c. */
+extern uint64_t s_tdma_pio_spi_rx_arm_epoch;
+extern uint64_t s_tdma_pio_spi_rx_capture_id;
+extern uint64_t s_tdma_pio_spi_rx_scan_produced;
+extern bool s_tdma_pio_spi_rx_arm_valid;
+extern tdma_rx_dma_counter_t s_tdma_pio_spi_rx_sequence;
+void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys, uint32_t error);
+
+/* Frozen-geometry unit (tdma_pio_spi_phys_geometry.c). */
+extern bool s_geometry_request_pending;
+extern bool s_geometry_physical_stopped;
+void tdma_geometry_publish(void);
+void tdma_geometry_retire(uint32_t reason);
+void tdma_geometry_arm_failed(void);
+bool tdma_geometry_arm_begin(tdma_pio_spi_phys_t *phys,
+                             const tdma_ring_runtime_config_t *config,
+                             uint32_t persona);
+bool tdma_geometry_arm_bound(const tdma_pio_spi_phys_t *phys);
+void tdma_geometry_persona(uint32_t persona);
+void tdma_geometry_stop_begin(const tdma_pio_spi_phys_t *phys);
+void tdma_geometry_trained(const tdma_pio_spi_phys_t *phys);
+bool tdma_geometry_observer_current(const tdma_pio_spi_phys_t *phys,
+                                    const tdma_frozen_geometry_snapshot_t *geometry);
+void tdma_geometry_observer_record(uint32_t generation, uint32_t epoch,
+                                   uint32_t state, uint32_t reason,
+                                   uint32_t prefix_bits);
+bool tdma_geometry_observer_select(const tdma_pio_spi_phys_t *phys,
+                                   tdma_frozen_geometry_snapshot_t *out);
+void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *config);
+void tdma_rx_first_window_arm_failed(void);
+
+/* RX-scan unit (tdma_pio_spi_phys_rx_scan.c). */
+extern uint8_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX];
+bool tdma_pio_spi_phys_capture_words_async(tdma_pio_spi_phys_t *phys,
+                                          size_t max_words,
+                                          size_t *received_words);
+bool tdma_pio_spi_phys_capture_words_async_ex(tdma_pio_spi_phys_t *phys,
+                                             size_t max_words,
+                                             size_t *received_words,
+                                             tdma_rx_capture_t *capture);
+bool tdma_pio_spi_phys_rx_scan_cancel(tdma_pio_spi_phys_t *phys);
+uint32_t tdma_pio_spi_phys_rx_write_index(void);
+uint64_t tdma_pio_spi_phys_rx_produced_words(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination, uint64_t produced,
+                                    uint32_t count, uint32_t bit_shift);
 
 #endif /* TDMA_PIO_SPI_PHYS_INTERNAL_H */

@@ -613,6 +613,8 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_receive_health.c
         components/tdma/src/tdma_adapter_comm_fsm.c
         components/tdma/src/tdma_pio_spi_phys.c
+        components/tdma/src/tdma_pio_spi_phys_rx_scan.c
+        components/tdma/src/tdma_pio_spi_phys_geometry.c
         components/tdma/src/tdma_pio_spi_phys_cal_control.c
         components/tdma/src/tdma_pio_spi_phys_cal_service.c
         components/tdma/src/tdma_pio_spi_phys_coded.c
