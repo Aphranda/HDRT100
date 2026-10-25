@@ -554,7 +554,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - **N5.0.4l** ✅（2026-10-26 完成）：`tdma_pio_spi_ring_adapter.c` 4,117 → 1,051 + `_tx` 1,054 + `_rx` 1,061 + `_service` 1,027 + api 头 36（均 ≤1,500）；切点 1,032 / 2,067 / 3,109；**该文件只有 1 个静态常量 ops 表**，会话状态全在调用者持有的 adapter 结构内，拆分不产生第二实例；26 个跨单元 helper 去 static；两处中部 `#include`（ring_origin / ring_rx_prepare）提升到各单元头部；定义集合 94/94 一致；5 个用例改读四单元后 host 234 passed + 1 xfail；P3 `PASS_WITH_WARNINGS`（INFO 33/WARN 10/ERROR 0），提交 `47749e94`。
 - **N5.0.4m** ⏸（2026-10-26 核算后暂缓）：`calibration_manager.c`（4,137）在 1,387 / 2,755 三分下，**87 个静态对象中有 64 个跨单元**，需要先做 `calibration_persona_ctx_t` 上下文改造（subagent 估算 7 人日），不宜按机械外置方式拆。
 - **N5.0.4n** ✅（2026-10-26 完成，二次尝试成功）：`scpi_system_snapshot_commands.c` 4,615 → 1,096 + `scpi_platform_snapshot_commands.c` 1,152 + `scpi_tdma_snapshot_commands.c` 1,161 + `scpi_node_snapshot_commands.c` 1,131 + 私有头 36（均 ≤1,300）；切点 1,146 / 2,306 / 3,465；沿用 N5.0.3 的 internal-header helper 约定，18 个跨单元 helper + 2 个类型 + 2 个宏提升到私有头；定义集合 142/142 一致；7 个用例改读四单元后 host 232 passed + 1 xfail；P3 `PASS_WITH_WARNINGS`（INFO 33/WARN 10/ERROR 0），提交 `7cd656f6`。**首轮失败的根因是命名冲突**（新单元误用已被 N5.0.3a 占用的 `scpi_refmem_snapshot_commands.c`，覆盖既有 1,062 行单元导致符号丢失），并非宏展开限制——二次尝试仅改单元名即通过。
-- **N5.0.5** ⏳ 夜间收口（2026-10-26）：本轮完成 **10 / 15** 个文件，存活 >2,000 行文件 **15 → 5**；每个完成项都带 P3 凭证、归档副本与函数定义集合等价性核对。
+- **N5.0.4o** ✅（2026-10-26 完成）：`tdma_pio_spi_phys.c` 3,037 → 1,031 + `tdma_pio_spi_phys_ring_io.c` 1,051 + `tdma_pio_spi_phys_arm.c` 1,042（均 ≤1,500）；切点 1,004 / 2,025，**两个切口均不跨 `#if`**；9 个跨单元静态对象单实例（PIO/DMA 偏移与 live word 句柄），18 个 helper 去 static，内部头 262 → 332；`state_machine_resource_check` 的 `phys` 参数新增路径元组默认值（与 `sync_core` 同模式）；11 个用例改读多单元，`trn03` 用 `_PhysSource` 让切片标记对 `static` 前缀可选；host 635 passed + 1 xfail；P3 `PASS_WITH_WARNINGS`（INFO 33/WARN 11/ERROR 0），提交 `4e9eec76`。
+- **N5.0.5** ⏳ 夜间收口（2026-10-26）：本轮完成 **11 / 15** 个文件，存活 >2,000 行文件 **15 → 4**；每个完成项都带 P3 凭证、归档副本与函数定义集合等价性核对。
 
   | # | 文件 | 拆分结果 | 提交 |
   |---|---|---|---|
@@ -568,10 +569,11 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   | 8 | `scpi_sync_commands.c` | 2,333 → 1,078 + 1,257 | `bb7bfb3e` |
   | 9 | `tdma_pio_spi_ring_adapter.c` | 4,117 → 1,051 + 1,054 + 1,061 + 1,027 | `47749e94` |
   | 10 | `scpi_system_snapshot_commands.c` | 4,615 → 1,096 + 1,152 + 1,161 + 1,131 | `7cd656f6` |
+  | 11 | `tdma_pio_spi_phys.c` | 3,037 → 1,031 + 1,051 + 1,042 | `4e9eec76` |
 
   附带清偿：layout 2 陈旧常量（`ba210009`）、`state_machine_resource_check` 支持多单元输入（`cab9741d`）。
 
-  **剩余 5 个与根因**（均已核算，非"未尝试"）：`calibration_manager`(4,137) 64/87 静态跨单元、需上下文改造（4m）；`trigger_t2_runtime`(2,843) 47 个静态 + 33 个函数跨切、属实时核；`tdma_pio_spi_phys`(3,037)、`vdc_dpll_manager`(4,797)、`distributed_refmem`(5,341) 各有 18–23 处测试引用与实时/单写者约束，需独立专项。**N5.0 未完成（10/15）**。
+  **剩余 4 个与根因**（均已核算，非"未尝试"）：`calibration_manager`(4,137) 64/87 静态跨单元、需上下文改造（4m）；`trigger_t2_runtime`(2,843) 47 个静态 + 33 个函数跨切、属实时核；`vdc_dpll_manager`(4,797) 与 `distributed_refmem`(5,341) 各有 18–23 处测试引用与实时/单写者约束，需独立专项。**N5.0 未完成（11/15）**。
 - **每步约束**：纯移动/重命名 + 私有头；不改行为；host/build/P3/HIL 烟测；代码/文档分离提交。
 
 **N5.1 审核后 carry-over（未闭环，保持 pending）**：
