@@ -1,6 +1,7 @@
 #include "tdma_seat_admission.h"
 #include "tdma_seat_mount_store.h"
 #include "tdma_pio_spi_ring_adapter.h"
+#include "tdma_pio_spi_ring_adapter_internal.h"
 #include "tdma_long_frame.h"
 
 #include <string.h>
@@ -29,7 +30,7 @@
  * The dedicated tdma_origin_rtt latch is deliberately NOT the source: on the
  * recorded hardware it reports a fixed 62-count (496 ns) local CS->CS deskew
  * of the reference's own transmission, which is not a ring revolution. */
-static uint32_t tdma_pio_spi_ring_adapter_loop_tick_hz(void)
+uint32_t tdma_pio_spi_ring_adapter_loop_tick_hz(void)
 {
 #if TDMA_SERVICE_TIMING_ENABLED
     return vdc_timestamp_clock_tick_hz();
@@ -42,7 +43,7 @@ static uint32_t tdma_pio_spi_ring_adapter_loop_tick_hz(void)
 /* Raw TIMER1 ticks -> ns through the timestamp clock owner, so the loop
  * measurement uses the same timebase and conversion as every other TDMA
  * timestamp.  A build without that owner has no timebase at all. */
-static uint64_t tdma_pio_spi_ring_adapter_loop_ns(uint64_t ticks)
+uint64_t tdma_pio_spi_ring_adapter_loop_ns(uint64_t ticks)
 {
 #if TDMA_SERVICE_TIMING_ENABLED
     return vdc_timestamp_clock_ticks_to_ns(ticks);
@@ -100,7 +101,7 @@ static void tdma_pio_spi_ring_adapter_note_origin_return(
         (loop->sample_count == 1u ? TDMA_RING_LOOP_TIME_FLAG_FIRST_SAMPLE : 0u);
 }
 
-static void tdma_pio_spi_ring_adapter_reset_loop_time(
+void tdma_pio_spi_ring_adapter_reset_loop_time(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
     adapter->loop_time = (tdma_ring_loop_time_t){0};
@@ -174,7 +175,7 @@ static void tdma_pio_spi_ring_adapter_bind_reference_local_tx_edge(
     adapter->local_tx_edge_flags = evidence->flags;
 }
 
-static bool tdma_pio_spi_ring_product_payload(const tdma_pio_spi_ring_adapter_t *adapter,
+bool tdma_pio_spi_ring_product_payload(const tdma_pio_spi_ring_adapter_t *adapter,
                                              size_t payload_size)
 {
     return adapter != NULL && adapter->flight_engine != NULL &&
@@ -397,7 +398,7 @@ static bool tdma_pio_spi_ring_adapter_correlate_dpll_observation(
     return true;
 }
 
-static void tdma_pio_spi_ring_adapter_set_error(
+void tdma_pio_spi_ring_adapter_set_error(
     tdma_pio_spi_ring_adapter_t *adapter,
     uint32_t error)
 {
@@ -768,13 +769,13 @@ void tdma_pio_spi_ring_adapter_set_timestamp_metadata(
     adapter->timestamp_flags = flags;
 }
 
-static void tdma_pio_spi_ring_adapter_snapshot_write_begin(
+void tdma_pio_spi_ring_adapter_snapshot_write_begin(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
     (void)__atomic_add_fetch(&adapter->snapshot_guard, 1u, __ATOMIC_RELEASE);
 }
 
-static void tdma_pio_spi_ring_adapter_snapshot_write_end(
+void tdma_pio_spi_ring_adapter_snapshot_write_end(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
     (void)__atomic_add_fetch(&adapter->snapshot_guard, 1u, __ATOMIC_RELEASE);
@@ -1671,7 +1672,7 @@ static bool tdma_pio_spi_ring_adapter_stop(void *context)
     return stopped;
 }
 
-static bool tdma_pio_spi_ring_adapter_resident_process_image(
+bool tdma_pio_spi_ring_adapter_resident_process_image(
     const tdma_pio_spi_ring_adapter_t *adapter)
 {
     return adapter != NULL &&
@@ -2341,9 +2342,9 @@ static bool tdma_pio_spi_ring_adapter_tx_beacon(
     return launch_ok;
 }
 
-#include "tdma_pio_spi_ring_origin.inc"
+#include "tdma_pio_spi_ring_origin.h"
 
-static bool tdma_pio_spi_ring_adapter_process_rx_impl(
+bool tdma_pio_spi_ring_adapter_process_rx_impl(
     tdma_pio_spi_ring_adapter_t *adapter,
     const uint8_t *packet,
     size_t packet_size,
@@ -3029,7 +3030,7 @@ static bool tdma_pio_spi_ring_adapter_tx_forward(
     return true;
 }
 
-#include "tdma_pio_spi_ring_rx_prepare.inc"
+#include "tdma_pio_spi_ring_rx_prepare.h"
 
 _Static_assert(TDMA_RX_PREPARE_IDLE == 0u && TDMA_RX_PREPARE_REQUESTED == 1u &&
     TDMA_RX_PREPARE_BUILDING == 2u && TDMA_RX_PREPARE_READY == 3u &&
@@ -3129,7 +3130,7 @@ static bool tdma_pio_spi_ring_adapter_rx_once_impl(
     return tdma_pio_spi_ring_adapter_rx_legacy(adapter);
 }
 
-static bool tdma_pio_spi_ring_adapter_rx_once(
+bool tdma_pio_spi_ring_adapter_rx_once(
     tdma_pio_spi_ring_adapter_t *adapter)
 {
     const uint64_t started = tdma_service_timing_now();

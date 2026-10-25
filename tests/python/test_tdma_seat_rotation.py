@@ -7,7 +7,7 @@ import subprocess
 from test_trigger_grid_preview import ROOT, compile_grid
 from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
 
-ORIGIN = ROOT / "components/tdma/src/tdma_pio_spi_ring_origin.inc"
+ORIGIN = ROOT / "components/tdma/src/tdma_pio_spi_ring_origin.c"
 FUNCTIONS = (
     ("static bool", "tdma_pio_spi_ring_origin_mailbox_valid",
      "const uint8_t *mailbox, uint32_t slot, uint32_t mask"),

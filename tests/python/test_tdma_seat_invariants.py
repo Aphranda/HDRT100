@@ -22,7 +22,7 @@ from test_trigger_grid_preview import ROOT, compile_grid
 from test_tdma_seat_rotation import FUNCTIONS, HARNESS
 from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
 
-ORIGIN = ROOT / "components/tdma/src/tdma_pio_spi_ring_origin.inc"
+ORIGIN = ROOT / "components/tdma/src/tdma_pio_spi_ring_origin.c"
 
 # Everything the hand-written harness sets up (stubs, fixtures, helpers), minus
 # its own main(), so a randomized driver can replace it.
