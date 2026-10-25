@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-10-25
+Last updated: 2026-10-26
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
@@ -14,6 +14,37 @@ Last updated: 2026-10-25
 历史记录中的预算、节点及门禁描述只代表当时快照，当前口径以最新条目和主域文档为准。
 
 ## 当前 checkpoint
+
+### TDMA-PROGRESS-20261026-045：tdma_service.c 拆为 main + Core1 单元（N5.0.4a 打样）
+
+- **范围**：`tdma_service.c` 2,283 → 1,202 行；新增 `tdma_service_core1.c` 1,078 行与
+  `inc/tdma_service_internal.h`（46 行）。两者均满足 `EXE-CODE-01` 的"拆分后单元 ≤1,500"。
+- **边界**：intent 提交（`has_pending`/`enqueue_scheduled`/`submit`）、调度与恢复
+  （`dispatch_next_scheduled`/`complete_scheduled`/`stage_active_recovery`）、Core1 执行
+  （`generic_core1_service`/`core1_service`）、CRC 与全量快照、结果帧读出。函数体逐字位移。
+- **跨边界调用实测单向**：Core1 单元调用主单元 10 个 helper（now/elapsed/delta/split_u64/load/
+  begin|end_intent_write/begin|end_result_write/publish_exec_timestamp），主单元对 Core1 单元
+  0 调用；`submit` 仍是 Core1 单元内 `static`，未产生跨 TU 双实例。私有头只导出这 10 个原型，
+  不定义任何状态。
+- **归档而非删除**：拆分前全文以 100% 复制移入 `components/tdma/archive/tdma_service_split_v1/`
+  （SHA256 `BFA4829D…F68F84C`），`ARCHIVE_NOTE.md` 记录边界、映射与"不得删除"规则。
+- **等价性证据**：`tdma_service_*` 符号 77 → 86（+10 个 helper 转为外部符号，-1 个被内联的
+  `tdma_service_submit`）；同名符号代码量合计 12,934 → 12,942 B（+8 B，来自 `submit_tx/rx`
+  各自内联 `submit`）；无 section/`__not_in_flash`/`__scratch` 迁移；条件编译仍只有
+  `PICO_ON_DEVICE` 一处。
+- **验证**：host 同集 `test_tdma_geometry_config`/`test_tdma_start_admission` 40 passed、
+  `test_tdma_foundation_snapshot` 等 81 passed、`test_tdma_service_nonblocking` 23 passed、
+  `test_state_machine_resource_check` 50 passed；P3 quick
+  `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC` = `PASS_WITH_WARNINGS`（INFO 33 / WARN 10 / ERROR 0 /
+  FATAL 0，build `20261025163403`，1,536 文件），凭证 `config/hardware_acceptance/p3_acceptance_receipt.json`。
+- **遗留（⚠️，非本拆分引入）**：`sync_dpll_fb` 之外，`test_tdma_service_timing`、
+  `test_tdma_command_dma`、`test_tdma_diagnostic_burst`、`test_tdma_seat_rotation`、
+  `test_tdma_seat_invariants`、`test_vdc_command_ingress` 共 7 项 host 失败仍红：前者缺
+  `tdma_pio_spi_ring_origin.c`/`phys_geometry.c` 等新单元源清单，后者按 `distributed_refmem.c`
+  找已迁入 `distributed_refmem_internal.h` 的 `distributed_refmem_tdma_flight_sync_t`。
+  两者均由 `0bc4e013`/`dca0de1d` 的既有拆分造成，与 N5.0.4a 无关；复验判据 = 修源清单后重跑，
+  归属里程碑 = N5.0.4b（TDMA adapter 拆分时一并修）。
+- **交付**：`81b417d7`（代码+测试+凭证）、`aa24027c`（N5.0.4a 登记修正）。
 
 ### TDMA-PROGRESS-20261025-044：6 个活 .inc 片段全部拆为独立 .c 单元（refactor 收口）
 
