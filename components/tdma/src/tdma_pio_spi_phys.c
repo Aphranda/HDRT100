@@ -360,8 +360,6 @@ void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys,
     }
 }
 
-static void tdma_priority_stop(void);
-static void tdma_priority_boundary_service(tdma_pio_spi_phys_t *phys);
 static bool tdma_pio_spi_phys_arm_reject(
     tdma_pio_spi_phys_t *phys,
     tdma_pio_spi_phys_error_t error)
@@ -2092,7 +2090,6 @@ void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination,
     }
 }
 
-#include "tdma_pio_spi_phys_priority.inc"
 
 static bool tdma_pio_spi_phys_transport_header_matches(
     uint64_t packet_start,

@@ -152,4 +152,11 @@ uint64_t tdma_pio_spi_phys_rx_produced_words(tdma_pio_spi_phys_t *phys);
 void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination, uint64_t produced,
                                     uint32_t count, uint32_t bit_shift);
 
+
+/* Priority-lane unit (tdma_pio_spi_phys_priority.c). */
+bool tdma_priority_start(tdma_pio_spi_phys_t *phys,
+                         const tdma_ring_runtime_config_t *config);
+void tdma_priority_stop(void);
+void tdma_priority_boundary_service(tdma_pio_spi_phys_t *phys);
+
 #endif /* TDMA_PIO_SPI_PHYS_INTERNAL_H */
