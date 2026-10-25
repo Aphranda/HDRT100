@@ -130,3 +130,59 @@ bool distributed_refmem_get_position_descriptor(
         trigger_position_mailbox_take(&s_position_rx_mailboxes[source_slot],
                                       descriptor, &target_mask);
 }
+
+bool distributed_refmem_get_position_transport(
+    distributed_refmem_position_transport_snapshot_t *snapshot)
+{
+    if (!snapshot) return false;
+    *snapshot = (distributed_refmem_position_transport_snapshot_t){
+        .tx_pending = distributed_refmem_position_descriptor_pending(),
+        .tx_active = __atomic_load_n(&distributed_refmem_tdma_flight_sync()->position_tx_active,
+                                     __ATOMIC_ACQUIRE),
+        .tx_fragment_index = distributed_refmem_tdma_flight_sync()->position_tx_fragment_index,
+        .tx_publish_count = distributed_refmem_tdma_flight_sync()->position_tx_publish_count,
+        .tx_reject_count = distributed_refmem_tdma_flight_sync()->position_tx_reject_count,
+        .tx_position_id = distributed_refmem_tdma_flight_sync()->position_tx_position_id,
+        .tx_phase = distributed_refmem_tdma_flight_sync()->position_tx_phase,
+        .tx_wait_reason = distributed_refmem_tdma_flight_sync()->position_tx_wait_reason,
+        .tx_wait_count = distributed_refmem_tdma_flight_sync()->position_tx_wait_count,
+        .tx_submitted_sequence = distributed_refmem_tdma_flight_sync()->position_tx_submitted_sequence,
+        .tx_coalesced_count = s_position_coalesced_count,
+        .rx_complete_count = distributed_refmem_tdma_flight_sync()->position_rx_complete_count,
+        .rx_reject_count = distributed_refmem_tdma_flight_sync()->position_rx_reject_count,
+        .rx_source_slot = distributed_refmem_tdma_flight_sync()->position_rx_source_slot,
+        .rx_position_id = distributed_refmem_tdma_flight_sync()->position_rx_position_id,
+        .cancel_requested = __atomic_load_n(&s_position_cancel_requested,
+                                            __ATOMIC_ACQUIRE),
+        .rx_phase = distributed_refmem_tdma_flight_sync()->position_rx_phase,
+        .rx_last_failure = distributed_refmem_tdma_flight_sync()->position_rx_last_failure,
+        .lane_accept_count = __atomic_load_n(&s_position_priority_accept_count, __ATOMIC_RELAXED),
+        .lane_duplicate_count = __atomic_load_n(&s_position_priority_duplicate_count, __ATOMIC_RELAXED),
+        .lane_reject_count = __atomic_load_n(&s_position_priority_reject_count, __ATOMIC_RELAXED),
+        .lane_hold_count = __atomic_load_n(&s_position_priority_hold_count, __ATOMIC_RELAXED),
+        .lane_drain_count = __atomic_load_n(&s_position_priority_drain_count, __ATOMIC_RELAXED),
+        .lane_drain_fail_count = __atomic_load_n(&s_position_priority_drain_fail_count,
+                                                 __ATOMIC_RELAXED),
+        .lane_hold_expired_count = __atomic_load_n(&s_position_priority_hold_expired_count,
+                                                   __ATOMIC_RELAXED),
+        .lane_hold_dropped_count = __atomic_load_n(&s_position_priority_hold_dropped_count,
+                                                   __ATOMIC_RELAXED),
+        .lane_ack_override_count = __atomic_load_n(&s_position_ack_override_count,
+                                                   __ATOMIC_RELAXED),
+        .lane_diag_refused_count = __atomic_load_n(&s_position_diag_refused_count,
+                                                   __ATOMIC_RELAXED),
+        .lane_decode_reject_count = __atomic_load_n(&s_position_priority_decode_reject_count,
+                                                    __ATOMIC_RELAXED),
+        .lane_hold_delivered_count = __atomic_load_n(
+            &s_position_priority_hold_delivered_count, __ATOMIC_RELAXED),
+        .lane_owned = distributed_refmem_position_priority_owned(),
+        .lane_freeze_latched_count = __atomic_load_n(&s_position_freeze_latched_count, __ATOMIC_RELAXED),
+        .lane_freeze_kept_count = __atomic_load_n(&s_position_freeze_kept_count, __ATOMIC_RELAXED),
+        .lane_freeze_taken_count = __atomic_load_n(&s_position_freeze_taken_count, __ATOMIC_RELAXED),
+    };
+    for (uint32_t slot = 0u; slot < DISTRIBUTED_REFMEM_NODE_COUNT; ++slot)
+        if (trigger_position_mailbox_pending(&s_position_rx_mailboxes[slot]) ||
+            __atomic_load_n(&s_position_freeze_latches[slot].mask, __ATOMIC_ACQUIRE))
+            snapshot->rx_pending_mask |= 1u << slot;
+    return true;
+}
