@@ -16,9 +16,10 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "components/tdma/src/tdma_pio_spi_phys_event.inc"
-# 2026-10-25: the RX start-cut owner moved to its own translation unit.
+# 2026-10-25: the RX start-cut and first-window owners moved to their own units.
 START_CUT_SOURCE = ROOT / "components/tdma/src/tdma_pio_spi_phys_rx_start_cut.c"
-SOURCES = (SOURCE, START_CUT_SOURCE)
+RX_FIRST_SOURCE = ROOT / "components/tdma/src/tdma_pio_spi_phys_rx_first.c"
+SOURCES = (SOURCE, START_CUT_SOURCE, RX_FIRST_SOURCE)
 
 
 def macro(source: str, name: str) -> str:

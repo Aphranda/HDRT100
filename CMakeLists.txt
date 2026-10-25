@@ -618,6 +618,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_pio_spi_phys_priority.c
         components/tdma/src/tdma_pio_spi_phys_flight_io.c
         components/tdma/src/tdma_pio_spi_phys_origin.c
+        components/tdma/src/tdma_pio_spi_phys_rx_first.c
         components/tdma/src/tdma_pio_spi_phys_rx_start_cut.c
         components/tdma/src/tdma_pio_spi_phys_cal_control.c
         components/tdma/src/tdma_pio_spi_phys_cal_service.c

@@ -254,4 +254,24 @@ extern tdma_frozen_geometry_snapshot_t s_tdma_event_geometry;
 extern tdma_event_observer_t s_tdma_event_observer;
 uint32_t tdma_event_prelaunch_geometry(const tdma_pio_spi_phys_t *phys);
 void tdma_event_live_anchor_reset(void);
+
+/* Event sub-cluster exports (2026-10-25). */
+extern tdma_rx_first_window_t s_tdma_rx_first_window;
+extern uint32_t s_tdma_rx_first_guard;
+bool tdma_rx_first_write_begin(void);
+void tdma_rx_first_write_end(void);
+void tdma_rx_first_reason(uint32_t reason);
+void tdma_rx_first_raw_done(uint32_t reason);
+void tdma_rx_first_window_retire(uint32_t reason, bool stopped);
+void tdma_rx_first_window_prelaunch(const tdma_pio_spi_phys_t *phys,
+    const tdma_ring_runtime_config_t *config, uint32_t reason);
+bool tdma_rx_first_current(const tdma_pio_spi_phys_t *phys);
+void tdma_rx_first_window_words(const tdma_event_batch_t *batch);
+uint32_t tdma_rx_first_raw_observe(tdma_pio_spi_phys_t *phys,
+    tdma_rx_dma_counter_t *counter, bool post);
+void tdma_rx_first_window_raw(tdma_pio_spi_phys_t *phys);
+void tdma_rx_first_window_event(tdma_pio_spi_phys_t *phys, size_t count);
+
+extern tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
+extern uint64_t s_tdma_event_base_us;
 #endif /* TDMA_PIO_SPI_PHYS_INTERNAL_H */

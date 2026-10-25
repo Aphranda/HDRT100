@@ -132,6 +132,8 @@ def test_first_window_production_boundaries(tmp_path, capacity):
 #undef assert
 #define assert(c) do { if (!(c)) { fprintf(stderr, "ASSERT %s:%d: %s\\n", __FILE__, __LINE__, #c); fflush(stderr); _Exit(99); } } while (0)''', 1)
     observed = [ROOT / "components/tdma/src/tdma_pio_spi_phys_event.inc",
+                ROOT / "components/tdma/src/tdma_pio_spi_phys_rx_start_cut.c",
+                ROOT / "components/tdma/src/tdma_pio_spi_phys_rx_first.c",
                 ROOT / "components/tdma/src/tdma_pio_spi_phys.c",
                 ROOT / "components/tdma/src/tdma_pio_spi_phys_programs.c",
                 ROOT / "components/tdma/src/tdma_pio_spi_phys_geometry.inc",
