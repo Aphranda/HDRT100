@@ -4,11 +4,27 @@ Status: Active
 Domain: CALIBRATION
 Canonical: `docs/calibration/CALIBRATION_TASK_PROGRESS.md`
 Related: `docs/calibration/CALIBRATION_DOMAIN_TODO.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/calibration/CALIBRATION_TRAINING_SUBDOMAIN_PLAN.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_TASK_PROGRESS.md`
-Last updated: 2026-10-10
+Last updated: 2026-10-26
 
 本文档记录校准域从方案、粗捕获到双向测距和 VDC/DPLL 接入的实际进展。记录中的 HIL
 结果必须绑定 build、拓扑、profile、接线和证据目录；未绑定这些上下文的数字只能作为
 诊断快照，不能作为 active calibration 或产品精度承诺。
+
+## CAL-TASK-20261026-027 - 校准 SCPI 命令拆分（N5.0.4c）
+
+- 变更：`middleware/scpi_port/src/scpi_calibration_commands.c` 2,131 → 1,022 行；新增
+  `scpi_calibration_capture_commands.c` 1,122 行（DATA/SCK/RING/TRAIN/PATH/BIAS/SAVE/CLK/
+  P3/LINK 与元信息），两单元均 ≤1,300 的 SCPI 预算。拆分点在第 1021/1022 行（括号深度 0）。
+- 私有面：仅 `scpi_calibration_result_u64` 由 `static` 改外部符号，声明进
+  `inc/scpi_calibration_commands_internal.h`；`SCPI_CALIBRATION_COMMANDS` 注册宏未改动，
+  回调名与相对顺序不变。
+- 等价性：函数定义集合前后一致（87/87，无增删）；产品 SCPI 校验源清单补入新单元；
+  `test_trn03_candidate` 改读两文件。
+- 验证：host 定向 46 passed（`test_tdma_origin_admission[stale]` 为既有失败，归属 N5.0.4b）；
+  P3 `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC` = `PASS_WITH_WARNINGS`（INFO 31 / WARN 14 / ERROR 0 /
+  FATAL 0）。未覆盖 full bench 与严格质量门。
+- 归档：`middleware/scpi_port/archive/scpi_calibration_split_v1/`（含 SHA256）。
+- 提交：`cf472872`。
 
 ## CAL-TASK-20260913-026 - 当前测量基线上的独立 RX 诊断窗口
 
