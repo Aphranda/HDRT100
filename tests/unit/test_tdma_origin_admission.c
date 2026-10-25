@@ -133,7 +133,7 @@ bool tdma_ring_runtime_configure(tdma_ring_runtime_t *runtime, const tdma_ring_r
 static void admission_snapshot_fence(int order);
 #define __atomic_thread_fence(order) admission_snapshot_fence(order)
 #include "../../components/tdma/src/tdma_runtime_origin.inc"
-#include "../../components/calibration_manager/src/calibration_origin_timing.inc"
+#include "origin_timing_body.inc"
 #undef __atomic_thread_fence
 
 static bool tear_request;

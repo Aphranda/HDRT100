@@ -103,7 +103,7 @@ bool tdma_origin_cadence_calculate(uint32_t hz, uint32_t baud, uint32_t bytes, u
     if (result) observed_mask |= CALIBRATION_ORIGIN_OBS_CADENCE;
     return result;
 }
-#include "../../components/calibration_manager/src/calibration_origin_timing.inc"
+#include "origin_timing_body.inc"
 static void called(unsigned id)
 {
     assert(trace_count < sizeof(trace) / sizeof(trace[0]));
@@ -112,7 +112,7 @@ static void called(unsigned id)
 }
 
 /* Frozen production function from 5799b7f253f0b3dc4dd338483986baf15ff8f5b3,
- * components/calibration_manager/src/calibration_origin_timing.inc.
+ * components/calibration_manager/src/calibration_origin_timing.c (body only).
  * Only the function name differs. Do not update this oracle to match the new
  * diagnostic implementation: it independently fixes authorization semantics. */
 static bool baseline_trial(uint32_t trial_id, uint32_t rearm_budget_ticks,

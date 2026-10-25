@@ -452,6 +452,7 @@ set(PROJECT_APP_SOURCES
         middleware/portable_log_port/src/portable_log_port.c
         middleware/flash_map/src/flash_map.c
         components/calibration_manager/src/calibration_manager.c
+        components/calibration_manager/src/calibration_origin_timing.c
         components/calibration_manager/src/calibration_bidirectional.c
         components/calibration_manager/src/calibration_bias.c
         components/calibration_manager/src/calibration_path_snapshot.c

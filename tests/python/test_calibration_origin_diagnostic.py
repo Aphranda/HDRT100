@@ -23,6 +23,14 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture(scope="module")
 def diagnostic_exe(tmp_path_factory):
     build = tmp_path_factory.mktemp("origin-diagnostic")
+    # The origin-timing fragment is a real .c with its own include prologue;
+    # this harness supplies that context itself, so inject the body only.
+    unit = (ROOT / "components/calibration_manager/src/calibration_origin_timing.c"
+            ).read_text(encoding="utf-8")
+    body = unit.splitlines(keepends=True)
+    while body and (not body[0].strip() or body[0].lstrip().startswith("#include")):
+        body.pop(0)
+    (build / "origin_timing_body.inc").write_text("".join(body), encoding="utf-8")
     source = (ROOT / "middleware/scpi_port/src/scpi_calibration_commands.c").read_text(encoding="utf-8")
     callbacks = [
         ("scpi_calibration_origin_trial_flags", "scpi_t *context, uint32_t flags"),

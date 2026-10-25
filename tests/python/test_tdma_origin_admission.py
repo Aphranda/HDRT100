@@ -17,6 +17,14 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture(scope="module")
 def admission_exe(tmp_path_factory):
     build = tmp_path_factory.mktemp("origin-admission")
+    # The origin-timing fragment is a real .c with its own include prologue;
+    # this harness supplies that context itself, so inject the body only.
+    unit = (ROOT / "components/calibration_manager/src/calibration_origin_timing.c"
+            ).read_text(encoding="utf-8")
+    body = unit.splitlines(keepends=True)
+    while body and (not body[0].strip() or body[0].lstrip().startswith("#include")):
+        body.pop(0)
+    (build / "origin_timing_body.inc").write_text("".join(body), encoding="utf-8")
     compiler = shutil.which("gcc") or shutil.which("clang")
     assert compiler
     exe = build / ("admission.exe" if os.name == "nt" else "admission")

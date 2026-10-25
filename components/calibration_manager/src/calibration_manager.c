@@ -18,7 +18,6 @@
 
 #define CALIBRATION_MANAGER_DEFAULT_CRC32 0x10000003u
 
-#include "calibration_origin_timing.inc"
 
 /* A topology generation is a ring-wide identity, not a per-board mutation
  * counter.  ring.config_seq is local to each MCU and can legitimately differ
