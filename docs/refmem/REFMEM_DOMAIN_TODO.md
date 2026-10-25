@@ -535,7 +535,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - **N5.0.2f-A（TDMA flight）** ⏳（A.2b 完成；A.3 第一次回退 2026-10-25）：getter 块跨 inc/`#if`，需按完整条件块切；下一刀 A.3 或 N5.0.5。
 - **N5.0.3** ⏳：SCPI refmem 控制块已拆出到 `scpi_refmem_snapshot_commands.c`（5,712→4,627，P3 `20261025001128`）；剩余 sync/TDMA/system 块为 N5.0.3b。
 - **N5.0.4** VDC/calibration/TDMA adapter 依次拆；每步单独提交。
-- **N5.0.5** 预算门禁（可选 line-count 检查）+ 文档/HAOFV 收口。
+- **N5.0.5** ⏳（收口报告 2026-10-25）：行数快照/残差/HAOFV 已记录；N5.0 **未完成**，A.3/A.4/N5.0.3b 留待扩展。
 - **每步约束**：纯移动/重命名 + 私有头；不改行为；host/build/P3/HIL 烟测；代码/文档分离提交。
 
 **N5.1 审核后 carry-over（未闭环，保持 pending）**：

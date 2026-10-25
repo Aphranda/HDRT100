@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-020`。
+- 最新条目：`REFMEM-TASK-20261025-021`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,25 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-021 — N5.0.5 预算/残差/HAOFV 收口
+
+- 状态：收口报告完成；**N5.0 未完成**（不得标 ✅）。
+- 行数快照（2026-10-25，非事实源）：
+  - `distributed_refmem.c` 5,372（>3,000，A.3/A.4 未完成）
+  - `scpi_system_snapshot_commands.c` 4,627（>3,000，N5.0.3b 未完成）
+  - `scpi_refmem_snapshot_commands.c` 1,150；`distributed_refmem_position.c` 188；`distributed_refmem_diag.c` 128（新文件在 1,300 预算内）
+  - `vdc_dpll_manager.c` 4,826、`vdc_domain.c` 4,460、`calibration_manager.c` 4,138、`tdma_pio_spi_ring_adapter.c` 4,116（N5.0.4 可选未做）
+- 完成：N5.0.1（EXE-CODE-01）、N5.0.3a（SCPI refmem）、A.1（flight 状态头）、A.2a（position 状态 wrapper）、A.2b（stage/get/transport 迁出）、N5.0.2g（flight-sync diag getters）。
+- 未完成：A.3（VDC getter/process_completed）、A.4（flight publish/receive/parse）、N5.0.3b（SCPI sync/TDMA/system）、N5.0.4（可选）、line-count 检查。
+- HAOFV 六门（N5.0 级别）：
+  - ① 无新增总线/class/第二命令槽/第二 ACK：✅ 全部纯迁移。
+  - ② 不占 core1：✅；A.2b `RAM_TEXT` 随函数迁移，无窗口变化。
+  - ③ 单写者/owner：✅ 状态单实例/accessor。
+  - ④ fail-closed + reason/evidence：✅ 每刀 P3；负结果回退。
+  - ⑤ 布局/版本/契约同步：✅ 无 wire/表布局变化。
+  - ⑥ host + 四板证据：⚠️ P3 四板通过；A.2b HIL 报告 build 仍为旧值（`20261025015413`），板端未确认切到 `20261025021925`；收口前需复验 OTA 槽位。
+- 结论：目标**不能标记完成**；A.3/A.4/N5.0.3b 需要新目标/扩展轮次。
 
 ### REFMEM-TASK-20261025-020 — N5.0.2f-A.3 第一次尝试回退（负结果）
 
@@ -242,7 +261,8 @@ Last updated: 2026-10-25
 - A.2b 小切完成：stage/descriptor_pending/get_position_descriptor/cancel service 搬出；5,549→5,429；P3 `20261025015510`；exec196 `[1,1,1]`。
 - A.2b 完成：transport 按函数边界迁出；5,429→5,373；P3 `20261025021925`；exec196 `[1,1,1]`（HIL build 显示旧值，⚠️）。
 - A.3 第一次尝试回退：getter 块跨 `#include vdc_feedback.inc`/`#if`，边界不干净；工作树回到 A.2b。
-- 下一步：A.3 按完整条件块切，或先做 N5.0.5 收口。
+- N5.0.5 收口报告完成：行数快照/完成项/残差/HAOFV 六门；N5.0 **未完成**。
+- 下一步：A.3/A.4/N5.0.3b 需扩展目标；当前目标剩余轮次不足。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 
