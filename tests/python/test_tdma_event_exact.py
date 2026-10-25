@@ -17,7 +17,7 @@ from test_tdma_event_recovery import recovery_source
 from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
 
 ROOT = Path(__file__).resolve().parents[2]
-EVENT = ROOT / "components/tdma/src/tdma_pio_spi_phys_event.inc"
+EVENT = ROOT / "components/tdma/src/tdma_pio_spi_phys_event.c"
 
 
 def owner_wrapper() -> str:
@@ -325,7 +325,8 @@ def test_exact_feature_disabled(tmp_path: Path, short_enums: bool) -> None:
     types_end = header.index("} tdma_pio_spi_event_window_t;") + len("} tdma_pio_spi_event_window_t;")
     types = header[header.index("#define TDMA_PIO_SPI_EVENT_TAP_MAX_DELAY_CYCLES"):types_end]
     source = DISABLED_PREFIX + header[start:end] + "\n" + types + DISABLED_FIXTURE
-    source += f'#include "{EVENT.as_posix()}"\n' + owner_wrapper() + DISABLED_CASES
+    source += ("#define TDMA_PHYS_EVENT_HARNESS 1\n" +
+               f'#include "{EVENT.as_posix()}"\n' + owner_wrapper() + DISABLED_CASES)
     assert "event exact disabled: complete production include passed" in execute(
         tmp_path, source, enabled=False, short_enums=short_enums)
 

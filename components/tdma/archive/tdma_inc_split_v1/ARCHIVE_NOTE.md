@@ -28,3 +28,14 @@ and the `TDMA_ORIGIN_OWNER_RAM` placement macro moved to
 `src/tdma_origin_owner_ram.h`.
 
 Do not delete this archive. It is the audit copy of the pre-split sources.
+
+## 2026-10-25: event fragment retired
+
+	dma_pio_spi_phys_event.inc is archived here as the audit copy of the event
+owner before it became a translation unit. The live code now lives in
+src/tdma_pio_spi_phys_event.c (core), src/tdma_pio_spi_phys_rx_start_cut.c
+and src/tdma_pio_spi_phys_rx_first.c. 	dma_pio_spi_phys.c no longer
+textually includes any .inc file. Nothing was deleted: the fragment text is
+preserved byte-for-byte in this directory, and the event unit keeps a
+TDMA_PHYS_EVENT_HARNESS prologue guard so the feature-disabled harnesses can
+still compile the full production source.

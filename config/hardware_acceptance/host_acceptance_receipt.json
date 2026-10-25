@@ -1,15 +1,19 @@
 {
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
   "passed": true,
-  "fingerprint": "7bb0289dbec1167881a57bf571c996f4e89e68b978a680ed1ff25ce375468fd6",
+  "fingerprint": "c9d2c962081315413ebceec1dc4f548dec0cf566787ebd399f793b9bc9f3d0ba",
   "file_count": 524,
-  "working_fingerprint": "7bb0289dbec1167881a57bf571c996f4e89e68b978a680ed1ff25ce375468fd6",
+  "working_fingerprint": "c9d2c962081315413ebceec1dc4f548dec0cf566787ebd399f793b9bc9f3d0ba",
   "unstaged_tested_files": [],
   "command": [
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
     "tests/python/test_tdma_event_adapter.py",
+    "tests/python/test_tdma_event_dma.py",
+    "tests/python/test_tdma_event_exact.py",
+    "tests/python/test_tdma_event_history_window.py",
+    "tests/python/test_tdma_event_service.py",
     "tests/python/test_tdma_observer_prelaunch.py",
     "tests/python/test_tdma_rx_event_candidate.py",
     "tests/python/test_tdma_rx_first_window.py",
@@ -19,22 +23,26 @@
   ],
   "paths": [
     "tests/python/test_tdma_event_adapter.py",
+    "tests/python/test_tdma_event_dma.py",
+    "tests/python/test_tdma_event_exact.py",
+    "tests/python/test_tdma_event_history_window.py",
+    "tests/python/test_tdma_event_service.py",
     "tests/python/test_tdma_observer_prelaunch.py",
     "tests/python/test_tdma_rx_event_candidate.py",
     "tests/python/test_tdma_rx_first_window.py"
   ],
-  "started_at_utc": "2026-10-25T14:31:11.987420+00:00",
-  "duration_s": 159.047,
+  "started_at_utc": "2026-10-25T14:58:47.012600+00:00",
+  "duration_s": 211.875,
   "returncode": 0,
   "summary": {
-    "passed": 14,
+    "passed": 48,
     "failed": 0,
     "errors": 0,
     "skipped": 0
   },
-  "summary_line": "14 passed in 158.24s (0:02:38)",
+  "summary_line": "48 passed in 210.96s (0:03:30)",
   "tail": [
-    "..............                                                           [100%]",
-    "14 passed in 158.24s (0:02:38)"
+    "................................................                         [100%]",
+    "48 passed in 210.96s (0:03:30)"
   ]
 }

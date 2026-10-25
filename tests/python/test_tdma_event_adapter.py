@@ -19,7 +19,7 @@ def production(directory: Path) -> str:
     # 2026-10-25: the RX start-cut and first-window owners moved to their own units.
     source = "\n".join(
         (ROOT / path).read_text(encoding="utf-8")
-        for path in ("components/tdma/src/tdma_pio_spi_phys_event.inc",
+        for path in ("components/tdma/src/tdma_pio_spi_phys_event.c",
                      "components/tdma/src/tdma_pio_spi_phys_rx_start_cut.c",
                      "components/tdma/src/tdma_pio_spi_phys_rx_first.c"))
     phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")

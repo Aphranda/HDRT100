@@ -274,4 +274,27 @@ void tdma_rx_first_window_event(tdma_pio_spi_phys_t *phys, size_t count);
 
 extern tdma_event_record_t s_tdma_event_records[TDMA_EVENT_MAX_RECORDS];
 extern uint64_t s_tdma_event_base_us;
+
+/* Event core exports (2026-10-25). */
+extern bool s_tdma_event_dma_active;
+extern bool s_tdma_event_dma_active;
+bool tdma_pio_spi_phys_event_sequence_copy(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_event_sequence_evidence_t *out);
+bool tdma_pio_spi_phys_event_selected(const tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_event_prepare(tdma_pio_spi_phys_t *phys,
+                                            const tdma_ring_runtime_config_t *config);
+bool tdma_pio_spi_phys_event_prelaunch(tdma_pio_spi_phys_t *phys,
+    const tdma_ring_runtime_config_t *config);
+bool tdma_pio_spi_phys_event_prelaunch(tdma_pio_spi_phys_t *phys,
+    const tdma_ring_runtime_config_t *config);
+bool tdma_pio_spi_phys_event_selected(const tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_event_stop(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_event_prepare(tdma_pio_spi_phys_t *phys,
+                                            const tdma_ring_runtime_config_t *config);
+
+extern uint s_tdma_event_counter_offset;
+extern uint s_tdma_event_sequence_offset;
+extern uint s_tdma_pio_spi_flight_process_follower_offset;
+bool tdma_pio_spi_phys_stop_dma_level(uint32_t mask, uint64_t deadline);
 #endif /* TDMA_PIO_SPI_PHYS_INTERNAL_H */

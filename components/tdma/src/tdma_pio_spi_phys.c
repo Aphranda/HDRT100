@@ -95,13 +95,13 @@ static uint s_tdma_pio_spi_flight_origin_clock_offset;
 static uint s_tdma_pio_spi_flight_origin_data_offset;
 static uint s_tdma_pio_spi_flight_origin_data_capture_offset;
 static uint s_tdma_pio_spi_flight_data_follower_offset;
-static uint s_tdma_pio_spi_flight_process_follower_offset;
+uint s_tdma_pio_spi_flight_process_follower_offset;
 static uint s_tdma_pio_spi_flight_control_forward_offset;
 static uint s_tdma_pio_spi_flight_clock_latch_offset;
 static uint s_tdma_pio_spi_flight_rx_clock_latch_offset;
 static uint s_tdma_pio_spi_flight_origin_rtt_offset;
-static uint s_tdma_event_counter_offset;
-static uint s_tdma_event_sequence_offset;
+uint s_tdma_event_counter_offset;
+uint s_tdma_event_sequence_offset;
 uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS]
     __attribute__((aligned(4)));
 /* Calibration personas are mutually exclusive: the TDMA owner restores the
@@ -406,7 +406,6 @@ void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys)
 
 void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *config);
 void tdma_rx_first_window_arm_failed(void);
-#include "tdma_pio_spi_phys_event.inc"
 
 void tdma_pio_spi_phys_workspace_reset(void)
 {
@@ -659,7 +658,7 @@ void tdma_pio_spi_phys_disable_dma_mask(uint32_t mask)
     }
 }
 
-static bool tdma_pio_spi_phys_stop_dma_level(uint32_t mask, uint64_t deadline)
+bool tdma_pio_spi_phys_stop_dma_level(uint32_t mask, uint64_t deadline)
 {
     if (mask == 0u) return true;
     /* Re-clear EN after upstream quiescence: an in-flight AL3 CTRL write

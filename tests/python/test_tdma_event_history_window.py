@@ -12,7 +12,7 @@ def test_history_window_cursor_anchor_and_races(tmp_path: Path) -> None:
     source = recovery_source(tmp_path)
     pos = source.rindex("int main(void)")
     source = source[:pos] + source[pos:].replace("int main(void)", "int recovery_regression_main(void)", 1)
-    production = (ROOT / "components/tdma/src/tdma_pio_spi_phys_event.inc").read_text(encoding="utf-8")
+    production = (ROOT / "components/tdma/src/tdma_pio_spi_phys_event.c").read_text(encoding="utf-8")
     block = production[production.index("/* EVENT_HISTORY_WINDOW_BEGIN"):production.index("/* EVENT_HISTORY_WINDOW_END */")]
     assert block.count("__atomic_thread_fence(__ATOMIC_ACQ_REL);") == 1
     block = block.replace("__atomic_thread_fence(__ATOMIC_ACQ_REL);", "window_read_fence();")

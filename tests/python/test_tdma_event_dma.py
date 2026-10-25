@@ -17,7 +17,7 @@ import pytest
 from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
 
 ROOT = Path(__file__).resolve().parents[2]
-EVENT = ROOT / "components/tdma/src/tdma_pio_spi_phys_event.inc"
+EVENT = ROOT / "components/tdma/src/tdma_pio_spi_phys_event.c"
 PHYSICAL = ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
 
 

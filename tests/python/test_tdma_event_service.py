@@ -30,13 +30,13 @@ def source_fixture() -> str:
 
 def production_routines() -> str:
     functions = [
-        ("components/tdma/src/tdma_pio_spi_phys_event.inc", "bool", "tdma_pio_spi_phys_event_selected", "const tdma_pio_spi_phys_t *phys"),
-        ("components/tdma/src/tdma_pio_spi_phys_event.inc", "uint64_t", "tdma_event_cycles", "uint64_t us, bool upper"),
-        ("components/tdma/src/tdma_pio_spi_phys_event.inc", "uint32_t", "tdma_event_faults", "tdma_pio_spi_phys_t *phys"),
-        ("components/tdma/src/tdma_pio_spi_phys_event.inc", "void", "tdma_event_publish_snapshot", "tdma_pio_spi_phys_t *phys"),
-        ("components/tdma/src/tdma_pio_spi_phys_event.inc", "void", "tdma_event_candidate_retire", "void"),
-        ("components/tdma/src/tdma_pio_spi_phys_event.inc", "void", "tdma_event_publish_state", "tdma_pio_spi_phys_t *phys"),
-        ("components/tdma/src/tdma_pio_spi_phys_event.inc", "void", "tdma_pio_spi_phys_event_service", "tdma_pio_spi_phys_t *phys"),
+        ("components/tdma/src/tdma_pio_spi_phys_event.c", "bool", "tdma_pio_spi_phys_event_selected", "const tdma_pio_spi_phys_t *phys"),
+        ("components/tdma/src/tdma_pio_spi_phys_event.c", "uint64_t", "tdma_event_cycles", "uint64_t us, bool upper"),
+        ("components/tdma/src/tdma_pio_spi_phys_event.c", "uint32_t", "tdma_event_faults", "tdma_pio_spi_phys_t *phys"),
+        ("components/tdma/src/tdma_pio_spi_phys_event.c", "void", "tdma_event_publish_snapshot", "tdma_pio_spi_phys_t *phys"),
+        ("components/tdma/src/tdma_pio_spi_phys_event.c", "void", "tdma_event_candidate_retire", "void"),
+        ("components/tdma/src/tdma_pio_spi_phys_event.c", "void", "tdma_event_publish_state", "tdma_pio_spi_phys_t *phys"),
+        ("components/tdma/src/tdma_pio_spi_phys_event.c", "void", "tdma_pio_spi_phys_event_service", "tdma_pio_spi_phys_t *phys"),
         ("components/tdma/src/tdma_pio_spi_phys.c", "void", "tdma_pio_spi_phys_service_observer", "tdma_pio_spi_phys_t *phys"),
         ("components/tdma/src/tdma_runtime_owner.c", "void", "tdma_runtime_owner_service_observer", "void"),
         ("components/tdma/src/tdma_pio_spi_phys.c", "bool", "tdma_pio_spi_phys_capture_words", "tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words"),

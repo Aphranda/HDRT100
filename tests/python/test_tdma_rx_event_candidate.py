@@ -15,7 +15,7 @@ from test_tdma_event_adapter import production as adapter_production
 from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "components/tdma/src/tdma_pio_spi_phys_event.inc"
+SOURCE = ROOT / "components/tdma/src/tdma_pio_spi_phys_event.c"
 # 2026-10-25: the RX start-cut and first-window owners moved to their own units.
 START_CUT_SOURCE = ROOT / "components/tdma/src/tdma_pio_spi_phys_rx_start_cut.c"
 RX_FIRST_SOURCE = ROOT / "components/tdma/src/tdma_pio_spi_phys_rx_first.c"
@@ -439,7 +439,7 @@ static uint32_t save_and_disable_interrupts(void) { return 0u; }
 static void restore_interrupts(uint32_t saved) { assert(saved == 0u); }
 #define __dmb() __atomic_thread_fence(__ATOMIC_SEQ_CST)
 #define PROJECT_TDMA_EVENT_OBSERVER 0
-''' + f'#include "{SOURCE.as_posix()}"\n' + r'''
+''' + f'#define TDMA_PHYS_EVENT_HARNESS 1\n#include "{SOURCE.as_posix()}"\n' + r'''
 int main(void) {
     tdma_pio_spi_phys_t phys = {0};
     tdma_pio_spi_event_tap_snapshot_t tap;
