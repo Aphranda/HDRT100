@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-019`。
+- 最新条目：`REFMEM-TASK-20261025-020`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,17 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-020 — N5.0.2f-A.3 第一次尝试回退（负结果）
+
+- 状态：A.3 未完成；改动已回退，工作树在 A.2b（`0515b730`）。
+- 尝试：把 `vdc_flight_rx` read/same helper + `get_vdc_flight_rx` 搬到 `distributed_refmem_vdc.c`，状态走 accessor。
+- 失败原因：
+  - getter 块边界内含 `#include "distributed_refmem_vdc_feedback.inc"`/`distributed_action_probe.inc` 与 `#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED`，按函数边界切仍把 inc/`#if` 带走/切开；
+  - 主文件缺少 inc 定义时 `tdma_prepare_vdc_command_record` 编译失败；vdc.c 出现 `unterminated #if`。
+- 结论：VDC 组必须按**完整条件块 + inc 归属**切，不能只按函数边界。
+- 下一步：A.3 先确定 inc/`#if` 归属（把 `vdc_feedback.inc` 独立成 TU 或留在 main），再切 getter；或先做 N5.0.5 收口。
+- P3：N/A（回退，无净代码）。
 
 ### REFMEM-TASK-20261025-019 — N5.0.2f-A.2b 完成：transport 迁出
 
@@ -230,7 +241,8 @@ Last updated: 2026-10-25
 - A.2b 第一次尝试回退：622–801 连续块跨 `#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED` 和 `vdc_feedback.inc`，边界不干净。
 - A.2b 小切完成：stage/descriptor_pending/get_position_descriptor/cancel service 搬出；5,549→5,429；P3 `20261025015510`；exec196 `[1,1,1]`。
 - A.2b 完成：transport 按函数边界迁出；5,429→5,373；P3 `20261025021925`；exec196 `[1,1,1]`（HIL build 显示旧值，⚠️）。
-- 下一步：A.3 VDC（`get_vdc_flight_rx`/`vdc_follower_rx_process_completed`）。
+- A.3 第一次尝试回退：getter 块跨 `#include vdc_feedback.inc`/`#if`，边界不干净；工作树回到 A.2b。
+- 下一步：A.3 按完整条件块切，或先做 N5.0.5 收口。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 
