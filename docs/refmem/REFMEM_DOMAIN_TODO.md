@@ -531,6 +531,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - **N5.0.2d** ✅（2026-10-25）：cmd-frame 拆出到 `distributed_refmem_cmd_frame.c`；`distributed_refmem.c` 6,003→5,946；P3 `20261024160525`；exec196 HIL `[1,1,1]`。
   - **N5.0.2e** ✅（2026-10-25）：dispatch/command 拆出到 `distributed_refmem_command.c`；`distributed_refmem.c` 5,946→5,763；P3 `20261024163157`；config txn HIL 14/14。
   - **N5.0.2f** ✅（2026-10-25，设计后成功）：VDC SCPI 拆出到 `scpi_vdc_snapshot_commands.c`；`scpi_system_snapshot_commands.c` 6,393→5,712；P3 `20261024170018`；VDC SCPI smoke 通过。
+- **N5.0.2f-A（TDMA flight）** ⏳（设计 2026-10-25）：A.1 状态头 → A.2 position → A.3 VDC → A.4 flight → A.5 core/diag；见 `REFMEM-TASK-20261025-011`。
 - **N5.0.3** ⏳：SCPI refmem 控制块已拆出到 `scpi_refmem_snapshot_commands.c`（5,712→4,627，P3 `20261025001128`）；剩余 sync/TDMA/system 块为 N5.0.3b。
 - **N5.0.4** VDC/calibration/TDMA adapter 依次拆；每步单独提交。
 - **N5.0.5** 预算门禁（可选 line-count 检查）+ 文档/HAOFV 收口。
