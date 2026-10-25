@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-018`。
+- 最新条目：`REFMEM-TASK-20261025-019`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,17 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-019 — N5.0.2f-A.2b 完成：transport 迁出
+
+- 状态：完成；行为不变。
+- 内容：`get_position_transport` 按**函数边界**（到 `#include "distributed_refmem_vdc_feedback.inc"` 之前）搬到 `distributed_refmem_position.c`；`vdc_feedback.inc`/`action_probe.inc` 留在主文件；清理 transport 前的孤儿 `DISTRIBUTED_REFMEM_RAM_TEXT`。
+- 行数：`distributed_refmem.c` 5,429→**5,373**。
+- 验证：
+  - build 成功；P3 `20261025021925`，fingerprint `c3585be2250f3e53921712caf7200ee3d2ff77dbaa0430d3029c9dc83fcc7f12`，1954 files，`PASS_WITH_WARNINGS/strict=false`。
+  - exec196：`frag_complete=[1,1,1]`、`inject_ok=54`；`out/refmem_transport_diag/a2b2_exec196_202610251045/`。
+  - ⚠️ HIL 报告 `build` 仍显示 `20261025015413`（上一版），板端未切到 `20261025021925`；P3 四板凭证按源码指纹覆盖本改动，HIL 作为烟测；下一轮需查 OTA 槽位/重启。
+- 下一刀：A.3 VDC。
 
 ### REFMEM-TASK-20261025-018 — N5.0.2f-A.2b 小切（stage/get/cancel）
 
@@ -218,7 +229,8 @@ Last updated: 2026-10-25
 - A.2a 完成：position 状态 wrapper（struct+宏+accessor）；5,568→5,549；P3 `20261025012759`；exec196 `[1,1,1]`。
 - A.2b 第一次尝试回退：622–801 连续块跨 `#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED` 和 `vdc_feedback.inc`，边界不干净。
 - A.2b 小切完成：stage/descriptor_pending/get_position_descriptor/cancel service 搬出；5,549→5,429；P3 `20261025015510`；exec196 `[1,1,1]`。
-- 下一步：get_position_transport（含 `vdc_feedback.inc`/条件块）单独按函数边界切 → A.3。
+- A.2b 完成：transport 按函数边界迁出；5,429→5,373；P3 `20261025021925`；exec196 `[1,1,1]`（HIL build 显示旧值，⚠️）。
+- 下一步：A.3 VDC（`get_vdc_flight_rx`/`vdc_follower_rx_process_completed`）。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 

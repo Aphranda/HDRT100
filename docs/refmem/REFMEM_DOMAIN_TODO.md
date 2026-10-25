@@ -532,7 +532,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
   - **N5.0.2e** ✅（2026-10-25）：dispatch/command 拆出到 `distributed_refmem_command.c`；`distributed_refmem.c` 5,946→5,763；P3 `20261024163157`；config txn HIL 14/14。
   - **N5.0.2f** ✅（2026-10-25，设计后成功）：VDC SCPI 拆出到 `scpi_vdc_snapshot_commands.c`；`scpi_system_snapshot_commands.c` 6,393→5,712；P3 `20261024170018`；VDC SCPI smoke 通过。
 - **N5.0.2g** ⏳（2026-10-25，A.5 部分）：flight-sync 4 个只读 getter 拆出到 `distributed_refmem_diag.c`；`distributed_refmem.c` 5,690→5,568；P3 `20261025010050`；SCPI smoke 通过。
-- **N5.0.2f-A（TDMA flight）** ⏳（A.2b 小切完成 2026-10-25）：stage/get/cancel 搬出；5,549→5,429；P3 `20261025015510`；剩余 transport（含 inc/条件块）。
+- **N5.0.2f-A（TDMA flight）** ⏳（A.2b 完成 2026-10-25）：stage/get/transport 搬出；5,549→5,373；P3 `20261025021925`；下一刀 A.3 VDC。
 - **N5.0.3** ⏳：SCPI refmem 控制块已拆出到 `scpi_refmem_snapshot_commands.c`（5,712→4,627，P3 `20261025001128`）；剩余 sync/TDMA/system 块为 N5.0.3b。
 - **N5.0.4** VDC/calibration/TDMA adapter 依次拆；每步单独提交。
 - **N5.0.5** 预算门禁（可选 line-count 检查）+ 文档/HAOFV 收口。
