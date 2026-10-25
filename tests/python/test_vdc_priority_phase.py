@@ -42,7 +42,7 @@ def phase_follow_executable(tmp_path_factory):
                 '    (void)__atomic_add_fetch(&s_committed_model_guard, 1u, __ATOMIC_RELEASE);')
         harness += '\n' + text
     harness += '\n' + (manager / 'vdc_priority_follow.inc').read_text(encoding='utf-8').replace(
-        '#include "vdc_priority_phase.inc"', (manager / 'vdc_priority_phase.inc').read_text(encoding='utf-8'))
+        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_phase.inc"', (manager / 'vdc_priority_phase.inc').read_text(encoding='utf-8'))
     harness += '\n' + ingress_definition(follow.DOMAIN_HARNESS, 'fixture')
     harness += follow.SCENARIOS.replace('OWNER_REMOTE_INPUT', ingress_definition(follow.OWNER_TESTS, 'follower_input')).replace(
         'int main(int argc,char **argv)', 'int old_main(int argc,char **argv)')

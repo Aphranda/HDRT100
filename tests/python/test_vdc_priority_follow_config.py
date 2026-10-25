@@ -53,7 +53,7 @@ def executable(tmp_path_factory):
         harness += "\n"+(manager/name).read_text(encoding="utf-8")
     harness += "\n" + vdc_unit_body("vdc_priority_follow_config")
     harness += "\n"+(manager/"vdc_priority_follow.inc").read_text(encoding="utf-8").replace(
-        '#include "vdc_priority_phase.inc"', (manager/"vdc_priority_phase.inc").read_text(encoding="utf-8"))
+        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_phase.inc"', (manager/"vdc_priority_phase.inc").read_text(encoding="utf-8"))
     scenarios = existing.SCENARIOS.replace("OWNER_REMOTE_INPUT",
         existing.ingress_definition(existing.OWNER_TESTS, "follower_input"))
     scenarios = scenarios.replace('int main(int argc,char **argv)', CONTROL_CASES+'\nint main(int argc,char **argv)')

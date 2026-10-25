@@ -727,10 +727,27 @@ def summarize_joint(root: Path, joint_report_path: Path, input_report_path: Path
                 continue
             try:
                 phase = parse_phase_status(board.get("final_phase_raw"))
-                if (phase["schema"] != 1 or phase["active"] != 0 or phase["applied"] <= 0 or
-                        phase["source_slot"] != 0 or phase["target_slot"] != index or
-                        phase["residual_lo"] > phase["residual_hi"]):
-                    raise ValueError("phase endpoint identity or state is invalid")
+                # Name every offending field: a bare "identity or state is
+                # invalid" hid a phase-receipt regression behind the same text
+                # as a slot/schema problem (hawf-171855: applied=0).
+                problems: list[str] = []
+                if phase["schema"] != 1:
+                    problems.append(f"schema={phase['schema']} (expected 1)")
+                if phase["active"] != 0:
+                    problems.append(f"active={phase['active']} (expected 0)")
+                if phase["applied"] <= 0:
+                    problems.append(f"applied={phase['applied']} "
+                                    "(no committed phase receipt was retired)")
+                if phase["source_slot"] != 0:
+                    problems.append(f"source_slot={phase['source_slot']} (expected 0)")
+                if phase["target_slot"] != index:
+                    problems.append(f"target_slot={phase['target_slot']} (expected {index})")
+                if phase["residual_lo"] > phase["residual_hi"]:
+                    problems.append(f"residual_lo={phase['residual_lo']} > "
+                                    f"residual_hi={phase['residual_hi']}")
+                if problems:
+                    raise ValueError("phase endpoint state is invalid: " +
+                                     "; ".join(problems))
                 maximum = float(max(abs(phase["residual_lo"]), abs(phase["residual_hi"])))
                 internal_values.append(maximum)
                 internal_rows.append({"board_id": uid,

@@ -42,7 +42,7 @@ def compile_host(directory, name, text, sources=(), parser=False):
 
 @pytest.fixture(scope='module')
 def client(tmp_path_factory):
-    source = (ROOT / 'components/vdc_dpll_manager/src/vdc_run_output.inc').read_text(encoding='utf-8')
+    source = (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_run_output.inc').read_text(encoding='utf-8')
     return compile_host(tmp_path_factory.mktemp('vdc-run-client'), 'client',
                         CLIENT_PREFIX + source + CLIENT_MAIN,
                         [ROOT / 'components/vdc_domain/src/vdc_domain.c',
@@ -105,7 +105,7 @@ def test_cached_only_handoff(client, scenario):
 
 @pytest.fixture(scope='module')
 def observation_client(tmp_path_factory):
-    source = (ROOT / 'components/vdc_dpll_manager/src/vdc_run_output.inc').read_text(encoding='utf-8')
+    source = (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_run_output.inc').read_text(encoding='utf-8')
     prefix = ('static unsigned observation_hook;\n'
               'static void observation_interleave(void);\n' + CLIENT_PREFIX)
     prefix = prefix.replace('    ++snapshot_calls; if(snapshot_calls==fail_snapshot_call)return false;',
@@ -133,7 +133,7 @@ def test_read_only_core1_observation(observation_client, scenario):
 
 @pytest.fixture(scope='module')
 def release_precheck_client(tmp_path_factory):
-    source = (ROOT / 'components/vdc_dpll_manager/src/vdc_run_output.inc').read_text(encoding='utf-8')
+    source = (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_run_output.inc').read_text(encoding='utf-8')
     prefix = ('static unsigned release_probe_watch, release_probe_release_failure;\n'
               'static void release_probe_snapshot_boundary(void);\n' + CLIENT_PREFIX)
     prefix = prefix.replace('    ++snapshot_calls; if(snapshot_calls==fail_snapshot_call)return false;',

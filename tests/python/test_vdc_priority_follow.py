@@ -80,7 +80,7 @@ def follow_executable(tmp_path_factory):
     for name in ("vdc_model_feedback.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc", "vdc_priority_follow.inc"):
         included = (manager / name).read_text(encoding="utf-8")
         if name == "vdc_priority_follow.inc":
-            included = included.replace('#include "vdc_priority_phase.inc"',
+            included = included.replace('#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_phase.inc"',
                 (manager / "vdc_priority_phase.inc").read_text(encoding="utf-8"))
         harness += "\n" + included
     harness += "\n" + ingress_definition(DOMAIN_HARNESS, "fixture") + SCENARIOS.replace(

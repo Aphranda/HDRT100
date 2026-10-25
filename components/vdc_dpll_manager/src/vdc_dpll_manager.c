@@ -1,5 +1,6 @@
 #include "vdc_dpll_manager.h"
 #include "vdc_dpll_manager_internal.h"
+#include "vdc_priority_shared.h"
 #include "vdc_time_mapping.h"
 #include "vdc_model_projection.h"
 #include "vdc_priority_tx.h"
@@ -131,21 +132,21 @@ static vdc_dpll_manager_dco_consumer_status_t s_published_dco_consumer_status;
 static volatile uint32_t s_published_dpll_status_guard;
 static vdc_dpll_manager_sync_io_observer_status_t
     s_published_sync_io_observer_status;
-static volatile uint32_t s_published_snapshot_guard;
+volatile uint32_t s_published_snapshot_guard;
 /* The complete guarded snapshot is shared by Core0 readers and the Core1
  * publisher. SCRATCH_Y is reserved below the Core0 stack for cross-core
  * control data; SCRATCH_X remains exclusively available to Core1's stack. */
-static vdc_domain_snapshot_t s_published_snapshot
+vdc_domain_snapshot_t s_published_snapshot
     __attribute__((section(".scratch_y.vdc_snapshot"), aligned(4)));
-static bool s_published_snapshot_valid;
+bool s_published_snapshot_valid;
 /* The owner's lock declaration; written only by the Core1 DPLL service under
  * s_published_snapshot_guard (vdc_dpll_manager_commit_lock_declaration_core1). */
 static vdc_dpll_lock_declaration_t s_published_lock;
 static volatile uint32_t s_published_dpll_update_seq;
 static uint32_t s_dpll_consumed_publication_revision;
 static bool s_dpll_have_consumed_publication;
-static vdc_dpll_manager_observation_self_test_status_t s_observation_self_test;
-static vdc_domain_context_t s_vdc_domain;
+vdc_dpll_manager_observation_self_test_status_t s_observation_self_test;
+vdc_domain_context_t s_vdc_domain;
 tdma_service_service_t *s_vdc_tdma_service;
 static bool s_vdc_tdma_registered;
 static uint32_t s_vdc_tdma_self_test_frame_seq;
@@ -179,16 +180,16 @@ static volatile uint32_t s_debug_continue_requested_generation;
 static volatile uint32_t s_debug_continue_applied_generation;
 static vdc_dpll_control_profile_t s_dpll_role_profile;
 static volatile uint32_t s_dpll_role_guard;
-static volatile uint32_t s_dpll_role_requested_generation;
-static volatile uint32_t s_dpll_role_applied_generation;
-static vdc_dpll_manager_dpll_capture_record_t
+volatile uint32_t s_dpll_role_requested_generation;
+volatile uint32_t s_dpll_role_applied_generation;
+vdc_dpll_manager_dpll_capture_record_t
     s_dpll_capture_records[VDC_DPLL_MANAGER_DPLL_CAPTURE_MAX_SAMPLES];
-enum { DPLL_CAPTURE_POOL_LEGACY = 0u, DPLL_CAPTURE_POOL_TYPED = 1u,
-       DPLL_CAPTURE_POOL_LEGACY_ACCESS = 2u, DPLL_CAPTURE_POOL_TYPED_READ = 3u,
-       DPLL_CAPTURE_POOL_RELEASING = 4u };
+
+
+
 /* CAS reservations serialize Core0 entry points. A typed reservation is not
  * an ARM ACK: only the Core1 command boundary can assume producer ownership. */
-static uint32_t s_dpll_capture_pool_owner;
+uint32_t s_dpll_capture_pool_owner;
 static bool dpll_capture_legacy_begin(void)
 {
     uint32_t expected = DPLL_CAPTURE_POOL_LEGACY;
@@ -197,16 +198,16 @@ static bool dpll_capture_legacy_begin(void)
 }
 static void dpll_capture_legacy_end(void)
 { __atomic_store_n(&s_dpll_capture_pool_owner, DPLL_CAPTURE_POOL_LEGACY, __ATOMIC_RELEASE); }
-static bool s_dpll_capture_armed;
-static bool s_dpll_capture_complete;
+bool s_dpll_capture_armed;
+bool s_dpll_capture_complete;
 /* Selected once at ARM. An AUTO trace must not be filled by legacy PI events. */
 static bool s_dpll_capture_auto_only;
-static uint32_t s_dpll_capture_count;
-static uint32_t s_dpll_capture_dropped;
-static uint32_t s_dpll_capture_first_update_seq;
-static uint32_t s_dpll_capture_last_update_seq;
-static uint32_t s_dpll_capture_start_ms;
-static uint32_t s_dpll_capture_end_ms;
+uint32_t s_dpll_capture_count;
+uint32_t s_dpll_capture_dropped;
+uint32_t s_dpll_capture_first_update_seq;
+uint32_t s_dpll_capture_last_update_seq;
+uint32_t s_dpll_capture_start_ms;
+uint32_t s_dpll_capture_end_ms;
 /* Identifies which follower event caused the next runtime snapshot append.
  * Domain update_seq is intentionally shared by command and observation
  * events, so the hint avoids misclassifying a later command as evidence. */
@@ -295,7 +296,7 @@ static void vdc_dpll_manager_publish_snapshot(
  * path publishes only fields changed by evidence/service; activation keeps
  * using the complete snapshot publisher above.  Both paths share one seqlock
  * and therefore preserve the existing reader contract. */
-static void vdc_dpll_manager_publish_runtime_snapshot_locked(void)
+void vdc_dpll_manager_publish_runtime_snapshot_locked(void)
 {
     (void)__atomic_add_fetch(&s_published_snapshot_guard,
                              1u,
@@ -696,7 +697,7 @@ static bool vdc_dpll_manager_prepare_ring_evidence(void)
     return vdc_dpll_manager_finish_ring_observer_service(&status, true);
 }
 
-static uint64_t vdc_dpll_manager_now_ns(void);
+uint64_t vdc_dpll_manager_now_ns(void);
 
 static bool vdc_dpll_manager_apply_ring_evidence(void)
 {
@@ -957,7 +958,7 @@ static void vdc_dpll_manager_observation_self_test_service(void)
     osal_critical_exit();
 }
 
-static uint64_t vdc_dpll_manager_now_ns(void)
+uint64_t vdc_dpll_manager_now_ns(void)
 {
 #if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
     uint64_t now;
@@ -3086,36 +3087,11 @@ static void vdc_dpll_manager_waveform_capture_service(void)
     }
 }
 
-#include "vdc_dpll_feedback_match.inc"
 #include "vdc_priority_phase.h"
-static void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t *model);
-#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)
-#include "vdc_model_feedback.inc"
-#undef VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK
 #include "vdc_priority_tx.h"
-static void priority_trace_origin_core1(const vdc_priority_tx_origin_evidence_t *evidence);
-#define VDC_PRIORITY_TRACE_ORIGIN_HOOK(evidence) priority_trace_origin_core1(evidence)
-#include "vdc_priority_tx.inc"
-#undef VDC_PRIORITY_TRACE_ORIGIN_HOOK
-#include "vdc_boundary_capture.inc"
-#include "vdc_boundary_control.inc"
-#include "vdc_priority_match.inc"
-static void priority_trace_decision_core1(const vdc_priority_follow_snapshot_t *decision);
-static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phase);
-#define VDC_PRIORITY_TRACE_PHASE_HOOK(snapshot) priority_trace_phase_core1(snapshot)
-#define VDC_PRIORITY_TRACE_DECISION_HOOK(snapshot) priority_trace_decision_core1(snapshot)
-#include "vdc_run_output.h"
-#include "vdc_priority_follow.inc"
-#undef VDC_PRIORITY_TRACE_DECISION_HOOK
-#undef VDC_PRIORITY_TRACE_PHASE_HOOK
-#include "vdc_priority_trace.inc"
-#include "vdc_priority_guard.inc"
-#include "vdc_fixed_output.inc"
 #include "vdc_run_output.h"
 #include "vdc_output_edge_plan.h"
 #include "vdc_future_raw.h"
-#include "vdc_run_output.inc"
-#include "vdc_reference_discipline.inc"
 
 /* Section placement alone does not prevent GCC from moving this whole RAM
  * step into the XIP service wrapper when that wrapper gains another call. */

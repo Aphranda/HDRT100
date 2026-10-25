@@ -16,7 +16,7 @@ def reference_config_host(tmp_path_factory):
     directory = tmp_path_factory.mktemp("vdc-reference-config")
     source = directory / "reference-config.c"
     source.write_text(HARNESS.replace(
-        '#include "components/vdc_dpll_manager/src/vdc_reference_config.inc"',
+        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_reference_config.inc"',
         vdc_unit_body("vdc_reference_config")), encoding="utf-8")
     compiler = shutil.which("gcc") or shutil.which("clang")
     assert compiler, "host C compiler required"
@@ -113,7 +113,7 @@ bool product_config_set_vdc_reference_discipline_profile(const product_config_vd
     if(!discipline_write_ok)return false;
     discipline_stored=*p;return true;
 }
-#include "components/vdc_dpll_manager/src/vdc_reference_config.inc"
+#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_reference_config.inc"
 static const sync_io_reference_config_t candidate={3,1,2000000,250,1200};
 static const sync_io_reference_config_t defaults={4,0,10000000,1000,2500};
 static bool same(const sync_io_reference_config_t *a,const sync_io_reference_config_t *b){

@@ -7,7 +7,7 @@ from test_vdc_command_owner import ROOT, compile_executable
 
 @pytest.fixture(scope='module')
 def local_capture_exe(tmp_path_factory):
-    source=(ROOT/'components/vdc_dpll_manager/src/vdc_boundary_capture.inc').read_text(encoding='utf-8')
+    source=(ROOT/'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_boundary_capture.inc').read_text(encoding='utf-8')
     return compile_executable(tmp_path_factory.mktemp('local-capture'),'local_capture',
         PREAMBLE+source+CASES,
         [ROOT/'components/distributed_refmem/src/refmem_sync_vdc_feedback.c'])

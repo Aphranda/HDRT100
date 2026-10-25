@@ -82,8 +82,8 @@ def real_match_mapping_executable(tmp_path_factory):
     end = physical.index("} tdma_pio_spi_event_exact_t;", begin) + len("} tdma_pio_spi_event_exact_t;")
     prelude = HARNESS.split("int main(int argc,char **argv)")[0].replace(
         '#include "tdma_pio_spi_phys.h"', '#include "tdma_event_history.h"\n' + physical[begin:end])
-    prelude = prelude.replace('#include "vdc_priority_match.inc"',
-        (ROOT / "components/vdc_dpll_manager/src/vdc_priority_match.inc").read_text(encoding="utf-8"))
+    prelude = prelude.replace('#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_match.inc"',
+        (ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_match.inc").read_text(encoding="utf-8"))
     # Rename only external-owner fakes which share symbols with separately
     # linked Domain/TDMA code. The matcher, mapping and forward arithmetic
     # remain unchanged production code, not rewritten test formulas.
@@ -215,7 +215,7 @@ bool vdc_dpll_manager_project_timer1_feedback_event(uint32_t ses,uint32_t role,u
 static uint64_t fake_now_ns = UINT64_C(1000000000);
 static uint64_t vdc_dpll_manager_now_ns(void) { return fake_now_ns; }
 #define __atomic_load_n read_atomic
-#include "vdc_priority_match.inc"
+#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_match.inc"
 #undef __atomic_load_n
 static bool request(uint32_t gen)
 { const unsigned saved=core; core=0u; bool ok=vdc_dpll_manager_set_priority_match(gen); core=saved; return ok; }

@@ -208,7 +208,7 @@ def test_diagnostic_mirror_has_no_realtime_reservation():
 @pytest.fixture(scope="module")
 def mirror_boundary_exe(tmp_path_factory):
     directory = tmp_path_factory.mktemp("refmem-health-boundaries")
-    follow = (ROOT / "components/vdc_dpll_manager/src/vdc_priority_follow.inc").read_text(encoding="utf-8")
+    follow = (ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_follow.inc").read_text(encoding="utf-8")
     scpi = (ROOT / "middleware/scpi_port/src/scpi_sync_commands.c").read_text(encoding="utf-8")
     source = BOUNDARY_PRELUDE + "\n#define __atomic_load_n revision_load\n"
     source += definition(follow, "vdc_dpll_manager_get_priority_follow_health_revision")

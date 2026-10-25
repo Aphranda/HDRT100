@@ -34,21 +34,42 @@ def function_body(source, name):
     return source[opening:cursor - 1]
 
 
-def compile_executable(directory, name, text, sources=()):
-    source = directory / f"{name}.c"
-    source.write_text(text, encoding="utf-8")
+def host_compiler():
     compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or shutil.which("clang")
     if not compiler and Path("D:/Microsoft/mingw64/bin/gcc.exe").is_file():
         compiler = "D:/Microsoft/mingw64/bin/gcc.exe"
     assert compiler, "A host C compiler is required for the real owner tests"
-    exe = directory / (name + (".exe" if os.name == "nt" else ""))
+    return compiler
+
+
+def host_includes():
     includes = [ROOT / f"components/{component}/inc" for component in (
         "tdma", "vdc_domain", "vdc_dpll_manager", "distributed_refmem",
             "calibration_manager", "ota_manager", "sync_io", "sync_trigger")]
     includes.append(ROOT / "components/vdc_dpll_manager/src")
+    includes.append(ROOT / "boards/rp2350_trig/inc")
+    includes.append(ROOT / "platform/inc")
+    includes.append(ROOT / "osal/inc")
+    includes.append(ROOT / "config")
+    includes.append(ROOT / "tests/harness/host_include")
+    sdk_roots = sorted(Path.home().glob(".pico-sdk/sdk/*/src"))
+    for sdk in sdk_roots:
+        for sub in ("host/*/include", "common/*/include",
+                    "rp2_common/pico_platform*/include",
+                    "rp2_common/hardware_base/include"):
+            includes.extend(sorted(sdk.glob(sub)))
+    return includes
+
+
+def compile_executable(directory, name, text, sources=(), flags=()):
+    source = directory / f"{name}.c"
+    source.write_text(text, encoding="utf-8")
+    compiler = host_compiler()
+    exe = directory / (name + (".exe" if os.name == "nt" else ""))
+    includes = host_includes()
     result = subprocess.run([
         compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
-        *[f"-I{path}" for path in includes], str(source),
+        *[f"-I{path}" for path in includes], *flags, str(source),
         *map(str, sources), "-o", str(exe),
     ], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr

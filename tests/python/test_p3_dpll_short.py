@@ -426,6 +426,25 @@ def test_internal_trace_binds_endpoint_session_and_board_slot(tmp_path):
     assert any("identity" in error for error in summary["errors"])
 
 
+def test_phase_endpoint_names_every_invalid_field(tmp_path):
+    """A stalled phase receipt must be reported as applied=0, not "invalid"."""
+    joint, inner = reports(tmp_path, scope=False)
+    payload = json.loads(inner.read_text(encoding="utf-8"))
+    words = [int(value) for value in
+             payload["boards"][UIDS[1]]["final_phase_raw"].split(",")]
+    words[12] = 0  # applied: the committed model receipt was never retired
+    words[19] = 3  # target_slot: admitted workflow position is 1
+    payload["boards"][UIDS[1]]["final_phase_raw"] = ",".join(map(str, words))
+    inner.write_text(json.dumps(payload), encoding="utf-8")
+    summary = short.summarize_joint(
+        tmp_path, joint, inner, scope_enabled=False, seconds=60)
+    assert summary["passed"] is False
+    errors = [row for row in summary["errors"] if row.startswith(UIDS[1] + ":")]
+    assert len(errors) == 1, summary["errors"]
+    assert "applied=0 (no committed phase receipt was retired)" in errors[0]
+    assert "target_slot=3 (expected 1)" in errors[0]
+
+
 def test_internal_traces_share_one_session_generation(tmp_path):
     joint, inner = reports(tmp_path, scope=False)
     mutate_trace(inner, 2, lambda decoded: decoded["status"].update(

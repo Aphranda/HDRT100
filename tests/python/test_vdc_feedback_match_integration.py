@@ -86,7 +86,7 @@ bool vdc_timestamp_clock_try_read_ticks64(uint32_t expected,uint64_t *out)
 static void controlled_fence(int order)
 { __atomic_thread_fence(order);if(race_guard)*race_guard+=2;interleave(4); }
 #define __atomic_thread_fence controlled_fence
-''' + (ROOT / "components/vdc_dpll_manager/src/vdc_dpll_feedback_match.inc").read_text(encoding="utf-8") + r'''
+''' + (ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_dpll_feedback_match.inc").read_text(encoding="utf-8") + r'''
 #undef __atomic_thread_fence
 static vdc_dpll_manager_feedback_match_status_t status(uint32_t slot)
 { vdc_dpll_manager_feedback_match_status_t out;assert(vdc_dpll_manager_get_feedback_match(slot,&out));return out; }

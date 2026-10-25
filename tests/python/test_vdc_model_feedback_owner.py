@@ -48,7 +48,7 @@ bool vdc_timestamp_clock_try_read_bridge(uint32_t hz,vdc_timestamp_clock_bridge_
 bool vdc_domain_dco_local_to_output_ns(const vdc_dco_control_t *d,uint64_t t,uint64_t *out)
 { assert(d->valid);*out=t+d->phase_offset_ns;return true; }
 void vdc_domain_set_ready(vdc_domain_context_t *c,bool ready) { c->ready=ready; }
-''' + (ROOT / "components/vdc_dpll_manager/src/vdc_model_feedback.inc").read_text(encoding="utf-8") + r'''
+''' + (ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_model_feedback.inc").read_text(encoding="utf-8") + r'''
 /* Real recorder behavior is covered by test_vdc_priority_trace. This model
  * owner fixture checks its placement outside the committed-model guard. */
 static void priority_trace_service_core1(void)

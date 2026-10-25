@@ -117,7 +117,7 @@ bool vdc_dpll_manager_project_timer1_feedback_event(uint32_t ses,uint32_t role,u
     if(action==5u) ++config.owner_config_seq;
     return true;
 }
-#include "vdc_priority_tx.inc"
+#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_tx.inc"
 
 static uint16_t le16(const uint8_t *p) { return p[0]|((uint16_t)p[1]<<8u); }
 static vdc_priority_tx_snapshot_t snapshot(void) {

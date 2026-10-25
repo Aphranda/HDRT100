@@ -11,7 +11,7 @@ from tools.domains.vdc.dpll_observation_decode.dpll_observation_decode import HE
 
 @pytest.fixture(scope="module")
 def capture_exe(tmp_path_factory):
-    source = (ROOT / "components/vdc_dpll_manager/src/vdc_boundary_capture.inc").read_text(encoding="utf-8")
+    source = (ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_boundary_capture.inc").read_text(encoding="utf-8")
     manager = (ROOT / "components/vdc_dpll_manager/src/vdc_dpll_manager.c").read_text(encoding="utf-8")
     functions = '\n'.join(signature + '{' + function_body(manager, name) + '}' for name, signature in (
         ('dpll_capture_legacy_begin', 'static bool dpll_capture_legacy_begin(void)'),

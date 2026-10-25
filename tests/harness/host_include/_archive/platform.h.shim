@@ -1,0 +1,34 @@
+#ifndef HOST_SHIM_PICO_PLATFORM_H
+#define HOST_SHIM_PICO_PLATFORM_H
+
+/* Host stand-in for the Pico SDK platform header: attributes and integer
+ * typedefs only. Behaviour never lives here - hardware calls are replaced at
+ * link time with `--wrap`. */
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+typedef unsigned int uint;
+
+#define __not_in_flash(group)
+#define __not_in_flash_func(func) func
+#define __time_critical_func(func) func
+#define __no_inline_not_in_flash_func(func) func
+#define __always_inline __inline__ __attribute__((always_inline))
+#define __noinline __attribute__((noinline))
+#define __packed __attribute__((packed))
+#define __unused __attribute__((unused))
+#define __weak __attribute__((weak))
+#define __alias(x) __attribute__((alias(#x)))
+
+#ifndef PICO_ON_DEVICE
+#define PICO_ON_DEVICE 0
+#endif
+
+#define __isr
+#define __scratch_x(group)
+#define __scratch_y(group)
+#define __after_data(group)
+
+#endif /* HOST_SHIM_PICO_PLATFORM_H */

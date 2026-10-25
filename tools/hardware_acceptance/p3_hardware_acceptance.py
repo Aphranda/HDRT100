@@ -3227,6 +3227,71 @@ def phase_build(run: AcceptanceRun) -> None:
             encoding="utf-8")
 
 
+OWNER_HOOK_SYMBOLS = (
+    "phase_model_committed_core1",
+    "priority_trace_phase_core1",
+    "priority_trace_decision_core1",
+    "priority_trace_origin_core1",
+)
+
+
+def nm_symbol_types(text: str) -> dict[str, str]:
+    """Map symbol name -> nm type letter; undefined symbols collapse to 'U'."""
+    symbols: dict[str, str] = {}
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) == 2 and fields[0] in ("U", "u", "w", "v"):
+            symbols[fields[1]] = "U"
+        elif len(fields) >= 3:
+            symbols[fields[2]] = fields[1]
+    return symbols
+
+
+def missing_owner_hook_symbols(symbols: dict[str, str]) -> list[str]:
+    """Owner receipts that the linked image does not keep."""
+    return [name for name in OWNER_HOOK_SYMBOLS
+            if symbols.get(name, "U") in ("U", "u")]
+
+
+def toolchain_nm() -> str | None:
+    for name in ("arm-none-eabi-nm", "arm-none-eabi-nm.exe"):
+        found = shutil.which(name)
+        if found:
+            return found
+    for directory in sorted((Path.home() / ".pico-sdk" / "toolchain").glob("*/bin")):
+        for name in ("arm-none-eabi-nm.exe", "arm-none-eabi-nm"):
+            candidate = directory / name
+            if candidate.is_file():
+                return str(candidate)
+    return None
+
+
+def verify_owner_hook_symbols(elf: Path) -> None:
+    """Fail when a split unit's owner hook is compiled out of the linked image.
+
+    The units link with ``--gc-sections``, so an unreferenced owner receipt
+    disappears from the symbol table. That is exactly how the 2026-10-25
+    regression presented: ``vdc_dpll_feedback.c`` lost the phase-commit call
+    after being split into its own translation unit and P3 step 30 then saw
+    ``applied=0`` on every follower.
+    """
+    nm = toolchain_nm()
+    if nm is None:
+        raise AcceptanceError(
+            "cannot verify owner hook linkage: arm-none-eabi-nm was not found "
+            "in PATH or the Pico toolchain")
+    result = subprocess.run(
+        [nm, str(elf)], capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        raise AcceptanceError(
+            f"nm failed on {elf.name}: {result.stderr.strip()[:400]}")
+    missing = missing_owner_hook_symbols(nm_symbol_types(result.stdout))
+    if missing:
+        raise AcceptanceError(
+            "owner hook symbols are missing from the linked image (a split "
+            "unit lost its binding): " + ", ".join(missing))
+
+
 @acceptance_step(3, "固件包校验（包存在 + 构建号）")
 def phase_package(run: AcceptanceRun) -> None:
     args, root = run.args, run.root
@@ -3240,6 +3305,12 @@ def phase_package(run: AcceptanceRun) -> None:
             raise AcceptanceError(f"firmware package missing: {package}")
     build_id = _read_package_build_id(package)
     run.put(package=package, build_id=build_id)
+    build_dir = run.get("build_dir")
+    if build_dir is not None:
+        elf = Path(build_dir) / "DHRT100.elf"
+        if not elf.is_file():
+            raise AcceptanceError(f"owner hook check needs the linked image: {elf}")
+        verify_owner_hook_symbols(elf)
 
 
 @acceptance_step(4, "刷写（--method ota | picotool | tdma 预留）")

@@ -75,7 +75,7 @@ def recorder_base():
         "vdc_dpll_manager_dpll_capture_arm",
         "vdc_dpll_manager_dpll_capture_stop", "vdc_dpll_manager_get_dpll_capture_status",
         "vdc_dpll_manager_dpll_capture_read", "vdc_dpll_manager_dpll_capture_save"))
-    matcher = production("components/vdc_dpll_manager/src/vdc_dpll_feedback_match.inc")
+    matcher = production("components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_dpll_feedback_match.inc")
     source_type = re.search(r'typedef struct \{\s*uint64_t next_ordinal.*?\} vdc_feedback_match_source_t;', matcher, re.S)
     assert source_type
     helpers = matcher[matcher.index("static uint32_t match_inc"):matcher.index("/* Keep authorization")]
@@ -96,15 +96,15 @@ static void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t
 #define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)
 '''
     for name in ("vdc_model_feedback.inc", "vdc_boundary_capture.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc"):
-        harness += "\n" + production(f"components/vdc_dpll_manager/src/{name}")
+        harness += "\n" + production(f"components/vdc_dpll_manager/archive/vdc_inc_split_v1/{name}")
     harness += r'''
 static void priority_trace_decision_core1(const vdc_priority_follow_snapshot_t *decision);
 static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phase);
 #define VDC_PRIORITY_TRACE_DECISION_HOOK(snapshot) priority_trace_decision_core1(snapshot)
 #define VDC_PRIORITY_TRACE_PHASE_HOOK(snapshot) priority_trace_phase_core1(snapshot)
 '''
-    harness += production("components/vdc_dpll_manager/src/vdc_priority_follow.inc").replace(
-        '#include "vdc_priority_phase.inc"', production("components/vdc_dpll_manager/src/vdc_priority_phase.inc"))
+    harness += production("components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_follow.inc").replace(
+        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_phase.inc"', production("components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_phase.inc"))
     harness += "\n#undef VDC_PRIORITY_TRACE_DECISION_HOOK\n"
     harness += r'''
 /* Schema 1 fixture has no origin TX producer; origin schema is exercised with
@@ -115,10 +115,10 @@ uint32_t vdc_dpll_manager_priority_sync_generation(void) { return 0u; }
 bool vdc_priority_tx_origin_trace_eligible_core1(uint32_t generation,uint32_t session)
 { (void)generation;(void)session;return false; }
 '''
-    harness += production("components/vdc_dpll_manager/src/vdc_priority_trace.inc").replace(
-        '#include "vdc_priority_trace_summary.inc"',
-        production("components/vdc_dpll_manager/src/vdc_priority_trace_summary.inc"))
-    harness += GUARD_EXTERNALS + production("components/vdc_dpll_manager/src/vdc_priority_guard.inc")
+    harness += production("components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_trace.inc").replace(
+        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_trace_summary.inc"',
+        production("components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_trace_summary.inc"))
+    harness += GUARD_EXTERNALS + production("components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_guard.inc")
     harness += "\n" + ingress_definition(DOMAIN_HARNESS, "fixture")
     # Keep the tested real model fixture; replace only the wrapper's hooks to
     # use the same recorder ordering as the production Core1 service wrapper.

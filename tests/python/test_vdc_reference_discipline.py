@@ -7,12 +7,19 @@ import subprocess
 import pytest
 from test_vdc_command_owner import ROOT, compile_executable
 
+import vdc_units
+
 
 @pytest.fixture(scope="module")
 def discipline_host(tmp_path_factory):
-    fragment = (ROOT / "components/vdc_dpll_manager/src/vdc_reference_discipline.inc").read_text(encoding="utf-8")
-    text = HARNESS.replace("// DISCIPLINE", fragment)
-    return compile_executable(tmp_path_factory.mktemp("reference-discipline"), "discipline", text)
+    text = HARNESS.replace("// DISCIPLINE", "")
+    units = [
+        ROOT / "components/vdc_dpll_manager/src/vdc_output.c",
+        ROOT / "components/vdc_dpll_manager/src/vdc_reference_config.c",
+    ]
+    return compile_executable(
+        tmp_path_factory.mktemp("reference-discipline"), "discipline", text,
+        sources=units, flags=["-DDHRT100_UNIT_TEST"])
 
 
 @pytest.mark.parametrize("case", ["track", "negative", "stop", "origin_epoch", "role", "session",
@@ -32,26 +39,34 @@ HARNESS = r'''
 #include "vdc_dpll_manager.h"
 #include "vdc_reference.h"
 #include "tdma_origin_plan.h"
+/* Provided by the unit under test (compiled with -DDHRT100_UNIT_TEST). */
+extern void reference_discipline_service_core1(uint32_t session);
+extern uint64_t s_reference_bound_raw;
 #define BOARD_SYS_CLOCK_HZ 250000000u
-static vdc_domain_context_t s_vdc_domain;
-static vdc_domain_snapshot_t s_published_snapshot;
-static uint32_t s_published_snapshot_guard;
-static bool s_published_snapshot_valid=true;
-static tdma_service_service_t owner;
-static tdma_service_service_t *s_vdc_tdma_service=&owner;
-static tdma_ring_clock_snapshot_t ring;
-static tdma_origin_raw_reference_t origin;
-static sync_io_reference_snapshot_t monitor;
-static uint32_t s_reference_discipline_request=3, s_reference_discipline_capture_generation=9;
-static uint32_t s_reference_discipline_armed[5]={1,1234,100,4,10000};
+/* Shared with the unit under test: external linkage so both translation units
+ * see the same objects. */
+vdc_domain_context_t s_vdc_domain;
+vdc_domain_snapshot_t s_published_snapshot;
+uint32_t s_published_snapshot_guard;
+bool s_published_snapshot_valid=true;
+tdma_service_service_t owner;
+tdma_service_service_t *s_vdc_tdma_service=&owner;
+tdma_ring_clock_snapshot_t ring;
+tdma_origin_raw_reference_t origin;
+sync_io_reference_snapshot_t monitor;
+extern uint32_t s_reference_discipline_request;
+extern uint32_t s_reference_discipline_capture_generation;
+extern uint32_t s_reference_discipline_armed[5];
+extern vdc_reference_discipline_status_t s_reference_discipline;
+extern uint32_t s_reference_discipline_guard;
 static uint32_t session=7, calls;
 static uint64_t raw=10000000000ull;
 static bool allow=true, origin_available=true, origin_stale=false;
 bool sync_io_reference_get_snapshot(sync_io_reference_snapshot_t *out){*out=monitor;return true;}
 bool vdc_timestamp_clock_try_read_ticks64(uint32_t hz,uint64_t *out){assert(hz==BOARD_SYS_CLOCK_HZ);*out=raw;return true;}
-static uint64_t vdc_dpll_manager_now_ns(void){return raw*4u;}
-static bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out){*out=ring;return true;}
-static bool tdma_runtime_owner_get_origin_raw_reference(tdma_origin_raw_reference_t *out){*out=origin;return origin_available;}
+uint64_t vdc_dpll_manager_now_ns(void){return raw*4u;}
+bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_t *out){*out=ring;return true;}
+bool tdma_runtime_owner_get_origin_raw_reference(tdma_origin_raw_reference_t *out){*out=origin;return origin_available;}
 bool vdc_domain_apply_reference_baseline(vdc_domain_context_t *c,int32_t target,uint64_t now){
     assert(c==&s_vdc_domain && now==raw*4u && (s_reference_discipline_request&1u));
     ++calls;if(!allow)return false;
@@ -80,8 +95,14 @@ static void fixture(void){
     tick();assert(calls==1 && s_reference_discipline.baseline_ppb==100);
     assert(s_reference_discipline.config_generation==1 && s_reference_discipline.config_crc32==1234);
 }
+static void seed_owner_state(void){
+    s_reference_discipline_request=3;s_reference_discipline_capture_generation=9;
+    s_reference_discipline_armed[0]=1;s_reference_discipline_armed[1]=1234;
+    s_reference_discipline_armed[2]=100;s_reference_discipline_armed[3]=4;
+    s_reference_discipline_armed[4]=10000;
+}
 int main(int argc,char **argv){
-    assert(argc==2);fixture();const char *mode=argv[1];
+    assert(argc==2);seed_owner_state();fixture();const char *mode=argv[1];
     if(!strcmp(mode,"slow") || !strcmp(mode,"freeze")){
         s_reference_discipline_request=7;
         s_reference_discipline_armed[2]=!strcmp(mode,"slow")?50:0;

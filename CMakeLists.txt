@@ -646,6 +646,13 @@ set(PROJECT_APP_SOURCES
         components/vdc_domain/src/vdc_timestamp.c
         components/vdc_dpll_manager/src/vdc_dpll_manager.c
         components/vdc_dpll_manager/src/vdc_priority_ingress.c
+        components/vdc_dpll_manager/src/vdc_output.c
+        components/vdc_dpll_manager/src/vdc_dpll_feedback.c
+        components/vdc_dpll_manager/src/vdc_priority_follow.c
+        components/vdc_dpll_manager/src/vdc_boundary.c
+        components/vdc_dpll_manager/src/vdc_priority_trace.c
+        components/vdc_dpll_manager/src/vdc_priority_host_control.c
+        components/vdc_dpll_manager/src/vdc_priority_tx.c
         components/vdc_dpll_manager/src/vdc_priority_rx.c
         components/vdc_dpll_manager/src/vdc_priority_follow_config.c
         components/vdc_dpll_manager/src/vdc_output_delay_config.c
