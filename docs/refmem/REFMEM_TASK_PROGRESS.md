@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-014`。
+- 最新条目：`REFMEM-TASK-20261025-015`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,22 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-015 — N5.0.2f-A.2a position 状态字段清单
+
+- 状态：清单/方案完成；无代码（避免半成品）。
+- 字段（main）：
+  - `pending[DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS]`、`drain_ms`/`last_drain_ms`/`coalesced_count`、`drain_cursor`、`wait_counted`、`rx_mailboxes[NODE_COUNT]`、`freeze_latches[NODE_COUNT]`、`cancel_requested`。
+- 字段（`distributed_refmem_position_ack.inc`）：
+  - `local_frozen`、`freeze_ack[NODE_COUNT]`、`priority_owned`、`priority_last[NODE_COUNT][SLICE_WIRE]`；
+  - `priority_accept_count`/`duplicate_count`/`reject_count`/`decode_reject_count`；
+  - `priority_hold[NODE_COUNT][HOLD_DEPTH]`、`hold_head/tail[NODE_COUNT]`、`hold_count`/`hold_dropped_count`/`hold_delivered_count`；
+  - `freeze_latched_count`/`freeze_kept_count`/`freeze_taken_count`；
+  - `priority_drain_count`/`drain_fail_count`、`hold_expired_count`、`ack_override_count`、`diag_refused_count`。
+- 类型：`trigger_position_mailbox_t`/`freeze_latch_t`/`slice_t`、`distributed_refmem_position_pending_t`、`distributed_refmem_position_hold_entry_t`；宏 `PENDING_SLOTS`/`HOLD_DEPTH`。
+- 方案：`distributed_refmem_position_state_t` + `distributed_refmem_position_state()`；`s_position_*` 宏别名映射到 struct 字段；删除 main/inc 的 static 定义；不改内存布局/语义。
+- 风险：`.inc` 会在 host harness 编译；宏别名需在 internal.h；hold 队列的 `__atomic` 指针必须指向 struct 字段。
+- 下一步：A.2a 代码（struct/宏/实例 + P3）→ A.2b position 搬迁。
 
 ### REFMEM-TASK-20261025-014 — N5.0.2f-A.2/A.3 状态拆分设计
 
@@ -167,7 +183,8 @@ Last updated: 2026-10-25
 - A.1 完成：flight 状态/宏迁入 internal.h + accessor；主文件 5,763→5,690；P3 `20261025003548`；exec196 `[1,1,1]`。
 - N5.0.2g（A.5 部分）：flight-sync 4 个只读 getter 拆出到 `distributed_refmem_diag.c`；5,690→5,568；P3 `20261025010050`；SCPI smoke 通过。
 - A.2/A.3 状态设计完成：position/VDC 状态需先收敛为 struct + accessor，再搬 getter/process_completed。
-- 下一步：A.2a position 状态 wrapper → A.2b 搬 getter/parse → A.3 VDC。
+- A.2a 字段清单完成：position 状态 20+ 字段（main + position_ack.inc）；下一步 struct+宏+accessor 代码。
+- 下一步：A.2a 代码（P3）→ A.2b → A.3。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 
