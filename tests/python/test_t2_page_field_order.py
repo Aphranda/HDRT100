@@ -15,7 +15,7 @@ import re
 
 from test_trigger_grid_preview import ROOT
 
-PAGE = ROOT / "middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc"
+PAGE = ROOT / "middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.c"
 
 # The fields appended after the event log, in the order readers will see them.
 EXPECTED_TAIL = (

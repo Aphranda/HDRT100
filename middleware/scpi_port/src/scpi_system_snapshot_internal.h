@@ -5,6 +5,14 @@
 #include <stdint.h>
 
 #include "scpi_system_snapshot_commands.h"
+/* This header declares helpers whose signatures name RefMem snapshot types.
+ * Include their definitions here so the header stands on its own: it used to
+ * rely on the including .c having included these first, which broke as soon as
+ * a single command family became its own translation unit. */
+#include "refmem_application_model.h"
+#include "refmem_pio_spi_adapter.h"
+#include "refmem_sync.h"
+#include "refmem_table_registry.h"
 
 #define SCPI_REFMEM_PACKAGE_PATH "/refmem/app_model.rmtp"
 #define SCPI_REFMEM_PACKAGE_READ_CHUNK 512u

@@ -10,6 +10,7 @@ import pytest
 
 from test_vdc_command_ingress import ingress_definition
 from test_vdc_command_owner import ROOT, compile_executable
+from refmem_units import body as refmem_unit_body
 
 
 DEFAULT_MANAGER_STUBS = r'''
@@ -169,7 +170,7 @@ static bool s_vdc_flight_rx_admission_ready;
         "distributed_refmem_vdc_flight_rx_read_binding", "distributed_refmem_vdc_flight_rx_same_binding",
         "distributed_refmem_vdc_flight_rx_refresh"))
     harness += '\n' + manager_stubs
-    harness += '\n' + (ROOT / "components/distributed_refmem/src/distributed_refmem_vdc_feedback.inc").read_text(encoding="utf-8")
+    harness += '\n' + refmem_unit_body("distributed_refmem_vdc_feedback")
     harness += "\n" + "\n".join(ingress_definition(source, name) for name in (
         "distributed_refmem_tdma_flight_build_compact_mailbox", "distributed_refmem_tdma_flight_sync_store_mailbox",
         "distributed_refmem_tdma_flight_expand_compact_delta", "distributed_refmem_tdma_flight_parse_mailbox",

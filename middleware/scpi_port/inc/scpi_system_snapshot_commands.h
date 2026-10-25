@@ -135,25 +135,9 @@ scpi_result_t scpi_cmd_vdc_feedback_local_follow(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_local_follow_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_model_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_fixed_output(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_grid_configure(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_grid_clear(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_grid_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_grid_plan_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_grid_anchor(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_grid_anchor_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_grid_anchor_plan_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_cursor_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_timing_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sim_source_configure(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sim_source_start(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sim_source_stop(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sim_source_release(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sim_source_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_deployment_stage(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_deployment_activate(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_deployment_clear(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_deployment_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_deployment_plan_q(scpi_t *context);
+#include "scpi_trigger_grid_commands.h"
+#include "scpi_trigger_cursor_commands.h"
+#include "scpi_trigger_deployment_commands.h"
 scpi_result_t scpi_cmd_vdc_run_output(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_run_output_stop(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_run_output_q(scpi_t *context);
@@ -165,79 +149,16 @@ scpi_result_t scpi_cmd_vdc_subdivision_output_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_subdivision_window(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_subdivision_window_stop(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_subdivision_window_q(scpi_t *context);
-scpi_result_t scpi_cmd_vdc_subdivision_after_sync(scpi_t *context);
-scpi_result_t scpi_cmd_vdc_subdivision_after_sync_q(scpi_t *context);
-scpi_result_t scpi_cmd_vdc_subdivision_after_sync_configure(scpi_t *context);
-scpi_result_t scpi_cmd_vdc_subdivision_after_sync_run_q(scpi_t *context);
-scpi_result_t scpi_cmd_action_probe_configure(scpi_t *context);
-scpi_result_t scpi_cmd_action_probe_send(scpi_t *context);
-scpi_result_t scpi_cmd_action_probe_clear(scpi_t *context);
-scpi_result_t scpi_cmd_action_probe_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_counter_load(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_counter_start(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_counter_stop(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_counter_clear(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_counter_unload(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_counter_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_gateway_load(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_gateway_stop(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_gateway_unload(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_gateway_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_switch_load(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_switch_stage(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_switch_apply(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_switch_stop(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_switch_unload(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_switch_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_action_install(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_action_clear(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_action_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_action_row_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_action_prepare(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_action_arm(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_action_stop(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_action_release(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_action_execute_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_action_now_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_template_install(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_template_clear(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_template_activate(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_template_release(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_template_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_seat_mount(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_seat_mount_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_seat_clear(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_configure(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_start(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_stop(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_cursor_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_action_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_action_why_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_action_window_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_action_diag_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_action_arm_branch_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_gateway_diag_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_scan_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_announce(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_announce_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_drain(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_drain_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sequence_timing(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sequence_timing_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sequence_counts(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sequence_counts_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sequence_period_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sequence_ready(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_seq_pilot(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_seq_mode(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_seq_mode_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_t2_seq_pilot_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sequence_ready_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sequence_code(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sequence_code_q(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sequence_repeat(scpi_t *context);
-scpi_result_t scpi_cmd_trigger_sequence_repeat_q(scpi_t *context);
+#include "scpi_vdc_output_slices.h"
+#include "scpi_action_probe.h"
+#include "scpi_trigger_counter_commands.h"
+#include "scpi_trigger_gateway_commands.h"
+#include "scpi_trigger_switch_commands.h"
+#include "scpi_trigger_action_commands.h"
+#include "scpi_trigger_action_execute.h"
+#include "scpi_trigger_template_commands.h"
+#include "scpi_trigger_seat_commands.h"
+#include "scpi_trigger_t2_runtime_commands.h"
 scpi_result_t scpi_cmd_vdc_feedback_bridge_q(scpi_t *context);
 scpi_result_t scpi_cmd_vdc_feedback_match_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_sync_tdma_abort(scpi_t *context);

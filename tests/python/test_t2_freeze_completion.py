@@ -7,8 +7,7 @@ rides the follower's images and the origin sees completion per run.
 import subprocess
 
 from test_trigger_grid_preview import ROOT, compile_grid
-
-INC = ROOT / "components/distributed_refmem/src/distributed_refmem_position_ack.inc"
+from refmem_units import body as refmem_unit_body
 
 HARNESS = r'''
 #include <assert.h>
@@ -307,6 +306,7 @@ int main(void)
 
 def test_first_class_lane_receive_and_freeze_completion(tmp_path):
     executable = compile_grid(tmp_path, "t2-freeze-completion",
-                              HARNESS.replace('"INC"', '"' + INC.as_posix() + '"'))
+                              HARNESS.replace('#include "INC"',
+                                              refmem_unit_body("distributed_refmem_position_ack")))
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stdout + result.stderr

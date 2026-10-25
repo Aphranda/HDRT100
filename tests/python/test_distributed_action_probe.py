@@ -8,6 +8,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
+from refmem_units import body as refmem_unit_body
+
 
 @pytest.fixture(scope="module")
 def owner(tmp_path_factory):
@@ -19,7 +21,9 @@ def owner(tmp_path_factory):
         header.replace('#include "trigger_grid_preview.h"',
                        'typedef unsigned trigger_grid_preview_plan_t;'), encoding="utf-8")
     source = directory / "owner.c"
-    source.write_text(HARNESS, encoding="utf-8")
+    source.write_text(HARNESS.replace(
+        '#include "distributed_action_probe.inc"',
+        refmem_unit_body("distributed_action_probe")), encoding="utf-8")
     compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or shutil.which("clang")
     assert compiler
     executable = directory / ("owner.exe" if os.name == "nt" else "owner")

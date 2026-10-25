@@ -12,6 +12,7 @@ import pytest
 
 from test_vdc_publication_generation import ROOT, REFMEM, definition
 from test_tdma_priority_rx_scpi import callback
+from refmem_units import body as refmem_unit_body
 
 
 @pytest.fixture(scope="module", params=[(6, False), (6, True), (8, False)])
@@ -19,7 +20,9 @@ def mirror_exe(request, tmp_path_factory):
     capacity, short_enums = request.param
     directory = tmp_path_factory.mktemp(f"refmem-health-{capacity}-{int(short_enums)}")
     source = PRELUDE
-    source += '#define __atomic_load_n guarded_load\n#include "distributed_refmem_priority_health.inc"\n#undef __atomic_load_n\n'
+    source += ('#define __atomic_load_n guarded_load\n'
+               + refmem_unit_body("distributed_refmem_priority_health")
+               + '\n#undef __atomic_load_n\n')
     source += SCENARIOS
     unit = directory / "mirror.c"
     unit.write_text(source, encoding="utf-8")
@@ -65,6 +68,8 @@ PRELUDE = r'''
 #define DISTRIBUTED_REFMEM_TIME_CRITICAL(name) name
 static refmem_vector_table_t table;
 static bool s_initialized=true, health_ok=true;
+/* The split unit reads the initialized flag through the module accessor. */
+bool distributed_refmem_is_initialized(void) { return s_initialized; }
 static vdc_priority_follow_health_t health;
 static uint32_t health_revision=2u, guard_reads, race_at;
 static refmem_vdc_vector_region_t *distributed_refmem_vdc_vector_region(void) { return &table.vdc; }

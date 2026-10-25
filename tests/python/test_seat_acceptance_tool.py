@@ -206,7 +206,7 @@ def test_preservation_budgets_have_one_value():
     one budget must not drift."""
     public = (ROOT / "components/distributed_refmem/inc/distributed_refmem.h").read_text(
         encoding="utf-8")
-    receiver = (ROOT / "components/distributed_refmem/src/distributed_refmem_position_ack.inc"
+    receiver = (ROOT / "components/distributed_refmem/src/distributed_refmem_position_ack.c"
                 ).read_text(encoding="utf-8")
 
     for macro in ("DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH",
@@ -222,7 +222,7 @@ def test_t2_page_tail_is_append_only():
     APPENDED. Bind that contract to the handler, the way the seat pages are bound
     to their counts: the seed counters and their successors must stay in order at
     the end of the handler."""
-    source = (ROOT / "middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc"
+    source = (ROOT / "middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.c"
               ).read_text(encoding="utf-8")
     start = source.index("scpi_cmd_trigger_t2_q")
     block = source[start:source.index("SCPI_RES_OK", start)]

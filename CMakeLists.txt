@@ -468,6 +468,10 @@ set(PROJECT_APP_SOURCES
         components/diagnostics/src/diagnostics_tdma_record.c
         components/distributed_config/src/distributed_config.c
         components/distributed_refmem/src/distributed_refmem.c
+        components/distributed_refmem/src/distributed_action_probe.c
+        components/distributed_refmem/src/distributed_refmem_position_ack.c
+        components/distributed_refmem/src/distributed_refmem_vdc_feedback.c
+        components/distributed_refmem/src/distributed_refmem_priority_health.c
         components/distributed_refmem/src/refmem_application_contract.c
         components/distributed_refmem/src/refmem_application_model.c
         components/distributed_refmem/src/refmem_claim_protocol.c
@@ -672,6 +676,19 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_system_diagnostics_commands.c
         middleware/scpi_port/src/scpi_system_runtime_commands.c
         middleware/scpi_port/src/scpi_system_snapshot_commands.c
+        middleware/scpi_port/src/scpi_action_probe.c
+        middleware/scpi_port/src/scpi_trigger_grid_commands.c
+        middleware/scpi_port/src/scpi_trigger_cursor_commands.c
+        middleware/scpi_port/src/scpi_trigger_deployment_commands.c
+        middleware/scpi_port/src/scpi_trigger_template_commands.c
+        middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.c
+        middleware/scpi_port/src/scpi_trigger_seat_commands.c
+        middleware/scpi_port/src/scpi_vdc_output_slices.c
+        middleware/scpi_port/src/scpi_trigger_counter_commands.c
+        middleware/scpi_port/src/scpi_trigger_gateway_commands.c
+        middleware/scpi_port/src/scpi_trigger_switch_commands.c
+        middleware/scpi_port/src/scpi_trigger_action_commands.c
+        middleware/scpi_port/src/scpi_trigger_action_execute.c
     middleware/scpi_port/src/scpi_refmem_snapshot_commands.c
     middleware/scpi_port/src/scpi_vdc_snapshot_commands.c
         middleware/scpi_port/src/scpi_tdma_commands.c

@@ -49,15 +49,13 @@
 #include "vdc_timestamp_clock.h"
 #include "scpi_system_snapshot_internal.h"
 
-#include "scpi_trigger_grid_commands.inc"
-#include "scpi_trigger_cursor_commands.inc"
-#include "scpi_trigger_deployment_commands.inc"
-#include "scpi_trigger_template_commands.inc"
 #include "trigger_sequence_pilot.h"
-#include "scpi_trigger_t2_runtime_commands.inc"
+/* The T2 runtime snapshot type used by the reservation page below used to
+ * arrive through scpi_trigger_t2_runtime_commands.inc. That page handler is a
+ * separate translation unit now, so name the dependency here. */
+#include "trigger_t2_runtime.h"
 #include "tdma_seat_admission.h"
 #include "tdma_seat_mount_store.h"
-#include "scpi_trigger_seat_commands.inc"
 
 static tdma_long_frame_fifo_t s_tdma_long_frame_tx;
 static tdma_long_frame_fifo_t s_tdma_long_frame_rx;
@@ -238,7 +236,6 @@ refmem_sync_context_t *scpi_refmem_sync_context(void)
 {
     return &s_refmem_sync.context;
 }
-
 
 bool scpi_refmem_wait_storage_job(uint32_t job_id);
 bool scpi_refmem_read_package(const char *path,
@@ -3085,7 +3082,6 @@ scpi_result_t scpi_cmd_system_tdma_ring_diagnostic_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-
 scpi_result_t scpi_cmd_system_tdma_ring_burst(scpi_t *context)
 {
     uint32_t limit = 0u;
@@ -4617,11 +4613,3 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context)
     SCPI_ResultText(context, fault->name);
     return SCPI_RES_OK;
 }
-
-#include "scpi_vdc_output_slices.inc"
-#include "scpi_action_probe.inc"
-#include "scpi_trigger_counter_commands.inc"
-#include "scpi_trigger_gateway_commands.inc"
-#include "scpi_trigger_switch_commands.inc"
-#include "scpi_trigger_action_commands.inc"
-#include "scpi_trigger_action_execute.inc"

@@ -2,7 +2,7 @@
 move together.
 
 Adding the scan STEP to this command (docs/trigger/t2/TRIGGER_T2_TODO.md A.4.1) is a
-coordinated change: the handler in `scpi_trigger_t2_runtime_commands.inc` and all four
+coordinated change: the handler in `scpi_trigger_t2_runtime_commands.c` and all four
 bench call sites must be updated in the same commit, or the tools start sending a
 payload the firmware misreads (a silently truncated scan, not an error).
 
@@ -17,7 +17,7 @@ import re
 
 from test_trigger_grid_preview import ROOT
 
-COMMANDS = ROOT / "middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc"
+COMMANDS = ROOT / "middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.c"
 
 # Parsed in this order by scpi_cmd_trigger_t2_configure().
 EXPECTED_PARAMETERS = (

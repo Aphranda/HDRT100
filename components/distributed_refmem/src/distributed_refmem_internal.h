@@ -40,6 +40,46 @@ bool distributed_refmem_post_command_replacing_complete(
 bool distributed_refmem_node_load_auto_enqueue(uint32_t instance_id);
 refmem_vector_table_t *distributed_refmem_vector_table(void);
 
+/* Ordinary-mailbox VDC admission binding. The type moved here when the VDC
+ * feedback command unit became its own translation unit; the storage stays
+ * private to distributed_refmem.c so the Core0 RefMem service remains the only
+ * writer and the command units only take read-only views. */
+typedef struct {
+    uint32_t active, source_slot, local_slot, control_generation;
+    uint32_t ring_config_seq, schedule_crc32, clock_epoch_id, clock_run_id;
+    uint32_t rx_admission_epoch;
+} distributed_refmem_vdc_flight_rx_binding_t;
+
+const distributed_refmem_vdc_flight_rx_binding_t *
+distributed_refmem_vdc_flight_rx_binding(void);
+bool distributed_refmem_vdc_flight_rx_admission_ready(void);
+bool distributed_refmem_is_initialized(void);
+
+bool distributed_refmem_vdc_flight_rx_read_binding(
+    distributed_refmem_vdc_flight_rx_binding_t *out);
+bool distributed_refmem_vdc_flight_rx_same_binding(
+    const distributed_refmem_vdc_flight_rx_binding_t *a,
+    const distributed_refmem_vdc_flight_rx_binding_t *b);
+
+/* Core0 VDC vector region accessor; the priority-health unit samples the
+ * asynchronous diagnostic mirror through it (RAM-resident in the definition). */
+refmem_vdc_vector_region_t *distributed_refmem_vdc_vector_region(void);
+
+/* Typed VDC feedback binding. The type moved out of the feedback unit so the
+ * Core0 service path can read the rate mode through a read-only accessor; the
+ * feedback unit remains the only writer. */
+typedef struct {
+    uint32_t mode, local, target, node_count, role_generation;
+    uint32_t ring_config_seq, schedule_crc32, clock_epoch_id, clock_run_id, session, rate_mode;
+} distributed_refmem_feedback_binding_t;
+
+const distributed_refmem_feedback_binding_t *distributed_refmem_feedback_binding(void);
+bool distributed_refmem_feedback_tx_active(void);
+
+/* Published cadence for the typed VDC reference transport (was a macro inside
+ * the feedback command fragment; the Core0 service path clamps to it). */
+#define DISTRIBUTED_REFMEM_REFERENCE_PUBLISH_INTERVAL_MS 6u
+
 typedef struct {
     uint32_t enabled;
     uint32_t local_slot;
@@ -216,5 +256,24 @@ void distributed_refmem_position_cancel_service(void);
 #define s_position_priority_hold_expired_count (distributed_refmem_position_state()->priority_hold_expired_count)
 #define s_position_ack_override_count (distributed_refmem_position_state()->ack_override_count)
 #define s_position_diag_refused_count (distributed_refmem_position_state()->diag_refused_count)
+
+/* Helpers the Core0 service path still calls directly. They were file
+ * static inside the .inc fragments; the split promotes them to module
+ * scope so the parent translation unit keeps its call sites. */
+void action_stop_requested(void);
+void action_observe(const tdma_ring_runtime_snapshot_t *ring);
+void action_patch_mailbox(uint8_t *mailbox, bool control_allowed);
+void action_mailbox_published(const uint8_t *mailbox);
+bool action_receive_mailbox(uint32_t source,const uint8_t *mailbox);
+bool distributed_refmem_position_ack_control_available(uint8_t mailbox_class);
+void distributed_refmem_position_ack_patch(uint8_t *mailbox);
+void distributed_refmem_position_ack_receive(uint32_t slot, const uint8_t *mailbox);
+void distributed_refmem_position_ack_reset(void);
+bool distributed_refmem_feedback_refresh(tdma_service_service_t *owner);
+int distributed_refmem_feedback_prepare(tdma_service_service_t *owner);
+void distributed_refmem_feedback_fragment(uint8_t *mailbox);
+void distributed_refmem_feedback_published(bool feedback, uint32_t sequence);
+void distributed_refmem_feedback_receive(tdma_service_service_t *owner, uint32_t source, const uint8_t *mailbox, const tdma_flight_rx_view_t *view);
+void distributed_refmem_publish_priority_health_core0(void);
 
 #endif

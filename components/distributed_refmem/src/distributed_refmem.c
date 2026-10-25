@@ -43,14 +43,8 @@ _Static_assert(TRIGGER_POSITION_SLICE_WIRE_SIZE ==
                    TDMA_PROCESS_IMAGE_REFMEM_SIZE + TDMA_PROCESS_IMAGE_VDC_SIZE,
                "A T2 position record spans the freed VDC observation area plus the RefMem region");
 
-#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
-#include "pico.h"
-#define DISTRIBUTED_REFMEM_TIME_CRITICAL(name) __not_in_flash_func(name)
-#define DISTRIBUTED_REFMEM_RAM_TEXT __attribute__((section(".time_critical.refmem_position")))
-#else
-#define DISTRIBUTED_REFMEM_TIME_CRITICAL(name) name
-#define DISTRIBUTED_REFMEM_RAM_TEXT
-#endif
+/* RAM placement macros live in a header: the split command units need them. */
+#include "distributed_refmem_time_critical.h"
 
 #define DISTRIBUTED_REFMEM_NODE_LOAD_OWNER_COUNT 16u
 #define DISTRIBUTED_REFMEM_SOURCE_INSTANCE_REFMEM_AO 0u
@@ -259,12 +253,6 @@ distributed_refmem_tdma_flight_sync_t *distributed_refmem_tdma_flight_sync(void)
 
 /* One wait fact per blocked drain, not one per service pass: the edge detector keeps
  * tx_wait_count readable as "how often a ready value had to wait". */
-typedef struct {
-    uint32_t active, source_slot, local_slot, control_generation;
-    uint32_t ring_config_seq, schedule_crc32, clock_epoch_id, clock_run_id;
-    uint32_t rx_admission_epoch;
-} distributed_refmem_vdc_flight_rx_binding_t;
-
 /* Sole writer: Core0 RefMem service. SCPI only takes a bounded guarded copy.
  * Keep history separate from the current binding so STOP cannot erase the
  * evidence and a later ARM cannot revive it as current reception. */
@@ -272,6 +260,25 @@ static volatile uint32_t s_vdc_flight_rx_guard;
 static distributed_refmem_vdc_flight_rx_binding_t s_vdc_flight_rx_binding;
 static distributed_refmem_vdc_flight_rx_snapshot_t s_vdc_flight_rx;
 static bool s_vdc_flight_rx_admission_ready;
+
+/* Read-only views for the split command units. The storage stays private so the
+ * Core0 RefMem service remains the only writer. */
+const distributed_refmem_vdc_flight_rx_binding_t *
+distributed_refmem_vdc_flight_rx_binding(void)
+{
+    return &s_vdc_flight_rx_binding;
+}
+
+bool distributed_refmem_vdc_flight_rx_admission_ready(void)
+{
+    return s_vdc_flight_rx_admission_ready;
+}
+
+bool distributed_refmem_is_initialized(void)
+{
+    return s_initialized;
+}
+
 _Static_assert(sizeof(distributed_refmem_vdc_flight_rx_snapshot_t) == 64u,
                "ordinary mailbox receive snapshot must remain compact");
 static volatile uint32_t s_tdma_ring_arm_last_result =
@@ -446,46 +453,11 @@ static void distributed_refmem_tdma_flight_sync_update_ring(
                            DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_RUN);
 }
 
-static void distributed_refmem_put_le16(uint8_t *dst, uint16_t value)
-{
-    dst[0] = (uint8_t)(value & 0xFFu);
-    dst[1] = (uint8_t)(value >> 8u);
-}
+/* Little-endian wire accessors shared with the split command units. */
+#include "refmem_le.h"
 
-static void distributed_refmem_put_i16(uint8_t *dst, int16_t value)
-{
-    distributed_refmem_put_le16(dst, (uint16_t)value);
-}
 
-static void distributed_refmem_put_le32(uint8_t *dst, uint32_t value)
-{
-    dst[0] = (uint8_t)(value & 0xFFu);
-    dst[1] = (uint8_t)((value >> 8u) & 0xFFu);
-    dst[2] = (uint8_t)((value >> 16u) & 0xFFu);
-    dst[3] = (uint8_t)((value >> 24u) & 0xFFu);
-}
-
-static uint16_t distributed_refmem_get_le16(const uint8_t *src)
-{
-    return (uint16_t)(((uint16_t)src[0]) | ((uint16_t)src[1] << 8u));
-}
-
-static int16_t distributed_refmem_get_i16(const uint8_t *src)
-{
-    return (int16_t)distributed_refmem_get_le16(src);
-}
-
-static uint32_t distributed_refmem_get_le32(const uint8_t *src)
-{
-    return ((uint32_t)src[0]) |
-           ((uint32_t)src[1] << 8u) |
-           ((uint32_t)src[2] << 16u) |
-           ((uint32_t)src[3] << 24u);
-}
-
-#include "distributed_refmem_position_ack.inc"
-
-static bool distributed_refmem_vdc_flight_rx_read_binding(
+bool distributed_refmem_vdc_flight_rx_read_binding(
     distributed_refmem_vdc_flight_rx_binding_t *out)
 {
     tdma_ring_clock_snapshot_t ring;
@@ -516,7 +488,7 @@ static bool distributed_refmem_vdc_flight_rx_read_binding(
     return true;
 }
 
-static bool distributed_refmem_vdc_flight_rx_same_binding(
+bool distributed_refmem_vdc_flight_rx_same_binding(
     const distributed_refmem_vdc_flight_rx_binding_t *a,
     const distributed_refmem_vdc_flight_rx_binding_t *b)
 {
@@ -618,8 +590,6 @@ bool distributed_refmem_get_vdc_flight_rx(
 }
 
 /* Both are on the origin's per-slice FREEZE path in SYNC_TRIGGER. */
-#include "distributed_refmem_vdc_feedback.inc"
-#include "distributed_action_probe.inc"
 
 #if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED
 static bool distributed_refmem_tdma_prepare_vdc_command_record(
@@ -1547,11 +1517,11 @@ static void distributed_refmem_tdma_flight_sync_publish(
     const uint32_t now_ms = osal_tick_ms();
     uint32_t publish_interval_ms = s_tdma_flight_sync.publish_interval_ms;
     int feedback = -2;
-    if (s_feedback_binding.rate_mode == VDC_BOUNDARY_MODE_REFERENCE) {
+    if (distributed_refmem_feedback_binding()->rate_mode == VDC_BOUNDARY_MODE_REFERENCE) {
         /* Binding refresh/STOP cancellation already ran in the service.
          * Revalidate an active group's ARM before any pacing/backpressure
          * return; do not freeze a new event until publication is due. */
-        if (s_feedback_tx_active) {
+        if (distributed_refmem_feedback_tx_active()) {
             feedback = distributed_refmem_feedback_prepare(owner);
             if (feedback < 0) {
                 if (s_tdma_flight_sync.position_tx_active) {
@@ -2365,7 +2335,7 @@ static uint32_t distributed_refmem_header_crc_locked(void)
     return refmem_vector_header_crc(&s_distributed_refmem_table);
 }
 
-static refmem_vdc_vector_region_t *DISTRIBUTED_REFMEM_TIME_CRITICAL(
+refmem_vdc_vector_region_t *DISTRIBUTED_REFMEM_TIME_CRITICAL(
     distributed_refmem_vdc_vector_region)(void)
 {
     return &s_distributed_refmem_table.vdc;
@@ -3450,7 +3420,6 @@ bool distributed_refmem_init(void)
     return true;
 }
 
-#include "distributed_refmem_priority_health.inc"
 
 void DISTRIBUTED_REFMEM_TIME_CRITICAL(
     distributed_refmem_realtime_run_once)(void)

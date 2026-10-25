@@ -8,9 +8,15 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.fixture(scope='module')
 def parser(tmp_path_factory):
-    source = (ROOT/'middleware/scpi_port/src/scpi_system_snapshot_commands.c').read_text(encoding='utf-8')
-    helpers = source[source.index('static bool scpi_vdc_run_u32('):source.index('scpi_result_t scpi_cmd_vdc_run_output(')]
-    callbacks = (ROOT/'middleware/scpi_port/src/scpi_vdc_output_slices.inc').read_text(encoding='utf-8')
+    source = (ROOT/'middleware/scpi_port/src/scpi_vdc_snapshot_commands.c').read_text(encoding='utf-8')
+    helpers = source[source.index('bool scpi_vdc_run_u32('):source.index('scpi_result_t scpi_cmd_vdc_run_output(')]
+    callbacks = (ROOT/'middleware/scpi_port/src/scpi_vdc_output_slices.c').read_text(encoding='utf-8')
+    # The command unit now has its own include prologue; the harness below supplies
+    # that context itself, so keep only the handler body (same text the old .inc had).
+    body = callbacks.splitlines(keepends=True)
+    while body and (not body[0].strip() or body[0].lstrip().startswith('#include')):
+        body.pop(0)
+    callbacks = ''.join(body)
     code = PARSER_PREFIX.replace('static scpi_result_t scpi_port_result_ok(',
         'scpi_result_t scpi_port_result_ok(') + r'''
 static unsigned changes;

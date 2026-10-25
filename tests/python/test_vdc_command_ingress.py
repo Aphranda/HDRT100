@@ -16,17 +16,44 @@ import pytest
 from test_vdc_command_owner import ROOT, REFMEM, compile_executable, function_body
 
 
+REFMEM_UNIT_FILES = (
+    "distributed_refmem.c",
+    "distributed_refmem_position_ack.c",
+    "distributed_refmem_vdc_feedback.c",
+    "distributed_action_probe.c",
+    "distributed_refmem_priority_health.c",
+    "refmem_le.h",
+)
+
+
+def refmem_texts():
+    """Production text of the RefMem translation units, for name-based extraction.
+
+    The domain used to be one translation unit plus .inc fragments, so a single
+    read of distributed_refmem.c held every definition these harnesses borrow.
+    The fragments are their own .c files now, so the extractor searches them all.
+    """
+    for name in REFMEM_UNIT_FILES:
+        path = REFMEM.parent / name
+        if path.is_file():
+            yield path.read_text(encoding="utf-8")
+
+
 def ingress_definition(source, name):
     """Copy a complete typed definition, including its production signature."""
-    match = re.search(
-        rf"(?m)^(?:static\s+)?[A-Za-z_]\w*\s+{re.escape(name)}\s*\([^;{{}}]*\)\s*\{{",
-        source)
-    assert match, name
-    cursor, depth = match.end(), 1
-    while depth:
-        depth += (source[cursor] == "{") - (source[cursor] == "}")
-        cursor += 1
-    return source[match.start():cursor]
+    for text in (source, *refmem_texts()):
+        match = re.search(
+            rf"(?m)^(?:static\s+)?(?:inline\s+)?[A-Za-z_]\w*"
+            rf"(?:\s+[A-Za-z_]\w*)*\s+{re.escape(name)}\s*\([^;{{}}]*\)\s*\{{",
+            text)
+        if not match:
+            continue
+        cursor, depth = match.end(), 1
+        while depth:
+            depth += (text[cursor] == "{") - (text[cursor] == "}")
+            cursor += 1
+        return text[match.start():cursor]
+    raise AssertionError(f"Missing production definition: {name}")
 
 
 def build_full_ingress(directory, production_root=ROOT):
