@@ -28,7 +28,13 @@ int main(void)
     assert(guarded.before == canary && guarded.after == canary);
     const uint8_t *bytes = (const uint8_t *)table;
     for (size_t i = 0u; i < sizeof(*table); ++i) assert(bytes[i] == 0u);
-    assert(sizeof(*table) == 18432u && DISTRIBUTED_REFMEM_LAYOUT_VERSION == 2u);
+    /* Layout contract (DISTRIBUTED_REFMEM_LAYOUT_VERSION 2): the table is a
+     * fixed 19,712 B regardless of PROJECT_NODE_CAPACITY (the node region is
+     * sized to the compiled capacity limit, not to the runtime node count).
+     * Keep this constant tied to the layout version: bumping the version must
+     * come with a new size.  (Was 18,432 before debc6413 reworked the
+     * registry/vector layout on 2026-10-24.) */
+    assert(sizeof(*table) == 19712u && DISTRIBUTED_REFMEM_LAYOUT_VERSION == 2u);
     const refmem_vector_region_id_t ids[] = {
         REFMEM_VECTOR_REGION_HEADER, REFMEM_VECTOR_REGION_SYSTEM, REFMEM_VECTOR_REGION_ROLE,
         REFMEM_VECTOR_REGION_VDC, REFMEM_VECTOR_REGION_LOOP, REFMEM_VECTOR_REGION_DPLL,
@@ -41,10 +47,22 @@ int main(void)
     table->header.table_size = sizeof(*table);
     refmem_vector_table_init_directory(table);
     assert(refmem_vector_table_validate_directory(table));
+    /* Layout contract (DISTRIBUTED_REFMEM_LAYOUT_VERSION 2, after debc6413):
+     * regions 0..5 are 1,024 B, the NODE region (id 6) is 2,304 B, the rest
+     * are 1,024 B and the TLV region (id 15) is 3,072 B. */
+    const uint32_t node_region = 6u;
+    const uint32_t node_region_size = 2304u;
+    const uint32_t tlv_region_size = 3072u;
     for (uint32_t id = 0u; id < 16u; ++id) {
         assert((uint32_t)ids[id] == id);
-        assert(table->header.regions[id].offset == id * 1024u);
-        assert(table->header.regions[id].size == (id == 15u ? 3072u : 1024u));
+        assert(table->header.regions[id].size ==
+               (id == node_region ? node_region_size
+                                  : (id == 15u ? tlv_region_size : 1024u)));
+        assert(table->header.regions[id].offset ==
+               (id <= node_region
+                    ? id * 1024u
+                    : node_region * 1024u + node_region_size +
+                          (id - node_region - 1u) * 1024u));
     }
     const uint32_t crc = refmem_vector_directory_crc(table);
     assert(crc == directory_crc_reference(&table->header));
@@ -66,7 +84,8 @@ int main(void)
     /* All eight fixed RefMem nodes remain addressable even in a six-node
      * TDMA build. Check actual writes against every byte of their neighbors. */
     memset(table, 0xa5, sizeof(*table));
-    assert(DISTRIBUTED_REFMEM_NODE_COUNT == 8u && sizeof(table->node[0]) == 128u);
+    const size_t node_slot_size = sizeof(table->node[0]);
+    assert(DISTRIBUTED_REFMEM_NODE_COUNT == 8u && node_slot_size == 288u);
     for (uint32_t node = 0u; node < 8u; ++node) {
         refmem_vector_node_region_t *slot = refmem_vector_table_node(table, node);
         assert(slot == &table->node[node]);
@@ -74,8 +93,8 @@ int main(void)
         assert(refmem_vector_table_node_const(table, node) == slot);
         for (size_t i = 0u; i < sizeof(*table); ++i) {
             const size_t first = offsetof(refmem_vector_table_t, node);
-            const bool written = i >= first && i < first + (node + 1u) * 128u;
-            const uint8_t expected = written ? (uint8_t)(0x30u + (i - first) / 128u) : 0xa5u;
+            const bool written = i >= first && i < first + (node + 1u) * node_slot_size;
+            const uint8_t expected = written ? (uint8_t)(0x30u + (i - first) / node_slot_size) : 0xa5u;
             assert(bytes[i] == expected);
         }
     }

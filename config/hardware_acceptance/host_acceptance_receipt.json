@@ -5,31 +5,31 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_tdma_board_record.py",
+    "tests/python/test_refmem_layout.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_tdma_board_record.py"
+    "tests/python/test_refmem_layout.py"
   ],
-  "duration_s": 3.891,
+  "duration_s": 17.921,
   "returncode": 0,
   "summary": {
-    "passed": 26,
+    "passed": 10,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "26 passed in 3.38s",
+  "summary_line": "10 passed in 17.54s",
   "tail": [
-    "..........................                                               [100%]",
-    "26 passed in 3.38s"
+    "..........                                                               [100%]",
+    "10 passed in 17.54s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "85c1dc056d1901bad0a0102de63793760ac4d1ff3dce3aeec18b3a4e93057bc8",
+  "fingerprint": "531202a6f68e58cb80ff16a99a274530386a5efb7b8c6c56b0ac870aa28a91b3",
   "file_count": 526,
-  "working_fingerprint": "85c1dc056d1901bad0a0102de63793760ac4d1ff3dce3aeec18b3a4e93057bc8",
-  "started_at_utc": "2026-10-25T18:01:24.073698+00:00"
+  "working_fingerprint": "531202a6f68e58cb80ff16a99a274530386a5efb7b8c6c56b0ac870aa28a91b3",
+  "started_at_utc": "2026-10-25T18:21:39.846821+00:00"
 }

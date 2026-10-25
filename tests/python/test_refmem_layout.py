@@ -47,8 +47,9 @@ def test_live_vector_geometry_and_boundaries(tmp_path, node_capacity, short_enum
         "components/distributed_refmem/src/refmem_vector_table.c",
     ], node_capacity, short_enums)
     result = json.loads(_run([str(exe)], tmp_path, "run"))
-    assert result["table_bytes"] == 18432
-    assert result["node_bytes"] == 128
+    # Layout 2 after debc6413: table 19,712 B, node slot 288 B (region 2,304 B).
+    assert result["table_bytes"] == 19712
+    assert result["node_bytes"] == 288
     assert result["header_reserved"] > 0
     assert result["vdc_payload"] < 1024 and result["vdc_reserved"] > 0
     assert result["dpll_payload"] < 1024 and result["dpll_reserved"] > 0
