@@ -12,6 +12,8 @@ import subprocess
 
 import pytest
 
+import refmem_units
+
 ROOT = Path(__file__).resolve().parents[2]
 MANAGER = ROOT / "components/vdc_dpll_manager/src/vdc_dpll_manager.c"
 REFMEM = ROOT / "components/distributed_refmem/src/distributed_refmem.c"
@@ -396,7 +398,7 @@ def test_actual_follower_command_boundary(follower_executable, scenario):
     "distributed_refmem_configure_node_load_auto_sync",
 ])
 def test_other_tasks_do_not_retire_receiver_command_context(entry):
-    body = function_body(REFMEM.read_text(encoding="utf-8"), entry)
+    body = function_body(refmem_units.source(), entry)
     body = re.sub(r"/\*.*?\*/|//[^\n]*", "", body, flags=re.S)
     assert "refresh_vdc_command_context" not in body
     assert "refmem_sync_vdc_init" not in body
@@ -405,7 +407,7 @@ def test_other_tasks_do_not_retire_receiver_command_context(entry):
 
 
 def test_actual_core0_service_refreshes_before_receiving(tmp_path):
-    body = function_body(REFMEM.read_text(encoding="utf-8"), "distributed_refmem_service")
+    body = function_body(refmem_units.source(), "distributed_refmem_service")
     # Observe order from the actual entry, without hardware or RTOS machinery.
     harness = r'''
 #include <assert.h>
@@ -415,7 +417,7 @@ typedef struct { uint32_t table_seq; } refmem_vector_header_region_t;
 typedef struct { uint32_t heartbeat, slot_version, last_update_ms, state; } refmem_vector_node_region_t;
 #define DISTRIBUTED_REFMEM_LOCAL_NODE_ID 0u
 #define DISTRIBUTED_REFMEM_NODE_OK 1u
-static bool s_initialized, ota, s_vdc_command_context_ready, refresh_ok = true;
+static bool s_refmem_core_initialized, ota, s_vdc_command_context_ready, refresh_ok = true;
 static uint32_t s_service_count, order, priority_publishes, prepares;
 static uint32_t refreshed, received, node_load, flight_services;
 static refmem_vector_header_region_t header_storage;
@@ -430,9 +432,9 @@ static void distributed_refmem_publish_runtime_locked(void) { }
 static void distributed_refmem_publish_status_locked(void) { }
 static bool ota_ao_is_active(void) { return ota; }
 static void distributed_refmem_publish_priority_health_core0(void)
-{ assert(s_initialized && !ota && order == 0); order = 1; ++priority_publishes; }
+{ assert(s_refmem_core_initialized && !ota && order == 0); order = 1; ++priority_publishes; }
 static void vdc_dpll_manager_feedback_prepare_core0(void)
-{ assert(s_initialized && !ota && order == 1); order = 2; ++prepares; }
+{ assert(s_refmem_core_initialized && !ota && order == 1); order = 2; ++prepares; }
 static bool distributed_refmem_refresh_vdc_command_context(void)
 { assert(order == 2); order = 3; ++refreshed; return refresh_ok; }
 static void distributed_refmem_vdc_follower_rx_service(void)
@@ -458,7 +460,7 @@ int main(void)
 {
     distributed_refmem_service();
     assert(!priority_publishes && !prepares && !refreshed && !received && !s_service_count);
-    s_initialized = true; ota = true;
+    s_refmem_core_initialized = true; ota = true;
     distributed_refmem_service();
     assert(!priority_publishes && !prepares && !refreshed && !received);
     ota = false;

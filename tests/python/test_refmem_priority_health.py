@@ -12,6 +12,7 @@ import pytest
 
 from test_vdc_publication_generation import ROOT, REFMEM, definition
 from test_tdma_priority_rx_scpi import callback
+import refmem_units
 from refmem_units import body as refmem_unit_body
 
 def _read_scpi_sync() -> str:
@@ -200,7 +201,7 @@ int main(int argc,char **argv) {
 
 
 def test_diagnostic_mirror_has_no_realtime_reservation():
-    source = REFMEM.read_text(encoding="utf-8")
+    source = refmem_units.source()
     realtime = definition(source, "distributed_refmem_realtime_run_once")
     scheduler = definition(source, "distributed_refmem_publish_runtime_vector_if_pending")
     background = definition(source, "distributed_refmem_service")
