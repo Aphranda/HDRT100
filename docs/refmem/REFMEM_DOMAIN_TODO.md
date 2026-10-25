@@ -565,6 +565,12 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - **N5.0.4q（第八次尝试后终止）** ⏸：按"前导 / 函数区 / 尾部"三段模型**重写**了两个生成器（v7 三段式、v8 声明头式）。v8 正确做到：主单元 = 全文件减去冷函数、冷单元 = 声明头 + 冷函数体、冷函数用到的 46 个静态对象逐一 `extern` 化。但**逐行扫描静态声明区间的正则启发式再次越界**（多行结构体/条件编译使 `;` 判定失准），把 `s_preview_guard` 等声明吞掉，主单元报 undeclared。**结论：该文件的可靠切分需要真正的 C 解析器（pycparser / libclang）而不是行级正则**；八次尝试已充分证明行级启发式的边界。v7/v8 生成器与产物归档 `out/split-20261025/archive/t2_split_v8_attempt/`，工作树已恢复。**该文件终止本夜尝试**，转入"用 C 解析器实现拆分器"的独立任务。
 - **N5.0.4q（第九次尝试后终止）** ⏸：用**深度感知的声明边界**（`;` 且下一行深度回到 0）替换此前的行尾启发式，正确识别出 47 个静态对象（含多行结构体与 `} name;` 形式），并把 13 个"热半边从不引用"的静态划给冷单元——主单元 1,613、冷单元 1,230、头 64。剩余两个问题互相耦合：①主单元仍超预算 113 行；②把 `#if defined(PICO_ON_DEVICE)` 块内的静态迁出会破坏条件编译配对（`unterminated #else`）。**九次尝试覆盖了切点、宏、inline、前导、声明边界全部行级手段，结论不变：该文件需要 AST 级解析器（pycparser / libclang）来同时处理"声明边界 + 条件编译分区"，行级正则到此为止。**v1–v9 全部生成器与产物归档 `out/split-20261025/archive/t2_split_v{1..9}_attempt/`，工作树已恢复。
 - **N5.0.5** ⏳ 夜间收口（2026-10-26）：本轮完成 **12 / 15** 个文件，存活 >2,000 行文件 **15 → 3**；每个完成项都带 P3 凭证、归档副本与函数定义集合等价性核对。
+  **夜间收口证据索引**：
+  - P3 凭证：`config/hardware_acceptance/p3_acceptance_receipt.json`（每个拆分提交前重跑，四板 `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC`，ERROR 0 / FATAL 0）
+  - P3 日志：`out/split-20261025/p3_run_{f,g,h,i,j,k,l,n,o,p}.log`
+  - 归档说明：`components/*/archive/*_split_v1/ARCHIVE_NOTE.md`（13 份，含拆分前全文）
+  - 未采用尝试：`out/split-20261025/archive/`（含 `trigger_t2` 的九代生成器与产物）
+  - 代码提交：`81b417d7`（tdma_service）、`cf472872`（scpi_calibration）、`fbc997e7`（status_ui）、`c6866c37`（storage_manager）、`7dcbd60b`（refmem model）、`cab9741d`（sync_io）、`f721d60e`（vdc_domain）、`bb7bfb3e`（scpi_sync）、`47749e94`（ring_adapter）、`7cd656f6`（scpi_snapshot）、`4e9eec76`（tdma_pio_spi_phys）、`c7fcaac9`（distributed_refmem）；工具/测试修复：`ba210009`、`4e9eec76`、`540a4bc3`
 
   | # | 文件 | 拆分结果 | 提交 |
   |---|---|---|---|
