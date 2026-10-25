@@ -13,6 +13,15 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_phys_core() -> str:
+    """N5.0.4o: the phys core is split into three units."""
+    return chr(10).join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_phys.c", "tdma_pio_spi_phys_ring_io.c", "tdma_pio_spi_phys_arm.c")
+    )
+
+
+
 
 def test_three_level_abort_late_writes_and_shared_deadline(tmp_path):
     """Execute the production STOP algorithm with in-flight AL3 writes.
@@ -20,7 +29,7 @@ def test_three_level_abort_late_writes_and_shared_deadline(tmp_path):
     The three-level fixture is the proposed origin dependency shape; it does
     not claim that the origin persona is installed or admitted on hardware.
     """
-    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    source = _read_phys_core()
     routines = "\n".join(kind + " " + name + signature + " {" +
         c_definition_body(source, name) + "}\n" for kind, name, signature in [
             ("static void", "tdma_pio_spi_phys_disable_dma_mask", "(uint32_t mask)"),
@@ -164,7 +173,7 @@ int main(void) {
 
 
 def test_descriptor_completion_and_bounded_stop(tmp_path):
-    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    source = _read_phys_core()
     routines = "\n".join(kind + " " + name + signature + " {" +
         c_definition_body(source, name) + "}\n" for kind, name, signature in [
             ("static void", "tdma_pio_spi_phys_disable_dma_mask", "(uint32_t mask)"),
@@ -679,7 +688,7 @@ int main(void) {
 
 
 def test_observation_copy_realign_does_not_move_published_wire_slots(tmp_path):
-    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    source = _read_phys_core()
     fixture = r'''
 #include <assert.h>
 #include <stdbool.h>

@@ -32,10 +32,24 @@ def _read_ring_adapter() -> str:
 
 
 
+
+class _PhysSource(str):
+    """N5.0.4o: slices still name `static` helpers that the split exported."""
+
+    def split(self, sep=None, maxsplit=-1):
+        if isinstance(sep, str) and sep.startswith("static "):
+            bare = sep[len("static "):]
+            if sep not in self and bare in self:
+                sep = bare
+        return super().split(sep, maxsplit)
+
 def _read_phys_source() -> str:
     """Read the PHY source and append the extracted program manager module."""
     source_path = ROOT / "components" / "tdma" / "src" / "tdma_pio_spi_phys.c"
-    source = source_path.read_text(encoding="utf-8")
+    source = _PhysSource("\n".join(
+        (ROOT / "components" / "tdma" / "src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_phys.c", "tdma_pio_spi_phys_ring_io.c",
+                     "tdma_pio_spi_phys_arm.c")))
     for fragment in (
             "tdma_pio_spi_phys_cal_control",
             "tdma_pio_spi_phys_cal_service",
@@ -70,7 +84,7 @@ def _read_phys_source() -> str:
     programs_path = source_path.with_name("tdma_pio_spi_phys_programs.c")
     source += "\n/* extracted PIO program manager source */\n" + programs_path.read_text(
         encoding="utf-8")
-    return source
+    return _PhysSource(source)
 TOOL_DIR = ROOT / "tools" / "calibration_ring_validate"
 if str(TOOL_DIR) not in sys.path:
     sys.path.insert(0, str(TOOL_DIR))
@@ -1507,7 +1521,7 @@ def test_process_rx_uses_completed_dma_count_without_software_frame_inference() 
     source = _read_phys_source()
     produced = source.split(
         "uint64_t tdma_pio_spi_phys_rx_produced_words", 1
-    )[1].split("static uint32_t tdma_pio_spi_phys_rx_ring_word", 1)[0]
+    )[1].split("\n}\n", 1)[0]
     assert "snapshot.overlay_frame_boundary_count" not in produced
     assert "snapshot.tx_count" not in produced
     assert "tdma_rx_dma_counter_observe" in produced

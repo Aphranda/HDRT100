@@ -297,4 +297,36 @@ extern uint s_tdma_event_counter_offset;
 extern uint s_tdma_event_sequence_offset;
 extern uint s_tdma_pio_spi_flight_process_follower_offset;
 bool tdma_pio_spi_phys_stop_dma_level(uint32_t mask, uint64_t deadline);
+
+/* N5.0.4o: cross-unit helpers of the phys split. */
+#define TDMA_PIO_SPI_TX_PUT_TIMEOUT_US 500u
+#define s_tdma_pio_spi_rx_ring (s_tdma_pio_spi_workspace.service.rx_ring)
+#define s_tdma_pio_spi_flight_overlay_plan (s_tdma_pio_spi_workspace.service.follower_plan)
+extern uint s_tdma_pio_spi_clk_burst_offset;
+extern uint s_tdma_pio_spi_clk_capture_offset;
+extern uint s_tdma_pio_spi_flight_origin_clock_offset;
+extern uint s_tdma_pio_spi_flight_origin_data_offset;
+extern uint s_tdma_pio_spi_flight_origin_data_capture_offset;
+extern uint s_tdma_pio_spi_flight_data_follower_offset;
+extern uint s_tdma_pio_spi_flight_control_forward_offset;
+extern uint s_tdma_pio_spi_flight_origin_rtt_offset;
+extern uint32_t s_tdma_pio_spi_flight_live_word;
+uint tdma_pio_spi_phys_latch_offset(const tdma_pio_spi_phys_t *phys);
+PIO tdma_pio_spi_phys_tx_latch_pio(const tdma_pio_spi_phys_t *phys);
+uint tdma_pio_spi_phys_tx_latch_sm(const tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_clk_train_write_begin( tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_clk_train_write_end( tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_clk_train_reset(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_arm_reject( tdma_pio_spi_phys_t *phys, tdma_pio_spi_phys_error_t error);
+void tdma_pio_spi_phys_rx_prepare(tdma_pio_spi_phys_t *phys);
+void __attribute__((unused)) tdma_pio_spi_phys_configure( tdma_pio_spi_phys_t *phys);
+uint32_t tdma_pio_spi_phys_flight_tail_bytes( const tdma_ring_runtime_config_t *config);
+void tdma_pio_spi_phys_release_flight_resources( tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_enable_sm_pair(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_tx_clock_latch_rearm( tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_configure_flight( tdma_pio_spi_phys_t *phys, const tdma_ring_runtime_config_t *config);
+bool tdma_pio_spi_phys_prepare_pass_overlay( tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys);
+uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t produced);
+uint8_t tdma_pio_spi_phys_rx_ring_reversed_byte(uint64_t produced);
 #endif /* TDMA_PIO_SPI_PHYS_INTERNAL_H */

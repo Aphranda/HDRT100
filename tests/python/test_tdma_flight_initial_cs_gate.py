@@ -14,6 +14,15 @@ from tdma_flight_pio_model import Machine, bytes_to_bits
 from test_tdma_flight_bit_pipeline import ROOT, Plan, bound_words, engine
 from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
 
+def _read_phys_core() -> str:
+    """N5.0.4o: the phys core is split into three units."""
+    return chr(10).join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_phys.c", "tdma_pio_spi_phys_ring_io.c", "tdma_pio_spi_phys_arm.c")
+    )
+
+
+
 
 def production_gate(source):
     arm = c_definition_body(source, "tdma_pio_spi_phys_arm")
@@ -92,7 +101,7 @@ def run_first_frames(engine, *, lead=2, noise=7, gate=True, late=False):
     tokens = [half for word in words for half in (word >> 16, word & 65535)]
     physical = [bytes((i * 73 + offset) % 256 for i in range(lib.physical_bytes))
                 for offset in (0xA5, 0x39)]
-    opcode = production_gate((ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8"))
+    opcode = production_gate(_read_phys_core())
     machine = InitialCsMachine(physical, [tokens, tokens], program=program, entry=installed,
                               wrap=wrap + installed, final=final + installed,
                               lead=lead, noise=noise, gate=opcode if gate else None)
@@ -137,7 +146,7 @@ def test_cs_already_low_does_not_recover_first_frame(engine):
     "pio_encode_wait_gpio(false, phys->rx_sck_pin)",
 ])
 def test_wrong_guard_instruction_is_rejected(replacement):
-    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    source = _read_phys_core()
     mutated = source.replace("pio_encode_wait_gpio(false, phys->rx_csn_pin)", replacement)
     with pytest.raises(AssertionError, match="initial CS wait"):
         production_gate(mutated)
@@ -148,7 +157,7 @@ def test_wrong_guard_instruction_is_rejected(replacement):
     "pio_sm_restart(tdma_pio_spi_phys_capture_pio(phys), tdma_pio_spi_phys_capture_sm(phys));",
 ])
 def test_capture_mutation_between_gate_and_enable_is_rejected(replacement):
-    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    source = _read_phys_core()
     mutated = source.replace("    if (!tdma_geometry_arm_bound(phys)) {",
                              "    " + replacement + "\n    if (!tdma_geometry_arm_bound(phys)) {")
     with pytest.raises(AssertionError, match="initial CS wait"):

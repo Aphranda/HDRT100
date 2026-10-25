@@ -14,6 +14,15 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_phys_core() -> str:
+    """N5.0.4o: the phys core is split into three units."""
+    return chr(10).join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_phys.c", "tdma_pio_spi_phys_ring_io.c", "tdma_pio_spi_phys_arm.c")
+    )
+
+
+
 
 def production(directory: Path) -> str:
     # 2026-10-25: the RX start-cut and first-window owners moved to their own units.
@@ -22,7 +31,7 @@ def production(directory: Path) -> str:
         for path in ("components/tdma/src/tdma_pio_spi_phys_event.c",
                      "components/tdma/src/tdma_pio_spi_phys_rx_start_cut.c",
                      "components/tdma/src/tdma_pio_spi_phys_rx_first.c"))
-    phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_core()
     header = (ROOT / "components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
     end = header.index("} tdma_pio_spi_event_snapshot_t;") + len("} tdma_pio_spi_event_snapshot_t;")
     start = header.rfind("typedef struct {", 0, end)

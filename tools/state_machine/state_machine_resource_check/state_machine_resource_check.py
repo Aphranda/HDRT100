@@ -12,6 +12,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RESOURCES = ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
 DEFAULT_PHYS = ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
+# N5.0.4o: the phys core is split into three units; the gate scans the union.
+DEFAULT_PHYS_UNITS = (DEFAULT_PHYS,
+                      ROOT / "components/tdma/src/tdma_pio_spi_phys_ring_io.c",
+                      ROOT / "components/tdma/src/tdma_pio_spi_phys_arm.c")
 DEFAULT_FLIGHT_IO = ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.c"
 DEFAULT_SYNC_MODEL = ROOT / "components/sync_io/src/sync_io_model_sched.c"
 DEFAULT_SYNC_CORE = ROOT / "components/sync_io/src/sync_io.c"
@@ -1020,7 +1024,7 @@ def check(
     pio: Path,
     *,
     resources: Path = DEFAULT_RESOURCES,
-    phys: Path = DEFAULT_PHYS,
+    phys: "Path | tuple[Path, ...]" = DEFAULT_PHYS_UNITS,
     flight_io: Path = DEFAULT_FLIGHT_IO,
     sync_model: Path = DEFAULT_SYNC_MODEL,
     sync_core: "Path | tuple[Path, ...]" = DEFAULT_SYNC_CORE_UNITS,
@@ -1135,8 +1139,9 @@ def check(
 
     failures.extend(check_rx_endpoint_declaration(
         resources.read_text(encoding="utf-8", errors="ignore")))
+    phys_units = (phys,) if isinstance(phys, Path) else tuple(phys)
     failures.extend(check_rx_endpoint_runtime(
-        phys.read_text(encoding="utf-8", errors="ignore"),
+        "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in phys_units),
         flight_io.read_text(encoding="utf-8", errors="ignore"),
     ))
     sync_board_path = board if sync_board is None else sync_board

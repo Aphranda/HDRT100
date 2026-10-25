@@ -1,0 +1,3037 @@
+#include "tdma_pio_spi_phys.h"
+#include "tdma_service_timing.h"
+#include "tdma_pio_spi_phys_programs.h"
+#include "tdma_pio_spi_phys_internal.h"
+#include "tdma_pio_spi_origin_workspace.h"
+#include "tdma_origin_build_job.h"
+
+#include <string.h>
+
+#include "board_config.h"
+#include "project_config.h"
+#include "hardware/dma.h"
+#include "hardware/sync.h"
+#include "hardware/gpio.h"
+#include "hardware/clocks.h"
+#include "hardware/pio.h"
+#include "hardware/irq.h"
+#include "hardware/timer.h"
+#include "hardware/watchdog.h"
+#include "drv_watchdog.h"
+#include "pico/bit_ops.h"
+#include "pico/time.h"
+#include "tdma_flight_overlay.h"
+#include "tdma_pio_spi.pio.h"
+#include "tdma_origin.pio.h"
+#include "tdma_process_image_layout.h"
+#include "tdma_pio_spi_phys_timing.h"
+#include "tdma_rx_sequence.h"
+#include "vdc_timestamp_clock.h"
+
+#define TDMA_PIO_SPI_DEFAULT_BAUD_HZ 1000000u
+
+/* Fixed frame window: 4-byte packet header + 32-byte TdmaTransportFrame idle
+ * beacon. Every ring frame is exactly this long. */
+#define TDMA_PIO_SPI_FIXED_RX_WORDS \
+    (TDMA_PIO_SPI_PACKET_HEADER_SIZE + TDMA_TRANSPORT_FRAME_HEADER_SIZE)
+
+/* Bounded TX FIFO wait: core1 must stay predictable (HAOFV). If the downlink
+ * SM stops consuming (e.g. the config plane disarms it while core1 is mid
+ * frame), put_blocking would hang core1 forever and break the flash lockout
+ * protocol. Instead we wait at most this long per word and fail the frame. */
+#define TDMA_PIO_SPI_TX_PUT_TIMEOUT_US 500u
+
+/* CS is now the point-to-point frame-sync. After the fixed frame DMA completes,
+ * the sender can still hold CS low while the final shifted byte drains. Wait
+ * for CS idle before clearing FIFO/re-arming DMA, otherwise the RX SM can treat
+ * the low tail as the beginning of the next capture window. */
+#define TDMA_PIO_SPI_RX_CSN_IDLE_WAIT_US 500u
+
+/* The flight process image makes a short ring packet almost 300 words. Keep
+ * three complete maximum packets so a poll that observes an incomplete tail
+ * can safely wait through the next core1 service without DMA overwrite. */
+_Static_assert(TDMA_PIO_SPI_RX_RING_WORDS >=
+                   3u * TDMA_PIO_SPI_RX_DMA_WORD_MAX,
+               "TDMA SPI RX ring must hold three maximum short packets");
+_Static_assert(TDMA_RX_DMA_RELOAD_FRAMES % TDMA_PIO_SPI_RX_RING_WORDS == 0u,
+               "RX hardware count reload must preserve the SRAM ring index");
+_Static_assert(TDMA_RX_DMA_COUNT_MAX == DMA_CH0_TRANS_COUNT_COUNT_BITS,
+               "RX count admission must match the hardware field width");
+_Static_assert(TDMA_RX_OBSERVATION_SCAN_WORDS + TDMA_PIO_SPI_RX_DMA_WORD_MAX <
+                   TDMA_PIO_SPI_RX_RING_WORDS,
+               "RX scan window must leave space before the DMA writer");
+_Static_assert(TDMA_RX_OBSERVATION_SCAN_WORDS >= TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS,
+               "RX resynchronization must cover a full physical frame");
+_Static_assert(TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES >=
+                   TDMA_PIO_SPI_RX_DMA_WORD_MAX,
+               "TRN-03B TX capture must hold one maximum short packet");
+
+static bool s_tdma_pio_spi_sms_claimed;
+bool s_tdma_pio_spi_flight_sms_claimed;
+static bool s_tdma_pio_spi_maintenance_resources_claimed;
+tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
+uint s_tdma_pio_spi_tx_offset;
+uint s_tdma_pio_spi_rx_offset;
+uint s_tdma_pio_spi_clk_forward_offset;
+uint s_tdma_pio_spi_marker_forward_offset;
+static uint s_tdma_pio_spi_clk_burst_offset;
+static uint s_tdma_pio_spi_clk_capture_offset;
+uint s_tdma_pio_spi_clk_coded_tx_offset;
+uint s_tdma_pio_spi_clk_oversample_offset;
+uint s_tdma_pio_spi_marker_origin_offset;
+uint s_tdma_pio_spi_marker_capture_offset;
+uint s_tdma_pio_spi_data_train_source_offset;
+uint s_tdma_pio_spi_data_train_sink_offset;
+uint s_tdma_pio_spi_sck_train_trigger_offset;
+uint s_tdma_pio_spi_sck_train_source_offset;
+uint s_tdma_pio_spi_sck_train_sink_offset;
+static uint s_tdma_pio_spi_cal_tx_offset;
+static uint s_tdma_pio_spi_cal_capture_offset;
+uint s_tdma_pio_spi_p3_initiator_offset;
+uint s_tdma_pio_spi_p3_responder_offset;
+uint s_tdma_pio_spi_p3_capture_offset;
+uint s_tdma_pio_spi_p3_responder_capture_offset;
+static uint s_tdma_pio_spi_flight_origin_clock_offset;
+static uint s_tdma_pio_spi_flight_origin_data_offset;
+static uint s_tdma_pio_spi_flight_origin_data_capture_offset;
+static uint s_tdma_pio_spi_flight_data_follower_offset;
+uint s_tdma_pio_spi_flight_process_follower_offset;
+static uint s_tdma_pio_spi_flight_control_forward_offset;
+static uint s_tdma_pio_spi_flight_clock_latch_offset;
+static uint s_tdma_pio_spi_flight_rx_clock_latch_offset;
+static uint s_tdma_pio_spi_flight_origin_rtt_offset;
+uint s_tdma_event_counter_offset;
+uint s_tdma_event_sequence_offset;
+uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS]
+    __attribute__((aligned(4)));
+/* Calibration personas are mutually exclusive: the TDMA owner restores the
+ * normal DATA/CS persona before accepting another request.  Keep one maximum
+ * sized TX/RX workspace per direction instead of reserving coded, marker and
+ * data-training arrays concurrently.  The named members preserve the
+ * persona-specific bounds and call sites while the union makes the lifetime
+ * contract explicit in the static RAM layout. */
+
+
+tdma_pio_spi_cal_tx_workspace_t s_tdma_pio_spi_cal_tx_workspace
+    __attribute__((aligned(4)));
+tdma_pio_spi_cal_rx_workspace_t s_tdma_pio_spi_cal_rx_workspace
+    __attribute__((aligned(4)));
+#define s_tdma_pio_spi_coded_tx (s_tdma_pio_spi_cal_tx_workspace.coded)
+#define s_tdma_pio_spi_marker_tx (s_tdma_pio_spi_cal_tx_workspace.marker)
+#define s_tdma_pio_spi_data_train_tx \
+    (s_tdma_pio_spi_cal_tx_workspace.data_train)
+#define s_tdma_pio_spi_coded_rx (s_tdma_pio_spi_cal_rx_workspace.coded)
+#define s_tdma_pio_spi_marker_rx (s_tdma_pio_spi_cal_rx_workspace.marker)
+#define s_tdma_pio_spi_data_train_rx \
+    (s_tdma_pio_spi_cal_rx_workspace.data_train)
+/* CS-style local launch: high idle followed by one low edge. */
+uint32_t s_tdma_pio_spi_sck_train_inject_word = 0u;
+bool tdma_pio_spi_phys_cal_decode_step(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_set_line_drivers(bool enabled);
+int s_tdma_pio_spi_tx_dma_channel = -1;
+int s_tdma_pio_spi_rx_dma_channel = -1;
+int s_tdma_pio_spi_command_dma_channel = -1;
+int s_tdma_pio_spi_executor_dma_channel = -1;
+tdma_pio_spi_program_manager_t s_tdma_pio_spi_program_manager = {
+    .sms_claimed = &s_tdma_pio_spi_sms_claimed,
+    .flight_sms_claimed = &s_tdma_pio_spi_flight_sms_claimed,
+    .maintenance_resources_claimed =
+        &s_tdma_pio_spi_maintenance_resources_claimed,
+    .program_persona = &s_tdma_pio_spi_program_persona,
+    .tx_offset = &s_tdma_pio_spi_tx_offset,
+    .rx_offset = &s_tdma_pio_spi_rx_offset,
+    .clk_forward_offset = &s_tdma_pio_spi_clk_forward_offset,
+    .marker_forward_offset = &s_tdma_pio_spi_marker_forward_offset,
+    .clk_burst_offset = &s_tdma_pio_spi_clk_burst_offset,
+    .clk_capture_offset = &s_tdma_pio_spi_clk_capture_offset,
+    .clk_coded_tx_offset = &s_tdma_pio_spi_clk_coded_tx_offset,
+    .clk_oversample_offset = &s_tdma_pio_spi_clk_oversample_offset,
+    .marker_origin_offset = &s_tdma_pio_spi_marker_origin_offset,
+    .marker_capture_offset = &s_tdma_pio_spi_marker_capture_offset,
+    .data_train_source_offset = &s_tdma_pio_spi_data_train_source_offset,
+    .data_train_sink_offset = &s_tdma_pio_spi_data_train_sink_offset,
+    .sck_train_trigger_offset = &s_tdma_pio_spi_sck_train_trigger_offset,
+    .sck_train_source_offset = &s_tdma_pio_spi_sck_train_source_offset,
+    .sck_train_sink_offset = &s_tdma_pio_spi_sck_train_sink_offset,
+    .cal_tx_offset = &s_tdma_pio_spi_cal_tx_offset,
+    .cal_capture_offset = &s_tdma_pio_spi_cal_capture_offset,
+    .p3_initiator_offset = &s_tdma_pio_spi_p3_initiator_offset,
+    .p3_responder_offset = &s_tdma_pio_spi_p3_responder_offset,
+    .p3_capture_offset = &s_tdma_pio_spi_p3_capture_offset,
+    .p3_responder_capture_offset = &s_tdma_pio_spi_p3_responder_capture_offset,
+    .flight_origin_clock_offset = &s_tdma_pio_spi_flight_origin_clock_offset,
+    .flight_origin_data_offset = &s_tdma_pio_spi_flight_origin_data_offset,
+    .flight_origin_data_capture_offset =
+        &s_tdma_pio_spi_flight_origin_data_capture_offset,
+    .flight_data_follower_offset = &s_tdma_pio_spi_flight_data_follower_offset,
+    .flight_process_follower_offset = &s_tdma_pio_spi_flight_process_follower_offset,
+    .flight_control_forward_offset = &s_tdma_pio_spi_flight_control_forward_offset,
+    .flight_clock_latch_offset = &s_tdma_pio_spi_flight_clock_latch_offset,
+    .flight_rx_clock_latch_offset = &s_tdma_pio_spi_flight_rx_clock_latch_offset,
+    .flight_origin_rtt_offset = &s_tdma_pio_spi_flight_origin_rtt_offset,
+    .event_counter_offset = &s_tdma_event_counter_offset,
+    .event_sequence_offset = &s_tdma_event_sequence_offset,
+    .tx_dma_channel = &s_tdma_pio_spi_tx_dma_channel,
+    .rx_dma_channel = &s_tdma_pio_spi_rx_dma_channel,
+    .command_dma_channel = &s_tdma_pio_spi_command_dma_channel,
+    .executor_dma_channel = &s_tdma_pio_spi_executor_dma_channel,
+};
+/* The ring needs 4 KiB alignment for DMA wrap; inside .bss that alignment
+ * padded up to 4 KiB whenever .data grew. The DMA ring section is NOLOAD, so
+ * tdma_pio_spi_phys_workspace_reset() restores the zeroed boot state. */
+tdma_pio_spi_workspace_t s_tdma_pio_spi_workspace
+    __attribute__((section(".sync_io_dma_ring")))
+    __attribute__((aligned(TDMA_PIO_SPI_RX_RING_WORDS * sizeof(uint32_t))));
+/* The cancellation handshake must outlive every persona in the union. */
+tdma_origin_build_job_t s_tdma_origin_build_job;
+#define s_tdma_pio_spi_rx_ring (s_tdma_pio_spi_workspace.service.rx_ring)
+#define s_tdma_pio_spi_flight_overlay_plan (s_tdma_pio_spi_workspace.service.follower_plan)
+/* Two resident plans: only selection of the successor retires the old pool.
+ * A BUSY sample or physical frame IRQ does not authorize pool reuse. */
+/* SRAM: PASS traffic must not depend on XIP cache latency. */
+static uint32_t s_tdma_pio_spi_flight_live_word = TDMA_FLIGHT_OVERLAY_LIVE_WORD;
+_Static_assert(tdma_pio_spi_flight_process_follower_offset_final_bit == 16u,
+               "Update terminal token admission for the installed PIO catalog");
+_Static_assert(sizeof(tdma_pio_spi_flight_process_follower_program_instructions) /
+                   sizeof(uint16_t) == 28u, "Process PIO instruction budget");
+_Static_assert(sizeof(tdma_flight_overlay_dma_run_t) == 16u &&
+               offsetof(dma_channel_hw_t, al3_ctrl) == 0x30u &&
+               offsetof(dma_channel_hw_t, al3_read_addr_trig) == 0x3cu,
+               "Command descriptors must match the RP2350 AL3 register alias");
+uint64_t s_tdma_pio_spi_rx_scan_produced;
+tdma_rx_dma_counter_t s_tdma_pio_spi_rx_sequence;
+/* Core1-only boot-local diagnostic IDs. Neither STOP nor a new phys object
+ * resets them. Exhaustion disables provenance, never healthy RX transport. */
+uint64_t s_tdma_pio_spi_rx_arm_epoch;
+uint64_t s_tdma_pio_spi_rx_capture_id;
+bool s_tdma_pio_spi_rx_arm_valid;
+/* Core1-private normalized bytes, never a DMA target. The live DMA ring
+ * remains word-wide; only this assembled observation is compacted. */
+uint8_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX]
+    __attribute__((aligned(4)));
+
+bool tdma_pio_spi_phys_is_flight_persona(void)
+{
+    return s_tdma_pio_spi_program_persona ==
+               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
+           s_tdma_pio_spi_program_persona ==
+               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN ||
+           s_tdma_pio_spi_program_persona ==
+               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER ||
+           s_tdma_pio_spi_program_persona ==
+               TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
+}
+
+PIO tdma_pio_spi_phys_control_pio(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
+        ? phys->flight_resources.tx_pio : BOARD_TDMA_SPI_PIO;
+}
+
+uint tdma_pio_spi_phys_control_sm(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
+        ? phys->flight_resources.tx_control_out_sm
+        : (phys != NULL ? phys->tx_sm : BOARD_TDMA_SPI_MASTER_SM);
+}
+
+PIO tdma_pio_spi_phys_data_pio(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
+        ? phys->flight_resources.rx_endpoints.data_output.pio
+        : BOARD_TDMA_SPI_PIO;
+}
+
+uint tdma_pio_spi_phys_data_sm(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
+        ? phys->flight_resources.rx_endpoints.data_output.sm
+        : (phys != NULL ? phys->tx_sm : BOARD_TDMA_SPI_MASTER_SM);
+}
+
+PIO tdma_pio_spi_phys_capture_pio(const tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL || !tdma_pio_spi_phys_is_flight_persona()) {
+        return BOARD_TDMA_SPI_PIO;
+    }
+    return phys->role == TDMA_PIO_SPI_ROLE_MASTER
+        ? phys->flight_resources.tx_pio
+        : phys->flight_resources.rx_endpoints.data_unload.pio;
+}
+
+uint tdma_pio_spi_phys_capture_sm(const tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL || !tdma_pio_spi_phys_is_flight_persona()) {
+        return phys != NULL ? phys->rx_sm : BOARD_TDMA_SPI_SLAVE_SM;
+    }
+    return phys->role == TDMA_PIO_SPI_ROLE_MASTER
+        ? phys->flight_resources.tx_data_capture_sm
+        : phys->flight_resources.rx_endpoints.data_unload.sm;
+}
+
+PIO tdma_pio_spi_phys_evidence_pio(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL && tdma_pio_spi_phys_is_flight_persona() &&
+            phys->role == TDMA_PIO_SPI_ROLE_MASTER
+        ? phys->flight_resources.tx_pio
+        : (phys != NULL
+               ? phys->flight_resources.rx_endpoints.clock_evidence.pio
+               : BOARD_TDMA_RX_PIO);
+}
+
+uint tdma_pio_spi_phys_latch_sm(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
+        ? (phys->role == TDMA_PIO_SPI_ROLE_MASTER
+               ? phys->flight_resources.tx_clock_latch_sm
+               : phys->flight_resources.rx_endpoints.clock_evidence.sm)
+        : BOARD_TDMA_SPI_CAPTURE_SM;
+}
+
+static uint tdma_pio_spi_phys_latch_offset(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_SLAVE
+        ? s_tdma_pio_spi_flight_rx_clock_latch_offset
+        : s_tdma_pio_spi_flight_clock_latch_offset;
+}
+
+static PIO tdma_pio_spi_phys_tx_latch_pio(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL ? phys->flight_resources.tx_pio : BOARD_TDMA_TX_PIO;
+}
+
+static uint tdma_pio_spi_phys_tx_latch_sm(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL ? phys->flight_resources.tx_clock_latch_sm
+                        : BOARD_TDMA_TX_CLOCK_LATCH_SM;
+}
+
+uint tdma_pio_spi_phys_rtt_sm(const tdma_pio_spi_phys_t *phys)
+{
+    return phys != NULL
+        ? phys->flight_resources.tx_rtt_evidence_sm
+        : BOARD_TDMA_TX_RTT_EVIDENCE_SM;
+}
+
+static void tdma_pio_spi_phys_clk_train_write_begin(
+    tdma_pio_spi_phys_t *phys)
+{
+    (void)__atomic_add_fetch(&phys->clk_train_guard, 1u, __ATOMIC_RELEASE);
+}
+
+static void tdma_pio_spi_phys_clk_train_write_end(
+    tdma_pio_spi_phys_t *phys)
+{
+    (void)__atomic_add_fetch(&phys->clk_train_guard, 1u, __ATOMIC_RELEASE);
+}
+
+static void tdma_pio_spi_phys_clk_train_reset(tdma_pio_spi_phys_t *phys)
+{
+    const uint32_t request_seq = phys->clk_train.request_seq;
+    tdma_pio_spi_phys_clk_train_write_begin(phys);
+    memset(&phys->clk_train, 0, sizeof(phys->clk_train));
+    phys->clk_train.version = TDMA_PIO_SPI_CLK_TRAIN_SNAPSHOT_VERSION;
+    phys->clk_train.state = TDMA_PIO_SPI_CLK_TRAIN_IDLE;
+    phys->clk_train.result = TDMA_PIO_SPI_CLK_TRAIN_RESULT_NONE;
+    phys->clk_train.role = phys->role;
+    phys->clk_train.request_seq = request_seq;
+    phys->clk_train.baud_hz = phys->baud_hz;
+    phys->clk_train.tx_sck_pin = phys->tx_sck_pin;
+    phys->clk_train.rx_sck_pin = phys->rx_sck_pin;
+    phys->clk_train.timestamp_resolution_ns =
+        vdc_timestamp_clock_resolution_ns();
+    phys->clk_train.timestamp_flags =
+        TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    phys->clk_train_return_deadline_ns = 0ull;
+    tdma_pio_spi_phys_clk_train_write_end(phys);
+}
+
+void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys,
+                                        uint32_t error)
+{
+    if (phys == NULL) {
+        return;
+    }
+    phys->snapshot.last_error = error;
+    if (error == TDMA_PIO_SPI_PHYS_ERROR_BAD_PACKET ||
+        error == TDMA_PIO_SPI_PHYS_ERROR_PAYLOAD_TOO_LARGE) {
+        phys->snapshot.rx_bad_count++;
+    }
+}
+
+static bool tdma_pio_spi_phys_arm_reject(
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_phys_error_t error)
+{
+    tdma_geometry_arm_failed();
+    tdma_pio_spi_phys_set_error(phys, (uint32_t)error);
+    return false;
+}
+
+void tdma_pio_spi_phys_publish_arm_error(
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_phys_error_t error)
+{
+    tdma_geometry_arm_failed();
+    tdma_pio_spi_phys_set_error(phys, (uint32_t)error);
+}
+
+uint32_t tdma_pio_spi_phys_last_error(const void *context)
+{
+    const tdma_pio_spi_phys_t *phys =
+        (const tdma_pio_spi_phys_t *)context;
+    return phys != NULL ? phys->snapshot.last_error
+                        : TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT;
+}
+
+bool tdma_pio_spi_phys_tx_retryable(const void *context)
+{
+    const tdma_pio_spi_phys_t *phys =
+        (const tdma_pio_spi_phys_t *)context;
+    return phys != NULL &&
+           phys->snapshot.last_error == TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY;
+}
+
+void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) return;
+    const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_RELAXED);
+    __atomic_store_n(&phys->flight_origin_record_guard, guard + 1u, __ATOMIC_RELEASE);
+    __dmb();
+    __atomic_store_n(&phys->flight_origin_record_frozen, false, __ATOMIC_RELAXED);
+    __atomic_store_n(&phys->flight_origin_first_readable_epoch, 0u, __ATOMIC_RELAXED);
+    phys->flight_origin_live.active = 0u;
+    __atomic_store_n(&phys->flight_origin_record_guard, guard + 2u, __ATOMIC_RELEASE);
+}
+
+void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *config);
+void tdma_rx_first_window_arm_failed(void);
+
+void tdma_pio_spi_phys_workspace_reset(void)
+{
+    memset(&s_tdma_pio_spi_workspace, 0, sizeof(s_tdma_pio_spi_workspace));
+}
+
+void tdma_pio_spi_phys_service_observer(tdma_pio_spi_phys_t *phys)
+{
+    tdma_pio_spi_phys_event_service(phys);
+}
+
+bool tdma_pio_spi_phys_get_event_snapshot(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_event_snapshot_t *snapshot)
+{
+    return tdma_pio_spi_phys_event_copy(phys, snapshot);
+}
+
+bool tdma_pio_spi_phys_get_event_sequence_evidence(
+    const tdma_pio_spi_phys_t *phys, tdma_pio_spi_event_sequence_evidence_t *out)
+{
+#if PROJECT_TDMA_EVENT_OBSERVER
+    return tdma_pio_spi_phys_event_sequence_copy(phys, out);
+#else
+    if (out != NULL) *out = (tdma_pio_spi_event_sequence_evidence_t){0};
+    return out != NULL;
+#endif
+}
+
+bool tdma_pio_spi_phys_select_program_persona(
+    tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_program_persona_t persona)
+{
+    tdma_geometry_persona(persona);
+    if (persona != s_tdma_pio_spi_program_persona) {
+        tdma_priority_stop();
+        tdma_pio_spi_phys_event_stop(phys);
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+        if (s_tdma_event_dma_active) return false;
+#endif
+    }
+    tdma_pio_spi_phys_origin_record_invalidate(phys);
+    const bool selected = tdma_pio_spi_programs_select(
+        &s_tdma_pio_spi_program_manager, phys, persona);
+    /* The manager may have frozen an old origin while stopping its tree.
+     * A requested persona starts a new memory lifetime after it returns. */
+    tdma_pio_spi_phys_origin_record_invalidate(phys);
+    return selected;
+}
+
+/* Compatibility entry point for calibration service includes.  The owner
+ * context remains explicit inside the migrated program manager. */
+bool tdma_pio_spi_phys_ensure_sms_claimed(void)
+{
+    return tdma_pio_spi_programs_ensure_sms_claimed(
+        &s_tdma_pio_spi_program_manager);
+}
+
+void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys)
+{
+    phys->snapshot.armed = phys->armed ? 1u : 0u;
+    phys->snapshot.role = phys->role;
+    phys->snapshot.baud_hz = phys->baud_hz;
+    phys->snapshot.tx_sck_pin = phys->tx_sck_pin;
+    phys->snapshot.tx_csn_pin = phys->tx_csn_pin;
+    phys->snapshot.tx_pin = phys->tx_pin;
+    phys->snapshot.rx_sck_pin = phys->rx_sck_pin;
+    phys->snapshot.rx_csn_pin = phys->rx_csn_pin;
+    phys->snapshot.rx_pin = phys->rx_pin;
+    phys->snapshot.program_persona =
+        (uint32_t)s_tdma_pio_spi_program_persona;
+    phys->snapshot.flight_marker_offset_sample_count =
+        phys->flight_marker_offset_sample_count;
+    phys->snapshot.flight_sck_offset_sample_count =
+        phys->flight_sck_offset_sample_count;
+    phys->snapshot.flight_data_offset_sample_count =
+        phys->flight_data_offset_sample_count;
+    phys->snapshot.flight_marker_phase_delay_cycles =
+        phys->flight_marker_phase_delay_cycles;
+    phys->snapshot.flight_sck_phase_delay_cycles =
+        phys->flight_sck_phase_delay_cycles;
+    phys->snapshot.flight_data_phase_delay_cycles =
+        phys->flight_data_phase_delay_cycles;
+    phys->snapshot.flight_origin_capture_phase_delay_cycles =
+        phys->flight_origin_capture_phase_delay_cycles;
+}
+
+bool tdma_pio_spi_phys_ensure_rx_dma(void)
+{
+    if (s_tdma_pio_spi_rx_dma_channel >= 0) {
+        return true;
+    }
+    if (dma_channel_is_claimed(TDMA_PIO_SPI_RX_DMA_CHANNEL)) {
+        return false;
+    }
+    dma_channel_claim(TDMA_PIO_SPI_RX_DMA_CHANNEL);
+    s_tdma_pio_spi_rx_dma_channel = (int)TDMA_PIO_SPI_RX_DMA_CHANNEL;
+    return true;
+}
+
+bool tdma_pio_spi_phys_ensure_tx_dma(void)
+{
+    if (s_tdma_pio_spi_tx_dma_channel >= 0) {
+        return true;
+    }
+    if (dma_channel_is_claimed(TDMA_PIO_SPI_TX_DMA_CHANNEL)) {
+        return false;
+    }
+    dma_channel_claim(TDMA_PIO_SPI_TX_DMA_CHANNEL);
+    s_tdma_pio_spi_tx_dma_channel = (int)TDMA_PIO_SPI_TX_DMA_CHANNEL;
+    return true;
+}
+
+static void tdma_pio_spi_phys_rx_prepare(tdma_pio_spi_phys_t *phys)
+{
+    /* The SM must keep running across frame boundaries. Resetting it here
+     * would make the next capture depend on the CPU/service phase. */
+    pio_sm_clear_fifos(tdma_pio_spi_phys_capture_pio(phys),
+                       tdma_pio_spi_phys_capture_sm(phys));
+}
+
+/* Product-board SPI persona. Pin direction and PIO ownership are frozen in
+ * board_config.h; CS remains the point-to-point frame-sync signal. */
+static void __attribute__((unused)) tdma_pio_spi_phys_configure(
+    tdma_pio_spi_phys_t *phys)
+{
+    phys->tx_sm = BOARD_TDMA_SPI_MASTER_SM;
+    phys->tx_pin = BOARD_TDMA_SPI_DOWNLINK_TX_PIN;
+    phys->tx_sck_pin = BOARD_TDMA_SPI_DOWNLINK_SCK_PIN;
+    phys->tx_csn_pin = BOARD_TDMA_SPI_DOWNLINK_CSN_PIN;
+    phys->rx_sm = BOARD_TDMA_SPI_SLAVE_SM;
+    phys->rx_pin = BOARD_TDMA_SPI_UPLINK_RX_PIN;
+    phys->rx_sck_pin = BOARD_TDMA_SPI_UPLINK_SCK_PIN;
+    phys->rx_csn_pin = BOARD_TDMA_SPI_UPLINK_CSN_PIN;
+
+    tdma_pio_spi_tx_byte_program_init(BOARD_TDMA_SPI_PIO,
+                                      phys->tx_sm,
+                                      s_tdma_pio_spi_tx_offset,
+                                      phys->tx_pin,
+                                      phys->tx_sck_pin,
+                                      phys->baud_hz);
+    tdma_pio_spi_rx_byte_program_init(BOARD_TDMA_SPI_PIO,
+                                      phys->rx_sm,
+                                      s_tdma_pio_spi_rx_offset,
+                                      phys->rx_pin,
+                                      phys->rx_csn_pin,
+                                      phys->rx_sck_pin);
+    gpio_init(phys->tx_csn_pin);
+    gpio_set_dir(phys->tx_csn_pin, GPIO_OUT);
+    gpio_put(phys->tx_csn_pin, true);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->tx_sm, true);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    pio_sm_restart(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, true);
+}
+
+static uint32_t tdma_pio_spi_phys_flight_tail_bytes(
+    const tdma_ring_runtime_config_t *config)
+{
+    if (config == NULL || config->node_count < 2u || config->baud_hz == 0u) {
+        return 0u;
+    }
+    const uint64_t loop_bits =
+        ((uint64_t)config->loop_delay_ns * config->baud_hz +
+         999999999ull) /
+        1000000000ull;
+    const uint32_t loop_bytes = (uint32_t)((loop_bits + 7ull) / 8ull);
+    /* One elastic byte per follower, plus two guard bytes for the returned
+     * CS/SCK phase and the final DATA propagation. */
+    return (config->node_count - 1u) + loop_bytes + 2u;
+}
+
+void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
+{
+    tdma_pio_spi_phys_event_stop(phys);
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (s_tdma_event_dma_active) return;
+#endif
+    const PIO control_pio = tdma_pio_spi_phys_control_pio(phys);
+    const PIO data_pio = tdma_pio_spi_phys_data_pio(phys);
+    const PIO capture_pio = tdma_pio_spi_phys_capture_pio(phys);
+    const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
+    const uint control_sm = tdma_pio_spi_phys_control_sm(phys);
+    const uint data_sm = tdma_pio_spi_phys_data_sm(phys);
+    const uint capture_sm = tdma_pio_spi_phys_capture_sm(phys);
+    const uint latch_sm = tdma_pio_spi_phys_latch_sm(phys);
+    const bool has_rtt_sm = phys->role == TDMA_PIO_SPI_ROLE_MASTER &&
+        s_tdma_pio_spi_program_persona ==
+            TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN;
+    /* A follower shares RX PIO with the legacy maintenance persona and does
+     * not use every flight SM (notably the reserved control/evidence and the
+     * origin RTT SM).  Clear the complete flight SM banks at the persona
+     * boundary; disabling only role-selected SMs leaves a stale enabled bit
+     * and makes the next flight->maintenance selection report BUSY. */
+    if (tdma_pio_spi_phys_is_flight_persona()) {
+        for (uint sm = 0u; sm < 4u; ++sm) {
+            pio_sm_set_enabled(phys->flight_resources.tx_pio, sm, false);
+            pio_sm_clear_fifos(phys->flight_resources.tx_pio, sm);
+            pio_sm_restart(phys->flight_resources.tx_pio, sm);
+            pio_sm_set_enabled(phys->flight_resources.rx_pio, sm, false);
+            pio_sm_clear_fifos(phys->flight_resources.rx_pio, sm);
+            pio_sm_restart(phys->flight_resources.rx_pio, sm);
+        }
+    } else {
+        pio_sm_set_enabled(control_pio, control_sm, false);
+        pio_sm_set_enabled(data_pio, data_sm, false);
+        pio_sm_set_enabled(capture_pio, capture_sm, false);
+        pio_sm_set_enabled(evidence_pio, latch_sm, false);
+        pio_sm_clear_fifos(control_pio, control_sm);
+        pio_sm_clear_fifos(data_pio, data_sm);
+        pio_sm_clear_fifos(capture_pio, capture_sm);
+        pio_sm_clear_fifos(evidence_pio, latch_sm);
+        pio_sm_restart(control_pio, control_sm);
+        pio_sm_restart(data_pio, data_sm);
+        pio_sm_restart(capture_pio, capture_sm);
+        pio_sm_restart(evidence_pio, latch_sm);
+    }
+    if (has_rtt_sm) {
+        const uint rtt_sm = tdma_pio_spi_phys_rtt_sm(phys);
+        pio_sm_clear_fifos(evidence_pio, rtt_sm);
+        pio_sm_restart(evidence_pio, rtt_sm);
+    }
+}
+
+/* Disabling an SM does not retire pending DMA FIFO accesses. Keep FIFO/PC
+ * reset separate: a failed abort must retain both the pool and FIFO state. */
+void tdma_pio_spi_phys_pause_sm_pair(tdma_pio_spi_phys_t *phys)
+{
+    if (tdma_pio_spi_phys_is_flight_persona()) {
+        for (uint sm = 0u; sm < 4u; ++sm) {
+            pio_sm_set_enabled(phys->flight_resources.tx_pio, sm, false);
+            pio_sm_set_enabled(phys->flight_resources.rx_pio, sm, false);
+        }
+    } else {
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM, false);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, false);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM, false);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_RTT_SM, false);
+    }
+}
+
+void tdma_pio_spi_phys_disable_dma_mask(uint32_t mask)
+{
+    for (uint channel = 0u; channel < NUM_DMA_CHANNELS; ++channel) {
+        if ((mask & (1u << channel)) != 0u) {
+            hw_clear_bits(&dma_hw->ch[channel].ctrl_trig,
+                          DMA_CH0_CTRL_TRIG_EN_BITS);
+        }
+    }
+}
+
+bool tdma_pio_spi_phys_stop_dma_level(uint32_t mask, uint64_t deadline)
+{
+    if (mask == 0u) return true;
+    /* Re-clear EN after upstream quiescence: an in-flight AL3 CTRL write
+     * can undo the initial disable. RP2350-E5 also requires EN clear before
+     * aborting a channel with downstream triggers still in flight. */
+    tdma_pio_spi_phys_disable_dma_mask(mask);
+    dma_hw->abort = mask;
+    for (;;) {
+        uint32_t pending = dma_hw->abort & mask;
+        for (uint channel = 0u; channel < NUM_DMA_CHANNELS; ++channel) {
+            if ((mask & (1u << channel)) != 0u &&
+                dma_channel_is_busy(channel)) pending |= 1u << channel;
+        }
+        if (pending == 0u) return true;
+        if (tdma_pio_spi_phys_now_us() >= deadline) return false;
+    }
+}
+
+/* Owner-supplied masks name dependency levels, not completion samples.
+ * The follower has no executor level; origin integration can insert its
+ * executor between the loader and both finite DATA children. Every level
+ * shares one deadline, and failure authorizes no pool/FIFO/program reuse. */
+bool tdma_pio_spi_phys_stop_dma_chain(uint32_t loader_mask,
+                                            uint32_t executor_mask,
+                                            uint32_t children_mask,
+                                            uint64_t deadline)
+{
+    const uint32_t all = loader_mask | executor_mask | children_mask;
+    tdma_pio_spi_phys_disable_dma_mask(all);
+    if (!tdma_pio_spi_phys_stop_dma_level(loader_mask, deadline) ||
+        !tdma_pio_spi_phys_stop_dma_level(executor_mask, deadline) ||
+        !tdma_pio_spi_phys_stop_dma_level(children_mask, deadline)) {
+        tdma_pio_spi_phys_disable_dma_mask(all);
+        return false;
+    }
+    __dmb();
+    return true;
+}
+
+bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) return false;
+    tdma_priority_stop();
+    /* Cancel the live sample even if a later hardware STOP fails. Historical
+     * evidence stays readable; no copied record grants a running lease. */
+    if (phys->flight_origin_live.active != 0u) {
+        const uint32_t live_guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_RELAXED);
+        __atomic_store_n(&phys->flight_origin_record_guard, live_guard + 1u, __ATOMIC_RELEASE);
+        __dmb();
+        phys->flight_origin_live.active = 0u;
+        __atomic_store_n(&phys->flight_origin_record_guard, live_guard + 2u, __ATOMIC_RELEASE);
+    }
+    const bool builder_retired = tdma_origin_build_job_cancel(&s_tdma_origin_build_job);
+    const bool completed_origin = phys->flight_origin_workspace_owned &&
+        phys->flight_origin_prepare.stage == TDMA_ORIGIN_PREPARE_COMPLETE;
+    const uint32_t loader_mask = s_tdma_pio_spi_command_dma_channel < 0 ? 0u :
+        1u << (uint)s_tdma_pio_spi_command_dma_channel;
+    const uint32_t executor_mask = s_tdma_pio_spi_executor_dma_channel < 0 ? 0u :
+        1u << (uint)s_tdma_pio_spi_executor_dma_channel;
+    const uint32_t children_mask =
+        (s_tdma_pio_spi_tx_dma_channel < 0 ? 0u :
+            1u << (uint)s_tdma_pio_spi_tx_dma_channel) |
+        (s_tdma_pio_spi_rx_dma_channel < 0 ? 0u :
+            1u << (uint)s_tdma_pio_spi_rx_dma_channel);
+    const uint64_t deadline = tdma_pio_spi_phys_now_us() +
+                              TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US;
+    tdma_pio_spi_phys_pause_sm_pair(phys);
+    if (!tdma_pio_spi_phys_stop_dma_chain(loader_mask, executor_mask, children_mask,
+                                         deadline)) goto failed;
+    if (!builder_retired) goto failed;
+    tdma_pio_spi_phys_pause_sm_pair(phys);
+    __dmb();
+    if (completed_origin) {
+        const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_RELAXED);
+        __atomic_store_n(&phys->flight_origin_record_guard, guard + 1u, __ATOMIC_RELEASE);
+        __dmb();
+        __atomic_store_n(&phys->flight_origin_record_published_version,
+            s_tdma_pio_spi_workspace.origin.state.record_published_version, __ATOMIC_RELAXED);
+        __atomic_store_n(&phys->flight_origin_record_fault,
+            s_tdma_pio_spi_workspace.origin.state.fault, __ATOMIC_RELAXED);
+        __atomic_store_n(&phys->flight_origin_record_frozen, true, __ATOMIC_RELAXED);
+        __atomic_store_n(&phys->flight_origin_record_guard, guard + 2u, __ATOMIC_RELEASE);
+    }
+    phys->flight_overlay_dma_active = false;
+    phys->rx_capture_active = false;
+    phys->flight_origin_workspace_owned = false;
+    phys->flight_origin_rx_observation_ready = false;
+    return true;
+failed:
+    tdma_pio_spi_phys_set_line_drivers(false);
+    tdma_pio_spi_phys_pause_sm_pair(phys);
+    /* A pending write can still reach a child after failure. Leave memory,
+     * FIFOs and IRQs intact and retain the ownership latch until STOP retry. */
+    phys->armed = false;
+    phys->flight_overlay_dma_active = true;
+    phys->snapshot.armed = 0u;
+    phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY;
+    return false;
+}
+
+static void tdma_pio_spi_phys_release_flight_resources(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) {
+        return;
+    }
+    tdma_pio_spi_phys_event_stop(phys);
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (s_tdma_event_dma_active) return;
+#endif
+    if (!tdma_pio_spi_phys_stop_command_dma(phys)) return;
+    /* Release the persona that is actually selected.  Hard-coding ORIGIN
+     * leaves follower/process-follower programs resident and makes the next
+     * maintenance/coarse transition fail with a false PIO ownership clash. */
+    tdma_pio_spi_programs_release_resources(
+        &s_tdma_pio_spi_program_manager,
+        phys,
+        s_tdma_pio_spi_program_persona);
+}
+
+static void tdma_pio_spi_phys_enable_sm_pair(tdma_pio_spi_phys_t *phys)
+{
+    pio_sm_set_enabled(tdma_pio_spi_phys_control_pio(phys),
+                       tdma_pio_spi_phys_control_sm(phys), true);
+    pio_sm_set_enabled(tdma_pio_spi_phys_data_pio(phys),
+                       tdma_pio_spi_phys_data_sm(phys), true);
+    pio_sm_set_enabled(tdma_pio_spi_phys_capture_pio(phys),
+                       tdma_pio_spi_phys_capture_sm(phys), true);
+    pio_sm_set_enabled(tdma_pio_spi_phys_evidence_pio(phys),
+                       tdma_pio_spi_phys_latch_sm(phys), true);
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE && !tdma_pio_spi_phys_event_selected(phys)) {
+        pio_sm_set_enabled(tdma_pio_spi_phys_tx_latch_pio(phys),
+                           tdma_pio_spi_phys_tx_latch_sm(phys), true);
+    }
+    if (phys->role == TDMA_PIO_SPI_ROLE_MASTER &&
+        s_tdma_pio_spi_program_persona ==
+            TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN) {
+        pio_sm_set_enabled(tdma_pio_spi_phys_evidence_pio(phys),
+                           tdma_pio_spi_phys_rtt_sm(phys), true);
+    }
+}
+
+bool tdma_pio_spi_phys_clock_latch_rearm(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL ||
+        (s_tdma_pio_spi_program_persona !=
+             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN &&
+         s_tdma_pio_spi_program_persona !=
+             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER &&
+         s_tdma_pio_spi_program_persona !=
+             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER)) {
+        return false;
+    }
+    const uint32_t clk_hz = clock_get_hz(clk_sys);
+    if (clk_hz == 0u) {
+        return false;
+    }
+    const uint32_t resolution_ns = tdma_pio_spi_phys_latch_resolution_ns(clk_hz);
+    if (resolution_ns == 0u) {
+        return false;
+    }
+
+    const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
+    const uint sm = tdma_pio_spi_phys_latch_sm(phys);
+    pio_sm_set_enabled(evidence_pio, sm, false);
+    pio_sm_clear_fifos(evidence_pio, sm);
+    pio_sm_restart(evidence_pio, sm);
+    /* The clock-latch program consumes X only. Seed it directly while the
+     * SM is disabled; no FIFO transfer or blocking PULL is needed. */
+    pio_sm_exec(evidence_pio, sm, pio_encode_mov_not(pio_x, pio_null));
+    pio_sm_exec(evidence_pio,
+                sm,
+                pio_encode_jmp(tdma_pio_spi_phys_latch_offset(phys)));
+    phys->flight_clock_latch_epoch_ns = vdc_timestamp_clock_now_ns();
+    phys->flight_clock_latch_resolution_ns = resolution_ns;
+    phys->snapshot.clock_latch_resolution_ns = resolution_ns;
+    phys->flight_clock_latch_armed = true;
+    pio_sm_set_enabled(evidence_pio, sm, true);
+    return true;
+}
+
+static bool tdma_pio_spi_phys_tx_clock_latch_rearm(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (tdma_pio_spi_phys_event_selected(phys)) return true;
+    if (phys == NULL || phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
+        !tdma_pio_spi_phys_is_flight_persona()) {
+        return false;
+    }
+    const uint32_t clk_hz = clock_get_hz(clk_sys);
+    if (clk_hz == 0u) {
+        return false;
+    }
+    const uint32_t resolution_ns = tdma_pio_spi_phys_latch_resolution_ns(clk_hz);
+    if (resolution_ns == 0u) {
+        return false;
+    }
+    const PIO pio = tdma_pio_spi_phys_tx_latch_pio(phys);
+    const uint sm = tdma_pio_spi_phys_tx_latch_sm(phys);
+    pio_sm_set_enabled(pio, sm, false);
+    pio_sm_clear_fifos(pio, sm);
+    pio_sm_restart(pio, sm);
+    /* Same X-only clock-latch program as RX, on the owner's TX endpoint. */
+    pio_sm_exec(pio, sm, pio_encode_mov_not(pio_x, pio_null));
+    pio_sm_exec(pio, sm,
+                pio_encode_jmp(s_tdma_pio_spi_flight_clock_latch_offset));
+    phys->flight_tx_clock_latch_epoch_ns = vdc_timestamp_clock_now_ns();
+    phys->flight_tx_clock_latch_resolution_ns = resolution_ns;
+    phys->flight_tx_clock_latch_armed = true;
+    pio_sm_set_enabled(pio, sm, true);
+    return true;
+}
+
+static bool tdma_pio_spi_phys_capture_owns_clock_latch(
+    const tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) {
+        return false;
+    }
+    switch (phys->flight_sck_waveform_capture_state) {
+    case TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED:
+    case TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED:
+    case TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED:
+    case TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
+    tdma_pio_spi_phys_t *phys,
+    uint64_t *timestamp_ns)
+{
+    /* The normal origin also uses this helper for TX completion. Only the
+     * slave's RX extraction belongs to the RX_LATCH timing parent. */
+    const bool rx_probe = phys != NULL && phys->role == TDMA_PIO_SPI_ROLE_SLAVE;
+    const uint64_t read_start = rx_probe ? tdma_service_timing_now() : 0ull;
+    if (timestamp_ns != NULL) {
+        *timestamp_ns = 0ull;
+    }
+    /* The capture lifecycle owns this SM from the first request until the
+     * immutable SCK FIFO has been copied and the resident latch restored.
+     * Treating capture data as a normal edge latch would consume its FIFO
+     * word and reinstall the clock-latch persona before capture completes. */
+    if (phys == NULL || timestamp_ns == NULL) {
+        if (rx_probe) tdma_service_timing_record(TDMA_TIMING_RX_LATCH_READ, read_start);
+        return false;
+    }
+    const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
+    const uint latch_sm = tdma_pio_spi_phys_latch_sm(phys);
+    if (
+        tdma_pio_spi_phys_capture_owns_clock_latch(phys) ||
+        !phys->flight_clock_latch_armed ||
+        pio_sm_is_rx_fifo_empty(evidence_pio, latch_sm)) {
+        phys->snapshot.clock_latch_miss_count++;
+        if (rx_probe) tdma_service_timing_record(TDMA_TIMING_RX_LATCH_READ, read_start);
+        return false;
+    }
+
+    const uint32_t remaining = pio_sm_get(evidence_pio, latch_sm);
+    const uint64_t elapsed_count = (uint64_t)UINT32_MAX - remaining;
+    const uint64_t elapsed_ns = elapsed_count *
+        (uint64_t)phys->flight_clock_latch_resolution_ns;
+    if (rx_probe) tdma_service_timing_record(TDMA_TIMING_RX_LATCH_READ, read_start);
+    if (UINT64_MAX - phys->flight_clock_latch_epoch_ns < elapsed_ns) {
+        phys->snapshot.clock_latch_miss_count++;
+        const uint64_t rearm_start = rx_probe ? tdma_service_timing_now() : 0ull;
+        (void)tdma_pio_spi_phys_clock_latch_rearm(phys);
+        if (rx_probe) tdma_service_timing_record(TDMA_TIMING_RX_LATCH_REARM, rearm_start);
+        return false;
+    }
+    *timestamp_ns = phys->flight_clock_latch_epoch_ns + elapsed_ns;
+    phys->snapshot.clock_latch_count++;
+    const uint64_t rearm_start = rx_probe ? tdma_service_timing_now() : 0ull;
+    const bool rearmed = tdma_pio_spi_phys_clock_latch_rearm(phys);
+    if (rx_probe) tdma_service_timing_record(TDMA_TIMING_RX_LATCH_REARM, rearm_start);
+    return rearmed;
+}
+
+static bool tdma_pio_spi_phys_tx_clock_latch_read_and_rearm(
+    tdma_pio_spi_phys_t *phys,
+    uint64_t *timestamp_ns)
+{
+    const uint64_t read_start = tdma_service_timing_now();
+    if (timestamp_ns != NULL) {
+        *timestamp_ns = 0ull;
+    }
+    if (tdma_pio_spi_phys_event_selected(phys)) {
+        /* Paired observer FIFO words cannot be consumed by the legacy latch.
+         * Its raw diagnostics are not yet eligible timestamp evidence. */
+        tdma_service_timing_record(TDMA_TIMING_TX_LATCH_READ, read_start);
+        return false;
+    }
+    if (phys == NULL || timestamp_ns == NULL ||
+        phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
+        !phys->flight_tx_clock_latch_armed) {
+        tdma_service_timing_record(TDMA_TIMING_TX_LATCH_READ, read_start);
+        return false;
+    }
+    const PIO pio = tdma_pio_spi_phys_tx_latch_pio(phys);
+    const uint sm = tdma_pio_spi_phys_tx_latch_sm(phys);
+    if (pio_sm_is_rx_fifo_empty(pio, sm)) {
+        phys->snapshot.clock_latch_miss_count++;
+        tdma_service_timing_record(TDMA_TIMING_TX_LATCH_READ, read_start);
+        return false;
+    }
+    const uint32_t remaining = pio_sm_get(pio, sm);
+    const uint64_t elapsed_count = (uint64_t)UINT32_MAX - remaining;
+    const uint64_t elapsed_ns = elapsed_count *
+        (uint64_t)phys->flight_tx_clock_latch_resolution_ns;
+    tdma_service_timing_record(TDMA_TIMING_TX_LATCH_READ, read_start);
+    if (UINT64_MAX - phys->flight_tx_clock_latch_epoch_ns < elapsed_ns) {
+        phys->snapshot.clock_latch_miss_count++;
+        const uint64_t rearm_start = tdma_service_timing_now();
+        (void)tdma_pio_spi_phys_tx_clock_latch_rearm(phys);
+        tdma_service_timing_record(TDMA_TIMING_TX_LATCH_REARM, rearm_start);
+        return false;
+    }
+    *timestamp_ns = phys->flight_tx_clock_latch_epoch_ns + elapsed_ns;
+    phys->snapshot.clock_latch_count++;
+    const uint64_t rearm_start = tdma_service_timing_now();
+    const bool rearmed = tdma_pio_spi_phys_tx_clock_latch_rearm(phys);
+    tdma_service_timing_record(TDMA_TIMING_TX_LATCH_REARM, rearm_start);
+    return rearmed;
+}
+
+bool tdma_pio_spi_phys_take_local_tx_edge(void *context,
+                                          uint64_t *tx_timestamp_ns)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (tx_timestamp_ns != NULL) {
+        *tx_timestamp_ns = 0ull;
+    }
+    if (phys == NULL || tx_timestamp_ns == NULL || !phys->armed ||
+        phys->role != TDMA_PIO_SPI_ROLE_SLAVE) {
+        return false;
+    }
+    return tdma_pio_spi_phys_tx_clock_latch_read_and_rearm(
+        phys, tx_timestamp_ns);
+}
+
+/* The paired event observer replaces the legacy follower TX-latch SM in the
+ * process-follower persona. Convert its exact, sequence-bound PIO counter into
+ * the same TIMER1 nanosecond domain used by the ordinary latch. The event
+ * record remains diagnostic on its own; only this physical owner bridge can
+ * attach it to the already CRC-validated transport sequence. */
+static bool tdma_pio_spi_phys_take_event_tx_edge_ex(
+    tdma_pio_spi_phys_t *phys,
+    uint32_t expected_sequence,
+    uint32_t expected_identity_crc32,
+    tdma_ring_local_tx_edge_evidence_t *evidence)
+{
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    tdma_pio_spi_event_live_snapshot_t live;
+    tdma_pio_spi_event_exact_t exact;
+    if (phys == NULL || evidence == NULL || expected_sequence == 0u ||
+        expected_identity_crc32 == 0u ||
+        !tdma_pio_spi_phys_event_get_live_snapshot(phys, &live) ||
+        (live.flags & (TDMA_EVENT_LIVE_ACTIVE |
+                       TDMA_EVENT_LIVE_ANCHOR_VALID)) !=
+            (TDMA_EVENT_LIVE_ACTIVE | TDMA_EVENT_LIVE_ANCHOR_VALID) ||
+        live.arm_epoch == 0u || live.record.epoch == 0u || live.tick_hz == 0u ||
+        !vdc_timestamp_clock_is_current(live.tick_hz)) {
+        return false;
+    }
+    const tdma_event_exact_result_t exact_result =
+        tdma_pio_spi_phys_event_copy_history_exact(
+            phys, live.arm_epoch, live.record.epoch, expected_sequence,
+            &exact);
+    if (exact_result != TDMA_EVENT_EXACT_OK ||
+        exact.record.sequence != expected_sequence ||
+        exact.record.tx_elapsed_cycles == 0u ||
+        UINT64_MAX - live.timer1_enable_after < exact.record.tx_elapsed_cycles) {
+        return false;
+    }
+    const uint64_t tx_ticks = live.timer1_enable_after +
+        exact.record.tx_elapsed_cycles;
+    const uint64_t tx_ns = vdc_timestamp_clock_ticks_to_ns(tx_ticks);
+    if (tx_ns == 0u) {
+        return false;
+    }
+    phys->flight_tx_edge_capture_generation++;
+    evidence->timestamp_ns = tx_ns;
+    evidence->sequence = expected_sequence;
+    evidence->identity_crc32 = expected_identity_crc32;
+    evidence->capture_generation = phys->flight_tx_edge_capture_generation;
+    evidence->flags = TDMA_RING_LOCAL_TX_EDGE_FLAG_TIMESTAMP_VALID |
+                      TDMA_RING_LOCAL_TX_EDGE_FLAG_SEQUENCE_BOUND |
+                      TDMA_RING_LOCAL_TX_EDGE_FLAG_IDENTITY_BOUND;
+    return true;
+#else
+    (void)phys;
+    (void)expected_sequence;
+    (void)expected_identity_crc32;
+    (void)evidence;
+    return false;
+#endif
+}
+
+bool tdma_pio_spi_phys_take_local_tx_edge_ex(
+    void *context,
+    uint32_t expected_sequence,
+    uint32_t expected_identity_crc32,
+    tdma_ring_local_tx_edge_evidence_t *evidence)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (evidence != NULL) {
+        memset(evidence, 0, sizeof(*evidence));
+    }
+    if (phys != NULL && evidence != NULL &&
+        tdma_pio_spi_phys_event_selected(phys)) {
+        return tdma_pio_spi_phys_take_event_tx_edge_ex(
+            phys, expected_sequence, expected_identity_crc32, evidence);
+    }
+    if (phys == NULL || evidence == NULL ||
+        !tdma_pio_spi_phys_take_local_tx_edge(phys,
+                                               &evidence->timestamp_ns)) {
+        return false;
+    }
+    phys->flight_tx_edge_capture_generation++;
+    evidence->sequence = expected_sequence;
+    evidence->identity_crc32 = expected_identity_crc32;
+    evidence->capture_generation = phys->flight_tx_edge_capture_generation;
+    evidence->flags = TDMA_RING_LOCAL_TX_EDGE_FLAG_TIMESTAMP_VALID;
+    if (expected_sequence != 0u) {
+        evidence->flags |= TDMA_RING_LOCAL_TX_EDGE_FLAG_SEQUENCE_BOUND;
+    }
+    if (expected_identity_crc32 != 0u) {
+        evidence->flags |= TDMA_RING_LOCAL_TX_EDGE_FLAG_IDENTITY_BOUND;
+    }
+    return true;
+}
+
+bool tdma_pio_spi_phys_restore_clock_latch(
+    tdma_pio_spi_phys_t *phys,
+    bool rearm)
+{
+    if (phys == NULL) return false;
+    const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
+    const uint sm = tdma_pio_spi_phys_latch_sm(phys);
+    pio_sm_set_enabled(evidence_pio, sm, false);
+    pio_sm_clear_fifos(evidence_pio, sm);
+    pio_sm_restart(evidence_pio, sm);
+    for (uint32_t index = 0u; index < 4u; index++) {
+        evidence_pio->instr_mem[
+            tdma_pio_spi_phys_latch_offset(phys) + index] =
+                phys->flight_sck_waveform_saved_instructions[index];
+    }
+    tdma_pio_spi_flight_clock_latch_program_init(
+        evidence_pio, sm,
+        tdma_pio_spi_phys_latch_offset(phys),
+        phys->role == TDMA_PIO_SPI_ROLE_MASTER
+            ? phys->tx_csn_pin
+            : phys->rx_csn_pin);
+    phys->flight_sck_waveform_capture_deadline_us = 0ull;
+    phys->flight_sck_waveform_capture_state =
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE;
+    phys->flight_clock_latch_armed = false;
+    return !rearm || tdma_pio_spi_phys_clock_latch_rearm(phys);
+}
+
+/* Capture-only asynchronous restore. Reinstalling the resident latch persona
+ * touches PIO control registers and four instruction words; doing it as one
+ * call can exceed the calibration phase WCET. */
+bool tdma_pio_spi_phys_capture_restore_step(
+    tdma_pio_spi_phys_t *phys, bool *complete)
+{
+    if (phys == NULL || complete == NULL) return false;
+    *complete = false;
+    const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
+    const uint sm = tdma_pio_spi_phys_latch_sm(phys);
+    const uint offset = tdma_pio_spi_phys_latch_offset(phys);
+    switch (phys->flight_normal_capture_restore_stage) {
+    case 0u:
+        pio_sm_set_enabled(evidence_pio, sm, false);
+        pio_sm_clear_fifos(evidence_pio, sm);
+        pio_sm_restart(evidence_pio, sm);
+        phys->flight_normal_capture_restore_stage = 1u;
+        return true;
+    case 1u:
+    case 2u:
+    case 3u:
+    case 4u: {
+        const uint32_t index =
+            phys->flight_normal_capture_restore_stage - 1u;
+        evidence_pio->instr_mem[offset + index] =
+            phys->flight_sck_waveform_saved_instructions[index];
+        phys->flight_normal_capture_restore_stage++;
+        return true;
+    }
+    case 5u:
+        tdma_pio_spi_flight_clock_latch_program_init(
+            evidence_pio, sm, offset,
+            phys->role == TDMA_PIO_SPI_ROLE_MASTER
+                ? phys->tx_csn_pin : phys->rx_csn_pin);
+        phys->flight_sck_waveform_capture_deadline_us = 0ull;
+        phys->flight_sck_waveform_capture_state =
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE;
+        phys->flight_clock_latch_armed = false;
+        phys->flight_normal_capture_restore_stage = 6u;
+        *complete = true;
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool tdma_pio_spi_phys_begin_ring_waveform_capture(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL || !phys->armed || !phys->rx_capture_active ||
+        (s_tdma_pio_spi_program_persona !=
+             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN &&
+         s_tdma_pio_spi_program_persona !=
+             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER &&
+         s_tdma_pio_spi_program_persona !=
+             TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER)) {
+        return false;
+    }
+    if (phys->flight_sck_waveform_capture_state ==
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED ||
+        phys->flight_sck_waveform_capture_state ==
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED ||
+        phys->flight_sck_waveform_capture_state ==
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY) {
+        if (!tdma_pio_spi_phys_restore_clock_latch(phys, false)) {
+            return false;
+        }
+    }
+    phys->flight_sck_waveform_capture_state =
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED;
+    phys->flight_normal_capture_copy_stage = 0u;
+    phys->flight_normal_capture_sck_cursor = 0u;
+    phys->flight_normal_capture_restore_stage = 0u;
+    phys->flight_normal_capture_rx_produced = 0u;
+    phys->flight_normal_capture_rx_start = 0u;
+    phys->flight_normal_capture_rx_count = 0u;
+    phys->flight_normal_capture_rx_cursor = 0u;
+    return true;
+}
+
+tdma_pio_spi_ring_waveform_capture_state_t
+tdma_pio_spi_phys_service_ring_waveform_capture(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) return TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
+    const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
+    const uint sm = tdma_pio_spi_phys_latch_sm(phys);
+    const uint offset = tdma_pio_spi_phys_latch_offset(phys);
+    if (phys->flight_sck_waveform_capture_state ==
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_REQUESTED) {
+        pio_sm_set_enabled(evidence_pio, sm, false);
+        pio_sm_clear_fifos(evidence_pio, sm);
+        pio_sm_restart(evidence_pio, sm);
+        for (uint32_t index = 0u; index < 4u; index++) {
+            phys->flight_sck_waveform_saved_instructions[index] =
+                evidence_pio->instr_mem[offset + index];
+        }
+
+        /* The product persona already occupies all 32 PIO instructions.
+         * Reuse only the capture SM's four-instruction latch region for this
+         * bounded job. Persona patch and SM configuration are deliberately
+         * separate core1 beats so neither can exceed the calibration phase
+         * WCET or borrow a later load's budget. */
+        evidence_pio->instr_mem[offset + 0u] =
+            (uint16_t)pio_encode_wait_gpio(false, phys->rx_csn_pin);
+        evidence_pio->instr_mem[offset + 1u] =
+            (uint16_t)pio_encode_in(pio_pins, 1u);
+        evidence_pio->instr_mem[offset + 2u] =
+            (uint16_t)pio_encode_nop();
+        evidence_pio->instr_mem[offset + 3u] =
+            (uint16_t)pio_encode_nop();
+        phys->flight_clock_latch_armed = false;
+        phys->flight_sck_waveform_capture_state =
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED;
+        return phys->flight_sck_waveform_capture_state;
+    }
+    if (phys->flight_sck_waveform_capture_state ==
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED) {
+        pio_sm_config config = pio_get_default_sm_config();
+        /* Execute WAIT once, then hardware-wrap the single 4 ns IN. */
+        sm_config_set_wrap(&config, offset + 1u, offset + 1u);
+        sm_config_set_in_pins(&config, phys->rx_sck_pin);
+        sm_config_set_in_shift(&config, true, true, 32u);
+        sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
+        sm_config_set_clkdiv(&config, 1.0f);
+        pio_sm_init(evidence_pio, sm, offset, &config);
+        phys->flight_sck_waveform_capture_deadline_us =
+            tdma_pio_spi_phys_now_us() +
+            TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_TIMEOUT_US;
+        phys->flight_sck_waveform_capture_state =
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED;
+        pio_sm_set_enabled(evidence_pio, sm, true);
+        return phys->flight_sck_waveform_capture_state;
+    }
+    if (phys->flight_sck_waveform_capture_state !=
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED) {
+        return phys->flight_sck_waveform_capture_state;
+    }
+    if (pio_sm_get_rx_fifo_level(evidence_pio, sm) >=
+        TDMA_PIO_SPI_FLIGHT_SCK_CAPTURE_WORDS) {
+        phys->flight_sck_waveform_capture_state =
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY;
+        return phys->flight_sck_waveform_capture_state;
+    }
+    if (tdma_pio_spi_phys_now_us() >=
+        phys->flight_sck_waveform_capture_deadline_us) {
+        (void)tdma_pio_spi_phys_restore_clock_latch(phys, true);
+        phys->flight_sck_waveform_capture_state =
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_FAILED;
+    }
+    return phys->flight_sck_waveform_capture_state;
+}
+
+void tdma_pio_spi_phys_flight_origin_recover(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) {
+        return;
+    }
+    if (s_tdma_pio_spi_tx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
+    }
+    const PIO control_pio = tdma_pio_spi_phys_control_pio(phys);
+    const PIO data_pio = tdma_pio_spi_phys_data_pio(phys);
+    const PIO capture_pio = tdma_pio_spi_phys_capture_pio(phys);
+    const PIO evidence_pio = tdma_pio_spi_phys_evidence_pio(phys);
+    const uint control_sm = tdma_pio_spi_phys_control_sm(phys);
+    const uint data_sm = tdma_pio_spi_phys_data_sm(phys);
+    const uint capture_sm = tdma_pio_spi_phys_capture_sm(phys);
+    const uint latch_sm = tdma_pio_spi_phys_latch_sm(phys);
+    const uint rtt_sm = tdma_pio_spi_phys_rtt_sm(phys);
+    pio_sm_set_enabled(control_pio, control_sm, false);
+    pio_sm_set_enabled(data_pio, data_sm, false);
+    pio_sm_set_enabled(capture_pio, capture_sm, false);
+    pio_sm_set_enabled(evidence_pio, latch_sm, false);
+    pio_sm_set_enabled(evidence_pio, rtt_sm, false);
+    pio_sm_clear_fifos(control_pio, control_sm);
+    pio_sm_clear_fifos(data_pio, data_sm);
+    pio_sm_clear_fifos(capture_pio, capture_sm);
+    pio_sm_clear_fifos(evidence_pio, latch_sm);
+    pio_sm_clear_fifos(evidence_pio, rtt_sm);
+    pio_sm_restart(control_pio, control_sm);
+    pio_sm_restart(data_pio, data_sm);
+    pio_sm_restart(capture_pio, capture_sm);
+    pio_sm_restart(evidence_pio, latch_sm);
+    pio_sm_restart(evidence_pio, rtt_sm);
+    pio_sm_exec(control_pio, control_sm,
+                pio_encode_jmp(s_tdma_pio_spi_flight_origin_clock_offset));
+    pio_sm_exec(data_pio, data_sm,
+                pio_encode_jmp(s_tdma_pio_spi_flight_origin_data_offset));
+    pio_sm_exec(
+        capture_pio, capture_sm,
+        pio_encode_jmp(s_tdma_pio_spi_flight_origin_data_capture_offset));
+    pio_sm_exec(evidence_pio, rtt_sm,
+                pio_encode_jmp(s_tdma_pio_spi_flight_origin_rtt_offset));
+    /* Recovery preserves the flight contract: core1 never drives a control
+     * edge. Restore {CS=1,SCK=0} through the origin control SM before it is
+     * re-enabled at its blocking PULL. */
+    pio_sm_set_pins_with_mask64(
+        control_pio,
+        control_sm,
+        1ull << phys->tx_csn_pin,
+        (1ull << phys->tx_sck_pin) | (1ull << phys->tx_csn_pin));
+    pio_interrupt_clear(control_pio, 1u);
+    control_pio->fdebug = tdma_pio_spi_phys_txstall_mask(control_sm);
+    pio_sm_set_enabled(data_pio, data_sm, true);
+    pio_sm_set_enabled(capture_pio, capture_sm, true);
+    pio_sm_set_enabled(evidence_pio, rtt_sm, true);
+    (void)tdma_pio_spi_phys_clock_latch_rearm(phys);
+    pio_sm_set_enabled(control_pio, control_sm, true);
+    phys->snapshot.origin_recovery_count++;
+}
+
+static bool tdma_pio_spi_phys_configure_flight(
+    tdma_pio_spi_phys_t *phys,
+    const tdma_ring_runtime_config_t *config)
+{
+    if (phys == NULL || config == NULL) {
+        return false;
+    }
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (s_tdma_event_dma_active) {
+        tdma_pio_spi_phys_event_stop(phys);
+        if (s_tdma_event_dma_active) return false;
+    }
+#endif
+    phys->flight_resources = tdma_state_machine_resource_contract();
+    if (!tdma_state_machine_rx_endpoint_contract_valid(
+            &phys->flight_resources.rx_endpoints)) {
+        return false;
+    }
+    phys->tx_pin = phys->flight_resources.rx_data_out_pin;
+    phys->tx_sck_pin = phys->flight_resources.tx_clk_out_pin;
+    phys->tx_csn_pin = phys->flight_resources.tx_sync_out_pin;
+    phys->rx_pin = phys->flight_resources.tx_data_in_pin;
+    phys->rx_sck_pin = phys->flight_resources.rx_clk_in_pin;
+    phys->rx_csn_pin = phys->flight_resources.rx_sync_in_pin;
+
+    if (phys->role == TDMA_PIO_SPI_ROLE_MASTER) {
+        /* Origin control and returned-DATA capture live on TX PIO; reverse
+         * DATA output is isolated on RX PIO. */
+        phys->rx_sm = phys->flight_resources.tx_data_capture_sm;
+        phys->tx_sm = phys->flight_resources.rx_endpoints.data_output.sm;
+        tdma_pio_spi_flight_origin_clock_rx_program_init(
+            phys->flight_resources.tx_pio,
+            phys->flight_resources.tx_control_out_sm,
+            s_tdma_pio_spi_flight_origin_clock_offset,
+            phys->tx_sck_pin,
+            phys->tx_csn_pin,
+            phys->baud_hz);
+        tdma_pio_spi_flight_origin_data_tx_program_init(
+            phys->flight_resources.rx_endpoints.data_output.pio,
+            phys->flight_resources.rx_endpoints.data_output.sm,
+            s_tdma_pio_spi_flight_origin_data_offset,
+            phys->tx_pin,
+            phys->rx_csn_pin,
+            phys->rx_sck_pin,
+            phys->flight_sck_phase_delay_cycles,
+            phys->flight_data_phase_delay_cycles);
+        tdma_pio_spi_flight_origin_data_capture_program_init(
+            phys->flight_resources.tx_pio,
+            phys->flight_resources.tx_data_capture_sm,
+            s_tdma_pio_spi_flight_origin_data_capture_offset,
+            phys->rx_pin,
+            phys->rx_csn_pin,
+            phys->rx_sck_pin,
+            phys->flight_origin_capture_phase_delay_cycles);
+        tdma_pio_spi_flight_origin_rtt_program_init(
+            phys->flight_resources.tx_pio,
+            phys->flight_resources.tx_rtt_evidence_sm,
+            s_tdma_pio_spi_flight_origin_rtt_offset,
+            phys->tx_csn_pin,
+            phys->rx_csn_pin);
+        if (!tdma_pio_spi_phys_ensure_tx_dma()) {
+            return false;
+        }
+    } else {
+        /* rx_sm performs DATA capture/reverse forwarding. tx_sm independently
+         * regenerates the complete forward MARK/SCK control pair. */
+        phys->rx_sm = phys->flight_resources.rx_endpoints.data_unload.sm;
+        phys->tx_sm = phys->flight_resources.tx_control_out_sm;
+        if (phys->process_image_enabled) {
+            tdma_pio_spi_flight_process_follower_program_init(
+                phys->flight_resources.rx_endpoints.data_unload.pio,
+                phys->rx_sm,
+                s_tdma_pio_spi_flight_process_follower_offset,
+                phys->rx_pin,
+                phys->tx_pin,
+                phys->rx_csn_pin,
+                phys->rx_sck_pin,
+                phys->flight_sck_phase_delay_cycles,
+                phys->flight_data_phase_delay_cycles);
+            if (!tdma_pio_spi_phys_ensure_tx_dma()) {
+                return false;
+            }
+        } else {
+            tdma_pio_spi_flight_data_follower_program_init(
+                phys->flight_resources.rx_endpoints.data_unload.pio,
+                phys->rx_sm,
+                s_tdma_pio_spi_flight_data_follower_offset,
+                phys->rx_pin,
+                phys->tx_pin,
+                phys->rx_sck_pin,
+                phys->flight_data_phase_delay_cycles);
+        }
+        tdma_pio_spi_flight_control_forward_program_init(
+            phys->flight_resources.tx_pio,
+            phys->tx_sm,
+            s_tdma_pio_spi_flight_control_forward_offset,
+            phys->rx_csn_pin,
+            phys->rx_sck_pin,
+            phys->tx_sck_pin,
+            phys->tx_csn_pin,
+            phys->flight_marker_phase_delay_cycles,
+            phys->flight_sck_phase_delay_cycles);
+    }
+    tdma_pio_spi_flight_clock_latch_program_init(
+        tdma_pio_spi_phys_evidence_pio(phys),
+        tdma_pio_spi_phys_latch_sm(phys),
+        tdma_pio_spi_phys_latch_offset(phys),
+        phys->role == TDMA_PIO_SPI_ROLE_MASTER
+            ? phys->tx_csn_pin
+            : phys->rx_csn_pin);
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE && !tdma_pio_spi_phys_event_selected(phys)) {
+        tdma_pio_spi_flight_clock_latch_program_init(
+            tdma_pio_spi_phys_tx_latch_pio(phys),
+            tdma_pio_spi_phys_tx_latch_sm(phys),
+        tdma_pio_spi_phys_latch_offset(phys),
+            phys->tx_csn_pin);
+    }
+    tdma_pio_spi_phys_prepare_sm_pair(phys);
+    tdma_pio_spi_phys_event_prepare(phys, config);
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
+        phys->process_image_enabled) {
+        /* Initialize the elastic tail outside the wire loop, leaving the PIO
+         * instruction budget to the independent control and DATA paths. */
+        pio_sm_exec(tdma_pio_spi_phys_data_pio(phys),
+                    tdma_pio_spi_phys_data_sm(phys),
+                    pio_encode_mov(pio_isr, pio_null));
+    }
+    return true;
+}
+
+static uint32_t tdma_pio_spi_phys_overlay_final_pc(void)
+{
+    return s_tdma_pio_spi_flight_process_follower_offset +
+           tdma_pio_spi_flight_process_follower_offset_final_bit;
+}
+
+static bool tdma_pio_spi_phys_overlay_dma_busy(tdma_pio_spi_phys_t *phys)
+{
+    /* Both channels may briefly be idle between control blocks. Recurrence
+     * owns its pools until bounded STOP, independently of a BUSY sample. */
+    return phys->flight_overlay_dma_active;
+}
+
+static void tdma_pio_spi_phys_service_overlay_pending(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL || !phys->flight_overlay_dma_active) {
+        return;
+    }
+    const uint32_t selected = phys->flight_overlay_selected_generation;
+    __dmb();
+    phys->snapshot.overlay_selected_generation = selected;
+    if (phys->flight_overlay_pending &&
+        selected == phys->flight_overlay_published_generation) {
+        phys->flight_overlay_active_buffer = phys->flight_overlay_pending_buffer;
+        phys->flight_overlay_pending = false;
+        phys->snapshot.overlay_selection_pending = 0u;
+    }
+}
+
+static tdma_flight_overlay_binding_t tdma_pio_spi_phys_overlay_binding(
+    const tdma_pio_spi_phys_t *phys)
+{
+    const uint output = (uint)s_tdma_pio_spi_tx_dma_channel;
+    const uint loader = (uint)s_tdma_pio_spi_command_dma_channel;
+    dma_channel_config cfg = dma_channel_get_default_config(output);
+    channel_config_set_transfer_data_size(&cfg, DMA_SIZE_32);
+    channel_config_set_high_priority(&cfg, true);
+    channel_config_set_write_increment(&cfg, false);
+    channel_config_set_read_increment(&cfg, false);
+    channel_config_set_chain_to(&cfg, loader);
+    channel_config_set_dreq(&cfg, pio_get_dreq(tdma_pio_spi_phys_data_pio(phys),
+                                             tdma_pio_spi_phys_data_sm(phys), true));
+    tdma_flight_overlay_binding_t binding = {
+        .pass_control = channel_config_get_ctrl_value(&cfg),
+        .tx_fifo_address = (uint32_t)(uintptr_t)
+            &tdma_pio_spi_phys_data_pio(phys)->txf[tdma_pio_spi_phys_data_sm(phys)],
+        .live_word_address = (uint32_t)(uintptr_t)&s_tdma_pio_spi_flight_live_word,
+        .selected_generation_address = (uint32_t)(uintptr_t)&phys->flight_overlay_selected_generation,
+        .loader_trigger_address = (uint32_t)(uintptr_t)&dma_hw->ch[loader].al3_read_addr_trig,
+        .next_address_address = (uint32_t)(uintptr_t)&phys->flight_overlay_next_address,
+    };
+    channel_config_set_read_increment(&cfg, true);
+    binding.token_control = channel_config_get_ctrl_value(&cfg);
+    channel_config_set_read_increment(&cfg, false);
+    channel_config_set_dreq(&cfg, DREQ_FORCE);
+    binding.selection_control = channel_config_get_ctrl_value(&cfg);
+    channel_config_set_chain_to(&cfg, output);
+    binding.restart_control = channel_config_get_ctrl_value(&cfg);
+    return binding;
+}
+
+static bool tdma_pio_spi_phys_start_overlay_script(
+    tdma_pio_spi_phys_t *phys, uint32_t buffer_index, bool worker_bound)
+{
+    if (phys == NULL || !phys->flight_resource_claimed ||
+        s_tdma_pio_spi_command_dma_channel < 0 ||
+        buffer_index >= 2u || s_tdma_pio_spi_tx_dma_channel < 0) {
+        if (phys != NULL) {
+            phys->snapshot.overlay_last_error =
+                TDMA_PIO_SPI_OVERLAY_ERROR_DMA_START_INVALID;
+        }
+        return false;
+    }
+    tdma_pio_spi_phys_service_overlay_pending(phys);
+    if (phys->flight_overlay_pending ||
+        (phys->flight_overlay_dma_active &&
+         buffer_index == phys->flight_overlay_active_buffer)) {
+        phys->snapshot.overlay_last_error =
+            TDMA_PIO_SPI_OVERLAY_ERROR_DMA_BUSY_TIMEOUT;
+        phys->snapshot.overlay_tx_dma_remaining =
+            dma_hw->ch[s_tdma_pio_spi_tx_dma_channel].transfer_count;
+        phys->snapshot.overlay_tx_dma_busy = 1u;
+        phys->snapshot.overlay_tx_fifo_level_at_fail =
+            pio_sm_get_tx_fifo_level(tdma_pio_spi_phys_data_pio(phys),
+                                     tdma_pio_spi_phys_data_sm(phys));
+        phys->snapshot.overlay_prepare_wait_us = 0u;
+        return false;
+    }
+    tdma_flight_overlay_plan_t *plan =
+        &s_tdma_pio_spi_flight_overlay_plan[buffer_index];
+    if (plan->command_word_count != phys->flight_physical_byte_count *
+            TDMA_FLIGHT_OVERLAY_COMMAND_WORDS_PER_BYTE ||
+        plan->generation != 0u ||
+        plan->run_count <= (worker_bound ? TDMA_FLIGHT_OVERLAY_CONTROL_RUNS : 0u) ||
+        plan->run_count > (worker_bound ? TDMA_FLIGHT_OVERLAY_BOUND_RUN_MAX : TDMA_FLIGHT_OVERLAY_RUN_MAX) ||
+        plan->token_word_count > TDMA_FLIGHT_OVERLAY_TOKEN_WORD_MAX ||
+        (!worker_bound && tdma_overlay_prepare_state(phys->overlay_preparation) !=
+            TDMA_OVERLAY_PREPARE_IDLE)) {
+        phys->snapshot.overlay_last_error = TDMA_PIO_SPI_OVERLAY_ERROR_BUILD_FAILED;
+        return false;
+    }
+    const uint output = (uint)s_tdma_pio_spi_tx_dma_channel;
+    const uint loader = (uint)s_tdma_pio_spi_command_dma_channel;
+    const tdma_state_machine_command_dma_contract_t command =
+        tdma_state_machine_command_dma_contract();
+    if (command.control_descriptor_count != TDMA_FLIGHT_OVERLAY_CONTROL_RUNS) {
+        phys->snapshot.overlay_last_error = TDMA_PIO_SPI_OVERLAY_ERROR_BUILD_FAILED;
+        return false;
+    }
+    if (!worker_bound) {
+        const tdma_flight_overlay_binding_t binding = tdma_pio_spi_phys_overlay_binding(phys);
+        if (!tdma_flight_overlay_bind_plan(plan, tdma_pio_spi_phys_overlay_final_pc(), &binding)) {
+            phys->snapshot.overlay_last_error = TDMA_PIO_SPI_OVERLAY_ERROR_BUILD_FAILED;
+            return false;
+        }
+        /* ARM's pass plan freezes the admitted register words and addresses.
+         * No worker exists here; later grants lease only inactive SRAM. The
+         * template remains unchanged until STOP drains the job and hardware. */
+        if (phys->overlay_preparation != NULL) phys->overlay_preparation->binding = binding;
+    }
+    uint32_t generation = phys->flight_overlay_published_generation + 1u;
+    if (generation == 0u) generation = 1u;
+    plan->generation = generation;
+
+    /* Publish only one successor. DMA selection may lead physical CS by FIFO
+     * prefetch; it proves memory retirement, never SENT or wire completion. */
+    phys->flight_overlay_pending_buffer = buffer_index;
+    phys->flight_overlay_published_generation = generation;
+    phys->flight_overlay_pending = true;
+    phys->snapshot.overlay_published_generation = generation;
+    phys->snapshot.overlay_selection_pending = 1u;
+    __dmb();
+    phys->flight_overlay_next_address = (uint32_t)(uintptr_t)plan->run;
+    __dmb();
+
+    /* ARM starts the loader once. Every later publication changes only the
+     * protected SRAM pointer; hardware chooses it at its next plan boundary. */
+    if (!phys->flight_overlay_dma_active) {
+        dma_channel_config loader_cfg = dma_channel_get_default_config(loader);
+        channel_config_set_transfer_data_size(&loader_cfg, DMA_SIZE_32);
+        channel_config_set_read_increment(&loader_cfg, true);
+        channel_config_set_write_increment(&loader_cfg, true);
+        channel_config_set_ring(&loader_cfg, true, command.descriptor_write_ring_log2);
+        channel_config_set_high_priority(&loader_cfg, true);
+        channel_config_set_chain_to(&loader_cfg, loader);
+        phys->flight_overlay_dma_active = true;
+        __dmb();
+        dma_channel_configure(loader, &loader_cfg, &dma_hw->ch[output].al3_ctrl,
+                              plan->run, command.descriptor_words, true);
+    }
+    phys->snapshot.overlay_tx_dma_remaining = plan->command_word_count;
+    phys->snapshot.overlay_tx_dma_busy = 1u;
+    phys->snapshot.overlay_prepare_wait_us = 0u;
+    phys->snapshot.overlay_last_error = TDMA_PIO_SPI_OVERLAY_ERROR_NONE;
+    return true;
+}
+
+static uint32_t tdma_pio_spi_phys_overlay_free_buffer(
+    const tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) {
+        return 0u;
+    }
+    return phys->flight_overlay_active_buffer ^ 1u;
+}
+
+static bool tdma_pio_spi_phys_queue_overlay_script(
+    tdma_pio_spi_phys_t *phys,
+    uint32_t buffer_index)
+{
+    if (phys == NULL || buffer_index >= 2u) {
+        return false;
+    }
+    return tdma_pio_spi_phys_start_overlay_script(phys, buffer_index, false);
+}
+
+bool tdma_pio_spi_phys_process_overlay_ready(void *context)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (phys == NULL || !phys->armed || !phys->flight_overlay_dma_active ||
+        !phys->process_image_enabled || phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
+        s_tdma_pio_spi_program_persona != TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER)
+        return false;
+    tdma_pio_spi_phys_service_overlay_pending(phys);
+    return !phys->flight_overlay_pending &&
+        phys->flight_overlay_alignment_samples >=
+            TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES;
+}
+
+bool tdma_pio_spi_phys_grant_overlay(void *context, tdma_overlay_prepare_t *job)
+{
+    tdma_pio_spi_phys_t *phys = context;
+    if (phys == NULL || job == NULL || phys->overlay_preparation != job ||
+        tdma_overlay_prepare_state(job) != TDMA_OVERLAY_PREPARE_IDLE ||
+        !phys->process_image_enabled || phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
+        s_tdma_pio_spi_program_persona != TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER ||
+        !tdma_pio_spi_phys_process_overlay_ready(phys)) return false;
+    job->buffer_index = tdma_pio_spi_phys_overlay_free_buffer(phys);
+    job->plan = &s_tdma_pio_spi_flight_overlay_plan[job->buffer_index];
+    job->config = (tdma_flight_overlay_config_t){
+        .packet_size = TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size,
+        .outer_header_size = TDMA_PIO_SPI_PACKET_HEADER_SIZE,
+        .alignment_byte_shift = phys->flight_alignment_byte_shift,
+        .alignment_bit_shift = phys->flight_alignment_bit_shift,
+        .physical_byte_count = phys->flight_physical_byte_count,
+        .local_slot_id = phys->flight_local_slot_id,
+        .header_write_mask = tdma_transport_frame_resident_overlay_header_mask(),
+        .final_bit_pc = tdma_pio_spi_phys_overlay_final_pc(),
+    };
+    return true;
+}
+
+bool tdma_pio_spi_phys_commit_overlay(void *context, tdma_overlay_prepare_t *job)
+{
+    tdma_pio_spi_phys_t *phys = context;
+    if (phys == NULL || job == NULL || phys->overlay_preparation != job ||
+        tdma_overlay_prepare_state(job) != TDMA_OVERLAY_PREPARE_READY ||
+        job->request_epoch != job->epoch ||
+        !phys->process_image_enabled || phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
+        s_tdma_pio_spi_program_persona != TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER ||
+        !tdma_pio_spi_phys_process_overlay_ready(phys) ||
+        job->buffer_index != tdma_pio_spi_phys_overlay_free_buffer(phys) ||
+        job->plan != &s_tdma_pio_spi_flight_overlay_plan[job->buffer_index] ||
+        job->config.alignment_byte_shift != phys->flight_alignment_byte_shift ||
+        job->config.alignment_bit_shift != phys->flight_alignment_bit_shift ||
+        job->config.physical_byte_count != phys->flight_physical_byte_count ||
+        job->config.packet_size != TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size ||
+        job->config.local_slot_id != phys->flight_local_slot_id ||
+        job->config.final_bit_pc != tdma_pio_spi_phys_overlay_final_pc()) return false;
+    /* Core0 validated tokens and bound every descriptor using the template
+     * frozen at ARM, then released READY. Resources stay owned until STOP
+     * drains the lease. Only generation and publication remain on Core1. */
+    if (!tdma_pio_spi_phys_start_overlay_script(phys, job->buffer_index, true)) return false;
+    if (!phys->flight_overlay_alignment_locked) tdma_geometry_trained(phys);
+    phys->flight_overlay_alignment_locked = true;
+    phys->snapshot.overlay_prepare_count++;
+    phys->snapshot.overlay_replacement_byte_count += job->plan->replacement_byte_count;
+    phys->snapshot.overlay_alignment_byte_shift = job->config.alignment_byte_shift;
+    phys->snapshot.overlay_alignment_bit_shift = job->config.alignment_bit_shift;
+    phys->snapshot.overlay_physical_byte_count = job->config.physical_byte_count;
+    return true;
+}
+
+static bool tdma_pio_spi_phys_prepare_pass_overlay(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL || phys->flight_physical_byte_count == 0u ||
+        phys->flight_physical_byte_count + 1u >
+            TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS) {
+        return false;
+    }
+    if (s_tdma_pio_spi_tx_dma_channel < 0 || phys->flight_overlay_pending) {
+        return false;
+    }
+    const uint32_t buffer_index =
+        tdma_pio_spi_phys_overlay_free_buffer(phys);
+    if (!tdma_flight_overlay_build_pass_plan(phys->flight_physical_byte_count,
+            tdma_pio_spi_phys_overlay_final_pc(),
+            &s_tdma_pio_spi_flight_overlay_plan[buffer_index])) return false;
+    return tdma_pio_spi_phys_queue_overlay_script(phys, buffer_index);
+}
+
+bool tdma_pio_spi_phys_service_process_overlay_boundary(void *context)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (phys == NULL || !phys->armed || !phys->process_image_enabled ||
+        phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
+        s_tdma_pio_spi_program_persona !=
+            TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER) {
+        return false;
+    }
+    tdma_pio_spi_phys_service_overlay_pending(phys);
+    tdma_priority_boundary_service(phys);
+    return true;
+}
+
+bool tdma_pio_spi_phys_set_process_image_mode(
+    tdma_pio_spi_phys_t *phys,
+    bool enabled,
+    uint32_t payload_size)
+{
+    if (phys == NULL || phys->armed ||
+        payload_size > TDMA_TRANSPORT_SHORT_PAYLOAD_MAX ||
+        (enabled && payload_size == 0u)) {
+        return false;
+    }
+    phys->process_image_enabled = enabled;
+    phys->flight_payload_size = payload_size;
+    return true;
+}
+
+bool tdma_pio_spi_phys_set_flight_payload_size(
+    tdma_pio_spi_phys_t *phys,
+    uint32_t payload_size)
+{
+    if (phys == NULL || phys->armed ||
+        payload_size > TDMA_TRANSPORT_SHORT_PAYLOAD_MAX) {
+        return false;
+    }
+    phys->flight_payload_size = payload_size;
+    return true;
+}
+
+bool tdma_pio_spi_phys_set_flight_offsets(
+    tdma_pio_spi_phys_t *phys,
+    int32_t marker_offset_sample_count,
+    int32_t sck_offset_sample_count,
+    int32_t data_offset_sample_count,
+    uint32_t marker_phase_delay_cycles,
+    uint32_t sck_phase_delay_cycles,
+    uint32_t data_phase_delay_cycles,
+    uint32_t origin_capture_phase_delay_cycles)
+{
+    if (phys == NULL || phys->armed || marker_phase_delay_cycles == 0u ||
+        sck_phase_delay_cycles == 0u || data_phase_delay_cycles == 0u ||
+        marker_phase_delay_cycles > 31u ||
+        sck_phase_delay_cycles > 31u ||
+        data_phase_delay_cycles > 31u || origin_capture_phase_delay_cycles == 0u ||
+        origin_capture_phase_delay_cycles > 31u) {
+        return false;
+    }
+    phys->flight_marker_offset_sample_count = marker_offset_sample_count;
+    phys->flight_sck_offset_sample_count = sck_offset_sample_count;
+    phys->flight_data_offset_sample_count = data_offset_sample_count;
+    phys->flight_marker_phase_delay_cycles = marker_phase_delay_cycles;
+    phys->flight_sck_phase_delay_cycles = sck_phase_delay_cycles;
+    phys->flight_data_phase_delay_cycles = data_phase_delay_cycles;
+    phys->flight_origin_capture_phase_delay_cycles = origin_capture_phase_delay_cycles;
+    return true;
+}
+
+bool tdma_pio_spi_phys_prepare_process_overlay(
+    void *context,
+    const uint8_t *incoming_packet,
+    const uint8_t *processed_packet,
+    size_t packet_size,
+    const uint32_t *force_replace_payload_bitmap,
+    size_t force_replace_payload_bitmap_words)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (phys == NULL ||
+        tdma_overlay_prepare_state(phys->overlay_preparation) != TDMA_OVERLAY_PREPARE_IDLE ||
+        !phys->armed || !phys->process_image_enabled ||
+        phys->role != TDMA_PIO_SPI_ROLE_SLAVE ||
+        s_tdma_pio_spi_program_persona !=
+            TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER) {
+        if (phys != NULL) {
+            phys->snapshot.overlay_last_error =
+                TDMA_PIO_SPI_OVERLAY_ERROR_BAD_STATE;
+            phys->snapshot.overlay_prepare_fail_count++;
+        }
+        return false;
+    }
+    /* The owner preflights readiness before acquiring TX. A pending plan
+     * must never be overwritten or reported as an accepted publication. */
+    if (!tdma_pio_spi_phys_process_overlay_ready(phys)) {
+        phys->snapshot.overlay_late_coalesce_count++;
+        return false;
+    }
+    if (s_tdma_pio_spi_tx_dma_channel < 0) {
+        phys->snapshot.overlay_prepare_fail_count++;
+        phys->snapshot.overlay_last_error =
+            TDMA_PIO_SPI_OVERLAY_ERROR_DMA_START_INVALID;
+        return false;
+    }
+    const uint32_t buffer_index =
+        tdma_pio_spi_phys_overlay_free_buffer(phys);
+    tdma_flight_overlay_plan_t *plan = &s_tdma_pio_spi_flight_overlay_plan[buffer_index];
+    phys->snapshot.overlay_alignment_byte_shift =
+        phys->flight_alignment_byte_shift;
+    phys->snapshot.overlay_alignment_bit_shift =
+        phys->flight_alignment_bit_shift;
+    const tdma_flight_overlay_config_t config = {
+        .packet_size = TDMA_TRANSPORT_FRAME_HEADER_SIZE + phys->flight_payload_size,
+        .outer_header_size = TDMA_PIO_SPI_PACKET_HEADER_SIZE,
+        .alignment_byte_shift = phys->flight_alignment_byte_shift,
+        .alignment_bit_shift = phys->flight_alignment_bit_shift,
+        .physical_byte_count = phys->flight_physical_byte_count,
+        .local_slot_id = phys->flight_local_slot_id,
+        .header_write_mask = tdma_transport_frame_resident_overlay_header_mask(),
+        .final_bit_pc = tdma_pio_spi_phys_overlay_final_pc(),
+    };
+    if (!tdma_flight_overlay_build_plan(incoming_packet, processed_packet, packet_size,
+            force_replace_payload_bitmap, force_replace_payload_bitmap_words, &config, plan)) {
+        phys->snapshot.overlay_last_error =
+            TDMA_PIO_SPI_OVERLAY_ERROR_BUILD_FAILED;
+        phys->snapshot.overlay_tx_dma_remaining =
+            s_tdma_pio_spi_tx_dma_channel >= 0
+                ? dma_hw->ch[s_tdma_pio_spi_tx_dma_channel].transfer_count
+                : 0u;
+        phys->snapshot.overlay_tx_dma_busy =
+            s_tdma_pio_spi_tx_dma_channel >= 0 &&
+            tdma_pio_spi_phys_overlay_dma_busy(phys)
+                ? 1u
+                : 0u;
+        phys->snapshot.overlay_tx_fifo_level_at_fail =
+            pio_sm_get_tx_fifo_level(tdma_pio_spi_phys_data_pio(phys),
+                                     tdma_pio_spi_phys_data_sm(phys));
+        phys->snapshot.overlay_prepare_wait_us = 0u;
+        phys->snapshot.overlay_prepare_fail_count++;
+        return false;
+    }
+    if (!tdma_pio_spi_phys_queue_overlay_script(
+            phys, buffer_index)) {
+        phys->snapshot.overlay_prepare_fail_count++;
+        return false;
+    }
+    if (!phys->flight_overlay_alignment_locked) tdma_geometry_trained(phys);
+    phys->flight_overlay_alignment_locked = true;
+    phys->snapshot.overlay_prepare_count++;
+    phys->snapshot.overlay_replacement_byte_count +=
+        plan->replacement_byte_count;
+    phys->snapshot.overlay_alignment_byte_shift =
+        phys->flight_alignment_byte_shift;
+    phys->snapshot.overlay_alignment_bit_shift = phys->flight_alignment_bit_shift;
+    phys->snapshot.overlay_physical_byte_count =
+        phys->flight_physical_byte_count;
+    return true;
+}
+
+void tdma_pio_spi_phys_set_line_drivers(bool enabled)
+{
+    /* DATA0, CLK1 and TRIG/CS have independent ISO1452 drivers. */
+    gpio_put(BOARD_UP_BISS_DE_PIN, enabled);
+    gpio_put(BOARD_DN_BISS_DE_PIN, enabled);
+    gpio_put(BOARD_TRIG_DE_PIN, enabled);
+}
+
+void tdma_pio_spi_phys_cal_cleanup(tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) {
+        return;
+    }
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM, false);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM, false);
+    pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM, false);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_MASTER_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_SLAVE_SM);
+    pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, BOARD_TDMA_SPI_CAPTURE_SM);
+    tdma_pio_spi_phys_set_line_drivers(false);
+    const uint32_t pins[] = {
+        BOARD_TDMA_SPI_UPLINK_RX_PIN,
+        BOARD_TDMA_SPI_DOWNLINK_SCK_PIN,
+        BOARD_TDMA_SPI_DOWNLINK_CSN_PIN,
+        BOARD_TDMA_SPI_UPLINK_CSN_PIN,
+        BOARD_TDMA_SPI_UPLINK_SCK_PIN,
+        BOARD_TDMA_SPI_DOWNLINK_TX_PIN,
+    };
+    for (uint32_t i = 0u; i < sizeof(pins) / sizeof(pins[0]); i++) {
+        gpio_set_function(pins[i], GPIO_FUNC_SIO);
+        gpio_set_dir(pins[i], GPIO_IN);
+    }
+    phys->armed = false;
+    phys->rx_capture_active = false;
+    tdma_pio_spi_phys_fill_static_snapshot(phys);
+}
+
+static bool tdma_pio_spi_phys_rx_arm(tdma_pio_spi_phys_t *phys)
+{
+    s_tdma_pio_spi_rx_arm_valid = false;
+    if (phys == NULL || phys->flight_origin_workspace_owned) return false;
+    if (!tdma_pio_spi_phys_ensure_rx_dma()) {
+        return false;
+    }
+    dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+    tdma_pio_spi_phys_rx_prepare(phys);
+    memset(s_tdma_pio_spi_rx_ring, 0, sizeof(s_tdma_pio_spi_rx_ring));
+    s_tdma_pio_spi_rx_scan_produced = 0u;
+    if (!tdma_rx_dma_counter_reset(&s_tdma_pio_spi_rx_sequence,
+                                    phys->flight_physical_byte_count,
+                                    vdc_timestamp_clock_read_ticks64())) {
+        return false;
+    }
+    dma_channel_config dma_cfg =
+        dma_channel_get_default_config((uint)s_tdma_pio_spi_rx_dma_channel);
+    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&dma_cfg, false);
+    channel_config_set_write_increment(&dma_cfg, true);
+    channel_config_set_ring(&dma_cfg, true, TDMA_PIO_SPI_RX_RING_LOG2);
+    channel_config_set_irq_quiet(&dma_cfg, true);
+    const PIO capture_pio = tdma_pio_spi_phys_capture_pio(phys);
+    const uint capture_sm = tdma_pio_spi_phys_capture_sm(phys);
+    channel_config_set_dreq(
+        &dma_cfg, pio_get_dreq(capture_pio, capture_sm, false));
+    dma_channel_configure(
+        (uint)s_tdma_pio_spi_rx_dma_channel,
+        &dma_cfg,
+        s_tdma_pio_spi_rx_ring,
+        &capture_pio->rxf[capture_sm],
+        dma_encode_transfer_count_with_self_trigger(s_tdma_pio_spi_rx_sequence.reload_words),
+        false);
+    dma_start_channel_mask(1u << (uint)s_tdma_pio_spi_rx_dma_channel);
+    if (s_tdma_pio_spi_rx_arm_epoch != UINT64_MAX) {
+        ++s_tdma_pio_spi_rx_arm_epoch;
+        s_tdma_pio_spi_rx_arm_valid = true;
+    }
+    phys->rx_capture_active = true;
+    return true;
+}
+
+uint32_t tdma_pio_spi_phys_rx_write_index(void)
+{
+    const uintptr_t ring_base = (uintptr_t)s_tdma_pio_spi_rx_ring;
+    const uintptr_t write_addr =
+        (uintptr_t)dma_hw->ch[(uint)s_tdma_pio_spi_rx_dma_channel].write_addr;
+    return (uint32_t)(((write_addr - ring_base) &
+                       ((TDMA_PIO_SPI_RX_RING_WORDS * sizeof(uint32_t)) -
+                        1u)) /
+                      sizeof(uint32_t));
+}
+
+uint64_t tdma_pio_spi_phys_rx_produced_words(
+    tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL || s_tdma_pio_spi_rx_dma_channel < 0) return 0u;
+    const uint64_t before_ticks = vdc_timestamp_clock_read_ticks64();
+    const uint32_t count = dma_hw->ch[s_tdma_pio_spi_rx_dma_channel].transfer_count;
+    __dmb();
+    const uint64_t after_ticks = vdc_timestamp_clock_read_ticks64();
+    uint64_t produced;
+    bool discontinuity;
+    if ((count & DMA_CH0_TRANS_COUNT_MODE_BITS) !=
+            (DMA_CH0_TRANS_COUNT_MODE_VALUE_TRIGGER_SELF << DMA_CH0_TRANS_COUNT_MODE_LSB) ||
+        !tdma_rx_dma_counter_observe(&s_tdma_pio_spi_rx_sequence,
+            count & DMA_CH0_TRANS_COUNT_COUNT_BITS, before_ticks, after_ticks,
+            &produced, &discontinuity)) return 0u;
+    if (discontinuity) {
+        /* An ambiguous counter epoch is observation loss, never a reason to
+         * stop, rearm, or relocate the hardware wire slots. */
+        phys->snapshot.rx_observation_drop_count++;
+        tdma_service_timing_rx_drop(TDMA_RX_DROP_EPOCH, 0u);
+        s_tdma_pio_spi_rx_scan_produced = produced;
+        if (!phys->flight_overlay_alignment_locked)
+            phys->flight_overlay_alignment_samples = 0u;
+    }
+    return produced;
+}
+
+static uint32_t tdma_pio_spi_phys_rx_ring_word(uint64_t produced)
+{
+    /* The DMA writer is outside the C abstract machine. Read each completed
+     * word at its declared width; callers still revalidate epoch/overwrite. */
+    const volatile uint32_t *ring = s_tdma_pio_spi_rx_ring;
+    return ring[produced & (TDMA_PIO_SPI_RX_RING_WORDS - 1u)];
+}
+
+static uint8_t tdma_pio_spi_phys_rx_ring_reversed_byte(uint64_t produced)
+{
+    const uint32_t word = tdma_pio_spi_phys_rx_ring_word(produced);
+#if defined(__ARM_ARCH) && __ARM_ARCH >= 7 && defined(__GNUC__)
+    /* Pico's __rev is an external bit reverse, unlike ACLE's byte swap.
+     * Keep the RBIT in the copy loop on the supported ARM target. */
+    return (uint8_t)__builtin_arm_rbit(word);
+#else
+    return (uint8_t)__rev(word);
+#endif
+}
+
+uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t produced)
+{
+    /* Only the process follower uses right-shifting ISR to support live XOR.
+     * Normalize the observation copy; wire forwarding never reads this ring. */
+    if (s_tdma_pio_spi_program_persona ==
+        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER)
+        return tdma_pio_spi_phys_rx_ring_reversed_byte(produced);
+    return (uint8_t)tdma_pio_spi_phys_rx_ring_word(produced);
+}
+
+static uint8_t tdma_pio_spi_phys_rx_ring_aligned_byte(uint64_t produced,
+                                                      uint32_t bit_shift)
+{
+    const uint8_t first = tdma_pio_spi_phys_rx_ring_byte(produced);
+    if (bit_shift == 0u) {
+        return first;
+    }
+    const uint8_t second = tdma_pio_spi_phys_rx_ring_byte(produced + 1u);
+    return (uint8_t)(((uint32_t)first << bit_shift) |
+                     ((uint32_t)second >> (8u - bit_shift)));
+}
+
+/* Callers prove the entire raw interval is completed before copying, then
+ * recheck epoch and overwrite afterwards. Normalize each raw word once.
+ * The Core1 owner cannot switch persona during this synchronous copy. Select
+ * its ISR direction outside the loops; each ring word remains a volatile DMA
+ * read, and configuration/STOP retain their existing owner boundaries.
+ * Keep this bounded leaf in SRAM so its per-word loop does not fetch XIP
+ * instructions while competing with the background parser. Its instruction
+ * storage is part of the linked RAM budget; callers still prove retention. */
+__attribute__((noinline, section(".time_critical.tdma_pio_spi_phys_rx_ring_copy")))
+void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination,
+    uint64_t produced, uint32_t count, uint32_t bit_shift)
+{
+    if (count == 0u) return;
+    if (s_tdma_pio_spi_program_persona ==
+        TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER) {
+        if (bit_shift == 0u) {
+            for (uint32_t i = 0u; i < count; ++i)
+                destination[i] = tdma_pio_spi_phys_rx_ring_reversed_byte(produced + i);
+            return;
+        }
+        uint8_t previous = tdma_pio_spi_phys_rx_ring_reversed_byte(produced);
+        for (uint32_t i = 0u; i < count; ++i) {
+            const uint8_t next = tdma_pio_spi_phys_rx_ring_reversed_byte(produced + i + 1u);
+            destination[i] = (uint8_t)(((uint32_t)previous << bit_shift) |
+                                      ((uint32_t)next >> (8u - bit_shift)));
+            previous = next;
+        }
+        return;
+    }
+    if (bit_shift == 0u) {
+        for (uint32_t i = 0u; i < count; ++i)
+            destination[i] = (uint8_t)tdma_pio_spi_phys_rx_ring_word(produced + i);
+        return;
+    }
+    uint8_t previous = (uint8_t)tdma_pio_spi_phys_rx_ring_word(produced);
+    for (uint32_t i = 0u; i < count; ++i) {
+        const uint8_t next = (uint8_t)tdma_pio_spi_phys_rx_ring_word(produced + i + 1u);
+        destination[i] = (uint8_t)(((uint32_t)previous << bit_shift) |
+                                  ((uint32_t)next >> (8u - bit_shift)));
+        previous = next;
+    }
+}
+
+
+static bool tdma_pio_spi_phys_transport_header_matches(
+    uint64_t packet_start,
+    uint32_t bit_shift,
+    uint16_t frame_size)
+{
+    if (frame_size < TDMA_TRANSPORT_FRAME_HEADER_SIZE) {
+        return false;
+    }
+    const uint16_t transport_magic =
+        (uint16_t)tdma_pio_spi_phys_rx_ring_aligned_byte(
+            packet_start, bit_shift) |
+        ((uint16_t)tdma_pio_spi_phys_rx_ring_aligned_byte(
+             packet_start + 1u, bit_shift) << 8u);
+    const uint16_t transport_size =
+        (uint16_t)tdma_pio_spi_phys_rx_ring_aligned_byte(
+            packet_start + 4u, bit_shift) |
+        ((uint16_t)tdma_pio_spi_phys_rx_ring_aligned_byte(
+             packet_start + 5u, bit_shift) << 8u);
+    const uint8_t frame_class =
+        tdma_pio_spi_phys_rx_ring_aligned_byte(
+            packet_start + 3u, bit_shift);
+
+    return transport_magic == TDMA_TRANSPORT_FRAME_MAGIC &&
+           tdma_pio_spi_phys_rx_ring_aligned_byte(
+               packet_start + 2u, bit_shift) ==
+               TDMA_TRANSPORT_FRAME_VERSION &&
+           (frame_class == TDMA_TRANSPORT_FRAME_CLASS_SHORT ||
+            frame_class == TDMA_TRANSPORT_FRAME_CLASS_LONG) &&
+           transport_size == frame_size &&
+           tdma_pio_spi_phys_rx_ring_aligned_byte(
+               packet_start + 6u, bit_shift) ==
+               TDMA_TRANSPORT_FRAME_HEADER_SIZE;
+}
+
+/* An alignment a scan RECORDS must satisfy the same bound the origin BEGIN
+ * ENFORCES before it arms anything (tdma_pio_spi_phys_origin.c: the whole packet
+ * has to fit inside the physical frame from that offset). A candidate can match the
+ * magic and the transport header while still resting on a wrong phase whose packet
+ * would wrap the frame boundary; recording that phase poisoned the NEXT arm's
+ * alignment. Measured 2026-10-13: a recorded byte_shift of 42 in a frame whose whole
+ * prefix region is 9 bytes made BEGIN refuse check #38 (prefix 374 > 72), and that
+ * refusal is latched as a permanent origin fault which STOPs the ring - the run was
+ * lost while a peer was still joining. Rejecting the phase as an alignment witness
+ * here keeps the recorder and the consumer on one predicate. */
+static bool tdma_pio_spi_phys_capture_words_legacy(tdma_pio_spi_phys_t *phys,
+                                            size_t max_words,
+                                            size_t *received_words)
+{
+    if (received_words != NULL) {
+        *received_words = 0u;
+    }
+    if (phys == NULL || received_words == NULL ||
+        max_words == 0u || max_words > TDMA_PIO_SPI_RX_DMA_WORD_MAX ||
+        !phys->rx_capture_active || phys->flight_origin_workspace_owned ||
+        s_tdma_pio_spi_program_persona == TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_ORIGIN) {
+        return false;
+    }
+    const uint64_t produced = tdma_pio_spi_phys_rx_produced_words(phys);
+    const uint64_t observation_epoch = s_tdma_pio_spi_rx_sequence.observation_epoch;
+    phys->snapshot.rx_dma_produced_words = (uint32_t)produced;
+    phys->snapshot.rx_scan_produced_words =
+        (uint32_t)s_tdma_pio_spi_rx_scan_produced;
+    phys->snapshot.rx_dma_write_index = tdma_pio_spi_phys_rx_write_index();
+    phys->snapshot.rx_dma_channel = (uint32_t)s_tdma_pio_spi_rx_dma_channel;
+    if (produced <= s_tdma_pio_spi_rx_scan_produced) {
+        return false;
+    }
+
+    if (produced - s_tdma_pio_spi_rx_scan_produced >
+        TDMA_PIO_SPI_RX_RING_WORDS) {
+        phys->snapshot.rx_ring_overrun_count++;
+        s_tdma_pio_spi_rx_scan_produced =
+            produced - TDMA_PIO_SPI_RX_RING_WORDS;
+    }
+
+    /* When the consumer falls behind, inspect a bounded newest window with
+     * space for a complete packet plus one physical frame of candidate
+     * positions. Do not spend subsequent beats chasing overwritten bytes. */
+    const uint32_t keep_words = (uint32_t)max_words + TDMA_RX_OBSERVATION_SCAN_WORDS;
+    if (produced - s_tdma_pio_spi_rx_scan_produced > keep_words) {
+        tdma_service_timing_rx_drop(TDMA_RX_DROP_CLAMP,
+            produced - s_tdma_pio_spi_rx_scan_produced - keep_words);
+        s_tdma_pio_spi_rx_scan_produced = produced - keep_words;
+        phys->snapshot.rx_observation_drop_count++;
+    }
+
+    uint64_t candidate = s_tdma_pio_spi_rx_scan_produced;
+    uint32_t inspected = 0u;
+    while (candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE <= produced) {
+        if (inspected++ == TDMA_RX_OBSERVATION_SCAN_WORDS) {
+            s_tdma_pio_spi_rx_scan_produced = candidate;
+            phys->snapshot.rx_scan_yield_count++;
+            return false;
+        }
+        /* All candidate phases share the same three raw bytes. Read them
+         * once, then test the two-byte magic in registers. Candidate bounds
+         * already guarantee the complete outer-header prefix is published;
+         * shifted length/header and post-copy epoch checks still apply. */
+        const uint32_t prefix =
+            ((uint32_t)tdma_pio_spi_phys_rx_ring_aligned_byte(candidate, 0u) << 16u) |
+            ((uint32_t)tdma_pio_spi_phys_rx_ring_aligned_byte(candidate + 1u, 0u) << 8u) |
+            tdma_pio_spi_phys_rx_ring_aligned_byte(candidate + 2u, 0u);
+        const uint32_t magic = (TDMA_PIO_SPI_PACKET_MAGIC0 << 8u) |
+                               TDMA_PIO_SPI_PACKET_MAGIC1;
+        for (uint32_t bit_shift = 0u; bit_shift < 8u; bit_shift++) {
+            const uint32_t alignment_extra = bit_shift == 0u ? 0u : 1u;
+            if (candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE +
+                    alignment_extra > produced ||
+                ((prefix >> (8u - bit_shift)) & 0xFFFFu) != magic) {
+                continue;
+            }
+            const uint16_t frame_size =
+                (uint16_t)tdma_pio_spi_phys_rx_ring_aligned_byte(
+                    candidate + 2u, bit_shift) |
+                ((uint16_t)tdma_pio_spi_phys_rx_ring_aligned_byte(
+                     candidate + 3u, bit_shift) << 8u);
+            const uint32_t total_words =
+                TDMA_PIO_SPI_PACKET_HEADER_SIZE + frame_size;
+            if (frame_size == 0u || total_words > max_words) {
+                continue;
+            }
+            if (candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE +
+                    TDMA_TRANSPORT_FRAME_HEADER_SIZE + alignment_extra >
+                produced) {
+                s_tdma_pio_spi_rx_scan_produced = candidate;
+                return false;
+            }
+            if (!tdma_pio_spi_phys_transport_header_matches(
+                    candidate + TDMA_PIO_SPI_PACKET_HEADER_SIZE,
+                    bit_shift,
+                    frame_size)) {
+                continue;
+            }
+            if (candidate + total_words + alignment_extra > produced) {
+                /* Header is valid, but the last bytes are still on the wire. */
+                s_tdma_pio_spi_rx_scan_produced = candidate;
+                return false;
+            }
+            tdma_pio_spi_phys_rx_ring_copy(s_tdma_pio_spi_rx_frame,
+                candidate, total_words, bit_shift);
+            __dmb();
+            const uint64_t after_copy = tdma_pio_spi_phys_rx_produced_words(phys);
+            /* Count retires completed SRAM writes. Exclude the next writer
+             * slot as well; a boundary or full counter-epoch ambiguity must
+             * never publish a mixed packet or update wire alignment. */
+            if (s_tdma_pio_spi_rx_sequence.observation_epoch != observation_epoch ||
+                after_copy < produced || after_copy - candidate >= TDMA_PIO_SPI_RX_RING_WORDS) {
+                tdma_service_timing_rx_drop(TDMA_RX_DROP_FRAME_COPY, 0u);
+                phys->snapshot.rx_observation_drop_count++;
+                s_tdma_pio_spi_rx_scan_produced = after_copy >= produced ? after_copy : produced;
+                return false;
+            }
+            /* A shifted aligned byte uses raw[i] and raw[i+1].  The final
+             * raw word is therefore also the first word for the next aligned
+             * byte/frame; consuming alignment_extra here skips every next
+             * frame when the origin capture has no idle raw byte between
+             * frames. */
+            s_tdma_pio_spi_rx_scan_produced = candidate + total_words;
+            /* Parser-copy loss may move candidate without moving the wire
+             * slots. Freeze the physical alignment after first publication
+             * for this ARM epoch; parsing may still realign its own copy. */
+            if (phys->process_image_enabled &&
+                !phys->flight_overlay_alignment_locked &&
+                phys->flight_physical_byte_count != 0u) {
+                const uint32_t byte_shift = (uint32_t)(candidate %
+                    phys->flight_physical_byte_count);
+                if (tdma_pio_spi_phys_alignment_fits(phys, byte_shift, bit_shift)) {
+                    if (phys->flight_overlay_alignment_samples != 0u &&
+                        candidate - phys->flight_overlay_alignment_candidate ==
+                            phys->flight_physical_byte_count &&
+                        byte_shift == phys->flight_alignment_byte_shift &&
+                        bit_shift == phys->flight_alignment_bit_shift) {
+                        if (phys->flight_overlay_alignment_samples <
+                                TDMA_PIO_SPI_OVERLAY_ALIGNMENT_STABLE_FRAMES)
+                            phys->flight_overlay_alignment_samples++;
+                    } else {
+                        phys->flight_overlay_alignment_samples = 1u;
+                    }
+                    phys->flight_overlay_alignment_candidate = candidate;
+                    phys->flight_alignment_byte_shift = byte_shift;
+                    phys->flight_alignment_bit_shift = bit_shift;
+                }
+                /* A phase that does not fit the physical frame is not an alignment
+                 * witness: leave the recorded alignment and its stability count
+                 * untouched (see tdma_pio_spi_phys_alignment_fits). Clearing the count
+                 * here instead would make the NEXT arm refuse check #27 "overlay
+                 * alignment unstable" - measured 2026-10-13. The frame itself is still
+                 * returned to the caller below. */
+            }
+            if (bit_shift == 0u) {
+                phys->snapshot.rx_magic_at_zero++;
+            } else {
+                phys->snapshot.rx_magic_at_shift++;
+            }
+            *received_words = total_words;
+            return true;
+        }
+        candidate++;
+    }
+    /* A shifted four-byte outer header consumes one additional raw word.
+     * Preserve that full prefix across service passes: retaining only the
+     * two-byte magic can discard a valid candidate when DMA publication is
+     * observed after four raw words but before the fifth word arrives. */
+    const uint64_t retain_words =
+        TDMA_PIO_SPI_PACKET_HEADER_SIZE + 1u;
+    const uint64_t bad_start = s_tdma_pio_spi_rx_scan_produced;
+    const uint64_t bad_available = produced - bad_start;
+    phys->snapshot.last_bad_header0 =
+        bad_available > 0u ? tdma_pio_spi_phys_rx_ring_word(bad_start) : 0u;
+    phys->snapshot.last_bad_header1 =
+        bad_available > 1u ? tdma_pio_spi_phys_rx_ring_word(bad_start + 1u) : 0u;
+    phys->snapshot.last_bad_header2 =
+        bad_available > 2u ? tdma_pio_spi_phys_rx_ring_word(bad_start + 2u) : 0u;
+    phys->snapshot.last_bad_header3 =
+        bad_available > 3u ? tdma_pio_spi_phys_rx_ring_word(bad_start + 3u) : 0u;
+    phys->snapshot.last_bad_words = (uint32_t)bad_available;
+    phys->snapshot.rx_magic_fail_count++;
+    s_tdma_pio_spi_rx_scan_produced =
+        produced > retain_words ? produced - retain_words : 0u;
+    return false;
+}
+
+
+static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
+                                            size_t max_words,
+                                            size_t *received_words)
+{
+    if (phys != NULL && phys->rx_scan_preparation != NULL &&
+        tdma_pio_spi_phys_is_flight_persona())
+        return tdma_pio_spi_phys_capture_words_async(phys, max_words, received_words);
+    return tdma_pio_spi_phys_capture_words_legacy(phys, max_words, received_words);
+}
+
+bool tdma_pio_spi_phys_capture_words_ex(tdma_pio_spi_phys_t *phys,
+    size_t max_words, size_t *received_words, tdma_rx_capture_t *capture)
+{
+    if (capture == NULL)
+        return tdma_pio_spi_phys_capture_words(phys, max_words, received_words);
+    memset(capture, 0, sizeof(*capture));
+    if (phys != NULL && phys->rx_scan_preparation != NULL &&
+        tdma_pio_spi_phys_is_flight_persona())
+        return tdma_pio_spi_phys_capture_words_async_ex(phys, max_words, received_words, capture);
+    return tdma_pio_spi_phys_capture_words_legacy(phys, max_words, received_words);
+}
+
+bool tdma_pio_spi_phys_arm(void *context,
+                           const tdma_ring_runtime_config_t *config)
+{
+    if (!s_geometry_request_pending &&
+        !tdma_pio_spi_phys_geometry_arm_requested(context, config)) return false;
+    s_tdma_pio_spi_rx_arm_valid = false;
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (phys != NULL) tdma_rx_start_cut_arm_begin();
+    if (phys != NULL && (phys->armed || phys->flight_overlay_dma_active ||
+                         tdma_overlay_prepare_state(phys->overlay_preparation) != TDMA_OVERLAY_PREPARE_IDLE ||
+                         tdma_rx_scan_state(phys->rx_scan_preparation) != TDMA_RX_SCAN_IDLE ||
+                         phys->flight_origin_workspace_owned ||
+                         phys->flight_origin_prepare.stage != TDMA_ORIGIN_PREPARE_IDLE)) {
+        return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY);
+    }
+    if (phys == NULL || config == NULL || config->enabled == 0u ||
+        config->node_count < 2u ||
+        config->local_slot_id >= config->node_count ||
+        config->tx_dma_channel_id != TDMA_PIO_SPI_TX_DMA_CHANNEL ||
+        config->rx_dma_channel_id != TDMA_PIO_SPI_RX_DMA_CHANNEL) {
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT);
+    }
+    phys->role = (config->local_slot_id == config->reference_slot_id)
+                     ? TDMA_PIO_SPI_ROLE_MASTER
+                     : TDMA_PIO_SPI_ROLE_SLAVE;
+    phys->baud_hz = config->baud_hz;
+    const uint32_t clk_sys_hz = clock_get_hz(clk_sys);
+    const uint32_t period_cycles = phys->baud_hz == 0u
+        ? 0u : clk_sys_hz / phys->baud_hz;
+    const uint32_t half_period_cycles = phys->baud_hz == 0u
+        ? 0u : clk_sys_hz / (2u * phys->baud_hz);
+    if (period_cycles == 0u || half_period_cycles == 0u) {
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION);
+    }
+    const bool diagnostic_continue =
+        (config->flags & TDMA_RING_FLAG_DIAGNOSTIC_CONTINUE) != 0u;
+    const bool process_follower = phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
+                                  phys->process_image_enabled;
+    if (phys->role == TDMA_PIO_SPI_ROLE_MASTER &&
+        (phys->flight_origin_capture_phase_delay_cycles == 0u ||
+         phys->flight_origin_capture_phase_delay_cycles > 31u)) {
+        return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION);
+    }
+    if (process_follower && (phys->flight_data_phase_delay_cycles <
+            TDMA_PIO_SPI_PROCESS_DATA_DECODE_CYCLES ||
+            phys->flight_data_phase_delay_cycles > 31u)) {
+        /* Illegal instruction encoding cannot be forced through Debug. */
+        return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION);
+    }
+    const uint32_t process_sample_path = phys->flight_data_phase_delay_cycles +
+                                        TDMA_PIO_SPI_PROCESS_DATA_DECODE_CYCLES;
+    const uint32_t high_cycles = (period_cycles + 1u) / 2u;
+    const uint32_t data_rearm = process_follower
+        ? (process_sample_path > high_cycles ? process_sample_path : high_cycles) +
+              TDMA_PIO_SPI_PROCESS_BYTE_REARM_CYCLES
+        : (phys->role == TDMA_PIO_SPI_ROLE_SLAVE
+            ? (process_sample_path > high_cycles ? process_sample_path : high_cycles) +
+                  TDMA_PIO_SPI_RAW_BYTE_REARM_CYCLES
+            : phys->flight_data_phase_delay_cycles + TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES);
+    const bool phase_admission_warning =
+        (phys->role == TDMA_PIO_SPI_ROLE_MASTER &&
+         phys->flight_origin_capture_phase_delay_cycles +
+             TDMA_PIO_SPI_FLIGHT_DATA_REARM_CYCLES > period_cycles) ||
+        phys->flight_sck_phase_delay_cycles <
+            TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES ||
+        (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
+         phys->flight_sck_phase_delay_cycles +
+              TDMA_PIO_SPI_FLIGHT_SCK_REARM_CYCLES > half_period_cycles) ||
+        data_rearm > period_cycles;
+    if (phase_admission_warning && !diagnostic_continue) {
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION);
+    }
+    (void)tdma_pio_spi_phys_rx_scan_cancel(phys);
+    phys->node_count = config->node_count;
+    phys->flight_local_slot_id = config->local_slot_id;
+    phys->flight_tail_bytes = tdma_pio_spi_phys_flight_tail_bytes(config);
+    if (phys->flight_tail_bytes > TDMA_PIO_SPI_FLIGHT_MAX_TAIL_BYTES) {
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_TAIL_CAPACITY);
+    }
+    const tdma_pio_spi_program_persona_t flight_persona =
+        phys->role == TDMA_PIO_SPI_ROLE_MASTER
+            ? TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN
+            : (phys->process_image_enabled
+                   ? TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER
+                   : TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_FOLLOWER);
+    const uint32_t flight_payload_size = phys->flight_payload_size != 0u
+        ? phys->flight_payload_size : TDMA_TRANSPORT_SHORT_PAYLOAD_MAX;
+    phys->flight_physical_byte_count =
+        TDMA_PIO_SPI_PACKET_HEADER_SIZE +
+        TDMA_TRANSPORT_FRAME_HEADER_SIZE +
+        flight_payload_size +
+        phys->flight_tail_bytes;
+    if (phys->process_image_enabled) {
+        if (phys->flight_physical_byte_count + 1u >
+            TDMA_PIO_SPI_FLIGHT_OVERLAY_SCRIPT_WORDS) {
+            return tdma_pio_spi_phys_arm_reject(
+                phys, TDMA_PIO_SPI_PHYS_ERROR_OVERLAY_PREPARE);
+        }
+    }
+    const uint64_t arm_geometry_start = tdma_service_timing_now();
+    const bool arm_geometry_ok = tdma_geometry_arm_begin(phys, config, flight_persona);
+    tdma_service_timing_record(TDMA_TIMING_ARM_GEOMETRY, arm_geometry_start);
+    if (!arm_geometry_ok)
+        return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
+    tdma_pio_spi_phys_origin_record_invalidate(phys);
+    phys->flight_alignment_byte_shift = 0u;
+    phys->flight_alignment_bit_shift = 0u;
+    phys->flight_overlay_alignment_locked = false;
+    phys->flight_overlay_alignment_samples = 0u;
+    phys->flight_overlay_alignment_candidate = 0u;
+    phys->flight_overlay_pending = false;
+    phys->flight_overlay_active_buffer = 0u;
+    phys->flight_overlay_pending_buffer = 0u;
+    phys->flight_overlay_published_generation = 0u;
+    phys->flight_overlay_selected_generation = 0u;
+    phys->flight_overlay_next_address = 0u;
+    phys->snapshot.overlay_published_generation = 0u;
+    phys->snapshot.overlay_selected_generation = 0u;
+    phys->snapshot.overlay_selection_pending = 0u;
+    phys->flight_tx_pending = false;
+    phys->flight_tx_completion_pending = false;
+    phys->flight_tx_completion_timestamp_ns = 0ull;
+    phys->flight_tx_packet_size = 0u;
+    phys->flight_tx_wire_bytes = 0u;
+    phys->flight_tx_launch_timestamp_ns = 0ull;
+    phys->flight_tx_deadline_ns = 0ull;
+    phys->flight_sck_waveform_capture_state =
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE;
+    phys->flight_sck_waveform_capture_deadline_us = 0ull;
+    phys->flight_normal_capture_copy_stage = 0u;
+    phys->flight_normal_capture_sck_cursor = 0u;
+    phys->flight_normal_capture_restore_stage = 0u;
+    phys->flight_normal_capture_rx_produced = 0u;
+    phys->flight_normal_capture_rx_start = 0u;
+    phys->flight_normal_capture_rx_count = 0u;
+    phys->flight_normal_capture_rx_cursor = 0u;
+    const uint64_t arm_persona_start = tdma_service_timing_now();
+    const bool arm_persona_ok =
+        tdma_pio_spi_phys_select_program_persona(phys, flight_persona);
+    tdma_service_timing_record(TDMA_TIMING_ARM_SELECT_PERSONA, arm_persona_start);
+    if (!arm_persona_ok) {
+        return false;
+    }
+    const uint64_t arm_configure_start = tdma_service_timing_now();
+    const bool arm_configure_ok =
+        tdma_pio_spi_phys_configure_flight(phys, config);
+    tdma_service_timing_record(TDMA_TIMING_ARM_CONFIGURE, arm_configure_start);
+    if (!arm_configure_ok) {
+        tdma_pio_spi_phys_release_flight_resources(phys);
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_FLIGHT_CONFIG);
+    }
+    tdma_pio_spi_phys_set_line_drivers(true);
+    const uint64_t arm_rx_start = tdma_service_timing_now();
+    const bool arm_rx_ok = tdma_pio_spi_phys_rx_arm(phys);
+    tdma_service_timing_record(TDMA_TIMING_ARM_RX, arm_rx_start);
+    if (!arm_rx_ok) {
+        tdma_pio_spi_phys_set_line_drivers(false);
+        tdma_pio_spi_phys_release_flight_resources(phys);
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_RX_ARM);
+    }
+    /* rx_arm clears both FIFOs of the capture/forward SM. Prime the process
+     * command DMA only after that reset so its initial PASS script survives. */
+    bool arm_overlay_ok = true;
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE &&
+        phys->process_image_enabled) {
+        const uint64_t arm_overlay_start = tdma_service_timing_now();
+        arm_overlay_ok = tdma_pio_spi_phys_prepare_pass_overlay(phys);
+        tdma_service_timing_record(TDMA_TIMING_ARM_OVERLAY, arm_overlay_start);
+    }
+    if (!arm_overlay_ok) {
+        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+        tdma_pio_spi_phys_set_line_drivers(false);
+        tdma_pio_spi_phys_release_flight_resources(phys);
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_OVERLAY_PREPARE);
+    }
+    if (process_follower) {
+        const uint64_t deadline = tdma_pio_spi_phys_now_us() +
+                                  TDMA_PIO_SPI_COMMAND_STOP_TIMEOUT_US;
+        while (pio_sm_is_tx_fifo_empty(tdma_pio_spi_phys_data_pio(phys),
+                                       tdma_pio_spi_phys_data_sm(phys))) {
+            if (tdma_pio_spi_phys_now_us() >= deadline) {
+                tdma_pio_spi_phys_disarm(phys);
+                return tdma_pio_spi_phys_arm_reject(phys,
+                    TDMA_PIO_SPI_PHYS_ERROR_OVERLAY_PREPARE);
+            }
+        }
+        pio_sm_exec(tdma_pio_spi_phys_data_pio(phys), tdma_pio_spi_phys_data_sm(phys),
+                    pio_encode_pull(false, true));
+    }
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
+        const uint32_t control_bits = phys->flight_physical_byte_count * 8u;
+        if (control_bits == 0u) {
+            dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+            tdma_pio_spi_phys_set_line_drivers(false);
+            tdma_pio_spi_phys_release_flight_resources(phys);
+            return tdma_pio_spi_phys_arm_reject(
+                phys, TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT);
+        }
+        pio_sm_put_blocking(tdma_pio_spi_phys_control_pio(phys),
+                            tdma_pio_spi_phys_control_sm(phys),
+                            control_bits - 1u);
+        pio_sm_exec(tdma_pio_spi_phys_control_pio(phys),
+                    tdma_pio_spi_phys_control_sm(phys),
+                    pio_encode_pull(false, true));
+    }
+    pio_interrupt_clear(tdma_pio_spi_phys_data_pio(phys), 3u);
+    const uint64_t arm_latch_start = tdma_service_timing_now();
+    const bool arm_latch_ok = tdma_pio_spi_phys_clock_latch_rearm(phys);
+    tdma_service_timing_record(TDMA_TIMING_ARM_LATCH, arm_latch_start);
+    if (!arm_latch_ok) {
+        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+        tdma_pio_spi_phys_set_line_drivers(false);
+        tdma_pio_spi_phys_release_flight_resources(phys);
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_CLOCK_LATCH);
+    }
+    bool arm_tx_latch_ok = true;
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
+        const uint64_t arm_tx_latch_start = tdma_service_timing_now();
+        arm_tx_latch_ok = tdma_pio_spi_phys_tx_clock_latch_rearm(phys);
+        tdma_service_timing_record(TDMA_TIMING_ARM_LATCH, arm_tx_latch_start);
+    }
+    if (!arm_tx_latch_ok) {
+        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+        tdma_pio_spi_phys_set_line_drivers(false);
+        tdma_pio_spi_phys_release_flight_resources(phys);
+        return tdma_pio_spi_phys_arm_reject(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_CLOCK_LATCH);
+    }
+    if (process_follower) {
+        /* The capture program starts with SET Y / WAIT SCK. Hold its first
+         * entry until RXCS is low so idle-CS clocks cannot consume PASS bits.
+         * Inject after all PULL/seed/restart operations: another SM_INSTR write
+         * would replace this wait. It resumes the unchanged entry PC and adds
+         * no CPU wait or instruction-memory slot. CS already low (including a
+         * low pulse while disabled) remains late-entry diagnostic evidence;
+         * this one-shot guard does not establish a clean frame identity. */
+        pio_sm_exec(tdma_pio_spi_phys_data_pio(phys),
+                    tdma_pio_spi_phys_data_sm(phys),
+                    pio_encode_wait_gpio(false, phys->rx_csn_pin));
+    }
+    if (!tdma_geometry_arm_bound(phys)) {
+        (void)tdma_pio_spi_phys_disarm(phys);
+        return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
+    }
+    const uint64_t arm_sm_enable_start = tdma_service_timing_now();
+    tdma_pio_spi_phys_enable_sm_pair(phys);
+    tdma_service_timing_record(TDMA_TIMING_ARM_SM_ENABLE, arm_sm_enable_start);
+
+    phys->armed = true;
+    phys->snapshot.tx_count = 0u;
+    phys->snapshot.rx_count = 0u;
+    phys->snapshot.rx_bad_count = 0u;
+    phys->snapshot.tx_busy_count = 0u;
+    phys->snapshot.rx_partial_count = 0u;
+    phys->snapshot.rx_stall_count = 0u;
+    phys->snapshot.tx_timeout_count = 0u;
+    phys->snapshot.rx_busy_count = 0u;
+    phys->snapshot.rx_magic_fail_count = 0u;
+    phys->snapshot.rx_magic_at_zero = 0u;
+    phys->snapshot.rx_magic_at_shift = 0u;
+    phys->snapshot.rx_ring_overrun_count = 0u;
+    phys->snapshot.rx_dma_produced_words = 0u;
+    phys->snapshot.rx_scan_produced_words = 0u;
+    phys->snapshot.rx_dma_write_index = 0u;
+    phys->snapshot.rx_dma_channel = TDMA_PIO_SPI_RX_DMA_CHANNEL;
+    phys->snapshot.tx_edge_count = 0u;
+    phys->snapshot.rx_edge_count = 0u;
+    phys->snapshot.last_tx_edge_timestamp_ns = 0ull;
+    phys->snapshot.last_tx_done_timestamp_ns = 0ull;
+    phys->snapshot.last_rx_edge_timestamp_ns = 0ull;
+    phys->snapshot.last_rx_extract_timestamp_ns = 0ull;
+    phys->snapshot.clock_latch_count = 0u;
+    phys->snapshot.clock_latch_miss_count = 0u;
+    phys->flight_tx_edge_capture_generation = 0u;
+    phys->snapshot.origin_done_irq_count = 0u;
+    phys->snapshot.origin_done_txstall_count = 0u;
+    phys->snapshot.origin_clock_timeout_count = 0u;
+    phys->snapshot.origin_data_timeout_count = 0u;
+    phys->snapshot.origin_recovery_count = 0u;
+    phys->snapshot.overlay_prepare_count = 0u;
+    phys->snapshot.overlay_prepare_fail_count = 0u;
+    phys->snapshot.overlay_replacement_byte_count = 0u;
+    phys->snapshot.overlay_alignment_byte_shift = 0u;
+    phys->snapshot.overlay_alignment_bit_shift = 0u;
+    phys->snapshot.overlay_physical_byte_count =
+        phys->flight_physical_byte_count;
+    phys->snapshot.overlay_last_error = TDMA_PIO_SPI_OVERLAY_ERROR_NONE;
+    phys->snapshot.overlay_tx_dma_remaining = 0u;
+    phys->snapshot.overlay_tx_dma_busy = 0u;
+    phys->snapshot.overlay_tx_fifo_level_at_fail = 0u;
+    phys->snapshot.overlay_prepare_wait_us = 0u;
+    phys->snapshot.overlay_program_offset =
+        phys->role == TDMA_PIO_SPI_ROLE_SLAVE && phys->process_image_enabled
+            ? s_tdma_pio_spi_flight_process_follower_offset
+            : 0u;
+    phys->snapshot.overlay_tx_dma_read_index = 0u;
+    phys->snapshot.overlay_tx_dma_ctrl = 0u;
+    phys->snapshot.overlay_sm_shiftctrl = 0u;
+    phys->snapshot.overlay_sm_execctrl = 0u;
+    phys->snapshot.overlay_sm_pc_at_fail = 0u;
+    phys->snapshot.overlay_pio_ctrl_at_fail = 0u;
+    phys->snapshot.overlay_pio_fstat_at_fail = 0u;
+    phys->snapshot.overlay_pio_fdebug_at_fail = 0u;
+    phys->snapshot.overlay_frame_boundary_count = 0u;
+    phys->snapshot.overlay_pass_recovery_count = 0u;
+    phys->snapshot.overlay_late_coalesce_count = 0u;
+    phys->snapshot.overlay_reuse_observation_count = 0u;
+    phys->snapshot.rx_observation_drop_count = 0u;
+    phys->snapshot.rx_scan_yield_count = 0u;
+    phys->snapshot.rx_busy_word0 = 0u;
+    phys->snapshot.rx_busy_word1 = 0u;
+    phys->snapshot.rx_busy_word2 = 0u;
+    phys->snapshot.rx_busy_word3 = 0u;
+    phys->snapshot.rx_busy_moved = 0u;
+    phys->snapshot.last_bad_header0 = 0u;
+    phys->snapshot.last_bad_header1 = 0u;
+    phys->snapshot.last_bad_header2 = 0u;
+    phys->snapshot.last_bad_header3 = 0u;
+    phys->snapshot.last_bad_words = 0u;
+    phys->snapshot.last_error = phase_admission_warning
+        ? TDMA_PIO_SPI_PHYS_ERROR_PHASE_ADMISSION
+        : TDMA_PIO_SPI_PHYS_ERROR_NONE;
+    tdma_pio_spi_phys_clk_train_reset(phys);
+    /* Selected geometry must finish its one-shot observer launch inside this
+     * ARM. A later service may never turn a rejected first prefix into READY. */
+    const uint64_t arm_prelaunch_start = tdma_service_timing_now();
+    const bool arm_prelaunch_ok = tdma_pio_spi_phys_event_prelaunch(phys, config);
+    tdma_service_timing_record(TDMA_TIMING_ARM_PRELAUNCH, arm_prelaunch_start);
+    if (!arm_prelaunch_ok) {
+        (void)tdma_pio_spi_phys_disarm(phys);
+        return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_GEOMETRY);
+    }
+    /* Keep the single literal `if (process_follower) {` block earlier in this
+     * function unique: the production-slice harness anchors its arm tail on
+     * that exact text. */
+    const uint64_t arm_priority_start = tdma_service_timing_now();
+    const bool arm_priority_ok =
+        !process_follower || tdma_priority_start(phys, config);
+    if (process_follower)
+        tdma_service_timing_record(TDMA_TIMING_ARM_PRIORITY, arm_priority_start);
+    if (!arm_priority_ok) {
+        (void)tdma_pio_spi_phys_disarm(phys);
+        return tdma_pio_spi_phys_arm_reject(phys, TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT);
+    }
+    tdma_pio_spi_phys_fill_static_snapshot(phys);
+    return true;
+}
+
+bool tdma_pio_spi_phys_disarm(void *context)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (phys == NULL) {
+        return false;
+    }
+    const uint64_t disarm_event_start = tdma_service_timing_now();
+    tdma_priority_stop();
+    /* Record the observer's normal STOP while its selected binding is still
+     * current. Geometry capture below does not need the observer SMs alive. */
+    tdma_pio_spi_phys_event_stop(phys);
+    tdma_service_timing_record(TDMA_TIMING_PHYS_DISARM_EVENT, disarm_event_start);
+#if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+    if (s_tdma_event_dma_active) {
+        tdma_pio_spi_phys_set_line_drivers(false);
+        tdma_pio_spi_phys_pause_sm_pair(phys);
+        phys->armed = false;
+        phys->snapshot.armed = 0u;
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_PERSONA_BUSY;
+        return false;
+    }
+#endif
+    tdma_geometry_stop_begin(phys);
+    /* Explicit STOP cancels even a sparse ARM admission. Successful cleanup
+     * below adds STOPPED only after DMA and both workers have retired. */
+    tdma_rx_first_window_retire(TDMA_RX_FIRST_STOP_BEFORE_COMPLETE, false);
+    s_tdma_pio_spi_rx_arm_valid = false;
+    const uint64_t disarm_cancel_start = tdma_service_timing_now();
+    const bool worker_retired = tdma_overlay_prepare_cancel(phys->overlay_preparation);
+    const bool scanner_retired = tdma_pio_spi_phys_rx_scan_cancel(phys);
+    tdma_service_timing_record(TDMA_TIMING_PHYS_DISARM_CANCEL, disarm_cancel_start);
+    /* Process-image followers keep the overlay TX DMA blocked on the PIO TX
+     * FIFO between frames.  A failed ARM can also leave a DMA or SM active
+     * before phys->armed is published.  STOP is the common idempotent
+     * rollback for both states, so hardware cleanup must not be conditional
+     * on the software armed flag. */
+    const uint64_t disarm_dma_start = tdma_service_timing_now();
+    const bool command_dma_stopped = tdma_pio_spi_phys_stop_command_dma(phys);
+    tdma_service_timing_record(TDMA_TIMING_PHYS_DISARM_DMA, disarm_dma_start);
+    if (!command_dma_stopped) return false;
+    /* stop_command_dma also retires legacy children without a loader. Do not
+     * re-enter the SDK's unbounded abort after that common deadline. */
+    if (phys->flight_sck_waveform_capture_state ==
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_PATCHED ||
+        phys->flight_sck_waveform_capture_state ==
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_ARMED ||
+        phys->flight_sck_waveform_capture_state ==
+            TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_READY) {
+        (void)tdma_pio_spi_phys_restore_clock_latch(phys, false);
+    }
+    tdma_pio_spi_phys_set_line_drivers(false);
+    if (tdma_pio_spi_phys_is_flight_persona()) {
+        tdma_pio_spi_phys_prepare_sm_pair(phys);
+    } else {
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO,
+                           BOARD_TDMA_SPI_CAPTURE_SM, false);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO,
+                           BOARD_TDMA_SPI_RTT_SM, false);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->tx_sm, false);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, false);
+        pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->tx_sm);
+        pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO, phys->rx_sm);
+        pio_sm_clear_fifos(BOARD_TDMA_SPI_PIO,
+                           BOARD_TDMA_SPI_RTT_SM);
+    }
+    gpio_set_function(phys->tx_sck_pin, GPIO_FUNC_SIO);
+    gpio_set_function(phys->tx_csn_pin, GPIO_FUNC_SIO);
+    gpio_set_function(phys->tx_pin, GPIO_FUNC_SIO);
+    gpio_set_function(phys->rx_sck_pin, GPIO_FUNC_SIO);
+    gpio_set_function(phys->rx_csn_pin, GPIO_FUNC_SIO);
+    gpio_set_function(phys->rx_pin, GPIO_FUNC_SIO);
+    gpio_set_dir(phys->tx_sck_pin, GPIO_IN);
+    gpio_set_dir(phys->tx_csn_pin, GPIO_IN);
+    gpio_set_dir(phys->tx_pin, GPIO_IN);
+    gpio_set_dir(phys->rx_sck_pin, GPIO_IN);
+    gpio_set_dir(phys->rx_csn_pin, GPIO_IN);
+    gpio_set_dir(phys->rx_pin, GPIO_IN);
+    phys->armed = false;
+    phys->flight_clock_latch_armed = false;
+    phys->flight_tx_clock_latch_armed = false;
+    phys->flight_sck_waveform_capture_state =
+        TDMA_PIO_SPI_RING_WAVEFORM_CAPTURE_IDLE;
+    phys->flight_sck_waveform_capture_deadline_us = 0ull;
+    phys->rx_capture_active = false;
+    phys->flight_overlay_pending = false;
+    phys->flight_overlay_alignment_locked = false;
+    phys->flight_overlay_alignment_samples = 0u;
+    phys->snapshot.overlay_selection_pending = 0u;
+    phys->flight_tx_pending = false;
+    phys->flight_tx_completion_pending = false;
+    phys->flight_tx_packet_size = 0u;
+    phys->flight_tx_wire_bytes = 0u;
+    phys->flight_tx_deadline_ns = 0ull;
+    tdma_pio_spi_phys_clk_train_reset(phys);
+    tdma_pio_spi_phys_fill_static_snapshot(phys);
+    const uint64_t release_start = tdma_service_timing_now();
+    tdma_pio_spi_phys_release_flight_resources(phys);
+    tdma_service_timing_record(TDMA_TIMING_PHYS_RELEASE, release_start);
+    if (phys->flight_resource_claimed || phys->flight_origin_resource_claimed) return false;
+    /* Also cancel preparation before persona claim, when no command DMA
+     * exists and stop_command_dma has no active graph to retire. */
+    phys->flight_origin_workspace_owned = false;
+    phys->flight_origin_rx_observation_ready = false;
+    memset(&phys->flight_origin_prepare, 0, sizeof(phys->flight_origin_prepare));
+    /* Hardware is already stopped. A cancelled Core0 writer keeps STOP
+     * pending until ACK, so neither ARM nor the origin union can reuse it. */
+    if (worker_retired && scanner_retired) {
+        tdma_rx_start_cut_disarmed();
+        tdma_rx_first_window_retire(TDMA_RX_FIRST_STOP_BEFORE_COMPLETE, true);
+        s_geometry_physical_stopped = true;
+    }
+    return worker_retired && scanner_retired;
+}
+
+bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,
+                                     uint32_t word)
+{
+    const uint64_t deadline_us =
+        tdma_pio_spi_phys_now_us() + TDMA_PIO_SPI_TX_PUT_TIMEOUT_US;
+    while (pio_sm_is_tx_fifo_full(BOARD_TDMA_SPI_PIO, phys->tx_sm)) {
+        if (tdma_pio_spi_phys_now_us() >= deadline_us) {
+            phys->snapshot.tx_timeout_count++;
+            return false; /* SM stopped: do not hang core1. */
+        }
+    }
+    pio_sm_put(BOARD_TDMA_SPI_PIO, phys->tx_sm, word);
+    return true;
+}
+
+bool tdma_pio_spi_phys_train_clock(void *context, uint32_t cycles)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (phys != NULL && !tdma_overlay_prepare_cancel(phys->overlay_preparation)) return false;
+    if (phys != NULL && !tdma_pio_spi_phys_rx_scan_cancel(phys)) return false;
+    if (phys == NULL || !phys->armed || cycles == 0u ||
+        cycles > TDMA_PIO_SPI_TRAIN_CLOCK_MAX_CYCLES) {
+        if (phys != NULL) {
+            tdma_pio_spi_phys_set_error(phys,
+                                        TDMA_PIO_SPI_PHYS_ERROR_BAD_ARGUMENT);
+            tdma_pio_spi_phys_clk_train_write_begin(phys);
+            phys->clk_train.request_seq++;
+            phys->clk_train.state = TDMA_PIO_SPI_CLK_TRAIN_ERROR;
+            phys->clk_train.result = TDMA_PIO_SPI_CLK_TRAIN_RESULT_REJECTED;
+            phys->clk_train.requested_cycles = cycles;
+            tdma_pio_spi_phys_clk_train_write_end(phys);
+        }
+        return false;
+    }
+
+    /* Clock training replaces the complete resident flight persona.  The
+     * product persona may have both the process-overlay TX DMA and the
+     * independent CS clock-latch SM active, while the reference also owns
+     * the RTT SM.  Quiesce every TDMA-owned execution resource before asking
+     * the PIO allocator to remove and replace the program set. */
+    if (!tdma_pio_spi_phys_stop_command_dma(phys)) return false;
+    if (s_tdma_pio_spi_tx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_tx_dma_channel);
+    }
+    if (s_tdma_pio_spi_rx_dma_channel >= 0) {
+        dma_channel_abort((uint)s_tdma_pio_spi_rx_dma_channel);
+    }
+    phys->rx_capture_active = false;
+    phys->flight_clock_latch_armed = false;
+    tdma_pio_spi_phys_prepare_sm_pair(phys);
+    if (!tdma_pio_spi_phys_select_program_persona(
+            phys, TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_COARSE)) {
+        tdma_pio_spi_phys_set_error(
+            phys, TDMA_PIO_SPI_PHYS_ERROR_RESOURCE_CONFLICT);
+        tdma_pio_spi_phys_clk_train_write_begin(phys);
+        phys->clk_train.request_seq++;
+        phys->clk_train.state = TDMA_PIO_SPI_CLK_TRAIN_ERROR;
+        phys->clk_train.result = TDMA_PIO_SPI_CLK_TRAIN_RESULT_REJECTED;
+        phys->clk_train.requested_cycles = cycles;
+        tdma_pio_spi_phys_clk_train_write_end(phys);
+        return false;
+    }
+    /* Maintenance personas return to the legacy PIO2 SM assignment after
+     * the direction-isolated flight programs have been unloaded. */
+    phys->tx_sm = BOARD_TDMA_SPI_MASTER_SM;
+    phys->rx_sm = BOARD_TDMA_SPI_SLAVE_SM;
+    for (uint32_t irq = 0u; irq < 4u; irq++) {
+        pio_interrupt_clear(BOARD_TDMA_SPI_PIO, irq);
+    }
+    gpio_put(phys->tx_csn_pin, true);
+
+    const uint32_t request_seq = phys->clk_train.request_seq + 1u;
+    const uint64_t burst_duration_ns =
+        ((uint64_t)cycles * 1000000000ull + phys->baud_hz - 1ull) /
+        phys->baud_hz;
+    tdma_pio_spi_phys_clk_train_write_begin(phys);
+    memset(&phys->clk_train, 0, sizeof(phys->clk_train));
+    phys->clk_train.version = TDMA_PIO_SPI_CLK_TRAIN_SNAPSHOT_VERSION;
+    phys->clk_train.role = phys->role;
+    phys->clk_train.request_seq = request_seq;
+    phys->clk_train.baud_hz = phys->baud_hz;
+    phys->clk_train.requested_cycles = cycles;
+    phys->clk_train.tx_sck_pin = phys->tx_sck_pin;
+    phys->clk_train.rx_sck_pin = phys->rx_sck_pin;
+    phys->clk_train.timestamp_resolution_ns =
+        vdc_timestamp_clock_resolution_ns();
+    phys->clk_train.timestamp_flags =
+        TDMA_RING_TIMESTAMP_FLAG_DIAGNOSTIC_ONLY;
+    phys->clk_train.burst_duration_ns = burst_duration_ns;
+
+    if (phys->role == TDMA_PIO_SPI_ROLE_SLAVE) {
+        tdma_pio_spi_clk_forward_program_init(
+            BOARD_TDMA_SPI_PIO,
+            phys->tx_sm,
+            s_tdma_pio_spi_clk_forward_offset,
+            phys->rx_sck_pin,
+            phys->tx_sck_pin);
+        phys->clk_train.state = TDMA_PIO_SPI_CLK_TRAIN_FORWARDING;
+        phys->clk_train.result =
+            TDMA_PIO_SPI_CLK_TRAIN_RESULT_FORWARD_ARMED;
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->tx_sm, true);
+        phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_NONE;
+        tdma_pio_spi_phys_clk_train_write_end(phys);
+        return true;
+    }
+
+    tdma_pio_spi_clk_burst_program_init(BOARD_TDMA_SPI_PIO,
+                                        phys->tx_sm,
+                                        s_tdma_pio_spi_clk_burst_offset,
+                                        phys->tx_sck_pin,
+                                        phys->baud_hz);
+    tdma_pio_spi_clk_capture_program_init(
+        BOARD_TDMA_SPI_PIO,
+        phys->rx_sm,
+        s_tdma_pio_spi_clk_capture_offset,
+        phys->rx_sck_pin);
+    pio_sm_put(BOARD_TDMA_SPI_PIO, phys->tx_sm, cycles - 1u);
+    const uint64_t tx_start_timestamp_ns = vdc_timestamp_clock_now_ns();
+    phys->clk_train.tx_start_timestamp_ns = tx_start_timestamp_ns;
+    phys->clk_train.state = TDMA_PIO_SPI_CLK_TRAIN_MASTER_RUNNING;
+    phys->clk_train.result = TDMA_PIO_SPI_CLK_TRAIN_RESULT_NONE;
+    phys->clk_train_return_deadline_ns =
+        tdma_pio_spi_phys_now_us() * 1000ull + burst_duration_ns +
+        TDMA_PIO_SPI_TRAIN_RETURN_TIMEOUT_NS;
+    pio_enable_sm_mask_in_sync(
+        BOARD_TDMA_SPI_PIO,
+        (1u << phys->tx_sm) | (1u << phys->rx_sm));
+    phys->snapshot.last_error = TDMA_PIO_SPI_PHYS_ERROR_NONE;
+    tdma_pio_spi_phys_clk_train_write_end(phys);
+    return true;
+}
+
+void tdma_pio_spi_phys_train_clock_service(void *context, uint64_t now_ns)
+{
+    tdma_pio_spi_phys_t *phys = (tdma_pio_spi_phys_t *)context;
+    if (phys == NULL || !phys->armed) {
+        return;
+    }
+
+    const uint32_t state = phys->clk_train.state;
+    if (state != TDMA_PIO_SPI_CLK_TRAIN_FORWARDING &&
+        state != TDMA_PIO_SPI_CLK_TRAIN_MASTER_RUNNING) {
+        return;
+    }
+
+    tdma_pio_spi_phys_clk_train_write_begin(phys);
+    phys->clk_train.service_count++;
+    if (state == TDMA_PIO_SPI_CLK_TRAIN_FORWARDING) {
+        tdma_pio_spi_phys_clk_train_write_end(phys);
+        return;
+    }
+
+    const bool return_seen =
+        pio_interrupt_get(BOARD_TDMA_SPI_PIO, 2u);
+    const bool tx_done = pio_interrupt_get(BOARD_TDMA_SPI_PIO, 1u);
+    if (tx_done && phys->clk_train.tx_done_observed_timestamp_ns == 0ull) {
+        phys->clk_train.tx_done_observed_timestamp_ns = now_ns;
+    }
+    if (return_seen) {
+        phys->clk_train.return_seen = 1u;
+        phys->clk_train.return_before_tx_done = tx_done ? 0u : 1u;
+        phys->clk_train.return_observed_timestamp_ns = now_ns;
+        phys->clk_train.result = tx_done
+                                     ? TDMA_PIO_SPI_CLK_TRAIN_RESULT_NO_OVERLAP
+                                     : TDMA_PIO_SPI_CLK_TRAIN_RESULT_RETURN_OVERLAP;
+        phys->clk_train.state = TDMA_PIO_SPI_CLK_TRAIN_MASTER_COMPLETE;
+    } else if (tx_done && now_ns >= phys->clk_train_return_deadline_ns) {
+        phys->clk_train.result =
+            TDMA_PIO_SPI_CLK_TRAIN_RESULT_RETURN_TIMEOUT;
+        phys->clk_train.state = TDMA_PIO_SPI_CLK_TRAIN_ERROR;
+    }
+
+    if (phys->clk_train.state != TDMA_PIO_SPI_CLK_TRAIN_MASTER_RUNNING) {
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->tx_sm, false);
+        pio_sm_set_enabled(BOARD_TDMA_SPI_PIO, phys->rx_sm, false);
+    }
+    tdma_pio_spi_phys_clk_train_write_end(phys);
+}
+
+/* Maintenance starts at the common stopped boundary. In particular an
+ * origin executor can keep writing after its DATA child reports BUSY=0.
+ * The incremental legacy loaders operate only on the NORMAL catalog. */
+bool tdma_pio_spi_phys_leave_flight_for_maintenance(tdma_pio_spi_phys_t *phys)
+{
+    if (!tdma_pio_spi_phys_is_flight_persona()) return true;
+    return tdma_pio_spi_phys_disarm(phys) &&
+        tdma_pio_spi_phys_select_program_persona(phys, TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL);
+}
+
+bool tdma_pio_spi_phys_clk_train_terminal_core1(
+    const tdma_pio_spi_phys_t *phys)
+{
+    if (phys == NULL) return false;
+    const uint32_t begin = __atomic_load_n(&phys->clk_train_guard,
+                                           __ATOMIC_ACQUIRE);
+    if ((begin & 1u) != 0u) return false;
+    const uint32_t state = phys->clk_train.state;
+    if (state != TDMA_PIO_SPI_CLK_TRAIN_IDLE &&
+        state != TDMA_PIO_SPI_CLK_TRAIN_MASTER_COMPLETE &&
+        state != TDMA_PIO_SPI_CLK_TRAIN_ERROR) return false;
+    if (s_tdma_pio_spi_program_persona == TDMA_PIO_SPI_PROGRAM_PERSONA_CLOCK_COARSE &&
+        (BOARD_TDMA_SPI_PIO->ctrl &
+         ((1u << BOARD_TDMA_SPI_MASTER_SM) | (1u << BOARD_TDMA_SPI_SLAVE_SM))) != 0u) {
+        return false;
+    }
+    return begin == __atomic_load_n(&phys->clk_train_guard, __ATOMIC_ACQUIRE);
+}
+
+bool tdma_pio_spi_phys_get_clk_train_snapshot(
+    const tdma_pio_spi_phys_t *phys,
+    tdma_pio_spi_clk_train_snapshot_t *snapshot)
+{
+    if (phys == NULL || snapshot == NULL) {
+        return false;
+    }
+    for (uint32_t attempt = 0u; attempt < 64u; attempt++) {
+        const uint32_t guard_begin =
+            __atomic_load_n(&phys->clk_train_guard, __ATOMIC_ACQUIRE);
+        if ((guard_begin & 1u) != 0u) {
+            continue;
+        }
+        *snapshot = phys->clk_train;
+        const uint32_t guard_end =
+            __atomic_load_n(&phys->clk_train_guard, __ATOMIC_ACQUIRE);
+        if (guard_begin == guard_end && (guard_end & 1u) == 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+

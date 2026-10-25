@@ -32,7 +32,11 @@ def geometry_exe(tmp_path_factory):
     build = tmp_path_factory.mktemp("tdma-frozen-geometry")
     physical = ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
     geometry = ROOT / "components/tdma/src/tdma_pio_spi_phys_geometry.c"
-    source = physical.read_text(encoding="utf-8")
+    # N5.0.4o: the phys core is split into three units.
+    source = "\n".join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_phys.c", "tdma_pio_spi_phys_ring_io.c",
+                     "tdma_pio_spi_phys_arm.c"))
     geometry_bytes = geometry.read_bytes()
     (build / geometry.name).write_bytes(geometry_bytes)
     extracted = {}

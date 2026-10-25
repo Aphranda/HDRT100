@@ -16,6 +16,15 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_phys_core() -> str:
+    """N5.0.4o: the phys core is split into three units."""
+    return chr(10).join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_phys.c", "tdma_pio_spi_phys_ring_io.c", "tdma_pio_spi_phys_arm.c")
+    )
+
+
+
 def _read_scpi_snapshot() -> str:
     """N5.0.4n: the snapshot command surface is split into four units."""
     return chr(10).join(
@@ -33,7 +42,7 @@ def prelaunch_source(tmp_path):
         for path in ("components/tdma/src/tdma_pio_spi_phys_event.c",
                      "components/tdma/src/tdma_pio_spi_phys_rx_start_cut.c",
                      "components/tdma/src/tdma_pio_spi_phys_rx_first.c"))
-    phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_core()
     arm = c_definition_body(phys, "tdma_pio_spi_phys_arm")
     begin = arm.rindex("    if (process_follower) {")
     tail = arm[begin:]

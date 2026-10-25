@@ -10,6 +10,15 @@ import pytest
 from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
 
 ROOT = Path(__file__).resolve().parents[2]
+
+def _read_phys_core() -> str:
+    """N5.0.4o: the phys core is split into three units."""
+    return chr(10).join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_phys.c", "tdma_pio_spi_phys_ring_io.c", "tdma_pio_spi_phys_arm.c")
+    )
+
+
 U32 = (1 << 32) - 1
 U64 = (1 << 64) - 1
 
@@ -17,7 +26,7 @@ U64 = (1 << 64) - 1
 @pytest.fixture(scope="module")
 def timing(tmp_path_factory):
     out = tmp_path_factory.mktemp("latch-arithmetic")
-    phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_core()
     io = (ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.c").read_text(encoding="utf-8")
     arithmetic = (ROOT / "components/tdma/src/tdma_pio_spi_phys_timing.c").read_text(encoding="utf-8")
     prefix = r'''

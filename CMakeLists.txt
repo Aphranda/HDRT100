@@ -619,6 +619,8 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_receive_health.c
         components/tdma/src/tdma_adapter_comm_fsm.c
         components/tdma/src/tdma_pio_spi_phys.c
+        components/tdma/src/tdma_pio_spi_phys_ring_io.c
+        components/tdma/src/tdma_pio_spi_phys_arm.c
         components/tdma/src/tdma_pio_spi_phys_rx_scan.c
         components/tdma/src/tdma_pio_spi_phys_geometry.c
         components/tdma/src/tdma_pio_spi_phys_priority.c

@@ -7,6 +7,16 @@ from tools.state_machine_resource_check import state_machine_resource_check
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_phys_core() -> str:
+    """N5.0.4o: the phys core is split into three units."""
+    return chr(10).join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_phys.c", "tdma_pio_spi_phys_ring_io.c",
+                     "tdma_pio_spi_phys_arm.c")
+    )
+
+
+
 def _read_ring_adapter() -> str:
     """N5.0.4l: the ring adapter is split into four translation units."""
     return chr(10).join(
@@ -108,7 +118,7 @@ def test_sync_board_profile_trigraph_redefinition_cannot_hide_owner(
 
 
 def test_overlay_binding_rejects_crossed_fifo_and_dreq() -> None:
-    phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    phys = _read_phys_core()
     flight = (ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.c").read_text(encoding="utf-8")
     body = state_machine_resource_check.c_function_body(phys, "tdma_pio_spi_phys_overlay_binding")
     for before, after, expected in (
@@ -280,9 +290,7 @@ def test_flight_resource_view_uses_runtime_persona_roles() -> None:
     resources = (
         ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
     ).read_text(encoding="utf-8")
-    phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(
-        encoding="utf-8"
-    )
+    phys = _read_phys_core()
 
     for role in (
         "tx_control_out_sm",
@@ -384,9 +392,7 @@ def test_rx_endpoint_contract_rejects_rx_dma_dreq_direction(
 ) -> None:
     phys = tmp_path / "tdma_pio_spi_phys.c"
     phys.write_text(
-        (
-            ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
-        ).read_text(encoding="utf-8").replace(
+        _read_phys_core().replace(
             "pio_get_dreq(capture_pio, capture_sm, false)",
             "pio_get_dreq(capture_pio, capture_sm, true)",
             1,
@@ -408,9 +414,7 @@ def test_rx_endpoint_contract_rejects_tx_fifo_as_rx_dma_source(
 ) -> None:
     phys = tmp_path / "tdma_pio_spi_phys.c"
     phys.write_text(
-        (
-            ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
-        ).read_text(encoding="utf-8").replace(
+        _read_phys_core().replace(
             "&capture_pio->rxf[capture_sm]",
             "&capture_pio->txf[capture_sm]",
             1,
@@ -449,9 +453,7 @@ def test_normal_adapter_contract_does_not_introduce_data_tx_or_serial_join():
 
 
 def test_flight_claim_is_released_on_arm_failure_and_stop() -> None:
-    phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(
-        encoding="utf-8"
-    )
+    phys = _read_phys_core()
     arm = phys.split("bool tdma_pio_spi_phys_arm(void *context", 1)[1].split(
         "bool tdma_pio_spi_phys_disarm", 1
     )[0]
@@ -464,8 +466,8 @@ def test_flight_claim_is_released_on_arm_failure_and_stop() -> None:
     assert "tdma_pio_spi_phys_disarm(phys)" in arm  # Bounded OSR prime rollback.
     assert "tdma_pio_spi_phys_release_flight_resources(phys)" in disarm
     release_helper = phys.split(
-        "static void tdma_pio_spi_phys_release_flight_resources", 1
-    )[1].split("static void tdma_pio_spi_phys_enable_sm_pair", 1)[0]
+        "void tdma_pio_spi_phys_release_flight_resources", 1
+    )[1].split("void tdma_pio_spi_phys_enable_sm_pair", 1)[0]
     assert "s_tdma_pio_spi_program_persona" in release_helper
     assert "if (!tdma_pio_spi_phys_stop_command_dma(phys)) return;" in release_helper
     assert "TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN" not in release_helper

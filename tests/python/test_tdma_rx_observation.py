@@ -11,10 +11,21 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_phys_core() -> str:
+    """N5.0.4o: the phys core is split into three units."""
+    return chr(10).join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_phys.c", "tdma_pio_spi_phys_ring_io.c", "tdma_pio_spi_phys_arm.c")
+    )
+
+
+
 
 def build_scanner(directory, asynchronous=False, instrumented=False, physical=False):
-    live = (ROOT/"components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
-    capture = Path(os.environ.get("TDMA_RX_CAPTURE_SOURCE", ROOT/"components/tdma/src/tdma_pio_spi_phys.c")).read_text(encoding="utf-8")
+    live = _read_phys_core()
+    override = os.environ.get("TDMA_RX_CAPTURE_SOURCE")
+    capture = (Path(override).read_text(encoding="utf-8") if override
+               else _read_phys_core())
     definitions = [
         ("uint64_t", "tdma_pio_spi_phys_rx_produced_words", "tdma_pio_spi_phys_t *phys"),
         ("uint8_t", "tdma_pio_spi_phys_rx_ring_reversed_byte", "uint64_t produced"),

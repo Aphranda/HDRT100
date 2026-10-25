@@ -14,6 +14,15 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_phys_core() -> str:
+    """N5.0.4o: the phys core is split into three units."""
+    return chr(10).join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_phys.c", "tdma_pio_spi_phys_ring_io.c", "tdma_pio_spi_phys_arm.c")
+    )
+
+
+
 
 class Run(C.Structure):
     _fields_ = [(name, C.c_uint32) for name in
@@ -46,7 +55,7 @@ def engine(tmp_path_factory, request):
     pioasm = os.environ.get("PIOASM") or shutil.which("pioasm") or str(
         Path.home() / ".pico-sdk/tools/2.2.0/pioasm/pioasm.exe")
     libpath = directory / ("overlay.dll" if os.name == "nt" else "overlay.so")
-    adapter = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    adapter = _read_phys_core()
     normalize = directory / "normalize.c"
     normalize.write_text('''#include <stdint.h>
 enum { TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER = 3 };

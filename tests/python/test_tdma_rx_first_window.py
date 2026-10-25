@@ -16,6 +16,15 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_phys_core() -> str:
+    """N5.0.4o: the phys core is split into three units."""
+    return chr(10).join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_phys.c", "tdma_pio_spi_phys_ring_io.c", "tdma_pio_spi_phys_arm.c")
+    )
+
+
+
 
 def lifecycle_source(source):
     programs = (ROOT / "components/tdma/src/tdma_pio_spi_phys_programs.c").read_text(encoding="utf-8")
@@ -61,7 +70,7 @@ def lifecycle_source(source):
         ("bool", "tdma_pio_spi_phys_geometry_arm_requested", "void *context, const tdma_ring_runtime_config_t *config"),
     ):
         appendix += f"static {result} {name}({args}) {{" + c_definition_body(geometry, name) + "}\n"
-    physical = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
+    physical = _read_phys_core()
     disarm = c_definition_body(physical, "tdma_pio_spi_phys_disarm")
     tail = disarm[disarm.rindex("    if (worker_retired && scanner_retired) {"):]
     appendix += "\nstatic bool first_physical_stop_tail(bool worker_retired, bool scanner_retired) {\n" + tail + "}\n"
