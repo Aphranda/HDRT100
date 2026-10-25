@@ -18,7 +18,7 @@ U64 = (1 << 64) - 1
 def timing(tmp_path_factory):
     out = tmp_path_factory.mktemp("latch-arithmetic")
     phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
-    io = (ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.inc").read_text(encoding="utf-8")
+    io = (ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.c").read_text(encoding="utf-8")
     arithmetic = (ROOT / "components/tdma/src/tdma_pio_spi_phys_timing.c").read_text(encoding="utf-8")
     prefix = r'''
 #include "tdma_pio_spi_phys_timing.h"

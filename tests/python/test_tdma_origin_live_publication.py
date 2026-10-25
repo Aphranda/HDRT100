@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_live_publication_and_readback(tmp_path):
-    origin = (ROOT / 'components/tdma/src/tdma_pio_spi_phys_origin.inc').read_text(encoding='utf-8')
+    origin = (ROOT / 'components/tdma/src/tdma_pio_spi_phys_origin.c').read_text(encoding='utf-8')
     physical = (ROOT / 'components/tdma/src/tdma_pio_spi_phys.c').read_text(encoding='utf-8')
     owner = (ROOT / 'components/tdma/src/tdma_runtime_owner.c').read_text(encoding='utf-8')
     scpi = (ROOT / 'middleware/scpi_port/src/scpi_calibration_commands.c').read_text(encoding='utf-8')

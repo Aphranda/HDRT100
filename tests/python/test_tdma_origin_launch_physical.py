@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture(scope="module")
 def launch_exe(tmp_path_factory):
     build = tmp_path_factory.mktemp("origin-launch-physical")
-    origin_path = ROOT / "components/tdma/src/tdma_pio_spi_phys_origin.inc"
+    origin_path = ROOT / "components/tdma/src/tdma_pio_spi_phys_origin.c"
     physical_path = ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
     origin = origin_path.read_text(encoding="utf-8")
     physical = physical_path.read_text(encoding="utf-8")

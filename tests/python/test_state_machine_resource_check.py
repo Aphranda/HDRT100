@@ -88,7 +88,7 @@ def test_sync_board_profile_trigraph_redefinition_cannot_hide_owner(
 
 def test_overlay_binding_rejects_crossed_fifo_and_dreq() -> None:
     phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys.c").read_text(encoding="utf-8")
-    flight = (ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.inc").read_text(encoding="utf-8")
+    flight = (ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.c").read_text(encoding="utf-8")
     body = state_machine_resource_check.c_function_body(phys, "tdma_pio_spi_phys_overlay_binding")
     for before, after, expected in (
         ("tdma_pio_spi_phys_data_sm(phys), true", "tdma_pio_spi_phys_data_sm(phys), false",

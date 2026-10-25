@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_origin_record_frozen_lifetime(tmp_path):
     phys = (ROOT/'components/tdma/src/tdma_pio_spi_phys.c').read_text(encoding='utf-8')
-    origin = (ROOT/'components/tdma/src/tdma_pio_spi_phys_origin.inc').read_text(encoding='utf-8')
+    origin = (ROOT/'components/tdma/src/tdma_pio_spi_phys_origin.c').read_text(encoding='utf-8')
     functions = [
         (phys,'tdma_pio_spi_phys_origin_record_invalidate',
          'static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys)'),

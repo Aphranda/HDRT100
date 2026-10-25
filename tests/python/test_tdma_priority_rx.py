@@ -128,7 +128,8 @@ static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *dst, uint64_t start, uint32_
         timer1_hw->timerawl += 1000u;
     }
 }
-#include "tdma_pio_spi_phys_priority.inc"
+#define TDMA_PHYS_PRIORITY_HARNESS 1
+#include "tdma_pio_spi_phys_priority.c"
 
 static void put16(uint8_t *p, uint32_t value) { p[0]=(uint8_t)value; p[1]=(uint8_t)(value>>8u); }
 static void put32(uint8_t *p, uint32_t value) { put16(p,value); put16(p+2,value>>16u); }

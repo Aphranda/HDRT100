@@ -40,7 +40,7 @@ def production_routines() -> str:
         ("components/tdma/src/tdma_pio_spi_phys.c", "void", "tdma_pio_spi_phys_service_observer", "tdma_pio_spi_phys_t *phys"),
         ("components/tdma/src/tdma_runtime_owner.c", "void", "tdma_runtime_owner_service_observer", "void"),
         ("components/tdma/src/tdma_pio_spi_phys.c", "bool", "tdma_pio_spi_phys_capture_words", "tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words"),
-        ("components/tdma/src/tdma_pio_spi_phys_flight_io.inc", "void", "tdma_pio_spi_phys_service_tx", "void *context, uint64_t now_ns"),
+        ("components/tdma/src/tdma_pio_spi_phys_flight_io.c", "void", "tdma_pio_spi_phys_service_tx", "void *context, uint64_t now_ns"),
         ("components/tdma/src/tdma_runtime_owner.c", "void", "tdma_runtime_owner_service_phys_tx", "uint64_t now_ns"),
         ("components/tdma/src/tdma_rx_prepare.c", "uint32_t", "tdma_rx_prepare_state", "const tdma_rx_prepare_t *job"),
         ("components/tdma/src/tdma_pio_spi_ring_adapter.c", "bool", "tdma_pio_spi_ring_adapter_rx_capture", "tdma_pio_spi_ring_adapter_t *adapter, uint8_t *packet, size_t packet_capacity"),

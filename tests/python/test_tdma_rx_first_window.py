@@ -53,7 +53,7 @@ def lifecycle_source(source):
     appendix += (ROOT / "components/tdma/src/tdma_pio_spi_persona_fsm.c").read_text(encoding="utf-8")
     appendix += "\n#define s_tdma_pio_spi_program_persona (*manager->program_persona)\n" + bodies
     appendix += "\n#undef s_tdma_pio_spi_program_persona\n" + "\n".join(f"#undef {name}" for name in offsets)
-    geometry = (ROOT / "components/tdma/src/tdma_pio_spi_phys_geometry.inc").read_text(encoding="utf-8")
+    geometry = (ROOT / "components/tdma/src/tdma_pio_spi_phys_geometry.c").read_text(encoding="utf-8")
     appendix += GEOMETRY_SEAMS
     for result, name, args in (
         ("void", "tdma_geometry_retire", "uint32_t reason"),
@@ -136,7 +136,7 @@ def test_first_window_production_boundaries(tmp_path, capacity):
                 ROOT / "components/tdma/src/tdma_pio_spi_phys_rx_first.c",
                 ROOT / "components/tdma/src/tdma_pio_spi_phys.c",
                 ROOT / "components/tdma/src/tdma_pio_spi_phys_programs.c",
-                ROOT / "components/tdma/src/tdma_pio_spi_phys_geometry.inc",
+                ROOT / "components/tdma/src/tdma_pio_spi_phys_geometry.c",
                 ROOT / "components/tdma/src/tdma_pio_spi_persona_fsm.c",
                 ROOT / "components/tdma/inc/tdma_rx_first_window.h", cases]
     hashes = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in observed}

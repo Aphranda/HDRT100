@@ -68,7 +68,8 @@ static void tdma_pio_spi_phys_set_error(tdma_pio_spi_phys_t *phys, uint32_t erro
 static void tdma_rx_first_window_admit(const tdma_ring_runtime_config_t *c) { (void)c; }
 static void tdma_rx_first_window_arm_failed(void) { }
 static void tdma_rx_first_window_retire(uint32_t reason, bool stopped) { (void)reason; (void)stopped; }
-#include "tdma_pio_spi_phys_geometry.inc"
+#define TDMA_PHYS_GEOMETRY_HARNESS 1
+#include "tdma_pio_spi_phys_geometry.c"
 
 /* Register/physical cleanup boundaries only. All three worker cancellation
  * implementations and the complete adapter implementation are linked below. */

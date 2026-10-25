@@ -46,7 +46,7 @@ def test_tdma_observer_has_one_owner_harvest_per_phase() -> None:
     assert body.count("tdma_runtime_owner_service_observer();") == 1
     # The normal path has two platform branches (device/host) around one call site.
     assert body.count("tdma_runtime_owner_service_phys_tx(") >= 1
-    phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.inc").read_text(
+    phys = (ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.c").read_text(
         encoding="utf-8")
     tx_body = phys.split("void tdma_pio_spi_phys_service_tx(", 1)[1]
     assert "tdma_pio_spi_phys_event_service(phys);" in tx_body

@@ -31,7 +31,7 @@ static inline void tdma_service_timing_record(uint32_t stage, uint64_t start)
 def geometry_exe(tmp_path_factory):
     build = tmp_path_factory.mktemp("tdma-frozen-geometry")
     physical = ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
-    geometry = ROOT / "components/tdma/src/tdma_pio_spi_phys_geometry.inc"
+    geometry = ROOT / "components/tdma/src/tdma_pio_spi_phys_geometry.c"
     source = physical.read_text(encoding="utf-8")
     geometry_bytes = geometry.read_bytes()
     (build / geometry.name).write_bytes(geometry_bytes)

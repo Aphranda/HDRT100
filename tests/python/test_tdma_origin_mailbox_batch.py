@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.mark.parametrize("capacity", range(2, 9))
 def test_origin_mailbox_batches(tmp_path, capacity):
-    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys_origin.inc").read_text(encoding="utf-8")
+    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys_origin.c").read_text(encoding="utf-8")
     constant = re.search(r"^#define TDMA_ORIGIN_PREPARE_MAILBOX_BATCH .+$", source, re.M)
     assert constant
     signatures = (

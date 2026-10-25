@@ -59,7 +59,8 @@ static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *out, uint64_t p, uint32_t n,
         name = "tdma_pio_spi_phys_capture_words_legacy"
         code += "static bool " + name + "(tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words) {" + c_definition_body(live, name) + "}\n"
     if asynchronous:
-        code += '#include "tdma_pio_spi_phys_rx_scan.inc"\n'
+        code += '#define TDMA_PHYS_RX_SCAN_HARNESS 1\n'
+        code += '#include "tdma_pio_spi_phys_rx_scan.c"\n'
         body = (c_definition_body(live, "tdma_pio_spi_phys_capture_words") if physical else
                 'return tdma_pio_spi_phys_capture_words_async(phys, max_words, received_words);')
     else:
@@ -70,7 +71,7 @@ static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *out, uint64_t p, uint32_t n,
     if physical:
         # Execute actual same-call delivery and DMA ARM. Only SDK operations,
         # non-DMA timestamps and the separate autonomous backend are facades.
-        source = (ROOT/"components/tdma/src/tdma_pio_spi_phys_flight_io.inc").read_text(encoding="utf-8")
+        source = (ROOT/"components/tdma/src/tdma_pio_spi_phys_flight_io.c").read_text(encoding="utf-8")
         routines = [
             (live, "bool", "tdma_pio_spi_phys_capture_words_ex", "tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words, tdma_rx_capture_t *capture"),
             (live, "bool", "tdma_pio_spi_phys_rx_arm", "tdma_pio_spi_phys_t *phys"),

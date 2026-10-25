@@ -63,39 +63,27 @@ def _unstaged(path: str) -> bool:
 
 
 def run(paths: list[str]) -> dict:
-    dirty = [path for path in paths if _unstaged(path)]
-    command = [sys.executable, "-m", "pytest", *paths, "-q", "-p", "no:cacheprovider"]
-    started = time.monotonic()
-    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True,
-                            encoding="utf-8", errors="replace")
-    elapsed = time.monotonic() - started
-    tail = (result.stdout + result.stderr).strip().splitlines()[-25:]
-    summary_line = next((line for line in reversed(tail) if SUMMARY.search(line)), "")
-    match = SUMMARY.search(summary_line)
-    counts = {name: int(match.group(name) or 0) for name in
-              ("passed", "failed", "errors", "skipped")} if match else {}
+    """Single-call entry point; delegates to the step workflow for execution.
+
+    The workflow (``host_acceptance_workflow.py``) owns the numbered steps and
+    the fail-closed ordering. This wrapper keeps the historical one-shot
+    invocation used by the hook available and writes the same receipt schema.
+    """
+    import host_acceptance_workflow as workflow  # local: workflow imports this module
+
+    execution = workflow.execute(paths)
     # The receipt certifies the *staged* tests: that is exactly what a commit
     # carries and what check-staged recomputes.
     fingerprint, count = credential_scope.staged_scope_fingerprint("host", ROOT)
     working, _working_count = credential_scope.scope_fingerprint("host", ROOT)
-    receipt = {
+    receipt = dict(execution)
+    receipt.update({
         "schema": SCHEMA,
-        "passed": result.returncode == 0 and not counts.get("failed") and
-                  not counts.get("errors") and counts.get("passed", 0) > 0 and
-                  not dirty,
         "fingerprint": fingerprint,
         "file_count": count,
         "working_fingerprint": working,
-        "unstaged_tested_files": dirty,
-        "command": command,
-        "paths": paths,
         "started_at_utc": datetime.now(timezone.utc).isoformat(),
-        "duration_s": round(elapsed, 3),
-        "returncode": result.returncode,
-        "summary": counts,
-        "summary_line": summary_line,
-        "tail": tail,
-    }
+    })
     RECEIPT.parent.mkdir(parents=True, exist_ok=True)
     RECEIPT.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     return receipt
