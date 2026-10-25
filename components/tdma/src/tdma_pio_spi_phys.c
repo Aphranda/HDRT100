@@ -1,6 +1,7 @@
 #include "tdma_pio_spi_phys.h"
 #include "tdma_service_timing.h"
 #include "tdma_pio_spi_phys_programs.h"
+#include "tdma_pio_spi_phys_internal.h"
 #include "tdma_pio_spi_origin_workspace.h"
 #include "tdma_origin_build_job.h"
 
@@ -68,28 +69,28 @@ _Static_assert(TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES >=
 static bool s_tdma_pio_spi_sms_claimed;
 static bool s_tdma_pio_spi_flight_sms_claimed;
 static bool s_tdma_pio_spi_maintenance_resources_claimed;
-static tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
-static uint s_tdma_pio_spi_tx_offset;
-static uint s_tdma_pio_spi_rx_offset;
-static uint s_tdma_pio_spi_clk_forward_offset;
-static uint s_tdma_pio_spi_marker_forward_offset;
+tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
+uint s_tdma_pio_spi_tx_offset;
+uint s_tdma_pio_spi_rx_offset;
+uint s_tdma_pio_spi_clk_forward_offset;
+uint s_tdma_pio_spi_marker_forward_offset;
 static uint s_tdma_pio_spi_clk_burst_offset;
 static uint s_tdma_pio_spi_clk_capture_offset;
-static uint s_tdma_pio_spi_clk_coded_tx_offset;
-static uint s_tdma_pio_spi_clk_oversample_offset;
-static uint s_tdma_pio_spi_marker_origin_offset;
-static uint s_tdma_pio_spi_marker_capture_offset;
-static uint s_tdma_pio_spi_data_train_source_offset;
-static uint s_tdma_pio_spi_data_train_sink_offset;
-static uint s_tdma_pio_spi_sck_train_trigger_offset;
-static uint s_tdma_pio_spi_sck_train_source_offset;
-static uint s_tdma_pio_spi_sck_train_sink_offset;
+uint s_tdma_pio_spi_clk_coded_tx_offset;
+uint s_tdma_pio_spi_clk_oversample_offset;
+uint s_tdma_pio_spi_marker_origin_offset;
+uint s_tdma_pio_spi_marker_capture_offset;
+uint s_tdma_pio_spi_data_train_source_offset;
+uint s_tdma_pio_spi_data_train_sink_offset;
+uint s_tdma_pio_spi_sck_train_trigger_offset;
+uint s_tdma_pio_spi_sck_train_source_offset;
+uint s_tdma_pio_spi_sck_train_sink_offset;
 static uint s_tdma_pio_spi_cal_tx_offset;
 static uint s_tdma_pio_spi_cal_capture_offset;
-static uint s_tdma_pio_spi_p3_initiator_offset;
-static uint s_tdma_pio_spi_p3_responder_offset;
-static uint s_tdma_pio_spi_p3_capture_offset;
-static uint s_tdma_pio_spi_p3_responder_capture_offset;
+uint s_tdma_pio_spi_p3_initiator_offset;
+uint s_tdma_pio_spi_p3_responder_offset;
+uint s_tdma_pio_spi_p3_capture_offset;
+uint s_tdma_pio_spi_p3_responder_capture_offset;
 static uint s_tdma_pio_spi_flight_origin_clock_offset;
 static uint s_tdma_pio_spi_flight_origin_data_offset;
 static uint s_tdma_pio_spi_flight_origin_data_capture_offset;
@@ -101,7 +102,7 @@ static uint s_tdma_pio_spi_flight_rx_clock_latch_offset;
 static uint s_tdma_pio_spi_flight_origin_rtt_offset;
 static uint s_tdma_event_counter_offset;
 static uint s_tdma_event_sequence_offset;
-static uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS]
+uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS]
     __attribute__((aligned(4)));
 /* Calibration personas are mutually exclusive: the TDMA owner restores the
  * normal DATA/CS persona before accepting another request.  Keep one maximum
@@ -109,21 +110,11 @@ static uint32_t s_tdma_pio_spi_cal_ring[TDMA_PIO_SPI_CAL_LOOPBACK_MAX_WORDS]
  * data-training arrays concurrently.  The named members preserve the
  * persona-specific bounds and call sites while the union makes the lifetime
  * contract explicit in the static RAM layout. */
-typedef union {
-    uint32_t coded[TDMA_PIO_SPI_CODED_BUFFER_WORDS];
-    uint32_t marker[TDMA_PIO_SPI_MARKER_BUFFER_WORDS];
-    uint32_t data_train[TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS];
-} tdma_pio_spi_cal_tx_workspace_t;
 
-typedef union {
-    uint32_t coded[TDMA_PIO_SPI_CODED_BUFFER_WORDS];
-    uint32_t marker[TDMA_PIO_SPI_MARKER_BUFFER_WORDS];
-    uint32_t data_train[TDMA_PIO_SPI_DATA_TRAIN_BUFFER_WORDS];
-} tdma_pio_spi_cal_rx_workspace_t;
 
-static tdma_pio_spi_cal_tx_workspace_t s_tdma_pio_spi_cal_tx_workspace
+tdma_pio_spi_cal_tx_workspace_t s_tdma_pio_spi_cal_tx_workspace
     __attribute__((aligned(4)));
-static tdma_pio_spi_cal_rx_workspace_t s_tdma_pio_spi_cal_rx_workspace
+tdma_pio_spi_cal_rx_workspace_t s_tdma_pio_spi_cal_rx_workspace
     __attribute__((aligned(4)));
 #define s_tdma_pio_spi_coded_tx (s_tdma_pio_spi_cal_tx_workspace.coded)
 #define s_tdma_pio_spi_marker_tx (s_tdma_pio_spi_cal_tx_workspace.marker)
@@ -134,14 +125,14 @@ static tdma_pio_spi_cal_rx_workspace_t s_tdma_pio_spi_cal_rx_workspace
 #define s_tdma_pio_spi_data_train_rx \
     (s_tdma_pio_spi_cal_rx_workspace.data_train)
 /* CS-style local launch: high idle followed by one low edge. */
-static uint32_t s_tdma_pio_spi_sck_train_inject_word = 0u;
-static bool tdma_pio_spi_phys_cal_decode_step(tdma_pio_spi_phys_t *phys);
-static void tdma_pio_spi_phys_set_line_drivers(bool enabled);
-static int s_tdma_pio_spi_tx_dma_channel = -1;
-static int s_tdma_pio_spi_rx_dma_channel = -1;
-static int s_tdma_pio_spi_command_dma_channel = -1;
-static int s_tdma_pio_spi_executor_dma_channel = -1;
-static tdma_pio_spi_program_manager_t s_tdma_pio_spi_program_manager = {
+uint32_t s_tdma_pio_spi_sck_train_inject_word = 0u;
+bool tdma_pio_spi_phys_cal_decode_step(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_set_line_drivers(bool enabled);
+int s_tdma_pio_spi_tx_dma_channel = -1;
+int s_tdma_pio_spi_rx_dma_channel = -1;
+int s_tdma_pio_spi_command_dma_channel = -1;
+int s_tdma_pio_spi_executor_dma_channel = -1;
+tdma_pio_spi_program_manager_t s_tdma_pio_spi_program_manager = {
     .sms_claimed = &s_tdma_pio_spi_sms_claimed,
     .flight_sms_claimed = &s_tdma_pio_spi_flight_sms_claimed,
     .maintenance_resources_claimed =
@@ -220,7 +211,7 @@ static bool s_tdma_pio_spi_rx_arm_valid;
 static uint8_t s_tdma_pio_spi_rx_frame[TDMA_PIO_SPI_RX_DMA_WORD_MAX]
     __attribute__((aligned(4)));
 
-static bool tdma_pio_spi_phys_is_flight_persona(void)
+bool tdma_pio_spi_phys_is_flight_persona(void)
 {
     return s_tdma_pio_spi_program_persona ==
                TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_ORIGIN ||
@@ -472,7 +463,7 @@ bool tdma_pio_spi_phys_select_program_persona(
 
 /* Compatibility entry point for calibration service includes.  The owner
  * context remains explicit inside the migrated program manager. */
-static bool tdma_pio_spi_phys_ensure_sms_claimed(void)
+bool tdma_pio_spi_phys_ensure_sms_claimed(void)
 {
     return tdma_pio_spi_programs_ensure_sms_claimed(
         &s_tdma_pio_spi_program_manager);
@@ -507,7 +498,7 @@ static void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys)
         phys->flight_origin_capture_phase_delay_cycles;
 }
 
-static bool tdma_pio_spi_phys_ensure_rx_dma(void)
+bool tdma_pio_spi_phys_ensure_rx_dma(void)
 {
     if (s_tdma_pio_spi_rx_dma_channel >= 0) {
         return true;
@@ -520,7 +511,7 @@ static bool tdma_pio_spi_phys_ensure_rx_dma(void)
     return true;
 }
 
-static bool tdma_pio_spi_phys_ensure_tx_dma(void)
+bool tdma_pio_spi_phys_ensure_tx_dma(void)
 {
     if (s_tdma_pio_spi_tx_dma_channel >= 0) {
         return true;
@@ -713,7 +704,7 @@ static bool tdma_pio_spi_phys_stop_dma_chain(uint32_t loader_mask,
     return true;
 }
 
-static bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
+bool tdma_pio_spi_phys_stop_command_dma(tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL) return false;
     tdma_priority_stop();
@@ -1900,7 +1891,7 @@ bool tdma_pio_spi_phys_prepare_process_overlay(
     return true;
 }
 
-static void tdma_pio_spi_phys_set_line_drivers(bool enabled)
+void tdma_pio_spi_phys_set_line_drivers(bool enabled)
 {
     /* DATA0, CLK1 and TRIG/CS have independent ISO1452 drivers. */
     gpio_put(BOARD_UP_BISS_DE_PIN, enabled);
@@ -1908,7 +1899,7 @@ static void tdma_pio_spi_phys_set_line_drivers(bool enabled)
     gpio_put(BOARD_TRIG_DE_PIN, enabled);
 }
 
-static void tdma_pio_spi_phys_cal_cleanup(tdma_pio_spi_phys_t *phys)
+void tdma_pio_spi_phys_cal_cleanup(tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL) {
         return;
@@ -3017,19 +3008,13 @@ void tdma_pio_spi_phys_train_clock_service(void *context, uint64_t now_ns)
 /* Maintenance starts at the common stopped boundary. In particular an
  * origin executor can keep writing after its DATA child reports BUSY=0.
  * The incremental legacy loaders operate only on the NORMAL catalog. */
-static bool tdma_pio_spi_phys_leave_flight_for_maintenance(tdma_pio_spi_phys_t *phys)
+bool tdma_pio_spi_phys_leave_flight_for_maintenance(tdma_pio_spi_phys_t *phys)
 {
     if (!tdma_pio_spi_phys_is_flight_persona()) return true;
     return tdma_pio_spi_phys_disarm(phys) &&
         tdma_pio_spi_phys_select_program_persona(phys, TDMA_PIO_SPI_PROGRAM_PERSONA_NORMAL);
 }
 
-#include "tdma_pio_spi_phys_cal_control.inc"
-#include "tdma_pio_spi_phys_cal_service.inc"
-#include "tdma_pio_spi_phys_coded.inc"
-#include "tdma_pio_spi_phys_marker_restored.inc"
-#include "tdma_pio_spi_phys_data_train_restored.inc"
-#include "tdma_pio_spi_phys_p3.inc"
 bool tdma_pio_spi_phys_clk_train_terminal_core1(
     const tdma_pio_spi_phys_t *phys)
 {

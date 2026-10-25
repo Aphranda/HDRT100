@@ -16,16 +16,28 @@ def _read_phys_source() -> str:
     source_path = ROOT / "components" / "tdma" / "src" / "tdma_pio_spi_phys.c"
     source = source_path.read_text(encoding="utf-8")
     for fragment in (
-            "tdma_pio_spi_phys_cal_control.inc",
-            "tdma_pio_spi_phys_cal_service.inc",
-            "tdma_pio_spi_phys_coded.inc",
-            "tdma_pio_spi_phys_marker_restored.inc",
-            "tdma_pio_spi_phys_data_train_restored.inc",
-            "tdma_pio_spi_phys_p3.inc",
-            "tdma_pio_spi_phys_flight_io.inc"):
-        include = f'#include "{fragment}"'
-        fragment_path = source_path.with_name(fragment)
-        source = source.replace(include, fragment_path.read_text(encoding="utf-8"))
+            "tdma_pio_spi_phys_cal_control",
+            "tdma_pio_spi_phys_cal_service",
+            "tdma_pio_spi_phys_coded",
+            "tdma_pio_spi_phys_marker_restored",
+            "tdma_pio_spi_phys_data_train_restored",
+            "tdma_pio_spi_phys_p3",
+            "tdma_pio_spi_phys_flight_io"):
+        # Split units are real .c files now; the flight-io fragment is still .inc.
+        for suffix in (".c", ".inc"):
+            fragment_path = source_path.with_name(fragment + suffix)
+            if fragment_path.is_file():
+                include = f'#include "{fragment}{suffix}"'
+                source = source.replace(include, fragment_path.read_text(encoding="utf-8"))
+                if suffix == ".c":
+                    # Append only the fragment body: the split unit carries the
+                    # PHY prelude in front of it, which the caller already has.
+                    marker = '#include "tdma_pio_spi_phys_internal.h"'
+                    idx = fragment_path.read_text(encoding="utf-8").rfind(marker)
+                    text = fragment_path.read_text(encoding="utf-8")
+                    body = text[idx + len(marker):] if idx >= 0 else text
+                    source += "\n" + body
+                break
     programs_path = source_path.with_name("tdma_pio_spi_phys_programs.c")
     source += "\n/* extracted PIO program manager source */\n" + programs_path.read_text(
         encoding="utf-8")
@@ -1340,7 +1352,7 @@ def test_p3_reference_capture_uses_persona_loaded_program_offset() -> None:
     source = _read_phys_source()
     service = source.split(
         "void tdma_pio_spi_phys_cal_loopback_service", 1
-    )[1].split("static uint32_t tdma_pio_spi_cal_sample_byte", 1)[0]
+    )[1].split("tdma_pio_spi_cal_sample_byte(", 1)[0]
     capture_init = service.split(
         "tdma_pio_spi_cal_loopback_capture_program_init", 1
     )[1].split(");", 1)[0]
@@ -1372,7 +1384,7 @@ def test_calibration_loopback_persona_transition_is_split_across_beats() -> None
     )[1].split("void tdma_pio_spi_phys_cal_loopback_stop", 1)[0]
     service = source.split(
         "void tdma_pio_spi_phys_cal_loopback_service", 1
-    )[1].split("static uint32_t tdma_pio_spi_cal_sample_byte", 1)[0]
+    )[1].split("tdma_pio_spi_cal_sample_byte(", 1)[0]
 
     states = [
         "START_UNLOAD",

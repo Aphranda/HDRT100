@@ -241,7 +241,7 @@ def test_paused_rx_dma_keeps_logical_remainder_until_fifo_stalls() -> None:
             encoding="utf-8")
         for name in (
             "tdma_pio_spi_phys.c",
-            "tdma_pio_spi_phys_data_train_restored.inc",
+            "tdma_pio_spi_phys_data_train_restored.c",
         )
     )
     assert "const uint32_t hardware_data_remaining" in source
@@ -256,7 +256,7 @@ def test_phase_order_candidate_is_armed_and_published_as_warning() -> None:
             encoding="utf-8")
         for name in (
             "tdma_pio_spi_phys.c",
-            "tdma_pio_spi_phys_data_train_restored.inc",
+            "tdma_pio_spi_phys_data_train_restored.c",
         )
     )
     arm = source.split(

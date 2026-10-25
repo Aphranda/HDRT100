@@ -1310,11 +1310,11 @@ def test_persona_resource_transfer_is_quiesced_and_rollback_is_owned() -> None:
 
 def test_calibration_transfers_owner_only_after_incremental_unload() -> None:
     service = (
-        ROOT / "components/tdma/src/tdma_pio_spi_phys_cal_service.inc"
+        ROOT / "components/tdma/src/tdma_pio_spi_phys_cal_service.c"
     ).read_text(encoding="utf-8")
 
     ready = service.split(
-        "static bool tdma_pio_spi_phys_cal_persona_switch_ready", 1
+        "tdma_pio_spi_phys_cal_persona_switch_ready(", 1
     )[1].split("static bool tdma_pio_spi_phys_cal_unload_source_step", 1)[0]
     assert "ensure_sms_claimed" not in ready
     assert service.count("source_persona") == 4
