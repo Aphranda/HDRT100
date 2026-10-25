@@ -540,7 +540,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - **N5.0.2f-A（TDMA flight）** ⏳（A.2b 完成；A.3 第一次回退 2026-10-25）：getter 块跨 inc/`#if`，需按完整条件块切；下一刀 A.3 或 N5.0.5。
 - **N5.0.3** ⏳：SCPI refmem 控制块已拆出到 `scpi_refmem_snapshot_commands.c`（5,712→4,627，P3 `20261025001128`）；剩余 sync/TDMA/system 块为 N5.0.3b。
 - **N5.0.4** VDC/calibration/TDMA adapter 依次拆；每步单独提交。
-- **N5.0.4a** ⏳（2026-10-26 启动，打样先于 adapter）：`tdma_service.c` 拆分（0 文件级 static、无 section 属性、跨边界调用单向，是全清单里风险最低的一项）。两单元目标 1,227 / 1,056 + 新增 `tdma_service_internal.h`（8 个 helper）；先归档拆分前全文到 `components/tdma/archive/tdma_service_split_v1/`；每步 host/build/P3/四机烟测，代码与文档分离提交。
+- **N5.0.4a** ⏳（2026-10-26 启动，打样先于 adapter）：`tdma_service.c` 拆分（0 文件级 static、无 section 属性、跨边界调用单向，是全清单里风险最低的一项）。两单元目标 1,227 / 1,056 + 新增 `tdma_service_internal.h`（10 个 helper）；先归档拆分前全文到 `components/tdma/archive/tdma_service_split_v1/`；每步 host/build/P3/四机烟测，代码与文档分离提交。
 - **N5.0.5** ⏳（收口报告 2026-10-25）：行数快照/残差/HAOFV 已记录；N5.0 **未完成**，A.3/A.4/N5.0.3b 留待扩展。
 - **每步约束**：纯移动/重命名 + 私有头；不改行为；host/build/P3/HIL 烟测；代码/文档分离提交。
 
