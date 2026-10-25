@@ -8,6 +8,15 @@ import pytest
 
 from test_vdc_command_owner import ROOT
 
+def _read_scpi_sync() -> str:
+    """N5.0.4k: the SCPI sync command surface is split into two units."""
+    return "\n".join(
+        (ROOT / "middleware/scpi_port/src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_sync_commands.c", "scpi_vdc_output_priority_commands.c")
+    )
+
+
+
 
 def callback(source, name):
     start = source.index('scpi_result_t ' + name + '(')
@@ -17,7 +26,7 @@ def callback(source, name):
 
 @pytest.fixture(scope='module')
 def reader(tmp_path_factory):
-    source = (ROOT / 'middleware/scpi_port/src/scpi_sync_commands.c').read_text(encoding='utf-8')
+    source = _read_scpi_sync()
     body = '\n'.join(callback(source, name) for name in (
         'scpi_cmd_system_tdma_priority_rx_q', 'scpi_cmd_system_tdma_priority_rx_record_q',
         'scpi_cmd_system_tdma_priority_rx_budget_q', 'scpi_cmd_system_tdma_priority_rx_timing_q',

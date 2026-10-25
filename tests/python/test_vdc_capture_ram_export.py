@@ -11,11 +11,20 @@ from test_vdc_local_follow_capture import local_capture_exe  # noqa: F401
 from test_vdc_auto_capture import run_capture
 from tools.domains.vdc.dpll_observation_decode.dpll_observation_decode import HEADER, MAGIC, decode
 
+def _read_scpi_sync() -> str:
+    """N5.0.4k: the SCPI sync command surface is split into two units."""
+    return "\n".join(
+        (ROOT / "middleware/scpi_port/src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_sync_commands.c", "scpi_vdc_output_priority_commands.c")
+    )
+
+
+
 
 @pytest.fixture(scope='module')
 def ram_reader(tmp_path_factory):
     manager = (ROOT/'components/vdc_dpll_manager/src/vdc_dpll_manager.c').read_text(encoding='utf-8')
-    scpi = (ROOT/'middleware/scpi_port/src/scpi_sync_commands.c').read_text(encoding='utf-8')
+    scpi = _read_scpi_sync()
     header = re.search(r'typedef struct __attribute__\(\(packed\)\) \{[^}]+\} vdc_dpll_manager_dpll_capture_header_t;', manager).group()
     functions = '\n'.join(signature+'{'+function_body(manager,name)+'}' for name,signature in (
         ('dpll_capture_legacy_begin', 'static bool dpll_capture_legacy_begin(void)'),

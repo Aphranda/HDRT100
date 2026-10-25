@@ -11,6 +11,15 @@ from vdc_units import body as vdc_unit_body
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_scpi_sync() -> str:
+    """N5.0.4k: the SCPI sync command surface is split into two units."""
+    return "\n".join(
+        (ROOT / "middleware/scpi_port/src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_sync_commands.c", "scpi_vdc_output_priority_commands.c")
+    )
+
+
+
 
 def compile_host(directory, name, sources, extra=()):
     compiler = shutil.which("gcc") or shutil.which("clang")
@@ -40,7 +49,7 @@ def test_actual_product_timing_persistence(tmp_path):
 @pytest.fixture(scope="module")
 def parser_host(tmp_path_factory):
     directory = tmp_path_factory.mktemp("timing-config-parser")
-    source = (ROOT / "middleware/scpi_port/src/scpi_sync_commands.c").read_text(encoding="utf-8")
+    source = _read_scpi_sync()
     callbacks = source[source.index("static bool scpi_output_timing_read_us"):
                        source.index("scpi_result_t scpi_cmd_vdc_priority_follow_baseline(")]
     header = (ROOT / "middleware/scpi_port/inc/scpi_system_snapshot_commands.h").read_text(encoding="utf-8")

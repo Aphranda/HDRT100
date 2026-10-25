@@ -44,6 +44,7 @@ PRODUCT_SOURCES = (
     Path("middleware/scpi_port/src/scpi_calibration_commands.c"),
     Path("middleware/scpi_port/src/scpi_calibration_capture_commands.c"),
     Path("middleware/scpi_port/src/scpi_sync_commands.c"),
+    Path("middleware/scpi_port/src/scpi_vdc_output_priority_commands.c"),
     Path("middleware/scpi_port/src/scpi_trigger_commands.c"),
     Path("middleware/scpi_port/src/scpi_communication_uart_commands.c"),
     Path("middleware/scpi_port/src/scpi_system_diagnostics_commands.c"),

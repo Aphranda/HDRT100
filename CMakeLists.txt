@@ -712,6 +712,7 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_realtime_sequence_commands.c
         middleware/scpi_port/src/scpi_realtime_status_commands.c
         middleware/scpi_port/src/scpi_sync_commands.c
+        middleware/scpi_port/src/scpi_vdc_output_priority_commands.c
         middleware/scpi_port/src/scpi_reference_commands.c
         middleware/scpi_port/src/scpi_system_access_commands.c
         middleware/scpi_port/src/scpi_system_diagnostics_commands.c

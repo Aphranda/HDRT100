@@ -55,8 +55,9 @@ def test_dpll_starts_and_restores_only_flash_profile() -> None:
 def test_store_scpi_command_returns_ok_after_persisting_staged_profile() -> None:
     header = (ROOT / "middleware" / "scpi_port" / "inc" /
               "scpi_sync_commands.h").read_text(encoding="utf-8")
-    source = (ROOT / "middleware" / "scpi_port" / "src" /
-              "scpi_sync_commands.c").read_text(encoding="utf-8")
+    source = "\n".join(
+        (ROOT / "middleware" / "scpi_port" / "src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_sync_commands.c", "scpi_vdc_output_priority_commands.c"))
 
     assert '"SYSTem:SYNC:VDC:DPLL:STORe"' in header
     store = _function(source, "scpi_result_t scpi_cmd_sync_vdc_dpll_store",

@@ -30,7 +30,10 @@ def parser_host(tmp_path_factory):
     directory = tmp_path_factory.mktemp('output-delay-real-parser')
     library = ROOT / 'third_party/scpi-parser/libscpi'
     callback_file = ROOT / 'middleware/scpi_port/src/scpi_sync_commands.c'
-    callback = extract_callback(callback_file.read_text(encoding='utf-8'), 'scpi_cmd_vdc_output_delay')
+    callback_source = "\n".join(
+        (ROOT / 'middleware/scpi_port/src' / name).read_text(encoding='utf-8')
+        for name in ('scpi_sync_commands.c', 'scpi_vdc_output_priority_commands.c'))
+    callback = extract_callback(callback_source, 'scpi_cmd_vdc_output_delay')
     unit = directory / 'parser_host.c'
     unit.write_text(HARNESS + '\n' + callback + '\n' + MAIN, encoding='utf-8')
     compiler = os.environ.get('HOST_CC') or shutil.which('gcc') or shutil.which('clang')

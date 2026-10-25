@@ -7,11 +7,20 @@ import pytest
 
 from test_vdc_output_timing_config import ROOT, compile_host
 
+def _read_scpi_sync() -> str:
+    """N5.0.4k: the SCPI sync command surface is split into two units."""
+    return "\n".join(
+        (ROOT / "middleware/scpi_port/src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_sync_commands.c", "scpi_vdc_output_priority_commands.c")
+    )
+
+
+
 
 @pytest.fixture(scope="module")
 def summary_parser(tmp_path_factory):
     directory = tmp_path_factory.mktemp("summary-scpi-parser")
-    source = (ROOT / "middleware/scpi_port/src/scpi_sync_commands.c").read_text(encoding="utf-8")
+    source = _read_scpi_sync()
     callbacks = source[source.index("static bool scpi_priority_summary_u32("):
                        source.index("static scpi_result_t scpi_priority_guard_arm(")]
     assert "static scpi_result_t scpi_priority_summary_arm(" in callbacks

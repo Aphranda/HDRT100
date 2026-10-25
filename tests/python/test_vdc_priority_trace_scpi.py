@@ -4,9 +4,18 @@ import subprocess
 from test_tdma_priority_rx_scpi import ROOT, callback
 from test_vdc_command_owner import compile_executable
 
+def _read_scpi_sync() -> str:
+    """N5.0.4k: the SCPI sync command surface is split into two units."""
+    return "\n".join(
+        (ROOT / "middleware/scpi_port/src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_sync_commands.c", "scpi_vdc_output_priority_commands.c")
+    )
+
+
+
 
 def test_real_priority_trace_callbacks(tmp_path):
-    source = (ROOT / 'middleware/scpi_port/src/scpi_sync_commands.c').read_text(encoding='utf-8')
+    source = _read_scpi_sync()
     table = (ROOT / 'middleware/scpi_port/inc/scpi_system_snapshot_commands.h').read_text(encoding='utf-8')
     pairs = [('ARM', 'arm'), ('PHASe', 'phase_arm'), ('ORIGin', 'origin_arm'), ('STOP', 'stop'), ('RELease', 'release'), ('STATus?', 'status_q'), ('READ?', 'read_q')]
     names = ['scpi_cmd_vdc_priority_trace_' + suffix for _, suffix in pairs]

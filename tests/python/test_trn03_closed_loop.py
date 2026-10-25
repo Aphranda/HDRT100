@@ -2055,8 +2055,9 @@ def test_physical_snapshot_has_one_canonical_complete_phase_schema() -> None:
     )
     start = trn03.PHYS_FIELDS.index(phase_fields[0])
     assert trn03.PHYS_FIELDS[start:start + len(phase_fields)] == phase_fields
-    source = (ROOT / "middleware" / "scpi_port" / "src" /
-              "scpi_sync_commands.c").read_text(encoding="utf-8")
+    source = "\n".join(
+        (ROOT / "middleware" / "scpi_port" / "src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_sync_commands.c", "scpi_vdc_output_priority_commands.c"))
     query = source.split("scpi_cmd_sync_vdc_tdma_phys_q", 1)[1].split(
         "scpi_cmd_sync_vdc_path_delay_q", 1)[0]
     positions = [query.index(f"snapshot.{field}") for field in phase_fields]

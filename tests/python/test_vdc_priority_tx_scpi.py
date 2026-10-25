@@ -5,9 +5,18 @@ import subprocess
 
 from test_tdma_priority_rx_scpi import ROOT, callback
 
+def _read_scpi_sync() -> str:
+    """N5.0.4k: the SCPI sync command surface is split into two units."""
+    return "\n".join(
+        (ROOT / "middleware/scpi_port/src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_sync_commands.c", "scpi_vdc_output_priority_commands.c")
+    )
+
+
+
 
 def test_priority_tx_control_and_stopped_evidence(tmp_path):
-    source = (ROOT / 'middleware/scpi_port/src/scpi_sync_commands.c').read_text(encoding='utf-8')
+    source = _read_scpi_sync()
     names = ('scpi_cmd_vdc_priority_sync', 'scpi_cmd_vdc_priority_sync_q',
              'scpi_cmd_vdc_priority_tx_q', 'scpi_cmd_vdc_priority_rx_q')
     header = (ROOT / 'middleware/scpi_port/inc/scpi_system_snapshot_commands.h').read_text(encoding='utf-8')
