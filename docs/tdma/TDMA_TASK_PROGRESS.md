@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_TASK_PROGRESS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`
-Last updated: 2026-10-12
+Last updated: 2026-10-25
 
 本文档记录 TDMA foundation 的阶段性任务进度、验证结果和后续动作。待办事项放在 `TDMA_DOMAIN_TODO.md`。
 
@@ -14,6 +14,35 @@ Last updated: 2026-10-12
 历史记录中的预算、节点及门禁描述只代表当时快照，当前口径以最新条目和主域文档为准。
 
 ## 当前 checkpoint
+
+### TDMA-PROGRESS-20261025-044：6 个活 .inc 片段全部拆为独立 .c 单元（refactor 收口）
+
+- **范围**：geometry / rx_scan / priority / flight_io / origin / event 六片段（约 273KB）拆为
+  `components/tdma/src/*.c` 独立翻译单元；`tdma_pio_spi_phys.c` 不再 include 任何 `.inc`
+- **内部头成为唯一跨单元面**：状态 extern + 函数原型。本阶段新增 event 核心 13 函数/3 状态、
+  rx_first 11 入口/2 状态、RX start-cut 10 入口/5 状态、flight_io 18 助手、origin 5 助手、
+  priority 3 入口、geometry 13 入口、rx_scan 3 入口；`tdma_pio_spi_phys_alignment_fits`
+  以 guarded `static inline` 在内部头与片段间共享
+- **归档而非删除**：六个片段与 `marker.inc` 以 100% 重命名移入
+  `components/tdma/archive/tdma_inc_split_v1/`，`ARCHIVE_NOTE.md` 记录边界、审计来源与
+  `TDMA_PHYS_<UNIT>_HARNESS` 前导守卫（供自带类型/宏的合成 harness 编译完整生产体）
+- **等价性证据**：每个状态实例数均为 1（无跨 TU 双实例）；导出符号集只增不减；条件编译只保留
+  `PICO_ON_DEVICE` 守卫；`nm --print-size` 复核热路径地址/大小拆分前后一致，例如
+  `tdma_rx_start_cut_monitor` = `0x2000f06c/0x234`、`tdma_rx_first_window_admit` =
+  `0x100b9258/0x74`、`tdma_rx_start_cut_after` = `0x100ba084/0x158`
+- **验证**：full P3 `out/HardwareAcceptance/20261025/hawf-224435`（build `20261025144447`，
+  1532 文件，`PASS_WITH_WARNINGS`，step 30 OK，外部 26.1 ns）；归档提交复用
+  `hawf-231504`（build `20261025151524`，1532 文件，外部 28.0 ns、稳态 117/104/151 ns）；
+  host 工作流 `out/host_acceptance/20261025/hawf-host-233945`，files=526，
+  426 passed + 1 xfailed
+- **工具**：host 凭证改为 6 步工作流 `prepare → scope → select → execute → receipt → selfcheck`
+  （`tools/acceptance/host_acceptance_workflow.py`，`--profile quick|full`、`--run` 续跑），
+  与 P3 一样按运行目录 + staged 指纹绑定，任一步失败即中止且不写凭证
+- **残余**：`tdma_pio_spi_phys.c` 仍有约 95KB 主单元（服务编排、PIO/DMA 底层与校准路径），
+  不在本目标范围；trn03 的 `test_load_mask_releases_only_newly_enabled_loads` 与 `app.c`
+  现状（quarantine 释放已含 foundation mask）不一致，已标 xfail 待 owner 决策；
+  `.inc` 片段现仅存在于归档目录，审计用，不得删除
+
 ### TDMA-PROGRESS-20261012-043：T2 工作流改造为 22 步可步进流程；修正两处 SCPI 解析错误（推翻"FOLLow 阻塞链"）；台架标定阶段自愈，`--steps 0-6` 全绿
 
 - **工作流改造**：`tools/sync_trigger/t2_enable.py` → **`tools/sync_trigger/t2_workflow.py`**（`tools/tool_registry.json` 与 `tools/hardware_acceptance/p3_hardware_acceptance.py` 同步；治理计数 `owned_files == visible_files == 577`）。一条代码路径、**22 步（0–21）**，支持 `--list`（步骤表）、`--step N`（单步）、`--steps 1-6`/`3,7,12,16-19`（任意集合，按序）、`--full`（连续，验收脚本走此路径）、`--interactive`（步间回车）。每步输出**时间戳、耗时、状态（OK/FAIL）与具名失败原因**，并打印本步最贵的 3 条命令；整场 stdout tee 到 `out/tdma_t2/steps-<stamp>.log`，步骤内细节不再只留在终端。
