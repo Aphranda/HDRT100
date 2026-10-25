@@ -62,6 +62,7 @@ static void *interrupted_copy(void *destination, const void *source, size_t size
 #define memcpy interrupted_copy
 #define tdma_flight_fifo_reset_stopped interrupted_fifo_reset
 #include "../../components/tdma/src/tdma_service.c"
+#include "../../components/tdma/src/tdma_service_core1.c"
 #undef tdma_flight_fifo_reset_stopped
 #undef memcpy
 

@@ -21,8 +21,15 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def source_text() -> tuple[str, dict[str, str]]:
-    path = ROOT / "components/tdma/src/tdma_service.c"
-    source = path.read_text(encoding="utf-8")
+    # N5.0.4a: the snapshot/CRC routines and the retry-limit macro live in the
+    # Core1 unit and the private header; the shared publication helpers stay in
+    # the main unit.  Search the whole trio so function bodies stay verbatim.
+    paths = [
+        ROOT / "components/tdma/src/tdma_service.c",
+        ROOT / "components/tdma/src/tdma_service_core1.c",
+        ROOT / "components/tdma/inc/tdma_service_internal.h",
+    ]
+    source = "\n".join(p.read_text(encoding="utf-8") for p in paths)
     limit = re.search(r"(?m)^#define TDMA_SERVICE_SNAPSHOT_RETRY_LIMIT\s+[^\n]+", source)
     assert limit
     routines = []

@@ -34,6 +34,7 @@ static uint32_t observed_load(const volatile uint32_t *value, int order)
 /* Include complete production code; intercept only runtime atomic loads to
  * reproduce one cross-core publication at a deterministic read boundary. */
 #include "components/tdma/src/tdma_service.c"
+#include "components/tdma/src/tdma_service_core1.c"
 #define __atomic_load_n observed_load
 #include "components/tdma/src/tdma_ring_runtime.c"
 #undef __atomic_load_n

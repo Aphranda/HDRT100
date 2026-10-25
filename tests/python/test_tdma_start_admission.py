@@ -87,6 +87,7 @@ static void observed_store(volatile uint32_t *address, uint32_t value, int order
  * compiled below. Only atomic loads/stores in runtime are instrumented; the
  * service control lock and every admission/cleanup branch remain untouched. */
 #include "components/tdma/src/tdma_service.c"
+#include "components/tdma/src/tdma_service_core1.c"
 #define __atomic_load_n observed_load
 #define __atomic_store_n observed_store
 #include "components/tdma/src/tdma_ring_runtime.c"
