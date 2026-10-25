@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-011`。
+- 最新条目：`REFMEM-TASK-20261025-012`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,16 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-012 — N5.0.2f-A.1 状态私有头（A.1）
+
+- 状态：完成；行为不变。
+- 内容：`distributed_refmem_tdma_flight_sync_t` + `DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE` 迁入 `distributed_refmem_internal.h`；实例留主文件，新增 `distributed_refmem_tdma_flight_sync()` 访问器。
+- 行数：`distributed_refmem.c` 5,763→**5,690**。
+- 验证：
+  - build 成功；P3 `20261025003548`，fingerprint `3714dde606863c671329fdd88fefd2e480346ba68e63e6c7a114bfde5738efce`，1951 files，`PASS_WITH_WARNINGS/strict=false`。
+  - exec196：`frag_complete=[1,1,1]`、`inject_ok=54`；`out/refmem_transport_diag/n502f_a1_exec196_202610250850/`。
+- 下一刀：A.2 position descriptor 组。
 
 ### REFMEM-TASK-20261025-011 — N5.0.2f TDMA flight 拆分设计（A）
 
@@ -130,7 +140,8 @@ Last updated: 2026-10-25
 - N5.0.1（C）：预算/关注点地图完成；`EXE-CODE-01` 写入执行约束。
 - N5.0.3a（B）：SCPI refmem 控制块拆出（5,712→4,627）；P3 `20261025001128`；SCPI smoke 通过。
 - N5.0.2f（A）拆分设计完成：A.1 状态头 → A.2 position → A.3 VDC → A.4 flight publish/receive/parse → A.5 core/diag。
-- 下一步：A.1 状态/私有头抽取（代码 + P3）→ A.2。
+- A.1 完成：flight 状态/宏迁入 internal.h + accessor；主文件 5,763→5,690；P3 `20261025003548`；exec196 `[1,1,1]`。
+- 下一步：A.2 position 组拆分 → A.3 VDC → A.4 flight → A.5 core/diag。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 
