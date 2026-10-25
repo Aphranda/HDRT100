@@ -7,6 +7,18 @@ from tools.state_machine_resource_check import state_machine_resource_check
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_ring_adapter() -> str:
+    """N5.0.4l: the ring adapter is split into four translation units."""
+    return chr(10).join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_ring_adapter.c",
+                     "tdma_pio_spi_ring_adapter_tx.c",
+                     "tdma_pio_spi_ring_adapter_rx.c",
+                     "tdma_pio_spi_ring_adapter_service.c")
+    )
+
+
+
 def _read_sync_core() -> str:
     """N5.0.4i: the runtime core is split into two translation units."""
     return "\n".join(
@@ -639,9 +651,7 @@ def test_tdma_flight_rx_unload_and_tx_load_are_directional() -> None:
     engine_c = (
         ROOT / "components/tdma/src/tdma_flight_engine.c"
     ).read_text(encoding="utf-8")
-    adapter = (
-        ROOT / "components/tdma/src/tdma_pio_spi_ring_adapter.c"
-    ).read_text(encoding="utf-8")
+    adapter = _read_ring_adapter()
 
     assert "tdma_flight_engine_unload_t" in engine_h
     assert "tdma_flight_engine_rx_unload(" in engine_h

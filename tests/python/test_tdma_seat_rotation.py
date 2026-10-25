@@ -272,7 +272,10 @@ def test_seat_window_gate_still_builds_when_enabled(tmp_path):
     command = [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
                "-DTDMA_LOOP_SCHEDULE_ENABLED=1",
                "-I" + str(ROOT / "components/tdma/inc"),
-               str(ROOT / "components/tdma/src/tdma_pio_spi_ring_adapter.c")]
+               str(ROOT / "components/tdma/src/tdma_pio_spi_ring_adapter.c"),
+               str(ROOT / "components/tdma/src/tdma_pio_spi_ring_adapter_tx.c"),
+               str(ROOT / "components/tdma/src/tdma_pio_spi_ring_adapter_rx.c"),
+               str(ROOT / "components/tdma/src/tdma_pio_spi_ring_adapter_service.c")]
     result = subprocess.run(command, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
 

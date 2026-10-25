@@ -637,6 +637,9 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_pio_spi_phys_programs.c
         components/tdma/src/tdma_pio_spi_phys_timing.c
         components/tdma/src/tdma_pio_spi_ring_adapter.c
+        components/tdma/src/tdma_pio_spi_ring_adapter_tx.c
+        components/tdma/src/tdma_pio_spi_ring_adapter_rx.c
+        components/tdma/src/tdma_pio_spi_ring_adapter_service.c
         components/tdma/src/tdma_pio_spi_ring_origin.c
         components/tdma/src/tdma_pio_spi_ring_rx_prepare.c
         components/tdma/src/tdma_process_image_map.c

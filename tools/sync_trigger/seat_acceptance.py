@@ -33,6 +33,9 @@ ROOT = Path(__file__).resolve().parents[2]
 DEVICE_SOURCES = (
     "components/tdma/src/tdma_priority_rx.c",
     "components/tdma/src/tdma_pio_spi_ring_adapter.c",
+    "components/tdma/src/tdma_pio_spi_ring_adapter_tx.c",
+    "components/tdma/src/tdma_pio_spi_ring_adapter_rx.c",
+    "components/tdma/src/tdma_pio_spi_ring_adapter_service.c",
     "components/tdma/src/tdma_seat_admission.c",
     "components/tdma/src/tdma_seat_mount_store.c",
     "components/distributed_refmem/src/distributed_refmem.c",

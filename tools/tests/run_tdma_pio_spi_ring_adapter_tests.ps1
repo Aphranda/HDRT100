@@ -11,6 +11,9 @@ $build = Join-Path $repo $BuildDir
 $include = Join-Path $repo "components\tdma\inc"
 $testSource = Join-Path $repo "tests\unit\test_tdma_pio_spi_ring_adapter.c"
 $adapterSource = Join-Path $repo "components\tdma\src\tdma_pio_spi_ring_adapter.c"
+$adapterTxSource = Join-Path $repo "components\tdma\src\tdma_pio_spi_ring_adapter_tx.c"
+$adapterRxSource = Join-Path $repo "components\tdma\src\tdma_pio_spi_ring_adapter_rx.c"
+$adapterServiceSource = Join-Path $repo "components\tdma\src\tdma_pio_spi_ring_adapter_service.c"
 $commFsmSource = Join-Path $repo "components\tdma\src\tdma_adapter_comm_fsm.c"
 $flightFifoSource = Join-Path $repo "components\tdma\src\tdma_flight_fifo.c"
 $flightEngineSource = Join-Path $repo "components\tdma\src\tdma_flight_engine.c"
@@ -38,7 +41,7 @@ if (-not $hostCc) {
 if ($hostCc) {
     $exe = Join-Path $build "test_tdma_pio_spi_ring_adapter.exe"
     & $hostCc -std=c11 -Wall -Wextra -Werror "-I$include" `
-        $testSource $adapterSource $commFsmSource $flightFifoSource $flightEngineSource $overlaySource $prepareSource $rxPrepareSource $receiveHealthSource $processMapSource $runtimeSource $transportSource $transportLoadSource $profileSource `
+        $testSource $adapterSource $adapterTxSource $adapterRxSource $adapterServiceSource $commFsmSource $flightFifoSource $flightEngineSource $overlaySource $prepareSource $rxPrepareSource $receiveHealthSource $processMapSource $runtimeSource $transportSource $transportLoadSource $profileSource `
         -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE

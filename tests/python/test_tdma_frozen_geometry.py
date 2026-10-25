@@ -56,7 +56,9 @@ def geometry_exe(tmp_path_factory):
     assert compiler, "A host C compiler is required"
     exe = build / ("geometry.exe" if os.name == "nt" else "geometry")
     names = (
-        "tdma_pio_spi_ring_adapter", "tdma_adapter_comm_fsm", "tdma_flight_fifo",
+        "tdma_pio_spi_ring_adapter", "tdma_pio_spi_ring_adapter_tx",
+        "tdma_pio_spi_ring_adapter_rx", "tdma_pio_spi_ring_adapter_service",
+        "tdma_adapter_comm_fsm", "tdma_flight_fifo",
         "tdma_flight_engine", "tdma_flight_overlay", "tdma_overlay_prepare",
         "tdma_rx_prepare", "tdma_rx_scan", "tdma_receive_health", "tdma_process_image_map",
         "tdma_ring_runtime", "tdma_transport_frame", "tdma_profile", "tdma_rx_sequence",
@@ -75,7 +77,10 @@ def geometry_exe(tmp_path_factory):
     command += [str(ROOT / f"components/tdma/src/{name}.c") for name in names]
     command += ["-o", str(exe)]
     observed = [physical, geometry,
-                ROOT / "components/tdma/src/tdma_pio_spi_ring_adapter.c"]
+                ROOT / "components/tdma/src/tdma_pio_spi_ring_adapter.c",
+                ROOT / "components/tdma/src/tdma_pio_spi_ring_adapter_tx.c",
+                ROOT / "components/tdma/src/tdma_pio_spi_ring_adapter_rx.c",
+                ROOT / "components/tdma/src/tdma_pio_spi_ring_adapter_service.c"]
     before = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in observed}
     result = subprocess.run(command, capture_output=True, text=True, timeout=60)
     (build / "compile.stdout.txt").write_text(result.stdout, encoding="utf-8")

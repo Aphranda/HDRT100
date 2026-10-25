@@ -10,6 +10,18 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_ring_adapter() -> str:
+    """N5.0.4l: the ring adapter is split into four translation units."""
+    return chr(10).join(
+        (ROOT / "components/tdma/src" / name).read_text(encoding="utf-8")
+        for name in ("tdma_pio_spi_ring_adapter.c",
+                     "tdma_pio_spi_ring_adapter_tx.c",
+                     "tdma_pio_spi_ring_adapter_rx.c",
+                     "tdma_pio_spi_ring_adapter_service.c")
+    )
+
+
+
 
 def _read_phys_source() -> str:
     """Read the PHY source and append the extracted program manager module."""
@@ -693,8 +705,7 @@ def test_process_follower_boundary_only_harvests_evidence() -> None:
     assert "pio_interrupt_clear" not in live
     assert "snapshot.irq_count - s_tdma_priority_boundaries_seen" in live
 
-    adapter = (ROOT / "components" / "tdma" / "src" /
-               "tdma_pio_spi_ring_adapter.c").read_text(encoding="utf-8")
+    adapter = _read_ring_adapter()
     assert "phys_service_overlay_boundary" in adapter
 
 
