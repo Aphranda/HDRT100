@@ -40,12 +40,21 @@ Last updated: 2026-10-25
 4. 登记契约不可物理删除（只能 `superseded`）
 5. 修改任何文档 → 必须更新 `Last updated`
 6. 临时内容（评审快照/草稿）**不得**登记为契约
-7. 修改任何固件、PIO、构建、工具、测试或 hook 实现后，提交前必须执行
-   `python tools/hardware_acceptance/p3_hardware_acceptance.py run`，或等价的步进工作流
-   `python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full`（同一组
-   37 个步骤函数；可 `--run <dir>` 续跑，只有所需步骤在同一运行目录、同一源码指纹下按序
-   全部运行才写凭证）；pre-commit 按 staged 源码指纹核验 P3 硬件验收凭证，旧凭证、手工报告
-   和 replay 不能放行
+7. 提交前的验收凭证按**改动类别**分流（`tools/acceptance/credential_scope.py` 是映射的唯一
+   事实源，pre-commit 按它路由；每类凭证只绑定自己的指纹域，互不失效）：
+   - **固件 / 验收流程**（`components/`、`application/`、`boards/`、`bootloader/`、`cmake/`、
+     `config/`、`drivers/`、`linker/`、`middleware/`、`osal/`、`platform/`、`third_party/`、
+     `tools/`（`tools/acceptance/` 除外）与构建文件）：必须执行
+     `python tools/hardware_acceptance/p3_hardware_acceptance.py run`，或等价的步进工作流
+     `python tools/hardware_acceptance/hardware_acceptance_workflow.py --profile full`（同一组
+     37 个步骤函数；可 `--run <dir>` 续跑，只有所需步骤在同一运行目录、同一源码指纹下按序
+     全部运行才写凭证）；pre-commit 用 `check-staged` 按 staged 源码指纹核验 P3 凭证。
+   - **测试 / 门禁脚本**（`tests/`、`.githooks/`、`tools/acceptance/`）：不需要台架。提交前执行
+     `python tools/acceptance/host_acceptance.py run`（默认跑本批 staged 的 host 用例）并写
+     `config/hardware_acceptance/host_acceptance_receipt.json`；pre-commit 用
+     `host_acceptance.py check-staged` 按 staged host 指纹核验，并重跑 receipt 记录的用例。
+   - **文档**（`docs/`、`*.md`）：只跑 §5 文档门禁，不需要验收凭证。
+   混合改动按各自类别分别满足；旧凭证、手工报告和 replay 一律不能放行。
 8. `*_TASK_PROGRESS.md` 单文件 ≤200KB（C14）；超标必须把**最旧**条目连续归档到
    `docs/legacy/<domain>/LEGACY_<DOMAIN>_TASK_PROGRESS_<NN>.md`，并在规范文件维护
    `## 归档索引`（ID 闭包、条目数相符）；归档只搬旧证据，禁止丢证据
