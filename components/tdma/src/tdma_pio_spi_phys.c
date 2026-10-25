@@ -67,7 +67,7 @@ _Static_assert(TDMA_PIO_SPI_NORMAL_CAPTURE_BYTES >=
                "TRN-03B TX capture must hold one maximum short packet");
 
 static bool s_tdma_pio_spi_sms_claimed;
-static bool s_tdma_pio_spi_flight_sms_claimed;
+bool s_tdma_pio_spi_flight_sms_claimed;
 static bool s_tdma_pio_spi_maintenance_resources_claimed;
 tdma_pio_spi_program_persona_t s_tdma_pio_spi_program_persona;
 uint s_tdma_pio_spi_tx_offset;
@@ -183,7 +183,7 @@ tdma_pio_spi_workspace_t s_tdma_pio_spi_workspace
     __attribute__((section(".sync_io_dma_ring")))
     __attribute__((aligned(TDMA_PIO_SPI_RX_RING_WORDS * sizeof(uint32_t))));
 /* The cancellation handshake must outlive every persona in the union. */
-static tdma_origin_build_job_t s_tdma_origin_build_job;
+tdma_origin_build_job_t s_tdma_origin_build_job;
 #define s_tdma_pio_spi_rx_ring (s_tdma_pio_spi_workspace.service.rx_ring)
 #define s_tdma_pio_spi_flight_overlay_plan (s_tdma_pio_spi_workspace.service.follower_plan)
 /* Two resident plans: only selection of the successor retires the old pool.
@@ -392,7 +392,7 @@ bool tdma_pio_spi_phys_tx_retryable(const void *context)
            phys->snapshot.last_error == TDMA_PIO_SPI_PHYS_ERROR_TX_BUSY;
 }
 
-static void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys)
+void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL) return;
     const uint32_t guard = __atomic_load_n(&phys->flight_origin_record_guard, __ATOMIC_RELAXED);
@@ -580,7 +580,7 @@ static uint32_t tdma_pio_spi_phys_flight_tail_bytes(
     return (config->node_count - 1u) + loop_bytes + 2u;
 }
 
-static void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
+void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
 {
     tdma_pio_spi_phys_event_stop(phys);
 #if PROJECT_TDMA_EVENT_OBSERVER && defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
@@ -634,7 +634,7 @@ static void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys)
 
 /* Disabling an SM does not retire pending DMA FIFO accesses. Keep FIFO/PC
  * reset separate: a failed abort must retain both the pool and FIFO state. */
-static void tdma_pio_spi_phys_pause_sm_pair(tdma_pio_spi_phys_t *phys)
+void tdma_pio_spi_phys_pause_sm_pair(tdma_pio_spi_phys_t *phys)
 {
     if (tdma_pio_spi_phys_is_flight_persona()) {
         for (uint sm = 0u; sm < 4u; ++sm) {
@@ -649,7 +649,7 @@ static void tdma_pio_spi_phys_pause_sm_pair(tdma_pio_spi_phys_t *phys)
     }
 }
 
-static void tdma_pio_spi_phys_disable_dma_mask(uint32_t mask)
+void tdma_pio_spi_phys_disable_dma_mask(uint32_t mask)
 {
     for (uint channel = 0u; channel < NUM_DMA_CHANNELS; ++channel) {
         if ((mask & (1u << channel)) != 0u) {
@@ -682,7 +682,7 @@ static bool tdma_pio_spi_phys_stop_dma_level(uint32_t mask, uint64_t deadline)
  * The follower has no executor level; origin integration can insert its
  * executor between the loader and both finite DATA children. Every level
  * shares one deadline, and failure authorizes no pool/FIFO/program reuse. */
-static bool tdma_pio_spi_phys_stop_dma_chain(uint32_t loader_mask,
+bool tdma_pio_spi_phys_stop_dma_chain(uint32_t loader_mask,
                                             uint32_t executor_mask,
                                             uint32_t children_mask,
                                             uint64_t deadline)
@@ -3036,4 +3036,3 @@ bool tdma_pio_spi_phys_get_clk_train_snapshot(
     return false;
 }
 
-#include "tdma_pio_spi_phys_origin.inc"

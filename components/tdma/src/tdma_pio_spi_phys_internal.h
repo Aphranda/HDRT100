@@ -5,6 +5,7 @@
 #include "tdma_rx_sequence.h"
 #include "tdma_pio_spi_phys_programs.h"
 #include "tdma_pio_spi_origin_workspace.h"
+#include "tdma_origin_build_job.h"
 
 /* Program state and helpers shared by the maintenance/calibration/training
  * units that used to be textually included into tdma_pio_spi_phys.c. They
@@ -201,4 +202,18 @@ bool tdma_pio_spi_phys_event_copy(const tdma_pio_spi_phys_t *phys,
                                         tdma_pio_spi_event_snapshot_t *out);
 bool tdma_pio_spi_phys_origin_rx(tdma_pio_spi_phys_t *phys, uint8_t *packet,
     size_t capacity, size_t *packet_size, uint64_t *rx_timestamp_ns);
+
+/* Helpers and state the origin unit calls (Core1 direct access). */
+extern bool s_tdma_pio_spi_flight_sms_claimed;
+void tdma_pio_spi_phys_disable_dma_mask(uint32_t mask);
+void tdma_pio_spi_phys_pause_sm_pair(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_prepare_sm_pair(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_stop_dma_chain(uint32_t loader_mask,
+                                            uint32_t executor_mask,
+                                            uint32_t children_mask,
+                                            uint64_t deadline);
+void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys);
+
+extern tdma_origin_build_job_t s_tdma_origin_build_job;
+
 #endif /* TDMA_PIO_SPI_PHYS_INTERNAL_H */
