@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-10-24
+Last updated: 2026-10-25
 
 ## 文档接口与范围
 
@@ -53,7 +53,7 @@ Core1 确定性面：静态表与有界 IRQ 窗口
 | 过程映像 | `components/tdma/inc/tdma_process_image_layout.h`、`tdma_process_image_map.c`、`tdma_flight_engine.c`、`tdma_flight_fifo.c`：固定布局、owner 授权、版本与双向交接。 |
 | PIO SPI adapter | `tdma_pio_spi_ring_adapter.c` 及其 `.inc`：运输编解码、身份、序列、接收健康和物理回调；不解释业务。 |
 | 物理与 persona | `tdma_pio_spi_phys.c`、`tdma_pio_spi_phys_programs.c`、`tdma_pio_spi_persona_fsm.c`：SM/FIFO/DMA 生命周期和训练/普通/飞行 persona。 |
-| 自主 origin | `tdma_origin_plan.c`、`tdma_origin_build_job.c`、`tdma_origin_exchange.c`、`tdma_runtime_origin.inc`：硬件图、异步构造、发布选择、授权及退休。 |
+| 自主 origin | `tdma_origin_plan.c`、`tdma_origin_build_job.c`、`tdma_origin_exchange.c`、`tdma_runtime_origin.c`：硬件图、异步构造、发布选择、授权及退休。 |
 | 普通后台准备 | `tdma_rx_scan.c`、`tdma_rx_prepare.c`、`tdma_overlay_prepare.c`：Core0 固定工位；Core1 复验并采用。 |
 | 同步快速入口 | `tdma_priority_rx.c`、`tdma_pio_spi_phys_priority.inc`、`tdma_priority_tx.h`：固定记录、限额 IRQ、provider/sink；时间语义归 VDC。 |
 | 事件与时序证据 | `tdma_event_observer.c`、`tdma_event_history.c`、`tdma_origin_reference.c`、`tdma_service_timing.c`：原始事件、回绕/身份关联和分项耗时。 |
@@ -218,7 +218,7 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 | RUN | 保持 active 身份、owner 和 wire 长度；迟到/坏样本显式拒绝，不伪造进度。 |
 | STOP / 换代 | 撤销授权并退休旧请求/selection/记录，旧结果不能进入新会话。 |
 
-自主 origin 额外经过 preparation、READY、release 与运行授权复验，入口在 `tdma_runtime_origin.inc`。诊断授权的持续运行不等于产品 RUN 或契约已激活。
+自主 origin 额外经过 preparation、READY、release 与运行授权复验，入口在 `tdma_runtime_origin.c`。诊断授权的持续运行不等于产品 RUN 或契约已激活。
 
 ## 拍级确定性周期
 
