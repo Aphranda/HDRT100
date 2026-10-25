@@ -12,6 +12,15 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_scpi_snapshot() -> str:
+    """N5.0.4n: the snapshot command surface is split into four units."""
+    return chr(10).join(
+        (ROOT / "middleware/scpi_port/src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_system_snapshot_commands.c", "scpi_platform_snapshot_commands.c", "scpi_tdma_snapshot_commands.c", "scpi_node_snapshot_commands.c")
+    )
+
+
+
 
 def test_phase_attribution_preserves_one_complete_worst_case(tmp_path):
     compiler = shutil.which("gcc") or shutil.which("clang")
@@ -196,7 +205,8 @@ def test_real_request_and_dispatch_branch_attribution(tmp_path, case):
     compiler = shutil.which('gcc') or shutil.which('clang')
     assert compiler, 'A host C compiler is required'
     names = ['tdma_profile', 'tdma_traffic_scheduler'] if case == 'dispatch' else [
-        'tdma_pio_spi_ring_adapter', 'tdma_pio_spi_ring_origin', 'tdma_pio_spi_ring_rx_prepare', 'tdma_adapter_comm_fsm', 'tdma_flight_fifo',
+        'tdma_pio_spi_ring_adapter', 'tdma_pio_spi_ring_adapter_tx', 'tdma_pio_spi_ring_adapter_rx',
+        'tdma_pio_spi_ring_adapter_service', 'tdma_pio_spi_ring_origin', 'tdma_pio_spi_ring_rx_prepare', 'tdma_adapter_comm_fsm', 'tdma_flight_fifo',
         'tdma_flight_engine', 'tdma_flight_overlay', 'tdma_overlay_prepare', 'tdma_rx_prepare',
         'tdma_receive_health', 'tdma_process_image_map', 'tdma_ring_runtime',
         'tdma_transport_frame', 'tdma_transport_load', 'tdma_profile']
@@ -211,7 +221,7 @@ def test_real_request_and_dispatch_branch_attribution(tmp_path, case):
 
 
 def test_rx_profile_decodes_real_scpi_serialization(tmp_path):
-    source = (ROOT/'middleware/scpi_port/src/scpi_system_snapshot_commands.c').read_text(encoding='utf-8')
+    source = _read_scpi_snapshot()
     callback = c_definition_body(source, 'scpi_cmd_system_tdma_profile_rx_q')
     unit = tmp_path/'rx_wire.c'
     unit.write_text(r'''

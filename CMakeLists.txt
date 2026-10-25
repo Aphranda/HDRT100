@@ -721,6 +721,9 @@ set(PROJECT_APP_SOURCES
         middleware/scpi_port/src/scpi_system_diagnostics_commands.c
         middleware/scpi_port/src/scpi_system_runtime_commands.c
         middleware/scpi_port/src/scpi_system_snapshot_commands.c
+        middleware/scpi_port/src/scpi_platform_snapshot_commands.c
+        middleware/scpi_port/src/scpi_tdma_snapshot_commands.c
+        middleware/scpi_port/src/scpi_node_snapshot_commands.c
         middleware/scpi_port/src/scpi_action_probe.c
         middleware/scpi_port/src/scpi_trigger_grid_commands.c
         middleware/scpi_port/src/scpi_trigger_cursor_commands.c

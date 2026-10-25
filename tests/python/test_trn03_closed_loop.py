@@ -10,6 +10,15 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_scpi_snapshot() -> str:
+    """N5.0.4n: the snapshot command surface is split into four units."""
+    return chr(10).join(
+        (ROOT / "middleware/scpi_port/src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_system_snapshot_commands.c", "scpi_platform_snapshot_commands.c", "scpi_tdma_snapshot_commands.c", "scpi_node_snapshot_commands.c")
+    )
+
+
+
 def _read_ring_adapter() -> str:
     """N5.0.4l: the ring adapter is split into four translation units."""
     return chr(10).join(
@@ -2186,8 +2195,7 @@ def test_runtime_status_exposes_bad_frame_classification() -> None:
     # SYSTem:TDMA:RING:STATus? page), so the classification block is the tail
     # that immediately precedes the appended block.
     assert trn03.RUNTIME_FIELDS[-len(expected) - 7:-7] == expected
-    source = (ROOT / "middleware" / "scpi_port" / "src" /
-              "scpi_system_snapshot_commands.c").read_text(encoding="utf-8")
+    source = _read_scpi_snapshot()
     status = source.split(
         "scpi_cmd_system_tdma_ring_status_q", 1
     )[1].split("scpi_cmd_system_tdma_ring_train", 1)[0]

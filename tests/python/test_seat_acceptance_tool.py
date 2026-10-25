@@ -11,6 +11,15 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+
+def _read_scpi_snapshot() -> str:
+    """N5.0.4n: the snapshot command surface is split into four units."""
+    return chr(10).join(
+        (ROOT / "middleware/scpi_port/src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_system_snapshot_commands.c", "scpi_platform_snapshot_commands.c", "scpi_tdma_snapshot_commands.c", "scpi_node_snapshot_commands.c")
+    )
+
+
 sys.path.insert(0, str(ROOT))
 
 from tools.sync_trigger.seat_acceptance import (  # noqa: E402
@@ -113,8 +122,7 @@ def test_self_test_mode_exits_zero():
 def test_field_counts_match_the_firmware_pages():
     """EXPECTED_FIELDS is what every positional read depends on: derive it from
     the SCPI handlers so a page change cannot silently shift this tool."""
-    source = (ROOT / "middleware/scpi_port/src/scpi_system_snapshot_commands.c").read_text(
-        encoding="utf-8")
+    source = _read_scpi_snapshot()
 
     def field_count(handler: str) -> int:
         start = source.index(handler)

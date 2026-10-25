@@ -16,6 +16,15 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_scpi_snapshot() -> str:
+    """N5.0.4n: the snapshot command surface is split into four units."""
+    return chr(10).join(
+        (ROOT / "middleware/scpi_port/src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_system_snapshot_commands.c", "scpi_platform_snapshot_commands.c", "scpi_tdma_snapshot_commands.c", "scpi_node_snapshot_commands.c")
+    )
+
+
+
 
 def prelaunch_source(tmp_path):
     # 2026-10-25: the RX start-cut and first-window owners moved to their own units.
@@ -93,7 +102,7 @@ def test_selected_prelaunch_requires_capture_entry_wait(tmp_path, scenario):
 
 
 def test_geometry_query_preserves_prefix_and_appends_observer_tuple(tmp_path):
-    scpi = (ROOT / "middleware/scpi_port/src/scpi_system_snapshot_commands.c").read_text(encoding="utf-8")
+    scpi = _read_scpi_snapshot()
     body = c_definition_body(scpi, "scpi_cmd_system_tdma_ring_geometry_q")
     source = r'''
 #include <assert.h>

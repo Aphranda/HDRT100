@@ -10,6 +10,15 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_scpi_snapshot() -> str:
+    """N5.0.4n: the snapshot command surface is split into four units."""
+    return chr(10).join(
+        (ROOT / "middleware/scpi_port/src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_system_snapshot_commands.c", "scpi_platform_snapshot_commands.c", "scpi_tdma_snapshot_commands.c", "scpi_node_snapshot_commands.c")
+    )
+
+
+
 
 def compile_run(tmp_path, name, sources, includes=()):
     compiler = shutil.which("gcc") or shutil.which("clang")
@@ -26,7 +35,9 @@ def compile_run(tmp_path, name, sources, includes=()):
 @pytest.mark.parametrize("name", ["tdma_ring_runtime", "tdma_pio_spi_ring_adapter"])
 def test_real_c_lifecycle_and_launch_bounds(tmp_path, name):
     names = [name] if name == "tdma_ring_runtime" else [
-        name, "tdma_pio_spi_ring_origin", "tdma_pio_spi_ring_rx_prepare",
+        name, "tdma_pio_spi_ring_adapter_tx", "tdma_pio_spi_ring_adapter_rx",
+        "tdma_pio_spi_ring_adapter_service",
+        "tdma_pio_spi_ring_origin", "tdma_pio_spi_ring_rx_prepare",
         "tdma_adapter_comm_fsm", "tdma_flight_fifo", "tdma_flight_engine",
         "tdma_flight_overlay", "tdma_overlay_prepare", "tdma_rx_prepare",
         "tdma_receive_health", "tdma_process_image_map", "tdma_ring_runtime",
@@ -36,7 +47,7 @@ def test_real_c_lifecycle_and_launch_bounds(tmp_path, name):
 
 
 def test_actual_scpi_callbacks_reject_active_or_changed_sessions(tmp_path):
-    source = (ROOT / "middleware/scpi_port/src/scpi_system_snapshot_commands.c").read_text(encoding="utf-8")
+    source = _read_scpi_snapshot()
     functions = "\n".join(
         f"static int {name}(scpi_t *context) {{\n{c_definition_body(source, name)}\n}}"
         for name in ("scpi_cmd_system_tdma_ring_burst", "scpi_cmd_system_tdma_ring_burst_q",

@@ -13,6 +13,15 @@ from test_vdc_command_owner import compile_executable
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_scpi_snapshot() -> str:
+    """N5.0.4n: the snapshot command surface is split into four units."""
+    return chr(10).join(
+        (ROOT / "middleware/scpi_port/src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_system_snapshot_commands.c", "scpi_platform_snapshot_commands.c", "scpi_tdma_snapshot_commands.c", "scpi_node_snapshot_commands.c")
+    )
+
+
+
 
 @pytest.fixture(scope="module")
 def service_exe(tmp_path_factory):
@@ -59,7 +68,7 @@ def test_service_yields_without_losing_intent(service_exe, case):
 def scpi_fifo_reset_exe(tmp_path_factory):
     """Execute the real handler; reset results and RTOS scheduling are stubs."""
     build = tmp_path_factory.mktemp("scpi-fifo-reset")
-    source = (ROOT / "middleware/scpi_port/src/scpi_system_snapshot_commands.c").read_text(encoding="utf-8")
+    source = _read_scpi_snapshot()
     handler = ingress_definition(source, "scpi_cmd_system_tdma_flight_fifo_reset")
     wait_limit = re.search(r"(?m)^#define SCPI_TDMA_FIFO_RESET_WAIT_LOOPS\s+\d+u", source)
     assert wait_limit
