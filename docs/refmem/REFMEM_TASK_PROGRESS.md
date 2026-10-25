@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-010`。
+- 最新条目：`REFMEM-TASK-20261025-011`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,20 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-011 — N5.0.2f TDMA flight 拆分设计（A）
+
+- 状态：设计完成；无代码变更。
+- 现状：`distributed_refmem.c` 5,763 行；`distributed_refmem_tdma_flight_sync_t` 状态（约 80 行）+ publish/receive/parse/position/VDC 约 2,400 行。
+- 拆分顺序：
+  - **A.1 状态头**：把 `distributed_refmem_tdma_flight_sync_t` 与所需宏迁到 `distributed_refmem_internal.h`；实例留在主文件，新增 `distributed_refmem_tdma_flight_sync()` 访问器；不改行为。
+  - **A.2 position**：`stage_position_descriptor`/`get_position_*` → `distributed_refmem_position.c`；用访问器。
+  - **A.3 VDC**：VDC flight RX/command context → `distributed_refmem_vdc.c`。
+  - **A.4 flight**：publish/receive/parse/compact mailbox → `distributed_refmem_flight.c`。
+  - **A.5 core/diag**：剩余 core/status → `distributed_refmem_diag.c` / 保留 core。
+- 验收：每步纯移动/访问器，行为不变；build + P3 + exec196/soak HIL；单文件 ≤1,500。
+- 风险：状态字段访问面大；宏/类型归属（TDMA/trigger/VDC）需在私有头一次性收敛；time-critical 宏不能改。
+- 下一步：A.1（代码 + P3）。
 
 ### REFMEM-TASK-20261025-010 — N5.0.3a 拆出 SCPI refmem 控制块（B）
 
@@ -115,7 +129,8 @@ Last updated: 2026-10-25
 - N5.2a.2 尝试：仅换 profile 指针无效（ring 后仍 lint=2312=0x0908）；需 profile 快照/owner 契约分离。
 - N5.0.1（C）：预算/关注点地图完成；`EXE-CODE-01` 写入执行约束。
 - N5.0.3a（B）：SCPI refmem 控制块拆出（5,712→4,627）；P3 `20261025001128`；SCPI smoke 通过。
-- 下一步：A（N5.0.2f TDMA flight）→ N5.0.2g/N5.0.3b → N5.0.5。
+- N5.0.2f（A）拆分设计完成：A.1 状态头 → A.2 position → A.3 VDC → A.4 flight publish/receive/parse → A.5 core/diag。
+- 下一步：A.1 状态/私有头抽取（代码 + P3）→ A.2。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 
