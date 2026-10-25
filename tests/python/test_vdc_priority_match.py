@@ -47,7 +47,7 @@ def match_executable(request, tmp_path_factory):
         f"-DPROJECT_NODE_CAPACITY={capacity}", *(["-fshort-enums"] if short_enums else []),
         *[f"-I{ROOT / 'components' / component / 'inc'}" for component in (
             "tdma", "vdc_domain", "vdc_dpll_manager", "distributed_refmem", "calibration_manager", "ota_manager")],
-        f"-I{ROOT / 'components/vdc_dpll_manager/src'}", str(source), "-o", str(exe)]
+        f"-I{ROOT / 'components/vdc_dpll_manager/src'}", f"-I{ROOT}", str(source), "-o", str(exe)]
     result = subprocess.run(command, capture_output=True, text=True, timeout=60)
     (directory / "compile.json").write_text(json.dumps(dict(command=command, returncode=result.returncode,
         stdout=result.stdout, stderr=result.stderr), indent=2), encoding="utf-8")

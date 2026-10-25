@@ -63,13 +63,24 @@ def recorder_base():
         '.tick_hz=hz,.raw_before=raw_now,.raw_after=raw_now+1,.local_ns=now_ns};return true; }')
     # Storage declaration is copied verbatim: both producers address the same
     # actual legacy array instead of independent test buffers or busy flags.
-    storage_start = manager.index("static vdc_dpll_manager_dpll_capture_record_t\n")
+    # The split moved this block out of a single static declaration; the
+    # array type is still the shared legacy storage the recorder addresses.
+    storage_start = manager.index(
+        "vdc_dpll_manager_dpll_capture_record_t\n    s_dpll_capture_records")
     storage_end = manager.index("static vdc_dpll_manager_waveform_storage_record_t", storage_start)
     storage = manager[storage_start:storage_end]
     defines = "\n".join(re.findall(r"(?m)^#define VDC_DPLL_MANAGER_DPLL_CAPTURE_.*$", manager))
     header = re.search(r"typedef struct __attribute__\(\(packed\)\) \{[^}]+\} vdc_dpll_manager_dpll_capture_header_t;", manager)
     assert header
-    legacy = "\n".join(ingress_definition(manager, name) for name in (
+    # The split moved the capture-pool reservation states into the shared unit
+    # header; the extracted legacy accessors still need them by name. The enum
+    # has to precede the storage block, so it is prepended to the whole prefix.
+    reservation_states = (
+        "enum { DPLL_CAPTURE_POOL_LEGACY = 0u, DPLL_CAPTURE_POOL_TYPED = 1u,\n"
+        "       DPLL_CAPTURE_POOL_LEGACY_ACCESS = 2u, DPLL_CAPTURE_POOL_TYPED_READ = 3u,\n"
+        "       DPLL_CAPTURE_POOL_RELEASING = 4u };\n")
+    legacy = "\n".join(
+        ingress_definition(manager, name) for name in (
         "vdc_dpll_manager_publish_runtime_snapshot_locked", "dpll_capture_arm_legacy",
         "dpll_capture_stop_legacy", "dpll_capture_read_legacy", "dpll_capture_save_legacy",
         "vdc_dpll_manager_dpll_capture_arm",
@@ -83,7 +94,7 @@ def recorder_base():
         '{ if(!ring_available)return false;*out=ring;return true; }',
         '{ ++ring_reads;if(ring_read_hook)ring_read_hook(ring_reads);'
         'if(!ring_available)return false;*out=ring;return true; }')
-    return prelude + TRACE_EXTERNALS + follow_inputs + defines + "\n" + header.group(0) + "\n" + storage + \
+    return reservation_states + prelude + TRACE_EXTERNALS + follow_inputs + defines + "\n" + header.group(0) + "\n" + storage + \
         real_crc_source() + "\n" + source_type.group(0) + MATCH_STORAGE + helpers, legacy
 
 

@@ -47,6 +47,9 @@ def host_includes():
         "tdma", "vdc_domain", "vdc_dpll_manager", "distributed_refmem",
             "calibration_manager", "ota_manager", "sync_io", "sync_trigger")]
     includes.append(ROOT / "components/vdc_dpll_manager/src")
+    # Frozen pre-split fragments keep quoting their sibling fragments by name;
+    # the archive directory must stay on the search path for those harnesses.
+    includes.append(ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1")
     includes.append(ROOT / "boards/rp2350_trig/inc")
     includes.append(ROOT / "platform/inc")
     includes.append(ROOT / "osal/inc")
@@ -438,6 +441,16 @@ static void distributed_refmem_node_load_auto_service(void)
 { assert(s_vdc_command_context_ready); ++node_load; }
 static void distributed_refmem_tdma_flight_sync_service(void) { ++flight_services; }
 static void distributed_refmem_log_tdma_ring_service(void) { }
+/* Split REFMEM command units are separate owners; this fixture only checks the
+ * Core0 service ordering, so their entry points are inert. */
+typedef struct { uint32_t unused; } tdma_pio_spi_ring_adapter_t;
+static tdma_pio_spi_ring_adapter_t *tdma_runtime_owner_get_ring_adapter(void)
+{ return (tdma_pio_spi_ring_adapter_t *)0; }
+static bool refmem_cmd_load_init(tdma_pio_spi_ring_adapter_t *adapter)
+{ (void)adapter; return true; }
+static void refmem_cmd_load_service(void) { }
+static void distributed_refmem_node_control_service(void) { }
+static void distributed_refmem_cmd_reply_service(void) { }
 static void distributed_refmem_service(void) {
 ''' + body + r'''
 }

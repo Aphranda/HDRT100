@@ -21,11 +21,12 @@ import test_vdc_priority_follow as existing
 def executable(tmp_path_factory):
     directory = tmp_path_factory.mktemp("baseline-config")
     manager = ROOT/"components/vdc_dpll_manager/src"
+    archive = ROOT/"components/vdc_dpll_manager/archive/vdc_inc_split_v1"
     physical = (ROOT/"components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
     begin = physical.index("enum {\n    TDMA_EVENT_LIVE_RETAINED")
     end = physical.index("} tdma_pio_spi_event_exact_t;", begin)+len("} tdma_pio_spi_event_exact_t;")
     event_types = '#include "tdma_event_history.h"\n'+physical[begin:end]
-    matcher = (manager/"vdc_dpll_feedback_match.inc").read_text(encoding="utf-8")
+    matcher = (archive/"vdc_dpll_feedback_match.inc").read_text(encoding="utf-8")
     source_type = re.search(r'typedef struct \{\s*uint64_t next_ordinal.*?\} vdc_feedback_match_source_t;', matcher, re.S)
     assert source_type
     helpers = matcher[matcher.index("static uint32_t match_inc"):matcher.index("/* Keep authorization")]
@@ -50,10 +51,10 @@ def executable(tmp_path_factory):
     harness += prelude + existing.EXTERNAL_INPUTS + source_type.group(0) + existing.MATCH_STORAGE + helpers + STUBS
     harness += '\nstatic void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t *model);\n#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)\n'
     for name in ("vdc_model_feedback.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc"):
-        harness += "\n"+(manager/name).read_text(encoding="utf-8")
+        harness += "\n"+(archive/name).read_text(encoding="utf-8")
     harness += "\n" + vdc_unit_body("vdc_priority_follow_config")
-    harness += "\n"+(manager/"vdc_priority_follow.inc").read_text(encoding="utf-8").replace(
-        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_phase.inc"', (manager/"vdc_priority_phase.inc").read_text(encoding="utf-8"))
+    harness += "\n"+(archive/"vdc_priority_follow.inc").read_text(encoding="utf-8").replace(
+        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_phase.inc"', (archive/"vdc_priority_phase.inc").read_text(encoding="utf-8"))
     scenarios = existing.SCENARIOS.replace("OWNER_REMOTE_INPUT",
         existing.ingress_definition(existing.OWNER_TESTS, "follower_input"))
     scenarios = scenarios.replace('int main(int argc,char **argv)', CONTROL_CASES+'\nint main(int argc,char **argv)')
@@ -69,6 +70,8 @@ def executable(tmp_path_factory):
     # host-control latch), so the component source dirs must be on the path too.
     includes += [ROOT/f"components/{c}/src" for c in ("tdma", "vdc_domain", "vdc_dpll_manager",
         "distributed_refmem", "calibration_manager")]
+    # Archived fragments quote their siblings by bare name.
+    includes.append(archive)
     sources = existing.domain_sources()+[manager/"vdc_feedback_match.c",
         ROOT/"components/distributed_refmem/src/refmem_sync_vdc_feedback.c"]
     exe = directory/"baseline_config.exe"

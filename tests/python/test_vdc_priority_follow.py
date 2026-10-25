@@ -58,11 +58,12 @@ def run_case(executable, case, data=None):
 @pytest.fixture(scope="module")
 def follow_executable(tmp_path_factory):
     manager = ROOT / "components/vdc_dpll_manager/src"
+    archive = ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1"
     physical = (ROOT / "components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
     begin = physical.index("enum {\n    TDMA_EVENT_LIVE_RETAINED")
     end = physical.index("} tdma_pio_spi_event_exact_t;", begin) + len("} tdma_pio_spi_event_exact_t;")
     event_types = '#include "tdma_event_history.h"\n' + physical[begin:end]
-    matcher = (manager / "vdc_dpll_feedback_match.inc").read_text(encoding="utf-8")
+    matcher = (archive / "vdc_dpll_feedback_match.inc").read_text(encoding="utf-8")
     source_type = re.search(r'typedef struct \{\s*uint64_t next_ordinal.*?\} vdc_feedback_match_source_t;', matcher, re.S)
     assert source_type
     helpers = matcher[matcher.index("static uint32_t match_inc"):matcher.index("/* Keep authorization")]
@@ -78,10 +79,10 @@ def follow_executable(tmp_path_factory):
     harness = prelude + EXTERNAL_INPUTS + source_type.group(0) + MATCH_STORAGE + helpers
     harness += '\nstatic void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t *model);\n#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)\n'
     for name in ("vdc_model_feedback.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc", "vdc_priority_follow.inc"):
-        included = (manager / name).read_text(encoding="utf-8")
+        included = (archive / name).read_text(encoding="utf-8")
         if name == "vdc_priority_follow.inc":
             included = included.replace('#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_phase.inc"',
-                (manager / "vdc_priority_phase.inc").read_text(encoding="utf-8"))
+                (archive / "vdc_priority_phase.inc").read_text(encoding="utf-8"))
         harness += "\n" + included
     harness += "\n" + ingress_definition(DOMAIN_HARNESS, "fixture") + SCENARIOS.replace(
         "OWNER_REMOTE_INPUT", ingress_definition(OWNER_TESTS, "follower_input"))

@@ -1,36 +1,55 @@
 {
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
   "passed": true,
-  "fingerprint": "4a79aa652e8ebb848ab8ac6d2016f99a3cec0a484f446f7e27df460ab06f6dd0",
+  "fingerprint": "65188a1809aa9146c93e95f3acd2f07e7a958d30e899971af5a81fdbf6243eb9",
   "file_count": 524,
-  "working_fingerprint": "a3698c656219258e4b7017ffc9aa3cf21af7c9530ed9360c8f9a1baf6dae1fa2",
+  "working_fingerprint": "472362f109b77a6f17478bd346ceebfa9f48990b02dbccb1da9b9e97d57bc8dd",
   "unstaged_tested_files": [],
   "command": [
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_credential_scope.py",
-    "tests/python/test_vdc_model_feedback_owner.py",
+    "tests/python/test_vdc_command_owner.py",
+    "tests/python/test_vdc_idle_maintenance.py",
+    "tests/python/test_vdc_priority_follow.py",
+    "tests/python/test_vdc_priority_follow_config.py",
+    "tests/python/test_vdc_priority_mapping.py",
+    "tests/python/test_vdc_priority_match.py",
+    "tests/python/test_vdc_priority_phase.py",
+    "tests/python/test_vdc_priority_trace.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_credential_scope.py",
-    "tests/python/test_vdc_model_feedback_owner.py"
+    "tests/python/test_vdc_command_owner.py",
+    "tests/python/test_vdc_idle_maintenance.py",
+    "tests/python/test_vdc_priority_follow.py",
+    "tests/python/test_vdc_priority_follow_config.py",
+    "tests/python/test_vdc_priority_mapping.py",
+    "tests/python/test_vdc_priority_match.py",
+    "tests/python/test_vdc_priority_phase.py",
+    "tests/python/test_vdc_priority_trace.py"
   ],
-  "started_at_utc": "2026-10-25T10:52:48.505502+00:00",
-  "duration_s": 7.515,
+  "started_at_utc": "2026-10-25T11:11:07.895691+00:00",
+  "duration_s": 150.984,
   "returncode": 0,
   "summary": {
-    "passed": 27,
+    "passed": 568,
     "failed": 0,
     "errors": 0,
     "skipped": 0
   },
-  "summary_line": "27 passed in 6.40s",
+  "summary_line": "568 passed in 149.57s (0:02:29)",
   "tail": [
-    "...........................                                              [100%]",
-    "27 passed in 6.40s"
+    "........................................................................ [ 12%]",
+    "........................................................................ [ 25%]",
+    "........................................................................ [ 38%]",
+    "........................................................................ [ 50%]",
+    "........................................................................ [ 63%]",
+    "........................................................................ [ 76%]",
+    "........................................................................ [ 88%]",
+    "................................................................         [100%]",
+    "568 passed in 149.57s (0:02:29)"
   ]
 }

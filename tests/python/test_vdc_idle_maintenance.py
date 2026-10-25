@@ -38,7 +38,11 @@ def idle_exe(publication_exe, tmp_path_factory):
     baseline = os.environ.get('VDC_IDLE_BASELINE')
     manager = (subprocess.check_output(['git', 'show', f'{baseline}:{MANAGER.relative_to(ROOT).as_posix()}'],
         cwd=ROOT, text=True, encoding='utf-8') if baseline else MANAGER.read_text(encoding='utf-8'))
-    model = (MANAGER.parent/'vdc_model_feedback.inc').read_text(encoding='utf-8')
+    # The fragment moved into vdc_dpll_feedback.c; this harness extracts single
+    # functions, so it reads the frozen pre-split copy kept under archive/.
+    # Live-unit coverage is asserted by tests/harness + test_vdc_host_harness.
+    model = (MANAGER.parent.parent /
+             'archive/vdc_inc_split_v1/vdc_model_feedback.inc').read_text(encoding='utf-8')
     source += STORAGE
     source += '\n'.join(re.findall(r'^#define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_\w+\s+\d+u', manager, re.M)) + '\n'
     for name in ('model_feedback_load', 'model_feedback_end_core1',
@@ -109,32 +113,37 @@ bool vdc_timestamp_clock_try_read_ns(uint32_t hz,uint64_t *out)
 '''
 
 DEPENDENCIES = r'''
-static void priority_follow_health_service_core1(void) {}
+/* The extracted manager code sees the unit headers, which declare these as
+ * external entry points; define them with matching linkage. */
+void priority_follow_health_service_core1(void) {}
 static void osal_critical_enter(void) {}
 static void osal_critical_exit(void) {}
-static bool vdc_dpll_manager_apply_pending_debug_continue(void) { return debug_pending; }
-static bool vdc_dpll_manager_apply_pending_dpll_role(void) { return false; }
+bool vdc_dpll_manager_apply_pending_debug_continue(void) { return debug_pending; }
+bool vdc_dpll_manager_apply_pending_dpll_role(void) { return false; }
 void vdc_dpll_manager_get_dpll_role_status(vdc_dpll_manager_dpll_role_status_t *out)
 { memset(out,0,sizeof(*out));out->pending=role_pending; }
-static bool vdc_dpll_manager_apply_pending_debug_servo_tune(void) { return tune_pending; }
-static void vdc_dpll_manager_feedback_match_retire(void) {}
-static void vdc_dpll_manager_feedback_match_service(void) {}
-static void vdc_dpll_manager_consume_follower_command(void) {}
-static bool vdc_dpll_manager_finish_ring_observer_service(
+bool vdc_dpll_manager_apply_pending_debug_servo_tune(void) { return tune_pending; }
+void vdc_dpll_manager_feedback_match_retire(void) {}
+void vdc_dpll_manager_feedback_match_service(void) {}
+void vdc_dpll_manager_consume_follower_command(void) {}
+bool vdc_dpll_manager_finish_ring_observer_service(
     const vdc_dpll_manager_ring_observer_status_t *status,bool consumed)
 { assert(consumed);s_ring_observer_status=*status;return true; }
-static bool vdc_dpll_manager_prepare_ring_evidence(void) { return false; }
-static bool vdc_dpll_manager_apply_ring_evidence(void) { return false; }
-static void priority_trace_service_core1(void) {}
-static void priority_guard_service_core1(void) {}
-static void vdc_priority_match_core1(void) {}
-static void priority_trace_match_core1(void) {}
-static void priority_follow_prepare_core1(void) {}
-static void vdc_priority_ingress_core1(void) {}
-static void vdc_boundary_service_core1(void) {}
-static void priority_follow_apply_core1(void) {}
-static void priority_summary_service(bool end) { (void)end; }
-static void reference_discipline_service_core1(uint32_t session) { (void)session; }
+bool vdc_dpll_manager_prepare_ring_evidence(void) { return false; }
+bool vdc_dpll_manager_apply_ring_evidence(void) { return false; }
+void priority_trace_service_core1(void) {}
+void priority_guard_service_core1(void) {}
+void vdc_priority_match_core1(void) {}
+void priority_trace_match_core1(void) {}
+void priority_follow_prepare_core1(void) {}
+void vdc_priority_ingress_core1(void) {}
+void vdc_boundary_service_core1(void) {}
+void priority_follow_apply_core1(void) {}
+void priority_summary_service(bool end) { (void)end; }
+void reference_discipline_service_core1(uint32_t session) { (void)session; }
+/* Split-unit entry points the extracted service wrapper calls. */
+void vdc_priority_owner_arm_core1(uint32_t session) { (void)session; }
+void vdc_dpll_manager_commit_lock_declaration_core1(void) {}
 '''
 
 CASES = r'''
@@ -335,8 +344,11 @@ int main(int argc,char **argv)
             assert(domain.quality.last_sample_age_us==UINT32_MAX);
             assert(s_published_snapshot.quality.last_sample_age_us==UINT32_MAX);
             vectors();
-            assert(!(vdc_region.payload.flags & REFMEM_VECTOR_FLAG_LOCKED));
-            assert(!(dpll_region.payload.flags & REFMEM_VECTOR_FLAG_LOCKED));
+            /* VDC-LOCKPUB-002: the vector lock bit is the owner's committed
+             * declaration, not a local verdict. Degrading quality must not
+             * move it; the verdict itself is covered by test_vdc_lock_verdict. */
+            assert(vdc_region.payload.flags & REFMEM_VECTOR_FLAG_LOCKED);
+            assert(dpll_region.payload.flags & REFMEM_VECTOR_FLAG_LOCKED);
         }
     } else if(!strcmp(name,"invalid_recovery") || !strcmp(name,"age_regression") ||
               !strcmp(name,"fault_invalid") || !strcmp(name,"max_limit") ||
@@ -390,8 +402,10 @@ int main(int argc,char **argv)
         assert(s_published_snapshot.quality.health_state==expected_health);
         assert(refmem_vdc_vector_payload_validate(&vdc_region.payload));
         assert(refmem_dpll_vector_payload_validate(&dpll_region.payload));
-        assert(!(vdc_region.payload.flags&REFMEM_VECTOR_FLAG_LOCKED));
-        assert(!(dpll_region.payload.flags&REFMEM_VECTOR_FLAG_LOCKED));
+        /* Same contract as above: the owner still declares lock, so the
+         * projected bit stays set while only quality/gate bits move. */
+        assert(vdc_region.payload.flags&REFMEM_VECTOR_FLAG_LOCKED);
+        assert(dpll_region.payload.flags&REFMEM_VECTOR_FLAG_LOCKED);
         assert(s_published_snapshot.dpll.update_seq==initial_evidence_seq);
         if(!strcmp(name,"invalid_holdover")) {
             assert(domain.dpll.holdover_age_us==UINT32_MAX);
