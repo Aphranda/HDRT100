@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-013`。
+- 最新条目：`REFMEM-TASK-20261025-014`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,20 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-014 — N5.0.2f-A.2/A.3 状态拆分设计
+
+- 状态：设计完成；无代码变更。
+- 阻塞点：position 组依赖分散的 `s_position_*` 静态（pending 槽、rx mailboxes、freeze latches、drain/cancel 计数），VDC 组依赖 `s_vdc_flight_rx_*` 与 `s_vdc_command_context*`；不是单一 struct，不能像 A.1 那样直接搬。
+- 设计：
+  - **A.2a**：把 `s_position_*` 收敛为 `distributed_refmem_position_state_t` 单实例 + accessor（纯 rename/包装，不改行为）。
+  - **A.2b**：把 `stage_position_descriptor`/`get_position_*`/`tdma_parse_position_fragment` 搬到 `distributed_refmem_position.c`，用 accessor；P3/HIL。
+  - **A.3a**：把 `s_vdc_flight_rx_binding/snapshot/admission_ready` 收敛为 `distributed_refmem_vdc_flight_state_t` + accessor；`s_vdc_command_context` 同理。
+  - **A.3b**：把 `get_vdc_flight_rx`/`vdc_follower_rx_process_completed`/`get_vdc_follower_*` 搬到 `distributed_refmem_vdc.c`。
+  - **A.4**：publish/receive/parse 搬 `distributed_refmem_flight.c`，用 A.2/A.3 accessor。
+- 验收：每步纯 rename/包装/移动，行为不变；build + P3 + exec196/soak HIL；单文件 ≤1,500。
+- 风险：状态字段多、`__atomic`/time-critical 访问；wrapper 只改名字，不改内存布局/语义。
+- 下一步：A.2a（代码 + P3）。
 
 ### REFMEM-TASK-20261025-013 — N5.0.2g flight-sync diag getters（A.5 部分）
 
@@ -152,7 +166,8 @@ Last updated: 2026-10-25
 - N5.0.2f（A）拆分设计完成：A.1 状态头 → A.2 position → A.3 VDC → A.4 flight publish/receive/parse → A.5 core/diag。
 - A.1 完成：flight 状态/宏迁入 internal.h + accessor；主文件 5,763→5,690；P3 `20261025003548`；exec196 `[1,1,1]`。
 - N5.0.2g（A.5 部分）：flight-sync 4 个只读 getter 拆出到 `distributed_refmem_diag.c`；5,690→5,568；P3 `20261025010050`；SCPI smoke 通过。
-- 下一步：A.2 position（需 position 状态设计）→ A.3 VDC → A.4 flight。
+- A.2/A.3 状态设计完成：position/VDC 状态需先收敛为 struct + accessor，再搬 getter/process_completed。
+- 下一步：A.2a position 状态 wrapper → A.2b 搬 getter/parse → A.3 VDC。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 
