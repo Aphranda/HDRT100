@@ -5,35 +5,54 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_state_machine_resource_check.py",
-    "tests/python/test_sync_io_run_gate.py",
-    "tests/python/test_sync_io_workspace.py",
+    "tests/python/test_trigger_time_projection.py",
+    "tests/python/test_vdc_boundary_owner.py",
+    "tests/python/test_vdc_dco_projection.py",
+    "tests/python/test_vdc_dpll_replay.py",
+    "tests/python/test_vdc_follower_rate_boundary.py",
+    "tests/python/test_vdc_local_phase_domain.py",
+    "tests/python/test_vdc_model_projection.py",
+    "tests/python/test_vdc_priority_follow.py",
+    "tests/python/test_vdc_reference_baseline.py",
+    "tests/python/test_vdc_run_timeline.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_state_machine_resource_check.py",
-    "tests/python/test_sync_io_run_gate.py",
-    "tests/python/test_sync_io_workspace.py"
+    "tests/python/test_trigger_time_projection.py",
+    "tests/python/test_vdc_boundary_owner.py",
+    "tests/python/test_vdc_dco_projection.py",
+    "tests/python/test_vdc_dpll_replay.py",
+    "tests/python/test_vdc_follower_rate_boundary.py",
+    "tests/python/test_vdc_local_phase_domain.py",
+    "tests/python/test_vdc_model_projection.py",
+    "tests/python/test_vdc_priority_follow.py",
+    "tests/python/test_vdc_reference_baseline.py",
+    "tests/python/test_vdc_run_timeline.py"
   ],
-  "duration_s": 94.797,
+  "duration_s": 92.25,
   "returncode": 0,
   "summary": {
-    "passed": 55,
+    "passed": 403,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "55 passed in 94.38s (0:01:34)",
+  "summary_line": "403 passed in 91.64s (0:01:31)",
   "tail": [
-    ".......................................................                  [100%]",
-    "55 passed in 94.38s (0:01:34)"
+    "........................................................................ [ 17%]",
+    "........................................................................ [ 35%]",
+    "........................................................................ [ 53%]",
+    "........................................................................ [ 71%]",
+    "........................................................................ [ 89%]",
+    "...........................................                              [100%]",
+    "403 passed in 91.64s (0:01:31)"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "b1615abc3e8d6511367ecee8b9b57c2960eb3e2c6c2001f0e8445e17caf095ea",
+  "fingerprint": "2b062945202303c48869e36a4df8fdd5136e1ae3fb5103fdf27f910ab8f337d6",
   "file_count": 526,
-  "working_fingerprint": "b1615abc3e8d6511367ecee8b9b57c2960eb3e2c6c2001f0e8445e17caf095ea",
-  "started_at_utc": "2026-10-25T19:02:36.652360+00:00"
+  "working_fingerprint": "2b062945202303c48869e36a4df8fdd5136e1ae3fb5103fdf27f910ab8f337d6",
+  "started_at_utc": "2026-10-25T19:31:37.351488+00:00"
 }

@@ -17,6 +17,8 @@ def projection(tmp_path_factory):
     return compile_grid(d, "projection", HARNESS, [
         ROOT / "components/sync_trigger/src/trigger_time_projection.c",
         ROOT / "components/vdc_domain/src/vdc_domain.c",
+        ROOT / "components/vdc_domain/src/vdc_domain_evidence.c",
+        ROOT / "components/vdc_domain/src/vdc_domain_profile.c",
         ROOT / "components/vdc_domain/src/vdc_timestamp.c",
         ROOT / "components/tdma/src/tdma_profile.c",
     ])

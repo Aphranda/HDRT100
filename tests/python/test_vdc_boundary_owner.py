@@ -33,9 +33,9 @@ def boundary_owner_executable(tmp_path_factory):
         'if(!strncmp(test,"follower_reject_",16))',
         'if(!strncmp(test,"local_",6))local_test(test);\n    else if(!strncmp(test,"auto_",5))auto_test(test);\n    else if(!strncmp(test,"follower_reject_",16))')
     sources = [ROOT / f'components/vdc_domain/src/{name}.c' for name in (
-        'vdc_domain', 'vdc_timestamp', 'vdc_ring_observer', 'vdc_sync_io_adapter', 'vdc_tdma_payload')]
+        'vdc_domain', "vdc_domain_evidence", "vdc_domain_profile", 'vdc_timestamp', 'vdc_ring_observer', 'vdc_sync_io_adapter', 'vdc_tdma_payload')]
     sources += [ROOT / f'components/tdma/src/{name}.c' for name in (
-        'tdma_service', 'tdma_profile', 'tdma_operating_profile', 'tdma_payload_registry',
+        'tdma_service', "tdma_service_core1", 'tdma_profile', 'tdma_operating_profile', 'tdma_payload_registry',
         'tdma_flight_fifo', 'tdma_flight_engine', 'tdma_process_image_map', 'tdma_ring_runtime',
         'tdma_traffic_scheduler', 'tdma_service_timing')]
     sources += [ROOT / 'components/vdc_dpll_manager/src/vdc_feedback_match.c',

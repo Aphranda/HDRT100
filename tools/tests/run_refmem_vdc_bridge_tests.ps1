@@ -15,6 +15,8 @@ $testSource = Join-Path $repo "tests\unit\test_refmem_vdc_bridge.c"
 $bridgeSource = Join-Path $repo "components\distributed_refmem\src\refmem_vdc_bridge.c"
 $frameSource = Join-Path $repo "components\distributed_refmem\src\refmem_sync_frame.c"
 $vdcSource = Join-Path $repo "components\vdc_domain\src\vdc_domain.c"
+$vdcEvidenceSource = Join-Path $repo "components\vdc_domain\src\vdc_domain_evidence.c"
+$vdcProfileSource = Join-Path $repo "components\vdc_domain\src\vdc_domain_profile.c"
 $vdcTimestampSource = Join-Path $repo "components\vdc_domain\src\vdc_timestamp.c"
 $tdmaProfileSource = Join-Path $repo "components\tdma\src\tdma_profile.c"
 
@@ -66,7 +68,7 @@ if (-not $hostCc) {
     $hostCc = Get-ToolPath "clang"
 }
 
-$sources = @($testSource, $bridgeSource, $frameSource, $vdcSource, $vdcTimestampSource, $tdmaProfileSource)
+$sources = @($testSource, $bridgeSource, $frameSource, $vdcSource, $vdcEvidenceSource, $vdcProfileSource, $vdcTimestampSource, $tdmaProfileSource)
 $includes = @("-I$refmemInclude", "-I$tdmaInclude", "-I$vdcInclude", "-I$otaInclude")
 
 if ($hostCc) {

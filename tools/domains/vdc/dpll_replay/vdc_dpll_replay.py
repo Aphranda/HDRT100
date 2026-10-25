@@ -130,6 +130,8 @@ def build_runner(build_dir: Path) -> Path:
     sources = [
         TOOL_DIR / "vdc_dpll_replay_runner.c",
         ROOT / "components/vdc_domain/src/vdc_domain.c",
+        ROOT / "components/vdc_domain/src/vdc_domain_evidence.c",
+        ROOT / "components/vdc_domain/src/vdc_domain_profile.c",
         ROOT / "components/vdc_domain/src/vdc_timestamp.c",
         ROOT / "components/tdma/src/tdma_profile.c",
     ]

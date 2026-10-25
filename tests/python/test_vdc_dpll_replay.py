@@ -335,9 +335,10 @@ int main(int argc, char **argv)
     assert compiler, "Host C compiler required"
     sources = [domain_source or ROOT / "components/vdc_domain/src/vdc_domain.c"]
     sources += [ROOT / f"components/vdc_domain/src/{name}.c" for name in (
+        "vdc_domain_evidence", "vdc_domain_profile",
         "vdc_timestamp", "vdc_ring_observer", "vdc_sync_io_adapter", "vdc_tdma_payload")]
     sources += [ROOT / f"components/tdma/src/{name}.c" for name in (
-        "tdma_service", "tdma_profile", "tdma_operating_profile", "tdma_payload_registry",
+        "tdma_service", "tdma_service_core1", "tdma_profile", "tdma_operating_profile", "tdma_payload_registry",
         "tdma_flight_fifo", "tdma_flight_engine", "tdma_process_image_map", "tdma_ring_runtime",
         "tdma_traffic_scheduler", "tdma_service_timing")]
     executable = directory / ("sample_skip.exe" if os.name == "nt" else "sample_skip")

@@ -48,9 +48,10 @@ def oracle(case):
 def sources():
     return [ROOT / 'components/vdc_domain/src/vdc_domain.c'] + [
         ROOT / f'components/vdc_domain/src/{name}.c' for name in
-        ('vdc_timestamp', 'vdc_ring_observer', 'vdc_sync_io_adapter', 'vdc_tdma_payload')
+        ('vdc_domain_evidence', 'vdc_domain_profile',
+         'vdc_timestamp', 'vdc_ring_observer', 'vdc_sync_io_adapter', 'vdc_tdma_payload')
     ] + [ROOT / f'components/tdma/src/{name}.c' for name in (
-        'tdma_service', 'tdma_profile', 'tdma_operating_profile', 'tdma_payload_registry',
+        'tdma_service', "tdma_service_core1", 'tdma_profile', 'tdma_operating_profile', 'tdma_payload_registry',
         'tdma_flight_fifo', 'tdma_flight_engine', 'tdma_process_image_map',
         'tdma_ring_runtime', 'tdma_traffic_scheduler', 'tdma_service_timing')]
 

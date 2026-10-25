@@ -28,6 +28,8 @@ def timeline_client(tmp_path_factory):
         prefix + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
         '\n#undef main\n' + TIMELINE_MAIN,
         [ROOT / 'components/vdc_domain/src/vdc_domain.c',
+        ROOT / 'components/vdc_domain/src/vdc_domain_evidence.c',
+        ROOT / 'components/vdc_domain/src/vdc_domain_profile.c',
          ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
          ROOT / 'components/tdma/src/tdma_profile.c'])
 
@@ -59,6 +61,8 @@ def continuous_client(tmp_path_factory):
         prefix + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
         '\n#undef main\n' + CONTINUOUS_MAIN,
         [ROOT / 'components/vdc_domain/src/vdc_domain.c',
+        ROOT / 'components/vdc_domain/src/vdc_domain_evidence.c',
+        ROOT / 'components/vdc_domain/src/vdc_domain_profile.c',
          ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
          ROOT / 'components/tdma/src/tdma_profile.c'])
 
@@ -140,6 +144,8 @@ def late_model_client(tmp_path_factory):
         CLIENT_PREFIX + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
         '\n#undef main\n' + LATE_MODEL_MAIN,
         [ROOT / 'components/vdc_domain/src/vdc_domain.c',
+        ROOT / 'components/vdc_domain/src/vdc_domain_evidence.c',
+        ROOT / 'components/vdc_domain/src/vdc_domain_profile.c',
          ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
          ROOT / 'components/tdma/src/tdma_profile.c'])
 
@@ -216,6 +222,8 @@ def planned_fallback_client(tmp_path_factory):
         prefix + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
         '\n#undef main\n' + PLANNED_FALLBACK_MAIN,
         [ROOT / 'components/vdc_domain/src/vdc_domain.c',
+        ROOT / 'components/vdc_domain/src/vdc_domain_evidence.c',
+        ROOT / 'components/vdc_domain/src/vdc_domain_profile.c',
          ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
          ROOT / 'components/tdma/src/tdma_profile.c'])
 

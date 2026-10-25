@@ -12,11 +12,14 @@ $vdcInclude = Join-Path $repo "components\vdc_domain\inc"
 $tdmaInclude = Join-Path $repo "components\tdma\inc"
 $testSource = Join-Path $repo "tests\unit\test_vdc_domain.c"
 $vdcSource = Join-Path $repo "components\vdc_domain\src\vdc_domain.c"
+$vdcEvidenceSource = Join-Path $repo "components\vdc_domain\src\vdc_domain_evidence.c"
+$vdcProfileSource = Join-Path $repo "components\vdc_domain\src\vdc_domain_profile.c"
 $vdcRingObserverSource = Join-Path $repo "components\vdc_domain\src\vdc_ring_observer.c"
 $vdcSyncIoAdapterSource = Join-Path $repo "components\vdc_domain\src\vdc_sync_io_adapter.c"
 $vdcTdmaPayloadSource = Join-Path $repo "components\vdc_domain\src\vdc_tdma_payload.c"
 $vdcTimestampSource = Join-Path $repo "components\vdc_domain\src\vdc_timestamp.c"
 $tdmaSource = Join-Path $repo "components\tdma\src\tdma_service.c"
+$tdmaServiceCore1Source = Join-Path $repo "components\tdma\src\tdma_service_core1.c"
 $tdmaFlightSource = Join-Path $repo "components\tdma\src\tdma_flight_fifo.c"
 $tdmaFlightEngineSource = Join-Path $repo "components\tdma\src\tdma_flight_engine.c"
 $tdmaProcessMapSource = Join-Path $repo "components\tdma\src\tdma_process_image_map.c"
@@ -80,7 +83,7 @@ if (-not $hostCc) {
 
 if ($hostCc) {
     $exe = Join-Path $build "test_vdc_domain.exe"
-    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$vdcInclude" "-I$tdmaInclude" $testSource $vdcSource $vdcRingObserverSource $vdcSyncIoAdapterSource $vdcTdmaPayloadSource $vdcTimestampSource $tdmaSource $tdmaFlightSource $tdmaFlightEngineSource $tdmaProcessMapSource $tdmaProfileSource $tdmaOperatingProfileSource $tdmaRegistrySource $tdmaRingSource $tdmaSchedulerSource -o $exe
+    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$vdcInclude" "-I$tdmaInclude" $testSource $vdcSource $vdcEvidenceSource $vdcProfileSource $vdcRingObserverSource $vdcSyncIoAdapterSource $vdcTdmaPayloadSource $vdcTimestampSource $tdmaSource $tdmaServiceCore1Source $tdmaFlightSource $tdmaFlightEngineSource $tdmaProcessMapSource $tdmaProfileSource $tdmaOperatingProfileSource $tdmaRegistrySource $tdmaRingSource $tdmaSchedulerSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -100,7 +103,7 @@ if (-not (Test-Path $ArmGcc)) {
     throw "No host C compiler found and ARM GCC not found at $ArmGcc"
 }
 
-foreach ($source in @($testSource, $vdcSource, $vdcRingObserverSource, $vdcSyncIoAdapterSource, $vdcTdmaPayloadSource, $vdcTimestampSource, $tdmaSource, $tdmaFlightSource, $tdmaFlightEngineSource, $tdmaProcessMapSource, $tdmaProfileSource, $tdmaOperatingProfileSource, $tdmaRegistrySource, $tdmaRingSource, $tdmaSchedulerSource)) {
+foreach ($source in @($testSource, $vdcSource, $vdcEvidenceSource, $vdcProfileSource, $vdcRingObserverSource, $vdcSyncIoAdapterSource, $vdcTdmaPayloadSource, $vdcTimestampSource, $tdmaSource, $tdmaServiceCore1Source, $tdmaFlightSource, $tdmaFlightEngineSource, $tdmaProcessMapSource, $tdmaProfileSource, $tdmaOperatingProfileSource, $tdmaRegistrySource, $tdmaRingSource, $tdmaSchedulerSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$vdcInclude" "-I$tdmaInclude" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {
