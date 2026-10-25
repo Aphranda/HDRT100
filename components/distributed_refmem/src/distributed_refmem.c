@@ -256,28 +256,9 @@ distributed_refmem_tdma_flight_sync_t *distributed_refmem_tdma_flight_sync(void)
  * the transport takes at most one record per T_drain ms and only while the single-depth
  * first-class seat is free. A newer PREVIEW replaces an older one; a FREEZE already waiting
  * is never replaced by a PREVIEW (FREEZE outranks it). */
-typedef struct {
-    uint8_t wire[TRIGGER_POSITION_SLICE_WIRE_SIZE];
-    uint8_t target_mask;
-    uint8_t stage;      /* TRIGGER_POSITION_SLICE_PREVIEW / _FREEZE */
-    uint8_t position_id;
-    uint8_t pending;
-} distributed_refmem_position_pending_t;
 
-static distributed_refmem_position_pending_t
-    s_position_pending[DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS];
-static uint32_t s_position_drain_ms = DISTRIBUTED_REFMEM_POSITION_DRAIN_DEFAULT_MS;
-static uint32_t s_position_last_drain_ms;
-static uint32_t s_position_coalesced_count;
-static uint8_t s_position_drain_cursor;
 /* One wait fact per blocked drain, not one per service pass: the edge detector keeps
  * tx_wait_count readable as "how often a ready value had to wait". */
-static uint8_t s_position_wait_counted;
-static trigger_position_mailbox_t
-    s_position_rx_mailboxes[DISTRIBUTED_REFMEM_NODE_COUNT];
-static trigger_position_freeze_latch_t
-    s_position_freeze_latches[DISTRIBUTED_REFMEM_NODE_COUNT];
-static volatile uint32_t s_position_cancel_requested;
 typedef struct {
     uint32_t active, source_slot, local_slot, control_generation;
     uint32_t ring_config_seq, schedule_crc32, clock_epoch_id, clock_run_id;

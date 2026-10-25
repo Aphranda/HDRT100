@@ -7,6 +7,7 @@
 #include "refmem_vector_table.h"
 #include "tdma_flight_engine.h"
 #include "trigger_position_descriptor.h"
+#include "trigger_position_mailbox.h"
 
 #define DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE TDMA_FLIGHT_SHORT_PAYLOAD_SIZE
 #define DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE TDMA_FLIGHT_SHORT_SLOT_SIZE
@@ -115,6 +116,8 @@ typedef struct {
     uint32_t vdc_command_rx_admission_epoch;
     uint8_t vdc_command_record[sizeof(refmem_sync_vdc_command_payload_t)];
     refmem_sync_vdc_fragment_context_t vdc_command_fragments;
+
+
 #endif
     uint32_t last_error;
     refmem_sync_delta_context_t context;
@@ -122,5 +125,92 @@ typedef struct {
 } distributed_refmem_tdma_flight_sync_t;
 
 distributed_refmem_tdma_flight_sync_t *distributed_refmem_tdma_flight_sync(void);
+
+#ifndef DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH
+#define DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH 4u
+#endif
+
+typedef struct {
+    uint8_t wire[TRIGGER_POSITION_SLICE_WIRE_SIZE];
+    uint8_t target_mask;
+    uint8_t stage;
+    uint8_t position_id;
+    uint8_t pending;
+} distributed_refmem_position_pending_t;
+
+typedef struct {
+    trigger_position_slice_t slice;
+    uint32_t target_mask;
+    uint32_t attempts;
+} distributed_refmem_position_hold_entry_t;
+
+typedef struct {
+    distributed_refmem_position_pending_t pending[DISTRIBUTED_REFMEM_POSITION_PENDING_SLOTS];
+    uint32_t drain_ms;
+    uint32_t last_drain_ms;
+    uint32_t coalesced_count;
+    uint8_t drain_cursor;
+    uint8_t wait_counted;
+    trigger_position_mailbox_t rx_mailboxes[DISTRIBUTED_REFMEM_NODE_COUNT];
+    trigger_position_freeze_latch_t freeze_latches[DISTRIBUTED_REFMEM_NODE_COUNT];
+    volatile uint32_t cancel_requested;
+    uint32_t local_frozen;
+    uint32_t freeze_ack[DISTRIBUTED_REFMEM_NODE_COUNT];
+    uint32_t priority_owned;
+    uint8_t priority_last[DISTRIBUTED_REFMEM_NODE_COUNT][TRIGGER_POSITION_SLICE_WIRE_SIZE];
+    uint32_t priority_accept_count;
+    uint32_t priority_duplicate_count;
+    uint32_t priority_reject_count;
+    uint32_t priority_decode_reject_count;
+    distributed_refmem_position_hold_entry_t priority_hold[DISTRIBUTED_REFMEM_NODE_COUNT]
+                                                         [DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH];
+    volatile uint32_t priority_hold_head[DISTRIBUTED_REFMEM_NODE_COUNT];
+    volatile uint32_t priority_hold_tail[DISTRIBUTED_REFMEM_NODE_COUNT];
+    uint32_t priority_hold_count;
+    uint32_t priority_hold_dropped_count;
+    uint32_t priority_hold_delivered_count;
+    uint32_t freeze_latched_count;
+    uint32_t freeze_kept_count;
+    uint32_t freeze_taken_count;
+    uint32_t priority_drain_count;
+    uint32_t priority_drain_fail_count;
+    uint32_t priority_hold_expired_count;
+    uint32_t ack_override_count;
+    uint32_t diag_refused_count;
+} distributed_refmem_position_state_t;
+
+distributed_refmem_position_state_t *distributed_refmem_position_state(void);
+
+#define s_position_pending (distributed_refmem_position_state()->pending)
+#define s_position_drain_ms (distributed_refmem_position_state()->drain_ms)
+#define s_position_last_drain_ms (distributed_refmem_position_state()->last_drain_ms)
+#define s_position_coalesced_count (distributed_refmem_position_state()->coalesced_count)
+#define s_position_drain_cursor (distributed_refmem_position_state()->drain_cursor)
+#define s_position_wait_counted (distributed_refmem_position_state()->wait_counted)
+#define s_position_rx_mailboxes (distributed_refmem_position_state()->rx_mailboxes)
+#define s_position_freeze_latches (distributed_refmem_position_state()->freeze_latches)
+#define s_position_cancel_requested (distributed_refmem_position_state()->cancel_requested)
+#define s_position_local_frozen (distributed_refmem_position_state()->local_frozen)
+#define s_position_freeze_ack (distributed_refmem_position_state()->freeze_ack)
+#define s_position_priority_owned (distributed_refmem_position_state()->priority_owned)
+#define s_position_priority_last (distributed_refmem_position_state()->priority_last)
+#define s_position_priority_accept_count (distributed_refmem_position_state()->priority_accept_count)
+#define s_position_priority_duplicate_count (distributed_refmem_position_state()->priority_duplicate_count)
+#define s_position_priority_reject_count (distributed_refmem_position_state()->priority_reject_count)
+#define s_position_priority_decode_reject_count (distributed_refmem_position_state()->priority_decode_reject_count)
+#define s_position_priority_hold (distributed_refmem_position_state()->priority_hold)
+#define s_position_priority_hold_head (distributed_refmem_position_state()->priority_hold_head)
+#define s_position_priority_hold_tail (distributed_refmem_position_state()->priority_hold_tail)
+#define s_position_priority_hold_count (distributed_refmem_position_state()->priority_hold_count)
+#define s_position_priority_hold_dropped_count (distributed_refmem_position_state()->priority_hold_dropped_count)
+#define s_position_priority_hold_delivered_count (distributed_refmem_position_state()->priority_hold_delivered_count)
+#define s_position_freeze_latched_count (distributed_refmem_position_state()->freeze_latched_count)
+#define s_position_freeze_kept_count (distributed_refmem_position_state()->freeze_kept_count)
+#define s_position_freeze_taken_count (distributed_refmem_position_state()->freeze_taken_count)
+#define s_position_priority_drain_count (distributed_refmem_position_state()->priority_drain_count)
+#define s_position_priority_drain_fail_count (distributed_refmem_position_state()->priority_drain_fail_count)
+#define s_position_priority_hold_expired_count (distributed_refmem_position_state()->priority_hold_expired_count)
+#define s_position_ack_override_count (distributed_refmem_position_state()->ack_override_count)
+#define s_position_diag_refused_count (distributed_refmem_position_state()->diag_refused_count)
 
 #endif

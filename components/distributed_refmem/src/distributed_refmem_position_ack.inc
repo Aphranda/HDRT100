@@ -17,18 +17,10 @@
 #endif
 
 /* opcode << 8 | frozen mask; zero while no follower T2 run is active. */
-static uint32_t s_position_local_frozen;
-static uint32_t s_position_freeze_ack[DISTRIBUTED_REFMEM_NODE_COUNT];
 /* Set by the first accepted lane record: Core0 then leaves T2 to the lane so
  * each RX mailbox and FREEZE latch keeps a single producer. */
-static uint32_t s_position_priority_owned;
-static uint8_t s_position_priority_last[DISTRIBUTED_REFMEM_NODE_COUNT]
-    [TRIGGER_POSITION_SLICE_WIRE_SIZE];
-static uint32_t s_position_priority_accept_count, s_position_priority_duplicate_count,
-    s_position_priority_reject_count;
 /* Slice decode failures: the lane validated the frame but the first-class slice
  * itself is not decodable, so the record is lost (unrecoverable). */
-static uint32_t s_position_priority_decode_reject_count;
 /* TDMA-SEAT-03 bounded receive preservation: PREVIEWs refused because the
  * single-depth mailbox is still unconsumed are queued per source (append-only
  * SPSC ring, producer = capture IRQ, consumer = T2 phase on the same core) and
@@ -39,42 +31,24 @@ static uint32_t s_position_priority_decode_reject_count;
 #ifndef DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH
 #define DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH 4u
 #endif
-typedef struct {
-    trigger_position_slice_t slice; /* prediction_version 0 marks consumed */
-    uint32_t target_mask;
-    uint32_t attempts; /* consecutive bounded drain attempts for this entry */
-} distributed_refmem_position_hold_entry_t;
-static distributed_refmem_position_hold_entry_t
-    s_position_priority_hold[DISTRIBUTED_REFMEM_NODE_COUNT]
-                            [DISTRIBUTED_REFMEM_POSITION_HOLD_DEPTH];
-static volatile uint32_t s_position_priority_hold_head[DISTRIBUTED_REFMEM_NODE_COUNT];
-static volatile uint32_t s_position_priority_hold_tail[DISTRIBUTED_REFMEM_NODE_COUNT];
-static uint32_t s_position_priority_hold_count, s_position_priority_hold_dropped_count;
+
 /* Queued copies retired because the very record reached the consumer by the
  * wire first (the lane marks the queued copy with prediction_version 0). The
  * record itself is not lost, but the queue must still account for the exit:
  * without this counter hold_count could not be reconciled with what is queued. */
-static uint32_t s_position_priority_hold_delivered_count;
 /* FREEZE never queues (it goes to the per-position latch), so the PREVIEW-oriented lane
  * counters cannot say whether a FREEZE reached a follower. These three can: latched by the
  * lane, kept-first (a FREEZE for an id whose previous latch was not yet taken is NOT stored),
  * and taken by the T2 consumer. latched == taken + still pending; kept is the silent loss. */
-static uint32_t s_position_freeze_latched_count;
-static uint32_t s_position_freeze_kept_count;
-static uint32_t s_position_freeze_taken_count;
 static inline void distributed_refmem_position_note_freeze_taken(void)
 {
     ++s_position_freeze_taken_count;
 }
-static uint32_t s_position_priority_drain_count, s_position_priority_drain_fail_count;
-static uint32_t s_position_priority_hold_expired_count;
 /* Diagnostic patches that lost the control bytes to the first-class fact. */
-static uint32_t s_position_ack_override_count;
 /* Diagnostic control writes refused up front because the first-class fact owns
  * the shared control bytes for this image. The fast channel is shared by both
  * seats (owner ruling: one channel, time-multiplexed), so this admission is the
  * permanent mechanism, not a transition. */
-static uint32_t s_position_diag_refused_count;
 
 static inline uint32_t position_ack_opcode(uint32_t run_id)
 {
