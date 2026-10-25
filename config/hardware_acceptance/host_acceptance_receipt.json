@@ -5,35 +5,31 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_tdma_foundation_snapshot.py",
-    "tests/python/test_tdma_geometry_config.py",
-    "tests/python/test_tdma_start_admission.py",
+    "tests/python/test_trn03_candidate.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_tdma_foundation_snapshot.py",
-    "tests/python/test_tdma_geometry_config.py",
-    "tests/python/test_tdma_start_admission.py"
+    "tests/python/test_trn03_candidate.py"
   ],
-  "duration_s": 10.375,
+  "duration_s": 0.766,
   "returncode": 0,
   "summary": {
-    "passed": 41,
+    "passed": 16,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "41 passed in 9.85s",
+  "summary_line": "16 passed in 0.29s",
   "tail": [
-    ".........................................                                [100%]",
-    "41 passed in 9.85s"
+    "................                                                         [100%]",
+    "16 passed in 0.29s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "1c89f171abf309c0521104833e66de9e289cced37c336cc2cc6c83b03bc4809e",
+  "fingerprint": "71e75f77d4f8b89ca3ab2c65610ef860a78f0fa15bed89d40843f646a35dbc97",
   "file_count": 526,
-  "working_fingerprint": "1c89f171abf309c0521104833e66de9e289cced37c336cc2cc6c83b03bc4809e",
-  "started_at_utc": "2026-10-25T16:49:41.894978+00:00"
+  "working_fingerprint": "71e75f77d4f8b89ca3ab2c65610ef860a78f0fa15bed89d40843f646a35dbc97",
+  "started_at_utc": "2026-10-25T17:02:27.195571+00:00"
 }

@@ -431,7 +431,11 @@ def test_firmware_calibration_lifecycle_is_not_an_unconditional_stub() -> None:
     assert '.pattern = "CALibration:ACTivate", .callback = scpi_calibration_activate' in header
     assert '.pattern = "CALibration:ROLLback", .callback = scpi_calibration_rollback' in header
     assert '.pattern = "CALibration:CLEar", .callback = scpi_calibration_clear' in header
-    source = (root / "middleware" / "scpi_port" / "src" /
-              "scpi_calibration_commands.c").read_text(encoding="utf-8")
+    # N5.0.4c: activate/rollback moved to the capture/data unit; read both.
+    source = "\n".join(
+        (root / "middleware" / "scpi_port" / "src" / name).read_text(encoding="utf-8")
+        for name in ("scpi_calibration_commands.c",
+                     "scpi_calibration_capture_commands.c")
+    )
     assert "calibration_manager_activate_path_candidate()" in source
     assert "calibration_manager_rollback_path()" in source

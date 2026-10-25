@@ -685,6 +685,7 @@ set(PROJECT_APP_SOURCES
         ${PROJECT_FATFS_CONFIGURED_DIR}/ffsystem.c
         ${PROJECT_FATFS_CONFIGURED_DIR}/ffunicode.c
         middleware/scpi_port/src/scpi_calibration_commands.c
+        middleware/scpi_port/src/scpi_calibration_capture_commands.c
         middleware/scpi_port/src/scpi_communication_biss_commands.c
         middleware/scpi_port/src/scpi_communication_uart_commands.c
         components/communication/rs485_modbus/src/rs485_modbus.c
