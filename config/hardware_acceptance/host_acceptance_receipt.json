@@ -5,31 +5,33 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_trn03_candidate.py",
+    "tests/python/test_tdma_service_timing.py",
+    "tests/python/test_vdc_flight_rx.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_trn03_candidate.py"
+    "tests/python/test_tdma_service_timing.py",
+    "tests/python/test_vdc_flight_rx.py"
   ],
-  "duration_s": 0.766,
+  "duration_s": 7.156,
   "returncode": 0,
   "summary": {
-    "passed": 16,
+    "passed": 53,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "16 passed in 0.29s",
+  "summary_line": "53 passed in 6.73s",
   "tail": [
-    "................                                                         [100%]",
-    "16 passed in 0.29s"
+    ".....................................................                    [100%]",
+    "53 passed in 6.73s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "71e75f77d4f8b89ca3ab2c65610ef860a78f0fa15bed89d40843f646a35dbc97",
+  "fingerprint": "4259253a897c037a99260486bcf986d7dd7a2b71b4c80da181bb1c18a07f19d5",
   "file_count": 526,
-  "working_fingerprint": "71e75f77d4f8b89ca3ab2c65610ef860a78f0fa15bed89d40843f646a35dbc97",
-  "started_at_utc": "2026-10-25T17:02:27.195571+00:00"
+  "working_fingerprint": "4259253a897c037a99260486bcf986d7dd7a2b71b4c80da181bb1c18a07f19d5",
+  "started_at_utc": "2026-10-25T17:07:17.911380+00:00"
 }

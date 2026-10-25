@@ -16,7 +16,10 @@ from test_vdc_command_owner import ROOT, compile_executable
 @pytest.fixture(scope="module")
 def flight_rx_executable(tmp_path_factory):
     directory = tmp_path_factory.mktemp("vdc-flight-rx")
-    source = (ROOT / "components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
+    # N5.0.2f-A.1: the flight-sync state type lives in the private header.
+    source = ((ROOT / "components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
+              + "\n"
+              + (ROOT / "components/distributed_refmem/src/distributed_refmem_internal.h").read_text(encoding="utf-8"))
     service = (ROOT / "components/tdma/src/tdma_service.c").read_text(encoding="utf-8")
     binding = re.search(r"typedef struct \{[^}]*\} distributed_refmem_vdc_flight_rx_binding_t;", source, re.S)
     state = re.search(r"typedef struct \{[^}]*\} distributed_refmem_tdma_flight_sync_t;", source, re.S)

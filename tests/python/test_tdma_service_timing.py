@@ -196,10 +196,10 @@ def test_real_request_and_dispatch_branch_attribution(tmp_path, case):
     compiler = shutil.which('gcc') or shutil.which('clang')
     assert compiler, 'A host C compiler is required'
     names = ['tdma_profile', 'tdma_traffic_scheduler'] if case == 'dispatch' else [
-        'tdma_pio_spi_ring_adapter', 'tdma_adapter_comm_fsm', 'tdma_flight_fifo',
+        'tdma_pio_spi_ring_adapter', 'tdma_pio_spi_ring_origin', 'tdma_pio_spi_ring_rx_prepare', 'tdma_adapter_comm_fsm', 'tdma_flight_fifo',
         'tdma_flight_engine', 'tdma_flight_overlay', 'tdma_overlay_prepare', 'tdma_rx_prepare',
         'tdma_receive_health', 'tdma_process_image_map', 'tdma_ring_runtime',
-        'tdma_transport_frame', 'tdma_profile']
+        'tdma_transport_frame', 'tdma_transport_load', 'tdma_profile']
     exe = tmp_path / (case + ('.exe' if os.name == 'nt' else ''))
     subprocess.run([compiler, '-std=c11', '-Wall', '-Wextra', '-Werror',
         '-DTDMA_SERVICE_TIMING_ENABLED=1', '-I' + str(ROOT/'components/tdma/inc'),
