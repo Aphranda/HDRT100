@@ -14,6 +14,15 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_refmem_core() -> str:
+    """N5.0.4p: the RefMem core is split into four units."""
+    return chr(10).join(
+        (ROOT / "components/distributed_refmem/src" / name).read_text(encoding="utf-8")
+        for name in ("distributed_refmem.c", "distributed_refmem_plane.c", "distributed_refmem_link.c", "distributed_refmem_status.c")
+    )
+
+
+
 
 def _function(source, name):
     # Macro-wrapped time-critical helpers read "NAME)(", while a plain static
@@ -44,7 +53,7 @@ def _function(source, name):
 def projection_exe(request, tmp_path_factory):
     directory = tmp_path_factory.mktemp(f"refmem-vector-{request.param}")
     manager = (ROOT/"components/vdc_dpll_manager/src/vdc_dpll_manager.c").read_text(encoding="utf-8")
-    refmem = (ROOT/"components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
+    refmem = _read_refmem_core()
     functions = _function(manager, "vdc_dpll_manager_get_vector_snapshot")
     functions += "\n#undef __atomic_load_n\n"
     # The vector getter carries the owner's role-aware lock declaration. This

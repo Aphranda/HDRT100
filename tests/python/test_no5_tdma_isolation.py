@@ -3,11 +3,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_refmem_core() -> str:
+    """N5.0.4p: the RefMem core is split into four units."""
+    return chr(10).join(
+        (ROOT / "components/distributed_refmem/src" / name).read_text(encoding="utf-8")
+        for name in ("distributed_refmem.c", "distributed_refmem_plane.c", "distributed_refmem_link.c", "distributed_refmem_status.c")
+    )
+
+
+
 
 def test_no5_ring_entry_points_are_fail_closed() -> None:
-    source = (ROOT / "components/distributed_refmem/src/distributed_refmem.c").read_text(
-        encoding="utf-8"
-    )
+    source = _read_refmem_core()
     guard = "board_identity_get_no() == 5u"
     assert source.count(guard) >= 4
     assert "DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED" in source

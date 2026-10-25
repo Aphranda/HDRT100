@@ -9,9 +9,18 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_refmem_core() -> str:
+    """N5.0.4p: the RefMem core is split into four units."""
+    return chr(10).join(
+        (ROOT / "components/distributed_refmem/src" / name).read_text(encoding="utf-8")
+        for name in ("distributed_refmem.c", "distributed_refmem_plane.c", "distributed_refmem_link.c", "distributed_refmem_status.c")
+    )
+
+
+
 
 def test_arm_reports_the_rejecting_boundary(tmp_path):
-    implementation = (ROOT / 'components/distributed_refmem/src/distributed_refmem.c').read_text(encoding='utf-8')
+    implementation = _read_refmem_core()
     header = (ROOT / 'components/distributed_refmem/inc/distributed_refmem.h').read_text(encoding='utf-8')
     enum = re.search(r'typedef enum \{\s*DISTRIBUTED_REFMEM_TDMA_ARM_NOT_ATTEMPTED.*?\} distributed_refmem_tdma_arm_result_t;', header, re.S)
     assert enum
@@ -22,7 +31,7 @@ def test_arm_reports_the_rejecting_boundary(tmp_path):
 #include <string.h>
 ENUM_DEFINITION
 static tdma_service_service_t owner;
-static bool s_initialized, owner_available, snapshot_available, runtime_active;
+static bool s_refmem_core_initialized, owner_available, snapshot_available, runtime_active;
 static bool calibration_valid, runtime_accepts;
 static uint32_t board_no, map_calls, arm_calls, s_tdma_ring_arm_last_result;
 static tdma_service_flight_map_result_t rejection;
@@ -52,7 +61,7 @@ bool tdma_service_ring_arm(tdma_service_service_t *service) {
 bool distributed_refmem_tdma_ring_arm(void) { ARM_BODY }
 static void reset(void) {
     memset(&owner, 0, sizeof(owner));
-    s_initialized = owner_available = snapshot_available = calibration_valid = runtime_accepts = true;
+    s_refmem_core_initialized = owner_available = snapshot_available = calibration_valid = runtime_accepts = true;
     runtime_active = false; board_no = 1; map_calls = arm_calls = 0;
     owner.ring_staged_config.enabled = 1; owner.ring_staged_config.node_count = 4;
     rejection = TDMA_SERVICE_FLIGHT_MAP_OK;
@@ -75,7 +84,7 @@ int main(void) {
         reset(); rejection = cases[i].rejection; result(cases[i].result, 1, 0);
     }
     reset(); board_no = 5; result(DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_CONFIG_REJECTED, 0, 0);
-    reset(); s_initialized = false; result(DISTRIBUTED_REFMEM_TDMA_ARM_OWNER_UNAVAILABLE, 0, 0);
+    reset(); s_refmem_core_initialized = false; result(DISTRIBUTED_REFMEM_TDMA_ARM_OWNER_UNAVAILABLE, 0, 0);
     reset(); owner_available = false; result(DISTRIBUTED_REFMEM_TDMA_ARM_OWNER_UNAVAILABLE, 0, 0);
     reset(); snapshot_available = false; result(DISTRIBUTED_REFMEM_TDMA_ARM_SNAPSHOT_UNAVAILABLE, 0, 0);
     reset(); runtime_active = true; result(DISTRIBUTED_REFMEM_TDMA_ARM_RUNTIME_ACTIVE, 0, 0);

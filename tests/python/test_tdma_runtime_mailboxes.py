@@ -8,9 +8,18 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_refmem_core() -> str:
+    """N5.0.4p: the RefMem core is split into four units."""
+    return chr(10).join(
+        (ROOT / "components/distributed_refmem/src" / name).read_text(encoding="utf-8")
+        for name in ("distributed_refmem.c", "distributed_refmem_plane.c", "distributed_refmem_link.c", "distributed_refmem_status.c")
+    )
+
+
+
 
 def test_arm_map_uses_configured_nodes_within_static_capacity(tmp_path):
-    source = (ROOT / "components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
+    source = _read_refmem_core()
     body = c_definition_body(source, "distributed_refmem_default_flight_map")
     case = tmp_path / "runtime_map.c"
     case.write_text('''#include <assert.h>

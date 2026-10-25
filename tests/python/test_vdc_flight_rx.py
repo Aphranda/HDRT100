@@ -12,12 +12,21 @@ import pytest
 from test_vdc_command_ingress import ingress_definition
 from test_vdc_command_owner import ROOT, compile_executable
 
+def _read_refmem_core() -> str:
+    """N5.0.4p: the RefMem core is split into four units."""
+    return chr(10).join(
+        (ROOT / "components/distributed_refmem/src" / name).read_text(encoding="utf-8")
+        for name in ("distributed_refmem.c", "distributed_refmem_plane.c", "distributed_refmem_link.c", "distributed_refmem_status.c")
+    )
+
+
+
 
 @pytest.fixture(scope="module")
 def flight_rx_executable(tmp_path_factory):
     directory = tmp_path_factory.mktemp("vdc-flight-rx")
     # N5.0.2f-A.1: the flight-sync state type lives in the private header.
-    source = ((ROOT / "components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
+    source = (_read_refmem_core()
               + "\n"
               + (ROOT / "components/distributed_refmem/src/distributed_refmem_internal.h").read_text(encoding="utf-8"))
     service = (ROOT / "components/tdma/src/tdma_service.c").read_text(encoding="utf-8")

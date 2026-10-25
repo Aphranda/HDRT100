@@ -469,6 +469,9 @@ set(PROJECT_APP_SOURCES
         components/diagnostics/src/diagnostics_tdma_record.c
         components/distributed_config/src/distributed_config.c
         components/distributed_refmem/src/distributed_refmem.c
+        components/distributed_refmem/src/distributed_refmem_plane.c
+        components/distributed_refmem/src/distributed_refmem_link.c
+        components/distributed_refmem/src/distributed_refmem_status.c
         components/distributed_refmem/src/distributed_action_probe.c
         components/distributed_refmem/src/distributed_refmem_position_ack.c
         components/distributed_refmem/src/distributed_refmem_vdc_feedback.c
