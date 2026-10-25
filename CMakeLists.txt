@@ -645,6 +645,7 @@ set(PROJECT_APP_SOURCES
         components/tdma/src/tdma_runtime_origin.c
         components/tdma/src/tdma_transport_frame.c
         components/ui_manager/src/status_ui.c
+        components/ui_manager/src/status_ui_render_kit.c
         components/ui_manager/src/ui_key_input.c
         components/ui_manager/src/ui_manager.c
         components/vdc_domain/src/vdc_domain.c
