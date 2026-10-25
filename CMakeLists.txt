@@ -475,6 +475,8 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/distributed_refmem_priority_health.c
         components/distributed_refmem/src/refmem_application_contract.c
         components/distributed_refmem/src/refmem_application_model.c
+        components/distributed_refmem/src/refmem_model_codec.c
+        components/distributed_refmem/src/refmem_model_validate.c
         components/distributed_refmem/src/refmem_claim_protocol.c
         components/distributed_refmem/src/refmem_command.c
         components/distributed_refmem/src/refmem_node_control.c

@@ -10,8 +10,13 @@ $build = Join-Path $repo $BuildDir
 $refmemInclude = Join-Path $repo "components\distributed_refmem\inc"
 $tdmaInclude = Join-Path $repo "components\tdma\inc"
 $otaInclude = Join-Path $repo "components\ota_manager\inc"
+$triggerInclude = Join-Path $repo "components\sync_trigger\inc"
+$vdcDomainInclude = Join-Path $repo "components\vdc_domain\inc"
+$vdcDpllInclude = Join-Path $repo "components\vdc_dpll_manager\inc"
 $testSource = Join-Path $repo "tests\unit\test_refmem_table_registry.c"
 $appModelSource = Join-Path $repo "components\distributed_refmem\src\refmem_application_model.c"
+$appModelCodecSource = Join-Path $repo "components\distributed_refmem\src\refmem_model_codec.c"
+$appModelValidateSource = Join-Path $repo "components\distributed_refmem\src\refmem_model_validate.c"
 $registrySource = Join-Path $repo "components\distributed_refmem\src\refmem_table_registry.c"
 $appContractSource = Join-Path $repo "components\distributed_refmem\src\refmem_application_contract.c"
 $realtimeContractSource = Join-Path $repo "components\distributed_refmem\src\refmem_realtime_contract.c"
@@ -69,7 +74,8 @@ if (-not $hostCc) {
 if ($hostCc) {
     $exe = Join-Path $build "test_refmem_table_registry.exe"
     & $hostCc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" `
-        $testSource $appModelSource $registrySource $appContractSource `
+        "-I$triggerInclude" "-I$vdcDomainInclude" "-I$vdcDpllInclude" `
+        $testSource $appModelSource $appModelCodecSource $appModelValidateSource $registrySource $appContractSource `
         $realtimeContractSource $claimSource $tdmaProfileSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
@@ -90,7 +96,7 @@ if (-not (Test-Path $ArmGcc)) {
     throw "No host C compiler found and ARM GCC not found at $ArmGcc"
 }
 
-foreach ($source in @($testSource, $appModelSource, $registrySource, $appContractSource, $realtimeContractSource, $claimSource, $tdmaProfileSource)) {
+foreach ($source in @($testSource, $appModelSource, $appModelCodecSource, $appModelValidateSource, $registrySource, $appContractSource, $realtimeContractSource, $claimSource, $tdmaProfileSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
     & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {

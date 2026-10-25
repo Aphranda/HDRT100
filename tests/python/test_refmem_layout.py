@@ -61,6 +61,8 @@ def test_tool_package_owner_validation_and_lifetime(tmp_path, node_capacity, sho
     exe = _compile(tmp_path, "registry_layout", [
         "tests/unit/test_refmem_table_registry.c",
         "components/distributed_refmem/src/refmem_application_model.c",
+        "components/distributed_refmem/src/refmem_model_codec.c",
+        "components/distributed_refmem/src/refmem_model_validate.c",
         "components/distributed_refmem/src/refmem_table_registry.c",
         "components/distributed_refmem/src/refmem_application_contract.c",
         "components/distributed_refmem/src/refmem_realtime_contract.c",

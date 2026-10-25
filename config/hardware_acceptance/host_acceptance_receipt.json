@@ -13,7 +13,7 @@
   "paths": [
     "tests/python/test_refmem_layout.py"
   ],
-  "duration_s": 17.921,
+  "duration_s": 19.25,
   "returncode": 0,
   "summary": {
     "passed": 10,
@@ -22,14 +22,14 @@
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "10 passed in 17.54s",
+  "summary_line": "10 passed in 18.87s",
   "tail": [
     "..........                                                               [100%]",
-    "10 passed in 17.54s"
+    "10 passed in 18.87s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "531202a6f68e58cb80ff16a99a274530386a5efb7b8c6c56b0ac870aa28a91b3",
+  "fingerprint": "7199582afc01abc06a5b814c6e9a86be1d84d3be959aed0c52b6e1527ef02d15",
   "file_count": 526,
-  "working_fingerprint": "531202a6f68e58cb80ff16a99a274530386a5efb7b8c6c56b0ac870aa28a91b3",
-  "started_at_utc": "2026-10-25T18:21:39.846821+00:00"
+  "working_fingerprint": "7199582afc01abc06a5b814c6e9a86be1d84d3be959aed0c52b6e1527ef02d15",
+  "started_at_utc": "2026-10-25T18:32:50.138129+00:00"
 }
