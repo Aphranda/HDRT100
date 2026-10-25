@@ -543,6 +543,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - **N5.0.4a** ✅（2026-10-26 完成）：`tdma_service.c` 2,283 → 1,202 + `tdma_service_core1.c` 1,078 + `tdma_service_internal.h`（10 个 helper）；跨边界调用实测单向（Core1→主 10 处、反向 0）；归档 `components/tdma/archive/tdma_service_split_v1/`；符号 77→86、代码量 +8 B；P3 `PASS_WITH_WARNINGS`（INFO 33/WARN 10/ERROR 0）；提交 `81b417d7`。
 - **N5.0.4b** ⏳：`tdma_pio_spi_ring_adapter.c`（4,117）拆 TX / RX / 主三单元，各 ≤1,500；`service_impl`/START/STOP 留主单元；同批修 `tdma_service_timing` 等 6 项既有 host 源清单。
 - **N5.0.4c** ✅（2026-10-26 完成）：`scpi_calibration_commands.c` 2,131 → 1,022 + `scpi_calibration_capture_commands.c` 1,122（均 ≤1,300）；跨边界仅 `scpi_calibration_result_u64`（去 static 进 `scpi_calibration_commands_internal.h`）；归档 `middleware/scpi_port/archive/scpi_calibration_split_v1/`；函数定义集合 87/87 一致；P3 `PASS_WITH_WARNINGS`（INFO 31/WARN 14/ERROR 0）；提交 `cf472872`。
+- **N5.0.4d** ⏸（2026-10-26 尝试后暂缓）：`scpi_sync_commands.c`（2,333）按族界切 1,094 / 1,239，产物试编译通过；但 17 个 host 用例按路径抽取/编译该文件，重跑得 109 errors + 5 failed，**须先做测试锚点改造**（统一改读两文件或符号级断言）再重试。尝试产物归档到 `out/split-20261025/archive/scpi_sync_split_v1_attempt/`；源文件已按归档副本原样恢复（blob `6addb3b1` 与 HEAD 一致，未删除任何内容）。
 - **N5.0.5** ⏳（收口报告 2026-10-25）：行数快照/残差/HAOFV 已记录；N5.0 **未完成**，A.3/A.4/N5.0.3b 留待扩展。
 - **每步约束**：纯移动/重命名 + 私有头；不改行为；host/build/P3/HIL 烟测；代码/文档分离提交。
 
