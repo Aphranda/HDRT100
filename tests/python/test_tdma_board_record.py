@@ -408,7 +408,12 @@ static bool tdma_runtime_owner_get_rx_first_window(tdma_rx_first_window_t *p) {
 
 
 def test_storage_evidence_seal_keeps_crc_length_and_lease_checks(tmp_path):
-    source = (ROOT / "components/storage_manager/src/storage_manager.c").read_text(encoding="utf-8")
+    # N5.0.4g: the write/evidence functions moved to the jobs/evidence units.
+    source = "\n".join(
+        (ROOT / "components/storage_manager/src" / name).read_text(encoding="utf-8")
+        for name in ("storage_manager.c", "storage_manager_jobs.c",
+                     "storage_manager_evidence.c")
+    )
     def function(name):
         start = source.index("bool " + name + "(")
         end = source.index("\n}", start) + 2

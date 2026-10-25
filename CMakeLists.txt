@@ -544,6 +544,8 @@ set(PROJECT_APP_SOURCES
         components/sma_cable_delay/src/sma_cable_delay.c
         components/sma_cable_delay/src/sma_cable_delay_pio.c
         components/storage_manager/src/storage_manager.c
+        components/storage_manager/src/storage_manager_jobs.c
+        components/storage_manager/src/storage_manager_evidence.c
         components/system_manager/src/system_manager.c
         components/sync_trigger/src/biss_node_io.c
         components/sync_trigger/src/biss_protocol.c
