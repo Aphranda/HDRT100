@@ -9,6 +9,7 @@
 #include "trigger_position_descriptor.h"
 
 #define DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_PAYLOAD_SIZE TDMA_FLIGHT_SHORT_PAYLOAD_SIZE
+#define DISTRIBUTED_REFMEM_TDMA_FLIGHT_SYNC_MAILBOX_SIZE TDMA_FLIGHT_SHORT_SLOT_SIZE
 
 #include <stdbool.h>
 #include <stdint.h>
