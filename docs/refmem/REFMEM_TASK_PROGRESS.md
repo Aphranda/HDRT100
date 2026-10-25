@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-009`。
+- 最新条目：`REFMEM-TASK-20261025-010`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,16 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-010 — N5.0.3a 拆出 SCPI refmem 控制块（B）
+
+- 状态：完成；行为不变。
+- 内容：新增 `scpi_refmem_snapshot_commands.c`（1,150 行）；`REFMEM:STATus/NODE/BOARD/CLAIM/LOAD/CMD/CONFig/LEASE/CTRL/NODE:CONTrol/...` 控制块迁出；10 个 helper 经 `scpi_system_snapshot_internal.h` 共享；`s_refmem_sync` 通过 accessor 暴露。
+- 行数：`scpi_system_snapshot_commands.c` 5,712→**4,627**。
+- 验证：
+  - build 成功；P3 `20261025001128`，fingerprint `b0024662f6af8aa0d993f07dfd2214fcdd6598b4721e01f8e0b472cd34b29d0c`，1951 files，`PASS_WITH_WARNINGS/strict=false`。
+  - SCPI smoke（COM4）：`REFMEM:STATus?` 输出、`CTRL:CATalog?` 6 条、`LEASE?`=FREE、`LOAD:STATus?` 正常；`out/refmem_transport_diag/flash_n503a_202610250825/`。
+- 下一刀：A（N5.0.2f TDMA flight，最大块）。
 
 ### REFMEM-TASK-20261025-009 — N5.0.1 预算与关注点地图（C）
 
@@ -104,7 +114,8 @@ Last updated: 2026-10-25
 - N5.2a.1：诊断字段已定位 table 9（TDMA foundation profile）owner validation 失败；`lint=2312=0x0908`。
 - N5.2a.2 尝试：仅换 profile 指针无效（ring 后仍 lint=2312=0x0908）；需 profile 快照/owner 契约分离。
 - N5.0.1（C）：预算/关注点地图完成；`EXE-CODE-01` 写入执行约束。
-- 下一步：B（N5.0.3a SCPI refmem 控制块拆分）→ A（N5.0.2f TDMA flight）→ 剩余收口。
+- N5.0.3a（B）：SCPI refmem 控制块拆出（5,712→4,627）；P3 `20261025001128`；SCPI smoke 通过。
+- 下一步：A（N5.0.2f TDMA flight）→ N5.0.2g/N5.0.3b → N5.0.5。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 
