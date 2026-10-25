@@ -1,7 +1,7 @@
 {
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
   "passed": true,
-  "fingerprint": "cfe94108964d847353b65d24dfe34e54c8e4403d8ed84c7772fa724c77cfb841",
+  "fingerprint": "c06c5f3eaf703c5728e505daacf1fcc186f5c166237c7483f04a73243c56a39e",
   "file_count": 524,
   "working_fingerprint": "c06c5f3eaf703c5728e505daacf1fcc186f5c166237c7483f04a73243c56a39e",
   "unstaged_tested_files": [],
@@ -9,26 +9,31 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_credential_scope.py",
+    "tests/python/test_vdc_host_harness.py",
+    "tests/python/test_split_unit_hooks.py",
+    "tests/python/test_owner_hook_link.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_credential_scope.py"
+    "tests/python/test_vdc_host_harness.py",
+    "tests/python/test_split_unit_hooks.py",
+    "tests/python/test_owner_hook_link.py"
   ],
-  "started_at_utc": "2026-10-25T11:34:52.395835+00:00",
-  "duration_s": 5.859,
+  "started_at_utc": "2026-10-25T11:42:31.914922+00:00",
+  "duration_s": 9.078,
   "returncode": 0,
   "summary": {
-    "passed": 18,
+    "passed": 75,
     "failed": 0,
     "errors": 0,
     "skipped": 0
   },
-  "summary_line": "18 passed in 4.60s",
+  "summary_line": "75 passed in 8.15s",
   "tail": [
-    "..................                                                       [100%]",
-    "18 passed in 4.60s"
+    "........................................................................ [ 96%]",
+    "...                                                                      [100%]",
+    "75 passed in 8.15s"
   ]
 }

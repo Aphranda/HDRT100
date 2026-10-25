@@ -7,7 +7,8 @@
 set -e
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
-classes="$(python tools/acceptance/credential_scope.py --staged --classes || true)"
+# Fail closed: if the classifier cannot run, the commit must not bypass gates.
+classes="$(python tools/acceptance/credential_scope.py --staged --classes)"
 echo "[pre-commit] credential classes: ${classes:-none}"
 
 needs_docs=0
