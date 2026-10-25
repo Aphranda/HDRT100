@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from tools.acceptance import credential_scope, host_acceptance
+from tools.hardware_acceptance import p3_hardware_acceptance
 
 
 @pytest.mark.parametrize("path,expected", [
@@ -115,3 +116,16 @@ def test_check_staged_rejects_missing_or_stale_receipt(tmp_path, monkeypatch):
         "summary_line": "1 passed", "paths": ["tests/python/test_a.py"],
     }), encoding="utf-8")
     host_acceptance.check_staged()  # no exception
+
+
+def test_p3_fingerprint_ignores_host_credential_scope():
+    """A test or hook change must not invalidate the hardware credential."""
+    assert p3_hardware_acceptance.is_acceptance_source(
+        "components/vdc_dpll_manager/src/vdc_priority_follow.c")
+    assert p3_hardware_acceptance.is_acceptance_source(
+        "tools/hardware_acceptance/p3_hardware_acceptance.py")
+    assert not p3_hardware_acceptance.is_acceptance_source(
+        "tests/python/test_vdc_priority_phase.py")
+    assert not p3_hardware_acceptance.is_acceptance_source(".githooks/pre-commit")
+    assert not p3_hardware_acceptance.is_acceptance_source(
+        "tools/acceptance/host_acceptance.py")

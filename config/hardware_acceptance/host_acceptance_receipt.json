@@ -1,55 +1,34 @@
 {
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
   "passed": true,
-  "fingerprint": "65188a1809aa9146c93e95f3acd2f07e7a958d30e899971af5a81fdbf6243eb9",
+  "fingerprint": "cfe94108964d847353b65d24dfe34e54c8e4403d8ed84c7772fa724c77cfb841",
   "file_count": 524,
-  "working_fingerprint": "472362f109b77a6f17478bd346ceebfa9f48990b02dbccb1da9b9e97d57bc8dd",
+  "working_fingerprint": "c06c5f3eaf703c5728e505daacf1fcc186f5c166237c7483f04a73243c56a39e",
   "unstaged_tested_files": [],
   "command": [
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_vdc_command_owner.py",
-    "tests/python/test_vdc_idle_maintenance.py",
-    "tests/python/test_vdc_priority_follow.py",
-    "tests/python/test_vdc_priority_follow_config.py",
-    "tests/python/test_vdc_priority_mapping.py",
-    "tests/python/test_vdc_priority_match.py",
-    "tests/python/test_vdc_priority_phase.py",
-    "tests/python/test_vdc_priority_trace.py",
+    "tests/python/test_credential_scope.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_vdc_command_owner.py",
-    "tests/python/test_vdc_idle_maintenance.py",
-    "tests/python/test_vdc_priority_follow.py",
-    "tests/python/test_vdc_priority_follow_config.py",
-    "tests/python/test_vdc_priority_mapping.py",
-    "tests/python/test_vdc_priority_match.py",
-    "tests/python/test_vdc_priority_phase.py",
-    "tests/python/test_vdc_priority_trace.py"
+    "tests/python/test_credential_scope.py"
   ],
-  "started_at_utc": "2026-10-25T11:11:07.895691+00:00",
-  "duration_s": 150.984,
+  "started_at_utc": "2026-10-25T11:34:52.395835+00:00",
+  "duration_s": 5.859,
   "returncode": 0,
   "summary": {
-    "passed": 568,
+    "passed": 18,
     "failed": 0,
     "errors": 0,
     "skipped": 0
   },
-  "summary_line": "568 passed in 149.57s (0:02:29)",
+  "summary_line": "18 passed in 4.60s",
   "tail": [
-    "........................................................................ [ 12%]",
-    "........................................................................ [ 25%]",
-    "........................................................................ [ 38%]",
-    "........................................................................ [ 50%]",
-    "........................................................................ [ 63%]",
-    "........................................................................ [ 76%]",
-    "........................................................................ [ 88%]",
-    "................................................................         [100%]",
-    "568 passed in 149.57s (0:02:29)"
+    "..................                                                       [100%]",
+    "18 passed in 4.60s"
   ]
 }
