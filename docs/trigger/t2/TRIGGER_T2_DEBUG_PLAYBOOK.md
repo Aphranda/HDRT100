@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_DEBUG_PLAYBOOK.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
-Last updated: 2026-10-19
+Last updated: 2026-10-25
 
 > 本手册只记录**可复用的调试方法**与**踩过的坑**（症状 → 根因 → 修法 → 证据）。
 > 具体读数与轮次见 `TRIGGER_T2_TASK_PROGRESS.md`；时序/契约见 `TRIGGER_T2_ARCHITECTURE.md`。
@@ -68,7 +68,7 @@ Last updated: 2026-10-19
 | 单步台架 | `t2_workflow.py --steps 0-20`（连续性必须保持，中途不改源码） |
 | P3 | 源码冻结后 `hardware_acceptance_workflow.py --profile full`；或 `--run <dir> --steps a-b` 续跑 |
 | 主机回归 | `pytest -k "trigger or sync_io or t2_"`；网关连打三发：`test_sync_io_gateway.py -k triple` |
-| 页面索引 | 读 `scpi_trigger_t2_runtime_commands.inc` 的 `SCPI_Result*` 顺序建表 |
+| 页面索引 | 读 `scpi_trigger_t2_runtime_commands.c` 的 `SCPI_Result*` 顺序建表 |
 
 ## 6. 预装两组（网关下一步的精确设计）
 

@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_REVIEW.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
-Last updated: 2026-10-21
+Last updated: 2026-10-25
 
 ## 文档接口与范围
 
@@ -60,7 +60,7 @@ Last updated: 2026-10-21
 | A-05 | 中 | cursor 一次失效就软件取消已装填动作并作废全部冻结位置 | `trigger_t2_runtime.c:380-392` | ARCH_T2 arm guard 后不得软件“尽量取消” | 已核实（瞬时触发概率为推测） |
 | A-06 | 高 | 从 FREEZE 起就停止按新 DCO 重算 deadline，而不是从开始执行起 | `trigger_t2_runtime.c:704, 710-711, 401-416` | K-2；ARCH_T2 跨 generation 重算 | 已核实 |
 | A-07 | 中 | 临时诊断插桩跨域复用 TDMA store，且导致主机测试编译失败 | `trigger_t2_runtime.c:15, 459-481` 等 | 单 writer 诊断；`EXE-SAFE-01` 结构化诊断 | 已核实（复跑失败） |
-| A-08 | 中 | 席位挂载表跨核读取无保护；挂载 SAVE 不经 STOP 门 | `tdma_seat_mount_store.c:150-155, 216-224`、`scpi_trigger_seat_commands.inc:40` | TDMA 架构 guarded handoff；`HAOFV_FLASH_ARCHITECTURE.md` RUN 中不开始新 program | 已核实 |
+| A-08 | 中 | 席位挂载表跨核读取无保护；挂载 SAVE 不经 STOP 门 | `tdma_seat_mount_store.c:150-155, 216-224`、`scpi_trigger_seat_commands.c:54` | TDMA 架构 guarded handoff；`HAOFV_FLASH_ARCHITECTURE.md` RUN 中不开始新 program | 已核实 |
 | A-09 | 中 | v2 Flash 映射中 seat mount 的读写地址不一致（仅影响 `v2_candidate` 构建；现行 `v1_compat` 使用专用分区） | `config/flash_deployment_map.h:57-72`、`tdma_seat_mount_store.c:73-83` | Flash 分区一致性 | 已核实 |
 | A-10 | 中 | 节点数与角色数写死 | `trigger_deployment.h:7`、`trigger_position_descriptor.h:19, 192` | ARCH_T2 “从节点表和 mask 派生，支持 A0–A7” | 读码 |
 | A-11 | 中 | Trigger 自行实现了 VDC 正向映射 | `trigger_time_projection.c`、`trigger_t2_runtime.c:729` | ARCH_T2 “VDC 是映射唯一 owner” | 读码 |

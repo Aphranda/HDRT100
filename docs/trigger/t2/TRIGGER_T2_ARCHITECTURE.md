@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
 Related: `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/trigger/t2/TRIGGER_T2_RUNTIME_CONSTRAINTS.md`
-Last updated: 2026-10-17
+Last updated: 2026-10-25
 
 
 > 口径（2026-10-19）：本文中"每位置 16 组"是**模型源口径**；台架判据按角色 **SWITCH_A 8 / SWITCH_B 2 / GATEWAY 2**（见 `TRIGGER_T2_TODO.md` 与登记项 `T2-GROUPCOUNT-01`）。
@@ -32,7 +32,7 @@ Last updated: 2026-10-17
 
 - 环：`CALibration:TOPology:PROBe` + `TDMA:OPMode:STAGe/APPLy`、`RING:GEOMetry`、`RING:TOPology`、`RING:DIAGnostic 1`。
 - 位置表：`GRID:CONFigure` → `DEPloyment:STAGe/ACTivate` → `ACTion:INSTall` / `TEMPLate:INSTall` → `COUNter:LOAD`。
-- **T2 配置**：`T2:CONFigure` 的前置是 diag 91/92/93——网格已配置、部署 `active.valid`、动作表/模板 `installed && resources_loaded && binding_current`（`scpi_trigger_t2_runtime_commands.inc:74-89`）。`binding_current()` 要求环停止且配置序号未变，因此 **T2 配置必须早于**后续任何停机态写入（会话/`OUTPut:RUN`/优先级）。
+- **T2 配置**：`T2:CONFigure` 的前置是 diag 91/92/93——网格已配置、部署 `active.valid`、动作表/模板 `installed && resources_loaded && binding_current`（`scpi_trigger_t2_runtime_commands.c:86-101`）。`binding_current()` 要求环停止且配置序号未变，因此 **T2 配置必须早于**后续任何停机态写入（会话/`OUTPut:RUN`/优先级）。
 - VDC 时基：`OUTPut:TIMing`、`FEEDback:SESSion {generation}`、`OUTPut:RUN period,high,duration`（`duration=0` 表示连续运行；1..20000 是有限调试运行）。
 - 临时训练：`SYNC:VDC:DPLL:ProVisional 1` 要求环停止、staged 配置 enabled、标定阶段 complete 且 node_count/topology/profile/schedule CRC 与 staged 逐项相等，且**反馈会话必须已关闭**（`vdc_dpll_manager.c:4363`）——故它排在开会话之前。
 - 优先级类：`PRIORity:SYNC`/`MATCH`/`FOLLow`/`FOLLow:PHASe`。`FOLLow` 要求活跃会话、generation 匹配、`s_priority_match_request_session == session`，并要 boundary 请求计数为偶数；其查询页 `FOLLow?` 在通道 active 时拒答，**判据只能用 `FOLLow:STATus?`**。
@@ -688,7 +688,7 @@ FREEZE 是"提前冻结预测、留出动作时间"的机制，因此**它值多
 
 - 第 8–12 项由 `TRIGGER_T2_ACTION_FAIL_{LATE,EXPIRED,NO_PLAN,CONFLICT,BACKEND}` 饱和计数经
   `action_fail()` 记录（`components/sync_trigger/inc/trigger_t2_runtime.h`），页面组装在
-  `middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc`。
+  `middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.c`。
 - 第 13–17 项是**组序列进度**：没有它，"布防了但序列不推进"与"从未布防"在页面上不可区分
   （2026-10-16 台架实测：三从板 `frozen 3 / executed 0 / 各失败计数 0`，无法判定停在哪一组）。
   打包字由 `trigger_t2_runtime_group_pack(slot)` 组装（同头文件声明）。

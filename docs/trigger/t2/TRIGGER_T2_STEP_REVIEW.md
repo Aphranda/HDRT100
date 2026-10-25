@@ -4,7 +4,7 @@ Status: Active
 Domain: TRIGGER
 Canonical: `docs/trigger/t2/TRIGGER_T2_STEP_REVIEW.md`
 Related: `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_TODO.md`, `docs/trigger/t2/TRIGGER_T2_TASK_PROGRESS.md`, `docs/trigger/t2/TRIGGER_T2_REVIEW.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-10-11
+Last updated: 2026-10-25
 
 ## 文档接口与范围
 
@@ -71,7 +71,7 @@ Last updated: 2026-10-11
 | A-13 | 无预览则 FREEZE 永不发出 | **已修（2026-10-12）** | **已修**：`stage_pending_freeze()` 遇 `preview_copy` 失败按位置记录一次（`freeze_no_preview_mask` / `freeze_no_preview_count`，追加在 `T2?` 末尾可读回）并继续检查其余 pending 位置；pending 位保留使迟到预览仍可冻结。回归测试 `tests/python/test_t2_freeze_no_preview.py`；台架不再需要 `--late-source` 绕过 |
 | A-14 | 无 STEP 参数 | 未动 | predictor 3 点定长模型 |
 | A-16 | 每位置仅 1 组模板 | 未动 | `TRIGGER_T2_RUNTIME_LOCAL_TEMPLATE_CAPACITY` 为 1 |
-| A-08 | 挂载 SAVE 不经 STOP 门 | 仍存在 | `scpi_trigger_seat_commands.inc` 直接进 store，无 `run_stopped_maintenance` |
+| A-08 | 挂载 SAVE 不经 STOP 门 | 仍存在 | `scpi_trigger_seat_commands.c` 直接进 store，无 `run_stopped_maintenance` |
 | A-09 | v2 映射读写偏移不一致 | 仍存在（仅 v2 构建） | store 读用绝对偏移、写用相对偏移；v2 映射把 store 放进 CALIBRATION_NVS 且相对偏移为 2 扇区 |
 | A-10/A-11/A-12 | 角色写死 / Trigger 自实现正映射 / 快照 seqlock | 仍存在（读码） | 本轮未逐行复核，未见修复提交 |
 
@@ -142,7 +142,7 @@ predictor 无 STEP 字段、3 点定长、`announced_mask` 按 `i<3`、`build_de
 |---|---|---|
 | slice 内 position id | 4 bit，有效 1..15（`trigger_position_slice.h`） | 不可寻址 |
 | FREEZE latch | 15 槽（`trigger_position_mailbox.h`） | 不可寻址 |
-| 冻结完成 ack | 8 bit，仅位置 1..8（`distributed_refmem_position_ack.inc`） | 不可确认 |
+| 冻结完成 ack | 8 bit，仅位置 1..8（`distributed_refmem_position_ack.c`） | 不可确认 |
 | descriptor FREEZE 校验 | 字面量 ≤3（`trigger_position_descriptor.h`） | 不可通过 |
 | 桩/工具打印 | `T2:?`、`T2:ACTion?`、台架探针按 3 槽定长 | 需重排 |
 

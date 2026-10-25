@@ -4,7 +4,7 @@ Status: Active
 Domain: INTERFACE
 Canonical: `docs/interface/SCPI_HAOFV_REVIEW.md`
 Related: `docs/interface/SCPI_COMMAND_PLAN.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/interface/SCPI_HOST_ARCHITECTURE.md`, `docs/interface/SCPI_HOST_TODO.md`, `docs/interface/SCPI_HOST_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-10-20
+Last updated: 2026-10-25
 
 本文档记录对接口域（`docs/interface/` 与 `middleware/scpi_port/`）的一次 HAOFV 架构符合性评审，
 用于回答“当前对外接口是否存在不符合 HAOFV 分层、owner、非阻塞与契约模型的地方”。
@@ -15,7 +15,7 @@ Last updated: 2026-10-20
 
 - 文档面：`docs/interface/` 下全部 `.md`（README、命令计划、命令清单、USB 设计、host 三件套、
   TASK_PROGRESS）。
-- 实现面：`middleware/scpi_port`（命令表装配、分域命令模块、`*.inc` 运行态入口）、
+- 实现面：`middleware/scpi_port`（命令表装配、分域命令模块、每个命令族的 `.c`/`.h` 运行态入口）、
   `middleware/usbtmc_scpi_port`、以及被 SCPI 直接调用的 `components/sync_io`、`drv_flash`、
   `drv_rs485`、`storage_manager` 边界。
 - 方法：按 HAOFV 的“SCPI 只表达意图/配置/查询；只写 command/config slot 或读 snapshot；

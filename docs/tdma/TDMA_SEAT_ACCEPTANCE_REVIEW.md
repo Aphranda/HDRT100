@@ -4,7 +4,7 @@ Status: Draft
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_SEAT_ACCEPTANCE_REVIEW.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/tdma/TDMA_SEAT_TX_CHANNEL_REVIEW.md`
-Last updated: 2026-10-11
+Last updated: 2026-10-25
 
 ## 文档接口与范围
 
@@ -52,7 +52,7 @@ Last updated: 2026-10-11
 | G5 | ~~放弃路径仍未被驱动~~ **已关闭（2026-10-11，抽取式 harness）**：`tests/python/test_trigger_t2_freeze_abandon.py` 抽取 `resend_one_freeze()` 本体，用同名的自持 statics + 两个 extern 桩直接驱动该分支——放弃（掩码 + 计数 + 不再重发）、计数饱和、仍在窗口内则重发一次、节奏门（`T2_FREEZE_RESEND_SLICES`）、确认后完成、以及暂存被拒只记传输事实。**负测**：移除计数自增后该用例失败，证明断言有牙。此前三轮整机驱动的失败原因也记在同处（原点持续解算刷新窗口 / 冻结采样流触发无关服务错误）。（旧描述，保留作为经过）**三轮未攻克**：`-024` 记录、`-026`/`-027` 两次尝试均为失败——冻结采样流会触发服务错误、保持解算又不断延长窗口；现用例以 **origin 身份**（本轮修正了此前误配为 follower 的问题）跑 400 片，断言"计数 == 掩码 popcount"且无任何位置被报告完成 | `tests/python/test_trigger_t2_runtime.py` 的 `origin_no_ack` 用例 |
 | G6 | ~~`SEAT:HEALth?` 的 8 个 reason 位无一由 T2 侧事实驱动~~ **已关闭（2026-10-11）**：新增 bit8 `FIRST_CLASS_MISSED`，由 `freeze_abandoned_count` + `freeze_missing_local_count` 驱动，页尾追加两个原始计数 | `tdma_pio_spi_ring_adapter.h`（`tdma_seat_health_reason`）、`scpi_system_snapshot_commands.c`（`scpi_cmd_system_tdma_seat_health_q`） |
 | G8 | ~~没有页暴露承诺期限，迟到量级不可读~~ **已关闭（2026-10-11）**：`T2?` 末尾追加 `late_last_current_ms` 与 `late_last_expiry_sync`（二者之差即最近一次迟到量），随后**逐位置**追加承诺本身（`target_ms_index` 低字与 `expiry_sync`，3 位置共 6 字段） | `trigger_t2_runtime.c`（到达路径记录量级）、`trigger_t2_runtime.h`、`TRIGger:RESERVation:T2?`、`test_seat_acceptance_tool.py::test_t2_page_tail_is_append_only` |
-| G7 | ~~`T2?` 页字段顺序未与实现绑定~~ **已关闭（2026-10-11）**：`test_seat_acceptance_tool.py::test_t2_page_tail_is_append_only` 断言新增字段必须**末位按序追加** | `middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.inc` |
+| G7 | ~~`T2?` 页字段顺序未与实现绑定~~ **已关闭（2026-10-11）**：`test_seat_acceptance_tool.py::test_t2_page_tail_is_append_only` 断言新增字段必须**末位按序追加** | `middleware/scpi_port/src/scpi_trigger_t2_runtime_commands.c` |
 
 ## 二、待决事项（阻塞 14/15 与 12 的运行时意义）
 

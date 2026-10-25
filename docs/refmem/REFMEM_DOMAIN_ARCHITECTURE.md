@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
-Last updated: 2026-10-24
+Last updated: 2026-10-25
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面，并以统一控制面把系统级命令意图路由到显式目标插槽、聚合 ACK/NACK/fence，使接入点不再决定系统操作语义。
 
@@ -71,7 +71,7 @@ RefMem Domain 不负责：
 
 ### 本地异步诊断镜像
 
-VDC 保留区中的 typed health 诊断扩展由 `distributed_refmem_priority_health.inc` 实现，Core0 RefMem task 是唯一写者；偏移、schema 和大小以 `REFMEM_VDC_PRIORITY_*` 与 `refmem_vdc_priority_region_t` 为准。旧 Core1 模型 payload、guard、校验和总表布局保持不变。扩展有独立 guard，仅本地异步镜像，不增加 TDMA 席位或 Core1 工作；age/FRESH 代表采样时状态，不能实时授权。源读取失败保留上一采样；读者须检验 schema、writer、身份及校验，不与独立模型快照假定同代。
+VDC 保留区中的 typed health 诊断扩展由 `distributed_refmem_priority_health.c` 实现，Core0 RefMem task 是唯一写者；偏移、schema 和大小以 `REFMEM_VDC_PRIORITY_*` 与 `refmem_vdc_priority_region_t` 为准。旧 Core1 模型 payload、guard、校验和总表布局保持不变。扩展有独立 guard，仅本地异步镜像，不增加 TDMA 席位或 Core1 工作；age/FRESH 代表采样时状态，不能实时授权。源读取失败保留上一采样；读者须检验 schema、writer、身份及校验，不与独立模型快照假定同代。
 
 ### Flash 持久化边界
 
