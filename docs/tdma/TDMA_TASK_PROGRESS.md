@@ -15,6 +15,25 @@ Last updated: 2026-10-26
 
 ## 当前 checkpoint
 
+### TDMA-PROGRESS-20261026-046：既有 host 源锚点清偿（5/8）
+
+- **背景**：`0bc4e01`（TDMA 六片段）与 `dca0de1d`（refmem 私有头）两次既有拆分后，8 项 host
+  用例仍按旧源清单/旧文件路径抽取，属**既有红**，与 N5.0.4a/4c 无关。
+- **本轮修复**：
+  - `test_tdma_service_timing`：编译清单补 `tdma_pio_spi_ring_origin`、`tdma_pio_spi_ring_rx_prepare`、
+    `tdma_transport_load`（提交 `a4f195a0`）。
+  - `test_vdc_flight_rx`：飞行态类型已迁 `distributed_refmem_internal.h`，改读 .c + 私有头（`a4f195a0`）。
+  - `test_tdma_diagnostic_burst`：adapter 清单补三个新单元（`9085e8d5`）。
+  - `test_tdma_seat_rotation`：harness 补抽 `tdma_pio_spi_ring_origin_publish_maintenance`（`9085e8d5`）。
+  - `test_tdma_command_dma`：夹具补 `flight_payload_size` 字段，并从
+    `tdma_pio_spi_phys_internal.h` 抽取 `alignment_fits` 纯谓词注入（单一事实源，不复制实现）（`46b68e35`）。
+- **剩余 3 项（未闭环，保持红）**：`test_vdc_command_ingress`（harness 需编译
+  `distributed_refmem_cmd_reply.c`/`tdma_maintenance_runtime.c` 或加等价 stub）、
+  `test_tdma_seat_invariants`×3（引用 refmem position 静态量，已迁 `distributed_refmem_position.c`
+  与私有头）、`test_vdc_feedback_transport`（引用已归档的 `distributed_refmem_feedback_binding_t`）。
+- **结论**：`-k "tdma or state_machine_resource"` 的全量回归从 8 红降到 3 红；剩余项仍阻断
+  N5.0.4b（adapter 拆分）的"host 同集全绿"判据，需先清。
+
 ### TDMA-PROGRESS-20261026-045：tdma_service.c 拆为 main + Core1 单元（N5.0.4a 打样）
 
 - **范围**：`tdma_service.c` 2,283 → 1,202 行；新增 `tdma_service_core1.c` 1,078 行与
