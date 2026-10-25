@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-017`。
+- 最新条目：`REFMEM-TASK-20261025-018`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,16 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-018 — N5.0.2f-A.2b 小切（stage/get/cancel）
+
+- 状态：完成；行为不变。
+- 内容：`stage_position_descriptor` + `position_descriptor_pending` + `get_position_descriptor` + `position_cancel_service` 搬到 `distributed_refmem_position.c`；`note_freeze_taken`/`priority_owned` 非 static；`cancel_service` 非 static + 私有头声明。
+- 行数：`distributed_refmem.c` 5,549→**5,429**。
+- 验证：
+  - build 成功；P3 `20261025015510`，fingerprint `b5302db938a5a597dea18d91c52fe00eb7489ef31cd5bcf13bb62d392ce6ac82`，1954 files，`PASS_WITH_WARNINGS/strict=false`。
+  - exec196：`frag_complete=[1,1,1]`、`inject_ok=62`，verdict H4（reassembler 重新对齐，无永久 wedge）；`out/refmem_transport_diag/a2b_exec196_202610251020/`。
+- 剩余：`get_position_transport`（内含 `vdc_feedback.inc` 与 `#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED`）仍在 main；下一刀按函数边界单独切。
 
 ### REFMEM-TASK-20261025-017 — N5.0.2f-A.2b 第一次尝试回退（负结果）
 
@@ -207,7 +217,8 @@ Last updated: 2026-10-25
 - A.2a 字段清单完成：position 状态 20+ 字段（main + position_ack.inc）；下一步 struct+宏+accessor 代码。
 - A.2a 完成：position 状态 wrapper（struct+宏+accessor）；5,568→5,549；P3 `20261025012759`；exec196 `[1,1,1]`。
 - A.2b 第一次尝试回退：622–801 连续块跨 `#if DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED` 和 `vdc_feedback.inc`，边界不干净。
-- 下一步：A.2b 小切（descriptor_pending/get_position_descriptor 710–740）→ 再切 stage/transport。
+- A.2b 小切完成：stage/descriptor_pending/get_position_descriptor/cancel service 搬出；5,549→5,429；P3 `20261025015510`；exec196 `[1,1,1]`。
+- 下一步：get_position_transport（含 `vdc_feedback.inc`/条件块）单独按函数边界切 → A.3。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 
