@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-008`。
+- 最新条目：`REFMEM-TASK-20261025-009`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,15 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-009 — N5.0.1 预算与关注点地图（C）
+
+- 状态：完成（docs，无代码）。
+- 内容：在 `docs/check/DOCS_EXECUTION_CONSTRAINTS.md` 新增 `EXE-CODE-01`：
+  - 新文件 ≤800 行；拆后单元 ≤1,500；>2,000 需 TODO/豁免；>3,000 冻结新功能（拆分除外）；聚合器/SCPI ≤1,300。
+  - 拆分约束：纯移动/重命名 + 私有头；不改行为；每步 build/P3/HIL/SCPI 烟测；代码/文档分离。
+- 当前超标快照（非事实源）：`distributed_refmem.c` 5,763、`scpi_system_snapshot_commands.c` 5,712、`vdc_dpll_manager.c` 4,826 等。
+- 下一步：B（N5.0.3a SCPI refmem 控制块拆分，目标 ~1,000 行）→ A（N5.0.2f TDMA flight）。
 
 ### REFMEM-TASK-20261025-008 — N5.2a.2 尝试：候选 TDMA profile 指针无效（负结果）
 
@@ -94,7 +103,8 @@ Last updated: 2026-10-25
 - N5.2a 设计决策：选 **app-model staging 隔离**（option 1），不选 STOP 重置；先加 `validation.error` 诊断，再建 staging registry 基线。
 - N5.2a.1：诊断字段已定位 table 9（TDMA foundation profile）owner validation 失败；`lint=2312=0x0908`。
 - N5.2a.2 尝试：仅换 profile 指针无效（ring 后仍 lint=2312=0x0908）；需 profile 快照/owner 契约分离。
-- 下一步：N5.2a.2 snapshot API 设计 → N5.2a.3；N5.0.2g；N3.2.7 可选。
+- N5.0.1（C）：预算/关注点地图完成；`EXE-CODE-01` 写入执行约束。
+- 下一步：B（N5.0.3a SCPI refmem 控制块拆分）→ A（N5.0.2f TDMA flight）→ 剩余收口。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 

@@ -4,7 +4,7 @@ Status: Draft
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_EXECUTION_CONSTRAINTS.md`
 Related: `AGENTS.md`, `README.md`, `docs/check/DOCS_REGRESSION_PLAN.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TODO.md`, `docs/state_machine/HAOFV_STATE_MACHINE_TASK_PROGRESS.md`
-Last updated: 2026-10-24
+Last updated: 2026-10-25
 
 > 本文是跨 worker/agent 的长期执行流程入口。它描述如何工作、如何留证和何时停止；不替代产品架构、域内运行时契约或单次验收报告。
 
@@ -41,6 +41,14 @@ Last updated: 2026-10-24
 - 无法绑定事实源的数字必须标注“快照，非事实源”，不能在本文固化为产品事实。
 - 当前 OTA 块大小、某次 build/HIL 编号、debug 配额、worker 数量和单轮完成结论属于任务快照，不应直接迁入本文。
 
+### EXE-CODE-01：.c/.h 文件行数预算
+
+- 新文件（`components/*/src/*.c` 等）：≤800 行；拆分后的单元 ≤1,500 行。
+- 现有 >2,000 行的文件：必须登记 TODO/拆分计划；>3,000 行冻结新功能（拆分/修复除外）。
+- 聚合器/SCPI 文件：单文件 ≤1,300 行。
+- 拆分约束：纯移动/重命名 + 私有头；不改行为；每步 build + P3 + HIL/SCPI 烟测；代码/文档分离。
+- 当前超标文件（2026-10-25 快照，非事实源）：`distributed_refmem.c` 5,763、`scpi_system_snapshot_commands.c` 5,712、`vdc_dpll_manager.c` 4,826 等；由 N5.0 拆分目标收口。
+- 可选：`tools/docs_check/c_file_budget_check.py` 报告/门禁（工具改动需 P3）。
 ## 3. 变更与证据闭环
 
 ### EXE-CHANGE-01：独立改动的最小交付单元

@@ -523,7 +523,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 | `components/distributed_refmem/src/refmem_application_model.c` | 3,180 | 装载 / 校验 / 表；单文件 ≤1,500 |
 | `components/sync_trigger/src/trigger_t2_runtime.c` | 2,843 | 会话 / 执行 / 观测；单文件 ≤1,500 |
 
-- **N5.0.1** 预算与关注点地图（docs，无代码）：新文件 ≤800 行；拆分后单文件 ≤1,500；>2,000 需 TODO/豁免；>3,000 冻结新功能（拆分除外）。
+- **N5.0.1** ✅（2026-10-25）：预算与关注点地图已写入 `DOCS_EXECUTION_CONSTRAINTS.md` 的 `EXE-CODE-01`；新文件 ≤800、拆后 ≤1,500、>2,000 需 TODO/豁免、>3,000 冻结新功能。
 - **N5.0.2** `distributed_refmem.c` 先拆；**N5.2a 代码必须等它完成**，避免继续给 6.3k 行文件加功能。
   - **N5.0.2a** ✅（2026-10-24）：config-txn 拆出到 `refmem_config_txn.c`；`distributed_refmem.c` 6,370→6,315；P3 `20261024144807`；config txn HIL 14/14。下一刀 cmd-reply/command/tdma-vdc/diag。
   - **N5.0.2b** ✅（2026-10-24）：cmd-reply 拆出到 `distributed_refmem_cmd_reply.c` + `distributed_refmem_internal.h`；`distributed_refmem.c` 6,315→6,109；P3 `20261024151357`；exec196 HIL `[1,1,1]`。下一刀 command/tdma-vdc/diag。
