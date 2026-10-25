@@ -179,13 +179,12 @@ tdma_pio_spi_program_manager_t s_tdma_pio_spi_program_manager = {
 /* The ring needs 4 KiB alignment for DMA wrap; inside .bss that alignment
  * padded up to 4 KiB whenever .data grew. The DMA ring section is NOLOAD, so
  * tdma_pio_spi_phys_workspace_reset() restores the zeroed boot state. */
-static tdma_pio_spi_workspace_t s_tdma_pio_spi_workspace
+tdma_pio_spi_workspace_t s_tdma_pio_spi_workspace
     __attribute__((section(".sync_io_dma_ring")))
     __attribute__((aligned(TDMA_PIO_SPI_RX_RING_WORDS * sizeof(uint32_t))));
 /* The cancellation handshake must outlive every persona in the union. */
 static tdma_origin_build_job_t s_tdma_origin_build_job;
 #define s_tdma_pio_spi_rx_ring (s_tdma_pio_spi_workspace.service.rx_ring)
-#define s_tdma_pio_spi_flight_tx_words (s_tdma_pio_spi_workspace.service.tx_words)
 #define s_tdma_pio_spi_flight_overlay_plan (s_tdma_pio_spi_workspace.service.follower_plan)
 /* Two resident plans: only selection of the successor retires the old pool.
  * A BUSY sample or physical frame IRQ does not authorize pool reuse. */
@@ -223,34 +222,34 @@ bool tdma_pio_spi_phys_is_flight_persona(void)
                TDMA_PIO_SPI_PROGRAM_PERSONA_FLIGHT_PROCESS_FOLLOWER;
 }
 
-static PIO tdma_pio_spi_phys_control_pio(const tdma_pio_spi_phys_t *phys)
+PIO tdma_pio_spi_phys_control_pio(const tdma_pio_spi_phys_t *phys)
 {
     return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
         ? phys->flight_resources.tx_pio : BOARD_TDMA_SPI_PIO;
 }
 
-static uint tdma_pio_spi_phys_control_sm(const tdma_pio_spi_phys_t *phys)
+uint tdma_pio_spi_phys_control_sm(const tdma_pio_spi_phys_t *phys)
 {
     return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
         ? phys->flight_resources.tx_control_out_sm
         : (phys != NULL ? phys->tx_sm : BOARD_TDMA_SPI_MASTER_SM);
 }
 
-static PIO tdma_pio_spi_phys_data_pio(const tdma_pio_spi_phys_t *phys)
+PIO tdma_pio_spi_phys_data_pio(const tdma_pio_spi_phys_t *phys)
 {
     return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
         ? phys->flight_resources.rx_endpoints.data_output.pio
         : BOARD_TDMA_SPI_PIO;
 }
 
-static uint tdma_pio_spi_phys_data_sm(const tdma_pio_spi_phys_t *phys)
+uint tdma_pio_spi_phys_data_sm(const tdma_pio_spi_phys_t *phys)
 {
     return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
         ? phys->flight_resources.rx_endpoints.data_output.sm
         : (phys != NULL ? phys->tx_sm : BOARD_TDMA_SPI_MASTER_SM);
 }
 
-static PIO tdma_pio_spi_phys_capture_pio(const tdma_pio_spi_phys_t *phys)
+PIO tdma_pio_spi_phys_capture_pio(const tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL || !tdma_pio_spi_phys_is_flight_persona()) {
         return BOARD_TDMA_SPI_PIO;
@@ -260,7 +259,7 @@ static PIO tdma_pio_spi_phys_capture_pio(const tdma_pio_spi_phys_t *phys)
         : phys->flight_resources.rx_endpoints.data_unload.pio;
 }
 
-static uint tdma_pio_spi_phys_capture_sm(const tdma_pio_spi_phys_t *phys)
+uint tdma_pio_spi_phys_capture_sm(const tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL || !tdma_pio_spi_phys_is_flight_persona()) {
         return phys != NULL ? phys->rx_sm : BOARD_TDMA_SPI_SLAVE_SM;
@@ -270,7 +269,7 @@ static uint tdma_pio_spi_phys_capture_sm(const tdma_pio_spi_phys_t *phys)
         : phys->flight_resources.rx_endpoints.data_unload.sm;
 }
 
-static PIO tdma_pio_spi_phys_evidence_pio(const tdma_pio_spi_phys_t *phys)
+PIO tdma_pio_spi_phys_evidence_pio(const tdma_pio_spi_phys_t *phys)
 {
     return phys != NULL && tdma_pio_spi_phys_is_flight_persona() &&
             phys->role == TDMA_PIO_SPI_ROLE_MASTER
@@ -280,7 +279,7 @@ static PIO tdma_pio_spi_phys_evidence_pio(const tdma_pio_spi_phys_t *phys)
                : BOARD_TDMA_RX_PIO);
 }
 
-static uint tdma_pio_spi_phys_latch_sm(const tdma_pio_spi_phys_t *phys)
+uint tdma_pio_spi_phys_latch_sm(const tdma_pio_spi_phys_t *phys)
 {
     return phys != NULL && tdma_pio_spi_phys_is_flight_persona()
         ? (phys->role == TDMA_PIO_SPI_ROLE_MASTER
@@ -307,7 +306,7 @@ static uint tdma_pio_spi_phys_tx_latch_sm(const tdma_pio_spi_phys_t *phys)
                         : BOARD_TDMA_TX_CLOCK_LATCH_SM;
 }
 
-static uint tdma_pio_spi_phys_rtt_sm(const tdma_pio_spi_phys_t *phys)
+uint tdma_pio_spi_phys_rtt_sm(const tdma_pio_spi_phys_t *phys)
 {
     return phys != NULL
         ? phys->flight_resources.tx_rtt_evidence_sm
@@ -465,7 +464,7 @@ bool tdma_pio_spi_phys_ensure_sms_claimed(void)
         &s_tdma_pio_spi_program_manager);
 }
 
-static void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys)
+void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys)
 {
     phys->snapshot.armed = phys->armed ? 1u : 0u;
     phys->snapshot.role = phys->role;
@@ -803,7 +802,7 @@ static void tdma_pio_spi_phys_enable_sm_pair(tdma_pio_spi_phys_t *phys)
     }
 }
 
-static bool tdma_pio_spi_phys_clock_latch_rearm(
+bool tdma_pio_spi_phys_clock_latch_rearm(
     tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL ||
@@ -892,7 +891,7 @@ static bool tdma_pio_spi_phys_capture_owns_clock_latch(
     }
 }
 
-static bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
+bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
     tdma_pio_spi_phys_t *phys,
     uint64_t *timestamp_ns)
 {
@@ -1096,7 +1095,7 @@ bool tdma_pio_spi_phys_take_local_tx_edge_ex(
     return true;
 }
 
-static bool tdma_pio_spi_phys_restore_clock_latch(
+bool tdma_pio_spi_phys_restore_clock_latch(
     tdma_pio_spi_phys_t *phys,
     bool rearm)
 {
@@ -1127,7 +1126,7 @@ static bool tdma_pio_spi_phys_restore_clock_latch(
 /* Capture-only asynchronous restore. Reinstalling the resident latch persona
  * touches PIO control registers and four instruction words; doing it as one
  * call can exceed the calibration phase WCET. */
-static bool tdma_pio_spi_phys_capture_restore_step(
+bool tdma_pio_spi_phys_capture_restore_step(
     tdma_pio_spi_phys_t *phys, bool *complete)
 {
     if (phys == NULL || complete == NULL) return false;
@@ -1277,7 +1276,7 @@ tdma_pio_spi_phys_service_ring_waveform_capture(
     return phys->flight_sck_waveform_capture_state;
 }
 
-static void tdma_pio_spi_phys_flight_origin_recover(
+void tdma_pio_spi_phys_flight_origin_recover(
     tdma_pio_spi_phys_t *phys)
 {
     if (phys == NULL) {
@@ -2025,7 +2024,7 @@ static uint8_t tdma_pio_spi_phys_rx_ring_reversed_byte(uint64_t produced)
 #endif
 }
 
-static uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t produced)
+uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t produced)
 {
     /* Only the process follower uses right-shifting ISR to support live XOR.
      * Normalize the observation copy; wire forwarding never reads this ring. */
@@ -2324,7 +2323,7 @@ static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys,
     return tdma_pio_spi_phys_capture_words_legacy(phys, max_words, received_words);
 }
 
-static bool tdma_pio_spi_phys_capture_words_ex(tdma_pio_spi_phys_t *phys,
+bool tdma_pio_spi_phys_capture_words_ex(tdma_pio_spi_phys_t *phys,
     size_t max_words, size_t *received_words, tdma_rx_capture_t *capture)
 {
     if (capture == NULL)
@@ -2806,7 +2805,7 @@ bool tdma_pio_spi_phys_disarm(void *context)
     return worker_retired && scanner_retired;
 }
 
-static bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,
+bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,
                                      uint32_t word)
 {
     const uint64_t deadline_us =
@@ -3038,4 +3037,3 @@ bool tdma_pio_spi_phys_get_clk_train_snapshot(
 }
 
 #include "tdma_pio_spi_phys_origin.inc"
-#include "tdma_pio_spi_phys_flight_io.inc"

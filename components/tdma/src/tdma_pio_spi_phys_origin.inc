@@ -1058,7 +1058,7 @@ bool tdma_pio_spi_phys_origin_get_first_record(const tdma_pio_spi_phys_t *phys,
         out->record.observation.sequence == expected && out->record.sequence_end == expected;
 }
 
-static bool tdma_pio_spi_phys_origin_rx(tdma_pio_spi_phys_t *phys, uint8_t *packet,
+bool tdma_pio_spi_phys_origin_rx(tdma_pio_spi_phys_t *phys, uint8_t *packet,
     size_t capacity, size_t *packet_size, uint64_t *rx_timestamp_ns)
 {
     phys->flight_origin_rx_observation_ready = false;

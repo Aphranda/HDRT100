@@ -4,6 +4,7 @@
 #include "tdma_pio_spi_phys.h"
 #include "tdma_rx_sequence.h"
 #include "tdma_pio_spi_phys_programs.h"
+#include "tdma_pio_spi_origin_workspace.h"
 
 /* Program state and helpers shared by the maintenance/calibration/training
  * units that used to be textually included into tdma_pio_spi_phys.c. They
@@ -159,4 +160,45 @@ bool tdma_priority_start(tdma_pio_spi_phys_t *phys,
 void tdma_priority_stop(void);
 void tdma_priority_boundary_service(tdma_pio_spi_phys_t *phys);
 
+
+/* Phys helpers the flight-IO unit calls (direct calls, Core1 hot). */
+PIO tdma_pio_spi_phys_capture_pio(const tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_capture_restore_step(
+    tdma_pio_spi_phys_t *phys, bool *complete);
+uint tdma_pio_spi_phys_capture_sm(const tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_capture_words_ex(tdma_pio_spi_phys_t *phys,
+    size_t max_words, size_t *received_words, tdma_rx_capture_t *capture);
+bool tdma_pio_spi_phys_clock_latch_read_and_rearm(
+    tdma_pio_spi_phys_t *phys,
+    uint64_t *timestamp_ns);
+bool tdma_pio_spi_phys_clock_latch_rearm(
+    tdma_pio_spi_phys_t *phys);
+PIO tdma_pio_spi_phys_control_pio(const tdma_pio_spi_phys_t *phys);
+uint tdma_pio_spi_phys_control_sm(const tdma_pio_spi_phys_t *phys);
+PIO tdma_pio_spi_phys_data_pio(const tdma_pio_spi_phys_t *phys);
+uint tdma_pio_spi_phys_data_sm(const tdma_pio_spi_phys_t *phys);
+PIO tdma_pio_spi_phys_evidence_pio(const tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_fill_static_snapshot(tdma_pio_spi_phys_t *phys);
+void tdma_pio_spi_phys_flight_origin_recover(
+    tdma_pio_spi_phys_t *phys);
+uint tdma_pio_spi_phys_latch_sm(const tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_restore_clock_latch(
+    tdma_pio_spi_phys_t *phys,
+    bool rearm);
+uint tdma_pio_spi_phys_rtt_sm(const tdma_pio_spi_phys_t *phys);
+uint8_t tdma_pio_spi_phys_rx_ring_byte(uint64_t produced);
+bool tdma_pio_spi_phys_tx_put(tdma_pio_spi_phys_t *phys,
+                                     uint32_t word);
+
+
+/* Workspace alias shared by the host unit and the flight-IO unit. */
+extern tdma_pio_spi_workspace_t s_tdma_pio_spi_workspace;
+#define s_tdma_pio_spi_flight_tx_words (s_tdma_pio_spi_workspace.service.tx_words)
+
+/* Event/origin helpers called by the flight-IO unit. */
+void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys);
+bool tdma_pio_spi_phys_event_copy(const tdma_pio_spi_phys_t *phys,
+                                        tdma_pio_spi_event_snapshot_t *out);
+bool tdma_pio_spi_phys_origin_rx(tdma_pio_spi_phys_t *phys, uint8_t *packet,
+    size_t capacity, size_t *packet_size, uint64_t *rx_timestamp_ns);
 #endif /* TDMA_PIO_SPI_PHYS_INTERNAL_H */

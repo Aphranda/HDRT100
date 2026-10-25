@@ -24,7 +24,7 @@ static void tdma_event_publish_snapshot(tdma_pio_spi_phys_t *phys)
     s_tdma_event_candidate_dirty = false;
 }
 
-static bool tdma_pio_spi_phys_event_copy(const tdma_pio_spi_phys_t *phys,
+bool tdma_pio_spi_phys_event_copy(const tdma_pio_spi_phys_t *phys,
                                         tdma_pio_spi_event_snapshot_t *out)
 {
     /* Pin only the bounded local copy, so Core0's RTOS cannot consume the
@@ -2018,7 +2018,7 @@ static void tdma_event_recovery_step(tdma_pio_spi_phys_t *phys)
     tdma_event_publish_state(phys);
 }
 
-static void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
+void tdma_pio_spi_phys_event_service(tdma_pio_spi_phys_t *phys)
 {
     if (!tdma_pio_spi_phys_event_selected(phys) || !phys->armed) {
         tdma_event_live_retire(TDMA_EVENT_LIVE_BINDING);

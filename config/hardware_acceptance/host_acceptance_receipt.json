@@ -1,37 +1,34 @@
 {
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
   "passed": true,
-  "fingerprint": "481d71b682426f290e7d151bfb4348e5d396d2e5fb3862e1c4db454800c96fa2",
+  "fingerprint": "9bd5f9fb10b35ba6d24510399a4631d8713db5df1097c0d49c7cf808f1a2b037",
   "file_count": 524,
-  "working_fingerprint": "481d71b682426f290e7d151bfb4348e5d396d2e5fb3862e1c4db454800c96fa2",
+  "working_fingerprint": "9bd5f9fb10b35ba6d24510399a4631d8713db5df1097c0d49c7cf808f1a2b037",
   "unstaged_tested_files": [],
   "command": [
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_tdma_frozen_geometry.py",
-    "tests/python/test_tdma_rx_observation.py",
+    "tests/python/test_state_machine_resource_check.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_tdma_frozen_geometry.py",
-    "tests/python/test_tdma_rx_observation.py"
+    "tests/python/test_state_machine_resource_check.py"
   ],
-  "started_at_utc": "2026-10-25T12:41:53.704244+00:00",
-  "duration_s": 37.25,
+  "started_at_utc": "2026-10-25T13:20:07.937036+00:00",
+  "duration_s": 153.25,
   "returncode": 0,
   "summary": {
-    "passed": 101,
+    "passed": 50,
     "failed": 0,
     "errors": 0,
     "skipped": 0
   },
-  "summary_line": "101 passed in 36.29s",
+  "summary_line": "50 passed in 152.03s (0:02:32)",
   "tail": [
-    "........................................................................ [ 71%]",
-    ".............................                                            [100%]",
-    "101 passed in 36.29s"
+    "..................................................                       [100%]",
+    "50 passed in 152.03s (0:02:32)"
   ]
 }

@@ -279,7 +279,7 @@ def test_flight_resource_view_uses_runtime_persona_roles() -> None:
         assert f"flight_resources.{endpoint}" in phys
     assert "tdma_state_machine_rx_endpoint_contract_t rx_endpoints" in resources
     helper_block = phys.split(
-        "static PIO tdma_pio_spi_phys_control_pio", 1
+        "PIO tdma_pio_spi_phys_control_pio", 1
     )[1].split("static void tdma_pio_spi_phys_clk_train_write_begin", 1)[0]
     assert "BOARD_TDMA_TX_CLK_OUT_SM" not in helper_block
     assert "BOARD_TDMA_TX_SYNC_OUT_SM" not in helper_block
