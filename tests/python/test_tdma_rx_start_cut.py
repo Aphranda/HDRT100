@@ -11,7 +11,8 @@ from pathlib import Path
 from test_tdma_rx_event_candidate import enabled_source, run
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "components/tdma/src/tdma_pio_spi_phys_event.inc"
+# 2026-10-25: the RX start-cut owner moved to its own translation unit.
+SOURCE = ROOT / "components/tdma/src/tdma_pio_spi_phys_rx_start_cut.c"
 
 
 CASES = r'''

@@ -16,6 +16,9 @@ from tools.state_machine_resource_check.state_machine_resource_check import c_de
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "components/tdma/src/tdma_pio_spi_phys_event.inc"
+# 2026-10-25: the RX start-cut owner moved to its own translation unit.
+START_CUT_SOURCE = ROOT / "components/tdma/src/tdma_pio_spi_phys_rx_start_cut.c"
+SOURCES = (SOURCE, START_CUT_SOURCE)
 
 
 def macro(source: str, name: str) -> str:
@@ -29,7 +32,7 @@ def macro(source: str, name: str) -> str:
 
 def enabled_source(directory: Path) -> str:
     existing = adapter_production(directory)
-    source = SOURCE.read_text(encoding="utf-8")
+    source = "\n".join(path.read_text(encoding="utf-8") for path in SOURCES)
     header = (ROOT / "components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
     routines = []
     for result, name, arguments in [

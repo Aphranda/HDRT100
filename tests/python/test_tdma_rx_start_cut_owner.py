@@ -14,7 +14,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_real_cut_counter_lifecycle_and_copy(tmp_path):
-    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys_event.inc").read_text(encoding="utf-8")
+    # 2026-10-25: the RX start-cut owner moved to its own translation unit.
+    source = (ROOT / "components/tdma/src/tdma_pio_spi_phys_rx_start_cut.c"
+              ).read_text(encoding="utf-8")
     block = source.split("/* RX_START_CUT_STORAGE_BEGIN:", 1)[1].split("/* RX_START_CUT_STORAGE_END */", 1)[0]
     block = block.split("*/", 1)[1]
     sdk = Path.home() / ".pico-sdk/sdk/2.2.0/src/rp2350/hardware_regs/include/hardware/regs"
@@ -83,6 +85,10 @@ static struct { uint64_t before, after, arm_epoch; uint32_t epoch, flags; }
 static unsigned live_retire_calls;
 static void tdma_event_live_retire(uint32_t reason) {
     assert(reason==TDMA_EVENT_LIVE_ARM); ++live_retire_calls;
+}
+/* Production clears the anchor through the owning event unit. */
+static void tdma_event_live_anchor_reset(void) {
+    memset(&s_tdma_event_live_anchor, 0, sizeof(s_tdma_event_live_anchor));
 }
 static bool s_tdma_event_prelaunch;
 static tdma_frozen_geometry_snapshot_t s_tdma_event_geometry;

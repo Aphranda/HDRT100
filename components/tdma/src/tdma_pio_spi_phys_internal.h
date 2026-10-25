@@ -3,6 +3,7 @@
 
 #include "tdma_pio_spi_phys.h"
 #include "tdma_rx_sequence.h"
+#include "tdma_rx_start_cut.h"
 #include "tdma_pio_spi_phys_programs.h"
 #include "tdma_pio_spi_origin_workspace.h"
 #include "tdma_origin_build_job.h"
@@ -216,4 +217,41 @@ void tdma_pio_spi_phys_origin_record_invalidate(tdma_pio_spi_phys_t *phys);
 
 extern tdma_origin_build_job_t s_tdma_origin_build_job;
 
+
+/* Event sub-cluster exports (2026-10-25). */
+extern tdma_rx_start_cut_t s_tdma_rx_start_cut;
+extern tdma_rx_start_cut_t s_tdma_rx_start_cut_slots[2];
+extern uint32_t s_tdma_rx_start_cut_guard;
+extern uint32_t s_tdma_rx_start_cut_data_phase;
+extern uint32_t s_tdma_rx_start_cut_marker_phase;
+void tdma_rx_start_cut_publish(void);
+void tdma_rx_start_cut_arm_begin(void);
+void tdma_rx_start_cut_retire(uint32_t reasons);
+void tdma_rx_start_cut_disarmed(void);
+bool tdma_rx_start_cut_dma_available(void);
+void tdma_rx_start_cut_before(tdma_pio_spi_phys_t *phys);
+uint32_t tdma_rx_start_cut_lift(tdma_rx_start_cut_t *cut,
+                                      tdma_rx_dma_counter_t *counter);
+void tdma_rx_start_cut_after(tdma_pio_spi_phys_t *phys,
+                                   tdma_rx_dma_counter_t *counter,
+                                   uint32_t pads_before, uint32_t pads_after);
+void tdma_rx_start_cut_monitor(tdma_pio_spi_phys_t *phys);
+
+
+/* start-cut DMA descriptor masks (shared by event and start-cut units). */
+#define TDMA_RX_START_CUT_DMA_ERRORS (DMA_CH0_CTRL_TRIG_AHB_ERROR_BITS | \
+    DMA_CH0_CTRL_TRIG_READ_ERROR_BITS | DMA_CH0_CTRL_TRIG_WRITE_ERROR_BITS)
+#define TDMA_RX_START_CUT_DMA_CONFIG_MASK (DMA_CH0_CTRL_TRIG_BITS & \
+    ~(TDMA_RX_START_CUT_DMA_ERRORS | DMA_CH0_CTRL_TRIG_BUSY_BITS))
+
+
+
+void tdma_event_live_retire(uint32_t reason);
+extern uint32_t s_tdma_event_epoch;
+extern uint32_t s_tdma_event_hz;
+extern bool s_tdma_event_prelaunch;
+extern tdma_frozen_geometry_snapshot_t s_tdma_event_geometry;
+extern tdma_event_observer_t s_tdma_event_observer;
+uint32_t tdma_event_prelaunch_geometry(const tdma_pio_spi_phys_t *phys);
+void tdma_event_live_anchor_reset(void);
 #endif /* TDMA_PIO_SPI_PHYS_INTERNAL_H */

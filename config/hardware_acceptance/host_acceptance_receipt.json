@@ -1,34 +1,40 @@
 {
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
   "passed": true,
-  "fingerprint": "9bd5f9fb10b35ba6d24510399a4631d8713db5df1097c0d49c7cf808f1a2b037",
+  "fingerprint": "1c3423e2d9ec7052d503cb3e765410c76e804df49dae98426a29394df4eb6887",
   "file_count": 524,
-  "working_fingerprint": "9bd5f9fb10b35ba6d24510399a4631d8713db5df1097c0d49c7cf808f1a2b037",
+  "working_fingerprint": "1c3423e2d9ec7052d503cb3e765410c76e804df49dae98426a29394df4eb6887",
   "unstaged_tested_files": [],
   "command": [
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_state_machine_resource_check.py",
+    "tests/python/test_tdma_event_adapter.py",
+    "tests/python/test_tdma_rx_event_candidate.py",
+    "tests/python/test_tdma_rx_start_cut.py",
+    "tests/python/test_tdma_rx_start_cut_owner.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_state_machine_resource_check.py"
+    "tests/python/test_tdma_event_adapter.py",
+    "tests/python/test_tdma_rx_event_candidate.py",
+    "tests/python/test_tdma_rx_start_cut.py",
+    "tests/python/test_tdma_rx_start_cut_owner.py"
   ],
-  "started_at_utc": "2026-10-25T13:20:07.937036+00:00",
-  "duration_s": 153.25,
+  "started_at_utc": "2026-10-25T14:06:00.500868+00:00",
+  "duration_s": 41.546,
   "returncode": 0,
   "summary": {
-    "passed": 50,
+    "passed": 5,
     "failed": 0,
     "errors": 0,
     "skipped": 0
   },
-  "summary_line": "50 passed in 152.03s (0:02:32)",
+  "summary_line": "5 passed in 40.58s",
   "tail": [
-    "..................................................                       [100%]",
-    "50 passed in 152.03s (0:02:32)"
+    ".....                                                                    [100%]",
+    "5 passed in 40.58s"
   ]
 }
