@@ -53,6 +53,9 @@ static uintptr_t s_turntable_source_token;
     }
     for filename, names in wrappers.items():
         source = (SRC / filename).read_text(encoding="utf-8")
+        if filename == "sync_io.c":
+            # N5.0.4i: output/pulse wrappers live in the second unit.
+            source += "\n" + (SRC / "sync_io_output.c").read_text(encoding="utf-8")
         for name in names:
             body = function(source, name)
             signature = body.split("\n{", 1)[0]
@@ -143,7 +146,11 @@ def test_nested_mutators_use_owned_helpers_without_reentering_gate():
         ("sync_io_mode_seq_step.c", "sync_io_seq_step_arm_owned", ["sync_io_seq_step_disarm"]),
         ("sync_io_mode_enc_count.c", "sync_io_enc_count_arm_owned", ["sync_io_enc_count_disarm"]),
     ]:
-        body = function((SRC / filename).read_text(encoding="utf-8"), parent)
+        unit_text = (SRC / filename).read_text(encoding="utf-8")
+        if filename == "sync_io.c":
+            # N5.0.4i: the SMA/debug owned helpers live in the output unit.
+            unit_text += "\n" + (SRC / "sync_io_output.c").read_text(encoding="utf-8")
+        body = function(unit_text, parent)
         assert "sync_io_core_legacy_try_enter" not in body
         for child in children:
             assert child + "_owned(" in body

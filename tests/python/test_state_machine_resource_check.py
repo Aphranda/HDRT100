@@ -7,6 +7,15 @@ from tools.state_machine_resource_check import state_machine_resource_check
 
 ROOT = Path(__file__).resolve().parents[2]
 
+def _read_sync_core() -> str:
+    """N5.0.4i: the runtime core is split into two translation units."""
+    return "\n".join(
+        (ROOT / "components/sync_io/src" / name).read_text(encoding="utf-8")
+        for name in ("sync_io.c", "sync_io_output.c")
+    )
+
+
+
 
 def test_c_definition_body_skips_noncode_declarations_and_calls() -> None:
     source = r'''
@@ -544,8 +553,7 @@ def test_sync_io_flight_claim_has_no_legacy_handoff() -> None:
     assert "tdma_pio_spi_programs_ensure_flight_sms_claimed" in claim
     assert "resource_arbiter_acquire_owned" in claim
 
-    sync_io = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8")
+    sync_io = _read_sync_core()
     assert "sync_io_suspend_for_tdma_flight" not in sync_io
     assert "sync_io_resume_after_tdma_flight" not in sync_io
     assert "tdma_flight_suspended" not in sync_io
@@ -555,9 +563,7 @@ def test_sync_io_pio0_wave_output_is_independent_of_tdma() -> None:
     model_sched = (
         ROOT / "components/sync_io/src/sync_io_model_sched.c"
     ).read_text(encoding="utf-8")
-    sync_io = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    sync_io = _read_sync_core()
 
     output_arm = state_machine_resource_check.c_definition_body(
         model_sched, "sync_io_output_pulse_schedule_arm"
@@ -704,9 +710,7 @@ def test_sync_io_static_gate_rejects_reintroduced_tdma_handoff(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         core_text + "\nbool sync_io_suspend_for_tdma_flight(void) { return true; }\n",
         encoding="utf-8",
@@ -755,9 +759,7 @@ def test_sync_io_static_gate_ignores_owned_pseudo_definition(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         "/* static bool sync_io_start_capture_owned(uint32_t sample_hz) {\n"
         "    return sync_io_core_wave_output_persona_active_owned();\n"
@@ -783,9 +785,7 @@ def test_sync_io_static_gate_ignores_ownership_token_in_body_comment(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         core_text.replace(
             "sync_io_core_wave_output_persona_active_owned()",
@@ -808,9 +808,7 @@ def test_sync_io_static_gate_ignores_continued_macro_pseudo_definition(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         "#define sync_io_start_capture_owned(sample_hz) \\\n"
         "    { \\\n"
@@ -837,9 +835,7 @@ def test_sync_io_static_gate_ignores_continued_line_comment_pseudo_definition(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         "// static bool sync_io_start_capture_owned(uint32_t sample_hz) { \\\n"
         "    return sync_io_core_wave_output_persona_active_owned(); \\\n"
@@ -865,9 +861,7 @@ def test_sync_io_static_gate_ignores_phase2_split_line_comment_pseudo_definition
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         "/\\\n"
         "/ static bool sync_io_start_capture_owned(uint32_t sample_hz) {\n"
@@ -894,9 +888,7 @@ def test_sync_io_static_gate_masks_token_in_nested_if_zero(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         core_text.replace(
             "sync_io_core_wave_output_persona_active_owned()",
@@ -924,9 +916,7 @@ def test_sync_io_static_gate_accepts_active_else_after_nested_if_zero(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         core_text.replace(
             "sync_io_core_wave_output_persona_active_owned()",
@@ -964,9 +954,7 @@ def test_sync_io_static_gate_unknown_condition_cannot_prove_ownership(
     expression: str,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         core_text.replace(
             "sync_io_core_wave_output_persona_active_owned()",
@@ -992,9 +980,7 @@ def test_sync_io_static_gate_checks_real_definition_after_unknown_duplicate(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         "#if UNKNOWN_BUILD_FLAG\n"
         "static bool sync_io_start_capture_owned(uint32_t sample_hz) {\n"
@@ -1093,9 +1079,7 @@ def test_sync_io_static_gate_masks_false_integer_constant_expressions(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         core_text.replace(
             "sync_io_core_wave_output_persona_active_owned()",
@@ -1125,9 +1109,7 @@ def test_sync_io_static_gate_accepts_else_after_false_constant_expressions(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         core_text.replace(
             "sync_io_core_wave_output_persona_active_owned()",
@@ -1159,9 +1141,7 @@ def test_sync_io_static_gate_masks_common_false_arithmetic_conditions(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         core_text.replace(
             "sync_io_core_wave_output_persona_active_owned()",
@@ -1197,9 +1177,7 @@ def test_sync_io_static_gate_ignores_digraph_define_pseudo_definition(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "sync_io.c"
-    core_text = (ROOT / "components/sync_io/src/sync_io.c").read_text(
-        encoding="utf-8"
-    )
+    core_text = _read_sync_core()
     core.write_text(
         "%:define sync_io_start_capture_owned(sample_hz) "
         "{ sync_io_core_wave_output_persona_active_owned(); }\n"

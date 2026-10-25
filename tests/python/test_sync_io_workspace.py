@@ -45,7 +45,9 @@ def compile_run(tmp_path: Path, source: str, *, analyzer: bool = False) -> None:
 
 
 def test_capture_rejection_idle_stop_and_failed_restart(tmp_path: Path) -> None:
-    source = (SRC / "sync_io.c").read_text(encoding="utf-8")
+    # N5.0.4i: the runtime core is split into two translation units.
+    source = "\n".join((SRC / name).read_text(encoding="utf-8")
+                       for name in ("sync_io.c", "sync_io_output.c"))
     harness = r'''
 #include <assert.h>
 #include <stdbool.h>

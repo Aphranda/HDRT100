@@ -15,6 +15,10 @@ DEFAULT_PHYS = ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
 DEFAULT_FLIGHT_IO = ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.c"
 DEFAULT_SYNC_MODEL = ROOT / "components/sync_io/src/sync_io_model_sched.c"
 DEFAULT_SYNC_CORE = ROOT / "components/sync_io/src/sync_io.c"
+# N5.0.4i: the SYNC runtime core is split into two translation units; the gate
+# scans the union so function bodies may live in either of them.
+DEFAULT_SYNC_CORE_OUTPUT = ROOT / "components/sync_io/src/sync_io_output.c"
+DEFAULT_SYNC_CORE_UNITS = (DEFAULT_SYNC_CORE, DEFAULT_SYNC_CORE_OUTPUT)
 DEFAULT_SYNC_PERSONAS = ROOT / "components/sync_io/src/sync_io_persona_resources.c"
 
 
@@ -1019,7 +1023,7 @@ def check(
     phys: Path = DEFAULT_PHYS,
     flight_io: Path = DEFAULT_FLIGHT_IO,
     sync_model: Path = DEFAULT_SYNC_MODEL,
-    sync_core: Path = DEFAULT_SYNC_CORE,
+    sync_core: "Path | tuple[Path, ...]" = DEFAULT_SYNC_CORE_UNITS,
     sync_personas: Path = DEFAULT_SYNC_PERSONAS,
     sync_board: Path | None = None,
 ) -> list[str]:
@@ -1136,9 +1140,10 @@ def check(
         flight_io.read_text(encoding="utf-8", errors="ignore"),
     ))
     sync_board_path = board if sync_board is None else sync_board
+    core_units = (sync_core,) if isinstance(sync_core, Path) else tuple(sync_core)
     failures.extend(check_sync_io_runtime(
         sync_model.read_text(encoding="utf-8", errors="ignore"),
-        sync_core.read_text(encoding="utf-8", errors="ignore"),
+        "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in core_units),
         sync_personas.read_text(encoding="utf-8", errors="ignore"),
         sync_board_path.read_text(encoding="utf-8", errors="ignore"),
     ))
