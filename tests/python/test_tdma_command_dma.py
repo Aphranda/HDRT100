@@ -698,6 +698,7 @@ typedef struct {
     bool rx_capture_active, process_image_enabled, flight_overlay_alignment_locked;
     bool flight_origin_workspace_owned;
     uint32_t flight_physical_byte_count, flight_alignment_byte_shift, flight_alignment_bit_shift;
+    uint32_t flight_payload_size;
     uint32_t flight_overlay_alignment_samples;
     uint64_t flight_overlay_alignment_candidate;
     struct {
@@ -741,6 +742,10 @@ static bool tdma_pio_spi_phys_transport_header_matches(uint64_t p, uint32_t s, u
 }
 '''
     routine = "static void tdma_pio_spi_phys_rx_ring_copy(uint8_t *destination, uint64_t produced, uint32_t count, uint32_t bit_shift) {" + c_definition_body(source, "tdma_pio_spi_phys_rx_ring_copy") + "}\n"
+    internal_source = (ROOT / "components/tdma/src/tdma_pio_spi_phys_internal.h").read_text(encoding="utf-8")
+    routine += ("static inline bool tdma_pio_spi_phys_alignment_fits(const tdma_pio_spi_phys_t *phys, "
+                "uint32_t byte_shift, uint32_t bit_shift) {"
+                + c_definition_body(internal_source, "tdma_pio_spi_phys_alignment_fits") + "}\n")
     routine += "static bool tdma_pio_spi_phys_capture_words(tdma_pio_spi_phys_t *phys, size_t max_words, size_t *received_words) {" + c_definition_body(source, "tdma_pio_spi_phys_capture_words_legacy") + "}\n"
     assertions = r'''
 int main(void) {

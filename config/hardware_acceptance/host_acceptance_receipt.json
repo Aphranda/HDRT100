@@ -5,33 +5,31 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_tdma_diagnostic_burst.py",
-    "tests/python/test_tdma_seat_rotation.py",
+    "tests/python/test_tdma_command_dma.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_tdma_diagnostic_burst.py",
-    "tests/python/test_tdma_seat_rotation.py"
+    "tests/python/test_tdma_command_dma.py"
   ],
-  "duration_s": 7.562,
+  "duration_s": 7.969,
   "returncode": 0,
   "summary": {
-    "passed": 6,
+    "passed": 4,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "6 passed in 7.01s",
+  "summary_line": "4 passed in 7.57s",
   "tail": [
-    "......                                                                   [100%]",
-    "6 passed in 7.01s"
+    "....                                                                     [100%]",
+    "4 passed in 7.57s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "b3d8c90a0d4182969655094ca7fe5eb9d3081afaf6a185eb7be24a2a21fe9b63",
+  "fingerprint": "13da54aa5f9af6340497b1fb6188ce3e94c0c3836f66b800f4f3a91372c28ffb",
   "file_count": 526,
-  "working_fingerprint": "b3d8c90a0d4182969655094ca7fe5eb9d3081afaf6a185eb7be24a2a21fe9b63",
-  "started_at_utc": "2026-10-25T17:09:21.418275+00:00"
+  "working_fingerprint": "13da54aa5f9af6340497b1fb6188ce3e94c0c3836f66b800f4f3a91372c28ffb",
+  "started_at_utc": "2026-10-25T17:11:29.001865+00:00"
 }
