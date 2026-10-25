@@ -5,39 +5,34 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_no5_tdma_isolation.py",
-    "tests/python/test_refmem_vector_projection.py",
-    "tests/python/test_tdma_arm_diagnostics.py",
-    "tests/python/test_tdma_runtime_mailboxes.py",
-    "tests/python/test_vdc_flight_rx.py",
+    "tests/python/test_trn03_closed_loop.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_no5_tdma_isolation.py",
-    "tests/python/test_refmem_vector_projection.py",
-    "tests/python/test_tdma_arm_diagnostics.py",
-    "tests/python/test_tdma_runtime_mailboxes.py",
-    "tests/python/test_vdc_flight_rx.py"
+    "tests/python/test_trn03_closed_loop.py"
   ],
-  "duration_s": 8.031,
+  "duration_s": 1.688,
   "returncode": 0,
   "summary": {
-    "passed": 30,
+    "passed": 124,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
-    "xfailed": 0
+    "xfailed": 1
   },
-  "summary_line": "30 passed in 7.54s",
+  "summary_line": "124 passed, 1 xfailed in 1.05s",
   "tail": [
-    "..............................                                           [100%]",
-    "30 passed in 7.54s"
+    ".......................................x................................ [ 57%]",
+    ".....................................................                    [100%]",
+    "=========================== short test summary info ===========================",
+    "XFAIL tests/python/test_trn03_closed_loop.py::test_load_mask_releases_only_newly_enabled_loads - pre-existing: app.c quarantine release now includes the foundation mask (~ (newly_enabled | APP_REALTIME_LOAD_FOUNDATION_MASK)); the assertion predates that change and needs an owner decision",
+    "124 passed, 1 xfailed in 1.05s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "ab4a3b4d0945229dd84c6c5453af4092a40028f3cf5b76d5c15d2448e3217ee1",
+  "fingerprint": "6e2f643fc6e31b0d87aba825df9c19e11b1c16e7020fec2e536879e9f2f3b654",
   "file_count": 526,
-  "working_fingerprint": "1bd76bc60e73fca016c3c7dba2e9e9747af9b291a871d7cd82a05f52deed441c",
-  "started_at_utc": "2026-10-25T21:48:19.905499+00:00"
+  "working_fingerprint": "6e2f643fc6e31b0d87aba825df9c19e11b1c16e7020fec2e536879e9f2f3b654",
+  "started_at_utc": "2026-10-25T22:15:26.211833+00:00"
 }

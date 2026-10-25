@@ -256,11 +256,18 @@ def test_dpll_schedule_gate_rejects_refmem_publication_failure() -> None:
     ]
 
 
+def _read_refmem_units() -> str:
+    """N5.0.4p: the RefMem core is split into four units."""
+    return chr(10).join(
+        (ROOT / "components" / "distributed_refmem" / "src" / name).read_text(encoding="utf-8")
+        for name in ("distributed_refmem.c", "distributed_refmem_plane.c",
+                     "distributed_refmem_link.c", "distributed_refmem_status.c")
+    )
+
 def test_dpll_refmem_realtime_hot_paths_are_sram_resident() -> None:
     manager = (ROOT / "components" / "vdc_dpll_manager" / "src" /
                "vdc_dpll_manager.c").read_text(encoding="utf-8")
-    refmem = (ROOT / "components" / "distributed_refmem" / "src" /
-              "distributed_refmem.c").read_text(encoding="utf-8")
+    refmem = _read_refmem_units()
     vectors = (ROOT / "components" / "distributed_refmem" / "src" /
                "refmem_vector_table.c").read_text(encoding="utf-8")
     for symbol in (
@@ -281,8 +288,7 @@ def test_dpll_refmem_realtime_hot_paths_are_sram_resident() -> None:
 
 
 def test_refmem_runtime_vectors_are_mirrored_in_separate_beats() -> None:
-    refmem = (ROOT / "components" / "distributed_refmem" / "src" /
-              "distributed_refmem.c").read_text(encoding="utf-8")
+    refmem = _read_refmem_units()
     service = refmem.split(
         "distributed_refmem_realtime_run_once)(void)", 1
     )[1].split("void distributed_refmem_service", 1)[0]
