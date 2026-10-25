@@ -386,13 +386,16 @@ def test_code_scope_includes_runtime_tools_and_build_inputs() -> None:
         "application/src/app.c",
         "components/tdma/inc/tdma.h",
         "tools/example/check.py",
-        "tests/python/test_example.py",
-        ".githooks/pre-commit",
         "CMakeLists.txt",
         "config/hardware_acceptance/p3_bench.json",
     ):
         assert is_acceptance_source(path)
     for path in (
+        # AGENTS §2.7 routing: host tests, the host gate wiring and the host
+        # acceptance tooling carry their own credential, so a test-only change
+        # must neither invalidate nor require a bench run.
+        "tests/python/test_example.py",
+        ".githooks/pre-commit",
         "docs/calibration/CALIBRATION_DOMAIN_TODO.md",
         "out/build/image.bin",
         "config/hardware_acceptance/p3_acceptance_receipt.json",
