@@ -4,7 +4,7 @@ Status: Active
 Domain: VDC
 Canonical: `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`
 Related: `docs/vdc/VDC_RUNTIME_CONSTRAINTS.md`, `docs/vdc/VDC_DOMAIN_TODO.md`, `docs/vdc/VDC_TASK_PROGRESS.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`, `docs/arch/HAOFV_ARCHITECTURE.md`
-Last updated: 2026-10-14
+Last updated: 2026-10-25
 
 ## 文档接口与范围
 
@@ -66,7 +66,7 @@ flowchart LR
 |---|---|
 | `components/vdc_domain/src/vdc_domain.c` | 纯状态/算术、evidence gate、MASTER servo、DCO 映射与本地增量提交、兼容质量字段。 |
 | `components/vdc_dpll_manager/src/vdc_dpll_manager.c` | 配置意图、TDMA evidence 分步处理、Core1 service 编排、完整快照与 Core0 管理发布。 |
-| `vdc_priority_tx.inc`、`vdc_priority_rx.inc`、`vdc_priority_codec.c` | 固定 typed 编码、TDMA provider 与直接 RX 交接；普通 RefMem parser 不消费此类型。 |
+| `vdc_priority_tx.inc`、`vdc_priority_rx.c`、`vdc_priority_codec.c` | 固定 typed 编码、TDMA provider 与直接 RX 交接；普通 RefMem parser 不消费此类型。 |
 | `vdc_priority_match.inc`、`vdc_priority_follow.inc`、`vdc_priority_phase.inc` | 精确事件匹配、区间频差估计、本地调频/相位采用及回执。 |
 | `vdc_model_feedback.inc` | 真实 committed DCO、model token、`valid_from_raw` 和稳定读取。 |
 | `vdc_run_output.inc`、`vdc_output_edge_plan.h` | 输出目标反解、延迟和未来后缀；调用 SYNC_IO capability，不直接操作 PIO。 |
