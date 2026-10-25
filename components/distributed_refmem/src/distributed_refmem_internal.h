@@ -180,6 +180,10 @@ typedef struct {
 } distributed_refmem_position_state_t;
 
 distributed_refmem_position_state_t *distributed_refmem_position_state(void);
+void distributed_refmem_position_note_freeze_taken(void);
+bool distributed_refmem_position_priority_owned(void);
+bool distributed_refmem_position_priority_drain(uint32_t source_slot);
+void distributed_refmem_position_cancel_service(void);
 
 #define s_position_pending (distributed_refmem_position_state()->pending)
 #define s_position_drain_ms (distributed_refmem_position_state()->drain_ms)

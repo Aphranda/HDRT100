@@ -40,7 +40,7 @@
  * counters cannot say whether a FREEZE reached a follower. These three can: latched by the
  * lane, kept-first (a FREEZE for an id whose previous latch was not yet taken is NOT stored),
  * and taken by the T2 consumer. latched == taken + still pending; kept is the silent loss. */
-static inline void distributed_refmem_position_note_freeze_taken(void)
+void distributed_refmem_position_note_freeze_taken(void)
 {
     ++s_position_freeze_taken_count;
 }
@@ -103,7 +103,7 @@ void DISTRIBUTED_REFMEM_TIME_CRITICAL(distributed_refmem_position_ack_pending)(
     if (incomplete_mask) *incomplete_mask = (uint32_t)(~all_frozen) & 0xFFu;
 }
 
-static bool distributed_refmem_position_priority_owned(void)
+bool distributed_refmem_position_priority_owned(void)
 {
     return __atomic_load_n(&s_position_priority_owned, __ATOMIC_ACQUIRE) != 0u;
 }
