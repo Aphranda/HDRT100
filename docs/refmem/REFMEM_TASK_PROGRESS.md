@@ -10,7 +10,7 @@ Last updated: 2026-10-25
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-015`。
+- 最新条目：`REFMEM-TASK-20261025-016`。
 - 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -28,6 +28,16 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261025-016 — N5.0.2f-A.2a position 状态 wrapper
+
+- 状态：完成；行为不变。
+- 内容：`distributed_refmem_position_state_t`（pending/mailboxes/latches/counters/hold 队列）入 `distributed_refmem_internal.h`；`distributed_refmem_position_state()` 返回单实例；`s_position_*` 宏别名映射到 struct 字段；删除 main/`position_ack.inc` 的 static 定义。
+- 行数：`distributed_refmem.c` 5,568→**5,549**；新增 `distributed_refmem_position_state.c`（约 20 行）。
+- 验证：
+  - build 成功；P3 `20261025012759`，fingerprint `89422a8adbe34850f2e0565d73c6de3bbd6625484f99fbbc2f8d5c77a44acd0a`，1953 files，`PASS_WITH_WARNINGS/strict=false`。
+  - exec196：`frag_complete=[1,1,1]`、`inject_ok=54`；`out/refmem_transport_diag/a2a_exec196_202610250950/`。
+- 下一刀：A.2b position 搬迁（`stage_position_descriptor`/`get_position_*`/`tdma_parse_position_fragment`）。
 
 ### REFMEM-TASK-20261025-015 — N5.0.2f-A.2a position 状态字段清单
 
@@ -184,7 +194,8 @@ Last updated: 2026-10-25
 - N5.0.2g（A.5 部分）：flight-sync 4 个只读 getter 拆出到 `distributed_refmem_diag.c`；5,690→5,568；P3 `20261025010050`；SCPI smoke 通过。
 - A.2/A.3 状态设计完成：position/VDC 状态需先收敛为 struct + accessor，再搬 getter/process_completed。
 - A.2a 字段清单完成：position 状态 20+ 字段（main + position_ack.inc）；下一步 struct+宏+accessor 代码。
-- 下一步：A.2a 代码（P3）→ A.2b → A.3。
+- A.2a 完成：position 状态 wrapper（struct+宏+accessor）；5,568→5,549；P3 `20261025012759`；exec196 `[1,1,1]`。
+- 下一步：A.2b position 搬迁 → A.3 VDC。
 
 ### REFMEM-TASK-20261025-002 — N5.0.2e 拆出 dispatch/command（进行中）
 
