@@ -26,6 +26,10 @@ def source() -> str:
     """Concatenated production text of the parent unit and its split units."""
     names = (
         "distributed_refmem.c",
+        # N5.0.4p: the core was split into plane / link / status units.
+        "distributed_refmem_plane.c",
+        "distributed_refmem_link.c",
+        "distributed_refmem_status.c",
         "distributed_refmem_position_ack.c",
         "distributed_refmem_vdc_feedback.c",
         "distributed_action_probe.c",
