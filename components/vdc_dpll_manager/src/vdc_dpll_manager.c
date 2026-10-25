@@ -1,4 +1,5 @@
 #include "vdc_dpll_manager.h"
+#include "vdc_dpll_manager_internal.h"
 #include "vdc_time_mapping.h"
 #include "vdc_model_projection.h"
 #include "vdc_priority_tx.h"
@@ -145,7 +146,7 @@ static uint32_t s_dpll_consumed_publication_revision;
 static bool s_dpll_have_consumed_publication;
 static vdc_dpll_manager_observation_self_test_status_t s_observation_self_test;
 static vdc_domain_context_t s_vdc_domain;
-static tdma_service_service_t *s_vdc_tdma_service;
+tdma_service_service_t *s_vdc_tdma_service;
 static bool s_vdc_tdma_registered;
 static uint32_t s_vdc_tdma_self_test_frame_seq;
 static vdc_tdma_timestamp_evidence_t s_vdc_tdma_self_test_evidence;
@@ -1706,10 +1707,10 @@ static void vdc_dpll_manager_sync_io_observer_service(void)
     osal_critical_exit();
 }
 
-static bool priority_follow_baseline_init_from_product_config(void);
-static bool output_delay_init_from_product_config(void);
-static bool output_timing_init_from_product_config(void);
-static bool reference_init_from_product_config(void);
+bool priority_follow_baseline_init_from_product_config(void);
+bool output_delay_init_from_product_config(void);
+bool output_timing_init_from_product_config(void);
+bool reference_init_from_product_config(void);
 
 bool vdc_dpll_manager_init(void)
 {
@@ -3098,18 +3099,12 @@ static void priority_trace_origin_core1(const vdc_priority_tx_origin_evidence_t 
 #undef VDC_PRIORITY_TRACE_ORIGIN_HOOK
 #include "vdc_boundary_capture.inc"
 #include "vdc_boundary_control.inc"
-#include "vdc_priority_ingress.inc"
-#include "vdc_priority_rx.inc"
 #include "vdc_priority_match.inc"
 static void priority_trace_decision_core1(const vdc_priority_follow_snapshot_t *decision);
 static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phase);
 #define VDC_PRIORITY_TRACE_PHASE_HOOK(snapshot) priority_trace_phase_core1(snapshot)
 #define VDC_PRIORITY_TRACE_DECISION_HOOK(snapshot) priority_trace_decision_core1(snapshot)
-#include "vdc_priority_follow_config.inc"
-#include "vdc_output_delay_config.inc"
-#include "vdc_reference_config.inc"
 #include "vdc_run_output.h"
-#include "vdc_output_timing_config.inc"
 #include "vdc_priority_follow.inc"
 #undef VDC_PRIORITY_TRACE_DECISION_HOOK
 #undef VDC_PRIORITY_TRACE_PHASE_HOOK

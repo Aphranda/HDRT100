@@ -9,6 +9,8 @@ import sys
 
 import pytest
 
+from vdc_units import body as vdc_unit_body
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT/"tests/python"))
@@ -49,7 +51,7 @@ def executable(tmp_path_factory):
     harness += '\nstatic void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t *model);\n#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)\n'
     for name in ("vdc_model_feedback.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc"):
         harness += "\n"+(manager/name).read_text(encoding="utf-8")
-    harness += "\n"+(manager/"vdc_priority_follow_config.inc").read_text(encoding="utf-8")
+    harness += "\n" + vdc_unit_body("vdc_priority_follow_config")
     harness += "\n"+(manager/"vdc_priority_follow.inc").read_text(encoding="utf-8").replace(
         '#include "vdc_priority_phase.inc"', (manager/"vdc_priority_phase.inc").read_text(encoding="utf-8"))
     scenarios = existing.SCENARIOS.replace("OWNER_REMOTE_INPUT",

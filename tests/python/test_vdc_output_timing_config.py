@@ -7,6 +7,8 @@ import subprocess
 
 import pytest
 
+from vdc_units import body as vdc_unit_body
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -47,7 +49,10 @@ def parser_host(tmp_path_factory):
     assert len(registrations) == 5
     command_table = "\nstatic const scpi_command_t commands[]={\n" + "\n".join(registrations) + "\nSCPI_CMD_LIST_END};\n"
     unit = directory / "timing.c"
-    unit.write_text(HARNESS + callbacks + command_table + MAIN, encoding="utf-8")
+    unit.write_text(HARNESS.replace(
+        '#include "components/vdc_dpll_manager/src/vdc_output_timing_config.inc"',
+        vdc_unit_body("vdc_output_timing_config"))
+        + callbacks + command_table + MAIN, encoding="utf-8")
     library = ROOT / "third_party/scpi-parser/libscpi"
     flags = ["-DSCPI_USER_CONFIG=1", "-I" + str(library / "inc"),
              "-I" + str(ROOT / "middleware/scpi_port/inc")]

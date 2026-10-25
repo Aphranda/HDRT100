@@ -645,6 +645,12 @@ set(PROJECT_APP_SOURCES
         components/vdc_domain/src/vdc_timestamp_clock.c
         components/vdc_domain/src/vdc_timestamp.c
         components/vdc_dpll_manager/src/vdc_dpll_manager.c
+        components/vdc_dpll_manager/src/vdc_priority_ingress.c
+        components/vdc_dpll_manager/src/vdc_priority_rx.c
+        components/vdc_dpll_manager/src/vdc_priority_follow_config.c
+        components/vdc_dpll_manager/src/vdc_output_delay_config.c
+        components/vdc_dpll_manager/src/vdc_output_timing_config.c
+        components/vdc_dpll_manager/src/vdc_reference_config.c
         components/vdc_dpll_manager/src/vdc_priority_codec.c
         components/vdc_dpll_manager/src/vdc_time_mapping.c
         components/vdc_dpll_manager/src/vdc_feedback_match.c

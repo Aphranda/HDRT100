@@ -6,6 +6,8 @@ import subprocess
 
 import pytest
 
+from vdc_units import body as vdc_unit_body
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -13,7 +15,9 @@ ROOT = Path(__file__).resolve().parents[2]
 def reference_config_host(tmp_path_factory):
     directory = tmp_path_factory.mktemp("vdc-reference-config")
     source = directory / "reference-config.c"
-    source.write_text(HARNESS, encoding="utf-8")
+    source.write_text(HARNESS.replace(
+        '#include "components/vdc_dpll_manager/src/vdc_reference_config.inc"',
+        vdc_unit_body("vdc_reference_config")), encoding="utf-8")
     compiler = shutil.which("gcc") or shutil.which("clang")
     assert compiler, "host C compiler required"
     executable = directory / ("reference-config.exe" if os.name == "nt" else "reference-config")

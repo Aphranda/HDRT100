@@ -11,6 +11,8 @@ import subprocess
 
 import pytest
 
+from vdc_units import body as vdc_unit_body
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -19,7 +21,9 @@ def ingress_executable(request, tmp_path_factory):
     nodes, short_enums = request.param
     directory = tmp_path_factory.mktemp(f"vdc-ingress-{nodes}-{int(short_enums)}")
     source = directory / "ingress.c"
-    source.write_text(HARNESS, encoding="utf-8")
+    source.write_text(HARNESS.replace(
+        '#include "vdc_priority_ingress.inc"',
+        vdc_unit_body("vdc_priority_ingress")), encoding="utf-8")
     compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or shutil.which("clang")
     if not compiler and Path("D:/Microsoft/mingw64/bin/gcc.exe").is_file():
         compiler = "D:/Microsoft/mingw64/bin/gcc.exe"
