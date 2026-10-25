@@ -19,6 +19,8 @@ FUNCTIONS = (
      "const uint8_t mailbox[TDMA_FLIGHT_SHORT_SLOT_SIZE], bool *boarded"),
     ("static bool", "tdma_pio_spi_ring_origin_first_class_valid",
      "const tdma_pio_spi_ring_adapter_t *adapter, const uint8_t *mailbox"),
+    ("static bool", "tdma_pio_spi_ring_origin_publish_maintenance",
+     "tdma_pio_spi_ring_adapter_t *adapter"),
     ("static bool", "tdma_pio_spi_ring_origin_publish_priority",
      "tdma_pio_spi_ring_adapter_t *adapter, bool *handled"),
 )

@@ -26,10 +26,11 @@ def compile_run(tmp_path, name, sources, includes=()):
 @pytest.mark.parametrize("name", ["tdma_ring_runtime", "tdma_pio_spi_ring_adapter"])
 def test_real_c_lifecycle_and_launch_bounds(tmp_path, name):
     names = [name] if name == "tdma_ring_runtime" else [
-        name, "tdma_adapter_comm_fsm", "tdma_flight_fifo", "tdma_flight_engine",
+        name, "tdma_pio_spi_ring_origin", "tdma_pio_spi_ring_rx_prepare",
+        "tdma_adapter_comm_fsm", "tdma_flight_fifo", "tdma_flight_engine",
         "tdma_flight_overlay", "tdma_overlay_prepare", "tdma_rx_prepare",
         "tdma_receive_health", "tdma_process_image_map", "tdma_ring_runtime",
-        "tdma_transport_frame", "tdma_profile"]
+        "tdma_transport_frame", "tdma_transport_load", "tdma_profile"]
     compile_run(tmp_path, name, [ROOT / f"tests/unit/test_{name}.c",
                 *[ROOT / f"components/tdma/src/{n}.c" for n in names]])
 
