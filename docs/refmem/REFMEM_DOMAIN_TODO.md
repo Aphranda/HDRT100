@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_TODO.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_TASK_PROGRESS.md`, `docs/arch/RTOS_HAOFV_TODO.md`, `docs/arch/HAOFV_MAINTENANCE_TODO.md`
-Last updated: 2026-10-25
+Last updated: 2026-10-26
 
 本文档维护 Distributed Vector Blackboard / RefMem Sync Domain 的当前可执行待办。这里不记录普通开发流水账，只记录会影响分布式共同事实、RefMemAO、A0-A7 通用逻辑插槽、节点装载、SlotClaim 协调、表镜像、slot owner、命令 ACK/NACK、部署门禁、连接质量和 RefMem Sync 的架构与实现事项。
 
@@ -522,6 +522,11 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 | `components/tdma/src/tdma_pio_spi_phys.c` | 3,076 | 物理层 / 诊断；单文件 ≤1,500 |
 | `components/distributed_refmem/src/refmem_application_model.c` | 3,180 | 装载 / 校验 / 表；单文件 ≤1,500 |
 | `components/sync_trigger/src/trigger_t2_runtime.c` | 2,843 | 会话 / 执行 / 观测；单文件 ≤1,500 |
+| `components/tdma/src/tdma_service.c` | 2,283 | intent 提交 / Core1 执行 / 快照读出 + `tdma_service_internal.h`；单文件 ≤1,200 |
+| `middleware/scpi_port/src/scpi_sync_commands.c` | 2,333 | sync 核心 / VDC 输出定时 / 优先级观察；单文件 ≤1,300 |
+| `middleware/scpi_port/src/scpi_calibration_commands.c` | 2,131 | origin 注入 / 采集与拓扑；单文件 ≤1,300 |
+| `components/ui_manager/src/status_ui.c` | 2,522 | 渲染原语 / 页面与状态机；单文件 ≤1,300 |
+| `components/sync_io/src/sync_io.c` | 2,110 | capture / 输出与时钟 / AUX 与状态；单文件 ≤1,300 |
 
 - **N5.0.1** ✅（2026-10-25）：预算与关注点地图已写入 `DOCS_EXECUTION_CONSTRAINTS.md` 的 `EXE-CODE-01`；新文件 ≤800、拆后 ≤1,500、>2,000 需 TODO/豁免、>3,000 冻结新功能。
 - **N5.0.2** `distributed_refmem.c` 先拆；**N5.2a 代码必须等它完成**，避免继续给 6.3k 行文件加功能。
@@ -535,6 +540,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - **N5.0.2f-A（TDMA flight）** ⏳（A.2b 完成；A.3 第一次回退 2026-10-25）：getter 块跨 inc/`#if`，需按完整条件块切；下一刀 A.3 或 N5.0.5。
 - **N5.0.3** ⏳：SCPI refmem 控制块已拆出到 `scpi_refmem_snapshot_commands.c`（5,712→4,627，P3 `20261025001128`）；剩余 sync/TDMA/system 块为 N5.0.3b。
 - **N5.0.4** VDC/calibration/TDMA adapter 依次拆；每步单独提交。
+- **N5.0.4a** ⏳（2026-10-26 启动，打样先于 adapter）：`tdma_service.c` 拆分（0 文件级 static、无 section 属性、跨边界调用单向，是全清单里风险最低的一项）。两单元目标 1,227 / 1,056 + 新增 `tdma_service_internal.h`（8 个 helper）；先归档拆分前全文到 `components/tdma/archive/tdma_service_split_v1/`；每步 host/build/P3/四机烟测，代码与文档分离提交。
 - **N5.0.5** ⏳（收口报告 2026-10-25）：行数快照/残差/HAOFV 已记录；N5.0 **未完成**，A.3/A.4/N5.0.3b 留待扩展。
 - **每步约束**：纯移动/重命名 + 私有头；不改行为；host/build/P3/HIL 烟测；代码/文档分离提交。
 
