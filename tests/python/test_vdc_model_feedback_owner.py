@@ -28,6 +28,11 @@ static bool s_published_snapshot_valid;
 /* Full quality publication is exercised by test_vdc_idle_maintenance. */
 static void vdc_dpll_manager_publish_runtime_snapshot_locked(void) {}
 static void vdc_dpll_manager_age_quality_core1(void) {}
+/* The service wrapper publishes the lock declaration before the model guard;
+ * the lock verdict itself is covered by test_vdc_lock_verdict. */
+static void vdc_dpll_manager_commit_lock_declaration_core1(void) {}
+/* Priority arm is another unit's entry point; this fixture covers the model. */
+static void vdc_priority_owner_arm_core1(uint32_t session) { (void)session; }
 static uint64_t raw_now=1000000;
 static unsigned action;
 static unsigned match_calls, ingress_calls, step_calls;
