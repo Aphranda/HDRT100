@@ -50,3 +50,22 @@ def test_host_scenario(harness_build: Path, scenario: str, expected: str) -> Non
                          encoding="utf-8", errors="replace")
     assert run.returncode == 0, run.stdout + run.stderr
     assert expected in run.stdout
+
+
+REFERENCE_MODES = [
+    "track", "negative", "slow", "freeze", "limits", "bypass", "filter_extreme",
+    "stop", "origin_epoch", "no_origin", "stale_origin", "role", "session",
+    "epoch", "run", "config", "profile", "servo", "timeout", "generation",
+    "range", "reject", "cancel", "disabled", "rearm", "duplicate", "stale",
+    "old_window",
+]
+
+
+@pytest.mark.parametrize("mode", REFERENCE_MODES)
+def test_reference_discipline_scenario_modes(harness_build: Path, mode: str) -> None:
+    """The scenario asserts the owner decisions; exit 0 is the pass signal."""
+    exe = harness_build / ("reference_discipline_test" + (".exe" if os.name == "nt" else ""))
+    assert exe.is_file(), f"missing {exe}"
+    run = subprocess.run([str(exe), mode], capture_output=True, text=True,
+                         encoding="utf-8", errors="replace")
+    assert run.returncode == 0, f"{mode}: " + run.stdout + run.stderr

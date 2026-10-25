@@ -123,6 +123,7 @@ target_compile_options(unit_compile_check PRIVATE -include host_time_compat.h)
 add_executable(reference_discipline_test
     scenarios/reference_discipline_scenario.c
     fakes/refdis_fakes.c
+    fakes/refdis_unit_fakes.c
     ${REPO_ROOT}/components/vdc_dpll_manager/src/vdc_output.c
     ${REPO_ROOT}/components/vdc_dpll_manager/src/vdc_reference_config.c
 )
