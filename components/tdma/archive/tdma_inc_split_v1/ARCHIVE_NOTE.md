@@ -39,3 +39,14 @@ textually includes any .inc file. Nothing was deleted: the fragment text is
 preserved byte-for-byte in this directory, and the event unit keeps a
 TDMA_PHYS_EVENT_HARNESS prologue guard so the feature-disabled harnesses can
 still compile the full production source.
+
+## 2026-10-25: all six fragments retired
+
+geometry, 
+x_scan, priority, light_io and origin join the event
+fragment here. Their live code is now in the matching src/*.c units, and no
+firmware source textually includes a .inc file any more. Every test harness
+that used to read a fragment now reads the .c unit; the units expose a
+TDMA_PHYS_<UNIT>_HARNESS prologue guard so harnesses that supply their own
+types and macros can still compile the production body unchanged. The fragment
+texts are preserved byte-for-byte for audit; nothing was deleted.

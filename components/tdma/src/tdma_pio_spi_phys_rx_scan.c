@@ -1,5 +1,8 @@
 /* RX-scan unit, split out of tdma_pio_spi_phys.c (2026-10-25).
  * The code below is the former tdma_pio_spi_phys_rx_scan.inc verbatim. */
+/* Harnesses that supply their own types/macros define
+ * TDMA_PHYS_RX_SCAN_HARNESS and skip this production prologue. */
+#ifndef TDMA_PHYS_RX_SCAN_HARNESS
 #include "tdma_pio_spi_phys_internal.h"
 
 #include <string.h>
@@ -7,6 +10,7 @@
 #include "hardware/dma.h"
 #include "hardware/pio.h"
 #include "hardware/sync.h"
+#endif
 
 #ifndef TDMA_PIO_SPI_ALIGNMENT_FITS_DEFINED
 #define TDMA_PIO_SPI_ALIGNMENT_FITS_DEFINED

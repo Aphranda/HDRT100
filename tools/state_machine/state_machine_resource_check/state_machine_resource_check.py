@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RESOURCES = ROOT / "components/tdma/inc/tdma_state_machine_resources.h"
 DEFAULT_PHYS = ROOT / "components/tdma/src/tdma_pio_spi_phys.c"
-DEFAULT_FLIGHT_IO = ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.inc"
+DEFAULT_FLIGHT_IO = ROOT / "components/tdma/src/tdma_pio_spi_phys_flight_io.c"
 DEFAULT_SYNC_MODEL = ROOT / "components/sync_io/src/sync_io_model_sched.c"
 DEFAULT_SYNC_CORE = ROOT / "components/sync_io/src/sync_io.c"
 DEFAULT_SYNC_PERSONAS = ROOT / "components/sync_io/src/sync_io_persona_resources.c"

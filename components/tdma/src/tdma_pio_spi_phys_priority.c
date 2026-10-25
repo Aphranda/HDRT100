@@ -1,5 +1,8 @@
 /* Core1 priority-lane unit, split out of tdma_pio_spi_phys.c (2026-10-25).
  * The code below is the former tdma_pio_spi_phys_priority.inc verbatim. */
+/* Harnesses that supply their own types/macros define
+ * TDMA_PHYS_PRIORITY_HARNESS and skip this production prologue. */
+#ifndef TDMA_PHYS_PRIORITY_HARNESS
 #include "tdma_pio_spi_phys_internal.h"
 
 #include <string.h>
@@ -11,6 +14,7 @@
 #include "hardware/watchdog.h"
 #include "drv_watchdog.h"
 #include "project_config.h"
+#endif
 
 /* Core1-only IRQ3 capture. DMA remains the sole DATA FIFO reader. Geometry
  * is frozen from the existing successful overlay training, not rediscovered

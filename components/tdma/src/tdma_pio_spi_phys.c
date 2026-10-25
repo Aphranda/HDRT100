@@ -2124,7 +2124,7 @@ static bool tdma_pio_spi_phys_transport_header_matches(
 }
 
 /* An alignment a scan RECORDS must satisfy the same bound the origin BEGIN
- * ENFORCES before it arms anything (tdma_pio_spi_phys_origin.inc: the whole packet
+ * ENFORCES before it arms anything (tdma_pio_spi_phys_origin.c: the whole packet
  * has to fit inside the physical frame from that offset). A candidate can match the
  * magic and the transport header while still resting on a wrong phase whose packet
  * would wrap the frame boundary; recording that phase poisoned the NEXT arm's

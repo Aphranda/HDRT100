@@ -1,12 +1,16 @@
 /* Frozen-geometry unit, split out of tdma_pio_spi_phys.c (2026-10-25).
  * The code below is the former tdma_pio_spi_phys_geometry.inc verbatim;
  * only the symbols the host unit and the event unit call lost `static`. */
+/* Harnesses that supply their own types/macros define
+ * TDMA_PHYS_GEOMETRY_HARNESS and skip this production prologue. */
+#ifndef TDMA_PHYS_GEOMETRY_HARNESS
 #include "tdma_pio_spi_phys_internal.h"
 
 #include <string.h>
 
 #include "hardware/clocks.h"
 #include "hardware/sync.h"
+#endif
 
 /* Included only by the physical owner. No allocation or peripheral write.
  * The exact key is private; the bounded snapshot is read
