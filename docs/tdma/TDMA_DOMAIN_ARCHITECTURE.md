@@ -190,7 +190,7 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 2. DPLL60 不退化；新增计数：每等级上车次数、特等让座次数、一等记录等待机会数。
 3. 四板 T2：NO1 位置记录上车数、从板优先级通道 accept/duplicate/reject 计数、一等等待不超过 M+N 次机会。注意运行期一等记录由优先级通道接收，旧 `rx_complete_count` 在该路径上不再增长，不作为送达判据。
 
-**实现状态。** 一等邮箱 `tdma_first_class.h`；仲裁在 `tdma_pio_spi_ring_origin.inc` 的 `publish_priority`，轮换比例经 `tdma_pio_spi_ring_adapter_set_seat_rotation()` 在 STOP 下按板配置（默认 1:1，SCPI 入口 `SYSTem:TDMA:SEAT:ROTation`，计数页 `SYSTem:TDMA:SEAT:COUNters?`）；改写已排队 VDC image 的补丁路径已删除。从板侧一等记录由优先级通道第二接收端（`TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS`）承担，普通 flight 路径不再作为一等接收路径（`TDMA-PROGRESS-20261010-002`）。未完成：真实物理 selection 证据（`TDMA-FLIGHT-002K2`）、一等席服务等级与特等席对齐（`TDMA-SEAT-03`）、比例与一等扩容的 `EXE-SEAT-01` 审核和 C11 登记。
+**实现状态。** 一等邮箱 `tdma_first_class.h`；仲裁在 `tdma_pio_spi_ring_origin.c` 的 `publish_priority`，轮换比例经 `tdma_pio_spi_ring_adapter_set_seat_rotation()` 在 STOP 下按板配置（默认 1:1，SCPI 入口 `SYSTem:TDMA:SEAT:ROTation`，计数页 `SYSTem:TDMA:SEAT:COUNters?`）；改写已排队 VDC image 的补丁路径已删除。从板侧一等记录由优先级通道第二接收端（`TDMA_PROCESS_IMAGE_T2_POSITION_MESSAGE_CLASS`）承担，普通 flight 路径不再作为一等接收路径（`TDMA-PROGRESS-20261010-002`）。未完成：真实物理 selection 证据（`TDMA-FLIGHT-002K2`）、一等席服务等级与特等席对齐（`TDMA-SEAT-03`）、比例与一等扩容的 `EXE-SEAT-01` 审核和 C11 登记。
 
 席位余量须分开核对 wire 与 CPU：当前 typed 同步 body 由 `TDMA_PROCESS_IMAGE_PRIORITY_SYNC_BODY_SIZE` 完整占用，不能再塞入健康状态或把普通 class 的 optional 空间重复记作 typed 可用余量。SYNC 的后续需求须列出独立资源及最坏耗时，未完成准入/实测的空间不算已承诺余量。新增或扩容特等席须先经用户审核（`EXE-SEAT-01`）。VDC 健康镜像、统计及查询是 Core0 异步诊断，不占特等邮箱，也不新增 Core1 发布工作。
 

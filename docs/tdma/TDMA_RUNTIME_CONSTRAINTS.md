@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`
 Related: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/vdc/VDC_RUNTIME_CONSTRAINTS.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-10-12
+Last updated: 2026-10-25
 
 ## 文档接口
 
@@ -46,7 +46,7 @@ TX 无更新时复用先前有效版本，不等待 Core0。普通 RX FIFO 满�
 
 ### TX：已编码记录与物理发布
 
-`tdma_runtime_owner_set_priority_tx_provider()` 在停态注册 VDC provider。`tdma_pio_spi_ring_origin.inc` 的自主服务在 provider 返回 typed offer 后走物理双缓冲发布；普通 mailbox 准备仍有独立路径。
+`tdma_runtime_owner_set_priority_tx_provider()` 在停态注册 VDC provider。`tdma_pio_spi_ring_origin.c` 的自主服务在 provider 返回 typed offer 后走物理双缓冲发布；普通 mailbox 准备仍有独立路径。
 
 `TDMA_PRIORITY_TX_READY` 只表示 offer 就绪。原 `EMPTY` 保留座位的行为已取消；TDMA-SEAT-01（已实现，见[架构](TDMA_DOMAIN_ARCHITECTURE.md)）规定 `EMPTY` 不占座，并与一等按发布机会轮换。发布可能因 DMA selection 未退休或版本变化延后；提供者确认、物理发布、实际送达和 ACK 分开记录。已编码事件保持原生成时模型和身份，不按后来的 DCO 模型重算历史时间戳。
 
