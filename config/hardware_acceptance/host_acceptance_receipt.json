@@ -6,38 +6,32 @@
     "-m",
     "pytest",
     "tests/python/test_no_archive_anchors.py",
-    "tests/python/test_tdma_origin_launch_physical.py",
-    "tests/python/test_tdma_training_gate.py",
-    "tests/python/test_unit_views.py",
+    "tests/python/test_vdc_auto_capture.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
     "tests/python/test_no_archive_anchors.py",
-    "tests/python/test_tdma_origin_launch_physical.py",
-    "tests/python/test_tdma_training_gate.py",
-    "tests/python/test_unit_views.py"
+    "tests/python/test_vdc_auto_capture.py"
   ],
-  "duration_s": 6.156,
+  "duration_s": 2.937,
   "returncode": 0,
   "summary": {
-    "passed": 181,
+    "passed": 24,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "181 passed in 5.74s",
+  "summary_line": "24 passed in 2.42s",
   "tail": [
-    "........................................................................ [ 39%]",
-    "........................................................................ [ 79%]",
-    ".....................................                                    [100%]",
-    "181 passed in 5.74s"
+    "........................                                                 [100%]",
+    "24 passed in 2.42s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "2d80dc37976e6072dfbc6ae82c96a4d0aefe6600556147fe096f88c590112805",
+  "fingerprint": "a93e05653352530ff45e8591eba98be7b09e93bbd1db5e5c0527195a25b3b442",
   "file_count": 532,
-  "working_fingerprint": "2d80dc37976e6072dfbc6ae82c96a4d0aefe6600556147fe096f88c590112805",
-  "started_at_utc": "2026-10-26T03:23:47.761700+00:00"
+  "working_fingerprint": "a93e05653352530ff45e8591eba98be7b09e93bbd1db5e5c0527195a25b3b442",
+  "started_at_utc": "2026-10-26T03:27:36.012464+00:00"
 }
