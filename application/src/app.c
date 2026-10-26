@@ -1,6 +1,7 @@
 #include "app.h"
 #include "app_realtime_profile.h"
 #include "app_refmem_domain_config.h"
+#include "refmem_function.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -453,6 +454,7 @@ bool app_init(void)
         diagnostics_mark_fault("refmem", "domain config handler registration failed");
         return false;
     }
+    refmem_function_init();
 
     if (!ui_manager_init()) {
         diagnostics_mark_fault("ui", "sync config UI initialization failed");
@@ -495,6 +497,7 @@ void app_scpi_service(void)
 void app_refmem_service(void)
 {
     distributed_refmem_service();
+    refmem_function_service();
     trigger_t2_runtime_prepare_core0();
 }
 

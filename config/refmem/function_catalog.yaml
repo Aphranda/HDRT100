@@ -1,0 +1,39 @@
+version: 1
+# REFMEM application function catalog: one row per "one command controls one
+# function".  Steps are ordered atomic domain-config commands; each step takes
+# a slice of the function arguments (arg_base/arg_words).  The generated table
+# is const and the executor never loads a script.
+functions:
+  - id: 1
+    name: FUNC_TDMA_ONLINE
+    failure_policy: abort_remaining
+    arg_words: 4
+    steps:
+      - {command_id: 21, arg_base: 0, arg_words: 3}  # seat rotation
+      - {command_id: 23, arg_base: 3, arg_words: 1}  # load mask
+
+  - id: 2
+    name: FUNC_CLOCK_RECONFIG
+    failure_policy: abort_remaining
+    arg_words: 7
+    steps:
+      - {command_id: 24, arg_base: 0, arg_words: 2}  # DPLL role
+      - {command_id: 25, arg_base: 2, arg_words: 5}  # DPLL tune
+
+  - id: 3
+    name: FUNC_T2_RECONFIG
+    failure_policy: abort_remaining
+    arg_words: 13
+    steps:
+      - {command_id: 32, arg_base: 0, arg_words: 0}   # T2 unmount (stop)
+      - {command_id: 30, arg_base: 0, arg_words: 13}  # T2 configure
+
+  - id: 4
+    name: FUNC_TDMA_CLOCK_ONLINE
+    failure_policy: abort_remaining
+    arg_words: 11
+    steps:
+      - {command_id: 21, arg_base: 0, arg_words: 3}
+      - {command_id: 23, arg_base: 3, arg_words: 1}
+      - {command_id: 24, arg_base: 4, arg_words: 2}
+      - {command_id: 25, arg_base: 6, arg_words: 5}

@@ -506,6 +506,9 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_action_registry.c
         components/distributed_refmem/src/refmem_control_route.c
         components/distributed_refmem/src/refmem_domain_config.c
+        components/distributed_refmem/src/refmem_control_submit.c
+        components/distributed_refmem/src/refmem_function.c
+        components/distributed_refmem/src/refmem_function_catalog.c
         components/distributed_refmem/src/refmem_node_load_sync.c
         components/distributed_refmem/src/refmem_pio_spi_adapter.c
         components/distributed_refmem/src/refmem_quality.c

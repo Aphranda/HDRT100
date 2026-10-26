@@ -640,6 +640,16 @@ bool distributed_refmem_node_control_apply_request(
 bool distributed_refmem_cmd_frame_receive(const uint8_t *frame, size_t size);
 uint32_t distributed_refmem_local_slot(void);
 
+/* Unified submit path shared by SCPI CTRL:EXECute and the application function
+ * executor.  command_id is the catalog id; params/param_words must match the
+ * catalog row.  Returns true when the intent was queued (local or REFMEM_CMD). */
+bool distributed_refmem_control_submit(uint16_t command_id,
+                                       uint32_t target_mask,
+                                       uint32_t required_mask,
+                                       const uint32_t *params,
+                                       uint16_t param_words,
+                                       uint32_t *command_seq);
+
 /* N4.1 idle window: config-class commands (board/node/table stage or activate)
  * are rejected with RUN_STATE_DENIED unless the window is explicitly open.
  * The N4.2 STOP -> stage -> START transaction owns the open/close edges. */

@@ -1,4 +1,4 @@
-#include "scpi_system_snapshot_commands.h"
+﻿#include "scpi_system_snapshot_commands.h"
 #include "vdc_run_output.h"
 
 #include <stdbool.h>
@@ -16,6 +16,7 @@
 #include "refmem_cmd_codec.h"
 #include "refmem_cmd_frame.h"
 #include "refmem_command_catalog.h"
+#include "refmem_function.h"
 #include "refmem_node_control.h"
 #include "distributed_config.h"
 #include "distributed_refmem.h"
@@ -825,20 +826,6 @@ scpi_result_t scpi_cmd_refmem_nodes_q(scpi_t *context)
     return SCPI_RES_OK;
 }
 
-static uint32_t s_ctrl_exec_seq;
-
-static uint32_t scpi_ctrl_params_crc(const uint32_t *params, uint32_t words)
-{
-    uint32_t crc = 2166136261u;
-    for (uint32_t i = 0u; i < words; i++) {
-        for (uint32_t shift = 0u; shift < 32u; shift += 8u) {
-            crc ^= (uint8_t)(params[i] >> shift);
-            crc *= 16777619u;
-        }
-    }
-    return crc;
-}
-
 scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context)
 {
     const char *token = NULL;
@@ -898,37 +885,12 @@ scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context)
         return SCPI_RES_ERR;
     }
 
-    refmem_command_snapshot_t snapshot;
-    memset(&snapshot, 0, sizeof(snapshot));
-    if (s_ctrl_exec_seq == 0u) {
-        /* Seed from the tick so a new issuer does not collide with a target
-         * record left by an earlier run (apply_request rejects <= seq). */
-        s_ctrl_exec_seq = osal_tick_ms();
-        if (s_ctrl_exec_seq == 0u) {
-            s_ctrl_exec_seq = 1u;
-        }
-    }
-    s_ctrl_exec_seq++;
-    snapshot.state = REFMEM_COMMAND_STATE_POSTED;
-    snapshot.command_seq = s_ctrl_exec_seq;
-    snapshot.source_node = distributed_refmem_local_slot();
-    snapshot.target_mask = target_mask;
-    snapshot.required_mask = required_mask;
-    snapshot.command_type = entry->command_type;
-    snapshot.payload_kind = entry->param_kind;
-    snapshot.payload_size = entry->param_words * (uint32_t)sizeof(uint32_t);
-    snapshot.payload_crc32 =
-        scpi_ctrl_params_crc(params, entry->param_words);
-    snapshot.issue_epoch = 1u;
-    snapshot.run_id = 1u;
-    snapshot.timeout_us = entry->timeout_us;
-
+    /* N5.5 entry convergence: only the derived control owner has a usable
+     * TDMA maintenance uplink for remote commands.  A non-owner entry must
+     * fail closed with an explicit error instead of queueing an intent that
+     * can never be delivered. */
     const uint32_t local_bit = 1u << distributed_refmem_local_slot();
     if ((target_mask & ~local_bit) != 0u) {
-        /* N5.5 entry convergence: only the derived control owner has a usable
-         * TDMA maintenance uplink for remote commands.  A non-owner entry must
-         * fail closed with an explicit error instead of queueing an intent that
-         * can never be delivered. */
         uint32_t control_owner = 0u;
         const bool owner_valid =
             refmem_application_model_control_owner_slot(&control_owner);
@@ -940,29 +902,18 @@ scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context)
             scpi_port_push_exec_error(context, "NOT_CONTROL_OWNER");
             return SCPI_RES_ERR;
         }
-        if (!refmem_cmd_load_submit_fragments(&snapshot, params)) {
-            scpi_port_push_exec_error(context, "REJECTED");
-            return SCPI_RES_ERR;
-        }
-        SCPI_ResultText(context, "QUEUED");
-        SCPI_ResultUInt32(context, s_ctrl_exec_seq);
-        return SCPI_RES_OK;
     }
 
-    uint8_t frame[REFMEM_SYNC_FRAME_HEADER_SIZE +
-                  REFMEM_SYNC_FRAME_PAYLOAD_MAX];
-    size_t frame_size = 0u;
-    if (!refmem_cmd_frame_build(DISTRIBUTED_REFMEM_LOCAL_NODE_ID,
-                                (uint8_t)target_mask, snapshot.issue_epoch,
-                                snapshot.run_id, snapshot.command_seq,
-                                &snapshot, params, frame, sizeof(frame),
-                                &frame_size) ||
-        !distributed_refmem_cmd_frame_receive(frame, frame_size)) {
+    uint32_t command_seq = 0u;
+    if (!distributed_refmem_control_submit(entry->id, target_mask,
+                                           required_mask, params,
+                                           (uint16_t)entry->param_words,
+                                           &command_seq)) {
         scpi_port_push_exec_error(context, "REJECTED");
         return SCPI_RES_ERR;
     }
     SCPI_ResultText(context, "QUEUED");
-    SCPI_ResultUInt32(context, s_ctrl_exec_seq);
+    SCPI_ResultUInt32(context, command_seq);
     return SCPI_RES_OK;
 }
 
@@ -1177,3 +1128,125 @@ scpi_result_t scpi_cmd_refmem_quality_q(scpi_t *context)
     SCPI_ResultUInt32(context, entry->evidence_index);
     return SCPI_RES_OK;
 }
+
+static const refmem_function_entry_t *scpi_function_lookup(
+    scpi_t *context)
+{
+    const char *token = NULL;
+    size_t token_len = 0u;
+    if (!SCPI_ParamCharacters(context, &token, &token_len, TRUE) ||
+        token == NULL || token_len == 0u) {
+        return NULL;
+    }
+    bool numeric = true;
+    uint32_t id = 0u;
+    for (size_t i = 0u; i < token_len; ++i) {
+        if (token[i] < '0' || token[i] > '9') {
+            numeric = false;
+            break;
+        }
+        id = id * 10u + (uint32_t)(token[i] - '0');
+    }
+    if (numeric) {
+        if (id > 0xFFFFu) {
+            return NULL;
+        }
+        return refmem_function_find_by_id((uint16_t)id);
+    }
+    char name[40];
+    if (token_len >= sizeof(name)) {
+        return NULL;
+    }
+    memcpy(name, token, token_len);
+    name[token_len] = '\0';
+    return refmem_function_find_by_name(name);
+}
+
+scpi_result_t scpi_cmd_ctrl_function_run(scpi_t *context)
+{
+    const refmem_function_entry_t *entry = scpi_function_lookup(context);
+    if (entry == NULL) {
+        scpi_port_push_exec_error(context, "UNSUPPORTED_FUNCTION");
+        return SCPI_RES_ERR;
+    }
+    uint32_t target_mask = 0u;
+    uint32_t required_mask = 0u;
+    if (!scpi_port_read_u32(context, &target_mask) ||
+        !scpi_port_read_u32(context, &required_mask) ||
+        target_mask == 0u || (required_mask & ~target_mask) != 0u) {
+        scpi_port_push_exec_error(context, "BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+    uint32_t args[REFMEM_FUNCTION_ARG_MAX];
+    memset(args, 0, sizeof(args));
+    for (uint32_t i = 0u; i < entry->arg_words; ++i) {
+        if (!scpi_port_read_u32(context, &args[i])) {
+            scpi_port_push_exec_error(context, "BAD_ARGUMENT");
+            return SCPI_RES_ERR;
+        }
+    }
+    uint32_t function_seq = 0u;
+    if (!refmem_function_run(entry->id, target_mask, required_mask, args,
+                             entry->arg_words, &function_seq)) {
+        scpi_port_push_exec_error(context, "BUSY");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultText(context, "QUEUED");
+    SCPI_ResultUInt32(context, function_seq);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_ctrl_function_status_q(scpi_t *context)
+{
+    uint32_t function_seq = 0u;
+    if (!scpi_port_read_u32(context, &function_seq) || function_seq == 0u) {
+        scpi_port_push_exec_error(context, "BAD_ARGUMENT");
+        return SCPI_RES_ERR;
+    }
+    refmem_function_snapshot_t snapshot;
+    if (!refmem_function_get_status(function_seq, &snapshot)) {
+        scpi_port_push_exec_error(context, "NOT_FOUND");
+        return SCPI_RES_ERR;
+    }
+    SCPI_ResultUInt32(context, snapshot.function_seq);
+    SCPI_ResultUInt32(context, snapshot.state);
+    SCPI_ResultUInt32(context, snapshot.function_id);
+    SCPI_ResultUInt32(context, snapshot.step_count);
+    SCPI_ResultUInt32(context, snapshot.step_index);
+    SCPI_ResultUInt32(context, snapshot.step_command_id);
+    SCPI_ResultUInt32(context, snapshot.step_command_seq);
+    SCPI_ResultUInt32(context, snapshot.step_state);
+    SCPI_ResultUInt32(context, snapshot.step_ack_mask);
+    SCPI_ResultUInt32(context, snapshot.step_nack_mask);
+    SCPI_ResultUInt32(context, snapshot.last_reason);
+    SCPI_ResultUInt32(context, snapshot.started_ms);
+    SCPI_ResultUInt32(context, snapshot.step_started_ms);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_ctrl_function_catalog_q(scpi_t *context)
+{
+    uint32_t offset = 0u;
+    uint32_t count = refmem_function_catalog_count;
+    (void)SCPI_ParamUInt32(context, &offset, FALSE);
+    (void)SCPI_ParamUInt32(context, &count, FALSE);
+    if (count > 8u) {
+        count = 8u;
+    }
+    for (uint32_t i = offset;
+         i < refmem_function_catalog_count && i < offset + count; i++) {
+        const refmem_function_entry_t *entry = &refmem_function_catalog[i];
+        SCPI_ResultUInt32(context, entry->id);
+        SCPI_ResultText(context, entry->name);
+        SCPI_ResultUInt32(context, entry->arg_words);
+        SCPI_ResultUInt32(context, entry->step_count);
+        SCPI_ResultUInt32(context, entry->failure_policy);
+        for (uint32_t s = 0u; s < entry->step_count; ++s) {
+            SCPI_ResultUInt32(context, entry->steps[s].command_id);
+            SCPI_ResultUInt32(context, entry->steps[s].arg_base);
+            SCPI_ResultUInt32(context, entry->steps[s].arg_words);
+        }
+    }
+    return SCPI_RES_OK;
+}
+

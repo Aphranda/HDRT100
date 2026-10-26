@@ -1738,7 +1738,8 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 **状态与证据**
 
 - 契约状态：pending（作为 `REFMEM-CTRL-01` 的增量，不单独授予产品 RUN 结论）。
-- 代码锚点：`refmem_command.h`、`refmem_command_catalog.h`；N7 实施后补 `refmem_function_catalog.h`。
+- 实现状态（2026-10-26）：`config/refmem/function_catalog.yaml` 已生成 4 个 function（TDMA 在线、DPLL、T2 停配置、TDMA+DPLL 组合）；执行器单 in-flight、串行 step、`ABORT_REMAINING`；`SYSTem:CTRL:FUNCtion:RUN/STATus?/CATalog?` 已接线；host 覆盖成功/失败/超时/单 in-flight。四板 HIL 与 VDC function 仍未做。
+- 代码锚点：`refmem_command.h`、`refmem_command_catalog.h`、`refmem_function.h`、`refmem_function_catalog.h`。
 - 验收：host 覆盖目录/参数/入口/在线原子/域停序列/失败策略；四板 HIL 覆盖协调者单端口、逐目标 ACK、TDMA TX/RX 连续性、`NOT_ONLINE_SAFE` 负测。
 
 ## 对外接口边界
