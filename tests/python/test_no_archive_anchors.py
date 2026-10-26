@@ -20,7 +20,6 @@ KNOWN_ANCHORS = {
     "test_vdc_fixed_output.py",
     "test_vdc_idle_maintenance.py",
     "test_vdc_priority_follow_config.py",
-    "test_vdc_priority_trace.py",
     "test_vdc_run_output.py",
 }
 

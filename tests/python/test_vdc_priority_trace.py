@@ -26,6 +26,19 @@ from test_vdc_priority_follow import (
 from vdc_units import code, declarations, fragment_slice
 
 
+def _dedupe(primary: str, secondary: str) -> str:
+    """Drop declaration blocks that ``primary`` already carries verbatim."""
+    import c_text
+
+    for name, start, end in c_text.split_top_level(secondary):
+        if name is not None:
+            continue
+        block = secondary[start:end]
+        if block.strip() and block in primary:
+            secondary = secondary.replace(block, "", 1)
+    return secondary
+
+
 def production(path):
     return (ROOT / path).read_text(encoding="utf-8")
 
@@ -133,10 +146,12 @@ uint32_t vdc_dpll_manager_priority_sync_generation(void) { return 0u; }
 bool vdc_priority_tx_origin_trace_eligible_core1(uint32_t generation,uint32_t session)
 { (void)generation;(void)session;return false; }
 '''
-    harness += production("components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_trace.inc").replace(
-        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_trace_summary.inc"',
-        production("components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_trace_summary.inc"))
-    harness += GUARD_EXTERNALS + production("components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_guard.inc")
+    trace_code = fragment_slice("vdc_priority_trace")
+    guard_code = _dedupe(trace_code, fragment_slice("vdc_priority_guard"))
+    # Guard shares the summary outcome enum with the trace unit it was split from.
+    guard_code = re.sub(r"(?s)enum \{[^}]*SUMMARY_PARTIAL[^}]*\};", "", guard_code, count=1)
+    harness += trace_code
+    harness += GUARD_EXTERNALS + guard_code
     harness += "\n" + ingress_definition(DOMAIN_HARNESS, "fixture")
     # Keep the tested real model fixture; replace only the wrapper's hooks to
     # use the same recorder ordering as the production Core1 service wrapper.

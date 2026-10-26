@@ -88,6 +88,8 @@ FRAGMENT_DECLS = {
     "vdc_priority_match": ("vdc_priority_match_work_t",),
     "vdc_priority_follow": ("vdc_priority_follow_work_t",),
     "vdc_priority_phase": ("vdc_priority_phase_work_t",),
+    "vdc_priority_trace": ("vdc_priority_trace_work_t", "vdc_priority_trace_request_t",
+                           "vdc_priority_summary_work_t", "vdc_priority_summary_record_t"),
     "vdc_boundary_capture": ("vdc_boundary_peer_t", "vdc_boundary_meta_t",
                              "vdc_boundary_request_t"),
     "vdc_boundary_control": ("vdc_boundary_peer_t", "vdc_boundary_meta_t",
