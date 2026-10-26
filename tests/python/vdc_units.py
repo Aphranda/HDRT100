@@ -151,7 +151,7 @@ def _fragment_closure(fragment: str, seen: set[str] | None = None) -> set[str]:
     return names
 
 
-def fragment_slice(fragment: str) -> str:
+def fragment_slice(fragment: str, statics: bool = True) -> str:
     """Code the archived fragment used to contribute, taken from the live unit.
 
     The unit body merges sibling fragments and moves fragment-local types into
@@ -166,7 +166,7 @@ def fragment_slice(fragment: str) -> str:
     if not names:
         raise KeyError(f"no function map for VDC fragment: {fragment}")
     text = c_text.keep_named_chunks(text, names)
-    text = c_text.prune_unused_statics(text)
+    text = c_text.prune_unused_statics(text) if statics else c_text.strip_statics(text)
 
     parts: list[str] = []
     if FRAGMENT_HELPERS.get(fragment):

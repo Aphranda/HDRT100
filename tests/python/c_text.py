@@ -238,6 +238,11 @@ def prune_unused_statics(text: str) -> str:
     return "".join(out)
 
 
+def strip_statics(text: str) -> str:
+    """Remove every single-line file-scope ``static`` declaration."""
+    return re.sub(r"(?m)^static\s+[^;{}\n]*;[ \t]*\n?", "", text)
+
+
 def strip_prologue(text: str) -> str:
     """Drop the leading blank/``#include`` lines of a unit."""
     lines = text.splitlines(keepends=True)
