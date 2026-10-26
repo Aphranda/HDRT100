@@ -5,48 +5,33 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_vdc_boundary_command_transport.py",
-    "tests/python/test_vdc_boundary_pending_handoff.py",
+    "tests/python/test_vdc_command_ingress.py",
     "tests/python/test_vdc_command_owner.py",
-    "tests/python/test_vdc_feedback_preacquire.py",
-    "tests/python/test_vdc_feedback_transport.py",
-    "tests/python/test_vdc_receipt_ack.py",
-    "tests/python/test_vdc_reference_publish.py",
-    "tests/python/test_vdc_reference_spacing.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_vdc_boundary_command_transport.py",
-    "tests/python/test_vdc_boundary_pending_handoff.py",
-    "tests/python/test_vdc_command_owner.py",
-    "tests/python/test_vdc_feedback_preacquire.py",
-    "tests/python/test_vdc_feedback_transport.py",
-    "tests/python/test_vdc_receipt_ack.py",
-    "tests/python/test_vdc_reference_publish.py",
-    "tests/python/test_vdc_reference_spacing.py"
+    "tests/python/test_vdc_command_ingress.py",
+    "tests/python/test_vdc_command_owner.py"
   ],
-  "duration_s": 173.563,
+  "duration_s": 13.594,
   "returncode": 0,
   "summary": {
-    "passed": 282,
+    "passed": 44,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "282 passed in 173.17s (0:02:53)",
+  "summary_line": "44 passed in 13.07s",
   "tail": [
-    "........................................................................ [ 25%]",
-    "........................................................................ [ 51%]",
-    "........................................................................ [ 76%]",
-    "..................................................................       [100%]",
-    "282 passed in 173.17s (0:02:53)"
+    "............................................                             [100%]",
+    "44 passed in 13.07s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "98f15b4cfabd17f53d67874fe4e17c915c00c4877c3b53edd80a1aa21a0069d1",
+  "fingerprint": "2563ddeb59afad10bbd5b64f24c244e50c05e658f88b47b691bf5825c3f81f63",
   "file_count": 532,
-  "working_fingerprint": "98f15b4cfabd17f53d67874fe4e17c915c00c4877c3b53edd80a1aa21a0069d1",
-  "started_at_utc": "2026-10-26T08:44:21.811724+00:00"
+  "working_fingerprint": "2563ddeb59afad10bbd5b64f24c244e50c05e658f88b47b691bf5825c3f81f63",
+  "started_at_utc": "2026-10-26T08:51:39.576022+00:00"
 }

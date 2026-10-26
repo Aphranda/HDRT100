@@ -149,7 +149,9 @@ def _append_closure(text, stderr, closure):
     for name in sorted(set(re.findall(r"'(\w+)' undeclared", stderr))
                        | set(re.findall(r"'(\w+)' was not declared", stderr))):
         match = re.search(
-            rf"(?m)^(?:static\s+)?[A-Za-z_][^;()\n]*\b{re.escape(name)}\b[^;()\n]*;[ \t]*$",
+            rf"(?ms)^static\s+[^;{{}}]*\b{re.escape(name)}\b[^;]*;",
+            closure) or re.search(
+            rf"(?m)^[A-Za-z_][^;()\n]*\b{re.escape(name)}\b[^;()\n]*;[ \t]*$",
             closure)
         if match:
             declarations.append(match.group(0))

@@ -13,15 +13,22 @@ import subprocess
 
 import pytest
 
-from test_vdc_command_owner import ROOT, REFMEM, compile_executable, function_body
+from test_vdc_command_owner import ROOT, REFMEM, _append_closure, compile_executable, function_body
+from refmem_units import body as refmem_unit_body, source as refmem_source
 
 
 REFMEM_UNIT_FILES = (
     "distributed_refmem.c",
+    "distributed_refmem_plane.c",
+    "distributed_refmem_link.c",
+    "distributed_refmem_status.c",
     "distributed_refmem_position_ack.c",
     "distributed_refmem_vdc_feedback.c",
+    "distributed_refmem_cmd_reply.c",
     "distributed_action_probe.c",
     "distributed_refmem_priority_health.c",
+    "distributed_refmem_internal.h",
+    "distributed_refmem_split_internal.h",
     "refmem_le.h",
 )
 
@@ -68,7 +75,10 @@ def build_full_ingress(directory, production_root=ROOT):
         candidate = production_root / path
         return candidate if candidate.is_file() else ROOT / path
 
-    source = production("components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
+    if production_root is ROOT:
+        source = "\n".join(refmem_texts())
+    else:
+        source = production("components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
     service = production("components/tdma/src/tdma_service.c").read_text(encoding="utf-8")
     state = re.search(r"typedef struct \{[^}]*\} distributed_refmem_tdma_flight_sync_t;", source, re.S)
     assert state
@@ -96,6 +106,7 @@ def build_full_ingress(directory, production_root=ROOT):
 #include <string.h>
 #define DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED 1
 #include "refmem_sync.h"
+#include "refmem_cmd_reply.h"
 #include "refmem_application_model.h"
 #include "vdc_dpll_manager.h"
 #include "tdma_process_image_layout.h"
@@ -107,6 +118,13 @@ def build_full_ingress(directory, production_root=ROOT):
 #define DISTRIBUTED_REFMEM_TDMA_FLIGHT_COMPACT_VERSION TDMA_FLIGHT_MAILBOX_VERSION
 #define DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_EPOCH 1u
 #define DISTRIBUTED_REFMEM_NODE_LOAD_AUTO_DEFAULT_RUN 1u
+void distributed_refmem_cmd_reply_store(uint32_t source_slot, uint16_t seq16,
+                                        uint8_t flags, uint8_t reason);
+bool tdma_maintenance_runtime_ack(uint8_t stream_id, uint8_t generation,
+                                  uint8_t source_slot, bool ok);
+bool tdma_maintenance_runtime_ack(uint8_t stream_id, uint8_t generation,
+                                  uint8_t source_slot, bool ok)
+{ (void)stream_id;(void)generation;(void)source_slot;return ok; }
 static refmem_sync_vdc_context_t s_vdc_command_context;
 static bool s_vdc_command_context_initialized, s_vdc_command_context_ready;
 static uint8_t s_vdc_command_context_local_slot;
@@ -147,6 +165,7 @@ static bool tdma_runtime_owner_get_ring_clock_snapshot(tdma_ring_clock_snapshot_
 ''' + state.group(0) + "\nstatic distributed_refmem_tdma_flight_sync_t s_tdma_flight_sync;\n"
     # The old refresh did not discover the owner; expose that harmless stub
     # in fixture setup too so both baseline and current builds use it.
+    harness += "\n" + refmem_unit_body("distributed_refmem_cmd_reply")
     harness += "\n".join(ingress_definition(service, name) for name in wrappers)
     harness += "\n" + "\n".join(ingress_definition(crc_port, name) for name in (
         "portable_ota_port_crc32_update", "portable_ota_port_crc32_compute"))
@@ -388,10 +407,20 @@ int main(int argc, char **argv)
     (directory / "compile-fifo.stderr.txt").write_text(fifo_compile.stderr, encoding="utf-8")
     assert fifo_compile.returncode == 0, fifo_compile.stdout + fifo_compile.stderr
     invocation = [*common, str(harness_path), str(fifo_object), *map(str, linked[1:]), "-o", str(exe)]
-    result = subprocess.run(invocation, capture_output=True, text=True, timeout=60)
-    (directory / "compile.stdout.txt").write_text(result.stdout, encoding="utf-8")
-    (directory / "compile.stderr.txt").write_text(result.stderr, encoding="utf-8")
-    assert result.returncode == 0, result.stdout + result.stderr
+    closure = refmem_source() + "\n" + (
+        ROOT / "components/board_identity/src/board_identity.c").read_text(encoding="utf-8")
+    text = harness
+    result = None
+    for _ in range(16):
+        harness_path.write_text(text, encoding="utf-8")
+        result = subprocess.run(invocation, capture_output=True, text=True, timeout=60)
+        if result.returncode == 0:
+            break
+        completed = _append_closure(text, result.stderr, closure)
+        if completed is None:
+            break
+        text = completed
+    assert result is not None and result.returncode == 0, result.stdout + result.stderr
     return exe
 
 
@@ -412,7 +441,7 @@ def test_queued_command_role_admission(full_ingress_executable, scenario):
 
 
 def test_role_binding_and_parser_admission(tmp_path):
-    source = REFMEM.read_text(encoding="utf-8")
+    source = refmem_source()
     refresh = function_body(source, "distributed_refmem_refresh_vdc_command_context_from_snapshot")
     parser = function_body(source, "distributed_refmem_tdma_flight_parse_vdc_fragment")
     boundary = "refmem_sync_vdc_command_payload_t command;"
