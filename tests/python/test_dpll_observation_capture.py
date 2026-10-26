@@ -22,6 +22,7 @@ from tools.dpll_servo_tune.dpll_servo_tune import Profile, parse_profile
 from tools.domains.vdc.dpll_residual_analyze.dpll_residual_analyze import render_combined_svg
 from tools.domains.vdc.dpll_residual_analyze.dpll_residual_analyze import ResidualPoint
 from tools.common.scpi.scpi_serial import scpi_response_matches_command
+import refmem_units
 
 
 def test_trace_save_response_is_kept_as_composite_tuple() -> None:
@@ -79,9 +80,7 @@ def test_debug_admission_override_is_explicit_and_mailbox_bound() -> None:
     domain = Path("components/vdc_domain/src/vdc_domain.c").read_text(
         encoding="utf-8"
     )
-    refmem = Path(
-        "components/distributed_refmem/src/distributed_refmem.c"
-    ).read_text(encoding="utf-8")
+    refmem = refmem_units.source()
     assert "s_debug_continue_requested_generation" in manager
     assert "vdc_dpll_manager_apply_pending_debug_continue" in manager
     assert "vdc_domain_set_debug_continue" in manager
@@ -187,8 +186,10 @@ def test_follower_transport_requires_refmem_acceptance_and_expected_source() -> 
 def test_refmem_receive_telemetry_is_distinct_from_tx_envelope() -> None:
     header = Path("middleware/scpi_port/inc/scpi_system_snapshot_commands.h").read_text(
         encoding="utf-8")
-    source = Path("middleware/scpi_port/src/scpi_system_snapshot_commands.c").read_text(
-        encoding="utf-8")
+    source = "\n".join(
+        Path("middleware/scpi_port/src", name).read_text(encoding="utf-8")
+        for name in ("scpi_system_snapshot_commands.c", "scpi_platform_snapshot_commands.c",
+                     "scpi_tdma_snapshot_commands.c", "scpi_node_snapshot_commands.c"))
     assert 'SYSTem:REFMEM:SYNC:TDMA:VDC:RX?' in header
     handler = source.split("scpi_cmd_refmem_sync_tdma_vdc_rx_q", 1)[1].split(
         "scpi_cmd_refmem_sync_tdma_abort", 1)[0]

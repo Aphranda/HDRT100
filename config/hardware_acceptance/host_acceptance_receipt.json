@@ -5,34 +5,31 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_vdc_command_owner.py",
-    "tests/python/test_refmem_priority_health.py",
+    "tests/python/test_dpll_observation_capture.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_vdc_command_owner.py",
-    "tests/python/test_refmem_priority_health.py"
+    "tests/python/test_dpll_observation_capture.py"
   ],
-  "duration_s": 7.297,
+  "duration_s": 9.359,
   "returncode": 0,
   "summary": {
-    "passed": 117,
+    "passed": 18,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "117 passed in 6.88s",
+  "summary_line": "18 passed in 8.48s",
   "tail": [
-    "........................................................................ [ 61%]",
-    ".............................................                            [100%]",
-    "117 passed in 6.88s"
+    "..................                                                       [100%]",
+    "18 passed in 8.48s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "bfa62df11857fab97521d193fedf657ec5d08f1baf0ad0d30db8789f387f6923",
+  "fingerprint": "0910c7c0a75d5b25eb05a4b642ea09a7b730ef09432dfadfd45de4c2f80ff03d",
   "file_count": 526,
-  "working_fingerprint": "bfa62df11857fab97521d193fedf657ec5d08f1baf0ad0d30db8789f387f6923",
-  "started_at_utc": "2026-10-25T22:43:36.281311+00:00"
+  "working_fingerprint": "0910c7c0a75d5b25eb05a4b642ea09a7b730ef09432dfadfd45de4c2f80ff03d",
+  "started_at_utc": "2026-10-26T01:09:24.805238+00:00"
 }
