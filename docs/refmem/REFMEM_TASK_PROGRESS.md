@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-012`。
+- 最新条目：`REFMEM-TASK-20261027-013`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,20 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-013 — process-image 上远端 T2 交付成立；前置被 TRN 清掉
+
+- 状态：四板 T2 远端命令路径 ✅（step0 ACK=14）；正向仍 ❌（前置丢失）。
+- 序列：
+  1. 复位四板；`t2_workflow.py --steps 1-10 --leave-running` 成功（grid/deployment/templates 全配好，环仍停）。
+  2. 不复位，`trn03_closed_loop --stage process-image --leave-running --no-t2 --cancel-unsaved-record` 一次通过（`trn03_t2_keep3`，`passed/left_running=true`）。
+  3. 直接跑协调者 `FUNC_T2_RECONFIG,14,14,1,0,14,0,5000,5000,500,0,0,360000,1000,1000,0`：
+     - step0（cmd32 T2_UNMOUNT）**ACK=14**；step1（cmd30 T2_CONFIGURE）**NACK=14 / reason=13**；function FAILED。
+     - 源 `CTRL:STATus?` `state=5 NACKED/nack=14`。
+- 关键结论：**process-image 环能承载 REFMEM_CMD，远端 T2 停/配置交付成立**；失败原因是 TRN 启动后 `GRID?`/`DEPloyment?` 返回 `1,33`（前置失效），step1 拿不到 grid/deployment。
+- 处置：已 `RING:STOP` 四板，均 `enabled=0`。
+- 证据：`out/n7/four_board_hil/t2_positive_process_image.txt`、`trn03_t2_keep3/`、`t2_steps_1_10_reset.log`。
+- 下一步：定位 TRN 启动中清掉 grid/deployment 的命令（FLIGHT:MODE/FIFO/TOPO/ARM 候选），改为保留前置；或在 TRN 后不 STOP 重配前置的等价路径。
 
 ### REFMEM-TASK-20261027-012 — T2 前置不能在 process-image 运行中补装
 
