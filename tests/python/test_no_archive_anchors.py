@@ -18,7 +18,6 @@ KNOWN_ANCHORS = {
     "test_refmem_priority_health.py",
     "test_vdc_boundary_owner.py",
     "test_vdc_command_owner.py",
-    "test_vdc_feedback_match_integration.py",
     "test_vdc_fixed_output.py",
     "test_vdc_idle_maintenance.py",
     "test_vdc_priority_follow.py",
