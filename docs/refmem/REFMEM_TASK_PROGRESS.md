@@ -10,15 +10,15 @@ Last updated: 2026-10-26
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261026-001`。
-- 统一控制面：命令回复回程已打通（单目标/多目标/负向）；**远程配置 stage 在目标窗口开启 + 环运行下首次 ACK**（N5.2a.3）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
+- 最新条目：`REFMEM-TASK-20261026-002`。
+- 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
 - N5.0.2b：cmd-reply 拆出（6,315→6,109）；P3 `20261024151357`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2c：node control 拆出（6,109→6,003）；P3 `20261024154054`；config txn HIL 14/14。
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
-- 下一步：N5.2b 远程 owner/permission → N5.3 `control_owner_slot` 冻结；N3.2.7 可选。
+- 下一步：N5.2c（STOP→stage→START 全流程）→ N5.3 显式 `control_owner_slot`（方案 B）；N5.5 补非协调者硬件负向。
 
 ## 归档索引
 
@@ -28,6 +28,15 @@ Last updated: 2026-10-26
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261026-002 — N5.2b 目标侧配置授权（方案 A）+ 四板 HIL
+
+- 状态：b.1–b.4 完成、b.5 硬件负向受阻、b.6 收口；N5.2b 整体未标完成。
+- 内容：`refmem_slot_claim_lowest_claimed` / `refmem_application_model_control_owner_slot` / `distributed_refmem_control_owner_slot`（派生值，不落状态）；dispatch 对 config 类先判 `origin ∈ {本地, owner}` 否则 12，再判 idle 窗口（7）；`admit_origin_trial` 与 `slot_claim_gate_ready` 要求 owner 可派生且落在 ring 内。
+- host：新增 `test_refmem_command_authority`（6 情景，禁用检查的负测 4 处断言红）；`test_refmem_slot_claim` 增 `lowest_claimed`；`test_refmem_control_route` 增 origin 决策；`test_refmem_table_registry` 增 model owner；四套全绿。
+- HIL（build `20261026134613`，四板，按 `command_seq` 对齐）：协调者 COM5→COM4 `state=4 ACKED/reason=0`；COM4 本地入口 ACK；COMMIT 后协调者 `state=5/reason=7`；非协调者 COM3 命令停在源板 POSTED、目标记录不前进（从板无上行注入点，N5.5 范围）。证据 `out/n52b_hil/report_v2.json`。
+- P3：final `build 20261026134613`、`PASS_WITH_WARNINGS`（INFO 33 / WARN 11 / ERROR 0 / FATAL 0）、`source 708faa78…`、1590 files；首跑 `build 20261026132128` 曾出现 13 WARN（COM3 `refmem_overrun_count_grew` / `refmem_max_runtime_exceeded_wcet`），重跑未复现（`out/n52b/p3_run1.log` 仅存计数），记为台架抖动残余。
+- 下一刀：N5.2c（STOP→stage→START）或 N5.3（显式 owner）；N5.5 补硬件负向。
 
 ### REFMEM-TASK-20261026-001 — N5.2a.3 根因更正与修复：seat 不进包，远程配置首次 ACK
 

@@ -533,6 +533,15 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 **门禁预判**：①无新增总线/命令槽/ACK；②不占 core1（dispatch 在 core0 service）；③授权只有一个派生源、协调者不因检查而分裂；④fail-closed（12/`CONTROL_LOST`）；⑤若不加 SCPI 查询则无布局/版本变化；⑥两板/四板正负 HIL + P3 quick，示波器不在链路内（外部观测路径仍记为未验证）。
 
+**N5.2b 进度（2026-10-26，build `20261026134613`）**：
+
+- **b.1** ✅：`refmem_slot_claim_lowest_claimed()` + `refmem_application_model_control_owner_slot()` + `distributed_refmem_control_owner_slot()`；不新增 SCPI，owner 可由 `SYSTem:REFMEM:CLAIm?` 的最低 claimed 槽推出（显式查询留 N5.3）。
+- **b.2** ✅：目标侧授权**先于** idle 窗口；新增 `test_refmem_command_authority`（直驱 dispatch）覆盖 6 情景：非协调者→12、本地入口放行、协调者放行、无 owner 远程 fail-closed→12、授权通过后关窗→7、MAINTENANCE 不受配置授权约束；禁用授权检查的负测有 4 处断言变红。
+- **b.3** ✅：`refmem_realtime_contract_admit_origin_trial` 要求 owner 可派生且落在 ring 内；`distributed_refmem_slot_claim_gate_ready` 同样要求（0/1/N claim 的纯函数用例在 `test_refmem_slot_claim`）。
+- **b.4** ✅：四板正向 HIL（build `20261026134613`）：COM5（owner=slot 0）→ COM4 `command_seq=15150 / state=4 ACKED / reason=0`；COM4 本地入口 `140504 / state=4`；COMMIT 关窗后协调者命令 `15151 / state=5 / reason=7`。证据 `out/n52b_hil/report_v2.json`。
+- **b.5** ⚠️：**硬件负向当前不可达**——非协调者 COM3（slot 2）的命令停在源板 `state=1 POSTED`、目标记录不前进，证实从板没有维护流上行注入点（C1b 结论），这正是 N5.5「非协调者入口」的范围；授权拒绝本身已由 b.2 的 host 用例覆盖，硬件负向随 N5.5 补。
+- **b.6** ⏳：P3 final receipt `build=20261026134613`、`PASS_WITH_WARNINGS`（INFO 33 / WARN 11 / ERROR 0 / FATAL 0）、`source=708faa78…`、1590 files；host acceptance 与提交见进度日志。
+
 **N5.2 诊断（2026-10-24）**：reason 13 不是 owner/permission；环运行期本地/远程 stage 都失败（`staging_state=3 FAILED`、`last_error=7 PACKAGE_INVALID`、`lint_error=1 BAD_TABLE_VERSION`），环停止本地 stage ACK（`staging_state=2 VALIDATED`）。因此先做 N5.2a；**N5.2a 决策（2026-10-24）：延迟配置事务（STOP-only stage）**——环运行只收命令/排队，STOP 执行，START 后回 ACK；不选环安全 staging（process-image 与 raw-flight 均失败，冲突在环运行期表包/服务）。开放：命令超时跨 STOP/START、队列深度/顺序、多目标 ACK 聚合、COMMIT 与 START 先后。再加 N5.2b 权限；N5.2c 补真实 STOP→stage→START。证据 `out/refmem_remote_txn_hil/n52_diag/REPORT.md`。
 
 #### N5.0 拆分清单（前置）

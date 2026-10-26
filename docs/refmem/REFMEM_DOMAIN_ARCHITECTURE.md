@@ -1554,6 +1554,9 @@ IDLE
 origin 一律 `PERMISSION_DENIED`(12)，且**授权判定先于 idle 窗口判定**（不因窗口开/关在 7/12 之间摆动）。
 无 claimed 插槽时本地配置仍可用、远程配置 12；`DeploymentGate` 的 `GATE_CONFIG`(8) 拒绝无法派生协调者
 的 RUN。显式 `control_owner_slot` 字段（方案 B）属 N5.3，落地时替换本 fallback，不与 fallback 并行存在。
+**实现状态（2026-10-26，build `20261026134613`）**：目标侧授权检查已落地；host 直驱 dispatch 覆盖
+六种情景（含非协调者 12、无 owner fail-closed），四板 HIL 已验「协调者 ACK / 本地 ACK / 关窗 7」；
+非协调者从板当前无维护流上行注入点，硬件负向随 N5.5 补。
 
 ### 边界
 
