@@ -63,6 +63,26 @@ int main(void)
                      (uint32_t)refmem_control_origin_decide(32u, 1u, 0u, true),
                      (uint32_t)REFMEM_CONTROL_ORIGIN_REJECT);
 
+    /* N5.5 entry convergence: only the owner may originate remote commands. */
+    rc |= expect_u32("entry local only",
+                     (uint32_t)refmem_control_entry_decide(1u, 0u, true, 0x02u),
+                     (uint32_t)REFMEM_CONTROL_ENTRY_LOCAL_ONLY);
+    rc |= expect_u32("entry owner remote",
+                     (uint32_t)refmem_control_entry_decide(0u, 0u, true, 0x02u),
+                     (uint32_t)REFMEM_CONTROL_ENTRY_REMOTE_ALLOWED);
+    rc |= expect_u32("entry non-owner remote rejected",
+                     (uint32_t)refmem_control_entry_decide(2u, 0u, true, 0x02u),
+                     (uint32_t)REFMEM_CONTROL_ENTRY_REJECT_REMOTE);
+    rc |= expect_u32("entry mixed remote rejected",
+                     (uint32_t)refmem_control_entry_decide(1u, 0u, true, 0x06u),
+                     (uint32_t)REFMEM_CONTROL_ENTRY_REJECT_REMOTE);
+    rc |= expect_u32("entry missing owner rejected",
+                     (uint32_t)refmem_control_entry_decide(0u, 0u, false, 0x02u),
+                     (uint32_t)REFMEM_CONTROL_ENTRY_REJECT_REMOTE);
+    rc |= expect_u32("entry bad slot rejected",
+                     (uint32_t)refmem_control_entry_decide(32u, 0u, true, 0x02u),
+                     (uint32_t)REFMEM_CONTROL_ENTRY_REJECT_REMOTE);
+
     if (rc == 0) {
         (void)printf("refmem_control_route tests passed\n");
     }
