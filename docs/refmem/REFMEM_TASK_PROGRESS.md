@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-002`。
+- 最新条目：`REFMEM-TASK-20261027-003`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,22 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-003 — N7.4 四板闭环：本地执行槽只含本板位
+
+- 状态：**N7.4 四板 function HIL 通过**（TDMA/DPLL 多步 + T2 负向）；VDC function 仍缺。
+- 根因（2026-10-27，step1 超时）：
+  - 目标执行远端命令时，`distributed_refmem_post_command_replacing_complete` 把命令投到本板 command slot，但 request 仍带 `target_mask/required_mask=14`；本板 ACK 只能置本板位，slot 永远 `TAKEN`，下一步 `post` 因“未完成”失败并静默设置 `s_node_control_last_command_seq`，不再 ACK/回复。
+  - 证据：COM4 `SYSTem:COMMand:ACK?` 显示 `state=2 TAKEN, command_seq=1, target/required=14, command_type=21`；`CMDFRame?=2,0,0,0,2`（帧已 apply），`NODE:CONTrol?` 为 step1 `POSTED`，但 `CMD:REPLy? armed=1`（没有为 step1 arm）。
+- 修复（`871279c8`）：本板执行副本的 `target_mask/required_mask` 改为 `1u << local_slot`；远端聚合仍由 node control/reply 承担。P3 `20261026173427`。
+- 四板 HIL（TRN process-image `left_running=true`，build `20261026173427`）：
+  - `FUNC_TDMA_ONLINE,14,14,3,1,0,255` → `state=2 COMPLETED`、`step_index=2`、`ack_mask=14`、`nack=0`。
+  - `FUNC_TDMA_CLOCK_ONLINE`（4 步）→ `state=2 COMPLETED`、`step_index=4`、`ack_mask=14`；三目标 `DPLL:ROLE?` 读回 `0,0,3,3,0`（applied gen 3、pending 0）。
+  - `FUNC_T2_RECONFIG,14,14,...` → step0（cmd32）`ACK=14`；step1（cmd30）`NACK reason=13`；function `FAILED`（T2 前置缺失，符合 fail-closed）。
+  - 连续性：COM4 `up_sequence 44697→51795`、COM6 `45898→51601`、COM3 单次查询超时但后续 `51251`；四板 `enabled/up/down=1`，无停环。HIL 后已 `RING:STOP` 四板。
+- 证据：`out/n7/four_board_hil/function_hil_localslot.txt`、`continuity.txt`、`trn03_localslot/`。
+- 未覆盖：VDC reference/output function；T2 **正向** configure（需有效 grid/deployment/templates）；外部示波器/完整 P3 范围。
+- 下一步：N6.3.3 VDC function（仍卡 `tdma_service_update_stopped_metadata` 要求 TDMA 停环），或先做 N7.5 收口文档；N7.4 可标 ✅（范围见上）。
 
 ### REFMEM-TASK-20261027-002 — N7.4 第二次：step0 三目标 ACK，step1 仍超时
 
