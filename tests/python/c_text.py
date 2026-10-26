@@ -233,18 +233,39 @@ def keep_named_chunks(text: str, names: set[str]) -> str:
 
 
 def prune_unused_statics(text: str) -> str:
-    """Drop single-line file-scope ``static`` declarations nothing refers to."""
-    line_static = re.compile(r"(?m)^static\s+([^;{}\n]*);[ \t]*\n?")
-    # Everything except the declarations themselves counts as a use.
-    used = line_static.sub("", text)
+    """Drop file-scope ``static`` declarations nothing refers to.
+
+    Handles both plain ``static T name;`` lines and brace-initialised
+    declarations such as ``static const T name[] = { ... };``.
+    """
+    patterns = (
+        re.compile(r"(?ms)^static\s+([^;{}]*?);[ \t]*\n?"),
+        re.compile(r"(?ms)^static\s+([^;{}]*?)=\s*\{.*?\};[ \t]*\n?"),
+        re.compile(r"(?ms)^static\s+(?:struct|union|enum)[^{}]*\{.*?\}\s*([^;{}]*);[ \t]*\n?"),
+    )
+    used = text
+    for pattern in patterns:
+        used = pattern.sub("", used)
+
+    spans: list[tuple[int, int]] = []
+    for pattern in patterns:
+        for match in pattern.finditer(text):
+            names = [n for n in re.findall(
+                r"([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?(?=[,;=]|$)",
+                match.group(1)) if n != "static"]
+            if names and not any(re.search(rf"\b{re.escape(n)}\b", used) for n in names):
+                spans.append((match.start(), match.end()))
+
+    if not spans:
+        return text
+    spans.sort()
     out: list[str] = []
     last = 0
-    for match in line_static.finditer(text):
-        names = [n for n in re.findall(
-            r"([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?(?=[,;]|$)", match.group(1)) if n != "static"]
-        if names and not any(re.search(rf"\b{re.escape(n)}\b", used) for n in names):
-            out.append(text[last:match.start()])
-            last = match.end()
+    for start, end in spans:
+        if start < last:
+            continue
+        out.append(text[last:start])
+        last = end
     out.append(text[last:])
     return "".join(out)
 

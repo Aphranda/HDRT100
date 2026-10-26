@@ -14,9 +14,7 @@ TESTS = Path(__file__).resolve().parent
 ANCHOR = "_inc" + "_split_v1"
 
 # N5.0.11d backlog: VDC harnesses still anchored on the audit copy.
-KNOWN_ANCHORS = {
-    "test_vdc_fixed_output.py",
-}
+KNOWN_ANCHORS: set[str] = set()
 
 
 def _anchored(directory: Path = TESTS) -> set[str]:

@@ -4,12 +4,13 @@ import subprocess
 import pytest
 
 from test_vdc_command_owner import ROOT, compile_executable, function_body
+from vdc_units import fragment_slice
 
 
 @pytest.fixture(scope="module")
 def fixed_owner(tmp_path_factory):
     directory = tmp_path_factory.mktemp("vdc-fixed-output")
-    owner = (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_fixed_output.inc').read_text(encoding='utf-8')
+    owner = fragment_slice("vdc_fixed_output")
     # Only substitute the architecture's read-only IRQ register boundary.
     # Admission, retry, deadline, reason and cleanup logic remain production C.
     owner = owner.replace(function_body(owner, 'fixed_output_irq_ready'), '\n    return irq_ready;\n', 1)

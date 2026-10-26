@@ -103,6 +103,11 @@ FRAGMENT_DECLS = {
 }
 FRAGMENT_DECL_HEADER = "vdc_priority_shared.h"
 
+# Public headers a fragment's code needs but the private header does not carry.
+FRAGMENT_HEADERS = {
+    "vdc_fixed_output": ("vdc_run_output.h", "sync_io.h"),
+}
+
 # Fragments that call inline helpers the split hoisted into the private header.
 FRAGMENT_HELPERS = {
     "vdc_dpll_feedback_match": ("match_inc",),
@@ -166,6 +171,7 @@ def declarations(fragment: str) -> str:
     header = (SRC / FRAGMENT_DECL_HEADER).read_text(encoding="utf-8")
     parts: list[str] = []
     for current in _fragment_tree(fragment):
+        parts.extend(f'#include "{name}"' for name in FRAGMENT_HEADERS.get(current, ()))
         for name in FRAGMENT_HELPERS.get(current, ()):
             parts.append(_guarded(name, c_text.function_body(header, name)))
         if FRAGMENT_DECLS.get(current):
