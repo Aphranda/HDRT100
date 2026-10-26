@@ -49,6 +49,9 @@ def host_includes():
         "tdma", "vdc_domain", "vdc_dpll_manager", "distributed_refmem",
             "calibration_manager", "ota_manager", "sync_io", "sync_trigger")]
     includes.append(ROOT / "components/vdc_dpll_manager/src")
+    # Frozen pre-split fragments keep quoting their sibling fragments by name;
+    # the archive directory must stay on the search path for those harnesses.
+    includes.append(ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1")
     includes.append(ROOT / "boards/rp2350_trig/inc")
     includes.append(ROOT / "platform/inc")
     includes.append(ROOT / "osal/inc")
