@@ -843,8 +843,8 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 | **N6.1.4** | P3 `dpll60`（或 `run`，按 check-staged 结果）；firmware/tests/tools 分离提交 | 凭证绑定 staged 指纹；pre-commit 绿 | P3 receipt + commit |
 | **N6.2.1** | DPLL RUN-safe 适配器（role/tune/override）；`dispatch_control` 接线 | 单目标 ACK；目标代际递增 | 代码 + host |
 | **N6.2.2** | host 用例（成功/参数非法/未注册 type/entry 非 owner）；P3；提交 | 全绿 + 凭证 | host/P3/commit |
-| **N6.3.1** | TDMA 在线 seat（打包原子字）+ load mask；topology/period 运行时拒绝；VDC 域停配置适配器（reference/delay/timing） | TDMA TX/RX 序号跨配置连续；seat 切换前后计数推进；VDC 域停内 ACK `APPLIED` | 代码 + host |
-| **N6.3.2** | host：seat 原子/撕裂读/拓扑拒绝/VDC stop-config-start/重复 seq；P3；提交 | 全绿 + 凭证 | host/P3/commit |
+| **N6.3.1** | TDMA 在线 seat（打包原子字）+ load mask；topology/period 运行时拒绝；VDC 域停配置适配器（reference/delay/timing） | TDMA 部分 ✅：seat/load 在线、20/22 返回 `NOT_ONLINE_SAFE`；VDC 部分 ⏳ 未做 | 代码 + host |
+| **N6.3.2** | host：seat 原子/撕裂读/拓扑拒绝/VDC stop-config-start/重复 seq；P3；提交 | TDMA 部分 ✅：pack/unpack host + P3 `20261026161302` + 提交 `dac41e0e`；VDC 部分 ⏳ | host/P3/commit |
 | **N6.4.1** | T2 适配器：从 SCPI 回调抽 `t2_apply_words()`；`UNMOUNT→CONFIGURE→MOUNT` 域停序列，TDMA 不中断 | 目标 `configured=1`；TDMA 序号连续；ACK | 代码 + host |
 | **N6.4.2** | host + P3 + 提交 | 全绿 + 凭证 | host/P3/commit |
 | **N7.1** | `config/refmem/function_catalog.yaml` + 生成器 + `refmem_function_catalog.h/.c`；function 表 schema 落库 | 4 个 function 生成；host 查表 | 代码 + host |

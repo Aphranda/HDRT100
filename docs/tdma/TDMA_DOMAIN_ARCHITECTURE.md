@@ -4,7 +4,7 @@ Status: Active
 Domain: TDMA
 Canonical: `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`
 Related: `docs/tdma/TDMA_RUNTIME_CONSTRAINTS.md`, `docs/tdma/TDMA_DOMAIN_TODO.md`, `docs/tdma/TDMA_TASK_PROGRESS.md`, `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_SYNC_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-10-25
+Last updated: 2026-10-26
 
 ## 文档接口与范围
 
@@ -203,6 +203,8 @@ typed 同步采用 `TDMA_PROCESS_IMAGE_VDC_PRIORITY_SYNC_MESSAGE_CLASS`，内容
 **让位证据（不新增计数）**：`seat_opportunity_count − seat_priority_count − seat_first_class_count = 让位机会数`；期望比例 `fc ≈ f/(p+f+s)`、`yield ≈ s/(p+f+s)`。
 
 **配置**：`SYSTem:TDMA:SEAT:ROTation <p>,<f>[,<s>]`（STOP-only 每板；第三字段可选，缺省 0；越界或无法构成周期即拒绝）。**两种工况预设**（目标口径）：VDC **未启动**时特等席等于没在跑 ⇒ **`1,2,7`**；VDC **启动** ⇒ **`7,2,1`**。读回 `SYSTem:TDMA:SEAT:ROTation?` 为 12 字段：索引 4 = 整周期 `p+f+s`，索引 11 = 二等席份额，索引 0–10 含义不变（旧镜像 11 字段仍可正确读前 11 项）。
+
+**在线入口（统一控制面增量）**：除上述 STOP-only SCPI 入口外，`REFMEM-CTRL-01` 的统一控制面提供 `tdma_runtime_owner_commit_seat_rotation3`：`p/f/s` 打包为单个 32-bit 原子字（4 bit 各段），`tdma_pio_spi_ring_origin` 每次发布机会只读一次并解包，切换在下一机会生效，**不需要停环**；SCPI `SEAT:ROTation` 仍保持 STOP-only。在线入口的验收不变量是切换前后 `up_sequence`/`down_rx_sequence` 持续单调、无帧间隔（见 N6.3）。
 
 **与 `TDMA-SEAT-CLASS-001` 的关系**：本条款给二等席**固定时间**；另一条路线是把冻结回执/状态上行**提升到一等席**。目标已选择先做本条。**门禁**：两工况台架下"冻结往返"回落到环数周期量级、`freeze_resend`/位置降到个位数、特等席 cadence 无回归；`EXE-SEAT-01` 预算清单登记本条款的三份额与周期语义。
 
