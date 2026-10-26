@@ -13,6 +13,7 @@ import pytest
 import c_text
 import scpi_units
 import tdma_units
+import vdc_fragment_functions
 import vdc_units
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -96,7 +97,8 @@ def test_tdma_symbols_resolve_to_one_live_unit(symbol, unit):
     assert symbol in tdma_units.function_body(symbol)
 
 
-@pytest.mark.parametrize("module", [c_text, scpi_units, tdma_units, vdc_units])
+@pytest.mark.parametrize("module", [c_text, scpi_units, tdma_units, vdc_units,
+                                    vdc_fragment_functions])
 def test_helpers_never_read_the_audit_archive(module):
     source = Path(module.__file__).read_text(encoding="utf-8")
     assert "archive/" not in source

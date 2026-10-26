@@ -6,8 +6,10 @@ Nothing here reads the archived fragment copies: the archive is an audit
 artefact, not a fact source.
 """
 from pathlib import Path
+import re
 
 import c_text
+from vdc_fragment_functions import FRAGMENT_FUNCTIONS, FRAGMENT_INCLUDES
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "components/vdc_dpll_manager/src"
@@ -83,6 +85,14 @@ def function_body_for(fragment: str, name: str) -> str:
 # unit body must carry the declarations the fragment used to own.
 FRAGMENT_DECLS = {
     "vdc_priority_tx": ("vdc_priority_tx_work_t",),
+    "vdc_boundary_capture": ("vdc_boundary_peer_t", "vdc_boundary_meta_t",
+                             "vdc_boundary_request_t"),
+    "vdc_dpll_feedback_match": ("vdc_feedback_match_source_t",
+                                "vdc_feedback_match_binding_t",
+                                "vdc_local_follow_cursor_t"),
+    "vdc_model_feedback": ("vdc_feedback_match_source_t",
+                           "vdc_feedback_match_binding_t",
+                           "vdc_local_follow_cursor_t"),
 }
 FRAGMENT_DECL_HEADER = "vdc_priority_shared.h"
 
@@ -96,19 +106,40 @@ FRAGMENT_PROLOGUE = {
 }
 
 
+def _fragment_closure(fragment: str, seen: set[str] | None = None) -> set[str]:
+    """Function names a fragment contributes, including its nested fragments."""
+    seen = set() if seen is None else seen
+    if fragment in seen:
+        return set()
+    seen.add(fragment)
+    names = set(FRAGMENT_FUNCTIONS.get(fragment, ()))
+    for included in FRAGMENT_INCLUDES.get(fragment, ()):
+        names |= _fragment_closure(included, seen)
+    return names
+
+
 def fragment_slice(fragment: str) -> str:
     """Code the archived fragment used to contribute, taken from the live unit.
 
-    The unit body alone is not self-contained: the split moved fragment-local
-    types into the unit's private header and dropped the hook default.  Both are
-    restored here so the harness compiles the shipped code verbatim.
+    The unit body merges sibling fragments and moves fragment-local types into
+    the private header.  The slice removes the sibling fragments' functions (so
+    a harness stub cannot collide with them) and restores the declarations the
+    fragment used to carry.  Remaining sibling statics are harmless and are
+    suppressed with ``-Wno-unused-*`` by the harness.
     """
     unit = unit_of(fragment)
+    text = body(unit)
+    names = _fragment_closure(fragment)
+    if not names:
+        raise KeyError(f"no function map for VDC fragment: {fragment}")
+    text = c_text.keep_named_chunks(text, names)
+    text = c_text.prune_unused_statics(text)
+
     parts: list[str] = []
     if FRAGMENT_DECLS.get(fragment):
         header = (SRC / FRAGMENT_DECL_HEADER).read_text(encoding="utf-8")
         parts.extend(c_text.typedef_body(header, name) for name in FRAGMENT_DECLS[fragment])
     if FRAGMENT_PROLOGUE.get(fragment):
         parts.append(FRAGMENT_PROLOGUE[fragment])
-    parts.append(body(unit))
+    parts.append(text)
     return "\n".join(part for part in parts if part)

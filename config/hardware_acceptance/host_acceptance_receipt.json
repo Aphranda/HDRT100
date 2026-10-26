@@ -5,40 +5,40 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_vdc_output_timing_config.py",
-    "tests/python/test_vdc_priority_ingress.py",
-    "tests/python/test_vdc_priority_rx.py",
-    "tests/python/test_vdc_reference_config.py",
+    "tests/python/c_text.py",
+    "tests/python/test_unit_views.py",
+    "tests/python/test_vdc_local_follow_capture.py",
+    "tests/python/vdc_fragment_functions.py",
+    "tests/python/vdc_units.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_vdc_output_timing_config.py",
-    "tests/python/test_vdc_priority_ingress.py",
-    "tests/python/test_vdc_priority_rx.py",
-    "tests/python/test_vdc_reference_config.py"
+    "tests/python/c_text.py",
+    "tests/python/test_unit_views.py",
+    "tests/python/test_vdc_local_follow_capture.py",
+    "tests/python/vdc_fragment_functions.py",
+    "tests/python/vdc_units.py"
   ],
-  "duration_s": 18.672,
+  "duration_s": 3.281,
   "returncode": 0,
   "summary": {
-    "passed": 270,
+    "passed": 74,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "270 passed in 18.09s",
+  "summary_line": "74 passed in 2.76s",
   "tail": [
-    "........................................................................ [ 26%]",
-    "........................................................................ [ 53%]",
-    "........................................................................ [ 80%]",
-    "......................................................                   [100%]",
-    "270 passed in 18.09s"
+    "........................................................................ [ 97%]",
+    "..                                                                       [100%]",
+    "74 passed in 2.76s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "85829b3fd91aa94b4cc53c7f2454c4cf10207b522973761156e7888dc6938dde",
-  "file_count": 530,
-  "working_fingerprint": "85829b3fd91aa94b4cc53c7f2454c4cf10207b522973761156e7888dc6938dde",
-  "started_at_utc": "2026-10-26T03:15:02.529461+00:00"
+  "fingerprint": "78f78e45babfe75204b9e8659dc173522f0336836c404a2bc1a0698c4bd78e2a",
+  "file_count": 531,
+  "working_fingerprint": "78f78e45babfe75204b9e8659dc173522f0336836c404a2bc1a0698c4bd78e2a",
+  "started_at_utc": "2026-10-26T03:20:35.201859+00:00"
 }

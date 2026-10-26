@@ -109,6 +109,87 @@ def typedef_body(text: str, name: str) -> str:
     raise KeyError(name)
 
 
+def split_top_level(text: str) -> list[tuple[str | None, int, int]]:
+    """Split C text into top-level chunks.
+
+    Returns ``(name, start, end)`` where ``name`` is the function name for a
+    definition chunk and ``None`` for any other top-level text (declarations,
+    ``#define`` blocks, comments).  A definition chunk starts at its signature
+    line and ends at the matching closing brace.
+    """
+    chunks: list[tuple[str | None, int, int]] = []
+    index = 0
+    chunk_start = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char == ";":
+            index += 1
+            continue
+        if char == "{":
+            # Find the matching brace for this top-level block.
+            depth = 1
+            cursor = index + 1
+            while cursor < length and depth:
+                if text[cursor] == "{":
+                    depth += 1
+                elif text[cursor] == "}":
+                    depth -= 1
+                cursor += 1
+            header = text[chunk_start:index]
+            name = _definition_name(header)
+            chunks.append((name, chunk_start, cursor))
+            chunk_start = cursor
+            index = cursor
+            continue
+        index += 1
+    if chunk_start < length:
+        chunks.append((None, chunk_start, length))
+    return chunks
+
+
+def _definition_name(header: str) -> str | None:
+    """Function name for a chunk header, or None when it is not a definition."""
+    cleaned = re.sub(r"/\*.*?\*/", " ", header, flags=re.S)
+    cleaned = re.sub(r"(?m)//.*$", " ", cleaned)
+    cleaned = re.sub(r"__attribute__\s*\(\((?:[^()]|\([^()]*\))*\)\)", " ", cleaned)
+    cleaned = cleaned.strip()
+    if not cleaned or cleaned.startswith("#"):
+        return None
+    match = re.search(r"([A-Za-z_]\w*)\s*\([^;{}]*\)\s*$", cleaned)
+    if match:
+        return match.group(1)
+    # Placement macro wrapping the real name: MACRO(type name(...))
+    match = re.search(r"([A-Za-z_]\w*)\s*\(", cleaned)
+    return match.group(1) if match else None
+
+
+def keep_named_chunks(text: str, names: set[str]) -> str:
+    """Keep every non-function chunk plus the function chunks named in ``names``."""
+    kept: list[str] = []
+    for name, start, end in split_top_level(text):
+        if name is None or name in names:
+            kept.append(text[start:end])
+    return "".join(kept)
+
+
+def prune_unused_statics(text: str) -> str:
+    """Drop file-scope ``static`` declarations the remaining functions never use."""
+    chunks = split_top_level(text)
+    used = "".join(text[start:end] for name, start, end in chunks if name)
+    kept: list[str] = []
+    for name, start, end in chunks:
+        chunk = text[start:end]
+        if name is None:
+            match = re.match(
+                r"\s*static\s+[^;{}]*?\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)*(?:=[^;]*)?;",
+                chunk, re.S)
+            if match and not re.search(rf"\b{re.escape(match.group(1))}\b", used):
+                continue
+        kept.append(chunk)
+    return "".join(kept)
+
+
 def strip_prologue(text: str) -> str:
     """Drop the leading blank/``#include`` lines of a unit."""
     lines = text.splitlines(keepends=True)
