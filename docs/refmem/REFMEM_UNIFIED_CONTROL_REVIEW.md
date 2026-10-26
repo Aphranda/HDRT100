@@ -47,7 +47,7 @@ Last updated: 2026-10-27
 |---|---|---|---|---|---|
 | VDC reference 不 retire | ⑥ | `VDC:REFerence:ENABle 0` 后 `STATus state=2 RUNNING` | `FUNC_VDC_RECONFIG` step1 `reason=7` | `STATus` RETIRED/IDLE；cmd27 ACK；`CONFigure?` 新值 | N6.3.3 |
 | VDC timing 非 idle | ⑥ | `VDC_STOP` 后 `vdc_run_output_configuration_idle()` false | cmd29 `reason=7` | output 全 idle；cmd29 ACK；`TIMing?` 新值 | N6.3.3 |
-| 四板 T2 正向 | ⑥ | 需 process-image + grid/deployment/templates；process-image 能承载 `REFTMEM_CMD`（step0 ACK=14），但 TRN 启动后 `GRID?/DEPloyment?` 返回 `1,33`，step1 `reason=13` | 四板远端 step0 已 ACK，step1 前置丢失 | TRN 后保留前置，或不复位重配前置；`FUNC_T2_RECONFIG,14,14` `ack=14` | N7.5 |
+| 四板 T2 正向 | ⑥ | 根因：`RING:ARM` 清掉 grid/deployment（`1,33`），ARM 后重装失败；T2 前置必须 ARM 前装，而远端 function 需 START 后承载 | 四板远端 step0 ACK=14，step1 `reason=13` | ARM 保留前置，或 T2_CONFIGURE 用 ARM 前快照；`FUNC_T2_RECONFIG,14,14` `ack=14` | N7.5 / 固件 |
 | T2 START/MOUNT | ⑥ | `distributed_refmem_reset_position_stopped()` 需 TDMA 停 | function 不能启动 T2 | 新增 running-safe 位置复位或明确本地边界 | N6.4 |
 | 四板 T2 逐板不可替代 | ③ | 非协调者本地 function 超时 `reason=11` | 不能拼凑四板证据 | 只认协调者单命令 `ack=14` | N7.5 |
 | function 重试上限 | ② | 域停窗口 >3×100 ms | 超时仍 FAILED | 按域实测调整上限/预算 | N7.2 |
@@ -63,5 +63,5 @@ Last updated: 2026-10-27
 ## 6. 下一步
 
 1. VDC owner 修 reference retire 与 output 全 idle；复跑 `FUNC_VDC_RECONFIG`。
-2. 四板 T2 正向：process-image 已证明能承载 `REFTMEM_CMD`（step0 ACK=14），但 TRN 启动会清掉 grid/deployment（`1,33`），step1 `reason=13`；需定位 TRN 清前置的命令并保留，或在 TRN 后不复位重配前置。
+2. 四板 T2 正向被固件顺序阻塞：`RING:ARM` 清掉 grid/deployment（`1,33`），ARM 后重装失败；T2 前置必须 ARM 前装，而远端 function 需 START 后才能承载。需固件“ARM 保留前置”或“T2_CONFIGURE 读 ARM 前快照”。
 3. 完成上述后更新本快照并把 N7.5/N7.6 标 ✅；在此之前目标保持 active。

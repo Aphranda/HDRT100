@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-013`。
+- 最新条目：`REFMEM-TASK-20261027-014`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,21 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-014 — 根因：RING:ARM 清掉 T2 前置，形成启动顺序冲突
+
+- 状态：四板 T2 正向被**固件顺序**阻塞，不是台架抖动；建议目标标 blocked。
+- 二分（COM5，STOP 态已装 grid/deployment）：
+  - 基线 `GRID?` 完整；
+  - `FLIGHT:MODE 1` 后 `GRID?` 完整；
+  - `FIFO:RESet` 后 `GRID?` 完整；
+  - `OPMode:STAGe 7/APPLy`、`RING:TOPology` 后 `GRID?` 完整；
+  - **`SYSTem:TDMA:RING:ARM` 后 `GRID?`/`DEPloyment?` 变为 `1,33`**。
+- ARM 后重装前置：`t2_workflow --steps 8-10` 失败（step8 `GRID:CONFigure` result 33、step9 binding stale、step10 stores not current）。
+- 结论：T2 grid/deployment 必须在 ARM **前**安装；而远端 function 又要求环 START 后才能承载 `REFTMEM_CMD`。ARM 清前置 ⇒ 启动后无法再配 T2 ⇒ 四板远端 `FUNC_T2_RECONFIG` 不可能用当前固件完成。
+- 正面结论仍保留：process-image 环上远端 T2 step0 ACK=14（`REFMEM-TASK-20261027-013`）。
+- 证据：`out/n7/t2_bisect.txt`、`out/n7/t2_after_arm.log`。
+- 闭环：固件需“ARM 保留 T2 前置”或“T2_CONFIGURE 读 ARM 前快照/允许 ARM 后重装”；在此之前不进入下一子项。
 
 ### REFMEM-TASK-20261027-013 — process-image 上远端 T2 交付成立；前置被 TRN 清掉
 
