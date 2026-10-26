@@ -9,7 +9,8 @@ from test_vdc_command_owner import ROOT, compile_executable
 
 @pytest.fixture(scope="module")
 def executable(tmp_path_factory):
-    source = (ROOT / "middleware/scpi_port/src/scpi_system_snapshot_commands.c").read_text(encoding="utf-8")
+    source = "\n".join(path.read_text(encoding="utf-8")
+                       for path in sorted((ROOT / "middleware/scpi_port/src").glob("*.c")))
     definition = ingress_definition(source, "scpi_cmd_vdc_feedback_bridge_q")
     return compile_executable(tmp_path_factory.mktemp("bridge-scpi"), "bridge_scpi", PREAMBLE + definition + CASES)
 

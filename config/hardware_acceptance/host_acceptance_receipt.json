@@ -5,33 +5,37 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
+    "tests/python/test_vdc_boundary_scpi.py",
     "tests/python/test_vdc_command_owner.py",
-    "tests/python/test_vdc_command_stop.py",
+    "tests/python/test_vdc_feedback_bridge_scpi.py",
+    "tests/python/test_vdc_feedback_session_scpi.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
+    "tests/python/test_vdc_boundary_scpi.py",
     "tests/python/test_vdc_command_owner.py",
-    "tests/python/test_vdc_command_stop.py"
+    "tests/python/test_vdc_feedback_bridge_scpi.py",
+    "tests/python/test_vdc_feedback_session_scpi.py"
   ],
-  "duration_s": 23.922,
+  "duration_s": 5.203,
   "returncode": 0,
   "summary": {
-    "passed": 48,
+    "passed": 66,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "48 passed in 23.39s",
+  "summary_line": "66 passed in 4.78s",
   "tail": [
-    "................................................                         [100%]",
-    "48 passed in 23.39s"
+    "..................................................................       [100%]",
+    "66 passed in 4.78s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "7a33d5c328737761ca22e4430fcb99489dee90f4b0382332a5d7d122d3adef60",
+  "fingerprint": "fbde99228b5231a6341576b23b1503d57e7b5ac428af27486fd5e114c211817e",
   "file_count": 532,
-  "working_fingerprint": "7a33d5c328737761ca22e4430fcb99489dee90f4b0382332a5d7d122d3adef60",
-  "started_at_utc": "2026-10-26T08:54:07.098862+00:00"
+  "working_fingerprint": "fbde99228b5231a6341576b23b1503d57e7b5ac428af27486fd5e114c211817e",
+  "started_at_utc": "2026-10-26T08:58:32.700474+00:00"
 }

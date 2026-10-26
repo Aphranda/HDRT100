@@ -26,7 +26,8 @@ def test_feedback_commands_are_registered():
 @pytest.fixture(scope="module")
 def executable(tmp_path_factory):
     directory = tmp_path_factory.mktemp("feedback-session-scpi")
-    source = SOURCE.read_text(encoding="utf-8")
+    source = "\n".join(path.read_text(encoding="utf-8")
+                       for path in sorted(SOURCE.parent.glob("*.c")))
     common = (ROOT / "middleware/scpi_port/src/scpi_port.c").read_text(encoding="utf-8")
     definitions = ingress_definition(common, "scpi_port_read_u32") + "\n" + "\n".join(
         ingress_definition(source, name) for name in (

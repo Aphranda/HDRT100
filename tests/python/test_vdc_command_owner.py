@@ -99,9 +99,15 @@ def compile_executable(directory, name, text, sources=(), flags=(), closure=None
 
 
 def _header_for(name: str) -> str | None:
-    """Component header that defines ``name`` (for closure includes)."""
+    """Component header that defines ``name`` (for closure includes).
+
+    Pico-dependent headers are skipped: host harnesses do not have the SDK's
+    generated ``pico/version.h``.
+    """
     for path in sorted((ROOT / "components").glob("*/inc/*.h")):
         text = path.read_text(encoding="utf-8")
+        if re.search(r'#include\s*[<"](?:pico|hardware)/', text):
+            continue
         if re.search(rf"(?m)^\s*#define\s+{re.escape(name)}\b", text) or \
                 re.search(rf"\b{re.escape(name)}\s*[;(]", text):
             return path.name
@@ -165,17 +171,18 @@ def _append_closure(text, stderr, closure):
     unknown = (set(re.findall(r"unknown type name '(\w+)'", stderr))
                | set(re.findall(r"'([A-Z][A-Z0-9_]+)' undeclared", stderr)))
     for name in sorted(unknown):
+        macro = re.search(
+            rf"(?m)^#define\s+{re.escape(name)}\b(?:[^\n]*\\\n)*[^\n]*$", closure) \
+            if name.isupper() else None
+        if macro:
+            declarations.append(macro.group(0))
+            continue
         header = _header_for(name)
         if header and header not in headers:
             headers.append(header)
             continue
         if name in typedefs:
             declarations.append(typedefs[name])
-            continue
-        macro = re.search(
-            rf"(?m)^#define\s+{re.escape(name)}\b(?:[^\n]*\\\n)*[^\n]*$", closure)
-        if macro:
-            declarations.append(macro.group(0))
 
     fresh_decls = [item for item in declarations if item and item not in text]
     fresh_headers = [f'#include "{name}"' for name in headers

@@ -11,7 +11,8 @@ from test_vdc_command_owner import ROOT, compile_executable
 
 @pytest.fixture(scope="module")
 def executable(tmp_path_factory):
-    source = (ROOT / "middleware/scpi_port/src/scpi_system_snapshot_commands.c").read_text(encoding="utf-8")
+    source = "\n".join(path.read_text(encoding="utf-8")
+                       for path in sorted((ROOT / "middleware/scpi_port/src").glob("*.c")))
     definitions = "\n".join(ingress_definition(source, name) for name in (
         "scpi_feedback_record", "scpi_cmd_vdc_feedback_probe", "scpi_cmd_vdc_feedback_auto",
         "scpi_cmd_vdc_feedback_auto_q", "scpi_cmd_vdc_feedback_reference",
