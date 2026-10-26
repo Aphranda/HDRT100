@@ -851,7 +851,7 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 | **N7.2** | function 执行器（静态、非阻塞、串行 step、聚合、失败策略）；接入 `task_refmem_sync` | ✅ host：成功/ABORT/超时/单 in-flight/`RUN_STATE_DENIED` 有界重试；四板 HIL 见 N7.4 | 代码 + host |
 | **N7.3** | SCPI `CTRL:FUNCtion:RUN/STATus?/CATalog?`；一条命令一个功能 | ✅ 代码 + 构建；本地/单目标 HIL 未执行 | 代码 + HIL |
 | **N7.4** | 四板 HIL：协调者单端口跑 `FUNC_BRINGUP_CONFIGURE`；逐目标证据 | ✅ 2026-10-27：`FUNC_TDMA_ONLINE` 2 步 / `FUNC_TDMA_CLOCK_ONLINE` 4 步均 `COMPLETED ack=14`；T2 负向 step0 ACK、step1 `reason=13`，本地正向 `COMPLETED ack=1`；四板 TX/RX 连续；VDC function 未含 | `out/n7/four_board_hil/`、`out/n7/local_hil/` |
-| **N7.5** | P3 final + host acceptance + 文档/登记/顶层刷新 + §8 收口 | 凭证齐全 + 门禁绿 | 全部 |
+| **N7.5** | P3 final + host acceptance + 文档/登记/顶层刷新 + §8 收口 | ⏳ 收口快照已建；四板 T2 正向（T2 workflow raw ring 不承载 `REFTMEM_CMD`）与 VDC 正面未闭合 | 全部 |
 
 **非目标（本目标内不做）**：TDMA 停环/重启环、TDMA ring topology/period 运行时在线变更（部署期配置）、N5.5 非协调者入口、N5.3 显式 owner、N5.6 fence、N5.7 聚合广播、386 条 SCPI 全量目录、`ROLLBACK` 失败回滚、远程读回全量状态。
 

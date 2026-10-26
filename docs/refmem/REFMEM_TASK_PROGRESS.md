@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-010`。
+- 最新条目：`REFMEM-TASK-20261027-011`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,16 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-011 — T2 leave-running 工具；四板 T2 仍卡 process-image
+
+- 状态：工具 ✅；四板 T2 正向 ❌。
+- `tools/sync_trigger/t2_workflow.py` 新增 `--leave-running`，跳过自动 step21 teardown；P3 `20261026181952`；commit `a5cbdb06`。
+- 实测：`--steps 1-20 --leave-running` 后四板 `RING:STATus? enabled/up/down=1`，T2/VDC 运行；协调者 `FUNC_T2_RECONFIG,14,14,...` 的 step0（cmd32）仍超时 `reason=11`，源 `CTRL:STATus?` POSTED。
+- 判定：T2 workflow 的 ring 是 raw/T2 链，不承载 `REFTMEM_CMD`；四板 T2 正向必须用 TRN process-image 环（且保留 grid/deployment/templates）。工具 leave-running 只解决“不被 teardown”，不解决命令承载。
+- 处置：已 `T2:UNMOUNT` + `RING:STOP` 四板，均 `enabled=0`。
+- 证据：`out/n7/four_board_hil/t2_positive_four_board.txt`、`out/n7/t2_workflow_leave.log`。
+- 下一步：把 T2 前置（grid/deployment/templates）与 TRN process-image 串起来；或给 TRN 增加“保留 T2 前置”的能力。
 
 ### REFMEM-TASK-20261027-010 — N7.5/N7.6 收口快照（未完成）
 
