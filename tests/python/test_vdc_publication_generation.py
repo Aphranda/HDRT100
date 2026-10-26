@@ -16,6 +16,7 @@ from test_vdc_command_owner import ROOT, MANAGER, REFMEM
 from test_vdc_command_ingress import ingress_definition
 from test_vdc_follower_rate_boundary import HARNESS as DOMAIN_HARNESS
 from test_vdc_priority_follow import domain_sources
+from refmem_units import source as refmem_source
 
 
 def definition(source, name):
@@ -43,7 +44,7 @@ def publication_exe(tmp_path_factory):
             ["git", "show", f"{baseline}:{path.relative_to(ROOT).as_posix()}"],
             cwd=ROOT, text=True, encoding="utf-8")
 
-    manager, refmem = read(MANAGER), read(REFMEM)
+    manager, refmem = read(MANAGER), (read(REFMEM) if baseline else refmem_source())
     runtime_type = re.search(
         r"typedef struct \{[^{}]*\} vdc_dpll_manager_runtime_snapshot_t;", manager)
     assert runtime_type

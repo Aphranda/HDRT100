@@ -11,6 +11,8 @@ import subprocess
 
 import pytest
 
+from vdc_units import fragment_slice
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -42,10 +44,12 @@ def compile_host(directory, name, text, sources=(), parser=False):
 
 @pytest.fixture(scope='module')
 def client(tmp_path_factory):
-    source = (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_run_output.inc').read_text(encoding='utf-8')
+    source = fragment_slice('vdc_run_output')
     return compile_host(tmp_path_factory.mktemp('vdc-run-client'), 'client',
                         CLIENT_PREFIX + source + CLIENT_MAIN,
                         [ROOT / 'components/vdc_domain/src/vdc_domain.c',
+                         ROOT / 'components/vdc_domain/src/vdc_domain_evidence.c',
+                         ROOT / 'components/vdc_domain/src/vdc_domain_profile.c',
                          ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
                          ROOT / 'components/tdma/src/tdma_profile.c'])
 
@@ -105,7 +109,7 @@ def test_cached_only_handoff(client, scenario):
 
 @pytest.fixture(scope='module')
 def observation_client(tmp_path_factory):
-    source = (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_run_output.inc').read_text(encoding='utf-8')
+    source = fragment_slice('vdc_run_output')
     prefix = ('static unsigned observation_hook;\n'
               'static void observation_interleave(void);\n' + CLIENT_PREFIX)
     prefix = prefix.replace('    ++snapshot_calls; if(snapshot_calls==fail_snapshot_call)return false;',
@@ -115,6 +119,8 @@ def observation_client(tmp_path_factory):
         prefix + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
         '\n#undef main\n' + OBSERVATION_MAIN,
         [ROOT / 'components/vdc_domain/src/vdc_domain.c',
+         ROOT / 'components/vdc_domain/src/vdc_domain_evidence.c',
+         ROOT / 'components/vdc_domain/src/vdc_domain_profile.c',
          ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
          ROOT / 'components/tdma/src/tdma_profile.c'])
 
@@ -133,7 +139,7 @@ def test_read_only_core1_observation(observation_client, scenario):
 
 @pytest.fixture(scope='module')
 def release_precheck_client(tmp_path_factory):
-    source = (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_run_output.inc').read_text(encoding='utf-8')
+    source = fragment_slice('vdc_run_output')
     prefix = ('static unsigned release_probe_watch, release_probe_release_failure;\n'
               'static void release_probe_snapshot_boundary(void);\n' + CLIENT_PREFIX)
     prefix = prefix.replace('    ++snapshot_calls; if(snapshot_calls==fail_snapshot_call)return false;',
@@ -146,6 +152,8 @@ def release_precheck_client(tmp_path_factory):
         prefix + RELEASE_PRECHECK_ATOMICS + source +
         '\n#define main inherited_main\n' + CLIENT_MAIN + '\n#undef main\n' + RELEASE_PRECHECK_MAIN,
         [ROOT / 'components/vdc_domain/src/vdc_domain.c',
+         ROOT / 'components/vdc_domain/src/vdc_domain_evidence.c',
+         ROOT / 'components/vdc_domain/src/vdc_domain_profile.c',
          ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
          ROOT / 'components/tdma/src/tdma_profile.c'])
 
@@ -1029,8 +1037,8 @@ int main(int argc,char **argv)
 
 @pytest.fixture(scope='module')
 def parser_host(tmp_path_factory):
-    source = (ROOT / 'middleware/scpi_port/src/scpi_system_snapshot_commands.c').read_text(encoding='utf-8')
-    callbacks = source[source.index('static bool scpi_vdc_run_u32('):
+    source = (ROOT / 'middleware/scpi_port/src/scpi_vdc_snapshot_commands.c').read_text(encoding='utf-8')
+    callbacks = source[source.index('bool scpi_vdc_run_u32('):
                        source.index('scpi_result_t scpi_cmd_vdc_fixed_output(')]
     library = ROOT / 'third_party/scpi-parser/libscpi/src'
     return compile_host(tmp_path_factory.mktemp('vdc-run-parser'), 'parser',

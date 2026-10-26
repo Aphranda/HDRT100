@@ -12,6 +12,7 @@ import pytest
 from test_vdc_command_owner import ROOT, MANAGER, compile_executable
 from test_vdc_priority_follow import domain_sources
 from test_vdc_publication_generation import publication_exe
+from vdc_units import fragment_slice
 
 
 def definition(source, name):
@@ -38,11 +39,9 @@ def idle_exe(publication_exe, tmp_path_factory):
     baseline = os.environ.get('VDC_IDLE_BASELINE')
     manager = (subprocess.check_output(['git', 'show', f'{baseline}:{MANAGER.relative_to(ROOT).as_posix()}'],
         cwd=ROOT, text=True, encoding='utf-8') if baseline else MANAGER.read_text(encoding='utf-8'))
-    # The fragment moved into vdc_dpll_feedback.c; this harness extracts single
-    # functions, so it reads the frozen pre-split copy kept under archive/.
-    # Live-unit coverage is asserted by tests/harness + test_vdc_host_harness.
-    model = (MANAGER.parent.parent /
-             'archive/vdc_inc_split_v1/vdc_model_feedback.inc').read_text(encoding='utf-8')
+    # The fragment moved into vdc_dpll_feedback.c; extract the same functions
+    # from the live unit (which shares the storage this harness declares).
+    model = fragment_slice("vdc_model_feedback")
     source += STORAGE
     source += '\n'.join(re.findall(r'^#define VDC_DPLL_MANAGER_DPLL_CAPTURE_KIND_\w+\s+\d+u', manager, re.M)) + '\n'
     for name in ('model_feedback_load', 'model_feedback_end_core1',
@@ -86,6 +85,7 @@ def test_idle_publication(idle_exe, scenario):
 STORAGE = r'''
 #define s_vdc_domain domain
 #define VDC_COMMITTED_MODEL_HOT(name) name
+#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) ((void)(model))
 #define BOARD_SYS_CLOCK_HZ 250000000u
 static uint32_t s_model_feedback_session=123u;
 static uint32_t s_committed_model_guard, s_committed_model_serial;
