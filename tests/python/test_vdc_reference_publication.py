@@ -12,6 +12,7 @@ from test_vdc_command_owner import ROOT, MANAGER, compile_executable
 from test_vdc_idle_maintenance import idle_exe, definition
 from test_vdc_publication_generation import publication_exe
 from test_vdc_priority_follow import domain_sources
+from vdc_units import fragment_slice
 
 
 @pytest.fixture(scope='module')
@@ -20,13 +21,17 @@ def reference_publication_exe(idle_exe, tmp_path_factory):
     source = source.replace('int main(int argc,char **argv)',
                             'int idle_regression_main(int argc,char **argv)', 1)
     source = source.replace(
-        'static void reference_discipline_service_core1(uint32_t session) { (void)session; }',
-        'static void reference_discipline_service_core1(uint32_t session);')
+        'void reference_discipline_service_core1(uint32_t session) { (void)session; }',
+        'void reference_discipline_service_core1(uint32_t session);')
     path = MANAGER.parent / 'vdc_reference_discipline.inc'
     baseline = os.environ.get('VDC_REFERENCE_PUBLICATION_BASELINE')
-    fragment = (subprocess.check_output(
-        ['git', 'show', f'{baseline}:{path.relative_to(ROOT).as_posix()}'],
-        cwd=ROOT, text=True, encoding='utf-8') if baseline else path.read_text(encoding='utf-8'))
+    if baseline:
+        fragment = subprocess.check_output(
+            ['git', 'show', f'{baseline}:{path.relative_to(ROOT).as_posix()}'],
+            cwd=ROOT, text=True, encoding='utf-8')
+    else:
+        # The fragment now lives in vdc_output.c; read the live unit.
+        fragment = fragment_slice('vdc_reference_discipline')
     source += INPUTS + fragment + '\n'
     source += definition((ROOT/'tests/unit/test_vdc_domain.c').read_text(encoding='utf-8'),
                          'install_test_path_delay') + '\n'

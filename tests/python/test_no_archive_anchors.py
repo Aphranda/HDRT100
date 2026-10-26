@@ -6,6 +6,7 @@ them stays green while the shipped code moves on.  The allowlist below is the
 N5.0.11 migration backlog; it may only shrink.
 """
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[2]
 TESTS = Path(__file__).resolve().parent
@@ -44,3 +45,15 @@ def test_backlog_only_shrinks():
     assert not stale, (
         "these files no longer anchor the archive; drop them from KNOWN_ANCHORS "
         f"to keep the ratchet tight: {sorted(stale)}")
+
+
+SRC_FRAGMENT = re.compile(r"components/[\w/]+/src/[\w]+\.inc")
+
+
+def test_no_test_reads_a_component_src_fragment():
+    """``src/*.inc`` fragments were archived into the split audit copies."""
+    offenders = sorted(
+        path.name for path in TESTS.glob("test_*.py")
+        if path.name != Path(__file__).name
+        and SRC_FRAGMENT.search(path.read_text(encoding="utf-8")))
+    assert not offenders, f"tests still read src/*.inc: {offenders}"

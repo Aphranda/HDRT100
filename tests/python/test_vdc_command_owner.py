@@ -161,7 +161,8 @@ def _append_closure(text, stderr, closure):
             closure)
         if match:
             text_decl = match.group(0)
-            if text_decl.lstrip().startswith("static") and "__attribute__" not in text_decl:
+            if (text_decl.lstrip().startswith("static") and "__attribute__" not in text_decl
+                    and "(" not in text_decl and "," not in text_decl):
                 # Injected state may stay unused when the caller stubs the body.
                 text_decl = text_decl.rstrip()
                 assert text_decl.endswith(";")
@@ -182,7 +183,8 @@ def _append_closure(text, stderr, closure):
             headers.append(header)
             continue
         if name in typedefs:
-            declarations.append(typedefs[name])
+            if not re.search(rf"\b{re.escape(name)}\s*;", text):
+                declarations.append(typedefs[name])
 
     fresh_decls = [item for item in declarations if item and item not in text]
     fresh_headers = [f'#include "{name}"' for name in headers

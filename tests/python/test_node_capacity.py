@@ -34,7 +34,8 @@ def binaries(tmp_path_factory):
     sources += [ROOT / "components" / path for path in (
         "board_identity/src/board_identity.c", "tdma/src/tdma_profile.c",
         "tdma/src/tdma_ring_runtime.c", "vdc_domain/src/vdc_domain.c",
-        "vdc_domain/src/vdc_timestamp.c", "calibration_manager/src/calibration_path_snapshot.c",
+        "vdc_domain/src/vdc_timestamp.c", "vdc_domain/src/vdc_domain_evidence.c",
+        "vdc_domain/src/vdc_domain_profile.c", "calibration_manager/src/calibration_path_snapshot.c",
         "calibration_manager/src/calibration_training_store.c",
         "distributed_refmem/src/refmem_sync.c", "distributed_refmem/src/refmem_sync_frame.c")]
     sources.append(ROOT / "third_party/portable_ota/src/pota_crc32.c")
