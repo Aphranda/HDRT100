@@ -9,6 +9,9 @@
  * only under STOP; the future output owner latches once per output start. */
 bool vdc_dpll_manager_get_output_delay_ns(int32_t *value);
 bool vdc_dpll_manager_set_output_delay_ns(int32_t value);
+/* Unified-control exception: install while TDMA keeps running, only when the
+ * VDC output configuration is idle.  Local SCPI stays TDMA-STOP-only. */
+bool vdc_dpll_manager_set_output_delay_ns_online(int32_t value);
 bool vdc_dpll_manager_default_output_delay(void);
 bool vdc_dpll_manager_recall_output_delay(void);
 bool vdc_dpll_manager_store_output_delay(void);

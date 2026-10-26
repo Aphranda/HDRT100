@@ -32,6 +32,10 @@ static inline bool vdc_output_timing_profile_valid(const vdc_output_timing_profi
 
 bool vdc_dpll_manager_get_output_timing_profile(vdc_output_timing_profile_t *profile);
 bool vdc_dpll_manager_set_output_timing_profile(const vdc_output_timing_profile_t *profile);
+/* Unified-control exception: install while TDMA keeps running, only when the
+ * VDC output configuration is idle.  Local SCPI stays TDMA-STOP-only. */
+bool vdc_dpll_manager_set_output_timing_profile_online(
+    const vdc_output_timing_profile_t *profile);
 bool vdc_dpll_manager_default_output_timing(void);
 bool vdc_dpll_manager_recall_output_timing(void);
 bool vdc_dpll_manager_store_output_timing(void);

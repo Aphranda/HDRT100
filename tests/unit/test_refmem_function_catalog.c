@@ -1,4 +1,4 @@
-﻿#include <assert.h>
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -6,7 +6,7 @@
 
 int main(void)
 {
-    assert(refmem_function_catalog_count == 4u);
+    assert(refmem_function_catalog_count == 5u);
 
     const refmem_function_entry_t *tdma =
         refmem_function_find_by_id(REFMEM_FUNC_ID_FUNC_TDMA_ONLINE);
@@ -33,6 +33,17 @@ int main(void)
     assert(clock != NULL && clock->arg_words == 7u && clock->step_count == 2u);
     assert(clock->steps[0].command_id == 24u && clock->steps[0].arg_words == 2u);
     assert(clock->steps[1].command_id == 25u && clock->steps[1].arg_base == 2u);
+
+    const refmem_function_entry_t *vdc =
+        refmem_function_find_by_id(REFMEM_FUNC_ID_FUNC_VDC_RECONFIG);
+    assert(vdc != NULL && vdc->arg_words == 9u && vdc->step_count == 4u);
+    assert(vdc->steps[0].command_id == 33u && vdc->steps[0].arg_words == 0u);
+    assert(vdc->steps[1].command_id == 27u && vdc->steps[1].arg_base == 0u &&
+           vdc->steps[1].arg_words == 5u);
+    assert(vdc->steps[2].command_id == 28u && vdc->steps[2].arg_base == 5u &&
+           vdc->steps[2].arg_words == 1u);
+    assert(vdc->steps[3].command_id == 29u && vdc->steps[3].arg_base == 6u &&
+           vdc->steps[3].arg_words == 3u);
 
     assert(refmem_function_find_by_id(999u) == NULL);
     assert(refmem_function_find_by_name("NOPE") == NULL);

@@ -5,6 +5,7 @@
 #include "vdc_priority_rx.h"
 #include "vdc_priority_match.h"
 #include "vdc_priority_follow.h"
+#include "vdc_run_output.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -78,6 +79,13 @@ bool vdc_dpll_manager_set_output_delay_ns(int32_t value)
     return get_core_num() == 0u && s_vdc_tdma_service &&
         tdma_service_update_stopped_metadata(s_vdc_tdma_service,
             output_delay_publish_stopped, &value);
+}
+
+bool vdc_dpll_manager_set_output_delay_ns_online(int32_t value)
+{
+    /* TDMA stays running; VDC output must be idle. */
+    return get_core_num() == 0u && vdc_run_output_configuration_idle() &&
+        output_delay_publish_stopped(&value);
 }
 
 bool vdc_dpll_manager_default_output_delay(void)

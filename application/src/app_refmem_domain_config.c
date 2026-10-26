@@ -12,6 +12,10 @@
 #include "trigger_t2_runtime.h"
 #include "trigger_turntable_predictor.h"
 #include "vdc_dpll_manager.h"
+#include "vdc_output_delay.h"
+#include "vdc_output_timing.h"
+#include "vdc_reference.h"
+#include "vdc_run_output.h"
 
 /* N6.2: DPLL.  N6.3: TDMA online seat/load; topology/period stay
  * deployment-time and fail closed with NOT_ONLINE_SAFE.  VDC/T2 handlers are
@@ -29,6 +33,14 @@ static bool reject_not_online(uint32_t *reason)
 {
     if (reason != NULL) {
         *reason = (uint32_t)REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE;
+    }
+    return false;
+}
+
+static bool reject_run_state(uint32_t *reason)
+{
+    if (reason != NULL) {
+        *reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
     }
     return false;
 }
@@ -202,6 +214,79 @@ static bool t2_unmount_handler(const uint32_t *params, uint32_t param_words,
     return true;
 }
 
+static bool vdc_stop_handler(const uint32_t *params, uint32_t param_words,
+                             uint32_t *reason)
+{
+    (void)params;
+    if (param_words != 0u) {
+        return reject(reason);
+    }
+    /* Stop VDC run output and disable the reference while TDMA keeps running;
+     * the following config steps then install into an idle VDC. */
+    vdc_run_output_cancel();
+    (void)vdc_dpll_manager_set_reference_enabled(false);
+    return true;
+}
+
+static bool vdc_reference_config_handler(const uint32_t *params,
+                                         uint32_t param_words,
+                                         uint32_t *reason)
+{
+    if (params == NULL || param_words != 5u) {
+        return reject(reason);
+    }
+    const sync_io_reference_config_t config = {
+        .input_port = params[0],
+        .edge = params[1],
+        .nominal_hz = params[2],
+        .window_ms = params[3],
+        .timeout_ms = params[4],
+    };
+    if (!vdc_dpll_manager_set_reference_config_online(&config)) {
+        return reject_run_state(reason);
+    }
+    return true;
+}
+
+static bool vdc_output_delay_handler(const uint32_t *params,
+                                     uint32_t param_words, uint32_t *reason)
+{
+    if (params == NULL || param_words != 1u) {
+        return reject(reason);
+    }
+    if (!vdc_dpll_manager_set_output_delay_ns_online((int32_t)params[0])) {
+        return reject_run_state(reason);
+    }
+    return true;
+}
+
+static bool vdc_output_timing_handler(const uint32_t *params,
+                                      uint32_t param_words, uint32_t *reason)
+{
+    if (params == NULL || param_words != 3u) {
+        return reject(reason);
+    }
+    const vdc_output_timing_profile_t profile = {
+        .plan_ahead_us = params[0],
+        .commit_ahead_us = params[1],
+        .refill_low_us = params[2],
+    };
+    if (!vdc_dpll_manager_set_output_timing_profile_online(&profile)) {
+        return reject_run_state(reason);
+    }
+    return true;
+}
+
+static bool vdc_start_handler(const uint32_t *params, uint32_t param_words,
+                              uint32_t *reason)
+{
+    (void)params;
+    (void)param_words;
+    /* VDC run output needs period/high/duration, so it is not a generic
+     * zero-argument start; leave the restart to the local VDC path. */
+    return reject_not_online(reason);
+}
+
 bool app_refmem_domain_config_init(void)
 {
     refmem_domain_config_reset();
@@ -220,6 +305,16 @@ bool app_refmem_domain_config_init(void)
                                          dpll_tune_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_DPLL_OVERRIDE,
                                          1u, dpll_override_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_VDC_REFERENCE_CONFIG,
+                                         5u, vdc_reference_config_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_VDC_OUTPUT_DELAY,
+                                         1u, vdc_output_delay_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_VDC_OUTPUT_TIMING,
+                                         3u, vdc_output_timing_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_VDC_STOP, 0u,
+                                         vdc_stop_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_VDC_START, 0u,
+                                         vdc_start_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_CONFIGURE, 13u,
                                          t2_configure_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_MOUNT, 3u,

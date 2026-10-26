@@ -52,3 +52,6 @@ bool __wrap_tdma_service_run_stopped_maintenance(tdma_service_service_t *service
 }
 
 bool __wrap_vdc_dpll_manager_feedback_session(void) { return fake_feedback_session; }
+
+bool vdc_run_output_configuration_idle(void) { return true; }
+

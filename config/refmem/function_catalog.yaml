@@ -37,3 +37,15 @@ functions:
       - {command_id: 23, arg_base: 3, arg_words: 1}
       - {command_id: 24, arg_base: 4, arg_words: 2}
       - {command_id: 25, arg_base: 6, arg_words: 5}
+
+  # VDC stop + reference/output config while TDMA keeps running.  VDC start
+  # (run output) needs period/high/duration and stays local.
+  - id: 5
+    name: FUNC_VDC_RECONFIG
+    failure_policy: abort_remaining
+    arg_words: 9
+    steps:
+      - {command_id: 33, arg_base: 0, arg_words: 0}   # VDC stop
+      - {command_id: 27, arg_base: 0, arg_words: 5}   # reference config
+      - {command_id: 28, arg_base: 5, arg_words: 1}   # output delay
+      - {command_id: 29, arg_base: 6, arg_words: 3}   # output timing

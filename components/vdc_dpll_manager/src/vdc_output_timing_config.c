@@ -105,6 +105,16 @@ bool vdc_dpll_manager_set_output_timing_profile(const vdc_output_timing_profile_
         output_timing_publish_stopped, (void *)&copy);
 }
 
+bool vdc_dpll_manager_set_output_timing_profile_online(
+    const vdc_output_timing_profile_t *profile)
+{
+    if (get_core_num() != 0u || !profile) return false;
+    const vdc_output_timing_profile_t copy = *profile;
+    if (!vdc_output_timing_profile_valid(&copy)) return false;
+    /* publish() itself rejects a non-idle VDC output configuration. */
+    return output_timing_publish_stopped((void *)&copy);
+}
+
 bool vdc_dpll_manager_default_output_timing(void)
 {
     const vdc_output_timing_profile_t profile = {

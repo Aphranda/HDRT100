@@ -38,6 +38,7 @@ enum {
     REFMEM_FUNC_ID_FUNC_CLOCK_RECONFIG = 2u,
     REFMEM_FUNC_ID_FUNC_T2_RECONFIG = 3u,
     REFMEM_FUNC_ID_FUNC_TDMA_CLOCK_ONLINE = 4u,
+    REFMEM_FUNC_ID_FUNC_VDC_RECONFIG = 5u,
 };
 
 extern const refmem_function_entry_t refmem_function_catalog[];

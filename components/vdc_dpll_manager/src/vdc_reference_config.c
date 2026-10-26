@@ -252,6 +252,19 @@ bool vdc_dpll_manager_set_reference_config(const sync_io_reference_config_t *con
     return ok;
 }
 
+bool vdc_dpll_manager_set_reference_config_online(
+    const sync_io_reference_config_t *config)
+{
+    if (!config || !sync_io_reference_config_valid(config) ||
+        !reference_control_enter()) return false;
+    /* TDMA stays running; the reference must already be stopped (the install
+     * also rejects an active generation). */
+    const bool ok = !s_reference_enabled &&
+        reference_config_install((void *)config);
+    reference_control_leave();
+    return ok;
+}
+
 static bool reference_enable_stopped(void *context)
 {
     (void)context;

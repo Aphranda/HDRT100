@@ -48,6 +48,10 @@ bool vdc_dpll_manager_store_reference_discipline(void);
  * This monitor does not authorize or apply a DCO frequency correction. */
 bool vdc_dpll_manager_get_reference_config(sync_io_reference_config_t *config);
 bool vdc_dpll_manager_set_reference_config(const sync_io_reference_config_t *config);
+/* Unified-control exception: install config while TDMA keeps running, with
+ * the reference already disabled/stopped (the install itself rejects an
+ * active generation).  The local SCPI path above stays TDMA-STOP-only. */
+bool vdc_dpll_manager_set_reference_config_online(const sync_io_reference_config_t *config);
 bool vdc_dpll_manager_set_reference_enabled(bool enabled);
 bool vdc_dpll_manager_get_reference_status(vdc_reference_status_t *status);
 bool vdc_dpll_manager_default_reference(void);
