@@ -6,36 +6,32 @@
     "-m",
     "pytest",
     "tests/python/test_no_archive_anchors.py",
-    "tests/python/test_vdc_boundary_owner.py",
-    "tests/python/test_vdc_priority_follow_config.py",
+    "tests/python/test_vdc_command_owner.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
     "tests/python/test_no_archive_anchors.py",
-    "tests/python/test_vdc_boundary_owner.py",
-    "tests/python/test_vdc_priority_follow_config.py"
+    "tests/python/test_vdc_command_owner.py"
   ],
-  "duration_s": 21.328,
+  "duration_s": 2.484,
   "returncode": 0,
   "summary": {
-    "passed": 156,
+    "passed": 36,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "156 passed in 20.75s",
+  "summary_line": "36 passed in 2.07s",
   "tail": [
-    "........................................................................ [ 46%]",
-    "........................................................................ [ 92%]",
-    "............                                                             [100%]",
-    "156 passed in 20.75s"
+    "....................................                                     [100%]",
+    "36 passed in 2.07s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "40b5b5ca8adda374f75933784dd9c6aa9941d746f37d44f4af19d8cd8b8f448d",
+  "fingerprint": "efa77b0291ba52ceb47e01fefaa5ad61fd70286a9c66af48a3af63ccecc79c87",
   "file_count": 532,
-  "working_fingerprint": "40b5b5ca8adda374f75933784dd9c6aa9941d746f37d44f4af19d8cd8b8f448d",
-  "started_at_utc": "2026-10-26T04:32:14.382180+00:00"
+  "working_fingerprint": "efa77b0291ba52ceb47e01fefaa5ad61fd70286a9c66af48a3af63ccecc79c87",
+  "started_at_utc": "2026-10-26T04:33:58.985766+00:00"
 }
