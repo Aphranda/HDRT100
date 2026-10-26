@@ -6,7 +6,7 @@
 
 int main(void)
 {
-    assert(refmem_function_catalog_count == 5u);
+    assert(refmem_function_catalog_count == 6u);
 
     const refmem_function_entry_t *tdma =
         refmem_function_find_by_id(REFMEM_FUNC_ID_FUNC_TDMA_ONLINE);
@@ -45,6 +45,16 @@ int main(void)
     assert(vdc->steps[3].command_id == 29u && vdc->steps[3].arg_base == 6u &&
            vdc->steps[3].arg_words == 3u);
 
+    const refmem_function_entry_t *vdc_delay =
+        refmem_function_find_by_id(REFMEM_FUNC_ID_FUNC_VDC_OUTPUT_DELAY);
+    assert(vdc_delay != NULL && vdc_delay->arg_words == 1u &&
+           vdc_delay->step_count == 2u);
+    assert(vdc_delay->steps[0].command_id == 33u &&
+           vdc_delay->steps[0].arg_words == 0u);
+    assert(vdc_delay->steps[1].command_id == 28u &&
+           vdc_delay->steps[1].arg_base == 0u &&
+           vdc_delay->steps[1].arg_words == 1u);
+
     assert(refmem_function_find_by_id(999u) == NULL);
     assert(refmem_function_find_by_name("NOPE") == NULL);
     assert(refmem_function_find_by_name(NULL) == NULL);
@@ -63,4 +73,5 @@ int main(void)
     printf("refmem_function_catalog: lookup/schema OK\n");
     return 0;
 }
+
 

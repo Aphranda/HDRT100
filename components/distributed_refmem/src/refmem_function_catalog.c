@@ -10,6 +10,7 @@ const refmem_function_entry_t refmem_function_catalog[] = {
     {3u, 0u, 13u, 2u, 0u, "FUNC_T2_RECONFIG", {{32u, 0u, 0u}, {30u, 0u, 13u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}}},
     {4u, 0u, 11u, 4u, 0u, "FUNC_TDMA_CLOCK_ONLINE", {{21u, 0u, 3u}, {23u, 3u, 1u}, {24u, 4u, 2u}, {25u, 6u, 5u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}}},
     {5u, 0u, 9u, 4u, 0u, "FUNC_VDC_RECONFIG", {{33u, 0u, 0u}, {27u, 0u, 5u}, {28u, 5u, 1u}, {29u, 6u, 3u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}}},
+    {6u, 0u, 1u, 2u, 0u, "FUNC_VDC_OUTPUT_DELAY", {{33u, 0u, 0u}, {28u, 0u, 1u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}, {0u, 0u, 0u}}},
 };
 
 const uint32_t refmem_function_catalog_count =

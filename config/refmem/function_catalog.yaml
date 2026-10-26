@@ -49,3 +49,13 @@ functions:
       - {command_id: 27, arg_base: 0, arg_words: 5}   # reference config
       - {command_id: 28, arg_base: 5, arg_words: 1}   # output delay
       - {command_id: 29, arg_base: 6, arg_words: 3}   # output timing
+
+  # Narrow, proven-online VDC output step: stop then install delay.  Reference
+  # and timing stay out until their VDC owner preconditions are fixed.
+  - id: 6
+    name: FUNC_VDC_OUTPUT_DELAY
+    failure_policy: abort_remaining
+    arg_words: 1
+    steps:
+      - {command_id: 33, arg_base: 0, arg_words: 0}   # VDC stop
+      - {command_id: 28, arg_base: 0, arg_words: 1}   # output delay
