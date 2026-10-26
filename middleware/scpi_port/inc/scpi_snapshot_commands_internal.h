@@ -62,6 +62,6 @@ void scpi_refmem_sync_result_rx_snapshot(scpi_t *context, const refmem_sync_rx_s
 void scpi_refmem_sync_hex_encode(const uint8_t *data, size_t data_size, char *hex, size_t hex_size);
 int scpi_refmem_sync_hex_nibble(char ch);
 const scpi_command_reason_entry_t *scpi_command_find_reason(uint32_t reason_id);
-extern const scpi_command_reason_entry_t s_command_reason_table[14];
+extern const scpi_command_reason_entry_t s_command_reason_table[15];
 
 #endif /* SCPI_SNAPSHOT_COMMANDS_INTERNAL_H */

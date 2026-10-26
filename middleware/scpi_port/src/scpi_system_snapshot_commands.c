@@ -374,6 +374,7 @@ const scpi_command_reason_entry_t s_command_reason_table[] = {
     {REFMEM_COMMAND_REASON_TIMEOUT, 3u, 1u, 1u, 11u, "TIMEOUT"},
     {REFMEM_COMMAND_REASON_PERMISSION_DENIED, 2u, 0u, 1u, 12u, "PERMISSION_DENIED"},
     {REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED, 2u, 0u, 1u, 13u, "CONFIG_VALIDATION_FAILED"},
+    {REFMEM_COMMAND_REASON_NOT_ONLINE_SAFE, 2u, 0u, 1u, 14u, "NOT_ONLINE_SAFE"},
 };
 
 const scpi_command_reason_entry_t *

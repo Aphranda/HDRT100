@@ -396,6 +396,32 @@ static inline uint32_t tdma_seat_rotation_first_class(uint32_t configured)
         TDMA_SEAT_ROTATION_DEFAULT_FIRST_CLASS_SHARE;
 }
 
+/* Online-safe representation: the three shares fit in one 32-bit word (4 bits
+ * each).  Core1 reads this word once per publication opportunity, so an online
+ * change is never observed as a torn p/f/s mix. */
+#define TDMA_SEAT_ROTATION_SHARE_MASK 0xFu
+#define TDMA_SEAT_ROTATION_PACK(p, f, s) \
+    (((uint32_t)(p) & TDMA_SEAT_ROTATION_SHARE_MASK) | \
+     (((uint32_t)(f) & TDMA_SEAT_ROTATION_SHARE_MASK) << 4) | \
+     (((uint32_t)(s) & TDMA_SEAT_ROTATION_SHARE_MASK) << 8))
+
+typedef struct {
+    uint32_t priority;
+    uint32_t first_class;
+    uint32_t second_class;
+} tdma_seat_rotation_shares_t;
+
+static inline tdma_seat_rotation_shares_t tdma_seat_rotation_unpack(
+    uint32_t packed)
+{
+    const tdma_seat_rotation_shares_t shares = {
+        packed & TDMA_SEAT_ROTATION_SHARE_MASK,
+        (packed >> 4) & TDMA_SEAT_ROTATION_SHARE_MASK,
+        (packed >> 8) & TDMA_SEAT_ROTATION_SHARE_MASK,
+    };
+    return shares;
+}
+
 typedef struct {
     uint32_t version;
     uint32_t started;
@@ -634,15 +660,12 @@ typedef struct {
     volatile uint32_t snapshot_guard;
     tdma_pio_spi_ring_role_t role;
     tdma_pio_spi_ring_forwarding_mode_t forwarding_mode;
-    /* TDMA-SEAT-01 origin arbitration ratio (M:N). Zero means "not set" and the
-     * runtime falls back to the compiled default. Frozen while started. */
-    uint32_t seat_rotation_priority_share;
-    uint32_t seat_rotation_first_class_share;
-    /* Reserved slots of the rotation cycle for the path that does NOT use the fast
-     * channel (owner decision 2026-10-16). Zero keeps today's behaviour, where the
-     * cycle is exactly priority + first_class; non-zero makes the fast path yield
-     * those slots to the ordinary / refmem (second-class) traffic. */
-    uint32_t seat_rotation_second_class_share;
+    /* TDMA-SEAT-01 origin arbitration ratio (M:N), packed into one word so a
+     * running ring can switch it atomically at the next publication
+     * opportunity.  Zero means "not set" and the runtime falls back to the
+     * compiled default. */
+    volatile uint32_t seat_rotation_packed;
+    volatile uint32_t seat_rotation_generation;
     uint32_t started;
     uint32_t service_count;
     uint32_t forward_count;

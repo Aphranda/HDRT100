@@ -807,16 +807,16 @@ bool tdma_pio_spi_ring_adapter_try_get_snapshot(
         snapshot->service_count = adapter->service_count;
         snapshot->role = (uint32_t)adapter->role;
         snapshot->forwarding_mode = (uint32_t)adapter->forwarding_mode;
-        snapshot->seat_rotation_priority_share = tdma_seat_rotation_priority(
-            adapter->seat_rotation_priority_share);
+        const tdma_seat_rotation_shares_t shares = tdma_seat_rotation_unpack(
+            __atomic_load_n(&adapter->seat_rotation_packed, __ATOMIC_ACQUIRE));
+        snapshot->seat_rotation_priority_share =
+            tdma_seat_rotation_priority(shares.priority);
         snapshot->seat_rotation_first_class_share =
-            tdma_seat_rotation_first_class(
-                adapter->seat_rotation_first_class_share);
+            tdma_seat_rotation_first_class(shares.first_class);
         /* Reserved slots for the path that does not use the fast channel: reported as
          * configured (0 = the whole cycle belongs to the two fast seats, i.e. the
          * pre-three-share behaviour). */
-        snapshot->seat_rotation_second_class_share =
-            adapter->seat_rotation_second_class_share;
+        snapshot->seat_rotation_second_class_share = shares.second_class;
         snapshot->first_class_stage_refused_count = adapter->first_class != NULL
             ? __atomic_load_n(&adapter->first_class->stage_refused_count,
                               __ATOMIC_RELAXED) : 0u;

@@ -715,6 +715,20 @@ bool tdma_runtime_owner_set_seat_rotation(uint32_t priority_share,
     return tdma_runtime_owner_set_seat_rotation3(priority_share, first_class_share, 0u);
 }
 
+bool tdma_runtime_owner_commit_seat_rotation3(uint32_t priority_share,
+                                              uint32_t first_class_share,
+                                              uint32_t second_class_share)
+{
+    if (!s_tdma_runtime_owner_initialized) {
+        return false;
+    }
+    /* Online-safe: the adapter stores one atomic packed word; Core1 reads it
+     * once per publication opportunity.  No ring stop is required. */
+    return tdma_pio_spi_ring_adapter_set_seat_rotation3(
+        &s_tdma_pio_spi_ring_adapter, priority_share, first_class_share,
+        second_class_share);
+}
+
 bool tdma_runtime_owner_set_seat_rotation3(uint32_t priority_share,
                                            uint32_t first_class_share,
                                            uint32_t second_class_share)
@@ -726,11 +740,11 @@ bool tdma_runtime_owner_set_seat_rotation3(uint32_t priority_share,
         ring.enabled != 0u || ring.adapter_started != 0u) {
         return false;
     }
-    /* STOP-only: the adapter refuses a started instance as well, so a race cannot
-     * install a new ratio while the ring runs. */
-    return tdma_pio_spi_ring_adapter_set_seat_rotation3(
-        &s_tdma_pio_spi_ring_adapter, priority_share, first_class_share,
-        second_class_share);
+    /* STOP-only SCPI compatibility: keep the local maintenance path frozen
+     * while the ring runs; the online unified-plane path uses the commit API
+     * above and is atomic. */
+    return tdma_runtime_owner_commit_seat_rotation3(
+        priority_share, first_class_share, second_class_share);
 }
 
 bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled)

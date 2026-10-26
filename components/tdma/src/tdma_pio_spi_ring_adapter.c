@@ -563,10 +563,10 @@ bool tdma_pio_spi_ring_adapter_init(tdma_pio_spi_ring_adapter_t *adapter)
     }
     memset(adapter, 0, sizeof(*adapter));
     adapter->clock_evidence_enabled = 1u;
-    adapter->seat_rotation_priority_share =
-        TDMA_SEAT_ROTATION_DEFAULT_PRIORITY_SHARE;
-    adapter->seat_rotation_first_class_share =
-        TDMA_SEAT_ROTATION_DEFAULT_FIRST_CLASS_SHARE;
+    adapter->seat_rotation_packed = TDMA_SEAT_ROTATION_PACK(
+        TDMA_SEAT_ROTATION_DEFAULT_PRIORITY_SHARE,
+        TDMA_SEAT_ROTATION_DEFAULT_FIRST_CLASS_SHARE, 0u);
+    adapter->seat_rotation_generation = 0u;
     tdma_adapter_comm_fsm_init(&adapter->comm_fsm);
     tdma_pio_spi_ring_adapter_reset_bad_packet_diagnostic(adapter);
     (void)tdma_receive_health_init(&adapter->receive_health);

@@ -65,6 +65,12 @@ bool tdma_runtime_owner_set_seat_rotation(uint32_t priority_share,
 bool tdma_runtime_owner_set_seat_rotation3(uint32_t priority_share,
                                            uint32_t first_class_share,
                                            uint32_t second_class_share);
+/* Online-safe commit: the three shares become one atomic word that Core1 reads
+ * once per publication opportunity.  Used by the RefMem unified control plane;
+ * the local SCPI path keeps the STOP-only wrapper above. */
+bool tdma_runtime_owner_commit_seat_rotation3(uint32_t priority_share,
+                                              uint32_t first_class_share,
+                                              uint32_t second_class_share);
 bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled);
 bool tdma_runtime_owner_set_ring_diagnostic_mode(bool enabled);
 bool tdma_runtime_owner_set_clock_evidence_enabled(bool enabled);

@@ -24,23 +24,31 @@ bool tdma_pio_spi_ring_adapter_set_seat_rotation3(
     tdma_pio_spi_ring_adapter_t *adapter, uint32_t priority_share,
     uint32_t first_class_share, uint32_t second_class_share)
 {
-    if (adapter == NULL || adapter->started != 0u ||
+    if (adapter == NULL ||
         !tdma_seat_rotation_valid3(priority_share, first_class_share,
                                    second_class_share)) {
         return false;
     }
-    adapter->seat_rotation_priority_share = priority_share;
-    adapter->seat_rotation_first_class_share = first_class_share;
-    /* Reserved slots of the rotation cycle for the path that does not use the fast
-     * channel; 0 keeps the whole cycle with the two fast seats. */
-    adapter->seat_rotation_second_class_share = second_class_share;
+    /* Online-safe: one atomic word holds p/f/s.  Core1 reads the word once per
+     * publication opportunity (tdma_pio_spi_ring_origin), so it sees either the
+     * old or the new triple, never a torn mix.  The STOP-only SCPI wrapper is
+     * enforced by tdma_runtime_owner_set_seat_rotation3, not here. */
+    const uint32_t packed = TDMA_SEAT_ROTATION_PACK(
+        priority_share, first_class_share, second_class_share);
+    __atomic_store_n(&adapter->seat_rotation_packed, packed, __ATOMIC_RELEASE);
+    __atomic_add_fetch(&adapter->seat_rotation_generation, 1u, __ATOMIC_RELEASE);
     return true;
 }
 
 uint32_t tdma_pio_spi_ring_adapter_seat_rotation_second_class(
     const tdma_pio_spi_ring_adapter_t *adapter)
 {
-    return adapter != NULL ? adapter->seat_rotation_second_class_share : 0u;
+    if (adapter == NULL) {
+        return 0u;
+    }
+    const uint32_t packed =
+        __atomic_load_n(&adapter->seat_rotation_packed, __ATOMIC_ACQUIRE);
+    return tdma_seat_rotation_unpack(packed).second_class;
 }
 
 bool tdma_pio_spi_ring_adapter_inject_rx(tdma_pio_spi_ring_adapter_t *adapter,
