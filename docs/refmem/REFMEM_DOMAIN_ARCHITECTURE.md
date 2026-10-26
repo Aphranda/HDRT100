@@ -1547,6 +1547,14 @@ IDLE
 - 命令目录、权限表、RunState、ResourceArbiter、Flash lockout、owner validation 任一拒绝即终态；控制面不得重试到通过。
 - 不允许通过 payload 表达“写任意地址/任意长度”；payload 只能按目录 schema 解释。
 
+**首版配置授权（N5.2b，2026-10-26 冻结）**：`control_owner_slot` 首版取 `SlotClaimMap` 中**最低已 claim 插槽**
+（profile 未显式声明时的 fallback，见「角色与协调者」），是派生值而非第二份状态。配置类命令
+（BOARD_CAPABILITY_STAGE / NODE_LOAD_STAGE / TABLE_PACKAGE_STAGE / TABLE_PACKAGE_ACTIVATE）在目标侧
+要求 `source_node == 本地 slot`（本板维护，CP9 保留）或 `source_node == control_owner_slot`；其他远程
+origin 一律 `PERMISSION_DENIED`(12)，且**授权判定先于 idle 窗口判定**（不因窗口开/关在 7/12 之间摆动）。
+无 claimed 插槽时本地配置仍可用、远程配置 12；`DeploymentGate` 的 `GATE_CONFIG`(8) 拒绝无法派生协调者
+的 RUN。显式 `control_owner_slot` 字段（方案 B）属 N5.3，落地时替换本 fallback，不与 fallback 并行存在。
+
 ### 边界
 
 - 不承载 OTA、日志、波形、SD 文件或大表 bytes；只传 path hash、package CRC、descriptor 和摘要。

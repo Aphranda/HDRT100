@@ -510,6 +510,29 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 **N5.2a.4 远程 HIL（2026-10-26，build `20261026123411`）**：四板、COM4=slot 1 为目标、COM5 为源。COM4 `CONFig:BEGIN` 开窗 → COM5 `CTRL:EXECute 2,2,2,1,1,...` 排队 → 环启动投递 → COM4 `CTRL:STATus?` = `state=4 ACKED / reason=0`，`LOAD:STATus?` = `staging_state=2 VALIDATED / package_crc=3301311711 / lint=0`；源板聚合 `state=4`，`CMD:REPLy?` = `4,1,0,0,0,0,0,0,17601,4,2,0,1,4,0`。随后停环、COM4 `CONFig:COMMit` 关窗、再次下发同命令 → `state=5 / reason=7`（RUN_STATE_DENIED）。证据 `out/refmem_n52a3_hil/report.json`。**结论：远程配置命令在目标窗口开启 + 环运行下已能真正 ACK**，这是 N5.2a 的功能核；延迟事务（RUN 期排队、STOP 执行）仍未实现，是否仍需要按 RUN 期策略再评估。下一刀 N5.2b（远程 owner/permission 合法/未授权矩阵）→ N5.2c（STOP→stage→START 全流程，含 BEGIN/ABORT）。
 
+### N5.2b 远程配置授权（方案 A，2026-10-26 启动）
+
+**已冻结的取舍**：`control_owner_slot` 首版取 **SlotClaimMap 中最低已 claim 插槽**（架构已允许的 fallback），不新增权限表、不把授权写成 `BoardCapabilityTable` capability 位；显式声明（ApplicationMap 字段，方案 B）留 N5.3 冻结。规则：
+
+- 目标侧配置类命令（BOARD_CAPABILITY_STAGE / NODE_LOAD_STAGE / TABLE_PACKAGE_STAGE / TABLE_PACKAGE_ACTIVATE）：`origin == 本地 slot`（本板维护，CP9 保留）或 `origin == control_owner_slot`（协调者）；其他远程 origin → `PERMISSION_DENIED`（12）。
+- **授权先于窗口**：非授权 origin 一律 12，不因窗口开/关在 7/12 之间摆动；授权通过的 origin 仍按 idle 窗口门控（关窗 → 7）。
+- 无 claimed 插槽（无法派生协调者）时：本地配置仍可用；远程配置 → 12；DeploymentGate 的 `GATE_CONFIG`（id=8）拒绝 RUN。
+- 不新增第二命令槽/第二 ACK/新总线/新权限表；`control_owner_slot` 是派生值，不落第二份状态。
+
+| 里程碑 | 内容 | 验收 | 证据 |
+|---|---|---|---|
+| **N5.2b.0** 语义冻结 | 上述规则写入架构「授权与运行态」+ TODO；明确 fallback 与 B 的边界 | 条款可核对、锚点真实、docs 门禁绿 | 文档 |
+| **N5.2b.1** 派生与只读面 | `distributed_refmem_control_owner_slot()` 从 SlotClaimMap 单次派生；只读查询（复用现有 status 或新增 `SYSTem:REFMEM:CTRL:OWNer?`，M1 定） | host 用例：4 槽 claim→最低槽；空 claim→INVALID；无第二实例 | 代码 + host |
+| **N5.2b.2** 目标侧授权门 | `dispatch_control` 按「授权→窗口」顺序判；新增 12 的 reason/计数/证据 | host 用例 + 负测（去掉检查即红） | 代码 + host |
+| **N5.2b.3** `GATE_CONFIG` 唯一性 | gate check 8 校验协调者可派生且属于 active claim；空 claim 拒绝 RUN | host 用例：0/1/N claim 三态 | 代码 + host |
+| **N5.2b.4** 正向 HIL | 协调者（最低槽）远程 stage → ACK；目标窗口开 | 两板/四板 SCPI 记录 | HIL |
+| **N5.2b.5** 负向 HIL | 非协调者远程 stage → 12；本地 stage 仍 OK；关窗 → 7 | 两板/四板 SCPI 记录 | HIL |
+| **N5.2b.6** 收口 | P3 quick、host acceptance、文档、提交分离、§8 六门报告；N5.2b 标 ✅，N5.2c 下一项 | 凭证齐全 + 门禁绿 | 全部 |
+
+**不属于 N5.2b**：非协调者 Entry 转发（N5.5）、跨节点 FENCE（N5.6）、聚合广播/`control_reply`（N5.7）、显式 `control_owner_slot` 字段（N5.3/B 方案）。
+
+**门禁预判**：①无新增总线/命令槽/ACK；②不占 core1（dispatch 在 core0 service）；③授权只有一个派生源、协调者不因检查而分裂；④fail-closed（12/`CONTROL_LOST`）；⑤若不加 SCPI 查询则无布局/版本变化；⑥两板/四板正负 HIL + P3 quick，示波器不在链路内（外部观测路径仍记为未验证）。
+
 **N5.2 诊断（2026-10-24）**：reason 13 不是 owner/permission；环运行期本地/远程 stage 都失败（`staging_state=3 FAILED`、`last_error=7 PACKAGE_INVALID`、`lint_error=1 BAD_TABLE_VERSION`），环停止本地 stage ACK（`staging_state=2 VALIDATED`）。因此先做 N5.2a；**N5.2a 决策（2026-10-24）：延迟配置事务（STOP-only stage）**——环运行只收命令/排队，STOP 执行，START 后回 ACK；不选环安全 staging（process-image 与 raw-flight 均失败，冲突在环运行期表包/服务）。开放：命令超时跨 STOP/START、队列深度/顺序、多目标 ACK 聚合、COMMIT 与 START 先后。再加 N5.2b 权限；N5.2c 补真实 STOP→stage→START。证据 `out/refmem_remote_txn_hil/n52_diag/REPORT.md`。
 
 #### N5.0 拆分清单（前置）
