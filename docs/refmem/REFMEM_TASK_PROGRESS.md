@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-003`。
+- 最新条目：`REFMEM-TASK-20261027-004`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,22 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-004 — N6.3.3 VDC 在线配置：代码/P3 完成，参考退休阻塞
+
+- 状态：VDC 在线配置 API + `FUNC_VDC_RECONFIG` 已落库并 P3；**功能 HIL 未通过**，卡在 VDC reference 退休。
+- 内容：
+  - 新增 `vdc_dpll_manager_set_reference_config_online` / `set_output_delay_ns_online` / `set_output_timing_profile_online`：TDMA 不停机，参考必须已停、VDC output 必须 idle；本地 SCPI 仍 TDMA-STOP-only。
+  - `VDC_STOP` 执行 `vdc_run_output_cancel()` + `vdc_dpll_manager_set_reference_enabled(false)`；`VDC_START` 明确 `NOT_ONLINE_SAFE`（run output 需 period/high/duration）。
+  - 新增 `FUNC_VDC_RECONFIG`（33→27→28→29，9 args）；function catalog 5 个。
+- 证据：`pico2-release` 构建通过；P3 `20261026174849`；host VDC harness 30 passed（补 `vdc_run_output_configuration_idle` fake）；commit `5e688260`。
+- HIL 负结果（`out/n7/local_hil/vdc_function.txt`）：
+  - `FUNC_VDC_RECONFIG,1,1,0,0,10000000,1000,100,0,1000,2000,100` → step0（VDC_STOP）ACK；step1（cmd27 reference config）`NACK reason=7`；function `FAILED`。
+  - `VDC:REFerence:ENABle?=0`，但 `STATus?` 仍 `state=2 RUNNING`；SCPI `ENABle 0` 后仍不退休。`reference_config_install` 因 `s_reference_active_generation` 非零拒绝。
+- 根因候选：reference cancel 只置取消/请求，core1 owner 未在 TDMA 运行/停环两种工况下推进到 RETIRED；需 VDC owner 修“disable → retire”闭环，或在 `VDC_STOP` 等待 bounded retirement（不能忙等）。
+- 未覆盖：VDC reference/config 正面 HIL、output delay/timing 正面、四板 VDC function；T2 正向仍缺。
+- 台架处置：VDC HIL 后已 `RING:STOP` 四板。
+- 下一步：修 VDC reference retire 闭环，再重跑 `FUNC_VDC_RECONFIG`；未过前 N6.3.3 不标 ✅。
 
 ### REFMEM-TASK-20261027-003 — N7.4 四板闭环：本地执行槽只含本板位
 
