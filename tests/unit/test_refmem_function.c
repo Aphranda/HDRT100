@@ -1,4 +1,4 @@
-#include <assert.h>
+﻿#include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -202,7 +202,28 @@ int main(void)
     assert(s_last_target_mask == 0x0Eu);
     assert(s_last_required_mask == 0x0Eu);
 
+    /* RUN_STATE_DENIED is retried a bounded number of times, then fails. */
+    reset_sim();
+    assert(refmem_function_run(REFMEM_FUNC_ID_FUNC_TDMA_ONLINE, 0x01u, 0x01u,
+                               tdma_args, 4u, &seq));
+    refmem_function_service();  /* submit step 0 */
+    s_poll_state = (uint32_t)REFMEM_COMMAND_STATE_NACKED;
+    s_poll_reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
+    refmem_function_service();  /* first 7: retry, not fail */
+    assert(refmem_function_get_status(seq, &status));
+    assert(status.state == REFMEM_FUNCTION_RUNNING);
+    for (uint32_t i = 0u; i < (REFMEM_FUNCTION_STEP_RETRY_MAX + 2u) * 2u;
+         ++i) {
+        s_test_now += REFMEM_FUNCTION_STEP_RETRY_GAP_MS;
+        refmem_function_service();
+    }
+    assert(refmem_function_get_status(seq, &status));
+    assert(status.state == REFMEM_FUNCTION_FAILED);
+    assert(status.last_reason ==
+           (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED);
+
     printf("refmem_function: executor/state machine OK\n");
     return 0;
 }
+
 

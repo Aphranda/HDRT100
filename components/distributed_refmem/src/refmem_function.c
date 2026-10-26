@@ -24,6 +24,7 @@ typedef struct {
     uint32_t started_ms;
     uint32_t step_started_ms;
     uint32_t step_ready_ms;
+    uint8_t step_retries;
     uint8_t had_failure;
 } refmem_function_job_t;
 
@@ -128,6 +129,7 @@ bool refmem_function_run(uint16_t function_id, uint32_t target_mask,
     job->step_state = REFMEM_FUNCTION_STEP_READY;
     job->started_ms = osal_tick_ms();
     job->step_ready_ms = job->started_ms;
+    job->step_retries = 0u;
     *function_seq = job->function_seq;
     return true;
 }
@@ -162,6 +164,7 @@ static void fail_job(refmem_function_job_t *job, uint32_t reason)
 static void advance_job(refmem_function_job_t *job)
 {
     ++job->step_index;
+    job->step_retries = 0u;
     if (job->step_index >= job->entry->step_count) {
         finish_job(job);
     } else {
@@ -218,9 +221,20 @@ void refmem_function_service(void)
             }
             if (state == (uint32_t)REFMEM_COMMAND_STATE_NACKED ||
                 state == (uint32_t)REFMEM_COMMAND_STATE_TIMED_OUT) {
+                const uint32_t terminal_reason = reason != 0u
+                    ? reason
+                    : (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+                if (terminal_reason ==
+                        (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED &&
+                    job->step_retries < REFMEM_FUNCTION_STEP_RETRY_MAX) {
+                    ++job->step_retries;
+                    job->step_state = REFMEM_FUNCTION_STEP_READY;
+                    job->step_ready_ms =
+                        now + REFMEM_FUNCTION_STEP_RETRY_GAP_MS;
+                    continue;
+                }
                 job->step_nack_mask |= nack;
-                fail_job(job, reason != 0u ? reason
-                              : (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED);
+                fail_job(job, terminal_reason);
                 continue;
             }
         }

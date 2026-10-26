@@ -16,6 +16,11 @@ extern "C" {
  * showed a remote step-1 timeout when the next step was submitted on the
  * immediately following tick. */
 #define REFMEM_FUNCTION_STEP_GAP_MS 20u
+/* A domain STOP window may still be retiring when the next step reaches it
+ * (VDC reference retirement is asynchronous).  RUN_STATE_DENIED is retried a
+ * bounded number of times instead of failing the whole function at once. */
+#define REFMEM_FUNCTION_STEP_RETRY_MAX 3u
+#define REFMEM_FUNCTION_STEP_RETRY_GAP_MS 100u
 
 typedef enum {
     REFMEM_FUNCTION_IDLE = 0u,
