@@ -154,7 +154,13 @@ def _append_closure(text, stderr, closure):
             rf"(?m)^[A-Za-z_][^;()\n]*\b{re.escape(name)}\b[^;()\n]*;[ \t]*$",
             closure)
         if match:
-            declarations.append(match.group(0))
+            text_decl = match.group(0)
+            if text_decl.lstrip().startswith("static") and "__attribute__" not in text_decl:
+                # Injected state may stay unused when the caller stubs the body.
+                text_decl = text_decl.rstrip()
+                assert text_decl.endswith(";")
+                text_decl = text_decl[:-1] + " __attribute__((unused));"
+            declarations.append(text_decl)
     typedefs = c_text.typedefs(closure)
     unknown = (set(re.findall(r"unknown type name '(\w+)'", stderr))
                | set(re.findall(r"'([A-Z][A-Z0-9_]+)' undeclared", stderr)))
@@ -174,6 +180,7 @@ def _append_closure(text, stderr, closure):
     fresh_decls = [item for item in declarations if item and item not in text]
     fresh_headers = [f'#include "{name}"' for name in headers
                      if f'#include "{name}"' not in text]
+    fresh_decls.sort(key=lambda item: 0 if item.lstrip().startswith("#define") else 1)
     fresh_defs = [item for item in definitions if item and item not in text]
     if not fresh_decls and not fresh_defs and not fresh_headers:
         return None

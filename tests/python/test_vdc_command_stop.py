@@ -13,7 +13,8 @@ import subprocess
 import pytest
 
 from test_vdc_command_ingress import ingress_definition
-from test_vdc_command_owner import ROOT, function_body
+from test_vdc_command_owner import ROOT, _append_closure, function_body
+from refmem_units import source as refmem_source
 
 
 def build_stop_executable(directory, production_root=ROOT):
@@ -22,7 +23,10 @@ def build_stop_executable(directory, production_root=ROOT):
         candidate = production_root / path
         return candidate if candidate.is_file() else ROOT / path
 
-    refmem = production("components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
+    if production_root is ROOT:
+        refmem = refmem_source()
+    else:
+        refmem = production("components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
     manager = production("components/vdc_dpll_manager/src/vdc_dpll_manager.c").read_text(encoding="utf-8")
     state = re.search(r"typedef struct \{[^}]*\} distributed_refmem_tdma_flight_sync_t;", refmem, re.S)
     assert state
@@ -41,6 +45,11 @@ def build_stop_executable(directory, production_root=ROOT):
 #define DISTRIBUTED_REFMEM_VDC_COMMAND_TRANSPORT_ENABLED 1
 #include "refmem_sync.h"
 #include "refmem_application_model.h"
+bool tdma_maintenance_runtime_ack(uint8_t stream_id, uint8_t generation,
+                                  uint8_t source_slot, bool ok);
+bool tdma_maintenance_runtime_ack(uint8_t stream_id, uint8_t generation,
+                                  uint8_t source_slot, bool ok)
+{ (void)stream_id;(void)generation;(void)source_slot;return ok; }
 #include "refmem_realtime_tdma.h"
 #include "vdc_dpll_manager.h"
 #include "vdc_time_mapping.h"
@@ -549,6 +558,7 @@ int main(int argc, char **argv)
     linked += [production(path) for path in (
         "components/distributed_refmem/src/refmem_sync_frame.c",
         "components/vdc_domain/src/vdc_domain.c", "components/vdc_domain/src/vdc_timestamp.c",
+        "components/vdc_domain/src/vdc_domain_evidence.c", "components/vdc_domain/src/vdc_domain_profile.c",
         "components/vdc_dpll_manager/src/vdc_time_mapping.c", "third_party/portable_ota/src/pota_crc32.c")]
     exe = directory / ("command_stop.exe" if os.name == "nt" else "command_stop")
     common = [compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
@@ -562,10 +572,22 @@ int main(int argc, char **argv)
     (directory / "compile-receiver.stderr.txt").write_text(compiled_receiver.stderr, encoding="utf-8")
     assert compiled_receiver.returncode == 0, compiled_receiver.stdout + compiled_receiver.stderr
     command = [*common, str(harness_path), str(receiver_object), *map(str, linked), "-o", str(exe)]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    closure = refmem_source() + "\n" + (
+        ROOT / "components/board_identity/src/board_identity.c").read_text(encoding="utf-8")
+    text = harness
+    result = None
+    for _ in range(16):
+        harness_path.write_text(text, encoding="utf-8")
+        result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+        if result.returncode == 0:
+            break
+        completed = _append_closure(text, result.stderr, closure)
+        if completed is None:
+            break
+        text = completed
     (directory / "compile.stdout.txt").write_text(result.stdout, encoding="utf-8")
     (directory / "compile.stderr.txt").write_text(result.stderr, encoding="utf-8")
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert result is not None and result.returncode == 0, result.stdout + result.stderr
     return exe
 
 

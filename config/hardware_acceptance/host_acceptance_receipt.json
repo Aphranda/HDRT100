@@ -5,33 +5,33 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_vdc_command_ingress.py",
     "tests/python/test_vdc_command_owner.py",
+    "tests/python/test_vdc_command_stop.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_vdc_command_ingress.py",
-    "tests/python/test_vdc_command_owner.py"
+    "tests/python/test_vdc_command_owner.py",
+    "tests/python/test_vdc_command_stop.py"
   ],
-  "duration_s": 13.594,
+  "duration_s": 23.922,
   "returncode": 0,
   "summary": {
-    "passed": 44,
+    "passed": 48,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "44 passed in 13.07s",
+  "summary_line": "48 passed in 23.39s",
   "tail": [
-    "............................................                             [100%]",
-    "44 passed in 13.07s"
+    "................................................                         [100%]",
+    "48 passed in 23.39s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "2563ddeb59afad10bbd5b64f24c244e50c05e658f88b47b691bf5825c3f81f63",
+  "fingerprint": "7a33d5c328737761ca22e4430fcb99489dee90f4b0382332a5d7d122d3adef60",
   "file_count": 532,
-  "working_fingerprint": "2563ddeb59afad10bbd5b64f24c244e50c05e658f88b47b691bf5825c3f81f63",
-  "started_at_utc": "2026-10-26T08:51:39.576022+00:00"
+  "working_fingerprint": "7a33d5c328737761ca22e4430fcb99489dee90f4b0382332a5d7d122d3adef60",
+  "started_at_utc": "2026-10-26T08:54:07.098862+00:00"
 }
