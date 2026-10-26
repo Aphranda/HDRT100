@@ -638,8 +638,8 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - **c** ✅ VDC `priority_tx`/`_tx_gap`（`818dfcf7`）：412 errors → 0。
 - **e** ✅ TDMA 两套件按符号定位（`259b8c61`）：124 errors → 0。**至此 743 个 `.inc` 类 error 全部清零**。
 - **f** ✅ 归档锚点棘轮门禁（`259b8c61`）：`test_no_archive_anchors.py`，清单只减不增，含植入锚点负测。
-- **d** ⏳ 进行中：已完成 `ingress`/`rx`/`reference_config`/`output_timing`/`capture`/`model_feedback`/`auto_capture`/`origin_trace`/`mapping`/`local_follow_prepare`/`integration`/`run_timeline`/`priority_health`/`priority_match` 共 14 个文件；剩余 9 个（`boundary_owner`、`command_owner`、`fixed_output`、`idle_maintenance`、`priority_follow`、`priority_follow_config`、`priority_phase`、`priority_trace`、`run_output`）。剩余文件多为 4–6 片段组合，需要"声明/存储/代码"三段式拼装；`fixed_output`(2F)、`idle_maintenance`(35E)、`run_output`(184E) 另需先解决非 `.inc` 根因。
-- **g** ⏳ 全量收口未做；N5.0.6 归因已在本轮更正。
+- **d** ✅（2026-10-26 完成）：**24 个锚定归档的 host 文件全部迁到 live 单元**，`test_no_archive_anchors.py` 清单已清零。分批提交：`818dfcf7`（tx/tx_gap）、`e5c489ee`（ingress/rx/reference_config/output_timing）、`cf4e9d94`（capture）、`c5c7ca94`（model_feedback）、`37c4bdfc`（follow）、`26e71e4a`（phase）、`95e1f8c3`/`3173602c`（trace）、`ca077cb7`（boundary_owner、follow_config）、`63e74a17`（撤归档 include 路径 + command_owner）、`26301d3b`（idle/run_output + 三红文件根因）、`f1a7d276`（fixed_output SCPI 取源）、`d4f673f0`（fixed_output）。切片器能力沉淀在 `tests/python/c_text.py` + `vdc_units.py`：块级切分、片段闭包（嵌套 `.inc`）、守卫式类型/助手声明、静态剪枝（含 `{}` 初值与 `static struct{...}`）、`code(functions=, remove=)`。
+- **g** ✅（2026-10-26 收口）：干净全量扫描 **7,971 passed / 25 failed / 333 errors**（23:44，日志 `out/split-20261025/full_pytest_final.log`），基线为 6,627 / 38 / 1,607。逐项闭合：`.inc` 类 743 errors → **0**；总 error 1,607 → **333**（−1,274 = 743 + 221 pilot + 61 `vdc_domain` 链接 + 249 三红文件根因，与逐文件计数吻合）；failure 38 → **25**。剩余 333 个 error 均属**其他拆分债务**（RefMem 单元抽取如 `test_vdc_feedback_preacquire`/`receipt_ack`、SCPI snapshot 文本锚点、`node_capacity` 等），不在本目标范围；`test_no_archive_anchors.py` 的 `KNOWN_ANCHORS` 已清空，任何新增归档锚点立即变红。N5.0.6 归因更正见该条。
 
 ## M0 - 单端口统一控制面架构补齐（本目标）
 
