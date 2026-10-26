@@ -13,6 +13,14 @@ import subprocess
 
 import pytest
 
+from vdc_units import fragment_slice
+
+
+def match_source() -> str:
+    """Live matcher unit plus the host-control note stub it calls."""
+    return ("static void priority_note_host_control(void) {}\n"
+            + fragment_slice("vdc_priority_match"))
+
 ROOT = Path(__file__).resolve().parents[2]
 CASES = ["match", "signed", "duplicate", "next", "full_sequence", "out_of_order", "generation",
     "unbound_stop", "bound_stop", "rx_retired", "fresh_request", "disable", "wrong_core",
@@ -40,7 +48,8 @@ def match_executable(request, tmp_path_factory):
     begin = physical_header.index("enum {\n    TDMA_EVENT_LIVE_RETAINED")
     end = physical_header.index("} tdma_pio_spi_event_exact_t;", begin) + len("} tdma_pio_spi_event_exact_t;")
     source.write_text(HARNESS.replace('#include "tdma_pio_spi_phys.h"',
-        '#include "tdma_event_history.h"\n' + physical_header[begin:end]), encoding="utf-8")
+        '#include "tdma_event_history.h"\n' + physical_header[begin:end]).replace(
+        '/* UNIT_BODY */', match_source()), encoding="utf-8")
     compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
     exe = directory / ("priority_match.exe" if os.name == "nt" else "priority_match")
     command = [compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-fstack-usage",
@@ -82,8 +91,7 @@ def real_match_mapping_executable(tmp_path_factory):
     end = physical.index("} tdma_pio_spi_event_exact_t;", begin) + len("} tdma_pio_spi_event_exact_t;")
     prelude = HARNESS.split("int main(int argc,char **argv)")[0].replace(
         '#include "tdma_pio_spi_phys.h"', '#include "tdma_event_history.h"\n' + physical[begin:end])
-    prelude = prelude.replace('#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_match.inc"',
-        (ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_match.inc").read_text(encoding="utf-8"))
+    prelude = prelude.replace('/* UNIT_BODY */', match_source())
     # Rename only external-owner fakes which share symbols with separately
     # linked Domain/TDMA code. The matcher, mapping and forward arithmetic
     # remain unchanged production code, not rewritten test formulas.
@@ -215,8 +223,7 @@ bool vdc_dpll_manager_project_timer1_feedback_event(uint32_t ses,uint32_t role,u
 static uint64_t fake_now_ns = UINT64_C(1000000000);
 static uint64_t vdc_dpll_manager_now_ns(void) { return fake_now_ns; }
 #define __atomic_load_n read_atomic
-#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_match.inc"
-#undef __atomic_load_n
+/* UNIT_BODY */#undef __atomic_load_n
 static bool request(uint32_t gen)
 { const unsigned saved=core; core=0u; bool ok=vdc_dpll_manager_set_priority_match(gen); core=saved; return ok; }
 static vdc_priority_match_snapshot_t sample(void)

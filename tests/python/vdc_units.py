@@ -85,6 +85,7 @@ def function_body_for(fragment: str, name: str) -> str:
 # unit body must carry the declarations the fragment used to own.
 FRAGMENT_DECLS = {
     "vdc_priority_tx": ("vdc_priority_tx_work_t",),
+    "vdc_priority_match": ("vdc_priority_match_work_t",),
     "vdc_boundary_capture": ("vdc_boundary_peer_t", "vdc_boundary_meta_t",
                              "vdc_boundary_request_t"),
     "vdc_dpll_feedback_match": ("vdc_feedback_match_source_t",
@@ -99,6 +100,7 @@ FRAGMENT_DECL_HEADER = "vdc_priority_shared.h"
 # Fragments that call inline helpers the split hoisted into the private header.
 FRAGMENT_HELPERS = {
     "vdc_dpll_feedback_match": ("match_inc",),
+    "vdc_priority_match": ("priority_match_inc",),
     "vdc_boundary_capture": ("match_inc",),
     "vdc_boundary_control": ("match_inc",),
 }
