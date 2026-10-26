@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from vdc_units import body as vdc_unit_body
+from vdc_units import code, declarations, fragment_slice
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -21,15 +21,15 @@ import test_vdc_priority_follow as existing
 def executable(tmp_path_factory):
     directory = tmp_path_factory.mktemp("baseline-config")
     manager = ROOT/"components/vdc_dpll_manager/src"
-    archive = ROOT/"components/vdc_dpll_manager/archive/vdc_inc_split_v1"
     physical = (ROOT/"components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
     begin = physical.index("enum {\n    TDMA_EVENT_LIVE_RETAINED")
     end = physical.index("} tdma_pio_spi_event_exact_t;", begin)+len("} tdma_pio_spi_event_exact_t;")
     event_types = '#include "tdma_event_history.h"\n'+physical[begin:end]
-    matcher = (archive/"vdc_dpll_feedback_match.inc").read_text(encoding="utf-8")
-    source_type = re.search(r'typedef struct \{\s*uint64_t next_ordinal.*?\} vdc_feedback_match_source_t;', matcher, re.S)
-    assert source_type
-    helpers = matcher[matcher.index("static uint32_t match_inc"):matcher.index("/* Keep authorization")]
+    match_decls = declarations("vdc_dpll_feedback_match")
+    match_code = code("vdc_dpll_feedback_match",
+                      functions=("match_load_words", "match_publish"),
+                      remove=("s_feedback_matches", "s_feedback_match_owner_token",
+                              "s_feedback_match_active_generation"))
     prelude = existing.OWNER_PRELUDE.replace("EVENT_TYPES", event_types).replace(
         '#include <assert.h>', '#include <assert.h>\n#include <inttypes.h>\n#include <pthread.h>\n'
         '#include "vdc_priority_rx.h"\n#include "vdc_priority_match.h"\n'
@@ -48,13 +48,12 @@ def executable(tmp_path_factory):
     harness += '#include "'+str(ROOT/"components/product_config/inc/product_config.h").replace('\\','/')+'"\n'
     harness += '#define VDC_PRIORITY_CONFIG_REAL 1\n'
     harness += '#define tdma_service_run_stopped_maintenance baseline_test_stopped_maintenance\n'
-    harness += prelude + existing.EXTERNAL_INPUTS + source_type.group(0) + existing.MATCH_STORAGE + helpers + STUBS
+    harness += prelude + existing.EXTERNAL_INPUTS + "static void priority_note_host_control(void) {}\n" + match_decls + existing.MATCH_STORAGE + match_code + STUBS
     harness += '\nstatic void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t *model);\n#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)\n'
-    for name in ("vdc_model_feedback.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc"):
-        harness += "\n"+(archive/name).read_text(encoding="utf-8")
-    harness += "\n" + vdc_unit_body("vdc_priority_follow_config")
-    harness += "\n"+(archive/"vdc_priority_follow.inc").read_text(encoding="utf-8").replace(
-        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_phase.inc"', (archive/"vdc_priority_phase.inc").read_text(encoding="utf-8"))
+    for name in ("vdc_model_feedback", "vdc_boundary_control", "vdc_priority_match"):
+        harness += "\n" + fragment_slice(name)
+    harness += "\n" + fragment_slice("vdc_priority_follow_config")
+    harness += "\n" + fragment_slice("vdc_priority_follow")
     scenarios = existing.SCENARIOS.replace("OWNER_REMOTE_INPUT",
         existing.ingress_definition(existing.OWNER_TESTS, "follower_input"))
     scenarios = scenarios.replace('int main(int argc,char **argv)', CONTROL_CASES+'\nint main(int argc,char **argv)')
@@ -70,8 +69,6 @@ def executable(tmp_path_factory):
     # host-control latch), so the component source dirs must be on the path too.
     includes += [ROOT/f"components/{c}/src" for c in ("tdma", "vdc_domain", "vdc_dpll_manager",
         "distributed_refmem", "calibration_manager")]
-    # Archived fragments quote their siblings by bare name.
-    includes.append(archive)
     sources = existing.domain_sources()+[manager/"vdc_feedback_match.c",
         ROOT/"components/distributed_refmem/src/refmem_sync_vdc_feedback.c"]
     exe = directory/"baseline_config.exe"

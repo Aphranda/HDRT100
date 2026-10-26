@@ -12,6 +12,7 @@ import pytest
 from test_vdc_command_ingress import ingress_definition
 from test_vdc_command_owner import ROOT, compile_executable
 from test_vdc_follower_rate_boundary import HARNESS as DOMAIN_HARNESS
+from vdc_units import code, declarations, fragment_slice
 
 
 @pytest.fixture(scope='module')
@@ -19,15 +20,22 @@ def boundary_owner_executable(tmp_path_factory):
     physical = (ROOT / 'components/tdma/inc/tdma_pio_spi_phys.h').read_text(encoding='utf-8')
     live = re.search(r'typedef struct \{[^}]*\} tdma_pio_spi_event_live_snapshot_t;', physical, re.S)
     flags = re.search(r'enum \{\s*TDMA_EVENT_LIVE_RETAINED[^}]*\};', physical, re.S)
-    matcher = (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_dpll_feedback_match.inc').read_text(encoding='utf-8')
-    source_type = re.search(r'typedef struct \{\s*uint64_t next_ordinal.*?\} vdc_feedback_match_source_t;', matcher, re.S)
-    assert live and flags and source_type
-    helpers = matcher[matcher.index('static uint32_t match_inc'):matcher.index('/* Keep authorization')]
+    match_decls = declarations("vdc_dpll_feedback_match")
+    match_code = code("vdc_dpll_feedback_match",
+                      functions=("match_load_words", "match_publish"),
+                      remove=("s_feedback_matches", "s_feedback_match_owner_token",
+                              "s_feedback_match_active_generation"))
+    assert live and flags
     harness = PRELUDE.replace('EVENT_TYPES', live.group(0) + '\n' + flags.group(0))
     harness += '\nstatic unsigned get_core_num(void) { return 1u; }\n'
-    harness += '\n' + source_type.group(0) + MATCH_STORAGE + helpers
-    harness += '\n' + (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_model_feedback.inc').read_text(encoding='utf-8')
-    harness += '\n' + (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_boundary_control.inc').read_text(encoding='utf-8')
+    model_feedback = fragment_slice("vdc_model_feedback")
+    boundary_control = fragment_slice("vdc_boundary_control")
+    note_stub = ("static void priority_note_host_control(void) {}\n"
+                 if "priority_note_host_control" in match_code + model_feedback + boundary_control
+                 else "")
+    harness += '\n' + note_stub + match_decls + MATCH_STORAGE + match_code
+    harness += '\n' + model_feedback
+    harness += '\n' + boundary_control
     harness += '\n' + ingress_definition(DOMAIN_HARNESS, 'fixture') + TESTS.replace(
         'int main(int argc,char **argv)', LOCAL_TESTS + AUTO_TESTS + '\nint main(int argc,char **argv)').replace(
         'if(!strncmp(test,"follower_reject_",16))',
