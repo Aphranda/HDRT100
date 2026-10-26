@@ -490,7 +490,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 |---|---|---|---|
 | **N5.0** ⏳（N5.0.2a 完成） | 文件拆分（前置，不改行为）：按关注点拆 `distributed_refmem.c` / `scpi_system_snapshot_commands.c` 等；设行数预算 | 无单文件超预算；build/host/P3/HIL 烟测；行为不变 | 无 |
 | **N5.1** ✅（审核完成：LEASE active；TRANSPORT/IDLE pending） | 契约交叉审核 `REFTMEM-LEASE-01`/`IDLE-01`/`TRANSPORT-01` | 交叉审核记录 + 转 active 或记录偏差 | 无（可并行） |
-| **N5.2** | 远程配置 owner/permission + 环安全 stage：N5.2a 环运行期 app-model staging（PACKAGE_INVALID）；N5.2b 谁可以 stage 哪个节点；N5.2c 真实 STOP→stage→START | 远程 stage 真正 ACK（N5.2a+b）；未授权 `PERMISSION_DENIED`；两板/四板 HIL；全程 STOP 边界 | N5.0、N5.1 |
+| **N5.2** ⏳（N5.2a.4 远程 stage 已 ACK） | 远程配置 owner/permission + 环安全 stage：N5.2a 环运行期 app-model staging（PACKAGE_INVALID）；N5.2b 谁可以 stage 哪个节点；N5.2c 真实 STOP→stage→START | 远程 stage 真正 ACK（N5.2a+b）；未授权 `PERMISSION_DENIED`；两板/四板 HIL；全程 STOP 边界 | N5.0、N5.1 |
 | **N5.3** | `control_owner_slot` 冻结（profile 元数据或 BoardCapabilityTable 择一） | 唯一协调者槽 + 只读视图 + 契约 | N5.2 |
 | **N5.4** | 协调者租约/唯一性门禁（grant/renew/release/expire） | 非协调者写入/执行被拒绝；TAKE→CONFLICT→RELEASE→TAKE 两板 HIL | N5.3 |
 | **N5.5** | 非协调者入口：任一维护接口同语义转发 | 从非协调者板发起同一命令；不新增总线 | N5.4 |
@@ -505,6 +505,10 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 **N5.2a 设计决策（2026-10-25）**：table descriptor 前后一致，失败在 app-model stage；选 **app-model staging 隔离**（N5.2a.1 诊断 → N5.2a.2 staging 基线 → N5.2a.3 改造 → N5.2a.4 HIL），不选 STOP 重置。
 
 **N5.2a 第二次诊断（2026-10-25）**：环 start/stop 后 stage 仍 `staging_state=3/last_error=7`；根因是环 start 已改变 app-model table registry/package，STOP 不恢复；deferral 不是充分条件。下一步先设计 table package/registry 与 TDMA process image 的分离/重建，再写 deferral。
+
+**N5.2a.3 根因更正与修复（2026-10-26）**：`0x0908` 不是“环 start 污染 table registry”，而是 **ring topology seat 被写进了被序列化的 app-model foundation profile**：`SYSTem:TDMA:RING:TOPology` → `distributed_refmem_set_tdma_ring_topology` → `refmem_application_model_set_tdma_ring_topology` 修改的是 live profile（`ring.local_index` 等），而 node_load 的 TDMA owner 仍在 node 0；于是非 0 槽板把自己的 seat 打进部署包，`refmem_table_registry_validate_tdma_foundation_profile` 的 owner 校验失败（table 9，error 8）。**单板可逆对照**（COM4，build `20261025213526`，环停止）：默认 slot 0 → `staging_state=2`、ACK；`TOPology 4,1,0` 后 → `staging_state=3`、`staging_first_lint_error=2312`（0x0908）、reason 13；`TOPology 4,0,0` 后 → 再次 VALIDATED。证据 `out/refmem_n52a3_slot_diag/run_slot_diag.log`。**修复**：新增设计期基线 `s_design_tdma_foundation_profile`（init 与 package 激活时刷新），打包与 profile table CRC 改用设计基线；live/active profile 仍是唯一运行期 seat，`set_tdma_ring_topology`/ring apply 路径不变。host 用例 `test_stage_ignores_runtime_ring_seat` 断言 seat 后 stage 仍成功且包字节与未 seat 基线一致；负测（把打包改回 live profile）三处断言变红。该修复只解除“包校验失败”一层；RUN 期配置是否仍按 RunState 拒绝、以及 A→B 远程 stage 是否 ACK，留待 N5.2a.4 实测。
+
+**N5.2a.4 远程 HIL（2026-10-26，build `20261026123411`）**：四板、COM4=slot 1 为目标、COM5 为源。COM4 `CONFig:BEGIN` 开窗 → COM5 `CTRL:EXECute 2,2,2,1,1,...` 排队 → 环启动投递 → COM4 `CTRL:STATus?` = `state=4 ACKED / reason=0`，`LOAD:STATus?` = `staging_state=2 VALIDATED / package_crc=3301311711 / lint=0`；源板聚合 `state=4`，`CMD:REPLy?` = `4,1,0,0,0,0,0,0,17601,4,2,0,1,4,0`。随后停环、COM4 `CONFig:COMMit` 关窗、再次下发同命令 → `state=5 / reason=7`（RUN_STATE_DENIED）。证据 `out/refmem_n52a3_hil/report.json`。**结论：远程配置命令在目标窗口开启 + 环运行下已能真正 ACK**，这是 N5.2a 的功能核；延迟事务（RUN 期排队、STOP 执行）仍未实现，是否仍需要按 RUN 期策略再评估。下一刀 N5.2b（远程 owner/permission 合法/未授权矩阵）→ N5.2c（STOP→stage→START 全流程，含 BEGIN/ABORT）。
 
 **N5.2 诊断（2026-10-24）**：reason 13 不是 owner/permission；环运行期本地/远程 stage 都失败（`staging_state=3 FAILED`、`last_error=7 PACKAGE_INVALID`、`lint_error=1 BAD_TABLE_VERSION`），环停止本地 stage ACK（`staging_state=2 VALIDATED`）。因此先做 N5.2a；**N5.2a 决策（2026-10-24）：延迟配置事务（STOP-only stage）**——环运行只收命令/排队，STOP 执行，START 后回 ACK；不选环安全 staging（process-image 与 raw-flight 均失败，冲突在环运行期表包/服务）。开放：命令超时跨 STOP/START、队列深度/顺序、多目标 ACK 聚合、COMMIT 与 START 先后。再加 N5.2b 权限；N5.2c 补真实 STOP→stage→START。证据 `out/refmem_remote_txn_hil/n52_diag/REPORT.md`。
 

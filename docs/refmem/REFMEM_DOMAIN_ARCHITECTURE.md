@@ -4,7 +4,7 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/trigger/t2/TRIGGER_T2_ARCHITECTURE.md`
-Last updated: 2026-10-25
+Last updated: 2026-10-26
 
 本文档定义 Distributed Hard Real-Time Trigger System 在 HAOFV 下的 Distributed Vector Blackboard / RefMem Sync 内部主域。RefMem Domain 不是对外 SCPI 主域，也不是产品业务动作域，而是分布式系统的内部基础主域，负责把多节点共同事实、静态分布式应用模型、命令意图、ACK/NACK、版本、质量和证据组织成可验证的数据面，并以统一控制面把系统级命令意图路由到显式目标插槽、聚合 ACK/NACK/fence，使接入点不再决定系统操作语义。
 
@@ -1580,11 +1580,20 @@ IDLE
 | 命令槽物理放置 | **C0 方向（2026-10-23 修订）**：命令槽必须由 REFMEM 复制区承载，任意板写入 → 全环同步；`distributed_refmem.c` 的 static `s_refmem_command_slot` 仅为当前本地载体，不再是规范物理位置；观测面直接读 REFMEM 快照 |
 | Event Plane 静态装载（`EVENT_CONFIGURE`） | 未实现；Event Plane 是静态子域，不持有第二命令槽/ACK/epoch，不做运行时注入 |
 | 显式 `target_mask` / `required_mask` 字段与本地 take 校验 | 已实现 |
-| 跨节点命令路由与 ACK 回程 | `REFTMEM_CMD` 分段经 TDMA 维护流投递到目标已实现（0x52/0x55）；目标执行后把终态写入自己的 **process-image ACK 席位**（`ACK_FLAG_COMMAND` + seq16 + reason），源板从本板 REFMEM 镜像逐槽聚合，更新源 node 控制记录的 `state/ack_flags/nack_flags/last_reason`；`SYSTem:CTRL:STATus?` 可见。非协调者 Entry 转发、租约仍属 C1/C3 |
+| 跨节点命令路由与 ACK 回程 | `REFTMEM_CMD` 分段经 TDMA 维护流投递到目标已实现（0x52/0x55）；目标执行后把终态写入自己的 **process-image ACK 席位**（`ACK_FLAG_COMMAND` + seq16 + reason），源板从本板 REFMEM 镜像逐槽聚合，更新源 node 控制记录的 `state/ack_flags/nack_flags/last_reason`；`SYSTem:CTRL:STATus?` 可见。**远程配置 stage 在目标窗口开启 + 环运行时已 ACK**（N5.2a.3/N5.2a.4 四板 HIL）；非协调者 Entry 转发、租约仍属 C1/C3 |
 | 协调者租约、`control_owner_slot` 唯一性门禁 | 未实现 |
 | 聚合视图 / 逐目标视图 / `control_reply` | 逐目标回复聚合已实现（源 node 控制记录 + `SYSTem:REFMEM:CMD:REPLy?` 计数）；系统级 `SYSTem:COMMand:STATus?/TARget?` 聚合广播与 `control_reply` 独立只读副本仍未实现 |
 | 跨节点 FENCE（activation gate 的全环 ACK） | 未实现 |
 | 命令目录 CRC 进入 Version Bundle | 未实现 |
+
+**app-model 打包基线（2026-10-26，N5.2a.3）**：部署包是**设计期**事实，不携带本板运行期 seat。
+`s_tdma_foundation_profile`（或 `s_active_tdma_foundation_profile`）继续唯一承担
+`SYSTem:TDMA:RING:TOPology` 写入的运行期 seat（`ring.local_index/reference_index/node_count`），
+供 ring apply 与 `TDMA:RING:*` 观测；打包（`refmem_model_build_inline_package_image`）与
+`tdma_foundation_profile_table_crc32` 改用设计期基线 `s_design_tdma_foundation_profile`
+（`refmem_application_model_init` 与 package 激活时刷新）。原因：`node_load` 的 TDMA owner 是设计期
+节点，若把 seat 打进包，非 0 槽板会在 table 9 owner 校验失败（`0x0908`）。STOP→stage→ACTIVATE 之后
+由 START/`TDMA:RING:TOPology` 重新 seat，不改变 `set_tdma_ring_topology` 与 ring 应用路径。
 
 **C0 方向修订（2026-10-23）**：命令槽不再冻结在本地 static，改为由 **REFMEM 复制区**
 承载：任意板写入本板 RefMem 槽（process-image mailbox 格式，带 seq/CRC），环同步到所有板；
@@ -1614,10 +1623,12 @@ node 控制记录；本地 AO 按目录分发到 owner handler，`STATus?`/`CATa
 `SYSTem:REFMEM:NODE:CONTrol?` 直接可见，`SYSTem:REFMEM:CMD:REPLy?` 暴露
 rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 node 记录保留命令的全局
 `required_mask`，因此单目标执行完成后记录保持 `TAKEN` 并置自身 `ack_flags` 位；完成态只在源板
-聚合记录中产生（单目标场景自身位即 required，目标记录直接 `ACKED`）。命令目录新增
-`REFTMEM_MAINTENANCE_SELF_CHECK`（`command_type=MAINTENANCE`）作为 RUN 中可成功执行的控制面探针；
-配置类命令在 RUN 仍按本地门禁 NACK（reason 13），该 NACK 现在同样回传到源板。限制：seq 只有低
-16 位过线；回复不复制到其它 observer 的 node 记录；聚合广播/协调者租约仍未实现。
+聚合记录中产生（单目标场景自身位即 required，目标记录直接 `ACKED`）。`REFTMEM_MAINTENANCE_SELF_CHECK`（`command_type=MAINTENANCE`）作为 RUN 中可成功执行的控制面探针；
+配置类命令由本地 idle 窗口门控：窗口关闭（COMMIT 后或 RUN 边界）返回 `RUN_STATE_DENIED`（7），
+窗口开启（STOP/维护）时执行 app-model stage 并 ACK——该结论在 2026-10-26 的 N5.2a.3/N5.2a.4
+修复后对**远程目标同样成立**（四板 HIL：目标 slot 1 收到源板命令后 `staging_state=2`、聚合 `ACKED`；
+随后 COMMIT 关窗，同命令回 `reason=7`）。NACK 同样回传到源板。限制：seq 只有低 16 位过线；
+回复不复制到其它 observer 的 node 记录；聚合广播/协调者租约仍未实现。
 
 **维护流可靠交付（2026-10-24，N3.2.1–N3.2.5）**：7 帧命令改为帧级 **stop-and-wait**：TX 整帧发完后保留槽位，每个目标在 process-image ACK 席位各回一份 `stream_id:generation + result`（诊断字节 `0xA0|result`，`seq16=stream_id:generation`）；源端按目标累积 ACK 掩码，`required_mask` 全覆盖才释放，单目标漏帧触发整帧重传；50 ms 超时、最多 3 次、每次 generation+1，接收端按新 generation 重启重组。**命令回复优先占用 ACK 席位，维护 ACK 仅在无命令回复时发布**，不延迟命令终态。重试耗尽计数并释放槽位，不静默丢帧；7 帧命令的 stop-and-wait 需 **≥2 s 环窗口**（0.5 s 窗口会留下未发完帧，属有界未完成而非丢帧）。N3.2.6 的 2 帧紧凑帧实验投递成功但目标回复未 arm，已回退并记为延后优化；不作为本路径的完成条件。
 

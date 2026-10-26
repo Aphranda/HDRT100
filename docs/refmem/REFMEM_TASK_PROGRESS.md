@@ -4,21 +4,21 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-10-25
+Last updated: 2026-10-26
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261025-021`。
-- 统一控制面：命令回复回程已打通（单目标/多目标/负向）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
+- 最新条目：`REFMEM-TASK-20261026-001`。
+- 统一控制面：命令回复回程已打通（单目标/多目标/负向）；**远程配置 stage 在目标窗口开启 + 环运行下首次 ACK**（N5.2a.3）；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
 - N5.0.2b：cmd-reply 拆出（6,315→6,109）；P3 `20261024151357`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2c：node control 拆出（6,109→6,003）；P3 `20261024154054`；config txn HIL 14/14。
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
-- 下一步：N5.0.2 剩余组（tdma-vdc/diag）→ N5.2a 延迟事务 → N5.2b permission；N3.2.7 可选。
+- 下一步：N5.2b 远程 owner/permission → N5.3 `control_owner_slot` 冻结；N3.2.7 可选。
 
 ## 归档索引
 
@@ -28,6 +28,16 @@ Last updated: 2026-10-25
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_02.md` | REFMEM-TASK-20260814-039..REFMEM-TASK-20260813-022 | 20 | 2026-10-17 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
+
+### REFMEM-TASK-20261026-001 — N5.2a.3 根因更正与修复：seat 不进包，远程配置首次 ACK
+
+- 状态：完成（代码 + host 用例 + 设备 build + P3 + HIL）；N5.2 整体仍未完成（权限、租约、聚合仍在 N5.2b–N5.7）。
+- 根因（更正 N5.2a“环 start 污染 table registry”的结论）：`SYSTem:TDMA:RING:TOPology` 把本板 seat 写入 app-model live profile，打包序列化的也是 live profile，而 node_load 的 TDMA owner 固定在 node 0；于是非 0 槽板把自己 seat 打进包，table 9 owner 校验失败（`0x0908`）。该状态可逆，与 ring start/stop 本身无关。
+- 单板对照（COM4、环停止）：修复前 build `20261025213526` —— slot 0 → `staging_state=2`/ACK；slot 1 → `staging_state=3`、`first_lint_error=2312`、reason 13；回 slot 0 → 再次 VALIDATED（`out/refmem_n52a3_slot_diag/run_slot_diag_prefix_20261025213526.log`）。修复后 build `20261026123411` 同一命令 → slot 1 `staging_state=2`、ACK、`first_lint_error=0`（`out/refmem_n52a3_slot_diag/run_slot_diag.log`）。
+- 修复：新增设计期基线 `s_design_tdma_foundation_profile`（`refmem_application_model_init` 与 package 激活时刷新）；打包与 `tdma_foundation_profile_table_crc32` 改用设计基线；live/active profile 仍是唯一运行期 seat，`set_tdma_ring_topology`/ring apply 路径未改。host 用例 `test_stage_ignores_runtime_ring_seat`；负测（打包改回 live profile）三处断言变红。
+- 远程 HIL（四板，build `20261026123411`）：COM4 `CONFig:BEGIN` → COM5 `CTRL:EXECute` 排队 → 环启动 → COM4 `state=4 ACKED/reason=0`、`staging_state=2`、package CRC `3301311711`；源板聚合 `state=4`，`CMD:REPLy?`=`4,1,0,0,0,0,0,0,17601,4,2,0,1,4,0`；STOP 后 COMMIT、再次下发同命令 → `state=5/reason=7`（窗口门禁仍生效）。证据 `out/refmem_n52a3_hil/report.json`。**这是首个远程配置命令 ACK**；延迟事务（RUN 期排队、STOP 执行）未实现，本轮证明“窗口开启 + 环运行”即可 ACK，deferral 是否仍需要按 RUN 期策略再评估。
+- 验证：`tools/tests/run_refmem_table_registry_tests.ps1`、`run_refmem_unified_control_host_tests.ps1` 全绿；refmem host 子集 212 passed；设备三 profile `flash_link_contract=OK`（build `20261026123411`）；P3 `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC`、`PASS_WITH_WARNINGS`（INFO 33/WARN 11/ERROR 0/FATAL 0）、source `343f61bbe7b788c10871db24166d455224c88f9cf28628524d27b98ff018aec8`、1589 files、receipt `config/hardware_acceptance/p3_acceptance_receipt.json`。
+- 下一刀：N5.2b 远程 owner/permission 合法/未授权矩阵；N5.2c STOP→stage→START（含 BEGIN/ABORT 分支）；随后 N5.3 `control_owner_slot` 冻结。
 
 ### REFMEM-TASK-20261025-021 — N5.0.5 预算/残差/HAOFV 收口
 
