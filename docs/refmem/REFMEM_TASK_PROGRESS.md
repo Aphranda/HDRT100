@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-005`。
+- 最新条目：`REFMEM-TASK-20261027-006`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,18 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-006 — FUNC_VDC_OUTPUT_DELAY：在线 VDC delay 单命令成功
+
+- 状态：窄 VDC function 通过；VDC reference/timing 仍阻塞。
+- 内容：新增 `FUNC_VDC_OUTPUT_DELAY`（id 6，arg_words 1，steps 33→28：VDC_STOP → VDC_OUTPUT_DELAY）；function catalog 6 个。
+- HIL（COM5 本地，`out/n7/local_hil/vdc_delay_function.txt`）：
+  - `FUNC_VDC_OUTPUT_DELAY,1,1,321` → `state=2 COMPLETED`、`step_index=2`、`ack=1`、`nack=0`。
+  - `VDC:OUTPut:DELay?` 读回 `321`。
+- 证据：`pico2-release` 构建通过；P3 `20261026180937`；host catalog/executor 通过；commit `970d231b`。
+- 台架：本轮为 VDC reference 做的 3 次 TRN retry 均失败（startup barrier/空错误），未进入可跑 reference 的 process-image；因此 VDC reference retire 未复验。
+- 未覆盖：VDC timing（`vdc_run_output_configuration_idle` 仍 false）、reference（`s_reference_active_generation` 未清零）、四板 VDC function、T2 正向。
+- 下一步：VDC owner 修 reference retire/output idle；或把 VDC timing 也做成窄 function 并先解决 idle 判据。
 
 ### REFMEM-TASK-20261027-005 — VDC 原子面实测：delay 成功，timing/reference 仍拒绝
 
