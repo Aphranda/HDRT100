@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-008`。
+- 最新条目：`REFMEM-TASK-20261027-010`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,25 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-010 — N7.5/N7.6 收口快照（未完成）
+
+- 状态：新增 `docs/refmem/REFMEM_UNIFIED_CONTROL_REVIEW.md`，作为 N7.5/N7.6 的收口快照；**目标不标完成**。
+- 内容：N6.0–N6.5、N7.1–N7.6 子项总表；P3/HIL/提交证据索引；VDC reference/timing、四板 T2 正向、T2 START/MOUNT 开放项与复验判据；契约边界（单 command slot / 单 ACK seat / coordinator-only）。
+- 关键判定：四板逐板本地 function 不能替代协调者单命令四板证据（非协调者 step0 `reason=11`）；T2 workflow 1-20 仍自动 teardown，无法借其保持“四板环+前置”。
+- 文档门禁：`docs_check` 235 files、`doc_regression` 全绿；提交见本轮 docs。
+- 下一步：VDC owner 修 reference retire/output idle；四板 T2 正向需 process-image + 前置；完成后更新本快照并标 N7.5/N7.6。
+
+### REFMEM-TASK-20261027-009 — 四板 T2 正向边界：function 入口仅协调者
+
+- 状态：T2 本地正向保持；四板单命令 T2 正向未达成。
+- 尝试：
+  - `t2_workflow.py --steps 1-20` 仍自动执行 step21 teardown（日志 `out/n7/t2_workflow_1_20.log`），环/T2 被停，无法借其保持“四板环 + 前置”状态。
+  - 在 COM4/3/6 各自跑本地 `FUNC_T2_RECONFIG,1,1,...` → step0（cmd32）`step_state=1 SUBMITTED` 后超时 `reason=11`（`out/n7/four_board_hil/t2_positive_per_board.txt`）。
+- 判定：`SYSTem:CTRL:FUNCtion:RUN` 的入口仍是协调者（slot 0）单入口；非协调者本地 function 不会被 RefMem 服务消费。四板 T2 正向必须走协调者 `FUNC_T2_RECONFIG,14,14,...` + 健康 process-image 环；不能用四块本地调用拼凑。
+- 现有证据：COM5 本地 `FUNC_T2_RECONFIG` `COMPLETED/ack=1`（`t2_positive_try.txt`）；四板 T2 负向 step0 ACK、step1 `reason=13`。
+- 未覆盖：四板 T2 正向；T2 START/MOUNT 仍 `NOT_ONLINE_SAFE`；VDC reference/timing。
+- 下一步：用可保持运行的 process-image 环（或给 T2 workflow 加 leave-running 选项，需工具/P3 凭证）再跑四板 T2 正向。
 
 ### REFMEM-TASK-20261027-008 — T2 正向 function 首次通过：停+配置 COMPLETED
 
