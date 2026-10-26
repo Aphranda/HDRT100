@@ -58,7 +58,7 @@ FRAGMENT_FUNCTIONS = {
         "model_feedback_project", "vdc_dpll_manager_project_feedback_event",
         "vdc_dpll_manager_project_timer1_feedback_event",
         "vdc_dpll_manager_project_rate_feedback_event",
-        "vdc_dpll_manager_project_rate_reference",
+        "vdc_dpll_manager_project_rate_reference", "model_feedback_load",
     ),
     "vdc_output_delay_config": (
         "vdc_dpll_manager_get_output_delay_ns", "output_delay_publish_stopped",
@@ -84,7 +84,7 @@ FRAGMENT_FUNCTIONS = {
         "priority_follow_rate_interval", "priority_follow_delta", "priority_follow_cancel",
         "priority_follow_same_binding", "priority_follow_baseline",
         "priority_follow_prepare_core1", "priority_follow_current",
-        "priority_follow_apply_core1",
+        "priority_follow_apply_core1", "priority_follow_record_decision",
     ),
     "vdc_priority_follow_config": (
         "priority_follow_config_pack", "vdc_dpll_manager_get_priority_follow_baseline",
@@ -95,7 +95,7 @@ FRAGMENT_FUNCTIONS = {
         "vdc_dpll_manager_recall_priority_follow_baseline",
         "priority_follow_config_store_maintenance",
         "vdc_dpll_manager_store_priority_follow_baseline",
-        "priority_follow_baseline_init_from_product_config",
+        "priority_follow_baseline_init_from_product_config", "priority_follow_config_valid",
     ),
     "vdc_priority_guard": (
         "priority_guard_output", "priority_guard_publish", "priority_guard_copy",
@@ -105,11 +105,11 @@ FRAGMENT_FUNCTIONS = {
         "vdc_dpll_manager_get_priority_guard",
     ),
     "vdc_priority_host_control": (
-
+        "priority_note_host_control",
     ),
     "vdc_priority_ingress": (
         "priority_ingress_publish", "vdc_dpll_manager_get_priority_ingress",
-        "vdc_priority_ingress_core1",
+        "vdc_priority_ingress_core1", "priority_ingress_inc",
     ),
     "vdc_priority_match": (
         "priority_match_inc", "vdc_dpll_manager_priority_match_generation",
@@ -164,6 +164,7 @@ FRAGMENT_FUNCTIONS = {
         "vdc_dpll_manager_get_priority_tx", "priority_tx_empty", "priority_tx_config_valid",
         "priority_tx_model_valid", "priority_tx_binding_current", "priority_tx_same_source",
         "priority_tx_put16", "priority_tx_ready", "vdc_priority_tx_core1",
+        "vdc_priority_tx_origin_trace_eligible_core1",
     ),
     "vdc_priority_tx_gap": (
         "vdc_dpll_manager_get_priority_tx_gap_config", "priority_gap_set_stopped",

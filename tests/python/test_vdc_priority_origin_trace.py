@@ -16,6 +16,7 @@ from test_vdc_command_owner import ROOT, compile_executable
 from test_vdc_priority_follow import domain_sources
 from test_vdc_priority_trace import trace_executable, execute, STATUS_FIELDS  # noqa: F401
 from tools.vdc_priority_trace import vdc_priority_trace as decoder
+from vdc_units import fragment_slice
 
 
 @pytest.fixture(scope="module")
@@ -29,7 +30,7 @@ def origin_executable(trace_executable, tmp_path_factory):
     source = source.replace("int main(int argc,char **argv)", "int previous_trace_main(int argc,char **argv)", 1)
     source = source.replace("const uint32_t expected=168u+s.record_count*100u;",
         "const uint32_t expected=(s.schema==5u?264u:168u)+s.record_count*100u;")
-    source += INPUTS + (ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_tx.inc").read_text(encoding="utf-8")
+    source += INPUTS + fragment_slice("vdc_priority_tx")
     source += CASES
     return compile_executable(tmp_path_factory.mktemp("origin-trace"), "origin_trace", source,
         domain_sources() + [ROOT / "components/vdc_dpll_manager/src/vdc_feedback_match.c",

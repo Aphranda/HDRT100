@@ -192,12 +192,28 @@ def _definition_name(header: str) -> str | None:
 
 
 def keep_named_chunks(text: str, names: set[str]) -> str:
-    """Keep every non-function chunk plus the function chunks named in ``names``."""
+    """Keep every non-function chunk plus the function chunks named in ``names``.
+
+    The chunker can mis-attribute a signature that follows a declaration block;
+    any requested function missing from the result is appended by exact
+    extraction so a harness never silently loses a definition.
+    """
     kept: list[str] = []
     for name, start, end in split_top_level(text):
         if name is None or name in names:
             kept.append(text[start:end])
-    return "".join(kept)
+    result = "".join(kept)
+    for name in sorted(names):
+        try:
+            function_body(result, name)
+            continue
+        except KeyError:
+            pass
+        try:
+            result += "\n" + function_body(text, name) + "\n"
+        except KeyError:
+            continue
+    return result
 
 
 def prune_unused_statics(text: str) -> str:
