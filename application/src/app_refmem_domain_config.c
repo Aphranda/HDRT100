@@ -6,6 +6,11 @@
 #include "refmem_command.h"
 #include "refmem_domain_config.h"
 #include "tdma_runtime_owner.h"
+#include "trigger_action_template_store.h"
+#include "trigger_deployment_service.h"
+#include "trigger_grid_preview.h"
+#include "trigger_t2_runtime.h"
+#include "trigger_turntable_predictor.h"
 #include "vdc_dpll_manager.h"
 
 /* N6.2: DPLL.  N6.3: TDMA online seat/load; topology/period stay
@@ -102,6 +107,101 @@ static bool tdma_load_mask_handler(const uint32_t *params, uint32_t param_words,
     return true;
 }
 
+static bool t2_configure_handler(const uint32_t *params, uint32_t param_words,
+                                 uint32_t *reason)
+{
+    if (params == NULL || param_words != 13u) {
+        return reject(reason);
+    }
+    if (params[3] > 1u || params[6] > 999u ||
+        params[12] > TRIGGER_T2_DESCRIPTOR_WINDOW_MAX) {
+        return reject(reason);
+    }
+
+    trigger_t2_runtime_snapshot_t state;
+    if (!trigger_t2_runtime_snapshot(&state) || state.active) {
+        return reject(reason);
+    }
+
+    trigger_grid_preview_snapshot_t grid;
+    trigger_deployment_snapshot_t deployment;
+    trigger_action_template_store_snapshot_t templates;
+    trigger_turntable_scan_geometry_t geometry;
+    if (trigger_grid_preview_snapshot(&grid) || !grid.configured) {
+        return reject(reason);
+    }
+    if (trigger_deployment_snapshot(&deployment) || !deployment.active.valid) {
+        return reject(reason);
+    }
+    if (trigger_action_template_snapshot(&templates) || !templates.installed ||
+        !templates.resources_loaded || !templates.binding_current) {
+        return reject(reason);
+    }
+
+    const int32_t step_mdeg = (int32_t)params[10];
+    if (!trigger_t2_runtime_scan_step(step_mdeg)) {
+        return reject(reason);
+    }
+
+    trigger_t2_runtime_config_t config = {0};
+    config.grid = grid.grid;
+    config.predictor = (trigger_turntable_predictor_config_t){
+        .pulses_per_degree = params[11],
+        .start_angle_mdeg = (int32_t)params[7],
+        .zero_angle_mdeg = (int32_t)params[8],
+        .terminal_angle_mdeg = (int32_t)params[9],
+        .pre_roll_mdeg = params[4],
+        .post_roll_mdeg = params[5],
+        .threshold_per_mille = params[6]};
+    config.templates = templates.table;
+    config.deployment = deployment.active.table;
+    config.template_crc = templates.crc;
+    config.run_id = params[0];
+    config.local_role = deployment.active.local_role;
+    config.source_slot = params[1];
+    config.target_mask = params[2];
+    config.descriptor_window_sync = params[12] != 0u
+        ? params[12] : TRIGGER_T2_DESCRIPTOR_TARGET_GRACE_SYNC;
+    config.origin = params[3];
+
+    if (trigger_turntable_scan_validate(&config.predictor, step_mdeg, 0u,
+                                        &geometry) != TRIGGER_TURNTABLE_SCAN_OK) {
+        return reject(reason);
+    }
+    if (geometry.step_pulses * (1000u - params[6]) / 1000u <
+        TRIGGER_T2_MIN_DECLARE_LEAD_PULSES) {
+        return reject(reason);
+    }
+    if (!trigger_t2_runtime_configure(&config)) {
+        return reject(reason);
+    }
+    return true;
+}
+
+static bool t2_mount_handler(const uint32_t *params, uint32_t param_words,
+                             uint32_t *reason)
+{
+    (void)params;
+    (void)param_words;
+    /* TDMA is the non-stop bearer, so the STOP-only position reset that
+     * precedes the local T2 MOUNT cannot run here.  T2 start stays a local
+     * action until a running-safe position-reset path is proven; the unified
+     * plane only stops and configures T2. */
+    return reject_not_online(reason);
+}
+
+static bool t2_unmount_handler(const uint32_t *params, uint32_t param_words,
+                               uint32_t *reason)
+{
+    (void)params;
+    (void)param_words;
+    if (param_words != 0u) {
+        return reject(reason);
+    }
+    trigger_t2_runtime_stop();
+    return true;
+}
+
 bool app_refmem_domain_config_init(void)
 {
     refmem_domain_config_reset();
@@ -119,5 +219,11 @@ bool app_refmem_domain_config_init(void)
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_DPLL_TUNE, 5u,
                                          dpll_tune_handler) &&
            refmem_domain_config_register(REFMEM_COMMAND_TYPE_DPLL_OVERRIDE,
-                                         1u, dpll_override_handler);
+                                         1u, dpll_override_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_CONFIGURE, 13u,
+                                         t2_configure_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_MOUNT, 3u,
+                                         t2_mount_handler) &&
+           refmem_domain_config_register(REFMEM_COMMAND_TYPE_T2_UNMOUNT, 0u,
+                                         t2_unmount_handler);
 }

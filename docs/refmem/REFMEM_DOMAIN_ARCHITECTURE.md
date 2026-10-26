@@ -1712,7 +1712,7 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 | 28 | `VDC_OUTPUT_DELAY` | VDC | VDC 域停窗口内 `APPLIED` |
 | 29 | `VDC_OUTPUT_TIMING` | VDC | VDC 域停窗口内 `APPLIED` |
 | 30 | `T2_CONFIGURE` | T2 | T2 域停窗口内 `APPLIED` |
-| 31 | `T2_MOUNT` | T2 | T2 域启 |
+| 31 | `T2_MOUNT` | T2 | 首版本地启动；统一面 `NOT_ONLINE_SAFE`（TDMA 运行时缺 STOP-only position reset） |
 | 32 | `T2_UNMOUNT` | T2 | T2 域停 |
 | 33 | `VDC_STOP` | VDC | VDC 域停（映射到现有 output/reference stop） |
 | 34 | `VDC_START` | VDC | VDC 域启（映射到现有 output/reference start） |
@@ -1731,7 +1731,7 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 - function 表是编译期 `const` 静态表：`function_id → {name, step_count, failure_policy, steps[]}`；step = `{command_id, target_rule, required_rule, param_bindings[], flags}`。
 - 执行器在 `task_refmem_sync` 中有界、非阻塞、串行推进；每步走同一条原子 `CTRL:EXECute` 路径，一次只允许一个 in-flight 命令/目标；聚合 per-step ACK/NACK，最终 `COMPLETED/FAILED/PARTIAL`。
 - 失败策略首版只支持 `ABORT_REMAINING` / `CONTINUE_REPORT`；`ROLLBACK` 明确不实现。
-- 功能示例：`FUNC_TDMA_ONLINE`（21→23）、`FUNC_CLOCK_RECONFIG`（24→25→33→27→28→29→34）、`FUNC_T2_RECONFIG`（32→30→31）、`FUNC_BRINGUP_ONLINE`（上述按序组合，不含部署期 20/22）。
+- 功能示例：`FUNC_TDMA_ONLINE`（21→23）、`FUNC_CLOCK_RECONFIG`（24→25→33→27→28→29→34）、`FUNC_T2_RECONFIG`（32→30，停+配置；T2 启动仍走本地 `T2:MOUNT`）、`FUNC_BRINGUP_ONLINE`（上述按序组合，不含部署期 20/22 和本地启动 31）。
 - **TDMA 连续性不变量**：任何 function 执行前后，TDMA `up_sequence`/`down_rx_sequence` 必须单调推进；HIL 证据必须包含跨功能前后的序号与帧计数，不允许用“功能 ACK”替代链路连续性。
 - function 表不引入动态脚本、运行时注册、第二命令槽或第二 ACK 事实；单板本地 `T2:MOUNT/UNMOUNT` 等路径仍保留（`REFMEM-LOCAL-01`）。
 

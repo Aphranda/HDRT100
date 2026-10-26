@@ -10,7 +10,7 @@ Last updated: 2026-10-26
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261026-005`。
+- 最新条目：`REFMEM-TASK-20261026-006`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -45,6 +45,17 @@ Last updated: 2026-10-26
 - 未覆盖：seat 在线切换的**目标级 HIL**（切换前后 `up_sequence`/`down_rx_sequence` 连续性）尚未做；P3 只证明默认 1:1 路径与构建/启动。VDC/T2 域停配置未做。
 - 提交：`dac41e0e`（firmware+host）；文档另提。
 - 下一步：N6.3.3 VDC 域停配置（reference/delay/timing）或 N6.4 T2；随后 N7 function 层。
+
+### REFMEM-TASK-20261026-006 — N6.4 T2 域停配置（TDMA 不中断）
+
+- 状态：`UNMOUNT`/`CONFIGURE` 完成；`MOUNT` 首版明确 `NOT_ONLINE_SAFE`。
+- 内容：
+  - `T2_UNMOUNT` 调 `trigger_t2_runtime_stop()`；`T2_CONFIGURE` 从 13 个参数重建 `trigger_t2_runtime_config_t`（grid/deployment/templates 前置校验、scan step/geometry、window 0=默认 grace），在 T2 `active==0` 时调用 `trigger_t2_runtime_configure`。
+  - `T2_MOUNT` 不调用 `distributed_refmem_reset_position_stopped()`（该函数要求 TDMA 停环）；首版返回 `NOT_ONLINE_SAFE`，T2 启动仍走本地 `T2:MOUNT`。
+  - TDMA 全程不停机；统一面只负责 T2 停+配置。
+- 证据：`pico2-release` 构建 `flash_link_contract=OK`；P3 `DPLL60_JOINT` build `20261026162736`、`check-staged` OK。首跑在 TRN-03B `no complete board record available after failed startup` 失败；用同一 package/OTA 重跑通过，原始失败保留 `out/n6/p3-dpll60-n64/`，通过件 `out/n6/p3-dpll60-n64-retry/`。
+- 未覆盖：`T2_UNMOUNT/CONFIGURE` 的目标级 HIL 尚未执行；本次 P3 只证明构建/OTA/启动/DPLL 路径。T2 启动的在线安全 reset 未实现。
+- 下一步：N6.3.3 VDC 域停配置，或跳过 VDC 直接 N7 function 层（用已注册的 21/23/24/25/30/32 先做静态 function）。
 
 ## 归档索引
 

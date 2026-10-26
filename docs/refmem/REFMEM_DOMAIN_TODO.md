@@ -814,7 +814,7 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 | 28 | `VDC_OUTPUT_DELAY` | VDC | delay_ns（int32） | VDC 域停窗口内应用 |
 | 29 | `VDC_OUTPUT_TIMING` | VDC | plan_us, commit_us, refill_us | VDC 域停窗口内应用 |
 | 30 | `T2_CONFIGURE` | T2 | run_id, source_slot, target_mask, origin, pre_roll, post_roll, threshold, start_angle, zero_angle, terminal_angle, step_mdeg, pulses_per_degree, window（13 words） | T2 域停窗口内应用 |
-| 31 | `T2_MOUNT` | T2 | count_epoch, origin_count_lo, origin_count_hi | T2 域启 |
+| 31 | `T2_MOUNT` | T2 | count_epoch, origin_count_lo, origin_count_hi | 首版本地启动；统一面 `NOT_ONLINE_SAFE` |
 | 32 | `T2_UNMOUNT` | T2 | — | T2 域停 |
 | 33 | `VDC_STOP` | VDC | —（映射到现有 output/reference stop 语义，N6.0.2 冻结） | VDC 域停 |
 | 34 | `VDC_START` | VDC | —（映射到现有 output/reference start 语义，N6.0.2 冻结） | VDC 域启 |
@@ -828,7 +828,7 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 - `target_rule`：`SAME_AS_FUNCTION` / `FIXED_MASK` / `LOCAL_ONLY`；`param_bindings` 支持字面值、`ARGn`、`LOCAL_SLOT`（由目标自派生）。
 - 失败策略：`ABORT_REMAINING`（默认）/ `CONTINUE_REPORT`；`ROLLBACK` 首版不实现，文档明确记为未支持。
 - 执行顺序：串行步骤；每步走同一条 `CTRL:EXECute` 原子路径，一次只允许一个 in-flight 命令/目标；聚合 per-step ACK/NACK，最终 `COMPLETED/FAILED/PARTIAL/STAGED`。
-- 功能示例（TDMA 不停机）：`FUNC_TDMA_ONLINE`（21→23）；`FUNC_CLOCK_RECONFIG`（24→25→VDC_STOP→27→28→29→VDC_START）；`FUNC_T2_RECONFIG`（32→30→31）；`FUNC_BRINGUP_ONLINE`（上述按序组合，不含部署期 20/22）。部署期的 ring topology/period 单独走部署流程，不放进运行时 function。
+- 功能示例（TDMA 不停机）：`FUNC_TDMA_ONLINE`（21→23）；`FUNC_CLOCK_RECONFIG`（24→25→VDC_STOP→27→28→29→VDC_START）；`FUNC_T2_RECONFIG`（32→30，停+配置；T2 启动仍走本地 `T2:MOUNT`）；`FUNC_BRINGUP_ONLINE`（上述按序组合，不含部署期 20/22 和本地启动 31）。部署期的 ring topology/period 单独走部署流程，不放进运行时 function。
 - 首版函数参数按“全环一致”设计；需要逐板不同值时，拆成多个 function 或后续扩展 per-target arg map（不在首版）。
 
 ### 细分里程碑（每项完成即按 AGENTS §8 汇报并留证）
@@ -845,8 +845,8 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 | **N6.2.2** | host 用例（成功/参数非法/未注册 type/entry 非 owner）；P3；提交 | 全绿 + 凭证 | host/P3/commit |
 | **N6.3.1** | TDMA 在线 seat（打包原子字）+ load mask；topology/period 运行时拒绝；VDC 域停配置适配器（reference/delay/timing） | TDMA 部分 ✅：seat/load 在线、20/22 返回 `NOT_ONLINE_SAFE`；VDC 部分 ⏳ 未做 | 代码 + host |
 | **N6.3.2** | host：seat 原子/撕裂读/拓扑拒绝/VDC stop-config-start/重复 seq；P3；提交 | TDMA 部分 ✅：pack/unpack host + P3 `20261026161302` + 提交 `dac41e0e`；VDC 部分 ⏳ | host/P3/commit |
-| **N6.4.1** | T2 适配器：从 SCPI 回调抽 `t2_apply_words()`；`UNMOUNT→CONFIGURE→MOUNT` 域停序列，TDMA 不中断 | 目标 `configured=1`；TDMA 序号连续；ACK | 代码 + host |
-| **N6.4.2** | host + P3 + 提交 | 全绿 + 凭证 | host/P3/commit |
+| **N6.4.1** | T2 适配器：`UNMOUNT→CONFIGURE` 域停序列（TDMA 不中断）；`MOUNT` 首版返回 `NOT_ONLINE_SAFE`，启动仍本地 | ✅ 2026-10-26：configure/unmount 落地；MOUNT 明确 NOT_ONLINE_SAFE；目标级 HIL 未做 | 代码 + host |
+| **N6.4.2** | host + P3 + 提交 | ✅ 构建 + P3 `20261026162736`；无新增 host 用例（handler 由固件编译覆盖） | host/P3/commit |
 | **N7.1** | `config/refmem/function_catalog.yaml` + 生成器 + `refmem_function_catalog.h/.c`；function 表 schema 落库 | 4 个 function 生成；host 查表 | 代码 + host |
 | **N7.2** | function 执行器（静态、非阻塞、串行 step、聚合、失败策略）；接入 `task_refmem_sync` | host：成功/中途失败/超时/取消 | 代码 + host |
 | **N7.3** | SCPI `CTRL:FUNCtion:RUN/STATus?/CATalog?`；一条命令一个功能 | 本地/单目标 HIL | 代码 + HIL |
