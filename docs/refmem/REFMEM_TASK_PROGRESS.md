@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-007`。
+- 最新条目：`REFMEM-TASK-20261027-008`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,18 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-008 — T2 正向 function 首次通过：停+配置 COMPLETED
+
+- 状态：T2 正向域停配置 ✅（本地 COM5）；四板 T2 正向未做（环已停）。
+- 前置：`t2_workflow.py --full` 21 步全 OK（grid/deployment/action table/template/T2 configure+start/VDC run/优先级/位置发布/teardown），日志 `out/n7/t2_workflow_full.log`；teardown 停环后 grid/deployment/templates 仍 configured（`GRID?` configured=1、`DEPloyment?` active=1、`TEMPlate?` installed=1）。
+- 先单步验证：`CTRL:EXECute 30,1,1,1,0,14,0,5000,5000,500,0,0,360000,1000,1000,0` → `state=4 ACKED`。关键：`threshold_per_mille` 必须 0<值<1000；此前用 0 被 `predictor_config_valid` 拒绝（diag 142）。
+- function 正向：`FUNC_T2_RECONFIG,1,1,1,0,14,0,5000,5000,500,0,0,360000,1000,1000,0`
+  - `state=2 COMPLETED`、`step_index=2/2`、`ack=1`、`nack=0`；`CTRL:STATus?` `state=4 ACKED`。
+- 参数：run_id=1，source=0，target=14，origin=0，pre/post=5000 mdeg，threshold=500‰，start=0，zero=0，terminal=360000 mdeg，step=1000 mdeg，ppd=1000，window=0。
+- 证据：`out/n7/local_hil/t2_positive_try.txt`；未改代码，无新 P3。
+- 未覆盖：四板 T2 正向（需健康 process-image 环）、T2 start/mount（仍 `NOT_ONLINE_SAFE`）、VDC reference/timing、N7.5。
+- 下一步：用同一组参数在四板环上跑 `FUNC_T2_RECONFIG,14,14,...`；补齐 N7.5 收口。
 
 ### REFMEM-TASK-20261027-007 — 有界 RUN_STATE_DENIED 重试；VDC reference 仍不退休
 
