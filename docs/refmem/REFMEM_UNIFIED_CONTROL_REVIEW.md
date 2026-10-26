@@ -47,7 +47,7 @@ Last updated: 2026-10-27
 |---|---|---|---|---|---|
 | VDC reference 不 retire | ⑥ | `VDC:REFerence:ENABle 0` 后 `STATus state=2 RUNNING` | `FUNC_VDC_RECONFIG` step1 `reason=7` | `STATus` RETIRED/IDLE；cmd27 ACK；`CONFigure?` 新值 | N6.3.3 |
 | VDC timing 非 idle | ⑥ | `VDC_STOP` 后 `vdc_run_output_configuration_idle()` false | cmd29 `reason=7` | output 全 idle；cmd29 ACK；`TIMing?` 新值 | N6.3.3 |
-| 四板 T2 正向 | ⑥ | 需健康 process-image + grid/deployment/templates；T2 workflow 的 raw ring 不承载 `REFTMEM_CMD` | 仅有本地 COM5 正向；四板远端 step0 `reason=11` | `FUNC_T2_RECONFIG,14,14` `ack=14`，TDMA 序号连续 | N7.5 |
+| 四板 T2 正向 | ⑥ | 需健康 process-image + grid/deployment/templates；T2 前置需 STOP 态安装，process-image 运行中补装失败；T2 workflow 的 raw ring 不承载 `REFTMEM_CMD` | 仅有本地 COM5 正向；四板远端 step0 `reason=11` | `FUNC_T2_RECONFIG,14,14` `ack=14`，TDMA 序号连续 | N7.5 |
 | T2 START/MOUNT | ⑥ | `distributed_refmem_reset_position_stopped()` 需 TDMA 停 | function 不能启动 T2 | 新增 running-safe 位置复位或明确本地边界 | N6.4 |
 | 四板 T2 逐板不可替代 | ③ | 非协调者本地 function 超时 `reason=11` | 不能拼凑四板证据 | 只认协调者单命令 `ack=14` | N7.5 |
 | function 重试上限 | ② | 域停窗口 >3×100 ms | 超时仍 FAILED | 按域实测调整上限/预算 | N7.2 |
@@ -63,5 +63,5 @@ Last updated: 2026-10-27
 ## 6. 下一步
 
 1. VDC owner 修 reference retire 与 output 全 idle；复跑 `FUNC_VDC_RECONFIG`。
-2. 在可保持运行的 **process-image** 环上跑四板 `FUNC_T2_RECONFIG,14,14,...`；T2 workflow 已加 `--leave-running`（`a5cbdb06`），但其 ring 是 raw/T2 链，不承载 `REFTMEM_CMD`，需把 process-image 与 T2 前置串起来。
+2. 在可保持运行的 **process-image** 环上跑四板 `FUNC_T2_RECONFIG,14,14,...`；T2 workflow 已加 `--leave-running`（`a5cbdb06`），但其 ring 是 raw/T2 链，不承载 `REFTMEM_CMD`；且 T2 前置（grid/deployment/templates）需 STOP 态安装（运行中 step8–11 失败），需把“STOP 装前置 → 不复位启动 process-image”串起来。
 3. 完成上述后更新本快照并把 N7.5/N7.6 标 ✅；在此之前目标保持 active。

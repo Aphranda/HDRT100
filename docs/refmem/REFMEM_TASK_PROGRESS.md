@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-011`。
+- 最新条目：`REFMEM-TASK-20261027-012`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,17 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-012 — T2 前置不能在 process-image 运行中补装
+
+- 状态：四板 T2 正向仍阻塞；C14 已轮转。
+- 实测：TRN process-image `trn03_t2prep1` 一次通过（`passed=true/left_running=true`）；在运行中的 process-image 环上跑 `t2_workflow.py --steps 7-11 --leave-running`，步骤 8–11 失败：
+  - step8 `GRID:CONFigure` → `grid not configured (result 33)`；
+  - step9 `binding stale`；step10 `stores not current`；step11 `counter not loaded`。
+- 判定：grid/deployment/template 的安装需要 STOP 态；process-image 运行中不能补装 T2 前置。四板 T2 正向需要“先 STOP 装前置 → 再 process-image 启动”的顺序，而 TRN 启动会复位 RAM，当前工具链没有保留前置的路径。
+- 处置：已 `RING:STOP` 四板，均 `enabled=0`。
+- 证据：`out/n7/t2_steps_7_11.log`、`out/n7/four_board_hil/trn03_t2prep1/`。
+- 下一步：给 TRN/流程增加“STOP 态装 T2 前置后不复位启动 process-image”，或把 T2 前置持久化到 flash/配置，再复跑四板 T2 正向。
 
 ### REFMEM-TASK-20261027-011 — T2 leave-running 工具；四板 T2 仍卡 process-image
 
