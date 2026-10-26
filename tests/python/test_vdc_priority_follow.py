@@ -19,6 +19,7 @@ from test_vdc_command_ingress import ingress_definition
 from test_vdc_command_owner import ROOT, compile_executable
 from test_vdc_follower_rate_boundary import HARNESS as DOMAIN_HARNESS
 from test_vdc_boundary_owner import PRELUDE as OWNER_PRELUDE, MATCH_STORAGE, TESTS as OWNER_TESTS
+from vdc_units import code, declarations, fragment_slice
 
 U64 = (1 << 64) - 1
 I64_MIN, I64_MAX = -(1 << 63), (1 << 63) - 1
@@ -58,15 +59,15 @@ def run_case(executable, case, data=None):
 @pytest.fixture(scope="module")
 def follow_executable(tmp_path_factory):
     manager = ROOT / "components/vdc_dpll_manager/src"
-    archive = ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1"
     physical = (ROOT / "components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
     begin = physical.index("enum {\n    TDMA_EVENT_LIVE_RETAINED")
     end = physical.index("} tdma_pio_spi_event_exact_t;", begin) + len("} tdma_pio_spi_event_exact_t;")
     event_types = '#include "tdma_event_history.h"\n' + physical[begin:end]
-    matcher = (archive / "vdc_dpll_feedback_match.inc").read_text(encoding="utf-8")
-    source_type = re.search(r'typedef struct \{\s*uint64_t next_ordinal.*?\} vdc_feedback_match_source_t;', matcher, re.S)
-    assert source_type
-    helpers = matcher[matcher.index("static uint32_t match_inc"):matcher.index("/* Keep authorization")]
+    match_decls = declarations("vdc_dpll_feedback_match")
+    match_code = code("vdc_dpll_feedback_match",
+                      functions=("match_load_words", "match_publish"),
+                      remove=("s_feedback_matches", "s_feedback_match_owner_token",
+                              "s_feedback_match_active_generation"))
     prelude = OWNER_PRELUDE.replace("EVENT_TYPES", event_types).replace(
         '#include <assert.h>', '#include <assert.h>\n#include <inttypes.h>\n#include "vdc_priority_follow.h"\n#include "vdc_priority_phase.h"\n'
         '#include "vdc_priority_rx.h"\n#include "vdc_priority_match.h"\n'
@@ -76,14 +77,11 @@ def follow_executable(tmp_path_factory):
     prelude = prelude.replace(old_bridge,
         '{ assert(hz==BOARD_SYS_CLOCK_HZ);*out=(vdc_timestamp_clock_bridge_t){'
         '.tick_hz=hz,.raw_before=raw_now,.raw_after=raw_now+1,.local_ns=(now_ns/1000u)*1000u};return true; }')
-    harness = prelude + EXTERNAL_INPUTS + source_type.group(0) + MATCH_STORAGE + helpers
+    harness = prelude + EXTERNAL_INPUTS + "static void priority_note_host_control(void) {}\n" + match_decls + MATCH_STORAGE + match_code
     harness += '\nstatic void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t *model);\n#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)\n'
-    for name in ("vdc_model_feedback.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc", "vdc_priority_follow.inc"):
-        included = (archive / name).read_text(encoding="utf-8")
-        if name == "vdc_priority_follow.inc":
-            included = included.replace('#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_phase.inc"',
-                (archive / "vdc_priority_phase.inc").read_text(encoding="utf-8"))
-        harness += "\n" + included
+    for name in ("vdc_model_feedback", "vdc_boundary_control",
+                 "vdc_priority_match", "vdc_priority_follow"):
+        harness += "\n" + fragment_slice(name)
     harness += "\n" + ingress_definition(DOMAIN_HARNESS, "fixture") + SCENARIOS.replace(
         "OWNER_REMOTE_INPUT", ingress_definition(OWNER_TESTS, "follower_input"))
     sources = domain_sources() + [

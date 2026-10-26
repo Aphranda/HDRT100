@@ -165,6 +165,17 @@ def split_top_level(text: str) -> list[tuple[str | None, int, int]]:
                 cursor += 1
             header = text[chunk_start:index]
             name = _definition_name(header)
+            if name is None:
+                # Type block: keep its declarator and semicolon (`} name_t;`).
+                probe = cursor
+                while probe < length and text[probe] in " \t\r\n":
+                    probe += 1
+                if probe < length and text[probe] == ";":
+                    cursor = probe + 1
+                elif probe < length and (text[probe].isalpha() or text[probe] == "_"):
+                    tail = text.find(";", probe)
+                    if tail >= 0:
+                        cursor = tail + 1
             chunks.append((name, chunk_start, cursor))
             chunk_start = cursor
             index = cursor
@@ -236,6 +247,13 @@ def prune_unused_statics(text: str) -> str:
             last = match.end()
     out.append(text[last:])
     return "".join(out)
+
+
+def remove_declaration(text: str, name: str) -> str:
+    """Remove one declaration line for ``name`` (never a call site)."""
+    pattern = re.compile(
+        rf"(?m)^(?:static\s+)?[A-Za-z_][^(\n]*\b{re.escape(name)}\b[^;\n]*;[ \t]*\n?")
+    return pattern.sub("", text)
 
 
 def strip_statics(text: str) -> str:

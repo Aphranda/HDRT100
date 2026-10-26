@@ -86,7 +86,11 @@ def function_body_for(fragment: str, name: str) -> str:
 FRAGMENT_DECLS = {
     "vdc_priority_tx": ("vdc_priority_tx_work_t",),
     "vdc_priority_match": ("vdc_priority_match_work_t",),
+    "vdc_priority_follow": ("vdc_priority_follow_work_t",),
+    "vdc_priority_phase": ("vdc_priority_phase_work_t",),
     "vdc_boundary_capture": ("vdc_boundary_peer_t", "vdc_boundary_meta_t",
+                             "vdc_boundary_request_t"),
+    "vdc_boundary_control": ("vdc_boundary_peer_t", "vdc_boundary_meta_t",
                              "vdc_boundary_request_t"),
     "vdc_dpll_feedback_match": ("vdc_feedback_match_source_t",
                                 "vdc_feedback_match_binding_t",
@@ -151,31 +155,63 @@ def _fragment_closure(fragment: str, seen: set[str] | None = None) -> set[str]:
     return names
 
 
-def fragment_slice(fragment: str, statics: bool = True) -> str:
-    """Code the archived fragment used to contribute, taken from the live unit.
+def declarations(fragment: str) -> str:
+    """Helpers and hoisted types for ``fragment`` and its nested fragments.
 
-    The unit body merges sibling fragments and moves fragment-local types into
-    the private header.  The slice removes the sibling fragments' functions (so
-    a harness stub cannot collide with them) and restores the declarations the
-    fragment used to carry.  Remaining sibling statics are harmless and are
-    suppressed with ``-Wno-unused-*`` by the harness.
+    Each item is emitted behind a guard, so composing several slices of the
+    same unit re-emits nothing twice.
     """
+    header = (SRC / FRAGMENT_DECL_HEADER).read_text(encoding="utf-8")
+    parts: list[str] = []
+    for current in _fragment_tree(fragment):
+        for name in FRAGMENT_HELPERS.get(current, ()):
+            parts.append(_guarded(name, c_text.function_body(header, name)))
+        if FRAGMENT_DECLS.get(current):
+            for text in _declarations(header, FRAGMENT_DECLS[current]):
+                ident = re.search(r"}\s*([A-Za-z_]\w*)\s*;", text)
+                parts.append(_guarded(ident.group(1) if ident else "decl", text))
+    return "\n".join(parts)
+
+
+def _fragment_tree(fragment: str, seen: set[str] | None = None) -> list[str]:
+    seen = set() if seen is None else seen
+    if fragment in seen:
+        return []
+    seen.add(fragment)
+    order = [fragment]
+    for included in FRAGMENT_INCLUDES.get(fragment, ()):
+        order.extend(_fragment_tree(included, seen))
+    return order
+
+
+def _guarded(name: str, text: str) -> str:
+    tag = f"VDC_UNIT_DECL_{name}"
+    return f"#ifndef {tag}\n#define {tag}\n{text}\n#endif"
+
+
+def code(fragment: str, statics: bool = True, remove: tuple[str, ...] = (),
+         functions: tuple[str, ...] | None = None) -> str:
+    """The fragment's own function code, from the live unit."""
     unit = unit_of(fragment)
     text = body(unit)
-    names = _fragment_closure(fragment)
+    names = set(functions) if functions else _fragment_closure(fragment)
     if not names:
         raise KeyError(f"no function map for VDC fragment: {fragment}")
     text = c_text.keep_named_chunks(text, names)
     text = c_text.prune_unused_statics(text) if statics else c_text.strip_statics(text)
-
+    for name in remove:
+        text = c_text.remove_declaration(text, name)
     parts: list[str] = []
-    if FRAGMENT_HELPERS.get(fragment):
-        header = (SRC / FRAGMENT_DECL_HEADER).read_text(encoding="utf-8")
-        parts.extend(c_text.function_body(header, name) for name in FRAGMENT_HELPERS[fragment])
-    if FRAGMENT_DECLS.get(fragment):
-        header = (SRC / FRAGMENT_DECL_HEADER).read_text(encoding="utf-8")
-        parts.extend(_declarations(header, FRAGMENT_DECLS[fragment]))
     if FRAGMENT_PROLOGUE.get(fragment):
         parts.append(FRAGMENT_PROLOGUE[fragment])
     parts.append(text)
     return "\n".join(part for part in parts if part)
+
+
+def fragment_slice(fragment: str, statics: bool = True,
+                   remove: tuple[str, ...] = (),
+                   functions: tuple[str, ...] | None = None) -> str:
+    """Declarations + code for ``fragment``, taken from the live unit."""
+    return "\n".join(part for part in (
+        declarations(fragment),
+        code(fragment, statics=statics, remove=remove, functions=functions)) if part)
