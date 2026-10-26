@@ -10,12 +10,14 @@ import pytest
 from test_vdc_boundary_command_transport import FIFO_SEAM, MANAGER, TESTS
 from test_vdc_command_ingress import ingress_definition
 from test_vdc_command_owner import ROOT, compile_executable
-from test_vdc_feedback_transport import FEEDBACK_SOURCES, make_feedback_harness
+from test_vdc_feedback_transport import (FEEDBACK_CLOSURE, FEEDBACK_SOURCES, PLATFORM_STUBS,
+                                         make_feedback_harness)
+from refmem_units import source as refmem_source
 
 
 @pytest.fixture(scope="module")
 def preacquire_executable(tmp_path_factory):
-    harness = make_feedback_harness(MANAGER).replace(
+    harness = make_feedback_harness(PLATFORM_STUBS + MANAGER).replace(
         "int main(int argc,char **argv)", "int legacy_main(int argc,char **argv)")
     harness = "#include <stdlib.h>\n#include <signal.h>\n" + harness
     harness = harness.replace("ses==session && role==9 && epoch==3",
@@ -55,12 +57,13 @@ def preacquire_executable(tmp_path_factory):
         "*out=profile; if(race_guard) *race_guard+=2; return binding_available; }")
     harness += TESTS.replace("int main(int argc,char **argv)",
         "int boundary_main(int argc,char **argv)")
-    source = (ROOT / "components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
+    source = refmem_source()
     definitions = "\n".join(ingress_definition(source, name) for name in (
         "distributed_refmem_tdma_flight_sync_update_ring",
         "distributed_refmem_tdma_flight_sync_service"))
     return compile_executable(tmp_path_factory.mktemp("preacquire"), "preacquire",
-        harness + PREACQUIRE_CASES.replace("SERVICE_DEFINITIONS", definitions), FEEDBACK_SOURCES)
+        harness + PREACQUIRE_CASES.replace("SERVICE_DEFINITIONS", definitions), FEEDBACK_SOURCES,
+        closure=FEEDBACK_CLOSURE)
 
 
 def run_case(executable, *args):

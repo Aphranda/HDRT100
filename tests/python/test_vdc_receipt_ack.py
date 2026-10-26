@@ -4,7 +4,7 @@ import subprocess
 import pytest
 
 from test_vdc_command_owner import compile_executable
-from test_vdc_feedback_transport import FEEDBACK_SOURCES
+from test_vdc_feedback_transport import FEEDBACK_CLOSURE, FEEDBACK_SOURCES
 from test_vdc_reference_publish import make_reference_harness
 
 
@@ -13,7 +13,7 @@ def receipt_executable(tmp_path_factory):
     harness = make_reference_harness().replace(
         'int main(int argc,char **argv)', 'int reference_existing_main(int argc,char **argv)')
     return compile_executable(tmp_path_factory.mktemp('receipt'), 'receipt',
-                              harness + RECEIPT_TESTS, FEEDBACK_SOURCES)
+                              harness + RECEIPT_TESTS, FEEDBACK_SOURCES, closure=FEEDBACK_CLOSURE)
 
 
 @pytest.mark.parametrize('case', [

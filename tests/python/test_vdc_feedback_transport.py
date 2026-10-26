@@ -46,6 +46,15 @@ def _definition_text(source: str, name: str) -> str:
     return source[start:cursor].strip()
 
 
+# Platform calls the inlined units may reach; kept separate so a caller that
+# supplies its own manager stubs can still get them.
+PLATFORM_STUBS = r'''
+bool tdma_maintenance_runtime_ack(uint8_t stream_id, uint8_t generation,
+    uint8_t source_slot, bool ok)
+{ (void)stream_id;(void)generation;(void)source_slot;return ok; }
+'''
+
+
 def make_feedback_harness(manager_stubs=DEFAULT_MANAGER_STUBS):
     source = refmem_source()
     service = (ROOT / "components/tdma/src/tdma_service.c").read_text(encoding="utf-8")
@@ -544,6 +553,7 @@ FEEDBACK_SOURCES = [ROOT / path for path in (
 FEEDBACK_CLOSURE = refmem_source() + "\n" + "\n".join(
     path.read_text(encoding="utf-8")
     for path in sorted((ROOT / "components/distributed_refmem/inc").glob("*.h")))
+FEEDBACK_CLOSURE += "\n" + (ROOT / "components/board_identity/src/board_identity.c").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")

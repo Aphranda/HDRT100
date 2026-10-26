@@ -5,12 +5,13 @@ import pytest
 
 from test_vdc_boundary_command_transport import FIFO_SEAM, MANAGER, TESTS
 from test_vdc_command_owner import compile_executable
-from test_vdc_feedback_transport import FEEDBACK_SOURCES, make_feedback_harness
+from test_vdc_feedback_transport import (FEEDBACK_CLOSURE, FEEDBACK_SOURCES,
+                                           PLATFORM_STUBS, make_feedback_harness)
 
 
 @pytest.fixture(scope="module")
 def pending_executable(tmp_path_factory):
-    harness = make_feedback_harness(MANAGER).replace(
+    harness = make_feedback_harness(PLATFORM_STUBS + MANAGER).replace(
         "int main(int argc,char **argv)", "int legacy_main(int argc,char **argv)")
     harness = harness.replace("static tdma_service_service_t owner;", FIFO_SEAM +
                               "\nstatic tdma_service_service_t owner;")
@@ -30,7 +31,7 @@ def pending_executable(tmp_path_factory):
     harness += TESTS.replace("int main(int argc,char **argv)",
                             "int boundary_existing_main(int argc,char **argv)")
     return compile_executable(tmp_path_factory.mktemp("pending-handoff"), "pending_handoff",
-                              harness + PENDING_TESTS, FEEDBACK_SOURCES)
+                              harness + PENDING_TESTS, FEEDBACK_SOURCES, closure=FEEDBACK_CLOSURE)
 
 
 @pytest.mark.parametrize("case", [

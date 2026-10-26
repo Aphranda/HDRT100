@@ -8,7 +8,7 @@ import subprocess
 import pytest
 
 from test_vdc_command_owner import compile_executable
-from test_vdc_feedback_transport import FEEDBACK_SOURCES
+from test_vdc_feedback_transport import FEEDBACK_CLOSURE, FEEDBACK_SOURCES
 from test_vdc_reference_publish import make_reference_harness
 
 
@@ -20,7 +20,7 @@ def executable(tmp_path_factory):
                               'role==profile.control_profile.generation && '
                               'epoch==profile.clock_epoch_id && run==profile.clock_run_id')
     return compile_executable(tmp_path_factory.mktemp('spacing'), 'spacing',
-                              harness + CASES, FEEDBACK_SOURCES)
+                              harness + CASES, FEEDBACK_SOURCES, closure=FEEDBACK_CLOSURE)
 
 
 @pytest.mark.parametrize('case', [

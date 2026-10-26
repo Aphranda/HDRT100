@@ -103,7 +103,7 @@ def _header_for(name: str) -> str | None:
     for path in sorted((ROOT / "components").glob("*/inc/*.h")):
         text = path.read_text(encoding="utf-8")
         if re.search(rf"(?m)^\s*#define\s+{re.escape(name)}\b", text) or \
-                re.search(rf"\b{re.escape(name)}\s*;", text):
+                re.search(rf"\b{re.escape(name)}\s*[;(]", text):
             return path.name
     return None
 
@@ -116,12 +116,26 @@ def _append_closure(text, stderr, closure):
     """
     declarations = []
     definitions = []
+    headers: list[str] = []
     missing_functions = (set(re.findall(r"undefined reference to `(\w+)'", stderr))
                          | set(re.findall(r"implicit declaration of function '(\w+)'", stderr)))
     for name in sorted(missing_functions):
         try:
+            local = c_text.function_body(text, name)
+        except KeyError:
+            local = None
+        if local:
+            # Defined later in the same harness: add a matching prototype.
+            declarations.append(local.split("{", 1)[0].strip() + ";")
+            continue
+        try:
             definition = c_text.function_body(closure, name)
         except KeyError:
+            # Not in the closure text: expose its component header if possible.
+            header = _header_for(name)
+            if header and header not in headers:
+                headers.append(header)
+                continue
             # A data symbol, not a function: keep the whole definition early.
             data = re.search(
                 rf"(?m)^[A-Za-z_][^;\n]*\b{re.escape(name)}\b[^;\n]*;[ \t]*$",
@@ -140,7 +154,6 @@ def _append_closure(text, stderr, closure):
         if match:
             declarations.append(match.group(0))
     typedefs = c_text.typedefs(closure)
-    headers: list[str] = []
     unknown = (set(re.findall(r"unknown type name '(\w+)'", stderr))
                | set(re.findall(r"'([A-Z][A-Z0-9_]+)' undeclared", stderr)))
     for name in sorted(unknown):

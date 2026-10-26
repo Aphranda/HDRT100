@@ -4,7 +4,8 @@ import subprocess
 import pytest
 
 from test_vdc_command_owner import compile_executable
-from test_vdc_feedback_transport import FEEDBACK_SOURCES, make_feedback_harness
+from test_vdc_feedback_transport import (FEEDBACK_CLOSURE, FEEDBACK_SOURCES,
+                                           PLATFORM_STUBS, make_feedback_harness)
 
 
 @pytest.fixture(scope='module')
@@ -12,14 +13,14 @@ def boundary_transport_executable(tmp_path_factory):
     # Share the legacy production integration harness, retaining its original
     # main as another callable function. Only the offer and FIFO-failure seams
     # are controlled; all codec/RefMem preparation and receiver code is real.
-    harness = make_feedback_harness(MANAGER).replace('int main(int argc,char **argv)',
+    harness = make_feedback_harness(PLATFORM_STUBS + MANAGER).replace('int main(int argc,char **argv)',
                                                     'int legacy_main(int argc,char **argv)')
     harness = harness.replace('static tdma_service_service_t owner;', FIFO_SEAM +
                               '\nstatic tdma_service_service_t owner;')
     harness = harness.replace('tdma_flight_fifo_core0_publish_tx(&service->flight_fifo,',
                               'boundary_test_fifo_publish(&service->flight_fifo,')
     return compile_executable(tmp_path_factory.mktemp('boundary-transport'), 'boundary_transport',
-                              harness + TESTS, FEEDBACK_SOURCES)
+                              harness + TESTS, FEEDBACK_SOURCES, closure=FEEDBACK_CLOSURE)
 
 
 @pytest.mark.parametrize('scenario', [
