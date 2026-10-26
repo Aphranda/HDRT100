@@ -1,5 +1,13 @@
-"""Body views of the split VDC units for the host harnesses."""
+"""Body views of the split VDC units for the host harnesses.
+
+The fragments were merged into synthetic translation units; a harness that
+used to compile a fragment now compiles the body of the unit that owns it.
+Nothing here reads the archived fragment copies: the archive is an audit
+artefact, not a fact source.
+"""
 from pathlib import Path
+
+import c_text
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "components/vdc_dpll_manager/src"
@@ -41,6 +49,30 @@ FRAGMENT_TO_UNIT = {
 }
 
 
+def unit_of(fragment: str) -> str:
+    """Name of the live unit that owns ``fragment``."""
+    try:
+        return FRAGMENT_TO_UNIT[fragment]
+    except KeyError as error:
+        raise KeyError(f"unknown VDC fragment: {fragment}") from error
+
+
+def units() -> list[str]:
+    """Every live unit referenced by the fragment map."""
+    return sorted(set(FRAGMENT_TO_UNIT.values()))
+
+
 def body_for(fragment: str) -> str:
     """Body of the merged unit that owns the given fragment."""
-    return body(FRAGMENT_TO_UNIT[fragment])
+    return body(unit_of(fragment))
+
+
+def function_body(unit: str, name: str) -> str:
+    """Definition of ``name`` taken from the live unit ``unit``."""
+    text = (SRC / f"{unit}.c").read_text(encoding="utf-8")
+    return c_text.function_body(text, name)
+
+
+def function_body_for(fragment: str, name: str) -> str:
+    """Definition of ``name`` taken from the unit that owns ``fragment``."""
+    return function_body(unit_of(fragment), name)

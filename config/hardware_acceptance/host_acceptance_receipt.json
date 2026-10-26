@@ -5,31 +5,39 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_dpll_observation_capture.py",
+    "tests/python/c_text.py",
+    "tests/python/scpi_units.py",
+    "tests/python/tdma_units.py",
+    "tests/python/test_unit_views.py",
+    "tests/python/vdc_units.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_dpll_observation_capture.py"
+    "tests/python/c_text.py",
+    "tests/python/scpi_units.py",
+    "tests/python/tdma_units.py",
+    "tests/python/test_unit_views.py",
+    "tests/python/vdc_units.py"
   ],
-  "duration_s": 9.359,
+  "duration_s": 2.703,
   "returncode": 0,
   "summary": {
-    "passed": 18,
+    "passed": 51,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "18 passed in 8.48s",
+  "summary_line": "51 passed in 1.96s",
   "tail": [
-    "..................                                                       [100%]",
-    "18 passed in 8.48s"
+    "...................................................                      [100%]",
+    "51 passed in 1.96s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "0910c7c0a75d5b25eb05a4b642ea09a7b730ef09432dfadfd45de4c2f80ff03d",
-  "file_count": 526,
-  "working_fingerprint": "0910c7c0a75d5b25eb05a4b642ea09a7b730ef09432dfadfd45de4c2f80ff03d",
-  "started_at_utc": "2026-10-26T01:09:24.805238+00:00"
+  "fingerprint": "82e36300d580f4d6be373508ebac8752bd6f6ca7e9b31ef98cbc10c9f567c377",
+  "file_count": 530,
+  "working_fingerprint": "82e36300d580f4d6be373508ebac8752bd6f6ca7e9b31ef98cbc10c9f567c377",
+  "started_at_utc": "2026-10-26T03:01:40.902738+00:00"
 }
