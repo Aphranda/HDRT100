@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-from vdc_units import body as vdc_unit_body
+from vdc_units import fragment_slice
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -22,8 +22,8 @@ def ingress_executable(request, tmp_path_factory):
     directory = tmp_path_factory.mktemp(f"vdc-ingress-{nodes}-{int(short_enums)}")
     source = directory / "ingress.c"
     source.write_text(HARNESS.replace(
-        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_ingress.inc"',
-        vdc_unit_body("vdc_priority_ingress")), encoding="utf-8")
+        '/* UNIT_BODY */',
+        fragment_slice("vdc_priority_ingress")), encoding="utf-8")
     compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or shutil.which("clang")
     if not compiler and Path("D:/Microsoft/mingw64/bin/gcc.exe").is_file():
         compiler = "D:/Microsoft/mingw64/bin/gcc.exe"
@@ -114,7 +114,7 @@ static bool tdma_runtime_owner_copy_priority_rx_live(uint32_t epoch, uint32_t se
     return tdma_priority_rx_copy_live(&lane, epoch, sequence, out);
 }
 #define __atomic_load_n read_atomic
-#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_ingress.inc"
+/* UNIT_BODY */
 #undef __atomic_load_n
 
 static void put16(uint8_t *p, uint32_t value)

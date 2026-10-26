@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from vdc_units import body as vdc_unit_body
+from vdc_units import fragment_slice
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -59,8 +59,8 @@ def parser_host(tmp_path_factory):
     command_table = "\nstatic const scpi_command_t commands[]={\n" + "\n".join(registrations) + "\nSCPI_CMD_LIST_END};\n"
     unit = directory / "timing.c"
     unit.write_text(HARNESS.replace(
-        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_output_timing_config.inc"',
-        vdc_unit_body("vdc_output_timing_config"))
+        '/* UNIT_BODY */',
+        fragment_slice("vdc_output_timing_config"))
         + callbacks + command_table + MAIN, encoding="utf-8")
     library = ROOT / "third_party/scpi-parser/libscpi"
     flags = ["-DSCPI_USER_CONFIG=1", "-I" + str(library / "inc"),
@@ -177,7 +177,7 @@ static uint32_t hooked_load(const uint32_t *p,int order){
     return value;
 }
 #define __atomic_load_n(p,order) hooked_load((const uint32_t *)(p),(order))
-#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_output_timing_config.inc"
+/* UNIT_BODY */
 #undef __atomic_load_n
 static char response[2048];static size_t response_size;
 static size_t write_response(scpi_t *ctx,const char *data,size_t length){

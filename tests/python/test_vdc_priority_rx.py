@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from vdc_units import body as vdc_unit_body
+from vdc_units import fragment_slice
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -18,8 +18,8 @@ def direct_rx_executable(request, tmp_path_factory):
     directory = tmp_path_factory.mktemp(f"vdc-direct-rx-{nodes}-{int(short_enums)}")
     source = directory / "direct_rx.c"
     source.write_text(HARNESS.replace(
-        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_rx.inc"',
-        vdc_unit_body("vdc_priority_rx")), encoding="utf-8")
+        '/* UNIT_BODY */',
+        fragment_slice("vdc_priority_rx")), encoding="utf-8")
     compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or shutil.which("clang")
     if not compiler and Path("D:/Microsoft/mingw64/bin/gcc.exe").is_file():
         compiler = "D:/Microsoft/mingw64/bin/gcc.exe"
@@ -74,7 +74,7 @@ static uint32_t read_atomic(const uint32_t *p, int order)
     return value;
 }
 #define __atomic_load_n read_atomic
-#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_rx.inc"
+/* UNIT_BODY */
 #undef __atomic_load_n
 
 static tdma_priority_rx_record_t record;

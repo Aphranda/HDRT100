@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from vdc_units import body as vdc_unit_body
+from vdc_units import fragment_slice
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -16,8 +16,8 @@ def reference_config_host(tmp_path_factory):
     directory = tmp_path_factory.mktemp("vdc-reference-config")
     source = directory / "reference-config.c"
     source.write_text(HARNESS.replace(
-        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_reference_config.inc"',
-        vdc_unit_body("vdc_reference_config")), encoding="utf-8")
+        '/* UNIT_BODY */',
+        fragment_slice("vdc_reference_config")), encoding="utf-8")
     compiler = shutil.which("gcc") or shutil.which("clang")
     assert compiler, "host C compiler required"
     executable = directory / ("reference-config.exe" if os.name == "nt" else "reference-config")
@@ -113,7 +113,7 @@ bool product_config_set_vdc_reference_discipline_profile(const product_config_vd
     if(!discipline_write_ok)return false;
     discipline_stored=*p;return true;
 }
-#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_reference_config.inc"
+/* UNIT_BODY */
 static const sync_io_reference_config_t candidate={3,1,2000000,250,1200};
 static const sync_io_reference_config_t defaults={4,0,10000000,1000,2500};
 static bool same(const sync_io_reference_config_t *a,const sync_io_reference_config_t *b){
