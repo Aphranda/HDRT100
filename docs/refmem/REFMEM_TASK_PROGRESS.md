@@ -10,7 +10,7 @@ Last updated: 2026-10-26
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261026-006`。
+- 最新条目：`REFMEM-TASK-20261026-007`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -56,6 +56,23 @@ Last updated: 2026-10-26
 - 证据：`pico2-release` 构建 `flash_link_contract=OK`；P3 `DPLL60_JOINT` build `20261026162736`、`check-staged` OK。首跑在 TRN-03B `no complete board record available after failed startup` 失败；用同一 package/OTA 重跑通过，原始失败保留 `out/n6/p3-dpll60-n64/`，通过件 `out/n6/p3-dpll60-n64-retry/`。
 - 未覆盖：`T2_UNMOUNT/CONFIGURE` 的目标级 HIL 尚未执行；本次 P3 只证明构建/OTA/启动/DPLL 路径。T2 启动的在线安全 reset 未实现。
 - 下一步：N6.3.3 VDC 域停配置，或跳过 VDC 直接 N7 function 层（用已注册的 21/23/24/25/30/32 先做静态 function）。
+
+### REFMEM-TASK-20261026-007 — N7 应用功能层：一条命令一个功能
+
+- 状态：function 目录/执行器/SCPI/本地 HIL 完成；四板 HIL 与 VDC function 仍待做。
+- 内容：
+  - `config/refmem/function_catalog.yaml` 生成 4 个静态 function：`FUNC_TDMA_ONLINE`（21→23）、`FUNC_CLOCK_RECONFIG`（24→25）、`FUNC_T2_RECONFIG`（32→30）、`FUNC_TDMA_CLOCK_ONLINE`（21→23→24→25）；每步用 `arg_base/arg_words` 切函数参数。
+  - `refmem_function.c` 执行器：单 in-flight（共享单命令槽）、串行 step、`ABORT_REMAINING`、5 s step 超时（`int32_t` 回绕安全）、终态保留 4 个 job 快照；接入 `app_refmem_service()`。
+  - `SYSTem:CTRL:FUNCtion:RUN/STATus?/CATalog?` 接线；`CTRL:EXECute` 与 function 共用新的 `distributed_refmem_control_submit()`。
+- 本地 HIL（COM5，目标本地；transcript `out/n7/local_hil/transcript.txt`）：
+  - `FUNC_TDMA_ONLINE`：`state=2 COMPLETED`，`step_index=2`，`SEAT:ROTation?` 读回 `3,1,3,1,4,...`（p=3/f=1 已生效）。
+  - `FUNC_CLOCK_RECONFIG`：`state=2 COMPLETED`；`DPLL:ROLE?` 读回 `0,0,2,1,1`（requested gen 2、applied 1、pending 1）。
+  - `FUNC_T2_RECONFIG` 负向：`state=3 FAILED`、`step_index=1`、step0 ACK、step1 `NACK reason=13`；符合 T2 前置缺失时的 fail-closed。
+- 证据：`run_refmem_function_catalog_tests`、`run_refmem_function_tests` 全绿；`pico2-release` 构建 `flash_link_contract=OK`；P3 `DPLL60_JOINT` build `20261026164220`、`check-staged` OK。
+- 过程偏差：N7 首次 P3 在 DPLL 阶段报 `provisional receipt source fingerprint differs`，原因是 P3 运行中又改了 `refmem_control_submit.c`（源指纹变化）；该次不计为代码失败，最终以冻结源重跑通过。教训：P3 期间禁止改固件源。
+- 未覆盖：四板协调者→远端 function HIL；TDMA TX/RX 跨 function 连续性；VDC reference/output function；T2 `MOUNT`（明确 `NOT_ONLINE_SAFE`）。
+- 提交：`47ecba9d`。
+- 下一步：四板 function HIL（先启动环）或 VDC function；随后 §8 收口。
 
 ## 归档索引
 
