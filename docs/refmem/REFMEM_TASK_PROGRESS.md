@@ -10,7 +10,7 @@ Last updated: 2026-10-26
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261026-003`。
+- 最新条目：`REFMEM-TASK-20261026-004`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,18 @@ Last updated: 2026-10-26
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261026-004 — N6.1 四域配置命令目录与协调者入口闭合
+
+- 状态：完成（catalog/entry 层）；N6.2 起进入域适配器。
+- 内容：
+  - `refmem_command.h` 新增 20–34 共 15 个 `command_type`；`config/refmem/command_catalog.yaml` 增至 21 行；生成器 `COMMAND_TYPES` 同步。
+  - `dispatch_control` 将新类型纳入授权；idle 窗口仅门控部署期（20/22）与既有 stage/activate，在线 TDMA seat/load、DPLL、VDC/T2 域停配置不受窗口阻塞。
+  - 协调者入口闭合：`refmem_control_entry_decide` + `SYSTem:REFMEM:CTRL:OWNer?`；非 owner 远端命令 fail-closed（`NOT_CONTROL_OWNER`），不排队死 intent。
+- 证据：`test_refmem_command_catalog`（21 行/15 新行/参数边界）、`test_refmem_control_route`（entry 6 情景）、`test_refmem_command_authority`、`run_refmem_unified_control_host_tests` 全绿；固件 `pico2-release` 三 profile `flash_link_contract=OK`；P3 `DPLL60_JOINT` build `20261026154606`、`check-staged` OK。
+- 已知残余：`run_refmem_all_host_tests` 中 `run_refmem_realtime_tdma_tests` 因 `tdma_service` 拆分后的 host 链接缺件失败（`tdma_service_core1_service`/`tdma_service_submit_tx` 等未定义），属既有拆分债务，不在本切片改动路径。
+- 提交：`a5e47834`（firmware）、`8e87c9e5`（host）、`2304b407`（docs）。
+- 下一步：N6.2 DPLL RUN-safe 适配器（CommandHandlerRegistry + 应用层 handler）。
 
 ## 归档索引
 
