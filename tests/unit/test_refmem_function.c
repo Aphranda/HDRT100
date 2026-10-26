@@ -56,13 +56,15 @@ static uint32_t s_poll_state;
 static uint32_t s_poll_reason;
 static uint32_t s_poll_ack;
 static uint32_t s_poll_nack;
+static uint32_t s_last_target_mask;
+static uint32_t s_last_required_mask;
 
 static bool submit_hook(uint16_t command_id, uint32_t target_mask,
                         uint32_t required_mask, const uint32_t *params,
                         uint16_t param_words, uint32_t *command_seq)
 {
-    (void)target_mask;
-    (void)required_mask;
+    s_last_target_mask = target_mask;
+    s_last_required_mask = required_mask;
     s_last_cmd = command_id;
     s_last_words = param_words;
     memset(s_last_params, 0, sizeof(s_last_params));
@@ -98,6 +100,8 @@ static void reset_sim(void)
     s_poll_reason = 0u;
     s_poll_ack = 0u;
     s_poll_nack = 0u;
+    s_last_target_mask = 0u;
+    s_last_required_mask = 0u;
     refmem_function_init();
     refmem_function_set_hooks(submit_hook, poll_hook);
 }
@@ -185,6 +189,14 @@ int main(void)
     assert(refmem_function_active_count() == 0u);
     assert(refmem_function_run(REFMEM_FUNC_ID_FUNC_TDMA_ONLINE, 0x01u, 0x01u,
                                tdma_args, 4u, &seq));
+
+    /* Multi-target mask is passed to the atomic submit unchanged. */
+    reset_sim();
+    assert(refmem_function_run(REFMEM_FUNC_ID_FUNC_TDMA_ONLINE, 0x0Eu, 0x0Eu,
+                               tdma_args, 4u, &seq));
+    refmem_function_service();
+    assert(s_last_target_mask == 0x0Eu);
+    assert(s_last_required_mask == 0x0Eu);
 
     printf("refmem_function: executor/state machine OK\n");
     return 0;

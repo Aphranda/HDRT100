@@ -4,13 +4,13 @@ Status: Active
 Domain: REFMEM
 Canonical: `docs/refmem/REFMEM_TASK_PROGRESS.md`
 Related: `docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md`, `docs/refmem/REFMEM_DOMAIN_TODO.md`, `docs/arch/RTOS_HAOFV_TASK_PROGRESS.md`
-Last updated: 2026-10-26
+Last updated: 2026-10-27
 
 本文档记录 Distributed Vector Blackboard / RefMem Sync Domain 的阶段性任务进度、验证结果和后续动作。待办事项放在 `REFMEM_DOMAIN_TODO.md`，本文只记录已经发生的工作和可回溯结果。
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261026-007`。
+- 最新条目：`REFMEM-TASK-20261027-001`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -20,42 +20,21 @@ Last updated: 2026-10-26
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
 
-### REFMEM-TASK-20261026-004 — N6.1 四域配置命令目录与协调者入口闭合
+### REFMEM-TASK-20261027-001 — N7.4 四板 function HIL 尝试：环可启动，命令路径未就绪
 
-- 状态：完成（catalog/entry 层）；N6.2 起进入域适配器。
-- 内容：
-  - `refmem_command.h` 新增 20–34 共 15 个 `command_type`；`config/refmem/command_catalog.yaml` 增至 21 行；生成器 `COMMAND_TYPES` 同步。
-  - `dispatch_control` 将新类型纳入授权；idle 窗口仅门控部署期（20/22）与既有 stage/activate，在线 TDMA seat/load、DPLL、VDC/T2 域停配置不受窗口阻塞。
-  - 协调者入口闭合：`refmem_control_entry_decide` + `SYSTem:REFMEM:CTRL:OWNer?`；非 owner 远端命令 fail-closed（`NOT_CONTROL_OWNER`），不排队死 intent。
-- 证据：`test_refmem_command_catalog`（21 行/15 新行/参数边界）、`test_refmem_control_route`（entry 6 情景）、`test_refmem_command_authority`、`run_refmem_unified_control_host_tests` 全绿；固件 `pico2-release` 三 profile `flash_link_contract=OK`；P3 `DPLL60_JOINT` build `20261026154606`、`check-staged` OK。
-- 已知残余：`run_refmem_all_host_tests` 中 `run_refmem_realtime_tdma_tests` 因 `tdma_service` 拆分后的 host 链接缺件失败（`tdma_service_core1_service`/`tdma_service_submit_tx` 等未定义），属既有拆分债务，不在本切片改动路径。
-- 提交：`a5e47834`（firmware）、`8e87c9e5`（host）、`2304b407`（docs）。
-- 下一步：N6.2 DPLL RUN-safe 适配器（CommandHandlerRegistry + 应用层 handler）。
-
-### REFMEM-TASK-20261026-005 — N6.3 TDMA 在线 seat/load（不停环）
-
-- 状态：TDMA 在线部分完成；VDC 域停配置仍待做（N6.3.1 剩余）。
-- 内容：
-  - adapter 的 `p/f/s` 三份额改为单个 `seat_rotation_packed` 原子字 + generation；`tdma_pio_spi_ring_origin` 每发布机会只读一次并解包，在线切换在下一机会生效，**不需要停环**。
-  - SCPI `SYSTem:TDMA:SEAT:ROTation` 仍走 STOP-only `tdma_runtime_owner_set_seat_rotation3`；统一控制面新增 `tdma_runtime_owner_commit_seat_rotation3` 在线入口。
-  - `TDMA_LOAD_MASK` 走现有 `app_realtime_set_load_mask`；`TDMA_RING_TOPOLOGY`/`TDMA_PERIOD` 运行时返回 `NOT_ONLINE_SAFE`（reason 14），部署期仍走原 STOP 路径。
-  - reason 表由 14 项扩为 15 项；`refmem_command.h` 增加 reason 14。
-- 证据：`test_tdma_seat_rotation_online`（pack/unpack/valid3/默认 1:1）通过；`pico2-release` 构建 `flash_link_contract=OK`；P3 `DPLL60_JOINT` build `20261026161302`、`check-staged` OK。
-- 台架残余：首次 P3 在 TRN-03B `matrix write/readback failed`（`CAL:TRAIN:STAGe:BEGin` timeout，stage=process-image）；用同一 package/OTA `dpll60 --package ... --ota-summary ...` 重跑通过，判定为台架瞬时超时，非本切片回归；原始失败保留在 `out/n6/p3-dpll60-n63/`，通过件在 `out/n6/p3-dpll60-n63-retry/`。
-- 未覆盖：seat 在线切换的**目标级 HIL**（切换前后 `up_sequence`/`down_rx_sequence` 连续性）尚未做；P3 只证明默认 1:1 路径与构建/启动。VDC/T2 域停配置未做。
-- 提交：`dac41e0e`（firmware+host）；文档另提。
-- 下一步：N6.3.3 VDC 域停配置（reference/delay/timing）或 N6.4 T2；随后 N7 function 层。
-
-### REFMEM-TASK-20261026-006 — N6.4 T2 域停配置（TDMA 不中断）
-
-- 状态：`UNMOUNT`/`CONFIGURE` 完成；`MOUNT` 首版明确 `NOT_ONLINE_SAFE`。
-- 内容：
-  - `T2_UNMOUNT` 调 `trigger_t2_runtime_stop()`；`T2_CONFIGURE` 从 13 个参数重建 `trigger_t2_runtime_config_t`（grid/deployment/templates 前置校验、scan step/geometry、window 0=默认 grace），在 T2 `active==0` 时调用 `trigger_t2_runtime_configure`。
-  - `T2_MOUNT` 不调用 `distributed_refmem_reset_position_stopped()`（该函数要求 TDMA 停环）；首版返回 `NOT_ONLINE_SAFE`，T2 启动仍走本地 `T2:MOUNT`。
-  - TDMA 全程不停机；统一面只负责 T2 停+配置。
-- 证据：`pico2-release` 构建 `flash_link_contract=OK`；P3 `DPLL60_JOINT` build `20261026162736`、`check-staged` OK。首跑在 TRN-03B `no complete board record available after failed startup` 失败；用同一 package/OTA 重跑通过，原始失败保留 `out/n6/p3-dpll60-n64/`，通过件 `out/n6/p3-dpll60-n64-retry/`。
-- 未覆盖：`T2_UNMOUNT/CONFIGURE` 的目标级 HIL 尚未执行；本次 P3 只证明构建/OTA/启动/DPLL 路径。T2 启动的在线安全 reset 未实现。
-- 下一步：N6.3.3 VDC 域停配置，或跳过 VDC 直接 N7 function 层（用已注册的 21/23/24/25/30/32 先做静态 function）。
+- 状态：四板 function HIL **未通过**；记录负结果与根因，N7.4 保持未完成。
+- 环启动（手动，不经 `RING:TRAIN`）：
+  - 四板 `STOP → OPMode:STAGe 7 → APPLy → TOPology 4,<local>,0 → ARM` 均 `ARM:STATus?=1`；forward 1/2/3 先 `START`、slot0 最后 `START`。
+  - `RING:STATus?` 四板均 `enabled=1,node_count=4,up=1,down=1,adapter_started=1`，TX/RX 计数推进。证据 `out/n7/four_board_hil/function_hil.txt` 前后快照。
+- 远端 function：
+  - COM5（owner=0）`FUNC_TDMA_ONLINE,14,14,3,1,0,0` → `QUEUED,103132`；step0（cmd 21）`step_state=SUBMITTED`，12 s 后 `state=3 FAILED / reason=11`，源 `CTRL:STATus?` 仍 `POSTED`，无目标 ACK。
+  - 根因判断：手动 `RING:START` 只启动 adapter，未建立 TRN-03 的 process-image/resident 维护命令路径；环能跑帧，但 `REFTMEM_CMD` 维护流未被消费。不是 seat 打包或 function 执行器错误（本地 HIL 已证）。
+- TRN-03 路线：
+  - COM5 的 recorder 曾卡在 state 5；手动 `TDMA:RECord:CANCel` 等待 2 s 后清到 0。
+  - 重跑 `trn03_closed_loop --cancel-unsaved-record --leave-running --no-t2`：matrix staged、四板 armed、recording exported，但 **explicit startup barrier timed out**，`left_running=false`；未进入可跑 function 的 process-image 状态。证据 `out/n7/four_board_hil/trn03d/`。
+- 补充 host 证据：`test_refmem_function` 新增多目标用例，`target_mask/required_mask=0x0E` 原样传到 atomic submit；套件仍全绿。
+- 结论：四板 HIL 受台架/process-image 启动阻塞，不伪造通过；下一步优先用 P3/TRN 的健康启动路径（或修复 startup barrier），再重跑同一 function 脚本。
+- 文档状态：N7.4 保持 ⏳；N7.5 不启动。
 
 ### REFMEM-TASK-20261026-007 — N7 应用功能层：一条命令一个功能
 
@@ -73,6 +52,43 @@ Last updated: 2026-10-26
 - 未覆盖：四板协调者→远端 function HIL；TDMA TX/RX 跨 function 连续性；VDC reference/output function；T2 `MOUNT`（明确 `NOT_ONLINE_SAFE`）。
 - 提交：`47ecba9d`。
 - 下一步：四板 function HIL（先启动环）或 VDC function；随后 §8 收口。
+
+### REFMEM-TASK-20261026-006 — N6.4 T2 域停配置（TDMA 不中断）
+
+- 状态：`UNMOUNT`/`CONFIGURE` 完成；`MOUNT` 首版明确 `NOT_ONLINE_SAFE`。
+- 内容：
+  - `T2_UNMOUNT` 调 `trigger_t2_runtime_stop()`；`T2_CONFIGURE` 从 13 个参数重建 `trigger_t2_runtime_config_t`（grid/deployment/templates 前置校验、scan step/geometry、window 0=默认 grace），在 T2 `active==0` 时调用 `trigger_t2_runtime_configure`。
+  - `T2_MOUNT` 不调用 `distributed_refmem_reset_position_stopped()`（该函数要求 TDMA 停环）；首版返回 `NOT_ONLINE_SAFE`，T2 启动仍走本地 `T2:MOUNT`。
+  - TDMA 全程不停机；统一面只负责 T2 停+配置。
+- 证据：`pico2-release` 构建 `flash_link_contract=OK`；P3 `DPLL60_JOINT` build `20261026162736`、`check-staged` OK。首跑在 TRN-03B `no complete board record available after failed startup` 失败；用同一 package/OTA 重跑通过，原始失败保留 `out/n6/p3-dpll60-n64/`，通过件 `out/n6/p3-dpll60-n64-retry/`。
+- 未覆盖：`T2_UNMOUNT/CONFIGURE` 的目标级 HIL 尚未执行；本次 P3 只证明构建/OTA/启动/DPLL 路径。T2 启动的在线安全 reset 未实现。
+- 下一步：N6.3.3 VDC 域停配置，或跳过 VDC 直接 N7 function 层（用已注册的 21/23/24/25/30/32 先做静态 function）。
+
+### REFMEM-TASK-20261026-005 — N6.3 TDMA 在线 seat/load（不停环）
+
+- 状态：TDMA 在线部分完成；VDC 域停配置仍待做（N6.3.1 剩余）。
+- 内容：
+  - adapter 的 `p/f/s` 三份额改为单个 `seat_rotation_packed` 原子字 + generation；`tdma_pio_spi_ring_origin` 每发布机会只读一次并解包，在线切换在下一机会生效，**不需要停环**。
+  - SCPI `SYSTem:TDMA:SEAT:ROTation` 仍走 STOP-only `tdma_runtime_owner_set_seat_rotation3`；统一控制面新增 `tdma_runtime_owner_commit_seat_rotation3` 在线入口。
+  - `TDMA_LOAD_MASK` 走现有 `app_realtime_set_load_mask`；`TDMA_RING_TOPOLOGY`/`TDMA_PERIOD` 运行时返回 `NOT_ONLINE_SAFE`（reason 14），部署期仍走原 STOP 路径。
+  - reason 表由 14 项扩为 15 项；`refmem_command.h` 增加 reason 14。
+- 证据：`test_tdma_seat_rotation_online`（pack/unpack/valid3/默认 1:1）通过；`pico2-release` 构建 `flash_link_contract=OK`；P3 `DPLL60_JOINT` build `20261026161302`、`check-staged` OK。
+- 台架残余：首次 P3 在 TRN-03B `matrix write/readback failed`（`CAL:TRAIN:STAGe:BEGin` timeout，stage=process-image）；用同一 package/OTA `dpll60 --package ... --ota-summary ...` 重跑通过，判定为台架瞬时超时，非本切片回归；原始失败保留在 `out/n6/p3-dpll60-n63/`，通过件在 `out/n6/p3-dpll60-n63-retry/`。
+- 未覆盖：seat 在线切换的**目标级 HIL**（切换前后 `up_sequence`/`down_rx_sequence` 连续性）尚未做；P3 只证明默认 1:1 路径与构建/启动。VDC/T2 域停配置未做。
+- 提交：`dac41e0e`（firmware+host）；文档另提。
+- 下一步：N6.3.3 VDC 域停配置（reference/delay/timing）或 N6.4 T2；随后 N7 function 层。
+
+### REFMEM-TASK-20261026-004 — N6.1 四域配置命令目录与协调者入口闭合
+
+- 状态：完成（catalog/entry 层）；N6.2 起进入域适配器。
+- 内容：
+  - `refmem_command.h` 新增 20–34 共 15 个 `command_type`；`config/refmem/command_catalog.yaml` 增至 21 行；生成器 `COMMAND_TYPES` 同步。
+  - `dispatch_control` 将新类型纳入授权；idle 窗口仅门控部署期（20/22）与既有 stage/activate，在线 TDMA seat/load、DPLL、VDC/T2 域停配置不受窗口阻塞。
+  - 协调者入口闭合：`refmem_control_entry_decide` + `SYSTem:REFMEM:CTRL:OWNer?`；非 owner 远端命令 fail-closed（`NOT_CONTROL_OWNER`），不排队死 intent。
+- 证据：`test_refmem_command_catalog`（21 行/15 新行/参数边界）、`test_refmem_control_route`（entry 6 情景）、`test_refmem_command_authority`、`run_refmem_unified_control_host_tests` 全绿；固件 `pico2-release` 三 profile `flash_link_contract=OK`；P3 `DPLL60_JOINT` build `20261026154606`、`check-staged` OK。
+- 已知残余：`run_refmem_all_host_tests` 中 `run_refmem_realtime_tdma_tests` 因 `tdma_service` 拆分后的 host 链接缺件失败（`tdma_service_core1_service`/`tdma_service_submit_tx` 等未定义），属既有拆分债务，不在本切片改动路径。
+- 提交：`a5e47834`（firmware）、`8e87c9e5`（host）、`2304b407`（docs）。
+- 下一步：N6.2 DPLL RUN-safe 适配器（CommandHandlerRegistry + 应用层 handler）。
 
 ## 归档索引
 
