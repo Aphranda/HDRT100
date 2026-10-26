@@ -641,6 +641,20 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - **d** ✅（2026-10-26 完成）：**24 个锚定归档的 host 文件全部迁到 live 单元**，`test_no_archive_anchors.py` 清单已清零。分批提交：`818dfcf7`（tx/tx_gap）、`e5c489ee`（ingress/rx/reference_config/output_timing）、`cf4e9d94`（capture）、`c5c7ca94`（model_feedback）、`37c4bdfc`（follow）、`26e71e4a`（phase）、`95e1f8c3`/`3173602c`（trace）、`ca077cb7`（boundary_owner、follow_config）、`63e74a17`（撤归档 include 路径 + command_owner）、`26301d3b`（idle/run_output + 三红文件根因）、`f1a7d276`（fixed_output SCPI 取源）、`d4f673f0`（fixed_output）。切片器能力沉淀在 `tests/python/c_text.py` + `vdc_units.py`：块级切分、片段闭包（嵌套 `.inc`）、守卫式类型/助手声明、静态剪枝（含 `{}` 初值与 `static struct{...}`）、`code(functions=, remove=)`。
 - **g** ✅（2026-10-26 收口）：干净全量扫描 **7,971 passed / 25 failed / 333 errors**（23:44，日志 `out/split-20261025/full_pytest_final.log`），基线为 6,627 / 38 / 1,607。逐项闭合：`.inc` 类 743 errors → **0**；总 error 1,607 → **333**（−1,274 = 743 + 221 pilot + 61 `vdc_domain` 链接 + 249 三红文件根因，与逐文件计数吻合）；failure 38 → **25**。剩余 333 个 error 均属**其他拆分债务**（RefMem 单元抽取如 `test_vdc_feedback_preacquire`/`receipt_ack`、SCPI snapshot 文本锚点、`node_capacity` 等），不在本目标范围；`test_no_archive_anchors.py` 的 `KNOWN_ANCHORS` 已清空，任何新增归档锚点立即变红。N5.0.6 归因更正见该条。
 
+## N5.0.12 - host 全量 error 清零（承接 N5.0.11 的 333）
+
+目标：`pytest tests/python` 全量 **error = 0**，failure 不高于 25，不删测试、不降覆盖率；按根因分类收口。
+
+- **M1** ✅ 共享夹具收敛（249 errors → 0，`00f87c38`、`e3a5160c`）：`make_feedback_harness` 改读 `refmem_units.source()`（全单元 + internal/split 私有头），并引入**链接闭包自动补件** `compile_executable(..., closure=…)`——按诊断补函数定义/原型、静态、typedef、宏（含 `\` 续行），类型与静态注入到最后一个 `#include` 之后。覆盖 `feedback_transport`、`preacquire`、`receipt_ack`、`boundary_command_transport`、`reference_publish`、`reference_spacing`、`pending_handoff`。
+- **M2** ✅ `command_ingress`（10 errors + 1 failure）与 `command_stop`（15）→ 0（`c19904d4`、`91519489`）：两处自建编译流水线接入同一闭包重试循环；`command_stop` 另补 `vdc_domain_evidence.c`/`vdc_domain_profile.c`。
+- **M3** ✅ 三套 SCPI 夹具（30 errors + 2 failures）→ 0（`9602dfe8`）：`scpi_feedback_record`、`scpi_cmd_vdc_feedback_bridge_q`、`scpi_cmd_vdc_feedback_session` 已迁 `scpi_vdc_snapshot_commands.c`，夹具改读 `middleware/scpi_port/src/*.c` 并集。
+- **M4** ✅ `prepare_owner`（4）→ 0（`9a729ab0`）：不再从大单元"摘函数"，改为内联真实 `distributed_refmem_service` + 显式环境桩（`tdma_runtime_owner_get_ring_adapter`、`refmem_cmd_load_*`、`distributed_refmem_cmd_reply_service`、`node_control_service`），并由测试用例驱动 `s_refmem_core_initialized`。
+- **M5** ✅ `reference_publication`（13）→ 0（`cabd8cc5`）：改读 `fragment_slice("vdc_reference_discipline")`；守卫新增 `test_no_test_reads_a_component_src_fragment`（禁止 tests 读 `components/*/src/*.inc`）。
+- **M6** ✅ `node_capacity`（12）→ 0（`cabd8cc5`）：补 `vdc_domain_evidence.c`/`vdc_domain_profile.c`。
+- **工具硬化** ✅（`99a9fa36`）：闭包补件去重、`=` 初始化声明跳过 `__attribute__` 拼接、迭代上限 40、`_declared_by_include` 避免与头文件重复。
+
+**收口证据（2026-10-26，数字为测量快照，非事实源）**：干净全量 `pytest tests/python` = **8,306 passed / 24 failed / 0 errors**（日志 `out/split-20261025/full_pytest_errorzero.log`）；对照 N5.0.11 收口基线 7,971 / 25 / 333。剩余 24 个 failure 均为此前既有的非 error 缺陷（Calibration、P3、T2、TDMA、tool_governance、VDC SCPI/output_delay 等），未新增。
+
 ## M0 - 单端口统一控制面架构补齐（本目标）
 
 目标：**只通过文档与契约**补齐 `REFMEM-TRANSPORT-01`、`REFMEM-SESSION-01`、`REFMEM-ACTION-01` 三个 canonical 缺口，并冻结 `REFMEM-LOCAL-01`（单板控制保留）；不改代码、不做板端验证。架构见 `REFMEM_DOMAIN_ARCHITECTURE.md` 的四个同名小节。
