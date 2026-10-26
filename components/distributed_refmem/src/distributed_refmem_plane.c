@@ -906,8 +906,15 @@ bool distributed_refmem_slot_claim_gate_ready(void)
                                       &claim_map)) {
         return false;
     }
+    uint32_t control_owner = 0u;
     return refmem_slot_claim_gate_evaluate(&claim_map, &claim_gate) &&
-           claim_gate.ready != 0u;
+           claim_gate.ready != 0u &&
+           refmem_slot_claim_lowest_claimed(&claim_map, &control_owner);
+}
+
+bool distributed_refmem_control_owner_slot(uint32_t *owner_slot)
+{
+    return refmem_application_model_control_owner_slot(owner_slot);
 }
 
 bool distributed_refmem_flash_activation_safe(void)

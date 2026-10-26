@@ -916,6 +916,25 @@ const tdma_foundation_profile_t *refmem_application_model_get_tdma_foundation_pr
     return refmem_model_current_tdma_foundation_profile();
 }
 
+/* N5.2b: derive the control owner from the active SlotClaimMap.  The fallback is
+ * the lowest claimed slot, which every node computes identically from its local
+ * snapshot; no second authority state is kept. */
+bool refmem_application_model_control_owner_slot(uint32_t *owner_slot)
+{
+    if (owner_slot == NULL) {
+        return false;
+    }
+    refmem_slot_claim_map_t map;
+    if (!refmem_slot_claim_derive_map(refmem_model_current_generic_node_table(),
+                                      refmem_model_current_board_capability_table(),
+                                      refmem_model_current_node_load_table(),
+                                      refmem_model_current_fb_instance_table(),
+                                      &map)) {
+        return false;
+    }
+    return refmem_slot_claim_lowest_claimed(&map, owner_slot);
+}
+
 bool refmem_application_model_set_tdma_ring_local_slot(uint32_t local_slot_id)
 {
     const tdma_foundation_profile_t *profile =
@@ -1003,6 +1022,13 @@ bool refmem_realtime_contract_admit_origin_trial(
     const refmem_slot_claim_assignment_t *assignment =
         refmem_slot_claim_find_assignment(&map, profile->ring.local_index);
     if (assignment == NULL || assignment->claim_state != REFMEM_SLOT_CLAIM_CLAIMED)
+        return false;
+    /* N5.2b GATE_CONFIG: a RUN must have a derivable control owner inside the
+     * ring.  Without it no system-level command may be issued, so admission
+     * fails closed instead of running a ring with no authority. */
+    uint32_t control_owner = 0u;
+    if (!refmem_slot_claim_lowest_claimed(&map, &control_owner) ||
+        control_owner >= profile->ring.node_count)
         return false;
     if (epoch != refmem_realtime_contract_origin_model_epoch()) return false;
     *admission = (refmem_realtime_origin_admission_t){

@@ -1,6 +1,7 @@
 #include "distributed_refmem_internal.h"
 
 #include "refmem_application_model.h"
+#include "refmem_control_route.h"
 #include "refmem_lease_table.h"
 #include "refmem_node_control.h"
 #include "refmem_vector_table.h"
@@ -46,13 +47,27 @@ static uint32_t distributed_refmem_lease_reason(
  * owner function below executes it.  RefMem only carries and aggregates. */
 static bool distributed_refmem_dispatch_control(
     const refmem_command_snapshot_t *snapshot,
-    const uint32_t *params)
+    const uint32_t *params,
+    uint32_t local_slot)
 {
     s_dispatch_reason = (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
-    if (distributed_refmem_is_config_type(snapshot->command_type) &&
-        !distributed_refmem_idle_window()) {
-        s_dispatch_reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
-        return false;
+    if (distributed_refmem_is_config_type(snapshot->command_type)) {
+        /* N5.2b: authorization precedes the window check.  A config command from
+         * a non-coordinator remote origin is a terminal PERMISSION_DENIED and
+         * must not oscillate with the idle window (7 vs 12).  The local entry
+         * keeps the CP9 exception. */
+        uint32_t control_owner = 0u;
+        const bool owner_valid = distributed_refmem_control_owner_slot(&control_owner);
+        if (refmem_control_origin_decide(snapshot->source_node, local_slot,
+                                         control_owner, owner_valid) ==
+            REFMEM_CONTROL_ORIGIN_REJECT) {
+            s_dispatch_reason = (uint32_t)REFMEM_COMMAND_REASON_PERMISSION_DENIED;
+            return false;
+        }
+        if (!distributed_refmem_idle_window()) {
+            s_dispatch_reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
+            return false;
+        }
     }
     switch ((refmem_command_type_t)snapshot->command_type) {
     case REFMEM_COMMAND_TYPE_BOARD_CAPABILITY_STAGE:
@@ -166,7 +181,7 @@ void distributed_refmem_node_control_service(void)
                                             request.payload_crc32, 0u);
     if (take == REFMEM_COMMAND_TAKE_TAKEN) {
         const bool executed =
-            distributed_refmem_dispatch_control(&snapshot, params);
+            distributed_refmem_dispatch_control(&snapshot, params, local_slot);
         if (executed) {
             (void)distributed_refmem_command_ack(local_slot, 0u);
             (void)distributed_refmem_node_control_ack(local_slot, local_slot,

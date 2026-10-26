@@ -24,3 +24,20 @@ refmem_control_route_t refmem_control_route_decide(uint32_t local_slot,
     }
     return REFMEM_CONTROL_ROUTE_UNIFIED;
 }
+
+refmem_control_origin_t refmem_control_origin_decide(uint32_t origin_slot,
+                                                     uint32_t local_slot,
+                                                     uint32_t owner_slot,
+                                                     bool owner_valid)
+{
+    if (origin_slot >= 32u) {
+        return REFMEM_CONTROL_ORIGIN_REJECT;
+    }
+    if (origin_slot == local_slot) {
+        return REFMEM_CONTROL_ORIGIN_LOCAL;
+    }
+    if (owner_valid && origin_slot == owner_slot) {
+        return REFMEM_CONTROL_ORIGIN_COORDINATOR;
+    }
+    return REFMEM_CONTROL_ORIGIN_REJECT;
+}

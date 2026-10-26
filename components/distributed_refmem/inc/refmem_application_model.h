@@ -613,6 +613,10 @@ bool refmem_application_model_set_tdma_ring_local_slot(uint32_t local_slot_id);
 bool refmem_application_model_set_tdma_ring_topology(uint32_t local_slot_id,
                                                      uint32_t reference_slot_id,
                                                      uint32_t node_count);
+/* N5.2b: derived control coordinator slot = lowest claimed slot in the active
+ * SlotClaimMap.  Read-only and never stored; returns false when no slot is
+ * claimed or the model cannot be derived (callers treat that as "no authority"). */
+bool refmem_application_model_control_owner_slot(uint32_t *owner_slot);
 const refmem_application_model_snapshot_t *refmem_application_model_get_snapshot(void);
 bool refmem_application_model_get_staging_node_load_entry(
     uint32_t instance_id,

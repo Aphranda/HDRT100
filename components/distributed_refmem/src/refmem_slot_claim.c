@@ -299,6 +299,25 @@ const refmem_slot_claim_assignment_t *refmem_slot_claim_find_assignment(
     return &map->slot[slot_id];
 }
 
+/* N5.2b: the control owner is the lowest claimed slot.  This is a pure read so
+ * every node derives the same value from its local snapshot without storing a
+ * second authority fact. */
+bool refmem_slot_claim_lowest_claimed(const refmem_slot_claim_map_t *map,
+                                      uint32_t *slot_id)
+{
+    if (map == NULL || slot_id == NULL ||
+        map->slot_count > REFMEM_APP_MODEL_NODE_COUNT) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < map->slot_count; i++) {
+        if (map->slot[i].claim_state == REFMEM_SLOT_CLAIM_CLAIMED) {
+            *slot_id = map->slot[i].slot_id;
+            return true;
+        }
+    }
+    return false;
+}
+
 const refmem_slot_claim_evidence_t *refmem_slot_claim_find_evidence(
     const refmem_slot_claim_map_t *map,
     uint32_t evidence_id)

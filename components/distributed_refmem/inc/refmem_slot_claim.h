@@ -119,6 +119,10 @@ bool refmem_slot_claim_derive_map(const refmem_generic_node_table_t *node_table,
 const refmem_slot_claim_assignment_t *refmem_slot_claim_find_assignment(
     const refmem_slot_claim_map_t *map,
     uint32_t slot_id);
+/* N5.2b: lowest slot whose claim_state is CLAIMED (the derived control owner).
+ * Pure read: does not validate CRCs or mutate the map. */
+bool refmem_slot_claim_lowest_claimed(const refmem_slot_claim_map_t *map,
+                                      uint32_t *slot_id);
 const refmem_slot_claim_evidence_t *refmem_slot_claim_find_evidence(
     const refmem_slot_claim_map_t *map,
     uint32_t evidence_id);

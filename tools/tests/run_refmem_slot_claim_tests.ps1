@@ -10,6 +10,7 @@ $build = Join-Path $repo $BuildDir
 $refmemInclude = Join-Path $repo "components\distributed_refmem\inc"
 $tdmaInclude = Join-Path $repo "components\tdma\inc"
 $otaInclude = Join-Path $repo "components\ota_manager\inc"
+$triggerInclude = Join-Path $repo "components\sync_trigger\inc"
 $testSource = Join-Path $repo "tests\unit\test_refmem_slot_claim.c"
 $claimSource = Join-Path $repo "components\distributed_refmem\src\refmem_slot_claim.c"
 $claimProtocolSource = Join-Path $repo "components\distributed_refmem\src\refmem_claim_protocol.c"
@@ -64,7 +65,7 @@ if (-not $hostCc) {
 
 if ($hostCc) {
     $exe = Join-Path $build "test_refmem_slot_claim.exe"
-    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" $testSource $claimSource $claimProtocolSource -o $exe
+    & $hostCc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" "-I$triggerInclude" $testSource $claimSource $claimProtocolSource -o $exe
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -86,7 +87,7 @@ if (-not (Test-Path $ArmGcc)) {
 
 foreach ($source in @($testSource, $claimSource, $claimProtocolSource)) {
     $object = Join-Path $build ((Split-Path -Leaf $source) + ".o")
-    & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" -c $source -o $object
+    & $ArmGcc -std=c11 -Wall -Wextra -Werror "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" "-I$triggerInclude" -c $source -o $object
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }

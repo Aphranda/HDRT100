@@ -37,6 +37,9 @@ refmem_vector_node_region_t *distributed_refmem_node_region(uint32_t node_id);
 void distributed_refmem_node_control_service(void);
 bool distributed_refmem_post_command_replacing_complete(
     refmem_command_request_t *request, uint32_t issue_tick32);
+/* N5.2b: control coordinator slot derived from the active SlotClaimMap (lowest
+ * claimed slot).  Read-only; false means "no authority" (fail closed). */
+bool distributed_refmem_control_owner_slot(uint32_t *owner_slot);
 bool distributed_refmem_node_load_auto_enqueue(uint32_t instance_id);
 refmem_vector_table_t *distributed_refmem_vector_table(void);
 
