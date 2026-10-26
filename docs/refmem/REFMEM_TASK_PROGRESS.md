@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-004`。
+- 最新条目：`REFMEM-TASK-20261027-005`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,22 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-005 — VDC 原子面实测：delay 成功，timing/reference 仍拒绝
+
+- 状态：VDC output delay 在线配置 ✅；output timing 与 reference 仍 `reason=7`；`FUNC_VDC_RECONFIG` 未通过。
+- 实测（COM5 本地，TDMA 已停环；`CTRL:EXECute` 单步）：
+  - `33` VDC_STOP → `QUEUED,91582`（ACK）。
+  - `28,123` VDC_OUTPUT_DELAY → `QUEUED,91583`；读回 `VDC:OUTPut:DELay?=123` ✅。
+  - `29,1000,2000,100` VDC_OUTPUT_TIMING → `QUEUED,91584`；`CTRL:STATus?` = `state=5 NACKED/nack=1/reason=7`；读回仍 `12000,16000,6000`。
+  - `27,...` VDC_REFERENCE_CONFIG 仍 reason 7（reference 未 retire）；`ENABle?=0` 但 `STATus state=2 RUNNING`。
+- 判定：
+  - delay publish 是纯原子写，`VDC_STOP` 后可用。
+  - timing 的 `vdc_run_output_configuration_idle()` 仍为 false（run output cancel 后还有其它 output 配置未 idle），被 fail-closed 拒绝。
+  - reference 的 `s_reference_active_generation` 未清零，`reference_config_install` 拒绝；根因在 VDC owner retire 闭环，不在 RefMem。
+- 证据：`out/n7/local_hil/vdc_function.txt`（含本次命令/读回）；提交 `5e688260`（VDC 代码）、`410b25b6`（阻塞文档）。
+- 未覆盖：VDC timing/reference 正面、四板 VDC function、T2 正向。
+- 下一步：VDC owner 修 reference retire + output 全 idle 判据；或先提供只含 `VDC_STOP→OUTPUT_DELAY` 的窄 function，证明在线 VDC 输出配置。
 
 ### REFMEM-TASK-20261027-004 — N6.3.3 VDC 在线配置：代码/P3 完成，参考退休阻塞
 
