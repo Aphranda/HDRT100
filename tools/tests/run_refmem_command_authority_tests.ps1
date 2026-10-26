@@ -14,6 +14,7 @@ $osalInclude = Join-Path $repo "osal\inc"
 $testSource = Join-Path $repo "tests\unit\test_refmem_command_authority.c"
 $commandSource = Join-Path $repo "components\distributed_refmem\src\distributed_refmem_command.c"
 $routeSource = Join-Path $repo "components\distributed_refmem\src\refmem_control_route.c"
+$domainConfigSource = Join-Path $repo "components\distributed_refmem\src\refmem_domain_config.c"
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
@@ -28,7 +29,7 @@ if (-not $hostCc) {
 $exe = Join-Path $build "test_refmem_command_authority.exe"
 & $hostCc.Source -std=c11 -Wall -Wextra -Werror `
     "-I$refmemInclude" "-I$tdmaInclude" "-I$otaInclude" "-I$triggerInclude" "-I$osalInclude" `
-    $testSource $commandSource $routeSource -o $exe
+    $testSource $commandSource $routeSource $domainConfigSource -o $exe
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

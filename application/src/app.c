@@ -1,5 +1,6 @@
 #include "app.h"
 #include "app_realtime_profile.h"
+#include "app_refmem_domain_config.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -443,6 +444,13 @@ bool app_init(void)
 
     if (!sync_trigger_init()) {
         diagnostics_mark_fault("trigger", "sync trigger initialization failed");
+        return false;
+    }
+
+    /* N6: register the domain-config handlers after all owning components
+     * exist and before SCPI commands can reach the RefMem dispatcher. */
+    if (!app_refmem_domain_config_init()) {
+        diagnostics_mark_fault("refmem", "domain config handler registration failed");
         return false;
     }
 

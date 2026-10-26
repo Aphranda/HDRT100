@@ -444,6 +444,7 @@ set(PROJECT_APP_SOURCES
         application/src/app_runtime.c
         application/src/app_realtime_profile.c
         application/src/app.c
+        application/src/app_refmem_domain_config.c
         application/src/app_tdma_record.c
         application/src/app_tasks.c
         ${PROJECT_BUILD_INFO_SOURCE}
@@ -504,6 +505,7 @@ set(PROJECT_APP_SOURCES
         components/distributed_refmem/src/refmem_trigger_session.c
         components/distributed_refmem/src/refmem_action_registry.c
         components/distributed_refmem/src/refmem_control_route.c
+        components/distributed_refmem/src/refmem_domain_config.c
         components/distributed_refmem/src/refmem_node_load_sync.c
         components/distributed_refmem/src/refmem_pio_spi_adapter.c
         components/distributed_refmem/src/refmem_quality.c

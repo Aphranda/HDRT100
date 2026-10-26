@@ -2,6 +2,7 @@
 
 #include "refmem_application_model.h"
 #include "refmem_control_route.h"
+#include "refmem_domain_config.h"
 #include "refmem_lease_table.h"
 #include "refmem_node_control.h"
 #include "refmem_vector_table.h"
@@ -161,8 +162,23 @@ static bool distributed_refmem_dispatch_control(
         }
         return result == REFMEM_LEASE_OK;
     }
-    default:
-        return false;
+    default: {
+        /* N6 online domain configuration: the application layer registers a
+         * handler for each command_type; RefMem only dispatches.  Unknown
+         * type / word-count mismatch / handler rejection are fail-closed. */
+        uint32_t reason =
+            (uint32_t)REFMEM_COMMAND_REASON_CONFIG_VALIDATION_FAILED;
+        if (snapshot->payload_size % (uint32_t)sizeof(uint32_t) != 0u) {
+            s_dispatch_reason = reason;
+            return false;
+        }
+        const uint32_t words =
+            snapshot->payload_size / (uint32_t)sizeof(uint32_t);
+        const bool handled = refmem_domain_config_dispatch(
+            snapshot->command_type, params, words, &reason);
+        s_dispatch_reason = reason;
+        return handled;
+    }
     }
 }
 
