@@ -8,6 +8,21 @@ const refmem_catalog_entry_t refmem_command_catalog[] = {
     {4u, 13u, 0u, 0u, 1u, 0u, 1u, 0u, 0u, 0u, "REFMEM_MAINTENANCE_SELF_CHECK", "SYSTem:REFMEM:MAINTenance:SELFcheck"},
     {5u, 18u, 0u, 0u, 2u, 0u, 0u, 0u, 0u, 0u, "REFMEM_LEASE_TAKE", "SYSTem:REFMEM:LEASE:TAKE"},
     {6u, 19u, 0u, 0u, 1u, 0u, 0u, 0u, 0u, 0u, "REFMEM_LEASE_RELEASE", "SYSTem:REFMEM:LEASE:RELEASE"},
+    {20u, 20u, 1u, 0u, 2u, 0u, 1u, 0u, 0u, 0u, "TDMA_RING_TOPOLOGY", "SYSTem:TDMA:RING:TOPology"},
+    {21u, 21u, 1u, 0u, 3u, 0u, 1u, 0u, 0u, 0u, "TDMA_SEAT_ROTATION", "SYSTem:TDMA:SEAT:ROTation"},
+    {22u, 22u, 1u, 0u, 1u, 0u, 1u, 0u, 0u, 0u, "TDMA_PERIOD", "SYSTem:TDMA:PERiod"},
+    {23u, 23u, 1u, 0u, 1u, 0u, 1u, 0u, 0u, 0u, "TDMA_LOAD_MASK", "SYSTem:TDMA:LOAD:MASK"},
+    {24u, 24u, 4u, 0u, 2u, 0u, 1u, 0u, 0u, 0u, "DPLL_ROLE", "SYSTem:SYNC:VDC:DPLL:ROLE"},
+    {25u, 25u, 4u, 0u, 5u, 0u, 1u, 0u, 0u, 0u, "DPLL_TUNE", "SYSTem:SYNC:VDC:DPLL:TUNE"},
+    {26u, 26u, 4u, 0u, 1u, 0u, 1u, 0u, 0u, 0u, "DPLL_OVERRIDE", "SYSTem:SYNC:VDC:DPLL:OVERRide"},
+    {27u, 27u, 4u, 0u, 5u, 0u, 1u, 0u, 0u, 0u, "VDC_REFERENCE_CONFIG", "SYSTem:VDC:REFerence:CONFigure"},
+    {28u, 28u, 4u, 0u, 1u, 0u, 1u, 0u, 0u, 0u, "VDC_OUTPUT_DELAY", "SYSTem:VDC:OUTPut:DELay"},
+    {29u, 29u, 4u, 0u, 3u, 0u, 1u, 0u, 0u, 0u, "VDC_OUTPUT_TIMING", "SYSTem:VDC:OUTPut:TIMing"},
+    {30u, 30u, 2u, 0u, 13u, 0u, 1u, 0u, 0u, 0u, "T2_CONFIGURE", "TRIGger:REServation:T2:CONFigure"},
+    {31u, 31u, 2u, 0u, 3u, 0u, 1u, 0u, 0u, 0u, "T2_MOUNT", "TRIGger:REServation:T2:MOUNT"},
+    {32u, 32u, 2u, 0u, 0u, 0u, 1u, 0u, 0u, 0u, "T2_UNMOUNT", "TRIGger:REServation:T2:UNMOUNT"},
+    {33u, 33u, 4u, 0u, 0u, 0u, 1u, 0u, 0u, 0u, "VDC_STOP", "SYSTem:VDC:OUTPut:RUN:STOP"},
+    {34u, 34u, 4u, 0u, 0u, 0u, 1u, 0u, 0u, 0u, "VDC_START", "SYSTem:VDC:OUTPut:RUN"},
 };
 
 const uint32_t refmem_command_catalog_count =

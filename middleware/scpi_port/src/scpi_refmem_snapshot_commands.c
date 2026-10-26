@@ -925,6 +925,21 @@ scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context)
 
     const uint32_t local_bit = 1u << distributed_refmem_local_slot();
     if ((target_mask & ~local_bit) != 0u) {
+        /* N5.5 entry convergence: only the derived control owner has a usable
+         * TDMA maintenance uplink for remote commands.  A non-owner entry must
+         * fail closed with an explicit error instead of queueing an intent that
+         * can never be delivered. */
+        uint32_t control_owner = 0u;
+        const bool owner_valid =
+            refmem_application_model_control_owner_slot(&control_owner);
+        if (refmem_control_entry_decide(distributed_refmem_local_slot(),
+                                        control_owner,
+                                        owner_valid,
+                                        target_mask) ==
+            REFMEM_CONTROL_ENTRY_REJECT_REMOTE) {
+            scpi_port_push_exec_error(context, "NOT_CONTROL_OWNER");
+            return SCPI_RES_ERR;
+        }
         if (!refmem_cmd_load_submit_fragments(&snapshot, params)) {
             scpi_port_push_exec_error(context, "REJECTED");
             return SCPI_RES_ERR;
@@ -973,6 +988,20 @@ scpi_result_t scpi_cmd_ctrl_status_q(scpi_t *context)
     SCPI_ResultUInt32(context, snapshot.last_reason);
     SCPI_ResultUInt32(context, snapshot.last_reason_slot);
     SCPI_ResultUInt32(context, snapshot.last_completed_seq);
+    return SCPI_RES_OK;
+}
+
+scpi_result_t scpi_cmd_ctrl_owner_q(scpi_t *context)
+{
+    uint32_t owner_slot = 0u;
+    const bool owner_valid =
+        refmem_application_model_control_owner_slot(&owner_slot);
+    const uint32_t local_slot = distributed_refmem_local_slot();
+    SCPI_ResultUInt32(context, owner_valid ? owner_slot : 0xFFFFFFFFu);
+    SCPI_ResultUInt32(context, owner_valid ? 1u : 0u);
+    SCPI_ResultUInt32(context, local_slot);
+    SCPI_ResultUInt32(context, (owner_valid && owner_slot == local_slot) ? 1u : 0u);
+    (void)context;
     return SCPI_RES_OK;
 }
 

@@ -40,6 +40,25 @@ typedef enum {
     REFMEM_COMMAND_TYPE_TABLE_PACKAGE_ACTIVATE = 17u,
     REFMEM_COMMAND_TYPE_LEASE_TAKE = 18u,
     REFMEM_COMMAND_TYPE_LEASE_RELEASE = 19u,
+    /* N6 online domain configuration.  TDMA is the non-stop bearer: ring
+     * topology/period stay deployment-time; seat rotation and load mask are
+     * online-safe.  DPLL is request/generation online; VDC/T2 are applied
+     * inside their own stop window while TDMA keeps running. */
+    REFMEM_COMMAND_TYPE_TDMA_RING_TOPOLOGY = 20u,
+    REFMEM_COMMAND_TYPE_TDMA_SEAT_ROTATION = 21u,
+    REFMEM_COMMAND_TYPE_TDMA_PERIOD = 22u,
+    REFMEM_COMMAND_TYPE_TDMA_LOAD_MASK = 23u,
+    REFMEM_COMMAND_TYPE_DPLL_ROLE = 24u,
+    REFMEM_COMMAND_TYPE_DPLL_TUNE = 25u,
+    REFMEM_COMMAND_TYPE_DPLL_OVERRIDE = 26u,
+    REFMEM_COMMAND_TYPE_VDC_REFERENCE_CONFIG = 27u,
+    REFMEM_COMMAND_TYPE_VDC_OUTPUT_DELAY = 28u,
+    REFMEM_COMMAND_TYPE_VDC_OUTPUT_TIMING = 29u,
+    REFMEM_COMMAND_TYPE_T2_CONFIGURE = 30u,
+    REFMEM_COMMAND_TYPE_T2_MOUNT = 31u,
+    REFMEM_COMMAND_TYPE_T2_UNMOUNT = 32u,
+    REFMEM_COMMAND_TYPE_VDC_STOP = 33u,
+    REFMEM_COMMAND_TYPE_VDC_START = 34u,
 } refmem_command_type_t;
 
 typedef enum {

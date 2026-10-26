@@ -30,6 +30,7 @@ scpi_result_t scpi_cmd_refmem_cmdframe_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_cmd_reply_q(scpi_t *context);
 scpi_result_t scpi_cmd_ctrl_execute(scpi_t *context);
 scpi_result_t scpi_cmd_ctrl_status_q(scpi_t *context);
+scpi_result_t scpi_cmd_ctrl_owner_q(scpi_t *context);
 scpi_result_t scpi_cmd_ctrl_catalog_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_load_board_status_q(scpi_t *context);
 scpi_result_t scpi_cmd_refmem_table_q(scpi_t *context);
@@ -286,6 +287,7 @@ scpi_result_t scpi_cmd_fault_code_table_q(scpi_t *context);
 {.pattern = "SYSTem:REFMEM:CMD:REPLy?", .callback = scpi_cmd_refmem_cmd_reply_q}, \
 {.pattern = "SYSTem:CTRL:EXECute", .callback = scpi_cmd_ctrl_execute}, \
 {.pattern = "SYSTem:CTRL:STATus?", .callback = scpi_cmd_ctrl_status_q}, \
+{.pattern = "SYSTem:REFMEM:CTRL:OWNer?", .callback = scpi_cmd_ctrl_owner_q}, \
 {.pattern = "SYSTem:CTRL:CATalog?", .callback = scpi_cmd_ctrl_catalog_q}, \
     {.pattern = "SYSTem:REFMEM:LOAD:BOARD:STATus?", .callback = scpi_cmd_refmem_load_board_status_q}, \
     {.pattern = "SYSTem:REFMEM:TABle:IMAGe?", .callback = scpi_cmd_refmem_table_image_q}, \

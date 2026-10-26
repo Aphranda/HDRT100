@@ -41,3 +41,21 @@ refmem_control_origin_t refmem_control_origin_decide(uint32_t origin_slot,
     }
     return REFMEM_CONTROL_ORIGIN_REJECT;
 }
+
+refmem_control_entry_t refmem_control_entry_decide(uint32_t local_slot,
+                                                   uint32_t owner_slot,
+                                                   bool owner_valid,
+                                                   uint32_t target_mask)
+{
+    if (local_slot >= 32u) {
+        return REFMEM_CONTROL_ENTRY_REJECT_REMOTE;
+    }
+    const uint32_t local_bit = 1u << local_slot;
+    if ((target_mask & ~local_bit) == 0u) {
+        return REFMEM_CONTROL_ENTRY_LOCAL_ONLY;
+    }
+    if (owner_valid && owner_slot == local_slot) {
+        return REFMEM_CONTROL_ENTRY_REMOTE_ALLOWED;
+    }
+    return REFMEM_CONTROL_ENTRY_REJECT_REMOTE;
+}

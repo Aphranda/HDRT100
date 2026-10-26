@@ -37,6 +37,21 @@ refmem_control_origin_t refmem_control_origin_decide(uint32_t origin_slot,
                                                      uint32_t owner_slot,
                                                      bool owner_valid);
 
+/* N5.5 entry convergence: a remote system command may only be originated by the
+ * control owner.  Non-owner entries keep local control (CP9), but must be told
+ * that a remote command cannot be delivered instead of queueing a dead intent
+ * (the non-owner has no TDMA maintenance uplink). */
+typedef enum {
+    REFMEM_CONTROL_ENTRY_LOCAL_ONLY = 0u,
+    REFMEM_CONTROL_ENTRY_REMOTE_ALLOWED = 1u,
+    REFMEM_CONTROL_ENTRY_REJECT_REMOTE = 2u,
+} refmem_control_entry_t;
+
+refmem_control_entry_t refmem_control_entry_decide(uint32_t local_slot,
+                                                   uint32_t owner_slot,
+                                                   bool owner_valid,
+                                                   uint32_t target_mask);
+
 /*
  * Decide whether a resolved command goes local-only, unified, or is rejected.
  *

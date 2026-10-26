@@ -20,6 +20,40 @@ static bool distributed_refmem_is_config_type(uint32_t type)
     case REFMEM_COMMAND_TYPE_NODE_LOAD_STAGE:
     case REFMEM_COMMAND_TYPE_TABLE_PACKAGE_STAGE:
     case REFMEM_COMMAND_TYPE_TABLE_PACKAGE_ACTIVATE:
+    case REFMEM_COMMAND_TYPE_TDMA_RING_TOPOLOGY:
+    case REFMEM_COMMAND_TYPE_TDMA_SEAT_ROTATION:
+    case REFMEM_COMMAND_TYPE_TDMA_PERIOD:
+    case REFMEM_COMMAND_TYPE_TDMA_LOAD_MASK:
+    case REFMEM_COMMAND_TYPE_DPLL_ROLE:
+    case REFMEM_COMMAND_TYPE_DPLL_TUNE:
+    case REFMEM_COMMAND_TYPE_DPLL_OVERRIDE:
+    case REFMEM_COMMAND_TYPE_VDC_REFERENCE_CONFIG:
+    case REFMEM_COMMAND_TYPE_VDC_OUTPUT_DELAY:
+    case REFMEM_COMMAND_TYPE_VDC_OUTPUT_TIMING:
+    case REFMEM_COMMAND_TYPE_T2_CONFIGURE:
+    case REFMEM_COMMAND_TYPE_T2_MOUNT:
+    case REFMEM_COMMAND_TYPE_T2_UNMOUNT:
+    case REFMEM_COMMAND_TYPE_VDC_STOP:
+    case REFMEM_COMMAND_TYPE_VDC_START:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* The RefMem idle window only gates deployment-time table/vector staging.
+ * Online domain configuration (TDMA seat/load, DPLL, VDC/T2 inside their own
+ * stop windows) must not depend on it: TDMA is the non-stop bearer and the
+ * target domain has its own stop boundary. */
+static bool distributed_refmem_requires_idle_window(uint32_t type)
+{
+    switch ((refmem_command_type_t)type) {
+    case REFMEM_COMMAND_TYPE_BOARD_CAPABILITY_STAGE:
+    case REFMEM_COMMAND_TYPE_NODE_LOAD_STAGE:
+    case REFMEM_COMMAND_TYPE_TABLE_PACKAGE_STAGE:
+    case REFMEM_COMMAND_TYPE_TABLE_PACKAGE_ACTIVATE:
+    case REFMEM_COMMAND_TYPE_TDMA_RING_TOPOLOGY:
+    case REFMEM_COMMAND_TYPE_TDMA_PERIOD:
         return true;
     default:
         return false;
@@ -64,7 +98,8 @@ static bool distributed_refmem_dispatch_control(
             s_dispatch_reason = (uint32_t)REFMEM_COMMAND_REASON_PERMISSION_DENIED;
             return false;
         }
-        if (!distributed_refmem_idle_window()) {
+        if (distributed_refmem_requires_idle_window(snapshot->command_type) &&
+            !distributed_refmem_idle_window()) {
             s_dispatch_reason = (uint32_t)REFMEM_COMMAND_REASON_RUN_STATE_DENIED;
             return false;
         }

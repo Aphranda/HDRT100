@@ -107,3 +107,222 @@ commands:
     required_capabilities: 0
     idempotent: false
     timeout_us: 0
+
+  # N6 online domain configuration.  TDMA is the non-stop bearer: its ring
+  # topology/period stay deployment-time, while seat rotation and load mask
+  # are online-safe.  DPLL is online through request/generation.  VDC and T2
+  # are applied inside their own stop window while TDMA keeps running.
+  - id: 20
+    name: TDMA_RING_TOPOLOGY
+    scpi: "SYSTem:TDMA:RING:TOPology"
+    command_type: TDMA_RING_TOPOLOGY
+    owner: TDMA
+    realtime: false
+    param_words: 2
+    param_kind: inline
+    params: [node_count, reference_slot]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 21
+    name: TDMA_SEAT_ROTATION
+    scpi: "SYSTem:TDMA:SEAT:ROTation"
+    command_type: TDMA_SEAT_ROTATION
+    owner: TDMA
+    realtime: false
+    param_words: 3
+    param_kind: inline
+    params: [priority_share, first_class_share, second_class_share]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 22
+    name: TDMA_PERIOD
+    scpi: "SYSTem:TDMA:PERiod"
+    command_type: TDMA_PERIOD
+    owner: TDMA
+    realtime: false
+    param_words: 1
+    param_kind: inline
+    params: [period_us]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 23
+    name: TDMA_LOAD_MASK
+    scpi: "SYSTem:TDMA:LOAD:MASK"
+    command_type: TDMA_LOAD_MASK
+    owner: TDMA
+    realtime: false
+    param_words: 1
+    param_kind: inline
+    params: [enabled_mask]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 24
+    name: DPLL_ROLE
+    scpi: "SYSTem:SYNC:VDC:DPLL:ROLE"
+    command_type: DPLL_ROLE
+    owner: VDC
+    realtime: false
+    param_words: 2
+    param_kind: inline
+    params: [mode, follow_master_slot]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 25
+    name: DPLL_TUNE
+    scpi: "SYSTem:SYNC:VDC:DPLL:TUNE"
+    command_type: DPLL_TUNE
+    owner: VDC
+    realtime: false
+    param_words: 5
+    param_kind: inline
+    params:
+      [kp_q16, ki_q16, update_period_us, step_threshold_ns,
+       sanity_limit_ppb]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 26
+    name: DPLL_OVERRIDE
+    scpi: "SYSTem:SYNC:VDC:DPLL:OVERRide"
+    command_type: DPLL_OVERRIDE
+    owner: VDC
+    realtime: false
+    param_words: 1
+    param_kind: inline
+    params: [enabled]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 27
+    name: VDC_REFERENCE_CONFIG
+    scpi: "SYSTem:VDC:REFerence:CONFigure"
+    command_type: VDC_REFERENCE_CONFIG
+    owner: VDC
+    realtime: false
+    param_words: 5
+    param_kind: inline
+    params: [input_port, edge, nominal_hz, window_ms, timeout_ms]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 28
+    name: VDC_OUTPUT_DELAY
+    scpi: "SYSTem:VDC:OUTPut:DELay"
+    command_type: VDC_OUTPUT_DELAY
+    owner: VDC
+    realtime: false
+    param_words: 1
+    param_kind: inline
+    params: [delay_ns]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 29
+    name: VDC_OUTPUT_TIMING
+    scpi: "SYSTem:VDC:OUTPut:TIMing"
+    command_type: VDC_OUTPUT_TIMING
+    owner: VDC
+    realtime: false
+    param_words: 3
+    param_kind: inline
+    params: [plan_us, commit_us, refill_us]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 30
+    name: T2_CONFIGURE
+    scpi: "TRIGger:REServation:T2:CONFigure"
+    command_type: T2_CONFIGURE
+    owner: T2
+    realtime: false
+    param_words: 13
+    param_kind: inline
+    params:
+      [run_id, source_slot, target_mask, origin, pre_roll, post_roll,
+       threshold, start_angle, zero_angle, terminal_angle, step_mdeg,
+       pulses_per_degree, window]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 31
+    name: T2_MOUNT
+    scpi: "TRIGger:REServation:T2:MOUNT"
+    command_type: T2_MOUNT
+    owner: T2
+    realtime: false
+    param_words: 3
+    param_kind: inline
+    params: [count_epoch, origin_count_lo, origin_count_hi]
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 32
+    name: T2_UNMOUNT
+    scpi: "TRIGger:REServation:T2:UNMOUNT"
+    command_type: T2_UNMOUNT
+    owner: T2
+    realtime: false
+    param_words: 0
+    param_kind: inline
+    params: []
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 33
+    name: VDC_STOP
+    scpi: "SYSTem:VDC:OUTPut:RUN:STOP"
+    command_type: VDC_STOP
+    owner: VDC
+    realtime: false
+    param_words: 0
+    param_kind: inline
+    params: []
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
+
+  - id: 34
+    name: VDC_START
+    scpi: "SYSTem:VDC:OUTPut:RUN"
+    command_type: VDC_START
+    owner: VDC
+    realtime: false
+    param_words: 0
+    param_kind: inline
+    params: []
+    allowed_states: [0]
+    required_capabilities: 0
+    idempotent: true
+    timeout_us: 0
