@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-001`。
+- 最新条目：`REFMEM-TASK-20261027-002`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,19 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-002 — N7.4 第二次：step0 三目标 ACK，step1 仍超时
+
+- 状态：四板 function HIL 部分通过（step0），多步远端仍有阻塞；N7.4 未完成。
+- 环：先复位四板，再 `trn03_closed_loop --stage process-image --leave-running --no-t2 --window-s 1.0`；`passed=true / left_running=true`（`out/n7/four_board_hil/trn03i/`）。四板 `RING:STATus?` `enabled=1/up=1/down=1`，process-image 路径就绪。
+- function：COM5（owner=0）`FUNC_TDMA_ONLINE,14,14,3,1,0,255` → `QUEUED,90599`；6 s 后 `state=3 FAILED`、`step_index=1`、`step_command_id=23`、`step_state=3`、`ack_mask=14`、`nack=0`、`reason=11`；源 `CTRL:STATus?` 仍 `POSTED`。
+  - **step0（seat rotation，cmd 21）三目标 ACK=14**，目标 `SEAT:ROTation?` 读回 `3,1,...`；证明远端 function 执行器、命令分发、ACK 聚合与 seat 在线切换可用。
+  - **step1（load mask，cmd 23）超时**；20 ms 步间 gap 未能修复。目标环形状态仍 `enabled/up/down=1`，TX/RX 推进；不是 TDMA 停环。
+- 代码：`REFTMEM_FUNCTION_STEP_GAP_MS=20` + `step_ready_ms` 已落库并 P3 `20261026171627`；提交 `11cf7997`。
+- 根因候选（未定）：单深度命令/回复槽在 step0 ACK 后仍保留，step1 的 ACK 被丢弃；或 load mask 写入触发 realtime load 重排导致回复路径短暂中断。需目标侧 `cmd_reply`/node control 计数与 `CMD:REPLY?` 逐项定位。
+- 台架处置：HIL 后已 `RING:STOP` 四板，`RING:STATus?` 均 `enabled=0`；未留环运行。
+- 未覆盖：step1 修复、四板 `FUNC_CLOCK_RECONFIG`/`FUNC_T2_RECONFIG`、TDMA TX/RX 跨 function 连续性、VDC function。
+- 下一步：加目标侧 reply/command 计数（只读）定位 step1；或把 load mask 拆成独立单步 function 验证；再重跑四板。
 
 ### REFMEM-TASK-20261027-001 — N7.4 四板 function HIL 尝试：环可启动，命令路径未就绪
 
