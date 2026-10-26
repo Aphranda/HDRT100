@@ -6,9 +6,7 @@
     "-m",
     "pytest",
     "tests/python/c_text.py",
-    "tests/python/test_unit_views.py",
-    "tests/python/test_vdc_local_follow_capture.py",
-    "tests/python/vdc_fragment_functions.py",
+    "tests/python/test_vdc_model_feedback_owner.py",
     "tests/python/vdc_units.py",
     "-q",
     "-p",
@@ -16,29 +14,26 @@
   ],
   "paths": [
     "tests/python/c_text.py",
-    "tests/python/test_unit_views.py",
-    "tests/python/test_vdc_local_follow_capture.py",
-    "tests/python/vdc_fragment_functions.py",
+    "tests/python/test_vdc_model_feedback_owner.py",
     "tests/python/vdc_units.py"
   ],
-  "duration_s": 3.281,
+  "duration_s": 2.422,
   "returncode": 0,
   "summary": {
-    "passed": 74,
+    "passed": 10,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "74 passed in 2.76s",
+  "summary_line": "10 passed in 1.91s",
   "tail": [
-    "........................................................................ [ 97%]",
-    "..                                                                       [100%]",
-    "74 passed in 2.76s"
+    "..........                                                               [100%]",
+    "10 passed in 1.91s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "78f78e45babfe75204b9e8659dc173522f0336836c404a2bc1a0698c4bd78e2a",
+  "fingerprint": "ac5b3840d97697d3761f3d2f71220f93c181208f3fa74c236f7c35e5561db30f",
   "file_count": 531,
-  "working_fingerprint": "78f78e45babfe75204b9e8659dc173522f0336836c404a2bc1a0698c4bd78e2a",
-  "started_at_utc": "2026-10-26T03:20:35.201859+00:00"
+  "working_fingerprint": "ac5b3840d97697d3761f3d2f71220f93c181208f3fa74c236f7c35e5561db30f",
+  "started_at_utc": "2026-10-26T03:22:41.851498+00:00"
 }

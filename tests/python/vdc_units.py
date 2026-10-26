@@ -103,7 +103,31 @@ FRAGMENT_PROLOGUE = {
         "#define VDC_PRIORITY_TRACE_ORIGIN_HOOK(evidence) ((void)(evidence))\n"
         "#endif\n"
     ),
+    "vdc_model_feedback": (
+        "#ifndef VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK\n"
+        "#define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) ((void)(model))\n"
+        "#endif\n"
+    ),
 }
+
+
+def _declarations(header: str, names: tuple[str, ...]) -> list[str]:
+    """Typedefs needed by ``names``, with dependencies, in header order."""
+    table = c_text.typedefs(header)
+    needed: set[str] = set()
+    queue = [name for name in names if name in table]
+    missing = [name for name in names if name not in table]
+    if missing:
+        raise KeyError(f"missing typedefs in {FRAGMENT_DECL_HEADER}: {missing}")
+    while queue:
+        name = queue.pop()
+        if name in needed:
+            continue
+        needed.add(name)
+        for ident in re.findall(r"[A-Za-z_]\w*", table[name]):
+            if ident in table and ident not in needed:
+                queue.append(ident)
+    return [text for name, text in table.items() if name in needed]
 
 
 def _fragment_closure(fragment: str, seen: set[str] | None = None) -> set[str]:
@@ -138,7 +162,7 @@ def fragment_slice(fragment: str) -> str:
     parts: list[str] = []
     if FRAGMENT_DECLS.get(fragment):
         header = (SRC / FRAGMENT_DECL_HEADER).read_text(encoding="utf-8")
-        parts.extend(c_text.typedef_body(header, name) for name in FRAGMENT_DECLS[fragment])
+        parts.extend(_declarations(header, FRAGMENT_DECLS[fragment]))
     if FRAGMENT_PROLOGUE.get(fragment):
         parts.append(FRAGMENT_PROLOGUE[fragment])
     parts.append(text)

@@ -83,6 +83,33 @@ def definition_units(directory: Path, name: str) -> list[Path]:
     return hits
 
 
+def typedefs(text: str) -> dict[str, str]:
+    """Every ``typedef struct/union/enum {...} name;`` in ``text``, in file order."""
+    found: dict[str, str] = {}
+    for match in re.finditer(r"(?m)^typedef\s+(?:struct|union|enum)\b[^{;]*\{", text):
+        depth = 0
+        cursor = match.end() - 1
+        while cursor < len(text):
+            char = text[cursor]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if not depth:
+                    break
+            cursor += 1
+        else:
+            continue
+        end = text.find(";", cursor)
+        if end < 0:
+            continue
+        tail = text[cursor + 1:end]
+        name = re.search(r"([A-Za-z_]\w*)", tail)
+        if name:
+            found[name.group(1)] = text[match.start():end + 1]
+    return found
+
+
 def typedef_body(text: str, name: str) -> str:
     """Return the ``typedef struct/enum/union ... name;`` declaration."""
     pattern = re.compile(rf"(?m)^typedef\s+(?:struct|union|enum)\b[^{{;]*\{{")
@@ -180,14 +207,26 @@ def prune_unused_statics(text: str) -> str:
     kept: list[str] = []
     for name, start, end in chunks:
         chunk = text[start:end]
-        if name is None:
-            match = re.match(
-                r"\s*static\s+[^;{}]*?\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)*(?:=[^;]*)?;",
-                chunk, re.S)
-            if match and not re.search(rf"\b{re.escape(match.group(1))}\b", used):
-                continue
+        if name is None and _all_static_names_unused(chunk, used):
+            continue
         kept.append(chunk)
     return "".join(kept)
+
+
+_STATIC_HEAD = re.compile(
+    r"(?s)^\s*(?:/\*.*?\*/\s*|//[^\n]*\n\s*)*static\s+(.*?);")
+
+
+def _all_static_names_unused(chunk: str, used: str) -> bool:
+    """True when the chunk is a static declaration whose every name is unused."""
+    match = _STATIC_HEAD.match(chunk)
+    if not match:
+        return False
+    body = re.sub(r"=[^,;]*", "", match.group(1))
+    names = re.findall(r"([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?(?=[,;]|$)", body)
+    if not names:
+        return False
+    return not any(re.search(rf"\b{re.escape(name)}\b", used) for name in names)
 
 
 def strip_prologue(text: str) -> str:
