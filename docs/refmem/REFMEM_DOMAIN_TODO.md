@@ -848,7 +848,7 @@ SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
 | **N6.4.1** | T2 适配器：`UNMOUNT→CONFIGURE` 域停序列（TDMA 不中断）；`MOUNT` 首版返回 `NOT_ONLINE_SAFE`，启动仍本地 | ✅ 2026-10-26：configure/unmount 落地；MOUNT 明确 NOT_ONLINE_SAFE；目标级 HIL 未做 | 代码 + host |
 | **N6.4.2** | host + P3 + 提交 | ✅ 构建 + P3 `20261026162736`；无新增 host 用例（handler 由固件编译覆盖） | host/P3/commit |
 | **N7.1** | `config/refmem/function_catalog.yaml` + 生成器 + `refmem_function_catalog.h/.c`；function 表 schema 落库 | ✅ 6 个 function 生成（含 VDC 窄 function）；host 查表/切片边界通过 | 代码 + host |
-| **N7.2** | function 执行器（静态、非阻塞、串行 step、聚合、失败策略）；接入 `task_refmem_sync` | ✅ host：成功/ABORT/超时/单 in-flight；四板 HIL 未做 | 代码 + host |
+| **N7.2** | function 执行器（静态、非阻塞、串行 step、聚合、失败策略）；接入 `task_refmem_sync` | ✅ host：成功/ABORT/超时/单 in-flight/`RUN_STATE_DENIED` 有界重试；四板 HIL 见 N7.4 | 代码 + host |
 | **N7.3** | SCPI `CTRL:FUNCtion:RUN/STATus?/CATalog?`；一条命令一个功能 | ✅ 代码 + 构建；本地/单目标 HIL 未执行 | 代码 + HIL |
 | **N7.4** | 四板 HIL：协调者单端口跑 `FUNC_BRINGUP_CONFIGURE`；逐目标证据 | ✅ 2026-10-27：`FUNC_TDMA_ONLINE` 2 步 / `FUNC_TDMA_CLOCK_ONLINE` 4 步均 `COMPLETED ack=14`；T2 负向 step0 ACK、step1 `reason=13`；四板 TX/RX 连续；VDC function 未含 | `out/n7/four_board_hil/` |
 | **N7.5** | P3 final + host acceptance + 文档/登记/顶层刷新 + §8 收口 | 凭证齐全 + 门禁绿 | 全部 |

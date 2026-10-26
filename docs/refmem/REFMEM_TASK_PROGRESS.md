@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-006`。
+- 最新条目：`REFMEM-TASK-20261027-007`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,16 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-007 — 有界 RUN_STATE_DENIED 重试；VDC reference 仍不退休
+
+- 状态：function 重试策略落库；VDC reference 仍阻塞。
+- 内容：`REFMEM_FUNCTION_STEP_RETRY_MAX=3`、`REFMEM_FUNCTION_STEP_RETRY_GAP_MS=100`；step NACK `reason=7` 时保持 RUNNING、重试最多 3 次，耗尽后 FAILED；其他 reason 仍立即失败。
+- 验证：host `test_refmem_function` 新增“7 重试→RUNNING→耗尽 FAILED”用例；`pico2-release` 构建通过；P3 `20261026181952`；commit `4c0be6fb`。
+- VDC 复测：`FUNC_VDC_RECONFIG` 仍 `state=3 FAILED / step1 cmd27 / reason=7`；`VDC:REFerence:STATus?` 仍 `1,2,...`（RUNNING），`CONFigure?` 未变。重试不能替代 VDC owner 的 retire 闭环。
+- 证据：`out/n7/local_hil/vdc_retry.txt`。
+- 未覆盖/残余：VDC reference retire、timing idle、T2 正向、四板 VDC、N7.5。
+- 下一步：VDC owner 修 reference retire/output idle；function 重试只作为域停窗口的容错，不是根因修复。
 
 ### REFMEM-TASK-20261027-006 — FUNC_VDC_OUTPUT_DELAY：在线 VDC delay 单命令成功
 
