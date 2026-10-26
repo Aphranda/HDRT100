@@ -78,7 +78,7 @@ def compile_executable(directory, name, text, sources=(), flags=(), closure=None
     exe = directory / (name + (".exe" if os.name == "nt" else ""))
     includes = host_includes()
     result = None
-    for _ in range(16):
+    for _ in range(40):
         source.write_text(text, encoding="utf-8")
         result = subprocess.run([
             compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
@@ -112,6 +112,16 @@ def _header_for(name: str) -> str | None:
                 re.search(rf"\b{re.escape(name)}\s*[;(]", text):
             return path.name
     return None
+
+
+def _declared_by_include(name: str, text: str) -> bool:
+    """True when an already-included component header declares ``name``."""
+    for path in sorted((ROOT / "components").glob("*/inc/*.h")):
+        if f'#include "{path.name}"' not in text:
+            continue
+        if re.search(rf"\b{re.escape(name)}\s*;", path.read_text(encoding="utf-8")):
+            return True
+    return False
 
 
 def _append_closure(text, stderr, closure):
@@ -162,7 +172,7 @@ def _append_closure(text, stderr, closure):
         if match:
             text_decl = match.group(0)
             if (text_decl.lstrip().startswith("static") and "__attribute__" not in text_decl
-                    and "(" not in text_decl and "," not in text_decl):
+                    and "(" not in text_decl and "," not in text_decl and "=" not in text_decl):
                 # Injected state may stay unused when the caller stubs the body.
                 text_decl = text_decl.rstrip()
                 assert text_decl.endswith(";")
@@ -183,7 +193,7 @@ def _append_closure(text, stderr, closure):
             headers.append(header)
             continue
         if name in typedefs:
-            if not re.search(rf"\b{re.escape(name)}\s*;", text):
+            if not re.search(rf"\b{re.escape(name)}\s*;", text) and not _declared_by_include(name, text):
                 declarations.append(typedefs[name])
 
     fresh_decls = [item for item in declarations if item and item not in text]
