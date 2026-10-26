@@ -5,37 +5,33 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/c_text.py",
     "tests/python/test_no_archive_anchors.py",
-    "tests/python/test_vdc_priority_origin_trace.py",
-    "tests/python/vdc_fragment_functions.py",
+    "tests/python/test_vdc_priority_mapping.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/c_text.py",
     "tests/python/test_no_archive_anchors.py",
-    "tests/python/test_vdc_priority_origin_trace.py",
-    "tests/python/vdc_fragment_functions.py"
+    "tests/python/test_vdc_priority_mapping.py"
   ],
-  "duration_s": 21.516,
+  "duration_s": 7.984,
   "returncode": 0,
   "summary": {
-    "passed": 40,
+    "passed": 20,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "40 passed in 20.93s",
+  "summary_line": "20 passed in 7.57s",
   "tail": [
-    "........................................                                 [100%]",
-    "40 passed in 20.93s"
+    "....................                                                     [100%]",
+    "20 passed in 7.57s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "eaffad3c5eda5656853ec016f04867e758d110d6150f215afbefefac9ca01da3",
+  "fingerprint": "3f3a87efb1f4f34e3eab34cf80bae5a1ee128039e7eae492eadaf2ebcc14a944",
   "file_count": 532,
-  "working_fingerprint": "eaffad3c5eda5656853ec016f04867e758d110d6150f215afbefefac9ca01da3",
-  "started_at_utc": "2026-10-26T03:30:06.855334+00:00"
+  "working_fingerprint": "3f3a87efb1f4f34e3eab34cf80bae5a1ee128039e7eae492eadaf2ebcc14a944",
+  "started_at_utc": "2026-10-26T03:30:59.771753+00:00"
 }

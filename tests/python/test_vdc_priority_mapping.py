@@ -11,14 +11,15 @@ import pytest
 
 from test_vdc_command_owner import ROOT, compile_executable
 from test_vdc_priority_follow import domain_sources
+from vdc_units import fragment_slice
 
 
 @pytest.fixture(scope="module")
 def mapping_tx_executable(tmp_path_factory):
     manager = ROOT / "components/vdc_dpll_manager/src"
-    archive = ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1"
-    source = PRELUDE + (archive / "vdc_model_feedback.inc").read_text(encoding="utf-8")
-    source += "\n" + (archive / "vdc_priority_tx.inc").read_text(encoding="utf-8")
+    source = PRELUDE + "static void priority_note_host_control(void) {}\n"
+    source += fragment_slice("vdc_model_feedback")
+    source += "\n" + fragment_slice("vdc_priority_tx")
     source += CASES
     return compile_executable(tmp_path_factory.mktemp("priority-mapping"), "priority_mapping", source,
         domain_sources() + [manager / "vdc_priority_codec.c"])
