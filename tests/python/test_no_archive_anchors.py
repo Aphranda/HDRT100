@@ -26,7 +26,6 @@ KNOWN_ANCHORS = {
     "test_vdc_priority_phase.py",
     "test_vdc_priority_trace.py",
     "test_vdc_run_output.py",
-    "test_vdc_run_timeline.py",
 }
 
 

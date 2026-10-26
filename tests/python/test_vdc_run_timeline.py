@@ -9,6 +9,7 @@ import subprocess
 import pytest
 
 from test_vdc_run_output import CLIENT_MAIN, CLIENT_PREFIX, ROOT, compile_host
+from vdc_units import fragment_slice
 
 
 @pytest.fixture(scope='module')
@@ -23,7 +24,7 @@ def timeline_client(tmp_path_factory):
         '{ ++ready_observations; if(finish_dma_on_observation) { '
         'finish_dma_on_observation=false;ready=true;return false; } '
         'return request==hardware.generation && ready && !cancelled; }')
-    source = (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_run_output.inc').read_text(encoding='utf-8')
+    source = fragment_slice('vdc_run_output')
     return compile_host(tmp_path_factory.mktemp('timeline-client'), 'timeline',
         prefix + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
         '\n#undef main\n' + TIMELINE_MAIN,
@@ -56,7 +57,7 @@ def continuous_client(tmp_path_factory):
     prefix = prefix.replace('admitted[submit_calls]', 'admitted[submit_calls%4u]')
     prefix = prefix.replace('admitted_count[submit_calls++]=count;',
                             'admitted_count[submit_calls%4u]=count;++submit_calls;')
-    source = (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_run_output.inc').read_text(encoding='utf-8')
+    source = fragment_slice('vdc_run_output')
     return compile_host(tmp_path_factory.mktemp('continuous-client'), 'continuous',
         prefix + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
         '\n#undef main\n' + CONTINUOUS_MAIN,
@@ -139,7 +140,7 @@ int main(int argc,char **argv)
 
 @pytest.fixture(scope='module')
 def late_model_client(tmp_path_factory):
-    source = (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_run_output.inc').read_text(encoding='utf-8')
+    source = fragment_slice('vdc_run_output')
     return compile_host(tmp_path_factory.mktemp('late-model-client'), 'late_model',
         CLIENT_PREFIX + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
         '\n#undef main\n' + LATE_MODEL_MAIN,
@@ -217,7 +218,7 @@ def planned_fallback_client(tmp_path_factory):
             hardware.reason=SYNC_IO_RUN_OUTPUT_STARVED;
         }
     }''')
-    source = (ROOT / 'components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_run_output.inc').read_text(encoding='utf-8')
+    source = fragment_slice('vdc_run_output')
     return compile_host(tmp_path_factory.mktemp('planned-fallback-client'), 'planned_fallback',
         prefix + source + '\n#define main inherited_main\n' + CLIENT_MAIN +
         '\n#undef main\n' + PLANNED_FALLBACK_MAIN,

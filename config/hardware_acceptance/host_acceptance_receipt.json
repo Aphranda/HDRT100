@@ -6,33 +6,32 @@
     "-m",
     "pytest",
     "tests/python/test_no_archive_anchors.py",
-    "tests/python/test_vdc_feedback_match_integration.py",
+    "tests/python/test_vdc_run_timeline.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
     "tests/python/test_no_archive_anchors.py",
-    "tests/python/test_vdc_feedback_match_integration.py"
+    "tests/python/test_vdc_run_timeline.py"
   ],
-  "duration_s": 4.094,
+  "duration_s": 16.063,
   "returncode": 0,
   "summary": {
-    "passed": 76,
+    "passed": 63,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "76 passed in 3.52s",
+  "summary_line": "63 passed in 15.55s",
   "tail": [
-    "........................................................................ [ 94%]",
-    "....                                                                     [100%]",
-    "76 passed in 3.52s"
+    "...............................................................          [100%]",
+    "63 passed in 15.55s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "004ffc99eaab81041fa4a330b7afa99be36bc303d1c2cfba7452dd89b2abb90c",
+  "fingerprint": "325eea1402a45eab7cf0176d84cd441be91c1690e99f0bc9ecd451e0021eed29",
   "file_count": 532,
-  "working_fingerprint": "004ffc99eaab81041fa4a330b7afa99be36bc303d1c2cfba7452dd89b2abb90c",
-  "started_at_utc": "2026-10-26T03:35:22.677756+00:00"
+  "working_fingerprint": "325eea1402a45eab7cf0176d84cd441be91c1690e99f0bc9ecd451e0021eed29",
+  "started_at_utc": "2026-10-26T03:36:23.695768+00:00"
 }
