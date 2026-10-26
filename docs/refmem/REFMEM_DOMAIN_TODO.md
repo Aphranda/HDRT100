@@ -608,6 +608,30 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 **顺序建议**：N5.1（docs，零代码）→ N5.2（小改，直接解决远程 reason 13）→ N5.3（冻结协调者槽）→ N5.4（核心）→ N5.5 → N5.6 → N5.7 → N5.8。N5.1/N5.2 可并行。
 **关键决策**：N5.3 需在“active profile 元数据”与“BoardCapabilityTable”之间冻结 `control_owner_slot` 派生来源；冻结后写入契约，不在代码里留双源。
+## N5.0.11 host 测试锚点迁移（长期目标，2026-10-26 立项）
+
+**目标**：`components|middleware/*/archive/*_inc_split_v1/*.inc` 已归档且不再参与构建，host 测试的事实源必须从归档副本迁到仍在出货的 `.c/.h` 单元。本目标**不归档任何 host 用例、不改生产代码、不删除归档片段**，只改测试锚点并加防回归门禁。
+
+**判定标准**（后续同类问题复用）：归档的是打包方式，不是被测行为。被测函数仍在 `CMakeLists.txt` 出货清单里 → 迁移；断言只在描述片段边界 → 可归档；迁移后成为严格子集 → 合并后归档（需子集证据与映射表）。本 corpus 已核：24 个 VDC 文件中**不存在**片段边界类结构断言。
+
+**基线**（2026-10-26 测量快照，非事实源；复跑命令见本节末）：`tests/python` 全量 **6,627 passed / 38 failed / 1,607 errors**；其中 `.inc` 归档直接引入 **743 errors / 0 failed**（VDC `test_vdc_priority_tx` 252 + `test_vdc_priority_tx_gap` 160；SCPI 6 个 parser 夹具 207；TDMA `test_tdma_origin_launch_physical` 107 + `test_tdma_training_gate` 17）。另有 24 个文件、**1,386 passed** 仍以归档 `.inc` 为事实源（假绿）。
+
+| 里程碑 | 内容 | 类别 | 验收判据 | 提交 |
+|---|---|---|---|---|
+| **N5.0.11a** | 测试事实源封装：`vdc_units.body_for/function_body`、新增 `scpi_units.py` / `tdma_units.py`；新增 `test_unit_views.py` 只校验活单元存在与函数名齐（不读归档，等价性另用一次性审计脚本） | tooling | 新测试全绿；现有套件零改动、零失败 | `test(tooling):` |
+| **N5.0.11b** | SCPI 6 个 parser 夹具改 include 新头 + 编译新 `.c`，删除 7 处 `#include "scpi_trigger_*.inc"` | refactor(test) | 6 套件 0 error；parser 用例数 ≥207；`grep '\.inc"' tests/python` 无 SCPI 命中 | `test(scpi):` |
+| **N5.0.11c** | `test_vdc_priority_tx` / `_tx_gap` 改 `body_for("vdc_priority_tx")` 或编译单元 | refactor(test) | 412 errors → 0；252 + 160 用例全绿 | `test(vdc):` |
+| **N5.0.11d** | 其余 22 个 VDC 文件按单元分 6 组（boundary / dpll_feedback / output / priority_follow / priority_trace / config）迁移，每组单独提交 | refactor(test) | 每组套件全绿、组内零 `archive/` 引用、用例数不减 | `test(vdc):` ×6 |
+| **N5.0.11e** | TDMA 2 个测试改读 `tdma_pio_spi_phys_geometry.c` / `_arm.c` | refactor(test) | 124 errors → 0 | `test(tdma):` |
+| **N5.0.11f** | 防回归门禁：`test_no_archive_anchors.py` 扫描 `tests/python` 的 `archive/*_inc_split_v1/*.inc` 引用；负测证明注入即红 | tooling | 负测证据 + 全量收集通过 | `test(tooling):` |
+| **N5.0.11g** | 全量收口：`pytest tests/python` 全量；失败集合与基线逐 ID 对比（只减不增）；更正 N5.0.6 归因；进度日志与证据索引 | docs | `.inc` 类 error = 0、假绿 = 0；文档 §5 门禁全绿 | `docs(refmem):` |
+
+**顺序与依赖**：a → (b ∥ c) → d → e → f → g。pytest 共用 `out/pytest/runs` basetemp，**必须串行执行**，禁止并行跑两个 pytest 进程。
+
+**风险与处置**：①整单元 body（如 `vdc_priority_follow.c` 1,377 行）与 harness stub 冲突 → 改用按名取函数；②同一单元被多个文件内联导致重复定义 → 允许合并，但须先证明子集；③迁移可能暴露真实缺陷 → 按 fix 分支处理，不计为迁移失败。
+
+**复跑**：`python -m pytest tests/python/test_vdc_priority_tx.py -q --tb=line`（P2）、`tests/python/test_trigger_switch_service.py`（P1）、`tests/python/test_tdma_origin_launch_physical.py`（P3）。
+
 ## M0 - 单端口统一控制面架构补齐（本目标）
 
 目标：**只通过文档与契约**补齐 `REFMEM-TRANSPORT-01`、`REFMEM-SESSION-01`、`REFMEM-ACTION-01` 三个 canonical 缺口，并冻结 `REFMEM-LOCAL-01`（单板控制保留）；不改代码、不做板端验证。架构见 `REFMEM_DOMAIN_ARCHITECTURE.md` 的四个同名小节。
