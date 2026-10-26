@@ -15,7 +15,6 @@ ANCHOR = "_inc" + "_split_v1"
 
 # N5.0.11d backlog: VDC harnesses still anchored on the audit copy.
 KNOWN_ANCHORS = {
-    "test_refmem_priority_health.py",
     "test_vdc_boundary_owner.py",
     "test_vdc_command_owner.py",
     "test_vdc_fixed_output.py",

@@ -14,6 +14,7 @@ from test_vdc_publication_generation import ROOT, REFMEM, definition
 from test_tdma_priority_rx_scpi import callback
 import refmem_units
 from refmem_units import body as refmem_unit_body
+from vdc_units import function_body_for
 
 def _read_scpi_sync() -> str:
     """N5.0.4k: the SCPI sync command surface is split into two units."""
@@ -218,10 +219,10 @@ def test_diagnostic_mirror_has_no_realtime_reservation():
 @pytest.fixture(scope="module")
 def mirror_boundary_exe(tmp_path_factory):
     directory = tmp_path_factory.mktemp("refmem-health-boundaries")
-    follow = (ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_follow.inc").read_text(encoding="utf-8")
     scpi = _read_scpi_sync()
     source = BOUNDARY_PRELUDE + "\n#define __atomic_load_n revision_load\n"
-    source += definition(follow, "vdc_dpll_manager_get_priority_follow_health_revision")
+    source += function_body_for(
+        "vdc_priority_follow", "vdc_dpll_manager_get_priority_follow_health_revision")
     source += "\n#undef __atomic_load_n\n"
     source += callback(scpi, "scpi_cmd_refmem_vdc_priority_q") + BOUNDARY_MAIN
     unit = directory / "boundaries.c"

@@ -6,32 +6,33 @@
     "-m",
     "pytest",
     "tests/python/test_no_archive_anchors.py",
-    "tests/python/test_vdc_run_timeline.py",
+    "tests/python/test_refmem_priority_health.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
     "tests/python/test_no_archive_anchors.py",
-    "tests/python/test_vdc_run_timeline.py"
+    "tests/python/test_refmem_priority_health.py"
   ],
-  "duration_s": 16.063,
+  "duration_s": 5.313,
   "returncode": 0,
   "summary": {
-    "passed": 63,
+    "passed": 87,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "63 passed in 15.55s",
+  "summary_line": "87 passed in 4.76s",
   "tail": [
-    "...............................................................          [100%]",
-    "63 passed in 15.55s"
+    "........................................................................ [ 82%]",
+    "...............                                                          [100%]",
+    "87 passed in 4.76s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "325eea1402a45eab7cf0176d84cd441be91c1690e99f0bc9ecd451e0021eed29",
+  "fingerprint": "bb2a4c76c2b36ad485ee366708fc59f6a4eab36c8cc06a9a3a092deb234762dd",
   "file_count": 532,
-  "working_fingerprint": "325eea1402a45eab7cf0176d84cd441be91c1690e99f0bc9ecd451e0021eed29",
-  "started_at_utc": "2026-10-26T03:36:23.695768+00:00"
+  "working_fingerprint": "bb2a4c76c2b36ad485ee366708fc59f6a4eab36c8cc06a9a3a092deb234762dd",
+  "started_at_utc": "2026-10-26T03:36:53.138736+00:00"
 }
