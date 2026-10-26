@@ -556,13 +556,21 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 | 里程碑 | 内容 | 验收 | 证据 |
 |---|---|---|---|
-| **N5.5.0** spike（D1/D2/D3） | 只读诊断 + 设计记录；不写生产代码 | 三条决策有结论/回退；默认行为不变 | 设计记录 + 探针输出 |
+| **N5.5.0** ⚠️ | spike（D1/D2/D3）：D1 发送者身份已在 frame header；D2 远端意图**不同步**；D3 无硬件伪造注入路径 | 三条决策有结论/回退；默认行为不变 | `out/n55_spike/REPORT.md` |
+| **N5.5.0b** | 意图运输决策：(1) 紧凑 intent delta（参数走 TLV）(2) 专用 payload class (3) 产品级入口收敛 | 三选一，记录布局/契约代价与回退 | 设计记录 |
 | **N5.5.1** 设计冻结 | 转发模型、字段/版本策略、错误码（`CONTROL_BUSY`/`ABORTED_LEASE_LOST`）、回程模型 | 契约/架构可核对；docs 门禁绿 | 文档 |
 | **N5.5.2** 协调者中继 | 扫描远端 POSTED 意图、去重、以协调者身份发 `REFTMEM_CMD`、记录 relay 映射 | host 用例（去重/顺序/取消） | 代码 + host |
 | **N5.5.3** 目标授权与回程 | 目标按「发送者=协调者」授权（origin 仅用于回程）；origin 读 control_reply/协调者记录 | host 用例 + 负向（伪造 sender → 12） | 代码 + host |
 | **N5.5.4** 四板 HIL | 非协调者 COM3 发起 → 协调者中继 → 目标 ACK → origin 可见；协调者直发并存 | 两板/四板记录 | HIL |
 | **N5.5.5** 负向闭环 | b.5 的硬件负向（按 D3 结论）或明确结构性不可达 | 12 证据或书面结论 | HIL/文档 |
 | **N5.5.6** 收口 | P3 + host + 文档 + §8；N5.5 标 ✅ | 凭证齐全 | 全部 |
+
+**N5.5.0 spike 结论（2026-10-26，build `20261026134613`）**：
+
+- **D1 ✅**：`refmem_sync_frame_header_t.source_slot` 已经携带发送者，`refmem_cmd_frame_apply()` 也已取出（接收侧目前丢弃）。发送者授权不需要改 wire；origin 仍用 payload 的 `source_node` 回程。
+- **D2 ❌**：远端 node 命令块**不在同步范围内**——默认应用模型没有覆盖 `REFTMEM_VECTOR_REGION_NODE` 命令块的 data link，REFMEM sync 只搬运被 data link 覆盖的字段。四板实测：COM3（slot 2）排队后，process-image（`--no-t2`）与 T2-seeded 两种环上，COM5 读 slot 2 始终 `control_state=0 / last_update_ms=0`，而 COM3 本板为 `control_state=1 POSTED`。证据 `out/n55_spike/d2_report_v2.json`、`d2b_report.json`、`REPORT.md`。**“扫描镜像→中继”方案不可行**。
+- **D3 ❌**：硬件上没有伪造非 owner 发送者的注入路径（`SYNC:RX` 只进 sync 解析；`TDMA:LONGFRAME:TX` 用本地 slot 作 stream id，不是 `REFTMEM_CMD`；非协调者无上行）。b.5 继续只有 host 证据。
+- **N5.5.0b 备选**：(1) 紧凑 intent delta（`REFTMEM_SYNC_FRAME_PAYLOAD_MAX=256`，intent 可压到 ~40 B + 参数 TLV 引用；需先确认 TLV 是否同步）；(2) 专用 intent payload class（需契约/Version Bundle，违反“无新 payload class”）；(3) 产品级入口收敛（非协调者入口仅本地，CP1 显式例外）。**未定前 N5.5.1 不冻结、不写生产代码。**
 
 #### N5.2c 真实 STOP→stage→START
 
@@ -587,7 +595,7 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 
 **跨阶段约束**：①不加第二命令槽/ACK/总线；②不占 core1；③单一授权源；④fail-closed；⑤每次 wire/布局变更同步 Version Bundle 与旧包拒绝；⑥证据 scope 覆盖改动路径，示波器缺失记为常驻未验证。
 
-**已知风险**：D1 若选 (a)/(b)，命令记录/帧布局变更会触及 host 工具与 P3 scope；N5.5 的 HIL 依赖 D2（从板意图可见性）；N5.2c 的 COMMIT 失败语义需与 N5.1b carry-over 对齐；N5.3 的字段变更会改变 package CRC（旧包必须拒绝而非误读）。
+**已知风险**：D2 已确认远端命令块不同步（N5.5.0b 未定前 N5.5 不能进入实现）；若选 (1)，intent delta 与 TLV 参数池的容量/同步需要新证据；若选 (2)，命令帧/记录布局变更会触及 host 工具与 P3 scope；N5.2c 的 COMMIT 失败语义需与 N5.1b carry-over 对齐；N5.3 的字段变更会改变 package CRC（旧包必须拒绝而非误读）。
 
 **N5.2 诊断（2026-10-24）**：reason 13 不是 owner/permission；环运行期本地/远程 stage 都失败（`staging_state=3 FAILED`、`last_error=7 PACKAGE_INVALID`、`lint_error=1 BAD_TABLE_VERSION`），环停止本地 stage ACK（`staging_state=2 VALIDATED`）。因此先做 N5.2a；**N5.2a 决策（2026-10-24）：延迟配置事务（STOP-only stage）**——环运行只收命令/排队，STOP 执行，START 后回 ACK；不选环安全 staging（process-image 与 raw-flight 均失败，冲突在环运行期表包/服务）。开放：命令超时跨 STOP/START、队列深度/顺序、多目标 ACK 聚合、COMMIT 与 START 先后。再加 N5.2b 权限；N5.2c 补真实 STOP→stage→START。证据 `out/refmem_remote_txn_hil/n52_diag/REPORT.md`。
 

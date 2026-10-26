@@ -10,7 +10,7 @@ Last updated: 2026-10-26
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261026-002`。
+- 最新条目：`REFMEM-TASK-20261026-003`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -18,7 +18,7 @@ Last updated: 2026-10-26
 - N5.0.2c：node control 拆出（6,109→6,003）；P3 `20261024154054`；config txn HIL 14/14。
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
-- 下一步：长期目标 **N5.5（非协调者入口转发，先 spike D1/D2/D3）→ N5.2c → N5.3**；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+- 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
 
 ## 归档索引
 
@@ -29,7 +29,14 @@ Last updated: 2026-10-26
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_03.md` | REFMEM-TASK-20260814-049..REFMEM-TASK-20260814-040 | 10 | 2026-10-24 |
 | `docs/legacy/refmem/LEGACY_REFMEM_TASK_PROGRESS_04.md` | REFMEM-TASK-20260815-006..REFMEM-TASK-20260814-050 | 10 | 2026-10-25 |
 
-### REFMEM-TASK-20261026-002 — N5.2b 目标侧配置授权（方案 A）+ 四板 HIL
+### REFMEM-TASK-20261026-003 — N5.5.0 spike：D2 否定（远端意图不同步）
+
+- 状态：spike 完成，结论改变 N5.5 设计前提；**未写生产代码**。
+- D1 ✅：`refmem_sync_frame_header_t.source_slot` 已带发送者，`refmem_cmd_frame_apply()` 已取出（接收侧丢弃）；发送者授权无需改 wire，origin 仍用 `source_node` 回程。
+- D2 ❌：默认模型没有覆盖 `REFTMEM_VECTOR_REGION_NODE` 命令块的 data link，sync 不搬该块；四板实测（build `20261026134613`）在 process-image（`--no-t2`）与 T2-seeded 环上，COM5 读 slot 2 始终 `control_state=0/last_update_ms=0`，COM3 本板为 `control_state=1 POSTED`。证据 `out/n55_spike/{d2_report_v2,d2b_report}.json`、`REPORT.md`。
+- D3 ❌：无硬件伪造非 owner sender 的注入路径（`SYNC:RX` 只进 sync 解析；`LONGFRAME:TX` 的 stream id 不是 REFMEM_CMD；非协调者无上行）。
+- 影响：N5.5 需先定意图运输（N5.5.0b）：(1) 紧凑 intent delta + TLV 参数引用；(2) 专用 payload class；(3) 产品级入口收敛。未定前不冻结、不写代码；b.5 硬件负向继续 host-only。
+- 下一步：N5.5.0b（先验 TLV/参数池是否同步、intent 容量预算），再决定 N5.5.1 冻结或转 N5.2c/N5.3。
 
 - 状态：b.1–b.4 完成、b.5 硬件负向受阻、b.6 收口；N5.2b 整体未标完成。
 - 内容：`refmem_slot_claim_lowest_claimed` / `refmem_application_model_control_owner_slot` / `distributed_refmem_control_owner_slot`（派生值，不落状态）；dispatch 对 config 类先判 `origin ∈ {本地, owner}` 否则 12，再判 idle 窗口（7）；`admit_origin_trial` 与 `slot_claim_gate_ready` 要求 owner 可派生且落在 ring 内。
