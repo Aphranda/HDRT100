@@ -76,3 +76,39 @@ def function_body(unit: str, name: str) -> str:
 def function_body_for(fragment: str, name: str) -> str:
     """Definition of ``name`` taken from the unit that owns ``fragment``."""
     return function_body(unit_of(fragment), name)
+
+
+# Fragments that used to define their own file-scope types.  The split hoisted
+# those types into the unit's private header, so a harness that inlines the
+# unit body must carry the declarations the fragment used to own.
+FRAGMENT_DECLS = {
+    "vdc_priority_tx": ("vdc_priority_tx_work_t",),
+}
+FRAGMENT_DECL_HEADER = "vdc_priority_shared.h"
+
+# Fragments that used to default a hook before the parent supplied one.
+FRAGMENT_PROLOGUE = {
+    "vdc_priority_tx": (
+        "#ifndef VDC_PRIORITY_TRACE_ORIGIN_HOOK\n"
+        "#define VDC_PRIORITY_TRACE_ORIGIN_HOOK(evidence) ((void)(evidence))\n"
+        "#endif\n"
+    ),
+}
+
+
+def fragment_slice(fragment: str) -> str:
+    """Code the archived fragment used to contribute, taken from the live unit.
+
+    The unit body alone is not self-contained: the split moved fragment-local
+    types into the unit's private header and dropped the hook default.  Both are
+    restored here so the harness compiles the shipped code verbatim.
+    """
+    unit = unit_of(fragment)
+    parts: list[str] = []
+    if FRAGMENT_DECLS.get(fragment):
+        header = (SRC / FRAGMENT_DECL_HEADER).read_text(encoding="utf-8")
+        parts.extend(c_text.typedef_body(header, name) for name in FRAGMENT_DECLS[fragment])
+    if FRAGMENT_PROLOGUE.get(fragment):
+        parts.append(FRAGMENT_PROLOGUE[fragment])
+    parts.append(body(unit))
+    return "\n".join(part for part in parts if part)

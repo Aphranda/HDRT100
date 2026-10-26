@@ -5,40 +5,45 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_trigger_gateway_service.py",
-    "tests/python/test_trigger_grid_preview.py",
-    "tests/python/test_trigger_switch_service.py",
+    "tests/python/c_text.py",
+    "tests/python/test_unit_views.py",
+    "tests/python/test_vdc_priority_tx.py",
+    "tests/python/test_vdc_priority_tx_gap.py",
+    "tests/python/vdc_units.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_trigger_gateway_service.py",
-    "tests/python/test_trigger_grid_preview.py",
-    "tests/python/test_trigger_switch_service.py"
+    "tests/python/c_text.py",
+    "tests/python/test_unit_views.py",
+    "tests/python/test_vdc_priority_tx.py",
+    "tests/python/test_vdc_priority_tx_gap.py",
+    "tests/python/vdc_units.py"
   ],
-  "duration_s": 22.61,
+  "duration_s": 17.547,
   "returncode": 0,
   "summary": {
-    "passed": 388,
+    "passed": 465,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "388 passed in 22.02s",
+  "summary_line": "465 passed in 17.01s",
   "tail": [
-    "........................................................................ [ 18%]",
-    "........................................................................ [ 37%]",
-    "........................................................................ [ 55%]",
-    "........................................................................ [ 74%]",
+    "........................................................................ [ 15%]",
+    "........................................................................ [ 30%]",
+    "........................................................................ [ 46%]",
+    "........................................................................ [ 61%]",
+    "........................................................................ [ 77%]",
     "........................................................................ [ 92%]",
-    "............................                                             [100%]",
-    "388 passed in 22.02s"
+    ".................................                                        [100%]",
+    "465 passed in 17.01s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "18d88d15298550107e71bf64d65484cec3bb1e14255c27a2fbbb0de91c44221d",
+  "fingerprint": "63b65dbd9a224652147cbe4b6fbe2219eb7261e563142f03dd2de89e72fc1ea7",
   "file_count": 530,
-  "working_fingerprint": "18d88d15298550107e71bf64d65484cec3bb1e14255c27a2fbbb0de91c44221d",
-  "started_at_utc": "2026-10-26T03:06:52.865192+00:00"
+  "working_fingerprint": "63b65dbd9a224652147cbe4b6fbe2219eb7261e563142f03dd2de89e72fc1ea7",
+  "started_at_utc": "2026-10-26T03:13:35.063408+00:00"
 }

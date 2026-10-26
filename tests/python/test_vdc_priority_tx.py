@@ -7,7 +7,18 @@ import subprocess
 
 import pytest
 
+from vdc_units import fragment_slice
+
 ROOT = Path(__file__).resolve().parents[2]
+
+# Placeholder the harness keeps in place of the old fragment include; the live
+# unit's code is injected here at compile time (see ``provider_source``).
+UNIT_BODY_MARKER = "/* PROVIDER_UNIT_BODY */"
+
+
+def provider_source() -> str:
+    """Provider harness with the live unit's code in place of the fragment."""
+    return HARNESS.replace(UNIT_BODY_MARKER, fragment_slice("vdc_priority_tx"))
 
 
 @pytest.fixture(scope="module", params=[(6, False), (6, True), (8, False), (8, True)])
@@ -15,7 +26,7 @@ def provider_executable(request, tmp_path_factory):
     capacity, short_enums = request.param
     directory = tmp_path_factory.mktemp(f"priority-tx-{capacity}-{int(short_enums)}")
     source = directory / "priority_tx.c"
-    source.write_text(HARNESS, encoding="utf-8")
+    source.write_text(provider_source(), encoding="utf-8")
     compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
     exe = directory / ("priority_tx.exe" if os.name == "nt" else "priority_tx")
     command = [compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-fstack-usage",
@@ -74,6 +85,9 @@ HARNESS = r'''
 #include "vdc_priority_codec.h"
 #include "tdma_origin_plan.h"
 static unsigned core;
+/* Host-control bookkeeping is its own unit now; the provider harness only needs
+ * the note to exist, not its SCPI-visible effect. */
+static void priority_note_host_control(void) {}
 static unsigned get_core_num(void) { return core; }
 static tdma_service_service_t owner;
 static tdma_service_service_t *s_vdc_tdma_service=&owner;
@@ -117,7 +131,7 @@ bool vdc_dpll_manager_project_timer1_feedback_event(uint32_t ses,uint32_t role,u
     if(action==5u) ++config.owner_config_seq;
     return true;
 }
-#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_tx.inc"
+/* PROVIDER_UNIT_BODY */
 
 static uint16_t le16(const uint8_t *p) { return p[0]|((uint16_t)p[1]<<8u); }
 static vdc_priority_tx_snapshot_t snapshot(void) {

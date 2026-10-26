@@ -101,3 +101,18 @@ def test_helpers_never_read_the_audit_archive(module):
     source = Path(module.__file__).read_text(encoding="utf-8")
     assert "archive/" not in source
     assert "_inc_split_v1" not in source
+
+
+def test_typedef_body_extracts_a_single_declaration():
+    text = "typedef struct {\n    int a;\n} foo_t;\n\ntypedef struct {\n    int b;\n} bar_t;\n"
+    assert c_text.typedef_body(text, "foo_t").startswith("typedef struct {")
+    assert c_text.typedef_body(text, "foo_t").strip().endswith("} foo_t;")
+    assert "bar_t" not in c_text.typedef_body(text, "foo_t")
+
+
+def test_fragment_slice_carries_the_live_unit_body():
+    code = vdc_units.fragment_slice("vdc_priority_tx")
+    assert "vdc_priority_tx_work_t" in code          # type hoisted by the split
+    assert "vdc_priority_tx_core1" in code           # provider entry point
+    assert "priority_gap_publish" in code            # merged unit body
+    assert "archive" not in code

@@ -83,6 +83,32 @@ def definition_units(directory: Path, name: str) -> list[Path]:
     return hits
 
 
+def typedef_body(text: str, name: str) -> str:
+    """Return the ``typedef struct/enum/union ... name;`` declaration."""
+    pattern = re.compile(rf"(?m)^typedef\s+(?:struct|union|enum)\b[^{{;]*\{{")
+    for match in pattern.finditer(text):
+        depth = 0
+        cursor = match.end() - 1
+        while cursor < len(text):
+            char = text[cursor]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if not depth:
+                    break
+            cursor += 1
+        else:
+            continue
+        end = text.find(";", cursor)
+        if end < 0:
+            continue
+        tail = text[cursor + 1:end]
+        if re.search(rf"\b{re.escape(name)}\b", tail):
+            return text[match.start():end + 1]
+    raise KeyError(name)
+
+
 def strip_prologue(text: str) -> str:
     """Drop the leading blank/``#include`` lines of a unit."""
     lines = text.splitlines(keepends=True)

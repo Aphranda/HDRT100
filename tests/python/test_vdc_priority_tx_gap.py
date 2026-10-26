@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from test_vdc_priority_tx import HARNESS as PROVIDER_HARNESS, ROOT
+from test_vdc_priority_tx import ROOT, provider_source
 
 
 @pytest.fixture(scope="module", params=[(6, False), (6, True), (8, False), (8, True)])
@@ -14,7 +14,7 @@ def gap_executable(request, tmp_path_factory):
     capacity, short_enums = request.param
     directory = tmp_path_factory.mktemp(f"priority-gap-{capacity}-{int(short_enums)}")
     source = directory / "gap.c"
-    source.write_text(PROVIDER_HARNESS.replace("int main(", "int provider_original_main(")
+    source.write_text(provider_source().replace("int main(", "int provider_original_main(")
                       + HARNESS, encoding="utf-8")
     compiler = os.environ.get("HOST_CC") or shutil.which("gcc") or "D:/Microsoft/mingw64/bin/gcc.exe"
     exe = directory / ("gap.exe" if os.name == "nt" else "gap")
