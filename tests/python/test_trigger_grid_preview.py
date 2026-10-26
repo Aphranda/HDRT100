@@ -45,7 +45,11 @@ def owner(tmp_path_factory):
         encoding='utf-8')
     return compile_grid(directory, 'owner', OWNER, [
         ROOT / 'components/sync_trigger/src/trigger_grid_preview.c',
+        # vdc_domain split into evidence/profile units (N5.0.4j); the preview
+        # owner calls the DCO mapping that lives there.
         ROOT / 'components/vdc_domain/src/vdc_domain.c',
+            ROOT / 'components/vdc_domain/src/vdc_domain_evidence.c',
+            ROOT / 'components/vdc_domain/src/vdc_domain_profile.c',
             ROOT / 'components/vdc_domain/src/vdc_timestamp.c',
             ROOT / 'components/tdma/src/tdma_profile.c',
             ROOT / 'components/sync_trigger/src/trigger_time_cursor.c',
@@ -344,8 +348,9 @@ int main(int argc,char **argv)
 @pytest.fixture(scope='module')
 def parser(tmp_path_factory):
     library = ROOT / 'third_party/scpi-parser/libscpi/src'
+    units = [ROOT / 'middleware/scpi_port/src/scpi_trigger_grid_commands.c']
     return compile_grid(tmp_path_factory.mktemp('trigger-grid-parser'), 'parser', PARSER,
-                        sorted(library.glob('*.c')), parser=True)
+                        [*units, *sorted(library.glob('*.c'))], parser=True)
 
 
 def parser_run(parser, command, mode='accept'):
@@ -467,7 +472,7 @@ uint32_t trigger_grid_preview_anchor_snapshot(trigger_grid_anchor_snapshot_t *ou
 uint32_t trigger_grid_preview_plan_anchored(uint32_t epoch,uint32_t generation,uint64_t ordinal,
     uint64_t minimum,uint64_t maximum,trigger_grid_preview_plan_t *out)
 {return trigger_grid_preview_plan(epoch,generation,ordinal,minimum,maximum,out);}
-#include "scpi_trigger_grid_commands.inc"
+#include "scpi_trigger_grid_commands.h"
 static const scpi_command_t commands[]={
     {.pattern="TRIGger:REServation:GRID:CONFigure",.callback=scpi_cmd_trigger_grid_configure},
     {.pattern="TRIGger:REServation:GRID:CLEar",.callback=scpi_cmd_trigger_grid_clear},

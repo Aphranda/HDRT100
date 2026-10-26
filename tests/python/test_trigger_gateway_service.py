@@ -50,6 +50,10 @@ OWNER = r'''
 #include "trigger_counter_service.h"
 #include "sync_trigger.h"
 #include "tdma_runtime_owner.h"
+/* Pilot model default: off. The gateway service is exercised on the shipped
+ * default path; enabling a pilot is a separate module's responsibility. */
+static bool pilot_position_enabled;
+bool trigger_sequence_pilot_position_enabled(void) { return pilot_position_enabled; }
 
 static unsigned core, maintenance_depth, mutations, load_calls, stop_calls, release_calls;
 static uint32_t generation;
@@ -257,8 +261,11 @@ int main(int argc,char **argv)
 @pytest.fixture(scope='module')
 def parser(tmp_path_factory):
     library = ROOT/'third_party/scpi-parser/libscpi/src'
+    units = [ROOT / 'middleware/scpi_port/src/scpi_trigger_grid_commands.c',
+             ROOT / 'middleware/scpi_port/src/scpi_trigger_deployment_commands.c',
+             ROOT / 'middleware/scpi_port/src/scpi_trigger_gateway_commands.c']
     return compile_grid(tmp_path_factory.mktemp('gateway-parser'), 'parser', PARSER,
-                        sorted(library.glob('*.c')), parser=True)
+                        [*units, *sorted(library.glob('*.c'))], parser=True)
 
 
 def parse_gateway(parser, command, mode='accept'):
@@ -341,7 +348,7 @@ uint32_t trigger_gateway_snapshot(trigger_gateway_snapshot_t *out)
             .output_tx_level=2,.output_rx_level=3,.ready_tx_level=4,.ready_rx_level=1}};
     return 0;
 }
-#include "scpi_trigger_gateway_commands.inc"
+#include "scpi_trigger_gateway_commands.h"
 static const scpi_command_t commands[]={
     {.pattern="TRIGger:REServation:GATEway:LOAD",.callback=scpi_cmd_trigger_gateway_load},
     {.pattern="TRIGger:REServation:GATEway:STOP",.callback=scpi_cmd_trigger_gateway_stop},

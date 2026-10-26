@@ -70,6 +70,11 @@ HARNESS = r'''
 #include "trigger_counter_service.h"
 #include "trigger_gateway_service.h"
 #include "tdma_runtime_owner.h"
+/* The pilot model is a separate SCPI-owned module; this harness keeps the
+ * verified default (pilot off) so the service behaviour under test is the one
+ * that ships when no pilot is enabled. */
+static bool pilot_switch_enabled;
+bool trigger_sequence_pilot_switch_enabled(void) { return pilot_switch_enabled; }
 static unsigned core,depth,load_calls,stage_calls,apply_calls,stop_calls,release_calls;
 static bool maintenance=true,dep_ok=true,staged_ok=true,ring_ok=true,counter_loaded,gateway_loaded;
 static bool load_ok=true,stage_ok=true,apply_ok=true,stop_ok=true,release_ok=true,snapshot_ok=true;
@@ -259,8 +264,11 @@ int main(int argc,char **argv)
 @pytest.fixture(scope='module')
 def parser(tmp_path_factory):
     libscpi = ROOT/'third_party/scpi-parser/libscpi/src'
+    units = [ROOT / 'middleware/scpi_port/src/scpi_trigger_grid_commands.c',
+             ROOT / 'middleware/scpi_port/src/scpi_trigger_deployment_commands.c',
+             ROOT / 'middleware/scpi_port/src/scpi_trigger_switch_commands.c']
     return compile_grid(tmp_path_factory.mktemp('switch-parser'), 'parser', PARSER,
-                        sorted(libscpi.glob('*.c')), parser=True)
+                        [*units, *sorted(libscpi.glob('*.c'))], parser=True)
 
 
 def parse_switch(parser, command, mode='accept'):
@@ -339,7 +347,7 @@ uint32_t trigger_switch_snapshot(trigger_switch_snapshot_t *out)
                      {.sm=3,.output_base_pin=18,.output_count=1,.code=1,.tx_level=4,.rx_level=5}}}};
     return 0;
 }
-#include "scpi_trigger_switch_commands.inc"
+#include "scpi_trigger_switch_commands.h"
 static const scpi_command_t commands[]={
     {.pattern="TRIGger:REServation:SWITch:LOAD",.callback=scpi_cmd_trigger_switch_load},
     {.pattern="TRIGger:REServation:SWITch:STAGe",.callback=scpi_cmd_trigger_switch_stage},
