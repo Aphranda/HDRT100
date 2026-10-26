@@ -272,6 +272,9 @@ def main() -> int:
                              "'all' or --full runs the continuous chain")
     parser.add_argument("--interactive", action="store_true",
                         help="with --steps/--full: wait for Enter between steps")
+    parser.add_argument("--leave-running", action="store_true",
+                        help="with --steps/--full: keep the ring/T2/VDC running "
+                             "instead of the automatic step-21 teardown")
     parser.add_argument("--dep-generation", type=int, default=None,
                         help="pin the run identity (grid epoch / deployment generation / "
                              "VDC session / T2 run_id) so single-step invocations stay "
@@ -305,12 +308,14 @@ def main() -> int:
     if args.step is not None:
         return run_steps([f"{row[0]:016X}" for row in ROWS], [args.step],
                          interactive=args.interactive,
+                         teardown=False if args.leave_running else None,
                          generation=args.dep_generation,
                          pre_lock_mask=args.pre_lock_mask,
                          release_quarantine=args.release_quarantine)
     if args.steps is not None:
         return run_steps([f"{row[0]:016X}" for row in ROWS], parse_selection(args.steps),
                          interactive=args.interactive,
+                         teardown=False if args.leave_running else None,
                          generation=args.dep_generation,
                          pre_lock_mask=args.pre_lock_mask,
                          release_quarantine=args.release_quarantine)
@@ -319,6 +324,7 @@ def main() -> int:
         # legacy run_full remains only as a reference implementation).
         return run_steps([f"{row[0]:016X}" for row in ROWS], parse_selection("all"),
                          interactive=args.interactive,
+                         teardown=False if args.leave_running else None,
                          pre_lock_mask=args.pre_lock_mask,
                          release_quarantine=args.release_quarantine)
     crc = deployment_crc(args.generation, ROWS)
