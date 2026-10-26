@@ -10,7 +10,7 @@ import pytest
 
 from test_vdc_command_ingress import ingress_definition
 from test_vdc_command_owner import ROOT, compile_executable
-from refmem_units import body as refmem_unit_body
+from refmem_units import body as refmem_unit_body, source as refmem_source
 
 
 DEFAULT_MANAGER_STUBS = r'''
@@ -19,11 +19,35 @@ int vdc_dpll_manager_copy_boundary_command_offer(uint32_t config,uint32_t role,
     refmem_sync_vdc_boundary_command_t *command,uint32_t *offer_id)
 { (void)config;(void)role;(void)source;(void)schedule;(void)sess;(void)command;(void)offer_id;return 0; }
 void vdc_dpll_manager_boundary_command_tx_done_core0(uint32_t offer_id) { (void)offer_id; }
+bool tdma_maintenance_runtime_ack(uint8_t stream_id, uint8_t generation,
+    uint8_t source_slot, bool ok)
+{ (void)stream_id;(void)generation;(void)source_slot;return ok; }
+uint8_t board_identity_get_no(void) { return 2u; }
 '''
 
 
+def _definition_text(source: str, name: str) -> str:
+    """Definition of ``name``, including a return type wrapped onto the line above."""
+    match = re.search(rf"(?m)^{re.escape(name)}\s*\(", source)
+    if not match:
+        import c_text
+
+        return c_text.function_body(source, name)
+    start = match.start()
+    previous = source.rfind("\n", 0, max(start - 1, 0))
+    previous_line = source[previous + 1:start].strip()
+    if previous_line and not previous_line.endswith(";"):
+        start = previous + 1
+    opening = source.index("{", source.index(")", match.start()))
+    depth, cursor = 1, opening + 1
+    while depth:
+        depth += (source[cursor] == "{") - (source[cursor] == "}")
+        cursor += 1
+    return source[start:cursor].strip()
+
+
 def make_feedback_harness(manager_stubs=DEFAULT_MANAGER_STUBS):
-    source = (ROOT / "components/distributed_refmem/src/distributed_refmem.c").read_text(encoding="utf-8")
+    source = refmem_source()
     service = (ROOT / "components/tdma/src/tdma_service.c").read_text(encoding="utf-8")
     state = re.search(r"typedef struct \{[^}]*\} distributed_refmem_tdma_flight_sync_t;", source, re.S)
     assert state
@@ -42,6 +66,7 @@ def make_feedback_harness(manager_stubs=DEFAULT_MANAGER_STUBS):
 #include <stdio.h>
 #include <string.h>
 #include "distributed_refmem.h"
+#include "refmem_cmd_reply.h"
 #include "refmem_application_model.h"
 #include "refmem_sync_vdc_feedback.h"
 #include "vdc_dpll_manager.h"
@@ -166,11 +191,35 @@ static bool s_vdc_flight_rx_admission_ready;
         "distributed_refmem_put_le16", "distributed_refmem_put_i16", "distributed_refmem_put_le32",
         "distributed_refmem_get_le16", "distributed_refmem_get_i16", "distributed_refmem_get_le32",
         "distributed_refmem_flight_input_offset_for_slot", "distributed_refmem_flight_publish_mask_for_slot"))
+    harness += '\n' + manager_stubs
+    harness += "\n" + _definition_text(source, "distributed_refmem_vdc_flight_rx_binding")
+    harness += "\n" + _definition_text(source, "distributed_refmem_vdc_flight_rx_admission_ready")
+    harness += "\n" + _definition_text(source, "distributed_refmem_local_slot")
+    harness += "\n" + refmem_unit_body("distributed_refmem_cmd_reply")
     harness += "\n" + "\n".join(ingress_definition(source, name) for name in (
         "distributed_refmem_vdc_flight_rx_read_binding", "distributed_refmem_vdc_flight_rx_same_binding",
         "distributed_refmem_vdc_flight_rx_refresh"))
-    harness += '\n' + manager_stubs
+    feedback_binding = re.search(
+        r"typedef struct \{[^}]*\} distributed_refmem_feedback_binding_t;", source, re.S)
+    assert feedback_binding
+    harness += '\n' + feedback_binding.group(0)
+    defined = set(re.findall(r"(?m)^#define (\w+)", harness))
+    for match in re.finditer(r"(?m)^#define (DISTRIBUTED_REFMEM_\w+)[^\n]*$", source):
+        if match.group(1) in defined:
+            continue
+        harness += "\n" + match.group(0)
+        defined.add(match.group(1))
     harness += '\n' + refmem_unit_body("distributed_refmem_vdc_feedback")
+    maint_funcs = (_definition_text(source, "refmem_cmd_load_peek_maintenance_ack") + "\n"
+                   + _definition_text(source, "refmem_cmd_load_consume_maintenance_ack"))
+    ack_state = [line for line in re.findall(
+        r"(?m)^static\s+[^;\n]*\b(s_maint_ack_\w+)\b[^;\n]*;", source) if False]
+    ack_state = [decl for decl in re.findall(r"(?m)^static\s+[^;\n]*\bs_maint_ack_\w+\b[^;\n]*;", source)
+                 if re.search(r"\b" + re.search(r"s_maint_ack_\w+", decl).group(0) + r"\b", maint_funcs)]
+    assert ack_state
+    harness += "\n" + "\n".join(ack_state)
+    harness += "\n" + _definition_text(source, "refmem_cmd_load_peek_maintenance_ack")
+    harness += "\n" + _definition_text(source, "refmem_cmd_load_consume_maintenance_ack")
     harness += "\n" + "\n".join(ingress_definition(source, name) for name in (
         "distributed_refmem_tdma_flight_build_compact_mailbox", "distributed_refmem_tdma_flight_sync_store_mailbox",
         "distributed_refmem_tdma_flight_expand_compact_delta", "distributed_refmem_tdma_flight_parse_mailbox",
@@ -487,13 +536,23 @@ int main(int argc,char **argv)
 
 FEEDBACK_SOURCES = [ROOT / path for path in (
         "components/tdma/src/tdma_flight_fifo.c", "components/distributed_refmem/src/refmem_sync_vdc_feedback.c",
-        "components/distributed_refmem/src/refmem_sync.c", "components/distributed_refmem/src/refmem_sync_frame.c")]
+        "components/distributed_refmem/src/refmem_sync.c", "components/distributed_refmem/src/refmem_sync_frame.c",
+        "components/distributed_refmem/src/refmem_cmd_reply.c")]
+
+# Text the harness may pull missing helpers/types from when its inlined units
+# call sibling units (see test_vdc_command_owner.compile_executable closure).
+FEEDBACK_CLOSURE = refmem_source() + "\n" + "\n".join(
+    path.read_text(encoding="utf-8")
+    for path in sorted((ROOT / "components/distributed_refmem/inc").glob("*.h")))
 
 
 @pytest.fixture(scope="module")
 def feedback_executable(tmp_path_factory):
+    closure = refmem_source() + "\n" + "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / "components/distributed_refmem/inc").glob("*.h")))
     return compile_executable(tmp_path_factory.mktemp("feedback-transport"), "feedback_transport",
-                              make_feedback_harness(), FEEDBACK_SOURCES)
+                              make_feedback_harness(), FEEDBACK_SOURCES, closure=closure)
 
 
 @pytest.mark.parametrize("case", [

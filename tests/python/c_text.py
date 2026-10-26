@@ -45,11 +45,22 @@ def _is_definition_prefix(prefix: str) -> bool:
 def function_body(text: str, name: str) -> str:
     """Return the complete definition (signature + body) of ``name``.
 
+    Handles a return type that wraps onto the line above the function name.
     Raises ``KeyError`` when the text only declares or calls the symbol.
     """
     pattern = re.compile(rf"(?m)^([A-Za-z_][^\n]*?)\b{re.escape(name)}\s*\(")
     for match in pattern.finditer(text):
-        if not _is_definition_prefix(match.group(1)):
+        start = match.start(1)
+        prefix = match.group(1)
+        if not _is_definition_prefix(prefix) and not prefix.strip():
+            # The name sits at column 0; the return type is on the line above.
+            previous_end = start - 1
+            previous_start = text.rfind("\n", 0, previous_end)
+            candidate = text[previous_start + 1:start]
+            if _is_definition_prefix(candidate):
+                start = previous_start + 1
+                prefix = candidate
+        if not _is_definition_prefix(prefix):
             continue
         try:
             after = _close_paren(text, match.end() - 1)
@@ -67,7 +78,7 @@ def function_body(text: str, name: str) -> str:
             char = text[cursor]
             depth += (char == "{") - (char == "}")
             cursor += 1
-        return text[match.start(1):cursor].rstrip()
+        return text[start:cursor].rstrip()
     raise KeyError(name)
 
 

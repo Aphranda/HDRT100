@@ -23,18 +23,16 @@ def body(unit: str, strip_static: bool = False) -> str:
 
 
 def source() -> str:
-    """Concatenated production text of the parent unit and its split units."""
-    names = (
-        "distributed_refmem.c",
-        # N5.0.4p: the core was split into plane / link / status units.
-        "distributed_refmem_plane.c",
-        "distributed_refmem_link.c",
-        "distributed_refmem_status.c",
-        "distributed_refmem_position_ack.c",
-        "distributed_refmem_vdc_feedback.c",
-        "distributed_action_probe.c",
-        "distributed_refmem_priority_health.c",
-        "refmem_le.h",
-    )
-    return "\n".join((SRC / n).read_text(encoding="utf-8")
-                     for n in names if (SRC / n).is_file())
+    """Production text of every RefMem unit plus the split private headers.
+
+    The domain has several translation units now (core planes, cmd-reply,
+    position ACK, VDC feedback, action probe, priority health).  A text
+    extractor that names one file goes stale on every split, so this helper
+    concatenates the whole source directory in a stable order.
+    """
+    files = sorted(path for path in SRC.glob("*.c"))
+    headers = [SRC / name for name in
+               ("distributed_refmem_internal.h", "distributed_refmem_split_internal.h",
+                "refmem_le.h")]
+    ordered = files + [path for path in headers if path.is_file()]
+    return "\n".join(path.read_text(encoding="utf-8") for path in ordered)

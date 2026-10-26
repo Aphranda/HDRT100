@@ -12,6 +12,8 @@ import subprocess
 
 import pytest
 
+import c_text
+
 import refmem_units
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,19 +65,112 @@ def host_includes():
     return includes
 
 
-def compile_executable(directory, name, text, sources=(), flags=()):
+def compile_executable(directory, name, text, sources=(), flags=(), closure=None):
+    """Compile a host harness.
+
+    ``closure`` is production text used to auto-complete a harness whose
+    inlined unit calls helpers from sibling units: on each failed attempt the
+    linker's undefined symbols (and the compiler's undeclared statics) are
+    appended from that text, then the build is retried.
+    """
     source = directory / f"{name}.c"
-    source.write_text(text, encoding="utf-8")
     compiler = host_compiler()
     exe = directory / (name + (".exe" if os.name == "nt" else ""))
     includes = host_includes()
-    result = subprocess.run([
-        compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
-        *[f"-I{path}" for path in includes], *flags, str(source),
-        *map(str, sources), "-o", str(exe),
-    ], capture_output=True, text=True, timeout=60)
+    result = None
+    for _ in range(16):
+        source.write_text(text, encoding="utf-8")
+        result = subprocess.run([
+            compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+            *[f"-I{path}" for path in includes], *flags, str(source),
+            *map(str, sources), "-o", str(exe),
+        ], capture_output=True, text=True, timeout=60)
+        if result.returncode == 0:
+            return exe
+        if closure is None:
+            break
+        completed = _append_closure(text, result.stderr, closure)
+        if completed is None:
+            break
+        text = completed
+    assert result is not None
     assert result.returncode == 0, result.stdout + result.stderr
     return exe
+
+
+def _header_for(name: str) -> str | None:
+    """Component header that defines ``name`` (for closure includes)."""
+    for path in sorted((ROOT / "components").glob("*/inc/*.h")):
+        text = path.read_text(encoding="utf-8")
+        if re.search(rf"(?m)^\s*#define\s+{re.escape(name)}\b", text) or \
+                re.search(rf"\b{re.escape(name)}\s*;", text):
+            return path.name
+    return None
+
+
+def _append_closure(text, stderr, closure):
+    """Append definitions/declarations a failed build says it needs, or None.
+
+    Types and statics are inserted right after the last ``#include`` so they
+    precede every inlined unit; function definitions go to the end.
+    """
+    declarations = []
+    definitions = []
+    missing_functions = (set(re.findall(r"undefined reference to `(\w+)'", stderr))
+                         | set(re.findall(r"implicit declaration of function '(\w+)'", stderr)))
+    for name in sorted(missing_functions):
+        try:
+            definition = c_text.function_body(closure, name)
+        except KeyError:
+            # A data symbol, not a function: keep the whole definition early.
+            data = re.search(
+                rf"(?m)^[A-Za-z_][^;\n]*\b{re.escape(name)}\b[^;\n]*;[ \t]*$",
+                closure)
+            if data:
+                declarations.append(data.group(0))
+            continue
+        definitions.append(definition)
+        signature = definition.split("{", 1)[0].strip()
+        declarations.append(signature + ";")
+    for name in sorted(set(re.findall(r"'(\w+)' undeclared", stderr))
+                       | set(re.findall(r"'(\w+)' was not declared", stderr))):
+        match = re.search(
+            rf"(?m)^(?:static\s+)?[A-Za-z_][^;()\n]*\b{re.escape(name)}\b[^;()\n]*;[ \t]*$",
+            closure)
+        if match:
+            declarations.append(match.group(0))
+    typedefs = c_text.typedefs(closure)
+    headers: list[str] = []
+    unknown = (set(re.findall(r"unknown type name '(\w+)'", stderr))
+               | set(re.findall(r"'([A-Z][A-Z0-9_]+)' undeclared", stderr)))
+    for name in sorted(unknown):
+        header = _header_for(name)
+        if header and header not in headers:
+            headers.append(header)
+            continue
+        if name in typedefs:
+            declarations.append(typedefs[name])
+            continue
+        macro = re.search(
+            rf"(?m)^#define\s+{re.escape(name)}\b(?:[^\n]*\\\n)*[^\n]*$", closure)
+        if macro:
+            declarations.append(macro.group(0))
+
+    fresh_decls = [item for item in declarations if item and item not in text]
+    fresh_headers = [f'#include "{name}"' for name in headers
+                     if f'#include "{name}"' not in text]
+    fresh_defs = [item for item in definitions if item and item not in text]
+    if not fresh_decls and not fresh_defs and not fresh_headers:
+        return None
+    if fresh_decls or fresh_headers:
+        lines = text.splitlines(keepends=True)
+        anchor = max((index for index, line in enumerate(lines)
+                      if line.lstrip().startswith("#include")), default=-1)
+        block = "\n".join(fresh_headers + fresh_decls) + "\n"
+        text = "".join(lines[:anchor + 1]) + block + "".join(lines[anchor + 1:])
+    if fresh_defs:
+        text += "\n" + "\n".join(fresh_defs)
+    return text
 
 
 @pytest.fixture(scope="module")
