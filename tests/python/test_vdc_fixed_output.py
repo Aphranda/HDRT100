@@ -527,7 +527,7 @@ def test_fixed_admission_preserves_selected_model_and_irq(fixed_owner, stage, ca
 
 def test_fixed_stop_scpi_ack(tmp_path):
     """A completed STOP must emit an ACK; busy must emit only an error."""
-    source = (ROOT / 'middleware/scpi_port/src/scpi_system_snapshot_commands.c').read_text(encoding='utf-8')
+    source = (ROOT / 'middleware/scpi_port/src/scpi_vdc_snapshot_commands.c').read_text(encoding='utf-8')
     handler = source.split('scpi_result_t scpi_cmd_vdc_fixed_output_stop(', 1)[1]
     handler = 'scpi_result_t scpi_cmd_vdc_fixed_output_stop(' + handler.split(
         'static scpi_result_t scpi_vdc_output_status(', 1)[0]
@@ -564,7 +564,7 @@ int main(void) {
 
 def test_subdivision_scpi_wire_format_and_errors(tmp_path):
     """Exercise production handlers: exact schema, parameter order and ACKs."""
-    source = (ROOT / 'middleware/scpi_port/src/scpi_system_snapshot_commands.c').read_text(encoding='utf-8')
+    source = (ROOT / 'middleware/scpi_port/src/scpi_vdc_snapshot_commands.c').read_text(encoding='utf-8')
     handlers = 'scpi_result_t scpi_cmd_vdc_fixed_output(' + source.split(
         'scpi_result_t scpi_cmd_vdc_fixed_output(', 1)[1].split(
         'scpi_result_t scpi_cmd_vdc_feedback_match_q(', 1)[0]
