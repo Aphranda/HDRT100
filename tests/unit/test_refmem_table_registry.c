@@ -1457,6 +1457,35 @@ static void test_serialized_layout_version_lifecycle(const uint8_t *serialized, 
     printf("serialized layout lifecycle passed: layout=2 legacy_owner_rejected=1 roles_preserved=3 bytes=%zu\n", size);
 }
 
+/* N5.2a.3: the runtime TDMA ring seat must not leak into the staged package.
+ * A board seated on a non-zero slot serializes the design-time foundation
+ * profile, so the node_load owner validation still passes and the package
+ * bytes stay identical to the unseated baseline. */
+static int test_stage_ignores_runtime_ring_seat(void)
+{
+    int failed = 0;
+    failed += expect_bool("seat model init", refmem_application_model_init(), true);
+
+    refmem_application_model_load_snapshot_t baseline;
+    failed += expect_bool("seat baseline stage",
+        refmem_application_model_stage_scpi_node_config(1u, 1u, 0u, 0u, 1u, 0u, 0u), true);
+    refmem_application_model_get_load_snapshot(&baseline);
+
+    failed += expect_bool("runtime ring seat",
+        refmem_application_model_set_tdma_ring_topology(1u, 0u, 4u), true);
+
+    refmem_application_model_load_snapshot_t seated;
+    failed += expect_bool("stage after runtime seat",
+        refmem_application_model_stage_scpi_node_config(1u, 1u, 0u, 0u, 1u, 0u, 0u), true);
+    refmem_application_model_get_load_snapshot(&seated);
+    failed += expect_u32("seat does not change staged package",
+        seated.staging_package_crc32, baseline.staging_package_crc32);
+    failed += expect_u32("seat keeps staging validated",
+        seated.staging_state, REFMEM_APP_STAGING_VALIDATED);
+    (void)refmem_application_model_init();
+    return failed;
+}
+
 int main(int argc, char **argv)
 {
     int failed = 0;
@@ -1477,6 +1506,7 @@ int main(int argc, char **argv)
     failed += test_scpi_board_load_stages_board_table_crc();
     failed += test_scpi_node_load_stages_activation_ready_package();
     failed += test_origin_trial_model_projection();
+    failed += test_stage_ignores_runtime_ring_seat();
     test_serialized_layout_version_lifecycle(NULL, 0u);
     if (argc == 2) {
         uint8_t serialized[TEST_REFMEM_TABLE_PACKAGE_CAPACITY];
