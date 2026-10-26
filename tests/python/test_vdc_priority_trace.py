@@ -23,6 +23,7 @@ from test_vdc_priority_follow import (
     EXTERNAL_INPUTS as FOLLOW_INPUTS, SCENARIOS as FOLLOW_SCENARIOS,
     domain_sources, ratio_oracle,
 )
+from vdc_units import code, declarations, fragment_slice
 
 
 def production(path):
@@ -86,16 +87,17 @@ def recorder_base():
         "vdc_dpll_manager_dpll_capture_arm",
         "vdc_dpll_manager_dpll_capture_stop", "vdc_dpll_manager_get_dpll_capture_status",
         "vdc_dpll_manager_dpll_capture_read", "vdc_dpll_manager_dpll_capture_save"))
-    matcher = production("components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_dpll_feedback_match.inc")
-    source_type = re.search(r'typedef struct \{\s*uint64_t next_ordinal.*?\} vdc_feedback_match_source_t;', matcher, re.S)
-    assert source_type
-    helpers = matcher[matcher.index("static uint32_t match_inc"):matcher.index("/* Keep authorization")]
+    match_decls = declarations("vdc_dpll_feedback_match")
+    match_code = code("vdc_dpll_feedback_match",
+                      functions=("match_load_words", "match_publish"),
+                      remove=("s_feedback_matches", "s_feedback_match_owner_token",
+                              "s_feedback_match_active_generation"))
     follow_inputs = FOLLOW_INPUTS.replace(
         '{ if(!ring_available)return false;*out=ring;return true; }',
         '{ ++ring_reads;if(ring_read_hook)ring_read_hook(ring_reads);'
         'if(!ring_available)return false;*out=ring;return true; }')
     return reservation_states + prelude + TRACE_EXTERNALS + follow_inputs + defines + "\n" + header.group(0) + "\n" + storage + \
-        real_crc_source() + "\n" + source_type.group(0) + MATCH_STORAGE + helpers, legacy
+        real_crc_source() + "\n" + match_decls + MATCH_STORAGE + match_code, legacy
 
 
 @pytest.fixture(scope="module")
@@ -106,16 +108,21 @@ def trace_executable(tmp_path_factory):
 static void phase_model_committed_core1(const vdc_dpll_manager_committed_model_t *model);
 #define VDC_PRIORITY_PHASE_MODEL_COMMITTED_HOOK(model) phase_model_committed_core1(model)
 '''
-    for name in ("vdc_model_feedback.inc", "vdc_boundary_capture.inc", "vdc_boundary_control.inc", "vdc_priority_match.inc"):
-        harness += "\n" + production(f"components/vdc_dpll_manager/archive/vdc_inc_split_v1/{name}")
+    capture = fragment_slice("vdc_boundary_capture")
+    control = fragment_slice("vdc_boundary_control")
+    shared_enum = re.search(r"enum \{\n    VDC_CAPTURE_AUTO_OFFER.*?\n\};", capture, re.S)
+    if shared_enum:
+        control = control.replace(shared_enum.group(0), "", 1)
+    harness += "\n" + "static void priority_note_host_control(void) {}\n" + fragment_slice("vdc_model_feedback")
+    harness += "\n" + capture + "\n" + control
+    harness += "\n" + fragment_slice("vdc_priority_match")
     harness += r'''
 static void priority_trace_decision_core1(const vdc_priority_follow_snapshot_t *decision);
 static void priority_trace_phase_core1(const vdc_priority_phase_snapshot_t *phase);
 #define VDC_PRIORITY_TRACE_DECISION_HOOK(snapshot) priority_trace_decision_core1(snapshot)
 #define VDC_PRIORITY_TRACE_PHASE_HOOK(snapshot) priority_trace_phase_core1(snapshot)
 '''
-    harness += production("components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_follow.inc").replace(
-        '#include "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_phase.inc"', production("components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_priority_phase.inc"))
+    harness += fragment_slice("vdc_priority_follow")
     harness += "\n#undef VDC_PRIORITY_TRACE_DECISION_HOOK\n"
     harness += r'''
 /* Schema 1 fixture has no origin TX producer; origin schema is exercised with
