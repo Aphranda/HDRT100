@@ -29,7 +29,17 @@ static inline void tdma_service_timing_record(uint32_t stage, uint64_t start)
 
 from tools.state_machine_resource_check.state_machine_resource_check import c_definition_body
 
+from tdma_units import unit_with
+
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _unit_text(preferred: Path, name: str) -> str:
+    """Text of the unit that defines ``name`` (the phys core is three units now)."""
+    text = preferred.read_text(encoding="utf-8") if preferred.is_file() else ""
+    if f"{name}(" in text:
+        return text
+    return unit_with(name).read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -55,7 +65,8 @@ def launch_exe(tmp_path_factory):
     for source, name, result, args in definitions:
         # The shared extractor recognizes project *_t return types. Normalize
         # only this SDK return token for discovery; the body remains exact.
-        parsed = source.replace("static dma_channel_config ", "static dma_channel_config_t ")
+        parsed = _unit_text(origin_path, name).replace(
+            "static dma_channel_config ", "static dma_channel_config_t ")
         bodies[name] = f"{result} {name}({args}) {{\n" + c_definition_body(parsed, name) + "\n}\n"
     poll = c_definition_body(origin, "tdma_pio_spi_phys_origin_poll")
     switch = poll.index("    switch ((tdma_origin_prepare_stage_t)request->stage)")
@@ -69,7 +80,8 @@ def launch_exe(tmp_path_factory):
         ("tdma_pio_spi_phys_stop_command_dma", "static bool", "tdma_pio_spi_phys_t *phys"),
         ("tdma_pio_spi_phys_disarm", "bool", "void *context"),
     ):
-        bodies[name] = f"{result} {name}({args}) {{\n" + c_definition_body(physical, name) + "\n}\n"
+        bodies[name] = f"{result} {name}({args}) {{\n" + c_definition_body(
+            _unit_text(physical_path, name), name) + "\n}\n"
     text = "\n".join(bodies.values())
     # The production disarm path records its own timing seam. These slices are
     # compiled without the timing module, so the seam becomes a no-op

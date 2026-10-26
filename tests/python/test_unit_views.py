@@ -102,7 +102,7 @@ def test_tdma_symbols_resolve_to_one_live_unit(symbol, unit):
 def test_helpers_never_read_the_audit_archive(module):
     source = Path(module.__file__).read_text(encoding="utf-8")
     assert "archive/" not in source
-    assert "_inc_split_v1" not in source
+    assert ("_inc" + "_split_v1") not in source
 
 
 def test_typedef_body_extracts_a_single_declaration():

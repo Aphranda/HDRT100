@@ -8,6 +8,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
+from tdma_units import unit_with
+
 
 def _function(path, signature):
     source = path.read_text(encoding="utf-8")
@@ -32,7 +34,7 @@ def training_exe(tmp_path_factory):
         "bool tdma_runtime_owner_train_clock(",
         "void tdma_runtime_owner_update_training_gate(")]
     (build / "training_owner.inc").write_text("\n\n".join(functions), encoding="utf-8")
-    physical = _function(ROOT / "components/tdma/src/tdma_pio_spi_phys.c",
+    physical = _function(unit_with("tdma_pio_spi_phys_clk_train_terminal_core1"),
                          "bool tdma_pio_spi_phys_clk_train_terminal_core1(")
     (build / "training_physical.inc").write_text(physical, encoding="utf-8")
     compiler = shutil.which("gcc") or shutil.which("clang")

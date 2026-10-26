@@ -5,35 +5,39 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/c_text.py",
-    "tests/python/test_vdc_model_feedback_owner.py",
-    "tests/python/vdc_units.py",
+    "tests/python/test_no_archive_anchors.py",
+    "tests/python/test_tdma_origin_launch_physical.py",
+    "tests/python/test_tdma_training_gate.py",
+    "tests/python/test_unit_views.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/c_text.py",
-    "tests/python/test_vdc_model_feedback_owner.py",
-    "tests/python/vdc_units.py"
+    "tests/python/test_no_archive_anchors.py",
+    "tests/python/test_tdma_origin_launch_physical.py",
+    "tests/python/test_tdma_training_gate.py",
+    "tests/python/test_unit_views.py"
   ],
-  "duration_s": 2.422,
+  "duration_s": 6.156,
   "returncode": 0,
   "summary": {
-    "passed": 10,
+    "passed": 181,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "10 passed in 1.91s",
+  "summary_line": "181 passed in 5.74s",
   "tail": [
-    "..........                                                               [100%]",
-    "10 passed in 1.91s"
+    "........................................................................ [ 39%]",
+    "........................................................................ [ 79%]",
+    ".....................................                                    [100%]",
+    "181 passed in 5.74s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "ac5b3840d97697d3761f3d2f71220f93c181208f3fa74c236f7c35e5561db30f",
-  "file_count": 531,
-  "working_fingerprint": "ac5b3840d97697d3761f3d2f71220f93c181208f3fa74c236f7c35e5561db30f",
-  "started_at_utc": "2026-10-26T03:22:41.851498+00:00"
+  "fingerprint": "2d80dc37976e6072dfbc6ae82c96a4d0aefe6600556147fe096f88c590112805",
+  "file_count": 532,
+  "working_fingerprint": "2d80dc37976e6072dfbc6ae82c96a4d0aefe6600556147fe096f88c590112805",
+  "started_at_utc": "2026-10-26T03:23:47.761700+00:00"
 }
