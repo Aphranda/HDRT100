@@ -4,7 +4,7 @@ Status: Active
 Domain: HAOFV
 Canonical: `docs/arch/HAOFV_ARCHITECTURE.md`
 Related: `docs/arch/HAOFV_IMPLEMENTATION_PLAYBOOK.md`, `docs/arch/HAOFV_FLASH_ARCHITECTURE.md`, `docs/arch/ARCH_T2_RESERVATION_ARCHITECTURE.md`, `docs/arch/ARCH_REALTIME_LOAD_MOUNTING_CONSTRAINTS.md`, `docs/calibration/CALIBRATION_TDMA_CLK_TRAINING_PLAN.md`, `docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md`, `docs/vdc/VDC_DOMAIN_ARCHITECTURE.md`, `docs/arch/HAOFV_VDC_DPLL_ARCHITECTURE.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/sync/SYNC_IO_ARCHITECTURE.md`
-Last updated: 2026-10-20
+Last updated: 2026-10-26
 Version: 7
 
 本文档定义 Distributed Hard Real-Time Trigger System 后续产品化演进采用的顶层软件架构。HAOFV 不直接冻结某一块 PCB 的引脚、电源和器件选型，而是定义系统组件之间的 owner、层次、约束传递、状态事实和执行边界。具体板级约束由 `docs/hardware/` 下的调试最小系统板约束、产品板约束和网表评审承接。
@@ -368,7 +368,7 @@ Distributed RefMem 需要吸收 IEC 61499 分布式运行时的优点，但保�
 - 跨节点同步只传播 slot delta、版本、CRC、stale、ACK/NACK 和小载荷，不传播 OTA payload、日志全文、波形或硬实时边沿。
 - 查询必须读取本地快照；slot stale 时返回 stale，不临时跨板阻塞查询。
 - RefMem 统一控制面：控制面客户端经 RefMem 的命令槽/快照面挂接，不另建控制总线；任一节点的维护接口都可作为接入点；命令按显式 `target_mask`/`required_mask` 路由到目标插槽，由目标本地 owner 校验并执行，聚合 ACK/NACK/fence；不提供远程裸写、跨板阻塞查询或绕过本地门禁的强制位。契约见 `REFMEM-CTRL-01`。
-- 单端口控制全部板卡的补齐条款：`REFMEM-TRANSPORT-01`（REFMEM_CMD 走 TDMA 二等席，四板 A0-A3 分发，不新增物理总线）、`REFMEM-SESSION-01`（系统级 TriggerSession）、`REFMEM-ACTION-01`（ActionRegistry/ActionDispatcher）、`REFMEM-LOCAL-01`（单板控制保留：统一面增量，不替换本地 SCPI/slot/owner/T2）；当前均为 pending 架构条款，未实现、未做板端验证。
+- 单端口控制全部板卡的补齐条款：`REFMEM-TRANSPORT-01`（REFMEM_CMD 走 TDMA 二等席，四板 A0-A3 分发，不新增物理总线）、`REFMEM-SESSION-01`（系统级 TriggerSession）、`REFMEM-ACTION-01`（ActionRegistry/ActionDispatcher）、`REFMEM-LOCAL-01`（单板控制保留：统一面增量，不替换本地 SCPI/slot/owner/T2）。`REFMEM-CTRL-01` 增量：**TDMA 不停机**作为四板互通控制承载；DPLL/VDC/T2 在各自域停窗口内配置并 `APPLIED`；TDMA 自身只做在线 seat/load（topology/period 部署期）；15 条原子域命令；应用层静态 function 表 + 单条 `SYSTem:CTRL:FUNCtion:RUN` 控制一个功能，并以 TDMA TX/RX 序号连续性作为功能验收不变量。当前均为 pending 架构条款，未实现、未做板端验证。
 - VDC/DPLL 提供共同时间事实，RefMem 保存时间事实的版本、质量和证据。
 - 所有跨节点事件连接和数据连接必须在静态表中声明，禁止在业务代码中临时拼接远程目标。
 - 每个跨节点连接必须定义 source、destination、载荷格式、超时、ACK/NACK、stale 策略和诊断字段。

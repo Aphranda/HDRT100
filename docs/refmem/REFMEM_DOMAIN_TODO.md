@@ -777,3 +777,82 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 ## 后续实现（不在本目标）
 
 - M2 两板 HIL；M3 两板 T2 session；M4 四板 all-target；M5 C11/产品证据。实现阶段另立任务。
+
+## N6/N7 - 单端口四域配置与应用功能封装（2026-10-26 夜间目标）
+
+**最终形态**：应用层用**一条指令控制一个功能**；原子域配置、命令目录、ACK 聚合仍是 RefMem 统一控制面，不新增物理总线、payload class、第二命令槽或第二 ACK 事实。
+
+```text
+SYSTem:CTRL:FUNCtion:RUN <function_id|name>,<target_mask>[,<required_mask>[,<p0>,...]]
+    -> QUEUED,<function_seq>
+SYSTem:CTRL:FUNCtion:STATus? [<function_seq>]
+    -> seq,state,function_id,step_count,current_step,step_ack/nack,last_reason
+SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
+```
+
+**B 方案边界（已拍板）**：
+
+- 入口固定为协调者板（最低 claimed slot，`SYSTem:REFMEM:CTRL:OWNer?` 只读）；非协调者远端命令 fail-closed，不排队死 intent。
+- **TDMA 不停机**：TDMA 是四板互通的控制承载，配置期间 TX/RX 必须连续；不得用“停环/重启环”换配置。
+- DPLL/VDC/T2 允许在各自域内 STOP/START；TDMA 控制通道保持运行，命令与 ACK 继续走 `REFTMEM_CMD`。域停窗口内的配置 ACK 表示该域已应用（`APPLIED`），不是 `STAGED`。
+- TDMA 自身只做在线安全配置：seat rotation / load mask 用原子切换（单写者、core1 每机会读取一致快照）；ring topology / period 属部署期，不在本目标运行时范围，运行时返回 `NOT_ONLINE_SAFE`。
+- 静态部署：命令目录与 function 表都是编译期 const；不做运行时脚本、动态注册或第二套命令槽。
+- 不改 node slot 256/288 B、向量表布局、TDMA payload class；`command_type` 是既有 u32 字段，新增类型不改变 wire 尺寸。
+
+### N6 原子域配置命令（设计稿，实施后以代码符号为准）
+
+| id | name | owner | params（设计） | 应用时机（TDMA 不停机） |
+|---:|---|---|---|---|
+| 20 | `TDMA_RING_TOPOLOGY` | TDMA | node_count, reference_slot（local_slot 由目标自派生） | 部署期；运行时 `NOT_ONLINE_SAFE` |
+| 21 | `TDMA_SEAT_ROTATION` | TDMA | priority_share, first_class_share, second_class_share | 在线：打包原子字，每机会一致读取 |
+| 22 | `TDMA_PERIOD` | TDMA | period_us | 部署期；运行时 `NOT_ONLINE_SAFE` |
+| 23 | `TDMA_LOAD_MASK` | TDMA | enabled_mask | 在线：现有原子 exchange |
+| 24 | `DPLL_ROLE` | VDC | mode, follow_master_slot | 在线（request/generation） |
+| 25 | `DPLL_TUNE` | VDC | kp_q16, ki_q16, update_period_us, step_threshold_ns, sanity_limit_ppb | 在线（debug profile） |
+| 26 | `DPLL_OVERRIDE` | VDC | enabled | 在线 |
+| 27 | `VDC_REFERENCE_CONFIG` | VDC | input_port, edge, nominal_hz, window_ms, timeout_ms | VDC 域停窗口内应用 |
+| 28 | `VDC_OUTPUT_DELAY` | VDC | delay_ns（int32） | VDC 域停窗口内应用 |
+| 29 | `VDC_OUTPUT_TIMING` | VDC | plan_us, commit_us, refill_us | VDC 域停窗口内应用 |
+| 30 | `T2_CONFIGURE` | T2 | run_id, source_slot, target_mask, origin, pre_roll, post_roll, threshold, start_angle, zero_angle, terminal_angle, step_mdeg, pulses_per_degree, window（13 words） | T2 域停窗口内应用 |
+| 31 | `T2_MOUNT` | T2 | count_epoch, origin_count_lo, origin_count_hi | T2 域启 |
+| 32 | `T2_UNMOUNT` | T2 | — | T2 域停 |
+| 33 | `VDC_STOP` | VDC | —（映射到现有 output/reference stop 语义，N6.0.2 冻结） | VDC 域停 |
+| 34 | `VDC_START` | VDC | —（映射到现有 output/reference start 语义，N6.0.2 冻结） | VDC 域启 |
+
+**N6 在线/域停语义**：TDMA 自身不引入 pending、不引入停环。seat rotation 用打包原子字（`p/f/s` 写入一个 32-bit word，core1 每机会读取一次），load mask 用现有原子 exchange；ring topology/period 在运行时返回 `NOT_ONLINE_SAFE`（fail-closed），只在部署/台架 STOP 窗口配置。DPLL 走 request/generation 在线应用。VDC/T2 由应用层先发域 STOP（T2 用 `T2_UNMOUNT`；VDC 用其现有 output stop 语义），再发配置，目标在域停窗口内调用各自 owner 应用并 ACK `APPLIED`，最后发域 START（T2 `T2_MOUNT`；VDC output start）；TDMA 全程不中断，函数验收必须带 TX/RX 序号连续性证据。
+
+### N7 应用功能层（设计稿）
+
+静态表：`function_id → {name, step_count, failure_policy, steps[]}`；step = `{command_id, target_rule, required_rule, param_bindings[], flags}`。
+
+- `target_rule`：`SAME_AS_FUNCTION` / `FIXED_MASK` / `LOCAL_ONLY`；`param_bindings` 支持字面值、`ARGn`、`LOCAL_SLOT`（由目标自派生）。
+- 失败策略：`ABORT_REMAINING`（默认）/ `CONTINUE_REPORT`；`ROLLBACK` 首版不实现，文档明确记为未支持。
+- 执行顺序：串行步骤；每步走同一条 `CTRL:EXECute` 原子路径，一次只允许一个 in-flight 命令/目标；聚合 per-step ACK/NACK，最终 `COMPLETED/FAILED/PARTIAL/STAGED`。
+- 功能示例（TDMA 不停机）：`FUNC_TDMA_ONLINE`（21→23）；`FUNC_CLOCK_RECONFIG`（24→25→VDC_STOP→27→28→29→VDC_START）；`FUNC_T2_RECONFIG`（32→30→31）；`FUNC_BRINGUP_ONLINE`（上述按序组合，不含部署期 20/22）。部署期的 ring topology/period 单独走部署流程，不放进运行时 function。
+- 首版函数参数按“全环一致”设计；需要逐板不同值时，拆成多个 function 或后续扩展 per-target arg map（不在首版）。
+
+### 细分里程碑（每项完成即按 AGENTS §8 汇报并留证）
+
+| ID | 内容 | 退出判据 | 证据 |
+|---|---|---|---|
+| **N6.0.1** | 本表落 TODO；冻结 N6/N7 scope、B 方案边界、非目标 | 文档门禁绿；无代码 | 本节 + 文档命令输出 |
+| **N6.0.2** | 冻结 15 条命令/参数 schema 与 function 表 schema；架构补同名小节；登记/更新 `REFMEM-CTRL-01` 的 check 文本 | 条款可核对、锚点真实、docs 门禁绿 | 架构/TODO/登记表 |
+| **N6.1.1** | `refmem_command.h` 新增 20–34 类型；生成器 `COMMAND_TYPES` 同步 | 枚举/生成器一致；host 编译 | 代码 |
+| **N6.1.2** | `config/refmem/command_catalog.yaml` 新增 15 行；重新生成 catalog；`is_config_type` 纳入新类型；保留 N5.5 entry 闭合 | 目录 21 行；`CTRL:CATalog?` 可读；host 查表 | 代码 + host |
+| **N6.1.3** | host：catalog 计数/参数边界/type→owner/entry 授权负测；固件 quick build | host 全绿；三 profile 构建 OK | `out/n6/` |
+| **N6.1.4** | P3 `dpll60`（或 `run`，按 check-staged 结果）；firmware/tests/tools 分离提交 | 凭证绑定 staged 指纹；pre-commit 绿 | P3 receipt + commit |
+| **N6.2.1** | DPLL RUN-safe 适配器（role/tune/override）；`dispatch_control` 接线 | 单目标 ACK；目标代际递增 | 代码 + host |
+| **N6.2.2** | host 用例（成功/参数非法/未注册 type/entry 非 owner）；P3；提交 | 全绿 + 凭证 | host/P3/commit |
+| **N6.3.1** | TDMA 在线 seat（打包原子字）+ load mask；topology/period 运行时拒绝；VDC 域停配置适配器（reference/delay/timing） | TDMA TX/RX 序号跨配置连续；seat 切换前后计数推进；VDC 域停内 ACK `APPLIED` | 代码 + host |
+| **N6.3.2** | host：seat 原子/撕裂读/拓扑拒绝/VDC stop-config-start/重复 seq；P3；提交 | 全绿 + 凭证 | host/P3/commit |
+| **N6.4.1** | T2 适配器：从 SCPI 回调抽 `t2_apply_words()`；`UNMOUNT→CONFIGURE→MOUNT` 域停序列，TDMA 不中断 | 目标 `configured=1`；TDMA 序号连续；ACK | 代码 + host |
+| **N6.4.2** | host + P3 + 提交 | 全绿 + 凭证 | host/P3/commit |
+| **N7.1** | `config/refmem/function_catalog.yaml` + 生成器 + `refmem_function_catalog.h/.c`；function 表 schema 落库 | 4 个 function 生成；host 查表 | 代码 + host |
+| **N7.2** | function 执行器（静态、非阻塞、串行 step、聚合、失败策略）；接入 `task_refmem_sync` | host：成功/中途失败/超时/取消 | 代码 + host |
+| **N7.3** | SCPI `CTRL:FUNCtion:RUN/STATus?/CATalog?`；一条命令一个功能 | 本地/单目标 HIL | 代码 + HIL |
+| **N7.4** | 四板 HIL：协调者单端口跑 `FUNC_BRINGUP_CONFIGURE`；逐目标证据 | 四板记录 + 无假 ACK | `out/n7/` |
+| **N7.5** | P3 final + host acceptance + 文档/登记/顶层刷新 + §8 收口 | 凭证齐全 + 门禁绿 | 全部 |
+
+**非目标（本目标内不做）**：TDMA 停环/重启环、TDMA ring topology/period 运行时在线变更（部署期配置）、N5.5 非协调者入口、N5.3 显式 owner、N5.6 fence、N5.7 聚合广播、386 条 SCPI 全量目录、`ROLLBACK` 失败回滚、远程读回全量状态。
+
+**每步硬门禁**：①不新增总线/payload class/第二命令槽/第二 ACK；②不占 core1 硬实时窗口；③单写者/owner 边界不变；④fail-closed + reason/计数/快照；⑤布局/版本/契约同步；⑥host + 四板证据可复跑。C1/C2 不触碰；任一门失败即停并留证。

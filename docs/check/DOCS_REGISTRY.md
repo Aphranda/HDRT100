@@ -4,7 +4,7 @@ Status: Active
 Domain: Documentation Governance
 Canonical: `docs/check/DOCS_REGISTRY.md`
 Related: `docs/arch/HAOFV_ARCHITECTURE.md`, `docs/docs/DOCS_NAMING_STRUCTURE_PLAN.md`
-Last updated: 2026-10-25
+Last updated: 2026-10-26
 
 > 注：本文件必须满足 `tools/docs_check/docs_check.py` 的元数据要求（5 字段齐全），否则自回归门禁自相矛盾。
 
@@ -26,7 +26,7 @@ Last updated: 2026-10-25
 | TDMA-HOP-01 | tdma | hop_limit 归属 ring profile | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | tdma_profile.h | 符号存在性 | 2026-08-19 | active |
 | REFMEM-260B-01 | refmem | critical delta ≤260B | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md | refmem_sync.h | 常量比对 | 2026-08-19 | active |
 | REFMEM-LAYOUT-01 | refmem | 静态表容量及节点步长随布局版本发布，保留区域 ID/owner；部署包匹配当前布局，旧包拒绝不覆盖 active/rollback；host 产包与状态验收同步版本 | 1 | docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md:REFMEM-LAYOUT-01 | refmem_vector_table.h | ABI/目录/节点边界、有效 CRC 旧包 owner 拒绝、角色镜像保持、Release map 与四板 P3 | 2026-09-16 | pending |
-| REFMEM-CTRL-01 | refmem | RefMem 统一控制面：控制面客户端经 RefMem 命令槽/快照面挂接、不另建控制总线；接入点无关（任一节点维护接口同语义）、单一控制协调者租约、显式 target_mask/required_mask、目标本地 owner 执行、ACK/NACK/fence 聚合、本地快照读；不提供远程裸写、跨板阻塞查询或绕过本地门禁的强制位 | 1 | docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md:REFMEM-CTRL-01 | refmem_command.h | 信封/schema、租约唯一性、掩码解析、重复与超时、聚合视图、权限/运行态矩阵；目标终态回程（process-image ACK 席位 `ACK_FLAG_COMMAND`）+ 单/多目标/负向四板 HIL（`out/refmem_cmd_reply/final_*`） | 2026-10-24 | pending |
+| REFMEM-CTRL-01 | refmem | RefMem 统一控制面：控制面客户端经 RefMem 命令槽/快照面挂接、不另建控制总线；接入点无关（任一节点维护接口同语义）、单一控制协调者租约、显式 target_mask/required_mask、目标本地 owner 执行、ACK/NACK/fence 聚合、本地快照读；不提供远程裸写、跨板阻塞查询或绕过本地门禁的强制位 | 1 | docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md:REFMEM-CTRL-01 | refmem_command.h | 信封/schema、租约唯一性、掩码解析、重复与超时、聚合视图、权限/运行态矩阵；目标终态回程（process-image ACK 席位 `ACK_FLAG_COMMAND`）+ 单/多目标/负向四板 HIL（`out/refmem_cmd_reply/final_*`）；N6/N7 增量：TDMA 不停机四域配置 + 单条 `CTRL:FUNCtion:RUN` 功能封装（pending，待实现） | 2026-10-24 | pending |
 | REFMEM-TRANSPORT-01 | refmem | REFMEM_CMD 走 TDMA 二等席（RefMem 数据/ACK/fence 普通路径）：envelope 与 command slot 一致、四板 A0-A3 显式 target/required、seat rotation 二等让位 s>0 且 f>=3、ACK 走 REFMEM_ACK_FENCE；维护流帧级 ACK 复用同一 process-image ACK 席位（诊断 magic 0xA0，按目标 ACK 掩码，required_mask 全覆盖才释放，命令回复优先）；不新增 payload class/物理总线/第二命令槽，不占 core1 硬实时窗口 | 1 | docs/tdma/TDMA_DOMAIN_ARCHITECTURE.md:REFMEM-TRANSPORT-01 | tdma_profile.h | second-class seat/budget + host 编解码 + 四板命令/ACK + 维护流 stop-and-wait/重试；N5.1 C11：seat rotation f>=3 条款与实现/预设不符（N5.1a）；P3 为 PASS_WITH_WARNINGS、strict=false | 2026-10-24 | pending |
 | REFMEM-SESSION-01 | refmem | 系统级触发会话：CONFIGURE/ARM/START/STOP/ABORT 经 RefMem 命令槽，source/target/required 显式，START ACK 表示 source 启动 + required targets arm，执行证据仍看 T2 published/frozen/executed | 1 | docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md:REFMEM-SESSION-01 | trigger_t2_runtime.h | session 状态机/兼容 T2 MOUNT/ACK/fence + 两板 T2 | 2026-10-21 | pending |
 | REFMEM-ACTION-01 | refmem | 每板 ActionRegistry/ActionDispatcher：action_id→owner handler、STOP 装载、RUN 只读、post 非阻塞、required 缺 handler 由 DeploymentGate 拒绝；不直调 handler/PIO | 1 | docs/refmem/REFMEM_DOMAIN_ARCHITECTURE.md:REFMEM-ACTION-01 | distributed_refmem.h | registry/post/gate + host 分发 + 单板 HIL | 2026-10-21 | pending |

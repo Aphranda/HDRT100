@@ -1686,6 +1686,61 @@ rx/applied/stale/duplicate/armed/published 计数。多目标命令下，目标 
 - 为 `RefMem Table Image Activation Contract` 补跨节点 FENCE/ACK；activation 的本地 gate 不减少。
 - 登记 `REFMEM-CTRL-01`（pending）；实现和证据完成前，本条不授予产品 RUN 或“全设备可控”结论。
 
+### REFMEM-CTRL-01 扩展：不停机四域配置与单命令功能封装
+
+本节冻结“TDMA 不停机”前提下的四域配置与应用层单命令语义，作为 `REFMEM-CTRL-01` 的增量条款；不新增物理总线、payload class、第二命令槽或第二 ACK 事实。
+
+**前提与边界**
+
+- TDMA 是四板互通的数据面和控制承载，**配置期间不得停环**；任何要求 `ring.enabled == 0` 的路径都不能作为运行时配置入口。
+- DPLL/VDC/T2 允许在各自域内 STOP/START；TDMA 控制通道继续运行，命令与 ACK 仍走 `REFTMEM_CMD`。域停窗口内执行的配置 ACK 表示 `APPLIED`，不是 `STAGED`。
+- TDMA 自身只允许在线安全配置：seat rotation（`p/f/s` 打包为单个原子字，core1 每机会读取一致快照）与 load mask（现有原子 exchange）；ring topology/period 属部署期，运行时返回 `NOT_ONLINE_SAFE`，不做“停环换配置”。
+- 入口仍固定为协调者板（最低 claimed slot）；非协调者远端命令 fail-closed，不排队死 intent。
+
+**原子域配置命令（15 条，`command_type` 见 `refmem_command.h`）**
+
+| id | name | owner | 应用语义 |
+|---:|---|---|---|
+| 20 | `TDMA_RING_TOPOLOGY` | TDMA | 部署期；运行时 `NOT_ONLINE_SAFE` |
+| 21 | `TDMA_SEAT_ROTATION` | TDMA | 在线原子切换 |
+| 22 | `TDMA_PERIOD` | TDMA | 部署期；运行时 `NOT_ONLINE_SAFE` |
+| 23 | `TDMA_LOAD_MASK` | TDMA | 在线原子 mask |
+| 24 | `DPLL_ROLE` | VDC | request/generation 在线 |
+| 25 | `DPLL_TUNE` | VDC | debug profile 在线 |
+| 26 | `DPLL_OVERRIDE` | VDC | 在线 |
+| 27 | `VDC_REFERENCE_CONFIG` | VDC | VDC 域停窗口内 `APPLIED` |
+| 28 | `VDC_OUTPUT_DELAY` | VDC | VDC 域停窗口内 `APPLIED` |
+| 29 | `VDC_OUTPUT_TIMING` | VDC | VDC 域停窗口内 `APPLIED` |
+| 30 | `T2_CONFIGURE` | T2 | T2 域停窗口内 `APPLIED` |
+| 31 | `T2_MOUNT` | T2 | T2 域启 |
+| 32 | `T2_UNMOUNT` | T2 | T2 域停 |
+| 33 | `VDC_STOP` | VDC | VDC 域停（映射到现有 output/reference stop） |
+| 34 | `VDC_START` | VDC | VDC 域启（映射到现有 output/reference start） |
+
+命令仍走单一 `AckCommandRegion` 与 `REFTMEM_CMD`；`target_mask`/`required_mask` 显式，目标本地 owner 执行。`command_type` 是既有 u32 字段，新增类型不改变 wire 尺寸；`REFTMEM_CMD_MAX_PAYLOAD`、node slot 与向量表布局不变。
+
+**应用功能层：一条指令控制一个功能**
+
+```text
+SYSTem:CTRL:FUNCtion:RUN <function_id|name>,<target_mask>[,<required_mask>[,<p0>,...]]
+    -> QUEUED,<function_seq>
+SYSTem:CTRL:FUNCtion:STATus? [<function_seq>]
+SYSTem:CTRL:FUNCtion:CATalog? [<offset>[,<count>]]
+```
+
+- function 表是编译期 `const` 静态表：`function_id → {name, step_count, failure_policy, steps[]}`；step = `{command_id, target_rule, required_rule, param_bindings[], flags}`。
+- 执行器在 `task_refmem_sync` 中有界、非阻塞、串行推进；每步走同一条原子 `CTRL:EXECute` 路径，一次只允许一个 in-flight 命令/目标；聚合 per-step ACK/NACK，最终 `COMPLETED/FAILED/PARTIAL`。
+- 失败策略首版只支持 `ABORT_REMAINING` / `CONTINUE_REPORT`；`ROLLBACK` 明确不实现。
+- 功能示例：`FUNC_TDMA_ONLINE`（21→23）、`FUNC_CLOCK_RECONFIG`（24→25→33→27→28→29→34）、`FUNC_T2_RECONFIG`（32→30→31）、`FUNC_BRINGUP_ONLINE`（上述按序组合，不含部署期 20/22）。
+- **TDMA 连续性不变量**：任何 function 执行前后，TDMA `up_sequence`/`down_rx_sequence` 必须单调推进；HIL 证据必须包含跨功能前后的序号与帧计数，不允许用“功能 ACK”替代链路连续性。
+- function 表不引入动态脚本、运行时注册、第二命令槽或第二 ACK 事实；单板本地 `T2:MOUNT/UNMOUNT` 等路径仍保留（`REFMEM-LOCAL-01`）。
+
+**状态与证据**
+
+- 契约状态：pending（作为 `REFMEM-CTRL-01` 的增量，不单独授予产品 RUN 结论）。
+- 代码锚点：`refmem_command.h`、`refmem_command_catalog.h`；N7 实施后补 `refmem_function_catalog.h`。
+- 验收：host 覆盖目录/参数/入口/在线原子/域停序列/失败策略；四板 HIL 覆盖协调者单端口、逐目标 ACK、TDMA TX/RX 连续性、`NOT_ONLINE_SAFE` 负测。
+
 ## 对外接口边界
 
 RefMem 不建立裸顶级 `REFMEM` SCPI 域。对外维护查询归 `SYSTem:REFMEM:*`：
