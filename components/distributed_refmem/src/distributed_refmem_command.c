@@ -218,6 +218,13 @@ void distributed_refmem_node_control_service(void)
     request.issue_epoch = snapshot.issue_epoch;
     request.run_id = snapshot.run_id;
     request.timeout_us = snapshot.timeout_us;
+    /* The local execution copy is local-only: remote aggregation lives in the
+     * node-control record/reply path.  Reusing the remote target_mask here
+     * leaves the local slot TAKEN forever (its own ACK can never satisfy the
+     * remote required bits), which blocks the next step of a multi-step
+     * function. */
+    request.target_mask = 1u << local_slot;
+    request.required_mask = 1u << local_slot;
 
     const bool posted =
         distributed_refmem_post_command_replacing_complete(&request,
