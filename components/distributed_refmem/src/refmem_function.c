@@ -23,6 +23,7 @@ typedef struct {
     uint32_t last_reason;
     uint32_t started_ms;
     uint32_t step_started_ms;
+    uint32_t step_ready_ms;
     uint8_t had_failure;
 } refmem_function_job_t;
 
@@ -126,6 +127,7 @@ bool refmem_function_run(uint16_t function_id, uint32_t target_mask,
     job->step_index = 0u;
     job->step_state = REFMEM_FUNCTION_STEP_READY;
     job->started_ms = osal_tick_ms();
+    job->step_ready_ms = job->started_ms;
     *function_seq = job->function_seq;
     return true;
 }
@@ -153,6 +155,7 @@ static void fail_job(refmem_function_job_t *job, uint32_t reason)
         job->state = REFMEM_FUNCTION_PARTIAL;
     } else {
         job->step_state = REFMEM_FUNCTION_STEP_READY;
+        job->step_ready_ms = osal_tick_ms() + REFMEM_FUNCTION_STEP_GAP_MS;
     }
 }
 
@@ -163,6 +166,7 @@ static void advance_job(refmem_function_job_t *job)
         finish_job(job);
     } else {
         job->step_state = REFMEM_FUNCTION_STEP_READY;
+        job->step_ready_ms = osal_tick_ms() + REFMEM_FUNCTION_STEP_GAP_MS;
     }
 }
 
@@ -177,6 +181,9 @@ void refmem_function_service(void)
         if (job->step_state == REFMEM_FUNCTION_STEP_READY) {
             if (job->step_index >= job->entry->step_count) {
                 finish_job(job);
+                continue;
+            }
+            if ((int32_t)(now - job->step_ready_ms) < 0) {
                 continue;
             }
             const refmem_function_step_t *step =

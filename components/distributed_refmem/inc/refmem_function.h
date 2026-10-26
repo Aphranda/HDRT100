@@ -1,4 +1,4 @@
-﻿#ifndef REFMEM_FUNCTION_H
+#ifndef REFMEM_FUNCTION_H
 #define REFMEM_FUNCTION_H
 
 #include <stdbool.h>
@@ -12,6 +12,10 @@ extern "C" {
 
 #define REFMEM_FUNCTION_JOB_MAX 4u
 #define REFMEM_FUNCTION_STEP_TIMEOUT_MS 5000u
+/* Leave the single command/reply slot time to drain between steps.  The HIL
+ * showed a remote step-1 timeout when the next step was submitted on the
+ * immediately following tick. */
+#define REFMEM_FUNCTION_STEP_GAP_MS 20u
 
 typedef enum {
     REFMEM_FUNCTION_IDLE = 0u,

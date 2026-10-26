@@ -125,7 +125,10 @@ int main(void)
     s_poll_state = (uint32_t)REFMEM_COMMAND_STATE_ACKED;
     s_poll_ack = 0x01u;
     refmem_function_service();  /* ACK step 0, advance to READY */
-    refmem_function_service();  /* submit step 1 */
+    refmem_function_service();  /* gap: must not submit yet */
+    assert(s_last_cmd == 21u);
+    s_test_now += REFMEM_FUNCTION_STEP_GAP_MS;
+    refmem_function_service();  /* submit step 1 after the gap */
     assert(s_last_cmd == 23u && s_last_words == 1u);
     assert(s_last_params[0] == 0x5u);
 
@@ -183,9 +186,10 @@ int main(void)
                                 tdma_args, 4u, &seq));
     refmem_function_service();
     s_poll_state = (uint32_t)REFMEM_COMMAND_STATE_ACKED;
-    refmem_function_service();
-    refmem_function_service();
-    refmem_function_service();
+    refmem_function_service();  /* ACK step 0 */
+    s_test_now += REFMEM_FUNCTION_STEP_GAP_MS;
+    refmem_function_service();  /* submit step 1 */
+    refmem_function_service();  /* ACK step 1, complete */
     assert(refmem_function_active_count() == 0u);
     assert(refmem_function_run(REFMEM_FUNC_ID_FUNC_TDMA_ONLINE, 0x01u, 0x01u,
                                tdma_args, 4u, &seq));
