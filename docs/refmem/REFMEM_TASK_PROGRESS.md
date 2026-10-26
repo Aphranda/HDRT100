@@ -18,7 +18,7 @@ Last updated: 2026-10-26
 - N5.0.2c：node control 拆出（6,109→6,003）；P3 `20261024154054`；config txn HIL 14/14。
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
-- 下一步：N5.2c（STOP→stage→START 全流程）→ N5.3 显式 `control_owner_slot`（方案 B）；N5.5 补非协调者硬件负向。
+- 下一步：长期目标 **N5.5（非协调者入口转发，先 spike D1/D2/D3）→ N5.2c → N5.3**；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
 
 ## 归档索引
 

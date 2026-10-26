@@ -540,7 +540,54 @@ RefMem Domain 可以借鉴成熟开源/工业项目的机制，但不直接引�
 - **b.3** ✅：`refmem_realtime_contract_admit_origin_trial` 要求 owner 可派生且落在 ring 内；`distributed_refmem_slot_claim_gate_ready` 同样要求（0/1/N claim 的纯函数用例在 `test_refmem_slot_claim`）。
 - **b.4** ✅：四板正向 HIL（build `20261026134613`）：COM5（owner=slot 0）→ COM4 `command_seq=15150 / state=4 ACKED / reason=0`；COM4 本地入口 `140504 / state=4`；COMMIT 关窗后协调者命令 `15151 / state=5 / reason=7`。证据 `out/n52b_hil/report_v2.json`。
 - **b.5** ⚠️：**硬件负向当前不可达**——非协调者 COM3（slot 2）的命令停在源板 `state=1 POSTED`、目标记录不前进，证实从板没有维护流上行注入点（C1b 结论），这正是 N5.5「非协调者入口」的范围；授权拒绝本身已由 b.2 的 host 用例覆盖，硬件负向随 N5.5 补。
-- **b.6** ⏳：P3 final receipt `build=20261026134613`、`PASS_WITH_WARNINGS`（INFO 33 / WARN 11 / ERROR 0 / FATAL 0）、`source=708faa78…`、1590 files；host acceptance 与提交见进度日志。
+- **b.6** ✅：P3 final receipt `build=20261026134613`、`PASS_WITH_WARNINGS`（INFO 33 / WARN 11 / ERROR 0 / FATAL 0）、`source=708faa78…`、1590 files；host acceptance 75 passed；提交 `16062ca4`（firmware）、`677fed39`（host）、`d1f636bf`（docs）。
+
+### N5.5 → N5.2c → N5.3 实施目标（2026-10-26 启动）
+
+顺序：**N5.5 → N5.2c → N5.3**。N5.5 先做，因为它是 N5.2b b.5 硬件负向与「任一切入点同语义」的前置；N5.2c 依赖转发后的入口无关；N5.3 最后用显式字段替换 fallback（B 方案），避免两套授权源并行。
+
+#### N5.5 非协调者入口转发
+
+**决策点（先 spike、后冻结；spike 不改生产行为）**：
+
+- **D1 命令身份**：现有 `source_node` 同时承担「回程地址」和「授权身份」。中继若保留 origin，目标按 12 拒绝；若改成协调者，origin 收不到回程。候选：(a) 命令记录增加 `origin_slot`/`coordinator_slot`（`REFTMEM-CTRL-01` 已列的扩展字段，需 schema/CRC/布局版本同步）；(b) 保留 source=origin，增加 sender/relay 身份；(c) source=coordinator，origin 经 control_reply/correlation 读回。spike 必须给出选择、布局影响与回退路径。
+- **D2 从板意图可见性**：协调者能否从本地镜像稳定读取远端 node 记录的 POSTED 意图（`distributed_refmem_node_control_read(<remote slot>)`），含新鲜度、重复抑制（同一 intent 只中继一次）与序号回绕。
+- **D3 硬件负向**：非协调者没有维护流上行注入点；负向要么用「参考板但 owner 非 0」的模型（staging BoardCapabilityTable）构造，要么用诊断注入，要么明确记为结构性不可达（只保留 host 证据）。
+
+| 里程碑 | 内容 | 验收 | 证据 |
+|---|---|---|---|
+| **N5.5.0** spike（D1/D2/D3） | 只读诊断 + 设计记录；不写生产代码 | 三条决策有结论/回退；默认行为不变 | 设计记录 + 探针输出 |
+| **N5.5.1** 设计冻结 | 转发模型、字段/版本策略、错误码（`CONTROL_BUSY`/`ABORTED_LEASE_LOST`）、回程模型 | 契约/架构可核对；docs 门禁绿 | 文档 |
+| **N5.5.2** 协调者中继 | 扫描远端 POSTED 意图、去重、以协调者身份发 `REFTMEM_CMD`、记录 relay 映射 | host 用例（去重/顺序/取消） | 代码 + host |
+| **N5.5.3** 目标授权与回程 | 目标按「发送者=协调者」授权（origin 仅用于回程）；origin 读 control_reply/协调者记录 | host 用例 + 负向（伪造 sender → 12） | 代码 + host |
+| **N5.5.4** 四板 HIL | 非协调者 COM3 发起 → 协调者中继 → 目标 ACK → origin 可见；协调者直发并存 | 两板/四板记录 | HIL |
+| **N5.5.5** 负向闭环 | b.5 的硬件负向（按 D3 结论）或明确结构性不可达 | 12 证据或书面结论 | HIL/文档 |
+| **N5.5.6** 收口 | P3 + host + 文档 + §8；N5.5 标 ✅ | 凭证齐全 | 全部 |
+
+#### N5.2c 真实 STOP→stage→START
+
+| 里程碑 | 内容 | 验收 | 证据 |
+|---|---|---|---|
+| **N5.2c.0** 矩阵冻结 | 窗口/环/run 状态 × BEGIN/stage/COMMIT/ABORT/START 的期望矩阵 | 每格有 reason/状态预期 | 文档 |
+| **N5.2c.1** 全流程 | STOP 开窗 → stage → COMMIT → START → 读聚合；含未授权/关窗负向 | 每步 SCPI 证据 | HIL |
+| **N5.2c.2** BEGIN/ABORT | ABORt 重开窗口、丢弃 staged；COMMIT 失败可区分（N5.1b carry-over） | host + HIL | 代码/HIL |
+| **N5.2c.3** 多目标部分成功 | required vs report-only 逐目标；不得折叠成总体 OK | 四板 HIL | HIL |
+| **N5.2c.4** 收口 | P3 + host + 文档 + §8 | 凭证齐全 | 全部 |
+
+#### N5.3 显式 `control_owner_slot`（方案 B）
+
+| 里程碑 | 内容 | 验收 | 证据 |
+|---|---|---|---|
+| **N5.3.0** 设计冻结 | ApplicationMap 字段、版本/CRC/布局影响、DeploymentGate 唯一性、fallback 删除路径 | 契约/架构可核对 | 文档 |
+| **N5.3.1** 表与工具 | ApplicationMap 字段 + pack builder/golden/layout 测试同步 | host 全绿；旧包拒绝 | 代码 + host |
+| **N5.3.2** 派生切换 | 显式优先、缺省 fallback（迁移期）；`GATE_CONFIG` 拒绝 0/多 owner | host 三态 | 代码 + host |
+| **N5.3.3** 查询面 | `SYSTem:REFMEM:CTRL:OWNer?` 只读 + 接口文档 | SCPI smoke + host | 代码 + 文档 |
+| **N5.3.4** 四板 HIL | owner≠最低槽的环；直发/转发/本地三路 | 正负记录 | HIL |
+| **N5.3.5** 收口 | P3 + host + 文档 + §8；删除 fallback 或标记 deprecated | 凭证齐全 | 全部 |
+
+**跨阶段约束**：①不加第二命令槽/ACK/总线；②不占 core1；③单一授权源；④fail-closed；⑤每次 wire/布局变更同步 Version Bundle 与旧包拒绝；⑥证据 scope 覆盖改动路径，示波器缺失记为常驻未验证。
+
+**已知风险**：D1 若选 (a)/(b)，命令记录/帧布局变更会触及 host 工具与 P3 scope；N5.5 的 HIL 依赖 D2（从板意图可见性）；N5.2c 的 COMMIT 失败语义需与 N5.1b carry-over 对齐；N5.3 的字段变更会改变 package CRC（旧包必须拒绝而非误读）。
 
 **N5.2 诊断（2026-10-24）**：reason 13 不是 owner/permission；环运行期本地/远程 stage 都失败（`staging_state=3 FAILED`、`last_error=7 PACKAGE_INVALID`、`lint_error=1 BAD_TABLE_VERSION`），环停止本地 stage ACK（`staging_state=2 VALIDATED`）。因此先做 N5.2a；**N5.2a 决策（2026-10-24）：延迟配置事务（STOP-only stage）**——环运行只收命令/排队，STOP 执行，START 后回 ACK；不选环安全 staging（process-image 与 raw-flight 均失败，冲突在环运行期表包/服务）。开放：命令超时跨 STOP/START、队列深度/顺序、多目标 ACK 聚合、COMMIT 与 START 先后。再加 N5.2b 权限；N5.2c 补真实 STOP→stage→START。证据 `out/refmem_remote_txn_hil/n52_diag/REPORT.md`。
 
