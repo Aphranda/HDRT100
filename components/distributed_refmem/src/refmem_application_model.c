@@ -365,6 +365,12 @@ const refmem_connection_quality_table_t s_connection_quality = {
 };
 
 tdma_foundation_profile_t s_tdma_foundation_profile;
+/* Design-time baseline of the foundation profile.  `s_tdma_foundation_profile`
+ * (or the active copy) carries the runtime ring seat written by
+ * `SYSTem:TDMA:RING:TOPology`; packaging and owner lint must use the design
+ * baseline, otherwise a board seated on slot != 0 serializes its own seat into
+ * the package and fails node_load owner validation (N5.2a.3). */
+tdma_foundation_profile_t s_design_tdma_foundation_profile;
 
 refmem_application_model_snapshot_t s_snapshot;
 refmem_application_model_load_snapshot_t s_load_snapshot;
@@ -404,6 +410,7 @@ const refmem_data_link_table_t *refmem_model_current_data_link_table(void);
 const refmem_deployment_gate_table_t *refmem_model_current_deployment_gate_table(void);
 const refmem_connection_quality_table_t *refmem_model_current_connection_quality_table(void);
 const tdma_foundation_profile_t *refmem_model_current_tdma_foundation_profile(void);
+const tdma_foundation_profile_t *refmem_model_design_tdma_foundation_profile(void);
 
 static uint32_t refmem_model_crc32_update(uint32_t crc, const void *data, size_t size)
 {
@@ -970,7 +977,7 @@ uint32_t refmem_model_connection_quality_crc32(void)
 uint32_t refmem_model_tdma_foundation_profile_table_crc32(void)
 {
     uint8_t wire[TDMA_FOUNDATION_PROFILE_TABLE_WIRE_SIZE];
-    if (!tdma_foundation_profile_encode_table(&s_tdma_foundation_profile,
+    if (!tdma_foundation_profile_encode_table(&s_design_tdma_foundation_profile,
                                               wire,
                                               sizeof(wire))) {
         return 0u;

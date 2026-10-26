@@ -26,6 +26,11 @@ const tdma_foundation_profile_t *refmem_model_current_tdma_foundation_profile(vo
                                       : &s_tdma_foundation_profile;
 }
 
+const tdma_foundation_profile_t *refmem_model_design_tdma_foundation_profile(void)
+{
+    return &s_design_tdma_foundation_profile;
+}
+
 bool refmem_model_instance_exists(uint32_t instance_id)
 {
     const refmem_fb_instance_table_t *table = refmem_model_current_fb_instance_table();
@@ -418,7 +423,7 @@ static bool refmem_model_serialize_candidate_table(uint32_t table_id,
             data,
             size,
             cursor,
-            refmem_model_current_tdma_foundation_profile());
+            refmem_model_design_tdma_foundation_profile());
     default:
         return false;
     }

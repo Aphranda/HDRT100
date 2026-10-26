@@ -288,6 +288,7 @@ static void refmem_model_apply_parsed_tables(const refmem_model_parsed_tables_t 
     s_active_deployment_gate = parsed->deployment_gate;
     s_active_connection_quality = parsed->connection_quality;
     s_active_tdma_foundation_profile = parsed->tdma_foundation_profile;
+    s_design_tdma_foundation_profile = parsed->tdma_foundation_profile;
     s_active_tables_from_image = true;
 
     s_snapshot.version = REFMEM_APP_MODEL_VERSION;
@@ -484,6 +485,7 @@ bool refmem_application_model_init(void)
         REFMEM_APP_IP_PIO_SPI_SYNC_DELTA | REFMEM_APP_IP_TDMA_SCHEDULER;
     s_tdma_foundation_profile.profile_crc32 =
         tdma_foundation_profile_crc32(&s_tdma_foundation_profile);
+    s_design_tdma_foundation_profile = s_tdma_foundation_profile;
 
     s_snapshot.version = REFMEM_APP_MODEL_VERSION;
     s_snapshot.target_node_mask = s_application_map.target_node_mask;
