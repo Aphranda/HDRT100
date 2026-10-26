@@ -1,6 +1,8 @@
 #include "refmem_table_registry.h"
 #include "refmem_vector_table.h"
 #include "refmem_realtime_contract.h"
+#include "refmem_application_model.h"
+#include "refmem_slot_claim.h"
 
 #include <stdbool.h>
 #include <assert.h>
@@ -1486,6 +1488,33 @@ static int test_stage_ignores_runtime_ring_seat(void)
     return failed;
 }
 
+/* N5.2b: the model-derived control owner is the lowest claimed slot of the same
+ * active claim map the target uses for authorization. */
+static int test_control_owner_from_claim_map(void)
+{
+    int failed = 0;
+    failed += expect_bool("owner model init", refmem_application_model_init(), true);
+
+    refmem_slot_claim_map_t map;
+    failed += expect_bool("owner claim map",
+        refmem_slot_claim_derive_map(refmem_application_model_get_generic_node_table(),
+                                     refmem_application_model_get_board_capability_table(),
+                                     refmem_application_model_get_node_load_table(),
+                                     refmem_application_model_get_fb_instance_table(),
+                                     &map), true);
+    uint32_t expected = 0xFFFFFFFFu;
+    failed += expect_bool("owner claim map has claim",
+        refmem_slot_claim_lowest_claimed(&map, &expected), true);
+
+    uint32_t owner = 0xFFFFFFFFu;
+    failed += expect_bool("model owner derivable",
+        refmem_application_model_control_owner_slot(&owner), true);
+    failed += expect_u32("model owner equals claim map", owner, expected);
+    failed += expect_bool("null owner rejected",
+        refmem_application_model_control_owner_slot(NULL), false);
+    return failed;
+}
+
 int main(int argc, char **argv)
 {
     int failed = 0;
@@ -1506,6 +1535,7 @@ int main(int argc, char **argv)
     failed += test_scpi_board_load_stages_board_table_crc();
     failed += test_scpi_node_load_stages_activation_ready_package();
     failed += test_origin_trial_model_projection();
+    failed += test_control_owner_from_claim_map();
     failed += test_stage_ignores_runtime_ring_seat();
     test_serialized_layout_version_lifecycle(NULL, 0u);
     if (argc == 2) {

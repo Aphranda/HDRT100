@@ -588,6 +588,49 @@ static int test_claim_conflict_release_resolve_frames(void)
     return failed;
 }
 
+/* N5.2b: the control owner is the lowest claimed slot; empty/partial maps must
+ * fail closed instead of inventing an authority. */
+static int test_control_owner_lowest_claimed(void)
+{
+    int failed = 0;
+    refmem_slot_claim_map_t map;
+    uint32_t owner = 0xFFFFFFFFu;
+
+    memset(&map, 0, sizeof(map));
+    map.version = REFMEM_SLOT_CLAIM_VERSION;
+    map.slot_count = REFMEM_APP_MODEL_NODE_COUNT;
+    for (uint32_t i = 0u; i < map.slot_count; i++) {
+        map.slot[i].slot_id = i;
+    }
+
+    failed += expect_bool("empty map has no owner",
+        refmem_slot_claim_lowest_claimed(&map, &owner), false);
+    failed += expect_bool("null map has no owner",
+        refmem_slot_claim_lowest_claimed(NULL, &owner), false);
+    failed += expect_bool("null output rejected",
+        refmem_slot_claim_lowest_claimed(&map, NULL), false);
+
+    map.slot[2].claim_state = REFMEM_SLOT_CLAIM_CLAIMED;
+    failed += expect_bool("single claim found",
+        refmem_slot_claim_lowest_claimed(&map, &owner), true);
+    failed += expect_u32("single claim owner", owner, 2u);
+
+    map.slot[1].claim_state = REFMEM_SLOT_CLAIM_CLAIMED;
+    map.slot[5].claim_state = REFMEM_SLOT_CLAIM_CLAIMED;
+    map.slot[3].claim_state = REFMEM_SLOT_CLAIM_CONFLICT;
+    map.slot[4].claim_state = REFMEM_SLOT_CLAIM_STALE;
+    failed += expect_bool("multiple claims found",
+        refmem_slot_claim_lowest_claimed(&map, &owner), true);
+    failed += expect_u32("lowest claim wins", owner, 1u);
+
+    map.slot[1].claim_state = REFMEM_SLOT_CLAIM_CONFLICT;
+    map.slot[2].claim_state = REFMEM_SLOT_CLAIM_MISMATCH;
+    map.slot[5].claim_state = REFMEM_SLOT_CLAIM_UNCLAIMED;
+    failed += expect_bool("only unclaimed remain",
+        refmem_slot_claim_lowest_claimed(&map, &owner), false);
+    return failed;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -603,6 +646,7 @@ int main(void)
     failed += test_claim_propose_frame_crc_validation();
     failed += test_claim_hello_and_commit_frames();
     failed += test_claim_conflict_release_resolve_frames();
+    failed += test_control_owner_lowest_claimed();
 
     if (failed != 0) {
         (void)printf("refmem_slot_claim tests failed: %d\n", failed);

@@ -43,6 +43,26 @@ int main(void)
                      (uint32_t)refmem_control_route_decide(32u, 0x01u, true),
                      (uint32_t)REFMEM_CONTROL_ROUTE_REJECT_BAD_SLOT);
 
+    /* N5.2b: config-stage origin authorization. */
+    rc |= expect_u32("local origin accepted",
+                     (uint32_t)refmem_control_origin_decide(1u, 1u, 0u, true),
+                     (uint32_t)REFMEM_CONTROL_ORIGIN_LOCAL);
+    rc |= expect_u32("local origin without owner",
+                     (uint32_t)refmem_control_origin_decide(1u, 1u, 0u, false),
+                     (uint32_t)REFMEM_CONTROL_ORIGIN_LOCAL);
+    rc |= expect_u32("coordinator origin accepted",
+                     (uint32_t)refmem_control_origin_decide(0u, 1u, 0u, true),
+                     (uint32_t)REFMEM_CONTROL_ORIGIN_COORDINATOR);
+    rc |= expect_u32("non-coordinator rejected",
+                     (uint32_t)refmem_control_origin_decide(2u, 1u, 0u, true),
+                     (uint32_t)REFMEM_CONTROL_ORIGIN_REJECT);
+    rc |= expect_u32("missing owner rejects remote",
+                     (uint32_t)refmem_control_origin_decide(0u, 1u, 0u, false),
+                     (uint32_t)REFMEM_CONTROL_ORIGIN_REJECT);
+    rc |= expect_u32("out of range origin rejected",
+                     (uint32_t)refmem_control_origin_decide(32u, 1u, 0u, true),
+                     (uint32_t)REFMEM_CONTROL_ORIGIN_REJECT);
+
     if (rc == 0) {
         (void)printf("refmem_control_route tests passed\n");
     }
