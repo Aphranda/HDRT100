@@ -3,6 +3,7 @@ import subprocess
 import pytest
 
 from test_vdc_command_owner import ROOT, compile_executable
+from vdc_units import fragment_slice
 
 
 @pytest.fixture(scope="module")
@@ -10,7 +11,7 @@ def local_prepare_executable(tmp_path_factory):
     physical = (ROOT / "components/tdma/inc/tdma_pio_spi_phys.h").read_text(encoding="utf-8")
     begin = physical.rfind("enum {", 0, physical.index("TDMA_EVENT_LIVE_RETAINED"))
     end = physical.index("} tdma_pio_spi_event_window_t;") + len("} tdma_pio_spi_event_window_t;")
-    source = (ROOT / "components/vdc_dpll_manager/archive/vdc_inc_split_v1/vdc_dpll_feedback_match.inc").read_text(encoding="utf-8")
+    source = fragment_slice("vdc_dpll_feedback_match")
     return compile_executable(tmp_path_factory.mktemp("local-prepare"), "local_prepare",
         FIXTURE.replace("PHYSICAL_TYPES", physical[begin:end]) + source + CASES,
         [ROOT / "components/vdc_dpll_manager/src/vdc_feedback_match.c"])

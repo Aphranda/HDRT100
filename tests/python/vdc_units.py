@@ -96,6 +96,13 @@ FRAGMENT_DECLS = {
 }
 FRAGMENT_DECL_HEADER = "vdc_priority_shared.h"
 
+# Fragments that call inline helpers the split hoisted into the private header.
+FRAGMENT_HELPERS = {
+    "vdc_dpll_feedback_match": ("match_inc",),
+    "vdc_boundary_capture": ("match_inc",),
+    "vdc_boundary_control": ("match_inc",),
+}
+
 # Fragments that used to default a hook before the parent supplied one.
 FRAGMENT_PROLOGUE = {
     "vdc_priority_tx": (
@@ -160,6 +167,9 @@ def fragment_slice(fragment: str) -> str:
     text = c_text.prune_unused_statics(text)
 
     parts: list[str] = []
+    if FRAGMENT_HELPERS.get(fragment):
+        header = (SRC / FRAGMENT_DECL_HEADER).read_text(encoding="utf-8")
+        parts.extend(c_text.function_body(header, name) for name in FRAGMENT_HELPERS[fragment])
     if FRAGMENT_DECLS.get(fragment):
         header = (SRC / FRAGMENT_DECL_HEADER).read_text(encoding="utf-8")
         parts.extend(_declarations(header, FRAGMENT_DECLS[fragment]))

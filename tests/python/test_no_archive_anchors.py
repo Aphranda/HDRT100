@@ -21,7 +21,6 @@ KNOWN_ANCHORS = {
     "test_vdc_feedback_match_integration.py",
     "test_vdc_fixed_output.py",
     "test_vdc_idle_maintenance.py",
-    "test_vdc_local_follow_prepare.py",
     "test_vdc_priority_follow.py",
     "test_vdc_priority_follow_config.py",
     "test_vdc_priority_match.py",

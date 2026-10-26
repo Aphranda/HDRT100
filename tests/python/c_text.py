@@ -180,13 +180,18 @@ def _definition_name(header: str) -> str | None:
     cleaned = re.sub(r"/\*.*?\*/", " ", header, flags=re.S)
     cleaned = re.sub(r"(?m)//.*$", " ", cleaned)
     cleaned = re.sub(r"__attribute__\s*\(\((?:[^()]|\([^()]*\))*\)\)", " ", cleaned)
+    cleaned = "\n".join(line for line in cleaned.splitlines()
+                        if not line.lstrip().startswith("#"))
     cleaned = cleaned.strip()
-    if not cleaned or cleaned.startswith("#"):
+    if not cleaned:
         return None
+    # Placement macro wrapping the real name: MACRO(return type name(...))
+    wrapped = re.search(r"[A-Z_][A-Z0-9_]*\s*\(\s*([A-Za-z_]\w*)\s*\)\s*\(", cleaned)
+    if wrapped:
+        return wrapped.group(1)
     match = re.search(r"([A-Za-z_]\w*)\s*\([^;{}]*\)\s*$", cleaned)
     if match:
         return match.group(1)
-    # Placement macro wrapping the real name: MACRO(type name(...))
     match = re.search(r"([A-Za-z_]\w*)\s*\(", cleaned)
     return match.group(1) if match else None
 
@@ -217,32 +222,20 @@ def keep_named_chunks(text: str, names: set[str]) -> str:
 
 
 def prune_unused_statics(text: str) -> str:
-    """Drop file-scope ``static`` declarations the remaining functions never use."""
-    chunks = split_top_level(text)
-    used = "".join(text[start:end] for name, start, end in chunks if name)
-    kept: list[str] = []
-    for name, start, end in chunks:
-        chunk = text[start:end]
-        if name is None and _all_static_names_unused(chunk, used):
-            continue
-        kept.append(chunk)
-    return "".join(kept)
-
-
-_STATIC_HEAD = re.compile(
-    r"(?s)^\s*(?:/\*.*?\*/\s*|//[^\n]*\n\s*)*static\s+(.*?);")
-
-
-def _all_static_names_unused(chunk: str, used: str) -> bool:
-    """True when the chunk is a static declaration whose every name is unused."""
-    match = _STATIC_HEAD.match(chunk)
-    if not match:
-        return False
-    body = re.sub(r"=[^,;]*", "", match.group(1))
-    names = re.findall(r"([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?(?=[,;]|$)", body)
-    if not names:
-        return False
-    return not any(re.search(rf"\b{re.escape(name)}\b", used) for name in names)
+    """Drop single-line file-scope ``static`` declarations nothing refers to."""
+    line_static = re.compile(r"(?m)^static\s+([^;{}\n]*);[ \t]*\n?")
+    # Everything except the declarations themselves counts as a use.
+    used = line_static.sub("", text)
+    out: list[str] = []
+    last = 0
+    for match in line_static.finditer(text):
+        names = [n for n in re.findall(
+            r"([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?(?=[,;]|$)", match.group(1)) if n != "static"]
+        if names and not any(re.search(rf"\b{re.escape(n)}\b", used) for n in names):
+            out.append(text[last:match.start()])
+            last = match.end()
+    out.append(text[last:])
+    return "".join(out)
 
 
 def strip_prologue(text: str) -> str:
