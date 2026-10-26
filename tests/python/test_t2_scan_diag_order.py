@@ -21,8 +21,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-HANDLER = ROOT / "middleware" / "scpi_port" / "src" / "scpi_trigger_t2_runtime_commands.inc"
-HANDLER_HEADER = ROOT / "middleware" / "scpi_port" / "inc" / "scpi_system_snapshot_commands.h"
+HANDLER = ROOT / "middleware" / "scpi_port" / "src" / "scpi_trigger_t2_runtime_commands.c"
+# Registration stays in the snapshot command table; the callback prototype moved
+# to the translated unit's own header when the command families became .c units.
+TABLE = ROOT / "middleware" / "scpi_port" / "inc" / "scpi_system_snapshot_commands.h"
+DECLARATIONS = ROOT / "middleware" / "scpi_port" / "inc" / "scpi_trigger_t2_runtime_commands.h"
 RUNTIME = ROOT / "components" / "sync_trigger" / "src" / "trigger_t2_runtime.c"
 RUNTIME_HEADER = ROOT / "components" / "sync_trigger" / "inc" / "trigger_t2_runtime.h"
 
@@ -62,9 +65,9 @@ def _handler_body() -> str:
 
 
 def test_command_is_registered() -> None:
-    table = _read(HANDLER_HEADER)
+    table = _read(TABLE)
     assert f'.pattern = "{COMMAND}", .callback = {HANDLER_FN}' in table
-    assert f"scpi_result_t {HANDLER_FN}(scpi_t *context);" in table
+    assert f"scpi_result_t {HANDLER_FN}(scpi_t *context);" in _read(DECLARATIONS)
 
 
 def test_handler_emits_the_documented_fields_in_order() -> None:

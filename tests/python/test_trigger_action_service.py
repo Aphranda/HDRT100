@@ -227,8 +227,11 @@ INSTALL = 'TRIG:RES:ACT:INST ' + ','.join(map(str, [21, 1234, 10, 5678,
 
 @pytest.fixture(scope='module')
 def parser(tmp_path_factory):
+    units = [ROOT / 'middleware/scpi_port/src/scpi_trigger_grid_commands.c',
+             ROOT / 'middleware/scpi_port/src/scpi_trigger_deployment_commands.c',
+             ROOT / 'middleware/scpi_port/src/scpi_trigger_action_commands.c']
     return compile_grid(tmp_path_factory.mktemp('action-parser'), 'parser', PARSER,
-        [*sorted((ROOT/'third_party/scpi-parser/libscpi/src').glob('*.c')),
+        [*units, *sorted((ROOT/'third_party/scpi-parser/libscpi/src').glob('*.c')),
          ROOT/'tests/unit/host_stubs/tdma_seat_mount_store_stub.c'], parser=True)
 
 
@@ -281,8 +284,11 @@ def test_scpi_busy_is_two_fields(parser, command):
 
 @pytest.fixture(scope='module')
 def execute_parser(tmp_path_factory):
+    units = [ROOT / 'middleware/scpi_port/src/scpi_trigger_grid_commands.c',
+             ROOT / 'middleware/scpi_port/src/scpi_trigger_deployment_commands.c',
+             ROOT / 'middleware/scpi_port/src/scpi_trigger_action_execute.c']
     return compile_grid(tmp_path_factory.mktemp('action-execute-parser'), 'parser', EXEC_PARSER,
-        [*sorted((ROOT/'third_party/scpi-parser/libscpi/src').glob('*.c')),
+        [*units, *sorted((ROOT/'third_party/scpi-parser/libscpi/src').glob('*.c')),
          ROOT/'tests/unit/host_stubs/tdma_seat_mount_store_stub.c'], parser=True)
 
 
@@ -346,7 +352,7 @@ uint32_t trigger_action_row(uint32_t index,trigger_action_row_t *row,uint64_t *t
         .rows={{.action_id=1,.role=1,.kind=1,.argument=3,.ordinal=2010,.span_slices=2}}};
     *row=table.rows[0];assert(trigger_action_table_target(&table,0,target)==0);return 0;
 }
-#include "scpi_trigger_action_commands.inc"
+#include "scpi_trigger_action_commands.h"
 static const scpi_command_t commands[]={
     {.pattern="TRIGger:REServation:ACTion:INSTall",.callback=scpi_cmd_trigger_action_install},
     {.pattern="TRIGger:REServation:ACTion:CLEar",.callback=scpi_cmd_trigger_action_clear},
@@ -376,7 +382,7 @@ uint32_t trigger_action_execution_now(trigger_action_now_t *o)
 {++calls;if(result)return result;memset(o,0,sizeof(*o));o->tick_hz=250000000;o->diagnostic=1;o->anchor_authenticated=0;o->raw_before_tick=9000000000000001ull;o->raw_after_tick=9000000000000010ull;o->vdc_before_ns=9000000000000000ull;o->vdc_after_ns=9000000000000004ull;o->model.token=3;o->model.session=4;o->model.role_generation=5;o->model.clock_epoch_id=6;o->model.clock_run_id=7;o->model.local_slot=0;o->model.valid_from_raw=9000000000000000ull;o->model.dco.dco_update_seq=8;o->model.dco.tdma_schedule_crc32=9;o->model.dco.base_local_tick64=10;o->model.dco.base_vdc_time64_ns=11;o->model.dco.phase_offset_ns=-12;o->model.dco.period_adjust_ppb=-13;o->model.dco.lock_state=1;return 0;}
 uint32_t trigger_action_execution_snapshot(trigger_action_execution_snapshot_t *o)
 {++calls;if(result)return result;memset(o,0,sizeof(*o));o->loaded=1;o->row_index=0;o->binding_current=1;o->model_current=1;o->diagnostic=1;o->installation.table.generation=21;o->installation.crc=1234;o->installation.binding.local_uid=9007199254740993ull;o->installation.binding.local_role=1;o->installation.binding.local_slot=3;o->plan.ordinal=2010;o->plan.target_vdc_ns=9007199254740993ull;o->plan.deadline_ticks=9007199254740994ull;o->plan.projected_vdc_ns=9007199254740995ull;o->prepared_at_tick=9007199254740996ull;o->expires_at_tick=9007199254740997ull;o->arm_checked_tick=9007199254740998ull;o->model.token=3;o->io.schema=1;o->io.generation=2;o->io.state=1;o->io.loaded=1;o->io.config.kind=1;o->io.config.output_mask=7;o->io.config.code=3;o->io.config.input_port=0;o->io.config.pulse_ns=0;o->io.tick_hz=250000000;o->io.group_count=2;o->io.sm_claimed_mask=10;o->io.instruction_words=8;o->io.expected_receipts=2;o->io.deadline_tick=9007199254740994ull;o->io.enable_before_tick=9007199254740990ull;o->io.enable_after_tick=9007199254741000ull;return 0;}
-#include "scpi_trigger_action_execute.inc"
+#include "scpi_trigger_action_execute.h"
 static const scpi_command_t commands[]={
  {.pattern="TRIGger:REServation:ACTion:EXECute:PREPare",.callback=scpi_cmd_trigger_action_prepare},
  {.pattern="TRIGger:REServation:ACTion:EXECute:ARM",.callback=scpi_cmd_trigger_action_arm},

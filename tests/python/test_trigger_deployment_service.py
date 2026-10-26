@@ -258,8 +258,10 @@ PLAN = 'TRIG:RES:DEP:PLAN? 10,0,7,11,9007199254740993,100,2000000'
 @pytest.fixture(scope='module')
 def parser(tmp_path_factory):
     library = ROOT / 'third_party/scpi-parser/libscpi/src'
+    units = [ROOT / 'middleware/scpi_port/src/scpi_trigger_grid_commands.c',
+             ROOT / 'middleware/scpi_port/src/scpi_trigger_deployment_commands.c']
     return compile_grid(tmp_path_factory.mktemp('deployment-parser'), 'parser', PARSER,
-                        sorted(library.glob('*.c')), parser=True)
+                        [*units, *sorted(library.glob('*.c'))], parser=True)
 
 
 def run_parser(parser, command, mode='accept'):
@@ -380,8 +382,8 @@ uint32_t trigger_grid_preview_anchor_snapshot(trigger_grid_anchor_snapshot_t *ou
 uint32_t trigger_grid_preview_plan_anchored(uint32_t epoch,uint32_t generation,uint64_t ordinal,
     uint64_t minimum,uint64_t maximum,trigger_grid_preview_plan_t *out)
 {(void)epoch;(void)generation;(void)ordinal;(void)minimum;(void)maximum;(void)out;assert(0);return 1;}
-#include "scpi_trigger_grid_commands.inc"
-#include "scpi_trigger_deployment_commands.inc"
+#include "scpi_trigger_grid_commands.h"
+#include "scpi_trigger_deployment_commands.h"
 static const scpi_command_t commands[]={
     {.pattern="TRIGger:REServation:DEPloyment:STAGe",.callback=scpi_cmd_trigger_deployment_stage},
     {.pattern="TRIGger:REServation:DEPloyment:ACTivate",.callback=scpi_cmd_trigger_deployment_activate},

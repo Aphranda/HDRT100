@@ -316,8 +316,11 @@ int main(int argc,char **argv)
 @pytest.fixture(scope='module')
 def parser(tmp_path_factory):
     library = ROOT/'third_party/scpi-parser/libscpi/src'
+    units = [ROOT / 'middleware/scpi_port/src/scpi_trigger_grid_commands.c',
+             ROOT / 'middleware/scpi_port/src/scpi_trigger_deployment_commands.c',
+             ROOT / 'middleware/scpi_port/src/scpi_trigger_counter_commands.c']
     return compile_grid(tmp_path_factory.mktemp('counter-parser'), 'parser', COUNTER_PARSER,
-                        sorted(library.glob('*.c')), parser=True)
+                        [*units, *sorted(library.glob('*.c'))], parser=True)
 
 
 def parse_counter(parser, command, mode='accept'):
@@ -394,7 +397,7 @@ uint32_t trigger_counter_snapshot(trigger_counter_snapshot_t *out)
             .sample_after_tick=UINT64_MAX}};
     return 0;
 }
-#include "scpi_trigger_counter_commands.inc"
+#include "scpi_trigger_counter_commands.h"
 static const scpi_command_t commands[]={
     {.pattern="TRIGger:REServation:COUNter:LOAD",.callback=scpi_cmd_trigger_counter_load},
     {.pattern="TRIGger:REServation:COUNter:STARt",.callback=scpi_cmd_trigger_counter_start},
