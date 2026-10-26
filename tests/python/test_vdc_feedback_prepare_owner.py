@@ -8,20 +8,34 @@ import subprocess
 import pytest
 
 from test_vdc_command_ingress import ingress_definition
-from test_vdc_command_owner import MANAGER, REFMEM, compile_executable, function_body
+from test_vdc_command_owner import MANAGER, REFMEM, ROOT, compile_executable, function_body
+from refmem_units import source as refmem_source
 
 
 @pytest.fixture(scope="module")
 def prepare_owner_executable(tmp_path_factory):
     directory = tmp_path_factory.mktemp("feedback-prepare-owner")
-    service = ingress_definition(REFMEM.read_text(encoding="utf-8"), "distributed_refmem_service")
+    service = ingress_definition(refmem_source(), "distributed_refmem_service")
     harness = r'''
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include "vdc_dpll_manager.h"
+#define DISTRIBUTED_REFMEM_TIME_CRITICAL(name) name
 #include "distributed_refmem.h"
+#include "distributed_refmem_internal.h"
 #include "refmem_vector_table.h"
+/* The TDMA ring adapter is only passed through here; keep it opaque so the
+ * harness does not pull the Pico SDK headers. */
+typedef struct tdma_pio_spi_ring_adapter { int unused; } tdma_pio_spi_ring_adapter_t;
+void *tdma_runtime_owner_get_ring_adapter(void) { return 0; }
+static bool refmem_cmd_load_init(tdma_pio_spi_ring_adapter_t *adapter)
+{ (void)adapter; return true; }
+static void refmem_cmd_load_service(void) { }
+void distributed_refmem_cmd_reply_service(void) { }
+void distributed_refmem_node_control_service(void) { }
+static bool s_refmem_core_initialized = true;
 static bool s_initialized, s_vdc_command_context_ready, ota_active, context_ready;
 static bool in_critical;
 static unsigned priority_calls, prepare_calls, refresh_calls, rx_calls, load_calls, drain_calls, log_calls;
@@ -33,35 +47,36 @@ static unsigned event_count;
 static void event(char value) { assert(event_count+1<sizeof(events));events[event_count++]=value; }
 static void osal_critical_enter(void) { assert(!in_critical);in_critical=true;event('E'); }
 static void osal_critical_exit(void) { assert(in_critical);in_critical=false;event('X'); }
-static refmem_vector_header_region_t *distributed_refmem_header(void)
+refmem_vector_header_region_t *distributed_refmem_header(void)
 { assert(in_critical);return &header; }
-static refmem_vector_node_region_t *distributed_refmem_node_region(uint32_t id)
+refmem_vector_node_region_t *distributed_refmem_node_region(uint32_t id)
 { assert(in_critical && id==DISTRIBUTED_REFMEM_LOCAL_NODE_ID);return &node; }
-static void distributed_refmem_publish_runtime_locked(void) { assert(in_critical);event('R'); }
-static void distributed_refmem_publish_status_locked(void) { assert(in_critical);event('S'); }
+void distributed_refmem_publish_runtime_locked(void) { assert(in_critical);event('R'); }
+void distributed_refmem_publish_status_locked(void) { assert(in_critical);event('S'); }
 static uint32_t osal_tick_ms(void) { assert(in_critical);return 1234; }
 static bool ota_ao_is_active(void) { assert(!in_critical);event('O');return ota_active; }
-static void distributed_refmem_publish_priority_health_core0(void)
+void distributed_refmem_publish_priority_health_core0(void)
 { assert(!in_critical && !ota_active && priority_calls==prepare_calls);++priority_calls;event('H'); }
 /* No new sample is available: preparation returns without a result. The
  * enclosing service must still progress and must never borrow RX first. */
 void vdc_dpll_manager_feedback_prepare_core0(void)
 { assert(!in_critical && !ota_active && priority_calls==prepare_calls+1);++prepare_calls;event('P'); }
-static bool distributed_refmem_refresh_vdc_command_context(void)
+bool distributed_refmem_refresh_vdc_command_context(void)
 { assert(!in_critical && prepare_calls==refresh_calls+1);++refresh_calls;event('C');return context_ready; }
-static void distributed_refmem_vdc_follower_rx_service(void)
+void distributed_refmem_vdc_follower_rx_service(void)
 { assert(!in_critical && s_vdc_command_context_ready);++rx_calls;event('F'); }
-static void distributed_refmem_node_load_auto_service(void)
+void distributed_refmem_node_load_auto_service(void)
 { assert(!in_critical && s_vdc_command_context_ready);++load_calls;event('A'); }
-static void distributed_refmem_tdma_flight_sync_service(void)
+void distributed_refmem_tdma_flight_sync_service(void)
 { assert(!in_critical && prepare_calls==drain_calls+1);++drain_calls;event('D'); }
-static void distributed_refmem_log_tdma_ring_service(void)
+void distributed_refmem_log_tdma_ring_service(void)
 { assert(!in_critical && drain_calls==log_calls+1);++log_calls;event('L'); }
 ''' + service + r'''
 int main(int argc,char **argv)
 {
     assert(argc==2);
     s_initialized=strcmp(argv[1],"uninitialized")!=0;
+    s_refmem_core_initialized=s_initialized;
     ota_active=!strcmp(argv[1],"ota");
     context_ready=strcmp(argv[1],"context_unready")!=0;
     distributed_refmem_service();
@@ -84,7 +99,8 @@ int main(int argc,char **argv)
     assert(!in_critical);puts("Core0 RefMem preparation ownership passed");return 0;
 }
 '''
-    return compile_executable(directory, "feedback_prepare_owner", harness)
+    return compile_executable(directory, "feedback_prepare_owner", harness,
+                              flags=(f"-I{ROOT / 'components/distributed_refmem/src'}",))
 
 
 @pytest.mark.parametrize("case", ["uninitialized", "ota", "context_ready", "context_unready"])

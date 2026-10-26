@@ -5,31 +5,31 @@
     "C:\\Python310\\python.exe",
     "-m",
     "pytest",
-    "tests/python/test_vdc_command_owner.py",
+    "tests/python/test_vdc_feedback_prepare_owner.py",
     "-q",
     "-p",
     "no:cacheprovider"
   ],
   "paths": [
-    "tests/python/test_vdc_command_owner.py"
+    "tests/python/test_vdc_feedback_prepare_owner.py"
   ],
-  "duration_s": 2.578,
+  "duration_s": 1.969,
   "returncode": 0,
   "summary": {
-    "passed": 33,
+    "passed": 12,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "xfailed": 0
   },
-  "summary_line": "33 passed in 2.05s",
+  "summary_line": "12 passed in 1.46s",
   "tail": [
-    ".................................                                        [100%]",
-    "33 passed in 2.05s"
+    "............                                                             [100%]",
+    "12 passed in 1.46s"
   ],
   "schema": "HAOFV_HOST_ACCEPTANCE_RECEIPT_V1",
-  "fingerprint": "2cd13a77dc4034dee78e3d0c487c7675cb56a3cfd7645eb707fe5d20624c434f",
+  "fingerprint": "8d8440d381fb14e6ea5c19440a05017fd41cd5b7d0671df5f31d8f06a18de094",
   "file_count": 532,
-  "working_fingerprint": "2cd13a77dc4034dee78e3d0c487c7675cb56a3cfd7645eb707fe5d20624c434f",
-  "started_at_utc": "2026-10-26T09:08:54.812472+00:00"
+  "working_fingerprint": "8d8440d381fb14e6ea5c19440a05017fd41cd5b7d0671df5f31d8f06a18de094",
+  "started_at_utc": "2026-10-26T09:10:43.924763+00:00"
 }
