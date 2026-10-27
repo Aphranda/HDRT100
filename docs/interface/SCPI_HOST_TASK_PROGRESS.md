@@ -8,6 +8,19 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-018：plan/guard 增量导致 P3 TRN-03B，已归档回退
+
+- **基线对比**：回刷已通过的 build `20261027070203`（service/config + IF-013 ACK），
+  P3 `dpll60` **PASS**；同一台架、同一 ring 状态。
+- **新 build**：plan/guard 增量 `20261027074119` 连续 4 次
+  `TRN-03B explicit startup barrier timed out`，不是台架随机。
+- **结论**：回归落在 plan/guard 增量内；为保持工作区可构建，已把 patch 归档到
+  `out/n7/seq_plan_guard.patch`，代码回退到 `373fabbc` 基线。
+- **未提交**：type 48 `CONFigure:SEQuence`、pending guard 均未进入主线。
+- **下一步**：对 plan 命令与 guard 做二分（先只加 guard，再加 type 48），定位
+  TRN-03B 触发点；通过 P3 后再提交。
+- **ANGLe 速度**：用户确认 **deg/s**，公式 `pulse_hz=speed_deg_s/step_deg`。
+
 ### SCPI-PROGRESS-20261027-017：ANGLe 速度参数纳入角度配置
 
 - **用户口径**：ANGLe 需要一个速度参数，用于计算每秒输入脉冲数量。
