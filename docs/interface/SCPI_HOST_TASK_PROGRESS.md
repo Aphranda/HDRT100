@@ -8,6 +8,22 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-016：CONFigure:SEQuence 小 plan 写入验证，P3 阻塞
+
+- **实现**（未提交）：新增 command_type 48 `TRIGGER_SEQUENCE_PLAN`，16 words =
+  plan_id(4) + count + 11 state_id；调用 `trigger_sequence_write_plan`。
+- **硬件**（build `20261027072143`/`20261027072941`）：
+  - `CONFigure:TRIGger 8,2,5,1` → ACK；
+  - `CONFigure:SEQuence PLAN_A,3,0,1,2` → **ACK**；
+  - `SEQUENCE_ACTIVE PLAN_A` → **ACK**；
+  - `START PLAN_A` → NACK 13（service IO/source 未配置）。
+- **限制**：当前只支持 ≤11 个 state_id；新表最多 256，需要参数区/table package。
+- **P3 阻塞**：连续 3 次在 `TRN-03B explicit startup barrier timed out` 失败，
+  新 build 未取得有效 receipt；因此 plan 命令**未提交**。
+- **证据**：`out/n7/local_hil/seq_plan.txt`；P3 日志 `out/n6/p3_seq_plan*.log`。
+- **下一步**：先判定 TRN-03B 是环境/ring 状态还是新固件回归；P3 通过后提交；
+  然后补 service 的 IO/source 配置，使 START 正向。
+
 ### SCPI-PROGRESS-20261027-015：移植 sequence config/service，TRIGger 配置接通
 
 - **移植**：`trigger_sequence_config.h/.c`、`trigger_sequence_service.h/.c`；
