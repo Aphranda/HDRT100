@@ -472,10 +472,10 @@ static bool trigger_configure_handler(const uint32_t *params,
         }
         return false;
     }
-    if (config.chan_count == 0u || config.chan_count > 4u) {
+    if (config.chan_count == 0u || config.chan_count > 8u) {
         return reject(reason);
     }
-    const uint32_t mask = (1u << config.chan_count) - 1u;
+    const uint32_t mask = 0xFu;
     if (trigger_sequence_service_set_outputs(
             mask, 0u, TRIGGER_SEQUENCE_STATUS_NONE, 100u, 0u) !=
         TRIGGER_SEQUENCE_SERVICE_OK) {
@@ -488,7 +488,8 @@ static bool trigger_configure_handler(const uint32_t *params,
             state.switch1_ch == 0u || state.switch1_ch > config.chan_count) {
             return reject(reason);
         }
-        const uint32_t code = 1u << (state.switch1_ch - 1u);
+        const uint32_t code = ((state.switch1_ch - 1u) & 0x7u) |
+                              ((state.switch2_sel & 1u) << 3u);
         if (trigger_sequence_service_set_code(i, code) !=
             TRIGGER_SEQUENCE_SERVICE_OK) {
             return reject(reason);
