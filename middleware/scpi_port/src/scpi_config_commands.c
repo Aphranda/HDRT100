@@ -79,17 +79,27 @@ scpi_result_t scpi_config_angle_breakpoint_q(scpi_t *context)
 
 scpi_result_t scpi_config_sequence_q(scpi_t *context)
 {
-    SCPI_ResultText(context, "PLAN_A");
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 0x02030405u);
-    SCPI_ResultUInt32(context, 6u);
+    trigger_sequence_store_t *store = trigger_sequence_service_config();
+    const trigger_sequence_plan_t *plan = trigger_sequence_get_plan(store, NULL);
+    if (plan == NULL || !plan->used) {
+        SCPI_ResultText(context, "");
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultBool(context, FALSE);
+        for (uint32_t i = 0u; i < 6u; ++i) {
+            SCPI_ResultUInt32(context, 0u);
+        }
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, plan->id);
+    SCPI_ResultUInt32(context, plan->generation);
+    SCPI_ResultUInt32(context, plan->crc);
+    SCPI_ResultUInt32(context, plan->count);
     SCPI_ResultBool(context, TRUE);
-    SCPI_ResultUInt32(context, 0u);
-    SCPI_ResultUInt32(context, 1u);
-    SCPI_ResultUInt32(context, 2u);
-    SCPI_ResultUInt32(context, 3u);
-    SCPI_ResultUInt32(context, 4u);
-    SCPI_ResultUInt32(context, 5u);
+    for (uint32_t i = 0u; i < 6u; ++i) {
+        SCPI_ResultUInt32(context, i < plan->count ? plan->state_ids[i] : 0u);
+    }
     return SCPI_RES_OK;
 }
 
@@ -123,12 +133,24 @@ scpi_result_t scpi_config_sequence_check_q(scpi_t *context)
 
 scpi_result_t scpi_config_sequence_active_q(scpi_t *context)
 {
-    SCPI_ResultText(context, "PLAN_A");
-    SCPI_ResultUInt32(context, 0x02030405u);
-    SCPI_ResultUInt32(context, 6u);
-    SCPI_ResultBool(context, TRUE);
-    SCPI_ResultText(context, "PASS");
-    SCPI_ResultText(context, "NONE");
+    trigger_sequence_active_t active;
+    const trigger_sequence_result_t result = trigger_sequence_get_active(
+        trigger_sequence_service_config(), &active);
+    if (result != TRIGGER_SEQUENCE_OK) {
+        SCPI_ResultText(context, "");
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultUInt32(context, 0u);
+        SCPI_ResultBool(context, FALSE);
+        SCPI_ResultText(context, "FAIL");
+        SCPI_ResultText(context, trigger_sequence_result_name(result));
+        return SCPI_RES_OK;
+    }
+    SCPI_ResultText(context, active.id);
+    SCPI_ResultUInt32(context, active.crc);
+    SCPI_ResultUInt32(context, active.count);
+    SCPI_ResultBool(context, active.valid ? TRUE : FALSE);
+    SCPI_ResultText(context, active.valid ? "PASS" : "FAIL");
+    SCPI_ResultText(context, trigger_sequence_result_name(active.result));
     return SCPI_RES_OK;
 }
 
