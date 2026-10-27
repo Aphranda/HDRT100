@@ -8,6 +8,16 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-028：目标窗口已开，6 s 后仍 PENDING
+
+- **按 HAOFV 既有路径复测**：COM4 `SYSTem:REFMEM:CONFig:BEGIN` → `1`，
+  `CONFig:STATus?` → `1,1`（窗口已开）。
+- **target2**：`41,2,2,8,2,5,1` → QUEUED `282077`；等待 **6 s** 仍 `state=1 PENDING`。
+- **目标侧**：`LOAD:STATus?` 仍 `rx=0`；`CMD:STATus?` 无 REFMEM 解析接受。
+- **结论**：不是“只差等待”或“只差目标窗口”；维护流 fragment 仍未到达/未被目标 parser 接受。
+  下一步按 HAOFV 既有 `REFTMEM_CMD`/maintenance 路径查 target mask、parser 注册和注入窗口，
+  不新增第二路由。
+
 ### SCPI-PROGRESS-20261027-027：REFMEM fragment RX=0，target 分发阻断
 
 - **查询**：`SYSTem:REFMEM:LOAD:STATus?`
