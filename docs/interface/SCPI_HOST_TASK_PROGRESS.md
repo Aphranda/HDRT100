@@ -4,9 +4,44 @@ Status: Active
 Domain: INTERFACE
 Canonical: `docs/interface/SCPI_HOST_TASK_PROGRESS.md`
 Related: `docs/interface/SCPI_HOST_ARCHITECTURE.md`, `docs/interface/SCPI_HOST_TODO.md`, `docs/interface/SCPI_HAOFV_REVIEW.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-10-27
+Last updated: 2026-10-28
 
 ## 当前 checkpoint
+
+### SCPI-PROGRESS-20261028-037：门禁完整性缺陷——失败 verdict 仍可授权代码提交
+
+- **现象**：`tools/sync_trigger/sequence_workflow.py` 在 verdict 之前写
+  `config/hardware_acceptance/t2_acceptance_receipt.json`，且 `passed` 与 `verdict_ok`
+  是两个独立字段。2026-10-28 01:04 的一次运行（GATEWAY 判据失败）产出
+  `passed=true, verdict_ok=false`，而 `p3_hardware_acceptance.py check-staged`
+  仅检查 `passed is True` 与源码指纹，**实测放行**：
+  `OK hardware acceptance (T2 sequence): sources=1609`。
+- **影响**：一份判据失败的运行可以授权任意固件提交，凭证不再证明"验收通过"。
+- **处置**：该 receipt **未被使用**（无代码据此提交）。修复方向二选一：
+  1. `check_staged` 的 T2 分支增加 `and t2.get("verdict_ok") is True`；
+  2. writer 侧令 `passed = verdict_ok`（同时保留 `verdict_ok` 作为独立证据字段）。
+- **状态**：未修复，需用户裁定凭证例外（`tools/` 属固件类，修复本身也要凭证）。
+
+### SCPI-PROGRESS-20261028-036：TRIG:START 单节点语义与两处控制面修正（未提交）
+
+- **语义裁定（用户）**：`TRIGger:STARt` 表示"配置完成、已 arm、等转台输入脉冲，
+  随后执行整段序列"。`READY` 即等待态本身，不是未完成；此前
+  "START 只到 READY = RUN 未闭环"的判据作废。
+- **节点映射**：`TRIG:START` 是**单节点命令**——只有脉冲源节点（部署表 COUNTER 角色）
+  执行；其余角色必须 fail-closed（`PERMISSION_DENIED`），不得假 ACK。
+  依据：`t2_workflow.py` 第 19 步在源节点下发 `TRIGger:REServation:SOURce:STARt`，
+  全流程无 `T2:STARt`。
+- **已实现（未验收、未提交）**：
+  1. `application/src/app_refmem_domain_config.c`：START 改按部署行角色分派到
+     `sync_io_turntable_source_start()`；STOP 对源节点追加 `SOURce:STOP`。
+  2. `middleware/scpi_port/src/scpi_trigger_commands.c`：`READ:TRIGger:STATe?` 前 14 字段
+     不变，追加 10 个只读 T2 同源字段（role/t2_valid/configured/active/action 计数等）。
+  3. `middleware/scpi_port/src/scpi_refmem_snapshot_commands.c`：`CTRL:STATus?` 与
+     `REFMEM:NODE:CONTrol?` 在空记录时**应答全零**而不是 `SCPI_RES_ERR`
+     （原实现无应答并把 `-200` 留在错误队列，后续查询被错配成 `-113`）。
+- **硬件验证**：`STATe?` 四板 role=0/1/2/3 与部署行一致；`CTRL:STATus?` 四板
+  0.00–0.01 s 返回、`ERRor?` 干净（此前 COM3/COM6 >6 s 超时）。
+- **阻塞**：无 PASS 凭证（P3 夜间在 DPLL 联合采集处 4 次失败），故未提交。
 
 ### SCPI-PROGRESS-20261027-035：heap 水位与 START 仅到 READY
 
