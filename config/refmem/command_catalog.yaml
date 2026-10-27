@@ -508,3 +508,17 @@ commands:
     required_capabilities: 0
     idempotent: false
     timeout_us: 0
+
+  - id: 48
+    name: TRIGGER_SEQUENCE_PLAN
+    scpi: "CONFigure:SEQuence"
+    command_type: TRIGGER_SEQUENCE_PLAN
+    owner: TRIGGER
+    realtime: false
+    param_words: 16
+    param_kind: inline
+    params: [plan_id_0, plan_id_1, plan_id_2, plan_id_3, count, state_0, state_1, state_2, state_3, state_4, state_5, state_6, state_7, state_8, state_9, state_10]
+    allowed_states: [0, 1, 2, 3, 4]
+    required_capabilities: 0
+    idempotent: false
+    timeout_us: 0

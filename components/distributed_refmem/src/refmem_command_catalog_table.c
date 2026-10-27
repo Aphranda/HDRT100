@@ -36,6 +36,7 @@ const refmem_catalog_entry_t refmem_command_catalog[] = {
     {44u, 44u, 5u, 0u, 2u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_ANGLE_BREAKPOINT", "CONFigure:ANGLe:BREAkpoint"},
     {46u, 46u, 5u, 0u, 0u, 0u, 1u, 31u, 0u, 0u, "TRIGGER_ANGLE_BREAKPOINT_CLEAR", "CONFigure:ANGLe:BREAkpoint:CLEar"},
     {47u, 47u, 5u, 0u, 4u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_SEQUENCE_ACTIVE", "CONFigure:SEQuence:ACTive"},
+    {48u, 48u, 5u, 0u, 16u, 0u, 0u, 31u, 0u, 0u, "TRIGGER_SEQUENCE_PLAN", "CONFigure:SEQuence"},
 };
 
 const uint32_t refmem_command_catalog_count =

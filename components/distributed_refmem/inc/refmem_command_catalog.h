@@ -62,6 +62,7 @@ enum {
     REFMEM_CMD_ID_TRIGGER_ANGLE_BREAKPOINT = 44u,
     REFMEM_CMD_ID_TRIGGER_ANGLE_BREAKPOINT_CLEAR = 46u,
     REFMEM_CMD_ID_TRIGGER_SEQUENCE_ACTIVE = 47u,
+    REFMEM_CMD_ID_TRIGGER_SEQUENCE_PLAN = 48u,
 };
 
 extern const refmem_catalog_entry_t refmem_command_catalog[];
