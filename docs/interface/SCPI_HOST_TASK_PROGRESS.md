@@ -8,6 +8,17 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-010：target STOP 持续 PENDING
+
+- **复测**：`EXECute 37,2,2` 连续两次 → `QUEUED`，2 s 后仍 `state=1 PENDING`；
+  START 同一目标可 `state=4 ACKED`，说明 target 分发/ACK 基础路径存在，STOP 单独卡住。
+- **目标板本地控制面**：`COM4 SYSTem:CTRL:EXECute 37,1,1` / `CTRL:STATus?` 均 timeout，
+  说明 `CTRL:*` 是 coordinator-only，不能从目标板直接判定。
+- **假设**：target STOP handler 的 `trigger_action_execution_stop()` 在 ring running/armed
+  状态下阻塞或未返回，导致命令槽不写 ACK；需目标板 ACK 轨迹或把 T2 stop 移到 core1 intent。
+- **证据**：`out/n7/local_hil/trigger_start_target2_mask2.txt`。
+- **下一步**：给 target STOP 增加 ACK 轨迹/超时快照，或改为 core1 intent；未闭环前 IF-012 不标完成。
+
 ### SCPI-PROGRESS-20261027-009：START target NO2 正向 ACK
 
 - **修正**：`REFMEM_COMMAND_TYPE_TRIGGER_START` 注册参数由 4 改为 1（catalog 已是 1），
