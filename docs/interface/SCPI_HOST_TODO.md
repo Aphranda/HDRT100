@@ -4,7 +4,7 @@ Status: Active
 Domain: INTERFACE
 Canonical: `docs/interface/SCPI_HOST_TODO.md`
 Related: `docs/interface/SCPI_HOST_ARCHITECTURE.md`, `docs/interface/SCPI_HOST_TASK_PROGRESS.md`, `docs/interface/SCPI_HAOFV_REVIEW.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-10-20
+Last updated: 2026-10-27
 
 ## 任务表
 
@@ -25,6 +25,28 @@ Last updated: 2026-10-20
 | IF-010 | 分配接口域错误码区间并冻结拒绝/清除语义（L1） | PENDING | 现 `2401/2402` 在冻结区间外；错误名不入队列；与 IF-004 合并冻结 |
 
 > 来源（2026-10-13，用户裁定）：“后续只有一个串口连接到 PC，其他板卡都用 REFMEM 进行分布式控制”。IF-002 曾以 `T2-AUDIT-08` 形式误归于 T2 待办，现已移回本域；T2 待办仅保留指针。
+
+## REFMEM 应用指令封装（node-sequence）
+
+来源：`origin/feature/node-sequence-reservation-trigger` 已实现的 24 条 set/action 应用指令。
+原则：**不新增 owner**；REFMEM 只做入口、target/required、ACK/NACK 与逐目标证据；实际动作仍由
+`trigger_sequence_service`、`sync_io_sequence`、`trigger_sequence_link`、
+`distributed_refmem_stage_sequence_role` 执行。查询类约 30 条保留 SCPI，不进入命令面。
+
+| ID | 任务 | 状态 | 备注 |
+|---|---|---|---|
+| IF-011 | 选定 node-sequence 基线（merge/cherry-pick）并冻结 24 条 set/action → REFMEM 映射、payload/plan-ID 编码、查询排除、coordinator-only 与 STOP/run 门禁 | PENDING | 前置 IF-001/IF-002/IF-003/IF-004；23 条 inline，`CONFigure:SEQuence` 单独走参数区/表 |
+| IF-012 | TRIGger 运行控制 6 条：`MODE/STARt/STOP/PAUSe/CONTinue/ABORt` + `READ:TRIGger:STATe?` 回读 | PENDING | 复用 `trigger_sequence_service_*`；0 参数，先做 |
+| IF-013 | Trigger/角度基础配置 6 条：`CONFigure:TRIGger`、`ANGLe:SWEEp/INPut/SPEEd`、`SWITch#`、`SEQuence:ACTive` | PENDING | double 用 IEEE-754 位模式；`ANGLe:PULSe/BREAKpoint` 明确不封装 |
+| IF-014 | Sequence 运行时 7 条：`REPeat/NEXT/INJect/SOURce/IO/OUTPut/CODE` | PENDING | 枚举/计数；ACK 后读 `READ:SEQuence:STATe?/TIMing?` |
+| IF-015 | Node/link 4 条：`NODE:LOAD/ACTIVATE`、`NODE:ROLE`、`LINK` | PENDING | 复用 `distributed_refmem_stage_sequence_role`/`trigger_sequence_link_*`；不得绕过 sequence active 冻结 |
+| IF-016 | `CONFigure:SEQuence` plan 表 + plan ID 编码；必要时参数区/table package | PENDING | 唯一可能 >64 B；先冻结 plan ID 与 max count |
+| IF-017 | 查询/可观测性：约 30 条 READ 不封装；REFMEM ACK 后回读/聚合证据 | PENDING | 查询保留 SCPI；function 状态与逐目标 ACK |
+| IF-018 | host 单测 + 四板 HIL + 负测（重复、越界、STOP/run 冲突、部分 ACK） | PENDING | 每批独立 P3；scope 覆盖 |
+| IF-019 | 文档/命令树/registry 更新与收口 | PENDING | `SCPI_COMMANDS`/`SCPI_COMMAND_PLAN`/顶层；契约变更走 C11 |
+
+> 第一批建议：IF-012 + IF-013（13 条命令，全部 inline），形成 Trigger 运行/配置闭环；随后 IF-014、IF-015；
+> IF-016 最后处理 plan 表；IF-017 的查询不进入 REFMEM。
 
 ## 决策输入（IF-002）
 
