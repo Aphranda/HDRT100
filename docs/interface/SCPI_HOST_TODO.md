@@ -37,7 +37,7 @@ Last updated: 2026-10-27
 |---|---|---|---|
 | IF-011 | 按 2026-09-01 指令表冻结 node-sequence 第一批 13 条 → REFMEM 映射、plan-ID/角度编码、查询排除、coordinator-only 与 STOP/run 门禁 | IN PROGRESS | 新表已变更：`ANGLe:PULSe/BREAkpoint` 纳入，`INPut/SPEEd/REPeat/NEXT/INJect/NODE:ROLE/LINK` 删除；映射见 `SCPI_COMMAND_PLAN.md` §14 |
 | IF-012 | TRIGger 运行控制 6 条：`MODE/STARt/STOP/PAUSe/CONTinue/ABORt` + `READ:TRIGger:STATe?` 回读 | IN PROGRESS | START 必须回到 `[plan_id]` 语义（0/4 words），当前 1-word row-index 壳需回退；target NO2 START ACK，STOP 仍 PENDING；PAUSE/CONTINUE/MODE 未闭环 |
-| IF-013 | Trigger/角度配置 8 条：`CONFigure:TRIGger`、`ANGLe:SWEEP/PULSe/BREAkpoint/BREAkpoint:CLEAr/SPEEd`、`SWITch#`、`SEQuence:ACTive` | IN PROGRESS | `CONFigure:TRIGger` ACK；`SEQuence:ACTive` 待 plan；ANGLe 5 条 fail-closed；新增 `ANGLe:SPEEd`（deg/s，用于 `pulse_hz=speed/step`） |
+| IF-013 | Trigger/角度配置 8 条：`CONFigure:TRIGger`、`ANGLe:SWEEP/PULSe/BREAkpoint/BREAkpoint:CLEAr/SPEEd`、`SWITch#`、`SEQuence:ACTive` | IN PROGRESS | 8 条均 ACK；`SPEEd` deg/s，`pulse_hz=speed/step`；angle 仅配置存储，RUN 角度脉冲循环未实现 |
 | IF-014 | 旧 Sequence 运行时 7 条：`REPeat/NEXT/INJect/SOURce/IO/OUTPut/CODE` | SUPERSEDED | 2026-09-01 新表已删除这些指令；不再作为本期范围 |
 | IF-015 | 旧 Node/link 4 条：`NODE:LOAD/ACTIVATE`、`NODE:ROLE`、`LINK` | SUPERSEDED | 新表无 `NODE:ROLE/LINK`；`NODE:LOAD/ACTIVATE` 仅在 IF-016/节点表需要时复用 |
 | IF-016 | `CONFigure:SEQuence` plan 表 + plan ID 编码；必要时参数区/table package | PENDING | **复用 T2 `trigger_action_table_t`/`trigger_action_execution_*`，不新增 sequence store**；plan_id + state_id 列表；>64 B 走参数区 |

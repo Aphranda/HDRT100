@@ -8,6 +8,22 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-023：ANGLe 配置 ACK（deg/s）
+
+- **实现**：`trigger_sequence_service` 增加 angle 标量配置（SWEEP/PULSe/BREAkpoint/CLEar/SPEEd），
+  不新增表/owner；SPEEd 按 **deg/s**，`pulse_hz = speed_deg_s / step_deg`。
+- **硬件**（build `20261027095234`）：
+  - `42` SWEEP `-10,370,1` → ACK；
+  - `43` PULSe `RISING,10us,30000ms` → ACK；
+  - `44` BREAkpoint `1,0` → ACK；
+  - `46` BREAkpoint:CLEar → ACK；
+  - `49` SPEEd `10 deg/s` → ACK。
+- **凭证**：P3 `20261027095234`、scope `FOUR_NODE_DPLL_QUICK_DIAGNOSTIC`、trials=8；
+  host 75 passed。
+- **证据**：`out/n7/local_hil/angle_config2.txt`。
+- **提交**：`8af88324`。
+- **残余**：angle 只做配置存储，尚未进入 RUN 角度脉冲循环；`READ:ANGLe:*` 仍无真实回读。
+
 ### SCPI-PROGRESS-20261027-022：START 正向 ACK（4-lane IO/code 自动生成）
 
 - **实现**：`CONFigure:TRIGger` 成功后自动生成 service IO/code：
