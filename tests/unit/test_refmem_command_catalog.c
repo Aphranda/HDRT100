@@ -1,4 +1,4 @@
-﻿#include <assert.h>
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -51,6 +51,20 @@ int main(void)
         {REFMEM_CMD_ID_T2_UNMOUNT, "T2_UNMOUNT", 32u, 2u, 0u},
         {REFMEM_CMD_ID_VDC_STOP, "VDC_STOP", 33u, 4u, 0u},
         {REFMEM_CMD_ID_VDC_START, "VDC_START", 34u, 4u, 0u},
+        {REFMEM_CMD_ID_TRIGGER_MODE, "TRIGGER_MODE", 35u, 5u, 1u},
+        {REFMEM_CMD_ID_TRIGGER_START, "TRIGGER_START", 36u, 5u, 4u},
+        {REFMEM_CMD_ID_TRIGGER_STOP, "TRIGGER_STOP", 37u, 5u, 0u},
+        {REFMEM_CMD_ID_TRIGGER_PAUSE, "TRIGGER_PAUSE", 38u, 5u, 0u},
+        {REFMEM_CMD_ID_TRIGGER_CONTINUE, "TRIGGER_CONTINUE", 39u, 5u, 0u},
+        {REFMEM_CMD_ID_TRIGGER_ABORT, "TRIGGER_ABORT", 40u, 5u, 0u},
+        {REFMEM_CMD_ID_TRIGGER_CONFIGURE, "TRIGGER_CONFIGURE", 41u, 5u, 4u},
+        {REFMEM_CMD_ID_TRIGGER_ANGLE_SWEEP, "TRIGGER_ANGLE_SWEEP", 42u, 5u, 6u},
+        {REFMEM_CMD_ID_TRIGGER_ANGLE_PULSE, "TRIGGER_ANGLE_PULSE", 43u, 5u, 3u},
+        {REFMEM_CMD_ID_TRIGGER_ANGLE_BREAKPOINT, "TRIGGER_ANGLE_BREAKPOINT", 44u, 5u, 2u},
+        {REFMEM_CMD_ID_TRIGGER_SWITCH, "TRIGGER_SWITCH", 45u, 5u, 2u},
+        {REFMEM_CMD_ID_TRIGGER_ANGLE_BREAKPOINT_CLEAR,
+         "TRIGGER_ANGLE_BREAKPOINT_CLEAR", 46u, 5u, 0u},
+        {REFMEM_CMD_ID_TRIGGER_SEQUENCE_ACTIVE, "TRIGGER_SEQUENCE_ACTIVE", 47u, 5u, 4u},
     };
     for (size_t i = 0u; i < sizeof(n6_rows) / sizeof(n6_rows[0]); ++i) {
         const refmem_catalog_entry_t *entry =
