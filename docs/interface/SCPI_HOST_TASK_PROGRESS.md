@@ -8,6 +8,17 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
+### SCPI-PROGRESS-20261027-020：catalog-only P3 通过，TRN-03B 锁定 handler/注册
+
+- **catalog-only**（type 48 + catalog 行 + 测试，不加 handler/注册）：
+  build `20261027082330`，P3 **PASS_WITH_WARNINGS**；已提交 `30ff661b`。
+- **对比**：完整 plan（catalog + handler + 注册）build `20261027081225` 连续 TRN-03B。
+- **结论**：TRN-03B 不在 catalog/命令面，锁定在 **handler + 注册** 增量；
+  下一步只加 handler/注册复测，确认后再合入。
+- **当前能力**：`CONFigure:SEQuence` 已登记 command_type 48/catalog，但无 handler，
+  执行会 NACK；`CONFigure:TRIGger`/STOP 仍 ACK。
+- **凭证**：P3 `20261027082330`；host 75。
+
 ### SCPI-PROGRESS-20261027-019：guard-only P3 通过，回归锁定 plan 命令
 
 - **guard-only**（只加 `trigger_sequence_service_pending()` 条件调用）：
