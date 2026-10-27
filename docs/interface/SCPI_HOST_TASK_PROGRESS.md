@@ -4,9 +4,23 @@ Status: Active
 Domain: INTERFACE
 Canonical: `docs/interface/SCPI_HOST_TASK_PROGRESS.md`
 Related: `docs/interface/SCPI_HOST_ARCHITECTURE.md`, `docs/interface/SCPI_HOST_TODO.md`, `docs/interface/SCPI_HAOFV_REVIEW.md`, `docs/check/DOCS_REGISTRY.md`
-Last updated: 2026-10-20
+Last updated: 2026-10-27
 
 ## 当前 checkpoint
+
+### SCPI-PROGRESS-20261027-001：IF-011 基线评估与 node-sequence 映射冻结
+
+- **范围**：`origin/feature/node-sequence-reservation-trigger` 的 24 条 set/action → REFMEM 统一面。
+- **基线实测**：当前线 1384 commits、分支 65 commits；`git merge-tree --write-tree` 得到 **112 个冲突**。
+  结论：**不整分支 merge**，改为 feature-port 分支，按 `trigger_sequence_config/service` →
+  `trigger_sequence_link` → `sync_io_sequence` → SCPI handlers → RefMem sequence roles 的顺序移植。
+- **映射冻结**：见 `docs/interface/SCPI_COMMAND_PLAN.md` §14；第一批 13 条全部 inline
+  （Trigger 运行 6 + Trigger/角度配置 6 + `SEQuence:ACTive`），后续 sequence runtime 7 条、
+  node/link 4 条；`CONFigure:SEQuence` 走参数区/table package；约 30 条查询保留 SCPI。
+- **原则**：不新增 owner；`ANGLe:PULSe/BREAKpoint` 明确不封装；plan ID 固定 4×u32；double 用
+  IEEE-754 位模式；ACK 后必须回读。
+- **状态**：IF-011 文档冻结完成；尚未改代码。下一步 IF-012 基线移植 + Trigger 运行控制。
+- **门禁**：`docs_check --strict-names` 与 `doc_regression_check` 通过后提交。
 
 ### SCPI-PROGRESS-20261020-001：接口域 HAOFV 符合性评审与文档回写
 

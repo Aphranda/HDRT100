@@ -4,7 +4,7 @@ Status: Active
 Domain: SCPI
 Canonical: `docs/interface/SCPI_COMMAND_PLAN.md`
 Related: `docs/interface/RP1200波导天线测试系统分布式触发方案SCPI指令表.md`, `docs/arch/RTOS_HAOFV_ARCHITECTURE.md`, `docs/interface/SCPI_COMMANDS.md`, `docs/interface/SCPI_TASK_PROGRESS.md`, `docs/interface/SCPI_HAOFV_REVIEW.md`
-Last updated: 2026-10-20
+Last updated: 2026-10-27
 
 本文档记录 Distributed Hard Real-Time Trigger System 当前 SCPI 固件架构、命令域边界、owner 归属和后续收敛待办。`DHRT100` 暂作为当前设备型号和 `*IDN?` 字段保留。它不是历史流水账，也不是上位机最终指令手册：
 
@@ -792,5 +792,69 @@ canonical 需要跟踪的结论，避免复制评审正文：
 slot，硬件动作由 owner 执行；SCPI 只返回 accepted，并通过 ACK/NACK 或 `READ:*?`/`SYSTem:*?`
 回读。`HAOFV-MAINT-20260813-008` 中“维护接口可以保留强操作”的旧表述不再适用于接口域，
 以本节为准；该口径待按 C11 登记为契约。
+
+## 14. REFMEM node-sequence 应用指令映射（IF-011）
+
+来源分支：`origin/feature/node-sequence-reservation-trigger`。原则：**不新增 owner**；
+REFMEM handler 只做参数校验、target/required、ACK/NACK；实际动作由该分支已有的
+`trigger_sequence_service`、`sync_io_sequence`、`trigger_sequence_link`、
+`distributed_refmem_stage_sequence_role` 执行。
+
+### 14.1 基线策略
+
+- 该分支与当前线分叉：当前线 1384 commits、分支 65 commits；`git merge-tree` 实测 **112 个冲突**。
+- **不做整分支 merge**；建立 feature-port 分支，按依赖顺序移植：
+  1. `trigger_sequence_config` / `trigger_sequence_service`；
+  2. `trigger_sequence_link` / protocol；
+  3. `sync_io_sequence` 增量；
+  4. SCPI handler（`scpi_trigger_commands`、`scpi_config_commands`、`scpi_sequence_commands`、`scpi_sequence_node_commands`）；
+  5. RefMem sequence roles / node-slot 桥接。
+- 查询类约 30 条保留 SCPI，不进入 REFMEM 命令面。
+
+### 14.2 第一批映射（13 条，全部 inline）
+
+| SCPI | 建议 command_type | 参数（u32 words） | owner / 门禁 |
+|---|---|---|---|
+| `TRIGger:MODE` | 35 | mode (1) | `trigger_sequence_service_*`；RUN 中拒绝非 0 |
+| `TRIGger:STARt [plan]` | 36 | plan_id packed (0–4) | `trigger_sequence_service_start`；无 plan 用 0 |
+| `TRIGger:STOP` | 37 | 0 | `trigger_sequence_service_stop` |
+| `TRIGger:PAUSe` | 38 | 0 | `trigger_sequence_service_pause` |
+| `TRIGger:CONTinue` | 39 | 0 | `trigger_sequence_service_continue` |
+| `TRIGger:ABORt` | 40 | 0 | 复用 stop |
+| `CONFigure:TRIGger` | 41 | chan/pol/freq/wave (4) | `trigger_sequence_configure`；`reject_if_run_forbidden` |
+| `CONFigure:ANGLe:SWEEp` | 42 | start/stop/step/speed IEEE-754 (16) | `angle_apply`；占满 16 words，无版本余量 |
+| `CONFigure:ANGLe:INPut` | 43 | input enum + ppd IEEE-754 (3) | `angle_apply` |
+| `CONFigure:ANGLe:SPEEd` | 44 | speed IEEE-754 (2) | `angle_apply` |
+| `CONFigure:SWITch#` | 45 | number + value (2) | `sync_io_sequence_set_switch` |
+| `CONFigure:SEQuence:ACTive` | 46 | plan_id packed (4) | `trigger_sequence_activate`；`reject_if_run_forbidden` |
+
+### 14.3 后续批次
+
+| SCPI | 建议 command_type | 说明 |
+|---|---|---|
+| `CONFigure:SEQuence:REPeat` | 47 | count |
+| `TRIGger:SEQuence:NEXT` | 48 | 0 |
+| `TRIGger:SEQuence:INJect` | 49 | source enum + count |
+| `CONFigure:SEQuence:SOURce` | 50 | source enum + edge |
+| `CONFigure:SEQuence:IO` | 51 | mask/output/settle/width |
+| `CONFigure:SEQuence:OUTPut` | 52 | masks/mode/settle/width |
+| `CONFigure:SEQuence:CODE` | 53 | state/value |
+| `CONFigure:SEQuence:NODE:ROLE` | 54 | node/instance/role |
+| `CONFigure:SEQuence:LINK` | 55 | mode/slots/input/output/pulse/timeout/edge |
+| `CONFigure:SEQuence` | 56 | plan_id + state list；唯一可能 >64 B，走参数区/table package |
+| `CONFigure:SEQuence:NODE:LOAD/ACTIVATE` | 复用 14/17 | 仅加 REFMEM wrapper，不重复命令 |
+
+### 14.4 明确不封装
+
+- `CONFigure:ANGLe:PULSe`、`ANGLe:BREAKpoint`、`ANGLe:BREAKpoint:CLEar`：分支已返回 unsupported。
+- 约 30 条 `READ:*` 查询：保留 SCPI，不做 REFMEM 命令。
+- `UART`、`SCPI PERMission/ROLE`、`FAULT:CLEar`、`CAL LOAD/STOP`、`SYNC SAVE/LOAD`：本地/安全/bring-up。
+
+### 14.5 编码规则
+
+- plan ID：统一转为固定 4×u32（每 word 4 个 ASCII 字符，零填充），禁止依赖本地字符串指针。
+- double：IEEE-754 32-bit 位模式；target 侧校验有限值与范围。
+- 参数超过 16 words：走参数区 `payload_ref`/`payload_size`/`payload_crc32`，或 table package。
+- ACK 后必须能通过 `READ:TRIGger:STATe?`/`READ:SEQuence:STATe?` 等回读，不能只看 OK。
 
 上述条目在冻结为契约前不改变现有行为；冻结需在 `docs/check/DOCS_REGISTRY.md` 登记并走 C11。
