@@ -10,7 +10,7 @@ Last updated: 2026-10-27
 
 ## 当前 checkpoint
 
-- 最新条目：`REFMEM-TASK-20261027-014`。
+- 最新条目：`REFMEM-TASK-20261027-015`。
 - 统一控制面：命令回复回程已打通；远程配置 stage 已 ACK；**目标侧配置授权（方案 A）已落地**，非协调者远程配置 12；租约、idle 窗口/事务已实现；非协调者入口在 N5.5。
 - N3.2：N3.2.1–5、N3.2.8 完成；N3.2.4 补 per-target ACK；N3.2.6 延后；N3.2.7 部分（待补乱序/窗口 miss/ring stop→start/mid-ring/长期 soak）。
 - N5.0：N5.0.2a config-txn 拆出（`distributed_refmem.c` 6,370→6,315）；P3 `20261024144807`；config txn HIL 14/14。
@@ -19,6 +19,19 @@ Last updated: 2026-10-27
 - N5.0.2d：cmd-frame 拆出（6,003→5,946）；P3 `20261024160525`；exec196 HIL 三目标 `frag_complete=[1,1,1]`。
 - N5.0.2e：dispatch/command 拆出（5,946→5,763）；P3 `20261024163157`；config txn HIL 14/14。
 - 下一步：**N5.5.0b 意图运输决策**（先验 TLV/参数池同步与 intent 容量），再决定 N5.5.1 冻结或转 N5.2c/N5.3；细化里程碑见 TODO「N5.5 → N5.2c → N5.3 实施目标」。
+
+### REFMEM-TASK-20261027-015 — 四板 T2 正向通过：T2 读 STOP 暂存快照
+
+- 状态：**四板 T2 正向 ✅**；目标仅余 VDC reference/timing。
+- 根因：`trigger_grid_preview_snapshot`/`trigger_deployment_snapshot` 是 STOP-only 读；环 START 后返回 `TRIGGER_GRID_PREVIEW_NOT_STOPPED`（`1,33`），T2 handler 误判为前置缺失。
+- 修复（`a3563def`）：新增只读 `trigger_grid_preview_snapshot_cached` / `trigger_deployment_snapshot_cached`，T2 handler 在 TDMA 运行中读 STOP 暂存副本；本地 SCPI 仍走 STOP-only 原件。P3 `20261027014444`。
+- 四板 HIL（reset → T2 steps 1-10 → TRN process-image 不复位）：
+  - `FUNC_T2_RECONFIG,14,14,1,0,14,0,5000,5000,500,0,0,360000,1000,1000,0`
+  - `state=2 COMPLETED`、step 2/2、`ack=14`、`nack=0`；`CTRL:STATus?` `state=4 ACKED`。
+  - 四板 ring 全程 `up/down=1`，TX/RX 推进；HIL 后 `RING:STOP`。
+- 证据：`out/n7/four_board_hil/t2_positive_cached.txt`、`trn03_cached_run1/`、`t2_cached_stage1.log`。
+- 残余：VDC reference/timing 仍 `reason=7`；T2 START/MOUNT 仍本地；N7.5/N7.6 待 VDC。
+- 下一步：VDC owner 修 reference retire/output idle，或按用户决定把 VDC 降级为窄 delay 并收口。
 
 ### REFMEM-TASK-20261027-014 — 根因：RING:ARM 清掉 T2 前置，形成启动顺序冲突
 
